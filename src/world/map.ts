@@ -19,7 +19,13 @@ export interface GameMap {
   /** Camera look-target clamp (world XZ). */
   readonly cameraBounds: THREE.Box2;
   readonly terrain?: Terrain;
+  /** Named farmable rectangles (tile coords, inclusive), e.g. 'garden', 'field'. */
+  readonly plots?: Record<string, { x0: number; z0: number; x1: number; z1: number }>;
+  /** Points of interest for ambient life (flower beds, porch, yard...), world coords. */
+  readonly poi?: Record<string, { x: number; y?: number; z: number; rot?: number }[]>;
   heightAt(x: number, z: number): number;
+  /** Remove grass / small decorative cover from a tile (tilling, placing objects). */
+  clearGroundCover?(x: number, z: number): void;
   update(dt: number, game: Game): void;
   setSeason?(season: Season): void;
   setWeather?(weather: Weather): void;

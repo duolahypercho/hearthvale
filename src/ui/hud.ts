@@ -8,13 +8,14 @@
 import './hud.css';
 import type { Game } from '../core/game';
 import { ICONS, WEATHER_ICON } from './icons';
+import { InventoryPanel, slotHtml } from './inventory';
+import { itemDef } from '../data/items';
 
 export interface Panel {
   open(arg?: string): void;
   close(): void;
 }
 
-const DEFAULT_TOOLBAR: (string | null)[] = ['hoe', 'wateringCan', 'axe', 'pickaxe', 'scythe', 'seeds', 'parsnip', null, null, null];
 const SEASON_SHORT = { spring: 'Spr', summer: 'Sum', fall: 'Fall', winter: 'Win' } as const;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
@@ -38,7 +39,8 @@ export class Hud {
   private openPanel: string | null = null;
   private lastClock = '';
   private goldShown = 0;
-  toolbarItems: (string | null)[] = [...DEFAULT_TOOLBAR];
+  private toastEl!: HTMLElement;
+  private toastT = 0;
 
   constructor(private game: Game, uiRoot: HTMLElement, visible: boolean) {
     this.root = el('div', 'hv-hud');
@@ -48,8 +50,27 @@ export class Hud {
     this.buildToolbar();
     this.buildEnergy();
     this.goldShown = game.gold;
+    this.toastEl = el('div', 'hv-panel hv-toast hv-hidden');
+    this.root.appendChild(this.toastEl);
+    this.registerPanel('inventory', new InventoryPanel(game, this.root));
 
     game.events.on('toolbar:select', ({ slot }) => this.select(slot));
+    game.events.on('inventory:change', ({ slots }) => {
+      slots.slice(0, 10).forEach((st, i) => {
+        const s = this.slots[i];
+        if (!s) return;
+        s.innerHTML = `<span class="num">${(i + 1) % 10}</span>` + slotHtml(st);
+        s.title = st ? (itemDef(st.id)?.name ?? st.id) : '';
+      });
+    });
+    game.events.on('item:gained', ({ itemId, qty }) => {
+      const d = itemDef(itemId);
+      this.toastEl.innerHTML = `<span class="hv-inner">${slotHtml({ id: itemId, qty: 1 })}<b>+${qty}</b> ${d?.name ?? itemId}</span>`;
+      this.toastEl.classList.remove('hv-hidden', 'hv-anim-in');
+      void this.toastEl.offsetWidth;
+      this.toastEl.classList.add('hv-anim-in');
+      this.toastT = 2.2;
+    });
     game.events.on('ui:open', ({ name }) => this.open(name));
     game.events.on('weather:change', () => this.refreshIcons());
     game.events.on('season:change', () => this.refreshIcons());
@@ -83,10 +104,6 @@ export class Hud {
     for (let i = 0; i < 10; i++) {
       const s = el('div', 'hv-slot');
       s.appendChild(el('span', 'num', String((i + 1) % 10)));
-      const item = this.toolbarItems[i];
-      if (item && ICONS[item]) s.insertAdjacentHTML('beforeend', ICONS[item]!);
-      if (item === 'seeds') s.appendChild(el('span', 'qty', '15'));
-      if (item === 'parsnip') s.appendChild(el('span', 'qty', '3'));
       s.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
         this.game.events.emit('toolbar:select', { slot: i });
@@ -123,6 +140,10 @@ export class Hud {
     this.panels.set(name, panel);
   }
 
+  hasPanel(name: string): boolean {
+    return this.panels.has(name);
+  }
+
   open(nameArg: string): void {
     const [name, arg] = nameArg.split(':') as [string, string | undefined];
     if (this.openPanel) {
@@ -149,6 +170,13 @@ export class Hud {
   }
 
   update(dt: number): void {
+    const input = this.game.input;
+    if (input.pressed('inventory')) this.open(this.openPanel === 'inventory' ? 'none' : 'inventory');
+    else if (input.pressed('menu') && this.openPanel) this.open('none');
+    if (this.toastT > 0) {
+      this.toastT -= dt;
+      if (this.toastT <= 0) this.toastEl.classList.add('hv-hidden');
+    }
     const c = this.game.calendar;
     const clock = c.clockString();
     const date = `${c.weekday}. ${c.day}`;

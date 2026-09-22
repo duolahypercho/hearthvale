@@ -88,6 +88,9 @@ export function applyWind<M extends THREE.Material>(material: M, opts: WindOptio
         #ifdef USE_INSTANCING
           hvM = modelMatrix * instanceMatrix;
         #endif
+        #ifdef USE_BATCHING
+          hvM = modelMatrix * batchingMatrix;
+        #endif
         vec3 hvWp = (hvM * vec4(transformed, 1.0)).xyz;
         vec3 hvOrigin = (hvM * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         ${weight}
@@ -108,8 +111,18 @@ export function applyWind<M extends THREE.Material>(material: M, opts: WindOptio
   });
 }
 
-/** Depth material with the same sway, for `mesh.customDepthMaterial` so shadows move too. */
+const depthCache = new Map<string, THREE.MeshDepthMaterial>();
+
+/**
+ * Depth material with the same sway, for `mesh.customDepthMaterial` so shadows move too.
+ * Shared per wind setting (lets batches with equal settings merge into one shadow draw).
+ */
 export function windDepthMaterial(opts: WindOptions = {}): THREE.MeshDepthMaterial {
-  const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-  return applyWind(m, opts);
+  const k = windKey(resolve(opts));
+  let m = depthCache.get(k);
+  if (!m) {
+    m = applyWind(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), opts);
+    depthCache.set(k, m);
+  }
+  return m;
 }

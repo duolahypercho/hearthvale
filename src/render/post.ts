@@ -157,7 +157,7 @@ export class PostPipeline {
       g._overrideVisibility = () => {
         scene.traverse((o) => {
           const p = o as THREE.Object3D & { isPoints?: boolean; isLine?: boolean };
-          if ((p.isPoints || p.isLine || o.userData.noAO) && o.visible) {
+          if ((p.isPoints || p.isLine || o.userData.noAO || (o.parent?.userData.noAO && !o.userData.ao)) && o.visible) {
             o.visible = false;
             g._visibilityCache.push(o);
           }
@@ -213,6 +213,9 @@ export class PostPipeline {
 
   render(time: number): void {
     this.grade.uniforms.uTime!.value = time;
+    // Render shadow maps once per frame (the RenderPass), not again inside the GTAO pass.
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
     this.composer.render();
   }
 

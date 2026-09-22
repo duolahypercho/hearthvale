@@ -262,10 +262,86 @@ body {
 .hv-toast {
   position: absolute;
   left: 50%;
-  top: 24px;
+  bottom: 108px;
   transform: translateX(-50%);
-  padding: 8px 16px;
+  padding: 5px;
   font-weight: 800;
+}
+.hv-toast .hv-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 6px;
+  font-size: 16px;
+  white-space: nowrap;
+}
+.hv-toast svg {
+  width: 28px;
+  height: 28px;
+}
+.hv-toast .qty {
+  display: none;
+}
+
+/* ── Inventory ─────────────────────────────────────────────────── */
+.hv-inventory {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -54%);
+  padding: 10px;
+  pointer-events: auto;
+}
+.hv-inventory .hv-title {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 22px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 22px;
+  color: #fff;
+  text-shadow: 0 2px 0 var(--wood-3);
+  background: linear-gradient(180deg, var(--wood-1), var(--wood-2));
+  border: 2px solid var(--wood-3);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.hv-inventory .hv-inner {
+  padding: 16px 14px 12px;
+}
+.hv-inventory .grid {
+  display: grid;
+  grid-template-columns: repeat(10, 56px);
+  gap: 6px;
+}
+.hv-inventory .hv-slot.bar {
+  background: linear-gradient(180deg, #fff9ea, #f3dcaa);
+}
+.hv-inventory .hv-slot:nth-child(-n + 10) {
+  margin-bottom: 8px;
+}
+.hv-inventory .info {
+  margin-top: 10px;
+  min-height: 54px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 250, 235, 0.7);
+  box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.25);
+}
+.hv-inventory .name {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 18px;
+}
+.hv-inventory .desc {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.hv-inventory .price {
+  font-size: 13px;
+  margin-top: 2px;
 }
 
 .hv-hidden {

@@ -32,6 +32,16 @@ export const globalUniforms = {
   uHorizonColor: { value: new THREE.Color(0.9, 0.9, 1) },
   /** Moving cloud-shadow strength (0 none .. 1 strong). */
   uCloudShadow: { value: 0.35 },
+  /** Season weights (smoothed): x spring, y summer, z fall, w winter. */
+  uSeasonW: { value: new THREE.Vector4(1, 0, 0, 0) },
+  /** Golden-hour back-rim strength (0..1), driven by the day/night rig. */
+  uRim: { value: 0 },
+  /** 0..1 how strongly practical lamps are lit (dusk → night). */
+  uLamps: { value: 0 },
+  /** Rain intensity for puddles / ripples (0..1). */
+  uRain: { value: 0 },
+  /** Fraction of the grass palette replaced by rust/dry patches (fall). */
+  uDryAmt: { value: 0.45 },
 };
 
 export type GlobalUniforms = typeof globalUniforms;

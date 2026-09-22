@@ -298,3 +298,104 @@ export class Ambience {
     }
   }
 }
+
+/**
+ * One-shot particle bursts (dirt puffs when hoeing, water droplets, harvest sparkle).
+ *   const fx = new BurstFX();  scene.add(fx.object);
+ *   fx.emit(pos, { color: 0x8a5a3a, count: 14, speed: 1.6, size: 0.12, gravity: 6 });
+ *   fx.update(dt, viewportH) every frame.
+ */
+export class BurstFX {
+  readonly object: THREE.Points;
+  private pool: PointPool;
+  private vel: Float32Array;
+  private age: Float32Array;
+  private life: Float32Array;
+  private grav: Float32Array;
+  private size0: Float32Array;
+  private next = 0;
+
+  constructor(count = 640) {
+    this.pool = new PointPool(count, textures.softDot().map, false);
+    this.object = this.pool.points;
+    this.object.name = 'bursts';
+    this.object.renderOrder = 6;
+    this.vel = new Float32Array(count * 3);
+    this.age = new Float32Array(count).fill(99);
+    this.life = new Float32Array(count).fill(1);
+    this.grav = new Float32Array(count);
+    this.size0 = new Float32Array(count);
+  }
+
+  emit(
+    p: THREE.Vector3,
+    o: { color: number; count?: number; speed?: number; size?: number; gravity?: number; life?: number; up?: number; spread?: number },
+  ): void {
+    const c = new THREE.Color(o.color);
+    const n = o.count ?? 12;
+    for (let k = 0; k < n; k++) {
+      const i = this.next;
+      this.next = (this.next + 1) % this.pool.n;
+      const a = Math.random() * Math.PI * 2;
+      const sp = (o.speed ?? 1.5) * (0.4 + Math.random() * 0.8);
+      const spread = o.spread ?? 0.15;
+      this.pool.pos[i * 3] = p.x + (Math.random() - 0.5) * spread;
+      this.pool.pos[i * 3 + 1] = p.y + Math.random() * 0.1;
+      this.pool.pos[i * 3 + 2] = p.z + (Math.random() - 0.5) * spread;
+      this.vel[i * 3] = Math.cos(a) * sp * 0.6;
+      this.vel[i * 3 + 1] = (o.up ?? 1.2) * sp;
+      this.vel[i * 3 + 2] = Math.sin(a) * sp * 0.6;
+      this.age[i] = 0;
+      this.life[i] = (o.life ?? 0.7) * (0.7 + Math.random() * 0.6);
+      this.grav[i] = o.gravity ?? 6;
+      this.size0[i] = (o.size ?? 0.1) * (0.6 + Math.random() * 0.8);
+      const v = 0.85 + Math.random() * 0.3;
+      this.pool.color[i * 3] = c.r * v;
+      this.pool.color[i * 3 + 1] = c.g * v;
+      this.pool.color[i * 3 + 2] = c.b * v;
+    }
+  }
+
+  /** Directional spray (sprinklers): particles leave along (dx, dz) with an upward arc. */
+  emitDir(p: THREE.Vector3, dx: number, dz: number, o: { color: number; count?: number; speed?: number; size?: number; gravity?: number; life?: number }): void {
+    const c = new THREE.Color(o.color);
+    for (let k = 0; k < (o.count ?? 2); k++) {
+      const i = this.next;
+      this.next = (this.next + 1) % this.pool.n;
+      const sp = (o.speed ?? 1.5) * (0.8 + Math.random() * 0.4);
+      const j = (Math.random() - 0.5) * 0.3;
+      this.pool.pos[i * 3] = p.x;
+      this.pool.pos[i * 3 + 1] = p.y;
+      this.pool.pos[i * 3 + 2] = p.z;
+      this.vel[i * 3] = (dx + j) * sp;
+      this.vel[i * 3 + 1] = sp * 0.9;
+      this.vel[i * 3 + 2] = (dz - j) * sp;
+      this.age[i] = 0;
+      this.life[i] = (o.life ?? 0.6) * (0.8 + Math.random() * 0.4);
+      this.grav[i] = o.gravity ?? 6;
+      this.size0[i] = (o.size ?? 0.06) * (0.7 + Math.random() * 0.6);
+      this.pool.color[i * 3] = c.r;
+      this.pool.color[i * 3 + 1] = c.g;
+      this.pool.color[i * 3 + 2] = c.b;
+    }
+  }
+
+  update(dt: number, viewportH: number): void {
+    this.pool.setViewportHeight(viewportH);
+    for (let i = 0; i < this.pool.n; i++) {
+      const a = (this.age[i]! += dt);
+      const t = a / this.life[i]!;
+      if (t >= 1) {
+        this.pool.alpha[i] = 0;
+        continue;
+      }
+      this.vel[i * 3 + 1]! -= this.grav[i]! * dt;
+      this.pool.pos[i * 3]! += this.vel[i * 3]! * dt;
+      this.pool.pos[i * 3 + 1]! += this.vel[i * 3 + 1]! * dt;
+      this.pool.pos[i * 3 + 2]! += this.vel[i * 3 + 2]! * dt;
+      this.pool.size[i] = this.size0[i]! * (1 - t * 0.5);
+      this.pool.alpha[i] = Math.min(1, (1 - t) * 2.2);
+    }
+    this.pool.flush();
+  }
+}

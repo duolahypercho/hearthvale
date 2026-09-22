@@ -52,8 +52,26 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
       uniform float uNight;
       uniform float uWindStrength;
       uniform float uCloudShadow;
+      uniform float uRain;
+      uniform float uSnow;
       varying vec3 vW;
       ${NOISE_GLSL}
+      vec2 ripples(vec2 p, float t) {
+        vec2 acc = vec2(0.0);
+        for (int k = 0; k < 3; k++) {
+          vec2 q = p * (1.6 + float(k) * 0.9) + float(k) * 5.3;
+          vec2 id = floor(q);
+          vec2 f = fract(q) - 0.5;
+          vec2 jit = hvHash22(id) - 0.5;
+          float ph = fract(t * (0.8 + 0.5 * hvHash12(id + 1.7)) + hvHash12(id));
+          vec2 d = f - jit * 0.5;
+          float r = length(d);
+          float rr = ph * 0.5;
+          float ring = sin((r - rr) * 55.0) * smoothstep(0.07, 0.0, abs(r - rr)) * (1.0 - ph);
+          acc += normalize(d + 1e-4) * ring;
+        }
+        return acc;
+      }
       float wh(vec2 q, float t) {
         return hvNoise(q * 1.1 + vec2(t * 0.22, t * 0.15)) * 0.5
              + hvNoise(q * 2.6 - vec2(t * 0.2, t * 0.31)) * 0.3
@@ -70,7 +88,13 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         float amp = 0.28 + 0.12 * uWindStrength;
         float hx = wh(p + vec2(e, 0.0), t) - wh(p - vec2(e, 0.0), t);
         float hz = wh(p + vec2(0.0, e), t) - wh(p - vec2(0.0, e), t);
+        float ice = smoothstep(0.5, 0.9, uSnow);
+        amp *= 1.0 - ice * 0.95;
         vec3 n = normalize(vec3(-hx / (2.0 * e) * amp, 1.0, -hz / (2.0 * e) * amp));
+        if (uRain > 0.01) {
+          vec2 rp = ripples(p, t) * 0.9 * uRain * (1.0 - ice);
+          n = normalize(n + vec3(rp.x, 0.0, rp.y));
+        }
         vec3 V = normalize(cameraPosition - vW);
         vec3 L = normalize(uSunDir);
         float ndv = max(dot(n, V), 0.0);
@@ -104,7 +128,16 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         vec3 foamCol = vec3(0.95, 0.97, 0.96) * (uSunColor * 0.6 + uSkyColor * 0.6);
         c = mix(c, foamCol, foam);
 
+        // Winter: the pond freezes — pale blue ice with frosty cracks and snow drifting at the rim.
+        if (ice > 0.0) {
+          float crack = smoothstep(0.03, 0.0, abs(hvNoise(p * 1.7) - 0.5)) * 0.5 + smoothstep(0.02, 0.0, abs(hvNoise(p * 4.1 + 3.0) - 0.5)) * 0.3;
+          vec3 iceCol = mix(vec3(0.55, 0.72, 0.82), vec3(0.8, 0.88, 0.94), smoothstep(0.6, 0.0, dd)) * (uSunColor * 0.5 + uSkyColor * 0.7);
+          iceCol += crack * 0.25;
+          iceCol = mix(iceCol, vec3(0.92, 0.95, 1.0) * (uSunColor * 0.5 + uSkyColor * 0.6), smoothstep(0.35, 0.0, depth + (fn - 0.5) * 0.3));
+          c = mix(c, iceCol + uSunColor * spec * 0.4, ice);
+        }
         float alpha = mix(0.55, 0.94, smoothstep(0.0, 0.7, dd));
+        alpha = mix(alpha, 0.97, ice);
         alpha = max(alpha, foam);
         alpha *= smoothstep(-0.03, 0.02, depth);
         gl_FragColor = vec4(c, alpha);
@@ -119,6 +152,8 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
   mat.uniforms.uNight = globalUniforms.uNight;
   mat.uniforms.uWindStrength = globalUniforms.uWindStrength;
   mat.uniforms.uCloudShadow = globalUniforms.uCloudShadow;
+  mat.uniforms.uRain = globalUniforms.uRain;
+  mat.uniforms.uSnow = globalUniforms.uSnow;
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'water';
   mesh.userData.noAO = true;

@@ -12,7 +12,7 @@ import { applyWind, windDepthMaterial } from '../../render/wind';
 import { applyWorldFx } from '../../render/worldfx';
 import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
-import { InstancedSet } from './instanced';
+import { InstancedSet, BatchPool } from './instanced';
 
 export type TreeSpecies = 'oak' | 'maple' | 'pine' | 'blossom';
 export const TREE_SPECIES: readonly TreeSpecies[] = ['oak', 'maple', 'pine', 'blossom'];
@@ -58,7 +58,7 @@ function foliageMaterial(species: TreeSpecies): THREE.MeshStandardMaterial {
     shader.uniforms.uSunDir = globalUniforms.uSunDir;
     shader.uniforms.uSunColor = globalUniforms.uSunColor;
     let fs = shader.fragmentShader;
-    fs = before(fs, 'void main() {', 'uniform vec3 uSunDir;\nuniform vec3 uSunColor;');
+    if (!fs.includes('uniform vec3 uSunDir;')) fs = before(fs, 'void main() {', 'uniform vec3 uSunDir;\nuniform vec3 uSunColor;');
     fs = after(
       fs,
       '#include <color_fragment>',
@@ -127,7 +127,7 @@ function crownAO(center: THREE.Vector3, rx: number, ry: number) {
   };
 }
 
-function deciduous(rng: Rng, species: TreeSpecies): TreeGeo {
+function deciduous(rng: Rng, species: TreeSpecies, detail = 2): TreeGeo {
   const b = new MeshBuilder();
   const bark = treeBarkMaterial();
   const foliage = foliageMaterial(species);
@@ -138,13 +138,14 @@ function deciduous(rng: Rng, species: TreeSpecies): TreeGeo {
   const lean = new THREE.Vector3((rng.next() - 0.5) * 0.35, 0, (rng.next() - 0.5) * 0.35);
   const top = new THREE.Vector3(lean.x, trunkH, lean.z);
   const trunkAO = (p: THREE.Vector3) => 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y, 0, 1.2);
-  b.add(bark, limb(r0, r0 * 0.62, new THREE.Vector3(0, -0.2, 0), top, 9), undefined, { aoWorld: trunkAO });
+  const lo = detail < 2;
+  b.add(bark, limb(r0, r0 * 0.62, new THREE.Vector3(0, -0.2, 0), top, lo ? 6 : 9), undefined, { aoWorld: trunkAO });
   // Root flare
-  const roots = 5;
+  const roots = lo ? 3 : 5;
   for (let i = 0; i < roots; i++) {
     const a = (i / roots) * Math.PI * 2 + rng.next() * 0.6;
     const len = 0.5 + rng.next() * 0.35;
-    b.add(bark, limb(r0 * 0.55, 0.04, new THREE.Vector3(0, 0.45, 0), new THREE.Vector3(Math.cos(a) * len, -0.08, Math.sin(a) * len), 6), undefined, { aoWorld: trunkAO });
+    b.add(bark, limb(r0 * 0.55, 0.04, new THREE.Vector3(0, 0.45, 0), new THREE.Vector3(Math.cos(a) * len, -0.08, Math.sin(a) * len), lo ? 4 : 6), undefined, { aoWorld: trunkAO });
   }
   // Limbs + crown blobs
   const crownY = trunkH + (tall ? 1.7 : wide ? 1.0 : 1.3);
@@ -158,16 +159,16 @@ function deciduous(rng: Rng, species: TreeSpecies): TreeGeo {
     const start = top.clone().lerp(new THREE.Vector3(0, 0, 0), rng.next() * 0.25);
     const out = crownR * (0.55 + rng.next() * 0.25);
     const end = new THREE.Vector3(center.x + Math.cos(a) * out, crownY - crownRy * 0.1 + rng.next() * crownRy * 0.5, center.z + Math.sin(a) * out);
-    b.add(bark, limb(r0 * 0.45, 0.05, start, end, 6), undefined, { aoWorld: trunkAO });
+    b.add(bark, limb(r0 * 0.45, 0.05, start, end, lo ? 4 : 6), undefined, { aoWorld: trunkAO });
     // twigs
-    for (let k = 0; k < 2; k++) {
+    for (let k = 0; k < (lo ? 0 : 2); k++) {
       const tw = end.clone().add(new THREE.Vector3((rng.next() - 0.5) * 0.9, 0.3 + rng.next() * 0.5, (rng.next() - 0.5) * 0.9));
       b.add(bark, limb(0.05, 0.015, end.clone().lerp(start, 0.25), tw, 5));
     }
     blobs.push({ c: end.clone().add(new THREE.Vector3(0, 0.2, 0)), r: crownR * (0.52 + rng.next() * 0.15) });
   }
   blobs.push({ c: center.clone().add(new THREE.Vector3(0, crownRy * 0.35, 0)), r: crownR * 0.68 });
-  const fill = tall ? 5 : 4;
+  const fill = detail < 2 ? 1 : tall ? 5 : 4;
   for (let i = 0; i < fill; i++) {
     const a = rng.next() * Math.PI * 2;
     const rr = crownR * (0.3 + rng.next() * 0.35);
@@ -176,7 +177,7 @@ function deciduous(rng: Rng, species: TreeSpecies): TreeGeo {
   }
   const ao = crownAO(center, crownR, crownRy);
   for (const bl of blobs) {
-    const g = lumpySphere(bl.r, 2, 0.2, rng, 1.9);
+    const g = lumpySphere(bl.r, detail, 0.2, rng, 1.9);
     g.scale(1, tall ? 1.05 : 0.86, 1);
     uvScale(g, 1.6, 1.1);
     g.translate(bl.c.x, bl.c.y, bl.c.z);
@@ -194,7 +195,7 @@ function deciduous(rng: Rng, species: TreeSpecies): TreeGeo {
   return { trunk, foliage: leaves, height: H };
 }
 
-function pine(rng: Rng): TreeGeo {
+function pine(rng: Rng, radial = 11): TreeGeo {
   const b = new MeshBuilder();
   const bark = treeBarkMaterial();
   const foliage = foliageMaterial('pine');
@@ -213,7 +214,7 @@ function pine(rng: Rng): TreeGeo {
     const r = THREE.MathUtils.lerp(1.9, 0.55, f) * (0.92 + rng.next() * 0.16);
     const th = THREE.MathUtils.lerp(1.9, 1.3, f);
     const y = base + f * (H - base - th * 0.8);
-    const g = new THREE.ConeGeometry(r, th, 11, 3, false);
+    const g = new THREE.ConeGeometry(r, th, radial, 3, false);
     g.translate(0, th / 2, 0);
     // Droop + jagged skirt.
     const pos = g.attributes.position as THREE.BufferAttribute;
@@ -257,24 +258,25 @@ export interface TreeHandle {
 
 export class TreeField {
   readonly group = new THREE.Group();
+  readonly pool = new BatchPool('trees');
   private sets = new Map<string, InstancedSet>();
-  private variants = new Map<TreeSpecies, TreeGeo[]>();
+  private variants = new Map<string, TreeGeo[]>();
   private season: Season = 'spring';
 
-  constructor(
-    private rng: Rng,
-    private capacityPerVariant = 96,
-  ) {
+  constructor(private rng: Rng) {
     this.group.name = 'trees';
+    this.group.add(this.pool.group);
   }
 
-  private variantsFor(species: TreeSpecies): TreeGeo[] {
-    let v = this.variants.get(species);
+  /** lod 0 = hero detail (play area), 1 = forest (distant plateau, ~4x fewer triangles). */
+  private variantsFor(species: TreeSpecies, lod: number): TreeGeo[] {
+    const key = `${species}:${lod}`;
+    let v = this.variants.get(key);
     if (!v) {
       v = [];
       const r = this.rng.fork(`tree-${species}`);
-      for (let i = 0; i < 3; i++) v.push(species === 'pine' ? pine(r) : deciduous(r, species));
-      this.variants.set(species, v);
+      for (let i = 0; i < 3; i++) v.push(species === 'pine' ? pine(r, lod ? 8 : 11) : deciduous(r, species, lod ? 1 : 2));
+      this.variants.set(key, v);
     }
     return v;
   }
@@ -282,29 +284,30 @@ export class TreeField {
   private static depthTrunk: THREE.MeshDepthMaterial | null = null;
   private static depthLeaf: THREE.MeshDepthMaterial | null = null;
 
-  /** Sets are chunked spatially (CELL×CELL world units) so frustum/shadow culling works. */
-  private setFor(species: TreeSpecies, vi: number, x: number, z: number): InstancedSet {
-    const CELL = 28;
-    const key = `${species}:${vi}:${Math.floor(x / CELL)}:${Math.floor(z / CELL)}`;
+  private setFor(species: TreeSpecies, vi: number, lod: number): InstancedSet {
+    const key = `${species}:${vi}:${lod}`;
     let s = this.sets.get(key);
     if (!s) {
-      const g = this.variantsFor(species)[vi]!;
+      const g = this.variantsFor(species, lod)[vi]!;
       TreeField.depthTrunk ??= windDepthMaterial(WIND_TRUNK);
       TreeField.depthLeaf ??= windDepthMaterial(WIND_LEAF);
-      s = new InstancedSet(`tree-${key}`, [
-        { geometry: g.trunk, material: treeBarkMaterial(), depthMaterial: TreeField.depthTrunk },
-        { geometry: g.foliage!, material: foliageMaterial(species), tinted: true, depthMaterial: TreeField.depthLeaf },
-      ], this.capacityPerVariant);
-      s.meshes[1]!.userData.foliage = species;
+      s = new InstancedSet(
+        `tree-${key}`,
+        [
+          // Distant forest trunks sit under their canopies: skip them in the shadow pass.
+          { geometry: g.trunk, material: treeBarkMaterial(), depthMaterial: TreeField.depthTrunk, castShadow: lod === 0 },
+          { geometry: g.foliage!, material: foliageMaterial(species), tinted: true, depthMaterial: TreeField.depthLeaf },
+        ],
+        this.pool,
+      );
       this.sets.set(key, s);
-      this.group.add(s.group);
     }
     return s;
   }
 
-  add(species: TreeSpecies, x: number, y: number, z: number, scale = 1, variant?: number): TreeHandle {
+  add(species: TreeSpecies, x: number, y: number, z: number, scale = 1, variant?: number, lod = 0): TreeHandle {
     const vi = variant ?? this.rng.int(0, 2);
-    const set = this.setFor(species, vi, x, z);
+    const set = this.setFor(species, vi, lod);
     const m = new THREE.Matrix4().compose(
       new THREE.Vector3(x, y, z),
       new THREE.Quaternion().setFromAxisAngle(_up, this.rng.next() * Math.PI * 2),
@@ -321,7 +324,6 @@ export class TreeField {
   }
 
   finalize(): void {
-    for (const s of this.sets.values()) s.finalize();
     this.setSeason(this.season);
   }
 
@@ -332,11 +334,7 @@ export class TreeField {
       if (!m) continue;
       const c = FOLIAGE_COLORS[sp][season];
       if (c !== null) m.color.setHex(c);
-    }
-    for (const s of this.sets.values()) {
-      const leaf = s.meshes[1]!;
-      const sp = leaf.userData.foliage as TreeSpecies;
-      leaf.visible = FOLIAGE_COLORS[sp][season] !== null;
+      for (const mesh of this.pool.meshesFor(m)) mesh.visible = c !== null;
     }
   }
 }

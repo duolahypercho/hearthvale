@@ -139,6 +139,13 @@ async function main() {
     }
     const info = await page.evaluate(() => window.__game.info());
     console.log(`[shot] info ${JSON.stringify(info)}`);
+    const perf = info?.perf;
+    if (perf && !perf.ok) {
+      console.warn(
+        `[shot] WARNING render budget exceeded: ${perf.drawCalls} draw calls (budget ${perf.budget.drawCalls}), ` +
+          `${(perf.triangles / 1e6).toFixed(2)}M triangles (budget ${(perf.budget.triangles / 1e6).toFixed(2)}M)`,
+      );
+    }
   } catch (err) {
     console.error('[shot] failed:', err?.message || err);
     exitCode = 2;

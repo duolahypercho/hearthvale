@@ -14,13 +14,15 @@ import { Rng } from '../core/rng';
 
 type AnimState = 'idle' | 'walk' | 'swing';
 
+// Original palette: oatmeal shirt, sage overalls, terracotta neckerchief, slate hat band.
 const SKIN = 0xf2c29b;
-const HAIR = 0x6b3f26;
-const SHIRT = 0xe8674a;
-const OVERALLS = 0x3f6fa8;
+const HAIR = 0x8a4a2a;
+const SHIRT = 0xf0e4c8;
+const OVERALLS = 0x5f8a5c;
 const BOOTS = 0x6a4128;
 const HAT = 0xe6c275;
-const HATBAND = 0xc2463a;
+const HATBAND = 0x3d6f8f;
+const SCARF = 0xe07a5f;
 
 function toonish(color: number, rough = 0.75): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ color, roughness: rough, vertexColors: true });
@@ -28,11 +30,30 @@ function toonish(color: number, rough = 0.75): THREE.MeshStandardMaterial {
   return m;
 }
 
+// Every rig part renders with ONE shared vertex-coloured material: the per-part "materials"
+// below are just colour carriers, folded into vertex tints (1 draw call per rig part).
+let shared: THREE.MeshStandardMaterial | null = null;
+function sharedMat(): THREE.MeshStandardMaterial {
+  if (!shared) {
+    shared = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72 });
+    shared.name = 'player';
+    applyWorldFx(shared, { snow: false, clouds: true, wet: true });
+  }
+  return shared;
+}
+
 function part(builder: (b: MeshBuilder) => void, name: string): THREE.Group {
   const b = new MeshBuilder();
-  builder(b);
-  const g = b.build({ name, castShadow: true, receiveShadow: true });
-  return g;
+  const proxy = {
+    add(m: THREE.Material, g: THREE.BufferGeometry, mtx?: THREE.Matrix4, opts: { tint?: THREE.ColorRepresentation; ao?: (p: THREE.Vector3, n: THREE.Vector3) => number } = {}) {
+      const c = ((m as THREE.MeshStandardMaterial).color ?? new THREE.Color(1, 1, 1)).clone();
+      if (opts.tint !== undefined) c.multiply(new THREE.Color(opts.tint));
+      b.add(sharedMat(), g, mtx, { ...opts, tint: c });
+      return proxy;
+    },
+  };
+  builder(proxy as unknown as MeshBuilder);
+  return b.build({ name, castShadow: true, receiveShadow: true });
 }
 
 export class Player {
@@ -67,6 +88,9 @@ export class Player {
   private armL = new THREE.Group();
   private armR = new THREE.Group();
   private eyes: THREE.Object3D[] = [];
+  private lookT = 4;
+  private lookYaw = 0;
+  private lookTarget = 0;
   private tool = new THREE.Group();
   private shadowBlob: THREE.Mesh;
 
@@ -90,11 +114,12 @@ export class Player {
     const boot = toonish(BOOTS, 0.6);
     const straw = toonish(HAT, 0.9);
     const band = toonish(HATBAND, 0.7);
-    const dark = new THREE.MeshStandardMaterial({ color: 0x1d1612, roughness: 0.3 });
-    const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const blush = new THREE.MeshBasicMaterial({ color: 0xff7f7f, transparent: true, opacity: 0.45, depthWrite: false });
+    const dark = toonish(0x1d1612, 0.3);
+    const white = toonish(0xffffff, 0.3);
+    const blush = toonish(0xf5a38c, 0.6);
     const metal = toonish(0xb7bcc2, 0.35);
     const handle = toonish(0xa0703f, 0.7);
+    const scarf = toonish(SCARF, 0.85);
 
     this.root.add(this.body);
     this.body.add(this.hips);
@@ -106,6 +131,8 @@ export class Player {
       leg.add(
         part((b) => {
           b.add(denim, new THREE.CapsuleGeometry(0.095, 0.22, 4, 10), mat(0, -0.19, 0));
+          if (sx > 0) b.add(denim, roundedBox(0.09, 0.08, 0.02, 0.015), mat(0, -0.2, 0.09, 0.1, 0, 0.1), { tint: 0x8fb88a });
+          b.add(shirt, new THREE.CylinderGeometry(0.1, 0.1, 0.05, 12), mat(0, -0.34, 0), { tint: 0xd8cfb8 });
           b.add(boot, roundedBox(0.19, 0.14, 0.27, 0.06), mat(0, -0.43, 0.035));
           b.add(boot, roundedBox(0.2, 0.04, 0.29, 0.02), mat(0, -0.49, 0.04), { tint: 0x3a2618 });
         }, 'leg'),
@@ -124,7 +151,14 @@ export class Player {
           b.add(denim, roundedBox(0.05, 0.26, 0.05, 0.02), mat(sx * 0.1, 0.33, 0.1, 0.35, 0, 0));
           b.add(metal, new THREE.SphereGeometry(0.022, 8, 6), mat(sx * 0.1, 0.28, 0.2), { tint: 0xe0c060 });
         }
-        b.add(denim, roundedBox(0.1, 0.07, 0.03, 0.01), mat(0, 0.16, 0.205), { tint: 0x355f92 });
+        b.add(denim, roundedBox(0.1, 0.07, 0.03, 0.01), mat(0, 0.16, 0.205), { tint: 0x4a7248 });
+        // Stitching around the bib pocket + a sewn-on patch.
+        for (let i = 0; i < 5; i++) b.add(denim, roundedBox(0.016, 0.006, 0.006, 0.002), mat(-0.04 + i * 0.02, 0.2, 0.222), { tint: 0xf2d890 });
+        for (const sx2 of [-1, 1]) for (let i = 0; i < 3; i++) b.add(denim, roundedBox(0.006, 0.016, 0.006, 0.002), mat(sx2 * 0.052, 0.13 + i * 0.022, 0.222), { tint: 0xf2d890 });
+        b.add(denim, roundedBox(0.08, 0.07, 0.02, 0.012), mat(-0.12, 0.02, 0.19, 0, 0.4, 0.2), { tint: 0xd89a4a });
+        // Neckerchief knot + tail
+        b.add(scarf, new THREE.TorusGeometry(0.13, 0.035, 8, 18), mat(0, 0.38, 0.0, Math.PI / 2 - 0.25, 0, 0));
+        b.add(scarf, new THREE.ConeGeometry(0.07, 0.12, 4), mat(0, 0.3, 0.14, 0.2, Math.PI / 4, Math.PI));
       }, 'torso'),
     );
 
@@ -155,22 +189,33 @@ export class Player {
 
     // Head (pivot at neck)
     this.head.position.y = 0.46;
+    this.head.scale.setScalar(1.15);
     this.torso.add(this.head);
     const headR = 0.32;
     this.head.add(
       part((b) => {
         b.add(skin, new THREE.SphereGeometry(headR, 28, 20), mat(0, headR * 0.92, 0, 0, 0, 0, 1.04, 0.96, 1));
         for (const sx of [-1, 1]) b.add(skin, new THREE.SphereGeometry(0.07, 10, 8), mat(sx * headR * 0.98, headR * 0.88, 0, 0, 0, 0, 0.6, 1, 1));
-        b.add(skin, new THREE.SphereGeometry(0.04, 10, 8), mat(0, headR * 0.78, headR * 0.98), { tint: 0xf0b088 });
+        b.add(skin, new THREE.SphereGeometry(0.03, 10, 8), mat(0, headR * 0.8, headR * 0.99), { tint: 0xfff0e8 });
         // Hair: cap + tufted fringe + back volume
         const cap = new THREE.SphereGeometry(headR * 1.07, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.55);
         b.add(hair, cap, mat(0, headR * 0.98, -0.02, -0.25, 0, 0));
-        for (let i = 0; i < 7; i++) {
-          const a = -0.9 + (i / 6) * 1.8;
-          const tuft = lumpySphere(0.1, 1, 0.25, rng);
-          tuft.scale(1, 0.75, 0.8);
-          sphericalNormals(tuft, new THREE.Vector3(), 0.4);
-          b.add(hair, tuft, mat(Math.sin(a) * headR * 0.9, headR * 1.38 - Math.abs(a) * 0.06, Math.cos(a) * headR * 0.78, 0.4, 0, 0));
+        // Swept side fringe: three soft overlapping locks, longest over one eye.
+        const locks: [number, number, number, number][] = [
+          [-0.55, 0.16, 1.25, -0.5],
+          [-0.1, 0.14, 1.12, -0.25],
+          [0.4, 0.12, 1.02, 0.1],
+        ];
+        for (const [a, r, len, roll] of locks) {
+          const lock = lumpySphere(r, 2, 0.08, rng, 1.2);
+          lock.scale(len, 0.55, 0.62);
+          sphericalNormals(lock, new THREE.Vector3(), 0.35);
+          b.add(hair, lock, mat(Math.sin(a) * headR * 0.72, headR * 1.34, Math.cos(a) * headR * 0.72, 0.55, a, roll));
+        }
+        for (const sx of [-1, 1]) {
+          const side = lumpySphere(0.1, 1, 0.12, rng);
+          side.scale(0.55, 1.1, 0.8);
+          b.add(hair, side, mat(sx * headR * 0.94, headR * 0.95, headR * 0.28, 0, 0, sx * 0.15));
         }
         for (let i = 0; i < 6; i++) {
           const a = Math.PI * 0.55 + (i / 5) * Math.PI * 0.9;
@@ -179,37 +224,39 @@ export class Player {
         }
       }, 'head'),
     );
-    // Eyes (separate so they can blink), blush, mouth
+    // Eyes (separate so they can blink); brows, mouth and blush are one static face part.
     for (const sx of [-1, 1]) {
       const eye = new THREE.Group();
-      const e = new THREE.Mesh(new THREE.CapsuleGeometry(0.033, 0.045, 4, 10), dark);
-      eye.add(e);
-      const hl = new THREE.Mesh(new THREE.SphereGeometry(0.013, 8, 6), white);
-      hl.position.set(0.012, 0.022, 0.028);
-      eye.add(hl);
+      eye.add(
+        part((b) => {
+          b.add(dark, new THREE.CapsuleGeometry(0.033, 0.045, 4, 10));
+          b.add(white, new THREE.SphereGeometry(0.013, 8, 6), mat(0.012, 0.022, 0.028));
+        }, 'eye'),
+      );
       eye.position.set(sx * 0.115, headR * 0.98, headR * 0.9);
       eye.rotation.x = -0.12;
       this.head.add(eye);
       this.eyes.push(eye);
-      const bl = new THREE.Mesh(new THREE.CircleGeometry(0.055, 16), blush);
-      bl.position.set(sx * 0.19, headR * 0.76, headR * 0.86);
-      bl.rotation.y = sx * 0.55;
-      this.head.add(bl);
     }
-    const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.009, 6, 12, Math.PI), dark);
-    mouth.position.set(0, headR * 0.66, headR * 0.96);
-    mouth.rotation.z = Math.PI;
-    this.head.add(mouth);
+    this.head.add(
+      part((b) => {
+        for (const sx of [-1, 1]) {
+          b.add(hair, new THREE.CapsuleGeometry(0.012, 0.05, 3, 6), mat(sx * 0.115, headR * 1.2, headR * 0.93, 0, 0, Math.PI / 2 + sx * 0.18));
+          b.add(blush, new THREE.CircleGeometry(0.05, 14), mat(sx * 0.19, headR * 0.76, headR * 0.875, 0, sx * 0.55, 0));
+        }
+        b.add(dark, new THREE.TorusGeometry(0.035, 0.009, 6, 12, Math.PI), mat(0, headR * 0.66, headR * 0.96, 0, 0, Math.PI));
+      }, 'face'),
+    );
 
     // Straw hat
-    this.hat.position.set(0, headR * 1.52, -0.02);
-    this.hat.rotation.x = -0.12;
+    this.hat.position.set(0, headR * 1.5, -0.05);
+    this.hat.rotation.x = -0.33;
     this.head.add(this.hat);
     this.hat.add(
       part((b) => {
-        const brim = new THREE.CylinderGeometry(0.5, 0.52, 0.035, 32);
+        const brim = new THREE.CylinderGeometry(0.4, 0.42, 0.035, 32);
         b.add(straw, brim, mat(0, 0, 0));
-        b.add(straw, new THREE.TorusGeometry(0.5, 0.025, 6, 32), mat(0, 0.0, 0, Math.PI / 2, 0, 0));
+        b.add(straw, new THREE.TorusGeometry(0.4, 0.025, 6, 32), mat(0, 0.0, 0, Math.PI / 2, 0, 0));
         b.add(straw, new THREE.CylinderGeometry(0.24, 0.3, 0.2, 24), mat(0, 0.11, 0));
         b.add(straw, new THREE.SphereGeometry(0.24, 24, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(0, 0.2, 0, 0, 0, 0, 1, 0.35, 1));
         b.add(band, new THREE.CylinderGeometry(0.305, 0.305, 0.065, 24, 1, true), mat(0, 0.05, 0));
@@ -218,11 +265,13 @@ export class Player {
 
     this.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
-        o.castShadow = true;
+        const m = o as THREE.Mesh;
+        m.geometry.computeBoundingSphere();
+        // Tiny face details don't need to cast shadows (saves shadow-pass draw calls).
+        o.castShadow = (m.geometry.boundingSphere?.radius ?? 1) > 0.09;
         o.receiveShadow = true;
       }
     });
-    blush.depthWrite = false;
   }
 
   /** Place at world coords (snaps height to ground). */
@@ -378,10 +427,29 @@ export class Player {
       const t = this.stateTime;
       const br = Math.sin(t * 2.2);
       sy = 1 + br * 0.018;
-      this.head.rotation.z = Math.sin(t * 0.7) * 0.03;
-      this.head.rotation.x = Math.sin(t * 0.9) * 0.02;
+      // Slow weight shift from foot to foot + an occasional look around.
+      const shift = Math.sin(t * 0.55);
+      this.hips.rotation.z = shift * 0.035;
+      this.hips.position.x = shift * 0.012;
+      this.torso.rotation.z = -shift * 0.05;
+      L.z = shift * 0.03;
+      R.z = shift * 0.03;
+      this.lookT -= dt;
+      if (this.lookT <= 0) {
+        this.lookTarget = this.lookTarget !== 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * (0.45 + Math.random() * 0.35);
+        this.lookT = this.lookTarget !== 0 ? 1.2 + Math.random() : 3 + Math.random() * 3;
+      }
+      this.lookYaw += (this.lookTarget - this.lookYaw) * (1 - Math.exp(-dt * 5));
+      this.head.rotation.y = this.lookYaw;
+      this.head.rotation.z = Math.sin(t * 0.7) * 0.03 + this.lookYaw * 0.08;
+      this.head.rotation.x = Math.sin(t * 0.9) * 0.02 - Math.abs(this.lookYaw) * 0.05;
       AL.z = 0.12 + br * 0.03;
       AR.z = -0.12 - br * 0.03;
+    }
+    if (this.state !== 'idle') {
+      this.hips.rotation.z = 0;
+      this.hips.position.x = 0;
+      this.lookYaw = 0;
     }
 
     if (this.state === 'swing') {
@@ -425,7 +493,7 @@ export class Player {
     this.nextBlink -= dt;
     if (this.nextBlink <= 0) {
       this.blink = 0.13;
-      this.nextBlink = 2 + Math.random() * 3;
+      this.nextBlink = 3 + Math.random() * 2;
     }
     const eyeY = this.blink > 0 ? 0.15 : 1;
     for (const e of this.eyes) e.scale.y = eyeY;
@@ -433,7 +501,7 @@ export class Player {
     this.body.position.y = bob;
     const S = 1.22;
     this.body.scale.set(S / Math.sqrt(sy), S * sy, S / Math.sqrt(sy));
-    this.hat.position.y = 0.32 * 1.52 + (this.state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);
+    this.hat.position.y = 0.32 * 1.5 + (this.state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);
     this.shadowBlob.scale.setScalar(1 - bob * 1.5);
     this.shadowBlob.position.y = 0.03;
   }

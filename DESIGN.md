@@ -36,7 +36,10 @@ tilt-shift miniature + Ghibli color + modern cozy games (A Short Hike, Tunic, An
 - Vite + TypeScript (strict) + `three` (latest) + `three/examples/jsm` (postprocessing, etc).
 - No external asset downloads required at runtime. Everything procedural (geometry, textures,
   audio via WebAudio synthesis). Fonts via Google Fonts `<link>` are the only exception.
-- 60 fps target on an M-series laptop at 1440p with "high" quality.
+- 60 fps target on an M-series laptop at 1440p with "high" quality. Render budget per frame (all passes:
+  shadow + main + AO): ≤ 300 draw calls, ≤ 1.5 M triangles — reported by `__game.info().perf`, warned by
+  `scripts/shot.mjs`, enforced by `npm test`. Batch props by material (`BatchPool`), merge static meshes
+  (`mergeStatic`), LOD distant trees/grass.
 - Deterministic seeded RNG (`src/core/rng.ts`) for world generation.
 
 ## Source layout & ownership
@@ -56,8 +59,8 @@ scripts/shot.mjs          headless screenshot harness (see below)
 ```
 
 Rule: a module talks to others via the typed event bus (`core/events.ts`) or through the
-`Game` context object (`core/game.ts`) — no deep cross-imports between `systems/*` siblings.
-When you add a system, register it in `core/game.ts` in one line.
+`Game` context object (`core/game.ts`, incl. typed `game.services`) — no imports between `systems/*`
+siblings (`npm run lint` fails the build). When you add a system, register it in `core/game.ts` in one line.
 
 ## Debug / automation API (required — critics and tests depend on it)
 

@@ -11,6 +11,8 @@
 import * as THREE from 'three';
 import { textures } from './textures';
 import { applyWorldFx } from './worldfx';
+import { patchMaterial, after, before } from './patch';
+import { globalUniforms } from './uniforms';
 
 export type MaterialName =
   | 'wood'
@@ -28,7 +30,9 @@ export type MaterialName =
   | 'bark'
   | 'cloth'
   | 'white'
-  | 'soilPot';
+  | 'soilPot'
+  | 'stillWater'
+  | 'boxFlower';
 
 const cache = new Map<MaterialName, THREE.Material>();
 
@@ -85,8 +89,10 @@ function build(name: MaterialName): THREE.Material {
       nightGlow.push({ material: m, max: 4 });
       return m;
     }
-    case 'rock':
-      return std({ roughness: 0.88, flatShading: true });
+    case 'rock': {
+      const t = textures.granite();
+      return std({ map: t.map, bumpMap: t.bump, bumpScale: 2.2, roughness: 0.84 });
+    }
     case 'bark': {
       const t = textures.bark();
       return std({ map: t.map, bumpMap: t.bump, bumpScale: 2, roughness: 0.95 });
@@ -97,6 +103,33 @@ function build(name: MaterialName): THREE.Material {
       return std({ roughness: 0.8 });
     case 'soilPot':
       return std({ roughness: 0.85, color: 0xb8643e });
+    case 'boxFlower': {
+      // Window-box planting that follows the seasons: spring/summer blooms, fall mums,
+      // winter evergreen sprigs with holly berries.
+      const m = std({ roughness: 0.75 });
+      patchMaterial(m, 'box-flower', (shader) => {
+        shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
+        let fs = before(shader.fragmentShader, 'void main() {', 'uniform vec4 uSeasonW;');
+        fs = after(
+          fs,
+          '#include <color_fragment>',
+          /* glsl */ `
+          {
+            vec3 bc = diffuseColor.rgb;
+            bool leafy = bc.g > bc.r * 1.15 && bc.g > bc.b * 1.1;
+            float hb = fract(sin(dot(floor(vHvWorldPos * 9.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+            vec3 mum = hb < 0.3 ? vec3(0.62, 0.12, 0.05) : hb < 0.6 ? vec3(0.85, 0.35, 0.05) : hb < 0.85 ? vec3(0.85, 0.6, 0.1) : vec3(0.35, 0.12, 0.45);
+            vec3 fallC = leafy ? bc * vec3(0.9, 0.8, 0.55) : mum;
+            vec3 winterC = leafy ? vec3(0.06, 0.16, 0.08) : (hb < 0.5 ? vec3(0.55, 0.03, 0.03) : vec3(0.07, 0.18, 0.09));
+            diffuseColor.rgb = bc * (uSeasonW.x + uSeasonW.y) + fallC * uSeasonW.z + winterC * uSeasonW.w;
+          }`,
+        );
+        shader.fragmentShader = fs;
+      });
+      return m;
+    }
+    case 'stillWater':
+      return std({ roughness: 0.08, metalness: 0.1, color: 0x6a9ab8 }, false);
   }
 }
 

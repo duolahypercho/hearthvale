@@ -50,6 +50,12 @@ export interface GameEvents {
 
   'game:ready': Record<string, never>;
   'game:pause': { paused: boolean };
+
+  /** A demo scene was staged (systems add their showcase content, e.g. a planted field). */
+  'demo:stage': { name: string; showcase: string[] };
+  /** Snap season/weather visuals instantly (debug / demos / load) instead of blending. */
+  'season:apply': { season: Season; instant: boolean };
+  'weather:apply': { weather: Weather; instant: boolean };
 }
 
 export type EventName = keyof GameEvents;

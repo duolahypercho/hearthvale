@@ -20,11 +20,31 @@ import { FarmMap } from '../world/farm';
 import { Player } from '../entities/player';
 import { Hud } from '../ui/hud';
 
+import { SeasonSystem } from '../systems/season';
+import { WeatherSystem } from '../systems/weather';
+import { InventorySystem } from '../systems/inventory';
+import { FarmingSystem } from '../systems/farming';
+import { ShippingSystem } from '../systems/shipping';
+import { CritterSystem } from '../systems/critters';
+
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
-  // () => new FarmingSystem(),
-  // () => new WeatherSystem(),
+  () => new SeasonSystem(),
+  () => new WeatherSystem(),
+  () => new InventorySystem(),
+  () => new FarmingSystem(),
+  () => new ShippingSystem(),
+  () => new CritterSystem(),
 ];
+
+/**
+ * Typed service registry. Systems publish an API with `game.provide('inventory', api)` and
+ * declare its type by declaration merging (no imports between sibling systems):
+ *
+ *   declare module '../core/game' { interface GameServices { inventory: InventoryApi } }
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface GameServices {}
 
 export interface GameOptions {
   container: HTMLElement;
@@ -48,6 +68,7 @@ export class Game {
   readonly player: Player;
   readonly hud: Hud;
   readonly systems: System[] = [];
+  readonly services: Partial<GameServices> = {};
 
   /** Simulation paused (time frozen, no fixed updates). Rendering continues. */
   paused = false;
@@ -80,8 +101,6 @@ export class Game {
 
     this.world.registerMap('farm', (g) => new FarmMap(g));
 
-    this.events.on('season:change', ({ season }) => this.applySeason(season));
-    this.events.on('weather:change', ({ weather }) => this.applyWeather(weather));
     this.events.on('toolbar:select', ({ slot }) => (this.toolbarSlot = slot));
 
     this.saves.register('core', {
@@ -116,11 +135,15 @@ export class Game {
     this.scene.add(this.player.root);
     this.player.teleport(map.spawn.x, map.spawn.z);
     this.player.setFacing(map.spawn.facing);
-    this.applySeason(this.calendar.season, true);
-    this.applyWeather(this.calendar.weather, true);
 
     for (const f of SYSTEMS) this.register(f());
     for (const s of this.systems) await s.init?.(this);
+    this.applySeason(this.calendar.season, true);
+    this.applyWeather(this.calendar.weather, true);
+    this.events.on('map:change', ({ map: id }) => {
+      for (const s of this.systems) s.onMapChange?.(id, this);
+    });
+    for (const s of this.systems) s.onMapChange?.(map.id, this);
     if (stage) await stage();
 
     this.followPlayer(true);
@@ -181,17 +204,29 @@ export class Game {
 
   followPlayer(snap: boolean): void {
     this.rc.rig.target.copy(this.player.position);
+    this.rc.focusPoint.copy(this.player.position).setY(this.player.position.y + 0.8);
     if (snap) this.rc.rig.snap();
   }
 
-  applySeason(season: Season, instant = false): void {
-    this.lighting.setSeason(season, instant);
-    this.world.current?.setSeason?.(season);
+  /** Render budget check (all passes of the last frame). */
+  perf(): { drawCalls: number; triangles: number; budget: { drawCalls: number; triangles: number }; ok: boolean } {
+    const r = this.rc.renderer.info.render;
+    const budget = { drawCalls: 300, triangles: 1_500_000 };
+    return { drawCalls: r.calls, triangles: r.triangles, budget, ok: r.calls <= budget.drawCalls && r.triangles <= budget.triangles };
   }
 
+  /** Snap (instant) or blend the season visuals; handled by SeasonSystem. */
+  applySeason(season: Season, instant = false): void {
+    this.events.emit('season:apply', { season, instant });
+  }
+
+  /** Snap (instant) or blend the weather visuals; handled by WeatherSystem. */
   applyWeather(weather: Weather, instant = false): void {
-    this.lighting.setWeather(weather, instant);
-    this.world.current?.setWeather?.(weather);
+    this.events.emit('weather:apply', { weather, instant });
+  }
+
+  provide<K extends keyof GameServices>(name: K, api: GameServices[K]): void {
+    this.services[name] = api;
   }
 
   setGold(n: number): void {

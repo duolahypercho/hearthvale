@@ -34,6 +34,25 @@ import {
   type BuiltProp,
 } from './props/structures';
 import { SmokeEmitter, Ambience } from '../render/particles';
+import {
+  buildScarecrow,
+  buildWheelbarrow,
+  buildWateringCanOnStump,
+  buildHayBale,
+  buildLaundryLine,
+  buildBirdBath,
+  buildBeehive,
+  buildToolRack,
+  buildBench,
+  buildHarvestPile,
+  buildFlowerPot,
+  buildSignpost,
+  buildTrough,
+  buildSteppingStones,
+  buildSnowman,
+} from './props/farmkit';
+import { mergeStatic } from './geom';
+import { LeafLitter, LightPools, Footprints } from './props/decals';
 
 export const FARM_SIZE = 64;
 const EXT = { minX: -26, minZ: -26, maxX: 90, maxZ: 90 };
@@ -42,6 +61,8 @@ export const FARM_WATER_LEVEL = -0.32;
 const HOUSE = { x: 31.5, z: 13.5 };
 const POND = { x: 13, z: 40, r: 5.2 };
 const PLOT = { x0: 21, z0: 13, x1: 25, z1: 16 };
+/** Showcase / starter field south-west of the house (tile coords, inclusive). */
+const FIELD = { x0: 22, z0: 20, x1: 29, z1: 23 };
 const BIN = { x: 38, z: 16.5 };
 
 const PATHS: [number, number][][] = [
@@ -65,7 +86,15 @@ export class FarmMap implements GameMap {
   readonly grass: GrassField;
   readonly trees: TreeField;
   readonly nature: Nature;
+  readonly plots = { garden: PLOT, field: FIELD };
+  readonly poi: Record<string, { x: number; y?: number; z: number; rot?: number }[]> = {};
+  private litter: LeafLitter;
+  private footprints!: Footprints;
+  private pools: LightPools;
+  private seasonal: { group: THREE.Object3D; seasons: Season[] }[] = [];
+  private staticRoots: THREE.Object3D[] = [];
   private smoke: SmokeEmitter[] = [];
+  private mailFlag: THREE.Object3D | null = null;
   private ambience: Ambience;
   private noise: Noise2D;
   private noise2: Noise2D;
@@ -93,7 +122,9 @@ export class FarmMap implements GameMap {
 
     this.trees = new TreeField(this.rng.fork('trees'));
     this.nature = new Nature(this.rng.fork('nature'));
+    this.pools = new LightPools();
     this.buildStructures();
+    this.dressYard();
     mark('structures');
     this.placeTrees();
     mark('trees');
@@ -102,6 +133,11 @@ export class FarmMap implements GameMap {
     this.trees.finalize();
     this.nature.finalize();
     this.root.add(this.trees.group, this.nature.group);
+    this.bakeSnowDrifts();
+    // Merge every static prop into one mesh per material (draw-call budget).
+    this.root.add(mergeStatic(this.staticRoots, 'farm-static'));
+    this.litter = new LeafLitter(this.rng.fork('litter'), this.litterSpots(), (x, z) => this.terrain.heightAt(x, z));
+    this.root.add(this.litter.mesh, this.pools.group);
 
     this.grass = new GrassField({
       bounds: { x0: -16, z0: -14, x1: 80, z1: 80 },
@@ -196,11 +232,6 @@ export class FarmMap implements GameMap {
       const pr = Math.hypot(x - POND.x, (z - POND.z) * 1.1);
       return smoothstep(POND.r + 1.3, POND.r + 0.3, pr) * 0.9;
     });
-    for (let z = PLOT.z0; z <= PLOT.z1; z++) {
-      for (let x = PLOT.x0; x <= PLOT.x1; x++) {
-        t.setTileSplat(x, z, { tilled: 1, wet: hash2(x, z, 7) < 0.45 ? 1 : 0 });
-      }
-    }
     t.commitSplat();
   }
 
@@ -249,16 +280,156 @@ export class FarmMap implements GameMap {
 
   // ───────────────────────────────────────────── structures
 
-  private addProp(p: BuiltProp | THREE.Group, x: number, z: number, rotY = 0): BuiltProp {
+  private addProp(p: BuiltProp | THREE.Group, x: number, z: number, rotY = 0, opts: { solid?: [number, number][]; dynamic?: boolean } = {}): BuiltProp {
     const bp: BuiltProp = p instanceof THREE.Group ? { group: p, lights: [], anchors: {} } : p;
     bp.group.position.set(x, this.terrain.heightAt(x, z), z);
     bp.group.rotation.y = rotY;
     this.root.add(bp.group);
+    if (!opts.dynamic) this.staticRoots.push(bp.group);
+    bp.group.updateMatrixWorld(true);
     for (const l of bp.lights) {
       l.light.castShadow = false;
-      this.game.lighting.addNightLight(l.light, l.max);
+      // Warm, wide practical pools (#ffb45e), plus a painted ground glow under each.
+      l.light.color.setHex(0xffb45e);
+      l.light.distance = Math.max(l.light.distance, 9);
+      l.light.decay = 1.5;
+      this.game.lighting.addNightLight(l.light, Math.max(l.max, 6) * 1.25);
+      const wp = l.light.getWorldPosition(new THREE.Vector3());
+      this.pools.add(wp.x, wp.z, this.terrain.heightAt(wp.x, wp.z), Math.min(3.4, 1.4 + wp.y - this.terrain.heightAt(wp.x, wp.z)));
     }
+    for (const [tx, tz] of opts.solid ?? []) this.grid.setObject(tx, tz, { kind: 'prop', id: bp.group.name, solid: true });
     return bp;
+  }
+
+  /** Seasonal prop: only visible in the given seasons. */
+  private seasonalProp(g: THREE.Group, x: number, z: number, rot: number, seasons: Season[], solid?: [number, number][]): void {
+    this.addProp(g, x, z, rot, { dynamic: true, solid });
+    this.seasonal.push({ group: g, seasons });
+  }
+
+  /** Hand-placed homestead dressing: the stuff that makes the yard feel lived in. */
+  private dressYard(): void {
+    const r = this.rng.fork('yard');
+    // Field edge: scarecrow + watering can on a stump + wheelbarrow of soil.
+    this.addProp(buildScarecrow(r), FIELD.x0 - 0.55, FIELD.z0 + 1.6, 0.25, { solid: [[FIELD.x0 - 1, FIELD.z0 + 1]] });
+    this.addProp(buildWateringCanOnStump(), FIELD.x0 - 0.7, FIELD.z1 + 0.2, 0.6, { solid: [[FIELD.x0 - 1, FIELD.z1]] });
+    this.addProp(buildWheelbarrow(), FIELD.x1 + 1.5, FIELD.z1 - 0.6, 0.35, { solid: [[FIELD.x1 + 1, FIELD.z1 - 1], [FIELD.x1 + 1, FIELD.z1]] });
+    // Stepping stones from the porch yard to the garden gate.
+    const stones: [number, number][] = [[28.6, 18.7], [27.7, 18.95], [26.8, 18.8], [25.9, 18.55], [25.0, 18.3], [24.1, 18.2]];
+    const st = buildSteppingStones(stones, (x, z) => this.terrain.heightAt(x, z), r);
+    this.root.add(st);
+    this.staticRoots.push(st);
+    // Porch: potted flowers, a bench, the harvest display (changes with the season).
+    this.seasonalProp(buildFlowerPot(r, 0xff8fab), 29.85, 18.45, 0, ['spring', 'summer'], [[29, 18]]);
+    this.seasonalProp(buildFlowerPot(r, 0xffd166), 33.2, 18.45, 0, ['spring', 'summer']);
+    this.seasonalProp(buildHarvestPile(r, 'pumpkins'), 29.8, 18.5, 0.3, ['fall']);
+    this.seasonalProp(buildHarvestPile(r, 'pumpkins'), 33.25, 18.5, 1.3, ['fall']);
+    this.seasonalProp(buildHarvestPile(r, 'basket'), 36.55, 17.75, 0.2, ['spring'], [[36, 17]]);
+    this.seasonalProp(buildHarvestPile(r, 'crate'), 36.55, 17.75, 0.2, ['summer', 'fall'], [[36, 17]]);
+    this.addProp(buildBench(), 26.3, 17.95, 0, { solid: [[26, 17]] });
+    // East yard: laundry line, bird bath, beehives, hay + trough for the hens, tool rack.
+    this.addProp(buildLaundryLine(r, 3.3), 41.4, 19.1, 0.08, { dynamic: true, solid: [[39, 19], [43, 19]] });
+    this.addProp(buildBirdBath(), 37.6, 22.6, 0, { solid: [[37, 22]] });
+    this.addProp(buildBeehive(), 45.6, 16.9, -0.2, { solid: [[45, 16]] });
+    this.addProp(buildBeehive(), 46.9, 17.6, 0.15, { solid: [[46, 17]] });
+    this.addProp(buildHayBale(r), 43.4, 21.1, 0.35, { solid: [[43, 21], [42, 21]] });
+    this.addProp(buildHayBale(r), 43.7, 21.25, 0.2, {}).group.position.y += 0.5;
+    this.addProp(buildHayBale(r, true), 45.2, 23.3, 1.2, { solid: [[45, 23], [44, 23]] });
+    this.addProp(buildTrough(), 40.3, 23.4, 0.1, { solid: [[40, 23]] });
+    this.addProp(buildToolRack(), 43.6, 14.2, -0.1, { solid: [[43, 14], [44, 14]] });
+    this.addProp(buildSignpost(), 34.3, 27.3, -0.3, { solid: [[34, 27]] });
+    this.seasonalProp(buildSnowman(r), 36.4, 21.0, -0.35, ['winter'], [[36, 20], [36, 21]]);
+    // Trampled trail in the snow: porch → shipping bin → yard → field edge.
+    this.footprints = new Footprints(
+      [[31.4, 18.1], [31.9, 19.2], [34.2, 19.4], [36.6, 18.3], [37.2, 18.9], [36.0, 20.1], [33.2, 20.9], [31.3, 20.3]],
+      (x, z) => this.terrain.heightAt(x, z),
+    );
+    this.root.add(this.footprints.mesh);
+    // East lawn dressing: a rock garden, a mossy stump with mushrooms, flower clumps.
+    const place = (k: NatureKind, x: number, z: number, o: { scale?: number; color?: number; tx?: number; tz?: number } = {}) => {
+      const h = this.nature.place(k, x, this.terrain.heightAt(x, z), z, { scale: o.scale, color: o.color });
+      if (o.tx !== undefined) this.grid.setObject(o.tx, o.tz!, { kind: k === 'boulder' ? 'boulder' : k === 'stump' ? 'stump' : 'stone', id: k, solid: true, hp: 5, onRemove: () => this.nature.remove(h) });
+    };
+    place('boulder', 42.6, 26.2, { scale: 0.85, tx: 42, tz: 26 });
+    place('stone', 41.7, 26.6, { scale: 0.9 });
+    place('stone', 43.4, 25.5, { scale: 0.7 });
+    place('pebbles', 42.1, 25.4);
+    place('stump', 39.3, 25.6, { tx: 39, tz: 25 });
+    place('mushroom', 39.8, 25.9);
+    place('bush', 44.8, 25.9, { scale: 0.95 });
+    place('berryBush', 38.2, 24.6, { scale: 0.85, color: 0x4a6ad8 });
+    for (const [x, z, c] of [[37.0, 23.4, 0xffd166], [38.4, 22.1, 0xff8fab], [36.8, 22.2, 0xc77dff], [39.0, 23.2, 0xffffff], [41.0, 25.0, 0xff9f1c], [43.9, 24.4, 0x7ec8ff]] as const) {
+      place('flower', x, z, { color: c, scale: 1.1 });
+      place('flower', x + 0.35, z + 0.25, { color: c, scale: 0.9 });
+    }
+
+    // Ambient life anchors.
+    this.poi.cat = [{ x: 33.9, z: 18.1, rot: -0.5 }];
+    this.poi.chickens = [{ x: 40.6, z: 22.2 }];
+    this.poi.birds = [{ x: 37.4, z: 20.6 }, { x: 27.6, z: 21.6 }];
+    this.poi.flowers = [
+      { x: 28.4, z: 17.5 },
+      { x: 34.6, z: 17.5 },
+      { x: FIELD.x0 + 2, z: FIELD.z0 + 1 },
+      { x: FIELD.x1 - 1, z: FIELD.z1 },
+      { x: 46, z: 19 },
+      { x: 37.6, z: 22.6 },
+    ];
+  }
+
+  /** Winter drifts: distance field (in tiles) from buildings / fences / big props, fed to the terrain. */
+  private bakeSnowDrifts(): void {
+    const g = this.grid;
+    const W = g.width;
+    const D = g.depth;
+    const dist = new Float32Array(W * D).fill(99);
+    const q: number[] = [];
+    g.forEach((x, z, i) => {
+      const o = g.getObject(x, z);
+      const walled = (g.hasFlag(x, z, TileFlag.Blocked) && g.getType(x, z) !== TileType.Cliff) || (o && (o.kind === 'fence' || o.kind === 'building' || o.kind === 'prop'));
+      if (walled) {
+        dist[i] = 0;
+        q.push(i);
+      }
+    });
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h]!;
+      const x = i % W;
+      const z = Math.floor(i / W);
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx;
+        const nz = z + dz;
+        if (nx < 0 || nz < 0 || nx >= W || nz >= D) continue;
+        const j = nz * W + nx;
+        if (dist[j]! > dist[i]! + 1) {
+          dist[j] = dist[i]! + 1;
+          if (dist[j]! < 3) q.push(j);
+        }
+      }
+    }
+    const sample = (x: number, z: number): number => {
+      const tx = Math.floor(x);
+      const tz = Math.floor(z);
+      if (tx < 0 || tz < 0 || tx >= W || tz >= D) return 99;
+      return dist[tz * W + tx]!;
+    };
+    this.terrain.setDrift((x, z) => {
+      // Bilinear-ish: min of the 4 nearest tiles gives rounded drift shoulders.
+      const d = Math.min(sample(x - 0.5, z - 0.5), sample(x + 0.5, z - 0.5), sample(x - 0.5, z + 0.5), sample(x + 0.5, z + 0.5), sample(x, z) + 0.5);
+      const n = 0.7 + 0.3 * this.noise2.get(x * 0.6, z * 0.6);
+      return smoothstep(1.8, 0.4, d) * n * (1 - this.pathValue(x, z) * 0.8);
+    });
+  }
+
+  /** Spots where fallen leaves collect (under deciduous hero trees + along the fences). */
+  private litterSpots(): { x: number; z: number; r: number }[] {
+    return this.leafSpots;
+  }
+  private leafSpots: { x: number; z: number; r: number }[] = [];
+
+  /** Remove grass tufts on a tile (tilling, placing objects). */
+  clearGroundCover(x: number, z: number): void {
+    this.grass.clearTile(x, z);
   }
 
   private buildStructures(): void {
@@ -276,7 +447,8 @@ export class FarmMap implements GameMap {
     this.addProp(buildShippingBin(), BIN.x, BIN.z);
     for (const x of [37, 38]) this.grid.setObject(x, 16, { kind: 'building', id: 'shipping_bin', solid: true });
 
-    this.addProp(buildMailbox(), 35.7, 18.7, -0.2);
+    const mb = this.addProp(buildMailbox(), 35.7, 18.7, -0.2);
+    this.mailFlag = mb.group.getObjectByName('mailbox-flag') ?? null;
     this.grid.setObject(35, 18, { kind: 'prop', id: 'mailbox', solid: true });
 
     this.addProp(buildLanternPost(), 29.4, 18.9, Math.PI);
@@ -304,7 +476,9 @@ export class FarmMap implements GameMap {
     for (let x = fx0 + 1; x <= fx1; x += 1) run.push([x, fz0]);
     for (let z = fz0 + 1; z <= fz1; z += 1) run.push([fx1, z]);
     for (let x = fx1 - 1; x >= 24.5; x -= 1) run.push([x, fz1]);
-    this.root.add(buildFence([run], (x, z) => this.terrain.heightAt(x, z), r));
+    const fence = buildFence([run], (x, z) => this.terrain.heightAt(x, z), r);
+    this.root.add(fence);
+    this.staticRoots.push(fence);
     for (let x = PLOT.x0 - 1; x <= PLOT.x1 + 1; x++) {
       for (const z of [PLOT.z0 - 1, PLOT.z1 + 1]) {
         if (z === PLOT.z1 + 1 && (x === 23 || x === 24)) continue;
@@ -317,12 +491,15 @@ export class FarmMap implements GameMap {
     // Fence along the path towards the east exit.
     const eastFence: [number, number][] = [];
     for (let x = 45; x <= 55; x += 1.25) eastFence.push([x, 26.2 + Math.sin(x * 0.4) * 0.15]);
-    this.root.add(buildFence([eastFence], (x, z) => this.terrain.heightAt(x, z), r));
+    const fence2 = buildFence([eastFence], (x, z) => this.terrain.heightAt(x, z), r);
+    this.root.add(fence2);
+    this.staticRoots.push(fence2);
 
     // Dock on the pond.
     const dock = buildDock(3.2, 1.3);
     dock.position.set(POND.x + POND.r + 1.5, FARM_WATER_LEVEL + 0.18, POND.z);
     this.root.add(dock);
+    this.staticRoots.push(dock);
   }
 
   // ───────────────────────────────────────────── trees & nature
@@ -332,7 +509,7 @@ export class FarmMap implements GameMap {
     const heroes: [TreeSpecies, number, number, number][] = [
       ['oak', 22.5, 9.6, 1.15],
       ['maple', 42.5, 9.2, 1.05],
-      ['blossom', 18.6, 20.4, 0.95],
+      ['blossom', 13.4, 27.2, 0.95],
       ['oak', 6.8, 33.5, 1.2],
       ['maple', 19.5, 47.5, 1.0],
       ['oak', 8.2, 50, 1.1],
@@ -344,8 +521,17 @@ export class FarmMap implements GameMap {
       ['oak', 15.5, 55.5, 1.05],
       ['pine', 5.8, 26.2, 0.95],
       ['maple', 60.2, 50.5, 1.05],
+      // Tree line framing the top of the homestead shots.
+      ['oak', 16.2, 10.8, 1.1],
+      ['maple', 27.2, 8.0, 1.0],
+      ['oak', 36.0, 7.9, 1.15],
+      ['blossom', 48.4, 12.6, 0.95],
+      ['maple', 51.5, 9.6, 1.05],
+      ['oak', 12.6, 15.2, 1.0],
     ];
     for (const [sp, x, z, s] of heroes) {
+      if (this.basinDist(x, z) > -0.8) continue;
+      if (sp !== 'pine') this.leafSpots.push({ x, z, r: 2.6 * s });
       const h = this.trees.add(sp, x, this.terrain.heightAt(x, z) - 0.05, z, s);
       const tx = Math.floor(x);
       const tz = Math.floor(z);
@@ -368,7 +554,7 @@ export class FarmMap implements GameMap {
         const pineBias = smoothstep(-0.2, 0.4, this.noise.get(jx * 0.04 + 100, jz * 0.04));
         const sp: TreeSpecies = r.next() < pineBias * 0.8 ? 'pine' : r.next() < 0.55 ? 'oak' : r.next() < 0.8 ? 'maple' : 'blossom';
         const s = 0.85 + r.next() * 0.45;
-        this.trees.add(sp, jx, this.terrain.heightAt(jx, jz) - 0.08, jz, s);
+        this.trees.add(sp, jx, this.terrain.heightAt(jx, jz) - 0.08, jz, s, undefined, d > 4 ? 1 : 0);
       }
     }
   }
@@ -421,7 +607,10 @@ export class FarmMap implements GameMap {
         const d = this.basinDist(cx, cz);
         if (!this.free(x, z)) continue;
         const nearHouse = Math.hypot((cx - HOUSE.x) * 0.8, cz - HOUSE.z - 1) < 7.5;
-        const nearPlot = cx > PLOT.x0 - 1.5 && cx < PLOT.x1 + 2.5 && cz > PLOT.z0 - 1.5 && cz < PLOT.z1 + 2.5;
+        const nearPlot =
+          (cx > PLOT.x0 - 1.5 && cx < PLOT.x1 + 2.5 && cz > PLOT.z0 - 1.5 && cz < PLOT.z1 + 2.5) ||
+          (cx > FIELD.x0 - 1.5 && cx < FIELD.x1 + 2.5 && cz > FIELD.z0 - 1.2 && cz < FIELD.z1 + 2.2) ||
+          (cx > 36 && cx < 47 && cz > 15.5 && cz < 24);
         const pv = this.terrain.splatAt(cx, cz, 'path');
         const nearPath = this.pathValue(cx, cz) > 0.15 || pv > 0.1;
         const pondD = Math.hypot(cx - POND.x, (cz - POND.z) * 1.1);
@@ -444,7 +633,10 @@ export class FarmMap implements GameMap {
         const roll = r.next();
         if (inField) {
           if (roll < 0.1 * (0.6 + wild)) place('weed', ox, oz, { register: true, solid: false, scale: 0.85 + r.next() * 0.35, hp: 1 });
-          else if (roll < 0.15 * (0.6 + wild) + 0.0) place('stone', ox, oz, { register: true, scale: 0.9 + r.next() * 0.5, hp: 1 });
+          else if (roll < 0.15 * (0.6 + wild) + 0.0) {
+            place('stone', ox, oz, { register: true, scale: 0.7 + r.next() * 0.55, hp: 1 });
+            if (r.next() < 0.6) this.nature.place('pebbles', ox + (r.next() - 0.5) * 0.7, this.terrain.heightAt(ox, oz), oz + (r.next() - 0.5) * 0.7);
+          }
           else if (roll < 0.18 * (0.6 + wild)) place('twig', ox, oz, { register: true, hp: 1 });
           else if (roll < 0.186 * (0.6 + wild)) place(r.next() < 0.7 ? 'stump' : 'log', cx, cz, { register: true, hp: 5 });
           else if (roll < 0.25 + wild * 0.12) {
@@ -461,14 +653,14 @@ export class FarmMap implements GameMap {
       }
     }
     // Plateau dressing (outside the grid, purely visual).
-    for (let i = 0; i < 900; i++) {
+    for (let i = 0; i < 700; i++) {
       const x = -18 + r.next() * 100;
       const z = -18 + r.next() * 100;
       const d = this.basinDist(x, z);
       if (d < 1.4 || this.terrain.slopeAt(x, z) < 0.8) continue;
       const roll = r.next();
       const kind: NatureKind = roll < 0.35 ? 'bush' : roll < 0.55 ? 'fern' : roll < 0.75 ? 'flower' : roll < 0.87 ? 'stone' : roll < 0.95 ? 'boulder' : 'mushroom';
-      this.nature.place(kind, x, this.terrain.heightAt(x, z), z, { color: kind === 'flower' ? this.flowerColor(x, z) : undefined, scale: 0.8 + r.next() * 0.5 });
+      this.nature.place(kind, x, this.terrain.heightAt(x, z), z, { color: kind === 'flower' ? this.flowerColor(x, z) : undefined, scale: 0.8 + r.next() * 0.5, lod: 1 });
     }
   }
 
@@ -502,6 +694,13 @@ export class FarmMap implements GameMap {
   }
 
   update(dt: number, game: Game): void {
+    this.pools.update();
+    // A letter is waiting: flag up, with a little springy wiggle every few seconds.
+    if (this.mailFlag) {
+      const t = game.time % 4;
+      this.mailFlag.rotation.x = -0.05 + (t < 0.6 ? Math.sin(t * 22) * Math.exp(-t * 5) * 0.35 : 0);
+    }
+    this.grass.update(game.rc.rig.focus);
     const h = game.rc.renderer.domElement.height;
     for (const s of this.smoke) s.update(dt, game.lighting.night, h);
     this.ambience.update(dt, game.time, game.rc.rig.focus, game.lighting.night, h);
@@ -511,6 +710,9 @@ export class FarmMap implements GameMap {
     this.trees.setSeason(season);
     this.nature.setSeason(season);
     this.ambience.setSeason(season);
+    this.litter.mesh.visible = season === 'fall';
+    this.footprints.mesh.visible = season === 'winter';
+    for (const s of this.seasonal) s.group.visible = s.seasons.includes(season);
   }
 
   setWeather(weather: Weather): void {

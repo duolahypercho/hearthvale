@@ -311,6 +311,27 @@ function stone(): TexPair {
   });
 }
 
+/** Neutral speckled granite detail (multiplied onto vertex-coloured boulders/pebbles) + bump. */
+function granite(): TexPair {
+  return cached('granite', () => {
+    const S = 256;
+    const n = makeTileNoise(4, 5, 'granite');
+    const n2 = makeTileNoise(24, 2, 'granite-fine');
+    const w = makeWorley(6, 'granite-w', 0.9);
+    const { color, height } = pixels(S, (u, v) => {
+      const f = tileFbm(n, u, v, 4);
+      const fine = tileFbm(n2, u, v, 24);
+      const c = w(u, v);
+      const crack = smoothstep(0.0, 0.05, c.f2 - c.f1);
+      const speck = fine > 0.72 ? 0.82 : fine < 0.22 ? 1.08 : 1;
+      const l = (0.84 + f * 0.24) * speck * (0.8 + 0.2 * crack);
+      const tint: RGB = [255 * l, 252 * l, 246 * l];
+      return { c: tint, h: f * 0.6 + fine * 0.25 + crack * 0.15 };
+    });
+    return { map: toTexture(color, true), bump: toTexture(height, false) };
+  });
+}
+
 /** Layered rock strata for cliff faces (triplanar mapped). */
 function cliff(): TexPair {
   return cached('cliff', () => {
@@ -604,6 +625,7 @@ export const textures = {
   sand,
   softDot,
   smokePuff,
+  granite,
   /** Friendly aliases matching DESIGN wording. */
   path: dirt,
   tilledSoil: soil,

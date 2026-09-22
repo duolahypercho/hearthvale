@@ -56,10 +56,10 @@ function windowUnit(b: MeshBuilder, w: number, h: number, shutters: boolean, flo
     for (let i = 0; i < 9; i++) {
       const fx = -w / 2 + (i / 8) * w;
       const leaf = lumpySphere(0.11, 1, 0.25, rng);
-      b.add('white', leaf, mat(fx, by + 0.2, 0.2 + (rng.next() - 0.5) * 0.08), { tint: 0x4f9a3a });
+      b.add('boxFlower', leaf, mat(fx, by + 0.2, 0.2 + (rng.next() - 0.5) * 0.08), { tint: 0x4f9a3a });
       if (i % 2 === 0) {
         const fl = new THREE.SphereGeometry(0.06, 6, 5);
-        b.add('white', fl, mat(fx + 0.03, by + 0.3, 0.26), { tint: colors[(i / 2) % colors.length]! });
+        b.add('boxFlower', fl, mat(fx + 0.03, by + 0.3, 0.26), { tint: colors[(i / 2) % colors.length]! });
       }
     }
   }
@@ -247,11 +247,11 @@ export function buildFarmhouse(rng: Rng): BuiltProp {
     b.add('soilPot', bevelCylinder(0.2, 0.15, 0.32, 0.04, 12), mat(px, ph, pz));
     const leaf = lumpySphere(0.26, 1, 0.25, rng);
     sphericalNormals(leaf, new THREE.Vector3(), 0.5);
-    b.add('white', leaf, mat(px, ph + 0.5, pz), { tint: 0x5aa03e });
+    b.add('boxFlower', leaf, mat(px, ph + 0.5, pz), { tint: 0x5aa03e });
     for (let k = 0; k < 4; k++) {
       const fl = new THREE.SphereGeometry(0.05, 6, 5);
       const a = rng.next() * Math.PI * 2;
-      b.add('white', fl, mat(px + Math.cos(a) * 0.2, ph + 0.55 + rng.next() * 0.12, pz + Math.sin(a) * 0.2), { tint: k % 2 ? 0xffd166 : 0xff8fab });
+      b.add('boxFlower', fl, mat(px + Math.cos(a) * 0.2, ph + 0.55 + rng.next() * 0.12, pz + Math.sin(a) * 0.2), { tint: k % 2 ? 0xffd166 : 0xff8fab });
     }
   }
   // Barrel + firewood by chimney side
@@ -331,14 +331,34 @@ export function buildShippingBin(): BuiltProp {
 
 export function buildMailbox(): BuiltProp {
   const b = new MeshBuilder();
-  b.add('woodGrain', roundedBox(0.14, 1.05, 0.14, 0.03), mat(0, 0.52, 0), { aoWorld: (p) => 0.6 + 0.4 * THREE.MathUtils.smoothstep(p.y, 0, 0.3) });
-  const body = new THREE.CapsuleGeometry(0.2, 0.5, 4, 12);
-  body.rotateX(Math.PI / 2);
-  b.add('woodPaint', body, mat(0, 1.15, 0.05, 0, 0, 0, 1, 0.95, 1), { tint: 0x6fa3c4 });
-  b.add('woodPaint', roundedBox(0.38, 0.12, 0.54, 0.03), mat(0, 1.02, 0.05), { tint: 0x4f7f9c });
-  b.add('white', roundedBox(0.03, 0.26, 0.06, 0.01), mat(0.22, 1.28, -0.05), { tint: 0xd8412f });
-  b.add('white', roundedBox(0.03, 0.1, 0.14, 0.01), mat(0.22, 1.38, -0.0), { tint: 0xd8412f });
-  return { group: b.build({ name: 'mailbox' }), lights: [], anchors: {} };
+  // Stone footing + wooden post with grain + little support bracket
+  b.add('stone', boxUV(roundedBox(0.34, 0.14, 0.34, 0.05), 1.5), mat(0, 0.07, 0), { aoWorld: (p) => 0.6 + 0.4 * THREE.MathUtils.smoothstep(p.y, 0, 0.12) });
+  b.add('woodGrain', boxUV(roundedBox(0.13, 1.0, 0.13, 0.03), 2.2), mat(0, 0.6, 0), { tint: 0xc89a64, aoWorld: (p) => 0.65 + 0.35 * THREE.MathUtils.smoothstep(p.y, 0.1, 0.45) });
+  b.add('woodGrain', roundedBox(0.1, 0.06, 0.46, 0.02), mat(0, 1.07, 0.03), { tint: 0xb88a5a });
+  b.add('woodGrain', roundedBox(0.06, 0.24, 0.06, 0.02), mat(0, 0.95, 0.14, -0.7, 0, 0), { tint: 0xb88a5a });
+  // Body: box with a half-cylinder lid (painted sheet metal), door + rivets
+  const W = 0.3;
+  const L = 0.5;
+  b.add('woodPaint', roundedBox(W, 0.16, L, 0.03), mat(0, 1.18, 0.03), { tint: 0x5f8fa8 });
+  const lid = new THREE.CylinderGeometry(W / 2, W / 2, L, 16, 1, false, 0, Math.PI);
+  lid.rotateZ(Math.PI / 2);
+  lid.rotateY(Math.PI / 2);
+  b.add('woodPaint', lid, mat(0, 1.26, 0.03, 0, 0, Math.PI / 2), { tint: 0x6a9cb6 });
+  b.add('metal', roundedBox(W + 0.02, 0.29, 0.03, 0.012), mat(0, 1.25, 0.03 + L / 2), { tint: 0x4f7f98 });
+  b.add('metal', new THREE.SphereGeometry(0.022, 8, 6), mat(0, 1.3, 0.05 + L / 2), { tint: 0xd8b458 });
+  for (const zz of [-0.18, 0.0, 0.18]) for (const sx of [-1, 1]) b.add('metal', new THREE.SphereGeometry(0.01, 6, 4), mat(sx * (W / 2 + 0.003), 1.14, 0.03 + zz), { tint: 0x3a5a6a });
+  // Painted house number
+  b.add('white', roundedBox(0.004, 0.07, 0.14, 0.01), mat(W / 2 + 0.004, 1.2, 0.03), { tint: 0xf3ead8 });
+  const group = b.build({ name: 'mailbox' });
+  // Red flag (separate so it can wave when a letter is waiting)
+  const fb = new MeshBuilder();
+  fb.add('metal', roundedBox(0.02, 0.26, 0.03, 0.008), mat(0, 0.12, 0), { tint: 0x7a7f86 });
+  fb.add('white', roundedBox(0.02, 0.1, 0.15, 0.015), mat(0, 0.22, -0.07), { tint: 0xd8412f });
+  const flag = fb.build({ name: 'mailbox-flag' });
+  flag.position.set(W / 2 + 0.02, 1.18, -0.08);
+  flag.traverse((o) => (o.userData.dynamic = true));
+  group.add(flag);
+  return { group, lights: [], anchors: { flag: flag.position.clone() } };
 }
 
 export function buildLanternPost(): BuiltProp {
@@ -407,7 +427,7 @@ function fenceRun(b: MeshBuilder, points: [number, number][], heightAt: (x: numb
   const postH = 0.95;
   for (const [x, z] of points) {
     const y = heightAt(x, z);
-    const g = roundedBox(0.15, postH, 0.15, 0.04);
+    const g = roundedBox(0.15, postH, 0.15, 0.04, 1);
     b.add('woodGrain', g, mat(x, y + postH / 2 - 0.05, z, (rng.next() - 0.5) * 0.06, rng.next() * 0.4, (rng.next() - 0.5) * 0.06), {
       tint: 0xd9b48a,
       aoWorld: (p) => 0.6 + 0.4 * THREE.MathUtils.smoothstep(p.y - y, 0, 0.35),
@@ -425,7 +445,7 @@ function fenceRun(b: MeshBuilder, points: [number, number][], heightAt: (x: numb
     const y0 = heightAt(x0, z0);
     const y1 = heightAt(x1, z1);
     for (const ry of [0.32, 0.68]) {
-      const g = roundedBox(L + 0.05, 0.1, 0.06, 0.025);
+      const g = roundedBox(L + 0.05, 0.1, 0.06, 0.025, 1);
       b.add('woodGrain', g, mat((x0 + x1) / 2, (y0 + y1) / 2 + ry + (rng.next() - 0.5) * 0.03, (z0 + z1) / 2, 0, ang, (rng.next() - 0.5) * 0.03), { tint: 0xe2c098 });
     }
   }

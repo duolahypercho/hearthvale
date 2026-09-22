@@ -10,7 +10,7 @@ import { NOISE_GLSL } from '../render/shaders/noise';
 import { applyWind } from '../render/wind';
 import { patchMaterial, after, before, replace } from '../render/patch';
 
-const CHUNK = 16;
+const CHUNK = 20;
 
 function tuftGeometry(rng: Rng, blades: number, variant: 'short' | 'tall'): THREE.BufferGeometry {
   const pos: number[] = [];
@@ -79,12 +79,15 @@ function grassMaterial(): THREE.MeshStandardMaterial {
     shader.uniforms.uSunColor = globalUniforms.uSunColor;
     shader.uniforms.uSnow = globalUniforms.uSnow;
     shader.uniforms.uCloudShadow = globalUniforms.uCloudShadow;
+    shader.uniforms.uDryAmt = globalUniforms.uDryAmt;
+    shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
+    shader.uniforms.uRim = globalUniforms.uRim;
     let vs = shader.vertexShader;
     vs = before(vs, 'void main() {', 'attribute float aH;\nvarying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform float uSnow;');
     vs = after(
       vs,
       '#include <begin_vertex>',
-      `transformed.y *= 1.0 - uSnow * 0.75;\nvGH = aH;\n{ mat4 gm = modelMatrix;\n#ifdef USE_INSTANCING\n gm = modelMatrix * instanceMatrix;\n#endif\n vGOrigin = (gm * vec4(0.0,0.0,0.0,1.0)).xyz; }`,
+      `transformed.y *= 1.0 - uSnow * 0.6;\nvGH = aH;\n{ mat4 gm = modelMatrix;\n#ifdef USE_INSTANCING\n gm = modelMatrix * instanceMatrix;\n#endif\n vGOrigin = (gm * vec4(0.0,0.0,0.0,1.0)).xyz; }`,
     );
     vs = after(vs, '#include <project_vertex>', '{ mat4 gm2 = modelMatrix;\n#ifdef USE_INSTANCING\n gm2 = modelMatrix * instanceMatrix;\n#endif\n vGWorld = (gm2 * vec4(transformed,1.0)).xyz; }');
     shader.vertexShader = vs;
@@ -92,7 +95,7 @@ function grassMaterial(): THREE.MeshStandardMaterial {
     fs = before(
       fs,
       'void main() {',
-      `varying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform vec3 uGrassA;\nuniform vec3 uGrassB;\nuniform vec3 uGrassTip;\nuniform vec3 uGrassDry;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;\nuniform float uCloudShadow;\nuniform float uTime;\n${NOISE_GLSL}`,
+      `varying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform vec3 uGrassA;\nuniform vec3 uGrassB;\nuniform vec3 uGrassTip;\nuniform vec3 uGrassDry;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;\nuniform float uCloudShadow;\nuniform float uTime;\nuniform float uDryAmt;\nuniform vec4 uSeasonW;\nuniform float uRim;\nuniform float uSnow;\n${NOISE_GLSL}`,
     );
     fs = replace(
       fs,
@@ -101,13 +104,16 @@ function grassMaterial(): THREE.MeshStandardMaterial {
       vec2 gp = vGOrigin.xz;
       float gmix = smoothstep(0.3, 0.72, hvFbm(gp * 0.055));
       vec3 gbase = mix(uGrassA, uGrassB, gmix);
-      gbase = mix(gbase, uGrassDry, smoothstep(0.62, 0.9, hvFbm(gp * 0.09 + 5.0)) * 0.45);
+      float gDryLo = 0.62 - 0.14 * uSeasonW.z;
+      gbase = mix(gbase, uGrassDry, smoothstep(gDryLo, gDryLo + 0.22, hvFbm(gp * 0.09 + 5.0)) * uDryAmt);
       float glush = smoothstep(0.35, 0.78, hvFbm(gp * 0.11 + 20.0));
       gbase = mix(gbase, uGrassA * vec3(0.7, 0.86, 0.74), glush * 0.55) * 0.9;
       vec3 gtip = mix(gbase, uGrassTip, 0.55);
       float gh = vGH;
       vec3 gcol = mix(gbase * 0.62, gbase * 1.02, smoothstep(0.0, 0.45, gh));
       gcol = mix(gcol, gtip, smoothstep(0.45, 1.0, gh));
+      // Winter: dry straw poking through the snow.
+      gcol = mix(gcol, vec3(0.42, 0.34, 0.2) * (0.6 + 0.7 * gh), uSnow);
       diffuseColor.rgb = gcol;
       `,
     );
@@ -120,7 +126,7 @@ function grassMaterial(): THREE.MeshStandardMaterial {
       {
         vec3 V = normalize(cameraPosition - vGWorld);
         float back = pow(max(dot(-V, normalize(uSunDir)), 0.0), 2.0) * 1.1 + 0.1;
-        totalEmissiveRadiance += gcol * uSunColor * gh * gh * back * 0.35 * hvCloudShadow(vGWorld.xz, uTime, uCloudShadow);
+        totalEmissiveRadiance += gcol * uSunColor * gh * gh * (back * 0.35 + uRim * 0.5) * hvCloudShadow(vGWorld.xz, uTime, uCloudShadow);
       }`,
     );
     shader.fragmentShader = fs;
@@ -150,11 +156,13 @@ export class GrassField {
   private material = grassMaterial();
   private tileRefs = new Map<string, TileRef[]>();
   private zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  private chunks: THREE.InstancedMesh[] = [];
 
   constructor(opts: GrassOptions) {
     this.group.name = 'grass';
     const rng = new Rng(opts.seed);
-    const geos = [tuftGeometry(rng, 9, 'short'), tuftGeometry(rng, 8, 'short'), tuftGeometry(rng, 7, 'tall'), tuftGeometry(rng, 9, 'tall')];
+    // One tuft geometry for everything (tall tufts are stretched per instance) → one draw per chunk.
+    const geos = [tuftGeometry(rng, 9, 'short')];
     const { x0, z0, x1, z1 } = opts.bounds;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -174,11 +182,11 @@ export class GrassField {
               const x = tx + rng.next();
               const z = tz + rng.next();
               const tall = rng.next() < opts.tallness(x, z);
-              const vi = (tall ? 2 : 0) + (rng.next() < 0.5 ? 0 : 1);
+              const vi = 0;
               p.set(x, opts.height(x, z) - 0.02, z);
               q.setFromAxisAngle(up, rng.next() * Math.PI * 2);
               const sc = 0.75 + rng.next() * 0.6;
-              s.set(sc * (0.9 + rng.next() * 0.3), sc * (0.85 + rng.next() * 0.35), sc);
+              s.set(sc * (0.9 + rng.next() * 0.3), sc * (0.85 + rng.next() * 0.35) * (tall ? 1.75 : 1), sc);
               m.compose(p, q, s);
               const bucket = per[vi]!;
               bucket.mats.push(m.clone());
@@ -191,6 +199,13 @@ export class GrassField {
         }
         per.forEach((b, vi) => {
           if (!b.mats.length) return;
+          // Shuffle so drawing the first N instances thins the chunk uniformly (distance LOD).
+          for (let i = b.mats.length - 1; i > 0; i--) {
+            const j = Math.floor(rng.next() * (i + 1));
+            [b.mats[i], b.mats[j]] = [b.mats[j]!, b.mats[i]!];
+            [b.cols[i], b.cols[j]] = [b.cols[j]!, b.cols[i]!];
+            [b.tiles[i], b.tiles[j]] = [b.tiles[j]!, b.tiles[i]!];
+          }
           const mesh = new THREE.InstancedMesh(geos[vi]!, this.material, b.mats.length);
           b.mats.forEach((mm, i) => {
             mesh.setMatrixAt(i, mm);
@@ -215,9 +230,22 @@ export class GrassField {
           mesh.castShadow = false;
           mesh.name = `grass-chunk-${cx}-${cz}`;
           mesh.userData.noAO = true;
+          mesh.userData.full = b.mats.length;
+          mesh.userData.center = new THREE.Vector2(cx + CHUNK / 2, cz + CHUNK / 2);
           this.group.add(mesh);
+          this.chunks.push(mesh);
         });
       }
+    }
+  }
+
+  /** Distance LOD around the camera focus: far chunks draw a thinned subset of tufts. */
+  update(focus: THREE.Vector3): void {
+    for (const m of this.chunks) {
+      const c = m.userData.center as THREE.Vector2;
+      const d = Math.max(0, Math.hypot(c.x - focus.x, c.y - focus.z) - CHUNK * 0.6);
+      const f = d < 10 ? 1 : d < 20 ? 0.55 : 0.25;
+      m.count = Math.max(1, Math.floor((m.userData.full as number) * f));
     }
   }
 

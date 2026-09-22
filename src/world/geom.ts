@@ -298,3 +298,47 @@ export class MeshBuilder {
     return group;
   }
 }
+
+/**
+ * Merge every plain static Mesh under `roots` into one mesh per (material, attribute layout,
+ * shadow flags), baking world transforms. Meshes with custom depth materials, morphs,
+ * instancing or `userData.dynamic` are left alone. Lights and other objects are kept.
+ * Big draw-call saver for hand-placed props that never move.
+ */
+export function mergeStatic(roots: THREE.Object3D[], name = 'static'): THREE.Group {
+  const out = new THREE.Group();
+  out.name = name;
+  const buckets = new Map<string, { material: THREE.Material; cast: boolean; recv: boolean; geos: THREE.BufferGeometry[] }>();
+  const victims: THREE.Mesh[] = [];
+  for (const r of roots) {
+    r.updateMatrixWorld(true);
+    r.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || (m as unknown as THREE.BatchedMesh).isBatchedMesh) return;
+      if (m.customDepthMaterial || m.userData.dynamic || Array.isArray(m.material)) return;
+      const g = m.geometry;
+      const sig = Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '');
+      const key = `${(m.material as THREE.Material).uuid}|${sig}|${m.castShadow}|${m.receiveShadow}`;
+      let b = buckets.get(key);
+      if (!b) {
+        b = { material: m.material as THREE.Material, cast: m.castShadow, recv: m.receiveShadow, geos: [] };
+        buckets.set(key, b);
+      }
+      const gg = (g.index ? g.toNonIndexed() : g.clone()).applyMatrix4(m.matrixWorld);
+      b.geos.push(gg);
+      victims.push(m);
+    });
+  }
+  for (const v of victims) v.removeFromParent();
+  for (const b of buckets.values()) {
+    const merged = mergeGeometries(b.geos);
+    if (!merged) continue;
+    merged.computeBoundingSphere();
+    const mesh = new THREE.Mesh(merged, b.material);
+    mesh.castShadow = b.cast;
+    mesh.receiveShadow = b.recv;
+    mesh.name = `${name}:${b.material.name || 'mat'}`;
+    out.add(mesh);
+  }
+  return out;
+}

@@ -54,6 +54,8 @@ export function installDebugApi(game: Game): DebugApi {
     teleport: (map, x, z) => game.teleport(map, x, z),
     facing: (d) => game.player.setFacing(d),
     openUI: (name) => {
+      const base = name.split(':')[0]!;
+      if (base !== 'none' && !game.hud.hasPanel(base)) console.error(`[ui] openUI("${name}"): no panel registered for "${base}"`);
       game.events.emit('ui:open', { name });
     },
     give: (itemId, qty = 1) => game.events.emit('item:give', { itemId, qty }),
@@ -71,7 +73,8 @@ export function installDebugApi(game: Game): DebugApi {
       game.calendar.setWeather(d.weather);
       game.applySeason(d.season, true);
       game.applyWeather(d.weather, true);
-      await game.teleport(map, map === d.map ? d.x : 31.5, map === d.map ? d.z : 19.6);
+      await game.teleport(map, map === d.map ? d.x : 31.2, map === d.map ? d.z : 20.2);
+      game.events.emit('demo:stage', { name, showcase: d.showcase ?? ['field'] });
       game.calendar.setHour(d.time);
       game.player.setFacing(d.facing);
       api.camera(d.camera ?? {});
@@ -96,6 +99,7 @@ export function installDebugApi(game: Game): DebugApi {
       for (let i = 0; i < frames; i++) game.step(dt);
     },
     info: () => ({
+      perf: game.perf(),
       map: game.world.current?.id,
       player: { x: game.player.position.x, z: game.player.position.z, facing: game.player.facing },
       calendar: game.calendar.serialize(),

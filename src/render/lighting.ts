@@ -36,20 +36,21 @@ const KEYS: Key[] = [
   { h: 9.5, sun: 0xffe6c4, sunI: 3.2, sky: 0xa8cbf5, ground: 0x5c5038, hemiI: 1.15, fog: 0xd6e2ea, skyTop: 0x6aa0ea, horizon: 0xdcecf5, exposure: 1.0, lift: [0.01, 0.015, 0.03], gain: [1.03, 1.01, 0.98], sat: 1.12, contrast: 1.05, vignette: 0.32, night: 0 },
   { h: 13.0, sun: 0xfff2e0, sunI: 3.4, sky: 0xaccff8, ground: 0x5e533c, hemiI: 1.15, fog: 0xd7e6ef, skyTop: 0x5f9ae8, horizon: 0xdff0fa, exposure: 0.98, lift: [0.01, 0.015, 0.03], gain: [1.02, 1.01, 0.99], sat: 1.1, contrast: 1.05, vignette: 0.3, night: 0 },
   { h: 16.5, sun: 0xffe2b8, sunI: 3.1, sky: 0xa6c4ee, ground: 0x5e5038, hemiI: 1.1, fog: 0xdcdcd2, skyTop: 0x6496e0, horizon: 0xf0e2c8, exposure: 1.0, lift: [0.015, 0.012, 0.03], gain: [1.05, 1.0, 0.96], sat: 1.12, contrast: 1.05, vignette: 0.32, night: 0 },
-  { h: 18.3, sun: 0xffc07a, sunI: 2.8, sky: 0x9fb0e0, ground: 0x5a4432, hemiI: 1.0, fog: 0xe6c3a0, skyTop: 0x5b7ecb, horizon: 0xffc58c, exposure: 1.02, lift: [0.03, 0.015, 0.04], gain: [1.1, 0.98, 0.9], sat: 1.14, contrast: 1.06, vignette: 0.38, night: 0 },
-  { h: 19.3, sun: 0xffa45c, sunI: 2.4, sky: 0x8f96cc, ground: 0x4e3a30, hemiI: 0.95, fog: 0xd9a27e, skyTop: 0x4a5ea8, horizon: 0xffa86e, exposure: 1.06, lift: [0.035, 0.025, 0.065], gain: [1.05, 0.99, 0.92], sat: 1.06, contrast: 1.06, vignette: 0.42, night: 0.1 },
-  { h: 20.1, sun: 0xff7e52, sunI: 0.9, sky: 0x5c5c9c, ground: 0x2e2230, hemiI: 0.9, fog: 0x7a5a78, skyTop: 0x2c3570, horizon: 0xc9667a, exposure: 1.15, lift: [0.05, 0.03, 0.09], gain: [1.02, 0.94, 1.0], sat: 1.08, contrast: 1.05, vignette: 0.5, night: 0.55 },
-  { h: 20.7, sun: 0x8a90ff, sunI: 0.05, sky: 0x3a4880, ground: 0x181a28, hemiI: 0.9, fog: 0x2e3a60, skyTop: 0x141c44, horizon: 0x4a4f86, exposure: 1.25, lift: [0.03, 0.04, 0.1], gain: [0.92, 0.96, 1.1], sat: 1.0, contrast: 1.05, vignette: 0.55, night: 0.9 },
-  { h: 21.5, sun: 0xa8b8ff, sunI: 0.75, sky: 0x2e3f78, ground: 0x12141e, hemiI: 0.9, fog: 0x1f2a4c, skyTop: 0x0b1230, horizon: 0x2a3766, exposure: 1.3, lift: [0.025, 0.035, 0.09], gain: [0.9, 0.97, 1.12], sat: 0.98, contrast: 1.06, vignette: 0.58, night: 1 },
-  { h: 26.0, sun: 0xa0b0ff, sunI: 0.7, sky: 0x2a3a72, ground: 0x10121c, hemiI: 0.85, fog: 0x1b2544, skyTop: 0x09102a, horizon: 0x24305c, exposure: 1.3, lift: [0.025, 0.035, 0.09], gain: [0.9, 0.97, 1.12], sat: 0.96, contrast: 1.06, vignette: 0.6, night: 1 },
+  { h: 18.2, sun: 0xffc98a, sunI: 2.9, sky: 0x9fb0e0, ground: 0x5a4432, hemiI: 1.0, fog: 0xe6c3a0, skyTop: 0x5b7ecb, horizon: 0xffc58c, exposure: 1.02, lift: [0.03, 0.015, 0.04], gain: [1.1, 0.98, 0.9], sat: 1.14, contrast: 1.06, vignette: 0.38, night: 0 },
+  { h: 19.0, sun: 0xffb070, sunI: 2.4, sky: 0x8f9ad0, ground: 0x4e3a30, hemiI: 0.85, fog: 0xe0a882, skyTop: 0x4f64b0, horizon: 0xffae70, exposure: 1.05, lift: [0.035, 0.02, 0.06], gain: [1.1, 0.97, 0.88], sat: 1.14, contrast: 1.09, vignette: 0.46, night: 0.04 },
+  { h: 19.8, sun: 0xff8a5a, sunI: 1.5, sky: 0x6c6aa8, ground: 0x3a2a30, hemiI: 0.85, fog: 0xa8708a, skyTop: 0x34408a, horizon: 0xe8806a, exposure: 1.1, lift: [0.05, 0.03, 0.08], gain: [1.05, 0.95, 0.98], sat: 1.1, contrast: 1.07, vignette: 0.5, night: 0.3 },
+  { h: 20.5, sun: 0x8a90ff, sunI: 0.08, sky: 0x3a4880, ground: 0x181a28, hemiI: 0.75, fog: 0x2e3a60, skyTop: 0x141c44, horizon: 0x4a4f86, exposure: 1.25, lift: [0.03, 0.04, 0.1], gain: [0.92, 0.96, 1.1], sat: 1.0, contrast: 1.07, vignette: 0.55, night: 0.88 },
+  { h: 21.3, sun: 0x7f9cff, sunI: 0.9, sky: 0x2e3f78, ground: 0x0c0e18, hemiI: 0.62, fog: 0x1c2748, skyTop: 0x0b1230, horizon: 0x2a3766, exposure: 1.32, lift: [0.02, 0.03, 0.085], gain: [0.9, 0.97, 1.14], sat: 1.02, contrast: 1.1, vignette: 0.6, night: 1 },
+  { h: 26.0, sun: 0x7f9cff, sunI: 0.85, sky: 0x2a3a72, ground: 0x0c0e18, hemiI: 0.6, fog: 0x18223f, skyTop: 0x09102a, horizon: 0x24305c, exposure: 1.32, lift: [0.02, 0.03, 0.085], gain: [0.9, 0.97, 1.14], sat: 1.0, contrast: 1.1, vignette: 0.62, night: 1 },
 ];
 
-const SEASON_GRASS: Record<Season, { a: number; b: number; tip: number; dry: number }> = {
-  spring: { a: 0x4d8c38, b: 0x7fb246, tip: 0xb6d46a, dry: 0xa2b05a },
-  summer: { a: 0x437f2f, b: 0x6aa13a, tip: 0xa8c855, dry: 0x9c9e48 },
-  fall: { a: 0x6f8638, b: 0xa99640, tip: 0xd0b25c, dry: 0xc07436 },
-  winter: { a: 0xdfe8f0, b: 0xc9d6e2, tip: 0xf2f6fa, dry: 0xaebdcc },
+const SEASON_GRASS: Record<Season, { a: number; b: number; tip: number; dry: number; dryAmt: number }> = {
+  spring: { a: 0x4d8c38, b: 0x7fb246, tip: 0xb6d46a, dry: 0xa2b05a, dryAmt: 0.45 },
+  summer: { a: 0x437f2f, b: 0x6aa13a, tip: 0xa8c855, dry: 0x9c9e48, dryAmt: 0.5 },
+  fall: { a: 0x7a7c34, b: 0x9c9440, tip: 0xc9a54a, dry: 0xb8642e, dryAmt: 0.95 },
+  winter: { a: 0xdfe8f0, b: 0xc9d6e2, tip: 0xf2f6fa, dry: 0xaebdcc, dryAmt: 0.3 },
 };
+const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1, 0, 0, 0], summer: [0, 1, 0, 0], fall: [0, 0, 1, 0], winter: [0, 0, 0, 1] };
 
 const _c1 = new THREE.Color();
 const _c2 = new THREE.Color();
@@ -78,6 +79,9 @@ export class DayNight {
   private grassColors = { a: new THREE.Color(), b: new THREE.Color(), tip: new THREE.Color(), dry: new THREE.Color() };
   private grassTarget = { a: new THREE.Color(), b: new THREE.Color(), tip: new THREE.Color(), dry: new THREE.Color() };
   private seasonTint = new THREE.Color(1, 1, 1);
+  private seasonW = new THREE.Vector4(1, 0, 0, 0);
+  private dryAmtTarget = 0.45;
+  private flash = 0;
   private first = true;
   private sunDir = new THREE.Vector3();
   // Image-based lighting: a tiny gradient-sky scene prefiltered with PMREM, refreshed
@@ -200,6 +204,8 @@ export class DayNight {
     this.grassTarget.b.setHex(s.b);
     this.grassTarget.tip.setHex(s.tip);
     this.grassTarget.dry.setHex(s.dry);
+    this.dryAmtTarget = s.dryAmt;
+    this.seasonW.fromArray(SEASON_W[season]);
     this.snowTarget = season === 'winter' ? 1 : 0;
     this.seasonTint.setRGB(1, 1, 1);
     if (season === 'fall') this.seasonTint.setRGB(1.04, 0.98, 0.9);
@@ -213,12 +219,19 @@ export class DayNight {
     this.grassColors.tip.copy(this.grassTarget.tip);
     this.grassColors.dry.copy(this.grassTarget.dry);
     globalUniforms.uSnow.value = this.snowTarget;
+    globalUniforms.uSeasonW.value.copy(this.seasonW);
+    globalUniforms.uDryAmt.value = this.dryAmtTarget;
+  }
+
+  /** Lightning flash 0..1 (storm), set every frame by the weather system. */
+  setFlash(f: number): void {
+    this.flash = f;
   }
 
   setWeather(w: Weather, instant = false): void {
     this.wetTarget = w === 'rain' || w === 'storm' ? 1 : 0;
     this.windTarget = w === 'storm' ? 2.6 : w === 'wind' ? 2.0 : w === 'rain' ? 1.5 : 1.0;
-    this.overcastTarget = w === 'rain' ? 0.75 : w === 'storm' ? 0.95 : w === 'snow' ? 0.6 : 0;
+    this.overcastTarget = w === 'rain' ? 0.9 : w === 'storm' ? 1.0 : w === 'snow' ? 0.55 : 0;
     if (w === 'snow') this.snowTarget = 1;
     if (instant) {
       this.overcast = this.overcastTarget;
@@ -246,8 +259,9 @@ export class DayNight {
   /** Direction towards the sun/moon for an hour. */
   lightDirection(h: number, out: THREE.Vector3): THREE.Vector3 {
     if (h < 20.7 && h >= 5.5) {
-      const t = THREE.MathUtils.clamp((h - 5.6) / (20.5 - 5.6), 0, 1);
-      const el = THREE.MathUtils.degToRad(7 + Math.sin(t * Math.PI) * 50);
+      // Low, raking sun in the morning and a long golden-hour (~9° at 19:00) before sunset.
+      const t = THREE.MathUtils.clamp((h - 5.8) / (20.2 - 5.8), 0, 1);
+      const el = THREE.MathUtils.degToRad(4 + Math.pow(Math.sin(t * Math.PI), 1.2) * 54);
       const hx = Math.cos(t * Math.PI);
       const hz = 0.55 + 0.25 * Math.sin(t * Math.PI);
       const len = Math.hypot(hx, hz);
@@ -272,6 +286,8 @@ export class DayNight {
     globalUniforms.uWindStrength.value += (this.windTarget - globalUniforms.uWindStrength.value) * k;
     globalUniforms.uSnow.value += (this.snowTarget - globalUniforms.uSnow.value) * k * 0.4;
     for (const key of ['a', 'b', 'tip', 'dry'] as const) this.grassColors[key].lerp(this.grassTarget[key], k * 0.5);
+    globalUniforms.uSeasonW.value.lerp(this.seasonW, k * 0.5);
+    globalUniforms.uDryAmt.value += (this.dryAmtTarget - globalUniforms.uDryAmt.value) * k * 0.5;
     globalUniforms.uGrassA.value.copy(this.grassColors.a);
     globalUniforms.uGrassB.value.copy(this.grassColors.b);
     globalUniforms.uGrassTip.value.copy(this.grassColors.tip);
@@ -291,18 +307,24 @@ export class DayNight {
     this.sun.intensity = L(a.sunI, b.sunI, t) * (1 - oc * 0.8);
     globalUniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity / 3);
 
-    // Hemisphere + bounce
-    lerpHex(a.sky, b.sky, t, this.hemi.color).lerp(new THREE.Color(0.62, 0.66, 0.72), oc * 0.5);
-    lerpHex(a.ground, b.ground, t, this.hemi.groundColor);
-    this.hemi.intensity = L(a.hemiI, b.hemiI, t) * 0.8 * (1 + oc * 0.35);
+    // Hemisphere + bounce (snow: cool blue skylight fills the shadows; lightning: flash)
+    const snow = globalUniforms.uSnow.value;
+    lerpHex(a.sky, b.sky, t, this.hemi.color).lerp(new THREE.Color(0.62, 0.66, 0.72), oc * 0.5).lerp(new THREE.Color(0.62, 0.74, 1.0), snow * 0.35 * (1 - this.night));
+    lerpHex(a.ground, b.ground, t, this.hemi.groundColor).lerp(new THREE.Color(0.55, 0.6, 0.7), snow * 0.4 * (1 - this.night));
+    this.hemi.intensity = L(a.hemiI, b.hemiI, t) * 0.8 * (1 + oc * 0.35) + this.flash * 3.5;
     this.bounce.color.copy(this.hemi.groundColor).lerp(this.sun.color, 0.5);
     this.bounce.intensity = this.sun.intensity * 0.12;
 
     // Fog + sky
     lerpHex(a.fog, b.fog, t, this.fog.color).lerp(new THREE.Color(0.55, 0.58, 0.62).multiplyScalar(1 - this.night * 0.7), oc * 0.6);
     (this.rc.scene.background as THREE.Color).copy(this.fog.color);
-    this.fog.near = this.rc.rig.distance * 1.25;
-    this.fog.far = this.rc.rig.distance * (4.2 - oc * 1.6);
+    // Rain: ~2.5x denser, blue-grey fog.
+    const rainy = Math.max(0, oc - 0.6) / 0.4;
+    const storm = Math.max(0, oc - 0.9) / 0.1;
+    this.fog.color.lerp(new THREE.Color(0.46, 0.52, 0.6).multiplyScalar((1 - this.night * 0.75) * (1 - storm * 0.3)), rainy * 0.6);
+    (this.rc.scene.background as THREE.Color).copy(this.fog.color);
+    this.fog.near = this.rc.rig.distance * (1.25 - rainy * 0.55);
+    this.fog.far = this.rc.rig.distance * (4.2 - oc * 1.1 - rainy * 1.25);
     lerpHex(a.skyTop, b.skyTop, t, this.skyMat.uniforms.uTop!.value as THREE.Color);
     lerpHex(a.horizon, b.horizon, t, this.skyMat.uniforms.uHorizon!.value as THREE.Color);
     (this.skyMat.uniforms.uTop!.value as THREE.Color).lerp(this.fog.color, oc * 0.7);
@@ -312,7 +334,10 @@ export class DayNight {
     globalUniforms.uCloudShadow.value = 0.32 * (1 - oc) * (1 - this.night);
 
     // Exposure + grade
-    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t);
+    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) + this.flash * 0.5;
+    // Golden-hour rim: strongest with a low sun, gone at night / under overcast.
+    const elev = Math.asin(THREE.MathUtils.clamp(this.sunDir.y, -1, 1));
+    globalUniforms.uRim.value = (1 - THREE.MathUtils.smoothstep(elev, 0.14, 0.5)) * (1 - this.night) * (1 - oc * 0.9);
     const g = this.rc.post.grade.uniforms;
     (g.uLift!.value as THREE.Vector3).set(L(a.lift[0], b.lift[0], t), L(a.lift[1], b.lift[1], t), L(a.lift[2], b.lift[2], t));
     (g.uGain!.value as THREE.Vector3).set(L(a.gain[0], b.gain[0], t), L(a.gain[1], b.gain[1], t), L(a.gain[2], b.gain[2], t));
@@ -321,10 +346,12 @@ export class DayNight {
     g.uVignette!.value = L(a.vignette, b.vignette, t);
     this.rc.post.setBloom(0.3 + this.night * 0.35, 0.9 - this.night * 0.15);
 
-    // Night emissives + practical lights
-    const glow = THREE.MathUtils.smoothstep(this.night, 0.15, 0.85) + oc * 0.25;
-    for (const n of nightGlow) n.material.emissiveIntensity = n.max * Math.min(1, glow);
-    for (const n of this.nightLights) n.light.intensity = n.max * Math.min(1, glow);
+    // Night emissives + practical lights: lamps come on at dusk (18:30) and stay on until dawn.
+    const dusk = hour >= 12 ? THREE.MathUtils.smoothstep(hour, 18.3, 19.3) : 1 - THREE.MathUtils.smoothstep(hour, 5.8, 6.6);
+    const glow = Math.min(1, Math.max(dusk * 0.85 + THREE.MathUtils.smoothstep(this.night, 0.3, 0.9) * 0.15, THREE.MathUtils.smoothstep(this.night, 0.15, 0.85)) + oc * 0.3);
+    globalUniforms.uLamps.value = glow;
+    for (const n of nightGlow) n.material.emissiveIntensity = n.max * glow;
+    for (const n of this.nightLights) n.light.intensity = n.max * glow;
 
     this.rc.scene.environmentIntensity = 0.55 * (1 - this.night * 0.6);
     this.updateEnv(hour, `${this.overcastTarget}:${this.snowTarget}`);
@@ -335,8 +362,11 @@ export class DayNight {
   /** Fit the directional shadow frustum to the camera's ground footprint; texel-snapped. */
   private fitShadow(): void {
     const rig = this.rc.rig;
-    const center = rig.focus.clone().add(rig.lookOffset);
-    const radius = rig.distance * 0.95 + 6;
+    // The far half of a pitched view is wider: centre the shadow box a little beyond the focus,
+    // sized to just cover the footprint (tighter = sharper shadows, fewer casters).
+    const yawR = THREE.MathUtils.degToRad(rig.yaw);
+    const center = rig.focus.clone().add(rig.lookOffset).add(new THREE.Vector3(-Math.sin(yawR), 0, -Math.cos(yawR)).multiplyScalar(rig.distance * 0.12));
+    const radius = rig.distance * 0.7 + 3;
     const cam = this.sun.shadow.camera;
     cam.left = -radius;
     cam.right = radius;

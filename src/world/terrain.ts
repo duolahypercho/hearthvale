@@ -31,7 +31,9 @@ export type SplatChannel = 'path' | 'tilled' | 'wet' | 'sand';
 const CH: Record<SplatChannel, number> = { path: 0, tilled: 1, wet: 2, sand: 3 };
 
 export class Terrain {
-  readonly mesh: THREE.Mesh;
+  /** Terrain chunks (split for frustum / shadow culling); all share one material. */
+  readonly mesh: THREE.Group;
+  readonly material: THREE.MeshStandardMaterial;
   readonly splat: THREE.DataTexture;
   readonly heightTex: THREE.DataTexture;
   readonly nx: number;
@@ -67,10 +69,16 @@ export class Terrain {
     this.heightTex.magFilter = this.heightTex.minFilter = THREE.LinearFilter;
     this.heightTex.needsUpdate = true;
 
-    this.mesh = new THREE.Mesh(this.buildGeometry(), this.buildMaterial());
-    this.mesh.receiveShadow = true;
-    this.mesh.castShadow = true;
+    this.material = this.buildMaterial();
+    this.mesh = new THREE.Group();
     this.mesh.name = 'terrain';
+    for (const g of this.splitGeometry(this.buildGeometry(), 3)) {
+      const m = new THREE.Mesh(g, this.material);
+      m.receiveShadow = true;
+      m.castShadow = true;
+      m.name = 'terrain-chunk';
+      this.mesh.add(m);
+    }
   }
 
   /** Bilinear ground height at world x,z. */
@@ -199,6 +207,78 @@ export class Terrain {
     return g;
   }
 
+  /** Bake the winter snow-drift mask (0..1 per vertex): fn(worldX, worldZ). */
+  setDrift(fn: (x: number, z: number) => number): void {
+    for (const m of this.mesh.children as THREE.Mesh[]) {
+      const pos = m.geometry.attributes.position as THREE.BufferAttribute;
+      const dr = m.geometry.attributes.aDrift as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) dr.setX(i, fn(pos.getX(i), pos.getZ(i)));
+      dr.needsUpdate = true;
+      // Leave room for the raised drifts in culling bounds.
+      m.geometry.computeBoundingSphere();
+      if (m.geometry.boundingSphere) m.geometry.boundingSphere.radius += 0.3;
+    }
+  }
+
+  /** Split the full grid (normals already computed on the whole) into n×n chunk geometries. */
+  private splitGeometry(full: THREE.BufferGeometry, n: number): THREE.BufferGeometry[] {
+    const { nx, nz } = this;
+    const out: THREE.BufferGeometry[] = [];
+    const pos = full.attributes.position as THREE.BufferAttribute;
+    const nor = full.attributes.normal as THREE.BufferAttribute;
+    const col = full.attributes.color as THREE.BufferAttribute;
+    const uv = full.attributes.uv as THREE.BufferAttribute;
+    const h = this.heights;
+    for (let cj = 0; cj < n; cj++) {
+      for (let ci = 0; ci < n; ci++) {
+        const i0 = Math.floor((ci * (nx - 1)) / n);
+        const i1 = Math.floor(((ci + 1) * (nx - 1)) / n);
+        const j0 = Math.floor((cj * (nz - 1)) / n);
+        const j1 = Math.floor(((cj + 1) * (nz - 1)) / n);
+        const w = i1 - i0 + 1;
+        const d = j1 - j0 + 1;
+        const P = new Float32Array(w * d * 3);
+        const N = new Float32Array(w * d * 3);
+        const C = new Float32Array(w * d * 3);
+        const U = new Float32Array(w * d * 2);
+        for (let j = 0; j < d; j++) {
+          for (let i = 0; i < w; i++) {
+            const src = (j0 + j) * nx + (i0 + i);
+            const dst = j * w + i;
+            P.set([pos.getX(src), pos.getY(src), pos.getZ(src)], dst * 3);
+            N.set([nor.getX(src), nor.getY(src), nor.getZ(src)], dst * 3);
+            C.set([col.getX(src), col.getY(src), col.getZ(src)], dst * 3);
+            U.set([uv.getX(src), uv.getY(src)], dst * 2);
+          }
+        }
+        const idx: number[] = [];
+        for (let j = 0; j < d - 1; j++) {
+          for (let i = 0; i < w - 1; i++) {
+            const a = j * w + i;
+            const b = a + 1;
+            const c = a + w;
+            const e = c + 1;
+            const ga = (j0 + j) * nx + (i0 + i);
+            if (Math.abs(h[ga]! - h[ga + nx + 1]!) < Math.abs(h[ga + 1]! - h[ga + nx]!)) idx.push(a, c, e, a, e, b);
+            else idx.push(a, c, b, b, c, e);
+          }
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+        g.setAttribute('aDrift', new THREE.BufferAttribute(new Float32Array(w * d), 1));
+        g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+        g.setAttribute('color', new THREE.BufferAttribute(C, 3));
+        g.setAttribute('uv', new THREE.BufferAttribute(U, 2));
+        g.setIndex(idx);
+        g.computeBoundingSphere();
+        g.computeBoundingBox();
+        out.push(g);
+      }
+    }
+    full.dispose();
+    return out;
+  }
+
   private buildMaterial(): THREE.MeshStandardMaterial {
     const m = new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0, vertexColors: true });
     m.name = 'terrain';
@@ -221,8 +301,18 @@ export class Terrain {
       shader.uniforms.uGrassB = globalUniforms.uGrassB;
       shader.uniforms.uGrassDry = globalUniforms.uGrassDry;
       shader.uniforms.uGrassTip = globalUniforms.uGrassTip;
+      shader.uniforms.uDryAmt = globalUniforms.uDryAmt;
+      shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
+      shader.uniforms.uRain = globalUniforms.uRain;
+      shader.uniforms.uWetT = globalUniforms.uWet;
+      shader.uniforms.uTimeT = globalUniforms.uTime;
+      shader.uniforms.uSkyT = globalUniforms.uSkyColor;
+      shader.uniforms.uHorizonT = globalUniforms.uHorizonColor;
+      shader.uniforms.uSnowV = globalUniforms.uSnow;
       let vs = shader.vertexShader;
-      vs = before(vs, 'void main() {', 'varying vec3 vTWorld;\nvarying vec3 vTNormal;');
+      vs = before(vs, 'void main() {', 'varying vec3 vTWorld;\nvarying vec3 vTNormal;\nattribute float aDrift;\nuniform float uSnowV;');
+      // Winter: snow drifts pile up against walls and fences.
+      vs = after(vs, '#include <begin_vertex>', 'transformed.y += aDrift * 0.2 * smoothstep(0.3, 1.0, uSnowV);');
       vs = after(vs, '#include <project_vertex>', 'vTWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvTNormal = normalize(mat3(modelMatrix) * objectNormal);');
       shader.vertexShader = vs;
       let fs = shader.fragmentShader;
@@ -246,7 +336,30 @@ export class Terrain {
         uniform vec3 uGrassDry;
         uniform vec3 uGrassTip;
         uniform float uWaterLevel;
+        uniform float uDryAmt;
+        uniform vec4 uSeasonW;
+        uniform float uRain;
+        uniform float uWetT;
+        uniform float uTimeT;
+        uniform vec3 uSkyT;
+        uniform vec3 uHorizonT;
         ${NOISE_GLSL}
+        // Rain ripples: expanding rings in a jittered cell grid, returns a normal offset (xz).
+        vec2 hvRipples(vec2 p, float t) {
+          vec2 acc = vec2(0.0);
+          for (int k = 0; k < 2; k++) {
+            vec2 q = p * (k == 0 ? 2.2 : 3.1) + float(k) * 7.7;
+            vec2 id = floor(q);
+            vec2 f = fract(q) - 0.5;
+            vec2 jit = hvHash22(id) - 0.5;
+            float ph = fract(t * (0.9 + 0.4 * hvHash12(id + 3.0)) + hvHash12(id));
+            vec2 d = f - jit * 0.5;
+            float r = length(d);
+            float ring = sin((r - ph * 0.55) * 60.0) * smoothstep(0.08, 0.0, abs(r - ph * 0.55)) * (1.0 - ph);
+            acc += normalize(d + 1e-4) * ring;
+          }
+          return acc;
+        }
         `,
       );
       fs = replace(
@@ -265,7 +378,8 @@ export class Terrain {
         // Grass: seasonal two-tone + dry patches + detail strokes.
         float gmix = smoothstep(0.3, 0.72, hvFbm(wp.xz * 0.055));
         vec3 grass = mix(uGrassA, uGrassB, gmix);
-        grass = mix(grass, uGrassDry, smoothstep(0.62, 0.9, hvFbm(wp.xz * 0.09 + 5.0)) * 0.45);
+        float dryLo = 0.62 - 0.14 * uSeasonW.z;
+        grass = mix(grass, uGrassDry, smoothstep(dryLo, dryLo + 0.22, hvFbm(wp.xz * 0.09 + 5.0)) * uDryAmt);
         grass = mix(grass, uGrassTip, smoothstep(0.55, 0.95, hvNoise(wp.xz * 0.35)) * 0.18);
         float gd = texture2D(uGrassTex, wp.xz * 0.23).r;
         float gd2 = texture2D(uGrassTex, wp.xz * 0.071 + 0.37).r;
@@ -317,15 +431,45 @@ export class Terrain {
         ground = mix(ground, wetSand, shore * (1.0 - rockM * 0.5));
         ground = mix(ground, vec3(0.16, 0.15, 0.1) + sand * 0.12, smoothstep(0.1, 0.7, depthB));
 
+        // Puddles: noise-masked on flat ground (paths and soil most likely) while it's wet.
+        float flatG = smoothstep(0.965, 0.995, wn.y);
+        float pudN = hvFbm(wp.xz * 0.42 + 11.0) + pathM * 0.08;
+        float hvPuddle = smoothstep(0.6, 0.66, pudN) * flatG * smoothstep(0.5, 0.95, uWetT) * (1.0 - rockM) * pathM * (1.0 - tillM);
+        ground *= mix(1.0, 0.5, hvPuddle);
+        ground = mix(ground, ground * vec3(0.9, 0.95, 1.05), hvPuddle);
+        float hvTPath = pathM;
+
         diffuseColor.rgb *= ground;
         float hvTerrainRough = mix(0.95, 0.55, wetM * tillM);
         hvTerrainRough = mix(hvTerrainRough, 0.6, shore);
+        hvTerrainRough = mix(hvTerrainRough, 0.1, hvPuddle);
         `,
       );
       fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = hvTerrainRough;');
+      // Puddles mirror the (overcast) sky.
+      fs = after(
+        fs,
+        '#include <emissivemap_fragment>',
+        /* glsl */ `
+        if (hvPuddle > 0.01) {
+          vec3 Vp = normalize(cameraPosition - vTWorld);
+          float fr = 0.25 + 0.75 * pow(1.0 - max(Vp.y, 0.0), 3.0);
+          totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.5) * hvPuddle * fr * 0.4;
+        }`,
+      );
+      fs = after(
+        fs,
+        '#include <normal_fragment_maps>',
+        /* glsl */ `
+        if (hvPuddle > 0.01 && uRain > 0.01) {
+          vec2 rp = hvRipples(vTWorld.xz, uTimeT) * 0.35 * hvPuddle * uRain;
+          normal = normalize(normal + mat3(viewMatrix) * vec3(rp.x, 0.0, rp.y));
+        }`,
+      );
       shader.fragmentShader = fs;
     });
-    applyWorldFx(m, { snowUp: 0.7 });
+    // Worldfx after the terrain patch so the snow can read the path mask (trampled slush).
+    applyWorldFx(m, { snowUp: 0.7, snowMask: '(1.0 - hvTPath * 0.3)', slush: '(hvTPath * 0.8)' });
     return m;
   }
 }
