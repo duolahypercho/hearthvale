@@ -52,6 +52,9 @@ const SEASON_GRASS: Record<Season, { a: number; b: number; tip: number; dry: num
 };
 const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1, 0, 0, 0], summer: [0, 1, 0, 0], fall: [0, 0, 1, 0], winter: [0, 0, 0, 1] };
 
+/** Distance (world units) from the view centre back towards the sun that shadow casters are gathered. */
+const SHADOW_REACH = 30;
+
 const _c1 = new THREE.Color();
 const _c2 = new THREE.Color();
 
@@ -101,7 +104,7 @@ export class DayNight {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.03;
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 140;
+    this.sun.shadow.camera.far = SHADOW_REACH + 14;
     scene.add(this.sun, this.sun.target);
 
     this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a4a36, 1.1);
@@ -344,14 +347,18 @@ export class DayNight {
     g.uSaturation!.value = L(a.sat, b.sat, t) * (1 - oc * 0.18);
     g.uContrast!.value = L(a.contrast, b.contrast, t) * (1 - oc * 0.04);
     g.uVignette!.value = L(a.vignette, b.vignette, t);
-    this.rc.post.setBloom(0.3 + this.night * 0.35, 0.9 - this.night * 0.15);
+    // Bloom threshold stays high day and night (only emissives / sun glints exceed it); night only
+    // raises the strength a little so lit windows and lanterns glow — lamp-lit ground never blooms.
+    this.rc.post.setBloom(0.3 + this.night * 0.22, 0.92);
 
     // Night emissives + practical lights: lamps come on at dusk (18:30) and stay on until dawn.
     const dusk = hour >= 12 ? THREE.MathUtils.smoothstep(hour, 18.3, 19.3) : 1 - THREE.MathUtils.smoothstep(hour, 5.8, 6.6);
     const glow = Math.min(1, Math.max(dusk * 0.85 + THREE.MathUtils.smoothstep(this.night, 0.3, 0.9) * 0.15, THREE.MathUtils.smoothstep(this.night, 0.15, 0.85)) + oc * 0.3);
     globalUniforms.uLamps.value = glow;
     for (const n of nightGlow) n.material.emissiveIntensity = n.max * glow;
-    for (const n of this.nightLights) n.light.intensity = n.max * glow;
+    // Snow reflects ~2x the light of grass: dim the practicals over snow cover so pools stay warm, not white.
+    const lampK = glow * (1 - 0.45 * snow);
+    for (const n of this.nightLights) n.light.intensity = n.max * lampK;
 
     this.rc.scene.environmentIntensity = 0.55 * (1 - this.night * 0.6);
     this.updateEnv(hour, `${this.overcastTarget}:${this.snowTarget}`);
@@ -359,30 +366,62 @@ export class DayNight {
     this.fitShadow();
   }
 
-  /** Fit the directional shadow frustum to the camera's ground footprint; texel-snapped. */
+  /**
+   * Fit the directional shadow frustum to the camera's ground footprint (the 4 view-frustum corner
+   * rays hitting the ground plane), in light space, plus a margin for tall casters. Size is
+   * quantised and the centre texel-snapped so shadows don't shimmer while the camera follows.
+   */
   private fitShadow(): void {
     const rig = this.rc.rig;
-    // The far half of a pitched view is wider: centre the shadow box a little beyond the focus,
-    // sized to just cover the footprint (tighter = sharper shadows, fewer casters).
-    const yawR = THREE.MathUtils.degToRad(rig.yaw);
-    const center = rig.focus.clone().add(rig.lookOffset).add(new THREE.Vector3(-Math.sin(yawR), 0, -Math.cos(yawR)).multiplyScalar(rig.distance * 0.12));
-    const radius = rig.distance * 0.7 + 3;
     const cam = this.sun.shadow.camera;
-    cam.left = -radius;
-    cam.right = radius;
-    cam.top = radius;
-    cam.bottom = -radius;
-    cam.updateProjectionMatrix();
-    // Snap center to shadow texel grid in light space to avoid shimmering.
-    const texel = (radius * 2) / this.sun.shadow.mapSize.x;
+    const camera = this.rc.camera;
+    camera.updateMatrixWorld();
     const lightRot = new THREE.Matrix4().lookAt(this.sunDir, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0));
     const inv = lightRot.clone().invert();
-    const ls = center.clone().applyMatrix4(inv);
-    ls.x = Math.round(ls.x / texel) * texel;
-    ls.y = Math.round(ls.y / texel) * texel;
-    center.copy(ls.applyMatrix4(lightRot));
+    const groundY = rig.focus.y;
+    const origin = camera.position;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const p = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    for (const [nx, ny] of [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 1], [0, -1]] as const) {
+      dir.set(nx, ny, 0.5).unproject(camera).sub(origin).normalize();
+      // Ray → ground plane (clamped for rays near the horizon).
+      const t = dir.y < -0.05 ? Math.min((groundY - origin.y) / dir.y, rig.distance * 3) : rig.distance * 3;
+      for (const h of [0, 5]) {
+        p.copy(origin).addScaledVector(dir, t);
+        p.y = groundY + h;
+        p.applyMatrix4(inv);
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+    }
+    const margin = 2.5;
+    const q = 2;
+    const halfW = Math.ceil(((maxX - minX) / 2 + margin) / q) * q;
+    const halfH = Math.ceil(((maxY - minY) / 2 + margin) / q) * q;
+    cam.left = -halfW;
+    cam.right = halfW;
+    cam.top = halfH;
+    cam.bottom = -halfH;
+    cam.updateProjectionMatrix();
+    const center = new THREE.Vector3((minX + maxX) / 2, (minY + maxY) / 2, 0);
+    // Light-space z of the focus point (the box centre sits on the view's ground).
+    center.z = rig.focus.clone().applyMatrix4(inv).z;
+    const texelX = (halfW * 2) / this.sun.shadow.mapSize.x;
+    const texelY = (halfH * 2) / this.sun.shadow.mapSize.y;
+    center.x = Math.round(center.x / texelX) * texelX;
+    center.y = Math.round(center.y / texelY) * texelY;
+    center.applyMatrix4(lightRot);
     this.sun.target.position.copy(center);
-    this.sun.position.copy(center).addScaledVector(this.sunDir, 70);
+    // Only casters within ~45 m up-light of the view can land a shadow in it (a 12 m tree at a
+    // 9° golden-hour sun throws ~75 m, but it's clipped by the cliffs/forest long before that).
+    // A short light column keeps the plateau forest out of the shadow pass.
+    this.sun.position.copy(center).addScaledVector(this.sunDir, SHADOW_REACH);
     this.sun.target.updateMatrixWorld();
     this.bounce.position.copy(center).add(new THREE.Vector3(-this.sunDir.x, 0.4, -this.sunDir.z).multiplyScalar(30));
     this.bounce.target.position.copy(center);

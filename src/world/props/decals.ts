@@ -96,7 +96,7 @@ export class LightPools {
   }
 
   update(): void {
-    const v = globalUniforms.uLamps.value * (0.35 + 0.35 * globalUniforms.uNight.value);
+    const v = globalUniforms.uLamps.value * (0.35 + 0.35 * globalUniforms.uNight.value) * (1 - 0.55 * globalUniforms.uSnow.value);
     this.mat.opacity = v;
     this.group.visible = v > 0.01;
   }

@@ -300,6 +300,64 @@ export class Ambience {
 }
 
 /**
+ * Honey bees buzzing around hive anchors: small dark-gold points on looping Lissajous paths
+ * (hive → flower ring → back). Only on warm, dry days.
+ */
+export class Bees {
+  readonly object: THREE.Points;
+  private pool: PointPool;
+  private seeds: Float32Array;
+  private season: Season = 'spring';
+  private weather: Weather = 'sun';
+
+  constructor(private hives: { x: number; z: number }[], private heightAt: (x: number, z: number) => number, perHive = 9) {
+    const n = Math.max(1, hives.length * perHive);
+    this.pool = new PointPool(n, textures.softDot().map, false);
+    this.object = this.pool.points;
+    this.object.name = 'bees';
+    this.object.renderOrder = 6;
+    this.seeds = new Float32Array(n);
+    for (let i = 0; i < n; i++) this.seeds[i] = Math.random();
+  }
+
+  setSeason(s: Season): void {
+    this.season = s;
+  }
+  setWeather(w: Weather): void {
+    this.weather = w;
+  }
+
+  update(_dt: number, time: number, night: number, viewportH: number): void {
+    this.pool.setViewportHeight(viewportH);
+    const on = this.season !== 'winter' && this.weather !== 'rain' && this.weather !== 'storm' && this.weather !== 'snow' ? 1 - THREE.MathUtils.smoothstep(night, 0.1, 0.5) : 0;
+    this.object.visible = on > 0.01 && this.hives.length > 0;
+    if (!this.object.visible) return;
+    const per = this.pool.n / this.hives.length;
+    for (let i = 0; i < this.pool.n; i++) {
+      const h = this.hives[Math.min(this.hives.length - 1, Math.floor(i / per))]!;
+      const s = this.seeds[i]!;
+      const t = time * (0.55 + s * 0.5) + s * 50;
+      // Out-and-back loops to the flower ring (radius ~1.8 m) with a fast buzzing jitter.
+      const reach = 0.5 + 1.4 * (0.5 + 0.5 * Math.sin(t * 0.7 + s * 9));
+      const a = t * (s < 0.5 ? 1 : -1) + s * 6.28;
+      const x = h.x + Math.cos(a) * reach + Math.sin(time * 23 + s * 90) * 0.03;
+      const z = h.z + Math.sin(a * 1.3) * reach * 0.8 + Math.cos(time * 19 + s * 70) * 0.03;
+      const y = this.heightAt(x, z) + 0.45 + 0.5 * (0.5 + 0.5 * Math.sin(t * 1.7 + s * 4)) + Math.sin(time * 31 + s * 40) * 0.02;
+      this.pool.pos[i * 3] = x;
+      this.pool.pos[i * 3 + 1] = y;
+      this.pool.pos[i * 3 + 2] = z;
+      this.pool.size[i] = 0.045;
+      this.pool.alpha[i] = on * 0.95;
+      const stripe = Math.sin(time * 40 + s * 30) > 0 ? 1 : 0.55;
+      this.pool.color[i * 3] = 0.55 * stripe;
+      this.pool.color[i * 3 + 1] = 0.38 * stripe;
+      this.pool.color[i * 3 + 2] = 0.06;
+    }
+    this.pool.flush();
+  }
+}
+
+/**
  * One-shot particle bursts (dirt puffs when hoeing, water droplets, harvest sparkle).
  *   const fx = new BurstFX();  scene.add(fx.object);
  *   fx.emit(pos, { color: 0x8a5a3a, count: 14, speed: 1.6, size: 0.12, gravity: 6 });

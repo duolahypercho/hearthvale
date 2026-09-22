@@ -2,7 +2,9 @@
  * Tilled soil beds: every tilled tile gets a raised, rounded soil pad with three shallow
  * furrows and a few clods. The pad only slopes down on sides that border untilled ground,
  * so neighbouring tiles merge into continuous beds with a soft, slightly irregular rim.
- * Dry and watered pads use different materials (watered: darker, glossy).
+ * Wetness is a per-tile mask texture sampled in world space by ONE soil material: bilinear
+ * between tile centres + a quarter-tile smoothstep + noise-warped edge, so watered ground bleeds
+ * softly into dry ground (no checkerboard) and gets darker and glossier (roughness 0.96 → 0.5).
  *
  *   const soil = new SoilBeds();  root.add(soil.group);
  *   soil.set(x, z, y, { wet: true, mask }) / soil.clear(x, z)
@@ -13,6 +15,8 @@ import { Rng } from '../../core/rng';
 import { Noise2D } from '../../core/noise';
 import { textures } from '../../render/textures';
 import { applyWorldFx } from '../../render/worldfx';
+import { patchMaterial, after, before } from '../../render/patch';
+import { NOISE_GLSL } from '../../render/shaders/noise';
 import { BatchPool, InstancedSet } from './instanced';
 
 export const SOIL_HEIGHT = 0.075;
@@ -50,10 +54,12 @@ function padGeometry(mask: number, variant: number): THREE.BufferGeometry {
     const ao = (0.78 + 0.22 * ridge) * (0.72 + 0.28 * edge);
     col.push(ao, ao, ao);
   };
+  // Furrows run along X, so X needs far fewer samples than Z (the rim is handled by the edge rows).
+  const NX = 7;
   for (let j = 0; j < N; j++) {
-    for (let i = 0; i < N; i++) {
-      const x0 = -ext + (i / N) * 2 * ext;
-      const x1 = -ext + ((i + 1) / N) * 2 * ext;
+    for (let i = 0; i < NX; i++) {
+      const x0 = -ext + (i / NX) * 2 * ext;
+      const x1 = -ext + ((i + 1) / NX) * 2 * ext;
       const z0 = -ext + (j / N) * 2 * ext;
       const z1 = -ext + ((j + 1) / N) * 2 * ext;
       vert(x0, z0);
@@ -115,22 +121,44 @@ function mergeSimple(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return out;
 }
 
-let dryMat: THREE.MeshStandardMaterial | null = null;
-let wetMat: THREE.MeshStandardMaterial | null = null;
+let soilMat: THREE.MeshStandardMaterial | null = null;
+/** Per-tile wetness (R8, 1 texel per tile), shared by the soil material. */
+const uWetMask = { value: null as THREE.DataTexture | null };
+const uWetSize = { value: new THREE.Vector2(64, 64) };
 
-function soilMaterials(): [THREE.MeshStandardMaterial, THREE.MeshStandardMaterial] {
-  if (!dryMat || !wetMat) {
+function soilMaterial(): THREE.MeshStandardMaterial {
+  if (!soilMat) {
     const d = textures.soil();
-    const w = textures.wetSoil();
-    dryMat = new THREE.MeshStandardMaterial({ map: d.map, bumpMap: d.bump, bumpScale: 2.5, roughness: 0.96, vertexColors: true, color: 0xf2e6dc });
-    dryMat.name = 'soilDry';
-    void w;
-    wetMat = new THREE.MeshStandardMaterial({ map: d.map, bumpMap: d.bump, bumpScale: 2, roughness: 0.34, vertexColors: true, color: 0x9a8a80 });
-    wetMat.name = 'soilWet';
-    applyWorldFx(dryMat, { snowUp: 0.2 });
-    applyWorldFx(wetMat, { snowUp: 0.2, wet: false });
+    soilMat = new THREE.MeshStandardMaterial({ map: d.map, bumpMap: d.bump, bumpScale: 2.5, roughness: 0.96, vertexColors: true, color: 0xf2e6dc });
+    soilMat.name = 'soil';
+    applyWorldFx(soilMat, { snowUp: 0.2 });
+    patchMaterial(soilMat, 'soil-wet', (shader) => {
+      shader.uniforms.uWetMask = uWetMask;
+      shader.uniforms.uWetSize = uWetSize;
+      let fs = shader.fragmentShader;
+      fs = before(fs, 'void main() {', `uniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}`);
+      fs = after(
+        fs,
+        '#include <color_fragment>',
+        /* glsl */ `
+        float hvSoilWet;
+        {
+          vec2 wq = vHvWorldPos.xz;
+          float wm = texture2D(uWetMask, wq / uWetSize).r;
+          // Noise-edged border: the wet front meanders instead of following the tile grid.
+          float we = (hvNoise(wq * 3.1) - 0.5) * 0.34 + (hvNoise(wq * 9.3 + 4.0) - 0.5) * 0.12;
+          hvSoilWet = smoothstep(0.375, 0.625, wm + we);
+          // Damp halo just outside the watered area.
+          float halo = smoothstep(0.12, 0.45, wm + we) * (1.0 - hvSoilWet);
+          diffuseColor.rgb *= mix(vec3(1.0), vec3(0.364, 0.322, 0.302), hvSoilWet);
+          diffuseColor.rgb *= 1.0 - halo * 0.22;
+        }`,
+      );
+      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.5, hvSoilWet);');
+      shader.fragmentShader = fs;
+    });
   }
-  return [dryMat, wetMat];
+  return soilMat;
 }
 
 export class SoilBeds {
@@ -138,29 +166,48 @@ export class SoilBeds {
   readonly pool = new BatchPool('soil');
   private sets = new Map<string, InstancedSet>();
   private tiles = new Map<string, { set: InstancedSet; id: number }>();
+  private wetData: Uint8Array;
+  private wetTex: THREE.DataTexture;
 
-  constructor() {
+  constructor(readonly width = 64, readonly depth = 64) {
     this.group.name = 'soil';
     this.group.add(this.pool.group);
+    this.wetData = new Uint8Array(width * depth);
+    this.wetTex = new THREE.DataTexture(this.wetData, width, depth, THREE.RedFormat, THREE.UnsignedByteType);
+    this.wetTex.magFilter = THREE.LinearFilter;
+    this.wetTex.minFilter = THREE.LinearFilter;
+    this.wetTex.needsUpdate = true;
+    uWetMask.value = this.wetTex;
+    uWetSize.value.set(width, depth);
   }
 
-  private setFor(mask: number, variant: number, wet: boolean): InstancedSet {
-    const key = `${mask}:${variant}:${wet ? 1 : 0}`;
+  private setFor(mask: number, variant: number): InstancedSet {
+    const key = `${mask}:${variant}`;
     let s = this.sets.get(key);
     if (!s) {
-      const [dry, wetM] = soilMaterials();
       const geo = padGeometry(mask, variant);
-      s = new InstancedSet(`soil-${key}`, [{ geometry: geo, material: wet ? wetM : dry, tinted: true, castShadow: false }], this.pool);
+      s = new InstancedSet(`soil-${key}`, [{ geometry: geo, material: soilMaterial(), tinted: true, castShadow: false }], this.pool);
       this.sets.set(key, s);
     }
     return s;
   }
 
+  /** Mark a tile watered / dry in the wetness mask (visual only). */
+  setWet(x: number, z: number, wet: boolean): void {
+    if (x < 0 || z < 0 || x >= this.width || z >= this.depth) return;
+    const v = wet ? 255 : 0;
+    const i = z * this.width + x;
+    if (this.wetData[i] === v) return;
+    this.wetData[i] = v;
+    this.wetTex.needsUpdate = true;
+  }
+
   set(x: number, z: number, y: number, opts: { wet: boolean; mask: number }): void {
     this.clear(x, z);
+    this.setWet(x, z, opts.wet);
     const h = (x * 73856093) ^ (z * 19349663);
     const variant = Math.abs(h) % 3;
-    const set = this.setFor(opts.mask, variant, opts.wet);
+    const set = this.setFor(opts.mask, variant);
     const m = new THREE.Matrix4().makeTranslation(x + 0.5, y + SOIL_LIFT, z + 0.5);
     const j = ((Math.abs(h >> 4) % 100) / 100 - 0.5) * 0.08;
     const c = new THREE.Color(1 + j, 1 + j * 0.8, 1 + j * 0.6);
@@ -168,6 +215,7 @@ export class SoilBeds {
   }
 
   clear(x: number, z: number): void {
+    this.setWet(x, z, false);
     const t = this.tiles.get(`${x},${z}`);
     if (!t) return;
     t.set.remove(t.id);

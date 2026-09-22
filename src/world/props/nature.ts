@@ -34,7 +34,9 @@ export type NatureKind =
   | 'mushroom'
   | 'fern'
   | 'pebbles'
-  | 'deadTwig';
+  | 'deadTwig'
+  | 'tallGrass'
+  | 'branch';
 
 export interface NatureHandle {
   kind: NatureKind;
@@ -195,39 +197,156 @@ export class Nature {
         return [{ geometry: b.geometries().get(m)!, material: m, castShadow: true }];
       }
       case 'twig': {
+        // A small bundle of fallen sticks: pale bark, forked, lying flat in the grass.
         const b = new MeshBuilder();
-        for (let i = 0; i < 3; i++) {
-          const len = 0.45 + r.next() * 0.3;
-          const g = new THREE.CylinderGeometry(0.025, 0.035, len, 5);
+        const bark = materials.get('bark');
+        for (let i = 0; i < 2; i++) {
+          const len = 0.5 + r.next() * 0.3;
+          const g = new THREE.CylinderGeometry(0.022, 0.03, len, 6);
+          uvScale(g, 1, 2);
           g.rotateZ(Math.PI / 2);
-          b.add('woodDark', g, mat((r.next() - 0.5) * 0.2, 0.035 + i * 0.03, (r.next() - 0.5) * 0.2, 0, r.next() * Math.PI, 0.05));
-          const tw = new THREE.CylinderGeometry(0.012, 0.018, 0.18, 4);
-          b.add('woodDark', tw, mat((r.next() - 0.5) * 0.2, 0.08, (r.next() - 0.5) * 0.2, 0.8, r.next() * 3, 0.9));
+          const yaw = r.next() * Math.PI;
+          b.add(bark, g, mat((r.next() - 0.5) * 0.15, 0.03 + i * 0.025, (r.next() - 0.5) * 0.15, 0, yaw, 0.04), { tint: 0xc9b49a });
+          const fork = new THREE.CylinderGeometry(0.01, 0.016, 0.2, 5);
+          fork.rotateZ(Math.PI / 2);
+          fork.translate(0.1, 0, 0);
+          b.add(bark, fork, mat(Math.cos(yaw) * len * 0.2, 0.04 + i * 0.025, -Math.sin(yaw) * len * 0.2, 0, yaw + 0.6, 0.05), { tint: 0xc9b49a });
         }
-        const g = b.geometries().get('woodDark')!;
-        return [{ geometry: g, material: materials.get('woodDark') }];
+        return [{ geometry: b.geometries().get(bark)!, material: bark }];
+      }
+      case 'branch': {
+        // Fallen branch: a crooked limb with side shoots and a few clinging leaves.
+        const b = new MeshBuilder();
+        const bark = materials.get('bark');
+        const leafM = this.getWeedMat();
+        const len = 1.1 + r.next() * 0.45;
+        let x = -len / 2;
+        let ang = (r.next() - 0.5) * 0.3;
+        let rad = 0.06;
+        for (let sI = 0; sI < 3; sI++) {
+          const sl = len / 3;
+          const g = new THREE.CylinderGeometry(rad * 0.82, rad, sl + 0.04, 7);
+          uvScale(g, 1, 1.5);
+          g.rotateZ(Math.PI / 2);
+          const cx = x + (Math.cos(ang) * sl) / 2;
+          const cz = (Math.sin(ang) * sl) / 2 + sI * 0.03;
+          b.add(bark, g, mat(cx, rad * 0.8, cz, 0, -ang, 0), { tint: 0xb8a288, aoWorld: (p) => 0.6 + 0.4 * THREE.MathUtils.smoothstep(p.y, 0, 0.1) });
+          if (sI > 0) {
+            const side = r.next() < 0.5 ? 1 : -1;
+            const tw = new THREE.CylinderGeometry(0.012, 0.022, 0.38, 5);
+            tw.translate(0, 0.19, 0);
+            b.add(bark, tw, mat(cx, rad, cz, 1.1 * side, -ang + side * 0.4, 0.5 * side), { tint: 0xb8a288 });
+            for (let k = 0; k < 3; k++) {
+              const leaf = leafBlade(0.12, 0.06, 0.3, 3);
+              vcolor(leaf, () => new THREE.Color(k % 2 ? 0x7a9a3a : 0x9aa845));
+              b.add(leafM, leaf, mat(cx + (r.next() - 0.5) * 0.3, rad + 0.1 + r.next() * 0.1, cz + side * (0.12 + r.next() * 0.15), 0.9, r.next() * 6, 0));
+            }
+          }
+          x += Math.cos(ang) * sl;
+          ang += (r.next() - 0.5) * 0.7;
+          rad *= 0.8;
+        }
+        const geos = b.geometries();
+        return [
+          { geometry: geos.get(bark)!, material: bark },
+          { geometry: geos.get(leafM)!, material: leafM, castShadow: false },
+        ];
+      }
+      case 'tallGrass': {
+        // Unmown meadow clump: long arching blades, a few seed plumes. Scythe-able.
+        const b = new MeshBuilder();
+        const m = this.getWeedMat();
+        const n = 13 + r.int(0, 4);
+        const dark = new THREE.Color(0x2f5a1c);
+        const light = new THREE.Color(0x9cc24e);
+        for (let i = 0; i < n; i++) {
+          const a = r.next() * Math.PI * 2;
+          const d = Math.sqrt(r.next()) * 0.22;
+          const len = 0.5 + r.next() * 0.42;
+          const g = leafBlade(len, 0.05, 0.35 + r.next() * 0.45, 3);
+          vcolor(g, (p) => dark.clone().lerp(light, THREE.MathUtils.smoothstep(p.y, 0, len * 0.9)));
+          b.add(m, g, mat(Math.cos(a) * d, 0, Math.sin(a) * d, -0.05, a + Math.PI / 2 + (r.next() - 0.5), 0));
+        }
+        for (let i = 0; i < 3 + r.int(0, 2); i++) {
+          const a = r.next() * Math.PI * 2;
+          const h = 0.7 + r.next() * 0.3;
+          const stem = new THREE.CylinderGeometry(0.006, 0.009, h, 4);
+          stem.translate(0, h / 2, 0);
+          vcolor(stem, () => new THREE.Color(0x8aa04a));
+          const lean = (r.next() - 0.5) * 0.4;
+          b.add(m, stem, mat(Math.cos(a) * 0.08, 0, Math.sin(a) * 0.08, lean, a, 0));
+          const plume = new THREE.CylinderGeometry(0.012, 0.024, 0.16, 4);
+          vcolor(plume, () => new THREE.Color(0xd8c98a));
+          b.add(m, plume, mat(Math.cos(a) * 0.08 + Math.sin(lean) * 0.0, h + 0.05, Math.sin(a) * 0.08 + Math.sin(lean) * h * 0.9, lean, a, 0));
+        }
+        // No shadow pass: dozens of clumps on screen; baked ground AO + GTAO-free blades read fine.
+        return [{ geometry: b.geometries().get(m)!, material: m, castShadow: false }];
       }
       case 'weed':
       case 'fern': {
         const fern = kind === 'fern';
         const b = new MeshBuilder();
-        const n = fern ? 9 : 7 + r.int(0, 3);
-        const dark = new THREE.Color(fern ? 0x2f6b2e : 0x3d6e22);
-        const light = new THREE.Color(fern ? 0x7dbb4a : 0x8cc04a);
-        for (let i = 0; i < n; i++) {
-          const a = (i / n) * Math.PI * 2 + r.next() * 0.5;
-          const g = leafBlade(fern ? 0.62 : 0.34 + r.next() * 0.2, fern ? 0.1 : 0.085, 0.5 + r.next() * 0.5);
-          vcolor(g, (p) => dark.clone().lerp(light, THREE.MathUtils.smoothstep(p.y, 0, 0.35)));
-          b.add(this.getWeedMat(), g, mat(0, 0, 0, -0.15, a, 0));
+        const wm = this.getWeedMat();
+        if (!fern && variant === 1) {
+          // Broadleaf dock: wide oval leaves on reddish stalks + a rusty seed spike.
+          const n = 6 + r.int(0, 2);
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + r.next() * 0.4;
+            const g = leafBlade(0.34 + r.next() * 0.12, 0.2, 0.55 + r.next() * 0.3, 5);
+            vcolor(g, (p) => new THREE.Color(0x3a6a22).lerp(new THREE.Color(0x7fae44), THREE.MathUtils.smoothstep(p.y, 0, 0.3)).lerp(new THREE.Color(0x8a3a2a), Math.max(0, 0.35 - p.z * 2)));
+            b.add(wm, g, mat(0, 0, 0, -0.1, a, 0));
+          }
+          const spike = new THREE.CylinderGeometry(0.008, 0.012, 0.5, 4);
+          spike.translate(0, 0.25, 0);
+          vcolor(spike, () => new THREE.Color(0x7a4a2a));
+          b.add(wm, spike, mat(0.02, 0, 0.01, 0.1, 0, 0));
+          for (let k = 0; k < 5; k++) {
+            const s = new THREE.SphereGeometry(0.022, 5, 3);
+            vcolor(s, () => new THREE.Color(0xa0582e));
+            b.add(wm, s, mat(0.02 + 0.03 * k * 0.1, 0.3 + k * 0.045, 0.01 + k * 0.004));
+          }
+        } else if (!fern && variant === 2) {
+          // Dandelion: flat serrated rosette + yellow flowers / a seed clock.
+          const n = 8 + r.int(0, 3);
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + r.next() * 0.3;
+            const g = leafBlade(0.26 + r.next() * 0.08, 0.075, 0.95, 5);
+            vcolor(g, (p) => new THREE.Color(0x3f7a26).lerp(new THREE.Color(0x86bb48), THREE.MathUtils.smoothstep(p.z, 0, 0.2)));
+            b.add(wm, g, mat(0, 0.01, 0, 0.35, a, 0));
+          }
+          for (let k = 0; k < 2; k++) {
+            const h = 0.2 + r.next() * 0.12;
+            const a = r.next() * Math.PI * 2;
+            const stem = new THREE.CylinderGeometry(0.008, 0.01, h, 4);
+            stem.translate(0, h / 2, 0);
+            vcolor(stem, () => new THREE.Color(0x6a9a3a));
+            b.add(wm, stem, mat(Math.cos(a) * 0.05, 0, Math.sin(a) * 0.05));
+            const head = new THREE.SphereGeometry(k === 0 ? 0.05 : 0.055, 8, 5);
+            if (k === 0) head.scale(1, 0.55, 1);
+            vcolor(head, () => new THREE.Color(k === 0 ? 0xffc81e : 0xf4f2ea));
+            b.add(wm, head, mat(Math.cos(a) * 0.05, h + 0.01, Math.sin(a) * 0.05));
+          }
+        } else {
+          const n = fern ? 9 : 7 + r.int(0, 3);
+          const dark = new THREE.Color(fern ? 0x2f6b2e : 0x3d6e22);
+          const light = new THREE.Color(fern ? 0x7dbb4a : 0x8cc04a);
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + r.next() * 0.5;
+            const g = leafBlade(fern ? 0.62 : 0.34 + r.next() * 0.2, fern ? 0.1 : 0.085, 0.5 + r.next() * 0.5);
+            vcolor(g, (p) => dark.clone().lerp(light, THREE.MathUtils.smoothstep(p.y, 0, 0.35)));
+            b.add(wm, g, mat(0, 0, 0, -0.15, a, 0));
+          }
+          if (!fern) {
+            // tiny seed-heads
+            for (let k = 0; k < 2; k++) {
+              const s = new THREE.SphereGeometry(0.04, 6, 4);
+              vcolor(s, () => new THREE.Color(0xe8e0a0));
+              b.add(wm, s, mat(0.05 - k * 0.1, 0.42 - k * 0.08, 0.02 + k * 0.04));
+            }
+          }
         }
-        if (!fern && r.next() < 0.5) {
-          // tiny seed-head
-          const s = new THREE.SphereGeometry(0.04, 6, 4);
-          vcolor(s, () => new THREE.Color(0xe8e0a0));
-          b.add(this.getWeedMat(), s, mat(0.05, 0.42, 0.02));
-        }
-        const g = b.geometries().get(this.getWeedMat())!;
-        return [{ geometry: g, material: this.getWeedMat(), depthMaterial: windDepthMaterial({ height: 0.5, amplitude: 0.1 }), castShadow: true }];
+        const g = b.geometries().get(wm)!;
+        return [{ geometry: g, material: wm, depthMaterial: windDepthMaterial({ height: 0.5, amplitude: 0.1 }), castShadow: true }];
       }
       case 'stump': {
         const b = new MeshBuilder();
@@ -336,7 +455,7 @@ export class Nature {
           const tilt = -0.3 + r.next() * 0.2;
           for (let k = 0; k < np; k++) {
             const pa = (k / np) * Math.PI * 2;
-            const petal = new THREE.SphereGeometry(ps, 6, 4);
+            const petal = new THREE.SphereGeometry(ps, 5, 3);
             petal.scale(1, 0.3, 0.55);
             petal.translate(ps * 0.9, 0, 0);
             petal.rotateY(pa);
@@ -536,7 +655,7 @@ export class Nature {
       s = new InstancedSet(`nature-${key}`, parts, this.pool);
       this.sets.set(key, s);
       const hide: Season[] =
-        kind === 'flower' || kind === 'tallFlower' || kind === 'mushroom' || kind === 'lilypad' || kind === 'weed' || kind === 'fern'
+        kind === 'flower' || kind === 'tallFlower' || kind === 'mushroom' || kind === 'lilypad' || kind === 'weed' || kind === 'fern' || kind === 'tallGrass'
           ? ['winter']
           : kind === 'deadTwig'
             ? ['spring', 'summer', 'fall']
@@ -549,7 +668,7 @@ export class Nature {
     return s;
   }
 
-  static readonly VARIANTS: Partial<Record<NatureKind, number>> = { stone: 4, boulder: 3, weed: 3, flower: 3, bush: 3, berryBush: 2, twig: 2, stump: 2, reed: 2, lilypad: 3, pebbles: 3, deadTwig: 2 };
+  static readonly VARIANTS: Partial<Record<NatureKind, number>> = { stone: 4, boulder: 3, weed: 3, flower: 3, bush: 3, berryBush: 2, twig: 2, stump: 2, reed: 2, lilypad: 3, pebbles: 3, deadTwig: 2, tallGrass: 3, branch: 3, log: 2 };
 
   place(kind: NatureKind, x: number, y: number, z: number, opts: { rot?: number; scale?: number; color?: THREE.ColorRepresentation; variant?: number; sink?: number; lod?: number } = {}): NatureHandle {
     const nv = Nature.VARIANTS[kind] ?? 1;
@@ -565,7 +684,7 @@ export class Nature {
     );
     const id = set.add(m, opts.color !== undefined ? new THREE.Color(opts.color) : undefined);
     const h: NatureHandle = { kind, set, id };
-    if (kind === 'weed') h.extra = this.place('deadTwig', x, y, z, { rot, scale: s });
+    if (kind === 'weed' || kind === 'tallGrass') h.extra = this.place('deadTwig', x, y, z, { rot, scale: s * (kind === 'tallGrass' ? 1.3 : 1) });
     return h;
   }
 

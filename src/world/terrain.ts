@@ -15,6 +15,8 @@ import { applyWorldFx } from '../render/worldfx';
 import { patchMaterial, after, before, replace } from '../render/patch';
 
 export const SPLAT_RES = 2;
+/** Ground-cover texels per world unit (clover / moss / dry-trampled / contact AO). */
+export const COVER_RES = 4;
 
 export interface TerrainOptions {
   minX: number;
@@ -29,6 +31,9 @@ export interface TerrainOptions {
 
 export type SplatChannel = 'path' | 'tilled' | 'wet' | 'sand';
 const CH: Record<SplatChannel, number> = { path: 0, tilled: 1, wet: 2, sand: 3 };
+/** Cover channels: r = clover, g = moss, b = dry / trampled straw, a = baked contact AO under props. */
+export type CoverChannel = 'clover' | 'moss' | 'dry' | 'ao';
+const CCH: Record<CoverChannel, number> = { clover: 0, moss: 1, dry: 2, ao: 3 };
 
 export class Terrain {
   /** Terrain chunks (split for frustum / shadow culling); all share one material. */
@@ -42,6 +47,11 @@ export class Terrain {
   private splatData: Uint8Array;
   readonly splatW: number;
   readonly splatH: number;
+  /** Ground-cover mask (see CoverChannel), COVER_RES texels per unit over the terrain extent. */
+  readonly cover: THREE.DataTexture;
+  private coverData: Uint8Array;
+  readonly coverW: number;
+  readonly coverH: number;
 
   constructor(readonly opts: TerrainOptions) {
     const { minX, minZ, maxX, maxZ, step } = opts;
@@ -63,6 +73,15 @@ export class Terrain {
     this.splat.wrapS = this.splat.wrapT = THREE.ClampToEdgeWrapping;
     this.splat.needsUpdate = true;
 
+    this.coverW = Math.round((maxX - minX) * COVER_RES);
+    this.coverH = Math.round((maxZ - minZ) * COVER_RES);
+    this.coverData = new Uint8Array(this.coverW * this.coverH * 4);
+    this.cover = new THREE.DataTexture(this.coverData, this.coverW, this.coverH, THREE.RGBAFormat);
+    this.cover.magFilter = THREE.LinearFilter;
+    this.cover.minFilter = THREE.LinearFilter;
+    this.cover.wrapS = this.cover.wrapT = THREE.ClampToEdgeWrapping;
+    this.cover.needsUpdate = true;
+
     const half = new Uint16Array(this.nx * this.nz);
     for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(this.heights[i]!);
     this.heightTex = new THREE.DataTexture(half, this.nx, this.nz, THREE.RedFormat, THREE.HalfFloatType);
@@ -72,13 +91,57 @@ export class Terrain {
     this.material = this.buildMaterial();
     this.mesh = new THREE.Group();
     this.mesh.name = 'terrain';
-    for (const g of this.splitGeometry(this.buildGeometry(), 3)) {
+    // 6×6 chunks: tight frustum culling in the main + AO passes.
+    for (const g of this.splitGeometry(this.buildGeometry(), 6)) {
       const m = new THREE.Mesh(g, this.material);
       m.receiveShadow = true;
-      m.castShadow = true;
+      m.castShadow = false;
       m.name = 'terrain-chunk';
       this.mesh.add(m);
     }
+    this.mesh.add(this.buildShadowProxy());
+  }
+
+  /**
+   * Shadow-only caster: the heightfield at half resolution (¼ of the triangles), sunk 6 cm so
+   * the full-res surface never self-shadows against it. It skips the main / AO passes by
+   * collapsing its draw range in onBeforeRender (shadow rendering calls onBeforeShadow instead).
+   */
+  private buildShadowProxy(): THREE.Mesh {
+    const { minX, minZ, step } = this.opts;
+    const S = 2;
+    const w = Math.floor((this.nx - 1) / S) + 1;
+    const d = Math.floor((this.nz - 1) / S) + 1;
+    const pos = new Float32Array(w * d * 3);
+    for (let j = 0; j < d; j++) {
+      for (let i = 0; i < w; i++) {
+        const k = j * w + i;
+        pos[k * 3] = minX + i * S * step;
+        pos[k * 3 + 1] = this.heights[j * S * this.nx + i * S]! - 0.06;
+        pos[k * 3 + 2] = minZ + j * S * step;
+      }
+    }
+    const idx: number[] = [];
+    for (let j = 0; j < d - 1; j++) {
+      for (let i = 0; i < w - 1; i++) {
+        const a = j * w + i;
+        idx.push(a, a + w, a + 1, a + 1, a + w, a + w + 1);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    g.computeBoundingSphere();
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+    m.name = 'terrain-shadow-proxy';
+    m.castShadow = true;
+    m.receiveShadow = false;
+    m.userData.noAO = true;
+    const n = g.index!.count;
+    m.onBeforeRender = () => g.setDrawRange(n + 3, 0);
+    m.onAfterRender = () => g.setDrawRange(0, Infinity);
+    return m;
   }
 
   /** Bilinear ground height at world x,z. */
@@ -152,6 +215,53 @@ export class Terrain {
     this.splat.needsUpdate = true;
   }
 
+  /**
+   * Paint a ground-cover channel: fn(worldX, worldZ) → 0..1 (max-blended), optionally only
+   * inside `bounds` (world rect) to keep it cheap.
+   */
+  paintCover(ch: CoverChannel, fn: (x: number, z: number) => number, bounds?: { x0: number; z0: number; x1: number; z1: number }): void {
+    const { minX, minZ } = this.opts;
+    const i0 = bounds ? Math.max(0, Math.floor((bounds.x0 - minX) * COVER_RES)) : 0;
+    const i1 = bounds ? Math.min(this.coverW, Math.ceil((bounds.x1 - minX) * COVER_RES)) : this.coverW;
+    const j0 = bounds ? Math.max(0, Math.floor((bounds.z0 - minZ) * COVER_RES)) : 0;
+    const j1 = bounds ? Math.min(this.coverH, Math.ceil((bounds.z1 - minZ) * COVER_RES)) : this.coverH;
+    const c = CCH[ch];
+    for (let j = j0; j < j1; j++) {
+      for (let i = i0; i < i1; i++) {
+        const v = fn(minX + (i + 0.5) / COVER_RES, minZ + (j + 0.5) / COVER_RES);
+        if (v <= 0) continue;
+        const k = (j * this.coverW + i) * 4 + c;
+        this.coverData[k] = Math.max(this.coverData[k]!, Math.round(Math.min(1, v) * 255));
+      }
+    }
+  }
+
+  /** Radial soft blob into a cover channel (contact AO under props, trampled spots...). */
+  stampCover(ch: CoverChannel, x: number, z: number, radius: number, strength = 1, squashZ = 1): void {
+    const r = radius + 0.3;
+    this.paintCover(
+      ch,
+      (px, pz) => {
+        const d = Math.hypot(px - x, (pz - z) / squashZ) / radius;
+        return strength * (1 - THREE.MathUtils.smoothstep(d, 0.35, 1.0));
+      },
+      { x0: x - r, z0: z - r * squashZ, x1: x + r, z1: z + r * squashZ },
+    );
+  }
+
+  /** Cover channel value at a world point (nearest texel). */
+  coverAt(x: number, z: number, ch: CoverChannel): number {
+    const { minX, minZ } = this.opts;
+    const i = Math.floor((x - minX) * COVER_RES);
+    const j = Math.floor((z - minZ) * COVER_RES);
+    if (i < 0 || j < 0 || i >= this.coverW || j >= this.coverH) return 0;
+    return this.coverData[(j * this.coverW + i) * 4 + CCH[ch]]! / 255;
+  }
+
+  commitCover(): void {
+    this.cover.needsUpdate = true;
+  }
+
   private buildGeometry(): THREE.BufferGeometry {
     const { minX, minZ, step } = this.opts;
     const { nx, nz } = this;
@@ -211,7 +321,8 @@ export class Terrain {
   setDrift(fn: (x: number, z: number) => number): void {
     for (const m of this.mesh.children as THREE.Mesh[]) {
       const pos = m.geometry.attributes.position as THREE.BufferAttribute;
-      const dr = m.geometry.attributes.aDrift as THREE.BufferAttribute;
+      const dr = m.geometry.attributes.aDrift as THREE.BufferAttribute | undefined;
+      if (!dr) continue;
       for (let i = 0; i < pos.count; i++) dr.setX(i, fn(pos.getX(i), pos.getZ(i)));
       dr.needsUpdate = true;
       // Leave room for the raised drifts in culling bounds.
@@ -285,6 +396,7 @@ export class Terrain {
     const { minX, minZ, maxX, maxZ } = this.opts;
     const u = {
       uSplat: { value: this.splat },
+      uCover: { value: this.cover },
       uSplatOrigin: { value: new THREE.Vector2(minX, minZ) },
       uSplatSize: { value: new THREE.Vector2(maxX - minX, maxZ - minZ) },
       uGrassTex: { value: textures.grassDetail().map },
@@ -323,6 +435,7 @@ export class Terrain {
         varying vec3 vTWorld;
         varying vec3 vTNormal;
         uniform sampler2D uSplat;
+        uniform sampler2D uCover;
         uniform vec2 uSplatOrigin;
         uniform vec2 uSplatSize;
         uniform sampler2D uGrassTex;
@@ -386,6 +499,30 @@ export class Terrain {
         float lush = smoothstep(0.35, 0.78, hvFbm(wp.xz * 0.11 + 20.0));
         grass = mix(grass, uGrassA * vec3(0.7, 0.86, 0.74), lush * 0.55);
         grass *= (0.62 + gd * 0.55 + gd2 * 0.25) * 0.86;
+        grass = hvMeadowVar(grass, wp.xz);
+
+        // Ground cover: clover carpets, moss, dry / trampled straw (+ baked contact AO, below).
+        vec4 cov = texture2D(uCover, suv + warp * 0.35 / uSplatSize);
+        {
+          float cl = smoothstep(0.15, 0.75, cov.r + (tn2 - 0.5) * 0.3);
+          vec2 cq = mat2(0.866, 0.5, -0.5, 0.866) * wp.xz;
+          float leafN = hvNoise(cq * 6.3) * 0.6 + hvNoise(cq * 13.1 + 5.0) * 0.4;
+          vec3 clover = uGrassA * vec3(0.82, 1.02, 0.86) * (0.8 + 0.28 * leafN);
+          vec2 fc = floor(wp.xz * 3.1);
+          vec2 fo = hvHash22(fc) - 0.5;
+          float fdot = smoothstep(0.075, 0.035, length(fract(wp.xz * 3.1) - 0.5 - fo * 0.6)) * step(hvHash12(fc + 9.0), 0.2);
+          clover = mix(clover, vec3(0.93, 0.92, 0.86), fdot * (1.0 - uSeasonW.w) * (1.0 - uSeasonW.z * 0.6));
+          grass = mix(grass, clover, cl * 0.75);
+          float mo = smoothstep(0.15, 0.7, cov.g + (tn1 - 0.5) * 0.25);
+          vec3 moss = mix(vec3(0.05, 0.11, 0.016), vec3(0.1, 0.18, 0.028), hvNoise(cq * 5.7)) * (0.88 + 0.24 * hvNoise(cq * 17.0));
+          moss = mix(moss, moss * vec3(1.25, 1.0, 0.6), uSeasonW.z);
+          grass = mix(grass, moss, mo * 0.6);
+          float dr = smoothstep(0.12, 0.7, cov.b + (tn2 - 0.5) * 0.3);
+          float streak = hvNoise(vec2(wp.x * 7.0 + wp.z * 2.0, wp.z * 1.3));
+          // Trampled / dry: an olive-straw cast over the grass (keeps the blade texture), not bare sand.
+          vec3 straw = mix(grass * vec3(1.2, 1.08, 0.62), uGrassDry * vec3(1.1, 1.0, 0.7), 0.45) * (0.85 + 0.3 * streak);
+          grass = mix(grass, straw, dr * 0.6);
+        }
 
         // Path (packed dirt) with trampled rim.
         float pv = spW.r + (tn1 - 0.5) * 0.32 + (tn2 - 0.5) * 0.12;
@@ -439,6 +576,8 @@ export class Terrain {
         ground = mix(ground, ground * vec3(0.9, 0.95, 1.05), hvPuddle);
         float hvTPath = pathM;
 
+        // Baked contact AO under props / vignettes (painted blobs), strongest in the centre.
+        ground *= 1.0 - cov.a * 0.5 * (1.0 - rockM);
         diffuseColor.rgb *= ground;
         float hvTerrainRough = mix(0.95, 0.55, wetM * tillM);
         hvTerrainRough = mix(hvTerrainRough, 0.6, shore);

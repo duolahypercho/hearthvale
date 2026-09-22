@@ -57,7 +57,9 @@ export const groundAO =
 
 export function roundedBox(w: number, h: number, d: number, r = 0.06, seg = 2): THREE.BufferGeometry {
   const rr = Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3);
-  return new RoundedBoxGeometry(w, h, d, seg, Math.max(rr, 0.001));
+  // Thin slats / small bevels read identically with a single corner segment (108 vs 300 tris).
+  const s = rr < 0.03 || Math.min(w, h, d) < 0.12 ? 1 : seg;
+  return new RoundedBoxGeometry(w, h, d, s, Math.max(rr, 0.001));
 }
 
 /** Cylinder with bevelled top/bottom edges (lathe). */
@@ -219,6 +221,13 @@ interface Part {
   geo: THREE.BufferGeometry;
 }
 
+/** Materials that are a tinted copy of another (see MeshBuilder.add). */
+const MATERIAL_ALIAS: Partial<Record<MaterialName, { to: MaterialName; tint: number }>> = {
+  woodDark: { to: 'woodGrain', tint: 0x8a6a55 },
+  cloth: { to: 'white', tint: 0xffffff },
+  soilPot: { to: 'white', tint: 0xb8643e },
+};
+
 /**
  * Accumulates parts per material and merges them.
  *   const b = new MeshBuilder();
@@ -235,6 +244,14 @@ export class MeshBuilder {
     matrix?: THREE.Matrix4,
     opts: { tint?: THREE.ColorRepresentation; ao?: AOFn; aoWorld?: AOFn } = {},
   ): this {
+    // Material aliases: variants that only differ by base colour share one material (fewer draw
+    // calls after merging); the colour moves into the vertex tint.
+    const alias = typeof material === 'string' ? MATERIAL_ALIAS[material] : undefined;
+    if (alias) {
+      material = alias.to;
+      const t = new THREE.Color(opts.tint ?? 0xffffff).multiply(new THREE.Color(alias.tint));
+      opts = { ...opts, tint: t };
+    }
     let g = prep(geo, opts.tint, opts.ao);
     if (matrix) g.applyMatrix4(matrix);
     if (opts.aoWorld) {

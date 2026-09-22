@@ -84,7 +84,8 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
         float hvS = smoothstep(0.0, 0.35, uSnow * hvUp * (${mask}) - (1.0 - hvN) * 0.35 * (1.0 - uSnow));
         hvSnowAmt = hvS;
         float hvDrift = hvNoise(vHvWorldPos.xz * 0.9 + 3.0);
-        vec3 hvSnowCol = vec3(0.88, 0.92, 0.98) * (0.93 + 0.07 * hvN) * (0.96 + 0.06 * hvDrift);
+        // Albedo capped at ~0.82 so lamp-lit snow never clips into a bloom blob at night.
+        vec3 hvSnowCol = vec3(0.88, 0.92, 0.98) * 0.85 * (0.93 + 0.07 * hvN) * (0.96 + 0.06 * hvDrift);
         hvSnowCol = mix(hvSnowCol, vec3(0.62, 0.58, 0.52) * (0.9 + 0.2 * hvN), clamp(${slush}, 0.0, 1.0));
         diffuseColor.rgb = mix(diffuseColor.rgb, hvSnowCol, hvS);
       }`;

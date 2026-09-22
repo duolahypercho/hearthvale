@@ -99,7 +99,7 @@ export class FarmingSystem implements System {
     }
     this.map = map;
     if (!this.soil) {
-      this.soil = new SoilBeds();
+      this.soil = new SoilBeds(map.grid.width, map.grid.depth);
       this.crops = new CropVisuals();
       map.root.add(this.soil.group, this.crops.group);
     }
@@ -316,10 +316,10 @@ export class FarmingSystem implements System {
         } else if (this.isTilled(x, z) && !this.tiles.get(key(x, z))?.crop) this.untill(x, z);
         return;
       case 'axe':
-        if (obj?.kind === 'twig' || obj?.kind === 'stump') {
+        if (obj?.kind === 'twig' || obj?.kind === 'stump' || obj?.kind === 'bush') {
           g.removeObject(x, z);
-          this.fx.emit(center, { color: 0x8a6440, count: 12, speed: 1.4, size: 0.09 });
-          this.game.events.emit('item:give', { itemId: 'wood', qty: obj.kind === 'stump' ? 4 : 1 });
+          this.fx.emit(center, { color: obj.kind === 'bush' ? 0x5e9a3a : 0x8a6440, count: 12, speed: 1.4, size: 0.09 });
+          this.game.events.emit('item:give', { itemId: obj.kind === 'bush' ? 'fiber' : 'wood', qty: obj.kind === 'stump' ? 4 : obj.kind === 'bush' ? 2 : 1 });
           this.spend(3);
         }
         return;

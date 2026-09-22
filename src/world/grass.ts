@@ -1,7 +1,14 @@
 /**
  * Instanced grass tufts with wind, player push, seasonal colour matching the terrain,
- * base AO and backlit tip translucency. Chunked (16×16 tiles) for culling and so tools
+ * base AO and backlit tip translucency. Chunked (10×10 tiles) for culling and so tools
  * (scythe, hoe) can clear individual tiles: `grass.clearTile(x, z)`.
+ *
+ * Distance LOD around the camera focus (the terrain's painted grass takes over beyond):
+ *   d < 12 m   full density, 3-segment curved blades
+ *   12..22 m   40 % density (per-instance rank), 1-segment blades
+ *   > 22 m     none — blades shrink smoothly into the ground (no popping line)
+ * The CPU bounds each chunk's instance count by its nearest distance (triangle budget);
+ * the vertex shader fades individual tufts by rank/distance so tier changes are seamless.
  */
 import * as THREE from 'three';
 import { Rng } from '../core/rng';
@@ -10,13 +17,16 @@ import { NOISE_GLSL } from '../render/shaders/noise';
 import { applyWind } from '../render/wind';
 import { patchMaterial, after, before, replace } from '../render/patch';
 
-const CHUNK = 20;
+const CHUNK = 10;
+/** LOD distances (world units from the camera focus). */
+export const GRASS_LOD = { near: 12, mid: 22, midDensity: 0.4 };
+const uGrassFocus = { value: new THREE.Vector3(0, 0, 0) };
 
-function tuftGeometry(rng: Rng, blades: number, variant: 'short' | 'tall'): THREE.BufferGeometry {
+function tuftGeometry(rng: Rng, blades: number, segs: number): THREE.BufferGeometry {
   const pos: number[] = [];
   const hAttr: number[] = [];
   const nor: number[] = [];
-  const segs = variant === 'tall' ? 3 : 2;
+  const variant = 'short' as 'short' | 'tall';
   for (let b = 0; b < blades; b++) {
     const ang = rng.next() * Math.PI * 2;
     const r = rng.next() * 0.2;
@@ -82,12 +92,27 @@ function grassMaterial(): THREE.MeshStandardMaterial {
     shader.uniforms.uDryAmt = globalUniforms.uDryAmt;
     shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
     shader.uniforms.uRim = globalUniforms.uRim;
+    shader.uniforms.uGrassFocus = uGrassFocus;
+    shader.uniforms.uGrassCover = uGrassCover;
+    shader.uniforms.uGrassCoverRect = uGrassCoverRect;
     let vs = shader.vertexShader;
-    vs = before(vs, 'void main() {', 'attribute float aH;\nvarying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform float uSnow;');
+    vs = before(
+      vs,
+      'void main() {',
+      `attribute float aH;\nattribute float aRank;\nvarying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform float uSnow;\nuniform vec3 uGrassFocus;`,
+    );
     vs = after(
       vs,
       '#include <begin_vertex>',
-      `transformed.y *= 1.0 - uSnow * 0.6;\nvGH = aH;\n{ mat4 gm = modelMatrix;\n#ifdef USE_INSTANCING\n gm = modelMatrix * instanceMatrix;\n#endif\n vGOrigin = (gm * vec4(0.0,0.0,0.0,1.0)).xyz; }`,
+      `transformed.y *= 1.0 - uSnow * 0.6;\nvGH = aH;\n{ mat4 gm = modelMatrix;\n#ifdef USE_INSTANCING\n gm = modelMatrix * instanceMatrix;\n#endif\n vGOrigin = (gm * vec4(0.0,0.0,0.0,1.0)).xyz; }
+      {
+        // Distance LOD: thin by rank 12→22 m, then sink the rest into the ground.
+        float gd = length(vGOrigin.xz - uGrassFocus.xz);
+        float keep = mix(1.0, ${GRASS_LOD.midDensity.toFixed(2)}, smoothstep(${(GRASS_LOD.near - 2).toFixed(1)}, ${(GRASS_LOD.near + 1).toFixed(1)}, gd));
+        keep *= 1.0 - smoothstep(${(GRASS_LOD.mid - 5).toFixed(1)}, ${GRASS_LOD.mid.toFixed(1)}, gd);
+        float lodS = clamp((keep - aRank) * 12.0, 0.0, 1.0);
+        transformed *= vec3(mix(0.6, 1.0, lodS), lodS, mix(0.6, 1.0, lodS));
+      }`,
     );
     vs = after(vs, '#include <project_vertex>', '{ mat4 gm2 = modelMatrix;\n#ifdef USE_INSTANCING\n gm2 = modelMatrix * instanceMatrix;\n#endif\n vGWorld = (gm2 * vec4(transformed,1.0)).xyz; }');
     shader.vertexShader = vs;
@@ -95,7 +120,7 @@ function grassMaterial(): THREE.MeshStandardMaterial {
     fs = before(
       fs,
       'void main() {',
-      `varying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform vec3 uGrassA;\nuniform vec3 uGrassB;\nuniform vec3 uGrassTip;\nuniform vec3 uGrassDry;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;\nuniform float uCloudShadow;\nuniform float uTime;\nuniform float uDryAmt;\nuniform vec4 uSeasonW;\nuniform float uRim;\nuniform float uSnow;\n${NOISE_GLSL}`,
+      `varying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform sampler2D uGrassCover;\nuniform vec4 uGrassCoverRect;\nuniform vec3 uGrassA;\nuniform vec3 uGrassB;\nuniform vec3 uGrassTip;\nuniform vec3 uGrassDry;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;\nuniform float uCloudShadow;\nuniform float uTime;\nuniform float uDryAmt;\nuniform vec4 uSeasonW;\nuniform float uRim;\nuniform float uSnow;\n${NOISE_GLSL}`,
     );
     fs = replace(
       fs,
@@ -108,6 +133,13 @@ function grassMaterial(): THREE.MeshStandardMaterial {
       gbase = mix(gbase, uGrassDry, smoothstep(gDryLo, gDryLo + 0.22, hvFbm(gp * 0.09 + 5.0)) * uDryAmt);
       float glush = smoothstep(0.35, 0.78, hvFbm(gp * 0.11 + 20.0));
       gbase = mix(gbase, uGrassA * vec3(0.7, 0.86, 0.74), glush * 0.55) * 0.9;
+      gbase = hvMeadowVar(gbase, gp);
+      {
+        vec4 gcv = texture2D(uGrassCover, (gp - uGrassCoverRect.xy) / uGrassCoverRect.zw);
+        gbase = mix(gbase, gbase * vec3(0.8, 0.95, 0.8), gcv.r * 0.7);
+        gbase = mix(gbase, uGrassDry * vec3(1.15, 1.05, 0.75), smoothstep(0.1, 0.7, gcv.b) * 0.6);
+        gbase *= 1.0 - gcv.a * 0.35;
+      }
       vec3 gtip = mix(gbase, uGrassTip, 0.55);
       float gh = vGH;
       vec3 gcol = mix(gbase * 0.62, gbase * 1.02, smoothstep(0.0, 0.45, gh));
@@ -144,7 +176,12 @@ export interface GrassOptions {
   tallness: (x: number, z: number) => number;
   seed: string;
   densityScale: number;
+  /** Ground-cover source: blades over clover darken, over straw / trampled patches dry out. */
+  cover?: { cover: THREE.Texture; opts: { minX: number; minZ: number; maxX: number; maxZ: number } };
 }
+
+const uGrassCover = { value: null as THREE.Texture | null };
+const uGrassCoverRect = { value: new THREE.Vector4(0, 0, 1, 1) };
 
 interface TileRef {
   mesh: THREE.InstancedMesh;
@@ -157,12 +194,24 @@ export class GrassField {
   private tileRefs = new Map<string, TileRef[]>();
   private zero = new THREE.Matrix4().makeScale(0, 0, 0);
   private chunks: THREE.InstancedMesh[] = [];
+  /** Near (3-segment) and far (1-segment) tuft geometries; chunks swap between them. */
+  private geoNear: THREE.BufferGeometry;
+  private geoFar: THREE.BufferGeometry;
 
   constructor(opts: GrassOptions) {
     this.group.name = 'grass';
+    this.group.userData.perfTag = 'grass';
+    if (opts.cover) {
+      const { minX, minZ, maxX, maxZ } = opts.cover.opts;
+      uGrassCover.value = opts.cover.cover;
+      uGrassCoverRect.value.set(minX, minZ, maxX - minX, maxZ - minZ);
+    }
     const rng = new Rng(opts.seed);
-    // One tuft geometry for everything (tall tufts are stretched per instance) → one draw per chunk.
-    const geos = [tuftGeometry(rng, 9, 'short')];
+    // One tuft layout for everything (tall tufts are stretched per instance) → one draw per chunk.
+    // Same seed → the far tuft has the same blade placement as the near one, just fewer segments.
+    this.geoNear = tuftGeometry(new Rng(`${opts.seed}:tuft`), 8, 3);
+    this.geoFar = tuftGeometry(new Rng(`${opts.seed}:tuft`), 8, 1);
+    const geos = [this.geoNear];
     const { x0, z0, x1, z1 } = opts.bounds;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -206,7 +255,24 @@ export class GrassField {
             [b.cols[i], b.cols[j]] = [b.cols[j]!, b.cols[i]!];
             [b.tiles[i], b.tiles[j]] = [b.tiles[j]!, b.tiles[i]!];
           }
-          const mesh = new THREE.InstancedMesh(geos[vi]!, this.material, b.mats.length);
+          // Per-chunk geometries share the tuft vertex buffers and add this chunk's instance rank
+          // (shuffled order → drawing the first N instances thins the chunk uniformly).
+          const rank = new Float32Array(b.mats.length);
+          for (let i = 0; i < rank.length; i++) rank[i] = (i + 0.5) / rank.length;
+          const rankAttr = new THREE.InstancedBufferAttribute(rank, 1);
+          const view = (base: THREE.BufferGeometry): THREE.BufferGeometry => {
+            const g = new THREE.BufferGeometry();
+            for (const [k, a] of Object.entries(base.attributes)) g.setAttribute(k, a);
+            g.setAttribute('aRank', rankAttr);
+            g.boundingSphere = base.boundingSphere;
+            return g;
+          };
+          this.geoNear.computeBoundingSphere();
+          this.geoFar.boundingSphere = this.geoNear.boundingSphere;
+          const near = view(geos[vi]!);
+          const mesh = new THREE.InstancedMesh(near, this.material, b.mats.length);
+          mesh.userData.geoNear = near;
+          mesh.userData.geoFar = view(this.geoFar);
           b.mats.forEach((mm, i) => {
             mesh.setMatrixAt(i, mm);
             mesh.setColorAt(i, b.cols[i]!);
@@ -239,13 +305,27 @@ export class GrassField {
     }
   }
 
-  /** Distance LOD around the camera focus: far chunks draw a thinned subset of tufts. */
+  /** Distance LOD around the camera focus (see file header). */
   update(focus: THREE.Vector3): void {
+    uGrassFocus.value.copy(focus);
+    const { near, mid, midDensity } = GRASS_LOD;
     for (const m of this.chunks) {
       const c = m.userData.center as THREE.Vector2;
-      const d = Math.max(0, Math.hypot(c.x - focus.x, c.y - focus.z) - CHUNK * 0.6);
-      const f = d < 10 ? 1 : d < 20 ? 0.55 : 0.25;
-      m.count = Math.max(1, Math.floor((m.userData.full as number) * f));
+      // Nearest point of the chunk square to the focus.
+      const dx = Math.max(0, Math.abs(c.x - focus.x) - CHUNK / 2);
+      const dz = Math.max(0, Math.abs(c.y - focus.z) - CHUNK / 2);
+      const d = Math.hypot(dx, dz);
+      if (d >= mid) {
+        m.visible = false;
+        continue;
+      }
+      m.visible = true;
+      const full = d < near - 2;
+      const f = full ? 1 : midDensity;
+      m.count = Math.max(1, Math.ceil((m.userData.full as number) * f));
+      // Far chunks: 1-segment blades (any part of the chunk nearer than ~near keeps full detail).
+      const geo = (d < near - 3 ? m.userData.geoNear : m.userData.geoFar) as THREE.BufferGeometry;
+      if (m.geometry !== geo) m.geometry = geo;
     }
   }
 

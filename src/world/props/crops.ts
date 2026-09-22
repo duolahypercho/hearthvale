@@ -23,6 +23,12 @@ interface LeafOpts {
   fold?: number; // V-fold along the midrib
   shape?: 'oval' | 'lance' | 'round' | 'ribbon' | 'heart';
   serrate?: number;
+  /** Frilly edge: vertical ripple amplitude (× half-width) along both leaf margins. */
+  ruffle?: number;
+  /** Tip curls up and back over the plant (radians at the tip), e.g. cauliflower wrapper leaves. */
+  curl?: number;
+  /** Midrib colour (defaults to a lighter c0→c1). */
+  rib?: THREE.Color;
   c0: THREE.Color;
   c1: THREE.Color;
   segs?: number;
@@ -61,7 +67,23 @@ function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry 
     const z = t * len * (1 - bend * 0.25 * t);
     const y = len * (t * lift * 0.9 - t * t * bend * 0.9);
     const m = new THREE.Vector3(0, y, z);
-    rows.push({ l: new THREE.Vector3(-w, y - w * fold, z), m, r: new THREE.Vector3(w, y - w * fold, z), t });
+    const rf = o.ruffle ? o.ruffle * w * Math.sin(t * Math.PI * 13) * Math.min(1, t * 4) : 0;
+    const rfr = o.ruffle ? o.ruffle * w * Math.sin(t * Math.PI * 13 + 1.7) * Math.min(1, t * 4) : 0;
+    rows.push({ l: new THREE.Vector3(-w, y - w * fold + rf, z), m, r: new THREE.Vector3(w, y - w * fold + rfr, z), t });
+  }
+  if (o.curl) {
+    // Rotate each row about the leaf base (X axis) progressively → tip curls up and inwards.
+    for (const row of rows) {
+      const a = o.curl * Math.pow(row.t, 1.6);
+      const c = Math.cos(a);
+      const sn = Math.sin(a);
+      for (const v of [row.l, row.m, row.r]) {
+        const y0 = v.y;
+        const z0 = v.z;
+        v.y = y0 * c + z0 * sn;
+        v.z = z0 * c - y0 * sn;
+      }
+    }
   }
   const push = (v: THREE.Vector3, c: THREE.Color): void => {
     pos.push(v.x, v.y, v.z);
@@ -69,7 +91,10 @@ function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry 
   };
   const colAt = (t: number, edge: boolean): THREE.Color => {
     const c = o.c0.clone().lerp(o.c1, THREE.MathUtils.smoothstep(t, 0, 1));
-    if (!edge) c.multiplyScalar(1.12);
+    if (!edge) {
+      if (o.rib) c.lerp(o.rib, 0.7 * (1 - t * 0.6));
+      else c.multiplyScalar(1.12);
+    }
     return c.multiplyScalar(0.72 + 0.28 * Math.min(1, t * 3));
   };
   for (let i = 0; i < segs; i++) {
@@ -238,17 +263,29 @@ function buildCrop(id: CropId, stage: number, r: Rng): THREE.BufferGeometry {
         break;
       }
       case 'cauliflower': {
-        rosette(add, r, 5 + k * 2, 0.22 + k * 0.1, 0.16, { shape: 'oval', lift: 0.8 + k * 0.1, bend: 0.4, fold: 0.35, c0: GREEN.blue, c1: GREEN.blueL });
+        // Big dark blue-green outer leaves; from stage 3 a creamy curd of clustered florets sits
+        // in a low cup of inward-curling wrapper leaves (the head stays clearly visible).
+        rosette(add, r, 5 + k, 0.26 + k * 0.11, 0.19, { shape: 'oval', lift: 0.5 + k * 0.1, bend: 0.45, fold: 0.3, ruffle: 0.12, rib: C(0xc8dcc0), c0: C(0x2f5f4a), c1: C(0x5f917a) });
         if (k >= 1) {
-          const head = lumpySphereColored(0.1 + k * 0.05, C(0xf4efdc), r, 5.5, 0.14);
-          add(head, mat(0, 0.07 + k * 0.03, 0, 0, 0, 0, 1, 0.72, 1));
-          rosette(add, r, 5, 0.16 + k * 0.05, 0.13, { shape: 'oval', lift: 1.2, bend: 0.2, fold: 0.5, c0: GREEN.blue, c1: GREEN.blueL }, 0.3, 0.02);
+          const R = 0.085 + k * 0.045;
+          const cy = 0.05 + k * 0.03;
+          add(curd(R, r), mat(0, cy, 0));
+          rosette(add, r, 5, R * 1.35, 0.13 + k * 0.02, { shape: 'oval', lift: 1.1, bend: 0.05, fold: 0.45, curl: 0.9, rib: C(0xd0e0c8), c0: C(0x3a6e58), c1: C(0x6f9e86) }, 0.3, 0.0);
         }
         break;
       }
       case 'kale': {
-        for (let t = 0; t < 2 + k; t++) {
-          rosette(add, r, 5, 0.18 + k * 0.07 - t * 0.03, 0.1, { shape: 'lance', serrate: 0.6, lift: 1.0 + t * 0.2, bend: 0.55, fold: 0.4, c0: C(0x2c5a44), c1: C(0x5a8f78) }, t * 0.7, t * 0.05);
+        // Curly kale: upright vase of frilly, deeply ruffled leaves on pale stems.
+        const tiers = 2 + k;
+        for (let t = 0; t < tiers; t++) {
+          const n = 5 - (t === tiers - 1 ? 1 : 0);
+          const len = 0.2 + k * 0.08 - t * 0.035;
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + t * 0.62 + (r.next() - 0.5) * 0.4;
+            const m = mat(0, t * 0.035, 0, 0, a, 0);
+            add(stalk(0.06 + t * 0.02, 0.008, 0.006, C(0xa8c890), C(0x9cc080), 0.02), m.clone().multiply(mat(0, 0, 0.02, 0.5, 0, 0)));
+            add(leafGeo(len * (0.85 + r.next() * 0.3), 0.13 + k * 0.02, { shape: 'oval', serrate: 0.35, ruffle: 0.55, lift: 1.25 + t * 0.15, bend: 0.4, fold: 0.25, rib: C(0xb8d8a0), c0: C(0x2f6a2c), c1: C(0x5f9e44), segs: 8 }), m.clone().multiply(mat(0, 0.05, 0.02, 0, 0, 0)));
+          }
         }
         break;
       }
@@ -358,6 +395,56 @@ function buildCrop(id: CropId, stage: number, r: Rng): THREE.BufferGeometry {
   const g = b.geometries().get(M)!;
   g.computeBoundingSphere();
   return g;
+}
+
+/** Cauliflower curd: a dome of 16–20 clustered florets (small icospheres), cream with crevice AO. */
+function curd(R: number, r: Rng): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const cream = C(0xf2e8c9);
+  // Core dome fills the gaps between florets.
+  const core = new THREE.SphereGeometry(R * 0.86, 10, 5, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  core.scale(1, 0.62, 1);
+  parts.push(colored(core, (_p, n) => cream.clone().multiplyScalar(0.55 + 0.25 * Math.max(0, n.y))));
+  const N = 15;
+  for (let i = 0; i < N; i++) {
+    // Fibonacci points over the upper hemisphere.
+    const t = (i + 0.5) / N;
+    const el = Math.acos(1 - t * 0.92);
+    const az = i * 2.39996 + r.next() * 0.2;
+    const dir = new THREE.Vector3(Math.sin(el) * Math.cos(az), Math.cos(el), Math.sin(el) * Math.sin(az));
+    const fr = R * (0.36 + r.next() * 0.1) * (1 - t * 0.25);
+    // Florets are ~4 cm on screen: a 20-face icosahedron with smoothed normals reads as a bud.
+    const g = new THREE.IcosahedronGeometry(fr, 0);
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    for (let k = 0; k < pos.count; k++) {
+      const v = new THREE.Vector3().fromBufferAttribute(pos, k);
+      const bump = 1 + 0.12 * Math.sin(v.x * 90 + i) * Math.sin(v.z * 80 + v.y * 70);
+      pos.setXYZ(k, v.x * bump, v.y * bump * 0.85, v.z * bump);
+    }
+    {
+      // Smooth (radial) normals: a round bud, not a faceted gem.
+      const nrm = new Float32Array(pos.count * 3);
+      const v = new THREE.Vector3();
+      for (let k = 0; k < pos.count; k++) {
+        v.fromBufferAttribute(pos, k).normalize();
+        nrm.set([v.x, v.y, v.z], k * 3);
+      }
+      g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    }
+    const c = colored(g, (p, n) => {
+      // Floret: bright crown, shadowed underside where it presses into its neighbours.
+      const toward = n.dot(dir);
+      const ao = 0.5 + 0.5 * THREE.MathUtils.smoothstep(toward, -0.5, 0.75);
+      const tone = cream.clone().multiplyScalar(ao * (0.94 + 0.06 * Math.sin(p.x * 200 + p.z * 170)));
+      return tone.lerp(C(0xe6d6a8), (1 - ao) * 0.5);
+    });
+    c.translate(dir.x * R * 0.72, dir.y * R * 0.5, dir.z * R * 0.72);
+    parts.push(c);
+  }
+  const b = new MeshBuilder();
+  const M = 'curd' as unknown as THREE.Material;
+  for (const p of parts) b.add(M, p);
+  return b.geometries().get(M)!;
 }
 
 function lumpySphereColored(r0: number, c: THREE.Color, r: Rng, freq = 2.2, amp = 0.2): THREE.BufferGeometry {

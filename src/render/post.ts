@@ -154,10 +154,17 @@ export class PostPipeline {
       this.gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
       // Skip objects flagged `userData.noAO` (dense grass, water, particles) in the AO G-buffer pass.
       const g = this.gtao as unknown as { _overrideVisibility: () => void; _visibilityCache: THREE.Object3D[] };
+      // A subtree is skipped when any ancestor has noAO (unless the object opts back in with `ao`).
+      const skip = (o: THREE.Object3D): boolean => {
+        if (o.userData.ao) return false;
+        for (let n: THREE.Object3D | null = o; n; n = n.parent) if (n.userData.noAO) return true;
+        return false;
+      };
       g._overrideVisibility = () => {
         scene.traverse((o) => {
-          const p = o as THREE.Object3D & { isPoints?: boolean; isLine?: boolean };
-          if ((p.isPoints || p.isLine || o.userData.noAO || (o.parent?.userData.noAO && !o.userData.ao)) && o.visible) {
+          const p = o as THREE.Object3D & { isPoints?: boolean; isLine?: boolean; isMesh?: boolean };
+          if (!o.visible || !(p.isPoints || p.isLine || p.isMesh)) return;
+          if (p.isPoints || p.isLine || skip(o)) {
             o.visible = false;
             g._visibilityCache.push(o);
           }

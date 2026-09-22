@@ -32,6 +32,18 @@ float hvFbm(vec2 p) {
   }
   return s / 0.9375;
 }
+// Rotate hue by \`a\` radians (Rodrigues around the grey axis), keeps luminance roughly.
+vec3 hvHueShift(vec3 c, float a) {
+  const vec3 k = vec3(0.57735);
+  float ca = cos(a);
+  return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca);
+}
+// Large-scale (8–12 m) meadow variation: ±4° hue, ±6 % value, shared by terrain + grass.
+vec3 hvMeadowVar(vec3 c, vec2 wp) {
+  float h = hvFbm(wp * 0.095 + 41.0) - 0.5;
+  float v = hvFbm(wp * 0.11 + 83.0) - 0.5;
+  return hvHueShift(c, h * 0.28) * (1.0 + v * 0.24);
+}
 // Soft moving cloud shadows, 1 = lit, lower = shadowed.
 float hvCloudShadow(vec2 wp, float t, float strength) {
   vec2 q = wp * 0.028 + vec2(t * 0.012, t * 0.006);

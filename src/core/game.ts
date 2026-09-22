@@ -209,10 +209,16 @@ export class Game {
   }
 
   /** Render budget check (all passes of the last frame). */
-  perf(): { drawCalls: number; triangles: number; budget: { drawCalls: number; triangles: number }; ok: boolean } {
+  perf(): {
+    drawCalls: number;
+    triangles: number;
+    budget: { drawCalls: number; triangles: number };
+    ok: boolean;
+    bySystem: Record<string, { calls: number; triangles: number }>;
+  } {
     const r = this.rc.renderer.info.render;
     const budget = { drawCalls: 300, triangles: 1_500_000 };
-    return { drawCalls: r.calls, triangles: r.triangles, budget, ok: r.calls <= budget.drawCalls && r.triangles <= budget.triangles };
+    return { drawCalls: r.calls, triangles: r.triangles, budget, ok: r.calls <= budget.drawCalls && r.triangles <= budget.triangles, bySystem: this.rc.perfBreakdown() };
   }
 
   /** Snap (instant) or blend the season visuals; handled by SeasonSystem. */

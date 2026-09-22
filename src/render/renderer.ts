@@ -79,6 +79,11 @@ export class RenderContext {
   preset: QualityPreset;
   private width = 1;
   private height = 1;
+  /** Per-tag draw calls / triangles of the last frame (all passes), see perfBreakdown(). */
+  private perfAcc = new Map<string, { calls: number; triangles: number }>();
+  private perfLast: Record<string, { calls: number; triangles: number }> = {};
+  /** Debug: split the per-system breakdown by pass (shadow / ao / main). */
+  perfPasses = false;
 
   constructor(private container: HTMLElement, quality: Quality) {
     this.quality = quality;
@@ -102,6 +107,7 @@ export class RenderContext {
     this.rig = new CameraRig(this.camera);
     this.scene.add(this.camera);
 
+    this.installPerfProbe();
     this.measure();
     this.post = new PostPipeline(this.renderer, this.scene, this.camera, this.preset);
     window.addEventListener('resize', () => this.resize());
@@ -149,7 +155,64 @@ export class RenderContext {
     // Accumulate stats over all passes of the frame (shadow, AO, main, post).
     this.renderer.info.autoReset = false;
     this.renderer.info.reset();
+    this.perfAcc.clear();
     this.post.render(time);
+    const out: Record<string, { calls: number; triangles: number }> = {};
+    for (const [k, v] of [...this.perfAcc.entries()].sort((a, b) => b[1].triangles - a[1].triangles)) out[k] = { ...v };
+    this.perfLast = out;
+  }
+
+  /**
+   * Attribute every draw (shadow, AO, main, post) to a tag so teams can see their cost:
+   * the nearest ancestor with `userData.perfTag`, else the top-level object under a map root /
+   * the scene. Read via perfBreakdown() → __game.info().perf.bySystem.
+   */
+  private installPerfProbe(): void {
+    const r = this.renderer as THREE.WebGLRenderer & { renderBufferDirect: (...a: unknown[]) => void };
+    const orig = r.renderBufferDirect.bind(r);
+    const info = this.renderer.info.render;
+    const tagOf = (o: THREE.Object3D): string => {
+      const cached = o.userData.__perfTag as string | undefined;
+      if (cached) return cached;
+      let n: THREE.Object3D | null = o;
+      let tag = '';
+      while (n) {
+        if (n.userData.perfTag) {
+          tag = n.userData.perfTag as string;
+          break;
+        }
+        const p: THREE.Object3D | null = n.parent;
+        if (!p || (p as THREE.Scene).isScene || p.name.startsWith('map:')) {
+          tag = n.name || n.type;
+          break;
+        }
+        n = p;
+      }
+      if (!tag) tag = o.name || o.type;
+      if (o.parent) o.userData.__perfTag = tag;
+      return tag;
+    };
+    r.renderBufferDirect = (...a: unknown[]) => {
+      const c0 = info.calls;
+      const t0 = info.triangles;
+      orig(...a);
+      const obj = a[4] as THREE.Object3D;
+      let tag = obj.parent ? tagOf(obj) : 'post';
+      if (this.perfPasses) {
+        const cam = a[0] as THREE.Camera & { isOrthographicCamera?: boolean };
+        const mat = a[3] as THREE.Material;
+        tag += cam.isOrthographicCamera ? '/shadow' : mat.type === 'MeshNormalMaterial' ? '/ao' : '/main';
+      }
+      let e = this.perfAcc.get(tag);
+      if (!e) this.perfAcc.set(tag, (e = { calls: 0, triangles: 0 }));
+      e.calls += info.calls - c0;
+      e.triangles += info.triangles - t0;
+    };
+  }
+
+  /** Draw calls / triangles per system tag for the last rendered frame, heaviest first. */
+  perfBreakdown(): Record<string, { calls: number; triangles: number }> {
+    return this.perfLast;
   }
 
   /** Pre-compile all materials in the scene. */
