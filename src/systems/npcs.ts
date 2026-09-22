@@ -43,7 +43,7 @@ declare module '../core/events' {
 const SHOWCASE: Record<NpcId, [number, number, number]> = {
   marigold: [28.4, 21.8, 0.6],
   bram: [36.4, 21.6, -0.7],
-  wren: [30.9, 29.3, 2.7],
+  wren: [26.6, 26.9, 1.3],
 };
 
 export class NpcSystem implements System {

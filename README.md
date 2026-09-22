@@ -15,6 +15,8 @@ npm test             # headless smoke test: boots the game, exercises every __ga
 npm run check        # typecheck + lint + test
 npm run build        # typecheck + lint + production bundle in dist/ (three.js in its own vendor chunk)
 npm run shot -- --url "?demo=farm-evening" --out shots/evening.png
+sh scripts/critic-shots.sh  # re-capture the critic shot list into shots/r3/set (+ perf per shot)
+sh scripts/perf-shot.sh "?demo=town-evening" shots/t.png   # shot + per-system perf table
 ```
 
 Controls: **WASD / arrows** move (Shift runs) · **left click / C / Space** use tool ·
@@ -36,45 +38,36 @@ src/
     debug.ts, demos.ts   window.__game API, URL params, canned beauty scenes
   render/
     renderer.ts          WebGLRenderer (ACES, sRGB, PCF soft shadows) + CameraRig (35° FOV, pitched, smooth follow)
-    post.ts              EffectComposer: GTAO → Bloom → Output → SMAA → tilt-shift → grade/vignette/grain; quality presets
-    lighting.ts          DayNight: sun/moon, hemi, bounce, fog, sky dome, PMREM IBL, exposure + grade keyed by hour/season/weather
-    textures.ts          procedural canvas textures (grass, dirt/path, soil, wet soil, stone, cliff, wood, bark, shingles, thatch, leaves, sand…)
-    materials.ts         shared material library (+ nightGlow emissives driven by the rig)
-    wind.ts              applyWind(material, opts) — world-space wind sway for any material (+ windDepthMaterial for shadows)
-    worldfx.ts           applyWorldFx(material) — snow (drift normals, blue skylight, glints, path slush), wetness,
-                         cloud shadows, golden-hour back-rim
-    patch.ts             composable onBeforeCompile patches
-    uniforms.ts          globalUniforms shared by every patched shader (time, wind, night, snow, palette, sun…)
-    particles.ts         SmokeEmitter (chimneys), Ambience (pollen, fireflies, falling leaves), BurstFX (tool/harvest/sprinkler)
-    precipitation.ts     GPU rain streaks + splash rings (terrain-height aware) + snowfall, camera-following volumes
-    foliage.ts           applyPlantLighting(): two-sided leaf lighting, ambient floor, back-lit translucency
-    shaders/noise.ts     GLSL hash/value noise/fbm/cloud-shadow helpers
+                         + per-system draw/triangle probe → __game.info().perf.bySystem
+    post.ts              EffectComposer: GTAO → Bloom (threshold 0.92, emissive-only) → Output → SMAA → tilt-shift → grade
+    lighting.ts          DayNight: sun/moon, hemi, bounce, fog, sky dome, PMREM IBL, exposure + grade keyed by hour/season/
+                         weather; shadow frustum fitted to the view footprint; lamps dimmed over snow
+    textures.ts          procedural texture library (index) → tex/{core,ground,stone,wood,foliage,fx}.ts
+    materials.ts         shared material library (+ nightGlow emissives, roofTile, paperLantern)
+    wind.ts, worldfx.ts, patch.ts, uniforms.ts, particles.ts (smoke, ambience, bees, bursts), precipitation.ts, foliage.ts
+    shaders/noise.ts     GLSL hash/value noise/fbm/cloud-shadow + hvMeadowVar (8–12 m hue/value variation)
   world/
-    tiles.ts             TileGrid: type, flags (Blocked/Tillable/Tilled/Watered/…), height, TileObject per tile
-    map.ts               GameMap interface + World (map registry / loader)
-    terrain.ts           chunked heightfield + splat-blended ground shader (grass/path/tilled/wet/sand, triplanar cliffs,
-                         seasonal rust patches, rain puddles with ripples + sky reflection)
-    water.ts             depth-tinted animated water (foam, glints, caustics, rain ripples, winter ice)
-    grass.ts             chunked instanced grass (1 draw/chunk, distance LOD), wind, player push, seasonal colour,
-                         winter straw; clearTile(x,z)
-    geom.ts              roundedBox, bevelCylinder, lumpySphere, AO baking, MeshBuilder, mergeStatic (props → 1 mesh/material)
-    farm.ts              the farm map (layout, paths, pond, house, field + garden plots, yard dressing, POIs, forest)
-    props/               instanced.ts  BatchPool/InstancedSet — THREE.BatchedMesh per material (multi-draw + per-instance culling)
-                         trees.ts      oak/maple/pine/blossom, hero + forest LOD
-                         nature.ts     sculpted rocks/pebbles, weeds (→ frozen twigs in winter), bushes (3-tone seasonal
-                                       palette), flowers (fall mums), reeds, lilies, ferns…
-                         structures.ts farmhouse, shipping bin, mailbox (waving flag), lantern post, fences, dock
-                         farmkit.ts    scarecrow, sprinkler, wheelbarrow, hay, laundry line (wind cloth), bird bath,
-                                       beehive, tool rack, bench, harvest displays, pots, signpost, trough, snowman…
-                         crops.ts      9 crops × 5 growth stages, batched, wind + translucency
-                         soil.ts       raised tilled-soil beds (furrows, clods, dry/watered materials, merged rims)
-                         decals.ts     fall leaf litter, lamp light pools, winter footprints
-  entities/              player.ts (chibi farmer rig: blink, weight shift, look-around, swing), critters.ts
-                         (butterflies, songbirds, farm cat, chickens)
-  ui/                    hud.ts + hud.css (clock, toolbar bound to the inventory, energy, toasts, panel registry),
-                         inventory.ts (backpack panel), icons.ts (tools, seeds, produce, resources)
-  systems/               season.ts, weather.ts (precipitation, lightning), inventory.ts, farming.ts, shipping.ts, critters.ts
-  data/                  crops.ts, items.ts (pure data tables)
+    tiles.ts, map.ts     TileGrid + GameMap (warps, title) + World (map registry / loader)
+    terrain.ts           chunked heightfield + splat (path/tilled/wet/sand) + ground-cover texture (clover/moss/
+                         trampled/contact AO) shader; half-res shadow-proxy chunks; optional cobble path texture
+    water.ts             Fresnel sky + bank reflection, depth absorption, broken animated shore foam, ice
+    grass.ts             chunked instanced grass: 12 m full (3-seg) / 22 m 40 % (1-seg) / fade-out LOD
+    geom.ts              roundedBox, bevelCylinder, lumpySphere, AO baking, MeshBuilder (+ material aliases), mergeStatic
+    farm/                index.ts (assembly) · paint.ts (shape, splat + cover masks, grass density) ·
+                         layout.ts (structures, vignettes + contact AO, trees, pond/cliff dressing) ·
+                         overgrowth.ts (seeded Poisson-disk debris: ~650 clearable weeds/stones/stumps/logs/bushes)
+    town/index.ts        Hearthvale Square: plaza + fountain, Lantern Hall, store, bakery, cottages, stall, festival dressing
+    props/               instanced.ts (BatchPool/InstancedSet) · trees.ts · nature.ts (+ tall grass, branches, 3 weeds) ·
+                         structures.ts · farmkit.ts · homestead.ts (wood shelter, coop, arch, pump, basket…) ·
+                         townkit.ts (townhouses, hall, fountain, stall, planters, bunting) · crops.ts (floret curds,
+                         curly kale…) · soil.ts (one material, feathered noise-edged wet mask) · decals.ts
+  entities/              player.ts (chibi farmer), villager.ts (NPC rig: walk / idle / talk), critters.ts
+  ui/                    hud.ts + hud.css (clock, toolbar, energy, toasts, fade, banner, panel registry) · screens.css ·
+                         inventory.ts · dialogue.ts (typewriter + portraits) · portraits.ts (procedural SVG) ·
+                         title.ts (title screen + grandmother's letter) · panels.ts (shop, crafting, map, fishing) · icons.ts
+  systems/               season, weather, inventory, farming, shipping, critters, npcs (schedules, talk, friendship),
+                         warps (map transitions), audio (procedural WebAudio ambience, music, footsteps, SFX)
+  data/                  crops.ts, items.ts, npcs.ts (villagers + dialogue), farm-layout.ts, town-layout.ts
 scripts/shot.mjs         headless screenshot harness
 ```
 

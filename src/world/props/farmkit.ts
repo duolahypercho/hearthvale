@@ -98,11 +98,11 @@ export function buildWateringCanOnStump(): THREE.Group {
   top.rotateX(-Math.PI / 2);
   b.add('woodPaint', top, mat(0, 0.425, 0), { tint: 0xd8b07a });
   const can = bevelCylinder(0.11, 0.13, 0.2, 0.02, 14);
-  b.add('metal', can, mat(0, 0.43, 0), { tint: 0x7fb0c8 });
+  b.add('woodPaint', can, mat(0, 0.43, 0), { tint: 0x7fb0c8 });
   const spout = new THREE.CylinderGeometry(0.018, 0.028, 0.28, 8);
-  b.add('metal', spout, mat(0.17, 0.56, 0, 0, 0, -0.9), { tint: 0x7fb0c8 });
-  b.add('metal', new THREE.CylinderGeometry(0.045, 0.03, 0.04, 10), mat(0.29, 0.645, 0, 0, 0, -0.9), { tint: 0x6a98b0 });
-  b.add('metal', new THREE.TorusGeometry(0.09, 0.015, 6, 14, Math.PI), mat(-0.02, 0.63, 0), { tint: 0x6a98b0 });
+  b.add('woodPaint', spout, mat(0.17, 0.56, 0, 0, 0, -0.9), { tint: 0x7fb0c8 });
+  b.add('woodPaint', new THREE.CylinderGeometry(0.045, 0.03, 0.04, 10), mat(0.29, 0.645, 0, 0, 0, -0.9), { tint: 0x6a98b0 });
+  b.add('woodPaint', new THREE.TorusGeometry(0.09, 0.015, 6, 14, Math.PI), mat(-0.02, 0.63, 0), { tint: 0x6a98b0 });
   return b.build({ name: 'watering-can-stump' });
 }
 

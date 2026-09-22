@@ -160,12 +160,13 @@
   line-height: 0.95;
   letter-spacing: 1px;
   color: #fff4d6;
-  -webkit-text-stroke: 3px #6a3414;
-  paint-order: stroke fill;
+  /* Outline from 8 offset shadows (text-stroke eats into the rounded glyphs), then depth + glow. */
   text-shadow:
-    0 6px 0 #6a3414,
-    0 10px 0 rgba(60, 25, 10, 0.4),
-    0 0 40px rgba(255, 180, 90, 0.65);
+    3px 0 0 #6a3414, -3px 0 0 #6a3414, 0 3px 0 #6a3414, 0 -3px 0 #6a3414,
+    2px 2px 0 #6a3414, -2px 2px 0 #6a3414, 2px -2px 0 #6a3414, -2px -2px 0 #6a3414,
+    0 8px 0 #6a3414,
+    0 12px 0 rgba(60, 25, 10, 0.45),
+    0 0 44px rgba(255, 180, 90, 0.7);
 }
 .hv-title-screen h1 span:first-child {
   color: #ffd98a;

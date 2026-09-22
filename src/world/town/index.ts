@@ -58,7 +58,7 @@ export class TownMap implements GameMap {
     this.rng = game.rng.fork('town');
     this.noise = new Noise2D(this.rng.fork('n').seed);
     this.sampleStreets();
-    this.terrain = new Terrain({ ...TOWN_EXTENT, step: 0.5, height: (x, z) => this.height(x, z), waterLevel: -5, pathTexture: textures.cobble().map, pathScale: 0.36 });
+    this.terrain = new Terrain({ ...TOWN_EXTENT, step: 0.5, height: (x, z) => this.height(x, z), waterLevel: -5, pathTexture: textures.cobble().map, pathScale: 0.48 });
     this.root.add(this.terrain.mesh);
     this.terrain.paint('path', (x, z) => this.streetValue(x, z));
     this.terrain.commitSplat();

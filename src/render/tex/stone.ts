@@ -53,7 +53,7 @@ export function cobble(): TexPair {
     const S = 512;
     const w = makeWorley(9, 'cobble', 0.55);
     const n = makeTileNoise(8, 4, 'cobble-n');
-    const tones: RGB[] = [hex(0xb4aa9c), hex(0x9f978c), hex(0xc2b39a), hex(0xa99c8a), hex(0x8e8880), hex(0xbfae98)];
+    const tones: RGB[] = [hex(0xaaa69c), hex(0x9a978e), hex(0xb8ae98), hex(0xa29a8a), hex(0x8c8a84), hex(0xb2a894)];
     const { color, height } = pixels(S, (u, v) => {
       const c = w(u, v);
       const edge = c.f2 - c.f1;

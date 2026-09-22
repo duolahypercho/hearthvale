@@ -71,12 +71,16 @@ siblings (`npm run lint` fails the build). When you add a system, register it in
 - `teleport(map: string, x: number, z: number)` and `facing(dir)`
 - `openUI(name: string)` — e.g. 'inventory', 'shop', 'dialogue:<npcId>', 'title', 'fishing', 'crafting', 'map', 'none'
 - `give(itemId, qty)`, `setGold(n)`, `grow(days)` advance crops
-- `demo(name)` — stage a canned beauty scene, e.g. 'farm-morning', 'town-evening', 'beach-sunset',
-  'forest-rain', 'winter-night', 'mine', 'festival'
+- `demo(name)` — stage a canned beauty scene, e.g. 'farm-morning', 'town-evening', 'town-day',
+  'town-dialogue', 'festival', 'title', 'winter-night' ('beach-sunset', 'forest-rain', 'mine' fall back to
+  the farm until those maps exist)
 - `ready(): Promise<void>` resolves after world + shaders are compiled and a few frames rendered.
+- `info().perf.bySystem` — draw calls / triangles per system tag (grass, trees, nature, props, terrain…)
+  for the last frame, all passes. Tag your root with `userData.perfTag`.
 - `pause(bool)` freezes simulation time (not rendering) for reproducible shots.
 
 URL params mirror these: `?demo=farm-morning`, `?map=town&x=..&z=..&time=18.5&season=fall&weather=rain&ui=inventory&quality=high&notitle=1`.
+A plain boot (no demo / map / ui params) opens the title screen.
 
 ## Screenshot harness
 
