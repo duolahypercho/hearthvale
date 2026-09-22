@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import type { Weather } from '../core/time';
-import { RainStreaks, RainSplashes, SnowFlakes } from '../render/precipitation';
+import { RainStreaks, RainSplashes, SnowFlakes, RAIN_NEAR, RAIN_FAR } from '../render/precipitation';
 import { globalUniforms } from '../render/uniforms';
 
 const TARGETS: Record<Weather, { rain: number; snow: number }> = {
@@ -21,7 +21,8 @@ const TARGETS: Record<Weather, { rain: number; snow: number }> = {
 export class WeatherSystem implements System {
   readonly name = 'weather';
   private game!: Game;
-  private rain = new RainStreaks();
+  private rain = new RainStreaks(RAIN_NEAR);
+  private rainFar = new RainStreaks(RAIN_FAR);
   private splash = new RainSplashes();
   private snow = new SnowFlakes();
   private rainAmt = 0;
@@ -34,7 +35,7 @@ export class WeatherSystem implements System {
 
   init(game: Game): void {
     this.game = game;
-    game.scene.add(this.rain.mesh, this.splash.mesh, this.snow.mesh);
+    game.scene.add(this.rain.mesh, this.rainFar.mesh, this.splash.mesh, this.snow.mesh);
     game.events.on('weather:change', ({ weather }) => this.apply(weather, false));
     game.events.on('weather:apply', ({ weather, instant }) => this.apply(weather, instant));
   }
@@ -74,7 +75,12 @@ export class WeatherSystem implements System {
     const rig = game.rc.rig;
     this.center.copy(rig.focus).add(rig.lookOffset);
     const t = game.time;
-    this.rain.update(this.center, this.rainAmt, t);
+    const cam = game.rc.camera;
+    const hPx = Math.max(1, game.rc.renderer.domElement.height);
+    // World units per drawn pixel per metre of distance: streaks stay 1-1.5 px hairlines.
+    const pxAngle = (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / hPx;
+    this.rain.update(this.center, this.rainAmt, t, pxAngle);
+    this.rainFar.update(this.center, this.rainAmt, t, pxAngle);
     this.splash.update(this.center, this.rainAmt, t);
     this.snow.update(this.center, this.snowAmt, t);
 

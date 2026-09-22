@@ -25,13 +25,15 @@ export interface QualityPreset {
   smaa: boolean;
   /** Multiplier for instanced grass density. */
   grassDensity: number;
+  /** Film-grain amplitude (luminance-weighted, shadows only); 0 disables it. */
+  grain: number;
 }
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
-  low: { pixelRatioCap: 1, shadowMapSize: 1024, shadowRadius: 2, ao: false, aoSamples: 8, bloom: false, tiltShift: false, smaa: true, grassDensity: 0.35 },
-  medium: { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowRadius: 3, ao: false, aoSamples: 8, bloom: true, tiltShift: true, smaa: true, grassDensity: 0.65 },
-  high: { pixelRatioCap: 1.5, shadowMapSize: 4096, shadowRadius: 3, ao: true, aoSamples: 12, bloom: true, tiltShift: true, smaa: true, grassDensity: 1 },
-  ultra: { pixelRatioCap: 2, shadowMapSize: 4096, shadowRadius: 4, ao: true, aoSamples: 16, bloom: true, tiltShift: true, smaa: true, grassDensity: 1.3 },
+  low: { pixelRatioCap: 1, shadowMapSize: 1024, shadowRadius: 2, ao: false, aoSamples: 8, bloom: false, tiltShift: false, smaa: true, grassDensity: 0.35, grain: 0 },
+  medium: { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowRadius: 3, ao: false, aoSamples: 8, bloom: true, tiltShift: true, smaa: true, grassDensity: 0.65, grain: 0 },
+  high: { pixelRatioCap: 1.5, shadowMapSize: 4096, shadowRadius: 3, ao: true, aoSamples: 12, bloom: true, tiltShift: true, smaa: true, grassDensity: 1, grain: 0.016 },
+  ultra: { pixelRatioCap: 2, shadowMapSize: 4096, shadowRadius: 4, ao: true, aoSamples: 16, bloom: true, tiltShift: true, smaa: true, grassDensity: 1.3, grain: 0.018 },
 };
 
 const FULLSCREEN_VS = /* glsl */ `
@@ -86,7 +88,7 @@ export const GradeShader = {
     uContrast: { value: 1.05 },
     uVignette: { value: 0.35 },
     uVignetteColor: { value: new THREE.Color(0.08, 0.05, 0.1) },
-    uGrain: { value: 0.025 },
+    uGrain: { value: 0.016 },
     uTime: { value: 0 },
     uResolution: { value: new THREE.Vector2(1920, 1080) },
   },
@@ -118,7 +120,8 @@ export const GradeShader = {
       c = mix(c, c * uVignetteColor * 2.0, v * uVignette);
       c = mix(c, c * 0.0 + uVignetteColor, v * v * uVignette * 0.35);
       float n = hash(vUv * uResolution + fract(uTime * 7.13) * 431.0) - 0.5;
-      c += n * uGrain * (1.0 - l * 0.5);
+      // Luminance-weighted: a whisper of grain in the shadows, none on bright grass / sky.
+      c += n * uGrain * (1.0 - smoothstep(0.08, 0.45, l));
       gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
     }
   `,
@@ -189,6 +192,7 @@ export class PostPipeline {
       this.composer.addPass(this.tiltV);
     }
     this.grade = new ShaderPass(GradeShader);
+    this.grade.uniforms.uGrain!.value = preset.grain;
     this.composer.addPass(this.grade);
     this.setSize(this.size.x, this.size.y);
   }

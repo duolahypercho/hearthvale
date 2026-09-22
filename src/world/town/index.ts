@@ -17,12 +17,13 @@ import { TreeField } from '../props/trees';
 import { Nature } from '../props/nature';
 import { mergeStatic } from '../geom';
 import { textures } from '../../render/textures';
-import { SmokeEmitter, Ambience } from '../../render/particles';
+import { SmokeEmitter, Ambience, FireFX } from '../../render/particles';
 import { LightPools } from '../props/decals';
 import { buildLanternPost, buildBarrel, buildCrate, type BuiltProp } from '../props/structures';
 import { buildBench, buildFlowerPot, buildWheelbarrow } from '../props/farmkit';
-import { buildTownHouse, buildLanternHall, buildFountain, buildNoticeBoard, buildMarketStall, buildPlanter, buildHedge, buildFestivalString, type HouseSpec } from '../props/townkit';
-import { TOWN_SIZE, TOWN_EXTENT, PLAZA, STREETS, BUILDINGS, TOWN_PROPS, TOWN_TREES, BUNTING, TOWN_WARPS, TOWN_SPAWN, type TownBuilding } from '../../data/town-layout';
+import { buildTownHouse, buildLanternHall, buildFountain, buildNoticeBoard, buildMarketStall, buildPlanter, buildHedge, buildFlowerCart, buildCafeSet, buildSandwichBoard, type HouseSpec } from '../props/townkit';
+import { buildBunting, buildLanternPole, buildMaypole, buildFeastTable, buildBrazier } from '../props/festival';
+import { TOWN_SIZE, TOWN_EXTENT, PLAZA, STREETS, BUILDINGS, TOWN_PROPS, TOWN_TREES, FESTIVAL, TOWN_WARPS, TOWN_SPAWN, type TownBuilding } from '../../data/town-layout';
 
 const HOUSES: Record<Exclude<TownBuilding['kind'], 'hall'>, HouseSpec> = {
   store: { w: 7, d: 5, wallH: 3.3, wall: 'plaster', wallTint: 0xfbeed8, roofTint: 0x5fa89a, doorTint: 0x3f7890, shutterTint: 0x5d9484, awning: [0xd8573e, 0xf6ecd8], sign: 'store', chimney: false, doorX: -1 },
@@ -52,6 +53,10 @@ export class TownMap implements GameMap {
   private ambience: Ambience;
   private pools = new LightPools();
   private festival = new THREE.Group();
+  private festivalOn = false;
+  private fire: FireFX | null = null;
+  /** Festival practicals (budget: 4 point lights), always in the scene so toggling never recompiles. */
+  private festivalLights: { light: THREE.PointLight; max: number; seed: number }[] = [];
 
   constructor(private game: Game) {
     this.root.name = 'map:town';
@@ -82,7 +87,9 @@ export class TownMap implements GameMap {
     this.root.add(merged);
     this.festival.name = 'festival';
     this.festival.visible = false;
+    this.festival.userData.perfTag = 'festival';
     this.root.add(this.festival);
+    this.buildFestival();
 
     this.grass = new GrassField({
       bounds: { x0: -12, z0: -10, x1: 76, z1: 60 },
@@ -275,6 +282,15 @@ export class TownMap implements GameMap {
         case 'wheelbarrow':
           g = buildWheelbarrow();
           break;
+        case 'flowerCart':
+          g = buildFlowerCart(r);
+          break;
+        case 'cafeSet':
+          g = buildCafeSet();
+          break;
+        case 'sandwichBoard':
+          g = buildSandwichBoard(p.colors?.[0]);
+          break;
       }
       this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid);
       if (p.kind !== 'hedge') this.terrain.stampCover('ao', p.x, p.z, p.kind === 'fountain' ? 2.8 : p.kind === 'marketStall' ? 1.6 : 0.6, 0.6);
@@ -283,11 +299,6 @@ export class TownMap implements GameMap {
     this.grid.forEach((x, z) => {
       if (Math.hypot(x + 0.5 - PLAZA.x, z + 0.5 - PLAZA.z) < 2.45) this.grid.setObject(x, z, { kind: 'prop', id: 'fountain', solid: true });
     });
-    // Festival bunting + paper lanterns (hidden until a festival).
-    for (const [a, b] of BUNTING) {
-      const s = buildFestivalString(r, new THREE.Vector3(a[0], a[1] + this.terrain.heightAt(a[0], a[2]), a[2]), new THREE.Vector3(b[0], b[1] + this.terrain.heightAt(b[0], b[2]), b[2]));
-      this.festival.add(s);
-    }
     this.poi.plaza = [{ x: PLAZA.x, z: PLAZA.z }];
   }
 
@@ -343,11 +354,75 @@ export class TownMap implements GameMap {
     }
   }
 
+  /**
+   * Lantern Night dressing: catenary bunting (posts / eaves / maypole crown only), paper-lantern
+   * poles at every street mouth, a ribboned maypole in the fountain, two striped market stalls,
+   * a harvest table and two fire braziers (flames + embers), lit by 4 warm point lights.
+   * Built once, merged into a few draw calls, hidden until a festival is on.
+   */
+  private buildFestival(): void {
+    const r = this.rng.fork('festival');
+    const H = (x: number, z: number) => this.terrain.heightAt(x, z);
+    const parts: THREE.Object3D[] = [];
+    const place = (g: THREE.Object3D, x: number, z: number, rot = 0): void => {
+      g.position.set(x, H(x, z) - 0.03, z);
+      g.rotation.y = rot;
+      this.festival.add(g);
+      parts.push(g);
+    };
+    for (const [a, b, sag, flags, every] of FESTIVAL.bunting) {
+      const A = new THREE.Vector3(a[0], a[1] + H(a[0], a[2]), a[2]);
+      const B = new THREE.Vector3(b[0], b[1] + H(b[0], b[2]), b[2]);
+      const g = buildBunting(r, A, B, sag, flags, every);
+      this.festival.add(g);
+      parts.push(g);
+    }
+    FESTIVAL.poles.forEach(([x, z], i) => place(buildLanternPole(r, i), x, z, Math.atan2(PLAZA.x - x, PLAZA.z - z) + Math.PI / 2));
+    place(buildMaypole(r, 1.75, 2.0, 0.64), PLAZA.x, PLAZA.z);
+    for (const [x, z, rot, a, b] of FESTIVAL.stalls) place(buildMarketStall(r, [a, b]), x, z, rot);
+    const [tx, tz, trot, tlen] = FESTIVAL.table;
+    place(buildFeastTable(r, tlen), tx, tz, trot);
+    const fires: THREE.Vector3[] = [];
+    for (const [x, z] of FESTIVAL.braziers) {
+      const br = buildBrazier();
+      place(br.group, x, z);
+      fires.push(br.fire.clone().add(new THREE.Vector3(x, H(x, z) - 0.03, z)));
+    }
+    const merged = mergeStatic(parts, 'festival-static');
+    // Night-time dressing: no shadow pass, and only the chunky wood / stone pieces take GTAO
+    // (keeps the whole festival at ~1 draw call per material).
+    merged.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.castShadow = false;
+      const name = (m.material as THREE.Material).name;
+      if (!['wood', 'woodGrain', 'stone'].includes(name)) m.userData.noAO = true;
+    });
+    this.festival.add(merged);
+    this.fire = new FireFX(fires);
+    this.festival.add(this.fire.object);
+    // 4 practicals: the two fires, the feast table, the maypole.
+    const lp: [number, number, number, number, number][] = [
+      [fires[0]!.x, fires[0]!.y + 0.4, fires[0]!.z, 0xff8a3a, 9],
+      [fires[1]!.x, fires[1]!.y + 0.4, fires[1]!.z, 0xff8a3a, 9],
+      [tx, H(tx, tz) + 1.9, tz + 0.2, 0xffb45a, 6],
+      [PLAZA.x, H(PLAZA.x, PLAZA.z) + 4.6, PLAZA.z + 1.2, 0xffc070, 7],
+    ];
+    for (const [x, y, z, c, max] of lp) {
+      const l = new THREE.PointLight(c, 0, 9, 1.6);
+      l.position.set(x, y, z);
+      this.root.add(l);
+      this.festivalLights.push({ light: l, max, seed: Math.random() * 10 });
+    }
+  }
+
   // ───────────────────────────────────────────── runtime
 
   /** Festival dressing (bunting + paper lanterns) on / off. */
   setFestival(on: boolean): void {
+    this.festivalOn = on;
     this.festival.visible = on;
+    if (this.fire) this.fire.active = on;
   }
 
   heightAt(x: number, z: number): number {
@@ -364,6 +439,12 @@ export class TownMap implements GameMap {
     const h = game.rc.renderer.domElement.height;
     for (const s of this.smoke) s.update(dt, game.lighting.night, h);
     this.ambience.update(dt, game.time, game.rc.rig.focus, game.lighting.night, h);
+    if (this.festivalOn && this.fire) this.fire.update(dt, h);
+    const lamps = this.festivalOn ? Math.max(0.35, game.lighting.night) : 0;
+    for (const f of this.festivalLights) {
+      const flick = f.max > 8 ? 0.82 + 0.1 * Math.sin(game.time * 13 + f.seed) + 0.08 * Math.sin(game.time * 31 + f.seed * 3) : 1;
+      f.light.intensity = f.max * lamps * flick;
+    }
   }
 
   setSeason(season: Season): void {

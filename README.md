@@ -40,11 +40,13 @@ src/
     renderer.ts          WebGLRenderer (ACES, sRGB, PCF soft shadows) + CameraRig (35° FOV, pitched, smooth follow)
                          + per-system draw/triangle probe → __game.info().perf.bySystem
     post.ts              EffectComposer: GTAO → Bloom (threshold 0.92, emissive-only) → Output → SMAA → tilt-shift → grade
+                         (film grain luminance-weighted, off at medium / low)
     lighting.ts          DayNight: sun/moon, hemi, bounce, fog, sky dome, PMREM IBL, exposure + grade keyed by hour/season/
                          weather; shadow frustum fitted to the view footprint; lamps dimmed over snow
     textures.ts          procedural texture library (index) → tex/{core,ground,stone,wood,foliage,fx}.ts
     materials.ts         shared material library (+ nightGlow emissives, roofTile, paperLantern)
-    wind.ts, worldfx.ts, patch.ts, uniforms.ts, particles.ts (smoke, ambience, bees, bursts), precipitation.ts, foliage.ts
+    wind.ts, worldfx.ts, patch.ts, uniforms.ts, particles.ts (smoke, ambience, bees, bursts, fire + embers),
+                         precipitation.ts (2-layer hairline rain, splashes, snow), foliage.ts
     shaders/noise.ts     GLSL hash/value noise/fbm/cloud-shadow + hvMeadowVar (8–12 m hue/value variation)
   world/
     tiles.ts, map.ts     TileGrid + GameMap (warps, title) + World (map registry / loader)
@@ -55,19 +57,24 @@ src/
     geom.ts              roundedBox, bevelCylinder, lumpySphere, AO baking, MeshBuilder (+ material aliases), mergeStatic
     farm/                index.ts (assembly) · paint.ts (shape, splat + cover masks, grass density) ·
                          layout.ts (structures, vignettes + contact AO, trees, pond/cliff dressing) ·
-                         overgrowth.ts (seeded Poisson-disk debris: ~650 clearable weeds/stones/stumps/logs/bushes)
-    town/index.ts        Hearthvale Square: plaza + fountain, Lantern Hall, store, bakery, cottages, stall, festival dressing
-    props/               instanced.ts (BatchPool/InstancedSet) · trees.ts · nature.ts (+ tall grass, branches, 3 weeds) ·
-                         structures.ts · farmkit.ts · homestead.ts (wood shelter, coop, arch, pump, basket…) ·
-                         townkit.ts (townhouses, hall, fountain, stall, planters, bunting) · crops.ts (floret curds,
-                         curly kale…) · soil.ts (one material, feathered noise-edged wet mask) · decals.ts
+                         overgrowth.ts (seeded Poisson-disk debris: ~650 clearable weeds/stones/sticks/stumps/logs/bushes
+                         in clumps + a ~r 0.7 m ground-cover layer: clover, daisies, buttercups, leaf litter, ferns)
+    town/index.ts        Hearthvale Square: plaza + fountain, Lantern Hall, store, bakery, cottages, stall, festival
+    props/               instanced.ts (BatchPool/InstancedSet) · trees.ts · nature.ts (registry only) ·
+                         rocks.ts (faceted, mossy, 3 tints) · debris.ts (chunky sticks, branches, stumps, logs, leaves) ·
+                         flora.ts (weeds, ferns, bushes, flowers, reeds, ground cover) · structures.ts · farmkit.ts ·
+                         homestead.ts · townkit.ts (townhouses, hall with lit interior cards, fountain, stalls, café,
+                         flower cart) · festival.ts (catenary bunting, lantern poles, maypole, feast table, braziers) ·
+                         crops.ts · soil.ts (wet mask, winter snow-in-furrows + husks) · decals.ts
   entities/              player.ts (chibi farmer), villager.ts (NPC rig: walk / idle / talk), critters.ts
   ui/                    hud.ts + hud.css (clock, toolbar, energy, toasts, fade, banner, panel registry) · screens.css ·
                          inventory.ts · dialogue.ts (typewriter + portraits) · portraits.ts (procedural SVG) ·
                          title.ts (title screen + grandmother's letter) · panels.ts (shop, crafting, map, fishing) · icons.ts
-  systems/               season, weather, inventory, farming, shipping, critters, npcs (schedules, talk, friendship),
-                         warps (map transitions), audio (procedural WebAudio ambience, music, footsteps, SFX)
-  data/                  crops.ts, items.ts, npcs.ts (villagers + dialogue), farm-layout.ts, town-layout.ts
+  systems/               economy (gold), energy, season, weather, inventory, farming, shipping, critters, npcs, warps,
+                         audio, sleep (end of day / pass out), relationships, fishing*, mining*, crafting, quests
+                         (* typed stubs: state + events + service, ready for their teams) — see systems/README.md
+  data/                  crops.ts, items.ts, npcs.ts (villagers + festival-goers), fish.ts, recipes.ts, bundles.ts,
+                         farm-layout.ts, town-layout.ts (incl. FESTIVAL layout)
 scripts/shot.mjs         headless screenshot harness
 ```
 

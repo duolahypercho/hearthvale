@@ -34,7 +34,8 @@ export function lantern(b: MeshBuilder, x: number, y: number, z: number, s = 1):
 export function windowUnit(b: MeshBuilder, w: number, h: number, shutters: boolean, flowerBox: boolean, rng: Rng): void {
   // Built facing +Z at origin (center of window).
   b.add('woodPaint', roundedBox(w + 0.18, h + 0.18, 0.1, 0.03), mat(0, 0, 0.0), { tint: TRIM });
-  b.add('glass', roundedBox(w, h, 0.04), mat(0, 0, 0.04));
+  // Interior card: a dim room by day, warm lamp-light from late afternoon (materials 'windowCard').
+  b.add('windowCard', new THREE.PlaneGeometry(w, h), mat(0, 0, 0.058));
   b.add('woodPaint', roundedBox(0.05, h, 0.05, 0.015), mat(0, 0, 0.07), { tint: TRIM });
   b.add('woodPaint', roundedBox(w, 0.05, 0.05, 0.015), mat(0, 0, 0.07), { tint: TRIM });
   b.add('woodPaint', roundedBox(w + 0.34, 0.08, 0.2, 0.03), mat(0, -h / 2 - 0.1, 0.08), { tint: TRIM });

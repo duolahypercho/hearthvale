@@ -270,9 +270,7 @@ export class FarmingSystem implements System {
   // ───────────────────────────────────────────── gameplay
 
   private spend(energy: number): void {
-    const g = this.game;
-    g.energy = Math.max(0, g.energy - energy);
-    g.events.emit('energy:change', { energy: g.energy, max: g.maxEnergy });
+    this.game.services.energy?.spend(energy);
   }
 
   private useItem(itemId: string, x: number, z: number, slot: number): void {

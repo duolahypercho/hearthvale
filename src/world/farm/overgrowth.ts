@@ -13,7 +13,7 @@ import type { Rng } from '../../core/rng';
 import { HOUSE, POND, PLOT, FIELD, VIGNETTES, OVERGROWTH, HERO_TREES } from '../../data/farm-layout';
 import { TileType, type TileGrid, type TileObjectKind } from '../tiles';
 import type { Terrain } from '../terrain';
-import type { Nature, NatureKind } from '../props/nature';
+import type { Nature, NatureKind, NatureHandle } from '../props/nature';
 import type { FarmShape } from './paint';
 
 type Piece = 'weedA' | 'weedB' | 'weedC' | 'tallGrass' | 'stone' | 'boulder' | 'pebbles' | 'branch' | 'stump' | 'log' | 'bush';
@@ -82,6 +82,18 @@ function poissonDisk(rng: Rng, x0: number, z0: number, x1: number, z1: number, r
   return pts;
 }
 
+/** Any authored prop / fence / building object within `r` tiles (debris must not clip into them). */
+function nearStructure(grid: TileGrid, tx: number, tz: number, r: number): boolean {
+  for (let z = tz - r; z <= tz + r; z++) {
+    for (let x = tx - r; x <= tx + r; x++) {
+      if (!grid.inBounds(x, z)) continue;
+      const o = grid.getObject(x, z);
+      if (o && (o.kind === 'prop' || o.kind === 'fence' || o.kind === 'building')) return true;
+    }
+  }
+  return false;
+}
+
 export interface OvergrowthResult {
   placed: number;
   byPiece: Record<string, number>;
@@ -105,9 +117,9 @@ export function scatterOvergrowth(rng: Rng, shape: FarmShape, terrain: Terrain, 
     // Keep-outs: basin rim (cliff dressing owns it), house yard, gardens, pond, vignettes, paths.
     const bd = shape.basinDist(x, z);
     if (bd > -1.9) continue;
-    if (Math.hypot((x - HOUSE.x) * 0.75, z - HOUSE.z - 1.5) < 7.2) continue;
+    if (Math.hypot((x - HOUSE.x) * 0.75, z - HOUSE.z - 1.5) < 6.4) continue;
     if (x > PLOT.x0 - 1.8 && x < PLOT.x1 + 2.8 && z > PLOT.z0 - 1.8 && z < PLOT.z1 + 3.2) continue;
-    if (x > FIELD.x0 - 2.2 && x < FIELD.x1 + 3.2 && z > FIELD.z0 - 1.6 && z < FIELD.z1 + 2.4) continue;
+    if (x > FIELD.x0 - 2.0 && x < FIELD.x1 + 2.8 && z > FIELD.z0 - 1.6 && z < FIELD.z1 + 1.9) continue;
     if (Math.hypot(x - POND.x, (z - POND.z) * 1.1) < POND.r + 1.8) continue;
     if (clears.some((c) => Math.hypot(x - c.x, z - c.z) < c.r)) continue;
     if (terrain.splatAt(x, z, 'path') > 0.02 || shape.pathDistance(x, z) < O.pathMargin) continue;
@@ -130,6 +142,8 @@ export function scatterOvergrowth(rng: Rng, shape: FarmShape, terrain: Terrain, 
     const spec = PIECES[piece];
     const occupied = !!grid.getObject(tx, tz);
     if (occupied && spec.tile) continue;
+    // Long pieces (branches, logs) span neighbouring tiles: keep them off props / fences / buildings.
+    if (nearStructure(grid, tx, tz, spec.kind === 'branch' || spec.kind === 'log' ? 2 : 1)) continue;
     const s = spec.scale[0] + rng.next() * (spec.scale[1] - spec.scale[0]);
     const ox = spec.solid ? tx + 0.5 + (rng.next() - 0.5) * 0.3 : x;
     const oz = spec.solid ? tz + 0.5 + (rng.next() - 0.5) * 0.3 : z;
@@ -139,6 +153,20 @@ export function scatterOvergrowth(rng: Rng, shape: FarmShape, terrain: Terrain, 
     const extras: ReturnType<Nature['place']>[] = [];
     // Grounding: soft contact AO under solid debris; stones get a pebble skirt, stumps a moss ring.
     if (spec.solid) terrain.stampCover('ao', ox, oz, (spec.kind === 'boulder' ? 0.95 : spec.kind === 'log' ? 0.9 : 0.55) * s, 0.55);
+    if (spec.kind === 'branch') terrain.stampCover('ao', ox, oz, 0.75 * s, 0.4);
+    // Clumps, not a sprinkle: rocks gather pebbles + a second stone, weeds gather weeds, sticks gather sticks.
+    if (rng.next() < O.clumpChance) {
+      const sat: NatureKind = spec.kind === 'stone' || spec.kind === 'boulder' || spec.kind === 'pebbles' ? (rng.next() < 0.5 ? 'pebbles' : 'stone') : spec.kind === 'branch' || spec.kind === 'stump' || spec.kind === 'log' ? (rng.next() < 0.5 ? 'twig' : 'leaves') : 'weed';
+      const m = 1 + Math.floor(rng.next() * 2);
+      for (let i = 0; i < m; i++) {
+        const a = rng.next() * Math.PI * 2;
+        const d = 0.45 + rng.next() * 0.35;
+        const sx = ox + Math.cos(a) * d;
+        const sz = oz + Math.sin(a) * d;
+        if (terrain.splatAt(sx, sz, 'path') > 0.05) continue;
+        extras.push(nature.place(sat, sx, terrain.heightAt(sx, sz), sz, { scale: sat === 'stone' ? 0.45 + rng.next() * 0.3 : 0.7 + rng.next() * 0.35, sink: 0.02 }));
+      }
+    }
     if (piece === 'stone' && rng.next() < 0.55) extras.push(nature.place('pebbles', ox + (rng.next() - 0.5) * 0.7, y, oz + (rng.next() - 0.5) * 0.7));
     if (piece === 'stump' || piece === 'log') terrain.stampCover('moss', ox, oz, 1.1, 0.7);
     if (piece === 'tallGrass' || piece === 'weedB') {
@@ -168,4 +196,73 @@ export function scatterOvergrowth(rng: Rng, shape: FarmShape, terrain: Terrain, 
     placed++;
   }
   return { placed, byPiece };
+}
+
+export interface GroundCoverResult {
+  placed: number;
+  /** Decorative handles per tile index (removed when the tile is tilled / built on). */
+  byTile: Map<number, NatureHandle[]>;
+}
+
+/**
+ * Lawn ground cover: the layer that fills every tile between the clearable debris, the way a
+ * hand-painted tileset never shows a bare patch. Poisson disk (r = 0.7 m) over the basin, kept by
+ * a "wildness" noise (drifts of daisies / buttercups / clover, thinner in the tended yard).
+ * Under tree canopies it turns to fallen leaves, ferns and mushroom rings. Decorative only:
+ * no tile objects, removed per tile by `clearTile`.
+ */
+export function scatterGroundCover(rng: Rng, shape: FarmShape, terrain: Terrain, grid: TileGrid, nature: Nature): GroundCoverResult {
+  const byTile = new Map<number, NatureHandle[]>();
+  let placed = 0;
+  const n = shape.noise;
+  const n2 = shape.noise2;
+  const trees = HERO_TREES.map(([, x, z, s]) => ({ x, z, r: 3.1 * s }));
+  const pts = poissonDisk(rng.fork('cover-poisson'), 1, 1, grid.width - 1, grid.depth - 1, 0.7);
+  const add = (tx: number, tz: number, h: NatureHandle): void => {
+    const k = tz * grid.width + tx;
+    let a = byTile.get(k);
+    if (!a) byTile.set(k, (a = []));
+    a.push(h);
+    placed++;
+  };
+  for (const [x, z] of pts) {
+    const tx = Math.floor(x);
+    const tz = Math.floor(z);
+    if (!grid.isWalkable(tx, tz) || grid.getType(tx, tz) !== TileType.Grass) continue;
+    const obj = grid.getObject(tx, tz);
+    if (obj && obj.solid) continue;
+    if (shape.basinDist(x, z) > -0.9) continue;
+    if (terrain.splatAt(x, z, 'path') > 0.03 || terrain.splatAt(x, z, 'tilled') > 0.05) continue;
+    if (Math.hypot(x - POND.x, (z - POND.z) * 1.1) < POND.r + 0.6) continue;
+    if (x > PLOT.x0 - 0.6 && x < PLOT.x1 + 1.6 && z > PLOT.z0 - 0.6 && z < PLOT.z1 + 1.6) continue;
+    if (x > FIELD.x0 - 0.4 && x < FIELD.x1 + 1.4 && z > FIELD.z0 - 0.4 && z < FIELD.z1 + 1.4) continue;
+    const y = terrain.heightAt(x, z);
+    // Under a canopy: leaf litter, ferns, mushrooms.
+    const tree = trees.find((t) => Math.hypot(t.x - x, t.z - z) < t.r);
+    if (tree) {
+      const roll = rng.next();
+      if (roll > 0.72) continue;
+      const kind: NatureKind = roll < 0.36 ? 'leaves' : roll < 0.52 ? 'fern' : roll < 0.62 ? 'mushroom' : 'clover';
+      add(tx, tz, nature.place(kind, x, y, z, { scale: kind === 'fern' ? 0.7 + rng.next() * 0.3 : 0.85 + rng.next() * 0.35 }));
+      continue;
+    }
+    // Wildness: drifts of flowers in the meadow, a tidier (but never bare) lawn around the house.
+    const wild = smoothstep(0.3, 0.62, n.fbm(x * 0.11 - 31, z * 0.11 + 17, 2) * 0.5 + 0.5);
+    const home = smoothstep(4.5, 9, Math.hypot((x - HOUSE.x) * 0.8, z - HOUSE.z - 2));
+    const keep = (0.3 + 0.62 * wild) * (0.45 + 0.55 * home);
+    if (rng.next() > keep) continue;
+    // Which flower owns this drift (2-4 m patches of one species read as painted, not random).
+    const drift = n2.get(x * 0.23 + 70, z * 0.23 - 12) * 0.5 + 0.5;
+    const roll = rng.next();
+    let kind: NatureKind;
+    let variant: number | undefined;
+    if (roll < 0.46) kind = 'clover';
+    else if (drift < 0.42) kind = 'daisy';
+    else if (drift < 0.68) {
+      kind = 'buttercup';
+      variant = drift < 0.55 ? 0 : 1;
+    } else kind = roll < 0.8 ? 'daisy' : 'buttercup';
+    add(tx, tz, nature.place(kind, x, y, z, { scale: kind === 'clover' ? 1.0 + rng.next() * 0.4 : 1.2 + rng.next() * 0.4, variant }));
+  }
+  return { placed, byTile };
 }

@@ -39,6 +39,8 @@ export class Hud {
   private hand!: HTMLElement;
   private slots: HTMLElement[] = [];
   private energyFill!: HTMLElement;
+  private energyPanel!: HTMLElement;
+  private energyShown = -1;
   private panels = new Map<string, Panel>();
   private openPanel: string | null = null;
   private lastClock = '';
@@ -55,7 +57,7 @@ export class Hud {
     this.buildClock();
     this.buildToolbar();
     this.buildEnergy();
-    this.goldShown = game.gold;
+    this.goldShown = 0;
     this.toastEl = el('div', 'hv-panel hv-toast hv-hidden');
     this.root.appendChild(this.toastEl);
     this.registerPanel('inventory', new InventoryPanel(game, this.root));
@@ -133,11 +135,17 @@ export class Hud {
 
   private buildEnergy(): void {
     const panel = el('div', 'hv-panel hv-energy hv-anim-in');
-    const label = el('div', 'label', 'E');
+    this.energyPanel = panel;
+    // Wooden badge with a gold lightning-leaf glyph (replaces the bare "E").
+    const badge = el('div', 'badge');
+    badge.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.6 2.2 5.4 13.1c-.3.4 0 .9.5.9h4.6l-1.9 7.2c-.1.5.5.8.8.4l8.3-11c.3-.4 0-.9-.5-.9h-4.7l1.9-7c.2-.5-.5-.8-.8-.5z" fill="url(#hvBolt)" stroke="#7a3f10" stroke-width="1.1" stroke-linejoin="round"/><defs><linearGradient id="hvBolt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3a8"/><stop offset=".55" stop-color="#f5c542"/><stop offset="1" stop-color="#e08a1e"/></linearGradient></defs></svg>`;
+    badge.title = 'Energy';
     const inner = el('div', 'hv-inner');
     this.energyFill = el('div', 'fill');
-    inner.appendChild(this.energyFill);
-    panel.append(label, inner);
+    const gloss = el('div', 'gloss');
+    const ticks = el('div', 'ticks');
+    inner.append(this.energyFill, ticks, gloss);
+    panel.append(inner, badge);
     this.root.appendChild(panel);
   }
 
@@ -228,15 +236,23 @@ export class Hud {
     const ang = -90 + ((c.hour - 6) / 20) * 180;
     this.hand.style.transform = `rotate(${ang + 180}deg)`;
     // Gold count-up
-    const g = this.game.gold;
+    const g = this.game.services.economy?.gold() ?? 0;
     if (this.goldShown !== g) {
       const diff = g - this.goldShown;
       this.goldShown += Math.sign(diff) * Math.max(1, Math.ceil(Math.abs(diff) * Math.min(1, dt * 8)));
       if (Math.sign(g - this.goldShown) !== Math.sign(diff)) this.goldShown = g;
     }
     this.goldEl.innerHTML = `${ICONS.coin}<span>${this.goldShown.toLocaleString()}</span>`;
-    const e = this.game.energy / this.game.maxEnergy;
-    this.energyFill.style.height = `${Math.round(e * 100)}%`;
-    this.energyFill.style.background = e > 0.5 ? '' : e > 0.25 ? 'linear-gradient(180deg,#ffe066,#e0a020)' : 'linear-gradient(180deg,#ff8a6a,#d83a2a)';
+    const en = this.game.services.energy;
+    const e = en ? en.value() / en.max() : 1;
+    if (e !== this.energyShown) {
+      this.energyShown = e;
+      this.energyFill.style.height = `${Math.round(e * 100)}%`;
+      // Green → yellow → red as stamina drains.
+      const hue = e > 0.5 ? 95 - (1 - (e - 0.5) * 2) * 45 : 50 * (e / 0.5);
+      this.energyFill.style.background = `linear-gradient(180deg, hsl(${hue + 6} 90% 68%), hsl(${hue} 78% 46%) 70%, hsl(${hue - 6} 80% 38%))`;
+      this.energyPanel.classList.toggle('low', e < 0.2);
+      this.energyPanel.title = en ? `Energy ${en.value()} / ${en.max()}` : 'Energy';
+    }
   }
 }

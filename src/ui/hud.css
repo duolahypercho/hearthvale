@@ -232,33 +232,78 @@ body {
   position: absolute;
   right: 18px;
   bottom: 16px;
-  width: 30px;
-  height: 170px;
+  width: 34px;
+  height: 178px;
+  padding: 6px;
 }
 .hv-energy .hv-inner {
   position: absolute;
-  inset: 7px;
+  inset: 7px 7px 7px 7px;
+  top: 22px;
   overflow: hidden;
   display: flex;
   align-items: flex-end;
+  border-radius: 10px;
 }
 .hv-energy .fill {
   width: 100%;
   background: linear-gradient(180deg, #b8f06a, #4fb33a);
-  border-radius: 8px;
-  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.45);
-  transition: height 300ms ease-out, background 300ms;
+  border-radius: 8px 8px 9px 9px;
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.5), inset 0 -3px 0 rgba(0, 0, 0, 0.18), 0 -1px 0 rgba(90, 50, 20, 0.35);
+  transition: height 300ms ease-out, background 400ms;
 }
-.hv-energy .label {
+/* Glossy highlight stripe down the left of the tube. */
+.hv-energy .gloss {
   position: absolute;
-  top: -26px;
+  left: 4px;
+  top: 6px;
+  bottom: 6px;
+  width: 5px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.15));
+  pointer-events: none;
+}
+/* Measuring ticks every 20 %. */
+.hv-energy .ticks {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent 0 calc(20% - 2px), rgba(120, 70, 30, 0.28) calc(20% - 2px) 20%);
+  pointer-events: none;
+}
+.hv-energy .badge {
+  position: absolute;
+  top: -20px;
   left: 50%;
-  transform: translateX(-50%);
-  font-family: var(--font-head);
-  font-weight: 700;
-  font-size: 18px;
-  color: #fff;
-  text-shadow: 0 2px 0 var(--wood-3), 0 0 4px var(--wood-3);
+  width: 40px;
+  height: 40px;
+  translate: -50% 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 35%, var(--parch-1), var(--parch-2) 70%);
+  border: 3px solid var(--wood-2);
+  box-shadow: 0 3px 0 var(--wood-3), 0 5px 10px rgba(30, 15, 5, 0.35), inset 0 -2px 0 rgba(150, 100, 50, 0.3);
+}
+.hv-energy .badge svg {
+  width: 24px;
+  height: 24px;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.6));
+}
+.hv-energy.low .fill {
+  animation: hvEnergyPulse 0.9s ease-in-out infinite;
+}
+.hv-energy.low .badge {
+  animation: hvBadgeShake 1.8s ease-in-out infinite;
+}
+@keyframes hvEnergyPulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.45) saturate(1.2); }
+}
+@keyframes hvBadgeShake {
+  0%, 80%, 100% { rotate: 0deg; }
+  85% { rotate: -10deg; }
+  90% { rotate: 9deg; }
+  95% { rotate: -5deg; }
 }
 
 /* ── Toast ─────────────────────────────────────────────────────── */

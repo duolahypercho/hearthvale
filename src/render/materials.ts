@@ -34,12 +34,47 @@ export type MaterialName =
   | 'stillWater'
   | 'boxFlower'
   | 'roofTile'
-  | 'paperLantern';
+  | 'paperLantern'
+  | 'windowCard';
 
 const cache = new Map<MaterialName, THREE.Material>();
 
 /** Emissive materials that light up at night: [material, intensity at full night]. */
 export const nightGlow: { material: THREE.MeshStandardMaterial; max: number }[] = [];
+/**
+ * Lived-in interiors seen through windows: ramp up through the afternoon (0 at noon, full after
+ * ~18:00) — earlier than the practical lamps, so evening shots show warm windows.
+ */
+export const interiorGlow: { material: THREE.MeshStandardMaterial; max: number }[] = [];
+
+/** Interior card: warm lamp-lit room gradient (bright low centre, dim corners, a shelf + pot silhouette). */
+function interiorTexture(): THREE.Texture {
+  const W = 64;
+  const H = 128;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const bg = g.createRadialGradient(W * 0.5, H * 0.72, 4, W * 0.5, H * 0.62, H * 0.75);
+  bg.addColorStop(0, '#ffc47a');
+  bg.addColorStop(0.35, '#f09a48');
+  bg.addColorStop(0.75, '#a8522a');
+  bg.addColorStop(1, '#4e2414');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, W, H);
+  // Silhouettes: a shelf with jars, a hanging lamp cord, a potted plant on the sill.
+  g.fillStyle = 'rgba(70,32,16,0.55)';
+  g.fillRect(4, H * 0.3, W - 8, 3);
+  for (const [x, w, h] of [[10, 7, 9], [22, 5, 12], [34, 8, 7], [48, 6, 10]]) g.fillRect(x!, H * 0.3 - h!, w!, h!);
+  g.fillRect(W * 0.5 - 1, 0, 2, H * 0.12);
+  g.beginPath();
+  g.arc(W * 0.28, H * 0.9, 9, Math.PI, 0);
+  g.fill();
+  g.fillRect(W * 0.28 - 6, H * 0.9, 12, 10);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 function std(params: THREE.MeshStandardMaterialParameters, fx = true): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, ...params });
@@ -141,9 +176,17 @@ function build(name: MaterialName): THREE.Material {
       patchMaterial(m, 'paper-lantern', (shader) => {
         shader.uniforms.uLamps = globalUniforms.uLamps;
         let fs = before(shader.fragmentShader, 'void main() {', 'uniform float uLamps;');
-        fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * uLamps * 1.4;');
+        fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * uLamps * 2.5;');
         shader.fragmentShader = fs;
       });
+      return m;
+    }
+    case 'windowCard': {
+      // Glass by day (dark, glossy), a warm lamp-lit room behind it from late afternoon on.
+      const tex = interiorTexture();
+      // By day: a dim, cool glimpse of the room + a glossy sky reflection. By evening: lamp-lit.
+      const m = std({ roughness: 0.12, metalness: 0.25, color: 0x4a5462, map: tex, emissive: 0xff9038, emissiveMap: tex, emissiveIntensity: 0 }, false);
+      interiorGlow.push({ material: m, max: 2.1 });
       return m;
     }
     case 'stillWater':

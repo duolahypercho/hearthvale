@@ -2,13 +2,13 @@
  * NpcSystem: the villagers of Hearthvale. Spawns one Villager per data/npcs.ts entry on the
  * town map, walks them along their daily schedule, and handles talking:
  *   player:interact next to a villager → ui:open 'dialogue:<id>' (villager turns to the player).
- * Friendship (talked-today flag + points → hearts) is saved.
+ * Friendship (points, hearts, gifts) lives in RelationshipSystem; this reads it via services.
  *
  * Service `npcs` (for the dialogue UI): conversation(id) → name, role, lines, hearts, portrait look.
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { NPCS, NPC_IDS, pickLines, type NpcId, type NpcLook } from '../data/npcs';
+import { NPCS, NPC_IDS, FESTIVAL_EXTRAS, pickLines, type NpcId, type NpcLook } from '../data/npcs';
 import { Villager } from '../entities/villager';
 
 export interface Conversation {
@@ -46,21 +46,26 @@ const SHOWCASE: Record<NpcId, [number, number, number]> = {
   wren: [26.6, 26.9, 1.3],
 };
 
+/** Festival staging: a loose ring around the maypole, everyone facing the centre. */
+const FESTIVAL_RING: Record<NpcId, number> = { marigold: -140, bram: -60, wren: 160 };
+const PLAZA_C = { x: 32, z: 25, r: 3.55 };
+
 export class NpcSystem implements System {
   readonly name = 'npcs';
   private game!: Game;
   private villagers = new Map<NpcId, Villager>();
-  private friendship: Record<string, { points: number; talks: number; today: boolean }> = {};
   private active = false;
   private talking: Villager | null = null;
   private staged = false;
+  private festival = false;
+  /** Background festival-goers (built lazily, only on the map while a festival is staged). */
+  private extras: { v: Villager; angle: number }[] = [];
   private lastHour = -1;
 
   init(game: Game): void {
     this.game = game;
     for (const id of NPC_IDS) {
       this.villagers.set(id, new Villager(NPCS[id]));
-      this.friendship[id] = { points: 0, talks: 0, today: false };
     }
     game.provide('npcs', {
       conversation: (id) => this.conversation(id),
@@ -73,11 +78,9 @@ export class NpcSystem implements System {
         this.talking = null;
       }
     });
-    game.events.on('day:start', () => {
-      for (const f of Object.values(this.friendship)) f.today = false;
-    });
     game.events.on('demo:stage', ({ showcase }) => {
       this.staged = showcase.includes('npcs');
+      this.festival = showcase.includes('festival');
       if (this.staged && this.active) this.stage();
     });
   }
@@ -85,10 +88,10 @@ export class NpcSystem implements System {
   private conversation(id: string): Conversation | null {
     const def = NPCS[id as NpcId];
     if (!def) return null;
-    const f = this.friendship[id]!;
+    const rel = this.game.services.relationships;
     const c = this.game.calendar;
-    const lines = pickLines(def, { first: f.talks === 0, season: c.season, weather: c.weather, hour: c.hour });
-    return { id: def.id, name: def.name, role: def.role, lines, hearts: Math.min(10, Math.floor(f.points / 25)), look: def.look, portraitBg: def.portraitBg };
+    const lines = pickLines(def, { first: (rel?.talks(id) ?? 0) === 0, season: c.season, weather: c.weather, hour: c.hour });
+    return { id: def.id, name: def.name, role: def.role, lines, hearts: Math.min(10, rel?.hearts(id) ?? 0), look: def.look, portraitBg: def.portraitBg };
   }
 
   private tryTalk(x: number, z: number): void {
@@ -104,16 +107,10 @@ export class NpcSystem implements System {
       }
     }
     if (!best) return;
-    const f = this.friendship[best.def.id]!;
     this.talking = best;
     best.talkTo = p;
     this.game.events.emit('ui:open', { name: `dialogue:${best.def.id}` });
-    // Count the talk after the panel read the "first meeting" lines.
-    f.talks++;
-    if (!f.today) {
-      f.today = true;
-      f.points += 20;
-    }
+    // After the panel read the "first meeting" lines: RelationshipSystem counts the talk.
     this.game.events.emit('npc:talk', { id: best.def.id });
   }
 
@@ -121,6 +118,7 @@ export class NpcSystem implements System {
     const map = game.world.current;
     this.active = mapId === 'town' && !!map;
     for (const v of this.villagers.values()) v.root.removeFromParent();
+    for (const e of this.extras) e.v.root.removeFromParent();
     if (!this.active || !map) return;
     for (const v of this.villagers.values()) {
       map.root.add(v.root);
@@ -135,8 +133,30 @@ export class NpcSystem implements System {
   private stage(): void {
     const map = this.game.world.current;
     if (!map) return;
+    if (this.festival && !this.extras.length) {
+      this.extras = FESTIVAL_EXTRAS.map(([look, angle], i) => ({ v: new Villager({ ...NPCS.bram, id: 'bram', name: `extra-${i}`, look, dialogue: [], schedule: [] }), angle }));
+      for (const e of this.extras) e.v.root.name = `npc:extra`;
+    }
+    for (const e of this.extras) {
+      if (!this.festival) {
+        e.v.root.removeFromParent();
+        continue;
+      }
+      map.root.add(e.v.root);
+      const a = (e.angle * Math.PI) / 180;
+      const x = PLAZA_C.x + Math.cos(a) * PLAZA_C.r;
+      const z = PLAZA_C.z + Math.sin(a) * PLAZA_C.r;
+      e.v.setPosition(x, map.heightAt(x, z), z);
+      e.v.setYaw(Math.atan2(PLAZA_C.x - x, PLAZA_C.z - z));
+    }
     for (const v of this.villagers.values()) {
-      const [x, z, yaw] = SHOWCASE[v.def.id];
+      let [x, z, yaw] = SHOWCASE[v.def.id];
+      if (this.festival) {
+        const a = (FESTIVAL_RING[v.def.id] * Math.PI) / 180;
+        x = PLAZA_C.x + Math.cos(a) * PLAZA_C.r;
+        z = PLAZA_C.z + Math.sin(a) * PLAZA_C.r;
+        yaw = Math.atan2(PLAZA_C.x - x, PLAZA_C.z - z);
+      }
       v.setPosition(x, map.heightAt(x, z), z);
       v.setYaw(yaw);
     }
@@ -160,14 +180,6 @@ export class NpcSystem implements System {
       }
     }
     for (const v of this.villagers.values()) v.update(dt, (x, z) => map.heightAt(x, z), !game.paused);
-  }
-
-  save(): unknown {
-    return { friendship: this.friendship };
-  }
-
-  load(data: unknown): void {
-    const d = data as { friendship?: NpcSystem['friendship'] };
-    if (d.friendship) Object.assign(this.friendship, d.friendship);
+    if (this.festival) for (const e of this.extras) e.v.update(dt, (x, z) => map.heightAt(x, z), !game.paused);
   }
 }

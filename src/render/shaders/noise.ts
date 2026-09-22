@@ -44,6 +44,17 @@ vec3 hvMeadowVar(vec3 c, vec2 wp) {
   float v = hvFbm(wp * 0.11 + 83.0) - 0.5;
   return hvHueShift(c, h * 0.28) * (1.0 + v * 0.24);
 }
+// Patchy 3-tone lawn mottling (2-5 m blobs): cool-dark / base / warm-light, ±12 % value, ±7° hue.
+// Shared by terrain + grass so blades and ground agree. Returns the tone (-1..1) via \`tone\`.
+vec3 hvMottle(vec3 c, vec2 wp, out float tone) {
+  vec2 q = mat2(0.8, 0.6, -0.6, 0.8) * wp;
+  float m = hvFbm(q * 0.27 + 61.0) * 0.75 + hvNoise(q * 0.9 + 13.0) * 0.25;
+  tone = smoothstep(0.52, 0.64, m) - smoothstep(0.42, 0.3, m);
+  vec3 warm = hvHueShift(c, -0.12) * 1.12;
+  vec3 cool = hvHueShift(c, 0.1) * 0.88;
+  return tone > 0.0 ? mix(c, warm, tone) : mix(c, cool, -tone);
+}
+vec3 hvMottle(vec3 c, vec2 wp) { float t; return hvMottle(c, wp, t); }
 // Soft moving cloud shadows, 1 = lit, lower = shadowed.
 float hvCloudShadow(vec2 wp, float t, float strength) {
   vec2 q = wp * 0.028 + vec2(t * 0.012, t * 0.006);

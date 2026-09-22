@@ -25,7 +25,7 @@ import { LeafLitter, LightPools, Footprints } from '../props/decals';
 import { FARM_SIZE, FARM_EXTENT, FARM_WATER_LEVEL, POND, PLOT, FIELD, VIGNETTES, SNOW_TRAIL, FARM_POI } from '../../data/farm-layout';
 import { FarmShape } from './paint';
 import { buildStructures, buildVignettes, placeTrees, placeNature, type FarmBuildCtx } from './layout';
-import { scatterOvergrowth } from './overgrowth';
+import { scatterOvergrowth, scatterGroundCover } from './overgrowth';
 
 export { FARM_SIZE, FARM_WATER_LEVEL };
 
@@ -59,6 +59,7 @@ export class FarmMap implements GameMap, FarmBuildCtx {
   private staticRoots: THREE.Object3D[] = [];
   private smoke: SmokeEmitter[] = [];
   private ambience: Ambience;
+  private coverByTile = new Map<number, ReturnType<Nature['place']>[]>();
 
   constructor(private game: Game) {
     this.root.name = 'map:farm';
@@ -96,7 +97,9 @@ export class FarmMap implements GameMap, FarmBuildCtx {
     mark('trees');
     placeNature(this, this.nature);
     this.overgrowth = scatterOvergrowth(this.rng.fork('overgrowth'), this.shape, this.terrain, this.grid, this.nature);
-    mark(`nature (+${this.overgrowth.placed} debris)`);
+    const cover = scatterGroundCover(this.rng.fork('ground-cover'), this.shape, this.terrain, this.grid, this.nature);
+    this.coverByTile = cover.byTile;
+    mark(`nature (+${this.overgrowth.placed} debris, ${cover.placed} ground cover)`);
     this.terrain.commitCover();
     this.trees.finalize();
     this.nature.finalize();
@@ -108,7 +111,7 @@ export class FarmMap implements GameMap, FarmBuildCtx {
     const merged = mergeStatic(this.staticRoots, 'farm-static');
     merged.userData.perfTag = 'props';
     this.root.add(merged);
-    this.litter = new LeafLitter(this.rng.fork('litter'), this.leafSpots, (x, z) => this.terrain.heightAt(x, z));
+    this.litter = new LeafLitter(this.rng.fork('litter'), this.leafSpots, (x, z) => this.terrain.heightAt(x, z), 4800);
     this.root.add(this.litter.mesh, this.pools.group);
 
     this.grass = new GrassField({
@@ -260,6 +263,9 @@ export class FarmMap implements GameMap, FarmBuildCtx {
   /** Remove grass tufts on a tile (tilling, placing objects). */
   clearGroundCover(x: number, z: number): void {
     this.grass.clearTile(x, z);
+    const k = z * this.grid.width + x;
+    for (const h of this.coverByTile.get(k) ?? []) this.nature.remove(h);
+    this.coverByTile.delete(k);
   }
 
   // ───────────────────────────────────────────── runtime

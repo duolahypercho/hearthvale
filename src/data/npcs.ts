@@ -148,6 +148,17 @@ export const NPCS: Record<NpcId, NpcDef> = {
 
 export const NPC_IDS = Object.keys(NPCS) as NpcId[];
 
+/**
+ * Festival-goers: background townsfolk who only come out for festivals (no schedule / dialogue
+ * yet). [look, ring angle in degrees around the maypole (0 = east, -90 = north)].
+ */
+export const FESTIVAL_EXTRAS: [NpcLook, number][] = [
+  // Tobin, the miller's boy: small, cap, green jumper.
+  [{ skin: 0xf2c8a2, hair: 0x6a4228, hairStyle: 'cap', top: 0x5f9a4a, bottom: 0x4a5a78, scarf: 0xe8b64a, scale: 0.78, build: 0.95 }, -96],
+  // Old Hazel from the east cottage: silver bob, plum shawl.
+  [{ skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, scale: 0.94, build: 1.05 }, -22],
+];
+
 /** Choose the line group for a villager right now (pure). */
 export function pickLine(def: NpcDef, ctx: { first: boolean; season: Season; weather: Weather; hour: number; talkCount: number }): string {
   for (const g of def.dialogue) {

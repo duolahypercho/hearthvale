@@ -91,8 +91,10 @@ try {
     const tx = 44, tz = 30;
     const grid = g.game.world.current.grid;
     grid.removeObject(tx, tz);
+    const e0 = g.game.services.energy.value();
     ev.emit('item:use', { itemId: 'hoe', x: tx, z: tz, slot: 0 });
     out.tilled = grid.hasFlag(tx, tz, 4);
+    out.energySpent = e0 - g.game.services.energy.value();
     ev.emit('item:use', { itemId: 'wateringCan', x: tx, z: tz, slot: 1 });
     out.watered = grid.hasFlag(tx, tz, 8);
     g.setSeason('spring');
@@ -104,6 +106,18 @@ try {
     const p0 = inv.count('parsnip');
     ev.emit('player:interact', { x: tx, z: tz });
     out.harvested = inv.count('parsnip') > p0;
+    // gameplay pillar services (each system owns its state; teams land work independently)
+    const sv = g.game.services;
+    out.services = ['economy', 'energy', 'sleep', 'relationships', 'fishing', 'mining', 'crafting', 'quests'].filter((k) => !sv[k]);
+    out.spendRefused = sv.economy.spend(1e9) === false && sv.economy.gold() === 1234;
+    ev.emit('npc:talk', { id: 'wren' });
+    out.friendship = sv.relationships.points('wren') > 0;
+    out.bundles = sv.quests.bundles().length;
+    // sleep: a proper night refills energy and rolls the calendar
+    const day0 = g.game.calendar.day;
+    g.setTime(21);
+    sv.sleep.sleep();
+    out.slept = g.game.calendar.day === day0 + 1 && sv.energy.value() === sv.energy.max() && g.game.calendar.hour < 6.5;
     // every DESIGN.md screen has a registered panel
     out.panels = ['inventory', 'shop', 'dialogue', 'fishing', 'crafting', 'map', 'title'].filter((p) => !g.game.hud.hasPanel(p));
     for (const p of ['shop', 'dialogue:bram', 'fishing', 'crafting', 'map', 'title']) {
@@ -158,6 +172,12 @@ try {
   check('setGold', r.gold === 1234);
   check('give', r.gave === 3);
   check('farming: hoe tills', r.tilled);
+  check('energy: tools spend stamina', r.energySpent > 0, `${r.energySpent}`);
+  check('pillar services registered', r.services.length === 0, r.services.join(','));
+  check('economy: refuses unaffordable spend', r.spendRefused);
+  check('relationships: talk earns friendship', r.friendship);
+  check('quests: Lantern Hall bundles', r.bundles >= 4, `${r.bundles}`);
+  check('sleep: next morning, full energy', r.slept);
   check('farming: can waters', r.watered);
   check('farming: seeds plant', r.planted);
   check('farming: grow + harvest', r.harvested);

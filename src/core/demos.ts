@@ -23,7 +23,9 @@ export interface DemoDef {
 /** Homestead framing: whole house + roof, the crop field, the east yard and a framing tree line. */
 const HOME_CAM = { yaw: -16, pitch: 45, distance: 27, offsetX: -1.6, offsetZ: -2.6 };
 /** Town square framing: plaza + fountain in front, Lantern Hall and shop fronts behind. */
-const TOWN_CAM = { yaw: 0, pitch: 37, distance: 32, offsetX: -2.9, offsetZ: -6.4 };
+const TOWN_CAM = { yaw: 0, pitch: 43, distance: 37, offsetX: -2.9, offsetZ: -7.6 };
+/** Festival: same framing as TOWN_CAM, but the player stands in the ring east of the maypole. */
+const FESTIVAL_CAM = { ...TOWN_CAM, offsetX: -3.35, offsetZ: -10.3 };
 
 export const DEMOS: Record<string, DemoDef> = {
   'farm-morning': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM },
@@ -39,7 +41,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 18.6, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   'town-dialogue': { map: 'town', x: 29.6, z: 23.2, facing: 'left', time: 16.5, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
-  festival: { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 20.05, season: 'summer', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs', 'festival'] },
+  festival: { map: 'town', x: 35.35, z: 26.3, facing: 'left', time: 20.05, season: 'summer', weather: 'sun', camera: FESTIVAL_CAM, showcase: ['npcs', 'festival'] },
   title: { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
   // DESIGN.md names — fall back to the farm until those maps exist.
   'beach-sunset': { map: 'beach', x: 20, z: 20, facing: 'down', time: 19.4, season: 'summer', weather: 'sun' },

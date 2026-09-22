@@ -1,7 +1,8 @@
 /**
  * GPU precipitation, zero per-frame CPU work beyond a few uniforms:
- *  - RainStreaks: ~7k camera-facing stretched quads in a volume that follows the camera
- *    focus, slanted by the wind, additive, lit by the sky colour.
+ *  - RainStreaks: two layers (near fast / far slow + faint) of camera-facing hairline quads
+ *    (constant 1-1.5 px on screen) in a volume that follows the camera focus, slanted by the
+ *    wind, alpha-blended in the sky colour, depth-faded near the lens.
  *  - RainSplashes: ~450 expanding rings (+ a tiny crown dot) respawning at random spots on
  *    the terrain / water surface (heights sampled from the terrain height texture).
  *  - SnowFlakes: soft round flakes drifting down on sine paths.
@@ -53,30 +54,52 @@ vec3 wrapBox(vec3 p) {
 }
 `;
 
+export interface RainLayer {
+  /** Max instances. */
+  count: number;
+  /** Fall speed (m/s). */
+  speed: number;
+  /** Streak length (m). */
+  length: number;
+  /** Streak width in screen pixels (at 1080p). */
+  px: number;
+  /** Peak alpha. */
+  alpha: number;
+  /** Half-extent of the wrap volume. */
+  box: THREE.Vector3;
+  seed: number;
+}
+
+/** Near layer: fast, crisp hairlines around the focus. Far layer: slow, faint veil behind it. */
+export const RAIN_NEAR: RainLayer = { count: 9500, speed: 19, length: 0.3, px: 1.4, alpha: 0.3, box: new THREE.Vector3(22, 12, 22), seed: 1234 };
+export const RAIN_FAR: RainLayer = { count: 9000, speed: 11, length: 0.2, px: 1.1, alpha: 0.2, box: new THREE.Vector3(34, 15, 34), seed: 4321 };
+
 export class RainStreaks {
   readonly mesh: THREE.Mesh;
   private mat: THREE.ShaderMaterial;
   readonly max: number;
 
-  constructor(max = 7000) {
+  constructor(readonly layer: RainLayer = RAIN_NEAR) {
+    const max = layer.count;
     this.max = max;
-    const geo = quadGeometry(max, 1234, false);
+    const geo = quadGeometry(max, layer.seed, false);
     this.mat = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
       fog: true,
       uniforms: THREE.UniformsUtils.merge([
         THREE.UniformsLib.fog,
         {
           uTime: { value: 0 },
           uCenter: { value: new THREE.Vector3() },
-          uBox: { value: BOX.clone() },
+          uBox: { value: layer.box.clone() },
           uIntensity: { value: 0 },
-          uSpeed: { value: 18 },
-          uLen: { value: 0.62 },
-          uWidth: { value: 0.034 },
+          uSpeed: { value: layer.speed },
+          uLen: { value: layer.length },
+          uPx: { value: layer.px },
+          uPxAngle: { value: 0.0006 },
+          uAlpha: { value: layer.alpha },
           uWind: { value: new THREE.Vector2() },
           uColor: { value: new THREE.Color(0xcfe0ff) },
           uCount: { value: max },
@@ -87,7 +110,8 @@ export class RainStreaks {
         #include <fog_pars_vertex>
         uniform float uSpeed;
         uniform float uLen;
-        uniform float uWidth;
+        uniform float uPx;
+        uniform float uPxAngle;
         uniform vec2 uWind;
         uniform float uCount;
         varying vec2 vUv;
@@ -109,11 +133,13 @@ export class RainStreaks {
           vec3 toCam = normalize(cameraPosition - p);
           vec3 side = normalize(cross(dir, toCam));
           float len = uLen * (0.75 + 0.5 * aSeed.w);
-          vec3 wp = p + side * position.x * uWidth * (0.8 + 0.4 * aSeed.x) - dir * position.y * len;
-          vUv = uv;
-          // Fade drops right in front of the lens (they read as big smears, not rain).
           float camD = length(cameraPosition - p);
-          vA = on * (0.45 + 0.55 * aSeed.w) * smoothstep(6.0, 14.0, camD);
+          // Constant on-screen width: ~1-1.5 px hairlines whatever the distance.
+          float w = camD * uPxAngle * uPx * (0.85 + 0.3 * aSeed.x);
+          vec3 wp = p + side * position.x * w - dir * position.y * len;
+          vUv = uv;
+          // Depth fade: drops right in front of the lens read as smears, not rain.
+          vA = on * (0.55 + 0.45 * aSeed.w) * smoothstep(7.0, 16.0, camD);
           vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
@@ -121,14 +147,13 @@ export class RainStreaks {
       fragmentShader: /* glsl */ `
         #include <fog_pars_fragment>
         uniform vec3 uColor;
-        uniform float uIntensity;
+        uniform float uAlpha;
         varying vec2 vUv;
         varying float vA;
         void main() {
-          float across = 1.0 - abs(vUv.x * 2.0 - 1.0);
-          float along = smoothstep(0.0, 0.25, vUv.y) * (1.0 - smoothstep(0.55, 1.0, vUv.y));
-          float a = across * along * vA * 0.42;
-          if (a < 0.003) discard;
+          float along = smoothstep(0.0, 0.35, vUv.y) * (1.0 - smoothstep(0.6, 1.0, vUv.y));
+          float a = along * vA * uAlpha;
+          if (a < 0.004) discard;
           gl_FragColor = vec4(uColor, a);
           #include <fog_fragment>
         }`,
@@ -140,17 +165,23 @@ export class RainStreaks {
     this.mesh.userData.noAO = true;
   }
 
-  update(center: THREE.Vector3, intensity: number, time: number): void {
+  /** `pxAngle`: world units per screen pixel per metre of distance (2·tan(fov/2) / heightPx). */
+  update(center: THREE.Vector3, intensity: number, time: number, pxAngle = 0.0006): void {
     const u = this.mat.uniforms;
     u.uTime!.value = time;
     (u.uCenter!.value as THREE.Vector3).copy(center);
     u.uIntensity!.value = intensity;
+    u.uPxAngle!.value = pxAngle;
     const wd = globalUniforms.uWindDir.value;
     const ws = globalUniforms.uWindStrength.value;
     (u.uWind!.value as THREE.Vector2).set(wd.x * ws * 2.4, wd.y * ws * 2.4);
-    // Lit by the sky: brighter by day, faint blue at night.
+    // Tinted by the sky (not white): a pale sky-grey veil by day, faint blue at night.
     const sky = globalUniforms.uSkyColor.value;
-    (u.uColor!.value as THREE.Color).setRGB(0.55 + sky.r * 0.6, 0.62 + sky.g * 0.6, 0.75 + sky.b * 0.6).multiplyScalar(1 - globalUniforms.uNight.value * 0.55);
+    const hor = globalUniforms.uHorizonColor.value;
+    (u.uColor!.value as THREE.Color)
+      .setRGB((sky.r + hor.r) * 0.5, (sky.g + hor.g) * 0.5, (sky.b + hor.b) * 0.5)
+      .lerp(new THREE.Color(0.86, 0.9, 0.96), 0.4)
+      .multiplyScalar(1 - globalUniforms.uNight.value * 0.55);
     this.mesh.visible = intensity > 0.01;
   }
 }

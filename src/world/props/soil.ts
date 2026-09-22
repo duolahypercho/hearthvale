@@ -9,6 +9,11 @@
  *   const soil = new SoilBeds();  root.add(soil.group);
  *   soil.set(x, z, y, { wet: true, mask }) / soil.clear(x, z)
  * `mask` bits: 1 = north (z-1) tilled, 2 = east (x+1), 4 = south (z+1), 8 = west (x-1).
+ *
+ * Winter: the pads sink 60 % and the snow is blended in the shader, not slapped on top — it
+ * lies on the furrow ridges while dark soil peeks through the troughs (furrow phase + noise),
+ * and the pad rim feathers into the terrain snowfield. Frozen stalks / husks (a winter-only
+ * instanced set) poke out of ~45 % of the tiles.
  */
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
@@ -18,6 +23,7 @@ import { applyWorldFx } from '../../render/worldfx';
 import { patchMaterial, after, before } from '../../render/patch';
 import { NOISE_GLSL } from '../../render/shaders/noise';
 import { BatchPool, InstancedSet } from './instanced';
+import { globalUniforms } from '../../render/uniforms';
 
 export const SOIL_HEIGHT = 0.075;
 /** Pads sit slightly above the tile-centre ground height so gentle slopes never poke through. */
@@ -131,12 +137,21 @@ function soilMaterial(): THREE.MeshStandardMaterial {
     const d = textures.soil();
     soilMat = new THREE.MeshStandardMaterial({ map: d.map, bumpMap: d.bump, bumpScale: 2.5, roughness: 0.96, vertexColors: true, color: 0xf2e6dc });
     soilMat.name = 'soil';
-    applyWorldFx(soilMat, { snowUp: 0.2 });
+    // Snow only on the furrow ridges (+ noise), full snow on the low rim so the pad melts into the field.
+    const ridge = '(sin(fract(vHvWorldPos.z) * 18.8496) * 0.5 + 0.5)';
+    const snowMask = `clamp(max(smoothstep(0.34, 0.6, ${ridge} * 0.45 + hvNoise(vHvWorldPos.xz * 2.1) * 0.45 + hvNoise(vHvWorldPos.xz * 6.3 + 3.0) * 0.3 - 0.04), 1.0 - smoothstep(0.004, 0.05 + hvNoise(vHvWorldPos.xz * 5.0) * 0.03, vSoilH)), 0.0, 1.0)`;
+    applyWorldFx(soilMat, { snowUp: 0.2, snowMask });
     patchMaterial(soilMat, 'soil-wet', (shader) => {
       shader.uniforms.uWetMask = uWetMask;
       shader.uniforms.uWetSize = uWetSize;
+      shader.uniforms.uSnowSink = globalUniforms.uSnow;
+      let vs = shader.vertexShader;
+      vs = before(vs, 'void main() {', 'varying float vSoilH;\nuniform float uSnowSink;');
+      // Under snow the beds settle: 60 % lower, so they read as soft mounds in the snowfield.
+      vs = after(vs, '#include <begin_vertex>', 'vSoilH = position.y;\ntransformed.y *= 1.0 - 0.6 * smoothstep(0.3, 1.0, uSnowSink);');
+      shader.vertexShader = vs;
       let fs = shader.fragmentShader;
-      fs = before(fs, 'void main() {', `uniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}`);
+      fs = before(fs, 'void main() {', `varying float vSoilH;\nuniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}`);
       fs = after(
         fs,
         '#include <color_fragment>',
@@ -161,11 +176,73 @@ function soilMaterial(): THREE.MeshStandardMaterial {
   return soilMat;
 }
 
+let huskMat: THREE.MeshStandardMaterial | null = null;
+/** Frozen crop husks: only exist in winter (scaled to nothing otherwise, no season plumbing). */
+function huskMaterial(): THREE.MeshStandardMaterial {
+  if (!huskMat) {
+    huskMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
+    huskMat.name = 'husk';
+    applyWorldFx(huskMat, { snowUp: 0.75 });
+    patchMaterial(huskMat, 'husk-winter', (shader) => {
+      shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
+      shader.vertexShader = before(shader.vertexShader, 'void main() {', 'uniform vec4 uSeasonW;');
+      shader.vertexShader = after(shader.vertexShader, '#include <begin_vertex>', 'transformed *= smoothstep(0.5, 0.9, uSeasonW.w);');
+    });
+  }
+  return huskMat;
+}
+
+function huskGeometry(variant: number): THREE.BufferGeometry {
+  const rng = new Rng(`husk:${variant}`);
+  const parts: THREE.BufferGeometry[] = [];
+  const paint = (g: THREE.BufferGeometry, fn: (p: THREE.Vector3) => THREE.Color): THREE.BufferGeometry => {
+    const gg = g.index ? g.toNonIndexed() : g;
+    const pos = gg.attributes.position as THREE.BufferAttribute;
+    const col = new Float32Array(pos.count * 3);
+    const p = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      const c = fn(p.fromBufferAttribute(pos, i));
+      col.set([c.r, c.g, c.b], i * 3);
+    }
+    gg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    if (!gg.attributes.uv) gg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(pos.count * 2), 2));
+    gg.computeVertexNormals();
+    return gg;
+  };
+  const base = new THREE.Color(0x6e5840);
+  const tip = new THREE.Color(0xb49a72);
+  const n = 3 + rng.int(0, 2);
+  for (let i = 0; i < n; i++) {
+    const h = 0.22 + rng.next() * 0.28;
+    const g = new THREE.CylinderGeometry(0.008, 0.016, h, 4);
+    g.translate(0, h / 2, 0);
+    g.rotateZ((rng.next() - 0.5) * 0.7);
+    g.rotateY(rng.next() * Math.PI * 2);
+    g.translate((rng.next() - 0.5) * 0.35, 0, (rng.next() - 0.5) * 0.35);
+    parts.push(paint(g, (p) => base.clone().lerp(tip, THREE.MathUtils.clamp(p.y / h, 0, 1))));
+    if (rng.next() < 0.7) {
+      // A broken, papery leaf hanging off the stalk.
+      const leaf = new THREE.PlaneGeometry(0.05, 0.2, 1, 2);
+      const lp = leaf.attributes.position as THREE.BufferAttribute;
+      for (let k = 0; k < lp.count; k++) lp.setZ(k, Math.pow(lp.getY(k) + 0.1, 2) * 0.8);
+      leaf.translate(0, -0.1, 0);
+      leaf.rotateX(0.5 + rng.next() * 0.6);
+      leaf.rotateY(rng.next() * Math.PI * 2);
+      const c = parts[parts.length - 1]!.boundingBox;
+      void c;
+      leaf.translate((rng.next() - 0.5) * 0.3, h * 0.7, (rng.next() - 0.5) * 0.3);
+      parts.push(paint(leaf, () => new THREE.Color(0x9a8260).multiplyScalar(0.85 + rng.next() * 0.3)));
+    }
+  }
+  return mergeSimple(parts);
+}
+
 export class SoilBeds {
   readonly group = new THREE.Group();
   readonly pool = new BatchPool('soil');
   private sets = new Map<string, InstancedSet>();
-  private tiles = new Map<string, { set: InstancedSet; id: number }>();
+  private tiles = new Map<string, { set: InstancedSet; id: number; husk?: { set: InstancedSet; id: number } }>();
+  private huskSets: InstancedSet[] = [];
   private wetData: Uint8Array;
   private wetTex: THREE.DataTexture;
 
@@ -211,7 +288,14 @@ export class SoilBeds {
     const m = new THREE.Matrix4().makeTranslation(x + 0.5, y + SOIL_LIFT, z + 0.5);
     const j = ((Math.abs(h >> 4) % 100) / 100 - 0.5) * 0.08;
     const c = new THREE.Color(1 + j, 1 + j * 0.8, 1 + j * 0.6);
-    this.tiles.set(`${x},${z}`, { set, id: set.add(m, c) });
+    let husk: { set: InstancedSet; id: number } | undefined;
+    if (Math.abs(h >> 9) % 100 < 45) {
+      if (!this.huskSets.length) for (let v = 0; v < 3; v++) this.huskSets.push(new InstancedSet(`husk-${v}`, [{ geometry: huskGeometry(v), material: huskMaterial(), castShadow: true }], this.pool));
+      const hs = this.huskSets[Math.abs(h >> 13) % 3]!;
+      const hm = new THREE.Matrix4().compose(new THREE.Vector3(x + 0.5, y + SOIL_LIFT + 0.02, z + 0.5), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (Math.abs(h >> 5) % 628) / 100), new THREE.Vector3(1, 1, 1));
+      husk = { set: hs, id: hs.add(hm) };
+    }
+    this.tiles.set(`${x},${z}`, { set, id: set.add(m, c), husk });
   }
 
   clear(x: number, z: number): void {
@@ -219,6 +303,7 @@ export class SoilBeds {
     const t = this.tiles.get(`${x},${z}`);
     if (!t) return;
     t.set.remove(t.id);
+    if (t.husk) t.husk.set.remove(t.husk.id);
     this.tiles.delete(`${x},${z}`);
   }
 

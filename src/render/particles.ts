@@ -457,3 +457,97 @@ export class BurstFX {
     this.pool.flush();
   }
 }
+
+/**
+ * Open fire (braziers, bonfires): licking flame puffs (additive, yellow → orange → red, short
+ * lived) plus rising, wandering embers that wink out. One Points draw call for every fire.
+ * `setActive(false)` stops spawning and hides it once the last particle dies.
+ */
+export class FireFX {
+  readonly object: THREE.Points;
+  private pool: PointPool;
+  private age: Float32Array;
+  private life: Float32Array;
+  private vel: Float32Array;
+  private kind: Uint8Array;
+  private seed: Float32Array;
+  private next = 0;
+  private acc = 0;
+  active = true;
+
+  constructor(readonly origins: THREE.Vector3[], count = 90 * Math.max(1, origins.length)) {
+    this.pool = new PointPool(count, textures.softDot().map, true);
+    this.object = this.pool.points;
+    this.object.name = 'fire';
+    this.object.renderOrder = 6;
+    this.object.userData.noAO = true;
+    this.age = new Float32Array(count).fill(999);
+    this.life = new Float32Array(count).fill(1);
+    this.vel = new Float32Array(count * 3);
+    this.kind = new Uint8Array(count);
+    this.seed = new Float32Array(count);
+    for (let i = 0; i < 60 * 3; i++) this.update(1 / 60, 1080);
+  }
+
+  update(dt: number, viewportH: number): void {
+    this.pool.setViewportHeight(viewportH);
+    if (this.active && this.origins.length) {
+      this.acc += dt * 70 * this.origins.length;
+      while (this.acc > 1) {
+        this.acc -= 1;
+        const i = this.next;
+        this.next = (this.next + 1) % this.pool.n;
+        const o = this.origins[Math.floor(Math.random() * this.origins.length)]!;
+        const ember = Math.random() < 0.22;
+        this.kind[i] = ember ? 1 : 0;
+        this.age[i] = 0;
+        this.life[i] = ember ? 1.6 + Math.random() * 1.4 : 0.35 + Math.random() * 0.3;
+        this.seed[i] = Math.random();
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * (ember ? 0.2 : 0.26);
+        this.pool.pos[i * 3] = o.x + Math.cos(a) * r;
+        this.pool.pos[i * 3 + 1] = o.y + (ember ? 0.2 : 0);
+        this.pool.pos[i * 3 + 2] = o.z + Math.sin(a) * r;
+        this.vel[i * 3] = (Math.random() - 0.5) * (ember ? 0.5 : 0.15) - Math.cos(a) * r * 0.8;
+        this.vel[i * 3 + 1] = ember ? 1.1 + Math.random() * 0.9 : 1.2 + Math.random() * 0.6;
+        this.vel[i * 3 + 2] = (Math.random() - 0.5) * (ember ? 0.5 : 0.15) - Math.sin(a) * r * 0.8;
+      }
+    }
+    const wd = globalUniforms.uWindDir.value;
+    const ws = globalUniforms.uWindStrength.value;
+    let alive = 0;
+    for (let i = 0; i < this.pool.n; i++) {
+      const a = (this.age[i]! += dt);
+      const t = a / this.life[i]!;
+      if (t >= 1) {
+        this.pool.alpha[i] = 0;
+        continue;
+      }
+      alive++;
+      const ember = this.kind[i] === 1;
+      const s = this.seed[i]!;
+      this.vel[i * 3]! += (wd.x * ws * (ember ? 0.35 : 0.12) + Math.sin(a * 7 + s * 20) * (ember ? 0.9 : 0.2)) * dt;
+      this.vel[i * 3 + 2]! += (wd.y * ws * (ember ? 0.35 : 0.12) + Math.cos(a * 6 + s * 13) * (ember ? 0.9 : 0.2)) * dt;
+      this.pool.pos[i * 3]! += this.vel[i * 3]! * dt;
+      this.pool.pos[i * 3 + 1]! += this.vel[i * 3 + 1]! * dt;
+      this.pool.pos[i * 3 + 2]! += this.vel[i * 3 + 2]! * dt;
+      if (ember) {
+        this.pool.size[i] = 0.07 + 0.04 * s;
+        const wink = 0.6 + 0.4 * Math.sin(a * 18 + s * 40);
+        this.pool.alpha[i] = Math.min(1, t * 8) * (1 - t) * wink;
+        this.pool.color[i * 3] = 1.0;
+        this.pool.color[i * 3 + 1] = 0.55 - t * 0.3;
+        this.pool.color[i * 3 + 2] = 0.15;
+      } else {
+        this.pool.size[i] = (0.34 + 0.18 * s) * (1 - t * 0.7);
+        this.pool.alpha[i] = Math.min(1, t * 10) * (1 - t) * 0.42;
+        // warm yellow core → orange → deep red tip (kept below white so bloom stays a glow, not a blob)
+        this.pool.color[i * 3] = 1.0;
+        this.pool.color[i * 3 + 1] = 0.62 - t * 0.42;
+        this.pool.color[i * 3 + 2] = 0.2 - t * 0.18;
+      }
+    }
+    this.object.visible = alive > 0;
+    this.pool.flush();
+  }
+}

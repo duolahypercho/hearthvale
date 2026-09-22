@@ -30,9 +30,19 @@ import { CritterSystem } from '../systems/critters';
 import { NpcSystem } from '../systems/npcs';
 import { WarpSystem } from '../systems/warps';
 import { AudioSystem } from '../systems/audio';
+import { EconomySystem } from '../systems/economy';
+import { EnergySystem } from '../systems/energy';
+import { SleepSystem } from '../systems/sleep';
+import { RelationshipSystem } from '../systems/relationships';
+import { FishingSystem } from '../systems/fishing';
+import { MiningSystem } from '../systems/mining';
+import { CraftingSystem } from '../systems/crafting';
+import { QuestSystem } from '../systems/quests';
 
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
+  () => new EconomySystem(),
+  () => new EnergySystem(),
   () => new SeasonSystem(),
   () => new WeatherSystem(),
   () => new InventorySystem(),
@@ -42,6 +52,12 @@ const SYSTEMS: (() => System)[] = [
   () => new NpcSystem(),
   () => new WarpSystem(),
   () => new AudioSystem(),
+  () => new SleepSystem(),
+  () => new RelationshipSystem(),
+  () => new FishingSystem(),
+  () => new MiningSystem(),
+  () => new CraftingSystem(),
+  () => new QuestSystem(),
 ];
 
 /**
@@ -83,9 +99,6 @@ export class Game {
   time = 0;
   /** Sim-scaled delta of the current frame (0 while paused). */
   simDt = 0;
-  gold = 500;
-  energy = 270;
-  maxEnergy = 270;
   toolbarSlot = 0;
   frame = 0;
   private acc = 0;
@@ -112,12 +125,13 @@ export class Game {
     this.events.on('toolbar:select', ({ slot }) => (this.toolbarSlot = slot));
 
     this.saves.register('core', {
-      save: () => ({ calendar: this.calendar.serialize(), gold: this.gold, energy: this.energy, map: this.world.current?.id, x: this.player.position.x, z: this.player.position.z }),
+      save: () => ({ calendar: this.calendar.serialize(), map: this.world.current?.id, x: this.player.position.x, z: this.player.position.z }),
       load: (d) => {
-        const s = d as { calendar: ReturnType<Calendar['serialize']>; gold: number; energy: number; map?: string; x: number; z: number };
+        const s = d as { calendar: ReturnType<Calendar['serialize']>; gold?: number; energy?: number; map?: string; x: number; z: number };
         this.calendar.deserialize(s.calendar);
-        this.setGold(s.gold);
-        this.energy = s.energy;
+        // Pre-economy saves kept gold / energy here.
+        if (typeof s.gold === 'number') this.services.economy?.set(s.gold);
+        if (typeof s.energy === 'number') this.services.energy?.set(s.energy);
         if (s.map) void this.teleport(s.map, s.x, s.z);
       },
     });
@@ -241,12 +255,6 @@ export class Game {
 
   provide<K extends keyof GameServices>(name: K, api: GameServices[K]): void {
     this.services[name] = api;
-  }
-
-  setGold(n: number): void {
-    const delta = n - this.gold;
-    this.gold = Math.max(0, Math.floor(n));
-    this.events.emit('gold:change', { gold: this.gold, delta });
   }
 
   async teleport(mapId: string, x: number, z: number): Promise<void> {

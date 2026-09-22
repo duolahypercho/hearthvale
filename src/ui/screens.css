@@ -131,10 +131,40 @@
 .hv-title-screen .ts-logo {
   position: absolute;
   left: 50%;
-  top: 7%;
+  top: 5%;
   transform: translateX(-50%);
   text-align: center;
-  animation: hvIn 700ms var(--ease-back) both;
+  animation: hvLogoIn 420ms var(--ease-back) both, hvLogoBob 5.5s ease-in-out 420ms infinite;
+}
+/* Soft dark halo behind the lettering so it reads over any background. */
+.hv-title-screen .ts-scrim {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  width: 640px;
+  height: 280px;
+  translate: -50% -50%;
+  background: radial-gradient(closest-side, rgba(20, 10, 0, 0.38), rgba(20, 10, 0, 0.18) 55%, transparent);
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes hvLogoIn {
+  from {
+    opacity: 0;
+    scale: 0.9;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@keyframes hvLogoBob {
+  0%, 100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -5px;
+  }
 }
 .hv-title-screen .lantern {
   width: 70px;
@@ -181,8 +211,12 @@
   font-size: 22px;
   letter-spacing: 3px;
   text-transform: lowercase;
-  color: #fff;
-  text-shadow: 0 2px 0 #6a3414, 0 0 12px rgba(60, 20, 10, 0.6);
+  color: #fff8e8;
+  /* 2 px dark outline + a soft drop shadow: readable over red shingles or bright sky. */
+  text-shadow:
+    2px 0 0 #4a2410, -2px 0 0 #4a2410, 0 2px 0 #4a2410, 0 -2px 0 #4a2410,
+    1.5px 1.5px 0 #4a2410, -1.5px 1.5px 0 #4a2410, 1.5px -1.5px 0 #4a2410, -1.5px -1.5px 0 #4a2410,
+    0 4px 6px rgba(20, 8, 0, 0.6);
 }
 .hv-title-screen .ts-menu {
   position: absolute;

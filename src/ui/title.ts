@@ -27,6 +27,7 @@ export class TitlePanel implements Panel {
       <div class="ts-vignette"></div>
       <div class="ts-petals">${petals}</div>
       <div class="ts-logo">
+        <div class="ts-scrim"></div>
         ${LANTERN}
         <h1><span>Hearth</span><span>vale</span></h1>
         <div class="ts-sub">a cozy valley farming tale</div>
@@ -112,9 +113,10 @@ export class TitlePanel implements Panel {
     const map = this.game.world.current;
     if (map) this.game.player.teleport(map.spawn.x, map.spawn.z);
     this.game.player.setFacing('down');
-    rig.lookOffset.set(-1.5, 0, -3.5);
-    rig.pitch = 34;
-    rig.distance = 29;
+    // Framed so the logo floats over the tree line / cliffs behind the house, not on its roof.
+    rig.lookOffset.set(-1.2, 0, -8.2);
+    rig.pitch = 36;
+    rig.distance = 30;
     this.game.followPlayer(true);
     this.game.hud.root.classList.add('hv-title-mode');
     this.el.classList.remove('hv-hidden');

@@ -134,6 +134,7 @@ function grassMaterial(): THREE.MeshStandardMaterial {
       float glush = smoothstep(0.35, 0.78, hvFbm(gp * 0.11 + 20.0));
       gbase = mix(gbase, uGrassA * vec3(0.7, 0.86, 0.74), glush * 0.55) * 0.9;
       gbase = hvMeadowVar(gbase, gp);
+      gbase = hvMottle(gbase, gp);
       {
         vec4 gcv = texture2D(uGrassCover, (gp - uGrassCoverRect.xy) / uGrassCoverRect.zw);
         gbase = mix(gbase, gbase * vec3(0.8, 0.95, 0.8), gcv.r * 0.7);

@@ -40,7 +40,7 @@ export const BUILDINGS: TownBuilding[] = [
   { id: 'cottage_east', kind: 'cottageB', x: 48, z: 32.4, block: [45, 30, 50, 34] },
 ];
 
-export type TownPropKind = 'fountain' | 'noticeBoard' | 'marketStall' | 'bench' | 'lanternPost' | 'planter' | 'hedge' | 'barrel' | 'crateStack' | 'flowerPot' | 'wheelbarrow';
+export type TownPropKind = 'fountain' | 'noticeBoard' | 'marketStall' | 'bench' | 'lanternPost' | 'planter' | 'hedge' | 'barrel' | 'crateStack' | 'flowerPot' | 'wheelbarrow' | 'flowerCart' | 'cafeSet' | 'sandwichBoard';
 
 export interface TownProp {
   kind: TownPropKind;
@@ -84,6 +84,14 @@ export const TOWN_PROPS: TownProp[] = [
   { kind: 'crateStack', x: 37.8, z: 31.8, rot: -0.4, solid: [[37, 31]] },
   { kind: 'barrel', x: 38.9, z: 32.6, solid: [[38, 32]] },
   { kind: 'planter', x: 24.6, z: 29.9, colors: [0xffd166, 0xff8fab, 0xffffff], rot: 0.6, solid: [[24, 29]] },
+  // Everyday plaza life: the flower seller's cart, the bakery café table, chalk A-boards.
+  { kind: 'flowerCart', x: 17.9, z: 22.1, rot: 0.35, solid: [[17, 21], [18, 21], [17, 22], [18, 22]] },
+  { kind: 'cafeSet', x: 46.4, z: 21.7, rot: -0.2, solid: [[46, 21]] },
+  { kind: 'sandwichBoard', x: 20.1, z: 20.3, rot: 0.3, colors: [0x5f8a7a] },
+  { kind: 'sandwichBoard', x: 44.0, z: 20.4, rot: -0.35, colors: [0x9a5a3a] },
+  { kind: 'flowerPot', x: 37.0, z: 20.3, colors: [0xc77dff] },
+  { kind: 'flowerPot', x: 27.1, z: 29.9, colors: [0xffd166] },
+  { kind: 'barrel', x: 36.9, z: 30.7, solid: [[36, 30]] },
 ];
 
 export const TOWN_TREES: ['oak' | 'maple' | 'pine' | 'blossom', number, number, number][] = [
@@ -102,14 +110,47 @@ export const TOWN_TREES: ['oak' | 'maple' | 'pine' | 'blossom', number, number, 
   ['maple', 5.5, 20.5, 1.0],
 ];
 
-/** Festival bunting runs (between plaza lamp posts / buildings), shown for festivals. */
-export const BUNTING: [[number, number, number], [number, number, number]][] = [
-  [[24.5, 3.3, 19.6], [39.5, 3.3, 19.6]],
-  [[25.2, 3.0, 29.4], [38.8, 3.0, 29.4]],
-  [[24.4, 3.1, 20.5], [25.4, 3.0, 29.0]],
-  [[39.6, 3.1, 20.5], [38.6, 3.0, 29.0]],
-  [[32, 4.2, 14.5], [32, 3.3, 22.6]],
-];
+/** Plaza lamp-post tops (ring of 4 around the fountain), used as bunting anchors. */
+const POST_TOPS: [number, number, number][] = [30, 150, 210, 330].map((deg) => {
+  const a = (deg * Math.PI) / 180;
+  return [PLAZA.x + Math.cos(a) * 7.6, 2.4, PLAZA.z + Math.sin(a) * 7.6] as [number, number, number];
+});
+const [POST_SE, POST_SW, POST_NW, POST_NE] = POST_TOPS as [[number, number, number], [number, number, number], [number, number, number], [number, number, number]];
+/** Maypole crown (fountain centre). */
+export const MAYPOLE_TOP: [number, number, number] = [PLAZA.x, 5.9, PLAZA.z];
+
+/**
+ * Festival layout (shown for festivals). Bunting spans are [from, to, sag m, flags, lantern every N]
+ * — anchored only to lamp posts, eaves and the maypole crown, never hung down the view axis.
+ */
+export const FESTIVAL = {
+  bunting: [
+    // Under the Lantern Hall eave, across the facade.
+    [[26.9, 4.4, 12.4], [37.1, 4.4, 12.4], 0.5, 16, 4],
+    // Across the north side of the plaza, post to post.
+    [POST_NW, POST_NE, 0.55, 16, 5],
+    // Along the shop eaves.
+    [[17.9, 3.75, 18.8], [24.2, 3.75, 18.8], 0.4, 12, 0],
+    [[39.8, 3.65, 18.8], [46.1, 3.65, 18.8], 0.4, 12, 0],
+    // Maypole crown back out to the two north lamp posts (never towards the camera).
+    [MAYPOLE_TOP, POST_NW, 0.45, 13, 4],
+    [MAYPOLE_TOP, POST_NE, 0.45, 13, 4],
+  ] as [[number, number, number], [number, number, number], number, number, number][],
+  /** Paper-lantern poles flanking every street mouth. */
+  poles: [
+    [24.2, 22.9], [24.2, 27.4], [39.8, 22.9], [39.8, 27.4],
+    [29.6, 17.3], [34.4, 17.3], [29.9, 32.3], [34.1, 32.3],
+  ] as [number, number][],
+  /** Market stalls: [x, z, rotY, stripe A, stripe B]. */
+  stalls: [
+    [21.4, 22.3, 0.55, 0xd8473a, 0xf6ecd8],
+    [42.6, 22.3, -0.55, 0x3f7fb0, 0xf6ecd8],
+  ] as [number, number, number, number, number][],
+  /** Harvest table [x, z, rotY, length]. */
+  table: [32, 19.3, 0, 5.4] as [number, number, number, number],
+  /** Fire braziers. */
+  braziers: [[28.2, 16.4], [35.8, 16.4]] as [number, number][],
+};
 
 /** Warps back to the farm (tile rect → farm spawn). */
 export const TOWN_WARPS = [{ x0: 0, z0: 23, x1: 0, z1: 29, to: 'farm', x: 61.5, z: 28.5, facing: 'left' as const }];

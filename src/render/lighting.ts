@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import type { Season, Weather } from '../core/time';
 import type { RenderContext } from './renderer';
 import { globalUniforms } from './uniforms';
-import { nightGlow } from './materials';
+import { nightGlow, interiorGlow } from './materials';
 
 interface Key {
   h: number;
@@ -40,14 +40,14 @@ const KEYS: Key[] = [
   { h: 19.0, sun: 0xffb070, sunI: 2.4, sky: 0x8f9ad0, ground: 0x4e3a30, hemiI: 0.85, fog: 0xe0a882, skyTop: 0x4f64b0, horizon: 0xffae70, exposure: 1.05, lift: [0.035, 0.02, 0.06], gain: [1.1, 0.97, 0.88], sat: 1.14, contrast: 1.09, vignette: 0.46, night: 0.04 },
   { h: 19.8, sun: 0xff8a5a, sunI: 1.5, sky: 0x6c6aa8, ground: 0x3a2a30, hemiI: 0.85, fog: 0xa8708a, skyTop: 0x34408a, horizon: 0xe8806a, exposure: 1.1, lift: [0.05, 0.03, 0.08], gain: [1.05, 0.95, 0.98], sat: 1.1, contrast: 1.07, vignette: 0.5, night: 0.3 },
   { h: 20.5, sun: 0x8a90ff, sunI: 0.08, sky: 0x3a4880, ground: 0x181a28, hemiI: 0.75, fog: 0x2e3a60, skyTop: 0x141c44, horizon: 0x4a4f86, exposure: 1.25, lift: [0.03, 0.04, 0.1], gain: [0.92, 0.96, 1.1], sat: 1.0, contrast: 1.07, vignette: 0.55, night: 0.88 },
-  { h: 21.3, sun: 0x7f9cff, sunI: 0.9, sky: 0x2e3f78, ground: 0x0c0e18, hemiI: 0.62, fog: 0x1c2748, skyTop: 0x0b1230, horizon: 0x2a3766, exposure: 1.32, lift: [0.02, 0.03, 0.085], gain: [0.9, 0.97, 1.14], sat: 1.02, contrast: 1.1, vignette: 0.6, night: 1 },
-  { h: 26.0, sun: 0x7f9cff, sunI: 0.85, sky: 0x2a3a72, ground: 0x0c0e18, hemiI: 0.6, fog: 0x18223f, skyTop: 0x09102a, horizon: 0x24305c, exposure: 1.32, lift: [0.02, 0.03, 0.085], gain: [0.9, 0.97, 1.14], sat: 1.0, contrast: 1.1, vignette: 0.62, night: 1 },
+  { h: 21.3, sun: 0x8fa6ff, sunI: 1.1, sky: 0x34487e, ground: 0x10141c, hemiI: 0.74, fog: 0x1c2748, skyTop: 0x0b1230, horizon: 0x2a3766, exposure: 1.32, lift: [0.02, 0.03, 0.085], gain: [0.9, 0.97, 1.14], sat: 1.02, contrast: 1.1, vignette: 0.6, night: 1 },
+  { h: 26.0, sun: 0x8fa6ff, sunI: 1.05, sky: 0x304478, ground: 0x10141c, hemiI: 0.72, fog: 0x18223f, skyTop: 0x09102a, horizon: 0x24305c, exposure: 1.32, lift: [0.02, 0.03, 0.085], gain: [0.9, 0.97, 1.14], sat: 1.0, contrast: 1.1, vignette: 0.62, night: 1 },
 ];
 
 const SEASON_GRASS: Record<Season, { a: number; b: number; tip: number; dry: number; dryAmt: number }> = {
   spring: { a: 0x4d8c38, b: 0x7fb246, tip: 0xb6d46a, dry: 0xa2b05a, dryAmt: 0.45 },
   summer: { a: 0x437f2f, b: 0x6aa13a, tip: 0xa8c855, dry: 0x9c9e48, dryAmt: 0.5 },
-  fall: { a: 0x7a7c34, b: 0x9c9440, tip: 0xc9a54a, dry: 0xb8642e, dryAmt: 0.95 },
+  fall: { a: 0x86863a, b: 0xb0a048, tip: 0xd6b252, dry: 0xa8602c, dryAmt: 0.9 },
   winter: { a: 0xdfe8f0, b: 0xc9d6e2, tip: 0xf2f6fa, dry: 0xaebdcc, dryAmt: 0.3 },
 };
 const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1, 0, 0, 0], summer: [0, 1, 0, 0], fall: [0, 0, 1, 0], winter: [0, 0, 0, 1] };
@@ -340,7 +340,8 @@ export class DayNight {
     this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) + this.flash * 0.5;
     // Golden-hour rim: strongest with a low sun, gone at night / under overcast.
     const elev = Math.asin(THREE.MathUtils.clamp(this.sunDir.y, -1, 1));
-    globalUniforms.uRim.value = (1 - THREE.MathUtils.smoothstep(elev, 0.14, 0.5)) * (1 - this.night) * (1 - oc * 0.9);
+    // …and a cool moonlit rim at night so canopies keep their silhouettes against the dark.
+    globalUniforms.uRim.value = Math.max((1 - THREE.MathUtils.smoothstep(elev, 0.14, 0.5)) * (1 - this.night), this.night * 0.55) * (1 - oc * 0.9);
     const g = this.rc.post.grade.uniforms;
     (g.uLift!.value as THREE.Vector3).set(L(a.lift[0], b.lift[0], t), L(a.lift[1], b.lift[1], t), L(a.lift[2], b.lift[2], t));
     (g.uGain!.value as THREE.Vector3).set(L(a.gain[0], b.gain[0], t), L(a.gain[1], b.gain[1], t), L(a.gain[2], b.gain[2], t));
@@ -356,6 +357,9 @@ export class DayNight {
     const glow = Math.min(1, Math.max(dusk * 0.85 + THREE.MathUtils.smoothstep(this.night, 0.3, 0.9) * 0.15, THREE.MathUtils.smoothstep(this.night, 0.15, 0.85)) + oc * 0.3);
     globalUniforms.uLamps.value = glow;
     for (const n of nightGlow) n.material.emissiveIntensity = n.max * glow;
+    // Interiors: 0 at noon → full by ~18:00, off again by mid-morning (+ a little on dark rainy days).
+    const inside = Math.min(1, (hour >= 12 ? THREE.MathUtils.smoothstep(hour, 15.2, 18.2) : 1 - THREE.MathUtils.smoothstep(hour, 6.4, 8.2)) + oc * 0.35);
+    for (const n of interiorGlow) n.material.emissiveIntensity = n.max * inside;
     // Snow reflects ~2x the light of grass: dim the practicals over snow cover so pools stay warm, not white.
     const lampK = glow * (1 - 0.45 * snow);
     for (const n of this.nightLights) n.light.intensity = n.max * lampK;

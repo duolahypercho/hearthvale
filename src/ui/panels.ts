@@ -62,24 +62,23 @@ export class ShopPanel extends FramedPanel {
     this.body.innerHTML = `
       <div class="shop-head">
         <div class="keeper">"Fresh seed, straight off the morning cart. Pip checked every packet. Twice."</div>
-        <div class="purse">${ICONS.coin ?? ''}<span>${this.game.gold.toLocaleString()}</span></div>
+        <div class="purse">${ICONS.coin ?? ''}<span>${(this.game.services.economy?.gold() ?? 0).toLocaleString()}</span></div>
       </div>
       <div class="list">${rows}</div>`;
     this.body.querySelectorAll<HTMLElement>('.row:not(.off)').forEach((r) =>
       r.addEventListener('pointerdown', () => {
         const price = Number(r.dataset.price);
-        if (this.game.gold < price) {
+        if (!this.game.services.economy?.spend(price, 'shop')) {
           r.classList.remove('nope');
           void r.offsetWidth;
           r.classList.add('nope');
           return;
         }
-        this.game.setGold(this.game.gold - price);
         this.game.events.emit('item:give', { itemId: r.dataset.id!, qty: 1 });
         r.classList.remove('bought');
         void r.offsetWidth;
         r.classList.add('bought');
-        (this.body.querySelector('.purse span') as HTMLElement).textContent = this.game.gold.toLocaleString();
+        (this.body.querySelector('.purse span') as HTMLElement).textContent = (this.game.services.economy?.gold() ?? 0).toLocaleString();
       }),
     );
   }

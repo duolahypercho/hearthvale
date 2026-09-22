@@ -59,7 +59,7 @@ export function installDebugApi(game: Game): DebugApi {
       game.events.emit('ui:open', { name });
     },
     give: (itemId, qty = 1) => game.events.emit('item:give', { itemId, qty }),
-    setGold: (n) => game.setGold(n),
+    setGold: (n) => game.services.economy?.set(n),
     grow: (days) => game.events.emit('crops:grow', { days }),
     demo: async (name) => {
       const d = DEMOS[name];
@@ -104,7 +104,8 @@ export function installDebugApi(game: Game): DebugApi {
       map: game.world.current?.id,
       player: { x: game.player.position.x, z: game.player.position.z, facing: game.player.facing },
       calendar: game.calendar.serialize(),
-      gold: game.gold,
+      gold: game.services.economy?.gold() ?? 0,
+      energy: game.services.energy?.value() ?? 0,
       quality: game.rc.quality,
       paused: game.paused,
       frame: game.frame,

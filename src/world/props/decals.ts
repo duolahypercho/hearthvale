@@ -41,7 +41,7 @@ export class LeafLitter {
     for (let i = 0; i < count; i++) {
       let x: number;
       let z: number;
-      if (spots.length && rng.next() < 0.72) {
+      if (spots.length && rng.next() < 0.8) {
         const s = spots[Math.floor(rng.next() * spots.length)]!;
         const a = rng.next() * Math.PI * 2;
         const d = Math.pow(rng.next(), 0.7) * s.r * 1.35;

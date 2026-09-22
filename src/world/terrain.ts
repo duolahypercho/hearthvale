@@ -523,6 +523,7 @@ export class Terrain {
         grass = mix(grass, uGrassA * vec3(0.7, 0.86, 0.74), lush * 0.55);
         grass *= (0.62 + gd * 0.55 + gd2 * 0.25) * 0.86;
         grass = hvMeadowVar(grass, wp.xz);
+        grass = hvMottle(grass, wp.xz);
 
         // Ground cover: clover carpets, moss, dry / trampled straw (+ baked contact AO, below).
         vec4 cov = texture2D(uCover, suv + warp * 0.35 / uSplatSize);

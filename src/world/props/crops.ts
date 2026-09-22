@@ -7,6 +7,8 @@
  *   const h = cv.add('cauliflower', 3, x, y, z, seed);  cv.remove(h);
  */
 import * as THREE from 'three';
+import { patchMaterial, after, before } from '../../render/patch';
+import { globalUniforms } from '../../render/uniforms';
 import { Rng } from '../../core/rng';
 import type { CropId } from '../../data/crops';
 import { MeshBuilder, lumpySphere, mat } from '../geom';
@@ -463,6 +465,23 @@ export function cropMaterial(): THREE.MeshStandardMaterial {
     applyWorldFx(cropMat, { snowUp: 0.6 });
     applyWind(cropMat, CROP_WIND);
     applyPlantLighting(cropMat, { translucency: 0.4, floor: 0.05 });
+    // Fall: leafy greens take a ~15 % warm shift (produce colours — pumpkins, corn — untouched).
+    patchMaterial(cropMat, 'crop-fall', (shader) => {
+      shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
+      let fs = before(shader.fragmentShader, 'void main() {', 'uniform vec4 uSeasonW;');
+      fs = after(
+        fs,
+        '#include <color_fragment>',
+        /* glsl */ `
+        {
+          vec3 cc = diffuseColor.rgb;
+          float leafy = smoothstep(0.02, 0.12, cc.g - max(cc.r, cc.b));
+          vec3 warm = vec3(dot(cc, vec3(0.45, 0.45, 0.1))) * vec3(1.25, 1.05, 0.55);
+          diffuseColor.rgb = mix(cc, mix(cc, warm, 0.35), leafy * uSeasonW.z * 0.45);
+        }`,
+      );
+      shader.fragmentShader = fs;
+    });
     cropDepth = windDepthMaterial(CROP_WIND);
   }
   return cropMat;

@@ -40,7 +40,7 @@ export class ShippingSystem implements System {
     const items = this.bin.map((b) => ({ ...b, value: (itemDef(b.itemId)?.sell ?? 0) * b.qty }));
     const total = items.reduce((a, b) => a + b.value, 0);
     this.bin = [];
-    this.game.setGold(this.game.gold + total);
+    this.game.services.economy?.add(total, 'shipping');
     this.game.events.emit('shipping:summary', { items, total });
   }
 

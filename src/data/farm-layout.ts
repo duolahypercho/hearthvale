@@ -257,11 +257,13 @@ export const OVERGROWTH = {
   /** Poisson-disk minimum spacing (m). */
   spacing: 0.95,
   /** Target mean per-tile density across the field (0.25–0.4). */
-  density: 0.42,
+  density: 0.48,
   /** Noise scale of the thicket / glade clustering (1/m). */
   clusterScale: 0.085,
   /** Keep-out margins (m). */
   pathMargin: 1.3,
+  /** Chance a debris piece gathers 1-2 small satellites (pebbles / twigs / weeds) into a clump. */
+  clumpChance: 0.45,
   /** Biome mixes (relative weights). */
   meadow: { weedA: 3, weedB: 2, weedC: 2, tallGrass: 5, stone: 1, branch: 1, bush: 0.6 },
   rocky: { stone: 5, boulder: 1.2, pebbles: 2, weedA: 1, tallGrass: 1, branch: 0.5 },
