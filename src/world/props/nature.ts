@@ -346,7 +346,8 @@ export class Nature {
           }
         }
         const g = b.geometries().get(wm)!;
-        return [{ geometry: g, material: wm, depthMaterial: windDepthMaterial({ height: 0.5, amplitude: 0.1 }), castShadow: true }];
+        // Ferns (few, big) cast; the hundreds of field weeds rely on baked ground AO instead.
+        return [{ geometry: g, material: wm, depthMaterial: windDepthMaterial({ height: 0.5, amplitude: 0.1 }), castShadow: fern }];
       }
       case 'stump': {
         const b = new MeshBuilder();
@@ -505,8 +506,19 @@ export class Nature {
         shape.lineTo(0, 0);
         const g = new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.01, bevelSegments: 1, curveSegments: 18 });
         g.rotateX(-Math.PI / 2);
+        {
+          // Rim curls up a little (cupped pad), strongest away from the V-notch.
+          const pp = g.attributes.position as THREE.BufferAttribute;
+          for (let i = 0; i < pp.count; i++) {
+            const x = pp.getX(i);
+            const z = pp.getZ(i);
+            const rr = Math.hypot(x, z) / R;
+            pp.setY(i, pp.getY(i) + Math.pow(rr, 3) * 0.05);
+          }
+          g.computeVertexNormals();
+        }
         smoothNormals(g.index ? g.toNonIndexed() : g);
-        vcolor(g, (p) => new THREE.Color(0x4f9a3a).multiplyScalar(0.8 + 0.3 * (Math.hypot(p.x, p.z) / R)));
+        vcolor(g, (p) => new THREE.Color(0x4f9a3a).multiplyScalar(0.8 + 0.3 * (Math.hypot(p.x, p.z) / R)).lerp(new THREE.Color(0xa8b85a), Math.max(0, Math.hypot(p.x, p.z) / R - 0.85) * 3));
         b.add(m, g);
         if (r.next() < 0.45) {
           for (let k = 0; k < 6; k++) {

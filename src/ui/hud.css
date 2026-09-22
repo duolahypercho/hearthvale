@@ -64,14 +64,17 @@ body {
 .hv-anim-in {
   animation: hvIn 220ms var(--ease-back) both;
 }
+/* Individual transform properties so panels keep their own centring `transform`. */
 @keyframes hvIn {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.92);
+    translate: 0 8px;
+    scale: 0.92;
   }
   to {
     opacity: 1;
-    transform: none;
+    translate: 0 0;
+    scale: 1;
   }
 }
 

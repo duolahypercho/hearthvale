@@ -21,7 +21,7 @@ const SHUTTER = 0x5d9484;
 const DOOR = 0x3f7890;
 const TRIM = 0xf3ead8;
 
-function lantern(b: MeshBuilder, x: number, y: number, z: number, s = 1): void {
+export function lantern(b: MeshBuilder, x: number, y: number, z: number, s = 1): void {
   b.add('metal', roundedBox(0.2 * s, 0.05 * s, 0.2 * s, 0.015), mat(x, y + 0.14 * s, z));
   b.add('metal', new THREE.ConeGeometry(0.15 * s, 0.1 * s, 4), mat(x, y + 0.21 * s, z, 0, Math.PI / 4, 0));
   b.add('lampGlow', roundedBox(0.13 * s, 0.2 * s, 0.13 * s, 0.02), mat(x, y + 0.02 * s, z));
@@ -31,7 +31,7 @@ function lantern(b: MeshBuilder, x: number, y: number, z: number, s = 1): void {
   b.add('metal', roundedBox(0.18 * s, 0.035 * s, 0.18 * s, 0.01), mat(x, y - 0.1 * s, z));
 }
 
-function windowUnit(b: MeshBuilder, w: number, h: number, shutters: boolean, flowerBox: boolean, rng: Rng): void {
+export function windowUnit(b: MeshBuilder, w: number, h: number, shutters: boolean, flowerBox: boolean, rng: Rng): void {
   // Built facing +Z at origin (center of window).
   b.add('woodPaint', roundedBox(w + 0.18, h + 0.18, 0.1, 0.03), mat(0, 0, 0.0), { tint: TRIM });
   b.add('glass', roundedBox(w, h, 0.04), mat(0, 0, 0.04));

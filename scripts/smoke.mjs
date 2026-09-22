@@ -104,6 +104,24 @@ try {
     const p0 = inv.count('parsnip');
     ev.emit('player:interact', { x: tx, z: tz });
     out.harvested = inv.count('parsnip') > p0;
+    // every DESIGN.md screen has a registered panel
+    out.panels = ['inventory', 'shop', 'dialogue', 'fishing', 'crafting', 'map', 'title'].filter((p) => !g.game.hud.hasPanel(p));
+    for (const p of ['shop', 'dialogue:bram', 'fishing', 'crafting', 'map', 'title']) {
+      g.openUI(p);
+      g.step(2);
+    }
+    g.openUI('none');
+    // overgrown farm: hundreds of clearable debris tiles
+    out.debris = g.game.world.current.overgrowth?.placed ?? 0;
+    // town + villagers + farm → town warp
+    await g.teleport('town', 32, 30);
+    g.step(5);
+    out.townMap = info().map;
+    out.npcs = g.game.services.npcs?.positions().length ?? 0;
+    out.townPerf = info().perf;
+    await g.teleport('farm', 31.5, 20);
+    out.warps = (g.game.world.current.warps ?? []).map((w) => w.to);
+    out.audio = !!g.game.services.audio;
     // demos
     out.demos = [];
     for (const d of g.demos) {
@@ -143,6 +161,12 @@ try {
   check('farming: can waters', r.watered);
   check('farming: seeds plant', r.planted);
   check('farming: grow + harvest', r.harvested);
+  check('panels registered (shop, dialogue, fishing, crafting, map, title)', r.panels.length === 0, r.panels.join(','));
+  check('farm overgrowth debris ≥ 350', r.debris >= 350, `${r.debris}`);
+  check('town map loads with villagers', r.townMap === 'town' && r.npcs >= 3, `${r.townMap}, ${r.npcs} npcs`);
+  check('render budget (town)', r.townPerf.ok, `${r.townPerf.drawCalls} calls, ${(r.townPerf.triangles / 1e6).toFixed(2)}M tris`);
+  check('farm → town warp', r.warps.includes('town'));
+  check('audio service', r.audio);
   check('demo(*)', r.demos.length > 5, r.demos.join(', '));
   check('pause', r.paused === true);
   check('save/load', r.saved && r.loaded);

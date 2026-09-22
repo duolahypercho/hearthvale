@@ -6,9 +6,13 @@
  *   __game.openUI('inventory')   // emits ui:open → opens the registered panel
  */
 import './hud.css';
+import './screens.css';
 import type { Game } from '../core/game';
 import { ICONS, WEATHER_ICON } from './icons';
 import { InventoryPanel, slotHtml } from './inventory';
+import { DialoguePanel } from './dialogue';
+import { TitlePanel } from './title';
+import { ShopPanel, CraftingPanel, MapPanel, FishingPanel } from './panels';
 import { itemDef } from '../data/items';
 
 export interface Panel {
@@ -41,6 +45,8 @@ export class Hud {
   private goldShown = 0;
   private toastEl!: HTMLElement;
   private toastT = 0;
+  private fadeEl: HTMLElement;
+  private bannerEl: HTMLElement;
 
   constructor(private game: Game, uiRoot: HTMLElement, visible: boolean) {
     this.root = el('div', 'hv-hud');
@@ -53,6 +59,15 @@ export class Hud {
     this.toastEl = el('div', 'hv-panel hv-toast hv-hidden');
     this.root.appendChild(this.toastEl);
     this.registerPanel('inventory', new InventoryPanel(game, this.root));
+    this.registerPanel('dialogue', new DialoguePanel(game, this.root));
+    this.registerPanel('title', new TitlePanel(game, this.root));
+    this.registerPanel('shop', new ShopPanel(game, this.root));
+    this.registerPanel('crafting', new CraftingPanel(game, this.root));
+    this.registerPanel('map', new MapPanel(game, this.root));
+    this.registerPanel('fishing', new FishingPanel(game, this.root));
+    this.fadeEl = el('div', 'hv-fade');
+    this.bannerEl = el('div', 'hv-banner');
+    uiRoot.append(this.fadeEl, this.bannerEl);
 
     game.events.on('toolbar:select', ({ slot }) => this.select(slot));
     game.events.on('inventory:change', ({ slots }) => {
@@ -165,13 +180,34 @@ export class Hud {
     this.game.input.enabled = false;
   }
 
+  /** Fade to black (on=true) / back in; resolves when the transition is done. */
+  fade(on: boolean): Promise<void> {
+    this.fadeEl.classList.toggle('on', on);
+    return new Promise((r) => setTimeout(r, 280));
+  }
+
+  /** Big location title that floats in and out (map arrival). */
+  banner(text: string): void {
+    this.bannerEl.textContent = text;
+    this.bannerEl.classList.remove('show');
+    void this.bannerEl.offsetWidth;
+    this.bannerEl.classList.add('show');
+  }
+
+  get openPanelName(): string | null {
+    return this.openPanel;
+  }
+
   show(visible: boolean): void {
     this.root.classList.toggle('hv-hidden', !visible);
   }
 
   update(dt: number): void {
     const input = this.game.input;
-    if (input.pressed('inventory')) this.open(this.openPanel === 'inventory' ? 'none' : 'inventory');
+    if (this.openPanel === 'title' || this.openPanel === 'dialogue') {
+      if (input.pressed('menu') && this.openPanel === 'dialogue') this.open('none');
+    } else if (input.pressed('inventory')) this.open(this.openPanel === 'inventory' ? 'none' : 'inventory');
+    else if (input.pressed('map')) this.open(this.openPanel === 'map' ? 'none' : 'map');
     else if (input.pressed('menu') && this.openPanel) this.open('none');
     if (this.toastT > 0) {
       this.toastT -= dt;

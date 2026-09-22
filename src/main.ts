@@ -15,5 +15,12 @@ const game = new Game({
 });
 const api = installDebugApi(game);
 
+// Plain boot (no demo / map / ui params) opens on the title screen; `?notitle=1` skips it.
+const staged = ['demo', 'map', 'x', 'z', 'ui'].some((k) => params.has(k));
+const showTitle = !staged && params.get('notitle') !== '1';
+
 // URL params are applied before the first frame so ready() resolves on the staged scene.
-void game.start('farm', () => applyUrlParams(api, params));
+void game.start('farm', async () => {
+  await applyUrlParams(api, params);
+  if (showTitle) await api.demo('title');
+});

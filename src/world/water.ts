@@ -98,33 +98,44 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         vec3 V = normalize(cameraPosition - vW);
         vec3 L = normalize(uSunDir);
         float ndv = max(dot(n, V), 0.0);
-        float fres = 0.08 + 0.92 * pow(1.0 - ndv, 4.0);
+        // Schlick Fresnel, water F0 = 0.02 (boosted a touch for the stylised look).
+        float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
+        fres = max(fres, 0.06);
 
-        vec3 shallow = vec3(0.22, 0.62, 0.58);
-        vec3 mid = vec3(0.06, 0.36, 0.42);
-        vec3 deep = vec3(0.02, 0.14, 0.22);
+        // Depth absorption: shallow teal #6fc7c0 → deep #2b5d7a (linear), plus a green-brown silt tint at the edge.
+        vec3 shallow = vec3(0.159, 0.571, 0.527);
+        vec3 deep = vec3(0.024, 0.110, 0.195);
         float dd = clamp(depth, 0.0, 2.0);
-        vec3 col = mix(shallow, mid, smoothstep(0.0, 0.35, dd));
-        col = mix(col, deep, smoothstep(0.35, 1.1, dd));
+        vec3 col = mix(shallow, deep, smoothstep(0.0, 1.1, dd));
+        col = mix(col, vec3(0.2, 0.3, 0.18), smoothstep(0.12, 0.0, dd) * 0.5);
         // Caustic shimmer in the shallows.
         float caus = pow(hvNoise(p * 3.0 + vec2(t * 0.4, t * 0.3)) * hvNoise(p * 3.7 - vec2(t * 0.35, t * 0.2)), 1.5);
-        col += vec3(0.5, 0.8, 0.7) * caus * 0.35 * (1.0 - smoothstep(0.0, 0.6, dd));
+        col += vec3(0.5, 0.8, 0.7) * caus * 0.3 * (1.0 - smoothstep(0.0, 0.6, dd));
 
         float cloud = hvCloudShadow(p, t, uCloudShadow);
         float diff = 0.55 + 0.45 * max(dot(n, L), 0.0);
         vec3 lit = col * (uSunColor * diff * 0.9 * cloud + uSkyColor * 0.55);
-        vec3 refl = mix(uHorizonColor, uSkyColor, 0.35) * 1.05;
-        vec3 c = mix(lit, refl, fres * 0.75);
+        // Reflection: the sky gradient along the reflected ray, with the dark tree-lined banks
+        // mirrored in a band near the shore (cheap stand-in for a planar reflection).
+        vec3 Rv = reflect(-V, n);
+        vec3 skyR = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.7, Rv.y));
+        float bank = smoothstep(0.7, 0.15, dd) * (0.55 + 0.45 * hvNoise(p * 0.9 + n.xz * 2.0));
+        vec3 bankCol = mix(vec3(0.05, 0.1, 0.05), vec3(0.12, 0.2, 0.08), hvNoise(p * 2.2)) * (uSunColor * 0.4 + uSkyColor * 0.5);
+        vec3 refl = mix(skyR * 1.05, bankCol, bank * 0.75);
+        vec3 c = mix(lit, refl, clamp(fres * 1.6 + bank * 0.35, 0.0, 0.85));
 
         vec3 R = reflect(-L, n);
         float spec = pow(max(dot(R, V), 0.0), 220.0) * 6.0 + pow(max(dot(R, V), 0.0), 24.0) * 0.18;
         c += uSunColor * spec * cloud * (1.0 - uNight * 0.6);
 
-        // Shoreline foam + travelling ripple bands.
+        // Shoreline foam: a broken, animated ~0.3 m band (noise-thresholded), not a solid liner.
         float fn = hvNoise(p * 4.0 + t * 0.3);
-        float shoreF = smoothstep(0.16, 0.0, depth + (fn - 0.5) * 0.08);
-        float band = smoothstep(0.75, 1.0, sin(depth * 26.0 - t * 1.8 + fn * 3.0)) * smoothstep(0.32, 0.05, depth);
-        float foam = clamp(shoreF * 0.9 + band * 0.45, 0.0, 1.0);
+        float fn2 = hvNoise(p * 9.0 - vec2(t * 0.5, t * 0.2));
+        float edgeW = smoothstep(0.1, 0.0, depth);
+        float foamN = fn * 0.6 + fn2 * 0.4;
+        float shoreF = smoothstep(0.52, 0.66, foamN + edgeW * 0.55 - 0.18) * smoothstep(0.12, 0.02, depth);
+        float band = smoothstep(0.8, 1.0, sin(depth * 22.0 - t * 1.6 + fn * 4.0)) * smoothstep(0.28, 0.06, depth) * smoothstep(0.35, 0.6, fn2);
+        float foam = clamp(shoreF * 0.8 + band * 0.35, 0.0, 1.0);
         vec3 foamCol = vec3(0.95, 0.97, 0.96) * (uSunColor * 0.6 + uSkyColor * 0.6);
         c = mix(c, foamCol, foam);
 

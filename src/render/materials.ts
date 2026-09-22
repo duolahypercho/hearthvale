@@ -32,7 +32,9 @@ export type MaterialName =
   | 'white'
   | 'soilPot'
   | 'stillWater'
-  | 'boxFlower';
+  | 'boxFlower'
+  | 'roofTile'
+  | 'paperLantern';
 
 const cache = new Map<MaterialName, THREE.Material>();
 
@@ -124,6 +126,22 @@ function build(name: MaterialName): THREE.Material {
             diffuseColor.rgb = bc * (uSeasonW.x + uSeasonW.y) + fallC * uSeasonW.z + winterC * uSeasonW.w;
           }`,
         );
+        shader.fragmentShader = fs;
+      });
+      return m;
+    }
+    case 'roofTile': {
+      // Neutral shingles: the vertex tint IS the roof colour (town roofs of every hue).
+      const t = textures.shingles();
+      return std({ map: t.map, bumpMap: t.bump, bumpScale: 3, roughness: 0.72, color: 0xffffff });
+    }
+    case 'paperLantern': {
+      // Festival paper lanterns: glow in their own (vertex) colour at night.
+      const m = std({ roughness: 0.6 }, false);
+      patchMaterial(m, 'paper-lantern', (shader) => {
+        shader.uniforms.uLamps = globalUniforms.uLamps;
+        let fs = before(shader.fragmentShader, 'void main() {', 'uniform float uLamps;');
+        fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * uLamps * 1.4;');
         shader.fragmentShader = fs;
       });
       return m;

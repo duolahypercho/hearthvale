@@ -111,7 +111,7 @@ export class FarmShape {
     // Wet sand ring around the pond.
     t.paint('sand', (x, z) => {
       const pr = Math.hypot(x - POND.x, (z - POND.z) * 1.1);
-      return smoothstep(POND.r + 1.3, POND.r + 0.3, pr) * 0.9;
+      return smoothstep(POND.r + 0.9, POND.r + 0.1, pr) * 0.6;
     });
     t.commitSplat();
   }

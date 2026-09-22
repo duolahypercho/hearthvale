@@ -27,6 +27,10 @@ export interface TerrainOptions {
   step: number;
   height: (x: number, z: number) => number;
   waterLevel: number;
+  /** Texture for the 'path' splat channel (default packed dirt; the town uses cobblestones). */
+  pathTexture?: THREE.Texture;
+  /** World-space UV scale of the path texture (default 0.34). */
+  pathScale?: number;
 }
 
 export type SplatChannel = 'path' | 'tilled' | 'wet' | 'sand';
@@ -103,45 +107,62 @@ export class Terrain {
   }
 
   /**
-   * Shadow-only caster: the heightfield at half resolution (¼ of the triangles), sunk 6 cm so
+   * Shadow-only casters: the heightfield at half resolution (¼ of the triangles), sunk 6 cm so
    * the full-res surface never self-shadows against it. It skips the main / AO passes by
    * collapsing its draw range in onBeforeRender (shadow rendering calls onBeforeShadow instead).
    */
-  private buildShadowProxy(): THREE.Mesh {
+  private buildShadowProxy(): THREE.Group {
     const { minX, minZ, step } = this.opts;
     const S = 2;
     const w = Math.floor((this.nx - 1) / S) + 1;
     const d = Math.floor((this.nz - 1) / S) + 1;
-    const pos = new Float32Array(w * d * 3);
-    for (let j = 0; j < d; j++) {
-      for (let i = 0; i < w; i++) {
-        const k = j * w + i;
-        pos[k * 3] = minX + i * S * step;
-        pos[k * 3 + 1] = this.heights[j * S * this.nx + i * S]! - 0.06;
-        pos[k * 3 + 2] = minZ + j * S * step;
+    const group = new THREE.Group();
+    group.name = 'terrain-shadow-proxy';
+    const mat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+    // 3×3 chunks so the shadow pass culls what's outside the (view-fitted) shadow frustum.
+    const N = 3;
+    for (let cj = 0; cj < N; cj++) {
+      for (let ci = 0; ci < N; ci++) {
+        const i0 = Math.floor((ci * (w - 1)) / N);
+        const i1 = Math.floor(((ci + 1) * (w - 1)) / N);
+        const j0 = Math.floor((cj * (d - 1)) / N);
+        const j1 = Math.floor(((cj + 1) * (d - 1)) / N);
+        const cw = i1 - i0 + 1;
+        const cd = j1 - j0 + 1;
+        const pos = new Float32Array(cw * cd * 3);
+        for (let j = 0; j < cd; j++) {
+          for (let i = 0; i < cw; i++) {
+            const k = j * cw + i;
+            const gi = (i0 + i) * S;
+            const gj = (j0 + j) * S;
+            pos[k * 3] = minX + gi * step;
+            pos[k * 3 + 1] = this.heights[gj * this.nx + gi]! - 0.06;
+            pos[k * 3 + 2] = minZ + gj * step;
+          }
+        }
+        const idx: number[] = [];
+        for (let j = 0; j < cd - 1; j++) {
+          for (let i = 0; i < cw - 1; i++) {
+            const a = j * cw + i;
+            idx.push(a, a + cw, a + 1, a + 1, a + cw, a + cw + 1);
+          }
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        g.setIndex(idx);
+        g.computeBoundingSphere();
+        const m = new THREE.Mesh(g, mat);
+        m.name = 'terrain-shadow-chunk';
+        m.castShadow = true;
+        m.receiveShadow = false;
+        m.userData.noAO = true;
+        const n = idx.length;
+        m.onBeforeRender = () => g.setDrawRange(n + 3, 0);
+        m.onAfterRender = () => g.setDrawRange(0, Infinity);
+        group.add(m);
       }
     }
-    const idx: number[] = [];
-    for (let j = 0; j < d - 1; j++) {
-      for (let i = 0; i < w - 1; i++) {
-        const a = j * w + i;
-        idx.push(a, a + w, a + 1, a + 1, a + w, a + w + 1);
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    g.computeBoundingSphere();
-    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
-    m.name = 'terrain-shadow-proxy';
-    m.castShadow = true;
-    m.receiveShadow = false;
-    m.userData.noAO = true;
-    const n = g.index!.count;
-    m.onBeforeRender = () => g.setDrawRange(n + 3, 0);
-    m.onAfterRender = () => g.setDrawRange(0, Infinity);
-    return m;
+    return group;
   }
 
   /** Bilinear ground height at world x,z. */
@@ -320,9 +341,9 @@ export class Terrain {
   /** Bake the winter snow-drift mask (0..1 per vertex): fn(worldX, worldZ). */
   setDrift(fn: (x: number, z: number) => number): void {
     for (const m of this.mesh.children as THREE.Mesh[]) {
-      const pos = m.geometry.attributes.position as THREE.BufferAttribute;
-      const dr = m.geometry.attributes.aDrift as THREE.BufferAttribute | undefined;
+      const dr = m.geometry?.attributes.aDrift as THREE.BufferAttribute | undefined;
       if (!dr) continue;
+      const pos = m.geometry.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < pos.count; i++) dr.setX(i, fn(pos.getX(i), pos.getZ(i)));
       dr.needsUpdate = true;
       // Leave room for the raised drifts in culling bounds.
@@ -400,7 +421,8 @@ export class Terrain {
       uSplatOrigin: { value: new THREE.Vector2(minX, minZ) },
       uSplatSize: { value: new THREE.Vector2(maxX - minX, maxZ - minZ) },
       uGrassTex: { value: textures.grassDetail().map },
-      uDirtTex: { value: textures.dirt().map },
+      uDirtTex: { value: this.opts.pathTexture ?? textures.dirt().map },
+      uPathScale: { value: this.opts.pathScale ?? 0.34 },
       uSoilTex: { value: textures.soil().map },
       uWetSoilTex: { value: textures.wetSoil().map },
       uCliffTex: { value: textures.cliff().map },
@@ -440,6 +462,7 @@ export class Terrain {
         uniform vec2 uSplatSize;
         uniform sampler2D uGrassTex;
         uniform sampler2D uDirtTex;
+        uniform float uPathScale;
         uniform sampler2D uSoilTex;
         uniform sampler2D uWetSoilTex;
         uniform sampler2D uCliffTex;
@@ -528,7 +551,7 @@ export class Terrain {
         float pv = spW.r + (tn1 - 0.5) * 0.32 + (tn2 - 0.5) * 0.12;
         float pathM = smoothstep(0.46, 0.54, pv);
         float rim = smoothstep(0.26, 0.46, pv) * (1.0 - pathM);
-        vec3 dirt = texture2D(uDirtTex, wp.xz * 0.34).rgb;
+        vec3 dirt = texture2D(uDirtTex, wp.xz * uPathScale).rgb;
         dirt *= 0.92 + 0.12 * smoothstep(0.5, 0.9, pv);
         grass = mix(grass, grass * vec3(0.78, 0.8, 0.62) + dirt * 0.12, rim * 0.8);
 
@@ -564,7 +587,8 @@ export class Terrain {
         // Pond bed: wet sand at the shore, dark mud below.
         float depthB = uWaterLevel - wp.y;
         float shore = smoothstep(-0.25, 0.02, depthB);
-        vec3 wetSand = sand * vec3(0.72, 0.68, 0.6);
+        // Muddy, mossy bank rather than a bright beach liner.
+        vec3 wetSand = mix(sand * vec3(0.5, 0.47, 0.4), grass * 0.55, 0.35);
         ground = mix(ground, wetSand, shore * (1.0 - rockM * 0.5));
         ground = mix(ground, vec3(0.16, 0.15, 0.1) + sand * 0.12, smoothstep(0.1, 0.7, depthB));
 

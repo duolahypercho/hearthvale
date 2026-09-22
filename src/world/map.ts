@@ -23,6 +23,10 @@ export interface GameMap {
   readonly plots?: Record<string, { x0: number; z0: number; x1: number; z1: number }>;
   /** Points of interest for ambient life (flower beds, porch, yard...), world coords. */
   readonly poi?: Record<string, { x: number; y?: number; z: number; rot?: number }[]>;
+  /** Walk-off zones that move the player to another map (tile coords, inclusive). */
+  readonly warps?: MapWarp[];
+  /** Human-readable name shown on arrival. */
+  readonly title?: string;
   heightAt(x: number, z: number): number;
   /** Remove grass / small decorative cover from a tile (tilling, placing objects). */
   clearGroundCover?(x: number, z: number): void;
@@ -30,6 +34,17 @@ export interface GameMap {
   setSeason?(season: Season): void;
   setWeather?(weather: Weather): void;
   dispose(): void;
+}
+
+export interface MapWarp {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+  to: string;
+  x: number;
+  z: number;
+  facing: Facing;
 }
 
 export type MapFactory = (game: Game) => GameMap | Promise<GameMap>;

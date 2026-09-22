@@ -15,7 +15,7 @@ import { Rng } from '../core/rng';
 type AnimState = 'idle' | 'walk' | 'swing';
 
 // Original palette: oatmeal shirt, sage overalls, terracotta neckerchief, slate hat band.
-const SKIN = 0xf2c29b;
+const SKIN = 0xecb48e;
 const HAIR = 0x8a4a2a;
 const SHIRT = 0xf0e4c8;
 const OVERALLS = 0x5f8a5c;
@@ -96,6 +96,8 @@ export class Player {
 
   constructor(private game: Game) {
     this.root.name = 'player';
+    // Skip the GTAO normal pass (11 small parts); the contact shadow blob grounds the farmer.
+    this.root.userData.noAO = true;
     this.buildRig();
     this.body.scale.setScalar(1.22);
     const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false });
@@ -169,7 +171,7 @@ export class Player {
         part((b) => {
           b.add(shirt, new THREE.CapsuleGeometry(0.075, 0.08, 4, 10), mat(0, -0.06, 0));
           b.add(skin, new THREE.CapsuleGeometry(0.058, 0.12, 4, 10), mat(0, -0.2, 0));
-          b.add(skin, new THREE.SphereGeometry(0.075, 12, 10), mat(0, -0.3, 0));
+          b.add(skin, new THREE.SphereGeometry(0.07, 14, 10), mat(0, -0.3, 0.01), { tint: 0xf4d0b8 });
         }, 'arm'),
       );
       this.torso.add(arm);
@@ -229,11 +231,13 @@ export class Player {
       const eye = new THREE.Group();
       eye.add(
         part((b) => {
-          b.add(dark, new THREE.CapsuleGeometry(0.033, 0.045, 4, 10));
-          b.add(white, new THREE.SphereGeometry(0.013, 8, 6), mat(0.012, 0.022, 0.028));
+          // Big glossy eyes with a specular dot: readable at gameplay zoom.
+          b.add(dark, new THREE.CapsuleGeometry(0.043, 0.05, 4, 12));
+          b.add(white, new THREE.SphereGeometry(0.018, 8, 6), mat(0.016, 0.028, 0.036));
+          b.add(white, new THREE.SphereGeometry(0.008, 6, 4), mat(-0.014, -0.022, 0.038));
         }, 'eye'),
       );
-      eye.position.set(sx * 0.115, headR * 0.98, headR * 0.9);
+      eye.position.set(sx * 0.12, headR * 0.9, headR * 0.9);
       eye.rotation.x = -0.12;
       this.head.add(eye);
       this.eyes.push(eye);
@@ -241,22 +245,23 @@ export class Player {
     this.head.add(
       part((b) => {
         for (const sx of [-1, 1]) {
-          b.add(hair, new THREE.CapsuleGeometry(0.012, 0.05, 3, 6), mat(sx * 0.115, headR * 1.2, headR * 0.93, 0, 0, Math.PI / 2 + sx * 0.18));
+          b.add(hair, new THREE.CapsuleGeometry(0.013, 0.055, 3, 6), mat(sx * 0.12, headR * 1.14, headR * 0.94, 0, 0, Math.PI / 2 + sx * 0.18));
           b.add(blush, new THREE.CircleGeometry(0.05, 14), mat(sx * 0.19, headR * 0.76, headR * 0.875, 0, sx * 0.55, 0));
         }
-        b.add(dark, new THREE.TorusGeometry(0.035, 0.009, 6, 12, Math.PI), mat(0, headR * 0.66, headR * 0.96, 0, 0, Math.PI));
+        b.add(dark, new THREE.TorusGeometry(0.045, 0.011, 6, 14, Math.PI), mat(0, headR * 0.6, headR * 0.955, 0, 0, Math.PI));
       }, 'face'),
     );
 
     // Straw hat
-    this.hat.position.set(0, headR * 1.5, -0.05);
-    this.hat.rotation.x = -0.33;
+    // Worn pushed back so the face reads from the high camera.
+    this.hat.position.set(0, headR * 1.55, -0.09);
+    this.hat.rotation.x = -0.52;
     this.head.add(this.hat);
     this.hat.add(
       part((b) => {
-        const brim = new THREE.CylinderGeometry(0.4, 0.42, 0.035, 32);
+        const brim = new THREE.CylinderGeometry(0.37, 0.39, 0.035, 32);
         b.add(straw, brim, mat(0, 0, 0));
-        b.add(straw, new THREE.TorusGeometry(0.4, 0.025, 6, 32), mat(0, 0.0, 0, Math.PI / 2, 0, 0));
+        b.add(straw, new THREE.TorusGeometry(0.37, 0.025, 6, 32), mat(0, 0.0, 0, Math.PI / 2, 0, 0));
         b.add(straw, new THREE.CylinderGeometry(0.24, 0.3, 0.2, 24), mat(0, 0.11, 0));
         b.add(straw, new THREE.SphereGeometry(0.24, 24, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(0, 0.2, 0, 0, 0, 0, 1, 0.35, 1));
         b.add(band, new THREE.CylinderGeometry(0.305, 0.305, 0.065, 24, 1, true), mat(0, 0.05, 0));
@@ -501,7 +506,7 @@ export class Player {
     this.body.position.y = bob;
     const S = 1.22;
     this.body.scale.set(S / Math.sqrt(sy), S * sy, S / Math.sqrt(sy));
-    this.hat.position.y = 0.32 * 1.5 + (this.state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);
+    this.hat.position.y = 0.32 * 1.55 + (this.state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);
     this.shadowBlob.scale.setScalar(1 - bob * 1.5);
     this.shadowBlob.position.y = 0.03;
   }

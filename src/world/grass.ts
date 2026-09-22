@@ -197,15 +197,12 @@ export class GrassField {
   /** Near (3-segment) and far (1-segment) tuft geometries; chunks swap between them. */
   private geoNear: THREE.BufferGeometry;
   private geoFar: THREE.BufferGeometry;
+  private cover: GrassOptions['cover'] | null;
 
   constructor(opts: GrassOptions) {
     this.group.name = 'grass';
     this.group.userData.perfTag = 'grass';
-    if (opts.cover) {
-      const { minX, minZ, maxX, maxZ } = opts.cover.opts;
-      uGrassCover.value = opts.cover.cover;
-      uGrassCoverRect.value.set(minX, minZ, maxX - minX, maxZ - minZ);
-    }
+    this.cover = opts.cover ?? null;
     const rng = new Rng(opts.seed);
     // One tuft layout for everything (tall tufts are stretched per instance) → one draw per chunk.
     // Same seed → the far tuft has the same blade placement as the near one, just fewer segments.
@@ -308,6 +305,12 @@ export class GrassField {
   /** Distance LOD around the camera focus (see file header). */
   update(focus: THREE.Vector3): void {
     uGrassFocus.value.copy(focus);
+    // Shared uniforms: the active map's field owns them.
+    if (this.cover) {
+      const { minX, minZ, maxX, maxZ } = this.cover.opts;
+      uGrassCover.value = this.cover.cover;
+      uGrassCoverRect.value.set(minX, minZ, maxX - minX, maxZ - minZ);
+    }
     const { near, mid, midDensity } = GRASS_LOD;
     for (const m of this.chunks) {
       const c = m.userData.center as THREE.Vector2;

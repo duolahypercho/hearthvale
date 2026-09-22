@@ -17,6 +17,7 @@ import { RenderContext } from '../render/renderer';
 import { DayNight } from '../render/lighting';
 import { World } from '../world/map';
 import { FarmMap } from '../world/farm';
+import { TownMap } from '../world/town';
 import { Player } from '../entities/player';
 import { Hud } from '../ui/hud';
 
@@ -26,6 +27,9 @@ import { InventorySystem } from '../systems/inventory';
 import { FarmingSystem } from '../systems/farming';
 import { ShippingSystem } from '../systems/shipping';
 import { CritterSystem } from '../systems/critters';
+import { NpcSystem } from '../systems/npcs';
+import { WarpSystem } from '../systems/warps';
+import { AudioSystem } from '../systems/audio';
 
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
@@ -35,6 +39,9 @@ const SYSTEMS: (() => System)[] = [
   () => new FarmingSystem(),
   () => new ShippingSystem(),
   () => new CritterSystem(),
+  () => new NpcSystem(),
+  () => new WarpSystem(),
+  () => new AudioSystem(),
 ];
 
 /**
@@ -100,6 +107,7 @@ export class Game {
     this.readyPromise = new Promise((r) => (this.readyResolve = r));
 
     this.world.registerMap('farm', (g) => new FarmMap(g));
+    this.world.registerMap('town', (g) => new TownMap(g));
 
     this.events.on('toolbar:select', ({ slot }) => (this.toolbarSlot = slot));
 

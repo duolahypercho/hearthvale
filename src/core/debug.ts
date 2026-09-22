@@ -64,6 +64,7 @@ export function installDebugApi(game: Game): DebugApi {
     demo: async (name) => {
       const d = DEMOS[name];
       if (!d) throw new Error(`unknown demo "${name}" (known: ${Object.keys(DEMOS).join(', ')})`);
+      game.events.emit('ui:open', { name: 'none' });
       let map = d.map;
       if (!game.world.has(map)) {
         console.warn(`[demo] map "${map}" not implemented yet; staging on farm`);

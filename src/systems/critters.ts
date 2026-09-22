@@ -39,12 +39,15 @@ export class CritterSystem implements System {
     if (flowers.length) {
       for (let i = 0; i < 5; i++) {
         const b = new Butterfly(flowers, h, i, colors[i % colors.length]!);
+        // Tiny fliers: no shadow-pass draw calls.
+        b.root.traverse((o) => (o.castShadow = false));
         this.butterflies.push(b);
         this.group.add(b.root);
       }
     }
     (poi.birds ?? []).forEach((p, i) => {
       const b = new Songbird(new THREE.Vector3(p.x, 0, p.z), 2.5, h, i);
+      b.root.traverse((o) => (o.castShadow = false));
       this.birds.push(b);
       this.group.add(b.root);
     });

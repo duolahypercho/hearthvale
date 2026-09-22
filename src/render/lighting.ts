@@ -53,7 +53,7 @@ const SEASON_GRASS: Record<Season, { a: number; b: number; tip: number; dry: num
 const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1, 0, 0, 0], summer: [0, 1, 0, 0], fall: [0, 0, 1, 0], winter: [0, 0, 0, 1] };
 
 /** Distance (world units) from the view centre back towards the sun that shadow casters are gathered. */
-const SHADOW_REACH = 30;
+const SHADOW_REACH = 25;
 
 const _c1 = new THREE.Color();
 const _c2 = new THREE.Color();

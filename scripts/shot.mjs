@@ -33,6 +33,11 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+// Hard wall-clock guard: never hang a batch run (e.g. an init error that keeps ready() pending).
+setTimeout(() => {
+  console.error(`[shot] failed: timed out after ${args.timeout + 30000} ms`);
+  process.exit(3);
+}, args.timeout + 30000).unref();
 
 const GPU_ARGS = ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--enable-webgl', '--enable-gpu-rasterization', '--disable-gpu-sandbox'];
 const SWIFT_ARGS = ['--use-angle=swiftshader', '--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'];

@@ -22,6 +22,8 @@ export interface DemoDef {
 
 /** Homestead framing: whole house + roof, the crop field, the east yard and a framing tree line. */
 const HOME_CAM = { yaw: -16, pitch: 45, distance: 27, offsetX: -1.6, offsetZ: -2.6 };
+/** Town square framing: plaza + fountain in front, Lantern Hall and shop fronts behind. */
+const TOWN_CAM = { yaw: 0, pitch: 38, distance: 31, offsetX: -1.6, offsetZ: -9.4 };
 
 export const DEMOS: Record<string, DemoDef> = {
   'farm-morning': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM },
@@ -33,11 +35,15 @@ export const DEMOS: Record<string, DemoDef> = {
   'farm-rain': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 14, season: 'spring', weather: 'rain', camera: HOME_CAM },
   'farm-pond': { map: 'farm', x: 21.5, z: 40.5, facing: 'left', time: 17.8, season: 'summer', weather: 'sun', camera: { yaw: 12, pitch: 47, distance: 22, offsetX: -4.5, offsetZ: -3.2 } },
   'farm-field': { map: 'farm', x: 26, z: 24.8, facing: 'up', time: 9, season: 'spring', weather: 'sun', camera: { yaw: -5, pitch: 48, distance: 20, offsetZ: -2 } },
+  // Town square (plaza, Lantern Hall, villagers).
+  'town-evening': { map: 'town', x: 33.6, z: 28.4, facing: 'up', time: 18.6, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
+  'town-day': { map: 'town', x: 33.6, z: 28.4, facing: 'up', time: 10.5, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
+  'town-dialogue': { map: 'town', x: 29.6, z: 23.2, facing: 'left', time: 16.5, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
+  festival: { map: 'town', x: 33.6, z: 28.4, facing: 'up', time: 20.6, season: 'summer', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs', 'festival'] },
+  title: { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
   // DESIGN.md names — fall back to the farm until those maps exist.
-  'town-evening': { map: 'town', x: 32, z: 28, facing: 'down', time: 18.8, season: 'summer', weather: 'sun' },
   'beach-sunset': { map: 'beach', x: 20, z: 20, facing: 'down', time: 19.4, season: 'summer', weather: 'sun' },
   'forest-rain': { map: 'forest', x: 20, z: 20, facing: 'down', time: 13, season: 'spring', weather: 'rain' },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   mine: { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun' },
-  festival: { map: 'town', x: 32, z: 28, facing: 'down', time: 20, season: 'summer', weather: 'sun' },
 };
