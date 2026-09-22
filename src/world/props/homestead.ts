@@ -188,7 +188,8 @@ export function buildFeedTrough(rng: Rng): THREE.Group {
 
 /**
  * Garden gate arch: two lattice posts and a painted arch over the gap in the garden fence,
- * wrapped in a climbing rose (leafy vine spirals + blooms).
+ * wrapped in a climbing rose (leafy vine spirals + blooms; seasonal via the boxFlower material:
+ * rust leaves + mums in fall, evergreen sprigs + holly berries in winter).
  */
 export function buildGardenArch(rng: Rng): THREE.Group {
   const b = new MeshBuilder();
@@ -234,11 +235,11 @@ export function buildGardenArch(rng: Rng): THREE.Group {
       p.x += (rng.next() - 0.5) * 0.12;
       p.z += (rng.next() - 0.5) * 0.1;
       const tone = rng.next();
-      b.add('white', leafG(), mat(p.x, p.y, p.z, rng.next() * 3, rng.next() * 6, rng.next() * 3), { tint: tone < 0.4 ? 0x3f7a2e : tone < 0.8 ? 0x4f8f36 : 0x6aa845 });
+      b.add('boxFlower', leafG(), mat(p.x, p.y, p.z, rng.next() * 3, rng.next() * 6, rng.next() * 3), { tint: tone < 0.4 ? 0x3f7a2e : tone < 0.8 ? 0x4f8f36 : 0x6aa845 });
       if (rng.next() < (t > 0.3 ? 0.45 : 0.15)) {
         const bloom = lumpySphere(0.055 + rng.next() * 0.025, 0, 0.25, rng, 3);
         const c = rng.next();
-        b.add('white', bloom, mat(p.x + (rng.next() - 0.5) * 0.06, p.y + 0.03, p.z + (rng.next() > 0.5 ? 0.08 : -0.08)), { tint: c < 0.5 ? 0xf06a8a : c < 0.8 ? 0xffa8c0 : 0xfff0f0 });
+        b.add('boxFlower', bloom, mat(p.x + (rng.next() - 0.5) * 0.06, p.y + 0.03, p.z + (rng.next() > 0.5 ? 0.08 : -0.08)), { tint: c < 0.5 ? 0xf06a8a : c < 0.8 ? 0xffa8c0 : 0xfff0f0 });
       }
     }
   }

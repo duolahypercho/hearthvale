@@ -206,8 +206,8 @@ export class GrassField {
     const rng = new Rng(opts.seed);
     // One tuft layout for everything (tall tufts are stretched per instance) → one draw per chunk.
     // Same seed → the far tuft has the same blade placement as the near one, just fewer segments.
-    this.geoNear = tuftGeometry(new Rng(`${opts.seed}:tuft`), 8, 3);
-    this.geoFar = tuftGeometry(new Rng(`${opts.seed}:tuft`), 8, 1);
+    this.geoNear = tuftGeometry(new Rng(`${opts.seed}:tuft`), 7, 3);
+    this.geoFar = tuftGeometry(new Rng(`${opts.seed}:tuft`), 7, 1);
     const geos = [this.geoNear];
     const { x0, z0, x1, z1 } = opts.bounds;
     const m = new THREE.Matrix4();

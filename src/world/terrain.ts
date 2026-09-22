@@ -95,8 +95,8 @@ export class Terrain {
     this.material = this.buildMaterial();
     this.mesh = new THREE.Group();
     this.mesh.name = 'terrain';
-    // 6×6 chunks: tight frustum culling in the main + AO passes.
-    for (const g of this.splitGeometry(this.buildGeometry(), 6)) {
+    // 5×5 chunks: frustum culling in the main + AO passes without too many draw calls.
+    for (const g of this.splitGeometry(this.buildGeometry(), 5)) {
       const m = new THREE.Mesh(g, this.material);
       m.receiveShadow = true;
       m.castShadow = false;

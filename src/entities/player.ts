@@ -224,6 +224,12 @@ export class Player {
           const tuft = lumpySphere(0.13, 1, 0.2, rng);
           b.add(hair, tuft, mat(Math.sin(a) * headR * 0.85, headR * 0.72 + rng.next() * 0.08, Math.cos(a) * headR * 0.82));
         }
+        // Brows, blush, smile (merged into the head: one draw call).
+        for (const sx of [-1, 1]) {
+          b.add(hair, new THREE.CapsuleGeometry(0.013, 0.055, 3, 6), mat(sx * 0.12, headR * 1.14, headR * 0.94, 0, 0, Math.PI / 2 + sx * 0.18));
+          b.add(blush, new THREE.CircleGeometry(0.05, 14), mat(sx * 0.19, headR * 0.76, headR * 0.875, 0, sx * 0.55, 0));
+        }
+        b.add(dark, new THREE.TorusGeometry(0.045, 0.011, 6, 14, Math.PI), mat(0, headR * 0.6, headR * 0.955, 0, 0, Math.PI));
       }, 'head'),
     );
     // Eyes (separate so they can blink); brows, mouth and blush are one static face part.
@@ -242,15 +248,6 @@ export class Player {
       this.head.add(eye);
       this.eyes.push(eye);
     }
-    this.head.add(
-      part((b) => {
-        for (const sx of [-1, 1]) {
-          b.add(hair, new THREE.CapsuleGeometry(0.013, 0.055, 3, 6), mat(sx * 0.12, headR * 1.14, headR * 0.94, 0, 0, Math.PI / 2 + sx * 0.18));
-          b.add(blush, new THREE.CircleGeometry(0.05, 14), mat(sx * 0.19, headR * 0.76, headR * 0.875, 0, sx * 0.55, 0));
-        }
-        b.add(dark, new THREE.TorusGeometry(0.045, 0.011, 6, 14, Math.PI), mat(0, headR * 0.6, headR * 0.955, 0, 0, Math.PI));
-      }, 'face'),
-    );
 
     // Straw hat
     // Worn pushed back so the face reads from the high camera.
