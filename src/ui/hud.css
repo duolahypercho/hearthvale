@@ -1,0 +1,273 @@
+/* Hearthvale UI — warm wood + parchment. Shared tokens for the UI team. */
+:root {
+  --wood-1: #b5793f;
+  --wood-2: #8a5528;
+  --wood-3: #5e3517;
+  --wood-hi: #d9a066;
+  --parch-1: #fbf0d6;
+  --parch-2: #f1dcad;
+  --parch-ink: #5a3a1e;
+  --ink-soft: #8a6440;
+  --accent: #e8674a;
+  --gold: #f5c542;
+  --shadow: 0 6px 0 rgba(60, 30, 10, 0.35), 0 10px 24px rgba(30, 15, 5, 0.35);
+  --font-head: 'Fredoka', 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  --font-body: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  --ease-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1b1a17;
+}
+#app {
+  position: fixed;
+  inset: 0;
+}
+#app canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+#ui-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--font-body);
+  color: var(--parch-ink);
+  user-select: none;
+}
+#ui-root .interactive {
+  pointer-events: auto;
+}
+
+/* ── Wood frame + parchment panel ─────────────────────────────── */
+.hv-panel {
+  position: relative;
+  border-radius: 18px;
+  padding: 7px;
+  background:
+    repeating-linear-gradient(92deg, rgba(255, 255, 255, 0.05) 0 3px, rgba(0, 0, 0, 0.05) 3px 7px),
+    linear-gradient(180deg, var(--wood-1), var(--wood-2));
+  box-shadow: var(--shadow), inset 0 2px 0 var(--wood-hi), inset 0 -3px 0 var(--wood-3);
+  border: 2px solid var(--wood-3);
+}
+.hv-panel > .hv-inner {
+  border-radius: 12px;
+  background: radial-gradient(120% 90% at 50% 20%, var(--parch-1), var(--parch-2));
+  box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.35), inset 0 0 0 2px rgba(150, 100, 50, 0.25);
+}
+
+.hv-anim-in {
+  animation: hvIn 220ms var(--ease-back) both;
+}
+@keyframes hvIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Clock ─────────────────────────────────────────────────────── */
+.hv-clock {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 212px;
+}
+.hv-clock .hv-inner {
+  padding: 8px 12px 8px 26px;
+  display: grid;
+  gap: 4px;
+}
+.hv-clock .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hv-clock .date {
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 21px;
+  letter-spacing: 0.2px;
+}
+.hv-clock .icons {
+  display: flex;
+  gap: 4px;
+}
+.hv-clock .icons span {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1.5px rgba(138, 100, 64, 0.35);
+}
+.hv-clock .icons svg {
+  width: 20px;
+  height: 20px;
+}
+.hv-clock .time {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.05;
+  text-align: center;
+  padding: 2px 0 4px;
+  border-top: 2px dashed rgba(138, 100, 64, 0.35);
+  border-bottom: 2px dashed rgba(138, 100, 64, 0.35);
+}
+.hv-clock .dial {
+  position: absolute;
+  left: -40px;
+  top: 12px;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: conic-gradient(from 180deg, #2c3a6e 0 25%, #ffd98a 25% 32%, #8fc8ff 32% 68%, #ffb37a 68% 75%, #2c3a6e 75%);
+  border: 4px solid var(--wood-2);
+  box-shadow: var(--shadow), inset 0 0 0 2px rgba(0, 0, 0, 0.15);
+}
+.hv-clock .dial .hand {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 22px;
+  margin-left: -1.5px;
+  background: var(--wood-3);
+  border-radius: 2px;
+  transform-origin: 50% 0;
+}
+.hv-clock .dial::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--wood-3);
+}
+.hv-gold {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.hv-gold svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────── */
+.hv-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+}
+.hv-toolbar .hv-inner {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+}
+.hv-slot {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff6df, #ecd3a0);
+  box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.35), inset 0 -3px 0 rgba(150, 100, 50, 0.25);
+  display: grid;
+  place-items: center;
+  transition: transform 140ms var(--ease-back), box-shadow 140ms;
+}
+.hv-slot svg {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 2px 0 rgba(90, 50, 20, 0.25));
+}
+.hv-slot .num {
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+.hv-slot .qty {
+  position: absolute;
+  bottom: 1px;
+  right: 5px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 0 #5a3a1e, 0 0 3px #5a3a1e;
+}
+.hv-slot.sel {
+  transform: translateY(-5px) scale(1.06);
+  box-shadow: inset 0 0 0 3px var(--accent), 0 0 0 3px rgba(255, 220, 150, 0.9), 0 6px 12px rgba(80, 40, 10, 0.35);
+}
+
+/* ── Energy ────────────────────────────────────────────────────── */
+.hv-energy {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  width: 30px;
+  height: 170px;
+}
+.hv-energy .hv-inner {
+  position: absolute;
+  inset: 7px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+.hv-energy .fill {
+  width: 100%;
+  background: linear-gradient(180deg, #b8f06a, #4fb33a);
+  border-radius: 8px;
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.45);
+  transition: height 300ms ease-out, background 300ms;
+}
+.hv-energy .label {
+  position: absolute;
+  top: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 18px;
+  color: #fff;
+  text-shadow: 0 2px 0 var(--wood-3), 0 0 4px var(--wood-3);
+}
+
+/* ── Toast ─────────────────────────────────────────────────────── */
+.hv-toast {
+  position: absolute;
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  font-weight: 800;
+}
+
+.hv-hidden {
+  display: none !important;
+}

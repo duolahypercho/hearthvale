@@ -1,0 +1,362 @@
+/**
+ * Day/night lighting rig. Drives sun/moon (single shadow-casting directional light),
+ * hemisphere sky fill, bounce fill, fog, sky dome, exposure, bloom and the color grade
+ * from the calendar's time of day, season and weather.
+ */
+import * as THREE from 'three';
+import type { Season, Weather } from '../core/time';
+import type { RenderContext } from './renderer';
+import { globalUniforms } from './uniforms';
+import { nightGlow } from './materials';
+
+interface Key {
+  h: number;
+  sun: number; // hex sRGB
+  sunI: number;
+  sky: number;
+  ground: number;
+  hemiI: number;
+  fog: number;
+  skyTop: number;
+  horizon: number;
+  exposure: number;
+  lift: [number, number, number];
+  gain: [number, number, number];
+  sat: number;
+  contrast: number;
+  vignette: number;
+  night: number;
+}
+
+// Hand-tuned palette over the day (6:00 → 26:00).
+const KEYS: Key[] = [
+  { h: 5.0, sun: 0x8fa6ff, sunI: 0.35, sky: 0x2a3c6e, ground: 0x151822, hemiI: 0.85, fog: 0x2b3656, skyTop: 0x0e1633, horizon: 0x3c4d7a, exposure: 1.25, lift: [0.02, 0.03, 0.08], gain: [0.9, 0.95, 1.1], sat: 0.95, contrast: 1.05, vignette: 0.55, night: 1 },
+  { h: 6.0, sun: 0xffa27a, sunI: 1.1, sky: 0x8a9fd0, ground: 0x4a3d3a, hemiI: 1.0, fog: 0xc9a9a6, skyTop: 0x5a78b8, horizon: 0xf2b494, exposure: 1.05, lift: [0.03, 0.02, 0.05], gain: [1.05, 0.98, 0.98], sat: 1.08, contrast: 1.04, vignette: 0.42, night: 0.3 },
+  { h: 7.2, sun: 0xffc896, sunI: 2.7, sky: 0x9ec0f0, ground: 0x5a4a36, hemiI: 1.1, fog: 0xd8d4c8, skyTop: 0x6f9be0, horizon: 0xf7d9b5, exposure: 1.0, lift: [0.02, 0.015, 0.03], gain: [1.06, 1.0, 0.95], sat: 1.12, contrast: 1.05, vignette: 0.36, night: 0 },
+  { h: 9.5, sun: 0xffe6c4, sunI: 3.2, sky: 0xa8cbf5, ground: 0x5c5038, hemiI: 1.15, fog: 0xd6e2ea, skyTop: 0x6aa0ea, horizon: 0xdcecf5, exposure: 1.0, lift: [0.01, 0.015, 0.03], gain: [1.03, 1.01, 0.98], sat: 1.12, contrast: 1.05, vignette: 0.32, night: 0 },
+  { h: 13.0, sun: 0xfff2e0, sunI: 3.4, sky: 0xaccff8, ground: 0x5e533c, hemiI: 1.15, fog: 0xd7e6ef, skyTop: 0x5f9ae8, horizon: 0xdff0fa, exposure: 0.98, lift: [0.01, 0.015, 0.03], gain: [1.02, 1.01, 0.99], sat: 1.1, contrast: 1.05, vignette: 0.3, night: 0 },
+  { h: 16.5, sun: 0xffe2b8, sunI: 3.1, sky: 0xa6c4ee, ground: 0x5e5038, hemiI: 1.1, fog: 0xdcdcd2, skyTop: 0x6496e0, horizon: 0xf0e2c8, exposure: 1.0, lift: [0.015, 0.012, 0.03], gain: [1.05, 1.0, 0.96], sat: 1.12, contrast: 1.05, vignette: 0.32, night: 0 },
+  { h: 18.3, sun: 0xffc07a, sunI: 2.8, sky: 0x9fb0e0, ground: 0x5a4432, hemiI: 1.0, fog: 0xe6c3a0, skyTop: 0x5b7ecb, horizon: 0xffc58c, exposure: 1.02, lift: [0.03, 0.015, 0.04], gain: [1.1, 0.98, 0.9], sat: 1.14, contrast: 1.06, vignette: 0.38, night: 0 },
+  { h: 19.3, sun: 0xffa45c, sunI: 2.4, sky: 0x8f96cc, ground: 0x4e3a30, hemiI: 0.95, fog: 0xd9a27e, skyTop: 0x4a5ea8, horizon: 0xffa86e, exposure: 1.06, lift: [0.035, 0.025, 0.065], gain: [1.05, 0.99, 0.92], sat: 1.06, contrast: 1.06, vignette: 0.42, night: 0.1 },
+  { h: 20.1, sun: 0xff7e52, sunI: 0.9, sky: 0x5c5c9c, ground: 0x2e2230, hemiI: 0.9, fog: 0x7a5a78, skyTop: 0x2c3570, horizon: 0xc9667a, exposure: 1.15, lift: [0.05, 0.03, 0.09], gain: [1.02, 0.94, 1.0], sat: 1.08, contrast: 1.05, vignette: 0.5, night: 0.55 },
+  { h: 20.7, sun: 0x8a90ff, sunI: 0.05, sky: 0x3a4880, ground: 0x181a28, hemiI: 0.9, fog: 0x2e3a60, skyTop: 0x141c44, horizon: 0x4a4f86, exposure: 1.25, lift: [0.03, 0.04, 0.1], gain: [0.92, 0.96, 1.1], sat: 1.0, contrast: 1.05, vignette: 0.55, night: 0.9 },
+  { h: 21.5, sun: 0xa8b8ff, sunI: 0.75, sky: 0x2e3f78, ground: 0x12141e, hemiI: 0.9, fog: 0x1f2a4c, skyTop: 0x0b1230, horizon: 0x2a3766, exposure: 1.3, lift: [0.025, 0.035, 0.09], gain: [0.9, 0.97, 1.12], sat: 0.98, contrast: 1.06, vignette: 0.58, night: 1 },
+  { h: 26.0, sun: 0xa0b0ff, sunI: 0.7, sky: 0x2a3a72, ground: 0x10121c, hemiI: 0.85, fog: 0x1b2544, skyTop: 0x09102a, horizon: 0x24305c, exposure: 1.3, lift: [0.025, 0.035, 0.09], gain: [0.9, 0.97, 1.12], sat: 0.96, contrast: 1.06, vignette: 0.6, night: 1 },
+];
+
+const SEASON_GRASS: Record<Season, { a: number; b: number; tip: number; dry: number }> = {
+  spring: { a: 0x4d8c38, b: 0x7fb246, tip: 0xb6d46a, dry: 0xa2b05a },
+  summer: { a: 0x437f2f, b: 0x6aa13a, tip: 0xa8c855, dry: 0x9c9e48 },
+  fall: { a: 0x6f8638, b: 0xa99640, tip: 0xd0b25c, dry: 0xc07436 },
+  winter: { a: 0xdfe8f0, b: 0xc9d6e2, tip: 0xf2f6fa, dry: 0xaebdcc },
+};
+
+const _c1 = new THREE.Color();
+const _c2 = new THREE.Color();
+
+function lerpHex(a: number, b: number, t: number, out: THREE.Color): THREE.Color {
+  _c1.setHex(a);
+  _c2.setHex(b);
+  return out.copy(_c1).lerp(_c2, t);
+}
+
+export class DayNight {
+  readonly sun: THREE.DirectionalLight;
+  readonly hemi: THREE.HemisphereLight;
+  readonly bounce: THREE.DirectionalLight;
+  readonly fog: THREE.Fog;
+  readonly sky: THREE.Mesh;
+  private skyMat: THREE.ShaderMaterial;
+  private nightLights: { light: THREE.PointLight | THREE.SpotLight; max: number }[] = [];
+  /** 0 day .. 1 night (read by props/particles). */
+  night = 0;
+  /** Current weather blend (smoothed). */
+  private overcast = 0;
+  private snowTarget = 0;
+  private wetTarget = 0;
+  private windTarget = 1;
+  private grassColors = { a: new THREE.Color(), b: new THREE.Color(), tip: new THREE.Color(), dry: new THREE.Color() };
+  private grassTarget = { a: new THREE.Color(), b: new THREE.Color(), tip: new THREE.Color(), dry: new THREE.Color() };
+  private seasonTint = new THREE.Color(1, 1, 1);
+  private first = true;
+  private sunDir = new THREE.Vector3();
+  // Image-based lighting: a tiny gradient-sky scene prefiltered with PMREM, refreshed
+  // whenever the (quantized) time of day / weather changes.
+  private pmrem: THREE.PMREMGenerator;
+  private envScene = new THREE.Scene();
+  private envMat: THREE.ShaderMaterial;
+  private envRT: THREE.WebGLRenderTarget | null = null;
+  private envKey = '';
+
+  constructor(private rc: RenderContext) {
+    const scene = rc.scene;
+    this.sun = new THREE.DirectionalLight(0xffffff, 3);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(rc.preset.shadowMapSize, rc.preset.shadowMapSize);
+    this.sun.shadow.radius = rc.preset.shadowRadius;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.03;
+    this.sun.shadow.camera.near = 1;
+    this.sun.shadow.camera.far = 140;
+    scene.add(this.sun, this.sun.target);
+
+    this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a4a36, 1.1);
+    scene.add(this.hemi);
+
+    this.bounce = new THREE.DirectionalLight(0xffe0b0, 0.35);
+    scene.add(this.bounce, this.bounce.target);
+
+    this.fog = new THREE.Fog(0xd6e2ea, 40, 120);
+    scene.fog = this.fog;
+    scene.background = new THREE.Color(0xd6e2ea);
+
+    this.skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uTop: { value: new THREE.Color() },
+        uHorizon: { value: new THREE.Color() },
+        uSunDir: globalUniforms.uSunDir,
+        uSunColor: globalUniforms.uSunColor,
+        uNight: globalUniforms.uNight,
+        uTime: globalUniforms.uTime,
+      },
+      vertexShader: /* glsl */ `
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize(position);
+          vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_Position = p.xyww;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight; uniform float uTime;
+        varying vec3 vDir;
+        float h3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+        void main() {
+          vec3 d = normalize(vDir);
+          float t = smoothstep(-0.05, 0.6, d.y);
+          vec3 c = mix(uHorizon, uTop, t);
+          float s = max(dot(d, normalize(uSunDir)), 0.0);
+          c += uSunColor * (pow(s, 600.0) * 4.0 + pow(s, 12.0) * 0.25) * (1.0 - uNight * 0.7);
+          vec3 sp = floor(d * 380.0);
+          float star = step(0.9975, h3(sp)) * smoothstep(0.1, 0.4, d.y) * uNight;
+          star *= 0.6 + 0.4 * sin(uTime * 2.0 + h3(sp + 3.0) * 30.0);
+          c += vec3(star);
+          gl_FragColor = vec4(c, 1.0);
+        }`,
+    });
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), this.skyMat);
+    this.sky.frustumCulled = false;
+    this.sky.renderOrder = -1000;
+    scene.add(this.sky);
+
+    this.pmrem = new THREE.PMREMGenerator(rc.renderer);
+    this.envMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      uniforms: {
+        uTop: { value: new THREE.Color() },
+        uHorizon: { value: new THREE.Color() },
+        uGround: { value: new THREE.Color() },
+        uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        uSunColor: { value: new THREE.Color() },
+      },
+      vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uGround; uniform vec3 uSunDir; uniform vec3 uSunColor; varying vec3 vDir;
+        void main(){ vec3 d = normalize(vDir);
+          vec3 c = d.y > 0.0 ? mix(uHorizon, uTop, smoothstep(0.0, 0.7, d.y)) : mix(uHorizon, uGround, smoothstep(0.0, 0.25, -d.y));
+          float s = max(dot(d, normalize(uSunDir)), 0.0);
+          c += uSunColor * (pow(s, 64.0) * 6.0 + pow(s, 6.0) * 0.4);
+          gl_FragColor = vec4(c, 1.0); }`,
+    });
+    this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), this.envMat));
+  }
+
+  private updateEnv(hour: number, key: string): void {
+    const k = `${Math.round(hour * 4)}|${key}`;
+    if (k === this.envKey) return;
+    this.envKey = k;
+    const u = this.envMat.uniforms;
+    (u.uTop!.value as THREE.Color).copy(this.skyMat.uniforms.uTop!.value as THREE.Color);
+    (u.uHorizon!.value as THREE.Color).copy(this.skyMat.uniforms.uHorizon!.value as THREE.Color);
+    (u.uGround!.value as THREE.Color).copy(this.hemi.groundColor).multiplyScalar(0.8);
+    (u.uSunDir!.value as THREE.Vector3).copy(this.sunDir);
+    (u.uSunColor!.value as THREE.Color).copy(this.sun.color).multiplyScalar(this.sun.intensity / 3);
+    const rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 100);
+    this.envRT?.dispose();
+    this.envRT = rt;
+    this.rc.scene.environment = rt.texture;
+  }
+
+  addNightLight(light: THREE.PointLight | THREE.SpotLight, max: number): void {
+    light.intensity = 0;
+    this.nightLights.push({ light, max });
+  }
+
+  setSeason(season: Season, instant = false): void {
+    const s = SEASON_GRASS[season];
+    this.grassTarget.a.setHex(s.a);
+    this.grassTarget.b.setHex(s.b);
+    this.grassTarget.tip.setHex(s.tip);
+    this.grassTarget.dry.setHex(s.dry);
+    this.snowTarget = season === 'winter' ? 1 : 0;
+    this.seasonTint.setRGB(1, 1, 1);
+    if (season === 'fall') this.seasonTint.setRGB(1.04, 0.98, 0.9);
+    if (season === 'winter') this.seasonTint.setRGB(0.93, 0.97, 1.06);
+    if (instant) this.snapSeason();
+  }
+
+  private snapSeason(): void {
+    this.grassColors.a.copy(this.grassTarget.a);
+    this.grassColors.b.copy(this.grassTarget.b);
+    this.grassColors.tip.copy(this.grassTarget.tip);
+    this.grassColors.dry.copy(this.grassTarget.dry);
+    globalUniforms.uSnow.value = this.snowTarget;
+  }
+
+  setWeather(w: Weather, instant = false): void {
+    this.wetTarget = w === 'rain' || w === 'storm' ? 1 : 0;
+    this.windTarget = w === 'storm' ? 2.6 : w === 'wind' ? 2.0 : w === 'rain' ? 1.5 : 1.0;
+    this.overcastTarget = w === 'rain' ? 0.75 : w === 'storm' ? 0.95 : w === 'snow' ? 0.6 : 0;
+    if (w === 'snow') this.snowTarget = 1;
+    if (instant) {
+      this.overcast = this.overcastTarget;
+      globalUniforms.uWet.value = this.wetTarget;
+      globalUniforms.uWindStrength.value = this.windTarget;
+      globalUniforms.uSnow.value = this.snowTarget;
+    }
+  }
+  private overcastTarget = 0;
+
+  private sample(h: number): { a: Key; b: Key; t: number } {
+    const hh = THREE.MathUtils.clamp(h, KEYS[0]!.h, KEYS[KEYS.length - 1]!.h);
+    for (let i = 0; i < KEYS.length - 1; i++) {
+      const a = KEYS[i]!;
+      const b = KEYS[i + 1]!;
+      if (hh >= a.h && hh <= b.h) {
+        const t = (hh - a.h) / (b.h - a.h);
+        return { a, b, t: t * t * (3 - 2 * t) };
+      }
+    }
+    const k = KEYS[KEYS.length - 1]!;
+    return { a: k, b: k, t: 0 };
+  }
+
+  /** Direction towards the sun/moon for an hour. */
+  lightDirection(h: number, out: THREE.Vector3): THREE.Vector3 {
+    if (h < 20.7 && h >= 5.5) {
+      const t = THREE.MathUtils.clamp((h - 5.6) / (20.5 - 5.6), 0, 1);
+      const el = THREE.MathUtils.degToRad(7 + Math.sin(t * Math.PI) * 50);
+      const hx = Math.cos(t * Math.PI);
+      const hz = 0.55 + 0.25 * Math.sin(t * Math.PI);
+      const len = Math.hypot(hx, hz);
+      out.set((hx / len) * Math.cos(el), Math.sin(el), (hz / len) * Math.cos(el));
+    } else {
+      // Moon: high in the south-west, drifting slowly across the night.
+      const t = THREE.MathUtils.clamp((h >= 20.7 ? h - 20.7 : h + 3.3) / 6, 0, 1);
+      out.set(-0.35 + t * 0.6, 0.78, 0.55).normalize();
+    }
+    return out;
+  }
+
+  update(dt: number, hour: number): void {
+    const { a, b, t } = this.sample(hour);
+    const k = this.first ? 1 : 1 - Math.exp(-dt * 1.5);
+    if (this.first) this.snapSeason();
+    this.first = false;
+
+    // Smooth weather/season transitions.
+    this.overcast += (this.overcastTarget - this.overcast) * k;
+    globalUniforms.uWet.value += (this.wetTarget - globalUniforms.uWet.value) * k * 0.5;
+    globalUniforms.uWindStrength.value += (this.windTarget - globalUniforms.uWindStrength.value) * k;
+    globalUniforms.uSnow.value += (this.snowTarget - globalUniforms.uSnow.value) * k * 0.4;
+    for (const key of ['a', 'b', 'tip', 'dry'] as const) this.grassColors[key].lerp(this.grassTarget[key], k * 0.5);
+    globalUniforms.uGrassA.value.copy(this.grassColors.a);
+    globalUniforms.uGrassB.value.copy(this.grassColors.b);
+    globalUniforms.uGrassTip.value.copy(this.grassColors.tip);
+    globalUniforms.uGrassDry.value.copy(this.grassColors.dry);
+
+    const oc = this.overcast;
+    const L = THREE.MathUtils.lerp;
+    this.night = L(a.night, b.night, t);
+    globalUniforms.uNight.value = this.night;
+
+    // Sun / moon
+    this.lightDirection(hour, this.sunDir);
+    globalUniforms.uSunDir.value.copy(this.sunDir);
+    lerpHex(a.sun, b.sun, t, this.sun.color).multiply(this.seasonTint);
+    const grey = new THREE.Color(0.75, 0.78, 0.82);
+    this.sun.color.lerp(grey, oc * 0.6);
+    this.sun.intensity = L(a.sunI, b.sunI, t) * (1 - oc * 0.8);
+    globalUniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity / 3);
+
+    // Hemisphere + bounce
+    lerpHex(a.sky, b.sky, t, this.hemi.color).lerp(new THREE.Color(0.62, 0.66, 0.72), oc * 0.5);
+    lerpHex(a.ground, b.ground, t, this.hemi.groundColor);
+    this.hemi.intensity = L(a.hemiI, b.hemiI, t) * 0.8 * (1 + oc * 0.35);
+    this.bounce.color.copy(this.hemi.groundColor).lerp(this.sun.color, 0.5);
+    this.bounce.intensity = this.sun.intensity * 0.12;
+
+    // Fog + sky
+    lerpHex(a.fog, b.fog, t, this.fog.color).lerp(new THREE.Color(0.55, 0.58, 0.62).multiplyScalar(1 - this.night * 0.7), oc * 0.6);
+    (this.rc.scene.background as THREE.Color).copy(this.fog.color);
+    this.fog.near = this.rc.rig.distance * 1.25;
+    this.fog.far = this.rc.rig.distance * (4.2 - oc * 1.6);
+    lerpHex(a.skyTop, b.skyTop, t, this.skyMat.uniforms.uTop!.value as THREE.Color);
+    lerpHex(a.horizon, b.horizon, t, this.skyMat.uniforms.uHorizon!.value as THREE.Color);
+    (this.skyMat.uniforms.uTop!.value as THREE.Color).lerp(this.fog.color, oc * 0.7);
+    (this.skyMat.uniforms.uHorizon!.value as THREE.Color).lerp(this.fog.color, oc * 0.7);
+    globalUniforms.uSkyColor.value.copy(this.skyMat.uniforms.uTop!.value as THREE.Color);
+    globalUniforms.uHorizonColor.value.copy(this.skyMat.uniforms.uHorizon!.value as THREE.Color);
+    globalUniforms.uCloudShadow.value = 0.32 * (1 - oc) * (1 - this.night);
+
+    // Exposure + grade
+    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t);
+    const g = this.rc.post.grade.uniforms;
+    (g.uLift!.value as THREE.Vector3).set(L(a.lift[0], b.lift[0], t), L(a.lift[1], b.lift[1], t), L(a.lift[2], b.lift[2], t));
+    (g.uGain!.value as THREE.Vector3).set(L(a.gain[0], b.gain[0], t), L(a.gain[1], b.gain[1], t), L(a.gain[2], b.gain[2], t));
+    g.uSaturation!.value = L(a.sat, b.sat, t) * (1 - oc * 0.18);
+    g.uContrast!.value = L(a.contrast, b.contrast, t) * (1 - oc * 0.04);
+    g.uVignette!.value = L(a.vignette, b.vignette, t);
+    this.rc.post.setBloom(0.3 + this.night * 0.35, 0.9 - this.night * 0.15);
+
+    // Night emissives + practical lights
+    const glow = THREE.MathUtils.smoothstep(this.night, 0.15, 0.85) + oc * 0.25;
+    for (const n of nightGlow) n.material.emissiveIntensity = n.max * Math.min(1, glow);
+    for (const n of this.nightLights) n.light.intensity = n.max * Math.min(1, glow);
+
+    this.rc.scene.environmentIntensity = 0.55 * (1 - this.night * 0.6);
+    this.updateEnv(hour, `${this.overcastTarget}:${this.snowTarget}`);
+
+    this.fitShadow();
+  }
+
+  /** Fit the directional shadow frustum to the camera's ground footprint; texel-snapped. */
+  private fitShadow(): void {
+    const rig = this.rc.rig;
+    const center = rig.focus.clone().add(rig.lookOffset);
+    const radius = rig.distance * 0.95 + 6;
+    const cam = this.sun.shadow.camera;
+    cam.left = -radius;
+    cam.right = radius;
+    cam.top = radius;
+    cam.bottom = -radius;
+    cam.updateProjectionMatrix();
+    // Snap center to shadow texel grid in light space to avoid shimmering.
+    const texel = (radius * 2) / this.sun.shadow.mapSize.x;
+    const lightRot = new THREE.Matrix4().lookAt(this.sunDir, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0));
+    const inv = lightRot.clone().invert();
+    const ls = center.clone().applyMatrix4(inv);
+    ls.x = Math.round(ls.x / texel) * texel;
+    ls.y = Math.round(ls.y / texel) * texel;
+    center.copy(ls.applyMatrix4(lightRot));
+    this.sun.target.position.copy(center);
+    this.sun.position.copy(center).addScaledVector(this.sunDir, 70);
+    this.sun.target.updateMatrixWorld();
+    this.bounce.position.copy(center).add(new THREE.Vector3(-this.sunDir.x, 0.4, -this.sunDir.z).multiplyScalar(30));
+    this.bounce.target.position.copy(center);
+    this.bounce.target.updateMatrixWorld();
+    this.sky.position.copy(this.rc.camera.position);
+  }
+}

@@ -1,0 +1,223 @@
+/**
+ * Game context: owns the engine services and the system registry.
+ * Every module receives the Game and talks to others via `game.events` or the services here.
+ *
+ * ── Adding a system ───────────────────────────────────────────────
+ * 1. Create src/systems/<name>.ts exporting a class implementing `System` (core/system.ts).
+ * 2. Add ONE line to SYSTEMS below.
+ */
+import * as THREE from 'three';
+import { EventBus, type Quality } from './events';
+import { Rng } from './rng';
+import { Calendar, type Season, type Weather } from './time';
+import { Input } from './input';
+import { SaveManager } from './save';
+import type { System } from './system';
+import { RenderContext } from '../render/renderer';
+import { DayNight } from '../render/lighting';
+import { World } from '../world/map';
+import { FarmMap } from '../world/farm';
+import { Player } from '../entities/player';
+import { Hud } from '../ui/hud';
+
+// ── System registry: one line per system ───────────────────────────
+const SYSTEMS: (() => System)[] = [
+  // () => new FarmingSystem(),
+  // () => new WeatherSystem(),
+];
+
+export interface GameOptions {
+  container: HTMLElement;
+  uiRoot: HTMLElement;
+  quality: Quality;
+  seed: string;
+  hud: boolean;
+}
+
+const FIXED_DT = 1 / 60;
+
+export class Game {
+  readonly events = new EventBus();
+  readonly rng: Rng;
+  readonly calendar: Calendar;
+  readonly input: Input;
+  readonly saves: SaveManager;
+  readonly rc: RenderContext;
+  readonly lighting: DayNight;
+  readonly world: World;
+  readonly player: Player;
+  readonly hud: Hud;
+  readonly systems: System[] = [];
+
+  /** Simulation paused (time frozen, no fixed updates). Rendering continues. */
+  paused = false;
+  /** Seconds since start (render clock). */
+  time = 0;
+  /** Sim-scaled delta of the current frame (0 while paused). */
+  simDt = 0;
+  gold = 500;
+  energy = 270;
+  maxEnergy = 270;
+  toolbarSlot = 0;
+  frame = 0;
+  private acc = 0;
+  private last = 0;
+  private readyResolve!: () => void;
+  readonly readyPromise: Promise<void>;
+  private started = false;
+
+  constructor(readonly opts: GameOptions) {
+    this.rng = new Rng(opts.seed);
+    this.calendar = new Calendar(this.events);
+    this.rc = new RenderContext(opts.container, opts.quality);
+    this.input = new Input(this.events, this.rc.renderer.domElement);
+    this.saves = new SaveManager(this.events);
+    this.lighting = new DayNight(this.rc);
+    this.world = new World(this);
+    this.player = new Player(this);
+    this.hud = new Hud(this, opts.uiRoot, opts.hud);
+    this.readyPromise = new Promise((r) => (this.readyResolve = r));
+
+    this.world.registerMap('farm', (g) => new FarmMap(g));
+
+    this.events.on('season:change', ({ season }) => this.applySeason(season));
+    this.events.on('weather:change', ({ weather }) => this.applyWeather(weather));
+    this.events.on('toolbar:select', ({ slot }) => (this.toolbarSlot = slot));
+
+    this.saves.register('core', {
+      save: () => ({ calendar: this.calendar.serialize(), gold: this.gold, energy: this.energy, map: this.world.current?.id, x: this.player.position.x, z: this.player.position.z }),
+      load: (d) => {
+        const s = d as { calendar: ReturnType<Calendar['serialize']>; gold: number; energy: number; map?: string; x: number; z: number };
+        this.calendar.deserialize(s.calendar);
+        this.setGold(s.gold);
+        this.energy = s.energy;
+        if (s.map) void this.teleport(s.map, s.x, s.z);
+      },
+    });
+  }
+
+  get scene(): THREE.Scene {
+    return this.rc.scene;
+  }
+
+  register(sys: System): void {
+    this.systems.push(sys);
+    if (sys.save && sys.load) this.saves.register(sys.name, { save: () => sys.save!(), load: (d) => sys.load!(d) });
+  }
+
+  /**
+   * Load the initial map, init systems, run `stage` (URL params / demo) before the first
+   * frame, compile shaders, start the loop. ready() resolves a few frames later.
+   */
+  async start(initialMap = 'farm', stage?: () => Promise<void>): Promise<void> {
+    if (this.started) return;
+    this.started = true;
+    const map = await this.world.load(initialMap);
+    this.scene.add(this.player.root);
+    this.player.teleport(map.spawn.x, map.spawn.z);
+    this.player.setFacing(map.spawn.facing);
+    this.applySeason(this.calendar.season, true);
+    this.applyWeather(this.calendar.weather, true);
+
+    for (const f of SYSTEMS) this.register(f());
+    for (const s of this.systems) await s.init?.(this);
+    if (stage) await stage();
+
+    this.followPlayer(true);
+    this.lighting.update(0, this.calendar.hour);
+    const tc = performance.now();
+    await this.rc.compile();
+    console.debug(`[game] compile ${(performance.now() - tc).toFixed(0)}ms`);
+    this.last = performance.now();
+    requestAnimationFrame(this.loop);
+    // Resolve ready after a few rendered frames so shadows/AO/particles settle.
+    const target = this.frame + 8;
+    const check = (): void => {
+      if (this.frame >= target) {
+        this.readyResolve();
+        this.events.emit('game:ready', {});
+      } else requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  }
+
+  ready(): Promise<void> {
+    return this.readyPromise;
+  }
+
+  private loop = (now: number): void => {
+    requestAnimationFrame(this.loop);
+    const dt = Math.min(0.1, (now - this.last) / 1000 || 0);
+    this.last = now;
+    this.step(dt);
+  };
+
+  /** Advance one rendered frame by dt seconds (also used by tests / frame capture). */
+  step(dt: number): void {
+    this.time += dt;
+    this.simDt = this.paused ? 0 : dt;
+    if (!this.paused) {
+      this.acc += dt;
+      let steps = 0;
+      while (this.acc >= FIXED_DT && steps < 5) {
+        this.acc -= FIXED_DT;
+        steps++;
+        this.player.fixedUpdate(FIXED_DT);
+        for (const s of this.systems) s.fixedUpdate?.(FIXED_DT, this);
+      }
+      if (steps === 5) this.acc = 0;
+      this.calendar.advance(dt);
+    }
+    this.player.update(dt);
+    this.world.current?.update(dt, this);
+    for (const s of this.systems) s.update?.(dt, this);
+    this.followPlayer(false);
+    this.lighting.update(dt, this.calendar.hour);
+    this.hud.update(dt);
+    this.rc.render(dt, this.time);
+    this.input.endFrame();
+    this.frame++;
+  }
+
+  followPlayer(snap: boolean): void {
+    this.rc.rig.target.copy(this.player.position);
+    if (snap) this.rc.rig.snap();
+  }
+
+  applySeason(season: Season, instant = false): void {
+    this.lighting.setSeason(season, instant);
+    this.world.current?.setSeason?.(season);
+  }
+
+  applyWeather(weather: Weather, instant = false): void {
+    this.lighting.setWeather(weather, instant);
+    this.world.current?.setWeather?.(weather);
+  }
+
+  setGold(n: number): void {
+    const delta = n - this.gold;
+    this.gold = Math.max(0, Math.floor(n));
+    this.events.emit('gold:change', { gold: this.gold, delta });
+  }
+
+  async teleport(mapId: string, x: number, z: number): Promise<void> {
+    const map = await this.world.load(mapId);
+    this.player.teleport(x, z);
+    void map;
+    this.followPlayer(true);
+  }
+
+  setPaused(p: boolean): void {
+    this.paused = p;
+    this.calendar.frozen = p;
+    this.events.emit('game:pause', { paused: p });
+  }
+
+  setQuality(q: Quality): void {
+    this.rc.setQuality(q);
+    this.lighting.sun.shadow.mapSize.set(this.rc.preset.shadowMapSize, this.rc.preset.shadowMapSize);
+    this.lighting.sun.shadow.map?.dispose();
+    this.lighting.sun.shadow.map = null;
+    this.events.emit('quality:change', { quality: q });
+  }
+}
