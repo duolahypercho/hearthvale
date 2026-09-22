@@ -10,6 +10,8 @@ import { MeshBuilder, lumpySphere, sphericalNormals, uvScale } from '../geom';
 import { textures } from '../../render/textures';
 import { applyWind, windDepthMaterial } from '../../render/wind';
 import { applyWorldFx } from '../../render/worldfx';
+import { patchMaterial, after, before } from '../../render/patch';
+import { globalUniforms } from '../../render/uniforms';
 import { InstancedSet } from './instanced';
 
 export type TreeSpecies = 'oak' | 'maple' | 'pine' | 'blossom';
@@ -51,6 +53,37 @@ function foliageMaterial(species: TreeSpecies): THREE.MeshStandardMaterial {
   m.name = `foliage-${species}`;
   applyWorldFx(m, { snowUp: species === 'pine' ? 0.45 : 0.6 });
   applyWind(m, WIND_LEAF);
+  // Leafy clump breakup + sun-side translucency (uses worldfx varyings).
+  patchMaterial(m, 'foliage', (shader) => {
+    shader.uniforms.uSunDir = globalUniforms.uSunDir;
+    shader.uniforms.uSunColor = globalUniforms.uSunColor;
+    let fs = shader.fragmentShader;
+    fs = before(fs, 'void main() {', 'uniform vec3 uSunDir;\nuniform vec3 uSunColor;');
+    fs = after(
+      fs,
+      '#include <color_fragment>',
+      /* glsl */ `
+      {
+        vec3 fp = vHvWorldPos * 2.6;
+        float clump = hvNoise(fp.xz + fp.y * 0.7) * 0.6 + hvNoise(fp.zy * 1.9 + 3.0) * 0.4;
+        diffuseColor.rgb *= 0.8 + 0.34 * smoothstep(0.2, 0.8, clump);
+        float top = smoothstep(0.2, 0.95, normalize(vHvWorldNormal).y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.1, 1.08, 0.86), top * 0.5);
+      }`,
+    );
+    fs = after(
+      fs,
+      '#include <emissivemap_fragment>',
+      /* glsl */ `
+      {
+        vec3 Vw = normalize(cameraPosition - vHvWorldPos);
+        float back = pow(max(dot(-Vw, normalize(uSunDir)), 0.0), 3.0);
+        float rim = pow(1.0 - max(dot(normalize(vHvWorldNormal), Vw), 0.0), 3.0);
+        totalEmissiveRadiance += diffuseColor.rgb * uSunColor * (back * 0.45 + rim * 0.12);
+      }`,
+    );
+    shader.fragmentShader = fs;
+  });
   foliageMats.set(species, m);
   return m;
 }
@@ -230,7 +263,7 @@ export class TreeField {
 
   constructor(
     private rng: Rng,
-    private capacityPerVariant = 400,
+    private capacityPerVariant = 96,
   ) {
     this.group.name = 'trees';
   }
@@ -246,14 +279,21 @@ export class TreeField {
     return v;
   }
 
-  private setFor(species: TreeSpecies, vi: number): InstancedSet {
-    const key = `${species}:${vi}`;
+  private static depthTrunk: THREE.MeshDepthMaterial | null = null;
+  private static depthLeaf: THREE.MeshDepthMaterial | null = null;
+
+  /** Sets are chunked spatially (CELL×CELL world units) so frustum/shadow culling works. */
+  private setFor(species: TreeSpecies, vi: number, x: number, z: number): InstancedSet {
+    const CELL = 28;
+    const key = `${species}:${vi}:${Math.floor(x / CELL)}:${Math.floor(z / CELL)}`;
     let s = this.sets.get(key);
     if (!s) {
       const g = this.variantsFor(species)[vi]!;
+      TreeField.depthTrunk ??= windDepthMaterial(WIND_TRUNK);
+      TreeField.depthLeaf ??= windDepthMaterial(WIND_LEAF);
       s = new InstancedSet(`tree-${key}`, [
-        { geometry: g.trunk, material: treeBarkMaterial(), depthMaterial: windDepthMaterial(WIND_TRUNK) },
-        { geometry: g.foliage!, material: foliageMaterial(species), tinted: true, depthMaterial: windDepthMaterial(WIND_LEAF) },
+        { geometry: g.trunk, material: treeBarkMaterial(), depthMaterial: TreeField.depthTrunk },
+        { geometry: g.foliage!, material: foliageMaterial(species), tinted: true, depthMaterial: TreeField.depthLeaf },
       ], this.capacityPerVariant);
       s.meshes[1]!.userData.foliage = species;
       this.sets.set(key, s);
@@ -264,7 +304,7 @@ export class TreeField {
 
   add(species: TreeSpecies, x: number, y: number, z: number, scale = 1, variant?: number): TreeHandle {
     const vi = variant ?? this.rng.int(0, 2);
-    const set = this.setFor(species, vi);
+    const set = this.setFor(species, vi, x, z);
     const m = new THREE.Matrix4().compose(
       new THREE.Vector3(x, y, z),
       new THREE.Quaternion().setFromAxisAngle(_up, this.rng.next() * Math.PI * 2),

@@ -121,6 +121,7 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
   mat.uniforms.uCloudShadow = globalUniforms.uCloudShadow;
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'water';
+  mesh.userData.noAO = true;
   mesh.renderOrder = 2;
   return mesh;
 }

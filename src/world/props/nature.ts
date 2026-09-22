@@ -381,11 +381,21 @@ export class Nature {
     return this._reed;
   }
 
-  private setFor(kind: NatureKind, variant: number): InstancedSet {
-    const key = `${kind}:${variant}`;
+  private partsCache = new Map<string, InstancedPart[]>();
+
+  /** Sets are chunked spatially (CELL×CELL world units) so frustum/shadow culling works. */
+  private setFor(kind: NatureKind, variant: number, x: number, z: number): InstancedSet {
+    const CELL = 32;
+    const pkey = `${kind}:${variant}`;
+    const key = `${pkey}:${Math.floor(x / CELL)}:${Math.floor(z / CELL)}`;
     let s = this.sets.get(key);
     if (!s) {
-      s = new InstancedSet(`nature-${key}`, this.build(kind, variant), 2048);
+      let parts = this.partsCache.get(pkey);
+      if (!parts) {
+        parts = this.build(kind, variant);
+        this.partsCache.set(pkey, parts);
+      }
+      s = new InstancedSet(`nature-${key}`, parts, 256);
       this.sets.set(key, s);
       this.group.add(s.group);
       const hide: Season[] = kind === 'flower' || kind === 'tallFlower' || kind === 'mushroom' ? ['winter'] : kind === 'lilypad' ? ['winter'] : [];
@@ -399,7 +409,7 @@ export class Nature {
   place(kind: NatureKind, x: number, y: number, z: number, opts: { rot?: number; scale?: number; color?: THREE.ColorRepresentation; variant?: number } = {}): NatureHandle {
     const nv = Nature.VARIANTS[kind] ?? 1;
     const v = opts.variant ?? this.rng.int(0, nv - 1);
-    const set = this.setFor(kind, v % nv);
+    const set = this.setFor(kind, v % nv, x, z);
     const s = opts.scale ?? 1;
     const m = new THREE.Matrix4().compose(
       new THREE.Vector3(x, y, z),

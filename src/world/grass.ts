@@ -16,7 +16,7 @@ function tuftGeometry(rng: Rng, blades: number, variant: 'short' | 'tall'): THRE
   const pos: number[] = [];
   const hAttr: number[] = [];
   const nor: number[] = [];
-  const segs = 3;
+  const segs = variant === 'tall' ? 3 : 2;
   for (let b = 0; b < blades; b++) {
     const ang = rng.next() * Math.PI * 2;
     const r = rng.next() * 0.2;
@@ -48,8 +48,14 @@ function tuftGeometry(rng: Rng, blades: number, variant: 'short' | 'tall'): THRE
       const bb = [x0 + fx * w0, y0, z0 + fz * w0];
       const c = [x1 - fx * w1, y1, z1 - fz * w1];
       const d = [x1 + fx * w1, y1, z1 + fz * w1];
-      pos.push(...a, ...bb, ...c, ...bb, ...d, ...c);
-      hAttr.push(t0, t0, t1, t0, t1, t1);
+      if (s === segs - 1) {
+        // Tip: a single triangle to the blade point.
+        pos.push(...a, ...bb, x1, y1, z1);
+        hAttr.push(t0, t0, t1);
+      } else {
+        pos.push(...a, ...bb, ...c, ...bb, ...d, ...c);
+        hAttr.push(t0, t0, t1, t0, t1, t1);
+      }
     }
   }
   for (let i = 0; i < pos.length / 3; i++) nor.push(0, 1, 0);
@@ -208,6 +214,7 @@ export class GrassField {
           mesh.receiveShadow = true;
           mesh.castShadow = false;
           mesh.name = `grass-chunk-${cx}-${cz}`;
+          mesh.userData.noAO = true;
           this.group.add(mesh);
         });
       }

@@ -138,6 +138,9 @@ export class RenderContext {
   render(dt: number, time: number): void {
     globalUniforms.uTime.value = time;
     this.rig.update(dt);
+    // Accumulate stats over all passes of the frame (shadow, AO, main, post).
+    this.renderer.info.autoReset = false;
+    this.renderer.info.reset();
     this.post.render(time);
   }
 

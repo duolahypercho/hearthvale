@@ -152,6 +152,17 @@ export class PostPipeline {
       this.gtao.blendIntensity = 0.75;
       this.gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.6, thickness: 1.2, scale: 1.0, samples: preset.aoSamples, distanceFallOff: 1 });
       this.gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+      // Skip objects flagged `userData.noAO` (dense grass, water, particles) in the AO G-buffer pass.
+      const g = this.gtao as unknown as { _overrideVisibility: () => void; _visibilityCache: THREE.Object3D[] };
+      g._overrideVisibility = () => {
+        scene.traverse((o) => {
+          const p = o as THREE.Object3D & { isPoints?: boolean; isLine?: boolean };
+          if ((p.isPoints || p.isLine || o.userData.noAO) && o.visible) {
+            o.visible = false;
+            g._visibilityCache.push(o);
+          }
+        });
+      };
       this.composer.addPass(this.gtao);
     }
     if (preset.bloom) {
