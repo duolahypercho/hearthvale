@@ -75,6 +75,10 @@ declare module '../core/events' {
   }
 }
 
+const _ab = new THREE.Vector3();
+const _q = new THREE.Vector3();
+const _hp = new THREE.Vector3();
+const _q2 = new THREE.Vector3();
 const FACING_YAW: Record<Facing, number> = { down: 0, up: Math.PI, left: -Math.PI / 2, right: Math.PI / 2 };
 const PLAZA_C = { x: 32, z: 25, r: 3.55 };
 const EMOTES_CHAT: Emote[] = ['music', 'exclaim', 'question', 'heart', 'dots', 'idea'];
@@ -824,7 +828,13 @@ export class NpcSystem implements System {
       const toCam = THREE.MathUtils.degToRad(base);
       const fy = (la.v as unknown as { yaw: number }).yaw;
       const off = Math.abs(Math.atan2(Math.sin(fy - toCam), Math.cos(fy - toCam)));
-      if (off > THREE.MathUtils.degToRad(115)) kind = 'wide';
+      if (off > THREE.MathUtils.degToRad(115)) {
+        // …framed over their shoulder on what they are looking at, far actors left out.
+        kind = 'wide';
+        cx = lead.x + Math.sin(fy) * 2.2;
+        cz = lead.z + Math.cos(fy) * 2.2;
+        spread = 0;
+      }
     }
     // Scene props (Pip on the roof) pull the wide frame towards them.
     if (kind === 'wide' && this.eventProps.length && !s.anchor) {
@@ -870,8 +880,7 @@ export class NpcSystem implements System {
     if (key !== this.camPick.key || this.clock - this.camPick.t > 0.5) {
       const probe = new THREE.Vector3(cx, map.heightAt(cx, cz) + 0.9, cz);
       const cands: [number, number, number][] = [];
-      for (const dp of [0, 10, 20]) for (const dy of [0, 15, -15, 30, -30, 45, -45]) cands.push([dy, dp, 1]);
-      cands.push([0, 22, 0.8]);
+      for (const k of [1, 0.75]) for (const dp of [0, 10, 20]) for (const dy of [0, 15, -15, 30, -30, 45, -45]) cands.push([dy, dp, k]);
       let best = cands[cands.length - 1]!;
       let bestHits = 99;
       // Score: blocked sight lines dominate; then a speaker turned from the lens (three-quarter is
@@ -893,7 +902,13 @@ export class NpcSystem implements System {
       };
       for (const c of cands) {
         const cy = yaw + c[0];
-        const pos = this.camPosFor(probe, cy, Math.min(62, pitch + c[1]), dist * c[2]);
+        // Test the lens where it will really sit: the look point is lifted towards it (see below).
+        const cp = Math.min(62, pitch + c[1]);
+        const cd = dist * c[2];
+        const upK = kind === 'close' ? 0.2 : this.camMode === 'talk' || kind === 'two' ? 0.28 : 0.16;
+        const lf = (cd * Math.tan(upK * Math.tan(THREE.MathUtils.degToRad(this.game.rc.camera.fov) / 2))) / Math.sin(THREE.MathUtils.degToRad(cp));
+        const cyr = THREE.MathUtils.degToRad(cy);
+        const pos = this.camPosFor(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf), cy, cp, cd);
         let h = this.buildingHits(pos, acts) * 10;
         for (const b of by) for (const a of acts) if (segD(pos, new THREE.Vector3(a.x, a.y + a.head * 0.6, a.z), b) < 0.55) h += 3;
         if (fy !== null && kind !== 'wide') {
@@ -907,7 +922,7 @@ export class NpcSystem implements System {
             if (v2.length() < v1.length() && v1.angleTo(v2) < THREE.MathUtils.degToRad(kind === 'close' ? 9 : 6)) h += 4;
           }
         }
-        h += Math.abs(c[0]) / 180 + c[1] / 60;
+        h += Math.abs(c[0]) / 180 + c[1] / 60 + (1 - c[2]) * 2;
         if (h < bestHits) {
           bestHits = h;
           best = c;
@@ -1024,9 +1039,9 @@ export class NpcSystem implements System {
 
   private treeHits(a: THREE.Vector3, b: THREE.Vector3): { mesh: THREE.BatchedMesh; id: number }[] {
     const out: { mesh: THREE.BatchedMesh; id: number }[] = [];
-    const ab = new THREE.Vector3().subVectors(b, a);
+    const ab = _ab.subVectors(b, a);
     const len2 = ab.lengthSq() || 1;
-    const q = new THREE.Vector3();
+    const q = _q;
     for (const g of this.balls()) {
       // Closest point on the segment to the canopy centre (spheres are loose: shrink 15 %).
       const t = THREE.MathUtils.clamp(q.subVectors(g.c, a).dot(ab) / len2, 0, 1);
@@ -1061,9 +1076,13 @@ export class NpcSystem implements System {
 
   /** Every other frame: trees between the lens and an actor's head / chest are hidden for the scene. */
   private guardView(force = false): void {
-    if (!force && ++this.occFrame % 2) return;
+    if (!force && ++this.occFrame % 3) return;
     const cam = this.game.rc.camera.position;
-    for (const a of this.camActors()) for (const hy of [a.head - 0.3, a.head * 0.45]) for (const h of this.treeHits(cam, new THREE.Vector3(a.x, a.y + hy, a.z))) this.hideTree(h.mesh, h.id);
+    for (const a of this.camActors())
+      for (let k = 0; k < 2; k++) {
+        _hp.set(a.x, a.y + (k ? a.head * 0.45 : a.head - 0.3), a.z);
+        for (const h of this.treeHits(cam, _hp)) this.hideTree(h.mesh, h.id);
+      }
   }
 
   /** Shot for a script beat (heart events). */
@@ -1328,7 +1347,7 @@ export class NpcSystem implements System {
             out.beats++;
             const acts = this.camActors();
             const hits = this.buildingHits(cam.position, acts);
-            if (hits) out.fails.push(`${ev.id}#${i}: ${hits} sight line(s) behind a building`);
+            if (hits) out.fails.push(`${ev.id}#${i}: ${hits} sight line(s) behind a building (lens ${cam.position.x.toFixed(1)},${cam.position.y.toFixed(1)},${cam.position.z.toFixed(1)}; ${acts.map((a) => `${a.id} ${a.x.toFixed(1)},${a.z.toFixed(1)}`).join(' ')})`);
             for (const a of acts) {
               if (this.shot.kind === 'close' && a.id !== this.shot.speaker) continue;
               const t = this.treeHits(cam.position, new THREE.Vector3(a.x, a.y + a.head - 0.3, a.z)).length;
