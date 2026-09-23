@@ -431,3 +431,23 @@ Friends on other machines open the game from the host's address; the relay defau
 - Demos: `coop-farm` (host view: three scripted farmhands hoeing, watering and chatting, their cabins, tags,
   roster), `coop-lobby` (creator + lobby). Debug: `services.net` (`host()`, `join(code)`, `players()`, `stats()`,
   `simulateDrop()`), `services.net.sync.digest()` (the per-tile farm state that must match on every client).
+
+## Cindergrove forest, weather & seasons
+
+Cindergrove (`src/world/forest/`) is south of the farm (warp at the farm's south gate). `layout.ts` holds the anchors
+and terrain shape; `giants.ts` the old-growth elders / firs (painted leaf-card canopies, winter twig crowns, laden
+firs) and card shrubs; `cliffs.ts` the waterfall cliff (a sculpted wall mesh over the plateau face + shared strata
+shader); `props.ts` mossy logs, mushrooms, winterberries / twigs, the Ember Shrine (menhir ring, ember altar) and
+the roofed glade tower (door, lit window, ivy); `stream.ts` the waterfall and flow; `forage.ts` seasonal
+forageables (interact to pick, `forage:picked`); `motes.ts` dust motes in the light shafts; `foliage.ts` the card
+textures, billboard / painted-light patches and the canopy see-through (trunks and logs always stay solid).
+
+Weather (`systems/weather.ts`, visuals in `render/precipitation.ts`, `skyfx.ts`, `groundfx.ts`, `heightfog.ts`,
+grade in `render/lighting.ts`): rain + splashes + eave / canopy drips, island puddles with a meniscus on darker soaked
+paths (`world/terrain.ts`), storms (screen-space forked bolts, ~+2.5 EV return stroke, `weather:lightning` then a
+delayed `weather:thunder`, scorch + steam), snow (flakes, top-facing accumulation via `render/worldfx.ts`, drifts,
+sastrugi, boot prints), wind gusts of leaves / petals, ground-hugging fog mornings with god rays, rainbows.
+`game.services.weather`: `strike(at?, hold?)`, `setFog(v|null)`, `setRainbow(v|null)`, `state()`.
+
+Demos: `forest-day`, `forest-rain`, `forest-fall`, `forest-glade`, `forest-night`, `forest-wind`, `storm`, `snow-day`,
+`fog-morning`, `rainbow`, `farm-storm`. Params: `&bolt=0|1` (posed strike), `&fog=0..1`, `&rainbow=0..1`.
