@@ -335,6 +335,15 @@ export class MiningSystem implements System, MiningApi {
     }
     const spot = showcaseSpot(m, name === 'mine-combat');
     game.player.teleport(spot.x, spot.z);
+    // Staged frames: nothing hugs the farmer (a rock just north of them is drawn behind the hat).
+    // (the 42° camera draws anything up to ~2.3 m north of the farmer right behind the hat)
+    const hug = (m.rocks?.rocks ?? []).filter((r) => {
+      if (!r.alive) return false;
+      const dx = r.pos.x - spot.x;
+      const dz = r.pos.z - spot.z;
+      return Math.hypot(dx, dz) < 0.6 + 0.5 * r.scale || (dz < 0 && dz > -2.4 && Math.abs(dx) < 0.75 + 0.45 * r.scale);
+    });
+    m.removeRocks(hug.map((r) => r.spec.z * FLOOR_W + r.spec.x));
     // Nothing standing inside the farmer (or hiding them) in a staged frame.
     for (const mo of [...m.monsters]) if (Math.hypot(mo.pos.x - spot.x, mo.pos.z - spot.z) < 2.4) m.removeMonster(mo);
     this.plaqueKey = '';
@@ -433,9 +442,9 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
       const cz = z + 0.5;
       // (anything just NORTH of the farmer is drawn behind the hat by the 3/4 camera: it needs
       // ~1.7x the room of things beside / in front)
-      const room = (x: number, z: number): number => Math.hypot(x - cx, (z - cz) * (z < cz ? 0.6 : 1));
-      if (m.rocks?.rocks.some((r) => r.alive && room(r.pos.x, r.pos.z) < 0.75 + 0.5 * r.scale * (r.spec.big ? 1.4 : 1))) continue;
-      if (L.crystals.some((c) => room(c.x, c.z) < 1.6)) continue;
+      const room = (x: number, z: number): number => Math.hypot(x - cx, (z - cz) * (z < cz ? 0.72 : 1));
+      if (L.rocks.some((r) => Math.hypot(r.x + 0.5 - cx, r.z + 0.5 - cz) < 1.15)) continue;
+      if (L.crystals.some((c) => room(c.x, c.z) < 1.3)) continue;
       if (L.decor.some((d) => d.solid && Math.hypot(d.x - cx, d.z - cz) < 1.2)) continue;
       if (!m.clearAt(cx, cz, 0.6)) continue;
       let s = 0;
@@ -460,7 +469,7 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
       for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (m.grid.isWalkable(x + dx, z + dz)) openN++;
       s += openN * (open ? 0.6 : 0.2);
       // Keep the lower half of the frame (towards the camera) inside the cave.
-      for (let dz = 1; dz <= 5; dz++) if (L.solid[(z + dz) * FLOOR_W + x]) s -= dz <= 3 ? 2.5 : 1.5;
+      for (let dz = 1; dz <= 4; dz++) if (L.solid[(z + dz) * FLOOR_W + x]) s -= 1.5;
       // ...and a dressed back wall in the upper third: open floor for 2–3 tiles north, then rock.
       for (let dz = 1; dz <= 2; dz++) if (L.solid[(z - dz) * FLOOR_W + x]) s -= 2.5;
       let wallN = false;
