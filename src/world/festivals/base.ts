@@ -644,10 +644,13 @@ function nameTag(name: string, color: string): THREE.Sprite {
   g.font = '700 30px Fredoka, Nunito, sans-serif';
   const w = Math.min(240, g.measureText(name).width + 58);
   const x0 = (256 - w) / 2;
-  g.fillStyle = 'rgba(40, 22, 10, 0.72)';
+  g.fillStyle = 'rgba(40, 22, 10, 0.85)';
+  g.strokeStyle = 'rgba(255, 240, 210, 0.9)';
+  g.lineWidth = 3;
   g.beginPath();
   g.roundRect(x0, 10, w, 44, 22);
   g.fill();
+  g.stroke();
   g.fillStyle = color;
   g.beginPath();
   g.arc(x0 + 24, 32, 9, 0, Math.PI * 2);
@@ -657,8 +660,8 @@ function nameTag(name: string, color: string): THREE.Sprite {
   g.fillText(name, x0 + 40, 33);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true, fog: false }));
-  sp.scale.set(1.6, 0.4, 1);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true, fog: false, toneMapped: false }));
+  sp.scale.set(1.25, 0.31, 1);
   sp.position.y = 2.55;
   sp.renderOrder = 10;
   sp.userData.noAO = true;
