@@ -1424,7 +1424,8 @@ body:has(.hv-hud.hv-cinema) .hv-np,
 body:has(.hv-hud.hv-title-mode) .hv-np,
 body:has(.hv-hud.h-menu-open) .hv-np,
 body:has(.hv-hud.h-away) .hv-np,
-body:has(.dlg-letterbox.on) .hv-np {
+body:has(.dlg-letterbox.on) .hv-np,
+body:has(.hv-screens > .hv-screen:not(.hv-hidden)) .hv-np {
   opacity: 0 !important;
   visibility: hidden;
 }

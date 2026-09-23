@@ -112,7 +112,6 @@ export class Hud {
   private ghost: PlacementGhost;
   private demoKit: DemoKit;
   private pad = { prev: [] as boolean[], navT: 0, navDir: '' as NavDir | '' };
-  private swapTimer = 0;
   private fpsEl: HTMLElement;
   private fpsT = 0;
   private fpsN = 0;
@@ -469,15 +468,14 @@ export class Hud {
     tooltip.hide();
     // Tab to tab inside the game menu: the frame, ribbon and tabs stay put; only the page content cross-fades.
     const isTab = (n: string | null): boolean => !!n && (MENU_TABS as readonly string[]).includes(n);
-    if (isTab(this.openPanel) && isTab(name) && name !== this.openPanel) {
-      document.body.classList.add('u-tabswap');
-      clearTimeout(this.swapTimer);
-      this.swapTimer = window.setTimeout(() => document.body.classList.remove('u-tabswap'), 380);
-    }
+    const swap = isTab(this.openPanel) && isTab(name) && name !== this.openPanel;
     if (this.openPanel) {
       const prev = this.openPanel;
       this.openPanel = null;
-      this.panels.get(prev)?.close();
+      const pp = this.panels.get(prev);
+      pp?.close();
+      // No exit animation between tabs: the next page takes the frame's place in the same paint.
+      if (swap) (pp as { root?: HTMLElement } | undefined)?.root?.classList.remove('is-closing');
       this.game.events.emit('ui:close', { name: prev });
     }
     this.root.classList.toggle('h-crisp', CRISP_CLOCK.has(name));
@@ -502,6 +500,13 @@ export class Hud {
     this.openPanel = name;
     this.game.input.enabled = false;
     p.open(arg);
+    if (swap) {
+      const r = (p as { root?: HTMLElement }).root;
+      if (r) {
+        r.classList.remove('is-opening');
+        replay(r, 'tab-in');
+      }
+    }
   }
 
   private setMenuPause(on: boolean): void {

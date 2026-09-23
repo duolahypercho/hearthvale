@@ -3603,7 +3603,7 @@ svg.valley {
 /* ═══ r2: one fixed game-menu frame for every tab ═══════════════════════════════════════════════════
    Backpack · Workbench · Map · Options share an identical 1140×690 wood frame: the ribbon, the close button
    and the bookmark tabs never move between tabs; each page lays itself out inside. Switching tabs
-   (body.u-tabswap, set by the router) skips the pop / backdrop animations and only cross-fades the page. */
+   (the router swaps .is-opening for .tab-in) skips the pop / backdrop animations and only cross-fades the page. */
 .inv-wrap,
 .craft-wrap,
 .map-wrap,
@@ -3636,17 +3636,10 @@ svg.valley {
 .set-wrap > .u-tabs {
   top: 70px;
 }
-body.u-tabswap .hv-screen.hv-hidden.is-closing {
-  display: none !important;
-}
-body.u-tabswap .is-opening .u-backdrop,
-body.u-tabswap .is-opening .u-pop {
-  animation: none;
-}
-body.u-tabswap .is-opening .u-pop > .u-frame > .u-paper > * {
+.hv-screen.tab-in .u-pop > .u-frame > .u-paper > * {
   animation: uTabIn 240ms var(--ease-out) both;
 }
-body.u-tabswap .is-opening .u-pop > .u-frame > .u-ribbon span {
+.hv-screen.tab-in .u-pop > .u-frame > .u-ribbon span {
   animation: uTabIn 200ms var(--ease-out) both;
 }
 @keyframes uTabIn {
@@ -4206,4 +4199,9 @@ body.u-tabswap .is-opening .u-pop > .u-frame > .u-ribbon span {
 }
 .ts-menu {
   bottom: 56px;
+}
+
+/* Pause: the co-op card (injected by ui/coop.ts) hangs level with the Today card. */
+.pause-wrap > .coop-pause {
+  margin-top: 70px;
 }

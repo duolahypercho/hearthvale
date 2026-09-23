@@ -253,7 +253,10 @@ export class SettingsScreen extends Screen {
     }
     capRow.appendChild(capSeg);
     disp.append(fs, capRow, this.toggle('showFps', 'Show FPS', 'frame counter under the clock'));
-    colA.append(gfx, disp);
+    // Accessibility
+    const acc = el('section', 'set-sec', `<h3>${ICONS.people}<span>Accessibility</span></h3>`);
+    acc.append(this.slider('uiScale', 'UI size', 0.8, 1.25), this.toggle('calm', 'Reduce motion', 'gentler animations'));
+    colA.append(gfx, disp, acc);
 
     // Audio
     const aud = el('section', 'set-sec', `<h3>${ICONS.speaker}<span>Sound</span></h3>`);
@@ -271,9 +274,7 @@ export class SettingsScreen extends Screen {
       { kind: 'toggle', key: 'toasts', label: 'Pickup notes', note: 'toasts in the corner' },
       { kind: 'toggle', key: 'tooltips', label: 'Item tooltips', note: 'hover cards' },
       { kind: 'toggle', key: 'clock24', label: '24-hour clock', note: 'HUD time format' },
-      { kind: 'toggle', key: 'calm', label: 'Reduce motion', note: 'gentler animations' },
     ];
-    ui.appendChild(this.slider('uiScale', 'UI size', 0.8, 1.25));
     for (const t of toggles) if (t.kind === 'toggle') ui.appendChild(this.toggle(t.key, t.label, t.note));
     colB.append(aud, ui);
 
