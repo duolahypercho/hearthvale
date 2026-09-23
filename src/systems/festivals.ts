@@ -19,7 +19,7 @@
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { FESTIVALS, ACTIVITIES, festivalOn, festivalForMap, activitiesFor, type FestivalDef, type FestivalId, type ActivityId } from '../data/festivals';
+import { FESTIVALS, ACTIVITIES, festivalOn, festivalForMap, activitiesFor, shortName, type FestivalDef, type FestivalId, type ActivityId } from '../data/festivals';
 import { NPCS, MOODS, type NpcId, type Mood } from '../data/npcs';
 import { SpringParade } from '../world/festivals/spring';
 import { SummerLanterns } from '../world/festivals/summer';
@@ -74,6 +74,8 @@ export class FestivalSystem implements System {
   private busy = false;
   /** Activities finished today (key: day:activity) — hosts thank you instead of re-offering. */
   private done = new Set<string>();
+  /** Activities ever won (1st place) — the dance offers its fast encore chart after a win. */
+  private wins = new Set<ActivityId>();
   private lineIx = new Map<string, number>();
 
   init(game: Game): void {
@@ -234,7 +236,7 @@ export class FestivalSystem implements System {
     if (!box) return opts[0]!;
     this.busy = true;
     try {
-      const k = await box.choose('hazel', 'Now — who will you dance with?', [...opts.map((i) => NPCS[i].name.split(' ')[0]!), 'Surprise me!'], 'thinking');
+      const k = await box.choose('hazel', 'Now — who will you dance with?', [...opts.map((i) => shortName(NPCS[i].name)), 'Surprise me!'], 'thinking');
       box.end();
       if (k < 0) return null;
       return k < 3 ? opts[k]! : ids[3 + Math.floor(Math.random() * (ids.length - 3))]!;
@@ -270,7 +272,7 @@ export class FestivalSystem implements System {
     const play = map.beginPlay(a, partner);
     let result: Awaited<ReturnType<FestivalOverlay['run']>> = null;
     try {
-      result = await this.overlay.run({ game, map, play, def, festival: fest, auto });
+      result = await this.overlay.run({ game, map, play, def, festival: fest, auto, hard: a === 'dance' && this.wins.has('dance') });
     } finally {
       map.endPlay(result ?? {});
       game.player.controllable = true;
@@ -278,11 +280,14 @@ export class FestivalSystem implements System {
       if (game.hud.openPanelName === 'festival') game.hud.open('none');
     }
     if (!result) return;
-    this.done.add(this.dayKey(a));
+    const firstWin = result.place === 0 && !result.noRibbon && !result.reaction && !this.wins.has(a);
+    if (result.place === 0 && !result.noRibbon && !result.reaction) this.wins.add(a);
+    // Win the Ribbon Dance and the fiddler offers the fast encore reel (same day); otherwise done.
+    if (!(a === 'dance' && firstWin)) this.done.add(this.dayKey(a));
     if (result.gold) game.services.economy?.add(result.gold, `festival:${a}`);
     for (const h of result.hearts ?? []) game.services.relationships?.adjust(h.id, h.delta);
-    game.events.emit('festival:minigame', { id: fest.id, game: a, score: result.score, won: result.place === 0 });
-    if (result.gold) game.events.emit('ui:toast', { text: `<b>+${result.gold}g</b> ${def.name} prize`, kind: 'gold' });
+    game.events.emit('festival:minigame', { id: fest.id, game: a, score: result.score, won: result.place === 0 && !result.noRibbon });
+    if (result.gold) game.events.emit('ui:toast', { text: `<b>+${result.gold}g</b> ${def.name} ${result.noRibbon ? 'consolation' : 'prize'}`, kind: 'gold' });
     const thanks: Partial<Record<ActivityId, string[]>> = {
       dance: ['[laugh] Now THAT is how the ribbons are meant to weave!', '[happy] Lovely footwork, dear. The pole approves.', '[happy] You went the wrong way twice. So did your gran. Perfect.'],
       lanterns: ['[happy] Look at them go. The whole bay is carrying your wishes now.'],
@@ -291,19 +296,28 @@ export class FestivalSystem implements System {
       giftswap: ['[happy] That’s the Starfall spirit, dear. Warm hands, warm hearts.'],
       skate: ['[neutral] Not bad. Your ankles survived. Come back next year.'],
     };
+    const laughs: Partial<Record<ActivityId, string>> = {
+      dance: '[laugh] You tied three people to the pole, dear. That is a record. Try again next spring!',
+      lanterns: '[happy] The sea is patient. So am I. Next year, hold them a breath longer.',
+      sackrace: '[laugh] You hopped like a potato with somewhere to be. Very brave. Very slow.',
+      pumpkin: '[thinking] Size matters to these judges, I’m afraid. Grow something enormous for next year.',
+      skate: '[neutral] The ice won that round. Cocoa is on me.',
+    };
     const lines = thanks[a] ?? [];
-    const line = lines[Math.min(result.place, lines.length - 1)];
+    let line = result.noRibbon ? laughs[a] : lines[Math.min(result.place, lines.length - 1)];
+    if (a === 'dance' && firstWin) line = '[laugh] Now THAT is how the ribbons are meant to weave! The fiddler wants an encore — the fast reel. Come back to me when you dare.';
     if (line && !direct) await this.say(def.host as NpcId, line);
   }
 
   save(): unknown {
-    return { visited: [...this.visited], done: [...this.done] };
+    return { visited: [...this.visited], done: [...this.done], wins: [...this.wins] };
   }
 
   load(data: unknown): void {
-    const d = data as { visited?: string[]; done?: string[] } | null;
+    const d = data as { visited?: string[]; done?: string[]; wins?: ActivityId[] } | null;
     this.visited = new Set(d?.visited ?? []);
     this.done = new Set(d?.done ?? []);
+    this.wins = new Set(d?.wins ?? []);
   }
 }
 

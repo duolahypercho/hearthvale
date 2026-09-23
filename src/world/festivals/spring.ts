@@ -18,24 +18,40 @@ import { TileType } from '../tiles';
 import { textures } from '../../render/textures';
 import { buildTownHouse, buildMarketStall, buildFlowerCart, buildPlanter, buildHedge } from '../props/townkit';
 import { buildLanternPost } from '../props/structures';
-import { buildBench, buildFlowerPot } from '../props/farmkit';
-import { buildBunting, buildMaypole, buildFeastTable } from '../props/festival';
+import { buildBench } from '../props/farmkit';
+import { buildBunting, buildFeastTable, FESTIVAL_COLORS } from '../props/festival';
 import { FestivalMap, type PlayState } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
-import { buildFlowerFloat, buildFlowerArch, buildBandstand, PASTELS } from './kit';
-import { PetalStorm, GroundScatter } from './fx';
+import { buildFlowerFloat, buildFlowerArch, buildBandstand, buildBlossomPole, buildCherryTrees } from './kit';
+import { PetalStorm, GroundScatter, PetalFall, Ribbons } from './fx';
+import { patchMaterial, after, before } from '../../render/patch';
 import { randomLook, type CrowdSpec } from './crowd';
 import { Rng } from '../../core/rng';
 
 const AVENUE: [number, number][] = [[-16, 22.6], [-2, 22.2], [10, 21.2], [22, 20.6], [32, 21.0], [42, 21.5], [54, 20.8], [66, 21.2], [82, 21.8]];
 const GREEN = { x: 32, z: 31.2, r: 5.6 };
 const POLE_R = 3.4;
+/** Blossom pole: height of the ribbon crown above the ground, plait radius, max plait length. */
+const POLE_H = 5.2;
+const PLAIT_R = 0.2;
+const PLAIT_MAX = 2.7;
+/** Ribbon dancers (one ring, alternate dancers circling opposite ways, weaving in and out). */
+const DANCERS = 8;
+const RIBBON_COLORS = [0xf06a8a, 0xffd166, 0x7ec8ff, 0xc77dff, 0x8fce6a, 0xffffff, 0xff9a6a, 0x5fd8c8];
 
 export class SpringParade extends FestivalMap {
   private curve!: THREE.CatmullRomCurve3;
   private avenueSamples: { x: number; z: number }[] = [];
   private floats: { group: THREE.Group; s: number; rider?: number; riderLocal?: THREE.Vector3; riderYawOff: number }[] = [];
-  private dancers: { i: number; ring: number; a: number }[] = [];
+  private dancers: { i: number; dir: 1 | -1; a: number }[] = [];
+  private ribbons!: Ribbons;
+  private plait!: THREE.Mesh;
+  private plaitLen = { value: 0.8 };
+  private poleY = 0;
+  private hand = new THREE.Vector3();
+  private anchor = new THREE.Vector3();
+  /** Partner hop (squash-and-stretch spring) during the Ribbon Dance. */
+  private hop = { v: 0, x: 0 };
   private petals!: PetalStorm;
   private curveLen = 1;
   /** Dance partner while the Ribbon Dance mini-game runs. */
@@ -227,13 +243,16 @@ export class SpringParade extends FestivalMap {
   }
 
   private buildGreen(r: Rng): void {
-    const pole = buildMaypole(r, 0, POLE_R, 0.35);
-    this.addProp(pole, GREEN.x, GREEN.z, 0, { solidR: 0.6, ao: 0.8 });
-    // Pegs where the ribbons meet the ground + a ring of potted blooms.
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2 + 0.13;
-      this.addProp(buildFlowerPot(r, PASTELS[i % PASTELS.length]!), GREEN.x + Math.cos(a) * (POLE_R + 0.05), GREEN.z + Math.sin(a) * (POLE_R + 0.05), 0, {});
-    }
+    const pole = buildBlossomPole(r, POLE_H);
+    this.addProp(pole.group, GREEN.x, GREEN.z, 0, { solidR: 0.7, ao: 0.9 });
+    this.poleY = this.H(GREEN.x, GREEN.z) - 0.03;
+    // Ribbons (strung to the dancers' hands every frame) + the plait that weaves down the pole.
+    this.ribbons = new Ribbons(DANCERS, RIBBON_COLORS);
+    this.ribbons.mesh.userData.perfTag = 'festival';
+    this.root.add(this.ribbons.mesh);
+    this.plait = this.buildPlait();
+    this.plait.position.set(GREEN.x, this.poleY + POLE_H - 0.06, GREEN.z);
+    this.root.add(this.plait);
     // Bandstand east, picnic + bun stall west.
     this.addProp(buildBandstand(r), 46, 31.5, 0, { solidR: 2.7, ao: 3 });
     this.addProp(buildMarketStall(r, [0xf7a8c0, 0xfbf2e8]), 20.2, 27.6, 0.35, { solidRect: [2.8, 1.2], ao: 1.6 });
@@ -244,8 +263,60 @@ export class SpringParade extends FestivalMap {
     this.addProp(buildMarketStall(r, [0xb8e0f0, 0xfbf2e8]), 44.4, 26.6, -0.3, { solidRect: [2.8, 1.2], ao: 1.6 });
   }
 
+  /**
+   * The maypole plait: a sleeve around the pole below the crown, woven from the ribbon colours in
+   * a basket-weave (over / under diamonds). `plaitLen` (m) reveals it from the top down as the
+   * dancers weave; the ribbons leave the pole from its lower edge.
+   */
+  private buildPlait(): THREE.Mesh {
+    const g = new THREE.CylinderGeometry(PLAIT_R * 0.92, PLAIT_R, PLAIT_MAX, 28, 12, true);
+    g.translate(0, -PLAIT_MAX / 2, 0);
+    const m = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.04 });
+    m.name = 'maypole-plait';
+    const cols = RIBBON_COLORS.map((c) => new THREE.Color(c).convertSRGBToLinear());
+    patchMaterial(m, 'maypole-plait', (shader) => {
+      shader.uniforms.uPlaitLen = this.plaitLen;
+      shader.uniforms.uRib = { value: cols };
+      shader.vertexShader = before(shader.vertexShader, 'void main() {', 'varying vec3 vPlait;');
+      shader.vertexShader = after(shader.vertexShader, '#include <begin_vertex>', 'vPlait = position;');
+      let fs = before(shader.fragmentShader, 'void main() {', 'varying vec3 vPlait; uniform float uPlaitLen; uniform vec3 uRib[8];');
+      fs = after(
+        fs,
+        '#include <color_fragment>',
+        /* glsl */ `
+        {
+          float dn = -vPlait.y;
+          if (dn > uPlaitLen) discard;
+          float ang = atan(vPlait.z, vPlait.x) / 6.2831853 + 0.5;
+          float a1 = ang * 8.0 + dn * 2.6;
+          float a2 = ang * 8.0 - dn * 2.6;
+          float i1 = floor(a1);
+          float i2 = floor(a2);
+          float over = mod(i1 + i2, 2.0);
+          int k = over > 0.5 ? int(mod(i1, 8.0)) : int(mod(i2 + 3.0, 8.0));
+          vec3 c = uRib[k];
+          float e = over > 0.5 ? fract(a1) : fract(a2);
+          float x = over > 0.5 ? fract(a2) : fract(a1);
+          // Rounded satin bands: darker at the weave crossings, a sheen down the middle.
+          float shade = (0.62 + 0.38 * sin(e * 3.14159)) * (0.8 + 0.2 * smoothstep(0.0, 0.18, min(x, 1.0 - x)));
+          // The freshest turn (the lower lip) sits a little proud and bright.
+          shade *= 1.0 + 0.15 * smoothstep(uPlaitLen - 0.12, uPlaitLen, dn);
+          diffuseColor.rgb = c * shade;
+        }`,
+      );
+      shader.fragmentShader = fs;
+    });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.noAO = true;
+    mesh.userData.perfTag = 'festival';
+    mesh.name = 'maypole-plait';
+    return mesh;
+  }
+
   private buildFloats(r: Rng): void {
-    const kinds = ['throne', 'tulip', 'swan', 'tree'] as const;
+    const kinds = ['throne', 'tulip', 'swan', 'sun'] as const;
     kinds.forEach((k, i) => {
       const f = buildFlowerFloat(r, k);
       f.group.userData.perfTag = 'floats';
@@ -253,16 +324,26 @@ export class SpringParade extends FestivalMap {
       f.group.traverse((o) => (o.userData.noAO = true));
       this.root.add(f.group);
       // Showcase spacing: the queen centre stage, others fore and aft.
-      const s = [0.47, 0.34, 0.6, 0.2][i]!;
-      this.floats.push({ group: f.group, s, riderLocal: f.anchors.seat, riderYawOff: 0 });
+      const s = [0.47, 0.375, 0.575, 0.285][i]!;
+      this.floats.push({ group: f.group, s, riderLocal: f.anchors.seat, riderYawOff: k === 'throne' ? 0 : -Math.PI / 2 + 0.5 });
     });
   }
 
   private plantTrees(r: Rng): void {
-    // Blossom avenue along the south kerb + between the houses.
-    for (const [x, z, s] of [[9.5, 25.6, 1.0], [27.2, 25.8, 0.85], [36.8, 25.8, 0.85], [55.5, 25.4, 1.0], [19, 9.8, 0.9], [28, 9.2, 0.85], [36.3, 9.2, 0.85], [45, 9.6, 0.9], [8.5, 14, 1.1], [56, 14.2, 1.05], [12, 38.5, 0.95], [52.5, 38.8, 1.0], [24.5, 42, 0.9], [41, 42.5, 0.95]] as const) {
-      this.addTree('blossom', x, z, s);
+    // Hero cherry trees (sculpted limbs + blossom clumps) along the south kerb and between houses.
+    const hero: [number, number, number][] = [[9.5, 25.6, 1.0], [27.0, 25.9, 0.9], [37.0, 25.9, 0.9], [55.5, 25.4, 1.0], [19, 9.6, 0.95], [28, 9.0, 0.9], [36.3, 9.0, 0.9], [45, 9.4, 0.95], [8.2, 14, 1.1], [56.2, 14.2, 1.05], [12, 38.5, 0.95], [52.5, 38.8, 1.0], [24.5, 42, 0.9], [41, 42.5, 0.95]];
+    const trees = hero.map(([x, z, s]) => ({ x, y: this.H(x, z), z, s }));
+    const cherry = buildCherryTrees(r.fork('cherry'), trees);
+    this.addProp(cherry.bark, 0, 0, 0, { y: 0 });
+    cherry.bloom.userData.perfTag = 'trees';
+    this.root.add(cherry.bloom);
+    for (const t of trees) {
+      this.blockCircle(t.x, t.z, 0.55 * t.s);
+      this.terrain.stampCover('ao', t.x, t.z, 1.8 * t.s, 0.5);
     }
+    const fall = new PetalFall(cherry.canopies, 60);
+    fall.mesh.userData.perfTag = 'festival';
+    this.root.add(fall.mesh);
     this.addTree('oak', 6, 31, 1.1);
     this.addTree('maple', 58, 31, 1.05);
     for (let z = -18; z < 66; z += 2.4) {
@@ -272,6 +353,8 @@ export class SpringParade extends FestivalMap {
         const d = this.rimDist(jx, jz);
         if (d < 1.2 || this.exitMask(jx, jz) > 0.2 || r.next() < 0.3) continue;
         if (this.terrain.slopeAt(jx, jz) < 0.75) continue;
+        // Keep the lens clear south of the green (arrival / dance framing).
+        if (jz > 40 && jz < 56 && Math.abs(jx - 31.5) < 13) continue;
         const roll = r.next();
         const sp = roll < 0.3 ? 'pine' : roll < 0.55 ? 'oak' : roll < 0.7 ? 'maple' : 'blossom';
         this.trees.add(sp, jx, this.H(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 2.2 ? 1 : 0);
@@ -349,18 +432,20 @@ export class SpringParade extends FestivalMap {
       const child = r.next() < 0.3;
       person(randomLook(r, { child, palette: P.tops }), pick(['cheer', 'wave', 'clap', 'cheer', 'wave'] as const), x + (r.next() - 0.5) * 0.4, 17.7 + (r.next() - 0.5) * 0.5, (r.next() - 0.5) * 0.6, { props: child ? [pick(['balloon', 'flag', 'balloon'] as const)] : r.next() < 0.3 ? ['flag'] : [] });
     }
-    const kerbS = [13.4, 18.2, 24.4, 31.2, 34.4, 39.8, 50.2, 53.8];
+    // South kerb: townsfolk with their backs to the lane, watching the ribbon dance on the green
+    // (faces toward the camera, a few turned to chat).
+    const kerbS = [13.4, 18.2, 24.4, 34.4, 39.8, 50.2, 53.8];
     for (const x of kerbS) {
       const child = r.next() < 0.35;
-      person(randomLook(r, { child, palette: P.tops }), pick(['cheer', 'clap', 'wave'] as const), x + (r.next() - 0.5) * 0.4, 24.4 + (r.next() - 0.5) * 0.4, Math.PI + (r.next() - 0.5) * 1.4, { props: child ? ['balloon'] : [] });
+      person(randomLook(r, { child, palette: P.tops }), pick(['cheer', 'clap', 'wave', 'idle'] as const), x + (r.next() - 0.5) * 0.4, 24.6 + (r.next() - 0.5) * 0.4, (r.next() - 0.5) * 1.2, { props: child ? ['balloon'] : [] });
     }
-    // Ribbon dancers: two rings weaving opposite ways around the blossom pole.
-    for (let k = 0; k < 10; k++) {
-      const ring = k % 2;
-      const a = (k / 10) * Math.PI * 2;
-      const rad = ring ? POLE_R + 0.75 : POLE_R - 0.9;
-      const i = person(randomLook(r, { palette: P.tops }), 'dance', GREEN.x + Math.cos(a) * rad, GREEN.z + Math.sin(a) * rad, 0, { speed: 1 });
-      this.dancers.push({ i, ring, a });
+    // Ribbon dancers: one ring round the blossom pole, alternate dancers circling opposite ways and
+    // weaving in and out of each other; each holds the end of a ribbon up in the hand nearest the pole.
+    for (let k = 0; k < DANCERS; k++) {
+      const dir: 1 | -1 = k % 2 ? 1 : -1;
+      const a = (k / DANCERS) * Math.PI * 2;
+      const i = person(randomLook(r, { palette: P.tops }), dir > 0 ? 'ribbonL' : 'ribbonR', GREEN.x + Math.cos(a) * 3, GREEN.z + Math.sin(a) * 3, 0, { speed: 1 });
+      this.dancers.push({ i, dir, a });
     }
     // Band in the bandstand.
     const bx = 46;
@@ -374,15 +459,13 @@ export class SpringParade extends FestivalMap {
     person(randomLook(r, { child: true, palette: P.tops }), 'cheer', 36.8, 35.2, -2.3, {});
     person(randomLook(r, { palette: P.tops }), 'clap', 26.2, 35.6, 2.4, {});
     person(randomLook(r, { palette: P.tops }), 'clap', 38.6, 28.4, -1.1, {});
-    // Float riders: the Blossom Queen + a waving kid on the tulips.
-    const queen = person({ skin: 0xf2c8a2, hair: 0xb8542a, hairStyle: 'bob', top: 0xffffff, bottom: 0xf7a8c0, scale: 0.95, build: 1 }, 'wave', 0, 0, 0, { lift: 0, top: 0xfff4f8, accent: 0xf06a8a, props: ['bouquet'] });
+    // Float riders: the Blossom Queen on her throne, waving kids on the other three.
+    const queen = person({ skin: 0xf2c8a2, hair: 0xb8542a, hairStyle: 'bob', top: 0xffffff, bottom: 0xf7a8c0, scale: 0.95, build: 1, skirt: true }, 'wave', 0, 0, 0, { lift: 0, top: 0xfff4f8, accent: 0xf06a8a, props: ['bouquet'] });
     this.floats[0]!.rider = queen;
-    const kid = person(randomLook(r, { child: true, palette: P.tops }), 'wave', 0, 0, 0, { props: ['flag'] });
-    this.floats[1]!.rider = kid;
-    this.floats[1]!.riderLocal = new THREE.Vector3(1.1, 0.8, 0.45);
-    const swanRider = person(randomLook(r, { child: true, palette: P.tops }), 'cheer', 0, 0, 0, {});
-    this.floats[2]!.rider = swanRider;
-    this.floats[2]!.riderLocal = new THREE.Vector3(-1.1, 0.8, 0.5);
+    for (const k of [1, 2, 3]) {
+      const kid = person(randomLook(r, { child: true, palette: P.tops }), k === 2 ? 'cheer' : 'wave', 0, 0, 0, { props: k === 1 ? ['flag'] : k === 3 ? ['balloon'] : [] });
+      this.floats[k]!.rider = kid;
+    }
     this.crowdSpecs = specs;
   }
 
@@ -392,7 +475,7 @@ export class SpringParade extends FestivalMap {
     const crowd = this.crowd;
     const tan = new THREE.Vector3();
     for (const f of this.floats) {
-      const u = (((f.s + t * 0.012) % 1) + 1) % 1;
+      const u = (((f.s + t * 0.0055) % 1) + 1) % 1;
       const p = this.curve.getPointAt(u);
       this.curve.getTangentAt(u, tan);
       const yaw = Math.atan2(-tan.z, tan.x);
@@ -413,43 +496,70 @@ export class SpringParade extends FestivalMap {
   }
 
   protected override tick(dt: number, game: Game): void {
-    void dt;
     const t = game.time;
-    this.placeFloats(t);
+    // Parade clock restarts with the showcase so demo frames catch the floats mid-lane.
+    this.placeFloats(this.showT);
     const crowd = this.crowd;
     if (!crowd) return;
-    // Dancers circle: inner ring clockwise, outer ring counter-clockwise (ribbon weave).
+    // The plait grows down the pole as the dancers weave (the Ribbon Dance: as you hit the beats).
+    const play = this.play?.id === 'dance' ? this.play : null;
+    const goal = play ? 0.35 + (play.progress[0] ?? 0) * (PLAIT_MAX - 0.35) : 0.55 + 1.5 * (0.5 - 0.5 * Math.cos((t * Math.PI * 2) / 110));
+    this.plaitLen.value += (goal - this.plaitLen.value) * (1 - Math.exp(-1.5 * dt));
+    const wrap = this.plaitLen.value / PLAIT_MAX;
+    const R0 = 3.2 - wrap * 0.55;
+    const w = 0.3;
+    const at = (d: { dir: 1 | -1; a: number }, tt: number): [number, number] => {
+      const a = d.a + d.dir * w * tt;
+      const r = R0 + d.dir * 0.42 * Math.sin(4 * a);
+      return [GREEN.x + Math.cos(a) * r, GREEN.z + Math.sin(a) * r];
+    };
     for (const d of this.dancers) {
-      const dir = d.ring ? 1 : -1;
-      const a = d.a + t * 0.32 * dir;
-      const rad = (d.ring ? POLE_R + 0.75 : POLE_R - 0.9) + Math.sin(t * 1.5 + d.a * 3) * 0.12;
-      const x = GREEN.x + Math.cos(a) * rad;
-      const z = GREEN.z + Math.sin(a) * rad;
+      const [x, z] = at(d, t);
+      const [x2, z2] = at(d, t + 0.05);
       crowd.place(d.i, x, z);
-      // Face along the direction of travel, slightly turned in towards the pole.
-      const tx = -Math.sin(a) * dir;
-      const tz = Math.cos(a) * dir;
-      crowd.members[d.i]!.yaw = Math.atan2(tx - Math.cos(a) * 0.4, tz - Math.sin(a) * 0.4);
+      // Face along the weave, turned a touch in towards the pole (the ribbon hand).
+      crowd.members[d.i]!.yaw = Math.atan2(x2 - x, z2 - z) + (d.dir > 0 ? -0.3 : 0.3);
     }
-    if (this.partner && this.play) {
-      // The partner mirrors your skip-steps and circles you on the twirls.
+    // Partner hop: a damped spring driven by Bloom! hits (squash-and-stretch).
+    const h = this.hop;
+    h.v += (-90 * h.x - 9 * h.v) * dt;
+    h.x += h.v * dt;
+    if (this.partner && play) {
+      // The partner mirrors your skip-steps beside you.
       const s = this.danceSpot();
-      const b = this.play.live ? this.play.beat : this.play.t * 1.6;
-      const sway = Math.sin(b * Math.PI) * 0.12;
-      crowd.place(this.partner.i, s.qx + sway, s.qz, -0.45 + Math.sin(b * Math.PI * 0.5) * 0.35, 0);
+      const b = play.live ? play.beat : play.t * 1.6;
+      const sway = Math.sin(b * Math.PI) * 0.1;
+      const m = crowd.members[this.partner.i]!;
+      crowd.place(this.partner.i, s.qx + sway, s.qz, -0.5 + Math.sin(b * Math.PI * 0.5) * 0.3, Math.max(0, -h.x) * 0.6);
+      m.squash = 1 + h.x;
+      m.lean *= Math.exp(-4 * dt);
     }
     crowd.commit();
+    // Ribbons: pole (just under the plait) → each dancer's raised hand.
+    const top = this.poleY + POLE_H - 0.06;
+    for (let k = 0; k < this.dancers.length; k++) {
+      const d = this.dancers[k]!;
+      crowd.ribbonHand(d.i, t, this.hand);
+      const m = crowd.members[d.i]!;
+      const dx = m.x - GREEN.x;
+      const dz = m.z - GREEN.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      this.anchor.set(GREEN.x + (dx / dl) * PLAIT_R * 0.8, top - this.plaitLen.value + 0.04, GREEN.z + (dz / dl) * PLAIT_R * 0.8);
+      this.ribbons.set(k, this.anchor, this.hand, t, 0.1 + 0.05 * Math.sin(t * 1.3 + k), 0.11);
+    }
+    this.ribbons.commit();
   }
 
   override stage(): void {
     super.stage();
+    this.plaitLen.value = 1.2;
   }
 
   // ───────────────────────────────────────────── Ribbon Dance mini-game
 
   private danceSpot(): { px: number; pz: number; qx: number; qz: number } {
-    const z = GREEN.z + POLE_R + 1.55;
-    return { px: GREEN.x - 0.75, pz: z, qx: GREEN.x + 0.75, qz: z };
+    const z = GREEN.z + POLE_R + 2.7;
+    return { px: GREEN.x - 0.9, pz: z, qx: GREEN.x + 0.9, qz: z };
   }
 
   protected override onBeginPlay(play: PlayState): void {
@@ -462,28 +572,44 @@ export class SpringParade extends FestivalMap {
     if (c && i !== undefined) {
       const m = c.members[i]!;
       this.partner = { i, x: m.x, z: m.z, yaw: m.yaw, anim: m.anim };
-      c.place(i, s.qx, s.qz, -0.45, 0);
+      c.place(i, s.qx, s.qz, -0.5, 0);
       c.setAnim(i, 'dance');
       c.commit();
     }
-    this.frame({ pitch: 38, distance: 17, yaw: 0, ox: 0.4, oz: -2.2 });
+    this.plaitLen.value = 0.35;
+    this.frame({ pitch: 38, distance: 19.5, yaw: 0, ox: 0.4, oz: -4.4 });
   }
 
   protected override onPlayEvent(play: PlayState, kind: string, value: number): void {
     if (play.id !== 'dance') return;
-    const s = this.danceSpot();
-    const y = this.H(s.px, s.pz);
+    const c = this.crowd;
+    const pm = this.partner && c ? c.members[this.partner.i]! : null;
+    if (kind === 'restart') {
+      this.plaitLen.value = 0.35;
+      return;
+    }
+    const cols = [0xf9c6d6, 0xffffff, 0xf4aec4, 0xfde2a0];
     if (kind === 'perfect' || kind === 'good') {
       const big = kind === 'perfect';
-      const cols = [0xf9c6d6, 0xffffff, 0xf4aec4, 0xfde2a0];
-      this.burst(GREEN.x, y + 1.4, s.pz, { color: cols[value % cols.length]!, count: big ? 22 : 10, speed: big ? 2.6 : 1.8, size: 0.13, gravity: 1.2, life: 1.4, up: 1.4, spread: 1.6 });
+      if (pm) {
+        // A petal burst at your partner + a squash-and-stretch hop.
+        this.burst(pm.x, pm.y + 1.5, pm.z, { color: cols[value % cols.length]!, count: big ? 26 : 10, speed: big ? 2.8 : 1.8, size: 0.13, gravity: 1.2, life: 1.4, up: 1.6, spread: 0.35 });
+        this.hop.v -= big ? 3.2 : 1.6;
+      }
+      const s = this.danceSpot();
+      this.burst(s.px, this.H(s.px, s.pz) + 1.4, s.pz, { color: cols[(value + 1) % cols.length]!, count: big ? 12 : 5, speed: 1.8, size: 0.12, gravity: 1.2, life: 1.2, up: 1.3, spread: 0.3 });
       if (big && value > 0 && value % 8 === 0) {
-        // Every 8-combo: a swirl of petals over the whole ring.
+        // Every 8-combo: a swirl of petals round the whole ring + up the plait.
         for (let k = 0; k < 10; k++) {
           const a = (k / 10) * Math.PI * 2;
-          this.burst(GREEN.x + Math.cos(a) * POLE_R, y + 2.2, GREEN.z + Math.sin(a) * POLE_R, { color: cols[k % cols.length]!, count: 10, speed: 2, size: 0.14, gravity: 0.8, life: 1.8, up: 1.2, spread: 0.6 });
+          this.burst(GREEN.x + Math.cos(a) * POLE_R, this.poleY + 2.2, GREEN.z + Math.sin(a) * POLE_R, { color: cols[k % cols.length]!, count: 10, speed: 2, size: 0.14, gravity: 0.8, life: 1.8, up: 1.2, spread: 0.6 });
         }
+        this.burst(GREEN.x, this.poleY + POLE_H - this.plaitLen.value, GREEN.z, { color: 0xffd166, count: 30, speed: 2.4, size: 0.12, gravity: 1, life: 1.6, up: 0.6, spread: 0.3 });
       }
+    } else if (kind === 'miss' && pm) {
+      // A stumble: the partner wobbles.
+      pm.lean = (value % 2 ? 1 : -1) * 0.22;
+      this.hop.v += 1.2;
     }
   }
 
@@ -492,7 +618,10 @@ export class SpringParade extends FestivalMap {
     const p = this.partner;
     if (c && p) {
       c.place(p.i, p.x, p.z, p.yaw);
-      c.members[p.i]!.anim = p.anim;
+      const m = c.members[p.i]!;
+      m.anim = p.anim;
+      m.squash = 1;
+      m.lean = 0;
       c.commit();
     }
     this.partner = null;

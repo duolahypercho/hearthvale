@@ -1,20 +1,23 @@
 /**
  * NightSea: the Tide Lantern Night sea at Driftglass Cove.
  *
- *   depth     terrain height texture → inky shallows over pale sand, deep indigo further out
- *   surface   rolling swell + layered ripple normals; night-sky Fresnel reflection; a broken moon
- *             glitter path; warm lantern-light shimmer bands (the lanterns' own reflection streaks
- *             are drawn by `Lanterns`)
- *   glow      bioluminescence: every wave that rolls in lights up as an electric-cyan foam front
- *             where it breaks on the sand, with clustered plankton sparkles flickering in the
- *             shallows and in the wake of drifting lanterns (all HDR, it feeds the bloom)
- *   far       a flat plane beyond the near grid reaching to the horizon
+ *   surface   rolling swell + two octaves of scrolling ripple normals (~0.15 m/s, crossing); a
+ *             Fresnel reflection of the night sky (gradient + reflected stars), a moon glitter path
+ *             running out to the horizon, warm light pools under the pier / boat / arch lanterns
+ *             (`pools`) with broken ripple glints
+ *   shore     every wave runs up the sand as a thin sheet (in phase with the beach sand's swash,
+ *             SWASH_GLSL): the crest pulses electric cyan as it breaks, lace foam glows in its wake,
+ *             the leading edge flares on the run-up and dims on the backwash
+ *   life      clustered plankton sparkles in the shallows; glowing rings / trails where feet stir the
+ *             water (`feet`: villagers at the waterline + the player's recent steps)
+ *   far       a plane beyond the near grid out to the horizon (same shading, no ground)
  *
  * One transparent draw call (+1 far), no shadows / AO.
  */
 import * as THREE from 'three';
 import { globalUniforms } from '../../render/uniforms';
 import { NOISE_GLSL } from '../../render/shaders/noise';
+import { SWASH_GLSL, VORONOI_GLSL } from '../beach/ocean';
 import type { Terrain } from '../terrain';
 
 export interface NightSeaOptions {
@@ -27,11 +30,18 @@ export interface NightSeaOptions {
   glow?: number;
 }
 
+export const SEA_POOLS = 10;
+export const SEA_FEET = 16;
+
 export class NightSea {
   readonly group = new THREE.Group();
   readonly glow = { value: 1 };
   /** Warm light (fireworks flash) tinting the water, rgb × intensity. */
   readonly flash = { value: new THREE.Color(0, 0, 0) };
+  /** Warm light pools on the water: (x, z, radius, intensity). */
+  readonly pools = { value: Array.from({ length: SEA_POOLS }, () => new THREE.Vector4(0, 0, 1, 0)) };
+  /** Feet stirring the plankton: (x, z, age s, strength). */
+  readonly feet = { value: Array.from({ length: SEA_FEET }, () => new THREE.Vector4(0, 0, 99, 0)) };
 
   constructor(o: NightSeaOptions) {
     this.glow.value = o.glow ?? 1;
@@ -52,6 +62,9 @@ export class NightSea {
       uLamps: globalUniforms.uLamps,
       uGlow: this.glow,
       uFlash: this.flash,
+      uPools: this.pools,
+      uFeet: this.feet,
+      uMoonDir: { value: new THREE.Vector3(0.18, 0.3, -1).normalize() },
       uFar: { value: 0 },
     };
     const make = (far: boolean): THREE.ShaderMaterial => {
@@ -63,14 +76,22 @@ export class NightSea {
         vertexShader: /* glsl */ `
           uniform sampler2D uHeight; uniform vec2 uHOrigin; uniform vec2 uHSize; uniform float uLevel; uniform float uTime; uniform vec2 uShore; uniform float uFar;
           varying vec3 vW;
+          varying float vSheet;
           ${NOISE_GLSL}
+          ${SWASH_GLSL}
           #include <fog_pars_vertex>
           void main() {
             vec4 wp = modelMatrix * vec4(position, 1.0);
-            // Rolling swell (fades out in the shallows, where the waves break instead).
+            vec2 huv = (wp.xz - uHOrigin) / uHSize;
+            float ground = texture(uHeight, clamp(huv, 0.0, 1.0)).r;
+            float d0 = uLevel - ground;
+            // Rolling swell out deep; near the beach the water runs up the sand as a thin sheet.
             float along = dot(wp.xz, uShore);
             float sw = sin(along * 0.55 - uTime * 1.1) * 0.05 + sin(dot(wp.xz, vec2(0.31, 0.12)) + uTime * 0.7) * 0.03;
-            wp.y += sw * (1.0 - uFar);
+            float sheet = max(hvSwash(wp.xz, uTime), 0.0);
+            float nearShore = 1.0 - smoothstep(0.25, 1.1, d0);
+            wp.y += (sw * smoothstep(0.3, 1.5, d0) + sheet * nearShore) * (1.0 - uFar);
+            vSheet = sheet * nearShore;
             vW = wp.xyz;
             vec4 mvPosition = viewMatrix * wp;
             gl_Position = projectionMatrix * mvPosition;
@@ -79,11 +100,16 @@ export class NightSea {
         fragmentShader: /* glsl */ `
           uniform float uTime; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uSkyColor; uniform vec3 uHorizonColor;
           uniform float uNight; uniform float uLamps; uniform float uGlow; uniform vec3 uFlash; uniform vec2 uShore; uniform float uLevel; uniform float uFar;
-          uniform sampler2D uHeight; uniform vec2 uHOrigin; uniform vec2 uHSize;
+          uniform sampler2D uHeight; uniform vec2 uHOrigin; uniform vec2 uHSize; uniform vec3 uMoonDir;
+          uniform vec4 uPools[${SEA_POOLS}];
+          uniform vec4 uFeet[${SEA_FEET}];
           varying vec3 vW;
+          varying float vSheet;
           ${NOISE_GLSL}
+          ${SWASH_GLSL}
+          ${VORONOI_GLSL}
           #include <fog_pars_fragment>
-          vec2 cellSpark(vec2 p, float t) {
+          float cellSpark(vec2 p, float t) {
             // Clustered plankton: sparse cells blink on and off.
             vec2 i = floor(p);
             vec2 f = fract(p) - 0.5;
@@ -91,64 +117,101 @@ export class NightSea {
             vec2 o = (h - 0.5) * 0.7;
             float d = length(f - o);
             float blink = pow(max(0.0, sin(t * (1.5 + h.x * 3.0) + h.y * 40.0)), 6.0);
-            return vec2((1.0 - smoothstep(0.0, 0.12, d)) * blink, h.x);
+            return (1.0 - smoothstep(0.0, 0.12, d)) * blink;
+          }
+          float ripples(vec2 p, float t) {
+            // Two crossing octaves scrolling at ~0.15 m/s.
+            return hvNoise(p * 0.85 + vec2(t * 0.15, t * 0.09)) * 0.65 + hvNoise(p * 2.6 + vec2(-t * 0.12, t * 0.16)) * 0.35;
           }
           void main() {
             vec2 huv = (vW.xz - uHOrigin) / uHSize;
-            float ground = texture2D(uHeight, clamp(huv, 0.0, 1.0)).r;
+            float ground = texture(uHeight, clamp(huv, 0.0, 1.0)).r;
             if (uFar > 0.5 || huv.x < 0.0 || huv.y < 0.0 || huv.x > 1.0 || huv.y > 1.0) ground = uLevel - 6.0;
-            float vDepth = uLevel - ground;
-            float depth = max(vDepth, 0.0);
-            if (vDepth < -0.05) discard;
+            float depth = vW.y - ground;
+            if (depth < 0.0) discard;
+            float dSea = max(uLevel - ground, 0.0);
             vec2 p = vW.xz;
             float t = uTime;
-            // Normals: two scrolling ripple layers + swell.
-            vec2 e = vec2(0.15, 0.0);
-            float s1 = hvFbm(p * 0.35 + vec2(t * 0.05, t * 0.08));
-            float s2 = hvNoise(p * 1.3 - vec2(t * 0.22, -t * 0.12));
-            float hx = hvFbm((p + e.xy) * 0.35 + vec2(t * 0.05, t * 0.08)) + (hvNoise((p + e.xy) * 1.3 - vec2(t * 0.22, -t * 0.12)) - s2) * 0.35;
-            float hz = hvFbm((p + e.yx) * 0.35 + vec2(t * 0.05, t * 0.08)) + (hvNoise((p + e.yx) * 1.3 - vec2(t * 0.22, -t * 0.12)) - s2) * 0.35;
-            vec3 n = normalize(vec3((s1 - hx) * 2.2, 1.0, (s1 - hz) * 2.2));
-            vec3 V = normalize(cameraPosition - vW);
-            float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
-            // Base: inky shallows → indigo deep.
-            float dk = 1.0 - exp(-depth * 0.9);
-            vec3 shallow = vec3(0.035, 0.09, 0.11);
-            vec3 deep = vec3(0.01, 0.022, 0.06);
-            vec3 col = mix(shallow, deep, dk);
-            // Sky reflection (night sky + horizon glow at grazing angles).
-            vec3 R = reflect(-V, n);
-            vec3 sky = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.5, R.y)) * 0.4;
-            col = mix(col, sky, fres * 0.6);
-            // Moon glitter path.
-            vec3 L = normalize(uSunDir);
-            float spec = pow(max(dot(R, L), 0.0), 220.0);
-            float glit = step(0.72, hvNoise(p * 3.0 + t * 0.4)) * pow(max(dot(R, L), 0.0), 18.0);
-            col += uSunColor * (spec * 2.4 + glit * 0.9) * mix(1.0, 0.7, uNight);
-            // Fireworks / lantern warm wash.
-            col += uFlash * (0.25 + fres * 0.9) * (0.4 + 0.6 * s1);
-            // Bioluminescent surf: wave fronts running shoreward, breaking over the sand.
+            // Normals: scrolling ripples + the swell, calmer in the thin swash sheet.
+            float e = 0.12;
+            float h0 = ripples(p, t);
+            float hx = ripples(p + vec2(e, 0.0), t);
+            float hz = ripples(p + vec2(0.0, e), t);
             float along = dot(p, uShore);
-            float wobble = hvNoise(p * 0.18 + 3.0) * 3.0 + hvNoise(p * 0.6) * 0.6;
-            float phase = fract(along * 0.12 - t * 0.085 + wobble * 0.12);
-            float front = smoothstep(0.0, 0.03, phase) * (1.0 - smoothstep(0.03, 0.14, phase));
-            float breakZone = (1.0 - smoothstep(0.12, 1.1, depth)) * smoothstep(-0.02, 0.06, depth);
-            float lace = smoothstep(0.35, 0.75, hvNoise(p * 2.4 + vec2(t * 0.3, 0.0))) * 0.7 + 0.3;
-            float surf = front * breakZone * lace;
-            // Edge: the thin film on the sand always glimmers faintly.
-            float edge = (1.0 - smoothstep(0.0, 0.16, depth)) * (0.25 + 0.75 * smoothstep(0.3, 0.9, hvNoise(p * 1.7 + t * 0.5)));
-            vec2 sp = cellSpark(p * 2.6, t);
-            vec2 sp2 = cellSpark(p * 5.1 + 7.0, t * 1.3);
-            float plank = (sp.x + sp2.x * 0.6) * (1.0 - smoothstep(0.2, 3.0, depth)) * (0.35 + 0.65 * smoothstep(0.3, 0.7, hvNoise(p * 0.25 + t * 0.02)));
-            vec3 cyan = vec3(0.18, 0.95, 1.0);
-            vec3 blue = vec3(0.1, 0.45, 1.0);
-            vec3 bio = mix(blue, cyan, surf + edge * 0.5) * (surf * 3.2 + edge * 0.9 + plank * 2.6);
-            col += bio * uGlow * uNight * (1.0 - uFar);
-            // Pale foam that isn't glowing (visible in the day).
-            col = mix(col, vec3(0.8, 0.85, 0.85), surf * 0.25 * (1.0 - uNight));
-            float alpha = mix(0.55, 0.97, smoothstep(0.0, 0.9, depth));
-            alpha = max(alpha, clamp(surf * 1.5 + edge, 0.0, 1.0));
-            alpha *= smoothstep(-0.05, 0.03, vDepth);
+            float swl = cos(along * 0.55 - t * 1.1) * 0.55 * 0.05;
+            float calm = smoothstep(0.0, 0.5, dSea);
+            vec3 n = normalize(vec3(-(hx - h0) / e * 0.22 * (0.4 + 0.6 * calm) - uShore.x * swl, 1.0, -(hz - h0) / e * 0.22 * (0.4 + 0.6 * calm) - uShore.y * swl));
+            vec3 V = normalize(cameraPosition - vW);
+            float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
+            // Body: ink-teal shallows over sand → deep indigo.
+            float dk = 1.0 - exp(-dSea * 0.8);
+            vec3 col = mix(vec3(0.03, 0.075, 0.09), vec3(0.008, 0.02, 0.05), dk);
+            // Night-sky reflection (gradient + reflected stars), strongest at grazing angles.
+            vec3 R = reflect(-V, n);
+            vec3 sky = mix(uHorizonColor * 0.85, uSkyColor * 0.55, smoothstep(-0.05, 0.45, R.y));
+            vec2 sc = floor(R.xz / max(R.y + 0.25, 0.08) * 60.0);
+            float star = step(0.992, hvHash12(sc)) * (0.5 + 0.5 * sin(t * 3.0 + hvHash12(sc + 3.0) * 30.0));
+            sky += vec3(0.8, 0.85, 1.0) * star * uNight * 0.6;
+            col = mix(col, sky, clamp(fres * 1.1 + 0.08, 0.0, 1.0) * 0.85);
+            // Moon glitter path: a broad column of broken sparkles out to the horizon + a hot core.
+            vec3 M = normalize(uMoonDir);
+            float rm = max(dot(R, M), 0.0);
+            float lobe = pow(rm, 70.0);
+            float spark = smoothstep(0.62, 0.9, hvNoise(p * vec2(1.6, 4.0) + vec2(t * 0.5, -t * 0.8))) * smoothstep(0.4, 0.8, hvNoise(p * 0.7 - t * 0.2));
+            vec3 moon = vec3(0.75, 0.82, 1.0);
+            col += moon * (lobe * spark * 1.1 + pow(rm, 900.0) * 1.2 + lobe * 0.04) * uNight;
+            // Sun glint by day.
+            vec3 L = normalize(uSunDir);
+            col += uSunColor * pow(max(dot(R, L), 0.0), 220.0) * 2.0 * (1.0 - uNight);
+            // Warm light pools under lanterns / boats (+ rippled glints inside them).
+            vec3 warm = vec3(1.0, 0.55, 0.2);
+            for (int i = 0; i < ${SEA_POOLS}; i++) {
+              vec4 q = uPools[i];
+              if (q.w <= 0.0) continue;
+              vec2 dq = p - q.xy;
+              float fall = exp(-dot(dq, dq) / (q.z * q.z));
+              float glint = smoothstep(0.55, 0.85, h0 + hvNoise(p * 3.1 + t * 0.4) * 0.35);
+              col += warm * q.w * fall * (0.12 + 0.55 * fres + glint * 0.9) * (0.3 + uLamps * 0.7);
+            }
+            // Fireworks wash.
+            col += uFlash * (0.2 + fres * 0.9) * (0.4 + 0.6 * h0);
+            // ── bioluminescent surf
+            float ph = fract(hvSwashPhase(p, t));
+            float sheetZone = smoothstep(0.03, -0.02, uLevel - ground);
+            // The breaking crest rolls in over the last metre of depth, flaring as it breaks.
+            // Two sets of breakers: the main wave + a smaller one half a period behind.
+            float ph2 = fract(ph + 0.5);
+            float crestDepth = mix(1.3, 0.0, smoothstep(0.0, 0.26, ph));
+            float crestDepth2 = mix(0.9, 0.0, smoothstep(0.0, 0.26, ph2));
+            float crest = exp(-pow((dSea - crestDepth) / 0.16, 2.0)) * step(ph, 0.3) * smoothstep(1.4, 0.15, crestDepth) * (1.0 - sheetZone);
+            crest += 0.55 * exp(-pow((dSea - crestDepth2) / 0.12, 2.0)) * step(ph2, 0.3) * smoothstep(1.0, 0.15, crestDepth2) * (1.0 - sheetZone);
+            crest *= 0.6 + 0.4 * smoothstep(0.3, 0.7, hvNoise(p * vec2(0.35, 0.8) + t * 0.1));
+            float lace = hvLace(p * 1.2, t * 0.3);
+            // Foam left behind the crest (a lacy glow decaying with the backwash).
+            float wake = lace * smoothstep(1.1, 0.0, dSea) * (0.35 + 0.65 * (1.0 - smoothstep(0.2, 0.95, ph))) * (0.5 + 0.5 * calm);
+            // Swash sheet on the sand: leading edge flares on the run-up, dims on the backwash.
+            float edge = (1.0 - smoothstep(0.0, 0.04, depth)) * max(sheetZone, 1.0 - smoothstep(0.0, 0.1, dSea)) * (step(ph, 0.26) * 1.0 + 0.3);
+            float film = sheetZone * lace * 0.5;
+            float plank = (cellSpark(p * 2.6, t) + cellSpark(p * 5.1 + 7.0, t * 1.3) * 0.6) * (1.0 - smoothstep(0.2, 2.5, dSea)) * (0.35 + 0.65 * smoothstep(0.3, 0.7, hvNoise(p * 0.25 + t * 0.02)));
+            // Feet stirring the plankton: bright rings that fade.
+            float stir = 0.0;
+            for (int i = 0; i < ${SEA_FEET}; i++) {
+              vec4 f = uFeet[i];
+              if (f.w <= 0.0) continue;
+              float d = length(p - f.xy);
+              float ring = exp(-pow((d - 0.25 - f.z * 0.35) / 0.12, 2.0)) + exp(-d * d * 10.0) * 0.8;
+              stir += ring * f.w * exp(-f.z * 1.1);
+            }
+            stir *= (1.0 - smoothstep(0.1, 1.2, dSea));
+            float bright = crest * 3.0 * (0.55 + 0.45 * lace) + wake * 2.0 + edge * 2.2 + film + plank * 2.4 + stir * 2.6;
+            vec3 cyan = vec3(0.2, 0.95, 1.0);
+            vec3 blue = vec3(0.08, 0.42, 1.0);
+            vec3 bio = mix(blue, cyan, clamp(crest + edge + stir * 0.5, 0.0, 1.0)) * bright;
+            col += bio * uGlow * smoothstep(0.35, 0.85, uNight) * (1.0 - uFar);
+            // Pale foam by day.
+            col = mix(col, vec3(0.82, 0.86, 0.86), clamp(crest + wake * 0.5 + edge, 0.0, 1.0) * 0.5 * (1.0 - uNight));
+            float alpha = mix(0.55, 0.97, smoothstep(0.0, 0.9, dSea)) * mix(1.0, smoothstep(0.0, 0.05, depth) * 0.75, sheetZone);
+            alpha = max(alpha, clamp(bright * 0.6, 0.0, 1.0) * (1.0 - uFar));
             gl_FragColor = vec4(col, alpha);
             #include <fog_fragment>
           }`,
@@ -159,7 +222,7 @@ export class NightSea {
     const n = o.near;
     const w = n.x1 - n.x0;
     const d = n.z1 - n.z0;
-    const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / 0.6), Math.ceil(d / 0.6));
+    const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / 0.45), Math.ceil(d / 0.45));
     geo.rotateX(-Math.PI / 2);
     geo.translate(n.x0 + w / 2, o.level, n.z0 + d / 2);
     const near = new THREE.Mesh(geo, make(false));
@@ -181,6 +244,11 @@ export class NightSea {
     this.group.name = 'night-sea';
     this.group.userData.perfTag = 'water';
     this.group.userData.noAO = true;
+  }
+
+  /** Set warm pool k (x, z, radius, intensity); intensity 0 disables it. */
+  setPool(k: number, x: number, z: number, r: number, i: number): void {
+    this.pools.value[k]?.set(x, z, r, i);
   }
 }
 
@@ -246,52 +314,53 @@ export class FrozenRiver {
           if (depth < 0.0) discard;
           vec2 p = vW.xz;
           vec3 V = normalize(cameraPosition - vW);
-          // Gentle undulating normal (frozen ripples) + cracks.
+          // Near-mirror sheet: faint frozen ripples + cracks in the normal.
           float r1 = hvFbm(p * 0.6);
           float r2 = hvFbm(p * 0.6 + vec2(0.12, 0.0));
           float r3 = hvFbm(p * 0.6 + vec2(0.0, 0.12));
-          vec3 n = normalize(vec3((r1 - r2) * 0.35, 1.0, (r1 - r3) * 0.35));
-          float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
+          vec3 n = normalize(vec3((r1 - r2) * 0.22, 1.0, (r1 - r3) * 0.22));
+          float fres = 0.05 + 0.95 * pow(1.0 - max(dot(n, V), 0.0), 4.0);
+          // Cool blue-grey body: clear black ice over the deep channel, milky grey-blue in the shallows.
           float dk = smoothstep(0.0, 0.5, depth);
-          vec3 deep = vec3(0.025, 0.1, 0.19);
-          vec3 clear = vec3(0.13, 0.32, 0.44);
+          vec3 clear = vec3(0.36, 0.47, 0.56);
+          vec3 deep = vec3(0.07, 0.13, 0.2);
           vec3 col = mix(clear, deep, dk);
-          // Frozen bubbles.
+          // Frozen bubbles + cloudy white inclusions.
           vec2 bc = floor(p * 3.0);
           vec2 bf = fract(p * 3.0) - 0.5 - (hvHash22(bc) - 0.5) * 0.6;
           float bub = (1.0 - smoothstep(0.02, 0.07, length(bf))) * step(0.82, hvHash12(bc + 3.1));
-          col += bub * 0.25;
-          // Skate scratches (criss-crossing arcs).
+          col += bub * vec3(0.3, 0.35, 0.4);
+          col = mix(col, vec3(0.55, 0.62, 0.7), smoothstep(0.55, 0.85, hvFbm(p * 0.35 + 4.0)) * 0.35);
+          // Skate scratches (criss-crossing arcs) + crack lines.
           float sc = scratch(p, 0.35, 5.0) + scratch(p + 7.0, -0.5, 6.0) + scratch(p * 1.3 + 3.0, 1.2, 4.0) * 0.6;
-          // Crack lines.
-          float cr = (1.0 - smoothstep(0.0, 0.035, abs(hvFbm(p * 0.35 + 2.0) - 0.5))) * 0.6;
-          // Light: diffuse sky + moon.
+          float cr = (1.0 - smoothstep(0.0, 0.03, abs(hvFbm(p * 0.35 + 2.0) - 0.5))) * 0.6;
+          // Light: sky + moon on the ice body (the albedo multiplies every light; nothing warm is added).
           vec3 L = normalize(uSunDir);
           float ndl = max(dot(n, L), 0.0);
-          vec3 lit = col * (uSkyColor * 0.9 + uSunColor * ndl * 0.35 + vec3(0.04));
-          lit += vec3(0.9, 0.95, 1.0) * (sc * 0.22 + cr * 0.12) * (uSkyColor + uSunColor * 0.3);
-          // Reflection: sky gradient + aurora ribbons (night) + moon glint.
+          vec3 lit = col * (uSkyColor * 0.95 + uSunColor * ndl * 0.3 + vec3(0.07, 0.085, 0.11)) * (0.85 + uLamps * 0.35);
+          lit += vec3(0.85, 0.92, 1.0) * (sc * 0.3 + cr * 0.16) * (uSkyColor * 1.2 + uSunColor * 0.3 + 0.02);
+          // Clear-coat reflection: sky gradient + the aurora's green-violet bands + stars.
           vec3 R = reflect(-V, n);
-          vec3 sky = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.6, R.y)) * 0.7;
+          vec3 sky = mix(uHorizonColor * 1.1, uSkyColor, smoothstep(0.0, 0.6, R.y));
           float band = hvNoise(vec2(p.x * 0.08 + uTime * 0.02, p.y * 0.02)) * hvNoise(vec2(p.x * 0.5 - uTime * 0.05, 1.3));
-          vec3 aur = mix(vec3(0.1, 0.9, 0.5), vec3(0.1, 0.6, 0.9), hvNoise(p * 0.05 + 4.0)) * pow(band, 2.2) * 0.55 * uAurora * smoothstep(0.4, 0.9, uNight);
-          lit = mix(lit, sky * 0.5 + aur, min(fres, 0.6) * 0.55);
-          lit += aur * 0.08;
-          // Glassy lamp glints: warm sparkles scattered where the lamplight grazes the ice.
+          vec3 aur = mix(vec3(0.1, 0.9, 0.5), vec3(0.6, 0.25, 0.8), hvNoise(p * 0.05 + 4.0)) * pow(band, 2.0) * 0.45 * uAurora * smoothstep(0.4, 0.9, uNight);
+          vec2 sc2 = floor(p * 5.0);
+          vec2 so = fract(p * 5.0) - 0.5 - (hvHash22(sc2 + 5.0) - 0.5) * 0.6;
+          float star = step(0.985, hvHash12(sc2)) * (1.0 - smoothstep(0.02, 0.07, length(so))) * (0.5 + 0.5 * sin(uTime * 2.0 + hvHash12(sc2 + 1.0) * 30.0)) * uNight;
+          lit = mix(lit, sky * 0.9 + aur, clamp(fres * 0.9 + 0.18, 0.0, 1.0) * 0.7) + star * vec3(0.7, 0.8, 1.0) * 0.4 * (1.0 - smoothstep(0.02, 0.2, 1.0 - dk));
+          // Glassy glints: cool-white sparkles (lamp-lit ones warm only in their own glint).
           vec2 gc = floor(p * 2.2);
           vec2 gf = fract(p * 2.2) - 0.5 - (hvHash22(gc + 2.1) - 0.5) * 0.6;
-          float dot0 = 1.0 - smoothstep(0.0, 0.07, length(gf));
+          float dot0 = 1.0 - smoothstep(0.0, 0.06, length(gf));
           float gl = dot0 * step(0.86, hvHash12(gc + 7.7)) * pow(max(0.0, sin(uTime * (0.6 + hvHash12(gc) * 1.4) + hvHash12(gc + 1.3) * 30.0)), 8.0);
-          lit += vec3(1.0, 0.75, 0.45) * gl * uLamps * 0.9;
-          float spec = pow(max(dot(R, L), 0.0), 300.0);
-          lit += uSunColor * spec * 3.0;
-          // Warm lamp sheen (uniform glow from the square).
-          lit += vec3(1.0, 0.62, 0.3) * uLamps * 0.08 * (0.5 + sc);
+          lit += mix(vec3(0.85, 0.92, 1.0), vec3(1.0, 0.8, 0.55), 0.35) * gl * (0.4 + uLamps * 0.6);
+          float spec = pow(max(dot(R, L), 0.0), 400.0);
+          lit += uSunColor * spec * 2.5;
           // Snow-dusted, milky edges.
           float edge = 1.0 - smoothstep(0.02, 0.12, depth);
           float drift = smoothstep(0.45, 0.75, hvFbm(p * 0.7 + 9.0));
-          vec3 snow = vec3(0.86, 0.9, 0.98) * (uSkyColor * 0.8 + uSunColor * 0.4 * ndl + 0.05);
-          lit = mix(lit, snow, clamp(edge + drift * 0.14, 0.0, 1.0));
+          vec3 snow = vec3(0.86, 0.9, 0.98) * (uSkyColor * 0.9 + uSunColor * 0.35 * ndl + 0.05);
+          lit = mix(lit, snow, clamp(edge + drift * 0.12, 0.0, 1.0));
           gl_FragColor = vec4(lit, 1.0);
           #include <fog_fragment>
         }`,

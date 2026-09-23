@@ -17,7 +17,8 @@
 import type { Game } from '../../core/game';
 import { NPCS, type NpcId, type Mood } from '../../data/npcs';
 import { itemDef } from '../../data/items';
-import { WISHES, PRODUCE_RIVALS, STARFALL_GIFTS, PRIZES, type ActivityDef, type FestivalDef } from '../../data/festivals';
+import { CROPS } from '../../data/crops';
+import { WISHES, PRODUCE_RIVALS, STARFALL_GIFTS, PRIZES, CONSOLATION, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
 import { portraitSvg } from '../../ui/portraits';
 import { itemIcon } from '../../ui/icons';
 import type { FestivalMap, PlayState } from './base';
@@ -30,11 +31,17 @@ export interface GameEnv {
   festival: FestivalDef;
   /** Demo / attract mode: the game plays itself and loops. */
   auto: boolean;
+  /** Encore: you have won this before — the harder variant (dance: the fast chart). */
+  hard?: boolean;
 }
 
 export interface GameResult {
-  /** 0 = best tier. */
+  /** 0 = best tier (1st), 1 = 2nd, 2 = 3rd; ≥ 3 with `noRibbon` = below the prize line. */
   place: number;
+  /** Below the ribbon threshold: no rosette, a laugh and a consolation. */
+  noRibbon?: boolean;
+  /** Gift exchange: the recipient's reaction (shown as a heart burst instead of a rosette). */
+  reaction?: 'love' | 'like' | 'neutral' | 'dislike';
   score: number;
   gold: number;
   item?: string;
@@ -57,6 +64,23 @@ const CSS = /* css */ `
 .fg-plaque::before { left: 9px; } .fg-plaque::after { right: 9px; }
 .fg-howto { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); max-width: 640px; text-align: center; font-weight: 800; font-size: 17px; color: #fff8e8;
   padding: 7px 18px; border-radius: 999px; background: rgba(40, 22, 10, .55); backdrop-filter: blur(4px); text-shadow: 0 1px 2px rgba(0,0,0,.5); animation: fgFade 5s ease both; }
+@keyframes fgShakeX { 0%,100% { translate: 0 0; } 20% { translate: -4px 1px; } 40% { translate: 4px -1px; } 60% { translate: -3px 0; } 80% { translate: 2px 1px; } }
+.fg-shakeit { animation: fgShakeX 240ms linear both; }
+.fg-result .burst { width: 150px; height: 140px; margin: -86px auto 0; animation: fgBounce 700ms var(--ease-back) both; }
+.fg-result .burst svg { width: 100%; height: 100%; filter: drop-shadow(0 6px 5px rgba(0,0,0,.3)); }
+.fg-result .tier { display: inline-block; margin: 4px 0 2px; padding: 3px 14px; border-radius: 999px; font-family: var(--font-head); font-weight: 700; font-size: 15px; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; }
+.fg-speed { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 220ms ease; background:
+  repeating-linear-gradient(97deg, transparent 0 46px, rgba(235, 246, 255, .22) 46px 48px, transparent 48px 120px),
+  repeating-linear-gradient(83deg, transparent 0 70px, rgba(235, 246, 255, .16) 70px 72px, transparent 72px 160px);
+  -webkit-mask: radial-gradient(ellipse at 50% 55%, transparent 38%, #000 78%); mask: radial-gradient(ellipse at 50% 55%, transparent 38%, #000 78%); animation: fgSpeed 380ms linear infinite; }
+@keyframes fgSpeed { from { background-position: 0 0, 0 0; } to { background-position: -240px 0, -320px 0; } }
+.fg-skate .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 6px; text-align: left; font-weight: 800; color: #3a5a7a; font-size: 15px; }
+.fg-skate .rows b { font-family: var(--font-head); font-size: 20px; color: #2f6a9a; }
+.fg-skate .rows .bad b { color: #c8503a; }
+.fg-skate .combo { margin-top: 8px; font-family: var(--font-head); font-weight: 700; font-size: 26px; color: #e8a020; text-shadow: 0 2px 0 rgba(90, 50, 0, .25); }
+.fg-skate .combo small { font-size: 12px; color: #9a7a4a; margin-left: 4px; }
+.fg-skate .ctimer { height: 6px; border-radius: 4px; background: rgba(40, 60, 90, .2); overflow: hidden; }
+.fg-skate .ctimer i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ffb020, #ffe07a); }
 @keyframes fgDrop { from { opacity: 0; transform: translate(-50%, -30px) scale(.9); } }
 @keyframes fgFade { 0% { opacity: 0; } 8% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes fgPop { 0% { opacity: 0; transform: translate(-50%, 8px) scale(.6); } 25% { opacity: 1; transform: translate(-50%, -6px) scale(1.12); } 70% { opacity: 1; transform: translate(-50%, -14px) scale(1); } 100% { opacity: 0; transform: translate(-50%, -30px) scale(.95); } }
@@ -422,12 +446,29 @@ export class FestivalOverlay {
     return true;
   }
 
+  private judges = new WeakMap<HTMLElement, { el: HTMLElement | null; k: number }>();
+  /** Pop a judgement label (replaces the previous one on this parent; alternates its height). */
   private judge(parent: HTMLElement, text: string, cls: 'p' | 'g' | 'm', x: string, y: string): void {
+    const st = this.judges.get(parent) ?? { el: null, k: 0 };
+    st.el?.remove();
     const j = div(`fg-judge ${cls}`, text);
     j.style.left = x;
-    j.style.top = y;
+    j.style.top = `calc(${y} - ${(st.k % 2) * 26}px)`;
     parent.append(j);
-    setTimeout(() => j.remove(), 720);
+    st.el = j;
+    st.k++;
+    this.judges.set(parent, st);
+    setTimeout(() => {
+      j.remove();
+      if (st.el === j) st.el = null;
+    }, 720);
+  }
+
+  /** A short screen-shake of a panel (misses, stumbles). */
+  private shake(el: HTMLElement): void {
+    el.classList.remove('fg-shakeit');
+    void el.offsetWidth;
+    el.classList.add('fg-shakeit');
   }
 
   private confetti(parent: HTMLElement, colors: number[], n = 46): void {
@@ -489,15 +530,14 @@ export class FestivalOverlay {
     if (r.item) chips.push(`<div class="fg-chip"><span class="ci">${itemIcon(r.item)}</span>${itemDef(r.item)?.name ?? r.item}</div>`);
     for (const h of r.hearts ?? []) {
       const n = NPCS[h.id as NpcId];
-      if (n && h.delta > 0) chips.push(`<div class="fg-chip heart"><span class="ci">${portraitSvg(n.look, n.portraitBg, 'happy')}</span>${n.name.split(' ')[0]} · ${friendWord(h.delta)}</div>`);
+      if (n && h.delta > 0) chips.push(`<div class="fg-chip heart"><span class="ci">${portraitSvg(n.look, n.portraitBg, 'happy')}</span>${shortName(n.name)} · ${friendWord(h.delta)}</div>`);
     }
-    const card = div(
-      'fg-panel fg-result fg-live',
-      `<div class="in"><div class="ros">${rosetteSvg(r.place)}</div><h2>${r.title}</h2><div class="sub">${r.sub}</div><div class="fg-chips">${chips.join('')}</div><div class="fg-go">Continue <kbd>Space</kbd></div></div>`,
-    );
+    const art = r.reaction ? `<div class="burst">${heartSvg(r.reaction)}</div><div class="tier" style="background:${REACTION[r.reaction].c}">${REACTION[r.reaction].label}</div>` : r.noRibbon ? `<div class="burst">${LAUGH_SVG}</div>` : `<div class="ros">${rosetteSvg(r.place)}</div>`;
+    const card = div('fg-panel fg-result fg-live', `<div class="in">${art}<h2>${r.title}</h2><div class="sub">${r.sub}</div><div class="fg-chips">${chips.join('')}</div><div class="fg-go">Continue <kbd>Space</kbd></div></div>`);
     root.append(card);
-    this.confetti(root, env.festival.colors, r.place === 0 ? 70 : 36);
-    this.sfx(r.place === 0 ? 'catch:perfect' : 'catch', 1);
+    const big = r.reaction ? r.reaction === 'love' : !r.noRibbon && r.place === 0;
+    if (!r.noRibbon && r.reaction !== 'dislike') this.confetti(root, r.reaction ? [0xff5a7a, 0xffa0b8, 0xffffff, 0xf2d27a] : env.festival.colors, big ? 70 : 36);
+    this.sfx(r.noRibbon || r.reaction === 'dislike' ? 'plop' : big ? 'catch:perfect' : 'catch', 1);
     let go = false;
     card.querySelector('.fg-go')!.addEventListener('click', () => (go = true));
     await this.loop((_dt, t) => (hold ? false : env.auto ? t > 4.2 : go || (t > 0.5 && this.hit('Space', 'Enter', 'KeyX', 'KeyF', 'Escape'))));
@@ -510,22 +550,33 @@ export class FestivalOverlay {
     const root = this.root!;
     const partner = (env.play.partner ?? 'wren') as NpcId;
     const pn = NPCS[partner];
-    const bpm = env.festival.music.tempo;
+    const hard = !!env.hard;
+    // Encore (you've won before): the fiddler's fast reel — quicker, busier, trickier syncopation.
+    const bpm = env.festival.music.tempo * (hard ? 1.18 : 1);
     const beat = 60 / bpm;
-    // Chart: 4 bars of warm-up quarter notes, then syncopation, then a flourish.
     const notes: { t: number; dir: number; el: HTMLDivElement; state: 0 | 1 | 2 }[] = [];
-    let seed = 7;
+    let seed = hard ? 23 : 7;
     const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const beats: number[] = [];
-    for (let b = 0; b < 8; b++) beats.push(b);
-    for (let b = 8; b < 20; b++) {
-      beats.push(b);
-      if (b % 4 === 1 || b % 4 === 3) beats.push(b + 0.5);
+    if (!hard) {
+      // Chart: 2 bars of warm-up quarter notes, then syncopation, then a flourish.
+      for (let b = 0; b < 8; b++) beats.push(b);
+      for (let b = 8; b < 20; b++) {
+        beats.push(b);
+        if (b % 4 === 1 || b % 4 === 3) beats.push(b + 0.5);
+      }
+      for (let b = 20; b < 28; b += 0.5) if (!(b % 2 === 1.5)) beats.push(b);
+      beats.push(28, 29, 30, 30.5, 31);
+    } else {
+      for (let b = 0; b < 4; b++) beats.push(b);
+      for (let b = 4; b < 16; b += 0.5) if (!(b % 4 === 3.5)) beats.push(b);
+      for (let b = 16; b < 28; b++) beats.push(b, b + 0.5, ...(b % 2 ? [b + 0.75] : []));
+      for (let b = 28; b < 34; b += 0.5) beats.push(b);
+      beats.push(34, 34.25, 34.5, 35);
     }
-    for (let b = 20; b < 28; b += 0.5) if (!(b % 2 === 1.5)) beats.push(b);
-    beats.push(28, 29, 30, 30.5, 31);
     const lead = 3;
-    const partnerBar = div('fg-partner fg-panel', `<div class="in" style="display:flex;align-items:center;gap:12px;padding:6px 16px 6px 6px"><div class="pp">${portraitSvg(pn.look, pn.portraitBg, 'happy')}</div><div><div class="nm" style="color:#4a2c14;text-shadow:none">Dancing with ${pn.name.split(' ')[0]}</div><div class="fg-meter"><i></i></div></div></div>`);
+    const first = shortName(pn.name);
+    const partnerBar = div('fg-partner fg-panel', `<div class="in" style="display:flex;align-items:center;gap:12px;padding:6px 16px 6px 6px"><div class="pp">${portraitSvg(pn.look, pn.portraitBg, 'happy')}</div><div><div class="nm" style="color:#4a2c14;text-shadow:none">${hard ? 'Encore reel' : 'Dancing'} with ${first}</div><div class="fg-meter"><i></i></div></div></div>`);
     const panel = div('fg-panel fg-dance fg-live', `<div class="in"><div class="lane"><div class="ribbon"></div><div class="ring"></div></div><div class="side"><div class="combo">0<small>COMBO</small></div><div class="score">0</div></div></div>`);
     const keys = div('fg-keys fg-live');
     const keyEls = ARROWS.map((a, d) => {
@@ -543,27 +594,39 @@ export class FestivalOverlay {
     let prevDir = -1;
     for (const b of beats) {
       let dir = Math.floor(rnd() * 4);
-      if (dir === prevDir && rnd() < 0.6) dir = (dir + 1 + Math.floor(rnd() * 3)) % 4;
+      if (dir === prevDir && rnd() < (hard ? 0.35 : 0.6)) dir = (dir + 1 + Math.floor(rnd() * 3)) % 4;
       prevDir = dir;
       const el = div('note', blossomSvg(dir));
       lane.append(el);
       notes.push({ t: (b + lead) * beat, dir, el, state: 0 });
     }
     const RING_X = 61;
-    const SPEED = 300;
+    const SPEED = hard ? 360 : 300;
+    const win = hard ? 0.14 : 0.17;
     let combo = 0;
     let best = 0;
     let score = 0;
     let perfect = 0;
     let good = 0;
+    let misses = 0;
     let harmony = 0.5;
     const end = notes[notes.length - 1]!.t + 1.2;
     const codes = [['ArrowLeft', 'KeyA'], ['ArrowUp', 'KeyW'], ['ArrowRight', 'KeyD'], ['ArrowDown', 'KeyS']];
     if (!(await this.countdown(root))) return null;
     env.play.live = true;
+    env.play.progress[0] = 0;
     const t0 = performance.now();
+    const acc = (): number => (perfect + good * 0.6) / notes.length;
+    const miss = (): void => {
+      combo = 0;
+      misses++;
+      harmony = Math.max(0, harmony - 0.06);
+      this.judge(panel, 'Oops', 'm', `${RING_X + 25}px`, '-34px');
+      this.shake(panel);
+      env.map.playEvent('miss', misses);
+    };
     const hitNote = (n: (typeof notes)[number], dt: number): void => {
-      const p = Math.abs(dt) < 0.075;
+      const p = Math.abs(dt) < (hard ? 0.06 : 0.075);
       n.state = 1;
       n.el.classList.add('gone', p ? 'hitp' : 'hitg');
       combo++;
@@ -590,31 +653,30 @@ export class FestivalOverlay {
       for (const d of pressed) {
         keyEls[d]!.classList.add('on');
         setTimeout(() => keyEls[d]!.classList.remove('on'), 110);
-        const cand = notes.find((n) => n.state === 0 && Math.abs(n.t - t) < 0.17);
+        const cand = notes.find((n) => n.state === 0 && Math.abs(n.t - t) < win);
         if (cand && cand.dir === d) hitNote(cand, cand.t - t);
         else if (cand) {
           cand.state = 2;
           cand.el.classList.add('gone');
-          combo = 0;
-          harmony = Math.max(0, harmony - 0.06);
-          this.judge(panel, 'Oops', 'm', `${RING_X + 25}px`, '-34px');
           this.sfx('ui:error', 0.6);
-          env.map.playEvent('miss');
+          miss();
+        } else if (!env.auto) {
+          // Mashing between notes costs harmony (no free points for spamming).
+          harmony = Math.max(0, harmony - 0.03);
+          combo = 0;
         }
       }
       for (const n of notes) {
-        if (n.state === 0 && t - n.t > 0.17) {
+        if (n.state === 0 && t - n.t > win) {
           n.state = 2;
           n.el.style.opacity = '0.25';
-          combo = 0;
-          harmony = Math.max(0, harmony - 0.05);
-          this.judge(panel, 'Oops', 'm', `${RING_X + 25}px`, '-34px');
-          env.map.playEvent('miss');
+          miss();
         }
         const x = RING_X + (n.t - t) * SPEED;
         if (n.state !== 1) n.el.style.transform = `translateX(${x}px) rotate(${Math.sin((n.t - t) * 5) * 8}deg)`;
         n.el.style.display = x > lane.clientWidth + 60 ? 'none' : '';
       }
+      env.play.progress[0] = acc();
       comboEl.firstChild!.textContent = String(combo);
       scoreEl.textContent = score.toLocaleString();
       meter.style.width = `${Math.round(harmony * 100)}%`;
@@ -622,20 +684,31 @@ export class FestivalOverlay {
     });
     env.play.live = false;
     if (!ok) return null;
-    const acc = (perfect + good * 0.6) / notes.length;
-    const place = acc >= 0.85 ? 0 : acc >= 0.6 ? 1 : 2;
+    const a = acc();
     await this.wait(300);
     panel.remove();
     partnerBar.remove();
     keys.remove();
-    const first = pn.name.split(' ')[0];
+    const stats = `${perfect} blooms · ${good} sweet · ${misses} oops · best combo ${best}`;
+    if (a < 0.4) {
+      return {
+        place: 3,
+        noRibbon: true,
+        score,
+        gold: CONSOLATION.dance,
+        hearts: [{ id: partner, delta: 10 }],
+        title: 'Tangled in the Ribbons!',
+        sub: `${stats} — ${first} laughed so hard the fiddler lost the tune. “Again next year?”`,
+      };
+    }
+    const place = a >= 0.85 ? 0 : a >= 0.65 ? 1 : 2;
     return {
       place,
       score,
-      gold: PRIZES.dance[place]!,
+      gold: Math.round(PRIZES.dance[place]! * (hard ? 1.5 : 1)),
       hearts: [{ id: partner, delta: [120, 80, 40][place]! }],
-      title: ['Radiant Dance!', 'A Lovely Dance', 'A Charming Dance'][place]!,
-      sub: `${perfect} blooms · ${good} sweet · best combo ${best} — ${first} ${['is beaming', 'is smiling ear to ear', 'laughed the whole way round'][place]}`,
+      title: hard ? ['Encore! Encore!', 'The Fast Reel, Survived', 'Breathless but Standing'][place]! : ['Radiant Dance!', 'A Lovely Dance', 'A Charming Dance'][place]!,
+      sub: `${stats} — ${first} ${['is beaming', 'is smiling ear to ear', 'laughed the whole way round'][place]}`,
     };
   }
 
@@ -714,7 +787,18 @@ export class FestivalOverlay {
     panel.remove();
     slots.remove();
     hint.remove();
-    const place = total >= 250 ? 0 : total >= 150 ? 1 : 2;
+    if (total < 110) {
+      return {
+        place: 3,
+        noRibbon: true,
+        score: total,
+        gold: CONSOLATION.lanterns,
+        hearts: [{ id: 'marigold', delta: 10 }],
+        title: 'The Sea Said “Maybe”',
+        sub: `“${wishes[w]}” — two of them sputtered on the sand. Marigold relit one for you, very gently.`,
+      };
+    }
+    const place = total >= 250 ? 0 : total >= 170 ? 1 : 2;
     return {
       place,
       score: total,
@@ -826,13 +910,24 @@ export class FestivalOverlay {
     if (!ok) return null;
     const place = fin[0]! >= 0 ? fin[0]! : 4;
     panel.remove();
+    if (place >= 3) {
+      return {
+        place,
+        noRibbon: true,
+        score: Math.round(1000 - place * 200),
+        gold: place === 3 ? CONSOLATION.sackrace : 0,
+        hearts: [{ id: 'wren', delta: 15 }],
+        title: ['', '', '', 'Fourth — Valiant!', 'Last, but Bouncy'][place]!,
+        sub: ['', '', '', 'No ribbon, but a round of applause and a cup of cider.', 'Kit says you “hopped with feeling”. The sack says otherwise.'][place]!,
+      };
+    }
     return {
       place,
       score: Math.round(1000 - place * 200),
-      gold: PRIZES.sackrace[place] ?? 0,
+      gold: PRIZES.sackrace[place]!,
       hearts: [{ id: 'wren', delta: place === 0 ? 60 : 30 }],
-      title: ['Sack Race Champion!', 'Second Place!', 'Third Place!', 'Fourth — Valiant!', 'Last, but Bouncy'][place]!,
-      sub: ['Wren is demanding a rematch. Loudly.', 'Odessa won by a sack-length. She is insufferable about it.', 'A bronze-worthy bounce!', 'You found the bounce eventually!', 'Kit says you “hopped with feeling”.'][place]!,
+      title: ['Sack Race Champion!', 'Second Place!', 'Third Place!'][place]!,
+      sub: ['Wren is demanding a rematch. Loudly.', 'Odessa won by a sack-length. She is insufferable about it.', 'A bronze-worthy bounce!'][place]!,
     };
   }
 
@@ -841,7 +936,21 @@ export class FestivalOverlay {
   private async judging(env: GameEnv): Promise<GameResult | null> {
     const root = this.root!;
     const inv = this.game.services.inventory;
-    type Entry = { id: string; name: string; q: number; score: number };
+    type Entry = { id: string; name: string; q: number; score: number; note: string };
+    // Judges' card: value (log of the sell price), quality stars, presentation (in season, a full
+    // basket). Entries worth under MIN_ENTRY_VALUE are admired politely and scored accordingly.
+    const judge = (id: string, q: number, qty: number): { score: number; note: string } => {
+      const d = itemDef(id);
+      const sell = d?.sell ?? 0;
+      if (sell < MIN_ENTRY_VALUE) return { score: Math.round(22 + sell * 0.45 + q * 4), note: 'charming, but a little small for the giants’ table' };
+      const crop = (CROPS as Record<string, { seasons: string[] } | undefined>)[id];
+      const inSeason = !!crop?.seasons.includes(this.game.calendar.season);
+      const basket = qty >= 5;
+      const v = 20 + 22 * Math.log10(sell);
+      const score = Math.round(Math.min(99, v + q * 8 + (inSeason ? 4 : 0) + (basket ? 3 : 0)));
+      const bits = [q ? `${'★'.repeat(q)} quality` : 'honest quality', inSeason ? 'in season' : '', basket ? 'a full basket' : ''].filter(Boolean);
+      return { score, note: bits.join(' · ') };
+    };
     const cands: Entry[] = [];
     const seen = new Set<string>();
     for (const s of inv?.slots ?? []) {
@@ -852,27 +961,28 @@ export class FestivalOverlay {
       if (seen.has(key)) continue;
       seen.add(key);
       const q = s.quality ?? 0;
-      cands.push({ id: s.id, name: d.name, q, score: Math.round(Math.min(98, 34 + Math.sqrt(d.sell) * 4.2 + q * 11)) });
+      cands.push({ id: s.id, name: d.name, q, ...judge(s.id, q, s.qty) });
     }
-    if (!cands.length && env.auto) {
-      // Attract mode on an empty backpack: a plausible farmer's shortlist.
+    if (env.auto && (!cands.length || Math.max(...cands.map((c) => c.score)) < 80)) {
+      // Attract mode: a plausible prize-winning farmer's shortlist.
+      cands.length = 0;
       for (const [id, q] of [['pumpkin', 2], ['melon', 1], ['cauliflower', 1], ['sunflower', 0], ['strawberry', 2]] as const) {
         const d = itemDef(id);
-        if (d) cands.push({ id, name: d.name, q, score: Math.round(Math.min(98, 34 + Math.sqrt(d.sell) * 4.2 + q * 11)) });
+        if (d) cands.push({ id, name: d.name, q, ...judge(id, q, 6) });
       }
     }
     cands.sort((a, b) => b.score - a.score);
     const list = cands.slice(0, 8);
     let mine: Entry;
-    if (!list.length) mine = { id: 'stone', name: 'A Very Polished Stone', q: 0, score: 23 };
+    if (!list.length) mine = { id: 'stone', name: 'A Very Polished Stone', q: 0, score: 12, note: 'the judges are baffled' };
     else {
       const stars = (q: number): string => (q ? `<span class="star">${'★'.repeat(q)}</span>` : 'Regular');
-      const k = await this.pick(env, 'Choose your entry', 'Your best produce goes on the judging table.', list.map((c) => `${itemIcon(c.id)}<div class="nm">${c.name}</div><div class="meta">${stars(c.q)}</div>`), 0);
+      const k = await this.pick(env, 'Choose your entry', `Judged on value, quality and presentation. Entries under ${MIN_ENTRY_VALUE}g rarely place — Duchess scores 86.`, list.map((c) => `${itemIcon(c.id)}<div class="nm">${c.name}</div><div class="meta">${stars(c.q)}</div>`), 0);
       if (k === null) return null;
       mine = list[k]!;
     }
     env.map.playEvent('enter');
-    const entries = [...PRODUCE_RIVALS.map((r) => ({ ...r, me: false, icon: '' })), { name: mine.name, by: 'You', score: mine.score + Math.floor(Math.random() * 6), tint: '', me: true, icon: mine.id }];
+    const entries = [...PRODUCE_RIVALS.map((r) => ({ ...r, me: false, icon: '' })), { name: mine.name, by: 'You', score: mine.score, tint: '', me: true, icon: mine.id }];
     // Shuffle the table, but keep yours third.
     const table = [entries[1]!, entries[0]!, entries[3]!, entries[2]!];
     const panel = div('fg-panel fg-show fg-live', `<div class="in"><h3>The judges confer…</h3><div class="fg-entries"></div></div>`);
@@ -900,7 +1010,8 @@ export class FestivalOverlay {
       if (Math.floor(t * 12) !== Math.floor((t - 0.016) * 12)) this.sfx('ui:tick', 0.6);
       return t > 1.7;
     });
-    const ranked = table.map((e, i) => ({ e, i })).sort((a, b) => b.e.score - a.e.score);
+    // Ties go to the rival (the judges are loyal to Duchess).
+    const ranked = table.map((e, i) => ({ e, i })).sort((a, b) => b.e.score - a.e.score || (a.e.me ? 1 : 0) - (b.e.me ? 1 : 0));
     (panel.querySelector('h3') as HTMLElement).textContent = 'And the ribbons go to…';
     for (let p = 2; p >= 0; p--) {
       if (!(await this.wait(560))) return null;
@@ -912,13 +1023,24 @@ export class FestivalOverlay {
     env.map.playEvent('ribbon', place);
     if (!(await this.wait(1500))) return null;
     panel.remove();
+    if (place >= 3) {
+      return {
+        place,
+        noRibbon: true,
+        score: mine.score,
+        gold: CONSOLATION.pumpkin,
+        hearts: [{ id: 'marigold', delta: 10 }],
+        title: 'Honourable Mention',
+        sub: `${mine.score} points — ${mine.note}. Kit's Lumpy Lou beat you, and Kit will never, ever let it go.`,
+      };
+    }
     return {
-      place: Math.min(place, 3),
+      place,
       score: mine.score,
-      gold: PRIZES.pumpkin[Math.min(place, 3)]!,
+      gold: PRIZES.pumpkin[place]!,
       hearts: [{ id: 'marigold', delta: 30 }],
-      title: ['Best in Show!', 'Second Prize!', 'Third Prize!', 'Honourable Mention'][Math.min(place, 3)]!,
-      sub: [`Your ${mine.name.toLowerCase()} beat Duchess. Bram has gone very quiet.`, 'A blue ribbon! Your gran would have pinned it to her hat.', 'A red ribbon for a fine entry!', 'The judges were “moved”. Also slightly confused.'][Math.min(place, 3)]!,
+      title: ['Best in Show!', 'Second Prize!', 'Third Prize!'][place]!,
+      sub: `${mine.score} points (${mine.note}) — ${[`your ${mine.name.toLowerCase()} beat Duchess. Bram has gone very quiet.`, 'a blue ribbon! Your gran would have pinned it to her hat.', 'a red ribbon for a fine entry!'][place]}`,
     };
   }
 
@@ -942,7 +1064,7 @@ export class FestivalOverlay {
         k = step;
         const id = ids[k % ids.length]!;
         pp.innerHTML = portraitSvg(NPCS[id].look, NPCS[id].portraitBg, 'neutral');
-        nm.textContent = NPCS[id].name.split(' ')[0]!;
+        nm.textContent = shortName(NPCS[id].name);
         this.sfx('ui:tick', 0.8);
       }
       return t >= 1.9;
@@ -968,12 +1090,18 @@ export class FestivalOverlay {
       seen.add(s.id);
       gifts.push({ id: s.id, q: s.quality ?? 0 });
     }
-    if (!gifts.length && env.auto) for (const id of ['strawberry', 'sunflower', 'amethyst', 'pumpkin', 'topaz', 'wool']) if (itemDef(id)) gifts.push({ id, q: 0 });
+    if (env.auto) {
+      // Attract mode: a festive shortlist that includes something the recipient loves.
+      gifts.length = 0;
+      const pool = ['strawberry', 'sunflower', 'amethyst', 'pumpkin', 'topaz', 'wool', 'ruby', 'truffle', 'aquamarine', 'melon', 'cauliflower', 'diamond', 'goatMilk', 'emberOpal'].filter((id) => itemDef(id));
+      const loved = pool.find((id) => rel?.taste(target, id) === 'love');
+      for (const id of [...(loved ? [loved] : []), ...pool.filter((id) => id !== loved)].slice(0, 6)) gifts.push({ id, q: 0 });
+    }
     let giftId: string | null = null;
     if (gifts.length) {
       const list = gifts.slice(0, 12);
       const autoPick = Math.max(0, list.findIndex((g) => rel?.taste(target, g.id) === 'love'));
-      const c = await this.pick(env, `A present for ${tn.name.split(' ')[0]}`, 'Wrap something from your backpack. (They’ll never guess it was you.)', list.map((g) => `${itemIcon(g.id)}<div class="nm">${itemDef(g.id)?.name ?? g.id}</div>`), autoPick);
+      const c = await this.pick(env, `A present for ${shortName(tn.name)}`, 'Wrap something from your backpack. (They’ll never guess it was you.)', list.map((g) => `${itemIcon(g.id)}<div class="nm">${itemDef(g.id)?.name ?? g.id}</div>`), autoPick);
       if (c === null) return null;
       giftId = list[c]!.id;
     }
@@ -986,7 +1114,7 @@ export class FestivalOverlay {
     }
     const mood: Mood = reaction === 'love' ? 'laugh' : reaction === 'like' ? 'happy' : reaction === 'dislike' ? 'worried' : 'happy';
     const line = giftId ? stripTags(tn.giftLines[reaction]) : 'A hand-drawn card! With a little star on it. I’ll keep this forever.';
-    const react = div('fg-panel fg-draw fg-live', `<div class="in"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, mood)}</div><div class="nm">${tn.name.split(' ')[0]}</div><div class="line">“${line}”</div></div>`);
+    const react = div('fg-panel fg-draw fg-live', `<div class="in"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, mood)}</div><div class="nm">${shortName(tn.name)}</div><div class="line">“${line}”</div></div>`);
     root.append(react);
     this.sfx(`gift:${reaction}`, 1);
     env.map.playEvent('given', reaction === 'love' ? 3 : reaction === 'like' ? 2 : 1);
@@ -995,7 +1123,7 @@ export class FestivalOverlay {
     // 4) Somebody drew you: unwrap.
     const giver = ids.filter((i) => i !== target)[Math.floor(Math.random() * (ids.length - 1))]!;
     const got = STARFALL_GIFTS.filter((g) => itemDef(g))[Math.floor(Math.random() * STARFALL_GIFTS.filter((g) => itemDef(g)).length)] ?? 'topaz';
-    const box = div('fg-panel fg-draw fg-live', `<div class="in"><div class="rl">Someone drew <b>your</b> name!</div><div class="fg-box shake">${giftBoxSvg('#c8302a', '#f2d27a')}</div><div class="nm">From ${NPCS[giver].name.split(' ')[0]}</div><div class="rl">Press Space to unwrap</div></div>`);
+    const box = div('fg-panel fg-draw fg-live', `<div class="in"><div class="rl">Someone drew <b>your</b> name!</div><div class="fg-box shake">${giftBoxSvg('#c8302a', '#f2d27a')}</div><div class="nm">From ${shortName(NPCS[giver].name)}</div><div class="rl">Press Space to unwrap</div></div>`);
     root.append(box);
     const bx = box.querySelector('.fg-box') as HTMLElement;
     let open = false;
@@ -1010,15 +1138,18 @@ export class FestivalOverlay {
     if (!env.auto) inv?.add(got, 1);
     if (!(await this.wait(1800))) return null;
     box.remove();
-    const place = reaction === 'love' ? 0 : reaction === 'like' ? 1 : reaction === 'dislike' ? 3 : 2;
+    const tier = (reaction === 'love' || reaction === 'like' || reaction === 'dislike' ? reaction : 'neutral') as 'love' | 'like' | 'neutral' | 'dislike';
+    const rk = ['love', 'like', 'neutral', 'dislike'].indexOf(tier);
+    const tnm = shortName(tn.name);
     return {
-      place,
+      place: rk,
+      reaction: tier,
       score: 0,
       gold: 0,
       item: got,
-      hearts: [{ id: target, delta: [80, 45, 20, 5][place]! }],
-      title: ['A Perfect Present!', 'A Lovely Present', 'A Kind Thought', 'It’s the Thought…'][place]!,
-      sub: `${tn.name.split(' ')[0]} ${['can’t stop smiling', 'is delighted', 'thanks you warmly', 'is… being very polite about it'][place]} · ${NPCS[giver].name.split(' ')[0]} wrapped you something special`,
+      hearts: [{ id: target, delta: [80, 45, 20, 5][rk]! }],
+      title: [`${tnm} Loved It!`, `${tnm} Liked It`, 'A Kind Thought', 'It’s the Thought…'][rk]!,
+      sub: `${tnm} ${['can’t stop smiling', 'is delighted', 'thanks you warmly', 'is… being very polite about it'][rk]} · ${shortName(NPCS[giver].name)} wrapped you a ${itemDef(got)?.name ?? 'present'}`,
     };
   }
 
@@ -1026,46 +1157,122 @@ export class FestivalOverlay {
 
   private async skate(env: GameEnv): Promise<GameResult | null> {
     const root = this.root!;
-    const panel = div('fg-panel fg-skate fg-live', `<div class="in"><small>Star lights</small><div class="big">${STAR_SVG}<span>0</span></div><div class="fg-meter"><i style="width:0%"></i></div></div>`);
-    const hint = div('fg-hint', '<b>◀ ▶</b> steer · hold <b>Space</b> to glide');
-    root.append(panel, hint);
-    const num = panel.querySelector('.big span') as HTMLElement;
-    const bar = panel.querySelector('.fg-meter i') as HTMLElement;
+    const panel = div(
+      'fg-panel fg-skate fg-live',
+      `<div class="in"><small class="lap">Lap 1 / 4</small><div class="big">${STAR_SVG}<span>0</span></div><div class="rows"><div>Gates <b class="g">0</b></div><div class="bad">Cracks <b class="c">0</b></div></div><div class="combo"><span>×0</span><small>combo</small></div><div class="ctimer"><i></i></div><div class="fg-meter"><i style="width:0%"></i></div></div>`,
+    );
+    const hint = div('fg-hint', '<b>↑ ↓</b> steer across the ice · hold <b>Space</b> to push · thread the lantern gates, dodge the cracks');
+    const speed = div('fg-speed');
+    root.append(speed, panel, hint);
+    const q = (sel: string): HTMLElement => panel.querySelector(sel) as HTMLElement;
+    const num = q('.big span');
+    const bar = q('.fg-meter i');
+    const lapEl = q('.lap');
+    const gEl = q('.g');
+    const cEl = q('.c');
+    const comboEl = q('.combo span');
+    const ctimer = q('.ctimer i');
     if (!(await this.countdown(root))) return null;
     env.play.live = true;
-    let lastScore = 0;
-    const ok = await this.loop((_dt, t) => {
-      let steer = (this.keys.down.has('ArrowRight') || this.keys.down.has('KeyD') ? 1 : 0) - (this.keys.down.has('ArrowLeft') || this.keys.down.has('KeyA') ? 1 : 0);
-      if (env.auto) steer = Math.sin(t * 1.3) * 0.9;
-      env.play.steer = steer;
-      env.play.boost = env.auto ? Math.sin(t * 0.7) > 0 : this.keys.down.has('Space');
-      if (env.play.score !== lastScore) {
-        lastScore = env.play.score;
+    if (env.auto) env.play.stats.auto = 1;
+    const st = env.play.stats;
+    let last = { stars: 0, gates: 0, cracks: 0, lap: 1 };
+    const ok = await this.loop(() => {
+      if (!env.auto) {
+        env.play.steer = (this.keys.down.has('ArrowDown') || this.keys.down.has('KeyS') ? 1 : 0) - (this.keys.down.has('ArrowUp') || this.keys.down.has('KeyW') ? 1 : 0);
+        env.play.boost = this.keys.down.has('Space') || this.keys.down.has('KeyX');
+      }
+      const stars = st.stars ?? 0;
+      const gates = st.gates ?? 0;
+      const cracks = st.cracks ?? 0;
+      const lap = st.lap ?? 1;
+      if (stars > last.stars) {
         this.sfx('ui:select', 1.1);
         num.parentElement!.animate([{ transform: 'scale(1.25)' }, { transform: 'scale(1)' }], { duration: 260, easing: 'ease-out' });
+        this.judge(root, 'Star!', 'p', '50%', '30%');
       }
-      num.textContent = `${env.play.score} / ${env.play.total}`;
+      if (gates > last.gates) {
+        this.sfx('ui:tab', 1.3);
+        this.judge(root, (st.combo ?? 0) >= 3 ? `Gate ×${st.combo}!` : 'Gate!', 'g', '50%', '30%');
+      }
+      if (cracks > last.cracks) {
+        this.sfx('ui:error', 0.8);
+        this.judge(root, 'Crack!', 'm', '50%', '30%');
+        this.shake(panel);
+        this.shake(root);
+      }
+      if (lap > last.lap) this.judge(root, lap === st.laps ? 'Final lap!' : `Lap ${lap}`, 'p', '50%', '22%');
+      last = { stars, gates, cracks, lap };
+      num.textContent = `${stars} / ${st.starsTotal ?? 0}`;
+      lapEl.textContent = `Lap ${lap} / ${st.laps ?? 4}`;
+      gEl.textContent = `${gates}/${st.gatesTotal ?? 0}`;
+      cEl.textContent = String(cracks);
+      comboEl.textContent = `×${st.combo ?? 0}`;
+      ctimer.style.width = `${Math.round((st.comboT ?? 0) * 100)}%`;
       bar.style.width = `${Math.round((env.play.progress[0] ?? 0) * 100)}%`;
+      speed.style.opacity = env.play.boost && !(st.stun ?? 0) ? '1' : '0';
       return env.play.done;
     });
     env.play.live = false;
     if (!ok) return null;
     panel.remove();
     hint.remove();
-    const f = env.play.total ? env.play.score / env.play.total : 0;
-    const place = f >= 0.8 ? 0 : f >= 0.5 ? 1 : 2;
+    speed.remove();
+    // Skill rating: gates threaded (50 %), stars (30 %), clean ice (20 %).
+    const gf = (st.gates ?? 0) / Math.max(1, st.gatesTotal ?? 1);
+    const sf = (st.stars ?? 0) / Math.max(1, st.starsTotal ?? 1);
+    const clean = 1 - Math.min(3, st.cracks ?? 0) / 3;
+    const rating = gf * 0.5 + sf * 0.3 + clean * 0.2;
+    const line = `${st.gates}/${st.gatesTotal} gates · ${st.stars}/${st.starsTotal} stars · ${st.cracks} crack${st.cracks === 1 ? '' : 's'} · best combo ×${st.best ?? 0}`;
+    if (rating < 0.45) {
+      return {
+        place: 3,
+        noRibbon: true,
+        score: Math.round(rating * 100),
+        gold: CONSOLATION.skate,
+        hearts: [{ id: 'odessa', delta: 10 }],
+        title: 'Mostly Upright',
+        sub: `${line} — Odessa hands you a cocoa “for the bruises”.`,
+      };
+    }
+    const place = rating >= 0.85 ? 0 : rating >= 0.65 ? 1 : 2;
     return {
       place,
-      score: env.play.score,
+      score: Math.round(rating * 100),
       gold: PRIZES.skate[place]!,
       hearts: [{ id: 'odessa', delta: [50, 30, 15][place]! }],
       title: ['Starlight Skater!', 'Graceful Glide', 'Wobbly but Wonderful'][place]!,
-      sub: `${env.play.score} of ${env.play.total} star lights · ${['Odessa nodded. Once. That’s a standing ovation.', 'Kit wants lessons.', 'You only fell over artistically.'][place]}`,
+      sub: `${line} — ${['Odessa nodded. Once. That’s a standing ovation.', 'Kit wants lessons.', 'You only fell over artistically.'][place]}`,
     };
   }
 }
 
 const COIN = `<svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="15" fill="#f5c542" stroke="#b8861a" stroke-width="2.5"/><circle cx="17" cy="17" r="10" fill="none" stroke="#fff2b0" stroke-width="2"/><text x="17" y="22" text-anchor="middle" font-family="Fredoka, sans-serif" font-weight="700" font-size="13" fill="#8a5a10">g</text></svg>`;
+
+const REACTION: Record<'love' | 'like' | 'neutral' | 'dislike', { label: string; c: string }> = {
+  love: { label: 'Loved it!', c: '#e8456a' },
+  like: { label: 'Liked it', c: '#e8883a' },
+  neutral: { label: 'Polite thanks', c: '#8a8a9a' },
+  dislike: { label: 'Oh… thank you', c: '#6a7aa0' },
+};
+
+/** Heart burst: one big heart + satellites, fuller for warmer reactions. */
+function heartSvg(r: 'love' | 'like' | 'neutral' | 'dislike'): string {
+  const heart = (x: number, y: number, s: number, c: string, rot = 0): string =>
+    `<path transform="translate(${x} ${y}) rotate(${rot}) scale(${s})" d="M0 8 C -14 -4, -22 -14, -12 -22 C -6 -27, 0 -22, 0 -16 C 0 -22, 6 -27, 12 -22 C 22 -14, 14 -4, 0 8 Z" fill="${c}" stroke="#fff" stroke-width="${2.4 / s}"/>`;
+  const main = r === 'love' ? '#e8456a' : r === 'like' ? '#f0708a' : r === 'neutral' ? '#c8a8b0' : '#9aa0b8';
+  const n = r === 'love' ? 7 : r === 'like' ? 4 : r === 'neutral' ? 2 : 0;
+  let sat = '';
+  for (let i = 0; i < n; i++) {
+    const a = (i / Math.max(1, n)) * Math.PI * 2 - Math.PI / 2 + 0.3;
+    sat += heart(75 + Math.cos(a) * 52, 78 + Math.sin(a) * 44, 0.55 + (i % 2) * 0.2, i % 2 ? '#ffb0c4' : '#ff7a98', (i * 37) % 60 - 30);
+  }
+  const crack = r === 'dislike' ? '<path d="M75 50 l-6 12 l8 6 l-5 14" stroke="#fff" stroke-width="3" fill="none" stroke-linejoin="round"/>' : '';
+  return `<svg viewBox="0 0 150 140">${sat}${heart(75, 84, 2.3, main)}${crack}</svg>`;
+}
+
+/** Below the ribbon line: a giggling daisy that has seen things. */
+const LAUGH_SVG = `<svg viewBox="0 0 150 140"><g transform="translate(75 68)">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `<ellipse cx="0" cy="-34" rx="13" ry="24" fill="#fff8ec" stroke="#e8d8b8" stroke-width="2" transform="rotate(${i * 45 + (i === 3 ? 12 : 0)})"/>`).join('')}<circle r="26" fill="#ffd166" stroke="#e0a830" stroke-width="3"/><path d="M-12 -6 q4 -6 8 0 M4 -6 q4 -6 8 0" stroke="#5a3218" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M-11 6 q11 14 22 0 z" fill="#8a3a2a"/><circle cx="-16" cy="4" r="4" fill="#f29a86"/><circle cx="16" cy="4" r="4" fill="#f29a86"/></g><path d="M75 96 q-6 18 2 40" stroke="#5a9a3a" stroke-width="6" fill="none" stroke-linecap="round"/></svg>`;
 
 function friendWord(delta: number): string {
   return delta >= 100 ? 'Best friends vibes' : delta >= 60 ? 'Friendship ♥♥' : delta >= 30 ? 'Friendship ♥' : 'A warm smile';

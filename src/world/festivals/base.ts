@@ -68,6 +68,8 @@ export interface PlayState {
   /** Set by the overlay when the game has started (after the countdown). */
   live: boolean;
   done: boolean;
+  /** Free-form counters the map reports back to the HUD (skate: laps, gates, cracks, combo…). */
+  stats: Record<string, number>;
 }
 
 /** Activity trigger spot: interacting within `r` starts the host's activity. */
@@ -257,7 +259,8 @@ export abstract class FestivalMap implements GameMap {
       l.light.removeFromParent();
       if (o.lights !== 'none') {
         this.glowList.push({ x: wp.x, y: wp.y, z: wp.z, color: 0xffb45e, size: 0.9, twinkle: 0.05 });
-        this.pools.add(wp.x, wp.z, this.terrain.heightAt(wp.x, wp.z), Math.min(3.2, 1.4 + wp.y - this.terrain.heightAt(wp.x, wp.z)));
+        // 'glow' = the lamp halo only (no warm pool decal, e.g. lamps over ice / water).
+        if (o.lights !== 'glow') this.pools.add(wp.x, wp.z, this.terrain.heightAt(wp.x, wp.z), Math.min(3.2, 1.4 + wp.y - this.terrain.heightAt(wp.x, wp.z)));
       }
     }
     if (o.solidR) this.blockCircle(x, z, o.solidR);
@@ -425,7 +428,7 @@ export abstract class FestivalMap implements GameMap {
 
   /** Start a mini-game: stages the 3D side and takes over the player's pose. */
   beginPlay(id: ActivityId, partner?: string): PlayState {
-    this.play = { id, t: 0, partner, steer: 0, boost: false, progress: [], score: 0, total: 0, beat: 0, hop: 0, live: false, done: false };
+    this.play = { id, t: 0, partner, steer: 0, boost: false, progress: [], score: 0, total: 0, beat: 0, hop: 0, live: false, done: false, stats: {} };
     const p = this.game.player;
     this.prevPose = p.actionPose;
     this.poseFn = (rig, dt) => (this.play ? this.playerPose(rig, this.play, dt) : null) ?? this.prevPose?.(rig, dt) ?? null;

@@ -41,7 +41,7 @@ export const FESTIVALS: Record<FestivalId, FestivalDef> = {
     open: 9,
     close: 15,
     map: 'fest-spring',
-    arrive: { x: 31.5, z: 36.5 },
+    arrive: { x: 31.5, z: 38.2 },
     blurb: 'The Blossom Parade rolls down Petal Lane at nine. Wear something with flowers on it!',
     event: { name: 'The Ribbon Dance', hour: 12, minigame: 'dance' },
     colors: [0xf7a8c0, 0xfde2a0, 0xb8e0f0, 0xd4b8f0, 0xc0e8b0],
@@ -68,7 +68,7 @@ export const FESTIVALS: Record<FestivalId, FestivalDef> = {
     open: 19,
     close: 24,
     map: 'fest-summer',
-    arrive: { x: 32, z: 33 },
+    arrive: { x: 31.5, z: 27 },
     blurb: 'Tide Lantern Night: bring a wish to Driftglass Cove at dusk. The sea carries it the rest of the way.',
     event: { name: 'The Lantern Release', hour: 21, minigame: 'lanterns' },
     colors: [0xffb050, 0x5fd8e8, 0x3a4f9a, 0xf6c8d8],
@@ -95,7 +95,7 @@ export const FESTIVALS: Record<FestivalId, FestivalDef> = {
     open: 9,
     close: 17,
     map: 'fest-fall',
-    arrive: { x: 31.5, z: 38 },
+    arrive: { x: 31.5, z: 34 },
     blurb: 'The Harvest Fair opens at nine on the Commons: giant pumpkins, cider, and the sack race at three.',
     event: { name: 'The Sack Race', hour: 15, minigame: 'sackrace' },
     colors: [0xd8573e, 0xf2b928, 0x8a4a2a, 0xe8864a, 0x6a8a3a],
@@ -122,7 +122,7 @@ export const FESTIVALS: Record<FestivalId, FestivalDef> = {
     open: 17,
     close: 24,
     map: 'fest-winter',
-    arrive: { x: 32, z: 40 },
+    arrive: { x: 32, z: 29.8 },
     blurb: 'Starfall tonight in the square: the Great Fir is lit at dusk, the river is frozen for skating, and someone has a gift with your name on it.',
     event: { name: 'The Gift Exchange', hour: 20, minigame: 'giftswap' },
     colors: [0xd8312a, 0xf2d27a, 0x2f6a4a, 0xf6f0e6, 0x5ab8e0],
@@ -222,7 +222,7 @@ export const ACTIVITIES: Record<ActivityId, ActivityDef> = {
     ask: '[thinking] The judges are sharpening their pencils. Care to put your finest crop on the table?',
     yes: 'Enter my best crop.',
     no: 'Not this year.',
-    howto: 'Your best produce goes up against the valley’s giants. Quality and size both count.',
+    howto: 'The judges score value, quality and presentation. Bring something worth at least 40g — Duchess sets the bar at 86.',
   },
   giftswap: {
     id: 'giftswap',
@@ -232,17 +232,17 @@ export const ACTIVITIES: Record<ActivityId, ActivityDef> = {
     ask: "[happy] Draw a name from the mitten, dear! Whoever you pull, you give — and someone has already drawn yours.",
     yes: 'Draw a name!',
     no: 'In a moment.',
-    howto: 'Pick a present for your secret friend. Something they love makes the whole circle cheer.',
+    howto: 'Pick a present for your secret friend. Something they love makes the whole circle cheer — something they dislike, less so.',
   },
   skate: {
     id: 'skate',
     festival: 'starfall',
     name: 'Starlight Skate',
     host: 'odessa',
-    ask: "[neutral] Skates are sharp, ice is thick. Glide through the star lanterns on the river. Fall over gracefully.",
+    ask: "[neutral] Skates are sharp, ice is thick — mostly. Four laps through my lantern gates. Mind the cracks. Fall over gracefully.",
     yes: 'Lace me up.',
     no: 'I like my ankles.',
-    howto: 'Steer with ← → and collect the floating star lights. Hold Space to glide faster.',
+    howto: 'Four laps of the lantern reach. ↑ ↓ steer across the ice, hold Space to push off. Thread the gates, grab the stars, dodge the cracks — keep the combo alive.',
   },
 };
 
@@ -261,15 +261,28 @@ export const PRODUCE_RIVALS: { name: string; by: string; score: number; tint: st
   { name: 'Lumpy Lou (green squash)', by: 'Kit', score: 54, tint: '#8a9a4a' },
 ];
 
-/** Presents villagers might wrap for the player at Starfall. */
-export const STARFALL_GIFTS = ['topaz', 'amethyst', 'truffle', 'quartz', 'wool', 'aquamarine', 'frostShard', 'cauliflowerSeeds', 'strawberrySeeds'];
+/** Presents villagers might wrap for the player at Starfall (festival keepsakes weighted in). */
+export const STARFALL_GIFTS = ['starfallOpal', 'starfallOpal', 'gingerbreadVillager', 'winterRoseTea', 'ruby', 'aquamarine', 'emberOpal', 'truffle'];
 
-/** Mini-game prizes: gold by result tier (0 = best). */
+/** Honorific-free first name for UI lines ("Dr. Linus Pell" → "Linus"). */
+export function shortName(name: string): string {
+  const parts = name.split(/\s+/).filter((w) => !/^(dr|mr|mrs|ms|mx|miss|old|aunt|uncle|sir)\.?$/i.test(w));
+  return parts[0] ?? name;
+}
+
+/**
+ * Mini-game prizes: gold by result tier (0 = 1st .. 2 = 3rd). Below the ribbon threshold there is
+ * no rosette — just `CONSOLATION` gold and a laugh.
+ */
 export const PRIZES: Record<ActivityId, number[]> = {
   dance: [400, 250, 120],
   lanterns: [350, 200, 100],
-  sackrace: [500, 300, 150, 50, 20],
-  pumpkin: [800, 400, 200, 60],
+  sackrace: [500, 300, 150],
+  pumpkin: [800, 400, 200],
   giftswap: [0],
-  skate: [350, 200, 100],
+  skate: [450, 250, 120],
 };
+export const CONSOLATION: Record<ActivityId, number> = { dance: 15, lanterns: 10, sackrace: 20, pumpkin: 20, giftswap: 0, skate: 15 };
+
+/** Produce judging: entries must be worth at least this much to be judged seriously. */
+export const MIN_ENTRY_VALUE = 40;

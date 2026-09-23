@@ -22,8 +22,11 @@ import { buildBunting, buildLanternPole } from '../props/festival';
 import { FestivalMap, type PlayState } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildPier, buildLanternCrook, buildCabana, buildUmbrella, buildBlanket, buildBonfire, buildLighthouse, buildBeam, buildRowboat, buildSandcastle, buildWishArch } from './kit';
-import { Fireworks, Lanterns, GlowPoints } from './fx';
-import { NightSea } from './sea';
+import { Fireworks, Lanterns, GlowPoints, Bonfire } from './fx';
+import { NightSea, SEA_FEET } from './sea';
+import { applyBeachSand } from '../beach/sand';
+import { swashPhase, WAVE_PERIOD } from '../beach/ocean';
+import { MeshBuilder, roundedBox, mat } from '../geom';
 import { randomLook, type CrowdSpec } from './crowd';
 
 const PIER = { x: 41.5, z0: 21.2, len: 17.5, deckY: 0.78, w: 2.4 };
@@ -36,7 +39,13 @@ export class SummerLanterns extends FestivalMap {
   private fireworks!: Fireworks;
   private beam!: THREE.Mesh;
   private flashLight!: THREE.PointLight;
-  private boats: { g: THREE.Group; x: number; z: number; rot: number; seed: number }[] = [];
+  private boats: { g: THREE.Group; x: number; z: number; rot: number; seed: number; glow: THREE.Vector3 }[] = [];
+  private bonfire!: Bonfire;
+  /** Villagers standing where the swash reaches (their feet light the plankton). */
+  private waders: { x: number; z: number }[] = [];
+  /** The player's recent steps through the shallows. */
+  private trail: { x: number; z: number; t: number }[] = [];
+  private trailClock = 0;
   private releasers: { i: number; seed: number }[] = [];
   private flashCol = new THREE.Color();
   /** Lantern Release mini-game: the lantern in your hands + the ones you let go. */
@@ -102,11 +111,13 @@ export class SummerLanterns extends FestivalMap {
   }
 
   protected paint(): void {
+    // Warm beach sand: dune ripples, a damp band + stranded foam lace in phase with the swash, shell
+    // flecks (shared beach-sand shading; the path channel stays empty — it paints rock there).
+    applyBeachSand(this.terrain.material, 0);
     this.terrain.paint('sand', (x, z) => {
       const d = z - this.shoreZ(x);
-      return smoothstep(15.5, 11, d + this.noise.fbm(x * 0.2, z * 0.2, 2) * 2.5) * (1 - smoothstep(0.6, 1.6, this.headland(x, z)));
+      return Math.max(smoothstep(15.5, 11, d + this.noise.fbm(x * 0.2, z * 0.2, 2) * 2.5) * (1 - smoothstep(0.6, 1.6, this.headland(x, z))), this.pathValue(x, z) * 0.85);
     });
-    this.terrain.paint('path', (x, z) => this.pathValue(x, z));
     this.terrain.paintCover('dry', (x, z) => smoothstep(10, 16, z - this.shoreZ(x)) * 0.6, { x0: -2, z0: 10, x1: 66, z1: 50 });
   }
 
@@ -117,8 +128,8 @@ export class SummerLanterns extends FestivalMap {
   }
 
   protected override tileType(x: number, z: number): TileType {
-    if (this.onPier(x, z)) return TileType.Stone;
-    return this.terrain.splatAt(x, z, 'sand') > 0.5 ? TileType.Sand : this.terrain.splatAt(x, z, 'path') > 0.5 ? TileType.Stone : TileType.Grass;
+    if (this.onPier(x, z) || this.pathValue(x, z) > 0.5) return TileType.Stone;
+    return this.terrain.splatAt(x, z, 'sand') > 0.5 ? TileType.Sand : TileType.Grass;
   }
 
   private onPier(x: number, z: number): boolean {
@@ -133,7 +144,7 @@ export class SummerLanterns extends FestivalMap {
   protected grassDensity(x: number, z: number): number {
     const t = this.terrain;
     if (t.slopeAt(x, z) < 0.8) return 0;
-    if (t.splatAt(x, z, 'path') > 0.2) return 0;
+    if (this.pathValue(x, z) > 0.2) return 0;
     const sand = t.splatAt(x, z, 'sand');
     if (sand > 0.7) return 0;
     const clump = smoothstep(-0.1, 0.45, this.noise.fbm(x * 0.2 + 4, z * 0.2, 2));
@@ -158,6 +169,9 @@ export class SummerLanterns extends FestivalMap {
     this.buildSky(r);
   }
 
+  private poolK = 0;
+  private boatGlow!: GlowPoints;
+
   private buildSea(): void {
     this.sea = new NightSea({ terrain: this.terrain, level: 0, near: { x0: -20, z0: -30, x1: 84, z1: 26 }, shoreward: new THREE.Vector2(0.05, 1), glow: 1.15 });
     this.root.add(this.sea.group);
@@ -175,16 +189,20 @@ export class SummerLanterns extends FestivalMap {
       this.addProp(c.group, x, z, rot, { y: PIER.deckY });
       const g = c.glow.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), rot);
       this.glowPt(x + g.x, PIER.deckY + g.y, z + g.z, 0xffa850, 1.1, 0.08);
+      // Every other pier lantern lays a warm pool on the water beside the pier.
+      if (i % 2 === 0 && this.poolK < 6) this.sea.setPool(this.poolK++, x + g.x * 1.6, z + g.z, 1.8, 0.9);
     });
     // Rowboats on the water (bobbing, dynamic) + one hauled up on the sand.
     for (const [x, z, rot, tint] of [[27.5, 8.5, 0.5, 0x4f8fb0], [51.5, 6.2, -0.6, 0xd8573e], [35, 1.5, 0.15, 0xf2e6d0]] as const) {
       const b = buildRowboat(r, tint);
       b.group.userData.perfTag = 'boats';
       this.root.add(b.group);
-      this.boats.push({ g: b.group, x, z, rot, seed: r.next() * 10 });
-      const gp = b.glow.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), rot);
-      this.glowPt(x + gp.x, 0.25 + gp.y, z + gp.z, 0xffa850, 1.0, 0.1);
+      this.boats.push({ g: b.group, x, z, rot, seed: r.next() * 10, glow: b.glow.clone() });
     }
+    this.boatGlow = new GlowPoints(this.boats.map(() => ({ x: 0, y: -50, z: 0, color: 0xffa850, size: 1.0, twinkle: 0.1 })), 'boat-glow');
+    this.boatGlow.points.frustumCulled = false;
+    this.boatGlow.points.userData.perfTag = 'boats';
+    this.root.add(this.boatGlow.points);
     const beached = buildRowboat(r, 0x3f7a6a);
     this.addProp(beached.group, 13.8, 19.8, 1.9, { ao: 1.4 });
     const lh = buildLighthouse(r);
@@ -207,13 +225,17 @@ export class SummerLanterns extends FestivalMap {
     const ay = this.H(ARCH.x, ARCH.z);
     for (const l of arch.lamps) this.glowPt(ARCH.x + l.x, ay + l.y, ARCH.z + l.z, 0xffa850, 1.05, 0.07);
     this.addLight(ARCH.x, ay + 2.4, ARCH.z + 0.6, 0xffa860, 7, 0.05, 8);
+    this.sea.setPool(this.poolK++, ARCH.x, this.shoreZ(ARCH.x) - 1.2, 2.6, 0.8);
     // Bonfire ring.
     const bf = buildBonfire(r);
     this.addProp(bf.group, FIRE.x, FIRE.z, 0.3, { solidR: 0.9, ao: 1.4 });
     const fy = this.H(FIRE.x, FIRE.z);
-    this.fires.push(new THREE.Vector3(FIRE.x, fy + bf.fire.y, FIRE.z));
-    this.addLight(FIRE.x, fy + 1.2, FIRE.z, 0xff9040, 16, 0.25, 11);
-    this.addSmoke(new THREE.Vector3(FIRE.x, fy + 1.6, FIRE.z), 2.2);
+    // Flame tongues + rising embers (no bloom blob), smoke, a flickering fire light.
+    this.bonfire = new Bonfire(new THREE.Vector3(FIRE.x, fy + 0.15, FIRE.z), 1.35);
+    this.bonfire.group.userData.perfTag = 'fire';
+    this.root.add(this.bonfire.group);
+    this.addLight(FIRE.x, fy + 1.1, FIRE.z, 0xff8a3a, 9, 0.3, 10);
+    this.addSmoke(new THREE.Vector3(FIRE.x, fy + 2.1, FIRE.z), 2.2);
     this.pools.add(FIRE.x, FIRE.z, fy, 3.2);
     // Beach life.
     this.addProp(buildCabana(r, [0x3a6aa8, 0xf6efe2]), 50.6, 28.6, -0.15, { solidRect: [2.4, 2.0], ao: 1.8 });
@@ -230,6 +252,18 @@ export class SummerLanterns extends FestivalMap {
   }
 
   private buildBoardwalk(r: Rng): void {
+    // Plank boardwalk along the dunes + the spur to the south exit.
+    const bw = new MeshBuilder();
+    for (let x = 8.6; x <= 56.6; x += 0.36) {
+      const z = 33.2 + Math.sin(x * 0.2) * 0.4;
+      const y = this.H(x, z) + 0.06;
+      bw.add('woodGrain', roundedBox(0.32, 0.06, 1.9, 0.02, 1), mat(x, y, z, (r.next() - 0.5) * 0.03, Math.cos(x * 0.2) * 0.08 + (r.next() - 0.5) * 0.03, 0), { tint: r.next() < 0.2 ? 0xb8926a : 0xcaa47c });
+    }
+    for (let z = 34.4; z <= 47.5; z += 0.36) {
+      const y = this.H(31.5, z) + 0.06;
+      bw.add('woodGrain', roundedBox(1.7, 0.06, 0.32, 0.02, 1), mat(31.5, y, z, 0, (r.next() - 0.5) * 0.04, 0), { tint: r.next() < 0.2 ? 0xb8926a : 0xcaa47c });
+    }
+    this.addProp(bw.build({ name: 'boardwalk' }), 0, 0, 0, { y: 0 });
     const posts: THREE.Vector3[] = [];
     for (const x of [12, 20, 28, 35, 43, 51]) {
       const z = 31.2 + Math.sin(x * 0.2) * 0.4;
@@ -257,13 +291,15 @@ export class SummerLanterns extends FestivalMap {
         const d = this.rimDist(jx, jz);
         if (d < 1.2 || this.exitMask(jx, jz) > 0.2 || r.next() < 0.25) continue;
         if (jz - this.shoreZ(jx) < 6) continue;
+        // Keep the lens clear south of the beach (arrival framing): no tall trees in the camera corridor.
+        if (jz > 36 && jz < 54 && Math.abs(jx - 31.5) < 14) continue;
         if (this.terrain.slopeAt(jx, jz) < 0.75) continue;
         const roll = r.next();
         const sp = roll < 0.55 ? 'pine' : roll < 0.85 ? 'oak' : 'maple';
         this.trees.add(sp, jx, this.H(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 2.2 ? 1 : 0);
       }
     }
-    for (const [x, z, s] of [[9, 36, 1.0], [56, 36.5, 1.1], [15.5, 39.5, 0.9], [48.5, 40, 0.95]] as const) this.addTree('pine', x, z, s);
+    for (const [x, z, s] of [[9, 36, 1.0], [56, 36.5, 1.1], [13.5, 40.5, 0.9], [50.5, 41, 0.95]] as const) this.addTree('pine', x, z, s);
   }
 
   private plantNature(r: Rng): void {
@@ -273,7 +309,7 @@ export class SummerLanterns extends FestivalMap {
         const cx = x + 0.5 + (r.next() - 0.5) * 0.7;
         const cz = z + 0.5 + (r.next() - 0.5) * 0.7;
         if (!g.isWalkable(x, z)) continue;
-        if (this.terrain.splatAt(cx, cz, 'path') > 0.1) continue;
+        if (this.pathValue(cx, cz) > 0.1) continue;
         const d = cz - this.shoreZ(cx);
         const y = this.H(cx, cz);
         const roll = r.next();
@@ -313,58 +349,78 @@ export class SummerLanterns extends FestivalMap {
       return specs.length - 1;
     };
     const warm = [0xffb050, 0xff8a60, 0xffc870, 0xf6c8d8];
-    // Lantern releasers along the waterline, facing the sea (yaw π = facing -Z).
-    const shoreXs = [14.5, 17.2, 20.4, 23.6, 26.2, 29.2, 33.8, 36.4, 39.6, 45.2, 48.4, 51.2, 54.6];
-    for (const x of shoreXs) {
+    // Lantern releasers along the waterline, turned three-quarters to the sea (faces to camera).
+    const shoreXs = [14.5, 17.2, 20.4, 23.6, 26.2, 29.0, 35.6, 38.0, 45.2, 48.4, 51.2, 54.6];
+    shoreXs.forEach((x, k) => {
       const child = r.next() < 0.3;
-      const z = this.shoreZ(x) + 0.9 + r.next() * 0.9;
-      const i = person(randomLook(r, { child, palette: P.tops }), child ? 'cheer' : 'lantern', x, z, Math.PI + (r.next() < 0.5 ? -1 : 1) * (0.5 + r.next() * 0.6), { props: [child ? 'lanternPole' : 'lantern'], accent: pick(warm) });
+      const z = this.shoreZ(x) + 0.7 + r.next() * 0.6;
+      const yaw = Math.PI + (k % 2 ? -1 : 1) * (1.05 + r.next() * 0.35);
+      const i = person(randomLook(r, { child, palette: P.tops }), child ? 'cheer' : 'lantern', x, z, yaw, { props: [child ? 'lanternPole' : 'lantern'], accent: pick(warm) });
       this.releasers.push({ i, seed: r.next() * 20 });
-    }
+      this.waders.push({ x, z });
+    });
     // Named villagers.
     const spot: Record<string, [number, number, number, CrowdSpec['anim'], CrowdSpec['props']]> = {
-      marigold: [30.3, 21.2, Math.PI - 0.2, 'lantern', ['lantern']],
-      bram: [25.6, 37.0, Math.PI, 'talk', ['mug']],
-      wren: [PIER.x - 0.5, PIER.z0 - PIER.len - 1.4, Math.PI + 0.3, 'cheer', ['lanternPole']],
+      marigold: [29.4, 21.3, Math.PI - 0.9, 'lantern', ['lantern']],
+      bram: [25.6, 37.0, 0.3, 'talk', ['mug']],
+      wren: [PIER.x - 0.5, PIER.z0 - PIER.len - 1.4, Math.PI + 0.9, 'cheer', ['lanternPole']],
     };
+    // The bonfire: two sitters per driftwood log (seated on the log top, facing the fire).
+    const seats: [number, number, number][] = [];
+    for (const [a, rr] of [[0.5, 2.1], [2.4, 2.2], [4.1, 2.0]] as const) {
+      const wa = a - 0.3;
+      const cx = FIRE.x + Math.cos(wa) * (rr + 0.1);
+      const cz = FIRE.z + Math.sin(wa) * (rr + 0.1);
+      const tx = -Math.sin(wa);
+      const tz = Math.cos(wa);
+      for (const s2 of [-0.45, 0.45]) {
+        const x = cx + tx * s2;
+        const z = cz + tz * s2;
+        seats.push([x, z, Math.atan2(FIRE.x - x, FIRE.z - z)]);
+      }
+    }
+    let seatK = 0;
+    const logTop = 0.37 - 0.46;
     let k = 0;
     const around: [number, number, number, CrowdSpec['anim'], CrowdSpec['props']][] = [
-      [FIRE.x - 2.0, FIRE.z - 0.9, 1.1, 'sit', ['mug']],
-      [FIRE.x + 1.9, FIRE.z + 1.2, -2.1, 'toast', ['mug']],
-      [33.2, 21.4, Math.PI + 0.3, 'lantern', ['lantern']],
-      [PIER.x + 0.6, PIER.z0 - PIER.len - 0.9, Math.PI - 0.4, 'lantern', ['lantern']],
-      [47.2, 27.6, 2.6, 'sit', []],
-      [36.0, 26.6, -2.8, 'sit', []],
-      [18.4, 23.2, Math.PI, 'wave', []],
+      [0, 0, 0, 'perch', ['mug']],
+      [0, 0, 0, 'perch', ['mug']],
+      [35.4, 20.8, Math.PI + 1.2, 'lantern', ['lantern']],
+      [PIER.x + 0.6, PIER.z0 - PIER.len - 0.9, Math.PI - 0.9, 'lantern', ['lantern']],
+      [47.2, 27.6, 0.4, 'sit', []],
+      [36.0, 26.6, -0.5, 'sit', []],
+      [18.4, 23.2, 0.6, 'wave', []],
     ];
     for (const id of NPC_IDS) {
       const def = NPCS[id];
-      const s = spot[id] ?? around[k++ % around.length]!;
-      const onPier = this.onPier(s[0], s[1]);
-      const lift = onPier ? PIER.deckY + 0.02 - this.H(s[0], s[1]) : s[3] === 'sit' ? 0.12 : 0;
-      person({ ...def.look }, s[3], s[0], s[1], s[2], { id, props: s[4], lift, accent: pick(warm) });
+      let s2 = spot[id] ?? around[k++ % around.length]!;
+      if (s2[3] === 'perch') {
+        const st = seats[seatK++]!;
+        s2 = [st[0], st[1], st[2], 'perch', s2[4]];
+      }
+      const onPier = this.onPier(s2[0], s2[1]);
+      const lift = onPier ? PIER.deckY + 0.02 - this.H(s2[0], s2[1]) : s2[3] === 'sit' ? 0.02 : s2[3] === 'perch' ? logTop : 0;
+      person({ ...def.look }, s2[3], s2[0], s2[1], s2[2], { id, props: s2[4], lift, accent: pick(warm) });
     }
     // Pier-end lantern launchers.
-    for (const [dx, dz, yaw] of [[-1.6, -1.8, Math.PI + 0.2], [1.4, -2.0, Math.PI - 0.3], [0.2, -2.5, Math.PI]] as const) {
+    for (const [dx, dz, yaw] of [[-1.6, -1.8, Math.PI + 0.9], [1.4, -2.0, Math.PI - 1.0], [0.2, -2.6, Math.PI + 0.3]] as const) {
       const x = PIER.x + dx;
       const z = PIER.z0 - PIER.len + dz;
       person(randomLook(r, { palette: P.tops }), 'lantern', x, z, yaw, { props: ['lantern'], lift: PIER.deckY + 0.02 - this.H(x, z), accent: pick(warm) });
     }
-    // Bonfire circle on the log benches.
-    for (const [a, rr] of [[0.5, 2.1], [2.4, 2.2], [4.1, 2.0], [1.4, 2.3], [3.3, 2.1]] as const) {
-      const x = FIRE.x + Math.cos(a + 0.3) * rr;
-      const z = FIRE.z + Math.sin(a + 0.3) * rr;
-      const yaw = Math.atan2(FIRE.x - x, FIRE.z - z);
-      person(randomLook(r, { palette: P.tops, child: r.next() < 0.2 }), pick(['sit', 'sit', 'sway'] as const), x, z, yaw, { lift: 0.14, props: r.next() < 0.4 ? ['mug'] : [] });
+    // The rest of the bonfire seats.
+    while (seatK < seats.length) {
+      const st = seats[seatK++]!;
+      person(randomLook(r, { palette: P.tops, child: r.next() < 0.2 }), pick(['perch', 'perch', 'sway'] as const), st[0], st[1], st[2], { lift: logTop, props: r.next() < 0.4 ? ['mug'] : [] });
     }
-    // Blanket sitters + stall customers.
-    person(randomLook(r, { palette: P.tops }), 'sit', 26.4, 24.6, Math.PI, { lift: 0.02 });
-    person(randomLook(r, { palette: P.tops }), 'sit', 27.4, 25.0, Math.PI - 0.4, { lift: 0.02 });
-    person(randomLook(r, { palette: P.tops, child: true }), 'clap', 36.8, 25.2, Math.PI, { lift: 0.02 });
-    person(randomLook(r, { palette: P.tops }), 'talk', 38.0, 37.0, Math.PI, {});
+    // Blanket sitters + stall customers (turned to the camera / each other).
+    person(randomLook(r, { palette: P.tops }), 'sit', 26.4, 24.6, 0.5, { lift: 0.02 });
+    person(randomLook(r, { palette: P.tops }), 'sit', 27.4, 25.0, -0.6, { lift: 0.02 });
+    person(randomLook(r, { palette: P.tops, child: true }), 'clap', 36.8, 25.2, 0.2, { lift: 0.02 });
+    person(randomLook(r, { palette: P.tops }), 'talk', 38.0, 37.0, -0.6, {});
     person(randomLook(r, { palette: P.tops }), 'toast', 24.5, 37.2, 0.4, { props: ['mug'] });
-    person(randomLook(r, { palette: P.tops }), 'sway', 42.6, 30.2, Math.PI + 0.4, { props: ['lantern'], accent: 0xffb050 });
-    person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 44.0, 29.6, Math.PI - 0.3, { props: ['lanternPole'], accent: 0xff8a60 });
+    person(randomLook(r, { palette: P.tops }), 'sway', 42.6, 30.2, -0.4, { props: ['lantern'], accent: 0xffb050 });
+    person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 44.0, 29.6, 0.5, { props: ['lanternPole'], accent: 0xff8a60 });
     this.crowdSpecs = specs;
   }
 
@@ -399,6 +455,7 @@ export class SummerLanterns extends FestivalMap {
     const t = game.time;
     const h = game.rc.renderer.domElement.height;
     this.fireworks.setViewportHeight(h);
+    this.boatGlow.setViewportHeight(h);
     this.wish?.glow.setViewportHeight(h);
     // Fireworks light the bay: flash light + warm tint on the water.
     const f = this.fireworks.flash(t, this.flashCol);
@@ -410,12 +467,35 @@ export class SummerLanterns extends FestivalMap {
     // Lighthouse beam sweeps the bay.
     this.beam.rotation.y = t * 0.55;
     (this.beam.material as THREE.ShaderMaterial).visible = night > 0.2;
-    // Boats bob on the swell.
-    for (const b of this.boats) {
+    // Boats bob on the swell; each lantern lays a warm pool on the water.
+    this.bonfire.setViewportHeight(h);
+    this.boats.forEach((b, k) => {
       const y = Math.sin(t * 1.1 + b.seed) * 0.05 + Math.sin(t * 0.7 + b.x * 0.3) * 0.03;
-      b.g.position.set(b.x + Math.sin(t * 0.13 + b.seed) * 0.3, y - 0.12, b.z);
+      b.g.position.set(b.x + Math.sin(t * 0.13 + b.seed) * 0.3, y - 0.14, b.z);
       b.g.rotation.set(Math.sin(t * 0.9 + b.seed) * 0.04, b.rot + Math.sin(t * 0.2 + b.seed) * 0.08, Math.sin(t * 1.2 + b.seed * 2) * 0.05);
+      b.g.updateMatrixWorld();
+      const gp = b.glow.clone().applyMatrix4(b.g.matrixWorld);
+      this.boatGlow.set(k, gp.x, gp.y, gp.z, 1.0);
+      this.sea.setPool(this.poolK + k, gp.x, gp.z, 1.6, 1.1);
+    });
+    // Feet in the swash light the plankton each time a wave runs up; the player leaves a trail.
+    const feet = this.sea.feet.value;
+    let fk = 0;
+    for (const w of this.waders) {
+      if (fk >= SEA_FEET - 5) break;
+      const age = (((swashPhase(w.x, t) % 1) + 1) % 1) * WAVE_PERIOD;
+      feet[fk++]!.set(w.x, w.z - 0.2, age, 0.8);
     }
+    const p = game.player.position;
+    this.trailClock -= dt;
+    if (this.trailClock <= 0 && p.z - this.shoreZ(p.x) < 1.6) {
+      this.trailClock = 0.3;
+      const last = this.trail[this.trail.length - 1];
+      if (!last || Math.hypot(last.x - p.x, last.z - p.z) > 0.25) this.trail.push({ x: p.x, z: p.z, t });
+      if (this.trail.length > 5) this.trail.shift();
+    }
+    for (const s of this.trail) if (fk < SEA_FEET) feet[fk++]!.set(s.x, s.z, t - s.t, 1.2);
+    while (fk < SEA_FEET) feet[fk++]!.set(0, 0, 99, 0);
     this.updateWish(game);
     this.cheerT = Math.max(0, this.cheerT - dt);
     // Releasers: raise the lantern, stoop to set it on the water, straighten up and watch it go.

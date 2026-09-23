@@ -12,7 +12,6 @@
 import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { smoothstep } from '../../core/noise';
-import type { Rng } from '../../core/rng';
 import { NPCS, NPC_IDS, type NpcLook } from '../../data/npcs';
 import { OUTFIT_PALETTES } from '../../data/festivals';
 import { TileType } from '../tiles';
@@ -27,6 +26,9 @@ import { buildStarTree, buildIceSculpture, buildBridge, buildCocoaStand } from '
 import { Aurora, Snowfall, GlowPoints } from './fx';
 import { FrozenRiver } from './sea';
 import { randomLook, type CrowdSpec } from './crowd';
+import { MeshBuilder, bevelCylinder, mat, lumpySphere } from '../geom';
+import { materials } from '../../render/materials';
+import { Rng } from '../../core/rng';
 
 const TREE = { x: 32, z: 19.5 };
 const PLAZA_R = 7.6;
@@ -40,10 +42,11 @@ export class StarfallSquare extends FestivalMap {
   private aurora!: Aurora;
   private snow!: Snowfall;
   private stardust!: Snowfall;
-  private skaters: { i: number; cx: number; rx: number; rz: number; sp: number; a0: number }[] = [];
+  private skaters: { i: number; cx: number; rx: number; rz: number; sp: number; a0: number; side: number }[] = [];
   private starLight!: THREE.PointLight;
-  /** Starlight Skate: the player's run along the river + the star lights to collect. */
-  private run: { x: number; off: number; vx: number; dir: 1 | -1; dist: number; stars: { x: number; off: number; got: boolean }[]; glow: GlowPoints; spray: number } | null = null;
+  /** Starlight Skate: the player's run (laps of the east reach) + the course on the ice. */
+  private run: { x: number; off: number; vx: number; dir: 1 | -1; leg: number; dist: number; stun: number; spray: number; turn: number; items: SkItem[]; combo: number; comboT: number; best: number; gates: number; stars: number; cracks: number; trailT: number } | null = null;
+  private skateKit: SkateKit | null = null;
   private skateLight: THREE.PointLight | null = null;
   private recipient: { i: number; x: number; z: number; yaw: number; anim: number } | null = null;
 
@@ -165,17 +168,18 @@ export class StarfallSquare extends FestivalMap {
     const warm = [0xffd27a, 0xfff0c0, 0xffb060];
     t.lights.forEach((p, i) => {
       const q = p.clone().applyMatrix4(rot);
-      this.glowPt(TREE.x + q.x, y + q.y, TREE.z + q.z, i % 5 === 0 ? 0xff7a6a : warm[i % 3]!, 0.42, 0.55);
+      this.glowPt(TREE.x + q.x, y + q.y, TREE.z + q.z, i % 5 === 0 ? 0xff7a6a : warm[i % 3]!, 0.36, 0.55);
     });
+    // Specular sparkle on a few baubles (small, so they stay saturated glass, not lamps).
     for (const b of t.baubles) {
-      if (r.next() < 0.6) continue;
+      if (r.next() < 0.7) continue;
       const q = b.p.clone().applyMatrix4(rot);
-      this.glowPt(TREE.x + q.x, y + q.y, TREE.z + q.z, b.c, 0.3, 0.2);
+      this.glowPt(TREE.x + q.x, y + q.y + 0.08, TREE.z + q.z + 0.08, 0xfff4e0, 0.16, 0.6);
     }
-    this.glowPt(TREE.x, y + t.star.y, TREE.z, 0xffd070, 2.6, 0.12);
-    this.glowPt(TREE.x, y + t.star.y, TREE.z, 0xfff6d8, 1.3, 0.3);
-    this.starLight = this.addLight(TREE.x, y + t.star.y - 1, TREE.z + 1, 0xffd890, 14, 0.04, 16);
-    this.addLight(TREE.x, y + 3, TREE.z + 4.2, 0xffc070, 18, 0.03, 12);
+    // Star halo kept small: the five points must survive the bloom.
+    this.glowPt(TREE.x, y + t.star.y, TREE.z, 0xffc860, 1.5, 0.1);
+    this.starLight = this.addLight(TREE.x, y + t.star.y - 1.4, TREE.z + 1.6, 0xffd890, 9, 0.04, 14);
+    this.addLight(TREE.x, y + 4.6, TREE.z + 4.6, 0xffc070, 9, 0.03, 12);
   }
 
   private buildHouses(r: Rng): void {
@@ -210,14 +214,14 @@ export class StarfallSquare extends FestivalMap {
     // Lanterns along the east reach light the skating lane.
     for (const x of [38.5, 44.5, 50.5]) {
       const z = this.riverZ(x) - 3.1;
-      this.addProp(buildLanternPost(), x, z, Math.PI, { solidR: 0.35 });
+      this.addProp(buildLanternPost(), x, z, Math.PI, { solidR: 0.35, lights: 'glow' });
     }
     // Lamps at the bridge ends.
     for (const sz of [-1, 1]) {
       for (const sx of [-1, 1]) {
         const x = BRIDGE_X + sx * 1.5;
         const z = bz + sz * 4.0;
-        this.addProp(buildLanternPost(), x, z, sx < 0 ? 0 : Math.PI, { solidR: 0.35 });
+        this.addProp(buildLanternPost(), x, z, sx < 0 ? 0 : Math.PI, { solidR: 0.35, lights: 'glow' });
       }
     }
   }
@@ -248,7 +252,7 @@ export class StarfallSquare extends FestivalMap {
   }
 
   private plantTrees(r: Rng): void {
-    for (const [x, z, s] of [[8.5, 18, 1.1], [56, 18.5, 1.05], [9.5, 27, 0.95], [55.5, 26.5, 1.0], [19, 8.2, 0.85], [45, 8.2, 0.9], [11, 41, 1.0], [53, 41.5, 1.05], [20, 42, 0.9], [44, 42.6, 0.95]] as const) this.addTree('pine', x, z, s);
+    for (const [x, z, s] of [[8.5, 18, 1.1], [56, 18.5, 1.05], [9.5, 27, 0.95], [55.5, 26.5, 1.0], [19, 8.2, 0.85], [45, 8.2, 0.9], [11, 41, 1.0], [53, 41.5, 1.05], [15.5, 43, 0.9], [48.5, 43.2, 0.95]] as const) this.addTree('pine', x, z, s);
     for (let z = -18; z < 66; z += 2.4) {
       for (let x = -18; x < 82; x += 2.4) {
         const jx = x + (r.next() - 0.5) * 2;
@@ -256,6 +260,8 @@ export class StarfallSquare extends FestivalMap {
         const d = this.rimDist(jx, jz);
         if (d < 1.2 || this.exitMask(jx, jz) > 0.2 || r.next() < 0.3) continue;
         if (this.terrain.slopeAt(jx, jz) < 0.75) continue;
+        // Keep the lens clear south of the bridge (arrival framing).
+        if (jz > 38 && jz < 56 && Math.abs(jx - 32) < 14) continue;
         const sp = r.next() < 0.7 ? 'pine' : 'oak';
         this.trees.add(sp, jx, this.H(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 2.2 ? 1 : 0);
       }
@@ -270,7 +276,7 @@ export class StarfallSquare extends FestivalMap {
         const cz = z + 0.5 + (r.next() - 0.5) * 0.6;
         const rd = this.riverDist(cx, cz);
         const y = this.H(cx, cz);
-        if (rd > 2.0 && rd < 3.0 && r.next() < 0.3) {
+        if (rd > 3.0 && rd < 3.8 && r.next() < 0.25) {
           this.nature.place('reed', cx, y, cz, { scale: 0.9 + r.next() * 0.4, color: 0xb8a878 });
           continue;
         }
@@ -338,22 +344,23 @@ export class StarfallSquare extends FestivalMap {
       const s = around[k++ % around.length]!;
       person({ ...NPCS[id].look }, s[3], s[0], s[1], s[2], { id, props: s[4], lift: s[3] === 'sit' ? 0.2 : 0 });
     }
-    // Skaters looping on the ice (animated in tick).
-    const loops: [number, number, number, number][] = [
-      [20, 5.5, 0.9, 0.35],
-      [21, 4.5, 0.7, -0.3],
-      [44, 6, 0.9, 0.28],
-      [43, 4, 0.6, -0.4],
-      [12, 3.5, 0.6, 0.45],
-      [52, 3.5, 0.7, -0.33],
-      [26, 3.0, 0.5, 0.5],
+    // Skaters looping on the ice in pairs, hand in hand (animated in tick), away from the race reach.
+    const loops: [number, number, number, number, number][] = [
+      // cx, rx, rz, angular speed, pair (1 = two skaters side by side)
+      [20, 5.5, 0.7, 0.3, 1],
+      [11, 3.5, 0.5, -0.4, 1],
+      [27, 2.6, 0.45, 0.42, 0],
+      [56, 3.2, 0.5, -0.34, 1],
     ];
-    loops.forEach(([cx, rx, rz, sp], k2) => {
-      const i = person(randomLook(r, { palette: P.tops, child: k2 % 3 === 2 }), 'skate', cx, this.riverZ(cx), 0, { props: ['skates'], lift: ICE_Y - this.H(cx, this.riverZ(cx)) });
-      this.skaters.push({ i, cx, rx, rz, sp, a0: r.next() * 6.28 });
+    loops.forEach(([cx, rx, rz, sp, pair], k2) => {
+      const a0 = r.next() * 6.28;
+      for (let m = 0; m <= pair; m++) {
+        const i = person(randomLook(r, { palette: P.tops, child: (k2 + m) % 3 === 2 }), 'skate', cx, this.riverZ(cx), 0, { props: ['skates'], lift: ICE_Y - this.H(cx, this.riverZ(cx)), phase: pair ? 0.2 : r.next() });
+        this.skaters.push({ i, cx, rx, rz, sp, a0, side: pair ? (m ? 0.32 : -0.32) : 0 });
+      }
     });
-    // Onlookers on the banks + bridge.
-    for (const [x, z, yaw, anim] of [[29.6, 29.0, Math.PI, 'wave'], [35.4, 28.8, Math.PI + 0.3, 'cheer'], [17.8, 29.4, Math.PI - 0.4, 'clap'], [47.0, 29.2, Math.PI + 0.2, 'wave']] as const) {
+    // Onlookers on the banks + bridge, watching the ice (facing south, toward the camera).
+    for (const [x, z, yaw, anim] of [[29.6, 29.0, 0.3, 'wave'], [35.4, 28.8, -0.2, 'cheer'], [17.8, 29.4, 0.5, 'clap'], [47.0, 29.2, -0.4, 'wave']] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.3 }), anim, x, z, yaw, {});
     }
     this.crowdSpecs = specs;
@@ -362,7 +369,16 @@ export class StarfallSquare extends FestivalMap {
   private buildSky(): void {
     // The diorama camera never sees open sky, so the curtains hang low over the forest just behind the
     // rooftops: a luminous veil rising out of the northern treeline (houses occlude its hem).
-    this.aurora = new Aurora(new THREE.Vector3(32, 0, 36), 32, 3, { base: 3, height: 14, arc: 1.0, spacing: 0.03, lean: 0.9 });
+    // Folded curtains low over the northern treeline, west and east of the Great Fir (its column is
+    // masked out so the star keeps a clean silhouette) + a fainter far curtain behind.
+    this.aurora = new Aurora(
+      [
+        { path: [[-8, 1], [2, 5], [10, 1.5], [18, 5.5], [24, 3]], base: 5.2, height: 8, strength: 1 },
+        { path: [[40, 3], [46, 6], [54, 2], [62, 5.5], [72, 1]], base: 5.2, height: 8, strength: 1 },
+        { path: [[-12, -6], [8, -2], [30, -8], [52, -2], [76, -6]], base: 8, height: 9, strength: 0.55 },
+      ],
+      { x: TREE.x, halfWidth: 6.5 },
+    );
     this.aurora.group.userData.perfTag = 'sky';
     this.root.add(this.aurora.group);
     this.snow = new Snowfall(1600, new THREE.Vector3(40, 14, 32));
@@ -378,10 +394,7 @@ export class StarfallSquare extends FestivalMap {
   // ───────────────────────────────────────────── Gift Exchange + Starlight Skate mini-games
 
   protected override onBeginPlay(play: PlayState): void {
-    if (play.id === 'skate' && this.run) {
-      this.run.glow.points.removeFromParent();
-      this.run = null;
-    }
+    if (play.id === 'skate' && this.run) this.clearRun();
     if (play.id === 'giftswap') {
       const gx = TREE.x;
       const gz = TREE.z + 5.6;
@@ -397,44 +410,195 @@ export class StarfallSquare extends FestivalMap {
       }
       this.frame({ pitch: 34, distance: 15, yaw: 0, ox: 0, oz: -2.4 });
     } else if (play.id === 'skate') {
-      // Out along the east reach (clear of the bridge), a U-turn at the bend, and back.
-      const stars: { x: number; off: number; got: boolean }[] = [];
-      for (let x = SKATE.x0 + 2.5; x <= SKATE.x1 - 1; x += 2.4) stars.push({ x, off: 0.75 + 0.45 * Math.sin(x * 0.9), got: false });
-      for (let x = SKATE.x1 - 2.2; x >= SKATE.x0 + 1.5; x -= 2.4) stars.push({ x, off: -0.75 - 0.45 * Math.sin(x * 1.3), got: false });
-      const glow = new GlowPoints(stars.map((s) => ({ x: s.x, y: ICE_Y + 0.6, z: this.riverZ(s.x) + s.off, color: 0xffd84a, size: 1.1, twinkle: 0.3, day: 1 })), 'skate-stars');
-      glow.points.frustumCulled = false;
-      glow.points.userData.perfTag = 'festival';
-      this.root.add(glow.points);
-      this.run = { x: SKATE.x0, off: 0, vx: 0, dir: 1, dist: 0, stars, glow, spray: 0 };
-      play.total = stars.length;
-      this.placePlayer(SKATE.x0, this.riverZ(SKATE.x0), 'right', ICE_Y + 0.02);
-      this.frame({ pitch: 46, distance: 18, yaw: 0, ox: 0.6, oz: -3.2 });
-      if (!this.skateLight) this.skateLight = this.addLight(SKATE.x0, 1.6, 30, 0xffc890, 5, 0.02, 7);
+      this.startRun(play);
+      this.frame({ pitch: 48, distance: 18.5, yaw: 0, ox: 0.6, oz: -3.0 });
     }
+  }
+
+  /**
+   * Starlight Skate: LAPS out-and-back laps of the east reach. Each leg lays out lantern gates to
+   * thread (combo), star lights to collect and cracked ice to dodge (a crack = a stumble, the combo
+   * breaks, you lose speed). ↑ ↓ steer across the ice, Space pushes off harder.
+   */
+  private startRun(play: PlayState): void {
+    const kit = (this.skateKit ??= this.buildSkateKit());
+    const rr = new Rng(`skate-course`);
+    const items: SkItem[] = [];
+    const legs = LAPS * 2;
+    for (let leg = 0; leg < legs; leg++) {
+      const dir = leg % 2 ? -1 : 1;
+      // Five beats per leg: gate, star, crack(+star), gate, star — offsets alternate so you weave.
+      const plan: SkItem['kind'][] = leg % 3 === 2 ? ['star', 'gate', 'crack', 'gate', 'star'] : ['gate', 'star', 'crack', 'star', 'gate'];
+      let prev = (rr.next() - 0.5) * 1.6;
+      plan.forEach((kind, k) => {
+        const f = 0.16 + (k / (plan.length - 1)) * 0.68;
+        const x = dir > 0 ? SKATE.x0 + f * (SKATE.x1 - SKATE.x0) : SKATE.x1 - f * (SKATE.x1 - SKATE.x0);
+        let off = THREE.MathUtils.clamp(-prev * 0.8 + (rr.next() - 0.5) * 0.9, -1.15, 1.15);
+        if (kind === 'crack') off = THREE.MathUtils.clamp(prev + (rr.next() - 0.5) * 0.3, -1.1, 1.1);
+        items.push({ kind, x, off, leg, done: false });
+        if (kind !== 'crack') prev = off;
+        if (kind === 'crack' && leg >= 2) items.push({ kind: 'star', x: x + dir * 0.2, off: THREE.MathUtils.clamp(off + (off > 0 ? -1.0 : 1.0), -1.2, 1.2), leg, done: false });
+      });
+    }
+    const n = (k: SkItem['kind']) => items.filter((it) => it.kind === k).length;
+    this.run = { x: SKATE.x0, off: 0, vx: 0, dir: 1, leg: 0, dist: 0, stun: 0, spray: 0, turn: 0, items, combo: 0, comboT: 0, best: 0, gates: 0, stars: 0, cracks: 0, trailT: 0 };
+    play.total = n('star');
+    play.stats = { lap: 1, laps: LAPS, gates: 0, gatesTotal: n('gate'), stars: 0, starsTotal: n('star'), cracks: 0, combo: 0, comboT: 0, best: 0, stun: 0 };
+    kit.trail.reset();
+    this.placePlayer(SKATE.x0, this.riverZ(SKATE.x0), 'right', ICE_Y + 0.02);
+    if (!this.skateLight) this.skateLight = this.addLight(SKATE.x0, 1.6, 30, 0xffc890, 2.2, 0.02, 6);
+    this.layoutLeg();
+  }
+
+  private clearRun(): void {
+    this.run = null;
+    const k = this.skateKit;
+    if (!k) return;
+    k.posts.count = 0;
+    k.cracks.count = 0;
+    for (let i = 0; i < SK_GLOWS; i++) k.glow.set(i, 0, -50, 0, 0);
+  }
+
+  /** Instanced lantern-gate posts, crack decals, beacon glows and the blade trail. */
+  private buildSkateKit(): SkateKit {
+    const b = new MeshBuilder();
+    b.add('woodPaint', bevelCylinder(0.035, 0.045, 1.05, 0.01, 6), mat(0, 0, 0), { tint: 0x2f6a4a });
+    b.add('woodPaint', bevelCylinder(0.09, 0.1, 0.05, 0.01, 8), mat(0, 0, 0), { tint: 0xe8e0d4 });
+    const lan = lumpySphere(0.1, 1, 0.03, new Rng('gate-lantern'), 2);
+    lan.scale(1, 1.25, 1);
+    b.add('paperLantern', lan, mat(0, 1.14, 0), { tint: 0xffd070 });
+    b.add('cloth', new THREE.ConeGeometry(0.08, 0.14, 3), mat(0, 1.02, 0.02, Math.PI, 0, 0), { tint: 0xc8302a });
+    const postGeo = [...b.geometries().entries()];
+    const group = new THREE.Group();
+    group.name = 'skate-kit';
+    group.userData.perfTag = 'festival';
+    // One instanced mesh per material part of the post.
+    const posts: THREE.InstancedMesh[] = postGeo.map(([m, g]) => {
+      const im = new THREE.InstancedMesh(g, typeof m === 'string' ? materials.get(m) : m, 16);
+      im.count = 0;
+      im.castShadow = true;
+      im.frustumCulled = false;
+      im.userData.noAO = true;
+      group.add(im);
+      return im;
+    });
+    // Thin-ice decal: a frosted, star-shattered patch with dark water showing through its heart.
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 160;
+    const g2 = c.getContext('2d')!;
+    const rr = new Rng('crack');
+    const frost = g2.createRadialGradient(128, 80, 6, 128, 80, 78);
+    frost.addColorStop(0, 'rgba(4,14,26,0.92)');
+    frost.addColorStop(0.28, 'rgba(20,48,72,0.75)');
+    frost.addColorStop(0.55, 'rgba(190,225,250,0.45)');
+    frost.addColorStop(1, 'rgba(190,225,250,0)');
+    g2.save();
+    g2.scale(1, 160 / 256);
+    g2.translate(0, (256 - 160) / 2);
+    g2.fillStyle = frost;
+    g2.beginPath();
+    g2.arc(128, 128, 90, 0, Math.PI * 2);
+    g2.fill();
+    g2.restore();
+    const branch = (x: number, y: number, a: number, len: number, w: number, depth: number): void => {
+      let px = x;
+      let py = y;
+      for (let i = 0; i < 6; i++) {
+        const nx = px + (Math.cos(a) * len) / 6 + (rr.next() - 0.5) * 7;
+        const ny = py + (Math.sin(a) * len * 0.62) / 6 + (rr.next() - 0.5) * 5;
+        g2.strokeStyle = 'rgba(240,250,255,0.95)';
+        g2.lineWidth = w;
+        g2.beginPath();
+        g2.moveTo(px, py);
+        g2.lineTo(nx, ny);
+        g2.stroke();
+        if (depth > 0 && rr.next() < 0.4) branch(nx, ny, a + (rr.next() - 0.5) * 1.6, len * 0.45, w * 0.6, depth - 1);
+        px = nx;
+        py = ny;
+        a += (rr.next() - 0.5) * 0.6;
+      }
+    };
+    for (let k = 0; k < 9; k++) branch(128, 80, (k / 9) * Math.PI * 2 + rr.next() * 0.4, 70 + rr.next() * 45, 3.2, 2);
+    // A ring fracture around the hole.
+    g2.strokeStyle = 'rgba(235,248,255,0.9)';
+    g2.lineWidth = 2.5;
+    g2.beginPath();
+    g2.ellipse(128, 80, 30, 19, 0.2, 0, Math.PI * 2);
+    g2.stroke();
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const cm = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, fog: true });
+    const plane = new THREE.PlaneGeometry(1.7, 1.06);
+    plane.rotateX(-Math.PI / 2);
+    const cracks = new THREE.InstancedMesh(plane, cm, 8);
+    cracks.count = 0;
+    cracks.frustumCulled = false;
+    cracks.renderOrder = 2;
+    cracks.userData.noAO = true;
+    group.add(cracks);
+    const glow = new GlowPoints(Array.from({ length: SK_GLOWS }, () => ({ x: 0, y: -50, z: 0, color: 0xffd84a, size: 0, twinkle: 0.3, day: 1 })), 'skate-glow');
+    glow.points.frustumCulled = false;
+    group.add(glow.points);
+    const trail = new SkateTrail(ICE_Y + 0.012);
+    group.add(trail.mesh);
+    this.root.add(group);
+    const kit: SkateKit = {
+      group,
+      posts: { set count(n: number) { for (const p of posts) p.count = n; }, get count() { return posts[0]!.count; }, setMatrixAt: (i: number, m: THREE.Matrix4) => posts.forEach((p) => p.setMatrixAt(i, m)), commit: () => posts.forEach((p) => (p.instanceMatrix.needsUpdate = true)) },
+      cracks,
+      glow,
+      trail,
+    };
+    return kit;
+  }
+
+  /** Show the current leg's gates + cracks. */
+  private layoutLeg(): void {
+    const run = this.run;
+    const kit = this.skateKit;
+    if (!run || !kit) return;
+    const M = new THREE.Matrix4();
+    let pi = 0;
+    let ci = 0;
+    for (const it of run.items) {
+      if (it.leg !== run.leg) continue;
+      const z = this.riverZ(it.x) + it.off;
+      if (it.kind === 'gate') {
+        for (const s of [-1, 1]) M.makeTranslation(it.x, ICE_Y, z + s * 0.6), kit.posts.setMatrixAt(pi++, M);
+      } else if (it.kind === 'crack') {
+        M.makeRotationY((it.x * 7.3) % 3).setPosition(it.x, ICE_Y + 0.004, z);
+        kit.cracks.setMatrixAt(ci++, M);
+      }
+    }
+    kit.posts.count = pi;
+    kit.posts.commit();
+    kit.cracks.count = ci;
+    kit.cracks.instanceMatrix.needsUpdate = true;
   }
 
   protected override onPlayEvent(play: PlayState, kind: string, value: number): void {
     const p = this.game.player.position;
     if (kind === 'restart') {
       // Attract mode loops: back to the start line.
-      if (play.id === 'skate') this.onBeginPlay(play);
+      if (play.id === 'skate') this.startRun(play);
       return;
     }
     if (play.id === 'giftswap') {
       const r = this.recipient;
       const rp = r ? this.memberPos(r.i) : p;
       if (kind === 'given') {
-        const col = value >= 3 ? 0xff6a8a : value === 2 ? 0xffc0d0 : 0xfff0e0;
-        this.burst(rp.x, rp.y + 1.6, rp.z, { color: col, count: value * 10, speed: 1.4, size: 0.14, gravity: -0.4, life: 1.8, up: 0.8, spread: 0.4 });
-        if (r && value >= 2) {
-          this.crowd?.setAnim(r.i, 'cheer');
+        // Heart burst sized by the reaction tier (love / like / neutral).
+        const col = value >= 3 ? 0xff5a7a : value === 2 ? 0xffa0b8 : 0xfff0e0;
+        this.burst(rp.x, rp.y + 1.7, rp.z, { color: col, count: value * 12, speed: 1.5, size: value >= 3 ? 0.18 : 0.13, gravity: -0.4, life: 1.9, up: 0.9, spread: 0.4 });
+        if (r) {
+          this.crowd?.setAnim(r.i, value >= 3 ? 'cheer' : value === 2 ? 'wave' : 'talk');
           this.crowd?.commit();
         }
       } else if (kind === 'unwrap') {
         for (const c of [0xd8312a, 0xf2d27a, 0x2f6a4a, 0xffffff]) this.burst(p.x, p.y + 1.2, p.z - 0.4, { color: c, count: 16, speed: 2.4, size: 0.1, gravity: 2.5, life: 1.6, up: 1.2, spread: 0.3 });
       }
     }
-    void value;
   }
 
   protected override onEndPlay(play: PlayState): void {
@@ -447,9 +611,7 @@ export class StarfallSquare extends FestivalMap {
       this.recipient = null;
     }
     if (play.id === 'skate' && this.run) {
-      this.run.glow.points.removeFromParent();
-      this.run.glow.points.geometry.dispose();
-      this.run = null;
+      this.clearRun();
       this.skateLight?.position.set(0, -50, 0);
       // Step off the ice onto the bank.
       this.placePlayer(35.4, 29.6, 'up');
@@ -460,6 +622,18 @@ export class StarfallSquare extends FestivalMap {
     rig.tool.visible = false;
     if (play.id === 'skate') {
       const t = play.t;
+      const stun = play.stats.stun ?? 0;
+      if (stun > 0) {
+        // Windmilling arms, wobbling on the ice.
+        const w = Math.sin(t * 18);
+        rig.torso.rotation.set(0.1, 0, w * 0.25);
+        rig.head.rotation.set(-0.1, 0, -w * 0.2);
+        rig.armL.rotation.set(-2.4 + w * 0.6, 0, 1.2);
+        rig.armR.rotation.set(-2.4 - w * 0.6, 0, -1.2);
+        rig.legL.rotation.set(-0.3, 0, 0.3);
+        rig.legR.rotation.set(0.2, 0, -0.3);
+        return { bob: 0.02, sy: 0.94 };
+      }
       const push = play.live ? Math.sin(t * (play.boost ? 7 : 4.5)) : 0;
       // Lean into the glide, arms out for balance, long alternating strokes.
       rig.torso.rotation.set(0.38, push * 0.15, -play.steer * 0.18);
@@ -483,22 +657,78 @@ export class StarfallSquare extends FestivalMap {
   private updateSkate(dt: number, game: Game): void {
     const run = this.run;
     const play = this.play;
-    if (!run || !play || play.id !== 'skate') return;
+    const kit = this.skateKit;
+    if (!run || !play || play.id !== 'skate' || !kit) return;
+    const st = play.stats;
+    const burst = (x: number, z: number, color: number, count: number): void => this.burst(x, ICE_Y + 0.6, z, { color, count, speed: 2, size: 0.12, gravity: 1, life: 1, up: 1, spread: 0.2 });
     if (play.live && !play.done) {
-      const target = play.boost ? 4.4 : 2.7;
-      run.vx += (target - run.vx) * (1 - Math.exp(-1.6 * dt));
+      // Autopilot (attract mode): aim for the next gate / star on this leg, swerve round cracks.
+      if (st.auto) {
+        const next = run.items.filter((it) => it.leg === run.leg && !it.done && (it.x - run.x) * run.dir > -0.2).sort((p, q) => (p.x - q.x) * run.dir)[0];
+        let goal = next ? next.off : 0;
+        if (next?.kind === 'crack') goal = next.off + (next.off > 0 ? -0.95 : 0.95);
+        play.steer = THREE.MathUtils.clamp((goal - run.off) * 2.2, -1, 1);
+        play.boost = !next || Math.abs(next.x - run.x) > 3;
+      }
+      run.stun = Math.max(0, run.stun - dt);
+      run.turn = Math.max(0, run.turn - dt);
+      const target = run.stun > 0 ? 0.7 : run.turn > 0 ? 1.4 : play.boost ? 3.6 : 2.3;
+      run.vx += (target - run.vx) * (1 - Math.exp(-(run.stun > 0 ? 5 : 1.5) * dt));
       run.x += run.vx * dt * run.dir;
       run.dist += run.vx * dt;
-      // Steering is screen-relative (◀ ▶ = north / south of the ice as you face along it).
-      run.off = THREE.MathUtils.clamp(run.off - play.steer * run.dir * 2.1 * dt, -1.45, 1.45);
-      if (run.dir > 0 && run.x >= SKATE.x1) {
-        run.dir = -1;
-        this.game.player.setFacing('left');
-        this.burst(run.x, ICE_Y + 0.05, this.riverZ(run.x) + run.off, { color: 0xe8f4ff, count: 26, speed: 1.8, size: 0.09, gravity: 4, life: 0.6, up: 0.7, spread: 0.3 });
+      // ↑ ↓ steer across the ice (screen-relative: down the screen = toward the near bank).
+      run.off = THREE.MathUtils.clamp(run.off + play.steer * (run.stun > 0 ? 0.6 : 2.4) * dt, -1.45, 1.45);
+      // Items on this leg: thread gates, grab stars, dodge cracks.
+      for (const it of run.items) {
+        if (it.done || it.leg !== run.leg || Math.abs(it.x - run.x) > 0.3) continue;
+        it.done = true;
+        const z = this.riverZ(it.x) + it.off;
+        const d = Math.abs(run.off - it.off);
+        if (it.kind === 'gate') {
+          if (d < 0.52) {
+            run.gates++;
+            run.combo++;
+            run.comboT = 1;
+            burst(it.x, z, 0xffd84a, 26);
+            it.hit = true;
+          } else {
+            run.combo = 0;
+            run.comboT = 0;
+          }
+        } else if (it.kind === 'star') {
+          if (d < 0.55) {
+            run.stars++;
+            play.score++;
+            run.combo++;
+            run.comboT = 1;
+            burst(it.x, z, 0xfff0a0, 22);
+          }
+        } else if (d < 0.46) {
+          run.cracks++;
+          run.stun = 1.1;
+          run.combo = 0;
+          run.comboT = 0;
+          this.burst(it.x, ICE_Y + 0.1, z, { color: 0xd8ecff, count: 34, speed: 2.6, size: 0.09, gravity: 5, life: 0.8, up: 1.2, spread: 0.4 });
+        }
+        run.best = Math.max(run.best, run.combo);
       }
-      const L = (SKATE.x1 - SKATE.x0) * 2;
-      play.progress[0] = THREE.MathUtils.clamp(run.dist / L, 0, 1);
-      if (run.dir < 0 && run.x <= SKATE.x0) play.done = true;
+      run.comboT = Math.max(0, run.comboT - dt / 3.2);
+      if (run.comboT <= 0) run.combo = 0;
+      // Turn at the end of the reach (a hockey-stop spray), next leg.
+      const end = run.dir > 0 ? run.x >= SKATE.x1 : run.x <= SKATE.x0;
+      if (end) {
+        this.burst(run.x, ICE_Y + 0.05, this.riverZ(run.x) + run.off, { color: 0xe8f4ff, count: 30, speed: 2, size: 0.09, gravity: 4, life: 0.6, up: 0.7, spread: 0.3 });
+        run.leg++;
+        if (run.leg >= LAPS * 2) play.done = true;
+        else {
+          run.dir = run.dir > 0 ? -1 : 1;
+          run.turn = 0.5;
+          run.x = THREE.MathUtils.clamp(run.x, SKATE.x0, SKATE.x1);
+          this.game.player.setFacing(run.dir > 0 ? 'right' : 'left');
+          this.layoutLeg();
+        }
+      }
+      play.progress[0] = THREE.MathUtils.clamp(run.dist / ((SKATE.x1 - SKATE.x0) * LAPS * 2), 0, 1);
       // Ice spray off the blades.
       run.spray -= dt;
       if (run.spray <= 0) {
@@ -507,21 +737,29 @@ export class StarfallSquare extends FestivalMap {
         this.burst(run.x - 0.2 * run.dir, ICE_Y + 0.05, z, { color: 0xe8f4ff, count: play.boost || Math.abs(play.steer) > 0.5 ? 5 : 2, speed: 0.9, size: 0.07, gravity: 4, life: 0.5, up: 0.6, spread: 0.2 });
       }
     }
+    Object.assign(st, { lap: Math.min(LAPS, Math.floor(run.leg / 2) + 1), gates: run.gates, stars: run.stars, cracks: run.cracks, combo: run.combo, comboT: run.comboT, best: run.best, stun: run.stun, leg: run.leg });
     const z = this.riverZ(run.x) + run.off;
     this.movePlayer(run.x, z, ICE_Y + 0.02);
+    // Blade scratches follow you across the ice.
+    run.trailT -= dt;
+    if (run.trailT <= 0 && play.live) {
+      run.trailT = 0.05;
+      kit.trail.push(run.x, z, game.time, run.dir);
+    }
+    kit.trail.update(game.time);
     // A warm lantern glow rides along with the skater.
-    this.skateLight?.position.set(run.x - run.dir * 0.4, ICE_Y + 1.7, z + 0.8);
+    this.skateLight?.position.set(run.x + run.dir * 1.2, ICE_Y + 2.4, z - 1.4);
     const h = game.rc.renderer.domElement.height;
-    run.glow.setViewportHeight(h);
-    run.stars.forEach((s, k) => {
-      const sz = this.riverZ(s.x) + s.off;
-      if (!s.got && Math.hypot(s.x - run.x, sz - z) < 0.8) {
-        s.got = true;
-        play.score++;
-        this.burst(s.x, ICE_Y + 0.7, sz, { color: 0xffd84a, count: 22, speed: 2, size: 0.12, gravity: 1, life: 1, up: 1, spread: 0.2 });
-      }
-      run.glow.set(k, s.x, ICE_Y + 0.55 + Math.sin(game.time * 2 + k) * 0.08, sz, s.got ? 0 : 1.1);
-    });
+    kit.glow.setViewportHeight(h);
+    // Beacons: stars (gold) and gate lanterns (blue until threaded, then gold) on this leg.
+    let gi = 0;
+    for (const it of run.items) {
+      if (it.leg !== run.leg || it.kind === 'crack' || gi >= SK_GLOWS - 1) continue;
+      const iz = this.riverZ(it.x) + it.off;
+      if (it.kind === 'star') kit.glow.set(gi++, it.x, ICE_Y + 0.55 + Math.sin(game.time * 2 + it.x) * 0.08, iz, it.done ? 0 : 1.2);
+      else for (const s of [-1, 1]) if (gi < SK_GLOWS) kit.glow.set(gi++, it.x, ICE_Y + 1.14, iz + s * 0.6, it.hit ? 1.0 : 0.55);
+    }
+    for (; gi < SK_GLOWS; gi++) kit.glow.set(gi, 0, -50, 0, 0);
   }
 
   protected override lampLevel(game: Game): number {
@@ -539,11 +777,15 @@ export class StarfallSquare extends FestivalMap {
     if (!crowd) return;
     for (const s of this.skaters) {
       const a = s.a0 + t * s.sp;
-      const x = s.cx + Math.cos(a) * s.rx;
-      const zc = this.riverZ(x);
-      const z = zc + Math.sin(a) * s.rz;
+      const x0 = s.cx + Math.cos(a) * s.rx;
+      const zc = this.riverZ(x0);
+      const z0 = zc + Math.sin(a) * s.rz;
       const dx = -Math.sin(a) * s.rx * Math.sign(s.sp);
-      const dz = Math.cos(a) * s.rz * Math.sign(s.sp) + (this.riverZ(x + 0.1) - zc) * 10 * dx;
+      const dz = Math.cos(a) * s.rz * Math.sign(s.sp) + (this.riverZ(x0 + 0.1) - zc) * 10 * dx;
+      const l = Math.hypot(dx, dz) || 1;
+      // Pairs skate side by side (offset across the direction of travel).
+      const x = x0 + (dz / l) * s.side;
+      const z = z0 - (dx / l) * s.side;
       const m = crowd.members[s.i]!;
       m.x = x;
       m.z = z;
@@ -551,5 +793,95 @@ export class StarfallSquare extends FestivalMap {
       m.yaw = Math.atan2(dx, dz);
     }
     crowd.commit();
+  }
+}
+
+const LAPS = 4;
+const SK_GLOWS = 14;
+
+interface SkItem {
+  kind: 'gate' | 'star' | 'crack';
+  x: number;
+  off: number;
+  leg: number;
+  done: boolean;
+  hit?: boolean;
+}
+
+interface SkateKit {
+  group: THREE.Group;
+  posts: { count: number; setMatrixAt(i: number, m: THREE.Matrix4): void; commit(): void };
+  cracks: THREE.InstancedMesh;
+  glow: GlowPoints;
+  trail: SkateTrail;
+}
+
+/** Twin blade scratches behind the skater: a strip per blade, fading over a few seconds. */
+class SkateTrail {
+  readonly mesh: THREE.Mesh;
+  private pts: { x: number; z: number; t: number; dir: number }[] = [];
+  private pos: THREE.BufferAttribute;
+  private col: THREE.BufferAttribute;
+  private static N = 120;
+  constructor(private y: number) {
+    const N = SkateTrail.N;
+    const g = new THREE.BufferGeometry();
+    this.pos = new THREE.BufferAttribute(new Float32Array(N * 4 * 3), 3);
+    this.col = new THREE.BufferAttribute(new Float32Array(N * 4 * 4), 4);
+    this.pos.setUsage(THREE.DynamicDrawUsage);
+    this.col.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', this.pos);
+    g.setAttribute('color', this.col);
+    const idx: number[] = [];
+    for (let i = 0; i < N - 1; i++) {
+      for (const b of [0, 2]) {
+        const a = i * 4 + b;
+        const c = (i + 1) * 4 + b;
+        idx.push(a, c, a + 1, a + 1, c, c + 1);
+      }
+    }
+    g.setIndex(idx);
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 3;
+    this.mesh.userData.noAO = true;
+    this.mesh.name = 'skate-trail';
+  }
+  reset(): void {
+    this.pts = [];
+  }
+  push(x: number, z: number, t: number, dir: number): void {
+    this.pts.push({ x, z, t, dir });
+    if (this.pts.length > SkateTrail.N) this.pts.shift();
+  }
+  update(t: number): void {
+    const N = SkateTrail.N;
+    const n = this.pts.length;
+    for (let i = 0; i < N; i++) {
+      const p = this.pts[Math.min(i, n - 1)];
+      const q = this.pts[Math.min(i + 1, n - 1)] ?? p;
+      if (!p || i >= n) {
+        for (let k = 0; k < 4; k++) this.col.setXYZW(i * 4 + k, 0, 0, 0, 0);
+        continue;
+      }
+      let dx = (q?.x ?? p.x) - p.x;
+      let dz = (q?.z ?? p.z) - p.z;
+      const l = Math.hypot(dx, dz) || 1;
+      dx /= l;
+      dz /= l;
+      const a = Math.max(0, 1 - (t - p.t) / 5) * 0.55;
+      let k = 0;
+      for (const blade of [-0.11, 0.11]) {
+        for (const w of [-0.012, 0.012]) {
+          const o = blade + w;
+          this.pos.setXYZ(i * 4 + k, p.x - dz * o, this.y, p.z + dx * o);
+          this.col.setXYZW(i * 4 + k, 0.88, 0.94, 1.0, a);
+          k++;
+        }
+      }
+    }
+    this.pos.needsUpdate = true;
+    this.col.needsUpdate = true;
   }
 }

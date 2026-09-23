@@ -68,6 +68,13 @@ for (const f of FISH) base.push({ id: f.id, name: f.name, kind: 'fish', icon: f.
 for (const f of BEACH_FORAGE) base.push({ id: f.id, name: f.name, kind: 'forage', icon: f.id, sell: f.sell, stack: 999, color: f.color, description: f.blurb });
 for (const f of FISHING_GEAR) base.push({ id: f.id, name: f.name, kind: 'resource', icon: f.id, sell: f.sell, stack: f.stack, description: f.description });
 
+// Festival keepsakes (world/festivals: Starfall gift exchange presents).
+base.push(
+  { id: 'starfallOpal', name: 'Starfall Opal', kind: 'resource', icon: 'starfallOpal', sell: 280, stack: 999, color: 0xbfe4ff, description: 'Only ever turns up wrapped in a Starfall present. A speck of aurora drifts inside it.' },
+  { id: 'gingerbreadVillager', name: 'Gingerbread Villager', kind: 'resource', icon: 'gingerbreadVillager', sell: 60, stack: 99, color: 0xb8753a, description: "Bram's Starfall gingerbread, iced to look like someone you know. Extra buttons." },
+  { id: 'winterRoseTea', name: 'Winter Rose Tea', kind: 'resource', icon: 'winterRoseTea', sell: 90, stack: 99, color: 0xd86a8a, description: "Hazel's blend: rosehips picked from under the snow. Tastes like a warm scarf." },
+);
+
 export const ITEMS: Record<string, ItemDef> = Object.fromEntries(base.map((d) => [d.id, d]));
 
 export function itemDef(id: string): ItemDef | undefined {

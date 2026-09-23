@@ -606,7 +606,7 @@ export class Lanterns {
           void main() {
             vec3 lp = lanternPos(aBase, uTime, uSeaY, uMode, uArea);
             vF = lanternFade(aBase, uTime, uMode, uArea);
-            vFl = 0.85 + 0.15 * sin(uTime * 9.0 + aBase.z * 50.0);
+            vFl = 0.85 + 0.15 * sin(uTime * 9.0 + aBase.z * 50.0) + (uStreak > 0.5 ? sin(uTime * 1.7 + lp.x * 0.8 + lp.z * 0.5) * 0.1 : 0.0);
             vUv = uv;
             vec4 mvPosition;
             if (uStreak > 0.5) {
@@ -614,7 +614,7 @@ export class Lanterns {
               vec3 toCam = cameraPosition - lp; toCam.y = 0.0; toCam = normalize(toCam);
               vec3 side = vec3(toCam.z, 0.0, -toCam.x);
               float len = 1.9 + aBase.w * 0.8;
-              vec3 wp = vec3(lp.x, uSeaY + 0.02, lp.z) + side * position.x * (0.34 + 0.1 * sin(uTime * 2.0 + aBase.z * 9.0)) + toCam * (position.y + 0.5) * len;
+              vec3 wp = vec3(lp.x, uSeaY + 0.02, lp.z) + side * position.x * (0.4 + 0.12 * sin(uTime * 2.0 + aBase.z * 9.0)) + toCam * (position.y + 0.5) * len;
               wp.x += sin(position.y * 9.0 + uTime * 3.0 + aBase.z * 20.0) * 0.06;
               mvPosition = viewMatrix * vec4(wp, 1.0);
             } else {
@@ -633,12 +633,14 @@ export class Lanterns {
             vec2 d = vUv - 0.5;
             float a;
             if (uStreak > 0.5) {
-              a = exp(-d.x * d.x * 30.0) * (1.0 - smoothstep(0.05, 0.5, abs(d.y))) * (1.0 - vUv.y * 0.6) * 0.5;
+              // Broken, wave-jittered column of light (brighter near the lantern).
+              float br = 0.55 + 0.45 * sin(vUv.y * 38.0 - vFl * 20.0 + vF * 3.0);
+              a = exp(-d.x * d.x * 26.0) * (1.0 - smoothstep(0.05, 0.5, abs(d.y))) * (1.0 - vUv.y * 0.7) * 0.8 * br;
             } else {
               float r = length(d) * 2.0;
               a = exp(-r * r * 5.0) * 0.55 + exp(-r * r * 30.0) * 0.4;
             }
-            vec3 c = vec3(1.0, 0.5, 0.18) * a * vF * vFl * (0.12 + uLamps * 0.5);
+            vec3 c = vec3(1.0, 0.5, 0.18) * a * vF * vFl * (0.15 + uLamps * (uStreak > 0.5 ? 1.1 : 0.55));
             gl_FragColor = vec4(c, 1.0);
             #ifdef USE_FOG
               float fogDepth2 = vFogDepth;
@@ -661,80 +663,91 @@ export class Lanterns {
 
 // ───────────────────────────────────────────── aurora
 
+export interface AuroraCurtain {
+  /** Path of the curtain's lower hem (world xz), left → right. */
+  path: [number, number][];
+  /** Hem height and curtain height (m). */
+  base: number;
+  height: number;
+  /** 0..1 brightness. */
+  strength?: number;
+}
+
+/**
+ * Aurora: 3–4 folded curtain ribbons hanging low over the northern hills. Each curtain is a strip
+ * along a sinuous spline, green at its soft lower hem shading to magenta at the top, with
+ * noise-driven fold brightness (bright pleats, not searchlight rays) and a slow ~0.05 Hz drift of the
+ * folds. `mask` keeps a column clear (the Great Fir's silhouette). One draw call per curtain.
+ */
 export class Aurora {
   readonly group = new THREE.Group();
   readonly strength = { value: 1 };
-  constructor(center: THREE.Vector3, radius: number, bands = 3, o: { base?: number; height?: number; arc?: number; spacing?: number; lean?: number } = {}) {
-    const hs = (o.height ?? 34) / 34;
-    const arc = o.arc ?? 1.25;
-    for (let b = 0; b < bands; b++) {
-      const W = 180;
-      const g = new THREE.PlaneGeometry(1, 1, W, 1);
+  constructor(curtains: AuroraCurtain[], mask: { x: number; halfWidth: number } | null = null) {
+    curtains.forEach((c, ci) => {
+      const W = 140;
+      const curve = new THREE.CatmullRomCurve3(c.path.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
+      const g = new THREE.PlaneGeometry(1, 1, W, 2);
       const pos = g.attributes.position as THREE.BufferAttribute;
-      const ang0 = -arc + b * 0.18 * (arc / 1.25);
-      const ang1 = arc - b * 0.1 * (arc / 1.25);
-      const rr = radius * (1 - b * (o.spacing ?? 0.12));
-      const base = (o.base ?? 22) + b * 9 * hs;
-      const h = (34 + b * 10) * hs;
+      const uv = g.attributes.uv as THREE.BufferAttribute;
+      const P = new THREE.Vector3();
       for (let i = 0; i < pos.count; i++) {
         const u = pos.getX(i) + 0.5;
         const v = pos.getY(i) + 0.5;
-        const a = ang0 + (ang1 - ang0) * u;
-        const wob = Math.sin(u * 9 + b * 2) * 10 + Math.sin(u * 23 + b) * 4;
-        // `lean` tips the curtain tops towards the (southern) camera so a high diorama view sees their faces.
-        const lean = (o.lean ?? 0) * v * h;
-        pos.setXYZ(i, center.x + Math.sin(a) * (rr + wob - lean), base + v * h + Math.sin(u * 5 + b) * 6 * hs, center.z - Math.cos(a) * (rr + wob - lean));
+        curve.getPointAt(u, P);
+        pos.setXYZ(i, P.x, c.base + v * c.height, P.z);
+        uv.setXY(i, u, v);
       }
-      // u along the band, v up.
-      const uv = g.attributes.uv as THREE.BufferAttribute;
-      for (let i = 0; i < pos.count; i++) uv.setXY(i, (i % (W + 1)) / W, i > W ? 1 : 0);
       const m = new THREE.ShaderMaterial({
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
         side: THREE.DoubleSide,
         fog: false,
-        uniforms: { uTime: globalUniforms.uTime, uNight: globalUniforms.uNight, uStrength: this.strength, uBand: { value: b } },
+        uniforms: { uTime: globalUniforms.uTime, uNight: globalUniforms.uNight, uStrength: this.strength, uBand: { value: ci }, uK: { value: c.strength ?? 1 }, uMask: { value: new THREE.Vector2(mask?.x ?? 1e5, mask?.halfWidth ?? 0) } },
         vertexShader: /* glsl */ `
-          varying vec2 vUv; uniform float uTime; uniform float uBand;
+          varying vec2 vUv; varying vec3 vW; uniform float uTime; uniform float uBand;
           void main() {
             vUv = uv;
             vec3 p = position;
-            p.x += sin(uv.x * 14.0 + uTime * 0.18 + uBand) * 4.0 * uv.y;
-            p.z += cos(uv.x * 11.0 + uTime * 0.13) * 5.0;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+            // Curtains ripple sideways in slow travelling folds (the top sways more than the hem).
+            float drift = uTime * 0.314;
+            p.z += sin(uv.x * 11.0 + drift + uBand * 2.0) * (0.8 + uv.y * 2.2) + sin(uv.x * 29.0 - drift * 1.7) * 0.35 * uv.y;
+            p.x += cos(uv.x * 7.0 + drift * 0.8) * 1.2 * uv.y;
+            vec4 w = modelMatrix * vec4(p, 1.0);
+            vW = w.xyz;
+            gl_Position = projectionMatrix * viewMatrix * w;
           }`,
         fragmentShader: /* glsl */ `
-          varying vec2 vUv; uniform float uTime; uniform float uNight; uniform float uStrength; uniform float uBand;
+          varying vec2 vUv; varying vec3 vW; uniform float uTime; uniform float uNight; uniform float uStrength; uniform float uBand; uniform float uK; uniform vec2 uMask;
           ${NOISE_GLSL}
           void main() {
             float u = vUv.x; float v = vUv.y;
-            float t = uTime;
-            // Vertical rays drifting sideways + slow large folds.
-            float rays = hvNoise(vec2(u * 90.0 + t * 0.35 + uBand * 13.0, 0.5)) * 0.6 + hvNoise(vec2(u * 230.0 - t * 0.6, 3.0)) * 0.4;
-            rays = pow(rays, 1.5) * 1.35;
-            float fold = 0.45 + 0.55 * hvNoise(vec2(u * 6.0 - t * 0.05 + uBand * 3.0, t * 0.03));
-            // Bright lower hem, fading upwards; lower edge wavers.
-            float hem = smoothstep(0.0, 0.08 + 0.05 * hvNoise(vec2(u * 30.0, t * 0.2)), v);
-            float up = pow(1.0 - v, 1.6);
-            float ends = smoothstep(0.0, 0.12, u) * (1.0 - smoothstep(0.88, 1.0, u));
-            vec3 green = vec3(0.15, 1.0, 0.55);
-            vec3 teal = vec3(0.1, 0.65, 0.9);
-            vec3 pink = vec3(0.85, 0.3, 0.75);
-            vec3 col = mix(green, teal, smoothstep(0.15, 0.6, v));
-            col = mix(col, pink, smoothstep(0.55, 1.0, v) * (0.5 + 0.5 * hvNoise(vec2(u * 4.0 + t * 0.04, 1.0))));
-            float a = hem * up * (rays * 0.75 + 0.25) * fold * ends;
-            a *= (1.0 - uBand * 0.22);
-            gl_FragColor = vec4(col * a * 1.35 * uStrength * smoothstep(0.4, 0.9, uNight), 1.0);
+            float t = uTime * 0.314;
+            // Pleats: broad bright folds drifting slowly along the curtain, a little fine texture.
+            float fold = hvNoise(vec2(u * 9.0 - t * 0.6 + uBand * 5.0, 0.5 + v * 0.35));
+            fold = 0.25 + 0.75 * smoothstep(0.3, 0.85, fold);
+            float fine = 0.85 + 0.15 * hvNoise(vec2(u * 60.0 + t, v * 2.0));
+            // Soft lower hem (brightest just above it), fading out towards the top.
+            float hem = smoothstep(0.0, 0.1 + 0.06 * hvNoise(vec2(u * 20.0, t)), v);
+            float body = hem * (0.35 + 0.65 * pow(1.0 - v, 1.4)) * (1.0 + 1.2 * exp(-v * 9.0));
+            float ends = smoothstep(0.0, 0.14, u) * (1.0 - smoothstep(0.86, 1.0, u));
+            vec3 green = vec3(0.16, 1.0, 0.5);
+            vec3 teal = vec3(0.12, 0.8, 0.75);
+            vec3 magenta = vec3(0.8, 0.22, 0.78);
+            vec3 col = mix(green, teal, smoothstep(0.1, 0.45, v));
+            col = mix(col, magenta, smoothstep(0.4, 0.95, v));
+            float clear = smoothstep(uMask.y * 0.55, uMask.y, abs(vW.x - uMask.x));
+            float a = body * fold * fine * ends * clear * uK;
+            gl_FragColor = vec4(col * a * 0.9 * uStrength * smoothstep(0.4, 0.9, uNight), 1.0);
           }`,
       });
       const mesh = new THREE.Mesh(g, m);
       mesh.frustumCulled = false;
-      mesh.renderOrder = -900 + b;
+      mesh.renderOrder = -900 + ci;
       mesh.userData.noAO = true;
       mesh.name = 'aurora';
       this.group.add(mesh);
-    }
+    });
     this.group.name = 'aurora';
   }
 }
@@ -886,5 +899,315 @@ export class GlowPoints {
       info.setX(i, size);
       info.needsUpdate = true;
     }
+  }
+}
+
+// ───────────────────────────────────────────── falling petals under trees
+
+/**
+ * Petals drifting down out of tree canopies and settling on the grass under them (then fading):
+ * every canopy is an emitter. GPU-animated, one draw call for the whole grove.
+ */
+export class PetalFall {
+  readonly mesh: THREE.Mesh;
+  constructor(canopies: { x: number; y: number; z: number; r: number; ground: number }[], perTree = 70, colors = [0xf9c6d6, 0xfbd8e2, 0xffffff, 0xf4aec4]) {
+    const base = petalGeometry(0.085, 0.062, 0.014);
+    const g = new THREE.InstancedBufferGeometry();
+    g.index = base.index;
+    g.setAttribute('position', base.attributes.position!);
+    g.setAttribute('normal', base.attributes.normal!);
+    const n = canopies.length * perTree;
+    g.instanceCount = n;
+    const seed = new Float32Array(n * 4);
+    const tree = new Float32Array(n * 4);
+    const ground = new Float32Array(n);
+    const col = new Float32Array(n * 3);
+    const c = new THREE.Color();
+    for (let i = 0; i < n; i++) {
+      const t = canopies[Math.floor(i / perTree)]!;
+      for (let k = 0; k < 4; k++) seed[i * 4 + k] = Math.random();
+      tree.set([t.x, t.y, t.z, t.r], i * 4);
+      ground[i] = t.ground;
+      c.setHex(colors[i % colors.length]!).convertSRGBToLinear();
+      col.set([c.r, c.g, c.b], i * 3);
+    }
+    g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seed, 4));
+    g.setAttribute('aTree', new THREE.InstancedBufferAttribute(tree, 4));
+    g.setAttribute('aGround', new THREE.InstancedBufferAttribute(ground, 1));
+    g.setAttribute('aCol', new THREE.InstancedBufferAttribute(col, 3));
+    const m = new THREE.ShaderMaterial({
+      side: THREE.DoubleSide,
+      fog: true,
+      uniforms: shared({}),
+      vertexShader: /* glsl */ `
+        attribute vec4 aSeed; attribute vec4 aTree; attribute float aGround; attribute vec3 aCol;
+        uniform float uTime; uniform vec2 uWindDir;
+        varying vec3 vN; varying vec3 vCol; varying vec3 vW;
+        ${FOG_PARS_V}
+        ${ROT_GLSL}
+        void main() {
+          vec4 s = aSeed;
+          float per = 7.0 + s.w * 5.0;
+          float lt = mod(uTime + s.x * per, per);
+          float h = aTree.y - aGround;
+          float spd = 0.38 + s.y * 0.3;
+          float dur = h / spd;
+          float a0 = s.z * 6.2831;
+          float rr = sqrt(s.y) * aTree.w;
+          vec3 start = vec3(aTree.x + cos(a0) * rr, aTree.y - s.w * 0.6, aTree.z + sin(a0) * rr);
+          float ft = min(lt, dur);
+          vec3 wind = vec3(uWindDir.x, 0.0, uWindDir.y) * ft * 0.35;
+          vec3 sway = vec3(sin(ft * 1.7 + s.x * 20.0), 0.0, cos(ft * 1.3 + s.z * 17.0)) * 0.35 * min(ft, 1.0);
+          vec3 p = start + wind + sway;
+          p.y = max(aGround + 0.02, aTree.y - s.w * 0.6 - ft * spd);
+          bool landed = lt >= dur;
+          float fade = smoothstep(0.0, 0.6, lt) * (1.0 - smoothstep(dur + 1.5, per, lt));
+          float ang = landed ? s.x * 6.0 : ft * (3.0 + s.w * 3.0) + s.x * 30.0;
+          mat3 R = landed ? mat3(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0) * fxAxisAngle(vec3(0.0, 0.0, 1.0), ang) : fxAxisAngle(vec3(s.y - 0.5, s.z - 0.5, s.x - 0.45) + 0.02, ang);
+          vec3 v = R * (position * fade * 1.1);
+          vN = normalize(R * normal);
+          vCol = aCol;
+          vW = p + v;
+          vec4 mvPosition = viewMatrix * vec4(vW, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          ${FOG_V}
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uSkyColor;
+        varying vec3 vN; varying vec3 vCol; varying vec3 vW;
+        ${FOG_PARS_F}
+        void main() {
+          vec3 n = normalize(vN);
+          vec3 L = normalize(uSunDir);
+          vec3 V = normalize(cameraPosition - vW);
+          float d = abs(dot(n, L));
+          float trans = pow(max(dot(-V, L), 0.0), 3.0);
+          vec3 c = vCol * (uSunColor * (0.35 + 0.65 * d) * 0.95 + uSkyColor * 0.5 + vec3(0.04)) + vCol * uSunColor * trans * 0.6;
+          gl_FragColor = vec4(c, 1.0);
+          ${FOG_F}
+        }`,
+    });
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.frustumCulled = false;
+    this.mesh.name = 'petal-fall';
+    this.mesh.userData.noAO = true;
+    this.mesh.renderOrder = 4;
+  }
+}
+
+// ───────────────────────────────────────────── maypole ribbons
+
+/**
+ * Satin ribbons strung from the pole crown to each dancer's raised hand: a catenary sag, a
+ * travelling flutter and a slow twist. CPU-updated strips (a few hundred vertices), one draw call.
+ */
+export class Ribbons {
+  readonly mesh: THREE.Mesh;
+  private pos: THREE.BufferAttribute;
+  private readonly segs: number;
+  constructor(readonly count: number, colors: number[], segs = 22) {
+    this.segs = segs;
+    const n = count * (segs + 1) * 2;
+    const g = new THREE.BufferGeometry();
+    this.pos = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
+    this.pos.setUsage(THREE.DynamicDrawUsage);
+    const col = new Float32Array(n * 3);
+    const idx: number[] = [];
+    const c = new THREE.Color();
+    for (let k = 0; k < count; k++) {
+      c.setHex(colors[k % colors.length]!).convertSRGBToLinear();
+      for (let i = 0; i <= segs; i++) {
+        const v = (k * (segs + 1) + i) * 2;
+        // Satin sheen: the two edges a touch different.
+        col.set([c.r, c.g, c.b], v * 3);
+        col.set([c.r * 0.88, c.g * 0.88, c.b * 0.88], (v + 1) * 3);
+        if (i < segs) idx.push(v, v + 1, v + 2, v + 1, v + 3, v + 2);
+      }
+    }
+    g.setAttribute('position', this.pos);
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setIndex(idx);
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.05, side: THREE.DoubleSide });
+    m.name = 'ribbons';
+    applyWorldFx(m, { snow: false });
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.frustumCulled = false;
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
+    this.mesh.userData.noAO = true;
+    this.mesh.name = 'ribbons';
+  }
+
+  private static A = new THREE.Vector3();
+  private static D = new THREE.Vector3();
+  private static S = new THREE.Vector3();
+  private static U = new THREE.Vector3();
+  private static P = new THREE.Vector3();
+  private static W = new THREE.Vector3();
+
+  /** Re-string ribbon k from `a` (pole) to `b` (hand). `slack` adds sag (m). */
+  set(k: number, a: THREE.Vector3, b: THREE.Vector3, t: number, slack = 0.12, width = 0.075): void {
+    const { A, D, S, U, P, W } = Ribbons;
+    D.subVectors(b, a);
+    const len = D.length();
+    S.set(-D.z, 0, D.x).normalize();
+    U.crossVectors(D, S).normalize();
+    for (let i = 0; i <= this.segs; i++) {
+      const u = i / this.segs;
+      A.copy(a).addScaledVector(D, u);
+      A.y -= slack * 4 * u * (1 - u) * (0.6 + 0.4 * len / 5);
+      const fl = Math.sin(u * 10 - t * 7 + k * 1.9) * 0.06 * u * (1 - u) * 4;
+      A.addScaledVector(S, fl).addScaledVector(U, Math.sin(u * 7 - t * 5 + k) * 0.025 * u);
+      const tw = Math.sin(u * 5 + t * 2.3 + k * 2.1) * 0.7 + 0.3;
+      W.copy(S).multiplyScalar(Math.cos(tw)).addScaledVector(U, Math.sin(tw)).multiplyScalar(width / 2);
+      const v = (k * (this.segs + 1) + i) * 2;
+      P.copy(A).add(W);
+      this.pos.setXYZ(v, P.x, P.y, P.z);
+      P.copy(A).sub(W);
+      this.pos.setXYZ(v + 1, P.x, P.y, P.z);
+    }
+  }
+
+  commit(): void {
+    this.pos.needsUpdate = true;
+    this.mesh.geometry.computeVertexNormals();
+  }
+}
+
+// ───────────────────────────────────────────── bonfire
+
+/**
+ * A living bonfire: 5 camera-facing flame cards shaped by scrolling noise (hot core → orange →
+ * ember-red rim, tonemapped so bloom keeps the tongue shapes), plus rising embers that sway and
+ * wink out. GPU-animated, two draw calls.
+ */
+export class Bonfire {
+  readonly group = new THREE.Group();
+  constructor(center: THREE.Vector3, scale = 1) {
+    const cards = 5;
+    const g = new THREE.InstancedBufferGeometry();
+    const quad = new THREE.PlaneGeometry(1, 1);
+    quad.translate(0, 0.5, 0);
+    g.index = quad.index;
+    g.setAttribute('position', quad.attributes.position!);
+    g.setAttribute('uv', quad.attributes.uv!);
+    g.instanceCount = cards;
+    const info = new Float32Array(cards * 4);
+    for (let i = 0; i < cards; i++) {
+      const a = (i / cards) * Math.PI * 2;
+      const r = i === 0 ? 0 : 0.2;
+      // offset x, offset z, size, seed
+      info.set([Math.cos(a) * r * scale, Math.sin(a) * r * scale, (i === 0 ? 1.55 : 1.0 + (i % 2) * 0.25) * scale, Math.random() * 10], i * 4);
+    }
+    g.setAttribute('aInfo', new THREE.InstancedBufferAttribute(info, 4));
+    const m = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: true,
+      uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.fog]), uTime: globalUniforms.uTime, uCenter: { value: center.clone() } },
+      vertexShader: /* glsl */ `
+        attribute vec4 aInfo; uniform vec3 uCenter; uniform float uTime;
+        varying vec2 vUv; varying float vSeed;
+        ${FOG_PARS_V}
+        void main() {
+          vUv = uv;
+          vSeed = aInfo.w;
+          vec3 c = uCenter + vec3(aInfo.x, 0.0, aInfo.y);
+          vec4 mvPosition = viewMatrix * vec4(c, 1.0);
+          float s = aInfo.z * (0.92 + 0.08 * sin(uTime * 7.0 + aInfo.w));
+          mvPosition.xy += vec2(position.x * s * 0.62, position.y * s);
+          gl_Position = projectionMatrix * mvPosition;
+          ${FOG_V}
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        varying vec2 vUv; varying float vSeed;
+        ${NOISE_GLSL}
+        ${FOG_PARS_F}
+        void main() {
+          vec2 uv = vUv;
+          float t = uTime;
+          float n = hvNoise(vec2(uv.x * 3.0 + vSeed, uv.y * 3.5 - t * 2.6)) * 0.62 + hvNoise(vec2(uv.x * 7.0 - vSeed, uv.y * 7.0 - t * 4.2)) * 0.38;
+          float y = uv.y;
+          float w = 0.46 * pow(max(1.0 - y, 0.0), 0.75) * (0.75 + 0.25 * sin(y * 6.0 - t * 5.0 + vSeed));
+          float sway = (n - 0.5) * 0.35 * y + sin(t * 3.0 + vSeed + y * 4.0) * 0.05 * y;
+          float d = abs(uv.x - 0.5 - sway) / max(w, 0.001);
+          float body = 1.0 - smoothstep(0.35, 1.0, d + (n - 0.5) * 0.9 * y + y * 0.25);
+          body *= smoothstep(0.0, 0.08, y);
+          float core = 1.0 - smoothstep(0.0, 0.55, d + y * 0.9);
+          vec3 red = vec3(0.55, 0.05, 0.0);
+          vec3 orange = vec3(1.0, 0.28, 0.02);
+          vec3 gold = vec3(1.0, 0.55, 0.12);
+          vec3 c = mix(red, orange, smoothstep(0.0, 0.55, body));
+          c = mix(c, gold, core * 0.55);
+          gl_FragColor = vec4(c * body * 0.9, 1.0);
+          #ifdef USE_FOG
+            gl_FragColor.rgb *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
+          #endif
+        }`,
+    });
+    const flames = new THREE.Mesh(g, m);
+    flames.frustumCulled = false;
+    flames.renderOrder = 8;
+    flames.userData.noAO = true;
+    flames.name = 'bonfire-flames';
+    this.group.add(flames);
+    // Embers.
+    const N = 70;
+    const eg = new THREE.BufferGeometry();
+    const seeds = new Float32Array(N * 4);
+    for (let i = 0; i < seeds.length; i++) seeds[i] = Math.random();
+    eg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+    eg.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4));
+    const em = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: true,
+      uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.fog]), uTime: globalUniforms.uTime, uCenter: { value: center.clone() }, uScale: { value: 1000 }, uMap: { value: textures.softDot().map } },
+      vertexShader: /* glsl */ `
+        attribute vec4 aSeed; uniform float uTime; uniform vec3 uCenter; uniform float uScale;
+        varying float vA;
+        ${FOG_PARS_V}
+        void main() {
+          vec4 s = aSeed;
+          float per = 1.8 + s.w * 1.6;
+          float lt = mod(uTime + s.x * per, per) / per;
+          vec3 p = uCenter + vec3((s.y - 0.5) * 0.5, 0.2, (s.z - 0.5) * 0.5);
+          p.y += lt * (2.2 + s.w * 1.8);
+          p.x += sin(lt * 9.0 + s.x * 20.0) * 0.25 * lt;
+          p.z += cos(lt * 7.0 + s.z * 20.0) * 0.25 * lt;
+          vec4 mvPosition = viewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          gl_PointSize = (0.035 + s.y * 0.04) * uScale / -mvPosition.z;
+          vA = (1.0 - lt) * smoothstep(0.0, 0.08, lt) * (0.6 + 0.4 * sin(uTime * 20.0 + s.z * 50.0));
+          ${FOG_V}
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D uMap;
+        varying float vA;
+        ${FOG_PARS_F}
+        void main() {
+          float m = texture2D(uMap, gl_PointCoord).a;
+          gl_FragColor = vec4(vec3(1.0, 0.6, 0.2) * m * vA * 2.2, 1.0);
+          #ifdef USE_FOG
+            gl_FragColor.rgb *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
+          #endif
+        }`,
+    });
+    const embers = new THREE.Points(eg, em);
+    embers.frustumCulled = false;
+    embers.renderOrder = 8;
+    embers.userData.noAO = true;
+    embers.name = 'bonfire-embers';
+    this.group.add(embers);
+    this.embersScale = em.uniforms.uScale!;
+    this.group.name = 'bonfire';
+  }
+  private embersScale: THREE.IUniform;
+  setViewportHeight(h: number): void {
+    this.embersScale.value = h * 1.3;
   }
 }

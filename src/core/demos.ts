@@ -132,13 +132,13 @@ export const DEMOS: Record<string, DemoDef> = {
   'mine-lava': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
   'mine-combat': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 17, offsetZ: -0.7 }, showcase: [] },
   // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
-  'fest-spring': { map: 'fest-spring', x: 29.2, z: 35.2, facing: 'up', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 33, offsetX: 2.8, offsetZ: -8.6 }, showcase: ['festival-show'] },
+  'fest-spring': { map: 'fest-spring', x: 25.2, z: 27.9, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 31, offsetX: 6.6, offsetZ: -2.1 }, showcase: ['festival-show'] },
   'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 32, offsetX: -3.2, offsetZ: -7.5 }, showcase: ['festival-show'] },
   'fest-fall': { map: 'fest-fall', x: 30.2, z: 27.6, facing: 'up', time: 15.1, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 35, offsetX: 3.2, offsetZ: -8.2 }, showcase: ['festival-show'] },
   'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 40, offsetX: -0.4, offsetZ: -8.6 }, showcase: ['festival-show'] },
   // Festival mini-games (they play themselves while the demo is paused): Ribbon Dance, Lantern Release, Sack Race,
   // Produce Judging, Gift Exchange, Starlight Skate. Same as `?demo=fest-<season>&ui=festival:<activity>`.
-  'fest-spring-dance': { map: 'fest-spring', x: 31.2, z: 37.2, facing: 'up', time: 12.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 38, distance: 17, offsetX: 0.4, offsetZ: -2.2 }, showcase: ['festival-show'], ui: 'festival:dance' },
+  'fest-spring-dance': { map: 'fest-spring', x: 31.2, z: 37.2, facing: 'up', time: 12.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 38, distance: 19.5, offsetX: 0.4, offsetZ: -4.4 }, showcase: ['festival-show'], ui: 'festival:dance' },
   'fest-summer-lanterns': { map: 'fest-summer', x: 31.5, z: 20.7, facing: 'up', time: 21.2, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 16, offsetZ: -3.5 }, showcase: ['festival-show'], ui: 'festival:lanterns' },
   'fest-fall-race': { map: 'fest-fall', x: 14.3, z: 25.5, facing: 'right', time: 15.1, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 20, offsetX: 4.2, offsetZ: -2.2 }, showcase: ['festival-show'], ui: 'festival:sackrace' },
   'fest-fall-judging': { map: 'fest-fall', x: 35.4, z: 19.4, facing: 'up', time: 13.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 17, offsetZ: -2.6 }, showcase: ['festival-show'], ui: 'festival:pumpkin' },
