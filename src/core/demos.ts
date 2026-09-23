@@ -29,7 +29,7 @@ const MINE_CAM = { yaw: 0, pitch: 54, distance: 19, offsetZ: -0.6 };
 /** Cindergrove: the waterfall, plunge pool and flanking elders, player on the pool path. */
 const FOREST_FALLS_CAM = { yaw: -4, pitch: 44, distance: 26, offsetX: -6.8, offsetZ: -3.6 };
 /** Driftsand Beach: pier, surf and the shack; sunset looks out over the pier. */
-const BEACH_CAM = { yaw: -8, pitch: 44, distance: 32, offsetX: 2, offsetZ: 4.5 };
+const BEACH_CAM = { yaw: -8, pitch: 46, distance: 36, offsetX: 1, offsetZ: 6.5 };
 const BEACH_SUNSET_CAM = { yaw: 148, pitch: 24, distance: 30, offsetX: -2, offsetZ: 1 };
 /** Fishing off the pier head (cast to the west, across the frame). */
 const FISH_CAM = { yaw: -10, pitch: 42, distance: 15, offsetX: -2.4, offsetZ: -0.6 };

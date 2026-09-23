@@ -413,7 +413,7 @@ export class BeachMap implements GameMap {
       const rad = rr.next() < 0.3 ? 0.35 + rr.next() * 0.35 : 0.1 + rr.next() * 0.14;
       addCoastRock(b, rr, x, hAt(x, z) - rad * 0.35, z, rad, 0.55 + rr.next() * 0.3);
     }
-    for (const [x, z, rad] of [[69.5, 56.5, 1.6], [67.4, 57.8, 0.9], [71.4, 55.2, 1.1], [26.4, 49.4, 0.7], [58.8, 47.5, 0.55], [21.6, 44.6, 0.8]] as const) {
+    for (const [x, z, rad] of [[69.5, 56.5, 1.6], [67.4, 57.8, 0.9], [71.4, 55.2, 1.1]] as const) {
       addCoastRock(b, rr, x, hAt(x, z) - rad * 0.3, z, rad, 0.9);
     }
     // Bluff boulders.

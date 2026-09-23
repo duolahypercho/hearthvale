@@ -113,6 +113,12 @@ export class BeachShape {
       for (const [px, pz, pr] of TIDE_POOLS) {
         const d = Math.hypot(x - px, (z - pz) * 1.15) / pr;
         if (d < 1.25) h = Math.min(h, h * smoothstep(0.55, 1.2, d) + 0.12 * (1 - smoothstep(0.55, 1.2, d)));
+        // Rock lip: every pool is enclosed above its water line (no water plane hanging over low ground).
+        if (d > 0.75 && d < 1.7) {
+          const k = smoothstep(0.75, 1.0, d) * smoothstep(1.7, 1.25, d);
+          const lip = TIDE_POOL_Y + 0.13;
+          if (h < lip) h += (lip - h) * k;
+        }
       }
     }
     // East headland: a grassy rock knoll the lighthouse stands on.
