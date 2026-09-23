@@ -14,6 +14,7 @@ import { patchMaterial, after, before } from '../../render/patch';
 import type { FloorLayout } from './gen';
 import { BIOMES } from './biomes';
 import { facetRock, crystalPrism } from './rockgeo';
+import { stoneMaterial } from './stone';
 
 type H = (x: number, z: number) => number;
 
@@ -73,8 +74,8 @@ let rockMat: THREE.MeshStandardMaterial | null = null;
 export function mineRockMaterial(): THREE.MeshStandardMaterial {
   if (!rockMat) {
     // Normals come from the geometry: soft-cut breakables blend flat + smooth, props stay faceted.
-    rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84 });
-    rockMat.name = 'mine-rock';
+    // Procedural stone (3D noise albedo / roughness / bump) over the baked vertex colour + AO.
+    rockMat = stoneMaterial(false, 0.8);
   }
   return rockMat;
 }
@@ -225,7 +226,8 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
     place(lb.build({ name: 'ladder-up' }), lx, lz, 0);
     // Shaft of pale daylight from the hole above.
     const sh = new THREE.PlaneGeometry(1.9, 7.5, 1, 1);
-    const sm = shaftMaterial(new THREE.Color(L.biome === 'ice' ? 0xcfe8ff : 0xfff0d0));
+    // (dimmed in the lava band: a white-hot column there read as a blown-out light card)
+    const sm = shaftMaterial(new THREE.Color(L.biome === 'ice' ? 0xcfe8ff : L.biome === 'lava' ? 0x5a4a44 : 0xfff0d0));
     const shaft = new THREE.Mesh(sh, sm);
     shaft.position.set(lx, ly + 3.2, lz + 0.8);
     shaft.rotation.set(-0.35, 0, 0);

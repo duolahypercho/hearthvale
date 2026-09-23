@@ -52,11 +52,12 @@ const PALETTE: Record<Biome, { slime: number; slimeCore: number; bat: number; ba
 };
 
 const STATS: Record<MonsterKind, { hp: number; dmg: number; radius: number; knock: number }> = {
-  slime: { hp: 24, dmg: 6, radius: 0.42, knock: 6.5 },
-  bat: { hp: 16, dmg: 6, radius: 0.35, knock: 7.5 },
-  crab: { hp: 42, dmg: 9, radius: 0.45, knock: 3 },
-  wisp: { hp: 20, dmg: 4, radius: 0.36, knock: 6 },
-  imp: { hp: 26, dmg: 7, radius: 0.38, knock: 6.5 },
+  // knock = knockback distance in tiles (eased out over KB_TIME).
+  slime: { hp: 24, dmg: 6, radius: 0.42, knock: 1.65 },
+  bat: { hp: 16, dmg: 6, radius: 0.35, knock: 1.8 },
+  crab: { hp: 42, dmg: 9, radius: 0.45, knock: 0.85 },
+  wisp: { hp: 20, dmg: 4, radius: 0.36, knock: 1.5 },
+  imp: { hp: 26, dmg: 7, radius: 0.38, knock: 1.55 },
 };
 
 /** Standard material with a patchable flash + rim (per monster, so each can flash on its own). */
@@ -87,14 +88,19 @@ function monsterMat(color: number, opts: { rough?: number; clearcoat?: boolean |
       `{
         float fr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.5);
         totalEmissiveRadiance += mix(diffuseColor.rgb, uRimC, uRimT) * fr * uRimK;
-        totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(1.05) + diffuseColor.rgb * 0.35, uFlash);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uFlash * 0.6);
+        // Hit flash: a hot rim + a lifted body that keeps the creature's own hue (never a white blob).
+        float frF = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 1.5);
+        totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + vec3(0.35)) * uFlash + vec3(1.0, 0.95, 0.85) * frF * uFlash * 1.2;
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.6 + 0.4, uFlash * 0.4);
       }`,
     );
     shader.fragmentShader = fs;
   });
   return m;
 }
+
+/** Knockback slide duration (s). */
+export const KB_TIME = 0.18;
 
 let blobGeo: THREE.CircleGeometry | null = null;
 function shadowBlob(r: number): THREE.Mesh {
@@ -146,6 +152,12 @@ export abstract class Monster {
   /** Demo stills: keep the hit flash lit. */
   holdFlash = false;
   protected seed: number;
+  /** Active knockback slide: direction, distance, eased progress. */
+  protected kb: { dx: number; dz: number; dist: number; t: number; e: number } | null = null;
+  /** 0..1 hit squash on the whole rig (3–4 frames). */
+  protected squash = 0;
+  /** Network id (host-assigned; co-op snapshots address monsters by it). */
+  netId = 0;
 
   constructor(
     readonly kind: MonsterKind,
@@ -184,10 +196,15 @@ export abstract class Monster {
     if (!this.alive) return false;
     this.hp -= dmg;
     this.flash = 1;
-    this.stun = 0.32;
+    this.stun = KB_TIME + 0.16;
     this.aggro = true;
-    this.vel.x = dir.x * this.knockback * power;
-    this.vel.z = dir.z * this.knockback * power;
+    // Knockback: a fixed-distance ease-out slide (≥ 1.5 tiles for the soft ones), not an impulse
+    // the AI's own damping would eat.
+    this.vel.x = 0;
+    this.vel.z = 0;
+    const len = Math.hypot(dir.x, dir.z) || 1;
+    this.kb = { dx: dir.x / len, dz: dir.z / len, dist: this.knockback * Math.min(1.35, power), t: 0, e: 0 };
+    this.squash = 1;
     this.onHit(dir);
     if (this.hp <= 0) {
       this.dying = 0;
@@ -235,6 +252,41 @@ export abstract class Monster {
     }
   }
 
+  /** Collision-checked displacement (knockback). Returns false if fully blocked. */
+  protected slide(dx: number, dz: number, ctx: ArenaCtx): boolean {
+    const vx = this.vel.x;
+    const vz = this.vel.z;
+    this.vel.set(dx, this.vel.y, dz);
+    const x0 = this.pos.x;
+    const z0 = this.pos.z;
+    this.move(1, ctx, this.flies);
+    this.vel.x = vx;
+    this.vel.z = vz;
+    return this.pos.x !== x0 || this.pos.z !== z0;
+  }
+
+  /** Knockback slide + rig squash (runs before the AI each frame). */
+  private react(dt: number, ctx: ArenaCtx): void {
+    const k = this.kb;
+    if (k) {
+      k.t += dt;
+      const u = Math.min(1, k.t / KB_TIME);
+      const e = 1 - Math.pow(1 - u, 3);
+      const step = (e - k.e) * k.dist;
+      k.e = e;
+      if (step > 0 && !this.slide(k.dx * step, k.dz * step, ctx)) this.kb = null;
+      else if (u >= 1) this.kb = null;
+    }
+    if (this.squash > 0) this.squash = Math.max(0, this.squash - dt / 0.075);
+    const s = this.squash;
+    this.root.scale.set(1 + 0.26 * s, 1 - 0.3 * s, 1 + 0.26 * s);
+  }
+
+  /** Currently sliding from a hit (co-op snapshots mark it). */
+  get knocked(): boolean {
+    return !!this.kb;
+  }
+
   update(dt: number, ctx: ArenaCtx, frozen = false): void {
     this.flash = this.holdFlash ? 0.22 : Math.max(0, this.flash - dt * 7);
     if (frozen) {
@@ -247,6 +299,7 @@ export abstract class Monster {
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
     if (this.dying >= 0) {
       this.dying += dt;
+      this.react(dt, ctx);
       this.animateDeath(dt, ctx);
       return;
     }
@@ -256,6 +309,7 @@ export abstract class Monster {
       this.vel.x *= k;
       this.vel.z *= k;
     }
+    this.react(dt, ctx);
     this.think(dt, ctx);
     this.root.position.copy(this.pos);
   }

@@ -30,6 +30,8 @@ declare module '../../core/events' {
     'combat:monsterKilled': { kind: MonsterKind; x: number; z: number; floor: number };
     /** The player swung the sword (whether or not it connected). */
     'combat:swing': { x: number; z: number };
+    /** The sword's impact frame: origin, facing, sword tier, monsters hit (co-op relays it). */
+    'combat:strike': { x: number; z: number; dx: number; dz: number; tier: number; hits: number };
     /** Health hit 0 in the mine. */
     'combat:passOut': { floor: number };
   }

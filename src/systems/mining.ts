@@ -332,6 +332,28 @@ export class MiningSystem implements System, MiningApi {
     // `&pick=1`: swing the pickaxe at the nearest ore rock (side-on); with `&still=1` the pose,
     // chips and wobble freeze on the impact frame.
     if (q.get('pick') === '1') this.stagePick(m, q.get('still') === '1');
+    // Beauty frames carry a clear threat in view (a biome monster sizing the farmer up, a few
+    // steps off to the side); `&foe=0` leaves it out.
+    else if (name !== 'mine-combat' && name !== 'mine' && q.get('foe') !== '0') this.stageFoe(m, spot);
+  }
+
+  private stageFoe(m: MineMap, spot: { x: number; z: number }): void {
+    const kind = m.layout.biome === 'ice' ? 'wisp' : m.layout.biome === 'lava' ? 'imp' : 'slime';
+    const ring: [number, number][] = [];
+    for (const r of [2.6, 2.1, 3.2]) for (let k = 0; k < 12; k++) ring.push([Math.cos((k / 12) * Math.PI * 2 + 0.3) * r, Math.sin((k / 12) * Math.PI * 2 + 0.3) * r * 0.8]);
+    // Prefer beside / below the farmer (reads in frame) over behind them.
+    ring.sort((a, b) => Math.abs(a[1]) * 0.6 - a[1] * 0.3 - (Math.abs(b[1]) * 0.6 - b[1] * 0.3));
+    for (const [ox, oz] of ring) {
+      const x = spot.x + ox;
+      const z = spot.z + oz;
+      const fly = kind === 'wisp';
+      if (!m.grid.isWalkable(Math.floor(x), Math.floor(z)) || !m.clearAt(x, z, 0.5, fly)) continue;
+      if (m.rocks?.rocks.some((r) => r.alive && Math.hypot(r.pos.x - x, r.pos.z - z) < 0.9)) continue;
+      const mo = m.addMonster(kind, x, z);
+      mo.root.rotation.y = Math.atan2(spot.x - x, spot.z - z);
+      m.freezeAI = true;
+      return;
+    }
   }
 
   private freezeOnImpact = false;
@@ -395,6 +417,14 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
   for (let z = 4; z < FLOOR_D - 4; z++) {
     for (let x = 5; x < FLOOR_W - 5; x++) {
       if (!m.grid.isWalkable(x, z)) continue;
+      // Hard clearance: nothing (rock, crystal, solid prop) within 1.15 tiles of the farmer's
+      // feet — no crystal ever clips into the hat or body in a staged frame.
+      const cx = x + 0.5;
+      const cz = z + 0.5;
+      if (L.rocks.some((r) => Math.hypot(r.x + 0.5 - cx, r.z + 0.5 - cz) < 1.15)) continue;
+      if (L.crystals.some((c) => Math.hypot(c.x - cx, c.z - cz) < 1.6)) continue;
+      if (L.decor.some((d) => d.solid && Math.hypot(d.x - cx, d.z - cz) < 1.2)) continue;
+      if (!m.clearAt(cx, cz, 0.6)) continue;
       let s = 0;
       for (const r of L.rocks) {
         const d = Math.hypot(r.x - x, r.z - z);

@@ -12,9 +12,11 @@ import { BIOMES, ORE_STYLE, type Biome, type OreId } from './biomes';
 import { facetRock, crystalPrism, knob } from './rockgeo';
 import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
-import { mineRockMaterial, crystalMaterial } from './props';
+import { crystalMaterial } from './props';
+import { stoneMaterial, ORE_CODE } from './stone';
 
 const VARIANTS = 4;
+const WHITE = new THREE.Color(1, 1, 1);
 
 let metalMat: THREE.MeshStandardMaterial | null = null;
 /**
@@ -183,7 +185,7 @@ function kitFor(biome: Biome, r: Rng): Kit {
   const cap = biome === 'ice' ? 0xf4faff : biome === 'lava' ? 0x6e3024 : undefined;
   const capAmt = biome === 'ice' ? 0.55 : 0.35;
   k = { body: [], big: [], coal: [], nuggets: new Map() };
-  const soft = { detail: 2, smooth: 0.5, lumps: 0.16, crevice: 0.5 };
+  const soft = { detail: 2, smooth: 0.62, lumps: 0.16, crevice: 0.55 };
   for (let v = 0; v < VARIANTS; v++) k.body.push(facetRock(r, 0.44, def.rock[v % def.rock.length]!, { ...soft, chunky: v % 2 === 1, squash: 0.74, cap, capAmt, rim: 0.5 }));
   const dark = new THREE.Color(def.rock[0]!).multiplyScalar(biome === 'ice' ? 0.55 : 0.5).getHex();
   for (let v = 0; v < VARIANTS; v++) k.coal.push(facetRock(r, 0.44, dark, { ...soft, chunky: v % 2 === 0, squash: 0.72, cap, capAmt: capAmt * 0.2, rim: 0.55 }));
@@ -202,6 +204,8 @@ export interface MineRock {
   rot: number;
   scale: number;
   wobble: number;
+  /** 0..1 white hit flash (instance colour on the body). */
+  flash: number;
   alive: boolean;
 }
 
@@ -213,6 +217,7 @@ export class RockField {
   private byTile = new Map<number, MineRock>();
   private wobbling = new Set<MineRock>();
   private m = new THREE.Matrix4();
+  private fc = new THREE.Color();
 
   constructor(private L: FloorLayout, rng: Rng, heightAt: (x: number, z: number) => number) {
     this.group.name = 'mine-rocks';
@@ -227,16 +232,21 @@ export class RockField {
       const key = `${s.big ? 'B' : 'r'}${variant}:${style?.kind === 'metal' ? ore : (style?.kind ?? '-')}`;
       let set = this.sets.get(key);
       if (!set) {
-        const body = (s.big ? kit.big : style?.kind === 'coal' ? kit.coal : kit.body)[variant]!;
-        const parts = [{ geometry: body, material: mineRockMaterial() }];
-        if (style) {
+        const body = withOre((s.big ? kit.big : style?.kind === 'coal' ? kit.coal : kit.body)[variant]!, ore);
+        const parts: { geometry: THREE.BufferGeometry; material: THREE.Material; tinted?: boolean }[] = [{ geometry: body, material: stoneMaterial(true, 1, L.biome === 'ice'), tinted: true }];
+        // Metal ores are veins in the stone itself (shader); gems + coal also break out of it.
+        if (style && style.kind !== 'metal') {
           const nk = `${key}`;
           let ng = kit.nuggets.get(nk);
           if (!ng) {
             ng = nuggetGeo(rngFrom(variant * 31 + (s.big ? 7 : 0) + (ore?.length ?? 0) * 13), style.kind, s.big ? 0.62 : 0.44, s.big, ore ?? '');
+            // Bake the ore colour (the instance colour belongs to the body: hit flash).
+            const oc = oreColor(ore!);
+            const ca = ng.attributes.color as THREE.BufferAttribute;
+            for (let i = 0; i < ca.count; i++) ca.setXYZ(i, ca.getX(i) * oc.r, ca.getY(i) * oc.g, ca.getZ(i) * oc.b);
             kit.nuggets.set(nk, ng);
           }
-          parts.push({ geometry: ng, material: style.kind === 'gem' ? crystalMaterial() : metalMaterial(), tinted: style.kind !== 'metal', castShadow: style.kind !== 'gem' } as never);
+          parts.push({ geometry: ng, material: style.kind === 'gem' ? crystalMaterial() : metalMaterial(), tinted: false, castShadow: style.kind !== 'gem' } as never);
         }
         set = new InstancedSet(key, parts, this.pool);
         this.sets.set(key, set);
@@ -246,11 +256,10 @@ export class RockField {
       const z = s.z + 0.5 + (r.next() - 0.5) * 0.6;
       const pos = new THREE.Vector3(x, heightAt(x, z) - 0.03, z);
       const rot = r.next() * Math.PI * 2;
-      const scale = (0.75 + r.next() * 0.5) * (s.ore ? 1.06 : 1);
+      const scale = (0.75 + r.next() * 0.5) * (s.ore ? 1.25 : 1);
       const base = new THREE.Matrix4().compose(pos, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rot, 0)), new THREE.Vector3(scale, scale, scale));
-      const color = style ? oreColor(ore!) : undefined;
-      const id = set.add(base, color);
-      const rock: MineRock = { spec: s, set, id, hp: s.hp, base, pos, rot, scale, wobble: 0, alive: true };
+      const id = set.add(base, WHITE);
+      const rock: MineRock = { spec: s, set, id, hp: s.hp, base, pos, rot, scale, wobble: 0, flash: 0, alive: true };
       this.rocks.push(rock);
       this.byTile.set(s.z * L.w + s.x, rock);
     }
@@ -274,7 +283,7 @@ export class RockField {
       }
     }
     if (pebs.length) {
-      const pm = new THREE.Mesh(mergeNonIndexed(pebs), mineRockMaterial());
+      const pm = new THREE.Mesh(mergeNonIndexed(pebs), stoneMaterial(false));
       pm.name = 'mine-rubble';
       pm.castShadow = false;
       pm.receiveShadow = true;
@@ -294,6 +303,7 @@ export class RockField {
   /** Visual hit reaction. */
   hit(rock: MineRock): void {
     rock.wobble = 1;
+    rock.flash = 1;
     this.wobbling.add(rock);
   }
 
@@ -314,9 +324,16 @@ export class RockField {
     for (const r of this.wobbling) {
       r.wobble = Math.max(0, r.wobble - dt * 3.2);
       const t = 1 - r.wobble;
-      const k = Math.sin(t * Math.PI * 3.5) * r.wobble;
+      // 0.08 s hard squash on the impact, then a ringing wobble.
+      const hitSq = t < 0.26 ? Math.sin((t / 0.26) * Math.PI) : 0;
+      const k = Math.sin(t * Math.PI * 3.5) * r.wobble * (t < 0.26 ? 0.3 : 1) + hitSq * 0.9;
       const sy = 1 - k * 0.14;
       const sxz = 1 + k * 0.08;
+      if (r.flash > 0) {
+        r.flash = Math.max(0, r.flash - dt / 0.09);
+        this.fc.setScalar(1 + r.flash * r.flash * 3.2);
+        r.set.setColor(r.id, this.fc);
+      }
       this.m.compose(
         r.pos,
         new THREE.Quaternion().setFromEuler(new THREE.Euler(k * 0.12, r.rot, -k * 0.1)),
@@ -378,5 +395,25 @@ function mergeNonIndexed(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
     }
     out.setAttribute(n, new THREE.BufferAttribute(arr, size));
   }
+  return out;
+}
+
+const bodyCache = new Map<THREE.BufferGeometry, Map<string, THREE.BufferGeometry>>();
+/** Body geometry carrying the ore (colour + kind) per vertex for the vein shader (cached). */
+function withOre(g: THREE.BufferGeometry, ore: OreId | null): THREE.BufferGeometry {
+  let per = bodyCache.get(g);
+  if (!per) bodyCache.set(g, (per = new Map()));
+  const k = ore ?? '-';
+  let out = per.get(k);
+  if (out) return out;
+  out = g.clone();
+  const st = ore ? ORE_STYLE[ore] : null;
+  const code = !ore ? ORE_CODE.none : ore === 'copperOre' ? ORE_CODE.copper : ore === 'ironOre' ? ORE_CODE.iron : ore === 'goldOre' ? ORE_CODE.gold : ore === 'coal' ? ORE_CODE.coal : ORE_CODE.gem;
+  const c = new THREE.Color(st ? st.color : 0x000000);
+  const n = out.attributes.position!.count;
+  const a = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b, code], i * 4);
+  out.setAttribute('aOre', new THREE.BufferAttribute(a, 4));
+  per.set(k, out);
   return out;
 }

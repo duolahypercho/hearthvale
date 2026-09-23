@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { MineMap } from '../world/mine';
-import { Crab } from '../entities/monsters';
+import { Crab, monsterColor, type Monster } from '../entities/monsters';
 import { mineActions, buildSword, SwordTrail, SlashArc, SWORD_TIP, SWORD_BASE } from '../world/mine/actions';
 import { DamageNumbers, ScreenFx } from '../world/mine/hud';
 import { mineSfx } from '../world/mine/sfx';
@@ -274,57 +274,31 @@ export class CombatSystem implements System, HealthApi {
     });
   }
 
-  private proj = new THREE.Vector3();
-
-  /**
-   * Screen-space push (px) that keeps a number anchored at `at` off the farmer's silhouette: when
-   * it would land inside the farmer's screen box (+40 px) it slides sideways along the knockback
-   * (`kx` = world x from farmer to monster) until it clears the box, at least 70 px.
-   */
-  private clearOfFarmer(at: THREE.Vector3, kx: number): number {
-    const cam = this.game.rc.camera;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const toScreen = (v: THREE.Vector3): [number, number] => {
-      this.proj.copy(v).project(cam);
-      return [(this.proj.x * 0.5 + 0.5) * w, (-this.proj.y * 0.5 + 0.5) * h];
-    };
-    const p = this.game.player.position;
-    const [fx, fy] = toScreen(new THREE.Vector3(p.x, p.y, p.z));
-    const [, hy] = toScreen(new THREE.Vector3(p.x, p.y + 2.1, p.z));
-    const [ex] = toScreen(new THREE.Vector3(p.x + 0.55, p.y + 1.0, p.z));
-    const halfW = Math.abs(ex - fx) + 40;
-    const top = hy - 40;
-    const bottom = fy + 40;
-    const [nx, ny] = toScreen(at);
-    if (ny < top || ny > bottom || Math.abs(nx - fx) > halfW) return 0;
-    const dirX = Math.abs(kx) > 0.08 ? Math.sign(kx) : nx >= fx ? 1 : -1;
-    const need = dirX > 0 ? fx + halfW - nx : nx - (fx - halfW);
-    return dirX * Math.max(70, need + 18);
-  }
-
   private resolve(origin: THREE.Vector3, dir: THREE.Vector3): void {
     const m = this.mine();
     if (!m) return;
     const acts = mineActions(this.game.player);
     const hits = m.strike(origin, dir, REACH + this.tier * 0.12, ARC_COS, SWORD_TIERS[this.tier]!.dmg, CRIT);
-    this.arc.impact(hits.some((h) => h.crit));
+    this.arc.impact(hits.some((h) => h.crit), hits.length > 0);
+    this.game.events.emit('combat:strike', { x: origin.x, z: origin.z, dx: dir.x, dz: dir.z, tier: this.tier, hits: hits.length });
     if (!hits.length) return;
     this.swinging = true;
     let crit = false;
     let kill = false;
-    const at = new THREE.Vector3();
     hits.forEach((h, i) => {
       crit ||= h.crit;
       kill ||= h.killed;
-      h.monster.headPos(at);
-      at.y -= h.monster.kind === 'bat' ? 0.3 : 0.1;
-      const kx = h.monster.pos.x - this.game.player.position.x;
-      this.numbers.pop(at, String(h.damage), h.crit ? 'crit' : 'dmg', { dx: this.clearOfFarmer(at, kx) + (i % 2 ? 1 : -1) * i * 14, dy: -i * 22 });
+      this.popHit(h.monster, h.damage, h.crit, origin, i);
       this.game.events.emit('combat:monsterHit', { kind: h.monster.kind, damage: h.damage, crit: h.crit, killed: h.killed, x: h.monster.pos.x, z: h.monster.pos.z });
+      if (h.killed) this.killFx(m, h.monster);
     });
     this.swinging = false;
     acts.hitStop = crit || kill ? 0.11 : 0.065;
+    if (kill) {
+      // Kill beat: 60 ms freeze of the whole arena + a camera kick along the swing.
+      m.freeze(0.06);
+      this.game.rc.rig.addShake(0.12);
+    }
     // (side-on hits only: the crescent reads best across the frame, never hidden behind the hat)
     if (this.still && this.auto && Math.abs(dir.x) > 0.5) {
       // Staged still: hold the impact frame (pose, crescent, flash, numbers) indefinitely.
@@ -337,8 +311,32 @@ export class CombatSystem implements System, HealthApi {
       this.auto = null;
       this.held = true;
     }
-    this.game.rc.rig.addShake(crit ? 0.32 : kill ? 0.26 : 0.16);
+    this.game.rc.rig.addShake(crit ? 0.3 : kill ? 0.22 : 0.14);
     m.lighting.flash = Math.max(m.lighting.flash, crit ? 0.35 : 0.15);
+  }
+
+  /**
+   * Damage number AT the hit point: on the monster's body, on the side the blade came from
+   * (between the monster centre and the swing origin), popped 1.4 → 1 and rising ~40 px.
+   */
+  popHit(mo: Monster, damage: number, crit: boolean, from: THREE.Vector3, i = 0): void {
+    const at = new THREE.Vector3();
+    mo.headPos(at);
+    at.y -= mo.kind === 'bat' || mo.kind === 'wisp' ? 0.25 : 0.45;
+    // On the far side of the monster from the swing (never over the farmer's own hat).
+    const dx = mo.pos.x - from.x;
+    const dz = mo.pos.z - from.z;
+    const d = Math.hypot(dx, dz) || 1;
+    at.x += (dx / d) * mo.radius * 0.6;
+    at.z += (dz / d) * mo.radius * 0.3;
+    this.numbers.pop(at, String(damage), crit ? 'crit' : 'dmg', { dy: -i * 30, dx: (i % 2 ? 1 : -1) * i * 12 });
+  }
+
+  /** Kill: a radial goo / scorch splat decal where it died (fades over ~6 s). */
+  killFx(m: MineMap, mo: Monster): void {
+    const col = mo.kind === 'slime' ? monsterColor('slime', m.layout.biome) : mo.kind === 'imp' ? 0x2a1a16 : mo.kind === 'wisp' ? 0xcfeaff : mo.kind === 'crab' ? 0x6a5a50 : 0x4a3a52;
+    const c = new THREE.Color(col).multiplyScalar(mo.kind === 'slime' ? 0.75 : 1);
+    m.fx.splat(mo.pos, c, mo.kind === 'slime' ? 0.95 : 0.7, mo.kind === 'slime' ? 7 : 4);
   }
 
   // ───────────────────────────────────────────── getting hurt

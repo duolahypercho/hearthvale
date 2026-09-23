@@ -138,7 +138,7 @@ async function main() {
     const stem = outBase.slice(0, outBase.length - ext.length);
     for (let i = 0; i < n; i++) {
       const path = n === 1 ? outBase : `${stem}_${String(i).padStart(3, '0')}${ext}`;
-      await page.screenshot({ path, type: 'png' });
+      await page.screenshot({ path, type: 'png', timeout: args.timeout });
       console.log(`[shot] wrote ${path}`);
       if (i < n - 1) await page.waitForTimeout(args.every);
     }

@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import type { Player, PlayerRig, ActionPose } from '../../entities/player';
 import { MeshBuilder, roundedBox, mat } from '../geom';
+import { patchMaterial, after } from '../../render/patch';
 
 export type MineActionKind = 'chop' | 'slash' | 'backslash';
 
@@ -257,8 +258,20 @@ export function buildSword(tier = 0): THREE.Group {
   const cached = swordProtos.get(t);
   if (cached) return cached.clone();
   const L = SWORD_LOOK[t]!;
-  const steel = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.9, envMapIntensity: 1.6, emissive: L.glow, emissiveIntensity: L.glow ? 0.9 : 0 });
+  const steel = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.25, metalness: 1, envMapIntensity: 1.8, emissive: L.glow, emissiveIntensity: L.glow ? 0.9 : 0 });
   steel.name = `sword-steel-${t}`;
+  // Polished steel in a dark cave: a bright view-rim + a faint cool sheen so the blade always
+  // separates from the warm floor (metal with no environment would read as a dark slab).
+  patchMaterial(steel, 'sword-rim', (shader) => {
+    shader.fragmentShader = after(
+      shader.fragmentShader,
+      '#include <emissivemap_fragment>',
+      `{
+        float fr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.4);
+        totalEmissiveRadiance += vColor.rgb * (0.22 + fr * 1.35) + vec3(0.9, 0.95, 1.0) * fr * 0.5;
+      }`,
+    );
+  });
   const trim = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.7 });
   trim.name = 'sword-trim';
   const leather = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
@@ -266,17 +279,19 @@ export function buildSword(tier = 0): THREE.Group {
   const b = new MeshBuilder();
   // Blade: tapered diamond cross-section with a darker fuller, bright bevel edges.
   const s = new THREE.Shape();
-  const top = 0.6 * L.len;
-  s.moveTo(-0.062, 0);
-  s.lineTo(-0.058, top);
-  s.lineTo(0, top + 0.2);
-  s.lineTo(0.058, top);
-  s.lineTo(0.062, 0);
+  // Short, chunky blade (≈ 30 % shorter than a longsword: it reads as a miner's shortsword and
+  // never dwarfs the chibi farmer).
+  const top = 0.4 * L.len;
+  s.moveTo(-0.066, 0);
+  s.lineTo(-0.06, top);
+  s.lineTo(0, top + 0.15);
+  s.lineTo(0.06, top);
+  s.lineTo(0.066, 0);
   s.closePath();
   const blade = new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.009, bevelSegments: 1 });
   blade.translate(0, 0.17, -0.006);
   b.add(steel, blade, undefined, { tint: L.blade });
-  b.add(steel, roundedBox(0.022, 0.52 * L.len, 0.034, 0.008), mat(0, 0.17 + 0.28 * L.len, 0), { tint: L.fuller });
+  b.add(steel, roundedBox(0.022, 0.34 * L.len, 0.034, 0.008), mat(0, 0.17 + 0.19 * L.len, 0), { tint: L.fuller });
   // Crossguard + ricasso collar (winged on the higher tiers).
   b.add(trim, roundedBox(0.3 + t * 0.03, 0.055, 0.07, 0.02), mat(0, 0.15, 0), { tint: L.trim });
   for (const sx of [-1, 1]) b.add(trim, new THREE.SphereGeometry(0.03 + t * 0.004, 10, 8), mat(sx * (0.135 + t * 0.015), 0.15 + t * 0.012, 0), { tint: L.trim });
@@ -291,9 +306,9 @@ export function buildSword(tier = 0): THREE.Group {
 }
 
 /** Blade-tip / blade-base in sword-local space (for the trail + hit sparks). */
-export const SWORD_TIP = new THREE.Vector3(0, 0.98, 0);
+export const SWORD_TIP = new THREE.Vector3(0, 0.72, 0);
 /** Ribbon root: well up the blade (from the grip it folded over the hands into ghost fingers). */
-export const SWORD_BASE = new THREE.Vector3(0, 0.5, 0);
+export const SWORD_BASE = new THREE.Vector3(0, 0.38, 0);
 
 // ───────────────────────────────────────────── trail
 
@@ -404,23 +419,27 @@ export class SwordTrail {
 
 // ───────────────────────────────────────────── crescent slash
 
-const ARC_SEG = 32;
-const ARC_RAD = 5;
-const ARC_SPAN = THREE.MathUtils.degToRad(125);
+const ARC_SEG = 36;
+const ARC_RAD = 6;
+const ARC_SPAN = THREE.MathUtils.degToRad(135);
+/** Crescent radii (m): outer (blade-tip path) and the core band thickness at the middle. */
+const ARC_OUT = 1.62;
+const ARC_CORE = 0.42;
 
 /**
- * The big readable shape of a sword hit: a pre-built 125° crescent (inner 0.5 m, outer 1.6 m,
- * tapering to points at both ends) lying around the farmer in the facing direction, tilted a
- * little towards the camera. It sweeps in with the blade, flashes warm-white for ~90 ms on the
- * impact frame and fades over ~120 ms. Alpha-blended (not additive) so it reads on bright ice too.
+ * The big readable shape of a sword hit: a thick 135° crescent around the farmer in the facing
+ * direction (tilted towards the camera), drawn ADDITIVELY, after everything else (no depth test,
+ * high render order) so it can never hide behind the farmer or a rock. HDR white-hot leading
+ * (outer) edge → warm core → soft wash towards the farmer; the bright head sweeps in with the
+ * blade (60 ms), holds ~35 ms on the impact frame, then fades (90 ms). Bloom catches the edge.
  */
 export class SlashArc {
   readonly mesh: THREE.Mesh;
-  private u: { uHead: { value: number }; uFade: { value: number }; uDir: { value: number }; uCrit: { value: number }; uScroll: { value: number } };
+  private u: { uHead: { value: number }; uFade: { value: number }; uDir: { value: number }; uCrit: { value: number }; uScroll: { value: number }; uHit: { value: number } };
   private t = -1;
-  private hold = 0.09;
-  private sweep = 0.075;
-  private fade = 0.12;
+  private hold = 0.035;
+  private sweep = 0.06;
+  private fade = 0.09;
 
   constructor() {
     const pos: number[] = [];
@@ -430,12 +449,14 @@ export class SlashArc {
       const u = i / ARC_SEG;
       const a = -ARC_SPAN / 2 + u * ARC_SPAN;
       // Crescent: full width in the middle, both horns taper to the outer edge.
-      const w = Math.pow(Math.sin(Math.PI * u), 0.75);
-      const rOut = 1.6 - (1 - w) * 0.12;
-      const rIn = rOut - (rOut - 0.5) * w - 0.02;
+      const w = Math.pow(Math.sin(Math.PI * u), 0.7);
+      const rOut = ARC_OUT - (1 - w) * 0.1;
+      // v 0..0.5 = soft inner wash (towards the farmer), 0.5..1 = the core band.
+      const rCore = rOut - ARC_CORE * w;
+      const rIn = rOut - (ARC_CORE + 0.55) * w - 0.01;
       for (let j = 0; j <= ARC_RAD; j++) {
         const v = j / ARC_RAD;
-        const r = rIn + (rOut - rIn) * v;
+        const r = v < 0.5 ? rIn + (rCore - rIn) * (v / 0.5) : rCore + (rOut - rCore) * ((v - 0.5) / 0.5);
         pos.push(Math.sin(a) * r, 0, Math.cos(a) * r);
         uv.push(u, v);
       }
@@ -450,52 +471,53 @@ export class SlashArc {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
-    this.u = { uHead: { value: 0 }, uFade: { value: 0 }, uDir: { value: 1 }, uCrit: { value: 0 }, uScroll: { value: 0 } };
+    this.u = { uHead: { value: 0 }, uFade: { value: 0 }, uDir: { value: 1 }, uCrit: { value: 0 }, uScroll: { value: 0 }, uHit: { value: 0 } };
     const m = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       toneMapped: false,
       uniforms: this.u,
       vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: /* glsl */ `
-        uniform float uHead; uniform float uFade; uniform float uDir; uniform float uCrit; uniform float uScroll;
+        uniform float uHead; uniform float uFade; uniform float uDir; uniform float uCrit; uniform float uScroll; uniform float uHit;
         varying vec2 vUv;
         void main(){
           float s = uDir > 0.0 ? vUv.x : 1.0 - vUv.x;
-          if (s > uHead + 0.02) discard;
-          // Brightest at the sweep head, a long soft tail behind it.
-          float tail = smoothstep(uHead - 1.05, uHead, s);
+          if (s > uHead + 0.015) discard;
+          // Brightest right behind the sweep head, a long tail behind it.
+          float tail = smoothstep(uHead - 1.1, uHead, s);
+          float head = smoothstep(uHead - 0.22, uHead, s);
           float v = vUv.y;
-          // Crisp opaque outer band (the blade's path), a soft wash fading in towards the farmer.
-          float band = smoothstep(0.5, 0.78, v);
-          float rim = 1.0 - smoothstep(0.93, 1.0, v);
-          // Scrolling speed streaks along the arc.
-          float streak = 0.86 + 0.14 * sin((s * 3.0 - uScroll * 5.0) * 6.2832 + v * 5.0);
-          vec3 warm = mix(vec3(0.95, 0.72, 0.42), vec3(0.95, 0.78, 0.25), uCrit);
-          vec3 col = mix(warm, vec3(0.9, 0.88, 0.84), band);
-          float a = (0.04 + 0.86 * band * band) * rim * tail * streak * uFade;
-          a *= smoothstep(0.0, 0.06, s) * smoothstep(0.0, 0.08, uHead + 0.02 - s);
-          gl_FragColor = vec4(col, clamp(a, 0.0, 0.92));
+          float core = smoothstep(0.5, 0.62, v);
+          float edge = smoothstep(0.84, 0.97, v) * (1.0 - smoothstep(0.985, 1.0, v));
+          float wash = smoothstep(0.0, 0.5, v) * (1.0 - core) * 0.28;
+          float streak = 0.8 + 0.2 * sin((s * 3.0 - uScroll * 6.0) * 6.2832 + v * 7.0);
+          vec3 warm = mix(vec3(1.0, 0.62, 0.26), vec3(1.0, 0.8, 0.2), uCrit);
+          vec3 hot = mix(vec3(1.0, 0.97, 0.9), vec3(1.0, 0.92, 0.6), uCrit);
+          vec3 col = warm * (wash + core * 0.55 * streak) + hot * edge * (1.5 + head * 1.2 + uHit * 0.8);
+          col *= tail * uFade * smoothstep(0.0, 0.07, s) * smoothstep(0.0, 0.06, uHead + 0.015 - s);
+          gl_FragColor = vec4(col, 1.0);
         }`,
     });
     this.mesh = new THREE.Mesh(g, m);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 11;
+    this.mesh.renderOrder = 60;
     this.mesh.userData.noAO = true;
+    this.mesh.userData.perfTag = 'slash-arc';
     this.mesh.visible = false;
     this.mesh.name = 'slash-arc';
   }
 
   /** Start a slash at `pos` (feet), facing `dir` (xz), sweeping clockwise (+1) or back (-1). */
   fire(pos: THREE.Vector3, dir: THREE.Vector3, sweepDir: number, crit = false): void {
-    this.mesh.position.set(pos.x, pos.y + 0.62, pos.z);
+    this.mesh.position.set(pos.x, pos.y + 0.6, pos.z);
     this.mesh.rotation.set(0, 0, 0);
     // Tilt towards the camera (which looks down -Z from +Z), then yaw to the facing.
     this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.y = Math.atan2(dir.x, dir.z);
-    // Facing up/down: pitch the plane so it opens towards the camera; left/right: roll it about the
-    // facing axis so the far (north) side lifts.
     this.mesh.rotation.x = dir.z < -0.5 ? 0.42 : dir.z > 0.5 ? -0.22 : 0;
     this.mesh.rotation.z = Math.abs(dir.x) > 0.5 ? Math.sign(dir.x) * 0.4 : 0;
     this.mesh.scale.setScalar(crit ? 1.14 : 1);
@@ -503,14 +525,16 @@ export class SlashArc {
     this.u.uCrit.value = crit ? 1 : 0;
     this.u.uHead.value = 0;
     this.u.uFade.value = 1;
+    this.u.uHit.value = 0;
     this.t = 0;
     this.mesh.visible = true;
   }
 
   /** Impact frame: snap the crescent to full length and (re)start the flash hold. */
-  impact(crit = false): void {
+  impact(crit = false, hit = false): void {
     if (this.t < 0) return;
     this.u.uCrit.value = Math.max(this.u.uCrit.value, crit ? 1 : 0);
+    this.u.uHit.value = hit ? 1 : 0;
     if (crit) this.mesh.scale.setScalar(1.14);
     this.t = Math.min(this.t, this.sweep);
     this.u.uHead.value = 1;
@@ -540,11 +564,11 @@ export class SlashArc {
       this.u.uFade.value = 1;
     } else if (t < this.sweep + this.hold + this.fade) {
       const k = (t - this.sweep - this.hold) / this.fade;
-      this.u.uHead.value = 1 + k * 0.4;
+      this.u.uHead.value = 1 + k * 0.5;
       this.u.uFade.value = (1 - k) * (1 - k);
     } else {
       this.t = -1;
-      this.hold = 0.09;
+      this.hold = 0.035;
       this.mesh.visible = false;
     }
   }

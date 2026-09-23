@@ -11,6 +11,8 @@ import { facetRock } from './rockgeo';
 import { Rng } from '../../core/rng';
 
 const RUBBLE = 220;
+const CHUNKS = 160;
+const SPLATS = 16;
 
 const VS = /* glsl */ `
 attribute float aSize;
@@ -254,6 +256,11 @@ export class MineFX {
   private floorY: (x: number, z: number) => number = () => 0;
   /** Brightness of the alpha (dust / goo) particles relative to their authored colour. */
   softGain = 0.5;
+  /** Goo / scorch splat decals on the floor (one instanced draw, fading out). */
+  private splatMesh: THREE.InstancedMesh;
+  private splatAlpha: THREE.InstancedBufferAttribute;
+  private splats: { age: number; life: number }[] = [];
+  private splatNext = 0;
 
   constructor() {
     this.group.name = 'mine-fx';
@@ -282,13 +289,13 @@ export class MineFX {
       );
     };
     cm.customProgramCacheKey = () => 'mine-chunk-lit';
-    this.chunkMesh = new THREE.InstancedMesh(cg, cm, 96);
+    this.chunkMesh = new THREE.InstancedMesh(cg, cm, CHUNKS);
     this.chunkMesh.name = 'mine-chunks';
     this.chunkMesh.castShadow = true;
     this.chunkMesh.frustumCulled = false;
-    this.chunkMesh.count = 96;
+    this.chunkMesh.count = CHUNKS;
     const white = new THREE.Color(1, 1, 1);
-    for (let i = 0; i < 96; i++) {
+    for (let i = 0; i < CHUNKS; i++) {
       this.chunks.push({ p: new THREE.Vector3(0, -50, 0), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), s: 0, age: 99, life: 1, rest: true });
       this.dummy.position.set(0, -50, 0);
       this.dummy.scale.setScalar(0);
@@ -309,6 +316,41 @@ export class MineFX {
     this.rubbleMesh.count = 0;
     this.rubbleMesh.userData.noAO = false;
     this.group.add(this.rubbleMesh);
+
+    // Splat decals: a radial goo splash (canvas), tinted per instance, fading per instance.
+    {
+      const sg = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+      this.splatAlpha = new THREE.InstancedBufferAttribute(new Float32Array(SPLATS), 1);
+      sg.setAttribute('aAlpha', this.splatAlpha);
+      const sm = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        uniforms: { uMap: { value: splatTexture() } },
+        vertexShader: `attribute float aAlpha; varying float vA; varying vec2 vUv; varying vec3 vC;
+          void main(){ vA = aAlpha; vUv = uv; vC = instanceColor; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `uniform sampler2D uMap; varying float vA; varying vec2 vUv; varying vec3 vC;
+          void main(){ vec4 t = texture2D(uMap, vUv); float a = t.a * vA; if (a < 0.01) discard;
+            // Glossy wet core (lighter), darker rim.
+            vec3 c = vC * mix(0.55, 1.25, t.r);
+            gl_FragColor = vec4(c, a); }`,
+      });
+      this.splatMesh = new THREE.InstancedMesh(sg, sm, SPLATS);
+      this.splatMesh.name = 'mine-splats';
+      this.splatMesh.frustumCulled = false;
+      this.splatMesh.renderOrder = 2;
+      this.splatMesh.userData.noAO = true;
+      for (let i = 0; i < SPLATS; i++) {
+        this.splats.push({ age: 99, life: 1 });
+        this.dummy.position.set(0, -50, 0);
+        this.dummy.scale.setScalar(0);
+        this.dummy.updateMatrix();
+        this.splatMesh.setMatrixAt(i, this.dummy.matrix);
+        this.splatMesh.setColorAt(i, white);
+      }
+      this.group.add(this.splatMesh);
+    }
 
     // Ambient motes.
     const mg = new THREE.BufferGeometry();
@@ -374,6 +416,7 @@ export class MineFX {
     }
     this.rubbleN = 0;
     this.rubbleMesh.count = 0;
+    for (const sp of this.splats) sp.age = 99;
   }
 
   /** Leave a little persistent scree where a rock broke. */
@@ -397,6 +440,32 @@ export class MineFX {
     this.rubbleMesh.count = Math.min(RUBBLE, this.rubbleN);
     this.rubbleMesh.instanceMatrix.needsUpdate = true;
     if (this.rubbleMesh.instanceColor) this.rubbleMesh.instanceColor.needsUpdate = true;
+  }
+
+  /** A flat splat decal on the floor (slime goo, scorch) that fades out over `life` s. */
+  splat(p: THREE.Vector3, color: number | THREE.Color, radius = 0.8, life = 6): void {
+    const i = this.splatNext;
+    this.splatNext = (this.splatNext + 1) % SPLATS;
+    this.splats[i] = { age: 0, life };
+    this.dummy.position.set(p.x, this.floorY(p.x, p.z) + 0.025, p.z);
+    this.dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+    this.dummy.scale.set(radius * 2, 1, radius * 2 * (0.8 + Math.random() * 0.3));
+    this.dummy.updateMatrix();
+    this.splatMesh.setMatrixAt(i, this.dummy.matrix);
+    this.splatMesh.setColorAt(i, color instanceof THREE.Color ? color : new THREE.Color(color));
+    this.splatMesh.instanceMatrix.needsUpdate = true;
+    if (this.splatMesh.instanceColor) this.splatMesh.instanceColor.needsUpdate = true;
+  }
+
+  /** A ring of dust rolling outwards along the floor (pick impacts, landings). */
+  dustRing(p: THREE.Vector3, color: number | THREE.Color, count = 12, speed = 2.2, size = 0.45): void {
+    const d = new THREE.Vector3();
+    const a0 = Math.random() * Math.PI * 2;
+    for (let k = 0; k < count; k++) {
+      const a = a0 + (k / count) * Math.PI * 2;
+      d.set(Math.cos(a), 0.05, Math.sin(a));
+      this.puff(p, { color, count: 1, speed, up: 0.15, size, grow: 1.9, gravity: -0.1, drag: 4.5, life: 0.7, alpha: 0.5, dir: d, cone: 0.05 });
+    }
   }
 
   /** Sparks / sparkles / embers (additive). */
@@ -436,6 +505,18 @@ export class MineFX {
   }
 
   update(dt: number, time: number, viewportH: number, focus: THREE.Vector3, light: THREE.Vector3): void {
+    for (let i = 0; i < SPLATS; i++) {
+      const sp = this.splats[i]!;
+      if (sp.age > sp.life) {
+        this.splatAlpha.setX(i, 0);
+        continue;
+      }
+      sp.age += dt;
+      const t = sp.age / sp.life;
+      // Splash in (scale pop is in the texture), hold, fade the last 40 %.
+      this.splatAlpha.setX(i, Math.min(1, sp.age / 0.06) * (t > 0.6 ? 1 - (t - 0.6) / 0.4 : 1) * 0.92);
+    }
+    this.splatAlpha.needsUpdate = true;
     this.glow.update(dt, viewportH, this.floorY);
     this.soft.update(dt, viewportH, this.floorY);
     // Chunks.
@@ -527,7 +608,44 @@ export class MineFX {
     (this.rubbleMesh.material as THREE.Material).dispose();
     this.motes.geometry.dispose();
     this.moteMat.dispose();
+    this.splatMesh.geometry.dispose();
+    (this.splatMesh.material as THREE.Material).dispose();
   }
+}
+
+let splatTex: THREE.Texture | null = null;
+/** Radial goo splash: a blob with droplet arms and satellite drops (r = wet highlight). */
+function splatTexture(): THREE.Texture {
+  if (splatTex) return splatTex;
+  const N = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d')!;
+  const r = new Rng('mine-splat');
+  const blob = (x: number, y: number, rad: number, a: number): void => {
+    const gr = g.createRadialGradient(x - rad * 0.25, y - rad * 0.25, 0, x, y, rad);
+    gr.addColorStop(0, `rgba(255,255,255,${a})`);
+    gr.addColorStop(0.55, `rgba(150,150,150,${a})`);
+    gr.addColorStop(0.9, `rgba(60,60,60,${a})`);
+    gr.addColorStop(1, 'rgba(40,40,40,0)');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.arc(x, y, rad, 0, Math.PI * 2);
+    g.fill();
+  };
+  blob(64, 64, 30, 1);
+  for (let k = 0; k < 9; k++) {
+    const a = (k / 9) * Math.PI * 2 + r.next() * 0.5;
+    const len = 30 + r.next() * 22;
+    for (let j = 0; j < 4; j++) {
+      const d = 18 + (len - 18) * (j / 3);
+      blob(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, (10 - j * 2) * (0.7 + r.next() * 0.5), 1);
+    }
+    const d = len + 6 + r.next() * 8;
+    blob(64 + Math.cos(a + 0.2) * d, 64 + Math.sin(a + 0.2) * d, 3 + r.next() * 3, 1);
+  }
+  splatTex = new THREE.CanvasTexture(c);
+  return splatTex;
 }
 
 /**

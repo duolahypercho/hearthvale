@@ -30,6 +30,8 @@ export class CaveLighting {
   /** Broad, soft lantern bounce high over the farmer: the hall 6–12 m out keeps a readable
    * silhouette (walls, rocks) instead of crushing to black. */
   readonly bounce: THREE.PointLight;
+  /** Cool back-light just behind / above the farmer: a rim that separates them from the floor. */
+  readonly rim: THREE.PointLight;
   private accents: { light: THREE.PointLight; spec: LightSpec | null; seed: number }[] = [];
   private def: BiomeDef | null = null;
   private active = false;
@@ -57,6 +59,8 @@ export class CaveLighting {
     this.group.add(this.fill);
     this.bounce = new THREE.PointLight(0xffc890, 0, 15, 1.1);
     this.group.add(this.bounce);
+    this.rim = new THREE.PointLight(0x9ab8ff, 0, 3.2, 2);
+    this.group.add(this.rim);
     for (let i = 0; i < ACCENTS; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 7, 1.6);
       l.position.set(0, -100, 0);
@@ -71,6 +75,7 @@ export class CaveLighting {
     this.key.color.setHex(def.lantern[0]);
     this.fill.color.setHex(def.lantern[0]);
     this.bounce.color.setHex(def.lantern[0]).lerp(new THREE.Color(def.hemi[0]), 0.35);
+    this.rim.color.setHex(def.id === 'ice' ? 0xffd0a0 : def.id === 'lava' ? 0x9ec4ff : 0xb0c4ff);
     this.accents.forEach((a, i) => {
       const s = lights[i] ?? null;
       a.spec = s;
@@ -129,6 +134,8 @@ export class CaveLighting {
     this.fill.intensity = def.lantern[1] * CAVE_TUNE.fill * flick * this.lanternScale;
     this.bounce.position.set(player.x, player.y + 5.5, player.z + 0.5);
     this.bounce.intensity = def.lantern[1] * CAVE_TUNE.bounce * this.lanternScale;
+    this.rim.position.set(player.x - 0.3, player.y + 1.9, player.z - 1.1);
+    this.rim.intensity = (def.id === 'lava' ? 5.5 : 4) * this.lanternScale;
     for (const a of this.accents) {
       const s = a.spec;
       if (!s) continue;

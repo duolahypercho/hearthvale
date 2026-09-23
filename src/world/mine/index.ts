@@ -22,7 +22,7 @@ import { buildCave, type CaveBuild } from './cave';
 import { buildProps, buildLadderDown, buildChest, FG_FADE, type MineProps } from './props';
 import { RockField, oreColor, type MineRock } from './ores';
 import { MineFX, glowPoint } from './fx';
-import { Pickups } from './pickups';
+import { Pickups, type Collector } from './pickups';
 import { CaveLighting } from './lighting';
 import { BIOMES, ORE_STYLE, biomeForFloor, type MonsterKind } from './biomes';
 import { createMonster, monsterColor, type ArenaCtx, type Monster } from '../../entities/monsters';
@@ -98,6 +98,18 @@ export class MineMap implements GameMap {
   readonly lighting: CaveLighting;
   /** Called when loot is vacuumed up (set by the mining system; default: item:give). */
   onPickup: ((id: string, qty: number, at: THREE.Vector3) => void) | null = null;
+  /** Co-op: this machine's collector id (0 solo / host). */
+  localId = 0;
+  /** Co-op: other farmers on this floor (loot collectors + monster targets), set by the net layer. */
+  remotes: { id: number; pos: THREE.Vector3; targetable: boolean }[] = [];
+  /** Co-op (host): loot collected by a remote farmer. */
+  onRemoteLoot: ((who: number, id: string, qty: number, net: number) => void) | null = null;
+  /** Co-op: loot collected by this farmer (host broadcasts the removal). */
+  onLocalLoot: ((id: string, qty: number, net: number) => void) | null = null;
+  /** Co-op farmhand: the host owns loot + monsters (this machine only mirrors them). */
+  puppet = false;
+  private collectorList: Collector[] = [];
+  private localCollector: Collector = { id: 0, pos: new THREE.Vector3() };
   /** Invulnerable / passed-out player: monsters ignore them. */
   playerTargetable = true;
   /** Demo / cutscene: freeze monster AI (they still breathe). */
@@ -123,6 +135,15 @@ export class MineMap implements GameMap {
   private savedCam: { pitch: number; yaw: number; distance: number; off: THREE.Vector3 } | null = null;
   private brokenCount = 0;
   private hazardT = 0;
+  /** Position of whoever is striking right now (co-op: a remote farmer); null = the local farmer. */
+  striker: THREE.Vector3 | null = null;
+  /** Global hit-stop (s): monsters, projectiles, loot and FX hold for a beat on kills. */
+  private stopT = 0;
+
+  /** Freeze the arena for `s` seconds (kill hit-stop). */
+  freeze(s: number): void {
+    this.stopT = Math.max(this.stopT, s);
+  }
 
   constructor(private game: Game) {
     this.root.name = 'map:mine';
@@ -130,12 +151,18 @@ export class MineMap implements GameMap {
     this.root.add(this.floorGroup, this.fx.group, this.lighting.group);
     this.pickups = new Pickups(
       (x, z) => this.heightAt(x, z),
-      (id, qty, at) => {
+      (id, qty, at, who, net) => {
         this.fx.sparks(at, { color: 0xfff2c0, count: 6, speed: 1.2, size: 0.12, gravity: 0, drag: 4, life: 0.35, star: true });
+        if (who !== this.localId) {
+          // Co-op: another farmer vacuumed it (the net layer hands it to them).
+          this.onRemoteLoot?.(who, id, qty, net);
+          return;
+        }
         mineSfx.blip();
         if (this.onPickup) this.onPickup(id, qty, at);
         else game.events.emit('item:give', { itemId: id, qty });
         game.events.emit('mine:pickup', { itemId: id, qty });
+        this.onLocalLoot?.(id, qty, net);
       },
     );
     this.root.add(this.pickups.group);
@@ -405,11 +432,16 @@ export class MineMap implements GameMap {
     const baseCol = new THREE.Color(def.rock[0]!);
     rock.hp -= power;
     this.rocks.hit(rock);
-    const dir = new THREE.Vector3(rock.pos.x - this.game.player.position.x, 0, rock.pos.z - this.game.player.position.z).normalize();
-    // Chips + sparks on every hit.
-    this.fx.sparks(pos, { color: 0xffe0a0, to: 0xff7a20, count: ore ? 10 : 6, speed: 3.2, up: 0.9, size: 0.07, gravity: 9, drag: 1.2, life: 0.35 });
-    this.fx.puff(pos, { color: baseCol.clone().lerp(new THREE.Color(0xd8c8b0), 0.4), count: 3, speed: 0.6, up: 0.4, size: 0.5, grow: 1.2, gravity: -0.3, drag: 3, life: 0.6, alpha: 0.45 });
-    this.fx.shatter(pos, baseCol, 2, 0.5, dir.clone().negate());
+    const from = this.striker ?? this.game.player.position;
+    const dir = new THREE.Vector3(rock.pos.x - from.x, 0, rock.pos.z - from.z).normalize();
+    // Every hit: 8–12 tumbling chips flying back towards the miner, sparks, and a dust ring in
+    // the biome's floor colour rolling out from the rock's foot.
+    this.fx.sparks(pos, { color: 0xffe0a0, to: 0xff7a20, count: ore ? 12 : 8, speed: 3.4, up: 1.0, size: 0.08, gravity: 9, drag: 1.2, life: 0.38 });
+    this.fx.shatter(pos, baseCol.clone().multiplyScalar(1.1), 8 + Math.floor(Math.random() * 5), 0.55, dir.clone().negate());
+    if (ore) this.fx.shatter(pos, oreColor(ore as never), 2, 0.6, dir.clone().negate());
+    const dust = new THREE.Color(def.floor[0]).lerp(new THREE.Color(0xe8dcc8), 0.35);
+    this.fx.dustRing(rock.pos.clone().setY(rock.pos.y + 0.1), dust, 12, 2.4, 0.5);
+    this.fx.puff(pos, { color: dust, count: 3, speed: 0.6, up: 0.6, size: 0.55, grow: 1.4, gravity: -0.3, drag: 3, life: 0.6, alpha: 0.45 });
     const broke = rock.hp <= 0;
     mineSfx.pick(!!ore);
     if (!broke) {
@@ -424,7 +456,8 @@ export class MineMap implements GameMap {
     // Break: 8–14 lit chunks that arc out, bounce once and settle for ~1.5 s, a dust bloom, a
     // little persistent scree, and a white flash where the rock was.
     const chunkCol = baseCol.clone().multiplyScalar(1.15);
-    this.fx.shatter(pos, chunkCol, big ? 14 : 10, big ? 1.15 : 0.95, undefined, true);
+    this.fx.shatter(pos, chunkCol, big ? 26 : 20, big ? 1.2 : 1.0, undefined, true);
+    this.fx.dustRing(rock.pos.clone().setY(rock.pos.y + 0.1), new THREE.Color(def.floor[0]).lerp(new THREE.Color(0xe8dcc8), 0.35), 16, 3.2, 0.7);
     this.fx.puff(pos, { color: baseCol.clone().lerp(new THREE.Color(0xe8dcc8), 0.5), count: big ? 12 : 8, speed: 1.4, up: 0.5, size: 0.8, grow: 1.6, gravity: -0.2, drag: 3, life: 1.1, alpha: 0.5 });
     this.fx.sparks(pos.clone().setY(pos.y + 0.1), { color: 0xfff6e0, count: 1, speed: 0, up: 0, size: big ? 2.2 : 1.7, gravity: 0, drag: 0, life: 0.12, alpha: 0.85 });
     this.fx.rubble(rock.pos, baseCol.clone().multiplyScalar(0.9), big ? 6 : 4, big ? 0.55 : 0.42);
@@ -439,11 +472,12 @@ export class MineMap implements GameMap {
       this.fx.sparks(pos, { color: bright, count: 16, speed: 2.4, up: 1.4, size: 0.24, gravity: 2, drag: 2.5, life: 0.9, star: true });
       this.fx.rubble(rock.pos, oc.clone().multiplyScalar(0.8), 1, 0.3);
       if (ORE_STYLE[ore as keyof typeof ORE_STYLE]?.kind === 'gem') mineSfx.gem();
-      this.pickups.spawn(ore, rock.pos, 1);
-      if (this.rng.next() < 0.3) this.pickups.spawn(ore, rock.pos, 1);
+      this.pickups.spawn(ore, rock.pos, 1, 1.4);
+      if (this.rng.next() < 0.35) this.pickups.spawn(ore, rock.pos, 1, 1.4);
     }
-    if (!ore || this.rng.next() < 0.5) this.pickups.spawn('stone', rock.pos, 1);
-    if (big) this.pickups.spawn('stone', rock.pos, 1);
+    // Every rock pays at least one stone (the reward is always visible).
+    this.pickups.spawn('stone', rock.pos, 1, 1.4);
+    if (big || (!ore && this.rng.next() < 0.25)) this.pickups.spawn('stone', rock.pos, 1, 1.4);
     if (this.layout.biome !== 'earth' && this.rng.next() < 0.06) this.pickups.spawn('coal', rock.pos, 1);
     this.game.events.emit('mine:rock', { x: tx, z: tz, ore, floor: this.floor });
     // Ladder down?
@@ -501,9 +535,10 @@ export class MineMap implements GameMap {
       const dx = m.pos.x - origin.x;
       const dz = m.pos.z - origin.z;
       const d = Math.hypot(dx, dz);
-      if (d > reach + m.radius) continue;
+      // 0.3-tile forgiveness on reach; anything close in front-ish always connects.
+      if (d > reach + m.radius + 0.3) continue;
       const dot = d > 1e-3 ? (dx * dir.x + dz * dir.z) / d : 1;
-      if (d > 0.7 && dot < arcCos) continue;
+      if (d > 0.7 && dot < arcCos && !(d < 1.5 + m.radius && dot > -0.15)) continue;
       if (m.kind === 'bat' && m.pos.y - this.heightAt(m.pos.x, m.pos.z) > 2.2) continue;
       const crit = this.rng.next() < critChance;
       const damage = Math.round((dmg[0] + this.rng.next() * (dmg[1] - dmg[0])) * (crit ? 2 : 1));
@@ -639,7 +674,11 @@ export class MineMap implements GameMap {
 
   // ───────────────────────────────────────────── frame
 
-  update(dt: number, game: Game): void {
+  update(dt0: number, game: Game): void {
+    // Kill hit-stop: the arena (monsters, shots, loot, particles) holds for a beat.
+    const stopped = this.stopT > 0;
+    this.stopT = Math.max(0, this.stopT - dt0);
+    const dt = stopped ? 0 : dt0;
     const time = game.time;
     const player = game.player.position;
     const simDt = game.paused ? 0 : dt;
@@ -747,7 +786,12 @@ export class MineMap implements GameMap {
       if (c.target === 0 && Math.random() < dt * 2.2) this.fx.sparks(new THREE.Vector3(c.x + (Math.random() - 0.5) * 0.8, c.group.position.y + 0.3 + Math.random() * 0.4, c.z + 0.1), { color: 0xffe6a0, count: 1, speed: 0.05, up: 0, size: 0.3, gravity: 0, drag: 5, life: 0.6, star: true });
     }
     this.rocks?.update(this.freezeFx ? 0 : dt);
-    this.pickups.update(dt, time, player, this.playerTargetable);
+    this.localCollector.id = this.localId;
+    this.localCollector.pos = player;
+    this.collectorList.length = 0;
+    if (this.playerTargetable) this.collectorList.push(this.localCollector);
+    for (const r of this.remotes) if (r.targetable) this.collectorList.push(r);
+    this.pickups.update(dt, time, this.collectorList, true, !this.puppet);
     // Ambient: vents puff embers, ore rocks glint now and then.
     this.ventT -= dt;
     if (this.props && this.ventT <= 0) {

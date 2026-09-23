@@ -41,9 +41,9 @@ const CSS = /* css */ `
 .hv-mine-floor .sub { font-family: var(--font-body, 'Nunito', system-ui); font-size:12.5px; font-weight:800; opacity:.9; letter-spacing:.8px; text-transform:uppercase; color:#ffe2b0; margin-top:2px; }
 
 .hv-dmg-layer { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
-.hv-dmg { position:absolute; left:0; top:0; font-family: var(--font-head, 'Fredoka', system-ui); font-weight:700; font-size:30px; color:#fff;
-  -webkit-text-stroke: 5px #3a1a0a; paint-order: stroke fill; text-shadow: 0 3px 0 rgba(40,15,5,.55); will-change: transform, opacity; white-space:nowrap; }
-.hv-dmg.crit { color:#ffd84a; font-size:48px; -webkit-text-stroke:6px #3a1a0a; }
+.hv-dmg { position:absolute; left:0; top:0; font-family: var(--font-head, 'Fredoka', system-ui); font-weight:700; font-size:42px; line-height:1; color:#fff;
+  -webkit-text-stroke: 6px #3a1a0a; paint-order: stroke fill; text-shadow: 0 4px 0 rgba(40,15,5,.6); will-change: transform, opacity; white-space:nowrap; }
+.hv-dmg.crit { color:#ffd84a; font-size:56px; -webkit-text-stroke:7px #3a1a0a; text-shadow: 0 4px 0 rgba(40,15,5,.6), 0 0 18px rgba(255,190,40,.65); }
 .hv-dmg.player { color:#ff6a58; font-size:34px; -webkit-text-stroke:4px #2a0604; text-shadow: 0 3px 0 rgba(20,2,0,.7), 0 0 14px rgba(0,0,0,.55); }
 .hv-dmg.loot { color:#fff4dc; font-size:22px; -webkit-text-stroke:3px #2a1a0c; text-shadow: 0 2px 0 rgba(20,10,4,.7); }
 .hv-dmg.info { color:#ffe9c4; font-size:22px; -webkit-text-stroke:4px #3a2410; }
@@ -252,7 +252,7 @@ export class DamageNumbers {
       off: opts.off?.clone() ?? new THREE.Vector3(),
       age: 0,
       life: kind === 'loot' || kind === 'info' ? 1.3 : kind === 'crit' ? 1.1 : 0.95,
-      dx: kind === 'loot' ? 0 : (Math.random() - 0.5) * 30,
+      dx: kind === 'loot' ? 0 : (Math.random() - 0.5) * 12,
       sx: opts.dx ?? 0,
       sy: opts.dy ?? 0,
       kind,
@@ -275,11 +275,13 @@ export class DamageNumbers {
       this.v.copy(n.follow ?? n.pos).add(n.off).project(camera);
       const x = (this.v.x * 0.5 + 0.5) * w + n.sx;
       const y = (-this.v.y * 0.5 + 0.5) * h + n.sy;
-      // Pop: overshoot scale, hop up, drift, fade.
-      const pop = t < 0.15 ? 0.4 + (t / 0.15) * 1.0 : t < 0.3 ? 1.4 - ((t - 0.15) / 0.15) * 0.4 : 1;
-      const rise = n.kind === 'loot' || n.kind === 'info' ? t * 60 : Math.sin(Math.min(1, t * 1.6) * Math.PI * 0.5) * 70 - Math.max(0, t - 0.6) * 20;
-      const op = t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1;
-      n.el.style.transform = `translate(-50%, -50%) translate(${x + n.dx * t}px, ${y - rise}px) scale(${pop})`;
+      // Pop: 1.4 → 1 overshoot in ~0.1 s, a 40 px rise (eased), fade out; crits shake while popping.
+      const age = n.age;
+      const pop = age < 0.05 ? 0.6 + (age / 0.05) * 0.8 : age < 0.14 ? 1.4 - ((age - 0.05) / 0.09) * 0.4 : 1;
+      const rise = n.kind === 'loot' || n.kind === 'info' ? t * 60 : (1 - Math.pow(1 - Math.min(1, t * 1.4), 3)) * 40;
+      const shake = n.kind === 'crit' && age < 0.3 ? Math.sin(age * 90) * 5 * (1 - age / 0.3) : 0;
+      const op = t > 0.72 ? 1 - (t - 0.72) / 0.28 : 1;
+      n.el.style.transform = `translate(-50%, -50%) translate(${x + n.dx * t + shake}px, ${y - rise}px) scale(${pop})`;
       n.el.style.opacity = String(op);
     }
   }
