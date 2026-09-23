@@ -124,6 +124,8 @@ export interface LeafClumpOptions {
   seam: number;
   /** Scalloped-silhouette cut strength (0 = off). */
   cut?: number;
+  /** Spring blossom flecks on a share of the clumps (follows the season weights). */
+  blossom?: boolean;
 }
 
 /**
@@ -134,9 +136,10 @@ export interface LeafClumpOptions {
 export function applyLeafClumps(m: THREE.Material, o: LeafClumpOptions): void {
   const f = `vec3(${o.freq.map((v) => v.toFixed(3)).join(', ')})`;
   const cut = (o.cut ?? 1).toFixed(3);
-  patchMaterial(m, `leaf-clumps:${o.freq.join(',')}:${o.bend}:${o.seam}:${cut}`, (shader) => {
+  patchMaterial(m, `leaf-clumps:${o.freq.join(',')}:${o.bend}:${o.seam}:${cut}:${o.blossom ? 1 : 0}`, (shader) => {
+    shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
     let fs = shader.fragmentShader;
-    fs = before(fs, 'void main() {', LEAF_CELLS_GLSL);
+    fs = before(fs, 'void main() {', LEAF_CELLS_GLSL + (fs.includes('uniform vec4 uSeasonW;') ? '' : 'uniform vec4 uSeasonW;\n'));
     fs = after(fs, 'void main() {', 'vec3 hvLeafDir = vec3(0.0, 1.0, 0.0);\nfloat hvLeafEdge = 1.0;\nfloat hvLeafRnd = 0.5;');
     fs = after(
       fs,
@@ -147,13 +150,20 @@ export function applyLeafClumps(m: THREE.Material, o: LeafClumpOptions): void {
         hvLeafCells(vHvWorldPos * ${f}, hvLeafDir, hvLeafEdge, hvD1, hvLeafRnd);
         vec3 hvVw = normalize(cameraPosition - vHvWorldPos);
         float hvNdv = abs(dot(normalize(vHvWorldNormal), hvVw));
-        float hvSil = (1.0 - smoothstep(0.06, 0.34, hvNdv)) * ${cut};
+        float hvSil = (1.0 - smoothstep(0.03, 0.22, hvNdv)) * ${cut};
         float hvJit = hvNoise(vHvWorldPos.xz * 13.0 + vHvWorldPos.y * 7.0);
         // Only cut where a clump rim meets the outline (the mass stays whole, no floating chips).
         if (hvLeafEdge * (1.0 - hvD1 * 0.5) < hvSil * (0.2 + hvJit * 0.18)) discard;
         diffuseColor.rgb *= ${(1 - o.seam).toFixed(3)} + ${o.seam.toFixed(3)} * smoothstep(0.0, 0.22, hvLeafEdge);
         float hvSpk = hvNoise(vHvWorldPos.xz * 17.0 + vHvWorldPos.y * 11.0);
         diffuseColor.rgb *= 0.9 + 0.2 * smoothstep(0.35, 0.8, hvSpk);
+        ${o.blossom ? `{
+          // Spring: pale blossom flecks crowd the sunny side of a third of the clumps.
+          // Round florets at the heart of a share of the clumps (not whole cells: those read as chips).
+          float hvB = uSeasonW.x * step(0.62, hvLeafRnd) * smoothstep(0.3, 0.16, hvD1) * smoothstep(-0.3, 0.5, normalize(vHvWorldNormal).y);
+          vec3 hvBc = mix(vec3(1.0, 0.55, 0.72), vec3(1.0, 0.84, 0.9), fract(hvLeafRnd * 7.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, hvBc, hvB);
+        }` : ''}
       }`,
     );
     fs = after(
@@ -178,9 +188,11 @@ function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
   const t = textures.leaves();
   m = new THREE.MeshStandardMaterial({ bumpMap: t.bump, bumpScale: 0.35, roughness: 0.93, vertexColors: true, color: 0xffffff });
   m.name = `giantLeaf-${kind}`;
-  applyWorldFx(m, { snowUp: kind === 'fir' ? 0.38 : 0.6 });
+  // Fir snow settles on the top of every needle clump (hvLeafDir from applyLeafClumps), leaving
+  // dark green undersides between the drifts.
+  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.3, snowMask: 'smoothstep(-0.3, 0.85, hvLeafDir.y) * 0.66' } : { snowUp: 0.6 });
   applyWind(m, WIND_LEAF);
-  applyLeafClumps(m, kind === 'fir' ? { freq: [4.2, 2.6, 4.2], bend: 0.55, seam: 0.24 } : { freq: [3.1, 3.1, 3.1], bend: 0.7, seam: 0.24 });
+  applyLeafClumps(m, kind === 'fir' ? { freq: [4.2, 2.6, 4.2], bend: 0.55, seam: 0.24 } : { freq: [3.1, 3.1, 3.1], bend: 0.7, seam: 0.24, blossom: true });
   patchMaterial(m, 'giant-canopy', (shader) => {
     shader.uniforms.uSunDir = globalUniforms.uSunDir;
     shader.uniforms.uSunColor = globalUniforms.uSunColor;
@@ -220,7 +232,7 @@ function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
     );
     shader.fragmentShader = fs;
   });
-  applyOcclusionFade(m, 5.5, 2.2, '1.0', true);
+  applyOcclusionFade(m, 5.5, 1.4, '1.0', true, 3);
   leafMats.set(kind, m);
   return m;
 }
@@ -231,8 +243,8 @@ function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
  * in the sight-line cylinder between the camera and the player, dissolve with an ordered dither
  * (their shadows stay — the depth pass is untouched).
  */
-function applyOcclusionFade(m: THREE.Material, radius: number, near: number, radiusScale = '1.0', cellular = false): void {
-  patchMaterial(m, `occlusion-fade:${radius}:${near}:${radiusScale}:${cellular}`, (shader) => {
+function applyOcclusionFade(m: THREE.Material, radius: number, near: number, radiusScale = '1.0', cellular = false, nearRange = 5): void {
+  patchMaterial(m, `occlusion-fade:${radius}:${near}:${radiusScale}:${cellular}:${nearRange}`, (shader) => {
     shader.uniforms.uPlayerPos = globalUniforms.uPlayerPos;
     let fs = shader.fragmentShader;
     fs = before(fs, 'void main() {', 'uniform vec3 uPlayerPos;\nfloat hvBayer4(vec2 p) { ivec2 q = ivec2(mod(p, 4.0)); int i = q.x + q.y * 4; int b[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5); return (float(b[i]) + 0.5) / 16.0; }');
@@ -243,13 +255,15 @@ function applyOcclusionFade(m: THREE.Material, radius: number, near: number, rad
       {
         vec3 hvRel = vHvWorldPos - cameraPosition;
         float hvCamD = length(hvRel);
-        float hvKeep = smoothstep(${near.toFixed(2)}, ${(near + 5).toFixed(2)}, hvCamD);
+        float hvKeep = smoothstep(${near.toFixed(2)}, ${(near + nearRange).toFixed(2)}, hvCamD);
         vec3 hvF = uPlayerPos + vec3(0.0, 0.9, 0.0) - cameraPosition;
         float hvL = length(hvF);
         vec3 hvDir = hvF / max(hvL, 0.001);
         float hvAlong = dot(hvRel, hvDir);
         float hvPerp = length(hvRel - hvDir * hvAlong);
-        float hvRs = ${radiusScale};
+        // A cone, not a cylinder: constant on-screen radius around the player, so canopies right
+        // in front of the lens are not holed far from the sight line.
+        float hvRs = ${radiusScale} * clamp(hvAlong / max(hvL, 0.001), 0.2, 1.0);
         float hvCyl = hvAlong < hvL - 0.6 ? smoothstep(${(radius * 0.55).toFixed(2)} * hvRs, ${radius.toFixed(2)} * hvRs, hvPerp) : 1.0;
         hvKeep = min(hvKeep, hvCyl);
         // Organic cut-away: world-space noise shapes the holes (leafy edges, not a screen door),

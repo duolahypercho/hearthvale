@@ -55,7 +55,7 @@ export const GIANTS: [GiantKind, number, number, number][] = [
   ['elder', 27.2, 16.8, 0.92],
   ['elder', 41.2, 26.8, 1.08],
   ['elder', 25.4, 38.8, 1.0],
-  ['fir', 45.4, 33.6, 0.9],
+  ['fir', 46.2, 34.4, 0.78],
   ['elder', 30.8, 46.8, 0.96],
   ['fir', 23.4, 48.6, 1.0],
   ['elder', 49.6, 51.4, 1.02],
@@ -64,8 +64,7 @@ export const GIANTS: [GiantKind, number, number, number][] = [
   ['fir', 6.4, 44.6, 0.95],
   // The ring hiding the glade.
   ['elder', 43.6, 11.4, 1.0],
-  ['elder', 44.2, 24.8, 0.95],
-  ['elder', 59.6, 26.6, 1.0],
+  ['elder', 61.4, 27.6, 1.0],
   ['elder', 60.6, 8.2, 1.0],
   ['fir', 48.2, 6.6, 0.9],
   ['elder', 38.2, 5.6, 0.9],

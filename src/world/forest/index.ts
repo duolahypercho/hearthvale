@@ -222,10 +222,12 @@ export class ForestMap implements GameMap {
     t.paint('sand', (x, z) => {
       const s = S.stream.nearest(x, z, 5);
       const u = S.upper.nearest(x, z, 3);
-      const bank = s ? smoothstep(s.w + 1.5, s.w + 0.7, s.d) : 0;
-      const ub = u ? smoothstep(u.w + 0.9, u.w + 0.3, u.d) : 0;
-      const pool = smoothstep(POOL.r + 1.2, POOL.r + 0.2, Math.hypot(x - POOL.x, (z - POOL.z) * 1.12));
-      return Math.max(bank, ub, pool) * smoothstep(-0.1, 0.45, S.noise2.fbm(x * 0.7, z * 0.7, 2)) * 0.9;
+      // A continuous damp shingle band hugging the waterline (isolated sand blobs out in the grass
+      // read as litter from the diorama camera).
+      const bank = s ? smoothstep(s.w + 1.1, s.w + 0.5, s.d) : 0;
+      const ub = u ? smoothstep(u.w + 0.75, u.w + 0.3, u.d) : 0;
+      const pool = smoothstep(POOL.r + 0.8, POOL.r + 0.1, Math.hypot(x - POOL.x, (z - POOL.z) * 1.12));
+      return Math.max(bank, ub, pool) * (0.55 + 0.4 * smoothstep(-0.3, 0.4, S.noise2.fbm(x * 0.7, z * 0.7, 2)));
     });
     t.commitSplat();
     const B = { x0: -10, z0: -12, x1: 76, z1: 74 };

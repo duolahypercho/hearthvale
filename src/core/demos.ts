@@ -27,7 +27,7 @@ const TOWN_CAM = { yaw: 0, pitch: 43, distance: 37, offsetX: -2.9, offsetZ: -7.6
 /** Mine floors: steep, close diorama framing so the lantern pool fills the frame. */
 const MINE_CAM = { yaw: 0, pitch: 54, distance: 19, offsetZ: -0.6 };
 /** Cindergrove: the waterfall, plunge pool and flanking elders, player on the pool path. */
-const FOREST_FALLS_CAM = { yaw: -4, pitch: 44, distance: 26, offsetX: -6.8, offsetZ: -3.6 };
+const FOREST_FALLS_CAM = { yaw: 2, pitch: 45, distance: 26, offsetX: -5.2, offsetZ: -3.4 };
 /** Driftsand Beach: pier, surf and the shack; sunset looks out over the pier. */
 const BEACH_CAM = { yaw: -8, pitch: 46, distance: 36, offsetX: 1, offsetZ: 6.5 };
 const BEACH_SUNSET_CAM = { yaw: 148, pitch: 24, distance: 30, offsetX: -2, offsetZ: 1 };
@@ -96,13 +96,14 @@ export const DEMOS: Record<string, DemoDef> = {
   audio: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
   // Cindergrove forest + weather showcases (world/forest, systems/weather). 'fog-morning' / 'rainbow'
   // also switch on the matching atmosphere (the weather system keys off the demo name).
-  'forest-day': { map: 'forest', x: 19.4, z: 26.6, facing: 'up', time: 10.4, season: 'summer', weather: 'sun', camera: FOREST_FALLS_CAM },
+  'forest-day': { map: 'forest', x: 22.2, z: 24.8, facing: 'left', time: 10.4, season: 'summer', weather: 'sun', camera: FOREST_FALLS_CAM },
   'forest-rain': { map: 'forest', x: 35.2, z: 32.6, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
-  'forest-fall': { map: 'forest', x: 46.8, z: 22.6, facing: 'right', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 24, offsetX: 3.2, offsetZ: -3.4 } },
-  'forest-night': { map: 'forest', x: 46.8, z: 22.6, facing: 'right', time: 22.2, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 24, offsetX: 3.2, offsetZ: -3.4 } },
+  'forest-fall': { map: 'forest', x: 50.4, z: 25.4, facing: 'up', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 27, offsetX: 1.2, offsetZ: -4.8 } },
+  'forest-night': { map: 'forest', x: 50.4, z: 25.4, facing: 'up', time: 22.2, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 27, offsetX: 1.2, offsetZ: -4.8 } },
   storm: { map: 'forest', x: 22.4, z: 25.2, facing: 'left', time: 15.5, season: 'summer', weather: 'storm', camera: FOREST_FALLS_CAM },
-  'snow-day': { map: 'forest', x: 19.4, z: 26.6, facing: 'up', time: 11, season: 'winter', weather: 'snow', camera: FOREST_FALLS_CAM },
-  'fog-morning': { map: 'forest', x: 33.6, z: 25.4, facing: 'down', time: 6.7, season: 'spring', weather: 'sun', camera: { yaw: 4, pitch: 44, distance: 26, offsetX: -1.5, offsetZ: -3.5 } },
+  'snow-day': { map: 'forest', x: 22.2, z: 24.8, facing: 'left', time: 11, season: 'winter', weather: 'snow', camera: FOREST_FALLS_CAM },
+  'fog-morning': { map: 'forest', x: 22.2, z: 24.8, facing: 'left', time: 6.8, season: 'spring', weather: 'sun', camera: FOREST_FALLS_CAM },
+  'forest-wind': { map: 'forest', x: 35.2, z: 32.6, facing: 'down', time: 15.2, season: 'fall', weather: 'wind', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
   rainbow: { map: 'forest', x: 35.2, z: 32.6, facing: 'up', time: 16.2, season: 'spring', weather: 'sun', camera: { yaw: 8, pitch: 46, distance: 26, offsetX: 1.2, offsetZ: -2 } },
   'farm-storm': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 15, season: 'summer', weather: 'storm', camera: HOME_CAM },
   'farm-wind': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'wind', camera: HOME_CAM },

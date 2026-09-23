@@ -204,8 +204,10 @@ export class FogBank {
   readonly mesh: THREE.Mesh;
   private mat: THREE.ShaderMaterial;
   private readonly size = 70;
+  private readonly seg: number;
 
-  constructor(layers = 4, seg = 56) {
+  constructor(layers = 4, seg = 40) {
+    this.seg = seg;
     const g = new THREE.InstancedBufferGeometry();
     const plane = new THREE.PlaneGeometry(1, 1, seg, seg);
     plane.rotateX(-Math.PI / 2);
@@ -317,7 +319,7 @@ export class FogBank {
   update(center: THREE.Vector3, amount: number): void {
     const u = this.mat.uniforms;
     // Snap the drape to a coarse grid so the mist doesn't swim over the ground as the camera follows.
-    const cell = this.size / 56;
+    const cell = this.size / this.seg;
     (u.uCenter!.value as THREE.Vector3).set(Math.round(center.x / cell) * cell, center.y, Math.round(center.z / cell) * cell);
     u.uAmount!.value = amount;
     const sun = globalUniforms.uSunColor.value;
@@ -384,7 +386,7 @@ export class Rainbow {
           c += vec3(0.08, 0.08, 0.1) * smoothstep(R - W, R - W - 0.5, r) * smoothstep(R - W - 1.2, R - W - 0.2, r);
           // Fades out towards the bottom of the frame and where it meets the screen edge; soft breakup.
           float fade = smoothstep(0.08, 0.55, vUv.y) * (0.75 + 0.25 * hvNoise(vec2(atan(p.y, p.x) * 6.0, uTime * 0.05)));
-          gl_FragColor = vec4(c * fade * uAmount * 0.36, 1.0);
+          gl_FragColor = vec4(c * fade * uAmount * 0.27, 1.0);
         }`,
     });
     this.mesh = new THREE.Mesh(g, this.mat);
