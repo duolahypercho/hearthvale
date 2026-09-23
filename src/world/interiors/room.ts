@@ -22,6 +22,7 @@ import { Kit, imat, interiorEmissive, floorPlane, type IMat } from './kit';
 import { shaftGradient, windowView, glowDisc, roomAO } from './textures';
 import { textures } from '../../render/textures';
 import { mergeStatic } from '../geom';
+import { atmosphere } from '../../render/heightfog';
 
 export interface WindowSpec {
   wall: 'back' | 'left' | 'right';
@@ -104,7 +105,7 @@ export abstract class InteriorMap implements GameMap {
   readonly warps: MapWarp[];
   readonly interior = true;
   /** Camera framing used while inside. */
-  camera = { yaw: 0, pitch: 50, distance: 16.5, offsetX: 0, offsetZ: -0.35 };
+  camera = { yaw: 0, pitch: 50, distance: 17.2, offsetX: 0, offsetZ: -0.35 };
   readonly light: RoomLight = {
     sunDir: new THREE.Vector3(0, 1, 0),
     sunColor: new THREE.Color(),
@@ -141,7 +142,11 @@ export abstract class InteriorMap implements GameMap {
   protected dayScale = 1;
   /** Extra exposure in daylight (small, dim-walled rooms read too murky otherwise). */
   protected exposureBoost = 0;
+  /** Moonlight through the windows at night (the cool accent against the lamp light). */
+  protected moonScale = 1;
   protected finalized = false;
+  /** Bedtime dimming 0..1 (sleep system): lamps, fire and exposure ease down before the fade. */
+  dim = 0;
 
   constructor(protected game: Game, readonly spec: RoomSpec) {
     this.id = spec.id;
@@ -155,7 +160,9 @@ export abstract class InteriorMap implements GameMap {
     });
     this.spawn = { x: spec.doorX + 0.5, z: D - 0.45, facing: 'up' };
     this.center = new THREE.Vector3(W / 2, 0, D / 2);
-    this.cameraBounds = new THREE.Box2(new THREE.Vector2(W / 2 - 0.9, D / 2 - 0.5), new THREE.Vector2(W / 2 + 0.9, D / 2 + 0.6));
+    // The whole diorama stays in frame: the camera only breathes a little with the farmer (a room that
+    // slides half off-screen when you walk to a wall reads as a broken camera, not a cutaway).
+    this.cameraBounds = new THREE.Box2(new THREE.Vector2(W / 2 - 0.22, D / 2 - 0.2), new THREE.Vector2(W / 2 + 0.22, D / 2 + 0.25));
     this.warps = [{ x0: spec.doorX, z0: D, x1: spec.doorX, z1: D, to: spec.exit.to, x: spec.exit.x, z: spec.exit.z, facing: spec.exit.facing }];
     this.light.sunDir.set(...spec.sunDir).normalize();
 
@@ -508,7 +515,7 @@ export abstract class InteriorMap implements GameMap {
     // Sun through the windows: golden morning / evening, cream midday, cool moonlight at night.
     const sunDay = _c.setHex(0xfff1dc).lerp(new THREE.Color(0xffb46a), warm * 0.85);
     L.sunColor.copy(sunDay).lerp(new THREE.Color(0x8aa6ff), night);
-    L.sunI = (day * 5.2 * (1 - overcast * 0.85) + night * 0.9) * this.dayScale;
+    L.sunI = day * 5.2 * (1 - overcast * 0.85) * this.dayScale + night * 1.35 * this.moonScale * (1 - overcast * 0.6);
     // Ambient: warm wood bounce by day; at night a cool moonlight fill through the windows so the
     // floor never crushes to black (the lamps then paint warm pools over it).
     L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x6f86c9), night);
@@ -518,7 +525,8 @@ export abstract class InteriorMap implements GameMap {
     // +0.4 EV indoors at night.
     L.exposure = (1.0 + night * 0.18 + overcast * 0.1 + this.exposureBoost * day) * (1 + night * 0.32);
     L.bg.setHex(0x1c140e).lerp(new THREE.Color(0x0a0a12), night);
-    L.lift = [0.025 + night * 0.01, 0.018, 0.012 + night * 0.03];
+    // Night lift keeps the corners readable (the lamps stay the key, the shadows stay blue-brown).
+    L.lift = [0.025 + night * 0.028, 0.018 + night * 0.02, 0.012 + night * 0.05];
     L.gain = [1.06 + warm * 0.04, 1.0, 0.93 - warm * 0.03 + night * 0.06];
     L.sat = 1.1 - night * 0.05;
     L.contrast = 1.06 + night * 0.04;
@@ -532,9 +540,20 @@ export abstract class InteriorMap implements GameMap {
     return 0;
   }
 
+  /** Weather hands every map its fog amount right after writing the height-fog state (and before the
+   *  post pass syncs it): indoors there is no ground mist and no canopy shafts, the room's own shaft
+   *  cards carry the daylight. Without this the outdoor morning mist filled the room as a milky box. */
+  setAtmosphere(): void {
+    atmosphere.fog = 0;
+    atmosphere.shafts = 0;
+  }
+
   update(dt: number, game: Game): void {
+    this.setAtmosphere();
     this.computeLight();
     const L = this.light;
+    L.exposure *= 1 - this.dim * 0.32;
+    L.bloom *= 1 - this.dim * 0.4;
     const t = game.time;
     const pp = game.player.position;
     // Behind the farmer at head height (a true rim): from above it blew the straw hat out to white.
@@ -545,7 +564,7 @@ export abstract class InteriorMap implements GameMap {
     for (const l of this.lamps) {
       const base = THREE.MathUtils.lerp(l.day, l.night, THREE.MathUtils.clamp(lampK, 0, 1));
       const f = l.flicker ? 1 + l.flicker * (Math.sin(t * 13 + l.seed) * 0.35 + Math.sin(t * 7.3 + l.seed * 2) * 0.4 + Math.sin(t * 23.1 + l.seed) * 0.25) : 1;
-      l.light.intensity = base * f;
+      l.light.intensity = base * f * (1 - this.dim * 0.78);
     }
     for (const e of interiorEmissive) e.material.emissiveIntensity = THREE.MathUtils.lerp(e.day, e.night, THREE.MathUtils.clamp(lampK, 0, 1));
     // Shafts: warm by day, faint blue by moonlight.

@@ -26,7 +26,7 @@ export function installInteriorLighting(game: Game): void {
   const prevBefore = scene.onBeforeRender;
   const prevAfter = scene.onAfterRender;
   const hidden: THREE.Object3D[] = [];
-  let saved: { wet: number; snow: number; rain: number } | null = null;
+  let saved: { wet: number; snow: number; rain: number; bias: number; normalBias: number } | null = null;
   const center = new THREE.Vector3();
 
   scene.onBeforeRender = function (...args) {
@@ -53,7 +53,9 @@ export function installInteriorLighting(game: Game): void {
     sun.updateMatrixWorld();
     sun.target.updateMatrixWorld();
     const cam = sun.shadow.camera;
-    const half = Math.max(room.spec.W, room.spec.D) * 0.5 + 2.5;
+    // Tight box around the room (+ the shadow-caster ceiling lip): more texels per metre, no acne
+    // stripes on the farmer's hat under the low window sun.
+    const half = Math.max(room.spec.W, room.spec.D) * 0.5 + 1.4;
     cam.left = -half;
     cam.right = half;
     cam.top = half;
@@ -78,7 +80,10 @@ export function installInteriorLighting(game: Game): void {
     g.uVignette!.value = L.vignette;
     game.rc.post.setBloom(L.bloom, 0.9);
     // 3. Outdoor-only shader globals.
-    if (!saved) saved = { wet: globalUniforms.uWet.value, snow: globalUniforms.uSnow.value, rain: globalUniforms.uRain.value };
+    if (!saved) saved = { wet: globalUniforms.uWet.value, snow: globalUniforms.uSnow.value, rain: globalUniforms.uRain.value, bias: sun.shadow.bias, normalBias: sun.shadow.normalBias };
+    // Grazing window light: push the lookup off the surface along the normal (hat brims, animal backs).
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.035;
     globalUniforms.uWet.value = 0;
     globalUniforms.uSnow.value = 0;
     globalUniforms.uRain.value = 0;
@@ -98,6 +103,8 @@ export function installInteriorLighting(game: Game): void {
       globalUniforms.uWet.value = saved.wet;
       globalUniforms.uSnow.value = saved.snow;
       globalUniforms.uRain.value = saved.rain;
+      game.lighting.sun.shadow.bias = saved.bias;
+      game.lighting.sun.shadow.normalBias = saved.normalBias;
       saved = null;
     }
   };

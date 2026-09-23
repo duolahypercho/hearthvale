@@ -164,6 +164,18 @@ try {
       g.step(2);
       out.demos.push(d);
     }
+    // animals: a night with a stocked coop + barn shows the Animals row on the end-of-day card
+    await g.demo('barn-interior');
+    g.step(3);
+    let night = null;
+    const offNight = ev.on('sleep:summary', (s) => (night = s));
+    g.game.services.sleep.sleep();
+    await new Promise((res) => setTimeout(res, 60));
+    offNight();
+    g.step(2);
+    out.animalsNight = !!night?.animals && night.animals.total > 0 && night.animals.fed + night.animals.hungry === night.animals.total;
+    out.animalsRow = !!document.querySelector('.hv-dayend .de-animals');
+    g.openUI('none');
     await g.demo('farm-tools');
     for (let i = 0; i < 6; i++) {
       g.game.services.farming.scrub(0.1 + i * 0.06);
@@ -220,6 +232,8 @@ try {
   check('farm → town warp', r.warps.includes('town'));
   check('audio service', r.audio);
   check('demo(*)', r.demos.length > 5, r.demos.join(', '));
+  check('animals: overnight report reaches sleep:summary', r.animalsNight);
+  check('animals: end-of-day card shows the Animals row', r.animalsRow);
   check('pause', r.paused === true);
   check('save/load', r.saved && r.loaded);
   const p = r.perfEnd;

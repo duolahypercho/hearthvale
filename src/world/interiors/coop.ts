@@ -50,7 +50,7 @@ export class CoopInterior extends InteriorMap {
       ],
       sunDir: [-0.4, 0.62, -0.68],
     });
-    this.camera = { yaw: 0, pitch: 47, distance: 15.5, offsetX: 0, offsetZ: 0.8 };
+    this.camera = { yaw: 0, pitch: 48, distance: 14.6, offsetX: 0, offsetZ: 0.5 };
     this.dayScale = 1.3;
     this.exposureBoost = 0.28;
     const rng = new Rng('coop-interior');
@@ -221,10 +221,26 @@ export class CoopInterior extends InteriorMap {
       k.add('fabric', new THREE.CircleGeometry(0.05, 8).rotateX(-Math.PI / 2).scale(0.45, 1, 1.5), mat(dbx + fx, 0.04, dbz + fz, 0, fr, 0.15), { tint: c });
     }
     // Perch log across the middle of the floor + a stump
-    const lg = new THREE.CylinderGeometry(0.13, 0.15, 1.7, 12);
+    // A barky birch-ish log the hens hop onto: rounded, knobbly, pale sawn ends with growth rings, a
+    // branch stub and a tuft of moss (it must read as a log, not a stray plank).
+    const lcx = 4.3;
+    const lcz = 4.75;
+    const lry = 0.25;
+    const lg = new THREE.CylinderGeometry(0.17, 0.19, 1.7, 14, 4);
     lg.rotateZ(Math.PI / 2);
-    k.add('wood', lg, mat(4.3, 0.13, 4.75, 0, 0.25, 0), { tint: 0x9a6a44 });
-    for (const s of [-1, 1]) k.add('wood', new THREE.CircleGeometry(0.12, 12).rotateY(Math.PI / 2), mat(4.3 + s * 0.83 * Math.cos(0.25), 0.13, 4.75 - s * 0.83 * Math.sin(0.25), 0, 0.25 + (s < 0 ? Math.PI : 0), 0), { tint: 0xd8b080 });
+    k.add('wood', lg, mat(lcx, 0.17, lcz, 0, lry, 0), { tint: 0x9a7650 });
+    for (let i = 0; i < 5; i++) {
+      const t = -0.62 + i * 0.31;
+      k.add('wood', new THREE.TorusGeometry(0.182 + (i % 2) * 0.01, 0.016, 5, 14), mat(lcx + Math.cos(lry) * t, 0.17, lcz - Math.sin(lry) * t, 0, lry + Math.PI / 2, 0), { tint: 0x5e4430 });
+    }
+    for (const s of [-1, 1]) {
+      const ex = lcx + s * 0.855 * Math.cos(lry);
+      const ez = lcz - s * 0.855 * Math.sin(lry);
+      k.add('wood', new THREE.CircleGeometry(s < 0 ? 0.188 : 0.168, 14).rotateY(Math.PI / 2), mat(ex, 0.17, ez, 0, lry + (s < 0 ? Math.PI : 0), 0), { tint: 0xf0d6a4 });
+      for (const r of [0.06, 0.11]) k.add('wood', new THREE.RingGeometry(r, r + 0.012, 14).rotateY(Math.PI / 2), mat(ex + s * 0.003 * Math.cos(lry), 0.17, ez - s * 0.003 * Math.sin(lry), 0, lry + (s < 0 ? Math.PI : 0), 0), { tint: 0xc09060 });
+    }
+    k.cyl('wood', 0.045, 0.06, 0.22, [lcx + 0.25, 0.3, lcz - 0.05], { rz: -0.7, rx: -0.3, tint: 0x6a4a34 });
+    k.add('leaf', lumpySphere(0.09, 1, 0.3, rng), mat(lcx - 0.3, 0.33, lcz + 0.06, 0, 0, 0, 1.6, 0.45, 1), { tint: 0x7a9a4a });
     k.cyl('wood', 0.2, 0.23, 0.36, [5.55, 0, 4.45], { tint: 0x96683f });
     k.cyl('wood', 0.19, 0.19, 0.01, [5.55, 0.36, 4.45], { tint: 0xd8b080 });
     // Grit bowl + a spare egg basket by the nests

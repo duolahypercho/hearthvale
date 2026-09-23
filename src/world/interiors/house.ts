@@ -44,6 +44,9 @@ export class HouseInterior extends InteriorMap {
   private steam!: Wisps;
   private fireLight!: THREE.PointLight;
   private fireK = 1;
+  private tuckQuilt!: THREE.Object3D;
+  /** Pillow point the sleeping farmer's head rests on (world coords inside the house). */
+  readonly pillow = new THREE.Vector3(11.2, 0.86, 0.5);
 
   constructor(game: Game) {
     super(game, {
@@ -374,10 +377,15 @@ export class HouseInterior extends InteriorMap {
     this.updaters.push((dt, t, L) => this.tickHearth(dt, t, L));
   }
 
+  /** Sleep system: fold the quilt over the farmer lying in bed (or turn it down again). */
+  tuckIn(on: boolean): void {
+    this.tuckQuilt.visible = on;
+  }
+
   private tickHearth(dt: number, t: number, L: RoomLight): void {
     this.fireK = 0.85 + 0.12 * Math.sin(t * 11.3) * Math.sin(t * 6.1 + 1) + 0.08 * Math.sin(t * 23.7) + 0.06 * Math.sin(t * 3.1);
     this.fireLight.intensity *= this.fireK;
-    this.flames.gain = (1.3 + L.night * 0.6) * (0.9 + 0.2 * this.fireK);
+    this.flames.gain = (1.3 + L.night * 0.6) * (0.9 + 0.2 * this.fireK) * (1 - this.dim * 0.55);
     this.flames.update(t);
     const h = this.game.rc.renderer.domElement.height;
     this.sparks.update(dt, h);
@@ -453,6 +461,20 @@ export class HouseInterior extends InteriorMap {
     // Window-sill plants
     this.pottedPlant(k, rng, 12.8, 5.3, 1.22, 0.3);
     this.statics.push(k.build('bedroom'));
+    // Bedtime quilt: a turned-down patchwork cover the sleep system folds over the farmer (hidden by day).
+    const qk = new Kit();
+    // A domed half-cylinder of patchwork from just under the chin to the foot of the bed, tall enough to
+    // swallow the farmer's body (only the head shows on the pillow), a turned-down sheet cuff at the top.
+    const cov = new THREE.CylinderGeometry(0.94, 0.94, 1.3, 28, 1, true, -Math.PI / 2, Math.PI);
+    cov.rotateX(-Math.PI / 2);
+    qk.add('quilt', cov, mat(bx, 0.6, 1.64, 0, 0, 0, 1, 0.66, 1));
+    qk.add('quilt', new THREE.CircleGeometry(0.94, 28, 0, Math.PI), mat(bx, 0.6, 2.29, 0, 0, 0, 1, 0.66, 1));
+    qk.add('fabric', new THREE.CylinderGeometry(0.96, 0.96, 0.16, 28, 1, true, -Math.PI / 2, Math.PI).rotateX(-Math.PI / 2), mat(bx, 0.6, 1.02, 0, 0, 0, 1, 0.68, 1), { tint: 0xfaf8f2 });
+    qk.add('fabric', new THREE.CircleGeometry(0.96, 28, 0, Math.PI).rotateY(Math.PI), mat(bx, 0.6, 0.94, 0, 0, 0, 1, 0.68, 1), { tint: 0xeee8dc });
+    this.tuckQuilt = qk.build('bed-quilt');
+    this.tuckQuilt.visible = false;
+    this.tuckQuilt.userData.dynamic = true;
+    this.root.add(this.tuckQuilt);
     this.solid(10.2, 0, 12.2, 2.3, 'bed');
     this.solid(9.4, 0, 10.1, 0.6, 'nightstand');
     this.solid(12.3, 3.2, 13, 4.6, 'wardrobe');
@@ -557,6 +579,21 @@ export class HouseInterior extends InteriorMap {
     k.box('wood', [0.5, 0.26, 0.36], [cx + 0.9, 0, cz + 0.04], { tint: 0xb08058, r: 0.015, ry: -0.12 });
     for (let i = 0; i < 9; i++) k.add('ceramic', lumpySphere(0.06, 1, 0.22, rng), mat(cx + 0.76 + (i % 3) * 0.14, 0.27 + (i % 2) * 0.02, cz - 0.05 + Math.floor(i / 3) * 0.1), { tint: i % 4 ? 0xc89a62 : 0xb08050 });
     this.solid(1.8, 7.0, 3.3, 7.8, 'seed-chest');
+    // Hurricane lantern on the floor by the seed chest: the door side's own warm pool at night (the
+    // lower floor no longer falls off into black between the hearth glow and the front wall).
+    const hx = 3.62;
+    const hz = 7.5;
+    k.cyl('tin', 0.13, 0.15, 0.06, [hx, 0, hz], { tint: 0x8a3a2a, seg: 16 });
+    k.cyl('tin', 0.1, 0.12, 0.08, [hx, 0.06, hz], { tint: 0xa84a32, seg: 16 });
+    k.add('glow', new THREE.SphereGeometry(0.1, 14, 10), mat(hx, 0.25, hz, 0, 0, 0, 1, 1.45, 1), { tint: 0xfff0c8 });
+    k.cyl('tin', 0.07, 0.11, 0.06, [hx, 0.4, hz], { tint: 0x8a3a2a, seg: 16 });
+    for (const s2 of [-1, 1]) k.cyl('iron', 0.008, 0.008, 0.32, [hx + s2 * 0.12, 0.1, hz], { tint: 0x2a2624, rz: -s2 * 0.08 });
+    k.add('iron', new THREE.TorusGeometry(0.09, 0.008, 5, 14, Math.PI), mat(hx, 0.47, hz), { tint: 0x2a2624 });
+    this.solid(3.4, 7.3, 3.85, 7.75, 'lantern');
+    this.addLamp(new THREE.Vector3(hx, 0.55, hz - 0.25), 0xffb870, 0, 1.1, 0.05, 4.2);
+    this.glowPool(hx - 0.2, hz - 0.45, 1.5, 0xffa458, () => this.light.night * 0.12 * (1 - this.dim));
+    // Cool moonlight spilling in at the west window (a blue accent against the fire light).
+    this.addLamp(new THREE.Vector3(0.55, 1.75, 3.2), 0x93aaff, 0, 0.85, 0, 6.5);
     this.statics.push(k.build('front'));
     this.solid(9.7, 4.7, 10.9, 5.8, 'spinning-wheel');
     this.solid(4.6, 7.1, 5.3, 7.8, 'coat-rack');

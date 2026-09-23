@@ -121,11 +121,19 @@ export const DEMOS: Record<string, DemoDef> = {
   audio: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
-  'house-interior': { map: 'house', x: 7.6, z: 4.9, facing: 'left', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 8.9, z: 4.4, facing: 'left', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
-  'coop-interior': { map: 'coop', x: 4.2, z: 5.2, facing: 'right', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 15.5, offsetZ: 0.8 }, showcase: ['animals'] },
-  'barn-interior': { map: 'barn', x: 6.5, z: 4.3, facing: 'up', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: 0.45 }, showcase: ['animals'] },
-  'animals-pasture': { map: 'farm', x: 41.5, z: 39.6, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
+  'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'left', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.2, offsetZ: -0.35 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 9.9, z: 6.5, facing: 'left', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior'] },
+  // Bedtime: the "Go to bed for the night?" prompt beside the quilted bed / tucked in under the quilt, room dimmed, Zzz.
+  'house-bedtime': { map: 'house', x: 9.6, z: 2.9, facing: 'right', time: 21.8, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-ask'] },
+  'animals-dayend': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'animals', 'dayend'] },
+  'house-asleep': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-lie'] },
+  'coop-interior': { map: 'coop', x: 6.6, z: 3.95, facing: 'down', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 14.6, offsetZ: 0.5 }, showcase: ['animals'] },
+  // Morning egg round: the farmer lifts a gold-star egg overhead from the nesting boxes (&nest=0..5).
+  'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 14.6, offsetZ: 0.5 }, showcase: ['animals', 'eggs'] },
+  'barn-interior': { map: 'barn', x: 8.67, z: 4.3, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.4, offsetZ: 0.45 }, showcase: ['animals'] },
+  'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
+  // Petting close-up: crouch + reach, big heart pop with mini hearts, the animal's name + heart meter.
+  'animals-petting': { map: 'farm', x: 45.3, z: 40.2, facing: 'left', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: -4, pitch: 40, distance: 11, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals', 'pet-close'] },
   // &pet=dog|cat picks the pet, &hearts=0 stops the staged petting hearts (all 'animals' showcases).
   'coop-night': { map: 'coop', x: 4.5, z: 5.4, facing: 'up', time: 21.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 15.5, offsetZ: 0.8 }, showcase: ['animals'] },
   'barn-night': { map: 'barn', x: 6.5, z: 5.6, facing: 'up', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: 0.45 }, showcase: ['animals'] },

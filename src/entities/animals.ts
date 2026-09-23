@@ -53,6 +53,10 @@ function instantiate(species: Species, variant: number): AnimalModel {
   return { mesh, bones, gait: t.gait, species };
 }
 
+/** Animals currently walking up to the farmer (curiosity is capped so the herd never mobs them). */
+const curiousNow = new Set<AnimalActor>();
+const MAX_CURIOUS = 3;
+
 export class AnimalActor {
   readonly root = new THREE.Group();
   readonly species: Species;
@@ -90,6 +94,8 @@ export class AnimalActor {
   slotId = 0;
   /** Model review: just stand, breathe and look around. */
   calm = false;
+  /** Sit up on the roost bar (bedSpot, y > 0) by day too, awake. */
+  perched = false;
   /** Where the farmer stands (set by the system each frame; animals step around them). */
   player: THREE.Vector3 | null = null;
 
@@ -119,6 +125,8 @@ export class AnimalActor {
   private lift = 0;
   private squashT = -1;
   private blinkHold = 0;
+  /** Seconds until this animal may wander up to the farmer again. */
+  private curiousCD = 5 + Math.random() * 15;
   /** Co-op mirror: the host's pose for this animal (null = own wander brain). */
   private remote: { x: number; z: number; h: number; s: State } | null = null;
 
@@ -141,7 +149,7 @@ export class AnimalActor {
     this.root.position.copy(this.pos);
     this.root.rotation.y = heading;
     this.target.copy(this.pos);
-    this.lift = this.sleeping && this.bedSpot && this.bedSpot.y > 0 && Math.hypot(this.bedSpot.x - x, this.bedSpot.z - z) < 0.3 ? this.bedSpot.y : 0;
+    this.lift = (this.sleeping || this.perched) && this.bedSpot && this.bedSpot.y > 0 && Math.hypot(this.bedSpot.x - x, this.bedSpot.z - z) < 0.3 ? this.bedSpot.y : 0;
     this.root.position.y += this.lift;
     this.state = this.sleeping ? 'sleep' : 'idle';
     this.stateT = 0;
@@ -197,6 +205,11 @@ export class AnimalActor {
     this.remote = null;
   }
 
+  /** Leaving the scene: drop out of the curious walkers. */
+  forget(): void {
+    curiousNow.delete(this);
+  }
+
   pet(): void {
     this.happyT = 0;
     this.squashT = 0;
@@ -231,6 +244,7 @@ export class AnimalActor {
   }
 
   private setState(s: State, dur: number): void {
+    curiousNow.delete(this);
     this.state = s;
     this.stateT = 0;
     this.dur = dur;
@@ -306,7 +320,7 @@ export class AnimalActor {
       if (this.state === 'idle') this.lookTarget = (Math.random() - 0.5) * 1.2;
       return;
     }
-    if (this.curious && this.player && r < 0.22) {
+    if (this.curious && this.player && r < 0.22 && this.curiousCD <= 0 && curiousNow.size < MAX_CURIOUS) {
       const pd = Math.hypot(this.player.x - this.pos.x, this.player.z - this.pos.z);
       if (pd < 4.5) {
         // Fan out on a ring around the farmer (golden-angle slots) instead of piling onto them.
@@ -317,6 +331,9 @@ export class AnimalActor {
         if (this.walkable(x, z) && Math.hypot(x - this.pos.x, z - this.pos.z) > 0.4) {
           this.target.set(x, 0, z);
           this.setState('walk', 8);
+          // Only a couple wander up at a time, then lose interest for 20–40 s (no scrum round the farmer).
+          curiousNow.add(this);
+          this.curiousCD = 20 + Math.random() * 20;
           return;
         }
       }
@@ -330,6 +347,7 @@ export class AnimalActor {
 
   update(dt: number, t: number, neighbours: readonly AnimalActor[]): void {
     this.stateT += dt;
+    if (this.curiousCD > 0) this.curiousCD -= dt;
     // Night: wind down wherever we are (or at the bed spot once reached).
     if (this.sleeping && !this.forced && !this.remote && this.state !== 'sleep' && this.state !== 'walk') this.think();
     if (!this.sleeping && this.state === 'sleep') this.setState('idle', 0.6 + Math.random());
@@ -431,7 +449,7 @@ export class AnimalActor {
       this.pos.z = THREE.MathUtils.clamp(this.pos.z, a.z0, a.z1);
     }
     // Roost bars: flutter up onto the perch once there (bedSpot.y), down again on waking.
-    const perch = this.sleeping && this.bedSpot && this.bedSpot.y > 0 && Math.hypot(this.bedSpot.x - this.pos.x, this.bedSpot.z - this.pos.z) < 0.3 ? this.bedSpot.y : 0;
+    const perch = (this.sleeping || this.perched) && this.bedSpot && this.bedSpot.y > 0 && Math.hypot(this.bedSpot.x - this.pos.x, this.bedSpot.z - this.pos.z) < 0.3 ? this.bedSpot.y : 0;
     this.lift = damp(this.lift, perch, perch > this.lift ? 5 : 3, dt);
     this.pos.y = this.heightAt(this.pos.x, this.pos.z);
     this.root.position.copy(this.pos);
@@ -688,10 +706,14 @@ interface Pop {
   t: number;
   life: number;
   from: THREE.Vector3;
-  kind: 'heart' | 'z' | 'note';
+  kind: 'heart' | 'z' | 'note' | 'mini' | 'tag';
   /** Follow this animal's head (from = offset from its top point). */
   actor?: AnimalActor;
   vel?: THREE.Vector3;
+  /** Screen size as a fraction of the view height (heart / tag / mini hearts: constant on screen). */
+  px?: number;
+  /** Tag aspect (w / h). */
+  aspect?: number;
 }
 
 let zTex: THREE.Texture | null = null;
@@ -713,14 +735,96 @@ function zzzTexture(): THREE.Texture {
   return zTex;
 }
 
+/** Name + heart-meter tag (parchment pill, e.g. "Clover ♥♥♥♡♡"), cached per name × hearts. */
+const tagTex = new Map<string, { tex: THREE.Texture; aspect: number }>();
+function nameTag(name: string, hearts: number): { tex: THREE.Texture; aspect: number } {
+  const key = `${name}:${hearts}`;
+  let t = tagTex.get(key);
+  if (t) return t;
+  const H = 96;
+  const c = document.createElement('canvas');
+  const g = c.getContext('2d')!;
+  const font = '700 40px Fredoka, Nunito, sans-serif';
+  g.font = font;
+  const tw = Math.ceil(g.measureText(name).width);
+  const hw = 5 * 26;
+  const W = Math.max(200, tw + hw + 64);
+  c.width = W;
+  c.height = H;
+  const r = 30;
+  const pill = (x: number, y: number, w: number, h: number): void => {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  };
+  // Soft drop shadow, wood rim, parchment fill
+  g.fillStyle = 'rgba(40,20,6,0.35)';
+  pill(6, 12, W - 12, H - 16);
+  g.fill();
+  g.fillStyle = '#8a5528';
+  pill(4, 4, W - 8, H - 16);
+  g.fill();
+  const grad = g.createLinearGradient(0, 10, 0, H - 18);
+  grad.addColorStop(0, '#fff6de');
+  grad.addColorStop(1, '#f1dcad');
+  g.fillStyle = grad;
+  pill(10, 10, W - 20, H - 28);
+  g.fill();
+  g.font = font;
+  g.textBaseline = 'middle';
+  g.fillStyle = '#4a2c14';
+  g.fillText(name, 30, H / 2 - 5);
+  // Heart meter: filled / half / empty hearts
+  const heart = (x: number, y: number, s: number, fill: string, stroke: string): void => {
+    g.beginPath();
+    g.moveTo(x, y + s * 0.35);
+    g.bezierCurveTo(x - s * 0.55, y - s * 0.05, x - s * 0.5, y - s * 0.55, x, y - s * 0.25);
+    g.bezierCurveTo(x + s * 0.5, y - s * 0.55, x + s * 0.55, y - s * 0.05, x, y + s * 0.35);
+    g.closePath();
+    g.fillStyle = fill;
+    g.fill();
+    g.lineWidth = 3.5;
+    g.strokeStyle = stroke;
+    g.stroke();
+  };
+  for (let i = 0; i < 5; i++) {
+    const on = hearts >= i + 1 ? 1 : hearts >= i + 0.5 ? 0.5 : 0;
+    const x = W - 22 - hw + i * 26 + 13;
+    heart(x, H / 2 - 3, 26, on ? '#e8385a' : '#e6d2b0', on ? '#7a1830' : '#b89a70');
+    if (on === 0.5) {
+      g.save();
+      g.beginPath();
+      g.rect(x, 0, 20, H);
+      g.clip();
+      heart(x, H / 2 - 3, 26, '#e6d2b0', '#b89a70');
+      g.restore();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  t = { tex, aspect: W / H };
+  tagTex.set(key, t);
+  return t;
+}
+
 const _top = new THREE.Vector3();
+const _cp2 = new THREE.Vector3();
+const easeOutBack = (x: number): number => {
+  const c1 = 1.9;
+  return 1 + (c1 + 1) * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+};
 
 /** Heart pops (petting), sleepy Zzz and sparkle puffs above animals. One small sprite pool. */
 export class AnimalPops {
   readonly group = new THREE.Group();
   private pops: Pop[] = [];
   // Camera-facing quads (not THREE.Sprite: the AO G-buffer pass only skips flagged meshes).
-  private heartMat = new THREE.MeshBasicMaterial({ map: heartSprite().map, transparent: true, depthWrite: false, depthTest: false, fog: false });
+  private heartMat = new THREE.MeshBasicMaterial({ map: heartSprite().map, transparent: true, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
   private zMat = new THREE.MeshBasicMaterial({ map: zzzTexture(), transparent: true, depthWrite: false, fog: false, opacity: 0.85 });
   private sparkMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0xfff2b0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
   private quad = new THREE.PlaneGeometry(1, 1);
@@ -732,25 +836,47 @@ export class AnimalPops {
     this.group.renderOrder = 20;
   }
 
-  /** Heart pop (+ a few sparkles). With `actor` it rides on the animal's head as it moves. */
-  heart(at: THREE.Vector3, actor?: AnimalActor): void {
-    const h = this.spawn('heart', actor ? new THREE.Vector3() : at, this.heartMat.clone(), 1.25);
+  /**
+   * Heart pop: a big heart (~64 px at 1080p) that springs in with an ease-out-back overshoot and floats
+   * up 0.6 m, a burst of mini hearts + sparkles, and (with `tag`) the animal's name + heart meter for
+   * 1.2 s. With `actor` it all rides on the animal's head as it moves.
+   */
+  heart(at: THREE.Vector3, actor?: AnimalActor, tag?: { name: string; hearts: number }): void {
+    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.45, 0) : at.clone().setY(at.y + 0.45), this.heartMat.clone(), 1.3);
     h.actor = actor;
+    h.px = 64 / 1080;
     const n = 3 + Math.floor(Math.random() * 3);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.8;
-      const off = new THREE.Vector3(Math.cos(a) * 0.16, 0.05 + Math.random() * 0.12, Math.sin(a) * 0.16);
-      const p = this.spawn('note', actor ? off : at.clone().add(off), this.sparkMat.clone(), 0.55 + Math.random() * 0.35);
+      const off = new THREE.Vector3(Math.cos(a) * 0.12, 0.2, Math.sin(a) * 0.12);
+      const p = this.spawn('mini', actor ? off : at.clone().add(off), this.heartMat.clone(), 0.75 + Math.random() * 0.3);
       p.actor = actor;
-      p.vel = new THREE.Vector3(Math.cos(a) * 0.5, 0.7 + Math.random() * 0.4, Math.sin(a) * 0.5);
-      p.sprite.scale.setScalar(0.1 + Math.random() * 0.05);
+      p.px = (20 + Math.random() * 8) / 1080;
+      p.vel = new THREE.Vector3(Math.cos(a) * 1.1, 1.0 + Math.random() * 0.5, Math.sin(a) * 0.7);
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const off = new THREE.Vector3(Math.cos(a) * 0.1, 0.15 + Math.random() * 0.15, Math.sin(a) * 0.1);
+      const p = this.spawn('note', actor ? off : at.clone().add(off), this.sparkMat.clone(), 0.5 + Math.random() * 0.35);
+      p.actor = actor;
+      p.vel = new THREE.Vector3(Math.cos(a) * 0.7, 0.8 + Math.random() * 0.5, Math.sin(a) * 0.7);
+      p.sprite.scale.setScalar(0.1 + Math.random() * 0.06);
+    }
+    if (tag) {
+      for (const q of this.pops) if (q.kind === 'tag' && q.actor === actor) q.t = Math.max(q.t, q.life - 0.12);
+      const nt = nameTag(tag.name, tag.hearts);
+      const m = new THREE.MeshBasicMaterial({ map: nt.tex, transparent: true, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
+      const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.45);
+      p.actor = actor;
+      p.px = 40 / 1080;
+      p.aspect = nt.aspect;
     }
   }
 
   /** World positions of the live heart pops (hat fade test). */
   hearts(out: THREE.Vector3[] = []): THREE.Vector3[] {
     out.length = 0;
-    for (const p of this.pops) if (p.kind === 'heart') out.push(p.sprite.position);
+    for (const p of this.pops) if (p.kind === 'heart' || p.kind === 'tag') out.push(p.sprite.position);
     return out;
   }
 
@@ -772,7 +898,7 @@ export class AnimalPops {
     sprite.userData.noAO = true;
     sprite.castShadow = false;
     sprite.position.copy(at);
-    sprite.renderOrder = 20;
+    sprite.renderOrder = kind === 'tag' ? 21 : kind === 'heart' ? 22 : 20;
     sprite.scale.setScalar(0.01);
     this.group.add(sprite);
     const p: Pop = { sprite, t: 0, life, from: at.clone(), kind };
@@ -781,6 +907,10 @@ export class AnimalPops {
   }
 
   update(dt: number, camera?: THREE.Camera): void {
+    const cam = camera as THREE.PerspectiveCamera | undefined;
+    const tanF = cam?.isPerspectiveCamera ? Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) : 0.32;
+    // World height of the whole view at distance d = 2·d·tan(fov/2): a sprite sized `px` of it stays constant on screen.
+    const screenK = (p: THREE.Vector3): number => (cam ? 2 * p.distanceTo(cam.position) * tanF : 20);
     for (let i = this.pops.length - 1; i >= 0; i--) {
       const p = this.pops[i]!;
       p.t += dt;
@@ -796,25 +926,40 @@ export class AnimalPops {
         continue;
       }
       if (p.kind === 'heart') {
-        // Pop in with overshoot, float up, fade.
-        const pop = k < 0.18 ? THREE.MathUtils.lerp(0.05, 0.62, k / 0.18) : k < 0.3 ? THREE.MathUtils.lerp(0.62, 0.46, (k - 0.18) / 0.12) : 0.46;
-        p.sprite.scale.setScalar(pop);
+        // 0 → 1.25 → 1 over ~180 ms (ease-out-back), then float up 0.6 m with a gentle sway and fade.
+        const o = base ? _cp2.copy(base).add(p.from) : p.from;
+        const pt = p.t;
+        const pop = pt < 0.18 ? easeOutBack(pt / 0.18) * 1.0 : 1;
+        const rise = 0.6 * (1 - Math.pow(1 - Math.min(1, pt / p.life), 2));
+        p.sprite.position.set(o.x + Math.sin(pt * 6) * 0.05, o.y + 0.35 + rise, o.z);
+        p.sprite.scale.setScalar(Math.max(0.01, (p.px ?? 0.06) * screenK(p.sprite.position) * 1.18 * pop));
+        m.opacity = k > 0.72 ? 1 - (k - 0.72) / 0.28 : 1;
+      } else if (p.kind === 'tag') {
+        // Name + heart meter just above the head: springs in, holds 1.2 s, fades.
         const o = base ?? p.from;
-        p.sprite.position.set(o.x + Math.sin(k * 9) * 0.04, o.y + 0.12 + k * 0.6, o.z);
-        m.opacity = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
+        const pop = p.t < 0.16 ? easeOutBack(p.t / 0.16) : 1;
+        p.sprite.position.set(o.x, o.y + 0.22 + Math.min(0.08, p.t * 0.2), o.z);
+        const h = (p.px ?? 0.04) * screenK(p.sprite.position) * pop;
+        p.sprite.scale.set(h * (p.aspect ?? 3), h, 1);
+        m.opacity = p.t > 1.2 ? Math.max(0, 1 - (p.t - 1.2) / (p.life - 1.2)) : 1;
       } else if (p.kind === 'z') {
         p.sprite.scale.setScalar(0.12 + k * 0.18);
         p.sprite.position.set(p.from.x + Math.sin(k * 5) * 0.12 + k * 0.2, p.from.y + k * 0.6, p.from.z);
         m.opacity = Math.sin(k * Math.PI) * 0.9;
       } else {
-        // Sparkles burst outward and up from the head, slowing as they fade.
+        // Mini hearts + sparkles burst outward and up from the head, slowing as they fade.
         if (p.vel) {
           p.from.addScaledVector(p.vel, dt);
-          p.vel.multiplyScalar(Math.exp(-3 * dt));
+          p.vel.multiplyScalar(Math.exp(-3.2 * dt));
+          p.vel.y -= dt * 0.6;
         } else p.from.y += dt * 0.6;
         if (base) p.sprite.position.copy(base).add(p.from);
         else p.sprite.position.copy(p.from);
-        m.opacity = (1 - k) * Math.min(1, k * 8);
+        if (p.kind === 'mini') {
+          const pop = p.t < 0.12 ? easeOutBack(p.t / 0.12) : 1;
+          p.sprite.scale.setScalar(Math.max(0.01, (p.px ?? 0.02) * screenK(p.sprite.position) * pop * (1 - k * 0.4)));
+          m.opacity = k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1;
+        } else m.opacity = (1 - k) * Math.min(1, k * 8);
       }
     }
   }

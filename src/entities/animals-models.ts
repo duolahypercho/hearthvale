@@ -218,7 +218,7 @@ function legGeo(R: number, top: number, hoof: number): THREE.BufferGeometry {
     [R * 0.86, h * 0.05],
     [R * 0.9, 0],
   ].map(([x, y]) => new THREE.Vector2(x!, y! + hoof));
-  return new THREE.LatheGeometry(pts, 12);
+  return new THREE.LatheGeometry(pts, 10);
 }
 
 function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofTint: number, patch?: CoatPatch): void {
@@ -227,7 +227,7 @@ function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofT
     r.bone(nm, 'body', [x, top, z]);
     r.part(nm, legGeo(d.legR, top + 0.04, d.hoof), mat(x, 0, z), coat, { patch, ground: true });
     // Rounded hoof: a squat bevelled cylinder with a darker sole
-    const hoofG = new THREE.CylinderGeometry(d.legR * 0.92, d.legR * 1.08, d.hoof, 12, 1);
+    const hoofG = new THREE.CylinderGeometry(d.legR * 0.92, d.legR * 1.08, d.hoof, 10, 1);
     hoofG.translate(0, d.hoof / 2, 0);
     r.part(nm, hoofG, mat(x, 0, z + d.legR * 0.08), hoofTint, { flat: true });
   }
@@ -375,7 +375,7 @@ function sheep(variant: number): AnimalModel {
   r.part('body', capsuleZ(d.bodyR, d.bodyLen, 8, 16), mat(0, d.bodyY, -0.02), 0xe8dcc8);
   // Fleece: an overlapping cloud of puffs over the back and flanks — kept above the knees so the legs read
   const puff = (x: number, y: number, z: number, s: number) =>
-    r.part('wool', new THREE.IcosahedronGeometry(s, 2), mat(x, y, z), wool, { paint: (p, _n, c) => c.multiplyScalar(0.92 + 0.08 * noise3(p.x * 22, p.y * 22, p.z * 22, 3)) });
+    r.part('wool', new THREE.IcosahedronGeometry(s, s > 0.15 ? 2 : 1), mat(x, y, z), wool, { paint: (p, _n, c) => c.multiplyScalar(0.92 + 0.08 * noise3(p.x * 22, p.y * 22, p.z * 22, 3)) });
   let k = 0;
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI + 0.02;

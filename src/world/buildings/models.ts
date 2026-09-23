@@ -112,9 +112,12 @@ export function buildCoopExterior(rng: Rng): THREE.Group {
     b.add('roofTile', g, mat(0, ridgeY - Math.tan(slope) * (run / 2) + 0.03, sz * (run / 2 - 0.04), sz * slope, 0, 0), { tint: 0x4f6a60, aoWorld: (p) => 0.8 + 0.2 * THREE.MathUtils.smoothstep(p.y, top, ridgeY) });
     b.add('woodPaint', roundedBox(W + 2 * over + 0.04, 0.12, 0.07, 0.025), mat(0, ridgeY - Math.tan(slope) * run - 0.05, sz * (run - 0.02)), { tint: TRIM });
   }
+  // Ridge cap: two narrow capping boards in an inverted V over a rounded roll (a crisp dark line at the
+  // apex, so the two slopes never read as one flat slab).
   const ridge = new THREE.CylinderGeometry(0.1, 0.1, W + 2 * over + 0.06, 10);
   ridge.rotateZ(Math.PI / 2);
-  b.add('roofTile', ridge, mat(0, ridgeY + 0.07, 0), { tint: 0x3e564e });
+  b.add('roofTile', ridge, mat(0, ridgeY + 0.07, 0), { tint: 0x2f4640 });
+  for (const sz of [-1, 1]) b.add('woodPaint', roundedBox(W + 2 * over + 0.1, 0.05, 0.24, 0.02), mat(0, ridgeY + 0.1 - 0.06, sz * 0.1, sz * slope, 0, 0), { tint: 0x33483f });
   for (const sx of [-1, 1]) {
     const tri = new THREE.Shape();
     tri.moveTo(-D / 2 - 0.02, 0);
@@ -125,7 +128,12 @@ export function buildCoopExterior(rng: Rng): THREE.Group {
     g.rotateY(Math.PI / 2);
     g.translate((sx * W) / 2 - 0.06, top, 0);
     boxUV(g, 1 / 1.4);
-    b.add('wood', g, undefined, { tint: RED });
+    // Gable end a shade darker under the eaves (a shading break against the lit side walls), with white
+    // barge boards along both rakes and a sill board across its foot.
+    b.add('wood', g, undefined, { tint: 0x9a3a2e, aoWorld: (p) => 0.72 + 0.28 * THREE.MathUtils.smoothstep(p.y, top + rise, top) });
+    const rake = Math.hypot(D / 2 + 0.12, rise);
+    for (const sd of [-1, 1]) b.add('woodPaint', roundedBox(0.06, 0.14, rake + 0.1, 0.02), mat(sx * (W / 2 + 0.03), top + rise / 2 + 0.04, (sd * (D / 2 + 0.06)) / 2, sd * slope, 0, 0), { tint: TRIM });
+    b.add('woodPaint', roundedBox(0.06, 0.1, D + 0.16, 0.02), mat(sx * (W / 2 + 0.03), top + 0.05, 0), { tint: TRIM });
     // Round vent with a little hen-shaped glint
     const v = new THREE.CylinderGeometry(0.18, 0.18, 0.06, 16);
     v.rotateZ(Math.PI / 2);
@@ -170,10 +178,11 @@ export function buildCoopExterior(rng: Rng): THREE.Group {
   b.add('wood', boxUV(roundedBox(0.46, 0.55, 1.5, 0.03), 1 / 1.3), mat(W / 2 + 0.23, base + 0.55, -0.1), { tint: RED });
   b.add('roofTile', boxUV(roundedBox(0.62, 0.07, 1.66, 0.02), 1 / 1.5), mat(W / 2 + 0.28, base + 0.87, -0.1, 0, 0, -0.32), { tint: 0x4f6a60 });
   for (const z of [-0.55, -0.1, 0.35]) b.add('metal', roundedBox(0.04, 0.05, 0.1, 0.01), mat(W / 2 + 0.47, base + 0.84, z), { tint: 0x2e2a28 });
-  // A little hen sign over the door
-  b.add('woodPaint', roundedBox(0.6, 0.24, 0.04, 0.03), mat(0, base + 1.66, fz + 0.1), { tint: 0xf6ead0 });
-  b.add('white', lumpySphere(0.06, 1, 0.1, rng), mat(-0.05, base + 1.66, fz + 0.13, 0, 0, 0, 1.3, 1, 0.4), { tint: 0xc8503a });
-  b.add('white', new THREE.SphereGeometry(0.035, 8, 6), mat(0.08, base + 1.72, fz + 0.13, 0, 0, 0, 1, 1, 0.4), { tint: 0xc8503a });
+  // (The little hen sign that used to sit over the door poked up through the eave as a stray plank +
+  // pink stick on the shingles; it now hangs on the east gable, under the ridge.)
+  b.add('woodPaint', roundedBox(0.04, 0.22, 0.52, 0.03), mat(W / 2 + 0.08, top + 0.11, 0), { tint: 0xf6ead0 });
+  b.add('white', lumpySphere(0.06, 1, 0.1, rng), mat(W / 2 + 0.11, top + 0.11, 0.04, 0, 0, 0, 0.4, 1, 1.3), { tint: 0xc8503a });
+  b.add('white', new THREE.SphereGeometry(0.035, 8, 6), mat(W / 2 + 0.11, top + 0.17, -0.08, 0, 0, 0, 0.4, 1, 1), { tint: 0xc8503a });
   // Feed bin + water dish by the door
   b.add('woodGrain', boxUV(roundedBox(0.5, 0.5, 0.4, 0.04), 1.4), mat(-1.9, 0.25, fz + 0.1), { tint: 0xc8a070, aoWorld: groundAO(0.3) });
   b.add('woodDark', roundedBox(0.56, 0.06, 0.46, 0.02), mat(-1.9, 0.52, fz + 0.1, -0.12, 0, 0));

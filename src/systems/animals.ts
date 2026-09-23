@@ -31,6 +31,8 @@ import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { AnimalActor, AnimalPops, type Species } from '../entities/animals';
+import type { PlayerRig, ActionPose } from '../entities/player';
+import { flyItemToToolbar } from '../ui/item-fly';
 import { animalVoice } from '../entities/animals-voice';
 import { LIVESTOCK, ANIMAL_NAMES, PET_NAMES, produceFor, type Livestock, type AnimalHome } from '../entities/animals-data';
 import { isInterior } from '../world/interiors/lighting';
@@ -80,7 +82,7 @@ interface State {
 export type AnimalIntent =
   | { kind: 'pet'; id: number }
   | { kind: 'feed'; home: AnimalHome; hay: number }
-  | { kind: 'eggs' }
+  | { kind: 'eggs'; nest?: number }
   | { kind: 'truffle'; x: number; z: number }
   | { kind: 'bowl' }
   | { kind: 'buy'; species: Livestock; name?: string };
@@ -359,7 +361,7 @@ export class AnimalSystem implements System, AnimalsApi {
     this.game.events.emit('animals:intent', { intent: it });
     // Optimistic: the props react at once; the host's next snapshot settles it.
     const pen = this.pen();
-    if (it.kind === 'eggs') this.st.eggs = [];
+    if (it.kind === 'eggs') this.st.eggs = it.nest == null ? [] : this.st.eggs.filter((e) => e.nest !== it.nest);
     else if (it.kind === 'truffle') this.st.truffles = this.st.truffles.filter((t) => Math.floor(t.x) !== it.x || Math.floor(t.z) !== it.z);
     else if (it.kind === 'bowl') this.st.pet.bowl = true;
     else if (it.kind === 'feed' && pen) {
@@ -440,8 +442,10 @@ export class AnimalSystem implements System, AnimalsApi {
         break;
       }
       case 'eggs': {
-        for (const e of this.st.eggs) grant(e.item, e.q, -1, 'chicken');
-        this.st.eggs = [];
+        // One nest (per-box pickup) or the whole shelf (older co-op peers send no nest).
+        const take = it.nest == null ? this.st.eggs : this.st.eggs.filter((e) => e.nest === it.nest);
+        for (const e of take) grant(e.item, e.q, -1, 'chicken');
+        this.st.eggs = this.st.eggs.filter((e) => !take.includes(e));
         this.refreshProps();
         break;
       }
@@ -620,6 +624,7 @@ export class AnimalSystem implements System, AnimalsApi {
   private clearActors(): void {
     for (const l of this.live) {
       this.group.remove(l.actor.root);
+      l.actor.forget();
     }
     this.live = [];
   }
@@ -688,6 +693,9 @@ export class AnimalSystem implements System, AnimalsApi {
       this.spawnPet(false);
     } else if (map.id === 'house' && (this.game.calendar.hour >= 19 || this.game.calendar.hour < 6.5)) {
       this.spawnPet(true);
+    } else if (map.id === 'house' && this.game.calendar.hour < 9) {
+      // Early mornings the pet lingers indoors, sitting on the warm hearth rug before heading out.
+      this.spawnPet(true, true);
     }
   }
 
@@ -719,12 +727,16 @@ export class AnimalSystem implements System, AnimalsApi {
     a.sleeping = false;
   }
 
-  private spawnPet(indoors: boolean): void {
+  private spawnPet(indoors: boolean, morning = false): void {
     const pet = this.st.pet;
     const l = this.spawn(null, pet.species, pet.variant, -1);
     const a = l.actor;
     a.sitter = true;
-    if (indoors) {
+    if (indoors && morning) {
+      a.area = { x0: 6.1, z0: 2.4, x1: 8.0, z1: 3.4 };
+      a.curious = true;
+      a.place(7.2, 2.7, 0.35);
+    } else if (indoors) {
       // Curled up in the wicker pet bed by the hearth.
       a.area = { x0: 5.2, z0: 1.4, x1: 7.9, z1: 3.4 };
       a.sleeping = true;
@@ -783,8 +795,13 @@ export class AnimalSystem implements System, AnimalsApi {
         mine.forEach((a, i) => {
           const at = pen.plaques![i];
           if (!at) return;
-          const m = new THREE.Mesh(plaqueGeo(), nameMaterial(a.name, 'plaque'));
-          m.position.set(at.x, at.y, at.z);
+          // A painted sign hung on the half-door, its foot kicked out so it faces up at the camera: the
+          // name + a heart meter stay legible at gameplay zoom.
+          const hearts = Math.round(a.friendship / 100) / 2;
+          const m = new THREE.Mesh(plaqueGeo(), nameMaterial(`${a.name}\n${hearts}`, 'plaque'));
+          m.position.set(at.x, at.y, at.z + 0.1);
+          m.rotation.x = -0.5;
+          m.castShadow = true;
           m.userData.noAO = true;
           this.props.add(m);
           this.hayMeshes.push(m);
@@ -802,7 +819,7 @@ export class AnimalSystem implements System, AnimalsApi {
           const n = pen.nests[e.nest];
           if (!n) continue;
           const m = new THREE.Mesh(eggGeo(), eggMat(e.item));
-          m.position.set(n.x + ((e.nest * 37) % 5) * 0.03 - 0.06, n.y + 0.13, n.z + 0.08);
+          m.position.set(n.x + ((e.nest * 37) % 5) * 0.03 - 0.06, n.y + 0.15, n.z + 0.1);
           m.rotation.set(0.9, e.nest, 0.3);
           m.castShadow = true;
           this.props.add(m);
@@ -860,8 +877,14 @@ export class AnimalSystem implements System, AnimalsApi {
       return;
     }
     if (pen?.kind === 'coop' && z <= 0 && x <= 2 && this.st.eggs.length) {
-      this.dispatch({ kind: 'eggs' });
-      return;
+      // Per nest box: the column in front of the farmer, lower box first.
+      const col = THREE.MathUtils.clamp(x, 0, 2);
+      const e = this.st.eggs.find((q) => q.nest === col) ?? this.st.eggs.find((q) => q.nest === col + 3) ?? this.st.eggs.find((q) => q.nest % 3 === col);
+      if (e) {
+        this.liftEgg(e, pen);
+        this.dispatch({ kind: 'eggs', nest: e.nest });
+        return;
+      }
     }
     // Otherwise an animal in reach wins (animals spend their day standing at the trough).
     const hit = this.hitAnimal(x, z);
@@ -916,7 +939,12 @@ export class AnimalSystem implements System, AnimalsApi {
   private petActor(l: Live, quiet = false): void {
     const a = l.actor;
     a.pet();
-    this.pops.heart(a.topPoint(), a);
+    const fr = l.rec ? l.rec.friendship + (l.rec.petted ? 0 : 15) : this.st.pet.friendship;
+    const name = l.rec ? l.rec.name : this.st.pet.name;
+    this.pops.heart(a.topPoint(), a, { name, hearts: Math.round(Math.min(1000, fr) / 100) / 2 });
+    // The farmer crouches and reaches out (only when actually beside the animal).
+    const pp = this.game.player.position;
+    if (Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z) < 1.9) this.petPose(a);
     if (!quiet) this.voice(a.species, a.species === 'chicken' || a.species === 'duck' ? 1.1 : 1);
     if (quiet) return;
     this.game.services.audio?.play('heart');
@@ -1037,6 +1065,7 @@ export class AnimalSystem implements System, AnimalsApi {
       }
     }
     this.pops.update(dt, game.rc.camera);
+    this.updateLifts(dt);
     this.fadeHat(dt, game);
     // Co-op: announce shared-state changes at most ~5x a second.
     this.dirtyT -= dt;
@@ -1044,6 +1073,162 @@ export class AnimalSystem implements System, AnimalsApi {
       this.dirty = false;
       this.dirtyT = 0.2;
       this.game.events.emit('animals:changed', { rev: ++this.rev });
+    }
+  }
+
+  // ───────────────────────────────────────────── farmer poses (pet / lift)
+
+  private poseT = -1;
+  private poseKind: 'pet' | 'lift' = 'pet';
+  private petLow = false;
+  private poseDriver: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
+  private posePrev: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
+  /** Demo stills: hold the pose at this time (s) instead of finishing it. */
+  private poseFreeze = -1;
+
+  /**
+   * Farmer poses layered over the player's action-pose hook (the tool actions keep working: the previous
+   * driver runs whenever no pose is playing):
+   *   pet   crouch + reach: bends at the waist, drops the hips, strokes the animal with the right hand
+   *         (a little patting rhythm), head tipped down;
+   *   lift  "look what I found": both hands up over the hat holding the egg, a little stretch.
+   */
+  private playPose(kind: 'pet' | 'lift'): void {
+    const pl = this.game.player;
+    if (!this.poseDriver) {
+      this.poseDriver = (rig, dt) => {
+        if (this.poseT < 0) return this.posePrev?.(rig, dt) ?? null;
+        const T = this.poseKind === 'pet' ? 0.95 : 1.05;
+        this.poseT = this.poseFreeze >= 0 ? Math.min(this.poseT + dt, this.poseFreeze) : this.poseT + dt;
+        const t = this.poseT;
+        if (t >= T) {
+          this.poseT = -1;
+          pl.busy = false;
+          rig.armR.scale.y = 1;
+          rig.armL.scale.y = 1;
+          return this.posePrev?.(rig, dt) ?? null;
+        }
+        if (t > 0.5 && this.poseFreeze < 0) pl.busy = false;
+        const inT = this.poseKind === 'pet' ? 0.14 : 0.12;
+        const e = t < inT ? 1 - Math.pow(1 - t / inT, 3) : t > T - 0.22 ? Math.pow((T - t) / 0.22, 2) * (3 - 2 * ((T - t) / 0.22)) : 1;
+        if (this.poseKind === 'lift') {
+          // Both arms thrown up and out in a V (cartoon-stretched past the big hat), the find held high.
+          const hold = t > inT ? Math.sin((t - inT) * 5) * 0.03 : 0;
+          rig.armR.rotation.x = (-2.6 + hold) * e;
+          rig.armL.rotation.x = (-2.6 - hold) * e;
+          rig.armR.rotation.z = -0.12 - 0.55 * e;
+          rig.armL.rotation.z = 0.12 + 0.55 * e;
+          rig.armR.scale.y = 1 + 0.3 * e;
+          rig.armL.scale.y = 1 + 0.3 * e;
+          rig.torso.rotation.x = -0.08 * e;
+          rig.head.rotation.x = -0.12 * e;
+          return { sy: 1 + 0.05 * e, bob: 0.03 * e };
+        }
+        const low = this.petLow ? 1 : 0.55;
+        const pat = t > 0.14 && t < T - 0.2 ? Math.sin((t - 0.14) * 17) * 0.16 : 0;
+        // Bend at the hips but keep the face up (a forward-tipped head turns the big hat into a lid).
+        rig.torso.rotation.x = 0.48 * low * e;
+        rig.head.rotation.x = -0.22 * low * e;
+        rig.armR.rotation.x = (-1.05 - 0.25 * low + pat) * e;
+        rig.armR.rotation.z = -0.12 - 0.1 * e;
+        rig.armL.rotation.x = -0.35 * e;
+        rig.armL.rotation.z = 0.12 + 0.18 * e;
+        rig.legL.rotation.x = -0.35 * low * e;
+        rig.legR.rotation.x = 0.25 * low * e;
+        return { sy: 1 - 0.13 * low * e, bob: -0.07 * low * e };
+      };
+    }
+    if (pl.actionPose !== this.poseDriver) {
+      this.posePrev = pl.actionPose;
+      pl.actionPose = this.poseDriver;
+    }
+    this.poseKind = kind;
+    this.poseT = 0;
+    pl.busy = true;
+  }
+
+  private petPose(a: AnimalActor): void {
+    this.petLow = a.gait.top * a.scale < 0.9;
+    this.playPose('pet');
+  }
+
+  // ───────────────────────────────────────────── egg lift
+
+  private lifts: { m: THREE.Mesh; star: THREE.Mesh | null; t: number; from: THREE.Vector3; item: string; q: number; flew: boolean }[] = [];
+
+  /** The egg hops out of its nest box into the farmer's raised hands, held overhead (+ quality star). */
+  private liftEgg(e: { nest: number; item: string; q: number }, pen: PenAnchors): void {
+    const n = pen.nests[e.nest];
+    if (!n) return;
+    const m = new THREE.Mesh(eggGeo(), eggMat(e.item));
+    m.scale.setScalar(1.25);
+    m.position.set(n.x, n.y + 0.14, n.z + 0.08);
+    m.userData.noAO = true;
+    let star: THREE.Mesh | null = null;
+    if (e.q > 0) {
+      star = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: starTexture(e.q), transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+      star.renderOrder = 23;
+      star.visible = false;
+      this.props.add(star);
+    }
+    this.props.add(m);
+    this.lifts.push({ m, star, t: 0, from: m.position.clone(), item: e.item, q: e.q, flew: false });
+    this.playPose('lift');
+    this.game.services.audio?.play('pickup');
+  }
+
+  private updateLifts(dt: number): void {
+    const pl = this.game.player;
+    const cam = this.game.rc.camera;
+    for (let i = this.lifts.length - 1; i >= 0; i--) {
+      const L = this.lifts[i]!;
+      L.t += this.poseFreeze >= 0 ? Math.min(dt, Math.max(0, 0.6 - L.t)) : dt;
+      const t = L.t;
+      const top = this._lt.copy(pl.position).setY(pl.position.y + 2.62);
+      if (t < 0.22) {
+        const k = t / 0.22;
+        const e = 1 - Math.pow(1 - k, 3);
+        L.m.position.lerpVectors(L.from, top, e);
+        L.m.position.y += Math.sin(k * Math.PI) * 0.45;
+      } else L.m.position.copy(top);
+      L.m.rotation.set(0.25, t * 2.2, 0.15);
+      const pop = t < 0.22 ? 1.25 : t < 0.34 ? 1.25 + Math.sin(((t - 0.22) / 0.12) * Math.PI) * 0.35 : 1.25;
+      L.m.scale.setScalar((t > 0.85 ? Math.max(0, 1 - (t - 0.85) / 0.15) : 1) * pop * 1.75);
+      if (L.star) {
+        L.star.visible = t > 0.24 && t < 0.95;
+        L.star.position.copy(top).add(this._lt2.set(0.3, 0.22, 0));
+        L.star.quaternion.copy(cam.quaternion);
+        const s = 0.42 * (t < 0.34 ? Math.min(1, (t - 0.24) / 0.1) * 1.2 : 1);
+        L.star.scale.setScalar(Math.max(0.01, s));
+      }
+      if (t > 0.85 && !L.flew) {
+        L.flew = true;
+        this.flyToBar(L.item, L.q, L.m.position);
+      }
+      if (t >= 1) {
+        this.props.remove(L.m);
+        if (L.star) {
+          this.props.remove(L.star);
+          (L.star.material as THREE.Material).dispose();
+          L.star.geometry.dispose();
+        }
+        this.lifts.splice(i, 1);
+      }
+    }
+  }
+
+  private _lt = new THREE.Vector3();
+  private _lt2 = new THREE.Vector3();
+
+  private flyToBar(itemId: string, quality: number, pos: THREE.Vector3): void {
+    const inv = this.game.services.inventory;
+    const slot = inv ? inv.slots.findIndex((s) => s?.id === itemId) : -1;
+    const v = pos.clone().project(this.game.rc.camera);
+    const el = this.game.rc.renderer.domElement.getBoundingClientRect();
+    try {
+      flyItemToToolbar(this.game.opts.uiRoot, itemId, { x: el.left + (v.x * 0.5 + 0.5) * el.width, y: el.top + (-v.y * 0.5 + 0.5) * el.height }, slot, quality, { duration: 460, bounce: 1.15 });
+    } catch {
+      /* HUD not mounted (tests) */
     }
   }
 
@@ -1055,7 +1240,6 @@ export class AnimalSystem implements System, AnimalsApi {
   private hatK = 1;
   private _hp = new THREE.Vector3();
   private _hq = new THREE.Vector3();
-  private _hl: THREE.Vector3[] = [];
 
   /**
    * The farmer's straw hat is big from the high camera: dither it down (alpha-hashed, no sorting
@@ -1070,8 +1254,11 @@ export class AnimalSystem implements System, AnimalsApi {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
         const list = (Array.isArray(m.material) ? m.material : [m.material]).map((mm) => {
+          // Plain alpha blend (not alphaHash): hashed dithering read as noisy stripes on the brim and
+          // leaked into the shadow map. The hat is one small convex mesh, so sorting is a non-issue.
           const c = mm.clone();
-          c.alphaHash = true;
+          c.onBeforeCompile = mm.onBeforeCompile;
+          c.customProgramCacheKey = mm.customProgramCacheKey;
           this.hatMats!.push(c);
           return c;
         });
@@ -1095,8 +1282,8 @@ export class AnimalSystem implements System, AnimalsApi {
         return Math.hypot((q.x - cx) * asp, q.y - cy) < r;
       };
       const pp = game.player.position;
-      for (const h of this.pops.hearts(this._hl)) if (behind(h)) want = 0.35;
-      if (want === 1) {
+      // (Hearts and name tags draw over everything, so only animal bodies hidden under the brim count.)
+      {
         for (const l of this.live) {
           const a = l.actor;
           if (Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z) > 2.2) continue;
@@ -1108,13 +1295,22 @@ export class AnimalSystem implements System, AnimalsApi {
       }
     }
     this.hatK += (want - this.hatK) * (1 - Math.exp(-10 * dt));
-    for (const m of this.hatMats) m.opacity = this.hatK;
+    // Blend only while fading (the rig's vertex colours carry an alpha channel: an always-transparent
+    // hat read as see-through straw).
+    const fading = this.hatK < 0.985;
+    for (const m of this.hatMats) {
+      m.opacity = fading ? this.hatK : 1;
+      m.transparent = fading;
+      m.depthWrite = !fading;
+    }
   }
 
   // ───────────────────────────────────────────── demos
 
   private stageDemo(name: string, showcase: string[]): void {
     this.demoHearts = 0;
+    this.poseFreeze = -1;
+    this.poseT = -1;
     if (!showcase.includes('animals')) return;
     const params = new URLSearchParams(location.search);
     const st = AnimalSystem.fresh();
@@ -1174,14 +1370,63 @@ export class AnimalSystem implements System, AnimalsApi {
           a.place(a.feedSpot!.x, a.feedSpot!.z, a.feedHeading);
         }
       });
-      const free = this.live.find((l) => l.rec && !st.hay[pen.kind][l.slot]);
-      if (free) free.actor.place(pp.x + 0.78, pp.z + 0.05, -Math.PI / 2);
+      // The petted bird stands in front of the farmer (towards the camera when facing down) so the
+      // farmer never hides it or its heart.
+      const free = this.live.find((l) => l.rec && !st.hay[pen.kind][l.slot] && l.rec.species === 'chicken') ?? this.live.find((l) => l.rec && !st.hay[pen.kind][l.slot]);
+      const f = this.game.player.facing;
+      const [fx, fz] = f === 'down' ? [0, 1] : f === 'up' ? [0, -1] : f === 'left' ? [-1, 0] : [1, 0];
+      // (a little to the side too, so its heart doesn't sit on the farmer's face)
+      const [sxo, szo] = fx === 0 ? [0.72, fz * 0.62] : [fx * 0.72, 0.5];
+      if (free) free.actor.place(pp.x + sxo, pp.z + szo, Math.atan2(-sxo, -szo));
+      // Coop life: a hen wallowing in the dust bath, another dozing on the roost bar in the sun.
+      if (pen.kind === 'coop') {
+        const idle = this.live.filter((l) => l.rec && l !== free && !l.actor.hungry && l.rec.species === 'chicken');
+        const bath = idle[0];
+        if (bath) {
+          bath.actor.area = { x0: 3.2, z0: 2.1, x1: 3.4, z1: 2.3 };
+          bath.actor.curious = false;
+          bath.actor.place(3.3, 2.2, 0.9);
+          bath.actor.settle();
+        }
+        const roost = idle[1] ?? this.live.find((l) => l.rec && l !== free && l !== bath && !l.actor.hungry);
+        const bar = pen.perches?.[1];
+        if (roost && bar) {
+          roost.actor.bedSpot = bar;
+          roost.actor.perched = true;
+          roost.actor.confine = true;
+          roost.actor.calm = true;
+          roost.actor.curious = false;
+          roost.actor.area = { x0: bar.x, z0: bar.z, x1: bar.x, z1: bar.z };
+          roost.actor.place(bar.x, bar.z, 0.3);
+          roost.actor.settle();
+        }
+      }
+      if (showcase.includes('eggs')) {
+        // Morning round: a gold-star egg lifted overhead from the lower-left nest box, held for the shot.
+        this.demoHearts = 0;
+        st.eggs = [
+          { nest: 0, item: 'egg', q: 1 },
+          { nest: 1, item: 'brownEgg', q: 0 },
+          { nest: 2, item: 'egg', q: 2 },
+          { nest: 5, item: 'duckEgg', q: 1 },
+          { nest: 3, item: 'egg', q: 0 },
+          { nest: 4, item: 'brownEgg', q: 1 },
+        ];
+        this.refreshProps();
+        const nest = Number(params.get('nest') ?? 2) % 6;
+        const e = st.eggs.find((q) => q.nest === nest) ?? st.eggs[0]!;
+        this.poseFreeze = 0.5;
+        this.liftEgg(e, pen);
+        this.apply(null, { kind: 'eggs', nest: e.nest });
+        this.holdHay();
+        return;
+      }
     } else if (this.mapId === 'farm') {
       // Hand-placed pasture composition (world coords) so the framing reads.
       const spots: Record<string, [number, number, number][]> = {
-        cow: [[44.2, 39.6, -0.6], [48.6, 41.2, 2.6]],
-        sheep: [[46.6, 38.4, 1.2], [50.2, 38.9, -2.2]],
-        goat: [[41.2, 41.4, 0.8]],
+        cow: showcase.includes('pet-close') ? [[48.2, 38.7, -0.5], [50.4, 41.6, 0.6]] : [[44.2, 39.6, -0.6], [48.6, 41.2, 0.5]],
+        sheep: [[46.6, 38.4, 1.2], [50.2, 38.9, -0.9]],
+        goat: [[41.35, 41.55, -1.6]],
         pig: [[48.3, 42.6, 3.8]],
         chicken: [[40.1, 38.4, 2.4], [40.9, 39.3, -1.0], [37.9, 39.9, 0.5], [42.0, 38.1, 1.9]],
         duck: [[43.0, 42.6, 1.4], [43.8, 42.9, -2.5]],
@@ -1219,6 +1464,17 @@ export class AnimalSystem implements System, AnimalsApi {
         if (s) {
           l.actor.place(s[0], s[1], s[2]);
           l.actor.settle();
+        }
+      }
+      if (showcase.includes('pet-close')) {
+        // Petting close-up: a sheep right in front of the farmer, turned to them.
+        const pp = this.game.player.position;
+        const sheep = this.live.find((l) => l.rec?.species === 'sheep');
+        if (sheep) {
+          sheep.actor.area = { x0: pp.x - 1.05, z0: pp.z - 0.05, x1: pp.x - 0.95, z1: pp.z + 0.05 };
+          sheep.actor.curious = false;
+          sheep.actor.place(pp.x - 1.0, pp.z, Math.PI / 2);
+          sheep.actor.settle();
         }
       }
       const pet = this.live.find((l) => !l.rec);
@@ -1284,8 +1540,8 @@ function eggGeo(): THREE.BufferGeometry {
     const pts: THREE.Vector2[] = [];
     for (let i = 0; i <= 12; i++) {
       const a = (i / 12) * Math.PI;
-      const r = Math.sin(a) * 0.045 * (1 - 0.18 * Math.cos(a));
-      pts.push(new THREE.Vector2(r, -Math.cos(a) * 0.06));
+      const r = Math.sin(a) * 0.063 * (1 - 0.18 * Math.cos(a));
+      pts.push(new THREE.Vector2(r, -Math.cos(a) * 0.084));
     }
     _egg = new THREE.LatheGeometry(pts, 14);
   }
@@ -1297,7 +1553,14 @@ function eggMat(item: string): THREE.MeshStandardMaterial {
   let m = eggMats.get(item);
   if (!m) {
     const col = item === 'brownEgg' ? 0xd99a62 : item === 'duckEgg' ? 0xd4ecdf : item === 'duckFeather' ? 0x3a8a5a : 0xfbf5ea;
-    m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.38 });
+    // A soft self-lit rim (fresnel) so eggs read in the shadowed nest boxes from the high camera.
+    m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.38, emissive: new THREE.Color(col).multiplyScalar(0.12) });
+    m.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\n  float rimK = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 2.2);\n  totalEmissiveRadiance += diffuseColor.rgb * rimK * 0.55;',
+      );
+    };
     eggMats.set(item, m);
   }
   return m;
@@ -1316,7 +1579,7 @@ function truffleMat(): THREE.MeshStandardMaterial {
 
 let _plaque: THREE.PlaneGeometry | null = null;
 function plaqueGeo(): THREE.PlaneGeometry {
-  if (!_plaque) _plaque = new THREE.PlaneGeometry(0.56, 0.16);
+  if (!_plaque) _plaque = new THREE.PlaneGeometry(0.88, 0.4);
   return _plaque;
 }
 
@@ -1327,8 +1590,8 @@ function nameMaterial(text: string, style: 'plaque' | 'chalk'): THREE.MeshStanda
   let m = nameMats.get(key);
   if (m) return m;
   const lines = text.split('\n');
-  const W = style === 'plaque' ? 256 : 256;
-  const H = style === 'plaque' ? 72 : 160;
+  const W = style === 'plaque' ? 352 : 256;
+  const H = style === 'plaque' ? 160 : 160;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -1336,18 +1599,58 @@ function nameMaterial(text: string, style: 'plaque' | 'chalk'): THREE.MeshStanda
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   if (style === 'plaque') {
-    g.fillStyle = '#f2e6c8';
-    g.fillRect(0, 0, W, H);
-    g.strokeStyle = 'rgba(120,80,40,.5)';
-    g.lineWidth = 4;
-    g.strokeRect(6, 6, W - 12, H - 12);
-    g.font = '600 40px Fredoka, Nunito, sans-serif';
-    g.fillStyle = '#5a3218';
-    g.fillText(lines[0] ?? '', W / 2, H / 2 + 2);
-    // A little heart after the name
-    g.fillStyle = '#d04a5a';
-    g.font = '28px sans-serif';
-    g.fillText('\u2665', W - 26, H / 2 + 2);
+    // Dark oak frame, cream painted board, hand-lettered name, a row of hearts (friendship).
+    g.fillStyle = '#5a3a24';
+    g.beginPath();
+    g.roundRect(0, 0, W, H, 22);
+    g.fill();
+    g.fillStyle = '#7a5234';
+    g.beginPath();
+    g.roundRect(6, 6, W - 12, H - 12, 18);
+    g.fill();
+    const pg = g.createLinearGradient(0, 16, 0, H - 16);
+    pg.addColorStop(0, '#fbf1d8');
+    pg.addColorStop(1, '#ecd9ae');
+    g.fillStyle = pg;
+    g.beginPath();
+    g.roundRect(16, 16, W - 32, H - 32, 12);
+    g.fill();
+    for (const [nx, ny] of [[26, 26], [W - 26, 26], [26, H - 26], [W - 26, H - 26]]) {
+      g.fillStyle = '#3a2618';
+      g.beginPath();
+      g.arc(nx!, ny!, 5, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.font = '700 58px Fredoka, Nunito, sans-serif';
+    g.fillStyle = '#4a2a14';
+    g.fillText(lines[0] ?? '', W / 2, 64);
+    const hv = Number(lines[1] ?? 0);
+    for (let i = 0; i < 5; i++) {
+      const on = hv >= i + 1 ? 1 : hv >= i + 0.5 ? 0.5 : 0;
+      const x = W / 2 + (i - 2) * 38;
+      const y = 118;
+      const heart = (fill: string): void => {
+        g.beginPath();
+        g.moveTo(x, y + 11);
+        g.bezierCurveTo(x - 18, y - 1, x - 16, y - 17, x, y - 8);
+        g.bezierCurveTo(x + 16, y - 17, x + 18, y - 1, x, y + 11);
+        g.closePath();
+        g.fillStyle = fill;
+        g.fill();
+        g.lineWidth = 3;
+        g.strokeStyle = on ? '#7a1830' : '#a88a64';
+        g.stroke();
+      };
+      heart(on ? '#e0385a' : '#dcc8a4');
+      if (on === 0.5) {
+        g.save();
+        g.beginPath();
+        g.rect(x, y - 20, 20, 40);
+        g.clip();
+        heart('#dcc8a4');
+        g.restore();
+      }
+    }
   } else {
     g.fillStyle = '#2e3a34';
     g.fillRect(0, 0, W, H);
@@ -1368,4 +1671,36 @@ function nameMaterial(text: string, style: 'plaque' | 'chalk'): THREE.MeshStanda
   m = new THREE.MeshStandardMaterial({ map: t, roughness: style === 'plaque' ? 0.7 : 0.95 });
   nameMats.set(key, m);
   return m;
+}
+
+const starTex = new Map<number, THREE.Texture>();
+/** Quality star (silver / gold / iridium) for the egg lift. */
+function starTexture(q: number): THREE.Texture {
+  let t = starTex.get(q);
+  if (t) return t;
+  const S = 96;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const [a, b, o] = q === 1 ? ['#ffffff', '#b8c4d0', '#5e6a78'] : q === 2 ? ['#fff6b0', '#f5c542', '#9a6a14'] : ['#f0d8ff', '#b56adf', '#5a2a8a'];
+  g.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? 18 : 40;
+    const an = -Math.PI / 2 + (i * Math.PI) / 5;
+    g.lineTo(S / 2 + Math.cos(an) * r, S / 2 + 4 + Math.sin(an) * r);
+  }
+  g.closePath();
+  const gr = g.createLinearGradient(0, 8, 0, S - 8);
+  gr.addColorStop(0, a);
+  gr.addColorStop(1, b);
+  g.fillStyle = gr;
+  g.lineJoin = 'round';
+  g.lineWidth = 7;
+  g.strokeStyle = o;
+  g.stroke();
+  g.fill();
+  t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  starTex.set(q, t);
+  return t;
 }

@@ -10,7 +10,7 @@
 import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
 import { NPCS } from '../data/npcs';
-import { ICONS, itemIcon, itemCategory } from './icons';
+import { ICONS, itemIcon, itemCategory, qualityStar } from './icons';
 import { Screen, el, sfx, rollTo, replay, escapeHtml } from './kit';
 import { nightValleySvg, quietVignetteSvg } from './dayend-art';
 
@@ -21,6 +21,16 @@ interface Summary {
   day: number;
   /** Staged preview (`ui=dayend`): the calendar has not rolled over yet. */
   sample?: boolean;
+  /** The herd's night (systems/sleep.ts carries `animals:summary` in; absent without animals). */
+  animals?: {
+    total: number;
+    fed: number;
+    hungry: number;
+    hungryNames: string[];
+    petted: number;
+    produce: { item: string; q: number }[];
+    pet?: { name: string; species: string; bowl: boolean };
+  };
 }
 
 type Line = { itemId: string; qty: number; value: number };
@@ -154,9 +164,30 @@ export class DayEndScreen extends Screen {
     const penCard = s.passedOut
       ? `<div class="de-pen"><b>−${s.penalty.toLocaleString()}g</b><small>A neighbour found you asleep in the field and carried you home. They kept a little for the trouble.</small></div>`
       : '';
+    // Animals: fed / produce tally, the morning's produce with quality stars, hungry names, the pet's bowl.
+    const an = s.animals;
+    const animalsCard = an && an.total
+      ? (() => {
+          const gold = an.produce.filter((p) => p.q >= 2).length;
+          const icons = an.produce
+            .slice(0, 8)
+            .map((p) => `<div class="u-slot mini" style="width:40px;height:40px;border-radius:9px">${itemIcon(p.item)}${qualityStar(p.q)}</div>`)
+            .join('');
+          const hungry = an.hungry
+            ? `<small style="display:block;margin-top:5px;color:#b8321e;font-weight:800">${escapeHtml(an.hungryNames.slice(0, 3).join(', '))}${an.hungry > 3 ? ` +${an.hungry - 3}` : ''} went hungry — fill the trough</small>`
+            : '';
+          const pet = an.pet ? `<small style="display:block;margin-top:3px;color:#8a6440;font-weight:700">${escapeHtml(an.pet.name)}’s bowl was ${an.pet.bowl ? 'full' : 'empty'}${an.pet.bowl ? ' ♥' : ''}</small>` : '';
+          return `<div class="de-animals" style="margin-top:12px;padding:10px 12px;border-radius:14px;background:rgba(255,252,240,.72);box-shadow:inset 0 0 0 2px rgba(138,100,64,.2)">
+            <div class="de-h" style="margin-bottom:4px">Animals</div>
+            <div style="display:flex;gap:14px;align-items:baseline;font-weight:800;color:#8a6440"><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.produce.length}</b> produce</span>${gold ? `<span><b style="font-family:var(--font-head);font-size:21px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.petted}</b> petted</span></div>
+            ${icons ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${icons}</div>` : ''}
+            ${hungry}${pet}
+          </div>`;
+        })()
+      : '';
     const body = quiet
       ? `<div class="de-body quiet">
-          <div class="de-quiet"><div class="qv-art">${quietVignetteSvg()}</div><div class="qv-tx"><h3>A quiet day</h3><p>Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.</p><small>Produce left in the bin by the porch is collected overnight.</small></div></div>
+          <div class="de-quiet"><div class="qv-art">${quietVignetteSvg()}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>
           <div class="de-side">
             ${penCard}
             <div class="de-rest"><div class="de-h">Rest</div><div class="bar"><i style="--e:${(eNow / eMax).toFixed(3)}"></i></div><div class="rl"><span>${ICONS.bolt ?? ''}Energy</span><b>${eNow} / ${eMax}</b></div><small>${s.passedOut ? 'You slept where you fell — half your energy returns.' : 'A full night’s sleep. You wake refreshed.'}</small></div>
@@ -168,7 +199,8 @@ export class DayEndScreen extends Screen {
       : `<div class="de-body">
         <div class="de-ledger">
           <div class="de-h">Shipped today</div>
-          <div class="de-rows${k > 9 ? ' dense' : ''}">${rows.join('')}</div>
+          <div class="de-rows${k > 9 ? ' dense' : ''}"${animalsCard ? ' style="height:250px"' : ''}>${rows.join('')}</div>
+          ${animalsCard}
         </div>
         <div class="de-side">
           <div class="de-earn"><div class="de-h">Earnings</div><div class="amt">${ICONS.coin}<span class="v" data-v="0">0</span><small>g</small></div></div>

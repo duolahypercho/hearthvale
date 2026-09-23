@@ -227,7 +227,7 @@ export class RigBuilder {
 // ───────────────────────────────────────────── small geometry helpers
 
 /** Ellipsoid (sphere scaled per axis). */
-export function ellipsoid(rx: number, ry: number, rz: number, ws = 18, hs = 14): THREE.BufferGeometry {
+export function ellipsoid(rx: number, ry: number, rz: number, ws = 14, hs = 10): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(1, ws, hs);
   g.scale(rx, ry, rz);
   return g;
@@ -235,13 +235,14 @@ export function ellipsoid(rx: number, ry: number, rz: number, ws = 18, hs = 14):
 
 /** Capsule lying along Z. */
 export function capsuleZ(r: number, len: number, cap = 8, radial = 16): THREE.BufferGeometry {
-  const g = new THREE.CapsuleGeometry(r, len, Math.max(cap, 10), Math.max(radial, 24), 6);
+  // Budget (DESIGN render budget, 4-player co-op farms): ~4-6k tris per animal at gameplay zoom.
+  const g = new THREE.CapsuleGeometry(r, len, Math.max(cap, 6), Math.max(radial, 18), 3);
   g.rotateX(Math.PI / 2);
   return g;
 }
 
 /** Tapered limb from y0 (top) down to y1, radius r0 → r1. */
-export function limb(r0: number, r1: number, y0: number, y1: number, seg = 10): THREE.BufferGeometry {
+export function limb(r0: number, r1: number, y0: number, y1: number, seg = 8): THREE.BufferGeometry {
   const h = y0 - y1;
   const g = new THREE.CylinderGeometry(r0, r1, h, seg, 1);
   g.translate(0, y1 + h / 2, 0);
