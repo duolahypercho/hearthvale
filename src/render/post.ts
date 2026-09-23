@@ -13,6 +13,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import type { Quality } from '../core/events';
+import { HeightFogPass } from './heightfog';
 
 export interface QualityPreset {
   pixelRatioCap: number;
@@ -131,6 +132,8 @@ export class PostPipeline {
   readonly composer: EffectComposer;
   readonly grade: ShaderPass;
   private renderPass: RenderPass;
+  /** Height fog + volumetric light shafts (render/heightfog.ts; driven through its `atmosphere` state). */
+  readonly heightFog: HeightFogPass;
   private gtao: GTAOPass | null = null;
   private bloom: UnrealBloomPass | null = null;
   private smaa: SMAAPass | null = null;
@@ -145,10 +148,13 @@ export class PostPipeline {
     public preset: QualityPreset,
   ) {
     renderer.getDrawingBufferSize(this.size);
-    const rt = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { type: THREE.HalfFloatType, samples: 0 });
+    // Depth texture: the atmosphere pass (height fog + light shafts) reads the scene depth.
+    const rt = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(this.size.x, this.size.y) });
     this.composer = new EffectComposer(renderer, rt);
     this.renderPass = new RenderPass(scene, camera);
     this.composer.addPass(this.renderPass);
+    this.heightFog = new HeightFogPass(camera);
+    this.composer.addPass(this.heightFog);
 
     if (preset.ao) {
       this.gtao = new GTAOPass(scene, camera, this.size.x, this.size.y);
@@ -224,6 +230,7 @@ export class PostPipeline {
 
   render(time: number): void {
     this.grade.uniforms.uTime!.value = time;
+    this.heightFog.sync();
     // Render shadow maps once per frame (the RenderPass), not again inside the GTAO pass.
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.needsUpdate = true;

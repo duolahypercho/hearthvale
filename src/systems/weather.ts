@@ -20,6 +20,7 @@ import { RainStreaks, RainSplashes, SnowFlakes, RAIN_NEAR, RAIN_FAR, type Height
 import { LightningBolt, FogBank, Rainbow } from '../render/skyfx';
 import { Drips, Footprints, LeafGusts, findEaves, type DripPoint, type GustPalette } from '../render/groundfx';
 import { globalUniforms } from '../render/uniforms';
+import { atmosphere } from '../render/heightfog';
 
 declare module '../core/events' {
   interface GameEvents {
@@ -248,6 +249,9 @@ export class WeatherSystem implements System, WeatherApi {
     this.drips.setHeightSource(hs);
     this.prints.clear();
     this.lastPrint.set(1e9, 0, 0);
+    // Light shafts belong to the map that registers them (the forest re-registers every frame).
+    atmosphere.shafts = 0;
+    atmosphere.shaftList = [];
     // Drip points: roof eaves found automatically + whatever the map lists (canopy edges, awnings).
     const pts: DripPoint[] = map && t ? findEaves(map.root, 320) : [];
     for (const d of map?.poi?.drips ?? []) if (d.y !== undefined) pts.push({ x: d.x, y: d.y, z: d.z });
@@ -340,8 +344,16 @@ export class WeatherSystem implements System, WeatherApi {
     this.snow.update(this.center, this.snowAmt, t);
     this.drips.update(this.dripAmt, t);
     this.leaves.update(this.center, this.leafAmt, t);
-    this.fogBank.update(this.center, this.fogAmt);
-    game.lighting.mist = this.fogAmt * (this.weather === 'sun' || this.weather === 'wind' ? 0.55 : 0.15);
+    // Ground mist is a depth-aware height fog (post pass): it pools in the hollows and fades softly
+    // against cliffs / trunks. Rain and storms add a low, grey haze; the old draped planes stay off.
+    this.fogBank.mesh.visible = false;
+    const clear = this.weather === 'sun' || this.weather === 'wind';
+    const map = game.world.current;
+    atmosphere.fog = clear ? this.fogAmt : this.fogAmt * 0.6 + this.rainAmt * 0.45;
+    atmosphere.base = map?.terrain ? map.terrain.opts.waterLevel + 0.25 : rig.focus.y - 0.3;
+    atmosphere.falloff = clear ? 1.2 : 3.0;
+    atmosphere.density = clear ? 0.12 : 0.06;
+    game.lighting.mist = this.fogAmt * (clear ? 0.22 : 0.1);
     (game.world.current as { setAtmosphere?: (f: number) => void } | null)?.setAtmosphere?.(this.fogAmt);
     this.rainbow.update(this.rainbowAmt, cam.aspect);
     this.updateFootprints(game);

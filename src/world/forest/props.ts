@@ -11,7 +11,7 @@ import { materials, nightGlow } from '../../render/materials';
 import { applyWorldFx } from '../../render/worldfx';
 import { applyWind } from '../../render/wind';
 import { textures } from '../../render/textures';
-import { rockGeometry } from '../props/rocks';
+import { smoothRock, forestRockMaterial } from './rocks';
 import type { InstancedPart } from '../props/instanced';
 import type { Season } from '../../core/time';
 import { giantBarkMaterial, applyLeafClumps } from './giants';
@@ -232,7 +232,7 @@ function glyph(b: MeshBuilder, m: THREE.Material, r: Rng, x: number, y: number, 
 export function buildShrine(rng: Rng): ShrineBuild {
   const b = new MeshBuilder();
   const stone = daisMaterial();
-  const rock = materials.get('rock');
+  const rock = forestRockMaterial();
   const rune = runeMaterial();
   // Two-step round dais of fitted flagstones.
   for (const [rad, y, h] of [[3.4, 0.0, 0.22], [2.3, 0.2, 0.2]] as const) {
@@ -268,7 +268,7 @@ export function buildShrine(rng: Rng): ShrineBuild {
     const x = Math.cos(a) * R;
     const z = Math.sin(a) * R;
     const h = 2.3 + rng.next() * 1.1;
-    const geo = rockGeometry(rng, 0.62, 1, true);
+    const geo = smoothRock(rng, 0.62, { elong: 1, squash: 1, detail: 2, lumpy: 0.14 });
     const face = -a - Math.PI / 2;
     const m = mat(x, -0.1, z, (rng.next() - 0.5) * 0.12, face, (rng.next() - 0.5) * 0.1).multiply(new THREE.Matrix4().makeScale(0.95, h / 0.62, 0.6));
     b.add(rock, geo, m, { tint: new THREE.Color(0xe8e0d0).multiplyScalar(0.92 + rng.next() * 0.15) });
@@ -281,7 +281,7 @@ export function buildShrine(rng: Rng): ShrineBuild {
     }
   }
   // Moss-covered fallen lintel.
-  b.add(rock, rockGeometry(rng, 0.55, 1, true), mat(-3.6, 0, 3.2, 0, 1.1, Math.PI / 2 - 0.1).multiply(new THREE.Matrix4().makeScale(0.6, 2.4, 0.6)));
+  b.add(rock, smoothRock(rng, 0.55, { elong: 1, squash: 1, detail: 2, lumpy: 0.14 }), mat(-3.6, 0, 3.2, 0, 1.1, Math.PI / 2 - 0.1).multiply(new THREE.Matrix4().makeScale(0.6, 2.4, 0.6)));
   const group = b.build({ name: 'ember-shrine' });
   // Floating ember crystal (dynamic).
   const cg = new THREE.OctahedronGeometry(0.34, 0);
@@ -344,11 +344,11 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
     b.add('woodDark', roundedBox(0.22, 0.22, 1.3, 0.04), mat(Math.cos(a) * (R - 0.3), 3.3 + i * 0.05, Math.sin(a) * (R - 0.3), 0, -a + Math.PI / 2, 0.15), { tint: 0x6a5238 });
   }
   // Rubble at the foot.
-  const rock = materials.get('rock');
+  const rock = forestRockMaterial();
   for (let i = 0; i < 9; i++) {
     const a = 3.6 + rng.next() * 1.8;
     const d = R + 0.5 + rng.next() * 1.6;
-    b.add(rock, rockGeometry(rng, 0.2 + rng.next() * 0.2, 0), mat(Math.cos(a) * d, 0, Math.sin(a) * d, 0, rng.next() * 6, 0));
+    b.add(rock, smoothRock(rng, 0.2 + rng.next() * 0.2, { detail: 1 }), mat(Math.cos(a) * d, 0, Math.sin(a) * d, 0, rng.next() * 6, 0));
   }
   // Ivy curtains down the south-west face.
   const ivy = ivyMaterial();
@@ -423,11 +423,11 @@ export function buildFootbridge(rng: Rng, len: number): THREE.Group {
 /** Boulders framing the waterfall lip and the plunge pool. */
 export function buildFallsRocks(rng: Rng, lip: THREE.Vector3, pool: THREE.Vector3, width: number): THREE.Group {
   const b = new MeshBuilder();
-  const rock = materials.get('rock');
+  const rock = forestRockMaterial();
   for (const side of [-1, 1]) {
     for (let i = 0; i < 3; i++) {
       const r = 0.7 + rng.next() * 0.5;
-      b.add(rock, rockGeometry(rng, r, 1, true), mat(lip.x + side * (width * 0.62 + i * 0.7 + rng.next() * 0.3), lip.y - 0.35 - i * 0.2, lip.z - 0.3 + i * 0.5, 0, rng.next() * 6, 0));
+      b.add(rock, smoothRock(rng, r), mat(lip.x + side * (width * 0.62 + i * 0.7 + rng.next() * 0.3), lip.y - 0.35 - i * 0.2, lip.z - 0.3 + i * 0.5, 0, rng.next() * 6, 0));
     }
   }
   // Pool rim.
@@ -435,21 +435,20 @@ export function buildFallsRocks(rng: Rng, lip: THREE.Vector3, pool: THREE.Vector
     const a = Math.PI * (0.05 + rng.next() * 0.9) + (i % 2 ? Math.PI : 0) * 0.15;
     const d = 3.2 + rng.next() * 1.4;
     const r = 0.35 + rng.next() * 0.55;
-    b.add(rock, rockGeometry(rng, r, rng.int(0, 2), rng.next() < 0.5), mat(pool.x + Math.cos(a) * d * 1.1, pool.y - 0.15, pool.z + Math.sin(a) * d * 0.5 - 1.6, 0, rng.next() * 6, 0));
+    b.add(rock, smoothRock(rng, r, { detail: 2 }), mat(pool.x + Math.cos(a) * d * 1.1, pool.y - 0.15, pool.z + Math.sin(a) * d * 0.5 - 1.6, 0, rng.next() * 6, 0));
   }
   // Rocks the falling water breaks over at the base.
   for (let i = 0; i < 4; i++) {
-    b.add(rock, rockGeometry(rng, 0.4 + rng.next() * 0.3, 1, true), mat(lip.x + (rng.next() - 0.5) * width * 1.1, pool.y - 0.3, pool.z - 0.6 + rng.next() * 0.6, 0, rng.next() * 6, 0));
+    b.add(rock, smoothRock(rng, 0.4 + rng.next() * 0.3, { detail: 2 }), mat(lip.x + (rng.next() - 0.5) * width * 1.1, pool.y - 0.3, pool.z - 0.6 + rng.next() * 0.6, 0, rng.next() * 6, 0));
   }
   return b.build({ name: 'falls-rocks' });
 }
 
 export function buildSteppingStones(rng: Rng, pts: [number, number][], y: number): THREE.Group {
   const b = new MeshBuilder();
-  const rock = materials.get('rock');
+  const rock = forestRockMaterial();
   for (const [x, z] of pts) {
-    const g = rockGeometry(rng, 0.42 + rng.next() * 0.1, 0, false);
-    g.scale(1, 0.55, 1);
+    const g = smoothRock(rng, 0.42 + rng.next() * 0.1, { detail: 2, squash: 0.45, elong: 1.1 });
     b.add(rock, g, mat(x, y, z, 0, rng.next() * 6, 0));
   }
   return b.build({ name: 'stepping-stones' });

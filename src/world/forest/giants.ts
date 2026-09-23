@@ -1,16 +1,20 @@
 /**
  * Old-growth giants for Cindergrove:
- *  - Elder: a broad-leaved ancient with a buttressed, fluted trunk, moss creeping up the roots and
- *    limb tops, four great limbs and a huge cloud-clustered canopy (bare, snow-dusted limbs in winter;
- *    every tree picks its own autumn hue).
- *  - Fir: a towering evergreen with ten drooping, jagged tiers over a flared, mossy bole.
+ *  - Elder: a broad-leaved ancient with a fluted, gently buttressed trunk, root tubes diving into the
+ *    ground, moss creeping up the roots and limb tops, four great limbs and a clustered canopy: soft
+ *    puff volumes (painted 3-band light, per-puff hue / value jitter, back-lit translucency) fringed
+ *    with camera-facing leaf-cluster cards so the silhouette breaks up into leaves (bare, snow-dusted
+ *    limbs in winter; every tree picks its own autumn hue; spring cards carry petal clusters).
+ *  - Fir: a towering evergreen of 6-7 smooth, scalloped, drooping bough tiers with needle-spray cards
+ *    hanging off every tier rim, over a flared, mossy bole.
  * A few geometry variants per kind, batched (one multi-draw per material), wind-swayed (shadows too).
+ * Canopies and trunks between the lens and the player open a soft round see-through window.
  */
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
 import { Noise2D } from '../../core/noise';
 import type { Season } from '../../core/time';
-import { MeshBuilder, lumpySphere, sphericalNormals, uvScale, smoothNormals } from '../geom';
+import { MeshBuilder, lumpySphere, sphericalNormals, uvScale } from '../geom';
 import { textures } from '../../render/textures';
 import { applyWind, windDepthMaterial } from '../../render/wind';
 import { applyWorldFx } from '../../render/worldfx';
@@ -18,9 +22,11 @@ import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
 import { InstancedSet, BatchPool } from '../props/instanced';
 import type { GiantKind } from './layout';
+import { CardBuilder, leafClusterTexture, needleSprayTexture, applyBillboard, applyCardMap, applyPaintedLight, applySeeThrough } from './foliage';
 
 const WIND_TRUNK = { mode: 'attribute' as const, amplitude: 0.1, flutter: 0 };
 const WIND_LEAF = { mode: 'attribute' as const, amplitude: 0.16, flutter: 0.45 };
+const WIND_CARD = { mode: 'attribute' as const, amplitude: 0.16, flutter: 0.8 };
 
 /** Canopy tints per season (each tree picks one; fall mixes the whole autumn range). */
 const ELDER_PALETTE: Record<Season, number[]> = {
@@ -78,8 +84,7 @@ export function giantBarkMaterial(): THREE.MeshStandardMaterial {
   });
   applyWorldFx(barkMat, { snowUp: 0.62 });
   applyWind(barkMat, WIND_TRUNK);
-  // Limbs above the bole dissolve with the canopy (bare limbs poking through a cut-away crown read as spikes).
-  applyOcclusionFade(barkMat, 1.6, 2.5, 'mix(1.0, 3.4, smoothstep(3.2, 4.6, vGLocalY))');
+  applySeeThrough(barkMat, 1.6, 2.5);
   return barkMat;
 }
 
@@ -181,42 +186,32 @@ export function applyLeafClumps(m: THREE.Material, o: LeafClumpOptions): void {
   });
 }
 
-const leafMats = new Map<GiantKind, THREE.MeshStandardMaterial>();
-function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
-  let m = leafMats.get(kind);
-  if (m) return m;
-  const t = textures.leaves();
-  m = new THREE.MeshStandardMaterial({ bumpMap: t.bump, bumpScale: 0.35, roughness: 0.93, vertexColors: true, color: 0xffffff });
-  m.name = `giantLeaf-${kind}`;
-  // Fir snow settles on the top of every needle clump (hvLeafDir from applyLeafClumps), leaving
-  // dark green undersides between the drifts.
-  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.3, snowMask: 'smoothstep(-0.3, 0.85, hvLeafDir.y) * 0.66' } : { snowUp: 0.6 });
-  applyWind(m, WIND_LEAF);
-  applyLeafClumps(m, kind === 'fir' ? { freq: [4.2, 2.6, 4.2], bend: 0.55, seam: 0.24 } : { freq: [3.1, 3.1, 3.1], bend: 0.7, seam: 0.24, blossom: true });
-  patchMaterial(m, 'giant-canopy', (shader) => {
+const leafMats = new Map<string, THREE.MeshStandardMaterial>();
+
+/** Shared canopy look: soft clump variation, cool occluded leaves, warm crowns, back-lit glow. */
+function canopyLook(m: THREE.MeshStandardMaterial, key: string): void {
+  patchMaterial(m, `giant-canopy:${key}`, (shader) => {
     shader.uniforms.uSunDir = globalUniforms.uSunDir;
     shader.uniforms.uSunColor = globalUniforms.uSunColor;
     let fs = shader.fragmentShader;
-    if (!fs.includes('uniform vec3 uSunDir;')) fs = before(fs, 'void main() {', 'uniform vec3 uSunDir;\nuniform vec3 uSunColor;');
+    if (!fs.includes('uniform vec3 uSunDir;')) fs = before(fs, 'void main() {', 'uniform vec3 uSunDir;');
+    if (!fs.includes('uniform vec3 uSunColor;')) fs = before(fs, 'void main() {', 'uniform vec3 uSunColor;');
     fs = after(
       fs,
       '#include <color_fragment>',
       /* glsl */ `
       {
-        vec3 fp = vHvWorldPos * 1.9;
-        float clump = hvNoise(fp.xz + fp.y * 0.7) * 0.55 + hvNoise(fp.zy * 2.3 + 3.0) * 0.3 + hvNoise(fp.xy * 5.1) * 0.15;
-        diffuseColor.rgb *= 0.74 + 0.4 * smoothstep(0.22, 0.8, clump);
-        // Leaf dapple: small dark gaps between leaf clusters, brighter sprigs on top.
-        float dap = hvNoise(fp.xz * 3.1 + fp.y * 2.3) * 0.6 + hvNoise(fp.zy * 4.7 + 1.3) * 0.4;
-        diffuseColor.rgb *= 0.86 + 0.26 * smoothstep(0.3, 0.75, dap);
-        // Shadowed / occluded leaves drift cooler (blue-green), sunlit tops warmer.
+        vec3 fp = vHvWorldPos * 0.8;
+        float clump = hvNoise(fp.xz + fp.y * 0.7) * 0.6 + hvNoise(fp.zy * 1.9 + 3.0) * 0.4;
+        diffuseColor.rgb *= 0.9 + 0.18 * smoothstep(0.25, 0.8, clump);
+        // Occluded leaves drift cooler (blue-green), sunlit crowns warmer.
         float lumv = dot(vColor.rgb, vec3(0.333));
-        diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.82, 0.95, 1.12), diffuseColor.rgb, smoothstep(0.25, 0.75, lumv));
-        float top = smoothstep(0.1, 0.95, normalize(vHvWorldNormal).y);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.14, 1.1, 0.84), top * 0.55);
-        // Autumn canopies keep a few green / russet clumps.
-        float ah = hvNoise(fp.xz * 0.35 + 9.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.78, 1.02, 0.62), smoothstep(0.66, 0.9, ah) * 0.45);
+        diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.8, 0.94, 1.1), diffuseColor.rgb, smoothstep(0.3, 0.8, lumv));
+        float top = smoothstep(0.2, 0.95, normalize(vHvWorldNormal).y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.12, 1.08, 0.86), top * 0.45);
+        // Autumn canopies keep a few green / russet patches.
+        float ah = hvNoise(fp.xz * 0.45 + 9.0);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.8, 1.0, 0.66), smoothstep(0.68, 0.92, ah) * 0.4 * uSeasonW.z);
       }`,
     );
     fs = after(
@@ -225,65 +220,69 @@ function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
       /* glsl */ `
       {
         vec3 Vw = normalize(cameraPosition - vHvWorldPos);
+        vec3 Nw = normalize(vHvWorldNormal);
+        // Translucency: leaves glow where the sun shines through them towards the lens, and along the rim.
         float back = pow(max(dot(-Vw, normalize(uSunDir)), 0.0), 3.0);
-        float rim = pow(1.0 - max(dot(normalize(vHvWorldNormal), Vw), 0.0), 3.0);
-        totalEmissiveRadiance += diffuseColor.rgb * uSunColor * (back * 0.5 + rim * 0.14) + diffuseColor.rgb * 0.02;
+        float rim = pow(1.0 - max(dot(Nw, Vw), 0.0), 3.0) * (0.4 + 0.6 * max(dot(Nw, normalize(uSunDir)), 0.0));
+        totalEmissiveRadiance += diffuseColor.rgb * uSunColor * (back * 0.45 + rim * 0.22) + diffuseColor.rgb * 0.02;
       }`,
     );
+    if (!fs.includes('uniform vec4 uSeasonW;')) fs = before(fs, 'void main() {', 'uniform vec4 uSeasonW;');
+    shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
     shader.fragmentShader = fs;
   });
-  applyOcclusionFade(m, 5.5, 1.4, '1.0', true, 3);
+}
+
+/** Puff-shell material (the solid heart of each canopy clump / fir tier). */
+function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
+  let m = leafMats.get(kind);
+  if (m) return m;
+  m = new THREE.MeshStandardMaterial({ roughness: 0.9, vertexColors: true, color: 0xffffff });
+  m.name = `giantLeaf-${kind}`;
+  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.35 } : { snowUp: 0.6 });
+  applyWind(m, WIND_LEAF);
+  canopyLook(m, kind);
+  applyPaintedLight(m);
+  applySeeThrough(m, 5.5, 3);
   leafMats.set(kind, m);
   return m;
 }
 
-
-/**
- * See-through fade for a top-down camera: canopy / bark fragments very close to the lens, or sitting
- * in the sight-line cylinder between the camera and the player, dissolve with an ordered dither
- * (their shadows stay — the depth pass is untouched).
- */
-function applyOcclusionFade(m: THREE.Material, radius: number, near: number, radiusScale = '1.0', cellular = false, nearRange = 5): void {
-  patchMaterial(m, `occlusion-fade:${radius}:${near}:${radiusScale}:${cellular}:${nearRange}`, (shader) => {
-    shader.uniforms.uPlayerPos = globalUniforms.uPlayerPos;
-    let fs = shader.fragmentShader;
-    fs = before(fs, 'void main() {', 'uniform vec3 uPlayerPos;\nfloat hvBayer4(vec2 p) { ivec2 q = ivec2(mod(p, 4.0)); int i = q.x + q.y * 4; int b[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5); return (float(b[i]) + 0.5) / 16.0; }');
-    fs = after(
-      fs,
-      'void main() {',
-      /* glsl */ `
-      {
-        vec3 hvRel = vHvWorldPos - cameraPosition;
-        float hvCamD = length(hvRel);
-        float hvKeep = smoothstep(${near.toFixed(2)}, ${(near + nearRange).toFixed(2)}, hvCamD);
-        vec3 hvF = uPlayerPos + vec3(0.0, 0.9, 0.0) - cameraPosition;
-        float hvL = length(hvF);
-        vec3 hvDir = hvF / max(hvL, 0.001);
-        float hvAlong = dot(hvRel, hvDir);
-        float hvPerp = length(hvRel - hvDir * hvAlong);
-        // A cone, not a cylinder: constant on-screen radius around the player, so canopies right
-        // in front of the lens are not holed far from the sight line.
-        float hvRs = ${radiusScale} * clamp(hvAlong / max(hvL, 0.001), 0.2, 1.0);
-        float hvCyl = hvAlong < hvL - 0.6 ? smoothstep(${(radius * 0.55).toFixed(2)} * hvRs, ${radius.toFixed(2)} * hvRs, hvPerp) : 1.0;
-        hvKeep = min(hvKeep, hvCyl);
-        // Organic cut-away: world-space noise shapes the holes (leafy edges, not a screen door),
-        // a little ordered dither softens the rim.
-        hvOccKeep = hvKeep;
-        float hvCut = hvNoise(vHvWorldPos.xz * 1.7 + vHvWorldPos.y * 0.9) * 0.75 + hvBayer4(gl_FragCoord.xy) * 0.25;
-        if (${cellular ? 'false' : 'true'} && hvKeep < 0.999 && hvKeep < hvCut) discard;
-      }`,
-    );
-    fs = after(fs, 'void main() {', 'float hvOccKeep = 1.0;');
-    if (cellular) {
-      // Foliage dissolves clump by clump (whole leaf sprigs wink out), not as a pixel spray.
-      fs = after(
-        fs,
-        '#include <normal_fragment_maps>',
-        'if (hvOccKeep < 0.999 && hvOccKeep < hvLeafRnd * 0.85 + hvBayer4(gl_FragCoord.xy) * 0.15) discard;',
-      );
-    }
-    shader.fragmentShader = fs;
+/** Leaf-cluster (elder) / needle-spray (fir) billboard cards. */
+function cardMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
+  const key = `card-${kind}`;
+  let m = leafMats.get(key);
+  if (m) return m;
+  m = new THREE.MeshStandardMaterial({
+    map: kind === 'fir' ? needleSprayTexture() : leafClusterTexture(),
+    alphaTest: 0.5,
+    side: THREE.DoubleSide,
+    roughness: 0.88,
+    vertexColors: true,
+    color: 0xffffff,
   });
+  m.name = `giantCard-${kind}`;
+  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.3 } : { snowUp: 0.55 });
+  applyWind(m, WIND_CARD);
+  applyBillboard(m);
+  applyCardMap(m, kind === 'elder');
+  canopyLook(m, `card-${kind}`);
+  applyPaintedLight(m);
+  applySeeThrough(m, 5.5, 3);
+  leafMats.set(key, m);
+  return m;
+}
+
+const cardDepth = new Map<GiantKind, THREE.MeshDepthMaterial>();
+/** Shadow caster for the cards: same billboard (towards the sun) + sway + alpha cut-out. */
+function cardDepthMaterial(kind: GiantKind): THREE.MeshDepthMaterial {
+  let m = cardDepth.get(kind);
+  if (m) return m;
+  m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: kind === 'fir' ? needleSprayTexture() : leafClusterTexture(), alphaTest: 0.5, side: THREE.DoubleSide });
+  applyWind(m, WIND_CARD);
+  applyBillboard(m);
+  cardDepth.set(kind, m);
+  return m;
 }
 
 const _up = new THREE.Vector3(0, 1, 0);
@@ -314,8 +313,8 @@ function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THR
   }
 }
 
-/** Fluted, buttressed trunk: lathe with root lobes flaring into the ground. */
-function trunkGeometry(rng: Rng, h: number, r0: number, lobes: number, flare: number, radial = 22, rings = 16): THREE.BufferGeometry {
+/** Fluted trunk: lathe with shallow root lobes swelling into the ground (the roots are separate tubes). */
+function trunkGeometry(rng: Rng, h: number, r0: number, lobes: number, flare: number, radial = 28, rings = 18): THREE.BufferGeometry {
   const noise = new Noise2D(Math.floor(rng.next() * 1e9));
   const phase = rng.next() * Math.PI * 2;
   const lobeAmp = Array.from({ length: lobes }, () => 0.7 + rng.next() * 0.6);
@@ -324,12 +323,12 @@ function trunkGeometry(rng: Rng, h: number, r0: number, lobes: number, flare: nu
   const pos: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
-  const y0 = -0.5;
+  const y0 = -0.6;
   for (let j = 0; j <= rings; j++) {
     const f = j / rings;
-    const y = y0 + Math.pow(f, 1.25) * (h - y0);
-    const base = r0 * (1 - 0.42 * THREE.MathUtils.smoothstep(y, 0, h));
-    const fl = Math.exp(-Math.max(0, y) / 0.85) * flare;
+    const y = y0 + Math.pow(f, 1.35) * (h - y0);
+    const base = r0 * (1 - 0.4 * THREE.MathUtils.smoothstep(y, 0, h));
+    const fl = Math.exp(-Math.max(0, y) / 0.7) * flare;
     const cx = leanX * Math.pow(Math.max(0, y) / h, 1.6);
     const cz = leanZ * Math.pow(Math.max(0, y) / h, 1.6);
     for (let i = 0; i <= radial; i++) {
@@ -337,14 +336,13 @@ function trunkGeometry(rng: Rng, h: number, r0: number, lobes: number, flare: nu
       let lobe = 0;
       for (let k = 0; k < lobes; k++) {
         const c = Math.cos(th - phase - (k / lobes) * Math.PI * 2);
-        lobe += Math.pow(Math.max(0, c), 9) * lobeAmp[k]!;
+        lobe += Math.pow(Math.max(0, c), 5) * lobeAmp[k]!;
       }
-      const flute = 1 + 0.06 * Math.sin(th * 9 + y * 0.8) * (1 - fl * 0.5);
-      const n = 1 + noise.get(Math.cos(th) * 1.3 + y * 0.35, Math.sin(th) * 1.3) * 0.08;
-      // Distinct buttress fins between shallow bays (a smooth cone reads as a volcano from above).
-      const r = base * flute * n * (1 + fl * (0.1 + lobe * 1.45));
-      const yy = y < 0.3 ? y - lobe * fl * 0.08 : y;
-      pos.push(cx + Math.cos(th) * r, yy, cz + Math.sin(th) * r);
+      const flute = 1 + 0.045 * Math.sin(th * 9 + y * 0.8) * (1 - fl * 0.5);
+      const n = 1 + noise.get(Math.cos(th) * 1.3 + y * 0.35, Math.sin(th) * 1.3) * 0.07;
+      // Rounded root swell between shallow bays (no flat skirt).
+      const r = base * flute * n * (1 + fl * (0.18 + lobe * 0.7));
+      pos.push(cx + Math.cos(th) * r, y, cz + Math.sin(th) * r);
       uv.push((i / radial) * 3.5, y * 0.55);
     }
   }
@@ -360,12 +358,39 @@ function trunkGeometry(rng: Rng, h: number, r0: number, lobes: number, flare: nu
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
+  // Weld the lathe seam normals (first / last column share positions).
+  const nor = g.attributes.normal as THREE.BufferAttribute;
+  for (let j = 0; j <= rings; j++) {
+    const a = j * (radial + 1);
+    const b = a + radial;
+    const nx = nor.getX(a) + nor.getX(b);
+    const ny = nor.getY(a) + nor.getY(b);
+    const nz = nor.getZ(a) + nor.getZ(b);
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nor.setXYZ(a, nx / l, ny / l, nz / l);
+    nor.setXYZ(b, nx / l, ny / l, nz / l);
+  }
   return g;
+}
+
+/** Root tubes: arch out of the trunk foot and dive into the soil (each a tapered, curved limb). */
+function roots(b: MeshBuilder, m: THREE.Material, rng: Rng, r0: number, n: number, reach: number, thick: number): void {
+  const phase = rng.next() * Math.PI * 2;
+  for (let i = 0; i < n; i++) {
+    const a = phase + (i / n) * Math.PI * 2 + (rng.next() - 0.5) * 0.5;
+    const len = reach * (0.7 + rng.next() * 0.5);
+    const s = new THREE.Vector3(Math.cos(a) * r0 * 0.55, 0.95 + rng.next() * 0.4, Math.sin(a) * r0 * 0.55);
+    const bend = a + (rng.next() - 0.5) * 0.5;
+    const e = new THREE.Vector3(Math.cos(bend) * (r0 + len), -0.55, Math.sin(bend) * (r0 + len));
+    const c = new THREE.Vector3(Math.cos(a) * (r0 + len * 0.35), 0.45, Math.sin(a) * (r0 + len * 0.35));
+    bough(b, m, thick * (0.8 + rng.next() * 0.4), 0.07, s, c, e, 9, 5);
+  }
 }
 
 interface GiantGeo {
   trunk: THREE.BufferGeometry;
   leaves: THREE.BufferGeometry;
+  cards: THREE.BufferGeometry;
   height: number;
   radius: number;
 }
@@ -382,6 +407,7 @@ interface Blob {
   c: THREE.Vector3;
   r: number;
   inner?: boolean;
+  tint?: THREE.Color;
 }
 
 /** A clump of `n` leaf puffs around `c` (one big + satellites spilling outward and down). */
@@ -395,26 +421,21 @@ function cluster(out: Blob[], rng: Rng, c: THREE.Vector3, r: number, n: number):
   }
 }
 
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+
 function elder(rng: Rng): GiantGeo {
   const b = new MeshBuilder();
   const bark = giantBarkMaterial();
   const leaf = canopyMaterial('elder');
   const trunkH = 4.5 + rng.next() * 0.8;
-  const r0 = 0.95 + rng.next() * 0.2;
-  const trunkAO = (p: THREE.Vector3) => 0.42 + 0.58 * THREE.MathUtils.smoothstep(p.y, -0.2, 2.2);
-  b.add(bark, trunkGeometry(rng, trunkH + 0.6, r0, 5 + rng.int(0, 2), 1.2), undefined, { aoWorld: trunkAO });
-  // Surface roots snaking out between the buttresses.
-  for (let i = 0; i < 5; i++) {
-    const a = rng.next() * Math.PI * 2;
-    const len = 1.5 + rng.next() * 1.2;
-    const s = new THREE.Vector3(Math.cos(a) * r0 * 1.0, 0.5, Math.sin(a) * r0 * 1.0);
-    const e = new THREE.Vector3(Math.cos(a + 0.3) * (r0 + len), -0.4, Math.sin(a + 0.3) * (r0 + len));
-    const c = s.clone().lerp(e, 0.5).add(new THREE.Vector3(0, 0.3, 0));
-    bough(b, bark, 0.36, 0.1, s, c, e, 7, 3);
-  }
+  const r0 = 0.9 + rng.next() * 0.18;
+  const trunkAO = (p: THREE.Vector3) => 0.4 + 0.6 * THREE.MathUtils.smoothstep(p.y, -0.3, 2.2);
+  b.add(bark, trunkGeometry(rng, trunkH + 0.6, r0, 5 + rng.int(0, 2), 0.55), undefined, { aoWorld: trunkAO });
+  // Root tubes diving into the ground between the swells.
+  roots(b, bark, rng, r0, 6 + rng.int(0, 1), 1.5, 0.34);
   const top = new THREE.Vector3(0, trunkH, 0);
   const crownY = trunkH + 2.9 + rng.next() * 0.7;
-  const spread = 5.4 + rng.next() * 1.0;
+  const spread = 5.2 + rng.next() * 1.0;
   const blobs: Blob[] = [];
   const nLimbs = 4 + rng.int(0, 1);
   for (let i = 0; i < nLimbs; i++) {
@@ -430,11 +451,10 @@ function elder(rng: Rng): GiantGeo {
       const from = start.clone().lerp(end, 0.55 + k * 0.15);
       const to = from.clone().add(new THREE.Vector3(Math.cos(a2) * (1.6 + rng.next() * 1.6), 0.8 + rng.next() * 1.4, Math.sin(a2) * (1.6 + rng.next() * 1.6)));
       bough(b, bark, 0.16, 0.04, from, from.clone().lerp(to, 0.5).add(new THREE.Vector3(0, 0.5, 0)), to, 5, 2);
-      for (let t = 0; t < 3; t++) {
-        const tw = to.clone().add(new THREE.Vector3((rng.next() - 0.5) * 1.6, 0.4 + rng.next() * 0.9, (rng.next() - 0.5) * 1.6));
+      for (let t = 0; t < 4; t++) {
+        const tw = to.clone().add(new THREE.Vector3((rng.next() - 0.5) * 1.8, 0.4 + rng.next() * 1.0, (rng.next() - 0.5) * 1.8));
         b.add(bark, limb(0.045, 0.012, to.clone().lerp(from, 0.2), tw, 4, 1));
       }
-      // Each secondary bough ends in a small cluster of leaf puffs.
       cluster(blobs, rng, to.clone().add(new THREE.Vector3(0, 0.45, 0)), 1.35, 2);
     }
     cluster(blobs, rng, end.clone().add(new THREE.Vector3(0, 0.6, 0)), 1.7, 3);
@@ -447,6 +467,7 @@ function elder(rng: Rng): GiantGeo {
     blobs.push({ c: new THREE.Vector3(Math.cos(a) * rr, crownY + 0.3 + rng.next() * 1.2, Math.sin(a) * rr), r: 2.0 + rng.next() * 0.4, inner: true });
   }
   const center = new THREE.Vector3(0, crownY, 0);
+  const q = new THREE.Vector3();
   const ao = (p: THREE.Vector3, n: THREE.Vector3): number => {
     const dy = (p.y - crownY) / 3.2;
     const out = Math.hypot(p.x, p.z) / (spread + 2);
@@ -460,30 +481,71 @@ function elder(rng: Rng): GiantGeo {
       const d = q.distanceTo(o.c);
       if (d < o.r + 0.3) occ += THREE.MathUtils.smoothstep(o.r + 0.3, o.r - 0.6, d);
     }
-    const crev = 1 - Math.min(1, occ) * 0.55;
-    return (0.3 + 0.7 * (vert * 0.5 + shell * 0.25 + up * 0.25)) * crev;
+    const crev = 1 - Math.min(1, occ) * 0.5;
+    return (0.36 + 0.64 * (vert * 0.5 + shell * 0.25 + up * 0.25)) * crev;
   };
-  const q = new THREE.Vector3();
+  // Per-puff hue / value jitter (±8 %): the canopy reads as many clumps, not one dyed blob.
   for (const bl of blobs) {
-    // Inner fill is mostly hidden: a coarser mesh is plenty.
-    const g = lumpySphere(bl.r, bl.inner ? 1 : 2, 0.16, rng, 1.6);
+    const v = 0.9 + rng.next() * 0.2;
+    bl.tint = new THREE.Color(v, v, v).offsetHSL((rng.next() - 0.5) * 0.05, (rng.next() - 0.5) * 0.08, 0);
+  }
+  for (const bl of blobs) {
+    // Inner fill is mostly hidden: a coarser mesh is plenty. Shells sit a touch inside the card fringe.
+    const g = lumpySphere(bl.r * 0.82, 1, 0.12, rng, 1.4);
     g.scale(1, 0.8, 1);
     uvScale(g, 1.5, 1.1);
     g.translate(bl.c.x, bl.c.y, bl.c.z);
-    // Each puff shades as its own rounded clump, loosely tied to the crown's overall volume.
-    sphericalNormals(g, bl.c, 0.6);
-    sphericalNormals(g, center, 0.25);
-    const v = 0.86 + rng.next() * 0.26;
-    const warm = rng.next() * 0.06;
-    b.add(leaf, g, undefined, { aoWorld: ao, tint: new THREE.Color(v + warm, v + warm * 0.5, (v - warm) * 0.96) });
+    // Each puff shades as its own rounded clump, tied into the crown's overall volume.
+    sphericalNormals(g, bl.c, 0.55);
+    sphericalNormals(g, center, 0.35);
+    // Shells a shade darker than the cards: the gaps between leaf clusters read as depth.
+    b.add(leaf, g, undefined, { aoWorld: ao, tint: bl.tint!.clone().multiplyScalar(0.72) });
+  }
+  // Leaf-cluster cards on every outer puff (none deep inside the crown or buried in a neighbour).
+  const cards = new CardBuilder();
+  const dir = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const nrm = new THREE.Vector3();
+  const cc = new THREE.Color();
+  for (const bl of blobs) {
+    if (bl.inner) continue;
+    const n = Math.round(12 + bl.r * 12);
+    const rot0 = rng.next() * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      const y = 1 - ((i + 0.5) / n) * 2;
+      const rr = Math.sqrt(1 - y * y);
+      const th = rot0 + i * GOLDEN;
+      dir.set(Math.cos(th) * rr, y, Math.sin(th) * rr);
+      if (dir.y < -0.45 && rng.next() < 0.7) continue;
+      p.copy(dir).multiplyScalar(bl.r * (0.78 + rng.next() * 0.24));
+      p.y *= 0.8;
+      p.add(bl.c);
+      let buried = false;
+      for (const o of blobs) {
+        if (o === bl) continue;
+        if (p.distanceTo(o.c) < o.r * 0.7) {
+          buried = true;
+          break;
+        }
+      }
+      if (buried) continue;
+      nrm.copy(p).sub(center).multiply(new THREE.Vector3(1, 1.25, 1)).normalize().lerp(dir, 0.55).normalize();
+      const size = bl.r * (0.8 + rng.next() * 0.35);
+      const a = ao(p, nrm);
+      cc.copy(bl.tint!).multiplyScalar(a * (0.94 + rng.next() * 0.12));
+      cards.add(p, nrm, size, size, rng.next() * Math.PI * 2, cc);
+    }
   }
   const geos = b.geometries();
   const trunk = geos.get(bark)!;
   const leaves = geos.get(leaf)!;
+  const cardGeo = cards.build();
   const H = crownY + 3.2;
-  addWindAttr(trunk, (p) => Math.pow(THREE.MathUtils.clamp((p.y - trunkH * 0.6) / (H - trunkH * 0.6), 0, 1), 1.6) * 0.8);
-  addWindAttr(leaves, (p) => 0.3 + 0.7 * THREE.MathUtils.clamp((p.y - trunkH) / (H - trunkH), 0, 1));
-  return { trunk, leaves, height: H, radius: spread + 2.5 };
+  addWindAttr(trunk, (pp) => Math.pow(THREE.MathUtils.clamp((pp.y - trunkH * 0.6) / (H - trunkH * 0.6), 0, 1), 1.6) * 0.8);
+  const leafW = (pp: THREE.Vector3) => 0.3 + 0.7 * THREE.MathUtils.clamp((pp.y - trunkH) / (H - trunkH), 0, 1);
+  addWindAttr(leaves, leafW);
+  addWindAttr(cardGeo, leafW);
+  return { trunk, leaves, cards: cardGeo, height: H, radius: spread + 2.5 };
 }
 
 function fir(rng: Rng): GiantGeo {
@@ -491,51 +553,89 @@ function fir(rng: Rng): GiantGeo {
   const bark = giantBarkMaterial();
   const leaf = canopyMaterial('fir');
   const H = 10.8 + rng.next() * 2.0;
-  const trunkAO = (p: THREE.Vector3) => 0.45 + 0.55 * THREE.MathUtils.smoothstep(p.y, -0.2, 2.0);
-  b.add(bark, trunkGeometry(rng, H * 0.9, 0.7, 5, 1.3, 16, 12), undefined, { aoWorld: trunkAO });
-  const tiers = 10;
-  const base = 2.3;
+  const trunkAO = (p: THREE.Vector3) => 0.42 + 0.58 * THREE.MathUtils.smoothstep(p.y, -0.3, 2.0);
+  b.add(bark, trunkGeometry(rng, H * 0.9, 0.62, 5, 0.6, 20, 14), undefined, { aoWorld: trunkAO });
+  roots(b, bark, rng, 0.62, 5, 1.0, 0.24);
+  const cards = new CardBuilder();
+  const tiers = 6 + rng.int(0, 1);
+  const base = 2.0;
+  const cc = new THREE.Color();
+  const nrm = new THREE.Vector3();
+  const pp = new THREE.Vector3();
   for (let t = 0; t < tiers; t++) {
     const f = t / (tiers - 1);
-    const r = THREE.MathUtils.lerp(3.7, 0.6, Math.pow(f, 0.9)) * (0.9 + rng.next() * 0.2);
-    const th = THREE.MathUtils.lerp(2.6, 1.4, f);
-    const y = base + f * (H - base - th * 0.7);
-    const radial = 18;
-    const g = new THREE.ConeGeometry(r, th, radial, 3, true);
+    const r = THREE.MathUtils.lerp(3.9, 1.0, Math.pow(f, 0.85)) * (0.92 + rng.next() * 0.16);
+    const th = THREE.MathUtils.lerp(3.0, 1.9, f);
+    const y = base + f * (H - base - th * 0.75);
+    const radial = 30;
+    const lobes = 7 + rng.int(0, 2);
+    const ph = rng.next() * Math.PI * 2;
+    const g = new THREE.ConeGeometry(r, th, radial, 5, true);
     g.translate(0, th / 2, 0);
     const pos = g.attributes.position as THREE.BufferAttribute;
     const p = new THREE.Vector3();
-    const rot = rng.next() * Math.PI;
+    const droopAt = (q: number) => q * q * 0.85 - Math.pow(q, 6) * 0.15;
     for (let i = 0; i < pos.count; i++) {
       p.fromBufferAttribute(pos, i);
       const rad = Math.hypot(p.x, p.z);
       if (rad > 0.01) {
-        const ang = Math.atan2(p.z, p.x) + rot;
-        const jag = 1 + 0.16 * Math.sin(ang * 7) + 0.07 * Math.sin(ang * 17 + t) + (rng.next() - 0.5) * 0.1;
-        p.x *= jag;
-        p.z *= jag;
-        // Droop: skirt tips hang down, bough ends curl up a touch.
+        const ang = Math.atan2(p.z, p.x);
         const q = rad / r;
-        p.y -= q * q * 0.75 - Math.pow(q, 6) * 0.2;
+        // Smooth bough scallops that grow towards the rim (no stair-stepped jag).
+        const sc = 1 + 0.12 * Math.sin(ang * lobes + ph) * q + 0.04 * Math.sin(ang * (lobes * 2 + 1) + ph * 2) * q;
+        p.x *= sc;
+        p.z *= sc;
+        p.y -= droopAt(q) + 0.18 * Math.max(0, Math.sin(ang * lobes + ph)) * q * q;
       }
       pos.setXYZ(i, p.x, p.y + y, p.z);
     }
-    const gg = smoothNormals(g.toNonIndexed());
-    uvScale(gg, 5, 2);
+    g.computeVertexNormals();
+    uvScale(g, 5, 2);
+    const gg = g.toNonIndexed();
     // Normals fan up + out from below the tier: skirts catch the sun (and the snow) seen from above.
-    sphericalNormals(gg, new THREE.Vector3(0, y - th * 0.9, 0), 0.55);
-    const tierAO = (pp: THREE.Vector3) => {
-      const local = THREE.MathUtils.clamp((pp.y - y + 0.6) / (th + 0.6), 0, 1);
-      return (0.52 + 0.48 * local) * (0.82 + 0.18 * f);
+    sphericalNormals(gg, new THREE.Vector3(0, y - th * 0.6, 0), 0.5);
+    const tierAO = (q: THREE.Vector3) => {
+      const local = THREE.MathUtils.clamp((q.y - y + 0.9) / (th + 0.9), 0, 1);
+      return (0.5 + 0.5 * local) * (0.8 + 0.2 * f);
     };
     b.add(leaf, gg, undefined, { aoWorld: tierAO });
+    // Needle sprays hanging off the tier rim + a few lying on the tier top (break the skirt outline).
+    const tint = new THREE.Color(1, 1, 1).offsetHSL((rng.next() - 0.5) * 0.03, 0, (rng.next() - 0.5) * 0.06);
+    const nRim = Math.round(r * 6.5);
+    for (let k = 0; k < nRim; k++) {
+      const ang = (k / nRim) * Math.PI * 2 + (rng.next() - 0.5) * 0.3;
+      const sc = 1 + 0.12 * Math.sin(ang * lobes + ph) + 0.04 * Math.sin(ang * (lobes * 2 + 1) + ph * 2);
+      const q = 0.93 + rng.next() * 0.08;
+      const rr = r * sc * q;
+      const yy = y - droopAt(q) - 0.18 * Math.max(0, Math.sin(ang * lobes + ph)) * q * q + 0.1;
+      pp.set(Math.cos(ang) * rr, yy, Math.sin(ang) * rr);
+      nrm.set(Math.cos(ang), 0.75, Math.sin(ang)).normalize();
+      const s = (1.15 + rng.next() * 0.4) * (0.75 + 0.25 * (1 - f));
+      cc.copy(tint).multiplyScalar(tierAO(pp) * (0.92 + rng.next() * 0.16));
+      cards.add(pp, nrm, s * 0.9, s * 1.25, (rng.next() - 0.5) * 0.5, cc, { anchorY: 0.78 });
+    }
+    const nTop = Math.round(r * 3);
+    for (let k = 0; k < nTop; k++) {
+      const ang = rng.next() * Math.PI * 2;
+      const q = 0.45 + rng.next() * 0.35;
+      pp.set(Math.cos(ang) * r * q, y + th * (1 - q) - droopAt(q) + 0.15, Math.sin(ang) * r * q);
+      nrm.set(Math.cos(ang) * 0.6, 1, Math.sin(ang) * 0.6).normalize();
+      const s = 1.1 + rng.next() * 0.4;
+      cc.copy(tint).multiplyScalar(tierAO(pp) * (0.95 + rng.next() * 0.15));
+      cards.add(pp, nrm, s, s * 1.1, rng.next() * Math.PI * 2, cc);
+    }
   }
+  // Crown tip spray.
+  cards.add(new THREE.Vector3(0, H - 0.1, 0), new THREE.Vector3(0, 1, 0), 1.2, 1.6, 0, new THREE.Color(1, 1, 1), { anchorY: 0.35 });
   const geos = b.geometries();
   const trunk = geos.get(bark)!;
   const leaves = geos.get(leaf)!;
+  const cardGeo = cards.build();
   addWindAttr(trunk, (p) => Math.pow(THREE.MathUtils.clamp(p.y / H, 0, 1), 2) * 0.5);
-  addWindAttr(leaves, (p) => 0.12 + 0.88 * Math.pow(THREE.MathUtils.clamp(p.y / H, 0, 1), 1.4));
-  return { trunk, leaves, height: H, radius: 3.8 };
+  const lw = (p: THREE.Vector3) => 0.12 + 0.88 * Math.pow(THREE.MathUtils.clamp(p.y / H, 0, 1), 1.4);
+  addWindAttr(leaves, lw);
+  addWindAttr(cardGeo, lw);
+  return { trunk, leaves, cards: cardGeo, height: H, radius: 3.9 };
 }
 
 export interface GiantHandle {
@@ -558,6 +658,10 @@ export class GiantGrove {
   private sets = new Map<string, InstancedSet>();
   private static depthTrunk: THREE.MeshDepthMaterial | null = null;
   private static depthLeaf: THREE.MeshDepthMaterial | null = null;
+  static leafDepth(): THREE.MeshDepthMaterial {
+    GiantGrove.depthLeaf ??= windDepthMaterial(WIND_LEAF);
+    return GiantGrove.depthLeaf;
+  }
 
   constructor(private rng: Rng) {
     this.group.name = 'giants';
@@ -587,6 +691,7 @@ export class GiantGrove {
         [
           { geometry: g.trunk, material: giantBarkMaterial(), depthMaterial: GiantGrove.depthTrunk },
           { geometry: g.leaves, material: canopyMaterial(kind), tinted: true, depthMaterial: GiantGrove.depthLeaf },
+          { geometry: g.cards, material: cardMaterial(kind), tinted: true, depthMaterial: cardDepthMaterial(kind) },
         ],
         this.pool,
       );
@@ -620,7 +725,120 @@ export class GiantGrove {
       c.multiplyScalar(v);
       h.set.setColor(h.id, c);
     }
-    const elderLeaf = leafMats.get('elder');
-    if (elderLeaf) for (const mesh of this.pool.meshesFor(elderLeaf)) mesh.visible = season !== 'winter';
+    for (const key of ['elder', 'card-elder']) {
+      const m = leafMats.get(key);
+      if (m) for (const mesh of this.pool.meshesFor(m)) mesh.visible = season !== 'winter';
+    }
+  }
+}
+
+// ───────────────────────────────────────────── understory shrubs
+
+/** Shrub tints per season (winter shrubs are evergreen box / holly: dark green under their snow caps). */
+const SHRUB_PALETTE: Record<Season, number[]> = {
+  spring: [0x7fbf4c, 0x8cc656, 0x70ae48],
+  summer: [0x4f943a, 0x5a9c3c, 0x478a35],
+  fall: [0xd8782a, 0xc9552a, 0x9a8a34, 0xe0a034],
+  winter: [0x3f6a48, 0x456f4a],
+};
+
+function shrubGeometry(rng: Rng): { shell: THREE.BufferGeometry; cards: THREE.BufferGeometry } {
+  const b = new MeshBuilder();
+  const leaf = canopyMaterial('elder');
+  const blobs: Blob[] = [];
+  const n = 3 + rng.int(0, 2);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + rng.next();
+    const d = i === 0 ? 0 : 0.35 + rng.next() * 0.2;
+    const r = i === 0 ? 0.62 : 0.4 + rng.next() * 0.15;
+    blobs.push({ c: new THREE.Vector3(Math.cos(a) * d, r * 0.75 + (i === 0 ? 0.12 : 0), Math.sin(a) * d), r });
+  }
+  const center = new THREE.Vector3(0, 0.3, 0);
+  const ao = (p: THREE.Vector3, nn: THREE.Vector3) => (0.42 + 0.58 * THREE.MathUtils.smoothstep(p.y, 0.0, 0.9)) * (0.8 + 0.2 * (nn.y * 0.5 + 0.5));
+  const cards = new CardBuilder();
+  const dir = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const nrm = new THREE.Vector3();
+  const cc = new THREE.Color();
+  for (const bl of blobs) {
+    const v = 0.9 + rng.next() * 0.2;
+    const tint = new THREE.Color(v, v, v).offsetHSL((rng.next() - 0.5) * 0.05, 0, 0);
+    const g = lumpySphere(bl.r * 0.8, 1, 0.12, rng, 1.4);
+    g.scale(1, 0.85, 1);
+    g.translate(bl.c.x, bl.c.y, bl.c.z);
+    sphericalNormals(g, bl.c, 0.5);
+    sphericalNormals(g, center, 0.4);
+    b.add(leaf, g, undefined, { aoWorld: ao, tint: tint.clone().multiplyScalar(0.72) });
+    const k = Math.round(9 + bl.r * 14);
+    const rot0 = rng.next() * 6.28;
+    for (let i = 0; i < k; i++) {
+      const y = 1 - ((i + 0.5) / k) * 2;
+      if (y < -0.35) continue;
+      const rr = Math.sqrt(1 - y * y);
+      const th = rot0 + i * GOLDEN;
+      dir.set(Math.cos(th) * rr, y, Math.sin(th) * rr);
+      p.copy(dir).multiplyScalar(bl.r * (0.8 + rng.next() * 0.2)).add(bl.c);
+      nrm.copy(p).sub(center).normalize().lerp(dir, 0.5).normalize();
+      const s = bl.r * (0.9 + rng.next() * 0.4);
+      cc.copy(tint).multiplyScalar(ao(p, nrm) * (0.94 + rng.next() * 0.12));
+      cards.add(p, nrm, s, s, rng.next() * 6.28, cc);
+    }
+  }
+  const shell = b.geometries().get(leaf)!;
+  const cg = cards.build();
+  const w = (q: THREE.Vector3) => THREE.MathUtils.clamp(q.y / 1.2, 0, 1) * 0.35;
+  addWindAttr(shell, w);
+  addWindAttr(cg, w);
+  return { shell, cards: cg };
+}
+
+/**
+ * Leafy understory shrubs in the same painted style as the giants' canopies (shell + leaf cards).
+ * Winter turns them into evergreen mounds with snow caps (worldfx), fall into russet / gold.
+ */
+export class ShrubField {
+  readonly pool = new BatchPool('shrubs');
+  private sets: InstancedSet[] = [];
+  private items: { set: InstancedSet; id: number; seed: number }[] = [];
+
+  constructor(private rng: Rng) {
+    for (let i = 0; i < 3; i++) {
+      const g = shrubGeometry(rng.fork(`shrub-${i}`));
+      GiantGrove.leafDepth();
+      this.sets.push(
+        new InstancedSet(
+          `shrub-${i}`,
+          [
+            { geometry: g.shell, material: canopyMaterial('elder'), tinted: true, depthMaterial: GiantGrove.leafDepth() },
+            { geometry: g.cards, material: cardMaterial('elder'), tinted: true, depthMaterial: cardDepthMaterial('elder') },
+          ],
+          this.pool,
+        ),
+      );
+    }
+  }
+
+  add(x: number, y: number, z: number, scale = 1): void {
+    const set = this.sets[this.rng.int(0, this.sets.length - 1)]!;
+    const m = new THREE.Matrix4().compose(
+      new THREE.Vector3(x, y - 0.05, z),
+      new THREE.Quaternion().setFromAxisAngle(_up, this.rng.next() * Math.PI * 2),
+      new THREE.Vector3(scale, scale * (0.85 + this.rng.next() * 0.3), scale),
+    );
+    const id = set.add(m, new THREE.Color(1, 1, 1));
+    this.items.push({ set, id, seed: this.rng.next() });
+  }
+
+  finalize(): void {
+    for (const s of this.sets) s.finalize();
+  }
+
+  setSeason(season: Season): void {
+    const c = new THREE.Color();
+    const pal = SHRUB_PALETTE[season];
+    for (const it of this.items) {
+      c.setHex(pal[Math.floor(it.seed * pal.length) % pal.length]!).multiplyScalar(0.92 + ((it.seed * 13.7) % 1) * 0.16);
+      it.set.setColor(it.id, c);
+    }
   }
 }
