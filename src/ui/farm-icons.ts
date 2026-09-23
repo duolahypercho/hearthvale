@@ -25,10 +25,14 @@ function sack(body: string, dark: string, label: string, granule: string): strin
 </svg>`;
 }
 
+const FARM_ICON_FALLBACK = false;
 let done = false;
 export function registerFarmIcons(): void {
   if (done) return;
   done = true;
+  // UI r2: icons.ts now hand-paints both sacks (distinct colours, open mouth, granule spill, sprout vs gold-star
+  // label), so these lettered fallbacks only apply when FARM_ICON_FALLBACK is set.
+  if (!FARM_ICON_FALLBACK) return;
   registerItemIcon('fertilizer', () => sack('#c9a877', '#8a6a44', 'F', '#e9e2cc'));
   registerItemIcon('qualityFertilizer', () => sack('#5f9a88', '#2f6a5a', 'Q', '#9fe0cc'));
 }

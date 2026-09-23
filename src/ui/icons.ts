@@ -1191,7 +1191,127 @@ const fishingRod: Painter = (p) => {
   p.circle(52, 44, 3.6, p.rad(['#ffb0a0', '#e8574a', '#8a2a1a']));
 };
 
+
+// ── r2: distinct art for items critics flagged as near-duplicates ─────────────
+
+/** Loose hay: a tied sheaf of straw with a flared, tufty top (the bale stays a crafting-recipe picture). */
+const hayTuft: Painter = (p) => {
+  p.ellipse(32, 58, 22, 3.6, '#000', false, 0.16);
+  const straw = (d: string, c: string): void => {
+    p.raw(`<path d="${d}" fill="none" stroke="${OL}" stroke-width="5.4" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round"/>`);
+  };
+  // back fan
+  for (const [x, c] of [
+    [8, '#d8a842'],
+    [16, '#e8bc52'],
+    [48, '#e0b04a'],
+    [56, '#c8942e'],
+  ] as const)
+    straw(`M32 40 Q${(32 + x) / 2} ${22} ${x} ${x < 32 ? 8 : 10}`, c);
+  // body of the sheaf
+  p.shape('M22 36 C22 30 42 30 42 36 L40 56 C40 59 24 59 24 56 Z', p.lin(['#fff0b0', '#f0c860', '#c8942e'], 0, 0, 1, 0));
+  for (let i = 0; i < 6; i++) p.line(`M${25 + i * 2.6} 38 L${25.6 + i * 2.4} 56`, '#a87a24', 1, 0.55);
+  // front fan
+  for (const [x, y, c] of [
+    [20, 6, '#f4d47a'],
+    [28, 3, '#fbe39a'],
+    [36, 4, '#f4d47a'],
+    [44, 7, '#ecc662'],
+  ] as const)
+    straw(`M32 40 Q${(32 + x) / 2 + (x < 32 ? -3 : 3)} ${18} ${x} ${y}`, c);
+  // twine
+  p.shape('M21 38 C26 42 38 42 43 38 L43 43 C38 47 26 47 21 43 Z', '#b83a2a', 1.8);
+  p.line('M24 42 C28 44 36 44 40 42', '#ff8a70', 1.2, 0.8);
+  // stray bits
+  p.line('M12 54 L18 50 M50 55 L45 51 M8 46 L13 45', '#e8c060', 1.8);
+  p.glint(28, 34, 3, 1.4, -20, 0.7);
+};
+
+/** Fertilizer sack (burlap, slumped, open) spilling granules; quality = dark teal sack with a gold star. */
+function fertSack(p: Pen, body: string, band: string, grain: string, star: boolean): void {
+  p.ellipse(33, 57, 24, 3.8, '#000', false, 0.17);
+  // spill: little heap + scattered granules
+  p.shape('M38 58 C40 51 50 50 58 55 C58 58 48 59 38 58 Z', p.rad([tone(grain, 1.5), grain, tone(grain, 0.6)], 0.5, 0.3, 0.8), 1.8);
+  for (const [x, y, r] of [
+    [44, 53.5, 1.3],
+    [50, 53, 1.1],
+    [53, 55, 1.2],
+    [47, 56, 1],
+    [60, 58, 1.2],
+    [36, 60, 1],
+  ] as const)
+    p.circle(x, y, r, tone(grain, 1.35), false, 0.95);
+  // sack body, tipped toward the spill
+  p.raw('<g transform="rotate(-10 26 40)">');
+  p.shape('M10 28 C6 38 6 50 12 56 C18 60 38 60 42 55 C47 48 46 36 40 26 Z', p.rad([tone(body, 1.35), body, tone(body, 0.55)], 0.35, 0.3, 0.9));
+  // folded-open mouth with granules showing
+  p.shape('M8 26 C14 20 38 18 44 25 C38 30 14 31 8 26 Z', p.lin([tone(body, 1.2), tone(body, 0.75)], 0, 0, 0, 1), 2);
+  p.fill('M13 26 C18 23 34 22 39 25 C34 27 18 28 13 26 Z', tone(grain, 0.9));
+  for (const [x, y] of [
+    [18, 25],
+    [23, 24.4],
+    [28, 24.6],
+    [33, 25],
+  ] as const)
+    p.circle(x, y, 1.1, tone(grain, 1.4), false, 0.9);
+  // weave texture + label
+  for (let i = 0; i < 5; i++) p.line(`M${12 + i * 7} 33 L${13 + i * 6.6} 54`, tone(body, 0.62), 1, 0.35);
+  p.shape('M15 36 H37 V49 H15 Z', p.lin([tone(band, 1.25), band, tone(band, 0.8)]), 1.8);
+  if (star) p.raw(`<path d="M26 37.6 l2 4 l4.4 .6 l-3.2 3 l.8 4.4 l-4 -2.1 l-4 2.1 l.8 -4.4 l-3.2 -3 l4.4 -.6 Z" fill="#ffd84a" stroke="${OL}" stroke-width="1.3" stroke-linejoin="round"/>`);
+  else p.raw(`<path d="M26 47 C26 43 25 41 22 39.6 C25 39.4 26.6 41 26.8 43 C27.4 40.6 29.6 39 32 39.4 C29.6 40.6 27.8 43 27.4 47 Z" fill="#6ab04a" stroke="${OL}" stroke-width="1.1" stroke-linejoin="round"/>`);
+  p.glint(14, 34, 2.6, 7, 12, 0.4);
+  p.raw('</g>');
+}
+const fertilizer: Painter = (p) => fertSack(p, '#d8c29a', '#f6ecd0', '#8a5a36', false);
+const qualityFertilizer: Painter = (p) => fertSack(p, '#5a9a8a', '#1e5a52', '#3a2618', true);
+
+/** Starfall Opal: an iridescent oval cabochon in a little gold bezel with an aurora drifting inside + a star. */
+const starfallOpal: Painter = (p) => {
+  shadow(p, 17);
+  // A tumbled, egg-shaped opal: pearly base, drifting aurora bands, a star caught inside.
+  const body = 'M32 7 C46 7 54 20 54 34 C54 49 44 58 32 58 C20 58 10 49 10 34 C10 20 18 7 32 7 Z';
+  p.shape(body, p.lin(['#f4fbff', '#cfe6ff', '#e4d2ff', '#ffd6ee', '#c8fff0', '#a8cff4'], 0.05, 0, 0.95, 1), 2.6);
+  p.raw(`<clipPath id="sfo"><path d="${body}"/></clipPath><g clip-path="url(#sfo)"><path d="M4 44 C16 30 26 44 36 30 C44 20 52 24 60 16" fill="none" stroke="#6af0c0" stroke-width="7" stroke-linecap="round" opacity=".45"/><path d="M4 54 C18 42 30 54 40 42 C48 34 54 38 62 32" fill="none" stroke="#a080ff" stroke-width="6" stroke-linecap="round" opacity=".42"/><path d="M8 26 C18 18 28 24 36 16" fill="none" stroke="#ff8ad0" stroke-width="4.5" stroke-linecap="round" opacity=".4"/><path d="M10 58 C22 50 42 50 56 58" fill="#5a78c0" opacity=".25"/></g>`);
+  p.raw('<path d="M35 26 l2.1 5.4 l5.4 2.1 l-5.4 2.1 l-2.1 5.4 l-2.1 -5.4 l-5.4 -2.1 l5.4 -2.1 Z" fill="#fffbe6" stroke="#b8a0ff" stroke-width=".8"/>');
+  p.circle(35, 33.5, 1.8, '#fff', false, 1);
+  p.glint(22, 20, 5.4, 2.6, -40, 0.95);
+  p.glint(44, 48, 2.6, 1.2, -40, 0.5);
+  p.shape(body, 'none', 2.6);
+  sparkle(p, 53, 9, 1);
+  sparkle(p, 9, 50, 0.6);
+};
+
+/** Gingerbread villager: a biscuit person with piped icing trim, a smile and extra buttons. */
+const gingerbreadVillager: Painter = (p) => {
+  shadow(p, 18, 59);
+  const body = 'M32 5 C39 5 43 10 43 16 C43 19 42 21 40 23 L52 24 C57 24 58 31 53 32 L42 33 L44 48 L48 55 C50 59 44 62 41 58 L32 48 L23 58 C20 62 14 59 16 55 L20 48 L22 33 L11 32 C6 31 7 24 12 24 L24 23 C22 21 21 19 21 16 C21 10 25 5 32 5 Z';
+  p.shape(body, p.rad(['#e8a860', '#c07838', '#7a4418'], 0.4, 0.3, 0.85));
+  const ice = (d: string): void => {
+    p.line(d, '#fffaf2', 2.2, 1);
+  };
+  ice('M9 27 q1.6 -2 3.2 0 t3.2 0');
+  ice('M49 27 q1.6 -2 3.2 0 t3.2 0');
+  ice('M17 56 q1.6 -2.4 3.2 -0.4');
+  ice('M43 56 q1.6 2 3.2 -0.4');
+  ice('M25 10 C28 7 36 7 39 10');
+  p.circle(28, 15, 1.9, OL, false).circle(36, 15, 1.9, OL, false);
+  p.line('M27.5 19.5 C30 22 34 22 36.5 19.5', '#fffaf2', 1.8, 1);
+  p.circle(25.6, 18.6, 1.6, '#f08a8a', false, 0.7).circle(38.4, 18.6, 1.6, '#f08a8a', false, 0.7);
+  for (const [y, c] of [
+    [28, '#e8574a'],
+    [34.5, '#6ab04a'],
+    [41, '#fff4d8'],
+  ] as const)
+    p.circle(32, y, 2.4, c, true);
+  p.glint(26, 9, 3, 1.4, -25, 0.55);
+};
+
 const HAND_PAINTERS: Record<string, Painter> = {
+  starfallOpal,
+  fertilizer,
+  qualityFertilizer,
+  gingerbreadVillager,
+  hayBale: hay,
   quartz,
   diamond,
   amethyst,
@@ -1209,7 +1329,7 @@ const HAND_PAINTERS: Record<string, Painter> = {
   goatMilk,
   wool,
   truffle,
-  hay,
+  hay: hayTuft,
   frostShard,
   slimeGel,
   hoe,
@@ -1362,16 +1482,37 @@ function mixc(a: string, b: string, k: number): string {
  * Seed packet: a crimped paper envelope tinted with the crop's colour, tilted back, with the crop itself
  * painted large in front of it (so every packet reads by silhouette + hue at toolbar size).
  */
+const PACKET_BAND: Record<string, string> = {
+  parsnip: '#e8a33a',
+  cauliflower: '#5f98d8',
+  potato: '#a8683a',
+  kale: '#3f8a5a',
+  strawberry: '#d8454a',
+  greenBean: '#58a83a',
+  tomato: '#e0503a',
+  corn: '#e8c030',
+  blueberry: '#4a62c8',
+  melon: '#7ac05a',
+  hotPepper: '#d83a2a',
+  hops: '#8ab83a',
+  sunflower: '#f0b020',
+  pumpkin: '#e8782a',
+  eggplant: '#7a4aa8',
+  grape: '#8a3a9a',
+  beet: '#b02a5a',
+  yam: '#c8603a',
+};
+
 function seedPacket(id: string, def: ItemDef | undefined): string {
   const p = new Pen('s');
   const crop = def?.crop ? String(def.crop) : id.replace(/Seeds?$/i, '');
   const inner = HAND_PAINTERS[crop];
   const cc = def?.color !== undefined ? hex(def.color) : '#8fc86a';
-  // Pale crops (parsnip, cauliflower) would wash the packet out: fall back to a warm kraft.
+  // Every crop gets its own packet colour (pale crops like parsnip / cauliflower would all read as kraft).
   const [r, g, b] = parse(cc);
   const pale = (r + g + b) / 3 > 200;
-  const band = pale ? '#6aae45' : cc;
-  const paper = mixc('#ecd49e', pale ? '#c8a060' : cc, pale ? 0.25 : 0.42);
+  const band = PACKET_BAND[crop] ?? (pale ? hsl(hash(crop)) : cc);
+  const paper = mixc('#ecd49e', band, 0.38);
   p.raw('<g transform="rotate(-9 26 34)">');
   p.shape('M6 12 H44 L46 56 C46 59 44 60 41 60 H9 C6 60 4 59 4 56 Z', p.lin([tone(paper, 1.18), paper, tone(paper, 0.68)], 0, 0.5, 1, 0.5));
   // crimped top
@@ -1397,7 +1538,8 @@ function seedPacket(id: string, def: ItemDef | undefined): string {
     const sub = new Pen('i');
     inner(sub, def?.color !== undefined ? hex(def.color) : undefined);
     const body = sub.svg().replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
-    p.raw(`<g transform="translate(25 22) scale(0.62)">${body}</g>`);
+    // Big and forward: the crop is the packet's silhouette at toolbar size.
+    p.raw(`<g transform="translate(19 19) scale(0.7)">${body}</g>`);
   } else {
     p.circle(44, 42, 11, p.rad([tone(band, 1.4), band, tone(band, 0.6)]));
   }

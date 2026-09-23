@@ -16,6 +16,9 @@ import { itemTooltipHtml } from './itemtip';
 import { menuTabs } from './menutabs';
 import { flyItemTo } from './item-fly';
 
+/** Recipes pictured by something other than their output (the Hay Bale recipe makes loose hay). */
+const RECIPE_ART: Record<string, string> = { hay: 'hayBale' };
+
 export class CraftingScreen extends Screen {
   private sel = 0;
   private qty = 1;
@@ -91,7 +94,7 @@ export class CraftingScreen extends Screen {
       c.className = `craft-card${x.known ? '' : ' locked'}${ok ? ' ok' : ''}${i === this.sel ? ' on' : ''}`;
       const d = itemDef(x.r.out.itemId);
       c.innerHTML = x.known
-        ? `<div class="pic">${itemIcon(x.r.out.itemId)}</div>${x.r.out.qty > 1 ? `<span class="yield">×${x.r.out.qty}</span>` : ''}<div class="nm">${escapeHtml(x.r.name)}</div>${ok ? '<i class="chk"></i>' : ''}`
+        ? `<div class="pic">${itemIcon(RECIPE_ART[x.r.id] ?? x.r.out.itemId)}</div>${x.r.out.qty > 1 ? `<span class="yield">×${x.r.out.qty}</span>` : ''}<div class="nm">${escapeHtml(x.r.name)}</div>${ok ? '<i class="chk"></i>' : ''}`
         : `<div class="pic"><img class="u-ic sil" src="${itemIconUrl(x.r.out.itemId)}" alt=""/></div><div class="nm">???</div><small>${escapeHtml(x.r.unlock ?? 'Undiscovered')}</small>`;
       void d;
     });
@@ -120,7 +123,7 @@ export class CraftingScreen extends Screen {
       .join('');
     this.detail.innerHTML = `
       <div class="cd-top">
-        <div class="pedestal ${ok ? 'lit' : ''}">${known ? itemIcon(r.out.itemId) : `<img class="u-ic sil" src="${itemIconUrl(r.out.itemId)}" alt=""/>`}</div>
+        <div class="pedestal ${ok ? 'lit' : ''}">${known ? itemIcon(RECIPE_ART[r.id] ?? r.out.itemId) : `<img class="u-ic sil" src="${itemIconUrl(r.out.itemId)}" alt=""/>`}</div>
         <div class="cd-title"><b>${known ? escapeHtml(r.name) : 'Unknown recipe'}</b><span class="t-cat" style="background:${cat.color}">${r.placeable ? 'Placeable' : cat.label}</span>
           <p>${known ? escapeHtml(d?.description ?? '') : `Learn it: ${escapeHtml(r.unlock ?? 'keep exploring')}.`}</p></div>
       </div>

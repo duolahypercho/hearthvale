@@ -92,6 +92,7 @@ export class InventoryScreen extends Screen {
       this.cells.push(c);
     }
     this.detail = el('div', 'inv-detail');
+    this.detailKey = '';
     this.grid.addEventListener('pointerleave', () => this.showDetail(null));
     const foot = el('div', 'inv-foot');
     const sort = el('button', 'u-btn small', `${ICONS.sort}<span>Sort</span>`);

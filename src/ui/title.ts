@@ -26,10 +26,10 @@ const LOGO = `<svg viewBox="0 0 900 300" class="ts-word" aria-label="Hearthvale"
   <text class="w1"><textPath href="#tlArc" startOffset="50%" text-anchor="middle">Hearthvale</textPath></text>
   <text class="w2"><textPath href="#tlArc" startOffset="50%" text-anchor="middle">Hearth<tspan fill="url(#tlFill2)">vale</tspan></textPath></text>
 </g>
-<g class="sprig" transform="translate(96 150) rotate(-24)"><path d="M0 0 C20 -10 40 -12 64 -6" stroke="#5a3418" stroke-width="5" fill="none" stroke-linecap="round"/>${[8, 24, 40, 54]
+<g class="sprig" transform="translate(58 122) rotate(-30) scale(.9)"><path d="M0 0 C20 -10 40 -12 64 -6" stroke="#5a3418" stroke-width="5" fill="none" stroke-linecap="round"/>${[8, 24, 40, 54]
   .map((x, i) => `<path d="M${x} ${-3 - i} c-4 -14 6 -22 14 -22 c0 10 -6 18 -14 22Z" fill="${i % 2 ? '#6fb04a' : '#8fd05a'}" stroke="#2f5a1a" stroke-width="2.4"/>`)
   .join('')}<circle cx="66" cy="-6" r="7" fill="#ff9fbf" stroke="#a8466a" stroke-width="2.4"/><circle cx="66" cy="-6" r="2.6" fill="#ffe08a"/></g>
-<g class="hang" transform="translate(914 92)"><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#3b1a08" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#7a4a22" stroke-width="4.5" fill="none" stroke-linecap="round"/><path d="M-46 -8 C-60 -14 -64 -30 -54 -36" stroke="#7a4a22" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M0 -60 C6 -40 3 -20 0 0" stroke="#5a3418" stroke-width="3" fill="none"/><g class="lamp"><circle cx="0" cy="20" r="46" fill="#ffcf6a" opacity=".25"/><path d="M-14 0 H14 L10 -7 H-10 Z" fill="#5a3a22"/><rect x="-13" y="0" width="26" height="36" rx="6" fill="url(#tlGlow)" stroke="#4a2e1a" stroke-width="3"/><path d="M0 0 V36 M-13 18 H13" stroke="#5a3a22" stroke-width="1.8" opacity=".6"/><path d="M-16 36 H16 L11 44 H-11 Z" fill="#5a3a22"/></g></g>
+<g class="hang" transform="translate(944 84)"><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#3b1a08" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#7a4a22" stroke-width="4.5" fill="none" stroke-linecap="round"/><path d="M-46 -8 C-60 -14 -64 -30 -54 -36" stroke="#7a4a22" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M0 -60 C6 -40 3 -20 0 0" stroke="#5a3418" stroke-width="3" fill="none"/><g class="lamp"><circle cx="0" cy="20" r="46" fill="#ffcf6a" opacity=".25"/><path d="M-14 0 H14 L10 -7 H-10 Z" fill="#5a3a22"/><rect x="-13" y="0" width="26" height="36" rx="6" fill="url(#tlGlow)" stroke="#4a2e1a" stroke-width="3"/><path d="M0 0 V36 M-13 18 H13" stroke="#5a3a22" stroke-width="1.8" opacity=".6"/><path d="M-16 36 H16 L11 44 H-11 Z" fill="#5a3a22"/></g></g>
 </svg>`;
 
 export class TitlePanel extends Screen {
@@ -113,10 +113,10 @@ export class TitlePanel extends Screen {
     const menu = this.root.querySelector('.ts-menu')!;
     const items: [string, string, string, string, boolean][] = [
       ['new', 'New Game', 'sprout', 'Begin your story', true],
-      ['continue', 'Continue', 'play', latest ? latest.label : 'No saved journal yet', !!latest],
-      ['load', 'Load', 'door', 'Pick a journal', !!latest],
-      ['coop', 'Co-op', 'heart', 'Host or join a shared farm', true],
-      ['settings', 'Options', 'gear', 'Sound · graphics · keys', true],
+      ['continue', 'Continue', 'play', latest ? latest.label : 'No journal yet', !!latest],
+      ['load', 'Load', 'door', latest ? 'Pick a journal' : 'Nothing saved', !!latest],
+      ['coop', 'Co-op', 'people', 'Farm with friends', true],
+      ['settings', 'Options', 'gear', 'Sound & graphics', true],
       ['credits', 'Credits', 'quill', 'Who made this', true],
     ];
     items.forEach(([a, label, icon, sub, enabled], i) => {
