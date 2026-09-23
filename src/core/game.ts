@@ -37,6 +37,7 @@ import { SleepSystem } from '../systems/sleep';
 import { RelationshipSystem } from '../systems/relationships';
 import { FishingSystem } from '../systems/fishing';
 import { MiningSystem } from '../systems/mining';
+import { CombatSystem } from '../systems/combat';
 import { CraftingSystem } from '../systems/crafting';
 import { QuestSystem } from '../systems/quests';
 import { FestivalSystem } from '../systems/festivals';
@@ -59,6 +60,7 @@ const SYSTEMS: (() => System)[] = [
   () => new RelationshipSystem(),
   () => new FishingSystem(),
   () => new MiningSystem(),
+  () => new CombatSystem(),
   () => new CraftingSystem(),
   () => new QuestSystem(),
   () => new FestivalSystem(),

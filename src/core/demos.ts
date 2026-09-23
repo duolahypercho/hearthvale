@@ -24,6 +24,8 @@ export interface DemoDef {
 const HOME_CAM = { yaw: -16, pitch: 45, distance: 27, offsetX: -1.6, offsetZ: -2.6 };
 /** Town square framing: plaza + fountain in front, Lantern Hall and shop fronts behind. */
 const TOWN_CAM = { yaw: 0, pitch: 43, distance: 37, offsetX: -2.9, offsetZ: -7.6 };
+/** Mine floors: steep, close diorama framing so the lantern pool fills the frame. */
+const MINE_CAM = { yaw: 0, pitch: 54, distance: 19, offsetZ: -0.6 };
 /** Cindergrove: the waterfall, plunge pool and flanking elders, player on the pool path. */
 const FOREST_FALLS_CAM = { yaw: -4, pitch: 44, distance: 26, offsetX: -6.8, offsetZ: -3.6 };
 /** Festival: same framing as TOWN_CAM, but the player stands in the ring east of the maypole. */
@@ -74,7 +76,14 @@ export const DEMOS: Record<string, DemoDef> = {
   'coop-interior': { map: 'coop', x: 4.5, z: 5.4, facing: 'up', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 12.5, offsetZ: 0.3 }, showcase: ['animals'] },
   'barn-interior': { map: 'barn', x: 6.5, z: 7.2, facing: 'up', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 16.5, offsetZ: 0.3 }, showcase: ['animals'] },
   'animals-pasture': { map: 'farm', x: 41.5, z: 39.6, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
-  mine: { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun' },
+  // Mines (systems/mining + systems/combat, world/mine): the mountain entrance and one floor per biome band.
+  // The floor demos pick a showcase spot on the seeded floor; &floor=N stages any floor (biome follows).
+  mine: { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
+  'mine-entrance': { map: 'mine-entrance', x: 22.6, z: 14.4, facing: 'down', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 25, offsetX: 0.4, offsetZ: -4.2 }, showcase: [] },
+  'mine-floor': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
+  'mine-ice': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
+  'mine-lava': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
+  'mine-combat': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 14.5, offsetZ: -0.5 }, showcase: [] },
   // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
   'fest-spring': { map: 'fest-spring', x: 29.2, z: 35.2, facing: 'up', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 33, offsetX: 2.8, offsetZ: -8.6 }, showcase: ['festival-show'] },
 };
