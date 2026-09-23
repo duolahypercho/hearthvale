@@ -103,6 +103,11 @@ export interface ThemeDef {
   rest: [number, number];
   /** Overall level trim for this theme. */
   gain: number;
+  /**
+   * Per-song mastering EQ: high-shelf gain (dB) at 2.4 kHz on this theme's bus — lifts the attack
+   * and overtones of near-pure mallet / music-box timbres without touching their instruments.
+   */
+  sheen?: number;
 }
 
 export interface NoteEvent {
@@ -1014,7 +1019,8 @@ export class Composer {
         }
         break;
       case 'island':
-        for (let s = 0; s < S; s++) g(s, 'shaker', s % 2 === 0 ? 0.75 : 0.45);
+        // The shaker carries the island lilt (it was buried under the congas): up front, accented on the beat.
+        for (let s = 0; s < S; s++) g(s, 'shaker', s % 2 === 0 ? 1.05 : 0.62);
         g(0, 'softKick', 0.7);
         g(3, 'conga', 0.7, 57);
         g(6, 'conga', 0.6, 52);

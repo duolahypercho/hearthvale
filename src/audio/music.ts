@@ -15,6 +15,7 @@ import { Composer, type Piece, type ThemeDef, type TrackName } from './composer'
 import { INSERTS, INSTRUMENTS, TAIL, type InstrumentName } from './instruments';
 import { THEMES } from './themes';
 import { Rand, hashString } from './dsp';
+import { PiecePrefetch } from './prefetch';
 
 /** Polyphony priority per track: melody and bass always play; texture thins first. */
 const PRIO: Record<TrackName, number> = { melody: 3, bass: 3, counter: 2, accomp: 2, double: 1, accomp2: 1, pad: 1, perc: 1 };
@@ -36,7 +37,7 @@ export class MusicPlayer {
   /** Notes scheduled (diagnostics). */
   notes = 0;
 
-  constructor(private g: AudioGraph, readonly theme: ThemeDef, seed: number, startAt: number, fadeIn = 0) {
+  constructor(private g: AudioGraph, readonly theme: ThemeDef, seed: number, startAt: number, fadeIn = 0, private pieces: PiecePrefetch | null = null) {
     const ctx = g.ctx;
     this.seed = seed;
     this.out = ctx.createGain();
@@ -51,9 +52,21 @@ export class MusicPlayer {
       this.out.gain.value = lvl;
       this.wet.gain.value = lvl;
     }
-    this.out.connect(g.musicBus);
-    this.wet.connect(g.hall);
-    this.piece = new Composer(theme, seed).compose();
+    // Per-song mastering shelf on the dry bus and the reverb send alike.
+    const shelf = (dest: AudioNode): AudioNode => {
+      if (!theme.sheen) return dest;
+      const f = ctx.createBiquadFilter();
+      f.type = 'highshelf';
+      f.frequency.value = 2400;
+      f.gain.value = theme.sheen;
+      f.connect(dest);
+      return f;
+    };
+    this.out.connect(shelf(g.musicBus));
+    this.wet.connect(shelf(g.hall));
+    this.piece = pieces ? pieces.take(theme, seed) : new Composer(theme, seed).compose();
+    // Seamless loops chain the next piece on the downbeat: have it composed in the background by then.
+    if (theme.rest[1] === 0) pieces?.request(theme, seed + 1);
     this.pieceStart = startAt;
     this.endTime = startAt + this.piece.duration;
   }
@@ -100,7 +113,8 @@ export class MusicPlayer {
         if (this.theme.rest[1] === 0 && this.pieceStart + this.piece.duration < this.stopAt) {
           this.pieceStart += this.piece.duration;
           this.seed++;
-          this.piece = new Composer(this.theme, this.seed).compose();
+          this.piece = this.pieces ? this.pieces.take(this.theme, this.seed) : new Composer(this.theme, this.seed).compose();
+          this.pieces?.request(this.theme, this.seed + 1);
           this.idx = 0;
           this.endTime = this.pieceStart + this.piece.duration;
           continue;
@@ -213,8 +227,19 @@ export class MusicDirector {
   readonly trace: DirectorTrace[] = [];
   private lastNote = '';
 
+  /** Upcoming songs are composed in a worker (real-time contexts only) so a song start never costs a frame. */
+  readonly pieces: PiecePrefetch;
+
   constructor(private g: AudioGraph, seed = 1) {
     this.rng = new Rand(seed);
+    this.pieces = new PiecePrefetch(!g.offline);
+  }
+
+  /** When the director started waiting on the worker for a song that is due (null = not waiting). */
+  private waitSince: number | null = null;
+
+  private nextSeed(want: string): number {
+    return (this.baseSeed * 131 + hashString(want) + this.pieceCount) >>> 0;
   }
 
   get playing(): string | null {
@@ -280,11 +305,26 @@ export class MusicDirector {
       this.current = null;
       this.restUntil = now + a + this.rng.next() * (b - a);
     }
+    if (!this.current && want) {
+      // Compose the next song in the background while the old one fades / the score rests; at start
+      // time wait (≤ 0.4 s) for the worker rather than composing on the frame.
+      const th = THEMES[want];
+      if (th) this.pieces.request(th, this.nextSeed(want));
+      if (th && now >= this.restUntil && !this.pieces.settled(th, this.nextSeed(want))) {
+        this.waitSince ??= now;
+        if (now - this.waitSince < 0.4) {
+          this.old = this.old.filter((p) => p.pump(now + lookahead) && !p.finished);
+          return;
+        }
+      }
+    }
+    this.waitSince = null;
     if (!this.current && want && now >= this.restUntil) {
       const th = THEMES[want];
       if (th) {
-        const seed = (this.baseSeed * 131 + hashString(want) + this.pieceCount++) >>> 0;
-        this.current = new MusicPlayer(this.g, th, seed, now + 0.1, 0.6);
+        const seed = this.nextSeed(want);
+        this.pieceCount++;
+        this.current = new MusicPlayer(this.g, th, seed, now + 0.1, 0.6, this.pieces);
         this.current.setLevel(this.level, 0.1);
         this.log(`start ${want}`, want);
       } else this.log(`unknown theme ${want}`, want);

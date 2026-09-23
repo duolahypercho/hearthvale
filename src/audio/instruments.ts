@@ -222,10 +222,11 @@ const MARIMBA: Mallet = {
     return {
       partials: [
         { r: 1, amp: 0.8, tau },
-        { r: 3.99, amp: 0.34, tau: tau * 0.22 },
-        { r: 9.85, amp: 0.08, tau: tau * 0.07 },
+        { r: 3.99, amp: 0.42, tau: tau * 0.24 },
+        { r: 9.85, amp: 0.12, tau: tau * 0.08 },
       ],
-      click: { amp: 0.1, tau: 0.006, lp: 1800 },
+      // Mallet contact: a short woody "tock" with real 2–4 kHz content so the tune speaks in a mix.
+      click: { amp: 0.15, tau: 0.005, lp: 4200 },
       // Resonator tube: a touch of reinforcement just above the bar's fundamental.
       body: [[mtof(m) * 1.002, 30, 0.25]],
       seconds: Math.min(2.4, tau * 5.5 + 0.1),
@@ -242,11 +243,13 @@ const MUSIC_BOX: Mallet = {
     return {
       partials: [
         { r: 1, amp: 0.62, tau, beat: [0.7, 0.12] },
-        { r: 2.0, amp: 0.2, tau: tau * 0.6 },
-        { r: 4.16, amp: 0.14, tau: tau * 0.22 },
+        { r: 2.0, amp: 0.26, tau: tau * 0.6 },
+        { r: 4.16, amp: 0.16, tau: tau * 0.24 },
+        // Cantilever comb tooth: its second bending mode sits at ~6.27× — the music box's glint.
+        { r: 6.27, amp: 0.09, tau: tau * 0.12 },
         { r: 6.95, amp: 0.05, tau: 0.05 },
       ],
-      click: { amp: 0.035, tau: 0.003, lp: 12000, hp: 4000 },
+      click: { amp: 0.06, tau: 0.003, lp: 12000, hp: 3500 },
       // The wooden case.
       body: [[420, 3, 0.3], [1100, 4, 0.18], [2600, 5, 0.1]],
       seconds: Math.min(3, tau * 5),
@@ -264,10 +267,10 @@ const CELESTA: Mallet = {
       partials: [
         { r: 1, amp: 0.7, tau },
         { r: 2.0, amp: 0.08, tau: tau * 0.35 },
-        { r: 4.0, amp: 0.2, tau: tau * 0.18 },
-        { r: 7.0, amp: 0.035, tau: 0.04 },
+        { r: 4.0, amp: 0.27, tau: tau * 0.24 },
+        { r: 7.0, amp: 0.05, tau: 0.05 },
       ],
-      click: { amp: 0.04, tau: 0.004, lp: 2500 },
+      click: { amp: 0.06, tau: 0.004, lp: 5000 },
       body: [[mtof(m), 20, 0.2]],
       seconds: Math.min(2.8, tau * 5),
     };
@@ -307,15 +310,61 @@ const STEEL_PAN: Mallet = {
       partials: [
         { r: 1, amp: 0.6, tau },
         // The "bloom": the octave partial swells in just after the strike.
-        { r: 2, amp: 0.2, tau: tau * 0.7, atk: 0.03 },
-        { r: 3, amp: 0.06, tau: tau * 0.3 },
-        { r: 4, amp: 0.05, tau: 0.05 },
-        { r: 5.02, amp: 0.025, tau: 0.03 },
+        { r: 2, amp: 0.3, tau: tau * 0.7, atk: 0.03 },
+        { r: 3, amp: 0.12, tau: tau * 0.35 },
+        { r: 4, amp: 0.07, tau: tau * 0.15 },
+        { r: 5.02, amp: 0.03, tau: 0.04 },
       ],
       glide: 20,
       glideTime: 0.02,
-      click: { amp: 0.05, tau: 0.004, lp: 3000 },
+      click: { amp: 0.07, tau: 0.004, lp: 5000 },
       seconds: Math.min(2.4, tau * 5.5),
+    };
+  },
+};
+
+/**
+ * Glockenspiel: small steel bars (free–free bar modes 1 : 2.76 : 5.40 : 8.93), a brass-mallet tick —
+ * the orchestral sparkle that doubles a tune an octave up on its repeat.
+ */
+const GLOCK: Mallet = {
+  key: 'glk',
+  level: 0.9,
+  bright: 20,
+  spec: (m) => {
+    const tau = clamp(0.95 - (m - 79) * 0.02, 0.35, 1.2);
+    return {
+      partials: [
+        { r: 1, amp: 0.62, tau },
+        { r: 2.76, amp: 0.2, tau: tau * 0.3 },
+        { r: 5.4, amp: 0.09, tau: tau * 0.12 },
+        { r: 8.93, amp: 0.035, tau: 0.03 },
+      ],
+      click: { amp: 0.07, tau: 0.002, lp: 12000, hp: 3000 },
+      seconds: Math.min(3, tau * 5),
+    };
+  },
+};
+
+/**
+ * Vibraphone: aluminium bars tuned 1 : 4 : 10 over resonator tubes, soft cord mallets, the motor's
+ * slow tremolo (a beating twin of the fundamental and of the 4th partial) — the inn's jazz voice.
+ */
+const VIBES: Mallet = {
+  key: 'vib',
+  level: 0.85,
+  bright: 12,
+  spec: (m) => {
+    const tau = clamp(1.6 - (m - 60) * 0.03, 0.6, 2);
+    return {
+      partials: [
+        { r: 1, amp: 0.66, tau, beat: [4.6, 0.32] },
+        { r: 4, amp: 0.26, tau: tau * 0.3, beat: [4.6, 0.3] },
+        { r: 10, amp: 0.05, tau: 0.06 },
+      ],
+      click: { amp: 0.07, tau: 0.004, lp: 6000 },
+      body: [[mtof(m) * 1.001, 28, 0.2]],
+      seconds: Math.min(4, tau * 4),
     };
   },
 };
@@ -346,6 +395,16 @@ export const musicBox = mallet(MUSIC_BOX);
 export const celesta = mallet(CELESTA);
 export const bell = mallet(BELL);
 export const steelPan = mallet(STEEL_PAN);
+export const glock = mallet(GLOCK);
+const vibesStrike = mallet(VIBES);
+/** Vibraphone: pedal down, so a note rings on (damped a beat after its written end, as players do). */
+export const vibes: InstrumentFn = (g, dest, t, m, dur, v, o) => {
+  const damp = gain(g, 1);
+  damp.gain.setValueAtTime(1, t);
+  damp.gain.setTargetAtTime(0, t + dur + 0.25, 0.18);
+  damp.connect(dest);
+  vibesStrike(g, damp, t, m, dur, v, o);
+};
 
 export const marimba: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   if ((o?.art === 'roll' || o?.art === 'legato') && dur > 0.5) {
@@ -365,13 +424,13 @@ export const epiano: InstrumentFn = (g, dest, t, m, dur, v) => {
   const mod = sine(g, f, t, stop);
   const idx = gain(g);
   idx.gain.setValueAtTime(f * (0.4 + 1.1 * v), t);
-  idx.gain.setTargetAtTime(f * 0.12, t, 0.35);
+  idx.gain.setTargetAtTime(f * 0.2, t, 0.35);
   mod.connect(idx).connect(car.frequency);
   // Tine "bark" – high ratio, very short.
   const tine = sine(g, f * 14, t, t + 0.3);
   const ti = gain(g);
-  ti.gain.setValueAtTime(f * 0.7 * v, t);
-  ti.gain.setTargetAtTime(0, t, 0.02);
+  ti.gain.setValueAtTime(f * 1.05 * v, t);
+  ti.gain.setTargetAtTime(0, t, 0.028);
   tine.connect(ti).connect(car.frequency);
   const a = gain(g);
   a.gain.setValueAtTime(0, t);
@@ -438,7 +497,7 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
 const FLUTE = (): number[] => [1, 0.5, 0.22, 0.12, 0.06, 0.03, 0.015];
 const WHISTLE = (): number[] => [1, 0.22, 0.2, 0.06, 0.04, 0.015];
 // Odd-harmonic reed spectrum, upper partials eased off.
-const CLARINET = (): number[] => [1, 0.05, 0.6, 0.05, 0.3, 0.04, 0.15, 0.03, 0.07, 0.02, 0.04, 0.01, 0.02];
+const CLARINET = (): number[] => [1, 0.05, 0.58, 0.05, 0.24, 0.035, 0.1, 0.02, 0.045, 0.012, 0.022, 0.006, 0.01];
 /** Bowed string (Helmholtz sawtooth ~1/n), slightly softened even harmonics. */
 const BOWED = (): number[] => Array.from({ length: 36 }, (_, i) => (1 / Math.pow(i + 1, 1.02)) * ((i + 1) % 2 ? 1 : 0.9));
 const REED = (): number[] => [1, 0.75, 0.62, 0.5, 0.46, 0.36, 0.3, 0.26, 0.2, 0.16, 0.12, 0.1, 0.08, 0.06];
@@ -483,7 +542,7 @@ function windVoice(opts: { wave: () => number[]; name: string; attack: number; b
 export const flute = windVoice({ wave: FLUTE, name: 'flute', attack: 0.07, breath: 0.14, chiff: 0.09, vibRate: 5.1, vibDepth: 0.0045, bright: 5, release: 0.07, level: 0.62 });
 export const whistle = windVoice({ wave: WHISTLE, name: 'whistle', attack: 0.03, breath: 0.06, chiff: 0.14, vibRate: 5.8, vibDepth: 0.004, bright: 6, release: 0.04, level: 0.5 });
 export const ocarina = windVoice({ wave: () => [1, 0.18, 0.08, 0.04, 0.02], name: 'ocarina', attack: 0.05, breath: 0.12, chiff: 0.06, vibRate: 5.4, vibDepth: 0.005, bright: 3.5, release: 0.05, level: 0.62 });
-export const clarinet = windVoice({ wave: CLARINET, name: 'clarinet', attack: 0.05, breath: 0.03, chiff: 0.02, vibRate: 4.6, vibDepth: 0.0022, bright: 2.6, release: 0.07, level: 0.52 });
+export const clarinet = windVoice({ wave: CLARINET, name: 'clarinet', attack: 0.05, breath: 0.03, chiff: 0.02, vibRate: 4.6, vibDepth: 0.0022, bright: 2.1, release: 0.07, level: 0.54 });
 
 /**
  * Bowed strings: `voices` detuned Helmholtz oscillators under one lowpass whose cutoff follows
@@ -708,7 +767,7 @@ export const triangleDing: InstrumentFn = (g, dest, t, _m, _d, v) => {
 };
 
 export const INSTRUMENTS = {
-  kalimba, marimba, musicBox, bell, celesta, steelPan, epiano,
+  kalimba, marimba, musicBox, bell, celesta, steelPan, glock, vibes, epiano,
   guitar, harp, ukulele, pizz, upright,
   flute, whistle, ocarina, clarinet, cello, fiddle, accordion, pad, softBass, drone, glass,
   shaker, woodblock, bodhran, tambourine, softKick, brush, conga, triangleDing, ride,
@@ -721,7 +780,7 @@ export const SUSTAINED: ReadonlySet<InstrumentName> = new Set(['flute', 'whistle
 
 /** Seconds a note keeps sounding after its written end (voice budget). */
 export const TAIL: Partial<Record<InstrumentName, number>> = {
-  kalimba: 1.5, marimba: 1, ride: 1.2, musicBox: 2, celesta: 1.8, bell: 3, steelPan: 1.5, harp: 2, guitar: 1, glass: 6, drone: 3, pad: 1.5, epiano: 0.9,
+  kalimba: 1.5, marimba: 1, ride: 1.2, musicBox: 2, celesta: 1.8, bell: 3, steelPan: 1.5, glock: 2, vibes: 3, harp: 2, guitar: 1, glass: 6, drone: 3, pad: 1.5, epiano: 0.9,
 };
 
 function bodyInsert(kind: BodyKind, wet: number, dry: number): (g: AudioGraph, out: AudioNode) => AudioNode {

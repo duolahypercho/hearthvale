@@ -75,7 +75,7 @@ export const THEMES: Record<string, ThemeDef> = {
       Aend: ['ii7 V7', 'I'],
     },
     melody: {
-      inst: 'marimba', range: [62, 86], density: 0.8, ornament: 0.12,
+      inst: 'marimba', range: [62, 86], density: 0.8, ornament: 0.12, double: { inst: 'glock', interval: 12, on: 'repeat' },
       tune: {
         octave: 0,
         // "B D . D E D B | C E . E G E D | ..." — the hiccup rest is the hook.
@@ -92,6 +92,7 @@ export const THEMES: Record<string, ThemeDef> = {
     perc: { pattern: 'shaker', on: 'always', vel: 0.6 },
     mix: {
       melody: { gain: 0.9, pan: 0.12, send: 0.28 },
+      double: { gain: 0.2, pan: -0.2, send: 0.35 },
       counter: { gain: 0.46, pan: -0.35, send: 0.35 },
       accomp: { gain: 0.7, pan: -0.25, send: 0.22 },
       accomp2: { gain: 0.42, pan: 0.35, send: 0.25 },
@@ -140,6 +141,8 @@ export const THEMES: Record<string, ThemeDef> = {
     },
     rest: [25, 60],
     gain: 0.92,
+    // Clarinet in its clarion register + harp: take a little edge off (2–5 kHz sat at ~26 %).
+    sheen: -1.5,
   },
 
   /** Winter — a music-box tune in a slow 3/4 with a minor-iv sigh, celesta, bells on the repeat, soft strings. */
@@ -159,7 +162,7 @@ export const THEMES: Record<string, ThemeDef> = {
       outro: ['iv6', 'Imaj7'],
     },
     melody: {
-      inst: 'musicBox', range: [76, 93], density: 0.35, ornament: 0.15, bInst: 'celesta',
+      inst: 'musicBox', range: [76, 93], density: 0.35, ornament: 0.15, bInst: 'celesta', double: { inst: 'glock', interval: 12, on: 'repeat' },
       tune: {
         octave: 1,
         // "B. C# B G# | D#. E D# B | E. F# E C# | C# B G# | ... | C. B A G | G# F# E" — rising thirds, then the minor iv.
@@ -174,14 +177,16 @@ export const THEMES: Record<string, ThemeDef> = {
     pad: { inst: 'pad', range: [55, 71], voices: 4, vel: 0.45, on: 'always' },
     mix: {
       melody: { gain: 0.85, pan: 0.1, send: 0.45 },
+      double: { gain: 0.17, pan: -0.25, send: 0.55 },
       counter: { gain: 0.42, pan: -0.35, send: 0.55 },
       accomp: { gain: 0.52, pan: -0.22, send: 0.45 },
       bass: { gain: 0.42, pan: 0, send: 0.1 },
-      pad: { gain: 0.36, pan: 0, send: 0.55 },
+      pad: { gain: 0.3, pan: 0, send: 0.55 },
       perc: { gain: 0.4, pan: 0.3, send: 0.35 },
     },
     rest: [30, 70],
     gain: 0.93,
+    sheen: 2,
   },
 
   /** Hearthvale Square by day — a skipping ocarina tune, off-beat pizzicato, walking bass, woodblocks. */
@@ -202,7 +207,7 @@ export const THEMES: Record<string, ThemeDef> = {
       outro: ['ii7 V7', 'I6'],
     },
     melody: {
-      inst: 'ocarina', range: [67, 86], density: 0.75, ornament: 0.2, bInst: 'clarinet',
+      inst: 'ocarina', range: [67, 86], density: 0.75, ornament: 0.2, bInst: 'clarinet', double: { inst: 'glock', interval: 12, on: 'late' },
       tune: {
         octave: 0,
         // "B D G D B'. A G | E D B D E. D B | C E G E A. G E | F# G A G F#. |" — up the arpeggio and back.
@@ -219,6 +224,7 @@ export const THEMES: Record<string, ThemeDef> = {
     perc: { pattern: 'town', on: 'always', vel: 0.55 },
     mix: {
       melody: { gain: 0.82, pan: 0.05, send: 0.28 },
+      double: { gain: 0.17, pan: -0.18, send: 0.35 },
       counter: { gain: 0.46, pan: 0.35, send: 0.3 },
       accomp: { gain: 0.65, pan: -0.3, send: 0.25 },
       accomp2: { gain: 0.42, pan: 0.25, send: 0.35 },
@@ -248,7 +254,7 @@ export const THEMES: Record<string, ThemeDef> = {
       Aend: ['ii7 V7', 'I6'],
     },
     melody: {
-      inst: 'steelPan', range: [66, 88], density: 0.55, ornament: 0.1,
+      inst: 'steelPan', range: [66, 88], density: 0.55, ornament: 0.1, double: { inst: 'glock', interval: 12, on: 'repeat' },
       tune: {
         octave: 0,
         // "E.. F#.. E | D.. C#.. A | C#.. E.. G# A | A G# F#.. E |" — 3+3+2, a neighbour-note hook that
@@ -265,13 +271,15 @@ export const THEMES: Record<string, ThemeDef> = {
     perc: { pattern: 'island', on: 'always', vel: 0.55 },
     mix: {
       melody: { gain: 0.82, pan: 0.1, send: 0.32 },
+      double: { gain: 0.16, pan: -0.25, send: 0.4 },
       counter: { gain: 0.42, pan: 0.35, send: 0.3 },
-      accomp: { gain: 0.6, pan: -0.28, send: 0.22 },
+      accomp: { gain: 0.7, pan: -0.28, send: 0.22 },
       bass: { gain: 0.7, pan: 0, send: 0.05 },
-      perc: { gain: 0.5, pan: -0.12, send: 0.15 },
+      perc: { gain: 0.6, pan: -0.12, send: 0.15 },
     },
     rest: [20, 50],
     gain: 1.3,
+    sheen: 2,
   },
 
   /** The mine (earth floors) — a drone with glass bells that keep returning to one small figure. */
@@ -453,7 +461,7 @@ export const THEMES: Record<string, ThemeDef> = {
       outro: ['ii7 V7', 'Imaj7'],
     },
     melody: {
-      inst: 'epiano', range: [62, 86], density: 0.6, ornament: 0.15, bInst: 'clarinet',
+      inst: 'vibes', range: [62, 86], density: 0.6, ornament: 0.15, bInst: 'clarinet',
       tune: {
         octave: 1,
         // "D F A. G F D. | F D B D G. F. | Eb G Bb. A G Eb. | C. Eb D C. |" — a lazy swing tune with a blue Db.
@@ -470,12 +478,14 @@ export const THEMES: Record<string, ThemeDef> = {
     mix: {
       melody: { gain: 0.72, pan: 0.1, send: 0.35 },
       counter: { gain: 0.42, pan: -0.32, send: 0.35 },
-      accomp: { gain: 0.55, pan: -0.15, send: 0.3 },
-      bass: { gain: 0.7, pan: 0, send: 0.06 },
-      perc: { gain: 0.5, pan: 0.15, send: 0.12 },
+      accomp: { gain: 0.47, pan: -0.15, send: 0.3 },
+      bass: { gain: 0.62, pan: 0, send: 0.06 },
+      // The brushed ride is the trio's shimmer — it sat ~25 dB under the band; bring it to the front row.
+      perc: { gain: 0.95, pan: 0.15, send: 0.14 },
     },
     rest: [12, 30],
-    gain: 0.9,
+    gain: 0.84,
+    sheen: 2,
   },
 
   /** Deepwood Forest — a dorian whistle tune in a lilting 6/8 over harp. */
@@ -645,7 +655,7 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
           form: ['intro', 'A', 'B', 'A', 'outro'],
           prog: { intro: ['I', 'bVII'], A: ['I', 'bVII', 'IV', 'I', 'vi', 'bVII', 'IV V', 'I'], B: ['IV', 'I', 'bVII', 'IV', 'ii', 'bVII', 'IV', 'V'], outro: ['bVII', 'I'] },
           melody: {
-            inst: 'celesta', range: [72, 91], density: 0.45, ornament: 0.1, double: { inst: 'bell', interval: 0, on: 'repeat' },
+            inst: 'celesta', range: [72, 91], density: 0.45, ornament: 0.1, double: { inst: 'glock', interval: 12, on: 'repeat' },
             tune: {
               octave: 1,
               // A slow barcarolle in 6/8, rising and falling like swell: "E.. G#. B | A.. G#. F# | E.. G#. C# |

@@ -312,12 +312,20 @@ function analyze(inter, sr) {
   };
 }
 
-/** Day themes must have some sparkle: presence + air ≥ 12 % of the energy. */
+/**
+ * Day themes must have some sparkle. Calibration: a long-term spectrum that is pink up to 1 kHz and
+ * falls a further 3 dB/oct above it (the commercial-mix norm) puts ~12 % of its power above 2 kHz;
+ * a mellow acoustic mix (-4.5 dB/oct: marimba, nylon guitar, music box — near-pure partials by
+ * nature) lands at ~8 %. Below 7 % a mix reads muffled: hard fail (DULL). 7–12 % is reported as
+ * MELLOW (a warning to weigh by ear against the theme's instrumentation, not a failure).
+ */
 const DAY_THEME = /^(theme|mix)-(spring|summer|fall|winter|town|beach|title|inn|forest|festival.*)$/;
 
 function flags(a, kind, name = '') {
   const f = [];
-  if (DAY_THEME.test(name) && a.bands.presence + a.bands.air < 0.12) f.push(`DULL(${((a.bands.presence + a.bands.air) * 100).toFixed(0)}%)`);
+  const top = a.bands.presence + a.bands.air;
+  if (DAY_THEME.test(name) && top < 0.07) f.push(`DULL(${(top * 100).toFixed(0)}%)`);
+  else if (DAY_THEME.test(name) && top < 0.12) f.push(`mellow(${(top * 100).toFixed(0)}%)`);
   if (a.clippedSamples > 0) f.push(`CLIP(${a.clippedSamples})`);
   if (a.truePeakDb > -0.5) f.push('TRUEPEAK');
   if (kind !== 'sfx' && a.lufsIntegrated > -12) f.push('TOO-LOUD');
@@ -584,7 +592,7 @@ const LIVE_SCENES = [
   { demo: 'fest-spring', expect: /^festival/ },
   { demo: 'title', expect: 'title' },
 ];
-const LIVE_SFX = ['step:grass', 'hoe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'splash', 'sword', 'slime', 'heart'];
+const LIVE_SFX = ['step:grass', 'hoe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'splash', 'sword', 'slime', 'heart', 'levelup', 'chest', 'join', 'chat', 'emote:heart'];
 
 async function live() {
   const server = await createServer({
@@ -740,6 +748,40 @@ async function live() {
     if (!ok) fails++;
     console.log(`  ${s.name.padEnd(14)} ${fmt(s.max).padStart(7)}  ${ok ? 'ok' : 'FAIL'}`);
   }
+  // Co-op / positional: a partner's sound must pan toward them and fade with distance; far = silent.
+  const pos = await page.evaluate(async () => {
+    const g = window.__game;
+    const a = g.game.services.audio;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    a.music('none');
+    await sleep(1500);
+    const p = g.game.player.position;
+    const peak = async (fn) => {
+      fn();
+      let max = -Infinity;
+      for (let i = 0; i < 10; i++) {
+        await sleep(25);
+        max = Math.max(max, a.meter());
+      }
+      await sleep(600);
+      return max;
+    };
+    const near = await peak(() => a.playAt('hoe', p.x + 1, p.z));
+    const mid = await peak(() => a.playAt('hoe', p.x + 12, p.z));
+    const far = await peak(() => a.playAt('hoe', p.x + 40, p.z));
+    const floor = a.meter();
+    await peak(() => a.stepAt(p.x + 3, p.z, { run: true }));
+    a.say('player:2', 'Hello there, neighbour!', p.x - 4, p.z);
+    await sleep(1500);
+    a.music(null);
+    return { near, mid, far, floor, compose: a.state().compose };
+  });
+  const posOk = pos.near > pos.mid + 4 && pos.far < pos.floor + 3;
+  if (!posOk) fails++;
+  console.log(`\npositional (co-op): hoe at 1 tile ${fmt(pos.near)}, 12 tiles ${fmt(pos.mid)}, 40 tiles ${fmt(pos.far)} (floor ${fmt(pos.floor)}) dBFS  ${posOk ? 'ok' : 'FAIL'}`);
+  const c = pos.compose;
+  console.log(`songs composed in the worker: ${c.hits}, on the main thread: ${c.misses} (${c.syncMs} ms total)${c.hits === 0 ? '  FAIL' : ''}`);
+  if (c.hits === 0) fails++;
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   console.log(fails || errors.length ? `\n${fails} live check(s) failed` : '\nall live checks passed');
   await browser.close();

@@ -86,6 +86,10 @@ export const SFX_NAMES = [
   'blip', 'gift:love', 'gift:like', 'gift:neutral', 'gift:dislike', 'heart',
   'cast', 'plop', 'bite', 'catch', 'catch:perfect', 'escape', 'splash', 'reel',
   'ladder', 'door', 'warp', 'exhausted', 'eat', 'bundle', 'lantern', 'hall', 'morning', 'sleep', 'thunder', 'crow',
+  'levelup', 'learn', 'paper', 'chest', 'sprinkler', 'wither',
+  'emote:heart', 'emote:exclaim', 'emote:question', 'emote:music', 'emote:sweat', 'emote:anger', 'emote:idea', 'emote:sad', 'emote:zzz', 'emote:dots', 'emote:happy', 'emote:laugh', 'emote:wow',
+  // Co-op: a farmer joins / leaves the session, a chat line arrives.
+  'join', 'leave', 'chat',
 ] as const;
 export type SfxName = (typeof SFX_NAMES)[number];
 
@@ -101,9 +105,13 @@ const TRIM: Record<string, number> = {
   'ui:select': 1.6, 'ui:toggle': 1.6, giant: 0.7, reel: 1.4, crow: 1.2,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
   rockbreak: 0.72, hoe: 0.85,
+  // Round 3 additions, levelled from the reel (median momentary max ≈ -21 LUFS): level-up / chest sit
+  // with the rewards (~-15), emotes and chat around the small foley (~-20 … -26).
+  levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 4.5, chat: 2,
+  'emote:question': 3, 'emote:sweat': 3.5, 'emote:anger': 2, 'emote:sad': 2.2, 'emote:zzz': 2.5, 'emote:dots': 4, 'emote:music': 0.7,
 };
 
-const LONG_SFX = new Set(['treefall', 'hall', 'lantern', 'catch', 'catch:perfect', 'sleep', 'thunder', 'giant', 'gift:love']);
+const LONG_SFX = new Set(['treefall', 'hall', 'lantern', 'catch', 'catch:perfect', 'sleep', 'thunder', 'giant', 'gift:love', 'levelup', 'join', 'chest']);
 
 export class Sfx {
   private out: GainNode;
@@ -290,7 +298,7 @@ export class Sfx {
 
   play(name: SfxName | string, o?: SfxOpts): void {
     const r = this.rng;
-    const ui = name.startsWith('ui:') || name === 'blip';
+    const ui = name.startsWith('ui:') || name === 'blip' || name === 'chat' || name === 'paper';
     // SFX outrank the score in the polyphony budget; only cosmetic repeats are refused under load.
     const at = Math.max(o?.at ?? this.g.ctx.currentTime, this.g.ctx.currentTime);
     if (!this.g.voiceStart(at, LONG_SFX.has(name) ? 3 : 0.8, name === 'ui:hover' || name === 'reel' || name.startsWith('step:') ? 2 : 3)) return;
@@ -661,8 +669,122 @@ export class Sfx {
         }
         break;
       }
+      case 'levelup': {
+        // Skill level-up: a harp run up the key's pentatonic, a bell chord that blooms on top and a
+        // low tonic swell underneath — a proper little fanfare that the score makes room for.
+        for (let i = 0; i < 8; i++) this.chime(d, t + i * 0.045, this.kn(i - 3), 0.2 * (0.7 + i * 0.05), 'harp');
+        [0, 2, 3, 5].forEach((k, i) => this.chime(d, t + 0.4 + i * 0.012, this.kn(k), 0.22, 'bell'));
+        [5, 7].forEach((k, i) => this.chime(d, t + 0.62 + i * 0.1, this.kn(k), 0.14, 'celesta'));
+        this.tone(d, t + 0.38, { f0: mtof(this.kn(0, -3)), amp: 0.22, attack: 0.04, tau: 0.9 });
+        this.noise(d, t + 0.38, { type: 'highpass', f: 6000, amp: 0.012, attack: 0.05, tau: 0.35 });
+        this.g.duckMusic(t, 0.4, 1.4, 1.2);
+        break;
+      }
+      case 'learn':
+        // A new recipe: three quick celesta sparkles and a glint of shimmer.
+        [2, 4, 7].forEach((k, i) => this.chime(d, t + i * 0.06, this.kn(k), 0.18 - i * 0.02));
+        this.noise(d, t + 0.1, { f: 5200, q: 2, amp: 0.02, attack: 0.03, tau: 0.12 });
+        break;
+      case 'paper':
+        // Parchment unfolding: two soft rustles and a crisp flick.
+        this.noise(d, t, { f: 1400, f1: 2600, q: 0.9, amp: 0.09, attack: 0.04, tau: 0.05, buf: this.g.pink });
+        this.noise(d, t + 0.12, { f: 2200, f1: 1300, q: 0.9, amp: 0.07, attack: 0.03, tau: 0.05, buf: this.g.pink });
+        this.noise(d, t + 0.2, { f: 3000, q: 2.5, amp: 0.05, tau: 0.008, buf: this.g.pink });
+        this.tone(d, t + 0.02, { f0: 180, amp: 0.03, tau: 0.03 });
+        break;
+      case 'chest':
+        // Lid creaks open, a hollow wooden knock, then the find sparkles.
+        this.creak(d, t, 0.35);
+        this.tone(d, t + 0.35, { f0: 150, f1: 110, glide: 0.05, amp: 0.26, tau: 0.05 });
+        this.noise(d, t + 0.35, { f: 800, q: 2, amp: 0.12, tau: 0.02, buf: this.g.pink });
+        [0, 2, 4, 5, 7].forEach((k, i) => this.chime(d, t + 0.45 + i * 0.06, this.kn(k), 0.2, i % 2 ? 'celesta' : 'bell'));
+        this.g.duckMusic(t + 0.4, 0.65, 0.6, 0.7);
+        break;
+      case 'sprinkler':
+        // Morning sprinklers: pulses of a soft spray with droplets pattering down.
+        for (let i = 0; i < 5; i++) {
+          this.noise(d, t + i * 0.15, { f: 3200, q: 0.7, amp: 0.035, attack: 0.01, tau: 0.05, buf: this.g.pink });
+          this.tone(d, t + i * 0.15 + 0.07 + r.next() * 0.04, { f0: 900 + r.next() * 700, f1: 1700, glide: 0.02, amp: 0.02, tau: 0.01 });
+        }
+        break;
+      case 'wither':
+        // A dried-out crop: a papery crackle that sags down.
+        this.crumbs(d, t, 6, 0.04, 0.25);
+        this.noise(d, t + 0.05, { f: 1200, f1: 500, q: 1, amp: 0.06, attack: 0.05, tau: 0.12, buf: this.g.pink });
+        break;
+      case 'join':
+        // Another farmer arrives: a warm rising welcome on harp over a soft bell fifth.
+        [0, 2, 4, 7].forEach((k, i) => this.chime(d, t + i * 0.1, this.kn(k), 0.24, 'harp'));
+        [0, 3].forEach((k) => this.chime(d, t + 0.42, this.kn(k), 0.16, 'bell'));
+        this.g.duckMusic(t, 0.7, 0.6, 0.8);
+        break;
+      case 'leave':
+        [4, 2, 0].forEach((k, i) => this.chime(d, t + i * 0.12, this.kn(k), 0.18, 'harp'));
+        break;
+      case 'chat':
+        // A chat line lands: a soft wooden pop with a small tuned tail.
+        this.tone(d, t, { f0: 620, f1: 900, glide: 0.03, amp: 0.1, tau: 0.02 });
+        this.chime(d, t + 0.03, this.kn(r.int(3, 6)), 0.08, 'kalimba');
+        break;
       default:
         if (name.startsWith('step:')) this.step(name.slice(5) as Surface, o);
+        else if (name.startsWith('emote:')) this.emote(d, t, name.slice(6));
+        break;
+    }
+  }
+
+  /** Little cartoon cues for emote bubbles (villagers and co-op farmers), tuned to the key. */
+  private emote(d: AudioNode, t: number, kind: string): void {
+    switch (kind) {
+      case 'heart':
+        this.chime(d, t, this.kn(2), 0.16, 'bell');
+        this.chime(d, t + 0.1, this.kn(4), 0.16, 'bell');
+        break;
+      case 'happy':
+        this.chime(d, t, this.kn(2), 0.13, 'kalimba');
+        this.chime(d, t + 0.08, this.kn(4), 0.15, 'kalimba');
+        break;
+      case 'laugh':
+        // "Ha-ha-ha": three bouncy staccato marimba notes stepping down.
+        [5, 4, 2].forEach((k, i) => this.chime(d, t + i * 0.085, this.kn(k), 0.15 - i * 0.02, 'marimba'));
+        break;
+      case 'wow':
+      case 'exclaim':
+        this.tone(d, t, { f0: 700, f1: 1400, glide: 0.04, amp: 0.1, tau: 0.03 });
+        this.chime(d, t + 0.03, this.kn(5), 0.12);
+        break;
+      case 'question':
+        this.tone(d, t, { type: 'triangle', f0: mtof(this.kn(0)), f1: mtof(this.kn(2)), glide: 0.12, amp: 0.08, tau: 0.08, lp: 2000 });
+        break;
+      case 'music':
+      case 'note':
+        [0, 2, 4].forEach((k, i) => this.chime(d, t + i * 0.09, this.kn(k), 0.12, 'kalimba'));
+        break;
+      case 'sweat':
+        this.tone(d, t, { f0: 1300, f1: 500, glide: 0.08, amp: 0.07, tau: 0.04 });
+        break;
+      case 'anger':
+      case 'angry':
+        this.tone(d, t, { type: 'triangle', f0: 150, f1: 120, glide: 0.1, amp: 0.1, tau: 0.08, lp: 700 });
+        this.tone(d, t + 0.12, { type: 'triangle', f0: 140, f1: 110, glide: 0.1, amp: 0.1, tau: 0.08, lp: 700 });
+        break;
+      case 'idea':
+      case 'sparkle':
+        this.chime(d, t, this.kn(7), 0.14, 'bell');
+        this.noise(d, t, { f: 5000, q: 2, amp: 0.015, attack: 0.02, tau: 0.08 });
+        break;
+      case 'sad':
+        this.tone(d, t, { type: 'triangle', f0: mtof(this.kn(2, -1)), f1: mtof(this.kn(0, -1) - 1), glide: 0.3, amp: 0.08, tau: 0.15, lp: 1100 });
+        break;
+      case 'sleepy':
+      case 'zzz':
+        // A sleepy exhale and a soft low hum.
+        this.noise(d, t, { type: 'lowpass', f: 700, amp: 0.15, attack: 0.2, tau: 0.2, buf: this.g.pink });
+        this.tone(d, t + 0.05, { type: 'triangle', f0: mtof(this.kn(0, -2)), amp: 0.08, attack: 0.1, tau: 0.25, lp: 600 });
+        break;
+      default:
+        // dots / unknown: three soft ticks.
+        for (let i = 0; i < 3; i++) this.tone(d, t + i * 0.1, { f0: 1100, amp: 0.05, tau: 0.01 });
         break;
     }
   }

@@ -10,7 +10,9 @@
  *   SFX        footsteps per surface (synced to the stride, wet in the rain), every farm tool
  *              (swing, charge, impact per hit kind), harvest pops, coins, UI kit cues, villager
  *              "sim-speak" per word of dialogue, gifts, hearts, crafting, shipping, stingers
- *              (Lantern Hall ignition / restoration), sleep and morning chimes
+ *              (Lantern Hall ignition / restoration), sleep and morning chimes, level-ups, emotes
+ *   co-op      positional SFX (`playAt`, `stepAt`), sim-speak chat (`say`), join / leave / chat cues;
+ *              tool impacts and harvests are placed at their tile, so a partner's actions pan and fade
  *
  * The AudioContext is created on the first user gesture (autoplay policy; `?audio=1` tries at boot).
  * Mine combat / rocks and fishing are voiced by their own pods (world/mine/sfx.ts, ui/fishing-sfx.ts),
@@ -52,6 +54,8 @@ export interface AudioState {
   trace: DirectorTrace[];
   /** Output RMS (dBFS) at the moment of the call. */
   levelDb: number;
+  /** Songs composed in the worker (hits) vs on the main thread (misses, with their total ms). */
+  compose: { hits: number; misses: number; syncMs: number };
 }
 
 export interface AudioApi {
@@ -60,6 +64,19 @@ export interface AudioApi {
   readonly running: boolean;
   /** Play a named SFX (src/audio/sfx.ts SFX_NAMES), optionally panned / scaled. */
   play(name: string, opts?: { pan?: number; gain?: number; level?: number }): void;
+  /**
+   * Play a named SFX at a world position (co-op farmers, remote tools, villagers): panned by the
+   * camera's screen-right axis and attenuated with distance from the local player; inaudible
+   * (> ~26 tiles, or another map) sounds cost nothing.
+   */
+  playAt(name: string, x: number, z: number, opts?: { gain?: number; level?: number; map?: string }): void;
+  /** A footfall at a world position (surface looked up from the tile there) — remote players' feet. */
+  stepAt(x: number, z: number, opts?: { run?: boolean; map?: string; gain?: number }): void;
+  /**
+   * Speak a line in "sim-speak" (a formant murmur per word) with a stable voice per id — chat
+   * bubbles from co-op farmers ('player', 'player:2', any id). Positional when x/z are given.
+   */
+  say(voiceId: string, text: string, x?: number, z?: number): void;
   /** Force a theme id (see src/audio/themes.ts), 'none' for silence, null for automatic selection. */
   music(theme: string | null): void;
   /** Title of the theme currently playing (for a "now playing" line). */
@@ -119,6 +136,10 @@ export class AudioSystem implements System {
   private waterT = 0;
   private lastSfx = new Map<string, number>();
   private demoSfx: { name: string; next: number } | null = null;
+  /** Placement applied to SFX while an event at a world position is being voiced (see placed()). */
+  private place: { gain: number; pan: number } | null = null;
+  /** `?demo=audio&coop=1`: a phantom co-op partner circles the player so positional audio can be judged. */
+  private demoCoop: { a: number; stride: number; next: number; k: number } | null = null;
   private tickFailed = false;
   private mineFloor = 0;
   private lastWall = 0;
@@ -142,12 +163,23 @@ export class AudioSystem implements System {
     if (theme) this.forced = theme;
     const sfx = params.get('sfx');
     if (sfx) this.demoSfx = { name: sfx, next: 0 };
+    if (params.get('coop') === '1' && params.get('demo') === 'audio') this.demoCoop = { a: 0, stride: 0, next: 2, k: 0 };
     // &card=1 keeps the now-playing card on screen (screenshots); &card=0 never shows it.
     this.pinCard = params.get('card') === '1';
     if (params.get('card') === '0') this.card.disabled = true;
     // Watchdog: keep the score moving even if the game loop stalls (long loads, a throttled tab).
+    // It also re-decides the wanted theme, so a scene change staged while frames are starved (a heavy
+    // map build on a loaded machine) still hands the music over instead of waiting for the loop.
     window.setInterval(() => {
-      if (performance.now() - this.lastWall > 400) this.tickAudio(0.6);
+      if (performance.now() - this.lastWall <= 400) return;
+      if (this.engine && this.ctx?.state === 'running') {
+        try {
+          this.decide(game);
+        } catch {
+          /* the world may be mid-rebuild: try again next tick */
+        }
+      }
+      this.tickAudio(0.6);
     }, 250);
 
     const self = this;
@@ -164,6 +196,17 @@ export class AudioSystem implements System {
         return !!self.ctx && self.ctx.state === 'running';
       },
       play: (name, o) => this.sfx(name, o),
+      playAt: (name, x, z, o) => {
+        const sp = this.spatial(x, z, o?.map);
+        if (sp) this.sfx(name, { gain: (o?.gain ?? 1) * sp.gain, pan: sp.pan, level: o?.level });
+      },
+      stepAt: (x, z, o) => {
+        const sp = this.spatial(x, z, o?.map);
+        if (!sp || !this.engine || !this.ctx || this.ctx.state !== 'running') return;
+        const wet = (game.calendar.weather === 'rain' || game.calendar.weather === 'storm') && !this.isIndoor();
+        this.engine.sfx.step(this.surface(game, x, z), { gain: (o?.gain ?? 1) * sp.gain * (o?.run ? 0.85 : 0.62), pan: sp.pan, wet });
+      },
+      say: (id, text, x, z) => this.say(id, text, x, z),
       music: (t) => {
         this.forced = t;
         this.engine?.music.kick();
@@ -187,6 +230,11 @@ export class AudioSystem implements System {
         stalls: this.stalls,
         trace: this.engine ? [...this.engine.music.trace] : [],
         levelDb: Math.round(this.meter() * 10) / 10,
+        compose: {
+          hits: this.engine?.music.pieces.hits ?? 0,
+          misses: this.engine?.music.pieces.misses ?? 0,
+          syncMs: Math.round(this.engine?.music.pieces.syncMs ?? 0),
+        },
       }),
     });
     this.subscribe(game);
@@ -265,8 +313,13 @@ export class AudioSystem implements System {
       if (s) this.sfx(s, { gain: 0.8 + Math.min(3, charge) * 0.12 });
     });
     ev.on('tool:charge', ({ level }) => this.sfx('charge', { level }));
-    ev.on('tool:impact', ({ tool, hit, strength }) => this.impact(tool, hit, strength));
-    ev.on('crop:harvested', ({ quality }) => this.sfx('harvest', { gain: 1 + (quality ?? 0) * 0.05, level: quality ?? 0 }));
+    // Impacts and harvests are placed where they happen: your own tile sits a hair off-centre, a
+    // co-op partner's hoe across the field pans and fades with distance (the host replays their
+    // intents through the same events).
+    ev.on('tool:impact', ({ tool, hit, strength, x, z }) => this.placed(x + 0.5, z + 0.5, () => this.impact(tool, hit, strength)));
+    ev.on('crop:harvested', ({ quality, x, z }) =>
+      this.placed(x + 0.5, z + 0.5, () => this.sfx('harvest', { gain: 1 + (quality ?? 0) * 0.05, level: quality ?? 0 })),
+    );
     ev.on('crop:giant', () => this.sfx('giant', { gain: 0.7 }));
     ev.on('crow:arrive', () => this.sfx('crow', { gain: 0.8, pan: 0.3 }, 3));
     ev.on('forage:picked', () => this.sfx('pickup'));
@@ -309,7 +362,11 @@ export class AudioSystem implements System {
       this.speaking = on;
     });
     ev.on('npc:talk', () => this.sfx('ui:select', { gain: 0.8 }));
-    ev.on('npc:gift', ({ reaction }) => this.sfx(`gift:${reaction}`));
+    let giftAt = -10;
+    ev.on('npc:gift', ({ reaction }) => {
+      giftAt = performance.now() / 1000;
+      this.sfx(`gift:${reaction}`);
+    });
     ev.on('relationship:change', ({ delta, hearts, points }) => {
       // A new heart earned (points crossed a 250 boundary).
       if (delta > 0 && Math.floor(points / 250) > Math.floor((points - delta) / 250) && hearts > 0) this.sfx('heart', undefined, 1);
@@ -320,6 +377,51 @@ export class AudioSystem implements System {
     ev.on('quest:complete', () => this.sfx('bundle', { gain: 0.8 }));
     ev.on('quest:hallRestored', () => this.sfx('hall'));
     ev.on('mail:new', ({ id }) => id && this.sfx('ui:open', { gain: 0.7 }, 1));
+    ev.on('mail:read', () => this.sfx('paper', undefined, 0.3));
+    ev.on('quest:posted', () => this.sfx('paper', { gain: 0.8 }, 0.5));
+    ev.on('quest:accepted', () => this.sfx('learn', { gain: 0.8 }, 0.5));
+    ev.on('craft:learned', () => this.sfx('learn', undefined, 0.3));
+    ev.on('farming:level', () => this.sfx('levelup', undefined, 2));
+    ev.on('fishing:level', () => this.sfx('levelup', undefined, 2));
+    ev.on('mine:chest', () => this.sfx('chest', undefined, 1));
+    // Refusals share one gentle "nope" (rate-limited so a held button never buzzes).
+    ev.on('energy:refused', () => this.sfx('ui:error', { gain: 0.5 }, 0.6));
+    ev.on('gold:insufficient', () => this.sfx('ui:error', { gain: 0.6 }, 0.4));
+    ev.on('craft:failed', () => this.sfx('ui:error', { gain: 0.6 }, 0.4));
+    ev.on('npc:emote', ({ id, emote }) => {
+      // A gift reaction already has its own jingle; the bubble that pops with it stays silent.
+      if (performance.now() / 1000 - giftAt < 1) return;
+      const pos = this.npcPos(id);
+      const sp = pos ? this.spatial(pos.x, pos.z) : { gain: 0.7, pan: 0 };
+      if (sp) this.sfx(`emote:${emote}`, { gain: sp.gain * 0.9, pan: sp.pan }, 0.25);
+    });
+    // Co-op session cues (src/net): farmers arriving / leaving, chat lines, emotes from the wheel.
+    let roster: Set<number> | null = null;
+    ev.on('net:roster', ({ players }) => {
+      const ids = new Set(players.filter((p) => !p.isMe).map((p) => p.id));
+      if (roster) {
+        if ([...ids].some((id) => !roster!.has(id))) this.sfx('join', undefined, 1);
+        else if ([...roster].some((id) => !ids.has(id))) this.sfx('leave', undefined, 1);
+      }
+      roster = ids;
+    });
+    ev.on('net:chat', ({ id, text, system }) => {
+      if (system) return void this.sfx('paper', { gain: 0.7 }, 0.3);
+      this.sfx('chat', undefined, 0.1);
+      // Other farmers "say" the first words of their line in their own sim-speak voice.
+      const me = game.services.net?.myId();
+      if (id !== me) this.say(`player:${id}`, text.split(/\s+/).slice(0, 6).join(' '));
+    });
+    ev.on('net:emote', ({ emote }) => this.sfx(`emote:${emote}`, { gain: 0.9 }, 0.2));
+    ev.on('sprinkler:spray', ({ x, z, on }) => {
+      if (!on) return;
+      const sp = this.spatial(x + 0.5, z + 0.5);
+      if (sp) this.sfx('sprinkler', { gain: sp.gain, pan: sp.pan }, 0.5);
+    });
+    ev.on('crop:withered', ({ x, z }) => {
+      const sp = this.spatial(x + 0.5, z + 0.5);
+      if (sp) this.sfx('wither', { gain: sp.gain, pan: sp.pan }, 0.4);
+    });
     ev.on('cutscene:cue', ({ cue, arg, instant }) => {
       if (cue === 'music') {
         this.forced = !arg || arg === 'auto' ? null : arg;
@@ -454,11 +556,24 @@ export class AudioSystem implements System {
     }
   }
 
+  /** Run `fn` with every SFX it plays placed at world (x, z); skipped entirely when inaudible. */
+  private placed(x: number, z: number, fn: () => void): void {
+    const sp = Number.isFinite(x) && Number.isFinite(z) ? this.spatial(x, z) : { gain: 1, pan: 0 };
+    if (!sp) return;
+    this.place = sp;
+    try {
+      fn();
+    } finally {
+      this.place = null;
+    }
+  }
+
   /** Play an SFX (with an optional per-name minimum interval, seconds). */
   private sfx(name: string, o?: { pan?: number; gain?: number; level?: number }, minGap = 0): void {
     const e = this.engine;
     if (!e || !this.ctx || this.ctx.state !== 'running') return;
     if (o?.gain === 0) return;
+    if (this.place) o = { ...o, gain: (o?.gain ?? 1) * this.place.gain, pan: (o?.pan ?? 0) + this.place.pan };
     const now = this.ctx.currentTime;
     if (minGap > 0) {
       const last = this.lastSfx.get(name) ?? -1e9;
@@ -512,14 +627,7 @@ export class AudioSystem implements System {
     this.env = this.envState(dt, game);
 
     // Music: selection, level and tone.
-    const want = this.sleeping ? null : this.wanted();
-    if (want !== e.music.desired) {
-      // Same place, new hour / weather: finish the phrase, then hand over. New place: quick fade.
-      const map = game.world.current?.id ?? '';
-      e.music.handoff = map === this.lastMap ? 'drift' : 'move';
-      e.music.desired = want;
-    }
-    this.lastMap = game.world.current?.id ?? '';
+    this.decide(game);
     const panel = game.hud.openPanelName ?? '';
     const paused = panel === 'pause' || panel.startsWith('settings');
     let level = 1;
@@ -552,6 +660,42 @@ export class AudioSystem implements System {
       this.demoSfx.next = ctx.currentTime + 2.5;
       this.sfx(this.demoSfx.name);
     }
+    if (this.demoCoop) this.coopDemo(dt, ctx.currentTime);
+  }
+
+  /** Phantom partner: walks a slow ellipse around the player (steps pan L↔R), hoes, emotes, chats. */
+  private coopDemo(dt: number, now: number): void {
+    const c = this.demoCoop!;
+    const api = this.game.services.audio;
+    if (!api) return;
+    const p = this.game.player.position;
+    const prev = { x: p.x + Math.cos(c.a) * 7, z: p.z + Math.sin(c.a) * 4 };
+    c.a += dt * 0.22;
+    const x = p.x + Math.cos(c.a) * 7;
+    const z = p.z + Math.sin(c.a) * 4;
+    const before = Math.floor(c.stride / Math.PI);
+    c.stride += Math.hypot(x - prev.x, z - prev.z) * 2.6;
+    if (Math.floor(c.stride / Math.PI) !== before) api.stepAt(x, z);
+    if (now < c.next) return;
+    c.next = now + 3;
+    const beat = c.k++ % 4;
+    if (beat === 0) api.playAt('hoe', x, z);
+    else if (beat === 1) api.playAt('emote:heart', x, z);
+    else if (beat === 2) api.say('player:2', 'Morning! The turnips look great today', x, z);
+    else api.playAt('water', x, z);
+  }
+
+  /** Pick the theme for the moment and tell the director how to hand over to it. */
+  private decide(game: Game): void {
+    const e = this.engine!;
+    const want = this.sleeping ? null : this.wanted();
+    const map = game.world.current?.id ?? '';
+    if (want !== e.music.desired) {
+      // Same place, new hour / weather: finish the phrase, then hand over. New place: quick fade.
+      e.music.handoff = map === this.lastMap ? 'drift' : 'move';
+      e.music.desired = want;
+    }
+    this.lastMap = map;
   }
 
   /** Advance the engine (from the frame loop, or from the watchdog when the loop stalls). */
@@ -618,6 +762,15 @@ export class AudioSystem implements System {
     };
   }
 
+  /** A villager's world position on the current map (from the NPC service), if outdoors here. */
+  private npcPos(id: string): { x: number; z: number } | null {
+    try {
+      return this.game.services.npcs?.positions().find((n) => n.id === id) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private findObject(id: string): { x: number; z: number } | null {
     const grid = this.game.world.current?.grid;
     if (!grid) return null;
@@ -636,6 +789,49 @@ export class AudioSystem implements System {
       }
     }
     return n ? { x: sx / n, z: sz / n } : null;
+  }
+
+  /**
+   * Listener-relative placement for a world-space sound: pan along the camera's screen-right axis
+   * (the 3/4 camera can orbit in cutscenes), inverse-square-ish falloff with a near plateau so a
+   * co-op partner beside you is as loud as your own tools. Null when inaudible or on another map.
+   */
+  private spatial(x: number, z: number, map?: string): { gain: number; pan: number } | null {
+    const g = this.game;
+    if (map && map !== (g.world.current?.id ?? '')) return null;
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+    const p = g.player.position;
+    const dx = x - p.x;
+    const dz = z - p.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 26) return null;
+    const gain = 1 / (1 + Math.pow(Math.max(0, d - 2) / 7, 2));
+    if (gain < 0.06) return null;
+    const e = g.rc.camera.matrixWorld.elements;
+    const rl = Math.hypot(e[0]!, e[2]!) || 1;
+    const side = (dx * e[0]! + dz * e[2]!) / rl;
+    return { gain, pan: Math.max(-0.85, Math.min(0.85, side / 9)) };
+  }
+
+  /** Sim-speak for a chat line: one murmur per word, spaced by each word's spoken length. */
+  private say(id: string, text: string, x?: number, z?: number): void {
+    const e = this.engine;
+    const ctx = this.ctx;
+    if (!e || !ctx || ctx.state !== 'running') return;
+    let gain = 0.8;
+    let pan = 0;
+    if (x !== undefined && z !== undefined) {
+      const sp = this.spatial(x, z);
+      if (!sp) return;
+      gain *= Math.max(0.35, sp.gain);
+      pan = sp.pan;
+    }
+    const v = voiceFor(id);
+    const words = text.split(/\s+/).filter(Boolean).slice(0, 14);
+    let at = ctx.currentTime + 0.02;
+    for (const w of words) {
+      at += e.sfx.murmur(v, w, { at, gain, pan }) + 0.05;
+    }
   }
 
   /**
@@ -666,13 +862,14 @@ export class AudioSystem implements System {
     this.engine.sfx.step(surface, { gain: run ? 0.85 : 0.62, wet });
   }
 
-  private surface(game: Game): Surface {
+  private surface(game: Game, wx = game.player.position.x, wz = game.player.position.z): Surface {
     const map = game.world.current;
     if (!map) return 'grass';
     if (this.isIndoor()) return map.id === 'hall' ? 'stone' : 'wood';
     if (map.id === 'mine') return 'stone';
-    const x = Math.floor(game.player.position.x);
-    const z = Math.floor(game.player.position.z);
+    const x = Math.floor(wx);
+    const z = Math.floor(wz);
+    if (!map.grid.inBounds(x, z)) return 'grass';
     const winter = game.calendar.season === 'winter';
     const obj = map.grid.getObject(x, z) as { kind?: string; id?: string } | undefined;
     if (obj && /bridge|dock|pier|boardwalk|deck/.test(`${obj.kind ?? ''}${obj.id ?? ''}`)) return 'wood';
