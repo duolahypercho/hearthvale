@@ -2233,7 +2233,7 @@ export class FarmingSystem implements System, FarmingApi {
           p.set(base.x + Math.cos(aa) * 0.1, base.y + sp.model.nozzle, base.z + Math.sin(aa) * 0.1);
           const gy = this.surfaceY(base.x + Math.cos(aa) * d, base.z + Math.sin(aa) * d);
           const vy = (gy - p.y) / T + 4.9 * T;
-          this.fx.drop(p, dv.set((Math.cos(aa) * d) / T, vy, (Math.sin(aa) * d) / T), rnd(0.01, 0.015), fxRng.next() < 0.06);
+          this.fx.drop(p, dv.set((Math.cos(aa) * d) / T, vy, (Math.sin(aa) * d) / T), rnd(0.015, 0.022), fxRng.next() < 0.06);
         }
       }
       if (fxRng.next() < dt * 7) {

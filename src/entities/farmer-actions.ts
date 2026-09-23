@@ -45,17 +45,17 @@ const TRACKS: Record<ActionKind, Key[]> = {
   // torso twisted and leaning back, so the tool head clears the hat silhouette at the top.
   chop: [
     { t: 0 },
-    { t: 0.07, ease: 'out', aR: [-0.7, -0.1], aL: [-0.6, 0.1], torso: [0.14, 0.06, 0], head: 0.05, sy: 0.92, tool: [Math.PI / 2 - 0.1, 0, 0] },
+    { t: 0.07, ease: 'out', aR: [-0.7, -0.1], aL: [-0.6, 0.1], torso: [0.14, 0.03, 0], head: 0.05, sy: 0.92, tool: [Math.PI / 2 - 0.1, 0, 0] },
     // Feet planted: the torso twists ≤ ~20° toward the wind-up side (eased, no overshoot on the
     // twist) so the body never reads as spinning to face the camera and snapping back.
-    { t: 0.21, ease: 'out', aR: [-2.45, -0.62], aL: [-2.1, -0.28], torso: [-0.24, -0.34, -0.12], head: -0.16, sy: 1.07, grip: 0.3, tool: [2.55, 0, 0.75] },
+    { t: 0.21, ease: 'out', aR: [-2.45, -0.62], aL: [-2.1, -0.28], torso: [-0.18, -0.2, -0.08], head: -0.08, sy: 1.07, grip: 0.3, tool: [2.55, 0, 0.75] },
     { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.36, -0.06, 0], head: -0.26, sy: 0.88, bob: -0.025, tool: [Math.PI / 2 - 0.2, 0, 0] },
     { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.38, 0.04, 0], head: -0.24, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
     { t: 0.66, ease: 'inout' },
   ],
   slam: [
     { t: 0 },
-    { t: 0.15, ease: 'out', aR: [-2.7, -0.55], aL: [-2.4, -0.25], torso: [-0.3, -0.34, -0.12], head: -0.2, sy: 1.1, grip: 0.34, tool: [2.6, 0, 0.7] },
+    { t: 0.15, ease: 'out', aR: [-2.7, -0.55], aL: [-2.4, -0.25], torso: [-0.22, -0.12, -0.06], head: -0.2, sy: 1.1, grip: 0.34, tool: [2.6, 0, 0.7] },
     { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.48, 0, 0], head: -0.14, sy: 0.86, bob: -0.04, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.36, ease: 'out', aR: [-0.18, -0.05], aL: [-0.12, 0.05], torso: [0.5, 0, 0], head: -0.1, sy: 0.92, bob: -0.03, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.75, ease: 'inout' },
@@ -314,6 +314,9 @@ export class FarmerActions {
     rig.torso.rotation.y = lerp(rig.torso.rotation.y, p.torso[1] * sd, w);
     rig.torso.rotation.z = lerp(rig.torso.rotation.z, p.torso[2] * sd, w);
     rig.head.rotation.x = lerp(rig.head.rotation.x, p.head, w);
+    // The idle look-around (random head turns) must not run through a swing: eyes on the work.
+    rig.head.rotation.y = lerp(rig.head.rotation.y, 0, w);
+    rig.head.rotation.z = lerp(rig.head.rotation.z, 0, w);
     const reach = lerp(1, p.reach, w);
     rig.armR.scale.set(1, reach, 1);
     rig.armL.scale.set(1, reach, 1);

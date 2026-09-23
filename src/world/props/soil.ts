@@ -286,9 +286,9 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           vec3 base = diffuseColor.rgb;
           // Dry: pale, warm, a little dusty (value ≈ 0.6), the ridge crests sun-bleached, a fine
           // crazing of hairline cracks between lighter crusted plates.
-          vec3 dry = base * vec3(1.9, 1.8, 1.62);
+          vec3 dry = base * vec3(2.02, 1.94, 1.78);
           float dl = dot(dry, vec3(0.3, 0.59, 0.11));
-          dry = mix(vec3(dl), dry, 0.7);
+          dry = mix(vec3(dl), dry, 0.62);
           float crest = smoothstep(0.055, 0.075, vSoilH);
           dry *= 1.0 + crest * 0.1;
           // Crazing from ridged value noise (two octaves, ~3 lookups — cheap on large beds): hairline

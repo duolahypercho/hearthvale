@@ -806,7 +806,7 @@ const BUILDERS: Record<CropId, Builder> = {
       const el = Math.acos(1 - t * 1.3);
       const az = i * 2.39996;
       const p = new THREE.Vector3(Math.sin(el) * Math.cos(az) * R, R * 0.9 + Math.cos(el) * R * 0.85, Math.sin(el) * Math.sin(az) * R);
-      add(leafGeo(0.095, 0.058, { shape: 'oval', lift: 0.4, bend: 0.3, fold: 0.2, c0: C(0x2f6a3a), c1: C(0x6aa65e), segs: 3 }), mat(p.x, p.y, p.z, 0, az + Math.PI / 2 + (r.next() - 0.5), 0));
+      add(leafGeo(0.12, 0.075, { shape: 'oval', lift: 0.4, bend: 0.3, fold: 0.2, c0: C(0x2f6a3a), c1: C(0x6aa65e), segs: 3 }), mat(p.x, p.y, p.z, 0, az + Math.PI / 2 + (r.next() - 0.5), 0));
     }
     if (k >= 2) {
       for (let i = 0; i < (k === 3 ? 9 : 5); i++) {
