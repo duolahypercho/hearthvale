@@ -605,12 +605,22 @@ export class Terrain {
         float flatG = smoothstep(0.965, 0.995, wn.y);
         float pudN = hvFbm(wp.xz * 0.42 + 11.0) + pathM * 0.08;
         float hvWetK = smoothstep(0.5, 0.95, uWetT);
-        float hvPuddle = smoothstep(0.5, 0.57, pudN) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
+        // Islands, not sheets: only the deepest dips of the path hold water.
+        float hvPuddle = smoothstep(0.6, 0.655, pudN) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
+        // 1-2 px bright meniscus right at the waterline.
+        float hvPudW = max(fwidth(pudN), 1e-4);
+        float hvPudEdge = (1.0 - smoothstep(0.0, hvPudW * 1.6, abs(pudN - 0.603))) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
         // Muddy, darker rim soaking out around every puddle.
-        float hvPudRim = smoothstep(0.42, 0.5, pudN) * (1.0 - hvPuddle) * flatG * hvWetK * (1.0 - rockM) * pathM;
-        ground *= mix(1.0, 0.62, hvPudRim);
-        ground *= mix(1.0, 0.32, hvPuddle);
-        ground = mix(ground, ground * vec3(0.88, 0.95, 1.08), hvPuddle);
+        float hvPudRim = smoothstep(0.5, 0.6, pudN) * (1.0 - hvPuddle) * flatG * hvWetK * (1.0 - rockM) * pathM;
+        // Soaked dirt: darker and a little richer everywhere on the path (on top of worldfx's wet
+        // darkening), never lighter.
+        float hvWetPath = hvWetK * pathM * (1.0 - rockM);
+        vec3 hvWetG = ground * mix(1.0, 0.8, hvWetPath);
+        float hvLum = dot(hvWetG, vec3(0.333));
+        ground = mix(vec3(hvLum), hvWetG, 1.0 + 0.18 * hvWetPath);
+        ground *= mix(1.0, 0.68, hvPudRim);
+        ground *= mix(1.0, 0.26, hvPuddle);
+        ground = mix(ground, ground * vec3(0.86, 0.94, 1.1), hvPuddle);
         float hvTPath = pathM;
 
         // Baked contact AO under props / vignettes (painted blobs), strongest in the centre.
@@ -618,7 +628,8 @@ export class Terrain {
         diffuseColor.rgb *= ground;
         float hvTerrainRough = mix(0.95, 0.55, wetM * tillM);
         hvTerrainRough = mix(hvTerrainRough, 0.6, shore);
-        hvTerrainRough = mix(hvTerrainRough, 0.1, hvPuddle);
+        hvTerrainRough = mix(hvTerrainRough, 0.82, hvWetPath * (1.0 - hvPuddle));
+        hvTerrainRough = mix(hvTerrainRough, 0.05, hvPuddle);
         `,
       );
       fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = hvTerrainRough;');
@@ -634,11 +645,13 @@ export class Terrain {
           // screen-free "probe": low-frequency blotches offset along the view direction).
           vec2 rq = vTWorld.xz - Vp.xz * 6.0;
           float trees = smoothstep(0.42, 0.62, hvFbm(rq * 0.12 + 3.0));
-          vec3 refl = mix(mix(uHorizonT, uSkyT, 0.35) * 1.15, mix(uHorizonT, uSkyT, 0.5) * vec3(0.3, 0.36, 0.34), trees * 0.8);
+          vec3 refl = mix(mix(uHorizonT, uSkyT, 0.35) * 1.1, mix(uHorizonT, uSkyT, 0.5) * vec3(0.16, 0.2, 0.18), trees * 0.9);
           // Ripple rings catch the light.
           float rr = length(hvRipples(vTWorld.xz, uTimeT)) * uRain;
-          totalEmissiveRadiance += (refl * fr * 0.85 + vec3(rr * 0.12)) * hvPuddle;
-        }`,
+          // A faint sky hint only: the real sheen comes from the environment specular (roughness 0.05).
+          totalEmissiveRadiance += (refl * fr * 0.5 + vec3(rr * 0.1)) * hvPuddle;
+        }
+        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.3) * hvPudEdge * 0.16;`,
       );
       fs = after(
         fs,

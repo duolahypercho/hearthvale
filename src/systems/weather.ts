@@ -57,16 +57,21 @@ const TARGETS: Record<Weather, { rain: number; snow: number }> = {
   snow: { rain: 0, snow: 0.85 },
 };
 
-/** Lightning brightness envelope: leader flicker, return stroke, restrike, decay. */
+/**
+ * Lightning brightness envelope: a 60 ms return stroke at full brightness, a dark gap, a restrike,
+ * a weaker third stroke, then a fast decay.
+ */
 function flashEnvelope(t: number): number {
   if (t < 0) return 0;
-  if (t < 0.05) return 1;
-  if (t < 0.1) return 0.2;
-  if (t < 0.19) return 0.95;
-  if (t < 0.24) return 0.35;
-  if (t < 0.3) return 0.7;
-  return 0.7 * Math.exp(-(t - 0.3) * 9);
+  if (t < 0.06) return 1;
+  if (t < 0.11) return 0.12;
+  if (t < 0.17) return 0.9;
+  if (t < 0.23) return 0.22;
+  if (t < 0.28) return 0.55;
+  return 0.55 * Math.exp(-(t - 0.28) * 10);
 }
+
+const _buf = new THREE.Vector2();
 
 function hash01(n: number): number {
   const h = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -81,6 +86,9 @@ export class WeatherSystem implements System, WeatherApi {
   private splash = new RainSplashes();
   private snow = new SnowFlakes();
   private bolt = new LightningBolt();
+  /** Cold-white practical at the strike point (always in the scene so the light count never changes). */
+  private boltLight = new THREE.PointLight(0xdfe8ff, 0, 34, 1.4);
+  private boltAt = new THREE.Vector3();
   private scorch = new StrikeScorch();
   private strikeFx = new BurstFX(260);
   private fogBank = new FogBank();
@@ -110,6 +118,8 @@ export class WeatherSystem implements System, WeatherApi {
   private center = new THREE.Vector3();
   private lastPrint = new THREE.Vector3(1e9, 0, 0);
   private printSide = 1;
+  private printN = 0;
+  private stride = 0.42;
   private clock = 0;
   /** 1 while it rains, then dries over ~2 game hours (keeps puddles / drips / dark wet ground). */
   private damp = 0;
@@ -120,6 +130,7 @@ export class WeatherSystem implements System, WeatherApi {
     this.game = game;
     game.scene.add(this.rain.mesh, this.rainFar.mesh, this.splash.mesh, this.snow.mesh, this.bolt.mesh, this.fogBank.mesh, this.rainbow.mesh, this.drips.mesh, this.prints.mesh, this.leaves.mesh, this.scorch.mesh, this.strikeFx.object);
     this.strikeFx.object.userData.perfTag = 'weather';
+    game.scene.add(this.boltLight);
     this.strikeFx.object.userData.noAO = true;
     game.events.on('weather:change', ({ weather, prev }) => {
       if ((prev === 'rain' || prev === 'storm') && (weather === 'sun' || weather === 'wind')) {
@@ -158,12 +169,14 @@ export class WeatherSystem implements System, WeatherApi {
     }
     const ground = new THREE.Vector3(x, map.heightAt(x, z), z);
     this.bolt.build(ground, g.rc.camera.position, this.boltSeed++ * 7919);
-    // Impact: white-hot sparks, a burst of steam off the wet ground, a smoking scorch mark.
+    // Impact: a short ground flash (bolt disc), 8-12 white-hot streaking sparks, a few orange embers
+    // and one soft, billowing steam plume off the wet ground (not a scatter of puffs).
     this.scorch.add(x, z, g.time);
     const hit = ground.clone().setY(ground.y + 0.1);
-    this.strikeFx.emit(hit, { color: 0xfff4d0, count: 46, speed: 6.5, size: 0.09, gravity: 11, life: 0.75, up: 1.1, spread: 0.3 });
-    this.strikeFx.emit(hit, { color: 0xffb060, count: 24, speed: 3.5, size: 0.07, gravity: 8, life: 1.1, up: 1.4, spread: 0.5 });
-    this.strikeFx.emit(hit, { color: 0xc9d2de, count: 26, speed: 1.0, size: 0.55, gravity: -0.5, life: 2.6, up: 1.3, spread: 1.6 });
+    this.strikeFx.emit(hit, { color: 0xfff6dc, count: 11, speed: 7.5, size: 0.075, gravity: 14, life: 0.5, up: 1.3, spread: 0.25 });
+    this.strikeFx.emit(hit, { color: 0xffa850, count: 9, speed: 3.2, size: 0.06, gravity: 9, life: 0.9, up: 1.2, spread: 0.4 });
+    this.strikeFx.emit(hit.clone().setY(hit.y + 0.3), { color: 0xaeb6c2, count: 5, speed: 0.35, size: 1.1, gravity: -0.45, life: 3.2, up: 1.0, spread: 0.25 });
+    this.boltAt.copy(hit).setY(hit.y + 2.5);
     this.strikeT = 0;
     this.hold = hold;
     const dist = Math.hypot(x - g.player.position.x, z - g.player.position.z);
@@ -235,14 +248,17 @@ export class WeatherSystem implements System, WeatherApi {
     let ang = Math.atan2(bx, bz);
     for (let i = 0; i < 26; i++) {
       ang += Math.sin(i * 0.45) * 0.09;
-      const nx = x + Math.sin(ang) * 0.42;
-      const nz = z + Math.cos(ang) * 0.42;
+      const stride = 0.42 * (0.92 + hash01(i * 3.3 + 1) * 0.16);
+      const nx = x + Math.sin(ang) * stride;
+      const nz = z + Math.cos(ang) * stride;
       if (!map.grid.isWalkable(Math.floor(nx), Math.floor(nz))) break;
       x = nx;
       z = nz;
       // Prints point towards the player (walking direction is the reverse of the trail).
       this.printSide = -this.printSide;
-      this.prints.stamp(x, this.snowTop(x, z), z, ang + Math.PI, this.printSide, g.time - i * 0.9);
+      // Natural gait: stride and toe-out vary by a few percent per step.
+      const jit = (hash01(i * 7.1 + 3) - 0.5) * 0.16;
+      this.prints.stamp(x, this.snowTop(x, z), z, ang + Math.PI + jit, this.printSide, g.time - i * 0.9);
     }
   }
 
@@ -365,11 +381,13 @@ export class WeatherSystem implements System, WeatherApi {
     this.fogBank.mesh.visible = false;
     const clear = this.weather === 'sun' || this.weather === 'wind';
     const map = game.world.current;
+    // Fog mornings: the mist hugs the ground (dense below ~0.8 m, clear above ~1.5 m) so it pools
+    // over the water and in the hollows while the canopy, the cliffs and the farmer stay crisp.
     atmosphere.fog = clear ? this.fogAmt : this.fogAmt * 0.5 + this.rainAmt * 0.16;
-    atmosphere.base = map?.terrain ? map.terrain.opts.waterLevel + 0.25 : rig.focus.y - 0.3;
-    atmosphere.falloff = clear ? 1.2 : 3.0;
-    atmosphere.density = clear ? 0.12 : 0.06;
-    game.lighting.mist = this.fogAmt * (clear ? 0.22 : 0.1);
+    atmosphere.base = map?.terrain ? map.terrain.opts.waterLevel + (clear ? 0.05 : 0.25) : rig.focus.y - 0.3;
+    atmosphere.falloff = clear ? 0.55 : 3.0;
+    atmosphere.density = clear ? 0.7 : 0.06;
+    game.lighting.mist = this.fogAmt * (clear ? 0.06 : 0.1);
     (game.world.current as { setAtmosphere?: (f: number) => void } | null)?.setAtmosphere?.(this.fogAmt);
     this.rainbow.update(this.rainbowAmt, cam.aspect);
     this.updateFootprints(game);
@@ -398,13 +416,15 @@ export class WeatherSystem implements System, WeatherApi {
       this.lastPrint.copy(p);
       return;
     }
-    if (d < 0.42) return;
+    if (d < this.stride) return;
     if (map.terrain.heightAt(p.x, p.z) < map.terrain.opts.waterLevel + 0.02) {
       this.lastPrint.copy(p);
       return;
     }
-    const yaw = Math.atan2(p.x - this.lastPrint.x, p.z - this.lastPrint.z);
+    const yaw = Math.atan2(p.x - this.lastPrint.x, p.z - this.lastPrint.z) + (hash01(this.printN * 5.7) - 0.5) * 0.16;
     this.printSide = -this.printSide;
+    this.printN++;
+    this.stride = 0.42 * (0.92 + hash01(this.printN * 2.9) * 0.16);
     this.prints.stamp(p.x, this.snowTop(p.x, p.z), p.z, yaw, this.printSide, game.time);
     this.lastPrint.copy(p);
   }
@@ -421,18 +441,22 @@ export class WeatherSystem implements System, WeatherApi {
     let f = 0;
     if (this.strikeT >= 0) {
       if (this.hold && game.paused) {
-        // Posed strike for stills: bolt fully lit, the world caught in the flash.
+        // Posed strike for stills: bolt fully lit, the world caught in the afterglow of the stroke.
         this.bolt.alpha = 1;
-        f = 0.38;
+        f = 0.05;
       } else {
         this.hold = false;
         this.strikeT += dt;
         f = flashEnvelope(this.strikeT);
-        this.bolt.alpha = Math.min(1, f * 1.3) * (this.strikeT < 0.6 ? 1 : 0);
+        this.bolt.alpha = Math.min(1, f * 1.4) * (this.strikeT < 0.55 ? 1 : 0);
         if (this.strikeT > 0.9) this.strikeT = -1;
       }
     } else this.bolt.alpha = 0;
-    game.lighting.setFlash(f * (0.55 + 0.45 * this.rainAmt));
+    const buf = game.rc.renderer.getDrawingBufferSize(_buf);
+    this.bolt.setResolution(buf.x, buf.y);
+    game.lighting.setFlash(f * (0.6 + 0.4 * this.rainAmt));
+    this.boltLight.position.copy(this.boltAt);
+    this.boltLight.intensity = (this.hold && game.paused ? 0.08 : f) * 90;
     this.flashNow = f;
     if (this.thunder && this.clock >= this.thunder.at) {
       const th = this.thunder;

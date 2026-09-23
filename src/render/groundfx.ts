@@ -309,33 +309,33 @@ export class Footprints {
         varying vec2 vSun;
         varying float vFade;
         ${NOISE_GLSL}
-        // Signed distance to a boot sole: toe ellipse + heel ellipse joined by a smooth waist.
+        // Signed distance to a boot sole: a toe ellipse and a separate heel pad with a gap between.
         float sole(vec2 p) {
-          vec2 t = (p - vec2(0.5, 0.66)) / vec2(0.36, 0.28);
-          vec2 h = (p - vec2(0.5, 0.25)) / vec2(0.3, 0.2);
-          float dt = length(t) - 1.0;
-          float dh = length(h) - 1.0;
-          float k = 0.25;
-          float hh = clamp(0.5 + 0.5 * (dh - dt) / k, 0.0, 1.0);
-          return mix(dh, dt, hh) - k * hh * (1.0 - hh);
+          vec2 t = (p - vec2(0.5, 0.64)) / vec2(0.3, 0.27);
+          vec2 h = (p - vec2(0.5, 0.26)) / vec2(0.24, 0.15);
+          float dt = (length(t) - 1.0) * 0.27;
+          float dh = (length(h) - 1.0) * 0.16;
+          return min(dt, dh);
         }
         void main() {
           if (vAge > 1.0 || vAge < 0.0) discard;
           // Quad is padded 1.25x: remap so the sole keeps its proportions.
           vec2 uv = (vUv - 0.5) * 1.25 + 0.5;
-          float n = hvNoise(uv * 9.0) * 0.18;
+          float n = (hvNoise(uv * 9.0) - 0.5) * 0.03;
           float d = sole(uv) + n;
-          float inside = smoothstep(0.1, -0.15, d);
-          float rim = smoothstep(0.34, 0.1, d) * (1.0 - inside);
+          float inside = smoothstep(0.012, -0.02, d);
+          float rim = smoothstep(0.05, 0.01, d) * (1.0 - inside);
           // The wall facing the sun is lit, the one facing away sits in the dent's own shadow.
           vec2 dir = normalize(uv - 0.5 + 1e-4);
           float toward = dot(dir, vSun);
-          float k = smoothstep(0.3, 0.7, uSnow) * (1.0 - smoothstep(0.55, 1.0, vAge)) * vFade;
-          // Deep blue dent (cold skylight in the hollow), tread bars, a soft blue AO halo around it.
-          vec3 dent = mix(vec3(1.0), vec3(0.4, 0.5, 0.78) * (0.88 + 0.16 * toward), inside * (0.82 + 0.18 * step(0.5, fract(uv.y * 7.0))));
-          float halo = smoothstep(0.55, 0.05, d) * (1.0 - inside);
-          vec3 ao = mix(vec3(1.0), vec3(0.8, 0.86, 0.98), halo * 0.8);
-          vec3 lip = mix(vec3(1.0), vec3(1.14, 1.13, 1.1), rim * clamp(0.4 - toward, 0.0, 1.0));
+          // Prints soften as fresh snow sifts in (fade over their life).
+          float k = smoothstep(0.3, 0.7, uSnow) * (1.0 - smoothstep(0.35, 1.0, vAge)) * vFade;
+          // Compressed snow: a soft cool shadow (~sky tint), deepest on the wall facing away from the sun.
+          vec3 dent = mix(vec3(1.0), vec3(0.78, 0.83, 0.93) * (0.92 - 0.06 * toward), inside);
+          float halo = smoothstep(0.08, 0.0, d) * (1.0 - inside);
+          vec3 ao = mix(vec3(1.0), vec3(0.93, 0.95, 0.99), halo * 0.6);
+          // Crumbled, raised rim catches the sun on its sunward side.
+          vec3 lip = mix(vec3(1.0), vec3(1.1, 1.09, 1.07), rim * smoothstep(-0.2, 0.6, toward));
           vec3 m = mix(vec3(1.0), dent * lip * ao, k);
           gl_FragColor = vec4(m * 0.5, 1.0);
         }`,
@@ -421,6 +421,8 @@ export class LeafGusts {
           uC1: { value: new THREE.Color() },
           uC2: { value: new THREE.Color() },
           uSize: { value: 0.16 },
+          uGloom: { value: 0 },
+          uPetals: { value: 0 },
           uSunDir: globalUniforms.uSunDir,
           uSunColor: globalUniforms.uSunColor,
           uSkyColor: globalUniforms.uSkyColor,
@@ -440,6 +442,7 @@ export class LeafGusts {
         varying vec2 vUv;
         varying float vPick;
         varying float vShade;
+        varying float vShape;
         float lgHash(float n) { return fract(sin(n) * 43758.5453); }
         float lgNoise(float x) { float i = floor(x); float f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(lgHash(i), lgHash(i + 1.0), f); }
         mat3 rot(vec3 a) {
@@ -477,10 +480,11 @@ export class LeafGusts {
           // Leaves right in front of the lens would read as giant blotches: shrink them away.
           float camD = length(cameraPosition - wp);
           float nearK = smoothstep(9.0, 15.0, camD);
-          vec3 local = R * vec3(position.x, position.y * 0.62, 0.0) * uSize * (0.75 + 0.6 * aSeed.z) * on * keep * nearK;
+          vec3 local = R * vec3(position.x, position.y, 0.0) * uSize * (0.75 + 0.6 * aSeed.z) * on * keep * nearK;
           vShade = 0.6 + 0.4 * abs((R * vec3(0.0, 0.0, 1.0)).y);
           vUv = uv;
           vPick = fract(aSeed.x * 7.0 + aSeed.z * 3.0);
+          vShape = fract(aSeed.y * 11.0 + aSeed.w * 5.0);
           vec4 mvPosition = viewMatrix * vec4(wp + local, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
@@ -492,20 +496,61 @@ export class LeafGusts {
         uniform vec3 uC2;
         uniform vec3 uSunColor;
         uniform vec3 uSkyColor;
+        uniform float uGloom;
+        uniform float uPetals;
         varying vec2 vUv;
         varying float vPick;
         varying float vShade;
+        varying float vShape;
+        // Three alpha-tested silhouettes (+ a petal): returns coverage, midrib / vein darkening in y.
+        vec2 leafShape(vec2 q, float shape) {
+          // q: -1..1, stem at -y, tip at +y.
+          if (uPetals > 0.5) {
+            // Cherry petal: rounded teardrop with a notch at the tip.
+            float w = sqrt(max(0.0, 1.0 - q.y * q.y)) * (0.55 + 0.25 * q.y);
+            float notch = smoothstep(0.14, 0.0, abs(q.x)) * smoothstep(0.62, 0.95, q.y);
+            float inside = step(abs(q.x), w) * (1.0 - notch);
+            return vec2(inside, smoothstep(0.05, 0.0, abs(q.x)) * 0.2);
+          }
+          float stem = step(abs(q.x), 0.045) * step(q.y, -0.62) * step(-0.98, q.y);
+          float vein = smoothstep(0.05, 0.0, abs(q.x)) * step(q.y, 0.85);
+          if (shape < 0.34) {
+            // Oval leaf with a pointed tip.
+            float t = q.y * 0.5 + 0.5;
+            float w = pow(max(0.0, sin(t * 3.14159)), 0.8) * 0.5 * (1.0 - 0.35 * smoothstep(0.55, 1.0, t));
+            float side = smoothstep(0.04, 0.0, abs(fract(q.y * 2.6 + abs(q.x) * 2.2) - 0.5)) * step(abs(q.x), w * 0.85) * 0.5;
+            return vec2(max(step(abs(q.x), w) * step(-0.72, q.y), stem), max(vein, side));
+          } else if (shape < 0.67) {
+            // Maple: five pointed lobes around the base of the stem.
+            vec2 p = q - vec2(0.0, -0.35);
+            float a = atan(p.x, p.y);
+            float r = length(p);
+            float lobes = 0.52 + 0.3 * pow(abs(cos(a * 2.5)), 3.0) - 0.12 * smoothstep(1.9, 2.8, abs(a));
+            float inside = step(r, lobes * 1.25) * step(-0.62, q.y);
+            float rib = smoothstep(0.05, 0.0, abs(fract(a / 1.2566 + 0.5) - 0.5) * r * 3.0) * step(r, lobes);
+            return vec2(max(inside, stem), rib * 0.7);
+          }
+          // Needle cluster: three slim needles fanning from one point.
+          float acc = 0.0;
+          for (int i = 0; i < 3; i++) {
+            float ang = (float(i) - 1.0) * 0.38;
+            vec2 d = vec2(cos(ang) * q.x - sin(ang) * (q.y + 0.9), sin(ang) * q.x + cos(ang) * (q.y + 0.9));
+            acc = max(acc, step(abs(d.x), 0.07 * (1.0 - d.y / 1.9)) * step(0.0, d.y) * step(d.y, 1.85));
+          }
+          return vec2(acc, 0.0);
+        }
         void main() {
-          // Leaf / petal silhouette: pointed ellipse with a short stem, central vein and side veins.
           vec2 q = vUv * 2.0 - 1.0;
-          float w = (1.0 - q.y * q.y) * 0.62 * (1.0 - 0.25 * smoothstep(0.2, 1.0, q.y));
-          float stem = step(abs(q.x), 0.05) * step(q.y, -0.75);
-          float inside = max(step(abs(q.x), w), stem);
-          if (inside < 0.5) discard;
+          vec2 ls = leafShape(q, vShape);
+          if (ls.x < 0.5) discard;
           vec3 c = vPick < 0.34 ? uC0 : vPick < 0.67 ? uC1 : uC2;
-          float vein = smoothstep(0.06, 0.0, abs(q.x)) + smoothstep(0.05, 0.0, abs(fract(q.y * 3.0 + abs(q.x) * 1.5) - 0.5)) * 0.4 * step(abs(q.x), w * 0.8);
-          c *= (0.88 + 0.2 * smoothstep(0.0, 0.5, w - abs(q.x))) * (1.0 - vein * 0.18);
-          vec3 light = uSkyColor * 0.45 + uSunColor * 0.75 * vShade;
+          // Two-tone: the underside is paler and cooler (visible as the leaf flips over in the wind).
+          if (!gl_FrontFacing) c = mix(c, c * vec3(1.1, 1.12, 0.92) + 0.06, 0.55);
+          c *= 1.0 - ls.y * 0.22;
+          // Storm / rain: soaked and dim, pulled towards a dark olive so they never glow in the grade.
+          c = mix(c, vec3(0.31, 0.48, 0.23) * 0.8, uGloom * 0.55);
+          vec3 light = uSkyColor * 0.42 + uSunColor * 0.7 * vShade;
+          light *= 1.0 - uGloom * 0.35;
           gl_FragColor = vec4(c * light, 1.0);
           #include <fog_fragment>
         }`,
@@ -525,7 +570,9 @@ export class LeafGusts {
     (u.uC0!.value as THREE.Color).setHex(a);
     (u.uC1!.value as THREE.Color).setHex(b);
     (u.uC2!.value as THREE.Color).setHex(c);
-    u.uSize!.value = p === 'petals' ? 0.3 : 0.42;
+    // ~12-18 px at gameplay zoom.
+    u.uSize!.value = p === 'petals' ? 0.17 : 0.24;
+    u.uPetals!.value = p === 'petals' ? 1 : 0;
   }
 
   update(center: THREE.Vector3, amount: number, time: number): void {
@@ -536,6 +583,7 @@ export class LeafGusts {
     const wd = globalUniforms.uWindDir.value;
     (u.uWind!.value as THREE.Vector2).copy(wd);
     u.uSpeed!.value = 1.2 + globalUniforms.uWindStrength.value * 2.2;
+    u.uGloom!.value = Math.min(1, globalUniforms.uRain.value * 1.1);
     this.mesh.visible = amount > 0.01;
   }
 }

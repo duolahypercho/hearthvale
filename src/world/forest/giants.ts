@@ -20,7 +20,7 @@ import { applyWind, windDepthMaterial } from '../../render/wind';
 import { applyWorldFx } from '../../render/worldfx';
 import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
-import { InstancedSet, BatchPool } from '../props/instanced';
+import { InstancedSet, BatchPool, type InstancedPart } from '../props/instanced';
 import type { GiantKind } from './layout';
 import { CardBuilder, leafClusterTexture, needleSprayTexture, applyBillboard, applyCardMap, applyPaintedLight, applySeeThrough } from './foliage';
 
@@ -84,8 +84,47 @@ export function giantBarkMaterial(): THREE.MeshStandardMaterial {
   });
   applyWorldFx(barkMat, { snowUp: 0.62 });
   applyWind(barkMat, WIND_TRUNK);
-  applySeeThrough(barkMat, 1.6, 2.5);
+  // Trunks stay solid (a dithered trunk reads as a screen door); only the canopy opens up.
   return barkMat;
+}
+
+let twigMat: THREE.MeshStandardMaterial | null = null;
+/**
+ * Winter crown: the fine, recursively forking twig structure of a bare elder (only drawn in winter,
+ * when the leaves are down). Snow settles along the upper side of every branch.
+ */
+export function giantTwigMaterial(): THREE.MeshStandardMaterial {
+  if (twigMat) return twigMat;
+  const t = textures.bark();
+  twigMat = new THREE.MeshStandardMaterial({ map: t.map, bumpMap: t.bump, bumpScale: 1.6, roughness: 0.95, vertexColors: true, color: 0x9a8472 });
+  twigMat.name = 'giantTwig';
+  applyWorldFx(twigMat, { snowUp: 0.42 });
+  applyWind(twigMat, WIND_TRUNK);
+  return twigMat;
+}
+
+/**
+ * Recursive, tapered, curved branching (3 levels, radius x0.65 and length x0.72 per level): each
+ * branch is a short bezier bough bending up and out, children fork off its outer half.
+ */
+function branchTree(b: MeshBuilder, m: THREE.Material, rng: Rng, from: THREE.Vector3, dir: THREE.Vector3, len: number, r: number, level: number): void {
+  const d = dir.clone().normalize();
+  const end = from.clone().addScaledVector(d, len);
+  // Branches arc upward towards the light, then droop a touch at the tips.
+  const ctrl = from.clone().lerp(end, 0.5).add(new THREE.Vector3((rng.next() - 0.5) * len * 0.35, len * (0.12 + rng.next() * 0.18), (rng.next() - 0.5) * len * 0.35));
+  bough(b, m, r, r * 0.62, from, ctrl, end, Math.max(3, 6 - level), level === 0 ? 3 : 2);
+  if (level >= 2) return;
+  const curve = new THREE.QuadraticBezierCurve3(from, ctrl, end);
+  const kids = level === 0 ? 3 : 2 + rng.int(0, 1);
+  for (let k = 0; k < kids; k++) {
+    const t = 0.45 + (k / kids) * 0.5 + rng.next() * 0.08;
+    const p = curve.getPoint(Math.min(0.98, t));
+    const tan = curve.getTangent(Math.min(0.98, t));
+    const a = rng.next() * Math.PI * 2;
+    const side = new THREE.Vector3(Math.cos(a), 0.25 + rng.next() * 0.5, Math.sin(a));
+    const nd = tan.clone().multiplyScalar(0.55).add(side.multiplyScalar(0.6)).normalize();
+    branchTree(b, m, rng, p, nd, len * (0.62 + rng.next() * 0.2), r * 0.65, level + 1);
+  }
 }
 
 /** F1 / F2 cellular noise in 3D: direction from the nearest cell centre, border distance, F1. */
@@ -239,7 +278,7 @@ function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
   if (m) return m;
   m = new THREE.MeshStandardMaterial({ roughness: 0.9, vertexColors: true, color: 0xffffff });
   m.name = `giantLeaf-${kind}`;
-  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.35 } : { snowUp: 0.6 });
+  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.12 } : { snowUp: 0.6 });
   applyWind(m, WIND_LEAF);
   canopyLook(m, kind);
   applyPaintedLight(m);
@@ -262,7 +301,7 @@ function cardMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
     color: 0xffffff,
   });
   m.name = `giantCard-${kind}`;
-  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.3 } : { snowUp: 0.55 });
+  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.05 } : { snowUp: 0.55 });
   applyWind(m, WIND_CARD);
   applyBillboard(m);
   applyCardMap(m, kind === 'elder');
@@ -388,6 +427,8 @@ function roots(b: MeshBuilder, m: THREE.Material, rng: Rng, r0: number, n: numbe
 }
 
 interface GiantGeo {
+  /** Winter-only fine twig crown (elders). */
+  twigs?: THREE.BufferGeometry;
   trunk: THREE.BufferGeometry;
   leaves: THREE.BufferGeometry;
   cards: THREE.BufferGeometry;
@@ -433,6 +474,8 @@ function elder(rng: Rng): GiantGeo {
   b.add(bark, trunkGeometry(rng, trunkH + 0.6, r0, 5 + rng.int(0, 2), 0.55), undefined, { aoWorld: trunkAO });
   // Root tubes diving into the ground between the swells.
   roots(b, bark, rng, r0, 6 + rng.int(0, 1), 1.5, 0.34);
+  const tb = new MeshBuilder();
+  const twig = giantTwigMaterial();
   const top = new THREE.Vector3(0, trunkH, 0);
   const crownY = trunkH + 2.9 + rng.next() * 0.7;
   const spread = 5.2 + rng.next() * 1.0;
@@ -445,16 +488,15 @@ function elder(rng: Rng): GiantGeo {
     const end = new THREE.Vector3(Math.cos(a) * out, crownY - 0.6 + rng.next() * 1.4, Math.sin(a) * out);
     const ctrl = start.clone().lerp(end, 0.5).add(new THREE.Vector3(0, 1.6, 0)).multiply(new THREE.Vector3(0.55, 1, 0.55));
     bough(b, bark, r0 * 0.46, 0.14, start, ctrl, end, 9, 4);
+    branchTree(tb, twig, rng, end, end.clone().sub(ctrl).normalize().add(new THREE.Vector3(0, 0.5, 0)), 1.6, 0.1, 0);
     // Secondary boughs + twigs (the bare winter silhouette).
     for (let k = 0; k < 3; k++) {
       const a2 = a + (rng.next() - 0.5) * 1.6;
       const from = start.clone().lerp(end, 0.55 + k * 0.15);
       const to = from.clone().add(new THREE.Vector3(Math.cos(a2) * (1.6 + rng.next() * 1.6), 0.8 + rng.next() * 1.4, Math.sin(a2) * (1.6 + rng.next() * 1.6)));
-      bough(b, bark, 0.16, 0.04, from, from.clone().lerp(to, 0.5).add(new THREE.Vector3(0, 0.5, 0)), to, 5, 2);
-      for (let t = 0; t < 4; t++) {
-        const tw = to.clone().add(new THREE.Vector3((rng.next() - 0.5) * 1.8, 0.4 + rng.next() * 1.0, (rng.next() - 0.5) * 1.8));
-        b.add(bark, limb(0.045, 0.012, to.clone().lerp(from, 0.2), tw, 4, 1));
-      }
+      bough(b, bark, 0.17, 0.07, from, from.clone().lerp(to, 0.5).add(new THREE.Vector3(0, 0.5, 0)), to, 6, 3);
+      // Bare-crown twig tree off the end of every secondary bough (drawn in winter only).
+      branchTree(tb, twig, rng, to, to.clone().sub(from).normalize().add(new THREE.Vector3(0, 0.35, 0)), 1.3 + rng.next() * 0.5, 0.075, 0);
       cluster(blobs, rng, to.clone().add(new THREE.Vector3(0, 0.45, 0)), 1.35, 2);
     }
     cluster(blobs, rng, end.clone().add(new THREE.Vector3(0, 0.6, 0)), 1.7, 3);
@@ -545,7 +587,9 @@ function elder(rng: Rng): GiantGeo {
   const leafW = (pp: THREE.Vector3) => 0.3 + 0.7 * THREE.MathUtils.clamp((pp.y - trunkH) / (H - trunkH), 0, 1);
   addWindAttr(leaves, leafW);
   addWindAttr(cardGeo, leafW);
-  return { trunk, leaves, cards: cardGeo, height: H, radius: spread + 2.5 };
+  const twigs = tb.geometries().get(twig)!;
+  addWindAttr(twigs, (pp) => 0.4 + 0.6 * Math.pow(THREE.MathUtils.clamp((pp.y - trunkH * 0.6) / (H - trunkH * 0.6), 0, 1), 1.4));
+  return { trunk, leaves, cards: cardGeo, twigs, height: H, radius: spread + 2.5 };
 }
 
 function fir(rng: Rng): GiantGeo {
@@ -614,13 +658,15 @@ function fir(rng: Rng): GiantGeo {
       cc.copy(tint).multiplyScalar(tierAO(pp) * (0.92 + rng.next() * 0.16));
       cards.add(pp, nrm, s * 0.9, s * 1.25, (rng.next() - 0.5) * 0.5, cc, { anchorY: 0.78 });
     }
-    const nTop = Math.round(r * 3);
+    // Sprays lying all over the tier tops: seen from the diorama camera the tiers read as layered
+    // needle boughs instead of smooth dark cones.
+    const nTop = Math.round(r * 7);
     for (let k = 0; k < nTop; k++) {
       const ang = rng.next() * Math.PI * 2;
-      const q = 0.45 + rng.next() * 0.35;
+      const q = 0.25 + rng.next() * 0.6;
       pp.set(Math.cos(ang) * r * q, y + th * (1 - q) - droopAt(q) + 0.15, Math.sin(ang) * r * q);
       nrm.set(Math.cos(ang) * 0.6, 1, Math.sin(ang) * 0.6).normalize();
-      const s = 1.1 + rng.next() * 0.4;
+      const s = 1.2 + rng.next() * 0.6;
       cc.copy(tint).multiplyScalar(tierAO(pp) * (0.95 + rng.next() * 0.15));
       cards.add(pp, nrm, s, s * 1.1, rng.next() * Math.PI * 2, cc);
     }
@@ -686,15 +732,13 @@ export class GiantGrove {
       const g = this.variantsFor(kind)[vi]!;
       GiantGrove.depthTrunk ??= windDepthMaterial(WIND_TRUNK);
       GiantGrove.depthLeaf ??= windDepthMaterial(WIND_LEAF);
-      s = new InstancedSet(
-        `giant-${key}`,
-        [
-          { geometry: g.trunk, material: giantBarkMaterial(), depthMaterial: GiantGrove.depthTrunk },
-          { geometry: g.leaves, material: canopyMaterial(kind), tinted: true, depthMaterial: GiantGrove.depthLeaf },
-          { geometry: g.cards, material: cardMaterial(kind), tinted: true, depthMaterial: cardDepthMaterial(kind) },
-        ],
-        this.pool,
-      );
+      const parts: InstancedPart[] = [
+        { geometry: g.trunk, material: giantBarkMaterial(), depthMaterial: GiantGrove.depthTrunk },
+        { geometry: g.leaves, material: canopyMaterial(kind), tinted: true, depthMaterial: GiantGrove.depthLeaf },
+        { geometry: g.cards, material: cardMaterial(kind), tinted: true, depthMaterial: cardDepthMaterial(kind) },
+      ];
+      if (g.twigs) parts.push({ geometry: g.twigs, material: giantTwigMaterial(), depthMaterial: GiantGrove.depthTrunk });
+      s = new InstancedSet(`giant-${key}`, parts, this.pool);
       this.sets.set(key, s);
     }
     return s;
@@ -729,6 +773,7 @@ export class GiantGrove {
       const m = leafMats.get(key);
       if (m) for (const mesh of this.pool.meshesFor(m)) mesh.visible = season !== 'winter';
     }
+    for (const mesh of this.pool.meshesFor(giantTwigMaterial())) mesh.visible = season === 'winter';
   }
 }
 

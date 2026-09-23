@@ -1,7 +1,8 @@
 /**
  * Atmospheric weather set pieces (owned by the weather system, one draw call each, hidden when idle):
- *  - LightningBolt: a fractal, branching bolt from above the frame down to a strike point, drawn as
- *    camera-facing additive ribbons (hot white core + violet glow) with a ground-impact bloom disc.
+ *  - LightningBolt: a jagged, forking bolt from above the frame down to a strike point, drawn as
+ *    screen-space additive ribbons (crisp 2-3 px white core, tight halo, soft blue glow) with a
+ *    ground-flash disc.
  *  - FogBank: morning ground mist — four translucent layers draped over the terrain (height texture)
  *    at 0.25–2.2 m, drifting noise wisps lit by the low sun, thinned on steep slopes.
  *  - Rainbow: a soft spectral arc (+ faint secondary) hung over the view after rain. The diorama
@@ -39,17 +40,18 @@ export class LightningBolt {
   readonly mesh: THREE.Mesh;
   private mat: THREE.ShaderMaterial;
   private geo = new THREE.BufferGeometry();
-  private maxVerts = 4000;
+  private maxVerts = 6000;
   /** Current strike point (world). */
   readonly strike = new THREE.Vector3();
 
   constructor() {
-    const pos = new Float32Array(this.maxVerts * 3);
-    const uv = new Float32Array(this.maxVerts * 2);
-    const k = new Float32Array(this.maxVerts);
-    this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
-    this.geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2).setUsage(THREE.DynamicDrawUsage));
-    this.geo.setAttribute('aK', new THREE.BufferAttribute(k, 1).setUsage(THREE.DynamicDrawUsage));
+    const mk = (n: number) => new THREE.BufferAttribute(new Float32Array(this.maxVerts * n), n).setUsage(THREE.DynamicDrawUsage);
+    // Screen-space ribbons: every vertex carries both segment ends and expands in pixels in the
+    // vertex shader, so the bolt is a crisp 2-3 px core inside a 12-20 px glow at any distance.
+    this.geo.setAttribute('position', mk(3));
+    this.geo.setAttribute('aB', mk(3));
+    this.geo.setAttribute('aSide', mk(2));
+    this.geo.setAttribute('aW', mk(2));
     this.geo.setDrawRange(0, 0);
     this.mat = new THREE.ShaderMaterial({
       transparent: true,
@@ -57,35 +59,69 @@ export class LightningBolt {
       depthTest: true,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
-      uniforms: { uAlpha: { value: 0 }, uCore: { value: new THREE.Color(1.0, 0.98, 1.0) }, uGlow: { value: new THREE.Color(0.55, 0.5, 1.0) } },
+      uniforms: {
+        uAlpha: { value: 0 },
+        uRes: { value: new THREE.Vector2(1920, 1080) },
+        uCore: { value: new THREE.Color(1.0, 0.99, 1.0) },
+        uGlow: { value: new THREE.Color(0.52, 0.6, 1.0) },
+      },
       vertexShader: /* glsl */ `
-        attribute float aK;
-        varying vec2 vUv;
+        attribute vec3 aB;
+        attribute vec2 aSide;
+        attribute vec2 aW;
+        uniform vec2 uRes;
+        varying float vPx;
         varying float vK;
+        varying float vDisc;
+        varying vec2 vDiscUv;
         void main() {
-          vUv = uv;
-          vK = aK;
-          gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+          vK = aW.y;
+          vDisc = 0.0;
+          vDiscUv = vec2(0.0);
+          if (aW.x < 0.0) {
+            // Ground flash disc (world-space quad, corners in aSide).
+            vDisc = 1.0;
+            vDiscUv = aSide;
+            vPx = 0.0;
+            gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+            return;
+          }
+          vec4 ca = projectionMatrix * viewMatrix * vec4(position, 1.0);
+          vec4 cb = projectionMatrix * viewMatrix * vec4(aB, 1.0);
+          vec2 sa = ca.xy / ca.w * uRes * 0.5;
+          vec2 sb = cb.xy / cb.w * uRes * 0.5;
+          vec2 d = normalize(sb - sa + 1e-5);
+          vec2 nrm = vec2(-d.y, d.x);
+          // aSide.x: -1 / 1 across, aSide.y: 0 = start, 1 = end (joints overlap by a pixel or two).
+          vec4 c = aSide.y < 0.5 ? ca : cb;
+          vec2 off = (nrm * aSide.x * aW.x + d * (aSide.y < 0.5 ? -1.5 : 1.5)) / (uRes * 0.5) * c.w;
+          c.xy += off;
+          vPx = aSide.x * aW.x;
+          gl_Position = c;
         }`,
       fragmentShader: /* glsl */ `
         uniform float uAlpha;
         uniform vec3 uCore;
         uniform vec3 uGlow;
-        varying vec2 vUv;
+        varying float vPx;
         varying float vK;
+        varying float vDisc;
+        varying vec2 vDiscUv;
         void main() {
-          // uv.x: -1..1 across the ribbon; uv.y < 0 marks the ground-impact disc.
-          if (vUv.y < -0.5) {
-            float d = length(vec2(vUv.x, vUv.y + 2.0) * 2.0 - vec2(1.0));
-            float g = exp(-d * d * 4.0);
-            gl_FragColor = vec4((uGlow * g * 0.5 + uCore * pow(g, 6.0) * 0.8) * uAlpha, 1.0);
+          if (vDisc > 0.5) {
+            float r = length(vDiscUv);
+            float g = exp(-r * r * 5.0);
+            gl_FragColor = vec4((uGlow * g * 0.55 + uCore * pow(g, 5.0) * 0.9) * uAlpha, 1.0);
             return;
           }
-          float x = abs(vUv.x);
-          float core = smoothstep(0.26, 0.04, x);
-          float glow = exp(-x * x * 7.0);
-          vec3 c = (uCore * core * 3.2 + uGlow * glow * 0.7) * vK * uAlpha;
-          gl_FragColor = vec4(c, 1.0);
+          float px = abs(vPx);
+          // Crisp white-hot core (~2.5 px) + tight bright halo + wide soft glow.
+          float coreW = 1.2 + vK * 0.5;
+          float core = 1.0 - smoothstep(coreW, coreW + 0.9, px);
+          float halo = exp(-px * px / 12.0);
+          float glow = exp(-px * px / 90.0);
+          vec3 c = uCore * core * 3.0 + mix(uGlow, uCore, 0.3) * halo * 0.45 + uGlow * glow * 0.22;
+          gl_FragColor = vec4(c * vK * uAlpha, 1.0);
         }`,
     });
     this.mesh = new THREE.Mesh(this.geo, this.mat);
@@ -97,123 +133,95 @@ export class LightningBolt {
     this.mesh.userData.perfTag = 'weather';
   }
 
-  /** Build a new bolt from high above `ground` down to it, facing `camPos`. */
-  build(ground: THREE.Vector3, camPos: THREE.Vector3, seed: number): void {
+  /** Drawing-buffer size (pixel widths are in these units). */
+  setResolution(w: number, h: number): void {
+    (this.mat.uniforms.uRes!.value as THREE.Vector2).set(w, h);
+  }
+
+  /** Build a new bolt from high above `ground` down to it. */
+  build(ground: THREE.Vector3, _camPos: THREE.Vector3, seed: number): void {
     const rnd = prng(seed);
     this.strike.copy(ground);
-    const top = ground.clone().add(new THREE.Vector3((rnd() - 0.5) * 10, 34 + rnd() * 8, -6 - rnd() * 6));
+    // The channel leaves the frame top (well below the lens: the diorama camera sits ~17 m up), leaning
+    // away from the camera so the whole bolt reads as one jagged stroke down the screen.
+    const top = ground.clone().add(new THREE.Vector3((rnd() - 0.5) * 6, 13 + rnd() * 3, -9 - rnd() * 4));
     const segs: BoltSeg[] = [];
-    // Midpoint displacement: a jagged channel; returns its points.
+    // Midpoint displacement with sharp kinks (5-8 zig-zags per 10 m on the main channel).
     const channel = (a: THREE.Vector3, b: THREE.Vector3, depth: number, jag: number): THREE.Vector3[] => {
       let pts = [a.clone(), b.clone()];
       for (let d = 0; d < depth; d++) {
         const next: THREE.Vector3[] = [pts[0]!];
+        const j = jag * (d < 2 ? 1.0 : 0.8);
         for (let i = 0; i < pts.length - 1; i++) {
           const p = pts[i]!;
           const q = pts[i + 1]!;
           const len = p.distanceTo(q);
-          const mid = p.clone().lerp(q, 0.4 + rnd() * 0.2);
-          mid.x += (rnd() - 0.5) * len * jag;
-          mid.z += (rnd() - 0.5) * len * jag;
-          mid.y += (rnd() - 0.5) * len * jag * 0.25;
+          const mid = p.clone().lerp(q, 0.35 + rnd() * 0.3);
+          // Mostly sideways kinks (across the screen), little in depth.
+          mid.x += (rnd() - 0.5) * len * j;
+          mid.z += (rnd() - 0.5) * len * j * 0.3;
+          mid.y += (rnd() - 0.5) * len * j * 0.15;
           next.push(mid, q);
         }
         pts = next;
       }
       return pts;
     };
-    // Tapered emission: thick where it leaves the cloud, pinching towards the tip; brightness
-    // flickers along the channel.
+    // Pixel widths: main channel thickest where it leaves the cloud; forks thinner and dimmer.
     const emit = (pts: THREE.Vector3[], w0: number, w1: number, k: number): void => {
       for (let i = 0; i < pts.length - 1; i++) {
         const f = i / (pts.length - 1);
-        const w = THREE.MathUtils.lerp(w0, w1, Math.pow(f, 0.8)) * (0.8 + rnd() * 0.4);
-        segs.push({ a: pts[i]!, b: pts[i + 1]!, w, k: k * (0.8 + rnd() * 0.25) });
+        segs.push({ a: pts[i]!, b: pts[i + 1]!, w: THREE.MathUtils.lerp(w0, w1, f), k: k * (0.85 + rnd() * 0.2) });
       }
     };
-    const main = channel(top, ground, 7, 0.42);
-    emit(main, 0.5, 0.26, 1);
-    // 2-4 major forks peeling off the upper two thirds, each with a few twiggy sub-branches.
+    const main = channel(top, ground, 6, 0.62);
+    emit(main, 16, 13, 1);
+    // 2-4 forks peeling off the upper two thirds, each with a twig or two.
     const forks = 2 + Math.floor(rnd() * 3);
     for (let k = 0; k < forks; k++) {
-      const fi = Math.floor((0.12 + rnd() * 0.5) * (main.length - 2));
+      const fi = Math.floor((0.1 + rnd() * 0.55) * (main.length - 2));
       const from = main[fi]!;
       const dir = main[fi + 1]!.clone().sub(from).normalize();
-      const len = 8 + rnd() * 10;
-      const side = new THREE.Vector3(rnd() - 0.5, 0, rnd() - 0.5).normalize();
-      const end = from.clone().add(dir.clone().multiplyScalar(0.6).add(side.multiplyScalar(0.85)).add(new THREE.Vector3(0, -0.9, 0)).normalize().multiplyScalar(len));
-      const fp = channel(from, end, 5, 0.5);
-      emit(fp, 0.26, 0.05, 0.75);
-      for (let j = 0; j < 3; j++) {
-        const si = Math.floor(rnd() * (fp.length - 2));
+      const len = 6 + rnd() * 9;
+      const side = new THREE.Vector3(rnd() - 0.5, 0, (rnd() - 0.5) * 0.5).normalize();
+      const end = from.clone().add(dir.clone().multiplyScalar(0.5).add(side.multiplyScalar(0.9)).add(new THREE.Vector3(0, -0.8, 0)).normalize().multiplyScalar(len));
+      const fp = channel(from, end, 4, 0.6);
+      emit(fp, 11, 6, 0.6);
+      for (let j = 0; j < 2; j++) {
+        const si = 1 + Math.floor(rnd() * (fp.length - 3));
         const sf = fp[si]!;
-        const se = sf.clone().add(new THREE.Vector3((rnd() - 0.5) * 2, -0.6 - rnd(), (rnd() - 0.5) * 2).normalize().multiplyScalar(2 + rnd() * 3));
-        emit(channel(sf, se, 3, 0.55), 0.12, 0.03, 0.5);
+        const se = sf.clone().add(new THREE.Vector3((rnd() - 0.5) * 2, -0.7 - rnd(), (rnd() - 0.5) * 1).normalize().multiplyScalar(1.5 + rnd() * 2.5));
+        emit(channel(sf, se, 3, 0.6), 7, 4, 0.4);
       }
-    }
-    // Hair-thin branchlets off the main channel.
-    for (let j = 0; j < 6; j++) {
-      const si = Math.floor((0.1 + rnd() * 0.8) * (main.length - 2));
-      const sf = main[si]!;
-      const se = sf.clone().add(new THREE.Vector3((rnd() - 0.5) * 2, -0.5 - rnd(), (rnd() - 0.5) * 2).normalize().multiplyScalar(2 + rnd() * 4));
-      emit(channel(sf, se, 3, 0.55), 0.12, 0.03, 0.45);
     }
 
     const pos = this.geo.attributes.position as THREE.BufferAttribute;
-    const uv = this.geo.attributes.uv as THREE.BufferAttribute;
-    const kk = this.geo.attributes.aK as THREE.BufferAttribute;
+    const bb = this.geo.attributes.aB as THREE.BufferAttribute;
+    const sd = this.geo.attributes.aSide as THREE.BufferAttribute;
+    const ww = this.geo.attributes.aW as THREE.BufferAttribute;
     let v = 0;
-    const push = (p: THREE.Vector3, u: number, w: number, k: number): void => {
+    const push = (a: THREE.Vector3, b: THREE.Vector3, sx: number, sy: number, w: number, k: number): void => {
       if (v >= this.maxVerts) return;
-      pos.setXYZ(v, p.x, p.y, p.z);
-      uv.setXY(v, u, w);
-      kk.setX(v, k);
+      pos.setXYZ(v, a.x, a.y, a.z);
+      bb.setXYZ(v, b.x, b.y, b.z);
+      sd.setXY(v, sx, sy);
+      ww.setXY(v, w, k);
       v++;
     };
-    const side = new THREE.Vector3();
-    const toCam = new THREE.Vector3();
-    const p0 = new THREE.Vector3();
-    const p1 = new THREE.Vector3();
-    const p2 = new THREE.Vector3();
-    const p3 = new THREE.Vector3();
     for (const s of segs) {
-      const dir = s.b.clone().sub(s.a).normalize();
-      toCam.copy(camPos).sub(s.a).normalize();
-      side.crossVectors(dir, toCam).normalize();
-      // Wide ribbon: the glow falls off across it, the core is the middle fifth.
-      const w = s.w * 1.5;
-      // Extend a touch along the segment so joints overlap.
-      const a = s.a.clone().addScaledVector(dir, -s.w * 0.3);
-      const b = s.b.clone().addScaledVector(dir, s.w * 0.3);
-      p0.copy(a).addScaledVector(side, -w);
-      p1.copy(a).addScaledVector(side, w);
-      p2.copy(b).addScaledVector(side, w);
-      p3.copy(b).addScaledVector(side, -w);
-      push(p0, -1, 0, s.k);
-      push(p1, 1, 0, s.k);
-      push(p2, 1, 1, s.k);
-      push(p0, -1, 0, s.k);
-      push(p2, 1, 1, s.k);
-      push(p3, -1, 1, s.k);
+      push(s.a, s.b, -1, 0, s.w, s.k);
+      push(s.a, s.b, 1, 0, s.w, s.k);
+      push(s.a, s.b, 1, 1, s.w, s.k);
+      push(s.a, s.b, -1, 0, s.w, s.k);
+      push(s.a, s.b, 1, 1, s.w, s.k);
+      push(s.a, s.b, -1, 1, s.w, s.k);
     }
-    // Ground impact: a flat glowing disc (uv.y marks it).
-    const R = 2.4;
-    const g = ground.clone().setY(ground.y + 0.15);
-    const c0 = g.clone().add(new THREE.Vector3(-R, 0, -R));
-    const c1 = g.clone().add(new THREE.Vector3(R, 0, -R));
-    const c2 = g.clone().add(new THREE.Vector3(R, 0, R));
-    const c3 = g.clone().add(new THREE.Vector3(-R, 0, R));
-    // Disc uv: x 0..1, y -2..-1 (the fragment shader keys on uv.y < -0.5).
-    const disc: [THREE.Vector3, number, number][] = [
-      [c0, 0, 0],
-      [c1, 1, 0],
-      [c2, 1, 1],
-      [c0, 0, 0],
-      [c2, 1, 1],
-      [c3, 0, 1],
-    ];
-    for (const [p, x, y] of disc) push(p, x, y - 2, 1);
-    pos.needsUpdate = uv.needsUpdate = kk.needsUpdate = true;
+    // Ground flash: a flat glowing disc (aW.x < 0 marks it; corners in aSide).
+    const R = 3.2;
+    const g = ground.clone().setY(ground.y + 0.12);
+    const corner = (x: number, z: number) => g.clone().add(new THREE.Vector3(x * R, 0, z * R));
+    for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]] as const) push(corner(x, z), g, x, z, -1, 1);
+    pos.needsUpdate = bb.needsUpdate = sd.needsUpdate = ww.needsUpdate = true;
     this.geo.setDrawRange(0, v);
   }
 

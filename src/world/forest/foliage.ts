@@ -10,9 +10,9 @@
  *    and in the depth pass, so shadows are leafy too).
  *  - applyPaintedLight: a soft 3-band ramp on the direct sun term (flat colour bands + a gentle
  *    terminator) — foliage reads hand-painted rather than plastic.
- *  - applySeeThrough: a smooth screen-space round cut-away around the player for canopies / trunks that
- *    sit between the lens and the player (feathered ~14 px with interleaved-gradient noise, never a
- *    coarse screen door), plus a soft near-lens dissolve.
+ *  - applySeeThrough: a screen-space round cut-away around the player for canopies that sit between
+ *    the lens and the player, plus a near-lens dissolve: a leaf-sized world-space erosion with a wide
+ *    feather (never a pixel screen door). Trunks and logs stay solid.
  */
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
@@ -270,6 +270,84 @@ export function ivyTexture(): THREE.DataTexture {
   return _ivyTex;
 }
 
+let _ivyLeafTex: THREE.DataTexture | null = null;
+/**
+ * Ivy leaf cluster: 5-7 big three-lobed leaves fanning out from a short stem at the card's lower
+ * middle, each with a light-to-dark gradient, a darker rim and pale veins (reads at diorama zoom).
+ */
+export function ivyLeafTexture(): THREE.DataTexture {
+  if (_ivyLeafTex) return _ivyLeafTex;
+  const S = 256;
+  const { l, compose } = layers(S);
+  const r = new Rng('forest-ivy-leaves');
+  const n = 6;
+  const base = { x: S * 0.5, y: S * 0.86 };
+  const leaves: { x: number; y: number; a: number; sz: number; v: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (i / (n - 1) - 0.5) * 2.6 + (r.next() - 0.5) * 0.25;
+    const d = S * (0.2 + r.next() * 0.16);
+    leaves.push({ x: base.x + Math.cos(a) * d, y: base.y + Math.sin(a) * d * 1.05, a, sz: S * (0.2 + r.next() * 0.08), v: 0.62 + r.next() * 0.3 });
+  }
+  leaves.push({ x: S * 0.5, y: S * 0.36, a: -Math.PI / 2, sz: S * 0.27, v: 0.9 });
+  const heart = (ctx: CanvasRenderingContext2D, sz: number): void => {
+    ctx.beginPath();
+    ctx.moveTo(0, sz * 0.55);
+    ctx.bezierCurveTo(-sz * 0.35, sz * 0.4, -sz * 0.95, sz * 0.25, -sz * 0.62, -sz * 0.18);
+    ctx.quadraticCurveTo(-sz * 0.35, -sz * 0.2, -sz * 0.25, -sz * 0.32);
+    ctx.quadraticCurveTo(-sz * 0.15, -sz * 0.75, 0, -sz * 0.9);
+    ctx.quadraticCurveTo(sz * 0.15, -sz * 0.75, sz * 0.25, -sz * 0.32);
+    ctx.quadraticCurveTo(sz * 0.35, -sz * 0.2, sz * 0.62, -sz * 0.18);
+    ctx.bezierCurveTo(sz * 0.95, sz * 0.25, sz * 0.35, sz * 0.4, 0, sz * 0.55);
+    ctx.closePath();
+  };
+  for (const ctx of [l.value, l.alpha]) {
+    // Stems first.
+    for (const lf of leaves) {
+      ctx.beginPath();
+      ctx.moveTo(base.x, base.y);
+      ctx.quadraticCurveTo((base.x + lf.x) / 2, (base.y + lf.y) / 2 + 6, lf.x, lf.y + lf.sz * 0.4);
+      ctx.strokeStyle = ctx === l.alpha ? '#fff' : 'rgb(95,80,60)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+  }
+  for (const lf of leaves) {
+    for (const ctx of [l.value, l.alpha]) {
+      ctx.save();
+      ctx.translate(lf.x, lf.y);
+      ctx.rotate(lf.a + Math.PI / 2);
+      heart(ctx, lf.sz);
+      if (ctx === l.alpha) {
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+      } else {
+        const g = ctx.createLinearGradient(0, lf.sz * 0.5, 0, -lf.sz * 0.9);
+        const v0 = Math.round(lf.v * 0.72 * 255);
+        const v1 = Math.round(Math.min(1, lf.v * 1.05) * 255);
+        g.addColorStop(0, `rgb(${v0},${v0},${v0})`);
+        g.addColorStop(1, `rgb(${v1},${v1},${v1})`);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(40,40,40,0.4)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Pale veins radiating from the leaf base.
+        ctx.strokeStyle = 'rgba(235,235,235,0.35)';
+        ctx.lineWidth = 1.4;
+        for (const t of [-0.55, 0, 0.55]) {
+          ctx.beginPath();
+          ctx.moveTo(0, lf.sz * 0.45);
+          ctx.lineTo(Math.sin(t) * lf.sz * 0.62, lf.sz * 0.45 - Math.cos(t) * lf.sz * 1.05);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+  }
+  _ivyLeafTex = dataTexture(compose(), S);
+  return _ivyLeafTex;
+}
+
 // ───────────────────────────────────────────── cards
 
 /**
@@ -428,12 +506,14 @@ export function updateSeeThrough(camera: THREE.Camera, player: THREE.Vector3, bu
 const IGN = 'float hvIgn(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }';
 
 /**
- * Canopy / trunk fragments that sit in front of the player inside a round screen-space window fade
- * out with a narrow (~14 px) noise-dithered feather; fragments right in front of the lens (closer
- * than `near` m) dissolve softly too. `minLocalY` (GLSL expr) keeps e.g. trunk feet solid.
+ * Canopy fragments that sit in front of the player inside a round screen-space window open up; so
+ * do canopies right in front of the lens (closer than `near` m). The cut-away is a world-space,
+ * leaf-sized erosion (value noise at ~3 cells / m, a little pixel noise only to soften its rim) with a
+ * wide ~44 px feather, so the canopy parts into leafy clumps instead of a pixel screen door.
+ * Trunks never use this (they stay solid). `keepExpr` (GLSL) can force fragments solid.
  */
 export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRange = 5, keepExpr = '0.0'): M {
-  return patchMaterial(m, `hv-see-through:${near}:${nearRange}:${keepExpr}`, (shader) => {
+  return patchMaterial(m, `hv-see-through2:${near}:${nearRange}:${keepExpr}`, (shader) => {
     Object.assign(shader.uniforms, seeThrough);
     let fs = shader.fragmentShader;
     fs = before(fs, 'void main() {', `uniform vec2 uOccCenter;\nuniform float uOccRadius;\nuniform float uOccDepth;\n${IGN}`);
@@ -446,9 +526,13 @@ export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRa
         float hvKeep = smoothstep(${near.toFixed(2)}, ${(near + nearRange).toFixed(2)}, hvCamD);
         float hvPx = length(gl_FragCoord.xy - uOccCenter);
         float hvFront = smoothstep(uOccDepth - 0.4, uOccDepth - 1.6, hvCamD);
-        float hvHole = (1.0 - smoothstep(uOccRadius - 14.0, uOccRadius, hvPx)) * hvFront;
+        float hvHole = (1.0 - smoothstep(uOccRadius - 44.0, uOccRadius, hvPx)) * hvFront;
         hvKeep = min(hvKeep, max(1.0 - hvHole, clamp(${keepExpr}, 0.0, 1.0)));
-        if (hvKeep < 0.999 && hvKeep < hvIgn(gl_FragCoord.xy) * 0.96 + 0.02) discard;
+        if (hvKeep < 0.999) {
+          vec3 hvQ = vHvWorldPos * 3.1;
+          float hvE = hvNoise(hvQ.xz + hvQ.y * 0.73) * 0.62 + hvNoise(hvQ.zy * 1.7 + 5.1) * 0.26 + hvIgn(gl_FragCoord.xy) * 0.12;
+          if (hvKeep < hvE * 0.94 + 0.03) discard;
+        }
       }`,
     );
     shader.fragmentShader = fs;

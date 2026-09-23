@@ -5,21 +5,23 @@
  * stepping stones. Everything is built with MeshBuilder (merged per material by the map).
  */
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Rng } from '../../core/rng';
 import { MeshBuilder, mat, roundedBox, bevelCylinder, lumpySphere, uvScale, boxUV } from '../geom';
 import { materials, nightGlow } from '../../render/materials';
 import { applyWorldFx } from '../../render/worldfx';
-import { applyWind } from '../../render/wind';
 import { textures } from '../../render/textures';
 import { smoothRock, forestRockMaterial } from './rocks';
 import type { InstancedPart } from '../props/instanced';
 import type { Season } from '../../core/time';
-import { giantBarkMaterial, applyLeafClumps } from './giants';
+import { forestMoss } from './rocks';
+import { ivyLeafTexture, applyCardMap } from './foliage';
+import { patchMaterial, before, after } from '../../render/patch';
 
 // ───────────────────────────────────────────── materials
 
 let _fungus: THREE.MeshStandardMaterial | null = null;
-function fungusMaterial(): THREE.MeshStandardMaterial {
+export function fungusMaterial(): THREE.MeshStandardMaterial {
   if (_fungus) return _fungus;
   _fungus = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, color: 0xffffff });
   _fungus.name = 'fungus';
@@ -88,20 +90,54 @@ export function emberMaterial(): THREE.MeshStandardMaterial {
 }
 
 let _ivy: THREE.MeshStandardMaterial | null = null;
-const IVY: Record<Season, number> = { spring: 0x5f9c3c, summer: 0x4a8a34, fall: 0xc0522c, winter: 0x7a6e4c };
-/** Tower ivy follows the seasons (fresh green, deep summer green, crimson in fall, dry in winter). */
+/** Four leaf hues per season (vertex colour R picks the slot, G the value jitter). */
+const IVY: Record<Season, [number, number, number, number]> = {
+  spring: [0x6fae3e, 0x86bf4a, 0x5c9c38, 0xa4c95a],
+  summer: [0x3f8232, 0x4f9038, 0x376f2c, 0x5c9c3c],
+  fall: [0xb8321e, 0xd6482a, 0xe07a2e, 0x6f8a34],
+  winter: [0x6e5a3e, 0x84704c, 0x5a3a2a, 0x3f5a3a],
+};
+const ivyPal = [new THREE.Color(), new THREE.Color(), new THREE.Color(), new THREE.Color()];
+/** Tower ivy follows the seasons (fresh greens, deep summer green, crimson / scarlet / orange in fall, dry in winter). */
 export function setIvySeason(season: Season): void {
-  ivyMaterial().color.setHex(IVY[season]);
+  IVY[season].forEach((h, i) => ivyPal[i]!.setHex(h));
+  ivyMaterial();
 }
 function ivyMaterial(): THREE.MeshStandardMaterial {
   if (_ivy) return _ivy;
-  const t = textures.leaves();
-  _ivy = new THREE.MeshStandardMaterial({ bumpMap: t.bump, bumpScale: 1.2, vertexColors: true, roughness: 0.8, color: 0x5c9a3c });
+  _ivy = new THREE.MeshStandardMaterial({ map: ivyLeafTexture(), alphaTest: 0.5, side: THREE.DoubleSide, vertexColors: true, roughness: 0.78, color: 0xffffff });
   _ivy.name = 'ivy';
-  applyWorldFx(_ivy, { snowUp: 0.55 });
-  applyWind(_ivy, { mode: 'height', height: 8, amplitude: 0.02, flutter: 0.6 });
-  applyLeafClumps(_ivy, { freq: [5, 5, 5], bend: 0.7, seam: 0.35, cut: 0.8 });
+  IVY.summer.forEach((h, i) => ivyPal[i]!.setHex(h));
+  applyWorldFx(_ivy, { snowUp: 0.5 });
+  applyCardMap(_ivy);
+  patchMaterial(_ivy, 'ivy-palette', (shader) => {
+    shader.uniforms.uIvyPal = { value: ivyPal };
+    let fs = shader.fragmentShader;
+    fs = before(fs, 'void main() {', 'uniform vec3 uIvyPal[4];');
+    fs = after(
+      fs,
+      '#include <color_fragment>',
+      /* glsl */ `
+      {
+        // Undo the vertex tint (it only carries the palette slot + value jitter), apply the palette.
+        vec3 hvLeafV = diffuseColor.rgb / max(vColor.rgb, vec3(1e-3));
+        float hvSlot = vColor.r;
+        vec3 hvPc = hvSlot < 0.2 ? uIvyPal[0] : hvSlot < 0.45 ? uIvyPal[1] : hvSlot < 0.7 ? uIvyPal[2] : uIvyPal[3];
+        diffuseColor.rgb = hvPc * hvLeafV.g * vColor.g;
+      }`,
+    );
+    shader.fragmentShader = fs;
+  });
   return _ivy;
+}
+
+let _towerGlow: THREE.MeshStandardMaterial | null = null;
+/** The tower's lit window: a warm lamp glow by day, brighter after dusk (animated by the map). */
+export function towerWindowMaterial(): THREE.MeshStandardMaterial {
+  if (_towerGlow) return _towerGlow;
+  _towerGlow = new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 0.35, emissive: 0xffa84a, emissiveIntensity: 1.3 });
+  _towerGlow.name = 'towerWindow';
+  return _towerGlow;
 }
 
 const CAP_RED = new THREE.Color(0xd8352a);
@@ -110,50 +146,243 @@ const STEM = new THREE.Color(0xf2e8d2);
 
 // ───────────────────────────────────────────── mossy log
 
-/** A fallen giant lying along +X (origin = centre of the log on the ground). */
+let _logBark: THREE.MeshStandardMaterial | null = null;
+/**
+ * Fallen-log bark: opaque, no wind, never see-through. Moss is a world-space top-facing blend
+ * (normal.y > ~0.4 with fbm breakup) so it cushions the upper flank instead of sitting in patches.
+ */
+function logBarkMaterial(): THREE.MeshStandardMaterial {
+  if (_logBark) return _logBark;
+  const t = textures.bark();
+  _logBark = new THREE.MeshStandardMaterial({ map: t.map, bumpMap: t.bump, bumpScale: 2.6, roughness: 0.94, vertexColors: true, color: 0xb09a86 });
+  _logBark.name = 'logBark';
+  patchMaterial(_logBark, 'log-moss', (shader) => {
+    shader.uniforms.uLogMoss = forestMoss;
+    let fs = shader.fragmentShader;
+    fs = before(fs, 'void main() {', 'uniform vec3 uLogMoss;');
+    fs = after(
+      fs,
+      '#include <color_fragment>',
+      /* glsl */ `
+      {
+        vec3 gn = normalize(vHvWorldNormal);
+        vec2 mq = vHvWorldPos.xz * 1.9 + vHvWorldPos.y * 0.7;
+        float mn = hvNoise(mq) * 0.6 + hvNoise(mq * 3.1 + 4.0) * 0.4;
+        float top = smoothstep(0.38, 0.78, gn.y + (mn - 0.5) * 0.55);
+        // Moss creeps a little way down the flanks in soft tongues.
+        float drip = smoothstep(0.62, 0.8, hvNoise(vec2(vHvWorldPos.x * 2.3 + vHvWorldPos.z * 2.3, gn.y * 3.0))) * smoothstep(-0.2, 0.3, gn.y);
+        float m = clamp(max(top, drip * 0.7), 0.0, 1.0);
+        vec3 moss = uLogMoss * (0.55 + 0.6 * hvNoise(mq * 5.3)) * vec3(1.0, 1.05, 0.9);
+        diffuseColor.rgb = mix(diffuseColor.rgb, moss, m * 0.9 * (1.0 - hvSnowAmt));
+      }`,
+    );
+    shader.fragmentShader = fs;
+  });
+  applyWorldFx(_logBark, { snowUp: 0.45 });
+  return _logBark;
+}
+
+let _logEnd: THREE.MeshStandardMaterial | null = null;
+/** Sawn / broken end grain: pale heartwood, growth rings, radial checks, sapwood and a dark bark lip. */
+function logEndMaterial(): THREE.MeshStandardMaterial {
+  if (_logEnd) return _logEnd;
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const x = c.getContext('2d')!;
+  const C = S / 2;
+  const g = x.createRadialGradient(C * 0.96, C * 1.04, 0, C, C, C);
+  g.addColorStop(0, '#caa06a');
+  g.addColorStop(0.12, '#e6c996');
+  g.addColorStop(0.7, '#d9b57e');
+  g.addColorStop(0.84, '#eed6a8');
+  g.addColorStop(0.88, '#6a4a30');
+  g.addColorStop(1, '#3a2818');
+  x.fillStyle = g;
+  x.fillRect(0, 0, S, S);
+  // Growth rings (slightly eccentric, wobbly).
+  for (let r = 6; r < C * 0.84; r += 4 + Math.sin(r * 0.37) * 1.8 + 1.8) {
+    x.beginPath();
+    for (let k = 0; k <= 64; k++) {
+      const a = (k / 64) * Math.PI * 2;
+      const rr = r * (1 + 0.035 * Math.sin(a * 3 + r * 0.1) + 0.02 * Math.sin(a * 7));
+      const px = C * 0.97 + Math.cos(a) * rr;
+      const py = C * 1.03 + Math.sin(a) * rr;
+      if (k === 0) x.moveTo(px, py);
+      else x.lineTo(px, py);
+    }
+    x.strokeStyle = `rgba(120,80,45,${0.22 + 0.2 * Math.abs(Math.sin(r * 0.21))})`;
+    x.lineWidth = 1.1 + Math.abs(Math.sin(r * 0.13)) * 1.2;
+    x.stroke();
+  }
+  // Radial drying checks.
+  for (let i = 0; i < 7; i++) {
+    const a = i * 0.9 + Math.sin(i * 3.1) * 0.4;
+    const r0 = 10 + (i % 3) * 12;
+    const r1 = C * (0.55 + (i % 2) * 0.25);
+    x.beginPath();
+    x.moveTo(C + Math.cos(a) * r0, C + Math.sin(a) * r0);
+    x.lineTo(C + Math.cos(a + 0.05) * r1, C + Math.sin(a + 0.05) * r1);
+    x.strokeStyle = 'rgba(60,38,22,0.75)';
+    x.lineWidth = 2.2 - (i % 3) * 0.5;
+    x.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _logEnd = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.88, vertexColors: true });
+  _logEnd.name = 'logEnd';
+  applyWorldFx(_logEnd, { snowUp: 0.5 });
+  return _logEnd;
+}
+
+/**
+ * A fallen giant lying along +X (origin = centre of the log on the ground): an opaque, bevelled
+ * 12-sided trunk (gentle taper + bow, bark ridges, baked AO dark underneath), a clean sawn end at +X
+ * (ring texture, pale heartwood, dark bark lip), a snapped end at -X (jagged break + a few chunky
+ * splinters), bracket fungi on the flanks. Moss comes from the material (top-facing blend).
+ */
 export function buildMossyLog(rng: Rng, len: number, radius: number): THREE.Group {
   const b = new MeshBuilder();
-  const bark = giantBarkMaterial();
-  const g = new THREE.CylinderGeometry(radius * 0.86, radius, len, 16, 6, true);
-  const pos = g.attributes.position as THREE.BufferAttribute;
-  const p = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    p.fromBufferAttribute(pos, i);
-    const s = 1 + Math.sin(p.y * 1.3 + Math.atan2(p.z, p.x) * 3) * 0.05 + (rng.next() - 0.5) * 0.04;
-    pos.setXYZ(i, p.x * s, p.y + Math.sin(p.y * 0.6) * 0.0, p.z * s);
+  const bark = logBarkMaterial();
+  const endM = logEndMaterial();
+  const RAD = 12;
+  const RINGS = 16;
+  const cy = radius * 0.8;
+  const phase = rng.next() * 6.28;
+  const rOf = (u: number, th: number): number => {
+    // u 0..1 from the snapped (-X) end to the sawn (+X) end.
+    const taper = 1 - 0.14 * u;
+    const ridge = 1 + 0.035 * Math.sin(th * RAD + u * 9 + phase) + 0.025 * Math.sin(th * 5 + u * 17);
+    // Bevel: the last few cm round over into the end faces.
+    const bevel = 1 - 0.07 * Math.pow(THREE.MathUtils.smoothstep(u, 0.95, 1.0), 1.5) - 0.05 * Math.pow(THREE.MathUtils.smoothstep(u, 0.06, 0.0), 1.5);
+    return radius * taper * ridge * bevel;
+  };
+  const bow = (u: number): number => Math.sin(u * Math.PI) * radius * 0.08;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const ringPts: THREE.Vector3[][] = [];
+  for (let j = 0; j <= RINGS; j++) {
+    const u = j / RINGS;
+    const xx = (u - 0.5) * len;
+    const row: THREE.Vector3[] = [];
+    for (let i = 0; i <= RAD; i++) {
+      const th = (i / RAD) * Math.PI * 2;
+      const r = rOf(u, th);
+      const p = new THREE.Vector3(xx, cy + bow(u) + Math.sin(th) * r, Math.cos(th) * r);
+      pos.push(p.x, p.y, p.z);
+      uv.push((i / RAD) * 2.5, xx * 0.45);
+      row.push(p);
+    }
+    ringPts.push(row);
   }
-  g.computeVertexNormals();
-  uvScale(g, 3, len * 0.5);
-  g.rotateZ(Math.PI / 2);
-  g.translate(0, radius * 0.82, 0);
-  b.add(bark, g, undefined, { aoWorld: (q) => 0.45 + 0.55 * THREE.MathUtils.smoothstep(q.y, 0.05, radius * 1.1) });
-  // Clean end-grain disc at +X, jagged snapped end at -X.
-  const disc = new THREE.CircleGeometry(radius * 0.86, 16);
-  disc.rotateY(Math.PI / 2);
-  b.add('woodGrain', disc, mat(len / 2 - 0.01, radius * 0.82, 0), { tint: 0xd8b48a });
-  const ring = new THREE.RingGeometry(radius * 0.3, radius * 0.36, 16);
-  ring.rotateY(Math.PI / 2);
-  b.add('woodDark', ring, mat(len / 2, radius * 0.82, 0));
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2;
-    const spl = new THREE.ConeGeometry(radius * 0.22, 0.5 + rng.next() * 0.7, 4);
-    spl.rotateZ(Math.PI / 2);
-    b.add(bark, spl, mat(-len / 2 - 0.2, radius * 0.82 + Math.sin(a) * radius * 0.62, Math.cos(a) * radius * 0.62, 0, 0, (rng.next() - 0.5) * 0.4));
-  }
-  // Shelf fungi stacked on the flanks.
-  const fungus = fungusMaterial();
-  for (let k = 0; k < 7; k++) {
-    const side = rng.next() < 0.5 ? -1 : 1;
-    const x = (rng.next() - 0.5) * len * 0.8;
-    for (let s = 0; s < 1 + rng.int(0, 2); s++) {
-      const sh = new THREE.CylinderGeometry(0.2 + rng.next() * 0.12, 0.22 + rng.next() * 0.12, 0.06, 10, 1, false, 0, Math.PI);
-      sh.rotateY(side > 0 ? Math.PI / 2 : -Math.PI / 2);
-      const c = new THREE.Color(0xe8c890).lerp(new THREE.Color(0xc27a3a), rng.next() * 0.7);
-      b.add(fungus, sh, mat(x + s * 0.18, radius * (0.55 + s * 0.28), side * radius * 0.92, (rng.next() - 0.5) * 0.2, 0, 0), { tint: c });
+  for (let j = 0; j < RINGS; j++) {
+    for (let i = 0; i < RAD; i++) {
+      const a = j * (RAD + 1) + i;
+      const c2 = a + RAD + 1;
+      idx.push(a, c2, a + 1, c2, c2 + 1, a + 1);
     }
   }
-  const grp = b.build({ name: 'mossy-log' });
-  return grp;
+  const trunk = new THREE.BufferGeometry();
+  trunk.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  trunk.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  trunk.setIndex(idx);
+  trunk.computeVertexNormals();
+  // Weld the seam normals.
+  const nor = trunk.attributes.normal as THREE.BufferAttribute;
+  for (let j = 0; j <= RINGS; j++) {
+    const a = j * (RAD + 1);
+    const e = a + RAD;
+    const nx = nor.getX(a) + nor.getX(e);
+    const ny = nor.getY(a) + nor.getY(e);
+    const nz = nor.getZ(a) + nor.getZ(e);
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nor.setXYZ(a, nx / l, ny / l, nz / l);
+    nor.setXYZ(e, nx / l, ny / l, nz / l);
+  }
+  // AO: dark underside / ground contact, a touch darker towards the ends.
+  b.add(bark, trunk, undefined, { aoWorld: (q, n) => (0.34 + 0.66 * THREE.MathUtils.smoothstep(q.y, 0.02, cy + radius * 0.6)) * (0.82 + 0.18 * (n.y * 0.5 + 0.5)) });
+
+  // Sawn end (+X): a flat fan with planar ring UVs; the bark lip is in the texture.
+  {
+    const row = ringPts[RINGS]!;
+    const cxp = row.reduce((s, p) => s + p.x, 0) / row.length;
+    const ctr = new THREE.Vector3(cxp + 0.005, cy + bow(1), 0);
+    const ep: number[] = [ctr.x, ctr.y, ctr.z];
+    const euv: number[] = [0.5, 0.5];
+    const R = rOf(1, 0);
+    for (let i = 0; i <= RAD; i++) {
+      const p = row[i]!;
+      ep.push(p.x + 0.004, p.y, p.z);
+      euv.push(0.5 + (p.z / R) * 0.5, 0.5 + ((p.y - ctr.y) / R) * 0.5);
+    }
+    const ei: number[] = [];
+    for (let i = 1; i <= RAD; i++) ei.push(0, i + 1, i);
+    const eg = new THREE.BufferGeometry();
+    eg.setAttribute('position', new THREE.Float32BufferAttribute(ep, 3));
+    eg.setAttribute('uv', new THREE.Float32BufferAttribute(euv, 2));
+    eg.setIndex(ei);
+    eg.computeVertexNormals();
+    b.add(endM, eg, undefined, { aoWorld: (q) => 0.7 + 0.3 * THREE.MathUtils.smoothstep(q.y, 0.05, cy) });
+  }
+  // Snapped end (-X): a jagged, splintered break (a ragged cone of torn fibres) + chunky splinters.
+  {
+    const row = ringPts[0]!;
+    const R = rOf(0, 0);
+    const ctr = new THREE.Vector3(-len / 2 - radius * 0.28, cy + radius * 0.1, radius * 0.08);
+    const ep: number[] = [ctr.x, ctr.y, ctr.z];
+    const euv: number[] = [0.5, 0.5];
+    for (let i = 0; i <= RAD; i++) {
+      const p = row[i % RAD]!;
+      // Every other rim vertex torn outward a little: a ragged, fibrous lip.
+      const tear = i % 2 === 0 ? rng.next() * radius * 0.35 : 0;
+      ep.push(p.x - tear, p.y, p.z);
+      euv.push(0.5 + (p.z / R) * 0.46, 0.5 + ((p.y - cy) / R) * 0.46);
+    }
+    const ei: number[] = [];
+    for (let i = 1; i <= RAD; i++) ei.push(0, i, i + 1);
+    const eg = new THREE.BufferGeometry();
+    eg.setAttribute('position', new THREE.Float32BufferAttribute(ep, 3));
+    eg.setAttribute('uv', new THREE.Float32BufferAttribute(euv, 2));
+    eg.setIndex(ei);
+    eg.computeVertexNormals();
+    b.add(endM, eg, undefined, { tint: 0xd8c4a4, aoWorld: (q) => 0.62 + 0.38 * THREE.MathUtils.smoothstep(q.y, 0.05, cy) });
+    const n = 3 + rng.int(0, 2);
+    for (let k = 0; k < n; k++) {
+      const a = -0.6 + (k / (n - 1)) * 3.6 + (rng.next() - 0.5) * 0.4;
+      const sl = radius * (0.55 + rng.next() * 0.6);
+      const sw = radius * (0.16 + rng.next() * 0.08);
+      const sp = new THREE.CylinderGeometry(sw * 0.15, sw, sl, 5, 1);
+      sp.scale(1, 1, 0.55);
+      sp.translate(0, sl / 2, 0);
+      sp.rotateZ(Math.PI / 2 + (rng.next() - 0.5) * 0.35);
+      const rr = R * (0.55 + rng.next() * 0.3);
+      b.add(k % 2 ? bark : endM, sp, mat(-len / 2 + 0.05, cy + Math.sin(a) * rr, Math.cos(a) * rr, a * 0.3, (rng.next() - 0.5) * 0.3, 0), { tint: k % 2 ? 0xffffff : 0xcfb48a });
+    }
+  }
+  // Bracket fungi: stacked shelves on the flanks, clustered in 3-4 groups.
+  const fungus = fungusMaterial();
+  const groups = 3 + rng.int(0, 1);
+  for (let k = 0; k < groups; k++) {
+    const side = rng.next() < 0.5 ? -1 : 1;
+    const u = 0.15 + rng.next() * 0.7;
+    const xx = (u - 0.5) * len;
+    const r = rOf(u, 0);
+    const nShelf = 2 + rng.int(0, 1);
+    for (let s = 0; s < nShelf; s++) {
+      const th = side * (0.15 + s * 0.32) + (rng.next() - 0.5) * 0.1;
+      const sr = radius * (0.26 - s * 0.05) * (0.85 + rng.next() * 0.3);
+      const sh = new THREE.SphereGeometry(sr, 10, 4, 0, Math.PI, 0, Math.PI / 2);
+      sh.scale(1, 0.32, 0.85);
+      sh.rotateY(side > 0 ? 0 : Math.PI);
+      const c = new THREE.Color(0xd9a45a).lerp(new THREE.Color(0x9a5a2a), rng.next() * 0.6);
+      const y = cy + bow(u) + Math.sin(th) * r * 0.9;
+      const zz = side * Math.cos(th) * r * 0.96;
+      b.add(fungus, sh, mat(xx + (s - 0.5) * sr * 0.8, y, zz, 0, 0, 0), { tint: c });
+    }
+  }
+  return b.build({ name: 'mossy-log' });
 }
 
 // ───────────────────────────────────────────── mushrooms (instanced)
@@ -229,6 +458,55 @@ function glyph(b: MeshBuilder, m: THREE.Material, r: Rng, x: number, y: number, 
   }
 }
 
+/**
+ * A standing stone: a tapered slab (not a cone) with a slanted, chipped crown, bulging weathered
+ * faces, knocked-off corners and a notch; origin at the ground centre, carved face towards +Z.
+ */
+function menhirGeometry(rng: Rng, h: number): THREE.BufferGeometry {
+  const w = 0.95 + rng.next() * 0.2;
+  const d = 0.55 + rng.next() * 0.1;
+  let g: THREE.BufferGeometry = new THREE.BoxGeometry(w, h, d, 4, 10, 3);
+  g.deleteAttribute('normal');
+  g.deleteAttribute('uv');
+  g = mergeVertices(g);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const slope = (rng.next() - 0.5) * 0.7;
+  const notchX = (rng.next() - 0.5) * w * 0.5;
+  const chips = Array.from({ length: 4 }, () => ({ x: (rng.next() < 0.5 ? -1 : 1) * w * 0.5, y: rng.next() * h, z: (rng.next() < 0.5 ? -1 : 1) * d * 0.5, r: 0.18 + rng.next() * 0.16 }));
+  const ph = rng.next() * 10;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i);
+    let y = pos.getY(i) + h / 2;
+    let z = pos.getZ(i);
+    const f = y / h;
+    // Taper + gentle belly.
+    const taper = 1 - 0.28 * f + 0.06 * Math.sin(f * Math.PI);
+    x *= taper;
+    z *= 1 - 0.18 * f;
+    // Weathered bulges.
+    const bump = Math.sin(y * 3.1 + ph) * Math.cos(x * 5.3 + ph) * 0.03 + Math.sin(y * 7.7 + x * 4.1) * 0.012;
+    const nx = Math.sign(x) || 1;
+    const nz = Math.sign(z) || 1;
+    x += nx * bump;
+    z += nz * bump * 0.7;
+    // Slanted, chipped crown with a notch.
+    const crown = h * 0.86 + x * slope - (Math.abs(x - notchX) < 0.14 ? 0.12 : 0);
+    if (y > crown) y = crown + (y - crown) * 0.25;
+    // Knocked-off corners.
+    for (const c of chips) {
+      const dd = Math.hypot(x - c.x, y - c.y, z - c.z);
+      if (dd < c.r) {
+        const k = (c.r - dd) / c.r;
+        x -= Math.sign(c.x) * k * c.r * 0.45;
+        z -= Math.sign(c.z) * k * c.r * 0.35;
+      }
+    }
+    pos.setXYZ(i, x, y, z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
 export function buildShrine(rng: Rng): ShrineBuild {
   const b = new MeshBuilder();
   const stone = daisMaterial();
@@ -268,10 +546,10 @@ export function buildShrine(rng: Rng): ShrineBuild {
     const x = Math.cos(a) * R;
     const z = Math.sin(a) * R;
     const h = 2.3 + rng.next() * 1.1;
-    const geo = smoothRock(rng, 0.62, { elong: 1, squash: 1, detail: 2, lumpy: 0.14 });
+    const geo = menhirGeometry(rng, h);
     const face = -a - Math.PI / 2;
-    const m = mat(x, -0.1, z, (rng.next() - 0.5) * 0.12, face, (rng.next() - 0.5) * 0.1).multiply(new THREE.Matrix4().makeScale(0.95, h / 0.62, 0.6));
-    b.add(rock, geo, m, { tint: new THREE.Color(0xe8e0d0).multiplyScalar(0.92 + rng.next() * 0.15) });
+    const m = mat(x, -0.15, z, (rng.next() - 0.5) * 0.1, face, (rng.next() - 0.5) * 0.08);
+    b.add(rock, geo, m, { tint: new THREE.Color(0xf0e8da).multiplyScalar(0.95 + rng.next() * 0.12) });
     // Glyph column on the inner face.
     const inward = new THREE.Vector3(-Math.cos(a), 0, -Math.sin(a));
     for (let k = 0; k < 4; k++) {
@@ -307,42 +585,142 @@ export function buildShrine(rng: Rng): ShrineBuild {
 
 // ───────────────────────────────────────────── ruined watch tower
 
+/**
+ * Climbing ivy on a round wall: vines branch down from the crown as tapered stems, carrying leaf
+ * sprays (flat alpha-tested cards lying on the stone, varied size / tilt / palette slot).
+ */
+function towerIvy(b: MeshBuilder, rng: Rng, R: number, a0: number, a1: number, top: number): void {
+  const ivy = ivyMaterial();
+  const leaf = (a: number, y: number, s: number, slot: number): void => {
+    const g = new THREE.PlaneGeometry(s, s * 1.1);
+    // Lie on the wall (normal = radial), a little tilt off the stone, random spin.
+    const n = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+    const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler((rng.next() - 0.5) * 0.7, (rng.next() - 0.5) * 0.7, rng.next() * 6.28));
+    q.multiply(tilt);
+    const r = R + 0.3 + rng.next() * 0.08;
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r), q, new THREE.Vector3(1, 1, 1));
+    b.add(ivy, g, m, { tint: new THREE.Color(slot, 0.82 + rng.next() * 0.3, 1) });
+  };
+  const slotPick = (): number => {
+    const u = rng.next();
+    return u < 0.34 ? 0.1 : u < 0.64 ? 0.33 : u < 0.88 ? 0.58 : 0.9;
+  };
+  const vine = (a: number, y: number, len: number, depth: number): void => {
+    const pts: THREE.Vector3[] = [];
+    let aa = a;
+    let yy = y;
+    const seg = 0.3;
+    const n = Math.max(2, Math.round(len / seg));
+    for (let i = 0; i <= n; i++) {
+      const rr = R + 0.29;
+      pts.push(new THREE.Vector3(Math.cos(aa) * rr, yy, Math.sin(aa) * rr));
+      // Dense leaf sprays along the vine, smaller towards its tip.
+      const f = i / n;
+      const k = 2 + (rng.next() < 0.5 ? 1 : 0);
+      for (let j = 0; j < k; j++) leaf(aa + (rng.next() - 0.5) * 0.14, yy + (rng.next() - 0.5) * 0.25, (0.62 - f * 0.22) * (0.75 + rng.next() * 0.5) * (depth ? 0.85 : 1), slotPick());
+      if (depth < 2 && i > 1 && i < n - 1 && rng.next() < 0.16) vine(aa, yy, len * (0.35 + rng.next() * 0.3), depth + 1);
+      aa += (rng.next() - 0.5) * 0.14 + (depth ? (rng.next() < 0.5 ? -0.05 : 0.05) : 0);
+      yy -= seg * (0.85 + rng.next() * 0.3);
+      if (yy < 0.25) break;
+    }
+    if (pts.length < 2) return;
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const tube = new THREE.TubeGeometry(curve, pts.length * 2, 0.03 - depth * 0.008, 4, false);
+    b.add('woodDark', tube, undefined, { tint: 0x6a5238 });
+  };
+  const n = 7;
+  for (let k = 0; k < n; k++) {
+    const a = a0 + ((k + 0.5) / n) * (a1 - a0) + (rng.next() - 0.5) * 0.12;
+    vine(a, top - rng.next() * 0.6, 2.2 + rng.next() * 3.6, 0);
+  }
+  // A thick cap of leaves spilling over the crown.
+  for (let i = 0; i < 30; i++) leaf(a0 + rng.next() * (a1 - a0), top + 0.1 + rng.next() * 0.4, 0.6 + rng.next() * 0.3, slotPick());
+}
+
+/**
+ * The glade's old watch tower, re-roofed by whoever keeps the ember: coursed stone with a corbelled
+ * crown, a slate cone roof (slightly crooked) with an ember finial, an arched oak door with iron
+ * straps, a warm lit window, ivy vines, rubble at the foot.
+ */
 export function buildRuinedTower(rng: Rng): THREE.Group {
   const b = new MeshBuilder();
   const stone = materials.get('stone');
   const R = 2.5;
-  const courses = 17;
+  const courses = 16;
   const ch = 0.42;
-  const door = { a: Math.PI * 0.62, w: 0.42 };
+  const door = { a: Math.PI * 0.62, w: 0.25 };
+  const win = { a: 1.6, w: 0.13, c0: 8, c1: 9 };
+  const angDist = (a: number, b2: number) => Math.abs(Math.atan2(Math.sin(a - b2), Math.cos(a - b2)));
   for (let c = 0; c < courses; c++) {
     const n = 16;
     const off = (c % 2) * 0.5;
-    // Broken crown: the top courses crumble away on one side.
-    const breakA = 1.2 + Math.sin(c * 1.7) * 0.4;
     for (let i = 0; i < n; i++) {
       const a = ((i + off) / n) * Math.PI * 2;
-      if (c >= 12) {
-        const keep = Math.cos(a - 4.4) * 0.5 + 0.5;
-        if (keep < (c - 11) * 0.17 + rng.next() * 0.2 - 0.05 * breakA) continue;
-      }
-      if (c < 6 && Math.abs(Math.atan2(Math.sin(a - door.a), Math.cos(a - door.a))) < door.w) continue;
-      if ((c === 9 || c === 10) && Math.abs(Math.atan2(Math.sin(a - 5.2), Math.cos(a - 5.2))) < 0.2) continue;
+      if (c < 5 && angDist(a, door.a) < door.w + 0.12) continue;
+      if (c >= win.c0 && c <= win.c1 && angDist(a, win.a) < win.w + 0.1) continue;
+      if ((c === 9 || c === 10) && angDist(a, 5.2) < 0.2) continue;
       const w = (2 * Math.PI * R) / n + 0.02;
       const tint = new THREE.Color(0xc4baa6).multiplyScalar(0.8 + rng.next() * 0.26).lerp(new THREE.Color(0x7d8a5a), c < 3 ? 0.35 * rng.next() : 0);
       b.add(stone, boxUV(roundedBox(w * 0.97, ch * 0.94, 0.55, 0.06, 1), 1.3), mat(Math.cos(a) * R, c * ch + ch / 2, Math.sin(a) * R, 0, -a + Math.PI / 2, 0).multiply(mat((rng.next() - 0.5) * 0.03, 0, (rng.next() - 0.5) * 0.06)), { tint });
     }
   }
-  // Door arch + lintel + dark interior floor.
-  const da = door.a;
-  const dx = Math.cos(da) * R;
-  const dz = Math.sin(da) * R;
-  b.add(stone, boxUV(roundedBox(1.5, 0.35, 0.65, 0.06), 1), mat(dx, 6 * ch + 0.1, dz, 0, -da + Math.PI / 2, 0), { tint: 0xb0a690 });
-  b.add('woodDark', new THREE.CircleGeometry(R - 0.2, 20).rotateX(-Math.PI / 2), mat(0, 0.05, 0), { tint: 0x3a3028 });
-  // Protruding floor beams (the upper floor rotted away).
-  for (let i = 0; i < 3; i++) {
-    const a = 1.4 + i * 1.3;
-    b.add('woodDark', roundedBox(0.22, 0.22, 1.3, 0.04), mat(Math.cos(a) * (R - 0.3), 3.3 + i * 0.05, Math.sin(a) * (R - 0.3), 0, -a + Math.PI / 2, 0.15), { tint: 0x6a5238 });
+  const topY = courses * ch;
+  // Corbelled crown: a jutting ring of blocks on stone brackets.
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    b.add(stone, boxUV(roundedBox(0.92, 0.36, 0.7, 0.06, 1), 1.3), mat(Math.cos(a) * (R + 0.14), topY + 0.18, Math.sin(a) * (R + 0.14), 0, -a + Math.PI / 2, 0), { tint: new THREE.Color(0xb8ae98).multiplyScalar(0.85 + rng.next() * 0.2) });
+    if (i % 2 === 0) b.add(stone, boxUV(roundedBox(0.26, 0.3, 0.4, 0.05, 1), 1), mat(Math.cos(a) * (R + 0.18), topY - 0.12, Math.sin(a) * (R + 0.18), 0, -a + Math.PI / 2, 0), { tint: 0xa89e88 });
   }
+  // Slate cone roof, leaning a touch, with a finial holding a small ember.
+  const roofH = 3.9;
+  const roof = new THREE.ConeGeometry(R + 0.6, roofH, 24, 6, true);
+  const rp = roof.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < rp.count; i++) {
+    const y = rp.getY(i) + roofH / 2;
+    const k = y / roofH;
+    // Sagging, slightly bell-shaped eaves + a crooked tip.
+    const flare = 1 + 0.12 * Math.pow(1 - k, 3);
+    rp.setXYZ(i, rp.getX(i) * flare + k * k * 0.35, rp.getY(i) - Math.pow(1 - k, 4) * 0.2, rp.getZ(i) * flare + k * k * 0.15);
+  }
+  roof.computeVertexNormals();
+  uvScale(roof, 5, 3.2);
+  b.add('roofTile', roof, mat(0, topY + 0.36 + roofH / 2, 0), { tint: 0x55606c, aoWorld: (q) => 0.62 + 0.38 * THREE.MathUtils.smoothstep(q.y, topY + 0.4, topY + 1.4) });
+  const tip = new THREE.Vector3(0.35, topY + 0.36 + roofH, 0.15);
+  b.add('metal', new THREE.CylinderGeometry(0.035, 0.05, 0.9, 6), mat(tip.x, tip.y + 0.35, tip.z, 0, 0, -0.08), { tint: 0x3a3430 });
+  b.add(emberMaterial(), new THREE.OctahedronGeometry(0.16, 0).scale(0.8, 1.6, 0.8), mat(tip.x + 0.06, tip.y + 0.92, tip.z));
+  // Arched oak door with iron straps and a ring pull, a worn stone step.
+  const da = door.a;
+  const dw = door.w + 0.12;
+  const planks = 5;
+  for (let k = 0; k < planks; k++) {
+    const a = da - dw + ((k + 0.5) / planks) * dw * 2;
+    const ph = 2.05 - Math.pow((k + 0.5) / planks - 0.5, 2) * 1.6;
+    b.add('wood', boxUV(roundedBox(dw * 2 * R / planks * 0.96, ph, 0.1, 0.02, 1), 1), mat(Math.cos(a) * (R - 0.12), ph / 2, Math.sin(a) * (R - 0.12), 0, -a + Math.PI / 2, 0), { tint: new THREE.Color(0x8a5a36).multiplyScalar(0.85 + rng.next() * 0.25) });
+  }
+  for (const y of [0.45, 1.5]) {
+    for (let k = 0; k < 4; k++) {
+      const a = da - dw * 0.8 + (k / 3) * dw * 1.6;
+      b.add('metal', roundedBox(0.34, 0.07, 0.03, 0.01, 1), mat(Math.cos(a) * (R - 0.05), y, Math.sin(a) * (R - 0.05), 0, -a + Math.PI / 2, 0), { tint: 0x2e2a28 });
+    }
+  }
+  b.add('metal', new THREE.TorusGeometry(0.09, 0.018, 6, 12), mat(Math.cos(da + 0.1) * (R - 0.02), 1.05, Math.sin(da + 0.1) * (R - 0.02), 0, -da, 0), { tint: 0x4a403a });
+  b.add(stone, boxUV(roundedBox(1.5, 0.35, 1.3, 0.1), 1), mat(Math.cos(da) * (R - 0.1), 5 * ch + 0.18, Math.sin(da) * (R - 0.1), 0, -da + Math.PI / 2, 0), { tint: 0xb0a690 });
+  b.add(stone, boxUV(roundedBox(1.3, 0.16, 0.7, 0.05), 1), mat(Math.cos(da) * (R + 0.45), 0.02, Math.sin(da) * (R + 0.45), 0, -da + Math.PI / 2, 0), { tint: 0xa09882 });
+  // Lit window: glowing pane, oak frame with a cross muntin, stone sill + lintel.
+  {
+    const a = win.a;
+    const wy = win.c0 * ch + ((win.c1 - win.c0 + 1) * ch) / 2;
+    const ww = (win.w + 0.1) * 2 * R * 0.92;
+    const wh = (win.c1 - win.c0 + 1) * ch;
+    const rot = mat(Math.cos(a) * (R - 0.08), wy, Math.sin(a) * (R - 0.08), 0, -a + Math.PI / 2, 0);
+    b.add(towerWindowMaterial(), new THREE.PlaneGeometry(ww, wh), rot);
+    b.add('woodDark', roundedBox(0.07, wh, 0.08, 0.02, 1), rot.clone().multiply(mat(0, 0, 0.03)));
+    b.add('woodDark', roundedBox(ww, 0.07, 0.08, 0.02, 1), rot.clone().multiply(mat(0, 0.05, 0.03)));
+    b.add(stone, boxUV(roundedBox(ww + 0.35, 0.14, 0.75, 0.04, 1), 1), mat(Math.cos(a) * R, wy - wh / 2 - 0.05, Math.sin(a) * R, 0, -a + Math.PI / 2, 0), { tint: 0xb8ae98 });
+    b.add(stone, boxUV(roundedBox(ww + 0.3, 0.2, 0.62, 0.04, 1), 1), mat(Math.cos(a) * R, wy + wh / 2 + 0.08, Math.sin(a) * R, 0, -a + Math.PI / 2, 0), { tint: 0xb0a690 });
+  }
+  b.add('woodDark', new THREE.CircleGeometry(R - 0.2, 20).rotateX(-Math.PI / 2), mat(0, 0.05, 0), { tint: 0x3a3028 });
   // Rubble at the foot.
   const rock = forestRockMaterial();
   for (let i = 0; i < 9; i++) {
@@ -350,26 +728,9 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
     const d = R + 0.5 + rng.next() * 1.6;
     b.add(rock, smoothRock(rng, 0.2 + rng.next() * 0.2, { detail: 1 }), mat(Math.cos(a) * d, 0, Math.sin(a) * d, 0, rng.next() * 6, 0));
   }
-  // Ivy curtains down the south-west face.
-  const ivy = ivyMaterial();
-  // Strands hang from the broken crown and thin out as they fall; a thick mat at the top.
-  for (let k = 0; k < 9; k++) {
-    let a = 1.9 + (k / 8 - 0.5) * 2.2 + (rng.next() - 0.5) * 0.15;
-    const top = 5.4 + rng.next() * 1.0;
-    const len = 2.2 + rng.next() * 3.4;
-    const n = Math.ceil(len / 0.32);
-    for (let i = 0; i <= n; i++) {
-      const f = i / n;
-      const y = top - f * len;
-      if (y < 0.2) break;
-      a += (rng.next() - 0.5) * 0.06;
-      const r = (0.34 - f * 0.18) * (0.85 + rng.next() * 0.3);
-      const g = lumpySphere(r, 1, 0.3, rng, 2.2);
-      g.scale(1.1, 1.25, 0.5);
-      const tint = new THREE.Color(1, 1, 1).multiplyScalar(0.78 + rng.next() * 0.3).lerp(new THREE.Color(0.9, 1.05, 0.7), f * 0.4);
-      b.add(ivy, g, mat(Math.cos(a) * (R + 0.24), y, Math.sin(a) * (R + 0.24), 0, -a + Math.PI / 2, 0), { tint });
-    }
-  }
+  // Ivy over the sunny south-west face (leaves the door and window clear).
+  towerIvy(b, rng, R, 2.35, 3.6, topY - 0.2);
+  towerIvy(b, rng, R, 0.5, 1.02, topY - 1.5);
   return b.build({ name: 'ruined-tower' });
 }
 

@@ -49,11 +49,13 @@ import {
   ForestShape,
   type GiantKind,
 } from './layout';
-import { GiantGrove, ShrubField } from './giants';
-import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, type MushroomKind } from './props';
+import { GiantGrove, ShrubField, giantBarkMaterial } from './giants';
+import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, type MushroomKind } from './props';
 import { buildWaterfall, buildChurn, buildMist, buildFlow } from './stream';
 import { ForageField, type ForageSpot } from './forage';
 import { updateSeeThrough } from './foliage';
+import { ShaftMotes } from './motes';
+import { CLIFF_STRATA_GLSL, buildCliffWall } from './cliffs';
 import { smoothRock, forestRockMaterial, setForestMossSeason, forestMoss } from './rocks';
 
 export { FOREST_SIZE };
@@ -88,6 +90,7 @@ export class ForestMap implements GameMap {
   private ambience: Ambience;
   private litter: LeafLitter;
   private shafts: { x: number; y: number; z: number; w: number }[];
+  private motes = new ShaftMotes();
   /** Snow-drift catchers: trunks, boulders, logs (x, z, radius). */
   private obstacles: { x: number; z: number; r: number }[] = [];
   private forage: ForageField;
@@ -141,6 +144,7 @@ export class ForestMap implements GameMap {
     this.crystalY = shrine.crystal.position.y;
     this.placeUndergrowth();
     this.placeMushrooms();
+    this.dressCliffs();
     mark('nature');
     this.terrain.commitCover();
     this.bakeDrifts();
@@ -190,6 +194,7 @@ export class ForestMap implements GameMap {
     mark(`grass (${this.grass.instanceCount})`);
 
     this.shafts = this.raySpots();
+    this.root.add(this.motes.points);
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.ambience.group);
     this.fx.object.userData.perfTag = 'fx';
@@ -271,12 +276,15 @@ export class ForestMap implements GameMap {
   }
 
   /**
-   * Cliff faces: layered sandstone / slate strata (horizontal bands of varying tone with lit tops,
-   * shadowed undersides and vertical fractures) instead of the shared cracked-tile texture; moss and
-   * grass drape over every band top (and snow settles there in winter via worldfx).
+   * Cliff faces: hand-cut layered sandstone / slate. Beds of varying thickness (0.5-1.1 m, each
+   * coarse bed split at a random height), a 2-octave domain warp so the bedding dips and swells,
+   * vertical fracture columns that run through several beds (each block shaded on its own), dark
+   * water-stain streaks and moss / ivy tongues dripping down from the ledges; snow settles on every
+   * ledge in winter. Chunky overhang ledges, fallen blocks and hanging roots are real geometry
+   * (`dressCliffs`).
    */
   private patchCliffs(): void {
-    patchMaterial(this.terrain.material, 'forest-cliff-strata', (shader) => {
+    patchMaterial(this.terrain.material, 'forest-cliff-strata2', (shader) => {
       shader.uniforms.uMossC = forestMoss;
       let fs = shader.fragmentShader;
       fs = before(
@@ -284,36 +292,96 @@ export class ForestMap implements GameMap {
         'void main() {',
         /* glsl */ `
         uniform vec3 uMossC;
-        vec3 hvCliffStrata(vec3 p, vec3 n, vec3 grass) {
-          vec2 t2 = normalize(vec2(-n.z, n.x) + 1e-4);
-          float along = dot(p.xz, t2);
-          float warp = hvNoise(vec2(along * 0.25, p.y * 0.1)) * 0.9 + hvNoise(p.xz * 1.1) * 0.25;
-          float yy = p.y * 1.45 + warp;
-          float layer = floor(yy);
-          float f = fract(yy);
-          float lr = hvHash12(vec2(layer, 3.7));
-          vec3 c = mix(vec3(0.13, 0.115, 0.095), vec3(0.24, 0.205, 0.16), lr);
-          c = mix(c, vec3(0.13, 0.145, 0.16), step(0.68, hvHash12(vec2(layer, 9.1))) * 0.7);
-          // Each band: lit, weathered top lip, darker undercut at its base.
-          c *= 0.8 + 0.34 * smoothstep(0.05, 0.9, f);
-          c *= 1.0 - smoothstep(0.14, 0.0, f) * 0.45;
-          // Vertical joints, offset per band.
-          float jn = hvNoise(vec2(along * 0.9 + layer * 3.1, layer * 1.7));
-          c *= 1.0 - smoothstep(0.06, 0.0, abs(jn - 0.5)) * 0.4;
-          c *= 0.9 + 0.18 * hvNoise(vec2(along * 5.0, p.y * 7.0));
-          // Moss + grass tufts creeping over the band tops, dripping a little down the face.
-          float mn = hvFbm(vec2(along * 0.6, p.y * 0.8) + 11.0);
-          float moss = smoothstep(0.62, 0.95, f + (mn - 0.5) * 0.5) * smoothstep(0.35, 0.65, mn);
-          c = mix(c, uMossC * (0.6 + 0.5 * mn), moss * 0.75);
-          // Winter: snow lies along every band top / ledge and in the joints.
-          float ledge = smoothstep(0.66, 0.9, f + (mn - 0.5) * 0.35) + smoothstep(0.3, 0.9, n.y) * 0.8;
-          c = mix(c, vec3(0.6, 0.65, 0.74), clamp(ledge, 0.0, 1.0) * smoothstep(0.3, 0.85, uSnow));
-          return c;
-        }`,
+        ${CLIFF_STRATA_GLSL}`,
       );
-      fs = replace(fs, 'vec3 rock = rx * bw.x + ry * bw.y + rz * bw.z;', 'vec3 rock = hvCliffStrata(wp, wn, grass);');
+      fs = replace(fs, 'vec3 rock = rx * bw.x + ry * bw.y + rz * bw.z;', 'vec3 rock = hvCliffStrata(wp, wn, dot(wp.xz, normalize(vec2(-wn.z, wn.x) + 1e-4)));');
       shader.fragmentShader = fs;
     });
+  }
+
+  /**
+   * Break the cliff's straight wall: chunky overhanging ledge slabs every 4-6 m at different heights,
+   * fallen blocks + boulders heaped at the foot, and roots of the plateau trees hanging over the lip.
+   */
+  private dressCliffs(): void {
+    const r = this.rng.fork('cliff-dress');
+    const S = this.shape;
+    const t = this.terrain;
+    const wall = buildCliffWall(t, r.fork('wall'), { x0: -12, x1: 26.4, lipZ: FALLS.lipZ, topY: PLATEAU_H });
+    this.root.add(wall.mesh);
+    const rb = new MeshBuilder();
+    const rockM = forestRockMaterial();
+    const bark = giantBarkMaterial();
+    const lineAt = (x: number) => {
+      let best = wall.line[0];
+      for (const p of wall.line) if (best === undefined || Math.abs(p.x - x) < Math.abs(best.x - x)) best = p;
+      return best;
+    };
+    // Face point at relative height v (0 top .. 1 foot), pushed out by the wall's mean bulge.
+    const faceAt = (x: number, v: number): { y: number; z: number } | null => {
+      const p = lineAt(x);
+      if (!p || Math.abs(p.x - x) > 0.3) return null;
+      const y = THREE.MathUtils.lerp(PLATEAU_H - 0.18, p.yBot - 0.45, v);
+      const z = THREE.MathUtils.lerp(p.zTop - 0.12, p.zBot + 0.35, Math.pow(v, 1.15)) + 0.3 + Math.sin(Math.PI * v) * 0.2;
+      return { y, z };
+    };
+    let x = -2 + r.next() * 2;
+    while (x < 26) {
+      if (Math.abs(x - FALLS.x) > FALLS.width * 1.3 && S.upperCarve(x, FALLS.lipZ - 1) < 0.1) {
+        // 1-2 chunky overhanging ledges per stretch, at varied heights.
+        const n = 1 + (r.next() < 0.45 ? 1 : 0);
+        for (let k = 0; k < n; k++) {
+          const f = faceAt(x + k * 1.3, k === 0 ? 0.3 + r.next() * 0.3 : 0.08 + r.next() * 0.12);
+          if (!f) continue;
+          const rad = 0.7 + r.next() * 0.4;
+          const g = smoothRock(r, rad, { squash: 0.45 + r.next() * 0.12, elong: 1.6 + r.next() * 0.4, detail: 2, strata: 0.9 });
+          rb.add(rockM, g, mat(x + k * 1.3, f.y - rad * 0.28, f.z - rad * 0.5, (r.next() - 0.5) * 0.1, (r.next() - 0.5) * 0.3, (r.next() - 0.5) * 0.1));
+        }
+        // Fallen blocks heaped at the foot.
+        const foot = lineAt(x + 0.8);
+        if (foot && r.next() < 0.8) {
+          const bx = x + 0.8 + (r.next() - 0.5);
+          const bz = foot.zBot + 0.7 + r.next() * 0.6;
+          if (t.heightAt(bx, bz) > WATER_LOW + 0.05) {
+            const rad = 0.45 + r.next() * 0.45;
+            rb.add(rockM, smoothRock(r, rad, { detail: 2 }), mat(bx, t.heightAt(bx, bz) - 0.08, bz, 0, r.next() * 6.28, 0));
+            if (r.next() < 0.6) rb.add(rockM, smoothRock(r, rad * 0.5, { detail: 1 }), mat(bx + rad * 1.1, t.heightAt(bx + rad * 1.1, bz + 0.3) - 0.05, bz + 0.3, 0, r.next() * 6.28, 0));
+            this.obstacles.push({ x: bx, z: bz, r: rad });
+          }
+        }
+        // Roots spilling over the lip and hanging down the face.
+        const lipP = lineAt(x + 0.4);
+        if (lipP && r.next() < 0.55) {
+          const zl = lipP.zTop + 0.05;
+          const nR = 1 + r.int(0, 1);
+          for (let q = 0; q < nR; q++) {
+            const rx = x + 0.4 + (r.next() - 0.5) * 0.8;
+            const top = new THREE.Vector3(rx, PLATEAU_H + 0.05, zl - 0.7);
+            const lip = new THREE.Vector3(rx + (r.next() - 0.5) * 0.3, PLATEAU_H - 0.15, zl + 0.2);
+            const drop = 0.8 + r.next() * 1.6;
+            const mid = new THREE.Vector3(rx + (r.next() - 0.5) * 0.5, PLATEAU_H - 0.2 - drop * 0.5, zl + 0.45);
+            const end = new THREE.Vector3(rx + (r.next() - 0.5) * 0.7, PLATEAU_H - 0.2 - drop, zl + 0.45 + r.next() * 0.2);
+            const curve = new THREE.CatmullRomCurve3([top, lip, mid, end]);
+            const tube = new THREE.TubeGeometry(curve, 10, 0.045 + r.next() * 0.03, 5, false);
+            // Taper towards the tip.
+            const pos = tube.attributes.position as THREE.BufferAttribute;
+            const pts = curve.getSpacedPoints(10);
+            for (let i = 0; i < pos.count; i++) {
+              const ring = Math.floor(i / 6);
+              const c = pts[Math.min(ring, pts.length - 1)]!;
+              const k2 = 1 - (ring / 10) * 0.75;
+              pos.setXYZ(i, c.x + (pos.getX(i) - c.x) * k2, c.y + (pos.getY(i) - c.y) * k2, c.z + (pos.getZ(i) - c.z) * k2);
+            }
+            tube.computeVertexNormals();
+            rb.add(bark, tube);
+          }
+        }
+      }
+      x += 4 + r.next() * 2;
+    }
+    const g = rb.build({ name: 'forest-cliff-dress' });
+    this.root.add(g);
+    this.staticRoots.push(g);
   }
 
   private classifyTiles(): void {
@@ -357,6 +425,16 @@ export class ForestMap implements GameMap {
     for (const g of this.giants.handles) {
       const d = Math.hypot(x - g.x, z - g.z);
       if (d < g.radius) shade = Math.max(shade, smoothstep(g.radius, g.radius * 0.35, d));
+    }
+    // Nothing grows through the fallen logs (blades poking through read as a see-through log).
+    for (const [lx, lz, rot, len, rad] of LOGS) {
+      const c = Math.cos(rot);
+      const sn = Math.sin(rot);
+      const dx = x - lx;
+      const dz = z - lz;
+      const along = dx * c - dz * sn;
+      const across = dx * sn + dz * c;
+      if (Math.abs(along) < len / 2 + 0.5 && Math.abs(across) < rad + 0.25) return 0;
     }
     const moss = t.coverAt(x, z, 'moss');
     return (1.2 + clump * 3.6 + glade * 3 + pm * 2) * (1 - shade * 0.75) * (1 - moss * 0.45) * (pv > 0.05 ? 0.5 : 1);
@@ -432,9 +510,15 @@ export class ForestMap implements GameMap {
         if (S.streamCarve(jx, jz) > 0.05) continue;
         const y = this.terrain.heightAt(jx, jz) - 0.1;
         // Near the rim: a second row of giants; farther out: cheaper filler.
-        if (d < 7 || onPlateau) {
+        if (onPlateau) {
+          // The plateau is seen side-on from the falls: only the painted giants hold up there (the
+          // generic low-poly trees show their bare undersides at that angle).
           if (r.next() < 0.55) this.giants.add(r.next() < 0.55 ? 'fir' : 'elder', jx, y, jz, 0.8 + r.next() * 0.3);
-          else this.trees.add(r.pick(['oak', 'maple', 'pine', 'pine'] as TreeSpecies[]), jx, y, jz, 1.2 + r.next() * 0.4, undefined, 1);
+        } else if (d < 7) {
+          // Front rows of the wall: painted giants (the generic pine reads as a flat low-poly cone
+          // next to them); broad-leaved filler only behind.
+          if (r.next() < 0.55 || d < 3.5) this.giants.add(r.next() < 0.55 ? 'fir' : 'elder', jx, y, jz, 0.8 + r.next() * 0.3);
+          else this.trees.add(r.pick(['oak', 'maple'] as TreeSpecies[]), jx, y, jz, 1.2 + r.next() * 0.4, undefined, 1);
         } else if (r.next() < 0.8) {
           this.trees.add(r.pick(['pine', 'pine', 'oak', 'maple'] as TreeSpecies[]), jx, y, jz, 1.25 + r.next() * 0.45, undefined, 1);
         }
@@ -746,23 +830,36 @@ export class ForestMap implements GameMap {
 
   // ───────────────────────────────────────────── light shafts
 
+  /**
+   * Light-shaft anchors (ground end of each beam). A handful of wide hero beams framed for the
+   * pool, the clearing and the glade, plus a few narrow ones under the canopy edges of the giants
+   * nearest the trails (not one per tree: dozens of faint beams read as haze, not shafts).
+   */
   private raySpots(): { x: number; y: number; z: number; w: number }[] {
     const r = this.rng.fork('rays');
     const out: { x: number; y: number; z: number; w: number }[] = [];
-    for (const g of this.giants.handles) {
-      if (g.x < 2 || g.x > 64 || g.z < 2 || g.z > 60) continue;
-      const n = g.kind === 'elder' ? 2 : 1;
-      for (let i = 0; i < n; i++) {
-        const a = r.next() * Math.PI * 2;
-        const d = g.radius * (0.55 + r.next() * 0.35);
-        const x = g.x + Math.cos(a) * d;
-        const z = g.z + Math.sin(a) * d;
-        out.push({ x, y: this.terrain.heightAt(x, z), z, w: 0.7 + r.next() * 1.1 });
-      }
-    }
-    // Wide shafts into the glade and over the pool.
-    for (const [x, z, w] of [[GLADE.x - 1.5, GLADE.z + 1, 2.6], [GLADE.x + 2.5, GLADE.z - 1.5, 1.8], [POOL.x + 1, POOL.z + 1, 2.2], [33.5, 24.5, 2.0], [30.5, 34, 1.6]] as const) {
+    for (const [x, z, w] of [
+      [POOL.x + 2.6, POOL.z + 1.4, 0.7],
+      [POOL.x - 2.8, POOL.z - 0.6, 0.5],
+      [POOL.x + 0.2, POOL.z + 3.6, 0.4],
+      [POOL.x + 7.6, POOL.z + 3.4, 0.6],
+      [GLADE.x - 1.5, GLADE.z + 1, 0.8],
+      [GLADE.x + 2.5, GLADE.z - 1.5, 0.55],
+      [GLADE.x - 3.8, GLADE.z - 2.2, 0.4],
+      [33.5, 24.5, 0.7],
+      [30.5, 34, 0.55],
+      [38.4, 31.6, 0.45],
+    ] as const) {
       out.push({ x, y: this.terrain.heightAt(x, z), z, w });
+    }
+    for (const g of this.giants.handles) {
+      if (out.length >= 16) break;
+      if (g.x < 6 || g.x > 60 || g.z < 12 || g.z > 56 || g.kind !== 'elder') continue;
+      const a = r.next() * Math.PI * 2;
+      const d = g.radius * (0.6 + r.next() * 0.3);
+      const x = g.x + Math.cos(a) * d;
+      const z = g.z + Math.sin(a) * d;
+      out.push({ x, y: this.terrain.heightAt(x, z), z, w: 0.3 + r.next() * 0.3 });
     }
     return out;
   }
@@ -848,14 +945,17 @@ export class ForestMap implements GameMap {
     this.halo.scale.setScalar((1.8 + night * 1.6) * (0.92 + 0.08 * breath));
     this.halo.material.opacity = (0.45 + night * 0.55) * breath;
     emberMaterial().emissiveIntensity = (1.8 + night * 1.5) * breath;
+    // Somebody keeps a lamp in the tower: a warm window by day, glowing after dusk (candle flicker).
+    towerWindowMaterial().emissiveIntensity = (1.1 + night * 2.4) * (0.92 + 0.05 * Math.sin(t * 9.1) + 0.03 * Math.sin(t * 23.7));
     this.emberLight.intensity = (1.2 + night * 5) * breath;
     this.shrineGlow.intensity = globalUniforms.uLamps.value * 2.2;
     // Volumetric shafts through the canopy gaps: strong with a low sun / morning mist, off under overcast.
     const sun = globalUniforms.uSunColor.value;
     const lum = sun.r * 0.3 + sun.g * 0.5 + sun.b * 0.2;
     atmosphere.shaftList = this.shafts;
-    atmosphere.shaftLen = 15;
+    atmosphere.shaftLen = 17;
     atmosphere.shafts = Math.max(0, 1 - globalUniforms.uRain.value * 1.2) * (1 - globalUniforms.uSnow.value * 0.4) * THREE.MathUtils.smoothstep(lum, 0.08, 0.5) * (1 - night) * (0.8 + this.fogBoost * 1.8);
+    this.motes.update(t, this.shafts, atmosphere.shafts * (0.35 + this.fogBoost * 0.65), globalUniforms.uSunDir.value, game.rc.camera, h);
   }
 
   setSeason(season: Season): void {
@@ -868,6 +968,8 @@ export class ForestMap implements GameMap {
     this.ambience.setSeason(season);
     this.litter.mesh.visible = season === 'fall';
     setIvySeason(season);
+    // Mushrooms are an autumn-to-summer thing: none poke through the winter snow.
+    for (const m of [...this.pool.meshesFor(fungusMaterial()), ...this.pool.meshesFor(glowcapMaterial())]) m.visible = season !== 'winter';
   }
 
   setWeather(weather: Weather): void {

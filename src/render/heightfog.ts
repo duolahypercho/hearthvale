@@ -113,8 +113,10 @@ const FogShader = {
         // Drifting banks: density at the surface point (the mist lies on the ground).
         vec2 drift = uWindDir * uTime * 0.35;
         float n = hvFbm(P.xz * 0.075 - drift * 0.075) * 0.7 + hvNoise(P.xz * 0.23 + vec2(uTime * 0.03, -uTime * 0.02)) * 0.3;
-        float bank = smoothstep(0.35, 0.78, n);
-        float dens = uDensity * uFog * (0.12 + 1.6 * bank);
+        // Wispy sheets: a second, finer stretched layer tears the banks into drifting ribbons.
+        float sheet = hvNoise(vec2(P.x * 0.16 + P.z * 0.05, P.z * 0.42) - drift * 0.16);
+        float bank = smoothstep(0.44, 0.8, n) * (0.5 + 0.5 * smoothstep(0.3, 0.7, sheet));
+        float dens = uDensity * uFog * (0.06 + 1.8 * bank);
         float f = 1.0 - exp(-optical * dens);
         // Sky pixels (far plane): keep only a thin veil.
         f *= d > 0.99999 ? 0.4 : 1.0;
@@ -124,11 +126,12 @@ const FogShader = {
         c = mix(c, fc, clamp(f, 0.0, 0.8));
       }
       if (uShaftK > 0.001) {
-        vec3 Ls = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.42), uSunDir.z));
-        // Art direction: tilt the beams away from the view axis so they always read as slanting
-        // shafts across the frame, never as a blob seen end-on.
-        Ls = normalize(Ls - uCamFwd * dot(Ls, uCamFwd) * 0.8);
-        if (Ls.y < 0.3) Ls = normalize(Ls + vec3(0.0, 0.3 - Ls.y, 0.0));
+        // Art direction: beams fall steeply from the canopy (~35 deg off vertical), leaning across the
+        // frame towards the sun's side, so they always read as slanted shafts from the diorama camera
+        // (a low morning sun would otherwise lay them flat along the ground).
+        vec2 hvSide = normalize(vec2(-uCamFwd.z, uCamFwd.x) + 1e-4);
+        float hvLean = dot(normalize(uSunDir.xz + 1e-4), hvSide) >= 0.0 ? 1.0 : -1.0;
+        vec3 Ls = normalize(vec3(hvSide.x * hvLean * 0.58, 0.82, hvSide.y * hvLean * 0.58) + vec3(uSunDir.x, 0.0, uSunDir.z) * 0.15);
         float acc = 0.0;
         for (int i = 0; i < ${MAX_SHAFTS}; i++) {
           if (i >= uShaftCount) break;
@@ -146,15 +149,19 @@ const FogShader = {
           vec3 q = a + Ls * ts;
           float tr2 = clamp(dot(q - ro, rd), 0.0, L);
           float dist = length(ro + rd * tr2 - q);
-          float wdt = s.w * (1.0 + ts / uShaftLen * 0.6);
-          float along = smoothstep(0.0, 0.12, ts / uShaftLen) * (1.0 - smoothstep(0.45, 1.0, ts / uShaftLen));
+          float wdt = s.w * (1.0 + ts / uShaftLen * 0.35);
+          // Bright along the whole fall, fading only where the beam leaves the canopy / meets the ground.
+          float along = smoothstep(0.0, 0.08, ts / uShaftLen) * (1.0 - smoothstep(0.62, 1.0, ts / uShaftLen));
           // Chord length through the soft cylinder ~ width / sin(angle between ray and axis).
-          float chord = min(wdt * 2.0 / max(sqrt(den), 0.15), 12.0);
-          float g = exp(-dist * dist / (wdt * wdt) * 2.2);
-          float flick = 0.7 + 0.3 * hvNoise(vec2(float(i) * 7.3 + uTime * 0.25, ts * 0.3 - uTime * 0.1));
+          float chord = min(wdt * 2.0 / max(sqrt(den), 0.15), 8.0);
+          float g = exp(-dist * dist / (wdt * wdt) * 3.0);
+          // Striations: thinner rays inside each beam (light through leaves), slowly shifting.
+          vec3 q2 = ro + rd * tr2 - q;
+          float stri = 0.55 + 0.45 * hvNoise(vec2(dot(q2, cross(Ls, vec3(0.0, 0.0, 1.0))) * 2.6 + float(i) * 3.7, uTime * 0.08));
+          float flick = (0.75 + 0.25 * hvNoise(vec2(float(i) * 7.3 + uTime * 0.25, ts * 0.3 - uTime * 0.1))) * stri;
           acc += g * along * chord * flick;
         }
-        c += uShaftCol * acc * uShaftK * 0.05;
+        c += uShaftCol * acc * uShaftK * 0.1;
       }
       gl_FragColor = vec4(c, col.a);
     }`,

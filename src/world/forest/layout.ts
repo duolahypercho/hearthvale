@@ -216,8 +216,9 @@ export class ForestShape {
     // Forest floor: soft root-mounds and hollows.
     const floor = n.fbm(x * 0.09 + 3, z * 0.09, 3) * 0.32 + n.get(x * 0.35, z * 0.35) * 0.06;
     const pm = this.plateauMask(x, z);
-    // Strata steps on the cliff face.
-    const strata = pm * (1 - pm) * 4 * (n.get(x * 0.6, z * 0.2) * 0.25);
+    // Gentle bulges on the cliff face (long wavelength: short ones fold the contour lines into
+    // saw-tooth zig-zags on a 0.5 m heightfield).
+    const strata = pm * (1 - pm) * 4 * (n.get(x * 0.13, z * 0.13) * 0.18);
     let h = Math.max(rim + floor, pm * (PLATEAU_H + n.fbm(x * 0.1, z * 0.1, 2) * 0.25) + floor * (1 - pm)) + strata;
     // Glade: a gently raised, level lawn.
     const gd = Math.hypot(x - GLADE.x, (z - GLADE.z) * 1.1);
