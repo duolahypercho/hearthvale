@@ -529,7 +529,9 @@ export class Rainbow {
           return c;
         }
         void main() {
-          vec2 p = (vUv - vec2(0.4, -0.95)) * vec2(uAspect, 1.0);
+          // Arc hung high over the canopy (crest near the top of the frame, feet in the upper third):
+          // the diorama never shows the horizon, so it must not sweep across the play area.
+          vec2 p = (vUv - vec2(0.46, -0.8)) * vec2(uAspect, 1.0);
           float r = length(p);
           float R = 1.72;
           float W = 0.085;
@@ -541,8 +543,8 @@ export class Rainbow {
           c += spectrum(1.0 - clamp(t2, 0.0, 1.0)) * smoothstep(0.0, 0.2, t2) * (1.0 - smoothstep(0.8, 1.0, t2)) * 0.28;
           c += vec3(0.08, 0.08, 0.1) * smoothstep(R - W, R - W - 0.5, r) * smoothstep(R - W - 1.2, R - W - 0.2, r);
           // Fades out towards the bottom of the frame and where it meets the screen edge; soft breakup.
-          float fade = smoothstep(0.08, 0.55, vUv.y) * (0.75 + 0.25 * hvNoise(vec2(atan(p.y, p.x) * 6.0, uTime * 0.05)));
-          gl_FragColor = vec4(c * fade * uAmount * 0.27, 1.0);
+          float fade = smoothstep(0.56, 0.8, vUv.y) * (0.75 + 0.25 * hvNoise(vec2(atan(p.y, p.x) * 6.0, uTime * 0.05)));
+          gl_FragColor = vec4(c * fade * uAmount * 0.24, 1.0);
         }`,
     });
     this.mesh = new THREE.Mesh(g, this.mat);
