@@ -61,8 +61,9 @@ export const DEMOS: Record<string, DemoDef> = {
   'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -45, pitch: 40, distance: 9.5, offsetX: 0, offsetZ: -0.6 }, showcase: ['tools', 'tool:charge'] },
   'farm-wither': { map: 'farm', x: 23.5, z: 29.2, facing: 'up', time: 16.2, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 21.5, offsetX: -1.2, offsetZ: -4.6 }, showcase: ['wither'] },
   // Town square (plaza, Lantern Hall, villagers).
-  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 18.6, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
-  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
+  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
+  // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
+  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
   'town-dialogue': { map: 'town', x: 29.6, z: 23.2, facing: 'left', time: 16.5, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
   // Town pod: `&event=<npc>-<2|4>&step=N` picks the heart event; `&npc=<id>&mood=<mood>|&gift=<item>|&ask=1` the dialogue.
   'town-heart-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },

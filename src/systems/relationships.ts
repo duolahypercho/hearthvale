@@ -29,6 +29,8 @@ export interface RelationshipApi {
   isBirthday(npcId: string): boolean;
   /** Add (or remove) friendship points (dialogue choices, heart events). */
   adjust(npcId: string, delta: number): void;
+  /** Mark as already introduced (demo staging: no first-meeting lines for an old friend). */
+  meet(npcId: string): void;
 }
 
 declare module '../core/game' {
@@ -99,6 +101,11 @@ export class RelationshipSystem implements System, RelationshipApi {
 
   adjust(id: string, delta: number): void {
     if (delta) this.addPoints(id, delta);
+  }
+
+  meet(id: string): void {
+    const f = this.friends[id];
+    if (f && f.talks === 0) f.talks = 1;
   }
 
   points(id: string): number {

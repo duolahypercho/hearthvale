@@ -83,6 +83,8 @@ import {
   buildSchoolhouse,
   buildSouthCottage,
   buildVegBed,
+  buildBicycle,
+  buildFlowerRing,
   coalMaterial,
   deckY,
 } from './buildings';
@@ -134,6 +136,8 @@ export class TownMap implements GameMap {
   private swept: THREE.Mesh | null = null;
   /** Festival practicals (budget: 4 point lights), always in the scene so toggling never recompiles. */
   private festivalLights: { light: THREE.PointLight; max: number; seed: number }[] = [];
+  /** Debug: triangles per static prop root name (×2 when it casts shadows). */
+  propTris: Record<string, number> = {};
 
   constructor(private game: Game) {
     this.root.name = 'map:town';
@@ -645,8 +649,23 @@ export class TownMap implements GameMap {
           g = buildBeehive();
           break;
         case 'chalkBoard':
+        case 'sandwichBoard':
           g = buildSandwichBoard(p.colors?.[0]);
           break;
+        case 'wheelbarrow':
+          g = buildWheelbarrow();
+          break;
+        case 'flowerCart':
+          g = buildFlowerCart(r);
+          break;
+        case 'bicycle':
+          g = buildBicycle(r, p.colors?.[0]);
+          break;
+        case 'flowerRing': {
+          const [[r0, r1], [a0, a1]] = (p.pts ?? [[3.3, 4], [20, 80]]) as [[number, number], [number, number]];
+          g = buildFlowerRing(r, r0, r1, (a0 * Math.PI) / 180, (a1 * Math.PI) / 180);
+          break;
+        }
         case 'fence': {
           const y0 = this.terrain.heightAt(p.x, p.z) - 0.03;
           g = buildFence([p.pts ?? []], (lx, lz) => this.terrain.heightAt(lx + p.x, lz + p.z) - y0, r);
@@ -655,8 +674,10 @@ export class TownMap implements GameMap {
       }
       // Dock + rowboat sit at the water line.
       const y = p.kind === 'dock' ? WATER_Y + 0.16 : p.kind === 'rowboat' ? WATER_Y - 0.12 : undefined;
+      // Small street clutter skips the shadow pass (contact AO grounds it; saves shadow triangles).
+      if (p.noShadow) (g instanceof THREE.Group ? g : g.group).traverse((o) => (o.castShadow = false));
       this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid, { lights, y });
-      if (!['hedge', 'dock', 'rowboat', 'laundry', 'fence'].includes(p.kind)) this.terrain.stampCover('ao', p.x, p.z, p.kind === 'stall' ? 1.6 : p.kind === 'well' ? 1.2 : 0.6, 0.6);
+      if (!['hedge', 'dock', 'rowboat', 'laundry', 'fence', 'flowerRing'].includes(p.kind)) this.terrain.stampCover('ao', p.x, p.z, p.kind === 'stall' ? 1.6 : p.kind === 'well' ? 1.2 : 0.6, 0.6);
     }
     // The dock is walkable: a short jetty over the water.
     for (let x = 60; x <= 62; x++) {
@@ -720,6 +741,17 @@ export class TownMap implements GameMap {
 
   private mergeDistricts(): void {
     const cells = new Map<string, THREE.Object3D[]>();
+    // Debug: triangles per static prop root (castShadow ×2), read via __game.game.world.current.propTris.
+    const tris: Record<string, number> = {};
+    for (const o of this.staticRoots)
+      o.traverse((m) => {
+        const g = (m as THREE.Mesh).geometry;
+        if (!(m as THREE.Mesh).isMesh || !g) return;
+        const n = (g.index ? g.index.count : g.attributes.position!.count) / 3;
+        const k = (o.name || 'anon').replace(/[-_]?\d+$/, '');
+        tris[k] = (tris[k] ?? 0) + n * ((m as THREE.Mesh).castShadow ? 2 : 1);
+      });
+    this.propTris = tris;
     for (const o of this.staticRoots) {
       const k = cellOf(o.position.x, o.position.z);
       let list = cells.get(k);
@@ -895,7 +927,14 @@ export class TownMap implements GameMap {
     this.pools.update();
     this.grass.update(game.rc.rig.focus);
     const h = game.rc.renderer.domElement.height;
-    for (const s of this.smoke) s.update(dt, game.lighting.night, h);
+    // Chimney plumes only near the view (each is a draw call; off-screen ones stop simulating).
+    const f = game.rc.rig.focus;
+    const reach = game.rc.rig.distance * 0.9 + 14;
+    for (const s of this.smoke) {
+      const near = Math.hypot(s.origin.x - f.x, s.origin.z - f.z) < reach;
+      s.object.visible = near;
+      if (near) s.update(dt, game.lighting.night, h);
+    }
     this.ambience.update(dt, game.time, game.rc.rig.focus, game.lighting.night, h);
     if (this.festivalOn && this.fire) this.fire.update(dt, h);
     if (this.forgeFire) this.forgeFire.update(dt, h);

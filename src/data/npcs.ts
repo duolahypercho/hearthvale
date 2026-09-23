@@ -131,6 +131,8 @@ export interface HeartEvent {
   cast: Partial<Record<Who, [Place, Facing]>>;
   camera: { x: number; z: number; yaw?: number; pitch?: number; distance?: number };
   script: CutStep[];
+  /** Extra actors spawned for the scene (e.g. Pip the shop cat): at [x, z], height above ground. */
+  props?: { kind: 'cat'; at: [number, number]; y?: number; rot?: number; pose?: 'sit' | 'curl'; scale?: number }[];
 }
 
 export interface GiftTastes {
@@ -235,11 +237,13 @@ export const NPCS: Record<NpcId, NpcDef> = {
         dry: true,
         cast: { marigold: ['store_front', 'down'], player: [[24.4, 22.4], 'left'] },
         camera: { x: 22.6, z: 21.4, yaw: -6, pitch: 42, distance: 15 },
+        props: [{ kind: 'cat', at: [27.25, 19.62], y: 2.16, rot: 0.25, pose: 'curl', scale: 1.35 }],
         script: [
           { emote: 'marigold', icon: 'question' },
           { say: 'marigold', text: 'Pip? Pip! …Oh, it’s you, dear. Have you seen a cat? Orange, round, judgmental?', mood: 'worried' },
           { say: 'marigold', text: 'He hasn’t touched his breakfast. He ALWAYS touches his breakfast. He touches everyone’s breakfast.', mood: 'worried' },
-          { walk: 'marigold', to: [25.6, 21.2], face: 'up' },
+          { walk: 'marigold', to: [27.7, 21.15], face: 'up' },
+          { face: 'player', to: 'up' },
           { emote: 'marigold', icon: 'exclaim' },
           { say: 'marigold', text: 'There! On the notice board roof, sleeping on the Glimmerco flyer like it owes him money.', mood: 'surprised' },
           { say: 'marigold', text: 'Good boy. Tear it up, Pip. Tear it right up.', mood: 'laugh' },
@@ -399,9 +403,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     portraitBg: [0xbfe0e8, 0x8fb8d8],
     schedule: [
       [6, 'door:cottage_west', 'inside'],
-      [8, 'easel_river', 'paint'],
+      [8, 'easel_plaza', 'paint'],
       [12, 'cafe', 'chat'],
-      [13, 'easel_plaza', 'paint'],
+      [13, 'easel_river', 'paint'],
       [17, 'bridge_mid', 'lean'],
       [20, 'fountain_s', 'sit'],
       [22.5, 'door:cottage_west', 'inside'],
@@ -605,7 +609,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
     schedule: [
       [6, 'door:clinic', 'inside'],
       [7, 'clinic_front', 'read'],
-      [9, 'door:clinic', 'inside'],
+      [8.5, 'fountain_e', 'chat'],
+      [10.5, 'door:clinic', 'inside'],
       [12, 'bench_se', 'read'],
       [13, 'door:clinic', 'inside'],
       [17, 'river_walk', 'wander'],
@@ -700,7 +705,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
     portraitBg: [0xf6c89a, 0xc8584a],
     schedule: [
       [6, 'door:inn', 'inside'],
-      [9, 'inn_front', 'sweep'],
+      [8, 'inn_front', 'sweep'],
+      [9.25, 'fountain_s', 'chat'],
       [11, 'market_flowers', 'chat'],
       [12.5, 'door:inn', 'inside'],
       [15, 'inn_tables', 'idle'],

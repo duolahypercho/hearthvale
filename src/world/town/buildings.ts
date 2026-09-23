@@ -734,3 +734,58 @@ export function buildVegBed(rng: Rng, len = 2.6): THREE.Group {
   }
   return b.build({ name: 'vegbed' });
 }
+
+/** A bicycle with a wicker basket of flowers, leaning on its kickstand (street clutter). */
+export function buildBicycle(rng: Rng, frame = 0x3f7fa8): THREE.Group {
+  const b = new MeshBuilder();
+  const tilt = 0.14;
+  const T = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0): THREE.Matrix4 => new THREE.Matrix4().makeRotationZ(tilt).multiply(mat(x, y, z, rx, ry, rz));
+  for (const sx of [-1, 1]) {
+    b.add('metal', new THREE.TorusGeometry(0.3, 0.028, 6, 22), T(sx * 0.52, 0.32, 0, 0, Math.PI / 2, 0), { tint: 0x2a2a2e });
+    b.add('metal', new THREE.TorusGeometry(0.26, 0.008, 3, 18), T(sx * 0.52, 0.32, 0, 0, Math.PI / 2, 0), { tint: 0xc8c8cc });
+    b.add('metal', new THREE.CylinderGeometry(0.035, 0.035, 0.06, 8).rotateX(Math.PI / 2), T(sx * 0.52, 0.32, 0), { tint: 0x9a9aa0 });
+  }
+  const tube = (x0: number, y0: number, x1: number, y1: number, r = 0.022): void => {
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    b.add('woodPaint', new THREE.CylinderGeometry(r, r, len, 6), T((x0 + x1) / 2, (y0 + y1) / 2, 0, 0, 0, Math.atan2(x0 - x1, y1 - y0)), { tint: frame });
+  };
+  tube(-0.52, 0.32, -0.08, 0.34);
+  tube(-0.08, 0.34, 0.36, 0.62);
+  tube(-0.52, 0.32, -0.16, 0.66);
+  tube(-0.16, 0.66, 0.36, 0.62);
+  tube(-0.08, 0.34, -0.18, 0.72);
+  tube(0.52, 0.32, 0.4, 0.8);
+  b.add('woodGrain', roundedBox(0.2, 0.05, 0.1, 0.02), T(-0.19, 0.76, 0), { tint: 0x5a3a24 });
+  b.add('metal', new THREE.CylinderGeometry(0.014, 0.014, 0.42, 6).rotateX(Math.PI / 2), T(0.4, 0.82, 0), { tint: 0x9a9aa0 });
+  // Wicker basket with a posy.
+  b.add('woodGrain', bevelCylinder(0.14, 0.12, 0.16, 0.02, 10), T(0.58, 0.74, 0), { tint: 0xc89a5a });
+  for (let i = 0; i < 5; i++) {
+    const a = rng.next() * Math.PI * 2;
+    b.add('white', new THREE.SphereGeometry(0.045, 6, 5), T(0.58 + Math.cos(a) * 0.06, 0.84 + rng.next() * 0.04, Math.sin(a) * 0.06), { tint: [0xff8fab, 0xffd166, 0xffffff, 0xc77dff][i % 4]! });
+  }
+  return b.build({ name: 'bicycle' });
+}
+
+/** A low stone-edged flower bed curving round part of the fountain (annulus sector). */
+export function buildFlowerRing(rng: Rng, r0: number, r1: number, a0: number, a1: number): THREE.Group {
+  const b = new MeshBuilder();
+  const seg = Math.max(6, Math.round(((a1 - a0) * (r0 + r1)) / 0.6));
+  const kerb = new THREE.RingGeometry(r1 - 0.14, r1, seg, 1, a0, a1 - a0).rotateX(-Math.PI / 2);
+  b.add('stone', kerb, mat(0, 0.16, 0), { tint: 0xc8bca8 });
+  const kerbIn = new THREE.RingGeometry(r0, r0 + 0.12, seg, 1, a0, a1 - a0).rotateX(-Math.PI / 2);
+  b.add('stone', kerbIn, mat(0, 0.14, 0), { tint: 0xbcb09c });
+  const soil = new THREE.RingGeometry(r0 + 0.1, r1 - 0.12, seg, 1, a0, a1 - a0).rotateX(-Math.PI / 2);
+  b.add('white', soil, mat(0, 0.1, 0), { tint: 0x6a4a32 });
+  const cols = [0xff8fab, 0xffd166, 0xffffff, 0xc77dff, 0xff7a5a];
+  const n = Math.round(seg * 2.4);
+  for (let i = 0; i < n; i++) {
+    const a = a0 + (i / n) * (a1 - a0) + (rng.next() - 0.5) * 0.05;
+    const r = r0 + 0.2 + rng.next() * (r1 - r0 - 0.4);
+    const x = Math.cos(a) * r;
+    const z = -Math.sin(a) * r;
+    const bush = lumpySphere(0.12 + rng.next() * 0.05, 0, 0.25, rng);
+    b.add('white', bush, mat(x, 0.2, z), { tint: 0x5f9a4a });
+    b.add('white', new THREE.SphereGeometry(0.05, 5, 4), mat(x + (rng.next() - 0.5) * 0.08, 0.31, z + (rng.next() - 0.5) * 0.08), { tint: cols[i % cols.length]! });
+  }
+  return b.build({ name: 'flower-ring' });
+}

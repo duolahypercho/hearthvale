@@ -49,33 +49,33 @@ declare module '../core/events' {
 
 const CSS = /* css */ `
 .hv-dialogue.dlg2 { bottom: 24px; width: min(1120px, calc(100vw - 40px)); gap: 14px; align-items: stretch; }
-/* The parchment fills the whole text box (no bare plank under short lines); text sits centred. */
+/* The parchment fills the whole text box; text is anchored top-left so the reading position never moves. */
 .hv-dialogue.dlg2 .dlg-box { min-height: 0; display: flex; flex-direction: column; }
-.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 34px 46px 38px; overflow: hidden;
+.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; padding: 40px 48px 30px; overflow: hidden;
   box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.35), inset 0 0 0 2px rgba(150, 100, 50, 0.25), inset 0 0 38px rgba(150, 90, 30, 0.2); }
 /* Ink flourishes in the parchment corners + a pressed rule under the text. */
 .hv-dialogue.dlg2 .dlg-box .hv-inner::before, .hv-dialogue.dlg2 .dlg-box .hv-inner::after { content: ''; position: absolute; width: 58px; height: 58px; pointer-events: none; opacity: 0.5;
   background: var(--dlg-flourish) center / contain no-repeat; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner::before { left: 8px; top: 8px; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner::after { right: 8px; bottom: 8px; transform: rotate(180deg); }
-.hv-dialogue.dlg2 .dlg-text { min-height: 0; font-size: 27px; line-height: 39px; letter-spacing: 0.1px; position: relative; z-index: 1; }
-.hv-dialogue.dlg2 .dlg-text .w { display: inline; }
+.hv-dialogue.dlg2 .dlg-text { min-height: 0; font-size: 30px; line-height: 42px; letter-spacing: 0.1px; position: relative; z-index: 1; }
+.hv-dialogue.dlg2 .dlg-text .rest { visibility: hidden; }
 .hv-dialogue.dlg2 .dlg-next { right: 26px; bottom: 16px; z-index: 2; }
-.hv-dialogue.dlg2 .dlg-speaker { position: absolute; top: -20px; left: 30px; z-index: 3; font-family: var(--font-head); font-weight: 700; font-size: 21px; color: #fff; padding: 3px 18px 5px; border-radius: 10px;
+.hv-dialogue.dlg2 .dlg-speaker { position: absolute; top: -17px; left: 34px; z-index: 3; line-height: 26px; pointer-events: none; font-family: var(--font-head); font-weight: 700; font-size: 21px; color: #fff; padding: 3px 18px 5px; border-radius: 10px;
   background: linear-gradient(180deg, var(--wood-1), var(--wood-2)); border: 2px solid var(--wood-3); text-shadow: 0 2px 0 var(--wood-3); box-shadow: 0 3px 0 rgba(60,30,10,.3), inset 0 1px 0 var(--wood-hi); }
 .hv-dialogue.dlg2 .dlg-box { position: relative; }
 .hv-dialogue.dlg2.narr .dlg-side { display: none; }
 .hv-dialogue.dlg2.narr .dlg-speaker { display: none; }
 .hv-dialogue.dlg2.narr .dlg-text { font-style: italic; font-weight: 700; color: #6a4a2a; text-align: center; }
-.hv-dialogue.dlg2 .dlg-side { width: 284px; }
-.hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 12px 12px 12px; gap: 2px; align-content: start; }
-.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 256px; height: 256px; margin: 2px 0 0; }
+.hv-dialogue.dlg2 .dlg-side { width: 248px; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 10px 10px 10px; gap: 2px; align-content: start; overflow: hidden; }
+.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 222px; height: 222px; margin: 2px 0 0; }
 /* Painted-on-canvas finish: a static brush-grain layer (soft light) and a varnish vignette over the art. */
 .hv-dialogue.dlg2 .dlg-portrait::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit;
-  background: var(--dlg-grain, none) 0 0 / 256px 256px; mix-blend-mode: soft-light; opacity: 0.42;
+  background: var(--dlg-grain, none) 0 0 / 222px 222px; mix-blend-mode: soft-light; opacity: 0.42;
   box-shadow: inset 0 0 24px rgba(70, 36, 12, 0.38), inset 0 0 3px rgba(70, 36, 12, 0.5); }
 .hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: -18px; font-size: 23px; padding: 0 18px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
-.hv-dialogue.dlg2 .dlg-role { max-width: 256px; font-size: 12.5px; line-height: 15px; margin-top: 3px; }
+.hv-dialogue.dlg2 .dlg-role { max-width: 224px; font-size: 12.5px; line-height: 15px; margin-top: 3px; }
 .hv-dialogue.dlg2.cine { bottom: calc(7.5vh + 16px); transition: bottom 400ms var(--ease-out); }
 .hv-hud.hv-heartcine .h-clock, .hv-hud.hv-heartcine .hv-toolbar, .hv-hud.hv-heartcine .hv-energy, .hv-hud.hv-heartcine .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }
@@ -87,8 +87,11 @@ const CSS = /* css */ `
 @keyframes dlgNod { to { translate: 0 1.6px; } }
 @keyframes dlgSwap { from { opacity: 0; transform: scale(1.06) translateY(4px); } }
 @keyframes dlgOut { to { opacity: 0; } }
-.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 16px); gap: 2px; margin-top: 4px; }
-.hv-dialogue.dlg2 .dlg-hearts svg { width: 16px; height: 15px; display: block; }
+.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; margin-top: 4px; }
+.hv-dialogue.dlg2 .dlg-hearts svg { width: 18px; height: 16px; display: block; overflow: visible; }
+/* The heart that just filled pops (ease-out-back) and flashes. */
+.hv-dialogue.dlg2 .dlg-hearts svg.pop { animation: dlgPop 620ms var(--ease-back) both; filter: drop-shadow(0 0 4px rgba(255, 120, 100, 0.9)); }
+@keyframes dlgPop { 0% { transform: scale(0.3); } 45% { transform: scale(1.75) translateY(-4px); } 100% { transform: scale(1); } }
 .hv-dialogue.dlg2 .dlg-hearts.pulse svg { animation: dlgHeart 520ms var(--ease-back) both; }
 .hv-dialogue.dlg2 .dlg-hearts.pulse svg:nth-child(2n) { animation-delay: 40ms; }
 .hv-dialogue.dlg2 .dlg-hearts.shake { animation: dlgShake 380ms ease-in-out; }
@@ -97,8 +100,8 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 .dlg-side .hv-inner { position: relative; }
 .dlg-float { position: absolute; width: 22px; height: 20px; pointer-events: none; animation: dlgFloat 1100ms ease-out forwards; }
 @keyframes dlgFloat { from { opacity: 0; transform: translateY(0) scale(0.4); } 15% { opacity: 1; transform: translateY(-8px) scale(1.1); } to { opacity: 0; transform: translateY(-70px) scale(0.8) rotate(12deg); } }
-.hv-dialogue.dlg2 .dlg-ribbon { position: absolute; top: 12px; right: -8px; font-family: var(--font-head); font-weight: 700; font-size: 14px; color: #fff; padding: 3px 12px 3px 10px;
-  background: linear-gradient(180deg, #e8674a, #c0482e); border: 2px solid #7a2e1e; border-radius: 8px 4px 4px 8px; box-shadow: 0 3px 0 rgba(60,30,10,.35); transform: rotate(4deg);
+.hv-dialogue.dlg2 .dlg-ribbon { position: absolute; top: 16px; right: 8px; max-width: 200px; z-index: 4; font-family: var(--font-head); font-weight: 700; font-size: 14px; color: #fff; padding: 3px 12px 3px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: linear-gradient(180deg, #e8674a, #c0482e); border: 2px solid #7a2e1e; border-radius: 8px; box-shadow: 0 3px 0 rgba(60,30,10,.35); transform: rotate(3deg);
   display: flex; align-items: center; gap: 6px; animation: dlgSwap 360ms var(--ease-back) both; }
 .hv-dialogue.dlg2 .dlg-ribbon svg { width: 18px; height: 18px; }
 .hv-dialogue.dlg2 .dlg-choices { display: grid; gap: 8px; margin-top: 10px; }
@@ -254,8 +257,7 @@ export class DialoguePanel implements Panel {
     this.el = document.createElement('div');
     this.el.className = 'hv-dialogue dlg2 hv-hidden interactive';
     this.el.innerHTML = `
-      <div class="hv-panel dlg-box"><div class="hv-inner">
-        <div class="dlg-speaker"></div>
+      <div class="hv-panel dlg-box"><div class="dlg-speaker"></div><div class="hv-inner">
         <div class="dlg-text"></div>
         <div class="dlg-next"><svg viewBox="0 0 20 14"><path d="M2 2 L10 12 L18 2 Z" fill="#c8573e" stroke="#7a2e1e" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
       </div></div>
@@ -311,7 +313,7 @@ export class DialoguePanel implements Panel {
     });
     game.events.on('relationship:change', ({ npcId, delta }) => {
       if (npcId !== this.npc || !this.openFlag) return;
-      this.renderHearts(npcId);
+      this.renderHearts(npcId, this.heartPts);
       this.hearts.classList.remove('pulse', 'shake');
       void this.hearts.offsetWidth;
       this.hearts.classList.add(delta > 0 ? 'pulse' : 'shake');
@@ -492,10 +494,24 @@ export class DialoguePanel implements Panel {
     }
   }
 
-  private renderHearts(id: NpcId): void {
+  private heartPts = -1;
+  private renderHearts(id: NpcId, prev = -1): void {
     const pts = this.game.services.relationships?.points(id) ?? 0;
     this.hearts.innerHTML = Array.from({ length: 10 }, (_, i) => HEART((pts - i * PER_HEART) / PER_HEART, `${id}${i}`)).join('');
     this.hearts.title = `${Math.floor(pts / PER_HEART)} / 10 hearts`;
+    if (prev >= 0 && pts > prev) {
+      // Pop the hearts whose fill changed (the newest last, a beat later).
+      const svgs = this.hearts.querySelectorAll('svg');
+      const i0 = Math.floor(prev / PER_HEART);
+      const i1 = Math.min(9, Math.floor((pts - 1) / PER_HEART));
+      for (let i = i0; i <= i1; i++) {
+        const el = svgs[i];
+        if (!el) continue;
+        el.classList.add('pop');
+        (el as SVGElement).style.animationDelay = `${(i - i0) * 90}ms`;
+      }
+    }
+    this.heartPts = pts;
   }
 
   private sprinkle(n: number): void {
@@ -552,7 +568,10 @@ export class DialoguePanel implements Panel {
   // ───────────────────────────────────────────── typewriter / choices
 
   private line_(id: NpcId | null, text: string, mood: Mood): Promise<void> {
-    if (id) this.setPortrait(id, mood);
+    if (id) {
+      this.setPortrait(id, mood);
+      this.game.events.emit('npc:line', { id, mood });
+    }
     this.el.querySelector('.dlg-choices')?.remove();
     this.line = text;
     this.shown = 0;
@@ -574,7 +593,7 @@ export class DialoguePanel implements Panel {
     }
     const ch = this.line[this.shown]!;
     this.shown++;
-    this.text.textContent = this.line.slice(0, this.shown);
+    this.paintText();
     if (ch === ' ' && this.npc) this.game.events.emit('ui:blip', { id: this.npc });
     const delay = /[.!?]/.test(ch) && this.line[this.shown] === ' ' ? 190 : /[,—…]/.test(ch) ? 90 : 17;
     this.timer = window.setTimeout(this.tick, delay);
@@ -583,9 +602,17 @@ export class DialoguePanel implements Panel {
   finishLine(): void {
     window.clearTimeout(this.timer);
     this.shown = this.line.length;
-    this.text.textContent = this.line;
+    this.paintText();
     this.next.classList.remove('hv-hidden');
     this.setSpeaking(false);
+  }
+
+  /** Typed part + the rest laid out invisibly, so words never jump to the next line mid-type. */
+  private paintText(): void {
+    const esc = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const a = this.line.slice(0, this.shown);
+    const b = this.line.slice(this.shown);
+    this.text.innerHTML = b ? `${esc(a)}<span class="rest">${esc(b)}</span>` : esc(a);
   }
 
   private advance(): void {

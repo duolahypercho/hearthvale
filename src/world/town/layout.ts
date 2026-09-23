@@ -123,7 +123,12 @@ export type ExtraPropKind =
   | 'vegBed'
   | 'fence'
   | 'beehive'
-  | 'chalkBoard';
+  | 'chalkBoard'
+  | 'sandwichBoard'
+  | 'wheelbarrow'
+  | 'flowerCart'
+  | 'bicycle'
+  | 'flowerRing';
 
 export interface ExtraProp {
   kind: ExtraPropKind;
@@ -135,8 +140,10 @@ export interface ExtraProp {
   goods?: 'produce' | 'fish' | 'flowers' | 'pottery';
   colors?: number[];
   len?: number;
-  /** Fence runs: points relative to (x, z). */
+  /** Fence runs: points relative to (x, z). flowerRing: [[r0, r1], [a0°, a1°]]. */
   pts?: [number, number][];
+  /** Skip the shadow pass (small clutter). */
+  noShadow?: boolean;
 }
 
 export const EXTRA_PROPS: ExtraProp[] = [
@@ -216,6 +223,47 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'laundry', x: 42.2, z: 47.8, rot: Math.PI / 2 + 0.1 },
   { kind: 'mailbox', x: 44.2, z: 50.6, rot: 0 },
   { kind: 'produce', x: 49.6, z: 49.6, rot: -0.3 },
+
+  // ── Street life clutter round the square (round 2): shop-front stock, bikes, a barrow of blooms,
+  // flower beds hugging the fountain's north side, café boards, market-row odds and ends.
+  // Fountain flower beds (NW / NE arcs, north of the pots; the W / E / S chat spots stay clear).
+  { kind: 'flowerRing', x: 32, z: 25, pts: [[3.35, 4.05], [100, 162]], noShadow: true },
+  { kind: 'flowerRing', x: 32, z: 25, pts: [[3.35, 4.05], [18, 80]], noShadow: true },
+  // Thimble & Pip's front.
+  { kind: 'sacks', x: 22.6, z: 18.95, rot: 0.3, noShadow: true },
+  { kind: 'produce', x: 21.5, z: 19.05, rot: -0.1, noShadow: true },
+  { kind: 'bicycle', x: 16.9, z: 19.9, rot: Math.PI / 2 + 0.25, colors: [0x3f7fa8] },
+  { kind: 'flowerPot', x: 23.4, z: 19.2, colors: [0xff7aa2], noShadow: true },
+  // Hearth Oven front.
+  { kind: 'sacks', x: 42.9, z: 18.9, rot: -0.3, noShadow: true },
+  { kind: 'produce', x: 41.3, z: 19.0, rot: 0.15, noShadow: true },
+  { kind: 'bicycle', x: 47.9, z: 20.6, rot: -Math.PI / 2 - 0.35, colors: [0xc8573e] },
+  { kind: 'sandwichBoard', x: 38.9, z: 22.9, rot: 0.5, colors: [0x5a3a24], noShadow: true },
+  // Lantern Hall steps.
+  { kind: 'flowerPot', x: 29.9, z: 13.3, colors: [0xffd166], noShadow: true },
+  { kind: 'flowerPot', x: 34.1, z: 13.3, colors: [0xff8fab], noShadow: true },
+  { kind: 'crates', x: 37.4, z: 15.8, rot: 0.4, solid: [[37, 15]] },
+  // West lawn + south edge of the square.
+  { kind: 'wheelbarrow', x: 22.6, z: 31.4, rot: 0.7, solid: [[22, 31]] },
+  { kind: 'flowerPot', x: 24.1, z: 26.9, colors: [0xc77dff], noShadow: true },
+  { kind: 'flowerPot', x: 23.5, z: 27.5, colors: [0xffffff], noShadow: true },
+  { kind: 'sacks', x: 43.4, z: 32.2, rot: 0.8, noShadow: true },
+  { kind: 'crates', x: 44.9, z: 30.2, rot: -0.2, solid: [[44, 30]] },
+  { kind: 'flowerPot', x: 39.7, z: 27.9, colors: [0xff8fab], noShadow: true },
+  { kind: 'barrel', x: 40.1, z: 26.7, solid: [[40, 26]] },
+  { kind: 'laundry', x: 47.6, z: 28.4, rot: 0.08 },
+  // Market row odds and ends.
+  { kind: 'flowerPot', x: 54.2, z: 20.4, colors: [0xffd166], noShadow: true },
+  { kind: 'flowerPot', x: 57.2, z: 20.5, colors: [0xc77dff], noShadow: true },
+  { kind: 'sacks', x: 49.1, z: 29.9, rot: 0.2, noShadow: true },
+  { kind: 'produce', x: 55.9, z: 29.9, rot: 0.3, noShadow: true },
+  { kind: 'sandwichBoard', x: 51.8, z: 23.9, rot: -0.4, colors: [0x2f4a3e], noShadow: true },
+  // Copper Kettle terrace + clinic lane.
+  { kind: 'flowerPot', x: 78.4, z: 32.6, colors: [0xff8fab], noShadow: true },
+  { kind: 'flowerPot', x: 81.6, z: 32.6, colors: [0xffd166], noShadow: true },
+  { kind: 'crates', x: 86.9, z: 31.9, rot: 0.3, solid: [[86, 31]] },
+  { kind: 'bicycle', x: 35.9, z: 42.6, rot: 0.2, colors: [0x5f9a4a] },
+  { kind: 'wheelbarrow', x: 48.4, z: 43.3, rot: -0.5, solid: [[48, 43]] },
 ];
 
 /** Extra trees: [species, x, z, scale]. */
@@ -264,7 +312,7 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   market_produce: [50.4, 23.1, 'up'],
   market_flowers: [55.6, 23.2, 'up'],
   easel_river: [59.3, 22.5, 'right'],
-  easel_plaza: [25.4, 22.4, 'up'],
+  easel_plaza: [25.4, 22.75, 'up'],
   bridge_mid: [64.4, 26.25, 'down'],
   river_dock: [61.3, 36.6, 'right'],
   river_walk: [58.6, 31.6, 'right'],
