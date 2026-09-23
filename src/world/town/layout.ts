@@ -281,3 +281,55 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
 
 /** Town camera bounds (look-target clamp). */
 export const TOWN_CAM_BOUNDS = { x0: 10, z0: 12, x1: 90, z1: 52 };
+
+/** Plaza lamp posts (the ring in data/town-layout.ts: 30°, 150°, 210°, 330° at r 7.6 round the fountain). */
+const PLAZA_C = { x: 32, z: 25, r: 7.6 };
+const post = (deg: number): [number, number] => [PLAZA_C.x + Math.cos((deg * Math.PI) / 180) * PLAZA_C.r, PLAZA_C.z + Math.sin((deg * Math.PI) / 180) * PLAZA_C.r];
+const [SE, SW, NW, NE] = [post(30), post(150), post(210), post(330)];
+/** Mast top on a plaza lamp post (m above ground). */
+const MAST = 3.05;
+/** Festoon pole top (m above ground). */
+const POLE = 3.3;
+
+/** Festoon poles planted for the light strings: [x, z]. */
+export const FESTOON_POLES: [number, number][] = [
+  // Market row zig-zag (south side of the east road, then north side).
+  [49.6, 27.7],
+  [52.6, 23.0],
+  [55.6, 27.5],
+  // Copper Kettle terrace front.
+  [73.6, 28.2],
+  [86.2, 28.6],
+];
+
+/** Plaza lamp posts that get an iron mast for the strings: [x, z]. */
+export const FESTOON_MASTS: [number, number][] = [SE, SW, NW, NE];
+
+/**
+ * Light strings: anchors are [x, height above ground, z]; sag in metres. Everything hangs across
+ * the view or along the plaza's sides — nothing droops down the camera axis over the fountain.
+ */
+export const FESTOON_SPANS: { a: [number, number, number]; b: [number, number, number]; sag: number }[] = [
+  // Across the plaza, north and south of the fountain (mast to mast, across the view).
+  { a: [NW[0], MAST, NW[1]], b: [NE[0], MAST, NE[1]], sag: 0.34 },
+  { a: [SE[0], MAST, SE[1]], b: [SW[0], MAST, SW[1]], sag: 0.34 },
+  // Shop-front corners (under the eaves) out to the north masts.
+  { a: [24.35, 3.2, 18.45], b: [NW[0], MAST, NW[1]], sag: 0.14 },
+  { a: [39.65, 3.15, 18.45], b: [NE[0], MAST, NE[1]], sag: 0.14 },
+  // Market row: lamp → pole → pole → pole → lamp, zig-zagging over the road.
+  { a: [46.4, 2.28, 23.2], b: [49.6, POLE, 27.7], sag: 0.22 },
+  { a: [49.6, POLE, 27.7], b: [52.6, POLE, 23.0], sag: 0.26 },
+  { a: [52.6, POLE, 23.0], b: [55.6, POLE, 27.5], sag: 0.26 },
+  { a: [55.6, POLE, 27.5], b: [58.8, 2.28, 23.3], sag: 0.22 },
+  // Copper Kettle terrace: along the front, and back up to the facade.
+  { a: [73.6, POLE, 28.2], b: [86.2, POLE, 28.6], sag: 0.42 },
+  { a: [73.6, POLE, 28.2], b: [76.0, 3.7, 32.45], sag: 0.2 },
+  { a: [86.2, POLE, 28.6], b: [84.0, 3.7, 32.45], sag: 0.2 },
+];
+
+/** Winter snowmen: [x, z, rot] — plaza lawns and the schoolyard. */
+export const SNOWMEN: [number, number, number][] = [
+  [28.3, 17.5, 0.3],
+  [36.1, 17.3, -0.35],
+  [21.0, 49.2, 0.1],
+];

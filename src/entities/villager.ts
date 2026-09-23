@@ -693,10 +693,10 @@ export class Villager {
         break;
       case 'cap': {
         // Baker's toque.
-        rb.add(B.head, new THREE.CylinderGeometry(R * 1.02, R * 1.02, 0.12, 20, 1, true), H(0, R * 1.55, -0.02, -0.12, 0, 0), 0xf6f0e4);
+        rb.add(B.head, new THREE.CylinderGeometry(R * 1.02, R * 1.02, 0.12, 20, 1, true), H(0, R * 1.55, -0.02, -0.12, 0, 0), 0xe8e0d0);
         const puff = lumpySphere(R * 1.05, 1, 0.12, rng, 1.6);
         puff.scale(1.1, 0.55, 1.1);
-        rb.add(B.head, puff, H(0, R * 1.78, -0.05, -0.15, 0, 0), 0xfaf6ee);
+        rb.add(B.head, puff, H(0, R * 1.78, -0.05, -0.15, 0, 0), 0xece6da);
         rb.add(B.head, new THREE.SphereGeometry(R * 1.02, 20, 8, 0, Math.PI * 2, Math.PI * 0.3, Math.PI * 0.25), H(0, R * 0.96, -0.02, -0.25, 0, 0), hair);
         for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.1, 1, 0.12, rng), H(sx * R * 0.9, R * 0.95, R * 0.1, 0, 0, 0, 0.6, 1, 0.9), hair);
         break;

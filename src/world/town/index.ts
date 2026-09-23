@@ -24,6 +24,9 @@ import { Nature } from '../props/nature';
 import { mergeStatic } from '../geom';
 import { BatchPool, InstancedSet } from '../props/instanced';
 import { FountainFX } from './fountain';
+import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
+import { buildSnowmen } from './winter';
+import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
 import { textures } from '../../render/textures';
 import { SmokeEmitter, Ambience, FireFX } from '../../render/particles';
@@ -50,6 +53,10 @@ import {
   EXTRA_TREES,
   TOWN_CAM_BOUNDS,
   TREE_MOVES,
+  FESTOON_POLES,
+  FESTOON_MASTS,
+  FESTOON_SPANS,
+  SNOWMEN,
   type Bridge,
   type NewBuilding,
 } from './layout';
@@ -122,6 +129,8 @@ export class TownMap implements GameMap {
   private forgeFire: FireFX | null = null;
   private forgeLight: THREE.PointLight | null = null;
   private fountainFx: FountainFX | null = null;
+  private festoons: Festoons | null = null;
+  private snowmen: THREE.Group | null = null;
   /** Festival practicals (budget: 4 point lights), always in the scene so toggling never recompiles. */
   private festivalLights: { light: THREE.PointLight; max: number; seed: number }[] = [];
 
@@ -143,6 +152,7 @@ export class TownMap implements GameMap {
     this.terrain.paintCover('clover', (x, z) => smoothstep(0.62, 0.75, this.noise.fbm(x * 0.15 + 9, z * 0.15, 2) * 0.5 + 0.5) * (1 - this.streetValue(x, z)), { x0: -2, z0: -2, x1: 102, z1: 66 });
     this.terrain.paintCover('moss', (x, z) => smoothstep(RIVER_BANK + 2.5, RIVER_BANK, this.riverDist(x, z)) * 0.8, { x0: 50, z0: -4, x1: 80, z1: 70 });
     this.classifyTiles();
+    this.bakeDrifts();
 
     this.trees = new TreeField(this.rng.fork('trees'));
     this.nature = new Nature(this.rng.fork('nature'));
@@ -150,6 +160,7 @@ export class TownMap implements GameMap {
     this.buildNewBuildings();
     this.buildProps();
     this.buildExtraProps();
+    this.buildFestoons();
     this.buildRiver();
     this.placeTrees();
     this.placeNature();
@@ -181,7 +192,9 @@ export class TownMap implements GameMap {
     game.events.on('demo:stage', ({ showcase }) => this.setFestival(showcase.includes('festival')));
     // Ambient life anchors for the critter system.
     this.poi.flowers = [{ x: 20.5, z: 19.2 }, { x: 43, z: 19.2 }, { x: 16, z: 35 }, { x: 48, z: 35 }, { x: PLAZA.x, z: PLAZA.z + 4 }, { x: 55.8, z: 22.4 }, { x: 30.2, z: 48.6 }];
-    this.poi.birds = [{ x: 29.5, z: 28.5 }, { x: 35.5, z: 21.5 }, { x: 58.4, z: 33.6 }, { x: 78, z: 28.6 }];
+    this.poi.birds = [{ x: 29.5, z: 28.5 }, { x: 35.5, z: 21.5 }, { x: 58.4, z: 33.6 }, { x: 78, z: 28.6 }, { x: 31.2, z: 18.6 }, { x: 33.4, z: 31.4 }, { x: 51.6, z: 25.6 }];
+    // The town cat naps on the west plaza bench (the one nobody sits on).
+    this.poi.cat = [{ x: 25.55, y: this.terrain.heightAt(25.6, 23.8) + 0.46, z: 23.45, rot: Math.PI / 2 + 0.35 }];
     this.poi.water = [{ x: 64.4, z: 32 }, { x: 65.6, z: 40 }, { x: 64.4, z: 18 }];
   }
 
@@ -311,6 +324,22 @@ export class TownMap implements GameMap {
         }
       }
     }
+  }
+
+  /** Winter: soft snow drifts banked against every building (terrain lifts them only under snow). */
+  private bakeDrifts(): void {
+    const rects = [...BUILDINGS, ...NEW_BUILDINGS].map((b) => b.block);
+    this.terrain.setDrift((x, z) => {
+      let d = 99;
+      for (const [x0, z0, x1, z1] of rects) {
+        const dx = Math.max(x0 - x, 0, x - (x1 + 1));
+        const dz = Math.max(z0 - z, 0, z - (z1 + 1));
+        d = Math.min(d, Math.hypot(dx, dz));
+      }
+      if (d > 2.2) return 0;
+      const n = 0.65 + 0.35 * this.noise.get(x * 0.7 + 17, z * 0.7);
+      return smoothstep(2.0, 0.3, d) * n * (1 - this.streetValue(x, z) * 0.75);
+    });
   }
 
   private grassDensity(x: number, z: number): number {
@@ -610,6 +639,24 @@ export class TownMap implements GameMap {
     }
   }
 
+  /** Everyday light strings over the plaza, the market row and the inn terrace. */
+  private buildFestoons(): void {
+    for (const [x, z] of FESTOON_POLES) this.addProp(buildFestoonPole(), x, z, 0, [[Math.floor(x), Math.floor(z)]], { lights: 'none' });
+    for (const [x, z] of FESTOON_MASTS) this.addProp(buildLampMast(), x, z, 0, undefined, { lights: 'none' });
+    const G = (x: number, z: number): number => this.terrain.heightAt(x, z) - 0.03;
+    const spans = FESTOON_SPANS.map(({ a, b, sag }) => ({
+      a: [a[0], G(a[0], a[2]) + a[1], a[2]] as [number, number, number],
+      b: [b[0], G(b[0], b[2]) + b[1], b[2]] as [number, number, number],
+      sag,
+    }));
+    this.festoons = new Festoons(spans, this.rng.fork('festoons'));
+    this.root.add(this.festoons.group);
+    // Winter: snowmen on the plaza lawns and in the schoolyard (hidden the rest of the year).
+    this.snowmen = buildSnowmen(this.rng.fork('snowmen'), SNOWMEN, (x, z) => this.terrain.heightAt(x, z));
+    this.snowmen.visible = false;
+    this.root.add(this.snowmen);
+  }
+
   private buildRiver(): void {
     const r = this.rng.fork('river');
     const water = createWater(this.terrain, { x0: 52, z0: -12, x1: 76, z1: 76 }, WATER_Y);
@@ -801,6 +848,8 @@ export class TownMap implements GameMap {
   setFestival(on: boolean): void {
     this.festivalOn = on;
     this.festival.visible = on;
+    // The festival brings its own bunting + paper lanterns to the same anchors.
+    if (this.festoons) this.festoons.group.visible = !on;
     if (this.fire) this.fire.active = on;
   }
 
@@ -824,6 +873,7 @@ export class TownMap implements GameMap {
     if (this.festivalOn && this.fire) this.fire.update(dt, h);
     if (this.forgeFire) this.forgeFire.update(dt, h);
     this.fountainFx?.update(dt, game.lighting.night);
+    this.festoons?.update(game.calendar.hour, globalUniforms.uLamps.value);
     // Forge hearth: coals breathe, the light flickers (brighter against the dusk).
     const t = game.time;
     const flick = 0.78 + 0.12 * Math.sin(t * 11.3) + 0.07 * Math.sin(t * 27.1 + 1.3) + 0.05 * Math.sin(t * 3.1);
@@ -842,6 +892,12 @@ export class TownMap implements GameMap {
     this.trees.setSeason(season);
     this.nature.setSeason(season);
     this.ambience.setSeason(season);
+    this.festoons?.setSeason(season);
+    if (this.snowmen) {
+      const on = season === 'winter';
+      this.snowmen.visible = on;
+      for (const [x, z] of SNOWMEN) this.grid.setObject(Math.floor(x), Math.floor(z), on ? { kind: 'prop', id: 'snowman', solid: true } : null);
+    }
   }
 
   setWeather(weather: Weather): void {

@@ -191,7 +191,10 @@ Hearthvale town (`src/world/town/`): the plaza with its fountain and the Lantern
 The Hearth Oven bakery, the market row, the river with the Kettle Bridge and a rope footbridge, Flint & Ember
 forge, The Copper Kettle inn, the Birch house + lumber yard, the lamplighter's cottage, and Meadow Lane in the
 south (Willowmere Clinic, the schoolhouse with its bell cupola, the Pennywhistle cottage's kitchen garden, an
-orchard). Layout data lives in `world/town/layout.ts` (buildings, streets, props, trees, named `SPOTS`).
+orchard). Street life: everyday festoon lights (`world/town/festoons.ts`: strings over the plaza, a zig-zag over the
+market row, the inn terrace; on from dusk, coloured holiday bulbs in winter), songbirds, the town cat asleep on the
+west plaza bench; winter adds snow drifts banked against every building and snowmen (`world/town/winter.ts`).
+Layout data lives in `world/town/layout.ts` (buildings, streets, props, trees, festoons, snowmen, named `SPOTS`).
 Static props are merged per 12 m cell and fed to one `BatchPool`: one multi-draw per material, per-cell culling.
 
 Ten villagers (`src/data/npcs.ts`): look (height, build, face, 11 hair styles, hats, outfits, accessories), walk

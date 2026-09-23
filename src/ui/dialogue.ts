@@ -58,11 +58,15 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2.narr .dlg-speaker { display: none; }
 .hv-dialogue.dlg2.narr .dlg-text { font-style: italic; font-weight: 700; color: #6a4a2a; text-align: center; padding-top: 14px; }
 .hv-dialogue.dlg2 { width: min(1000px, calc(100vw - 40px)); }
-.hv-dialogue.dlg2 .dlg-side { width: 212px; }
+.hv-dialogue.dlg2 .dlg-side { width: 258px; }
 .hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 10px 10px 10px; gap: 2px; }
-.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 184px; height: 184px; margin: 4px 0 0; }
+.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 232px; height: 232px; margin: 4px 0 0; }
+/* Painted-on-canvas finish: a static brush-grain layer (soft light) and a varnish vignette over the art. */
+.hv-dialogue.dlg2 .dlg-portrait::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit;
+  background: var(--dlg-grain, none) 0 0 / 232px 232px; mix-blend-mode: soft-light; opacity: 0.42;
+  box-shadow: inset 0 0 22px rgba(70, 36, 12, 0.38), inset 0 0 3px rgba(70, 36, 12, 0.5); }
 .hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: -16px; font-size: 22px; padding: 0 16px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
-.hv-dialogue.dlg2 .dlg-role { max-width: 188px; font-size: 12px; line-height: 15px; margin-top: 3px; }
+.hv-dialogue.dlg2 .dlg-role { max-width: 232px; font-size: 12px; line-height: 15px; margin-top: 3px; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner { min-height: 0; }
 /* The text box hugs its lines; the portrait card stands taller beside it. */
 .hv-dialogue.dlg2 { align-items: flex-end; }
@@ -158,6 +162,52 @@ export const shortName = (name: string): string => (name.startsWith('Dr. ') ? `D
 
 type Step = { kind: 'line'; text: string; mood: Mood } | { kind: 'ask'; q: string; mood: Mood; options: { text: string; reply: string; mood?: Mood; delta: number }[] };
 
+/**
+ * A painterly canvas texture (brush dabs + fine tooth), drawn once: laid over the portrait art in
+ * soft-light so the SVG reads as paint on canvas. Static (no per-frame filter cost).
+ */
+function paintGrain(): string | null {
+  try {
+    const S = 232;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    if (!g) return null;
+    g.fillStyle = '#808080';
+    g.fillRect(0, 0, S, S);
+    let seed = 1234567;
+    const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // Diagonal brush dabs, light and dark.
+    for (let i = 0; i < 900; i++) {
+      const x = rnd() * S;
+      const y = rnd() * S;
+      const len = 4 + rnd() * 12;
+      const a = -0.75 + (rnd() - 0.5) * 0.5;
+      const v = rnd() < 0.5 ? 255 : 0;
+      g.strokeStyle = `rgba(${v},${v},${v},${0.05 + rnd() * 0.08})`;
+      g.lineWidth = 1 + rnd() * 2.2;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      g.stroke();
+    }
+    // Canvas tooth: fine speckle.
+    const img = g.getImageData(0, 0, S, S);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (rnd() - 0.5) * 34 + ((((i >> 2) % S) + Math.floor((i >> 2) / S)) % 3 === 0 ? 6 : 0);
+      d[i] = d[i]! + n;
+      d[i + 1] = d[i + 1]! + n;
+      d[i + 2] = d[i + 2]! + n;
+    }
+    g.putImageData(img, 0, 0);
+    return c.toDataURL('image/png');
+  } catch {
+    return null;
+  }
+}
+
 export class DialoguePanel implements Panel {
   private el: HTMLElement;
   private text: HTMLElement;
@@ -208,6 +258,8 @@ export class DialoguePanel implements Panel {
         <div class="dlg-hearts"></div>
       </div></div>`;
     parent.appendChild(this.el);
+    const grain = paintGrain();
+    if (grain) this.el.style.setProperty('--dlg-grain', `url(${grain})`);
     this.text = this.el.querySelector('.dlg-text')!;
     this.portrait = this.el.querySelector('.dlg-portrait')!;
     this.name = this.el.querySelector('.dlg-name')!;
