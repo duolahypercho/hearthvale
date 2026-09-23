@@ -37,7 +37,11 @@ export class FarmMap implements GameMap, FarmBuildCtx {
   readonly cameraBounds = new THREE.Box2(new THREE.Vector2(9, 10), new THREE.Vector2(55, 58));
   readonly title = "Rosalind's Farm";
   /** East exit → the town square. */
-  readonly warps = [{ x0: 63, z0: 25, x1: 63, z1: 32, to: 'town', x: 2.8, z: 26.2, facing: 'right' as const }];
+  readonly warps = [
+    { x0: 63, z0: 25, x1: 63, z1: 32, to: 'town', x: 2.8, z: 26.2, facing: 'right' as const },
+    // South gate → Cindergrove (world/forest).
+    { x0: 29, z0: 63, x1: 37, z1: 63, to: 'forest', x: 32.5, z: 2.6, facing: 'down' as const },
+  ];
   readonly terrain: Terrain;
   readonly grass: GrassField;
   readonly trees: TreeField;

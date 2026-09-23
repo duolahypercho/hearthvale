@@ -1,0 +1,434 @@
+/* Fishing overlay: power meter, bite "!", reel minigame frame, catch card, quick notes. */
+.hvf-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  font-family: var(--font-body, 'Nunito', system-ui, sans-serif);
+}
+.hvf-hidden {
+  display: none !important;
+}
+
+/* ── Power meter ─────────────────────────────────────────── */
+.hvf-power {
+  position: absolute;
+  width: 34px;
+  height: 150px;
+  transform: translate(-50%, -100%);
+  border-radius: 18px;
+  padding: 6px;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #c98c4c 0%, #a86a34 45%, #8a5226 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 220, 170, 0.55), inset 0 -3px 0 rgba(60, 30, 10, 0.45), 0 4px 0 rgba(60, 30, 10, 0.35), 0 8px 18px rgba(20, 10, 4, 0.35);
+  border: 2px solid #5e3517;
+  animation: hvf-pop 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.hvf-power .tube {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(90deg, #2a1a10, #3e2816 50%, #2a1a10);
+  box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.55);
+}
+.hvf-power .fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%;
+  border-radius: 10px;
+  background: linear-gradient(0deg, #e8483a 0%, #f2a23a 38%, #f5d442 62%, #7fd84a 100%);
+  background-size: 100% 128px;
+  background-position: bottom;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5);
+}
+.hvf-power .fill::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 5px;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.45);
+}
+.hvf-power .ticks {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent 0 22px, rgba(0, 0, 0, 0.22) 22px 24px);
+}
+.hvf-power.max {
+  animation: hvf-throb 0.35s ease-in-out infinite alternate;
+}
+.hvf-power .maxtag {
+  position: absolute;
+  left: 50%;
+  top: -30px;
+  transform: translateX(-50%) rotate(-6deg);
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  font-size: 19px;
+  color: #fff6c8;
+  -webkit-text-stroke: 1.2px #7a3a10;
+  text-shadow: 0 2px 0 #7a3a10, 0 0 12px rgba(255, 210, 80, 0.9);
+  opacity: 0;
+  transition: opacity 0.12s;
+  white-space: nowrap;
+}
+.hvf-power.max .maxtag {
+  opacity: 1;
+}
+
+/* ── Bite "!" ─────────────────────────────────────────────── */
+.hvf-bang {
+  position: absolute;
+  width: 64px;
+  height: 86px;
+  transform: translate(-50%, -100%);
+  animation: hvf-bang 0.42s cubic-bezier(0.34, 1.56, 0.64, 1), hvf-wobble 0.5s 0.42s ease-in-out infinite alternate;
+  transform-origin: 50% 100%;
+}
+.hvf-bang svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 4px 0 rgba(60, 20, 0, 0.45)) drop-shadow(0 0 14px rgba(255, 220, 90, 0.8));
+}
+
+/* ── Reel minigame ───────────────────────────────────────── */
+.hvf-reel {
+  position: absolute;
+  width: 152px;
+  transform: translate(0, -50%);
+  animation: hvf-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.hvf-reel .frame {
+  position: relative;
+  padding: 10px 10px 12px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #c98c4c 0%, #a86a34 45%, #8a5226 100%);
+  border: 3px solid #5e3517;
+  box-shadow: inset 0 2px 0 rgba(255, 220, 170, 0.55), inset 0 -4px 0 rgba(60, 30, 10, 0.4), 0 6px 0 rgba(60, 30, 10, 0.4), 0 18px 34px rgba(20, 10, 4, 0.45);
+}
+.hvf-reel .frame::before {
+  /* wood grain */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 19px;
+  background: repeating-linear-gradient(92deg, rgba(90, 50, 20, 0.14) 0 2px, transparent 2px 9px), repeating-linear-gradient(88deg, rgba(255, 220, 170, 0.08) 0 1px, transparent 1px 13px);
+  pointer-events: none;
+}
+.hvf-reel .rivet {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff3c0, #d8a84a 45%, #7a5410 100%);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+.hvf-reel canvas {
+  display: block;
+  position: relative;
+  width: 126px;
+  height: 420px;
+  border-radius: 14px;
+}
+.hvf-reel .head {
+  position: absolute;
+  left: 50%;
+  top: -18px;
+  transform: translateX(-50%);
+  padding: 3px 14px 4px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fff7e2, #f1dcad);
+  border: 2px solid #5e3517;
+  box-shadow: 0 3px 0 rgba(60, 30, 10, 0.35);
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  font-size: 15px;
+  color: #5a3a1e;
+  white-space: nowrap;
+}
+.hvf-reel .perfect {
+  position: absolute;
+  left: 50%;
+  bottom: -26px;
+  transform: translateX(-50%);
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: #fff6c8;
+  -webkit-text-stroke: 1px #6a3a10;
+  text-shadow: 0 2px 0 #6a3a10;
+  transition: opacity 0.25s, transform 0.25s;
+}
+.hvf-reel .perfect.lost {
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px);
+}
+.hvf-reel.shake .frame {
+  animation: hvf-shake 0.09s linear infinite;
+}
+.hvf-reel.out {
+  animation: hvf-out 0.22s ease-in forwards;
+}
+
+/* ── Catch card ──────────────────────────────────────────── */
+.hvf-card {
+  position: absolute;
+  left: 50%;
+  bottom: 118px;
+  width: 470px;
+  transform: translateX(-50%);
+  animation: hvf-card-in 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.hvf-card .frame {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 18px 14px 12px;
+  border-radius: 20px;
+  background: radial-gradient(120% 140% at 30% 20%, #fffaf0 0%, #fbf0d6 45%, #f1dcad 100%);
+  border: 4px solid #8a5528;
+  box-shadow: inset 0 0 0 2px #d9a066, 0 6px 0 rgba(60, 30, 10, 0.4), 0 22px 40px rgba(20, 10, 4, 0.45);
+}
+.hvf-card .art {
+  position: relative;
+  flex: 0 0 170px;
+  height: 118px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: radial-gradient(circle at 50% 60%, #bfe6ee 0%, #7cc0d6 60%, #4f97b8 100%);
+  box-shadow: inset 0 3px 8px rgba(0, 40, 60, 0.35), inset 0 -2px 0 rgba(255, 255, 255, 0.4);
+  overflow: hidden;
+}
+.hvf-card .art::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-radial-gradient(circle at 50% 120%, rgba(255, 255, 255, 0.14) 0 3px, transparent 3px 16px);
+  animation: hvf-caustic 4s linear infinite;
+}
+.hvf-card .art svg {
+  position: relative;
+  width: 160px;
+  height: auto;
+  filter: drop-shadow(0 5px 3px rgba(0, 30, 50, 0.35));
+  animation: hvf-swim 1.6s ease-in-out infinite alternate;
+}
+.hvf-card .info {
+  flex: 1;
+  min-width: 0;
+  color: #5a3a1e;
+}
+.hvf-card .kicker {
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #b0703a;
+}
+.hvf-card .name {
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  font-size: 25px;
+  line-height: 1.05;
+  color: #4a2c14;
+  margin: 1px 0 6px;
+}
+.hvf-card .stats {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 14px;
+  font-weight: 800;
+}
+.hvf-card .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: rgba(138, 85, 40, 0.12);
+  border: 1.5px solid rgba(138, 85, 40, 0.35);
+}
+.hvf-card .chip svg {
+  width: 16px;
+  height: 16px;
+}
+.hvf-card .chip.gold {
+  background: linear-gradient(180deg, #fff3b0, #f5c542);
+  border-color: #9a6a14;
+  color: #6a4410;
+}
+.hvf-card .blurb {
+  margin-top: 7px;
+  font-size: 13px;
+  line-height: 1.3;
+  font-style: italic;
+  color: #7a5a3a;
+}
+.hvf-card .ribbon {
+  position: absolute;
+  top: -14px;
+  left: -10px;
+  padding: 3px 12px 4px;
+  transform: rotate(-8deg);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ff8a5a, #e8483a);
+  border: 2px solid #7a1e10;
+  color: #fff;
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  box-shadow: 0 3px 0 rgba(90, 20, 10, 0.45);
+  animation: hvf-throb 0.6s ease-in-out infinite alternate;
+}
+.hvf-card .ribbon.record {
+  left: auto;
+  right: -10px;
+  transform: rotate(7deg);
+  background: linear-gradient(180deg, #8ad0ff, #3f86d6);
+  border-color: #16406a;
+}
+.hvf-card .treasure {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #8a5a14;
+}
+.hvf-card.out {
+  animation: hvf-out 0.25s ease-in forwards;
+}
+
+/* ── Quick note above the farmer ─────────────────────────── */
+.hvf-note {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 5px 13px 6px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fffaf0, #f1dcad);
+  border: 2px solid #8a5528;
+  box-shadow: 0 3px 0 rgba(60, 30, 10, 0.35), 0 8px 16px rgba(20, 10, 4, 0.3);
+  font-weight: 800;
+  font-size: 14px;
+  color: #5a3a1e;
+  white-space: nowrap;
+  animation: hvf-note 2.2s ease-out forwards;
+}
+
+@keyframes hvf-pop {
+  from {
+    opacity: 0;
+    scale: 0.4;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@keyframes hvf-out {
+  to {
+    opacity: 0;
+    scale: 0.7;
+  }
+}
+@keyframes hvf-throb {
+  from {
+    scale: 1;
+  }
+  to {
+    scale: 1.07;
+  }
+}
+@keyframes hvf-bang {
+  0% {
+    scale: 0.1 0.1;
+    opacity: 0;
+  }
+  55% {
+    scale: 1.35 1.15;
+    opacity: 1;
+  }
+  100% {
+    scale: 1 1;
+  }
+}
+@keyframes hvf-wobble {
+  from {
+    rotate: -7deg;
+  }
+  to {
+    rotate: 7deg;
+  }
+}
+@keyframes hvf-shake {
+  0% {
+    translate: 0 0;
+  }
+  25% {
+    translate: 1.5px -1px;
+  }
+  50% {
+    translate: -1.5px 1px;
+  }
+  75% {
+    translate: 1px 1.5px;
+  }
+  100% {
+    translate: 0 0;
+  }
+}
+@keyframes hvf-card-in {
+  from {
+    opacity: 0;
+    translate: 0 40px;
+    scale: 0.8;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+@keyframes hvf-swim {
+  from {
+    transform: translate(-3px, 2px) rotate(-3deg);
+  }
+  to {
+    transform: translate(3px, -2px) rotate(2deg);
+  }
+}
+@keyframes hvf-caustic {
+  to {
+    background-position: 0 -32px;
+  }
+}
+@keyframes hvf-note {
+  0% {
+    opacity: 0;
+    translate: 0 8px;
+    scale: 0.8;
+  }
+  12% {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    translate: 0 -14px;
+  }
+}

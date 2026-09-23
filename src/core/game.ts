@@ -18,6 +18,7 @@ import { DayNight } from '../render/lighting';
 import { World } from '../world/map';
 import { FarmMap } from '../world/farm';
 import { TownMap } from '../world/town';
+import { ForestMap } from '../world/forest';
 import { Player } from '../entities/player';
 import { Hud } from '../ui/hud';
 
@@ -38,6 +39,8 @@ import { FishingSystem } from '../systems/fishing';
 import { MiningSystem } from '../systems/mining';
 import { CraftingSystem } from '../systems/crafting';
 import { QuestSystem } from '../systems/quests';
+import { FestivalSystem } from '../systems/festivals';
+import { BuildingSystem } from '../world/buildings/system';
 
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
@@ -58,6 +61,8 @@ const SYSTEMS: (() => System)[] = [
   () => new MiningSystem(),
   () => new CraftingSystem(),
   () => new QuestSystem(),
+  () => new FestivalSystem(),
+  () => new BuildingSystem(),
 ];
 
 /**
@@ -121,6 +126,7 @@ export class Game {
 
     this.world.registerMap('farm', (g) => new FarmMap(g));
     this.world.registerMap('town', (g) => new TownMap(g));
+    this.world.registerMap('forest', (g) => new ForestMap(g));
 
     this.events.on('toolbar:select', ({ slot }) => (this.toolbarSlot = slot));
 

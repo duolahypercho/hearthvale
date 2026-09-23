@@ -1,83 +1,1086 @@
-/** Inline SVG item/tool icons (procedural, crisp at any DPI). 24×24 viewBox. */
-const svg = (body: string): string =>
-  `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+/**
+ * Procedural item + HUD icons. Every item is painted as a 64×64 SVG "sticker": warm dark outline,
+ * gradient body, a soft rim-shadow on the lower right, a glossy highlight on the upper left and small
+ * hand-placed details (veins, grain, seeds, rivets). Icons are cached as data-URL <img>s so ids in
+ * <defs> never collide and the DOM stays light.
+ *
+ *   itemIcon(id)                <img> HTML for an item (any id — unknown items get a keyword/kind icon)
+ *   itemIconUrl(id)             data URL
+ *   iconFor(id, icon, color)    legacy signature (same as itemIcon)
+ *   ICONS                       small inline HUD glyphs (weather, seasons, coin, hearts …)
+ *   itemCategory(id)            { label, color } for tooltips / ledgers
+ */
+import { itemDef, type ItemDef } from '../data/items';
 
-const HANDLE = '#a8743f';
-const HANDLE_D = '#6e4524';
-const METAL = '#c8cfd6';
-const METAL_D = '#6f7a86';
+const OL = '#3b2313';
+const SW = 2.4;
 
-export const ICONS: Record<string, string> = {
-  hoe: svg(
-    `<path d="M6 21 L16 7" stroke="${HANDLE_D}" stroke-width="3.2"/><path d="M6 21 L16 7" stroke="${HANDLE}" stroke-width="2"/>` +
-      `<path d="M13.5 5.5 L19.5 4 L20 8 L16.5 8.5 Z" fill="${METAL}" stroke="${METAL_D}" stroke-width="1.2"/>`,
-  ),
-  wateringCan: svg(
-    `<path d="M5 10 h10 v8 a2 2 0 0 1 -2 2 h-6 a2 2 0 0 1 -2 -2 z" fill="#5fa3c9" stroke="#2f5f7d" stroke-width="1.2"/>` +
-      `<path d="M15 12 L21 7" stroke="#2f5f7d" stroke-width="2.6"/><path d="M15 12 L21 7" stroke="#5fa3c9" stroke-width="1.4"/>` +
-      `<path d="M7 10 a3 3 0 0 1 6 0" fill="none" stroke="#2f5f7d" stroke-width="1.6"/><path d="M6.5 13 h7" stroke="#8fcbe8" stroke-width="1"/>`,
-  ),
-  axe: svg(
-    `<path d="M7 21 L15 6" stroke="${HANDLE_D}" stroke-width="3.2"/><path d="M7 21 L15 6" stroke="${HANDLE}" stroke-width="2"/>` +
-      `<path d="M12.5 5 C15 2 20 3 20.5 7 C18 7.5 16 8 14.5 9.5 Z" fill="${METAL}" stroke="${METAL_D}" stroke-width="1.2"/>`,
-  ),
-  pickaxe: svg(
-    `<path d="M8 21 L14 9" stroke="${HANDLE_D}" stroke-width="3.2"/><path d="M8 21 L14 9" stroke="${HANDLE}" stroke-width="2"/>` +
-      `<path d="M5 8 C9 3.5 16 3 21 6.5 C16 5.5 10 6 5 8 Z" fill="${METAL}" stroke="${METAL_D}" stroke-width="1.2"/>`,
-  ),
-  scythe: svg(
-    `<path d="M9 22 L12 5" stroke="${HANDLE_D}" stroke-width="3"/><path d="M9 22 L12 5" stroke="${HANDLE}" stroke-width="1.8"/>` +
-      `<path d="M12 5 C17 3 21 6 21.5 11 C19 7.5 15.5 6.5 12 7 Z" fill="${METAL}" stroke="${METAL_D}" stroke-width="1.1"/>`,
-  ),
-  seeds: svg(
-    `<path d="M6 9 C6 6 8 5 12 5 C16 5 18 6 18 9 L19 19 C19 20.5 18 21 16.5 21 H7.5 C6 21 5 20.5 5 19 Z" fill="#e3c48f" stroke="#8a6436" stroke-width="1.2"/>` +
-      `<path d="M8 6 C10 7.5 14 7.5 16 6" fill="none" stroke="#8a6436" stroke-width="1.2"/>` +
-      `<circle cx="12" cy="14" r="3.2" fill="#7fbf4a" stroke="#3f7a2a" stroke-width="1"/><path d="M12 12 v4 M10 14 h4" stroke="#3f7a2a" stroke-width="0.9"/>`,
-  ),
-  parsnip: svg(
-    `<path d="M12 22 C9 17 8.5 12 9.5 10 C10.5 8.5 13.5 8.5 14.5 10 C15.5 12 15 17 12 22 Z" fill="#f2dfa8" stroke="#a88a4a" stroke-width="1.1"/>` +
-      `<path d="M12 9 C10 5 8 4 7 4 M12 9 C12 5 13 3 14 2.5 M12 9 C14 6 16 5 17.5 5" stroke="#5aa03e" stroke-width="1.8" fill="none"/>`,
-  ),
-  coin: svg(`<circle cx="12" cy="12" r="8" fill="#f5c542" stroke="#a87412" stroke-width="1.6"/><circle cx="12" cy="12" r="5" fill="none" stroke="#d99a1c" stroke-width="1.2"/><path d="M10.5 9.5 h3 M10.5 14.5 h3 M12 8.5 v7" stroke="#a87412" stroke-width="1.2"/>`),
-  sun: svg(`<circle cx="12" cy="12" r="4.5" fill="#ffd166" stroke="#d9912b" stroke-width="1.2"/><g stroke="#e8a33a" stroke-width="1.6"><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></g>`),
-  rain: svg(`<path d="M7 14 a4 4 0 0 1 0.5 -8 a5 5 0 0 1 9.5 1.5 a3.3 3.3 0 0 1 0 6.5 Z" fill="#dfe8f2" stroke="#7c8ea3" stroke-width="1.2"/><g stroke="#4f8fd6" stroke-width="1.6"><path d="M9 17l-1 3M13 17l-1 3M17 17l-1 3"/></g>`),
-  storm: svg(`<path d="M7 13 a4 4 0 0 1 0.5 -8 a5 5 0 0 1 9.5 1.5 a3.3 3.3 0 0 1 0 6.5 Z" fill="#b8c2d0" stroke="#5c6878" stroke-width="1.2"/><path d="M12 13 l-2 4 h3 l-2 5" fill="none" stroke="#ffd166" stroke-width="1.8"/>`),
-  snow: svg(`<g stroke="#7fb2e0" stroke-width="1.8"><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/></g><circle cx="12" cy="12" r="2" fill="#eaf4ff" stroke="#7fb2e0"/>`),
-  wind: svg(`<g fill="none" stroke="#8aa6bf" stroke-width="1.8"><path d="M3 9h11a3 3 0 1 0 -3 -3"/><path d="M3 14h15a3 3 0 1 1 -3 3"/><path d="M3 19h7"/></g>`),
-  moon: svg(`<path d="M15 3 a9 9 0 1 0 6 13 a7 7 0 0 1 -6 -13 Z" fill="#f2e6b8" stroke="#b8a060" stroke-width="1.2"/>`),
-  spring: svg(`<g fill="#ff9fbf" stroke="#d9678c" stroke-width="0.8"><circle cx="12" cy="7" r="3.2"/><circle cx="16.8" cy="10.5" r="3.2"/><circle cx="15" cy="16" r="3.2"/><circle cx="9" cy="16" r="3.2"/><circle cx="7.2" cy="10.5" r="3.2"/></g><circle cx="12" cy="12" r="2.4" fill="#ffd166"/>`),
-  summer: svg(`<circle cx="12" cy="12" r="6" fill="#ffc94a" stroke="#e08a1e" stroke-width="1.4"/>`),
-  fall: svg(`<path d="M12 3 C17 6 20 11 18 16 C16 20 10 21 7 18 C4 15 5 8 12 3 Z" fill="#e8812e" stroke="#9c4a17" stroke-width="1.2"/><path d="M7 18 L15 8" stroke="#9c4a17" stroke-width="1.2"/>`),
-  winter: svg(`<g stroke="#6aa6d8" stroke-width="1.8"><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/></g>`),
-};
+type Stop = string | [number, string];
 
-// ── Items: resources, placeables, produce ─────────────────────────
-Object.assign(ICONS, {
-  wood: svg(`<g stroke="#6e4524" stroke-width="1.2"><rect x="4" y="9" width="16" height="6" rx="3" fill="#b8844a"/><rect x="6" y="14" width="14" height="6" rx="3" fill="#a8743f"/></g><circle cx="18" cy="12" r="2.2" fill="#e8c088" stroke="#6e4524"/><circle cx="18" cy="17" r="2.2" fill="#e8c088" stroke="#6e4524"/>`),
-  stone: svg(`<path d="M4 17 C3 12 7 7 12 7 C17 7 21 11 20 16 C19 20 7 21 4 17 Z" fill="#a8a296" stroke="#5e5a52" stroke-width="1.3"/><path d="M8 11 C10 9.5 13 9.5 15 10.5" stroke="#d8d2c6" stroke-width="1.2" fill="none"/>`),
-  fiber: svg(`<g stroke="#4f8a2e" stroke-width="1.6" fill="none"><path d="M8 21 C8 14 6 9 4 5"/><path d="M12 21 C12 13 12 8 12 3"/><path d="M16 21 C16 14 18 9 20 5"/></g><path d="M6 17 h12" stroke="#c8a060" stroke-width="2.4"/>`),
-  sprinkler: svg(`<ellipse cx="12" cy="18" rx="7" ry="2.6" fill="#8a9098" stroke="#4e545c" stroke-width="1.1"/><rect x="10.5" y="9" width="3" height="9" fill="#c9a24a" stroke="#7a5a1a" stroke-width="1"/><circle cx="12" cy="8" r="2.4" fill="#d8b458" stroke="#7a5a1a"/><g stroke="#7fc0f0" stroke-width="1.3"><path d="M9 6 L5 3"/><path d="M15 6 L19 3"/><path d="M12 5 V1.5"/></g>`),
-  potato: svg(`<path d="M5 13 C4 8 9 5 13 6 C18 7 21 11 19 15 C17 19 7 19 5 13 Z" fill="#c8955a" stroke="#7a5228" stroke-width="1.3"/><g fill="#8a6038"><circle cx="9" cy="11" r="0.9"/><circle cx="14" cy="10" r="0.9"/><circle cx="12" cy="15" r="0.9"/></g>`),
-  cauliflower: svg(`<path d="M4 15 C3 10 8 6 12 6 C16 6 21 10 20 15 Z" fill="#f3efe0" stroke="#a8a080" stroke-width="1.2"/><g fill="#e4dcc0"><circle cx="9" cy="11" r="2"/><circle cx="13" cy="9.5" r="2"/><circle cx="15.5" cy="12" r="2"/></g><path d="M3 15 C6 21 18 21 21 15 C17 17 7 17 3 15 Z" fill="#6fae7a" stroke="#3f7a4a" stroke-width="1.1"/>`),
-  kale: svg(`<path d="M12 21 C7 17 5 12 7 6 C9 9 10 8 11 4 C13 8 14 7 16 4 C18 9 18 15 12 21 Z" fill="#3f7a5a" stroke="#244a36" stroke-width="1.2"/><path d="M12 21 V8" stroke="#8ac0a0" stroke-width="1.1"/>`),
-  strawberry: svg(`<path d="M12 21 C6 16 5 11 7 9 C9 7 15 7 17 9 C19 11 18 16 12 21 Z" fill="#e0303c" stroke="#8a1a20" stroke-width="1.2"/><path d="M8 8 L10 5 L12 7 L14 5 L16 8 Z" fill="#5aa03e" stroke="#2f6a2a" stroke-width="1"/><g fill="#f5e090"><circle cx="10" cy="12" r="0.7"/><circle cx="14" cy="12" r="0.7"/><circle cx="12" cy="15" r="0.7"/></g>`),
-  tomato: svg(`<circle cx="12" cy="13.5" r="7.5" fill="#e4432e" stroke="#8a2014" stroke-width="1.3"/><path d="M8 7 L10.5 8.2 L12 5.5 L13.5 8.2 L16 7 L14.5 9.5 L9.5 9.5 Z" fill="#5aa03e" stroke="#2f6a2a" stroke-width="0.9"/><ellipse cx="9" cy="11.5" rx="1.6" ry="1" fill="#ff9a80"/>`),
-  corn: svg(`<path d="M12 3 C16 5 16 17 12 21 C8 17 8 5 12 3 Z" fill="#f2c43a" stroke="#a87a12" stroke-width="1.2"/><path d="M12 21 C6 18 5 12 6 8 C8 13 10 16 12 21 Z M12 21 C18 18 19 12 18 8 C16 13 14 16 12 21 Z" fill="#7fb04a" stroke="#3f6a2a" stroke-width="1"/>`),
-  sunflower: svg(`<g fill="#f7c52a" stroke="#b8860a" stroke-width="0.8"><circle cx="12" cy="4.5" r="2.6"/><circle cx="12" cy="19.5" r="2.6"/><circle cx="4.5" cy="12" r="2.6"/><circle cx="19.5" cy="12" r="2.6"/><circle cx="6.7" cy="6.7" r="2.6"/><circle cx="17.3" cy="6.7" r="2.6"/><circle cx="6.7" cy="17.3" r="2.6"/><circle cx="17.3" cy="17.3" r="2.6"/></g><circle cx="12" cy="12" r="5" fill="#6a3a18" stroke="#3a1e0a" stroke-width="1"/>`),
-  pumpkin: svg(`<path d="M12 8 C5 7 3 12 4 16 C5 20 9 21 12 20 C15 21 19 20 20 16 C21 12 19 7 12 8 Z" fill="#e8812e" stroke="#9c4a17" stroke-width="1.3"/><path d="M12 8 V20 M8 9 C7 13 7 17 9 20 M16 9 C17 13 17 17 15 20" stroke="#b85a1a" stroke-width="1" fill="none"/><path d="M12 8 C12 6 13 4.5 14.5 4" stroke="#5a7a2a" stroke-width="1.8" fill="none"/>`),
-});
-
-/** Icon for an item id; seed packets are tinted by their crop colour. */
-export function iconFor(itemId: string, icon: string, color?: number): string {
-  if (icon === 'seeds' && color !== undefined) {
-    const c = '#' + color.toString(16).padStart(6, '0');
-    return svg(
-      `<path d="M6 9 C6 6 8 5 12 5 C16 5 18 6 18 9 L19 19 C19 20.5 18 21 16.5 21 H7.5 C6 21 5 20.5 5 19 Z" fill="#e3c48f" stroke="#8a6436" stroke-width="1.2"/>` +
-        `<path d="M8 6 C10 7.5 14 7.5 16 6" fill="none" stroke="#8a6436" stroke-width="1.2"/>` +
-        `<circle cx="12" cy="14" r="3.6" fill="${c}" stroke="#5a3a1e" stroke-width="1"/><path d="M12 10.2 C12.5 8.8 13.6 8.2 14.6 8.4" stroke="#4f9a3a" stroke-width="1.4" fill="none"/>`,
-    );
-  }
-  return ICONS[icon] ?? ICONS[itemId] ?? '';
+function hex(n: number): string {
+  return '#' + (n & 0xffffff).toString(16).padStart(6, '0');
+}
+function parse(c: string): [number, number, number] {
+  const n = parseInt(c.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+/** Multiply brightness (k<1 darker, k>1 lighter, blends toward white past 1). */
+export function tone(c: string, k: number): string {
+  const [r, g, b] = parse(c);
+  const f = (v: number): number => (k <= 1 ? v * k : v + (255 - v) * (k - 1));
+  return `rgb(${Math.round(Math.min(255, f(r)))},${Math.round(Math.min(255, f(g)))},${Math.round(Math.min(255, f(b)))})`;
+}
+function hueShift(c: string, warm: number): string {
+  const [r, g, b] = parse(c);
+  return `rgb(${Math.min(255, Math.round(r + warm * 30))},${Math.round(g + warm * 6)},${Math.max(0, Math.round(b - warm * 30))})`;
 }
 
+class Pen {
+  private defs: string[] = [];
+  private out: string[] = [];
+  private n = 0;
+  constructor(private p: string) {}
+
+  private stops(s: Stop[]): string {
+    return s.map((st, i) => (typeof st === 'string' ? `<stop offset="${s.length === 1 ? 0 : i / (s.length - 1)}" stop-color="${st}"/>` : `<stop offset="${st[0]}" stop-color="${st[1]}"/>`)).join('');
+  }
+  lin(s: Stop[], x1 = 0.25, y1 = 0, x2 = 0.75, y2 = 1): string {
+    const id = `${this.p}${this.n++}`;
+    this.defs.push(`<linearGradient id="${id}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${this.stops(s)}</linearGradient>`);
+    return `url(#${id})`;
+  }
+  rad(s: Stop[], cx = 0.38, cy = 0.32, r = 0.78): string {
+    const id = `${this.p}${this.n++}`;
+    this.defs.push(`<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}">${this.stops(s)}</radialGradient>`);
+    return `url(#${id})`;
+  }
+  /** Outlined shape. */
+  shape(d: string, fill: string, sw = SW, extra = ''): this {
+    this.out.push(`<path d="${d}" fill="${fill}" stroke="${OL}" stroke-width="${sw}" stroke-linejoin="round" stroke-linecap="round" ${extra}/>`);
+    return this;
+  }
+  /** Unoutlined fill (shading / highlights). */
+  fill(d: string, fill: string, op = 1): this {
+    this.out.push(`<path d="${d}" fill="${fill}" opacity="${op}"/>`);
+    return this;
+  }
+  line(d: string, stroke: string, w = 1.6, op = 1): this {
+    this.out.push(`<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" opacity="${op}"/>`);
+    return this;
+  }
+  circle(cx: number, cy: number, r: number, fill: string, outline = true, op = 1): this {
+    this.out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" ${outline ? `stroke="${OL}" stroke-width="${SW * 0.8}"` : ''} opacity="${op}"/>`);
+    return this;
+  }
+  ellipse(cx: number, cy: number, rx: number, ry: number, fill: string, outline = true, op = 1, rot = 0): this {
+    this.out.push(`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fill}" ${outline ? `stroke="${OL}" stroke-width="${SW * 0.8}"` : ''} opacity="${op}" ${rot ? `transform="rotate(${rot} ${cx} ${cy})"` : ''}/>`);
+    return this;
+  }
+  /** Soft white glint. */
+  glint(cx: number, cy: number, rx: number, ry: number, rot = -30, op = 0.75): this {
+    return this.ellipse(cx, cy, rx, ry, '#fff', false, op, rot);
+  }
+  raw(s: string): this {
+    this.out.push(s);
+    return this;
+  }
+  svg(): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs>${this.defs.join('')}</defs>${this.out.join('')}</svg>`;
+  }
+}
+
+type Painter = (p: Pen, color?: string) => void;
+
+// ── Shared parts ────────────────────────────────────────────────────────────
+
+const WOOD: Stop[] = ['#e0a868', '#b77a40', '#7d4a22'];
+const STEEL: Stop[] = [[0, '#ffffff'], [0.35, '#d7dee6'], [0.7, '#9aa6b3'], [1, '#6d7784']];
+
+function handle(p: Pen, x1: number, y1: number, x2: number, y2: number, w = 6.5): void {
+  p.raw(`<path d="M${x1} ${y1} L${x2} ${y2}" stroke="${OL}" stroke-width="${w + SW * 2}" stroke-linecap="round"/>`);
+  p.raw(`<path d="M${x1} ${y1} L${x2} ${y2}" stroke="${p.lin(WOOD, 0, 0, 1, 1)}" stroke-width="${w}" stroke-linecap="round"/>`);
+  // grain + highlight
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  const nx = (-dy / len) * (w * 0.22);
+  const ny = (dx / len) * (w * 0.22);
+  p.line(`M${x1 + nx} ${y1 + ny} L${x2 + nx} ${y2 + ny}`, '#ffe0b0', 1.4, 0.7);
+  p.line(`M${x1 - nx * 1.3 + dx * 0.3} ${y1 - ny * 1.3 + dy * 0.3} L${x1 - nx * 1.3 + dx * 0.55} ${y1 - ny * 1.3 + dy * 0.55}`, '#6b3c18', 1, 0.6);
+}
+
+function leaf(p: Pen, d: string, vein: string, dark = '#2f6b2a', mid = '#5fae45', light = '#a6de6a'): void {
+  p.shape(d, p.lin([light, mid, dark], 0.2, 0, 0.8, 1));
+  p.line(vein, '#d9f5a8', 1.3, 0.75);
+}
+
+// ── Tools ───────────────────────────────────────────────────────────────────
+
+const hoe: Painter = (p) => {
+  handle(p, 12, 56, 40, 14);
+  p.shape('M34 13 C40 6 50 5 57 8 L55 18 C50 16 44 17 40 20 Z', p.lin(STEEL, 0, 0, 0.6, 1));
+  p.fill('M38 12 C43 8 50 8 55 10 L54.5 12.5 C49 11 43 12 39 15 Z', '#fff', 0.7);
+  p.circle(38.5, 16.5, 2.3, '#8d5a2b');
+};
+
+const wateringCan: Painter = (p) => {
+  // spout
+  p.shape('M44 36 L57 20 L61 23 L50 40 Z', p.lin(['#8ad0e8', '#3f8fb4', '#24607f']));
+  p.shape('M55 16 L63 22 L60 26 L52 20 Z', p.lin(['#bfe8f5', '#58a6c8']));
+  // handle arch
+  p.raw(`<path d="M16 26 C16 10 40 10 40 26" fill="none" stroke="${OL}" stroke-width="${8 + SW * 2}" stroke-linecap="round"/>`);
+  p.raw(`<path d="M16 26 C16 10 40 10 40 26" fill="none" stroke="#3f8fb4" stroke-width="8" stroke-linecap="round"/>`);
+  p.line('M18 22 C19 13 37 13 38 22', '#a8e0f2', 2, 0.8);
+  // body
+  p.shape('M8 28 C8 25 10 24 13 24 H43 C46 24 48 25 48 28 V52 C48 56 45 58 41 58 H15 C11 58 8 56 8 52 Z', p.lin(['#9fdcf0', '#4a9cc2', '#2a6a8c'], 0.1, 0, 0.9, 1));
+  p.fill('M12 30 H44 V33 H12 Z', '#23597a', 0.35);
+  p.shape('M8 44 H48', 'none', 1.8);
+  p.fill('M12 27 C12 26 13 26 14 26 H20 V56 H15 C13 56 12 55 12 53 Z', '#fff', 0.35);
+  p.glint(17, 36, 2.6, 6, 0, 0.7);
+  // droplets
+  p.shape('M60 32 C62 36 62 38 60 39 C58 38 58 36 60 32 Z', '#7fd0f5', 1.4);
+  p.shape('M55 40 C57 44 57 46 55 47 C53 46 53 44 55 40 Z', '#7fd0f5', 1.4);
+};
+
+const axe: Painter = (p) => {
+  handle(p, 14, 58, 40, 12);
+  p.shape('M30 10 C36 4 48 4 54 10 C58 16 58 26 52 32 C48 26 42 22 34 21 Z', p.lin(STEEL, 0.2, 0, 0.8, 1));
+  p.fill('M36 10 C41 7 48 7 52 11 C54 14 55 18 54 22 C50 16 44 13 37 13 Z', '#fff', 0.55);
+  p.line('M52 12 C56 18 56 24 52 30', '#fff', 1.6, 0.9);
+  p.shape('M31 13 L42 18 L39 24 L28 19 Z', '#5a5f66');
+};
+
+const pickaxe: Painter = (p) => {
+  handle(p, 16, 58, 38, 18);
+  p.shape('M6 20 C18 6 44 4 60 14 C56 16 52 16 48 15 C38 12 24 12 12 22 C10 22 8 21 6 20 Z', p.lin(STEEL, 0.3, 0, 0.6, 1));
+  p.fill('M12 17 C22 9 40 8 54 13 C42 10 26 11 14 19 Z', '#fff', 0.7);
+  p.shape('M33 12 L43 13 L41 21 L32 20 Z', '#6a4a2c');
+  p.circle(37.5, 16.5, 2, '#c9a24a', false);
+};
+
+const scythe: Painter = (p) => {
+  handle(p, 20, 60, 30, 10, 5.5);
+  p.shape('M29 9 C40 2 56 4 62 16 C60 22 58 26 55 30 C54 22 48 14 30 15 Z', p.lin(STEEL, 0.1, 0, 0.9, 1));
+  p.fill('M33 10 C43 6 54 8 59 16 C53 11 44 9 34 12 Z', '#fff', 0.75);
+  p.line('M31 14 C46 13 54 20 55 29', '#5f6a76', 1.2, 0.8);
+  // grip
+  p.shape('M22 42 L30 44 L29 48 L21 46 Z', '#8a5a36', 1.8);
+};
+
+const fishingRod: Painter = (p) => {
+  p.raw(`<path d="M10 58 L54 8" stroke="${OL}" stroke-width="7" stroke-linecap="round"/><path d="M10 58 L54 8" stroke="#c98a4a" stroke-width="3.2" stroke-linecap="round"/>`);
+  p.raw(`<path d="M10 58 L22 44" stroke="${OL}" stroke-width="10" stroke-linecap="round"/><path d="M10 58 L22 44" stroke="#5a3a22" stroke-width="6" stroke-linecap="round"/>`);
+  p.circle(21, 49, 5.5, p.lin(STEEL));
+  p.line('M54 8 C58 20 58 34 52 46', '#f4f0e6', 1.2, 0.95);
+  p.shape('M50 46 C52 44 55 45 55 48 C55 51 51 52 50 49', 'none', 1.6);
+  p.circle(52, 44, 3, '#e8574a');
+};
+
+const weapon: Painter = (p) => {
+  p.shape('M44 6 L58 6 L58 20 L26 48 L16 38 Z', p.lin(STEEL, 0, 0, 1, 1));
+  p.fill('M46 9 L55 9 L24 42 L21 39 Z', '#fff', 0.6);
+  p.shape('M12 34 L30 52 L26 56 L8 38 Z', '#8a5a2a');
+  p.shape('M18 46 L8 56 C6 58 6 60 8 60 C10 60 11 60 12 58 L22 50 Z', p.lin(WOOD));
+  p.circle(7, 58, 3.2, '#e0b04a');
+};
+
+// ── Resources ───────────────────────────────────────────────────────────────
+
+function log(p: Pen, x: number, y: number, len: number, r: number): void {
+  p.shape(`M${x} ${y - r} H${x + len} A${r * 0.55} ${r} 0 0 1 ${x + len} ${y + r} H${x} Z`, p.lin(['#c8894c', '#9a6030', '#6a3c1a'], 0, 0, 0, 1));
+  p.line(`M${x + 3} ${y - r * 0.4} H${x + len - 6}`, '#e6b27a', 1.2, 0.7);
+  p.line(`M${x + 6} ${y + r * 0.35} H${x + len - 10}`, '#5a3214', 1.1, 0.55);
+  p.ellipse(x, y, r * 0.55, r, p.rad(['#f7dcae', '#e2b57a', '#b98044'], 0.5, 0.5, 0.6));
+  p.ellipse(x, y, r * 0.3, r * 0.55, 'none', false);
+  p.raw(`<ellipse cx="${x}" cy="${y}" rx="${r * 0.3}" ry="${r * 0.55}" fill="none" stroke="#a8743f" stroke-width="1.1"/>`);
+  p.circle(x, y, 1.1, '#8a5a2a', false);
+}
+const wood: Painter = (p) => {
+  log(p, 14, 42, 40, 9);
+  log(p, 20, 24, 36, 9);
+  p.shape('M42 14 C46 8 50 8 52 10 C50 12 47 14 45 16 Z', p.lin(['#a6de6a', '#4f9a3a']), 1.6);
+};
+
+function pebble(p: Pen, d: string, base = '#b3aea4'): void {
+  p.shape(d, p.rad([tone(base, 1.25), base, tone(base, 0.62)], 0.35, 0.3, 0.85));
+}
+const stone: Painter = (p) => {
+  pebble(p, 'M8 46 C6 36 14 28 24 28 C32 28 38 34 38 42 C38 52 30 56 20 56 C13 56 9 52 8 46 Z', '#a9a49a');
+  pebble(p, 'M28 34 C27 22 36 14 46 15 C56 16 60 26 58 36 C56 46 46 50 38 48 C32 46 29 41 28 34 Z', '#bdb6a8');
+  p.glint(41, 22, 5, 2.4, -20, 0.6);
+  p.glint(17, 35, 3.6, 1.8, -25, 0.5);
+  p.fill('M44 44 C48 44 52 42 55 38 C54 44 49 48 44 48 Z', '#6d8a3a', 0.55);
+  p.line('M36 26 L40 30 L38 34', '#6e695f', 1.1, 0.7);
+};
+
+const fiber: Painter = (p) => {
+  const blades = ['M22 58 C20 40 14 26 6 14', 'M28 58 C28 38 26 22 22 6', 'M34 58 C35 40 38 24 44 8', 'M40 58 C43 42 50 30 60 20', 'M31 58 C31 44 32 30 33 16'];
+  blades.forEach((d, i) => {
+    p.raw(`<path d="${d}" fill="none" stroke="${OL}" stroke-width="7" stroke-linecap="round"/>`);
+    p.raw(`<path d="${d}" fill="none" stroke="${['#7cc04e', '#5fa83c', '#8fd05a', '#4f9a34', '#a6de6a'][i]}" stroke-width="3.6" stroke-linecap="round"/>`);
+  });
+  p.shape('M18 42 C24 45 38 45 46 42 L46 49 C38 52 24 52 18 49 Z', p.lin(['#f0cf8a', '#c8994a', '#9a6a2a']));
+  p.line('M20 45.5 C28 48 36 48 44 45.5', '#fff0c8', 1.2, 0.8);
+};
+
+// ── Placeables ──────────────────────────────────────────────────────────────
+
+const sprinkler: Painter = (p) => {
+  p.ellipse(32, 55, 20, 6, p.rad(['#9aa3ad', '#5d6670'], 0.5, 0.3, 0.8));
+  p.shape('M27 54 V26 H37 V54 Z', p.lin(['#f0c86a', '#c9923a', '#8a5a1a'], 0, 0.5, 1, 0.5));
+  p.fill('M29 27 H31.5 V53 H29 Z', '#fff', 0.5);
+  p.shape('M22 26 C22 18 42 18 42 26 C42 30 22 30 22 26 Z', p.lin(['#ffe29a', '#d9a444', '#9a6a1a']));
+  p.circle(32, 18, 4.6, p.rad(['#fff4c8', '#e6b050', '#9a6a1a']));
+  // water arcs
+  for (const [d, o] of [
+    ['M28 16 C20 8 10 10 6 20', 1],
+    ['M36 16 C44 8 54 10 58 20', 1],
+    ['M32 13 C32 8 32 6 32 3', 0.9],
+  ] as const) {
+    p.line(d, '#2f7fb8', 4.2, 0.45 * o);
+    p.line(d, '#9ee0ff', 2.4, 0.95 * o);
+  }
+  p.circle(6, 24, 2, '#9ee0ff', false);
+  p.circle(58, 24, 2, '#9ee0ff', false);
+};
+
+const chest: Painter = (p) => {
+  p.shape('M6 30 H58 V54 C58 57 56 58 53 58 H11 C8 58 6 57 6 54 Z', p.lin(['#c98a4a', '#9a5e2a', '#6a3c18'], 0, 0, 0, 1));
+  p.shape('M6 30 C6 16 14 10 32 10 C50 10 58 16 58 30 Z', p.lin(['#dca060', '#b0703a', '#7d4a22'], 0, 0, 0, 1));
+  for (const x of [16, 48]) {
+    p.shape(`M${x - 3} 12 V58 H${x + 3} V12 Z`, p.lin(['#fff0b0', '#d9a83a', '#8a6414'], 0, 0.5, 1, 0.5), 1.6);
+  }
+  p.shape('M6 30 H58 V35 H6 Z', '#5a3414', 1.8);
+  p.shape('M26 27 H38 V41 C38 43 36 44 32 44 C28 44 26 43 26 41 Z', p.lin(['#fff4c0', '#e0b048', '#9a6a14']));
+  p.circle(32, 34, 2, '#3b2313', false);
+  p.fill('M31 35 H33 V39 H31 Z', '#3b2313');
+  p.fill('M10 16 C16 12 26 12 32 12 C22 14 14 18 10 26 Z', '#fff', 0.35);
+  p.line('M10 44 H22 M42 48 H54', '#4a2810', 1.1, 0.5);
+};
+
+const scarecrow: Painter = (p) => {
+  p.shape('M29 30 H35 V62 H29 Z', p.lin(WOOD, 0, 0.5, 1, 0.5));
+  p.shape('M8 34 H56 V39 H8 Z', p.lin(WOOD, 0, 0, 0, 1));
+  // shirt
+  p.shape('M20 32 C26 28 38 28 44 32 L46 50 C40 52 24 52 18 50 Z', p.lin(['#8fb4e0', '#4f7ab8', '#2f4f80']));
+  p.fill('M24 34 L28 34 L27 48 L23 48 Z', '#e8674a', 0.8);
+  p.shape('M14 34 C12 38 10 40 8 40 M50 34 C52 38 54 40 56 40', 'none', 1.8);
+  p.line('M8 39 L5 44 M9 39 L8 45 M56 39 L59 44 M55 39 L56 45', '#f0cf6a', 1.8);
+  // head
+  p.circle(32, 21, 9, p.rad(['#f7e2b0', '#d9b27a', '#a07a44']));
+  p.line('M28 20 L29.5 21.5 M29.5 20 L28 21.5 M34.5 20 L36 21.5 M36 20 L34.5 21.5', OL, 1.4);
+  p.line('M28 25 C30 27 34 27 36 25', OL, 1.4);
+  // hat
+  p.shape('M16 17 C22 14 42 14 48 17 C44 19 20 19 16 17 Z', p.lin(['#f7d77a', '#c99a3a']));
+  p.shape('M24 16 C24 6 40 6 40 16 Z', p.lin(['#f7d77a', '#d9a444', '#9a6a1a']));
+  p.fill('M24 13 H40 V15.5 H24 Z', '#c8573e', 0.9);
+};
+
+const woodFence: Painter = (p) => {
+  for (const x of [14, 50]) {
+    p.shape(`M${x - 5} 16 L${x} 10 L${x + 5} 16 V58 H${x - 5} Z`, p.lin(['#dca060', '#a8703a', '#6e4220'], 0, 0.5, 1, 0.5));
+    p.fill(`M${x - 3} 17 L${x - 1} 15 V56 H${x - 3} Z`, '#fff', 0.35);
+  }
+  for (const y of [24, 40]) {
+    p.shape(`M4 ${y} H60 V${y + 7} H4 Z`, p.lin(['#e2aa68', '#b07640', '#7d4a22'], 0, 0, 0, 1));
+    p.line(`M8 ${y + 2} H56`, '#ffe0b0', 1.1, 0.6);
+  }
+  p.circle(14, 27.5, 1.3, '#4a2a10', false).circle(50, 27.5, 1.3, '#4a2a10', false).circle(14, 43.5, 1.3, '#4a2a10', false).circle(50, 43.5, 1.3, '#4a2a10', false);
+  p.fill('M4 58 C18 54 46 54 60 58 Z', '#5fae45', 0.9);
+};
+
+const stonePath: Painter = (p) => {
+  p.shape('M6 24 L32 12 L58 24 L58 40 L32 52 L6 40 Z', p.lin(['#b9a888', '#8f7e62', '#5e5040']));
+  p.fill('M6 24 L32 36 L58 24 L58 40 L32 52 L6 40 Z', '#4a3c2c', 0.35);
+  const stones = [
+    'M14 24 L22 20 L28 23 L22 27 Z',
+    'M30 19 L38 16 L44 19 L37 23 Z',
+    'M24 29 L32 25 L40 29 L32 33 Z',
+    'M42 25 L48 22 L52 25 L46 28 Z',
+    'M12 30 L18 27 L22 30 L16 33 Z',
+  ];
+  stones.forEach((d, i) => p.shape(d, p.lin([['#f2ece0', '#e0d6c4', '#d8cdb8', '#ece4d4', '#e6dcca'][i]!, '#a89c88']), 1.4));
+  p.fill('M6 40 L32 52 L32 48 L6 36 Z', '#fff', 0.08);
+  p.line('M8 26 L10 25', '#6fae45', 2, 0.9);
+  p.line('M54 27 L56 26', '#6fae45', 2, 0.9);
+};
+
+// ── Crops ───────────────────────────────────────────────────────────────────
+
+const parsnip: Painter = (p) => {
+  leaf(p, 'M32 26 C26 16 18 11 10 10 C14 16 20 22 29 28 Z', 'M29 26 C24 20 18 15 13 12');
+  leaf(p, 'M34 26 C38 16 46 11 54 11 C50 17 43 22 36 28 Z', 'M36 25 C41 19 47 15 51 13');
+  leaf(p, 'M32 26 C30 16 31 8 36 2 C39 9 38 18 34 27 Z', 'M33 24 C33 17 34 10 36 5');
+  p.shape('M32 62 C26 52 20 42 20 34 C20 27 25 24 32 24 C39 24 44 27 44 34 C44 42 38 52 32 62 Z', p.rad(['#fffbe8', '#f4e2ae', '#d2b074'], 0.35, 0.3, 0.8));
+  p.line('M24 35 C27 36 29 36 31 35', '#b8955a', 1.3, 0.8).line('M34 41 C36 42 38 42 40 40', '#b8955a', 1.3, 0.8).line('M27 46 C29 47 31 47 33 46', '#b8955a', 1.3, 0.8);
+  p.fill('M24 30 C23 36 25 42 28 46 C28 40 28 34 29 29 Z', '#fff', 0.7);
+  p.fill('M40 32 C41 40 37 48 33 55 C38 50 43 42 42 33 Z', '#b08a50', 0.35);
+};
+
+const potato: Painter = (p) => {
+  p.shape('M8 36 C6 24 16 14 30 14 C44 14 58 22 58 34 C58 46 48 54 34 54 C20 54 10 48 8 36 Z', p.rad(['#f2c88e', '#d09a5c', '#8e5c2c'], 0.38, 0.3, 0.85));
+  for (const [x, y] of [
+    [20, 28],
+    [36, 24],
+    [46, 36],
+    [28, 42],
+    [16, 38],
+  ])
+    p.ellipse(x!, y!, 2.2, 1.4, '#8a5a2a', false, 0.8).ellipse(x! + 0.6, y! - 0.6, 1, 0.6, '#f7dcae', false, 0.8);
+  p.glint(22, 21, 7, 3, -18, 0.55);
+  for (let i = 0; i < 14; i++) p.circle(14 + ((i * 37) % 40), 24 + ((i * 23) % 24), 0.6, '#7a4a20', false, 0.5);
+  p.fill('M50 42 C46 50 38 53 30 53 C40 50 48 46 52 38 Z', '#6a4020', 0.35);
+};
+
+const cauliflower: Painter = (p) => {
+  leaf(p, 'M6 36 C4 50 18 60 32 60 C22 54 14 46 12 34 Z', 'M10 40 C14 50 20 56 28 58', '#2d6b3a', '#4f9a5a', '#8cd08a');
+  leaf(p, 'M58 36 C60 50 46 60 32 60 C42 54 50 46 52 34 Z', 'M54 40 C50 50 44 56 36 58', '#2d6b3a', '#4f9a5a', '#8cd08a');
+  const cream = p.rad(['#ffffff', '#f6f0dc', '#d8ccaa'], 0.4, 0.3, 0.75);
+  p.shape('M10 36 C8 22 18 10 32 10 C46 10 56 22 54 36 C50 44 14 44 10 36 Z', cream);
+  for (const [x, y, r] of [
+    [20, 22, 7],
+    [32, 17, 7.5],
+    [44, 22, 7],
+    [26, 32, 7],
+    [39, 32, 7],
+    [15, 32, 5.5],
+    [49, 32, 5.5],
+  ]) {
+    p.circle(x!, y!, r!, p.rad(['#ffffff', '#f3ecd4', '#cfc29e'], 0.4, 0.3, 0.8), true);
+    p.circle(x! - r! * 0.3, y! - r! * 0.3, r! * 0.25, '#fff', false, 0.9);
+  }
+  leaf(p, 'M20 42 C24 52 30 56 32 60 C34 56 40 52 44 42 C38 46 26 46 20 42 Z', 'M32 46 V58', '#2d6b3a', '#5fae5a', '#9ce09a');
+};
+
+const kale: Painter = (p) => {
+  const curl = (d: string, v: string, k: number): void => leaf(p, d, v, tone('#1f5a40', k), tone('#3f8a5a', k), tone('#7cc08a', k));
+  curl('M30 60 C18 52 6 40 8 22 C12 26 14 22 16 26 C18 22 20 26 22 22 C26 34 30 46 32 60 Z', 'M30 58 C22 46 16 36 12 26', 0.9);
+  curl('M34 60 C46 52 58 40 56 22 C52 26 50 22 48 26 C46 22 44 26 42 22 C38 34 34 46 32 60 Z', 'M34 58 C42 46 48 36 52 26', 0.95);
+  curl('M32 60 C24 46 20 30 24 12 C26 16 28 8 30 12 C32 4 34 12 36 8 C38 14 40 10 42 14 C44 30 40 46 32 60 Z', 'M32 58 C32 42 32 26 33 12', 1.05);
+  p.line('M28 30 L24 26 M29 40 L24 36 M36 30 L40 26 M35 40 L40 36', '#cdf0b8', 1.1, 0.7);
+  p.fill('M26 14 C24 26 25 36 28 46 C26 34 26 24 28 14 Z', '#fff', 0.35);
+};
+
+const strawberry: Painter = (p) => {
+  p.shape('M32 62 C18 52 8 38 10 26 C12 16 22 14 32 18 C42 14 52 16 54 26 C56 38 46 52 32 62 Z', p.rad(['#ff8a8a', '#e8323c', '#8e1620'], 0.35, 0.3, 0.8));
+  for (let i = 0; i < 16; i++) {
+    const x = 18 + ((i * 29) % 30);
+    const y = 26 + ((i * 17) % 26);
+    if (Math.abs(x - 32) > 18 - (y - 26) * 0.5) continue;
+    p.ellipse(x, y, 1.1, 1.6, '#ffe88a', false, 0.95).ellipse(x, y + 0.8, 1.1, 0.6, '#8e1620', false, 0.4);
+  }
+  p.glint(20, 28, 3.5, 6.5, 15, 0.6);
+  leaf(p, 'M32 20 L20 14 L26 12 L22 6 L30 9 L32 2 L34 9 L42 6 L38 12 L44 14 Z', 'M32 18 V6', '#2f6a2a', '#4f9a3a', '#8fd05a');
+};
+
+const tomato: Painter = (p) => {
+  p.shape('M8 36 C8 22 18 14 32 14 C46 14 56 22 56 36 C56 50 46 60 32 60 C18 60 8 50 8 36 Z', p.rad(['#ff9a78', '#ea4a30', '#94200e'], 0.36, 0.3, 0.8));
+  p.line('M20 18 C16 30 18 44 24 56 M44 18 C48 30 46 44 40 56', '#b8301a', 1.4, 0.45);
+  p.glint(20, 26, 6, 3.5, -30, 0.7).glint(16, 34, 1.6, 1.6, 0, 0.8);
+  leaf(p, 'M32 18 L20 20 L26 14 L20 8 L30 11 L32 4 L34 11 L44 8 L38 14 L44 20 Z', 'M32 16 V8', '#2f6a2a', '#4f9a3a', '#8fd05a');
+};
+
+const corn: Painter = (p) => {
+  p.shape('M32 4 C44 8 46 40 38 58 L26 58 C18 40 20 8 32 4 Z', p.lin(['#fff2a8', '#f5c73a', '#c8901a'], 0, 0.5, 1, 0.5));
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 4; c++) {
+      const y = 11 + r * 5;
+      const w = 12 - Math.abs(r - 3.5) * 0.9;
+      const x = 32 - w / 2 + (c + 0.5 + (r % 2) * 0.3) * (w / 4.3);
+      p.ellipse(x, y, 1.9, 2.1, r < 2 ? '#fff1a0' : '#ffd84a', false, 0.95).ellipse(x - 0.5, y - 0.6, 0.7, 0.6, '#fff', false, 0.8);
+    }
+  leaf(p, 'M26 58 C14 50 8 36 10 22 C16 32 22 42 30 50 Z', 'M26 54 C18 44 14 34 12 26', '#3f6a1a', '#7fb04a', '#c8e888');
+  leaf(p, 'M38 58 C50 50 56 36 54 22 C48 32 42 42 34 50 Z', 'M38 54 C46 44 50 34 52 26', '#3f6a1a', '#7fb04a', '#c8e888');
+  p.line('M31 4 C28 1 26 1 24 2 M33 4 C36 1 38 1 40 3', '#b8783a', 1.4);
+};
+
+const sunflower: Painter = (p) => {
+  for (let ring = 0; ring < 2; ring++) {
+    const n = 12;
+    for (let i = 0; i < n; i++) {
+      const a = ((i + ring * 0.5) / n) * Math.PI * 2;
+      const r1 = 13;
+      const r2 = ring ? 27 : 29;
+      const cx = 32 + Math.cos(a) * ((r1 + r2) / 2);
+      const cy = 32 + Math.sin(a) * ((r1 + r2) / 2);
+      p.ellipse(cx, cy, (r2 - r1) / 2 + 1, 4.4, ring ? '#ffd23a' : '#f5a818', true, 1, (a * 180) / Math.PI);
+    }
+  }
+  p.circle(32, 32, 13.5, p.rad(['#8a5a2a', '#5a3414', '#2e1a0a'], 0.4, 0.35, 0.8));
+  for (let i = 0; i < 28; i++) {
+    const a = i * 2.39996;
+    const r = Math.sqrt(i / 28) * 10.5;
+    p.circle(32 + Math.cos(a) * r, 32 + Math.sin(a) * r, 1, '#c89a4a', false, 0.85);
+  }
+  p.glint(27, 26, 4, 2, -30, 0.35);
+};
+
+const pumpkin: Painter = (p) => {
+  const body = p.rad(['#ffc070', '#f08a2a', '#a4480e'], 0.38, 0.32, 0.85);
+  p.shape('M32 18 C16 16 6 26 6 40 C6 52 16 60 28 58 C30 60 34 60 36 58 C48 60 58 52 58 40 C58 26 48 16 32 18 Z', body);
+  p.shape('M32 18 C24 22 22 50 28 58 C30 60 34 60 36 58 C42 50 40 22 32 18 Z', p.lin(['#ffb050', '#e87a20', '#a8500e']));
+  p.line('M18 22 C12 32 12 48 20 57 M46 22 C52 32 52 48 44 57', '#b85a14', 1.6, 0.7);
+  p.glint(16, 32, 3, 7, 10, 0.5).glint(30, 26, 1.5, 5, 0, 0.55);
+  p.shape('M30 19 C29 12 31 8 36 5 L39 8 C35 10 34 14 35 19 Z', p.lin(['#8aa84a', '#4f6a24']));
+  p.line('M38 7 C44 4 48 8 46 12 C44 15 41 13 43 11', '#5a8a2a', 1.8);
+  leaf(p, 'M24 14 C18 8 10 10 8 14 C12 18 18 18 24 14 Z', 'M22 14 C18 13 14 13 10 14');
+};
+
+
+const greenBean: Painter = (p) => {
+  leaf(p, 'M34 12 C40 4 50 4 56 8 C52 14 44 16 36 16 Z', 'M36 14 C42 11 48 9 53 8');
+  for (const [dx, rot] of [
+    [0, 0],
+    [12, 10],
+  ] as const) {
+    p.raw(`<g transform="rotate(${rot} 32 32) translate(${dx - 6} 0)">`);
+    p.shape('M28 12 C24 22 22 36 26 50 C28 56 32 60 34 58 C32 50 32 36 34 22 C35 16 34 12 30 10 Z', p.lin(['#b8e888', '#6fb84a', '#3a7a2a'], 0, 0.5, 1, 0.5));
+    for (const y of [22, 32, 42]) p.ellipse(29.5, y, 2.4, 3.6, '#9ad870', false, 0.9);
+    p.fill('M27 16 C25 26 25 38 27 48 C26 38 26 26 28 16 Z', '#fff', 0.55);
+    p.raw('</g>');
+  }
+};
+
+const blueberry: Painter = (p) => {
+  leaf(p, 'M34 14 C40 4 52 4 58 10 C50 16 42 18 34 14 Z', 'M36 14 C42 11 49 9 55 10', '#2f5a3a', '#4f8a5a', '#8cc08a');
+  for (const [x, y, r] of [
+    [22, 28, 10],
+    [42, 30, 10.5],
+    [30, 46, 11],
+    [14, 46, 8],
+    [48, 48, 8.5],
+  ]) {
+    p.circle(x!, y!, r!, p.rad(['#a8b8ff', '#4a5fc8', '#1e2a6a'], 0.38, 0.32, 0.8));
+    p.raw(`<path d="M${x! - 2.4} ${y! - r! + 3} l2.4 2 l2.4 -2" fill="none" stroke="#1e2a6a" stroke-width="1.3"/>`);
+    p.glint(x! - r! * 0.35, y! - r! * 0.3, r! * 0.28, r! * 0.16, -30, 0.7);
+    p.circle(x!, y!, r!, '#d8e4ff', false, 0.12);
+  }
+};
+
+const melon: Painter = (p) => {
+  p.shape('M6 34 C6 18 18 8 32 8 C46 8 58 18 58 34 C58 50 46 60 32 60 C18 60 6 50 6 34 Z', p.rad(['#d8f0a0', '#8fc45a', '#3f7a2a'], 0.38, 0.3, 0.85));
+  for (const d of ['M32 9 C24 20 24 48 32 59', 'M32 9 C40 20 40 48 32 59', 'M20 12 C10 24 12 46 22 57', 'M44 12 C54 24 52 46 42 57'])
+    p.line(d, '#4f8a2e', 2.6, 0.7);
+  for (let i = 0; i < 10; i++) p.line(`M${16 + ((i * 17) % 32)} ${18 + ((i * 11) % 30)} l2 1`, '#eaf8c8', 1.2, 0.8);
+  p.glint(20, 20, 7, 3.5, -35, 0.6);
+  p.shape('M31 9 C30 5 32 3 35 2', 'none', 2.6);
+};
+
+const hotPepper: Painter = (p) => {
+  p.shape('M22 14 C30 12 36 16 38 24 C40 36 44 48 56 56 C44 60 30 54 24 42 C20 34 18 22 22 14 Z', p.lin(['#ff8a6a', '#e0321e', '#8a1408'], 0, 0.3, 1, 0.8));
+  p.fill('M24 20 C24 30 28 40 36 48 C30 40 26 30 26 20 Z', '#fff', 0.55);
+  p.shape('M18 14 C20 8 28 8 30 14 C26 16 22 16 18 14 Z', p.lin(['#8fd05a', '#3f7a2a']));
+  p.line('M24 10 C22 6 20 4 16 4', '#3f7a2a', 2.6);
+};
+
+const hops: Painter = (p) => {
+  leaf(p, 'M38 8 C46 2 58 6 60 14 C52 18 44 16 38 8 Z', 'M40 9 C47 9 53 11 58 14');
+  p.line('M32 6 C34 12 30 18 26 22 M32 6 C38 14 42 20 42 26', '#6a8a2a', 1.8);
+  for (const [x, y, s] of [
+    [24, 36, 1],
+    [42, 40, 0.9],
+  ]) {
+    p.raw(`<g transform="translate(${x} ${y}) scale(${s})">`);
+    for (let i = 0; i < 5; i++) {
+      const yy = -12 + i * 5.5;
+      const w = 9 - Math.abs(i - 2) * 1.6;
+      p.shape(`M${-w} ${yy} C${-w} ${yy + 6} ${w} ${yy + 6} ${w} ${yy} C${w * 0.6} ${yy + 2} ${-w * 0.6} ${yy + 2} ${-w} ${yy} Z`, p.lin(['#e8f8b0', '#b8d86a', '#6a9a2a'], 0, 0, 0, 1), 1.6);
+    }
+    p.raw('</g>');
+  }
+};
+
+const eggplant: Painter = (p) => {
+  p.shape('M24 18 C14 24 10 40 16 52 C22 62 42 62 50 52 C56 44 50 34 42 26 C38 22 34 16 24 18 Z', p.rad(['#b88ad8', '#5a2a6e', '#240a30'], 0.35, 0.3, 0.85));
+  p.glint(20, 32, 3.5, 9, 20, 0.55).glint(38, 48, 5, 2, -20, 0.25);
+  p.shape('M18 20 C18 12 30 8 34 16 C30 22 22 24 18 20 Z', p.lin(['#8fd05a', '#3f7a2a']));
+  p.shape('M28 12 C28 8 30 5 34 4 L36 6 C33 8 32 10 32 13 Z', '#4f7a2a', 1.8);
+};
+
+const grape: Painter = (p) => {
+  leaf(p, 'M30 12 C22 2 8 6 6 16 C16 20 26 18 30 12 Z', 'M28 12 C20 11 14 13 9 16', '#3f6a1a', '#6a9a3a', '#a8d06a');
+  p.line('M32 4 C32 8 32 10 32 14', '#6a4a2a', 2.6);
+  const rows = [
+    [24, 32, 40],
+    [20, 28, 36, 44],
+    [24, 32, 40],
+    [28, 36],
+    [32],
+  ];
+  rows.forEach((xs, r) =>
+    xs.forEach((x) => {
+      const y = 20 + r * 8;
+      p.circle(x, y, 6, p.rad(['#d8a8f0', '#7a3a8e', '#3a1244'], 0.38, 0.32, 0.8));
+      p.glint(x - 2, y - 2, 1.8, 1, -30, 0.8);
+    }),
+  );
+};
+
+const beet: Painter = (p) => {
+  leaf(p, 'M30 26 C24 14 20 6 12 4 C14 12 18 20 28 28 Z', 'M28 26 C22 18 18 11 14 6', '#3a6a2a', '#5a9a3a', '#9ad06a');
+  leaf(p, 'M34 26 C38 12 46 6 54 6 C50 14 44 22 36 28 Z', 'M36 25 C41 17 46 11 51 8', '#3a6a2a', '#5a9a3a', '#9ad06a');
+  p.line('M28 26 L20 10 M36 26 L46 10', '#b8304a', 1.6, 0.85);
+  p.shape('M32 60 C30 56 30 54 30 52 C18 50 12 42 14 34 C16 26 24 24 32 24 C40 24 48 26 50 34 C52 42 46 50 34 52 C34 54 34 56 32 60 Z', p.rad(['#e0587a', '#9a1e3e', '#4a0a1a'], 0.36, 0.3, 0.85));
+  p.glint(22, 32, 4, 6, 25, 0.45);
+  p.line('M22 40 C26 42 30 42 34 41 M30 46 C34 47 38 46 40 44', '#6a0e24', 1.2, 0.6);
+};
+
+const yam: Painter = (p) => {
+  p.shape('M6 40 C4 30 14 22 26 22 C34 20 42 16 50 18 C58 20 60 30 56 38 C52 46 40 50 28 52 C16 54 8 50 6 40 Z', p.rad(['#f0a07a', '#b85a3a', '#6a2a14'], 0.36, 0.3, 0.9));
+  p.line('M14 36 C18 38 22 38 26 36 M32 30 C36 32 40 32 44 30 M28 44 C32 46 36 46 40 43', '#7a3418', 1.3, 0.7);
+  p.glint(22, 28, 7, 2.5, -15, 0.45);
+  p.line('M56 30 C60 28 62 26 62 22 M8 44 C4 46 2 48 2 52', '#6a3418', 1.8);
+  leaf(p, 'M40 16 C38 6 46 2 52 4 C54 10 48 16 40 16 Z', 'M42 14 C45 10 48 7 51 5');
+};
+
+const shell: Painter = (p, color = '#f0d8b8') => {
+  p.shape('M32 8 C46 8 58 22 58 36 C58 44 52 48 46 50 L40 56 H24 L18 50 C12 48 6 44 6 36 C6 22 18 8 32 8 Z', p.rad([tone(color, 1.25), color, tone(color, 0.62)], 0.5, 0.3, 0.9));
+  for (let i = -3; i <= 3; i++) p.line(`M32 54 L${32 + i * 7.5} ${14 + Math.abs(i) * 4}`, tone(color, 0.6), 1.5, 0.75);
+  p.shape('M24 56 H40 L38 60 H26 Z', tone(color, 0.8), 1.6);
+  p.glint(22, 20, 5, 2.5, -30, 0.6);
+};
+
+const conch: Painter = (p, color = '#f2b8a0') => {
+  p.shape('M10 30 C10 16 26 6 40 10 C52 14 58 26 54 38 C50 50 38 58 26 56 L14 60 L16 50 C12 44 10 38 10 30 Z', p.rad([tone(color, 1.3), color, tone(color, 0.6)], 0.4, 0.35, 0.85));
+  p.line('M40 10 C30 16 28 26 34 32 C40 38 48 32 46 26', tone(color, 0.55), 1.8, 0.8);
+  p.shape('M22 36 C26 30 36 32 36 40 C36 48 26 52 20 48 Z', '#ffd8d0', 1.6);
+  p.glint(22, 18, 6, 2.5, -30, 0.55);
+};
+
+const starfish: Painter = (p, color = '#f07a3a') => {
+  const pts: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 ? 11 : 27;
+    pts.push(`${(32 + Math.cos(a) * r).toFixed(1)} ${(34 + Math.sin(a) * r).toFixed(1)}`);
+  }
+  p.shape(`M${pts.join(' L')} Z`, p.rad([tone(color, 1.35), color, tone(color, 0.55)], 0.4, 0.35, 0.8), SW, 'stroke-linejoin="round"');
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+    for (const k of [0.35, 0.55, 0.75]) p.circle(32 + Math.cos(a) * 27 * k, 34 + Math.sin(a) * 27 * k, 1.2, '#ffe0c0', false, 0.9);
+  }
+};
+
+const sandDollar: Painter = (p, color = '#f2ead2') => {
+  p.circle(32, 32, 25, p.rad([tone(color, 1.2), color, tone(color, 0.7)], 0.4, 0.35, 0.8));
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+    p.ellipse(32 + Math.cos(a) * 9, 32 + Math.sin(a) * 9, 7, 2.6, 'none', false, 1, (a * 180) / Math.PI);
+    p.raw(`<ellipse cx="${32 + Math.cos(a) * 9}" cy="${32 + Math.sin(a) * 9}" rx="7" ry="2.6" fill="${tone(color, 0.8)}" stroke="${tone(color, 0.55)}" stroke-width="1.2" transform="rotate(${(a * 180) / Math.PI} ${32 + Math.cos(a) * 9} ${32 + Math.sin(a) * 9})"/>`);
+  }
+  p.circle(32, 32, 2, tone(color, 0.6), false);
+};
+
+const seaGlass: Painter = (p, color = '#7ad0b8') => {
+  p.shape('M12 30 C10 20 20 10 32 12 C44 12 54 20 52 32 C52 44 44 54 30 52 C18 52 12 42 12 30 Z', p.rad([tone(color, 1.5), color, tone(color, 0.6)], 0.4, 0.35, 0.8), SW, 'opacity="0.92"');
+  p.fill('M18 26 C18 20 24 16 30 16 C24 20 22 26 22 32 Z', '#fff', 0.7);
+  p.circle(40, 40, 4, '#fff', false, 0.25);
+};
+
+const coral: Painter = (p, color = '#f0707a') => {
+  const br = ['M32 60 C32 46 30 34 22 22', 'M31 46 C24 42 16 40 10 30', 'M32 40 C38 32 44 26 48 14', 'M40 30 C46 30 52 26 56 20', 'M26 30 C26 22 28 16 32 8'];
+  for (const d of br) p.raw(`<path d="${d}" fill="none" stroke="${OL}" stroke-width="9" stroke-linecap="round"/>`);
+  for (const d of br) p.raw(`<path d="${d}" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round"/>`);
+  for (const d of br) p.line(d, tone(color, 1.4), 1.6, 0.8);
+  p.shape('M18 60 C22 54 42 54 46 60 Z', '#e8d2a8', 1.8);
+};
+
+// ── Generic painters for items other teams add (fish, minerals, forage, food …) ──
+
+function hash(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+function fishPainter(seed: number): Painter {
+  return (p, color = '#6fb0d8') => {
+    const long = 0.85 + ((seed >> 3) % 5) * 0.07;
+    const fat = 0.85 + ((seed >> 7) % 5) * 0.08;
+    const tailShape = (seed >> 11) % 3;
+    const spots = (seed >> 13) % 3;
+    const cx = 30;
+    const rx = 22 * long;
+    const ry = 12 * fat;
+    const back = tone(color, 0.62);
+    const belly = tone(color, 1.55);
+    // tail
+    const tx = cx + rx - 3;
+    const tail =
+      tailShape === 0
+        ? `M${tx} 34 L${tx + 16} 20 C${tx + 13} 28 ${tx + 13} 40 ${tx + 16} 48 Z`
+        : tailShape === 1
+          ? `M${tx} 34 C${tx + 6} 26 ${tx + 12} 20 ${tx + 18} 22 C${tx + 12} 30 ${tx + 12} 38 ${tx + 18} 46 C${tx + 12} 48 ${tx + 6} 42 ${tx} 34 Z`
+          : `M${tx} 34 L${tx + 15} 24 L${tx + 11} 34 L${tx + 15} 44 Z`;
+    p.shape(tail, p.lin([tone(color, 1.2), back], 0, 0, 1, 1));
+    p.line(`M${tx + 3} 34 L${tx + 12} 27 M${tx + 3} 34 L${tx + 12} 41`, back, 1.1, 0.7);
+    // dorsal + pelvic fins
+    p.shape(`M${cx - 8} ${34 - ry + 2} C${cx - 4} ${34 - ry - 9} ${cx + 8} ${34 - ry - 8} ${cx + 12} ${34 - ry + 3} Z`, p.lin([tone(color, 1.2), back]));
+    p.shape(`M${cx} ${34 + ry - 2} C${cx + 2} ${34 + ry + 6} ${cx + 8} ${34 + ry + 6} ${cx + 10} ${34 + ry - 3} Z`, back, 1.8);
+    // body
+    p.ellipse(cx, 34, rx, ry, p.lin([back, color, belly], 0.5, 0, 0.5, 1));
+    p.fill(`M${cx - rx + 4} 38 C${cx - 6} ${34 + ry} ${cx + 10} ${34 + ry} ${cx + rx - 4} 37 C${cx + 8} ${34 + ry * 0.6} ${cx - 8} ${34 + ry * 0.6} ${cx - rx + 4} 38 Z`, belly, 0.55);
+    // scales / spots
+    if (spots === 0) for (let i = 0; i < 5; i++) p.line(`M${cx - 6 + i * 6} ${30} c2 2 2 4 0 6`, back, 1, 0.5);
+    if (spots === 1) for (let i = 0; i < 6; i++) p.circle(cx - 6 + ((i * 11) % 26), 28 + ((i * 7) % 9), 1.4, back, false, 0.7);
+    if (spots === 2) p.line(`M${cx - rx + 8} 33 H${cx + rx - 6}`, tone(color, 1.35), 2.4, 0.75);
+    // gill + eye
+    p.line(`M${cx - rx + 11} ${34 - ry * 0.6} C${cx - rx + 14} 32 ${cx - rx + 14} 37 ${cx - rx + 11} ${34 + ry * 0.6}`, back, 1.4, 0.8);
+    p.circle(cx - rx + 6.5, 31, 3.2, '#fff');
+    p.circle(cx - rx + 6, 31, 1.7, '#1b1410', false);
+    p.circle(cx - rx + 5.4, 30.3, 0.6, '#fff', false);
+    p.glint(cx - 4, 34 - ry * 0.55, rx * 0.45, 2, -4, 0.55);
+  };
+}
+
+const ore: Painter = (p, color = '#d98a4a') => {
+  pebble(p, 'M6 44 C4 30 14 18 30 16 C46 14 60 26 58 40 C56 54 42 60 28 58 C16 56 8 52 6 44 Z', '#8a837a');
+  for (const [x, y, s] of [
+    [22, 30, 6],
+    [38, 26, 5],
+    [42, 42, 6.5],
+    [24, 46, 4.5],
+  ]) {
+    p.shape(`M${x! - s!} ${y!} L${x! - s! * 0.3} ${y! - s!} L${x! + s! * 0.8} ${y! - s! * 0.5} L${x! + s!} ${y! + s! * 0.5} L${x! - s! * 0.2} ${y! + s!} Z`, p.lin([tone(color, 1.5), color, tone(color, 0.6)]), 1.6);
+    p.glint(x! - s! * 0.3, y! - s! * 0.4, s! * 0.35, s! * 0.18, -30, 0.85);
+  }
+};
+
+const bar: Painter = (p, color = '#e8b04a') => {
+  p.shape('M6 44 L16 26 H50 L58 44 Z', p.lin([tone(color, 1.45), color], 0, 0, 0, 1));
+  p.shape('M6 44 H58 L54 54 H10 Z', p.lin([color, tone(color, 0.55)], 0, 0, 0, 1));
+  p.fill('M18 29 H46 L49 34 H16 Z', '#fff', 0.55);
+  p.line('M20 38 H44', tone(color, 0.7), 1.2, 0.6);
+  p.glint(50, 36, 2.5, 1.2, 60, 0.8);
+};
+
+const gem: Painter = (p, color = '#b56adf') => {
+  p.shape('M18 12 H46 L58 26 L32 58 L6 26 Z', p.lin([tone(color, 1.5), color, tone(color, 0.5)], 0.2, 0, 0.8, 1));
+  p.fill('M18 12 L26 26 L32 12 Z', '#fff', 0.35).fill('M32 12 L38 26 L46 12 Z', '#fff', 0.2).fill('M6 26 H58 L32 58 Z', tone(color, 0.6), 0.35);
+  p.line('M6 26 H58 M18 12 L26 26 L32 58 M46 12 L38 26 L32 58 M32 12 L26 26 M32 12 L38 26', OL, 1.2, 0.55);
+  p.glint(22, 18, 4, 2, -20, 0.9);
+  p.raw('<path d="M50 6 l1.5 4 l4 1.5 l-4 1.5 l-1.5 4 l-1.5 -4 l-4 -1.5 l4 -1.5 Z" fill="#fff"/>');
+};
+
+const geode: Painter = (p, color = '#9ab4d8') => {
+  pebble(p, 'M8 36 C8 20 20 10 34 10 C48 10 58 22 56 38 C54 52 42 58 30 58 C16 58 8 50 8 36 Z', '#a89c8a');
+  p.shape('M20 30 C22 22 30 18 38 20 C46 22 50 30 46 40 C42 48 30 50 24 44 C20 40 19 34 20 30 Z', p.rad([tone(color, 1.6), color, tone(color, 0.5)], 0.5, 0.5, 0.6));
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2;
+    p.fill(`M${34 + Math.cos(a) * 3} ${34 + Math.sin(a) * 3} L${34 + Math.cos(a + 0.2) * 12} ${34 + Math.sin(a + 0.2) * 11} L${34 + Math.cos(a - 0.2) * 12} ${34 + Math.sin(a - 0.2) * 11} Z`, '#fff', 0.35);
+  }
+};
+
+const coal: Painter = (p) => {
+  pebble(p, 'M8 44 C6 32 16 24 26 26 C30 18 44 16 52 24 C60 30 60 44 52 50 C44 58 20 58 8 44 Z', '#4a4440');
+  p.glint(30, 28, 4, 1.6, -20, 0.5).glint(46, 30, 3, 1.3, -40, 0.45).glint(20, 38, 2, 1, -10, 0.4);
+  p.line('M26 30 L32 40 L28 50 M40 28 L44 42', '#1c1816', 1.2, 0.8);
+};
+
+const egg: Painter = (p, color = '#f7efe0') => {
+  p.shape('M32 6 C44 6 52 26 52 38 C52 52 42 60 32 60 C22 60 12 52 12 38 C12 26 20 6 32 6 Z', p.rad([tone(color, 1.3), color, tone(color, 0.7)], 0.38, 0.3, 0.85));
+  p.glint(24, 22, 4, 8, 20, 0.7);
+  for (let i = 0; i < 6; i++) p.circle(26 + ((i * 13) % 18), 34 + ((i * 7) % 16), 0.8, tone(color, 0.7), false, 0.6);
+};
+
+const jar: Painter = (p, color = '#f0a830') => {
+  p.shape('M14 20 H50 V52 C50 56 47 60 42 60 H22 C17 60 14 56 14 52 Z', p.lin(['#fdfcf6', '#dfe8e8', '#a8b8b8'], 0, 0.5, 1, 0.5), SW, 'opacity="0.95"');
+  p.fill('M17 28 H47 V52 C47 55 45 57 42 57 H22 C19 57 17 55 17 52 Z', p.lin([tone(color, 1.3), color, tone(color, 0.6)], 0, 0, 0, 1));
+  p.shape('M12 12 H52 V20 H12 Z', p.lin(['#f0d890', '#c89a3a', '#8a6414'], 0, 0, 0, 1));
+  p.shape('M18 34 H46 V46 H18 Z', '#fbf0d6', 1.6);
+  p.line('M22 38 H42 M24 42 H40', '#c8a878', 1.4);
+  p.fill('M19 22 H23 V54 H19 Z', '#fff', 0.55);
+  p.shape('M12 12 C16 6 48 6 52 12', 'none', 1.8);
+};
+
+const bottle: Painter = (p, color = '#8a2a4a') => {
+  p.shape('M26 4 H38 V18 C46 22 50 30 50 38 V54 C50 58 46 60 42 60 H22 C18 60 14 58 14 54 V38 C14 30 18 22 26 18 Z', p.lin([tone(color, 1.3), color, tone(color, 0.45)], 0, 0.5, 1, 0.5));
+  p.shape('M25 4 H39 V10 H25 Z', '#c89a5a', 1.8);
+  p.shape('M18 36 H46 V50 H18 Z', '#f7eed6', 1.6);
+  p.line('M22 41 H42 M26 45 H38', tone(color, 0.8), 1.4);
+  p.fill('M20 26 C18 32 18 40 19 52 H22 V30 C23 28 24 26 26 24 Z', '#fff', 0.45);
+};
+
+const milk: Painter = (p) => {
+  p.shape('M22 4 H42 V14 L50 24 V56 C50 59 48 60 45 60 H19 C16 60 14 59 14 56 V24 L22 14 Z', p.lin(['#ffffff', '#eef3f7', '#b8c6d4'], 0, 0.5, 1, 0.5));
+  p.shape('M21 3 H43 V9 H21 Z', '#6aa8e0', 1.8);
+  p.shape('M14 34 H50 V46 H14 Z', '#6aa8e0', 1.6);
+  p.fill('M18 25 H22 V56 H18 Z', '#fff', 0.8);
+};
+
+const cheese: Painter = (p) => {
+  p.shape('M6 42 L50 14 L58 26 V50 L14 56 Z', p.lin(['#fff2a0', '#f5c73a', '#c8901a'], 0, 0, 1, 1));
+  p.shape('M6 42 L50 14 L58 26 L14 50 Z', p.lin(['#fff8c8', '#ffe070']));
+  for (const [x, y, r] of [
+    [28, 50, 3],
+    [44, 44, 2.4],
+    [52, 36, 2],
+    [36, 34, 2.4],
+  ])
+    p.ellipse(x!, y!, r!, r! * 0.8, '#d9a830', false);
+};
+
+const bread: Painter = (p, color = '#d99a4a') => {
+  p.shape('M6 42 C4 24 18 14 32 14 C46 14 60 24 58 42 C56 52 50 56 32 56 C14 56 8 52 6 42 Z', p.rad([tone(color, 1.35), color, tone(color, 0.55)], 0.4, 0.3, 0.85));
+  for (const x of [20, 30, 40]) p.shape(`M${x - 3} ${26} C${x} ${22} ${x + 4} ${24} ${x + 5} ${28} C${x + 2} ${30} ${x - 1} ${30} ${x - 3} ${26} Z`, '#fff0c8', 1.4);
+  p.glint(18, 22, 6, 2.5, -20, 0.45);
+};
+
+const dish: Painter = (p, color = '#e07a3a') => {
+  p.ellipse(32, 44, 28, 12, p.lin(['#ffffff', '#dfe6ee', '#a8b4c2'], 0, 0, 0, 1));
+  p.ellipse(32, 42, 20, 7.5, '#eef2f6', false);
+  p.shape('M14 40 C14 28 22 22 32 22 C42 22 50 28 50 40 C44 46 20 46 14 40 Z', p.rad([tone(color, 1.4), color, tone(color, 0.55)], 0.4, 0.3, 0.8));
+  p.circle(26, 32, 3, '#6aae45').circle(38, 30, 2.6, '#f5d04a').circle(33, 38, 2.4, '#c8453a');
+  p.line('M24 16 C22 12 26 10 24 6 M32 16 C30 12 34 10 32 6 M40 16 C38 12 42 10 40 6', '#fff', 1.6, 0.55);
+};
+
+const mushroom: Painter = (p, color = '#c8573e') => {
+  p.shape('M24 30 C22 42 22 52 20 58 H44 C42 52 42 42 40 30 Z', p.lin(['#fffaf0', '#efe2c8', '#c8b490'], 0, 0.5, 1, 0.5));
+  p.shape('M4 32 C4 16 18 6 32 6 C46 6 60 16 60 32 C50 36 14 36 4 32 Z', p.rad([tone(color, 1.35), color, tone(color, 0.5)], 0.4, 0.3, 0.85));
+  for (const [x, y, r] of [
+    [20, 18, 3.5],
+    [36, 14, 3],
+    [46, 24, 3.2],
+    [28, 26, 2.4],
+  ])
+    p.ellipse(x!, y!, r!, r! * 0.8, '#fff8e8', false, 0.95);
+  p.glint(18, 12, 6, 2.5, -25, 0.4);
+};
+
+const berries: Painter = (p, color = '#5a4ac8') => {
+  leaf(p, 'M30 14 C22 4 10 6 6 12 C14 18 24 18 30 14 Z', 'M28 14 C20 12 14 11 9 12');
+  for (const [x, y, r] of [
+    [22, 30, 10],
+    [42, 28, 10],
+    [32, 46, 11],
+    [18, 48, 8],
+    [46, 46, 8],
+  ]) {
+    p.circle(x!, y!, r!, p.rad([tone(color, 1.5), color, tone(color, 0.5)], 0.38, 0.32, 0.8));
+    p.glint(x! - r! * 0.35, y! - r! * 0.35, r! * 0.3, r! * 0.18, -30, 0.8);
+  }
+  p.line('M30 14 C28 20 26 24 24 22 M30 14 C34 20 38 22 40 20', '#4f7a2a', 1.6);
+};
+
+const flower: Painter = (p, color = '#f07aa8') => {
+  p.line('M32 36 C32 46 30 54 28 62', OL, 5.5).line('M32 36 C32 46 30 54 28 62', '#4f9a3a', 3);
+  leaf(p, 'M30 50 C22 44 14 46 10 50 C16 56 24 56 30 50 Z', 'M28 50 C22 49 16 50 12 50');
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+    p.ellipse(32 + Math.cos(a) * 11, 24 + Math.sin(a) * 11, 9, 6.5, p.rad([tone(color, 1.5), color, tone(color, 0.6)], 0.3, 0.5, 0.9), true, 1, (a * 180) / Math.PI);
+  }
+  p.circle(32, 24, 6, p.rad(['#fff6b0', '#f5c542', '#c8901a']));
+};
+
+const herb: Painter = (p, color = '#6aae45') => {
+  leaf(p, 'M32 60 C20 50 12 34 16 10 C28 20 36 38 32 60 Z', 'M30 56 C26 42 22 28 18 14', tone(color, 0.45), color, tone(color, 1.5));
+  leaf(p, 'M34 60 C44 48 54 36 52 16 C42 24 34 40 34 60 Z', 'M35 56 C40 44 46 32 50 20', tone(color, 0.45), tone(color, 0.9), tone(color, 1.4));
+};
+
+const sack: Painter = (p, color = '#c8a060') => {
+  p.shape('M18 22 C8 30 6 44 10 52 C14 60 50 60 54 52 C58 44 56 30 46 22 Z', p.rad([tone(color, 1.35), color, tone(color, 0.55)], 0.4, 0.35, 0.85));
+  p.shape('M22 22 C20 14 24 8 28 12 C30 6 34 6 36 12 C40 8 44 14 42 22 Z', p.lin([tone(color, 1.3), tone(color, 0.8)]));
+  p.shape('M18 22 H46 V26 H18 Z', '#8a5a2a', 1.6);
+  p.glint(20, 34, 3, 7, 15, 0.4);
+};
+
+const letter: Painter = (p) => {
+  p.shape('M6 16 H58 V52 H6 Z', p.lin(['#fffaf0', '#f3e2bc']));
+  p.shape('M6 16 L32 38 L58 16', 'none', 2);
+  p.circle(32, 38, 6, p.rad(['#ff8a6a', '#c8331e', '#7a1a0e']));
+};
+
+const HAND_PAINTERS: Record<string, Painter> = {
+  hoe,
+  wateringCan,
+  axe,
+  pickaxe,
+  scythe,
+  fishingRod,
+  rod: fishingRod,
+  weapon,
+  wood,
+  stone,
+  fiber,
+  sprinkler,
+  chest,
+  scarecrow,
+  woodFence,
+  fence: woodFence,
+  stonePath,
+  path: stonePath,
+  parsnip,
+  potato,
+  cauliflower,
+  kale,
+  strawberry,
+  tomato,
+  corn,
+  sunflower,
+  pumpkin,
+  greenBean,
+  blueberry,
+  melon,
+  hotPepper,
+  hops,
+  eggplant,
+  grape,
+  beet,
+  yam,
+  cockle: shell,
+  shell,
+  spiralConch: conch,
+  conch,
+  starfish,
+  sandDollar,
+  seaGlass,
+  coralSprig: coral,
+  coral,
+  ore,
+  bar,
+  gem,
+  geode,
+  coal,
+  egg,
+  jar,
+  bottle,
+  milk,
+  cheese,
+  bread,
+  dish,
+  mushroom,
+  berries,
+  flower,
+  herb,
+  sack,
+  letter,
+};
+
+/** Keyword → painter for items other teams add without a hand-made icon. */
+const KEYWORDS: [RegExp, string][] = [
+  [/rod|pole/, 'fishingRod'],
+  [/sword|dagger|club|blade|hammer/, 'weapon'],
+  [/geode/, 'geode'],
+  [/coal/, 'coal'],
+  [/ore\b|ore$|Ore/, 'ore'],
+  [/bar\b|bar$|Bar|ingot/i, 'bar'],
+  [/quartz|amethyst|emerald|ruby|topaz|diamond|jade|aquamarine|crystal|gem|prism|opal/i, 'gem'],
+  [/egg/i, 'egg'],
+  [/milk/i, 'milk'],
+  [/cheese/i, 'cheese'],
+  [/honey|jam|jelly|preserve|pickle|syrup|sauce|mayo/i, 'jar'],
+  [/juice|wine|cider|ale|beer|tea|coffee|potion|tonic|oil|vinegar/i, 'bottle'],
+  [/bread|loaf|bun|roll|biscuit|cookie|muffin|scone|pie|cake|tart/i, 'bread'],
+  [/soup|stew|salad|meal|dish|toast|omelet|pancake|roast|platter|chowder|curry|pasta|porridge/i, 'dish'],
+  [/mushroom|morel|chanterelle|truffle|toadstool/i, 'mushroom'],
+  [/berry|berries|grape|cherry|currant/i, 'berries'],
+  [/flower|tulip|rose|daisy|poppy|lily|lavender|crocus|blossom|bloom|sunflower/i, 'flower'],
+  [/leek|herb|leaf|dandelion|fern|mint|sage|thyme|grass|clover|seaweed|kelp/i, 'herb'],
+  [/letter|note|book|scroll|recipe/i, 'letter'],
+  [/fish|trout|salmon|carp|perch|bass|pike|eel|catfish|minnow|sardine|cod|tuna|chub|bream|herring|snapper|sunfish|koi|smelt|shad|anchovy|flounder|halibut|sturgeon|walleye|gar|dace|loach|goby|ray/i, 'fish'],
+  [/shell|clam|oyster|mussel|cockle|scallop/i, 'shell'],
+  [/conch|snail|whelk/i, 'conch'],
+  [/starfish|sea ?star/i, 'starfish'],
+  [/coral/i, 'coral'],
+  [/glass/i, 'seaGlass'],
+  [/chest/i, 'chest'],
+  [/fence/i, 'woodFence'],
+  [/path|floor|tile/i, 'stonePath'],
+  [/sprinkler/i, 'sprinkler'],
+  [/scarecrow/i, 'scarecrow'],
+  [/wood|log|plank|lumber|driftwood|branch|twig/i, 'wood'],
+  [/stone|rock|pebble|clay|flint|slate|marble/i, 'stone'],
+  [/fiber|fibre|straw|hay|wool|cloth/i, 'fiber'],
+];
+
+function painterFor(id: string, def: ItemDef | undefined): { paint: Painter; color?: string } {
+  const color = def?.color !== undefined ? hex(def.color) : undefined;
+  const key = def?.icon && HAND_PAINTERS[def.icon] ? def.icon : HAND_PAINTERS[id] ? id : undefined;
+  if (key) return { paint: HAND_PAINTERS[key]!, color };
+  const kind = (def?.kind ?? '') as string;
+  const hay = `${id} ${def?.icon ?? ''} ${def?.name ?? ''}`;
+  if (kind === 'fish') return { paint: fishPainter(hash(id)), color: color ?? hsl(hash(id)) };
+  for (const [re, k] of KEYWORDS) {
+    if (re.test(hay)) {
+      if (k === 'fish') return { paint: fishPainter(hash(id)), color: color ?? hsl(hash(id)) };
+      return { paint: HAND_PAINTERS[k]!, color: color ?? hsl(hash(id)) };
+    }
+  }
+  if (kind === 'tool') return { paint: HAND_PAINTERS.hoe!, color };
+  if (kind === 'mineral' || kind === 'gem') return { paint: gem, color: color ?? hsl(hash(id)) };
+  if (kind === 'food' || kind === 'cooking') return { paint: dish, color: color ?? hsl(hash(id)) };
+  if (kind === 'artisan') return { paint: jar, color: color ?? hsl(hash(id)) };
+  if (kind === 'forage') return { paint: herb, color: color ?? '#6aae45' };
+  if (kind === 'produce') return { paint: berries, color: color ?? hsl(hash(id)) };
+  return { paint: sack, color: color ?? hsl(hash(id)) };
+}
+
+function hsl(h: number): string {
+  // Pleasant mid-saturation colours for unknown items.
+  const hue = h % 360;
+  const s = 0.55;
+  const l = 0.55;
+  const k = (n: number): number => (n + hue / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number): number => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return hex((Math.round(f(0) * 255) << 16) | (Math.round(f(8) * 255) << 8) | Math.round(f(4) * 255));
+}
+
+// ── Seed packets: kraft envelope with the crop painted on its label ─────────
+
+function seedPacket(id: string, def: ItemDef | undefined): string {
+  const p = new Pen('s');
+  const crop = def?.crop ? String(def.crop) : id.replace(/Seeds?$/i, '');
+  const inner = HAND_PAINTERS[crop];
+  const band = def?.color !== undefined ? hex(def.color) : '#8fc86a';
+  p.shape('M10 14 L54 14 L56 56 C56 59 54 60 51 60 H13 C10 60 8 59 8 56 Z', p.lin(['#f7e2b4', '#e3c48a', '#b88c50'], 0, 0.5, 1, 0.5));
+  // crimped top
+  p.shape('M9 8 L12 14 L15 8 L18 14 L21 8 L24 14 L27 8 L30 14 L33 8 L36 14 L39 8 L42 14 L45 8 L48 14 L51 8 L54 14 L55 18 H9 Z', p.lin(['#fff0c8', '#dcb87a']), 1.8);
+  // label
+  p.shape('M14 22 H50 V48 H14 Z', p.lin(['#fffdf4', '#f4ead2']), 1.6);
+  if (inner) {
+    const sub = new Pen('i');
+    inner(sub, def?.color !== undefined ? hex(def.color) : undefined);
+    const body = sub.svg().replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+    p.raw(`<g transform="translate(17.5 22.5) scale(0.45)">${body}</g>`);
+  } else {
+    p.circle(32, 35, 7, band);
+  }
+  p.shape('M8 50 H56 V56 C56 59 54 60 51 60 H13 C10 60 8 59 8 56 Z', p.lin([tone(band, 1.2), tone(band, 0.7)], 0, 0, 0, 1), 1.8);
+  p.line('M12 53 H22', '#fff', 1.4, 0.7);
+  p.fill('M11 18 H14 V56 H11 Z', '#fff', 0.35);
+  // spilled seeds
+  p.ellipse(56, 58, 2.4, 1.6, '#c8a064', true, 1, -20);
+  return p.svg();
+}
+
+const svgCache = new Map<string, string>();
+const urlCache = new Map<string, string>();
+const OVERRIDES = new Map<string, string | (() => string)>();
+
+/**
+ * Let another team supply the art for an item (by item id or icon key): a full SVG string (any
+ * viewBox) or a lazy factory. Takes precedence over the built-in painters.
+ */
+export function registerItemIcon(key: string, svg: string | (() => string)): void {
+  OVERRIDES.set(key, svg);
+  svgCache.clear();
+  urlCache.clear();
+}
+
+/** Raw SVG markup for an item. */
+export function itemSvg(id: string): string {
+  let s = svgCache.get(id);
+  if (s) return s;
+  const def = itemDef(id);
+  const ov = OVERRIDES.get(id) ?? (def?.icon ? OVERRIDES.get(def.icon) : undefined);
+  // Items whose art was dropped straight into ICONS by another team (legacy path).
+  const legacy = def?.icon && !HUD_KEYS.has(def.icon) ? ICONS[def.icon] : !HUD_KEYS.has(id) ? ICONS[id] : undefined;
+  if (ov) s = typeof ov === 'string' ? ov : ov();
+  else if (legacy) s = legacy.includes('xmlns') ? legacy : legacy.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+  else if (def?.kind === 'seed' || /Seeds?$/.test(id)) s = seedPacket(id, def);
+  else {
+    const { paint, color } = painterFor(id, def);
+    const p = new Pen('g');
+    paint(p, color);
+    s = p.svg();
+  }
+  svgCache.set(id, s);
+  return s;
+}
+
+export function itemIconUrl(id: string): string {
+  let u = urlCache.get(id);
+  if (!u) {
+    u = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(itemSvg(id))}`;
+    urlCache.set(id, u);
+  }
+  return u;
+}
+
+export function itemIcon(id: string, cls = 'u-ic'): string {
+  return `<img class="${cls}" src="${itemIconUrl(id)}" alt="" draggable="false"/>`;
+}
+
+/** Legacy signature (seed packets were tinted by colour; now every item has its own art). */
+export function iconFor(itemId: string, _icon?: string, _color?: number): string {
+  return itemIcon(itemId);
+}
+
+// ── Categories (tooltips, ledgers) ─────────────────────────────────────────
+
+const FLOWERS = /sunflower|tulip|rose|daisy|poppy|lily|flower/i;
+const FRUIT = /strawberry|berry|melon|apple|cherry|grape|peach|orange|blueberr/i;
+
+export function itemCategory(id: string): { label: string; color: string; group: string } {
+  const d = itemDef(id);
+  const kind = (d?.kind ?? '') as string;
+  if (kind === 'tool') return { label: 'Tool', color: '#6d7784', group: 'Other' };
+  if (kind === 'seed') return { label: 'Seed', color: '#8a6a3a', group: 'Other' };
+  if (kind === 'produce') {
+    if (FLOWERS.test(id)) return { label: 'Flower', color: '#d0588a', group: 'Farming' };
+    if (FRUIT.test(id)) return { label: 'Fruit', color: '#d9463a', group: 'Farming' };
+    return { label: 'Vegetable', color: '#4f9a3a', group: 'Farming' };
+  }
+  if (kind === 'placeable') return { label: 'Crafted', color: '#b0703a', group: 'Other' };
+  if (kind === 'fish' || /fish|trout|salmon|carp|perch|bass|pike|eel/i.test(id)) return { label: 'Fish', color: '#3f86b8', group: 'Fishing' };
+  if (kind === 'mineral' || kind === 'gem' || /ore|bar|gem|quartz|geode|coal/i.test(id)) return { label: 'Mineral', color: '#7a64b0', group: 'Mining' };
+  if (kind === 'forage') return { label: 'Forage', color: '#6a8a2a', group: 'Foraging' };
+  if (kind === 'food' || kind === 'cooking') return { label: 'Cooking', color: '#d07a2a', group: 'Other' };
+  if (kind === 'artisan') return { label: 'Artisan Good', color: '#b8862a', group: 'Farming' };
+  if (kind === 'resource') return { label: 'Resource', color: '#8a7050', group: 'Foraging' };
+  return { label: kind ? kind[0]!.toUpperCase() + kind.slice(1) : 'Item', color: '#8a7050', group: 'Other' };
+}
+
+/** Quality price multipliers (normal, silver, gold, iridium). */
+export const QUALITY_MULT = [1, 1.25, 1.5, 2];
+export const QUALITY_NAME = ['', 'Silver', 'Gold', 'Iridium'];
+
+export function qualityStar(q: number, cls = 'u-star'): string {
+  if (!q) return '';
+  const [a, b, o] = q === 1 ? ['#ffffff', '#b8c4d0', '#5e6a78'] : q === 2 ? ['#fff6b0', '#f5c542', '#9a6a14'] : ['#f0d8ff', '#b56adf', '#5a2a8a'];
+  return `<svg class="${cls}" viewBox="0 0 24 24"><defs><linearGradient id="qs${q}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><path d="M12 2.2 L14.9 8.3 L21.6 9.1 L16.6 13.7 L17.9 20.4 L12 17.1 L6.1 20.4 L7.4 13.7 L2.4 9.1 L9.1 8.3 Z" fill="url(#qs${q})" stroke="${o}" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+}
+
+// ── HUD glyphs (inline SVG, 24×24) ─────────────────────────────────────────
+
+const g24 = (body: string): string => `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+
+export const ICONS: Record<string, string> = {
+  coin: g24(
+    `<circle cx="12" cy="12.8" r="8.6" fill="#b87a14"/><circle cx="12" cy="11.6" r="8.6" fill="#f7cf4a" stroke="#8a5a0a" stroke-width="1.4"/><circle cx="12" cy="11.6" r="5.8" fill="none" stroke="#dca02a" stroke-width="1.3"/><path d="M9.6 9.2 C10.4 8.4 13.6 8.4 14.2 9.6 C14.8 11 9.4 11.4 9.8 13.2 C10.2 14.8 13.6 14.8 14.4 13.8 M12 7.4 V15.8" fill="none" stroke="#9a6a0e" stroke-width="1.3"/><ellipse cx="8.8" cy="7.8" rx="2.4" ry="1.2" fill="#fff" opacity=".75" transform="rotate(-30 8.8 7.8)"/>`,
+  ),
+  sun: g24(`<g stroke="#e8a33a" stroke-width="1.8"><path d="M12 1.8v2.6M12 19.6v2.6M1.8 12h2.6M19.6 12h2.6M4.8 4.8l1.8 1.8M17.4 17.4l1.8 1.8M4.8 19.2l1.8-1.8M17.4 6.6l1.8-1.8"/></g><circle cx="12" cy="12" r="5.2" fill="#ffd166" stroke="#c97a1a" stroke-width="1.3"/><circle cx="10.4" cy="10.4" r="1.6" fill="#fff6c8"/>`),
+  rain: g24(`<path d="M6.5 14 a4 4 0 0 1 .6 -8 a5.2 5.2 0 0 1 9.8 1.4 a3.4 3.4 0 0 1 .2 6.6 Z" fill="#eef3f8" stroke="#6a7e96" stroke-width="1.3"/><g stroke="#3f86d6" stroke-width="1.9"><path d="M8.5 17l-1 3M12.5 17l-1 3M16.5 17l-1 3"/></g>`),
+  storm: g24(`<path d="M6.5 13 a4 4 0 0 1 .6 -8 a5.2 5.2 0 0 1 9.8 1.4 a3.4 3.4 0 0 1 .2 6.6 Z" fill="#aab6c6" stroke="#4e5a6a" stroke-width="1.3"/><path d="M12.5 12 l-2.6 4.6 h3.2 l-2 5" fill="none" stroke="#f5b82a" stroke-width="2.2"/>`),
+  snow: g24(`<g stroke="#5f9fd8" stroke-width="1.9"><path d="M12 2.5v19M3.8 7.2l16.4 9.6M3.8 16.8l16.4-9.6"/><path d="M9.8 3.8 12 5.6l2.2-1.8M9.8 20.2 12 18.4l2.2 1.8" fill="none"/></g><circle cx="12" cy="12" r="2.1" fill="#fff" stroke="#5f9fd8" stroke-width="1.2"/>`),
+  wind: g24(`<g fill="none" stroke="#7a9ab8" stroke-width="2"><path d="M3 9h11a3 3 0 1 0 -3 -3"/><path d="M3 14h15a3 3 0 1 1 -3 3"/><path d="M3 19h7"/></g>`),
+  moon: g24(`<path d="M15 2.8 a9.2 9.2 0 1 0 6.2 13.4 a7.2 7.2 0 0 1 -6.2 -13.4 Z" fill="#f7ebb8" stroke="#a88c40" stroke-width="1.3"/><circle cx="10" cy="14" r="1.3" fill="#e0cc88"/><circle cx="13" cy="18" r=".9" fill="#e0cc88"/>`),
+  spring: g24(`<g fill="#ffb3cf" stroke="#c8577c" stroke-width="1"><ellipse cx="12" cy="6.6" rx="3.3" ry="3.7"/><ellipse cx="17.2" cy="10.4" rx="3.3" ry="3.7" transform="rotate(72 17.2 10.4)"/><ellipse cx="15.2" cy="16.4" rx="3.3" ry="3.7" transform="rotate(144 15.2 16.4)"/><ellipse cx="8.8" cy="16.4" rx="3.3" ry="3.7" transform="rotate(216 8.8 16.4)"/><ellipse cx="6.8" cy="10.4" rx="3.3" ry="3.7" transform="rotate(288 6.8 10.4)"/></g><circle cx="12" cy="12" r="2.6" fill="#ffd166" stroke="#c97a1a" stroke-width=".9"/>`),
+  summer: g24(`<path d="M12 21 C12 15 11 11 8 8" fill="none" stroke="#3f7a2a" stroke-width="1.8"/><path d="M11 14 C7 14 5 12 4.5 9.5 C8 9.5 10 11 11 14 Z" fill="#6aae45" stroke="#2f5a1a" stroke-width="1"/><circle cx="13.5" cy="7.5" r="5.4" fill="#ffc94a" stroke="#c97a1a" stroke-width="1.3"/><circle cx="13.5" cy="7.5" r="2.4" fill="#8a4a1a"/>`),
+  fall: g24(`<path d="M12 2.5 L14 7 L18.5 5.5 L17 10 L21.5 11.5 L17.5 14 L19 18 L13.5 16.5 L12 21.5 L10.5 16.5 L5 18 L6.5 14 L2.5 11.5 L7 10 L5.5 5.5 L10 7 Z" fill="#e8742a" stroke="#8a3a10" stroke-width="1.2"/><path d="M12 21.5 V8" stroke="#8a3a10" stroke-width="1.1"/>`),
+  winter: g24(`<g stroke="#5f9fd8" stroke-width="1.9"><path d="M12 2.5v19M3.8 7.2l16.4 9.6M3.8 16.8l16.4-9.6"/><path d="M9.8 3.8 12 5.6l2.2-1.8M9.8 20.2 12 18.4l2.2 1.8M4 11 5.8 12 4 13M20 11l-1.8 1 1.8 1" fill="none"/></g>`),
+  heart: g24(`<path d="M12 21 C 5.5 15.5 2 12 2 7.8 A 4.8 4.8 0 0 1 12 5.6 A 4.8 4.8 0 0 1 22 7.8 C 22 12 18.5 15.5 12 21 Z" fill="#e8474a" stroke="#8a1a1e" stroke-width="1.5"/><ellipse cx="7.4" cy="8" rx="2.2" ry="1.4" fill="#fff" opacity=".7" transform="rotate(-30 7.4 8)"/>`),
+  bolt: g24(`<path d="M13.6 1.8 5 13.3c-.3.4 0 .9.5.9h4.8l-2 7.4c-.1.5.5.8.8.4l8.7-11.5c.3-.4 0-.9-.5-.9h-4.9l2-7.3c.2-.5-.5-.8-.8-.5z" fill="#ffd84a" stroke="#8a4a10" stroke-width="1.3"/><path d="M12.2 5 8 11" stroke="#fff6c0" stroke-width="1.4"/>`),
+  trash: g24(`<path d="M5 7 H19 L17.6 20.4 C17.5 21.3 16.8 22 15.9 22 H8.1 C7.2 22 6.5 21.3 6.4 20.4 Z" fill="#9aa6b3" stroke="#3d4650" stroke-width="1.4"/><path d="M3.5 5.5 H20.5 V8 H3.5 Z" fill="#c4ccd6" stroke="#3d4650" stroke-width="1.4"/><path d="M9.5 3 H14.5 V5.5 H9.5 Z" fill="#c4ccd6" stroke="#3d4650" stroke-width="1.2"/><path d="M9.5 10.5 V18.5 M14.5 10.5 V18.5" stroke="#5a6470" stroke-width="1.3"/>`),
+  sort: g24(`<path d="M7 4 V19 M3.5 15.5 7 19l3.5-3.5M17 20V5M13.5 8.5 17 5l3.5 3.5" fill="none" stroke="#5a3a1e" stroke-width="2.2"/>`),
+  gear: g24(`<path d="M12 2.5l1.6 2.4 2.8-.8.6 2.9 2.9.6-.8 2.8 2.4 1.6-2.4 1.6.8 2.8-2.9.6-.6 2.9-2.8-.8L12 21.5l-1.6-2.4-2.8.8-.6-2.9-2.9-.6.8-2.8L2.5 12l2.4-1.6-.8-2.8 2.9-.6.6-2.9 2.8.8z" fill="#c9a060" stroke="#5a3a1e" stroke-width="1.3"/><circle cx="12" cy="12" r="3.4" fill="#fbf0d6" stroke="#5a3a1e" stroke-width="1.3"/>`),
+  bag: g24(`<path d="M5 9 C5 6 7 5 12 5 C17 5 19 6 19 9 L20 19 C20 21 19 22 17 22 H7 C5 22 4 21 4 19 Z" fill="#c98a4a" stroke="#5a3414" stroke-width="1.4"/><path d="M8 5 C8 1.5 16 1.5 16 5" fill="none" stroke="#5a3414" stroke-width="1.6"/><path d="M4.5 12 H19.5" stroke="#8a5424" stroke-width="1.4"/><rect x="10" y="10.5" width="4" height="3.4" rx=".8" fill="#f5c542" stroke="#8a5a0a" stroke-width="1"/>`),
+  hammer: g24(`<path d="M13 9 L4 18.5 C3.4 19.2 3.6 20.2 4.3 20.7 C5 21.2 5.8 21 6.3 20.4 L15 11" fill="#c98a4a" stroke="#5a3414" stroke-width="1.4"/><path d="M10.5 6 L16 1.8 L22 7.6 L17.8 13 Z" fill="#aab4c0" stroke="#3d4650" stroke-width="1.4"/><path d="M12.2 6.2 L16 3.4" stroke="#fff" stroke-width="1.2"/>`),
+  map: g24(`<path d="M2.5 5.5 8.5 3l7 2.5 6-2.5v15.5l-6 2.5-7-2.5-6 2.5z" fill="#f3e2bc" stroke="#5a3a1e" stroke-width="1.4"/><path d="M8.5 3v15.5M15.5 5.5V21" stroke="#5a3a1e" stroke-width="1.1" opacity=".6"/><path d="M4.5 13 C7 11 9 15 12 12 C14 10 16 13 19.5 11" fill="none" stroke="#3f86d6" stroke-width="1.4"/><circle cx="12" cy="8" r="1.8" fill="#e8574a"/>`),
+  save: g24(`<path d="M4 3.5 H17 L20.5 7 V19.5 C20.5 20.3 19.8 21 19 21 H5 C4.2 21 3.5 20.3 3.5 19.5 V4 Z" fill="#6aa8e0" stroke="#24486e" stroke-width="1.4"/><rect x="7" y="3.5" width="9" height="6" fill="#eef4fa" stroke="#24486e" stroke-width="1.2"/><rect x="6.5" y="13" width="11" height="8" rx="1" fill="#fbf0d6" stroke="#24486e" stroke-width="1.2"/>`),
+  play: g24(`<path d="M7 4.5 V19.5 C7 20.3 7.9 20.8 8.6 20.3 L19.4 13 C20 12.6 20 11.4 19.4 11 L8.6 3.7 C7.9 3.2 7 3.7 7 4.5 Z" fill="#8fd05a" stroke="#2f5a1a" stroke-width="1.5"/>`),
+  door: g24(`<path d="M5 21.5 V4 C5 3 5.8 2.5 6.8 2.5 H17.2 C18.2 2.5 19 3 19 4 V21.5" fill="#b0703a" stroke="#4a2810" stroke-width="1.5"/><path d="M8 21.5 V6 H16 V21.5" fill="#d99a58" stroke="#4a2810" stroke-width="1.2"/><circle cx="14" cy="13.5" r="1.2" fill="#f5c542" stroke="#8a5a0a" stroke-width=".8"/><path d="M3 21.5 H21" stroke="#4a2810" stroke-width="1.6"/>`),
+  sprout: g24(`<path d="M12 21 V11" stroke="#3f7a2a" stroke-width="2"/><path d="M12 12 C12 7 8.5 4.5 3.5 4.8 C3.6 9.5 7 12.2 12 12 Z" fill="#8fd05a" stroke="#2f5a1a" stroke-width="1.3"/><path d="M12 14 C12 9.5 15.2 7 20.5 7.2 C20.4 11.6 17 14.2 12 14 Z" fill="#6aae45" stroke="#2f5a1a" stroke-width="1.3"/><path d="M6 21 H18" stroke="#8a5a2a" stroke-width="2.2"/>`),
+  quill: g24(`<path d="M20.5 3.5 C13 4.5 8 10 6.5 17.5 C12 15 17.5 10.5 20.5 3.5 Z" fill="#fbf0d6" stroke="#5a3a1e" stroke-width="1.3"/><path d="M6.5 17.5 L3.5 21 M9 14 C12 11 15 8 18 5.5" stroke="#5a3a1e" stroke-width="1.2"/>`),
+  question: g24(`<circle cx="12" cy="12" r="9.5" fill="#f3e2bc" stroke="#5a3a1e" stroke-width="1.4"/><path d="M9 9.2 C9 6.8 15 6.5 15 9.5 C15 11.5 12 11.8 12 14" fill="none" stroke="#5a3a1e" stroke-width="2"/><circle cx="12" cy="17.4" r="1.3" fill="#5a3a1e"/>`),
+  x: g24(`<path d="M6 6 L18 18 M18 6 L6 18" stroke="#fff" stroke-width="3" />`),
+};
+
+const HUD_KEYS = new Set(Object.keys(ICONS));
+
 export const WEATHER_ICON: Record<string, string> = { sun: 'sun', rain: 'rain', storm: 'storm', snow: 'snow', wind: 'wind' };
+
+/** Every hand-painted key (icon sheet / tests). */
+export const PAINTED_KEYS = Object.keys(HAND_PAINTERS);
+export { hueShift };

@@ -10,6 +10,8 @@ import { itemDef } from '../data/items';
 export interface Stack {
   id: string;
   qty: number;
+  /** Produce quality: 0 normal · 1 silver · 2 gold · 3 radiant (stacks only merge at equal quality). */
+  quality?: number;
 }
 
 export interface InventoryApi {
@@ -23,6 +25,15 @@ export interface InventoryApi {
   /** Removes qty from a specific slot; returns what was removed. */
   takeFromSlot(slot: number, qty?: number): Stack | null;
   count(id: string): number;
+  // ── UI hooks (backpack drag & drop, sorting, trash) ──
+  /** Replace a slot outright (null clears it). */
+  setSlot(slot: number, stack: Stack | null): void;
+  /** Move / merge / swap slot `from` onto slot `to`. */
+  move(from: number, to: number): void;
+  /** Sort the backpack rows (slots 10+) by kind, then name; merges partial stacks. */
+  sort(): void;
+  /** Max stack size for an item. */
+  stackMax(id: string): number;
 }
 
 declare module '../core/game' {
@@ -135,6 +146,58 @@ export class InventorySystem implements System, InventoryApi {
     if (s.qty <= 0) this.slots[slot] = null;
     this.changed();
     return { id: s.id, qty: n };
+  }
+
+  setSlot(slot: number, stack: Stack | null): void {
+    if (slot < 0 || slot >= SIZE) return;
+    this.slots[slot] = stack && stack.qty > 0 ? { ...stack } : null;
+    this.changed();
+  }
+
+  stackMax(id: string): number {
+    return itemDef(id)?.stack ?? 999;
+  }
+
+  move(from: number, to: number): void {
+    if (from === to || from < 0 || to < 0 || from >= SIZE || to >= SIZE) return;
+    const a = this.slots[from];
+    const b = this.slots[to];
+    if (!a) return;
+    if (b && b.id === a.id && (b.quality ?? 0) === (a.quality ?? 0)) {
+      const n = Math.min(a.qty, this.stackMax(a.id) - b.qty);
+      b.qty += n;
+      a.qty -= n;
+      if (a.qty <= 0) this.slots[from] = null;
+    } else {
+      this.slots[from] = b;
+      this.slots[to] = a;
+    }
+    this.changed();
+  }
+
+  sort(): void {
+    const ORDER: Record<string, number> = { tool: 0, seed: 1, produce: 2, fish: 3, forage: 4, resource: 5, placeable: 6 };
+    const items = this.slots.slice(10).filter((s): s is Stack => !!s);
+    const merged: Stack[] = [];
+    for (const s of items) {
+      let left = s.qty;
+      for (const m of merged) {
+        if (left <= 0) break;
+        if (m.id === s.id && (m.quality ?? 0) === (s.quality ?? 0) && m.qty < this.stackMax(m.id)) {
+          const n = Math.min(left, this.stackMax(m.id) - m.qty);
+          m.qty += n;
+          left -= n;
+        }
+      }
+      if (left > 0) merged.push({ ...s, qty: left });
+    }
+    merged.sort((x, y) => {
+      const dx = itemDef(x.id);
+      const dy = itemDef(y.id);
+      return (ORDER[dx?.kind ?? ''] ?? 9) - (ORDER[dy?.kind ?? ''] ?? 9) || (dx?.name ?? x.id).localeCompare(dy?.name ?? y.id) || (y.quality ?? 0) - (x.quality ?? 0);
+    });
+    for (let i = 10; i < SIZE; i++) this.slots[i] = merged[i - 10] ?? null;
+    this.changed();
   }
 
   count(id: string): number {

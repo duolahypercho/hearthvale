@@ -38,7 +38,7 @@ export interface GameEvents {
 
   'gold:change': { gold: number; delta: number };
   'energy:change': { energy: number; max: number };
-  'item:give': { itemId: string; qty: number };
+  'item:give': { itemId: string; qty: number; /** Produce quality 0..3 (farming harvests). */ quality?: number };
   'crops:grow': { days: number };
 
   'map:change': { map: string; prev: string | null };

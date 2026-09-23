@@ -1,20 +1,34 @@
 /**
- * RelationshipSystem: friendship with the villagers (points → hearts, 250 points per heart),
- * daily talk bonus, gifts (loved / liked / neutral / disliked by gift tastes, birthday ×8).
- * NpcSystem only stages villagers and conversations; it reads hearts / talk counts from here.
- *   in:  npc:talk, day:start · out: relationship:change, npc:gift
+ * RelationshipSystem: friendship with the villagers (points → hearts, 250 points per heart,
+ * 10 hearts max), daily talk bonus, gifts by taste (data/npcs.ts `gifts`: loved / liked / disliked,
+ * everything else neutral; birthday ×8, one gift per day, two per week), dialogue-choice deltas
+ * and heart-event rewards, birthday announcements.
+ * NpcSystem stages villagers and conversations; it reads hearts / talk counts from here.
+ *   in:  npc:talk, npc:choice, day:start · out: relationship:change, npc:gift, npc:birthday
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { NPCS, NPC_IDS } from '../data/npcs';
+import { NPCS, NPC_IDS, type NpcId } from '../data/npcs';
 import { itemDef } from '../data/items';
+
+export type GiftReaction = 'love' | 'like' | 'neutral' | 'dislike';
 
 export interface RelationshipApi {
   points(npcId: string): number;
   hearts(npcId: string): number;
   talks(npcId: string): number;
-  /** Give the selected item; returns the reaction or null if not allowed today. */
-  gift(npcId: string, itemId: string): 'love' | 'like' | 'neutral' | 'dislike' | null;
+  talkedToday(npcId: string): boolean;
+  giftedToday(npcId: string): boolean;
+  giftsThisWeek(npcId: string): number;
+  /** Would a gift of this item be accepted right now? (reason when not) */
+  canGift(npcId: string, itemId: string): { ok: boolean; reason?: 'tool' | 'today' | 'week' | 'unknown' };
+  /** Give the item; returns the reaction or null if not allowed today. */
+  gift(npcId: string, itemId: string): GiftReaction | null;
+  /** Taste lookup without giving. */
+  taste(npcId: string, itemId: string): GiftReaction;
+  isBirthday(npcId: string): boolean;
+  /** Add (or remove) friendship points (dialogue choices, heart events). */
+  adjust(npcId: string, delta: number): void;
 }
 
 declare module '../core/game' {
@@ -27,23 +41,23 @@ declare module '../core/events' {
   interface GameEvents {
     'relationship:change': { npcId: string; points: number; hearts: number; delta: number };
     'npc:gift': { npcId: string; itemId: string; reaction: 'love' | 'like' | 'neutral' | 'dislike' };
+    /** A dialogue choice changed friendship. */
+    'npc:choice': { npcId: string; delta: number };
+    /** Morning announcement: it's this villager's birthday. */
+    'npc:birthday': { npcId: string };
   }
 }
 
-const PER_HEART = 250;
+export const PER_HEART = 250;
 const TALK_POINTS = 20;
-/** Gift tastes (TODO(relationships team): move into data/npcs.ts per villager). */
-const TASTES: Record<string, { love: string[]; like: string[]; dislike: string[] }> = {
-  marigold: { love: ['strawberry', 'sunflower'], like: ['parsnip', 'potato'], dislike: ['stone'] },
-  bram: { love: ['pumpkin', 'corn'], like: ['tomato', 'potato'], dislike: ['fiber'] },
-  wren: { love: ['cauliflower', 'sunflower'], like: ['strawberry'], dislike: ['wood'] },
-};
+const BASE: Record<GiftReaction, number> = { love: 80, like: 45, neutral: 20, dislike: -20 };
 
 interface Friend {
   points: number;
   talks: number;
   talkedToday: boolean;
   giftedToday: boolean;
+  giftsWeek: number;
 }
 
 export class RelationshipSystem implements System, RelationshipApi {
@@ -53,7 +67,7 @@ export class RelationshipSystem implements System, RelationshipApi {
 
   init(game: Game): void {
     this.game = game;
-    for (const id of NPC_IDS) this.friends[id] = { points: 0, talks: 0, talkedToday: false, giftedToday: false };
+    for (const id of NPC_IDS) this.friends[id] = { points: 0, talks: 0, talkedToday: false, giftedToday: false, giftsWeek: 0 };
     game.provide('relationships', this);
     game.events.on('npc:talk', ({ id }) => {
       const f = this.friends[id];
@@ -64,18 +78,27 @@ export class RelationshipSystem implements System, RelationshipApi {
         this.addPoints(id, TALK_POINTS);
       }
     });
+    game.events.on('npc:choice', ({ npcId, delta }) => this.adjust(npcId, delta));
     game.events.on('day:start', () => {
+      const newWeek = (this.game.calendar.day - 1) % 7 === 0;
       for (const f of Object.values(this.friends)) {
         f.talkedToday = false;
         f.giftedToday = false;
+        if (newWeek) f.giftsWeek = 0;
       }
+      for (const id of NPC_IDS) if (this.isBirthday(id)) this.game.events.emit('npc:birthday', { npcId: id });
     });
   }
 
   private addPoints(id: string, delta: number): void {
-    const f = this.friends[id]!;
+    const f = this.friends[id];
+    if (!f) return;
     f.points = Math.max(0, Math.min(PER_HEART * 10, f.points + delta));
     this.game.events.emit('relationship:change', { npcId: id, points: f.points, hearts: this.hearts(id), delta });
+  }
+
+  adjust(id: string, delta: number): void {
+    if (delta) this.addPoints(id, delta);
   }
 
   points(id: string): number {
@@ -90,19 +113,48 @@ export class RelationshipSystem implements System, RelationshipApi {
     return this.friends[id]?.talks ?? 0;
   }
 
-  gift(id: string, itemId: string): 'love' | 'like' | 'neutral' | 'dislike' | null {
+  talkedToday(id: string): boolean {
+    return this.friends[id]?.talkedToday ?? false;
+  }
+
+  giftedToday(id: string): boolean {
+    return this.friends[id]?.giftedToday ?? false;
+  }
+
+  giftsThisWeek(id: string): number {
+    return this.friends[id]?.giftsWeek ?? 0;
+  }
+
+  isBirthday(id: string): boolean {
+    const b = NPCS[id as NpcId]?.birthday;
+    const c = this.game.calendar;
+    return !!b && b.season === c.season && b.day === c.day;
+  }
+
+  taste(id: string, itemId: string): GiftReaction {
+    const t = NPCS[id as NpcId]?.gifts ?? { love: [], like: [], dislike: [] };
+    return t.love.includes(itemId) ? 'love' : t.like.includes(itemId) ? 'like' : t.dislike.includes(itemId) ? 'dislike' : 'neutral';
+  }
+
+  canGift(id: string, itemId: string): { ok: boolean; reason?: 'tool' | 'today' | 'week' | 'unknown' } {
     const f = this.friends[id];
     const def = itemDef(itemId);
-    if (!f || !def || def.kind === 'tool' || f.giftedToday) return null;
-    const t = TASTES[id] ?? { love: [], like: [], dislike: [] };
-    const reaction = t.love.includes(itemId) ? 'love' : t.like.includes(itemId) ? 'like' : t.dislike.includes(itemId) ? 'dislike' : 'neutral';
-    const c = this.game.calendar;
-    const bday = NPCS[id as keyof typeof NPCS]?.birthday;
-    const mult = bday && bday.season === c.season && bday.day === c.day ? 8 : 1;
-    const base = { love: 80, like: 45, neutral: 20, dislike: -20 }[reaction];
+    if (!f || !def) return { ok: false, reason: 'unknown' };
+    if (def.kind === 'tool') return { ok: false, reason: 'tool' };
+    if (f.giftedToday) return { ok: false, reason: 'today' };
+    if (f.giftsWeek >= 2 && !this.isBirthday(id)) return { ok: false, reason: 'week' };
+    return { ok: true };
+  }
+
+  gift(id: string, itemId: string): GiftReaction | null {
+    if (!this.canGift(id, itemId).ok) return null;
+    const f = this.friends[id]!;
+    const reaction = this.taste(id, itemId);
+    const mult = this.isBirthday(id) ? 8 : 1;
     f.giftedToday = true;
+    f.giftsWeek++;
     this.game.services.inventory?.remove(itemId, 1);
-    this.addPoints(id, base * mult);
+    this.addPoints(id, BASE[reaction] * mult);
     this.game.events.emit('npc:gift', { npcId: id, itemId, reaction });
     return reaction;
   }
@@ -113,6 +165,6 @@ export class RelationshipSystem implements System, RelationshipApi {
 
   load(data: unknown): void {
     const d = data as { friends?: Record<string, Friend> };
-    if (d?.friends) for (const [k, v] of Object.entries(d.friends)) this.friends[k] = { ...this.friends[k]!, ...v };
+    if (d?.friends) for (const [k, v] of Object.entries(d.friends)) this.friends[k] = { ...(this.friends[k] ?? { points: 0, talks: 0, talkedToday: false, giftedToday: false, giftsWeek: 0 }), ...v };
   }
 }

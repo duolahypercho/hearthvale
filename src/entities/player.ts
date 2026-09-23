@@ -14,6 +14,26 @@ import { Rng } from '../core/rng';
 
 type AnimState = 'idle' | 'walk' | 'swing';
 
+/** Rig groups exposed to action-pose drivers (tool feel: systems/farming → entities/farmer-actions). */
+export interface PlayerRig {
+  body: THREE.Group;
+  hips: THREE.Group;
+  torso: THREE.Group;
+  head: THREE.Group;
+  armL: THREE.Group;
+  armR: THREE.Group;
+  legL: THREE.Group;
+  legR: THREE.Group;
+  /** Hand prop socket on the right arm (swap its children for the held tool). */
+  tool: THREE.Group;
+}
+
+/** Returned by an action-pose driver: overrides for the body squash / bob this frame. */
+export interface ActionPose {
+  sy?: number;
+  bob?: number;
+}
+
 // Original palette: oatmeal shirt, sage overalls, terracotta neckerchief, slate hat band.
 const SKIN = 0xecb48e;
 const HAIR = 0x8a4a2a;
@@ -76,6 +96,13 @@ export class Player {
   private lastTile = { x: -999, z: -999 };
   /** When false, input is ignored (cutscenes, menus). */
   controllable = true;
+  /** Movement locked by a tool action (anticipation → impact → recovery). */
+  busy = false;
+  /**
+   * Tool-feel hook: while it returns a pose it owns the arms / torso / held tool (the built-in
+   * swing is cancelled). Installed by the farming system.
+   */
+  actionPose: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
 
   // Rig
   private body = new THREE.Group();
@@ -276,6 +303,10 @@ export class Player {
     });
   }
 
+  get rig(): PlayerRig {
+    return { body: this.body, hips: this.hips, torso: this.torso, head: this.head, armL: this.armL, armR: this.armR, legL: this.legL, legR: this.legR, tool: this.tool };
+  }
+
   /** Place at world coords (snaps height to ground). */
   teleport(x: number, z: number): void {
     this.position.set(x, this.game.world.heightAt(x, z), z);
@@ -328,7 +359,7 @@ export class Player {
 
   fixedUpdate(dt: number): void {
     const input = this.game.input;
-    const canMove = this.controllable && this.swingT < 0;
+    const canMove = this.controllable && this.swingT < 0 && !this.busy;
     let mx = 0;
     let mz = 0;
     if (canMove) {
@@ -452,6 +483,14 @@ export class Player {
       this.hips.rotation.z = 0;
       this.hips.position.x = 0;
       this.lookYaw = 0;
+    }
+
+    const ap = this.actionPose?.(this.rig, dt) ?? null;
+    if (ap) {
+      this.swingT = -1;
+      if (this.state === 'swing') this.state = 'idle';
+      if (ap.sy !== undefined) sy = ap.sy;
+      if (ap.bob !== undefined) bob = ap.bob;
     }
 
     if (this.state === 'swing') {

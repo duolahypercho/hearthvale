@@ -24,6 +24,8 @@ export interface DemoDef {
 const HOME_CAM = { yaw: -16, pitch: 45, distance: 27, offsetX: -1.6, offsetZ: -2.6 };
 /** Town square framing: plaza + fountain in front, Lantern Hall and shop fronts behind. */
 const TOWN_CAM = { yaw: 0, pitch: 43, distance: 37, offsetX: -2.9, offsetZ: -7.6 };
+/** Cindergrove: the waterfall, plunge pool and flanking elders, player on the pool path. */
+const FOREST_FALLS_CAM = { yaw: -4, pitch: 44, distance: 26, offsetX: -6.8, offsetZ: -3.6 };
 /** Festival: same framing as TOWN_CAM, but the player stands in the ring east of the maypole. */
 const FESTIVAL_CAM = { ...TOWN_CAM, offsetX: -3.35, offsetZ: -10.3 };
 
@@ -37,6 +39,14 @@ export const DEMOS: Record<string, DemoDef> = {
   'farm-rain': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 14, season: 'spring', weather: 'rain', camera: HOME_CAM },
   'farm-pond': { map: 'farm', x: 21.5, z: 40.5, facing: 'left', time: 17.8, season: 'summer', weather: 'sun', camera: { yaw: 12, pitch: 47, distance: 22, offsetX: -4.5, offsetZ: -3.2 } },
   'farm-field': { map: 'farm', x: 26, z: 24.8, facing: 'up', time: 9, season: 'spring', weather: 'sun', camera: { yaw: -5, pitch: 48, distance: 20, offsetZ: -2 } },
+  // Farming pod: hero harvest field (URL: &season=fall|spring, &act=harvest|hoe|wateringCan|scythe),
+  // tool feel stills (&tool=hoe|wateringCan|scythe|axe|pickaxe|charge|harvest|sow, &tier=0-3,
+  // &pose=<seconds> to freeze, -1 = live; &loop=<tool> repeats the action), giant crops, crows.
+  'farm-harvest': { map: 'farm', x: 23.5, z: 29.2, facing: 'up', time: 8.4, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 21.5, offsetX: -1.2, offsetZ: -4.6 }, showcase: ['harvest'] },
+  'farm-tools': { map: 'farm', x: 28.5, z: 24.45, facing: 'up', time: 9.6, season: 'spring', weather: 'sun', camera: { yaw: -14, pitch: 40, distance: 11.5, offsetX: -0.6, offsetZ: -0.9 }, showcase: ['tools'] },
+  'farm-giant': { map: 'farm', x: 21.2, z: 29.4, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: 10, pitch: 44, distance: 14, offsetX: -2.4, offsetZ: -2.4 }, showcase: ['giant'] },
+  'farm-crops': { map: 'farm', x: 28.6, z: 27.2, facing: 'left', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 11, offsetX: -4.6, offsetZ: -5.2 }, showcase: ['gallery'] },
+  'farm-crows': { map: 'farm', x: 33.5, z: 25.5, facing: 'left', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: -5, pitch: 46, distance: 19, offsetX: -6.5, offsetZ: -3.5 }, showcase: ['crows'] },
   // Town square (plaza, Lantern Hall, villagers).
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 18.6, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
@@ -45,7 +55,26 @@ export const DEMOS: Record<string, DemoDef> = {
   title: { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
   // DESIGN.md names — fall back to the farm until those maps exist.
   'beach-sunset': { map: 'beach', x: 20, z: 20, facing: 'down', time: 19.4, season: 'summer', weather: 'sun' },
-  'forest-rain': { map: 'forest', x: 20, z: 20, facing: 'down', time: 13, season: 'spring', weather: 'rain' },
+  // Cindergrove forest + weather showcases (world/forest, systems/weather). 'fog-morning' / 'rainbow'
+  // also switch on the matching atmosphere (the weather system keys off the demo name).
+  'forest-day': { map: 'forest', x: 19.4, z: 26.6, facing: 'up', time: 10.4, season: 'summer', weather: 'sun', camera: FOREST_FALLS_CAM },
+  'forest-rain': { map: 'forest', x: 35.2, z: 32.6, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
+  'forest-fall': { map: 'forest', x: 46.8, z: 22.6, facing: 'right', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 24, offsetX: 3.2, offsetZ: -3.4 } },
+  'forest-night': { map: 'forest', x: 46.8, z: 22.6, facing: 'right', time: 22.2, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 24, offsetX: 3.2, offsetZ: -3.4 } },
+  storm: { map: 'forest', x: 22.4, z: 25.2, facing: 'left', time: 15.5, season: 'summer', weather: 'storm', camera: FOREST_FALLS_CAM },
+  'snow-day': { map: 'forest', x: 19.4, z: 26.6, facing: 'up', time: 11, season: 'winter', weather: 'snow', camera: FOREST_FALLS_CAM },
+  'fog-morning': { map: 'forest', x: 33.6, z: 25.4, facing: 'down', time: 6.7, season: 'spring', weather: 'sun', camera: { yaw: 4, pitch: 44, distance: 26, offsetX: -1.5, offsetZ: -3.5 } },
+  rainbow: { map: 'forest', x: 35.2, z: 32.6, facing: 'up', time: 16.2, season: 'spring', weather: 'sun', camera: { yaw: 8, pitch: 46, distance: 26, offsetX: 1.2, offsetZ: -2 } },
+  'farm-storm': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 15, season: 'summer', weather: 'storm', camera: HOME_CAM },
+  'farm-wind': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'wind', camera: HOME_CAM },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
+  // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
+  'house-interior': { map: 'house', x: 7.6, z: 4.9, facing: 'left', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 7.3, z: 3.9, facing: 'up', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
+  'coop-interior': { map: 'coop', x: 4.5, z: 5.4, facing: 'up', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 12.5, offsetZ: 0.3 }, showcase: ['animals'] },
+  'barn-interior': { map: 'barn', x: 6.5, z: 7.2, facing: 'up', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 16.5, offsetZ: 0.3 }, showcase: ['animals'] },
+  'animals-pasture': { map: 'farm', x: 41.5, z: 39.6, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
   mine: { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun' },
+  // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
+  'fest-spring': { map: 'fest-spring', x: 29.2, z: 35.2, facing: 'up', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 33, offsetX: 2.8, offsetZ: -8.6 }, showcase: ['festival-show'] },
 };

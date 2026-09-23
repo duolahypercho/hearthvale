@@ -241,7 +241,9 @@ export class SoilBeds {
   readonly group = new THREE.Group();
   readonly pool = new BatchPool('soil');
   private sets = new Map<string, InstancedSet>();
-  private tiles = new Map<string, { set: InstancedSet; id: number; husk?: { set: InstancedSet; id: number } }>();
+  private tiles = new Map<string, { set: InstancedSet; id: number; y: number; husk?: { set: InstancedSet; id: number } }>();
+  private anims = new Map<string, { t: number; x: number; z: number; y: number }>();
+  private wetFade = new Map<number, number>();
   private huskSets: InstancedSet[] = [];
   private wetData: Uint8Array;
   private wetTex: THREE.DataTexture;
@@ -269,19 +271,30 @@ export class SoilBeds {
     return s;
   }
 
-  /** Mark a tile watered / dry in the wetness mask (visual only). */
-  setWet(x: number, z: number, wet: boolean): void {
+  /**
+   * Mark a tile watered / dry in the wetness mask (visual only). `fade` darkens / dries the soil
+   * smoothly over ~0.7 s (watering), otherwise it snaps (loading, staging).
+   */
+  setWet(x: number, z: number, wet: boolean, fade = false): void {
     if (x < 0 || z < 0 || x >= this.width || z >= this.depth) return;
     const v = wet ? 255 : 0;
     const i = z * this.width + x;
+    if (fade) {
+      if (this.wetData[i] !== v) this.wetFade.set(i, v);
+      return;
+    }
+    this.wetFade.delete(i);
     if (this.wetData[i] === v) return;
     this.wetData[i] = v;
     this.wetTex.needsUpdate = true;
   }
 
-  set(x: number, z: number, y: number, opts: { wet: boolean; mask: number }): void {
-    this.clear(x, z);
-    this.setWet(x, z, opts.wet);
+  set(x: number, z: number, y: number, opts: { wet: boolean; mask: number; animate?: boolean }): void {
+    const k = `${x},${z}`;
+    const prev = this.tiles.get(k);
+    const wasWet = this.wetData[z * this.width + x]! > 0 || this.wetFade.has(z * this.width + x);
+    this.clear(x, z, true);
+    if (!this.wetFade.has(z * this.width + x) || !opts.wet) this.setWet(x, z, opts.wet, opts.wet && wasWet);
     const h = (x * 73856093) ^ (z * 19349663);
     const variant = Math.abs(h) % 3;
     const set = this.setFor(opts.mask, variant);
@@ -295,16 +308,53 @@ export class SoilBeds {
       const hm = new THREE.Matrix4().compose(new THREE.Vector3(x + 0.5, y + SOIL_LIFT + 0.02, z + 0.5), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (Math.abs(h >> 5) % 628) / 100), new THREE.Vector3(1, 1, 1));
       husk = { set: hs, id: hs.add(hm) };
     }
-    this.tiles.set(`${x},${z}`, { set, id: set.add(m, c), husk });
+    const tile = { set, id: set.add(m, c), husk, y };
+    this.tiles.set(k, tile);
+    // Freshly hoed: the pad heaves up out of the ground with a little overshoot.
+    if (opts.animate) this.anims.set(k, { t: 0, x, z, y });
+    else if (prev && this.anims.has(k)) this.anims.set(k, { ...this.anims.get(k)!, y });
   }
 
-  clear(x: number, z: number): void {
-    this.setWet(x, z, false);
+  clear(x: number, z: number, keepWet = false): void {
+    if (!keepWet) this.setWet(x, z, false);
     const t = this.tiles.get(`${x},${z}`);
     if (!t) return;
     t.set.remove(t.id);
     if (t.husk) t.husk.set.remove(t.husk.id);
     this.tiles.delete(`${x},${z}`);
+  }
+
+  /** Animate till heaves + wetness fades. Call every frame. */
+  tick(dt: number): void {
+    if (this.wetFade.size) {
+      const step = Math.max(1, Math.round(dt * 255 * 1.5));
+      for (const [i, target] of this.wetFade) {
+        const cur = this.wetData[i]!;
+        const nv = target > cur ? Math.min(target, cur + step) : Math.max(target, cur - step);
+        this.wetData[i] = nv;
+        if (nv === target) this.wetFade.delete(i);
+      }
+      this.wetTex.needsUpdate = true;
+    }
+    if (!this.anims.size) return;
+    const m = new THREE.Matrix4();
+    for (const [k, a] of this.anims) {
+      a.t += dt;
+      const t = Math.min(1, a.t / 0.32);
+      // Rise with an overshoot (easeOutBack), plus a sideways squash that settles.
+      const c1 = 2.2;
+      const e = 1 + (c1 + 1) * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+      const sy = Math.max(0.05, e);
+      const sxz = 1 + (1 - t) * 0.06 * Math.sin(t * Math.PI);
+      const tile = this.tiles.get(k);
+      if (!tile) {
+        this.anims.delete(k);
+        continue;
+      }
+      m.makeScale(sxz, sy, sxz).setPosition(a.x + 0.5, tile.y + SOIL_LIFT - (1 - Math.min(1, e)) * 0.02, a.z + 0.5);
+      tile.set.setMatrix(tile.id, m);
+      if (t >= 1) this.anims.delete(k);
+    }
   }
 
   has(x: number, z: number): boolean {

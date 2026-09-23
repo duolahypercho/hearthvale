@@ -1,0 +1,591 @@
+/* ═══════════════════════ Story UI: cinema, letters, journal, bundles, board ═══════════════════════ */
+:root {
+  --hand: 'Caveat', 'Segoe Script', 'Bradley Hand', cursive;
+  --serif: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+}
+
+/* ── Cinema layer ─────────────────────────────────────────────── */
+.hv-cinema-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+}
+.hv-cinema-layer .cin-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  background: #07040a;
+  transition: height 900ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.hv-cinema-layer .cin-bar.top {
+  top: 0;
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.35);
+}
+.hv-cinema-layer .cin-bar.bot {
+  bottom: 0;
+  box-shadow: 0 -6px 30px rgba(0, 0, 0, 0.35);
+}
+.hv-cinema-layer.boxed .cin-bar {
+  height: 10.5vh;
+}
+.hv-cinema-layer.instant .cin-bar,
+.hv-cinema-layer.instant .cin-fade {
+  transition: none !important;
+}
+.hv-cinema-layer .cin-fade {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 120% at 50% 50%, #140c08, #050305);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.hv-cinema-layer .cin-fade.on {
+  opacity: 1;
+}
+/* Hide the gameplay HUD during scenes. */
+#ui-root .hv-cinema > .hv-panel,
+#ui-root .hv-cinema .hv-story-badge {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 300ms;
+}
+
+/* Title caption */
+.cin-caption {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #fff4dc;
+  opacity: 0;
+  width: min(1100px, 90vw);
+  z-index: 3;
+}
+.cin-caption .cap-orn {
+  font-size: 22px;
+  color: #f5c542;
+  text-shadow: 0 0 18px rgba(255, 200, 90, 0.8);
+  margin-bottom: 6px;
+}
+.cin-caption .cap-text {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-style: italic;
+  font-size: clamp(34px, 3.6vw, 60px);
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 0 rgba(60, 25, 5, 0.6), 0 0 40px rgba(0, 0, 0, 0.55), 0 0 90px rgba(255, 170, 80, 0.25);
+}
+.cin-caption .cap-sub {
+  margin-top: 14px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: clamp(16px, 1.25vw, 21px);
+  color: rgba(255, 236, 205, 0.88);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+  letter-spacing: 0.02em;
+}
+.cin-caption .cap-sub:empty {
+  display: none;
+}
+.cin-caption::before,
+.cin-caption::after {
+  content: '';
+  position: absolute;
+  top: 34px;
+  width: 16%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 220, 160, 0.7), transparent);
+}
+.cin-caption::before {
+  left: 18%;
+}
+.cin-caption::after {
+  right: 18%;
+}
+.cin-caption.show {
+  animation: capInOut var(--dur, 3s) ease both;
+}
+.cin-caption.hold {
+  animation: capIn 900ms ease both;
+}
+@keyframes capInOut {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -44%);
+    filter: blur(6px);
+  }
+  18%,
+  80% {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -54%);
+    filter: blur(4px);
+  }
+}
+@keyframes capIn {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+/* Cinematic dialogue box */
+.cin-dlg {
+  position: absolute;
+  left: 50%;
+  bottom: calc(10.5vh - 26px);
+  transform: translateX(-50%);
+  width: min(1180px, calc(100vw - 80px));
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  z-index: 2;
+}
+.cin-dlg.pop {
+  animation: cinPop 260ms var(--ease-back) both;
+}
+@keyframes cinPop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 18px) scale(0.98);
+  }
+}
+.cin-dlg .cin-portrait {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  width: 210px;
+  height: 210px;
+  margin-right: -46px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #f6e2bc;
+  box-shadow: 0 0 0 6px var(--wood-2), 0 0 0 10px var(--wood-hi), 0 0 0 13px var(--wood-3), 0 16px 30px rgba(20, 8, 2, 0.55);
+}
+.cin-dlg .cin-portrait svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  transform: scale(1.08) translateY(4px);
+  animation: hvTalk 2.6s ease-in-out infinite;
+}
+.cin-dlg.narrator .cin-portrait {
+  display: none;
+}
+.cin-dlg .cin-box {
+  flex: 1;
+}
+.cin-dlg .cin-box .hv-inner {
+  position: relative;
+  min-height: 150px;
+  box-sizing: border-box;
+  padding: 36px 44px 28px 78px;
+  background:
+    repeating-linear-gradient(0deg, rgba(150, 100, 50, 0.07) 0 1px, transparent 1px 34px) 0 16px,
+    radial-gradient(120% 90% at 50% 20%, var(--parch-1), var(--parch-2));
+}
+.cin-dlg.narrator .cin-box .hv-inner {
+  padding-left: 44px;
+  text-align: center;
+}
+.cin-nameplate {
+  position: absolute;
+  top: -22px;
+  left: 56px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 3px 20px 5px;
+  background: linear-gradient(180deg, var(--wood-1), var(--wood-2));
+  border: 2px solid var(--wood-3);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.cin-dlg.narrator .cin-nameplate {
+  display: none;
+}
+.cin-name {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 25px;
+  color: #fff;
+  text-shadow: 0 2px 0 var(--wood-3);
+}
+.cin-role {
+  font-size: 13px;
+  font-weight: 800;
+  color: #ffe6bf;
+  opacity: 0.9;
+}
+.cin-text {
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 25px;
+  line-height: 35px;
+  color: #4a2c14;
+  text-wrap: pretty;
+}
+.cin-next {
+  position: absolute;
+  right: 22px;
+  bottom: 12px;
+  width: 26px;
+  animation: hvBob 0.8s ease-in-out infinite alternate;
+}
+
+/* Choice cards */
+.cin-choices {
+  position: absolute;
+  right: max(40px, calc(50vw - 590px));
+  bottom: calc(10.5vh + 170px);
+  display: grid;
+  gap: 12px;
+  pointer-events: auto;
+  z-index: 3;
+}
+.cin-choice {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  min-width: 330px;
+  padding: 12px 26px 13px 22px;
+  border-radius: 14px;
+  background: radial-gradient(120% 120% at 20% 10%, #fffaf0, #f1dcad);
+  border: 3px solid var(--wood-2);
+  box-shadow: 0 5px 0 var(--wood-3), 0 12px 24px rgba(20, 8, 2, 0.45);
+  animation: choiceIn 320ms var(--ease-back) both;
+  animation-delay: var(--d);
+  transition: transform 140ms var(--ease-back), box-shadow 140ms;
+}
+.cin-choice:hover {
+  transform: translateX(-8px) scale(1.02);
+  box-shadow: 0 5px 0 var(--wood-3), 0 0 0 4px rgba(255, 210, 120, 0.9), 0 14px 26px rgba(20, 8, 2, 0.5);
+}
+.cin-choice .lbl {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 23px;
+  color: #5a2e12;
+}
+.cin-choice .lbl::before {
+  content: '❖ ';
+  color: #c8873a;
+}
+.cin-choice .hint {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+@keyframes choiceIn {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+}
+.cin-skip {
+  position: absolute;
+  right: 28px;
+  top: calc(10.5vh + 14px);
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(10, 5, 2, 0.55);
+  color: #fff0d8;
+  font-weight: 800;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 200ms;
+}
+.cin-skip.show {
+  opacity: 1;
+}
+
+/* ── Letters ──────────────────────────────────────────────────── */
+.hv-letter-reader {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 45;
+}
+.hv-letter-reader .lt-backdrop {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(70% 80% at 50% 50%, rgba(40, 20, 8, 0.25), rgba(12, 6, 3, 0.72));
+  animation: ltFade 500ms ease both;
+}
+.hv-letter-reader.closing .lt-backdrop {
+  animation: ltFade 260ms ease reverse both;
+}
+@keyframes ltFade {
+  from {
+    opacity: 0;
+  }
+}
+.lt-sheet {
+  position: relative;
+  width: min(680px, 88vw);
+  max-height: 86vh;
+  box-sizing: border-box;
+  padding: 58px 64px 50px;
+  color: #3e2410;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.5;
+  transform-origin: 50% 0;
+  transform: rotate(-1deg);
+}
+.lt-sheet.unfold {
+  animation: ltUnfold 700ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+.hv-letter-reader.closing .lt-sheet {
+  animation: ltAway 260ms ease-in both;
+}
+@keyframes ltUnfold {
+  0% {
+    opacity: 0;
+    transform: perspective(1400px) translateY(60px) rotateX(-70deg) rotate(-3deg) scale(0.9);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: perspective(1400px) translateY(0) rotateX(0) rotate(-1deg) scale(1);
+  }
+}
+@keyframes ltAway {
+  to {
+    opacity: 0;
+    transform: translateY(40px) rotate(2deg) scale(0.94);
+  }
+}
+.lt-sheet p {
+  margin: 0 0 0.62em;
+  text-wrap: pretty;
+}
+.lt-greet {
+  font-family: var(--hand);
+  font-weight: 700;
+  font-size: 40px;
+  line-height: 1.1;
+  color: #5a2a10;
+  margin-bottom: 14px;
+}
+.lt-sign {
+  margin-top: 10px;
+  text-align: right;
+  font-family: var(--hand);
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.12;
+  color: #5a2a10;
+}
+.lt-ps {
+  margin-top: 14px;
+  font-family: var(--hand);
+  font-weight: 500;
+  font-size: 26px;
+  line-height: 1.15;
+  color: #6a3a1a;
+  transform: rotate(-1.5deg);
+}
+.lt-sealed {
+  text-align: center;
+  font-style: italic;
+  font-size: 17px;
+  color: #8a5a30;
+  letter-spacing: 0.04em;
+  margin: -24px 0 18px;
+}
+.lt-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 6px 16px 6px 8px;
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 16px;
+  color: #5a3a1e;
+  background: #f6e6c4;
+  border: 2px dashed #b8905a;
+  border-radius: 10px;
+}
+.lt-attach .tag {
+  padding: 2px 10px;
+  border-radius: 7px;
+  background: #c8573e;
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.hv-letter-reader .lt-hint {
+  position: absolute;
+  bottom: 5vh;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 240, 220, 0.75);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+  animation: ltFade 1.2s 1s ease both;
+}
+.hv-letter-reader.closing .lt-hint {
+  display: none;
+}
+
+/* Gran: cream laid paper, deckled shadow, violet, stamp, wax seal */
+.paper-gran {
+  background:
+    repeating-linear-gradient(90deg, rgba(160, 120, 70, 0.045) 0 1px, transparent 1px 7px),
+    radial-gradient(140% 100% at 20% 0%, #fffaf0 0%, #f8ecd2 55%, #efd9b0 100%);
+  border-radius: 3px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 0 60px rgba(170, 110, 50, 0.28) inset,
+    0 30px 60px rgba(10, 4, 0, 0.55),
+    0 8px 18px rgba(10, 4, 0, 0.35);
+}
+.paper-gran::after {
+  /* a soft fold line across the middle */
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 48%;
+  height: 26px;
+  background: linear-gradient(180deg, transparent, rgba(120, 80, 40, 0.07) 48%, rgba(255, 255, 255, 0.25) 52%, transparent);
+  pointer-events: none;
+}
+.lt-flower {
+  position: absolute;
+  left: -34px;
+  bottom: 40px;
+  width: 104px;
+  transform: rotate(-18deg);
+  filter: drop-shadow(0 2px 2px rgba(80, 40, 10, 0.25)) saturate(0.85);
+  opacity: 0.92;
+}
+.lt-stamp {
+  position: absolute;
+  right: 30px;
+  top: 26px;
+  width: 64px;
+  transform: rotate(5deg);
+  filter: drop-shadow(0 2px 3px rgba(80, 40, 10, 0.3));
+}
+.lt-seal {
+  position: absolute;
+  right: 34px;
+  bottom: -30px;
+  width: 92px;
+  transform: rotate(-12deg);
+  filter: drop-shadow(0 6px 6px rgba(40, 5, 0, 0.45));
+}
+/* Town letterhead */
+.paper-town {
+  background:
+    repeating-linear-gradient(180deg, transparent 0 32px, rgba(90, 130, 110, 0.14) 32px 33px) 0 150px,
+    linear-gradient(180deg, #fbf7ea, #f1e8cf);
+  border-radius: 4px;
+  box-shadow: 0 30px 60px rgba(10, 4, 0, 0.55), 0 0 40px rgba(120, 100, 60, 0.18) inset;
+  border-top: 10px solid #3f6a52;
+}
+.lt-letterhead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: -24px 0 24px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid rgba(63, 106, 82, 0.35);
+  font-family: var(--font-body);
+}
+.lt-letterhead b {
+  display: block;
+  font-family: var(--font-head);
+  font-size: 22px;
+  color: #2f5a44;
+}
+.lt-letterhead span {
+  font-size: 13px;
+  font-weight: 800;
+  color: #6a8a78;
+}
+.lt-crest {
+  width: 52px;
+}
+/* Villager notebook page */
+.paper-villager {
+  background:
+    linear-gradient(90deg, transparent 52px, rgba(220, 90, 90, 0.35) 52px 54px, transparent 54px),
+    repeating-linear-gradient(180deg, transparent 0 32px, rgba(90, 130, 190, 0.2) 32px 33px) 0 30px,
+    linear-gradient(180deg, #fffdf6, #f6f0e0);
+  border-radius: 2px 2px 8px 2px;
+  box-shadow: 0 30px 60px rgba(10, 4, 0, 0.55);
+  padding-left: 80px;
+  transform: rotate(1deg);
+}
+.lt-tape {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  width: 130px;
+  height: 34px;
+  transform: translateX(-50%) rotate(-3deg);
+  background: rgba(240, 220, 150, 0.7);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+}
+/* Glimmerco: glossy corporate */
+.paper-glimmer {
+  background: linear-gradient(165deg, #ffffff 0%, #eef4fb 60%, #dfeaf6 100%);
+  border-radius: 10px;
+  box-shadow: 0 30px 60px rgba(5, 15, 30, 0.5), 0 0 0 1px rgba(80, 140, 200, 0.25);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 18px;
+  color: #22364e;
+  transform: rotate(0deg);
+}
+.paper-glimmer .lt-greet,
+.paper-glimmer .lt-sign,
+.paper-glimmer .lt-ps {
+  font-family: var(--font-body);
+  font-size: 19px;
+  font-weight: 800;
+  color: #1f3a5a;
+}
+.paper-glimmer .lt-sign {
+  font-size: 18px;
+}
+.lt-letterhead.g {
+  justify-content: space-between;
+  border-bottom: 3px solid #6fd2e8;
+}
+.lt-letterhead.g .tm {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #3a8fd8;
+}
+.lt-glogo {
+  width: 210px;
+}

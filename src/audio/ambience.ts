@@ -1,0 +1,482 @@
+/**
+ * Layered environmental ambience. Continuous beds (wind, leaf rustle, rain, storm roar, fountain,
+ * surf, cave air, cicadas, winter howl) crossfade by map / time / season / weather; one-shot life
+ * (six bird species, crickets, frogs, owl, crows, gulls, thunder, drips, wind chimes, cave drips
+ * and pebbles, the Lantern Hall bell) is scheduled on a look-ahead clock so the same code renders
+ * in real time and offline.
+ */
+import type { AudioGraph } from './graph';
+import { Rand, clamp, mtof } from './dsp';
+import { noiseHit } from './instruments';
+
+export type AmbSeason = 'spring' | 'summer' | 'fall' | 'winter';
+export type AmbWeather = 'sun' | 'rain' | 'storm' | 'snow' | 'wind';
+
+export interface EnvState {
+  map: string;
+  /** 6..26 */
+  hour: number;
+  season: AmbSeason;
+  weather: AmbWeather;
+  /** 0 = day, 1 = full night. */
+  night: number;
+  /** 0..1 proximity to the town fountain. */
+  fountain: number;
+  /** 0..1 proximity to open water (pond/sea). */
+  water: number;
+  indoor: boolean;
+  /** Current music key (MIDI tonic) so chimes stay consonant. */
+  key: number;
+}
+
+interface Bed {
+  gain: GainNode;
+  filter?: BiquadFilterNode;
+  level: number;
+}
+
+export class Ambience {
+  private beds: Record<string, Bed> = {};
+  private next: Record<string, number> = {};
+  private rng: Rand;
+  private out: GainNode;
+  private send: GainNode;
+  private gust = 0.4;
+  private gustTarget = 0.4;
+  private surfPhase = 0;
+  private crickets: { pan: number; period: number; next: number; f: number }[] = [];
+  lightningAt = -1;
+
+  constructor(private g: AudioGraph, seed = 7) {
+    this.rng = new Rand(seed);
+    this.out = g.ctx.createGain();
+    this.out.connect(g.ambBus);
+    this.send = g.ctx.createGain();
+    this.send.gain.value = 0.35;
+    this.send.connect(g.space);
+    const ctx = g.ctx;
+    const bed = (name: string, buf: AudioBuffer, chain: AudioNode[], rate = 1): Bed => {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.playbackRate.value = rate;
+      const gn = ctx.createGain();
+      gn.gain.value = 0;
+      let n: AudioNode = src;
+      for (const c of chain) n = n.connect(c);
+      n.connect(gn).connect(this.out);
+      src.start(0, this.rng.next() * buf.duration);
+      const b: Bed = { gain: gn, filter: chain.find((c): c is BiquadFilterNode => c instanceof BiquadFilterNode), level: 0 };
+      this.beds[name] = b;
+      return b;
+    };
+    const bf = (type: BiquadFilterType, f: number, q = 0.7): BiquadFilterNode => {
+      const b = ctx.createBiquadFilter();
+      b.type = type;
+      b.frequency.value = f;
+      b.Q.value = q;
+      return b;
+    };
+    bed('wind', g.pink, [bf('bandpass', 420, 0.55), bf('lowpass', 1600)]);
+    bed('leaves', g.white, [bf('bandpass', 3400, 0.6), bf('lowpass', 7000)], 0.9);
+    bed('rain', g.pink, [bf('bandpass', 2600, 0.35), bf('highshelf', 6000, 0.7)]);
+    bed('rainLow', g.brown, [bf('lowpass', 420, 0.5)]);
+    bed('fountain', g.white, [bf('bandpass', 1500, 0.45), bf('lowpass', 4500)]);
+    bed('surf', g.pink, [bf('lowpass', 500, 0.6)]);
+    bed('cave', g.brown, [bf('lowpass', 160, 0.7)]);
+    bed('caveAir', g.pink, [bf('bandpass', 700, 3)], 0.6);
+    bed('howl', g.pink, [bf('bandpass', 620, 9)]);
+    bed('snowHush', g.pink, [bf('highpass', 2500, 0.5), bf('lowpass', 6000)]);
+    // Cicadas: narrow noise band amplitude-modulated at ~30 Hz.
+    const cic = bed('cicada', g.white, [bf('bandpass', 5300, 5)]);
+    const am = ctx.createOscillator();
+    am.frequency.value = 29;
+    const amG = ctx.createGain();
+    amG.gain.value = 0.5;
+    const cicMod = ctx.createGain();
+    cicMod.gain.value = 0.5;
+    cic.gain.disconnect();
+    cic.gain.connect(cicMod).connect(this.out);
+    am.connect(amG).connect(cicMod.gain);
+    am.start(0);
+    // Fountain wobble.
+    const fl = ctx.createOscillator();
+    fl.frequency.value = 0.37;
+    const flG = ctx.createGain();
+    flG.gain.value = 180;
+    fl.connect(flG).connect(this.beds.fountain!.filter!.frequency);
+    fl.start(0);
+    // Reverb sends from the airy beds.
+    this.beds.fountain!.gain.connect(this.send);
+    this.beds.rain!.gain.connect(this.send);
+  }
+
+  private setBed(name: string, level: number, now: number, tau = 1.2): void {
+    const b = this.beds[name];
+    if (!b) return;
+    if (Math.abs(b.level - level) < 0.002) return;
+    b.level = level;
+    b.gain.gain.setTargetAtTime(level, now, tau);
+  }
+
+  /** Advance to `now`, scheduling up to `now + ahead`. */
+  tick(now: number, s: EnvState, ahead = 0.12): void {
+    const r = this.rng;
+    const outdoors = !s.indoor && s.map !== 'mine';
+    const mine = s.map === 'mine';
+    const beach = s.map === 'beach';
+    const raining = s.weather === 'rain' || s.weather === 'storm';
+    const storm = s.weather === 'storm';
+    const windy = s.weather === 'wind' || storm ? 1 : raining || s.weather === 'snow' ? 0.65 : 0.35;
+    const day = 1 - s.night;
+    const h = s.hour;
+    this.g.setCave(mine ? 1 : 0, now);
+
+    // Gusts: a smoothed random walk.
+    if ((this.next.gust ?? 0) <= now) {
+      this.gustTarget = clamp(0.25 + r.next() * 0.9 * windy + (r.chance(0.15) ? 0.4 : 0), 0.1, 1.2);
+      this.next.gust = now + 2 + r.next() * 5;
+    }
+    this.gust += (this.gustTarget - this.gust) * 0.03;
+    const wind = outdoors ? (0.05 + 0.1 * windy) * (0.55 + 0.6 * this.gust) : mine ? 0.015 : 0;
+    this.setBed('wind', wind, now, 0.8);
+    const wf = this.beds.wind!.filter!;
+    wf.frequency.setTargetAtTime(300 + 360 * this.gust, now, 1.2);
+    const hasLeaves = s.season !== 'winter' && outdoors && !beach;
+    this.setBed('leaves', hasLeaves ? 0.012 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.4 : 1) : 0, now, 0.6);
+    this.setBed('rain', outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0, now, 2);
+    this.setBed('rainLow', raining && !mine ? (storm ? 0.3 : 0.12) * (s.indoor ? 0.5 : 1) : 0, now, 2);
+    this.setBed('fountain', outdoors ? 0.1 * s.fountain : 0, now, 0.6);
+    this.setBed('cave', mine ? 0.3 : 0, now, 2);
+    this.setBed('caveAir', mine ? 0.05 : 0, now, 2);
+    const cold = s.season === 'winter' && outdoors;
+    this.setBed('howl', cold ? 0.012 + 0.03 * this.gust * windy : 0, now, 1);
+    this.beds.howl!.filter!.frequency.setTargetAtTime(480 + 420 * this.gust, now, 2);
+    this.setBed('snowHush', outdoors && s.weather === 'snow' ? 0.02 : 0, now, 2);
+    const cicadaTime = s.season === 'summer' && outdoors && !raining && h >= 10 && h <= 18.5;
+    if ((this.next.cicadaSwell ?? 0) <= now) this.next.cicadaSwell = now + 6 + r.next() * 10;
+    const swell = 0.5 + 0.5 * Math.sin((now / 9) * Math.PI);
+    this.setBed('cicada', cicadaTime ? 0.018 + 0.02 * swell : 0, now, 2);
+
+    // Surf: individual waves.
+    if (beach || s.water > 0.6) {
+      if ((this.next.wave ?? 0) <= now + ahead) {
+        const t = Math.max(now, this.next.wave ?? now);
+        this.wave(t, beach ? 1 : 0.35);
+        this.next.wave = t + 6.5 + r.next() * 4;
+      }
+    } else this.setBed('surf', 0, now, 2);
+
+    const until = now + ahead;
+    const due = (k: string, min: number, max: number, active: boolean): number | null => {
+      if (!active) {
+        this.next[k] = Math.max(this.next[k] ?? 0, now + r.next() * min);
+        return null;
+      }
+      const n = this.next[k] ?? now + r.next() * min;
+      if (n > until) {
+        this.next[k] = n;
+        return null;
+      }
+      this.next[k] = Math.max(n, now) + min + r.next() * (max - min);
+      return Math.max(n, now);
+    };
+
+    // Birds: morning chorus, quieter afternoons, none at night or in the rain.
+    const chorus = h < 9.5 ? 1 : h < 17 ? 0.45 : h < 19.5 ? 0.6 : 0;
+    const birdsActive = outdoors && !beach && !raining && s.night < 0.35 && chorus > 0 && s.season !== 'winter';
+    let t = due('bird', 1.4 / Math.max(0.2, chorus), 6 / Math.max(0.2, chorus), birdsActive);
+    if (t !== null) this.bird(t, s);
+    t = due('dove', 14, 30, birdsActive && h < 10.5);
+    if (t !== null) this.dove(t);
+    t = due('chickadee', 12, 35, outdoors && !raining && s.season === 'winter' && s.night < 0.3);
+    if (t !== null) this.chickadee(t, r.range(-0.7, 0.7));
+    t = due('crow', 20, 55, outdoors && !raining && (s.season === 'fall' || s.season === 'winter') && s.night < 0.3 && !beach);
+    if (t !== null) this.crow(t);
+    t = due('gull', 5, 14, beach && !storm && s.night < 0.4);
+    if (t !== null) this.gull(t);
+    // Night.
+    const crittersNight = outdoors && s.night > 0.55 && !raining && s.season !== 'winter';
+    if (crittersNight) this.cricketChorus(now, until, s.season === 'fall' ? 2 : 4);
+    t = due('frog', 1.5, 5, crittersNight && (s.season === 'spring' || s.season === 'summer') && s.water > 0.15);
+    if (t !== null) this.frog(t);
+    t = due('owl', 25, 60, outdoors && s.night > 0.7 && !storm);
+    if (t !== null) this.owl(t);
+    // Weather.
+    t = due('drip', 0.05, 0.25, raining && !mine);
+    if (t !== null) this.drip(t, s.indoor ? 0.4 : 1);
+    t = due('thunder', 14, 38, storm);
+    if (t !== null) this.thunder(t, r.next());
+    // Farm wind chimes on strong gusts.
+    t = due('chime', 3, 9, s.map === 'farm' && this.gust > 0.75 && !storm);
+    if (t !== null) this.chimes(t, s.key);
+    // Leaf skitter in fall.
+    t = due('skitter', 3, 10, outdoors && s.season === 'fall' && this.gust > 0.6);
+    if (t !== null) this.skitter(t);
+    // Mine life.
+    t = due('caveDrip', 1.2, 4.5, mine);
+    if (t !== null) this.caveDrip(t);
+    t = due('pebble', 9, 25, mine);
+    if (t !== null) this.pebbles(t);
+    t = due('rumble', 25, 50, mine);
+    if (t !== null) this.rumble(t, 0.4);
+  }
+
+  // ───────────────────────────────────────────── voices
+
+  private dest(pan: number, dist: number): AudioNode {
+    const ctx = this.g.ctx;
+    const p = ctx.createStereoPanner();
+    p.pan.value = pan;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 12000 - dist * 8000;
+    const gn = ctx.createGain();
+    gn.gain.value = 1 - dist * 0.6;
+    const sg = ctx.createGain();
+    sg.gain.value = 0.3 + dist * 0.6;
+    lp.connect(gn).connect(p).connect(this.out);
+    p.connect(sg).connect(this.send);
+    return lp;
+  }
+
+  private chirp(dest: AudioNode, t: number, f0: number, f1: number, dur: number, amp: number, fm = 0): void {
+    const ctx = this.g.ctx;
+    const o = ctx.createOscillator();
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    if (fm > 0) {
+      const m = ctx.createOscillator();
+      m.frequency.value = 60 + this.rng.next() * 40;
+      const mg = ctx.createGain();
+      mg.gain.value = fm;
+      m.connect(mg).connect(o.frequency);
+      m.start(t);
+      m.stop(t + dur + 0.02);
+    }
+    const a = ctx.createGain();
+    a.gain.setValueAtTime(0, t);
+    a.gain.linearRampToValueAtTime(amp, t + Math.min(0.012, dur * 0.3));
+    a.gain.setValueAtTime(amp, t + dur * 0.6);
+    a.gain.linearRampToValueAtTime(0, t + dur);
+    o.connect(a).connect(dest);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  private bird(t: number, s: EnvState): void {
+    const r = this.rng;
+    const dist = r.next();
+    const d = this.dest(r.range(-0.9, 0.9), dist);
+    const species = r.weighted([['warbler', 3], ['robin', 4], ['finch', 3], ['chickadee', s.season === 'spring' ? 1.5 : 0.8]] as const);
+    const amp = 0.05;
+    if (species === 'warbler') {
+      // Fast descending trill.
+      const n = r.int(7, 13);
+      const base = r.range(4200, 5600);
+      for (let i = 0; i < n; i++) this.chirp(d, t + i * 0.045, base * (1 - i * 0.012), base * 0.82 * (1 - i * 0.012), 0.035, amp * 0.8, 180);
+    } else if (species === 'robin') {
+      // Carolling phrase: 3–5 slurred syllables.
+      const n = r.int(3, 5);
+      let tt = t;
+      for (let i = 0; i < n; i++) {
+        const f = r.range(2100, 3300);
+        const up = r.chance(0.5);
+        this.chirp(d, tt, up ? f * 0.8 : f * 1.15, up ? f * 1.2 : f * 0.85, r.range(0.08, 0.14), amp);
+        tt += r.range(0.13, 0.22);
+      }
+    } else if (species === 'finch') {
+      // Bright twitter with a flourish.
+      const n = r.int(4, 8);
+      let tt = t;
+      for (let i = 0; i < n; i++) {
+        const f = r.range(3000, 4600);
+        this.chirp(d, tt, f, f * r.range(1.1, 1.5), 0.05, amp * 0.8);
+        tt += r.range(0.06, 0.1);
+      }
+      this.chirp(d, tt + 0.05, 4800, 2800, 0.16, amp * 0.9);
+    } else this.chickadee(t, r.range(-0.8, 0.8));
+  }
+
+  private chickadee(t: number, pan: number): void {
+    const d = this.dest(pan, this.rng.next() * 0.6);
+    // "fee-bee": two clear whistles, the second lower.
+    this.chirp(d, t, 3950, 3900, 0.3, 0.045);
+    this.chirp(d, t + 0.38, 3450, 3350, 0.26, 0.04);
+  }
+
+  private dove(t: number): void {
+    const d = this.dest(this.rng.range(-0.8, 0.8), 0.6);
+    const lp = this.g.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 900;
+    lp.connect(d);
+    const seq: [number, number, number][] = [[0, 0.32, 1], [0.42, 0.5, 1.12], [1.0, 0.36, 0.96], [1.55, 0.3, 0.95], [1.95, 0.3, 0.95]];
+    for (const [dt, dur, k] of seq) this.chirp(lp, t + dt, 520 * k, 480 * k, dur, 0.07);
+  }
+
+  private crow(t: number): void {
+    const ctx = this.g.ctx;
+    const d = this.dest(this.rng.range(-0.9, 0.9), 0.5 + this.rng.next() * 0.4);
+    const n = this.rng.int(2, 3);
+    for (let i = 0; i < n; i++) {
+      const tt = t + i * 0.42;
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(640, tt);
+      o.frequency.exponentialRampToValueAtTime(480, tt + 0.3);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1300;
+      bp.Q.value = 2.5;
+      const a = ctx.createGain();
+      a.gain.setValueAtTime(0, tt);
+      a.gain.linearRampToValueAtTime(0.05, tt + 0.03);
+      a.gain.setTargetAtTime(0, tt + 0.2, 0.05);
+      o.connect(bp).connect(a).connect(d);
+      o.start(tt);
+      o.stop(tt + 0.45);
+    }
+  }
+
+  private gull(t: number): void {
+    const d = this.dest(this.rng.range(-0.9, 0.9), 0.3 + this.rng.next() * 0.6);
+    const n = this.rng.int(1, 4);
+    for (let i = 0; i < n; i++) this.chirp(d, t + i * 0.22, 1500, 980, 0.19, 0.04, 30);
+  }
+
+  private cricketChorus(now: number, until: number, count: number): void {
+    const r = this.rng;
+    while (this.crickets.length < count) this.crickets.push({ pan: r.range(-0.9, 0.9), period: r.range(0.55, 1.1), next: now + r.next(), f: r.range(4300, 5100) });
+    for (const c of this.crickets) {
+      if (c.next < now - 1) c.next = now;
+      while (c.next < until) {
+        const d = this.dest(c.pan, 0.5);
+        const pulses = r.int(3, 4);
+        for (let i = 0; i < pulses; i++) this.chirp(d, c.next + i * 0.022, c.f, c.f * 0.99, 0.014, 0.014);
+        c.next += c.period * r.range(0.9, 1.1);
+      }
+    }
+  }
+
+  private frog(t: number): void {
+    const ctx = this.g.ctx;
+    const d = this.dest(this.rng.range(-0.8, 0.8), 0.4);
+    const f = this.rng.range(180, 260);
+    for (let i = 0; i < 2; i++) {
+      const tt = t + i * 0.1;
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, tt);
+      o.frequency.linearRampToValueAtTime(f * 1.3, tt + 0.06);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 850;
+      bp.Q.value = 4;
+      const a = ctx.createGain();
+      a.gain.setValueAtTime(0, tt);
+      a.gain.linearRampToValueAtTime(0.06, tt + 0.01);
+      a.gain.linearRampToValueAtTime(0, tt + 0.07);
+      o.connect(bp).connect(a).connect(d);
+      o.start(tt);
+      o.stop(tt + 0.08);
+    }
+  }
+
+  private owl(t: number): void {
+    const d = this.dest(this.rng.range(-0.9, 0.9), 0.75);
+    const seq: [number, number][] = [[0, 0.3], [0.55, 0.16], [0.75, 0.16], [1.05, 0.55]];
+    for (const [dt, dur] of seq) this.chirp(d, t + dt, 390, 360, dur, 0.06);
+  }
+
+  private drip(t: number, level: number): void {
+    const r = this.rng;
+    const d = this.dest(r.range(-1, 1), r.next() * 0.8);
+    const f = r.range(1800, 4200);
+    this.chirp(d, t, f, f * 0.55, 0.035, 0.018 * level);
+  }
+
+  thunder(t: number, dist: number): void {
+    const g = this.g;
+    const d = this.dest(this.rng.range(-0.7, 0.7), dist * 0.5);
+    if (dist < 0.4) noiseHit(g, d, t, { type: 'highpass', f: 1200, amp: 0.25 * (1 - dist), attack: 0.004, tau: 0.06 });
+    // Rolling rumble: several overlapping low swells.
+    const n = 4 + Math.floor(this.rng.next() * 4);
+    let tt = t + 0.05 + dist * 0.6;
+    for (let i = 0; i < n; i++) {
+      noiseHit(g, d, tt, { type: 'lowpass', f: 200 + (1 - dist) * 250, q: 0.7, amp: (0.6 - i * 0.05) * (1 - dist * 0.5), attack: 0.15 + this.rng.next() * 0.3, tau: 0.6 + this.rng.next() * 0.8, buf: g.brown });
+      tt += 0.4 + this.rng.next() * 0.9;
+    }
+    g.duckMusic(t, 0.55, 2.5, 2);
+    this.lightningAt = t;
+  }
+
+  private chimes(t: number, key: number): void {
+    const d = this.dest(-0.55, 0.3);
+    const pent = [0, 2, 4, 7, 9, 12, 14, 16];
+    const n = this.rng.int(1, 3);
+    for (let i = 0; i < n; i++) {
+      const m = (key % 12) + 84 + this.rng.pick(pent);
+      const f = mtof(m);
+      const tt = t + i * this.rng.range(0.15, 0.4);
+      this.chirp(d, tt, f, f, 1.6, 0.02);
+      this.chirp(d, tt, f * 2.76, f * 2.76, 0.4, 0.004);
+    }
+  }
+
+  private skitter(t: number): void {
+    const d = this.dest(this.rng.range(-0.8, 0.8), 0.3);
+    for (let i = 0; i < 5; i++) noiseHit(this.g, d, t + i * 0.05 + this.rng.next() * 0.03, { f: 2600, q: 1.5, amp: 0.03, tau: 0.012 });
+  }
+
+  private caveDrip(t: number): void {
+    const ctx = this.g.ctx;
+    const p = ctx.createStereoPanner();
+    p.pan.value = this.rng.range(-0.9, 0.9);
+    const s = ctx.createGain();
+    s.gain.value = 1;
+    p.connect(this.out);
+    p.connect(s).connect(this.g.cave);
+    const f = this.rng.range(900, 1700);
+    this.chirp(p, t, f, f * 0.5, 0.06, 0.05);
+  }
+
+  private pebbles(t: number): void {
+    const ctx = this.g.ctx;
+    const p = ctx.createStereoPanner();
+    p.pan.value = this.rng.range(-0.9, 0.9);
+    p.connect(this.out);
+    p.connect(this.g.cave);
+    const n = this.rng.int(3, 7);
+    let tt = t;
+    for (let i = 0; i < n; i++) {
+      noiseHit(this.g, p, tt, { f: this.rng.range(1500, 3500), q: 3, amp: 0.05 * (1 - i / n), tau: 0.01 });
+      tt += this.rng.range(0.05, 0.16) * (1 + i * 0.15);
+    }
+  }
+
+  private rumble(t: number, amp: number): void {
+    const p = this.g.ctx.createGain();
+    p.connect(this.out);
+    p.connect(this.g.cave);
+    noiseHit(this.g, p, t, { type: 'lowpass', f: 120, amp, attack: 1.2, tau: 1.2, buf: this.g.brown });
+  }
+
+  private wave(t: number, size: number): void {
+    const b = this.beds.surf!;
+    const gp = b.gain.gain;
+    const fp = b.filter!.frequency;
+    const peak = 0.22 * size * (0.8 + this.rng.next() * 0.4);
+    gp.cancelScheduledValues(t);
+    gp.setTargetAtTime(peak * 0.5, t, 0.9);
+    gp.setTargetAtTime(peak, t + 2.2, 0.25);
+    gp.setTargetAtTime(peak * 0.35, t + 3.0, 1.2);
+    fp.cancelScheduledValues(t);
+    fp.setTargetAtTime(420, t, 0.9);
+    fp.setTargetAtTime(1900, t + 2.2, 0.2);
+    fp.setTargetAtTime(700, t + 3.0, 1.0);
+    // Foam hiss as the wave recedes.
+    noiseHit(this.g, this.out, t + 2.6, { type: 'bandpass', f: 4200, q: 0.4, amp: 0.05 * size, attack: 0.3, tau: 0.9, buf: this.g.pink });
+    this.surfPhase++;
+  }
+}

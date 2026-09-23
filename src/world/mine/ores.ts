@@ -1,0 +1,241 @@
+/**
+ * Breakable mine rocks: faceted stones in the biome's tints, some carrying ore — metal nuggets
+ * (copper / iron / gold / coal) studding the surface or gem crystals bursting out of it.
+ * Rendered through the shared BatchPool (one multi-draw per material: rock bodies, metal nuggets,
+ * gem crystals), with per-rock hit wobble (squash + tilt spring) and removal on break.
+ */
+import * as THREE from 'three';
+import type { Rng } from '../../core/rng';
+import { BatchPool, InstancedSet } from '../props/instanced';
+import type { FloorLayout, RockSpec } from './gen';
+import { BIOMES, ORE_STYLE, type Biome, type OreId } from './biomes';
+import { facetRock, crystalPrism } from './rockgeo';
+import { mineRockMaterial, crystalMaterial } from './props';
+
+const VARIANTS = 4;
+
+let metalMat: THREE.MeshStandardMaterial | null = null;
+function metalMaterial(): THREE.MeshStandardMaterial {
+  if (!metalMat) {
+    metalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.85, flatShading: true, emissive: 0x000000 });
+    metalMat.name = 'mine-ore-metal';
+  }
+  return metalMat;
+}
+
+interface Kit {
+  body: THREE.BufferGeometry[];
+  big: THREE.BufferGeometry[];
+  nuggets: Map<string, THREE.BufferGeometry>;
+}
+
+const kits = new Map<Biome, Kit>();
+
+function nuggetGeo(r: Rng, kind: 'metal' | 'gem' | 'coal', radius: number, big: boolean): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const R = radius * (big ? 1.3 : 1);
+  if (kind === 'gem') {
+    const n = 4;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + r.next() * 0.8;
+      const el = 0.35 + r.next() * 0.55;
+      const hgt = (k === 0 ? 0.55 : 0.3 + r.next() * 0.2) * R * 1.8;
+      const g = crystalPrism(0.06 + r.next() * 0.04, hgt, 0.35);
+      const dir = new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().lerp(new THREE.Vector3(0, 1, 0), 0.25).normalize());
+      const p = dir.clone().multiply(new THREE.Vector3(R * 0.62, R * 0.5, R * 0.62)).add(new THREE.Vector3(0, R * 0.32, 0));
+      g.applyMatrix4(new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)));
+      parts.push(g);
+    }
+  } else {
+    const n = kind === 'coal' ? 5 : 6;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + r.next() * 0.9;
+      const el = 0.1 + r.next() * 0.9;
+      const g = facetRock(r, (kind === 'coal' ? 0.1 : 0.075) + r.next() * 0.04, 0xffffff, { detail: 0, squash: 0.8, rim: 0.15, facet: 0.35 });
+      const dir = new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
+      const p = dir.clone().multiply(new THREE.Vector3(R * 0.82, R * 0.62, R * 0.82)).add(new THREE.Vector3(0, R * 0.2, 0));
+      g.applyMatrix4(new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromEuler(new THREE.Euler(r.next() * 6, r.next() * 6, 0)), new THREE.Vector3(1, 1, 1)));
+      parts.push(g);
+    }
+  }
+  const out = mergeNonIndexed(parts);
+  // Gems/metals take their colour from the instance: keep vertex colour a bright neutral.
+  const col = out.attributes.color as THREE.BufferAttribute;
+  for (let i = 0; i < col.count; i++) {
+    const v = kind === 'gem' ? 1 : 0.8 + (col.getX(i) - 0.5) * 0.4;
+    col.setXYZ(i, v, v, v);
+  }
+  return out;
+}
+
+function kitFor(biome: Biome, r: Rng): Kit {
+  let k = kits.get(biome);
+  if (k) return k;
+  const def = BIOMES[biome];
+  const cap = biome === 'ice' ? 0xf4faff : biome === 'lava' ? 0x6e3024 : undefined;
+  const capAmt = biome === 'ice' ? 0.9 : 0.35;
+  k = { body: [], big: [], nuggets: new Map() };
+  for (let v = 0; v < VARIANTS; v++) k.body.push(facetRock(r, 0.44, def.rock[v % def.rock.length]!, { chunky: v % 2 === 1, squash: 0.74, cap, capAmt, rim: 0.5 }));
+  for (let v = 0; v < 2; v++) k.big.push(facetRock(r, 0.62, def.rock[v]!, { chunky: true, squash: 0.8, cap, capAmt, rim: 0.55 }));
+  kits.set(biome, k);
+  return k;
+}
+
+export interface MineRock {
+  spec: RockSpec;
+  set: InstancedSet;
+  id: number;
+  hp: number;
+  base: THREE.Matrix4;
+  pos: THREE.Vector3;
+  rot: number;
+  scale: number;
+  wobble: number;
+  alive: boolean;
+}
+
+export class RockField {
+  readonly group = new THREE.Group();
+  readonly rocks: MineRock[] = [];
+  private pool = new BatchPool('mine-rocks');
+  private sets = new Map<string, InstancedSet>();
+  private byTile = new Map<number, MineRock>();
+  private wobbling = new Set<MineRock>();
+  private m = new THREE.Matrix4();
+
+  constructor(private L: FloorLayout, rng: Rng, heightAt: (x: number, z: number) => number) {
+    this.group.name = 'mine-rocks';
+    this.group.userData.perfTag = 'mine-rocks';
+    this.group.add(this.pool.group);
+    const kit = kitFor(L.biome, rng.fork('kit'));
+    for (const s of L.rocks) {
+      const r = rngFrom(s.seed);
+      const variant = s.seed % (s.big ? 2 : VARIANTS);
+      const ore = s.ore;
+      const style = ore ? ORE_STYLE[ore] : null;
+      const key = `${s.big ? 'B' : 'r'}${variant}:${style?.kind ?? '-'}`;
+      let set = this.sets.get(key);
+      if (!set) {
+        const body = (s.big ? kit.big : kit.body)[variant]!;
+        const parts = [{ geometry: body, material: mineRockMaterial() }];
+        if (style) {
+          const nk = `${key}`;
+          let ng = kit.nuggets.get(nk);
+          if (!ng) {
+            ng = nuggetGeo(rngFrom(variant * 31 + (s.big ? 7 : 0) + style.kind.length), style.kind, s.big ? 0.62 : 0.44, s.big);
+            kit.nuggets.set(nk, ng);
+          }
+          parts.push({ geometry: ng, material: style.kind === 'gem' ? crystalMaterial() : metalMaterial(), tinted: true, castShadow: style.kind !== 'gem' } as never);
+        }
+        set = new InstancedSet(key, parts, this.pool);
+        this.sets.set(key, set);
+      }
+      const x = s.x + 0.5 + (r.next() - 0.5) * 0.14;
+      const z = s.z + 0.5 + (r.next() - 0.5) * 0.14;
+      const pos = new THREE.Vector3(x, heightAt(x, z) - 0.03, z);
+      const rot = r.next() * Math.PI * 2;
+      const scale = 0.9 + r.next() * 0.2;
+      const base = new THREE.Matrix4().compose(pos, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rot, 0)), new THREE.Vector3(scale, scale, scale));
+      const color = style ? oreColor(ore!) : undefined;
+      const id = set.add(base, color);
+      const rock: MineRock = { spec: s, set, id, hp: s.hp, base, pos, rot, scale, wobble: 0, alive: true };
+      this.rocks.push(rock);
+      this.byTile.set(s.z * L.w + s.x, rock);
+    }
+    for (const mesh of this.pool.meshes) mesh.userData.perfTag = 'mine-rocks';
+  }
+
+  at(x: number, z: number): MineRock | undefined {
+    const r = this.byTile.get(z * this.L.w + x);
+    return r?.alive ? r : undefined;
+  }
+
+  /** Visual hit reaction. */
+  hit(rock: MineRock): void {
+    rock.wobble = 1;
+    this.wobbling.add(rock);
+  }
+
+  remove(rock: MineRock): void {
+    if (!rock.alive) return;
+    rock.alive = false;
+    rock.set.remove(rock.id);
+    this.wobbling.delete(rock);
+  }
+
+  get remaining(): number {
+    let n = 0;
+    for (const r of this.rocks) if (r.alive) n++;
+    return n;
+  }
+
+  update(dt: number): void {
+    for (const r of this.wobbling) {
+      r.wobble = Math.max(0, r.wobble - dt * 3.2);
+      const t = 1 - r.wobble;
+      const k = Math.sin(t * Math.PI * 3.5) * r.wobble;
+      const sy = 1 - k * 0.14;
+      const sxz = 1 + k * 0.08;
+      this.m.compose(
+        r.pos,
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(k * 0.12, r.rot, -k * 0.1)),
+        new THREE.Vector3(r.scale * sxz, r.scale * sy, r.scale * sxz),
+      );
+      r.set.setMatrix(r.id, r.wobble > 0 ? this.m : r.base);
+      if (r.wobble <= 0) this.wobbling.delete(r);
+    }
+  }
+
+  dispose(): void {
+    for (const m of this.pool.meshes) m.dispose();
+  }
+}
+
+export function oreColor(ore: OreId): THREE.Color {
+  const st = ORE_STYLE[ore];
+  const c = new THREE.Color(st.color);
+  if (st.kind === 'gem') c.multiplyScalar(0.55 + st.glow * 0.45);
+  return c;
+}
+
+function rngFrom(seed: number): Rng {
+  // Local tiny RNG with the same interface subset (deterministic per rock).
+  let s = (seed * 2654435761) >>> 0 || 1;
+  const next = (): number => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return {
+    next,
+    range: (a: number, b: number) => a + (b - a) * next(),
+    int: (a: number, b: number) => Math.floor(a + (b - a + 1) * next()),
+    chance: (p: number) => next() < p,
+    pick: <T>(arr: readonly T[]) => arr[Math.floor(next() * arr.length)]!,
+  } as unknown as Rng;
+}
+
+function mergeNonIndexed(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const names = ['position', 'normal', 'uv', 'color'];
+  let count = 0;
+  for (const g of list) count += g.attributes.position!.count;
+  const out = new THREE.BufferGeometry();
+  for (const n of names) {
+    const size = n === 'uv' ? 2 : 3;
+    const arr = new Float32Array(count * size);
+    let o = 0;
+    for (const g of list) {
+      let a = g.attributes[n] as THREE.BufferAttribute | undefined;
+      if (!a) {
+        a = new THREE.BufferAttribute(new Float32Array(g.attributes.position!.count * size).fill(n === 'color' ? 1 : 0), size);
+      }
+      arr.set(a.array as Float32Array, o);
+      o += a.count * size;
+    }
+    out.setAttribute(n, new THREE.BufferAttribute(arr, size));
+  }
+  return out;
+}
