@@ -119,6 +119,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'barn-night': { map: 'barn', x: 6.5, z: 6.6, facing: 'up', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 16.5, offsetZ: 0.3 }, showcase: ['animals'] },
   'pet-yard': { map: 'farm', x: 36.5, z: 18.7, facing: 'left', time: 16.4, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 13, offsetX: 0.4, offsetZ: -1.2 }, showcase: ['animals'] },
   carpenter: { map: 'farm', x: 36.5, z: 31.2, facing: 'up', time: 11, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 17, offsetX: 1.5, offsetZ: -0.5 }, showcase: ['animals'], ui: 'carpenter' },
+  'carpenter-animals': { map: 'farm', x: 36.5, z: 31.2, facing: 'up', time: 11, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 17, offsetX: 1.5, offsetZ: -0.5 }, showcase: ['animals'], ui: 'carpenter:animals' },
   // Mines (systems/mining + systems/combat, world/mine): the mountain entrance and one floor per biome band.
   // The floor demos pick a showcase spot on the seeded floor; &floor=N stages any floor (biome follows).
   mine: { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },

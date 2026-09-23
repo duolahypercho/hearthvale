@@ -65,8 +65,9 @@ const CSS = `
 .cp-tab svg, .cp-tab img { width:24px; height:24px; flex:0 0 auto; }
 .cp-tab:hover { transform: translateY(-2px); }
 .cp-tab.on { background:linear-gradient(180deg,#8fd05a,#4f9a34); border-color:#24521a; color:#fff; text-shadow:0 2px 0 #24521a; box-shadow: inset 0 2px 0 #c8f0a0, 0 3px 0 #24521a; }
-.cp-list { display:grid; grid-template-columns: repeat(2, 1fr); gap:14px; max-height: 470px; overflow:auto; padding:4px 4px 8px; }
-.cp-list.three { grid-template-columns: repeat(3, 1fr); }
+.cp-list { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:14px; max-height: 470px; overflow:auto; padding:4px 4px 8px; }
+.cp-list.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hv-carpenter .cp-frame.wide > .u-paper { width: 940px; }
 .cp-card { position:relative; display:flex; flex-direction:column; gap:8px; padding:14px; border-radius:16px; background:rgba(255,250,236,.75);
   border:2.5px solid rgba(122,74,34,.55); box-shadow: 0 3px 0 rgba(122,74,34,.35), inset 0 0 0 2px rgba(255,255,255,.5);
   animation: cp-in 260ms var(--ease-back) both; }
@@ -92,9 +93,9 @@ const CSS = `
   font-size:15px; letter-spacing:.06em; text-transform:uppercase; transform: rotate(-6deg); opacity:.85; }
 .cp-stamp.built { color:#3f8a2a; } .cp-stamp.pending { color:#c07a1a; }
 .cp-animal { flex-direction:row; align-items:center; gap:12px; }
-.cp-animal .cp-face { flex:0 0 74px; height:74px; border-radius:50%; display:grid; place-items:center; background: radial-gradient(circle at 40% 35%, #fff8e8, #f0d8a8);
+.cp-animal .cp-face { flex:0 0 64px; height:64px; border-radius:50%; display:grid; place-items:center; background: radial-gradient(circle at 40% 35%, #fff8e8, #f0d8a8);
   border:3px solid #a8743c; box-shadow: inset 0 -4px 0 rgba(150,90,30,.2); }
-.cp-animal .cp-face svg { width:60px; height:60px; }
+.cp-animal .cp-face svg { width:54px; height:54px; }
 .cp-animal .cp-face img { width:52px; height:52px; }
 .cp-animal .cp-body { flex:1; display:flex; flex-direction:column; gap:4px; min-width:0; }
 .cp-animal .cp-name { font-size:19px; }
@@ -182,6 +183,7 @@ export class CarpenterPanel extends Screen {
     this.refreshPurse();
     this.list.innerHTML = '';
     this.list.classList.toggle('three', this.tab !== 'build');
+    this.root.querySelector('.cp-frame')?.classList.toggle('wide', this.tab !== 'build');
     if (this.tab === 'build') this.buildings();
     else if (this.tab === 'animals') this.animals();
     else this.supplies();
