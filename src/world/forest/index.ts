@@ -50,7 +50,7 @@ import {
   type GiantKind,
 } from './layout';
 import { GiantGrove, ShrubField, giantBarkMaterial } from './giants';
-import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, type MushroomKind } from './props';
+import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
 import { buildWaterfall, buildChurn, buildMist, buildFlow } from './stream';
 import { ForageField, type ForageSpot } from './forage';
 import { updateSeeThrough } from './foliage';
@@ -144,6 +144,7 @@ export class ForestMap implements GameMap {
     this.crystalY = shrine.crystal.position.y;
     this.placeUndergrowth();
     this.placeMushrooms();
+    this.placeWinterFloor();
     this.dressCliffs();
     mark('nature');
     this.terrain.commitCover();
@@ -294,7 +295,8 @@ export class ForestMap implements GameMap {
         uniform vec3 uMossC;
         ${CLIFF_STRATA_GLSL}`,
       );
-      fs = replace(fs, 'vec3 rock = rx * bw.x + ry * bw.y + rz * bw.z;', 'vec3 rock = hvCliffStrata(wp, wn, dot(wp.xz, normalize(vec2(-wn.z, wn.x) + 1e-4)));');
+      // Only steep pixels pay for the strata (the forest floor skips it; the triplanar reads go dead).
+      fs = replace(fs, 'vec3 rock = rx * bw.x + ry * bw.y + rz * bw.z;', 'vec3 rock = rockM > 0.002 ? hvCliffStrata(wp, wn, dot(wp.xz, normalize(vec2(-wn.z, wn.x) + 1e-4))) : vec3(0.0);');
       shader.fragmentShader = fs;
     });
   }
@@ -828,6 +830,27 @@ export class ForestMap implements GameMap {
     }
   }
 
+  /**
+   * Winter-only floor dressing (the summer understory dies back under the snow): winterberry bushes
+   * with red berry clusters and dead twigs / dry stalks poking through the snow, scattered over the
+   * open floor so the snowfield never reads as an empty white sheet.
+   */
+  private placeWinterFloor(): void {
+    const r = this.rng.fork('winter-floor');
+    const berries = [0, 1, 2].map((v) => new InstancedSet(`winterberry-${v}`, buildWinterBerry(r.fork(`b${v}`)), this.pool));
+    const twigs = [0, 1, 2].map((v) => new InstancedSet(`wintertwig-${v}`, buildWinterTwigs(r.fork(`t${v}`)), this.pool));
+    const put = (set: InstancedSet, x: number, z: number, s: number) =>
+      set.add(new THREE.Matrix4().compose(new THREE.Vector3(x, this.terrain.heightAt(x, z) - 0.02, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6.28), new THREE.Vector3(s, s * (0.85 + r.next() * 0.3), s)));
+    for (let i = 0; i < 900; i++) {
+      const x = 2 + r.next() * 60;
+      const z = 8 + r.next() * 52;
+      if (!this.freeTile(x, z) || this.shape.pathValue(x, z) > 0.05) continue;
+      const u = r.next();
+      if (u < 0.1) put(r.pick(berries), x, z, 0.8 + r.next() * 0.6);
+      else if (u < 0.45) put(r.pick(twigs), x, z, 0.8 + r.next() * 0.5);
+    }
+  }
+
   // ───────────────────────────────────────────── light shafts
 
   /**
@@ -968,8 +991,10 @@ export class ForestMap implements GameMap {
     this.ambience.setSeason(season);
     this.litter.mesh.visible = season === 'fall';
     setIvySeason(season);
-    // Mushrooms are an autumn-to-summer thing: none poke through the winter snow.
+    // Mushrooms are an autumn-to-summer thing: none poke through the winter snow; winterberries and
+    // dead stalks only show up under it.
     for (const m of [...this.pool.meshesFor(fungusMaterial()), ...this.pool.meshesFor(glowcapMaterial())]) m.visible = season !== 'winter';
+    for (const m of [...this.pool.meshesFor(winterLeafMaterial()), ...this.pool.meshesFor(winterBerryMaterial()), ...this.pool.meshesFor(winterTwigMaterial())]) m.visible = season === 'winter';
   }
 
   setWeather(weather: Weather): void {

@@ -112,6 +112,11 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
         if (hvSnowAmt > 0.01) {
           vec2 hq = vHvWorldPos.xz * 1.1;
           vec3 hd = vec3(hvNoise(hq) - 0.5, 0.0, hvNoise(hq + 7.3) - 0.5) + vec3(hvNoise(hq * 3.7) - 0.5, 0.0, hvNoise(hq * 3.7 + 2.1) - 0.5) * 0.4;
+          // Sastrugi: wind-carved ridges running across the prevailing wind, wandering and fading in
+          // and out in patches (only on open, up-facing snow).
+          float hvRidgeK = smoothstep(0.35, 0.7, hvNoise(vHvWorldPos.xz * 0.12 + 5.0)) * smoothstep(0.85, 0.97, normalize(vHvWorldNormal).y);
+          float hvRidge = cos(dot(vHvWorldPos.xz, vec2(0.8, 0.6)) * 2.6 + hvNoise(vHvWorldPos.xz * 0.35) * 7.0);
+          hd += vec3(0.8, 0.0, 0.6) * hvRidge * 0.32 * hvRidgeK;
           normal = normalize(normal + mat3(viewMatrix) * hd * 0.55 * hvSnowAmt);
         }`,
       );

@@ -112,7 +112,8 @@ function branchTree(b: MeshBuilder, m: THREE.Material, rng: Rng, from: THREE.Vec
   const end = from.clone().addScaledVector(d, len);
   // Branches arc upward towards the light, then droop a touch at the tips.
   const ctrl = from.clone().lerp(end, 0.5).add(new THREE.Vector3((rng.next() - 0.5) * len * 0.35, len * (0.12 + rng.next() * 0.18), (rng.next() - 0.5) * len * 0.35));
-  bough(b, m, r, r * 0.62, from, ctrl, end, Math.max(3, 6 - level), level === 0 ? 3 : 2);
+  // Lean geometry: the whole winter crown of an elder is ~3k triangles.
+  bough(b, m, r, r * 0.62, from, ctrl, end, Math.max(3, 5 - level), level === 2 ? 1 : 2, 1);
   if (level >= 2) return;
   const curve = new THREE.QuadraticBezierCurve3(from, ctrl, end);
   const kids = level === 0 ? 3 : 2 + rng.int(0, 1);
@@ -338,7 +339,7 @@ function limb(r0: number, r1: number, a: THREE.Vector3, b: THREE.Vector3, radial
 }
 
 /** Curved limb: several tapered segments along a quadratic bezier (reads as a bough, not a stick). */
-function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THREE.Vector3, ctrl: THREE.Vector3, e: THREE.Vector3, radial: number, n = 3): void {
+function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THREE.Vector3, ctrl: THREE.Vector3, e: THREE.Vector3, radial: number, n = 3, segs = 2): void {
   const curve = new THREE.QuadraticBezierCurve3(a, ctrl, e);
   let prev = a.clone();
   for (let i = 1; i <= n; i++) {
@@ -347,7 +348,7 @@ function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THR
     const rb = THREE.MathUtils.lerp(r0, r1, i / n);
     // Overlap the joints a little so there are no seams.
     const dir = p.clone().sub(prev).normalize();
-    b.add(m, limb(ra, rb, prev.clone().addScaledVector(dir, -ra * 0.4), p, radial, 2));
+    b.add(m, limb(ra, rb, prev.clone().addScaledVector(dir, -ra * 0.4), p, radial, segs));
     prev = p;
   }
 }
@@ -645,7 +646,7 @@ function fir(rng: Rng): GiantGeo {
     b.add(leaf, gg, undefined, { aoWorld: tierAO });
     // Needle sprays hanging off the tier rim + a few lying on the tier top (break the skirt outline).
     const tint = new THREE.Color(1, 1, 1).offsetHSL((rng.next() - 0.5) * 0.03, 0, (rng.next() - 0.5) * 0.06);
-    const nRim = Math.round(r * 6.5);
+    const nRim = Math.round(r * 8.5);
     for (let k = 0; k < nRim; k++) {
       const ang = (k / nRim) * Math.PI * 2 + (rng.next() - 0.5) * 0.3;
       const sc = 1 + 0.12 * Math.sin(ang * lobes + ph) + 0.04 * Math.sin(ang * (lobes * 2 + 1) + ph * 2);
@@ -654,20 +655,20 @@ function fir(rng: Rng): GiantGeo {
       const yy = y - droopAt(q) - 0.18 * Math.max(0, Math.sin(ang * lobes + ph)) * q * q + 0.1;
       pp.set(Math.cos(ang) * rr, yy, Math.sin(ang) * rr);
       nrm.set(Math.cos(ang), 0.75, Math.sin(ang)).normalize();
-      const s = (1.15 + rng.next() * 0.4) * (0.75 + 0.25 * (1 - f));
-      cc.copy(tint).multiplyScalar(tierAO(pp) * (0.92 + rng.next() * 0.16));
+      const s = (0.9 + rng.next() * 0.35) * (0.75 + 0.25 * (1 - f));
+      cc.copy(tint).multiplyScalar(tierAO(pp) * (0.92 + rng.next() * 0.22));
       cards.add(pp, nrm, s * 0.9, s * 1.25, (rng.next() - 0.5) * 0.5, cc, { anchorY: 0.78 });
     }
     // Sprays lying all over the tier tops: seen from the diorama camera the tiers read as layered
     // needle boughs instead of smooth dark cones.
-    const nTop = Math.round(r * 7);
+    const nTop = Math.round(r * 8);
     for (let k = 0; k < nTop; k++) {
       const ang = rng.next() * Math.PI * 2;
       const q = 0.25 + rng.next() * 0.6;
       pp.set(Math.cos(ang) * r * q, y + th * (1 - q) - droopAt(q) + 0.15, Math.sin(ang) * r * q);
       nrm.set(Math.cos(ang) * 0.6, 1, Math.sin(ang) * 0.6).normalize();
-      const s = 1.2 + rng.next() * 0.6;
-      cc.copy(tint).multiplyScalar(tierAO(pp) * (0.95 + rng.next() * 0.15));
+      const s = 0.9 + rng.next() * 0.5;
+      cc.copy(tint).multiplyScalar(tierAO(pp) * (1.0 + rng.next() * 0.22));
       cards.add(pp, nrm, s, s * 1.1, rng.next() * Math.PI * 2, cc);
     }
   }

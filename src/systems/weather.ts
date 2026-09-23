@@ -86,9 +86,7 @@ export class WeatherSystem implements System, WeatherApi {
   private splash = new RainSplashes();
   private snow = new SnowFlakes();
   private bolt = new LightningBolt();
-  /** Cold-white practical at the strike point (always in the scene so the light count never changes). */
-  private boltLight = new THREE.PointLight(0xdfe8ff, 0, 34, 1.4);
-  private boltAt = new THREE.Vector3();
+
   private scorch = new StrikeScorch();
   private strikeFx = new BurstFX(260);
   private fogBank = new FogBank();
@@ -130,7 +128,6 @@ export class WeatherSystem implements System, WeatherApi {
     this.game = game;
     game.scene.add(this.rain.mesh, this.rainFar.mesh, this.splash.mesh, this.snow.mesh, this.bolt.mesh, this.fogBank.mesh, this.rainbow.mesh, this.drips.mesh, this.prints.mesh, this.leaves.mesh, this.scorch.mesh, this.strikeFx.object);
     this.strikeFx.object.userData.perfTag = 'weather';
-    game.scene.add(this.boltLight);
     this.strikeFx.object.userData.noAO = true;
     game.events.on('weather:change', ({ weather, prev }) => {
       if ((prev === 'rain' || prev === 'storm') && (weather === 'sun' || weather === 'wind')) {
@@ -176,7 +173,6 @@ export class WeatherSystem implements System, WeatherApi {
     this.strikeFx.emit(hit, { color: 0xfff6dc, count: 11, speed: 7.5, size: 0.075, gravity: 14, life: 0.5, up: 1.3, spread: 0.25 });
     this.strikeFx.emit(hit, { color: 0xffa850, count: 9, speed: 3.2, size: 0.06, gravity: 9, life: 0.9, up: 1.2, spread: 0.4 });
     this.strikeFx.emit(hit.clone().setY(hit.y + 0.3), { color: 0xaeb6c2, count: 5, speed: 0.35, size: 1.1, gravity: -0.45, life: 3.2, up: 1.0, spread: 0.25 });
-    this.boltAt.copy(hit).setY(hit.y + 2.5);
     this.strikeT = 0;
     this.hold = hold;
     const dist = Math.hypot(x - g.player.position.x, z - g.player.position.z);
@@ -455,8 +451,6 @@ export class WeatherSystem implements System, WeatherApi {
     const buf = game.rc.renderer.getDrawingBufferSize(_buf);
     this.bolt.setResolution(buf.x, buf.y);
     game.lighting.setFlash(f * (0.6 + 0.4 * this.rainAmt));
-    this.boltLight.position.copy(this.boltAt);
-    this.boltLight.intensity = (this.hold && game.paused ? 0.08 : f) * 90;
     this.flashNow = f;
     if (this.thunder && this.clock >= this.thunder.at) {
       const th = this.thunder;

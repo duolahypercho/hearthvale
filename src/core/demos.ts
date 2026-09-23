@@ -106,7 +106,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'forest-rain': { map: 'forest', x: 35.2, z: 32.6, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
   'forest-fall': { map: 'forest', x: 50.6, z: 23.8, facing: 'up', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -8, pitch: 48, distance: 28, offsetX: 1.8, offsetZ: -6.2 } },
   // The Ember Glade up close: tower (roof, door, lit window, ivy), menhir ring and the ember altar.
-  'forest-glade': { map: 'forest', x: 49.2, z: 23.2, facing: 'up', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: -14, pitch: 42, distance: 20, offsetX: 3.2, offsetZ: -5.6 } },
+  'forest-glade': { map: 'forest', x: 50.2, z: 22.6, facing: 'up', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: -12, pitch: 48, distance: 25, offsetX: 3.2, offsetZ: -5.4 } },
   'forest-night': { map: 'forest', x: 50.4, z: 25.4, facing: 'up', time: 22.2, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 27, offsetX: 1.2, offsetZ: -4.8 } },
   storm: { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 15.5, season: 'summer', weather: 'storm', camera: FOREST_FALLS_CAM },
   'snow-day': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 11, season: 'winter', weather: 'snow', camera: FOREST_FALLS_CAM },

@@ -15,6 +15,7 @@ import { smoothRock, forestRockMaterial } from './rocks';
 import type { InstancedPart } from '../props/instanced';
 import type { Season } from '../../core/time';
 import { forestMoss } from './rocks';
+import { applyLeafClumps } from './giants';
 import { ivyLeafTexture, applyCardMap } from './foliage';
 import { patchMaterial, before, after } from '../../render/patch';
 
@@ -430,6 +431,86 @@ export function buildMushroomCluster(kind: MushroomKind, r: Rng): InstancedPart[
   }
   const out: InstancedPart[] = [];
   for (const [m, geo] of b.geometries()) out.push({ geometry: geo, material: m as THREE.Material, castShadow: false });
+  return out;
+}
+
+// ───────────────────────────────────────────── winter floor
+
+let _holly: THREE.MeshStandardMaterial | null = null;
+/** Evergreen winterberry leaves (dark glossy green, snow-capped). Winter-only props use their own materials so the map can toggle them. */
+export function winterLeafMaterial(): THREE.MeshStandardMaterial {
+  if (_holly) return _holly;
+  _holly = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, color: 0xffffff });
+  _holly.name = 'winterLeaf';
+  applyWorldFx(_holly, { snowUp: 0.5 });
+  applyLeafClumps(_holly, { freq: [7, 7, 7], bend: 0.6, seam: 0.4, cut: 0.9 });
+  return _holly;
+}
+let _berry: THREE.MeshStandardMaterial | null = null;
+export function winterBerryMaterial(): THREE.MeshStandardMaterial {
+  if (_berry) return _berry;
+  _berry = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, color: 0xffffff, emissive: 0x400000, emissiveIntensity: 0.25 });
+  _berry.name = 'winterBerry';
+  return _berry;
+}
+let _wtwig: THREE.MeshStandardMaterial | null = null;
+export function winterTwigMaterial(): THREE.MeshStandardMaterial {
+  if (_wtwig) return _wtwig;
+  _wtwig = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, color: 0xffffff });
+  _wtwig.name = 'winterTwig';
+  applyWorldFx(_wtwig, { snowUp: 0.6 });
+  return _wtwig;
+}
+
+/** A winterberry bush: dark evergreen mounds studded with clusters of red berries. */
+export function buildWinterBerry(r: Rng): InstancedPart[] {
+  const b = new MeshBuilder();
+  const leaf = winterLeafMaterial();
+  const berry = winterBerryMaterial();
+  const n = 3 + r.int(0, 1);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + r.next();
+    const d = i === 0 ? 0 : 0.22 + r.next() * 0.12;
+    const rad = i === 0 ? 0.38 : 0.26 + r.next() * 0.08;
+    const g = lumpySphere(rad, 1, 0.16, r, 2.4);
+    g.scale(1, 0.8, 1);
+    b.add(leaf, g, mat(Math.cos(a) * d, rad * 0.62, Math.sin(a) * d), { tint: new THREE.Color(0x2c5234).multiplyScalar(0.85 + r.next() * 0.3), aoWorld: (q) => 0.55 + 0.45 * THREE.MathUtils.smoothstep(q.y, 0, 0.6) });
+    for (let k = 0; k < 6; k++) {
+      const u = r.next() * Math.PI * 2;
+      const v = 0.2 + r.next() * 0.9;
+      const p = new THREE.Vector3(Math.cos(u) * Math.sin(v), Math.cos(v) * 0.8, Math.sin(u) * Math.sin(v)).multiplyScalar(rad * 1.02);
+      for (let c = 0; c < 3; c++) {
+        const bg = new THREE.SphereGeometry(0.035 + r.next() * 0.012, 6, 4);
+        b.add(berry, bg, mat(Math.cos(a) * d + p.x + (r.next() - 0.5) * 0.06, rad * 0.62 + p.y + (r.next() - 0.5) * 0.05, Math.sin(a) * d + p.z + (r.next() - 0.5) * 0.06), { tint: new THREE.Color(0xc41e24).multiplyScalar(0.85 + r.next() * 0.3) });
+      }
+    }
+  }
+  const out: InstancedPart[] = [];
+  for (const [m, geo] of b.geometries()) out.push({ geometry: geo, material: m as THREE.Material, castShadow: true });
+  return out;
+}
+
+/** Dead twigs and dry stalks poking up through the snow. */
+export function buildWinterTwigs(r: Rng): InstancedPart[] {
+  const b = new MeshBuilder();
+  const m = winterTwigMaterial();
+  const n = 3 + r.int(0, 3);
+  for (let i = 0; i < n; i++) {
+    const len = 0.35 + r.next() * 0.5;
+    const g = new THREE.CylinderGeometry(0.008, 0.02, len, 4);
+    g.translate(0, len / 2, 0);
+    const a = r.next() * 6.28;
+    const off = r.next() * 0.25;
+    b.add(m, g, mat(Math.cos(a) * off, -0.05, Math.sin(a) * off, (r.next() - 0.5) * 0.9, r.next() * 6.28, (r.next() - 0.5) * 0.9), { tint: new THREE.Color(r.next() < 0.5 ? 0x4a3a2c : 0x8a7454).multiplyScalar(0.8 + r.next() * 0.4) });
+    // A forked tip on some.
+    if (r.next() < 0.5) {
+      const f = new THREE.CylinderGeometry(0.005, 0.01, len * 0.4, 3);
+      f.translate(0, len * 0.2, 0);
+      b.add(m, f, mat(Math.cos(a) * off, len * 0.6, Math.sin(a) * off, 0.6, r.next() * 6.28, 0), { tint: 0x5a4838 });
+    }
+  }
+  const out: InstancedPart[] = [];
+  for (const [mm, geo] of b.geometries()) out.push({ geometry: geo, material: mm as THREE.Material, castShadow: false });
   return out;
 }
 
