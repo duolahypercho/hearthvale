@@ -244,6 +244,11 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         float detail = 1.0 - smoothstep(40.0, 160.0, dist);
         float e = 0.08;
         float amp = (0.22 + 0.1 * uWindStrength) * mix(0.35, 1.0, detail) * smoothstep(0.0, 0.25, depth);
+        // Wind slicks: long glassy streaks down-wind where the ripples lie flat (they mirror the sky,
+        // so open water reads as more than one flat blue).
+        float slick = smoothstep(0.52, 0.78, hvNoise(vec2(p.x * 0.035 + p.y * 0.012, p.y * 0.22 - p.x * 0.05) + vec2(t * 0.006, t * 0.02)));
+        slick *= smoothstep(1.2, 2.5, depth) * (1.0 - uPool);
+        amp *= 1.0 - 0.65 * slick;
         float hx = wh(p + vec2(e, 0.0), t) - wh(p - vec2(e, 0.0), t);
         float hz = wh(p + vec2(0.0, e), t) - wh(p - vec2(0.0, e), t);
         vec3 n = normalize(vec3(-hx / (2.0 * e) * amp, 1.0, -hz / (2.0 * e) * amp));

@@ -856,7 +856,7 @@ export class FishingSystem implements System, FishingApi {
     switch (this.st) {
       case 'charging': {
         if (this.demo === 'cast') {
-          this.power = 0.98 + 0.02 * Math.sin(game.time * 5);
+          this.power = 0.986 + 0.011 * Math.sin(game.time * 5);
         } else {
           this.updateAim();
           this.powerT += sdt;
