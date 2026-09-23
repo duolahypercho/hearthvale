@@ -274,9 +274,9 @@ export class FrozenRiver {
           vec3 R = reflect(-V, n);
           vec3 sky = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.6, R.y)) * 0.7;
           float band = hvNoise(vec2(p.x * 0.08 + uTime * 0.02, p.y * 0.02)) * hvNoise(vec2(p.x * 0.5 - uTime * 0.05, 1.3));
-          vec3 aur = mix(vec3(0.1, 0.9, 0.5), vec3(0.1, 0.6, 0.9), hvNoise(p * 0.05 + 4.0)) * pow(band, 1.6) * 0.9 * uAurora * smoothstep(0.4, 0.9, uNight);
+          vec3 aur = mix(vec3(0.1, 0.9, 0.5), vec3(0.1, 0.6, 0.9), hvNoise(p * 0.05 + 4.0)) * pow(band, 2.2) * 0.55 * uAurora * smoothstep(0.4, 0.9, uNight);
           lit = mix(lit, sky * 0.5 + aur, min(fres, 0.6) * 0.55);
-          lit += aur * 0.22;
+          lit += aur * 0.08;
           // Glassy lamp glints: warm sparkles scattered where the lamplight grazes the ice.
           vec2 gc = floor(p * 2.2);
           vec2 gf = fract(p * 2.2) - 0.5 - (hvHash22(gc + 2.1) - 0.5) * 0.6;

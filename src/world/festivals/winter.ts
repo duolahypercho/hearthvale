@@ -33,7 +33,7 @@ const PLAZA_R = 7.6;
 const ICE_Y = -0.18;
 const BRIDGE_X = 32;
 /** Starlight Skate reach (east of the bridge, inside the camera bounds). */
-const SKATE = { x0: 34.6, x1: 51.5 };
+const SKATE = { x0: 34.6, x1: 49.5 };
 
 export class StarfallSquare extends FestivalMap {
   private river!: FrozenRiver;
@@ -172,7 +172,7 @@ export class StarfallSquare extends FestivalMap {
       const q = b.p.clone().applyMatrix4(rot);
       this.glowPt(TREE.x + q.x, y + q.y, TREE.z + q.z, b.c, 0.3, 0.2);
     }
-    this.glowPt(TREE.x, y + t.star.y, TREE.z, 0xffd070, 4.0, 0.12);
+    this.glowPt(TREE.x, y + t.star.y, TREE.z, 0xffd070, 2.6, 0.12);
     this.glowPt(TREE.x, y + t.star.y, TREE.z, 0xfff6d8, 1.3, 0.3);
     this.starLight = this.addLight(TREE.x, y + t.star.y - 1, TREE.z + 1, 0xffd890, 14, 0.04, 16);
     this.addLight(TREE.x, y + 3, TREE.z + 4.2, 0xffc070, 18, 0.03, 12);
@@ -408,7 +408,7 @@ export class StarfallSquare extends FestivalMap {
       this.run = { x: SKATE.x0, off: 0, vx: 0, dir: 1, dist: 0, stars, glow, spray: 0 };
       play.total = stars.length;
       this.placePlayer(SKATE.x0, this.riverZ(SKATE.x0), 'right', ICE_Y + 0.02);
-      this.frame({ pitch: 46, distance: 19, yaw: 0, ox: 2.4, oz: -3.2 });
+      this.frame({ pitch: 46, distance: 18, yaw: 0, ox: 0.6, oz: -3.2 });
       if (!this.skateLight) this.skateLight = this.addLight(SKATE.x0, 1.6, 30, 0xffc890, 5, 0.02, 7);
     }
   }
