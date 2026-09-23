@@ -146,6 +146,8 @@ interface Agent {
   run: boolean;
   /** Demo blocking: hold the staged yaw (no turning towards chat partners / the player). */
   staged?: boolean;
+  /** Seconds until this villager may wave at a passing farmer again. */
+  greetT?: number;
 }
 
 export class NpcSystem implements System {
@@ -1449,6 +1451,10 @@ export class NpcSystem implements System {
     const simulate = !game.paused || this.eventRunning;
     const h = (x: number, z: number): number => map.heightAt(x, z);
     const pl = game.player.position;
+    // Every farmer in town (co-op: remote farmers too) — villagers glance at and greet whoever passes.
+    this.farmers.length = 0;
+    this.farmers.push(pl);
+    for (const o of game.scene.children) if (o.name === 'remote-farmer' && o.visible) this.farmers.push(o.position);
     for (const a of this.agents.values()) {
       const v = a.v;
       // Door fades.
@@ -1510,7 +1516,30 @@ export class NpcSystem implements System {
   }
 
   /** Idle life at the spot: wander, play laps, chat, glance at the player, emotes. */
-  private ambient(a: Agent, dt: number, simulate: boolean, pl: THREE.Vector3): void {
+  private farmers: THREE.Vector3[] = [];
+
+  private ambient(a: Agent, dt: number, simulate: boolean, pl0: THREE.Vector3): void {
+    // The nearest farmer (local or co-op) is the one a villager reacts to.
+    let pl = pl0;
+    let best = Infinity;
+    for (const f of this.farmers) {
+      const d = Math.hypot(f.x - a.v.position.x, f.z - a.v.position.z);
+      if (d < best) {
+        best = d;
+        pl = f;
+      }
+    }
+    // A wave hello when a farmer walks up (at most every 40 s per villager).
+    a.greetT = (a.greetT ?? 0) - dt;
+    if (best < 2.6 && a.greetT <= 0 && simulate && !a.staged && a.activity !== 'sit' && a.activity !== 'paint') {
+      a.greetT = 40;
+      a.v.facePoint(pl.x, pl.z);
+      a.v.gesture('wave', 1.6);
+      if (a.emoteT <= 1) {
+        a.v.emote('music');
+        a.emoteT = 6;
+      }
+    }
     const v = a.v;
     const map = this.game.world.current!;
     const anchor = a.anchor ?? { x: v.position.x, z: v.position.z };
