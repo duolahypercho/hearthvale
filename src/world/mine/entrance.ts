@@ -239,8 +239,8 @@ export class MineEntranceMap implements GameMap {
     // Rock lintel mass bridging the recess top into the cliff.
     const r = this.rng.fork('lintel');
     for (let k = 0; k < 7; k++) {
-      const g = facetRock(r, 0.9 + r.next() * 0.5, [0x8e8070, 0x7a6e62, 0x9a8a78][k % 3]!, { chunky: true, squash: 0.8, rim: 0.3 });
-      b.add(mineRockMaterial(), g, mat(-2.2 + k * 0.72 + (r.next() - 0.5) * 0.3, H + 0.9 + r.next() * 0.6, -1.2 - r.next() * 0.8, r.next(), r.next() * 6, r.next()));
+      const g = facetRock(r, 0.62 + r.next() * 0.3, [0x6e6258, 0x5e544a, 0x7a6c5e][k % 3]!, { chunky: true, squash: 0.75, rim: 0.2 });
+      b.add(mineRockMaterial(), g, mat(-2.1 + k * 0.7 + (r.next() - 0.5) * 0.3, H + 0.55 + r.next() * 0.35, -1.5 - r.next() * 0.6, r.next(), r.next() * 6, r.next()));
     }
     // Hanging lantern just inside + the sign board.
     const lan = new MeshBuilder();

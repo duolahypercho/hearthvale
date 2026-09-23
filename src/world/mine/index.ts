@@ -82,6 +82,8 @@ export class MineMap implements GameMap {
   playerTargetable = true;
   /** Demo / cutscene: freeze monster AI (they still breathe). */
   freezeAI = false;
+  /** Demo arena: monsters keep simulating while the game is paused for a staged shot. */
+  live = false;
 
   private floorGroup = new THREE.Group();
   private cave: CaveBuild | null = null;
@@ -134,6 +136,7 @@ export class MineMap implements GameMap {
   setFloor(n: number): void {
     n = Math.max(1, Math.floor(n));
     if (n === this.floor && this.cave) return;
+    this.live = false;
     this.clearFloor();
     this.floor = n;
     const seed = this.game.rng.fork('mine').seed;
@@ -194,6 +197,15 @@ export class MineMap implements GameMap {
     this.monsters.push(m);
     this.floorGroup.add(m.root);
     return m;
+  }
+
+  /** Remove a monster silently (no drops / kill events): demo staging. */
+  removeMonster(m: Monster): void {
+    const i = this.monsters.indexOf(m);
+    if (i < 0) return;
+    this.monsters.splice(i, 1);
+    m.root.removeFromParent();
+    m.dispose();
   }
 
   private clearFloor(): void {
@@ -394,8 +406,8 @@ export class MineMap implements GameMap {
     this.ctx.playerTargetable = this.playerTargetable && !this.freezeAI;
     for (const m of this.monsters) {
       if (m.dead) continue;
-      if (this.freezeAI || game.paused) m.update(dt, this.ctx, true);
-      else m.update(simDt, this.ctx);
+      if (this.freezeAI || (game.paused && !this.live)) m.update(dt, this.ctx, true);
+      else m.update(this.live ? dt : simDt, this.ctx);
     }
     // Separation between monsters.
     for (let i = 0; i < this.monsters.length; i++) {

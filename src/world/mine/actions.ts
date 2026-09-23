@@ -244,18 +244,18 @@ export function buildSword(): THREE.Group {
   const b = new MeshBuilder();
   // Blade: tapered diamond cross-section with a darker fuller, bright bevel edges.
   const s = new THREE.Shape();
-  s.moveTo(-0.042, 0);
-  s.lineTo(-0.036, 0.62);
-  s.lineTo(0, 0.78);
-  s.lineTo(0.036, 0.62);
-  s.lineTo(0.042, 0);
+  s.moveTo(-0.062, 0);
+  s.lineTo(-0.058, 0.6);
+  s.lineTo(0, 0.8);
+  s.lineTo(0.058, 0.6);
+  s.lineTo(0.062, 0);
   s.closePath();
   const blade = new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.009, bevelSegments: 1 });
   blade.translate(0, 0.17, -0.006);
   b.add(steel, blade, undefined, { tint: 0xe8eef4 });
-  b.add(steel, roundedBox(0.016, 0.5, 0.03, 0.006), mat(0, 0.45, 0), { tint: 0x8a96a4 });
+  b.add(steel, roundedBox(0.022, 0.52, 0.034, 0.008), mat(0, 0.45, 0), { tint: 0x7a8aa0 });
   // Crossguard + ricasso collar.
-  b.add(trim, roundedBox(0.26, 0.045, 0.06, 0.018), mat(0, 0.15, 0), { tint: 0xd8a84a });
+  b.add(trim, roundedBox(0.3, 0.055, 0.07, 0.02), mat(0, 0.15, 0), { tint: 0xd8a84a });
   for (const sx of [-1, 1]) b.add(trim, new THREE.SphereGeometry(0.03, 10, 8), mat(sx * 0.135, 0.15, 0), { tint: 0xe8b85a });
   // Grip wrap + pommel.
   b.add(leather, new THREE.CylinderGeometry(0.026, 0.03, 0.2, 10), mat(0, 0.03, 0), { tint: 0x6a3a22 });
@@ -266,8 +266,8 @@ export function buildSword(): THREE.Group {
 }
 
 /** Blade-tip / blade-base in sword-local space (for the trail + hit sparks). */
-export const SWORD_TIP = new THREE.Vector3(0, 0.95, 0);
-export const SWORD_BASE = new THREE.Vector3(0, 0.34, 0);
+export const SWORD_TIP = new THREE.Vector3(0, 1.18, 0);
+export const SWORD_BASE = new THREE.Vector3(0, 0.3, 0);
 
 // ───────────────────────────────────────────── trail
 
@@ -310,8 +310,8 @@ export class SwordTrail {
       vertexShader: `attribute float aAlpha; attribute float aEdge; varying float vA; varying float vE; void main(){ vA = aAlpha; vE = aEdge; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: `uniform vec3 uColor; varying float vA; varying float vE; void main(){
         float edge = smoothstep(0.0, 0.9, vE);
-        vec3 c = mix(uColor * 0.55, vec3(1.6, 1.55, 1.4), pow(edge, 3.0));
-        float a = vA * (0.15 + 0.85 * edge);
+        vec3 c = mix(uColor * 0.7, vec3(1.5, 1.45, 1.3), pow(edge, 2.5));
+        float a = vA * (0.3 + 0.7 * edge);
         gl_FragColor = vec4(c * a, a);
       }`,
     });
@@ -345,7 +345,7 @@ export class SwordTrail {
   update(dt: number): void {
     for (let i = 0; i < this.ages.length; i++) this.ages[i]! += dt;
     // Drop samples older than the ribbon lifetime.
-    while (this.ages.length && this.ages[this.ages.length - 1]! > 0.16) {
+    while (this.ages.length && this.ages[this.ages.length - 1]! > 0.26) {
       this.tips.pop();
       this.bases.pop();
       this.ages.pop();
@@ -362,8 +362,8 @@ export class SwordTrail {
       const b = this.bases[k]!;
       this.pos.set([t.x, t.y, t.z], i * 6);
       this.pos.set([b.x, b.y, b.z], i * 6 + 3);
-      const age = this.ages[k]! / 0.16;
-      const fade = (1 - age) * (1 - k / TRAIL_N) * (i < n ? 1 : 0);
+      const age = this.ages[k]! / 0.26;
+      const fade = Math.max(0, 1 - age) * (1 - k / TRAIL_N) * (i < n ? 1 : 0);
       this.alpha[i * 2] = fade;
       this.alpha[i * 2 + 1] = fade;
     }

@@ -19,6 +19,10 @@ import type { LightSpec } from './gen';
 
 const ACCENTS = 5;
 
+/** Live-tunable light levels (exposed as window.__caveTune for look-dev). */
+export const CAVE_TUNE = { key: 1.15, fill: 0.05, accent: 1, hemi: 0.8, exposure: 1 };
+(globalThis as unknown as { __caveTune: typeof CAVE_TUNE }).__caveTune = CAVE_TUNE;
+
 export class CaveLighting {
   readonly group = new THREE.Group();
   readonly key: THREE.SpotLight;
@@ -81,7 +85,10 @@ export class CaveLighting {
     const scene = this.game.scene;
     const dn = this.game.lighting;
     dn.sky.visible = false;
+    // Keep the sun's shadow slot (constant light layout = no shader recompiles) but stop redrawing
+    // it; render it once so a never-drawn map is not bound to the shadow sampler (black frame).
     dn.sun.shadow.autoUpdate = false;
+    dn.sun.shadow.needsUpdate = true;
     dn.sun.castShadow = true;
     this.prevHook = scene.onBeforeRender;
     const prev = this.prevHook;
@@ -111,14 +118,14 @@ export class CaveLighting {
     const flick = 0.93 + 0.045 * Math.sin(time * 11.3) + 0.025 * Math.sin(time * 27.1 + 1.3);
     this.key.position.set(player.x + 0.8, player.y + 6.2, player.z + 2.2);
     this.key.target.position.set(player.x, player.y, player.z - 0.4);
-    this.key.intensity = def.lantern[1] * 9 * flick * this.lanternScale;
+    this.key.intensity = def.lantern[1] * CAVE_TUNE.key * flick * this.lanternScale;
     this.fill.position.set(player.x + 0.35, player.y + 1.25, player.z + 0.45);
-    this.fill.intensity = def.lantern[1] * 0.16 * flick * this.lanternScale;
+    this.fill.intensity = def.lantern[1] * CAVE_TUNE.fill * flick * this.lanternScale;
     for (const a of this.accents) {
       const s = a.spec;
       if (!s) continue;
       const f = s.flicker ? 1 - s.flicker * 0.25 + s.flicker * 0.15 * Math.sin(time * 9 + a.seed) + s.flicker * 0.1 * Math.sin(time * 23 + a.seed * 3) : 0.9 + 0.1 * Math.sin(time * 1.3 + a.seed);
-      a.light.intensity = s.intensity * f;
+      a.light.intensity = s.intensity * f * CAVE_TUNE.accent;
     }
     this.key.updateMatrixWorld();
     this.key.target.updateMatrixWorld();
@@ -134,12 +141,12 @@ export class CaveLighting {
     dn.bounce.intensity = 0;
     dn.hemi.color.setHex(def.hemi[0]);
     dn.hemi.groundColor.setHex(def.hemi[1]);
-    dn.hemi.intensity = def.hemi[2];
+    dn.hemi.intensity = def.hemi[2] * CAVE_TUNE.hemi;
     dn.fog.color.copy(this.fog);
     dn.fog.near = rc.rig.distance * 0.95;
     dn.fog.far = rc.rig.distance * 2.1;
     (rc.scene.background as THREE.Color).copy(this.fog);
-    rc.renderer.toneMappingExposure = def.exposure * (1 + this.flash * 0.6);
+    rc.renderer.toneMappingExposure = def.exposure * CAVE_TUNE.exposure * (1 + this.flash * 0.6);
     rc.scene.environmentIntensity = 0.12;
     const g = rc.post.grade.uniforms;
     (g.uLift!.value as THREE.Vector3).set(...def.lift);

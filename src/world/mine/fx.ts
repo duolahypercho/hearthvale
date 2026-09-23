@@ -248,6 +248,8 @@ export class MineFX {
   private moteMat: THREE.ShaderMaterial;
   private readonly MOTES = 240;
   private floorY: (x: number, z: number) => number = () => 0;
+  /** Brightness of the alpha (dust / goo) particles relative to their authored colour. */
+  softGain = 0.5;
 
   constructor() {
     this.group.name = 'mine-fx';
@@ -350,7 +352,9 @@ export class MineFX {
 
   /** Dust puffs, goo, snow (alpha). */
   puff(p: THREE.Vector3, o: EmitOpts): void {
-    this.soft.emit(p, o);
+    // Unlit alpha sprites: pre-darken to the lantern-lit exposure so dust never blooms to white.
+    const c = (o.color instanceof THREE.Color ? o.color.clone() : new THREE.Color(o.color)).multiplyScalar(this.softGain);
+    this.soft.emit(p, { ...o, color: c });
   }
 
   /** Rock shards bursting from p. */

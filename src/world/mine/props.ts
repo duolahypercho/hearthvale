@@ -33,9 +33,18 @@ export function crystalMaterial(): THREE.MeshStandardMaterial {
       fs,
       '#include <emissivemap_fragment>',
       `{
-        float shimmer = 0.75 + 0.25 * sin(uTime * 1.6 + vCrW.x * 2.1 + vCrW.z * 1.7 + vCrW.y * 3.0);
+        float shimmer = 0.8 + 0.2 * sin(uTime * 1.6 + vCrW.x * 2.1 + vCrW.z * 1.7 + vCrW.y * 3.0);
         float fr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.0);
-        totalEmissiveRadiance = vColor.rgb * (0.9 + 1.3 * smoothstep(0.0, 1.6, vCrW.y)) * shimmer * (0.7 + fr * 1.2);
+        // Per-facet value (flat normals): some faces catch the inner glow, some stay deep and
+        // saturated, so a cluster reads as cut glass rather than flat petals.
+        vec3 fnW = normalize(inverseTransformDirection(normal, viewMatrix));
+        float facet = fract(sin(dot(floor(fnW * 3.5 + 0.5), vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+        float up = clamp(fnW.y, 0.0, 1.0);
+        vec3 deep = vColor.rgb * vColor.rgb * 0.9;
+        vec3 body = mix(deep, vColor.rgb, 0.35 + 0.65 * facet);
+        float lift = smoothstep(0.0, 1.6, vCrW.y);
+        totalEmissiveRadiance = body * (0.55 + 0.9 * lift) * shimmer + vColor.rgb * fr * 0.9
+          + mix(vColor.rgb, vec3(1.0), 0.6) * pow(up, 6.0) * 0.55 * shimmer;
       }`,
     );
     shader.fragmentShader = fs;

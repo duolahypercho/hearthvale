@@ -17,7 +17,7 @@ const VARIANTS = 4;
 let metalMat: THREE.MeshStandardMaterial | null = null;
 function metalMaterial(): THREE.MeshStandardMaterial {
   if (!metalMat) {
-    metalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.85, flatShading: true, emissive: 0x000000 });
+    metalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.45, flatShading: true, emissive: 0x000000 });
     metalMat.name = 'mine-ore-metal';
   }
   return metalMat;
@@ -26,6 +26,7 @@ function metalMaterial(): THREE.MeshStandardMaterial {
 interface Kit {
   body: THREE.BufferGeometry[];
   big: THREE.BufferGeometry[];
+  coal: THREE.BufferGeometry[];
   nuggets: Map<string, THREE.BufferGeometry>;
 }
 
@@ -35,26 +36,52 @@ function nuggetGeo(r: Rng, kind: 'metal' | 'gem' | 'coal', radius: number, big: 
   const parts: THREE.BufferGeometry[] = [];
   const R = radius * (big ? 1.3 : 1);
   if (kind === 'gem') {
-    const n = 4;
-    for (let k = 0; k < n; k++) {
-      const a = (k / n) * Math.PI * 2 + r.next() * 0.8;
-      const el = 0.35 + r.next() * 0.55;
-      const hgt = (k === 0 ? 0.55 : 0.3 + r.next() * 0.2) * R * 1.8;
-      const g = crystalPrism(0.06 + r.next() * 0.04, hgt, 0.35);
-      const dir = new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
-      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().lerp(new THREE.Vector3(0, 1, 0), 0.25).normalize());
-      const p = dir.clone().multiply(new THREE.Vector3(R * 0.62, R * 0.5, R * 0.62)).add(new THREE.Vector3(0, R * 0.32, 0));
+    // One chunky crystal cluster bursting from a crack on top (a hero prism + stubby satellites)
+    // and two small shards on the flanks, so the rock reads as "gem" from any angle.
+    const base = new THREE.Vector3((r.next() - 0.5) * R * 0.3, R * 0.52, (r.next() - 0.5) * R * 0.3);
+    const cl = 5;
+    for (let k = 0; k < cl; k++) {
+      const hero = k === 0;
+      const a = (k / cl) * Math.PI * 2 + r.next() * 0.7;
+      const tilt = hero ? 0.12 + r.next() * 0.15 : 0.45 + r.next() * 0.35;
+      const hgt = (hero ? 1.15 + r.next() * 0.25 : 0.5 + r.next() * 0.35) * R;
+      const g = crystalPrism((hero ? 0.155 : 0.09 + r.next() * 0.04) * (R / 0.44), hgt, hero ? 0.3 : 0.38);
+      const dir = new THREE.Vector3(Math.cos(a) * Math.sin(tilt), Math.cos(tilt), Math.sin(a) * Math.sin(tilt));
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6));
+      const p = base.clone().add(new THREE.Vector3(Math.cos(a) * R * 0.1, -R * 0.08, Math.sin(a) * R * 0.1));
       g.applyMatrix4(new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)));
       parts.push(g);
     }
+    for (let k = 0; k < 2; k++) {
+      const a = r.next() * Math.PI * 2;
+      const dir = new THREE.Vector3(Math.cos(a) * 0.8, 0.6, Math.sin(a) * 0.8).normalize();
+      const g = crystalPrism(0.05 * (R / 0.44), R * (0.3 + r.next() * 0.15), 0.4);
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      const p = new THREE.Vector3(Math.cos(a) * R * 0.72, R * 0.22, Math.sin(a) * R * 0.72);
+      g.applyMatrix4(new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)));
+      parts.push(g);
+    }
+  } else if (kind === 'coal') {
+    // Coal: glossy black seams half-buried in a darker rock (not spots on a pale stone).
+    const n = 7;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + r.next() * 0.9;
+      const el = 0.15 + r.next() * 0.85;
+      const g = facetRock(r, 0.07 + r.next() * 0.05, 0xffffff, { detail: 0, squash: 0.7, rim: 0.2, facet: 0.6 });
+      const dir = new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
+      const p = dir.clone().multiply(new THREE.Vector3(R * 0.8, R * 0.62, R * 0.8)).add(new THREE.Vector3(0, R * 0.16, 0));
+      g.applyMatrix4(new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromEuler(new THREE.Euler(r.next() * 6, r.next() * 6, 0)), new THREE.Vector3(1, 1, 1)));
+      parts.push(g);
+    }
   } else {
-    const n = kind === 'coal' ? 5 : 6;
+    const n = 6;
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2 + r.next() * 0.9;
       const el = 0.1 + r.next() * 0.9;
-      const g = facetRock(r, (kind === 'coal' ? 0.1 : 0.075) + r.next() * 0.04, 0xffffff, { detail: 0, squash: 0.8, rim: 0.15, facet: 0.35 });
+      const g = facetRock(r, 0.08 + r.next() * 0.04, 0xffffff, { detail: 0, squash: 0.8, rim: 0.3, facet: 0.45 });
       const dir = new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
-      const p = dir.clone().multiply(new THREE.Vector3(R * 0.82, R * 0.62, R * 0.82)).add(new THREE.Vector3(0, R * 0.2, 0));
+      const p = dir.clone().multiply(new THREE.Vector3(R * 0.9, R * 0.7, R * 0.9)).add(new THREE.Vector3(0, R * 0.2, 0));
       g.applyMatrix4(new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromEuler(new THREE.Euler(r.next() * 6, r.next() * 6, 0)), new THREE.Vector3(1, 1, 1)));
       parts.push(g);
     }
@@ -75,8 +102,10 @@ function kitFor(biome: Biome, r: Rng): Kit {
   const def = BIOMES[biome];
   const cap = biome === 'ice' ? 0xf4faff : biome === 'lava' ? 0x6e3024 : undefined;
   const capAmt = biome === 'ice' ? 0.9 : 0.35;
-  k = { body: [], big: [], nuggets: new Map() };
+  k = { body: [], big: [], coal: [], nuggets: new Map() };
   for (let v = 0; v < VARIANTS; v++) k.body.push(facetRock(r, 0.44, def.rock[v % def.rock.length]!, { chunky: v % 2 === 1, squash: 0.74, cap, capAmt, rim: 0.5 }));
+  const dark = new THREE.Color(def.rock[0]!).multiplyScalar(biome === 'ice' ? 0.55 : 0.5).getHex();
+  for (let v = 0; v < VARIANTS; v++) k.coal.push(facetRock(r, 0.44, dark, { chunky: v % 2 === 0, squash: 0.72, cap, capAmt: capAmt * 0.2, rim: 0.55 }));
   for (let v = 0; v < 2; v++) k.big.push(facetRock(r, 0.62, def.rock[v]!, { chunky: true, squash: 0.8, cap, capAmt, rim: 0.55 }));
   kits.set(biome, k);
   return k;
@@ -117,7 +146,7 @@ export class RockField {
       const key = `${s.big ? 'B' : 'r'}${variant}:${style?.kind ?? '-'}`;
       let set = this.sets.get(key);
       if (!set) {
-        const body = (s.big ? kit.big : kit.body)[variant]!;
+        const body = (s.big ? kit.big : style?.kind === 'coal' ? kit.coal : kit.body)[variant]!;
         const parts = [{ geometry: body, material: mineRockMaterial() }];
         if (style) {
           const nk = `${key}`;

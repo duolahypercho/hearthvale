@@ -294,14 +294,19 @@ ${CAVE_GLSL}`,
       /* glsl */ `
       {
         // Mineral glints that twinkle on the rock faces (not in the void, not on the floor).
-        vec3 gp = floor(vCW * 7.0);
-        float gh2 = hvHash12(gp.xz + gp.y * 17.31);
-        float tw = pow(max(0.0, sin(uTime * 1.7 + gh2 * 71.0)), 12.0);
-        totalEmissiveRadiance += uGlint * step(0.985, gh2) * tw * smoothstep(0.3, 0.7, vWall) * (1.0 - vVoid);
+        // Point-like specks (a tiny disc per lucky cell of the triplanar plane), never whole cells.
+        vec3 gn = normalize(vCN);
+        vec2 gtp = abs(gn.y) > 0.6 ? vCW.xz : (abs(gn.x) > abs(gn.z) ? vCW.zy : vCW.xy);
+        vec2 gc = floor(gtp * 5.0);
+        float gh2 = hvHash12(gc + 13.7);
+        vec2 gof = fract(gtp * 5.0) - 0.5 - (hvHash22(gc + 5.3) - 0.5) * 0.6;
+        float dotK = smoothstep(0.07, 0.0, length(gof));
+        float tw = pow(max(0.0, sin(uTime * 1.7 + gh2 * 71.0)), 10.0);
+        totalEmissiveRadiance += uGlint * step(0.93, gh2) * dotK * (0.25 + tw) * smoothstep(0.3, 0.7, vWall) * (1.0 - vVoid);
         if (uCrack > 0.5 && uCrack < 1.5) {
           // Lava band: seams glow and breathe, stronger near the channels.
           float pulse = 0.65 + 0.35 * sin(uTime * 1.3 + vCW.x * 0.7 + vCW.z * 0.4);
-          totalEmissiveRadiance += vec3(1.0, 0.28, 0.04) * (hvCrackV * (0.8 + vLava * 2.0) * pulse * 1.6 + vLava * onFloor * 0.35);
+          totalEmissiveRadiance += vec3(1.0, 0.24, 0.03) * (hvCrackV * (0.05 + vLava * vLava * 1.2) * pulse * 1.3 + vLava * onFloor * 0.12);
         }
       }`,
     );
@@ -360,12 +365,21 @@ ${CAVE_GLSL}`,
           vec2 flow = p * 0.55 + vec2(uTime * 0.045, uTime * 0.03);
           float warp = hvFbm(flow * 1.3 - uTime * 0.05);
           float n = hvFbm(flow + warp * 0.9);
-          vec2 cell = hvMineCell(p * 1.25 + vec2(warp * 0.8, uTime * 0.06));
-          float seam = 1.0 - smoothstep(0.0, 0.22, cell.y - cell.x);
-          float crust = smoothstep(0.35, 0.8, n) * (1.0 - seam);
-          vec3 hot = mix(vec3(1.6, 0.34, 0.04), vec3(3.2, 1.35, 0.35), smoothstep(0.35, 0.9, n + seam * 0.6));
-          vec3 col = mix(hot, vec3(0.16, 0.04, 0.03), crust * 0.85);
-          col += vec3(2.4, 1.1, 0.3) * seam * (0.6 + 0.4 * sin(uTime * 2.0 + p.x * 1.3 + p.y));
+          // Drifting cooled-crust plates over a molten core: dark basalt rafts, glowing seams
+          // between them, the hottest (yellow) light only in the thinnest cracks.
+          vec2 cell = hvMineCell(p * 1.1 + vec2(warp * 0.7, uTime * 0.05));
+          float gap = cell.y - cell.x;
+          float seam = 1.0 - smoothstep(0.0, 0.16, gap);
+          float core = 1.0 - smoothstep(0.0, 0.05, gap);
+          float plate = smoothstep(0.08, 0.3, gap) * smoothstep(0.25, 0.6, n + 0.15);
+          vec3 molten = mix(vec3(0.55, 0.07, 0.01), vec3(0.95, 0.24, 0.03), smoothstep(0.3, 0.8, n));
+          vec3 crustC = mix(vec3(0.05, 0.018, 0.014), vec3(0.16, 0.05, 0.03), hvNoise(p * 3.0));
+          // Plates glow dull red at their rims (heat soaking through).
+          crustC += vec3(0.35, 0.05, 0.0) * (1.0 - smoothstep(0.08, 0.2, gap)) * 0.6;
+          vec3 col = mix(molten, crustC, plate);
+          float pulse = 0.75 + 0.25 * sin(uTime * 2.0 + p.x * 1.3 + p.y);
+          col += vec3(0.9, 0.3, 0.04) * seam * (1.0 - plate) * 0.45 * pulse;
+          col += vec3(1.1, 0.6, 0.18) * core * pulse * 0.55;
           gl_FragColor = vec4(col, 1.0);
           #include <fog_fragment>
         }`,

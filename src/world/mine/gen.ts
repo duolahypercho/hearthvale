@@ -237,36 +237,58 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     return n;
   };
   if (biome === 'lava') {
-    const channels = 2 + rng.int(0, 2);
-    for (let c = 0; c < channels; c++) {
-      const before = floorCount();
+    // Molten channels (2 wide, meandering) + a pooled basin; a channel that would cut the cave in
+    // two gets basalt bridges punched through it, and is only dropped if that still fails.
+    const reachable = (): number => {
+      const reach = bfs(solid, lava, W, D, Math.floor(spawn.x), Math.floor(spawn.z));
+      let n = 0;
+      for (let i = 0; i < W * D; i++) if (reach[i]! >= 0) n++;
+      return n;
+    };
+    const paint = (px: number, pz: number): void => {
+      if (!inb(px, pz) || solid[idx(px, pz)] || reserved[idx(px, pz)]) return;
+      if (Math.hypot(px - spawn.x, pz - spawn.z) < 4 || (elevator && Math.hypot(px - elevator.x, pz - elevator.z) < 3)) return;
+      lava[idx(px, pz)] = 1;
+    };
+    const channels = 2 + rng.int(0, 1);
+    for (let c = 0; c <= channels; c++) {
       const snap = lava.slice();
-      let x = rng.int(4, W - 5);
-      let z = rng.int(4, D - 5);
-      let a = rng.next() * Math.PI * 2;
-      const len = 10 + rng.int(0, 14);
-      for (let s = 0; s < len; s++) {
-        a += (rng.next() - 0.5) * 0.9;
-        x += Math.cos(a);
-        z += Math.sin(a) * 0.8;
-        const tx = Math.round(x);
-        const tz = Math.round(z);
-        const wdt = rng.next() < 0.4 ? 1 : 0;
-        for (let dz = 0; dz <= wdt; dz++) {
-          for (let dx = 0; dx <= wdt; dx++) {
-            const px = tx + dx;
-            const pz = tz + dz;
-            if (!inb(px, pz) || solid[idx(px, pz)] || reserved[idx(px, pz)]) continue;
-            if (Math.hypot(px - spawn.x, pz - spawn.z) < 4 || (elevator && Math.hypot(px - elevator.x, pz - elevator.z) < 3)) continue;
-            lava[idx(px, pz)] = 1;
+      const path: [number, number][] = [];
+      let x = rng.int(6, W - 7);
+      let z = rng.int(5, D - 6);
+      if (c === channels) {
+        // Basin: a lumpy molten pool.
+        const rx = 1.8 + rng.next() * 1.6;
+        const rz = rx * (0.6 + rng.next() * 0.3);
+        for (let pz = Math.floor(z - rz - 1); pz <= z + rz + 1; pz++)
+          for (let px = Math.floor(x - rx - 1); px <= x + rx + 1; px++) {
+            const d = Math.hypot((px + 0.5 - x) / rx, (pz + 0.5 - z) / rz) + noise.get(px * 0.6, pz * 0.6) * 0.35;
+            if (d < 1) paint(px, pz);
           }
+      } else {
+        let a = rng.next() * Math.PI * 2;
+        const len = 14 + rng.int(0, 12);
+        for (let st = 0; st < len; st++) {
+          a += (rng.next() - 0.5) * 0.8;
+          x += Math.cos(a);
+          z += Math.sin(a) * 0.8;
+          const tx = Math.round(x);
+          const tz = Math.round(z);
+          path.push([tx, tz]);
+          const wdt = rng.next() < 0.75 ? 1 : 0;
+          for (let dz = 0; dz <= wdt; dz++) for (let dx = 0; dx <= wdt; dx++) paint(tx + dx, tz + dz);
         }
       }
-      const reach = bfs(solid, lava, W, D, Math.floor(spawn.x), Math.floor(spawn.z));
-      let reached = 0;
-      for (let i = 0; i < W * D; i++) if (reach[i]! >= 0) reached++;
-      const lavaTiles = before - floorCount();
-      if (reached < (before - lavaTiles) * 0.93) lava.set(snap);
+      const want = floorCount() * 0.93;
+      if (reachable() >= want) continue;
+      // Bridges at thirds of the channel.
+      for (const f of [0.33, 0.66, 0.5, 0.15, 0.85]) {
+        const pt = path[Math.floor(f * (path.length - 1))];
+        if (!pt) continue;
+        for (let dz = -2; dz <= 2; dz++) for (let dx = -1; dx <= 2; dx++) if (inb(pt[0] + dx, pt[1] + dz) && Math.abs(dx - 0.5) + Math.abs(dz) < 2.6) lava[idx(pt[0] + dx, pt[1] + dz)] = 0;
+        if (reachable() >= floorCount() * 0.93) break;
+      }
+      if (reachable() < floorCount() * 0.93) lava.set(snap);
     }
   } else {
     // Puddles (earth) / frozen pools (ice): walkable decoration.
@@ -331,7 +353,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     const rot = e.dir === 0 ? 0 : e.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
     crystals.push({ x: e.x + 0.5 + ox, z: e.z + 0.5 + oz, rot, scale, color });
     taken[idx(e.x, e.z)] = 1;
-    lightSources.push({ x: e.x + 0.5 + ox * 0.5, y: 0.9 * scale, z: e.z + 0.5 + oz * 0.5 + 0.25, color, intensity: biome === 'ice' ? 7 : 6, distance: 6.5, flicker: 0, w: scale });
+    lightSources.push({ x: e.x + 0.5 + ox * 0.6, y: 1.25 * scale, z: e.z + 0.5 + oz * 0.6 + 0.3, color, intensity: biome === 'ice' ? 5.5 : 4.2, distance: 6.5, flicker: 0, w: scale });
   }
 
   if (biome === 'earth') {
@@ -444,7 +466,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     for (const t of lavaTiles) {
       if (!spaced(picked, t.x, t.z, 5)) continue;
       picked.push(t);
-      lightSources.push({ x: t.x + 0.5, y: 0.6, z: t.z + 0.5, color: 0xff5a1a, intensity: 14, distance: 8, flicker: 0.5, w: 3 });
+      lightSources.push({ x: t.x + 0.5, y: 1.1, z: t.z + 0.5, color: 0xff5a1a, intensity: 5.5, distance: 7.5, flicker: 0.5, w: 3 });
     }
   }
   if (biome === 'earth') {

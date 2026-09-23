@@ -69,7 +69,8 @@ function monsterMat(color: number, opts: { rough?: number; clearcoat?: boolean; 
       `{
         float fr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.5);
         totalEmissiveRadiance += diffuseColor.rgb * fr * uRimK;
-        totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(2.2), uFlash);
+        totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(1.05) + diffuseColor.rgb * 0.35, uFlash);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uFlash * 0.6);
       }`,
     );
     shader.fragmentShader = fs;
@@ -300,18 +301,20 @@ export class Slime extends Monster {
     // Eyes + mouth.
     this.eyes = new THREE.Group();
     for (const sx of [-1, 1]) {
-      const e = eye(0.085);
-      e.position.set(sx * 0.13, 0.36, 0.33);
+      const e = eye(0.1);
+      e.position.set(sx * 0.14, 0.42, 0.3);
+      e.rotation.x = -0.45;
       this.eyes.add(e);
     }
     const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.012, 6, 12, Math.PI), new THREE.MeshBasicMaterial({ color: 0x1a1210 }));
-    mouth.position.set(0, 0.25, 0.39);
+    mouth.position.set(0, 0.3, 0.37);
+    mouth.rotation.x = -0.4;
     mouth.rotation.z = Math.PI;
     this.eyes.add(mouth);
     this.body.add(this.eyes);
     this.root.add(this.body);
     this.wait = 0.4 + r.next() * 1.5;
-    this.facing = r.next() * 6;
+    this.facing = (r.next() - 0.5) * 1.6;
   }
 
   protected override onHit(): void {
@@ -355,7 +358,8 @@ export class Slime extends Monster {
           this.vel.z = dir.y * sp;
           this.yv = this.aggro ? 4.2 : 3.2;
           this.vy += 4.5;
-          this.facing = Math.atan2(dir.x, dir.y);
+          // Face the hop, but never turn the face fully away from the camera (always readable).
+          this.facing = THREE.MathUtils.clamp(Math.atan2(dir.x, dir.y), -1.25, 1.25);
         }
       } else if (this.state === 'air') {
         this.yv -= 16 * dt;
@@ -689,6 +693,11 @@ export class Crab extends Monster {
   }
 
   protected override onHit(): void {
+    this.hidden = false;
+  }
+
+  /** Drop the disguise and pop up (demo staging / something disturbed it). */
+  wake(): void {
     this.hidden = false;
   }
 
