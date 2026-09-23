@@ -1043,7 +1043,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [8, 17],
         dry: true,
         demoTime: 10.2,
-        cast: { rowan: ['lumber_yard', 'up'], player: [[87.4, 47.6], 'left'] },
+        cast: { rowan: ['lumber_yard', 'up'], player: [[88.4, 47.3], 'left'] },
         camera: { x: 86.0, z: 46.4, yaw: -6, pitch: 40, distance: 14 },
         script: [
           { act: 'rowan', activity: 'saw' },

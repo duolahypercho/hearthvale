@@ -411,6 +411,9 @@ export class NpcSystem implements System {
       }
       return;
     }
+    if (name === 'town-social' || name === 'town-dialogue' || name === 'town-night-talk') this.seedFriendship();
+    // The social page rendered before the seeding: reopen it.
+    if (name === 'town-social') this.game.events.emit('ui:open', { name: 'social' });
     if (name === 'town-cast') {
       CAST_ORDER.forEach((id, i) => {
         const a = this.agents.get(id)!;
@@ -451,6 +454,14 @@ export class NpcSystem implements System {
       const step = params.get('step');
       this.stageEvent(ev, step !== null ? Number(step) : undefined);
     }
+  }
+
+  /** Demo staging only: a believable spread of friendship so heart meters aren't all empty. */
+  private seedFriendship(): void {
+    const rel = this.game.services.relationships;
+    if (!rel || NPC_IDS.some((id) => rel.points(id) > 0)) return;
+    const spread = [3.4, 5.2, 2.6, 6.8, 1.8, 4.5, 7.3, 3.0, 2.2, 5.9];
+    NPC_IDS.forEach((id, i) => rel.adjust(id, Math.round(spread[i % spread.length]! * 250)));
   }
 
   // ───────────────────────────────────────────── heart events
@@ -581,7 +592,9 @@ export class NpcSystem implements System {
     const he = heartEvent(id);
     if (!he || !this.active) return;
     const { npc, ev } = he;
-    this.game.calendar.setHour(ev.demoTime ?? ev.hours[0] + 0.5);
+    // Morning events stage at mid-morning (clear of the dawn haze) unless they pin a time.
+    const [h0, h1] = ev.hours;
+    this.game.calendar.setHour(ev.demoTime ?? (h0 < 10 && h1 > 10.5 ? 10.5 : h0 + 0.5));
     // The hour jump must not trigger the 'big time jump' re-placement of everyone.
     this.lastHour = this.game.calendar.hour;
     this.lastQuarter = Math.floor(this.lastHour * 4);
@@ -840,6 +853,8 @@ export class NpcSystem implements System {
       const p = game.player.position;
       game.rc.rig.lookOffset.set(this.lookPoint.x - p.x, 0, this.lookPoint.z - p.z);
     }
+    const winter = game.calendar.season === 'winter';
+    for (const a of this.agents.values()) a.v.setWinter(winter);
     const simulate = !game.paused || this.eventRunning;
     const h = (x: number, z: number): number => map.heightAt(x, z);
     const pl = game.player.position;

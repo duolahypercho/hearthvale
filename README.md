@@ -59,7 +59,8 @@ src/
                          layout.ts (structures, vignettes + contact AO, trees, pond/cliff dressing) ·
                          overgrowth.ts (seeded Poisson-disk debris: ~650 clearable weeds/stones/sticks/stumps/logs/bushes
                          in clumps + a ~r 0.7 m ground-cover layer: clover, daisies, buttercups, leaf litter, ferns)
-    town/index.ts        Hearthvale Square: plaza + fountain, Lantern Hall, store, bakery, cottages, stall, festival
+    town/                index.ts (map assembly, river, batched props) · layout.ts (buildings, streets, props, SPOTS) ·
+                         buildings.ts (forge, inn, clinic, schoolhouse, cottages, bridges, stalls…) · pathfind.ts (A*)
     props/               instanced.ts (BatchPool/InstancedSet) · trees.ts · nature.ts (registry only) ·
                          rocks.ts (faceted, mossy, 3 tints) · debris.ts (chunky sticks, branches, stumps, logs, leaves) ·
                          flora.ts (weeds, ferns, bushes, flowers, reeds, ground cover) · structures.ts · farmkit.ts ·
@@ -183,3 +184,27 @@ arrangements, title); `src/audio/select.ts` picks the theme from map / hour / we
   (+ piano-roll/spectrogram PNGs) and prints loudness (LUFS), true peak, clipping, silence, spectral centroid and
   band balance with flags. `--describe <theme>` dumps the melody, `--stems --only <ids>` solos every track,
   `--live` boots the game and checks theme-per-scene, audible output and SFX end to end.
+
+## Town & villagers
+
+Hearthvale town (`src/world/town/`): the plaza with its fountain and the Lantern Hall, Thimble & Pip's store,
+The Hearth Oven bakery, the market row, the river with the Kettle Bridge and a rope footbridge, Flint & Ember
+forge, The Copper Kettle inn, the Birch house + lumber yard, the lamplighter's cottage, and Meadow Lane in the
+south (Willowmere Clinic, the schoolhouse with its bell cupola, the Pennywhistle cottage's kitchen garden, an
+orchard). Layout data lives in `world/town/layout.ts` (buildings, streets, props, trees, named `SPOTS`).
+Static props are merged per 12 m cell and fed to one `BatchPool`: one multi-draw per material, per-cell culling.
+
+Ten villagers (`src/data/npcs.ts`): look (height, build, face, 11 hair styles, hats, outfits, accessories), walk
+style, schedule + rainy schedule over named spots (A* on the tile grid, `world/town/pathfind.ts`), activities
+(sweep, read, paint, water, knead, hammer, saw, fish, sit, play, chat…), gift tastes, birthday, dialogue groups
+(first meeting, birthday, season, weather, hours, hearts; `[mood]` tags swap the portrait) and two heart events
+each (scripted mini cutscenes: walks, emotes, camera beats, choices with friendship deltas).
+`systems/npcs.ts` runs them (heart-event camera follows the actors; a warm key light at night),
+`systems/relationships.ts` owns points / hearts / gifts, `ui/dialogue.ts` the typewriter box, choices, gift
+ribbons, heart meter, birthday toast, the 'social' page and the 'portraits' model sheet; `ui/portraits.ts` paints
+the SVG portraits (9 moods, per-villager backdrops).
+
+Demos: `town-day`, `town-evening`, `town-winter`, `town-rain`, `town-east`, `town-south`, `town-cast`,
+`town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1`), `town-night-talk`,
+`town-heart-event` (`&event=<npc>-<2|4>&step=N`), `town-portraits` (`&ui=portraits:<npc>` = all nine moods),
+`town-social`, `festival`.

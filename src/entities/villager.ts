@@ -421,6 +421,18 @@ export class Villager {
       world.push(hand.clone());
       this.propBones.set(p, bone);
     }
+    // Winter knitwear bone (scarf / muffler), scaled to zero outside winter.
+    const neck = new THREE.Vector3(0, hipY + 0.38, 0);
+    const winterIdx = this.bones.length;
+    {
+      const bone = new THREE.Bone();
+      bone.name = 'winter';
+      bone.position.copy(neck).sub(world[B.spine]!);
+      this.bones[B.spine]!.add(bone);
+      this.bones.push(bone);
+      world.push(neck.clone());
+      this.winterBone = bone;
+    }
     for (const b of this.bones) this.rest.push(b.position.clone());
 
     // ── legs
@@ -625,6 +637,15 @@ export class Villager {
       add(new THREE.TorusGeometry(0.03, 0.01, 4, 8), M(0.05, 0.02, 0.07, 0, 0, Math.PI / 2), 0xf2ece0);
     });
 
+    if (L.scarf === undefined && !acc.has('shawl')) {
+      // A chunky knitted muffler (colour picked per villager) with a striped tail.
+      const knit = [0xc8412f, 0x3f6f9a, 0xe8b04a, 0x5a8a4a, 0x8a4a8a, 0xe87a5a][(rng.next() * 6) | 0]!;
+      const W = (m: THREE.Matrix4) => new THREE.Matrix4().makeTranslation(neck.x, neck.y, neck.z).multiply(m);
+      rb.add(winterIdx, new THREE.TorusGeometry(0.14 * Math.max(0.9, bw * 0.9), 0.055, 8, 16), W(M(0, 0, 0.005, Math.PI / 2 - 0.18, 0, 0, 1, 1, 1)), knit);
+      rb.add(winterIdx, new THREE.TorusGeometry(0.145 * Math.max(0.9, bw * 0.9), 0.02, 4, 16), W(M(0, 0.03, 0.01, Math.PI / 2 - 0.18, 0, 0)), 0xf6efe2);
+      rb.add(winterIdx, new THREE.CapsuleGeometry(0.038, 0.14, 2, 6), W(M(0.08, -0.13, 0.17 * bw, 0.2, 0, 0.1, 1, 1, 0.55)), knit);
+      rb.add(winterIdx, new THREE.CapsuleGeometry(0.036, 0.02, 2, 6), W(M(0.09, -0.19, 0.18 * bw, 0.2, 0, 0.1, 1.05, 1, 0.6)), 0xf6efe2);
+    }
     const geo = rb.build();
     this.mesh = new THREE.SkinnedMesh(geo, sharedMat());
     this.mesh.name = 'npc-body';
@@ -640,6 +661,7 @@ export class Villager {
     this.body.add(this.mesh);
     this.root.add(this.body);
     this.showProps(acc.has('cane') ? ['cane'] : []);
+    this.setWinter(false);
   }
 
   private buildHair(rb: RigBuilder, L: NpcLook, H: (...a: number[]) => THREE.Matrix4, R: number, rng: Rng): void {
@@ -843,6 +865,16 @@ export class Villager {
     const props = [...(ACTIVITY_PROPS[a] ?? [])];
     if (this.def.look.acc?.includes('cane') && !props.length) props.push('cane');
     this.showProps(props);
+  }
+
+  private winterBone: THREE.Bone | null = null;
+  private winterOn = true;
+
+  /** Winter knitwear on / off (the season is pushed by NpcSystem). */
+  setWinter(on: boolean): void {
+    if (on === this.winterOn || !this.winterBone) return;
+    this.winterOn = on;
+    this.winterBone.scale.setScalar(on ? 1 : 0.0001);
   }
 
   private showProps(list: PropName[]): void {
