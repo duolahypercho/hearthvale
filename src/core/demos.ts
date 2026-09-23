@@ -50,27 +50,20 @@ export const DEMOS: Record<string, DemoDef> = {
   // Farming pod: hero harvest field (URL: &season=fall|spring, &act=harvest|hoe|wateringCan|scythe),
   // tool feel stills (&tool=hoe|wateringCan|scythe|axe|pickaxe|charge|harvest|sow, &tier=0-3,
   // &pose=<seconds> to freeze, -1 = live; &loop=<tool> repeats the action), giant crops, crows.
-  'farm-harvest': { map: 'farm', x: 23.5, z: 29.2, facing: 'up', time: 8.4, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 21.5, offsetX: -1.2, offsetZ: -4.6 }, showcase: ['harvest'] },
-  'farm-tools': { map: 'farm', x: 28.5, z: 24.45, facing: 'up', time: 9.6, season: 'spring', weather: 'sun', camera: { yaw: -14, pitch: 40, distance: 11.5, offsetX: -0.6, offsetZ: -0.9 }, showcase: ['tools'] },
+  'farm-harvest': { map: 'farm', x: 23.5, z: 29.2, facing: 'up', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 21.5, offsetX: -1.2, offsetZ: -4.6 }, showcase: ['harvest'] },
+  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -45, pitch: 36, distance: 8, offsetX: 0, offsetZ: 0.2 }, showcase: ['tools'] },
   'farm-giant': { map: 'farm', x: 21.2, z: 29.4, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: 10, pitch: 44, distance: 14, offsetX: -2.4, offsetZ: -2.4 }, showcase: ['giant'] },
   'farm-crops': { map: 'farm', x: 28.6, z: 27.2, facing: 'left', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 11, offsetX: -4.6, offsetZ: -5.2 }, showcase: ['gallery'] },
   'farm-crows': { map: 'farm', x: 33.5, z: 25.5, facing: 'left', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: -5, pitch: 46, distance: 19, offsetX: -6.5, offsetZ: -3.5 }, showcase: ['crows'] },
+  'farm-harvest-fall': { map: 'farm', x: 23.5, z: 29.2, facing: 'up', time: 10, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 21.5, offsetX: -1.2, offsetZ: -4.6 }, showcase: ['harvest'] },
+  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -45, pitch: 36, distance: 8, offsetX: 0, offsetZ: 0.2 }, showcase: ['tools', 'tool:wateringCan'] },
+  'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -45, pitch: 38, distance: 10, offsetX: 0, offsetZ: -1.6 }, showcase: ['tools', 'tool:harvest'] },
+  'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -45, pitch: 40, distance: 9.5, offsetX: 0, offsetZ: -0.6 }, showcase: ['tools', 'tool:charge'] },
+  'farm-wither': { map: 'farm', x: 23.5, z: 29.2, facing: 'up', time: 16.2, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 21.5, offsetX: -1.2, offsetZ: -4.6 }, showcase: ['wither'] },
   // Town square (plaza, Lantern Hall, villagers).
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 18.6, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   'town-dialogue': { map: 'town', x: 29.6, z: 23.2, facing: 'left', time: 16.5, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
-  // Town pod: `&event=<npc>-<2|4>&step=N` picks the heart event; `&npc=<id>&mood=<mood>|&gift=<item>|&ask=1` the dialogue.
-  'town-heart-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
-  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 15.2, season: 'winter', weather: 'snow', camera: TOWN_CAM, showcase: ['npcs'] },
-  'town-east': { map: 'town', x: 70.6, z: 26.4, facing: 'right', time: 17.4, season: 'summer', weather: 'sun', camera: { yaw: -4, pitch: 43, distance: 34, offsetX: 3.2, offsetZ: -2.4 }, showcase: ['npcs'] },
-  'town-cast': { map: 'town', x: 40.4, z: 29.6, facing: 'down', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 13, offsetX: -7.9, offsetZ: -1.2 }, showcase: ['npcs'] },
-  'town-rain': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 14, season: 'fall', weather: 'rain', camera: TOWN_CAM, showcase: ['npcs'] },
-  // Town pod: Meadow Lane (schoolhouse + kitchen garden), the portrait model sheet (&ui=portraits:<id> = one villager in all
-  // nine moods), the Hearthvale Folk social page, and a night-time conversation under the lamps.
-  'town-south': { map: 'town', x: 30.4, z: 52.4, facing: 'up', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 45, distance: 33, offsetX: 1.6, offsetZ: -4.6 }, showcase: ['npcs'] },
-  'town-portraits': { map: 'town', x: 32, z: 29, facing: 'down', time: 11, season: 'spring', weather: 'sun', showcase: ['npcs'], ui: 'portraits' },
-  'town-social': { map: 'town', x: 32, z: 29, facing: 'down', time: 11, season: 'spring', weather: 'sun', showcase: ['npcs'], ui: 'social' },
-  'town-night-talk': { map: 'town', x: 33.6, z: 17.0, facing: 'right', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 44, distance: 16, offsetX: 0.4, offsetZ: -1.4 }, showcase: ['npcs'], ui: 'dialogue:tobias' },
   festival: { map: 'town', x: 35.35, z: 26.3, facing: 'left', time: 20.05, season: 'summer', weather: 'sun', camera: FESTIVAL_CAM, showcase: ['npcs', 'festival'] },
   title: { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
   // Driftsand Beach + fishing (world/beach, systems/fishing). Fishing demos take URL params:

@@ -25,27 +25,33 @@ interface Key {
   tool?: [number, number, number];
   /** Tool rotation relative to "upright in the torso frame" (watering can). */
   level?: number;
+  /** Slide the hands down the handle (m): the tool head reaches further out (overhead wind-ups). */
+  grip?: number;
 }
 
-type Pose = Required<Pick<Key, 'aR' | 'aL' | 'torso' | 'head' | 'sy' | 'bob'>> & { tool: [number, number, number] | null; level: number | null };
+type Pose = Required<Pick<Key, 'aR' | 'aL' | 'torso' | 'head' | 'sy' | 'bob' | 'grip'>> & { tool: [number, number, number] | null; level: number | null };
 
-const REST: Pose = { aR: [0, -0.12], aL: [0, 0.12], torso: [0, 0, 0], head: 0, sy: 1, bob: 0, tool: null, level: null };
+const REST: Pose = { aR: [0, -0.12], aL: [0, 0.12], torso: [0, 0, 0], head: 0, sy: 1, bob: 0, grip: 0, tool: null, level: null };
 const TOOL_REST: [number, number, number] = [Math.PI / 2, 0, 0];
 
 /** Keyframes per action (seconds). Impact times are in IMPACT. */
 const TRACKS: Record<ActionKind, Key[]> = {
+  // Anticipation: a quick crouch, then the whole body stretches up with the tool held high
+  // overhead (blade reads above the hat from the 3/4 camera); the downswing whips the head of the
+  // tool through faster than the arms; impact squashes the body and plants the legs.
   chop: [
     { t: 0 },
-    { t: 0.19, ease: 'out', aR: [-2.95, -0.1], aL: [-2.6, 0.1], torso: [-0.24, 0, 0], head: -0.2, sy: 0.94, tool: [Math.PI / 2 + 0.35, 0, 0] },
-    { t: 0.27, ease: 'in', aR: [-0.32, -0.05], aL: [-0.2, 0.05], torso: [0.46, 0, 0], head: 0.15, sy: 1.07, tool: [Math.PI / 2 - 0.2, 0, 0] },
-    { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.5, 0, 0], head: 0.2, sy: 0.93, tool: [Math.PI / 2 - 0.25, 0, 0] },
+    { t: 0.06, ease: 'out', aR: [-0.7, -0.1], aL: [-0.6, 0.1], torso: [0.12, 0, 0], head: 0.05, sy: 0.93, tool: [Math.PI / 2 - 0.1, 0, 0] },
+    { t: 0.19, ease: 'back', aR: [-2.9, -0.1], aL: [-2.6, 0.1], torso: [-0.26, 0, 0], head: -0.22, sy: 1.07, grip: 0.32, tool: [2.75, 0, 0.3] },
+    { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.4, 0, 0], head: -0.08, sy: 0.9, bob: -0.02, tool: [Math.PI / 2 - 0.2, 0, 0] },
+    { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.42, 0, 0], head: -0.04, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
     { t: 0.66, ease: 'inout' },
   ],
   slam: [
     { t: 0 },
-    { t: 0.14, ease: 'out', aR: [-3.1, -0.1], aL: [-2.8, 0.1], torso: [-0.3, 0, 0], head: -0.25, sy: 0.9, tool: [Math.PI / 2 + 0.45, 0, 0] },
-    { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.55, 0, 0], head: 0.2, sy: 1.1, bob: -0.02, tool: [Math.PI / 2 - 0.3, 0, 0] },
-    { t: 0.36, ease: 'out', aR: [-0.18, -0.05], aL: [-0.12, 0.05], torso: [0.6, 0, 0], head: 0.2, sy: 0.88, bob: -0.04, tool: [Math.PI / 2 - 0.3, 0, 0] },
+    { t: 0.14, ease: 'back', aR: [-3.1, -0.1], aL: [-2.8, 0.1], torso: [-0.3, 0, 0], head: -0.25, sy: 1.1, grip: 0.34, tool: [2.75, 0, 0.3] },
+    { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.55, 0, 0], head: 0.2, sy: 0.86, bob: -0.04, tool: [Math.PI / 2 - 0.3, 0, 0] },
+    { t: 0.36, ease: 'out', aR: [-0.18, -0.05], aL: [-0.12, 0.05], torso: [0.6, 0, 0], head: 0.2, sy: 0.92, bob: -0.03, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.75, ease: 'inout' },
   ],
   sweep: [
@@ -118,12 +124,14 @@ function resolve(k: Key, prev: Pose): Pose {
     head: k.head ?? 0,
     sy: k.sy ?? 1,
     bob: k.bob ?? 0,
+    grip: k.grip ?? 0,
     tool: k.tool ?? (prev.tool && k.level === undefined ? null : null),
     level: k.level ?? null,
   };
 }
 
 const lerp = THREE.MathUtils.lerp;
+const GRIP_V = new THREE.Vector3();
 
 export interface ActionOpts {
   tool?: THREE.Object3D | null;
@@ -241,6 +249,26 @@ export class FarmerActions {
     return out.copy(local).applyMatrix4(socket.matrixWorld);
   }
 
+  /**
+   * World positions of tool-local points at earlier moments `times` (s) of the running action —
+   * re-poses the rig for each moment and restores the current pose after. Lets motion smears
+   * trace the true arc of a swing at any frame rate (a 20 fps frame would otherwise cut a chord).
+   */
+  toolPointsAt(times: number[], locals: THREE.Vector3[], each: (pts: THREE.Vector3[]) => void): void {
+    const a = this.cur;
+    if (!a) return;
+    const now = a.t;
+    const pts = locals.map(() => new THREE.Vector3());
+    for (const t of times) {
+      a.t = t;
+      this.apply(this.rig, this.sample(a));
+      locals.forEach((l, i) => this.toolPoint(l, pts[i]));
+      each(pts);
+    }
+    a.t = now;
+    this.apply(this.rig, this.sample(a));
+  }
+
   /** World direction of a tool-local axis. */
   toolDir(local: THREE.Vector3, out = new THREE.Vector3()): THREE.Vector3 {
     const socket = this.rig.tool;
@@ -269,6 +297,7 @@ export class FarmerActions {
     } else {
       tool.rotation.set(TOOL_REST[0], TOOL_REST[1], TOOL_REST[2]);
     }
+    if (p.grip) tool.position.add(GRIP_V.set(0, p.grip, 0).applyEuler(tool.rotation));
     // Legs brace during heavy swings.
     const brace = Math.max(0, p.torso[0]) * 0.5;
     rig.legL.rotation.x = lerp(rig.legL.rotation.x, -brace, w);
@@ -299,6 +328,7 @@ export class FarmerActions {
       head: mix(p0.head, p1.head),
       sy: mix(p0.sy, p1.sy),
       bob: mix(p0.bob, p1.bob),
+      grip: mix(p0.grip, p1.grip),
       tool: tool0 && tool1 ? [mix(tool0[0], tool1[0]), mix(tool0[1], tool1[1]), mix(tool0[2], tool1[2])] : null,
       level,
     };
@@ -312,7 +342,7 @@ export class FarmerActions {
       // Raise the tool overhead, then hold with a building tremble.
       const up = 1 - Math.pow(1 - Math.min(1, c.t / 0.2), 3);
       const tremble = Math.sin(c.t * 55) * 0.03 * Math.min(1, c.t);
-      const p: Pose = { ...REST, aR: [-2.85 * up + tremble, -0.1], aL: [-2.5 * up, 0.1], torso: [-0.2 * up, 0, 0], head: -0.15 * up, sy: 1 - 0.07 * up + Math.sin(c.t * 40) * 0.006, bob: 0, tool: [Math.PI / 2 + 0.35 * up, 0, 0], level: null };
+      const p: Pose = { ...REST, aR: [-2.85 * up + tremble, -0.1], aL: [-2.5 * up, 0.1], torso: [-0.2 * up, 0, 0], head: -0.15 * up, sy: 1 - 0.07 * up + Math.sin(c.t * 40) * 0.006, bob: 0, grip: 0.3 * up, tool: [Math.PI / 2 + 1.2 * up, 0, 0.3 * up], level: null };
       rig.tool.visible = true;
       return this.apply(rig, p);
     }
@@ -333,9 +363,11 @@ export class FarmerActions {
       a.fired = true;
       a.opts.onImpact?.();
     }
-    a.opts.onUpdate?.(a.t);
     rig.tool.visible = !!this.held;
     const pose = this.apply(rig, this.sample(a));
+    // After the pose is applied: toolPoint() now reads this frame's arm + tool transforms (the
+    // player's idle animation overwrites the arms before actionPose runs).
+    a.opts.onUpdate?.(a.t);
     if (a.t >= a.dur) {
       this.cur = null;
       this.player.busy = false;

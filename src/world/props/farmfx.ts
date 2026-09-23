@@ -5,6 +5,7 @@
  *   Drops    instanced water droplets stretched along their velocity; land → ring + mist
  *   Rings    additive expanding ripples (water landing, hoe impact shock ring, harvest pop)
  *   Puffs    soft sprite points: dust clouds, mist, sparkles / glints (two blend modes)
+ *   Swing    motion smear ribbon behind a swinging tool head
  *   Pops     produce meshes that leap out of the soil in an arc (harvest), with a quality star
  * About 8 draw calls total; everything is pooled (no per-frame allocation).
  *
@@ -329,6 +330,133 @@ interface Pop {
   spin: number;
 }
 
+// ───────────────────────────────────────────── swing smear
+
+const TRAIL_N = 40;
+
+/**
+ * Motion smear behind a swinging tool head: a ribbon between an inner and an outer point on the
+ * tool, sampled every frame while the swing is live. Alpha fades with age and toward the inner
+ * edge, so fast arcs read as a soft crescent (the classic "swoosh" of a hand-drawn swing).
+ * One draw call; the ribbon collapses to nothing when idle.
+ */
+export class SwingTrail {
+  readonly mesh: THREE.Mesh;
+  private inner: THREE.Vector3[] = [];
+  private outer: THREE.Vector3[] = [];
+  private age: number[] = [];
+  private count = 0;
+  private life = 0.16;
+  private pos: Float32Array;
+  private col: Float32Array;
+  private tint = new THREE.Color(0xfff6e0);
+  private strength = 1;
+  /** Camera view direction (world). Edge-on smears (swings toward / away from the camera) fade out
+   *  so they never read as a stripe across the farmer's face. */
+  readonly view = new THREE.Vector3(0, -1, 0);
+  private n = new THREE.Vector3();
+  private e = new THREE.Vector3();
+  private minOpen = 0.18;
+
+  constructor() {
+    const g = new THREE.BufferGeometry();
+    this.pos = new Float32Array(TRAIL_N * 2 * 3);
+    this.col = new Float32Array(TRAIL_N * 2 * 4);
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('color', new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
+    const idx: number[] = [];
+    for (let i = 0; i < TRAIL_N - 1; i++) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    g.setIndex(idx);
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, fog: true });
+    m.name = 'fx-swing';
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.name = 'fx-swing';
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 7;
+    this.mesh.visible = false;
+    for (let i = 0; i < TRAIL_N; i++) {
+      this.inner.push(new THREE.Vector3());
+      this.outer.push(new THREE.Vector3());
+      this.age.push(99);
+    }
+  }
+
+  /** Start a fresh smear (tint + opacity scale, e.g. gold for charged slams). */
+  begin(color = 0xfff6e0, strength = 1, life = 0.16, minOpen = 0.18): void {
+    this.count = 0;
+    this.minOpen = minOpen;
+    this.tint.set(color);
+    this.strength = strength;
+    this.life = life;
+  }
+
+  /**
+   * Push the tool's current inner / outer edge (world space). Fast frames are subdivided so the
+   * crescent stays smooth even when the blade travels half a metre between two frames.
+   */
+  sample(inner: THREE.Vector3, outer: THREE.Vector3): void {
+    if (this.count > 0) {
+      const d = this.outer[0]!.distanceTo(outer);
+      if (d < 0.03) return;
+      const steps = Math.min(6, Math.floor(d / 0.09));
+      if (steps > 0) {
+        const pi = this.inner[0]!.clone();
+        const po = this.outer[0]!.clone();
+        for (let k = 1; k <= steps; k++) {
+          const f = k / (steps + 1);
+          this.push(_v.lerpVectors(pi, inner, f), _s.lerpVectors(po, outer, f));
+        }
+      }
+    }
+    this.push(inner, outer);
+  }
+
+  private push(inner: THREE.Vector3, outer: THREE.Vector3): void {
+    // Shift the ring (newest at 0).
+    const lastI = this.inner.pop()!;
+    const lastO = this.outer.pop()!;
+    this.age.pop();
+    this.inner.unshift(lastI.copy(inner));
+    this.outer.unshift(lastO.copy(outer));
+    this.age.unshift(0);
+    this.count = Math.min(TRAIL_N, this.count + 1);
+  }
+
+  update(dt: number): void {
+    if (!this.count) {
+      this.mesh.visible = false;
+      return;
+    }
+    let alive = 0;
+    // How open does the crescent look from the camera? (swing-plane normal vs view direction)
+    const last = Math.max(0, this.count - 1);
+    this.n.subVectors(this.outer[0]!, this.inner[0]!).cross(this.e.subVectors(this.outer[last]!, this.outer[0]!));
+    const open = this.n.lengthSq() > 1e-8 ? Math.abs(this.n.normalize().dot(this.view)) : 0;
+    const face = THREE.MathUtils.smoothstep(open, this.minOpen, this.minOpen + 0.35);
+    for (let i = 0; i < TRAIL_N; i++) {
+      if (i < this.count) this.age[i]! += dt;
+      const src = Math.min(i, this.count - 1);
+      const k = i < this.count ? Math.max(0, 1 - this.age[i]! / this.life) : 0;
+      if (k > 0) alive++;
+      // Taper toward the tail; outer edge bright, inner edge transparent.
+      const tail = Math.pow(1 - i / TRAIL_N, 1.5);
+      const a = k * tail * this.strength * face;
+      const I = this.inner[src]!;
+      const O = this.outer[src]!;
+      this.pos.set([I.x, I.y, I.z, O.x, O.y, O.z], i * 6);
+      this.col.set([this.tint.r, this.tint.g, this.tint.b, a * 0.25, this.tint.r, this.tint.g, this.tint.b, a * 0.95], i * 8);
+    }
+    const g = this.mesh.geometry;
+    (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (g.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+    this.mesh.visible = alive > 1;
+    if (!alive) this.count = 0;
+  }
+}
+
 function starGeometry(): THREE.BufferGeometry {
   const s = new THREE.Shape();
   for (let i = 0; i < 10; i++) {
@@ -362,6 +490,8 @@ export class FarmFX {
   private time = 0;
   private dropsLive = false;
   private ringsLive = false;
+  /** Tool swing smear (sampled by the farming system while a swing is live). */
+  readonly trail = new SwingTrail();
 
   constructor(private ground: GroundFn) {
     this.group.name = 'farmfx';
@@ -397,7 +527,7 @@ export class FarmFX {
     // Droplets: glossy, slightly emissive so they read against dark wet soil.
     const dropMat = new THREE.MeshStandardMaterial({ color: 0xd4f0ff, roughness: 0.05, metalness: 0.0, emissive: 0x3a6a8a, emissiveIntensity: 0.55, transparent: true, opacity: 0.85 });
     dropMat.name = 'fx-drop';
-    this.dropMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 7, 5), dropMat, 420);
+    this.dropMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), dropMat, 420);
     this.dropMesh.name = 'fx-drops';
     this.dropMesh.frustumCulled = false;
     this.dropMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -425,7 +555,7 @@ export class FarmFX {
     this.popMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, emissive: 0xffffff, emissiveIntensity: 0.0 });
     this.popMat.name = 'fx-pop';
 
-    this.group.add(this.clods.mesh, this.leaves.mesh, this.dropMesh, this.ringMesh, this.dust.points, this.glow.points);
+    this.group.add(this.clods.mesh, this.leaves.mesh, this.dropMesh, this.ringMesh, this.dust.points, this.glow.points, this.trail.mesh);
   }
 
   // ═══════════════════════════════════════ primitives
@@ -476,13 +606,15 @@ export class FarmFX {
 
   /** Hoe bites the ground: clods thrown away from the farmer, dust, a shock ring. */
   hoeImpact(center: THREE.Vector3, dirX: number, dirZ: number, soil: number, strength = 1): void {
-    const n = Math.round(12 * strength);
+    const n = Math.round(22 * strength);
     for (let i = 0; i < n; i++) {
-      const a = Math.atan2(dirZ, dirX) + rnd(-1.1, 1.1);
-      const sp = rnd(1.1, 2.6) * (0.7 + strength * 0.3);
-      _v.set(Math.cos(a) * sp, rnd(2.2, 4.2), Math.sin(a) * sp);
+      // The blade drags soil back toward the farmer: most clods fan out sideways / backwards.
+      const back = i % 3 !== 0;
+      const a = Math.atan2(dirZ, dirX) + (back ? Math.PI : 0) + rnd(-1.25, 1.25);
+      const sp = rnd(0.9, 2.3) * (0.7 + strength * 0.3);
+      _v.set(Math.cos(a) * sp, rnd(2.4, 4.6), Math.sin(a) * sp);
       const p = center.clone().add(new THREE.Vector3(rnd(-0.18, 0.18), 0.04, rnd(-0.18, 0.18)));
-      this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.06, 0.05)), rnd(0.03, 0.065));
+      this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.06, 0.05)), i < 4 ? rnd(0.06, 0.085) : rnd(0.03, 0.06));
     }
     for (let i = 0; i < 7; i++) {
       const a = rnd(0, Math.PI * 2);
@@ -570,6 +702,7 @@ export class FarmFX {
     this.updateDrops(dt);
     this.updateRings(dt);
     this.updatePops(dt);
+    this.trail.update(dt);
   }
 
   private updateDrops(dt: number): void {

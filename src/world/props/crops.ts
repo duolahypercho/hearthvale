@@ -487,13 +487,13 @@ const BUILDERS: Record<CropId, Builder> = {
     }
   },
   cauliflower(add, r, k) {
-    rosette(add, r, 4 + k, 0.18 + k * 0.09, 0.15 + k * 0.02, { shape: 'oval', lift: 0.5 + k * 0.08, bend: 0.45, fold: 0.3, ruffle: 0.12, rib: C(0xc8dcc0), c0: C(0x2f5f4a), c1: C(0x5f917a) });
+    rosette(add, r, 4 + k, 0.18 + k * 0.09, 0.15 + k * 0.02, { shape: 'oval', lift: 0.5 + k * 0.08, bend: 0.45, fold: 0.3, ruffle: 0.12, rib: C(0xcfe0b8), c0: C(0x2c6238), c1: C(0x5f9c58) });
     if (k >= 2) {
       const R = k === 3 ? 0.14 : 0.07;
       add(curd(R, r, k === 3 ? 15 : 9), mat(0, 0.05 + (k - 2) * 0.04, 0), 'gloss');
-      rosette(add, r, 5, R * 1.4, 0.13 + (k - 2) * 0.03, { shape: 'oval', lift: 1.1, bend: 0.05, fold: 0.45, curl: 0.9, rib: C(0xd0e0c8), c0: C(0x3a6e58), c1: C(0x6f9e86) }, 0.3, 0.0);
+      rosette(add, r, 5, R * 1.4, 0.13 + (k - 2) * 0.03, { shape: 'oval', lift: 1.1, bend: 0.05, fold: 0.45, curl: 0.9, rib: C(0xd6e6c0), c0: C(0x356e40), c1: C(0x6aa662) }, 0.3, 0.0);
     } else if (k === 1) {
-      rosette(add, r, 4, 0.14, 0.12, { shape: 'oval', lift: 1.1, bend: 0.1, fold: 0.4, curl: 0.6, rib: C(0xd0e0c8), c0: C(0x3a6e58), c1: C(0x6f9e86) }, 0.4, 0.0);
+      rosette(add, r, 4, 0.14, 0.12, { shape: 'oval', lift: 1.1, bend: 0.1, fold: 0.4, curl: 0.6, rib: C(0xd6e6c0), c0: C(0x356e40), c1: C(0x6aa662) }, 0.4, 0.0);
     }
   },
   kale(add, r, k) {
@@ -555,14 +555,14 @@ const BUILDERS: Record<CropId, Builder> = {
     const tiers = 1 + k;
     for (let t = 0; t < tiers; t++) {
       const y = (t / tiers) * h * 0.9 + 0.04;
-      rosette(add, r, 3, 0.1 + (1 - t / tiers) * 0.07 + k * 0.01, 0.09, { shape: 'lance', serrate: 0.4, lift: 0.3, bend: 0.5, fold: 0.3, c0: GREEN.dark, c1: GREEN.mid }, t * 1.1, y);
+      rosette(add, r, k >= 2 ? 5 : 3, 0.11 + (1 - t / tiers) * 0.08 + k * 0.012, 0.1, { shape: 'lance', serrate: 0.4, lift: 0.3, bend: 0.5, fold: 0.3, c0: GREEN.dark, c1: GREEN.mid }, t * 1.1, y);
     }
     if (k === 2) for (let i = 0; i < 4; i++) flower(add, 0.02, C(0xffd83a), C(0xe8a020), mat((r.next() - 0.5) * 0.18, h * (0.5 + r.next() * 0.4), (r.next() - 0.5) * 0.18, 0.4, 0, 0), 6);
     if (k >= 2) {
-      const n = k === 3 ? 8 : 4;
+      const n = k === 3 ? 12 : 5;
       for (let i = 0; i < n; i++) {
         const a = r.next() * Math.PI * 2;
-        const y = h * (0.3 + r.next() * 0.55);
+        const y = h * (0.25 + r.next() * 0.6);
         const ripe = k === 3 ? r.next() < 0.85 : false;
         const col = ripe ? C(0xe0301e) : r.next() < 0.3 ? C(0xe89a3a) : C(0x7fb040);
         add(fruit(k === 3 ? 0.05 : 0.035, col, { sy: 0.85, ribs: 5, seg: 9 }), mat(Math.cos(a) * 0.1, y, Math.sin(a) * 0.1), 'gloss');
@@ -628,8 +628,8 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   blueberry(add, r, k) {
     // A rounded shrub of small oval leaves on woody stems.
-    const R = 0.1 + k * 0.05;
-    const nl = 10 + k * 8;
+    const R = 0.11 + k * 0.055;
+    const nl = 12 + k * 12;
     for (let i = 0; i < 3 + k; i++) {
       const a = (i / (3 + k)) * Math.PI * 2 + r.next();
       add(stalk(R * 1.6, 0.012, 0.006, C(0x7a5a3a), C(0x8a6a44), Math.cos(a) * 0.05, 4), mat(0, 0, 0, 0, a, 0.2));
@@ -639,10 +639,10 @@ const BUILDERS: Record<CropId, Builder> = {
       const el = Math.acos(1 - t * 1.3);
       const az = i * 2.39996;
       const p = new THREE.Vector3(Math.sin(el) * Math.cos(az) * R, R * 0.9 + Math.cos(el) * R * 0.85, Math.sin(el) * Math.sin(az) * R);
-      add(leafGeo(0.07, 0.045, { shape: 'oval', lift: 0.4, bend: 0.3, fold: 0.2, c0: C(0x2f6a3a), c1: C(0x5f9a5a), segs: 3 }), mat(p.x, p.y, p.z, 0, az + Math.PI / 2 + (r.next() - 0.5), 0));
+      add(leafGeo(0.08, 0.05, { shape: 'oval', lift: 0.4, bend: 0.3, fold: 0.2, c0: C(0x2f6a3a), c1: C(0x5f9a5a), segs: 3 }), mat(p.x, p.y, p.z, 0, az + Math.PI / 2 + (r.next() - 0.5), 0));
     }
     if (k >= 2) {
-      for (let i = 0; i < (k === 3 ? 7 : 5); i++) {
+      for (let i = 0; i < (k === 3 ? 11 : 6); i++) {
         const a = r.next() * Math.PI * 2;
         const e = 0.4 + r.next() * 0.9;
         const m = mat(Math.sin(e) * Math.cos(a) * R * 1.05, R * 0.85 + Math.cos(e) * R * 0.8, Math.sin(e) * Math.sin(a) * R * 1.05);
@@ -664,7 +664,7 @@ const BUILDERS: Record<CropId, Builder> = {
       add(fruit(0.07, C(0x6a9a3a), { sy: 0.85, stripes: 8, stripeColor: C(0x2f5a24), seg: 10 }), mat(0.05, 0.055, 0.1), 'gloss');
     }
     if (k === 3) {
-      add(fruit(0.16, C(0xb8d880), { sy: 0.88, stripes: 9, stripeColor: C(0x3f7a2e), seg: 14 }), mat(0.04, 0.13, 0.08, 0, r.next() * 3, 0.1), 'gloss');
+      add(fruit(0.16, C(0x8cbf4e), { sy: 0.88, stripes: 9, stripeColor: C(0x2c5a22), seg: 14 }), mat(0.04, 0.13, 0.08, 0, r.next() * 3, 0.1), 'gloss');
       add(stalk(0.04, 0.012, 0.01, C(0x6a7a3a), C(0x8a8a4a), 0.02, 4), mat(0.04, 0.27, 0.08));
     }
   },
@@ -804,9 +804,24 @@ function buildWithered(r: Rng, trellised: boolean): Map<Bucket, THREE.BufferGeom
     trellis(add);
     climber(add, r, 0.7, { shape: 'heart', lift: -0.2, bend: 0.9, fold: 0.4, c0: brown0, c1: brown1, segs: 3 }, 0.1, 0.09, 1.0, 0.3, 2);
   } else {
-    add(stalk(0.22, 0.012, 0.006, brown0, brown1, 0.12, 4));
-    rosette(add, r, 5, 0.14, 0.08, { shape: 'lance', lift: 0.3, bend: 1.1, fold: 0.5, ruffle: 0.2, c0: brown0, c1: brown1, segs: 4 });
-    rosette(add, r, 3, 0.1, 0.07, { shape: 'oval', lift: 0.2, bend: 1.2, fold: 0.6, c0: C(0x6a5436), c1: C(0xb0925e), segs: 3 }, 0.5, 0.12);
+    // A slumped, straw-coloured husk: a bent main stalk with a broken, nodding top, drooping
+    // papery leaves, a couple of side stems and curled leaves fallen onto the soil.
+    const straw0 = C(0x6a5234);
+    const straw1 = C(0xc8a86e);
+    const lean = 0.18 + r.next() * 0.12;
+    add(stalk(0.34, 0.016, 0.007, brown0, straw1, lean, 5));
+    add(stalk(0.12, 0.008, 0.005, brown0, brown1, -0.06, 3), mat(lean * 0.9, 0.3, 0, 0, 0, -2.2));
+    for (let i = 0; i < 2; i++) {
+      const a = r.next() * Math.PI * 2;
+      add(stalk(0.2, 0.01, 0.005, brown0, brown1, 0.1, 4), mat(0, 0, 0, 0, a, 0.5));
+    }
+    rosette(add, r, 6, 0.19, 0.1, { shape: 'lance', lift: 0.5, bend: 0.85, fold: 0.5, ruffle: 0.3, c0: straw0, c1: straw1, segs: 4 });
+    rosette(add, r, 4, 0.13, 0.08, { shape: 'oval', lift: 0.35, bend: 1.0, fold: 0.6, curl: 0.5, c0: C(0x6a5436), c1: C(0xb89a62), segs: 3 }, 0.5, 0.16);
+    for (let i = 0; i < 3; i++) {
+      const a = r.next() * Math.PI * 2;
+      const d = 0.12 + r.next() * 0.12;
+      add(leafGeo(0.1, 0.06, { shape: 'oval', lift: 0.05, bend: 0.1, fold: 0.5, curl: 0.7, c0: C(0x7a603e), c1: C(0xb08e5c), segs: 3 }), mat(Math.cos(a) * d, 0.005, Math.sin(a) * d, 0, a, 0));
+    }
   }
   const out = new Map<Bucket, THREE.BufferGeometry>();
   for (const [k, g] of b.geometries()) {
@@ -833,7 +848,7 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     }
     add(tube([new THREE.Vector3(0, 1.4, 0), new THREE.Vector3(0.3, 1.5, 0.1), new THREE.Vector3(0.45, 1.38, 0.3), new THREE.Vector3(0.4, 1.3, 0.45)], 0.02, 0.008, GREEN.mid, GREEN.light, 10, 4));
   } else if (id === 'melon') {
-    add(fruit(1.1, C(0xb8d880), { sy: 0.78, stripes: 11, stripeColor: C(0x3f7a2e), seg: 28 }), mat(0, 0.8, 0), 'gloss');
+    add(fruit(1.1, C(0x8cbf4e), { sy: 0.78, stripes: 11, stripeColor: C(0x2c5a22), seg: 28 }), mat(0, 0.8, 0), 'gloss');
     add(stalk(0.22, 0.06, 0.04, C(0x6a7a3a), C(0x8a8a4a), 0.08, 6), mat(0, 1.64, 0));
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + r.next();
@@ -843,7 +858,7 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     add(curd(1.0, r, 30), mat(0, 0.45, 0), 'gloss');
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2 + r.next() * 0.3;
-      add(leafGeo(1.25, 0.95, { shape: 'oval', lift: 0.75, bend: 0.4, fold: 0.3, ruffle: 0.12, curl: 0.5, rib: C(0xc8dcc0), c0: C(0x2f5f4a), c1: C(0x5f917a), segs: 7 }), mat(Math.cos(a) * 0.35, 0.02, Math.sin(a) * 0.35, 0, a + Math.PI / 2, 0));
+      add(leafGeo(1.25, 0.95, { shape: 'oval', lift: 0.75, bend: 0.4, fold: 0.3, ruffle: 0.12, curl: 0.5, rib: C(0xcfe0b8), c0: C(0x2c6238), c1: C(0x5f9c58), segs: 7 }), mat(Math.cos(a) * 0.35, 0.02, Math.sin(a) * 0.35, 0, a + Math.PI / 2, 0));
     }
   }
   const out = new Map<Bucket, THREE.BufferGeometry>();
@@ -889,7 +904,7 @@ export function produceGeometry(id: CropId): THREE.BufferGeometry {
     }
     case 'cauliflower':
       add(curd(0.1, r, 12), mat(0, 0, 0));
-      rosette(add, r, 5, 0.12, 0.1, { shape: 'oval', lift: 1.1, bend: 0.05, fold: 0.45, curl: 0.9, c0: C(0x3a6e58), c1: C(0x6f9e86), segs: 4 }, 0.3, -0.03);
+      rosette(add, r, 5, 0.12, 0.1, { shape: 'oval', lift: 1.1, bend: 0.05, fold: 0.45, curl: 0.9, c0: C(0x356e40), c1: C(0x6aa662), segs: 4 }, 0.3, -0.03);
       break;
     case 'kale':
       for (let i = 0; i < 5; i++) add(leafGeo(0.2, 0.12, { shape: 'oval', serrate: 0.35, ruffle: 0.55, lift: 1.4, bend: 0.3, c0: C(0x2f6a2c), c1: C(0x5f9e44), segs: 6 }), mat(0, -0.08, 0, 0, (i / 5) * Math.PI * 2, 0));
@@ -930,7 +945,7 @@ export function produceGeometry(id: CropId): THREE.BufferGeometry {
       add(stalk(0.05, 0.008, 0.006, C(0x6a5a3a), C(0x6a5a3a), 0, 4), mat(0, 0.1, 0));
       break;
     case 'melon':
-      add(fruit(0.13, C(0xb8d880), { sy: 0.88, stripes: 9, stripeColor: C(0x3f7a2e), seg: 16 }));
+      add(fruit(0.13, C(0x8cbf4e), { sy: 0.88, stripes: 9, stripeColor: C(0x2c5a22), seg: 16 }));
       break;
     case 'hotPepper':
       add(hangingPod(0.2, 0.03, 0.35, C(0xd82a1a), C(0xf04a2a), 0.25), mat(0, 0.1, 0));
@@ -1042,7 +1057,7 @@ const PLACE: Partial<Record<CropId, { scale?: number; yaw?: number }>> = {
   tomato: { yaw: 0.6 },
 };
 
-const STAGE_SCALE = [1.15, 1.3, 1.38, 1.46, 1.52, 1.55];
+const STAGE_SCALE = [1.15, 1.3, 1.42, 1.54, 1.62, 1.68];
 
 export class CropVisuals {
   readonly group = new THREE.Group();
@@ -1115,7 +1130,7 @@ export class CropVisuals {
   }
 
   addWithered(x: number, y: number, z: number, seed: number, trellised: boolean): CropHandle {
-    const v = seed % 2;
+    const v = seed % 3;
     const set = this.special(`withered:${trellised ? 't' : 'p'}:${v}`, () => buildWithered(new Rng(`withered:${v}`), trellised));
     const s = 1.4 * (0.9 + ((seed >> 3) % 20) / 100);
     return this.place(set, new THREE.Vector3(x, y, z), trellised ? 0 : ((seed % 360) * Math.PI) / 180, new THREE.Vector3(s, s, s));
