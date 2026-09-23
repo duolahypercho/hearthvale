@@ -13,7 +13,7 @@ import type { Game } from '../core/game';
 import { Screen, el, closeButton, sfx, replay, escapeHtml } from './kit';
 import { ROOMS, roomDef } from '../data/bundles';
 import { LETTERS } from '../data/story';
-import { lanternSvg, sackSvg, iconOf, itemName, SEAL_MINI, ENVELOPE, CHECK, COIN } from './journal-art';
+import { lanternSvg, sackSvg, iconOf, itemName, valleySvg, SEAL_MINI, ENVELOPE, CHECK, COIN } from './journal-art';
 import { loadStoryFonts } from './journal-cutscene';
 
 type Tab = 'quests' | 'hall' | 'letters';
@@ -120,7 +120,12 @@ export class JournalPanel extends Screen {
             return `<button class="jn-row hw${p.id === this.sel.quests ? ' on' : ''}" data-id="${p.id}" data-nav><i class="jn-bul item">${iconOf(p.itemId)}</i><span class="t">${escapeHtml(p.title)}</span><small class="${have >= p.qty ? 'ok' : ''}">${Math.min(have, p.qty)}/${p.qty} · ${left <= 0 ? 'today' : `${left}d`}</small></button>`;
           })
           .join('')
-      : `<div class="jn-empty">No requests taken. Check the notice board in the square.</div>`;
+      : (() => {
+          const pinned = (this.game.services.quests?.postings() ?? []).filter((p) => p.state === 'posted');
+          return pinned.length
+            ? `<div class="jn-empty">On the board today: ${pinned.map((p) => `<b>${escapeHtml(p.giver)}</b> wants ${p.qty} ${escapeHtml(itemName(p.itemId))}`).join(' · ')}. Accept at the notice board in the square.</div>`
+            : `<div class="jn-empty">No requests taken. Check the notice board in the square.</div>`;
+        })();
     this.leftPage.innerHTML = `<h2 class="jn-h">The story so far</h2><div class="jn-list">${storyRows}</div>
       <h2 class="jn-h small">Help Wanted</h2><div class="jn-list">${postRows}</div>`;
     this.leftPage.querySelectorAll<HTMLElement>('.jn-row').forEach((r) =>
@@ -143,7 +148,8 @@ export class JournalPanel extends Screen {
           <p class="jn-text">${escapeHtml(q.text)}</p>
           <div class="jn-goal ${q.state}"><i>${q.state === 'done' ? CHECK : ''}</i><span>${escapeHtml(q.goal)}</span>${q.progress ? `<b>${q.progress[0]} / ${q.progress[1]}</b>` : ''}</div>
           ${q.id === 'all-lanterns' || q.id === 'first-lantern' ? `<div class="jn-strip">${strip}</div>` : ''}
-          ${q.id === 'glimmer' && this.game.services.story?.flag('glimmer') ? `<div class="jn-note">You ${this.game.services.story?.flag('glimmer') === 'accepted' ? 'signed the charter. The Hall burns white.' : 'turned Glimmerco down.'}</div>` : ''}`;
+          ${q.id === 'glimmer' && this.game.services.story?.flag('glimmer') ? `<div class="jn-note">You ${this.game.services.story?.flag('glimmer') === 'accepted' ? 'signed the charter. The Hall burns white.' : 'turned Glimmerco down.'}</div>` : ''}
+          <figure class="jn-plate">${this.valley()}<figcaption>Hearthvale, from Gran's hill · ${this.game.services.quests?.lanternsLit() ?? 0} of 6 lanterns</figcaption></figure>`;
     } else if (p) {
       const have = this.game.services.inventory?.count(p.itemId) ?? 0;
       this.rightPage.innerHTML = `<div class="jn-kicker">Help Wanted</div><h1 class="jn-title">${escapeHtml(p.title)}</h1><div class="jn-giver">— ${escapeHtml(p.giver)}</div>
@@ -151,6 +157,12 @@ export class JournalPanel extends Screen {
         <div class="jn-goal ${have >= p.qty ? 'done' : 'active'}"><i>${have >= p.qty ? CHECK : ''}</i><span>Bring ${p.qty} × ${escapeHtml(itemName(p.itemId))}</span><b>${Math.min(have, p.qty)} / ${p.qty}</b></div>
         <div class="jn-reward">${COIN}<b>${p.gold.toLocaleString()}g</b><small>Deliver at the notice board in the square</small></div>`;
     } else this.rightPage.innerHTML = '';
+  }
+
+  private valley(): string {
+    const q = this.game.services.quests;
+    const rooms = ROOMS.map((r) => ({ color: r.color, lit: !!q?.room(r.id)?.done }));
+    return valleySvg(rooms, q?.rooms().some((r) => r.glimmer) ?? false);
   }
 
   // ───────────────────────────── hall

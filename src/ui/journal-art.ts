@@ -87,3 +87,65 @@ export function iconOf(itemId: string, fallback?: { name?: string; color?: numbe
 export function itemName(itemId: string, fallback?: string): string {
   return itemDef(itemId)?.name ?? fallback ?? itemId.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
 }
+
+/**
+ * "Hearthvale from Gran's hill": a little dusk vignette for the journal. The Lantern Hall's six
+ * windows glow in their rooms' colours as they relight, the Great Lantern over the doors brightens,
+ * cottage windows and the lane lanterns come on with the story. `glimmer` = EverGlow white.
+ */
+export function valleySvg(rooms: { color: number; lit: boolean }[], glimmer = false): string {
+  const id = `jv${uid++}`;
+  const n = rooms.filter((r) => r.lit).length;
+  const k = n / Math.max(1, rooms.length);
+  const warm = glimmer ? '#e8f6ff' : '#ffd27a';
+  const stars = [
+    [34, 22, 1.4], [70, 40, 1], [112, 16, 1.2], [160, 34, 0.9], [206, 12, 1.3], [300, 20, 1], [352, 42, 1.4], [398, 14, 1], [466, 70, 1.2], [488, 18, 0.9], [252, 44, 0.8], [132, 52, 0.8], [20, 60, 0.8],
+  ]
+    .map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff8e0" opacity="${(0.5 + ((x! * 7) % 5) / 10).toFixed(2)}"/>`)
+    .join('');
+  const glow = (x: number, y: number, r: number, a: number): string => `<circle cx="${x}" cy="${y}" r="${r}" fill="${warm}" opacity="${a.toFixed(2)}" filter="url(#${id}b)"/>`;
+  // Hall windows: three either side of the doors (seed / harvest / craft west, sun / hearth / tide east).
+  const win = (i: number, x: number, y: number): string => {
+    const r = rooms[i];
+    const on = !!r?.lit;
+    const c = glimmer && on ? '#eaf8ff' : on ? css(r!.color) : '#2c2c44';
+    return `${on ? `<rect x="${x - 7}" y="${y - 8}" width="26" height="32" rx="8" fill="${c}" opacity=".4" filter="url(#${id}b)"/>` : ''}<path d="M${x} ${y + 16} v-12 a6 6 0 0 1 12 0 v12 z" fill="${c}" stroke="#2e2638" stroke-width="1.6"/><path d="M${x + 6} ${y - 2} v18 M${x} ${y + 8} h12" stroke="#2e2638" stroke-width="1" opacity=".55"/>`;
+  };
+  const hallWins = [win(0, 196, 126), win(2, 214, 126), win(4, 232, 126), win(1, 272, 126), win(3, 290, 126), win(5, 308, 126)].join('');
+  const cottage = (x: number, y: number, s: number, on: boolean, roof: string): string =>
+    `<g transform="translate(${x} ${y}) scale(${s})"><path d="M-16 0 v-18 h32 v18 z" fill="#4a3f52"/><path d="M-20 -17 L0 -32 L20 -17 z" fill="${roof}"/>${on ? `<rect x="-12" y="-17" width="15" height="15" rx="5" fill="${warm}" opacity=".35" filter="url(#${id}b)"/>` : ''}<rect x="-8" y="-13" width="7" height="7" rx="1.5" fill="${on ? warm : '#2a2a3c'}"/><rect x="4" y="-10" width="6" height="10" rx="1" fill="#2e2638"/></g>`;
+  const lane = n >= 3;
+  const lamps = [[120, 198], [158, 188], [194, 178], [224, 167]]
+    .map(([x, y]) => `<path d="M${x} ${y} v-12" stroke="#2e2638" stroke-width="1.6"/>${lane ? glow(x!, y! - 13, 8, 0.35) : ''}<circle cx="${x}" cy="${y! - 13}" r="2.6" fill="${lane ? warm : '#3a3448'}"/>`)
+    .join('');
+  return `<svg class="jn-valley" viewBox="0 0 520 220" aria-hidden="true">
+  <defs>
+    <linearGradient id="${id}s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#27305e"/><stop offset=".55" stop-color="#6a5a8e"/><stop offset=".85" stop-color="#e8a08a"/><stop offset="1" stop-color="#f6c89a"/></linearGradient>
+    <radialGradient id="${id}g" cx="50%" cy="60%" r="50%"><stop offset="0" stop-color="${warm}" stop-opacity="${(0.12 + k * 0.55).toFixed(2)}"/><stop offset="1" stop-color="${warm}" stop-opacity="0"/></radialGradient>
+    <filter id="${id}b" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="${id}c"><rect x="0" y="0" width="520" height="220" rx="14"/></clipPath>
+  </defs>
+  <g clip-path="url(#${id}c)">
+    <rect width="520" height="220" fill="url(#${id}s)"/>
+    ${stars}
+    <circle cx="438" cy="46" r="15" fill="#fff4d6"/><circle cx="445" cy="41" r="13" fill="#5a4e86"/>
+    <path d="M0 150 C60 118 120 124 180 136 C240 146 300 112 380 118 C440 122 490 140 520 132 V220 H0 Z" fill="#4e4a78"/>
+    <path d="M0 170 C80 150 140 158 200 160 C280 162 340 144 420 150 C470 154 500 164 520 160 V220 H0 Z" fill="#3a3e62"/>
+    <ellipse cx="258" cy="138" rx="${(130 + k * 70).toFixed(0)}" ry="${(56 + k * 34).toFixed(0)}" fill="url(#${id}g)"/>
+    ${cottage(110, 178, 1, n >= 1, '#8a4a4a')}${cottage(384, 172, 1.1, n >= 2, '#5a6a8a')}${cottage(436, 186, 0.9, n >= 4, '#8a6a3a')}${cottage(66, 192, 0.85, n >= 5, '#6a5a3a')}
+    <path d="M184 152 V112 L258 72 L332 112 V152 Z" fill="#5a4a5e" stroke="#2e2638" stroke-width="2"/>
+    <path d="M176 114 L258 68 L340 114" fill="none" stroke="#2e2638" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    ${n ? glow(258, 98, 19, 0.2 + k * 0.45) : ''}
+    <circle cx="258" cy="98" r="10" fill="${n ? (glimmer ? '#eaf8ff' : '#ffcf7a') : '#2c2c44'}" stroke="#2e2638" stroke-width="2"/>
+    <path d="M258 88 v20 M248 98 h20" stroke="#2e2638" stroke-width="1.2" opacity=".6"/>
+    ${hallWins}
+    <path d="M248 152 v-15 a10 10 0 0 1 20 0 v15 z" fill="#2e2638"/>
+    ${k > 0 ? glow(258, 124, 9 + k * 12, 0.3 + k * 0.4) : ''}
+    <path d="M258 112 v6" stroke="#2e2638" stroke-width="1.5"/><rect x="253" y="118" width="10" height="11" rx="2" fill="${k > 0 ? warm : '#3a3448'}" stroke="#2e2638" stroke-width="1.5"/>
+    <path d="M0 220 V196 C60 188 120 200 170 190 C220 180 240 170 258 156 C280 172 320 186 380 192 C440 198 490 190 520 194 V220 Z" fill="#2a2c46"/>
+    <path d="M90 220 C140 204 200 184 250 158" fill="none" stroke="#6a5a78" stroke-width="5" stroke-linecap="round" opacity=".6"/>
+    ${lamps}
+  </g>
+  <rect x="1" y="1" width="518" height="218" rx="14" fill="none" stroke="rgba(90,60,30,.55)" stroke-width="2"/>
+</svg>`;
+}

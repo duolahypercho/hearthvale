@@ -97,6 +97,22 @@ export const DEMOS: Record<string, DemoDef> = {
   'fest-fall-judging': { map: 'fest-fall', x: 35.4, z: 19.4, facing: 'up', time: 13.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 17, offsetZ: -2.6 }, showcase: ['festival-show'], ui: 'festival:pumpkin' },
   'fest-winter-gifts': { map: 'fest-winter', x: 32, z: 25.5, facing: 'up', time: 20.4, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 34, distance: 15, offsetZ: -2.4 }, showcase: ['festival-show'], ui: 'festival:giftswap' },
   'fest-winter-skate': { map: 'fest-winter', x: 35.4, z: 29.6, facing: 'right', time: 20.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 46, distance: 19, offsetX: 2.4, offsetZ: -3.2 }, showcase: ['festival-show'], ui: 'festival:skate' },
+  // Story pod (systems/story*.ts, cutscene.ts): cutscene stills freeze at a scene's `mark`;
+  // hall demos stage the Lantern Hall interior (&lit=0-6 lights the first N rooms instead).
+  'intro-letter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 19.35, season: 'spring', weather: 'sun', showcase: ['story:scene:intro:letter'] },
+  'intro-arrival': { map: 'town', x: 8.6, z: 27.6, facing: 'right', time: 19.15, season: 'spring', weather: 'sun', showcase: ['story:scene:intro:arrival'] },
+  'intro-night': { map: 'house', x: 7.6, z: 4.6, facing: 'left', time: 21.4, season: 'spring', weather: 'sun', showcase: ['story:scene:intro:night'] },
+  'intro-farm': { map: 'farm', x: 31.4, z: 21.6, facing: 'up', time: 20.4, season: 'spring', weather: 'sun', showcase: ['story:scene:intro:farm'] },
+  'lantern-hall-dark': { map: 'hall', x: 15, z: 17.5, facing: 'up', time: 21, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 31, offsetZ: -5.2 }, showcase: ['hall:dark', 'story:progress:0'] },
+  'lantern-hall-restored': { map: 'hall', x: 15, z: 17.5, facing: 'up', time: 21, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 31, offsetZ: -5.2 }, showcase: ['hall:restored', 'story:progress:6'] },
+  'lantern-room-lit': { map: 'hall', x: 15, z: 17.5, facing: 'up', time: 21, season: 'spring', weather: 'sun', showcase: ['story:progress:0', 'story:scene:room-seed'] },
+  'bundle-ui': { map: 'hall', x: 9.4, z: 7.2, facing: 'left', time: 21, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 31, offsetZ: -5.2 }, showcase: ['story:progress:2'], ui: 'bundles:harvest' },
+  journal: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'sun', camera: HOME_CAM, showcase: ['story:progress:2'], ui: 'journal' },
+  'help-board': { map: 'town', x: 27.5, z: 20.4, facing: 'up', time: 10.5, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs', 'story:progress:2'], ui: 'board' },
+  'glimmer-offer': { map: 'town', x: 31.8, z: 18.1, facing: 'up', time: 18.2, season: 'summer', weather: 'sun', showcase: ['story:progress:3', 'story:scene:glimmer-offer'] },
+  'lantern-festival': { map: 'town', x: 32, z: 20.2, facing: 'up', time: 20, season: 'winter', weather: 'sun', showcase: ['npcs', 'story:progress:6', 'story:scene:finale'] },
+  'lantern-festival-sky': { map: 'town', x: 32, z: 20.2, facing: 'up', time: 20, season: 'winter', weather: 'sun', showcase: ['npcs', 'story:progress:6', 'story:scene:finale:sky'] },
+  'lantern-room-reveal': { map: 'hall', x: 15, z: 17.5, facing: 'up', time: 21, season: 'spring', weather: 'sun', showcase: ['story:progress:1', 'story:scene:room-seed:reveal'] },
   // UI/UX pod (src/ui): one demo per screen over the morning farm; a staged demo stocks a lived-in backpack
   // (ui/demo-kit.ts). `ui-hud` = gameplay HUD with toasts; `?demo=farm-morning&ui=<screen>` works too.
   'ui-hud': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM },

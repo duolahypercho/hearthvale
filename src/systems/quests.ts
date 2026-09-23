@@ -55,6 +55,8 @@ export interface QuestApi {
   rooms(): RoomState[];
   room(id: string): RoomState | undefined;
   bundle(id: string): BundleState | undefined;
+  /** Every bundle across all six rooms, in room order. */
+  bundles(): BundleState[];
   bundleDone(id: string): boolean;
   /** Hand in up to `qty` of an item to a bundle; returns how many were accepted. */
   contribute(bundleId: string, itemId: string, qty?: number): number;
@@ -122,6 +124,10 @@ export class QuestSystem implements System, QuestApi {
   bundle(id: string): BundleState | undefined {
     for (const r of this.state) for (const b of r.bundles) if (b.def.id === id) return b;
     return undefined;
+  }
+
+  bundles(): BundleState[] {
+    return this.state.flatMap((r) => r.bundles);
   }
 
   bundleDone(id: string): boolean {

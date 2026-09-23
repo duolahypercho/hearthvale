@@ -25,7 +25,7 @@ import { portraitSvg } from '../ui/portraits';
 export interface CutsceneApi {
   play(scene: string | Cmd[], id?: string): Promise<void>;
   /** Fast-forward to the scene's `mark` command and hold the frame (demos / critics). */
-  stage(scene: string): Promise<void>;
+  stage(scene: string, mark?: string): Promise<void>;
   readonly playing: boolean;
   skip(): void;
   register(id: string, cmds: Cmd[]): void;
@@ -67,6 +67,7 @@ const ease = (e: Ease | undefined, t: number): number => {
 // ─────────────────────────────────────────────── emote bubbles
 
 const EMOTE_TEX = new Map<Emote, THREE.Texture>();
+const EMOTE_QUAD = new THREE.PlaneGeometry(1, 1);
 function emoteTexture(e: Emote): THREE.Texture {
   let t = EMOTE_TEX.get(e);
   if (t) return t;
@@ -261,7 +262,8 @@ function buildClipboardProp(): THREE.Group {
 }
 
 interface EmoteFx {
-  sprite: THREE.Sprite;
+  /** Camera-facing quad (a Mesh, not a Sprite: the AO G-buffer pass only skips flagged meshes). */
+  sprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   actor: Actor;
   t: number;
   life: number;
@@ -355,19 +357,19 @@ export class CutsceneSystem implements System, CutsceneApi {
     this.end(name);
   }
 
-  async stage(scene: string): Promise<void> {
+  async stage(scene: string, markId?: string): Promise<void> {
     const cmds = this.scenes.get(scene);
     if (!cmds) {
       console.warn(`[cutscene] stage: unknown scene "${scene}"`);
       return;
     }
-    const mark = cmds.findIndex((c) => c.do === 'mark');
+    const mark = cmds.findIndex((c) => c.do === 'mark' && (!markId || c.id === markId));
     this.begin(scene);
     this.instant = true;
     await this.runList(mark >= 0 ? cmds.slice(0, mark) : cmds, false);
     this.instant = false;
     // Hold on the frame: the next line of dialogue (if any) is shown complete.
-    const next = mark >= 0 ? cmds.slice(mark + 1).find((c) => c.do === 'say' || c.do === 'choice' || c.do === 'caption') : undefined;
+    const next = mark >= 0 ? cmds.slice(mark + 1).find((c) => c.do === 'say' || c.do === 'choice' || c.do === 'caption' || c.do === 'letter') : undefined;
     if (next) void this.exec(next, true);
   }
 
@@ -520,13 +522,17 @@ export class CutsceneSystem implements System, CutsceneApi {
         return;
       case 'caption':
         if (hold) {
-          this.overlay.caption(c.text, c.sub, 0, true);
+          this.overlay.caption(c.text, c.sub, 0, true, c.low);
           return;
         }
         if (this.fast) return;
-        await this.overlay.caption(c.text, c.sub, c.dur ?? 3, false);
+        await this.overlay.caption(c.text, c.sub, c.dur ?? 3, false, c.low);
         return;
       case 'letter': {
+        if (hold) {
+          void g.services.letters?.show(c.id);
+          return;
+        }
         if (this.fast) return;
         const letters = g.services.letters;
         if (letters) await letters.show(c.id);
@@ -680,8 +686,10 @@ export class CutsceneSystem implements System, CutsceneApi {
   private emote(id: string, e: Emote): void {
     const a = this.actors.get(id);
     if (!a) return;
-    const mat = new THREE.SpriteMaterial({ map: emoteTexture(e), depthTest: false, transparent: true });
-    const s = new THREE.Sprite(mat);
+    const mat = new THREE.MeshBasicMaterial({ map: emoteTexture(e), depthTest: false, depthWrite: false, transparent: true, toneMapped: false, fog: false });
+    const s = new THREE.Mesh(EMOTE_QUAD, mat);
+    s.frustumCulled = false;
+    s.castShadow = s.receiveShadow = false;
     s.renderOrder = 999;
     s.userData.noAO = true;
     s.scale.setScalar(0.001);
@@ -870,11 +878,12 @@ export class CutsceneSystem implements System, CutsceneApi {
       const dist = cam.position.distanceTo(p);
       const S = 0.62 * Math.max(0.6, dist / 14) * pop;
       e.sprite.scale.set(S, S, 1);
+      e.sprite.quaternion.copy(cam.quaternion);
       e.sprite.position.set(p.x, p.y + e.actor.headY + Math.sin(e.t * 5) * 0.04 + (1 - fade) * 0.25, p.z);
-      (e.sprite.material as THREE.SpriteMaterial).opacity = fade;
+      e.sprite.material.opacity = fade;
       if (e.t >= e.life) {
         e.sprite.removeFromParent();
-        (e.sprite.material as THREE.SpriteMaterial).dispose();
+        e.sprite.material.dispose();
         return false;
       }
       return true;

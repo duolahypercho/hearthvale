@@ -112,8 +112,9 @@ export class CinemaOverlay {
     return new Promise((r) => (dur > 0 ? setTimeout(r, dur * 1000) : r()));
   }
 
-  caption(text: string, sub: string | undefined, dur: number, hold: boolean): Promise<void> {
+  caption(text: string, sub: string | undefined, dur: number, hold: boolean, low = false): Promise<void> {
     const c = this.captionEl;
+    c.classList.toggle('low', low);
     (c.querySelector('.cap-text') as HTMLElement).textContent = text;
     (c.querySelector('.cap-sub') as HTMLElement).textContent = sub ?? '';
     c.classList.remove('show', 'hold');

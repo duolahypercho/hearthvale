@@ -37,13 +37,15 @@ export type Cmd =
   | { do: 'say'; who: string; text: string; mood?: 'happy' | 'neutral' | 'surprised' }
   | { do: 'choice'; who: string; text: string; options: { label: string; hint?: string; flag: string; value: string; then?: string }[] }
   | { do: 'wait'; t: number }
-  | { do: 'caption'; text: string; sub?: string; dur?: number }
+  /** `low`: narration set along the bottom of the frame (keeps the action visible) instead of a centred title. */
+  | { do: 'caption'; text: string; sub?: string; dur?: number; low?: boolean }
   | { do: 'letter'; id: string }
   | { do: 'cue'; cue: string; arg?: string; t?: number }
   | { do: 'player'; visible: boolean }
   | { do: 'flag'; key: string; value: string }
   | { do: 'hud'; on: boolean }
-  | { do: 'mark' };
+  /** Demo freeze point; `id` names one of several marks in a scene (`stage(scene, id)`). */
+  | { do: 'mark'; id?: string };
 
 // ─────────────────────────────────────────────── places
 
@@ -63,6 +65,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'cam', to: { x: 33, z: 22, y: 1.5, yaw: -24, pitch: 22, dist: 34 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 1.4 },
     { do: 'cam', to: { x: 31, z: 18, y: 1.5, yaw: -12, pitch: 26, dist: 30 }, dur: 16, ease: 'linear', wait: false },
+    { do: 'mark', id: 'letter' },
     { do: 'letter', id: 'gran-intro' },
     { do: 'fade', to: 'black', dur: 1.0 },
     { do: 'caption', text: 'Hearthvale', sub: 'Spring · the evening coach', dur: 2.6 },
@@ -71,15 +74,15 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'time', hour: 19.15 },
     { do: 'actor', id: 'hollis', x: STOP.x + 2.4, z: STOP.z - 0.5, facing: 'left', prop: 'lantern' },
     { do: 'cue', cue: 'coach:place', arg: 'offstage' },
-    { do: 'cam', to: { x: STOP.x + 1.5, z: STOP.z, y: 1.2, yaw: 32, pitch: 24, dist: 17 }, dur: 0 },
+    { do: 'cam', to: { x: STOP.x - 1.5, z: STOP.z, y: 1.2, yaw: -30, pitch: 30, dist: 19 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 1.2 },
     { do: 'cue', cue: 'coach:arrive', t: 4.2 },
-    { do: 'cam', to: { x: STOP.x + 0.6, z: STOP.z, y: 1.1, yaw: 26, pitch: 22, dist: 12.5 }, dur: 3.5, ease: 'inOut', wait: false },
+    { do: 'cam', to: { x: STOP.x + 0.9, z: STOP.z + 0.3, y: 1.1, yaw: -26, pitch: 27, dist: 11 }, dur: 3.5, ease: 'inOut', wait: false },
     { do: 'player', visible: true },
     { do: 'walk', id: 'player', path: [[STOP.x - 1, STOP.z + 1.4], [STOP.x + 0.5, STOP.z + 0.9]], facing: 'right' },
     { do: 'emote', id: 'hollis', emote: 'exclaim' },
     { do: 'walk', id: 'hollis', path: [[STOP.x + 1.7, STOP.z + 0.55]], facing: 'left', speed: 1.3 },
-    { do: 'mark' },
+    { do: 'mark', id: 'arrival' },
     { do: 'say', who: 'hollis', text: 'There you are! The evening coach — right on time. Well. Forty minutes late, which for the evening coach is right on time.' },
     { do: 'say', who: 'hollis', text: "Hollis Pennyroyal. Mayor of Hearthvale. Also treasurer, and the fellow who winds the clock. It's a small town." },
     { do: 'emote', id: 'hollis', emote: 'heart' },
@@ -98,6 +101,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'cam', to: { x: 31.8, z: 19.6, y: 1.4, yaw: -10, pitch: 30, dist: 15 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 1.2 },
     { do: 'cam', to: { x: 31.8, z: 19.2, y: 1.4, yaw: -4, pitch: 32, dist: 13 }, dur: 6, ease: 'out', wait: false },
+    { do: 'mark', id: 'farm' },
     { do: 'say', who: 'hollis', text: "Here we are. She's, ah... she's got good bones." },
     { do: 'emote', id: 'hollis', emote: 'sweat' },
     { do: 'say', who: 'hollis', text: 'I aired out the bedroom and chased away most of the mice. The ones that stayed have seniority.' },
@@ -111,7 +115,20 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'wait', t: 1.4 },
     { do: 'fade', to: 'black', dur: 1.4 },
     { do: 'remove', id: 'hollis' },
-    { do: 'caption', text: 'The farmhouse smells of dust, cedar and lavender.', sub: 'On the kitchen table: a jar of honey, her reading glasses, and a note that says “Welcome home.”', dur: 5.5 },
+    // First night in the farmhouse: dust sheets, her reading glasses, a hurricane lantern.
+    { do: 'map', map: 'house', x: 6.5, z: 7.4, facing: 'up' },
+    { do: 'time', hour: 21.4 },
+    { do: 'cam', to: { x: 6.2, z: 5.0, y: 0.9, yaw: -8, pitch: 44, dist: 12.5 }, dur: 0 },
+    { do: 'fade', to: 'clear', dur: 1.6 },
+    { do: 'cam', to: { x: 3.6, z: 4.0, y: 1.2, yaw: -34, pitch: 40, dist: 9 }, dur: 9, ease: 'out', wait: false },
+    // Straight to the kitchen table: her note, her glasses, the honey.
+    { do: 'walk', id: 'player', path: [[5.8, 5.9], [4.2, 4.6]], facing: 'left', speed: 1.4 },
+    { do: 'emote', id: 'player', emote: 'dots' },
+    { do: 'mark', id: 'night' },
+    { do: 'caption', text: 'The farmhouse smells of dust, cedar and lavender.', sub: 'On the kitchen table: a jar of honey, her reading glasses, and a note that says “Welcome home.”', dur: 5.5, low: true },
+    { do: 'walk', id: 'player', path: [[9.6, 2.9]], facing: 'right', speed: 1.4 },
+    { do: 'emote', id: 'player', emote: 'heart' },
+    { do: 'fade', to: 'black', dur: 1.6 },
     { do: 'time', hour: 6.1, day: 1 },
     { do: 'map', map: 'farm', x: 31.5, z: 18.6, facing: 'down' },
     { do: 'caption', text: 'Spring 1', sub: 'Year 1', dur: 2.4 },
@@ -196,8 +213,34 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'fade', to: 'clear', dur: 1 },
   ],
 
-  /** Year-end finale: the Lantern Festival (Winter 28). */
-  finale: [
+};
+
+/**
+ * Year-end finale: the Lantern Festival (Winter 28). `glimmer` = the player signed with Glimmerco:
+ * the Hall hums with EverGlow, nobody quite gathers, and the farmer switches it off so the valley can
+ * light its own lanterns (the charter was never the point).
+ */
+function finaleScene(glimmer: boolean): Cmd[] {
+  const speech: Cmd[] = glimmer
+    ? [
+        { do: 'say', who: 'hollis', text: "Well. The Hall has never been brighter. You can read a ledger from the far end of the lane." },
+        { do: 'say', who: 'hollis', text: "Funny thing, though. Nobody's walked a lantern up the hill this year. Didn't seem much point, with it humming away like that." },
+        { do: 'emote', id: 'hollis', emote: 'dots' },
+        { do: 'say', who: 'hollis', text: "Rosalind used to say light isn't for seeing. It's for finding each other. I think... I think she'd switch it off." },
+        { do: 'face', id: 'hollis', toward: 'player' },
+        { do: 'walk', id: 'player', path: [[32, 20.2]], facing: 'up' },
+        { do: 'say', who: 'hollis', text: 'Would you? And then — would you do the honours, the old way?' },
+        { do: 'cue', cue: 'festival:everglowOff', t: 1.2 },
+      ]
+    : [
+        { do: 'say', who: 'hollis', text: 'Friends. Neighbours. Bram — put the pie down, Bram.' },
+        { do: 'say', who: 'hollis', text: "Seven winters we kept the lamps low and told ourselves the dark was just how things were now. It wasn't. It was only that nobody had asked us to gather." },
+        { do: 'say', who: 'hollis', text: 'Rosalind asked. And then she sent someone to keep asking.' },
+        { do: 'face', id: 'hollis', toward: 'player' },
+        { do: 'walk', id: 'player', path: [[32, 20.2]], facing: 'up' },
+        { do: 'say', who: 'hollis', text: 'Would you do the honours?' },
+      ];
+  return [
     { do: 'hud', on: false },
     { do: 'fade', to: 'black', dur: 0.8 },
     { do: 'letterbox', on: true },
@@ -208,19 +251,16 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'cam', to: { x: 32, z: 24, y: 2, yaw: 0, pitch: 18, dist: 30 }, dur: 0 },
     { do: 'caption', text: 'The Lantern Festival', sub: 'Winter 28 · the longest night', dur: 3 },
     { do: 'fade', to: 'clear', dur: 1.6 },
-    { do: 'cam', to: { x: 32, z: 19.5, y: 1.6, yaw: 8, pitch: 24, dist: 13 }, dur: 5, ease: 'inOut' },
-    { do: 'say', who: 'hollis', text: 'Friends. Neighbours. Bram — put the pie down, Bram.' },
-    { do: 'say', who: 'hollis', text: "Seven winters we kept the lamps low and told ourselves the dark was just how things were now. It wasn't. It was only that nobody had asked us to gather." },
-    { do: 'say', who: 'hollis', text: 'Rosalind asked. And then she sent someone to keep asking.' },
-    { do: 'face', id: 'hollis', toward: 'player' },
-    { do: 'walk', id: 'player', path: [[32, 20.2]], facing: 'up' },
-    { do: 'say', who: 'hollis', text: 'Would you do the honours?' },
+    // Off-axis from the plaza maypole so it never stands between us and the Hall steps.
+    { do: 'cam', to: { x: 32.3, z: 18.2, y: 1.7, yaw: 28, pitch: 15, dist: 9.5 }, dur: 5, ease: 'inOut' },
+    { do: 'mark', id: 'speech' },
+    ...speech,
     { do: 'cam', to: { x: 32, z: 13, y: 3.4, yaw: 0, pitch: 12, dist: 11 }, dur: 2.4, ease: 'inOut' },
     { do: 'cue', cue: 'festival:greatLantern', t: 1.8 },
     { do: 'cue', cue: 'festival:skyLanterns' },
-    { do: 'cam', to: { x: 32, z: 21, y: 4, yaw: -6, pitch: 20, dist: 36 }, dur: 9, ease: 'inOut', wait: false },
+    { do: 'cam', to: { x: 32, z: 19.5, y: 4, yaw: -6, pitch: 22, dist: 28.5 }, dur: 9, ease: 'inOut', wait: false },
     { do: 'wait', t: 3.5 },
-    { do: 'mark' },
+    { do: 'mark', id: 'sky' },
     { do: 'caption', text: 'For one night, the whole valley glows like a hearth.', dur: 4.5 },
     { do: 'wait', t: 1.5 },
     { do: 'fade', to: 'black', dur: 2 },
@@ -230,8 +270,10 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'letterbox', on: false },
     { do: 'hud', on: true },
     { do: 'fade', to: 'clear', dur: 1.2 },
-  ],
-};
+  ];
+}
+SCENES.finale = finaleScene(false);
+SCENES['finale-glimmer'] = finaleScene(true);
 
 /** Hall interior: the Great Lantern dais and entrance. */
 export const HALL = { entrance: { x: 15, z: 21.2 }, dais: { x: 15, z: 5.2 } };
@@ -240,23 +282,25 @@ export const HALL = { entrance: { x: 15, z: 21.2 }, dais: { x: 15, z: 5.2 } };
  * Room restored: the camera pushes in on the room's lantern, it ignites (glowmoths, chime), then
  * we cut out to the valley to see what came back.
  */
-export function roomScene(room: RoomDef, town: { x: number; z: number; yaw: number; pitch: number; dist: number }): Cmd[] {
+export function roomScene(room: RoomDef, town: { x: number; z: number; y?: number; yaw: number; pitch: number; dist: number }): Cmd[] {
   const side = room.x < 15 ? -1 : 1;
   return [
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
-    { do: 'cam', to: { x: room.x, z: room.z, y: 1.2, yaw: side * 18, pitch: 40, dist: 13 }, dur: 1.8, ease: 'inOut' },
+    // High enough to look over the half-wall rails, pushed in on the plinth.
+    { do: 'cam', to: { x: room.x + side * 0.4, z: room.z - 0.2, y: 1.3, yaw: side * 16, pitch: 48, dist: 9 }, dur: 1.8, ease: 'inOut' },
     { do: 'cue', cue: 'hall:ignite', arg: room.id, t: 2.2 },
-    { do: 'mark' },
-    { do: 'caption', text: `${room.name} is restored`, sub: `The ${room.lantern} burns again.`, dur: 2.8 },
+    { do: 'mark', id: 'ignite' },
+    { do: 'caption', text: `${room.name} is restored`, sub: `The ${room.lantern} burns again.`, dur: 2.8, low: true },
     { do: 'fade', to: 'black', dur: 0.9 },
     { do: 'map', map: 'town', x: 32, z: 29.4, facing: 'up' },
     { do: 'player', visible: false },
     { do: 'cue', cue: 'town:restore', arg: room.id },
-    { do: 'cam', to: { ...town, y: 1.2 }, dur: 0 },
+    { do: 'cam', to: { y: 1.2, ...town }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 1 },
-    { do: 'cam', to: { ...town, y: 1.2, dist: town.dist * 0.82 }, dur: 4, ease: 'out', wait: false },
+    { do: 'cam', to: { y: 1.2, ...town, dist: town.dist * 0.82 }, dur: 4, ease: 'out', wait: false },
     { do: 'cue', cue: 'town:reveal', arg: room.id, t: 1.8 },
+    { do: 'mark', id: 'reveal' },
     { do: 'caption', text: room.restores.title, sub: room.restores.text, dur: 3 },
     { do: 'fade', to: 'black', dur: 0.9 },
     { do: 'map', map: 'hall', x: room.x - side * 3.2, z: room.z + 0.5, facing: side < 0 ? 'left' : 'right' },
@@ -268,8 +312,8 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; yaw: numb
 }
 
 /** Where the town camera looks for each room's restoration. */
-export const RESTORE_SHOTS: Record<string, { x: number; z: number; yaw: number; pitch: number; dist: number }> = {
-  seed: { x: 32, z: 14.4, yaw: 14, pitch: 26, dist: 13 },
+export const RESTORE_SHOTS: Record<string, { x: number; z: number; y?: number; yaw: number; pitch: number; dist: number }> = {
+  seed: { x: 32, z: 14.6, y: 2.75, yaw: 14, pitch: 18, dist: 16 },
   sun: { x: 40.5, z: 27.5, yaw: -18, pitch: 34, dist: 15 },
   harvest: { x: 10, z: 26, yaw: 28, pitch: 30, dist: 18 },
   hearth: { x: 32, z: 10, yaw: -10, pitch: 24, dist: 22 },

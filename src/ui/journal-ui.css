@@ -1413,3 +1413,45 @@
   transform: rotate(-4deg);
   color: #4a2c14;
 }
+
+/* Bundle card: the bundle's own sack, filling as items are offered (sits in the card's empty corner). */
+.jb-bigsack {
+  position: absolute;
+  right: 150px;
+  bottom: 14px;
+  width: 132px;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 8px rgba(60, 30, 10, 0.18));
+  transform: rotate(-4deg);
+  opacity: 0.95;
+}
+.jb-bigsack svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.jb-card:has(.jb-done) .jb-bigsack {
+  right: 300px;
+}
+
+/* Quest page plate: the valley vignette, pinned like a watercolour in the book. */
+.jn-plate {
+  margin: 22px 6px 0;
+  padding: 10px 10px 8px;
+  background: #fffaf0;
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgba(120, 80, 40, 0.25), 0 8px 18px rgba(60, 30, 10, 0.16);
+  transform: rotate(-0.8deg);
+}
+.jn-plate .jn-valley {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.jn-plate figcaption {
+  margin-top: 6px;
+  text-align: center;
+  font-family: var(--hand);
+  font-size: 20px;
+  color: #7a5236;
+}

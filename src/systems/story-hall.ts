@@ -164,6 +164,41 @@ function frameFor(def: RoomDef): RoomFrame {
   return { def, side, X: (u) => outer + side * u, z0: def.z - 3, z1: def.z + 3, plinth: new THREE.Vector3(def.x + side * 0.4, 0, def.z - 0.6) };
 }
 
+/**
+ * A dust sheet thrown over furniture: a soft domed top, shoulders, and a skirt that flares out to the
+ * floor in irregular folds. Base at y = 0, footprint w × d, height h.
+ */
+function drapedSheet(r: Rng, w: number, h: number, d: number): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(1, 36, 18);
+  const p = g.attributes.position as THREE.BufferAttribute;
+  const ph = r.next() * 6.28;
+  const ph2 = r.next() * 6.28;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i);
+    const y = p.getY(i);
+    const z = p.getZ(i);
+    const a = Math.atan2(z, x);
+    const rad = Math.hypot(x, z);
+    let ny: number;
+    let nr: number;
+    if (y >= 0) {
+      // Dome: flattened, a few soft creases.
+      ny = Math.pow(y, 0.8) * 0.42 + 0.02 * Math.sin(a * 3 + ph2) * y;
+      nr = Math.min(1, rad * 1.04) * (1 + 0.025 * Math.sin(a * 5 + ph));
+    } else {
+      // Skirt: drop to the floor, flare and fold more towards the hem.
+      const k = -y;
+      ny = -k * 1.0;
+      const fold = 0.09 * Math.pow(k, 1.4) * Math.sin(a * 7 + ph) + 0.05 * k * Math.sin(a * 12 + ph2) + 0.03 * Math.sin(a * 3 + ph2);
+      nr = (1 + 0.16 * Math.pow(k, 1.6)) * (1 + fold);
+    }
+    const s = rad > 1e-5 ? nr / rad : 0;
+    p.setXYZ(i, x * s * (w / 2), ((ny + 1) / 1.44) * h, z * s * (d / 2));
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
 // ─────────────────────────────────────────────── the map
 
 interface RoomVisual {
@@ -198,6 +233,8 @@ export class HallMap implements GameMap {
   private windowMat: THREE.MeshStandardMaterial;
   private greatCore: THREE.MeshStandardMaterial;
   private greatLight: THREE.PointLight;
+  /** The farmer's hand-lantern pool: warm against the moonlight while the hall is dark. */
+  private carryLight = new THREE.PointLight(0xffb060, 0, 7.5, 1.6);
   private hearthFire: FireFX;
   private hearthLight: THREE.PointLight;
   private moths = new GlowPoints(140);
@@ -224,6 +261,7 @@ export class HallMap implements GameMap {
     this.greatLight = new THREE.PointLight(0xffc27a, 0, 18, 1.5);
     this.greatLight.position.set(HALL.dais.x, 3.2, HALL.dais.z + 0.6);
     this.root.add(this.greatLight);
+    this.root.add(this.carryLight);
     this.build();
     // Hearth fire (Hearth Room) — only burns once the room is lit.
     const hearth = ROOMS.find((r) => r.id === 'hearth')!;
@@ -439,10 +477,28 @@ export class HallMap implements GameMap {
     dust.renderOrder = 1;
     dust.userData.noAO = true;
     this.root.add(dust);
-    // Void around the diorama: a dark plinth the hall stands on.
-    const base = new THREE.Mesh(new THREE.BoxGeometry(27.6, 1.2, 19.6), new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.9 }));
-    base.position.set(15, -0.61, 12.1);
-    base.receiveShadow = true;
+    // The diorama base the hall stands on: a dressed-stone foundation course, then a mossy garden slab
+    // with a soil cross-section at its edge (reads as a cut-away model on a dark table).
+    const bb = new MeshBuilder();
+    // Top sits 4 cm under the painted floor (coplanar faces z-fight into a cobble patchwork).
+    bb.add(hallMats().stone, boxUV(roundedBox(27.9, 0.5, 19.9, 0.08), 0.9), mat(15, -0.29, 12.1), { tint: 0x9a9082 });
+    bb.add(hallMats().cloth, roundedBox(33.5, 0.5, 25.5, 0.22), mat(15, -0.47, 12.6), { tint: 0x3f5a34 });
+    bb.add(hallMats().cloth, roundedBox(33.2, 1.6, 25.2, 0.3), mat(15, -1.45, 12.6), { tint: 0x4a3222 });
+    bb.add(hallMats().stone, roundedBox(33.0, 0.5, 25.0, 0.2), mat(15, -2.1, 12.6), { tint: 0x5a544c });
+    // Garden edging: low clipped hedges and a few stepping stones to the doors.
+    const gr = new Rng('hall-garden');
+    for (const [x0, x1, z] of [[0.2, 12.8, 23.0], [17.2, 29.8, 23.0]] as const) {
+      for (let x = x0; x < x1; x += 0.9) bb.add(hallMats().leaf, lumpySphere(0.5, 1, 0.12, gr, 2), mat(x + 0.45, 0.02, z + (gr.next() - 0.5) * 0.15, 0, gr.next() * 3, 0, 1, 0.8, 0.9), { tint: [0x3f6a34, 0x4a7a3a, 0x36602e][Math.floor(gr.next() * 3)]! });
+    }
+    for (let k = 0; k < 3; k++) bb.add(hallMats().stone, bevelCylinder(0.42, 0.46, 0.08, 0.03, 12), mat(15 + (k % 2 ? 0.25 : -0.2), -0.18, 22.4 + k * 0.85, 0, gr.next(), 0, 1.3, 1, 1), { tint: 0xb8b0a0 });
+    for (const sx of [0.6, 29.4]) {
+      for (let z = 3.5; z < 22; z += 1.6) bb.add(hallMats().leaf, lumpySphere(0.55, 1, 0.14, gr, 2), mat(sx, 0.05, z, 0, gr.next() * 3, 0, 0.9, 1.1, 1.1), { tint: [0x3f6a34, 0x4a7a3a, 0x36602e][Math.floor(gr.next() * 3)]! });
+    }
+    const base = bb.build({ name: 'hall-base' });
+    base.traverse((o) => {
+      o.receiveShadow = true;
+      o.castShadow = false;
+    });
     this.root.add(base);
   }
 
@@ -895,9 +951,12 @@ export class HallMap implements GameMap {
     // A few dust sheets draped over lumpy shapes.
     const sheets = f.def.id === 'hearth' ? [[3.1, -1.3], [3.1, 1.3]] : f.def.id === 'harvest' ? [[3.4, 1.2]] : f.def.id === 'sun' ? [[3.2, 2.1]] : [[5.4, 2.2]];
     for (const [u, dz] of sheets) {
-      const s = lumpySphere(0.75, 2, 0.18, r, 1.8);
-      b.add(m.cloth, s, mat(f.X(u!), 0.42, f.def.z + dz!, 0, r.next() * 3, 0, 1.25, 0.72, 1.0), { tint: 0xdcd6c8 });
+      const w = 1.3 + r.next() * 0.5;
+      b.add(m.cloth, drapedSheet(r, w, 0.95 + r.next() * 0.35, w * (0.7 + r.next() * 0.2)), mat(f.X(u!), 0, f.def.z + dz!, 0, (r.next() - 0.5) * 0.6, 0), { tint: 0xd8d0c0 });
     }
+    // A smaller sheet over a chair / crate, and a sheet slumped in a heap on the floor.
+    b.add(m.cloth, drapedSheet(r, 0.75, 0.85, 0.7), mat(f.X(6.3), 0, f.def.z - 1.9, 0, r.next(), 0), { tint: 0xcfc6b4 });
+    b.add(m.cloth, drapedSheet(r, 1.0, 0.22, 0.7), mat(f.X(8.2), 0, f.def.z + 2.3, 0, r.next() * 3, 0), { tint: 0xc8bfae });
     // Blown-in leaves.
     for (let k = 0; k < 26; k++) {
       const leaf = new THREE.CircleGeometry(0.07 + r.next() * 0.05, 5);
@@ -993,6 +1052,11 @@ export class HallMap implements GameMap {
     if (!v) return;
     v.target = 1;
     v.flash = 1;
+    this.swarm();
+  }
+
+  /** Glowmoths burst outward from the lanterns and settle back into orbit. */
+  swarm(): void {
     for (let i = 0; i < this.moths.n; i++) {
       if (this.mothSeed[i * 4 + 3]! < 0.5) this.mothSeed[i * 4 + 3] = 1.2 + Math.random();
     }
@@ -1092,8 +1156,12 @@ export class HallMap implements GameMap {
     }
     const frac = lit / 6;
     this.warmth = frac;
-    this.greatCore.emissiveIntensity = frac * frac * 7 * (0.94 + Math.sin(t * 5.1) * 0.04);
-    this.greatLight.intensity = frac * frac * 16;
+    this.greatCore.emissiveIntensity = frac * frac * 2.6 * (0.94 + Math.sin(t * 5.1) * 0.04);
+    this.greatLight.intensity = frac * frac * 11;
+    // Hand lantern: a warm pool around the farmer that fades as the rooms relight.
+    const pp = game.player.position;
+    this.carryLight.position.set(pp.x + 0.35, 1.35, pp.z + 0.35);
+    this.carryLight.intensity = Math.max(0, 1 - frac * 1.6) * 6.5 * (0.93 + Math.sin(t * 9.1) * 0.04 + Math.sin(t * 23.3) * 0.03) * (game.player.root.visible ? 1 : 0);
     this.hearthLight.intensity = this.hearthFire.active ? 5.5 * (0.8 + Math.sin(t * 13) * 0.1 + Math.sin(t * 29) * 0.08) : 0;
     const h = game.rc.renderer.domElement.height;
     this.hearthFire.update(dt, h);
@@ -1102,7 +1170,7 @@ export class HallMap implements GameMap {
     const day = hour > 7 && hour < 18.5 ? 1 : 0;
     this.beamMat.uniforms.uTime!.value = t;
     (this.beamMat.uniforms.uColor!.value as THREE.Color).setHex(day ? 0xffe2b0 : 0x7a98ff).lerp(new THREE.Color(0xffc890), frac * 0.6);
-    this.beamMat.uniforms.uStrength!.value = (day ? 0.32 : 0.42) * (1 - frac * 0.55);
+    this.beamMat.uniforms.uStrength!.value = (day ? 0.38 : 0.62) * (1 - frac * 0.55);
     this.windowMat.emissive.setHex(day ? 0xcfe4ff : 0x4a68c0);
     this.windowMat.emissiveIntensity = day ? 1.1 : 0.9;
     // Dust motes drift down through the beams.
@@ -1195,8 +1263,11 @@ export class LanternHallSystem implements System {
       if (cue !== 'hall:ignite' || !arg) return;
       this.pending.delete(arg as RoomId);
       if (!this.hall) return;
-      if (instant) this.hall.setRoomLit(arg as RoomId, true, this.isGlimmer(arg));
-      else this.hall.ignite(arg as RoomId);
+      if (instant) {
+        // Skips / demo stills land on the lit room with the glowmoth swarm still in the air.
+        this.hall.setRoomLit(arg as RoomId, true, this.isGlimmer(arg));
+        this.hall.swarm();
+      } else this.hall.ignite(arg as RoomId);
     });
     game.events.on('demo:stage', ({ showcase }) => {
       this.preview = showcase.includes('hall:restored') ? 'restored' : showcase.includes('hall:dark') ? 'dark' : null;
@@ -1263,10 +1334,10 @@ export class LanternHallSystem implements System {
     const cool = new THREE.Color(0x8aa4ff);
     const warm = new THREE.Color(0xffc896);
     L.sun.color.copy(cool).lerp(warm, w);
-    L.sun.intensity = 0.95 - w * 0.25;
-    L.hemi.color.set(0x42507e).lerp(new THREE.Color(0xffd8b0), w);
-    L.hemi.groundColor.set(0x1c1612).lerp(new THREE.Color(0x5a3a28), w);
-    L.hemi.intensity = 0.62 + w * 0.3;
+    L.sun.intensity = 1.25 - w * 0.55;
+    L.hemi.color.set(0x5a6aa8).lerp(new THREE.Color(0xffd8b0), w);
+    L.hemi.groundColor.set(0x2a2230).lerp(new THREE.Color(0x5a3a28), w);
+    L.hemi.intensity = 0.85 + w * 0.1;
     L.bounce.intensity = 0.12 + w * 0.2;
     L.bounce.color.set(0xffb070);
     const bg = new THREE.Color(0x0a0c16).lerp(new THREE.Color(0x160e0a), w);
@@ -1275,7 +1346,7 @@ export class LanternHallSystem implements System {
     L.fog.far = 140;
     (rc.scene.background as THREE.Color).copy(bg);
     rc.scene.environmentIntensity = 0.18 + w * 0.12;
-    rc.renderer.toneMappingExposure = 1.12 + w * 0.08;
+    rc.renderer.toneMappingExposure = 1.22 - w * 0.02;
     const g = rc.post.grade.uniforms;
     (g.uLift!.value as THREE.Vector3).set(0.02 + w * 0.02, 0.022 + w * 0.01, 0.05 - w * 0.02);
     (g.uGain!.value as THREE.Vector3).set(0.96 + w * 0.12, 0.98 + w * 0.02, 1.08 - w * 0.14);

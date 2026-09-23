@@ -13,9 +13,10 @@
  *                `festival:skyLanterns` releases a sky full of paper lanterns (one instanced draw).
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { MeshBuilder, roundedBox, bevelCylinder, lumpySphere, mat } from '../world/geom';
+import { MeshBuilder, roundedBox, bevelCylinder, lumpySphere, mat, mergeStatic } from '../world/geom';
 import { materials } from '../render/materials';
 import { buildMarketStall } from '../world/props/townkit';
 import { buildLanternPole } from '../world/props/festival';
@@ -29,6 +30,70 @@ const HALL_LANTERN = new THREE.Vector3(32, 3.35, 12.7);
 const PLAZA = { x: 32, z: 25 };
 
 // ─────────────────────────────────────────────── coach
+
+/** Four lamp-lit coach windows on one canvas strip (curtains, a warm ceiling lamp, passengers' heads). */
+let COACH_WIN: THREE.MeshStandardMaterial | null = null;
+function coachWindowMaterial(): THREE.MeshStandardMaterial {
+  if (COACH_WIN) return COACH_WIN;
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 96;
+  const g = c.getContext('2d')!;
+  const heads = [[0.62, 0x3a2a24], [0.3, 0x6a4a2a], null, [0.5, 0x2a2a3a]] as const;
+  for (let k = 0; k < 4; k++) {
+    const x0 = k * 128;
+    const bg = g.createRadialGradient(x0 + 64, 20, 4, x0 + 64, 40, 90);
+    bg.addColorStop(0, '#ffe2a8');
+    bg.addColorStop(0.55, '#f0a860');
+    bg.addColorStop(1, '#8a4a2a');
+    g.fillStyle = bg;
+    g.fillRect(x0, 0, 128, 96);
+    // Seat backs along the bottom.
+    g.fillStyle = '#7a3a2e';
+    g.beginPath();
+    g.roundRect(x0 + 10, 66, 108, 40, 10);
+    g.fill();
+    // A passenger's head + shoulders (silhouette against the lamp).
+    const h = heads[k];
+    if (h) {
+      const hx = x0 + 128 * h[0];
+      g.fillStyle = `#${h[1].toString(16).padStart(6, '0')}`;
+      g.beginPath();
+      g.ellipse(hx, 60, 15, 17, 0, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.roundRect(hx - 26, 72, 52, 40, 14);
+      g.fill();
+    }
+    // Gathered curtains at both sides + a pelmet.
+    for (const side of [0, 1]) {
+      const cx = side ? x0 + 128 : x0;
+      const grd = g.createLinearGradient(cx, 0, side ? cx - 30 : cx + 30, 0);
+      grd.addColorStop(0, '#b8463a');
+      grd.addColorStop(1, '#e0705a');
+      g.fillStyle = grd;
+      g.beginPath();
+      g.moveTo(cx, 0);
+      g.lineTo(side ? cx - 34 : cx + 34, 0);
+      g.quadraticCurveTo(side ? cx - 14 : cx + 14, 50, side ? cx - 22 : cx + 22, 96);
+      g.lineTo(cx, 96);
+      g.fill();
+    }
+    g.fillStyle = '#8a3a30';
+    g.fillRect(x0, 0, 128, 9);
+    // Mullion.
+    g.fillStyle = 'rgba(60,40,28,0.9)';
+    g.fillRect(x0 + 62, 0, 4, 96);
+    g.fillStyle = 'rgba(40,24,14,0.95)';
+    g.fillRect(x0, 0, 3, 96);
+    g.fillRect(x0 + 125, 0, 3, 96);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  COACH_WIN = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.55, roughness: 0.25, metalness: 0 });
+  COACH_WIN.name = 'coach-window';
+  return COACH_WIN;
+}
 
 function buildCoach(): { group: THREE.Group; wheels: THREE.Object3D[] } {
   const b = new MeshBuilder();
@@ -46,14 +111,28 @@ function buildCoach(): { group: THREE.Group; wheels: THREE.Object3D[] } {
   for (let k = 0; k < 5; k++) b.add('metal', roundedBox(0.03, 0.3, 0.02, 0.01), mat(L / 2 + 0.27, 0.85, -0.4 + k * 0.2), { tint: 0x8a9098 });
   b.add('metal', roundedBox(0.16, 0.12, W + 0.1, 0.05), mat(L / 2 + 0.2, 0.52, 0), { tint: 0xd8dde4 }); // bumper
   b.add('metal', roundedBox(0.16, 0.12, W + 0.1, 0.05), mat(-L / 2 - 0.08, 0.52, 0), { tint: 0xd8dde4 });
-  // Windows: a row down each side + windscreen (glass glows warm after dusk).
+  // Windows: a row down each side + windscreen. Side windows are painted cards (lamp-lit interior,
+  // gathered curtains, a passenger or two) framed in dark trim, so they read as rooms, not white slabs.
+  const win = coachWindowMaterial();
   for (const sz of [-1, 1]) {
-    for (let k = 0; k < 4; k++) b.add('glass', roundedBox(0.72, 0.5, 0.04, 0.06), mat(-1.55 + k * 0.86, 1.86, sz * (W / 2 - 0.02)));
+    for (let k = 0; k < 4; k++) {
+      const x = -1.55 + k * 0.86;
+      b.add('white', roundedBox(0.8, 0.58, 0.04, 0.05), mat(x, 1.86, sz * (W / 2 - 0.035)), { tint: 0x4a3a2c });
+      const card = new THREE.PlaneGeometry(0.7, 0.48);
+      const u0 = (k % 4) / 4;
+      const uv = card.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, u0 + uv.getX(i) / 4);
+      b.add(win, card, mat(x, 1.86, sz * (W / 2 + 0.002), 0, sz > 0 ? 0 : Math.PI, 0));
+      b.add('white', roundedBox(0.76, 0.05, 0.08, 0.02), mat(x, 1.6, sz * (W / 2 + 0.01)), { tint: 0x4a3a2c }); // sill
+    }
   }
   b.add('glass', roundedBox(0.04, 0.5, W - 0.5, 0.06), mat(L / 2 - 0.02, 1.86, 0));
   // Door (south side, towards the front).
   b.add('white', roundedBox(0.66, 1.3, 0.05, 0.04), mat(1.2, 1.12, W / 2 + 0.01), { tint: 0x5a8a6a });
-  b.add('glass', roundedBox(0.5, 0.45, 0.03, 0.04), mat(1.2, 1.5, W / 2 + 0.04));
+  const doorWin = new THREE.PlaneGeometry(0.46, 0.4);
+  const duv = doorWin.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < duv.count; i++) duv.setX(i, 0.5 + duv.getX(i) / 4);
+  b.add(win, doorWin, mat(1.2, 1.52, W / 2 + 0.045));
   b.add('metal', roundedBox(0.08, 0.04, 0.05, 0.01), mat(0.98, 1.1, W / 2 + 0.05), { tint: 0xe8b84a });
   b.add('white', roundedBox(0.7, 0.1, 0.5, 0.04), mat(1.2, 0.36, W / 2 + 0.1), { tint: 0x4a4a4a }); // step
   // Headlamps + tail lamps.
@@ -130,8 +209,15 @@ function buildBlossomArch(r: Rng): THREE.Group {
       y = 0.4 + r.next() * 2.2;
     }
     const leafy = r.next() < 0.35;
-    b.add('boxFlower', lumpySphere(0.14 + r.next() * 0.1, 0, 0.25, r), mat(x + (r.next() - 0.5) * 0.25, y + (r.next() - 0.5) * 0.2, cz + (r.next() - 0.5) * 0.3), { tint: leafy ? [0x4f8a34, 0x5a9a3a][k % 2]! : [0xff9ec0, 0xffc0d4, 0xffffff, 0xff7aa2][k % 4]! });
+    b.add('boxFlower', lumpySphere(0.14 + r.next() * 0.1, 1, 0.22, r), mat(x + (r.next() - 0.5) * 0.25, y + (r.next() - 0.5) * 0.2, cz + (r.next() - 0.5) * 0.3), { tint: leafy ? [0x4f8a34, 0x5a9a3a][k % 2]! : [0xff9ec0, 0xffc0d4, 0xffffff, 0xff7aa2][k % 4]! });
   }
+  // A string of warm fairy bulbs threaded through the blossoms (glow after dusk).
+  for (let k = 0; k <= 16; k++) {
+    const a = (k / 16) * Math.PI;
+    const sag = 0.12 * Math.sin(a * 8);
+    b.add('lampGlow', new THREE.SphereGeometry(0.045, 8, 6), mat(cx + Math.cos(a) * (span - 0.05), 2.6 + Math.sin(a) * (span - 0.05) - 0.1 + sag * 0.3, cz + 0.2));
+  }
+  for (const sx of [-1, 1]) for (let k = 0; k < 6; k++) b.add('lampGlow', new THREE.SphereGeometry(0.045, 8, 6), mat(cx + sx * (span + 0.1), 0.6 + k * 0.36, cz + 0.16 * (k % 2 ? 1 : -1)));
   const g = b.build({ name: 'restore-seed' });
   return g;
 }
@@ -161,6 +247,17 @@ function buildMarket(r: Rng): THREE.Group {
   }
   g.add(b.build({ name: 'market-produce' }));
   return g;
+}
+
+/** mergeStatic, keeping whatever it can't merge (swaying cloth etc.) in the returned group. */
+function mergeKeep(g: THREE.Group, name: string): THREE.Group {
+  const out = mergeStatic([g], name);
+  for (const c of [...g.children]) {
+    let meshes = 0;
+    c.traverse((o) => ((o as THREE.Mesh).isMesh ? meshes++ : 0));
+    if (meshes) out.add(c);
+  }
+  return out;
 }
 
 function buildRoadLanterns(r: Rng, heightAt: (x: number, z: number) => number): THREE.Group {
@@ -211,7 +308,9 @@ function buildBaskets(r: Rng, heightAt: (x: number, z: number) => number): THREE
 
 class Koi {
   readonly group = new THREE.Group();
-  private fish: THREE.Mesh[] = [];
+  /** Six fish in one instanced draw; lily pads + floating candles merged into two static meshes. */
+  private fish: THREE.InstancedMesh;
+  private tmp = new THREE.Object3D();
   private mat = new THREE.MeshStandardMaterial({ color: 0xffb070, emissive: 0xff8a3a, emissiveIntensity: 1.2, roughness: 0.4 });
   private lilyMat = new THREE.MeshStandardMaterial({ color: 0x4f8a3a, roughness: 0.7 });
   private candleMat = new THREE.MeshStandardMaterial({ color: 0xfff2dc, emissive: 0xffb050, emissiveIntensity: 2.6 });
@@ -222,37 +321,39 @@ class Koi {
     const tail = new THREE.ConeGeometry(0.12, 0.22, 4);
     tail.rotateX(-Math.PI / 2);
     tail.translate(0, 0, -0.42);
-    for (let i = 0; i < 6; i++) {
-      const m = new THREE.Mesh(body, this.mat);
-      const tm = new THREE.Mesh(tail, this.mat);
-      m.add(tm);
-      m.userData.noAO = true;
-      this.group.add(m);
-      this.fish.push(m);
-    }
+    const fishGeo = mergeGeometries([body.toNonIndexed(), tail.toNonIndexed()])!;
+    this.fish = new THREE.InstancedMesh(fishGeo, this.mat, 6);
+    this.fish.userData.noAO = true;
+    this.fish.frustumCulled = false;
+    this.group.add(this.fish);
     const r = new Rng('koi-lilies');
+    const b = new MeshBuilder();
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2 + 0.4;
       const rad = 1.25 + r.next() * 0.35;
-      const pad = new THREE.Mesh(new THREE.CircleGeometry(0.2, 12, 0.3, Math.PI * 1.8), this.lilyMat);
-      pad.rotation.x = -Math.PI / 2;
-      pad.position.set(PLAZA.x + Math.cos(a) * rad, y + 0.02, PLAZA.z + Math.sin(a) * rad);
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.1, 8), this.candleMat);
-      c.position.set(pad.position.x, y + 0.08, pad.position.z);
-      this.group.add(pad, c);
+      const px = PLAZA.x + Math.cos(a) * rad;
+      const pz = PLAZA.z + Math.sin(a) * rad;
+      b.add(this.lilyMat, new THREE.CircleGeometry(0.2, 12, 0.3, Math.PI * 1.8).rotateX(-Math.PI / 2), mat(px, y + 0.02, pz));
+      b.add(this.candleMat, new THREE.CylinderGeometry(0.035, 0.035, 0.1, 8), mat(px, y + 0.08, pz));
     }
+    const statics = b.build({ name: 'koi-lilies' });
+    statics.traverse((o) => (o.castShadow = false));
+    this.group.add(statics);
     this.group.name = 'restore-tide';
   }
   update(dt: number, night: number): void {
     this.t += dt;
-    this.fish.forEach((f, i) => {
+    for (let i = 0; i < 6; i++) {
       const dir = i % 2 ? 1 : -1;
       const a = this.t * (0.35 + i * 0.04) * dir + i * 1.3;
       const rad = 1.05 + (i % 3) * 0.28;
+      const f = this.tmp;
       f.position.set(PLAZA.x + Math.cos(a) * rad, this.y - 0.05 + Math.sin(this.t * 2 + i) * 0.02, PLAZA.z + Math.sin(a) * rad);
-      f.rotation.y = -a + (dir > 0 ? 0 : Math.PI);
-      f.rotation.z = Math.sin(this.t * 6 + i) * 0.15;
-    });
+      f.rotation.set(0, -a + (dir > 0 ? 0 : Math.PI), Math.sin(this.t * 6 + i) * 0.15);
+      f.updateMatrix();
+      this.fish.setMatrixAt(i, f.matrix);
+    }
+    this.fish.instanceMatrix.needsUpdate = true;
     this.mat.emissiveIntensity = 0.6 + night * 1.6;
     this.candleMat.emissiveIntensity = (0.8 + night * 2.2) * (0.9 + Math.sin(this.t * 9) * 0.06);
   }
@@ -336,6 +437,9 @@ export class StoryWorldSystem implements System {
   private hallFlare = 0;
   private anims: Anim[] = [];
   private festivalLit = false;
+  /** Finale on the Glimmerco path: the EverGlow is switched off and the Hall burns warm again. */
+  private everglowOff = false;
+  private dim = 0;
 
   init(game: Game): void {
     this.game = game;
@@ -384,8 +488,9 @@ export class StoryWorldSystem implements System {
       if (c.name !== 'market-produce') c.position.y = H(c.position.x, c.position.z) - 0.03;
     });
     market.getObjectByName('market-produce')!.position.y = H(31.5, 28) - 0.02;
-    place('sun', market);
-    place('harvest', buildRoadLanterns(r, H));
+    // Kit props arrive as many small meshes: merge each restoration by material (render budget).
+    place('sun', mergeKeep(market, 'restore-sun'));
+    place('harvest', mergeKeep(buildRoadLanterns(r, H), 'restore-harvest'));
     const chimney = new THREE.Group();
     chimney.add(buildChimney());
     place('hearth', chimney);
@@ -403,6 +508,16 @@ export class StoryWorldSystem implements System {
     this.hallLight.position.copy(core.position).add(new THREE.Vector3(0, -0.2, 0.5));
     root.add(this.hallLight);
     root.add(this.burst.object, this.sky.mesh);
+    // Render budget: these props sit on already-AO'd ground and mostly read at a distance, so they
+    // skip the AO G-buffer; only the structural pieces (posts, stalls, chimney) cast shadows.
+    const CASTS = new Set(['wood', 'stone', 'white', 'woodGrain']);
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.userData.noAO = true;
+      const name = (Array.isArray(m.material) ? m.material[0] : m.material)?.name ?? '';
+      if (m.castShadow && !CASTS.has(name.replace(/^.*:/, ''))) m.castShadow = false;
+    });
     this.built = root;
   }
 
@@ -469,6 +584,10 @@ export class StoryWorldSystem implements System {
         this.refresh();
         break;
       }
+      case 'festival:everglowOff':
+        this.everglowOff = true;
+        this.dim = instant ? 0 : 1;
+        break;
       case 'festival:greatLantern':
         this.hallFlare = instant ? 0.4 : 1;
         this.burst.emit(HALL_LANTERN.clone(), { color: 0xffd070, count: 40, speed: 2.5, size: 0.18, gravity: 0.8, life: 2, up: 1.4, spread: 0.4 });
@@ -512,12 +631,14 @@ export class StoryWorldSystem implements System {
     this.sky.update(dt);
     // Hall lantern: brighter with every room lit; flares for the festival.
     const lit = game.services.quests?.lanternsLit() ?? 0;
-    const glimmer = game.services.quests?.rooms().some((r) => r.glimmer) ?? false;
+    const glimmer = !this.everglowOff && (game.services.quests?.rooms().some((r) => r.glimmer) ?? false);
+    this.dim = Math.max(0, this.dim - dt * 0.6);
     const base = this.festivalLit ? 1 : lit / 6;
     this.hallFlare = Math.max(this.festivalLit ? 0.25 : 0, this.hallFlare - dt * 0.25);
     const flick = 0.92 + Math.sin(game.time * 9) * 0.05;
     this.hallGlow.emissive.setHex(glimmer ? 0xdff4ff : 0xffb050);
-    this.hallGlow.emissiveIntensity = (base * (0.8 + night * 2.6) + this.hallFlare * 6) * flick;
-    this.hallLight.intensity = (base * night * 7 + this.hallFlare * 14) * flick;
+    const off = 1 - Math.min(1, this.dim * 1.6);
+    this.hallGlow.emissiveIntensity = (base * (0.8 + night * 2.6) + this.hallFlare * 6) * flick * off;
+    this.hallLight.intensity = (base * night * 7 + this.hallFlare * 14) * flick * off;
   }
 }

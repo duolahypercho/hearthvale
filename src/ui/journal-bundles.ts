@@ -166,9 +166,26 @@ export class BundlePanel extends Screen {
       <div class="jb-cardhead"><div><h3>${escapeHtml(d.name)}</h3><div class="note">${escapeHtml(d.note)}</div></div>
         <div class="jb-reward ${b.done ? 'got' : ''}"><small>${b.done ? 'Received' : 'Reward'}</small><div>${reward}</div></div></div>
       <div class="jb-slots">${slots}${gold}</div>
+      <div class="jb-bigsack" aria-hidden="true">${sackSvg(d.color, b.done, this.fillOf(b))}</div>
       ${b.done ? `<div class="jb-done">Bundle complete</div>` : ''}`;
     this.card.querySelector('.jb-pay')?.addEventListener('click', () => this.payGold());
     replay(this.card, 'swap');
+  }
+
+  /** 0..1: how much of a bundle has been given (items + coins). */
+  private fillOf(b: { def: BundleDef; given: Record<string, number>; paid: number; done: boolean }): number {
+    if (b.done) return 1;
+    let have = 0;
+    let need = 0;
+    for (const it of b.def.items) {
+      have += Math.min(it.qty, b.given[it.itemId] ?? 0);
+      need += it.qty;
+    }
+    if (b.def.gold) {
+      have += (b.paid / b.def.gold) * Math.max(1, need);
+      need += Math.max(1, need);
+    }
+    return need ? have / need : 0;
   }
 
   private renderPack(): void {

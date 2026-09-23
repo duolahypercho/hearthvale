@@ -106,7 +106,8 @@ export class StorySystem implements System, StoryApi {
       if (cue === 'story:hallKey') this.setFlag('hallKey', 'yes');
     });
     game.events.on('day:start', ({ day, season }) => this.morning(day, season));
-    game.events.on('map:change', ({ map }) => this.onMap(map));
+    // Deferred a tick: a demo / debug teleport finishes staging (and pausing) before beats are checked.
+    game.events.on('map:change', ({ map }) => window.setTimeout(() => this.onMap(map), 0));
     game.events.on('time:hour', () => this.onMap(game.world.current?.id ?? ''));
     game.events.on('quest:room', ({ roomId, lit, glimmer }) => this.roomRestored(roomId, lit, glimmer));
     game.events.on('quest:hallRestored', ({ glimmer }) => {
@@ -216,7 +217,9 @@ export class StorySystem implements System, StoryApi {
   }
 
   private onMap(map: string): void {
-    if (this.staging || this.game.paused || this.game.services.cutscene?.playing) return;
+    // Story beats only fire in a story game (the intro has played): debug boots stay quiet.
+    if (this.staging || this.game.paused || this.game.services.cutscene?.playing || this.flags.intro !== 'done') return;
+    if (this.game.world.current?.id !== map) return;
     const c = this.game.calendar;
     if (map === 'hall' && !this.flags.hallVisited) {
       this.flags.hallVisited = 'pending';
@@ -231,7 +234,7 @@ export class StorySystem implements System, StoryApi {
     }
     if (map === 'town' && c.season === 'winter' && c.day === 28 && c.hour >= 17 && !this.flags.festival) {
       this.flags.festival = 'pending';
-      this.play('finale');
+      this.play(this.flags.glimmer === 'accepted' ? 'finale-glimmer' : 'finale');
     }
   }
 
@@ -277,24 +280,29 @@ export class StorySystem implements System, StoryApi {
   private async stageDemo(showcase: string[]): Promise<void> {
     const q = this.game.services.quests;
     const cs = this.game.services.cutscene;
-    const want = showcase.find((s) => s.startsWith('story:'));
-    if (!want) return;
-    const [, what, arg] = want.split(':');
-    switch (what) {
-      case 'progress': {
-        // A mid-game save: 2 rooms lit (+ a half-filled bundle), a few letters.
-        q?.debugFill(Number(arg ?? 2));
-        this.flags = { intro: 'done', hallVisited: 'yes', hallKey: 'yes', glimmerLetter: 'yes' };
-        this.box = [];
-        for (const id of ['glimmer-offer', 'wren-sketch', 'gran-first-lantern', 'marigold-seeds', 'hollis-welcome']) this.box.push({ id, read: id !== 'glimmer-offer' && id !== 'wren-sketch', day: 1 });
-        this.game.events.emit('mail:new', { id: 'glimmer-offer' });
-        const inv = this.game.services.inventory;
-        if (inv) for (const [id, n] of [['tomato', 4], ['corn', 7], ['sunflower', 2], ['pumpkin', 2], ['potato', 12], ['parsnip', 6], ['wood', 60], ['fiber', 30]] as const) if (inv.count(id) < n) inv.add(id, n - inv.count(id));
-        break;
+    for (const want of showcase.filter((s) => s.startsWith('story:'))) {
+      const [, what, arg, mark] = want.split(':');
+      switch (what) {
+        case 'progress': {
+          // A mid-game save: N rooms lit (+ a half-filled bundle), a few letters. `&lit=N` overrides.
+          const url = new URLSearchParams(location.search).get('lit');
+          const n = url !== null ? Number(url) : Number(arg ?? 2);
+          q?.debugFill(n);
+          this.flags = { intro: 'done', hallVisited: 'yes', hallKey: 'yes', glimmerLetter: 'yes' };
+          if (n >= 6) this.flags.glimmer = 'refused';
+          this.box = [];
+          const mail = ['glimmer-offer', 'wren-sketch', 'gran-first-lantern', 'marigold-seeds', 'hollis-welcome'];
+          if (n >= 3) mail.unshift('gran-tired', 'bram-bread');
+          for (const id of mail) this.box.push({ id, read: id !== 'glimmer-offer' && id !== 'wren-sketch' && id !== 'gran-tired', day: 1 });
+          this.game.events.emit('mail:new', { id: 'glimmer-offer' });
+          const inv = this.game.services.inventory;
+          if (inv && n > 0 && n < 6) for (const [id, k] of [['tomato', 4], ['corn', 7], ['sunflower', 2], ['pumpkin', 2], ['potato', 12], ['parsnip', 6], ['wood', 60], ['fiber', 30]] as const) if (inv.count(id) < k) inv.add(id, k - inv.count(id));
+          break;
+        }
+        case 'scene':
+          if (cs && arg) await cs.stage(arg, mark);
+          break;
       }
-      case 'scene':
-        if (cs && arg) await cs.stage(arg);
-        break;
     }
   }
 

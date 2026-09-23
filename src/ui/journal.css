@@ -64,6 +64,19 @@
   width: min(1100px, 90vw);
   z-index: 3;
 }
+.cin-caption.low {
+  top: 78%;
+}
+.cin-caption.low .cap-text {
+  font-size: clamp(26px, 2.5vw, 42px);
+}
+.cin-caption.low .cap-orn {
+  display: none;
+}
+.cin-caption.low::before,
+.cin-caption.low::after {
+  display: none;
+}
 .cin-caption .cap-orn {
   font-size: 22px;
   color: #f5c542;
