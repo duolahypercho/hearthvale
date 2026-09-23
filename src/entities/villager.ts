@@ -19,7 +19,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Facing } from '../core/events';
 import type { NpcDef, NpcLook, Activity, Emote, WalkStyle } from '../data/npcs';
 import { NPCS } from '../data/npcs';
-import { roundedBox, lumpySphere } from '../world/geom';
+import { roundedBox, lumpySphere, bevelCylinder } from '../world/geom';
 import { applyWorldFx } from '../render/worldfx';
 import { Rng } from '../core/rng';
 
@@ -789,11 +789,14 @@ export class Villager {
       case 'beanie': {
         const dome = new THREE.SphereGeometry(R * 1.1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
         rb.add(B.head, dome, H(0, R * 1.15, -0.02, -0.18, 0, 0, 1, 1.12, 1), c);
-        rb.add(B.head, new THREE.TorusGeometry(R * 1.06, 0.05, 8, 24), H(0, R * 1.2, -0.02, Math.PI / 2 - 0.18, 0, 0), shadeHex(c, 0.85));
-        for (let i = 0; i < 10; i++) {
-          const a = (i / 10) * Math.PI * 2;
-          rb.add(B.head, roundedBox(0.02, 0.2, 0.02, 0.008, 1), H(Math.sin(a) * R * 1.06, R * 1.5, Math.cos(a) * R * 1.06 - 0.06, -0.18, a, 0), shadeHex(c, 0.9));
+        // Knitted beanie: a thick folded cuff (ribbed by little bumps), a slouched crown and a pom-pom.
+        rb.add(B.head, bevelCylinder(R * 1.14, R * 1.16, 0.13, 0.03, 24), H(0, R * 1.22, -0.02, -0.18, 0, 0), shadeHex(c, 0.88));
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          rb.add(B.head, roundedBox(0.03, 0.11, 0.02, 0.01, 1), H(Math.sin(a) * R * 1.155, R * 1.22 + Math.cos(a) * R * 1.155 * 0.179, Math.cos(a) * R * 1.155 * 0.984 - 0.02, -0.18, a, 0), shadeHex(c, 0.8));
         }
+        const pom = lumpySphere(0.075, 1, 0.22, rng, 3);
+        rb.add(B.head, pom, H(-0.03, R * 2.32, -0.1), shadeHex(c, 1.08));
         break;
       }
       case 'sunhat': {
