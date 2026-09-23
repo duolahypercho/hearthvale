@@ -136,8 +136,8 @@ export function barnBoards(): TexPair {
       tone.push(0.8 + rng.next() * 0.35);
       off.push(rng.next() * 10);
     }
-    const a = hex(0x8c6a4a);
-    const b = hex(0xb08a60);
+    const a = hex(0xa47c56);
+    const b = hex(0xcaa074);
     const { color, height } = pixels(S, (u, v) => {
       const bu = u * boards;
       const i = Math.floor(bu);
@@ -151,6 +151,56 @@ export function barnBoards(): TexPair {
       return { c, h: gap * 0.8 + g * 0.15 };
     });
     return { map: toTexture(color, true), bump: toTexture(height, false) };
+  });
+}
+
+/** Limewashed vertical boards (coop): chalky cream over grain, worn back to wood near the floor. 1 repeat = 1.2 m. */
+export function limewashBoards(): TexPair {
+  return cached('i:limewash', () => {
+    const S = 512;
+    const boards = 5;
+    const grain = new PeriodicNoise(8, 'lw');
+    const n = makeTileNoise(6, 6, 'lwn');
+    const rng = new Rng('lw');
+    const off: number[] = [];
+    const tone: number[] = [];
+    for (let i = 0; i < boards; i++) {
+      off.push(rng.next() * 10);
+      tone.push(0.93 + rng.next() * 0.09);
+    }
+    const wash = hex(0xf6efe2);
+    const shade = hex(0xd8d0c4);
+    const wood = hex(0xa87c56);
+    const { color, height } = pixels(S, (u, v) => {
+      const bu = u * boards;
+      const i = Math.floor(bu);
+      const f = bu - i;
+      const g = Math.sin((f * 2 + grain.get(f + off[i]!, v * 6) * 4 + off[i]!) * 9) * 0.5 + 0.5;
+      const fb = tileFbm(n, u, v, 4);
+      // Wash thins where the grain is raised and towards the bottom of the texture (v→0 = floor end).
+      const thin = smoothstep(0.62, 1.0, g * 0.3 + fb * 0.8 - v * 0.3 + 0.12);
+      let c = mix3(mix3(wash, shade, fb * 0.5 + g * 0.12), wood, thin * 0.4);
+      c = scale3(c, tone[i]!);
+      const gap = smoothstep(0, 0.045, Math.min(f, 1 - f));
+      c = mix3(scale3(hex(0x6a5a4c), 0.9), c, 0.25 + 0.75 * gap);
+      return { c, h: gap * 0.8 + g * 0.12 };
+    });
+    return { map: toTexture(color, true), bump: toTexture(height, false) };
+  });
+}
+
+/** Room contact-AO card: white centre falling to soft grey along all four edges (multiply over the floor). */
+export function roomAO(): TexPair {
+  return cached('i:roomao', () => {
+    const S = 256;
+    const { color } = pixels(S, (u, v) => {
+      const e = Math.min(u, 1 - u, v, 1 - v);
+      const k = 0.52 + 0.48 * smoothstep(0, 0.11, e);
+      const corner = smoothstep(0, 0.2, Math.hypot(Math.min(u, 1 - u), Math.min(v, 1 - v)));
+      const t = clamp(k * (0.8 + 0.2 * corner)) * 255;
+      return { c: [t, t, t] as RGB };
+    });
+    return { map: toTexture(color, false, false) };
   });
 }
 

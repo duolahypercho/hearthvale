@@ -19,7 +19,7 @@ import type { Facing } from '../../core/events';
 import type { GameMap, MapWarp } from '../map';
 import { TileGrid, TileType, TileFlag } from '../tiles';
 import { Kit, imat, interiorEmissive, floorPlane, type IMat } from './kit';
-import { shaftGradient, windowView, glowDisc } from './textures';
+import { shaftGradient, windowView, glowDisc, roomAO } from './textures';
 import { textures } from '../../render/textures';
 import { mergeStatic } from '../geom';
 
@@ -49,6 +49,12 @@ export interface RoomSpec {
   sunDir: [number, number, number];
   /** Wall tint (barn boards / wallpaper). */
   wallTint?: number;
+  /** Wall material override (default wallpaper for houses, barn boards otherwise). */
+  wallMat?: IMat;
+  /** Barn-style timber (posts, girts, sill) tint scale: 1 = dark oak, >1 lighter. */
+  timberLight?: number;
+  /** Floor tint (e.g. darker packed straw so fresh hay piles read). */
+  floorTint?: number;
   wainscotTint?: number;
 }
 
@@ -192,11 +198,11 @@ export abstract class InteriorMap implements GameMap {
     const k = new Kit();
     const T = 0.22;
     // Floor + slab (its cut edge shows under the knee wall at the front).
-    k.add(this.spec.floor, floorPlane(W, D + 0.02, this.spec.floor === 'straw' ? 0.5 : 1), new THREE.Matrix4().makeTranslation(W / 2, 0, D / 2));
+    k.add(this.spec.floor, floorPlane(W, D + 0.02, this.spec.floor === 'straw' ? 0.5 : 1), new THREE.Matrix4().makeTranslation(W / 2, 0, D / 2), { tint: this.spec.floorTint ?? 0xffffff });
     k.box('stone', [W + 2 * T + 0.1, 0.5, D + 2 * T + 0.1], [W / 2, -0.52, D / 2], { tint: 0x8a7a6a, uv: 1.2 });
     k.box('wood', [W + 2 * T + 0.14, 0.08, 0.1], [W / 2, -0.06, D + T + 0.04], { tint: 0x5a3a24 });
 
-    const wallMat: IMat = style === 'house' ? 'wallpaper' : 'barn';
+    const wallMat: IMat = this.spec.wallMat ?? (style === 'house' ? 'wallpaper' : 'barn');
     const wallTint = this.spec.wallTint ?? (style === 'house' ? 0xffffff : 0xd8c8b0);
     // Back wall + side walls with window holes.
     const holes = (wall: WindowSpec['wall']) => this.spec.windows.filter((w) => w.wall === wall);
@@ -223,6 +229,28 @@ export abstract class InteriorMap implements GameMap {
     // Threshold + mat
     k.box('wood', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: 0x7a5236 });
     this.statics.push(k.build('shell'));
+
+    // Contact AO card: the floor darkens softly into every wall and corner (multiplied over the floor).
+    const ao = new THREE.Mesh(
+      floorPlane(W, D + 0.3),
+      new THREE.MeshBasicMaterial({
+        map: roomAO().map,
+        transparent: true,
+        depthWrite: false,
+        toneMapped: false,
+        fog: false,
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.DstColorFactor,
+        blendDst: THREE.ZeroFactor,
+        blendEquation: THREE.AddEquation,
+      }),
+    );
+    ao.position.set(W / 2, 0.003, (D + 0.3) / 2 - 0.05);
+    ao.renderOrder = 1;
+    ao.userData.noAO = true;
+    ao.userData.dynamic = true;
+    ao.name = 'room-ao';
+    this.root.add(ao);
 
     // Invisible shadow casters: ceiling + upper front wall (daylight only enters via windows).
     const caster = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
@@ -289,13 +317,15 @@ export abstract class InteriorMap implements GameMap {
       for (const p of posts) piece('wood', p - 0.1, p + 0.1, 0, H, 0.08, inner + 0.03, 0x6a4630, 1);
     } else {
       // Barn: heavy horizontal girts + vertical posts, dark sill.
-      piece('wood', start + T, end, 0, 0.2, 0.06, inner, 0x5a3e2a, 1);
-      piece('wood', start + T, end, 1.3, 1.46, 0.1, inner + 0.03, 0x6a4a30, 1);
-      piece('wood', start + T, end, H - 0.3, H - 0.1, 0.12, inner + 0.03, 0x5a3e2a, 1);
+      const tl = this.spec.timberLight ?? 1;
+      const tt = (c: number) => _c.setHex(c).multiplyScalar(tl).getHex();
+      piece('wood', start + T, end, 0, 0.2, 0.06, inner, tt(0x5a3e2a), 1);
+      piece('wood', start + T, end, 1.3, 1.46, 0.1, inner + 0.03, tt(0x6a4a30), 1);
+      piece('wood', start + T, end, H - 0.3, H - 0.1, 0.12, inner + 0.03, tt(0x5a3e2a), 1);
       const n = Math.max(2, Math.round(len / 3));
       for (let i = 0; i <= n; i++) {
         const p = start + T + ((len - T * 2) * i) / n;
-        piece('wood', p - 0.12, p + 0.12, 0, H, 0.12, inner + 0.05, 0x5e4230, 1);
+        piece('wood', p - 0.12, p + 0.12, 0, H, 0.12, inner + 0.05, tt(0x5e4230), 1);
       }
     }
     // Windows: casing, sill, muntins, the painted view behind, curtains.

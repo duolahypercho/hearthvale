@@ -16,7 +16,7 @@ import { HouseInterior, HOUSE_DOOR } from '../interiors/house';
 import { CoopInterior } from '../interiors/coop';
 import { BarnInterior } from '../interiors/barn';
 import { FarmBuildings, SITES, type BuildingKind } from './farm';
-import { CarpenterPanel } from './carpenter';
+import { CarpenterPanel, COSTS_VIEW } from './carpenter';
 
 export interface BuildingsApi {
   /** Finished buildings. */
@@ -31,6 +31,8 @@ export interface BuildingsApi {
   pasture(): { x0: number; z0: number; x1: number; z1: number };
   /** Outdoor door front (world) of a building. */
   doorFront(kind: BuildingKind): { x: number; z: number };
+  /** Show / hide the water in the pet bowl. */
+  setBowl(full: boolean): void;
 }
 
 declare module '../../core/game' {
@@ -48,10 +50,7 @@ declare module '../../core/events' {
   }
 }
 
-export const COSTS: Record<BuildingKind, { gold: number; wood: number; stone: number; name: string; blurb: string; houses: string }> = {
-  coop: { gold: 4000, wood: 300, stone: 100, name: 'Coop', blurb: 'A snug red henhouse with nesting boxes, a roost ladder and a feed bench.', houses: 'Chickens · Ducks' },
-  barn: { gold: 6000, wood: 350, stone: 150, name: 'Barn', blurb: 'A tall gambrel barn with stalls, a hay loft and a long feeding trough.', houses: 'Cows · Goats · Sheep · Pigs' },
-};
+export const COSTS = COSTS_VIEW;
 
 const OUTDOOR_CAM_DEFAULT = { yaw: 0, pitch: 50, distance: 24, offX: 0, offZ: 0 };
 
@@ -67,6 +66,7 @@ export class BuildingSystem implements System, BuildingsApi {
   private wasInside = false;
   private busy = false;
   private pushT = 0;
+  private bowlFull = false;
 
   init(game: Game): void {
     this.game = game;
@@ -86,7 +86,7 @@ export class BuildingSystem implements System, BuildingsApi {
         game.events.emit('building:built', { kind: k });
       }
     });
-    game.events.on('demo:stage', ({ name }) => this.stageDemo(name));
+    game.events.on('demo:stage', ({ showcase }) => this.stageDemo(showcase));
   }
 
   // ───────────────────────────────────────────── api
@@ -133,6 +133,11 @@ export class BuildingSystem implements System, BuildingsApi {
     return { x: s.door.x + 0.5, z: s.door.z + 1.4 };
   }
 
+  setBowl(full: boolean): void {
+    this.bowlFull = full;
+    this.farm?.setBowl(full);
+  }
+
   // ───────────────────────────────────────────── farm structures
 
   private refreshFarm(): void {
@@ -140,6 +145,7 @@ export class BuildingSystem implements System, BuildingsApi {
     if (map?.id !== 'farm') return;
     if (!this.farm) this.farm = new FarmBuildings(this.game, map);
     this.farm.sync(this.built, this.orders);
+    this.farm.setBowl(this.bowlFull);
   }
 
   onMapChange(mapId: string, game: Game): void {
@@ -228,8 +234,8 @@ export class BuildingSystem implements System, BuildingsApi {
 
   // ───────────────────────────────────────────── demos
 
-  private stageDemo(name: string): void {
-    const wants = name === 'animals-pasture' || name === 'coop-interior' || name === 'barn-interior';
+  private stageDemo(showcase: string[]): void {
+    const wants = showcase.includes('animals');
     if (wants) {
       for (const k of ['coop', 'barn'] as const) {
         if (!this.built.has(k)) {

@@ -88,10 +88,15 @@ export const DEMOS: Record<string, DemoDef> = {
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   'house-interior': { map: 'house', x: 7.6, z: 4.9, facing: 'left', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 7.3, z: 3.9, facing: 'up', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 8.9, z: 4.4, facing: 'left', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
   'coop-interior': { map: 'coop', x: 4.5, z: 5.4, facing: 'up', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 12.5, offsetZ: 0.3 }, showcase: ['animals'] },
   'barn-interior': { map: 'barn', x: 6.5, z: 7.2, facing: 'up', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 16.5, offsetZ: 0.3 }, showcase: ['animals'] },
   'animals-pasture': { map: 'farm', x: 41.5, z: 39.6, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
+  // &pet=dog|cat picks the pet, &hearts=0 stops the staged petting hearts (all 'animals' showcases).
+  'coop-night': { map: 'coop', x: 4.5, z: 5.4, facing: 'up', time: 21.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 12.5, offsetZ: 0.3 }, showcase: ['animals'] },
+  'barn-night': { map: 'barn', x: 6.5, z: 6.6, facing: 'up', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 16.5, offsetZ: 0.3 }, showcase: ['animals'] },
+  'pet-yard': { map: 'farm', x: 36.5, z: 18.7, facing: 'left', time: 16.4, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 13, offsetX: 0.4, offsetZ: -1.2 }, showcase: ['animals'] },
+  carpenter: { map: 'farm', x: 36.5, z: 31.2, facing: 'up', time: 11, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 17, offsetX: 1.5, offsetZ: -0.5 }, showcase: ['animals'], ui: 'carpenter' },
   // Mines (systems/mining + systems/combat, world/mine): the mountain entrance and one floor per biome band.
   // The floor demos pick a showcase spot on the seeded floor; &floor=N stages any floor (biome follows).
   mine: { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },

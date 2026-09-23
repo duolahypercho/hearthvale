@@ -317,7 +317,10 @@ export class HouseInterior extends InteriorMap {
     k.cyl('iron', 0.012, 0.012, 0.7, [8.1, 0.02, 0.9], { tint: 0x2a2624 });
     for (let i = 0; i < 3; i++) k.cyl('iron', 0.01, 0.01, 0.62, [8.06 + i * 0.04, 0.05, 0.88], { rz: (i - 1) * 0.08, tint: 0x3a3634 });
     // Braided rug, armchair, rocking chair, side table + oil lamp, knitting basket
-    const rug = floorPlane(3.4, 2.3);
+    // Oval braided rug (a real ellipse — no square card around it).
+    const rug = new THREE.CircleGeometry(0.5, 72);
+    rug.rotateX(-Math.PI / 2);
+    rug.scale(3.4, 1, 2.3);
     k.add('braid', rug, mat(cx, 0.008, 2.75));
     this.armchair(k, 4.95, 2.85, 0.75);
     this.rocker(k, 8.05, 2.8, -0.85);
@@ -479,13 +482,49 @@ export class HouseInterior extends InteriorMap {
     k.add('iron', new THREE.TorusGeometry(0.03, 0.005, 5, 12), mat(dx - 0.1, 0.8, dz - 0.4, Math.PI / 2, 0, 0), { tint: 0xc8a050 });
     k.add('iron', new THREE.TorusGeometry(0.03, 0.005, 5, 12), mat(dx - 0.1, 0.8, dz - 0.32, Math.PI / 2, 0, 0), { tint: 0xc8a050 });
     this.chair(k, dx - 0.72, dz, Math.PI / 2 + Math.PI, 0x9a6440);
+    // Brass desk lamp with a green glass shade (the east side's evening pool of light)
+    k.cyl('brass', 0.08, 0.09, 0.025, [dx + 0.12, 0.79, dz - 0.05]);
+    k.cyl('brass', 0.012, 0.012, 0.3, [dx + 0.12, 0.8, dz - 0.05]);
+    k.add('glow', new THREE.SphereGeometry(0.05, 12, 10), mat(dx + 0.12, 1.08, dz - 0.05), { tint: 0xfff2d0 });
+    k.add('ceramic', new THREE.CylinderGeometry(0.07, 0.15, 0.12, 18, 1, true), mat(dx + 0.12, 1.12, dz - 0.05), { tint: 0x3f7a5a });
+    this.addLamp(new THREE.Vector3(dx - 0.35, 1.45, dz - 0.05), 0xffcf8a, 0, 1.25, 0.02, 5);
+    this.glowPool(dx - 0.5, dz, 1.3, 0xffb060, () => this.light.night * 0.07);
+    // Grandmother's spinning wheel + a basket of carded wool (the empty east floor)
+    this.spinningWheel(k, 10.35, 5.25, -0.5);
+    k.cyl('thatch', 0.2, 0.16, 0.18, [9.55, 0, 6.05], { tint: 0xc8a068 });
+    for (const [i, c] of [[0, 0xf4efe4], [1, 0xe8dcc8], [2, 0xd8b0a0]] as const) k.add('fabric', lumpySphere(0.075, 1, 0.25, rng), mat(9.5 + i * 0.07, 0.22, 6.02 + (i % 2) * 0.06), { tint: c });
     this.statics.push(k.build('front'));
+    this.solid(9.7, 4.7, 10.9, 5.8, 'spinning-wheel');
     this.solid(4.6, 7.1, 5.3, 7.8, 'coat-rack');
     this.solid(11.9, 6.9, 12.8, 7.7, 'plant');
     this.solid(11.6, 5.0, 13, 6.4, 'desk');
   }
 
   // ───────────────────────────────────────────── furniture helpers
+
+  /** Saxony spinning wheel: slanted bench on three legs, big spoked wheel, treadle, distaff of wool. */
+  private spinningWheel(k: Kit, x: number, z: number, ry: number): void {
+    const tint = 0x9a6440;
+    const c = Math.cos(ry);
+    const s = Math.sin(ry);
+    const m = (lx: number, ly: number, lz: number, rx = 0, rz = 0) => mat(x + lx * c + lz * s, ly, z - lx * s + lz * c, rx, ry, rz);
+    k.add('wood', roundedBox(0.95, 0.07, 0.24, 0.02), m(0, 0.42, 0, 0, 0.12), { tint });
+    for (const [lx, lz] of [[-0.4, -0.09], [-0.4, 0.09], [0.4, 0]] as const) k.add('wood', new THREE.CylinderGeometry(0.02, 0.026, 0.46, 8), m(lx, 0.2, lz, lz * 1.2, lx * 0.25), { tint });
+    // Uprights + the wheel
+    for (const lz of [-0.07, 0.07]) k.add('wood', new THREE.CylinderGeometry(0.018, 0.02, 0.62, 8), m(-0.2, 0.72, lz), { tint });
+    const wheel = new THREE.TorusGeometry(0.32, 0.028, 8, 36);
+    k.add('wood', wheel, m(-0.2, 0.92, 0), { tint: 0x8a5634 });
+    for (let i = 0; i < 8; i++) k.add('wood', new THREE.CylinderGeometry(0.008, 0.008, 0.62, 5), mat(0, 0, 0).multiply(m(-0.2, 0.92, 0)).multiply(new THREE.Matrix4().makeRotationZ((i / 8) * Math.PI)), { tint });
+    k.add('brass', new THREE.CylinderGeometry(0.035, 0.035, 0.18, 12).rotateX(Math.PI / 2), m(-0.2, 0.92, 0));
+    // Flyer + bobbin, drive band
+    k.add('wood', roundedBox(0.2, 0.05, 0.05, 0.015), m(0.3, 0.62, 0), { tint });
+    k.add('fabric', new THREE.CylinderGeometry(0.035, 0.035, 0.1, 10).rotateZ(Math.PI / 2), m(0.3, 0.68, 0), { tint: 0xf0e8d8 });
+    k.add('fabric', new THREE.CylinderGeometry(0.004, 0.004, 0.62, 3), m(0.05, 0.8, 0.03, 0, 1.05), { tint: 0xe8dcc0 });
+    // Distaff with a cloud of wool, treadle
+    k.add('wood', new THREE.CylinderGeometry(0.012, 0.015, 0.5, 6), m(0.38, 0.72, 0, 0, -0.25), { tint });
+    k.add('fabric', lumpySphere(0.09, 1, 0.3, new Rng('distaff')), m(0.43, 0.98, 0), { tint: 0xf4efe4 });
+    k.add('wood', roundedBox(0.3, 0.025, 0.16, 0.01), m(-0.05, 0.05, 0, 0, -0.15), { tint });
+  }
 
   private table(k: Kit, x: number, z: number, w: number, d: number): void {
     k.box('wood', [w, 0.06, d], [x, 0.74, z], { tint: OAK, uv: 1.5, r: 0.025 });

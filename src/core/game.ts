@@ -43,6 +43,7 @@ import { CraftingSystem } from '../systems/crafting';
 import { QuestSystem } from '../systems/quests';
 import { FestivalSystem } from '../systems/festivals';
 import { BuildingSystem } from '../world/buildings/system';
+import { AnimalSystem } from '../systems/animals';
 
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
@@ -66,6 +67,7 @@ const SYSTEMS: (() => System)[] = [
   () => new QuestSystem(),
   () => new FestivalSystem(),
   () => new BuildingSystem(),
+  () => new AnimalSystem(),
 ];
 
 /**
