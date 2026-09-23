@@ -81,7 +81,8 @@ export function ots(listener: P2, speaker: P2, o: { side?: 1 | -1; off?: number;
 /** Town: the coach stop on the west road, the Hall steps, the plaza, Thimble & Pip's. */
 const STOP = { x: 9.6, z: 26.2 };
 const STEPS = { x: 32, z: 14.9 };
-const STORE = { x: 20.2, z: 20.9 };
+// (Marigold's doorstep, east of the flower cart so its canopy stays out of the two-shots.)
+const STORE = { x: 21.2, z: 21.3 };
 
 /** Intro blocking at the coach stop: the farmer by the coach door, Hollis up the lane. */
 const ARR_P: P2 = [STOP.x - 0.5, STOP.z + 0.85];
@@ -113,11 +114,14 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'backdrop', kind: null },
     { do: 'caption', text: 'Hearthvale', sub: 'Spring · the valley at dusk', dur: 2.8 },
     // The coach comes down the west road into the valley; Hollis waits by the lamp with a lantern.
-    { do: 'actor', id: 'hollis', x: STOP.x + 3.2, z: STOP.z + 0.1, facing: 'left', prop: 'lantern' },
-    { do: 'cam', to: { x: STOP.x - 4.5, z: STOP.z - 0.2, y: 1.8, yaw: 74, pitch: 17, dist: 21 }, dur: 0 },
+    // Hollis waits under the blossom tree by the lamp, clear of the lens → coach line.
+    { do: 'actor', id: 'hollis', x: STOP.x + 4.3, z: STOP.z - 2.3, yaw: 245, prop: 'lantern' },
+    // From the east, down the lane: the coach comes towards the lens out of the dusk (cottage_west
+    // sits south-east of the stop, so the lens stays north of it).
+    { do: 'cam', to: { x: STOP.x - 4.5, z: STOP.z - 0.2, y: 1.8, yaw: 96, pitch: 14, dist: 21 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 1.4 },
     { do: 'cue', cue: 'coach:arrive', t: 0 },
-    { do: 'cam', to: { x: STOP.x - 1.6, z: STOP.z + 0.2, y: 1.5, yaw: 58, pitch: 15, dist: 15 }, dur: 4.6, ease: 'inOut' },
+    { do: 'cam', to: { x: STOP.x - 1.6, z: STOP.z + 0.2, y: 1.5, yaw: 97, pitch: 13, dist: 14 }, dur: 4.6, ease: 'inOut' },
     { do: 'mark', id: 'establish' },
     { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 60, dist: 9.2, pitch: 19, y: 1.25 }), dur: 2.8, ease: 'inOut', wait: false },
     { do: 'player', visible: true },
@@ -219,6 +223,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
     { do: 'map', map: 'town', x: 30.2, z: 21.2, facing: 'up' },
+    { do: 'hide', names: ['festoon-bulbs', 'festoon-cords'] },
     { do: 'actor', id: 'sterling', x: 33.2, z: 18.6, yaw: 190, prop: 'clipboard' },
     { do: 'cam', to: { x: 32, z: 17.5, y: 2.2, yaw: 24, pitch: 16, dist: 13 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 0.8 },
@@ -248,19 +253,19 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'map', map: 'town', x: STORE.x + 3.6, z: STORE.z + 2.6, facing: 'left' },
     { do: 'actor', id: 'marigold', x: STORE.x - 0.6, z: STORE.z + 0.4, facing: 'right' },
     { do: 'actor', id: 'sterling', x: STORE.x + 1.3, z: STORE.z + 0.9, facing: 'left', prop: 'clipboard' },
-    { do: 'cam', to: ots([STORE.x + 1.3, STORE.z + 0.9], [STORE.x - 0.6, STORE.z + 0.4], { side: -1, dist: 9, pitch: 17, y: 1.3 }), dur: 0 },
+    { do: 'cam', to: ots([STORE.x + 1.3, STORE.z + 0.9], [STORE.x - 0.6, STORE.z + 0.4], { side: -1, dist: 10.5, pitch: 23, y: 1.3 }), dur: 0 },
     { do: 'fade', to: 'clear', dur: 0.8 },
     { do: 'mark' },
     { do: 'say', who: 'sterling', text: 'Picture it, Mrs. Thimble: an EverGlow Express, right here. Self-checkout. Open all night. No haggling. Ever.' },
     { do: 'say', who: 'marigold', text: "No haggling? Then what would Rosalind's grandchild and I talk about?", mood: 'neutral' },
-    { do: 'cam', to: ots([STORE.x - 0.6, STORE.z + 0.4], [STORE.x + 1.3, STORE.z + 0.9], { side: 1, dist: 9, pitch: 17, y: 1.3 }), dur: 0 },
+    { do: 'cam', to: ots([STORE.x - 0.6, STORE.z + 0.4], [STORE.x + 1.3, STORE.z + 0.9], { side: 1, dist: 10.5, pitch: 23, y: 1.3 }), dur: 0 },
     { do: 'say', who: 'sterling', text: 'The weather. Via the app.' },
     { do: 'emote', id: 'marigold', emote: 'angry' },
     { do: 'say', who: 'marigold', text: 'Out. And take your good pen with you.', mood: 'surprised' },
     { do: 'walk', id: 'sterling', path: [[STORE.x + 5, STORE.z + 3.4], [STORE.x + 12, STORE.z + 5]], speed: 1.5, wait: false },
     { do: 'walk', id: 'player', path: [[STORE.x + 1.4, STORE.z + 1.4]], facing: 'left' },
     { do: 'face', id: 'marigold', toward: 'player' },
-    { do: 'cam', to: ots([STORE.x + 1.4, STORE.z + 1.4], [STORE.x - 0.6, STORE.z + 0.4], { side: -1, dist: 8, pitch: 16, y: 1.3 }), dur: 1.2, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots([STORE.x + 1.4, STORE.z + 1.4], [STORE.x - 0.6, STORE.z + 0.4], { side: -1, dist: 9.5, pitch: 21, y: 1.3 }), dur: 1.2, ease: 'inOut', wait: false },
     { do: 'say', who: 'marigold', text: "Thirty-one years I've run this shop. I'm not selling it to a man who alphabetises his smiles." },
     { do: 'say', who: 'marigold', text: "...He's put a little glowing booth by the fountain, you know. Cheaper seeds, he says. Cheaper everything. I suppose we'll see." },
     { do: 'fade', to: 'black', dur: 0.8 },
@@ -277,6 +282,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
     { do: 'map', map: 'town', x: OFFER_P[0] - 1.2, z: OFFER_P[1] + 2.4, facing: 'up' },
+    { do: 'hide', names: ['festoon-bulbs', 'festoon-cords'] },
     { do: 'actor', id: 'sterling', x: STEPS.x + 0.3, z: STEPS.z - 0.4, facing: 'down', prop: 'clipboard' },
     { do: 'cam', to: { x: STEPS.x, z: STEPS.z + 1.4, y: 1.6, yaw: -20, pitch: 20, dist: 13 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 0.8 },
@@ -299,6 +305,8 @@ export const SCENES: Record<string, Cmd[]> = {
     },
   ],
   'glimmer-accept': [
+    { do: 'hud', on: false },
+    { do: 'letterbox', on: true },
     { do: 'say', who: 'sterling', text: "Pleasure doing business. You'll hardly notice the logo." },
     { do: 'cue', cue: 'story:glimmerAccept' },
     { do: 'walk', id: 'sterling', path: [[STEPS.x + 4, STEPS.z + 3], [STEPS.x + 9, STEPS.z + 7]], speed: 1.6, wait: false },
@@ -326,6 +334,8 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'fade', to: 'clear', dur: 1 },
   ],
   'glimmer-refuse': [
+    { do: 'hud', on: false },
+    { do: 'letterbox', on: true },
     { do: 'emote', id: 'sterling', emote: 'dots' },
     { do: 'say', who: 'sterling', text: "Sentiment doesn't scale, farmer." },
     { do: 'face', id: 'sterling', facing: 'up' },
@@ -344,6 +354,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
     { do: 'map', map: 'town', x: 30.2, z: 19.4, facing: 'up' },
+    { do: 'hide', names: ['festoon-bulbs', 'festoon-cords'] },
     { do: 'actor', id: 'sterling', x: 32.9, z: 16.6, facing: 'up' },
     { do: 'cam', to: { x: 32.4, z: 15, y: 2.6, yaw: 196, pitch: 12, dist: 9 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 1 },
@@ -515,8 +526,8 @@ export const RESTORE_SHOTS: Record<string, { x: number; z: number; y?: number; y
   hearth: { x: 34, z: 9.6, y: 4.4, yaw: -10, pitch: 13, dist: 21 },
   // Close on one plaza lamp and its basket (the other three read in the background).
   craft: { x: 37.2, z: 22.4, y: 1.3, yaw: -32, pitch: 20, dist: 7.5 },
-  // Down into the fountain basin from the south (the plaza strings stay behind the lens).
-  tide: { x: 32, z: 24.6, y: 0.4, yaw: 8, pitch: 62, dist: 7.2 },
+  // Steeply down into the basin: the koi circle the fountain column in the lit water.
+  tide: { x: 32, z: 24.9, y: 0.4, yaw: 4, pitch: 60, dist: 7.6 },
 };
 
 export const ROOM_SCENES: Record<string, Cmd[]> = Object.fromEntries(ROOMS.map((r) => [`room-${r.id}`, roomScene(r, RESTORE_SHOTS[r.id]!)]));

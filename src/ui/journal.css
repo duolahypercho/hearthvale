@@ -353,6 +353,39 @@
   font-weight: 800;
   color: var(--ink-soft);
 }
+/* Co-op farmhand: the host decides; the options show, dimmed, under a gently pulsing note. */
+.cin-choices.locked .cin-choice {
+  cursor: default;
+  filter: saturate(0.55) brightness(0.92);
+}
+.cin-choices.locked .cin-choice.sel {
+  transform: none;
+  box-shadow: 0 5px 0 var(--wood-3), 0 12px 24px rgba(20, 8, 2, 0.45);
+}
+.cin-choices.locked .cin-choice.sel .lbl::before {
+  content: '❖ ';
+  color: #c8873a;
+}
+.cin-choices.locked .cin-choice.picked {
+  filter: none;
+}
+.cin-wait {
+  justify-self: end;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 16px;
+  color: #fff4dc;
+  background: rgba(40, 22, 10, 0.72);
+  box-shadow: 0 0 0 2px rgba(255, 210, 122, 0.55);
+  animation: cinWaitPulse 1.6s ease-in-out infinite;
+}
+@keyframes cinWaitPulse {
+  50% {
+    box-shadow: 0 0 0 2px rgba(255, 210, 122, 0.95), 0 0 18px 4px rgba(255, 200, 100, 0.45);
+  }
+}
 @keyframes choiceIn {
   from {
     opacity: 0;

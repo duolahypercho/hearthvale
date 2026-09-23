@@ -18,6 +18,23 @@
  * Registers the story panels: 'journal[:tab]', 'bundles:<room>', 'board', 'letter:<id>'.
  *
  * Services: `story` (flags, mail, newGame) and `letters` (show a letter and await it).
+ *
+ * Co-op (DESIGN pillar 13; the net layer drives this, nothing here opens a socket). The story, the
+ * Hall and the board are one shared world, so the host is the author and farmhands follow:
+ *   role        `setRole('host' | 'guest' | 'solo')`. A guest never starts a beat itself (walking into
+ *               town does not trigger Glimmerco on a farmhand's machine) and does not celebrate its own
+ *               predicted room completions: it waits for the host's scene.
+ *   state       `netState()` → { flags, mail, quests } (a few KB), `applyNetState(s)` on a guest.
+ *               `story:dirty` fires (at most once a frame) whenever any of it changes — the host's cue
+ *               to rebroadcast.
+ *   scenes      the host emits `story:scene` { scene } whenever a beat plays; guests call
+ *               `playRemote(scene)`: the same scene, then back to where that farmer stood (a room
+ *               celebration should not leave a farmhand in the Hall).
+ *   choices     the host picks (a guest sees the options locked, "waiting for …"); the pick is emitted as
+ *               `story:choice` { scene, index } → guests `cutscene.resolveRemoteChoice(index)`.
+ *   hand-ins    a guest's bundle / board hand-ins apply locally (prediction) and go to the host as
+ *               intents: `quests.contributeRemote / contributeGoldRemote / deliverRemote` (no inventory
+ *               on the host side; the return value is what was accepted).
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
@@ -57,6 +74,22 @@ export interface StoryApi {
   /** Title screen → New Game. */
   newGame(): void;
   quests(): StoryQuestView[];
+  // ── co-op
+  role(): StoryRole;
+  setRole(role: StoryRole): void;
+  netState(): StoryNetState;
+  applyNetState(s: StoryNetState): void;
+  /** Guest: play a scene the host started, then return to where this farmer stood. */
+  playRemote(scene: string): Promise<void>;
+}
+
+export type StoryRole = 'solo' | 'host' | 'guest';
+
+export interface StoryNetState {
+  flags: Record<string, string>;
+  box: MailItem[];
+  queued: string[];
+  quests: unknown;
 }
 
 export interface LettersApi {
@@ -75,6 +108,12 @@ declare module '../core/events' {
     'mail:new': { id: string };
     'mail:read': { id: string };
     'story:beat': { id: string };
+    /** Shared story / Hall / board state changed (coalesced to one per frame) — co-op rebroadcast cue. */
+    'story:dirty': Record<string, never>;
+    /** A story beat started on this machine (host / solo): co-op guests play it too. */
+    'story:scene': { scene: string };
+    /** The host picked option `index` of the choice in `scene`. */
+    'story:choice': { scene: string; index: number };
   }
 }
 
@@ -91,6 +130,8 @@ export class StorySystem implements System, StoryApi {
   private letters!: LetterPanel;
   private staging = false;
   private hints!: WorldHints;
+  private coop: StoryRole = 'solo';
+  private dirty = false;
 
   init(game: Game): void {
     this.game = game;
@@ -128,6 +169,11 @@ export class StorySystem implements System, StoryApi {
       this.setFlag('hall', glimmer ? 'glimmer' : 'restored');
       if (!glimmer && this.flags.glimmer === 'refused') this.deliver('sterling-resign', true);
     });
+    // Anything shared changed → one `story:dirty` per frame (see update()).
+    const touch = (): void => {
+      this.dirty = true;
+    };
+    for (const ev of ['story:beat', 'mail:new', 'mail:read', 'quest:bundle', 'quest:room', 'quest:sync', 'quest:posted', 'quest:accepted', 'quest:complete', 'quest:expired'] as const) game.events.on(ev, touch);
     game.events.on('player:interact', ({ x, z }) => {
       const map = game.world.current?.id;
       const near = (t: { map: string; x: number; z: number }): boolean => map === t.map && Math.abs(x - t.x) <= 1 && Math.abs(z - t.z) <= 1;
@@ -237,18 +283,58 @@ export class StorySystem implements System, StoryApi {
 
   update(): void {
     this.hints.update();
+    if (this.dirty) {
+      this.dirty = false;
+      this.game.events.emit('story:dirty', {});
+    }
   }
 
   private play(scene: string): void {
     const cs = this.game.services.cutscene;
-    if (!cs || cs.playing || this.staging || this.game.paused) return;
+    if (!cs || cs.playing || this.staging || this.game.paused || this.coop === 'guest') return;
     if (this.game.hud.openPanelName) this.game.events.emit('ui:open', { name: 'none' });
+    this.game.events.emit('story:scene', { scene });
     void cs.play(scene);
   }
 
+  // ───────────────────────────── co-op
+
+  role(): StoryRole {
+    return this.coop;
+  }
+
+  setRole(role: StoryRole): void {
+    this.coop = role;
+  }
+
+  netState(): StoryNetState {
+    return { flags: { ...this.flags }, box: this.box.map((m) => ({ ...m })), queued: [...this.queued], quests: this.game.systems.find((q) => q.name === 'quests')?.save?.() ?? null };
+  }
+
+  applyNetState(s: StoryNetState): void {
+    // Keep this farmer's own "read" marks (letters are opened per machine; attachments paid once, by the host).
+    const read = new Set(this.box.filter((m) => m.read).map((m) => m.id));
+    this.flags = { ...s.flags };
+    this.box = s.box.map((m) => ({ ...m, read: m.read || read.has(m.id) }));
+    this.queued = [...s.queued];
+    if (s.quests) this.game.systems.find((q) => q.name === 'quests')?.load?.(s.quests);
+    this.game.events.emit('mail:new', { id: '' });
+  }
+
+  async playRemote(scene: string): Promise<void> {
+    const cs = this.game.services.cutscene;
+    if (!cs || !cs.has(scene)) return;
+    const g = this.game;
+    const from = { map: g.world.current?.id ?? '', x: g.player.position.x, z: g.player.position.z };
+    if (g.hud.openPanelName) g.events.emit('ui:open', { name: 'none' });
+    await cs.play(scene);
+    if (from.map && (g.world.current?.id !== from.map || Math.hypot(g.player.position.x - from.x, g.player.position.z - from.z) > 0.5)) await g.teleport(from.map, from.x, from.z);
+  }
+
   private onMap(map: string): void {
-    // Story beats only fire in a story game (the intro has played): debug boots stay quiet.
-    if (this.staging || this.game.paused || this.game.services.cutscene?.playing || this.flags.intro !== 'done') return;
+    // Story beats only fire in a story game (the intro has played): debug boots stay quiet. In co-op
+    // only the host authors beats (guests get them as `playRemote`).
+    if (this.coop === 'guest' || this.staging || this.game.paused || this.game.services.cutscene?.playing || this.flags.intro !== 'done') return;
     if (this.game.world.current?.id !== map) return;
     const c = this.game.calendar;
     if (map === 'hall' && !this.flags.hallVisited) {
@@ -325,6 +411,9 @@ export class StorySystem implements System, StoryApi {
   private async stageDemo(showcase: string[]): Promise<void> {
     const q = this.game.services.quests;
     const cs = this.game.services.cutscene;
+    // `&coop=guest` stages a scene as a co-op farmhand sees it (e.g. the Glimmerco choice, locked).
+    const coop = new URLSearchParams(location.search).get('coop');
+    if (coop === 'guest' || coop === 'host' || coop === 'solo') this.coop = coop;
     for (const want of showcase.filter((s) => s.startsWith('story:'))) {
       const [, what, arg, mark] = want.split(':');
       switch (what) {
@@ -341,7 +430,15 @@ export class StorySystem implements System, StoryApi {
           for (const id of mail) this.box.push({ id, read: id !== 'glimmer-offer' && id !== 'wren-sketch' && id !== 'gran-tired', day: 1 });
           this.game.events.emit('mail:new', { id: 'glimmer-offer' });
           const inv = this.game.services.inventory;
-          if (inv && n > 0 && n < 6) for (const [id, k] of [['tomato', 4], ['corn', 7], ['sunflower', 2], ['pumpkin', 2], ['potato', 12], ['parsnip', 6], ['wood', 60], ['fiber', 30]] as const) if (inv.count(id) < k) inv.add(id, k - inv.count(id));
+          // Stocked silently (slot writes, not add(): no "+60 Wood" toasts in the demo frame).
+          if (inv && n > 0 && n < 6)
+            for (const [id, k] of [['tomato', 4], ['corn', 7], ['sunflower', 2], ['pumpkin', 2], ['potato', 12], ['parsnip', 6], ['wood', 60], ['fiber', 30]] as const) {
+              if (inv.count(id) >= k) continue;
+              const at = inv.slots.findIndex((sl) => !!sl && sl.id === id);
+              const free = at >= 0 ? at : inv.slots.findIndex((sl, i) => i >= 10 && !sl);
+              if (free >= 0) inv.setSlot(free, { ...(inv.slots[free] ?? {}), id, qty: k });
+              else inv.add(id, k - inv.count(id));
+            }
           break;
         }
         case 'glimmer': {

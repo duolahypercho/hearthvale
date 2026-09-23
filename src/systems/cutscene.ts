@@ -30,6 +30,8 @@ import { NPCS, type NpcDef, type NpcId } from '../data/npcs';
 import { Villager } from '../entities/villager';
 import { CinemaOverlay } from '../ui/journal-cutscene';
 import { portraitSvg } from '../ui/portraits';
+import { BUILDINGS } from '../data/town-layout';
+import { NEW_BUILDINGS } from '../world/town/layout';
 
 export interface CutsceneApi {
   play(scene: string | Cmd[], id?: string): Promise<void>;
@@ -43,6 +45,8 @@ export interface CutsceneApi {
   audit(): Promise<string[]>;
   /** Lines this session where another actor covered the speaker's face. */
   blocking(): string[];
+  /** Co-op guest: the host picked option `index` of the choice now waiting on screen. */
+  resolveRemoteChoice(index: number): void;
 }
 
 declare module '../core/game' {
@@ -65,6 +69,13 @@ declare module '../core/events' {
 const FACING_YAW: Record<Facing, number> = { down: 0, up: Math.PI, left: -Math.PI / 2, right: Math.PI / 2 };
 /** Town tiles that are building walls (grid object ids = building group names). */
 const BUILDING_RE = /hall|store|bakery|cottage|forge|inn|clinic|house|school|shop|smithy|library|mill|chapel/i;
+
+/** Town building footprints (x0, z0, x1, z1 tile rects, inclusive), shrunk by the eave overhang. */
+const BUILDING_RECTS: [number, number, number, number][] = [...BUILDINGS, ...NEW_BUILDINGS].map((b) => b.block);
+function inBuilding(x: number, z: number): boolean {
+  for (const [x0, z0, x1, z1] of BUILDING_RECTS) if (x >= x0 - 0.4 && x <= x1 + 1.4 && z >= z0 - 0.4 && z <= z1 + 1.4) return true;
+  return false;
+}
 
 const ease = (e: Ease | undefined, t: number): number => {
   switch (e ?? 'inOut') {
@@ -341,6 +352,18 @@ export class CutsceneSystem implements System, CutsceneApi {
   private camNow: CamKey = { x: 0, z: 0, yaw: 0, pitch: 50, dist: 24 };
   private lanternLight!: THREE.PointLight;
   private hidden: THREE.Object3D[] = [];
+  /** Co-op guest waiting on the host's pick. */
+  private remotePick: ((i: number) => void) | null = null;
+  /** Other farmers (co-op avatars) stand aside while a scene plays: its blocking has no room for them. */
+  private remotes: THREE.Object3D[] = [];
+  private remoteScan = 0;
+  /** Ambient villagers on the map (not in the cast) and the ones currently hidden. */
+  private extras: THREE.Object3D[] = [];
+  private stoodAside = new Set<THREE.Object3D>();
+  private castIds = new Set<string>();
+  private tmpSeg = new THREE.Line3();
+  private tmpV = new THREE.Vector3();
+  private tmpW = new THREE.Vector3();
   private escAt = -10;
   private playerHidden = false;
   /** Staged demo holding on a live choice: unpause when it is picked. */
@@ -348,6 +371,8 @@ export class CutsceneSystem implements System, CutsceneApi {
   /** Tree instances hidden because they stood in front of the lens (restored when the scene ends). */
   private occluded: { mesh: THREE.BatchedMesh; id: number }[] = [];
   private treeCache: { map: string; meshes: THREE.BatchedMesh[] } | null = null;
+  private sphereCache: { map: string; list: { mesh: THREE.BatchedMesh; id: number; c: THREE.Vector3; r: number }[] } | null = null;
+  private guardPts: THREE.Vector3[] = [];
   private ray = new THREE.Raycaster();
   private occFrame = 0;
   private blockLog: string[] = [];
@@ -375,6 +400,7 @@ export class CutsceneSystem implements System, CutsceneApi {
       for (const a of [...this.actors.keys()]) if (a !== 'player') this.removeActor(a);
       this.occluded = [];
       this.treeCache = null;
+      this.sphereCache = null;
     });
   }
 
@@ -392,6 +418,10 @@ export class CutsceneSystem implements System, CutsceneApi {
 
   blocking(): string[] {
     return [...this.blockLog];
+  }
+
+  resolveRemoteChoice(index: number): void {
+    this.remotePick?.(index);
   }
 
   skip(): void {
@@ -437,7 +467,9 @@ export class CutsceneSystem implements System, CutsceneApi {
     this.instant = false;
     // Hold on the frame: the next line of dialogue (if any) is shown complete.
     const rest = mark >= 0 ? cmds.slice(mark + 1) : [];
-    const ni = rest.findIndex((c) => c.do === 'say' || c.do === 'choice' || c.do === 'caption' || c.do === 'letter');
+    // ...unless the action carries on first (a blocking walk / camera move): an establishing frame has no text.
+    const stop = rest.findIndex((c) => (c.do === 'walk' || c.do === 'cam' || c.do === 'rail') && c.wait !== false);
+    const ni = rest.findIndex((c, i) => (stop < 0 || i < stop) && (c.do === 'say' || c.do === 'choice' || c.do === 'caption' || c.do === 'letter'));
     const next = ni >= 0 ? rest[ni] : undefined;
     if (next?.do === 'choice') {
       // A choice stays live (keyboard / pad / click): picking it plays the rest of the scene.
@@ -471,9 +503,60 @@ export class CutsceneSystem implements System, CutsceneApi {
     g.events.emit('cutscene:start', { scene: name });
   }
 
+  /**
+   * Stand-ins step aside: other farmers (co-op avatars) always; the town's own villagers when they are
+   * also playing in the scene (no twins), stand within a few metres of the lens, or cross its sight
+   * line to the look target (a passer-by filling the frame of a room reveal).
+   */
+  private hideRemotes(): void {
+    if (this.remoteScan-- <= 0) {
+      this.remoteScan = 30;
+      const found: THREE.Object3D[] = [];
+      const npcs: THREE.Object3D[] = [];
+      const cast = new Set<THREE.Object3D>();
+      for (const a of this.actors.values()) if (a.villager) cast.add(a.villager.root);
+      const look = (o: THREE.Object3D, depth: number): void => {
+        for (const c of o.children) {
+          if (c.name === 'remote-farmer') found.push(c);
+          else if (c.name.startsWith('npc:')) {
+            if (!cast.has(c)) npcs.push(c);
+          } else if (depth > 0 && c.children.length) look(c, depth - 1);
+        }
+      };
+      look(this.game.rc.scene, 3);
+      for (const r of this.remotes) if (!found.includes(r) && !npcs.includes(r)) r.visible = true;
+      this.remotes = found;
+      this.extras = npcs;
+      this.castIds = new Set([...this.actors.keys()].map((k) => `npc:${k}`));
+    }
+    for (const r of this.remotes) r.visible = false;
+    const cam = this.game.rc.camera.position;
+    const tgt = this.game.rc.rig.target;
+    const seg = this.tmpSeg.set(cam, tgt);
+    for (const n of this.extras) {
+      const p = n.getWorldPosition(this.tmpV);
+      p.y += 1;
+      const onLine = seg.closestPointToPoint(p, true, this.tmpW).distanceTo(p) < 1.4;
+      const hide = this.castIds.has(n.name) || p.distanceTo(cam) < 4 || onLine;
+      if (hide && n.visible) {
+        n.visible = false;
+        this.stoodAside.add(n);
+      } else if (!hide && this.stoodAside.has(n)) {
+        n.visible = true;
+        this.stoodAside.delete(n);
+      }
+    }
+  }
+
   private end(name: string): void {
     const g = this.game;
     const skipped = this.skipping;
+    for (const r of this.remotes) r.visible = true;
+    for (const n of this.stoodAside) n.visible = true;
+    this.stoodAside.clear();
+    this.remotes = [];
+    this.extras = [];
+    this.remoteScan = 0;
     for (const a of [...this.actors.keys()]) if (a !== 'player') this.removeActor(a);
     this.actors.clear();
     for (const o of this.hidden) o.visible = true;
@@ -628,11 +711,17 @@ export class CutsceneSystem implements System, CutsceneApi {
         const sp = this.actors.get(c.who)?.villager;
         if (sp) sp.talkTo = g.player.position;
         this.skipping = false;
-        const pick = await this.overlay.choice(who, c.text, c.options, hold);
+        // Co-op: the host decides for the shared valley; a farmhand watches the options, locked.
+        const guest = g.services.story?.role() === 'guest';
+        const pick = guest && !hold ? await this.overlay.choice(who, c.text, c.options, false, 'Waiting for the host to decide…', (r) => (this.remotePick = r)) : await this.overlay.choice(who, c.text, c.options, hold);
+        this.remotePick = null;
         if (pick < 0) return;
         if (sp) sp.talkTo = null;
         const o = c.options[pick]!;
-        g.events.emit('story:flag', { key: o.flag, value: o.value });
+        if (!guest) {
+          g.events.emit('story:choice', { scene: this.running ?? '', index: pick });
+          g.events.emit('story:flag', { key: o.flag, value: o.value });
+        }
         return o.then;
       }
       case 'wait':
@@ -949,6 +1038,8 @@ export class CutsceneSystem implements System, CutsceneApi {
       const z = target.z + dz * s;
       const h = target.y + dy * s - map.heightAt(x, z);
       if (h > 6.2) return null;
+      // Building footprints (the town marks them as Blocked rects, not grid objects) + big props.
+      if (inBuilding(x, z)) return s;
       const o = map.grid.inBounds(Math.floor(x), Math.floor(z)) ? map.grid.getObject(Math.floor(x), Math.floor(z)) : null;
       if (o && o.kind === 'prop' && BUILDING_RE.test(o.id ?? '')) return s;
     }
@@ -1033,17 +1124,70 @@ export class CutsceneSystem implements System, CutsceneApi {
     this.occluded = [];
   }
 
-  /** Per frame (every other): trees between the lens and the target / actors' heads get out of the way. */
+  /**
+   * Every third frame: trees between the lens and the target / actors' heads get out of the way.
+   * Tested against each tree instance's bounding sphere (cached per map) instead of raycasting the
+   * tree batches — a festival crowd is 20+ sight lines, and triangle raycasts of every tree for each
+   * of them cost more than the frame's rendering.
+   */
   private guardView(): void {
-    if (++this.occFrame % 2) return;
+    if (++this.occFrame % 3) return;
     const cam = this.game.rc.camera.position;
-    const pts = [this.game.rc.focusPoint.clone()];
+    const spheres = this.treeSpheres();
+    if (!spheres.length) return;
+    const pts = this.guardPts;
+    let n = 0;
+    const push = (x: number, y: number, z: number): void => {
+      (pts[n] ??= new THREE.Vector3()).set(x, y, z);
+      n++;
+    };
+    const f = this.game.rc.focusPoint;
+    push(f.x, f.y, f.z);
     for (const a of this.actors.values()) {
       if (!a.villager && !this.game.player.root.visible) continue;
       const p = this.actorPos(a);
-      pts.push(new THREE.Vector3(p.x, p.y + a.headY - 0.35, p.z), new THREE.Vector3(p.x, p.y + 0.6, p.z));
+      push(p.x, p.y + a.headY - 0.35, p.z);
+      push(p.x, p.y + 0.6, p.z);
     }
-    for (const p of pts) for (const h of this.treeHits(cam, p)) this.hideTree(h.mesh, h.id);
+    const seg = this.tmpSeg;
+    const c = this.tmpW;
+    for (const t of spheres) {
+      if (!t.mesh.visible || !t.mesh.getVisibleAt(t.id)) continue;
+      for (let i = 0; i < n; i++) {
+        seg.set(cam, pts[i]!);
+        if (seg.closestPointToPoint(t.c, true, c).distanceToSquared(t.c) < t.r * t.r) {
+          this.hideTree(t.mesh, t.id);
+          break;
+        }
+      }
+    }
+  }
+
+  /** World bounding spheres (shrunk to the dense canopy) of every tree instance on the current map. */
+  private treeSpheres(): { mesh: THREE.BatchedMesh; id: number; c: THREE.Vector3; r: number }[] {
+    const map = this.game.world.current?.id ?? '';
+    if (this.sphereCache?.map === map) return this.sphereCache.list;
+    const list: { mesh: THREE.BatchedMesh; id: number; c: THREE.Vector3; r: number }[] = [];
+    const m = new THREE.Matrix4();
+    const sph = new THREE.Sphere();
+    for (const bm of this.trees()) {
+      bm.updateMatrixWorld(true);
+      const max = (bm as unknown as { maxInstanceCount?: number }).maxInstanceCount ?? 0;
+      for (let i = 0; i < max; i++) {
+        try {
+          if (!bm.getVisibleAt(i)) continue;
+          bm.getMatrixAt(i, m);
+          bm.getBoundingSphereAt(bm.getGeometryIdAt(i), sph);
+        } catch {
+          continue;
+        }
+        m.premultiply(bm.matrixWorld);
+        sph.applyMatrix4(m);
+        list.push({ mesh: bm, id: i, c: sph.center.clone(), r: sph.radius * 0.8 });
+      }
+    }
+    this.sphereCache = { map, list };
+    return list;
   }
 
   /** Warn when another actor stands between the lens and the speaker's face. */
@@ -1099,6 +1243,7 @@ export class CutsceneSystem implements System, CutsceneApi {
       const map = g.world.current;
       if (!map) continue;
       this.treeCache = null;
+      this.sphereCache = null;
       for (const k of keys.filter((q) => q.map === m)) {
         const gy = map.heightAt(k.key.x, k.key.z);
         const t = new THREE.Vector3(k.key.x, gy + (k.key.y ?? 0.8) - 0.8, k.key.z);
@@ -1148,6 +1293,7 @@ export class CutsceneSystem implements System, CutsceneApi {
   update(dt: number): void {
     this.clock += dt;
     if (this.running && this.playerHidden) this.game.player.root.visible = false;
+    if (this.running) this.hideRemotes();
     if (this.waiters.length) {
       const due = this.waiters.filter((w) => w.until <= this.clock);
       if (due.length) {

@@ -26,8 +26,9 @@ import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { MeshBuilder, roundedBox, bevelCylinder, lumpySphere, mat, mergeStatic } from '../world/geom';
 import { materials } from '../render/materials';
-import { buildMarketStall } from '../world/props/townkit';
+import { buildMarketStall, buildSandwichBoard } from '../world/props/townkit';
 import { buildLanternPole, buildBunting, buildBrazier } from '../world/props/festival';
+import { buildHarvestPile, buildHayBale } from '../world/props/farmkit';
 import { BurstFX, SmokeEmitter, FireFX } from '../render/particles';
 import { Rng } from '../core/rng';
 import { ROOMS, type RoomId } from '../data/bundles';
@@ -418,15 +419,42 @@ function mergeKeep(g: THREE.Group, name: string): THREE.Group {
   return out;
 }
 
+/**
+ * The Road Home: harvest-lantern poles zig-zag up the west lane with strings of paper lanterns slung
+ * across it between them, and the lane's verges dressed for the harvest — pumpkin piles and baskets
+ * at the pole feet, a hay bale or two. (Merged by the caller: a handful of draws in all.)
+ */
 function buildRoadLanterns(r: Rng, heightAt: (x: number, z: number) => number): THREE.Group {
   const g = new THREE.Group();
-  const pts: [number, number][] = [[4.5, 24.2], [8.5, 28.3], [12.5, 24.4], [16.5, 28.0], [20.5, 23.9]];
+  const pts: [number, number][] = [[2.5, 28.2], [4.5, 24.2], [8.5, 28.3], [12.5, 24.4], [16.5, 28.0], [20.5, 23.9], [24.2, 27.6]];
+  const H = 2.85;
   pts.forEach(([x, z], i) => {
     const p = buildLanternPole(r, i + 2);
     p.position.set(x, heightAt(x, z) - 0.03, z);
     p.rotation.y = z < 26 ? 0 : Math.PI;
     g.add(p);
+    // The verge at the pole's foot, on the side away from the lane.
+    const out = z < 26 ? -1 : 1;
+    const pile = buildHarvestPile(r, i % 3 === 1 ? 'basket' : 'pumpkins');
+    pile.position.set(x + (i % 2 ? 0.55 : -0.5), heightAt(x, z + out * 0.45), z + out * 0.45);
+    pile.rotation.y = r.next() * Math.PI * 2;
+    g.add(pile);
+    if (i % 3 === 0) {
+      const bale = buildHayBale(r, i % 2 === 0);
+      bale.position.set(x - 1.1, heightAt(x - 1.1, z + out * 0.8), z + out * 0.8);
+      bale.rotation.y = 0.3 + r.next();
+      bale.scale.setScalar(0.8);
+      g.add(bale);
+    }
   });
+  // Lantern strings across the lane: from each pole's inner arm to the next pole's.
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, az] = pts[i]!;
+    const [bx, bz] = pts[i + 1]!;
+    const a = new THREE.Vector3(ax + 0.46, heightAt(ax, az) + H - 0.1, az);
+    const b = new THREE.Vector3(bx - 0.46, heightAt(bx, bz) + H - 0.1, bz);
+    g.add(buildBunting(r, a, b, 0.55, 9, 2));
+  }
   return g;
 }
 
@@ -480,7 +508,8 @@ class Koi {
   readonly group = new THREE.Group();
   private fish: THREE.InstancedMesh;
   private tmp = new THREE.Object3D();
-  private mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x5fe3d6, emissiveIntensity: 0.4, roughness: 0.3 });
+  // Warm inner glow (the orange / gold / calico reads through it); the Tide Lantern's teal lives in the wakes + caustics.
+  private mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xff9a4a, emissiveIntensity: 0.3, roughness: 0.3, side: THREE.DoubleSide });
   private lilyMat = new THREE.MeshStandardMaterial({ color: 0x4f8a3a, roughness: 0.7 });
   private candleMat = new THREE.MeshStandardMaterial({ color: 0xfff2dc, emissive: 0xffb050, emissiveIntensity: 2.6 });
   private wake: THREE.Mesh;
@@ -491,19 +520,38 @@ class Koi {
   private t = 0;
   private static SEG = 14;
   constructor(private y: number) {
-    const body = new THREE.SphereGeometry(0.085, 12, 8);
-    body.scale(1, 0.5, 2.3);
-    const tail = new THREE.ConeGeometry(0.08, 0.16, 4);
-    tail.scale(1, 1, 0.25);
+    // A koi seen from above: a plump body tapering to the tail stalk, a flat forked tail fan that
+    // reads as a silhouette on the lit water, and two pectoral fins.
+    const body = new THREE.SphereGeometry(0.1, 16, 10);
+    body.scale(1, 0.48, 2.5);
+    const bp = body.attributes.position as THREE.BufferAttribute;
+    for (let k = 0; k < bp.count; k++) {
+      const z = bp.getZ(k);
+      const f = z < 0 ? Math.max(0.28, 1 + (z / 0.25) * 0.72) : 1 - (z / 0.25) * 0.12;
+      bp.setXYZ(k, bp.getX(k) * f, bp.getY(k) * f, z);
+    }
+    body.computeVertexNormals();
+    const fan = new THREE.Shape();
+    fan.moveTo(0, 0.02);
+    fan.quadraticCurveTo(-0.07, -0.06, -0.13, -0.17);
+    fan.quadraticCurveTo(-0.04, -0.12, 0, -0.1);
+    fan.quadraticCurveTo(0.04, -0.12, 0.13, -0.17);
+    fan.quadraticCurveTo(0.07, -0.06, 0, 0.02);
+    const tail = new THREE.ShapeGeometry(fan, 6);
     tail.rotateX(-Math.PI / 2);
-    tail.translate(0, 0, -0.25);
-    const fins = new THREE.ConeGeometry(0.05, 0.12, 3);
-    fins.rotateZ(Math.PI / 2);
-    fins.scale(1.6, 1, 0.2);
-    fins.translate(0, -0.01, 0.02);
-    const fishGeo = mergeGeometries([body.toNonIndexed(), tail.toNonIndexed(), fins.toNonIndexed()])!;
+    tail.translate(0, 0.005, -0.2);
+    const fins = mergeGeometries([-1, 1].map((sx) => {
+      const g = new THREE.CircleGeometry(0.055, 10);
+      g.scale(1.3, 0.7, 1);
+      g.rotateX(-Math.PI / 2);
+      g.rotateY(sx * 0.7);
+      g.translate(sx * 0.1, -0.01, 0.07);
+      return g.toNonIndexed();
+    }))!;
+    const fishGeo = mergeGeometries([body.toNonIndexed(), tail.toNonIndexed(), fins])!;
+    fishGeo.computeVertexNormals();
     this.fish = new THREE.InstancedMesh(fishGeo, this.mat, 6);
-    [0xff6a1e, 0xffb040, 0xfff0e0, 0xff4a22, 0xffd070, 0xff8a3a].forEach((c, i) => this.fish.setColorAt(i, new THREE.Color(c)));
+    [0xff5a14, 0xffa020, 0xfff4ea, 0xe8401a, 0xffc040, 0xff7424].forEach((c, i) => this.fish.setColorAt(i, new THREE.Color(c)));
     this.fish.userData.noAO = true;
     this.fish.frustumCulled = false;
     this.fish.castShadow = false;
@@ -593,9 +641,12 @@ class Koi {
     out.set(PLAZA.x + Math.cos(a) * rad, this.y - 0.03 + Math.sin(t * 2 + i) * 0.015, PLAZA.z + Math.sin(a) * rad);
     return a;
   }
+  private p = new THREE.Vector3();
+  private q = new THREE.Vector3();
   update(dt: number, night: number): void {
     this.t += dt;
-    const p = new THREE.Vector3();
+    if (!this.group.visible || !this.group.parent?.visible) return;
+    const p = this.p;
     for (let i = 0; i < 6; i++) {
       const dir = i % 2 ? 1 : -1;
       const a = this.fishAt(i, this.t, p);
@@ -606,14 +657,19 @@ class Koi {
       this.fish.setMatrixAt(i, f.matrix);
       // Wake: sample the path behind the fish (analytic, so it's always a smooth arc).
       for (let s = 0; s < Koi.SEG; s++) {
-        const q = new THREE.Vector3();
+        const q = this.q;
         const ta = this.fishAt(i, this.t - s * 0.09, q);
         const tx = -Math.sin(ta) * dir;
         const tz = Math.cos(ta) * dir;
         const w = 0.07 * (1 - s / Koi.SEG) + 0.015;
         const k = (i * Koi.SEG + s) * 2;
-        this.wakePos.set([q.x - tz * w, this.y + 0.004, q.z + tx * w], k * 3);
-        this.wakePos.set([q.x + tz * w, this.y + 0.004, q.z - tx * w], (k + 1) * 3);
+        const wp = this.wakePos;
+        const o = k * 3;
+        wp[o] = q.x - tz * w;
+        wp[o + 1] = wp[o + 4] = this.y + 0.004;
+        wp[o + 2] = q.z + tx * w;
+        wp[o + 3] = q.x + tz * w;
+        wp[o + 5] = q.z - tx * w;
         const al = (1 - s / Koi.SEG) * (0.35 + night * 0.65);
         this.wakeA[k] = this.wakeA[k + 1] = al;
       }
@@ -621,9 +677,9 @@ class Koi {
     this.fish.instanceMatrix.needsUpdate = true;
     (this.wake.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (this.wake.geometry.attributes.aA as THREE.BufferAttribute).needsUpdate = true;
-    this.mat.emissiveIntensity = 0.35 + night * 1.6;
+    this.mat.emissiveIntensity = 0.12 + night * 0.5;
     this.caustic.uniforms.uTime!.value = this.t;
-    this.caustic.uniforms.uGlow!.value = 0.45 + night * 0.9;
+    this.caustic.uniforms.uGlow!.value = 0.3 + night * 0.32;
     this.candleMat.emissiveIntensity = (0.8 + night * 2.2) * (0.9 + Math.sin(this.t * 9) * 0.06);
   }
 }
@@ -674,24 +730,61 @@ function glimmerSign(w: number, h: number, text: string, sub: string): THREE.Mes
   return m;
 }
 
+/**
+ * The EverGlow kiosk: a glossy white pod with a cyan light strip, a curved shell canopy, a row of
+ * glowing sample bulbs under glass domes and a giant bulb beacon on a chrome mast — the one thing on
+ * the plaza that is not made of wood, stone or cloth, and it wants you to notice.
+ */
 function buildKiosk(): THREE.Group {
   const b = new MeshBuilder();
-  const SILVER = 0xc8d4de;
+  const WHITE = 0xf2f7fa;
+  const SILVER = 0xb8c6d2;
   const CYAN = 0x3fc8e0;
-  b.add('white', roundedBox(1.8, 1.05, 1.0, 0.08), mat(0, 0.52, 0), { tint: SILVER });
-  b.add('white', roundedBox(1.84, 0.12, 1.04, 0.04), mat(0, 1.08, 0), { tint: CYAN });
-  for (const sx of [-1, 1]) b.add('white', roundedBox(0.08, 1.3, 0.08, 0.02), mat(sx * 0.82, 1.7, -0.36), { tint: SILVER });
-  b.add('white', roundedBox(2.1, 0.1, 1.3, 0.05), mat(0, 2.36, -0.1, 0.12, 0, 0), { tint: SILVER });
-  b.add('white', roundedBox(2.12, 0.06, 1.32, 0.02), mat(0, 2.3, -0.1, 0.12, 0, 0), { tint: CYAN });
-  // Boxed bulbs stacked on the counter.
-  for (let k = 0; k < 5; k++) b.add('white', roundedBox(0.22, 0.26, 0.22, 0.03), mat(-0.6 + k * 0.3, 1.27, 0.15), { tint: k % 2 ? 0xf4fbff : CYAN });
+  // Pod counter (rounded hard) + plinth shadow gap + cyan kick strip.
+  b.add('white', roundedBox(1.95, 0.08, 1.05, 0.03), mat(0, 0.04, 0), { tint: 0x8a98a4 });
+  b.add('white', roundedBox(1.9, 0.98, 1.0, 0.2), mat(0, 0.57, 0), { tint: WHITE });
+  b.add('white', roundedBox(1.98, 0.09, 1.08, 0.04), mat(0, 1.08, 0), { tint: SILVER });
+  // Back panel with rounded shoulders, and the mast rising out of it.
+  b.add('white', roundedBox(1.9, 1.45, 0.16, 0.08), mat(0, 1.8, -0.42), { tint: WHITE });
+  b.add('white', roundedBox(1.96, 0.07, 0.2, 0.03), mat(0, 2.54, -0.42), { tint: CYAN });
+  for (const sx of [-1, 1]) b.add('metal', bevelCylinder(0.035, 0.035, 1.45, 0.01, 8), mat(sx * 0.9, 1.1, 0.42), { tint: SILVER });
+  // Curved shell canopy: a half-tube over the counter, cyan scallop trim along its lip.
+  const shell = new THREE.CylinderGeometry(0.62, 0.62, 2.15, 20, 1, true, -Math.PI / 2, Math.PI);
+  shell.rotateZ(Math.PI / 2);
+  shell.scale(1, 0.55, 1);
+  b.add('white', shell, mat(0, 2.52, 0.02), { tint: WHITE });
+  for (let i = 0; i < 9; i++) {
+    const sc = new THREE.SphereGeometry(0.12, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+    sc.scale(1, 0.55, 0.5);
+    b.add('cloth', sc, mat(-0.96 + i * 0.24, 2.52, 0.64), { tint: CYAN });
+  }
+  b.add('metal', bevelCylinder(0.03, 0.04, 0.9, 0.01, 8), mat(0, 3.1, -0.42), { tint: SILVER });
+  b.add('metal', bevelCylinder(0.14, 0.1, 0.16, 0.02, 14), mat(0, 3.58, -0.42), { tint: SILVER });
+  // Boxed bulbs stacked at the counter end.
+  for (let k = 0; k < 4; k++) b.add('white', roundedBox(0.2, 0.24, 0.2, 0.03), mat(0.62 + (k % 2) * 0.22, 1.25 + Math.floor(k / 2) * 0.25, 0.12 - (k % 2) * 0.04, 0, k * 0.2, 0), { tint: k % 2 ? 0xf4fbff : CYAN });
+  // Sample-bulb stands.
+  for (let k = 0; k < 3; k++) b.add('metal', bevelCylinder(0.09, 0.11, 0.07, 0.02, 12), mat(-0.66 + k * 0.4, 1.16, 0.12), { tint: SILVER });
   const g = b.build({ name: 'glimmer-kiosk' });
+  // Everything that glows shares one cold-white material: strip, sample bulbs, the beacon.
+  const glow = new MeshBuilder();
+  const gm = glowMat(EVERGLOW, 'glimmer-kiosk-glow');
+  gm.emissiveIntensity = 1.8;
+  glow.add(gm, roundedBox(1.92, 0.05, 1.02, 0.02), mat(0, 0.2, 0));
+  for (let k = 0; k < 3; k++) glow.add(gm, new THREE.SphereGeometry(0.085, 14, 10), mat(-0.66 + k * 0.4, 1.29, 0.12));
+  glow.add(gm, new THREE.SphereGeometry(0.28, 20, 14), mat(0, 3.92, -0.42));
+  const gg = glow.build({ name: 'glimmer-kiosk-glow' });
+  gg.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o.castShadow = false), (o.userData.noAO = true)) : 0));
+  g.add(gg);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.46), glimmerSign(1.6, 0.46, 'EverGlow', 'by Glimmerco · 15% off!'));
-  sign.position.set(0, 1.85, -0.3);
+  sign.position.set(0, 1.95, -0.335);
   g.add(sign);
   const front = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.5), glimmerSign(1.5, 0.5, 'Glimmerco', 'Brighter. Faster. Forever.'));
-  front.position.set(0, 0.56, 0.51);
+  front.position.set(0, 0.62, 0.505);
   g.add(front);
+  const board = buildSandwichBoard(CYAN);
+  board.position.set(1.45, 0, 0.7);
+  board.rotation.y = -0.5;
+  g.add(board);
   return g;
 }
 
@@ -990,7 +1083,8 @@ export class StoryWorldSystem implements System {
     // Glimmerco: kiosk, and (after the charter) van + floodlight + sign over the Hall doors.
     const kiosk = buildKiosk();
     kiosk.position.set(KIOSK.x, H(KIOSK.x, KIOSK.z) - 0.02, KIOSK.z);
-    kiosk.rotation.y = Math.atan2(PLAZA.x - KIOSK.x, PLAZA.z - KIOSK.z);
+    // Front to the street (where the gameplay camera sees it), a quarter-turn toward the fountain.
+    kiosk.rotation.y = -0.42;
     const after = new THREE.Group();
     const van = buildVan();
     van.position.set(VAN.x, H(VAN.x, VAN.z) - 0.02, VAN.z);

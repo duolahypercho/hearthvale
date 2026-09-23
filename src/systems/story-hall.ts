@@ -17,6 +17,7 @@
  * Also adds the town ↔ hall warps and handles the `hall:ignite` cutscene cue.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import type { GameMap, MapWarp } from '../world/map';
@@ -461,6 +462,14 @@ export class HallMap implements GameMap {
   private t = 0;
   /** 0..1 how restored the whole hall looks (drives the interior grade). */
   warmth = 0;
+  /**
+   * Room dressings (dark / lit / EverGlow fit-out) and bundle sacks are built per room into this
+   * detached holder; what's showing is merged into one mesh per material (`hall-dressing`), rebuilt
+   * when a room changes state or a sack fills. Six rooms × three states was ~140 draws; merged ~25.
+   */
+  private sources = new THREE.Group();
+  private dressing: THREE.Group | null = null;
+  private dressDirty = true;
 
   constructor(private game: Game) {
     this.root.name = 'map:hall';
@@ -964,7 +973,7 @@ export class HallMap implements GameMap {
     const f = frameFor(def);
     const glass = new THREE.MeshStandardMaterial({ color: new THREE.Color(def.color).lerp(new THREE.Color(0xffffff), 0.35).multiplyScalar(0.55), emissive: def.color, emissiveIntensity: 0, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.62, depthWrite: false });
     glass.name = `hall-lantern-${def.id}`;
-    const core = new THREE.MeshStandardMaterial({ color: 0xfff4e0, emissive: new THREE.Color(def.color).lerp(new THREE.Color(0xfff2d8), 0.55), emissiveIntensity: 0, roughness: 0.4 });
+    const core = new THREE.MeshStandardMaterial({ color: 0xfff4e0, emissive: new THREE.Color(def.color).lerp(new THREE.Color(0xfff2d8), 0.38), emissiveIntensity: 0, roughness: 0.4 });
     core.name = `hall-filament-${def.id}`;
     // Low and in front of the lantern so its colour pools on the floor (range 5 m).
     const light = new THREE.PointLight(def.color, 0, 5.5, 1.5);
@@ -979,7 +988,7 @@ export class HallMap implements GameMap {
     sacks.name = `hall-sacks-${def.id}`;
     sterile.name = `hall-sterile-${def.id}`;
     sterile.visible = false;
-    this.root.add(dark, lit, sacks, sterile);
+    this.sources.add(dark, lit, sacks, sterile);
     const paneMat = glass.clone();
     paneMat.name = `hall-pane-${def.id}`;
     paneMat.transparent = false;
@@ -1480,6 +1489,7 @@ export class HallMap implements GameMap {
     });
     const g = b.build({ name: `hall-sacks-${room}` });
     v.sacks.add(g);
+    this.dressDirty = true;
   }
 
   /** Visual state of a room (instant). */
@@ -1576,7 +1586,52 @@ export class HallMap implements GameMap {
     }
   }
 
+  /** Merge every showing room dressing + sack set into one mesh per material (non-destructive). */
+  private rebuildDressing(): void {
+    this.dressDirty = false;
+    if (this.dressing) {
+      this.dressing.removeFromParent();
+      this.dressing.traverse((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.dispose());
+    }
+    this.sources.updateMatrixWorld(true);
+    const buckets = new Map<string, { mat: THREE.Material; cast: boolean; recv: boolean; order: number; noAO: boolean; geos: THREE.BufferGeometry[] }>();
+    const take = (g: THREE.Object3D): void => {
+      if (!g.visible) return;
+      g.traverseVisible((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || Array.isArray(m.material)) return;
+        const geo = m.geometry;
+        const sig = Object.keys(geo.attributes).sort().join(',');
+        const noAO = !!m.userData.noAO;
+        const key = `${m.material.uuid}|${sig}|${m.castShadow}|${m.receiveShadow}|${m.renderOrder}|${noAO}`;
+        let b = buckets.get(key);
+        if (!b) buckets.set(key, (b = { mat: m.material, cast: m.castShadow, recv: m.receiveShadow, order: m.renderOrder, noAO, geos: [] }));
+        b.geos.push((geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(m.matrixWorld));
+      });
+    };
+    for (const v of this.rooms.values()) for (const g of [v.dark, v.lit, v.sterile, v.sacks]) take(g);
+    const out = new THREE.Group();
+    out.name = 'hall-dressing';
+    out.userData.perfTag = 'hall-dressing';
+    for (const b of buckets.values()) {
+      const merged = mergeGeometries(b.geos);
+      for (const g of b.geos) g.dispose();
+      if (!merged) continue;
+      merged.computeBoundingSphere();
+      const mesh = new THREE.Mesh(merged, b.mat);
+      mesh.castShadow = b.cast;
+      mesh.receiveShadow = b.recv;
+      mesh.renderOrder = b.order;
+      mesh.userData.noAO = b.noAO;
+      mesh.matrixAutoUpdate = false;
+      out.add(mesh);
+    }
+    this.dressing = out;
+    this.root.add(out);
+  }
+
   private applyRoomLook(v: RoomVisual): void {
+    this.dressDirty = true;
     const on = v.target > 0.5;
     // EverGlow rooms get the sterile fit-out: no dust, but no rugs, flowers or candles either.
     v.dark.visible = !on;
@@ -1586,7 +1641,7 @@ export class HallMap implements GameMap {
     v.glass.emissive.copy(col);
     v.pane.emissive.copy(col);
     v.light.color.copy(v.glimmer ? new THREE.Color(0xe6f2ff) : col);
-    v.core.emissive.copy(v.glimmer ? new THREE.Color(0xffffff) : col.clone().lerp(new THREE.Color(0xfff2d8), 0.55));
+    v.core.emissive.copy(v.glimmer ? new THREE.Color(0xffffff) : col.clone().lerp(new THREE.Color(0xfff2d8), 0.38));
     (v.pool.uniforms.uColor!.value as THREE.Color).copy(v.glimmer ? new THREE.Color(0x9ab8d8) : col);
     if (v.frame.def.id === 'hearth') this.hearthFire.active = on && !v.glimmer;
   }
@@ -1839,6 +1894,7 @@ export class HallMap implements GameMap {
     this.t += dt;
     const t = this.t;
     let lit = 0;
+    if (this.dressDirty) this.rebuildDressing();
     for (const v of this.rooms.values()) {
       v.glow += (v.target - v.glow) * (1 - Math.exp(-dt * 2.2));
       if (v.flash > 0) {
@@ -1860,10 +1916,12 @@ export class HallMap implements GameMap {
       }
       const steady = v.glimmer ? 9 : 6;
       v.light.intensity = v.ign >= 0 ? Math.max(v.glow * steady * flick, 12 * spike + steady * Math.min(1, v.ign / 0.4) * (1 - spike)) : v.glow * steady * flick;
-      v.glass.emissiveIntensity = v.glow * (v.glimmer ? 2.4 : 1.4) * flick + spike * 4;
-      v.core.emissiveIntensity = v.glow * (v.glimmer ? 7 : 5.5) * flick + spike * 8;
+      // A dark lantern keeps an ember: a slow faint pulse in its wick that says "light me" across the room.
+      const ember = (1 - Math.min(1, v.glow * 4)) * (0.9 + 0.55 * Math.sin(t * 1.6 + v.frame.def.x * 0.7));
+      v.glass.emissiveIntensity = v.glow * (v.glimmer ? 2.4 : 1.9) * flick + spike * 4 + ember * 0.12;
+      v.core.emissiveIntensity = v.glow * (v.glimmer ? 7 : 5.5) * flick + spike * 8 + ember;
       v.pane.emissiveIntensity = v.glow * (v.glimmer ? 1.8 : 1.3) * flick + v.flash * 4;
-      v.pool.uniforms.uI!.value = v.glow * (v.glimmer ? 0.18 : 0.42) * flick + spike * 0.6;
+      v.pool.uniforms.uI!.value = v.glow * (v.glimmer ? 0.18 : 0.42) * flick + spike * 0.6 + ember * 0.035;
       lit += v.glow;
     }
     if (this.ringT >= 0 || this.burstAlive) {

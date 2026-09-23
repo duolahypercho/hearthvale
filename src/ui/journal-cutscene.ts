@@ -278,6 +278,8 @@ export class CinemaOverlay {
   private choiceResolve: ((i: number) => void) | null = null;
   private choiceSel = 0;
   private choiceCount = 0;
+  /** Co-op farmhand: the options are on screen but the host picks. */
+  private choiceLocked = false;
   private skipT = 0;
   private coach = new CoachWindow();
   private padRaf = 0;
@@ -438,7 +440,11 @@ export class CinemaOverlay {
 
   // ───────────────────────────── choices
 
-  choice(who: Speaker, text: string, options: ChoiceOption[], hold: boolean): Promise<number> {
+  /**
+   * `waiting` (co-op farmhand): the options are shown locked under a "waiting for the host" note and
+   * `remote` receives the resolver the host's pick arrives through.
+   */
+  choice(who: Speaker, text: string, options: ChoiceOption[], hold: boolean, waiting?: string, remote?: (resolve: (i: number) => void) => void): Promise<number> {
     this.setSpeaker(who);
     this.line = text;
     this.shown = text.length;
@@ -449,8 +455,26 @@ export class CinemaOverlay {
       .map((o, i) => `<button class="cin-choice" data-i="${i}" style="--d:${i * 70}ms"><span class="key">${i + 1}</span><span class="lbl">${o.label}</span>${o.hint ? `<span class="hint">${o.hint}</span>` : ''}</button>`)
       .join('');
     this.choices.classList.remove('hv-hidden');
+    this.choices.classList.toggle('locked', !!waiting);
+    this.choices.querySelector('.cin-wait')?.remove();
     this.selectChoice(0);
     if (hold) return Promise.resolve(-1);
+    if (waiting) {
+      const note = document.createElement('div');
+      note.className = 'cin-wait';
+      note.textContent = waiting;
+      this.choices.appendChild(note);
+      return new Promise((r) => {
+        this.choiceResolve = r;
+        this.choiceLocked = true;
+        remote?.((i) => {
+          this.choiceLocked = false;
+          this.selectChoice(i);
+          this.pick(i);
+        });
+      });
+    }
+    this.choiceLocked = false;
     return new Promise((r) => {
       this.choiceResolve = r;
       this.choices.querySelectorAll<HTMLElement>('button').forEach((b) => {
@@ -483,6 +507,7 @@ export class CinemaOverlay {
   }
 
   private choiceKey(e: KeyboardEvent): void {
+    if (this.choiceLocked) return;
     const n = this.choiceCount;
     const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
     if (digit) {

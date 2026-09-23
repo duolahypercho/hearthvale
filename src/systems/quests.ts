@@ -72,6 +72,11 @@ export interface QuestApi {
   deliver(id: string): boolean;
   /** Demo / debug: complete the first `n` rooms (in order) silently. */
   debugFill(n: number, partial?: boolean): void;
+  // ── co-op (host side): another farmer's hand-ins. Their backpack lives on their machine, so these
+  //    touch no local inventory; the return value is what was accepted (the net layer refunds the rest).
+  contributeRemote(bundleId: string, itemId: string, qty: number): number;
+  contributeGoldRemote(bundleId: string, gold: number): number;
+  deliverRemote(id: string): boolean;
 }
 
 declare module '../core/game' {
@@ -139,14 +144,34 @@ export class QuestSystem implements System, QuestApi {
   }
 
   contribute(bundleId: string, itemId: string, qty = 1): number {
+    const inv = this.game.services.inventory;
+    if (!inv) return 0;
+    return this.give(bundleId, itemId, Math.min(qty, inv.count(itemId)), (n) => inv.remove(itemId, n));
+  }
+
+  contributeRemote(bundleId: string, itemId: string, qty: number): number {
+    return this.give(bundleId, itemId, qty, () => true);
+  }
+
+  private give(bundleId: string, itemId: string, qty: number, take: (n: number) => boolean): number {
     const s = this.bundle(bundleId);
     const need = s?.def.items.find((i) => i.itemId === itemId);
-    const inv = this.game.services.inventory;
-    if (!s || s.done || !need || !inv) return 0;
-    const n = Math.min(qty, need.qty - (s.given[itemId] ?? 0), inv.count(itemId));
-    if (n <= 0 || !inv.remove(itemId, n)) return 0;
+    if (!s || s.done || !need) return 0;
+    const n = Math.min(qty, need.qty - (s.given[itemId] ?? 0));
+    if (n <= 0 || !take(n)) return 0;
     s.given[itemId] = (s.given[itemId] ?? 0) + n;
     this.game.events.emit('quest:bundle', { bundleId, itemId, qty: n });
+    this.check(s);
+    return n;
+  }
+
+  contributeGoldRemote(bundleId: string, gold: number): number {
+    const s = this.bundle(bundleId);
+    if (!s || s.done || !s.def.gold) return 0;
+    const n = Math.min(gold, s.def.gold - s.paid);
+    if (n <= 0) return 0;
+    s.paid += n;
+    this.game.events.emit('quest:bundle', { bundleId, itemId: 'gold', qty: n });
     this.check(s);
     return n;
   }
@@ -284,6 +309,17 @@ export class QuestSystem implements System, QuestApi {
     const inv = this.game.services.inventory;
     if (!p || p.state !== 'active' || !inv || inv.count(p.itemId) < p.qty) return false;
     if (!inv.remove(p.itemId, p.qty)) return false;
+    return this.completePosting(p);
+  }
+
+  deliverRemote(id: string): boolean {
+    const p = this.board.find((q) => q.id === id);
+    if (!p || (p.state !== 'active' && p.state !== 'posted')) return false;
+    return this.completePosting(p);
+  }
+
+  private completePosting(p: Posting): boolean {
+    const id = p.id;
     p.state = 'done';
     this.game.services.economy?.add(p.gold, `quest:${p.id}`);
     this.game.events.emit('quest:complete', { id, gold: p.gold, npc: p.npc });

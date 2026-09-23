@@ -328,11 +328,20 @@ Wanted notes are pinned to the board in the square.
   (coach, Hall landmark, valley restorations, Glimmerco kiosk / van). UI: `ui/journal*.ts` (journal J, bundle altar,
   notice board, letter reader, cinema overlay + painted coach window).
 - Services: `story`, `letters`, `quests`, `cutscene` (`play`, `stage(scene, mark)`, `skip`, `audit()`).
+- Co-op (host-authoritative; the net layer drives it): `story.setRole('host'|'guest')`; the host authors every beat
+  (`story:scene` → guests `story.playRemote(scene)`, which returns the farmhand to where they stood), picks the moral
+  choice (guests see it locked, `story:choice` → `cutscene.resolveRemoteChoice(i)`), and owns the shared state
+  (`story:dirty` once a frame → `story.netState()` / `applyNetState()`: flags, mail, bundles, board). Farmhand hand-ins
+  reach the host as `quests.contributeRemote / contributeGoldRemote / deliverRemote`. Co-op avatars (`remote-farmer`)
+  and ambient villagers who would twin a cast member or block the lens step aside while a scene plays.
+- Perf: the Hall's showing room dressings + bundle sacks are merged per material (`hall-dressing`, ~25 draws for all
+  six rooms); cutscene tree occlusion tests cached canopy spheres every third frame (no per-frame raycasts).
 - Demos: `intro-letter`, `intro-establish`, `intro-arrival`, `intro-farm`, `intro-night`, `lantern-hall-dark`,
   `lantern-hall-restored`, `lantern-room-lit`, `lantern-room-reveal` (`&room=seed|sun|harvest|hearth|craft|tide`),
   `bundle-ui` (or `ui=bundles:<room>`), `journal` (`ui=journal:quests|hall|letters`), `help-board`, `glimmer-kiosk`,
   `glimmer-survey`, `glimmer-marigold`, `glimmer-offer` (the choice), `glimmer-accept`, `glimmer-town`,
-  `lantern-hall-glimmer`, `sterling-redeem`, `lantern-festival`, `lantern-festival-sky`. `&lit=N` sets rooms lit.
+  `lantern-hall-glimmer`, `sterling-redeem`, `lantern-festival`, `lantern-festival-sky`. `&lit=N` sets rooms lit;
+  `&coop=guest` stages a scene as a farmhand sees it (e.g. `?demo=glimmer-offer&coop=guest`: the choice, locked).
 
 ## Seasonal festivals
 
