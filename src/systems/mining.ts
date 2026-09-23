@@ -21,6 +21,7 @@ import { FLOOR_W, FLOOR_D } from '../world/mine/gen';
 import { FloorPlaque, ElevatorPanel, DamageNumbers } from '../world/mine/hud';
 import { mineActions } from '../world/mine/actions';
 import { registerMineIcons } from '../world/mine/icons';
+import { MineCoop } from '../world/mine/coop';
 import { mineSfx } from '../world/mine/sfx';
 import { buildTool } from '../world/props/tools';
 import { itemDef } from '../data/items';
@@ -57,6 +58,8 @@ export class MiningSystem implements System, MiningApi {
   /** Floors whose milestone chest is open (shared with the map, saved here). */
   private chests = OPENED_CHESTS;
   private pickTier = -1;
+  /** Co-op: host-authoritative floors (world/mine/coop.ts). */
+  private coop!: MineCoop;
 
   init(game: Game): void {
     this.game = game;
@@ -64,6 +67,7 @@ export class MiningSystem implements System, MiningApi {
     game.world.registerMap('mine-entrance', (g) => new MineEntranceMap(g));
     game.world.registerMap('mine', (g) => new MineMap(g));
     game.provide('mining', this);
+    this.coop = new MineCoop(game);
 
     const ui = game.opts.uiRoot;
     this.plaque = new FloorPlaque(ui);
@@ -265,6 +269,7 @@ export class MiningSystem implements System, MiningApi {
   // ───────────────────────────────────────────── frame
 
   update(dt: number, game: Game): void {
+    this.coop.update(dt, game.time);
     const id = game.world.current?.id;
     const inMine = id === 'mine' || id === 'mine-entrance';
     this.plaque.show(inMine && game.opts.hud);

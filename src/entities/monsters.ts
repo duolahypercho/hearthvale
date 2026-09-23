@@ -282,6 +282,25 @@ export abstract class Monster {
     this.root.scale.set(1 + 0.26 * s, 1 - 0.3 * s, 1 + 0.26 * s);
   }
 
+  /** Co-op mirror: face this way (the host's heading). */
+  mirrorYaw(yaw: number): void {
+    this.facing = yaw;
+    this.root.rotation.y = yaw;
+  }
+
+  /** Co-op mirror: play a hit (flash, squash, jiggle, death) without simulating it. */
+  hitFx(dir: THREE.Vector3, killed: boolean): void {
+    if (!this.alive) return;
+    this.flash = 1;
+    this.squash = 1;
+    this.aggro = true;
+    this.onHit(dir);
+    if (killed) {
+      this.hp = 0;
+      this.dying = 0;
+    }
+  }
+
   /** Currently sliding from a hit (co-op snapshots mark it). */
   get knocked(): boolean {
     return !!this.kb;
@@ -289,7 +308,12 @@ export abstract class Monster {
 
   update(dt: number, ctx: ArenaCtx, frozen = false): void {
     this.flash = this.holdFlash ? 0.22 : Math.max(0, this.flash - dt * 7);
-    if (frozen) {
+    if (frozen && this.dying < 0) {
+      if (this.squash > 0) {
+        this.squash = Math.max(0, this.squash - dt / 0.075);
+        const s = this.squash;
+        this.root.scale.set(1 + 0.26 * s, 1 - 0.3 * s, 1 + 0.26 * s);
+      }
       for (const m of this.mats) (m.userData.uFlash as { value: number }).value = this.flash;
       this.pose(dt, ctx);
       this.root.position.copy(this.pos);

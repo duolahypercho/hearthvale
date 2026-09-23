@@ -34,6 +34,12 @@ declare module '../../core/events' {
     'combat:strike': { x: number; z: number; dx: number; dz: number; tier: number; hits: number };
     /** Health hit 0 in the mine. */
     'combat:passOut': { floor: number };
+
+    /**
+     * Co-op extension channel (emitted by the net layer): a relayed game payload whose kind is not
+     * the net layer's own (mine payloads start with "m."), from peer `from`.
+     */
+    'net:ext': { from: number; data: unknown[] };
   }
 }
 

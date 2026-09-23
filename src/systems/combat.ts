@@ -19,7 +19,7 @@ import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { MineMap } from '../world/mine';
 import { Crab, monsterColor, type Monster } from '../entities/monsters';
-import { mineActions, buildSword, SwordTrail, SlashArc, SWORD_TIP, SWORD_BASE } from '../world/mine/actions';
+import { mineActions, buildSword, SwordTrail, SlashArc, SWORD_TIP, SWORD_BASE, SWORD_TIERS, SWORD_REACH as REACH, SWORD_ARC_COS as ARC_COS, SWORD_CRIT as CRIT } from '../world/mine/actions';
 import { DamageNumbers, ScreenFx } from '../world/mine/hud';
 import { mineSfx } from '../world/mine/sfx';
 import type { MonsterKind } from '../world/mine/biomes';
@@ -43,16 +43,7 @@ declare module '../core/game' {
 
 const MAX_HP = 100;
 const IFRAMES = 1.1;
-const REACH = 1.75;
-const ARC_COS = Math.cos(THREE.MathUtils.degToRad(82));
-/** Sword tiers: reforged by the treasure chests on floors 10, 20 and 30. */
-export const SWORD_TIERS: { name: string; dmg: [number, number] }[] = [
-  { name: "Miner's Shortsword", dmg: [8, 13] },
-  { name: 'Tempered Shortsword', dmg: [13, 19] },
-  { name: 'Glimmersteel Blade', dmg: [19, 27] },
-  { name: 'Emberheart Sword', dmg: [27, 38] },
-];
-const CRIT = 0.1;
+export { SWORD_TIERS };
 
 const FACE: Record<string, THREE.Vector3> = {
   up: new THREE.Vector3(0, 0, -1),

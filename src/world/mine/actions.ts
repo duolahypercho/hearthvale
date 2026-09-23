@@ -243,6 +243,18 @@ export function mineActions(player: Player): MineActions {
 
 // ───────────────────────────────────────────── sword
 
+/** Sword tiers: reforged by the treasure chests on floors 10, 20 and 30 (shared with co-op). */
+export const SWORD_TIERS: { name: string; dmg: [number, number] }[] = [
+  { name: "Miner's Shortsword", dmg: [8, 13] },
+  { name: 'Tempered Shortsword', dmg: [13, 19] },
+  { name: 'Glimmersteel Blade', dmg: [19, 27] },
+  { name: 'Emberheart Sword', dmg: [27, 38] },
+];
+/** Sword reach (m, + 0.12 per tier), half-arc cosine and crit chance. */
+export const SWORD_REACH = 1.75;
+export const SWORD_ARC_COS = Math.cos(THREE.MathUtils.degToRad(82));
+export const SWORD_CRIT = 0.1;
+
 const swordProtos = new Map<number, THREE.Group>();
 /** Blade / trim / glow per sword tier (0 = the notched Miner's Shortsword). */
 const SWORD_LOOK = [
