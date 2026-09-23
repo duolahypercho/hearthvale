@@ -227,6 +227,34 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
   b.add('metal', new THREE.TorusGeometry(0.2, 0.01, 4, 12, Math.PI), mat(cx + 1.0, deck + 0.36, H.z1 - 0.6, 0, 0.4, 0), { tint: 0x5a5a5a });
   b.add('woodPaint', roundedBox(0.5, 0.24, 0.3, 0.03), mat(cx + 1.6, deck + 0.12, H.z1 - 0.55, 0, 0.3, 0), { tint: 0x3f8a5a });
   b.add('metal', roundedBox(0.2, 0.04, 0.05, 0.01), mat(cx + 1.6, deck + 0.26, H.z1 - 0.55, 0, 0.3, 0), { tint: 0xd8a84a });
+  // The walkway fishing spot (east half, z ≈ 51-53): an angler's kit — folding stool, tackle box
+  // with its lid up, bait bucket with a tail sticking out, a coil of rope and a deck lantern.
+  {
+    const ex = cx + 0.85;
+    const ez = 52.2;
+    // Stool: canvas seat on crossed legs.
+    for (const s of [-1, 1]) b.add('woodDark', beam(0.022, 0.022, new THREE.Vector3(ex - 0.16 * s, deck, ez - 0.14), new THREE.Vector3(ex + 0.16 * s, deck + 0.38, ez + 0.14), 5));
+    for (const s of [-1, 1]) b.add('woodDark', beam(0.022, 0.022, new THREE.Vector3(ex - 0.16 * s, deck, ez + 0.14), new THREE.Vector3(ex + 0.16 * s, deck + 0.38, ez - 0.14), 5));
+    b.add('cloth', roundedBox(0.4, 0.04, 0.34, 0.015), mat(ex, deck + 0.4, ez), { tint: 0x3f6a8a });
+    // Tackle box (green, lid propped open, trays inside).
+    const tx = ex + 0.1;
+    const tz = ez - 0.75;
+    b.add('woodPaint', roundedBox(0.5, 0.22, 0.28, 0.03), mat(tx, deck + 0.11, tz, 0, 0.25, 0), { tint: 0x3f8a5a });
+    b.add('woodPaint', roundedBox(0.5, 0.04, 0.28, 0.015), mat(tx - Math.sin(0.25) * 0.14, deck + 0.3, tz - Math.cos(0.25) * 0.14 - 0.06, -1.1, 0.25, 0), { tint: 0x3f8a5a });
+    for (const [dx, c] of [[-0.14, 0xe8483a], [0, 0xf5c542], [0.14, 0x4e9ee0]] as const) b.add('woodPaint', new THREE.BoxGeometry(0.1, 0.03, 0.08), mat(tx + dx, deck + 0.23, tz + 0.02, 0, 0.25, 0), { tint: c });
+    b.add('metal', roundedBox(0.16, 0.03, 0.04, 0.01), mat(tx, deck + 0.24, tz + 0.12, 0, 0.25, 0), { tint: 0xd8a84a });
+    // Bait bucket + a fish tail peeking out.
+    const bx = ex - 0.05;
+    const bz = ez + 0.72;
+    b.add('woodPaint', bevelCylinder(0.19, 0.16, 0.34, 0.02, 12), mat(bx, deck, bz), { tint: 0xb8c6cc });
+    b.add('stillWater', new THREE.CircleGeometry(0.17, 12), mat(bx, deck + 0.3, bz, -Math.PI / 2));
+    b.add('metal', new THREE.TorusGeometry(0.19, 0.01, 4, 12, Math.PI), mat(bx, deck + 0.34, bz, 0, 0.9, 0), { tint: 0x5a5a5a });
+    b.add('woodPaint', new THREE.ConeGeometry(0.06, 0.14, 4).scale(1, 1, 0.3), mat(bx + 0.05, deck + 0.38, bz - 0.03, 0.4, 0.3, 0.2), { tint: 0x8aa6b8 });
+    // Rope coil.
+    for (let i = 0; i < 3; i++) b.add('cloth', new THREE.TorusGeometry(0.2 - i * 0.035, 0.028, 5, 14), mat(ex + 0.45, deck + 0.03 + i * 0.045, ez + 0.2, Math.PI / 2), { tint: 0xc8a86a });
+    // Deck lantern (glass lit at night).
+    lantern(b, ex + 0.5, deck + 0.08, ez - 0.35, 0.7);
+  }
   // A spare rod leaning on the far (east) rail by the crab pots, well away from the fishing spot.
   b.add('woodGrain', beam(0.02, 0.008, new THREE.Vector3(H.x1 - 0.45, deck, H.z0 + 1.6), new THREE.Vector3(H.x1 + 0.1, deck + 2.1, H.z0 + 2.3), 5), undefined, { tint: 0xa88a50 });
   // Lamp posts at the root, middle and head.

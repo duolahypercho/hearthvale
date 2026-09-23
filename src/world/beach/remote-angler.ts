@@ -188,7 +188,7 @@ export class RemoteAngler {
         this.held = fishId;
         this.caughtNote = def.name;
       }
-      const hold = _hold.copy(feet).addScaledVector(_UP, 1.28).addScaledVector(fwd, 0.42);
+      const hold = _hold.copy(feet).addScaledVector(_UP, 1.18).addScaledVector(fwd, 0.58);
       if (arc < 1) {
         g.heldRoot.position.lerpVectors(bob, hold, arc);
         g.heldRoot.position.y += Math.sin(arc * Math.PI) * 1.2;
@@ -197,7 +197,8 @@ export class RemoteAngler {
       } else {
         g.heldRoot.position.copy(hold);
         g.heldRoot.position.y += Math.sin(t * 3) * 0.02;
-        g.heldRoot.rotation.set(0, yaw - Math.PI / 2, Math.sin(t * 5) * 0.07 + 0.08);
+        // Side-on to whoever the farmer faces (same convention as the local catch pose).
+        g.heldRoot.rotation.set(0, -yaw, Math.sin(t * 5) * 0.07 + 0.08);
         g.setGlory(_a.copy(hold).setY(hold.y + 0.4), camera, Math.min(1, this.stT * 2) * 0.4, t, 2.2);
       }
     } else if (this.held) {

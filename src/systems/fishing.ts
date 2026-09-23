@@ -1150,7 +1150,7 @@ export class FishingSystem implements System, FishingApi {
     const cam = game.rc.camera;
     for (const a of this.remotes.values()) {
       a.update(dt, game.time, cam, here, h, (p) => this.screenAt(p, 0));
-      this.ui.remoteBang(a.id, a.bang.on, a.bang.x, a.bang.y);
+      this.ui.remoteBang(a.id, a.bang.on, a.bang.x, a.bang.y - 26);
       if (a.caughtNote) {
         const s = this.screenAt(_w.set(a.gear.heldRoot.position.x, a.gear.heldRoot.position.y, a.gear.heldRoot.position.z), 1.0);
         this.ui.note(`${a.caughtNote}!`, s.x, s.y);

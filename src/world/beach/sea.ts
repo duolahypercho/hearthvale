@@ -102,25 +102,31 @@ function weedRaft(rng: Rng): THREE.BufferGeometry {
 }
 
 /** Soft fish silhouette (body ellipse + forked tail), drawn as a dark translucent shadow. */
-function fishShadowMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    uniforms: { uOpacity: { value: 0.34 } },
-    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0); }',
-    fragmentShader: /* glsl */ `
-      varying vec2 vUv; uniform float uOpacity;
-      void main(){
-        vec2 p = vUv * 2.0 - 1.0;
-        // Body along +x (head), tail at -x.
-        float body = length(vec2((p.x - 0.15) / 0.62, p.y / 0.26));
-        float b = smoothstep(1.0, 0.55, body);
-        vec2 tp = vec2(p.x + 0.72, p.y);
-        float tail = smoothstep(0.02, -0.08, abs(tp.y) - (0.05 + max(0.0, -tp.x) * 0.9)) * step(-0.28, -abs(tp.x + 0.02)) * step(tp.x, 0.18);
-        float a = max(b, tail * 0.85);
-        gl_FragColor = vec4(0.02, 0.1, 0.14, a * uOpacity);
-      }`,
-  });
+function fishShadowMaterial(): THREE.MeshBasicMaterial {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  const rg = g.createRadialGradient(74, 32, 2, 74, 32, 44);
+  rg.addColorStop(0, 'rgba(255,255,255,1)');
+  rg.addColorStop(0.7, 'rgba(255,255,255,0.75)');
+  rg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = rg;
+  g.beginPath();
+  g.ellipse(74, 32, 46, 15, 0, 0, Math.PI * 2);
+  g.fill();
+  g.globalAlpha = 0.7;
+  g.beginPath();
+  g.moveTo(34, 32);
+  g.lineTo(6, 16);
+  g.lineTo(14, 32);
+  g.lineTo(6, 48);
+  g.closePath();
+  g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  const m = new THREE.MeshBasicMaterial({ map: tex, color: 0x04161e, transparent: true, opacity: 0.46, depthWrite: false });
+  m.name = 'fishSchool';
+  return m;
 }
 
 interface Drifter {
@@ -250,7 +256,7 @@ export class SeaProps {
     this.drifters.forEach((d, i) => {
       d.a += d.sp * dt;
       d.rot += d.sp * dt * 1.7;
-      _p.set(d.cx + Math.cos(d.a) * d.r, L + 0.03 + Math.sin(t * 1.4 + i) * 0.02, d.cz + Math.sin(d.a) * d.r);
+      _p.set(d.cx + Math.cos(d.a) * d.r, L + 0.055 + Math.sin(t * 1.4 + i) * 0.02, d.cz + Math.sin(d.a) * d.r);
       _e.set(Math.sin(t * 1.2 + i) * 0.05, d.rot, 0);
       _q.setFromEuler(_e);
       _s.set(1, 1, 1);
@@ -270,7 +276,8 @@ export class SeaProps {
       const dx = Math.cos(u) * S.r * 0.6;
       const dz = Math.cos(u * 2) * 2 * S.r * 0.3;
       const yaw = Math.atan2(-dz, dx) + Math.sin(t * 7 + i) * 0.12;
-      _p.set(x, L + 0.015, z);
+      // Above the swell's highest lift (the sea writes depth), so the shadows are never swallowed.
+      _p.set(x, L + 0.075, z);
       _e.set(0, yaw, 0);
       _q.setFromEuler(_e);
       const sc = 0.75 + (i % 3) * 0.15;
@@ -283,7 +290,7 @@ export class SeaProps {
 
   /** Night: the school goes deep (fades), everything else keeps bobbing. */
   setNight(night: number): void {
-    (this.school.material as THREE.ShaderMaterial).uniforms.uOpacity!.value = 0.34 * (1 - night * 0.8);
+    (this.school.material as THREE.MeshBasicMaterial).opacity = 0.46 * (1 - night * 0.8);
   }
 }
 

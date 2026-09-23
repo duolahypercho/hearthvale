@@ -206,7 +206,7 @@ export class BeachMap implements GameMap {
         [34.2, 48.4],
       ],
       { x: 40.4, z: 54.6, rot: 0.32 },
-      { x: 44.2, z: 57.2, r: 3.6 },
+      { x: 41.2, z: 51.4, r: 3.0 },
       [
         [38.6, 52.6],
         [45.2, 51.2],
@@ -234,6 +234,8 @@ export class BeachMap implements GameMap {
     game.events.on('player:interact', ({ x, z }) => this.pick(x, z));
 
     this.poi.pier = [{ x: PIER.x, y: PIER.deckY, z: PIER.head.z0 + 2 }];
+    // The angler's kit on the walkway (east half): solid, the west half stays a path.
+    this.blockRect(PIER.x + 0.35, 51.2, PIER.x + 1.3, 53.2, 'tackle-kit');
     this.poi.campfire = [{ x: CAMPFIRE.x, z: CAMPFIRE.z }];
     this.poi.shack = [{ x: SHACK.x, z: SHACK.z }];
     this.poi.tidepools = TIDE_POOLS.map(([x, z]) => ({ x, z }));
