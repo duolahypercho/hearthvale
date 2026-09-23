@@ -523,8 +523,9 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       const ds = dist[i]!;
       if (ds < 0 || ds < 3) continue;
       if (elevator && Math.hypot(x - elevator.x, z - elevator.z) < 2) continue;
+      // Clumps (low-frequency noise) hugging the wall feet and seams; few loose singles mid-hall.
       const cl = noise.fbm(x * 0.16 + 31, z * 0.16 - 7, 2);
-      const p = 0.13 + Math.max(0, cl) * 1.05 + wallAdj(x, z) * 0.07;
+      const p = 0.07 + Math.max(0, cl) * 1.25 + wallAdj(x, z) * 0.15;
       if (rng.next() > p) continue;
       let ore = rng.weighted(oreTable);
       // Ore veins cluster: a neighbour's ore is contagious.
@@ -596,19 +597,42 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
  */
 export function oreTableFor(floor: number, ores: [OreId | null, number][], depthInBand: number, tier: number): (readonly [OreId | null, number])[] {
   const gate = (o: OreId): boolean => {
-    if (tier > 0) return true;
+    if (o === 'diamond') return floor >= 25 || tier > 0;
+    if (tier > 0) return o !== 'copperOre';
     if (o === 'ironOre') return floor >= 5;
     if (o === 'goldOre') return floor >= 21;
     return true;
   };
   const rows = ores.filter(([o]) => o === null || gate(o)).map(([o, w]) => [o, o === null ? w * (1 - depthInBand * 0.25) : w * (1 + depthInBand * 0.4 + tier * 0.3)] as [OreId | null, number]);
-  if (floor < 10 && tier === 0) {
-    const isGem = (o: OreId | null): boolean => o !== null && o !== 'quartz' && ORE_STYLE[o].kind === 'gem';
-    const total = rows.reduce((a, [, w]) => a + w, 0);
-    const gems = rows.filter(([o]) => isGem(o)).reduce((a, [, w]) => a + w, 0);
-    const cap = total * 0.02;
-    if (gems > cap) for (const r of rows) if (isGem(r[0])) r[1] *= cap / gems;
+  const isGem = (o: OreId | null): boolean => o !== null && o !== 'quartz' && ORE_STYLE[o].kind === 'gem';
+  const sum = (f: (o: OreId | null) => boolean): number => rows.filter(([o]) => f(o)).reduce((a, [, w]) => a + w, 0);
+  // Share of the rolls a set of ores gets (rescales those rows, keeps the rest).
+  const setShare = (f: (o: OreId | null) => boolean, share: number, onlyIfAbove = false): void => {
+    const total = sum(() => true);
+    const cur = sum(f);
+    if (cur <= 0 || (onlyIfAbove && cur <= total * share)) return;
+    const rest = total - cur;
+    const want = (share * rest) / (1 - share);
+    for (const r of rows) if (f(r[0])) r[1] *= want / cur;
+  };
+  if (tier === 0 && floor <= 5) {
+    // First floors: sparse ore (12 → 17 % of rocks), gems ≤ 1 %.
+    setShare((o) => o !== null, 0.12 + (floor - 1) * 0.0125);
+    setShare(isGem, 0.01, true);
+  } else {
+    // Deeper: richer with depth (≈ 20 % → 40 % of rocks carry ore), gems stay rare finds.
+    const band = Math.floor((floor - 1) / 10) % 3;
+    setShare((o) => o !== null, Math.min(0.42, 0.18 + depthInBand * 0.1 + band * 0.05 + tier * 0.06));
+    setShare(isGem, floor < 10 && tier === 0 ? 0.012 : tier > 0 ? 0.045 : 0.03, true);
   }
+  if (tier > 0) {
+    // Repeat bands pay better than the first pass: iron is the floor, gold ≥ 10 %.
+    const gold = rows.find(([o]) => o === 'goldOre');
+    if (gold) setShare((o) => o === 'goldOre', 0.12);
+    else rows.push(['goldOre', sum(() => true) * 0.12]);
+  }
+  // Diamonds stay an event: ≤ 0.5 % of rolls.
+  setShare((o) => o === 'diamond', 0.005, true);
   return rows;
 }
 

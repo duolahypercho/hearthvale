@@ -7,6 +7,7 @@
  * and scree pile at its foot, and a dirt path winds south back towards the farm.
  */
 import * as THREE from 'three';
+import { glowPoint } from './fx';
 import type { Game } from '../../core/game';
 import { Rng } from '../../core/rng';
 import { Noise2D, smoothstep } from '../../core/noise';
@@ -30,6 +31,31 @@ import { globalUniforms } from '../../render/uniforms';
 
 const W = 44;
 const D = 34;
+/** One projection of the cliff rock texture: x = albedo multiplier, y = bump height, z = grit. */
+const CLIFF_TEX = /* glsl */ `
+vec3 hvCliffTex(vec2 tp) {
+  vec2 wq = tp * vec2(0.3, 0.72);
+  wq += (vec2(hvFbm(tp * 0.3 + 3.0), hvFbm(tp * 0.3 + 9.0)) - 0.5) * 1.3;
+  vec4 st = hvMineStone(wq);
+  float edge = st.y - st.x;
+  vec4 st2 = hvMineStone(wq * 2.7 + 4.1);
+  float edge2 = st2.y - st2.x;
+  // Only some slab borders open into joints (a cliff, not a dry-stone wall). Anti-aliased: a joint
+  // thinning below ~2 px widens + fades into the cavity shading instead of breaking into dashes.
+  float open = smoothstep(0.42, 0.66, hvNoise(floor(wq) * 0.41 + st.z * 5.0 + tp * 0.18));
+  float aa = fwidth(edge) * 2.0;
+  float crack = (1.0 - smoothstep(0.02, 0.09 + aa, edge)) * open * (0.09 / (0.09 + aa * 2.0));
+  float cavity = (1.0 - smoothstep(0.0, 0.3, edge)) * (0.35 + 0.65 * open);
+  float aa2 = fwidth(edge2) * 2.0;
+  float craze = (1.0 - smoothstep(0.0, 0.035 + aa2, edge2)) * smoothstep(0.5, 0.75, hvNoise(tp * 0.8)) * (1.0 - cavity) * (0.035 / (0.035 + aa2 * 2.0));
+  float grit = hvNoise(tp * 5.0) * 0.55 + hvNoise(tp * 16.0) * 0.45;
+  float h = smoothstep(0.0, 0.45, edge) * 0.12 * (0.4 + 0.6 * open) + (st.z - 0.5) * 0.05 + hvNoise(tp * 5.0) * 0.02 - craze * 0.012;
+  float lit = mix(1.1, 0.86, smoothstep(-0.5, 0.5, st.w));
+  float tone = (0.86 + 0.26 * st.z) * lit * (1.0 - crack * 0.62) * (1.0 - cavity * 0.18) * (1.0 - craze * 0.2) * (0.86 + 0.28 * grit);
+  return vec3(tone, h, grit);
+}
+`;
+
 /** Mine mouth centre (x) and cliff foot (z). */
 export const MOUTH = { x: 22, z: 10.4, w: 3.2 };
 export const ENTRANCE_SPAWN = { x: 22.5, z: 13.2 };
@@ -283,7 +309,17 @@ export class MineEntranceMap implements GameMap {
     const lan = new MeshBuilder();
     lan.add('metal', new THREE.CylinderGeometry(0.01, 0.01, 0.4, 4), mat(0, H - 0.25, -0.55));
     lanternKit(lan, 0, H - 0.62, -0.55, 1.15, mouthGlass());
+    // A second, dimmer lamp ~3 m down the drift: the tunnel has depth (warm light far inside).
+    lan.add('metal', new THREE.CylinderGeometry(0.01, 0.01, 0.35, 4), mat(0.35, H - 0.3, -2.9));
+    lanternKit(lan, 0.35, H - 0.68, -2.9, 0.9, mouthGlass());
     this.add(lan.build({ name: 'mouth-lantern' }), MOUTH.x, MOUTH.z, 0, [], y0);
+    const deepGlow = glowPoint(0xffa050, 1.6, 0.35);
+    deepGlow.position.set(MOUTH.x + 0.35, y0 + H - 0.75, MOUTH.z - 2.85);
+    this.root.add(deepGlow);
+    const deepPool = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.4).rotateX(-Math.PI / 2), poolMaterial(0xffa050, 0.22));
+    deepPool.position.set(MOUTH.x + 0.2, y0 + 0.05, MOUTH.z - 2.6);
+    deepPool.renderOrder = 3;
+    this.root.add(deepPool);
     this.add(b.build({ name: 'mine-mouth' }), MOUTH.x, MOUTH.z, 0, [], y0);
     // Darkness at the end of the drift, and a floor fade that deepens with depth.
     const dark = new THREE.Mesh(
@@ -421,18 +457,20 @@ export class MineEntranceMap implements GameMap {
         const jw = 1.4 + hash(band * 3.1) * 2.2;
         const ju = (x + hash(band * 5.3) * 9) / jw;
         const jf = ju - Math.floor(ju);
-        const joint = 1 - smoothstep(0.0, 0.06, Math.min(jf, 1 - jf) * jw);
+        // (joints / ledge shadows span several vertex rows: one-row-wide dark lines rendered as dashes)
+        const joint = 1 - smoothstep(0.0, 0.32, Math.min(jf, 1 - jf) * jw);
         const block = hash(Math.floor(ju) * 0.71 + band * 13.3);
-        const prof = smoothstep(0.0, 0.06, f) * (1 - smoothstep(0.9, 1.0, f)) * (0.75 + 0.25 * f);
+        // Ledge lips ramp over ~3 vertex rows (a one-row step rendered as a dashed dark stitch).
+        const prof = smoothstep(0.0, 0.2, f) * (1 - smoothstep(0.82, 1.0, f)) * (0.75 + 0.25 * f);
         let disp = 0.03 + steep * (0.05 + (0.08 + hard * 0.26) * prof + (block - 0.5) * 0.06 - joint * 0.12 + n.fbm(x * 0.35, y * 0.35 + 7, 2) * 0.12);
-        disp = Math.max(0.025, disp);
+        disp = Math.max(0.05, disp);
         const k = (i * rows + j) * 3;
         pos[k] = x + nrm.x * disp;
         pos[k + 1] = y + nrm.y * disp + 0.015;
         pos[k + 2] = z + nrm.z * disp;
         // Albedo: per-band tone, lighter band tops, dark under-ledge shadow + joints, moss on ledges.
         c.copy(PAL[((band % PAL.length) + PAL.length) % PAL.length]!).multiplyScalar(0.86 + block * 0.22);
-        c.multiplyScalar((0.38 + 0.62 * smoothstep(0.0, 0.12, f)) * (1 - joint * 0.6) * (0.88 + 0.24 * smoothstep(0.6, 1.0, f)));
+        c.multiplyScalar((0.55 + 0.45 * smoothstep(0.0, 0.34, f)) * (1 - joint * 0.35) * (0.88 + 0.24 * smoothstep(0.6, 1.0, f)));
         const foot = smoothstep(1.4, 0.0, y - this.height(x, cz + 0.8, false));
         c.multiplyScalar(1 - foot * 0.3);
         const ledgeTop = smoothstep(0.86, 0.98, f) * steep * (0.4 + 0.6 * smoothstep(0.1, 0.5, n.fbm(x * 0.4, y * 0.4, 2) + 0.2));
@@ -462,34 +500,35 @@ export class MineEntranceMap implements GameMap {
     g.computeVertexNormals();
     const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
     m.name = 'entrance-cliff';
+    // The sheet lies a few cm over the terrain's own steep band: bias it forward so the two never
+    // z-fight into dashed stitches along the ledges at distance.
+    m.polygonOffset = true;
+    m.polygonOffsetFactor = -2;
+    m.polygonOffsetUnits = -4;
     patchMaterial(m, 'entrance-cliff-r3', (shader) => {
       let vs = before(shader.vertexShader, 'void main() {', 'varying vec3 vCfW; varying vec3 vCfN;');
       vs = after(vs, '#include <project_vertex>', 'vCfW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCfN = normalize(mat3(modelMatrix) * objectNormal);');
       shader.vertexShader = vs;
-      let fs = before(shader.fragmentShader, 'void main() {', `varying vec3 vCfW; varying vec3 vCfN;\n${NOISE_GLSL}\n${CAVE_GLSL}`);
+      let fs = before(shader.fragmentShader, 'void main() {', `varying vec3 vCfW; varying vec3 vCfN;\n${NOISE_GLSL}\n${CAVE_GLSL}\n${CLIFF_TEX}`);
       fs = after(
         fs,
         '#include <color_fragment>',
         /* glsl */ `
           // Rock texture at 2–3 m tiling: warped Voronoi slabs (wider than tall = bedding), open
-          // joints, crazing, grit; bump-mapped below. Moss collects on the up-facing ledges.
-          vec3 an = abs(normalize(vCfN));
-          vec2 tp = an.y > 0.72 ? vCfW.xz : (an.x > an.z ? vCfW.zy : vCfW.xy);
-          vec2 wq = tp * vec2(0.3, 0.72);
-          wq += (vec2(hvFbm(tp * 0.3 + 3.0), hvFbm(tp * 0.3 + 9.0)) - 0.5) * 1.3;
-          vec4 st = hvMineStone(wq);
-          float edge = st.y - st.x;
-          vec4 st2 = hvMineStone(wq * 2.7 + 4.1);
-          float edge2 = st2.y - st2.x;
-          // Only some slab borders open into joints (a cliff, not a dry-stone wall).
-          float open = smoothstep(0.42, 0.66, hvNoise(floor(wq) * 0.41 + st.z * 5.0 + tp * 0.18));
-          float crack = (1.0 - smoothstep(0.02, 0.09, edge)) * open;
-          float cavity = (1.0 - smoothstep(0.0, 0.3, edge)) * (0.35 + 0.65 * open);
-          float craze = (1.0 - smoothstep(0.0, 0.035, edge2)) * smoothstep(0.5, 0.75, hvNoise(tp * 0.8)) * (1.0 - cavity);
-          float grit = hvNoise(tp * 5.0) * 0.55 + hvNoise(tp * 16.0) * 0.45;
-          float cfH = smoothstep(0.0, 0.45, edge) * 0.12 * (0.4 + 0.6 * open) + (st.z - 0.5) * 0.05 + grit * 0.025 - craze * 0.012;
-          float lit = mix(1.1, 0.86, smoothstep(-0.5, 0.5, st.w));
-          diffuseColor.rgb *= (0.86 + 0.26 * st.z) * lit * (1.0 - crack * 0.62) * (1.0 - cavity * 0.18) * (1.0 - craze * 0.2) * (0.86 + 0.28 * grit);
+          // joints, crazing, grit; bump-mapped below. Sampled on all three planes and BLENDED by the
+          // normal (a hard plane switch left dashed seams along every ledge lip).
+          vec3 cn = normalize(vCfN);
+          vec3 w3 = pow(abs(cn), vec3(4.0));
+          w3 /= max(w3.x + w3.y + w3.z, 1e-4);
+          // (all three evaluated unconditionally: fwidth / dFdx inside a per-pixel branch are
+          // undefined at the branch border and printed dashed seams)
+          vec3 ra = hvCliffTex(vCfW.zy);
+          vec3 rb = hvCliffTex(vCfW.xz);
+          vec3 rc = hvCliffTex(vCfW.xy);
+          vec3 rr = ra * w3.x + rb * w3.y + rc * w3.z;
+          diffuseColor.rgb *= rr.x;
+          float cfH = rr.y;
+          float grit = rr.z;
           // Mineral streaks weeping down the face.
           float streak = smoothstep(0.62, 0.82, hvNoise(vec2(vCfW.x * 2.2, vCfW.y * 0.25 + 3.0)));
           diffuseColor.rgb *= 1.0 - streak * 0.12;
@@ -512,7 +551,18 @@ export class MineEntranceMap implements GameMap {
           vec3 r2 = cross(normal, dpx);
           float det = dot(dpx, r1);
           vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-          if (abs(det) > 1e-8) normal = normalize(abs(det) * normal - grad * 2.2);
+          // Fade the bump out on grazing / back-leaning facets (ledge undersides): there the
+          // derivatives blow up and flipped normals printed dashed black lines along every lip.
+          float graze = smoothstep(0.08, 0.35, abs(dot(normal, normalize(vViewPosition))));
+          if (abs(det) > 1e-8) {
+            // Limit the tilt: where the height field aliases, unclamped derivative bumps flipped
+            // normals into dashed black stitches along every ledge.
+            vec3 nb = normalize(abs(det) * normal - grad * 1.6);
+            vec3 dn = nb - normal;
+            float L = length(dn);
+            if (L > 0.45) nb = normalize(normal + dn * (0.45 / L));
+            normal = normalize(mix(normal, nb, graze));
+          }
         }`,
       );
       shader.fragmentShader = fs;

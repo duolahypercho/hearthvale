@@ -307,8 +307,29 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
       }
       case 'rail': {
         const rb = new MeshBuilder();
-        for (const sz of [-0.28, 0.28]) rb.add('metal', roundedBox(1.02, 0.06, 0.06, 0.015), mat(0, 0.07, sz), { tint: 0x7a7068 });
+        // Dark iron rails with a worn, polished running surface that catches the lantern.
+        for (const sz of [-0.28, 0.28]) {
+          rb.add('metal', roundedBox(1.02, 0.06, 0.06, 0.015), mat(0, 0.07, sz), { tint: 0x5a524c });
+          rb.add('metal', roundedBox(1.02, 0.014, 0.034, 0.005), mat(0, 0.103, sz), { tint: 0xe8e2d8 });
+        }
         for (const sx of [-0.25, 0.25]) rb.add('woodDark', roundedBox(0.16, 0.06, 0.82, 0.02), mat(sx + (r.next() - 0.5) * 0.04, 0.03, 0, 0, (r.next() - 0.5) * 0.1, 0), { tint: woodTint });
+        // The run never stops dead mid-floor: a timber buffer stop at one end, a rockfall at the other.
+        const railAt = (x: number): boolean => L.decor.some((o) => o.kind === 'rail' && Math.abs(o.z - d.z) < 0.1 && Math.abs(o.x - x) < 0.1);
+        for (const side of [-1, 1]) {
+          if (railAt(d.x + side)) continue;
+          const ex = side * 0.46;
+          if (side > 0) {
+            for (const sz of [-0.3, 0.3]) rb.add('woodGrain', roundedBox(0.16, 0.62, 0.16, 0.03), mat(ex, 0.31, sz, 0, 0, -side * 0.12), { tint: 0x8a6440 });
+            rb.add('woodGrain', roundedBox(0.2, 0.2, 0.9, 0.04), mat(ex - side * 0.04, 0.5, 0), { tint: 0x9a7048 });
+            rb.add('metal', roundedBox(0.06, 0.12, 0.7, 0.02), mat(ex - side * 0.14, 0.5, 0), { tint: 0x4a4440 });
+            rb.add('woodDark', roundedBox(0.5, 0.06, 0.1, 0.02), mat(ex - side * 0.22, 0.2, 0, 0, 0, side * 0.7), { tint: 0x6a4a30 });
+          } else {
+            for (let k = 0; k < 6; k++) {
+              const g = facetRock(r, 0.13 + r.next() * 0.13, def.rock[k % def.rock.length]!, { detail: 1, squash: 0.7, smooth: 0.5 });
+              rockB.add(mineRockMaterial(), g, mat(d.x + ex + (r.next() - 0.5) * 0.4, y - 0.02, d.z + (r.next() - 0.5) * 0.7));
+            }
+          }
+        }
         place(rb.build({ name: 'rail' }), d.x, d.z, 0);
         break;
       }

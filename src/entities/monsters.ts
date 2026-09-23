@@ -130,6 +130,39 @@ function eye(r: number, glow?: number): THREE.Group {
   return g;
 }
 
+/**
+ * Draw-call diet: bake several static parts (descendants of `parent`) into ONE mesh under it.
+ * `mat` given = they share that lit material (position + normal only); otherwise the parts' own
+ * material colours are baked into vertex colours under one unlit material (eyes, fangs, mouths,
+ * gloss highlights: cartoon details that read better unlit anyway, and glow colours > 1 still bloom).
+ */
+function mergeParts(parent: THREE.Object3D, parts: THREE.Mesh[], mat?: THREE.Material): THREE.Mesh {
+  parent.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(parent.matrixWorld).invert();
+  const geos: THREE.BufferGeometry[] = [];
+  for (const m of parts) {
+    let g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    if (!g.attributes.normal) g.computeVertexNormals();
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
+    if (!mat) {
+      const c = ((m.material as THREE.MeshBasicMaterial).color ?? new THREE.Color(1, 1, 1)).clone();
+      const n = g.attributes.position!.count;
+      const col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    geos.push(g);
+    m.removeFromParent();
+    if (!mat) (m.material as THREE.Material).dispose?.();
+  }
+  const merged = mergeGeometries(geos)!;
+  for (const g of geos) g.dispose();
+  const out = new THREE.Mesh(merged, mat ?? new THREE.MeshBasicMaterial({ vertexColors: true }));
+  parent.add(out);
+  return out;
+}
+
 export abstract class Monster {
   readonly root = new THREE.Group();
   readonly pos = new THREE.Vector3();
@@ -420,6 +453,15 @@ export class Slime extends Monster {
     this.eyes.add(mouth);
     this.body.add(this.eyes);
     this.root.add(this.body);
+    // One unlit mesh for the whole face + gloss highlight (was 8 meshes).
+    hl.removeFromParent();
+    this.eyes.add(hl);
+    hl.position.y -= this.eyes.position.y;
+    const face: THREE.Mesh[] = [];
+    this.eyes.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) face.push(o as THREE.Mesh);
+    });
+    mergeParts(this.eyes, face);
     this.wait = 0.4 + r.next() * 1.5;
     this.facing = (r.next() - 0.5) * 1.6;
   }
@@ -590,6 +632,19 @@ export class Bat extends Monster {
       fang.position.set(sx * 0.035, -0.07, 0.17);
       fang.rotation.x = Math.PI;
       this.body.add(fang);
+    }
+    {
+      // Fur (body + ears) as one mesh, eyes + fangs as one unlit mesh (was 7 meshes).
+      const fur: THREE.Mesh[] = [];
+      const face: THREE.Mesh[] = [];
+      this.body.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        (m.material === furMat ? fur : face).push(m);
+      });
+      const fm = mergeParts(this.body, fur, furMat);
+      fm.castShadow = true;
+      mergeParts(this.body, face);
     }
     const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(0.7).getHex(), { rough: 0.7, rim: 0.1, rimColor: BAT_RIM[biome] });
     wingMat.side = THREE.DoubleSide;

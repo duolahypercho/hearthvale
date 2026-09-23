@@ -40,6 +40,7 @@ import type { MonsterKind } from './biomes';
 import { DamageNumbers } from './hud';
 import { SlashArc, SWORD_TIERS, SWORD_REACH, SWORD_ARC_COS, SWORD_CRIT } from './actions';
 import { mineSfx } from './sfx';
+import { PRESET_LOOKS, type FarmerLook } from '../../entities/remote-look';
 
 export interface MineNetApi {
   /** Is farmer `id` on this machine's mine floor (or not in the mine at all)? */
@@ -59,7 +60,28 @@ type Role = 'solo' | 'host' | 'client';
 interface NetLike {
   role(): Role;
   myId(): number;
-  remotes?: { get(id: number): { farmer: { act(kind: string, tool: string | null): void; setFacingYaw(y: number): void } } | undefined };
+  remotes?: {
+    get(id: number): DemoRemote | undefined;
+    add?(id: number, name: string, look: FarmerLook): DemoRemote;
+    remove?(id: number): void;
+  };
+}
+
+interface DemoRemote {
+  map: string;
+  farmer: { position: THREE.Vector3; speed: number; targetYaw: number; act(kind: string, tool: string | null): void; setFacingYaw(y: number): void; emote?(id: string, dur?: number): void };
+  chat?(text: string): void;
+}
+
+interface Bot {
+  id: number;
+  p: DemoRemote;
+  x: number;
+  z: number;
+  job: 'fight' | 'mine';
+  t: number;
+  tx: number;
+  tz: number;
 }
 
 const KINDS: MonsterKind[] = ['slime', 'bat', 'crab', 'wisp', 'imp'];
@@ -578,6 +600,7 @@ export class MineCoop implements MineNetApi {
   // ─────────────────────────────── frame
 
   update(dt: number, time: number): void {
+    if (this.bots.length) this.botFrame(dt);
     const role = this.net()?.role() ?? 'solo';
     if (role !== this.role) {
       this.role = role;
@@ -1050,7 +1073,137 @@ export class MineCoop implements MineNetApi {
     }
   }
 
+  // ─────────────────────────────── demo: `mine-coop` (no server)
+
+  private bots: Bot[] = [];
+
+  /** Two scripted farmhands beside the (solo) player: one fights slimes, one mines an ore rock. */
+  stageDemo(m: MineMap, spot: { x: number; z: number }): void {
+    this.clearDemo();
+    const net = this.net();
+    if (!net?.remotes?.add || this.role !== 'solo') return;
+    const free = (x: number, z: number): boolean => m.grid.isWalkable(Math.floor(x), Math.floor(z)) && m.clearAt(x, z, 0.45);
+    // Fighter: open floor to the right of the player, a slime squaring up to them.
+    let fx = spot.x + 2.4;
+    let fz = spot.z + 0.6;
+    for (const [ox, oz] of [[2.4, 0.6], [-2.4, 0.6], [2.2, 1.6], [-2.2, 1.6], [1.4, 2.2]] as [number, number][]) {
+      if (free(spot.x + ox, spot.z + oz) && free(spot.x + ox + (ox > 0 ? 1.3 : -1.3), spot.z + oz)) {
+        fx = spot.x + ox;
+        fz = spot.z + oz;
+        break;
+      }
+    }
+    const side = fx > spot.x ? 1 : -1;
+    for (const mo of [...m.monsters]) if (Math.hypot(mo.pos.x - fx, mo.pos.z - fz) < 3.5) m.removeMonster(mo);
+    const sl = m.addMonster('slime', fx + side * 1.3, fz);
+    sl.aggro = true;
+    // Miner: west of the nearest ore rock on the other side.
+    let best: { x: number; z: number; d: number } | null = null;
+    for (const r of m.rocks?.rocks ?? []) {
+      if (!r.alive || !r.spec.ore) continue;
+      const wx = r.spec.x - 0.5;
+      const wz = r.spec.z + 0.5;
+      if (!free(wx, wz)) continue;
+      const d = Math.hypot(wx - (spot.x - side * 2.2), wz - spot.z);
+      if (d < 5 && (!best || d < best.d)) best = { x: r.spec.x, z: r.spec.z, d };
+    }
+    const names = ['Juniper', 'Pip'];
+    const mk = (i: number, x: number, z: number, job: Bot['job'], tx: number, tz: number): void => {
+      const p = net.remotes!.add!(900 + i, names[i]!, PRESET_LOOKS[i + 1] ?? PRESET_LOOKS[0]!);
+      p.map = 'mine';
+      this.others.set(900 + i, { floor: m.floor, pos: new THREE.Vector3(x, 0, z), alive: true });
+      this.bots.push({ id: 900 + i, p, x, z, job, t: 0.3 + i * 0.5, tx, tz });
+    };
+    mk(0, fx, fz, 'fight', fx + side * 1.3, fz);
+    if (best) mk(1, best.x - 0.5, best.z + 0.5, 'mine', best.x, best.z);
+    m.live = true;
+    m.freezeAI = false;
+  }
+
+  clearDemo(): void {
+    if (!this.bots.length) return;
+    for (const b of this.bots) {
+      this.net()?.remotes?.remove?.(b.id);
+      this.others.delete(b.id);
+    }
+    this.bots = [];
+    const m = this.mine();
+    if (m) m.remotes = [];
+  }
+
+  private botFrame(dt: number): void {
+    const m = this.mine();
+    if (!m) {
+      this.clearDemo();
+      return;
+    }
+    m.remotes = this.bots.map((b) => ({ id: b.id, pos: this.others.get(b.id)!.pos, targetable: true }));
+    for (const b of this.bots) {
+      const f = b.p.farmer;
+      f.position.set(b.x, m.heightAt(b.x, b.z), b.z);
+      f.speed = 0;
+      this.others.get(b.id)!.pos.set(b.x, 0, b.z);
+      b.t -= dt;
+      if (b.t > 0) continue;
+      if (b.job === 'mine') {
+        b.t = 1.35;
+        f.targetYaw = Math.PI / 2;
+        f.act('chop', 'pickaxe');
+        setTimeout(() => {
+          if (this.mine() !== m) return;
+          const rk = m.rockAt(b.tx, b.tz);
+          if (!rk) return;
+          rk.hp = Math.max(rk.hp, 3);
+          m.striker = f.position;
+          m.strikerId = b.id;
+          m.strikeRock(b.tx, b.tz, 1);
+          m.striker = null;
+          m.strikerId = m.localId;
+        }, 270);
+      } else {
+        // Face the nearest live monster (or the arena side), swing, resolve on the impact frame.
+        let tgt: Monster | null = null;
+        let bd = 3.2;
+        for (const mo of m.monsters) {
+          if (!mo.alive) continue;
+          const d = Math.hypot(mo.pos.x - b.x, mo.pos.z - b.z);
+          if (d < bd) {
+            bd = d;
+            tgt = mo;
+          }
+        }
+        if (!tgt) {
+          b.t = 0.4;
+          if (!m.monsters.some((q) => q.alive && Math.hypot(q.pos.x - b.x, q.pos.z - b.z) < 5)) {
+            const mo = m.addMonster('slime', b.tx, b.tz);
+            mo.aggro = true;
+          }
+          continue;
+        }
+        b.t = bd < 2.2 ? 0.75 : 0.3;
+        if (bd >= 2.2) continue;
+        const dir = new THREE.Vector3(tgt.pos.x - b.x, 0, tgt.pos.z - b.z).normalize();
+        const card = Math.abs(dir.x) > Math.abs(dir.z) * 0.45 ? new THREE.Vector3(Math.sign(dir.x), 0, 0) : new THREE.Vector3(0, 0, Math.sign(dir.z));
+        f.targetYaw = Math.atan2(card.x, card.z);
+        f.act('sweep', null);
+        const origin = new THREE.Vector3(b.x, m.heightAt(b.x, b.z), b.z);
+        this.arcAt(origin, card);
+        setTimeout(() => {
+          if (this.mine() !== m) return;
+          m.striker = f.position;
+          m.strikerId = b.id;
+          const hits = m.strike(origin, card, SWORD_REACH, SWORD_ARC_COS, SWORD_TIERS[1]!.dmg, SWORD_CRIT);
+          m.striker = null;
+          m.strikerId = m.localId;
+          this.popHits(m, hits.map((h) => ({ mo: h.monster, dmg: h.damage, crit: h.crit })), origin);
+          for (const h of hits) if (h.killed) m.fx.splat(h.monster.pos, new THREE.Color(0x5fa840), 0.95, 6);
+        }, 150);
+      }
+    }
+  }
+
   dispose(): void {
+    this.clearDemo();
     for (const st of this.floors.values()) st.headless?.dispose();
     this.floors.clear();
     this.numbers.clear();

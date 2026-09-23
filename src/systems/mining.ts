@@ -44,7 +44,7 @@ declare module '../core/game' {
 }
 
 /** Demo floors (URL `&floor=N` overrides). */
-const DEMO_FLOORS: Record<string, number> = { 'mine-floor': 3, 'mine-ice': 14, 'mine-lava': 24, 'mine-combat': 2, 'mine-chest': 10, mine: 1 };
+const DEMO_FLOORS: Record<string, number> = { 'mine-coop': 4, 'mine-floor': 3, 'mine-ice': 14, 'mine-lava': 24, 'mine-combat': 2, 'mine-chest': 10, mine: 1 };
 
 export class MiningSystem implements System, MiningApi {
   readonly name = 'mining';
@@ -177,7 +177,9 @@ export class MiningSystem implements System, MiningApi {
       const def = BIOMES[biomeForFloor(n)];
       this.game.hud.banner(`Floor ${n}`, def.name);
       if (n % ELEVATOR_EVERY === 0) this.game.events.emit('ui:toast', { text: `Lift stop unlocked: floor ${n}`, kind: 'good' });
-    } else this.game.hud.banner('Hollowdeep Mine', 'The mountain shelf');
+    }
+    // (no banner on the entrance: the HOLLOWDEEP sign over the mouth already says it, and a banner
+    // printed right over it; the floor plaque names the place)
   }
 
   // ───────────────────────────────────────────── tools
@@ -300,6 +302,7 @@ export class MiningSystem implements System, MiningApi {
 
   private stageDemo(name: string): void {
     const game = this.game;
+    this.coop.clearDemo();
     if (name === 'mine-entrance') {
       game.player.teleport(22.6, 14.4);
       return;
@@ -339,6 +342,7 @@ export class MiningSystem implements System, MiningApi {
     if (q.get('pick') === '1') this.stagePick(m, q.get('still') === '1');
     // Beauty frames carry a clear threat in view (a biome monster sizing the farmer up, a few
     // steps off to the side); `&foe=0` leaves it out.
+    else if (name === 'mine-coop') this.coop.stageDemo(m, spot);
     else if (name !== 'mine-combat' && name !== 'mine' && q.get('foe') !== '0') this.stageFoe(m, spot);
   }
 
@@ -426,7 +430,7 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
       // feet — no crystal ever clips into the hat or body in a staged frame.
       const cx = x + 0.5;
       const cz = z + 0.5;
-      if (L.rocks.some((r) => Math.hypot(r.x + 0.5 - cx, r.z + 0.5 - cz) < 1.15)) continue;
+      if (m.rocks?.rocks.some((r) => r.alive && Math.hypot(r.pos.x - cx, r.pos.z - cz) < 0.75 + 0.5 * r.scale * (r.spec.big ? 1.4 : 1))) continue;
       if (L.crystals.some((c) => Math.hypot(c.x - cx, c.z - cz) < 1.6)) continue;
       if (L.decor.some((d) => d.solid && Math.hypot(d.x - cx, d.z - cz) < 1.2)) continue;
       if (!m.clearAt(cx, cz, 0.6)) continue;

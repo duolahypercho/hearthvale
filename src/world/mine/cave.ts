@@ -426,7 +426,8 @@ ${CAVE_GLSL}`,
         vec3 r2 = cross(normal, dpx);
         float det = dot(dpx, r1);
         vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-        if (abs(det) > 1e-8) normal = normalize(abs(det) * normal - grad * 2.4);
+        float graze = smoothstep(0.08, 0.35, abs(dot(normal, normalize(vViewPosition))));
+        if (abs(det) > 1e-8) normal = normalize(mix(normal, normalize(abs(det) * normal - grad * 2.4), graze));
       }`,
     );
     fs = after(
