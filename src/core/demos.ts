@@ -86,20 +86,15 @@ export const DEMOS: Record<string, DemoDef> = {
   'mine-combat': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 14.5, offsetZ: -0.5 }, showcase: [] },
   // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
   'fest-spring': { map: 'fest-spring', x: 29.2, z: 35.2, facing: 'up', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 33, offsetX: 2.8, offsetZ: -8.6 }, showcase: ['festival-show'] },
-  // UI/UX pod (src/ui): one demo per screen over the morning farm; a staged demo stocks a lived-in backpack
-  // (ui/demo-kit.ts). `ui-hud` = gameplay HUD with toasts; `?demo=farm-morning&ui=<screen>` works too.
-  'ui-hud': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM },
-  'ui-title': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
-  'ui-inventory': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'inventory' },
-  'ui-shop': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop' },
-  'ui-shop-smith': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop:odessa' },
-  'ui-placement': { map: 'farm', x: 26, z: 24.8, facing: 'up', time: 9, season: 'spring', weather: 'sun', camera: { yaw: -5, pitch: 48, distance: 14, offsetZ: -1 } },
-  'ui-shop-carpenter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop:rowan' },
-  'ui-crafting': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'crafting' },
-  'ui-dayend': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'dayend' },
-  'ui-map': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'map' },
-  'ui-settings': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'settings' },
-  'ui-pause': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'pause' },
-  'ui-saves': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'saves' },
-  'ui-icons': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'icons' },
+  'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 32, offsetX: -3.2, offsetZ: -7.5 }, showcase: ['festival-show'] },
+  'fest-fall': { map: 'fest-fall', x: 30.2, z: 27.6, facing: 'up', time: 15.1, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 35, offsetX: 3.2, offsetZ: -8.2 }, showcase: ['festival-show'] },
+  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 40, offsetX: -0.4, offsetZ: -8.6 }, showcase: ['festival-show'] },
+  // Festival mini-games (they play themselves while the demo is paused): Ribbon Dance, Lantern Release, Sack Race,
+  // Produce Judging, Gift Exchange, Starlight Skate. Same as `?demo=fest-<season>&ui=festival:<activity>`.
+  'fest-spring-dance': { map: 'fest-spring', x: 31.2, z: 37.2, facing: 'up', time: 12.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 38, distance: 17, offsetX: 0.4, offsetZ: -2.2 }, showcase: ['festival-show'], ui: 'festival:dance' },
+  'fest-summer-lanterns': { map: 'fest-summer', x: 31.5, z: 20.7, facing: 'up', time: 21.2, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 16, offsetZ: -3.5 }, showcase: ['festival-show'], ui: 'festival:lanterns' },
+  'fest-fall-race': { map: 'fest-fall', x: 14.3, z: 25.5, facing: 'right', time: 15.1, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 20, offsetX: 4.2, offsetZ: -2.2 }, showcase: ['festival-show'], ui: 'festival:sackrace' },
+  'fest-fall-judging': { map: 'fest-fall', x: 35.4, z: 19.4, facing: 'up', time: 13.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 17, offsetZ: -2.6 }, showcase: ['festival-show'], ui: 'festival:pumpkin' },
+  'fest-winter-gifts': { map: 'fest-winter', x: 32, z: 25.5, facing: 'up', time: 20.4, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 34, distance: 15, offsetZ: -2.4 }, showcase: ['festival-show'], ui: 'festival:giftswap' },
+  'fest-winter-skate': { map: 'fest-winter', x: 35.4, z: 29.6, facing: 'right', time: 20.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 46, distance: 19, offsetX: 2.4, offsetZ: -3.2 }, showcase: ['festival-show'], ui: 'festival:skate' },
 };

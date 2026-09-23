@@ -235,6 +235,10 @@ export interface FireworksOptions {
   sparks?: number;
   /** Mirror plane (sea level) for the reflection copy. */
   mirrorY?: number;
+  /** Burst size multiplier (diorama scale: 0.5–0.7 keeps shells inside a high camera's frame). */
+  spread?: number;
+  /** Point size multiplier. */
+  size?: number;
 }
 
 const FW_LAUNCH = 1.15;
@@ -286,6 +290,8 @@ export class Fireworks {
       uMap: { value: textures.softDot().map },
       uScale: this.scale,
       uIntensity: this.intensity,
+      uSpread: { value: o.spread ?? 1 },
+      uSize: { value: o.size ?? 1 },
     };
     const make = (mirror: boolean): THREE.Points => {
       const m = new THREE.ShaderMaterial({
@@ -298,7 +304,7 @@ export class Fireworks {
         vertexShader: /* glsl */ `
           attribute vec3 aDir; attribute vec4 aInfo;
           uniform float uTime; uniform vec4 uArea; uniform vec2 uHeights; uniform float uGround; uniform float uShell[NSHELL * 2];
-          uniform float uScale; uniform float uMirrorY; uniform float uIntensity;
+          uniform float uScale; uniform float uMirrorY; uniform float uIntensity; uniform float uSpread; uniform float uSize;
           varying vec3 vCol; varying float vA;
           ${NOISE_GLSL}
           vec3 fwPal(float h) {
@@ -361,7 +367,7 @@ export class Fireworks {
                   if (mod(j, 5.0) > 0.5) { d = vec3(0.0); v0 = 0.0; }
                   v0 = 10.5;
                 }
-                v0 *= 0.85 + rnd * 0.3;
+                v0 *= (0.85 + rnd * 0.3) * uSpread; gEff *= uSpread;
                 float drag = (1.0 - exp(-k * tb)) / k;
                 p = burst + d * v0 * drag;
                 p.y -= gEff * (tb - drag) / k * 1.4;
@@ -388,7 +394,7 @@ export class Fireworks {
             vA = a;
             vec4 mv = modelViewMatrix * vec4(p, 1.0);
             gl_Position = projectionMatrix * mv;
-            gl_PointSize = size * uScale / max(-mv.z, 0.5);
+            gl_PointSize = size * uSize * uScale / max(-mv.z, 0.5);
           }`,
         fragmentShader: /* glsl */ `
           uniform sampler2D uMap;
@@ -511,10 +517,10 @@ float lanternFade(vec4 b, float t, float mode, vec4 area) {
   if (mode < 0.5) {
     float sp = 0.05 + b.w * 0.07;
     float u = mod(t * sp + b.z * 40.0, area.w) / area.w;
-    return smoothstep(0.0, 0.04, u) * smoothstep(1.0, 0.8, u);
+    return smoothstep(0.0, 0.04, u) * (1.0 - smoothstep(0.8, 1.0, u));
   }
   float lt = mod(t + b.z * 70.0, 70.0);
-  return smoothstep(0.0, 2.0, lt) * smoothstep(70.0, 58.0, lt);
+  return smoothstep(0.0, 2.0, lt) * (1.0 - smoothstep(58.0, 70.0, lt));
 }
 `;
 
@@ -567,7 +573,7 @@ export class Lanterns {
       );
       shader.vertexShader = vs;
       let fs = before(shader.fragmentShader, 'void main() {', 'varying float vGlow; uniform float uLamps;');
-      fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * vGlow * (0.8 + uLamps * 3.6);');
+      fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * vGlow * (0.6 + uLamps * 2.2);');
       shader.fragmentShader = fs;
     });
     const mesh = new THREE.Mesh(g, m);
@@ -614,7 +620,7 @@ export class Lanterns {
             } else {
               vec3 c = lp + vec3(0.0, uMode > 0.5 ? 0.3 : 0.2, 0.0);
               mvPosition = viewMatrix * vec4(c, 1.0);
-              mvPosition.xy += position.xy * (uMode > 0.5 ? 1.6 : 1.25);
+              mvPosition.xy += position.xy * (uMode > 0.5 ? 1.3 : 0.95);
             }
             gl_Position = projectionMatrix * mvPosition;
             ${FOG_V}
@@ -627,12 +633,12 @@ export class Lanterns {
             vec2 d = vUv - 0.5;
             float a;
             if (uStreak > 0.5) {
-              a = exp(-d.x * d.x * 30.0) * smoothstep(0.5, 0.05, abs(d.y)) * (1.0 - vUv.y * 0.6) * 0.5;
+              a = exp(-d.x * d.x * 30.0) * (1.0 - smoothstep(0.05, 0.5, abs(d.y))) * (1.0 - vUv.y * 0.6) * 0.5;
             } else {
               float r = length(d) * 2.0;
               a = exp(-r * r * 5.0) * 0.55 + exp(-r * r * 30.0) * 0.4;
             }
-            vec3 c = vec3(1.0, 0.62, 0.28) * a * vF * vFl * (0.25 + uLamps * 0.9);
+            vec3 c = vec3(1.0, 0.5, 0.18) * a * vF * vFl * (0.12 + uLamps * 0.5);
             gl_FragColor = vec4(c, 1.0);
             #ifdef USE_FOG
               float fogDepth2 = vFogDepth;
@@ -658,22 +664,24 @@ export class Lanterns {
 export class Aurora {
   readonly group = new THREE.Group();
   readonly strength = { value: 1 };
-  constructor(center: THREE.Vector3, radius: number, bands = 3) {
+  constructor(center: THREE.Vector3, radius: number, bands = 3, o: { base?: number; height?: number; arc?: number; spacing?: number } = {}) {
+    const hs = (o.height ?? 34) / 34;
+    const arc = o.arc ?? 1.25;
     for (let b = 0; b < bands; b++) {
       const W = 180;
       const g = new THREE.PlaneGeometry(1, 1, W, 1);
       const pos = g.attributes.position as THREE.BufferAttribute;
-      const ang0 = -1.25 + b * 0.18;
-      const ang1 = 1.25 - b * 0.1;
-      const rr = radius * (1 - b * 0.12);
-      const base = 22 + b * 9;
-      const h = 34 + b * 10;
+      const ang0 = -arc + b * 0.18 * (arc / 1.25);
+      const ang1 = arc - b * 0.1 * (arc / 1.25);
+      const rr = radius * (1 - b * (o.spacing ?? 0.12));
+      const base = (o.base ?? 22) + b * 9 * hs;
+      const h = (34 + b * 10) * hs;
       for (let i = 0; i < pos.count; i++) {
         const u = pos.getX(i) + 0.5;
         const v = pos.getY(i) + 0.5;
         const a = ang0 + (ang1 - ang0) * u;
         const wob = Math.sin(u * 9 + b * 2) * 10 + Math.sin(u * 23 + b) * 4;
-        pos.setXYZ(i, center.x + Math.sin(a) * (rr + wob), base + v * h + Math.sin(u * 5 + b) * 6, center.z - Math.cos(a) * (rr + wob));
+        pos.setXYZ(i, center.x + Math.sin(a) * (rr + wob), base + v * h + Math.sin(u * 5 + b) * 6 * hs, center.z - Math.cos(a) * (rr + wob));
       }
       // u along the band, v up.
       const uv = g.attributes.uv as THREE.BufferAttribute;
@@ -707,7 +715,7 @@ export class Aurora {
             // Bright lower hem, fading upwards; lower edge wavers.
             float hem = smoothstep(0.0, 0.08 + 0.05 * hvNoise(vec2(u * 30.0, t * 0.2)), v);
             float up = pow(1.0 - v, 1.6);
-            float ends = smoothstep(0.0, 0.12, u) * smoothstep(1.0, 0.88, u);
+            float ends = smoothstep(0.0, 0.12, u) * (1.0 - smoothstep(0.88, 1.0, u));
             vec3 green = vec3(0.15, 1.0, 0.55);
             vec3 teal = vec3(0.1, 0.65, 0.9);
             vec3 pink = vec3(0.85, 0.3, 0.75);
@@ -735,7 +743,7 @@ export class Snowfall {
   readonly points: THREE.Points;
   readonly center = { value: new THREE.Vector3() };
   readonly scale = { value: 1000 };
-  constructor(count = 1800, box = new THREE.Vector3(36, 14, 30)) {
+  constructor(count = 1800, box = new THREE.Vector3(36, 14, 30), o: { color?: THREE.Color; size?: number; fall?: number; twinkle?: number } = {}) {
     const g = new THREE.BufferGeometry();
     const s = new Float32Array(count * 4);
     for (let i = 0; i < s.length; i++) s[i] = Math.random();
@@ -745,33 +753,33 @@ export class Snowfall {
       transparent: true,
       depthWrite: false,
       fog: true,
-      uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.fog]), uTime: globalUniforms.uTime, uCenter: this.center, uBox: { value: box }, uScale: this.scale, uMap: { value: textures.softDot().map }, uSkyColor: globalUniforms.uSkyColor, uLamps: globalUniforms.uLamps },
+      uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.fog]), uTime: globalUniforms.uTime, uCenter: this.center, uBox: { value: box }, uScale: this.scale, uTint: { value: o.color ?? new THREE.Color(0.85, 0.9, 1.0) }, uSz: { value: o.size ?? 1 }, uFall: { value: o.fall ?? 1 }, uTw: { value: o.twinkle ?? 0 }, uMap: { value: textures.softDot().map }, uSkyColor: globalUniforms.uSkyColor, uLamps: globalUniforms.uLamps },
       vertexShader: /* glsl */ `
-        attribute vec4 aSeed; uniform float uTime; uniform vec3 uCenter; uniform vec3 uBox; uniform float uScale;
+        attribute vec4 aSeed; uniform float uTime; uniform vec3 uCenter; uniform vec3 uBox; uniform float uScale; uniform float uSz; uniform float uFall; uniform float uTw;
         varying float vA;
         ${FOG_PARS_V}
         void main() {
           vec4 s = aSeed;
           vec3 base = s.xyz * uBox;
           float t = uTime;
-          vec3 d = vec3(sin(t * (0.3 + s.w * 0.4) + s.x * 30.0) * 0.6 + t * 0.15, -t * (0.55 + s.w * 0.45), cos(t * (0.25 + s.y * 0.3) + s.z * 20.0) * 0.5);
+          vec3 d = vec3(sin(t * (0.3 + s.w * 0.4) + s.x * 30.0) * 0.6 + t * 0.15, -t * (0.55 + s.w * 0.45) * uFall, cos(t * (0.25 + s.y * 0.3) + s.z * 20.0) * 0.5);
           vec3 lo = uCenter - uBox * 0.5;
           vec3 local = mod(base + d - lo, uBox);
           float fade = clamp(min(local.y, uBox.y - local.y) / 1.5, 0.0, 1.0) * clamp(min(min(local.x, uBox.x - local.x), min(local.z, uBox.z - local.z)) / 3.0, 0.0, 1.0);
           vec4 mvPosition = viewMatrix * vec4(lo + local, 1.0);
           gl_Position = projectionMatrix * mvPosition;
-          float sz = 0.05 + s.w * s.w * 0.1;
+          float sz = (0.05 + s.w * s.w * 0.1) * uSz;
           gl_PointSize = sz * uScale / -mvPosition.z;
-          vA = fade * (0.55 + 0.45 * s.y);
+          vA = fade * (0.55 + 0.45 * s.y) * (1.0 - uTw + uTw * pow(0.5 + 0.5 * sin(t * (3.0 + s.x * 5.0) + s.z * 60.0), 4.0));
           ${FOG_V}
         }`,
       fragmentShader: /* glsl */ `
-        uniform sampler2D uMap; uniform vec3 uSkyColor; uniform float uLamps;
+        uniform sampler2D uMap; uniform vec3 uSkyColor; uniform float uLamps; uniform vec3 uTint; uniform float uTw;
         varying float vA;
         ${FOG_PARS_F}
         void main() {
           float m = texture2D(uMap, gl_PointCoord).a;
-          vec3 c = mix(vec3(0.85, 0.9, 1.0), vec3(1.0, 0.9, 0.78), uLamps * 0.35) * (0.55 + uSkyColor * 0.6);
+          vec3 c = mix(uTint, vec3(1.0, 0.9, 0.78), uLamps * 0.35 * (1.0 - uTw)) * mix(0.55 + uSkyColor * 0.6, vec3(2.2), uTw);
           gl_FragColor = vec4(c, m * vA * 0.85);
           if (gl_FragColor.a < 0.01) discard;
           ${FOG_F}
@@ -864,5 +872,17 @@ export class GlowPoints {
   }
   setViewportHeight(h: number): void {
     this.scale.value = h * 1.3;
+  }
+  /** Move / resize one point at runtime (mini-game beacons). size 0 hides it. */
+  set(i: number, x: number, y: number, z: number, size?: number): void {
+    const g = this.points.geometry;
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    pos.setXYZ(i, x, y, z);
+    pos.needsUpdate = true;
+    if (size !== undefined) {
+      const info = g.attributes.aInfo as THREE.BufferAttribute;
+      info.setX(i, size);
+      info.needsUpdate = true;
+    }
   }
 }

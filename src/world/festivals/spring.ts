@@ -20,7 +20,8 @@ import { buildTownHouse, buildMarketStall, buildFlowerCart, buildPlanter, buildH
 import { buildLanternPost } from '../props/structures';
 import { buildBench, buildFlowerPot } from '../props/farmkit';
 import { buildBunting, buildMaypole, buildFeastTable } from '../props/festival';
-import { FestivalMap } from './base';
+import { FestivalMap, type PlayState } from './base';
+import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildFlowerFloat, buildFlowerArch, buildBandstand, PASTELS } from './kit';
 import { PetalStorm, GroundScatter } from './fx';
 import { randomLook, type CrowdSpec } from './crowd';
@@ -37,6 +38,8 @@ export class SpringParade extends FestivalMap {
   private dancers: { i: number; ring: number; a: number }[] = [];
   private petals!: PetalStorm;
   private curveLen = 1;
+  /** Dance partner while the Ribbon Dance mini-game runs. */
+  private partner: { i: number; x: number; z: number; yaw: number; anim: number } | null = null;
 
   constructor(game: Game) {
     super(game, {
@@ -56,6 +59,7 @@ export class SpringParade extends FestivalMap {
       const p = this.curve.getPointAt(k / n);
       this.avenueSamples.push({ x: p.x, z: p.z });
     }
+    this.activitySpots.push({ id: 'dance', x: GREEN.x, z: GREEN.z, r: POLE_R + 2.2 });
   }
 
   // ───────────────────────────────────────────── shape
@@ -264,11 +268,11 @@ export class SpringParade extends FestivalMap {
         const jx = x + (r.next() - 0.5) * 2;
         const jz = z + (r.next() - 0.5) * 2;
         const d = this.rimDist(jx, jz);
-        if (d < 1.2 || this.exitMask(jx, jz) > 0.2 || r.next() < 0.2) continue;
+        if (d < 1.2 || this.exitMask(jx, jz) > 0.2 || r.next() < 0.3) continue;
         if (this.terrain.slopeAt(jx, jz) < 0.75) continue;
         const roll = r.next();
         const sp = roll < 0.3 ? 'pine' : roll < 0.55 ? 'oak' : roll < 0.7 ? 'maple' : 'blossom';
-        this.trees.add(sp, jx, this.H(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 3.5 ? 1 : 0);
+        this.trees.add(sp, jx, this.H(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 2.2 ? 1 : 0);
       }
     }
   }
@@ -321,6 +325,8 @@ export class SpringParade extends FestivalMap {
       marigold: [15.6, 28.6, 0.9, 'wave', ['bouquet']],
       bram: [20.4, 26.6, 0.35, 'talk', ['pie']],
       wren: [29.2, 26.8, -2.6, 'cheer', ['flag']],
+      // Hazel runs the Ribbon Dance from the west edge of the green.
+      hazel: [25.9, 30.4, 1.35, 'clap', ['bouquet']],
     };
     let extraIdx = 0;
     for (const def of named) {
@@ -423,10 +429,91 @@ export class SpringParade extends FestivalMap {
       const tz = Math.cos(a) * dir;
       crowd.members[d.i]!.yaw = Math.atan2(tx - Math.cos(a) * 0.4, tz - Math.sin(a) * 0.4);
     }
+    if (this.partner && this.play) {
+      // The partner mirrors your skip-steps and circles you on the twirls.
+      const s = this.danceSpot();
+      const b = this.play.live ? this.play.beat : this.play.t * 1.6;
+      const sway = Math.sin(b * Math.PI) * 0.12;
+      crowd.place(this.partner.i, s.qx + sway, s.qz, -0.45 + Math.sin(b * Math.PI * 0.5) * 0.35, 0);
+    }
     crowd.commit();
   }
 
   override stage(): void {
     super.stage();
+  }
+
+  // ───────────────────────────────────────────── Ribbon Dance mini-game
+
+  private danceSpot(): { px: number; pz: number; qx: number; qz: number } {
+    const z = GREEN.z + POLE_R + 1.55;
+    return { px: GREEN.x - 0.75, pz: z, qx: GREEN.x + 0.75, qz: z };
+  }
+
+  protected override onBeginPlay(play: PlayState): void {
+    if (play.id !== 'dance') return;
+    const s = this.danceSpot();
+    // Side by side facing the crowd (and the camera), turned in towards each other.
+    this.placePlayer(s.px, s.pz, 'down');
+    const i = play.partner ? this.named.get(play.partner) : undefined;
+    const c = this.crowd;
+    if (c && i !== undefined) {
+      const m = c.members[i]!;
+      this.partner = { i, x: m.x, z: m.z, yaw: m.yaw, anim: m.anim };
+      c.place(i, s.qx, s.qz, -0.45, 0);
+      c.setAnim(i, 'dance');
+      c.commit();
+    }
+    this.frame({ pitch: 38, distance: 17, yaw: 0, ox: 0.4, oz: -2.2 });
+  }
+
+  protected override onPlayEvent(play: PlayState, kind: string, value: number): void {
+    if (play.id !== 'dance') return;
+    const s = this.danceSpot();
+    const y = this.H(s.px, s.pz);
+    if (kind === 'perfect' || kind === 'good') {
+      const big = kind === 'perfect';
+      const cols = [0xf9c6d6, 0xffffff, 0xf4aec4, 0xfde2a0];
+      this.burst(GREEN.x, y + 1.4, s.pz, { color: cols[value % cols.length]!, count: big ? 22 : 10, speed: big ? 2.6 : 1.8, size: 0.13, gravity: 1.2, life: 1.4, up: 1.4, spread: 1.6 });
+      if (big && value > 0 && value % 8 === 0) {
+        // Every 8-combo: a swirl of petals over the whole ring.
+        for (let k = 0; k < 10; k++) {
+          const a = (k / 10) * Math.PI * 2;
+          this.burst(GREEN.x + Math.cos(a) * POLE_R, y + 2.2, GREEN.z + Math.sin(a) * POLE_R, { color: cols[k % cols.length]!, count: 10, speed: 2, size: 0.14, gravity: 0.8, life: 1.8, up: 1.2, spread: 0.6 });
+        }
+      }
+    }
+  }
+
+  protected override onEndPlay(): void {
+    const c = this.crowd;
+    const p = this.partner;
+    if (c && p) {
+      c.place(p.i, p.x, p.z, p.yaw);
+      c.members[p.i]!.anim = p.anim;
+      c.commit();
+    }
+    this.partner = null;
+  }
+
+  protected override playerPose(rig: PlayerRig, play: PlayState): ActionPose | null {
+    if (play.id !== 'dance') return null;
+    rig.tool.visible = false;
+    const live = play.live;
+    const b = live ? play.beat : play.t * 1.6;
+    const ph = b * Math.PI;
+    const s = Math.sin(ph);
+    const step = Math.abs(Math.sin(ph));
+    // Ribbon-dance: skip-steps on the beat, arms sweeping up and across, a twirl every 4 bars.
+    const fr = (((b % 16) + 16) % 16) - 14;
+    const twirl = live && fr > 0 ? THREE.MathUtils.smootherstep(fr / 2, 0, 1) * Math.PI * 2 : 0;
+    rig.legL.rotation.x = Math.max(0, s) * 0.7;
+    rig.legR.rotation.x = Math.max(0, -s) * 0.7;
+    rig.armL.rotation.set(-1.6 - 0.9 * Math.max(0, s), 0, 0.35 + 0.25 * step);
+    rig.armR.rotation.set(-1.6 - 0.9 * Math.max(0, -s), 0, -0.35 - 0.25 * step);
+    rig.torso.rotation.set(0.05, s * 0.28, s * 0.08);
+    rig.head.rotation.set(-0.1, -s * 0.2, s * 0.1);
+    rig.body.rotation.y += twirl + 0.4 + s * 0.2;
+    return { bob: step * 0.16, sy: 1 + (step - 0.5) * 0.08 };
   }
 }

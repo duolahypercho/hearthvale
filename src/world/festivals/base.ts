@@ -19,7 +19,9 @@ import { GrassField } from '../grass';
 import { TreeField, type TreeSpecies } from '../props/trees';
 import { Nature } from '../props/nature';
 import { mergeStatic } from '../geom';
-import { SmokeEmitter, Ambience, FireFX } from '../../render/particles';
+import { SmokeEmitter, Ambience, FireFX, BurstFX } from '../../render/particles';
+import type { ActivityId } from '../../data/festivals';
+import type { ActionPose, PlayerRig } from '../../entities/player';
 import { LightPools } from '../props/decals';
 import type { BuiltProp } from '../props/structures';
 import { Crowd, type CrowdSpec } from './crowd';
@@ -38,6 +40,42 @@ export interface FestivalMapDef {
 
 export interface Updatable {
   update(dt: number, game: Game, viewportH: number): void;
+}
+
+/**
+ * A mini-game in progress. The overlay (games.ts) writes input + progress, the map reads it every
+ * frame to stage the 3D side (racers, partner, skater, lanterns) and writes back what only the
+ * world knows (skate: stars collected).
+ */
+export interface PlayState {
+  id: ActivityId;
+  /** Seconds since the mini-game began (render clock). */
+  t: number;
+  /** Villager partner / recipient id (dance, gift swap). */
+  partner?: string;
+  /** Steering input -1..1 (skate) and boost. */
+  steer: number;
+  boost: boolean;
+  /** Per-racer progress 0..1 (sack race: [player, npc…]); skate: [progress along the river]. */
+  progress: number[];
+  /** Score counters (skate: stars collected / total). */
+  score: number;
+  total: number;
+  /** Beat clock (dance), 0..n. */
+  beat: number;
+  /** Player hop / pose phase (0..1 per hop) — sack race. */
+  hop: number;
+  /** Set by the overlay when the game has started (after the countdown). */
+  live: boolean;
+  done: boolean;
+}
+
+/** Activity trigger spot: interacting within `r` starts the host's activity. */
+export interface ActivitySpot {
+  id: ActivityId;
+  x: number;
+  z: number;
+  r: number;
 }
 
 export abstract class FestivalMap implements GameMap {
@@ -71,6 +109,17 @@ export abstract class FestivalMap implements GameMap {
   protected lights: { light: THREE.PointLight; max: number; seed: number; flicker: number }[] = [];
   protected season: Season = 'spring';
   protected staged = false;
+  /** One-shot sparkle / petal / confetti bursts (mini-game juice). */
+  protected bursts = new BurstFX(700);
+  /** Activity trigger spots (see ActivitySpot). */
+  readonly activitySpots: ActivitySpot[] = [];
+  /** Mini-game in progress, if any. */
+  play: PlayState | null = null;
+  private prevPose: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
+  private camGoal: { pitch: number; distance: number; yaw: number; ox: number; oz: number } | null = null;
+  private camSaved: { pitch: number; distance: number; yaw: number; ox: number; oz: number } | null = null;
+  private camRelease = 0;
+  private poseFn: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
   /** Seconds since the showcase / festival started (render clock). */
   protected showT = 0;
 
@@ -166,6 +215,9 @@ export abstract class FestivalMap implements GameMap {
       this.glow = new GlowPoints(this.glowList, `${this.id}-glow`);
       this.root.add(this.glow.points);
     }
+    this.bursts.object.userData.perfTag = 'festival';
+    this.bursts.object.userData.noAO = true;
+    this.root.add(this.bursts.object);
     this.terrain.commitCover();
     return this;
   }
@@ -294,7 +346,121 @@ export abstract class FestivalMap implements GameMap {
       f.light.intensity = f.max * lamps * flick;
     }
     for (const f of this.fx) f.update(dt, game, h);
+    this.bursts.update(dt, h);
+    if (this.play) this.play.t += dt;
+    if (this.camGoal) {
+      const r = game.rc.rig;
+      const k = 1 - Math.exp(-2.6 * dt);
+      const g = this.camGoal;
+      r.pitch += (g.pitch - r.pitch) * k;
+      r.distance += (g.distance - r.distance) * k;
+      r.yaw += (g.yaw - r.yaw) * k;
+      r.lookOffset.x += (g.ox - r.lookOffset.x) * k;
+      r.lookOffset.z += (g.oz - r.lookOffset.z) * k;
+      if (this.camRelease > 0 && (this.camRelease -= dt) <= 0) this.camGoal = null;
+    }
     this.tick(dt, game);
+  }
+
+  // ───────────────────────────────────────────── mini-games
+
+  /** Emit a one-shot burst (sparkles, petals, confetti). */
+  burst(x: number, y: number, z: number, o: { color: number; count?: number; speed?: number; size?: number; gravity?: number; life?: number; up?: number; spread?: number }): void {
+    this.bursts.emit(new THREE.Vector3(x, y, z), o);
+  }
+
+  /** World position of a crowd member (feet). */
+  memberPos(i: number): THREE.Vector3 {
+    const m = this.crowd?.members[i];
+    return m ? new THREE.Vector3(m.x, m.y, m.z) : new THREE.Vector3();
+  }
+
+  /** Nearest named villager within `r` of (x, z). */
+  nearestNamed(x: number, z: number, r: number): { id: string; i: number; d: number } | null {
+    let best: { id: string; i: number; d: number } | null = null;
+    for (const [id, i] of this.named) {
+      const m = this.crowd?.members[i];
+      if (!m) continue;
+      const d = Math.hypot(m.x - x, m.z - z);
+      if (d < r && (!best || d < best.d)) best = { id, i, d };
+    }
+    return best;
+  }
+
+  /** Turn a crowd member to face a point (talking) and optionally change their clip. */
+  faceMember(i: number, x: number, z: number, anim?: Parameters<Crowd['setAnim']>[1]): void {
+    const c = this.crowd;
+    const m = c?.members[i];
+    if (!c || !m) return;
+    m.yaw = Math.atan2(x - m.x, z - m.z);
+    if (anim) c.setAnim(i, anim);
+    c.commit();
+  }
+
+  /** Ease the camera to a mini-game framing (restored by endPlay). */
+  protected frame(o: { pitch?: number; distance?: number; yaw?: number; ox?: number; oz?: number }): void {
+    const r = this.game.rc.rig;
+    this.camSaved ??= { pitch: r.pitch, distance: r.distance, yaw: r.yaw, ox: r.lookOffset.x, oz: r.lookOffset.z };
+    this.camGoal = { pitch: o.pitch ?? r.pitch, distance: o.distance ?? r.distance, yaw: o.yaw ?? r.yaw, ox: o.ox ?? 0, oz: o.oz ?? 0 };
+    this.camRelease = 0;
+  }
+
+  /** Put the player somewhere for a mini-game (snaps height, faces `facing`). */
+  protected placePlayer(x: number, z: number, facing?: Facing, y?: number): void {
+    const p = this.game.player;
+    p.teleport(x, z);
+    if (y !== undefined) {
+      p.position.y = y;
+      p.root.position.y = y;
+    }
+    if (facing) p.setFacing(facing);
+  }
+
+  /** Slide the player (mini-games drive x / z directly); keeps the rig in sync this frame. */
+  protected movePlayer(x: number, z: number, y = this.heightAt(x, z)): void {
+    const p = this.game.player;
+    p.position.set(x, y, z);
+    p.root.position.copy(p.position);
+  }
+
+  /** Start a mini-game: stages the 3D side and takes over the player's pose. */
+  beginPlay(id: ActivityId, partner?: string): PlayState {
+    this.play = { id, t: 0, partner, steer: 0, boost: false, progress: [], score: 0, total: 0, beat: 0, hop: 0, live: false, done: false };
+    const p = this.game.player;
+    this.prevPose = p.actionPose;
+    this.poseFn = (rig, dt) => (this.play ? this.playerPose(rig, this.play, dt) : null) ?? this.prevPose?.(rig, dt) ?? null;
+    p.actionPose = this.poseFn;
+    this.onBeginPlay(this.play);
+    return this.play;
+  }
+
+  /** A moment in the mini-game worth staging (hit, miss, release, finish…). */
+  playEvent(kind: string, value = 0): void {
+    if (this.play) this.onPlayEvent(this.play, kind, value);
+  }
+
+  endPlay(result: { place?: number; score?: number } = {}): void {
+    const play = this.play;
+    if (!play) return;
+    this.onEndPlay(play, result);
+    this.play = null;
+    if (this.camSaved) {
+      const c = this.camSaved;
+      this.camGoal = { ...c };
+      this.camRelease = 2.5;
+      this.camSaved = null;
+    }
+    const p = this.game.player;
+    if (p.actionPose === this.poseFn) p.actionPose = this.prevPose;
+    this.prevPose = this.poseFn = null;
+  }
+
+  protected onBeginPlay(_play: PlayState): void {}
+  protected onPlayEvent(_play: PlayState, _kind: string, _value: number): void {}
+  protected onEndPlay(_play: PlayState, _result: { place?: number; score?: number }): void {}
+  /** Player rig pose while a mini-game runs (null = normal animation). */
+  protected playerPose(_rig: PlayerRig, _play: PlayState, _dt: number): ActionPose | null {
+    return null;
   }
 
   setSeason(season: Season): void {

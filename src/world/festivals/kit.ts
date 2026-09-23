@@ -518,6 +518,66 @@ export function buildRowboat(rng: Rng, tint = 0x4f8fb0): { group: THREE.Group; g
   return { group: b.build({ name: 'rowboat' }), glow: new THREE.Vector3(1.05, 1.45, 0) };
 }
 
+/**
+ * Wish arch at the waterline: two bleached driftwood posts, a bowed crossbeam, paper lanterns and
+ * wish ribbons hanging from it. Spans `span` along X; returns lantern anchors (local) for glows.
+ */
+export function buildWishArch(rng: Rng, span = 4.6): { group: THREE.Group; lamps: THREE.Vector3[] } {
+  const b = new MeshBuilder();
+  const H = 3.1;
+  const drift = 0xc8b8a0;
+  for (const sx of [-1, 1]) {
+    const post = new THREE.CylinderGeometry(0.11, 0.16, H + 0.3, 8, 4);
+    const pp = post.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pp.count; i++) pp.setX(i, pp.getX(i) + Math.sin(pp.getY(i) * 1.7 + sx) * 0.05);
+    post.computeVertexNormals();
+    b.add('bark', post, mat(sx * span / 2, (H + 0.3) / 2 - 0.15, 0, 0, 0, sx * 0.04), { tint: drift, aoWorld: groundAO(0.5) });
+    // Rope lashing + a cairn of pale stones at the foot.
+    for (let i = 0; i < 3; i++) b.add('cloth', new THREE.TorusGeometry(0.15, 0.025, 4, 10), mat(sx * span / 2, H - 0.25 - i * 0.07, 0, Math.PI / 2, 0, 0), { tint: 0xd8c090 });
+    for (let i = 0; i < 5; i++) {
+      const st = lumpySphere(0.16 + rng.next() * 0.08, 1, 0.2, rng, 2);
+      st.scale(1, 0.6, 1);
+      const a = rng.next() * Math.PI * 2;
+      b.add('rock', st, mat(sx * span / 2 + Math.cos(a) * 0.3, 0.05, Math.sin(a) * 0.3), { tint: 0xd8d0c4 });
+    }
+  }
+  // Bowed crossbeam (segments following an arc).
+  const N = 12;
+  const beam = (t: number): THREE.Vector3 => new THREE.Vector3(-span / 2 - 0.35 + t * (span + 0.7), H + Math.sin(t * Math.PI) * 0.45 - 0.1, 0);
+  for (let i = 0; i < N; i++) {
+    const p = beam(i / N);
+    const q = beam((i + 1) / N);
+    const d = q.clone().sub(p);
+    const g = new THREE.CylinderGeometry(0.1, 0.1, d.length() + 0.04, 7);
+    g.rotateZ(Math.PI / 2);
+    b.add('bark', g, mat((p.x + q.x) / 2, (p.y + q.y) / 2, 0, 0, 0, Math.atan2(d.y, d.x)), { tint: drift });
+  }
+  const lamps: THREE.Vector3[] = [];
+  const tints = [0xffa850, 0xff8a60, 0xffc870, 0xff7a70];
+  for (let i = 0; i < 7; i++) {
+    const t = (i + 0.5) / 7;
+    const p = beam(t);
+    const drop = 0.35 + (i % 2) * 0.35 + rng.next() * 0.1;
+    b.add('white', new THREE.CylinderGeometry(0.006, 0.006, drop, 3), mat(p.x, p.y - drop / 2 - 0.05, 0), { tint: 0x3a2a1e });
+    const lan = lumpySphere(0.15, 1, 0.04, rng, 2);
+    lan.scale(1, 1.3, 1);
+    const ly = p.y - drop - 0.22;
+    b.add('paperLantern', lan, mat(p.x, ly, 0), { tint: tints[i % tints.length]! });
+    b.add('white', new THREE.CylinderGeometry(0.07, 0.07, 0.04, 8), mat(p.x, ly + 0.2, 0), { tint: 0x3a2a1e });
+    b.add('cloth', new THREE.ConeGeometry(0.025, 0.14, 5), mat(p.x, ly - 0.28, 0, Math.PI, 0, 0), { tint: 0xe8574a });
+    lamps.push(new THREE.Vector3(p.x, ly, 0));
+  }
+  // Wish ribbons knotted along the beam.
+  const rib = [0xf6c8d8, 0x5fd8e8, 0xfff0c8, 0xf2b928, 0xb8a8f0];
+  for (let i = 0; i < 16; i++) {
+    const t = (i + 0.3) / 16;
+    const p = beam(t);
+    const len = 0.5 + rng.next() * 0.6;
+    b.add('cloth', roundedBox(0.05, len, 0.008, 0.004, 1), mat(p.x + 0.05, p.y - len / 2 - 0.06, 0.08, 0, 0, (rng.next() - 0.5) * 0.25), { tint: rib[i % rib.length]! });
+  }
+  return { group: b.build({ name: 'wish-arch' }), lamps };
+}
+
 export function buildSandcastle(rng: Rng): THREE.Group {
   const b = new MeshBuilder();
   const sand = 0xe6cc98;
@@ -736,24 +796,24 @@ export function buildMarquee(rng: Rng, R = 3.6, stripes: [number, number] = [0xd
 /** One corn stalk (for instancing): stem, arching leaves, a cob with husk + tassel. */
 export function cornStalkGeometry(rng: Rng, h: number): THREE.BufferGeometry {
   const b = new MeshBuilder();
-  b.add('white', new THREE.CylinderGeometry(0.018, 0.03, h, 5), mat(0, h / 2, 0), { tint: 0xc8b060, aoWorld: (p) => 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y, 0, h * 0.6) });
-  for (let i = 0; i < 6; i++) {
-    const y = 0.35 + (i / 6) * (h - 0.6);
+  b.add('white', new THREE.CylinderGeometry(0.02, 0.035, h, 5), mat(0, h / 2, 0), { tint: 0xc8c070, aoWorld: (p) => 0.5 + 0.5 * THREE.MathUtils.smoothstep(p.y, 0, h * 0.6) });
+  for (let i = 0; i < 7; i++) {
+    const y = 0.25 + (i / 7) * (h - 0.5);
     const a = i * 2.3 + rng.next();
-    const leaf = new THREE.PlaneGeometry(0.06, 0.7, 1, 4);
+    const leaf = new THREE.PlaneGeometry(0.13, 0.85, 1, 4);
     const pos = leaf.attributes.position as THREE.BufferAttribute;
     for (let k = 0; k < pos.count; k++) {
-      const t = (pos.getY(k) + 0.35) / 0.7;
-      pos.setXYZ(k, pos.getX(k) * (1 - t * 0.7), t * 0.35, t * t * 0.5);
+      const t = (pos.getY(k) + 0.425) / 0.85;
+      pos.setXYZ(k, pos.getX(k) * (1 - t * 0.75) * (0.6 + Math.sin(t * Math.PI) * 0.6), t * 0.42, t * t * 0.55);
     }
     leaf.computeVertexNormals();
-    b.add('white', leaf, mat(0, y, 0, 0, a, 0), { tint: i < 2 ? 0xb89a50 : 0xc8b460 });
+    b.add('white', leaf, mat(0, y, 0, 0, a, 0), { tint: i < 2 ? 0xd8c070 : 0xe8e0a0, aoWorld: (p) => 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y, 0, h) });
   }
-  const cob = new THREE.CapsuleGeometry(0.04, 0.16, 3, 6);
-  b.add('white', cob, mat(0.05, h * 0.55, 0, 0, 0, -0.4), { tint: 0xe8c050 });
-  const husk = new THREE.ConeGeometry(0.05, 0.2, 5);
-  b.add('white', husk, mat(0.07, h * 0.55 - 0.02, 0, 0, 0, -0.4 + Math.PI), { tint: 0xd8c080 });
-  for (let i = 0; i < 4; i++) b.add('white', new THREE.CylinderGeometry(0.005, 0.005, 0.28, 3), mat(Math.cos(i * 1.6) * 0.04, h + 0.1, Math.sin(i * 1.6) * 0.04, Math.cos(i) * 0.4, 0, Math.sin(i) * 0.4), { tint: 0xd8a860 });
+  const cob = new THREE.CapsuleGeometry(0.045, 0.16, 1, 5);
+  b.add('white', cob, mat(0.06, h * 0.55, 0, 0, 0, -0.4), { tint: 0xf2c040 });
+  const husk = new THREE.ConeGeometry(0.055, 0.22, 5);
+  b.add('white', husk, mat(0.08, h * 0.55 - 0.03, 0, 0, 0, -0.4 + Math.PI), { tint: 0xe0d08a });
+  for (let i = 0; i < 2; i++) b.add('white', new THREE.CylinderGeometry(0.006, 0.004, 0.32, 3), mat(Math.cos(i * 2.6) * 0.04, h + 0.1, Math.sin(i * 2.6) * 0.04, Math.cos(i) * 0.5, 0, Math.sin(i) * 0.5), { tint: 0xd8a860 });
   const merged = [...b.geometries().values()][0]!;
   return merged;
 }
@@ -772,7 +832,8 @@ export function buildCornField(rng: Rng, spots: [number, number, number, number,
   spots.forEach(([x, y, z, r, s], i) => {
     M.compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler((rng.next() - 0.5) * 0.08, r, (rng.next() - 0.5) * 0.08)), new THREE.Vector3(s, s * (0.9 + rng.next() * 0.2), s));
     mesh.setMatrixAt(i, M);
-    mesh.setColorAt(i, c.setHSL(0.12 + (rng.next() - 0.5) * 0.03, 0.4 + rng.next() * 0.15, 0.62 + rng.next() * 0.12));
+    const green = rng.next() < 0.55;
+    mesh.setColorAt(i, green ? c.setHSL(0.17 + rng.next() * 0.04, 0.42 + rng.next() * 0.15, 0.5 + rng.next() * 0.08) : c.setHSL(0.11 + rng.next() * 0.03, 0.55 + rng.next() * 0.15, 0.56 + rng.next() * 0.1));
   });
   mesh.castShadow = true;
   mesh.receiveShadow = true;

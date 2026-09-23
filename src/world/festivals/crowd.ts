@@ -141,7 +141,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
   for (const [bone, sx] of [[Bone.LegL, -1], [Bone.LegR, 1]] as const) {
     const pv = new THREE.Vector3(sx * 0.12 * bw, 0.5, 0);
     const T = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, s = 1, sy = s, sz = s) => new THREE.Matrix4().makeTranslation(pv.x, pv.y, pv.z).multiply(mat(x, y, z, rx, ry, rz, s, sy, sz));
-    b.add(bone, pv, new THREE.CapsuleGeometry(0.095, 0.22, 3, 8), T(0, -0.19, 0), winter ? shade(bottom, 0.9) : bottom);
+    b.add(bone, pv, new THREE.CapsuleGeometry(0.095, 0.22, 2, 6), T(0, -0.19, 0), winter ? shade(bottom, 0.9) : bottom);
     const boot = winter ? 0x6a4a36 : o === 'summer' ? 0xc89a6a : 0x5a3a24;
     b.add(bone, pv, roundedBox(0.19, winter ? 0.18 : 0.14, 0.26, 0.06, 1), T(0, winter ? -0.41 : -0.43, 0.035), boot);
     b.add(bone, pv, roundedBox(0.2, 0.04, 0.28, 0.02, 1), T(0, -0.49, 0.04), shade(boot, 0.65));
@@ -155,7 +155,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
   const P = WAIST;
   const TT = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => new THREE.Matrix4().makeTranslation(P.x, P.y, P.z).multiply(mat(x, y, z, rx, ry, rz, sx, sy, sz));
   const puff = winter ? 1.14 : 1;
-  b.add(Bone.Torso, P, new THREE.CapsuleGeometry(0.2, 0.18, 3, 10), TT(0, 0.18, 0, 0, 0, 0, 1.05 * bw * puff, 1, 0.92 * bw * puff), top);
+  b.add(Bone.Torso, P, new THREE.CapsuleGeometry(0.2, 0.18, 2, 8), TT(0, 0.18, 0, 0, 0, 0, 1.05 * bw * puff, 1, 0.92 * bw * puff), top);
   b.add(Bone.Torso, P, new THREE.CylinderGeometry(0.215 * bw * puff, 0.205 * bw * puff, 0.18, 12), TT(0, 0.0, 0), winter ? top : bottom);
   if (winter) {
     // Puffy coat: quilted bands + toggles, fleece collar.
@@ -222,11 +222,11 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     const pv = new THREE.Vector3(sx * 0.25 * bw, 0.82, 0);
     const T = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, s = 1, sy = s, sz = s) => new THREE.Matrix4().makeTranslation(pv.x, pv.y, pv.z).multiply(mat(x, y, z, rx, ry, rz, s, sy, sz));
     const sleeve = winter ? top : o === 'summer' ? top : top;
-    b.add(bone, pv, new THREE.CapsuleGeometry(0.075 * puff, 0.08, 3, 8), T(0, -0.06, 0), sleeve);
-    b.add(bone, pv, new THREE.CapsuleGeometry(0.058 * puff, 0.12, 3, 8), T(0, -0.2, 0), sleeve);
+    b.add(bone, pv, new THREE.CapsuleGeometry(0.075 * puff, 0.08, 2, 6), T(0, -0.06, 0), sleeve);
+    b.add(bone, pv, new THREE.CapsuleGeometry(0.058 * puff, 0.12, 2, 6), T(0, -0.2, 0), sleeve);
     if (o === 'summer') b.add(bone, pv, new THREE.CylinderGeometry(0.075, 0.1, 0.16, 10, 1, true), T(0, -0.2, 0), shade(top, 0.95));
     if (winter) b.add(bone, pv, new THREE.TorusGeometry(0.06, 0.022, 4, 10), T(0, -0.27, 0, Math.PI / 2), 0xf4efe6);
-    b.add(bone, pv, new THREE.SphereGeometry(winter ? 0.078 : 0.07, 8, 6), T(0, -0.31, 0), hand);
+    b.add(bone, pv, new THREE.SphereGeometry(winter ? 0.078 : 0.07, 7, 5), T(0, -0.31, 0), hand);
     const H = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, s = 1, sy = s, sz = s) => T(0, -0.31, 0).multiply(mat(x, y, z, rx, ry, rz, s, sy, sz));
     if (bone === Bone.ArmR) {
       if (props.has('lantern')) {
@@ -300,7 +300,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
   // ── head
   const HP = NECK;
   const hm = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => headM(mat(x, y, z, rx, ry, rz, sx, sy, sz));
-  b.add(Bone.Head, HP, new THREE.SphereGeometry(R, 14, 10), hm(0, R * 0.92, 0, 0, 0, 0, 1.04, 0.96, 1), L.skin);
+  b.add(Bone.Head, HP, new THREE.SphereGeometry(R, 12, 8), hm(0, R * 0.92, 0, 0, 0, 0, 1.04, 0.96, 1), L.skin);
   for (const sx of [-1, 1]) b.add(Bone.Head, HP, new THREE.SphereGeometry(0.07, 7, 5), hm(sx * R * 0.98, R * 0.88, 0, 0, 0, 0, 0.6, 1, 1), L.skin);
   b.add(Bone.Head, HP, new THREE.SphereGeometry(0.03, 6, 5), hm(0, R * 0.78, R * 0.99), shade(L.skin, 1.05));
   for (const sx of [-1, 1]) {
@@ -324,15 +324,15 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
   }
   // Hair (winter hats replace the crown)
   const hatted = winter && L.hairStyle !== 'cap';
-  const cap = new THREE.SphereGeometry(R * 1.07, 14, 7, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  const cap = new THREE.SphereGeometry(R * 1.07, 12, 5, 0, Math.PI * 2, 0, Math.PI * 0.55);
   b.add(Bone.Head, HP, cap, hm(0, R * 0.98, -0.02, -0.25, 0, 0), L.hair);
   if (L.hairStyle === 'bun') {
     if (!hatted) b.add(Bone.Head, HP, lumpySphere(0.17, 1, 0.12, rng, 2), hm(0, R * 1.85, -R * 0.35), L.hair);
     for (const sx of [-1, 1]) b.add(Bone.Head, HP, lumpySphere(0.12, 1, 0.1, rng), hm(sx * R * 0.86, R * 1.0, R * 0.2, 0, 0, 0, 0.6, 1.1, 0.9), L.hair);
     b.add(Bone.Head, HP, lumpySphere(0.2, 1, 0.1, rng, 1.4), hm(0, R * 1.42, R * 0.55, 0.5, 0, 0, 1.6, 0.5, 0.7), L.hair);
   } else if (L.hairStyle === 'bob') {
-    for (let i = 0; i < 9; i++) {
-      const a = Math.PI * 0.35 + (i / 8) * Math.PI * 1.3;
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI * 0.35 + (i / 6) * Math.PI * 1.3;
       b.add(Bone.Head, HP, lumpySphere(0.15, 1, 0.15, rng), hm(Math.sin(a) * R * 0.92, R * 0.62 + (i % 2) * 0.04, Math.cos(a) * R * 0.88), L.hair);
     }
     for (const [a, len] of [[-0.45, 1.3], [0.1, 1.15], [0.55, 1.0]] as const) {
@@ -342,11 +342,11 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
       b.add(Bone.Head, HP, lock, hm(Math.sin(a) * R * 0.72, R * 1.36, Math.cos(a) * R * 0.72, 0.6, a, 0), L.hair);
     }
   } else if (L.hairStyle === 'cap') {
-    const capTint = winter ? accent : 0xf6f0e4;
+    const capTint = winter ? accent : 0xe2d8c6;
     b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.02, R * 1.02, 0.12, 16, 1, true), hm(0, R * 1.55, -0.02, -0.12), capTint);
     const pf = lumpySphere(R * 1.05, 1, 0.12, rng, 1.6);
     pf.scale(1.1, 0.55, 1.1);
-    b.add(Bone.Head, HP, pf, hm(0, R * 1.78, -0.05, -0.15), winter ? shade(accent, 1.1) : 0xfaf6ee);
+    b.add(Bone.Head, HP, pf, hm(0, R * 1.78, -0.05, -0.15), winter ? shade(accent, 1.1) : 0xe6ddcc);
     for (const sx of [-1, 1]) b.add(Bone.Head, HP, lumpySphere(0.1, 1, 0.12, rng), hm(sx * R * 0.9, R * 0.95, R * 0.1, 0, 0, 0, 0.6, 1, 0.9), L.hair);
   } else {
     for (let i = 0; i < 6; i++) {
@@ -384,7 +384,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     b.add(Bone.Head, HP, roundedBox(0.03, 0.22, 0.01, 0.01, 1), hm(R * 0.8, R * 1.9, -0.05, 0, 0, -0.5), 0xd8a040);
   } else if (hatted) {
     // Knit beanie with a pompom (+ earmuffs for bob hairstyles).
-    const hat = new THREE.SphereGeometry(R * 1.1, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    const hat = new THREE.SphereGeometry(R * 1.1, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5);
     b.add(Bone.Head, HP, hat, hm(0, R * 1.12, -0.02, -0.2), accent);
     b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 1.06, 0.05, 5, 18), hm(0, R * 1.15, -0.02, Math.PI / 2 - 0.2), shade(accent, 0.8));
     b.add(Bone.Head, HP, lumpySphere(0.09, 1, 0.2, rng, 3), hm(0, R * 2.2, -R * 0.25), 0xf4efe6);
@@ -396,7 +396,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     const pivot = local.clone().multiplyScalar(HEAD_S).add(NECK);
     const em = headM(mat(local.x, local.y, local.z, -0.12));
     // Happy crescent eyes for some, round for others.
-    b.add(Bone.Eye, pivot, new THREE.CapsuleGeometry(0.036, 0.046, 3, 8), em, 0x1d1612);
+    b.add(Bone.Eye, pivot, new THREE.CapsuleGeometry(0.036, 0.046, 2, 6), em, 0x1d1612);
     b.add(Bone.Eye, pivot, new THREE.SphereGeometry(0.014, 5, 4), em.clone().multiply(mat(0.013, 0.024, 0.03)), 0xffffff);
   }
 
@@ -641,7 +641,7 @@ export class Crowd {
 // ───────────────────────────────────────────── townsfolk generator
 
 const SKINS = [0xf2c8a2, 0xe8b894, 0xf0c4a0, 0xc88a64, 0x9a6444, 0xf6d2b4, 0xb87a56, 0x7a4a32];
-const HAIRS = [0x3a2418, 0x6a4228, 0x8a6a58, 0xd8b068, 0x2a1a14, 0xb8542a, 0xd8d4cc, 0x4a3a30, 0xe8c890];
+const HAIRS = [0x3a2418, 0x6a4228, 0x8a6a58, 0xd8b068, 0x2a1a14, 0xb8542a, 0xa8a29a, 0x4a3a30, 0xe0b880];
 const STYLES: NpcLook['hairStyle'][] = ['short', 'bob', 'bun', 'short', 'bob', 'cap'];
 
 /** A seeded random villager look (townsfolk filling out the crowd). */
