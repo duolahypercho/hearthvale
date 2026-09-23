@@ -44,7 +44,7 @@ const CSS = /* css */ `
 .hv-dmg { position:absolute; left:0; top:0; font-family: var(--font-head, 'Fredoka', system-ui); font-weight:700; font-size:30px; color:#fff;
   -webkit-text-stroke: 5px #3a1a0a; paint-order: stroke fill; text-shadow: 0 3px 0 rgba(40,15,5,.55); will-change: transform, opacity; white-space:nowrap; }
 .hv-dmg.crit { color:#ffd84a; font-size:40px; }
-.hv-dmg.player { color:#ff5a4a; font-size:32px; }
+.hv-dmg.player { color:#ff6a58; font-size:34px; -webkit-text-stroke:4px #2a0604; text-shadow: 0 3px 0 rgba(20,2,0,.7), 0 0 14px rgba(0,0,0,.55); }
 .hv-dmg.loot { color:#bff5a8; font-size:21px; -webkit-text-stroke:4px #1e3a14; }
 .hv-dmg.info { color:#ffe9c4; font-size:22px; -webkit-text-stroke:4px #3a2410; }
 
@@ -54,23 +54,49 @@ const CSS = /* css */ `
 .hv-blackout.on { opacity:1; }
 .hv-blackout span { color:#f4e2c4; font-family: var(--font-head, 'Fredoka', system-ui); font-size:28px; opacity:.9; text-align:center; line-height:1.4; }
 
-.hv-elevator { position:absolute; left:50%; top:50%; translate:-50% -50%; min-width:420px; padding:10px; border-radius:22px;
+.hv-elevator { position:absolute; right:clamp(24px, 7vw, 140px); top:50%; translate:0 -50%; width:360px; padding:10px 10px 12px; border-radius:22px;
   background: var(--wood-grad, linear-gradient(180deg,#c98c4c,#8a5226)); border:2px solid #5e3517; pointer-events:auto;
   box-shadow: 0 8px 0 rgba(50,24,8,.38), 0 26px 50px rgba(20,10,4,.45), inset 0 2px 0 #d9a066, inset 0 -3px 0 #5e3517;
-  animation: hvElevIn .22s cubic-bezier(.34,1.56,.64,1); }
-@keyframes hvElevIn { from { transform: scale(.85); opacity:0 } to { transform: scale(1); opacity:1 } }
-.hv-elevator h2 { margin:4px 8px 10px; font-family: var(--font-head, 'Fredoka', system-ui); color:#fff4dc; font-size:26px; text-shadow:0 2px 0 #5e3517; text-align:center; }
-.hv-elevator .grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; padding:14px; border-radius:14px;
-  background: radial-gradient(120% 90% at 50% 20%, #fbf0d6, #f1dcad); box-shadow: inset 0 2px 5px rgba(120,70,20,.35); }
-.hv-elevator button { border:2px solid #7a4a22; border-radius:12px; padding:10px 0 8px; background: linear-gradient(180deg,#fff6e0,#f0d8a8);
-  box-shadow: 0 3px 0 #a8743f; cursor:pointer; font-family: var(--font-head, 'Fredoka', system-ui) !important; font-size:20px; font-weight:700; color:#5a3a1e;
-  transition: transform .1s; display:flex; flex-direction:column; align-items:center; gap:2px; }
-.hv-elevator button small { font-family: var(--font-body, 'Nunito', system-ui); font-size:10.5px; font-weight:800; letter-spacing:.6px; opacity:.75; text-transform:uppercase; }
-.hv-elevator button:hover { transform: translateY(-2px); }
-.hv-elevator button.cur { background: linear-gradient(180deg,#ffe38a,#f5c542); }
-.hv-elevator button.locked { opacity:.35; cursor:default; box-shadow:none; }
-.hv-elevator button.earth { border-color:#8a5a2a } .hv-elevator button.ice { border-color:#4a7ab0 } .hv-elevator button.lava { border-color:#b0402a }
-.hv-elevator .foot { text-align:center; color:#fff0d0; font-weight:800; font-size:12.5px; margin-top:8px; opacity:.85; letter-spacing:.5px; }
+  animation: hvElevIn .24s cubic-bezier(.34,1.56,.64,1); font-family: var(--font-body, 'Nunito', system-ui); }
+@keyframes hvElevIn { from { transform: translateX(40px); opacity:0 } to { transform: none; opacity:1 } }
+.hv-elevator .hd { display:flex; align-items:center; gap:10px; margin:2px 6px 10px; }
+.hv-elevator .hd .wheel { width:40px; height:40px; flex:none; }
+.hv-elevator h2 { margin:0; font-family: var(--font-head, 'Fredoka', system-ui); color:#fff4dc; font-size:25px; line-height:1; text-shadow:0 2px 0 #5e3517; }
+.hv-elevator .depth { color:#ffe2b0; font-size:12.5px; font-weight:800; letter-spacing:.7px; text-transform:uppercase; margin-top:3px; }
+.hv-elevator .shaft { position:relative; padding:10px 10px 10px 34px; border-radius:14px; max-height:min(62vh, 560px); overflow-y:auto;
+  background: linear-gradient(90deg, #2a1a10 0 30px, transparent 30px), radial-gradient(120% 90% at 50% 20%, #fbf0d6, #efd8a6);
+  box-shadow: inset 0 2px 6px rgba(80,40,10,.45); display:flex; flex-direction:column; gap:7px; scrollbar-width:thin; }
+.hv-elevator .shaft::before { content:''; position:absolute; left:14px; top:0; bottom:0; width:3px; border-radius:2px;
+  background: repeating-linear-gradient(180deg, #b8a890 0 5px, #6a5a48 5px 8px); box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.hv-elevator .stop { position:relative; display:flex; align-items:center; gap:10px; padding:7px 10px 7px 8px; border-radius:12px; cursor:pointer;
+  border:2px solid #8a5a2e; background: linear-gradient(180deg,#fff8e6,#f3dcae); box-shadow: 0 3px 0 #a8743f; color:#4a2e16;
+  transition: transform .12s, box-shadow .12s; text-align:left; font:inherit; }
+.hv-elevator .stop:hover:not(.locked):not(.cur) { transform: translateX(-4px); box-shadow: 0 3px 0 #a8743f, 0 0 0 3px rgba(255,220,140,.6); }
+.hv-elevator .stop::before { content:''; position:absolute; left:-26px; top:50%; width:12px; height:12px; translate:0 -50%; border-radius:50%;
+  background: radial-gradient(circle at 40% 35%, #ffe6a0, #c08a2a); border:2px solid #3a2410; }
+.hv-elevator .stop.locked::before { background:#4a3a2c; }
+.hv-elevator .stop.cur::before { background: radial-gradient(circle at 40% 35%, #fff4b0, #ffb020); box-shadow: 0 0 10px 3px rgba(255,190,60,.8); }
+.hv-elevator .chip { width:36px; height:36px; flex:none; border-radius:10px; display:grid; place-items:center; border:2px solid rgba(0,0,0,.35);
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.35), inset 0 -3px 0 rgba(0,0,0,.25); }
+.hv-elevator .chip svg { width:22px; height:22px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.4)); }
+.hv-elevator .chip.earth { background: linear-gradient(180deg,#b07844,#7a4a26); }
+.hv-elevator .chip.ice { background: linear-gradient(180deg,#6aa8dc,#2e5e98); }
+.hv-elevator .chip.lava { background: linear-gradient(180deg,#d8542a,#7a1c10); }
+.hv-elevator .chip.surface { background: linear-gradient(180deg,#8cc46a,#4a7a34); }
+.hv-elevator .lbl { flex:1; min-width:0; }
+.hv-elevator .lbl b { display:block; font-family: var(--font-head, 'Fredoka', system-ui); font-size:19px; font-weight:700; line-height:1.05; }
+.hv-elevator .lbl small { display:block; font-size:11px; font-weight:800; letter-spacing:.7px; text-transform:uppercase; opacity:.72; margin-top:2px; }
+.hv-elevator .tag { flex:none; font-size:11px; font-weight:900; letter-spacing:.6px; text-transform:uppercase; padding:4px 8px; border-radius:8px; }
+.hv-elevator .tag.go { background:#5a8a3a; color:#f4ffe8; box-shadow: inset 0 -2px 0 rgba(0,0,0,.25); }
+.hv-elevator .tag.here { background:#ffcf4a; color:#5a3a10; box-shadow: inset 0 -2px 0 rgba(0,0,0,.2); }
+.hv-elevator .tag svg { width:16px; height:16px; display:block; }
+.hv-elevator .stop.cur { background: linear-gradient(180deg,#ffeaa0,#f5c542); border-color:#a8741e; cursor:default; }
+.hv-elevator .stop.locked { cursor:default; background: repeating-linear-gradient(135deg, #d8c4a0 0 8px, #cfb994 8px 16px); border-style:dashed; border-color:#8a6a4a;
+  box-shadow:none; color:#5e4a36; }
+.hv-elevator .stop.locked .chip { filter: grayscale(.75) brightness(.8); }
+.hv-elevator .stop.locked .tag { background:#5e4a36; color:#f0e0c8; padding:4px 6px; }
+.hv-elevator .foot { text-align:center; color:#fff0d0; font-weight:800; font-size:12px; margin-top:9px; opacity:.88; letter-spacing:.4px; }
+.hv-elevator .foot kbd { font: inherit; background:rgba(0,0,0,.25); border-radius:5px; padding:1px 6px; }
 `;
 
 let injected = false;
@@ -159,6 +185,8 @@ export class DamageNumbers {
   readonly layer: HTMLElement;
   private list: Num[] = [];
   private v = new THREE.Vector3();
+  /** Demo stills: numbers stop ageing at their peak pop (they keep tracking the camera). */
+  hold = false;
 
   constructor(parent: HTMLElement) {
     inject();
@@ -179,7 +207,7 @@ export class DamageNumbers {
   update(dt: number, camera: THREE.Camera, w: number, h: number): void {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const n = this.list[i]!;
-      n.age += dt;
+      if (!this.hold || n.age < n.life * 0.32) n.age += dt;
       const t = n.age / n.life;
       if (t >= 1) {
         n.el.remove();
@@ -235,6 +263,11 @@ export class ScreenFx {
   }
 }
 
+const LOCK = `<svg viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7.5" rx="1.6" fill="#f0e0c8"/><path d="M5 7 V5 a3 3 0 0 1 6 0 V7" fill="none" stroke="#f0e0c8" stroke-width="1.8"/><circle cx="8" cy="10.6" r="1.2" fill="#5e4a36"/></svg>`;
+const WHEEL = `<svg viewBox="0 0 40 40" class="wheel"><circle cx="20" cy="20" r="16" fill="none" stroke="#3a2410" stroke-width="5"/><circle cx="20" cy="20" r="16" fill="none" stroke="#c8b8a0" stroke-width="3"/>${[0, 45, 90, 135].map((a) => `<line x1="20" y1="6" x2="20" y2="34" stroke="#8a7a66" stroke-width="2.4" transform="rotate(${a} 20 20)"/>`).join('')}<circle cx="20" cy="20" r="4.5" fill="#d8a848" stroke="#3a2410" stroke-width="1.5"/></svg>`;
+const SURFACE = `<svg viewBox="0 0 24 24"><path d="M2 20 L8 9 L11 13 L15 6 L22 20 Z" fill="#f4f0e0" stroke="#2a4a1a" stroke-width="1.3"/><circle cx="18" cy="6" r="2.4" fill="#ffe27a"/></svg>`;
+const BIOME_NAME: Record<string, string> = { earth: 'Earthen Hollows', ice: 'Frostvein Grotto', lava: 'Cinder Depths' };
+
 export class ElevatorPanel {
   private el: HTMLElement;
   constructor(
@@ -242,6 +275,7 @@ export class ElevatorPanel {
     private floors: () => { floor: number; biome: string; unlocked: boolean; current: boolean }[],
     private pick: (floor: number) => void,
     private closeUI: () => void,
+    private depth: () => number = () => -1,
   ) {
     inject();
     this.el = document.createElement('div');
@@ -251,9 +285,18 @@ export class ElevatorPanel {
 
   open(): void {
     const list = this.floors();
-    this.el.innerHTML = `<h2>Mine Lift</h2><div class="grid">${list
-      .map((f) => `<button class="${f.biome} ${f.current ? 'cur' : ''} ${f.unlocked ? '' : 'locked'}" data-f="${f.floor}" ${f.unlocked ? '' : 'disabled'}>${f.floor === 0 ? '⌂' : f.floor}<small>${f.floor === 0 ? 'Surface' : f.biome === 'earth' ? 'Hollows' : f.biome === 'ice' ? 'Frostvein' : 'Cinder'}</small></button>`)
-      .join('')}</div><div class="foot">Every fifth floor you reach unlocks a stop · Esc to close</div>`;
+    const d = this.depth();
+    const cur = d >= 0 ? d : (list.find((f) => f.current)?.floor ?? 0);
+    const here = cur > 0 ? `Now at floor ${cur} · ${BIOME_NAME[list.find((f) => f.floor === cur)?.biome ?? ''] ?? 'the Hollowdeep'}` : 'Now at the surface';
+    const row = (f: (typeof list)[number]): string => {
+      const surf = f.floor === 0;
+      const chip = surf ? `<span class="chip surface">${SURFACE}</span>` : `<span class="chip ${f.biome}">${BIOME_GEM[f.biome] ?? BIOME_GEM.earth}</span>`;
+      const name = surf ? 'Surface' : `Floor ${f.floor}`;
+      const sub = surf ? 'Mountain shelf' : BIOME_NAME[f.biome] ?? '';
+      const tag = f.current ? '<span class="tag here">Here</span>' : f.unlocked ? '<span class="tag go">Go</span>' : `<span class="tag" title="Reach floor ${f.floor} to unlock">${LOCK}</span>`;
+      return `<button class="stop ${f.biome} ${f.current ? 'cur' : ''} ${f.unlocked ? '' : 'locked'}" data-f="${f.floor}" ${f.unlocked && !f.current ? '' : 'disabled'}>${chip}<span class="lbl"><b>${name}</b><small>${sub}</small></span>${tag}</button>`;
+    };
+    this.el.innerHTML = `<div class="hd">${WHEEL}<div><h2>Mine Lift</h2><div class="depth">${here}</div></div></div><div class="shaft">${list.map(row).join('')}</div><div class="foot">Every fifth floor you reach unlocks a stop · <kbd>Esc</kbd> to close</div>`;
     this.el.querySelectorAll('button[data-f]').forEach((b) =>
       b.addEventListener('pointerdown', (e) => {
         e.stopPropagation();

@@ -13,6 +13,9 @@ import { MeshBuilder, roundedBox, mat } from '../geom';
 
 export type MineActionKind = 'chop' | 'slash' | 'backslash';
 
+/** Held-tool scale while a mine action plays. */
+export const TOOL_SWING_SCALE = 1.4;
+
 interface Key {
   t: number;
   ease?: 'in' | 'out' | 'inout' | 'back';
@@ -138,6 +141,11 @@ export class MineActions {
 
   private hold(tool: THREE.Object3D | null): void {
     const socket = this.player.rig.tool;
+    // Mine tools swing 1.4x oversized (readability: the blade / pick head clears the hat brim).
+    if (tool) {
+      tool.userData.hvBaseScale ??= tool.scale.x;
+      tool.scale.setScalar((tool.userData.hvBaseScale as number) * TOOL_SWING_SCALE);
+    }
     this.socketWasVisible = socket.visible;
     this.hiddenKids = [];
     for (const c of socket.children) {
@@ -153,7 +161,10 @@ export class MineActions {
 
   private release(): void {
     const socket = this.player.rig.tool;
-    if (this.held) socket.remove(this.held);
+    if (this.held) {
+      socket.remove(this.held);
+      if (typeof this.held.userData.hvBaseScale === 'number') this.held.scale.setScalar(this.held.userData.hvBaseScale);
+    }
     for (const c of this.hiddenKids) c.visible = true;
     this.hiddenKids = [];
     this.held = null;
@@ -266,8 +277,8 @@ export function buildSword(): THREE.Group {
 }
 
 /** Blade-tip / blade-base in sword-local space (for the trail + hit sparks). */
-export const SWORD_TIP = new THREE.Vector3(0, 1.18, 0);
-export const SWORD_BASE = new THREE.Vector3(0, 0.3, 0);
+export const SWORD_TIP = new THREE.Vector3(0, 0.98, 0);
+export const SWORD_BASE = new THREE.Vector3(0, 0.22, 0);
 
 // ───────────────────────────────────────────── trail
 
@@ -311,7 +322,7 @@ export class SwordTrail {
       fragmentShader: `uniform vec3 uColor; varying float vA; varying float vE; void main(){
         float edge = smoothstep(0.0, 0.9, vE);
         vec3 c = mix(uColor * 0.7, vec3(1.5, 1.45, 1.3), pow(edge, 2.5));
-        float a = vA * (0.3 + 0.7 * edge);
+        float a = vA * (0.6 + 0.4 * edge);
         gl_FragColor = vec4(c * a, a);
       }`,
     });
@@ -370,5 +381,153 @@ export class SwordTrail {
     const g = this.mesh.geometry;
     (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (g.attributes.aAlpha as THREE.BufferAttribute).needsUpdate = true;
+  }
+}
+
+// ───────────────────────────────────────────── crescent slash
+
+const ARC_SEG = 32;
+const ARC_RAD = 5;
+const ARC_SPAN = THREE.MathUtils.degToRad(125);
+
+/**
+ * The big readable shape of a sword hit: a pre-built 125° crescent (inner 0.5 m, outer 1.6 m,
+ * tapering to points at both ends) lying around the farmer in the facing direction, tilted a
+ * little towards the camera. It sweeps in with the blade, flashes warm-white for ~90 ms on the
+ * impact frame and fades over ~120 ms. Alpha-blended (not additive) so it reads on bright ice too.
+ */
+export class SlashArc {
+  readonly mesh: THREE.Mesh;
+  private u: { uHead: { value: number }; uFade: { value: number }; uDir: { value: number }; uCrit: { value: number }; uScroll: { value: number } };
+  private t = -1;
+  private hold = 0.09;
+  private sweep = 0.075;
+  private fade = 0.12;
+
+  constructor() {
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const idx: number[] = [];
+    for (let i = 0; i <= ARC_SEG; i++) {
+      const u = i / ARC_SEG;
+      const a = -ARC_SPAN / 2 + u * ARC_SPAN;
+      // Crescent: full width in the middle, both horns taper to the outer edge.
+      const w = Math.pow(Math.sin(Math.PI * u), 0.75);
+      const rOut = 1.6 - (1 - w) * 0.12;
+      const rIn = rOut - (rOut - 0.5) * w - 0.02;
+      for (let j = 0; j <= ARC_RAD; j++) {
+        const v = j / ARC_RAD;
+        const r = rIn + (rOut - rIn) * v;
+        pos.push(Math.sin(a) * r, 0, Math.cos(a) * r);
+        uv.push(u, v);
+      }
+    }
+    for (let i = 0; i < ARC_SEG; i++)
+      for (let j = 0; j < ARC_RAD; j++) {
+        const a = i * (ARC_RAD + 1) + j;
+        const b = a + ARC_RAD + 1;
+        idx.push(a, b, a + 1, a + 1, b, b + 1);
+      }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    this.u = { uHead: { value: 0 }, uFade: { value: 0 }, uDir: { value: 1 }, uCrit: { value: 0 }, uScroll: { value: 0 } };
+    const m = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+      uniforms: this.u,
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: /* glsl */ `
+        uniform float uHead; uniform float uFade; uniform float uDir; uniform float uCrit; uniform float uScroll;
+        varying vec2 vUv;
+        void main(){
+          float s = uDir > 0.0 ? vUv.x : 1.0 - vUv.x;
+          if (s > uHead + 0.02) discard;
+          // Brightest at the sweep head, a long soft tail behind it.
+          float tail = smoothstep(uHead - 1.05, uHead, s);
+          float v = vUv.y;
+          // Crisp opaque outer band (the blade's path), a soft wash fading in towards the farmer.
+          float band = smoothstep(0.5, 0.78, v);
+          float rim = 1.0 - smoothstep(0.93, 1.0, v);
+          // Scrolling speed streaks along the arc.
+          float streak = 0.86 + 0.14 * sin((s * 3.0 - uScroll * 5.0) * 6.2832 + v * 5.0);
+          vec3 warm = mix(vec3(0.95, 0.72, 0.42), vec3(0.95, 0.78, 0.25), uCrit);
+          vec3 col = mix(warm, vec3(0.9, 0.88, 0.84), band);
+          float a = (0.04 + 0.86 * band * band) * rim * tail * streak * uFade;
+          a *= smoothstep(0.0, 0.06, s) * smoothstep(0.0, 0.08, uHead + 0.02 - s);
+          gl_FragColor = vec4(col, clamp(a, 0.0, 0.92));
+        }`,
+    });
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 11;
+    this.mesh.userData.noAO = true;
+    this.mesh.visible = false;
+    this.mesh.name = 'slash-arc';
+  }
+
+  /** Start a slash at `pos` (feet), facing `dir` (xz), sweeping clockwise (+1) or back (-1). */
+  fire(pos: THREE.Vector3, dir: THREE.Vector3, sweepDir: number, crit = false): void {
+    this.mesh.position.set(pos.x, pos.y + 0.62, pos.z);
+    this.mesh.rotation.set(0, 0, 0);
+    // Tilt towards the camera (which looks down -Z from +Z), then yaw to the facing.
+    this.mesh.rotation.order = 'YXZ';
+    this.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+    // Facing up/down: pitch the plane so it opens towards the camera; left/right: roll it about the
+    // facing axis so the far (north) side lifts.
+    this.mesh.rotation.x = dir.z < -0.5 ? 0.42 : dir.z > 0.5 ? -0.22 : 0;
+    this.mesh.rotation.z = Math.abs(dir.x) > 0.5 ? Math.sign(dir.x) * 0.4 : 0;
+    this.mesh.scale.setScalar(crit ? 1.14 : 1);
+    this.u.uDir.value = sweepDir;
+    this.u.uCrit.value = crit ? 1 : 0;
+    this.u.uHead.value = 0;
+    this.u.uFade.value = 1;
+    this.t = 0;
+    this.mesh.visible = true;
+  }
+
+  /** Impact frame: snap the crescent to full length and (re)start the flash hold. */
+  impact(crit = false): void {
+    if (this.t < 0) return;
+    this.u.uCrit.value = Math.max(this.u.uCrit.value, crit ? 1 : 0);
+    if (crit) this.mesh.scale.setScalar(1.14);
+    this.t = Math.min(this.t, this.sweep);
+    this.u.uHead.value = 1;
+  }
+
+  get active(): boolean {
+    return this.t >= 0;
+  }
+
+  /** Freeze on the impact frame (demo stills). */
+  pin(): void {
+    this.t = this.sweep;
+    this.hold = 1e9;
+  }
+
+  update(dt: number): void {
+    if (this.t < 0) return;
+    this.t += dt;
+    const t = this.t;
+    this.u.uScroll.value = t;
+    if (t < this.sweep) {
+      const k = t / this.sweep;
+      this.u.uHead.value = Math.max(this.u.uHead.value, 1 - (1 - k) * (1 - k));
+      this.u.uFade.value = 1;
+    } else if (t < this.sweep + this.hold) {
+      this.u.uHead.value = 1;
+      this.u.uFade.value = 1;
+    } else if (t < this.sweep + this.hold + this.fade) {
+      const k = (t - this.sweep - this.hold) / this.fade;
+      this.u.uHead.value = 1 + k * 0.4;
+      this.u.uFade.value = (1 - k) * (1 - k);
+    } else {
+      this.t = -1;
+      this.hold = 0.09;
+      this.mesh.visible = false;
+    }
   }
 }

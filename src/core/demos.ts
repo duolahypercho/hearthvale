@@ -25,7 +25,7 @@ const HOME_CAM = { yaw: -16, pitch: 45, distance: 27, offsetX: -1.6, offsetZ: -2
 /** Town square framing: plaza + fountain in front, Lantern Hall and shop fronts behind. */
 const TOWN_CAM = { yaw: 0, pitch: 43, distance: 37, offsetX: -2.9, offsetZ: -7.6 };
 /** Mine floors: steep, close diorama framing so the lantern pool fills the frame. */
-const MINE_CAM = { yaw: 0, pitch: 54, distance: 19, offsetZ: -0.6 };
+const MINE_CAM = { yaw: 0, pitch: 42, distance: 17.5, offsetZ: -0.9 };
 /** Cindergrove: the waterfall, plunge pool and flanking elders, player on the pool path. */
 const FOREST_FALLS_CAM = { yaw: 2, pitch: 45, distance: 26, offsetX: -5.2, offsetZ: -3.4 };
 /** Driftsand Beach: pier, surf and the shack; sunset looks out over the pier. */
@@ -126,7 +126,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'mine-floor': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
   'mine-ice': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
   'mine-lava': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
-  'mine-combat': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 52, distance: 14.5, offsetZ: -0.5 }, showcase: [] },
+  'mine-combat': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 17, offsetZ: -0.7 }, showcase: [] },
   // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
   'fest-spring': { map: 'fest-spring', x: 29.2, z: 35.2, facing: 'up', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 33, offsetX: 2.8, offsetZ: -8.6 }, showcase: ['festival-show'] },
   'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 32, offsetX: -3.2, offsetZ: -7.5 }, showcase: ['festival-show'] },

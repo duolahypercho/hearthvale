@@ -72,7 +72,8 @@ function glowMaterial(): THREE.MeshStandardMaterial {
 let rockMat: THREE.MeshStandardMaterial | null = null;
 export function mineRockMaterial(): THREE.MeshStandardMaterial {
   if (!rockMat) {
-    rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, flatShading: true });
+    // Normals come from the geometry: soft-cut breakables blend flat + smooth, props stay faceted.
+    rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84 });
     rockMat.name = 'mine-rock';
   }
   return rockMat;
@@ -132,7 +133,16 @@ export interface MineProps {
   dispose(): void;
 }
 
-export function buildProps(L: FloorLayout, rng: Rng, heightAt: H): MineProps {
+let obsidianMat: THREE.MeshStandardMaterial | null = null;
+function obsidianMaterial(): THREE.MeshStandardMaterial {
+  if (!obsidianMat) {
+    obsidianMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.14, metalness: 0.35, flatShading: true, envMapIntensity: 1.4 });
+    obsidianMat.name = 'mine-obsidian';
+  }
+  return obsidianMat;
+}
+
+export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H = heightAt): MineProps {
   const def = BIOMES[L.biome];
   const group = new THREE.Group();
   group.name = 'mine-props';
@@ -302,7 +312,7 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H): MineProps {
           b.add('white', bevelCylinder(0.035 * s + 0.01, 0.05 * s + 0.01, hh, 0.01, 8), mat(x, heightAt(x, z), z, (r.next() - 0.5) * 0.3, 0, (r.next() - 0.5) * 0.3), { tint: 0xd8e8dc });
           const cap = new THREE.SphereGeometry(0.13 * s + 0.03, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
           cap.scale(1, 0.65, 1);
-          glowB.add(glowMaterial(), cap, mat(x, heightAt(x, z) + hh, z), { tint: k % 3 === 0 ? 0x4ad8ff : 0x5affc0 });
+          glowB.add(glowMaterial(), cap, mat(x, heightAt(x, z) + hh, z), { tint: k % 3 === 0 ? 0x1a6a90 : 0x1c8a62 });
         }
         break;
       }
@@ -385,6 +395,9 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H): MineProps {
         break;
     }
   }
+
+  // ── wall dressing: every 4–6 m of camera-facing wall gets a set piece ─────
+  wallDressing(L, rng.fork('walls'), heightAt, surfaceAt, { b, glowB, iceB, rockB, woodTint });
 
   // ── crystal clusters ────────────────────────────────────────────
   for (const c of L.crystals) {
@@ -519,4 +532,194 @@ export function buildLadderDown(biome: FloorLayout['biome'], rng: Rng): THREE.Gr
   g.add(glow);
   g.traverse((o) => (o.userData.noAO = true));
   return g;
+}
+
+interface Builders {
+  b: MeshBuilder;
+  glowB: MeshBuilder;
+  iceB: MeshBuilder;
+  rockB: MeshBuilder;
+  woodTint: number;
+}
+
+/**
+ * Authored-looking wall dressing along the north (camera-facing) walls, spaced 4–6 m apart:
+ *  earth: timber shoring sets (posts following the rock face, cap beam, knee braces, a hanging
+ *         lantern on every other one) with roots + vines trailing down the face (some vines carry
+ *         tiny glow-moss beads: a cool secondary accent against the warm lantern);
+ *  ice:   frost ledges (snow-capped shelves with icicle fringes) and icicle curtains off the crest;
+ *  lava:  obsidian columns leaning on the face and glowing magma seams zig-zagging up the rock.
+ */
+function wallDressing(L: FloorLayout, r: Rng, heightAt: H, surfaceAt: H, B: Builders): void {
+  const W = L.w;
+  const solid = (x: number, z: number): boolean => x < 0 || z < 0 || x >= W || z >= L.d || L.solid[z * W + x] === 1;
+  /** Southmost z (≤ zb + 0.6) where the shell reaches height y (the rock face at that height). */
+  const faceZ = (x: number, zb: number, y: number): number | null => {
+    const base = heightAt(x, zb + 0.5);
+    for (let z = zb + 0.7; z > zb - 2.4; z -= 0.04) if (surfaceAt(x, z) - base >= y) return z;
+    return null;
+  };
+  const edges: { x: number; z: number }[] = [];
+  for (let z = 2; z < L.d - 2; z++)
+    for (let x = 2; x < W - 2; x++) {
+      if (solid(x, z) || L.lava[z * W + x] || !solid(x, z - 1)) continue;
+      // Needs a real cliff: two wall tiles north and wall neighbours along the face.
+      if (!solid(x, z - 2) || (!solid(x - 1, z - 1) && !solid(x + 1, z - 1))) continue;
+      edges.push({ x, z });
+    }
+  r.shuffle(edges);
+  const keep: { x: number; z: number }[] = [];
+  const avoid: { x: number; z: number; r: number }[] = [
+    { x: L.ladderUp.x + 0.5, z: L.ladderUp.z + 1, r: 2.2 },
+    ...(L.elevator ? [{ x: L.elevator.x + 0.5, z: L.elevator.z + 0.5, r: 2.6 }] : []),
+    ...L.crystals.map((c) => ({ x: c.x, z: c.z, r: 1.3 })),
+    ...L.decor.filter((d) => d.kind === 'post' || d.kind === 'lanternPost').map((d) => ({ x: d.x, z: d.z, r: 1.6 })),
+  ];
+  const woodT = B.woodTint;
+  let lanternToggle = false;
+  let n = 0;
+  for (const e of edges) {
+    if (n >= 14) break;
+    const cx = e.x + 0.5 + (r.next() - 0.5) * 0.3;
+    if (keep.some((k) => Math.hypot(k.x - cx, k.z - e.z) < 4.2 + (n % 3) * 0.7)) continue;
+    if (avoid.some((a) => Math.hypot(a.x - cx, a.z - (e.z + 0.5)) < a.r)) continue;
+    const zb = e.z;
+    const top = surfaceAt(cx, zb - 1.3) - heightAt(cx, zb + 0.5);
+    if (top < 2.3) continue;
+    const foot = faceZ(cx, zb, 0.2);
+    const upper = faceZ(cx, zb, 2.4);
+    if (foot === null || upper === null) continue;
+    keep.push({ x: cx, z: zb });
+    n++;
+    const y0 = heightAt(cx, foot + 0.2);
+    if (L.biome === 'earth') {
+      const timber = n % 3 !== 0;
+      if (timber) {
+        // Two posts that follow the face, cap beam across, knee braces, iron straps.
+        const tops: THREE.Vector3[] = [];
+        for (const sx of [-0.85, 0.85]) {
+          const x = cx + sx;
+          const fz = faceZ(x, zb, 0.2) ?? foot;
+          const tz = faceZ(x, zb, 2.5) ?? upper;
+          const by = heightAt(x, fz + 0.2);
+          const b0 = new THREE.Vector3(x, by - 0.05, fz + 0.16);
+          const b1 = new THREE.Vector3(x, by + 2.55, tz + 0.14);
+          const len = b0.distanceTo(b1);
+          const th = Math.atan2(b1.z - b0.z, b1.y - b0.y);
+          const mid = b0.clone().add(b1).multiplyScalar(0.5);
+          B.b.add('woodDark', boxUV(roundedBox(0.2, len, 0.2, 0.04), 2), mat(mid.x, mid.y, mid.z, th, 0, (r.next() - 0.5) * 0.05), { tint: woodT, aoWorld: (p) => 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y - by, 0, 0.8) });
+          B.b.add('metal', roundedBox(0.23, 0.05, 0.23, 0.01), mat(b0.x, by + 0.45, THREE.MathUtils.lerp(b0.z, b1.z, 0.18), th, 0, 0), { tint: 0x5a524a });
+          tops.push(b1);
+        }
+        const tA = tops[0]!;
+        const tB = tops[1]!;
+        const bz = Math.max(tA.z, tB.z) + 0.02;
+        const by = (tA.y + tB.y) / 2 + 0.08;
+        B.b.add('woodDark', boxUV(roundedBox(2.15, 0.24, 0.24, 0.04), 2), mat(cx, by, bz, 0, 0, (r.next() - 0.5) * 0.04), { tint: woodT });
+        for (const sx of [-1, 1]) B.b.add('woodDark', roundedBox(0.12, 0.62, 0.12, 0.03), mat(cx + sx * 0.62, by - 0.3, bz + 0.02, 0, 0, sx * 0.72), { tint: woodT });
+        lanternToggle = !lanternToggle;
+        if (lanternToggle) {
+          B.b.add('metal', new THREE.CylinderGeometry(0.008, 0.008, 0.3, 4), mat(cx + 0.35, by - 0.27, bz + 0.16));
+          lanternInto(B.b, cx + 0.35, by - 0.62, bz + 0.16, 1.05);
+        }
+      }
+      // Roots + vines trail down the face from the crest (both kinds of set get them).
+      const strands = timber ? 3 + r.int(0, 2) : 6 + r.int(0, 3);
+      for (let k = 0; k < strands; k++) {
+        const x = cx + (r.next() - 0.5) * (timber ? 3.2 : 2.2);
+        const vine = r.next() < 0.5;
+        const len = 0.8 + r.next() * (vine ? 1.6 : 1.1);
+        const tt = surfaceAt(x, zb - 1.3) - y0;
+        const pts: THREE.Vector3[] = [];
+        for (let t = 0; t <= 1.0001; t += 0.2) {
+          const yy = tt - 0.05 - t * len;
+          const fz = faceZ(x, zb, Math.max(0.1, yy)) ?? foot;
+          pts.push(new THREE.Vector3(x + Math.sin(t * 5 + k) * 0.08, y0 + yy, fz + 0.05 + t * 0.04));
+        }
+        const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 10, vine ? 0.02 : 0.03 + r.next() * 0.015, 5, false);
+        B.b.add(vine ? 'cloth' : 'bark', tube, undefined, { tint: vine ? 0x3f6a2e : 0x5a3e2a });
+        if (vine) {
+          for (let q = 1; q < pts.length; q++) {
+            const pp = pts[q]!;
+            const leaf = new THREE.SphereGeometry(0.07, 6, 4);
+            leaf.scale(1, 0.35, 0.7);
+            B.b.add('cloth', leaf, mat(pp.x + (q % 2 ? 0.06 : -0.06), pp.y, pp.z + 0.03, 0.4, r.next() * 6, q % 2 ? 0.5 : -0.5), { tint: q % 3 ? 0x5a8a3a : 0x7aa04a });
+          }
+          if (r.next() < 0.45) {
+            const pp = pts[pts.length - 1]!;
+            B.glowB.add(glowMaterial(), new THREE.SphereGeometry(0.035, 8, 6), mat(pp.x, pp.y - 0.03, pp.z + 0.02), { tint: 0x3ad8b0 });
+          }
+        }
+      }
+    } else if (L.biome === 'ice') {
+      // Frost ledge: a snow-capped shelf growing out of the face, icicles fringing its lip.
+      const ly = 1.25 + r.next() * 0.9;
+      const lz = faceZ(cx, zb, ly) ?? foot;
+      const w = 1.3 + r.next() * 0.9;
+      const shelf = lumpySphere(0.5, 1, 0.18, r, 2);
+      shelf.scale(w, 0.28, 0.62);
+      B.b.add('white', shelf, mat(cx, y0 + ly, lz + 0.1), { tint: 0xe4f0fc });
+      const cap = lumpySphere(0.45, 1, 0.2, r, 2);
+      cap.scale(w * 0.95, 0.16, 0.55);
+      B.b.add('white', cap, mat(cx, y0 + ly + 0.1, lz + 0.08), { tint: 0xfafcff });
+      const nIc = 5 + r.int(0, 4);
+      for (let k = 0; k < nIc; k++) {
+        const len = 0.18 + r.next() * 0.5;
+        const g = new THREE.ConeGeometry(0.035 + r.next() * 0.03, len, 5);
+        g.rotateX(Math.PI);
+        B.iceB.add(iceMaterial(), g, mat(cx + (k / (nIc - 1) - 0.5) * w * 0.85, y0 + ly - 0.08 - len / 2, lz + 0.22 + r.next() * 0.06), { tint: 0xe6f6ff });
+      }
+      // Icicle curtain off the crest, following the face.
+      const cN = 7 + r.int(0, 5);
+      const crest = surfaceAt(cx, zb - 1.3) - y0;
+      for (let k = 0; k < cN; k++) {
+        const x = cx + (r.next() - 0.5) * 2.6;
+        const len = 0.3 + r.next() * r.next() * 1.2;
+        const yy = crest - 0.12;
+        const fz = faceZ(x, zb, Math.max(0.2, yy - len * 0.5)) ?? lz;
+        const g = new THREE.ConeGeometry(0.04 + r.next() * 0.04, len, 5);
+        g.rotateX(Math.PI);
+        B.iceB.add(iceMaterial(), g, mat(x, y0 + yy - len / 2, fz + 0.1), { tint: 0xdff2ff });
+      }
+    } else {
+      // Obsidian columns leaning on the face + glowing magma seams climbing the rock.
+      const cols = 2 + r.int(0, 2);
+      for (let k = 0; k < cols; k++) {
+        const x = cx + (k - (cols - 1) / 2) * 0.46 + (r.next() - 0.5) * 0.15;
+        const fz = faceZ(x, zb, 0.2) ?? foot;
+        const hh = 1.4 + r.next() * 1.6;
+        const tz = faceZ(x, zb, hh) ?? fz;
+        const by = heightAt(x, fz + 0.2);
+        const g = new THREE.CylinderGeometry(0.2 + r.next() * 0.06, 0.24, hh, 6, 1);
+        const col = new Float32Array(g.attributes.position!.count * 3);
+        const c = new THREE.Color();
+        const pa = g.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < pa.count; i++) {
+          const t = (pa.getY(i) + hh / 2) / hh;
+          c.setHex(0x1a1420).lerp(new THREE.Color(0x3a2e44), t * 0.6);
+          col.set([c.r, c.g, c.b], i * 3);
+        }
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        const th = Math.atan2(tz - fz, hh);
+        B.rockB.add(obsidianMaterial(), g.toNonIndexed(), mat(x, by + hh / 2 - 0.05, (fz + tz) / 2 + 0.22, th, r.next(), 0));
+        const capG = new THREE.CylinderGeometry(0.21, 0.21, 0.03, 6);
+        B.glowB.add(glowMaterial(), capG, mat(x, by + hh - 0.04, tz + 0.22 + Math.sin(th) * 0.02, th, r.next(), 0), { tint: 0x4a1406 });
+      }
+      const seams = 1 + r.int(0, 1);
+      for (let k = 0; k < seams; k++) {
+        const x0 = cx + (r.next() - 0.5) * 2.4;
+        const crest = surfaceAt(x0, zb - 1.3) - y0;
+        const pts: THREE.Vector3[] = [];
+        let x = x0;
+        for (let yy = 0.15; yy < crest - 0.2; yy += 0.28) {
+          x += (r.next() - 0.5) * 0.28;
+          const fz = faceZ(x, zb, yy) ?? foot;
+          pts.push(new THREE.Vector3(x, y0 + yy, fz + 0.02));
+        }
+        if (pts.length < 3) continue;
+        const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 3, 0.03, 4, false);
+        B.glowB.add(glowMaterial(), tube, undefined, { tint: 0xff4a0c });
+      }
+    }
+  }
 }

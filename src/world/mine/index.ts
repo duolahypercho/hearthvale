@@ -84,6 +84,8 @@ export class MineMap implements GameMap {
   freezeAI = false;
   /** Demo arena: monsters keep simulating while the game is paused for a staged shot. */
   live = false;
+  /** Demo stills: particles / chunks / rock wobble hold their current frame. */
+  freezeFx = false;
 
   private floorGroup = new THREE.Group();
   private cave: CaveBuild | null = null;
@@ -167,7 +169,8 @@ export class MineMap implements GameMap {
 
     this.cave = buildCave(L, r.fork('cave'));
     this.floorGroup.add(this.cave.group);
-    this.props = buildProps(L, r.fork('props'), (x, z) => this.cave!.heightAt(x, z));
+    this.settle(L);
+    this.props = buildProps(L, r.fork('props'), (x, z) => this.cave!.heightAt(x, z), (x, z) => this.cave!.surfaceAt(x, z));
     this.floorGroup.add(this.props.group);
     for (const d of L.decor) if (d.solid) g.setObject(Math.floor(d.x), Math.floor(d.z), { kind: 'prop', id: d.kind, solid: true });
     for (const c of L.crystals) {
@@ -188,6 +191,69 @@ export class MineMap implements GameMap {
     this.fx.setFloor((x, z) => this.heightAt(x, z), def.motes, def.moteColor);
     this.lighting.configure(def, L.lights);
     this.brokenCount = 0;
+  }
+
+  /**
+   * Keep dressing out of the rock: the shell's wall foot wanders ±0.4 m across the edge tiles, so
+   * crystals / lantern posts / glowcaps placed on a wall-edge tile can end up half inside the wall
+   * (only their glow showing, floating in the dark). Slide each one within its own tile to where
+   * its base sits on the floor (≤ 0.2 m of shell above floor level), drop it if there is no such
+   * spot, and move / drop the accent light that belonged to it.
+   */
+  private settle(L: FloorLayout): void {
+    const cave = this.cave!;
+    const buried = (x: number, z: number): boolean => cave.surfaceAt(x, z) - cave.heightAt(x, z) > 0.2;
+    const slide = (x: number, z: number): [number, number] | null => {
+      if (!buried(x, z)) return [0, 0];
+      const tx = Math.floor(x);
+      const tz = Math.floor(z);
+      for (let rr = 0.1; rr <= 0.8; rr += 0.1)
+        for (let a = 0; a < 16; a++) {
+          const ang = (a / 16) * Math.PI * 2;
+          const nx = x + Math.cos(ang) * rr;
+          const nz = z + Math.sin(ang) * rr;
+          if (Math.floor(nx) !== tx || Math.floor(nz) !== tz) continue;
+          if (nx - tx < 0.08 || nx - tx > 0.92 || nz - tz < 0.08 || nz - tz > 0.92) continue;
+          if (!buried(nx, nz)) return [nx - x, nz - z];
+        }
+      return null;
+    };
+    const moves: { x: number; z: number; d: [number, number] | null }[] = [];
+    L.crystals = L.crystals.filter((c) => {
+      const d = slide(c.x, c.z);
+      moves.push({ x: c.x, z: c.z, d });
+      if (!d) return false;
+      c.x += d[0];
+      c.z += d[1];
+      return true;
+    });
+    L.decor = L.decor.filter((dc) => {
+      if (dc.kind !== 'mushrooms' && dc.kind !== 'lanternPost' && dc.kind !== 'post' && dc.kind !== 'crate' && dc.kind !== 'barrel') return true;
+      const d = slide(dc.x, dc.z);
+      moves.push({ x: dc.x, z: dc.z, d });
+      if (!d) return false;
+      dc.x += d[0];
+      dc.z += d[1];
+      return true;
+    });
+    L.lights = L.lights.filter((l) => {
+      let best: (typeof moves)[number] | null = null;
+      let bd = 1.2;
+      for (const m of moves) {
+        const dd = Math.hypot(m.x - l.x, m.z - l.z);
+        if (dd < bd) {
+          bd = dd;
+          best = m;
+        }
+      }
+      if (best) {
+        if (!best.d) return false;
+        l.x += best.d[0];
+        l.z += best.d[1];
+      }
+      // Never leave a practical light inside the rock mass.
+      return cave.surfaceAt(l.x, l.z) - cave.heightAt(l.x, l.z) < Math.max(0.4, l.y - 0.3);
+    });
   }
 
   addMonster(kind: MonsterKind, x: number, z: number, tier = this.layout.tier, band = Math.floor((this.floor - 1) / 10) % 3): Monster {
@@ -237,10 +303,10 @@ export class MineMap implements GameMap {
     this.active = true;
     const rig = this.game.rc.rig;
     this.savedCam = { pitch: rig.pitch, yaw: rig.yaw, distance: rig.distance, off: rig.lookOffset.clone() };
-    rig.pitch = 54;
+    rig.pitch = 42;
     rig.yaw = 0;
-    rig.distance = 19;
-    rig.lookOffset.set(0, 0, -0.6);
+    rig.distance = 17.5;
+    rig.lookOffset.set(0, 0, -0.9);
     this.lighting.activate();
   }
 
@@ -451,7 +517,7 @@ export class MineMap implements GameMap {
         if (this.grid.isWalkable(tx, tz)) this.revealLadder(tx, tz);
       }
     }
-    this.rocks?.update(dt);
+    this.rocks?.update(this.freezeFx ? 0 : dt);
     this.pickups.update(dt, time, player, this.playerTargetable);
     // Ambient: vents puff embers, ore rocks glint now and then.
     this.ventT -= dt;
@@ -473,9 +539,25 @@ export class MineMap implements GameMap {
         this.fx.sparks(rk.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.35 + Math.random() * 0.3, (Math.random() - 0.5) * 0.5)), { color: c, count: 1, speed: 0.05, up: 0, size: 0.24, gravity: 0, drag: 5, life: 0.7, star: true });
       }
     }
+    // Gold (and gem) nodes wink every ~1.5 s each, phase-staggered, so they read from across a hall.
+    if (this.rocks) {
+      for (const rk of this.rocks.rocks) {
+        if (!rk.alive || !rk.spec.ore) continue;
+        const st = ORE_STYLE[rk.spec.ore];
+        if (rk.spec.ore !== 'goldOre' && st.kind !== 'gem') continue;
+        const period = rk.spec.ore === 'goldOre' ? 1.5 : 2.4;
+        const ph = (rk.spec.seed % 1000) / 1000;
+        const a = Math.floor(time / period + ph);
+        const b = Math.floor((time - dt) / period + ph);
+        if (a === b || Math.hypot(rk.pos.x - player.x, rk.pos.z - player.z) > 13) continue;
+        const c = oreColor(rk.spec.ore).lerp(new THREE.Color(0xffffff), 0.55);
+        const sy = rk.spec.big ? 0.75 : 0.55;
+        this.fx.sparks(rk.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.4, sy * rk.scale + Math.random() * 0.15, (Math.random() - 0.5) * 0.4)), { color: c, count: 1, speed: 0.02, up: 0, size: 0.42, gravity: 0, drag: 5, life: 0.55, star: true });
+      }
+    }
     const h = game.rc.renderer.domElement.height;
     this.lighting.update(dt, time, player);
-    this.fx.update(dt, time, h, game.rc.rig.focus, this.lighting.fill.position);
+    this.fx.update(this.freezeFx ? 0 : dt, time, h, game.rc.rig.focus, this.lighting.fill.position);
   }
 
   dispose(): void {

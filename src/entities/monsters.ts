@@ -13,6 +13,7 @@
  * Shared: white hit flash, knockback + stun, squash impulse, death animation then `dead`.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Rng } from '../core/rng';
 import { lumpySphere, smoothNormals } from '../world/geom';
 import { facetRock } from '../world/mine/rockgeo';
@@ -33,9 +34,12 @@ export interface ArenaCtx {
   rng: Rng;
 }
 
+/** Bat fresnel rim light per biome (reads the silhouette against any floor). */
+const BAT_RIM: Record<Biome, number> = { earth: 0xe0b8ff, ice: 0xffd8a8, lava: 0xff9a4a };
+
 const PALETTE: Record<Biome, { slime: number; slimeCore: number; bat: number; batEye: number; crab: number; crabLeg: number }> = {
   earth: { slime: 0x7ed957, slimeCore: 0x3f9a2a, bat: 0x5a4668, batEye: 0xffd24a, crab: 0x8d7a66, crabLeg: 0xd8764a },
-  ice: { slime: 0x7fd8ff, slimeCore: 0x2a7ac8, bat: 0x8fa8c8, batEye: 0x7ff0ff, crab: 0x9fb4c8, crabLeg: 0x5a8ac8 },
+  ice: { slime: 0x7fd8ff, slimeCore: 0x2a7ac8, bat: 0x3e4a86, batEye: 0xffd24a, crab: 0x9fb4c8, crabLeg: 0x5a8ac8 },
   lava: { slime: 0xff7a2a, slimeCore: 0xc81e0a, bat: 0x3a2a2a, batEye: 0xff5a1a, crab: 0x4e4240, crabLeg: 0xa83a1a },
 };
 
@@ -46,29 +50,33 @@ const STATS: Record<MonsterKind, { hp: number; dmg: number; radius: number; knoc
 };
 
 /** Standard material with a patchable flash + rim (per monster, so each can flash on its own). */
-function monsterMat(color: number, opts: { rough?: number; clearcoat?: boolean; emissive?: number; emissiveI?: number; rim?: number; flat?: boolean } = {}): THREE.MeshPhysicalMaterial {
+function monsterMat(color: number, opts: { rough?: number; clearcoat?: boolean | number; emissive?: number; emissiveI?: number; rim?: number; flat?: boolean; rimColor?: number } = {}): THREE.MeshPhysicalMaterial {
   const m = new THREE.MeshPhysicalMaterial({
     color,
     roughness: opts.rough ?? 0.6,
-    clearcoat: opts.clearcoat ? 1 : 0,
-    clearcoatRoughness: 0.12,
+    clearcoat: typeof opts.clearcoat === 'number' ? opts.clearcoat : opts.clearcoat ? 1 : 0,
+    clearcoatRoughness: typeof opts.clearcoat === 'number' ? 0.4 : 0.12,
     emissive: opts.emissive ?? 0x000000,
     emissiveIntensity: opts.emissiveI ?? 1,
     flatShading: opts.flat ?? false,
   });
   const uFlash = { value: 0 };
   const uRim = { value: opts.rim ?? 0.4 };
+  const uRimC = { value: new THREE.Color(opts.rimColor ?? 0xffffff) };
+  const uRimT = { value: opts.rimColor !== undefined ? 1 : 0 };
   m.userData.uFlash = uFlash;
-  patchMaterial(m, `monster-flash:${opts.rim ?? 0.4}`, (shader) => {
+  patchMaterial(m, `monster-flash:${opts.rim ?? 0.4}:${opts.rimColor ?? '-'}`, (shader) => {
     shader.uniforms.uFlash = uFlash;
     shader.uniforms.uRimK = uRim;
-    let fs = before(shader.fragmentShader, 'void main() {', 'uniform float uFlash; uniform float uRimK;');
+    shader.uniforms.uRimC = uRimC;
+    shader.uniforms.uRimT = uRimT;
+    let fs = before(shader.fragmentShader, 'void main() {', 'uniform float uFlash; uniform float uRimK; uniform vec3 uRimC; uniform float uRimT;');
     fs = after(
       fs,
       '#include <emissivemap_fragment>',
       `{
         float fr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.5);
-        totalEmissiveRadiance += diffuseColor.rgb * fr * uRimK;
+        totalEmissiveRadiance += mix(diffuseColor.rgb, uRimC, uRimT) * fr * uRimK;
         totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(1.05) + diffuseColor.rgb * 0.35, uFlash);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uFlash * 0.6);
       }`,
@@ -125,6 +133,8 @@ export abstract class Monster {
   dead = false;
   aggro = false;
   attackCooldown = 0;
+  /** Demo stills: keep the hit flash lit. */
+  holdFlash = false;
   protected seed: number;
 
   constructor(
@@ -207,7 +217,7 @@ export abstract class Monster {
   }
 
   update(dt: number, ctx: ArenaCtx, frozen = false): void {
-    this.flash = Math.max(0, this.flash - dt * 7);
+    this.flash = this.holdFlash ? 0.4 : Math.max(0, this.flash - dt * 7);
     if (frozen) {
       for (const m of this.mats) (m.userData.uFlash as { value: number }).value = this.flash;
       this.pose(dt, ctx);
@@ -464,7 +474,7 @@ export class Bat extends Monster {
     const pal = PALETTE[biome];
     const r = new Rng(seed);
     this.home = new THREE.Vector2(x, z);
-    const furMat = monsterMat(pal.bat, { rough: 0.9, rim: 0.7, emissive: biome === 'lava' ? 0x301008 : 0x000000 });
+    const furMat = monsterMat(pal.bat, { rough: 0.9, rim: 0.3, rimColor: BAT_RIM[biome], emissive: biome === 'lava' ? 0x301008 : 0x000000 });
     this.mats.push(furMat);
     const bodyGeo = lumpySphere(0.2, 2, 0.12, r, 3.2);
     const bodyM = new THREE.Mesh(bodyGeo, furMat);
@@ -484,7 +494,7 @@ export class Bat extends Monster {
       fang.rotation.x = Math.PI;
       this.body.add(fang);
     }
-    const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(0.7).getHex(), { rough: 0.7, rim: 1.2 });
+    const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(0.7).getHex(), { rough: 0.7, rim: 0.35, rimColor: BAT_RIM[biome] });
     wingMat.side = THREE.DoubleSide;
     this.mats.push(wingMat);
     const wg = wingGeometry();
@@ -568,9 +578,25 @@ export class Bat extends Monster {
       targetAlt = this.alt;
     }
     this.move(dt, ctx, true);
+    // Personal space: never clip into the farmer (≥ 0.6 m from their 0.3 m capsule).
+    {
+      const px = this.pos.x - ctx.player.x;
+      const pz = this.pos.z - ctx.player.z;
+      const d = Math.hypot(px, pz);
+      const min = 0.9;
+      if (d < min) {
+        const k = d > 1e-3 ? min / d : 0;
+        const nx = d > 1e-3 ? ctx.player.x + px * k : ctx.player.x + min;
+        const nz = d > 1e-3 ? ctx.player.z + pz * k : ctx.player.z;
+        if (ctx.flyable(Math.floor(nx), Math.floor(nz))) {
+          this.pos.x = nx;
+          this.pos.z = nz;
+        }
+      }
+    }
     const cy = this.pos.y - g;
     this.pos.y = g + cy + (targetAlt - cy) * (1 - Math.exp(-dt * 5));
-    if (this.mode === 'swoop') this.touchPlayer(ctx, 0.45);
+    if (this.mode === 'swoop') this.touchPlayer(ctx, 0.64);
 
     // Flap faster when climbing / swooping.
     this.flap += dt * (this.mode === 'swoop' ? 13 : 10);
@@ -638,7 +664,7 @@ export class Crab extends Monster {
     const pal = PALETTE[biome];
     const r = new Rng(seed);
     const shellGeo = facetRock(r, 0.44, pal.crab, { chunky: true, squash: 0.74, cap: biome === 'ice' ? 0xf4faff : undefined, capAmt: 0.9, rim: 0.5 });
-    const shellMat = monsterMat(0xffffff, { rough: 0.85, rim: 0.15, flat: true });
+    const shellMat = monsterMat(0xffffff, { rough: 0.7, rim: 0.3, flat: true, clearcoat: 0.55 });
     shellMat.vertexColors = true;
     this.mats.push(shellMat);
     this.shell = new THREE.Mesh(shellGeo, shellMat);
@@ -646,17 +672,22 @@ export class Crab extends Monster {
     this.body.add(this.shell);
     const legMat = monsterMat(pal.crabLeg, { rough: 0.5, clearcoat: true, rim: 0.5 });
     this.mats.push(legMat);
+    const jointMat = monsterMat(new THREE.Color(pal.crabLeg).multiplyScalar(0.42).getHex(), { rough: 0.45, clearcoat: true, rim: 0.3 });
+    this.mats.push(jointMat);
     for (let i = 0; i < 6; i++) {
       const side = i < 3 ? -1 : 1;
       const k = i % 3;
       const leg = new THREE.Group();
-      const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.22, 3, 6), legMat);
-      upper.rotation.z = side * 1.1;
-      upper.position.set(side * 0.1, 0.02, 0);
-      const lower = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.24, 3, 6), legMat);
-      lower.position.set(side * 0.24, -0.1, 0);
-      lower.rotation.z = side * 0.3;
-      leg.add(upper, lower);
+      // Thick segments (x1.8) + dark knuckles / claw tips, merged to two meshes per leg.
+      const ug = new THREE.CapsuleGeometry(0.063, 0.2, 3, 8).applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(side * 0.1, 0.02, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, side * 1.1)), new THREE.Vector3(1, 1, 1)));
+      const lg = new THREE.CapsuleGeometry(0.054, 0.22, 3, 8).applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(side * 0.24, -0.1, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, side * 0.3)), new THREE.Vector3(1, 1, 1)));
+      const kg = new THREE.SphereGeometry(0.07, 10, 8).translate(side * 0.2, -0.02, 0);
+      const tg = new THREE.ConeGeometry(0.045, 0.1, 6).applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(side * 0.27, -0.24, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI + side * 0.3)), new THREE.Vector3(1, 1, 1)));
+      const seg = new THREE.Mesh(mergeGeometries([ug, lg])!, legMat);
+      const joints = new THREE.Mesh(mergeGeometries([kg, tg])!, jointMat);
+      for (const g of [ug, lg, kg, tg]) g.dispose();
+      seg.castShadow = true;
+      leg.add(seg, joints);
       leg.position.set(side * 0.28, 0.16, (k - 1) * 0.2);
       this.legs.push(leg);
       this.body.add(leg);

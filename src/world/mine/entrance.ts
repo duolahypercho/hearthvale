@@ -23,6 +23,9 @@ import { Ambience, SmokeEmitter } from '../../render/particles';
 import { facetRock } from './rockgeo';
 import { mineRockMaterial, poolMaterial } from './props';
 import { buildTool } from '../props/tools';
+import { patchMaterial, after, before } from '../../render/patch';
+import { NOISE_GLSL } from '../../render/shaders/noise';
+import { globalUniforms } from '../../render/uniforms';
 
 const W = 44;
 const D = 34;
@@ -52,6 +55,9 @@ export class MineEntranceMap implements GameMap {
   private smoke: SmokeEmitter[] = [];
   private pathPts: { x: number; z: number; w: number }[] = [];
   private innerGlow: THREE.PointLight;
+  /** Lantern practicals on this shelf light up early (16:30): the miners work late. */
+  private lamps: { light: THREE.PointLight; max: number; glow: THREE.Mesh }[] = [];
+  private coldAir: THREE.Points | null = null;
 
   constructor(private game: Game) {
     this.root.name = 'map:mine-entrance';
@@ -68,9 +74,11 @@ export class MineEntranceMap implements GameMap {
     this.trees = new TreeField(this.rng.fork('trees'));
     this.nature = new Nature(this.rng.fork('nature'));
     this.buildMouth();
+    this.buildCliffFace();
     this.buildRails();
     this.buildLift();
     this.buildCamp();
+    this.buildYard();
     this.dress();
     this.terrain.commitCover();
     this.trees.finalize();
@@ -94,8 +102,8 @@ export class MineEntranceMap implements GameMap {
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.ambience.group);
     // Lamp deep in the tunnel (always on: the miners never put it out).
-    this.innerGlow = new THREE.PointLight(0xffa048, 6, 6, 1.6);
-    this.innerGlow.position.set(MOUTH.x, this.terrain.heightAt(MOUTH.x, MOUTH.z) + 1.6, MOUTH.z - 1.9);
+    this.innerGlow = new THREE.PointLight(0xffa048, 1.2, 3.2, 2);
+    this.innerGlow.position.set(MOUTH.x, this.terrain.heightAt(MOUTH.x, MOUTH.z) + 2.4, MOUTH.z - 0.2);
     this.root.add(this.innerGlow);
     this.poi.flowers = [{ x: 14, z: 20 }, { x: 31, z: 21 }];
     this.poi.birds = [{ x: 18, z: 18 }];
@@ -254,15 +262,66 @@ export class MineEntranceMap implements GameMap {
       new THREE.ShaderMaterial({
         uniforms: {},
         vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-        fragmentShader: `varying vec2 vUv; void main(){ vec2 q = vUv - vec2(0.5, 0.35); float g = smoothstep(0.55, 0.0, length(q * vec2(1.4, 1.0))); vec3 c = mix(vec3(0.0), vec3(0.42, 0.2, 0.07), g * 0.55); gl_FragColor = vec4(c, 1.0); }`,
+        fragmentShader: `varying vec2 vUv; void main(){ float g = smoothstep(0.0, 0.9, vUv.y) * 0.03; gl_FragColor = vec4(vec3(0.012, 0.01, 0.012) + vec3(0.05, 0.035, 0.03) * g, 1.0); }`,
       }),
     );
     dark.position.set(MOUTH.x, y0 + (H + 0.3) / 2, MOUTH.z - depth - 0.05);
     this.root.add(dark);
-    const fade = new THREE.Mesh(new THREE.PlaneGeometry(MOUTH.w - 0.2, depth + 0.4).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.7, depthWrite: false }));
+    const fade = new THREE.Mesh(new THREE.PlaneGeometry(MOUTH.w - 0.2, depth + 0.4).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.92, depthWrite: false }));
     fade.position.set(MOUTH.x, y0 + 0.03, MOUTH.z - depth / 2 - 0.2);
     fade.renderOrder = 1;
     this.root.add(fade);
+    // Depth veil: a vertical black gradient card just inside the frame swallows the liner, rails
+    // and ladder a metre in, so the mouth reads as a cold dark hole, not a lit corridor.
+    const veil = new THREE.Mesh(
+      new THREE.PlaneGeometry(MOUTH.w - 0.25, H + 0.1),
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        fragmentShader: `varying vec2 vUv; void main(){ float a = 0.62 + 0.3 * smoothstep(0.0, 0.8, vUv.y); float side = smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x); gl_FragColor = vec4(vec3(0.0), a * mix(0.75, 1.0, side)); }`,
+      }),
+    );
+    veil.position.set(MOUTH.x, y0 + (H + 0.1) / 2, MOUTH.z - 0.55);
+    veil.renderOrder = 2;
+    veil.userData.noAO = true;
+    this.root.add(veil);
+    const veil2 = veil.clone();
+    veil2.position.z = MOUTH.z - 1.2;
+    this.root.add(veil2);
+    // Cold air: faint pale motes drifting out of the dark and sinking over the apron.
+    {
+      const N = 42;
+      const seed = new Float32Array(N * 3);
+      const r = this.rng.fork('cold');
+      for (let i = 0; i < N; i++) seed.set([r.next(), r.next(), r.next()], i * 3);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+      g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 3));
+      const m = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: { uTime: { value: 0 }, uOrigin: { value: new THREE.Vector3(MOUTH.x, y0, MOUTH.z - 1.4) } },
+        vertexShader: /* glsl */ `
+          attribute vec3 aSeed; uniform float uTime; uniform vec3 uOrigin; varying float vA;
+          void main(){
+            float t = fract(uTime * (0.07 + aSeed.z * 0.05) + aSeed.x);
+            vec3 p = uOrigin + vec3((aSeed.y - 0.5) * 2.4 + sin(uTime * 0.7 + aSeed.x * 20.0) * 0.25 * t, 0.3 + aSeed.z * 2.2 - t * t * 1.4, t * 3.6);
+            vA = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.55, 1.0, t)) * 0.5;
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
+            gl_Position = projectionMatrix * mv;
+            gl_PointSize = (40.0 + aSeed.z * 60.0) / -mv.z;
+          }`,
+        fragmentShader: `varying float vA; void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = pow(max(0.0, 1.0 - d), 2.0) * vA; gl_FragColor = vec4(vec3(0.75, 0.85, 1.0) * a, a); }`,
+      });
+      const pts = new THREE.Points(g, m);
+      pts.frustumCulled = false;
+      pts.renderOrder = 3;
+      pts.userData.noAO = true;
+      this.coldAir = pts;
+      this.root.add(pts);
+    }
     // Sign: "HOLLOWDEEP" on a weathered board hung from the lintel.
     const sign = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.62, 0.08), [
       ...Array(4).fill(new THREE.MeshStandardMaterial({ color: 0x6a4a30, roughness: 0.9 })),
@@ -281,6 +340,233 @@ export class MineEntranceMap implements GameMap {
     this.grid.setObject(Math.floor(MOUTH.x - halfW), Math.floor(MOUTH.z), { kind: 'prop', id: 'mouth-post', solid: true });
     this.grid.setObject(Math.floor(MOUTH.x + halfW - 0.1), Math.floor(MOUTH.z), { kind: 'prop', id: 'mouth-post', solid: true });
   }
+
+  /**
+   * The strata cliff: a displaced sheet laid over the terrain's steep band (which otherwise shows
+   * the shared crackle rock texture). Bedded layers of differing hardness jut out as ledges or
+   * recede, vertical joints split them into blocks, ledge tops catch moss, and triplanar grit +
+   * macro noise break up the albedo, so the wall has real relief under the low evening sun.
+   */
+  private buildCliffFace(): void {
+    const x0 = -8;
+    const x1 = W + 8;
+    const dx = 0.25;
+    const cols = Math.round((x1 - x0) / dx) + 1;
+    const rows = 62;
+    const n = this.noise;
+    const pos = new Float32Array(cols * rows * 3);
+    const col = new Float32Array(cols * rows * 3);
+    const PAL = [0xa89272, 0x8e7a62, 0xb49e7e, 0x7c6a58, 0x9c886c, 0x86725c, 0xa0907a].map((h) => new THREE.Color(h));
+    const moss = new THREE.Color(0x6a8a40);
+    const c = new THREE.Color();
+    const hash = (a: number): number => {
+      const v = Math.sin(a * 127.1 + 311.7) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    const bandH = 0.66;
+    for (let i = 0; i < cols; i++) {
+      const x = x0 + i * dx;
+      const cz = this.cliffZ(x);
+      for (let j = 0; j < rows; j++) {
+        const t = j / (rows - 1);
+        // Deep enough to climb the recess back wall over the portal (the lintel rock above it).
+        const z = cz + 0.45 - t * 3.1;
+        const y = this.height(x, z);
+        const e = 0.05;
+        const gx = (this.height(x + e, z) - this.height(x - e, z)) / (2 * e);
+        const gz = (this.height(x, z + e) - this.height(x, z - e)) / (2 * e);
+        const nrm = new THREE.Vector3(-gx, 1, -gz).normalize();
+        const steep = smoothstep(0.8, 2.6, Math.hypot(gx, gz));
+        const v = (y + n.fbm(x * 0.09 + 3, 1.5, 2) * 1.4) / bandH;
+        const band = Math.floor(v);
+        const f = v - band;
+        const hard = hash(band * 1.7 + 0.3);
+        // Vertical joints: a few per band, at hashed x positions.
+        const jw = 1.4 + hash(band * 3.1) * 2.2;
+        const ju = (x + hash(band * 5.3) * 9) / jw;
+        const jf = ju - Math.floor(ju);
+        const joint = 1 - smoothstep(0.0, 0.06, Math.min(jf, 1 - jf) * jw);
+        const block = hash(Math.floor(ju) * 0.71 + band * 13.3);
+        const prof = smoothstep(0.0, 0.06, f) * (1 - smoothstep(0.9, 1.0, f)) * (0.75 + 0.25 * f);
+        let disp = 0.03 + steep * (0.05 + (0.08 + hard * 0.26) * prof + (block - 0.5) * 0.06 - joint * 0.12 + n.fbm(x * 0.35, y * 0.35 + 7, 2) * 0.12);
+        disp = Math.max(0.025, disp);
+        const k = (i * rows + j) * 3;
+        pos[k] = x + nrm.x * disp;
+        pos[k + 1] = y + nrm.y * disp + 0.015;
+        pos[k + 2] = z + nrm.z * disp;
+        // Albedo: per-band tone, lighter band tops, dark under-ledge shadow + joints, moss on ledges.
+        c.copy(PAL[((band % PAL.length) + PAL.length) % PAL.length]!).multiplyScalar(0.86 + block * 0.22);
+        c.multiplyScalar((0.38 + 0.62 * smoothstep(0.0, 0.12, f)) * (1 - joint * 0.6) * (0.88 + 0.24 * smoothstep(0.6, 1.0, f)));
+        const foot = smoothstep(1.4, 0.0, y - this.height(x, cz + 0.8));
+        c.multiplyScalar(1 - foot * 0.3);
+        const ledgeTop = smoothstep(0.86, 0.98, f) * steep * (0.4 + 0.6 * smoothstep(0.1, 0.5, n.fbm(x * 0.4, y * 0.4, 2) + 0.2));
+        const topLip = (1 - steep) * smoothstep(3, 6, y);
+        c.lerp(moss, Math.min(1, ledgeTop * 0.75 + topLip * 0.7));
+        col[k] = c.r;
+        col[k + 1] = c.g;
+        col[k + 2] = c.b;
+      }
+    }
+    const idx: number[] = [];
+    for (let i = 0; i < cols - 1; i++) {
+      const xm = x0 + (i + 0.5) * dx;
+      const mouthCol = Math.abs(xm - MOUTH.x) < MOUTH.w / 2 + 0.12;
+      for (let j = 0; j < rows - 1; j++) {
+        const a = i * rows + j;
+        const b = a + rows;
+        // Leave the portal itself open (recess floor + back card), keep the rock above it.
+        if (mouthCol && (pos[a * 3 + 1]! < 3.6 || pos[b * 3 + 1]! < 3.6)) continue;
+        idx.push(a, b, a + 1, a + 1, b, b + 1);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
+    m.name = 'entrance-cliff';
+    patchMaterial(m, 'entrance-cliff', (shader) => {
+      let vs = before(shader.vertexShader, 'void main() {', 'varying vec3 vCfW; varying vec3 vCfN;');
+      vs = after(vs, '#include <project_vertex>', 'vCfW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCfN = normalize(mat3(modelMatrix) * objectNormal);');
+      shader.vertexShader = vs;
+      let fs = before(shader.fragmentShader, 'void main() {', `varying vec3 vCfW; varying vec3 vCfN;\n${NOISE_GLSL}`);
+      fs = after(
+        fs,
+        '#include <color_fragment>',
+        /* glsl */ `{
+          vec3 an = abs(normalize(vCfN));
+          vec3 w = an / (an.x + an.y + an.z);
+          float gx = hvNoise(vCfW.zy * 5.0) * 0.6 + hvNoise(vCfW.zy * 17.0) * 0.4;
+          float gy = hvNoise(vCfW.xz * 5.0) * 0.6 + hvNoise(vCfW.xz * 17.0) * 0.4;
+          float gz = hvNoise(vCfW.xy * vec2(3.0, 7.0)) * 0.6 + hvNoise(vCfW.xy * 17.0) * 0.4;
+          float grit = gx * w.x + gy * w.y + gz * w.z;
+          float macro = hvFbm(vCfW.xy * 0.18 + 4.0);
+          diffuseColor.rgb *= (0.8 + 0.34 * grit) * (0.88 + 0.26 * macro);
+          // Mineral streaks weeping down the face.
+          float streak = smoothstep(0.62, 0.8, hvNoise(vec2(vCfW.x * 2.2, vCfW.y * 0.25 + 3.0)));
+          diffuseColor.rgb *= 1.0 - streak * 0.14 * w.z;
+        }`,
+      );
+      shader.fragmentShader = fs;
+    });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.name = 'strata-cliff';
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.perfTag = 'terrain';
+    this.root.add(mesh);
+  }
+
+  /**
+   * The east yard (it was bare grass): the miners' notice board, a spur of track with a second ore
+   * cart glinting with fresh ore, and a stack of open ore crates.
+   */
+  private buildYard(): void {
+    const r = this.rng.fork('yard');
+    // Notice board.
+    {
+      const b = new MeshBuilder();
+      for (const sx of [-0.75, 0.75]) b.add('woodGrain', boxUV(roundedBox(0.14, 2.1, 0.14, 0.03), 2), mat(sx, 1.05, 0), { tint: 0x9a7048, aoWorld: (p) => 0.55 + 0.45 * smoothstep(0, 0.6, p.y) });
+      b.add('woodGrain', boxUV(roundedBox(1.7, 1.0, 0.08, 0.03), 1.4), mat(0, 1.38, 0.02), { tint: 0xb08a5c });
+      b.add('woodDark', roundedBox(1.95, 0.08, 0.42, 0.02), mat(0, 2.02, 0.04, 0.22, 0, 0), { tint: 0x7a5234 });
+      b.add('woodDark', roundedBox(1.95, 0.08, 0.42, 0.02), mat(0, 2.02, -0.2, -0.22, 0, 0), { tint: 0x6a4a30 });
+      const notes: [number, number, number, number, number][] = [
+        [-0.45, 1.55, 0.36, 0.44, 0xf4ead0],
+        [0.05, 1.5, 0.4, 0.3, 0xe8d8b0],
+        [0.5, 1.58, 0.3, 0.36, 0xf8f0dc],
+        [-0.2, 1.12, 0.46, 0.3, 0xefe2c0],
+        [0.42, 1.14, 0.34, 0.32, 0xe4c890],
+      ];
+      for (const [x, y, w, h, tint] of notes) {
+        b.add('white', new THREE.BoxGeometry(w, h, 0.012), mat(x, y, 0.075, 0, 0, (r.next() - 0.5) * 0.12), { tint });
+        b.add('metal', new THREE.SphereGeometry(0.018, 6, 4), mat(x, y + h / 2 - 0.04, 0.085), { tint: 0xc03a2a });
+      }
+      this.add(b.build({ name: 'notice-board' }), 30.2, 16.1, -0.12, [[30, 16]]);
+    }
+    // Rail spur + second cart with ore glints.
+    {
+      const b = new MeshBuilder();
+      const z = 17.9;
+      for (let x = 26.6; x <= 32.2; x += 0.5) b.add('woodDark', roundedBox(0.17, 0.07, 0.9, 0.02), mat(x, this.H(x, z) + 0.02, z, 0, Math.sin(x * 7.1) * 0.06, 0), { tint: 0x9a7a5a });
+      for (const sz of [-0.3, 0.3]) b.add('metal', new THREE.CylinderGeometry(0.032, 0.032, 5.8, 5).rotateZ(Math.PI / 2), mat(29.4, this.H(29.4, z + sz) + 0.1, z + sz), { tint: 0x8a8480 });
+      b.add('woodDark', roundedBox(0.25, 0.5, 0.9, 0.05), mat(32.55, this.H(32.55, z) + 0.3, z), { tint: 0xc05a3a });
+      this.add(b.build({ name: 'yard-rails' }), 0, 0, 0, [], 0);
+      const cart = buildCart(r.fork('cart2'));
+      this.add(cart, 29.6, z, 0, [[29, 17]]);
+      this.addGlints([new THREE.Vector3(29.4, this.H(29.6, z) + 1.0, z - 0.1), new THREE.Vector3(29.85, this.H(29.6, z) + 0.95, z + 0.15), new THREE.Vector3(29.2, this.H(29.6, z) + 0.93, z + 0.2)]);
+    }
+    // Open ore crates.
+    {
+      const spots: [number, number, number][] = [
+        [32.3, 15.6, 0.2],
+        [33.2, 16.5, -0.35],
+      ];
+      const glints: THREE.Vector3[] = [];
+      spots.forEach(([x, z, rot], i) => {
+        const b = new MeshBuilder();
+        const w = 0.9;
+        for (const [px, pz, ry] of [
+          [0, -w / 2, 0],
+          [0, w / 2, 0],
+          [-w / 2, 0, Math.PI / 2],
+          [w / 2, 0, Math.PI / 2],
+        ] as const)
+          for (let k = 0; k < 3; k++) b.add('woodGrain', boxUV(roundedBox(w + 0.06, 0.17, 0.05, 0.015), 1.3), mat(px, 0.1 + k * 0.19, pz, 0, ry, 0), { tint: k % 2 ? 0xb08858 : 0xa07a4c });
+        b.add('wood', roundedBox(w, 0.04, w, 0.01), mat(0, 0.04, 0), { tint: 0x8a6a44 });
+        const ores = i === 0 ? [0xd0743a, 0x58c0a0, 0xd0743a, 0x9a8a7a] : [0x8c9cb4, 0xffc22a, 0x8c9cb4, 0x6a5a4a];
+        for (let k = 0; k < 12; k++) {
+          const g = facetRock(r, 0.11 + r.next() * 0.07, ores[k % ores.length]!, { detail: 1, squash: 0.8, smooth: 0.5 });
+          b.add(mineRockMaterial(), g, mat((r.next() - 0.5) * 0.62, 0.5 + r.next() * 0.1, (r.next() - 0.5) * 0.62, 0, r.next() * 6, 0));
+        }
+        this.add(b.build({ name: 'ore-crate' }), x, z, rot, [[Math.floor(x), Math.floor(z)]]);
+        glints.push(new THREE.Vector3(x + 0.15, this.H(x, z) + 0.72, z), new THREE.Vector3(x - 0.2, this.H(x, z) + 0.7, z + 0.2));
+      });
+      this.addGlints(glints);
+      const lan = new MeshBuilder();
+      lanternKit(lan, 0, 0.72, 0, 1.0);
+      this.add(lan.build({ name: 'crate-lantern' }), 33.2, 16.5, 0, [], this.H(33.2, 16.5) + 0.02);
+      const lamp = new THREE.PointLight(0xffb060, 0, 5, 1.8);
+      lamp.position.set(33.2, this.H(33.2, 16.5) + 0.9, 16.5);
+      this.root.add(lamp);
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+      halo.position.copy(lamp.position).setY(lamp.position.y - 0.16);
+      halo.scale.set(0.6, 0.9, 0.6);
+      halo.userData.dynamic = true;
+      this.root.add(halo);
+      this.lamps.push({ light: lamp, max: 6, glow: halo });
+    }
+  }
+
+  private glintPts: THREE.Vector3[] = [];
+
+  /** Twinkling star glints on fresh ore (one Points draw for the whole shelf, built lazily). */
+  private addGlints(pts: THREE.Vector3[]): void {
+    this.glintPts.push(...pts);
+    if (this.glints) {
+      this.glints.removeFromParent();
+      this.glints.geometry.dispose();
+    }
+    const g = new THREE.BufferGeometry().setFromPoints(this.glintPts);
+    const ph = new Float32Array(this.glintPts.length).map((_, i) => (i * 0.618) % 1);
+    g.setAttribute('aPh', new THREE.BufferAttribute(ph, 1));
+    this.glintMat ??= new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: globalUniforms.uTime },
+      vertexShader: `attribute float aPh; uniform float uTime; varying float vA; void main(){ float t = fract(uTime * 0.55 + aPh); vA = pow(max(0.0, sin(t * 3.14159)), 8.0); vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = 140.0 * (0.4 + vA) / -mv.z; }`,
+      fragmentShader: `varying float vA; void main(){ vec2 q = abs(gl_PointCoord - 0.5) * 2.0; float star = max(1.0 - smoothstep(0.0, 0.12, q.x) - q.y * 0.0, 0.0) * (1.0 - q.y) + max(1.0 - smoothstep(0.0, 0.12, q.y), 0.0) * (1.0 - q.x); float core = pow(max(0.0, 1.0 - length(q)), 3.0); float a = clamp(star * 0.8 + core, 0.0, 1.0) * vA; gl_FragColor = vec4(vec3(1.0, 0.96, 0.8) * a, a); }`,
+    });
+    this.glints = new THREE.Points(g, this.glintMat);
+    this.glints.frustumCulled = false;
+    this.glints.renderOrder = 6;
+    this.glints.userData.noAO = true;
+    this.root.add(this.glints);
+  }
+
+  private glints: THREE.Points | null = null;
+  private glintMat: THREE.ShaderMaterial | null = null;
 
   private buildRails(): void {
     // Rails out of the mouth, curving east to a buffer stop, with a loaded cart.
@@ -380,8 +666,17 @@ export class MineEntranceMap implements GameMap {
     bp.group.updateMatrixWorld(true);
     for (const l of bp.lights) {
       l.light.castShadow = false;
-      l.light.distance = 7;
-      this.game.lighting.addNightLight(l.light, Math.max(l.max, 6) * 1.5);
+      l.light.distance = 7.5;
+      l.light.intensity = 0;
+      // Our own schedule (16:30 on), plus a warm halo on the glass so the lamp itself reads lit.
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+      halo.position.copy(l.light.position);
+      halo.scale.set(0.62, 0.9, 0.62);
+      halo.userData.noAO = true;
+      halo.userData.dynamic = true;
+      halo.visible = false;
+      bp.group.add(halo);
+      this.lamps.push({ light: l.light, max: Math.max(l.max, 6) * 1.6, glow: halo });
     }
   }
 
@@ -514,7 +809,17 @@ export class MineEntranceMap implements GameMap {
     const h = game.rc.renderer.domElement.height;
     for (const s of this.smoke) s.update(dt, game.lighting.night, h);
     this.ambience.update(dt, game.time, game.rc.rig.focus, game.lighting.night, h);
-    this.innerGlow.intensity = 5 + Math.sin(game.time * 9) * 0.4 + Math.sin(game.time * 23) * 0.3;
+    this.innerGlow.intensity = 1.1 + Math.sin(game.time * 9) * 0.1 + Math.sin(game.time * 23) * 0.08;
+    // Shelf lanterns: on from 16:30 until dawn (a warm glow + a real light pool on the apron).
+    const hr = game.calendar.hour;
+    const on = hr >= 12 ? THREE.MathUtils.smoothstep(hr, 16.3, 16.9) : 1 - THREE.MathUtils.smoothstep(hr, 6.2, 6.8);
+    const fl = 0.94 + Math.sin(game.time * 8.3) * 0.04 + Math.sin(game.time * 19.1) * 0.02;
+    for (const l of this.lamps) {
+      l.light.intensity = l.max * on * fl;
+      (l.glow.material as THREE.MeshBasicMaterial).opacity = on;
+      l.glow.visible = on > 0.01;
+    }
+    if (this.coldAir) (this.coldAir.material as THREE.ShaderMaterial).uniforms.uTime!.value = game.time;
   }
 
   setSeason(season: Season): void {

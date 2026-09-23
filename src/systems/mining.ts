@@ -4,7 +4,9 @@
  *   - pickaxe on the mine floor (chop pose → rock wobble / chips / shatter + loot, ladder reveal);
  *   - ladders (down / up), the mine mouth, the lift (elevator panel, a stop every 5 floors);
  *   - floor transitions (fade, rebuild, arrival banner), the floor plaque HUD;
- *   - demo staging: mine-entrance, mine-floor (earth), mine-ice, mine-lava (+ &floor=N).
+ *   - demo staging: mine-entrance, mine-floor (earth), mine-ice, mine-lava (+ &floor=N);
+ *     &pick=1 swings the pickaxe at the nearest ore rock (+ &still=1 freezes on impact),
+ *     &god=1 keeps the farmer unhurt, &ui=elevator opens the Mine Lift (e.g. &floor=5).
  *   in:  item:use (pickaxe), player:interact, player:tile, mine:goto, demo:stage, day:start
  *   out: mine:floor, mine:rock, mine:rockHit, tool:swing, tool:impact
  * Service `mining`: floor(), deepest(), descend(), goto(floor), breakRock(...) (debug / other systems).
@@ -69,6 +71,7 @@ export class MiningSystem implements System, MiningApi {
       () => this.liftStops(),
       (f) => void this.goto(f, 'elevator'),
       () => game.events.emit('ui:open', { name: 'none' }),
+      () => this.cur,
     );
     game.hud.registerPanel('elevator', { open: () => lift.open(), close: () => lift.close() });
 
@@ -202,6 +205,13 @@ export class MiningSystem implements System, MiningApi {
         const dir = facingVec(player.facing);
         const hits = m.strike(origin, dir, 1.35, 0.5, [3, 5], 0);
         for (const h of hits) this.game.events.emit('combat:monsterHit', { kind: h.monster.kind, damage: h.damage, crit: false, killed: h.killed, x: h.monster.pos.x, z: h.monster.pos.z });
+        if (this.freezeOnImpact) {
+          this.freezeOnImpact = false;
+          setTimeout(() => {
+            acts.frozen = true;
+            m.freezeFx = true;
+          }, 60);
+        }
         if (res) {
           this.game.services.energy?.spend(res.broke ? 2 : 1);
           this.game.events.emit('mine:rockHit', { x, z, ore: res.ore, broke: res.broke });
@@ -295,6 +305,43 @@ export class MiningSystem implements System, MiningApi {
     // Nothing standing inside the farmer (or hiding them) in a staged frame.
     for (const mo of [...m.monsters]) if (Math.hypot(mo.pos.x - spot.x, mo.pos.z - spot.z) < 2.4) m.removeMonster(mo);
     this.plaqueKey = '';
+    // `&pick=1`: swing the pickaxe at the nearest ore rock (side-on); with `&still=1` the pose,
+    // chips and wobble freeze on the impact frame.
+    if (q.get('pick') === '1') this.stagePick(m, q.get('still') === '1');
+  }
+
+  private freezeOnImpact = false;
+
+  private stagePick(m: MineMap, still: boolean): void {
+    const p = this.game.player.position;
+    let best: { x: number; z: number; s: number } | null = null;
+    for (const rk of m.rocks?.rocks ?? []) {
+      if (!rk.alive) continue;
+      const sx = rk.spec.x - 1;
+      const sz = rk.spec.z;
+      if (!m.grid.isWalkable(sx, sz)) continue;
+      const s = Math.hypot(sx + 0.5 - p.x, sz + 0.5 - p.z) - (rk.spec.ore ? 2.5 : 0);
+      if (!best || s < best.s) best = { x: rk.spec.x, z: rk.spec.z, s };
+    }
+    if (!best) return;
+    this.game.player.teleport(best.x - 0.5, best.z + 0.5);
+    m.freezeAI = true;
+    const tx = best.x;
+    const tz = best.z;
+    this.freezeOnImpact = still;
+    // After the demo applies its own facing (same tick), turn to the rock; then chop on a loop so
+    // any capture sequence catches a full swing (a still freezes the first impact, chips and all).
+    setTimeout(() => this.game.player.setFacing('right'), 0);
+    const loop = (): void => {
+      if (this.mine() !== m) return;
+      const rk = m.rockAt(tx, tz);
+      if (!rk) return;
+      rk.hp = Math.max(rk.hp, 2);
+      this.game.player.setFacing('right');
+      this.usePickaxe(tx, tz);
+      if (!still) setTimeout(loop, 1500);
+    };
+    setTimeout(loop, 900);
   }
 
   save(): unknown {
@@ -347,6 +394,11 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
       s += openN * (open ? 0.6 : 0.2);
       // Keep the lower half of the frame (towards the camera) inside the cave.
       for (let dz = 1; dz <= 4; dz++) if (L.solid[(z + dz) * FLOOR_W + x]) s -= 1.5;
+      // ...and a dressed back wall in the upper third: open floor for 2–3 tiles north, then rock.
+      for (let dz = 1; dz <= 2; dz++) if (L.solid[(z - dz) * FLOOR_W + x]) s -= 2.5;
+      let wallN = false;
+      for (let dz = 3; dz <= 6; dz++) if (L.solid[(z - dz) * FLOOR_W + x]) wallN = true;
+      if (wallN) s += 2;
       if (s > best.s) best = { x: x + 0.5, z: z + 0.5, s };
     }
   }

@@ -1,7 +1,7 @@
 /**
  * CombatSystem: player health + the Miner's Shortsword.
- *   - Sword: alternating slash / backslash poses (world/mine/actions), additive blade-tip ribbon
- *     trail, aim assist to the nearest monster, arc hit test on the impact frame (MineMap.strike):
+ *   - Sword: alternating slash / backslash poses (world/mine/actions), a bold 125° crescent slash
+ *     (SlashArc: sweeps in with the blade, flashes on impact, fades) over a blade-tip ribbon, aim assist to the nearest monster, arc hit test on the impact frame (MineMap.strike):
  *     knockback, white hit flash, goo / shell chips, hit-stop, camera kick, pop-up damage numbers
  *     (gold + bigger on crits).
  *   - Health: 100 hp, i-frames after a hit (flicker), knockback away from the attacker, red edge
@@ -10,6 +10,7 @@
  *     farmer to the lean-to at the mine entrance (+2 h), some gold and a few loot stacks are lost.
  *   - Demo `mine-combat`: a live arena (monsters keep moving while the demo is paused) with an
  *     autopilot that keeps swinging at whatever wobbles closest; killed monsters are replaced.
+ *     URL &still=1 freezes the first landed hit (pose, crescent, flash, numbers); &god=1 = no damage.
  *   in:  item:use (sword), combat:playerHit, day:start, demo:stage, map:change
  *   out: combat:swing, combat:monsterHit, combat:health, combat:passOut
  */
@@ -18,7 +19,7 @@ import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { MineMap } from '../world/mine';
 import { Crab } from '../entities/monsters';
-import { mineActions, buildSword, SwordTrail, SWORD_TIP, SWORD_BASE } from '../world/mine/actions';
+import { mineActions, buildSword, SwordTrail, SlashArc, SWORD_TIP, SWORD_BASE } from '../world/mine/actions';
 import { DamageNumbers, ScreenFx } from '../world/mine/hud';
 import { mineSfx } from '../world/mine/sfx';
 import type { MonsterKind } from '../world/mine/biomes';
@@ -61,6 +62,11 @@ export class CombatSystem implements System, HealthApi {
   private iframes = 0;
   private sword: THREE.Object3D | null = null;
   private trail = new SwordTrail(0xfff0cc);
+  private arc = new SlashArc();
+  /** URL `&god=1`: staged mine shots never lose the farmer to a stray slime. */
+  private god = false;
+  /** URL `&still=1` on mine-combat: freeze the first landed hit (crescent + hit flash) for a still. */
+  private still = false;
   private numbers!: DamageNumbers;
   private screen!: ScreenFx;
   private side = false;
@@ -74,7 +80,10 @@ export class CombatSystem implements System, HealthApi {
   init(game: Game): void {
     this.game = game;
     game.provide('health', this);
-    game.scene.add(this.trail.mesh);
+    game.scene.add(this.trail.mesh, this.arc.mesh);
+    const q = new URLSearchParams(location.search);
+    this.god = q.get('god') === '1';
+    this.still = q.get('still') === '1';
     this.numbers = new DamageNumbers(game.opts.uiRoot);
     this.screen = new ScreenFx(game.opts.uiRoot);
 
@@ -183,17 +192,29 @@ export class CombatSystem implements System, HealthApi {
     this.game.events.emit('tool:swing', { tool: 'sword', tier: 0, charge: 0 });
     const origin = player.position.clone();
     const dir = FACE[player.facing]!.clone();
+    let arcFired = false;
     acts.start(kind, this.sword, {
       speed: 1.05,
       onUpdate: (t) => {
-        // Ribbon only across the cutting part of the swing.
-        if (t > 0.07 && t < 0.3) {
+        // Ribbon across the whole cutting part of the swing (secondary layer under the crescent).
+        if (t > 0.02 && t < 0.38) {
           acts.toolPoint(SWORD_TIP, this.tip);
           acts.toolPoint(SWORD_BASE, this.base);
           this.trail.push(this.tip, this.base);
         }
+        // The crescent sweeps in with the blade so it is full length on the impact frame.
+        if (!arcFired && t >= 0.085) {
+          arcFired = true;
+          this.arc.fire(player.position, dir, kind === 'slash' ? 1 : -1);
+        }
       },
-      onImpact: () => this.resolve(origin, dir),
+      onImpact: () => {
+        if (!arcFired) {
+          arcFired = true;
+          this.arc.fire(player.position, dir, kind === 'slash' ? 1 : -1);
+        }
+        this.resolve(origin, dir);
+      },
     });
   }
 
@@ -202,6 +223,7 @@ export class CombatSystem implements System, HealthApi {
     if (!m) return;
     const acts = mineActions(this.game.player);
     const hits = m.strike(origin, dir, REACH, ARC_COS, BASE_DMG, CRIT);
+    this.arc.impact(hits.some((h) => h.crit));
     if (!hits.length) return;
     this.swinging = true;
     let crit = false;
@@ -217,6 +239,16 @@ export class CombatSystem implements System, HealthApi {
     }
     this.swinging = false;
     acts.hitStop = crit || kill ? 0.11 : 0.065;
+    if (this.still && this.auto) {
+      // Staged still: hold the impact frame (pose, crescent, flash, numbers) indefinitely.
+      acts.frozen = true;
+      this.arc.pin();
+      m.freezeAI = true;
+      setTimeout(() => (m.freezeFx = true), 50);
+      this.numbers.hold = true;
+      for (const h of hits) h.monster.holdFlash = true;
+      this.auto = null;
+    }
     this.game.rc.rig.addShake(crit ? 0.32 : kill ? 0.26 : 0.16);
     m.lighting.flash = Math.max(m.lighting.flash, crit ? 0.35 : 0.15);
   }
@@ -225,7 +257,7 @@ export class CombatSystem implements System, HealthApi {
 
   private hurt(damage: number, x: number, z: number, kind: MonsterKind): void {
     const m = this.mine();
-    if (!m || this.passing) return;
+    if (!m || this.passing || this.god) return;
     let dmg = damage;
     if (this.auto) dmg = Math.min(dmg, Math.max(0, this.hp - this.auto.min));
     const dealt = this.damage(dmg);
@@ -236,7 +268,9 @@ export class CombatSystem implements System, HealthApi {
     if (away.lengthSq() < 1e-4) away.copy(FACE[this.game.player.facing]!).negate();
     away.normalize();
     this.push.copy(away).multiplyScalar(kind === 'crab' ? 7 : 5.5);
-    this.numbers.pop(p.clone().setY(p.y + 1.7), `-${this.auto ? damage : Math.max(dealt, dmg)}`, 'player');
+    // Above the hat and off to the side away from the attacker (never red-on-straw).
+    const side = Math.abs(p.x - x) > 0.05 ? Math.sign(p.x - x) : 1;
+    this.numbers.pop(new THREE.Vector3(p.x + side * 0.6, p.y + 2.6, p.z), `-${this.auto ? damage : Math.max(dealt, dmg)}`, 'player');
     this.screen.hit();
     this.game.rc.rig.addShake(0.35);
     m.lighting.flash = 0.2;
@@ -317,6 +351,7 @@ export class CombatSystem implements System, HealthApi {
 
   update(dt: number, game: Game): void {
     this.trail.update(dt);
+    this.arc.update(dt);
     this.numbers.update(dt, game.rc.camera, window.innerWidth, window.innerHeight);
     this.screen.update(dt);
     const player = game.player;

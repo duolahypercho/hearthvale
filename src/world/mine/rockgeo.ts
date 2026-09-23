@@ -19,11 +19,33 @@ export interface FacetOpts {
   detail?: number;
   /** Facet value spread. */
   facet?: number;
+  /** 0 = pure flat facets, 1 = fully smooth normals (0.5 = soft-cut stone). */
+  smooth?: number;
+  /** Low-frequency lump displacement (fraction of the radius) before chiselling. */
+  lumps?: number;
+  /** 0..1 baked crevice AO (pushed-in regions darken). */
+  crevice?: number;
 }
 
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _c = new THREE.Color();
+
+/** Deterministic sum-of-sines 3D lump field (cheap, smooth, seeded). */
+function lumpField(r: Rng): (x: number, y: number, z: number) => number {
+  const waves: [number, number, number, number, number][] = [];
+  for (let i = 0; i < 6; i++) {
+    const k = i < 3 ? 1.6 + r.next() * 1.2 : 3.2 + r.next() * 2.4;
+    const th = r.next() * Math.PI * 2;
+    const ph = Math.acos(r.next() * 2 - 1);
+    waves.push([Math.sin(ph) * Math.cos(th) * k, Math.cos(ph) * k, Math.sin(ph) * Math.sin(th) * k, r.next() * 6.28, i < 3 ? 0.5 : 0.22]);
+  }
+  return (x, y, z) => {
+    let s = 0;
+    for (const [a, b, c, p, w] of waves) s += Math.sin(a * x + b * y + c * z + p) * w;
+    return s / 2.2;
+  };
+}
 
 export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = {}): THREE.BufferGeometry {
   const g = new THREE.IcosahedronGeometry(1, o.detail ?? 1);
@@ -36,16 +58,22 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
     planes.push(new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el)));
   }
   const offs = planes.map((_, i) => (i === 0 ? 0.6 : 0.68) + r.next() * 0.16);
-  const cache = new Map<string, [number, number, number]>();
+  const cache = new Map<string, [number, number, number, number]>();
   const stretch = 0.85 + r.next() * 0.4;
-  const jit = o.chunky ? 0.22 : 0.17;
+  const lumps = o.lumps ?? 0;
+  const field = lumps > 0 ? lumpField(r) : null;
+  const jit = (o.chunky ? 0.22 : 0.17) * (lumps > 0 ? 0.35 : 1);
   const sq = o.squash ?? 0.7;
+  const keys: string[] = new Array(pos.count);
+  const lumpV = new Float32Array(pos.count);
   for (let i = 0; i < pos.count; i++) {
     _p.fromBufferAttribute(pos, i);
     const key = `${_p.x.toFixed(3)},${_p.y.toFixed(3)},${_p.z.toFixed(3)}`;
+    keys[i] = key;
     let v = cache.get(key);
     if (!v) {
-      const q = _p.clone().multiplyScalar(1 + (r.next() * 2 - 1) * jit);
+      const lv = field ? field(_p.x, _p.y, _p.z) : 0;
+      const q = _p.clone().multiplyScalar(1 + (r.next() * 2 - 1) * jit + lv * lumps);
       planes.forEach((n, k) => {
         const t = q.dot(n) - offs[k]!;
         if (t > 0) q.addScaledVector(n, -t * 0.92);
@@ -54,20 +82,39 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
       q.x *= stretch;
       q.z /= Math.sqrt(stretch);
       q.y *= sq;
-      v = [q.x * radius, q.y * radius, q.z * radius];
+      v = [q.x * radius, q.y * radius, q.z * radius, lv];
       cache.set(key, v);
     }
     pos.setXYZ(i, v[0], v[1], v[2]);
+    lumpV[i] = v[3];
   }
   g.computeVertexNormals();
   const nor = g.attributes.normal as THREE.BufferAttribute;
+  // Soft-cut stone: blend the flat facet normals with the averaged (smooth) ones.
+  const smooth = o.smooth ?? 0;
+  if (smooth > 0) {
+    const acc = new Map<string, THREE.Vector3>();
+    for (let i = 0; i < pos.count; i++) {
+      _n.fromBufferAttribute(nor, i);
+      const a = acc.get(keys[i]!);
+      if (a) a.add(_n);
+      else acc.set(keys[i]!, _n.clone());
+    }
+    for (let i = 0; i < pos.count; i++) {
+      _n.fromBufferAttribute(nor, i);
+      const sm = acc.get(keys[i]!)!.clone().normalize();
+      _n.lerp(sm, smooth).normalize();
+      nor.setXYZ(i, _n.x, _n.y, _n.z);
+    }
+  }
   const col = new Float32Array(pos.count * 3);
   const base = new THREE.Color(color).offsetHSL((r.next() - 0.5) * 0.02, (r.next() - 0.5) * 0.04, (r.next() - 0.5) * 0.05);
   const cap = o.cap !== undefined ? new THREE.Color(o.cap) : null;
   const yMin = -0.3 * sq * radius;
   const yMax = sq * radius;
   const rim = o.rim ?? 0.55;
-  const spread = o.facet ?? 0.2;
+  const spread = (o.facet ?? 0.2) * (smooth > 0 ? 0.55 : 1);
+  const crev = o.crevice ?? (lumps > 0 ? 0.45 : 0);
   for (let f = 0; f < pos.count; f += 3) {
     const facet = 1 - spread / 2 + r.next() * spread;
     _n.fromBufferAttribute(nor, f);
@@ -76,7 +123,7 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
       const i = f + k;
       _p.fromBufferAttribute(pos, i);
       const h = THREE.MathUtils.clamp((_p.y - yMin) / (yMax - yMin), 0, 1);
-      const ao = 1 - rim + rim * THREE.MathUtils.smoothstep(h, 0.0, 0.5);
+      const ao = (1 - rim + rim * THREE.MathUtils.smoothstep(h, 0.0, 0.5)) * (1 - crev + crev * THREE.MathUtils.smoothstep(lumpV[i]!, -0.55, 0.35));
       _c.copy(base).multiplyScalar(ao * facet * (0.94 + 0.14 * h));
       if (cap) _c.lerp(cap, capT * (0.6 + 0.4 * h));
       col[i * 3] = _c.r;
@@ -88,6 +135,53 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
   g.deleteAttribute('uv');
   g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(pos.count * 2), 2));
   g.translate(0, -yMin * 0.7, 0);
+  return g;
+}
+
+/** Rounded lumpy knob (smooth normals), pivot at its centre: copper knobs, gold nuggets. */
+export function knob(r: Rng, radius: number, detail = 1, squash = 0.8): THREE.BufferGeometry {
+  const g = new THREE.IcosahedronGeometry(radius, detail);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const f = lumpField(r);
+  const cache = new Map<string, [number, number, number]>();
+  for (let i = 0; i < pos.count; i++) {
+    _p.fromBufferAttribute(pos, i);
+    const key = `${_p.x.toFixed(4)},${_p.y.toFixed(4)},${_p.z.toFixed(4)}`;
+    let v = cache.get(key);
+    if (!v) {
+      const s = 1 + f(_p.x / radius, _p.y / radius, _p.z / radius) * 0.28;
+      v = [_p.x * s, _p.y * s * squash, _p.z * s];
+      cache.set(key, v);
+    }
+    pos.setXYZ(i, v[0], v[1], v[2]);
+  }
+  const m = mergeVertsForNormals(g);
+  return m;
+}
+
+function mergeVertsForNormals(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  // Smooth normals on a non-indexed polyhedron: average per position.
+  g.computeVertexNormals();
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const nor = g.attributes.normal as THREE.BufferAttribute;
+  const acc = new Map<string, THREE.Vector3>();
+  const keys: string[] = [];
+  for (let i = 0; i < pos.count; i++) {
+    const k = `${pos.getX(i).toFixed(4)},${pos.getY(i).toFixed(4)},${pos.getZ(i).toFixed(4)}`;
+    keys.push(k);
+    _n.fromBufferAttribute(nor, i);
+    const a = acc.get(k);
+    if (a) a.add(_n);
+    else acc.set(k, _n.clone());
+  }
+  for (let i = 0; i < pos.count; i++) {
+    const n = acc.get(keys[i]!)!.clone().normalize();
+    nor.setXYZ(i, n.x, n.y, n.z);
+  }
+  g.deleteAttribute('uv');
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(pos.count * 2), 2));
+  const col = new Float32Array(pos.count * 3).fill(1);
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
 }
 

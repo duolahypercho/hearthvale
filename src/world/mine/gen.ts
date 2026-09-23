@@ -397,7 +397,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       addDecor('mushrooms', e.x + 0.5, e.z + 0.5, rng.next() * 6, 0.8 + rng.next() * 0.5, false);
       taken[idx(e.x, e.z)] = 1;
       mush++;
-      if (mush % 2 === 1) lightSources.push({ x: e.x + 0.5, y: 0.5, z: e.z + 0.6, color: 0x7affc8, intensity: 3.5, distance: 4.5, flicker: 0, w: 0.6 });
+      if (mush % 2 === 1) lightSources.push({ x: e.x + 0.5, y: 0.5, z: e.z + 0.6, color: 0x5affc0, intensity: 2.2, distance: 4, flicker: 0, w: 0.6 });
     }
   }
 
@@ -491,7 +491,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       if (ds < 0 || ds < 3) continue;
       if (elevator && Math.hypot(x - elevator.x, z - elevator.z) < 2) continue;
       const cl = noise.fbm(x * 0.16 + 31, z * 0.16 - 7, 2);
-      const p = 0.1 + Math.max(0, cl) * 0.95 + wallAdj(x, z) * 0.07;
+      const p = 0.13 + Math.max(0, cl) * 1.05 + wallAdj(x, z) * 0.07;
       if (rng.next() > p) continue;
       let ore = rng.weighted(oreTable);
       // Ore veins cluster: a neighbour's ore is contagious.
@@ -502,6 +502,25 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       rocks.push({ x, z, ore, big, hp: 1 + (big ? 2 : 0) + oreHp + tier + (biome === 'lava' ? 1 : biome === 'ice' ? 0 : 0), seed: rng.int(0, 1e6) });
       taken[i] = 1;
     }
+  }
+
+  // Blue-noise thinning: drop ~30 % of the cluster tiles, crowded interiors first, so clusters
+  // get ragged edges and gaps (ore survives a little more often: it is the reward).
+  {
+    const at = new Map<number, RockSpec>();
+    for (const r of rocks) at.set(idx(r.x, r.z), r);
+    const order = rocks.slice();
+    rng.shuffle(order);
+    for (const r of order) {
+      let n8 = 0;
+      for (const [dx, dz] of N8) if (at.has(idx(r.x + dx, r.z + dz))) n8++;
+      const p = Math.min(0.55, 0.08 + n8 * 0.065) * (r.ore ? 0.65 : 1);
+      if (rng.next() < p) {
+        at.delete(idx(r.x, r.z));
+        taken[idx(r.x, r.z)] = 0;
+      }
+    }
+    for (let i = rocks.length - 1; i >= 0; i--) if (!at.has(idx(rocks[i]!.x, rocks[i]!.z))) rocks.splice(i, 1);
   }
 
   // ── monsters ───────────────────────────────────────────────────
