@@ -123,6 +123,19 @@ export class FishingSfx {
     this.burst(0.18, 1600, 500, 0.16, 1.4);
   }
 
+  /** Power-meter step tick (0..4 = each 25 %), rising in pitch; a bright ping at max. */
+  powerTick(step: number): void {
+    if (step >= 4) {
+      this.tone(1480, 0.16, 'triangle', 0.12);
+      this.tone(2220, 0.12, 'sine', 0.06, undefined, 0.03);
+    } else this.tone(620 + step * 170, 0.05, 'square', 0.035);
+  }
+
+  /** Level-up flourish. */
+  levelUp(): void {
+    [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.22, 'triangle', 0.1, undefined, i * 0.08));
+  }
+
   nibble(): void {
     this.tone(760, 0.05, 'sine', 0.12, 520);
   }

@@ -20,6 +20,18 @@ import { globalUniforms } from '../../render/uniforms';
 import { NOISE_GLSL } from '../../render/shaders/noise';
 import type { Terrain } from '../terrain';
 
+/** Deepest sea floor (matches the height clamp in layout.ts); used where there's no terrain. */
+const FLOOR_MIN = -4.2;
+
+let blank: THREE.DataTexture | null = null;
+function blankPileTex(): THREE.DataTexture {
+  if (!blank) {
+    blank = new THREE.DataTexture(new Uint8Array([255]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+    blank.needsUpdate = true;
+  }
+  return blank;
+}
+
 /** Seconds per wave cycle. */
 export const WAVE_PERIOD = 7.2;
 
@@ -57,13 +69,34 @@ vec2 hvVor(vec2 p) {
   }
   return vec2(sqrt(d1), sqrt(d2));
 }
-// Foam lace: bright cell borders.
+// Foam lace: heavily domain-warped, soft-edged threads, broken into open scraps (never a closed
+// cell network / crackled glass).
 float hvLace(vec2 p, float t) {
-  vec2 v = hvVor(p + vec2(hvNoise(p * 0.5 + t * 0.2), hvNoise(p * 0.5 - t * 0.17)) * 0.9);
-  float edge = smoothstep(0.13, 0.015, v.y - v.x);
-  // Break the network into drifting scraps of foam (no even fishnet).
-  float scraps = smoothstep(0.32, 0.62, hvNoise(p * 0.7 + vec2(7.0, t * 0.1)) + edge * 0.15);
-  return edge * scraps + smoothstep(0.12, 0.0, v.x) * scraps * 0.35;
+  vec2 w1 = vec2(hvNoise(p * 0.42 + vec2(t * 0.16, 1.7)), hvNoise(p * 0.42 + vec2(5.3, -t * 0.13))) - 0.5;
+  vec2 w2 = vec2(hvNoise(p * 1.35 + vec2(-t * 0.22, 8.1)), hvNoise(p * 1.35 + vec2(2.9, t * 0.19))) - 0.5;
+  vec2 v = hvVor(p + w1 * 2.5 + w2 * 0.8);
+  float e = v.y - v.x;
+  // Soft (gaussian, smooth-min style) edge instead of a hard F2 - F1 cut.
+  float edge = exp(-e * e * 110.0);
+  // Only some segments survive: open, drifting threads + a few bunched clots of foam.
+  float threads = smoothstep(0.45, 0.72, hvNoise(p * 1.7 + w1 * 3.0 + vec2(t * 0.05, 0.0)));
+  float clot = smoothstep(0.6, 0.9, hvNoise(p * 0.8 - vec2(t * 0.04, 3.0)));
+  return edge * max(threads, clot * 0.7);
+}
+// Caustics: thin, bright, wobbly filaments (two warped layers; brightest where they cross).
+float hvCaustic(vec2 p, float t) {
+  vec2 w = vec2(hvNoise(p * 0.5 + vec2(t * 0.13, 0.0)), hvNoise(p * 0.5 + vec2(3.0, -t * 0.11))) - 0.5;
+  vec2 w2 = vec2(hvNoise(p * 1.9 + vec2(0.0, t * 0.3)), hvNoise(p * 1.9 + vec2(-t * 0.27, 6.0))) - 0.5;
+  vec2 q = p + w * 2.2 + w2 * 0.45;
+  vec2 a = hvVor(q + vec2(t * 0.09, t * 0.05));
+  vec2 b = hvVor(q * 1.41 - vec2(t * 0.07, -t * 0.1) + 4.0);
+  float ea = a.y - a.x;
+  float eb = b.y - b.x;
+  float la = exp(-ea * ea * 260.0);
+  float lb = exp(-eb * eb * 320.0);
+  // Break the filaments so no closed cells read.
+  float brk = smoothstep(0.3, 0.62, hvNoise(q * 1.3 + vec2(t * 0.06, 1.0)));
+  return (la * 0.45 + lb * 0.3) * brk + la * lb * 1.6;
 }
 `;
 
@@ -76,7 +109,7 @@ export interface OceanOptions {
   step?: number;
 }
 
-function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.ShaderMaterial {
+function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = false): THREE.ShaderMaterial {
   const o = terrain.opts;
   const mat = new THREE.ShaderMaterial({
     transparent: true,
@@ -88,6 +121,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
       uHSize: { value: new THREE.Vector2(o.maxX - o.minX, o.maxZ - o.minZ) },
       uLevel: { value: level },
       uFar: { value: far ? 1 : 0 },
+      uPool: { value: pool ? 1 : 0 },
       uTime: globalUniforms.uTime,
       uSunDir: globalUniforms.uSunDir,
       uSunColor: globalUniforms.uSunColor,
@@ -98,6 +132,9 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
       uCloudShadow: globalUniforms.uCloudShadow,
       uRain: globalUniforms.uRain,
       uFogColor: { value: new THREE.Color() },
+      uNear: { value: new THREE.Vector4(0, 0, 1, 1) },
+      uPileTex: { value: blankPileTex() },
+      uPileRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     },
     vertexShader: /* glsl */ `
       uniform sampler2D uHeight;
@@ -105,14 +142,16 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
       uniform vec2 uHSize;
       uniform float uLevel;
       uniform float uFar;
+      uniform float uPool;
       uniform float uTime;
+      uniform vec4 uNear;
       varying vec3 vW;
       varying float vLift;
       ${NOISE_GLSL}
       ${SWASH_GLSL}
       float groundAt(vec2 xz) {
         vec2 huv = (xz - uHOrigin) / uHSize;
-        if (uFar > 0.5 || huv.x < 0.0 || huv.y < 0.0 || huv.x > 1.0 || huv.y > 1.0) return -6.0;
+        if (uFar > 0.5 || huv.x < 0.0 || huv.y < 0.0 || huv.x > 1.0 || huv.y > 1.0) return ${FLOOR_MIN.toFixed(2)};
         return texture2D(uHeight, huv).r;
       }
       void main() {
@@ -120,11 +159,12 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
         float ground = groundAt(wp.xz);
         float d0 = uLevel - ground;
         float lift = 0.0;
-        if (uFar < 0.5) {
+        if (uFar < 0.5 && uPool < 0.5) {
           lift = hvSwash(wp.xz, uTime) * smoothstep(1.4, 0.0, d0);
           // Open-water swell (fades out in the shallows so the waterline stays put).
           float sw = sin(dot(wp.xz, vec2(0.05, 0.42)) - uTime * 0.9) * 0.045 + sin(dot(wp.xz, vec2(-0.28, 0.31)) - uTime * 1.4) * 0.02;
-          lift += sw * smoothstep(0.4, 2.5, d0);
+          float rim = min(min(wp.x - uNear.x, uNear.z - wp.x), min(wp.z - uNear.y, uNear.w - wp.z));
+          lift += sw * smoothstep(0.4, 2.5, d0) * smoothstep(0.5, 6.0, rim);
         }
         wp.y += lift;
         vLift = lift;
@@ -137,6 +177,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
       uniform vec2 uHSize;
       uniform float uLevel;
       uniform float uFar;
+      uniform float uPool;
       uniform float uTime;
       uniform vec3 uSunDir;
       uniform vec3 uSunColor;
@@ -146,6 +187,8 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
       uniform float uWindStrength;
       uniform float uCloudShadow;
       uniform float uRain;
+      uniform sampler2D uPileTex;
+      uniform vec4 uPileRect;
       varying vec3 vW;
       varying float vLift;
       ${NOISE_GLSL}
@@ -153,7 +196,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
       ${VORONOI_GLSL}
       float groundAt(vec2 xz) {
         vec2 huv = (xz - uHOrigin) / uHSize;
-        if (uFar > 0.5 || huv.x < 0.0 || huv.y < 0.0 || huv.x > 1.0 || huv.y > 1.0) return -6.0;
+        if (uFar > 0.5 || huv.x < 0.0 || huv.y < 0.0 || huv.x > 1.0 || huv.y > 1.0) return ${FLOOR_MIN.toFixed(2)};
         return texture2D(uHeight, huv).r;
       }
       // Directional wave height field (wind from the south-west, towards shore = -Z).
@@ -206,8 +249,8 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
         float face = smoothstep(0.86, 0.995, wv) * (1.0 - smoothstep(0.995, 1.0, wv));
         float trail = 1.0 - smoothstep(0.0, 0.32, wv);
         float crest = face + trail * 0.6;
-        float breakZone = smoothstep(1.7, 0.95, depth) * smoothstep(0.03, 0.22, depth);
-        float swellZone = smoothstep(0.9, 2.2, depth) * (1.0 - smoothstep(4.0, 7.0, depth));
+        float breakZone = smoothstep(1.7, 0.95, depth) * smoothstep(0.03, 0.22, depth) * (1.0 - uPool);
+        float swellZone = smoothstep(0.9, 2.2, depth) * (1.0 - smoothstep(4.0, 7.0, depth)) * (1.0 - uPool);
         // Crest tilts the normal back towards the sea (+Z) = catches the light like a wave face.
         n = normalize(n + vec3(0.0, 0.0, 0.45) * face * (breakZone + swellZone * 0.5) * detail);
         if (uRain > 0.01) {
@@ -238,43 +281,72 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
         vec3 R = reflect(-V, n);
         vec3 sky = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.55, R.y));
         float sunR = max(dot(R, L), 0.0);
-        sky += uSunColor * (pow(sunR, 18.0) * 0.55 + pow(sunR, 4.0) * 0.12) * (1.0 - uNight * 0.5);
+        // The sun's reflection breaks up into the wave facets (no smooth white blob on calm water).
+        float facet = smoothstep(0.35, 0.75, hvNoise(p * 3.1 + vec2(t * 0.6, -t * 0.4)) * 0.6 + hvNoise(p * 7.3 - vec2(t * 0.5, 0.0)) * 0.4);
+        sky += uSunColor * pow(sunR, 36.0) * 0.4 * facet * (1.0 - uNight * 0.5);
         vec3 c = mix(lit, sky, fres);
 
         // Glints: pinpoint > 1.0 for the bloom, denser under a low sun.
         float lowSun = 1.0 - smoothstep(0.1, 0.55, L.y);
         float sparkle = hvNoise(p * 9.0 + vec2(t * 1.3, -t * 0.9)) * hvNoise(p * 13.0 - vec2(t * 0.8, t * 1.1));
         float spec = pow(sunR, 700.0) * 26.0 + pow(sunR, 90.0) * 1.2;
-        spec += smoothstep(0.34, 0.52, sparkle) * (pow(sunR, 60.0) * (3.0 + lowSun * 5.0) + pow(sunR, 18.0) * 0.6) * detail;
-        spec = min(spec, 7.0);
+        spec += smoothstep(0.36, 0.54, sparkle) * (pow(sunR, 60.0) * (3.0 + lowSun * 3.5) + pow(sunR, 18.0) * 0.45) * detail;
+        spec = min(spec, 5.0);
         c += uSunColor * spec * cloud * (1.0 - uNight * 0.55);
 
-        // Foam: breaker bands, the swash front, lace in the shallows.
-        float lace = hvLace(p * 1.7, t);
-        float lace2 = hvLace(p * 3.3 + 7.0, t * 1.3);
+        // Foam: breaker bands, the swash front, lace in the shallows (only in drifting patches).
+        float lace = hvLace(p * 0.9, t);
+        float lace2 = hvLace(p * 1.8 + 7.0, t * 1.3);
+        float lacePatch = smoothstep(0.42, 0.74, hvNoise(p * 0.11 + vec2(t * 0.012, -t * 0.008)));
         // Gaps along each crest so the lines break up like real surf.
         float gaps = smoothstep(0.28, 0.62, hvNoise(vec2(p.x * 0.22, p.y * 0.05) + vec2(t * 0.03, 0.0)) + face * 0.2);
-        float band = (face * 0.95 + trail * lace * 0.85) * breakZone * gaps;
-        float front = smoothstep(0.07, 0.0, depth) * (0.65 + 0.35 * lace2);
-        float wash = smoothstep(0.3, 0.04, depth) * lace * 0.55 * smoothstep(0.35, 0.8, fract(ph)) * smoothstep(0.3, 0.6, hvNoise(p * 0.4 + 2.0));
+        float band = face * 0.95 * breakZone * gaps + min(trail * lace * breakZone * gaps * (0.35 + 0.65 * lacePatch), 0.5);
+        float front = smoothstep(0.07, 0.0, depth) * (0.72 + 0.28 * lace2);
+        float nearFront = smoothstep(0.28, 0.05, depth);
+        float wash = smoothstep(0.35, 0.04, depth) * lace * smoothstep(0.35, 0.8, fract(ph)) * lacePatch * (1.0 - uPool);
+        // Rock pools: a thin, still meniscus at the rim instead of surf.
+        front *= 1.0 - uPool * 0.55;
+        wash = min(wash, mix(0.35, 0.75, nearFront));
         float foam = clamp(band + front + wash, 0.0, 1.0) * detail;
-        // Stylised whitecap ticks on open water: small crescents that swell, roll shoreward and fade.
+        // Foam collars where the pier pilings stand in the water: a clinging ring + small rings that
+        // spread out on each swell.
         {
-          vec2 q = p * vec2(0.3, 0.46) + vec2(t * 0.015, t * 0.1);
+          vec2 pu = (p - uPileRect.xy) / uPileRect.zw;
+          if (pu.x > 0.0 && pu.y > 0.0 && pu.x < 1.0 && pu.y < 1.0) {
+            float pd = texture2D(uPileTex, pu).r;
+            // Collar: ragged and pushed downstream by the swell; one faint wake ring now and then.
+            float wob = hvNoise(p * 9.0 + vec2(t * 0.9, -t * 0.4));
+            float collar = smoothstep(0.1 + 0.08 * wob, 0.0, pd) * smoothstep(0.25, 0.6, wob + 0.2);
+            float ringPh = fract(t * 0.3 + hvHash12(floor(p * 0.8)) * 3.0);
+            float spread = smoothstep(0.03, 0.0, abs(pd - 0.05 - ringPh * 0.45)) * (1.0 - ringPh) * smoothstep(0.35, 0.7, wob) * 0.4;
+            foam = max(foam, (collar * 0.8 + spread) * smoothstep(0.02, 0.25, depth) * detail);
+          }
+        }
+        // Whitecaps on open water: sparse, varied crescents that sit on wave crests and roll shoreward.
+        // Calm days show almost none; they fade out towards the (tilt-shift blurred) distance.
+        {
+          float h0 = wh(p, t);
+          float crestK = smoothstep(0.5, 0.7, h0);
+          vec2 q = p * vec2(0.34, 0.5) + vec2(t * 0.015, t * 0.1);
           float ticks = 0.0;
           for (int k = 0; k < 2; k++) {
             vec2 qq = q + float(k) * vec2(0.5, 0.37);
             vec2 id = floor(qq);
-            vec2 f = fract(qq) - 0.5 - (hvHash22(id + 11.0) - 0.5) * 0.4;
             float h = hvHash12(id + 4.7 + float(k) * 3.1);
+            if (h > 0.05 + 0.15 * uWindStrength) continue;
+            vec2 rnd = hvHash22(id + 11.0);
+            float sc = mix(0.5, 1.6, hvHash12(id + 2.3));
+            vec2 f = (fract(qq) - 0.5 - (rnd - 0.5) * 0.4) / sc;
             float life = fract(t * 0.16 + h * 7.0);
-            float vis = smoothstep(0.0, 0.25, life) * (1.0 - smoothstep(0.55, 1.0, life)) * step(h, 0.13 + 0.12 * uWindStrength);
-            float r = length(f * vec2(1.0, 2.0));
-            float along = clamp(f.x / 0.16, -1.0, 1.0);
-            float arc = smoothstep(0.075, 0.015, abs(r - 0.2 - life * 0.03)) * step(f.y, 0.0) * (1.0 - along * along);
+            float vis = smoothstep(0.0, 0.25, life) * (1.0 - smoothstep(0.55, 1.0, life));
+            float r = length(f * vec2(1.0, 2.2));
+            float arcLen = mix(0.07, 0.2, hvHash12(id + 5.9));
+            float along = clamp(f.x / arcLen, -1.0, 1.0);
+            float brk = smoothstep(0.25, 0.55, hvNoise(vec2(f.x * 16.0 + h * 40.0, t * 0.6 + h * 9.0)));
+            float arc = smoothstep(0.035, 0.008, abs(r - 0.15 - life * 0.03)) * step(f.y, 0.0) * (1.0 - along * along) * brk;
             ticks = max(ticks, arc * vis);
           }
-          foam += ticks * smoothstep(1.8, 3.2, depth) * (0.55 + 0.25 * uWindStrength) * detail;
+          foam += ticks * crestK * smoothstep(1.8, 3.2, depth) * (0.45 + 0.35 * uWindStrength) * (1.0 - smoothstep(20.0, 38.0, dist));
         }
         // Spindrift on the far swell (white horses when it's windy).
         foam += face * swellZone * smoothstep(0.6, 0.8, hvNoise(p * 0.5 + t * 0.05)) * 0.35 * max(0.0, uWindStrength - 0.5) * detail;
@@ -284,7 +356,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
         // Horizon: dissolve into the sky's horizon colour (+ the sun's haze).
         float haze = smoothstep(55.0, 250.0, dist);
         vec3 hzc = uHorizonColor + uSunColor * pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 12.0) * 0.16;
-        c = mix(c, hzc, haze * 0.92);
+        c = mix(c, hzc, haze * 0.72);
 
         float alpha = mix(0.34, 0.95, smoothstep(0.0, 1.4, depth));
         alpha = max(alpha, fres * 0.75);
@@ -311,7 +383,9 @@ export function createOcean(opts: OceanOptions): THREE.Group {
   const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / step), Math.ceil(d / step));
   geo.rotateX(-Math.PI / 2);
   geo.translate(near.x0 + w / 2, level, near.z0 + d / 2);
-  const nearMesh = new THREE.Mesh(geo, oceanMaterial(terrain, level, false));
+  const nearMat = oceanMaterial(terrain, level, false);
+  nearMat.uniforms.uNear!.value.set(near.x0, near.z0, near.x1, near.z1);
+  const nearMesh = new THREE.Mesh(geo, nearMat);
   nearMesh.name = 'ocean-near';
   nearMesh.renderOrder = 2;
   nearMesh.frustumCulled = false;
@@ -339,6 +413,78 @@ export function createOcean(opts: OceanOptions): THREE.Group {
     g.add(m);
   }
   return g;
+}
+
+/**
+ * Still rock-pool water (same look as the shallows: clear, caustic-lit, sky reflections — no swash,
+ * surf or whitecaps) over the given rect, clipped to the pools.
+ */
+export function createPoolWater(terrain: Terrain, level: number, rect: { x0: number; z0: number; x1: number; z1: number }, inside: (x: number, z: number) => boolean): THREE.Mesh {
+  const w = rect.x1 - rect.x0;
+  const d = rect.z1 - rect.z0;
+  const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / 0.25), Math.ceil(d / 0.25));
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(rect.x0 + w / 2, level, rect.z0 + d / 2);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const idx = geo.index!;
+  const keep: number[] = [];
+  for (let t = 0; t < idx.count; t += 3) {
+    const a = idx.getX(t);
+    const b = idx.getX(t + 1);
+    const c = idx.getX(t + 2);
+    if (inside(pos.getX(a), pos.getZ(a)) || inside(pos.getX(b), pos.getZ(b)) || inside(pos.getX(c), pos.getZ(c))) keep.push(a, b, c);
+  }
+  geo.setIndex(keep);
+  geo.computeBoundingSphere();
+  const m = new THREE.Mesh(geo, oceanMaterial(terrain, level, false, true));
+  m.name = 'tide-pool-water';
+  m.renderOrder = 2;
+  m.userData.noAO = true;
+  m.userData.perfTag = 'water';
+  return m;
+}
+
+/**
+ * Bake a distance-to-nearest-piling mask (metres from the piling surface, 0..1) for the foam
+ * collars around the pier's legs. `pts` are piling centres + radii.
+ */
+export function setOceanPilings(ocean: THREE.Group, pts: { x: number; z: number; r: number }[]): void {
+  const mesh = ocean.getObjectByName('ocean-near') as THREE.Mesh | undefined;
+  if (!mesh || !pts.length) return;
+  let x0 = Infinity;
+  let z0 = Infinity;
+  let x1 = -Infinity;
+  let z1 = -Infinity;
+  for (const p of pts) {
+    x0 = Math.min(x0, p.x - 1.2);
+    z0 = Math.min(z0, p.z - 1.2);
+    x1 = Math.max(x1, p.x + 1.2);
+    z1 = Math.max(z1, p.z + 1.2);
+  }
+  const res = 0.08;
+  const w = Math.ceil((x1 - x0) / res);
+  const h = Math.ceil((z1 - z0) / res);
+  const data = new Uint8Array(w * h).fill(255);
+  for (const p of pts) {
+    const r = Math.ceil(1.1 / res);
+    const cx = Math.floor((p.x - x0) / res);
+    const cz = Math.floor((p.z - z0) / res);
+    for (let j = Math.max(0, cz - r); j < Math.min(h, cz + r); j++) {
+      for (let i = Math.max(0, cx - r); i < Math.min(w, cx + r); i++) {
+        const d = Math.max(0, Math.hypot(x0 + (i + 0.5) * res - p.x, z0 + (j + 0.5) * res - p.z) - p.r);
+        const v = Math.min(255, Math.round(d * 255));
+        const k = j * w + i;
+        if (v < data[k]!) data[k] = v;
+      }
+    }
+  }
+  const tex = new THREE.DataTexture(data, w, h, THREE.RedFormat, THREE.UnsignedByteType);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  const mat = mesh.material as THREE.ShaderMaterial;
+  mat.uniforms.uPileTex!.value = tex;
+  mat.uniforms.uPileRect!.value.set(x0, z0, x1 - x0, z1 - z0);
 }
 
 /**

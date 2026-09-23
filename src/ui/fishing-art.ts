@@ -4,7 +4,7 @@
  * icons (registered into ui/icons.ts ICONS at import time), the reel-minigame fish and the
  * catch card illustration. Also: the bamboo rod icon and the beach forageable icons.
  */
-import { FISH, BEACH_FORAGE, type FishDef } from '../data/fish';
+import { FISH, BEACH_FORAGE, FISH_BANDS, type FishDef } from '../data/fish';
 import { registerItemIcon } from './icons';
 
 const hex = (c: number): string => '#' + c.toString(16).padStart(6, '0');
@@ -178,9 +178,8 @@ export function fishSvg(def: FishDef, opts: { size?: number; detail?: boolean; t
   const hgt = opts.square ? size : (size * 76) / 112;
   return `<svg class="${opts.className ?? 'ic-fish'}" viewBox="${vb}" width="${size}" height="${hgt}" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${shade(k.back, 0.9)}"/><stop offset="0.3" stop-color="${hex(k.back)}"/>
-      <stop offset="0.55" stop-color="${hex(k.side)}"/><stop offset="0.82" stop-color="${hex(k.belly)}"/><stop offset="1" stop-color="${shade(k.belly, 0.92)}"/>
+    <linearGradient id="${id}b" gradientUnits="userSpaceOnUse" x1="0" y1="${cy - H}" x2="0" y2="${cy + H}">
+      ${FISH_BANDS.map(([f, ch, b]) => `<stop offset="${f}" stop-color="${shade(k[ch], b)}"/>`).join('')}
     </linearGradient>
     <linearGradient id="${id}f" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${shade(k.fin, 0.8)}"/><stop offset="1" stop-color="${shade(k.fin, 1.12)}"/></linearGradient>
     <radialGradient id="${id}g" cx="0.35" cy="0.25" r="0.6"><stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
@@ -213,6 +212,12 @@ const ROD_ICON = `<svg viewBox="0 0 24 24" class="ic" xmlns="http://www.w3.org/2
   <circle cx="20.2" cy="16" r="1.9" fill="#e84a3a" stroke="#6a1a14" stroke-width="0.9"/><path d="M18.4 16.2 a1.9 1.9 0 0 0 3.7 0 z" fill="#fafafa"/>
 </svg>`;
 
+const GEAR_ICONS: Record<string, string> = {
+  bait: `<svg viewBox="0 0 24 24" class="ic" xmlns="http://www.w3.org/2000/svg"><path d="M5 9 C5 6 8 4.5 12 4.5 C16 4.5 19 6 19 9 L18 19 C18 20.5 15.5 21.5 12 21.5 C8.5 21.5 6 20.5 6 19 Z" fill="#b8865a" stroke="#5a3a1a" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.2 9.2 C7 10.6 17 10.6 18.8 9.2" stroke="#5a3a1a" stroke-width="1.1" fill="none"/><path d="M9 6.6 Q12 3 15 6.6" stroke="#e86a7a" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M8.5 7.5 Q10 5.8 11.5 7.2" stroke="#f29aa6" stroke-width="1.6" fill="none" stroke-linecap="round"/><rect x="8.5" y="12.5" width="7" height="4.5" rx="1" fill="#f2e2c0" stroke="#5a3a1a" stroke-width="0.9"/><path d="M10 14.8 h4" stroke="#5a3a1a" stroke-width="0.9"/></svg>`,
+  treasureLure: `<svg viewBox="0 0 24 24" class="ic" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.5 V6" stroke="#6a6a6a" stroke-width="1.2"/><circle cx="12" cy="6.5" r="1.3" fill="none" stroke="#6a6a6a" stroke-width="1"/><path d="M12 7.8 C16.5 9.5 16.5 15 12 17.5 C7.5 15 7.5 9.5 12 7.8 Z" fill="#f2c84a" stroke="#7a5212" stroke-width="1.3"/><path d="M11 9.8 C9.8 11.5 9.8 13.5 11 15" stroke="#fff6c8" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M12 17.5 V19.5 M12 19.5 C12 21.5 14.5 21.5 14.5 19.8" stroke="#5a5a5a" stroke-width="1.2" fill="none" stroke-linecap="round"/><circle cx="17.5" cy="7" r="1.1" fill="#fffbe0"/><path d="M17.5 4.8 V9.2 M15.3 7 H19.7" stroke="#fffbe0" stroke-width="0.8"/></svg>`,
+  corkBobber: `<svg viewBox="0 0 24 24" class="ic" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.5 V7" stroke="#c8382a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="12" cy="13" rx="6.2" ry="7" fill="#d8a070" stroke="#6a4020" stroke-width="1.3"/><path d="M5.9 12 C8 13.6 16 13.6 18.1 12" stroke="#c8382a" stroke-width="2.4" fill="none"/><g fill="#a87040"><circle cx="9.5" cy="9.5" r="0.7"/><circle cx="14" cy="10" r="0.6"/><circle cx="10.5" cy="16.5" r="0.7"/><circle cx="14.5" cy="16" r="0.6"/></g><path d="M12 20 V22" stroke="#6a4020" stroke-width="1.2"/></svg>`,
+};
+
 const FORAGE_ICONS: Record<string, string> = {
   cockle: `<svg viewBox="0 0 24 24" class="ic" xmlns="http://www.w3.org/2000/svg"><path d="M12 20 L4.5 11 C4.5 6 8 3.5 12 3.5 C16 3.5 19.5 6 19.5 11 Z" fill="#f2dcbc" stroke="#8a6440" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 20 L7 6.5 M12 20 L9.5 4.5 M12 20 L12 3.8 M12 20 L14.5 4.5 M12 20 L17 6.5" stroke="#c89a70" stroke-width="1"/><path d="M9.5 20.5 h5 v1.5 h-5z" fill="#d8b894" stroke="#8a6440" stroke-width="1"/></svg>`,
   spiralConch: `<svg viewBox="0 0 24 24" class="ic" xmlns="http://www.w3.org/2000/svg"><path d="M4 16 C3 10 9 4 15 4 C19 4 21 7 20 10 C19 13 15 13 14 11 C13 9 15 8 16 9" fill="none" stroke="#8a5a44" stroke-width="1.3"/><path d="M4 16 C3 10 9 4 15 4 C19 4 21 7 20 10 L18 18 C14 21 7 21 4 16 Z" fill="#f4c2a8" stroke="#8a5a44" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 15 C9 17 14 17 18 15" stroke="#e08a78" stroke-width="1.1" fill="none"/><path d="M8 11 C11 13 15 12 17 10" stroke="#e08a78" stroke-width="1" fill="none"/><ellipse cx="13.5" cy="16.5" rx="3" ry="1.5" fill="#fbe0d4"/></svg>`,
@@ -230,6 +235,7 @@ export function registerFishingIcons(): void {
   registered = true;
   registerItemIcon('rod', ROD_ICON);
   for (const f of FISH) registerItemIcon(f.id, () => fishSvg(f, { size: 64, tilt: -28, className: 'ic', square: true }));
+  for (const [id, svg] of Object.entries(GEAR_ICONS)) registerItemIcon(id, svg);
   for (const f of BEACH_FORAGE) {
     const svg = FORAGE_ICONS[f.id];
     if (svg) registerItemIcon(f.id, svg);

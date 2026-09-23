@@ -1,6 +1,6 @@
 /** Item table (pure data). Icons are keys into ui/icons.ts ICONS. */
 import { CROPS, CROP_IDS, type CropId } from './crops';
-import { FISH, BEACH_FORAGE } from './fish';
+import { FISH, BEACH_FORAGE, FISHING_GEAR } from './fish';
 
 export type ItemKind = 'tool' | 'seed' | 'produce' | 'resource' | 'placeable' | 'fish' | 'forage';
 
@@ -66,6 +66,7 @@ for (const id of CROP_IDS) {
 // Fish (data/fish.ts) and beach forageables; icons are painted per species by ui/fishing-art.ts.
 for (const f of FISH) base.push({ id: f.id, name: f.name, kind: 'fish', icon: f.id, sell: f.sell, stack: 999, color: f.look.side, description: f.blurb });
 for (const f of BEACH_FORAGE) base.push({ id: f.id, name: f.name, kind: 'forage', icon: f.id, sell: f.sell, stack: 999, color: f.color, description: f.blurb });
+for (const f of FISHING_GEAR) base.push({ id: f.id, name: f.name, kind: 'resource', icon: f.id, sell: f.sell, stack: f.stack, description: f.description });
 
 export const ITEMS: Record<string, ItemDef> = Object.fromEntries(base.map((d) => [d.id, d]));
 

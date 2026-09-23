@@ -215,3 +215,38 @@ Demos: `town-day`, `town-evening`, `town-winter`, `town-rain`, `town-east`, `tow
 `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1`), `town-night-talk`,
 `town-heart-event` (`&event=<npc>-<2|4>&step=N`), `town-portraits` (`&ui=portraits:<npc>` = all nine moods),
 `town-social`, `festival`.
+
+## Driftsand Beach & fishing
+
+Driftsand Beach (`src/world/beach/`) is reached from the east edge of the town square (the farm connects through
+town; there is no direct farm-to-beach path). `ocean.ts` is the stylised sea (a depth gradient from the terrain height
+texture, swash run-up that stays in sync with the wet band on the sand, breakers over the sandbar, broken
+domain-warped foam lace, sparse whitecaps that sit on the crests, foam collars around the pier pilings, sun glints,
+horizon haze, a far plane that continues the near grid's depth) and the still tide-pool water. `sand.ts` shades
+the ground (wind ripples, a wet band, caustic filaments, the wrack-line tint, the rock shelf, pool floors).
+`props.ts` builds the pier, the shack, the lighthouse, the rowboat, four driftwood silhouettes, the kelp and shell
+wrack line, and the boat, campfire and sign vignettes. `shells.ts` handles the tide-line forageables (with contact
+blots and star glints) and the tide-pool anemones. `life.ts` has the gulls, crabs and leaping fish.
+
+Fishing (`systems/fishing.ts`, visuals in `world/beach/tackle.ts` + `fishmesh.ts`, UI in `ui/fishing*.ts`, data in
+`data/fish.ts`) works on any map with water: the farm pond, the town river and the sea.
+- Cast: hold use to charge the power meter (sweet spot at 90–100 %, MAX flash, a tick every 25 %). Aim at the pointer
+  (for casts started with the mouse) or with the movement keys (8 directions); the farmer turns to face the aim. Max
+  range grows with the fishing level and the rod.
+- Bite: a "!" speech bubble, a splash crown with a spray column, the float dunked under, camera shake and a 60 ms
+  hitstop. Press use in time to hook.
+- Reel: bar-and-fish minigame (lift 3.6, gravity 3.0, velocity cap 2.0, bounce off both ends), progress starts at
+  35 % with a 0.6 s grace period (2 s in practice), plus treasure chests. Quality comes from the time the fish spent
+  inside the bar, a perfect fight, the perfect-catch streak, the cast and the skill. It is not a dice roll.
+- Progression: fishing XP per catch (difficulty-weighted, ×1.5 for a perfect fight), levels 0–10 (a taller bar and
+  longer casts). **Bait** is used up one per cast and halves the wait. **Tackle** works while carried and wears out
+  after 20 catches: the Cork Bobber makes the bar taller and the Glimmer Lure makes treasure more likely. **Rod tiers**
+  are Bamboo, Fiberglass and Iridium. Buy all of these at the shack's Bait & Tackle honesty box (interact at the
+  porch, or `openUI('tackle')`).
+- Service: `game.services.fishing` → `state()`, `available()`, `cast(power)`, `level()`, `xp()`, `rodTier()`,
+  `upgradeRod(t)`, `records()`. Events: `fishing:cast|bite|hook|catch|escape|level`.
+
+Demos: `beach-day`, `beach-sunset` (a line in the water at dusk), `beach-night`, `beach-tidepools`, `beach-tackle` (the honesty box),
+`fishing-cast`, `fishing-flight` (the cast arc in the air), `fishing-wait`, `fishing-bite`, `fishing-reel`, `fishing-catch`,
+`fishing-pond`, `fishing-river`. Fishing demos take `&fish=<fishId>` and `&phase=cast|flight|wait|bite|reel|catch`.
+`openUI('fishing')` starts a practice fight on the spot.

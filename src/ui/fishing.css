@@ -55,6 +55,52 @@
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.45);
 }
+.hvf-power .sweet {
+  /* Sweet spot: the top 10 % of the tube (a long, accurate cast). */
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 10%;
+  background: repeating-linear-gradient(135deg, rgba(255, 226, 120, 0.55) 0 4px, rgba(255, 200, 60, 0.3) 4px 8px);
+  border-bottom: 2px solid #ffe07a;
+  box-shadow: 0 0 8px rgba(255, 220, 110, 0.7);
+  z-index: 2;
+}
+.hvf-power.sweet-on .sweet {
+  background: rgba(255, 244, 190, 0.85);
+}
+.hvf-power .flash {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 12%, rgba(255, 255, 240, 0.95), rgba(255, 240, 160, 0.2) 60%, transparent);
+  opacity: 0;
+  z-index: 3;
+}
+.hvf-power.max .flash {
+  animation: hvf-flash 0.3s ease-in-out infinite alternate;
+}
+.hvf-power.max {
+  border-color: #fff2b0;
+  box-shadow: inset 0 2px 0 rgba(255, 220, 170, 0.55), 0 0 0 3px #7a3a10, 0 0 22px rgba(255, 220, 90, 0.95), 0 8px 18px rgba(20, 10, 4, 0.35);
+}
+.hvf-power .label {
+  position: absolute;
+  left: 50%;
+  bottom: -22px;
+  transform: translateX(-50%);
+  padding: 1px 8px 2px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff7e2, #f1dcad);
+  border: 2px solid #5e3517;
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #5a3a1e;
+  white-space: nowrap;
+}
 .hvf-power .ticks {
   position: absolute;
   inset: 0;
@@ -71,7 +117,7 @@
   transform: translateX(-50%) rotate(-6deg);
   font-family: var(--font-head, 'Fredoka', sans-serif);
   font-weight: 700;
-  font-size: 19px;
+  font-size: 24px;
   color: #fff6c8;
   -webkit-text-stroke: 1.2px #7a3a10;
   text-shadow: 0 2px 0 #7a3a10, 0 0 12px rgba(255, 210, 80, 0.9);
@@ -86,16 +132,16 @@
 /* ── Bite "!" ─────────────────────────────────────────────── */
 .hvf-bang {
   position: absolute;
-  width: 64px;
-  height: 86px;
+  width: 84px;
+  height: 95px;
   transform: translate(-50%, -100%);
-  animation: hvf-bang 0.42s cubic-bezier(0.34, 1.56, 0.64, 1), hvf-wobble 0.5s 0.42s ease-in-out infinite alternate;
+  animation: hvf-bang 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2), hvf-wobble 0.34s 0.18s ease-in-out infinite alternate;
   transform-origin: 50% 100%;
 }
 .hvf-bang svg {
   width: 100%;
   height: 100%;
-  filter: drop-shadow(0 4px 0 rgba(60, 20, 0, 0.45)) drop-shadow(0 0 14px rgba(255, 220, 90, 0.8));
+  filter: drop-shadow(0 4px 0 rgba(20, 10, 4, 0.55)) drop-shadow(0 0 10px rgba(255, 255, 255, 0.55));
 }
 
 /* ── Reel minigame ───────────────────────────────────────── */
@@ -182,7 +228,7 @@
 .hvf-card {
   position: absolute;
   left: 50%;
-  bottom: 118px;
+  bottom: 172px;
   width: 470px;
   transform: translateX(-50%);
   animation: hvf-card-in 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -265,6 +311,24 @@
   width: 16px;
   height: 16px;
 }
+.hvf-card .chip.q1 {
+  background: linear-gradient(180deg, #ffffff, #dfe6ee);
+  border-color: #5e6a78;
+  color: #3e4a58;
+}
+.hvf-card .chip.q2 {
+  background: linear-gradient(180deg, #fff6c0, #f7d25a);
+  border-color: #9a6a14;
+  color: #5a3606;
+}
+.hvf-card .chip.q3 {
+  background: linear-gradient(180deg, #f6e6ff, #d6a8f2);
+  border-color: #6a3a9a;
+  color: #3e1470;
+}
+.hvf-card .chip svg {
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25));
+}
 .hvf-card .chip.gold {
   background: linear-gradient(180deg, #fff3b0, #f5c542);
   border-color: #9a6a14;
@@ -343,6 +407,14 @@
     scale: 0.7;
   }
 }
+@keyframes hvf-flash {
+  from {
+    opacity: 0.15;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
 @keyframes hvf-throb {
   from {
     scale: 1;
@@ -353,23 +425,25 @@
 }
 @keyframes hvf-bang {
   0% {
-    scale: 0.1 0.1;
+    scale: 0;
     opacity: 0;
   }
   55% {
-    scale: 1.35 1.15;
+    scale: 1.4;
     opacity: 1;
   }
   100% {
-    scale: 1 1;
+    scale: 1;
   }
 }
 @keyframes hvf-wobble {
   from {
-    rotate: -7deg;
+    rotate: -8deg;
+    scale: 1;
   }
   to {
-    rotate: 7deg;
+    rotate: 8deg;
+    scale: 1.06;
   }
 }
 @keyframes hvf-shake {
@@ -432,4 +506,251 @@
     opacity: 0;
     translate: 0 -14px;
   }
+}
+
+/* ── Skill / gear readouts ───────────────────────────────── */
+.hvf-reel .tags {
+  position: absolute;
+  left: 50%;
+  bottom: -52px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  pointer-events: none;
+  z-index: 2;
+}
+.hvf-reel .tags .lv {
+  padding: 0 6px;
+  border-radius: 7px;
+  background: rgba(20, 50, 70, 0.72);
+  color: #eaf8ff;
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 17px;
+}
+.hvf-reel .tags .gear {
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+  background: rgba(255, 248, 228, 0.88);
+  border: 1.5px solid #5e3517;
+  display: grid;
+  place-items: center;
+}
+.hvf-reel .tags .gear svg,
+.hvf-reel .tags .gear img {
+  width: 15px;
+  height: 15px;
+}
+.hvf-card .xp {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #6a4424;
+}
+.hvf-card .xp .lv {
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.hvf-card .xp .lv.up {
+  color: #2f8a3a;
+  animation: hvf-throb 0.4s ease-in-out infinite alternate;
+}
+.hvf-card .xp .bar {
+  flex: 1;
+  height: 8px;
+  min-width: 60px;
+  border-radius: 5px;
+  background: rgba(90, 55, 25, 0.2);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.hvf-card .xp .bar i {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #9ae6ff, #3aa6d8);
+  animation: hvf-xpfill 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) 0.3s both;
+}
+.hvf-card .xp .gain {
+  color: #2f7aa8;
+  white-space: nowrap;
+}
+.hvf-card .xp .streak {
+  padding: 0 6px;
+  border-radius: 7px;
+  background: #f7d25a;
+  border: 1.5px solid #9a6a14;
+  color: #5a3606;
+  white-space: nowrap;
+}
+@keyframes hvf-xpfill {
+  from {
+    width: 0;
+  }
+}
+
+/* ── Bait & Tackle counter (ui/fishing-shop.ts) ──────────── */
+.hvf-tackle-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -48%);
+  pointer-events: auto;
+}
+.hvf-tackle-frame > .u-paper {
+  display: flex;
+  gap: 20px;
+  padding: 34px 22px 20px;
+  width: min(720px, 92vw);
+  box-sizing: border-box;
+}
+.hvf-tk-left {
+  width: 230px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hvf-tk-note {
+  position: relative;
+  padding: 12px 14px 10px;
+  background: #fbf3dc;
+  border-radius: 4px 14px 6px 12px;
+  box-shadow: 0 3px 0 rgba(120, 70, 20, 0.2), inset 0 0 0 1px rgba(138, 100, 64, 0.25);
+  rotate: -1.5deg;
+  color: #5a3a1e;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.hvf-tk-note b {
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-size: 16px;
+  color: #2f5f6a;
+}
+.hvf-tk-note p {
+  margin: 4px 0 2px;
+}
+.hvf-tk-note i {
+  display: block;
+  text-align: right;
+  font-size: 12px;
+}
+.hvf-tk-skill {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(47, 95, 106, 0.1);
+  box-shadow: inset 0 0 0 2px rgba(47, 95, 106, 0.25);
+  color: #3a2a18;
+}
+.hvf-tk-skill .rod {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.hvf-tk-skill .rod svg {
+  width: 38px;
+  height: 38px;
+  flex: none;
+}
+.hvf-tk-skill b {
+  display: block;
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-size: 15px;
+}
+.hvf-tk-skill small {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #6a4a2a;
+}
+.hvf-tk-skill .bar {
+  margin-top: 8px;
+  height: 9px;
+  border-radius: 5px;
+  background: rgba(90, 55, 25, 0.2);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.hvf-tk-skill .bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(180deg, #9ae6ff, #3aa6d8);
+}
+.hvf-tk-purse {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 700;
+  font-size: 20px;
+  color: #5a3a1e;
+}
+.hvf-tk-purse svg {
+  width: 22px;
+  height: 22px;
+}
+.hvf-tk-purse small {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8a6a4a;
+}
+.hvf-tk-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.hvf-tk-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px 5px 6px;
+  border-radius: 13px;
+  background: rgba(255, 252, 240, 0.9);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.2), 0 2px 0 rgba(120, 70, 20, 0.12);
+  animation: hvf-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.hvf-tk-row .nm {
+  flex: 1;
+  min-width: 0;
+  color: #4a2c14;
+}
+.hvf-tk-row .nm b {
+  display: block;
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-size: 15px;
+}
+.hvf-tk-row .nm small {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #8a6a4a;
+}
+.hvf-tk-row .buy {
+  min-width: 84px;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+}
+.hvf-tk-row .buy svg {
+  width: 15px;
+  height: 15px;
+}
+.hvf-tk-row.locked {
+  opacity: 0.62;
+  filter: saturate(0.5);
+}
+.hvf-tk-row.locked .nm small {
+  color: #b0482a;
+}
+.hvf-tk-row.owned .nm small {
+  color: #2f8a3a;
 }

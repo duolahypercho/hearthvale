@@ -98,7 +98,7 @@ const pilingAO = (p: THREE.Vector3): number => (p.y < 0.35 ? 0.42 + 0.2 * THREE.
  * The pier in world coordinates (deck top at PIER.deckY). `groundAt` gives the sea floor / sand
  * height for pilings.
  */
-export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number): { static: THREE.Group; lamps: THREE.Vector3[] } {
+export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number): { static: THREE.Group; lamps: THREE.Vector3[]; pilings: { x: number; z: number; r: number }[] } {
   const b = new MeshBuilder();
   const deck = PIER.deckY;
   const hw = PIER.w / 2;
@@ -129,9 +129,11 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
   for (const sx of [-hw, hw]) b.add('woodDark', roundedBox(0.1, 0.22, H.z0 - PIER.z0, 0.02), mat(cx + sx, deck - 0.12, (PIER.z0 + H.z0) / 2), { tint: 0xa89078 });
   // Pilings + posts (posts stick up as railing posts).
   const posts: THREE.Vector3[][] = [[], []];
+  const pilings: { x: number; z: number; r: number }[] = [];
   const piling = (x: number, z: number, up: number): void => {
     const g = groundAt(x, z) - 0.4;
     const r = 0.15 + rng.next() * 0.03;
+    if (g < -0.35) pilings.push({ x, z, r });
     b.add('woodDark', new THREE.CylinderGeometry(r * 0.94, r, deck + up - g, 9, 2), mat(x, (deck + up + g) / 2, z, 0, rng.next() * 6, (rng.next() - 0.5) * 0.02), { aoWorld: pilingAO, tint: 0xb09a86 });
     // Rope wrap near the top + barnacle rings at the tide line.
     if (up > 0.2) b.add('cloth', new THREE.TorusGeometry(r + 0.01, 0.025, 5, 12), mat(x, deck + up - 0.12, z, Math.PI / 2), { tint: 0xc8a86a });
@@ -206,8 +208,8 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
   b.add('metal', new THREE.TorusGeometry(0.2, 0.01, 4, 12, Math.PI), mat(cx + 1.0, deck + 0.36, H.z1 - 0.6, 0, 0.4, 0), { tint: 0x5a5a5a });
   b.add('woodPaint', roundedBox(0.5, 0.24, 0.3, 0.03), mat(cx + 1.6, deck + 0.12, H.z1 - 0.55, 0, 0.3, 0), { tint: 0x3f8a5a });
   b.add('metal', roundedBox(0.2, 0.04, 0.05, 0.01), mat(cx + 1.6, deck + 0.26, H.z1 - 0.55, 0, 0.3, 0), { tint: 0xd8a84a });
-  // A rod leaning on the head rail.
-  b.add('woodGrain', beam(0.02, 0.008, new THREE.Vector3(H.x0 + 0.35, deck, H.z0 + 1.0), new THREE.Vector3(H.x0 - 0.2, deck + 2.3, H.z0 + 0.4), 5), undefined, { tint: 0xd8b060 });
+  // A spare rod leaning on the far (east) rail by the crab pots, well away from the fishing spot.
+  b.add('woodGrain', beam(0.02, 0.008, new THREE.Vector3(H.x1 - 0.45, deck, H.z0 + 1.6), new THREE.Vector3(H.x1 + 0.1, deck + 2.1, H.z0 + 2.3), 5), undefined, { tint: 0xa88a50 });
   // Lamp posts at the root, middle and head.
   const lamps: THREE.Vector3[] = [];
   for (const [x, z] of [[cx + hw + 0.02, PIER.z0 + 0.3 + span * 2], [cx - hw - 0.02, PIER.z0 + 0.3 + span * 6], [H.x1, H.z1]] as const) {
@@ -217,7 +219,7 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
     lamps.push(new THREE.Vector3(x + (x > cx ? -0.4 : 0.4), deck + 1.62, z));
   }
   const g = b.build({ name: 'pier' });
-  return { static: g, lamps };
+  return { static: g, lamps, pilings };
 }
 
 // ───────────────────────────────────────────── shack
@@ -643,8 +645,54 @@ export function buildRowboat(rng: Rng, hull = 0x2f7a8a, stripe = 0xf2eee4): THRE
 
 // ───────────────────────────────────────────── driftwood, campfire, fence, boardwalk
 
-/** Bleached driftwood log (world coords): bent tapered trunk, a root flare and branch stubs. */
-export function addDriftwood(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, len: number, rot: number, r = 0.16): void {
+export type DriftKind = 'log' | 'fork' | 'stump' | 'plank';
+
+/**
+ * Bleached driftwood (world coords). Four silhouettes so a beach never reads as one clone:
+ *   log    long, fat trunk with a flared root plate of radiating roots
+ *   fork   a bent branch that splits into a Y, with a couple of stubs
+ *   stump  a short, thick chunk with broken root stubs
+ *   plank  sea-worn boat planks (grey-bleached, rusty nail heads), one propped on the other
+ * `len` is the overall length, `r` the base radius; `kind` defaults to a seeded pick.
+ */
+export function addDriftwood(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, len: number, rot: number, r = 0.16, kind?: DriftKind): void {
+  const k: DriftKind = kind ?? rng.pick(['log', 'fork', 'stump', 'plank'] as DriftKind[]);
+  const m = mat(x, y, z, 0, rot, 0);
+  const tint = new THREE.Color(0xd8cebc).multiplyScalar(0.8 + rng.next() * 0.25).lerp(new THREE.Color(0xb8aa94), rng.next() * 0.4);
+  const ao = (p: THREE.Vector3): number => 0.5 + 0.5 * THREE.MathUtils.smoothstep(p.y - y, 0, r * 1.3);
+  const tube = (pts: THREE.Vector3[], r0: number, r1: number, segs: number, radial = 7): void => {
+    b.add('woodGrain', taperTube(new THREE.CatmullRomCurve3(pts), segs, r0, r1, radial).applyMatrix4(m), undefined, { tint, aoWorld: ao });
+  };
+  // A random twist around the trunk so stubs / roots never sit at the same clock position.
+  const roll = rng.next() * Math.PI * 2;
+  const around = (a: number, rad: number): [number, number] => [Math.cos(a + roll) * rad, Math.sin(a + roll) * rad];
+  if (k === 'plank') {
+    const w = 0.22 + rng.next() * 0.08;
+    const tp = new THREE.Color(0xc8c0b0).multiplyScalar(0.85 + rng.next() * 0.2);
+    b.add('woodGrain', roundedBox(len, 0.05, w, 0.02).applyMatrix4(new THREE.Matrix4().multiplyMatrices(m, mat(0, 0.03, 0, 0, 0, (rng.next() - 0.5) * 0.06))), undefined, { tint: tp, aoWorld: ao });
+    const l2 = len * (0.5 + rng.next() * 0.3);
+    b.add('woodGrain', roundedBox(l2, 0.05, w * 0.9, 0.02).applyMatrix4(new THREE.Matrix4().multiplyMatrices(m, mat(len * 0.18, 0.1, w * 0.7, 0, 0.35, 0.12))), undefined, { tint: tp.clone().multiplyScalar(0.92), aoWorld: ao });
+    for (let i = 0; i < 4; i++) {
+      const nx = -len / 2 + 0.12 + (i % 2) * (len - 0.24);
+      b.add('metal', new THREE.CylinderGeometry(0.014, 0.014, 0.012, 5).applyMatrix4(new THREE.Matrix4().multiplyMatrices(m, mat(nx, 0.058, (i < 2 ? -1 : 1) * w * 0.3))), undefined, { tint: 0x8a4a2a });
+    }
+    return;
+  }
+  if (k === 'stump') {
+    const L = Math.min(len, 1.1);
+    const R = r * 1.6;
+    tube([new THREE.Vector3(-L / 2, R * 0.8, 0), new THREE.Vector3(0, R * 0.85, 0.03), new THREE.Vector3(L / 2, R * 0.75, 0)], R, R * 0.85, 6, 9);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + rng.next() * 0.5;
+      const [cy, cz] = around(a, 1);
+      const reach = 0.25 + rng.next() * 0.3;
+      tube([new THREE.Vector3(-L / 2, R * 0.8 + cy * R * 0.6, cz * R * 0.6), new THREE.Vector3(-L / 2 - reach * 0.6, R * 0.8 + cy * reach, cz * reach), new THREE.Vector3(-L / 2 - reach, Math.max(0.03, R * 0.8 + cy * reach * 1.3), cz * reach * 1.4)], R * 0.35, R * 0.1, 4, 5);
+    }
+    // Splintered top of the break.
+    b.add('woodGrain', new THREE.ConeGeometry(R * 0.8, R * 0.9, 7).rotateZ(-Math.PI / 2).translate(L / 2 + R * 0.35, R * 0.75, 0).applyMatrix4(m), undefined, { tint, aoWorld: ao });
+    return;
+  }
+  // Trunk (log / fork): bent, tapered, lying on the sand.
   const pts: THREE.Vector3[] = [];
   const n = 5;
   for (let i = 0; i <= n; i++) {
@@ -652,25 +700,249 @@ export function addDriftwood(b: MeshBuilder, rng: Rng, x: number, y: number, z: 
     pts.push(new THREE.Vector3(t * len - len / 2, r * 0.7 + Math.sin(t * Math.PI) * 0.06 * len * (rng.next() * 0.6), (rng.next() - 0.5) * 0.25 * len * t * (1 - t) * 2));
   }
   const curve = new THREE.CatmullRomCurve3(pts);
-  const m = mat(x, y, z, 0, rot, 0);
-  const tint = new THREE.Color(0xd8cebc).multiplyScalar(0.85 + rng.next() * 0.2);
-  const ao = (p: THREE.Vector3): number => 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y - y, 0, r * 1.2);
-  const g = taperTube(curve, 16, r, r * 0.45, 8).applyMatrix4(m);
-  b.add('woodGrain', g, undefined, { tint, aoWorld: ao });
-  // Root knot at the thick end.
-  for (let k = 0; k < 3 + rng.int(0, 2); k++) {
-    const a = rng.next() * Math.PI * 2;
-    const c = new THREE.CatmullRomCurve3([new THREE.Vector3(-len / 2, r * 0.7, 0), new THREE.Vector3(-len / 2 - 0.2, r * 0.7 + Math.cos(a) * 0.25, Math.sin(a) * 0.25), new THREE.Vector3(-len / 2 - 0.35, r * 0.4 + Math.cos(a) * 0.4, Math.sin(a) * 0.45)]);
-    b.add('woodGrain', taperTube(c, 5, r * 0.45, r * 0.12, 5).applyMatrix4(m), undefined, { tint, aoWorld: ao });
-  }
-  // Branch stubs.
-  for (let k = 0; k < 2; k++) {
-    const t = 0.3 + rng.next() * 0.5;
+  b.add('woodGrain', taperTube(curve, 16, r * (k === 'log' ? 1.15 : 1), r * (k === 'log' ? 0.55 : 0.4), 8).applyMatrix4(m), undefined, { tint, aoWorld: ao });
+  if (k === 'log') {
+    // Root plate: a ring of thick, radiating roots at the butt end.
+    const cnt = 6 + rng.int(0, 3);
+    for (let i = 0; i < cnt; i++) {
+      const a = (i / cnt) * Math.PI * 2 + rng.next() * 0.4;
+      const [cy, cz] = around(a, 1);
+      const reach = 0.35 + rng.next() * 0.35;
+      const base = new THREE.Vector3(-len / 2, r * 0.7, 0);
+      tube([base, base.clone().add(new THREE.Vector3(-0.12, cy * reach * 0.55, cz * reach * 0.55)), new THREE.Vector3(-len / 2 - 0.2 - rng.next() * 0.15, Math.max(0.04, r * 0.7 + cy * reach), cz * reach * 1.1)], r * 0.5, r * 0.08, 5, 5);
+    }
+  } else {
+    // Fork: the thin end splits in two, plus a stub.
+    const at = curve.getPointAt(0.62);
+    const side = rng.next() < 0.5 ? 1 : -1;
+    tube([at, at.clone().add(new THREE.Vector3(0.35, 0.08, side * 0.28)), at.clone().add(new THREE.Vector3(0.75, 0.05, side * 0.62))], r * 0.5, r * 0.18, 6, 6);
+    const t = 0.25 + rng.next() * 0.2;
     const p = curve.getPointAt(t);
-    const a = rng.next() * Math.PI;
-    const c = new THREE.CatmullRomCurve3([p, p.clone().add(new THREE.Vector3(0.1, 0.25 + rng.next() * 0.2, Math.cos(a) * 0.25))]);
-    b.add('woodGrain', taperTube(c, 3, r * 0.4, r * 0.15, 5).applyMatrix4(m), undefined, { tint, aoWorld: ao });
+    const [cy, cz] = around(rng.next() * Math.PI, 1);
+    tube([p, p.clone().add(new THREE.Vector3(0.06, Math.abs(cy) * 0.3 + 0.08, cz * 0.25))], r * 0.4, r * 0.15, 3, 5);
   }
+}
+
+/** Kelp strands, eel-grass, shell bits and twigs strewn along the high-tide line (world coords). */
+export function addWrackLine(
+  b: MeshBuilder,
+  rng: Rng,
+  line: { x: number; z: number; w: number }[],
+  heightAt: (x: number, z: number) => number,
+): void {
+  const kelp = kelpMaterial();
+  for (const s of line) {
+    if (s.w <= 0) continue;
+    const n = Math.round(s.w * 3 + rng.next());
+    for (let i = 0; i < n; i++) {
+      const x = s.x + (rng.next() - 0.5) * 0.5;
+      const z = s.z + (rng.next() - 0.5) * 0.7;
+      const y = heightAt(x, z);
+      const roll = rng.next();
+      if (roll < 0.5) {
+        // Kelp strand: a flat, wavy ribbon (with a few air bladders).
+        const len = 0.35 + rng.next() * 0.6;
+        const a = rng.next() * Math.PI * 2;
+        const pts: THREE.Vector3[] = [];
+        for (let k = 0; k <= 4; k++) {
+          const t = k / 4;
+          pts.push(new THREE.Vector3(Math.cos(a) * len * t + Math.sin(a) * Math.sin(t * 5 + i) * 0.06, 0.012, Math.sin(a) * len * t - Math.cos(a) * Math.sin(t * 5 + i) * 0.06));
+        }
+        const g = taperTube(new THREE.CatmullRomCurve3(pts), 8, 0.03 + rng.next() * 0.02, 0.012, 4, false);
+        g.scale(1, 0.3, 1).translate(x, y, z);
+        const c = new THREE.Color().setHSL(0.13 + rng.next() * 0.06, 0.55, 0.13 + rng.next() * 0.08);
+        b.add(kelp, g, undefined, { tint: c });
+        if (rng.next() < 0.5) for (let k = 1; k < 3; k++) b.add(kelp, new THREE.SphereGeometry(0.022, 6, 4).scale(1, 0.7, 1).translate(x + pts[k * 2]!.x * 0.9, y + 0.02, z + pts[k * 2]!.z * 0.9), undefined, { tint: c.clone().multiplyScalar(1.3) });
+      } else if (roll < 0.72) {
+        // Eel-grass / dried sea-grass: a tangle of thin pale blades lying flat.
+        const c = new THREE.Color(0xc8b884).multiplyScalar(0.75 + rng.next() * 0.3);
+        for (let k = 0; k < 4; k++) {
+          const a = rng.next() * Math.PI * 2;
+          const l = 0.25 + rng.next() * 0.3;
+          b.add('cloth', new THREE.PlaneGeometry(l, 0.02).rotateX(-Math.PI / 2).rotateY(a).translate(x + Math.cos(a) * l * 0.3, y + 0.008 + k * 0.002, z - Math.sin(a) * l * 0.3), undefined, { tint: c });
+        }
+      } else if (roll < 0.9) {
+        // Shell bits: little pale half-domes, some pink.
+        const c = new THREE.Color(rng.next() < 0.3 ? 0xf2c8b8 : 0xf4ead8).multiplyScalar(0.85 + rng.next() * 0.15);
+        const r = 0.03 + rng.next() * 0.03;
+        b.add('white', new THREE.SphereGeometry(r, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.2, 0.5, 1).rotateY(rng.next() * 6).translate(x, y - 0.005, z), undefined, { tint: c });
+      } else {
+        // Bleached twig.
+        const a = rng.next() * Math.PI;
+        const l = 0.2 + rng.next() * 0.3;
+        const p0 = new THREE.Vector3(x - Math.cos(a) * l * 0.5, y + 0.015, z + Math.sin(a) * l * 0.5);
+        const p1 = new THREE.Vector3(x + Math.cos(a) * l * 0.5, y + 0.02, z - Math.sin(a) * l * 0.5);
+        b.add('woodGrain', beam(0.014, 0.008, p0, p1, 4), undefined, { tint: 0xd8d0c0 });
+      }
+    }
+  }
+}
+
+let kelpMat: THREE.MeshStandardMaterial | null = null;
+function kelpMaterial(): THREE.MeshStandardMaterial {
+  if (!kelpMat) {
+    kelpMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.05 });
+    kelpMat.name = 'kelp';
+  }
+  return kelpMat;
+}
+
+/** Beached-boat vignette dressing around (x, z): heaped net with floats, a crab pot, an oar in the sand, an anchor. */
+export function addBoatVignette(b: MeshBuilder, rng: Rng, x: number, z: number, rot: number, heightAt: (x: number, z: number) => number): void {
+  const at = (dx: number, dz: number): THREE.Vector3 => {
+    const c = Math.cos(rot);
+    const s = Math.sin(rot);
+    const wx = x + dx * c + dz * s;
+    const wz = z - dx * s + dz * c;
+    return new THREE.Vector3(wx, heightAt(wx, wz), wz);
+  };
+  // Heaped net: lumpy mound + draped strands + a row of cork / red floats.
+  const np = at(-2.3, 0.9);
+  // Two lumpy, folded mounds of net (not a disc), floats caught in the folds.
+  for (const [ox, oz, r0, hk] of [[0, 0, 0.6, 0.85], [0.55, 0.35, 0.42, 0.7]] as const) {
+    const heap = new THREE.SphereGeometry(r0, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+    const hp = heap.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < hp.count; i++) {
+      const vx = hp.getX(i);
+      const vz = hp.getZ(i);
+      const fold = 0.55 + 0.35 * Math.sin(vx * 11 + vz * 3) * Math.cos(vz * 9 - vx * 2) + 0.25 * Math.sin(Math.atan2(vz, vx) * 5);
+      hp.setY(i, hp.getY(i) * hk * fold);
+      hp.setX(i, vx * 1.3);
+    }
+    heap.computeVertexNormals();
+    b.add(netHeapMaterial(), heap.rotateY(rot + 0.4 + ox).translate(np.x + ox, np.y - 0.03, np.z + oz));
+  }
+  for (const [dx, dz, dy, c] of [[-0.3, 0.2, 0.3, 0xe8483a], [0.25, -0.3, 0.22, 0xf2c84a], [0.75, 0.45, 0.2, 0xe8483a], [-0.65, -0.1, 0.1, 0xf2c84a], [0.4, 0.75, 0.08, 0xf2f0ea]] as const) {
+    b.add('woodPaint', new THREE.SphereGeometry(0.11, 12, 8).scale(1, 0.8, 1).translate(np.x + dx, np.y + dy, np.z + dz), undefined, { tint: c });
+  }
+  // A few loose net strands trailing off the heap towards the boat.
+  for (let i = 0; i < 3; i++) {
+    const a = at(-1.6 + i * 0.15, 0.4 + i * 0.25);
+    const c = at(-2.0 + i * 0.1, 0.9 - i * 0.1);
+    b.add('cloth', beam(0.012, 0.012, a.setY(a.y + 0.03), c.setY(c.y + 0.25), 4), undefined, { tint: 0xd8cca8 });
+  }
+  // Crab pot (slatted box + netting) on its side.
+  const cp = at(1.9, 1.3);
+  const cr = rot + 0.8;
+  b.add('cloth', roundedBox(0.62, 0.4, 0.5, 0.05), mat(cp.x, cp.y + 0.2, cp.z, 0, cr, 0.05), { tint: 0x7a8a78 });
+  for (const dx of [-0.31, 0.31]) for (const dz of [-0.25, 0.25]) b.add('woodDark', roundedBox(0.04, 0.42, 0.04, 0.01), mat(cp.x + Math.cos(cr) * dx + Math.sin(cr) * dz, cp.y + 0.21, cp.z - Math.sin(cr) * dx + Math.cos(cr) * dz, 0, cr, 0));
+  b.add('cloth', new THREE.TorusGeometry(0.13, 0.018, 4, 10, Math.PI), mat(cp.x, cp.y + 0.41, cp.z, 0, cr, 0), { tint: 0x3f7ab0 });
+  // Oar stuck blade-up in the sand.
+  const op = at(0.4, -1.4);
+  b.add('woodGrain', beam(0.03, 0.03, op.clone().setY(op.y - 0.2), op.clone().add(new THREE.Vector3(0.12, 1.35, 0.05)), 6), undefined, { tint: 0xe0c090 });
+  b.add('woodPaint', roundedBox(0.16, 0.5, 0.03, 0.01), mat(op.x + 0.14, op.y + 1.5, op.z + 0.06, 0, rot, 0.08), { tint: 0xe8483a });
+  // Anchor half-buried with a rope back to the bow.
+  const ap = at(2.4, -0.4);
+  b.add('metal', beam(0.03, 0.03, ap.clone().setY(ap.y - 0.05), ap.clone().add(new THREE.Vector3(0.1, 0.55, 0)), 6), undefined, { tint: 0x4a4a50 });
+  b.add('metal', new THREE.TorusGeometry(0.22, 0.03, 5, 12, Math.PI), mat(ap.x, ap.y + 0.02, ap.z, 0, rot, Math.PI), { tint: 0x4a4a50 });
+  b.add('metal', new THREE.TorusGeometry(0.06, 0.015, 4, 8), mat(ap.x + 0.1, ap.y + 0.6, ap.z, 0, rot, 0), { tint: 0x4a4a50 });
+  const bow = at(1.5, 0);
+  rope(b, ap.clone().add(new THREE.Vector3(0.1, 0.6, 0)), bow.setY(bow.y + 0.6), 0.45, 0.018);
+  void rng;
+}
+
+let netHeapMat: THREE.MeshStandardMaterial | null = null;
+function netHeapMaterial(): THREE.MeshStandardMaterial {
+  if (!netHeapMat) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#2e4a3c';
+    g.fillRect(0, 0, 128, 128);
+    g.strokeStyle = '#c8b27a';
+    g.lineWidth = 3;
+    for (let i = -128; i < 256; i += 12) {
+      g.beginPath();
+      g.moveTo(i, 0);
+      g.lineTo(i + 128, 128);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(i + 128, 0);
+      g.lineTo(i, 128);
+      g.stroke();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3, 3);
+    t.colorSpace = THREE.SRGBColorSpace;
+    netHeapMat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.95 });
+    netHeapMat.name = 'netHeap';
+  }
+  return netHeapMat;
+}
+
+/** Campfire vignette: a bucket, a kettle on a flat stone, a crate of bottles, a striped blanket. */
+export function addCampVignette(b: MeshBuilder, rng: Rng, x: number, z: number, heightAt: (x: number, z: number) => number): void {
+  const put = (dx: number, dz: number): THREE.Vector3 => new THREE.Vector3(x + dx, heightAt(x + dx, z + dz), z + dz);
+  const bk = put(1.35, 0.95);
+  b.add('metal', bevelCylinder(0.19, 0.15, 0.34, 0.02, 12), mat(bk.x, bk.y, bk.z), { tint: 0x7a96a8 });
+  b.add('stillWater', new THREE.CircleGeometry(0.17, 12), mat(bk.x, bk.y + 0.3, bk.z, -Math.PI / 2));
+  b.add('metal', new THREE.TorusGeometry(0.19, 0.01, 4, 12, Math.PI), mat(bk.x, bk.y + 0.34, bk.z, 0, 0.6, 0), { tint: 0x4a4a4a });
+  const ks = put(-0.35, -0.95);
+  b.add('rock', new THREE.CylinderGeometry(0.28, 0.32, 0.12, 9), mat(ks.x, ks.y + 0.03, ks.z), { tint: 0x8a8278 });
+  b.add('metal', new THREE.SphereGeometry(0.16, 12, 8).scale(1, 0.85, 1), mat(ks.x, ks.y + 0.22, ks.z), { tint: 0x3a3a3e });
+  b.add('metal', new THREE.CylinderGeometry(0.02, 0.03, 0.16, 6), mat(ks.x + 0.16, ks.y + 0.26, ks.z, 0, 0, -0.9), { tint: 0x3a3a3e });
+  const cb = put(-1.7, 1.4);
+  b.add('woodGrain', roundedBox(0.55, 0.32, 0.4, 0.03), mat(cb.x, cb.y + 0.16, cb.z, 0, 0.35, 0), { tint: 0xc8a070 });
+  for (let i = 0; i < 3; i++) b.add('glass', new THREE.CylinderGeometry(0.04, 0.045, 0.22, 8), mat(cb.x - 0.12 + i * 0.12, cb.y + 0.38, cb.z + (i - 1) * 0.04));
+  const bl = put(0.25, 2.05);
+  const blanket = new THREE.PlaneGeometry(1.3, 0.9, 6, 4).rotateX(-Math.PI / 2);
+  const bp = blanket.attributes.position as THREE.BufferAttribute;
+  const col = new Float32Array(bp.count * 3);
+  for (let i = 0; i < bp.count; i++) {
+    bp.setY(i, 0.02 + Math.sin(bp.getX(i) * 5 + bp.getZ(i) * 3) * 0.015);
+    const stripe = Math.floor((bp.getX(i) + 0.65) / 0.22) % 2;
+    new THREE.Color(stripe ? 0xe8483a : 0xf2eee4).toArray(col, i * 3);
+  }
+  blanket.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  b.add('cloth', blanket, mat(bl.x, bl.y, bl.z, 0, 0.25, 0));
+  void rng;
+}
+
+let beachSignMat: THREE.MeshStandardMaterial | null = null;
+function beachSignMaterial(): THREE.MeshStandardMaterial {
+  if (!beachSignMat) {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 188;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#2f6f7a';
+    g.fillRect(0, 0, 512, 188);
+    g.globalAlpha = 0.16;
+    g.fillStyle = '#0e2a30';
+    for (let y = 8; y < 188; y += 14) g.fillRect(0, y + Math.sin(y) * 2, 512, 2);
+    g.globalAlpha = 1;
+    g.strokeStyle = '#f2eee4';
+    g.lineWidth = 7;
+    g.strokeRect(12, 12, 488, 164);
+    g.fillStyle = '#f7f2e4';
+    g.font = 'bold 74px Georgia, serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('DRIFTSAND', 256, 76);
+    g.font = 'bold 34px Georgia, serif';
+    g.fillStyle = '#f5c542';
+    g.fillText('~  BEACH  ~', 256, 136);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    beachSignMat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.8 });
+    beachSignMat.name = 'beachSign';
+  }
+  return beachSignMat;
+}
+
+/** Driftsand welcome sign + a lifebuoy stand where the boardwalk meets the beach. */
+export function addBeachSign(b: MeshBuilder, x: number, z: number, heightAt: (x: number, z: number) => number): void {
+  const y = heightAt(x, z);
+  for (const dx of [-0.55, 0.55]) b.add('woodDark', roundedBox(0.1, 1.5, 0.1, 0.02), mat(x + dx, y + 0.6, z));
+  b.add('woodPaint', roundedBox(1.5, 0.62, 0.06, 0.03), mat(x, y + 1.15, z + 0.02, 0, 0, 0.03), { tint: 0x2f6f7a });
+  b.add(beachSignMaterial(), new THREE.PlaneGeometry(1.36, 0.5), mat(x, y + 1.15, z + 0.056, 0, 0, 0.03));
+  // Lifebuoy on its own post.
+  const lx = x + 1.2;
+  b.add('woodDark', roundedBox(0.1, 1.4, 0.1, 0.02), mat(lx, y + 0.6, z));
+  b.add('woodPaint', new THREE.TorusGeometry(0.26, 0.075, 8, 20), mat(lx, y + 1.0, z + 0.1), { tint: 0xf2eee4 });
+  for (let i = 0; i < 4; i++) b.add('woodPaint', new THREE.TorusGeometry(0.26, 0.08, 8, 5, Math.PI / 5), mat(lx, y + 1.0, z + 0.1, 0, 0, (i / 4) * Math.PI * 2), { tint: 0xe8483a });
 }
 
 /** Stone fire ring with a teepee of charred logs (world coords). Returns the flame position. */

@@ -5,7 +5,7 @@
  * +X (head at -X), side facing +Z. Used for the "held up" catch pose and fish leaping at sea.
  */
 import * as THREE from 'three';
-import type { FishDef } from '../../data/fish';
+import { FISH_BANDS, type FishDef } from '../../data/fish';
 
 const skinCache = new Map<string, THREE.CanvasTexture>();
 
@@ -33,20 +33,15 @@ function skin(def: FishDef): THREE.CanvasTexture {
   c.height = H;
   const g = c.getContext('2d')!;
   const k = def.look;
-  // Vertical colour: mirror around v = 0.5 (belly).
+  // Vertical colour: the shared side-view bands (data/fish.ts FISH_BANDS), mapped from silhouette
+  // height to the loft's angle around the body, mirrored around v = 0.5 (belly).
   const grad = g.createLinearGradient(0, 0, 0, H);
-  const stops: [number, number][] = [
-    [0, k.back],
-    [0.14, k.back],
-    [0.3, k.side],
-    [0.42, k.belly],
-    [0.5, k.belly],
-    [0.58, k.belly],
-    [0.7, k.side],
-    [0.86, k.back],
-    [1, k.back],
-  ];
-  for (const [o, col] of stops) grad.addColorStop(o, css(col, o === 0 || o === 1 ? 0.85 : 1));
+  for (const [f, ch, k2] of FISH_BANDS) {
+    const v = Math.acos(1 - 2 * f) / (Math.PI * 2);
+    const c = css(k[ch], k2);
+    grad.addColorStop(Math.min(0.5, v), c);
+    grad.addColorStop(Math.max(0.5, 1 - v), c);
+  }
   g.fillStyle = grad;
   g.fillRect(0, 0, W, H);
   let seed = hash(def.id);

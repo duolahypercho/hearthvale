@@ -12,6 +12,7 @@
 import './fishing.css';
 import type { FishDef } from '../data/fish';
 import { fishSvg } from './fishing-art';
+import { itemIcon } from './icons';
 
 export interface ReelView {
   /** Bottom of the catch bar, 0..1 (track units, 0 = bottom). */
@@ -36,18 +37,34 @@ export interface CatchCard {
   isNew: boolean;
   isRecord: boolean;
   treasure: string | null;
+  /** Fishing XP gained, level after, progress to the next level (0..1), level-up flag. */
+  xp?: number;
+  level?: number;
+  levelFrac?: number;
+  leveled?: boolean;
+  /** Perfect-catch streak. */
+  streak?: number;
 }
 
-const BANG = `<svg viewBox="0 0 64 86" xmlns="http://www.w3.org/2000/svg">
-  <defs><linearGradient id="hvfBang" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7b8"/><stop offset="0.55" stop-color="#ffd23f"/><stop offset="1" stop-color="#f29a1e"/></linearGradient></defs>
-  <path d="M20 6 C20 2 44 2 44 6 L39 56 C38.5 60 25.5 60 25 56 Z" fill="url(#hvfBang)" stroke="#6a2e08" stroke-width="4.5" stroke-linejoin="round"/>
-  <circle cx="32" cy="73" r="9" fill="url(#hvfBang)" stroke="#6a2e08" stroke-width="4.5"/>
-  <path d="M25 10 L27.5 44" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.75"/>
+export interface ReelGear {
+  level: number;
+  bait: boolean;
+  cork: boolean;
+  lure: boolean;
+  tier: number;
+}
+
+const BANG = `<svg viewBox="0 0 92 104" xmlns="http://www.w3.org/2000/svg">
+  <path d="M46 5 C70 5 87 18 87 42 C87 64 71 77 56 79 L46 99 L38 79 C20 77 5 64 5 42 C5 18 22 5 46 5 Z" fill="#ffffff" stroke="#2a160a" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M16 30 C20 17 32 11 46 11" stroke="#e6eef2" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M36 17 C36 12 56 12 56 17 L52 53 C51.4 58 40.6 58 40 53 Z" fill="#ff5a2a" stroke="#2a160a" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="46" cy="67" r="7.5" fill="#ff5a2a" stroke="#2a160a" stroke-width="5"/>
+  <path d="M41 21 L42.6 44" stroke="#ffc9a8" stroke-width="3.5" stroke-linecap="round"/>
 </svg>`;
 
 const STAR = (q: number): string => {
-  const [a, b, o] = q === 1 ? ['#ffffff', '#b8c4d0', '#5e6a78'] : q === 2 ? ['#fff6b0', '#f5c542', '#9a6a14'] : ['#f0d8ff', '#b56adf', '#5a2a8a'];
-  return `<svg viewBox="0 0 24 24"><defs><linearGradient id="hvfq${q}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><path d="M12 2.2 L14.9 8.3 L21.6 9.1 L16.6 13.7 L17.9 20.4 L12 17.1 L6.1 20.4 L7.4 13.7 L2.4 9.1 L9.1 8.3 Z" fill="url(#hvfq${q})" stroke="${o}" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  const [fill, o, hi] = q === 1 ? ['#d8e0ea', '#3e4a58', '#ffffff'] : q === 2 ? ['#f2c230', '#5a3606', '#fff2a8'] : ['#b56adf', '#3e1470', '#f0d8ff'];
+  return `<svg viewBox="0 0 24 24"><path d="M12 2.2 L14.9 8.3 L21.6 9.1 L16.6 13.7 L17.9 20.4 L12 17.1 L6.1 20.4 L7.4 13.7 L2.4 9.1 L9.1 8.3 Z" fill="${fill}" stroke="${o}" stroke-width="2" stroke-linejoin="round"/><path d="M9.6 9.6 L12 5.6 L13.2 8.2" fill="none" stroke="${hi}" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/></svg>`;
 };
 const COIN = `<svg viewBox="0 0 24 24"><circle cx="12" cy="12.8" r="8.6" fill="#b87a14"/><circle cx="12" cy="11.6" r="8.6" fill="#f7cf4a" stroke="#8a5a0a" stroke-width="1.4"/><circle cx="12" cy="11.6" r="5.6" fill="none" stroke="#dca02a" stroke-width="1.3"/></svg>`;
 const RULER = `<svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="19" height="8" rx="1.5" fill="#f2d49a" stroke="#8a5a2a" stroke-width="1.4"/><path d="M6 8v3M9.5 8v4.5M13 8v3M16.5 8v4.5M20 8v3" stroke="#8a5a2a" stroke-width="1.2"/></svg>`;
@@ -66,6 +83,7 @@ export class FishingOverlay {
   private bang: HTMLElement;
   private reel: HTMLElement;
   private reelHead: HTMLElement;
+  private reelTags: HTMLElement;
   private reelPerfect: HTMLElement;
   private canvas: HTMLCanvasElement;
   private g: CanvasRenderingContext2D;
@@ -80,12 +98,13 @@ export class FishingOverlay {
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hvf-layer');
     parent.appendChild(this.root);
-    this.power = el('div', 'hvf-power hvf-hidden', `<div class="maxtag">MAX!</div><div class="tube"><div class="fill"></div><div class="ticks"></div></div>`);
+    this.power = el('div', 'hvf-power hvf-hidden', `<div class="maxtag">MAX!</div><div class="tube"><div class="sweet"></div><div class="fill"></div><div class="ticks"></div><div class="flash"></div></div><div class="label">CAST</div>`);
     this.powerFill = this.power.querySelector('.fill')!;
     this.bang = el('div', 'hvf-bang hvf-hidden', BANG);
     this.reel = el('div', 'hvf-reel hvf-hidden');
-    this.reel.innerHTML = `<div class="frame"><div class="rivet" style="left:7px;top:7px"></div><div class="rivet" style="right:7px;top:7px"></div><div class="rivet" style="left:7px;bottom:7px"></div><div class="rivet" style="right:7px;bottom:7px"></div><canvas></canvas></div><div class="head">Reel it in!</div><div class="perfect">PERFECT</div>`;
+    this.reel.innerHTML = `<div class="frame"><div class="rivet" style="left:7px;top:7px"></div><div class="rivet" style="right:7px;top:7px"></div><div class="rivet" style="left:7px;bottom:7px"></div><div class="rivet" style="right:7px;bottom:7px"></div><canvas></canvas></div><div class="head">Reel it in!</div><div class="tags"></div><div class="perfect">PERFECT</div>`;
     this.reelHead = this.reel.querySelector('.head')!;
+    this.reelTags = this.reel.querySelector('.tags')!;
     this.reelPerfect = this.reel.querySelector('.perfect')!;
     this.canvas = this.reel.querySelector('canvas')!;
     this.g = this.canvas.getContext('2d')!;
@@ -103,7 +122,8 @@ export class FishingOverlay {
     this.power.style.left = `${x}px`;
     this.power.style.top = `${y}px`;
     this.powerFill.style.height = `${Math.round(p * 100)}%`;
-    this.power.classList.toggle('max', p > 0.965);
+    this.power.classList.toggle('sweet-on', p >= 0.9);
+    this.power.classList.toggle('max', p >= 0.97);
   }
 
   // ── bite ─────────────────────────────────────────────────
@@ -134,13 +154,21 @@ export class FishingOverlay {
   }
 
   // ── reel minigame ────────────────────────────────────────
-  openReel(def: FishDef): void {
+  openReel(def: FishDef, gear?: ReelGear): void {
     this.reel.classList.remove('hvf-hidden', 'out');
     this.reel.style.animation = 'none';
     void this.reel.offsetWidth;
     this.reel.style.animation = '';
     const stars = Math.max(1, Math.min(5, Math.round(def.difficulty * 5)));
     this.reelHead.innerHTML = `Reel it in! <span style="color:#d0582a;letter-spacing:-1px">${'●'.repeat(stars)}<span style="opacity:.25">${'●'.repeat(5 - stars)}</span></span>`;
+    const tags: string[] = [];
+    if (gear) {
+      tags.push(`<span class="lv">Lv ${gear.level}</span>`);
+      if (gear.bait) tags.push(`<span class="gear" title="Bait">${itemIcon('bait')}</span>`);
+      if (gear.cork) tags.push(`<span class="gear" title="Cork Bobber">${itemIcon('corkBobber')}</span>`);
+      if (gear.lure) tags.push(`<span class="gear" title="Glimmer Lure">${itemIcon('treasureLure')}</span>`);
+    }
+    this.reelTags.innerHTML = tags.join('');
     if (this.fishImgId !== def.id) {
       this.fishImgId = def.id;
       const img = new Image();
@@ -374,7 +402,7 @@ export class FishingOverlay {
   showCard(c: CatchCard): void {
     this.hideCard(true);
     const card = el('div', 'hvf-card');
-    const q = c.quality > 0 ? `<span class="chip">${STAR(c.quality)}${['', 'Silver', 'Gold', 'Iridium'][c.quality]}</span>` : '';
+    const q = c.quality > 0 ? `<span class="chip q${c.quality}">${STAR(c.quality)}${['', 'Silver', 'Gold', 'Iridium'][c.quality]}</span>` : '';
     card.innerHTML = `<div class="frame">
       ${c.isNew ? '<div class="ribbon">NEW!</div>' : ''}${c.isRecord && !c.isNew ? '<div class="ribbon record">RECORD!</div>' : ''}
       <div class="art">${fishSvg(c.def, { size: 160, detail: true, tilt: -6 })}</div>
@@ -384,6 +412,7 @@ export class FishingOverlay {
         <div class="stats"><span class="chip">${RULER}${c.lengthCm.toFixed(1)} cm</span>${q}<span class="chip gold">${COIN}${c.price}g</span></div>
         <div class="blurb">${c.def.blurb}</div>
         ${c.treasure ? `<div class="treasure">✦ Treasure: ${c.treasure}</div>` : ''}
+        ${c.xp !== undefined ? `<div class="xp"><span class="lv${c.leveled ? ' up' : ''}">Fishing Lv ${c.level ?? 0}${c.leveled ? ' ▲' : ''}</span><span class="bar"><i style="width:${Math.round((c.levelFrac ?? 0) * 100)}%"></i></span><span class="gain">+${c.xp} XP</span>${(c.streak ?? 0) > 1 ? `<span class="streak">Perfect ×${c.streak}</span>` : ''}</div>` : ''}
       </div></div>`;
     this.root.appendChild(card);
     this.card = card;

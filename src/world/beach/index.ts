@@ -19,7 +19,6 @@ import type { Season, Weather } from '../../core/time';
 import type { GameMap, MapWarp } from '../map';
 import { TileGrid, TileType, TileFlag } from '../tiles';
 import { Terrain } from '../terrain';
-import { createWater } from '../water';
 import { GrassField } from '../grass';
 import { MeshBuilder, mergeStatic } from '../geom';
 import { LightPools } from '../props/decals';
@@ -43,9 +42,25 @@ import {
   BEACH_SPAWN,
   BeachShape,
 } from './layout';
-import { createOcean, createHorizonClouds } from './ocean';
+import { createOcean, createHorizonClouds, setOceanPilings, createPoolWater } from './ocean';
 import { applyBeachSand } from './sand';
-import { buildPier, buildShack, buildLighthouse, buildRowboat, addDriftwood, addCampfire, addSandFence, addBoardwalk, addCoastRock, type Lighthouse } from './props';
+import {
+  buildPier,
+  buildShack,
+  buildLighthouse,
+  buildRowboat,
+  addDriftwood,
+  addCampfire,
+  addSandFence,
+  addBoardwalk,
+  addCoastRock,
+  addWrackLine,
+  addBoatVignette,
+  addCampVignette,
+  addBeachSign,
+  type DriftKind,
+  type Lighthouse,
+} from './props';
 import { BeachFlora } from './flora';
 import { BeachLife } from './life';
 import { ShellField, buildTidePoolLife } from './shells';
@@ -88,7 +103,10 @@ export class BeachMap implements GameMap {
   private lighthouse: Lighthouse;
   private beamMat: THREE.ShaderMaterial;
   private clouds: THREE.Mesh;
+  private ocean!: THREE.Group;
   private glintT = 0;
+  /** Where the farmer stands to use the shack's Bait & Tackle honesty box. */
+  private counter = new THREE.Vector3();
 
   constructor(private game: Game) {
     this.root.name = 'map:beach';
@@ -108,6 +126,7 @@ export class BeachMap implements GameMap {
     // Sea (near grid covers the shoreline + pier; flat far planes run to the horizon).
     const ocean = createOcean({ terrain: this.terrain, level: SEA_LEVEL, near: { x0: -26, z0: 28, x1: 106, z1: 104 } });
     this.root.add(ocean);
+    this.ocean = ocean;
     this.clouds = createHorizonClouds();
     this.root.add(this.clouds);
     this.buildTidePools();
@@ -154,8 +173,8 @@ export class BeachMap implements GameMap {
     perches.push(new THREE.Vector3(36.2, this.terrain.heightAt(36.2, 36.6) + 0.34, 36.6));
     const crabs: THREE.Vector3[] = [];
     const cr = this.rng.fork('crabs');
-    for (let i = 0; i < 9; i++) {
-      const x = 20 + cr.next() * 42;
+    for (let i = 0; i < 12; i++) {
+      const x = 18 + cr.next() * 46;
       if (Math.abs(x - PIER.x) < 3) continue;
       const z = S.shoreZ(x) - 0.8 - cr.next() * 2.2;
       crabs.push(new THREE.Vector3(x, this.terrain.heightAt(x, z), z));
@@ -163,7 +182,11 @@ export class BeachMap implements GameMap {
     this.life = new BeachLife(this.rng.fork('life'), (x, z) => this.terrain.heightAt(x, z), SEA_LEVEL, perches, crabs);
     this.root.add(this.life.group);
 
-    this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
+    // Motes and leaves drift over land only (over the sea they'd hang in the water): lift them out of view.
+    this.ambience = new Ambience((x, z) => {
+      const hh = this.heightAt(x, z);
+      return hh < SEA_LEVEL - 0.05 ? 400 : hh;
+    });
     this.root.add(this.ambience.group);
     this.fx.object.userData.perfTag = 'fx';
     this.root.add(this.fx.object);
@@ -265,21 +288,8 @@ export class BeachMap implements GameMap {
   }
 
   private buildTidePools(): void {
-    const w = createWater(this.terrain, { x0: 2, z0: 39, x1: 19, z1: 53 }, TIDE_POOL_Y);
-    const g = w.geometry;
-    const pos = g.attributes.position as THREE.BufferAttribute;
-    const idx = g.index!;
-    const keep: number[] = [];
-    const inPool = (i: number): boolean => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(pos.getX(i) - px, (pos.getZ(i) - pz) * 1.15) < pr * 1.3);
-    for (let t = 0; t < idx.count; t += 3) {
-      const a = idx.getX(t);
-      const b = idx.getX(t + 1);
-      const c = idx.getX(t + 2);
-      if (inPool(a) && inPool(b) && inPool(c)) keep.push(a, b, c);
-    }
-    g.setIndex(keep);
-    g.computeBoundingSphere();
-    w.userData.perfTag = 'water';
+    // Clear, still pool water (the ocean shader in pool mode); the terrain's rim lip hides the edge.
+    const w = createPoolWater(this.terrain, TIDE_POOL_Y, { x0: 2, z0: 39, x1: 19, z1: 53 }, (x, z) => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.2));
     this.root.add(w);
     const life = buildTidePoolLife(this.rng.fork('tidepool'), TIDE_POOLS, (x, z) => this.terrain.heightAt(x, z));
     this.root.add(life);
@@ -306,6 +316,7 @@ export class BeachMap implements GameMap {
 
     // Pier.
     const pier = buildPier(r.fork('pier'), hAt);
+    setOceanPilings(this.ocean, pier.pilings);
     this.root.add(pier.static);
     this.staticRoots.push(pier.static);
     for (const l of pier.lamps) {
@@ -319,14 +330,18 @@ export class BeachMap implements GameMap {
     // Fisherman's shack.
     const shack = buildShack(r.fork('shack'));
     const sy = hAt(SHACK.x, SHACK.z);
+    const ss = SHACK.scale;
     shack.group.position.set(SHACK.x, sy - 0.08, SHACK.z);
     shack.group.rotation.y = SHACK.rot;
+    shack.group.scale.setScalar(ss);
     this.root.add(shack.group);
     shack.group.updateMatrixWorld(true);
     this.staticRoots.push(shack.group);
-    T.stampCover('ao', SHACK.x, SHACK.z, 4.2, 0.55);
-    this.blockRect(SHACK.x - SHACK.d / 2 - 0.2, SHACK.z - SHACK.w / 2, SHACK.x + SHACK.d / 2, SHACK.z + SHACK.w / 2 - 0.2, 'shack');
+    T.stampCover('ao', SHACK.x, SHACK.z, 4.2 * ss, 0.55);
+    this.blockRect(SHACK.x - (SHACK.d / 2 + 0.2) * ss, SHACK.z - (SHACK.w / 2) * ss, SHACK.x + (SHACK.d / 2) * ss, SHACK.z + (SHACK.w / 2 - 0.2) * ss, 'shack');
     const chimney = shack.anchors.chimney!.clone().applyMatrix4(shack.group.matrixWorld);
+    this.counter.copy(shack.anchors.door!).applyMatrix4(shack.group.matrixWorld);
+    this.poi.tackle = [{ x: this.counter.x, z: this.counter.z }];
     const lampW = shack.anchors.lamp!.clone().applyMatrix4(shack.group.matrixWorld);
     const sl = new THREE.PointLight(0xffa24a, 0, 6, 1.8);
     sl.position.copy(lampW);
@@ -365,24 +380,32 @@ export class BeachMap implements GameMap {
     // Small stuff: driftwood, campfire ring, sand fences, boardwalk, coastal rocks.
     const b = new MeshBuilder();
     const flame = addCampfire(b, r, CAMPFIRE.x, hAt(CAMPFIRE.x, CAMPFIRE.z), CAMPFIRE.z);
+    addCampVignette(b, r.fork('camp'), CAMPFIRE.x, CAMPFIRE.z, hAt);
+    this.block(CAMPFIRE.x - 1.7, CAMPFIRE.z + 1.4, 0.4, 'crate');
+    addBoatVignette(b, r.fork('boatv'), ROWBOAT.x, ROWBOAT.z, ROWBOAT.rot, hAt);
+    addBeachSign(b, 26.2, 29.2, hAt);
+    this.block(26.2, 29.2, 0.6, 'sign');
     T.stampCover('ao', CAMPFIRE.x, CAMPFIRE.z, 1.4, 0.6);
     this.block(CAMPFIRE.x, CAMPFIRE.z, 0.9, 'campfire');
     // Log benches around the fire.
     for (const [dx, dz, rot, len] of [[-1.9, 0.3, 1.45, 2.2], [0.4, 1.9, 0.1, 2.0], [1.6, -1.3, -0.7, 1.7]] as const) {
       const x = CAMPFIRE.x + dx;
       const z = CAMPFIRE.z + dz;
-      addDriftwood(b, r, x, hAt(x, z) - 0.05, z, len, rot, 0.2);
+      addDriftwood(b, r, x, hAt(x, z) - 0.05, z, len, rot, 0.2, 'fork');
     }
-    const drift: [number, number, number, number][] = [
-      [36, 36.8, 0.3, 3.4], [45.2, 39.6, -0.5, 2.2], [24.6, 38.8, 0.9, 2.6], [63.2, 37.4, 2.6, 3.0], [16.5, 34.4, -0.2, 2.8], [68.8, 34.2, 0.6, 2.2], [28.8, 30.2, 2.1, 1.6],
+    // Driftwood: four silhouettes, sizes 0.6-1.4x, never the same one twice in a row.
+    const drift: [number, number, number, number, DriftKind][] = [
+      [36, 36.8, 0.3, 3.8, 'log'], [45.4, 39.6, -0.5, 1.6, 'plank'], [24.6, 38.8, 0.9, 2.2, 'fork'], [63.2, 37.4, 2.6, 3.4, 'log'], [16.5, 34.4, -0.2, 1.0, 'stump'],
+      [68.8, 34.2, 0.6, 1.5, 'plank'], [28.8, 30.2, 2.1, 1.4, 'fork'], [55.6, 38.8, 1.2, 0.9, 'stump'], [20.4, 32.2, -1.1, 2.6, 'fork'],
     ];
-    for (const [x, z, rot, len] of drift) {
-      addDriftwood(b, r, x, hAt(x, z) - 0.04, z, len, rot, 0.13 + len * 0.02);
+    for (const [x, z, rot, len, kind] of drift) {
+      addDriftwood(b, r, x, hAt(x, z) - 0.04, z, len, rot, 0.12 + len * 0.025, kind);
       T.stampCover('ao', x, z, len * 0.45, 0.4, 0.5);
       const c = Math.cos(rot);
       const s = Math.sin(rot);
       for (let k = -len / 2 + 0.4; k <= len / 2 - 0.4; k += 0.6) this.grid.setObject(Math.floor(x + c * k), Math.floor(z - s * k), { kind: 'prop', id: 'driftwood', solid: true });
     }
+    addWrackLine(b, r.fork('wrack'), this.wrackLine(), hAt);
     for (const f of SAND_FENCE) addSandFence(b, r, f, hAt);
     addBoardwalk(b, r, BOARDWALK, hAt);
     // Rocks: the west shelf rim, the headland toe, a few awash in the surf.
@@ -429,6 +452,22 @@ export class BeachMap implements GameMap {
     this.staticRoots.push(small);
 
     return { lamps: pier.lamps, flame, chimney, lighthouse: lh };
+  }
+
+  /** Samples along the high-tide mark (where the beach is ~0.47 m above the sea) with a clumping weight. */
+  private wrackLine(): { x: number; z: number; w: number }[] {
+    const S = this.shape;
+    const out: { x: number; z: number; w: number }[] = [];
+    for (let x = 3; x < 76; x += 0.4) {
+      if (Math.abs(x - PIER.x) < 2.3) continue;
+      let z = S.shoreZ(x) - 9;
+      while (z < S.shoreZ(x) && this.terrain.heightAt(x, z) > SEA_LEVEL + 0.47) z += 0.1;
+      if (S.westRock(x, z) < 0.35 || S.eastHead(x, z) < 0.35) continue;
+      if (Math.hypot(x - ROWBOAT.x, z - ROWBOAT.z) < 2.2 || Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < 2.5) continue;
+      const w = 0.25 + 0.75 * smoothstep(-0.25, 0.45, S.n2fbm(x * 0.13, 7.3));
+      out.push({ x, z, w });
+    }
+    return out;
   }
 
   // ───────────────────────────────────────────── flora
@@ -527,6 +566,11 @@ export class BeachMap implements GameMap {
   private pick(x: number, z: number): void {
     if (this.game.world.current !== this) return;
     const p = this.game.player.position;
+    // The shack's honesty box: bait, tackle and rod upgrades.
+    if (Math.hypot(p.x - this.counter.x, p.z - this.counter.z) < 2.4 || Math.hypot(x + 0.5 - this.counter.x, z + 0.5 - this.counter.z) < 1.6) {
+      this.game.events.emit('ui:open', { name: 'tackle' });
+      return;
+    }
     for (const [tx, tz] of [[x, z], [Math.floor(p.x), Math.floor(p.z)]] as const) {
       const o = this.grid.getObject(tx, tz);
       if (o?.kind !== 'forage') continue;

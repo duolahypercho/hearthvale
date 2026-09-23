@@ -151,7 +151,7 @@ export const FISH: FishDef[] = [
     look: L({ back: 0x7a8a6a, side: 0xd8dcc8, belly: 0xfafaf2, fin: 0xc0c4b0, depth: 0.13, width: 0.09, dorsal: 0.25 }),
     blurb: 'Dives head-first into the sand when a gull flies over. Thin as a pencil.' },
   { id: 'duskGrouper', name: 'Dusk Grouper', maps: ['beach'], seasons: ['summer', 'fall'], hours: [17, 21], difficulty: 0.6, behavior: 'sinker', rarity: 0.45, zone: 'deep', size: [50, 120], sell: 170,
-    look: L({ back: 0x6a3a5a, side: 0xd07a5a, belly: 0xf6d0a8, fin: 0x8a4a6a, pattern: 'spots', patternColor: 0xf6b060, depth: 0.36, width: 0.22, tail: 'round', dorsal: 0.55 }),
+    look: L({ back: 0x8a3448, side: 0xe07a52, belly: 0xf6d0a8, fin: 0x9a4a6a, pattern: 'spots', patternColor: 0xf6c070, depth: 0.36, width: 0.22, tail: 'round', dorsal: 0.55 }),
     blurb: 'Painted in sunset colours. Only rises from the reef while the sky matches it.' },
   { id: 'puffling', name: 'Driftwood Puffling', maps: ['beach'], seasons: ['summer'], hours: [11, 16], weather: ['sun', 'wind'], difficulty: 0.65, behavior: 'floater', rarity: 0.4, zone: 'any', size: [12, 30], sell: 140,
     look: L({ back: 0xb89a5a, side: 0xe8d098, belly: 0xfaf4e0, fin: 0xd8b060, pattern: 'spots', patternColor: 0x6a4a2a, depth: 0.6, width: 0.5, tail: 'round', dorsal: 0.3 }),
@@ -184,4 +184,63 @@ export const BEACH_FORAGE: ForageDef[] = [
   { id: 'sandDollar', name: 'Sand Dollar', sell: 35, color: 0xf2ead2, blurb: 'Not legal tender, whatever the fisherman says.', seasons: ['spring', 'summer'] },
   { id: 'seaGlass', name: 'Sea Glass', sell: 30, color: 0x7ad0b8, blurb: 'A bottle, once. Now a small green moon.', seasons: ALL },
   { id: 'coralSprig', name: 'Coral Sprig', sell: 60, color: 0xf0707a, blurb: 'Washed in from somewhere much warmer.', seasons: ['summer'] },
+];
+
+// ── Fishing progression: skill levels, bait & tackle, rod tiers ────────────────
+
+/** Total XP needed to reach each fishing level (index = level, 0..10). */
+export const FISHING_XP = [0, 60, 160, 320, 560, 880, 1300, 1850, 2550, 3450, 4600];
+
+/** XP for landing a fish: harder fish give more, a perfect fight ×1.5. */
+export function fishXp(def: FishDef, perfect: boolean): number {
+  return Math.round((6 + def.difficulty * 42) * (perfect ? 1.5 : 1));
+}
+
+export function fishingLevel(xp: number): number {
+  let lv = 0;
+  while (lv < FISHING_XP.length - 1 && xp >= FISHING_XP[lv + 1]!) lv++;
+  return lv;
+}
+
+/** Bait / tackle items (merged into the item table by data/items.ts). */
+export interface FishingGearItem {
+  id: string;
+  name: string;
+  sell: number;
+  stack: number;
+  description: string;
+}
+
+export const FISHING_GEAR: FishingGearItem[] = [
+  { id: 'bait', name: 'Bait', sell: 1, stack: 999, description: 'Chopped clams and a secret pinch of something. Used up one per cast: fish bite much sooner.' },
+  { id: 'treasureLure', name: 'Glimmer Lure', sell: 60, stack: 20, description: 'Tackle. A spinning brass lure: treasure chests show up far more often while you carry one (wears out after 20 catches).' },
+  { id: 'corkBobber', name: 'Cork Bobber', sell: 40, stack: 20, description: 'Tackle. A fat cork float that makes the catch bar a little taller while you carry one (wears out after 20 catches).' },
+];
+
+/** Tackle-counter goods at the Bait & Tackle shack: [kind, id, price, minLevel]. */
+export const TACKLE_GOODS: { id: string; kind: 'item' | 'rod'; price: number; qty: number; level: number; note: string }[] = [
+  { id: 'bait', kind: 'item', price: 50, qty: 10, level: 0, note: 'A bag of ten. Bites come twice as fast.' },
+  { id: 'corkBobber', kind: 'item', price: 250, qty: 1, level: 1, note: 'Taller catch bar for 20 catches.' },
+  { id: 'treasureLure', kind: 'item', price: 400, qty: 1, level: 2, note: 'Treasure chests 2× as often for 20 catches.' },
+  { id: 'rod1', kind: 'rod', price: 1800, qty: 1, level: 2, note: 'Fiberglass: longer casts, taller bar, quicker bites.' },
+  { id: 'rod2', kind: 'rod', price: 7500, qty: 1, level: 6, note: 'Iridium: the longest casts and the steadiest bar.' },
+];
+
+/** Per rod tier: extra catch-bar height, extra cast range (m), bite-wait multiplier. */
+export const ROD_TIERS = [
+  { name: 'Bamboo Rod', bar: 0, cast: 0, wait: 1 },
+  { name: 'Fiberglass Rod', bar: 0.025, cast: 1.2, wait: 0.85 },
+  { name: 'Iridium Rod', bar: 0.05, cast: 2.4, wait: 0.7 },
+];
+
+/**
+ * Side-view colour bands shared by the 3D catch mesh skin and the 2D card / icon art so both read as
+ * the same fish: [fraction of the body height from the dorsal line, channel, brightness].
+ */
+export const FISH_BANDS: [number, 'back' | 'side' | 'belly', number][] = [
+  [0, 'back', 0.82],
+  [0.14, 'back', 1],
+  [0.46, 'side', 1],
+  [0.8, 'belly', 1],
+  [1, 'belly', 0.9],
 ];

@@ -18,7 +18,7 @@ export const BEACH_EXTENT = { minX: -26, minZ: -18, maxX: 106, maxZ: 104 };
 export const SEA_LEVEL = 0;
 
 export const PIER = { x: 50, z0: 29.5, z1: 63, w: 3.1, deckY: 1.28, head: { x0: 45.5, x1: 54.5, z0: 58.5, z1: 63.4 } };
-export const SHACK = { x: 58.6, z: 30.6, w: 5.4, d: 4.2, rot: -Math.PI / 2 };
+export const SHACK = { x: 59.9, z: 30.4, w: 5.4, d: 4.2, rot: -Math.PI / 2, scale: 1.22 };
 export const LIGHTHOUSE = { x: 75.5, z: 44.5 };
 export const CAMPFIRE = { x: 31.5, z: 33.6 };
 export const ROWBOAT = { x: 40.6, z: 38.2, rot: 0.5 };

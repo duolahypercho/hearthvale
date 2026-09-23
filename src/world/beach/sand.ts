@@ -97,7 +97,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         hvBWet = max(soaked * 0.7, damp * 0.12) * onSand;
         // Foam lace stranded by the receding wave.
         float recede = step(0.22, ph) * smoothstep(0.95, 0.35, ph);
-        float lace = hvLace(p * 2.1, t * 0.2);
+        float lace = hvLace(p * 1.1, t * 0.2) * smoothstep(0.4, 0.7, hvNoise(p * 0.13 + 1.3));
         float stranded = lace * smoothstep(0.012, 0.0, bh - sheet - 0.035) * smoothstep(-0.03, 0.0, bh - sheet) * recede;
         s = mix(s, vec3(0.93, 0.95, 0.94) * 0.9, stranded * 0.55 * smoothstep(0.35, 0.6, hvNoise(p * 0.9 + 4.0)) * onSand);
         // Seabed: cooler, darker with depth; caustics (applied as light below).
@@ -106,13 +106,8 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         vec3 bed = sand * vec3(0.6, 0.72, 0.68) * (0.88 + 0.12 * rip);
         s = mix(s, bed, smoothstep(0.0, 0.3, depth));
         s = mix(s, vec3(0.05, 0.16, 0.2), smoothstep(0.8, 3.5, depth));
-        vec2 wq = p * 1.05 + vec2(hvNoise(p * 0.55 + t * 0.12), hvNoise(p * 0.55 - t * 0.1 + 3.0)) * 1.3;
-        vec2 cv = hvVor(wq + vec2(t * 0.09, t * 0.05));
-        vec2 cv2 = hvVor(wq * 1.37 - vec2(t * 0.07, -t * 0.1) + 4.0);
-        float c1 = smoothstep(0.11, 0.0, cv.y - cv.x);
-        float c2 = smoothstep(0.09, 0.0, cv2.y - cv2.x);
-        float caus = c1 * 0.45 + c2 * 0.35 + c1 * c2 * 1.4;
-        float patchC = smoothstep(0.25, 0.7, hvNoise(p * 0.16 + vec2(t * 0.02, 0.0)));
+        float caus = hvCaustic(p * 1.05, t);
+        float patchC = smoothstep(0.2, 0.65, hvNoise(p * 0.16 + vec2(t * 0.02, 0.0)));
         hvBCaus = caus * patchC * smoothstep(0.08, 0.45, uBSunDir.y) * smoothstep(0.03, 0.2, depth) * (1.0 - smoothstep(0.45, 1.5, depth)) * sandM;
         ground = mix(ground, s, sandM);
         // Rock shelf (painted path channel): cracked grey-brown stone, weed + barnacles low down,
@@ -127,13 +122,16 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           vec3 rock = mix(vec3(0.1, 0.085, 0.07), vec3(0.25, 0.2, 0.155), slab * 0.6 + rn * 0.4);
           rock = mix(rock, rock * vec3(1.05, 0.98, 0.9), smoothstep(0.4, 0.8, hvNoise(p * 0.2 + 9.0)));
           rock *= 1.0 - seam * 0.18;
-          // Wet, weedy rims around the tide pools.
+          // Wet, weedy rims around the tide pools; inside: a sandy, pebbled floor that darkens with depth.
           float ring = 0.0;
+          float ddMin = 9.0;
           for (int i = 0; i < 4; i++) {
             vec3 tp = uBPools[i];
             float dd = length((p - tp.xy) * vec2(1.0, 1.15)) / tp.z;
             ring = max(ring, smoothstep(1.9, 1.05, dd));
+            ddMin = min(ddMin, dd);
           }
+          float inPool = smoothstep(1.02, 0.8, ddMin);
           // Pitting.
           rock *= 0.92 + 0.08 * smoothstep(0.3, 0.7, rn);
           // Lichen on the dry tops (mustard / orange rosettes).
@@ -154,7 +152,17 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           rock *= 1.0 - smoothstep(0.24, 0.2, bd) * (1.0 - smoothstep(0.2, 0.13, bd)) * barnZone * 0.3;
           // Dark and wet where the spray reaches.
           rock *= mix(0.6, 1.0, smoothstep(0.3, 0.95, bh)) * (1.0 - ring * 0.3);
+          if (inPool > 0.001) {
+            vec2 pc = floor(p * 7.0);
+            float peb = smoothstep(0.34, 0.2, length(fract(p * 7.0) - 0.5 - (hvHash22(pc) - 0.5) * 0.4)) * step(hvHash12(pc + 2.0), 0.45);
+            vec3 floorC = mix(vec3(0.46, 0.44, 0.33), vec3(0.3, 0.36, 0.24), hvNoise(p * 2.5));
+            floorC = mix(floorC, mix(vec3(0.62, 0.58, 0.5), vec3(0.28, 0.26, 0.24), hvHash12(pc + 5.0)), peb * 0.8);
+            // Deeper towards the middle, a dark undercut ring just inside the lip.
+            floorC *= mix(1.0, 0.62, smoothstep(0.85, 0.15, ddMin)) * (1.0 - 0.35 * smoothstep(0.62, 0.9, ddMin) * smoothstep(1.02, 0.92, ddMin));
+            rock = mix(rock, floorC, inPool);
+          }
           ground = mix(ground, rock, pathM);
+          hvBCaus = max(hvBCaus, caus * inPool * 0.8 * smoothstep(0.08, 0.45, uBSunDir.y));
           hvBWet = max(hvBWet * (1.0 - pathM), pathM * max(smoothstep(0.7, 0.35, bh) * 0.3, ring * 0.3));
         }
       }
@@ -168,7 +176,8 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
       {
         vec3 Vb = normalize(cameraPosition - vTWorld);
         float frb = 0.2 + 0.8 * pow(1.0 - max(Vb.y, 0.0), 3.0);
-        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.45) * hvBWet * frb * 0.22;
+        // Wet-sand sky sheen; held back under a low sun so a sunset beach keeps its contrast.
+        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.45) * hvBWet * frb * 0.22 * mix(0.45, 1.0, smoothstep(0.08, 0.4, uBSunDir.y));
         totalEmissiveRadiance += uBSun * hvBCaus * diffuseColor.rgb * 1.25;
       }`,
     );

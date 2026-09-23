@@ -13,6 +13,37 @@ import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
 import { applyWorldFx } from '../../render/worldfx';
 import { BEACH_FORAGE, type ForageDef } from '../../data/fish';
+import { textures } from '../../render/textures';
+import { globalUniforms } from '../../render/uniforms';
+
+/** Display scale per forageable: big enough to read as a pick-up at gameplay zoom. */
+const SHELL_SCALE: Record<string, number> = { cockle: 2.1, spiralConch: 1.9, starfish: 2.0, sandDollar: 2.1, seaGlass: 2.0, coralSprig: 2.1 };
+
+/** A four-point star glint (canvas), shared. */
+let glintTex: THREE.CanvasTexture | null = null;
+function glintTexture(): THREE.CanvasTexture {
+  if (!glintTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d')!;
+    const rg = g.createRadialGradient(32, 32, 0, 32, 32, 14);
+    rg.addColorStop(0, 'rgba(255,255,255,1)');
+    rg.addColorStop(1, 'rgba(255,250,220,0)');
+    g.fillStyle = rg;
+    g.fillRect(0, 0, 64, 64);
+    for (const [w, h] of [[3, 30], [30, 3]] as const) {
+      const lg = g.createRadialGradient(32, 32, 0, 32, 32, 30);
+      lg.addColorStop(0, 'rgba(255,255,255,1)');
+      lg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = lg;
+      g.beginPath();
+      g.ellipse(32, 32, w, h, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    glintTex = new THREE.CanvasTexture(c);
+  }
+  return glintTex;
+}
 
 function paint(g: THREE.BufferGeometry, fn: (p: THREE.Vector3) => THREE.Color): THREE.BufferGeometry {
   const pos = g.attributes.position as THREE.BufferAttribute;
@@ -214,6 +245,9 @@ export class ShellField {
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private cap = 10;
+  /** Contact blots under every item + a periodic star glint over it (one draw each). */
+  private blots: THREE.InstancedMesh;
+  private glints: THREE.InstancedMesh;
 
   constructor() {
     this.group.name = 'beach-shells';
@@ -233,6 +267,56 @@ export class ShellField {
       this.meshes.push(im);
       this.group.add(im);
     }
+    const n = this.cap * BEACH_FORAGE.length;
+    const bg = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const bm = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0x2a1a0a, transparent: true, opacity: 0.4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    bm.name = 'shellBlot';
+    this.blots = new THREE.InstancedMesh(bg, bm, n);
+    this.blots.count = 0;
+    this.blots.frustumCulled = false;
+    this.blots.renderOrder = 1;
+    this.group.add(this.blots);
+    // Glint: a camera-facing star that flares up now and then (phase per instance), feeds the bloom.
+    const gm = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uMap: { value: glintTexture() }, uTime: globalUniforms.uTime, uNight: globalUniforms.uNight },
+      vertexShader: /* glsl */ `
+        uniform float uTime;
+        varying vec2 vUv;
+        varying float vA;
+        void main() {
+          vUv = uv;
+          vec4 c = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          float ph = fract(sin(dot(c.xz, vec2(12.9898, 78.233))) * 43758.5453);
+          float cyc = fract(uTime * 0.28 + ph);
+          float flare = smoothstep(0.0, 0.06, cyc) * (1.0 - smoothstep(0.06, 0.2, cyc));
+          vA = flare;
+          vec4 mv = viewMatrix * c;
+          float sz = 0.55 * flare + 0.001;
+          float rot = uTime * 1.5 + ph * 6.28;
+          vec2 q = mat2(cos(rot), -sin(rot), sin(rot), cos(rot)) * position.xy;
+          mv.xy += q * sz;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D uMap;
+        uniform float uNight;
+        varying vec2 vUv;
+        varying float vA;
+        void main() {
+          float a = texture2D(uMap, vUv).a * vA * (1.0 - uNight * 0.6);
+          gl_FragColor = vec4(vec3(1.6, 1.5, 1.25) * a, a);
+        }`,
+    });
+    gm.name = 'shellGlint';
+    this.glints = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), gm, n);
+    this.glints.count = 0;
+    this.glints.frustumCulled = false;
+    this.glints.renderOrder = 7;
+    this.glints.userData.noAO = true;
+    this.group.add(this.glints);
   }
 
   get list(): readonly ShellItem[] {
@@ -272,16 +356,27 @@ export class ShellField {
 
   private rebuild(rng?: Rng): void {
     const counts = new Array(BEACH_FORAGE.length).fill(0) as number[];
+    let j = 0;
     for (const it of this.items) {
       const im = this.meshes[it.kind]!;
       const k = counts[it.kind]!++;
       it.slot = k;
       const yaw = ((it.tx * 73 + it.tz * 31) % 628) / 100 + (rng ? 0 : 0);
       this.q.setFromEuler(new THREE.Euler(((it.tx * 13) % 7) * 0.03 - 0.09, yaw, ((it.tz * 17) % 7) * 0.03 - 0.09));
-      const s = 1.35;
+      const s = SHELL_SCALE[it.def.id] ?? 2;
       this.m.compose(it.pos.clone().setY(it.pos.y - 0.012), this.q, new THREE.Vector3(s, s, s));
       im.setMatrixAt(k, this.m);
+      this.q.identity();
+      this.m.compose(it.pos.clone().setY(it.pos.y + 0.01), this.q, new THREE.Vector3(s * 0.34, 1, s * 0.34));
+      this.blots.setMatrixAt(j, this.m);
+      this.m.makeTranslation(it.pos.x, it.pos.y + 0.12 * s, it.pos.z);
+      this.glints.setMatrixAt(j, this.m);
+      j++;
     }
+    this.blots.count = j;
+    this.glints.count = j;
+    this.blots.instanceMatrix.needsUpdate = true;
+    this.glints.instanceMatrix.needsUpdate = true;
     this.meshes.forEach((im, i) => {
       im.count = counts[i]!;
       im.instanceMatrix.needsUpdate = true;
@@ -301,15 +396,35 @@ export class ShellField {
 export function buildTidePoolLife(rng: Rng, pools: [number, number, number][], floorAt: (x: number, z: number) => number): THREE.Mesh {
   const parts: THREE.BufferGeometry[] = [];
   for (const [px, pz, pr] of pools) {
-    const n = Math.round(pr * 7);
+    // An anemone ring hugging the rim, clustered (gaps between colonies).
+    const ringN = Math.round(pr * 9);
+    for (let i = 0; i < ringN; i++) {
+      const a = (i / ringN) * Math.PI * 2 + rng.next() * 0.3;
+      if (Math.sin(a * 3 + px) > 0.55) continue;
+      const d = pr * (0.7 + rng.next() * 0.12);
+      const x = px + Math.cos(a) * d;
+      const z = pz + (Math.sin(a) * d) / 1.15;
+      const y = floorAt(x, z);
+      const hue = rng.pick([0x3fb58a, 0xf06a8a, 0xf2a03a, 0xe85a6a]);
+      const sc = 0.8 + rng.next() * 0.6;
+      const stalk = new THREE.CylinderGeometry(0.07 * sc, 0.09 * sc, 0.1, 10).translate(x, y + 0.05, z);
+      parts.push(paint(stalk, () => col(hue).multiplyScalar(0.55)));
+      for (let k = 0; k < 12; k++) {
+        const ta = (k / 12) * Math.PI * 2;
+        const t = new THREE.CylinderGeometry(0.008 * sc, 0.016 * sc, 0.12 * sc, 4);
+        t.translate(0, 0.06 * sc, 0).rotateZ(0.75).rotateY(ta).translate(x, y + 0.1, z);
+        parts.push(paint(t, (q) => col(hue).lerp(col(0xffffff), THREE.MathUtils.clamp((q.y - y - 0.1) * 6, 0, 0.55))));
+      }
+    }
+    const n = Math.round(pr * 8);
     for (let i = 0; i < n; i++) {
       const a = rng.next() * Math.PI * 2;
-      const d = Math.sqrt(rng.next()) * pr * 0.8;
+      const d = Math.sqrt(rng.next()) * pr * 0.62;
       const x = px + Math.cos(a) * d;
       const z = pz + Math.sin(a) * d * 0.87;
       const y = floorAt(x, z);
-      const roll = rng.next();
-      if (roll < 0.4) {
+      const roll = i === 0 ? 0.65 : rng.next();
+      if (roll < 0.25) {
         // Anemone: squat stalk + a crown of little tentacles.
         const hue = rng.pick([0x3fb58a, 0xf06a8a, 0xf2a03a, 0x9a6ae0]);
         const stalk = new THREE.CylinderGeometry(0.07, 0.09, 0.1, 10).translate(x, y + 0.05, z);
@@ -320,7 +435,7 @@ export function buildTidePoolLife(rng: Rng, pools: [number, number, number][], f
           t.translate(0, 0.05, 0).rotateZ(0.7).rotateY(ta).translate(x, y + 0.1, z);
           parts.push(paint(t, (q) => col(hue).lerp(col(0xffffff), THREE.MathUtils.clamp((q.y - y - 0.1) * 6, 0, 0.5))));
         }
-      } else if (roll < 0.6) {
+      } else if (roll < 0.45) {
         // Urchin: dark spiky ball.
         const u = new THREE.IcosahedronGeometry(0.07, 1);
         const pos = u.attributes.position as THREE.BufferAttribute;
@@ -328,8 +443,8 @@ export function buildTidePoolLife(rng: Rng, pools: [number, number, number][], f
         u.computeVertexNormals();
         u.translate(x, y + 0.05, z);
         parts.push(paint(u, () => col(0x3a2a4a)));
-      } else if (roll < 0.75) {
-        const s = starGeo().scale(0.8, 0.8, 0.8).rotateY(rng.next() * 6).translate(x, y + 0.005, z);
+      } else if (roll < 0.7) {
+        const s = starGeo().scale(1.3, 1.3, 1.3).rotateY(rng.next() * 6).translate(x, y + 0.005, z);
         const c = rng.pick([0xe8583a, 0x9a4ac8, 0xf2a03a]);
         parts.push(paint(s, (q) => col(c).multiplyScalar(0.75 + (q.y - y) * 4)));
       } else {

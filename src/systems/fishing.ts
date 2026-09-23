@@ -21,12 +21,14 @@
 import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { FISH, fishDef, type FishDef } from '../data/fish';
+import { FISH, fishDef, fishXp, fishingLevel, FISHING_XP, ROD_TIERS, type FishDef } from '../data/fish';
+import { itemDef } from '../data/items';
 import { TileFlag } from '../world/tiles';
 import { FishingGear } from '../world/beach/tackle';
 import { FishingOverlay, type ReelView } from '../ui/fishing';
 import { FishingSfx } from '../ui/fishing-sfx';
 import '../ui/fishing-art';
+import { TackleScreen } from '../ui/fishing-shop';
 
 export type FishingState = 'idle' | 'charging' | 'casting' | 'waiting' | 'bite' | 'reeling' | 'caught' | 'escaped' | 'reelin';
 
@@ -37,6 +39,13 @@ export interface FishingRecord {
 
 export interface FishingApi {
   state(): FishingState;
+  /** Fishing skill level (0..10) and total XP. */
+  level(): number;
+  xp(): number;
+  /** Rod tier (0 bamboo, 1 fiberglass, 2 iridium). */
+  rodTier(): number;
+  /** Upgrade the rod (tackle counter); ignored if not higher than the current tier. */
+  upgradeRod(tier: number): void;
   /** Fish that can bite here and now (any zone). */
   available(): FishDef[];
   /** Cast with power 0..1 in the facing direction. */
@@ -59,6 +68,7 @@ declare module '../core/events' {
     'fishing:hook': { fishId: string };
     'fishing:catch': { fishId: string; perfect: boolean; size?: number; quality?: number; treasure?: boolean };
     'fishing:escape': { fishId: string };
+    'fishing:level': { level: number };
   }
 }
 
@@ -69,7 +79,20 @@ interface Minigame extends ReelView {
   retarget: number;
   t: number;
   auto: boolean;
+  /** Seconds the fish spent inside the bar (quality = how well you fought, not dice). */
+  insideT: number;
+  /** No progress is lost before this many seconds (time to find the fish). */
+  grace: number;
 }
+
+/** Catch-bar physics (track units / s²; the track is 1 tall). */
+const BAR_LIFT = 3.6;
+const BAR_GRAVITY = 3.0;
+const BAR_VMAX = 2.0;
+const BAR_TOP_BOUNCE = 0.35;
+const BAR_FLOOR_BOUNCE = 0.42;
+/** Tackle wears out after this many catches while carried. */
+const TACKLE_USES = 20;
 
 const TREASURE: [string, number][] = [
   ['seaGlass', 1],
@@ -82,6 +105,22 @@ const TREASURE: [string, number][] = [
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+// Scratch vectors for the per-frame pose (no allocations in the hot path).
+const _hr = new THREE.Vector3();
+const _hl = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
+const _bodyFwd = new THREE.Vector3();
+const _hand = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _toCam = new THREE.Vector3();
+const _side = new THREE.Vector3();
+const _pos = new THREE.Vector3();
+const _sp = new THREE.Vector3();
+const _fxp = new THREE.Vector3();
+const _UP = new THREE.Vector3(0, 1, 0);
+const _ray = new THREE.Raycaster();
+const _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _ndc = new THREE.Vector2();
 
 interface RigView {
   root: THREE.Group;
@@ -133,6 +172,19 @@ export class FishingSystem implements System, FishingApi {
   private holdPt = new THREE.Vector3();
   /** Body yaw before the farmer turned to show the catch to the camera (restored after). */
   private preCatchYaw: number | null = null;
+  /** Aim (unit, XZ): mouse direction, held movement keys (8 ways) or the facing. */
+  private aim = new THREE.Vector3(1, 0, 0);
+  private aimMouse = false;
+  private totalXp = 0;
+  private tier = 0;
+  private lureUses = 0;
+  private corkUses = 0;
+  /** Consecutive perfect catches (feeds quality + treasure odds). */
+  private streak = 0;
+  private baited = false;
+  private hitstop = 0;
+  private powerStep = -1;
+  private lastXp: { gained: number; leveled: boolean } = { gained: 0, leveled: false };
 
   init(game: Game): void {
     this.game = game;
@@ -142,6 +194,7 @@ export class FishingSystem implements System, FishingApi {
     this.ui = new FishingOverlay(game.opts.uiRoot);
     this.sfx = new FishingSfx();
     this.giveRod();
+    this.applyRodTier();
 
     game.events.on('item:use', ({ itemId }) => {
       if (itemId !== 'rod') return;
@@ -159,6 +212,8 @@ export class FishingSystem implements System, FishingApi {
       this.cancel(true);
       queueMicrotask(() => this.stageDemo(showcase));
     });
+    // Bait & Tackle counter (the Driftsand shack; `__game.openUI('tackle')`).
+    game.hud.registerPanel('tackle', new TackleScreen(game, game.hud.screens));
     // `__game.openUI('fishing')` → a practice fight right where the farmer stands.
     game.hud.registerPanel('fishing', {
       open: () => this.startPractice(),
@@ -178,6 +233,30 @@ export class FishingSystem implements System, FishingApi {
     return this.recs;
   }
 
+  level(): number {
+    return fishingLevel(this.totalXp);
+  }
+
+  xp(): number {
+    return this.totalXp;
+  }
+
+  rodTier(): number {
+    return this.tier;
+  }
+
+  upgradeRod(tier: number): void {
+    if (tier <= this.tier) return;
+    this.tier = Math.min(ROD_TIERS.length - 1, tier);
+    this.applyRodTier();
+  }
+
+  private applyRodTier(): void {
+    this.gear.setRodTier(this.tier);
+    const d = itemDef('rod');
+    if (d) d.name = ROD_TIERS[this.tier]!.name;
+  }
+
   available(): FishDef[] {
     const c = this.game.calendar;
     const map = this.game.world.current?.id ?? '';
@@ -195,12 +274,18 @@ export class FishingSystem implements System, FishingApi {
   }
 
   save(): unknown {
-    return { recs: this.recs };
+    return { recs: this.recs, xp: this.totalXp, tier: this.tier, lure: this.lureUses, cork: this.corkUses, streak: this.streak };
   }
 
   load(data: unknown): void {
-    const d = data as { recs?: Record<string, FishingRecord> } | null;
+    const d = data as { recs?: Record<string, FishingRecord>; xp?: number; tier?: number; lure?: number; cork?: number; streak?: number } | null;
     if (d?.recs) this.recs = d.recs;
+    this.totalXp = d?.xp ?? 0;
+    this.tier = d?.tier ?? 0;
+    this.lureUses = d?.lure ?? 0;
+    this.corkUses = d?.cork ?? 0;
+    this.streak = d?.streak ?? 0;
+    this.applyRodTier();
   }
 
   // ───────────────────────────────────────────── setup
@@ -261,17 +346,57 @@ export class FishingSystem implements System, FishingApi {
     return g.inBounds(tx, tz) && g.hasFlag(tx, tz, TileFlag.WaterSource);
   }
 
-  private facingDir(): THREE.Vector3 {
+  private facingDir(out = new THREE.Vector3()): THREE.Vector3 {
     switch (this.game.player.facing) {
       case 'up':
-        return new THREE.Vector3(0, 0, -1);
+        return out.set(0, 0, -1);
       case 'down':
-        return new THREE.Vector3(0, 0, 1);
+        return out.set(0, 0, 1);
       case 'left':
-        return new THREE.Vector3(-1, 0, 0);
+        return out.set(-1, 0, 0);
       default:
-        return new THREE.Vector3(1, 0, 0);
+        return out.set(1, 0, 0);
     }
+  }
+
+  /**
+   * Update the cast aim: towards the pointer on the water (casts started with the mouse), else the
+   * held movement keys (8 directions, camera-relative like walking), else the facing. The farmer
+   * turns to face it.
+   */
+  private updateAim(): void {
+    const g = this.game;
+    const p = g.player.position;
+    let set = false;
+    if (this.aimMouse && g.input.pointer.inside) {
+      _ndc.set(g.input.pointer.x, g.input.pointer.y);
+      _ray.setFromCamera(_ndc, g.rc.camera);
+      _plane.constant = -(this.waterLevel() + 0.0);
+      if (_ray.ray.intersectPlane(_plane, _v)) {
+        _v.sub(p).setY(0);
+        if (_v.lengthSq() > 0.25) {
+          this.aim.copy(_v.normalize());
+          set = true;
+        }
+      }
+    }
+    if (!set) {
+      const a = g.input.moveAxis();
+      if (Math.hypot(a.x, a.y) > 0.1) {
+        const yaw = THREE.MathUtils.degToRad(g.rc.rig.yaw);
+        const c = Math.cos(yaw);
+        const sn = Math.sin(yaw);
+        this.aim.set(a.x * c + a.y * sn, 0, -a.x * sn + a.y * c).normalize();
+        set = true;
+      }
+    }
+    if (!set && this.st === 'idle') this.facingDir(this.aim);
+    this.rig.targetYaw = Math.atan2(this.aim.x, this.aim.z);
+  }
+
+  /** Max cast distance (m): grows with fishing level and the rod tier. */
+  private maxCast(): number {
+    return 5.6 + this.level() * 0.25 + ROD_TIERS[this.tier]!.cast;
   }
 
   // ───────────────────────────────────────────── flow
@@ -296,17 +421,20 @@ export class FishingSystem implements System, FishingApi {
   private beginCharge(): void {
     if (this.game.services.energy && this.game.services.energy.value() <= 0) return;
     this.lockPlayer(true);
+    this.aimMouse = this.game.input.mouse.left;
+    this.facingDir(this.aim);
     this.setState('charging');
     this.powerT = 0;
     this.power = 0;
+    this.powerStep = -1;
     this.gear.setRodVisible(true);
     this.gear.hold(null);
   }
 
   private release(): void {
     const p = this.game.player.position;
-    const dir = this.facingDir();
-    const dist = 1.6 + this.power * 5.6;
+    const dir = _fwd.copy(this.aim);
+    const dist = 1.6 + this.power * this.maxCast();
     this.castPower = this.power;
     this.lockPlayer(true);
     this.gear.setRodVisible(true);
@@ -345,7 +473,11 @@ export class FishingSystem implements System, FishingApi {
     this.setState('waiting');
     const pool = this.pickPool();
     this.hooked = pool.length ? this.pickFish(pool) : null;
-    this.waitT = this.hooked ? 2.2 + Math.random() * 6.5 * (1.1 - this.castPower * 0.35) : 9 + Math.random() * 4;
+    // Bait (one per cast, if carried) and a better rod bring the bite on sooner.
+    const inv = this.game.services.inventory;
+    this.baited = !!inv && inv.count('bait') > 0 && inv.remove('bait', 1);
+    const quick = (this.baited ? 0.5 : 1) * ROD_TIERS[this.tier]!.wait;
+    this.waitT = this.hooked ? (1.6 + Math.random() * 6.5 * (1.1 - this.castPower * 0.35)) * quick : 9 + Math.random() * 4;
     this.nibbles = [];
     const n = Math.floor(Math.random() * 4);
     for (let i = 0; i < n; i++) this.nibbles.push(this.waitT * (0.3 + Math.random() * 0.6));
@@ -373,8 +505,10 @@ export class FishingSystem implements System, FishingApi {
     this.setState('bite');
     this.biteWindow = 1.05 - this.hooked.difficulty * 0.25;
     this.gear.splash(this.bob, true);
+    this.splashT = 0.32;
     this.sfx.bite();
-    this.game.rc.rig.addShake(0.15);
+    this.game.rc.rig.addShake(0.35);
+    this.hitstop = 0.06;
     this.game.events.emit('fishing:bite', { fishId: this.hooked.id });
   }
 
@@ -383,45 +517,62 @@ export class FishingSystem implements System, FishingApi {
     this.setState('reeling');
     this.sfx.hook();
     this.game.rc.rig.addShake(0.3);
+    const inv = this.game.services.inventory;
+    const cork = !!inv && inv.count('corkBobber') > 0;
+    const lure = !!inv && inv.count('treasureLure') > 0;
+    const lv = this.level();
+    const treasureOdds = 0.14 + lv * 0.01 + (lure ? 0.25 : 0) + Math.min(this.streak, 5) * 0.02;
+    const fish = 0.35 + Math.random() * 0.3;
+    const barH = 0.27 - def.difficulty * 0.04 + lv * 0.012 + ROD_TIERS[this.tier]!.bar + (cork ? 0.035 : 0);
     this.mg = {
       def,
-      bar: 0,
-      barH: 0.27 - def.difficulty * 0.04,
+      // Start with the bar around the fish so the fight opens fair.
+      bar: THREE.MathUtils.clamp(fish - barH * 0.5, 0, 1 - barH),
+      barH,
       barV: 0,
-      fish: 0.35 + Math.random() * 0.3,
+      fish,
       fishV: 0,
       fishTarget: 0.5,
-      retarget: 0.3,
-      progress: 0.3,
-      treasure: Math.random() < 0.2 ? { pos: 0.2 + Math.random() * 0.6, prog: 0, got: false } : null,
+      retarget: 0.45,
+      progress: 0.35,
+      treasure: Math.random() < treasureOdds ? { pos: 0.2 + Math.random() * 0.6, prog: 0, got: false } : null,
       holding: false,
       inside: false,
       perfect: true,
       bounce: 0,
       t: 0,
       auto: this.demo !== null,
+      insideT: 0,
+      grace: 0.6,
     };
     if (this.mg.treasure) this.mg.treasure.prog = -0.8; // appears after a moment
-    this.ui.openReel(def);
+    this.ui.openReel(def, { level: lv, bait: this.baited, cork, lure, tier: this.tier });
     this.game.events.emit('fishing:hook', { fishId: def.id });
   }
 
   private catchFish(): void {
     const mg = this.mg!;
     const def = mg.def;
-    const r = Math.random();
-    const sizeFrac = THREE.MathUtils.clamp(Math.pow(r, 1.5) * 0.85 + this.castPower * 0.15 + (mg.perfect ? 0.05 : 0), 0, 1);
+    const lv = this.level();
+    // Quality from how well the fight went (time inside the bar, perfect, perfect streak), the cast
+    // and skill; only a pinch of luck.
+    const insideK = THREE.MathUtils.clamp(mg.insideT / Math.max(0.5, mg.t), 0, 1);
+    const streakK = Math.min(this.streak, 5) * 0.03;
+    const sizeFrac = THREE.MathUtils.clamp(0.08 + insideK * 0.3 + this.castPower * 0.25 + lv * 0.025 + (mg.perfect ? 0.1 : 0) + Math.random() * 0.25, 0, 1);
     const lengthCm = def.size[0] + (def.size[1] - def.size[0]) * sizeFrac;
-    const score = sizeFrac * 0.55 + (mg.perfect ? 0.35 : 0) + this.castPower * 0.12;
-    const quality = score > 0.82 ? 2 : score > 0.55 ? 1 : 0;
+    const score = insideK * 0.62 + (mg.perfect ? 0.18 : 0) + this.castPower * 0.08 + lv * 0.02 + streakK + sizeFrac * 0.06;
+    const quality = mg.perfect && score > 0.95 && lv >= 4 ? 3 : score > 0.76 ? 2 : score > 0.55 ? 1 : 0;
     let treasure: string | null = null;
     if (mg.treasure?.got) {
       const [id, qty] = TREASURE[Math.floor(Math.random() * TREASURE.length)]!;
       this.game.events.emit('item:give', { itemId: id, qty });
       const gold = 40 + Math.floor(Math.random() * 90);
       this.game.services.economy?.add(gold, 'treasure');
-      treasure = `${qty > 1 ? `${qty}× ` : ''}${id.replace(/([A-Z])/g, ' $1').toLowerCase()} + ${gold}g`;
+      treasure = `${qty > 1 ? `${qty}× ` : ''}${itemDef(id)?.name ?? id} + ${gold}g`;
     }
+    this.streak = mg.perfect ? this.streak + 1 : 0;
+    this.wearTackle();
+    this.gainXp(fishXp(def, mg.perfect));
     this.result = { def, lengthCm, quality, perfect: mg.perfect, treasure };
     this.ui.closeReel();
     this.mg = null;
@@ -434,6 +585,34 @@ export class FishingSystem implements System, FishingApi {
     this.game.events.emit('fishing:catch', { fishId: def.id, perfect: mg.perfect, size: lengthCm, quality, treasure: !!treasure });
   }
 
+  /** Tackle carried in the pack wears out per catch. */
+  private wearTackle(): void {
+    const inv = this.game.services.inventory;
+    if (!inv) return;
+    if (inv.count('corkBobber') > 0 && ++this.corkUses >= TACKLE_USES) {
+      this.corkUses = 0;
+      inv.remove('corkBobber', 1);
+      this.game.events.emit('ui:toast', { text: 'Your Cork Bobber wore out', kind: 'info' });
+    }
+    if (inv.count('treasureLure') > 0 && ++this.lureUses >= TACKLE_USES) {
+      this.lureUses = 0;
+      inv.remove('treasureLure', 1);
+      this.game.events.emit('ui:toast', { text: 'Your Glimmer Lure wore out', kind: 'info' });
+    }
+  }
+
+  private gainXp(n: number): void {
+    const before = this.level();
+    this.totalXp += n;
+    const after = this.level();
+    this.lastXp = { gained: n, leveled: after > before };
+    if (after > before) {
+      this.sfx.levelUp();
+      this.game.events.emit('ui:toast', { text: `Fishing level ${after}! Taller catch bar, longer casts.`, kind: 'good' });
+      this.game.events.emit('fishing:level', { level: after });
+    }
+  }
+
   private showCatchCard(): void {
     const res = this.result!;
     const rec = this.recs[res.def.id];
@@ -441,13 +620,31 @@ export class FishingSystem implements System, FishingApi {
     const isRecord = !rec || res.lengthCm > rec.best;
     this.recs[res.def.id] = { caught: (rec?.caught ?? 0) + 1, best: Math.max(rec?.best ?? 0, res.lengthCm) };
     const price = Math.round(res.def.sell * [1, 1.25, 1.5, 2][res.quality]!);
-    this.ui.showCard({ def: res.def, lengthCm: res.lengthCm, quality: res.quality, price, isNew, isRecord, treasure: res.treasure });
+    const lv = this.level();
+    const lo = FISHING_XP[lv]!;
+    const hi = FISHING_XP[Math.min(FISHING_XP.length - 1, lv + 1)]!;
+    this.ui.showCard({
+      def: res.def,
+      lengthCm: res.lengthCm,
+      quality: res.quality,
+      price,
+      isNew,
+      isRecord,
+      treasure: res.treasure,
+      xp: this.lastXp.gained,
+      level: lv,
+      levelFrac: hi > lo ? (this.totalXp - lo) / (hi - lo) : 1,
+      leveled: this.lastXp.leveled,
+      streak: this.streak,
+    });
     this.sfx.catchJingle(res.quality);
     if (res.treasure) setTimeout(() => this.sfx.treasure(), 450);
   }
 
   private escape(): void {
     const def = this.mg?.def ?? this.hooked;
+    if (this.st === 'reeling') this.gainXp(1);
+    this.streak = 0;
     this.ui.closeReel();
     this.mg = null;
     this.sfx.escape();
@@ -480,6 +677,7 @@ export class FishingSystem implements System, FishingApi {
       this.rig.targetYaw = this.preCatchYaw;
       this.preCatchYaw = null;
     }
+    if (this.rig.torso) this.rig.torso.rotation.y = 0;
     this.hooked = null;
     this.result = null;
     this.demo = null;
@@ -492,20 +690,25 @@ export class FishingSystem implements System, FishingApi {
 
   private startPractice(): void {
     if (this.st !== 'idle') this.cancel(true);
+    const slot = this.rodSlot();
+    if (slot >= 0) this.game.events.emit('toolbar:select', { slot });
     this.practice = true;
     this.lockPlayer(true);
     this.gear.setRodVisible(true);
     this.waterY = this.waterLevel();
     this.gear.waterY = this.waterY;
     const p = this.game.player.position;
-    const dir = this.facingDir();
+    const dir = this.facingDir(this.aim);
     this.target.set(p.x + dir.x * 4, this.waterY, p.z + dir.z * 4);
     this.bob.copy(this.target);
     this.onWater = true;
     const pool = this.available();
     this.hooked = pool.length ? this.pickFish(pool) : FISH[Math.floor(Math.random() * FISH.length)]!;
     this.hook();
-    if (this.mg) this.mg.auto = false;
+    if (this.mg) {
+      this.mg.auto = false;
+      this.mg.grace = 2; // a practice fight gives you time to find the bar
+    }
     this.gear.resetLine(this.bob);
   }
 
@@ -532,7 +735,8 @@ export class FishingSystem implements System, FishingApi {
     this.waterY = this.waterLevel();
     this.gear.waterY = this.waterY;
     const p = this.game.player.position;
-    const dir = this.facingDir();
+    const dir = this.facingDir(this.aim);
+    this.rig.targetYaw = Math.atan2(dir.x, dir.z);
     const pick = (ids: string[]): FishDef => {
       if (forced && fishDef(forced)) return fishDef(forced)!;
       const pool = this.available();
@@ -623,8 +827,13 @@ export class FishingSystem implements System, FishingApi {
       this.wasHolding = this.useHeld();
       return;
     }
-    // Sim time: real dt normally, frozen phases in demos still animate on the render clock.
-    const sdt = game.paused && !this.demo && !this.practice ? 0 : dt;
+    // Sim time: real dt normally, frozen phases in demos still animate on the render clock; a short
+    // hitstop on the bite freezes the fishing sim for a beat.
+    let sdt = game.paused && !this.demo && !this.practice ? 0 : dt;
+    if (this.hitstop > 0) {
+      this.hitstop -= dt;
+      sdt = 0;
+    }
     this.stT += sdt;
     const holding = this.useHeld();
     const pressed = holding && !this.wasHolding;
@@ -637,9 +846,15 @@ export class FishingSystem implements System, FishingApi {
         if (this.demo === 'cast') {
           this.power = 0.98 + 0.02 * Math.sin(game.time * 5);
         } else {
+          this.updateAim();
           this.powerT += sdt;
           const k = (this.powerT / 1.5) % 2;
           this.power = k < 1 ? k : 2 - k;
+          const step = this.power >= 0.97 ? 4 : Math.floor(this.power * 4);
+          if (step !== this.powerStep) {
+            if (step > this.powerStep) this.sfx.powerTick(step);
+            this.powerStep = step;
+          }
           if (!holding && this.stT > 0.08) {
             this.ui.showPower(null, 0, 0);
             this.release();
@@ -698,6 +913,12 @@ export class FishingSystem implements System, FishingApi {
       }
       case 'bite': {
         this.ui.showBang(true, head.x, head.y - 8);
+        // The fish keeps tugging: spray at the float while the "!" is up.
+        this.splashT -= dt;
+        if (this.splashT <= 0) {
+          this.splashT = this.demo === 'bite' ? 0.7 : 0.32;
+          this.gear.splash(this.bob, this.demo === 'bite');
+        }
         if (pressed && this.demo !== 'bite') {
           this.ui.showBang(false);
           this.hook();
@@ -752,17 +973,17 @@ export class FishingSystem implements System, FishingApi {
       // Autopilot for demos: chase the fish with a little lag.
       const hold = mg.auto ? mg.fish + mg.fishV * 0.25 > mg.bar + mg.barH * 0.55 : holdingInput;
       mg.holding = hold;
-      mg.barV += (hold ? 2.9 : -2.5) * h;
-      mg.barV = THREE.MathUtils.clamp(mg.barV, -1.7, 1.7);
+      mg.barV += (hold ? BAR_LIFT : -BAR_GRAVITY) * h;
+      mg.barV = THREE.MathUtils.clamp(mg.barV, -BAR_VMAX, BAR_VMAX);
       mg.bar += mg.barV * h;
       if (mg.bar < 0) {
         if (mg.barV < -0.4) mg.bounce = Math.min(1, -mg.barV * 0.5);
         mg.bar = 0;
-        mg.barV = -mg.barV * 0.42;
+        mg.barV = -mg.barV * BAR_FLOOR_BOUNCE;
       }
       if (mg.bar > 1 - mg.barH) {
         mg.bar = 1 - mg.barH;
-        mg.barV = 0;
+        if (mg.barV > 0) mg.barV = -mg.barV * BAR_TOP_BOUNCE;
       }
       mg.bounce = Math.max(0, mg.bounce - h * 5);
       // Fish AI.
@@ -802,9 +1023,14 @@ export class FishingSystem implements System, FishingApi {
       mg.fish = THREE.MathUtils.clamp(mg.fish + mg.fishV * h, 0.02, 0.98);
       if (mg.fish <= 0.02 || mg.fish >= 0.98) mg.fishV *= -0.3;
       mg.inside = mg.fish >= mg.bar - 0.01 && mg.fish <= mg.bar + mg.barH + 0.01;
+      if (mg.inside) mg.insideT += h;
       if (!mg.auto || this.demo !== 'reel') {
-        mg.progress += (mg.inside ? 0.24 : -(0.14 + d * 0.12)) * h;
-        if (!mg.inside) mg.perfect = false;
+        const grace = mg.t < mg.grace;
+        if (mg.inside) mg.progress += 0.24 * h;
+        else if (!grace) {
+          mg.progress -= (0.12 + d * 0.1) * h;
+          mg.perfect = false;
+        }
       } else {
         // Demo: breathe around a good-looking value.
         mg.progress = 0.64 + Math.sin(mg.t * 0.7) * 0.05;
@@ -828,7 +1054,7 @@ export class FishingSystem implements System, FishingApi {
     this.splashT -= dt;
     if (this.splashT <= 0) {
       this.splashT = 0.5 + Math.random() * 1.1 - def.difficulty * 0.3;
-      this.gear.splash(this.bob, Math.random() < 0.3);
+      this.gear.splash(this.bob, false);
       if (Math.random() < 0.5) this.sfx.fishSplash();
     }
     const view: ReelView = { ...mg, treasure: mg.treasure && mg.treasure.prog >= 0 ? mg.treasure : null };
@@ -846,9 +1072,10 @@ export class FishingSystem implements System, FishingApi {
     const t = game.time;
     const st = this.st;
     const pw = this.power;
-    const fwd = this.facingDir();
+    const fwd = _fwd.copy(this.aim);
     const reelingNow = st === 'reeling' || st === 'bite';
     const holdOverhead = st === 'caught' && this.catchArc > 0.6;
+    const heldScale = this.gear.heldRoot.children.length ? this.gear.heldRoot.children[0]!.scale.x : 1;
     // Arms (after the player's own animation this frame; rotations: -x raises the arm forward/up).
     if (r.armR && r.armL && r.torso) {
       let ar = -0.95;
@@ -856,16 +1083,23 @@ export class FishingSystem implements System, FishingApi {
       let arz = 0.3;
       let alz = -0.35;
       let torsoX = 0.05;
+      let torsoY = 0;
       if (st === 'charging') {
-        ar = -2.3 - pw * 0.55;
-        al = -1.0;
-        arz = 0.15;
-        torsoX = -0.12 - pw * 0.12;
+        // Wind-up: both hands up over the right shoulder, torso twisted back.
+        ar = -2.75 - pw * 0.2;
+        al = -2.25 - pw * 0.2;
+        arz = 0.05;
+        alz = 0.35;
+        torsoX = -0.1 - pw * 0.12;
+        torsoY = 0.12 + pw * 0.14;
       } else if (st === 'casting') {
         const k = Math.min(1, this.stT / 0.22);
         const e = 1 - Math.pow(1 - k, 3);
-        ar = THREE.MathUtils.lerp(-2.85, -0.75, e);
+        ar = THREE.MathUtils.lerp(-2.95, -0.75, e);
+        al = THREE.MathUtils.lerp(-2.45, -0.9, e);
+        alz = THREE.MathUtils.lerp(0.35, -0.35, e);
         torsoX = THREE.MathUtils.lerp(-0.24, 0.18, e);
+        torsoY = THREE.MathUtils.lerp(0.26, -0.08, e);
       } else if (reelingNow) {
         const shake = st === 'reeling' ? Math.sin(t * 38) * 0.05 : 0;
         ar = -1.35 + shake;
@@ -873,13 +1107,14 @@ export class FishingSystem implements System, FishingApi {
         alz = -0.45 + Math.cos(t * (this.mg?.holding ? 16 : 5)) * 0.15;
         torsoX = -0.12;
       } else if (holdOverhead) {
-        // Presenting the catch: both hands forward at chest height, gripping the fish, leaning back proudly.
+        // Presenting the catch: arms forward and spread to grip the head and the tail.
         const lift = Math.sin(t * 3) * 0.05;
-        ar = -1.5 + lift;
-        al = -1.5 + lift;
-        arz = -0.42;
-        alz = 0.42;
-        torsoX = -0.16;
+        const spread = THREE.MathUtils.clamp(0.62 + (heldScale - 0.8) * 0.4, 0.6, 0.85);
+        ar = -1.35 + lift;
+        al = -1.35 + lift;
+        arz = -spread;
+        alz = spread;
+        torsoX = -0.14;
       } else if (st === 'caught') {
         ar = -1.6;
         al = -1.4;
@@ -887,6 +1122,7 @@ export class FishingSystem implements System, FishingApi {
       r.armR.rotation.set(ar, 0, arz);
       r.armL.rotation.set(al, 0, alz);
       r.torso.rotation.x = torsoX;
+      r.torso.rotation.y = torsoY;
       if (holdOverhead) {
         // Turn to show the catch to the camera (restored in finish()).
         if (this.preCatchYaw === null) this.preCatchYaw = r.yaw ?? 0;
@@ -899,40 +1135,41 @@ export class FishingSystem implements System, FishingApi {
         r.body.position.y = hop;
       }
       r.root.updateMatrixWorld(true);
-      // Grip point: between the two hands, nudged forward.
-      const hr = new THREE.Vector3(0, -0.3, 0.02);
-      const hl = new THREE.Vector3(0, -0.3, 0.02);
-      r.armR.localToWorld(hr);
-      r.armL.localToWorld(hl);
-      this.holdPt.addVectors(hr, hl).multiplyScalar(0.5);
-      const bodyFwd = new THREE.Vector3(Math.sin(r.yaw ?? 0), 0, Math.cos(r.yaw ?? 0));
-      this.holdPt.addScaledVector(bodyFwd, 0.08).y += 0.06;
+      // Grip point: between the two hands, held out in front of the chest (clear of the torso).
+      _hr.set(0, -0.3, 0.02);
+      _hl.set(0, -0.3, 0.02);
+      r.armR.localToWorld(_hr);
+      r.armL.localToWorld(_hl);
+      this.holdPt.addVectors(_hr, _hl).multiplyScalar(0.5);
+      _bodyFwd.set(Math.sin(r.yaw ?? 0), 0, Math.cos(r.yaw ?? 0));
+      this.holdPt.addScaledVector(_bodyFwd, 0.28).y += 0.15;
     }
     // Rod pose.
-    const hand = new THREE.Vector3(0, -0.34, 0.04);
+    const hand = _hand.set(0, -0.34, 0.04);
     if (r.armR) r.armR.localToWorld(hand);
-    else hand.copy(game.player.position).add(new THREE.Vector3(0, 1.1, 0));
-    const up = new THREE.Vector3(0, 1, 0);
+    else hand.copy(game.player.position).y += 1.1;
     let dir: THREE.Vector3;
     let bend = 0;
     if (st === 'charging') {
       // Rod cocked back over the shoulder, angled a little towards the camera so it reads against the sky / water.
       const cy = THREE.MathUtils.degToRad(game.rc.rig.yaw);
-      const toCam = new THREE.Vector3(Math.sin(cy), 0, Math.cos(cy));
-      dir = fwd.clone().multiplyScalar(-0.85).add(up.clone().multiplyScalar(0.75 + pw * 0.2)).addScaledVector(toCam, 0.35);
-    }
-    else if (st === 'casting') {
+      _toCam.set(Math.sin(cy), 0, Math.cos(cy));
+      dir = _dir.copy(fwd).multiplyScalar(-0.85).addScaledVector(_UP, 0.75 + pw * 0.2).addScaledVector(_toCam, 0.35);
+      bend = 0.08 + pw * 0.1;
+    } else if (st === 'casting') {
       const k = Math.min(1, this.stT / 0.22);
       const e = 1 - Math.pow(1 - k, 3);
-      dir = fwd.clone().multiplyScalar(THREE.MathUtils.lerp(-0.9, 1, e)).add(up.clone().multiplyScalar(THREE.MathUtils.lerp(0.8, 0.45, e)));
-      bend = Math.sin(e * Math.PI) * 0.35;
+      dir = _dir.copy(fwd).multiplyScalar(THREE.MathUtils.lerp(-0.9, 1, e)).addScaledVector(_UP, THREE.MathUtils.lerp(0.8, 0.45, e));
+      bend = Math.sin(e * Math.PI) * 0.45;
     } else if (reelingNow) {
-      dir = fwd.clone().multiplyScalar(0.55).add(up.clone().multiplyScalar(1.05));
+      dir = _dir.copy(fwd).multiplyScalar(0.55).addScaledVector(_UP, 1.05);
       dir.x += Math.sin(t * 9) * 0.04;
-      bend = st === 'reeling' ? 0.55 + 0.15 * Math.sin(t * 13) + (this.mg ? (this.mg.inside ? 0.1 : -0.1) : 0) : 0.75;
+      // Heavy load: the blank arcs right over towards the fish.
+      bend = st === 'reeling' ? 0.84 + 0.08 * Math.sin(t * 13) + (this.mg ? (this.mg.inside ? 0.06 : -0.08) : 0) : 0.9;
     } else if (holdOverhead) {
-      dir = fwd.clone().multiplyScalar(-0.3).add(up.clone().multiplyScalar(0.2)).add(new THREE.Vector3(fwd.z, 0, -fwd.x).multiplyScalar(-0.9));
-    } else dir = fwd.clone().add(up.clone().multiplyScalar(0.62));
+      _side.set(fwd.z, 0, -fwd.x);
+      dir = _dir.copy(fwd).multiplyScalar(-0.3).addScaledVector(_UP, 0.2).addScaledVector(_side, -0.9);
+    } else dir = _dir.copy(fwd).addScaledVector(_UP, 0.62);
     dir.normalize();
     this.gear.poseRod({ hand, dir, bend, bendTo: this.bob, crank: t * (this.mg?.holding ? 16 : st === 'reelin' ? 20 : 0) });
     // Rod goes down (out of frame) while both hands hold the catch up.
@@ -943,16 +1180,20 @@ export class FishingSystem implements System, FishingApi {
     const inWater = st === 'waiting' || st === 'bite' || st === 'reeling';
     bob.visible = st !== 'charging' && !(st === 'caught' && this.catchArc >= 1);
     this.gear.lineVisible = st !== 'charging' && !(st === 'caught' && this.catchArc >= 1) && !(st === 'casting' && this.stT < 0.22);
-    const pos = this.bob.clone();
+    const pos = _pos.copy(this.bob);
     let tiltX = 0;
     let tiltZ = 0;
     if (inWater) {
       pos.y = this.waterY + Math.sin(t * 2.4) * 0.018;
       if (st === 'waiting' && this.stT < 0.35 && this.nibbles !== null) pos.y -= Math.sin(Math.min(1, this.stT / 0.35) * Math.PI) * 0.06;
-      if (st === 'bite') pos.y -= 0.1 + Math.sin(t * 30) * 0.03;
+      if (st === 'bite') {
+        // Yanked fully under for a beat, then tugging just below the surface.
+        const dunk = this.stT < 0.15 ? 0.25 : 0.25 * Math.exp(-(this.stT - 0.15) * 9);
+        pos.y -= Math.max(dunk, 0.1 + Math.sin(t * 30) * 0.03);
+      }
       if (st === 'reeling' && this.mg) {
-        const side = new THREE.Vector3(fwd.z, 0, -fwd.x);
-        pos.addScaledVector(side, (this.mg.fish - 0.5) * 0.9);
+        _side.set(fwd.z, 0, -fwd.x);
+        pos.addScaledVector(_side, (this.mg.fish - 0.5) * 0.9);
         pos.y -= 0.06 + Math.abs(this.mg.fishV) * 0.05;
         tiltX = Math.sin(t * 17) * 0.35;
         tiltZ = (this.mg.fish - 0.5) * 0.8;
@@ -969,7 +1210,10 @@ export class FishingSystem implements System, FishingApi {
     bob.position.copy(pos);
     bob.rotation.set(tiltX, 0, tiltZ);
     this.gear.slack = st === 'reeling' || st === 'bite' ? 0.05 : st === 'casting' ? 0.4 : st === 'reelin' ? 0.3 : 1;
-    const lineEnd = _w.copy(pos).add(new THREE.Vector3(0, 0.1, 0));
+    this.gear.ease = st === 'reeling' || st === 'bite' ? 0.45 : st === 'casting' ? 0.4 : st === 'reelin' ? 0.3 : 0;
+    // The line ties onto the float's top eye (quill tip), tilting with it.
+    const eye = 0.34;
+    const lineEnd = _w.set(pos.x + Math.sin(tiltZ) * -eye * 0.5, pos.y + eye * Math.cos(tiltX) * Math.cos(tiltZ), pos.z + Math.sin(tiltX) * eye * 0.5);
     if (st === 'casting' && this.stT < 0.22) this.gear.resetLine(this.gear.tip);
     this.gear.updateLine(Math.min(dt, 1 / 30), lineEnd, game.rc.camera);
 
@@ -978,15 +1222,14 @@ export class FishingSystem implements System, FishingApi {
       const k = THREE.MathUtils.clamp(1 - this.waitT / 2.6, 0, 1);
       const ang = t * 1.3;
       const rad = 1.3 * (1 - k) + 0.25;
-      const sp = new THREE.Vector3(this.bob.x + Math.cos(ang) * rad, 0, this.bob.z + Math.sin(ang) * rad);
-      this.gear.setShadow(sp, k, -ang - Math.PI / 2);
+      _sp.set(this.bob.x + Math.cos(ang) * rad, 0, this.bob.z + Math.sin(ang) * rad);
+      this.gear.setShadow(_sp, k, -ang - Math.PI / 2);
     } else if (st === 'reeling' && this.mg) this.gear.setShadow(pos, 0.7, t * 2);
     else this.gear.setShadow(null, 0);
 
     // Held fish.
     if (st === 'caught' && this.result) {
       if (this.catchArc > 0 && !this.gear.heldRoot.children.length) this.gear.hold(this.result.def, this.result.lengthCm);
-      const p = game.player.position;
       if (this.catchArc < 1) {
         this.heldT = 0;
         this.gear.heldRoot.scale.setScalar(1);
@@ -1005,7 +1248,8 @@ export class FishingSystem implements System, FishingApi {
         // Side-on to the camera, head to the left, a little wiggle.
         this.gear.heldRoot.rotation.set(0, -THREE.MathUtils.degToRad(game.rc.rig.yaw), Math.sin(t * 5) * 0.07 + 0.08);
         if (Math.random() < dt * 4) {
-          this.gear.fx.emit(new THREE.Vector3(this.holdPt.x + (Math.random() - 0.5) * 1.4, this.holdPt.y + 0.2 + Math.random() * 0.7, this.holdPt.z + 0.2), { color: 0xfff2b0, count: 2, speed: 0.4, size: 0.07, gravity: -0.4, life: 0.9, up: 0.6 });
+          _fxp.set(this.holdPt.x + (Math.random() - 0.5) * 1.4, this.holdPt.y + 0.2 + Math.random() * 0.7, this.holdPt.z + 0.2);
+          this.gear.fx.emit(_fxp, { color: 0xfff2b0, count: 2, speed: 0.4, size: 0.07, gravity: -0.4, life: 0.9, up: 0.6 });
         }
       }
     }

@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
 import { BurstFX } from '../../render/particles';
 import { applyWorldFx } from '../../render/worldfx';
+import { textures } from '../../render/textures';
 import { FISH } from '../../data/fish';
 import { buildFishMesh, type FishMesh } from './fishmesh';
 
@@ -112,10 +113,27 @@ function gullWing(): THREE.BufferGeometry {
 
 function crabGeo(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  const shell = new THREE.SphereGeometry(0.11, 12, 8);
+  const shell = new THREE.SphereGeometry(0.11, 14, 8);
   shell.scale(1.0, 0.45, 1.25);
   shell.translate(0, 0.07, 0);
-  parts.push(paint(shell, 0xe0583a));
+  // Carapace: bright top, dark red rim (reads as an outline from above).
+  {
+    const pos = shell.attributes.position as THREE.BufferAttribute;
+    const col = new Float32Array(pos.count * 3);
+    const top = new THREE.Color(0xf06a3e);
+    const rim = new THREE.Color(0x7a1e14);
+    for (let i = 0; i < pos.count; i++) {
+      const k = THREE.MathUtils.smoothstep(pos.getY(i), 0.055, 0.105);
+      rim.clone().lerp(top, k).toArray(col, i * 3);
+    }
+    shell.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    parts.push(shell);
+  }
+  // Two pale spots on the back.
+  for (const sz of [-0.035, 0.035]) {
+    const d = new THREE.SphereGeometry(0.018, 6, 4).scale(1, 0.4, 1).translate(-0.01, 0.118, sz);
+    parts.push(paint(d, 0xffc8a0));
+  }
   const belly = new THREE.SphereGeometry(0.1, 10, 6);
   belly.scale(0.95, 0.3, 1.15);
   belly.translate(0, 0.045, 0);
@@ -148,11 +166,11 @@ function crabGeo(): THREE.BufferGeometry {
       const l1 = new THREE.CylinderGeometry(0.01, 0.012, 0.12, 4);
       l1.rotateX(s * 1.0);
       l1.translate(x, 0.08, s * 0.17);
-      parts.push(paint(l1, 0xc84a32));
+      parts.push(paint(l1, 0x9a2e1e));
       const l2 = new THREE.CylinderGeometry(0.008, 0.01, 0.1, 4);
       l2.rotateX(-s * 0.35);
       l2.translate(x, 0.03, s * 0.24);
-      parts.push(paint(l2, 0xc84a32));
+      parts.push(paint(l2, 0x9a2e1e));
     }
   }
   return merge(parts);
@@ -192,6 +210,8 @@ export class BeachLife {
   private wingL: THREE.InstancedMesh;
   private wingR: THREE.InstancedMesh;
   private crabMesh: THREE.InstancedMesh;
+  /** Soft contact shadows under the crabs (they're small: the dark blot makes them read from afar). */
+  private crabShadow: THREE.InstancedMesh;
   private gulls: Gull[] = [];
   private crabs: Crab[] = [];
   private fx = new BurstFX(160);
@@ -255,6 +275,15 @@ export class BeachLife {
     this.crabMesh.frustumCulled = false;
     this.crabMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.group.add(this.crabMesh);
+    const shGeo = new THREE.PlaneGeometry(0.62, 0.62);
+    shGeo.rotateX(-Math.PI / 2);
+    const shMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0x1a0e06, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    shMat.name = 'crabShadow';
+    this.crabShadow = new THREE.InstancedMesh(shGeo, shMat, crabSpots.length);
+    this.crabShadow.frustumCulled = false;
+    this.crabShadow.renderOrder = 1;
+    this.crabShadow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.crabShadow);
     for (const p of crabSpots) this.crabs.push({ pos: p.clone(), home: p.clone(), yaw: rng.next() * 6.28, vx: 0, vz: 0, t: rng.next() * 3, burrow: 0, hidden: 0 });
     this.group.add(this.fx.object);
     const beachFish = FISH.filter((f) => f.maps.includes('beach') && f.look.tail !== 'eel' && !f.look.flat);
@@ -374,11 +403,17 @@ export class BeachLife {
       const sink = c.hidden > 0 ? 0.4 : (c.burrow > 0 && c.burrow < 1 ? c.burrow : c.burrow >= 1 ? 1 : 0) * 0.2;
       this.e.set(Math.sin(t * 30 + i) * 0.08 * moving, c.yaw, Math.sin(t * 23 + i) * 0.05 * moving, 'YXZ');
       this.q.setFromEuler(this.e);
-      this.s.setScalar(c.hidden > 0 ? 0.0001 : 1.15);
-      this.m.compose(new THREE.Vector3(c.pos.x, Math.max(y, this.seaLevel - 0.1) - sink + Math.abs(Math.sin(t * 28 + i)) * 0.012 * moving, c.pos.z), this.q, this.s);
+      this.s.setScalar(c.hidden > 0 ? 0.0001 : 2.05);
+      const cy = Math.max(y, this.seaLevel - 0.1);
+      this.m.compose(new THREE.Vector3(c.pos.x, cy - sink * 1.8 + Math.abs(Math.sin(t * 28 + i)) * 0.02 * moving, c.pos.z), this.q, this.s);
       this.crabMesh.setMatrixAt(i, this.m);
+      this.s.setScalar(c.hidden > 0 ? 0.0001 : 1 - sink * 2);
+      this.q.identity();
+      this.m.compose(new THREE.Vector3(c.pos.x, y + 0.012, c.pos.z), this.q, this.s);
+      this.crabShadow.setMatrixAt(i, this.m);
     });
     this.crabMesh.instanceMatrix.needsUpdate = true;
+    this.crabShadow.instanceMatrix.needsUpdate = true;
 
     // Leaping fish.
     const L = this.leap;
