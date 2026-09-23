@@ -88,7 +88,7 @@ export class DayEndScreen extends Screen {
       return `<i style="left:${x}%;top:${y}%;width:${sz}px;height:${sz}px;animation-delay:${-(i % 11) * 0.37}s;opacity:${0.45 + ((i * 13) % 10) / 18}"></i>`;
     }).join('');
     sky.innerHTML = `<div class="stars">${stars}</div><div class="shoot"></div>`;
-    const land = el('div', 'de-land', nightValleySvg(7 + (s.day % 5)));
+    const land = el('div', 'de-land', nightValleySvg(7 + (s.day % 5), endedSeason));
     const flies = el(
       'div',
       'de-flies',

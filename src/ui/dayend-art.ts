@@ -229,7 +229,16 @@ function grassFront(r: () => number): string {
   return s;
 }
 
-export function nightValleySvg(seed = 7): string {
+/** Per-season night palette: hill fills, moonlit rims and a snow cover in winter. */
+const NIGHT: Record<string, { far: string; mid: string; near: string; field: string; rimFar: string; rimMid: string; snow: boolean }> = {
+  spring: { far: '#252a5c', mid: '#181d44', near: '#11163a', field: '#0b0f28', rimFar: '#5a5aa0', rimMid: '#4a4a92', snow: false },
+  summer: { far: '#223058', mid: '#152240', near: '#0f1a36', field: '#0a1226', rimFar: '#5068a0', rimMid: '#40588e', snow: false },
+  fall: { far: '#35284e', mid: '#261c3a', near: '#1c1430', field: '#130e22', rimFar: '#a0708a', rimMid: '#8a5a78', snow: false },
+  winter: { far: '#3a4478', mid: '#2c3464', near: '#39447a', field: '#46528a', rimFar: '#dde4ff', rimMid: '#e8eeff', snow: true },
+};
+
+export function nightValleySvg(seed = 7, season = 'spring'): string {
+  const N = NIGHT[season] ?? NIGHT.spring!;
   const r = rng(seed);
   const farY = ridge(770, 16, 10, seed + 1);
   const midY = ridge(835, 14, 8, seed + 2);
@@ -283,16 +292,18 @@ export function nightValleySvg(seed = 7): string {
     <rect x="0" y="650" width="${W}" height="140" fill="url(#deMist)"/>
   </g>
   <g class="de-l" data-depth="10">
-    <path d="${ridgePath(farY)}" fill="#252a5c"/>
-    ${rimLit(forest(farY, seed + 11, 58, 92, 20, 70), '#252a5c', '#5a5aa0', 1.5)}
+    <path d="${ridgePath(farY)}" fill="${N.far}"/>
+    ${N.snow ? `<path d="${ridgePath(farY)}" fill="none" stroke="#e8eeff" stroke-opacity=".5" stroke-width="5"/>` : ''}
+    ${rimLit(forest(farY, seed + 11, 58, 92, 20, 70), N.far, N.rimFar, N.snow ? 3 : 1.5)}
     <rect x="0" y="770" width="${W}" height="110" fill="url(#deMist)" class="de-mist"/>
   </g>
   <g class="de-l" data-depth="16">
-    <path d="${ridgePath(midY)}" fill="#181d44"/>
-    ${rimLit(forest(midY, seed + 21, 88, 140, 30, 110, [[1560, 1860], [70, 360]]), '#181d44', '#4a4a92', 2)}
+    <path d="${ridgePath(midY)}" fill="${N.mid}"/>
+    ${N.snow ? `<path d="${ridgePath(midY)}" fill="none" stroke="#e8eeff" stroke-opacity=".55" stroke-width="6"/>` : ''}
+    ${rimLit(forest(midY, seed + 21, 88, 140, 30, 110, [[1560, 1860], [70, 360]]), N.mid, N.rimMid, N.snow ? 3.5 : 2)}
   </g>
   <g class="de-l" data-depth="24">
-    <path d="${ridgePath(nearY)}" fill="#11163a"/>
+    <path d="${ridgePath(nearY)}" fill="${N.near}"/>
     <path d="M${houseX - 10} ${f1(houseY)} C${houseX - 40} 960 ${houseX - 150} 1010 ${houseX - 190} 1090 L${houseX - 90} 1090 C${houseX - 60} 1010 ${houseX + 4} 960 ${houseX + 14} ${f1(houseY)} Z" fill="url(#dePath)" opacity=".8"/>
     <g transform="translate(${barnX} ${f1(barnY)})">${barn()}</g>
     <g transform="translate(${houseX} ${f1(houseY)})">${farmhouse()}</g>
@@ -305,8 +316,8 @@ export function nightValleySvg(seed = 7): string {
     <g transform="translate(${houseX + 132} ${f1(houseY + 4)})"><rect x="-26" y="-30" width="52" height="30" rx="3" fill="#161a3c"/><path d="M-30 -30 h60 l-4 -10 h-52 Z" fill="#221b3e"/></g>
   </g>
   <g class="de-l" data-depth="34">
-    <path d="M0 1080 L0 930 C300 910 640 926 960 930 C1280 934 1620 912 ${W} 924 L${W} 1080 Z" fill="#0b0f28"/>
-    ${crops(r)}
+    <path d="M0 1080 L0 930 C300 910 640 926 960 930 C1280 934 1620 912 ${W} 924 L${W} 1080 Z" fill="${N.field}"/>
+    ${N.snow ? '' : crops(r)}
     <g transform="translate(470 1000)">${scarecrow()}</g>
     ${grassFront(r)}
   </g>

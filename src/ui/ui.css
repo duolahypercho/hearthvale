@@ -3268,7 +3268,8 @@ svg.valley {
 .ts-ribbon {
   position: relative;
   display: inline-block;
-  margin-top: -122px;
+  margin-top: -34px;
+  top: -64px;
   filter: drop-shadow(0 5px 0 rgba(30, 20, 6, 0.4)) drop-shadow(0 10px 14px rgba(20, 8, 2, 0.35));
   animation: uPop 600ms 500ms var(--ease-back) both;
 }
