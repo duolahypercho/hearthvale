@@ -25,7 +25,7 @@ import { mergeStatic } from '../geom';
 import { BatchPool, InstancedSet } from '../props/instanced';
 import { FountainFX } from './fountain';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
-import { buildSnowmen } from './winter';
+import { buildSnowmen, buildSweptPaths } from './winter';
 import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
 import { textures } from '../../render/textures';
@@ -131,6 +131,7 @@ export class TownMap implements GameMap {
   private fountainFx: FountainFX | null = null;
   private festoons: Festoons | null = null;
   private snowmen: THREE.Group | null = null;
+  private swept: THREE.Mesh | null = null;
   /** Festival practicals (budget: 4 point lights), always in the scene so toggling never recompiles. */
   private festivalLights: { light: THREE.PointLight; max: number; seed: number }[] = [];
 
@@ -153,6 +154,10 @@ export class TownMap implements GameMap {
     this.terrain.paintCover('moss', (x, z) => smoothstep(RIVER_BANK + 2.5, RIVER_BANK, this.riverDist(x, z)) * 0.8, { x0: 50, z0: -4, x1: 80, z1: 70 });
     this.classifyTiles();
     this.bakeDrifts();
+    // Winter: shovelled cobble lanes over the snow.
+    this.swept = buildSweptPaths({ x0: -4, z0: 2, x1: 100, z1: 60 }, (x, z) => this.streetValue(x, z), (x, z) => this.terrain.heightAt(x, z), (x, z) => this.noise.fbm(x * 0.35 + 7, z * 0.35, 2) * 0.5 + 0.5, 0.48);
+    this.swept.visible = false;
+    this.root.add(this.swept);
 
     this.trees = new TreeField(this.rng.fork('trees'));
     this.nature = new Nature(this.rng.fork('nature'));
@@ -263,15 +268,34 @@ export class TownMap implements GameMap {
     for (const s of EXTRA_STREETS) add(s.pts, s.w);
   }
 
+  /** Street samples binned by 2.6 m cell (the influence radius), built lazily. */
+  private streetBins: Map<number, { x: number; z: number; w: number }[]> | null = null;
+
   private streetValue(x: number, z: number): number {
     let best = 0;
-    for (const s of this.streetSamples) {
-      const dx = s.x - x;
-      const dz = s.z - z;
-      if (Math.abs(dx) > 2.6 || Math.abs(dz) > 2.6) continue;
-      const v = smoothstep(s.w + 0.55, s.w - 0.25, Math.sqrt(dx * dx + dz * dz));
-      if (v > best) best = v;
+    if (!this.streetBins) {
+      this.streetBins = new Map();
+      for (const s of this.streetSamples) {
+        const k = Math.floor(s.x / 2.6) * 4096 + Math.floor(s.z / 2.6);
+        let l = this.streetBins.get(k);
+        if (!l) this.streetBins.set(k, (l = []));
+        l.push(s);
+      }
     }
+    const cx = Math.floor(x / 2.6);
+    const cz = Math.floor(z / 2.6);
+    for (let i = -1; i <= 1; i++)
+      for (let j = -1; j <= 1; j++) {
+        const list = this.streetBins.get((cx + i) * 4096 + cz + j);
+        if (!list) continue;
+        for (const s of list) {
+          const dx = s.x - x;
+          const dz = s.z - z;
+          if (Math.abs(dx) > 2.6 || Math.abs(dz) > 2.6) continue;
+          const v = smoothstep(s.w + 0.55, s.w - 0.25, Math.sqrt(dx * dx + dz * dz));
+          if (v > best) best = v;
+        }
+      }
     const pd = Math.hypot(x - PLAZA.x, z - PLAZA.z) + this.noise.get(x * 0.5, z * 0.5) * 0.35;
     best = Math.max(best, smoothstep(PLAZA.r + 0.5, PLAZA.r - 0.3, pd));
     const hall = Math.max(Math.abs(x - 32) - 4.5, Math.abs(z - 13.4) - 1.1);
@@ -336,9 +360,12 @@ export class TownMap implements GameMap {
         const dz = Math.max(z0 - z, 0, z - (z1 + 1));
         d = Math.min(d, Math.hypot(dx, dz));
       }
-      if (d > 2.2) return 0;
+      const sv = this.streetValue(x, z);
       const n = 0.65 + 0.35 * this.noise.get(x * 0.7 + 17, z * 0.7);
-      return smoothstep(2.0, 0.3, d) * n * (1 - this.streetValue(x, z) * 0.75);
+      // Shovelled banks heaped along the edges of the swept lanes.
+      const bank = smoothstep(0.04, 0.22, sv) * smoothstep(0.5, 0.3, sv) * 0.75 * n;
+      const wall = d > 2.2 ? 0 : smoothstep(2.0, 0.3, d) * n;
+      return Math.max(wall, bank) * (1 - smoothstep(0.35, 0.55, sv));
     });
   }
 
@@ -896,6 +923,7 @@ export class TownMap implements GameMap {
     if (this.snowmen) {
       const on = season === 'winter';
       this.snowmen.visible = on;
+      if (this.swept) this.swept.visible = on;
       for (const [x, z] of SNOWMEN) this.grid.setObject(Math.floor(x), Math.floor(z), on ? { kind: 'prop', id: 'snowman', solid: true } : null);
     }
   }

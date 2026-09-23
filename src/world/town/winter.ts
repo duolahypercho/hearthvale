@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
 import { MeshBuilder, lumpySphere, bevelCylinder, mat } from '../geom';
+import { textures } from '../../render/textures';
 
 const SNOW = 0xeef2f7;
 
@@ -88,4 +89,89 @@ export function buildSnowmen(rng: Rng, spots: [number, number, number][], h: (x:
   const g = b.build({ name: 'snowmen' });
   g.userData.perfTag = 'props';
   return g;
+}
+
+/**
+ * Swept lanes: in winter the townsfolk shovel the cobbles clear. A thin overlay following the
+ * street mask (same cobble texture + UV scale as the terrain's paths) sits just above the snowed
+ * terrain; its ragged, noise-broken alpha edge leaves slush and snow in the joints and at the
+ * margins. Shown only in winter; one draw, no shadow casting.
+ */
+export function buildSweptPaths(
+  bounds: { x0: number; z0: number; x1: number; z1: number },
+  street: (x: number, z: number) => number,
+  height: (x: number, z: number) => number,
+  noise: (x: number, z: number) => number,
+  pathScale: number,
+): THREE.Mesh {
+  const step = 0.5;
+  const nx = Math.round((bounds.x1 - bounds.x0) / step) + 1;
+  const nz = Math.round((bounds.z1 - bounds.z0) / step) + 1;
+  const alpha = new Float32Array(nx * nz);
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      const x = bounds.x0 + i * step;
+      const z = bounds.z0 + j * step;
+      const sv = street(x, z);
+      if (sv <= 0.05) continue;
+      const n = noise(x, z);
+      alpha[j * nx + i] = THREE.MathUtils.clamp(THREE.MathUtils.smoothstep(sv, 0.42 + n * 0.12, 0.85) * (0.8 + 0.2 * n), 0, 1);
+    }
+  }
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+  const map = new Int32Array(nx * nz).fill(-1);
+  const vert = (i: number, j: number): number => {
+    const k = j * nx + i;
+    if (map[k]! >= 0) return map[k]!;
+    const x = bounds.x0 + i * step;
+    const z = bounds.z0 + j * step;
+    map[k] = pos.length / 3;
+    pos.push(x, height(x, z) + 0.025, z);
+    uv.push(x * pathScale, z * pathScale);
+    const a = alpha[k]!;
+    col.push(1, 1, 1, a);
+    return map[k]!;
+  };
+  for (let j = 0; j < nz - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const a = alpha[j * nx + i]! + alpha[j * nx + i + 1]! + alpha[(j + 1) * nx + i]! + alpha[(j + 1) * nx + i + 1]!;
+      if (a < 0.02) continue;
+      const v00 = vert(i, j);
+      const v10 = vert(i + 1, j);
+      const v01 = vert(i, j + 1);
+      const v11 = vert(i + 1, j + 1);
+      idx.push(v00, v01, v10, v10, v01, v11);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const tex = textures.cobble();
+  // Cold, damp cobbles: a touch darker and bluer than the dry summer lanes, a little glossy.
+  const m = new THREE.MeshStandardMaterial({
+    name: 'sweptCobble',
+    map: tex.map,
+    color: 0xb4bcc8,
+    roughness: 0.62,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.name = 'swept-paths';
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  mesh.renderOrder = 1;
+  mesh.userData.perfTag = 'terrain';
+  mesh.userData.noAO = true;
+  return mesh;
 }
