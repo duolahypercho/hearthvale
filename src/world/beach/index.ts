@@ -42,7 +42,7 @@ import {
   BEACH_SPAWN,
   BeachShape,
 } from './layout';
-import { createOcean, createHorizonClouds, setOceanPilings, createPoolWater } from './ocean';
+import { createOcean, createHorizonClouds, setOceanPilings, setOceanLamps, createPoolWater } from './ocean';
 import { applyBeachSand } from './sand';
 import {
   buildPier,
@@ -58,6 +58,7 @@ import {
   addBoatVignette,
   addCampVignette,
   addBeachSign,
+  addSandcastle,
   type DriftKind,
   type Lighthouse,
 } from './props';
@@ -317,6 +318,7 @@ export class BeachMap implements GameMap {
     // Pier.
     const pier = buildPier(r.fork('pier'), hAt);
     setOceanPilings(this.ocean, pier.pilings);
+    setOceanLamps(this.ocean, pier.lamps);
     this.root.add(pier.static);
     this.staticRoots.push(pier.static);
     for (const l of pier.lamps) {
@@ -324,7 +326,9 @@ export class BeachMap implements GameMap {
       light.position.copy(l);
       this.root.add(light);
       this.game.lighting.addNightLight(light, 5);
-      this.pools.add(l.x, l.z, PIER.deckY, 2.2);
+      // Lamp pool on the planks only (centred on the deck so it never hangs out over the water).
+      const onHead = l.z > PIER.head.z0;
+      this.pools.add(onHead ? l.x - 1.3 : PIER.x, onHead ? l.z - 1.3 : l.z, PIER.deckY, onHead ? 1.5 : 1.45);
     }
 
     // Fisherman's shack.
@@ -384,6 +388,9 @@ export class BeachMap implements GameMap {
     this.block(CAMPFIRE.x - 1.7, CAMPFIRE.z + 1.4, 0.4, 'crate');
     addBoatVignette(b, r.fork('boatv'), ROWBOAT.x, ROWBOAT.z, ROWBOAT.rot, hAt);
     addBeachSign(b, 26.2, 29.2, hAt);
+    addSandcastle(b, r.fork('castle'), 45.6, 35.2, hAt);
+    this.block(45.6, 35.2, 0.9, 'sandcastle');
+    T.stampCover('ao', 45.6, 35.2, 1.2, 0.35);
     this.block(26.2, 29.2, 0.6, 'sign');
     T.stampCover('ao', CAMPFIRE.x, CAMPFIRE.z, 1.4, 0.6);
     this.block(CAMPFIRE.x, CAMPFIRE.z, 0.9, 'campfire');

@@ -814,6 +814,18 @@ export class FishingSystem implements System, FishingApi {
     return { x: c.left + (_v.x * 0.5 + 0.5) * c.width, y: c.top + (-_v.y * 0.5 + 0.5) * c.height };
   }
 
+  /**
+   * Power-meter anchor: beside the farmer (clear of the big head) at any zoom, on the side they're
+   * casting towards — the cocked rod sticks out on the other side.
+   */
+  private meterAt(p: THREE.Vector3): { x: number; y: number } {
+    const s = this.screenAt(p, 1.1);
+    const pxM = Math.abs(this.screenAt(p, 2.1).y - s.y);
+    const a = this.screenAt(_w.copy(p).addScaledVector(this.aim, 1.5), 1.1);
+    const side = a.x < s.x - 2 ? -1 : 1;
+    return { x: s.x + side * (30 + pxM * 1.25), y: s.y + 20 };
+  }
+
   private useHeld(): boolean {
     const i = this.game.input;
     return i.mouse.left || i.keys.has('Space') || i.keys.has('KeyC') || i.held('use');
@@ -861,17 +873,14 @@ export class FishingSystem implements System, FishingApi {
             break;
           }
         }
-        // Beside the farmer (clear of the big head) at any zoom: offset by ~1.1 m of screen space.
-        const s = this.screenAt(player.position, 1.1);
-        const pxM = Math.abs(this.screenAt(player.position, 2.1).y - s.y);
-        this.ui.showPower(this.power, s.x + 24 + pxM * 1.3, s.y + 20);
+        const s = this.meterAt(player.position);
+        this.ui.showPower(this.power, s.x, s.y);
         break;
       }
       case 'casting': {
         {
-          const s1 = this.screenAt(player.position, 1.1);
-          const pxM = Math.abs(this.screenAt(player.position, 2.1).y - s1.y);
-          this.ui.showPower(this.power > 0.965 && this.stT < 0.3 ? this.power : null, s1.x + 24 + pxM * 1.3, s1.y + 20);
+          const s1 = this.meterAt(player.position);
+          this.ui.showPower(this.power > 0.965 && this.stT < 0.3 ? this.power : null, s1.x, s1.y);
         }
         const swing = 0.22;
         const fly = 0.45 + this.castFrom.distanceTo(this.target) * 0.05;
@@ -1210,7 +1219,7 @@ export class FishingSystem implements System, FishingApi {
     bob.position.copy(pos);
     bob.rotation.set(tiltX, 0, tiltZ);
     this.gear.slack = st === 'reeling' || st === 'bite' ? 0.05 : st === 'casting' ? 0.4 : st === 'reelin' ? 0.3 : 1;
-    this.gear.ease = st === 'reeling' || st === 'bite' ? 0.45 : st === 'casting' ? 0.4 : st === 'reelin' ? 0.3 : 0;
+    this.gear.ease = st === 'reeling' || st === 'bite' ? 0.45 : st === 'casting' ? 0.4 : st === 'reelin' ? 0.3 : 0.12;
     // The line ties onto the float's top eye (quill tip), tilting with it.
     const eye = 0.34;
     const lineEnd = _w.set(pos.x + Math.sin(tiltZ) * -eye * 0.5, pos.y + eye * Math.cos(tiltX) * Math.cos(tiltZ), pos.z + Math.sin(tiltX) * eye * 0.5);

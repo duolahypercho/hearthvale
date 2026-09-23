@@ -122,22 +122,25 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           vec3 rock = mix(vec3(0.1, 0.085, 0.07), vec3(0.25, 0.2, 0.155), slab * 0.6 + rn * 0.4);
           rock = mix(rock, rock * vec3(1.05, 0.98, 0.9), smoothstep(0.4, 0.8, hvNoise(p * 0.2 + 9.0)));
           rock *= 1.0 - seam * 0.18;
+          // Sun-bleached ledge tops for relief (broad, soft).
+          rock = mix(rock, rock * vec3(1.3, 1.24, 1.12), smoothstep(0.55, 0.8, hvNoise(p * 0.6 + 11.0)) * smoothstep(0.7, 1.1, bh) * 0.5);
           // Wet, weedy rims around the tide pools; inside: a sandy, pebbled floor that darkens with depth.
           float ring = 0.0;
           float ddMin = 9.0;
           for (int i = 0; i < 4; i++) {
             vec3 tp = uBPools[i];
             float dd = length((p - tp.xy) * vec2(1.0, 1.15)) / tp.z;
-            ring = max(ring, smoothstep(1.9, 1.05, dd));
+            ring = max(ring, smoothstep(1.5 + 0.2 * hvNoise(p * 2.0 + float(i)), 1.02, dd));
             ddMin = min(ddMin, dd);
           }
           float inPool = smoothstep(1.02, 0.8, ddMin);
           // Pitting.
           rock *= 0.92 + 0.08 * smoothstep(0.3, 0.7, rn);
           // Lichen on the dry tops (mustard / orange rosettes).
-          float lichen = smoothstep(0.66, 0.82, hvNoise(p * 1.6 + 3.3)) * smoothstep(0.75, 1.1, bh) * (1.0 - ring);
-          lichen *= smoothstep(0.35, 0.6, hvNoise(p * 6.0 + 1.0));
-          rock = mix(rock, rock * vec3(1.25, 1.12, 0.9), lichen * 0.5);
+          // Lichen: small crusty rosettes on the dry tops (speckled, never big blotches).
+          float lichen = smoothstep(0.62, 0.8, hvNoise(p * 1.6 + 3.3)) * smoothstep(0.75, 1.05, bh) * (1.0 - ring);
+          lichen *= smoothstep(0.55, 0.75, hvNoise(p * 9.0 + 1.0));
+          rock = mix(rock, mix(vec3(0.5, 0.42, 0.2), vec3(0.58, 0.34, 0.16), hvNoise(p * 3.0)), lichen * 0.28);
           // Weed + algae low down near the waterline.
           float weed = max(smoothstep(0.62, 0.3, bh), ring * 0.8) * smoothstep(0.32, 0.62, hvNoise(p * 1.9 + 5.0) + hvNoise(p * 7.0) * 0.25 + ring * 0.2);
           rock = mix(rock, mix(vec3(0.12, 0.2, 0.08), vec3(0.24, 0.3, 0.1), hvNoise(p * 5.0)), weed * 0.85);

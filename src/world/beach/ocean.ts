@@ -135,6 +135,8 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       uNear: { value: new THREE.Vector4(0, 0, 1, 1) },
       uPileTex: { value: blankPileTex() },
       uPileRect: { value: new THREE.Vector4(0, 0, 1, 1) },
+      uLampPos: { value: [new THREE.Vector3(1e5, 0, 1e5), new THREE.Vector3(1e5, 0, 1e5), new THREE.Vector3(1e5, 0, 1e5), new THREE.Vector3(1e5, 0, 1e5)] },
+      uLamps: globalUniforms.uLamps,
     },
     vertexShader: /* glsl */ `
       uniform sampler2D uHeight;
@@ -189,6 +191,8 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       uniform float uRain;
       uniform sampler2D uPileTex;
       uniform vec4 uPileRect;
+      uniform vec3 uLampPos[4];
+      uniform float uLamps;
       varying vec3 vW;
       varying float vLift;
       ${NOISE_GLSL}
@@ -259,7 +263,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         }
         float ndv = max(dot(n, V), 0.0);
         float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
-        fres = clamp(fres * 1.25 + 0.03, 0.0, 1.0);
+        fres = clamp(fres * 1.25 + 0.03, 0.0, 1.0) * (1.0 - uPool * 0.55);
 
         // Water body colour by depth.
         vec3 shallow = vec3(0.3, 0.8, 0.72);
@@ -267,6 +271,8 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         vec3 deep = vec3(0.012, 0.13, 0.3);
         vec3 col = mix(shallow, mid, smoothstep(0.05, 0.75, depth));
         col = mix(col, deep, smoothstep(0.9, 3.6, depth));
+        // Rock pools: shaded, clear green-teal water (the floor and its life should read through it).
+        col = mix(col, vec3(0.06, 0.34, 0.33), uPool * (0.35 + 0.45 * smoothstep(0.02, 0.25, depth)));
         float cloud = hvCloudShadow(p, t, uCloudShadow);
         float diff = 0.6 + 0.4 * max(dot(n, L), 0.0);
         vec3 lit = col * (uSunColor * diff * 0.75 * cloud + uSkyColor * 0.5 + uHorizonColor * 0.12);
@@ -305,7 +311,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         float nearFront = smoothstep(0.28, 0.05, depth);
         float wash = smoothstep(0.35, 0.04, depth) * lace * smoothstep(0.35, 0.8, fract(ph)) * lacePatch * (1.0 - uPool);
         // Rock pools: a thin, still meniscus at the rim instead of surf.
-        front *= 1.0 - uPool * 0.55;
+        front *= 1.0 - uPool;
         wash = min(wash, mix(0.35, 0.75, nearFront));
         float foam = clamp(band + front + wash, 0.0, 1.0) * detail;
         // Foam collars where the pier pilings stand in the water: a clinging ring + small rings that
@@ -353,12 +359,27 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         vec3 foamCol = vec3(0.96, 0.98, 0.97) * (uSunColor * 0.62 * cloud + uSkyColor * 0.55 + uHorizonColor * 0.1);
         c = mix(c, foamCol, clamp(foam, 0.0, 1.0));
 
+        // Lamp light on the water at night: warm, broken up by the ripples, stretched towards the viewer.
+        if (uLamps > 0.01) {
+          float lg = 0.0;
+          for (int i = 0; i < 4; i++) {
+            vec3 lp = uLampPos[i];
+            vec2 d = p - lp.xz;
+            vec2 tv = normalize(cameraPosition.xz - lp.xz + 1e-3);
+            float along = dot(d, tv);
+            float across = dot(d, vec2(-tv.y, tv.x));
+            lg += exp(-(across * across) / 0.5 - max(0.0, along) * max(0.0, along) / 9.0 - min(0.0, along) * min(0.0, along) / 1.2);
+          }
+          float rip = 0.35 + 0.65 * smoothstep(0.3, 0.7, hvNoise(p * 4.0 + vec2(t * 0.8, -t * 0.5)) * 0.7 + hvNoise(p * 11.0 - vec2(0.0, t)) * 0.3);
+          c += vec3(1.0, 0.62, 0.3) * lg * rip * uLamps * 0.9 * (1.0 - uPool);
+        }
         // Horizon: dissolve into the sky's horizon colour (+ the sun's haze).
         float haze = smoothstep(55.0, 250.0, dist);
         vec3 hzc = uHorizonColor + uSunColor * pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 12.0) * 0.16;
         c = mix(c, hzc, haze * 0.72);
 
         float alpha = mix(0.34, 0.95, smoothstep(0.0, 1.4, depth));
+        alpha = mix(alpha, (0.3 + 0.3 * smoothstep(0.02, 0.3, depth)) * smoothstep(0.0, 0.09, depth), uPool);
         alpha = max(alpha, fres * 0.75);
         alpha = max(alpha, foam);
         alpha *= smoothstep(0.0, 0.035, depth) * 0.85 + 0.15 * step(0.004, depth);
@@ -442,6 +463,14 @@ export function createPoolWater(terrain: Terrain, level: number, rect: { x0: num
   m.userData.noAO = true;
   m.userData.perfTag = 'water';
   return m;
+}
+
+/** Up to four lamps whose light the sea reflects at night (world positions). */
+export function setOceanLamps(ocean: THREE.Group, lamps: THREE.Vector3[]): void {
+  const mesh = ocean.getObjectByName('ocean-near') as THREE.Mesh | undefined;
+  if (!mesh) return;
+  const u = (mesh.material as THREE.ShaderMaterial).uniforms.uLampPos!.value as THREE.Vector3[];
+  lamps.slice(0, 4).forEach((l, i) => u[i]!.copy(l));
 }
 
 /**

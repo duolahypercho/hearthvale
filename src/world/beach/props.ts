@@ -899,6 +899,40 @@ export function addCampVignette(b: MeshBuilder, rng: Rng, x: number, z: number, 
   void rng;
 }
 
+/** A child's sandcastle with a moat, a shell-studded keep, a flag, and a pail and spade left beside it. */
+export function addSandcastle(b: MeshBuilder, rng: Rng, x: number, z: number, heightAt: (x: number, z: number) => number): void {
+  const y = heightAt(x, z);
+  const sand = 0xe2c894;
+  const wet = 0xb89a68;
+  b.add('plaster', new THREE.TorusGeometry(0.95, 0.12, 5, 24).rotateX(Math.PI / 2).scale(1, 0.35, 1), mat(x, y - 0.02, z), { tint: wet });
+  b.add('plaster', bevelCylinder(0.72, 0.8, 0.22, 0.06, 18), mat(x, y - 0.02, z), { tint: sand });
+  b.add('plaster', bevelCylinder(0.34, 0.4, 0.42, 0.05, 12), mat(x, y + 0.18, z), { tint: sand });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    b.add('plaster', roundedBox(0.09, 0.08, 0.09, 0.02), mat(x + Math.cos(a) * 0.33, y + 0.63, z + Math.sin(a) * 0.33, 0, -a, 0), { tint: sand });
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    const tx = x + Math.cos(a) * 0.58;
+    const tz = z + Math.sin(a) * 0.58;
+    const h = 0.34 + rng.next() * 0.12;
+    b.add('plaster', bevelCylinder(0.13, 0.16, h, 0.03, 10), mat(tx, y + 0.18, tz), { tint: sand });
+    b.add('plaster', new THREE.ConeGeometry(0.15, 0.2, 10), mat(tx, y + 0.18 + h + 0.09, tz), { tint: 0xd8bc86 });
+  }
+  // Shell windows + a flag on the keep.
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    b.add('white', new THREE.SphereGeometry(0.035, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2), mat(x + Math.cos(a) * 0.38, y + 0.36, z + Math.sin(a) * 0.38, 0, -a + Math.PI / 2, 0), { tint: i % 2 ? 0xf6c8b8 : 0xf6eee0 });
+  }
+  b.add('woodGrain', beam(0.012, 0.01, new THREE.Vector3(x, y + 0.6, z), new THREE.Vector3(x, y + 1.05, z), 4), undefined, { tint: 0xe0c8a0 });
+  b.add('cloth', new THREE.PlaneGeometry(0.22, 0.13).translate(0.11, 0, 0), mat(x, y + 0.97, z, 0, -0.5, 0), { tint: 0xe8483a });
+  // Pail (tipped over) and a spade.
+  b.add('woodPaint', bevelCylinder(0.13, 0.1, 0.24, 0.02, 12), mat(x + 1.3, y + 0.12, z + 0.4, 0, 0.6, Math.PI / 2), { tint: 0xe8483a });
+  b.add('metal', new THREE.TorusGeometry(0.12, 0.008, 4, 10, Math.PI), mat(x + 1.28, y + 0.12, z + 0.42, 0, 0.6, 0), { tint: 0xf2eee4 });
+  b.add('woodPaint', roundedBox(0.04, 0.03, 0.42, 0.01), mat(x - 1.1, y + 0.03, z + 0.5, 0, 0.9, 0), { tint: 0x3f86d6 });
+  b.add('woodPaint', roundedBox(0.16, 0.02, 0.18, 0.01), mat(x - 1.28, y + 0.03, z + 0.36, 0, 0.9, 0), { tint: 0x3f86d6 });
+}
+
 let beachSignMat: THREE.MeshStandardMaterial | null = null;
 function beachSignMaterial(): THREE.MeshStandardMaterial {
   if (!beachSignMat) {
