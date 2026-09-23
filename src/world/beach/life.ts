@@ -232,7 +232,7 @@ export class BeachLife {
         cx: 30 + rng.next() * 40,
         cz: 46 + rng.next() * 14,
         r: 6 + rng.next() * 9,
-        h: 6 + rng.next() * 6,
+        h: 3.4 + rng.next() * 3.2,
         speed: (0.35 + rng.next() * 0.2) * (rng.next() < 0.5 ? 1 : -1),
         ang: rng.next() * Math.PI * 2,
         flapT: rng.next() * 10,

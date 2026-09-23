@@ -503,19 +503,38 @@ export function buildLighthouse(rng: Rng): Lighthouse {
   b.add('metal', new THREE.CylinderGeometry(0.02, 0.02, 0.6, 4), mat(0, H + 2.95, 0), { tint: 0x2a3036 });
   b.add('metal', roundedBox(0.5, 0.12, 0.02, 0.005), mat(0.18, H + 3.1, 0), { tint: 0x2a3036 });
   const group = b.build({ name: 'lighthouse' });
-  // Sweeping beam: two long soft cones (additive), rotated each frame.
-  const bc = document.createElement('canvas');
-  bc.width = 16;
-  bc.height = 128;
-  const bg = bc.getContext('2d')!;
-  const grad = bg.createLinearGradient(0, 0, 0, 128);
-  grad.addColorStop(0, 'rgba(255,240,200,0)');
-  grad.addColorStop(0.75, 'rgba(255,236,190,0.35)');
-  grad.addColorStop(1, 'rgba(255,248,220,0.9)');
-  bg.fillStyle = grad;
-  bg.fillRect(0, 0, 16, 128);
-  const btex = new THREE.CanvasTexture(bc);
-  const beamMat = new THREE.MeshBasicMaterial({ map: btex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false, opacity: 0 });
+  // Sweeping beam: two long soft cones (additive), rotated each frame. Volumetric look: bright down the
+  // cone's axis (N·V), soft at its silhouette, fading out along its length; `uOpacity` is driven by the map.
+  const beamMat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    fog: false,
+    uniforms: { uOpacity: { value: 0 } },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      varying vec3 vN;
+      varying vec3 vV;
+      void main() {
+        vUv = uv;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vN = normalize(normalMatrix * normal);
+        vV = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform float uOpacity;
+      varying vec2 vUv;
+      varying vec3 vN;
+      varying vec3 vV;
+      void main() {
+        float core = pow(abs(dot(normalize(vN), normalize(vV))), 2.2);
+        float along = pow(clamp(vUv.y, 0.0, 1.0), 2.4);
+        float a = core * along * uOpacity;
+        gl_FragColor = vec4(vec3(1.0, 0.92, 0.74), a);
+      }`,
+  });
   const beamGeo = new THREE.ConeGeometry(2.4, 26, 16, 1, true);
   beamGeo.translate(0, -13, 0);
   beamGeo.rotateZ(Math.PI / 2);

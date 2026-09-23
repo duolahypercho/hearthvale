@@ -153,5 +153,9 @@ export const FESTIVAL = {
 };
 
 /** Warps back to the farm (tile rect → farm spawn). */
-export const TOWN_WARPS = [{ x0: 0, z0: 23, x1: 0, z1: 29, to: 'farm', x: 61.5, z: 28.5, facing: 'left' as const }];
+export const TOWN_WARPS = [
+  { x0: 0, z0: 23, x1: 0, z1: 29, to: 'farm', x: 61.5, z: 28.5, facing: 'left' as const },
+  // East road → Driftsand Beach (world/beach).
+  { x0: 99, z0: 23, x1: 99, z1: 29, to: 'beach', x: 2.6, z: 19.8, facing: 'right' as const },
+];
 export const TOWN_SPAWN = { x: 3.5, z: 26.2 };

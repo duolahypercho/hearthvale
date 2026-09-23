@@ -59,8 +59,11 @@ vec2 hvVor(vec2 p) {
 }
 // Foam lace: bright cell borders.
 float hvLace(vec2 p, float t) {
-  vec2 v = hvVor(p + vec2(hvNoise(p * 0.5 + t * 0.2), hvNoise(p * 0.5 - t * 0.17)) * 0.8);
-  return smoothstep(0.16, 0.02, v.y - v.x);
+  vec2 v = hvVor(p + vec2(hvNoise(p * 0.5 + t * 0.2), hvNoise(p * 0.5 - t * 0.17)) * 0.9);
+  float edge = smoothstep(0.13, 0.015, v.y - v.x);
+  // Break the network into drifting scraps of foam (no even fishnet).
+  float scraps = smoothstep(0.32, 0.62, hvNoise(p * 0.7 + vec2(7.0, t * 0.1)) + edge * 0.15);
+  return edge * scraps + smoothstep(0.12, 0.0, v.x) * scraps * 0.35;
 }
 `;
 
@@ -196,14 +199,17 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
         float hz = wh(p + vec2(0.0, e), t) - wh(p - vec2(0.0, e), t);
         vec3 n = normalize(vec3(-hx / (2.0 * e) * amp, 1.0, -hz / (2.0 * e) * amp));
 
-        // Breakers: crest lines travelling shoreward (towards shallower water).
+        // Breakers: crest lines travelling shoreward (towards shallower water), two or three at a time
+        // over the shelf. wv: 0.9 → 1 = the steepening face (shore side), 0 → 0.35 = the foam it leaves.
         float ph = hvSwashPhase(p, t);
-        float wv = fract(ph + depth * 0.55 + hvNoise(p * 0.12) * 0.12);
-        float crest = smoothstep(0.86, 1.0, wv) + smoothstep(0.12, 0.0, wv);
-        float breakZone = smoothstep(1.35, 0.55, depth) * smoothstep(0.02, 0.18, depth);
-        float swellZone = smoothstep(0.6, 2.2, depth) * (1.0 - smoothstep(4.0, 7.0, depth));
+        float wv = fract(ph + depth * 1.15 + hvNoise(p * 0.08) * 0.3);
+        float face = smoothstep(0.86, 0.995, wv) * (1.0 - smoothstep(0.995, 1.0, wv));
+        float trail = 1.0 - smoothstep(0.0, 0.32, wv);
+        float crest = face + trail * 0.6;
+        float breakZone = smoothstep(1.7, 0.95, depth) * smoothstep(0.03, 0.22, depth);
+        float swellZone = smoothstep(0.9, 2.2, depth) * (1.0 - smoothstep(4.0, 7.0, depth));
         // Crest tilts the normal back towards the sea (+Z) = catches the light like a wave face.
-        n = normalize(n + vec3(0.0, 0.0, 0.35) * crest * (breakZone + swellZone * 0.4) * detail);
+        n = normalize(n + vec3(0.0, 0.0, 0.45) * face * (breakZone + swellZone * 0.5) * detail);
         if (uRain > 0.01) {
           vec2 rp = ripples(p, t) * 0.8 * uRain * detail;
           n = normalize(n + vec3(rp.x, 0.0, rp.y));
@@ -213,10 +219,10 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
         fres = clamp(fres * 1.25 + 0.03, 0.0, 1.0);
 
         // Water body colour by depth.
-        vec3 shallow = vec3(0.26, 0.74, 0.68);
-        vec3 mid = vec3(0.035, 0.38, 0.5);
-        vec3 deep = vec3(0.012, 0.11, 0.26);
-        vec3 col = mix(shallow, mid, smoothstep(0.05, 0.9, depth));
+        vec3 shallow = vec3(0.3, 0.8, 0.72);
+        vec3 mid = vec3(0.03, 0.44, 0.55);
+        vec3 deep = vec3(0.012, 0.13, 0.3);
+        vec3 col = mix(shallow, mid, smoothstep(0.05, 0.75, depth));
         col = mix(col, deep, smoothstep(0.9, 3.6, depth));
         float cloud = hvCloudShadow(p, t, uCloudShadow);
         float diff = 0.6 + 0.4 * max(dot(n, L), 0.0);
@@ -239,28 +245,49 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean): THREE.Sha
         float lowSun = 1.0 - smoothstep(0.1, 0.55, L.y);
         float sparkle = hvNoise(p * 9.0 + vec2(t * 1.3, -t * 0.9)) * hvNoise(p * 13.0 - vec2(t * 0.8, t * 1.1));
         float spec = pow(sunR, 700.0) * 26.0 + pow(sunR, 90.0) * 1.2;
-        spec += smoothstep(0.32, 0.5, sparkle) * pow(sunR, 24.0 - lowSun * 14.0) * (3.5 + lowSun * 8.0) * detail;
+        spec += smoothstep(0.34, 0.52, sparkle) * (pow(sunR, 60.0) * (3.0 + lowSun * 5.0) + pow(sunR, 18.0) * 0.6) * detail;
+        spec = min(spec, 7.0);
         c += uSunColor * spec * cloud * (1.0 - uNight * 0.55);
 
         // Foam: breaker bands, the swash front, lace in the shallows.
         float lace = hvLace(p * 1.7, t);
         float lace2 = hvLace(p * 3.3 + 7.0, t * 1.3);
-        float band = crest * breakZone * (0.55 + 0.45 * lace) * smoothstep(0.25, 0.6, hvNoise(p * 0.7 + t * 0.1) + crest * 0.3);
+        // Gaps along each crest so the lines break up like real surf.
+        float gaps = smoothstep(0.28, 0.62, hvNoise(vec2(p.x * 0.22, p.y * 0.05) + vec2(t * 0.03, 0.0)) + face * 0.2);
+        float band = (face * 0.95 + trail * lace * 0.85) * breakZone * gaps;
         float front = smoothstep(0.07, 0.0, depth) * (0.65 + 0.35 * lace2);
-        float wash = smoothstep(0.35, 0.05, depth) * lace * 0.75 * smoothstep(0.35, 0.8, fract(ph) );
-        float foam = clamp(band * 0.95 + front + wash, 0.0, 1.0) * detail;
+        float wash = smoothstep(0.3, 0.04, depth) * lace * 0.55 * smoothstep(0.35, 0.8, fract(ph)) * smoothstep(0.3, 0.6, hvNoise(p * 0.4 + 2.0));
+        float foam = clamp(band + front + wash, 0.0, 1.0) * detail;
+        // Stylised whitecap ticks on open water: small crescents that swell, roll shoreward and fade.
+        {
+          vec2 q = p * vec2(0.3, 0.46) + vec2(t * 0.015, t * 0.1);
+          float ticks = 0.0;
+          for (int k = 0; k < 2; k++) {
+            vec2 qq = q + float(k) * vec2(0.5, 0.37);
+            vec2 id = floor(qq);
+            vec2 f = fract(qq) - 0.5 - (hvHash22(id + 11.0) - 0.5) * 0.4;
+            float h = hvHash12(id + 4.7 + float(k) * 3.1);
+            float life = fract(t * 0.16 + h * 7.0);
+            float vis = smoothstep(0.0, 0.25, life) * (1.0 - smoothstep(0.55, 1.0, life)) * step(h, 0.13 + 0.12 * uWindStrength);
+            float r = length(f * vec2(1.0, 2.0));
+            float along = clamp(f.x / 0.16, -1.0, 1.0);
+            float arc = smoothstep(0.075, 0.015, abs(r - 0.2 - life * 0.03)) * step(f.y, 0.0) * (1.0 - along * along);
+            ticks = max(ticks, arc * vis);
+          }
+          foam += ticks * smoothstep(1.8, 3.2, depth) * (0.55 + 0.25 * uWindStrength) * detail;
+        }
         // Spindrift on the far swell (white horses when it's windy).
-        foam += smoothstep(0.93, 1.0, wv) * swellZone * smoothstep(0.6, 0.8, hvNoise(p * 0.5 + t * 0.05)) * 0.35 * (uWindStrength - 0.5) * detail;
+        foam += face * swellZone * smoothstep(0.6, 0.8, hvNoise(p * 0.5 + t * 0.05)) * 0.35 * max(0.0, uWindStrength - 0.5) * detail;
         vec3 foamCol = vec3(0.96, 0.98, 0.97) * (uSunColor * 0.62 * cloud + uSkyColor * 0.55 + uHorizonColor * 0.1);
         c = mix(c, foamCol, clamp(foam, 0.0, 1.0));
 
         // Horizon: dissolve into the sky's horizon colour (+ the sun's haze).
         float haze = smoothstep(55.0, 250.0, dist);
-        vec3 hz = uHorizonColor + uSunColor * pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 12.0) * 0.35;
-        c = mix(c, hz, haze * 0.92);
+        vec3 hzc = uHorizonColor + uSunColor * pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 12.0) * 0.16;
+        c = mix(c, hzc, haze * 0.92);
 
-        float alpha = mix(0.42, 0.94, smoothstep(0.0, 1.1, depth));
-        alpha = max(alpha, fres * 0.9);
+        float alpha = mix(0.34, 0.95, smoothstep(0.0, 1.4, depth));
+        alpha = max(alpha, fres * 0.75);
         alpha = max(alpha, foam);
         alpha *= smoothstep(0.0, 0.035, depth) * 0.85 + 0.15 * step(0.004, depth);
         alpha = mix(alpha, 1.0, haze);

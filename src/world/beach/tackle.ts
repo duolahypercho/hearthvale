@@ -55,6 +55,9 @@ export class FishingGear {
   private shadowMat: THREE.MeshBasicMaterial;
   private held: { def: FishDef; mesh: FishMesh } | null = null;
   readonly heldRoot = new THREE.Group();
+  /** Camera-facing quad (a Mesh, not a Sprite, so the AO G-buffer pass can skip it via `noAO`). */
+  readonly glory: THREE.Mesh;
+  private gloryMat: THREE.MeshBasicMaterial;
   private meshCache = new Map<string, FishMesh>();
   /** Line state: slack 0 (taut) .. 1 (lazy curve on the water). */
   slack = 1;
@@ -145,7 +148,7 @@ export class FishingGear {
     nub.position.y = 0.21;
     this.bobber.add(cap, belly, band, quill, nub);
     this.bobber.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o as THREE.Mesh).castShadow = true) : null));
-    this.bobber.scale.setScalar(1.25);
+    this.bobber.scale.setScalar(1.7);
 
     // Ripple rings (shader: soft ring at radius r, fading).
     const ringGeo = new THREE.PlaneGeometry(1, 1);
@@ -201,9 +204,47 @@ export class FishingGear {
     this.shadow = new THREE.Mesh(sgeo, this.shadowMat);
     this.shadow.renderOrder = 1;
 
+    // Catch "glory": a slowly turning sunburst behind the fish held overhead.
+    const gc = document.createElement('canvas');
+    gc.width = gc.height = 256;
+    const gg = gc.getContext('2d')!;
+    gg.translate(128, 128);
+    for (let i = 0; i < 18; i++) {
+      gg.rotate((Math.PI * 2) / 18);
+      const w = i % 2 ? 7 : 13;
+      const len = i % 2 ? 100 : 126;
+      const lg = gg.createLinearGradient(0, 0, 0, -len);
+      lg.addColorStop(0, 'rgba(255,244,200,0.75)');
+      lg.addColorStop(1, 'rgba(255,214,140,0)');
+      gg.fillStyle = lg;
+      gg.beginPath();
+      gg.moveTo(-2, 0);
+      gg.lineTo(-w, -len);
+      gg.lineTo(w, -len);
+      gg.lineTo(2, 0);
+      gg.closePath();
+      gg.fill();
+    }
+    const rg2 = gg.createRadialGradient(0, 0, 0, 0, 0, 120);
+    rg2.addColorStop(0, 'rgba(255,250,225,0.9)');
+    rg2.addColorStop(0.3, 'rgba(255,226,150,0.35)');
+    rg2.addColorStop(1, 'rgba(255,200,110,0)');
+    gg.fillStyle = rg2;
+    gg.fillRect(-128, -128, 256, 256);
+    const gtex = new THREE.CanvasTexture(gc);
+    gtex.colorSpace = THREE.SRGBColorSpace;
+    this.gloryMat = new THREE.MeshBasicMaterial({ map: gtex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: false, toneMapped: false });
+    this.glory = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.gloryMat);
+    this.glory.castShadow = false;
+    this.glory.receiveShadow = false;
+    this.glory.frustumCulled = false;
+    this.glory.renderOrder = 7;
+    this.glory.visible = false;
+    this.glory.userData.noAO = true;
+
     this.fx.object.userData.perfTag = 'fishing';
     this.heldRoot.name = 'held-fish';
-    this.group.add(this.rod, this.grip, this.line, this.bobber, this.shadow, this.fx.object, this.heldRoot);
+    this.group.add(this.rod, this.grip, this.line, this.bobber, this.shadow, this.fx.object, this.heldRoot, this.glory);
     this.setRodVisible(false);
     this.bobber.visible = false;
     this.line.visible = false;
@@ -352,6 +393,18 @@ export class FishingGear {
       this.shadow.position.set(p.x, this.waterY - 0.18, p.z);
       this.shadow.rotation.y = yaw;
     }
+  }
+
+  /** Sunburst behind `pos` (pushed away from the camera); null hides it. */
+  setGlory(pos: THREE.Vector3 | null, camera: THREE.Camera, alpha: number, t: number, size = 2.6): void {
+    this.glory.visible = !!pos && alpha > 0.01;
+    if (!pos || !this.glory.visible) return;
+    _a.copy(pos).sub(camera.position).normalize();
+    this.glory.position.copy(pos).addScaledVector(_a, 1.6);
+    this.glory.scale.setScalar(size * (0.96 + 0.04 * Math.sin(t * 3)));
+    this.glory.quaternion.copy(camera.quaternion);
+    this.glory.rotateZ(t * 0.35);
+    this.gloryMat.opacity = alpha;
   }
 
   /** Show a fish held above the head (null to hide). */

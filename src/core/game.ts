@@ -18,6 +18,7 @@ import { DayNight } from '../render/lighting';
 import { World } from '../world/map';
 import { FarmMap } from '../world/farm';
 import { TownMap } from '../world/town';
+import { BeachMap } from '../world/beach';
 import { ForestMap } from '../world/forest';
 import { Player } from '../entities/player';
 import { Hud } from '../ui/hud';
@@ -128,6 +129,7 @@ export class Game {
 
     this.world.registerMap('farm', (g) => new FarmMap(g));
     this.world.registerMap('town', (g) => new TownMap(g));
+    this.world.registerMap('beach', (g) => new BeachMap(g));
     this.world.registerMap('forest', (g) => new ForestMap(g));
 
     this.events.on('toolbar:select', ({ slot }) => (this.toolbarSlot = slot));

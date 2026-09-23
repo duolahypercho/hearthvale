@@ -28,6 +28,12 @@ const TOWN_CAM = { yaw: 0, pitch: 43, distance: 37, offsetX: -2.9, offsetZ: -7.6
 const MINE_CAM = { yaw: 0, pitch: 54, distance: 19, offsetZ: -0.6 };
 /** Cindergrove: the waterfall, plunge pool and flanking elders, player on the pool path. */
 const FOREST_FALLS_CAM = { yaw: -4, pitch: 44, distance: 26, offsetX: -6.8, offsetZ: -3.6 };
+/** Driftsand Beach: pier, surf and the shack; sunset looks out over the pier. */
+const BEACH_CAM = { yaw: -8, pitch: 44, distance: 32, offsetX: 2, offsetZ: 4.5 };
+const BEACH_SUNSET_CAM = { yaw: 148, pitch: 24, distance: 30, offsetX: -2, offsetZ: 1 };
+/** Fishing off the pier head (cast to the west, across the frame). */
+const FISH_CAM = { yaw: -10, pitch: 42, distance: 15, offsetX: -2.4, offsetZ: -0.6 };
+const FISH_CATCH_CAM = { yaw: -8, pitch: 34, distance: 11, offsetX: -0.8, offsetZ: -1.1 };
 /** Festival: same framing as TOWN_CAM, but the player stands in the ring east of the maypole. */
 const FESTIVAL_CAM = { ...TOWN_CAM, offsetX: -3.35, offsetZ: -10.3 };
 
@@ -55,8 +61,18 @@ export const DEMOS: Record<string, DemoDef> = {
   'town-dialogue': { map: 'town', x: 29.6, z: 23.2, facing: 'left', time: 16.5, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
   festival: { map: 'town', x: 35.35, z: 26.3, facing: 'left', time: 20.05, season: 'summer', weather: 'sun', camera: FESTIVAL_CAM, showcase: ['npcs', 'festival'] },
   title: { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
-  // DESIGN.md names — fall back to the farm until those maps exist.
-  'beach-sunset': { map: 'beach', x: 20, z: 20, facing: 'down', time: 19.4, season: 'summer', weather: 'sun' },
+  // Driftsand Beach + fishing (world/beach, systems/fishing). Fishing demos take URL params:
+  // &fish=<fishId> (species on the line / in hand), &phase=cast|flight|wait|bite|reel|catch (override the phase).
+  'beach-sunset': { map: 'beach', x: 50, z: 47.5, facing: 'down', time: 19.3, season: 'summer', weather: 'sun', camera: BEACH_SUNSET_CAM, showcase: ['beach'] },
+  'beach-day': { map: 'beach', x: 43.2, z: 37.2, facing: 'down', time: 11.2, season: 'summer', weather: 'sun', camera: BEACH_CAM, showcase: ['beach'] },
+  'beach-night': { map: 'beach', x: 50, z: 47.5, facing: 'down', time: 22.4, season: 'summer', weather: 'sun', camera: BEACH_CAM, showcase: ['beach'] },
+  'fishing-cast': { map: 'beach', x: 46.4, z: 60.6, facing: 'left', time: 16.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-cast'] },
+  'fishing-wait': { map: 'beach', x: 46.4, z: 60.6, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-wait'] },
+  'fishing-bite': { map: 'beach', x: 46.4, z: 60.6, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-bite'] },
+  'fishing-reel': { map: 'beach', x: 46.4, z: 60.6, facing: 'left', time: 17.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-reel'] },
+  'fishing-pond': { map: 'farm', x: 19.2, z: 40.1, facing: 'left', time: 17.6, season: 'summer', weather: 'sun', camera: { yaw: -18, pitch: 50, distance: 14, offsetX: -2.6, offsetZ: -1.2 }, showcase: ['fishing-reel'] },
+  'fishing-river': { map: 'town', x: 61.6, z: 31.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 8, pitch: 42, distance: 15, offsetX: 2.2, offsetZ: -0.4 }, showcase: ['fishing-wait'] },
+  'fishing-catch': { map: 'beach', x: 46.4, z: 60.6, facing: 'left', time: 18.2, season: 'summer', weather: 'sun', camera: FISH_CATCH_CAM, showcase: ['fishing-catch'] },
   // Cindergrove forest + weather showcases (world/forest, systems/weather). 'fog-morning' / 'rainbow'
   // also switch on the matching atmosphere (the weather system keys off the demo name).
   'forest-day': { map: 'forest', x: 19.4, z: 26.6, facing: 'up', time: 10.4, season: 'summer', weather: 'sun', camera: FOREST_FALLS_CAM },

@@ -94,6 +94,7 @@ interface RigView {
   swingT?: number;
   state?: string;
   yaw?: number;
+  targetYaw?: number;
 }
 
 export class FishingSystem implements System, FishingApi {
@@ -119,7 +120,7 @@ export class FishingSystem implements System, FishingApi {
   private result: { def: FishDef; lengthCm: number; quality: number; perfect: boolean; treasure: string | null } | null = null;
   private recs: Record<string, FishingRecord> = {};
   /** Demo staging: freeze a phase for screenshots (sim paused). */
-  private demo: 'cast' | 'flight' | 'reel' | 'catch' | 'wait' | null = null;
+  private demo: 'cast' | 'flight' | 'reel' | 'catch' | 'wait' | 'bite' | null = null;
   private practice = false;
   private splashT = 0;
   private biteWindow = 1;
@@ -127,6 +128,11 @@ export class FishingSystem implements System, FishingApi {
   private waterY = 0;
   private catchArc = 0;
   private cardShown = false;
+  private heldT = 0;
+  /** Where the caught fish is held (between the farmer's hands, in front of the chest). */
+  private holdPt = new THREE.Vector3();
+  /** Body yaw before the farmer turned to show the catch to the camera (restored after). */
+  private preCatchYaw: number | null = null;
 
   init(game: Game): void {
     this.game = game;
@@ -148,7 +154,11 @@ export class FishingSystem implements System, FishingApi {
       this.cancel(true);
       this.sfx.setBeach(map === 'beach');
     });
-    game.events.on('demo:stage', ({ showcase }) => this.stageDemo(showcase));
+    // The demo sets hour + facing right after 'demo:stage' (same tick): stage once that settles.
+    game.events.on('demo:stage', ({ showcase }) => {
+      this.cancel(true);
+      queueMicrotask(() => this.stageDemo(showcase));
+    });
     // `__game.openUI('fishing')` → a practice fight right where the farmer stands.
     game.hud.registerPanel('fishing', {
       open: () => this.startPractice(),
@@ -464,6 +474,12 @@ export class FishingSystem implements System, FishingApi {
     this.gear.lineVisible = false;
     this.gear.setShadow(null, 0);
     this.gear.hold(null);
+    this.gear.heldRoot.scale.setScalar(1);
+    this.gear.glory.visible = false;
+    if (this.preCatchYaw !== null) {
+      this.rig.targetYaw = this.preCatchYaw;
+      this.preCatchYaw = null;
+    }
     this.hooked = null;
     this.result = null;
     this.demo = null;
@@ -501,9 +517,14 @@ export class FishingSystem implements System, FishingApi {
   // ───────────────────────────────────────────── demos
 
   private stageDemo(showcase: string[]): void {
-    const want = showcase.find((s) => s.startsWith('fishing-'));
+    let want = showcase.find((s) => s.startsWith('fishing-'));
     this.cancel(true);
     if (!want) return;
+    // URL overrides: &phase=cast|flight|wait|bite|reel|catch, &fish=<fishId>.
+    const q = new URLSearchParams(location.search);
+    const phase = q.get('phase');
+    if (phase) want = `fishing-${phase}`;
+    const forced = q.get('fish');
     const slot = this.rodSlot();
     if (slot >= 0) this.game.events.emit('toolbar:select', { slot });
     this.lockPlayer(true);
@@ -513,6 +534,7 @@ export class FishingSystem implements System, FishingApi {
     const p = this.game.player.position;
     const dir = this.facingDir();
     const pick = (ids: string[]): FishDef => {
+      if (forced && fishDef(forced)) return fishDef(forced)!;
       const pool = this.available();
       for (const id of ids) {
         const f = pool.find((x) => x.id === id) ?? (this.game.world.current?.id === 'beach' ? fishDef(id) : undefined);
@@ -544,6 +566,13 @@ export class FishingSystem implements System, FishingApi {
         this.nibbles = [];
         this.gear.resetLine(this.bob);
         break;
+      case 'fishing-bite':
+        this.demo = 'bite';
+        this.hooked = pick(['coralSnapper', 'pondPerch']);
+        this.gear.resetLine(this.bob);
+        this.bite();
+        this.biteWindow = 1e9;
+        break;
       case 'fishing-reel':
         this.demo = 'reel';
         this.hooked = pick(['coralSnapper', 'duskGrouper', 'pondPerch']);
@@ -566,6 +595,7 @@ export class FishingSystem implements System, FishingApi {
         this.result!.quality = 2;
         this.catchArc = 1;
         this.stT = 0.9;
+        this.heldT = 0.9;
         this.recs = {};
         this.showCatchCard();
         break;
@@ -616,12 +646,18 @@ export class FishingSystem implements System, FishingApi {
             break;
           }
         }
+        // Beside the farmer (clear of the big head) at any zoom: offset by ~1.1 m of screen space.
         const s = this.screenAt(player.position, 1.1);
-        this.ui.showPower(this.power, s.x + 58, s.y + 20);
+        const pxM = Math.abs(this.screenAt(player.position, 2.1).y - s.y);
+        this.ui.showPower(this.power, s.x + 24 + pxM * 1.3, s.y + 20);
         break;
       }
       case 'casting': {
-        this.ui.showPower(this.power > 0.965 && this.stT < 0.3 ? this.power : null, head.x + 58, head.y + 60);
+        {
+          const s1 = this.screenAt(player.position, 1.1);
+          const pxM = Math.abs(this.screenAt(player.position, 2.1).y - s1.y);
+          this.ui.showPower(this.power > 0.965 && this.stT < 0.3 ? this.power : null, s1.x + 24 + pxM * 1.3, s1.y + 20);
+        }
         const swing = 0.22;
         const fly = 0.45 + this.castFrom.distanceTo(this.target) * 0.05;
         if (this.stT < swing) {
@@ -662,7 +698,7 @@ export class FishingSystem implements System, FishingApi {
       }
       case 'bite': {
         this.ui.showBang(true, head.x, head.y - 8);
-        if (pressed) {
+        if (pressed && this.demo !== 'bite') {
           this.ui.showBang(false);
           this.hook();
           break;
@@ -837,11 +873,13 @@ export class FishingSystem implements System, FishingApi {
         alz = -0.45 + Math.cos(t * (this.mg?.holding ? 16 : 5)) * 0.15;
         torsoX = -0.12;
       } else if (holdOverhead) {
-        ar = -2.95;
-        al = -2.95;
-        arz = -0.35;
-        alz = 0.35;
-        torsoX = -0.08;
+        // Presenting the catch: both hands forward at chest height, gripping the fish, leaning back proudly.
+        const lift = Math.sin(t * 3) * 0.05;
+        ar = -1.5 + lift;
+        al = -1.5 + lift;
+        arz = -0.42;
+        alz = 0.42;
+        torsoX = -0.16;
       } else if (st === 'caught') {
         ar = -1.6;
         al = -1.4;
@@ -850,12 +888,25 @@ export class FishingSystem implements System, FishingApi {
       r.armL.rotation.set(al, 0, alz);
       r.torso.rotation.x = torsoX;
       if (holdOverhead) {
-        r.head.rotation.x = -0.25;
+        // Turn to show the catch to the camera (restored in finish()).
+        if (this.preCatchYaw === null) this.preCatchYaw = r.yaw ?? 0;
+        const camYaw = THREE.MathUtils.degToRad(game.rc.rig.yaw);
+        r.targetYaw = camYaw;
+        if (this.demo === 'catch' && r.yaw !== undefined) r.yaw = camYaw;
+        r.head.rotation.x = -0.12;
         // Happy hop.
         const hop = Math.max(0, Math.sin(Math.min(1, this.stT / 0.35) * Math.PI)) * 0.12;
         r.body.position.y = hop;
       }
       r.root.updateMatrixWorld(true);
+      // Grip point: between the two hands, nudged forward.
+      const hr = new THREE.Vector3(0, -0.3, 0.02);
+      const hl = new THREE.Vector3(0, -0.3, 0.02);
+      r.armR.localToWorld(hr);
+      r.armL.localToWorld(hl);
+      this.holdPt.addVectors(hr, hl).multiplyScalar(0.5);
+      const bodyFwd = new THREE.Vector3(Math.sin(r.yaw ?? 0), 0, Math.cos(r.yaw ?? 0));
+      this.holdPt.addScaledVector(bodyFwd, 0.08).y += 0.06;
     }
     // Rod pose.
     const hand = new THREE.Vector3(0, -0.34, 0.04);
@@ -864,7 +915,12 @@ export class FishingSystem implements System, FishingApi {
     const up = new THREE.Vector3(0, 1, 0);
     let dir: THREE.Vector3;
     let bend = 0;
-    if (st === 'charging') dir = fwd.clone().multiplyScalar(-0.85).add(up.clone().multiplyScalar(0.75 + pw * 0.2));
+    if (st === 'charging') {
+      // Rod cocked back over the shoulder, angled a little towards the camera so it reads against the sky / water.
+      const cy = THREE.MathUtils.degToRad(game.rc.rig.yaw);
+      const toCam = new THREE.Vector3(Math.sin(cy), 0, Math.cos(cy));
+      dir = fwd.clone().multiplyScalar(-0.85).add(up.clone().multiplyScalar(0.75 + pw * 0.2)).addScaledVector(toCam, 0.35);
+    }
     else if (st === 'casting') {
       const k = Math.min(1, this.stT / 0.22);
       const e = 1 - Math.pow(1 - k, 3);
@@ -879,6 +935,8 @@ export class FishingSystem implements System, FishingApi {
     } else dir = fwd.clone().add(up.clone().multiplyScalar(0.62));
     dir.normalize();
     this.gear.poseRod({ hand, dir, bend, bendTo: this.bob, crank: t * (this.mg?.holding ? 16 : st === 'reelin' ? 20 : 0) });
+    // Rod goes down (out of frame) while both hands hold the catch up.
+    this.gear.setRodVisible(!(st === 'caught' && this.catchArc >= 1));
 
     // Float.
     const bob = this.gear.bobber;
@@ -905,8 +963,7 @@ export class FishingSystem implements System, FishingApi {
       if (Math.random() < dt * (st === 'reeling' ? 3 : 0.35)) this.gear.ripple(pos, st === 'reeling' ? 1.1 : 0.6, 1.3);
     } else if (st === 'caught') {
       // Fish arcs from the float into the farmer's hands.
-      const handsUp = game.player.position.clone().add(new THREE.Vector3(0, 2.75, 0));
-      pos.lerpVectors(this.bob, handsUp, this.catchArc);
+      pos.lerpVectors(this.bob, this.holdPt, this.catchArc);
       pos.y += Math.sin(this.catchArc * Math.PI) * 1.2;
     }
     bob.position.copy(pos);
@@ -931,15 +988,24 @@ export class FishingSystem implements System, FishingApi {
       if (this.catchArc > 0 && !this.gear.heldRoot.children.length) this.gear.hold(this.result.def, this.result.lengthCm);
       const p = game.player.position;
       if (this.catchArc < 1) {
+        this.heldT = 0;
+        this.gear.heldRoot.scale.setScalar(1);
+        this.gear.setGlory(null, game.rc.camera, 0, t);
         this.gear.heldRoot.position.copy(pos);
         this.gear.heldRoot.rotation.set(0, t * 6, Math.sin(t * 20) * 0.4);
       } else {
         const bobY = Math.sin(t * 3) * 0.03;
-        this.gear.heldRoot.position.set(p.x, p.y + 2.85 + bobY, p.z + 0.12);
+        // Pop on arrival (overshoot + settle), then a gentle bob.
+        this.heldT += dt;
+        const pop = 1 + 0.28 * Math.exp(-this.heldT * 5) * Math.sin(this.heldT * 16 + 0.6);
+        this.gear.heldRoot.scale.setScalar(pop);
+        this.gear.heldRoot.position.copy(this.holdPt);
+        this.gear.heldRoot.position.y += bobY * 0.3;
+        this.gear.setGlory(_w.copy(this.holdPt).setY(this.holdPt.y + 0.5), game.rc.camera, Math.min(1, this.heldT * 3) * 0.55, t, 3.0 + (this.result.lengthCm / 100) * 0.9);
         // Side-on to the camera, head to the left, a little wiggle.
         this.gear.heldRoot.rotation.set(0, -THREE.MathUtils.degToRad(game.rc.rig.yaw), Math.sin(t * 5) * 0.07 + 0.08);
         if (Math.random() < dt * 4) {
-          this.gear.fx.emit(new THREE.Vector3(p.x + (Math.random() - 0.5) * 1.2, p.y + 2.8 + Math.random() * 0.6, p.z + 0.2), { color: 0xfff2b0, count: 2, speed: 0.4, size: 0.07, gravity: -0.4, life: 0.9, up: 0.6 });
+          this.gear.fx.emit(new THREE.Vector3(this.holdPt.x + (Math.random() - 0.5) * 1.4, this.holdPt.y + 0.2 + Math.random() * 0.7, this.holdPt.z + 0.2), { color: 0xfff2b0, count: 2, speed: 0.4, size: 0.07, gravity: -0.4, life: 0.9, up: 0.6 });
         }
       }
     }

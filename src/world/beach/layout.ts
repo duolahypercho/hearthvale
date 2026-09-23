@@ -64,6 +64,11 @@ export class BeachShape {
     this.n2 = new Noise2D(seed + 17);
   }
 
+  /** Low-frequency 2-octave noise in [-1, 1] (dressing masks). */
+  n2fbm(x: number, z: number): number {
+    return this.n2.fbm(x, z, 2);
+  }
+
   /** Waterline z at x (the cove bows inland around the pier). */
   shoreZ(x: number): number {
     return 41 + Math.sin(x * 0.065 + 0.8) * 1.6 + this.n.fbm(x * 0.045, 3.1, 2) * 1.8 - smoothstep(34, 50, x) * smoothstep(66, 50, x) * 1.2;
