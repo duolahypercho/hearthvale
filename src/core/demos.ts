@@ -64,6 +64,18 @@ export const DEMOS: Record<string, DemoDef> = {
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 18.6, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   'town-dialogue': { map: 'town', x: 29.6, z: 23.2, facing: 'left', time: 16.5, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
+  // Town pod: `&event=<npc>-<2|4>&step=N` picks the heart event; `&npc=<id>&mood=<mood>|&gift=<item>|&ask=1` the dialogue.
+  'town-heart-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
+  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 15.2, season: 'winter', weather: 'snow', camera: TOWN_CAM, showcase: ['npcs'] },
+  'town-east': { map: 'town', x: 70.6, z: 26.4, facing: 'right', time: 17.4, season: 'summer', weather: 'sun', camera: { yaw: -4, pitch: 43, distance: 34, offsetX: 3.2, offsetZ: -2.4 }, showcase: ['npcs'] },
+  'town-cast': { map: 'town', x: 40.4, z: 29.6, facing: 'down', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 13, offsetX: -7.9, offsetZ: -1.2 }, showcase: ['npcs'] },
+  'town-rain': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 14, season: 'fall', weather: 'rain', camera: TOWN_CAM, showcase: ['npcs'] },
+  // Town pod: Meadow Lane (schoolhouse + kitchen garden), the portrait model sheet (&ui=portraits:<id> = one villager in all
+  // nine moods), the Hearthvale Folk social page, and a night-time conversation under the lamps.
+  'town-south': { map: 'town', x: 30.4, z: 52.4, facing: 'up', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 45, distance: 33, offsetX: 1.6, offsetZ: -4.6 }, showcase: ['npcs'] },
+  'town-portraits': { map: 'town', x: 32, z: 29, facing: 'down', time: 11, season: 'spring', weather: 'sun', showcase: ['npcs'], ui: 'portraits' },
+  'town-social': { map: 'town', x: 32, z: 29, facing: 'down', time: 11, season: 'spring', weather: 'sun', showcase: ['npcs'], ui: 'social' },
+  'town-night-talk': { map: 'town', x: 33.6, z: 17.0, facing: 'right', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 44, distance: 16, offsetX: 0.4, offsetZ: -1.4 }, showcase: ['npcs'], ui: 'dialogue:tobias' },
   festival: { map: 'town', x: 35.35, z: 26.3, facing: 'left', time: 20.05, season: 'summer', weather: 'sun', camera: FESTIVAL_CAM, showcase: ['npcs', 'festival'] },
   title: { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
   // Driftsand Beach + fishing (world/beach, systems/fishing). Fishing demos take URL params:
