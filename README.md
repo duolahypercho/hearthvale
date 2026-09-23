@@ -234,19 +234,33 @@ Layout data lives in `world/town/layout.ts` (buildings, streets, props, trees, f
 Static props are merged per 12 m cell and fed to one `BatchPool`: one multi-draw per material, per-cell culling.
 
 Ten villagers (`src/data/npcs.ts`): look (height, build, face, 11 hair styles, hats, outfits, accessories), walk
-style, schedule + rainy schedule over named spots (A* on the tile grid, `world/town/pathfind.ts`), activities
-(sweep, read, paint, water, knead, hammer, saw, fish, sit, play, chat…), gift tastes, birthday, dialogue groups
-(first meeting, birthday, season, weather, hours, hearts; `[mood]` tags swap the portrait) and two heart events
-each (scripted mini cutscenes: walks, emotes, camera beats, choices with friendship deltas).
-`systems/npcs.ts` runs them (heart-event camera follows the actors; a warm key light at night),
-`systems/relationships.ts` owns points / hearts / gifts, `ui/dialogue.ts` the typewriter box, choices, gift
-ribbons, heart meter, birthday toast, the 'social' page and the 'portraits' model sheet; `ui/portraits.ts` paints
-the SVG portraits (9 moods, per-villager backdrops).
+style, schedule + rainy schedule over named spots (A* on the tile grid, `world/town/pathfind.ts`; seven of them work the
+square between 9 and 12), activities (sweep, read, paint, water, knead, hammer, saw, fish, sit, play, chat…), gift
+tastes, birthday, dialogue groups (first meeting, birthday, season, weather, hours, hearts; `[mood]` tags swap the
+portrait) and two heart events each (scripted mini cutscenes: walks, emotes, choices with friendship deltas, extra
+actors such as Pip the shop cat).
+- **Models** (`entities/villager.ts`, one skinned mesh each, frustum-culled): chibi heads (1.2×) tilted chin-up so
+  faces read from the diorama camera, glossy eyes, an ink-edge + rim shader instead of an outline pass, 13 gesture
+  clips (hand to chest, shrug, laugh, look down, point, wave, think, wring, surprise, stamp, nod, open arms, hug)
+  that follow each line's mood, squash and stretch, emotes as AO-safe billboards.
+- **Camera director** (`systems/npcs.ts`): heart events cut between wide, two-shot and close-up; the angle is
+  scored so the speaker is three-quarter to the lens, the listener or a bystander isn't in front of their face and no
+  building cuts a sight line (swing ±15–45°, raise, pull in), trees in the way are hidden (sphere-cached), and the
+  actors sit above the dialogue box; tilt-shift focuses on them. `npcs.auditEvents(id?)` checks every talky beat of
+  all 20 events. Conversations lean in the same way through the look offset (no cinematic, so co-op farmers stay
+  visible). Friendship is per player (co-op farmhands keep their own), villagers run from the shared calendar.
+- **Gifts**: the item arcs from the farmer's hands, the villager squashes and reacts (hug / open arms / shrug),
+  hearts, sparkles or a grey puff burst over the head, and the new heart pops on the meter.
+- `systems/relationships.ts` owns points / hearts / gifts (`meet()` for demo staging), `ui/dialogue.ts` the typewriter
+  box (name tab, top-left layout-stable text, choices, gift ribbons, heart meter, birthday toast), the 'social' page and
+  the 'portraits' model sheet; `ui/portraits.ts` paints the SVG portraits: nine moods, each with its own head / shoulder
+  pose, hand gesture and colour temperature (warm gold joy, cool blue sorrow, red-rimmed anger), bezier hair locks,
+  cel-shaded neck and two-tone cloth folds, per-villager backdrops.
 
-Demos: `town-day`, `town-evening`, `town-winter`, `town-rain`, `town-east`, `town-south`, `town-cast`,
-`town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1`), `town-night-talk`,
-`town-heart-event` (`&event=<npc>-<2|4>&step=N`), `town-portraits` (`&ui=portraits:<npc>` = all nine moods),
-`town-social`, `festival`.
+Demos: `town-day` (closer social frame, held emotes), `town-evening` (19:05, lamps lit), `town-winter`, `town-rain`,
+`town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·
+`&first=1` for the first meeting), `town-night-talk`, `town-heart-event` (`&event=<npc>-<2|4>&step=N`),
+`town-portraits` (`&ui=portraits:<npc>` = all nine moods), `town-social`, `festival`.
 
 ## Driftsand Beach & fishing
 

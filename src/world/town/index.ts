@@ -760,10 +760,14 @@ export class TownMap implements GameMap {
     }
     const pool = new BatchPool('town-props');
     const I = new THREE.Matrix4();
+    // Glass, glow cards, window boxes and hearth coals add nothing to the shadow map: skip that pass
+    // for them (one fewer draw call each per frame).
+    const NO_SHADOW = new Set(['windowCard', 'lampGlow', 'glass', 'boxFlower', 'forgeCoals', 'stillWater', 'brass', 'copper']);
     for (const [k, list] of cells) {
       const merged = mergeStatic(list, `town-${k}`);
       for (const m of merged.children as THREE.Mesh[]) {
-        const set = new InstancedSet(m.name, [{ geometry: m.geometry, material: m.material as THREE.Material, castShadow: m.castShadow, receiveShadow: m.receiveShadow }], pool);
+        const mat = m.material as THREE.Material;
+        const set = new InstancedSet(m.name, [{ geometry: m.geometry, material: mat, castShadow: m.castShadow && !NO_SHADOW.has(mat.name), receiveShadow: m.receiveShadow }], pool);
         set.add(I);
       }
     }
