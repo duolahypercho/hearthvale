@@ -133,6 +133,11 @@ class Puffs {
 
   update(dt: number, viewportH: number): void {
     this.mat.uniforms.uScale!.value = viewportH * 1.6;
+    // Nothing alive: no per-frame loop, no buffer uploads.
+    if (!this.live) {
+      this.points.visible = false;
+      return;
+    }
     let any = 0;
     for (let i = 0; i < this.n; i++) {
       const a = (this.age[i]! += dt);
@@ -400,7 +405,7 @@ class Streaks {
       // 3–4× longer than wide at speed; round-ish when slow.
       this.size[k * 2] = d.r * 1.7;
       this.size[k * 2 + 1] = d.r * 1.8 + Math.min(0.2, sp * 0.02);
-      this.alpha[k] = 0.62 * Math.min(1, d.age * 30);
+      this.alpha[k] = 0.78 * Math.min(1, d.age * 30);
       k++;
       if (k >= this.n) break;
     }
@@ -439,9 +444,10 @@ varying vec2 vUv;
 varying float vAlpha;
 #include <fog_pars_fragment>
 void main() {
-  float a = texture2D(uMap, vUv).a * vAlpha;
+  vec4 t = texture2D(uMap, vUv);
+  float a = t.a * vAlpha;
   if (a < 0.004) discard;
-  gl_FragColor = vec4(uColor, a);
+  gl_FragColor = vec4(uColor * t.rgb, a);
   #include <colorspace_fragment>
   #include <fog_fragment>
 }`;
@@ -569,33 +575,53 @@ function decalTexture(kind: 'wet' | 'crack'): THREE.CanvasTexture {
       g.fill();
     }
   } else {
-    // Ground cracks: jagged branching lines out from the centre + a darker bruise.
-    const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S * 0.45);
-    gr.addColorStop(0, 'rgba(0,0,0,0.45)');
-    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    // Slam stamp: a soft, dusty, lighter-brown bruise (the soil is knocked pale) with 3–4 short
+    // forked cracks — soft-edged, no ink lines.
+    const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S * 0.46);
+    gr.addColorStop(0, 'rgba(255,255,255,0.62)');
+    gr.addColorStop(0.55, 'rgba(255,255,255,0.4)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = gr;
     g.fillRect(0, 0, S, S);
-    g.strokeStyle = 'rgba(0,0,0,0.95)';
+    // Crumbly speckle inside the stamp.
+    for (let i = 0; i < 140; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const d = Math.sqrt(rng.next()) * S * 0.36;
+      const v = 150 + Math.floor(rng.next() * 105);
+      g.fillStyle = `rgba(${v},${v},${v},${0.25 + rng.next() * 0.3})`;
+      g.beginPath();
+      g.arc(S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d, 1 + rng.next() * 2.2, 0, Math.PI * 2);
+      g.fill();
+    }
     g.lineCap = 'round';
-    const branch = (x: number, y: number, a: number, len: number, w: number, depth: number): void => {
+    g.lineJoin = 'round';
+    const fork = (x: number, y: number, a: number, len: number, w: number, depth: number): void => {
       let px = x;
       let py = y;
-      const steps = 5;
+      const steps = 3;
       for (let i = 0; i < steps; i++) {
-        a += (rng.next() - 0.5) * 0.9;
+        a += (rng.next() - 0.5) * 0.7;
         const nx = px + Math.cos(a) * (len / steps);
         const ny = py + Math.sin(a) * (len / steps);
-        g.lineWidth = w * (1 - i / steps) + 0.6;
+        // Soft crack: a blurred mid-brown groove with a darker core, fading toward the tip.
+        const k = 1 - i / steps;
+        g.strokeStyle = `rgba(92,70,52,${0.35 * k + 0.1})`;
+        g.lineWidth = w * 2.2 * k + 1.2;
         g.beginPath();
         g.moveTo(px, py);
         g.lineTo(nx, ny);
         g.stroke();
-        if (depth > 0 && rng.next() < 0.35) branch(nx, ny, a + (rng.next() < 0.5 ? 0.9 : -0.9), len * 0.45, w * 0.6, depth - 1);
+        g.strokeStyle = `rgba(60,44,32,${0.55 * k + 0.1})`;
+        g.lineWidth = w * k + 0.6;
+        g.stroke();
+        if (depth > 0 && i === 1) fork(nx, ny, a + (rng.next() < 0.5 ? 0.75 : -0.75), len * 0.5, w * 0.6, depth - 1);
         px = nx;
         py = ny;
       }
     };
-    for (let i = 0; i < 6; i++) branch(S / 2, S / 2, (i / 6) * Math.PI * 2 + rng.next() * 0.6, S * (0.3 + rng.next() * 0.14), 3.2, 2);
+    const nc = 4;
+    for (let i = 0; i < nc; i++) fork(S / 2 + (rng.next() - 0.5) * 8, S / 2 + (rng.next() - 0.5) * 8, (i / nc) * Math.PI * 2 + rng.next() * 0.9, S * (0.17 + rng.next() * 0.08), 2.2, 1);
+    g.filter = 'none';
   }
   const t = new THREE.CanvasTexture(c);
   return t;
@@ -603,18 +629,69 @@ function decalTexture(kind: 'wet' | 'crack'): THREE.CanvasTexture {
 
 // ───────────────────────────────────────────── watering-can stream
 
-const STREAM_N = 18;
-const STREAM_R = 6;
+const STREAM_N = 22;
+/** Jets out of the rose: a fat main stream + two thinner side jets that fan apart as they fall. */
+const JETS: { w0: number; w1: number; spread: number; lag: number; a: number }[] = [
+  { w0: 0.07, w1: 0.024, spread: 0, lag: 0, a: 0.95 },
+  { w0: 0.03, w1: 0.012, spread: 0.1, lag: 0.02, a: 0.75 },
+  { w0: 0.03, w1: 0.012, spread: -0.1, lag: 0.035, a: 0.75 },
+];
+
+const STREAM_VS = /* glsl */ `
+attribute vec2 aUv;
+attribute float aA;
+varying vec2 vUv;
+varying float vA;
+#include <fog_pars_vertex>
+void main() {
+  vUv = aUv;
+  vA = aA;
+  vec4 mvPosition = viewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+const STREAM_FS = /* glsl */ `
+uniform float uTime;
+uniform vec3 uBody;
+uniform vec3 uCore;
+varying vec2 vUv;
+varying float vA;
+#include <fog_pars_fragment>
+float h21(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+float vn(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
+}
+void main() {
+  float x = abs(vUv.x);
+  // Scrolling glassy streaks: water rushing down the arc, breaking up toward the end.
+  float flow = vn(vec2(vUv.y * 9.0 - uTime * 7.5, vUv.x * 1.5)) * 0.6 + vn(vec2(vUv.y * 23.0 - uTime * 13.0, vUv.x * 3.0 + 7.0)) * 0.4;
+  float breakup = smoothstep(0.55, 1.0, vUv.y) * 0.55;
+  float edge = 1.0 - smoothstep(0.45 - breakup * 0.3, 1.0, x + (flow - 0.5) * 0.35);
+  float a = edge * vA * (0.72 + 0.28 * flow) * (1.0 - breakup * step(flow, 0.42));
+  if (a < 0.01) discard;
+  float core = 1.0 - smoothstep(0.0, 0.42, x);
+  vec3 c = mix(uBody, uCore, core * (0.55 + 0.45 * flow));
+  // A bright sun glint riding the upper edge.
+  c += vec3(0.25) * smoothstep(0.62, 0.9, flow) * (1.0 - x);
+  gl_FragColor = vec4(c, a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
 
 /**
- * A continuous stream of water from the can's rose to the ground: a lit, tapered tube along the
- * ballistic arc that grows out of the spout when the pour starts, wobbles while it runs and
- * detaches + falls when it stops (droplets break off its end — see FarmFX.pourStream).
+ * The watering-can pour: a camera-facing tapered ribbon (5 cm at the rose → 1.5 cm) along the
+ * ballistic arc, with scrolling glassy streaks and a white-blue core, flanked by two thinner jets
+ * that fan apart as they fall. It grows out of the spout when the pour starts, wobbles while it
+ * runs and detaches + falls when it stops (droplets break off its end — see the farming system).
  */
 class Stream {
   readonly mesh: THREE.Mesh;
   private pos: Float32Array;
-  private nor: Float32Array;
+  private uv: Float32Array;
+  private al: Float32Array;
   private from = new THREE.Vector3();
   private vel = new THREE.Vector3();
   private T = 0.35;
@@ -622,26 +699,39 @@ class Stream {
   private tail = 0;
   private on = false;
   private t = 0;
+  private mat: THREE.ShaderMaterial;
+  /** Camera forward (set by the owner each frame) — the ribbon faces the camera. */
+  readonly view = new THREE.Vector3(0, -0.7, -0.7);
 
   constructor() {
-    const n = (STREAM_N + 1) * (STREAM_R + 1);
+    const per = (STREAM_N + 1) * 2;
+    const n = per * JETS.length;
     this.pos = new Float32Array(n * 3);
-    this.nor = new Float32Array(n * 3);
+    this.uv = new Float32Array(n * 2);
+    this.al = new Float32Array(n);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('normal', new THREE.BufferAttribute(this.nor, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aUv', new THREE.BufferAttribute(this.uv, 2).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aA', new THREE.BufferAttribute(this.al, 1).setUsage(THREE.DynamicDrawUsage));
     const idx: number[] = [];
-    for (let i = 0; i < STREAM_N; i++) {
-      for (let j = 0; j < STREAM_R; j++) {
-        const a = i * (STREAM_R + 1) + j;
-        const b = a + STREAM_R + 1;
-        idx.push(a, b, a + 1, b, b + 1, a + 1);
+    for (let j = 0; j < JETS.length; j++) {
+      for (let i = 0; i < STREAM_N; i++) {
+        const a = j * per + i * 2;
+        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
       }
     }
     g.setIndex(idx);
-    const m = new THREE.MeshStandardMaterial({ color: 0xc4e6fa, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.82, depthWrite: false, envMapIntensity: 1.8 });
-    m.name = 'fx-stream';
-    this.mesh = new THREE.Mesh(g, m);
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x5aa6e6) }, uCore: { value: new THREE.Color(0xeaf7ff) } }]),
+      vertexShader: STREAM_VS,
+      fragmentShader: STREAM_FS,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: true,
+    });
+    this.mat.name = 'fx-stream';
+    this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.name = 'fx-stream';
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 6;
@@ -678,8 +768,15 @@ class Stream {
     return this.head;
   }
 
+  private _p = new THREE.Vector3();
+  private _q = new THREE.Vector3();
+  private _tan = new THREE.Vector3();
+  private _side = new THREE.Vector3();
+  private _lat = new THREE.Vector3();
+
   update(dt: number): void {
     this.t += dt;
+    this.mat.uniforms.uTime!.value = this.t;
     if (this.on) this.head = Math.min(this.T, this.head + dt);
     else this.tail += dt;
     if (!this.on && this.tail >= this.head) {
@@ -688,46 +785,48 @@ class Stream {
     }
     if (this.head <= 0) return;
     this.mesh.visible = true;
-    const s0 = Math.min(this.tail, this.head);
-    const s1 = this.head;
-    const p = new THREE.Vector3();
-    const q = new THREE.Vector3();
-    const tan = new THREE.Vector3();
-    const nrm = new THREE.Vector3();
-    const bin = new THREE.Vector3();
-    const up = new THREE.Vector3(0, 1, 0);
-    for (let i = 0; i <= STREAM_N; i++) {
-      const u = i / STREAM_N;
-      const s = s0 + (s1 - s0) * u;
-      this.at(s, p);
-      this.at(s + 0.01, q);
-      tan.subVectors(q, p).normalize();
-      bin.crossVectors(tan, up);
-      if (bin.lengthSq() < 1e-6) bin.set(1, 0, 0);
-      bin.normalize();
-      nrm.crossVectors(bin, tan).normalize();
-      // Thick at the rose, thinning as it falls and breaks up; a travelling wobble.
-      const r = (0.034 - 0.014 * (s / this.T)) * (1 + 0.18 * Math.sin(this.t * 38 - s * 60)) * (u > 0.94 ? (1 - u) / 0.06 * 0.6 + 0.4 : 1);
-      const wob = Math.sin(this.t * 23 + s * 40) * 0.006 * (s / this.T);
-      for (let j = 0; j <= STREAM_R; j++) {
-        const a = (j / STREAM_R) * Math.PI * 2;
-        const cx = Math.cos(a);
-        const cy = Math.sin(a);
-        const k = (i * (STREAM_R + 1) + j) * 3;
-        const ox = bin.x * cx + nrm.x * cy;
-        const oy = bin.y * cx + nrm.y * cy;
-        const oz = bin.z * cx + nrm.z * cy;
-        this.pos[k] = p.x + ox * r + bin.x * wob;
-        this.pos[k + 1] = p.y + oy * r;
-        this.pos[k + 2] = p.z + oz * r + bin.z * wob;
-        this.nor[k] = ox;
-        this.nor[k + 1] = oy;
-        this.nor[k + 2] = oz;
+    const { _p: p, _q: q, _tan: tan, _side: side, _lat: lat } = this;
+    // Lateral axis (horizontal, across the pour direction): the side jets fan out along it.
+    lat.set(-this.vel.z, 0, this.vel.x);
+    if (lat.lengthSq() < 1e-6) lat.set(1, 0, 0);
+    lat.normalize();
+    const per = (STREAM_N + 1) * 2;
+    JETS.forEach((jet, j) => {
+      const s0 = Math.min(this.tail + jet.lag * (this.on ? 0 : 1), this.head);
+      const s1 = Math.max(s0, this.head - jet.lag);
+      for (let i = 0; i <= STREAM_N; i++) {
+        const u = i / STREAM_N;
+        const s = s0 + (s1 - s0) * u;
+        this.at(s, p);
+        this.at(s + 0.01, q);
+        const f = s / this.T;
+        // Side jets fan apart as they fall; everything wobbles a little (a hand-held can).
+        p.addScaledVector(lat, jet.spread * f * f + Math.sin(this.t * 21 + s * 35 + j * 2) * 0.008 * f);
+        q.addScaledVector(lat, jet.spread * f * f);
+        tan.subVectors(q, p).normalize();
+        side.crossVectors(tan, this.view);
+        if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+        side.normalize();
+        const w = (jet.w0 + (jet.w1 - jet.w0) * Math.min(1, f)) * (1 + 0.12 * Math.sin(this.t * 38 - s * 60 + j)) * 0.5;
+        // Pinch the leading tip and the detaching tail.
+        const tip = Math.min(1, (1 - u) / 0.08) * Math.min(1, u / 0.04 + (this.on ? 1 : 0));
+        const k = (j * per + i * 2) * 3;
+        for (let e = 0; e < 2; e++) {
+          const sg = e === 0 ? -1 : 1;
+          this.pos[k + e * 3] = p.x + side.x * w * sg;
+          this.pos[k + e * 3 + 1] = p.y + side.y * w * sg;
+          this.pos[k + e * 3 + 2] = p.z + side.z * w * sg;
+          const kk = (j * per + i * 2 + e) * 2;
+          this.uv[kk] = sg;
+          this.uv[kk + 1] = f;
+          this.al[j * per + i * 2 + e] = jet.a * (0.35 + 0.65 * tip);
+        }
       }
-    }
+    });
     const g = this.mesh.geometry;
     (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-    (g.attributes.normal as THREE.BufferAttribute).needsUpdate = true;
+    (g.attributes.aUv as THREE.BufferAttribute).needsUpdate = true;
+    (g.attributes.aA as THREE.BufferAttribute).needsUpdate = true;
   }
 }
 
@@ -746,27 +845,41 @@ interface Ring {
 // ───────────────────────────────────────────── produce pops
 
 export interface PopOpts {
-  /** World position the item is thrown to (e.g. above the farmer's head). */
+  /** Where the item is held (e.g. the farmer's raised hands) — re-read every frame. */
   to: () => THREE.Vector3;
+  /** Extra lift of the item's centre above `to` (m); default: its own radius + 4 cm. */
+  lift?: number;
   /** Seconds in flight. */
   flight?: number;
-  /** Seconds it hangs at `to` before zipping away. */
+  /** Seconds it is held up before it zips into the backpack. */
   hold?: number;
   /** Quality star colour (null = none). */
   star?: number | null;
   scale?: number;
+  /** Presented turn (radians about Y) once caught — the item faces the camera nicely. */
+  face?: number;
   onArrive?: () => void;
+  /** Fired as the item leaves for the backpack (world pos of the item) — launch the UI flight here. */
   onDone?: (pos: THREE.Vector3) => void;
+  /** Hop straight back into the soil / vanish in place (another farmer's harvest in co-op). */
+  fade?: boolean;
+  /** The star goes on the side of the item away from this point (e.g. the farmer's head). */
+  pivot?: () => THREE.Vector3;
 }
 
 interface Pop {
   mesh: THREE.Mesh;
-  star: THREE.Sprite | null;
+  star: THREE.Mesh | null;
+  glint: THREE.Sprite | null;
   from: THREE.Vector3;
   opts: PopOpts;
   age: number;
   arrived: boolean;
+  done: boolean;
   spin: number;
+  radius: number;
+  /** Distance from the mesh origin down to its underside (it rests on `to` by this much). */
+  bottom: number;
 }
 
 // ───────────────────────────────────────────── swing smear
@@ -899,55 +1012,47 @@ export class SwingTrail {
 }
 
 
-const starMats = new Map<number, THREE.SpriteMaterial>();
-/** Quality star badge: a chunky five-point star with an ink outline and a highlight (sprite). */
-function starSpriteMaterial(color: number): THREE.SpriteMaterial {
+let starGeo: THREE.BufferGeometry | null = null;
+/** Chunky four-point quality star (bevelled, extruded), ~0.1 m radius, centred. */
+function starGeometry(): THREE.BufferGeometry {
+  if (starGeo) return starGeo;
+  const sh = new THREE.Shape();
+  const R = 1;
+  const r = 0.36;
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 2 + (i / 4) * Math.PI * 2;
+    const a2 = a + Math.PI / 4;
+    const a3 = a + Math.PI / 2;
+    const tip = [Math.cos(a) * R, Math.sin(a) * R] as const;
+    if (i === 0) sh.moveTo(tip[0], tip[1]);
+    // Concave sides: curve in toward the waist between two tips (a plump sparkle, not a cross).
+    sh.quadraticCurveTo(Math.cos(a2) * r * 0.9, Math.sin(a2) * r * 0.9, Math.cos(a3) * R, Math.sin(a3) * R);
+  }
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.22, bevelEnabled: true, bevelThickness: 0.14, bevelSize: 0.1, bevelSegments: 3, curveSegments: 6 });
+  g.translate(0, 0, -0.11);
+  g.scale(0.1, 0.1, 0.1);
+  g.computeVertexNormals();
+  starGeo = g;
+  return g;
+}
+
+const starMats = new Map<number, THREE.MeshStandardMaterial>();
+/** Metallic, self-lit star (emissive ≈ 1.2 → the bloom picks it up). */
+function starMaterial(color: number): THREE.MeshStandardMaterial {
   let m = starMats.get(color);
   if (m) return m;
-  const S = 128;
-  const c = document.createElement('canvas');
-  c.width = c.height = S;
-  const g = c.getContext('2d')!;
-  const path = (r0: number, r1: number): void => {
-    g.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const a = -Math.PI / 2 + (i / 10) * Math.PI * 2;
-      const r = i % 2 ? r1 : r0;
-      const x = S / 2 + Math.cos(a) * r;
-      const y = S / 2 + 4 + Math.sin(a) * r;
-      if (i === 0) g.moveTo(x, y);
-      else g.lineTo(x, y);
-    }
-    g.closePath();
-  };
-  g.lineJoin = 'round';
-  path(56, 25);
-  g.fillStyle = '#2a1a0e';
-  g.fill();
-  g.lineWidth = 12;
-  g.strokeStyle = '#2a1a0e';
-  g.stroke();
-  path(50, 22);
-  const col = new THREE.Color(color);
-  const hi = col.clone().lerp(new THREE.Color(0xffffff), 0.55);
-  const lo = col.clone().multiplyScalar(0.72);
-  const gr = g.createLinearGradient(0, 10, 0, S - 10);
-  gr.addColorStop(0, `#${hi.getHexString()}`);
-  gr.addColorStop(0.55, `#${col.getHexString()}`);
-  gr.addColorStop(1, `#${lo.getHexString()}`);
-  g.fillStyle = gr;
-  g.fill();
-  g.fillStyle = 'rgba(255,255,255,0.7)';
-  g.beginPath();
-  g.ellipse(S / 2 - 10, S / 2 - 12, 9, 5, -0.6, 0, Math.PI * 2);
-  g.fill();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  m = new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, depthTest: false });
+  const c = new THREE.Color(color);
+  m = new THREE.MeshStandardMaterial({ color: c, emissive: c.clone().lerp(new THREE.Color(0xffffff), 0.15), emissiveIntensity: 1.2, metalness: 0.55, roughness: 0.28, depthTest: false, depthWrite: false, transparent: true });
   m.name = 'fx-star';
   starMats.set(color, m);
   return m;
 }
+
+/** Ease-out-back (overshoot ~10 %). */
+const outBack = (t: number): number => {
+  const c = 1.70158;
+  return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
+};
 
 export class FarmFX {
   readonly group = new THREE.Group();
@@ -962,7 +1067,6 @@ export class FarmFX {
   private cracks: Decals;
   /** Watering-can pour stream (aimed each frame by the farming system while pouring). */
   readonly stream = new Stream();
-  private outlineMat: THREE.MeshBasicMaterial;
   private rings: Ring[] = [];
   private ringMesh: THREE.InstancedMesh;
   private ringNext = 0;
@@ -973,6 +1077,16 @@ export class FarmFX {
   private ringsLive = false;
   /** Tool swing smear (sampled by the farming system while a swing is live). */
   readonly trail = new SwingTrail();
+  /** Camera basis (set each frame via setCamera): stars face the camera and sit to the item's right. */
+  readonly viewRight = new THREE.Vector3(1, 0, 0);
+  readonly viewQuat = new THREE.Quaternion();
+
+  setCamera(cam: THREE.Camera): void {
+    cam.getWorldDirection(this.trail.view);
+    this.stream.view.copy(this.trail.view);
+    cam.getWorldQuaternion(this.viewQuat);
+    this.viewRight.set(1, 0, 0).applyQuaternion(this.viewQuat);
+  }
 
   constructor(private ground: GroundFn) {
     this.group.name = 'farmfx';
@@ -1006,13 +1120,11 @@ export class FarmFX {
     this.glow.points.name = 'fx-glow';
 
     // Droplets: velocity-stretched streaks (no emissive; alpha ~0.6), one draw call.
-    this.streaks = new Streaks(640);
-    for (let i = 0; i < 640; i++) this.drops.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), r: 0.02, age: 0, active: false, crown: false });
+    this.streaks = new Streaks(1200);
+    for (let i = 0; i < 1200; i++) this.drops.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), r: 0.02, age: 0, active: false, crown: false });
     this.streaks.mesh.visible = false;
     this.wet = new Decals(96, decalTexture('wet'), 0x0e0a06, 'fx-wet');
-    this.cracks = new Decals(24, decalTexture('crack'), 0x1a0f08, 'fx-cracks');
-    this.outlineMat = new THREE.MeshBasicMaterial({ color: 0x2a1a0e, side: THREE.BackSide });
-    this.outlineMat.name = 'fx-outline';
+    this.cracks = new Decals(24, decalTexture('crack'), 0xc9a47a, 'fx-cracks');
 
     const rg = new THREE.RingGeometry(0.78, 1, 28);
     rg.rotateX(-Math.PI / 2);
@@ -1029,8 +1141,22 @@ export class FarmFX {
     }
     this.ringMesh.visible = false;
 
-    this.popMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 });
+    this.popMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
     this.popMat.name = 'fx-pop';
+    // Hero produce: a warm rim light + a little wrap so the held item reads as a juicy, lit object
+    // against anything behind it (and never goes flat when the sun is behind the camera).
+    this.popMat.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        {
+          float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
+          float rim = pow(1.0 - ndv, 2.6);
+          totalEmissiveRadiance += diffuseColor.rgb * (0.08 + rim * 0.55) + vec3(1.0, 0.92, 0.75) * rim * 0.12;
+        }`,
+      );
+    };
+    this.popMat.customProgramCacheKey = () => 'fx-pop-rim';
 
     this.group.add(this.clods.mesh, this.leaves.mesh, this.streaks.mesh, this.ringMesh, this.dust.points, this.glow.points, this.trail.mesh, this.wet.mesh, this.cracks.mesh, this.stream.mesh);
   }
@@ -1041,8 +1167,23 @@ export class FarmFX {
     this.clods.spawn(p, v, { color, size, life });
   }
 
-  leaf(p: THREE.Vector3, v: THREE.Vector3, color: number | THREE.Color, size = 0.05): void {
-    this.leaves.spawn(p, v, { color, size, life: rnd(1.6, 2.6), gravity: 2.2, drag: 2.6, bounce: 0, flutter: 1.2, flat: 1, spin: 5 });
+  leaf(p: THREE.Vector3, v: THREE.Vector3, color: number | THREE.Color, size = 0.05, life = rnd(1.6, 2.6)): void {
+    this.leaves.spawn(p, v, { color, size, life, gravity: 2.2, drag: 2.6, bounce: 0, flutter: 1.2, flat: 1, spin: 5 });
+  }
+
+  /** A torn grass blade flicked off by the hoe: flies, flutters and shrinks away within ~0.6 s. */
+  blade(p: THREE.Vector3, v: THREE.Vector3, color: number | THREE.Color, size = 0.04): void {
+    this.leaves.spawn(p, v, { color, size, life: 0.5, gravity: 5, drag: 1.6, bounce: 0, flutter: 0.8, flat: 1, spin: 14 });
+  }
+
+  /** A black feather: see-saws down and lies on the ground for `life` seconds. */
+  feather(p: THREE.Vector3, v: THREE.Vector3, life = 3): void {
+    this.leaves.spawn(p, v, { color: 0x23252f, size: rnd(0.07, 0.095), life, gravity: 1.4, drag: 3.2, bounce: 0, flutter: 1.6, flat: 0.5, spin: 4 });
+  }
+
+  /** Soft drifting spray mist (sprinklers, heavy pours). */
+  mist(p: THREE.Vector3, size = 0.5, alpha = 0.16): void {
+    this.dust.emit(p, _v.set(rnd(-0.15, 0.15), rnd(0.05, 0.2), rnd(-0.15, 0.15)), { color: 0xe4f2ff, size, life: rnd(0.9, 1.4), grow: 1.8, alpha, gravity: -0.05, drag: 1.5 });
   }
 
   puff(p: THREE.Vector3, v: THREE.Vector3, color: number | THREE.Color, size: number, life: number, opts: { grow?: number; alpha?: number; gravity?: number; drag?: number } = {}): void {
@@ -1093,8 +1234,8 @@ export class FarmFX {
         const z = c.z + Math.sin(a) * rr;
         pos.push(x, this.ground(x, z) + 0.16, z); // at grass-tip height, so the lawn doesn't swallow it
         const edge = j >= 3;
-        const dash = Math.floor(i / 2) % 2 === 0 ? 1 : 0.25;
-        const al = [0.0, 0.0, 0.05, 0.7 * dash, 0.7 * dash, 0.0][j]!;
+        const dash = Math.floor(i / 2) % 2 === 0 ? 1 : 0.1;
+        const al = [0.0, 0.0, 0.03, 0.35 * dash, 0.35 * dash, 0.0][j]!;
         col.push(edge ? 1 : 1, edge ? 0.93 : 0.95, edge ? 0.7 : 0.8, al);
       }
     }
@@ -1135,26 +1276,26 @@ export class FarmFX {
     this.wet.add(p.clone().setY(p.y + 0.012), r, { life, fadeIn: 0.25, alpha, grow: 0.5 });
   }
 
-  /** Cracked, bruised ground under a heavy impact (fades in over 0.25 s, then out). */
-  crack(p: THREE.Vector3, r = 0.55, life = 1.6): void {
-    this.cracks.add(p.clone().setY(p.y + 0.015), r, { life, fadeIn: 0.12, alpha: 0.85, grow: 0.15 });
+  /** Pale, dusty slam stamp with short forked cracks on bare / tilled soil (fades over ~1.5 s). */
+  crack(p: THREE.Vector3, r = 0.46, life = 1.5): void {
+    this.cracks.add(p.clone().setY(p.y + 0.012), r, { life, fadeIn: 0.1, alpha: 0.8, grow: 0.12 });
   }
 
-  /** A 0.2 s splash crown where water lands: droplets flicked up and out in a ring. */
-  crown(p: THREE.Vector3, size = 1, n = 7): void {
+  /** A splash crown where water lands: droplets flicked up and out in a ring. */
+  crown(p: THREE.Vector3, size = 1, n = 6): void {
     const a0 = rnd(0, Math.PI * 2);
     for (let i = 0; i < n; i++) {
       const a = a0 + (i / n) * Math.PI * 2 + rnd(-0.2, 0.2);
-      const sp = rnd(0.45, 0.8) * size;
-      this.drop(p.clone().setY(p.y + 0.01), new THREE.Vector3(Math.cos(a) * sp, rnd(0.9, 1.4) * size, Math.sin(a) * sp), 0.007 * size);
+      const sp = rnd(0.35, 0.7) * size;
+      this.drop(p.clone().setY(p.y + 0.01), new THREE.Vector3(Math.cos(a) * sp, rnd(1.1, 1.8) * size, Math.sin(a) * sp), 0.011 * size);
     }
   }
 
   /**
    * Dust wall for a charged slam: soft dust billows along the rim of the struck block, rolling
-   * outward and up, plus a cracked-ground decal per tile. `tiles` are tile centres (world).
+   * outward and up (optionally a slam stamp per tile). `tiles` are tile centres (world).
    */
-  dustWall(tiles: THREE.Vector3[], dirX: number, dirZ: number, color = 0xb89a78): void {
+  dustWall(tiles: THREE.Vector3[], dirX: number, dirZ: number, color = 0xb89a78, cracks = false): void {
     if (!tiles.length) return;
     const min = tiles[0]!.clone();
     const max = tiles[0]!.clone();
@@ -1186,7 +1327,7 @@ export class FarmFX {
       const l = Math.hypot(ox, oz) || 1;
       this.puff(new THREE.Vector3(x, y + rnd(0.02, 0.12), z), new THREE.Vector3((ox / l) * rnd(1.4, 2.4), rnd(0.35, 0.9), (oz / l) * rnd(1.4, 2.4)), color, rnd(0.26, 0.4), rnd(0.8, 1.2), { alpha: 0.5, grow: 2.2, drag: 3.2 });
     }
-    for (const t of tiles) this.crack(t, rnd(0.62, 0.72), rnd(1.4, 1.8));
+    if (cracks) for (const t of tiles) this.crack(t);
     void dirX;
     void dirZ;
   }
@@ -1225,9 +1366,14 @@ export class FarmFX {
     }
   }
 
-  /** Watering landing on a tile: a quick splash crown (the soil itself darkens underneath). */
+  /**
+   * Water landing on the soil: an expanding ripple ring on the ground + a crown of 6 droplets flung
+   * up and out + a wisp of mist (the soil itself darkens underneath).
+   */
   splash(p: THREE.Vector3, big = 1): void {
-    this.crown(p, big, 5 + Math.round(big * 2));
+    this.ring(p.clone().setY(p.y + 0.015), 0.04 * big, 0.3 * big, 0.42, 0x3f6e90);
+    this.crown(p, big, 6);
+    if (fxr.next() < 0.5) this.mist(p.clone().setY(p.y + 0.06), 0.22 * big, 0.14);
   }
 
   /** Seeds scattered into a tile + a little dust. */
@@ -1270,27 +1416,30 @@ export class FarmFX {
     }
   }
 
-  /** Throw a produce mesh from `from` in an arc to opts.to() (squash on launch, spin, star). */
+  /**
+   * Throw a produce mesh from `from` in an arc into the farmer's raised hands (opts.to()): squash on
+   * launch, spin in flight, a squash-and-settle catch, held up with a slow presenting turn while a
+   * quality star spins in beside it, then it shrinks away as its icon flies to the toolbar.
+   */
   pop(geo: THREE.BufferGeometry, from: THREE.Vector3, opts: PopOpts): void {
     const mesh = new THREE.Mesh(geo, this.popMat);
     mesh.castShadow = true;
     mesh.position.copy(from);
     mesh.scale.setScalar(0.01);
-    // Inverted-hull ink outline: switched on while the produce is held up for show.
-    const hull = new THREE.Mesh(geo, this.outlineMat);
-    hull.name = 'outline';
-    hull.scale.setScalar(1.09);
-    hull.visible = false;
-    mesh.add(hull);
-    let star: THREE.Sprite | null = null;
-    if (opts.star != null) {
-      star = new THREE.Sprite(starSpriteMaterial(opts.star));
+    let star: THREE.Mesh | null = null;
+    const glint: THREE.Sprite | null = null;
+    if (opts.star != null && !opts.fade) {
+      star = new THREE.Mesh(starGeometry(), starMaterial(opts.star));
       star.scale.setScalar(0.001);
-      star.renderOrder = 9;
+      star.renderOrder = 10;
       this.group.add(star);
     }
+    if (!geo.boundingSphere) geo.computeBoundingSphere();
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const radius = geo.boundingSphere?.radius ?? 0.12;
+    const bottom = geo.boundingBox ? -geo.boundingBox.min.y : radius;
     this.group.add(mesh);
-    this.pops.push({ mesh, star, from: from.clone(), opts, age: 0, arrived: false, spin: rnd(-1, 1) });
+    this.pops.push({ mesh, star, glint, from: from.clone(), opts, age: 0, arrived: false, done: false, spin: rnd(-1, 1), radius, bottom });
   }
 
   /** Drop every live effect (demo staging: nothing from the previous scene leaks into the next). */
@@ -1308,6 +1457,7 @@ export class FarmFX {
     for (const p of this.pops) {
       p.mesh.removeFromParent();
       p.star?.removeFromParent();
+      p.glint?.removeFromParent();
     }
     this.pops.length = 0;
     this.trail.update(99);
@@ -1395,59 +1545,98 @@ export class FarmFX {
     for (let i = this.pops.length - 1; i >= 0; i--) {
       const p = this.pops[i]!;
       p.age += dt;
-      const flight = p.opts.flight ?? 0.42;
-      const hold = p.opts.hold ?? 0.55;
+      const flight = p.opts.flight ?? 0.3;
+      const hold = p.opts.hold ?? 0.5;
       const S = p.opts.scale ?? 1;
-      const to = p.opts.to();
+      const lift = p.opts.lift ?? p.bottom * S * 0.92;
+      const to = p.opts.to().add(_v.set(0, lift, 0));
       const m = p.mesh;
-      const hull = m.children[0];
+      const face = p.opts.face ?? 0;
+      if (p.opts.fade) {
+        // Someone else's harvest: a little hop over the tile, then it pops out of existence.
+        const t = Math.min(1, p.age / 0.55);
+        m.position.copy(p.from);
+        m.position.y += Math.sin(Math.min(1, t * 1.4) * Math.PI) * 0.45;
+        const k = t < 0.2 ? outBack(t / 0.2) : 1 - THREE.MathUtils.smoothstep(t, 0.75, 1);
+        m.scale.setScalar(Math.max(0.001, S * k));
+        m.rotation.set(0, face + t * 4 * p.spin, 0);
+        if (t >= 1) {
+          m.removeFromParent();
+          this.pops.splice(i, 1);
+        }
+        continue;
+      }
       if (p.age < flight) {
-        // Arc: launch with a squash, stretch along the rise, spin.
+        // Arc: launch squash → stretch along the rise, spin that settles to the presented angle.
         const t = p.age / flight;
-        const e = 1 - Math.pow(1 - t, 2);
+        const e = 1 - Math.pow(1 - t, 2.2);
         m.position.lerpVectors(p.from, to, e);
-        m.position.y += Math.sin(t * Math.PI) * 0.9;
-        const pop = t < 0.18 ? THREE.MathUtils.lerp(0.3, 1.1, t / 0.18) : THREE.MathUtils.lerp(1.1, 1, Math.min(1, (t - 0.18) / 0.4));
-        const stretch = 1 + Math.sin(t * Math.PI) * 0.25;
-        m.scale.set((S * pop) / Math.sqrt(stretch), S * pop * stretch, (S * pop) / Math.sqrt(stretch));
-        m.rotation.set(Math.sin(t * 6) * 0.3, t * 6 * p.spin + p.spin, 0);
-        if (hull) hull.visible = false;
+        m.position.y += Math.sin(t * Math.PI) * 0.35;
+        const grow = t < 0.25 ? THREE.MathUtils.lerp(0.35, 1.05, t / 0.25) : 1;
+        const stretch = 1 + Math.sin(t * Math.PI) * 0.22;
+        m.scale.set((S * grow) / Math.sqrt(stretch), S * grow * stretch, (S * grow) / Math.sqrt(stretch));
+        const spinLeft = 1 - t;
+        m.rotation.set(Math.sin(t * 7) * 0.35 * spinLeft, face + spinLeft * spinLeft * 5 * p.spin, Math.sin(t * 5) * 0.2 * spinLeft);
       } else if (p.age < flight + hold) {
         if (!p.arrived) {
           p.arrived = true;
           p.opts.onArrive?.();
+          // Catch glints.
+          for (let k = 0; k < 6; k++) {
+            const a = (k / 6) * Math.PI * 2;
+            this.glow.emit(to, _v.set(Math.cos(a) * 0.9, 0.5 + Math.sin(a) * 0.6, Math.sin(a) * 0.3), { color: 0x6a5a38, size: 0.07, life: 0.35, grow: 0.2, alpha: 1, gravity: 0, drag: 4 });
+          }
         }
-        // Held up for show: lands squashed (1.25 / 0.8) and springs back to 1, outlined, slow turn.
+        // Caught: squash (1.25 / 0.8) springing back to 1 over ~120 ms (ease-out-back), then a
+        // gentle bob and a slow presenting sway, outlined.
         const th = p.age - flight;
-        const osc = Math.exp(-th * 9) * Math.cos(th * 24);
+        const k = Math.min(1, th / 0.12);
+        const eb = outBack(k);
+        const sx = 1.25 + (1 - 1.25) * eb;
+        const sy = 0.8 + (1 - 0.8) * eb;
         m.position.copy(to);
-        m.position.y += Math.sin(Math.min(1, th / hold) * Math.PI) * 0.04;
-        m.scale.set(S * (1 + 0.25 * osc), S * (1 - 0.2 * osc), S * (1 + 0.25 * osc));
-        m.rotation.set(0, m.rotation.y + dt * 1.6, Math.sin(th * 5) * 0.08);
-        if (hull) hull.visible = true;
+        m.position.y += Math.sin(th * 6) * 0.012 - (1 - k) * 0.03;
+        m.scale.set(S * sx, S * sy, S * sx);
+        m.rotation.set(Math.sin(th * 3.1) * 0.06, face + Math.sin(th * 2.4) * 0.28, Math.sin(th * 4.3) * 0.05);
       } else {
-        // Zip into the backpack: shrink towards the farmer's chest.
-        const t = Math.min(1, (p.age - flight - hold) / 0.2);
-        m.position.copy(to).add(new THREE.Vector3(0, -0.55 * t * t, 0.1 * t));
-        m.scale.setScalar(S * (1 - t * t));
-        if (hull) hull.visible = t < 0.4;
-        if (t >= 1) {
+        if (!p.done) {
+          p.done = true;
+          // The icon takes over in screen space from here.
           p.opts.onDone?.(m.position.clone());
+        }
+        const t = Math.min(1, (p.age - flight - hold) / 0.14);
+        m.position.copy(to).add(_v.set(0, 0.12 * t, 0));
+        m.scale.setScalar(Math.max(0.001, S * (1 - t * t) * (1 + 0.15 * Math.sin(t * Math.PI))));
+        if (t >= 1) {
           m.removeFromParent();
           p.star?.removeFromParent();
+          p.glint?.removeFromParent();
           this.pops.splice(i, 1);
           continue;
         }
       }
       if (p.star) {
-        // The quality star pops in above the produce once it lands overhead, bounces, then follows it out.
+        // The quality star spins in beside the produce on the catch (0 → 1.3 → 1), twinkles, then
+        // follows the produce out.
         const st = p.star;
-        const ts = p.age - flight;
-        const k = ts < 0 ? 0 : ts < 0.14 ? THREE.MathUtils.lerp(0, 1.35, ts / 0.14) : 1 + 0.35 * Math.exp(-(ts - 0.14) * 10) * Math.cos((ts - 0.14) * 30);
-        const out = p.age > flight + hold ? Math.max(0, 1 - (p.age - flight - hold) / 0.18) : 1;
-        st.scale.setScalar(Math.max(0.001, 0.26 * k * out));
-        st.position.copy(m.position).add(new THREE.Vector3(0, 0.3 * S + 0.08, 0));
-        st.material.rotation = Math.sin(p.age * 4) * 0.18;
+        const ts = p.age - flight - 0.04;
+        let k = 0;
+        if (ts > 0) k = ts < 0.1 ? THREE.MathUtils.lerp(0, 1.3, ts / 0.1) : 1 + 0.3 * (1 - outBack(Math.min(1, (ts - 0.1) / 0.18)));
+        const out = p.age > flight + hold ? Math.max(0, 1 - (p.age - flight - hold) / 0.12) : 1;
+        const sc = Math.max(0.001, k * out);
+        st.scale.setScalar(sc * Math.max(0.9, S * 0.8));
+        const side = p.opts.pivot ? (_v.subVectors(m.position, p.opts.pivot()).dot(this.viewRight) >= 0 ? 1 : -1) : 1;
+        st.position.copy(m.position).addScaledVector(this.viewRight, side * (p.radius * S * 0.9 + 0.1)).add(_v.set(0, p.radius * S * 0.45, 0));
+        // Spin in (a full turn that settles), then a slow wobble facing the camera.
+        const spinIn = ts > 0 ? Math.max(0, 1 - ts / 0.32) : 1;
+        st.quaternion.copy(this.viewQuat);
+        st.rotateY(spinIn * spinIn * Math.PI * 2 + Math.sin(p.age * 3) * 0.25);
+        st.rotateZ(Math.sin(p.age * 2.2) * 0.12);
+        // Twinkles: tiny additive glints popping around the star.
+        if (sc > 0.5 && out > 0.5 && dt > 0 && fxr.next() < dt * 14) {
+          const a = rnd(0, Math.PI * 2);
+          this.glow.emit(st.position.clone().add(_v.set(Math.cos(a) * 0.09, Math.sin(a) * 0.09, 0).applyQuaternion(this.viewQuat)), _v.set(0, 0.25, 0), { color: 0x8a7440, size: rnd(0.05, 0.09), life: 0.35, grow: 0.2, alpha: 1, gravity: 0, drag: 2 });
+        }
       }
     }
   }

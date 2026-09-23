@@ -159,6 +159,14 @@ export class InstancedSet {
     this.parts.forEach((p, k) => p.entry.mesh.setMatrixAt(ids[k]!, matrix));
   }
 
+  /** World matrix of logical instance `i` (null once removed). */
+  matrixOf(i: number, out = new THREE.Matrix4()): THREE.Matrix4 | null {
+    const ids = this.ids[i];
+    const p = this.parts[0];
+    if (!ids || !p) return null;
+    return p.entry.mesh.getMatrixAt(ids[0]!, out);
+  }
+
   setColor(i: number, color: THREE.Color): void {
     const ids = this.ids[i];
     if (!ids) return;

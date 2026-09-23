@@ -303,23 +303,33 @@ Demos: `beach-day`, `beach-sunset` (a line in the water at dusk), `beach-night`,
 ## Farming
 
 `systems/farming.ts` runs the loop (hoe → water → sow → grow → harvest) and its game feel; visuals live in
-`world/props/` (`soil.ts` lofted furrow mounds + torn sod lips + sub-tile wet flood, `crops.ts` 18 crops × 6 stages,
-giant crops, crow-eaten stubs, produce crates, `farmfx.ts` clods / streak water / can stream / splash crowns / cracks /
-dust walls / harvest pop + quality star / swing smear / scarecrow radius, `tilecursor.ts` corner-bracket cursor,
-`tools.ts` tiered tool meshes, `crows.ts`), poses in `entities/farmer-actions.ts`.
+`world/props/` (`soil.ts` lofted furrow mounds + torn sod lips + sub-tile wet flood — dry soil is pale, warm and
+crazed with hairline cracks, wet soil dark, cool and glossy; `crops.ts` 18 crops × 6 stages with soft-plant light
+(wrap + sun transmission + rim), giant crops on a heaved soil berm with radiating vines (fractal-floret giant
+cauliflower cupped by ribbed leaves), crow-eaten stubs, produce crates; `farmfx.ts` clods / torn-sod blades / can
+stream (tapered camera-facing ribbon + 2 side jets, droplets, splash crowns with ripple rings) / dusty slam stamps /
+dust walls / harvest pop + 3D quality star / swing smear / sprinkler mist / scarecrow radius; `tilecursor.ts`
+corner-bracket cursor, `tools.ts` tiered tool meshes, `crows.ts`), poses in `entities/farmer-actions.ts`.
+Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTile` margin, farm `clearGroundCover`).
 
 - **Mechanics**: seeded rolls (`game.rng.fork('farming')`); farming XP + level 0–10 (`farming.level()`, `farming:xp`,
   `farming:level`); quality = skill + fertilizer + care (1 % gold at level 0 without fertilizer); `fertilizer` /
   `qualityFertilizer` items; greenhouse ground (`farming.setGreenhouse(rect)`, or a `greenhouse` plot on the map)
   ignores seasons; energy may run to −15 (farmer trudges, sweats) then passes out; charged slams are refused at 0
   (`tool:refused`, `energy:refused`); missed swings cost 1.
+- **Harvest feel**: yank (crouch → spring) → the produce arcs into the raised right hand, lands with a squash
+  (1.25 / 0.8 → 1, ease-out-back), is held up ~0.4 s with a rim-lit presenting sway while a bevelled 4-point quality
+  star spins in beside it (0 → 1.3 → 1, emissive → bloom, twinkles), then its icon flies to the toolbar slot (460 ms,
+  1.15 slot bounce). Co-op: another farmer's harvest (`harvest(x, z, 'instant')`) pops the produce in place over the tile.
 - **Events for audio**: `tool:swing` / `tool:impact` (impact frame) / `tool:charge` / `tool:refused`, `can:refill` /
   `can:empty`, `soil:tilled` / `soil:watered` / `soil:fertilized`, `crop:planted` / `crop:harvested` / `crop:withered` /
   `crop:giant`, `crow:arrive` / `crow:eat`, `sprinkler:spray`, `harvest:collect`, `energy:exhausted` / `energy:passout`.
-- **Demos**: `farm-harvest` (summer hero field), `farm-harvest-fall`, `farm-harvest&season=spring`, `farm-giant`,
-  `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe, frozen just after
-  impact), `farm-water`, `farm-pop` (harvest held overhead with a gold star; `&quality=0..3`), `farm-slam` (tier-3
-  charged hoe), `farm-crows` (raid outside the scarecrow's radius ring), `farm-wither`, `farm-field`.
+- **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
+  empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
+  `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
+  side-on, frozen just after impact), `farm-water`, `farm-pop` (produce held up with a gold star; `&quality=0..3`),
+  `farm-slam` (tier-3 charged hoe), `farm-crows` (a raid in progress: crows pecking, feathers, a chewed stub;
+  `&raid=fly` = crows flying in), `farm-wither`, `farm-field`.
   Params: `&tool=hoe|wateringCan|scythe|axe|pickaxe|sow|harvest|charge`, `&pose=<s>` freezes the action at s seconds
   (`__game.game.services.farming.scrub(t)` advances a frozen pose), `&loop=<tool>` repeats the action,
   `&slow=0.25` slow motion (so `--frames 8 --every 80` spans a whole swing), `&tier=0..3`.

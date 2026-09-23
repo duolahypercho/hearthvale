@@ -164,9 +164,7 @@ function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry 
  * Ruffled brassica leaf (kale): a displaced 4×6 grid — curled up along its length, cupped across,
  * the margins frilled in tight waves; dark blue-green with a pale midrib.
  */
-function ruffledLeaf(len: number, width: number, r: Rng, c0: THREE.Color, c1: THREE.Color, rib: THREE.Color, curl = 1.1): THREE.BufferGeometry {
-  const NX = 4;
-  const NZ = 6;
+function ruffledLeaf(len: number, width: number, r: Rng, c0: THREE.Color, c1: THREE.Color, rib: THREE.Color, curl = 1.1, NX = 4, NZ = 6): THREE.BufferGeometry {
   const g = new THREE.PlaneGeometry(1, 1, NX, NZ);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
@@ -192,6 +190,8 @@ function ruffledLeaf(len: number, width: number, r: Rng, c0: THREE.Color, c1: TH
     z = z2;
     pos.setXYZ(i, x, y, z);
     const c = c0.clone().lerp(c1, THREE.MathUtils.smoothstep(t, 0.1, 1) * 0.8 + edge * 0.2);
+    // Sun-warmed yellow-green on the frilled tips.
+    c.lerp(C(0x9ab85e), THREE.MathUtils.smoothstep(t, 0.7, 1) * edge * 0.45);
     c.lerp(rib, Math.max(0, 1 - edge * 5) * 0.75 * (1 - t * 0.5));
     c.multiplyScalar((0.7 + 0.3 * Math.min(1, t * 3)) * (0.85 + 0.15 * (frill * 0.5 + 0.5)));
     col.set([c.r, c.g, c.b], i * 3);
@@ -502,13 +502,16 @@ function trellis(add: Adder, h = 1.05, w = 0.34): void {
   }
 }
 
-/** A climbing bine / vine winding up a trellis to `top` (0..1 of height). Leaves every few cm. */
-function climber(add: Adder, r: Rng, top: number, leaf: LeafOpts, leafLen: number, leafW: number, h = 1.0, w = 0.3, strands = 2): THREE.Vector3[] {
+/**
+ * A climbing bine / vine winding up a trellis to `top` (0..1 of height). Leaves every few cm;
+ * `density` > 1 adds paired leaves + short side shoots so a mature row covers most of the frame.
+ */
+function climber(add: Adder, r: Rng, top: number, leaf: LeafOpts, leafLen: number, leafW: number, h = 1.0, w = 0.3, strands = 2, density = 1): THREE.Vector3[] {
   const tips: THREE.Vector3[] = [];
   for (let s = 0; s < strands; s++) {
     const pts: THREE.Vector3[] = [];
     const n = 7;
-    const x0 = (s - (strands - 1) / 2) * w * 0.9;
+    const x0 = (s - (strands - 1) / 2) * w * (strands > 2 ? 0.7 : 0.9);
     for (let i = 0; i <= n; i++) {
       const t = i / n;
       const y = t * top * h;
@@ -516,13 +519,18 @@ function climber(add: Adder, r: Rng, top: number, leaf: LeafOpts, leafLen: numbe
     }
     add(tube(pts, 0.012, 0.006, C(0x4f7a2e), C(0x7aaa4a), 8, 4));
     const curve = new THREE.CatmullRomCurve3(pts);
-    const nl = Math.max(2, Math.round(top * 11));
+    const nl = Math.max(2, Math.round(top * 11 * density));
     for (let i = 1; i <= nl; i++) {
       const t = i / (nl + 0.5);
       const p = curve.getPointAt(t);
       const side = i % 2 ? 1 : -1;
       const lm = mat(p.x, p.y, p.z, 0, side * (0.9 + r.next() * 0.9) + (r.next() < 0.5 ? 0 : Math.PI), 0);
       add(leafGeo(leafLen * (0.75 + r.next() * 0.4) * (0.6 + t * 0.4), leafW, leaf), lm);
+      if (density > 1 && r.next() < density - 1) {
+        // A leaf on the far side of the frame too (the row reads as a green wall from any angle).
+        const lm2 = mat(p.x + (r.next() - 0.5) * 0.1, p.y + 0.03, p.z - 0.04, 0, -side * (0.9 + r.next() * 0.9) + Math.PI, 0);
+        add(leafGeo(leafLen * (0.7 + r.next() * 0.35), leafW * 0.95, leaf), lm2);
+      }
     }
     tips.push(curve.getPointAt(1));
   }
@@ -635,9 +643,9 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   cauliflower(add, r, k) {
     // Broad, waxy blue-green leaves with pale ribs, wrapping the curd as it swells.
-    const leaf = { shape: 'oval' as const, lift: 0.55 + k * 0.08, bend: 0.45, fold: 0.32, ruffle: 0.07, rib: C(0x7fa88c), c0: C(0x1a3e30), c1: C(0x36664c), segs: 5 };
+    const leaf = { shape: 'oval' as const, lift: 0.55 + k * 0.08, bend: 0.45, fold: 0.32, ruffle: 0.07, rib: C(0x7fae8a), c0: C(0x2a5a44), c1: C(0x6a9a5e), segs: 5 };
     rosette(add, r, 4 + k, 0.18 + k * 0.09, 0.15 + k * 0.02, leaf);
-    const inner = { shape: 'oval' as const, lift: 1.15, bend: 0.05, fold: 0.45, curl: 0.9, rib: C(0x8ab494), c0: C(0x21483a), c1: C(0x467a5a), segs: 4 };
+    const inner = { shape: 'oval' as const, lift: 1.15, bend: 0.05, fold: 0.45, curl: 0.9, rib: C(0x86b490), c0: C(0x2e5e48), c1: C(0x6e9e62), segs: 4 };
     if (k >= 2) {
       const R = k === 3 ? 0.14 : 0.07;
       add(curd(R, r, k === 3 ? 15 : 9), mat(0, 0.05 + (k - 2) * 0.04, 0), 'skin');
@@ -649,9 +657,10 @@ const BUILDERS: Record<CropId, Builder> = {
   kale(add, r, k) {
     // Frilly, curled blue-green leaves on pale stems, in upright tiers.
     const tiers = 1 + Math.min(2, k);
-    const c0 = k === 3 ? C(0x1c4438) : C(0x245040);
-    const c1 = C(0x3f7460);
-    const rib = C(0x93b8a4);
+    // Lifted ~20 % from the old near-black teal, with warm yellow-green toward the frilled tips.
+    const c0 = k === 3 ? C(0x285a48) : C(0x306650);
+    const c1 = C(0x6c9a5c);
+    const rib = C(0xaccab0);
     for (let t = 0; t < tiers; t++) {
       const n = 4 + (k >= 2 ? 1 : 0);
       const len = 0.15 + k * 0.06 - t * 0.03;
@@ -691,7 +700,7 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   greenBean(add, r, k) {
     const top = [0.3, 0.6, 0.95, 1.0][k]!;
-    climber(add, r, top, { shape: 'heart', lift: 0.2, bend: 0.5, fold: 0.25, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }, 0.12, 0.11, 1.0, 0.3, 2);
+    climber(add, r, top, { shape: 'heart', lift: 0.2, bend: 0.5, fold: 0.25, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }, k >= 2 ? 0.14 : 0.12, k >= 2 ? 0.13 : 0.11, 1.0, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.6 : 1);
     if (k === 2) {
       for (let i = 0; i < 7; i++) flower(add, 0.022, C(0xf6e8ff), C(0xe0c8f0), mat((r.next() - 0.5) * 0.6, 0.3 + r.next() * 0.6, 0.08, Math.PI / 2, 0, 0));
     }
@@ -719,9 +728,13 @@ const BUILDERS: Record<CropId, Builder> = {
         const a = r.next() * Math.PI * 2;
         const yy = h * (0.25 + (i / n) * 0.6);
         const ripe = k === 3 ? yy < h * 0.7 || r.next() < 0.5 : false;
-        const col = ripe ? C(0xe0301e) : r.next() < 0.4 ? C(0xe89a3a) : C(0x7fb040);
-        add(fruit(k === 3 ? 0.052 : 0.036, col, { sy: 0.85, ribs: 5, seg: 8, rows: 6 }), mat(Math.cos(a) * 0.1, yy, Math.sin(a) * 0.1), 'gloss');
-        add(rosetteCap(0.028), mat(Math.cos(a) * 0.1, yy + 0.04, Math.sin(a) * 0.1));
+        const col = (ripe ? C(0xe0301e) : r.next() < 0.4 ? C(0xe89a3a) : C(0x7fb040)).offsetHSL((r.next() - 0.5) * 0.02, 0, (r.next() - 0.5) * 0.06);
+        // No two alike: ±15 % size, squat (0.85 Y), each with its calyx star.
+        const fr = (k === 3 ? 0.052 : 0.036) * (0.85 + r.next() * 0.3);
+        const ox = Math.cos(a) * (0.08 + r.next() * 0.04);
+        const oz = Math.sin(a) * (0.08 + r.next() * 0.04);
+        add(fruit(fr, col, { sy: 0.85, ribs: 5, seg: 8, rows: 6 }), mat(ox, yy, oz, (r.next() - 0.5) * 0.3, r.next() * 6, 0), 'gloss');
+        add(rosetteCap(fr * 0.55), mat(ox, yy + fr * 0.78, oz, 0, r.next() * 6, 0));
       }
     }
   },
@@ -782,8 +795,8 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   blueberry(add, r, k) {
     // A rounded shrub of small oval leaves on woody stems, dotted with dusty-blue clusters.
-    const R = 0.11 + k * 0.055;
-    const nl = 11 + k * 7;
+    const R = 0.12 + k * 0.06;
+    const nl = 14 + k * 10;
     for (let i = 0; i < 3 + k; i++) {
       const a = (i / (3 + k)) * Math.PI * 2 + r.next();
       add(stalk(R * 1.6, 0.012, 0.006, C(0x7a5a3a), C(0x8a6a44), Math.cos(a) * 0.05, 4), mat(0, 0, 0, 0, a, 0.2));
@@ -793,7 +806,7 @@ const BUILDERS: Record<CropId, Builder> = {
       const el = Math.acos(1 - t * 1.3);
       const az = i * 2.39996;
       const p = new THREE.Vector3(Math.sin(el) * Math.cos(az) * R, R * 0.9 + Math.cos(el) * R * 0.85, Math.sin(el) * Math.sin(az) * R);
-      add(leafGeo(0.085, 0.052, { shape: 'oval', lift: 0.4, bend: 0.3, fold: 0.2, c0: C(0x2f6a3a), c1: C(0x5f9a5a), segs: 3 }), mat(p.x, p.y, p.z, 0, az + Math.PI / 2 + (r.next() - 0.5), 0));
+      add(leafGeo(0.095, 0.058, { shape: 'oval', lift: 0.4, bend: 0.3, fold: 0.2, c0: C(0x2f6a3a), c1: C(0x6aa65e), segs: 3 }), mat(p.x, p.y, p.z, 0, az + Math.PI / 2 + (r.next() - 0.5), 0));
     }
     if (k >= 2) {
       for (let i = 0; i < (k === 3 ? 9 : 5); i++) {
@@ -841,7 +854,7 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   hops(add, r, k) {
     const top = [0.3, 0.65, 1.0, 1.0][k]!;
-    climber(add, r, top, { shape: 'lobed', lift: 0.2, bend: 0.5, fold: 0.25, serrate: 0.3, c0: C(0x3f7a2e), c1: C(0x6aaa3a), segs: 4 }, 0.12, 0.12, 1.08, 0.3, 2);
+    climber(add, r, top, { shape: 'lobed', lift: 0.2, bend: 0.5, fold: 0.25, serrate: 0.3, c0: C(0x3f7a2e), c1: C(0x6aaa3a), segs: 4 }, 0.13, 0.13, 1.08, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.5 : 1);
     if (k >= 2) {
       const n = k === 3 ? 12 : 6;
       for (let i = 0; i < n; i++) {
@@ -891,7 +904,7 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   grape(add, r, k) {
     const top = [0.35, 0.7, 1.0, 1.0][k]!;
-    climber(add, r, top, { shape: 'lobed', lift: 0.15, bend: 0.5, fold: 0.2, serrate: 0.25, c0: C(0x4a7a2e), c1: C(0x7aaa44), segs: 4 }, 0.14, 0.15, 1.0, 0.3, 2);
+    climber(add, r, top, { shape: 'lobed', lift: 0.15, bend: 0.5, fold: 0.2, serrate: 0.25, c0: C(0x4a7a2e), c1: C(0x7aaa44), segs: 4 }, 0.15, 0.16, 1.0, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.45 : 1);
     if (k >= 2) {
       const n = k === 3 ? 5 : 4;
       for (let i = 0; i < n; i++) {
@@ -1000,64 +1013,111 @@ function buildWithered(r: Rng, trellised: boolean): Map<Bucket, THREE.BufferGeom
   return out;
 }
 
-/** Heaved, cracked soil around a giant crop's base: a low mound ring, dark crack lines, clods. */
-function soilRing(add: Adder, r: Rng, R0: number): void {
-  const ring = new THREE.RingGeometry(R0 * 0.92, R0 * 1.62, 56, 4);
-  ring.rotateX(-Math.PI / 2);
-  const pos = ring.attributes.position as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
-    const d = Math.hypot(x, z) / R0;
-    const a = Math.atan2(z, x);
-    const h = 0.07 * (1 - THREE.MathUtils.smoothstep(d, 1.0, 1.6)) * (0.8 + 0.2 * Math.sin(a * 7 + r.next())) - 0.01;
-    pos.setY(i, h);
-  }
-  ring.computeVertexNormals();
-  add(
-    colored(ring, (p, n) => {
-      const d = Math.hypot(p.x, p.z) / R0;
-      const a = Math.atan2(p.z, p.x);
-      const crumb = 0.85 + 0.15 * Math.sin(a * 37) * Math.sin(d * 41);
-      return C(0x5a3c28).multiplyScalar(crumb * (0.6 + 0.4 * n.y) * (0.75 + 0.25 * THREE.MathUtils.smoothstep(d, 0.95, 1.2)));
-    }),
-    undefined,
-    'wood',
-  );
-  // Crack lines radiating out through the mound.
-  for (let i = 0; i < 11; i++) {
-    const a = (i / 11) * Math.PI * 2 + r.next() * 0.4;
-    const pts: THREE.Vector3[] = [];
-    let aa = a;
-    for (let k = 0; k <= 4; k++) {
-      const d = R0 * (0.98 + k * 0.13);
-      aa += (r.next() - 0.5) * 0.12;
-      const h = 0.07 * (1 - THREE.MathUtils.smoothstep(d / R0, 1.0, 1.6)) + 0.002;
-      pts.push(new THREE.Vector3(Math.cos(aa) * d, h, Math.sin(aa) * d));
+/**
+ * Raised soil berm the giant shouldered up around its base: a lofted, lumpy ring (~6 cm high) that
+ * rolls up from the bed, crests and spills over, broken into clods on its outer slope; vertex AO
+ * darkens the inner fold (under the fruit) and the outer foot. No flat decal, no ink cracks.
+ */
+function soilBerm(add: Adder, r: Rng, R0: number): void {
+  const RI = R0 * 0.8;
+  const RO = R0 * 1.6;
+  const SEG = 64;
+  const RINGS = 9;
+  const pos: number[] = [];
+  const col: number[] = [];
+  const phs = [r.next() * 6, r.next() * 6, r.next() * 6];
+  const hAt = (u: number, a: number): number => {
+    // u 0 (inner) → 1 (outer): a crest at ~0.35 that spills outward.
+    const crest = Math.exp(-Math.pow((u - 0.35) / 0.24, 2));
+    const lump = 0.75 + 0.18 * Math.sin(a * 5 + phs[0]!) + 0.12 * Math.sin(a * 11 + phs[1]!) + 0.08 * Math.sin(a * 23 + phs[2]! + u * 4);
+    return 0.062 * crest * lump - 0.012 * THREE.MathUtils.smoothstep(u, 0.8, 1);
+  };
+  for (let j = 0; j <= RINGS; j++) {
+    const u = j / RINGS;
+    for (let i = 0; i <= SEG; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      const wob = 1 + 0.06 * Math.sin(a * 3 + phs[1]!) + 0.04 * Math.sin(a * 7 + phs[2]!);
+      const rr = (RI + (RO - RI) * u) * (u > 0 ? wob : 1);
+      const h = hAt(u, a);
+      pos.push(Math.cos(a) * rr, h, Math.sin(a) * rr);
+      const ao = (0.55 + 0.45 * THREE.MathUtils.smoothstep(u, 0.02, 0.3)) * (0.8 + 0.2 * (1 - THREE.MathUtils.smoothstep(u, 0.7, 1)));
+      const crumb = 0.9 + 0.1 * Math.sin(a * 41 + u * 29) * Math.sin(a * 17 - u * 13);
+      // Freshly heaved (drier, paler) on the crest, darker damp soil in the fold.
+      const c = C(0x6a4a32).lerp(C(0x8a684a), THREE.MathUtils.smoothstep(h, 0.02, 0.06) * 0.7).multiplyScalar(ao * crumb);
+      col.push(c.r, c.g, c.b);
     }
-    const w = 0.02 + r.next() * 0.015;
-    const strip: number[] = [];
-    for (let k = 0; k < pts.length - 1; k++) {
-      const p0 = pts[k]!;
-      const p1 = pts[k + 1]!;
-      const nx = -(p1.z - p0.z);
-      const nz = p1.x - p0.x;
-      const l = Math.hypot(nx, nz) || 1;
-      const w0 = w * (1 - k / 4);
-      const w1 = w * (1 - (k + 1) / 4);
-      strip.push(p0.x + (nx / l) * w0, p0.y, p0.z + (nz / l) * w0, p1.x + (nx / l) * w1, p1.y, p1.z + (nz / l) * w1, p0.x - (nx / l) * w0, p0.y, p0.z - (nz / l) * w0);
-      strip.push(p1.x + (nx / l) * w1, p1.y, p1.z + (nz / l) * w1, p1.x - (nx / l) * w1, p1.y, p1.z - (nz / l) * w1, p0.x - (nx / l) * w0, p0.y, p0.z - (nz / l) * w0);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(strip, 3));
-    g.computeVertexNormals();
-    add(colored(g, () => C(0x1e140c)), undefined, 'wood');
   }
-  for (let i = 0; i < 12; i++) {
+  const idx: number[] = [];
+  for (let j = 0; j < RINGS; j++) {
+    for (let i = 0; i < SEG; i++) {
+      const q = j * (SEG + 1) + i;
+      const w = q + SEG + 1;
+      idx.push(q, w, q + 1, w, w + 1, q + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  add(g.toNonIndexed(), undefined, 'wood');
+  // Broken clods tumbled down the berm's outer slope.
+  for (let i = 0; i < 26; i++) {
     const a = r.next() * Math.PI * 2;
-    const d = R0 * (1.05 + r.next() * 0.45);
-    add(lumpyColored(0.035 + r.next() * 0.04, C(0x5e402a), r, 2.2, 0.3), mat(Math.cos(a) * d, 0.05 * (1 - (d / R0 - 1) / 0.6), Math.sin(a) * d, 0, r.next() * 6, 0, 1, 0.6, 1), 'wood');
+    const u = 0.3 + r.next() * 0.65;
+    const d = RI + (RO - RI) * u;
+    const sz = 0.03 + r.next() * 0.045 * (1.2 - u);
+    add(lumpyColored(sz, C(0x7a5a3e).multiplyScalar(0.8 + r.next() * 0.35), r, 2.4, 0.32), mat(Math.cos(a) * d, hAt(u, a) + sz * 0.25, Math.sin(a) * d, r.next(), r.next() * 6, r.next(), 1, 0.62, 1), 'wood');
   }
+}
+
+/**
+ * Giant cauliflower curd: fractal florets — 30 lumpy, bumpy domes in three sizes packed over a
+ * core, each with its own small bumps, cream-to-ivory with deep warm AO in the crevices.
+ */
+function giantCurd(R: number, r: Rng): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const ivory = C(0xe8dab4);
+  const cream = C(0xc4ab7c);
+  const core = new THREE.SphereGeometry(R * 0.9, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  core.scale(1, 0.62, 1);
+  parts.push(colored(core, (_p, nn) => cream.clone().multiplyScalar(0.45 + 0.2 * Math.max(0, nn.y))));
+  const N = 30;
+  for (let i = 0; i < N; i++) {
+    const t = (i + 0.5) / N;
+    const el = Math.acos(1 - t * 0.95);
+    const az = i * 2.39996 + r.next() * 0.25;
+    const size = i % 5 === 0 ? 0.5 : i % 2 ? 0.38 : 0.3; // three sizes, packed so they merge
+    const dir = new THREE.Vector3(Math.sin(el) * Math.cos(az), Math.cos(el), Math.sin(el) * Math.sin(az));
+    const fr = R * size * (0.9 + r.next() * 0.2) * (1 - t * 0.2);
+    // Indexed sphere → smooth normals (a non-indexed icosphere shades as flat facets: "popcorn").
+    const g = new THREE.SphereGeometry(fr, 14, 9);
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    const v = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const ph = r.next() * 10;
+    for (let k = 0; k < pos.count; k++) {
+      v.fromBufferAttribute(pos, k);
+      n.copy(v).normalize();
+      // Floret-of-florets: bumps on bumps (the fractal curd look).
+      const bump = 1 + 0.12 * Math.sin(n.x * 9 + ph) * Math.sin(n.z * 8 + n.y * 7) + 0.07 * Math.sin(n.x * 23 + n.y * 19 + ph) * Math.sin(n.z * 21) + 0.035 * Math.sin(n.x * 51 + ph) * Math.sin(n.y * 47) * Math.sin(n.z * 43);
+      pos.setXYZ(k, v.x * bump, Math.max(v.y * bump * 0.82, -fr * 0.35), v.z * bump);
+    }
+    g.computeVertexNormals();
+    const c = colored(g, (p, nn) => {
+      const toward = nn.dot(dir);
+      const ao = 0.4 + 0.6 * THREE.MathUtils.smoothstep(toward, -0.4, 0.8);
+      const bumpy = 0.93 + 0.07 * Math.sin(p.x * 60 + p.z * 50) * Math.sin(p.y * 55);
+      return cream.clone().lerp(ivory, THREE.MathUtils.smoothstep(toward, 0.2, 0.95)).multiplyScalar(ao * bumpy);
+    });
+    c.translate(dir.x * R * 0.62, dir.y * R * 0.44, dir.z * R * 0.62);
+    parts.push(c);
+  }
+  const b = new MeshBuilder();
+  const M = 'gcurd' as unknown as THREE.Material;
+  for (const p of parts) b.add(M, p);
+  return b.geometries().get(M)!;
 }
 
 /** A crow-eaten plant: snapped stalk stubs, torn leaf scraps flat on the soil, a few pecked crumbs. */
@@ -1097,8 +1157,32 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
   const b = new MeshBuilder();
   const keys: Record<Bucket, THREE.Material> = { leaf: 'leaf' as unknown as THREE.Material, gloss: 'gloss' as unknown as THREE.Material, skin: 'skin' as unknown as THREE.Material, wood: 'wood' as unknown as THREE.Material };
   const add: Adder = (g, m, bucket = 'leaf') => void b.add(keys[bucket], g, m);
-  // Cracked, heaved soil ring where the giant shouldered the bed aside (static: 'wood' bucket).
-  soilRing(add, r, id === 'melon' ? 1.05 : 1.0);
+  // Raised soil berm where the giant shouldered the bed aside (static: 'wood' bucket).
+  soilBerm(add, r, id === 'melon' ? 1.05 : id === 'cauliflower' ? 0.95 : 1.0);
+  // Vines radiating from under the giant out over the berm, with leaves riding them.
+  if (id !== 'cauliflower') {
+    const vleaf: LeafOpts = id === 'melon' ? { shape: 'lobed', lift: 0.28, bend: 0.3, fold: 0.22, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 5 } : { shape: 'heart', lift: 0.25, bend: 0.3, fold: 0.22, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 5 };
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.25 + r.next() * 0.4;
+      const pts: THREE.Vector3[] = [];
+      for (let k = 0; k <= 5; k++) {
+        const u = k / 5;
+        const d = 0.7 + u * 0.95;
+        const aa = a + Math.sin(u * 3 + i) * 0.18;
+        pts.push(new THREE.Vector3(Math.cos(aa) * d, 0.03 + Math.exp(-Math.pow((d - 1.25) / 0.3, 2)) * 0.06 + 0.02 * Math.sin(u * 7), Math.sin(aa) * d));
+      }
+      add(tube(pts, 0.026, 0.012, C(0x4f7a2e), C(0x7aa24a), 12, 5));
+      const cv = new THREE.CatmullRomCurve3(pts);
+      for (let k = 0; k < 3; k++) {
+        const t = 0.3 + k * 0.28 + r.next() * 0.08;
+        const pp = cv.getPointAt(t);
+        const tan = cv.getTangentAt(t);
+        const side = k % 2 ? 1 : -1;
+        add(leafGeo(0.3 + r.next() * 0.12, 0.34 + r.next() * 0.1, vleaf), mat(pp.x, pp.y + 0.04, pp.z, 0, Math.atan2(tan.x, tan.z) + side * (1.0 + r.next() * 0.4), 0));
+      }
+    }
+  }
+
   if (id === 'pumpkin') {
     add(fruit(1.15, C(0xe8741e), { sy: 0.66, ribs: 12, crease: true, seg: 40, rows: 18, shade: 0.5 }), mat(0, 0.66, 0), 'skin');
     // A thick woody stem that curls over, and a dried tendril.
@@ -1126,10 +1210,29 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
       add(leafGeo(0.34, 0.4, { shape: 'lobed', lift: 0.25, bend: 0.3, fold: 0.22, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 5 }), mat(Math.cos(a) * 1.45, 0.05, Math.sin(a) * 1.45, 0, a + 1.4, 0));
     }
   } else {
-    add(curd(1.0, r, 30), mat(0, 0.45, 0), 'skin');
+    add(giantCurd(0.95, r), mat(0, 0.42, 0), 'skin');
+    // 9 big outer leaves cup the curd: frilled blue-green blades that rise steeply from the base,
+    // wrap its sides and curl their tips back out, each with a pale raised midrib.
     for (let i = 0; i < 9; i++) {
-      const a = (i / 9) * Math.PI * 2 + r.next() * 0.3;
-      add(leafGeo(1.25, 0.95, { shape: 'oval', lift: 0.75, bend: 0.4, fold: 0.3, ruffle: 0.1, curl: 0.5, rib: C(0x7fa88c), c0: C(0x1a3e30), c1: C(0x36664c), segs: 7 }), mat(Math.cos(a) * 0.35, 0.02, Math.sin(a) * 0.35, 0, a + Math.PI / 2, 0));
+      const a = (i / 9) * Math.PI * 2 + r.next() * 0.25;
+      const L = 0.85 + r.next() * 0.2;
+      const W = 0.8 + r.next() * 0.2;
+      const pitch = -0.3 - r.next() * 0.15;
+      const m = mat(Math.cos(a) * 0.82, 0.02, Math.sin(a) * 0.82, 0, Math.PI / 2 - a, 0).multiply(mat(0, 0, 0, pitch, 0, 0));
+      add(ruffledLeaf(L, W, r, C(0x2c5e48), C(0x6e9e62), C(0x9cc4a2), 0.6 + r.next() * 0.3, 8, 12), m);
+      const rib: THREE.Vector3[] = [];
+      for (let k = 0; k <= 6; k++) {
+        const t = k / 6;
+        const z = t * L;
+        const ca = 0.75 * Math.pow(t, 1.5);
+        rib.push(new THREE.Vector3(0, z * Math.sin(ca) + 0.015, z * Math.cos(ca)));
+      }
+      add(tube(rib, 0.028, 0.006, C(0x9cc0a0), C(0xbcd8bc), 8, 4), m);
+    }
+    // A few small inner leaves tucked against the curd.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.3;
+      add(leafGeo(0.55, 0.4, { shape: 'oval', lift: 1.3, bend: 0.2, fold: 0.5, curl: 0.5, rib: C(0x8ab894), c0: C(0x3a6a50), c1: C(0x88b474), segs: 5 }), mat(Math.cos(a) * 0.62, 0.08, Math.sin(a) * 0.62, 0, Math.PI / 2 - a + Math.PI, 0));
     }
   }
   const out = new Map<Bucket, THREE.BufferGeometry>();
@@ -1139,6 +1242,46 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     out.set(bk, g);
   }
   return out;
+}
+
+/**
+ * A tapered tap-root (parsnip / carrot-like): lathed profile with a domed shoulder, a gentle bend,
+ * horizontal growth rings pressed into the skin (darker grooves) and a few root hairs; vertex
+ * gradient from the pale shoulder to a tan, earthy tip. Origin at the shoulder, root hangs down −Y.
+ */
+function rootVeg(len: number, R: number, top: THREE.Color, tip: THREE.Color, r: Rng, bend = 0.03): THREE.BufferGeometry {
+  const pts: THREE.Vector2[] = [];
+  const N = 16;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N; // 0 tip → 1 shoulder
+    const dome = t > 0.86 ? Math.sqrt(Math.max(0, 1 - Math.pow((t - 0.86) / 0.14, 2))) : 1;
+    const body = Math.pow(t, 0.62) * (1 - 0.08 * Math.sin(t * 9));
+    pts.push(new THREE.Vector2(Math.max(0.0015, R * body * dome), -len + t * (len + R * 0.35)));
+  }
+  const g = new THREE.LatheGeometry(pts, 12);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const p = new THREE.Vector3();
+  const ph = r.next() * 6;
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i);
+    const t = (p.y + len) / len;
+    // Rings: shallow grooves every ~2.5 cm (strongest mid-root).
+    const ring = Math.pow(Math.abs(Math.sin(t * 34 + ph + Math.atan2(p.z, p.x) * 0.3)), 6) * 0.1 * Math.sin(Math.PI * Math.min(1, t));
+    p.x *= 1 - ring;
+    p.z *= 1 - ring;
+    p.x += bend * Math.pow(1 - Math.min(1, t), 2);
+    pos.setXYZ(i, p.x, p.y, p.z);
+  }
+  g.computeVertexNormals();
+  return colored(g, (q, n) => {
+    const t = THREE.MathUtils.clamp((q.y + len) / len, 0, 1);
+    const c = tip.clone().lerp(top, THREE.MathUtils.smoothstep(t, 0.05, 0.85));
+    const groove = Math.pow(Math.abs(Math.sin(t * 34 + ph + Math.atan2(q.z, q.x) * 0.3)), 6);
+    c.multiplyScalar((0.7 + 0.3 * THREE.MathUtils.smoothstep(n.y, -0.9, 0.6)) * (1 - groove * 0.22));
+    // A faint green-bronze blush on the crown.
+    c.lerp(C(0xb8b870), THREE.MathUtils.smoothstep(t, 0.93, 1.0) * 0.5);
+    return c;
+  });
 }
 
 const produceCache = new Map<string, THREE.BufferGeometry>();
@@ -1156,10 +1299,15 @@ export function produceGeometry(id: CropId): THREE.BufferGeometry {
   };
   switch (id) {
     case 'parsnip': {
-      const root = new THREE.ConeGeometry(0.07, 0.26, 10);
-      root.rotateX(Math.PI);
-      add(colored(root, (p) => C(0xf0dca0).multiplyScalar(0.85 + (p.y + 0.13) * 1.2)));
-      leafy(4, 0.14, 0.05, 0x4f9a3a, 0x8cc85a, 0.12);
+      add(rootVeg(0.27, 0.068, C(0xe9cb8a), C(0xb88e56), r, 0.03));
+      // Leafy crown: stalks fanning out of the shoulder, serrated blades.
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + r.next() * 0.4;
+        const m = mat(0, 0.035, 0, 0, a, 0).multiply(mat(0, 0, 0, 0.35 + r.next() * 0.25, 0, 0));
+        const sl = 0.07 + r.next() * 0.03;
+        add(stalk(sl, 0.009, 0.007, C(0x9ab868), C(0x6f9a44), 0, 4), m);
+        add(leafGeo(0.17 + r.next() * 0.05, 0.095, { shape: 'lance', serrate: 0.4, lift: 0.9, bend: 0.5, fold: 0.3, c0: C(0x5aa640), c1: C(0xa8d86a), segs: 4 }), m.clone().multiply(mat(0, sl, 0, -0.5, 0, 0)));
+      }
       break;
     }
     case 'beet':
@@ -1358,6 +1506,32 @@ function fallShift(m: THREE.Material, key: string, tips = true): void {
   });
 }
 
+/**
+ * Soft-plant light for crops: a wrap term on the side turned from the sun, sun-facing transmission
+ * through thin leaves (≈ 0.25) and a faint warm rim — dense beds glow at mid-morning like the lawn
+ * instead of reading as plastic. Runs after applyPlantLighting (reuses its sun uniforms).
+ */
+function applyCropGlow(m: THREE.Material, key: string, trans: number, rim: number): void {
+  patchMaterial(m, key, (shader) => {
+    shader.fragmentShader = after(
+      shader.fragmentShader,
+      '#include <emissivemap_fragment>',
+      /* glsl */ `
+      {
+        vec3 Ld = normalize(uSunDir);
+        vec3 Nw = normalize((vec4(normal, 0.0) * viewMatrix).xyz);
+        float ndl = dot(Nw, Ld);
+        float wrapL = clamp((ndl + 0.55) / 1.55, 0.0, 1.0) - max(ndl, 0.0);
+        float transL = max(-ndl, 0.0);
+        vec3 Vw = normalize(cameraPosition - vHvWorldPos);
+        float rimL = pow(1.0 - clamp(abs(dot(Nw, Vw)), 0.0, 1.0), 3.0);
+        totalEmissiveRadiance += diffuseColor.rgb * uSunColor * (wrapL * 0.16 + transL * ${trans.toFixed(3)})
+          + diffuseColor.rgb * uSunColor * vec3(1.1, 1.0, 0.8) * rimL * ${rim.toFixed(3)};
+      }`,
+    );
+  });
+}
+
 export function cropMaterial(): THREE.MeshStandardMaterial {
   if (!cropMat) {
     cropMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, side: THREE.DoubleSide });
@@ -1365,6 +1539,7 @@ export function cropMaterial(): THREE.MeshStandardMaterial {
     applyWorldFx(cropMat, { snowUp: 0.6 });
     applyWind(cropMat, CROP_WIND);
     applyPlantLighting(cropMat, { translucency: 0.4, floor: 0.05 });
+    applyCropGlow(cropMat, 'crop-glow', 0.25, 0.22);
     fallShift(cropMat, 'crop-fall');
     cropDepth = windDepthMaterial(CROP_WIND);
   }
@@ -1380,6 +1555,7 @@ export function glossMaterial(): THREE.MeshStandardMaterial {
     applyWorldFx(glossMat, { snowUp: 0.6 });
     applyWind(glossMat, CROP_WIND);
     applyPlantLighting(glossMat, { translucency: 0.12, floor: 0.05 });
+    applyCropGlow(glossMat, 'crop-gloss-glow', 0.08, 0.18);
     fallShift(glossMat, 'crop-gloss-fall', false);
   }
   return glossMat;
@@ -1395,6 +1571,7 @@ export function skinMaterial(): THREE.MeshStandardMaterial {
     applyWorldFx(skinMat, { snowUp: 0.6 });
     applyWind(skinMat, CROP_WIND);
     applyPlantLighting(skinMat, { translucency: 0.06, floor: 0.08 });
+    applyCropGlow(skinMat, 'crop-skin-glow', 0.05, 0.14);
     fallShift(skinMat, 'crop-skin-fall', false);
   }
   return skinMat;
@@ -1427,6 +1604,8 @@ const PLACE: Partial<Record<CropId, { scale?: number; yaw?: number }>> = {
   grape: { yaw: 0.08, scale: 0.95 },
   corn: { scale: 0.92 },
   tomato: { yaw: 0.6 },
+  hotPepper: { scale: 1.2 },
+  blueberry: { scale: 1.1 },
 };
 
 const STAGE_SCALE = [1.15, 1.3, 1.42, 1.54, 1.62, 1.68];
@@ -1518,7 +1697,7 @@ export class CropVisuals {
   addEaten(x: number, y: number, z: number, seed: number, trellised: boolean, leaf: number): CropHandle {
     const v = seed % 2;
     const set = this.special(`eaten:${trellised ? 't' : 'p'}:${v}:${leaf}`, () => buildEaten(new Rng(`eaten:${v}`), trellised, C(leaf)));
-    const s = 1.4 * (0.9 + ((seed >> 3) % 20) / 100);
+    const s = 1.7 * (0.9 + ((seed >> 3) % 20) / 100);
     return this.place(set, new THREE.Vector3(x, y, z), trellised ? 0 : ((seed % 360) * Math.PI) / 180, new THREE.Vector3(s, s, s));
   }
 

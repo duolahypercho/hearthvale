@@ -264,12 +264,35 @@ export class FarmMap implements GameMap, FarmBuildCtx {
     });
   }
 
-  /** Remove grass tufts on a tile (tilling, placing objects). */
+  /** Remove grass tufts on a tile (tilling, placing objects) — and neighbouring cover that overhangs it. */
   clearGroundCover(x: number, z: number): void {
     this.grass.clearTile(x, z);
     const k = z * this.grid.width + x;
     for (const h of this.coverByTile.get(k) ?? []) this.nature.remove(h);
     this.coverByTile.delete(k);
+    // Flowers / clover rooted just outside the tile would poke through a raised bed.
+    const M = 0.35;
+    const m = new THREE.Matrix4();
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if ((!dx && !dz) || !this.grid.inBounds(x + dx, z + dz)) continue;
+        const nk = (z + dz) * this.grid.width + x + dx;
+        const list = this.coverByTile.get(nk);
+        if (!list) continue;
+        const keep = list.filter((h) => {
+          const mm = h.set.matrixOf(h.id, m);
+          if (!mm) return false;
+          const px = mm.elements[12]!;
+          const pz = mm.elements[14]!;
+          if (px > x - M && px < x + 1 + M && pz > z - M && pz < z + 1 + M) {
+            this.nature.remove(h);
+            return false;
+          }
+          return true;
+        });
+        this.coverByTile.set(nk, keep);
+      }
+    }
   }
 
   // ───────────────────────────────────────────── runtime

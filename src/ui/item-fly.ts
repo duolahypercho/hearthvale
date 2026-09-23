@@ -5,15 +5,15 @@
  */
 import { itemIcon, qualityStar } from './icons';
 
-export function flyItemToToolbar(root: HTMLElement, itemId: string, from: { x: number; y: number }, slot: number, quality = 0): void {
+export function flyItemToToolbar(root: HTMLElement, itemId: string, from: { x: number; y: number }, slot: number, quality = 0, opts: { duration?: number; bounce?: number } = {}): void {
   const bar = root.querySelector<HTMLElement>('.hv-toolbar');
   const slots = bar ? [...bar.querySelectorAll<HTMLElement>('.u-slot')] : [];
   const target = slot >= 0 && slot < slots.length ? slots[slot]! : bar;
-  flyItemTo(itemId, from, target ?? null, quality);
+  flyItemTo(itemId, from, target ?? null, quality, undefined, 44, opts);
 }
 
 /** Arc an item icon from a screen point into any element (e.g. the Backpack menu tab); squash-bumps it on landing. */
-export function flyItemTo(itemId: string, from: { x: number; y: number }, target: HTMLElement | null, quality = 0, onLand?: () => void, size = 44): void {
+export function flyItemTo(itemId: string, from: { x: number; y: number }, target: HTMLElement | null, quality = 0, onLand?: () => void, size = 44, opts: { duration?: number; bounce?: number } = {}): void {
   const r = target?.getBoundingClientRect();
   const to = r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: window.innerWidth / 2, y: window.innerHeight - 40 };
   const el = document.createElement('div');
@@ -48,12 +48,13 @@ export function flyItemTo(itemId: string, from: { x: number; y: number }, target
     const s = t < 0.15 ? 0.6 + t * 4 : 1.2 - t * 0.45;
     frames.push({ transform: `translate(${x}px, ${y}px) scale(${s}) rotate(${(1 - t) * -25}deg)`, opacity: t > 0.92 ? 1 - (t - 0.92) * 10 : 1, offset: t });
   }
-  const anim = el.animate(frames, { duration: 620, easing: 'cubic-bezier(.45,.05,.55,.95)' });
+  const anim = el.animate(frames, { duration: opts.duration ?? 620, easing: 'cubic-bezier(.45,.05,.55,.95)' });
+  const b = opts.bounce ?? 1.22;
   anim.onfinish = () => {
     el.remove();
     onLand?.();
     target?.animate(
-      [{ transform: 'scale(1)' }, { transform: 'scale(1.22, 0.86)' }, { transform: 'scale(0.94, 1.08)' }, { transform: 'scale(1)' }],
+      [{ transform: 'scale(1)' }, { transform: `scale(${b}, ${2 - b * 0.94})` }, { transform: `scale(${2 - b * 0.9}, ${1 + (b - 1) * 0.4})` }, { transform: 'scale(1)' }],
       { duration: 280, easing: 'ease-out' },
     );
   };

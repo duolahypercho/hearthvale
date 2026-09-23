@@ -6,7 +6,7 @@
  *
  * Wetness is a sub-tile mask (4×4 texels per tile) sampled in world space by ONE soil material:
  * watering floods outward from the pour point over ~0.35 s (radial front + noise-warped edge),
- * dry soil ≈ #6b4a32 darkens to ≈ #3a2618 and turns glossier. Fertilized tiles get a sprinkle
+ * dry soil is pale, warm and crazed with hairline cracks (value ≈ 0.6); wet soil is dark (≈ 0.35), cooler and glossier. Fertilized tiles get a sprinkle
  * of granules. Winter: the beds settle, snow lies on the ridges and frozen husks poke through.
  *
  *   const soil = new SoilBeds(w, d);  root.add(soil.group);
@@ -262,7 +262,12 @@ function soilMaterial(): THREE.MeshStandardMaterial {
       vs = after(vs, '#include <begin_vertex>', 'vSoilH = position.y;\ntransformed.y *= 1.0 - 0.6 * smoothstep(0.3, 1.0, uSnowSink);');
       shader.vertexShader = vs;
       let fs = shader.fragmentShader;
-      fs = before(fs, 'void main() {', `varying float vSoilH;\nuniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}`);
+      fs = before(
+        fs,
+        'void main() {',
+        `varying float vSoilH;\nuniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}
+`,
+      );
       fs = after(
         fs,
         '#include <color_fragment>',
@@ -272,16 +277,33 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           vec2 wq = vHvWorldPos.xz;
           float wm = texture2D(uWetMask, wq / uWetSize).r;
           // Noise-edged front: the wet patch meanders instead of following the tile grid.
-          float we = (hvNoise(wq * 5.1) - 0.5) * 0.22 + (hvNoise(wq * 13.3 + 4.0) - 0.5) * 0.1;
+          float na = hvNoise(wq * 5.1);
+          float nb = hvNoise(wq * 13.3 + 4.0);
+          float we = (na - 0.5) * 0.22 + (nb - 0.5) * 0.1;
           hvSoilWet = smoothstep(0.34, 0.6, wm + we);
           // Damp halo just outside the watered area.
           float halo = smoothstep(0.1, 0.4, wm + we) * (1.0 - hvSoilWet);
-          // dry ≈ #6b4a32 → wet ≈ #3a2618 (linear ratio ≈ 0.29), a touch cooler.
-          diffuseColor.rgb *= mix(vec3(1.0), vec3(0.34, 0.3, 0.28), hvSoilWet);
-          diffuseColor.rgb *= 1.0 - halo * 0.2;
+          vec3 base = diffuseColor.rgb;
+          // Dry: pale, warm, a little dusty (value ≈ 0.6), the ridge crests sun-bleached, a fine
+          // crazing of hairline cracks between lighter crusted plates.
+          vec3 dry = base * vec3(1.9, 1.8, 1.62);
+          float dl = dot(dry, vec3(0.3, 0.59, 0.11));
+          dry = mix(vec3(dl), dry, 0.7);
+          float crest = smoothstep(0.055, 0.075, vSoilH);
+          dry *= 1.0 + crest * 0.1;
+          // Crazing from ridged value noise (two octaves, ~3 lookups — cheap on large beds): hairline
+          // cracks where either octave crosses its midpoint, crusted plates between them.
+          float cw = min(abs(na - 0.5), abs(nb - 0.5) * 1.3);
+          float crack = (1.0 - smoothstep(0.012, 0.04, cw)) * smoothstep(0.35, 0.65, hvNoise(wq * 1.7 + 3.0));
+          float plate = smoothstep(0.06, 0.2, cw);
+          dry *= (1.0 - crack * 0.16) * (1.0 + plate * 0.05);
+          // Wet: dark (value ≈ 0.35), cooler, saturated; the texture's crumbs still read.
+          vec3 wet = base * vec3(0.66, 0.6, 0.6);
+          diffuseColor.rgb = mix(dry, wet, hvSoilWet);
+          diffuseColor.rgb *= 1.0 - halo * 0.18;
         }`,
       );
-      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.46, hvSoilWet);');
+      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.42, hvSoilWet);');
       shader.fragmentShader = fs;
     });
   }
@@ -537,8 +559,8 @@ export class SoilBeds {
         f.t += dt;
         const x = i % this.width;
         const z = Math.floor(i / this.width);
-        // Radial front from the pour point: reaches the far corner in ~0.35 s.
-        const R = (f.t / 0.35) * 1.15;
+        // Radial front from the pour point: reaches the far corner in ~0.4 s.
+        const R = (f.t / 0.4) * 1.15;
         for (let jj = 0; jj < WR; jj++) {
           const row = (z * WR + jj) * this.tw + x * WR;
           for (let ii = 0; ii < WR; ii++) {
@@ -547,7 +569,7 @@ export class SoilBeds {
             if (v > this.wetData[row + ii]!) this.wetData[row + ii] = v;
           }
         }
-        if (f.t >= 0.5) {
+        if (f.t >= 0.55) {
           this.floods.delete(i);
           this.fillTile(x, z, 255);
         }

@@ -27,11 +27,13 @@ interface Key {
   level?: number;
   /** Slide the hands down the handle (m): the tool head reaches further out (overhead wind-ups). */
   grip?: number;
+  /** Arm stretch (Y scale, cartoon squash & stretch): the "ta-da" hold reaches over the big head. */
+  reach?: number;
 }
 
-type Pose = Required<Pick<Key, 'aR' | 'aL' | 'torso' | 'head' | 'sy' | 'bob' | 'grip'>> & { tool: [number, number, number] | null; level: number | null };
+type Pose = Required<Pick<Key, 'aR' | 'aL' | 'torso' | 'head' | 'sy' | 'bob' | 'grip' | 'reach'>> & { tool: [number, number, number] | null; level: number | null };
 
-const REST: Pose = { aR: [0, -0.12], aL: [0, 0.12], torso: [0, 0, 0], head: 0, sy: 1, bob: 0, grip: 0, tool: null, level: null };
+const REST: Pose = { aR: [0, -0.12], aL: [0, 0.12], torso: [0, 0, 0], head: 0, sy: 1, bob: 0, grip: 0, reach: 1, tool: null, level: null };
 const TOOL_REST: [number, number, number] = [Math.PI / 2, 0, 0];
 
 /** Keyframes per action (seconds). Impact times are in IMPACT. */
@@ -43,17 +45,19 @@ const TRACKS: Record<ActionKind, Key[]> = {
   // torso twisted and leaning back, so the tool head clears the hat silhouette at the top.
   chop: [
     { t: 0 },
-    { t: 0.07, ease: 'out', aR: [-0.7, -0.1], aL: [-0.6, 0.1], torso: [0.14, 0.12, 0], head: 0.05, sy: 0.92, tool: [Math.PI / 2 - 0.1, 0, 0] },
-    { t: 0.2, ease: 'back', aR: [-2.45, -0.62], aL: [-2.1, -0.28], torso: [-0.24, -0.5, -0.16], head: -0.16, sy: 1.07, grip: 0.3, tool: [2.55, 0, 0.75] },
-    { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.42, 0.06, 0], head: -0.08, sy: 0.88, bob: -0.025, tool: [Math.PI / 2 - 0.2, 0, 0] },
-    { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.44, 0.04, 0], head: -0.04, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
+    { t: 0.07, ease: 'out', aR: [-0.7, -0.1], aL: [-0.6, 0.1], torso: [0.14, 0.06, 0], head: 0.05, sy: 0.92, tool: [Math.PI / 2 - 0.1, 0, 0] },
+    // Feet planted: the torso twists ≤ ~20° toward the wind-up side (eased, no overshoot on the
+    // twist) so the body never reads as spinning to face the camera and snapping back.
+    { t: 0.21, ease: 'out', aR: [-2.45, -0.62], aL: [-2.1, -0.28], torso: [-0.24, -0.34, -0.12], head: -0.16, sy: 1.07, grip: 0.3, tool: [2.55, 0, 0.75] },
+    { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.36, -0.06, 0], head: -0.26, sy: 0.88, bob: -0.025, tool: [Math.PI / 2 - 0.2, 0, 0] },
+    { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.38, 0.04, 0], head: -0.24, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
     { t: 0.66, ease: 'inout' },
   ],
   slam: [
     { t: 0 },
-    { t: 0.14, ease: 'back', aR: [-2.7, -0.55], aL: [-2.4, -0.25], torso: [-0.3, -0.42, -0.12], head: -0.2, sy: 1.1, grip: 0.34, tool: [2.6, 0, 0.7] },
-    { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.55, 0, 0], head: 0.2, sy: 0.86, bob: -0.04, tool: [Math.PI / 2 - 0.3, 0, 0] },
-    { t: 0.36, ease: 'out', aR: [-0.18, -0.05], aL: [-0.12, 0.05], torso: [0.6, 0, 0], head: 0.2, sy: 0.92, bob: -0.03, tool: [Math.PI / 2 - 0.3, 0, 0] },
+    { t: 0.15, ease: 'out', aR: [-2.7, -0.55], aL: [-2.4, -0.25], torso: [-0.3, -0.34, -0.12], head: -0.2, sy: 1.1, grip: 0.34, tool: [2.6, 0, 0.7] },
+    { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.48, 0, 0], head: -0.14, sy: 0.86, bob: -0.04, tool: [Math.PI / 2 - 0.3, 0, 0] },
+    { t: 0.36, ease: 'out', aR: [-0.18, -0.05], aL: [-0.12, 0.05], torso: [0.5, 0, 0], head: -0.1, sy: 0.92, bob: -0.03, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.75, ease: 'inout' },
   ],
   sweep: [
@@ -63,12 +67,13 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.32, ease: 'out', aR: [-1.2, 0.45], aL: [-0.7, 0.1], torso: [0.15, -1.15, -0.05], sy: 0.97, tool: [Math.PI / 2, 0, -1.35] },
     { t: 0.56, ease: 'inout' },
   ],
+  // The can comes up and out in front (the rose held high), then tips: a long, readable arc.
   pour: [
     { t: 0 },
-    { t: 0.2, ease: 'back', aR: [-1.2, -0.25], aL: [-0.95, 0.25], torso: [0.14, 0, 0], sy: 0.97, level: 0 },
-    { t: 0.32, ease: 'inout', aR: [-1.25, -0.25], aL: [-1.0, 0.25], torso: [0.2, 0, 0], sy: 0.98, level: 0.9 },
-    { t: 0.72, ease: 'linear', aR: [-1.32, -0.2], aL: [-1.05, 0.25], torso: [0.22, 0, 0], sy: 0.98, level: 1.0 },
-    { t: 0.84, ease: 'inout', aR: [-1.2, -0.25], aL: [-0.95, 0.25], torso: [0.12, 0, 0], sy: 1.0, level: 0 },
+    { t: 0.2, ease: 'back', aR: [-1.45, -0.25], aL: [-1.15, 0.25], torso: [0.06, 0, 0], sy: 0.98, level: 0 },
+    { t: 0.32, ease: 'inout', aR: [-1.5, -0.25], aL: [-1.2, 0.25], torso: [0.1, 0, 0], sy: 0.99, level: 0.95 },
+    { t: 0.72, ease: 'linear', aR: [-1.56, -0.2], aL: [-1.24, 0.25], torso: [0.12, 0, 0], sy: 0.99, level: 1.05 },
+    { t: 0.84, ease: 'inout', aR: [-1.4, -0.25], aL: [-1.1, 0.25], torso: [0.08, 0, 0], sy: 1.0, level: 0 },
     { t: 1.05, ease: 'inout' },
   ],
   refill: [
@@ -96,12 +101,15 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.36, ease: 'inout', aR: [-0.05, -0.3], aL: [-0.05, 0.3], torso: [0.12, 0, 0], head: 0.3, sy: 0.93 },
     { t: 0.7, ease: 'inout' },
   ],
+  // Yank it out (crouch → spring up), then the show-off: the right arm thrown up and out
+  // (stretched a touch, cartoon reach) holding the produce up beside the head, the left fist
+  // swinging out for balance.
   pull: [
     { t: 0 },
     { t: 0.13, ease: 'out', aR: [-0.75, -0.1], aL: [-0.75, 0.1], torso: [0.52, 0, 0], head: 0.2, sy: 0.87 },
-    { t: 0.26, ease: 'back', aR: [-2.95, -0.15], aL: [-2.95, 0.15], torso: [-0.12, 0, 0], head: -0.15, sy: 1.08, bob: 0.05 },
-    { t: 0.36, ease: 'out', aR: [-2.85, -0.2], aL: [-2.85, 0.2], torso: [-0.08, 0, 0], head: -0.2, sy: 0.97, bob: 0.0 },
-    { t: 0.78, ease: 'linear', aR: [-2.8, -0.2], aL: [-2.8, 0.2], torso: [-0.05, 0, 0], head: -0.18, sy: 1.0 },
+    { t: 0.26, ease: 'back', aR: [0.12, 2.45], aL: [-0.3, -0.62], torso: [-0.1, 0, -0.1], head: -0.1, sy: 1.08, bob: 0.05, reach: 1.5 },
+    { t: 0.36, ease: 'out', aR: [0.1, 2.38], aL: [-0.26, -0.55], torso: [-0.06, 0, -0.08], head: -0.12, sy: 0.97, bob: 0.0, reach: 1.46 },
+    { t: 0.78, ease: 'linear', aR: [0.08, 2.34], aL: [-0.24, -0.52], torso: [-0.04, 0, -0.07], head: -0.1, sy: 1.0, reach: 1.44 },
     { t: 1.0, ease: 'inout' },
   ],
 };
@@ -134,6 +142,7 @@ function resolve(k: Key, prev: Pose): Pose {
     sy: k.sy ?? 1,
     bob: k.bob ?? 0,
     grip: k.grip ?? 0,
+    reach: k.reach ?? 1,
     tool: k.tool ?? (prev.tool && k.level === undefined ? null : null),
     level: k.level ?? null,
   };
@@ -305,6 +314,9 @@ export class FarmerActions {
     rig.torso.rotation.y = lerp(rig.torso.rotation.y, p.torso[1] * sd, w);
     rig.torso.rotation.z = lerp(rig.torso.rotation.z, p.torso[2] * sd, w);
     rig.head.rotation.x = lerp(rig.head.rotation.x, p.head, w);
+    const reach = lerp(1, p.reach, w);
+    rig.armR.scale.set(1, reach, 1);
+    rig.armL.scale.set(1, reach, 1);
     // The big straw hat shrinks a little while working so the swing and the target tile stay visible.
     if (rig.hat) rig.hat.scale.setScalar(this.hatK);
     const tool = rig.tool;
@@ -349,6 +361,7 @@ export class FarmerActions {
       sy: mix(p0.sy, p1.sy),
       bob: mix(p0.bob, p1.bob),
       grip: mix(p0.grip, p1.grip),
+      reach: mix(p0.reach, p1.reach),
       tool: tool0 && tool1 ? [mix(tool0[0], tool1[0]), mix(tool0[1], tool1[1]), mix(tool0[2], tool1[2])] : null,
       level,
     };
@@ -360,6 +373,10 @@ export class FarmerActions {
     const want = this.cur || this.charging ? 0.85 : 1;
     this.hatK += (want - this.hatK) * (1 - Math.exp(-dt * 14));
     if (!this.cur && !this.charging && rig.hat) rig.hat.scale.setScalar(this.hatK);
+    if (!this.cur && !this.charging && rig.armR.scale.y !== 1) {
+      rig.armR.scale.set(1, 1, 1);
+      rig.armL.scale.set(1, 1, 1);
+    }
     if (this.charging) {
       const c = this.charging;
       c.t += d;

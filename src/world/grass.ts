@@ -336,15 +336,41 @@ export class GrassField {
     }
   }
 
-  /** Remove all tufts on a tile (scythe / hoe / placing objects). */
-  clearTile(x: number, z: number): void {
+  /**
+   * Remove all tufts on a tile (scythe / hoe / placing objects), plus the neighbours' tufts rooted
+   * within `margin` m of it — their blades would otherwise lean over / poke through a tilled bed.
+   */
+  clearTile(x: number, z: number, margin = 0.22): void {
     const refs = this.tileRefs.get(`${x},${z}`);
-    if (!refs) return;
-    for (const r of refs) {
-      for (const i of r.indices) r.mesh.setMatrixAt(i, this.zero);
-      r.mesh.instanceMatrix.needsUpdate = true;
+    if (refs) {
+      for (const r of refs) {
+        for (const i of r.indices) r.mesh.setMatrixAt(i, this.zero);
+        r.mesh.instanceMatrix.needsUpdate = true;
+      }
+      this.tileRefs.delete(`${x},${z}`);
     }
-    this.tileRefs.delete(`${x},${z}`);
+    if (margin <= 0) return;
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dz) continue;
+        const nr = this.tileRefs.get(`${x + dx},${z + dz}`);
+        if (!nr) continue;
+        for (const r of nr) {
+          const arr = r.mesh.instanceMatrix.array;
+          const keep: number[] = [];
+          for (const i of r.indices) {
+            const px = arr[i * 16 + 12]!;
+            const pz = arr[i * 16 + 14]!;
+            if (px > x - margin && px < x + 1 + margin && pz > z - margin && pz < z + 1 + margin) r.mesh.setMatrixAt(i, this.zero);
+            else keep.push(i);
+          }
+          if (keep.length !== r.indices.length) {
+            r.indices = keep;
+            r.mesh.instanceMatrix.needsUpdate = true;
+          }
+        }
+      }
+    }
   }
 
   get instanceCount(): number {
