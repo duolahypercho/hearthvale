@@ -146,12 +146,12 @@ export function leafClusterTexture(): THREE.DataTexture {
     }
   }
   // Blossoms: small five-petal flowers sitting on top of the rim leaves.
-  for (let i = 0; i < 9; i++) {
-    const ang = r.next() * Math.PI * 2;
-    const d = (0.25 + r.next() * 0.7) * S * 0.3;
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2 + r.next() * 0.8;
+    const d = (0.35 + r.next() * 0.55) * S * 0.3;
     const x = C + Math.cos(ang) * d;
     const y = C + Math.sin(ang) * d;
-    const pr = 5 + r.next() * 3;
+    const pr = 11 + r.next() * 5;
     for (const ctx of [l.value, l.alpha, l.bloom]) {
       for (let k = 0; k < 5; k++) {
         const pa = (k / 5) * Math.PI * 2 + ang;

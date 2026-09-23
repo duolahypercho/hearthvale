@@ -596,9 +596,13 @@ export class Terrain {
         // Puddles: noise-masked on flat ground (paths and soil most likely) while it's wet.
         float flatG = smoothstep(0.965, 0.995, wn.y);
         float pudN = hvFbm(wp.xz * 0.42 + 11.0) + pathM * 0.08;
-        float hvPuddle = smoothstep(0.6, 0.66, pudN) * flatG * smoothstep(0.5, 0.95, uWetT) * (1.0 - rockM) * pathM * (1.0 - tillM);
-        ground *= mix(1.0, 0.5, hvPuddle);
-        ground = mix(ground, ground * vec3(0.9, 0.95, 1.05), hvPuddle);
+        float hvWetK = smoothstep(0.5, 0.95, uWetT);
+        float hvPuddle = smoothstep(0.5, 0.57, pudN) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
+        // Muddy, darker rim soaking out around every puddle.
+        float hvPudRim = smoothstep(0.42, 0.5, pudN) * (1.0 - hvPuddle) * flatG * hvWetK * (1.0 - rockM) * pathM;
+        ground *= mix(1.0, 0.62, hvPudRim);
+        ground *= mix(1.0, 0.32, hvPuddle);
+        ground = mix(ground, ground * vec3(0.88, 0.95, 1.08), hvPuddle);
         float hvTPath = pathM;
 
         // Baked contact AO under props / vignettes (painted blobs), strongest in the centre.
@@ -617,8 +621,15 @@ export class Terrain {
         /* glsl */ `
         if (hvPuddle > 0.01) {
           vec3 Vp = normalize(cameraPosition - vTWorld);
-          float fr = 0.25 + 0.75 * pow(1.0 - max(Vp.y, 0.0), 3.0);
-          totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.5) * hvPuddle * fr * 0.4;
+          float fr = 0.3 + 0.7 * pow(1.0 - max(Vp.y, 0.0), 3.0);
+          // Mirror of the sky with the dark masses of trees / eaves reflected in it (a cheap
+          // screen-free "probe": low-frequency blotches offset along the view direction).
+          vec2 rq = vTWorld.xz - Vp.xz * 6.0;
+          float trees = smoothstep(0.42, 0.62, hvFbm(rq * 0.12 + 3.0));
+          vec3 refl = mix(mix(uHorizonT, uSkyT, 0.35) * 1.15, mix(uHorizonT, uSkyT, 0.5) * vec3(0.3, 0.36, 0.34), trees * 0.8);
+          // Ripple rings catch the light.
+          float rr = length(hvRipples(vTWorld.xz, uTimeT)) * uRain;
+          totalEmissiveRadiance += (refl * fr * 0.85 + vec3(rr * 0.12)) * hvPuddle;
         }`,
       );
       fs = after(
@@ -626,7 +637,7 @@ export class Terrain {
         '#include <normal_fragment_maps>',
         /* glsl */ `
         if (hvPuddle > 0.01 && uRain > 0.01) {
-          vec2 rp = hvRipples(vTWorld.xz, uTimeT) * 0.35 * hvPuddle * uRain;
+          vec2 rp = hvRipples(vTWorld.xz, uTimeT) * 0.9 * hvPuddle * uRain;
           normal = normalize(normal + mat3(viewMatrix) * vec3(rp.x, 0.0, rp.y));
         }`,
       );

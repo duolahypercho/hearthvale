@@ -17,7 +17,8 @@ import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import type { Season, Weather } from '../core/time';
 import { RainStreaks, RainSplashes, SnowFlakes, RAIN_NEAR, RAIN_FAR, type HeightSource } from '../render/precipitation';
-import { LightningBolt, FogBank, Rainbow } from '../render/skyfx';
+import { LightningBolt, FogBank, Rainbow, StrikeScorch } from '../render/skyfx';
+import { BurstFX } from '../render/particles';
 import { Drips, Footprints, LeafGusts, findEaves, type DripPoint, type GustPalette } from '../render/groundfx';
 import { globalUniforms } from '../render/uniforms';
 import { atmosphere } from '../render/heightfog';
@@ -80,6 +81,8 @@ export class WeatherSystem implements System, WeatherApi {
   private splash = new RainSplashes();
   private snow = new SnowFlakes();
   private bolt = new LightningBolt();
+  private scorch = new StrikeScorch();
+  private strikeFx = new BurstFX(260);
   private fogBank = new FogBank();
   private rainbow = new Rainbow();
   private drips = new Drips();
@@ -115,7 +118,9 @@ export class WeatherSystem implements System, WeatherApi {
 
   init(game: Game): void {
     this.game = game;
-    game.scene.add(this.rain.mesh, this.rainFar.mesh, this.splash.mesh, this.snow.mesh, this.bolt.mesh, this.fogBank.mesh, this.rainbow.mesh, this.drips.mesh, this.prints.mesh, this.leaves.mesh);
+    game.scene.add(this.rain.mesh, this.rainFar.mesh, this.splash.mesh, this.snow.mesh, this.bolt.mesh, this.fogBank.mesh, this.rainbow.mesh, this.drips.mesh, this.prints.mesh, this.leaves.mesh, this.scorch.mesh, this.strikeFx.object);
+    this.strikeFx.object.userData.perfTag = 'weather';
+    this.strikeFx.object.userData.noAO = true;
     game.events.on('weather:change', ({ weather, prev }) => {
       if ((prev === 'rain' || prev === 'storm') && (weather === 'sun' || weather === 'wind')) {
         this.rainbowUntil = game.calendar.hour + 2.5;
@@ -153,6 +158,12 @@ export class WeatherSystem implements System, WeatherApi {
     }
     const ground = new THREE.Vector3(x, map.heightAt(x, z), z);
     this.bolt.build(ground, g.rc.camera.position, this.boltSeed++ * 7919);
+    // Impact: white-hot sparks, a burst of steam off the wet ground, a smoking scorch mark.
+    this.scorch.add(x, z, g.time);
+    const hit = ground.clone().setY(ground.y + 0.1);
+    this.strikeFx.emit(hit, { color: 0xfff4d0, count: 46, speed: 6.5, size: 0.09, gravity: 11, life: 0.75, up: 1.1, spread: 0.3 });
+    this.strikeFx.emit(hit, { color: 0xffb060, count: 24, speed: 3.5, size: 0.07, gravity: 8, life: 1.1, up: 1.4, spread: 0.5 });
+    this.strikeFx.emit(hit, { color: 0xc9d2de, count: 26, speed: 1.0, size: 0.55, gravity: -0.5, life: 2.6, up: 1.3, spread: 1.6 });
     this.strikeT = 0;
     this.hold = hold;
     const dist = Math.hypot(x - g.player.position.x, z - g.player.position.z);
@@ -200,7 +211,11 @@ export class WeatherSystem implements System, WeatherApi {
     const bolt = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('bolt') : null;
     if ((name === 'storm' || name === 'farm-storm') && bolt !== '0') {
       // Pose a strike for the (paused) beauty shot: rebuilt a frame later, once the camera has snapped.
-      requestAnimationFrame(() => this.strike(undefined, true));
+      // Maps can name an open, well-framed strike spot (`poi.strike`).
+      requestAnimationFrame(() => {
+        const spot = this.game.world.current?.poi?.strike?.[0];
+        this.strike(spot ? { x: spot.x, z: spot.z } : undefined, true);
+      });
     } else if (bolt === '1') requestAnimationFrame(() => this.strike(undefined, true));
     if (name === 'snow-day' || name === 'farm-winter' || name === 'winter-night' || name === 'town-winter') {
       requestAnimationFrame(() => this.stampTrail());
@@ -245,6 +260,7 @@ export class WeatherSystem implements System, WeatherApi {
         }
       : null;
     this.splash.setHeightSource(hs);
+    this.scorch.setHeightSource(hs);
     this.fogBank.setHeightSource(hs);
     this.drips.setHeightSource(hs);
     this.prints.clear();
@@ -349,7 +365,7 @@ export class WeatherSystem implements System, WeatherApi {
     this.fogBank.mesh.visible = false;
     const clear = this.weather === 'sun' || this.weather === 'wind';
     const map = game.world.current;
-    atmosphere.fog = clear ? this.fogAmt : this.fogAmt * 0.6 + this.rainAmt * 0.45;
+    atmosphere.fog = clear ? this.fogAmt : this.fogAmt * 0.5 + this.rainAmt * 0.16;
     atmosphere.base = map?.terrain ? map.terrain.opts.waterLevel + 0.25 : rig.focus.y - 0.3;
     atmosphere.falloff = clear ? 1.2 : 3.0;
     atmosphere.density = clear ? 0.12 : 0.06;
@@ -358,6 +374,8 @@ export class WeatherSystem implements System, WeatherApi {
     this.rainbow.update(this.rainbowAmt, cam.aspect);
     this.updateFootprints(game);
     this.updateLightning(dt, game);
+    this.scorch.update(game.time);
+    this.strikeFx.update(game.paused ? 0 : dt, hPx);
   }
 
   private updateFootprints(game: Game): void {
@@ -388,15 +406,16 @@ export class WeatherSystem implements System, WeatherApi {
       this.nextStrike -= dt;
       if (this.nextStrike <= 0) {
         this.strike();
-        this.nextStrike = 5 + Math.random() * 9;
+        // A strike every 4-8 s (seeded, so storms replay the same).
+        this.nextStrike = 4 + hash01(this.boltSeed * 5.3) * 4;
       }
     }
     let f = 0;
     if (this.strikeT >= 0) {
       if (this.hold && game.paused) {
-        // Posed strike for stills: bolt fully lit, a moderate flash on the world.
+        // Posed strike for stills: bolt fully lit, the world caught in the flash.
         this.bolt.alpha = 1;
-        f = 0.22;
+        f = 0.38;
       } else {
         this.hold = false;
         this.strikeT += dt;

@@ -142,10 +142,11 @@ export class RainStreaks {
           vec3 dir = normalize(vel);
           vec3 toCam = normalize(cameraPosition - p);
           vec3 side = normalize(cross(dir, toCam));
-          float len = uLen * (0.75 + 0.5 * aSeed.w);
+          // Storms: longer, bolder streaks (driving rain), slanted harder by the gusts.
+          float len = uLen * (0.75 + 0.5 * aSeed.w) * (1.0 + uGust * 1.1);
           float camD = length(cameraPosition - p);
           // Constant on-screen width: ~1-1.5 px hairlines whatever the distance.
-          float w = camD * uPxAngle * uPx * (0.85 + 0.3 * aSeed.x);
+          float w = camD * uPxAngle * uPx * (0.85 + 0.3 * aSeed.x) * (1.0 + uGust * 0.35);
           vec3 wp = p + side * position.x * w - dir * position.y * len;
           vUv = uv;
           // Depth fade: drops right in front of the lens read as smears, not rain.
@@ -154,7 +155,7 @@ export class RainStreaks {
           vec2 gw = normalize(uWind + vec2(1e-4, 0.0));
           vec2 gq = vec2(dot(p.xz, gw), dot(p.xz, vec2(-gw.y, gw.x)));
           float band = rnNoise(vec2(gq.x * 0.09 - uTime * 0.55, gq.y * 0.035)) * 0.7 + rnNoise(gq * 0.21 + uTime * 0.2) * 0.3;
-          vA *= mix(1.0, 0.3 + 1.6 * smoothstep(0.3, 0.75, band), uGust);
+          vA *= mix(1.0, 0.35 + 2.4 * smoothstep(0.3, 0.75, band), uGust);
           vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
@@ -193,7 +194,8 @@ export class RainStreaks {
     u.uPxAngle!.value = pxAngle;
     const wd = globalUniforms.uWindDir.value;
     const ws = globalUniforms.uWindStrength.value;
-    (u.uWind!.value as THREE.Vector2).set(wd.x * ws * 2.4, wd.y * ws * 2.4);
+    const slant = 2.4 + u.uGust!.value * 1.8;
+    (u.uWind!.value as THREE.Vector2).set(wd.x * ws * slant, wd.y * ws * slant);
     // Tinted by the sky (not white): a pale sky-grey veil by day, faint blue at night.
     const sky = globalUniforms.uSkyColor.value;
     const hor = globalUniforms.uHorizonColor.value;

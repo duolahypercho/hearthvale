@@ -203,6 +203,8 @@ export class ForestMap implements GameMap {
     this.poi.flowers = [{ x: GLADE.x - 3, z: GLADE.z + 4 }, { x: 34, z: 25 }];
     this.poi.shrine = [{ x: SHRINE.x, z: SHRINE.z }];
     this.poi.waterfall = [{ x: FALLS.x, z: FALLS.poolZ }];
+    // Where the storm demo's posed lightning bolt lands (open bank east of the plunge pool).
+    this.poi.strike = [{ x: 25.6, z: 19.6 }];
     // Rain drips off the canopy rims of the giants in the basin (read by the weather system).
     const dr = this.rng.fork('drips');
     this.poi.drips = [];

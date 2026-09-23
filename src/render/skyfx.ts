@@ -54,7 +54,7 @@ export class LightningBolt {
     this.mat = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       uniforms: { uAlpha: { value: 0 }, uCore: { value: new THREE.Color(1.0, 0.98, 1.0) }, uGlow: { value: new THREE.Color(0.55, 0.5, 1.0) } },
@@ -82,9 +82,9 @@ export class LightningBolt {
             return;
           }
           float x = abs(vUv.x);
-          float core = smoothstep(0.22, 0.0, x);
-          float glow = exp(-x * x * 5.0);
-          vec3 c = (uCore * core * 2.2 + uGlow * glow * 0.8) * vK * uAlpha;
+          float core = smoothstep(0.26, 0.04, x);
+          float glow = exp(-x * x * 7.0);
+          vec3 c = (uCore * core * 3.2 + uGlow * glow * 0.7) * vK * uAlpha;
           gl_FragColor = vec4(c, 1.0);
         }`,
     });
@@ -103,8 +103,8 @@ export class LightningBolt {
     this.strike.copy(ground);
     const top = ground.clone().add(new THREE.Vector3((rnd() - 0.5) * 10, 34 + rnd() * 8, -6 - rnd() * 6));
     const segs: BoltSeg[] = [];
-    // Midpoint displacement: jagged main channel.
-    const channel = (a: THREE.Vector3, b: THREE.Vector3, depth: number, w: number, k: number, jag: number, branchP: number): void => {
+    // Midpoint displacement: a jagged channel; returns its points.
+    const channel = (a: THREE.Vector3, b: THREE.Vector3, depth: number, jag: number): THREE.Vector3[] => {
       let pts = [a.clone(), b.clone()];
       for (let d = 0; d < depth; d++) {
         const next: THREE.Vector3[] = [pts[0]!];
@@ -120,19 +120,44 @@ export class LightningBolt {
         }
         pts = next;
       }
+      return pts;
+    };
+    // Tapered emission: thick where it leaves the cloud, pinching towards the tip; brightness
+    // flickers along the channel.
+    const emit = (pts: THREE.Vector3[], w0: number, w1: number, k: number): void => {
       for (let i = 0; i < pts.length - 1; i++) {
         const f = i / (pts.length - 1);
-        segs.push({ a: pts[i]!, b: pts[i + 1]!, w: w * (1 - f * 0.45), k });
-        if (branchP > 0 && rnd() < branchP && f > 0.1 && f < 0.8 && segs.length < 400) {
-          const from = pts[i]!;
-          const dir = pts[i + 1]!.clone().sub(from).normalize();
-          const len = (3 + rnd() * 7) * (1 - f * 0.6);
-          const end = from.clone().add(new THREE.Vector3(dir.x + (rnd() - 0.5) * 1.6, -0.6 - rnd() * 0.6, dir.z + (rnd() - 0.5) * 1.6).normalize().multiplyScalar(len));
-          channel(from, end, 4, w * 0.45, k * 0.6, 0.5, 0);
-        }
+        const w = THREE.MathUtils.lerp(w0, w1, Math.pow(f, 0.8)) * (0.8 + rnd() * 0.4);
+        segs.push({ a: pts[i]!, b: pts[i + 1]!, w, k: k * (0.8 + rnd() * 0.25) });
       }
     };
-    channel(top, ground, 7, 0.42, 1, 0.42, 0.09);
+    const main = channel(top, ground, 7, 0.42);
+    emit(main, 0.5, 0.26, 1);
+    // 2-4 major forks peeling off the upper two thirds, each with a few twiggy sub-branches.
+    const forks = 2 + Math.floor(rnd() * 3);
+    for (let k = 0; k < forks; k++) {
+      const fi = Math.floor((0.12 + rnd() * 0.5) * (main.length - 2));
+      const from = main[fi]!;
+      const dir = main[fi + 1]!.clone().sub(from).normalize();
+      const len = 8 + rnd() * 10;
+      const side = new THREE.Vector3(rnd() - 0.5, 0, rnd() - 0.5).normalize();
+      const end = from.clone().add(dir.clone().multiplyScalar(0.6).add(side.multiplyScalar(0.85)).add(new THREE.Vector3(0, -0.9, 0)).normalize().multiplyScalar(len));
+      const fp = channel(from, end, 5, 0.5);
+      emit(fp, 0.26, 0.05, 0.75);
+      for (let j = 0; j < 3; j++) {
+        const si = Math.floor(rnd() * (fp.length - 2));
+        const sf = fp[si]!;
+        const se = sf.clone().add(new THREE.Vector3((rnd() - 0.5) * 2, -0.6 - rnd(), (rnd() - 0.5) * 2).normalize().multiplyScalar(2 + rnd() * 3));
+        emit(channel(sf, se, 3, 0.55), 0.12, 0.03, 0.5);
+      }
+    }
+    // Hair-thin branchlets off the main channel.
+    for (let j = 0; j < 6; j++) {
+      const si = Math.floor((0.1 + rnd() * 0.8) * (main.length - 2));
+      const sf = main[si]!;
+      const se = sf.clone().add(new THREE.Vector3((rnd() - 0.5) * 2, -0.5 - rnd(), (rnd() - 0.5) * 2).normalize().multiplyScalar(2 + rnd() * 4));
+      emit(channel(sf, se, 3, 0.55), 0.12, 0.03, 0.45);
+    }
 
     const pos = this.geo.attributes.position as THREE.BufferAttribute;
     const uv = this.geo.attributes.uv as THREE.BufferAttribute;
@@ -156,7 +181,7 @@ export class LightningBolt {
       toCam.copy(camPos).sub(s.a).normalize();
       side.crossVectors(dir, toCam).normalize();
       // Wide ribbon: the glow falls off across it, the core is the middle fifth.
-      const w = s.w * 2.4;
+      const w = s.w * 1.5;
       // Extend a touch along the segment so joints overlap.
       const a = s.a.clone().addScaledVector(dir, -s.w * 0.3);
       const b = s.b.clone().addScaledVector(dir, s.w * 0.3);
@@ -195,6 +220,129 @@ export class LightningBolt {
   set alpha(a: number) {
     this.mat.uniforms.uAlpha!.value = a;
     this.mesh.visible = a > 0.002;
+  }
+}
+
+// ───────────────────────────────────────────── strike scorch
+
+/**
+ * Scorch marks where lightning hits: a charred, cracked disc draped on the terrain (height texture)
+ * with glowing ember cracks that cool within seconds; the mark itself fades over ~40 s. Up to 4 at
+ * once, one draw call.
+ */
+export class StrikeScorch {
+  readonly mesh: THREE.Mesh;
+  private mat: THREE.ShaderMaterial;
+  private geo: THREE.InstancedBufferGeometry;
+  private slot = 0;
+  private readonly max = 4;
+
+  constructor() {
+    const plane = new THREE.PlaneGeometry(1, 1, 10, 10);
+    plane.rotateX(-Math.PI / 2);
+    const g = new THREE.InstancedBufferGeometry();
+    g.index = plane.index;
+    g.setAttribute('position', plane.attributes.position!);
+    g.setAttribute('uv', plane.attributes.uv!);
+    g.setAttribute('aStrike', new THREE.InstancedBufferAttribute(new Float32Array(this.max * 4).fill(-999), 4));
+    g.instanceCount = this.max;
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      fog: true,
+      uniforms: THREE.UniformsUtils.merge([
+        THREE.UniformsLib.fog,
+        { uHeight: { value: null }, uHOrigin: { value: new THREE.Vector2() }, uHSize: { value: new THREE.Vector2(1, 1) }, uWater: { value: -99 }, uNow: { value: 0 } },
+      ]),
+      vertexShader: /* glsl */ `
+        #include <fog_pars_vertex>
+        uniform sampler2D uHeight;
+        uniform vec2 uHOrigin;
+        uniform vec2 uHSize;
+        uniform float uWater;
+        uniform float uNow;
+        attribute vec4 aStrike;
+        varying vec2 vUv;
+        varying float vAge;
+        void main() {
+          vUv = uv;
+          vAge = uNow - aStrike.w;
+          vec3 p = vec3(aStrike.x + position.x * 3.4, 0.0, aStrike.z + position.z * 3.4);
+          p.y = max(texture2D(uHeight, (p.xz - uHOrigin) / uHSize).r, uWater) + 0.04;
+          if (vAge < 0.0 || vAge > 45.0) p = vec3(0.0, -999.0, 0.0);
+          vec4 mvPosition = viewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: /* glsl */ `
+        #include <fog_pars_fragment>
+        varying vec2 vUv;
+        varying float vAge;
+        ${NOISE_GLSL}
+        void main() {
+          vec2 q = vUv * 2.0 - 1.0;
+          float r = length(q);
+          float ang = atan(q.y, q.x);
+          float n = hvNoise(q * 4.0) * 0.6 + hvNoise(q * 11.0) * 0.4;
+          // Ragged charred blot + radial burn streaks.
+          float streak = pow(abs(sin(ang * 7.0 + n * 3.0)), 8.0) * smoothstep(0.95, 0.3, r);
+          float blot = smoothstep(0.62 + n * 0.25, 0.1, r);
+          float a = max(blot, streak * 0.7) * 0.85;
+          float fade = 1.0 - smoothstep(25.0, 45.0, vAge);
+          a *= fade;
+          if (a < 0.01) discard;
+          vec3 col = vec3(0.05, 0.04, 0.035);
+          // Ember cracks glowing for the first seconds.
+          float crack = smoothstep(0.08, 0.0, abs(hvNoise(q * 6.0 + 3.0) - 0.5)) * smoothstep(0.7, 0.1, r);
+          float hot = exp(-vAge * 0.9);
+          col += vec3(1.8, 0.7, 0.2) * crack * hot * 2.5 + vec3(1.2, 0.5, 0.15) * smoothstep(0.25, 0.0, r) * hot * 1.5;
+          gl_FragColor = vec4(col, a);
+          #include <fog_fragment>
+        }`,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 5;
+    this.mesh.visible = false;
+    this.mesh.name = 'strike-scorch';
+    this.mesh.userData.noAO = true;
+    this.mesh.userData.perfTag = 'weather';
+  }
+
+  setHeightSource(h: HeightSource | null): void {
+    const u = this.mat.uniforms;
+    u.uHeight!.value = h?.tex ?? null;
+    if (h) {
+      (u.uHOrigin!.value as THREE.Vector2).copy(h.origin);
+      (u.uHSize!.value as THREE.Vector2).copy(h.size);
+      u.uWater!.value = h.waterLevel;
+    }
+    this.clear();
+  }
+
+  clear(): void {
+    const a = this.geo.attributes.aStrike as THREE.InstancedBufferAttribute;
+    (a.array as Float32Array).fill(-999);
+    a.needsUpdate = true;
+  }
+
+  add(x: number, z: number, now: number): void {
+    const a = this.geo.attributes.aStrike as THREE.InstancedBufferAttribute;
+    a.setXYZW(this.slot, x, 0, z, now);
+    a.needsUpdate = true;
+    this.slot = (this.slot + 1) % this.max;
+  }
+
+  update(now: number): void {
+    this.mat.uniforms.uNow!.value = now;
+    const a = this.geo.attributes.aStrike as THREE.InstancedBufferAttribute;
+    let live = false;
+    for (let i = 0; i < this.max; i++) if (now - a.getW(i) < 45) live = true;
+    this.mesh.visible = live && this.mat.uniforms.uHeight!.value !== null;
   }
 }
 

@@ -92,11 +92,12 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
     }
     if (wet) {
       albedo += /* glsl */ `
-      diffuseColor.rgb *= 1.0 - uWet * 0.28 * (1.0 - hvSnowAmt);`;
+      // Rain soaks surfaces ~40 % darker (and glossier, below): wet bark, stone and soil read at a glance.
+      diffuseColor.rgb *= 1.0 - uWet * 0.4 * (1.0 - hvSnowAmt);`;
     }
     fs = after(fs, '#include <color_fragment>', albedo);
     if (wet && fs.includes('#include <roughnessmap_fragment>')) {
-      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.45, uWet);');
+      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.3, uWet);');
     }
     if (snow && fs.includes('#include <roughnessmap_fragment>')) {
       fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.62, hvSnowAmt);');
