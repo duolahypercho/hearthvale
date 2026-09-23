@@ -129,7 +129,7 @@ export class DayEndScreen extends Screen {
       <div class="de-body">
         <div class="de-ledger">
           <div class="de-h">Shipped today</div>
-          <div class="de-rows">${rows.join('') || `<div class="de-empty">${itemIcon('parsnip')}<p>Nothing in the shipping bin today.<br/><small>Drop produce in the bin by the porch — it’s collected overnight.</small></p></div>`}</div>
+          <div class="de-rows${k > 9 ? ' dense' : ''}">${rows.join('') || `<div class="de-empty">${itemIcon('parsnip')}<p>Nothing in the shipping bin today.<br/><small>Drop produce in the bin by the porch — it’s collected overnight.</small></p></div>`}</div>
         </div>
         <div class="de-side">
           <div class="de-earn"><div class="de-h">Earnings</div><div class="amt">${ICONS.coin}<span class="v" data-v="0">0</span><small>g</small></div></div>

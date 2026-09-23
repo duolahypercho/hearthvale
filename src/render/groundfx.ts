@@ -1,0 +1,521 @@
+/**
+ * Near-ground weather detail, all GPU-animated (a few uniforms per frame, one draw call each):
+ *  - Drips: fat drops falling from roof eaves / canopy edges while it rains (and for a while after),
+ *    each ending in a tiny splash ring on the ground (height texture). `findEaves()` derives drip
+ *    points from any roof-named material in a map.
+ *  - Footprints: boot prints pressed into snow behind the player (ring buffer, fade over ~90 s).
+ *  - LeafGusts: leaves / petals tumbling across the view on windy days (seasonal palette).
+ */
+import * as THREE from 'three';
+import { globalUniforms } from './uniforms';
+import { NOISE_GLSL } from './shaders/noise';
+import type { HeightSource } from './precipitation';
+
+// ───────────────────────────────────────────── drips
+
+export interface DripPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * Eave points of every roof-like mesh under `root` (material name matching roof / thatch / shingle):
+ * boundary cells of the roof footprint whose outside neighbour lies downhill of the roof slope.
+ */
+export function findEaves(root: THREE.Object3D, max = 360, cell = 0.45): DripPoint[] {
+  const cells = new Map<number, { min: number; x: number; z: number }>();
+  const key = (cx: number, cz: number): number => (cx + 4096) * 8192 + (cz + 4096);
+  const v = new THREE.Vector3();
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || (m as unknown as THREE.InstancedMesh).isInstancedMesh || (m as unknown as { isBatchedMesh?: boolean }).isBatchedMesh) return;
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    if (!mats.some((mt) => mt && /roof|thatch|shingle/i.test(mt.name))) return;
+    const pos = m.geometry?.attributes.position as THREE.BufferAttribute | undefined;
+    if (!pos) return;
+    // Merged static meshes carry several materials in groups: only the roof groups count.
+    const ranges: [number, number][] = [];
+    const idx = m.geometry.index;
+    if (Array.isArray(m.material) && m.geometry.groups.length) {
+      for (const g of m.geometry.groups) {
+        const mt = (m.material as THREE.Material[])[g.materialIndex ?? 0];
+        if (mt && /roof|thatch|shingle/i.test(mt.name)) ranges.push([g.start, g.start + g.count]);
+      }
+    } else ranges.push([0, idx ? idx.count : pos.count]);
+    const step = Math.max(1, Math.floor(pos.count / 60000));
+    for (const [a, b] of ranges) {
+      for (let i = a; i < b; i += step) {
+        const vi = idx ? idx.getX(i) : i;
+        v.fromBufferAttribute(pos, vi).applyMatrix4(m.matrixWorld);
+        const cx = Math.floor(v.x / cell);
+        const cz = Math.floor(v.z / cell);
+        const k = key(cx, cz);
+        const c = cells.get(k);
+        if (!c) cells.set(k, { min: v.y, x: cx, z: cz });
+        else if (v.y < c.min) c.min = v.y;
+      }
+    }
+  });
+  const out: DripPoint[] = [];
+  const dirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (const c of cells.values()) {
+    const get = (dx: number, dz: number) => cells.get(key(c.x + dx, c.z + dz));
+    // Roof slope from the neighbours' lowest points.
+    const hx = (get(1, 0)?.min ?? c.min) - (get(-1, 0)?.min ?? c.min);
+    const hz = (get(0, 1)?.min ?? c.min) - (get(0, -1)?.min ?? c.min);
+    const gl = Math.hypot(hx, hz);
+    if (gl < 0.05) continue;
+    for (const [dx, dz] of dirs) {
+      if (get(dx, dz)) continue;
+      // Outside neighbour must be downhill (eave), not across the slope (gable end).
+      if ((-hx * dx - hz * dz) / gl > 0.6) {
+        out.push({ x: (c.x + 0.5) * cell + dx * cell * 0.4, y: c.min - 0.02, z: (c.z + 0.5) * cell + dz * cell * 0.4 });
+        break;
+      }
+    }
+  }
+  // Thin to `max` evenly.
+  if (out.length > max) {
+    const k = out.length / max;
+    return Array.from({ length: max }, (_, i) => out[Math.floor(i * k)]!);
+  }
+  return out;
+}
+
+export class Drips {
+  readonly mesh: THREE.Mesh;
+  private mat: THREE.ShaderMaterial;
+  private geo: THREE.InstancedBufferGeometry;
+  private readonly max: number;
+
+  constructor(max = 480) {
+    this.max = max;
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0], 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    g.setAttribute('aPoint', new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4));
+    g.instanceCount = 0;
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      fog: true,
+      side: THREE.DoubleSide,
+      uniforms: THREE.UniformsUtils.merge([
+        THREE.UniformsLib.fog,
+        {
+          uTime: { value: 0 },
+          uAmount: { value: 0 },
+          uHeight: { value: null },
+          uHOrigin: { value: new THREE.Vector2() },
+          uHSize: { value: new THREE.Vector2(1, 1) },
+          uWater: { value: -99 },
+          uColor: { value: new THREE.Color(0xdde8ff) },
+        },
+      ]),
+      vertexShader: /* glsl */ `
+        #include <fog_pars_vertex>
+        uniform float uTime;
+        uniform float uAmount;
+        uniform sampler2D uHeight;
+        uniform vec2 uHOrigin;
+        uniform vec2 uHSize;
+        uniform float uWater;
+        attribute vec4 aPoint;
+        varying vec2 vUv;
+        varying float vMode;
+        varying float vA;
+        void main() {
+          float seed = aPoint.w;
+          float ground = max(texture2D(uHeight, (aPoint.xz - uHOrigin) / uHSize).r, uWater) + 0.02;
+          float drop = max(aPoint.y - ground, 0.2);
+          float fall = sqrt(2.0 * drop / 9.8);
+          // Each point drips every 0.7-1.9 s (fewer as the rain eases off).
+          float period = mix(1.9, 0.7, fract(seed * 7.13)) / max(uAmount, 0.3);
+          float t = mod(uTime + seed * 31.0, period);
+          float hang = period - fall - 0.35;
+          float on = step(fract(seed * 3.7), uAmount);
+          vec3 p;
+          vec3 wp;
+          if (t < hang) {
+            // Swelling bead under the eave.
+            float s = 0.03 + 0.03 * smoothstep(0.0, hang, t);
+            vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+            vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+            wp = aPoint.xyz + (right * position.x + up * (position.y - 1.0)) * s;
+            vMode = 0.0;
+            vA = on * 0.8;
+          } else if (t < hang + fall) {
+            float tf = t - hang;
+            p = aPoint.xyz - vec3(0.0, 4.9 * tf * tf, 0.0);
+            // Streak stretched along the fall, camera-facing across.
+            float v = 9.8 * tf;
+            float len = clamp(v * 0.03, 0.06, 0.35);
+            vec3 toCam = normalize(cameraPosition - p);
+            vec3 side = normalize(cross(vec3(0.0, 1.0, 0.0), toCam));
+            wp = p + side * position.x * 0.035 + vec3(0.0, position.y * len, 0.0);
+            vMode = 0.0;
+            vA = on;
+          } else {
+            // Splash ring on the ground.
+            float ts = (t - hang - fall) / 0.35;
+            float s = 0.05 + ts * 0.28;
+            wp = vec3(aPoint.x + position.x * s, ground + 0.015, aPoint.z + (position.y - 0.5) * s);
+            vMode = 1.0 + ts;
+            vA = on * (1.0 - ts);
+          }
+          vUv = uv;
+          vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: /* glsl */ `
+        #include <fog_pars_fragment>
+        uniform vec3 uColor;
+        varying vec2 vUv;
+        varying float vMode;
+        varying float vA;
+        void main() {
+          float a;
+          if (vMode < 0.5) {
+            vec2 q = vUv - 0.5;
+            a = (1.0 - smoothstep(0.3, 0.5, abs(q.x))) * (0.55 + 0.45 * vUv.y);
+            a *= 0.7;
+          } else {
+            float d = length(vUv - 0.5) * 2.0;
+            a = smoothstep(0.6, 0.8, d) * (1.0 - smoothstep(0.85, 1.0, d)) * 0.7;
+          }
+          a *= vA;
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(uColor, a);
+          #include <fog_fragment>
+        }`,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 8;
+    this.mesh.visible = false;
+    this.mesh.name = 'drips';
+    this.mesh.userData.noAO = true;
+    this.mesh.userData.perfTag = 'weather';
+  }
+
+  setPoints(pts: DripPoint[]): void {
+    const a = this.geo.attributes.aPoint as THREE.InstancedBufferAttribute;
+    const n = Math.min(this.max, pts.length);
+    for (let i = 0; i < n; i++) {
+      const p = pts[i]!;
+      const h = Math.sin(p.x * 12.9898 + p.z * 78.233) * 43758.5453;
+      a.setXYZW(i, p.x, p.y, p.z, h - Math.floor(h));
+    }
+    a.needsUpdate = true;
+    this.geo.instanceCount = n;
+  }
+
+  setHeightSource(h: HeightSource | null): void {
+    const u = this.mat.uniforms;
+    u.uHeight!.value = h?.tex ?? null;
+    if (h) {
+      (u.uHOrigin!.value as THREE.Vector2).copy(h.origin);
+      (u.uHSize!.value as THREE.Vector2).copy(h.size);
+      u.uWater!.value = h.waterLevel;
+    }
+  }
+
+  update(amount: number, time: number): void {
+    const u = this.mat.uniforms;
+    u.uTime!.value = time;
+    u.uAmount!.value = amount;
+    const sky = globalUniforms.uSkyColor.value;
+    (u.uColor!.value as THREE.Color).setRGB(0.7 + sky.r * 0.3, 0.76 + sky.g * 0.3, 0.84 + sky.b * 0.3).multiplyScalar(1 - globalUniforms.uNight.value * 0.55);
+    this.mesh.visible = amount > 0.02 && this.geo.instanceCount > 0 && u.uHeight!.value !== null;
+  }
+}
+
+// ───────────────────────────────────────────── footprints
+
+export class Footprints {
+  readonly mesh: THREE.Mesh;
+  private mat: THREE.ShaderMaterial;
+  private geo: THREE.InstancedBufferGeometry;
+  private next = 0;
+  private count = 0;
+  private readonly max: number;
+
+  constructor(max = 220) {
+    this.max = max;
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, -0.5, 0.5, 0, -0.5, 0.5, 0, 0.5, -0.5, 0, 0.5], 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+    g.setIndex([0, 2, 1, 0, 3, 2]);
+    // x, y, z, yaw | birth time, side (-1 / 1)
+    g.setAttribute('aPrint', new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aMeta', new THREE.InstancedBufferAttribute(new Float32Array(max * 2), 2).setUsage(THREE.DynamicDrawUsage));
+    g.instanceCount = 0;
+    this.geo = g;
+    // Modulate blending (dst * 2 * src): 0.5 is neutral, lower presses a shaded dent into whatever
+    // light the snow has, higher brightens the crumbled rim. Works in sun and shadow alike.
+    this.mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.DstColorFactor,
+      blendDst: THREE.SrcColorFactor,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      uniforms: {
+        uTime: { value: 0 },
+        uSnow: { value: 0 },
+        uLife: { value: 90 },
+        uSunDir: globalUniforms.uSunDir,
+      },
+      vertexShader: /* glsl */ `
+        attribute vec4 aPrint;
+        attribute vec2 aMeta;
+        uniform float uTime;
+        uniform float uLife;
+        varying vec2 vUv;
+        varying float vAge;
+        varying vec2 vSun;
+        varying float vFade;
+        uniform vec3 uSunDir;
+        void main() {
+          float c = cos(aPrint.w);
+          float s = sin(aPrint.w);
+          // Boot print ~0.14 x 0.26 m, offset to its side of the stride.
+          vec2 lp = vec2(position.x * 0.19, position.z * 0.33) + vec2(aMeta.y * 0.09, 0.0);
+          vec2 r = vec2(lp.x * c + lp.y * s, -lp.x * s + lp.y * c);
+          vec3 wp = vec3(aPrint.x + r.x, aPrint.y + 0.012, aPrint.z + r.y);
+          vUv = uv;
+          vAge = (uTime - aMeta.x) / uLife;
+          // Sun direction in the print's local frame.
+          vec2 sd = normalize(uSunDir.xz + 1e-4);
+          vSun = vec2(sd.x * c - sd.y * s, sd.x * s + sd.y * c);
+          vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
+          vFade = 1.0 - smoothstep(38.0, 60.0, -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uSnow;
+        varying vec2 vUv;
+        varying float vAge;
+        varying vec2 vSun;
+        varying float vFade;
+        ${NOISE_GLSL}
+        // Signed distance to a boot sole: toe ellipse + heel ellipse joined by a smooth waist.
+        float sole(vec2 p) {
+          vec2 t = (p - vec2(0.5, 0.66)) / vec2(0.36, 0.28);
+          vec2 h = (p - vec2(0.5, 0.25)) / vec2(0.3, 0.2);
+          float dt = length(t) - 1.0;
+          float dh = length(h) - 1.0;
+          float k = 0.25;
+          float hh = clamp(0.5 + 0.5 * (dh - dt) / k, 0.0, 1.0);
+          return mix(dh, dt, hh) - k * hh * (1.0 - hh);
+        }
+        void main() {
+          if (vAge > 1.0 || vAge < 0.0) discard;
+          float n = hvNoise(vUv * 9.0) * 0.18;
+          float d = sole(vUv) + n;
+          float inside = smoothstep(0.1, -0.15, d);
+          float rim = smoothstep(0.34, 0.1, d) * (1.0 - inside);
+          // The wall facing the sun is lit, the one facing away sits in the dent's own shadow.
+          vec2 dir = normalize(vUv - 0.5 + 1e-4);
+          float toward = dot(dir, vSun);
+          float k = smoothstep(0.3, 0.7, uSnow) * (1.0 - smoothstep(0.55, 1.0, vAge)) * vFade;
+          vec3 dent = mix(vec3(1.0), vec3(0.5, 0.58, 0.78) * (0.9 + 0.14 * toward), inside * (0.85 + 0.15 * step(0.5, fract(vUv.y * 7.0))));
+          vec3 lip = mix(vec3(1.0), vec3(1.14, 1.13, 1.1), rim * clamp(0.4 - toward, 0.0, 1.0));
+          vec3 m = mix(vec3(1.0), dent * lip, k);
+          gl_FragColor = vec4(m * 0.5, 1.0);
+        }`,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 3;
+    this.mesh.visible = false;
+    this.mesh.name = 'footprints';
+    this.mesh.userData.noAO = true;
+    this.mesh.userData.perfTag = 'weather';
+  }
+
+  stamp(x: number, y: number, z: number, yaw: number, side: number, time: number): void {
+    const p = this.geo.attributes.aPrint as THREE.InstancedBufferAttribute;
+    const m = this.geo.attributes.aMeta as THREE.InstancedBufferAttribute;
+    p.setXYZW(this.next, x, y, z, yaw);
+    m.setXY(this.next, time, side);
+    p.needsUpdate = m.needsUpdate = true;
+    this.next = (this.next + 1) % this.max;
+    this.count = Math.min(this.max, this.count + 1);
+    this.geo.instanceCount = this.count;
+  }
+
+  clear(): void {
+    this.count = 0;
+    this.next = 0;
+    this.geo.instanceCount = 0;
+  }
+
+  update(snow: number, time: number): void {
+    const u = this.mat.uniforms;
+    u.uTime!.value = time;
+    u.uSnow!.value = snow;
+    this.mesh.visible = snow > 0.3 && this.count > 0;
+  }
+}
+
+// ───────────────────────────────────────────── leaves on the wind
+
+export type GustPalette = 'petals' | 'green' | 'autumn' | 'none';
+
+const PALETTES: Record<Exclude<GustPalette, 'none'>, [number, number, number]> = {
+  petals: [0xffc2d6, 0xfff0f4, 0xf7a8c4],
+  green: [0x7fbf4a, 0xa5d65a, 0x5e9e3a],
+  autumn: [0xe8892a, 0xd64a28, 0xf0c040],
+};
+
+export class LeafGusts {
+  readonly mesh: THREE.Mesh;
+  private mat: THREE.ShaderMaterial;
+
+  constructor(private readonly max = 520) {
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    const seeds = new Float32Array(max * 4);
+    let s = 20240917;
+    for (let i = 0; i < seeds.length; i++) {
+      s = (Math.imul(s ^ (s >>> 15), 2246822519) + 0x9e3779b9) >>> 0;
+      seeds[i] = (s >>> 8) / 16777216;
+    }
+    g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 4));
+    g.instanceCount = max;
+    this.mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: true,
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+      fog: true,
+      uniforms: THREE.UniformsUtils.merge([
+        THREE.UniformsLib.fog,
+        {
+          uTime: { value: 0 },
+          uCenter: { value: new THREE.Vector3() },
+          uBox: { value: new THREE.Vector3(26, 7, 22) },
+          uAmount: { value: 0 },
+          uCount: { value: max },
+          uWind: { value: new THREE.Vector2(1, 0) },
+          uSpeed: { value: 4 },
+          uC0: { value: new THREE.Color() },
+          uC1: { value: new THREE.Color() },
+          uC2: { value: new THREE.Color() },
+          uSize: { value: 0.16 },
+          uSunDir: globalUniforms.uSunDir,
+          uSunColor: globalUniforms.uSunColor,
+          uSkyColor: globalUniforms.uSkyColor,
+        },
+      ]),
+      vertexShader: /* glsl */ `
+        #include <fog_pars_vertex>
+        uniform float uTime;
+        uniform vec3 uCenter;
+        uniform vec3 uBox;
+        uniform float uAmount;
+        uniform float uCount;
+        uniform vec2 uWind;
+        uniform float uSpeed;
+        uniform float uSize;
+        attribute vec4 aSeed;
+        varying vec2 vUv;
+        varying float vPick;
+        varying float vShade;
+        mat3 rot(vec3 a) {
+          float cx = cos(a.x), sx = sin(a.x), cy = cos(a.y), sy = sin(a.y), cz = cos(a.z), sz = sin(a.z);
+          return mat3(cy * cz, cy * sz, -sy, sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy, cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy);
+        }
+        void main() {
+          float idx = float(gl_InstanceID);
+          float on = step(idx, uCount * uAmount);
+          float sp = uSpeed * (0.6 + 0.8 * aSeed.w);
+          vec3 size = uBox * 2.0;
+          // Travel along the wind, wrapping inside a box around the camera focus.
+          vec3 p = vec3(aSeed.x * size.x, aSeed.y * size.y, aSeed.z * size.z);
+          vec3 wind = vec3(uWind.x, 0.0, uWind.y);
+          p += wind * uTime * sp;
+          float ph = aSeed.w * 50.0;
+          // Gusty loops and flutter-down.
+          p.y += sin(uTime * 1.3 + ph) * 0.8 + sin(uTime * 3.1 + ph * 1.7) * 0.25 - uTime * 0.35 * (0.5 + aSeed.x);
+          p += vec3(-uWind.y, 0.0, uWind.x) * sin(uTime * 0.9 + ph * 0.6) * 1.2;
+          vec3 base = uCenter - vec3(uBox.x, 0.0, uBox.z);
+          vec3 rel = p;
+          rel.xz = mod(rel.xz, size.xz);
+          rel.y = mod(rel.y, size.y) + 0.3;
+          vec3 wp = base + rel;
+          // Tumble: spin about a per-leaf axis.
+          vec3 ang = vec3(uTime * (2.0 + aSeed.x * 4.0) + ph, uTime * (1.3 + aSeed.y * 3.0) + ph * 0.7, uTime * (0.7 + aSeed.z * 2.0));
+          mat3 R = rot(ang);
+          vec3 local = R * vec3(position.x, position.y * 0.62, 0.0) * uSize * (0.7 + 0.6 * aSeed.z) * on;
+          vShade = 0.6 + 0.4 * abs((R * vec3(0.0, 0.0, 1.0)).y);
+          vUv = uv;
+          vPick = fract(aSeed.x * 7.0 + aSeed.z * 3.0);
+          vec4 mvPosition = viewMatrix * vec4(wp + local, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: /* glsl */ `
+        #include <fog_pars_fragment>
+        uniform vec3 uC0;
+        uniform vec3 uC1;
+        uniform vec3 uC2;
+        uniform vec3 uSunColor;
+        uniform vec3 uSkyColor;
+        varying vec2 vUv;
+        varying float vPick;
+        varying float vShade;
+        void main() {
+          // Leaf / petal silhouette: pointed ellipse with a central vein.
+          vec2 q = vUv * 2.0 - 1.0;
+          float w = (1.0 - q.y * q.y) * 0.62;
+          float inside = step(abs(q.x), w);
+          if (inside < 0.5) discard;
+          vec3 c = vPick < 0.34 ? uC0 : vPick < 0.67 ? uC1 : uC2;
+          c *= 0.85 + 0.15 * smoothstep(0.0, 0.15, abs(q.x));
+          vec3 light = uSkyColor * 0.45 + uSunColor * 0.75 * vShade;
+          gl_FragColor = vec4(c * light, 1.0);
+          #include <fog_fragment>
+        }`,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 5;
+    this.mesh.visible = false;
+    this.mesh.name = 'leaf-gusts';
+    this.mesh.userData.perfTag = 'weather';
+  }
+
+  setPalette(p: GustPalette): void {
+    if (p === 'none') return;
+    const [a, b, c] = PALETTES[p];
+    const u = this.mat.uniforms;
+    (u.uC0!.value as THREE.Color).setHex(a);
+    (u.uC1!.value as THREE.Color).setHex(b);
+    (u.uC2!.value as THREE.Color).setHex(c);
+    u.uSize!.value = p === 'petals' ? 0.12 : 0.17;
+  }
+
+  update(center: THREE.Vector3, amount: number, time: number): void {
+    const u = this.mat.uniforms;
+    u.uTime!.value = time;
+    (u.uCenter!.value as THREE.Vector3).copy(center);
+    u.uAmount!.value = amount;
+    const wd = globalUniforms.uWindDir.value;
+    (u.uWind!.value as THREE.Vector2).copy(wd);
+    u.uSpeed!.value = 1.2 + globalUniforms.uWindStrength.value * 2.2;
+    this.mesh.visible = amount > 0.01;
+  }
+}

@@ -74,6 +74,10 @@ export class DayNight {
   private nightLights: { light: THREE.PointLight | THREE.SpotLight; max: number }[] = [];
   /** 0 day .. 1 night (read by props/particles). */
   night = 0;
+  /** 0..1 morning ground-mist haze (set every frame by the weather system): thicker, paler fog. */
+  mist = 0;
+  /** Minimum wetness (weather system: surfaces stay damp for a while after the rain stops). */
+  wetFloor = 0;
   /** Current weather blend (smoothed). */
   private overcast = 0;
   private snowTarget = 0;
@@ -286,6 +290,7 @@ export class DayNight {
     // Smooth weather/season transitions.
     this.overcast += (this.overcastTarget - this.overcast) * k;
     globalUniforms.uWet.value += (this.wetTarget - globalUniforms.uWet.value) * k * 0.5;
+    globalUniforms.uWet.value = Math.max(globalUniforms.uWet.value, this.wetFloor);
     globalUniforms.uWindStrength.value += (this.windTarget - globalUniforms.uWindStrength.value) * k;
     globalUniforms.uSnow.value += (this.snowTarget - globalUniforms.uSnow.value) * k * 0.4;
     for (const key of ['a', 'b', 'tip', 'dry'] as const) this.grassColors[key].lerp(this.grassTarget[key], k * 0.5);
@@ -328,6 +333,14 @@ export class DayNight {
     (this.rc.scene.background as THREE.Color).copy(this.fog.color);
     this.fog.near = this.rc.rig.distance * (1.25 - rainy * 0.55);
     this.fog.far = this.rc.rig.distance * (4.2 - oc * 1.1 - rainy * 1.25);
+    if (this.mist > 0.001) {
+      const m = this.mist;
+      _c1.setRGB(0.86, 0.87, 0.86).lerp(this.sun.color, 0.25).multiplyScalar(1 - this.night * 0.75);
+      this.fog.color.lerp(_c1, m * 0.7);
+      (this.rc.scene.background as THREE.Color).copy(this.fog.color);
+      this.fog.near *= 1 - m * 0.6;
+      this.fog.far *= 1 - m * 0.42;
+    }
     lerpHex(a.skyTop, b.skyTop, t, this.skyMat.uniforms.uTop!.value as THREE.Color);
     lerpHex(a.horizon, b.horizon, t, this.skyMat.uniforms.uHorizon!.value as THREE.Color);
     (this.skyMat.uniforms.uTop!.value as THREE.Color).lerp(this.fog.color, oc * 0.7);

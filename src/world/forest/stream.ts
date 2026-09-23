@@ -149,8 +149,13 @@ export function buildWaterfall(s: FallsSpec): THREE.Mesh {
           float ridge = hvNoise(vec2(q.x * 3.0, q.y * 0.12)) * 0.6 + hvNoise(vec2(q.x * 11.0, q.y * 0.3)) * 0.4;
           vec3 iceCol = mix(vec3(0.62, 0.8, 0.9), vec3(0.93, 0.97, 1.0), ridge) * (uSunColor * 0.5 + uSkyColor * 0.75);
           iceCol += uSunColor * pow(ridge, 8.0) * 1.2;
+          // Glassy blue in the grooves, frosted white on the ridges.
+          iceCol = mix(iceCol * vec3(0.72, 0.86, 1.0), iceCol, smoothstep(0.3, 0.7, ridge));
           col = mix(col, iceCol, ice);
-          a = mix(a, edge * lip * (0.82 + 0.18 * ridge), ice);
+          // The curtain stops short of the pool in a fringe of icicles of every length.
+          float icicle = 0.66 + 0.3 * pow(hvNoise(vec2(vUv.x * uWidth * 7.0, 2.0)), 1.5) + 0.06 * hvNoise(vec2(vUv.x * uWidth * 23.0, 5.0));
+          float hang = 1.0 - smoothstep(icicle - 0.02, icicle, vUv.y);
+          a = mix(a, edge * lip * (0.82 + 0.18 * ridge) * hang, ice);
         }
         gl_FragColor = vec4(col, a);
         #include <fog_fragment>

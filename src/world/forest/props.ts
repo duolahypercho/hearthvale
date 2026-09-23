@@ -13,7 +13,8 @@ import { applyWind } from '../../render/wind';
 import { textures } from '../../render/textures';
 import { rockGeometry } from '../props/rocks';
 import type { InstancedPart } from '../props/instanced';
-import { giantBarkMaterial } from './giants';
+import type { Season } from '../../core/time';
+import { giantBarkMaterial, applyLeafClumps } from './giants';
 
 // ───────────────────────────────────────────── materials
 
@@ -36,6 +37,39 @@ export function glowcapMaterial(): THREE.MeshStandardMaterial {
   return _glow;
 }
 
+let _halo: THREE.MeshBasicMaterial | null = null;
+/** Warm radial glow (additive, no depth write) for the ember crystal. */
+function haloMaterial(): THREE.MeshBasicMaterial {
+  if (_halo) return _halo;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d')!;
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,230,170,1)');
+  g.addColorStop(0.18, 'rgba(255,170,80,0.55)');
+  g.addColorStop(0.5, 'rgba(255,110,40,0.14)');
+  g.addColorStop(1, 'rgba(255,90,20,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  _halo = new THREE.MeshBasicMaterial({ map: t, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: true, side: THREE.DoubleSide });
+  _halo.name = 'emberHalo';
+  return _halo;
+}
+
+let _dais: THREE.MeshStandardMaterial | null = null;
+/** Pale, sun-bleached sandstone for the shrine dais (the shared cobble map reads as dark slate). */
+function daisMaterial(): THREE.MeshStandardMaterial {
+  if (_dais) return _dais;
+  _dais = (materials.get('stone') as THREE.MeshStandardMaterial).clone();
+  _dais.color.setRGB(1.75, 1.6, 1.38);
+  _dais.bumpScale = 2;
+  _dais.name = 'shrineStone';
+  applyWorldFx(_dais);
+  return _dais;
+}
+
 let _rune: THREE.MeshStandardMaterial | null = null;
 /** Carved rune glow (intensity animated by the map: a slow breathing pulse, stronger at night). */
 export function runeMaterial(): THREE.MeshStandardMaterial {
@@ -54,6 +88,11 @@ export function emberMaterial(): THREE.MeshStandardMaterial {
 }
 
 let _ivy: THREE.MeshStandardMaterial | null = null;
+const IVY: Record<Season, number> = { spring: 0x5f9c3c, summer: 0x4a8a34, fall: 0xc0522c, winter: 0x7a6e4c };
+/** Tower ivy follows the seasons (fresh green, deep summer green, crimson in fall, dry in winter). */
+export function setIvySeason(season: Season): void {
+  ivyMaterial().color.setHex(IVY[season]);
+}
 function ivyMaterial(): THREE.MeshStandardMaterial {
   if (_ivy) return _ivy;
   const t = textures.leaves();
@@ -61,6 +100,7 @@ function ivyMaterial(): THREE.MeshStandardMaterial {
   _ivy.name = 'ivy';
   applyWorldFx(_ivy, { snowUp: 0.55 });
   applyWind(_ivy, { mode: 'height', height: 8, amplitude: 0.02, flutter: 0.6 });
+  applyLeafClumps(_ivy, { freq: [5, 5, 5], bend: 0.7, seam: 0.35, cut: 0.8 });
   return _ivy;
 }
 
@@ -168,6 +208,8 @@ export function buildMushroomCluster(kind: MushroomKind, r: Rng): InstancedPart[
 
 export interface ShrineBuild {
   group: THREE.Group;
+  /** Soft additive glow card around the crystal (billboarded + animated by the map). */
+  halo: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   /** Crystal (animated separately: bob + spin). */
   crystal: THREE.Mesh;
   /** Ember emitter origin (local). */
@@ -189,7 +231,7 @@ function glyph(b: MeshBuilder, m: THREE.Material, r: Rng, x: number, y: number, 
 
 export function buildShrine(rng: Rng): ShrineBuild {
   const b = new MeshBuilder();
-  const stone = materials.get('stone');
+  const stone = daisMaterial();
   const rock = materials.get('rock');
   const rune = runeMaterial();
   // Two-step round dais of fitted flagstones.
@@ -201,11 +243,11 @@ export function buildShrine(rng: Rng): ShrineBuild {
       const g = new THREE.CylinderGeometry(rad, rad, h, 4, 1, false, a0, a1 - a0);
       const inner = new THREE.CylinderGeometry(rad - 0.9, rad - 0.9, h + 0.01, 4, 1, false, a0, a1 - a0);
       void inner;
-      b.add(stone, g, mat(0, y + h / 2 + (rng.next() - 0.5) * 0.02, 0), { tint: new THREE.Color(0xc8c0b0).multiplyScalar(0.86 + rng.next() * 0.2) });
+      b.add(stone, g, mat(0, y + h / 2 + (rng.next() - 0.5) * 0.02, 0), { tint: new THREE.Color(0xe6d8bc).multiplyScalar(0.9 + rng.next() * 0.2) });
     }
   }
   const top = bevelCylinder(1.35, 1.4, 0.12, 0.04, 20);
-  b.add(stone, top, mat(0, 0.4, 0), { tint: 0xb8b0a0 });
+  b.add(stone, top, mat(0, 0.4, 0), { tint: 0xd8cab0 });
   // Inlaid rune circle on the dais.
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2;
@@ -225,24 +267,24 @@ export function buildShrine(rng: Rng): ShrineBuild {
     const R = 4.6;
     const x = Math.cos(a) * R;
     const z = Math.sin(a) * R;
-    const h = 1.6 + rng.next() * 0.9;
+    const h = 2.3 + rng.next() * 1.1;
     const geo = rockGeometry(rng, 0.62, 1, true);
     const face = -a - Math.PI / 2;
-    const m = mat(x, -0.1, z, (rng.next() - 0.5) * 0.12, face, (rng.next() - 0.5) * 0.1).multiply(new THREE.Matrix4().makeScale(0.8, h / 0.62, 0.55));
-    b.add(rock, geo, m);
+    const m = mat(x, -0.1, z, (rng.next() - 0.5) * 0.12, face, (rng.next() - 0.5) * 0.1).multiply(new THREE.Matrix4().makeScale(0.95, h / 0.62, 0.6));
+    b.add(rock, geo, m, { tint: new THREE.Color(0xe8e0d0).multiplyScalar(0.92 + rng.next() * 0.15) });
     // Glyph column on the inner face.
     const inward = new THREE.Vector3(-Math.cos(a), 0, -Math.sin(a));
-    for (let k = 0; k < 3; k++) {
-      const gy = 0.55 + k * 0.38;
+    for (let k = 0; k < 4; k++) {
+      const gy = 0.6 + k * 0.42;
       if (gy > h * 0.8) break;
-      glyph(b, rune, rng, x + inward.x * 0.34, gy, z + inward.z * 0.34, Math.atan2(inward.x, inward.z), 1.3);
+      glyph(b, rune, rng, x + inward.x * 0.4, gy, z + inward.z * 0.4, Math.atan2(inward.x, inward.z), 1.4);
     }
   }
   // Moss-covered fallen lintel.
   b.add(rock, rockGeometry(rng, 0.55, 1, true), mat(-3.6, 0, 3.2, 0, 1.1, Math.PI / 2 - 0.1).multiply(new THREE.Matrix4().makeScale(0.6, 2.4, 0.6)));
   const group = b.build({ name: 'ember-shrine' });
   // Floating ember crystal (dynamic).
-  const cg = new THREE.OctahedronGeometry(0.24, 0);
+  const cg = new THREE.OctahedronGeometry(0.34, 0);
   cg.scale(0.8, 1.7, 0.8);
   const crystal = new THREE.Mesh(cg, emberMaterial());
   crystal.position.set(0, 2.05, 0);
@@ -250,7 +292,17 @@ export function buildShrine(rng: Rng): ShrineBuild {
   crystal.userData.dynamic = true;
   crystal.userData.noAO = true;
   group.add(crystal);
-  return { group, crystal, ember: new THREE.Vector3(0, 1.62, 0) };
+  // A mesh card, not a Sprite: the AO G-buffer pass only knows how to skip meshes.
+  const halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), haloMaterial());
+  halo.position.set(0, 2.1, 0);
+  halo.scale.setScalar(2.2);
+  halo.castShadow = false;
+  halo.receiveShadow = false;
+  halo.userData.dynamic = true;
+  halo.userData.noAO = true;
+  halo.renderOrder = 5;
+  group.add(halo);
+  return { group, halo, crystal, ember: new THREE.Vector3(0, 1.62, 0) };
 }
 
 // ───────────────────────────────────────────── ruined watch tower
@@ -300,13 +352,23 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
   }
   // Ivy curtains down the south-west face.
   const ivy = ivyMaterial();
-  for (let i = 0; i < 26; i++) {
-    const a = 1.9 + (rng.next() - 0.5) * 1.9;
-    const y = rng.next() * 5.6;
-    const r = 0.28 + rng.next() * 0.28 * (1 - y / 7);
-    const g = lumpySphere(r, 1, 0.3, rng, 2.2);
-    g.scale(1, 1.3, 0.55);
-    b.add(ivy, g, mat(Math.cos(a) * (R + 0.26), y, Math.sin(a) * (R + 0.26), 0, -a + Math.PI / 2, 0), { tint: new THREE.Color(1, 1, 1).multiplyScalar(0.8 + rng.next() * 0.3) });
+  // Strands hang from the broken crown and thin out as they fall; a thick mat at the top.
+  for (let k = 0; k < 9; k++) {
+    let a = 1.9 + (k / 8 - 0.5) * 2.2 + (rng.next() - 0.5) * 0.15;
+    const top = 5.4 + rng.next() * 1.0;
+    const len = 2.2 + rng.next() * 3.4;
+    const n = Math.ceil(len / 0.32);
+    for (let i = 0; i <= n; i++) {
+      const f = i / n;
+      const y = top - f * len;
+      if (y < 0.2) break;
+      a += (rng.next() - 0.5) * 0.06;
+      const r = (0.34 - f * 0.18) * (0.85 + rng.next() * 0.3);
+      const g = lumpySphere(r, 1, 0.3, rng, 2.2);
+      g.scale(1.1, 1.25, 0.5);
+      const tint = new THREE.Color(1, 1, 1).multiplyScalar(0.78 + rng.next() * 0.3).lerp(new THREE.Color(0.9, 1.05, 0.7), f * 0.4);
+      b.add(ivy, g, mat(Math.cos(a) * (R + 0.24), y, Math.sin(a) * (R + 0.24), 0, -a + Math.PI / 2, 0), { tint });
+    }
   }
   return b.build({ name: 'ruined-tower' });
 }

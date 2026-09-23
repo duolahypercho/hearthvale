@@ -103,6 +103,8 @@ export class RainStreaks {
           uWind: { value: new THREE.Vector2() },
           uColor: { value: new THREE.Color(0xcfe0ff) },
           uCount: { value: max },
+          uGust: { value: 0 },
+          uFlash: { value: 0 },
         },
       ]),
       vertexShader: /* glsl */ `
@@ -114,8 +116,16 @@ export class RainStreaks {
         uniform float uPxAngle;
         uniform vec2 uWind;
         uniform float uCount;
+        uniform float uGust;
         varying vec2 vUv;
         varying float vA;
+        float rnHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float rnNoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(rnHash(i), rnHash(i + vec2(1.0, 0.0)), u.x), mix(rnHash(i + vec2(0.0, 1.0)), rnHash(i + vec2(1.0, 1.0)), u.x), u.y);
+        }
         void main() {
           float idx = float(gl_InstanceID);
           float on = step(idx, uCount * uIntensity);
@@ -140,6 +150,11 @@ export class RainStreaks {
           vUv = uv;
           // Depth fade: drops right in front of the lens read as smears, not rain.
           vA = on * (0.55 + 0.45 * aSeed.w) * smoothstep(7.0, 16.0, camD);
+          // Storm gusts: denser sheets of rain sweep through downwind, thin gaps between them.
+          vec2 gw = normalize(uWind + vec2(1e-4, 0.0));
+          vec2 gq = vec2(dot(p.xz, gw), dot(p.xz, vec2(-gw.y, gw.x)));
+          float band = rnNoise(vec2(gq.x * 0.09 - uTime * 0.55, gq.y * 0.035)) * 0.7 + rnNoise(gq * 0.21 + uTime * 0.2) * 0.3;
+          vA *= mix(1.0, 0.3 + 1.6 * smoothstep(0.3, 0.75, band), uGust);
           vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
@@ -148,13 +163,15 @@ export class RainStreaks {
         #include <fog_pars_fragment>
         uniform vec3 uColor;
         uniform float uAlpha;
+        uniform float uFlash;
         varying vec2 vUv;
         varying float vA;
         void main() {
           float along = smoothstep(0.0, 0.35, vUv.y) * (1.0 - smoothstep(0.6, 1.0, vUv.y));
-          float a = along * vA * uAlpha;
+          float a = along * vA * uAlpha * (1.0 + uFlash * 1.5);
           if (a < 0.004) discard;
-          gl_FragColor = vec4(uColor, a);
+          // Lightning catches every drop for an instant.
+          gl_FragColor = vec4(mix(uColor, vec3(0.95, 0.95, 1.0), uFlash), min(a, 1.0));
           #include <fog_fragment>
         }`,
     });
@@ -166,8 +183,10 @@ export class RainStreaks {
   }
 
   /** `pxAngle`: world units per screen pixel per metre of distance (2·tan(fov/2) / heightPx). */
-  update(center: THREE.Vector3, intensity: number, time: number, pxAngle = 0.0006): void {
+  update(center: THREE.Vector3, intensity: number, time: number, pxAngle = 0.0006, flash = 0): void {
     const u = this.mat.uniforms;
+    u.uGust!.value = THREE.MathUtils.smoothstep(intensity, 0.85, 1.0);
+    u.uFlash!.value = flash;
     u.uTime!.value = time;
     (u.uCenter!.value as THREE.Vector3).copy(center);
     u.uIntensity!.value = intensity;

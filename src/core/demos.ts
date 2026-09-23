@@ -120,7 +120,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'ui-inventory': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'inventory' },
   'ui-shop': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop' },
   'ui-shop-smith': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop:odessa' },
-  'ui-placement': { map: 'farm', x: 26, z: 24.8, facing: 'up', time: 9, season: 'spring', weather: 'sun', camera: { yaw: -5, pitch: 48, distance: 14, offsetZ: -1 } },
+  'ui-placement': { map: 'farm', x: 34.4, z: 26.5, facing: 'right', time: 9, season: 'spring', weather: 'sun', camera: { yaw: -5, pitch: 50, distance: 13, offsetX: 1, offsetZ: 0.4 } },
   'ui-shop-carpenter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop:rowan' },
   'ui-crafting': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'crafting' },
   'ui-dayend': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'dayend' },

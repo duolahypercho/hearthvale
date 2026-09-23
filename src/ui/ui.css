@@ -782,13 +782,14 @@ body.u-calm #ui-root *::after {
   height: 40px;
 }
 .pk-item b {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-family: var(--font-head);
   font-weight: 600;
-  font-size: 16px;
-  white-space: nowrap;
+  font-size: 14.5px;
+  line-height: 1.05;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 .pk-item small {
   font-size: 12px;
@@ -2021,7 +2022,7 @@ svg.valley {
 }
 .de-rows {
   position: relative;
-  height: 330px;
+  height: 372px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
@@ -2047,6 +2048,32 @@ svg.valley {
 .de-rows.top {
   -webkit-mask-image: linear-gradient(180deg, transparent 2px, #000 30px);
   mask-image: linear-gradient(180deg, transparent 2px, #000 30px);
+}
+.de-rows.top.more.end {
+  -webkit-mask-image: linear-gradient(180deg, transparent 2px, #000 30px);
+  mask-image: linear-gradient(180deg, transparent 2px, #000 30px);
+}
+/* Long days: tighter ledger lines so a full bin still fits without scrolling. */
+.de-rows.dense {
+  gap: 1px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.de-rows.dense .de-row {
+  font-size: 14px;
+}
+.de-rows.dense .de-row .u-slot.mini {
+  width: 27px;
+  height: 27px;
+  border-radius: 7px;
+}
+.de-rows.dense .de-row .u-slot.mini img {
+  width: 23px;
+  height: 23px;
+}
+.de-rows.dense .de-grp {
+  margin-top: 2px;
+  font-size: 14px;
 }
 .de-rows.top.more:not(.end) {
   -webkit-mask-image: linear-gradient(180deg, transparent 2px, #000 30px, #000 calc(100% - 34px), transparent);

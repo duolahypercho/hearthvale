@@ -47,7 +47,7 @@ import {
   type GiantKind,
 } from './layout';
 import { GiantGrove } from './giants';
-import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, type MushroomKind } from './props';
+import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, type MushroomKind } from './props';
 import { buildWaterfall, buildChurn, buildMist, buildFlow } from './stream';
 import { GodRays, type RaySpot } from './godrays';
 import { ForageField, type ForageSpot } from './forage';
@@ -89,6 +89,7 @@ export class ForestMap implements GameMap {
   private ember: FireFX;
   private emberLight: THREE.PointLight;
   private crystal: THREE.Mesh;
+  private halo: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private crystalY = 0;
   private shrineGlow: THREE.PointLight;
   private season: Season = 'spring';
@@ -112,8 +113,8 @@ export class ForestMap implements GameMap {
     const low = createWater(this.terrain, { x0: 6, z0: 15, x1: 84, z1: 84 }, WATER_LOW);
     const high = createWater(this.terrain, { x0: 2, z0: -22, x1: 24, z1: FALLS.lipZ + 0.15 }, WATER_HIGH);
     // Drop plane triangles hanging over the cliffs (the shader only hides water *under* ground).
-    this.clipWater(low, WATER_LOW);
-    this.clipWater(high, WATER_HIGH);
+    this.clipWater(low, WATER_LOW, 99);
+    this.clipWater(high, WATER_HIGH, 1.4);
     low.userData.perfTag = high.userData.perfTag = 'water';
     this.root.add(low, high);
     this.buildRunningWater();
@@ -126,6 +127,7 @@ export class ForestMap implements GameMap {
     mark('trees');
     const shrine = this.buildSetPieces();
     this.crystal = shrine.crystal;
+    this.halo = shrine.halo;
     this.crystalY = shrine.crystal.position.y;
     this.placeUndergrowth();
     this.placeMushrooms();
@@ -192,6 +194,21 @@ export class ForestMap implements GameMap {
     this.poi.flowers = [{ x: GLADE.x - 3, z: GLADE.z + 4 }, { x: 34, z: 25 }];
     this.poi.shrine = [{ x: SHRINE.x, z: SHRINE.z }];
     this.poi.waterfall = [{ x: FALLS.x, z: FALLS.poolZ }];
+    // Rain drips off the canopy rims of the giants in the basin (read by the weather system).
+    const dr = this.rng.fork('drips');
+    this.poi.drips = [];
+    for (const g of this.giants.handles) {
+      if (this.shape.rimDist(g.x, g.z) > 2) continue;
+      const n = g.kind === 'elder' ? 12 : 6;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + dr.next() * 0.5;
+        const rr = g.radius * (g.kind === 'elder' ? 0.55 + dr.next() * 0.3 : 0.45 + dr.next() * 0.2);
+        const x = g.x + Math.cos(a) * rr;
+        const z = g.z + Math.sin(a) * rr;
+        const y = this.terrain.heightAt(g.x, g.z) + g.height * (g.kind === 'elder' ? 0.58 : 0.18 + dr.next() * 0.2);
+        this.poi.drips.push({ x, y, z });
+      }
+    }
     mark('done');
   }
 
@@ -285,14 +302,15 @@ export class ForestMap implements GameMap {
 
   // ───────────────────────────────────────────── water
 
-  private clipWater(mesh: THREE.Mesh, level: number): void {
+  /** Drop triangles far above the ground (> 0.9 m) or hanging over a drop deeper than `maxDepth`. */
+  private clipWater(mesh: THREE.Mesh, level: number, maxDepth: number): void {
     const g = mesh.geometry;
     const pos = g.attributes.position as THREE.BufferAttribute;
     const idx = g.index!;
     const keep: number[] = [];
     const ok = (i: number): boolean => {
       const h = this.terrain.heightAt(pos.getX(i), pos.getZ(i));
-      return h > level - 0.62 && h < level + 0.9;
+      return h > level - maxDepth && h < level + 0.9;
     };
     const wet = (i: number): boolean => this.terrain.heightAt(pos.getX(i), pos.getZ(i)) < level + 0.05;
     for (let t = 0; t < idx.count; t += 3) {
@@ -661,7 +679,11 @@ export class ForestMap implements GameMap {
     this.crystal.position.y = this.crystalY + Math.sin(t * 1.3) * 0.08;
     this.crystal.rotation.y = t * 0.6;
     const breath = 0.75 + 0.25 * Math.sin(t * 1.1) + 0.05 * Math.sin(t * 7.3);
-    runeMaterial().emissiveIntensity = (0.5 + night * 1.6) * breath;
+    runeMaterial().emissiveIntensity = (1.0 + night * 1.4) * breath;
+    this.halo.position.y = this.crystal.position.y + 0.05;
+    this.halo.quaternion.copy(game.rc.camera.quaternion);
+    this.halo.scale.setScalar((1.8 + night * 1.6) * (0.92 + 0.08 * breath));
+    this.halo.material.opacity = (0.45 + night * 0.55) * breath;
     emberMaterial().emissiveIntensity = (1.8 + night * 1.5) * breath;
     this.emberLight.intensity = (1.2 + night * 5) * breath;
     this.shrineGlow.intensity = globalUniforms.uLamps.value * 2.2;
@@ -676,6 +698,7 @@ export class ForestMap implements GameMap {
     this.nature.setSeason(season);
     this.ambience.setSeason(season);
     this.litter.mesh.visible = season === 'fall';
+    setIvySeason(season);
   }
 
   setWeather(weather: Weather): void {

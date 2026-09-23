@@ -67,9 +67,13 @@ src/
                          flower cart) · festival.ts (catenary bunting, lantern poles, maypole, feast table, braziers) ·
                          crops.ts · soil.ts (wet mask, winter snow-in-furrows + husks) · decals.ts
   entities/              player.ts (chibi farmer), villager.ts (NPC rig: walk / idle / talk), critters.ts
-  ui/                    hud.ts + hud.css (clock, toolbar, energy, toasts, fade, banner, panel registry) · screens.css ·
-                         inventory.ts · dialogue.ts (typewriter + portraits) · portraits.ts (procedural SVG) ·
-                         title.ts (title screen + grandmother's letter) · panels.ts (shop, crafting, map, fishing) · icons.ts
+  ui/                    hud.ts + hud.css (clock dial, toolbar, energy/health, toasts, fade, banner, screen router, focus nav,
+                         gamepad) · kit.ts (Screen base, frames, tooltip, focus) · ui.css (all screens; UI zoomed to the
+                         window via --uiz) · title.ts · inventory.ts (drag & drop, detail card) · shop.ts (per-keeper stock) ·
+                         crafting.ts (iso placement preview) · placement.ts (in-world ghost) · dayend.ts · mapscreen.ts ·
+                         settings.ts (quality, volumes, UI size, reduce motion, 24h clock, key rebinding) · pause.ts (+ save
+                         slots) · icons.ts (procedural SVG item icons; `registerItemIcon` for other teams) · itemtip.ts ·
+                         demo-kit.ts (stocks the backpack for ui-* demos) · dialogue.ts · portraits.ts · fishing.ts · journal*
   systems/               economy (gold), energy, season, weather, inventory, farming, shipping, critters, npcs, warps,
                          audio, sleep (end of day / pass out), relationships, fishing*, mining*, crafting, quests
                          (* typed stubs: state + events + service, ready for their teams) — see systems/README.md
@@ -145,6 +149,9 @@ URL: `?demo=farm-morning`, `?map=farm&x=30&z=20&time=18.5&season=fall&weather=ra
 Demos: `farm-morning`, `farm-noon`, `farm-evening`, `farm-night`, `farm-fall`, `farm-winter`, `farm-rain`, `farm-pond`,
 `farm-field`, `winter-night` (+ DESIGN names `town-evening`, `beach-sunset`, `forest-rain`, `mine`, `festival`, which
 stage on the farm until those maps exist).
+UI screens: `ui-title`, `ui-hud` (toasts), `ui-inventory`, `ui-shop`, `ui-shop-smith`, `ui-shop-carpenter`, `ui-crafting`,
+`ui-placement` (in-world ghost), `ui-dayend`, `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac) — or
+`?demo=<any>&ui=<screen>[:arg]` (e.g. `ui=shop:odessa`, `ui=saves:save`).
 
 ## Screenshots
 
