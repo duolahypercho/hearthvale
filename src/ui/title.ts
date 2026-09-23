@@ -13,6 +13,9 @@ import { journal } from './profile';
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
 
+const LOGO_HANG = `<svg viewBox="0 0 900 300" class="ts-hang" aria-hidden="true"><defs><radialGradient id="tlGlow2" cx="50%" cy="55%" r="60%"><stop offset="0" stop-color="#fff6c8"/><stop offset=".45" stop-color="#ffc85a"/><stop offset="1" stop-color="#e07a2a"/></radialGradient></defs><g class="hang" transform="translate(944 84)"><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#3b1a08" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#7a4a22" stroke-width="4.5" fill="none" stroke-linecap="round"/><path d="M-46 -8 C-60 -14 -64 -30 -54 -36" stroke="#7a4a22" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M0 -60 C6 -40 3 -20 0 0" stroke="#5a3418" stroke-width="3" fill="none"/><g class="lamp"><circle cx="0" cy="20" r="46" fill="#ffcf6a" opacity=".25"/><path d="M-14 0 H14 L10 -7 H-10 Z" fill="#5a3a22"/><rect x="-13" y="0" width="26" height="36" rx="6" fill="url(#tlGlow2)" stroke="#4a2e1a" stroke-width="3"/><path d="M0 0 V36 M-13 18 H13" stroke="#5a3a22" stroke-width="1.8" opacity=".6"/><path d="M-16 36 H16 L11 44 H-11 Z" fill="#5a3a22"/></g></g>
+</svg>`;
+
 const LOGO = `<svg viewBox="0 0 900 300" class="ts-word" aria-label="Hearthvale">
 <defs>
   <linearGradient id="tlFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffbe6"/><stop offset=".45" stop-color="#ffe9a8"/><stop offset=".56" stop-color="#ffcf6a"/><stop offset="1" stop-color="#f0a040"/></linearGradient>
@@ -29,7 +32,6 @@ const LOGO = `<svg viewBox="0 0 900 300" class="ts-word" aria-label="Hearthvale"
 <g class="sprig" transform="translate(58 122) rotate(-30) scale(.9)"><path d="M0 0 C20 -10 40 -12 64 -6" stroke="#5a3418" stroke-width="5" fill="none" stroke-linecap="round"/>${[8, 24, 40, 54]
   .map((x, i) => `<path d="M${x} ${-3 - i} c-4 -14 6 -22 14 -22 c0 10 -6 18 -14 22Z" fill="${i % 2 ? '#6fb04a' : '#8fd05a'}" stroke="#2f5a1a" stroke-width="2.4"/>`)
   .join('')}<circle cx="66" cy="-6" r="7" fill="#ff9fbf" stroke="#a8466a" stroke-width="2.4"/><circle cx="66" cy="-6" r="2.6" fill="#ffe08a"/></g>
-<g class="hang" transform="translate(944 84)"><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#3b1a08" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#7a4a22" stroke-width="4.5" fill="none" stroke-linecap="round"/><path d="M-46 -8 C-60 -14 -64 -30 -54 -36" stroke="#7a4a22" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M0 -60 C6 -40 3 -20 0 0" stroke="#5a3418" stroke-width="3" fill="none"/><g class="lamp"><circle cx="0" cy="20" r="46" fill="#ffcf6a" opacity=".25"/><path d="M-14 0 H14 L10 -7 H-10 Z" fill="#5a3a22"/><rect x="-13" y="0" width="26" height="36" rx="6" fill="url(#tlGlow)" stroke="#4a2e1a" stroke-width="3"/><path d="M0 0 V36 M-13 18 H13" stroke="#5a3a22" stroke-width="1.8" opacity=".6"/><path d="M-16 36 H16 L11 44 H-11 Z" fill="#5a3a22"/></g></g>
 </svg>`;
 
 export class TitlePanel extends Screen {
@@ -96,7 +98,7 @@ export class TitlePanel extends Screen {
       <div class="ts-petals">${petals}</div>
       <div class="ts-logo">
         <div class="ts-scrim"></div>
-        ${LOGO}
+        ${LOGO}${LOGO_HANG}
         <div class="ts-ribbon"><span>a cozy valley farming tale</span></div>
       </div>
       <div class="ts-hook"><div class="u-frame"><div class="u-paper">

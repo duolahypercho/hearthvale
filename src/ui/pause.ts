@@ -376,7 +376,12 @@ export function installSaveThumbs(game: Game, mirrorSlot: () => string | null): 
   game.events.on('save:after', ({ slot }) => {
     if (slot === 'smoke') return;
     try {
+      // Force a real render even while menus throttle the backdrop (the buffer is only valid right after one).
+      const rc = game.rc as unknown as { backdropHz?: number };
+      const hz = rc.backdropHz;
+      if (hz !== undefined) rc.backdropHz = 0;
       game.rc.render(0, game.time);
+      if (hz !== undefined) rc.backdropHz = hz;
       const src = game.rc.renderer.domElement;
       const c = document.createElement('canvas');
       c.width = 320;

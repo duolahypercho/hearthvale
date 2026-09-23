@@ -71,6 +71,8 @@ interface Toast {
 export class Hud {
   /** Measured frames per second (HUD frame counter). */
   static fps = 0;
+  /** Frame rate during live play (not behind a menu). */
+  static playFps = 0;
   readonly root: HTMLElement;
   readonly screens: HTMLElement;
   private panels = new Map<string, RichPanel>();
@@ -623,7 +625,7 @@ export class Hud {
       if (hit(3) && MENU_TABS.includes(this.openPanel as (typeof MENU_TABS)[number])) this.open('none');
       if (hit(4)) this.cycleTab(-1);
       if (hit(5)) this.cycleTab(1);
-      if (hit(9) && this.openPanel !== 'title') this.open('none');
+      if (hit(9) && this.openPanel !== 'title' && this.openPanel !== 'newgame') this.open('none');
     } else if (!this.openPanel) {
       if (hit(9)) this.open('pause');
       if (hit(3) || hit(8)) this.open('inventory');
@@ -721,6 +723,8 @@ export class Hud {
     if (this.fpsT >= 500) {
       const fps = (this.fpsN * 1000) / this.fpsT;
       Hud.fps = fps;
+      // Menus throttle the world behind them: remember what live play costs for the Options readout.
+      if (!this.root.classList.contains('h-menu-open') && !this.root.classList.contains('hv-title-mode')) Hud.playFps = fps;
       if (settings.showFps) {
         this.fpsEl.innerHTML = `<b>${Math.round(fps)}</b><small>fps</small>`;
         this.fpsEl.classList.toggle('warn', fps < 50);

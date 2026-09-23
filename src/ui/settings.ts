@@ -167,12 +167,12 @@ export class SettingsScreen extends Screen {
     this.fpsT -= dt;
     if (this.fpsT > 0 || !this.fpsLine) return;
     this.fpsT = 0.5;
-    const fps = Math.round(Hud.fps);
+    const fps = Math.round(Hud.playFps || Hud.fps);
     if (!fps) return;
     const tone = fps >= 55 ? 'good' : fps >= 40 ? 'ok' : 'bad';
     const hint = tone === 'good' ? 'smooth' : tone === 'ok' ? 'try Medium for 60' : 'try Low for 60';
     this.fpsLine.className = `set-fpsline ${tone}`;
-    this.fpsLine.innerHTML = `<i></i>Running at <b>${fps} fps</b><small>${this.game.rc.quality} · ${hint}</small>`;
+    this.fpsLine.innerHTML = `<i></i>${Hud.playFps ? 'In play' : 'Running at'} <b>${fps} fps</b><small>${this.game.rc.quality} · ${hint}</small>`;
   }
 
   constructor(game: Game, parent: HTMLElement) {

@@ -118,7 +118,9 @@ export class InventoryScreen extends Screen {
     foot.append(hint, sort, this.trash);
     const lower = el('div', 'inv-lower');
     lower.append(this.card, this.detail);
-    side.append(rowLabel, this.grid, lower, foot);
+    const top = el('div', 'inv-top');
+    top.append(rowLabel, this.grid);
+    side.append(top, lower, foot);
     body.append(side);
     this.root.appendChild(wrap);
     this.refresh();

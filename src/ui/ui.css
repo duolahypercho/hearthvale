@@ -4205,3 +4205,51 @@ svg.valley {
 .pause-wrap > .coop-pause {
   margin-top: 70px;
 }
+.inv-main {
+  justify-content: space-between;
+}
+.inv-lower {
+  margin-top: 0;
+  padding-top: 0;
+}
+.inv-foot {
+  margin-top: 0;
+}
+.inv-grid {
+  row-gap: 14px;
+}
+.inv-sep {
+  margin-top: 8px;
+}
+
+/* Title perf (pillar 14): the lantern swings on its own tiny overlay SVG so the filtered wordmark never
+   re-rasterises; the sprig is still; light shafts are a plain alpha layer (no screen blend over the canvas,
+   no oversized rotating conic texture) that only breathes in opacity. */
+.ts-hang {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.ts-hang .lamp {
+  transform-origin: 0 -60px;
+  animation: tsLamp 3.4s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 14px rgba(255, 190, 90, 0.95));
+}
+.ts-word .sprig {
+  animation: none;
+}
+.ts-rays {
+  inset: -6% -6% 20% -6%;
+  background: repeating-conic-gradient(from 205deg at 22% 4%, rgba(255, 222, 160, 0.11) 0deg 3deg, transparent 3deg 9deg);
+  mix-blend-mode: normal;
+  animation: tsRaysBreathe 9s ease-in-out infinite;
+  will-change: opacity;
+}
+@keyframes tsRaysBreathe {
+  50% {
+    opacity: 0.6;
+  }
+}

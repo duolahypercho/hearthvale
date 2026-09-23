@@ -78,8 +78,11 @@ src/
                          real colours + pulsing outline, dashed reach tiles, red ✕ where blocked) · dayend.ts + dayend-art.ts
                          (painted night valley, quiet-day vignette; `ui=dayend:quiet`) · mapscreen.ts + mapart.ts (watercolour
                          valley: paper grain, washes, fields, Poisson woods, villager heads, season palettes) ·
-                         settings.ts (quality, volumes, UI size, reduce motion, 24h clock, key rebinding) · pause.ts (+ save
-                         slots) · icons.ts (procedural SVG item icons; `registerItemIcon` for other teams) · itemtip.ts ·
+                         settings.ts (quality + live fps, fullscreen, frame limit 30/60/vsync, FPS chip, volumes, UI size, reduce
+                         motion, 24h clock, key rebinding) · pause.ts (+ save slots with real world snapshots, overwrite / delete
+                         confirms) · newgame.ts (New Journal: in-world character creator — name, farm, look via the co-op profile,
+                         pet, journal slot) · profile.ts (journal: name / farm / pet / slot, saved per slot) · menutabs.ts (one
+                         fixed 1140×690 game-menu frame; tab swaps cross-fade the page only) · `place:<item>` panel · icons.ts (procedural SVG item icons; `registerItemIcon` for other teams) · itemtip.ts ·
                          demo-kit.ts (stocks the backpack for ui-* demos) · dialogue.ts · portraits.ts · fishing.ts · journal*
   systems/               economy (gold), energy, season, weather, inventory, farming, shipping, critters, npcs, warps,
                          audio, sleep (end of day / pass out), relationships, fishing*, mining*, crafting, quests
@@ -144,7 +147,7 @@ Useful hooks for gameplay teams:
 ## Debug API & URL params
 
 `window.__game`: `setTime(h)`, `setDay(d)`, `setSeason(s)`, `setWeather(w)`, `teleport(map,x,z)`, `facing(dir)`,
-`openUI(name)`, `give(item,qty)`, `setGold(n)`, `grow(days)`, `demo(name)`, `ready()`, `pause(bool)`,
+`openUI(name)`, `give(item,qty)`, `setGold(n)`, `setEnergy(n)`, `setHealth(n)`, `grow(days)`, `demo(name)`, `ready()`, `pause(bool)`,
 plus `quality(q)`, `camera({yaw,pitch,distance,offsetX,offsetZ})`, `step(frames)`, `save/load(slot)`, `info()`, `demos`.
 `info().perf` reports draw calls / triangles for the last frame (all passes) against the budget
 (≤ 300 draw calls, ≤ 1.5 M triangles); `scripts/shot.mjs` prints a warning when a shot exceeds it.
@@ -157,7 +160,9 @@ Demos: `farm-morning`, `farm-noon`, `farm-evening`, `farm-night`, `farm-fall`, `
 `farm-field`, `winter-night` (+ DESIGN names `town-evening`, `beach-sunset`, `forest-rain`, `mine`, `festival`, which
 stage on the farm until those maps exist).
 UI screens: `ui-title`, `ui-hud` (toasts), `ui-inventory`, `ui-shop`, `ui-shop-smith`, `ui-shop-carpenter`, `ui-crafting`,
-`ui-placement` (in-world ghost), `ui-dayend`, `ui-dayend-quiet` (nothing shipped), `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac) — or
+`ui-placement` (in-world ghost), `ui-dayend`, `ui-dayend-quiet` (nothing shipped), `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac),
+`ui-newgame` (New Journal creator; `ui=newgame:demo` pre-filled), `ui-hud-low` (both tubes low + red heartbeat vignette; any demo takes
+`&energy=0.1&health=0.2`), `ui-coop` (co-op lobby from the title) — or
 `?demo=<any>&ui=<screen>[:arg]` (e.g. `ui=shop:odessa`, `ui=saves:save`).
 
 ## Screenshots
