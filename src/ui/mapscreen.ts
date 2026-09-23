@@ -39,10 +39,10 @@ function rng(seed: number): () => number {
 }
 
 const PAL = {
-  spring: { land: '#b8d88a', land2: '#9cc86a', tree: ['#5f9e46', '#78b452', '#4f8a3a'], blossom: '#f7b8cc', field: '#8a5a36' },
-  summer: { land: '#a8d07a', land2: '#86b85a', tree: ['#3f8a3a', '#56a044', '#2f7030'], blossom: '#ffd84a', field: '#7a4e2e' },
-  fall: { land: '#d8c47a', land2: '#c4a85a', tree: ['#d9742a', '#e8a03a', '#b8502a'], blossom: '#c8573e', field: '#7a4e2e' },
-  winter: { land: '#eef2f4', land2: '#d8e2ea', tree: ['#4f7a6a', '#6a8a7a', '#3f6a5a'], blossom: '#ffffff', field: '#b8b0a8' },
+  spring: { edge: '#5f8a3a', land: '#b8d88a', land2: '#9cc86a', tree: ['#5f9e46', '#78b452', '#4f8a3a'], blossom: '#f7b8cc', field: '#8a5a36' },
+  summer: { edge: '#4a7a2a', land: '#a8d07a', land2: '#86b85a', tree: ['#3f8a3a', '#56a044', '#2f7030'], blossom: '#ffd84a', field: '#7a4e2e' },
+  fall: { edge: '#9a6a2a', land: '#d8c47a', land2: '#c4a85a', tree: ['#d9742a', '#e8a03a', '#b8502a'], blossom: '#c8573e', field: '#7a4e2e' },
+  winter: { edge: '#8aa0b8', land: '#eef2f4', land2: '#d8e2ea', tree: ['#4f7a6a', '#6a8a7a', '#3f6a5a'], blossom: '#ffffff', field: '#b8b0a8' },
 } as const;
 
 function tree(x: number, y: number, s: number, cols: readonly string[], r: () => number, snow: boolean): string {
@@ -103,6 +103,9 @@ function valleySvg(season: keyof typeof PAL, here: string): string {
   <defs>
     <filter id="mWc" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="3" seed="7"/><feDisplacementMap in="SourceGraphic" scale="9"/></filter>
     <filter id="mSoft"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="mSoft2" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="mLandClip"><path d="M20 40 C200 10 420 30 640 20 C800 14 920 30 985 60 L985 470 C900 500 820 520 760 520 C700 522 640 500 560 506 C440 516 320 530 200 520 C120 514 60 500 20 480 Z"/></clipPath>
+    <clipPath id="mShade"><path d="M140 130 L200 40 L230 150 Z M270 120 L330 60 L350 170 Z M90 70 L140 130 L120 190 Z M330 60 L410 170 L360 200 Z"/></clipPath>
     <filter id="mPaper"><feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="2" seed="3"/><feColorMatrix values="0 0 0 0 0.45  0 0 0 0 0.3  0 0 0 0 0.12  0 0 0 0.22 0"/><feComposite in2="SourceGraphic" operator="in"/></filter>
     <radialGradient id="mSea" cx="50%" cy="100%" r="90%"><stop offset="0" stop-color="#3f8fb8"/><stop offset=".6" stop-color="#62b0d0"/><stop offset="1" stop-color="#9cd4e4"/></radialGradient>
     <linearGradient id="mMtn" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b8aa98"/><stop offset="1" stop-color="#7a6c5e"/></linearGradient>
@@ -112,6 +115,7 @@ function valleySvg(season: keyof typeof PAL, here: string): string {
   <rect width="1000" height="640" fill="#f3e2bc"/>
   <g filter="url(#mWc)">
     <path d="M20 40 C200 10 420 30 640 20 C800 14 920 30 985 60 L985 470 C900 500 820 520 760 520 C700 522 640 500 560 506 C440 516 320 530 200 520 C120 514 60 500 20 480 Z" fill="${P.land}"/>
+    <path d="M20 40 C200 10 420 30 640 20 C800 14 920 30 985 60 L985 470 C900 500 820 520 760 520 C700 522 640 500 560 506 C440 516 320 530 200 520 C120 514 60 500 20 480 Z" fill="none" stroke="${P.edge}" stroke-width="16" opacity=".32" clip-path="url(#mLandClip)" filter="url(#mSoft2)"/>
     <path d="M60 200 C160 170 300 190 400 240 C470 280 520 360 470 440 C400 500 220 500 120 470 C60 440 40 300 60 200 Z" fill="${P.land2}" opacity=".7"/>
     <path d="M620 150 C700 120 820 140 900 190 C960 240 960 360 900 420 C820 460 700 430 660 360 C620 300 590 200 620 150 Z" fill="${P.land2}" opacity=".6"/>
     <path d="M0 520 C160 500 300 520 460 506 C600 496 700 520 820 510 C900 504 960 510 1000 520 L1000 560 L0 560 Z" fill="#f2dc9a"/>
@@ -124,6 +128,7 @@ function valleySvg(season: keyof typeof PAL, here: string): string {
     <path d="M90 70 L108 100 L96 96 L82 108 Z M200 40 L222 74 L206 70 L190 84 L186 62 Z M330 60 L352 92 L338 88 L322 98 Z" fill="#fff"/>
     <path d="M140 130 L200 40 L230 150 Z M270 120 L330 60 L350 170 Z" fill="#5e5044" opacity=".35"/>
   </g>
+  <g clip-path="url(#mShade)" stroke="#3e3026" stroke-width="1.3" stroke-linecap="round" opacity=".5">${Array.from({ length: 44 }, (_, i) => `<path d="M${70 + i * 8} 200 l22 -34"/>`).join('')}</g>
   <path d="M250 124 C246 110 256 100 268 102 C280 104 284 116 280 126 Z" fill="#2a2220" stroke="#3b2313" stroke-width="2.4"/>
   <path d="M246 126 L286 126" stroke="#8a5a2a" stroke-width="4"/>
   <!-- river + lake -->
@@ -167,6 +172,18 @@ function valleySvg(season: keyof typeof PAL, here: string): string {
   <!-- compass + cartouche -->
   <g transform="translate(930 580)"><circle r="34" fill="#fbf0d6" stroke="#6a4428" stroke-width="3"/><circle r="26" fill="none" stroke="#6a4428" stroke-width="1" stroke-dasharray="2 4"/><path d="M0 -30 L7 0 L0 30 L-7 0 Z" fill="#c8573e" stroke="#5a2414" stroke-width="1.5"/><path d="M-30 0 L0 -6 L30 0 L0 6 Z" fill="#e8d0a0" stroke="#6a4428" stroke-width="1.2"/><text y="-38" class="m-rose">N</text></g>
   <g transform="translate(110 590)"><path d="M-92 -26 H92 C100 -26 100 26 92 26 H-92 C-100 26 -100 -26 -92 -26 Z" fill="#fbf0d6" stroke="#6a4428" stroke-width="2.5"/><text y="-2" class="m-title">Hearthvale</text><text y="17" class="m-sub">${season}</text></g>
+  <g class="m-boat"><path d="M812 604 C826 612 850 612 862 604 L856 614 H818 Z" fill="#a8683a" stroke="#4a2810" stroke-width="2"/><path d="M836 603 V574 L856 600 Z" fill="#fff8e8" stroke="#4a2810" stroke-width="1.8"/><path d="M834 603 V580 L820 600 Z" fill="#e8744e" stroke="#4a2810" stroke-width="1.6"/></g>
+  <g class="m-birds" fill="none" stroke="#4a3a2e" stroke-width="2" stroke-linecap="round"><path class="b1" d="M760 96 q6 -6 12 0 q6 -6 12 0"/><path class="b2" d="M790 80 q5 -5 10 0 q5 -5 10 0"/><path class="b1" d="M812 104 q4 -4 8 0 q4 -4 8 0"/></g>
+  ${[
+    [120, 0, 1.1, -12],
+    [300, 1, 0.8, -40],
+    [470, 2, 1.25, -70],
+  ]
+    .map(
+      ([y, k, sc, off]) =>
+        `<g class="m-cloud" style="animation-delay:${off}s;animation-duration:${90 + k! * 24}s"><g transform="translate(0 ${y}) scale(${sc})"><g transform="translate(10 26)" fill="#3a4a2a" opacity=".1"><ellipse cx="0" cy="0" rx="38" ry="12"/><ellipse cx="30" cy="4" rx="28" ry="10"/></g><g fill="#ffffff" opacity=".62"><ellipse cx="0" cy="0" rx="36" ry="14"/><ellipse cx="24" cy="-8" rx="24" ry="14"/><ellipse cx="46" cy="2" rx="26" ry="11"/><ellipse cx="-22" cy="4" rx="20" ry="9"/></g></g></g>`,
+    )
+    .join('')}
   ${labels}
   ${pinAt ? `<g class="m-pin" transform="translate(${pinAt.x} ${pinAt.y - 18})"><ellipse cy="26" rx="12" ry="4" fill="#000" opacity=".25"/><g class="bob"><path d="M0 22 C-16 4 -18 -18 0 -20 C18 -18 16 4 0 22 Z" fill="#e8574a" stroke="#6a1e10" stroke-width="3"/><foreignObject x="-14" y="-18" width="28" height="28"><div xmlns="http://www.w3.org/1999/xhtml" class="m-face">${farmerAvatar(['#fff4d8', '#f0d8a0'])}</div></foreignObject></g></g>` : ''}
   <rect width="1000" height="640" fill="url(#mVig)" pointer-events="none"/>

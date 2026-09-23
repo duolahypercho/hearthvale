@@ -177,34 +177,99 @@ export class CraftingScreen extends Screen {
   }
 }
 
-// ── Placement preview: the item on a small tile grid with its area of effect ──
+// ── Placement preview: a tiny isometric diorama slab — the item on its tile, with its reach ──
+
+const N = 7;
+const TW = 30;
+const TH = 15;
+const X0 = 105;
+const Y0 = 40;
+const DEPTH = 11;
+
+function h2(x: number, z: number): number {
+  let h = (x * 374761393 + z * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+/** Top vertex of tile (x, z) in the iso view. */
+function iso(x: number, z: number): [number, number] {
+  return [X0 + ((x - z) * TW) / 2, Y0 + ((x + z) * TH) / 2];
+}
+
+function diamond(x: number, z: number, inset = 0): string {
+  const [sx, sy] = iso(x, z);
+  const i = inset;
+  return `M${sx} ${sy + i} L${sx + TW / 2 - i * 2} ${sy + TH / 2} L${sx} ${sy + TH - i} L${sx - TW / 2 + i * 2} ${sy + TH / 2} Z`;
+}
+
+function mix(a: string, b: string, k: number): string {
+  const pa = [1, 3, 5].map((o) => parseInt(a.slice(o, o + 2), 16));
+  const pb = [1, 3, 5].map((o) => parseInt(b.slice(o, o + 2), 16));
+  return `#${pa.map((v, i) => Math.round(v + (pb[i]! - v) * k).toString(16).padStart(2, '0')).join('')}`;
+}
 
 function previewSvg(itemId: string): string {
-  const N = 7;
-  const T = 26;
   const c = Math.floor(N / 2);
-  const cells: string[] = [];
-  const mark = new Map<string, string>();
-  let extra = '';
   const isSprinkler = !!SPRINKLERS[itemId];
-  if (isSprinkler) for (const [dx, dz] of sprinklerOffsets(itemId)) mark.set(`${c + dx},${c + dz}`, 'water');
-  if (itemId === 'scarecrow') extra = `<circle cx="${(c + 0.5) * T}" cy="${(c + 0.5) * T}" r="${T * 3.3}" fill="rgba(255,220,120,0.18)" stroke="#e0a030" stroke-width="2" stroke-dasharray="5 4"/>`;
-  const run = itemId === 'woodFence' ? [-2, -1, 0, 1, 2].map((dx) => `${c + dx},${c}`) : itemId === 'stonePath' ? [-1, 0, 1].flatMap((dx) => [-1, 0, 1].map((dz) => `${c + dx},${c + dz}`)) : [`${c},${c}`];
+  const wet = new Set<string>();
+  if (isSprinkler) for (const [dx, dz] of sprinklerOffsets(itemId)) wet.add(`${c + dx},${c + dz}`);
+  const reach = isSprinkler ? Math.max(1, ...sprinklerOffsets(itemId).map(([dx, dz]) => Math.max(Math.abs(dx), Math.abs(dz)))) + 1 : 0;
+  const paved = new Set(itemId === 'stonePath' ? [-1, 0, 1].flatMap((dx) => [-1, 0, 1].map((dz) => `${c + dx},${c + dz}`)) : []);
+  const fence = itemId === 'woodFence' ? [-2, -1, 0, 1, 2].map((dx) => [c + dx, c] as [number, number]) : [];
+  const out: string[] = [];
+  // Slab sides (dirt) + grass lip.
+  const [lx, ly] = iso(0, N);
+  const [bx, by] = iso(N, N);
+  const [rx, ry] = iso(N, 0);
+  out.push(`<path d="M${lx} ${ly} L${bx} ${by} L${bx} ${by + DEPTH} L${lx} ${ly + DEPTH} Z" fill="#7a4e2c"/>`);
+  out.push(`<path d="M${bx} ${by} L${rx} ${ry} L${rx} ${ry + DEPTH} L${bx} ${by + DEPTH} Z" fill="#5e3a1e"/>`);
+  out.push(`<path d="M${lx} ${ly + 5} L${bx} ${by + 5} L${bx} ${by + 7} L${lx} ${ly + 7} Z" fill="#4a2c14" opacity=".25"/>`);
+  out.push(`<path d="M${lx} ${ly} L${bx} ${by} L${rx} ${ry} L${bx} ${by + 3.5} Z" fill="#5a9a3a"/>`);
+  // Tiles.
   for (let z = 0; z < N; z++)
     for (let x = 0; x < N; x++) {
       const k = `${x},${z}`;
-      const w = mark.get(k) === 'water';
-      const soil = isSprinkler && Math.abs(x - c) <= 2 && Math.abs(z - c) <= 2;
-      const base = soil ? (w ? '#6a4630' : '#9a6a44') : (x + z) % 2 ? '#8fcb5a' : '#86c252';
-      cells.push(`<rect x="${x * T + 1}" y="${z * T + 1}" width="${T - 2}" height="${T - 2}" rx="4" fill="${base}"/>`);
-      if (w) cells.push(`<rect x="${x * T + 1}" y="${z * T + 1}" width="${T - 2}" height="${T - 2}" rx="4" fill="#3f86d6" opacity=".28"/><path d="M${x * T + T / 2} ${z * T + 7} c3 5 3 8 0 9 c-3 -1 -3 -4 0 -9Z" fill="#9ee0ff" stroke="#24608a" stroke-width="1"/>`);
+      const j = h2(x, z);
+      const soil = isSprinkler && Math.abs(x - c) <= reach && Math.abs(z - c) <= reach;
+      let fill: string;
+      if (paved.has(k)) fill = mix('#b8b2a6', '#9a9488', j);
+      else if (soil) fill = wet.has(k) ? mix('#6a4428', '#5a3a22', j) : mix('#a8764a', '#9a6a40', j);
+      else fill = mix((x + z) % 2 ? '#8fcb5a' : '#86c252', '#9ad466', j * 0.5);
+      out.push(`<path d="${diamond(x, z)}" fill="${fill}" stroke="rgba(40,60,20,.18)" stroke-width=".6"/>`);
+      const [sx, sy] = iso(x, z);
+      const cy = sy + TH / 2;
+      if (paved.has(k)) {
+        out.push(`<path d="${diamond(x, z, 2.2)}" fill="${mix('#d8d2c4', '#c4bcae', j)}"/><path d="M${sx - 5} ${cy} L${sx + 1} ${cy + 2} L${sx + 6} ${cy - 1}" stroke="#8a8478" stroke-width=".9" fill="none"/>`);
+      } else if (soil) {
+        out.push(`<path d="M${sx - 8} ${cy + 1} L${sx - 1} ${cy - 2.5} M${sx - 2} ${cy + 4} L${sx + 6} ${cy + 0.5}" stroke="rgba(40,20,6,.35)" stroke-width="1.1" stroke-linecap="round"/>`);
+        if (wet.has(k)) out.push(`<path class="pv-wet" d="${diamond(x, z, 1)}" fill="#4aa0e8" style="animation-delay:${(-j * 2).toFixed(2)}s"/><path d="M${sx} ${cy - 5} c2.4 3.4 2.4 5.4 0 6 c-2.4 -.6 -2.4 -2.6 0 -6Z" fill="#bfeaff" stroke="#24608a" stroke-width=".8"/>`);
+      } else if (j > 0.72) {
+        out.push(`<path d="M${sx - 3} ${cy + 2} l-1 -4 M${sx - 1} ${cy + 2} l0 -5 M${sx + 1} ${cy + 2} l1.5 -4" stroke="#4f8a30" stroke-width="1" stroke-linecap="round"/>`);
+      } else if (j < 0.08) {
+        out.push(`<circle cx="${sx + 3}" cy="${cy}" r="1.6" fill="${j < 0.04 ? '#fff4d0' : '#ffb3cf'}"/>`);
+      }
     }
-  const icons = run.map((k) => {
-    const [x, z] = k.split(',').map(Number) as [number, number];
-    const ghost = k !== `${c},${c}`;
-    return `<rect x="${x * T + 1}" y="${z * T + 1}" width="${T - 2}" height="${T - 2}" rx="4" fill="rgba(255,255,255,0.35)" stroke="#fff" stroke-width="1.6"/><image href="${itemIconUrl(itemId)}" x="${x * T - 3}" y="${z * T - 5}" width="${T + 6}" height="${T + 6}" opacity="${ghost ? 0.6 : 1}"/>`;
-  });
-  return `<svg class="grid" viewBox="0 0 ${N * T} ${N * T}"><rect width="${N * T}" height="${N * T}" rx="8" fill="#5e9a3a"/>${cells.join('')}${extra}${icons.join('')}<rect x="1" y="1" width="${N * T - 2}" height="${N * T - 2}" rx="8" fill="none" stroke="rgba(40,20,4,.35)" stroke-width="2"/></svg>`;
+  // Reach overlays.
+  if (itemId === 'scarecrow') {
+    const [sx, sy] = iso(c, c);
+    const r = 3.3 * Math.SQRT2;
+    out.push(`<ellipse class="pv-ring" cx="${sx}" cy="${sy + TH / 2}" rx="${(r * TW) / 2}" ry="${(r * TH) / 2}" fill="rgba(255,220,120,0.16)" stroke="#f0b040" stroke-width="1.6" stroke-dasharray="5 4"/>`);
+  }
+  // Target tile frame.
+  out.push(`<path class="pv-frame" d="${diamond(c, c, 0.5)}" fill="rgba(255,255,255,.28)" stroke="#fff" stroke-width="1.6"/>`);
+  // Items, back to front.
+  const placed: [number, number, boolean][] = fence.length ? fence.map(([x, z]) => [x, z, x !== c] as [number, number, boolean]) : paved.size ? [] : [[c, c, false]];
+  placed.sort((a, b) => a[0] + a[1] - (b[0] + b[1]));
+  const url = itemIconUrl(itemId);
+  for (const [x, z, ghost] of placed) {
+    const [sx, sy] = iso(x, z);
+    const cy = sy + TH / 2;
+    const w = fence.length ? 34 : 56;
+    out.push(`<ellipse cx="${sx}" cy="${cy + 1}" rx="${w * 0.34}" ry="${w * 0.12}" fill="#1e3010" opacity=".3"/>`);
+    out.push(`<g class="${ghost ? '' : 'pv-item'}"><image href="${url}" x="${sx - w / 2}" y="${cy - w * 0.9}" width="${w}" height="${w}" opacity="${ghost ? 0.62 : 1}"/></g>`);
+  }
+  return `<svg class="grid iso" viewBox="0 0 210 ${Y0 + N * TH + DEPTH + 6}">${out.join('')}</svg>`;
 }
 
 function previewNote(itemId: string): string {

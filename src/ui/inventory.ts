@@ -8,8 +8,9 @@
  */
 import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
-import { ICONS, itemIcon } from './icons';
-import { Screen, el, frame, closeButton, tooltip, sfx, replay } from './kit';
+import { ICONS, itemIcon, itemCategory, qualityStar } from './icons';
+import { CROPS, daysToRipe, type CropId } from '../data/crops';
+import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
 import { slotInner, itemTooltipHtml, unitPrice, type StackView } from './itemtip';
 import { menuTabs } from './menutabs';
 import { farmerAvatar } from './avatar';
@@ -31,6 +32,8 @@ export class InventoryScreen extends Screen {
   private drag: { slot: number; x: number; y: number; moved: boolean } | null = null;
   private card!: HTMLElement;
   private trash!: HTMLElement;
+  private detail!: HTMLElement;
+  private detailKey = '';
 
   constructor(game: Game, parent: HTMLElement) {
     super(game, parent, 'hv-inventory', { backdrop: true });
@@ -87,6 +90,8 @@ export class InventoryScreen extends Screen {
       this.grid.appendChild(c);
       this.cells.push(c);
     }
+    this.detail = el('div', 'inv-detail');
+    this.grid.addEventListener('pointerleave', () => this.showDetail(null));
     const foot = el('div', 'inv-foot');
     const sort = el('button', 'u-btn small', `${ICONS.sort}<span>Sort</span>`);
     sort.dataset.nav = '';
@@ -109,7 +114,7 @@ export class InventoryScreen extends Screen {
     this.trash.addEventListener('u-activate', () => this.held && this.trashHeld());
     const hint = el('div', 'inv-hint', `<b>Click</b> to pick up · <b>Right-click</b> to split · <b>[ ]</b> switch tabs`);
     foot.append(hint, sort, this.trash);
-    side.append(rowLabel, this.grid, foot);
+    side.append(rowLabel, this.grid, this.detail, foot);
     body.append(this.card, side);
     this.root.appendChild(wrap);
     this.refresh();
@@ -143,6 +148,53 @@ export class InventoryScreen extends Screen {
         <div><span>${ICONS.bag}</span><b>${worth.toLocaleString()}g</b><small>pack value</small></div>
       </div>`;
     this.renderHeld();
+    this.showDetail(null);
+  }
+
+  /**
+   * Item card under the grid: big icon, name, quality, category, what it's for and what it's worth.
+   * `null` = the selected toolbar item (so the card is never empty while the backpack is open).
+   */
+  private showDetail(i: number | null): void {
+    if (!this.detail) return;
+    const slots = this.inv?.slots ?? [];
+    const idx = i ?? this.game.toolbarSlot;
+    const s = (this.held && i === null ? this.held.stack : slots[idx]) as StackView | null | undefined;
+    const key = s ? `${idx}|${s.id}|${s.qty}|${s.quality ?? 0}|${this.held ? 1 : 0}` : `empty|${idx}`;
+    if (key === this.detailKey) return;
+    this.detailKey = key;
+    if (!s) {
+      this.detail.innerHTML = `<div class="idt-empty">${ICONS.bag}<span>Hover an item to inspect it · drag to rearrange</span></div>`;
+      return;
+    }
+    const d = itemDef(s.id);
+    const cat = itemCategory(s.id);
+    const q = s.quality ?? 0;
+    let desc = d?.description ?? '';
+    let meta = '';
+    if (d?.kind === 'seed' && d.crop) {
+      const c = CROPS[d.crop as CropId];
+      if (c) {
+        desc = desc || 'Plant in tilled soil and water daily.';
+        meta = `${ICONS.sprout}<span>${daysToRipe(c)} days · ${c.seasons.map((x) => SEASON_NAME[x]).join(' / ')}${c.regrow ? ` · regrows` : ''}</span>`;
+      }
+    } else if (d?.kind === 'produce' && !desc) desc = 'Fresh from the farm. Ship it, gift it, or cook with it.';
+    else if (d?.kind === 'resource' && !desc) desc = 'A useful crafting material.';
+    const each = unitPrice(s);
+    const val =
+      each > 0
+        ? `<div class="idt-val">${ICONS.coin}<b>${each.toLocaleString()}g</b><small>${s.qty > 1 ? `×${s.qty} = ${(each * s.qty).toLocaleString()}g` : 'sell price'}</small></div>`
+        : d?.kind === 'tool'
+          ? `<div class="idt-val tool">${ICONS.hammer}<b>Tool</b><small>not for sale</small></div>`
+          : '';
+    const stars = q ? `<span class="idt-q">${qualityStar(q)}${q >= 2 ? qualityStar(q) : ''}${q >= 3 ? qualityStar(q) : ''}</span>` : '';
+    this.detail.innerHTML = `
+      <div class="u-slot idt-pic">${itemIcon(s.id)}${qualityStar(q)}</div>
+      <div class="idt-txt">
+        <div class="idt-name"><b>${escapeHtml(d?.name ?? s.id)}</b>${stars}<span class="t-cat" style="background:${cat.color}">${cat.label}</span></div>
+        <p>${escapeHtml(desc)}</p>${meta ? `<div class="idt-meta">${meta}</div>` : ''}
+      </div>${val}`;
+    replay(this.detail, 'swap');
   }
 
   private hover(i: number, anchor = false): void {
@@ -152,6 +204,7 @@ export class InventoryScreen extends Screen {
       return;
     }
     const s = this.inv?.slots[i] as StackView | null;
+    this.showDetail(s ? i : null);
     if (!s) {
       tooltip.hide();
       return;

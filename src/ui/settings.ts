@@ -22,6 +22,10 @@ export interface Settings {
   toasts: boolean;
   tooltips: boolean;
   clock24: boolean;
+  /** Interface scale multiplier on top of the automatic resolution fit (0.8 – 1.25). */
+  uiScale: number;
+  /** Shorter, calmer UI animations. */
+  calm: boolean;
   /** action → physical key code */
   keys: Record<string, string>;
 }
@@ -46,7 +50,7 @@ export const BINDABLE: [string, string, string][] = [
 ];
 
 const KEY = 'hearthvale.settings';
-const DEFAULTS: Settings = { quality: 'high', master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7, toasts: true, tooltips: true, clock24: false, keys: {} };
+const DEFAULTS: Settings = { quality: 'high', master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7, toasts: true, tooltips: true, clock24: false, uiScale: 1, calm: false, keys: {} };
 
 export const settings: Settings = { ...DEFAULTS, keys: {} };
 /** physical code → default code */
@@ -103,6 +107,8 @@ export function loadSettings(game: Game): void {
   settings.keys ??= {};
   rebuildRemap();
   installRemap();
+  applyUiScale();
+  window.addEventListener('resize', applyUiScale, { passive: true });
   // URL ?quality= wins; otherwise restore the player's choice once systems exist.
   const urlQ = new URLSearchParams(location.search).get('quality');
   queueMicrotask(() => {
@@ -117,6 +123,20 @@ function apply(game: Game): void {
   game.events.emit('settings:change', { settings });
   document.body.classList.toggle('u-no-toasts', !settings.toasts);
   document.body.classList.toggle('u-no-tips', !settings.tooltips);
+  document.body.classList.toggle('u-calm', settings.calm);
+  applyUiScale();
+}
+
+/** Design resolution: the UI is laid out for 1920×1080 and zoomed to fit the window (× the player's scale). */
+export function uiZoom(): number {
+  // Softened fit: small windows keep the UI a little larger than a pure scale-down (readability), big
+  // ones grow it a little less.
+  const fit = Math.pow(Math.min(innerWidth / 1920, innerHeight / 1080), 0.75);
+  return Math.max(0.6, Math.min(1.35, fit)) * (settings.uiScale || 1);
+}
+
+function applyUiScale(): void {
+  document.documentElement.style.setProperty('--uiz', uiZoom().toFixed(3));
 }
 
 export function keyLabel(code: string): string {
@@ -127,7 +147,9 @@ export function keyLabel(code: string): string {
   return map[code] ?? code;
 }
 
-type Row = { kind: 'slider'; key: 'master' | 'music' | 'sfx' | 'ambience'; label: string; icon: string } | { kind: 'toggle'; key: 'toasts' | 'tooltips' | 'clock24'; label: string; note: string };
+type SliderKey = 'master' | 'music' | 'sfx' | 'ambience' | 'uiScale';
+type ToggleKey = 'toasts' | 'tooltips' | 'clock24' | 'calm';
+type Row = { kind: 'slider'; key: SliderKey; label: string; icon: string } | { kind: 'toggle'; key: ToggleKey; label: string; note: string };
 
 export class SettingsScreen extends Screen {
   private fromTitle = false;
@@ -191,7 +213,9 @@ export class SettingsScreen extends Screen {
       { kind: 'toggle', key: 'toasts', label: 'Pickup notifications', note: 'toasts in the corner' },
       { kind: 'toggle', key: 'tooltips', label: 'Item tooltips', note: 'hover cards' },
       { kind: 'toggle', key: 'clock24', label: '24-hour clock', note: 'HUD time format' },
+      { kind: 'toggle', key: 'calm', label: 'Reduce motion', note: 'gentler menu animations' },
     ];
+    ui.appendChild(this.slider('uiScale', 'UI size', 0.8, 1.25));
     for (const t of toggles) if (t.kind === 'toggle') ui.appendChild(this.toggle(t.key, t.label, t.note));
     colA.append(gfx, aud, ui);
 
@@ -244,33 +268,41 @@ export class SettingsScreen extends Screen {
     this.root.appendChild(wrap);
   }
 
-  private slider(key: 'master' | 'music' | 'sfx' | 'ambience', label: string): HTMLElement {
+  private slider(key: SliderKey, label: string, min = 0, max = 1): HTMLElement {
     const row = el('div', 'set-slider', `<span class="lb">${label}</span><div class="groove"><div class="fill"></div><div class="knob"></div></div><b class="pct"></b>`);
     row.dataset.nav = '';
     row.dataset.noclick = '1';
     row.dataset.slider = key;
     const groove = row.querySelector('.groove') as HTMLElement;
+    // Values snap to 5 % steps; the groove spans [min, max].
+    // The UI size applies on release, so the panel doesn't rescale under the pointer mid-drag.
+    let dragging = false;
     const set = (v: number, quiet = false): void => {
-      settings[key] = Math.round(Math.max(0, Math.min(1, v)) * 20) / 20;
-      (row.querySelector('.fill') as HTMLElement).style.width = `${settings[key] * 100}%`;
-      (row.querySelector('.knob') as HTMLElement).style.left = `${settings[key] * 100}%`;
-      (row.querySelector('.pct') as HTMLElement).textContent = `${Math.round(settings[key] * 100)}`;
-      if (!quiet) {
+      const prev = settings[key];
+      settings[key] = Math.round(Math.max(min, Math.min(max, v)) * 20) / 20;
+      const t = (settings[key] - min) / (max - min);
+      (row.querySelector('.fill') as HTMLElement).style.width = `${t * 100}%`;
+      (row.querySelector('.knob') as HTMLElement).style.left = `${t * 100}%`;
+      (row.querySelector('.pct') as HTMLElement).textContent = `${Math.round(settings[key] * 100)}${key === 'uiScale' ? '%' : ''}`;
+      if (!quiet && settings[key] !== prev) {
         save();
-        apply(this.game);
+        if (!(dragging && key === 'uiScale')) apply(this.game);
         sfx(this.game, 'tick');
       }
     };
     set(settings[key], true);
     const fromPointer = (e: PointerEvent): void => {
       const r = groove.getBoundingClientRect();
-      set((e.clientX - r.left) / r.width);
+      set(min + ((e.clientX - r.left) / r.width) * (max - min));
     };
     groove.addEventListener('pointerdown', (e) => {
       groove.setPointerCapture(e.pointerId);
+      dragging = true;
       fromPointer(e);
       const move = (ev: PointerEvent): void => fromPointer(ev);
       const up = (): void => {
+        dragging = false;
+        if (key === 'uiScale') apply(this.game);
         groove.removeEventListener('pointermove', move);
         groove.removeEventListener('pointerup', up);
       };
@@ -281,7 +313,7 @@ export class SettingsScreen extends Screen {
     return row;
   }
 
-  private toggle(key: 'toasts' | 'tooltips' | 'clock24', label: string, note: string): HTMLElement {
+  private toggle(key: ToggleKey, label: string, note: string): HTMLElement {
     const row = el('button', `set-toggle${settings[key] ? ' on' : ''}`, `<span class="lb">${label}<small>${note}</small></span><span class="sw"><i></i></span>`);
     row.dataset.nav = '';
     row.addEventListener('click', () => {

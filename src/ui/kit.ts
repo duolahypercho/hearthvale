@@ -249,13 +249,15 @@ class Tooltip {
 
   private place(x: number, y: number): void {
     const n = this.node!;
-    const w = n.offsetWidth;
-    const hh = n.offsetHeight;
+    // The tip is zoomed with the UI (--uiz): measure in screen px, translate in its own (zoomed) px.
+    const z = parseFloat(document.documentElement.style.getPropertyValue('--uiz')) || 1;
+    const w = n.offsetWidth * z;
+    const hh = n.offsetHeight * z;
     let tx = x + 22;
     let ty = y + 18;
     if (tx + w > innerWidth - 8) tx = x - w - 16;
     if (ty + hh > innerHeight - 8) ty = innerHeight - hh - 8;
-    n.style.transform = `translate(${Math.max(8, tx)}px, ${Math.max(8, ty)}px)`;
+    n.style.transform = `translate(${Math.max(8, tx) / z}px, ${Math.max(8, ty) / z}px)`;
   }
 
   hide(): void {

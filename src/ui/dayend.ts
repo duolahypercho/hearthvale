@@ -15,6 +15,8 @@ interface Summary {
   shipped: number;
   penalty: number;
   day: number;
+  /** Staged preview (`ui=dayend`): the calendar has not rolled over yet. */
+  sample?: boolean;
 }
 
 type Line = { itemId: string; qty: number; value: number };
@@ -47,7 +49,7 @@ export class DayEndScreen extends Screen {
     ];
     const items = want.filter(([id]) => itemDef(id)).map(([id, qty]) => ({ itemId: id, qty, value: (itemDef(id)?.sell ?? 0) * qty }));
     const total = items.reduce((a, b) => a + b.value, 0);
-    return { s: { passedOut: false, shipped: total, penalty: 0, day: Math.max(1, this.game.calendar.day - 1) || 1 }, items };
+    return { s: { passedOut: false, shipped: total, penalty: 0, day: this.game.calendar.day, sample: true }, items };
   }
 
   protected render(arg?: string): void {
@@ -102,15 +104,24 @@ export class DayEndScreen extends Screen {
         rows.push(`<div class="de-row" style="--i:${k++}"><div class="u-slot mini">${itemIcon(it.itemId)}</div><span class="nm">${escapeHtml(d?.name ?? it.itemId)}</span><span class="q">×${it.qty}</span><b>${it.value.toLocaleString()}g</b></div>`);
       }
     }
-    const tomorrow = `${WEEKDAY[(c.day - 1) % 7]}, ${SEASON_NAME[c.season]} ${c.day}`;
+    // A real summary arrives after the calendar rolled over; the staged sample shows the day after today.
+    const tDay = s.sample ? (c.day % 28) + 1 : c.day;
+    const tSeason = s.sample && c.day === 28 ? (['summer', 'fall', 'winter', 'spring'][['spring', 'summer', 'fall', 'winter'].indexOf(c.season)] ?? c.season) : c.season;
+    const tomorrow = `${WEEKDAY[(tDay - 1) % 7]}, ${SEASON_NAME[tSeason]} ${tDay}`;
     const bdays = Object.values(NPCS)
       .filter((n) => {
         const b = (n as { birthday?: { season: string; day: number } }).birthday;
-        return b && b.season === c.season && b.day === c.day;
+        return b && b.season === tSeason && b.day === tDay;
       })
       .map((n) => n.name.split(' ')[0]!);
     const w = c.weather;
     const forecast = w === 'sun' ? 'Sunny and mild' : w === 'rain' ? 'Rain all day — no watering needed' : w === 'storm' ? 'Thunderstorms. Stay near home' : w === 'snow' ? 'Snow on the fields' : 'A breezy day';
+    // Pick of the day: the most valuable line in the bin, plus the day's tally.
+    const best = [...items].sort((a, b) => b.value - a.value)[0];
+    const count = items.reduce((a, b) => a + b.qty, 0);
+    const star = best
+      ? `<div class="de-star"><div class="de-h">Pick of the day</div><div class="st"><div class="u-slot">${itemIcon(best.itemId)}</div><div class="tx"><b>${escapeHtml(itemDef(best.itemId)?.name ?? best.itemId)}</b><small>×${best.qty} · ${best.value.toLocaleString()}g</small></div><span class="medal">${ICONS.sun}</span></div><div class="de-count"><span><b>${count.toLocaleString()}</b> items shipped</span><span><b>${items.length}</b> kinds</span></div></div>`
+      : '';
     const title = s.passedOut ? 'You passed out…' : `Day ${s.day} complete`;
     card.innerHTML = `
       <div class="u-ribbon"><span>${title}</span></div>
@@ -123,7 +134,8 @@ export class DayEndScreen extends Screen {
         <div class="de-side">
           <div class="de-earn"><div class="de-h">Earnings</div><div class="amt">${ICONS.coin}<span class="v" data-v="0">0</span><small>g</small></div></div>
           ${s.passedOut ? `<div class="de-pen"><b>−${s.penalty.toLocaleString()}g</b><small>A neighbour found you asleep in the field and carried you home. They kept a little for the trouble.</small></div>` : ''}
-          <div class="de-purse"><span>Purse</span><b>${ICONS.coin}${(this.game.services.economy?.gold() ?? 0).toLocaleString()}g</b></div>
+          <div class="de-purse"><span>Purse</span><b>${ICONS.coin}${((this.game.services.economy?.gold() ?? 0) + (s.sample ? total : 0)).toLocaleString()}g</b></div>
+          ${star}
           <div class="de-tmr"><div class="de-h">Tomorrow</div><div class="fc"><span class="ic">${ICONS[w] ?? ICONS.sun}</span><div><b>${tomorrow}</b><small>${forecast}</small></div></div>${bdays.length ? `<div class="fc"><span class="ic">${ICONS.heart}</span><div><b>${escapeHtml(bdays.join(' & '))}’s birthday</b><small>bring a gift!</small></div></div>` : ''}</div>
         </div>
       </div>
@@ -134,15 +146,36 @@ export class DayEndScreen extends Screen {
     // Choreography: rows tick in, then the total counts up with coins.
     const n = k;
     const rowT = Math.min(110, 1400 / Math.max(1, n));
-    card.querySelectorAll<HTMLElement>('.de-grp, .de-row').forEach((r, i) => {
+    const box = card.querySelector('.de-rows') as HTMLElement;
+    const syncFade = (): void => {
+      box.classList.toggle('more', box.scrollHeight > box.clientHeight + 4);
+      box.classList.toggle('end', box.scrollTop + box.clientHeight >= box.scrollHeight - 4);
+      box.classList.toggle('top', box.scrollTop > 4);
+    };
+    box.addEventListener('scroll', syncFade, { passive: true });
+    requestAnimationFrame(syncFade);
+    const lines = [...card.querySelectorAll<HTMLElement>('.de-grp, .de-row')];
+    lines.forEach((r, i) => {
       r.style.animationDelay = `${500 + i * rowT}ms`;
-      this.timers.push(window.setTimeout(() => sfx(this.game, 'tick'), 500 + i * rowT));
+      this.timers.push(
+        window.setTimeout(() => {
+          sfx(this.game, 'tick');
+          // Keep the newest ledger line in view while the list ticks in — scrolled to a whole line, so the
+          // top of the ledger never shows half a row.
+          if (r.offsetTop + r.offsetHeight <= box.scrollTop + box.clientHeight - 6) return;
+          const want = r.offsetTop + r.offsetHeight - box.clientHeight + 10;
+          const top = lines.find((l) => l.offsetTop >= want - 10);
+          if (top) box.scrollTop = top.offsetTop - 10;
+        }, 500 + i * rowT),
+      );
     });
     const tEarn = 600 + n * rowT;
     this.timers.push(
       window.setTimeout(() => {
         const v = card.querySelector('.de-earn .v') as HTMLElement;
         rollTo(v, total, 1100);
+        // The ledger has ticked in: glide back to its first line (the bottom fade says there's more).
+        if (box.scrollTop > 0) this.timers.push(window.setTimeout(() => box.scrollTo({ top: 0, behavior: 'smooth' }), 900));
         replay(card.querySelector('.de-earn'), 'go');
         if (total > 0) {
           sfx(this.game, 'coin');

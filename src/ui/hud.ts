@@ -24,11 +24,12 @@ import { FishingPanel } from './panels';
 import { ShopScreen } from './shop';
 import { CraftingScreen } from './crafting';
 import { MapScreen } from './mapscreen';
-import { SettingsScreen, loadSettings } from './settings';
+import { SettingsScreen, loadSettings, settings } from './settings';
 import { PauseScreen, SavesScreen } from './pause';
 import { DayEndScreen } from './dayend';
 import { IconSheetScreen } from './iconsheet';
 import { PlacementGhost } from './placement';
+import { DemoKit } from './demo-kit';
 import { itemDef } from '../data/items';
 
 export { slotHtml } from './itemtip';
@@ -46,6 +47,8 @@ const SEASON_NAME = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 
 const PAUSING = new Set(['inventory', 'crafting', 'map', 'settings', 'shop', 'dayend', 'pause', 'saves', 'icons']);
 /** Game-menu tabs (E closes, [ ] / LB RB cycle). */
 export const MENU_TABS = ['inventory', 'crafting', 'map', 'settings'] as const;
+/** Screens that keep the clock / purse plate sharp above their blurred backdrop (you shop with your purse in view). */
+const CRISP_CLOCK = new Set(['inventory', 'crafting', 'map', 'settings', 'shop']);
 
 const HILLS: Record<string, [string, string]> = {
   spring: ['#8fcf5a', '#5fa83c'],
@@ -101,6 +104,7 @@ export class Hud {
   private fadeEl: HTMLElement;
   private bannerEl: HTMLElement;
   private ghost: PlacementGhost;
+  private demoKit: DemoKit;
   private pad = { prev: [] as boolean[], navT: 0, navDir: '' as NavDir | '' };
 
   constructor(private game: Game, uiRoot: HTMLElement, visible: boolean) {
@@ -134,6 +138,7 @@ export class Hud {
     this.bannerEl = el('div', 'hv-banner');
     uiRoot.append(this.fadeEl, this.bannerEl);
     this.ghost = new PlacementGhost(game);
+    this.demoKit = new DemoKit(game);
 
     game.events.on('toolbar:select', ({ slot }) => this.select(slot, true));
     game.events.on('inventory:change', ({ slots }) => {
@@ -368,7 +373,7 @@ export class Hud {
     const hit = this.toasts.find((t) => t.key === o.key && !t.node.classList.contains('out'));
     if (hit) {
       hit.qty += o.qty;
-      hit.t = 3.2;
+      hit.t = this.demoKit.holdToasts ? 60 : 3.2;
       const tx = hit.node.querySelector('.tx')!;
       tx.innerHTML = o.text(hit.qty);
       replay(tx.querySelector('b'), 'bump');
@@ -376,7 +381,7 @@ export class Hud {
     }
     const node = el('div', `h-toast ${o.kind}`, `<div class="ic">${o.icon}</div><div class="tx">${o.text(o.qty)}</div>`);
     this.toastBox.appendChild(node);
-    this.toasts.push({ node, key: o.key, qty: o.qty, t: 3.2 });
+    this.toasts.push({ node, key: o.key, qty: o.qty, t: this.demoKit.holdToasts ? 60 : 3.2 });
     while (this.toasts.filter((t) => !t.node.classList.contains('out')).length > 4) this.dismiss(this.toasts.find((t) => !t.node.classList.contains('out'))!);
   }
 
@@ -409,6 +414,7 @@ export class Hud {
       this.panels.get(prev)?.close();
       this.game.events.emit('ui:close', { name: prev });
     }
+    this.root.classList.toggle('h-crisp', CRISP_CLOCK.has(name));
     if (name === 'none') {
       this.game.input.enabled = true;
       this.setMenuPause(false);
@@ -422,6 +428,7 @@ export class Hud {
       this.setMenuPause(false);
       return;
     }
+    this.demoKit.beforeOpen(name);
     this.setMenuPause(PAUSING.has(name));
     this.root.classList.toggle('h-menu-open', PAUSING.has(name));
     this.openPanel = name;
@@ -569,12 +576,16 @@ export class Hud {
     }
 
     const c = this.game.calendar;
-    const clock = c.clockString();
+    let clock = c.clockString();
+    if (settings.clock24) {
+      const tm = Math.floor((c.hour * 60) / 10) * 10;
+      clock = `${Math.floor(tm / 60) % 24}:${String(tm % 60).padStart(2, '0')} `;
+    }
     const date = `${WEEKDAY[(c.day - 1) % 7]}. ${c.day}`;
     const key = clock + date;
     if (key !== this.lastClock) {
       const [hm, ampm] = clock.split(' ');
-      this.timeEl.innerHTML = `${hm}<span class="ampm">${ampm}</span>`;
+      this.timeEl.innerHTML = ampm ? `${hm}<span class="ampm">${ampm}</span>` : `${hm}`;
       this.timeEl.classList.toggle('late', c.hour >= 24);
       if (this.lastClock) replay(this.timeEl, 'tick');
       this.lastClock = key;

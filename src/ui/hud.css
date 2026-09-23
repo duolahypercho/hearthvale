@@ -560,6 +560,9 @@ body {
 .hv-hud.hv-title-mode .h-toasts {
   display: none;
 }
+.hv-hud.h-crisp > .h-clock {
+  z-index: 40;
+}
 .hv-hud.h-menu-open > .h-el.h-hide-menu {
   opacity: 0;
   translate: 0 20px;
