@@ -625,3 +625,112 @@ export function buildKettleSign(): THREE.Group {
   b.add('metal', new THREE.CylinderGeometry(0.008, 0.008, 0.24, 4), mat(0.7, 2.1, 0), { tint: 0x2e2a28 });
   return b.build({ name: 'kettle-sign' });
 }
+
+// ───────────────────────────────────────────── Meadow Lane: schoolhouse + south cottage
+
+/**
+ * Hearthvale schoolhouse: a red-painted board school with a white bell cupola on the ridge,
+ * a slate chalkboard by the door, a row of coat pegs and a bench of lunch pails.
+ */
+export function buildSchoolhouse(rng: Rng): BuiltProp {
+  const W = 6.4;
+  const D = 4.6;
+  const wallH = 2.9;
+  const bp = buildTownHouse(rng, { w: W, d: D, wallH, wall: 'wood', wallTint: 0xc8604a, roofTint: 0x5a6470, trimTint: 0xf6efe2, doorTint: 0x2f5a6a, shutterTint: 0xf2ead8, chimney: false, flowerBoxes: true, doorX: 0, sign: 'none' });
+  const b = new MeshBuilder();
+  const fz = D / 2;
+  const top = 0.35 + wallH;
+  const ridge = top + D * 0.42;
+  // Bell cupola: square white tower on the ridge, open arches, a brass bell, a little pyramid roof.
+  const cx = 0;
+  const cy = ridge - 0.2;
+  b.add('woodPaint', boxUV(roundedBox(1.0, 0.7, 1.0, 0.05), 1), mat(cx, cy + 0.35, 0), { tint: 0xf4efe4 });
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add('woodPaint', roundedBox(0.14, 0.72, 0.14, 0.03), mat(cx + sx * 0.4, cy + 1.05, sz * 0.4), { tint: 0xf8f4ea });
+  b.add('woodPaint', roundedBox(1.08, 0.1, 1.08, 0.03), mat(cx, cy + 0.72, 0), { tint: 0xe8e0d0 });
+  b.add('woodPaint', roundedBox(1.12, 0.1, 1.12, 0.03), mat(cx, cy + 1.42, 0), { tint: 0xe8e0d0 });
+  const pyr = new THREE.ConeGeometry(0.86, 0.8, 4);
+  pyr.rotateY(Math.PI / 4);
+  b.add('roofTile', pyr, mat(cx, cy + 1.86, 0), { tint: 0x5a6470 });
+  b.add('metal', new THREE.CylinderGeometry(0.015, 0.015, 0.5, 5), mat(cx, cy + 2.45, 0), { tint: 0x3a3430 });
+  b.add('metal', new THREE.SphereGeometry(0.05, 8, 6), mat(cx, cy + 2.72, 0), { tint: 0xd8b048 });
+  const bell = new THREE.LatheGeometry([new THREE.Vector2(0.02, 0.28), new THREE.Vector2(0.12, 0.26), new THREE.Vector2(0.16, 0.12), new THREE.Vector2(0.24, 0.0), new THREE.Vector2(0.22, -0.02)], 14);
+  b.add(brassMat(), bell, mat(cx, cy + 0.84, 0));
+  b.add('metal', new THREE.SphereGeometry(0.04, 6, 5), mat(cx, cy + 0.82, 0), { tint: 0x3a3430 });
+  // Chalkboard easel by the door ("Lessons 8–11") + coat pegs with two satchels.
+  b.add('woodDark', roundedBox(0.9, 1.1, 0.06, 0.03), mat(1.75, 0.95, fz + 0.62, -0.16, -0.2, 0), { tint: 0x6a4a32 });
+  b.add('woodPaint', roundedBox(0.78, 0.96, 0.03, 0.02), mat(1.75, 0.96, fz + 0.66, -0.16, -0.2, 0), { tint: 0x2f4a3e });
+  for (let i = 0; i < 3; i++) b.add('white', roundedBox(0.44 - i * 0.1, 0.035, 0.01, 0.008, 1), mat(1.72 + i * 0.02, 1.2 - i * 0.18, fz + 0.69 - i * 0.03, -0.16, -0.2, 0), { tint: 0xf2efe6 });
+  for (const s of [-1, 1]) b.add('woodDark', roundedBox(0.05, 1.3, 0.05, 0.02), mat(1.75 + s * 0.38, 0.62, fz + 0.5 + s * 0.08, 0.18, -0.2, 0), { tint: 0x5a3a24 });
+  b.add('woodDark', roundedBox(1.4, 0.08, 0.06, 0.02), mat(-1.6, 1.62, fz + 0.06), { tint: 0x6a4a32 });
+  for (let i = 0; i < 4; i++) b.add('metal', new THREE.CylinderGeometry(0.012, 0.012, 0.12, 4), mat(-2.15 + i * 0.36, 1.58, fz + 0.12, Math.PI / 2, 0, 0), { tint: 0x3a3430 });
+  const bagC = [0xd8573e, 0x3f7fb0];
+  bagC.forEach((c, i) => {
+    b.add('cloth', roundedBox(0.26, 0.3, 0.1, 0.05), mat(-2.15 + i * 0.72, 1.36, fz + 0.14), { tint: c });
+    b.add('cloth', roundedBox(0.27, 0.1, 0.11, 0.04), mat(-2.15 + i * 0.72, 1.46, fz + 0.15), { tint: new THREE.Color(c).multiplyScalar(0.8).getHex() });
+  });
+  // Bench with lunch pails under the pegs.
+  b.add('woodGrain', roundedBox(1.5, 0.07, 0.34, 0.03), mat(-1.6, 0.44, fz + 0.36), { tint: 0xa87a50 });
+  for (const sx of [-1, 1]) b.add('woodDark', roundedBox(0.07, 0.44, 0.3, 0.02), mat(-1.6 + sx * 0.64, 0.22, fz + 0.36));
+  for (let i = 0; i < 3; i++) {
+    b.add('metal', bevelCylinder(0.09, 0.08, 0.16, 0.015, 10), mat(-2.0 + i * 0.36, 0.48, fz + 0.36), { tint: [0x9ab0c0, 0xc8a050, 0x8ab08a][i]! });
+    b.add('metal', new THREE.TorusGeometry(0.07, 0.008, 4, 10, Math.PI), mat(-2.0 + i * 0.36, 0.64, fz + 0.36), { tint: 0x5a5a5a });
+  }
+  attach(bp, b, 'school-extras');
+  bp.anchors.bell = new THREE.Vector3(cx, cy + 0.9, 0);
+  return bp;
+}
+
+let brass: THREE.MeshStandardMaterial | null = null;
+function brassMat(): THREE.MeshStandardMaterial {
+  if (!brass) {
+    brass = new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xe0b050, roughness: 0.3, metalness: 0.8 });
+    brass.name = 'brass';
+    applyWorldFx(brass);
+  }
+  return brass;
+}
+
+/** The Pennywhistle cottage on Meadow Lane: sage plaster, a porch with two chairs and a rain barrel. */
+export function buildSouthCottage(rng: Rng): BuiltProp {
+  const bp = buildTownHouse(rng, { w: 5.4, d: 4.4, wallH: 2.7, wall: 'plaster', wallTint: 0xdce8d0, roofTint: 0xb8674a, doorTint: 0xe0a83a, shutterTint: 0x5a7a8a, chimney: true, flowerBoxes: true, doorX: -1 });
+  const b = new MeshBuilder();
+  const fz = 2.2;
+  // Porch chairs + side table with a teapot.
+  for (const sx of [0.9, 2.0]) {
+    b.add('woodPaint', roundedBox(0.5, 0.06, 0.46, 0.02), mat(sx, 0.46, fz + 0.5), { tint: 0xf2ecde });
+    b.add('woodPaint', roundedBox(0.5, 0.6, 0.06, 0.02), mat(sx, 0.78, fz + 0.28, -0.12, 0, 0), { tint: 0xf2ecde });
+    for (const [lx, lz] of [[-0.2, -0.18], [0.2, -0.18], [-0.2, 0.18], [0.2, 0.18]] as const) b.add('woodPaint', roundedBox(0.05, 0.46, 0.05, 0.015), mat(sx + lx, 0.23, fz + 0.5 + lz), { tint: 0xe8e0d0 });
+  }
+  b.add('woodGrain', bevelCylinder(0.22, 0.22, 0.05, 0.015, 12), mat(1.45, 0.5, fz + 0.62), { tint: 0xb88a5a });
+  b.add('woodDark', new THREE.CylinderGeometry(0.03, 0.03, 0.5, 5), mat(1.45, 0.25, fz + 0.62), { tint: 0x6a4a32 });
+  b.add('white', new THREE.SphereGeometry(0.09, 10, 8), mat(1.45, 0.6, fz + 0.62, 0, 0, 0, 1, 0.8, 1), { tint: 0x4a8ab0 });
+  // Rain barrel under the downpipe.
+  b.add('woodGrain', bevelCylinder(0.3, 0.27, 0.8, 0.04, 14), mat(-2.9, 0, fz - 0.4), { tint: 0x9a6a3a, aoWorld: groundAO(0.4) });
+  for (const y of [0.18, 0.62]) b.add('metal', new THREE.TorusGeometry(0.3, 0.02, 4, 16), mat(-2.9, y, fz - 0.4, Math.PI / 2, 0, 0), { tint: 0x4a4a4a });
+  attach(bp, b, 'southcottage-extras');
+  return bp;
+}
+
+/** Raised vegetable bed: plank frame, dark soil, rows of cabbages / lettuces / carrot tops. */
+export function buildVegBed(rng: Rng, len = 2.6): THREE.Group {
+  const b = new MeshBuilder();
+  const w = 1.0;
+  for (const sz of [-1, 1]) b.add('woodGrain', boxUV(roundedBox(len, 0.3, 0.08, 0.02, 1), 1), mat(0, 0.15, sz * (w / 2)), { tint: 0xb08a5a, aoWorld: groundAO(0.25) });
+  for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.08, 0.3, w, 0.02, 1), mat(sx * (len / 2), 0.15, 0), { tint: 0xa07a4a, aoWorld: groundAO(0.25) });
+  b.add('soilPot', roundedBox(len - 0.1, 0.06, w - 0.1, 0.02, 1), mat(0, 0.26, 0), { tint: 0x5a3e2a });
+  const kinds = [0x7ab05a, 0x9ac86a, 0x5a8a4a];
+  for (let r = 0; r < 2; r++) {
+    const kind = Math.floor(rng.next() * 3);
+    for (let x = -len / 2 + 0.3; x < len / 2 - 0.15; x += 0.42) {
+      const z = (r - 0.5) * 0.44;
+      if (kind === 2) {
+        for (let k = 0; k < 3; k++) b.add('boxFlower', new THREE.ConeGeometry(0.03, 0.26, 4), mat(x + (k - 1) * 0.05, 0.4, z, (k - 1) * 0.3, 0, 0), { tint: 0x6ab04a });
+      } else {
+        const g = lumpySphere(kind === 0 ? 0.15 : 0.12, 1, 0.25, rng);
+        sphericalNormals(g, new THREE.Vector3(), 0.5);
+        b.add('boxFlower', g, mat(x, 0.36, z, 0, 0, 0, 1, 0.75, 1), { tint: kinds[kind]! });
+      }
+    }
+  }
+  return b.build({ name: 'vegbed' });
+}

@@ -46,8 +46,8 @@ export const BRIDGES: Bridge[] = [
 
 /** Extra cobbled lanes (Catmull-Rom), [x, z] with a half width. */
 export const EXTRA_STREETS: { pts: [number, number][]; w: number }[] = [
-  // plaza → clinic
-  { pts: [[31.5, 35], [31.8, 38.5], [32, 41.4]], w: 1.05 },
+  // plaza → Meadow Lane
+  { pts: [[31.5, 35], [31.8, 38.2], [32, 39.8]], w: 1.05 },
   // west road → lamplighter's cottage
   { pts: [[11.2, 26], [11, 22], [10.6, 18.4]], w: 0.8 },
   // east bank lane (bridge → inn → Birch house → footbridge)
@@ -62,9 +62,16 @@ export const EXTRA_STREETS: { pts: [number, number][]; w: number }[] = [
   { pts: [[69.8, 46.2], [72.4, 45.6], [74.4, 44.2]], w: 0.9 },
   // riverside dock path
   { pts: [[57.2, 27.2], [58.2, 31.6], [59.4, 36.4]], w: 0.7 },
+  // Meadow Lane: loops from the clinic lane round the schoolhouse and the south cottage.
+  { pts: [[31.8, 39.4], [27.6, 41.2], [25.4, 45.4], [23.2, 50.4], [17.2, 51.6], [9.6, 51.0]], w: 0.85 },
+  { pts: [[32.2, 39.4], [36.4, 41.2], [38.6, 45.4], [40.8, 50.4], [46.8, 51.6], [54.2, 50.8]], w: 0.85 },
+  { pts: [[23.4, 50.2], [28, 51.3], [32, 51.5], [36, 51.3], [40.6, 50.2]], w: 0.85 },
+  { pts: [[32, 48.2], [32, 51.2]], w: 0.8 },
+  { pts: [[15.2, 49.2], [15.2, 51.4]], w: 0.7 },
+  { pts: [[45.4, 49.2], [45.6, 51.4]], w: 0.65 },
 ];
 
-export type NewBuildingKind = 'forge' | 'inn' | 'clinic' | 'keeper' | 'birch' | 'houseNE';
+export type NewBuildingKind = 'forge' | 'inn' | 'clinic' | 'keeper' | 'birch' | 'houseNE' | 'school' | 'cottageS';
 
 export interface NewBuilding {
   id: string;
@@ -79,10 +86,13 @@ export interface NewBuilding {
 export const NEW_BUILDINGS: NewBuilding[] = [
   { id: 'forge', kind: 'forge', x: 77.4, z: 15.4, rot: 0, block: [74, 12, 80, 17] },
   { id: 'inn', kind: 'inn', x: 80, z: 35.6, rot: Math.PI, block: [75, 33, 84, 38] },
-  { id: 'clinic', kind: 'clinic', x: 32, z: 45.2, rot: Math.PI, block: [28, 43, 35, 47] },
+  { id: 'clinic', kind: 'clinic', x: 32, z: 45.2, rot: 0, block: [28, 43, 35, 47] },
   { id: 'keeper_cottage', kind: 'keeper', x: 10.6, z: 15.2, rot: 0, block: [8, 13, 12, 16] },
   { id: 'birch_house', kind: 'birch', x: 80.2, z: 50.4, rot: Math.PI, block: [77, 49, 83, 52] },
   { id: 'house_ne', kind: 'houseNE', x: 90.4, z: 15.6, rot: 0, block: [88, 13, 92, 17] },
+  // Meadow Lane (the south quarter).
+  { id: 'schoolhouse', kind: 'school', x: 15.2, z: 46.6, rot: 0, block: [12, 44, 18, 48] },
+  { id: 'cottage_south', kind: 'cottageS', x: 46.8, z: 46.8, rot: 0, block: [44, 44, 49, 48] },
 ];
 
 export type ExtraPropKind =
@@ -109,7 +119,11 @@ export type ExtraPropKind =
   | 'produce'
   | 'swing'
   | 'hedge'
-  | 'kettleSign';
+  | 'kettleSign'
+  | 'vegBed'
+  | 'fence'
+  | 'beehive'
+  | 'chalkBoard';
 
 export interface ExtraProp {
   kind: ExtraPropKind;
@@ -121,6 +135,8 @@ export interface ExtraProp {
   goods?: 'produce' | 'fish' | 'flowers' | 'pottery';
   colors?: number[];
   len?: number;
+  /** Fence runs: points relative to (x, z). */
+  pts?: [number, number][];
 }
 
 export const EXTRA_PROPS: ExtraProp[] = [
@@ -165,10 +181,10 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'swing', x: 73.2, z: 49.2, rot: 0.2 },
   { kind: 'laundry', x: 76.6, z: 53.8, rot: 0.1 },
   // Clinic.
-  { kind: 'bench', x: 36.4, z: 41.6, rot: Math.PI, solid: [[36, 41]] },
-  { kind: 'planter', x: 28.4, z: 41.8, colors: [0xffffff, 0xc77dff], solid: [[28, 41]] },
-  { kind: 'flowerPot', x: 30.4, z: 41.9, colors: [0xff8fab] },
-  { kind: 'flowerPot', x: 33.6, z: 41.9, colors: [0xffd166] },
+  { kind: 'bench', x: 36.6, z: 49.2, rot: 0, solid: [[36, 49]] },
+  { kind: 'planter', x: 27.4, z: 49.0, colors: [0xffffff, 0xc77dff], solid: [[27, 49]] },
+  { kind: 'flowerPot', x: 30.7, z: 48.5, colors: [0xff8fab] },
+  { kind: 'flowerPot', x: 33.3, z: 48.5, colors: [0xffd166] },
   // Lamplighter's cottage + west entrance.
   { kind: 'signpost', x: 6.2, z: 23.6, rot: 0.3, solid: [[6, 23]] },
   { kind: 'mailbox', x: 12.6, z: 18.6, rot: 0 },
@@ -182,6 +198,24 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'signpost', x: 70.4, z: 22.9, rot: -0.4, solid: [[70, 22]] },
   { kind: 'hedge', x: 36.2, z: 43.6, rot: Math.PI / 2, len: 3.2 },
   { kind: 'hedge', x: 27.8, z: 43.6, rot: Math.PI / 2, len: 3.2 },
+  // Meadow Lane: the schoolyard (swing, bench, chalk board), lamps along the lane.
+  { kind: 'swing', x: 20.6, z: 46.2, rot: -0.25 },
+  { kind: 'bench', x: 10.2, z: 49.4, rot: Math.PI / 2 - 0.2, solid: [[10, 49]] },
+  { kind: 'chalkBoard', x: 17.6, z: 50.0, rot: 0.25, colors: [0x2f4a3e] },
+  { kind: 'flowerPot', x: 13.4, z: 49.3, colors: [0xff8fab] },
+  { kind: 'flowerPot', x: 17.0, z: 49.3, colors: [0xffd166] },
+  { kind: 'lampLit', x: 24.8, z: 48.2, rot: -Math.PI / 2, solid: [[24, 48]] },
+  { kind: 'lamp', x: 39.4, z: 48.2, rot: Math.PI / 2, solid: [[39, 48]] },
+  { kind: 'lamp', x: 11.8, z: 52.8, rot: Math.PI, solid: [[11, 52]] },
+  // The south cottage's kitchen garden: fenced raised beds, beehives, a rain barrel, laundry.
+  { kind: 'vegBed', x: 51.4, z: 45.6, rot: 0, solid: [[50, 45], [51, 45], [52, 45]] },
+  { kind: 'vegBed', x: 51.4, z: 47.6, rot: 0, solid: [[50, 47], [51, 47], [52, 47]] },
+  { kind: 'fence', x: 51.4, z: 46.6, pts: [[-2.2, -2.2], [0, -2.3], [2.3, -2.2], [2.3, 0], [2.2, 2.1]], solid: [[53, 44], [53, 45], [53, 46], [53, 47], [53, 48]] },
+  { kind: 'beehive', x: 54.6, z: 44.6, rot: 0.3, solid: [[54, 44]] },
+  { kind: 'beehive', x: 55.5, z: 45.4, rot: -0.2, solid: [[55, 45]] },
+  { kind: 'laundry', x: 42.2, z: 47.8, rot: Math.PI / 2 + 0.1 },
+  { kind: 'mailbox', x: 44.2, z: 50.6, rot: 0 },
+  { kind: 'produce', x: 49.6, z: 49.6, rot: -0.3 },
 ];
 
 /** Extra trees: [species, x, z, scale]. */
@@ -191,14 +225,22 @@ export const EXTRA_TREES: ['oak' | 'maple' | 'pine' | 'blossom', number, number,
   ['maple', 86.8, 11.4, 1.0],
   ['pine', 93.8, 30.2, 1.05],
   ['oak', 58.4, 14.6, 1.05],
-  ['blossom', 56.2, 40.2, 0.9],
+  ['blossom', 52.8, 43.4, 0.9],
   ['maple', 40.6, 45.2, 1.0],
   ['oak', 22.6, 46.0, 1.1],
   ['blossom', 5.8, 13.4, 0.85],
   ['pine', 94.6, 44.4, 1.0],
   ['maple', 69.8, 12.6, 0.95],
   ['oak', 90.8, 54.6, 1.0],
+  // Meadow Lane orchard.
+  ['blossom', 19.5, 56.0, 0.85],
+  ['oak', 27.5, 56.6, 0.95],
+  ['blossom', 36.8, 56.2, 0.9],
+  ['maple', 44.5, 56.8, 0.95],
 ];
+
+/** Square trees moved out of heart-event sight lines: [fromX, fromZ, toX, toZ]. */
+export const TREE_MOVES: [number, number, number, number][] = [[58.5, 30.5, 49.6, 41.4], [56.5, 38.5, 56.8, 52.6]];
 
 /**
  * Named places villagers walk to. [x, z, facing or yaw radians]. 'door:<buildingId>' spots are
@@ -229,9 +271,12 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   forge_anvil: [84.6, 19.5, 'up'],
   inn_front: [78.2, 30.6, 'down'],
   inn_tables: [76.12, 29.4, -Math.PI / 2],
-  clinic_front: [34.0, 40.6, 'down'],
+  clinic_front: [33.8, 49.9, 'down'],
   garden_east: [51.6, 36.4, 'up'],
   lumber_yard: [86.4, 46.9, 'down'],
+  school_yard: [19.4, 48.4, 'down'],
+  school_bench: [10.9, 49.5, Math.PI / 2 - 0.2],
+  veg_garden: [49.6, 46.6, 'right'],
 };
 
 /** Town camera bounds (look-target clamp). */

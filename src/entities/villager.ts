@@ -333,7 +333,11 @@ export class Villager {
   /** Height of the head top above the feet (world m) — emote bubbles, name tags. */
   readonly headTop: number;
 
-  constructor(readonly def: NpcDef) {
+  /** Contact-shadow radius (m). */
+  readonly blobR: number;
+
+  /** `blob: false` when the owner draws all contact shadows in one instanced call (NpcSystem). */
+  constructor(readonly def: NpcDef, opts: { blob?: boolean } = {}) {
     this.root.name = `npc:${def.id}`;
     this.walkStyle = def.walk ?? DEFAULT_WALK;
     this.speed = this.walkStyle.speed;
@@ -341,7 +345,9 @@ export class Villager {
     this.build(def.look);
     this.body.scale.setScalar(this.scaleS);
     this.headTop = (this.hipY + 0.46 + 0.8 * (def.look.head ?? 1)) * this.scaleS;
-    const blob = new THREE.Mesh(new THREE.CircleGeometry(0.42 * Math.max(0.9, def.look.build) * def.look.scale, 20), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.2, depthWrite: false }));
+    this.blobR = 0.42 * Math.max(0.9, def.look.build) * def.look.scale;
+    if (opts.blob === false) return;
+    const blob = new THREE.Mesh(new THREE.CircleGeometry(this.blobR, 20), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.2, depthWrite: false }));
     blob.rotation.x = -Math.PI / 2;
     blob.position.y = 0.03;
     blob.renderOrder = 1;
@@ -448,14 +454,29 @@ export class Villager {
       rb.add(B.spine, roundedBox(0.11 * bw, 0.28, 0.03, 0.02), M(0, hipY + 0.2, 0.2 * bw), L.top);
     }
     if (L.apron !== undefined) {
-      rb.add(B.spine, roundedBox(0.34 * bw, 0.42, 0.04, 0.03), M(0, hipY + 0.06, 0.19 * bw), L.apron);
-      rb.add(B.hips, roundedBox(0.34 * bw, 0.2, 0.04, 0.03), M(0, hipY - 0.16, 0.2 * bw, -0.08, 0, 0), L.apron);
-      rb.add(B.spine, roundedBox(0.2, 0.1, 0.03, 0.02), M(0, hipY + 0.0, 0.215 * bw), shadeHex(L.apron, 0.85));
-      rb.add(B.spine, new THREE.TorusGeometry(0.21 * bw, 0.015, 5, 16), M(0, hipY + 0.08, 0, Math.PI / 2, 0, 0, 1, 0.9, 1), shadeHex(L.apron, 0.8));
+      // Cloth apron wrapped over the torso curve: a bib (with a stitched hem + neck straps),
+      // a flared skirt panel on the hips with a pocket, and a waist tie with a bow at the back.
+      const ap = L.apron;
+      const bib = new THREE.CylinderGeometry(0.212, 0.222, 0.26, 12, 1, true, -0.62, 1.24);
+      rb.add(B.spine, bib, M(0, hipY + 0.17, 0, 0, 0, 0, 1.05 * bw, 1, 0.92 * bw), ap);
+      const hem = new THREE.TorusGeometry(0.223, 0.009, 4, 10, 1.24);
+      hem.rotateX(Math.PI / 2);
+      hem.rotateY(0.62 - Math.PI / 2);
+      rb.add(B.spine, hem, M(0, hipY + 0.3, 0, 0, 0, 0, 1.05 * bw, 1, 0.92 * bw), shadeHex(ap, 0.82));
+      for (const sx of [-1, 1]) rb.add(B.spine, new THREE.CapsuleGeometry(0.012, 0.16, 2, 5), M(sx * 0.1 * bw, hipY + 0.37, 0.12 * bw, -0.5, 0, sx * 0.35), shadeHex(ap, 0.85));
+      const skirt = new THREE.CylinderGeometry(0.228, 0.29, 0.3, 12, 1, true, -0.95, 1.9);
+      rb.add(B.hips, skirt, M(0, hipY - 0.12, 0, 0, 0, 0, 1.0 * bw, 1, 0.95 * bw), ap);
+      const pocket = new THREE.CylinderGeometry(0.262, 0.272, 0.09, 8, 1, true, -0.34, 0.68);
+      rb.add(B.hips, pocket, M(0, hipY - 0.16, 0.006, 0, 0, 0, 1.0 * bw, 1, 0.95 * bw), shadeHex(ap, 0.9));
+      rb.add(B.spine, new THREE.TorusGeometry(0.212, 0.016, 5, 16), M(0, hipY + 0.035, 0, Math.PI / 2, 0, 0, 1.03 * bw, 0.9 * bw, 1), shadeHex(ap, 0.8));
+      for (const sx of [-1, 1]) rb.add(B.spine, new THREE.SphereGeometry(0.035, 6, 5), M(sx * 0.035, hipY + 0.035, -0.2 * bw, 0, 0, 0, 1.3, 0.8, 0.7), shadeHex(ap, 0.8));
     }
     if (L.scarf !== undefined) {
       rb.add(B.spine, new THREE.TorusGeometry(0.13, 0.045, 8, 16), M(0, hipY + 0.38, 0, Math.PI / 2 - 0.2, 0, 0), L.scarf);
-      rb.add(B.spine, roundedBox(0.08, 0.22, 0.04, 0.02), M(0.06, hipY + 0.25, 0.17, 0.15, 0, 0.15), L.scarf);
+      // Two knotted tails lying against the chest.
+      rb.add(B.spine, new THREE.SphereGeometry(0.045, 8, 6), M(0.07, hipY + 0.33, 0.17 * bw), shadeHex(L.scarf, 0.92));
+      rb.add(B.spine, new THREE.CapsuleGeometry(0.032, 0.12, 2, 6), M(0.085, hipY + 0.24, 0.185 * bw, 0.18, 0, 0.12, 1, 1, 0.55), L.scarf);
+      rb.add(B.spine, new THREE.CapsuleGeometry(0.028, 0.09, 2, 6), M(0.035, hipY + 0.255, 0.19 * bw, 0.16, 0, -0.18, 1, 1, 0.55), shadeHex(L.scarf, 0.88));
     }
     if (L.bowtie !== undefined) {
       for (const sx of [-1, 1]) rb.add(B.spine, new THREE.ConeGeometry(0.045, 0.08, 4), M(sx * 0.04, hipY + 0.37, 0.16, 0, 0, sx * Math.PI / 2), L.bowtie);

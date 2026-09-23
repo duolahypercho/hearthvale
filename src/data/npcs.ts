@@ -644,7 +644,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hearts: 2,
         title: 'House Call',
         hours: [9, 17],
-        cast: { linus: ['clinic_front', 'down'], tobias: ['bench_se', 'down'], player: [[35.2, 31.4], 'up'] },
+        cast: { linus: [[33.2, 38.4], 'up'], tobias: ['bench_se', 'down'], player: [[35.2, 31.4], 'up'] },
         camera: { x: 35.4, z: 30.2, yaw: 4, pitch: 40, distance: 15 },
         script: [
           { walk: 'linus', to: [35.8, 30.2], face: 'tobias' },
@@ -741,7 +741,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         title: 'The Empty Chair',
         hours: [17, 24],
         cast: { june: ['inn_front', 'down'], rowan: ['inn_tables', 'right'], player: [[81.4, 27.4], 'down'] },
-        camera: { x: 79.4, z: 28.4, yaw: 0, pitch: 40, distance: 15 },
+        camera: { x: 79.4, z: 28.4, yaw: 180, pitch: 48, distance: 15 },
         script: [
           { emote: 'june', icon: 'anger' },
           { say: 'june', text: 'ROWAN BIRCH. What did I say about leaning back?', mood: 'angry' },
@@ -765,7 +765,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         title: 'A Candle in the Window',
         hours: [21, 26],
         cast: { june: [[80.6, 29.8], 'up'], player: [[78.6, 27.2], 'right'] },
-        camera: { x: 79.6, z: 29.2, yaw: 6, pitch: 36, distance: 13 },
+        camera: { x: 79.6, z: 29.2, yaw: 174, pitch: 46, distance: 14 },
         script: [
           { say: 'june', text: 'Oh — still up? I was just setting out Dad’s candle.', mood: 'surprised' },
           { say: 'june', text: 'He said a town is only as warm as its last lit window. I’ve never missed a night. Not one.', mood: 'thinking' },
@@ -899,7 +899,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
     portraitBg: [0xf8e0a0, 0x9ac87a],
     schedule: [
       [6, 'door:birch_house', 'inside'],
-      [8, 'plaza_play', 'play'],
+      [8, 'door:schoolhouse', 'inside'],
+      [10, 'school_yard', 'play'],
       [11, 'river_dock', 'fish'],
       [13, 'plaza_play', 'play'],
       [16, 'hall_steps', 'sit'],
@@ -1041,6 +1042,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         title: 'Measure Twice',
         hours: [8, 17],
         dry: true,
+        demoTime: 10.2,
         cast: { rowan: ['lumber_yard', 'up'], player: [[87.4, 47.6], 'left'] },
         camera: { x: 86.0, z: 46.4, yaw: -6, pitch: 40, distance: 14 },
         script: [

@@ -22,12 +22,13 @@ import { GrassField } from '../grass';
 import { TreeField } from '../props/trees';
 import { Nature } from '../props/nature';
 import { mergeStatic } from '../geom';
+import { BatchPool, InstancedSet } from '../props/instanced';
 import { createWater } from '../water';
 import { textures } from '../../render/textures';
 import { SmokeEmitter, Ambience, FireFX } from '../../render/particles';
 import { LightPools } from '../props/decals';
-import { buildLanternPost, buildBarrel, buildCrate, buildMailbox, buildDock, type BuiltProp } from '../props/structures';
-import { buildBench, buildFlowerPot, buildWheelbarrow, buildSignpost, buildLaundryLine } from '../props/farmkit';
+import { buildLanternPost, buildBarrel, buildCrate, buildMailbox, buildDock, buildFence, type BuiltProp } from '../props/structures';
+import { buildBench, buildFlowerPot, buildWheelbarrow, buildSignpost, buildLaundryLine, buildBeehive } from '../props/farmkit';
 import { buildTownHouse, buildLanternHall, buildFountain, buildNoticeBoard, buildMarketStall, buildPlanter, buildHedge, buildFlowerCart, buildCafeSet, buildSandwichBoard, type HouseSpec } from '../props/townkit';
 import { buildBunting, buildLanternPole, buildMaypole, buildFeastTable, buildBrazier } from '../props/festival';
 import { PLAZA, STREETS, BUILDINGS, TOWN_PROPS, TOWN_TREES, FESTIVAL, TOWN_WARPS, TOWN_SPAWN, type TownBuilding } from '../../data/town-layout';
@@ -47,6 +48,7 @@ import {
   EXTRA_PROPS,
   EXTRA_TREES,
   TOWN_CAM_BOUNDS,
+  TREE_MOVES,
   type Bridge,
   type NewBuilding,
 } from './layout';
@@ -70,6 +72,9 @@ import {
   buildProduceCrates,
   buildSwing,
   buildKettleSign,
+  buildSchoolhouse,
+  buildSouthCottage,
+  buildVegBed,
   coalMaterial,
   deckY,
 } from './buildings';
@@ -81,13 +86,13 @@ const HOUSES: Record<Exclude<TownBuilding['kind'], 'hall'>, HouseSpec> = {
   cottageB: { w: 5.4, d: 4.2, wallH: 2.6, wall: 'plaster', wallTint: 0xe8f0e0, roofTint: 0xa87aa8, doorTint: 0x5a8a4a, shutterTint: 0x6a9a5a, chimney: true, flowerBoxes: true },
 };
 
-/** Static-merge districts (x ranges) for culling. */
-const DISTRICTS = [
-  { id: 'west', x0: -99, x1: 40 },
-  { id: 'mid', x0: 40, x1: 55 },
-  { id: 'river', x0: 55, x1: 69 },
-  { id: 'east', x0: 69, x1: 999 },
-];
+/**
+ * Static props are merged per 12 m cell (one geometry per material per cell) and every cell's
+ * geometry goes into one BatchPool: the whole town costs one multi-draw call per material per
+ * pass, while BatchedMesh culls each cell on its own (main + shadow camera).
+ */
+const CELL = 12;
+const cellOf = (x: number, z: number): string => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
 
 export class TownMap implements GameMap {
   readonly id = 'town';
@@ -173,7 +178,7 @@ export class TownMap implements GameMap {
     this.root.add(this.ambience.group);
     game.events.on('demo:stage', ({ showcase }) => this.setFestival(showcase.includes('festival')));
     // Ambient life anchors for the critter system.
-    this.poi.flowers = [{ x: 20.5, z: 19.2 }, { x: 43, z: 19.2 }, { x: 16, z: 35 }, { x: 48, z: 35 }, { x: PLAZA.x, z: PLAZA.z + 4 }, { x: 55.8, z: 22.4 }, { x: 30.2, z: 41.9 }];
+    this.poi.flowers = [{ x: 20.5, z: 19.2 }, { x: 43, z: 19.2 }, { x: 16, z: 35 }, { x: 48, z: 35 }, { x: PLAZA.x, z: PLAZA.z + 4 }, { x: 55.8, z: 22.4 }, { x: 30.2, z: 48.6 }];
     this.poi.birds = [{ x: 29.5, z: 28.5 }, { x: 35.5, z: 21.5 }, { x: 58.4, z: 33.6 }, { x: 78, z: 28.6 }];
     this.poi.water = [{ x: 64.4, z: 32 }, { x: 65.6, z: 40 }, { x: 64.4, z: 18 }];
   }
@@ -388,6 +393,10 @@ export class TownMap implements GameMap {
           return buildBirchHouse(r);
         case 'houseNE':
           return buildHouseNE(r);
+        case 'school':
+          return buildSchoolhouse(r);
+        case 'cottageS':
+          return buildSouthCottage(r);
       }
     };
     for (const b of NEW_BUILDINGS) {
@@ -569,11 +578,25 @@ export class TownMap implements GameMap {
         case 'kettleSign':
           g = buildKettleSign();
           break;
+        case 'vegBed':
+          g = buildVegBed(r);
+          break;
+        case 'beehive':
+          g = buildBeehive();
+          break;
+        case 'chalkBoard':
+          g = buildSandwichBoard(p.colors?.[0]);
+          break;
+        case 'fence': {
+          const y0 = this.terrain.heightAt(p.x, p.z) - 0.03;
+          g = buildFence([p.pts ?? []], (lx, lz) => this.terrain.heightAt(lx + p.x, lz + p.z) - y0, r);
+          break;
+        }
       }
       // Dock + rowboat sit at the water line.
       const y = p.kind === 'dock' ? WATER_Y + 0.16 : p.kind === 'rowboat' ? WATER_Y - 0.12 : undefined;
       this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid, { lights, y });
-      if (!['hedge', 'dock', 'rowboat', 'laundry'].includes(p.kind)) this.terrain.stampCover('ao', p.x, p.z, p.kind === 'stall' ? 1.6 : p.kind === 'well' ? 1.2 : 0.6, 0.6);
+      if (!['hedge', 'dock', 'rowboat', 'laundry', 'fence'].includes(p.kind)) this.terrain.stampCover('ao', p.x, p.z, p.kind === 'stall' ? 1.6 : p.kind === 'well' ? 1.2 : 0.6, 0.6);
     }
     // The dock is walkable: a short jetty over the water.
     for (let x = 60; x <= 62; x++) {
@@ -618,18 +641,24 @@ export class TownMap implements GameMap {
   }
 
   private mergeDistricts(): void {
-    const buckets = DISTRICTS.map(() => [] as THREE.Object3D[]);
+    const cells = new Map<string, THREE.Object3D[]>();
     for (const o of this.staticRoots) {
-      const x = o.position.x;
-      const i = DISTRICTS.findIndex((d) => x >= d.x0 && x < d.x1);
-      buckets[Math.max(0, i)]!.push(o);
+      const k = cellOf(o.position.x, o.position.z);
+      let list = cells.get(k);
+      if (!list) cells.set(k, (list = []));
+      list.push(o);
     }
-    DISTRICTS.forEach((d, i) => {
-      if (!buckets[i]!.length) return;
-      const merged = mergeStatic(buckets[i]!, `town-${d.id}`);
-      merged.userData.perfTag = 'props';
-      this.root.add(merged);
-    });
+    const pool = new BatchPool('town-props');
+    const I = new THREE.Matrix4();
+    for (const [k, list] of cells) {
+      const merged = mergeStatic(list, `town-${k}`);
+      for (const m of merged.children as THREE.Mesh[]) {
+        const set = new InstancedSet(m.name, [{ geometry: m.geometry, material: m.material as THREE.Material, castShadow: m.castShadow, receiveShadow: m.receiveShadow }], pool);
+        set.add(I);
+      }
+    }
+    pool.group.userData.perfTag = 'props';
+    this.root.add(pool.group);
   }
 
   private placeTrees(): void {
@@ -641,7 +670,11 @@ export class TownMap implements GameMap {
       }
       return this.riverDist(x, z) > RIVER_BANK + 0.6;
     };
-    for (const [sp, x, z, s] of [...TOWN_TREES, ...EXTRA_TREES]) {
+    const moved = TOWN_TREES.map(([sp, x, z, s]) => {
+      const m = TREE_MOVES.find((t) => t[0] === x && t[1] === z);
+      return (m ? [sp, m[2], m[3], s] : [sp, x, z, s]) as (typeof TOWN_TREES)[number];
+    });
+    for (const [sp, x, z, s] of [...moved, ...EXTRA_TREES]) {
       if (!clear(x, z) && !EXTRA_TREES.some((t) => t[1] === x && t[2] === z)) continue;
       const h = this.trees.add(sp, x, this.terrain.heightAt(x, z) - 0.05, z, s);
       this.grid.setObject(Math.floor(x), Math.floor(z), { kind: 'tree', id: sp, solid: true, onRemove: () => this.trees.remove(h) });
@@ -683,7 +716,7 @@ export class TownMap implements GameMap {
         else if (roll < 0.13) this.nature.place('stone', cx, y, cz, { scale: 0.6 + r.next() * 0.3, lod: 1 });
       }
     }
-    const beds: [number, number, number][] = [[17.2, 23.8, 19.0], [40.2, 46.2, 19.0], [13.4, 18.6, 34.9], [45.4, 50.6, 34.9], [8.6, 12.6, 17.7], [88.4, 92.4, 18.3], [29.0, 35.0, 42.3]];
+    const beds: [number, number, number][] = [[17.2, 23.8, 19.0], [40.2, 46.2, 19.0], [13.4, 18.6, 34.9], [45.4, 50.6, 34.9], [8.6, 12.6, 17.7], [88.4, 92.4, 18.3], [28.6, 31.0, 48.3], [33.0, 35.4, 48.3]];
     for (const [x0, x1, z] of beds) {
       for (let x = x0; x <= x1; x += 0.55) {
         const c = [0xff8fab, 0xffd166, 0xffffff, 0xc77dff][Math.floor(r.next() * 4)]!;

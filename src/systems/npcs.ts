@@ -26,7 +26,7 @@ import { itemDef } from '../data/items';
 import { Villager } from '../entities/villager';
 import { SPOTS } from '../world/town/layout';
 import { findPath, type Waypoint } from '../world/town/pathfind';
-import { SocialPanel } from '../ui/dialogue';
+import { SocialPanel, PortraitSheetPanel } from '../ui/dialogue';
 
 export interface Conversation {
   id: NpcId;
@@ -154,11 +154,28 @@ export class NpcSystem implements System {
   private camGoal: THREE.Vector3 | null = null;
   private camSaved: { yaw: number; pitch: number; distance: number; off: THREE.Vector3 } | null = null;
   private lookPoint = new THREE.Vector3();
+  /** Heart events: the camera follows the actors' centroid until a scripted 'cam' beat takes over. */
+  private camTrack = false;
+  /** Warm key light on the actors during night-time conversations and heart events (always in the map, 0 by day). */
+  private keyLight = new THREE.PointLight(0xffd2a0, 0, 8, 1.4);
+  private keyPos = new THREE.Vector3();
+  /** Every villager's soft contact shadow in one instanced draw call. */
+  private blobs = (() => {
+    const m = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.2, depthWrite: false }), NPC_IDS.length);
+    m.name = 'npc-blobs';
+    m.renderOrder = 1;
+    m.frustumCulled = false;
+    m.castShadow = m.receiveShadow = false;
+    m.userData.noAO = true;
+    m.userData.perfTag = 'npcs';
+    return m;
+  })();
+  private blobM = new THREE.Matrix4();
 
   init(game: Game): void {
     this.game = game;
     for (const id of NPC_IDS) {
-      const v = new Villager(NPCS[id]);
+      const v = new Villager(NPCS[id], { blob: false });
       this.agents.set(id, { v, def: NPCS[id], stepKey: '', path: [], goal: null, activity: 'idle', inside: false, vis: 1, visTarget: 1, wanderT: 0, chatT: 2 + Math.random() * 3, emoteT: 4 + Math.random() * 8, speakT: 0, anchor: null, scripted: false, onArrive: null, run: false });
     }
     game.provide('npcs', {
@@ -169,6 +186,7 @@ export class NpcSystem implements System {
       seenEvents: () => [...this.seen],
     });
     game.hud.registerPanel('social', new SocialPanel(game, game.hud.root));
+    game.hud.registerPanel('portraits', new PortraitSheetPanel(game, game.hud.root));
     game.events.on('player:interact', ({ x, z }) => this.tryTalk(x, z));
     game.events.on('ui:close', ({ name }) => {
       if (name === 'dialogue' && this.talking) {
@@ -237,8 +255,14 @@ export class NpcSystem implements System {
     const map = game.world.current;
     this.active = mapId === 'town' && !!map;
     for (const a of this.agents.values()) a.v.root.removeFromParent();
+    this.keyLight.removeFromParent();
+    this.blobs.removeFromParent();
     if (!this.active || !map) return;
+    map.root.add(this.blobs);
     for (const a of this.agents.values()) map.root.add(a.v.root);
+    this.keyLight.name = 'npc-keylight';
+    this.keyLight.castShadow = false;
+    map.root.add(this.keyLight);
     this.placeAll();
     if (this.staged) this.restage = this.restage ?? 'map';
   }
@@ -400,15 +424,19 @@ export class NpcSystem implements System {
       });
       return;
     }
-    if (name === 'town-dialogue') {
-      const id = (params.get('npc') as NpcId | null) ?? 'marigold';
+    if (name === 'town-dialogue' || name === 'town-night-talk') {
+      const id = (params.get('npc') as NpcId | null) ?? (name === 'town-night-talk' ? 'tobias' : 'marigold');
       const a = this.agents.get(id) ?? this.agents.get('marigold')!;
+      // Face-to-face with the farmer on a diagonal (up-screen, to the right) so both read clearly.
       const p = this.game.player.position;
-      const x = p.x - 1.45;
-      const z = p.z - 0.1;
+      const x = p.x + 1.4;
+      const z = p.z - 0.6;
       this.setInside(a, false, true);
       a.v.setPosition(x, map.heightAt(x, z), z);
-      a.v.setYaw(Math.PI / 2);
+      a.v.setYaw(Math.atan2(p.x - x, p.z - z));
+      this.game.player.setFacing('right');
+      // Anyone else standing right behind the pair steps aside.
+      for (const b of this.agents.values()) if (b !== a && Math.hypot(b.v.position.x - x, b.v.position.z - z) < 2.2) this.setInside(b, true, true);
       this.setActivity(a, 'idle');
       a.v.talkTo = p;
       this.talking = a;
@@ -485,10 +513,38 @@ export class NpcSystem implements System {
     const rig = this.game.rc.rig;
     if (!this.camSaved) this.camSaved = { yaw: rig.yaw, pitch: rig.pitch, distance: rig.distance, off: rig.lookOffset.clone() };
     rig.yaw = ev.camera.yaw ?? 0;
-    rig.pitch = ev.camera.pitch ?? 40;
+    // Never lower than 45°: flatter angles let street trees and eaves swallow the actors.
+    rig.pitch = Math.max(45, ev.camera.pitch ?? 45);
     rig.distance = ev.camera.distance ?? 15;
     this.camGoal = new THREE.Vector3(ev.camera.x, 0, ev.camera.z);
-    this.lookPoint.copy(this.camGoal);
+    this.camTrack = true;
+    this.trackActors(true);
+  }
+
+  /**
+   * Frame the actors (scripted villagers + the farmer) in the upper-middle of the screen, clear of
+   * the dialogue box: the look point sits a little south of their centroid.
+   */
+  private trackActors(snap = false): void {
+    if (!this.camGoal) return;
+    let x = 0;
+    let z = 0;
+    let n = 0;
+    for (const a of this.agents.values()) {
+      if (!a.scripted || a.inside) continue;
+      x += a.v.position.x;
+      z += a.v.position.z;
+      n++;
+    }
+    if (!n) return;
+    const p = this.game.player.position;
+    // The farmer counts half: villagers are the subject.
+    x = (x + p.x * 0.5) / (n + 0.5);
+    z = (z + p.z * 0.5) / (n + 0.5);
+    // Offset towards the camera so the actors sit up-screen, clear of the dialogue box.
+    const yaw = THREE.MathUtils.degToRad(this.game.rc.rig.yaw);
+    this.camGoal.set(x + Math.sin(yaw) * 1.5, 0, z + Math.cos(yaw) * 1.5);
+    if (snap) this.lookPoint.copy(this.camGoal);
   }
 
   /** Apply a step instantly (fast-forward for staging). */
@@ -515,6 +571,7 @@ export class NpcSystem implements System {
       }
     } else if ('act' in s) this.setActivity(this.agents.get(s.act)!, s.activity);
     else if ('cam' in s) {
+      this.camTrack = false;
       this.camGoal = new THREE.Vector3(s.cam.x, 0, s.cam.z);
       this.lookPoint.copy(this.camGoal);
     }
@@ -525,6 +582,9 @@ export class NpcSystem implements System {
     if (!he || !this.active) return;
     const { npc, ev } = he;
     this.game.calendar.setHour(ev.demoTime ?? ev.hours[0] + 0.5);
+    // The hour jump must not trigger the 'big time jump' re-placement of everyone.
+    this.lastHour = this.game.calendar.hour;
+    this.lastQuarter = Math.floor(this.lastHour * 4);
     this.castEvent(ev);
     this.frame(ev);
     this.game.input.enabled = false;
@@ -532,6 +592,7 @@ export class NpcSystem implements System {
     let mark = step ?? ev.script.findIndex((s) => 'choice' in s);
     if (mark < 0) mark = ev.script.findIndex((s) => 'say' in s);
     for (let i = 0; i < mark; i++) this.applyInstant(ev.script[i]!);
+    if (this.camTrack) this.trackActors(true);
     // Show the last emote before the mark so the bubble is in the shot.
     for (let i = mark - 1; i >= 0; i--) {
       const s = ev.script[i]!;
@@ -613,9 +674,10 @@ export class NpcSystem implements System {
         this.setActivity(this.agents.get(s.act)!, s.activity);
       } else if ('wait' in s) await this.wait(s.wait);
       else if ('cam' in s) {
+        this.camTrack = false;
         this.camGoal = new THREE.Vector3(s.cam.x, 0, s.cam.z);
         if (s.cam.yaw !== undefined) rig.yaw = s.cam.yaw;
-        if (s.cam.pitch !== undefined) rig.pitch = s.cam.pitch;
+        if (s.cam.pitch !== undefined) rig.pitch = Math.max(45, s.cam.pitch);
         if (s.cam.distance !== undefined) rig.distance = s.cam.distance;
         await this.wait(1.0);
       } else if ('fade' in s) await this.game.hud.fade(s.fade === 'out');
@@ -678,6 +740,7 @@ export class NpcSystem implements System {
       this.camSaved = null;
     }
     this.camGoal = null;
+    this.camTrack = false;
     this.playerPath = [];
     this.playerArrive = null;
     this.game.input.enabled = true;
@@ -770,7 +833,9 @@ export class NpcSystem implements System {
       }
     }
     // Camera framing during events: keep the look point fixed while the player moves.
+    this.updateKeyLight(dt, game);
     if (this.camGoal) {
+      if (this.camTrack) this.trackActors();
       this.lookPoint.lerp(this.camGoal, 1 - Math.exp(-3 * dt));
       const p = game.player.position;
       game.rc.rig.lookOffset.set(this.lookPoint.x - p.x, 0, this.lookPoint.z - p.z);
@@ -793,6 +858,7 @@ export class NpcSystem implements System {
       if (!a.scripted && !a.inside && !v.hasTarget && !a.path.length && v !== this.talking?.v) this.ambient(a, dt, simulate, pl);
       v.update(dt, h, simulate);
     }
+    this.updateBlobs();
     if (!this.eventRunning && !game.paused) {
       this.eventCheckT -= dt;
       if (this.eventCheckT <= 0) {
@@ -800,6 +866,41 @@ export class NpcSystem implements System {
         this.checkEvents();
       }
     }
+  }
+
+  private updateBlobs(): void {
+    let i = 0;
+    for (const a of this.agents.values()) {
+      const v = a.v;
+      const s = v.root.visible ? v.blobR * v.root.scale.x : 0;
+      this.blobM.makeScale(s, 1, s).setPosition(v.root.position.x, v.root.position.y + 0.03, v.root.position.z);
+      this.blobs.setMatrixAt(i++, this.blobM);
+    }
+    this.blobs.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Night scenes: lift the faces of whoever is talking with a soft warm key from camera-side. */
+  private updateKeyLight(dt: number, game: Game): void {
+    const night = game.lighting.night;
+    let want = 0;
+    const yaw = THREE.MathUtils.degToRad(game.rc.rig.yaw);
+    const cx = Math.sin(yaw);
+    const cz = Math.cos(yaw);
+    if (this.camGoal) {
+      // lookPoint already sits 1.5 m camera-side of the actors: the key hangs just behind it.
+      want = 1;
+      this.keyPos.set(this.lookPoint.x - cx * 0.6 + cz * 0.6, 0, this.lookPoint.z - cz * 0.6 - cx * 0.6);
+    } else if (this.talking) {
+      want = 1;
+      const a = this.talking.v.position;
+      const p = game.player.position;
+      this.keyPos.set((a.x + p.x) / 2 + cx * 1.2, 0, (a.z + p.z) / 2 + cz * 1.2);
+    }
+    const map = game.world.current;
+    if (map && want) this.keyLight.position.set(this.keyPos.x, map.heightAt(this.keyPos.x, this.keyPos.z) + 2.6, this.keyPos.z);
+    const target = want * night * 7;
+    this.keyLight.intensity += (target - this.keyLight.intensity) * (1 - Math.exp(-4 * dt));
+    if (this.keyLight.intensity < 0.01 && !want) this.keyLight.intensity = 0;
   }
 
   /** Idle life at the spot: wander, play laps, chat, glance at the player, emotes. */

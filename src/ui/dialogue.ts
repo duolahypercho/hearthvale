@@ -64,8 +64,13 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: -16px; font-size: 22px; padding: 0 16px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
 .hv-dialogue.dlg2 .dlg-role { max-width: 188px; font-size: 12px; line-height: 15px; margin-top: 3px; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner { min-height: 0; }
+/* The text box hugs its lines; the portrait card stands taller beside it. */
+.hv-dialogue.dlg2 { align-items: flex-end; }
+.hv-dialogue.dlg2.cine { bottom: calc(7.5vh + 16px); transition: bottom 400ms var(--ease-out); }
+.hv-dialogue.dlg2 .dlg-box { min-height: 176px; display: flex; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1; }
 .hv-dialogue.dlg2 .dlg-text { min-height: 0; }
-.hv-hud.hv-cinema .h-clock, .hv-hud.hv-cinema .hv-toolbar, .hv-hud.hv-cinema .hv-energy, .hv-hud.hv-cinema .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
+.hv-hud.hv-heartcine .h-clock, .hv-hud.hv-heartcine .hv-toolbar, .hv-hud.hv-heartcine .hv-energy, .hv-hud.hv-heartcine .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }
 .hv-dialogue.dlg2 .dlg-portrait .layer svg { animation: dlgBreathe 3.2s ease-in-out infinite; transform-origin: 50% 90%; }
 .hv-dialogue.dlg2 .dlg-portrait .layer.in { animation: dlgSwap 260ms var(--ease-back) both; }
@@ -467,7 +472,8 @@ export class DialoguePanel implements Panel {
 
   cinema(on: boolean, title?: string, sub?: string): void {
     this.letterbox.classList.toggle('on', on);
-    this.game.hud.root.classList.toggle('hv-cinema', on);
+    this.game.hud.root.classList.toggle('hv-heartcine', on);
+    this.el.classList.toggle('cine', on);
     if (on && title) {
       this.titleCard.innerHTML = `<div class="t">${title}</div>${sub ? `<div class="s">${HEART(1, 'tc')}<span>${sub}</span>${HEART(1, 'tc2')}</div>` : ''}`;
       this.titleCard.classList.add('on');
@@ -608,6 +614,60 @@ export class SocialPanel implements Panel {
         <div class="chk">Gifts <span class="box${gifts > 0 ? ' on' : ''}"></span><span class="box${gifts > 1 ? ' on' : ''}"></span></div></div></div>`;
     }).join('');
     this.el.innerHTML = `<div class="hv-panel hv-anim-in"><div class="hv-inner"><h2>Hearthvale Folk <small>Talk every day · 2 gifts a week · ×8 on birthdays</small></h2><div class="grid">${cards}</div></div></div>`;
+    this.el.classList.remove('hv-hidden');
+  }
+
+  close(): void {
+    this.el.classList.add('hv-hidden');
+  }
+}
+
+const SHEET_CSS = /* css */ `
+.hv-psheet { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: auto; background: radial-gradient(120% 100% at 50% 30%, rgba(40,22,10,.55), rgba(16,8,4,.82)); z-index: 4; }
+.hv-psheet .grid { display: grid; grid-template-columns: repeat(2, auto); gap: 14px 22px; }
+.hv-psheet.one .grid { grid-template-columns: auto; }
+.hv-psheet .row { display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px 10px; border-radius: 16px; background: linear-gradient(180deg, var(--wood-1), var(--wood-2)); border: 3px solid var(--wood-3); box-shadow: 0 6px 0 rgba(40,20,8,.35); }
+.hv-psheet .nm { writing-mode: vertical-rl; transform: rotate(180deg); font-family: var(--font-head); font-weight: 700; font-size: 19px; color: #fff4e0; text-shadow: 0 2px 0 var(--wood-3); padding: 2px 0; }
+.hv-psheet .pp { position: relative; width: 150px; height: 150px; border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 3px #f6e2b8, 0 0 0 5px var(--wood-3); }
+.hv-psheet.one .pp { width: 190px; height: 190px; }
+.hv-psheet .pp svg { width: 100%; height: 100%; display: block; }
+.hv-psheet .pp span { position: absolute; left: 6px; bottom: 5px; font-family: var(--font-body); font-weight: 800; font-size: 12px; color: #fff; background: rgba(40,20,8,.55); padding: 0 6px 1px; border-radius: 6px; }
+`;
+
+/**
+ * 'portraits' — the portrait model sheet: every villager in five expressions
+ * ('portraits:<npcId>' = one villager in all nine). Staged by the 'town-portraits' demo.
+ */
+export class PortraitSheetPanel implements Panel {
+  private el: HTMLElement;
+  constructor(private game: Game, parent: HTMLElement) {
+    if (!document.getElementById('hv-psheet-css')) {
+      const st = document.createElement('style');
+      st.id = 'hv-psheet-css';
+      st.textContent = SHEET_CSS;
+      document.head.appendChild(st);
+    }
+    this.el = document.createElement('div');
+    this.el.className = 'hv-psheet hv-hidden interactive';
+    parent.appendChild(this.el);
+    this.el.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      this.game.events.emit('ui:open', { name: 'none' });
+    });
+  }
+
+  open(arg?: string): void {
+    const one = arg && NPCS[arg as NpcId] ? (arg as NpcId) : null;
+    const moods: Mood[] = one ? ['neutral', 'happy', 'laugh', 'blush', 'thinking', 'surprised', 'worried', 'sad', 'angry'] : ['happy', 'laugh', 'surprised', 'sad', 'angry'];
+    const ids = one ? [one] : NPC_IDS;
+    const rows = ids.map((id) => {
+      const d = NPCS[id];
+      const cells = moods.map((m) => `<div class="pp">${portraitSvg(d.look, d.portraitBg, m)}<span>${m}</span></div>`);
+      const chunks = one ? [cells.slice(0, 5), cells.slice(5)] : [cells];
+      return chunks.map((c, i) => `<div class="row">${i === 0 ? `<div class="nm">${shortName(d.name)}</div>` : '<div class="nm">&nbsp;</div>'}${c.join('')}</div>`).join('');
+    });
+    this.el.classList.toggle('one', !!one);
+    this.el.innerHTML = `<div class="grid hv-anim-in">${rows.join('')}</div>`;
     this.el.classList.remove('hv-hidden');
   }
 

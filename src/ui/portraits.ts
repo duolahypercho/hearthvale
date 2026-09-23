@@ -377,9 +377,15 @@ function clothing(id: string, L: NpcLook, sw: number): string {
     p.push(`<path d="M88 146 L 100 160 L 112 146" stroke="${ink(L.top)}" stroke-width="1.8" fill="#fff8ec"/>`);
   }
   if (L.apron !== undefined) {
-    p.push(`<path d="M${100 - sw * 0.55} 200 L ${100 - sw * 0.44} 160 Q 100 152 ${100 + sw * 0.44} 160 L ${100 + sw * 0.55} 200 Z" fill="${css(L.apron)}" stroke="${ink(L.apron)}" stroke-width="1.8"/>`);
-    p.push(`<path d="M${100 - sw * 0.44} 160 L 84 146 M ${100 + sw * 0.44} 160 L 116 146" stroke="${shade(L.apron, 0.8)}" stroke-width="5" stroke-linecap="round"/>`);
-    p.push(`<path d="M${100 - 14} 184 h 28 v 12 h -28 Z" fill="${shade(L.apron, 0.9)}" stroke="${ink(L.apron)}" stroke-width="1.2"/>`);
+    // Bib apron: curved bib with a stitched hem and soft folds, neck straps, a patch pocket.
+    const a0 = 100 - sw * 0.44;
+    const a1 = 100 + sw * 0.44;
+    p.push(`<path d="M${100 - sw * 0.58} 200 C ${100 - sw * 0.52} 184 ${a0 - 2} 172 ${a0} 161 Q 100 155 ${a1} 161 C ${a1 + 2} 172 ${100 + sw * 0.52} 184 ${100 + sw * 0.58} 200 Z" fill="${css(L.apron)}" stroke="${ink(L.apron)}" stroke-width="1.8" stroke-linejoin="round"/>`);
+    p.push(`<path d="M${a0 + 4} 165 Q 100 159.5 ${a1 - 4} 165" stroke="${shade(L.apron, 0.72)}" stroke-width="1.1" stroke-dasharray="2.4 2.2" fill="none"/>`);
+    p.push(`<path d="M${100 - sw * 0.2} 170 q -3 14 -1 30 M${100 + sw * 0.26} 172 q 4 12 2 28" stroke="${shade(L.apron, 0.8)}" stroke-width="3" fill="none" opacity="0.45" stroke-linecap="round"/>`);
+    p.push(`<path d="M${a0} 161 L 85 146 M ${a1} 161 L 115 146" stroke="${shade(L.apron, 0.78)}" stroke-width="4.5" stroke-linecap="round"/>`);
+    p.push(`<path d="M${100 - 15} 183 Q 100 186 ${100 + 15} 183 L ${100 + 14} 199 Q 100 201 ${100 - 14} 199 Z" fill="${shade(L.apron, 0.93)}" stroke="${ink(L.apron)}" stroke-width="1.2" stroke-linejoin="round"/>`);
+    p.push(`<path d="M${100 - 12} 186.5 Q 100 189 ${100 + 12} 186.5" stroke="${shade(L.apron, 0.7)}" stroke-width="1" stroke-dasharray="2 2" fill="none"/>`);
   }
   if (!L.coat && !L.vest && !L.apron) {
     // Collar + buttons
