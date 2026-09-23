@@ -504,6 +504,15 @@ export class AnimalPops {
     }
   }
 
+  /** Drop every live pop (map changes / demo staging). */
+  clear(): void {
+    for (const p of this.pops) {
+      this.group.remove(p.sprite);
+      p.sprite.material.dispose();
+    }
+    this.pops.length = 0;
+  }
+
   z(at: THREE.Vector3): void {
     this.spawn('z', at, this.zMat.clone(), 2.4);
   }

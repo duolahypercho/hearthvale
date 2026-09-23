@@ -189,6 +189,27 @@ export function limewashBoards(): TexPair {
   });
 }
 
+/** Burlap weave (feed sacks): coarse over-under threads with slubs. 1 repeat ≈ 0.25 m. */
+export function burlap(): TexPair {
+  return cached('i:burlap', () => {
+    const S = 256;
+    const n = makeTileNoise(8, 8, 'burlap');
+    const warm = hex(0xd8bc8c);
+    const dark = hex(0x9a7a52);
+    const { color, height } = pixels(S, (u, v) => {
+      const T = 24;
+      const a = Math.sin(u * Math.PI * 2 * T);
+      const b = Math.sin(v * Math.PI * 2 * T);
+      const over = (Math.floor(u * T * 2) + Math.floor(v * T * 2)) % 2 === 0;
+      const thread = over ? Math.abs(b) : Math.abs(a);
+      const f = tileFbm(n, u, v, 3);
+      const c = scale3(mix3(dark, warm, 0.35 + 0.45 * thread + 0.2 * f), 0.9 + 0.12 * f);
+      return { c, h: thread * 0.8 + f * 0.2 };
+    });
+    return { map: toTexture(color, true), bump: toTexture(height, false) };
+  });
+}
+
 /** Room contact-AO card: white centre falling to soft grey along all four edges (multiply over the floor). */
 export function roomAO(): TexPair {
   return cached('i:roomao', () => {

@@ -37,7 +37,7 @@ export class CoopInterior extends InteriorMap {
       wallMat: 'limewash',
       wallTint: 0xffffff,
       timberLight: 1.7,
-      floorTint: 0xbcae98,
+      floorTint: 0xd4c6ae,
       windows: [
         { wall: 'back', at: 5.2, w: 0.9, y0: 1.2, y1: 2.0 },
         { wall: 'right', at: 3.2, w: 0.8, y0: 1.2, y1: 1.9 },
@@ -47,6 +47,7 @@ export class CoopInterior extends InteriorMap {
     });
     this.camera = { yaw: 0, pitch: 52, distance: 12.5, offsetX: 0, offsetZ: 0.3 };
     this.dayScale = 1.3;
+    this.exposureBoost = 0.28;
     const rng = new Rng('coop-interior');
     const trough = { x0: 0.55, x1: 3.55, z: 6.35 };
     const slots = Array.from({ length: 6 }, (_, i) => {
@@ -145,9 +146,9 @@ export class CoopInterior extends InteriorMap {
     k.add('tin', new THREE.TorusGeometry(0.07, 0.012, 6, 14), mat(6.5, 0.66, 5.7), { tint: 0xa8b0b4 });
     for (const y of [0.12, 0.34]) k.add('tin', new THREE.TorusGeometry(0.19, 0.01, 5, 20), mat(6.5, y, 5.7, Math.PI / 2, 0, 0), { tint: 0xb0b8bc });
     k.cyl('ceramic', 0.22, 0.22, 0.012, [6.5, 0.045, 5.7], { tint: 0x7ab0d0, seg: 22 });
-    feedSack(k, 7.9, 6.0, 0.2, 0xcaa878);
-    feedSack(k, 8.35, 5.6, -0.4, 0xb89a6a);
-    feedSack(k, 8.2, 6.3, 0.9, 0xcaa878, true);
+    feedSack(k, 7.9, 6.0, 0.2, 0xfff0d8);
+    feedSack(k, 8.35, 5.6, -0.4, 0xe8d4b4);
+    feedSack(k, 8.2, 6.3, 0.9, 0xfff0d8, true);
     // Egg basket on an upturned crate
     k.box('wood', [0.5, 0.36, 0.4], [5.4, 0, 6.35], { tint: 0xb08858, ao: 0.25 });
     k.cyl('thatch', 0.2, 0.15, 0.16, [5.4, 0.36, 6.35], { tint: 0xc8a068 });
@@ -159,7 +160,7 @@ export class CoopInterior extends InteriorMap {
     // Chalkboard on the right wall: the flock's names
     k.box('wood', [0.04, 0.62, 0.9], [8.97, 1.2, 4.6], { tint: DARK });
     k.box('paint', [0.03, 0.52, 0.8], [8.945, 1.25, 4.6], { tint: 0x2e3a34 });
-    for (let i = 0; i < 4; i++) k.box('paint', [0.01, 0.025, 0.3 + (i % 2) * 0.2], [8.93, 1.62 - i * 0.1, 4.45 + (i % 2) * 0.05], { tint: 0xe8e4d8 });
+    // (the flock's names are chalked on by the animal system)
     // Straw scatter + a spilled grain pile
     strawTufts(k, rng, 4.5, 0.02, 3.4, 40, 3.8);
     for (let i = 0; i < 30; i++) k.sphere('ceramic', 0.012, [2 + rng.next() * 0.5, 0.012, 5.4 + rng.next() * 0.3], 0xe8c050);

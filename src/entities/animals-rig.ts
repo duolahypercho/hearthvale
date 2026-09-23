@@ -24,6 +24,19 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
     shared = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
     shared.name = 'animal';
     applyWorldFx(shared, { snow: false });
+    // Soft fur sheen: a gentle fresnel rim in the coat's own colour (velvety, never plastic).
+    const prev = shared.onBeforeCompile;
+    const prevKey = shared.customProgramCacheKey;
+    shared.onBeforeCompile = (sh, r) => {
+      prev.call(shared, sh, r);
+      sh.fragmentShader = sh.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        float hvFur = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 2.2);
+        totalEmissiveRadiance += diffuseColor.rgb * hvFur * 0.16;`,
+      );
+    };
+    shared.customProgramCacheKey = () => `${prevKey.call(shared)}|fur`;
   }
   return shared;
 }

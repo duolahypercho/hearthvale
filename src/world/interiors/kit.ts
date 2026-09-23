@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { MeshBuilder, roundedBox, mat, groundAO, type AOFn } from '../geom';
 import { textures } from '../../render/textures';
-import { floorPlanks, wallpaper, beadboard, barnBoards, strawFloor, wovenRug, braidedRug, quilt, photoAtlas, limewashBoards } from './textures';
+import { floorPlanks, wallpaper, beadboard, barnBoards, strawFloor, wovenRug, braidedRug, quilt, photoAtlas, limewashBoards, burlap } from './textures';
 
 export type IMat =
   | 'floor'
@@ -38,7 +38,8 @@ export type IMat =
   | 'thatch'
   | 'leaf'
   | 'limewash'
-  | 'tin';
+  | 'tin'
+  | 'burlap';
 
 const cache = new Map<IMat, THREE.MeshStandardMaterial>();
 
@@ -78,6 +79,10 @@ function build(name: IMat): THREE.MeshStandardMaterial {
     case 'limewash': {
       const t = limewashBoards();
       return std({ map: t.map, bumpMap: t.bump, bumpScale: 2, roughness: 0.95 });
+    }
+    case 'burlap': {
+      const t = burlap();
+      return std({ map: t.map, bumpMap: t.bump, bumpScale: 2.5, roughness: 1 });
     }
     case 'tin':
       // Galvanised steel (founts, pails): bright enough to read without an outdoor sky to reflect.

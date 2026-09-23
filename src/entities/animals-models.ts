@@ -62,7 +62,7 @@ function cheeks(r: RigBuilder, x: number, y: number, z: number, size: number, ti
 function chicken(variant: number): AnimalModel {
   const r = new RigBuilder();
   const brown = variant === 1;
-  const body = brown ? 0xc9773c : 0xf3eee2;
+  const body = brown ? 0xc9773c : 0xeee8dc;
   const tail = brown ? 0x5c3420 : 0xece4d4;
   const leg = 0xf0a832;
   r.bone('body', 'root', [0, 0.3, 0]);
@@ -112,7 +112,7 @@ function chicken(variant: number): AnimalModel {
 function duck(variant: number): AnimalModel {
   const r = new RigBuilder();
   const mallard = variant === 1;
-  const body = mallard ? 0xb89a7c : 0xf0ede4;
+  const body = mallard ? 0xb89a7c : 0xeae6dc;
   const head = mallard ? 0x2f7a4c : body;
   const bill = mallard ? 0xe8c040 : 0xf29a2a;
   const feet = 0xf29a2a;
@@ -161,23 +161,52 @@ interface QuadDims {
   hoof: number;
 }
 
+/** Sculpted leg (lathe): full upper leg → knee bulge → slim cannon → fetlock, from `top` down to `hoof`. */
+function legGeo(R: number, top: number, hoof: number): THREE.BufferGeometry {
+  const h = top - hoof;
+  const pts = [
+    [R * 0.2, h + 0.05],
+    [R * 1.15, h - 0.02],
+    [R * 1.18, h * 0.78],
+    [R * 0.9, h * 0.58],
+    [R * 1.0, h * 0.48],
+    [R * 0.78, h * 0.36],
+    [R * 0.72, h * 0.14],
+    [R * 0.86, h * 0.05],
+    [R * 0.9, 0],
+  ].map(([x, y]) => new THREE.Vector2(x!, y! + hoof));
+  return new THREE.LatheGeometry(pts, 12);
+}
+
 function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofTint: number, paint?: (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => void): void {
   const top = d.bodyY - d.bodyR * 0.35;
   for (const [nm, x, z] of [['legFL', -d.hipX, d.frontZ], ['legFR', d.hipX, d.frontZ], ['legBL', -d.hipX, d.backZ], ['legBR', d.hipX, d.backZ]] as const) {
     r.bone(nm, 'body', [x, top, z]);
-    r.part(nm, limb(d.legR, d.legR * 0.86, top + 0.04, d.hoof, 10), mat(x, 0, z), coat, { paint, ground: true });
-    r.part(nm, limb(d.legR * 0.9, d.legR * 1.02, d.hoof, 0, 10), mat(x, 0, z), hoofTint, { flat: true });
+    r.part(nm, legGeo(d.legR, top + 0.04, d.hoof), mat(x, 0, z), coat, { paint, ground: true });
+    // Rounded hoof: a squat bevelled cylinder with a darker sole
+    const hoofG = new THREE.CylinderGeometry(d.legR * 0.92, d.legR * 1.08, d.hoof, 12, 1);
+    hoofG.translate(0, d.hoof / 2, 0);
+    r.part(nm, hoofG, mat(x, 0, z + d.legR * 0.08), hoofTint, { flat: true });
   }
+}
+
+/** Shoulder + haunch masses over a capsule body: gives quadrupeds a chest, a rump and a belly. */
+function bodyMasses(r: RigBuilder, d: QuadDims, tint: THREE.ColorRepresentation, paint?: (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => void, k = 1): void {
+  const R = d.bodyR;
+  r.part('body', ellipsoid(R * 0.98, R * 1.02, R * 0.9), mat(0, d.bodyY + R * 0.06, d.frontZ + R * 0.1), tint, { paint });
+  r.part('body', ellipsoid(R * 1.02, R * 1.0 * k, R * 0.95), mat(0, d.bodyY + R * 0.08, d.backZ - R * 0.05), tint, { paint });
+  r.part('body', ellipsoid(R * 0.92, R * 0.8, (d.frontZ - d.backZ) * 0.75), mat(0, d.bodyY - R * 0.22, (d.frontZ + d.backZ) / 2), tint, { paint });
 }
 
 function cow(variant: number): AnimalModel {
   const r = new RigBuilder();
   const jersey = variant === 1;
-  const base = jersey ? 0xc98f5e : 0xeee8dc;
+  const base = jersey ? 0xc98f5e : 0xe8e2d6;
   const patch = jersey ? 0xf4e6d0 : 0x2c2826;
   const seed = variant * 3.3 + 1;
   const spots = (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => {
-    blendPatch(c, patch, noise3(p.x * 2.2, p.y * 2.2, p.z * 2.2, seed), jersey ? 0.55 : 0.28, 0.08);
+    if (jersey) blendPatch(c, patch, noise3(p.x * 2.2, p.y * 2.2, p.z * 2.2, seed), 0.55, 0.08);
+    else blendPatch(c, patch, noise3(p.x * 3.4, p.y * 3.0, p.z * 3.2, seed) + 0.25 * Math.sin(p.z * 9 + p.x * 4), 0.22, 0.05);
   };
   const d: QuadDims = { bodyY: 0.74, bodyR: 0.36, bodyLen: 0.5, hipX: 0.2, frontZ: 0.26, backZ: -0.32, legR: 0.085, hoof: 0.09 };
   r.bone('body', 'root', [0, d.bodyY, 0]);
@@ -187,6 +216,7 @@ function cow(variant: number): AnimalModel {
   r.bone('earR', 'head', [0.23, 1.12, 0.55]);
   r.bone('tail', 'body', [0, 0.96, -0.6]);
   r.part('body', capsuleZ(d.bodyR, d.bodyLen, 10, 20), mat(0, d.bodyY, -0.04, 0, 0, 0, 1, 0.95, 1), base, { paint: spots });
+  bodyMasses(r, d, base, spots, 1.02);
   // Udder + teats
   r.part('body', ellipsoid(0.14, 0.085, 0.15), mat(0, 0.44, -0.24), 0xf2aaa6);
   for (const [x, z] of [[-0.05, -0.2], [0.05, -0.2], [-0.05, -0.29], [0.05, -0.29]] as const) r.part('body', limb(0.018, 0.015, 0.4, 0.34, 6), mat(x, 0, z), 0xe8908c, { flat: true });
@@ -236,6 +266,7 @@ function goat(variant: number): AnimalModel {
   r.bone('earR', 'head', [0.13, 0.95, 0.38]);
   r.bone('tail', 'body', [0, 0.74, -0.38]);
   r.part('body', capsuleZ(d.bodyR, d.bodyLen, 10, 18), mat(0, d.bodyY, -0.03), base, { paint });
+  bodyMasses(r, d, base, paint);
   legs(r, d, base, 0x3a2e28);
   r.part('tail', ellipsoid(0.04, 0.09, 0.035, 8, 6), mat(0, 0.8, -0.4, -0.4, 0, 0), choc ? saddle : base);
   // Head + long snout + beard
@@ -247,8 +278,18 @@ function goat(variant: number): AnimalModel {
   beard.rotateX(Math.PI);
   r.part('head', beard, mat(0, 0.75, 0.58, 0.2, 0, 0), choc ? 0x2e2420 : 0xe6dccc);
   for (const s of [-1, 1]) {
-    const horn = new THREE.TorusGeometry(0.1, 0.022, 7, 10, 2.1);
-    r.part('head', horn, mat(s * 0.07, 1.02, 0.34, 0, Math.PI / 2, 0.2), 0xb8a888, { flat: true });
+    // Swept-back horns: a tapered tube curving up and over the crown
+    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(s * 0.03, 0.09, -0.03), new THREE.Vector3(s * 0.06, 0.14, -0.11), new THREE.Vector3(s * 0.08, 0.12, -0.2)]);
+    const horn = new THREE.TubeGeometry(curve, 10, 0.024, 7, false);
+    const hp = horn.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < hp.count; i++) {
+      const t = Math.floor(i / 8) / 10;
+      const cp = curve.getPoint(Math.min(1, t));
+      const k = 1 - t * 0.75;
+      hp.setXYZ(i, cp.x + (hp.getX(i) - cp.x) * k, cp.y + (hp.getY(i) - cp.y) * k, cp.z + (hp.getZ(i) - cp.z) * k);
+    }
+    horn.computeVertexNormals();
+    r.part('head', horn, mat(s * 0.07, 1.06, 0.42), 0xc8b898, { flat: true });
     const ear = s < 0 ? 'earL' : 'earR';
     r.part(ear, ellipsoid(0.1, 0.03, 0.05), mat(s * 0.22, 0.94, 0.39, 0, 0, s * -0.35), base);
     r.part(ear, ellipsoid(0.07, 0.015, 0.035), mat(s * 0.22, 0.945, 0.41, 0, 0, s * -0.35), 0xf0b0a8, { flat: true });
@@ -262,7 +303,7 @@ function goat(variant: number): AnimalModel {
 function sheep(variant: number): AnimalModel {
   const r = new RigBuilder();
   const blackFace = variant === 1;
-  const wool = 0xece4d2;
+  const wool = 0xe6dece;
   const face = blackFace ? 0x4a3e3a : 0xf4e2d2;
   const d: QuadDims = { bodyY: 0.58, bodyR: 0.25, bodyLen: 0.3, hipX: 0.13, frontZ: 0.17, backZ: -0.2, legR: 0.045, hoof: 0.06 };
   r.bone('body', 'root', [0, d.bodyY, 0]);

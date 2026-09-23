@@ -96,17 +96,24 @@ export function lanternHook(k: Kit, x: number, y: number, z: number): void {
   k.add('iron', new THREE.ConeGeometry(0.1, 0.08, 12), mat(x, y + 0.02, z), { tint: 0x2a2624 });
 }
 
-/** Tied burlap feed sack; `open` folds the top down and shows grain. */
+/** Tied burlap feed sack (lathe: slumped belly, pinched neck, twine); `open` rolls the top down to show grain. */
 export function feedSack(k: Kit, x: number, z: number, ry: number, tint: number, open = false): void {
-  k.add('fabric', roundedBox(0.42, open ? 0.5 : 0.62, 0.3, 0.12, 3), mat(x, open ? 0.25 : 0.31, z, 0, ry, 0), { tint });
+  const prof = open
+    ? [[0, 0], [0.18, 0.01], [0.23, 0.12], [0.23, 0.32], [0.21, 0.44], [0.24, 0.47], [0.22, 0.5], [0, 0.5]]
+    : [[0, 0], [0.18, 0.01], [0.23, 0.14], [0.22, 0.36], [0.15, 0.52], [0.06, 0.6], [0.05, 0.63], [0.09, 0.7], [0.03, 0.74], [0, 0.74]];
+  const g = new THREE.LatheGeometry(prof.map(([a, b]) => new THREE.Vector2(a!, b!)), 18);
+  g.scale(1, 1, 0.72);
+  const lean = open ? 0 : 0.08;
+  k.add('burlap', g, mat(x, 0, z, lean, ry, lean * 0.5), { tint });
   if (open) {
-    k.add('fabric', roundedBox(0.44, 0.08, 0.32, 0.04), mat(x, 0.5, z, 0, ry, 0), { tint: 0xa88a5c });
-    k.add('ceramic', roundedBox(0.34, 0.03, 0.22, 0.02), mat(x, 0.53, z, 0, ry, 0), { tint: 0xe8c050 });
+    k.add('ceramic', new THREE.CircleGeometry(0.2, 18).rotateX(-Math.PI / 2).scale(1, 1, 0.72), mat(x, 0.49, z, 0, ry, 0), { tint: 0xe8c050 });
+    for (let i = 0; i < 14; i++) k.add('ceramic', new THREE.SphereGeometry(0.012, 5, 4), mat(x + Math.cos(i * 2.4) * 0.12 * (i % 3) * 0.5, 0.505, z + Math.sin(i * 2.4) * 0.08 * (i % 3) * 0.5), { tint: 0xd8a830 });
   } else {
-    k.add('fabric', new THREE.ConeGeometry(0.1, 0.14, 8), mat(x, 0.67, z, 0, ry, 0), { tint });
-    k.add('fabric', new THREE.TorusGeometry(0.05, 0.012, 5, 10), mat(x, 0.63, z, Math.PI / 2, 0, 0), { tint: 0x8a6a3a });
+    k.add('fabric', new THREE.TorusGeometry(0.055, 0.012, 5, 12), mat(x + Math.sin(lean) * 0.6, 0.62, z, Math.PI / 2, 0, 0), { tint: 0x8a6a3a });
   }
-  k.add('paint', new THREE.PlaneGeometry(0.2, 0.14), mat(x + Math.sin(ry) * 0.155, open ? 0.25 : 0.3, z + Math.cos(ry) * 0.155, 0, ry, 0), { tint: 0xc8503a });
+  // Stencilled label
+  const lbl = new THREE.PlaneGeometry(0.2, 0.12);
+  k.add('paint', lbl, mat(x + Math.sin(ry) * 0.17, 0.26, z + Math.cos(ry) * 0.17, 0, ry, 0), { tint: 0xb8503a });
 }
 
 export function bucket(k: Kit, x: number, z: number, tint = 0xb8c0c4, milk = false): void {

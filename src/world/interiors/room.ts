@@ -136,6 +136,8 @@ export abstract class InteriorMap implements GameMap {
   private dustBeams: { win: THREE.Vector3[]; floor: THREE.Vector3[] }[] = [];
   /** Room-specific daylight multiplier (barns are dim, the house is bright). */
   protected dayScale = 1;
+  /** Extra exposure in daylight (small, dim-walled rooms read too murky otherwise). */
+  protected exposureBoost = 0;
   protected finalized = false;
 
   constructor(protected game: Game, readonly spec: RoomSpec) {
@@ -494,7 +496,7 @@ export abstract class InteriorMap implements GameMap {
     L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x2a1a14), night);
     L.hemiI = (0.55 + day * 0.55) * (1 - overcast * 0.2) * (0.7 + 0.3 * this.dayScale);
     L.envI = 0.12 + day * 0.14;
-    L.exposure = 1.0 + night * 0.18 + overcast * 0.1;
+    L.exposure = 1.0 + night * 0.18 + overcast * 0.1 + this.exposureBoost * day;
     L.bg.setHex(0x1c140e).lerp(new THREE.Color(0x0a0a12), night);
     L.lift = [0.025 + night * 0.01, 0.018, 0.012 + night * 0.03];
     L.gain = [1.06 + warm * 0.04, 1.0, 0.93 - warm * 0.03 + night * 0.06];

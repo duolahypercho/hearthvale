@@ -40,7 +40,7 @@ export class BarnInterior extends InteriorMap {
       style: 'barn',
       wallTint: 0xf0bca0,
       timberLight: 1.3,
-      floorTint: 0xc0b09a,
+      floorTint: 0xd0c0a8,
       windows: [
         { wall: 'back', at: 9.5, w: 1.0, y0: 1.9, y1: 2.9 },
         { wall: 'right', at: 3.4, w: 1.0, y0: 1.5, y1: 2.5 },
@@ -50,6 +50,7 @@ export class BarnInterior extends InteriorMap {
     });
     this.camera = { yaw: 0, pitch: 52, distance: 16.5, offsetX: 0, offsetZ: 0.3 };
     this.dayScale = 1.2;
+    this.exposureBoost = 0.2;
     const rng = new Rng('barn-interior');
     const troughZ = D - 0.62;
     const xs = [1.6, 3.2, 4.8, 8.2, 9.8, 11.4];
@@ -168,11 +169,20 @@ export class BarnInterior extends InteriorMap {
     k.add('iron', roundedBox(0.02, 0.28, 0.06, 0.01), mat(12.93, 1.5, 4.62, -0.25, 0, 0), { tint: 0xa8b0b4 });
     k.add('fabric', new THREE.TorusGeometry(0.14, 0.02, 5, 14), mat(12.92, 1.52, 5.2, 0, Math.PI / 2, 0), { tint: 0xb8452e });
     // Feed sacks by the door
-    feedSack(k, 7.35, 7.35, -0.3, 0xcaa878);
-    feedSack(k, 5.25, 7.4, 0.4, 0xb89a6a, true);
+    feedSack(k, 7.35, 7.35, -0.3, 0xfff0d8);
+    feedSack(k, 5.25, 7.4, 0.4, 0xe8d4b4, true);
     // A cartwheel leaning on the left wall
     k.add('wood', new THREE.TorusGeometry(0.42, 0.04, 6, 20), mat(0.12, 0.44, 4.4, 0, Math.PI / 2, 0), { tint: 0x7a5236 });
     for (let i = 0; i < 6; i++) k.add('wood', new THREE.CylinderGeometry(0.018, 0.018, 0.8, 5), mat(0.12, 0.44, 4.4, (i / 6) * Math.PI, 0, 0), { tint: 0x8a6040 });
+    // Tack on the back wall above the stalls: pegs, coiled ropes, halters, a feed scoop, a lucky horseshoe
+    for (let i = 0; i < 6; i++) {
+      const x = 1 + i * STALL_W + 0.55;
+      k.cyl('wood', 0.025, 0.025, 0.14, [x, 1.95, 0.05], { rx: Math.PI / 2, tint: POST });
+      if (i % 2 === 0) k.add('fabric', new THREE.TorusGeometry(0.14, 0.03, 6, 16), mat(x, 1.82, 0.1, 0.1, 0, 0), { tint: 0xc8a870 });
+      else k.add('fabric', new THREE.TorusGeometry(0.12, 0.022, 5, 14), mat(x, 1.8, 0.1, 0.15, 0, 0.3), { tint: [0xb8452e, 0x3a6a9a, 0x4a7a3a][i % 3] });
+    }
+    k.add('iron', new THREE.TorusGeometry(0.1, 0.022, 6, 14, Math.PI * 1.3), mat(6.5, 2.35, 0.06, 0, 0, -Math.PI * 0.15 + Math.PI), { tint: 0x8a8480 });
+    k.cyl('tin', 0.09, 0.07, 0.14, [12.2, 1.72, 0.1], { rz: Math.PI / 2, tint: 0xc8d0d4 });
     // Board aisle from the big door to the stalls (straw kicked over its edges)
     k.box('floor', [2.66, 0.03, 6.2], [6.5, 0, 5.85], { tint: 0xd8c8b0, uv: 0.45, r: 0.01 });
     // Loose straw everywhere

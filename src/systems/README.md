@@ -18,7 +18,8 @@ merging) or `game.services` (typed APIs published with `game.provide(...)`). Imp
 | `npcs`       | villagers on the town map: schedules, staging (demo / festival ring), talking → `npc:talk`      |
 | `warps`      | map transitions at the grid's warp tiles                                                       |
 | `audio`      | procedural WebAudio ambience, music, footsteps, SFX                                             |
-| `sleep`      | bed (farmhouse door after 18:00) / pass-out at 2 am, gold penalty, `sleep:summary`; service `sleep` |
+| `sleep`      | grandmother's bed inside the farmhouse (after 18:00): fade, day end, wake beside the bed; pass-out at 2 am carries you home, gold penalty, `sleep:summary` / `sleep:wake`; service `sleep` |
+| `animals`    | livestock roster (coop: chickens/ducks, barn: cows/goats/sheep/pigs) + pet; petting hearts, hay troughs, eggs/milk/wool/truffles with quality, pasture on fine days; service `animals`, `animal:*` events |
 | `relationships` | friendship points → hearts, daily talk bonus, gifts by taste (birthday ×8); service `relationships` |
 | `fishing`    | stub: cast → bite → reel state machine over data/fish.ts; service `fishing`, `fishing:*` events  |
 | `mining`     | stub: current / deepest floor, rock breaks; service `mining`, `mine:*` events                    |

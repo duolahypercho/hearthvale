@@ -151,6 +151,11 @@ export class AnimalSystem implements System, AnimalsApi {
       if (this.mapId === 'farm' && this.isBowl(x, z) && game.services.inventory?.selected()?.id === 'wateringCan') this.fillBowl();
     });
     game.events.on('day:start', () => this.newDay());
+    // Scything meadow weeds gathers hay once there's a building to store it for.
+    game.events.on('tool:impact', ({ tool, hit }) => {
+      const b = game.services.buildings;
+      if (tool === 'scythe' && hit === 'weed' && (b?.has('coop') || b?.has('barn')) && this.rng.next() < 0.5) game.events.emit('item:give', { itemId: 'hay', qty: 1 });
+    });
     game.events.on('time:hour', ({ hour }) => {
       // A fine day: everyone grazes.
       if (hour === 12 && this.grazing()) for (const a of this.st.animals) a.fed = true;
@@ -161,6 +166,7 @@ export class AnimalSystem implements System, AnimalsApi {
     // Demos set the hour right after staging: stage once that has settled.
     game.events.on('demo:stage', ({ name, showcase }) => {
       this.demoHearts = 0;
+      this.pops.clear();
       queueMicrotask(() => this.stageDemo(name, showcase));
     });
     // Debug / demo time jumps: re-seat everyone for the new hour (pet indoors at night, pasture by day).
@@ -296,6 +302,7 @@ export class AnimalSystem implements System, AnimalsApi {
   onMapChange(mapId: string): void {
     this.mapId = mapId;
     this.demoHearts = 0;
+    this.pops.clear();
     this.respawn();
   }
 
@@ -434,6 +441,26 @@ export class AnimalSystem implements System, AnimalsApi {
         this.props.add(m);
         this.hayMeshes[i] = m;
       });
+      // Hand-lettered name plaques over the stalls (barn) / the flock's chalkboard (coop).
+      const mine = this.st.animals.filter((a) => a.home === pen.kind);
+      if (pen.kind === 'barn' && pen.plaques) {
+        mine.forEach((a, i) => {
+          const at = pen.plaques![i];
+          if (!at) return;
+          const m = new THREE.Mesh(plaqueGeo(), nameMaterial(a.name, 'plaque'));
+          m.position.set(at.x, 1.245, at.z + 0.012);
+          m.userData.noAO = true;
+          this.props.add(m);
+          this.hayMeshes.push(m);
+        });
+      } else if (pen.kind === 'coop' && mine.length) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.78, 0.48), nameMaterial(mine.map((a) => a.name).join('\n'), 'chalk'));
+        m.position.set(8.925, 1.51, 4.6);
+        m.rotation.y = -Math.PI / 2;
+        m.userData.noAO = true;
+        this.props.add(m);
+        this.hayMeshes.push(m);
+      }
       if (pen.kind === 'coop') {
         for (const e of this.st.eggs) {
           const n = pen.nests[e.nest];
@@ -815,4 +842,60 @@ function truffleGeo(): THREE.BufferGeometry {
 function truffleMat(): THREE.MeshStandardMaterial {
   if (!_truM) _truM = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 0.75 });
   return _truM;
+}
+
+let _plaque: THREE.PlaneGeometry | null = null;
+function plaqueGeo(): THREE.PlaneGeometry {
+  if (!_plaque) _plaque = new THREE.PlaneGeometry(0.56, 0.16);
+  return _plaque;
+}
+
+const nameMats = new Map<string, THREE.MeshStandardMaterial>();
+/** Painted name card: dark lettering on a cream plaque, or chalk on a slate board (one name per line). */
+function nameMaterial(text: string, style: 'plaque' | 'chalk'): THREE.MeshStandardMaterial {
+  const key = `${style}:${text}`;
+  let m = nameMats.get(key);
+  if (m) return m;
+  const lines = text.split('\n');
+  const W = style === 'plaque' ? 256 : 256;
+  const H = style === 'plaque' ? 72 : 160;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  if (style === 'plaque') {
+    g.fillStyle = '#f2e6c8';
+    g.fillRect(0, 0, W, H);
+    g.strokeStyle = 'rgba(120,80,40,.5)';
+    g.lineWidth = 4;
+    g.strokeRect(6, 6, W - 12, H - 12);
+    g.font = '600 40px Fredoka, Nunito, sans-serif';
+    g.fillStyle = '#5a3218';
+    g.fillText(lines[0] ?? '', W / 2, H / 2 + 2);
+    // A little heart after the name
+    g.fillStyle = '#d04a5a';
+    g.font = '28px sans-serif';
+    g.fillText('\u2665', W - 26, H / 2 + 2);
+  } else {
+    g.fillStyle = '#2e3a34';
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = 'rgba(235,235,225,.9)';
+    const n = lines.length;
+    const cols = n > 3 ? 2 : 1;
+    const rows = Math.ceil(n / cols);
+    g.font = `500 ${rows > 2 ? 26 : 30}px Fredoka, Nunito, sans-serif`;
+    lines.forEach((ln, i) => {
+      const col = Math.floor(i / rows);
+      const row = i % rows;
+      g.fillText(ln, (W / cols) * (col + 0.5), (H / (rows + 0.4)) * (row + 0.7));
+    });
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  m = new THREE.MeshStandardMaterial({ map: t, roughness: style === 'plaque' ? 0.7 : 0.95 });
+  nameMats.set(key, m);
+  return m;
 }
