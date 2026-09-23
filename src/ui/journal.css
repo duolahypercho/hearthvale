@@ -452,7 +452,7 @@
 }
 .hv-letter-reader .lt-hint {
   position: absolute;
-  bottom: 5vh;
+  bottom: 13.5vh;
   left: 50%;
   transform: translateX(-50%);
   color: rgba(255, 240, 220, 0.75);

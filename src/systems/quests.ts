@@ -15,7 +15,7 @@
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { BUNDLES, ROOMS, type BundleDef, type RoomDef, type RoomId } from '../data/bundles';
-import { HELP_WANTED, type HelpWantedTemplate } from '../data/quests';
+import { HELP_WANTED, MASS_NOUNS, type HelpWantedTemplate } from '../data/quests';
 import { itemDef } from '../data/items';
 import { Rng } from '../core/rng';
 
@@ -233,7 +233,8 @@ export class QuestSystem implements System, QuestApi {
     }
     this.board = this.board.filter((p) => p.state === 'active');
     const rng = new Rng(`board:${today}`);
-    const n = 1 + (rng.next() < 0.45 ? 1 : 0);
+    // Two notes most mornings, three on a busy day (the board should never look abandoned).
+    const n = 2 + (rng.next() < 0.3 ? 1 : 0);
     const pool = [...HELP_WANTED];
     for (let k = 0; k < n && pool.length; k++) {
       const t = pool.splice(Math.floor(rng.next() * pool.length), 1)[0]!;
@@ -247,7 +248,7 @@ export class QuestSystem implements System, QuestApi {
   }
 
   private roll(t: HelpWantedTemplate, rng: Rng, today: number): Posting | null {
-    const items = [...(t.pool[this.game.calendar.season] ?? []), ...(t.pool.any ?? [])];
+    const items = [...(t.pool[this.game.calendar.season] ?? []), ...(t.pool.any ?? [])].filter((id) => !!itemDef(id));
     if (!items.length) return null;
     const itemId = items[Math.floor(rng.next() * items.length)]!;
     const qty = t.qty[0] + Math.floor(rng.next() * (t.qty[1] - t.qty[0] + 1));
@@ -260,7 +261,7 @@ export class QuestSystem implements System, QuestApi {
       giver: t.giver,
       npc: t.npc,
       title: t.title,
-      text: t.text.replace('{qty}', String(qty)).replace('{item}', qty > 1 && !/s$/.test(name) ? name + (/(ch|sh)$/.test(name) ? 'es' : 's') : name),
+      text: t.text.replace('{qty}', String(qty)).replace('{item}', qty > 1 && !/s$/.test(name) && !MASS_NOUNS.has(itemId) ? name + (/(ch|sh)$/.test(name) ? 'es' : 's') : name),
       itemId,
       qty,
       gold,

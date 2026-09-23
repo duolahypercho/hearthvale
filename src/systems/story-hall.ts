@@ -207,6 +207,8 @@ interface RoomVisual {
   lit: THREE.Group;
   sacks: THREE.Group;
   glass: THREE.MeshStandardMaterial;
+  /** This room's pane of the Great Lantern / rose-window petal (dimmer than the room lantern: six share one spot). */
+  pane: THREE.MeshStandardMaterial;
   light: THREE.PointLight;
   /** 0 = dark … 1 = fully lit (animated). */
   glow: number;
@@ -259,7 +261,8 @@ export class HallMap implements GameMap {
     this.windowMat = new THREE.MeshStandardMaterial({ color: 0x1a2440, emissive: 0x5a78c8, emissiveIntensity: 0.8, roughness: 0.2 });
     this.greatCore = new THREE.MeshStandardMaterial({ color: 0xfff6e0, emissive: 0xffd08a, emissiveIntensity: 0, roughness: 0.3 });
     this.greatLight = new THREE.PointLight(0xffc27a, 0, 18, 1.5);
-    this.greatLight.position.set(HALL.dais.x, 3.2, HALL.dais.z + 0.6);
+    // In front of the lantern (a light near the back wall bleaches the plaster white).
+    this.greatLight.position.set(HALL.dais.x, 3.0, HALL.dais.z + 2.2);
     this.root.add(this.greatLight);
     this.root.add(this.carryLight);
     this.build();
@@ -580,8 +583,9 @@ export class HallMap implements GameMap {
         box(b, 'stone', x1 - x0, 0.3, 0.34, (x0 + x1) / 2, 0, wz, STONE);
         box(b, 'wood', x1 - x0, 1.0, 0.3, (x0 + x1) / 2, 0.3, wz, WAIN);
         box(b, 'woodGrain', x1 - x0 + 0.04, 0.1, 0.46, (x0 + x1) / 2, 1.3, wz, TRIM);
-        for (let x = x0 + 1.2; x < x1 - 0.6; x += 2.2) cyl(b, 'woodGrain', 0.06, 0.07, 0.9, x, 1.85, wz, 0x7a4e2e, 8);
-        box(b, 'woodGrain', x1 - x0, 0.1, 0.16, (x0 + x1) / 2, 2.28, wz, TRIM);
+        // Turned spindles + a honey-oak rail (a dark rail reads as a black wire across the room from above).
+        for (let x = x0 + 1.2; x < x1 - 0.6; x += 2.2) cyl(b, 'woodGrain', 0.06, 0.07, 0.9, x, 1.85, wz, 0xa8764a, 8);
+        box(b, 'woodGrain', x1 - x0, 0.1, 0.16, (x0 + x1) / 2, 2.28, wz, 0xb8844e);
       }
     }
     // Front knee wall with the doorway (cut-away so the camera sees in).
@@ -706,7 +710,9 @@ export class HallMap implements GameMap {
     lit.name = `hall-lit-${def.id}`;
     sacks.name = `hall-sacks-${def.id}`;
     this.root.add(dark, lit, sacks);
-    this.rooms.set(def.id, { frame: f, dark, lit, sacks, glass, light, glow: 0, target: 0, flash: 0, glimmer: false });
+    const paneMat = glass.clone();
+    paneMat.name = `hall-pane-${def.id}`;
+    this.rooms.set(def.id, { frame: f, dark, lit, sacks, glass, pane: paneMat, light, glow: 0, target: 0, flash: 0, glimmer: false });
 
     // Plinth + room lantern.
     const p = f.plinth;
@@ -728,13 +734,13 @@ export class HallMap implements GameMap {
     // This room's pane of the Great Lantern + petal of the rose window share the glass.
     const i = ROOMS.indexOf(def);
     const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
-    const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 1.14), glass);
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 1.14), paneMat);
     pane.position.set(HALL.dais.x + Math.cos(a) * 0.76, 3.7, HALL.dais.z + Math.sin(a) * 0.76);
     pane.lookAt(HALL.dais.x + Math.cos(a) * 3, 3.7, HALL.dais.z + Math.sin(a) * 3);
     this.root.add(pane);
     const petal = this.pendingPetals.find((q) => q.room === def.id);
     if (petal) {
-      const pm = new THREE.Mesh(petal.geo, glass);
+      const pm = new THREE.Mesh(petal.geo, paneMat);
       pm.applyMatrix4(petal.m);
       this.root.add(pm);
     }
@@ -926,11 +932,20 @@ export class HallMap implements GameMap {
           this.blockRect(ax - 0.5, z + dz * 0.95 - 1, ax + 0.5, z + dz * 0.95 + 1);
         }
         // Rowboat hanging on the knee wall side / crab pots / anchor.
+        // A painted rowboat on trestles: hull (bowl-up), cream gunwale, thwarts and a pair of oars.
         const bx = X(5.2);
-        const hull = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-        hull.scale(1.4, 0.45, 0.5);
-        b.add(hallMats().woodGrain, hull, mat(bx, 0.45, f.z1 - 0.9, Math.PI, 0, 0), { tint: 0x3a7a9a });
-        b.add(hallMats().woodGrain, roundedBox(2.6, 0.06, 0.1, 0.02), mat(bx, 0.46, f.z1 - 0.9), { tint: 0xf2ead2 });
+        const bz = f.z1 - 0.9;
+        const hull = new THREE.SphereGeometry(1, 20, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+        hull.scale(1.3, 0.42, 0.52);
+        b.add(hallMats().woodGrain, hull, mat(bx, 0.72, bz), { tint: 0x4a9ab8 });
+        b.add(hallMats().woodGrain, new THREE.TorusGeometry(1, 0.05, 5, 28).scale(1.3, 0.52, 1), mat(bx, 0.72, bz, Math.PI / 2, 0, 0), { tint: 0xf2ead2 });
+        b.add(hallMats().woodGrain, new THREE.CircleGeometry(1, 24).scale(1.22, 0.46, 1), mat(bx, 0.6, bz, -Math.PI / 2, 0, 0), { tint: 0xb88a5a });
+        for (const dx of [-0.45, 0.35]) b.add(hallMats().woodGrain, roundedBox(0.16, 0.05, 0.92, 0.015), mat(bx + dx, 0.66, bz), { tint: 0xc89a64 });
+        for (const dx of [-0.9, 0.9]) box(b, 'woodGrain', 0.12, 0.34, 0.7, bx + dx, 0, bz, 0x6a4226);
+        for (const s of [-1, 1]) {
+          b.add(hallMats().woodGrain, new THREE.CylinderGeometry(0.03, 0.03, 1.9, 6), mat(bx + 0.1, 0.8, bz + s * 0.18, 0, 0, Math.PI / 2 + s * 0.06), { tint: 0xd8b07a });
+          b.add(hallMats().woodGrain, roundedBox(0.36, 0.02, 0.12, 0.01), mat(bx + 1.05, 0.8 + s * 0.06, bz + s * 0.18, 0, 0, s * 0.06), { tint: 0xd84a3a });
+        }
         this.blockRect(bx - 1.4, f.z1 - 1.4, bx + 1.4, f.z1 - 0.4);
         for (let k = 0; k < 2; k++) {
           const cx = X(8.2 + k * 0.7);
@@ -984,6 +999,9 @@ export class HallMap implements GameMap {
     b.add(m.cloth, roundedBox(3.0, 0.024, 1.6, 0.01), mat(rx, 0.014, rz), { tint: 0xf0e2c0 });
     b.add(m.cloth, roundedBox(2.6, 0.026, 0.28, 0.01), mat(rx, 0.016, rz), { tint: accent });
     for (const dz of [-0.55, 0.55]) b.add(m.cloth, roundedBox(2.6, 0.026, 0.08, 0.01), mat(rx, 0.016, rz + dz), { tint: new THREE.Color(accent).multiplyScalar(0.7).getHex() });
+    // Diamond medallions along the stripe + tasselled fringe at both ends.
+    for (let k = -2; k <= 2; k++) b.add(m.cloth, roundedBox(0.2, 0.03, 0.2, 0.01), mat(rx + k * 0.5, 0.018, rz, 0, Math.PI / 4, 0), { tint: k % 2 ? 0xf0e2c0 : new THREE.Color(accent).multiplyScalar(0.55).getHex() });
+    for (const sx of [-1, 1]) for (let k = 0; k < 11; k++) b.add(m.cloth, roundedBox(0.14, 0.012, 0.035, 0.005), mat(rx + sx * 1.76, 0.008, rz - 0.9 + k * 0.18), { tint: 0xe8d8b0 });
     // Flowers in the plinth vase.
     const vx = f.plinth.x + f.side * 0.62;
     const vz = f.plinth.z + 0.5;
@@ -1068,6 +1086,7 @@ export class HallMap implements GameMap {
     v.lit.visible = on;
     const col = v.glimmer ? new THREE.Color(0xdff4ff) : new THREE.Color(v.frame.def.color);
     v.glass.emissive.copy(col);
+    v.pane.emissive.copy(col);
     v.light.color.copy(col);
     if (v.frame.def.id === 'hearth') this.hearthFire.active = on && !v.glimmer;
   }
@@ -1151,13 +1170,14 @@ export class HallMap implements GameMap {
       }
       const flick = 0.92 + Math.sin(t * 7.3 + v.frame.def.x) * 0.04 + Math.sin(t * 17.1 + v.frame.def.z) * 0.03;
       v.glass.emissiveIntensity = v.glow * (v.glimmer ? 5 : 3.6) * flick + v.flash * 9;
+      v.pane.emissiveIntensity = v.glow * (v.glimmer ? 1.8 : 1.3) * flick + v.flash * 4;
       v.light.intensity = v.glow * (v.glimmer ? 9 : 7) * flick + v.flash * 16;
       lit += v.glow;
     }
     const frac = lit / 6;
     this.warmth = frac;
     this.greatCore.emissiveIntensity = frac * frac * 2.6 * (0.94 + Math.sin(t * 5.1) * 0.04);
-    this.greatLight.intensity = frac * frac * 11;
+    this.greatLight.intensity = frac * frac * 8;
     // Hand lantern: a warm pool around the farmer that fades as the rooms relight.
     const pp = game.player.position;
     this.carryLight.position.set(pp.x + 0.35, 1.35, pp.z + 0.35);

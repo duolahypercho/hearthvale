@@ -185,7 +185,11 @@ export class JournalPanel extends Screen {
         <div class="col">${card(a!)}${card(c!)}${card(e!)}</div>
         <div class="nave"><div class="great" style="--w:${(lit / 6).toFixed(2)}">${lanternSvg(0xffc66a, lit / 6, 'jl-great')}</div><div class="nave-l">Great Lantern</div></div>
         <div class="col">${card(b!)}${card(d!)}${card(f!)}</div>
-      </div>`;
+      </div>
+      <h2 class="jn-h small">Back in the valley</h2><div class="jn-list jn-back">${ROOMS.map((room) => {
+        const done = !!q?.room(room.id)?.done;
+        return `<div class="jn-row ${done ? 'done' : 'locked'}" style="--rc:${css(room.color)}"><i class="jn-bul ${done ? 'done' : 'locked'}">${done ? CHECK : '?'}</i><span class="t">${done ? escapeHtml(room.restores.title) : '· · ·'}</span><small>${escapeHtml(room.lantern)}</small></div>`;
+      }).join('')}</div>`;
     this.leftPage.querySelectorAll<HTMLElement>('.jn-room').forEach((r) =>
       r.addEventListener('click', () => {
         this.sel.hall = r.dataset.id!;

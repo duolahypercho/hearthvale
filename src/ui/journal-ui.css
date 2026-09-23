@@ -1379,6 +1379,135 @@
   text-shadow: 0 2px 4px rgba(40, 18, 4, 0.6);
   padding: 80px 0;
 }
+.bd-twine {
+  position: absolute;
+  inset: 16px 250px auto 24px;
+  height: 30px;
+  border-top: 2px solid rgba(120, 80, 40, 0.55);
+  border-radius: 50% 50% 0 0 / 30px 30px 0 0;
+  transform: scaleY(-1);
+  pointer-events: none;
+}
+.bd-eph {
+  position: relative;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.08), 4px 10px 16px rgba(40, 18, 4, 0.38);
+}
+.bd-cal {
+  width: 170px;
+  padding: 26px 12px 14px;
+  text-align: center;
+  background: linear-gradient(180deg, #fffaf0, #f1e4c8);
+  transform: rotate(-2.5deg);
+  color: #4a2c14;
+}
+.bd-cal .cal-top {
+  margin: -26px -12px 8px;
+  padding: 36px 8px 6px;
+  background: var(--sc);
+  color: #fff8ec;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.bd-cal .cal-day {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 58px;
+  line-height: 1;
+}
+.bd-cal .cal-wd {
+  font-family: var(--hand);
+  font-size: 22px;
+  color: #7a5030;
+}
+.bd-cal .cal-next {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(120, 80, 40, 0.4);
+  font-size: 13px;
+  font-weight: 700;
+  color: #7a5030;
+}
+.bd-cal .cal-next b {
+  display: block;
+  font-family: var(--font-head);
+  font-size: 16px;
+  color: var(--sc);
+}
+.bd-glim {
+  width: 220px;
+  padding: 30px 16px 70px;
+  text-align: center;
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.55) 0 18%, transparent 30% 60%, rgba(255, 255, 255, 0.3) 72%, transparent 85%),
+    linear-gradient(180deg, #dfe8f1, #9fb2c6);
+  color: #2a3a52;
+  transform: rotate(2deg);
+  clip-path: polygon(0 0, 100% 0, 100% 72%, 92% 78%, 96% 86%, 86% 92%, 88% 100%, 0 100%);
+}
+.bd-glim .gl-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #4a6a9a, #2a3e62);
+  color: #fff;
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+}
+.bd-glim .gl-logo svg {
+  width: 14px;
+}
+.bd-glim .gl-head {
+  margin-top: 10px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 30px;
+  background: linear-gradient(180deg, #5a7ab0, #22365a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.bd-glim .gl-sub {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #4a5a72;
+}
+.bd-glim .gl-scrawl {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 16px;
+  font-family: var(--hand);
+  font-size: 30px;
+  color: #c8322a;
+  transform: rotate(-11deg);
+  text-shadow: 0 0 1px rgba(200, 50, 40, 0.6);
+  opacity: 0.92;
+}
+.bd-kit {
+  width: 230px;
+  padding: 26px 12px 8px;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 21px, rgba(90, 140, 200, 0.28) 21px 22px),
+    #fbfaf3;
+  transform: rotate(-1.5deg);
+}
+.bd-kit svg:not(.jb-pin) {
+  display: block;
+  width: 100%;
+}
+.bd-kit .kit-cap {
+  font-family: var(--hand);
+  font-size: 22px;
+  text-align: right;
+  color: #3a64a8;
+  transform: rotate(-3deg);
+}
 .bd-flyer,
 .bd-flyer2 {
   position: absolute;
@@ -1454,4 +1583,31 @@
   font-family: var(--hand);
   font-size: 20px;
   color: #7a5236;
+}
+
+/* Hall tab: what each restored room gave back to the valley (compact rows). */
+.jn-back {
+  gap: 0;
+}
+.jn-back .jn-row {
+  cursor: default;
+  min-height: 0;
+  padding: 4px 10px;
+  font-size: 16px;
+}
+.jn-back .jn-row .jn-bul {
+  width: 26px;
+  height: 26px;
+}
+.jn-back .jn-row small {
+  color: color-mix(in srgb, var(--rc) 55%, #5a3418);
+  font-weight: 800;
+}
+.jn-back .jn-row.locked small {
+  opacity: 0.55;
+}
+.jn-back .jn-row.done .t {
+  text-decoration: none;
+  color: #3e2410;
+  opacity: 1;
 }
