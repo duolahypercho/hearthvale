@@ -30,7 +30,7 @@ import { buildShowStage, buildMarquee, buildGiantPumpkin, buildRosette, buildCor
 import { PetalStorm, GroundScatter } from './fx';
 import { produceGeometry } from '../props/crops';
 import { CROPS, type CropId } from '../../data/crops';
-import { randomLook, type CrowdSpec } from './crowd';
+import { randomLook, shoulderLift, type CrowdSpec } from './crowd';
 
 const STAGE = { x: 35, z: 10.6 };
 const LANE = { x0: 13, x1: 41, z: 25.0 };
@@ -533,6 +533,14 @@ export class HarvestFair extends FestivalMap {
         });
         if (!perch) this.cheer.push(i);
       }
+    }
+    // A little one up on a grown-up's shoulders to see over the rope.
+    {
+      const a = randomLook(r, { palette: P.tops });
+      const c = randomLook(r, { palette: P.tops, child: true });
+      const z = LANE.z + ROPE + 1.5;
+      person(a, 'lantern', 34.0, z, Math.PI + 0.3, { pinned: true });
+      person(c, 'ride', 34.0, z, Math.PI + 0.3, { lift: shoulderLift(a, c), props: ['balloon'] });
     }
     // Crowd at the contest: flanking the pallets, turned three-quarters to the camera.
     for (const [x, z, yaw] of [[26.6, 19.8, 0.9], [27.4, 20.6, 0.5], [44.2, 19.6, -0.9], [43.4, 20.5, -0.4], [26.0, 17.4, 1.4]] as const) {

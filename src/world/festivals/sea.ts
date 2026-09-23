@@ -182,34 +182,46 @@ export class NightSea {
             }
             // Fireworks wash.
             col += uFlash * (0.2 + fres * 0.9) * (0.4 + 0.6 * h0);
-            // ── bioluminescent surf
-            float ph = fract(hvSwashPhase(p, t));
-            float sheetZone = smoothstep(0.03, -0.02, uLevel - ground);
-            // The breaking crest rolls in over the last metre of depth, flaring as it breaks.
-            // Two sets of breakers: the main wave + a smaller one half a period behind.
-            float ph2 = fract(ph + 0.5);
-            float crestDepth = mix(1.3, 0.0, smoothstep(0.0, 0.26, ph));
-            float crestDepth2 = mix(0.9, 0.0, smoothstep(0.0, 0.26, ph2));
-            float crest = exp(-pow((dSea - crestDepth) / 0.16, 2.0)) * step(ph, 0.3) * smoothstep(1.4, 0.15, crestDepth) * (1.0 - sheetZone);
-            crest += 0.55 * exp(-pow((dSea - crestDepth2) / 0.12, 2.0)) * step(ph2, 0.3) * smoothstep(1.0, 0.15, crestDepth2) * (1.0 - sheetZone);
-            crest *= 0.6 + 0.4 * smoothstep(0.3, 0.7, hvNoise(p * vec2(0.35, 0.8) + t * 0.1));
-            float lace = hvLace(p * 1.2, t * 0.3);
-            // Foam left behind the crest (a lacy glow decaying with the backwash).
-            float wake = lace * smoothstep(1.1, 0.0, dSea) * (0.35 + 0.65 * (1.0 - smoothstep(0.2, 0.95, ph))) * (0.5 + 0.5 * calm);
-            // Swash sheet on the sand: leading edge flares on the run-up, dims on the backwash.
-            float edge = (1.0 - smoothstep(0.0, 0.04, depth)) * max(sheetZone, 1.0 - smoothstep(0.0, 0.1, dSea)) * (step(ph, 0.26) * 1.0 + 0.3);
-            float film = sheetZone * lace * 0.5;
-            float plank = (cellSpark(p * 2.6, t) + cellSpark(p * 5.1 + 7.0, t * 1.3) * 0.6) * (1.0 - smoothstep(0.2, 2.5, dSea)) * (0.35 + 0.65 * smoothstep(0.3, 0.7, hvNoise(p * 0.25 + t * 0.02)));
-            // Feet stirring the plankton: bright rings that fade.
+            // ── bioluminescent surf (only evaluated in the last 2.6 m of depth: open water skips the
+            // swash / lace / feet work entirely — most of the screen is open bay)
+            float crest = 0.0;
+            float lace = 0.0;
+            float wake = 0.0;
+            float edge = 0.0;
+            float film = 0.0;
+            float plank = 0.0;
             float stir = 0.0;
-            for (int i = 0; i < ${SEA_FEET}; i++) {
-              vec4 f = uFeet[i];
-              if (f.w <= 0.0) continue;
-              float d = length(p - f.xy);
-              float ring = exp(-pow((d - 0.25 - f.z * 0.35) / 0.12, 2.0)) + exp(-d * d * 10.0) * 0.8;
-              stir += ring * f.w * exp(-f.z * 1.1);
+            float sheetZone = smoothstep(0.03, -0.02, uLevel - ground);
+            float ph = 0.5;
+            if (dSea < 2.6) {
+              ph = fract(hvSwashPhase(p, t));
+              // The breaking crest rolls in over the last metre of depth, flaring as it breaks.
+              // Two sets of breakers: the main wave + a smaller one half a period behind.
+              float ph2 = fract(ph + 0.5);
+              float crestDepth = mix(1.3, 0.0, smoothstep(0.0, 0.26, ph));
+              float crestDepth2 = mix(0.9, 0.0, smoothstep(0.0, 0.26, ph2));
+              crest = exp(-pow((dSea - crestDepth) / 0.16, 2.0)) * step(ph, 0.3) * smoothstep(1.4, 0.15, crestDepth) * (1.0 - sheetZone);
+              crest += 0.55 * exp(-pow((dSea - crestDepth2) / 0.12, 2.0)) * step(ph2, 0.3) * smoothstep(1.0, 0.15, crestDepth2) * (1.0 - sheetZone);
+              crest *= 0.6 + 0.4 * smoothstep(0.3, 0.7, hvNoise(p * vec2(0.35, 0.8) + t * 0.1));
+              lace = dSea < 1.2 ? hvLace(p * 1.2, t * 0.3) : 0.0;
+              // Foam left behind the crest (a lacy glow decaying with the backwash).
+              wake = lace * smoothstep(1.1, 0.0, dSea) * (0.35 + 0.65 * (1.0 - smoothstep(0.2, 0.95, ph))) * (0.5 + 0.5 * calm);
+              // Swash sheet on the sand: leading edge flares on the run-up, dims on the backwash.
+              edge = (1.0 - smoothstep(0.0, 0.04, depth)) * max(sheetZone, 1.0 - smoothstep(0.0, 0.1, dSea)) * (step(ph, 0.26) * 1.0 + 0.3);
+              film = sheetZone * lace * 0.5;
+              plank = (cellSpark(p * 2.6, t) + cellSpark(p * 5.1 + 7.0, t * 1.3) * 0.6) * (1.0 - smoothstep(0.2, 2.5, dSea)) * (0.35 + 0.65 * smoothstep(0.3, 0.7, hvNoise(p * 0.25 + t * 0.02)));
+              // Feet stirring the plankton: bright rings that fade.
+              if (dSea < 1.2) {
+                for (int i = 0; i < ${SEA_FEET}; i++) {
+                  vec4 f = uFeet[i];
+                  if (f.w <= 0.0) continue;
+                  float d = length(p - f.xy);
+                  float ring = exp(-pow((d - 0.25 - f.z * 0.35) / 0.12, 2.0)) + exp(-d * d * 10.0) * 0.8;
+                  stir += ring * f.w * exp(-f.z * 1.1);
+                }
+                stir *= (1.0 - smoothstep(0.1, 1.2, dSea));
+              }
             }
-            stir *= (1.0 - smoothstep(0.1, 1.2, dSea));
             // Open water: only SPARSE plankton speckles in slow drifting patches (no filament lines),
             // plus soft cyan rings where the boats rock / lanterns bob (the glow belongs to the break
             // line, the wakes and the feet in the shallows — not a noise texture across the bay).

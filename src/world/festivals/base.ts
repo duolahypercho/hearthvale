@@ -269,7 +269,7 @@ export abstract class FestivalMap implements GameMap {
   protected separateCrowd(minD = 0.66): void {
     const S = this.crowdSpecs;
     const pinned = new Set<string>(['skate', 'sack', 'ribbonR', 'ribbonL', 'perch', 'sit']);
-    const w = S.map((s) => (s.lift || pinned.has(s.anim) ? 0 : s.id ? 0.35 : 1));
+    const w = S.map((s) => (s.lift || s.pinned || pinned.has(s.anim) ? 0 : s.id ? 0.35 : 1));
     const r = S.map((s) => minD * 0.5 * Math.max(0.75, s.look.scale) * (0.9 + 0.1 * s.look.build));
     for (let it = 0; it < 16; it++) {
       let moved = false;
@@ -562,7 +562,7 @@ export abstract class FestivalMap implements GameMap {
     const c = this.crowd;
     if (c) {
       // Keep clips whose staging depends on them (skaters, racers, maypole ribbons, the seated).
-      const keep = new Set([Anim.skate, Anim.sack, Anim.ribbonR, Anim.ribbonL, Anim.sit, Anim.perch, Anim.fiddle]);
+      const keep = new Set([Anim.skate, Anim.sack, Anim.ribbonR, Anim.ribbonL, Anim.sit, Anim.perch, Anim.fiddle, Anim.ride]);
       c.members.forEach((m, i) => {
         if (keep.has(m.anim as never) || Math.hypot(m.x - p.x, m.z - p.z) > 18 || this.winCheer.some((k) => k.i === i)) return;
         this.winCheer.push({ i, anim: m.anim });

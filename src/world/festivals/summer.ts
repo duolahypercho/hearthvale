@@ -27,7 +27,7 @@ import { NightSea, SEA_FEET } from './sea';
 import { applyBeachSand } from '../beach/sand';
 import { swashPhase, WAVE_PERIOD } from '../beach/ocean';
 import { MeshBuilder, roundedBox, mat } from '../geom';
-import { randomLook, type CrowdSpec } from './crowd';
+import { randomLook, shoulderLift, type CrowdSpec } from './crowd';
 
 /** Per-frame scratch (no allocations in tick). */
 const _glow = new THREE.Vector3();
@@ -419,6 +419,13 @@ export class SummerLanterns extends FestivalMap {
       const st = seats[seatK++]!;
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.2 }), pick(['perch', 'perch', 'sway'] as const), st[0], st[1], st[2], { lift: logTop, props: r.next() < 0.4 ? ['mug'] : [] });
     }
+    // A child on a grown-up's shoulders, both watching the fireworks over the bay.
+    {
+      const a = randomLook(r, { palette: P.tops });
+      const c = randomLook(r, { palette: P.tops, child: true });
+      person(a, 'lantern', 41.6, 24.4, Math.PI - 0.4, { pinned: true });
+      person(c, 'ride', 41.6, 24.4, Math.PI - 0.4, { lift: shoulderLift(a, c), props: ['lanternPole'], accent: 0xffb050 });
+    }
     // Blanket sitters + stall customers (turned to the camera / each other).
     person(randomLook(r, { palette: P.tops }), 'sit', 26.4, 24.6, 0.5, { lift: 0.02 });
     person(randomLook(r, { palette: P.tops }), 'sit', 27.4, 25.0, -0.6, { lift: 0.02 });
@@ -445,7 +452,7 @@ export class SummerLanterns extends FestivalMap {
     this.root.add(sky.group);
     // Shells burst low over the bay, inside the high diorama camera's frame (the sky is never in
     // shot), and read twice: once in the air and again as coloured reflections on the water.
-    this.fireworks = new Fireworks({ area: new THREE.Vector4(32, 8, 28, 5), heights: new THREE.Vector2(4.4, 6.6), groundY: 0.2, shells: 7, sparks: 110, mirrorY: 0, spread: 0.72, size: 1.25 });
+    this.fireworks = new Fireworks({ area: new THREE.Vector4(32, 9.5, 26, 4), heights: new THREE.Vector2(3.8, 5.8), groundY: 0.2, shells: 7, sparks: 120, mirrorY: 0, spread: 0.7, size: 1.15 });
     this.fireworks.group.userData.perfTag = 'fireworks';
     this.root.add(this.fireworks.group);
     this.flashLight = new THREE.PointLight(0xffffff, 0, 60, 1.2);
@@ -469,8 +476,8 @@ export class SummerLanterns extends FestivalMap {
     const f = this.fireworks.flash(t, this.flashCol);
     const night = game.lighting.night;
     this.flashLight.color.copy(this.flashCol.r + this.flashCol.g + this.flashCol.b > 0 ? this.flashCol : this.flashLight.color);
-    this.flashLight.intensity = Math.min(f, 2.5) * 30 * night;
-    this.sea.flash.value.copy(this.flashCol).multiplyScalar(Math.min(f, 2) * 0.14 * night);
+    this.flashLight.intensity = Math.min(f, 2.5) * 16 * night;
+    this.sea.flash.value.copy(this.flashCol).multiplyScalar(Math.min(f, 2) * 0.08 * night);
     this.fireworks.intensity.value = 0.25 + night * 0.75;
     // Lighthouse beam sweeps the bay.
     this.beam.rotation.y = t * 0.55;

@@ -25,7 +25,7 @@ import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildFlowerFloat, buildFlowerArch, buildBandstand, buildBlossomPole, buildCherryTrees, buildBanquetTable } from './kit';
 import { PetalStorm, GroundScatter, PetalFall, Ribbons } from './fx';
 import { patchMaterial, after, before } from '../../render/patch';
-import { randomLook, type CrowdSpec } from './crowd';
+import { randomLook, shoulderLift, type CrowdSpec } from './crowd';
 import { Rng } from '../../core/rng';
 
 /** Per-frame scratch (no allocations in tick). */
@@ -450,6 +450,13 @@ export class SpringParade extends FestivalMap {
     }
     // South kerb: townsfolk with their backs to the lane, watching the ribbon dance on the green
     // (faces toward the camera, a few turned to chat).
+    // A grown-up with a child up on their shoulders, waving at the floats.
+    {
+      const a = randomLook(r, { palette: P.tops });
+      const c = randomLook(r, { palette: P.tops, child: true });
+      person(a, 'lantern', 23.6, 17.5, 0.15, { pinned: true });
+      person(c, 'ride', 23.6, 17.5, 0.15, { lift: shoulderLift(a, c), props: ['flag'] });
+    }
     const kerbS = [13.4, 18.2, 24.4, 34.4, 39.8, 50.2, 53.8];
     for (const x of kerbS) {
       const child = r.next() < 0.35;
@@ -604,7 +611,7 @@ export class SpringParade extends FestivalMap {
       c.commit();
     }
     this.plaitLen.value = 0.35;
-    this.frame({ pitch: 38, distance: 19.5, yaw: 0, ox: 0.4, oz: -4.4 });
+    this.frame({ pitch: 40, distance: 18.5, yaw: 0, ox: 0.4, oz: -2.7 });
   }
 
   protected override onPlayEvent(play: PlayState, kind: string, value: number): void {

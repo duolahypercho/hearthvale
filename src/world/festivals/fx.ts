@@ -255,7 +255,9 @@ export class Fireworks {
   constructor(private o: FireworksOptions) {
     const S = o.shells ?? 9;
     const M = o.sparks ?? 110;
-    const TR = 3;
+    // Each spark draws a short comet tail (TR points lagging behind it) so bursts read as crisp
+    // streaking stars, not soft bokeh dots.
+    const TR = 5;
     for (let i = 0; i < S; i++) this.shells.push({ period: 4.3 + ((i * 7) % 5) * 0.55 + i * 0.13, offset: i * 1.37 });
     const n = S * M * TR;
     const pos = new Float32Array(n * 3);
@@ -326,7 +328,8 @@ export class Fireworks {
             float h5 = hvHash12(vec2(aInfo.x * 2.3 + cyc, 9.1));
             vec3 burst = vec3(uArea.x + (h1 - 0.5) * uArea.z, uHeights.x + h3 * (uHeights.y - uHeights.x), uArea.y + (h2 - 0.5) * uArea.w);
             vec3 start = vec3(burst.x + (h2 - 0.5) * 3.0, uGround, burst.z + 2.0);
-            int type = int(h4 * 4.0);
+            // Mostly two-colour peonies and tilted rings; the odd gold willow / palm for variety.
+            int type = h4 < 0.45 ? 0 : h4 < 0.75 ? 1 : h4 < 0.87 ? 2 : 3;
             vec3 c1 = fwPal(h5);
             vec3 c2 = fwPal(fract(h5 + 0.37));
             float j = aInfo.y;
@@ -350,7 +353,7 @@ export class Fireworks {
                 col = mix(vec3(1.0, 0.8, 0.5), vec3(1.0, 0.5, 0.2), j / 10.0) * 1.6;
               }
             } else {
-              float tb = lt - ${FW_LAUNCH.toFixed(2)} - tr * 0.05;
+              float tb = lt - ${FW_LAUNCH.toFixed(2)} - tr * 0.028;
               float life = type == 2 ? ${(FW_LIFE * 1.3).toFixed(2)} : ${FW_LIFE.toFixed(2)};
               if (tb > 0.0 && tb < life) {
                 vec3 d = aDir;
@@ -373,7 +376,7 @@ export class Fireworks {
                 p = burst + d * v0 * drag;
                 p.y -= gEff * (tb - drag) / k * 1.4;
                 float f = tb / life;
-                a = pow(1.0 - f, 1.4) * (1.0 - tr * 0.3);
+                a = pow(1.0 - f, 1.4) * (1.0 - tr * 0.17);
                 if (dot(d, d) < 0.01) a = 0.0;
                 // Crackle / twinkle at the end.
                 float tw = hvHash12(vec2(j + aInfo.x * 131.0, floor(uTime * 22.0)));
@@ -384,16 +387,16 @@ export class Fireworks {
                 // Two-colour shells (alternate stars) + a gold crackle / glitter tail on peonies and rings.
                 vec3 base = mix(c1, c2, step(0.5, fract(j * 0.37)));
                 if (type < 2 && f > 0.55) base = mix(base, vec3(1.0, 0.78, 0.3), 0.55);
-                col = mix(hot, base, smoothstep(0.0, 0.05, f)) * (tr > 0.5 ? 0.75 : 1.5);
-                size = (0.46 - tr * 0.12) * (1.0 - f * 0.4) * (type == 3 ? 1.5 : 1.0);
+                col = mix(hot, base, smoothstep(0.0, 0.03, f)) * (tr > 0.5 ? 0.8 : 1.6);
+                size = (0.36 - tr * 0.045) * (1.0 - f * 0.35) * (type == 3 ? 1.4 : 1.0);
                 // A small coloured flash core (not a white puff).
-                if (tb < 0.1 && j < 1.5) { size = 0.75 * (1.0 - tb / 0.1); a = 1.0; col = c1 * 1.3; }
+                if (tb < 0.08 && j < 1.5) { size = 0.35 * (1.0 - tb / 0.08); a = 1.0; col = c1 * 1.2; }
               }
             }
             #if MIRROR == 1
               p.y = 2.0 * uMirrorY - p.y;
               p.x += sin(p.y * 2.3 + uTime * 3.0) * 0.12;
-              a *= 0.5 * step(p.y, uMirrorY);
+              a *= 0.6 * step(p.y, uMirrorY);
               size *= 1.45;
             #endif
             vCol = col * uIntensity;

@@ -25,7 +25,7 @@ import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildStarTree, buildIceSculpture, buildBridge, buildCocoaStand, buildBonfire } from './kit';
 import { Aurora, Snowfall, GlowPoints, Bonfire } from './fx';
 import { FrozenRiver } from './sea';
-import { randomLook, type CrowdSpec } from './crowd';
+import { randomLook, shoulderLift, type CrowdSpec } from './crowd';
 import { MeshBuilder, bevelCylinder, mat, lumpySphere, roundedBox } from '../geom';
 import { materials } from '../../render/materials';
 import { Rng } from '../../core/rng';
@@ -433,7 +433,7 @@ export class StarfallSquare extends FestivalMap {
       const a0 = r.next() * 6.28;
       for (let m = 0; m <= pair; m++) {
         const i = person(randomLook(r, { palette: P.tops, child: (k2 + m) % 3 === 2 }), 'skate', cx, this.riverZ(cx), 0, { props: ['skates'], lift: ICE_Y - this.H(cx, this.riverZ(cx)), phase: pair ? 0.2 : r.next() });
-        this.skaters.push({ i, cx, rx, rz, sp, a0, side: pair ? (m ? 0.32 : -0.32) : 0 });
+        this.skaters.push({ i, cx, rx, rz, sp, a0, side: pair ? (m ? 0.42 : -0.42) : 0 });
       }
     });
     // Warming their hands at the fire; stall customers; a kid dragging a sled up the slope.
@@ -441,6 +441,18 @@ export class StarfallSquare extends FestivalMap {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.25 }), anim, x, z, x < 30 && z > 24 ? toFire(x, z) : face(x, z, x < 30 ? 14.6 : 49.8, x < 30 ? 21.6 : 21.0), { props: [...props] });
     }
     person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 47.6, 25.4, -0.4, {});
+    // Up on a grown-up's shoulders for a better look at the star.
+    {
+      const a = randomLook(r, { palette: P.tops });
+      const c = randomLook(r, { palette: P.tops, child: true });
+      person(a, 'lantern', 37.4, 25.6, face(37.4, 25.6, TREE.x, TREE.z), { pinned: true });
+      person(c, 'ride', 37.4, 25.6, face(37.4, 25.6, TREE.x, TREE.z), { lift: shoulderLift(a, c) });
+    }
+    // A couple chatting on the east trail, friends waving across the north path.
+    person(randomLook(r, { palette: P.tops }), 'talk', 40.2, 22.6, face(40.2, 22.6, 41.3, 23.2), { props: ['mug'] });
+    person(randomLook(r, { palette: P.tops }), 'toast', 41.3, 23.2, face(41.3, 23.2, 40.2, 22.6), { props: ['mug'] });
+    person(randomLook(r, { palette: P.tops }), 'wave', 37.2, 15.4, 0.6, {});
+    person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 26.8, 15.6, -0.5, { props: ['balloon'] });
     // Onlookers on the banks + bridge, watching the ice (facing south, toward the camera).
     for (const [x, z, yaw, anim] of [[29.6, 29.0, 0.3, 'wave'], [35.4, 28.8, -0.2, 'cheer'], [17.8, 29.4, 0.5, 'clap'], [47.0, 29.2, -0.4, 'wave']] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.3 }), anim, x, z, yaw, {});

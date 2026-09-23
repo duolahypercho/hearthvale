@@ -44,6 +44,8 @@ export const Anim = {
   ribbonL: 17,
   /** Seated on a bench / log (hips at the seat, feet on the ground). */
   perch: 18,
+  /** A child riding on a grown-up's shoulders: legs either side of the neck, arms up waving. */
+  ride: 19,
 } as const;
 export type AnimName = keyof typeof Anim;
 
@@ -84,6 +86,8 @@ export interface CrowdSpec {
   accent?: number;
   /** Townsfolk hat colour (only ~40 % wear a hat; see `headwear`). */
   hatTint?: number;
+  /** Never moved by the crowd separation pass (e.g. a grown-up carrying a child on the shoulders). */
+  pinned?: boolean;
 }
 
 const enum Bone {
@@ -366,13 +370,32 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
   b.add(Bone.Head, HP, new THREE.SphereGeometry(R, 12, 8), hm(0, R * 0.92, 0, 0, 0, 0, fx, fy, 1), L.skin);
   for (const sx of [-1, 1]) b.add(Bone.Head, HP, ball(0.07, 5, 4), hm(sx * R * 0.98 * fx, R * 0.88, 0, 0, 0, 0, 0.6, 1, 1), L.skin);
   b.add(Bone.Head, HP, ball(0.032, 5, 4), hm(0, R * 0.78, R * 0.99), shade(L.skin, 1.05));
+  // Faces differ person to person: brow tilt / weight, cheek size, mouth (open laugh, closed
+  // smile, little 'o' of a song, lopsided grin), freckles on some.
+  const fr = new Rng(`${seed}:face`);
+  const browTilt = (fr.next() - 0.35) * 0.5;
+  const browW = 0.065 + fr.next() * 0.025;
+  const cheek = 0.04 + fr.next() * 0.02;
+  const mouth = named ? 0 : Math.floor(fr.next() * 4);
   for (const sx of [-1, 1]) {
-    b.add(Bone.Head, HP, box(0.075, 0.018, 0.02), hm(sx * 0.115, R * 1.2, R * 0.93, 0, 0, sx * 0.14), shade(L.hair, 0.8));
-    b.add(Bone.Head, HP, new THREE.CircleGeometry(0.05, 8), hm(sx * 0.19, R * 0.74, R * 0.875, 0, sx * 0.55, 0), winter ? 0xf08a80 : 0xf29a86);
+    b.add(Bone.Head, HP, box(browW, 0.018 + (mouth === 3 ? 0.006 : 0), 0.02), hm(sx * 0.115, R * 1.2, R * 0.93, 0, 0, sx * (0.14 + browTilt)), shade(L.hair, 0.8));
+    b.add(Bone.Head, HP, new THREE.CircleGeometry(cheek, 8), hm(sx * 0.19, R * 0.74, R * 0.875, 0, sx * 0.55, 0), winter ? 0xf08a80 : 0xf29a86);
   }
-  // Open happy smile at festivals.
-  b.add(Bone.Head, HP, new THREE.CircleGeometry(0.042, 8, Math.PI, Math.PI), hm(0, R * 0.66, R * 0.975, -0.2), 0x6a2a24);
-  b.add(Bone.Head, HP, new THREE.CircleGeometry(0.03, 6, Math.PI * 1.15, Math.PI * 0.7), hm(0, R * 0.635, R * 0.985, -0.2), 0xe87a7a);
+  if (mouth === 1) {
+    // Closed, content smile.
+    b.add(Bone.Head, HP, new THREE.TorusGeometry(0.04, 0.011, 3, 8, Math.PI), hm(0, R * 0.7, R * 0.98, -0.2, 0, Math.PI), 0x5a2420);
+  } else if (mouth === 2) {
+    // A little round 'o' (singing / gasping at the fireworks).
+    b.add(Bone.Head, HP, new THREE.CircleGeometry(0.026, 8), hm(0, R * 0.66, R * 0.985, -0.2), 0x6a2a24);
+  } else if (mouth === 3) {
+    // Lopsided grin.
+    b.add(Bone.Head, HP, new THREE.CircleGeometry(0.046, 8, Math.PI * 1.05, Math.PI * 0.8), hm(0.012, R * 0.67, R * 0.975, -0.2, 0, 0.15), 0x6a2a24);
+  } else {
+    // Open happy smile.
+    b.add(Bone.Head, HP, new THREE.CircleGeometry(0.042, 8, Math.PI, Math.PI), hm(0, R * 0.66, R * 0.975, -0.2), 0x6a2a24);
+    b.add(Bone.Head, HP, new THREE.CircleGeometry(0.03, 6, Math.PI * 1.15, Math.PI * 0.7), hm(0, R * 0.635, R * 0.985, -0.2), 0xe87a7a);
+  }
+  if (!named && fr.next() < 0.22) for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) b.add(Bone.Head, HP, new THREE.CircleGeometry(0.009, 5), hm(sx * (0.15 + k * 0.03), R * (0.8 + (k % 2) * 0.05), R * 0.93, 0, sx * 0.4, 0), shade(L.skin, 0.72));
   if (L.glasses) {
     for (const sx of [-1, 1]) b.add(Bone.Head, HP, new THREE.TorusGeometry(0.068, 0.011, 3, 12), hm(sx * 0.115, R * 0.97, R * 1.0), 0x6a4a2a);
     b.add(Bone.Head, HP, box(0.07, 0.014, 0.014), hm(0, R * 1.0, R * 1.02), 0x6a4a2a);
@@ -522,7 +545,8 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     const local = new THREE.Vector3(sx * 0.115, R * 0.95, R * 0.9);
     const pivot = local.clone().multiplyScalar(hs).add(NECK);
     const em = headM(mat(local.x, local.y, local.z, -0.12));
-    b.add(Bone.Eye, pivot, new THREE.CapsuleGeometry(0.036, 0.046, 1, 6), em, 0x1d1612);
+    const eyeS = named ? 1 : 0.88 + new Rng(`${seed}:eye`).next() * 0.26;
+    b.add(Bone.Eye, pivot, new THREE.CapsuleGeometry(0.036 * eyeS, 0.046 * eyeS, 1, 6), em, 0x1d1612);
     b.add(Bone.Eye, pivot, ball(0.014, 4, 3), em.clone().multiply(mat(0.013, 0.024, 0.03)), 0xffffff);
   }
 
@@ -626,6 +650,11 @@ void crowdPose(inout vec3 p, inout vec3 n) {
     if (anim < 16.5) { armRs = up; armRx = -0.3; armLs = free; armLx = -0.2; torZ = -0.07; hdZ = 0.12; }
     else { armLs = up; armLx = -0.3; armRs = free; armRx = -0.2; torZ = 0.07; hdZ = -0.12; }
     hdX = -0.12;
+  } else if (anim > 18.5) { // ride: on someone's shoulders, legs dangling either side, waving
+    float s = sin(t * 3.0);
+    legLx = -0.55; legRx = -0.55; legLz = 0.75 + s * 0.08; legRz = -0.75 + s * 0.08;
+    armLs = 2.4 + sin(t * 7.0) * 0.25; armRs = 2.2 + sin(t * 6.0 + 1.3) * 0.3; armLx = -0.2; armRx = -0.2;
+    torZ = s * 0.06; hdZ = -s * 0.1; hdX = -0.15; bob = abs(s) * 0.02;
   } else { // perch: seated on a bench / log, feet planted, chatting
     legLx = -1.5; legRx = -1.5; bob = -0.02;
     armLx = -0.55 + sin(t * 1.1) * 0.05; armRx = -0.75 + sin(t * 1.7) * 0.12; armLs = 0.05; armRs = -0.05; torX = -0.06;
@@ -650,7 +679,8 @@ void crowdPose(inout vec3 p, inout vec3 n) {
     float drop = clamp((0.5 - q.y) / 0.3, 0.0, 1.0);
     float swing = (legLx + legRx) * 0.5;
     if (anim > 6.5 && anim < 7.5) swing = -0.9;
-    if (anim > 17.5) swing = -1.0;
+    if (anim > 17.5 && anim < 18.5) swing = -1.0;
+    if (anim > 18.5) swing = -0.5;
     q.z += -sin(swing) * drop * 0.22 + sin(t * 2.1 + ph * 9.0) * 0.012 * drop;
     q.y += (1.0 - cos(swing)) * drop * 0.06;
     q.xz *= 1.0 + flare * 0.12 * drop;
@@ -882,4 +912,12 @@ export function randomLook(rng: Rng, opts: { child?: boolean; palette: number[] 
     build: child ? 0.92 + rng.next() * 0.08 : 0.92 + rng.next() * 0.26,
     head: child ? 1.1 : 1,
   };
+}
+
+/**
+ * Lift for a child riding on a grown-up's shoulders (both CrowdSpec looks): the child's hips sit
+ * just above the grown-up's neck.
+ */
+export function shoulderLift(parent: NpcLook, child: NpcLook): number {
+  return 0.96 * 1.22 * parent.scale + 0.06 - 0.5 * 1.22 * child.scale;
 }
