@@ -101,14 +101,16 @@ export type SfxName = (typeof SFX_NAMES)[number];
 const TRIM: Record<string, number> = {
   harvest: 0.62, coin: 0.6, craft: 0.6, 'gift:love': 0.5, 'gift:like': 0.7, heart: 0.6, catch: 0.55, 'catch:perfect': 0.55,
   lantern: 0.62, hall: 0.45, treefall: 0.7, purchase: 0.75, ship: 0.8, bite: 0.8, sleep: 0.8, morning: 0.8,
-  swing: 3.6, 'axe:miss': 6, warp: 4.4, eat: 4, plant: 2.2, sword: 3.2, scythe: 3.4, weed: 1.4, splash: 1.8, water: 1.3,
+  swing: 3.6, 'axe:miss': 6, warp: 4.4, eat: 4, plant: 2.2, sword: 3.2, scythe: 3.4, weed: 2.4, splash: 1.8, water: 1.3,
   'ui:select': 1.6, 'ui:toggle': 1.6, giant: 0.7, reel: 1.4, crow: 1.2,
+  // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
+  'ui:click': 1.8, 'ui:tick': 1.8,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
   rockbreak: 0.72, hoe: 0.85,
   // Round 3 additions, levelled from the reel (median momentary max ≈ -21 LUFS): level-up / chest sit
   // with the rewards (~-15), emotes and chat around the small foley (~-20 … -26).
-  levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 4.5, chat: 2,
-  'emote:question': 3, 'emote:sweat': 3.5, 'emote:anger': 2, 'emote:sad': 2.2, 'emote:zzz': 2.5, 'emote:dots': 4, 'emote:music': 0.7,
+  levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 6, chat: 2,
+  'emote:question': 3, 'emote:sweat': 3.5, 'emote:anger': 2, 'emote:sad': 2.2, 'emote:zzz': 1.2, 'emote:dots': 4, 'emote:music': 0.7,
 };
 
 const LONG_SFX = new Set(['treefall', 'hall', 'lantern', 'catch', 'catch:perfect', 'sleep', 'thunder', 'giant', 'gift:love', 'levelup', 'join', 'chest']);
