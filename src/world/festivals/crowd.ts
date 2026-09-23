@@ -752,13 +752,29 @@ export class Crowd {
     if (speed !== undefined) m.speed = speed;
   }
 
+  /** Upload member state (runs every frame on animated maps: no allocations). */
   commit(): void {
     const W = this.tex.image.width;
-    this.members.forEach((m, i) => {
-      this.data.set([m.x, m.y, m.z, m.yaw], i * 4);
-      this.data.set([m.anim, m.phase, m.speed, m.scale], (W + i) * 4);
-      this.data.set([m.squash, m.lean, m.flare, 0], (2 * W + i) * 4);
-    });
+    const d = this.data;
+    const ms = this.members;
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i]!;
+      let o = i * 4;
+      d[o] = m.x;
+      d[o + 1] = m.y;
+      d[o + 2] = m.z;
+      d[o + 3] = m.yaw;
+      o = (W + i) * 4;
+      d[o] = m.anim;
+      d[o + 1] = m.phase;
+      d[o + 2] = m.speed;
+      d[o + 3] = m.scale;
+      o = (2 * W + i) * 4;
+      d[o] = m.squash;
+      d[o + 1] = m.lean;
+      d[o + 2] = m.flare;
+      d[o + 3] = 0;
+    }
     this.tex.needsUpdate = true;
   }
 

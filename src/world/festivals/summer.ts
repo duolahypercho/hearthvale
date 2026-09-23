@@ -29,6 +29,9 @@ import { swashPhase, WAVE_PERIOD } from '../beach/ocean';
 import { MeshBuilder, roundedBox, mat } from '../geom';
 import { randomLook, type CrowdSpec } from './crowd';
 
+/** Per-frame scratch (no allocations in tick). */
+const _glow = new THREE.Vector3();
+
 const PIER = { x: 41.5, z0: 21.2, len: 17.5, deckY: 0.78, w: 2.4 };
 const ARCH = { x: 31.5, z: 19.6 };
 const FIRE = { x: 21.5, z: 27.2 };
@@ -474,7 +477,7 @@ export class SummerLanterns extends FestivalMap {
       b.g.position.set(b.x + Math.sin(t * 0.13 + b.seed) * 0.3, y - 0.14, b.z);
       b.g.rotation.set(Math.sin(t * 0.9 + b.seed) * 0.04, b.rot + Math.sin(t * 0.2 + b.seed) * 0.08, Math.sin(t * 1.2 + b.seed * 2) * 0.05);
       b.g.updateMatrixWorld();
-      const gp = b.glow.clone().applyMatrix4(b.g.matrixWorld);
+      const gp = _glow.copy(b.glow).applyMatrix4(b.g.matrixWorld);
       this.boatGlow.set(k, gp.x, gp.y, gp.z, 1.0);
       this.sea.setPool(this.poolK + k, gp.x, gp.z, 1.6, 1.1);
     });

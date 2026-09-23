@@ -16,6 +16,12 @@
  *  - Events for other teams: 'festival:start' / 'festival:end' (+ 'festival:music' mood hints
  *    for the audio system), 'festival:minigame' results.
  *  - Service `festivals`: today(), active(), enter(id), mapFor(id), play(activity).
+ *  - Co-op (host-authoritative, net-layer agnostic): every finished mini-game emits
+ *    'festival:score' (player 'local' = this browser; the net layer stamps its peer id and relays it);
+ *    peers feed relayed scores back through `record()`. Today's per-activity board ranks every
+ *    farmer who played and is shown on the result card whenever more than one farmer has a score.
+ *    `snapshot()` / `applySnapshot()` hand the festival day's state (done activities + boards) to a
+ *    joining client. `&coop=1` (demos) seeds two visiting farmers so the board can be staged.
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
@@ -38,6 +44,32 @@ export interface FestivalApi {
   mapFor(id: FestivalId): string;
   /** Start a festival mini-game (must be on its grounds). */
   play(activity: ActivityId): Promise<void>;
+  /** Today's co-op board for an activity, best first. */
+  board(activity: ActivityId): FestivalScore[];
+  /** Add / update a farmer's score (net layer: a relayed 'festival:score' from a peer). */
+  record(activity: ActivityId, entry: FestivalScore): void;
+  /** Festival-day state for a joining co-op client. */
+  snapshot(): FestivalSnapshot;
+  applySnapshot(s: FestivalSnapshot): void;
+}
+
+/** One farmer's result in a festival mini-game (co-op board row). */
+export interface FestivalScore {
+  /** 'local' = this browser's farmer; otherwise the net layer's peer id. */
+  player: string;
+  name: string;
+  score: number;
+  /** 0 = 1st .. ; ≥ 3 = no ribbon. */
+  place: number;
+  /** CSS colour of the farmer's name tag (co-op customisation), optional. */
+  color?: string;
+}
+
+export interface FestivalSnapshot {
+  /** Calendar key `year:season:day` the state belongs to. */
+  day: string;
+  done: string[];
+  boards: Partial<Record<ActivityId, FestivalScore[]>>;
 }
 
 declare module '../core/game' {
@@ -53,6 +85,8 @@ declare module '../core/events' {
     /** Mood hint for the music system: tempo (bpm), mode, timbre. */
     'festival:music': { id: string; tempo: number; mode: string; timbre: string; intensity: number };
     'festival:minigame': { id: string; game: string; score: number; won: boolean };
+    /** A farmer's mini-game result — the co-op relay payload (see FestivalApi.record). */
+    'festival:score': { id: string; game: string; player: string; name: string; score: number; place: number };
   }
 }
 
@@ -77,6 +111,8 @@ export class FestivalSystem implements System {
   /** Activities ever won (1st place) — the dance offers its fast encore chart after a win. */
   private wins = new Set<ActivityId>();
   private lineIx = new Map<string, number>();
+  /** Co-op boards for today, keyed by dayKey(activity). */
+  private boards = new Map<string, FestivalScore[]>();
 
   init(game: Game): void {
     this.game = game;
@@ -91,6 +127,10 @@ export class FestivalSystem implements System {
       enter: (id) => this.enter(id),
       mapFor: (id) => FESTIVALS[id].map,
       play: (a) => this.runActivity(a, false),
+      board: (a) => this.board(a),
+      record: (a, e) => this.record(a, e),
+      snapshot: () => this.snapshot(),
+      applySnapshot: (snap) => this.applySnapshot(snap),
     });
     // `openUI('festival:<activity>')` — critics / demos stage a mini-game directly.
     game.hud.registerPanel('festival', {
@@ -140,6 +180,50 @@ export class FestivalSystem implements System {
         void this.enter(f.id);
       }
     });
+  }
+
+  // ───────────────────────────────────────────── co-op board
+
+  private calKey(): string {
+    const c = this.game.calendar;
+    return `${c.year}:${c.season}:${c.day}`;
+  }
+
+  private board(a: ActivityId): FestivalScore[] {
+    return [...(this.boards.get(this.dayKey(a)) ?? [])].sort((x, y) => x.place - y.place || y.score - x.score);
+  }
+
+  private record(a: ActivityId, e: FestivalScore): void {
+    if (!ACTIVITIES[a]) return;
+    const k = this.dayKey(a);
+    const list = (this.boards.get(k) ?? []).filter((r) => r.player !== e.player);
+    list.push({ ...e });
+    this.boards.set(k, list);
+    // Only today's boards are kept (a festival is one day).
+    const day = this.calKey() + ':';
+    for (const key of this.boards.keys()) if (!key.startsWith(day)) this.boards.delete(key);
+  }
+
+  private snapshot(): FestivalSnapshot {
+    const day = this.calKey();
+    const boards: FestivalSnapshot['boards'] = {};
+    for (const [k, v] of this.boards) if (k.startsWith(day + ':')) boards[k.slice(day.length + 1) as ActivityId] = v.map((e) => ({ ...e }));
+    return { day, done: [...this.done].filter((k) => k.startsWith(day + ':')), boards };
+  }
+
+  private applySnapshot(snap: FestivalSnapshot): void {
+    if (!snap || snap.day !== this.calKey()) return;
+    for (const k of snap.done) this.done.add(k);
+    for (const [a, list] of Object.entries(snap.boards) as [ActivityId, FestivalScore[]][]) for (const e of list ?? []) if (e.player !== 'local') this.record(a, e);
+  }
+
+  /** `&coop=1` staging (attract mode only): two visiting farmers who played just behind you. */
+  private demoPeers(auto: boolean, score: number, place: number): FestivalScore[] {
+    if (!auto || !new URLSearchParams(location.search).has('coop')) return [];
+    return [
+      { player: 'peer:juniper', name: 'Juniper', score: Math.round(score * 0.91), place: Math.min(3, place + 1), color: '#5aa0d8' },
+      { player: 'peer:rowan', name: 'Rowan', score: Math.round(score * 0.74), place: Math.min(3, place + 2), color: '#d8785a' },
+    ];
   }
 
   private map(): FestivalMap | null {
@@ -272,7 +356,21 @@ export class FestivalSystem implements System {
     const play = map.beginPlay(a, partner);
     let result: Awaited<ReturnType<FestivalOverlay['run']>> = null;
     try {
-      result = await this.overlay.run({ game, map, play, def, festival: fest, auto, hard: a === 'dance' && this.wins.has('dance') });
+      result = await this.overlay.run({
+        game,
+        map,
+        play,
+        def,
+        festival: fest,
+        auto,
+        hard: a === 'dance' && this.wins.has('dance'),
+        // The result card ranks every farmer who played today (co-op); your row is folded in live.
+        board: (r) => {
+          const you: FestivalScore = { player: 'local', name: 'You', score: r.score, place: r.noRibbon ? 3 : r.place };
+          const rows = [...this.board(a).filter((e) => e.player !== 'local'), ...this.demoPeers(auto, you.score, you.place), you];
+          return rows.sort((x, y) => x.place - y.place || y.score - x.score);
+        },
+      });
     } finally {
       map.endPlay(result ?? {});
       game.player.controllable = true;
@@ -287,6 +385,11 @@ export class FestivalSystem implements System {
     if (result.gold) game.services.economy?.add(result.gold, `festival:${a}`);
     for (const h of result.hearts ?? []) game.services.relationships?.adjust(h.id, h.delta);
     game.events.emit('festival:minigame', { id: fest.id, game: a, score: result.score, won: result.place === 0 && !result.noRibbon });
+    if (!result.reaction) {
+      const me: FestivalScore = { player: 'local', name: 'You', score: result.score, place: result.noRibbon ? 3 : result.place };
+      this.record(a, me);
+      game.events.emit('festival:score', { id: fest.id, game: a, player: me.player, name: me.name, score: me.score, place: me.place });
+    }
     if (result.gold) game.events.emit('ui:toast', { text: `<b>+${result.gold}g</b> ${def.name} ${result.noRibbon ? 'consolation' : 'prize'}`, kind: 'gold' });
     const thanks: Partial<Record<ActivityId, string[]>> = {
       dance: ['[laugh] Now THAT is how the ribbons are meant to weave!', '[happy] Lovely footwork, dear. The pole approves.', '[happy] You went the wrong way twice. So did your gran. Perfect.'],

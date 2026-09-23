@@ -30,6 +30,9 @@ import { MeshBuilder, bevelCylinder, mat, lumpySphere } from '../geom';
 import { materials } from '../../render/materials';
 import { Rng } from '../../core/rng';
 
+/** Per-frame scratch (no allocations in tick). */
+const _dust = new THREE.Vector3();
+
 const TREE = { x: 32, z: 19.5 };
 const PLAZA_R = 7.6;
 const ICE_Y = -0.18;
@@ -778,7 +781,7 @@ export class StarfallSquare extends FestivalMap {
     const t = game.time;
     const h = game.rc.renderer.domElement.height;
     this.snow.update(game.rc.rig.focus, h);
-    this.stardust.update(new THREE.Vector3(TREE.x, this.H(TREE.x, TREE.z) + 1, TREE.z + 2), h);
+    this.stardust.update(_dust.set(TREE.x, this.H(TREE.x, TREE.z) + 1, TREE.z + 2), h);
     this.starLight.intensity *= 0.85 + 0.15 * Math.sin(t * 2.1);
     const crowd = this.crowd;
     if (!crowd) return;

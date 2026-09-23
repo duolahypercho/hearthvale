@@ -33,6 +33,17 @@ export interface GameEnv {
   auto: boolean;
   /** Encore: you have won this before — the harder variant (dance: the fast chart). */
   hard?: boolean;
+  /** Co-op: today's board for this activity with your result folded in (shown when > 1 farmer). */
+  board?: (r: GameResult) => BoardRow[];
+}
+
+/** A row of the co-op festival board (mirrors systems/festivals FestivalScore). */
+export interface BoardRow {
+  player: string;
+  name: string;
+  score: number;
+  place: number;
+  color?: string;
 }
 
 export interface GameResult {
@@ -235,6 +246,13 @@ const CSS = /* css */ `
 .fg-go { margin-top: 16px; display: inline-flex; align-items: center; gap: 10px; padding: 8px 24px; border-radius: 14px; cursor: pointer; font-family: var(--font-head); font-weight: 700; font-size: 20px; color: #fff;
   background: linear-gradient(180deg, #8fd05a, #4f9a34); border: 2px solid #24521a; box-shadow: 0 4px 0 #24521a, inset 0 2px 0 #c8f0a0; text-shadow: 0 2px 0 #24521a; }
 .fg-go kbd { font-family: var(--font-head); font-size: 13px; padding: 1px 7px; border-radius: 6px; background: rgba(0,0,0,.2); }
+.fg-board { margin: 14px auto 0; max-width: 380px; text-align: left; border-radius: 12px; padding: 6px 8px; background: rgba(120, 70, 30, .08); box-shadow: inset 0 0 0 2px rgba(150, 100, 50, .18); }
+.fg-board .h { font-family: var(--font-head); font-weight: 700; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-soft); text-align: center; margin: 2px 0 4px; }
+.fg-board .r { display: grid; grid-template-columns: 30px 14px 1fr auto; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 9px; font-weight: 800; font-size: 17px; animation: fgIn 360ms var(--ease-back) both; }
+.fg-board .r.me { background: rgba(255, 244, 214, .95); box-shadow: 0 0 0 2px #e8b64a; }
+.fg-board .r .pl { font-family: var(--font-head); font-weight: 700; font-size: 18px; color: #8a5a10; text-align: center; }
+.fg-board .r .dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 1px 0 rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.5); }
+.fg-board .r .sc { font-family: var(--font-head); font-weight: 700; color: var(--ink); }
 .fg-confetti { position: absolute; width: 10px; height: 14px; border-radius: 2px; pointer-events: none; animation: fgConf 1600ms cubic-bezier(.2,.7,.4,1) forwards; }
 @keyframes fgConf { from { transform: translate(0, 0) rotate(0); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) rotate(var(--r)); opacity: 0; } }
 `;
@@ -533,7 +551,15 @@ export class FestivalOverlay {
       if (n && h.delta > 0) chips.push(`<div class="fg-chip heart"><span class="ci">${portraitSvg(n.look, n.portraitBg, 'happy')}</span>${shortName(n.name)} · ${friendWord(h.delta)}</div>`);
     }
     const art = r.reaction ? `<div class="burst">${heartSvg(r.reaction)}</div><div class="tier" style="background:${REACTION[r.reaction].c}">${REACTION[r.reaction].label}</div>` : r.noRibbon ? `<div class="burst">${LAUGH_SVG}</div>` : `<div class="ros">${rosetteSvg(r.place)}</div>`;
-    const card = div('fg-panel fg-result fg-live', `<div class="in">${art}<h2>${r.title}</h2><div class="sub">${r.sub}</div><div class="fg-chips">${chips.join('')}</div><div class="fg-go">Continue <kbd>Space</kbd></div></div>`);
+    const rows = !r.reaction && env.board ? env.board(r) : [];
+    const PLACE = ['1st', '2nd', '3rd'];
+    const board =
+      rows.length > 1
+        ? `<div class="fg-board"><div class="h">Farmers today</div>${rows
+            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="animation-delay:${200 + i * 90}ms"><span class="pl">${PLACE[e.place] ?? '—'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${escapeHtml(e.name)}</span><span class="sc">${e.score}</span></div>`)
+            .join('')}</div>`
+        : '';
+    const card = div('fg-panel fg-result fg-live', `<div class="in">${art}<h2>${r.title}</h2><div class="sub">${r.sub}</div><div class="fg-chips">${chips.join('')}</div>${board}<div class="fg-go">Continue <kbd>Space</kbd></div></div>`);
     root.append(card);
     const big = r.reaction ? r.reaction === 'love' : !r.noRibbon && r.place === 0;
     if (!r.noRibbon && r.reaction !== 'dislike') this.confetti(root, r.reaction ? [0xff5a7a, 0xffa0b8, 0xffffff, 0xf2d27a] : env.festival.colors, big ? 70 : 36);
@@ -1280,4 +1306,8 @@ function friendWord(delta: number): string {
 
 function stripTags(s: string): string {
   return s.replace(/\[[a-z]+\]\s*/g, '');
+}
+
+function escapeHtml(t: string): string {
+  return t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }

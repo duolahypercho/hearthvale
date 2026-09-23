@@ -182,19 +182,22 @@ music-bus EQ + glue compressor / limiter, composer, synthesised instruments, amb
   per-bar figuration variants, a fill every 4th bar (bass pickup runs, anticipations), drum fills into the
   final A, a stop-time (or 3/4 "breath") bar before B, section crescendi, a key lift in the title theme.
   The day seed only varies figuration and humanisation, never the tune. Themes: spring (flute + kalimba),
-  summer (marimba + nylon guitar), fall (clarinet waltz + cello), winter (music box + celesta), town
-  (ocarina + pizzicato), beach (steel pan + ukulele), forest (dorian whistle + harp, 6/8), inn (swing
-  epiano, also the town square 17:30–20:00), night lullaby, rain lo-fi, mine / mine-ice / mine-lava
+  summer (marimba + nylon guitar, glockenspiel on the repeats), fall (clarinet waltz + cello), winter (music
+  box + celesta), town (ocarina + pizzicato), beach (steel pan + ukulele), forest (dorian whistle + harp, 6/8),
+  inn (swing vibraphone over Rhodes comp, also the town square 17:30–20:00), night lullaby, rain lo-fi, mine / mine-ice / mine-lava
   (by floor band), festival jig + four festival arrangements, title.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
-  (kalimba tine inharmonics + buzz + box body, marimba, music box case, celesta, hand bells, steel pan);
+  (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
+  vibraphone with motor tremolo, hand bells, steel pan);
   plucked strings are Karplus-Strong with body modes baked in; bowed strings are detuned Helmholtz
   oscillators with bow noise and velocity-following tilt through generated body IRs; the pad is a
   five-voice drifting string ensemble with formant EQ. Shared LFOs, a buffer cache and a polyphony budget
   (72 voices, texture tracks dropped first) keep the per-note cost low.
 - **Transitions** (`src/audio/music.ts`): never two keys at once — a mood change in the same place waits
   for the phrase to end, then fades ≤ 2.5 s; a change of place fades 1.4 s; the new song starts after.
-  The director's recent decisions are in `__game.info().audio.trace`.
+  The director's recent decisions are in `__game.info().audio.trace`. Songs are composed in a Web Worker
+  (`src/audio/compose.worker.ts` via `prefetch.ts`) while the previous one fades / the score rests, so a
+  song start never costs a frame (`__game.info().audio.compose` counts worker hits vs main-thread misses).
 - **In game**: a "now playing" card (`src/audio/nowplaying.ts`) engraves the first two bars of the new
   tune on a staff; the morning chime quotes the tune about to play, the first day of a season its hook.
 - Hear it: `?demo=audio&theme=<id>` (`&theme=none` for ambience only, `&sfx=<name>` repeats an SFX every 2.5 s,
@@ -202,11 +205,18 @@ music-bus EQ + glue compressor / limiter, composer, synthesised instruments, amb
   `&card=0` hides it). Any demo plays its own music after a click.
 - From code: `game.services.audio.play('coin')`, `.music('festival' | null | 'none')`, `.state()`, `.meter()`;
   cutscenes use `{ do: 'cue', cue: 'music' | 'sfx', arg }`. `__game.info().audio` shows the live state.
+- **Co-op / positional**: `audio.playAt(name, x, z, { map? })` pans along the camera's screen axis and fades
+  with distance from the local farmer (inaudible sounds cost nothing), `audio.stepAt(x, z, { run? })` voices a
+  remote farmer's footfall on the tile's surface, `audio.say(id, text, x?, z?)` speaks a chat line in
+  sim-speak with a stable voice per id; SFX `join` / `leave` / `chat` and `emote:<kind>` exist for the net
+  layer. `tool:impact` and `crop:harvested` are already placed at their tile, so a partner's replayed
+  intents pan and fade by themselves. Hear it with `?demo=audio&coop=1` (a phantom partner circles you,
+  stepping, hoeing, emoting and chatting).
 - Judge it without speakers: `node scripts/audio-render.mjs` renders every theme (30 s), theme+ambience mixes,
   ambience presets, the SFX reel and three live-director handoffs (`transition-*.wav`, checked for overlap)
   through the real mixer with `OfflineAudioContext` into `shots/audio/*.wav` (+ piano-roll/spectrogram PNGs)
   and prints loudness (LUFS), true peak, clipping, silence, spectral centroid and band balance with flags
-  (day themes fail as `DULL` under 12 % presence + air). `--describe <theme>` dumps the melody,
+  (day themes fail as `DULL` under 7 % presence + air and are reported `mellow` under 12 %; see the calibration note in the script). `--describe <theme>` dumps the melody,
   `--stems --only <ids>` solos every track, `--live` boots the game and checks theme-per-scene, audible
   output, 20 beach⇄mine handoffs, the audio-node creation rate and SFX end to end.
 
@@ -323,3 +333,24 @@ Wanted notes are pinned to the board in the square.
   `bundle-ui` (or `ui=bundles:<room>`), `journal` (`ui=journal:quests|hall|letters`), `help-board`, `glimmer-kiosk`,
   `glimmer-survey`, `glimmer-marigold`, `glimmer-offer` (the choice), `glimmer-accept`, `glimmer-town`,
   `lantern-hall-glimmer`, `sterling-redeem`, `lantern-festival`, `lantern-festival-sky`. `&lit=N` sets rooms lit.
+
+## Seasonal festivals
+
+Four festival days, each a transformed map built lazily on first visit (`world/festivals/*`, system
+`systems/festivals.ts`, data `data/festivals.ts`): **Blossom Parade** (spring: flower floats along the avenue, petal
+storm, blossom-pole ribbon dance with a partner you choose), **Tide Lantern Night** (summer: lanterns on the bay,
+fireworks over the water, bioluminescent surf + plankton drifts, boat wake rings), **Harvest Fair** (fall: stalls,
+giant-produce judging with rosettes, sack race on a limed lane, corn maze), **Starfall** (winter: snowbound square,
+the Great Fir, frozen-river skating under lantern reflections, gift circle, aurora). One GPU-posed crowd mesh per map
+(festival outfits, 19 clips), one-draw fx (petals, lanterns, fireworks, snow, aurora).
+
+- Mini-games (`world/festivals/games.ts`): Ribbon Dance, Lantern Release, Sack Race, Produce Judging, Gift Exchange,
+  Starlight Skate. `openUI('festival:<activity>')` starts one on its map; while paused (demos) it plays itself.
+- Events: `festival:start` / `festival:end`, `festival:music` (tempo / mode / timbre hints), `festival:minigame`,
+  `festival:score` (co-op relay payload).
+- Co-op: `festivals.record(activity, score)` takes a peer's relayed `festival:score` (player `'local'` = this browser;
+  the net layer stamps its peer id); the result card ranks every farmer who played today once more than one has a
+  score. `festivals.snapshot()` / `applySnapshot()` hand the festival day (done activities + boards) to a joiner.
+- Demos: `fest-spring`, `fest-summer`, `fest-fall`, `fest-winter`, `fest-winter-night`, and the mini-games
+  `fest-spring-dance`, `fest-summer-lanterns`, `fest-fall-race`, `fest-fall-judging`, `fest-winter-gifts`,
+  `fest-winter-skate`. `&result=1` ends on the result card; `&coop=1` adds two visiting farmers to its board.

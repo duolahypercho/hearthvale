@@ -28,6 +28,9 @@ import { patchMaterial, after, before } from '../../render/patch';
 import { randomLook, type CrowdSpec } from './crowd';
 import { Rng } from '../../core/rng';
 
+/** Per-frame scratch (no allocations in tick). */
+const _rider = new THREE.Vector3();
+
 const AVENUE: [number, number][] = [[-16, 22.6], [-2, 22.2], [10, 21.2], [22, 20.6], [32, 21.0], [42, 21.5], [54, 20.8], [66, 21.2], [82, 21.8]];
 const GREEN = { x: 32, z: 31.2, r: 5.6 };
 const POLE_R = 3.4;
@@ -485,7 +488,7 @@ export class SpringParade extends FestivalMap {
       f.group.rotation.set(Math.sin(t * 2.3 + f.s * 9) * 0.012, yaw, Math.sin(t * 1.7 + f.s * 7) * 0.01);
       f.group.updateMatrixWorld(true);
       if (crowd && f.rider !== undefined && f.riderLocal) {
-        const w = f.riderLocal.clone().applyMatrix4(f.group.matrixWorld);
+        const w = _rider.copy(f.riderLocal).applyMatrix4(f.group.matrixWorld);
         const m = crowd.members[f.rider]!;
         m.x = w.x;
         m.z = w.z;

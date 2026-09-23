@@ -15,6 +15,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Rng } from '../../core/rng';
 import { MeshBuilder, roundedBox, bevelCylinder, boxUV, mat, lumpySphere, sphericalNormals, uvScale, groundAO, prep } from '../geom';
 import { materials } from '../../render/materials';
+import { textures } from '../../render/textures';
 import { applyWorldFx } from '../../render/worldfx';
 import { applyWind, windDepthMaterial } from '../../render/wind';
 import { patchMaterial, after, before } from '../../render/patch';
@@ -1034,7 +1035,12 @@ function bannerMaterial(text: string, bg: string, fg: string, w = 1024, h = 192)
   g.setLineDash([18, 12]);
   g.lineWidth = 3;
   g.strokeRect(28, 28, w - 56, h - 56);
-  g.font = `700 ${Math.round(h * 0.46)}px Fredoka, Nunito, "Trebuchet MS", sans-serif`;
+  // Fit the lettering inside the dashed border (the web font may not be loaded yet, so measure
+  // with whatever face is live and shrink until it fits).
+  let px = Math.round(h * 0.46);
+  const face = (s: number): string => `700 ${s}px Fredoka, Nunito, "Trebuchet MS", sans-serif`;
+  g.font = face(px);
+  while (px > 12 && g.measureText(text).width > w - 96) g.font = face((px -= 2));
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillStyle = 'rgba(0,0,0,0.25)';
@@ -1561,25 +1567,94 @@ export function buildIceSculpture(rng: Rng, kind: 'swan' | 'star' | 'deer'): THR
 export function buildBridge(rng: Rng, span: number, width = 2.2, deckY = 0.9): THREE.Group {
   const b = new MeshBuilder();
   const n = 16;
+  const yAt = (x: number): number => deckY + Math.sin(((x + span / 2) / span) * Math.PI) * 0.5;
+  const PH = 0.58;
   for (let i = 0; i < n; i++) {
     const t0 = i / n;
     const t1 = (i + 1) / n;
     const x0 = -span / 2 + t0 * span;
     const x1 = -span / 2 + t1 * span;
-    const y0 = deckY + Math.sin(t0 * Math.PI) * 0.5;
-    const y1 = deckY + Math.sin(t1 * Math.PI) * 0.5;
+    const y0 = yAt(x0);
+    const y1 = yAt(x1);
     const len = Math.hypot(x1 - x0, y1 - y0);
     const ang = Math.atan2(y1 - y0, x1 - x0);
-    b.add('stone', boxUV(roundedBox(len + 0.05, 0.3, width, 0.05), 1), mat((x0 + x1) / 2, (y0 + y1) / 2 - 0.15, 0, 0, 0, ang), { tint: 0xc8c0b2 });
-    for (const sz of [-1, 1]) b.add('stone', boxUV(roundedBox(len + 0.05, 0.45, 0.22, 0.05), 1), mat((x0 + x1) / 2, (y0 + y1) / 2 + 0.22, sz * (width / 2 - 0.11), 0, 0, ang), { tint: 0xb8b0a2 });
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    b.add('stone', boxUV(roundedBox(len + 0.05, 0.3, width, 0.05), 1), mat(cx, cy - 0.15, 0, 0, 0, ang), { tint: 0xc8c0b2 });
+    // The trodden lane: feet have worn the snow off the middle of the deck (dark, damp setts).
+    b.add(troddenStone(), boxUV(roundedBox(len + 0.06, 0.04, width - 0.78 + (rng.next() - 0.5) * 0.12, 0.02), 1.6), mat(cx, cy + 0.005, (rng.next() - 0.5) * 0.06, 0, 0, ang), { tint: 0xd2cabc });
+    for (const sz of [-1, 1]) {
+      const z = sz * (width / 2 - 0.12);
+      b.add('stone', boxUV(roundedBox(len + 0.05, PH, 0.24, 0.05), 1), mat(cx, cy + PH / 2 - 0.02, z, 0, 0, ang), { tint: 0x938b7e, aoWorld: (q) => 0.72 + 0.28 * THREE.MathUtils.smoothstep(q.y, cy - 0.05, cy + PH) });
+      // Snow cap on the coping: a soft uneven roll, a touch wider than the wall.
+      const cap = lumpySphere(0.5, 1, 0.25, rng, 3);
+      cap.scale((len + 0.1) / 1.0, (0.13 + rng.next() * 0.05) / 1.0, 0.34);
+      b.add('white', cap, mat(cx, cy + PH - 0.02, z, 0, 0, ang), { tint: 0xf2f6fc, aoWorld: (_q, nn) => (nn.y < 0 ? 0.8 : 1) });
+    }
   }
   // Arch underside.
   const arch = new THREE.TorusGeometry(span * 0.36, 0.35, 6, 20, Math.PI);
   arch.scale(1, 0.55, 1);
   for (const sz of [-1, 1]) b.add('stone', boxUV(arch.clone(), 1), mat(0, deckY - 0.9, sz * (width / 2 - 0.3), 0, 0, 0, 1, 1, 1), { tint: 0xa8a092 });
   for (const sx of [-1, 1]) b.add('stone', boxUV(roundedBox(1.2, deckY + 0.6, width + 0.2, 0.08), 1), mat(sx * (span / 2 + 0.3), (deckY + 0.6) / 2 - 0.6, 0), { tint: 0xb8b0a2 });
-  void rng;
+  // Newel posts at the four corners, each with a snow puff.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const x = sx * (span / 2 - 0.05);
+      const z = sz * (width / 2 - 0.12);
+      const y = yAt(x);
+      b.add('stone', boxUV(roundedBox(0.42, 0.95, 0.42, 0.06), 1), mat(x, y + 0.45, z), { tint: 0x8a8276, aoWorld: groundAO(0.4) });
+      b.add('stone', roundedBox(0.5, 0.08, 0.5, 0.03), mat(x, y + 0.95, z), { tint: 0xa49c8e });
+      const puff = lumpySphere(0.27, 1, 0.3, rng, 2.5);
+      puff.scale(1, 0.5, 1);
+      b.add('white', puff, mat(x, y + 1.02, z), { tint: 0xf4f7fc });
+    }
+  }
+  // Evergreen garland swagged along the outside of both parapets, red bows at each hitch.
+  const hitches = 4;
+  const bead = (x: number, y: number, z: number, r: number, tint: number): void => {
+    b.add('boxFlower', lumpySphere(r, 1, 0.35, rng, 3), mat(x, y, z), { tint, aoWorld: (_q, nn) => (nn.y < -0.2 ? 0.7 : 1) });
+  };
+  for (const sz of [-1, 1]) {
+    const z = sz * (width / 2 + 0.02);
+    for (let k = 0; k < hitches - 1; k++) {
+      const xa = -span / 2 + 0.25 + (k / (hitches - 1)) * (span - 0.5);
+      const xb = -span / 2 + 0.25 + ((k + 1) / (hitches - 1)) * (span - 0.5);
+      const a = new THREE.Vector3(xa, yAt(xa) + PH - 0.08, z);
+      const c = new THREE.Vector3(xb, yAt(xb) + PH - 0.08, z);
+      const m = Math.ceil(a.distanceTo(c) / 0.1);
+      const q = new THREE.Vector3();
+      for (let i = 0; i <= m; i++) {
+        catenary(a, c, 0.2, i / m, q);
+        bead(q.x, q.y, q.z + sz * 0.03, 0.075 + rng.next() * 0.03, [0x2a5436, 0x2f5f3c, 0x365f3a][Math.floor(rng.next() * 3)]!);
+      }
+    }
+    for (let k = 0; k < hitches; k++) {
+      const x = -span / 2 + 0.25 + (k / (hitches - 1)) * (span - 0.5);
+      const y = yAt(x) + PH - 0.08;
+      // Bow: two loops + two tails.
+      for (const s of [-1, 1]) {
+        const loop = new THREE.TorusGeometry(0.07, 0.028, 5, 10);
+        loop.scale(1.2, 0.8, 0.6);
+        b.add('cloth', loop, mat(x + s * 0.08, y + 0.02, z + sz * 0.07, 0, 0, s * 0.35), { tint: 0xc8282a });
+        b.add('cloth', roundedBox(0.05, 0.2, 0.02, 0.01), mat(x + s * 0.05, y - 0.11, z + sz * 0.07, 0, 0, s * 0.3), { tint: 0xb02024 });
+      }
+      b.add('cloth', roundedBox(0.06, 0.06, 0.05, 0.02), mat(x, y + 0.02, z + sz * 0.08), { tint: 0xd8302e });
+    }
+  }
   return b.build({ name: 'bridge' });
+}
+
+let _trodden: THREE.MeshStandardMaterial | null = null;
+/** Bare, damp setts where the snow has been walked off (no snow cover, darker, glossier). */
+function troddenStone(): THREE.MeshStandardMaterial {
+  if (_trodden) return _trodden;
+  const t = textures.stone();
+  const m = new THREE.MeshStandardMaterial({ map: t.map, bumpMap: t.bump, bumpScale: 3, roughness: 0.55, vertexColors: true });
+  m.name = 'trodden-stone';
+  applyWorldFx(m, { snow: false });
+  _trodden = m;
+  return m;
 }
 
 /** Cocoa stand: a little wooden hut-counter with a kettle, mugs, and a painted sign. */
