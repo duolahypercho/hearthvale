@@ -168,7 +168,7 @@ export class MapScreen extends Screen {
       g.setAttribute('data-nav', '');
       g.setAttribute('data-noclick', '1');
       const html = `<div class="t-in"><div class="t-name">${escapeHtml(p.name)}</div><span class="t-cat" style="background:${p.id === here ? '#d9623e' : '#6a8a3a'}">${p.id === here ? 'You are here' : 'Location'}</span><div class="t-desc">${escapeHtml(p.blurb)}</div></div>`;
-      g.addEventListener('pointerenter', () => tooltip.show(html));
+      g.addEventListener('pointerenter', (ev) => tooltip.show(html, ev));
       g.addEventListener('pointerleave', () => tooltip.hide());
       g.addEventListener('u-focus', () => tooltip.anchor(html, g));
     });
@@ -176,7 +176,7 @@ export class MapScreen extends Screen {
       const n = NPCS[g.dataset.npc as NpcId];
       if (!n) return;
       const html = `<div class="t-in"><div class="t-name">${escapeHtml(n.name)}</div><span class="t-cat" style="background:#6a8a3a">Villager</span><div class="t-desc">${escapeHtml(n.role)}</div></div>`;
-      g.addEventListener('pointerenter', () => tooltip.show(html));
+      g.addEventListener('pointerenter', (ev) => tooltip.show(html, ev));
       g.addEventListener('pointerleave', () => tooltip.hide());
     });
   }

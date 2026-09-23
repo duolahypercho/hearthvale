@@ -24,7 +24,7 @@ export class IconSheetScreen extends Screen {
         const c = el('div', 'ic-cell', `<div class="u-slot">${itemIcon(d.id)}</div><span>${escapeHtml(d.name)}</span>`);
         c.dataset.nav = '';
         c.style.setProperty('--c', itemCategory(d.id).color);
-        c.addEventListener('pointerenter', () => tooltip.show(itemTooltipHtml({ id: d.id, qty: 1 })));
+        c.addEventListener('pointerenter', (ev) => tooltip.show(itemTooltipHtml({ id: d.id, qty: 1 }), ev));
         c.addEventListener('pointerleave', () => tooltip.hide());
         grid.appendChild(c);
       }

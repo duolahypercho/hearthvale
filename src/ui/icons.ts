@@ -1527,6 +1527,18 @@ export const ICONS: Record<string, string> = {
   quill: g24(`<path d="M20.5 3.5 C13 4.5 8 10 6.5 17.5 C12 15 17.5 10.5 20.5 3.5 Z" fill="#fbf0d6" stroke="#5a3a1e" stroke-width="1.3"/><path d="M6.5 17.5 L3.5 21 M9 14 C12 11 15 8 18 5.5" stroke="#5a3a1e" stroke-width="1.2"/>`),
   question: g24(`<circle cx="12" cy="12" r="9.5" fill="#f3e2bc" stroke="#5a3a1e" stroke-width="1.4"/><path d="M9 9.2 C9 6.8 15 6.5 15 9.5 C15 11.5 12 11.8 12 14" fill="none" stroke="#5a3a1e" stroke-width="2"/><circle cx="12" cy="17.4" r="1.3" fill="#5a3a1e"/>`),
   x: g24(`<path d="M6 6 L18 18 M18 6 L6 18" stroke="#fff" stroke-width="3" />`),
+  speaker: g24(
+    `<path d="M3.5 9 H7.5 L12.5 4.8 V19.2 L7.5 15 H3.5 Z" fill="#e8b04a" stroke="#6a3c12" stroke-width="1.5"/><path d="M4.6 10.2 H7.6" stroke="#fff4c8" stroke-width="1.2" opacity=".8"/><path d="M15.4 9 C16.8 10.6 16.8 13.4 15.4 15" fill="none" stroke="#5a8ac8" stroke-width="1.8"/><path d="M17.8 6.6 C20.8 9.6 20.8 14.4 17.8 17.4" fill="none" stroke="#5a8ac8" stroke-width="1.8" opacity=".75"/>`,
+  ),
+  screen: g24(
+    `<rect x="2.6" y="4" width="18.8" height="12.6" rx="2.2" fill="#8ac0e8" stroke="#3a4a5a" stroke-width="1.5"/><path d="M3.8 13.2 C7 10.4 9.4 12.4 12 10.6 C14.8 8.6 17.4 10.2 20.2 9.4 V15.2 H3.8Z" fill="#6ab04a"/><circle cx="16.6" cy="7.4" r="1.6" fill="#ffe070"/><path d="M9 20 H15 M12 16.6 V20" stroke="#6a4a2a" stroke-width="1.8"/>`,
+  ),
+  people: g24(
+    `<circle cx="8.5" cy="8" r="3.4" fill="#f5c9a0" stroke="#5a3418" stroke-width="1.3"/><path d="M2.6 19.5 C3 14.6 5.6 13 8.5 13 C11.4 13 14 14.6 14.4 19.5Z" fill="#5f8a5c" stroke="#2f4a2c" stroke-width="1.3"/><circle cx="16.2" cy="9" r="3" fill="#e0a878" stroke="#5a3418" stroke-width="1.3"/><path d="M12.4 19.5 C12.8 15.4 14.4 14 16.2 14 C19 14 21 15.6 21.4 19.5Z" fill="#4b6c9e" stroke="#26375a" stroke-width="1.3"/>`,
+  ),
+  paw: g24(
+    `<ellipse cx="12" cy="15.6" rx="4.6" ry="3.8" fill="#c8864a" stroke="#5a3418" stroke-width="1.4"/><ellipse cx="6.4" cy="10.4" rx="1.9" ry="2.4" fill="#c8864a" stroke="#5a3418" stroke-width="1.3"/><ellipse cx="10" cy="6.8" rx="1.9" ry="2.5" fill="#c8864a" stroke="#5a3418" stroke-width="1.3"/><ellipse cx="14" cy="6.8" rx="1.9" ry="2.5" fill="#c8864a" stroke="#5a3418" stroke-width="1.3"/><ellipse cx="17.6" cy="10.4" rx="1.9" ry="2.4" fill="#c8864a" stroke="#5a3418" stroke-width="1.3"/>`,
+  ),
 };
 
 const HUD_KEYS = new Set(Object.keys(ICONS));

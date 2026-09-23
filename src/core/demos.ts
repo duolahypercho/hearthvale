@@ -204,4 +204,8 @@ export const DEMOS: Record<string, DemoDef> = {
   'ui-pause': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'pause' },
   'ui-saves': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'saves' },
   'ui-icons': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'icons' },
+  // Multiplayer pod (src/net, src/ui/coop*): three scripted farmhands on the host's farm (no server needed) — hoeing,
+  // watering, chatting — with cabins, name tags, emote bubbles and the roster; the lobby / character creator.
+  'coop-farm': { map: 'farm', x: 28.4, z: 25.8, facing: 'left', time: 9.4, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 23, offsetX: -3.4, offsetZ: -3.2 }, showcase: ['field', 'coop'] },
+  'coop-lobby': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
 };

@@ -9,6 +9,7 @@ import type { Game } from '../core/game';
 import { ICONS } from './icons';
 import { Screen, el, sfx, replay } from './kit';
 import { resetCamera } from './pause';
+import { journal } from './profile';
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
 
@@ -57,7 +58,7 @@ export class TitlePanel extends Screen {
         this.letter.classList.add('hv-hidden');
         this.letter.classList.remove('bye');
         this.game.input.enabled = true;
-        this.game.hud.banner("Rosalind's Farm", `${SEASON_NAME[this.game.calendar.season]} ${this.game.calendar.day} · Year ${this.game.calendar.year}`);
+        this.game.hud.banner(journal.farm, `${SEASON_NAME[this.game.calendar.season]} ${this.game.calendar.day} · Year ${this.game.calendar.year}`);
       }, 380);
     });
     window.addEventListener('keydown', (e) => {
@@ -114,6 +115,7 @@ export class TitlePanel extends Screen {
       ['new', 'New Game', 'sprout', 'Begin your story', true],
       ['continue', 'Continue', 'play', latest ? latest.label : 'No saved journal yet', !!latest],
       ['load', 'Load', 'door', 'Pick a journal', !!latest],
+      ['coop', 'Co-op', 'heart', 'Host or join a shared farm', true],
       ['settings', 'Options', 'gear', 'Sound · graphics · keys', true],
       ['credits', 'Credits', 'quill', 'Who made this', true],
     ];
@@ -155,6 +157,7 @@ export class TitlePanel extends Screen {
     }
     sfx(this.game, 'click');
     if (a === 'credits') return this.credits(true);
+    if (a === 'coop') return this.game.events.emit('ui:open', { name: 'coop:title' });
     if (a === 'settings') return this.game.events.emit('ui:open', { name: 'settings:title' });
     if (a === 'load') return this.game.events.emit('ui:open', { name: 'saves:load:title' });
     if (a === 'continue') {
@@ -171,20 +174,12 @@ export class TitlePanel extends Screen {
       });
       return;
     }
-    // New game: the story intro cutscene (Gran's letter → evening coach → the mayor → first night)
-    // when the story system is present; otherwise the plain letter below.
-    const story = this.game.services.story;
-    if (story) {
-      void this.game.hud.fade(true).then(() => {
-        this.game.events.emit('ui:open', { name: 'none' });
-        this.game.setPaused(false);
-        resetCamera(this.game);
-        story.newGame();
-        setTimeout(() => void this.game.hud.fade(false), 250);
-      });
-      return;
-    }
-    // New game: fade to dawn, place the farmer at the door, then Grandmother's letter.
+    // New Game: the New Journal screen (name, farm, look, pet, slot) — it then calls beginNewGame().
+    this.game.events.emit('ui:open', { name: 'newgame' });
+  }
+
+  /** Fallback intro without the story system: fade to dawn, farmer at the door, Grandmother's letter. */
+  private playLetter(): void {
     void this.game.hud.fade(true).then(() => {
       this.game.events.emit('ui:open', { name: 'none' });
       const map = this.game.world.current;
@@ -203,8 +198,16 @@ export class TitlePanel extends Screen {
   }
 
   override open(arg?: string): void {
+    if (arg === 'letter') {
+      // Opened by beginNewGame() when there is no story system: straight into Gran's letter.
+      this.game.events.emit('ui:open', { name: 'none' });
+      this.playLetter();
+      return;
+    }
     this.active = true;
     this.game.hud.root.classList.add('hv-title-mode');
+    // No tile cursor / tool targeting under the title (restored on close).
+    this.game.player.controllable = false;
     this.game.calendar.setHour(18.7);
     this.game.setPaused(true);
     const rig = this.game.rc.rig;
@@ -238,5 +241,25 @@ export class TitlePanel extends Screen {
     this.active = false;
     cancelAnimationFrame(this.raf);
     this.game.hud.root.classList.remove('hv-title-mode');
+    this.game.player.controllable = true;
   }
+}
+
+/**
+ * Start a fresh story (New Journal → Begin): the intro cutscene (Gran's letter → evening coach → the mayor →
+ * first night) when the story system is present, otherwise the plain letter on the farm.
+ */
+export function beginNewGame(game: Game): void {
+  const story = game.services.story;
+  if (!story) {
+    game.events.emit('ui:open', { name: 'title:letter' });
+    return;
+  }
+  void game.hud.fade(true).then(() => {
+    game.events.emit('ui:open', { name: 'none' });
+    game.setPaused(false);
+    resetCamera(game);
+    story.newGame();
+    setTimeout(() => void game.hud.fade(false), 250);
+  });
 }

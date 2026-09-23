@@ -18,6 +18,9 @@ export interface DebugApi {
   openUI(name: string): void;
   give(itemId: string, qty?: number): void;
   setGold(n: number): void;
+  /** HUD staging (UI pod): set the local farmer's energy / health. */
+  setEnergy(n: number): void;
+  setHealth(n: number): void;
   grow(days: number): void;
   demo(name: string): Promise<void>;
   ready(): Promise<void>;
@@ -60,6 +63,8 @@ export function installDebugApi(game: Game): DebugApi {
     },
     give: (itemId, qty = 1) => game.events.emit('item:give', { itemId, qty }),
     setGold: (n) => game.services.economy?.set(n),
+    setEnergy: (n) => game.services.energy?.set(n),
+    setHealth: (n) => (game.services as { health?: { set(n: number): void } }).health?.set(n),
     grow: (days) => game.events.emit('crops:grow', { days }),
     demo: async (name) => {
       const d = DEMOS[name];

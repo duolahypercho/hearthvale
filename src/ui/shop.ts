@@ -100,6 +100,8 @@ export class ShopScreen extends Screen {
   private bubble!: HTMLElement;
   private purse!: HTMLElement;
   private picker!: HTMLElement;
+  private rail!: HTMLElement;
+  private more!: HTMLElement;
   private portrait!: HTMLElement;
   private typeT = 0;
 
@@ -163,8 +165,25 @@ export class ShopScreen extends Screen {
       tabs.appendChild(b);
     }
     this.list = el('div', 'shop-list');
+    // Wood scroll rail + "more below" chevron: the list scrolls under a soft fade, and the rail shows where
+    // you are (native scrollbars are hidden on many setups).
+    const lw = el('div', 'shop-listwrap');
+    this.rail = el('div', 'shop-rail', '<i></i>');
+    this.more = el('button', 'shop-more', `<svg viewBox="0 0 20 12" width="18" height="11"><path d="M3 3 L10 9 L17 3" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span>more</span>`);
+    this.more.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.list.scrollBy({ top: 150, behavior: 'smooth' });
+    });
+    this.rail.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      const r = this.rail.getBoundingClientRect();
+      const k = (e.clientY - r.top) / Math.max(1, r.height);
+      this.list.scrollTo({ top: k * (this.list.scrollHeight - this.list.clientHeight), behavior: 'smooth' });
+    });
+    this.list.addEventListener('scroll', () => this.syncRail(), { passive: true });
+    lw.append(this.list, this.rail, this.more);
     this.picker = el('div', 'shop-picker');
-    right.append(tabs, this.list, this.picker);
+    right.append(tabs, lw, this.picker);
     body.append(left, right);
     wrap.appendChild(f);
     this.root.appendChild(wrap);
@@ -247,6 +266,7 @@ export class ShopScreen extends Screen {
       this.list.innerHTML = `<div class="shop-empty">${this.tab === 'sell' ? 'Nothing in your pack I can buy, dear.' : 'Sold out!'}</div>`;
     }
     let shelf = '';
+    const gold = this.game.services.economy?.gold() ?? 0;
     this.goods.forEach((g, i) => {
       if (g.shelf !== shelf) {
         shelf = g.shelf;
@@ -255,7 +275,7 @@ export class ShopScreen extends Screen {
       const d = itemDef(g.id);
       const row = el(
         'div',
-        `shop-row${g.off ? ' off' : ''}${i === this.sel ? ' on' : ''}`,
+        `shop-row${g.off ? ' off' : ''}${i === this.sel ? ' on' : ''}${this.tab === 'buy' && g.price > gold ? ' cant' : ''}`,
         `<div class="u-slot mini">${itemIcon(g.id)}${g.quality ? qualityStar(g.quality) : ''}</div>
          <div class="nm"><b>${escapeHtml(d?.name ?? g.id)}${g.quality ? ` <em class="q${g.quality}">${QUALITY_NAME[g.quality] ?? ''}</em>` : ''}</b><small>${g.off ? `${g.off} only` : escapeHtml(g.note)}</small></div>
          <div class="pr">${ICONS.coin}<span>${g.price.toLocaleString()}</span></div>`,
@@ -264,12 +284,31 @@ export class ShopScreen extends Screen {
       row.style.animationDelay = `${Math.min(i, 12) * 22}ms`;
       row.addEventListener('click', () => this.pick(i));
       row.addEventListener('dblclick', () => this.commit());
-      row.addEventListener('pointerenter', () => tooltip.show(itemTooltipHtml({ id: g.id, qty: 1, quality: g.quality }, { price: g.price, priceLabel: this.tab === 'buy' ? 'each' : 'we pay' })));
+      // The card docks beside the shop frame (never over the list, the picker or the Buy button).
+      const tip = (): void => tooltip.anchor(itemTooltipHtml({ id: g.id, qty: 1, quality: g.quality }, { price: g.price, priceLabel: this.tab === 'buy' ? 'each' : 'we pay' }), row, this.root.querySelector('.shop-frame') ?? row);
+      row.addEventListener('pointerenter', tip);
+      row.addEventListener('u-focus', tip);
       row.addEventListener('pointerleave', () => tooltip.hide());
       this.list.appendChild(row);
     });
     this.buildPicker();
     this.nav.attach(this.root, this.list.querySelector<HTMLElement>('.shop-row.on'));
+    this.list.scrollTop = 0;
+    requestAnimationFrame(() => this.syncRail());
+  }
+
+  private syncRail(): void {
+    const l = this.list;
+    const over = l.scrollHeight - l.clientHeight;
+    const scrolls = over > 4;
+    this.rail.classList.toggle('hv-hidden', !scrolls);
+    this.more.classList.toggle('gone', !scrolls || l.scrollTop >= over - 6);
+    if (!scrolls) return;
+    const rh = this.rail.clientHeight;
+    const th = Math.max(34, (l.clientHeight / l.scrollHeight) * rh);
+    const thumb = this.rail.firstElementChild as HTMLElement;
+    thumb.style.height = `${th}px`;
+    thumb.style.transform = `translateY(${(l.scrollTop / over) * (rh - th)}px)`;
   }
 
   private pick(i: number): void {

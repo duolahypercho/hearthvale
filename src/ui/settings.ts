@@ -12,6 +12,7 @@ import type { Quality } from '../core/events';
 import { ICONS } from './icons';
 import { Screen, el, frame, closeButton, sfx, replay } from './kit';
 import { menuTabs } from './menutabs';
+import { Hud } from './hud';
 
 export interface Settings {
   quality: Quality;
@@ -26,6 +27,10 @@ export interface Settings {
   uiScale: number;
   /** Shorter, calmer UI animations. */
   calm: boolean;
+  /** Frame limit: 0 = display refresh (vsync), else 30 / 60. */
+  fpsCap: number;
+  /** Frame counter chip under the clock. */
+  showFps: boolean;
   /** action → physical key code */
   keys: Record<string, string>;
 }
@@ -50,7 +55,7 @@ export const BINDABLE: [string, string, string][] = [
 ];
 
 const KEY = 'hearthvale.settings';
-const DEFAULTS: Settings = { quality: 'high', master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7, toasts: true, tooltips: true, clock24: false, uiScale: 1, calm: false, keys: {} };
+const DEFAULTS: Settings = { quality: 'high', master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7, toasts: true, tooltips: true, clock24: false, uiScale: 1, calm: false, fpsCap: 0, showFps: false, keys: {} };
 
 export const settings: Settings = { ...DEFAULTS, keys: {} };
 /** physical code → default code */
@@ -124,6 +129,7 @@ function apply(game: Game): void {
   document.body.classList.toggle('u-no-toasts', !settings.toasts);
   document.body.classList.toggle('u-no-tips', !settings.tooltips);
   document.body.classList.toggle('u-calm', settings.calm);
+  (game as { frameCap?: number }).frameCap = settings.fpsCap || 0;
   applyUiScale();
 }
 
@@ -148,11 +154,26 @@ export function keyLabel(code: string): string {
 }
 
 type SliderKey = 'master' | 'music' | 'sfx' | 'ambience' | 'uiScale';
-type ToggleKey = 'toasts' | 'tooltips' | 'clock24' | 'calm';
+type ToggleKey = 'toasts' | 'tooltips' | 'clock24' | 'calm' | 'showFps';
 type Row = { kind: 'slider'; key: SliderKey; label: string; icon: string } | { kind: 'toggle'; key: ToggleKey; label: string; note: string };
 
 export class SettingsScreen extends Screen {
   private fromTitle = false;
+  private fpsLine: HTMLElement | null = null;
+  private fpsT = 0;
+
+  /** Live frame rate under the quality pills: the cost of each preset, measured on this machine. */
+  override update(dt: number): void {
+    this.fpsT -= dt;
+    if (this.fpsT > 0 || !this.fpsLine) return;
+    this.fpsT = 0.5;
+    const fps = Math.round(Hud.fps);
+    if (!fps) return;
+    const tone = fps >= 55 ? 'good' : fps >= 40 ? 'ok' : 'bad';
+    const hint = tone === 'good' ? 'smooth' : tone === 'ok' ? 'try Medium for 60' : 'try Low for 60';
+    this.fpsLine.className = `set-fpsline ${tone}`;
+    this.fpsLine.innerHTML = `<i></i>Running at <b>${fps} fps</b><small>${this.game.rc.quality} · ${hint}</small>`;
+  }
 
   constructor(game: Game, parent: HTMLElement) {
     super(game, parent, 'hv-settings', { backdrop: true });
@@ -168,20 +189,21 @@ export class SettingsScreen extends Screen {
     f.appendChild(closeButton(() => this.back() || this.requestClose()));
     if (this.fromTitle) wrap.append(f);
     else wrap.append(menuTabs(this.game, 'settings'), f);
-    const colA = el('div', 'set-col');
-    const colB = el('div', 'set-col');
+    const colA = el('div', 'set-col a');
+    const colB = el('div', 'set-col b');
+    const colC = el('div', 'set-col c');
 
     // Graphics
     const gfx = el('section', 'set-sec', `<h3>${ICONS.sun}<span>Graphics</span></h3>`);
     const seg = el('div', 'set-seg');
-    const QUALITIES: [Quality, string, string][] = [
-      ['low', 'Low', 'fast'],
-      ['medium', 'Medium', 'balanced'],
-      ['high', 'High', 'recommended'],
-      ['ultra', 'Ultra', 'showcase'],
+    const QUALITIES: [Quality, string, string, number][] = [
+      ['low', 'Low', 'fastest', 4],
+      ['medium', 'Medium', 'light', 3],
+      ['high', 'High', 'recommended', 2],
+      ['ultra', 'Ultra', 'showcase', 1],
     ];
-    for (const [q, label, note] of QUALITIES) {
-      const b = el('button', `seg${this.game.rc.quality === q ? ' on' : ''}`, `<b>${label}</b><small>${note}</small>`);
+    for (const [q, label, note, speed] of QUALITIES) {
+      const b = el('button', `seg${this.game.rc.quality === q ? ' on' : ''}`, `<b>${label}</b><small>${note}</small><i class="spd" title="relative speed">${'<em></em>'.repeat(speed)}${'<em class="off"></em>'.repeat(4 - speed)}</i>`);
       b.dataset.nav = '';
       b.addEventListener('click', () => {
         if (this.game.rc.quality === q) return;
@@ -195,10 +217,46 @@ export class SettingsScreen extends Screen {
       });
       seg.appendChild(b);
     }
-    gfx.append(el('div', 'set-label', 'Render quality <small>post-processing, shadows, grass density</small>'), seg);
+    this.fpsLine = el('div', 'set-fpsline', '');
+    gfx.append(el('div', 'set-label', 'Render quality <small>post effects, shadows, grass</small>'), seg, this.fpsLine);
+
+    // Display
+    const disp = el('section', 'set-sec', `<h3>${ICONS.screen}<span>Display</span></h3>`);
+    const fs = el('button', `set-toggle${document.fullscreenElement ? ' on' : ''}`, `<span class="lb">Fullscreen<small>F11 works too</small></span><span class="sw"><i></i></span>`);
+    fs.dataset.nav = '';
+    fs.addEventListener('click', () => {
+      sfx(this.game, 'toggle');
+      const on = !document.fullscreenElement;
+      const p = on ? document.documentElement.requestFullscreen?.() : document.exitFullscreen?.();
+      void p?.catch(() => {}).finally(() => fs.classList.toggle('on', !!document.fullscreenElement));
+      fs.classList.toggle('on', on);
+    });
+    const capRow = el('div', 'set-caprow', `<span class="lb">Frame limit<small>lower saves battery</small></span>`);
+    const capSeg = el('div', 'set-seg mini');
+    for (const [v, label] of [
+      [30, '30'],
+      [60, '60'],
+      [0, 'Vsync'],
+    ] as [number, string][]) {
+      const b = el('button', `seg${(settings.fpsCap || 0) === v ? ' on' : ''}`, `<b>${label}</b>`);
+      b.dataset.nav = '';
+      b.addEventListener('click', () => {
+        settings.fpsCap = v;
+        save();
+        apply(this.game);
+        sfx(this.game, 'toggle');
+        capSeg.querySelectorAll('.seg').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+        replay(b, 'bump');
+      });
+      capSeg.appendChild(b);
+    }
+    capRow.appendChild(capSeg);
+    disp.append(fs, capRow, this.toggle('showFps', 'Show FPS', 'frame counter under the clock'));
+    colA.append(gfx, disp);
 
     // Audio
-    const aud = el('section', 'set-sec', `<h3>${ICONS.bolt}<span>Sound</span></h3>`);
+    const aud = el('section', 'set-sec', `<h3>${ICONS.speaker}<span>Sound</span></h3>`);
     const rows: Row[] = [
       { kind: 'slider', key: 'master', label: 'Master', icon: '🔊' },
       { kind: 'slider', key: 'music', label: 'Music', icon: '♪' },
@@ -210,14 +268,14 @@ export class SettingsScreen extends Screen {
     // Interface
     const ui = el('section', 'set-sec', `<h3>${ICONS.gear}<span>Interface</span></h3>`);
     const toggles: Row[] = [
-      { kind: 'toggle', key: 'toasts', label: 'Pickup notifications', note: 'toasts in the corner' },
+      { kind: 'toggle', key: 'toasts', label: 'Pickup notes', note: 'toasts in the corner' },
       { kind: 'toggle', key: 'tooltips', label: 'Item tooltips', note: 'hover cards' },
       { kind: 'toggle', key: 'clock24', label: '24-hour clock', note: 'HUD time format' },
-      { kind: 'toggle', key: 'calm', label: 'Reduce motion', note: 'gentler menu animations' },
+      { kind: 'toggle', key: 'calm', label: 'Reduce motion', note: 'gentler animations' },
     ];
     ui.appendChild(this.slider('uiScale', 'UI size', 0.8, 1.25));
     for (const t of toggles) if (t.kind === 'toggle') ui.appendChild(this.toggle(t.key, t.label, t.note));
-    colA.append(gfx, aud, ui);
+    colB.append(aud, ui);
 
     // Controls
     const ctl = el('section', 'set-sec keys', `<h3>${ICONS.hammer}<span>Controls</span></h3>`);
@@ -250,7 +308,7 @@ export class SettingsScreen extends Screen {
     const fixed = el(
       'div',
       'set-fixed',
-      `<div><span>Toolbar</span><b>1 – 0 · wheel</b></div><div><span>Menu / back</span><b>Esc</b></div><div><span>Switch tabs</span><b>[ ]</b></div><div><span>Gamepad</span><b>A · B · Y · LB/RB · Start</b></div>`,
+      `<div><span>Toolbar</span><b>1 – 0 · wheel</b></div><div><span>Menu / back</span><b>Esc</b></div><div><span>Switch tabs</span><b>[ ]</b></div><div class="pad"><span>Gamepad</span><b>A select · B back · Y bag · LB/RB tabs · Start</b></div>`,
     );
     const reset = el('button', 'u-btn small', 'Reset to defaults');
     reset.dataset.nav = '';
@@ -263,8 +321,8 @@ export class SettingsScreen extends Screen {
       this.root.classList.remove('is-opening');
     });
     ctl.append(list, fixed, reset);
-    colB.append(ctl);
-    body.append(colA, colB);
+    colC.append(ctl);
+    body.append(colA, colB, colC);
     this.root.appendChild(wrap);
   }
 

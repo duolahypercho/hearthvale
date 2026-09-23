@@ -61,5 +61,5 @@ export function itemTooltipHtml(s: StackView, opts: { hint?: string; price?: num
     const total = each * Math.max(1, s.qty);
     row = `<div class="t-row">${ICONS.coin}<span>${each.toLocaleString()}g</span><span class="sp"></span>${s.qty > 1 && opts.price === undefined ? `<span style="color:#8a6440">×${s.qty} = ${total.toLocaleString()}g</span>` : `<span style="color:#8a6440">${opts.priceLabel ?? 'sell'}</span>`}</div>`;
   } else if (d?.kind === 'tool') row = `<div class="t-row" style="color:#8a6440">${ICONS.hammer}<span>Tool · can't be sold</span></div>`;
-  return `<div class="t-in"><div class="t-name">${escapeHtml(name)}</div><span class="t-cat" style="background:${cat.color}">${cat.label}</span>${quality}${desc ? `<div class="t-desc">${escapeHtml(desc)}</div>` : ''}${meta}${row}${opts.hint ? `<div class="t-hint">${opts.hint}</div>` : ''}</div>`;
+  return `<div class="t-in"><div class="t-head"><span class="t-ic">${itemIcon(s.id)}</span><div><div class="t-name">${escapeHtml(name)}</div><span class="t-cat" style="background:${cat.color}">${cat.label}</span></div></div>${quality}${desc ? `<div class="t-desc">${escapeHtml(desc)}</div>` : ''}${meta}${row}${opts.hint ? `<div class="t-hint">${opts.hint}</div>` : ''}</div>`;
 }

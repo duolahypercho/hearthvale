@@ -1,0 +1,435 @@
+/* New Journal (ui/newgame.ts): an in-world character creator — the farmer on the left, the ledger on the right. */
+
+.hv-newgame {
+  position: absolute;
+  inset: 0;
+}
+.hv-newgame::before {
+  /* Warm the frame's side of the screen so the parchment sits on shade, the farmer stays in the light. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(20, 10, 4, 0) 38%, rgba(26, 12, 4, 0.42) 64%, rgba(20, 8, 2, 0.62)),
+    radial-gradient(ellipse 40% 60% at 24% 56%, rgba(255, 200, 120, 0.16), transparent 70%),
+    linear-gradient(0deg, rgba(20, 8, 2, 0.45), transparent 22%);
+}
+.hv-newgame.is-opening::before {
+  animation: uFade 700ms ease both;
+}
+
+/* ── Stage (left) ─────────────────────────────────── */
+.ng-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  cursor: grab;
+  pointer-events: auto;
+}
+.ng-stage.grab {
+  cursor: grabbing;
+}
+.ng-plate {
+  position: absolute;
+  left: 25%;
+  bottom: 176px;
+  translate: -50% 0;
+  min-width: 250px;
+  padding: 10px 26px 12px;
+  text-align: center;
+  border-radius: 16px;
+  background: var(--u-wood) 0 0 / 512px 256px, var(--wood-grad);
+  border: 3px solid #4a2810;
+  box-shadow: inset 0 2px 0 rgba(255, 222, 170, 0.6), inset 0 -3px 0 rgba(40, 18, 4, 0.45), 0 10px 22px rgba(20, 8, 2, 0.45);
+  pointer-events: none;
+}
+.ng-plate::before,
+.ng-plate::after {
+  /* little hanging chains */
+  content: '';
+  position: absolute;
+  top: -26px;
+  width: 3px;
+  height: 26px;
+  background: repeating-linear-gradient(180deg, #c89a4a 0 4px, #6a4a1a 4px 6px);
+}
+.ng-plate::before {
+  left: 28px;
+}
+.ng-plate::after {
+  right: 28px;
+}
+.ng-plate b {
+  display: block;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.05;
+  color: #fff4dc;
+  text-shadow: 0 2px 0 #4a2810, 0 0 14px rgba(255, 200, 120, 0.35);
+}
+.ng-plate small {
+  display: block;
+  margin-top: 2px;
+  font-weight: 800;
+  font-size: 14px;
+  color: #f0d6a8;
+}
+.ng-plate em {
+  font-style: normal;
+  color: #ffe6a8;
+}
+.ng-plate .ph {
+  opacity: 0.55;
+}
+.ng-dice {
+  position: absolute;
+  left: 25%;
+  bottom: 110px;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ng-hint {
+  position: absolute;
+  left: 25%;
+  bottom: 60px;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 5px 10px;
+  border-radius: 14px;
+  font-weight: 800;
+  font-size: 14px;
+  color: #fff6e0;
+  background: rgba(30, 14, 4, 0.55);
+  pointer-events: none;
+}
+.ng-hint svg {
+  width: 16px;
+  height: 16px;
+  transform: scaleX(-1);
+  animation: ngNudge 2.2s ease-in-out infinite;
+}
+@keyframes ngNudge {
+  50% {
+    translate: -4px 0;
+  }
+}
+
+/* ── Ledger (right) ───────────────────────────────── */
+.ng-frame {
+  position: absolute;
+  right: 64px;
+  top: 50%;
+  width: 850px;
+  translate: 0 -50%;
+}
+.is-opening .ng-frame {
+  animation: ngIn 520ms var(--ease-back) 180ms both;
+}
+@keyframes ngIn {
+  from {
+    opacity: 0;
+    transform: translateX(60px) rotate(1.5deg);
+  }
+}
+.ng-frame > .u-paper {
+  padding: 36px 28px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ng-who {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.ng-field {
+  display: grid;
+  gap: 4px;
+}
+.ng-field > span {
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+.ng-input {
+  height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 21px;
+  color: var(--ink);
+  background: rgba(255, 253, 244, 0.92);
+  box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.28), inset 0 0 0 2px rgba(138, 100, 64, 0.35);
+  outline: none;
+  transition: box-shadow 160ms;
+}
+.ng-input::placeholder {
+  color: #c4a684;
+  font-weight: 500;
+}
+.ng-input:focus,
+.ng-input.u-focus {
+  box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.2), inset 0 0 0 3px #e8b04a, 0 0 0 4px rgba(232, 176, 74, 0.25);
+}
+.ng-field.shake {
+  animation: uShake 360ms;
+}
+.ng-field.f-pet {
+  margin-top: 10px;
+}
+.ng-field.f-pet .ng-input {
+  height: 38px;
+  font-size: 18px;
+}
+.ng-mid {
+  display: grid;
+  grid-template-columns: 1fr 292px;
+  gap: 24px;
+}
+.ng-sec h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 19px;
+  color: var(--ink);
+}
+.ng-sec h3 svg {
+  width: 22px;
+  height: 22px;
+}
+.ng-sec h3::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  margin-left: 6px;
+  background: repeating-linear-gradient(90deg, rgba(138, 100, 64, 0.4) 0 6px, transparent 6px 11px);
+}
+.ng-opts {
+  display: grid;
+  gap: 7px;
+}
+.ng-row {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  align-items: center;
+  min-height: 34px;
+}
+.ng-row .lbl {
+  font-weight: 800;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+.ng-sw {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ng-dot {
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2.5px solid #4a2810;
+  background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--c) 60%, #fff), var(--c) 55%, color-mix(in srgb, var(--c) 80%, #000));
+  box-shadow: 0 2px 0 rgba(60, 30, 6, 0.35);
+  cursor: pointer;
+  transition: transform 150ms var(--ease-back), box-shadow 150ms;
+}
+.ng-dot:hover {
+  transform: translateY(-2px) scale(1.08);
+}
+.ng-dot.on {
+  transform: scale(1.14);
+  box-shadow: 0 0 0 3px #fff6e0, 0 0 0 5.5px #e8a040, 0 3px 6px rgba(60, 30, 6, 0.35);
+}
+.ng-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.ng-chip {
+  padding: 4px 11px 5px;
+  border: 0;
+  border-radius: 14px;
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink-soft);
+  background: rgba(255, 252, 240, 0.85);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.25), 0 2px 0 rgba(120, 70, 20, 0.14);
+  cursor: pointer;
+  transition: transform 150ms var(--ease-back);
+}
+.ng-chip:hover {
+  transform: translateY(-2px);
+}
+.ng-chip.on {
+  color: #fff;
+  background: linear-gradient(180deg, #8fd05a, #5fa83c);
+  box-shadow: 0 2px 0 #2f5a1a, inset 0 2px 0 #c8f0a0;
+  text-shadow: 0 1px 0 #2f5a1a;
+}
+.ng-pets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.ng-pet {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 8px 4px 7px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 252, 240, 0.85);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.22), 0 3px 0 rgba(120, 70, 20, 0.14);
+  cursor: pointer;
+  transition: transform 160ms var(--ease-back), box-shadow 160ms;
+}
+.ng-pet:hover {
+  transform: translateY(-3px);
+}
+.ng-pet .art svg {
+  width: 62px;
+  height: 62px;
+  display: block;
+  filter: drop-shadow(0 3px 0 rgba(70, 36, 10, 0.2));
+}
+.ng-pet b {
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+}
+.ng-pet.on {
+  background: #fff6d8;
+  box-shadow: inset 0 0 0 3px #e8b04a, 0 4px 10px rgba(200, 140, 40, 0.3);
+}
+.ng-pet.on .art svg {
+  animation: ngHop 1.4s var(--ease-back) infinite;
+}
+@keyframes ngHop {
+  0%, 60%, 100% {
+    translate: 0 0;
+  }
+  70% {
+    translate: 0 -5px;
+  }
+  80% {
+    translate: 0 0;
+  }
+}
+.ng-pet.bump,
+.ng-dice.bump {
+  animation: hTick 320ms var(--ease-back);
+}
+.ng-slots {
+  display: grid;
+  gap: 6px;
+}
+.ng-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 6px 6px;
+  border: 0;
+  border-radius: 12px;
+  text-align: left;
+  background: rgba(255, 252, 240, 0.85);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.22);
+  cursor: pointer;
+}
+.ng-slot .no {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 17px;
+  color: #fff6e0;
+  background: linear-gradient(180deg, #c98a4a, #a0602c);
+  box-shadow: 0 2px 0 #5a3418;
+}
+.ng-slot.empty .no {
+  background: linear-gradient(180deg, #b8c8a0, #8aa070);
+  box-shadow: 0 2px 0 #4a5a30;
+}
+.ng-slot .tx {
+  display: grid;
+  min-width: 0;
+}
+.ng-slot b {
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ng-slot small {
+  font-size: 12px;
+  font-weight: 700;
+  color: #a08060;
+}
+.ng-slot em {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  translate: 0 -50%;
+  padding: 1px 7px 2px;
+  border-radius: 8px;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #fff;
+  background: #c8704a;
+}
+.ng-slot.on {
+  background: #fff6d8;
+  box-shadow: inset 0 0 0 3px #e8b04a;
+}
+.ng-go {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 2px dashed rgba(138, 100, 64, 0.35);
+}
+.ng-sum {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 800;
+  color: #a08060;
+}
+.ng-begin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 26px 12px;
+  font-size: 22px;
+}
+.ng-begin svg {
+  width: 26px;
+  height: 26px;
+}

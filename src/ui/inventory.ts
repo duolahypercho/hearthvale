@@ -14,6 +14,7 @@ import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from
 import { slotInner, unitPrice, starRow, type StackView } from './itemtip';
 import { menuTabs } from './menutabs';
 import { farmerAvatar } from './avatar';
+import { journal } from './profile';
 
 export { slotHtml } from './itemtip';
 
@@ -44,7 +45,7 @@ export class InventoryScreen extends Screen {
     });
     window.addEventListener('pointermove', (e) => {
       if (!this.held) return;
-      this.heldEl.style.transform = `translate(${e.clientX - 20}px, ${e.clientY - 20}px)`;
+      this.aimHeld(e.clientX, e.clientY);
       if (this.drag && Math.hypot(e.clientX - this.drag.x, e.clientY - this.drag.y) > 6) this.drag.moved = true;
     });
     window.addEventListener('pointerup', (e) => {
@@ -114,8 +115,10 @@ export class InventoryScreen extends Screen {
     this.trash.addEventListener('u-activate', () => this.held && this.trashHeld());
     const hint = el('div', 'inv-hint', `<b>Click</b> to pick up · <b>Right-click</b> to split · <b>[ ]</b> switch tabs`);
     foot.append(hint, sort, this.trash);
-    side.append(rowLabel, this.grid, this.detail, foot);
-    body.append(this.card, side);
+    const lower = el('div', 'inv-lower');
+    lower.append(this.card, this.detail);
+    side.append(rowLabel, this.grid, lower, foot);
+    body.append(side);
     this.root.appendChild(wrap);
     this.refresh();
   }
@@ -138,15 +141,14 @@ export class InventoryScreen extends Screen {
     const en = this.game.services.energy;
     const worth = slots.reduce((a, s) => a + (s ? unitPrice(s) * s.qty : 0), 0);
     this.card.innerHTML = `
-      <div class="av">${farmerAvatar()}</div>
-      <div class="nm">Farmer</div>
-      <div class="farm">Rosalind's Farm</div>
+      <div class="av">${farmerAvatar(undefined, this.game.services.net?.profile().look ?? null)}</div>
+      <div class="col"><div class="who"><span class="nm">${escapeHtml(journal.name)}</span><span class="farm">${escapeHtml(journal.farm)}</span></div>
       <div class="stats">
         <div><span>${ICONS[cal.season]}</span><b>${SEASON_NAME[cal.season]} ${cal.day}</b><small>Year ${cal.year}</small></div>
         <div><span>${ICONS.coin}</span><b>${gold.toLocaleString()}g</b><small>purse</small></div>
         <div><span>${ICONS.bolt}</span><b>${en ? `${en.value()}/${en.max()}` : '—'}</b><small>energy</small></div>
         <div><span>${ICONS.bag}</span><b>${worth.toLocaleString()}g</b><small>pack value</small></div>
-      </div>`;
+      </div></div>`;
     this.renderHeld();
     this.showDetail(null);
   }
@@ -231,8 +233,37 @@ export class InventoryScreen extends Screen {
     const hadHeld = !!this.held;
     this.clickSlot(i);
     if (!hadHeld && this.held) this.drag = { slot: i, x: e.clientX, y: e.clientY, moved: false };
-    this.heldEl.style.transform = `translate(${e.clientX - 20}px, ${e.clientY - 20}px)`;
+    this.aimHeld(e.clientX, e.clientY, true);
   }
+
+  // ── Held stack: lifted (scale + tilt + deep shadow) and spring-lagged behind the pointer ──
+  private hp = { x: 0, y: 0, tx: 0, ty: 0, vx: 0, raf: 0 };
+
+  private aimHeld(x: number, y: number, snap = false): void {
+    const h = this.hp;
+    h.tx = x - 28;
+    h.ty = y - 30;
+    if (snap) {
+      h.x = h.tx;
+      h.y = h.ty;
+      h.vx = 0;
+    }
+    if (!h.raf) h.raf = requestAnimationFrame(this.stepHeld);
+  }
+
+  private stepHeld = (): void => {
+    const h = this.hp;
+    h.raf = 0;
+    if (!this.held) return;
+    const dx = h.tx - h.x;
+    const dy = h.ty - h.y;
+    h.x += dx * 0.38;
+    h.y += dy * 0.38;
+    h.vx = h.vx * 0.7 + dx * 0.3;
+    const tilt = Math.max(-18, Math.min(18, -6 + h.vx * 0.5));
+    this.heldEl.style.transform = `translate(${h.x}px, ${h.y}px) rotate(${tilt.toFixed(1)}deg) scale(1.25)`;
+    if (Math.abs(dx) + Math.abs(dy) > 0.4 || Math.abs(h.vx) > 0.2) h.raf = requestAnimationFrame(this.stepHeld);
+  };
 
   /** Pick up / put down / merge / swap (click, Enter, gamepad A). */
   private clickSlot(i: number): void {
@@ -330,7 +361,7 @@ export class InventoryScreen extends Screen {
 
   private placeHeldOver(c: HTMLElement): void {
     const r = c.getBoundingClientRect();
-    this.heldEl.style.transform = `translate(${r.left + r.width * 0.45}px, ${r.top - 22}px)`;
+    this.aimHeld(r.left + r.width * 0.45 + 28, r.top - 22 + 30);
   }
 
   private renderHeld(): void {
@@ -338,6 +369,14 @@ export class InventoryScreen extends Screen {
     this.heldEl.classList.toggle('hv-hidden', !h);
     this.root.classList.toggle('carrying', !!h);
     if (h) this.heldEl.innerHTML = itemIcon(h.stack.id, '') + (h.stack.qty > 1 ? `<span class="qty">${h.stack.qty}</span>` : '');
+    // A faint ghost of the lifted stack stays in the slot it came from (while that slot is still free).
+    this.cells.forEach((c, i) => {
+      const ghost = !!h && i === h.from && !this.inv?.slots[i];
+      c.classList.toggle('ghosted', ghost);
+      const g = c.querySelector('.u-ghost');
+      if (ghost && !g) c.insertAdjacentHTML('beforeend', `<span class="u-ghost">${itemIcon(h.stack.id, '')}</span>`);
+      else if (!ghost) g?.remove();
+    });
   }
 
   override back(): boolean {

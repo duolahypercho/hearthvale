@@ -155,6 +155,9 @@ interface SlotInfo {
   slot: string;
   label: string;
   exists: boolean;
+  who?: string;
+  farm?: string;
+  shot?: string | null;
   season?: string;
   day?: number;
   year?: number;
@@ -166,9 +169,15 @@ function readSlot(slot: string, label: string): SlotInfo {
   try {
     const raw = localStorage.getItem(`hearthvale.save.${slot}`);
     if (!raw) return { slot, label, exists: false };
-    const f = JSON.parse(raw) as { savedAt?: string; data?: Record<string, { calendar?: { season?: string; day?: number; year?: number }; gold?: number }> };
+    const f = JSON.parse(raw) as { savedAt?: string; data?: Record<string, { calendar?: { season?: string; day?: number; year?: number }; gold?: number; name?: string; farm?: string }> };
     const cal = f.data?.core?.calendar;
-    return { slot, label, exists: true, season: cal?.season, day: cal?.day, year: cal?.year, gold: f.data?.economy?.gold, savedAt: f.savedAt };
+    let shot: string | null = null;
+    try {
+      shot = localStorage.getItem(`hearthvale.thumb.${slot}`);
+    } catch {
+      /* ignore */
+    }
+    return { slot, label, exists: true, season: cal?.season, day: cal?.day, year: cal?.year, gold: f.data?.economy?.gold, savedAt: f.savedAt, who: f.data?.journal?.name, farm: f.data?.journal?.farm, shot };
   } catch {
     return { slot, label, exists: false };
   }
@@ -211,8 +220,9 @@ export class SavesScreen extends Screen {
 
   protected render(arg?: string): void {
     const [mode, from] = (arg ?? '').split(':');
-    if (mode === 'save' || mode === 'load') this.mode = mode;
     this.fromTitle = from === 'title';
+    // Saving is the in-game default (pause → Save Game, `ui=saves`); the title can only load.
+    this.mode = mode === 'save' || mode === 'load' ? mode : this.fromTitle ? 'load' : 'save';
     if (this.fromTitle) this.game.hud.root.classList.add('hv-title-mode');
     this.confirm = null;
     this.draw();
@@ -242,10 +252,10 @@ export class SavesScreen extends Screen {
       const canSave = this.mode === 'save' && s.slot !== 'auto';
       const confirming = this.confirm === s.slot;
       card.innerHTML = `
-        <div class="thumb">${s.exists ? thumb(s.season) : `<div class="blank">${blankThumb()}</div>`}<span class="tag">${escapeHtml(s.label)}</span></div>
+        <div class="thumb">${s.exists ? (s.shot ? `<img class="snap" src="${s.shot}" alt=""/>` : thumb(s.season)) : `<div class="blank">${blankThumb()}</div>`}<span class="tag">${escapeHtml(s.label)}</span></div>
         <div class="meta">${
           s.exists
-            ? `<b>${SEASON_NAME[s.season ?? 'spring']} ${s.day ?? 1}, Year ${s.year ?? 1}</b><span>${ICONS.coin}${(s.gold ?? 0).toLocaleString()}g</span><small>saved ${ago(s.savedAt)}</small>`
+            ? `${s.who ? `<em class="who">${escapeHtml(s.who)}${s.farm ? ` · ${escapeHtml(s.farm)}` : ''}</em>` : ''}<b>${SEASON_NAME[s.season ?? 'spring']} ${s.day ?? 1}, Year ${s.year ?? 1}</b><span>${ICONS.coin}${(s.gold ?? 0).toLocaleString()}g</span><small>saved ${ago(s.savedAt)}</small>`
             : `<b>Empty page</b><small>${s.slot === 'auto' ? 'written each night when you sleep' : 'a fresh page in the journal'}</small>`
         }</div>
         <div class="acts"></div>`;
@@ -264,8 +274,25 @@ export class SavesScreen extends Screen {
           this.confirm = null;
           this.draw(s.slot);
         });
+      } else if (this.confirm === `ow:${s.slot}`) {
+        card.classList.add('confirm', 'ow');
+        btn('Yes, overwrite', 'green', () => this.save(s.slot, card), true);
+        btn('Cancel', '', () => {
+          this.confirm = null;
+          this.draw(s.slot);
+        });
       } else if (canSave) {
-        btn(s.exists ? 'Overwrite' : 'Save here', 'green', () => this.save(s.slot, card), i === 0);
+        btn(
+          s.exists ? 'Overwrite' : 'Save here',
+          'green',
+          () => {
+            if (!s.exists) return this.save(s.slot, card);
+            this.confirm = `ow:${s.slot}`;
+            sfx(this.game, 'click');
+            this.draw(s.slot);
+          },
+          i === 0,
+        );
         if (s.exists)
           btn('✕', 'red', () => {
             this.confirm = s.slot;
@@ -293,6 +320,7 @@ export class SavesScreen extends Screen {
   }
 
   private save(slot: string, card: HTMLElement): void {
+    this.confirm = null;
     if (this.game.saves.save(slot)) {
       sfx(this.game, 'craft');
       replay(card, 'saved');
@@ -338,4 +366,35 @@ export class SavesScreen extends Screen {
   protected override onClose(): void {
     if (this.fromTitle) this.game.hud.root.classList.remove('hv-title-mode');
   }
+}
+
+/**
+ * Journal thumbnails: every save captures a 320×180 snapshot of the world (rendered fresh, so menus and the
+ * HUD never appear in it) into localStorage `hearthvale.thumb.<slot>` for the save cards.
+ */
+export function installSaveThumbs(game: Game, mirrorSlot: () => string | null): void {
+  game.events.on('save:after', ({ slot }) => {
+    if (slot === 'smoke') return;
+    try {
+      game.rc.render(0, game.time);
+      const src = game.rc.renderer.domElement;
+      const c = document.createElement('canvas');
+      c.width = 320;
+      c.height = 180;
+      const g = c.getContext('2d');
+      if (!g) return;
+      // Centre-crop to 16:9.
+      const sw = src.width;
+      const sh = src.height;
+      const k = Math.min(sw / 16, sh / 9);
+      g.drawImage(src, (sw - k * 16) / 2, (sh - k * 9) / 2, k * 16, k * 9, 0, 0, 320, 180);
+      const url = c.toDataURL('image/jpeg', 0.72);
+      if (url.length < 200) return;
+      localStorage.setItem(`hearthvale.thumb.${slot}`, url);
+      const m = slot === 'auto' ? mirrorSlot() : null;
+      if (m) localStorage.setItem(`hearthvale.thumb.${m}`, url);
+    } catch {
+      /* storage full / tainted canvas: the painted season card stands in */
+    }
+  });
 }

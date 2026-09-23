@@ -13,7 +13,9 @@
     "perf": "node scripts/perf.mjs",
     "lint": "node scripts/check-imports.mjs",
     "test": "node scripts/smoke.mjs",
-    "check": "npm run typecheck && npm run lint && npm test"
+    "check": "npm run typecheck && npm run lint && npm test",
+    "server": "node server/index.mjs",
+    "mp-test": "node scripts/mp-test.mjs"
   },
   "dependencies": {
     "three": "^0.186.0"

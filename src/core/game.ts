@@ -48,6 +48,7 @@ import { CutsceneSystem } from '../systems/cutscene';
 import { StorySystem } from '../systems/story';
 import { LanternHallSystem } from '../systems/story-hall';
 import { StoryWorldSystem } from '../systems/story-world';
+import { NetSystem } from '../net/system';
 
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
@@ -76,6 +77,7 @@ const SYSTEMS: (() => System)[] = [
   () => new LanternHallSystem(),
   () => new StoryWorldSystem(),
   () => new StorySystem(),
+  () => new NetSystem(),
 ];
 
 /**
@@ -212,8 +214,12 @@ export class Game {
     return this.readyPromise;
   }
 
+  /** Frame limiter (Options → Display): 0 = every display refresh, else max frames per second. */
+  frameCap = 0;
+
   private loop = (now: number): void => {
     requestAnimationFrame(this.loop);
+    if (this.frameCap > 0 && now - this.last < 1000 / this.frameCap - 2) return;
     const dt = Math.min(0.1, (now - this.last) / 1000 || 0);
     this.last = now;
     this.step(dt);

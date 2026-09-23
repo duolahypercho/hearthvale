@@ -39,10 +39,20 @@ export class DemoKit {
   constructor(private game: Game) {
     game.events.on('demo:stage', ({ name }) => {
       this.armed = true;
-      if (name === 'ui-hud') {
+      if (name === 'ui-hud' || name === 'ui-hud-low') {
         this.holdToasts = true;
         this.hudShow();
       }
+      // `ui-hud-low` (or any demo with &energy= / &health=): stage the tubes.
+      const q = new URLSearchParams(location.search);
+      const en = q.get('energy') ?? (name === 'ui-hud-low' ? '0.1' : null);
+      const hp = q.get('health') ?? (name === 'ui-hud-low' ? '0.2' : null);
+      setTimeout(() => {
+        const e = this.game.services.energy;
+        const h = (this.game.services as { health?: { max(): number; set(n: number): void } }).health;
+        if (en !== null && e) e.set(Number(en) <= 1 ? Math.round(Number(en) * e.max()) : Number(en));
+        if (hp !== null && h) h.set(Number(hp) <= 1 ? Math.round(Number(hp) * h.max()) : Number(hp));
+      }, 120);
       // `ui-placement`: hold the first placeable on the toolbar so the in-world ghost + reach tint shows.
       if (name === 'ui-placement')
         setTimeout(() => {

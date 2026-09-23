@@ -86,7 +86,14 @@ export class EventBus {
     this.handlers.get(name)?.delete(fn as Handler<EventName>);
   }
 
+  /**
+   * Co-op hook (net/): sees every event before any handler; return true to swallow it. Used to route
+   * another farmer's action results (their items, their toasts) away from this machine's player.
+   */
+  interceptor: (<K extends EventName>(name: K, payload: GameEvents[K]) => boolean) | null = null;
+
   emit<K extends EventName>(name: K, payload: GameEvents[K]): void {
+    if (this.interceptor?.(name, payload)) return;
     const set = this.handlers.get(name);
     if (!set) return;
     for (const fn of [...set]) {

@@ -206,13 +206,13 @@ export function installTextures(): void {
 class Tooltip {
   private node: HTMLElement | null = null;
   private visible = false;
-  private px = 0;
-  private py = 0;
+  private px = -1;
+  private py = -1;
 
-  private ensure(): HTMLElement {
-    if (!this.node) {
-      this.node = el('div', 'u-tip');
-      document.getElementById('ui-root')?.appendChild(this.node);
+  constructor() {
+    // Track the pointer from module init (not lazily on first show): a row that re-renders under a still
+    // cursor fires pointerenter before any pointermove, and the card would otherwise open at (0, 0).
+    if (typeof window !== 'undefined')
       window.addEventListener(
         'pointermove',
         (e) => {
@@ -222,23 +222,49 @@ class Tooltip {
         },
         { passive: true },
       );
+  }
+
+  private ensure(): HTMLElement {
+    if (!this.node) {
+      this.node = el('div', 'u-tip');
+      document.getElementById('ui-root')?.appendChild(this.node);
     }
     return this.node;
   }
 
-  /** Show near the pointer (follows it). */
-  show(html: string): void {
+  /**
+   * Show near the pointer (follows it). Pass the triggering pointer event to seed the position; with no known
+   * pointer position the card anchors beside `e`'s target instead of the screen corner.
+   */
+  show(html: string, e?: MouseEvent | Element | null): void {
+    const src = e instanceof MouseEvent ? e : null;
+    if (src && (src.clientX || src.clientY)) {
+      this.px = src.clientX;
+      this.py = src.clientY;
+    }
+    const target = e instanceof Element ? e : src?.currentTarget instanceof Element ? src.currentTarget : null;
+    if (this.px < 0 && target) return this.anchor(html, target);
     const n = this.ensure();
     n.classList.remove('over');
     if (n.innerHTML !== html) n.innerHTML = html;
     n.dataset.follow = '1';
     if (!this.visible) replay(n, 'on');
     this.visible = true;
-    this.place(this.px, this.py);
+    // A stale pointer far outside the hovered element (it re-rendered while the pointer moved away via a
+    // keyboard / gamepad action): anchor to the element.
+    if (target) {
+      const r = target.getBoundingClientRect();
+      if (this.px < r.left - 40 || this.px > r.right + 40 || this.py < r.top - 40 || this.py > r.bottom + 40) {
+        n.dataset.follow = '0';
+        this.place(r.right - 6, r.top + r.height * 0.5 - 10);
+        return;
+      }
+    }
+    this.place(Math.max(0, this.px), Math.max(0, this.py));
   }
 
   /** Show anchored beside an element (keyboard / gamepad focus). */
-  anchor(html: string, target: Element): void {
+  anchor(html: string, target: Element, xFrom: Element = target): void {
     const n = this.ensure();
     n.classList.remove('over');
     if (n.innerHTML !== html) n.innerHTML = html;
@@ -246,7 +272,10 @@ class Tooltip {
     if (!this.visible) replay(n, 'on');
     this.visible = true;
     const r = target.getBoundingClientRect();
-    this.place(r.right - 6, r.top + r.height * 0.5 - 10);
+    const z = parseFloat(document.documentElement.style.getPropertyValue('--uiz')) || 1;
+    // Vertically centred on the target, clamped to the window.
+    const hh = n.offsetHeight * z;
+    this.place(xFrom.getBoundingClientRect().right - 6, Math.max(8, r.top + r.height * 0.5 - hh * 0.5 - 18));
   }
 
   /**

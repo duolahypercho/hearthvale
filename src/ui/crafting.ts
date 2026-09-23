@@ -73,7 +73,7 @@ export class CraftingScreen extends Screen {
         this.refreshCards();
       });
       c.addEventListener('dblclick', () => this.craft());
-      c.addEventListener('pointerenter', () => x.known && tooltip.show(itemTooltipHtml({ id: x.r.out.itemId, qty: x.r.out.qty })));
+      c.addEventListener('pointerenter', (ev) => x.known && tooltip.show(itemTooltipHtml({ id: x.r.out.itemId, qty: x.r.out.qty }), ev));
       c.addEventListener('pointerleave', () => tooltip.hide());
       this.cards.appendChild(c);
     });
@@ -91,7 +91,7 @@ export class CraftingScreen extends Screen {
       c.className = `craft-card${x.known ? '' : ' locked'}${ok ? ' ok' : ''}${i === this.sel ? ' on' : ''}`;
       const d = itemDef(x.r.out.itemId);
       c.innerHTML = x.known
-        ? `<div class="pic">${itemIcon(x.r.out.itemId)}${x.r.out.qty > 1 ? `<span class="qty">×${x.r.out.qty}</span>` : ''}</div><div class="nm">${escapeHtml(x.r.name)}</div>${ok ? '<i class="chk"></i>' : ''}`
+        ? `<div class="pic">${itemIcon(x.r.out.itemId)}</div>${x.r.out.qty > 1 ? `<span class="yield">×${x.r.out.qty}</span>` : ''}<div class="nm">${escapeHtml(x.r.name)}</div>${ok ? '<i class="chk"></i>' : ''}`
         : `<div class="pic"><img class="u-ic sil" src="${itemIconUrl(x.r.out.itemId)}" alt=""/></div><div class="nm">???</div><small>${escapeHtml(x.r.unlock ?? 'Undiscovered')}</small>`;
       void d;
     });
@@ -126,7 +126,7 @@ export class CraftingScreen extends Screen {
       </div>
       <div class="cd-cols">
         <div class="cd-ings"><div class="cd-h">Ingredients</div>${ing}
-          <div class="cd-out ${ok ? 'ready' : ''}"><div class="u-slot mini">${known ? itemIcon(r.out.itemId) : `<img class="u-ic sil" src="${itemIconUrl(r.out.itemId)}" alt=""/>`}</div><div><b>Makes ×${r.out.qty * this.qty}</b><small>In pack <em>${this.count(r.out.itemId)}</em>${maxT > 0 && known ? ` · up to <em>${maxT * r.out.qty}</em>` : ''}</small></div>${known ? `<span class="ar">${ok ? 'Ready' : 'Missing'}</span>` : ''}</div>
+          <div class="cd-out ${ok ? 'ready' : ''}"><div class="u-slot mini">${known ? itemIcon(r.out.itemId) : `<img class="u-ic sil" src="${itemIconUrl(r.out.itemId)}" alt=""/>`}</div><div><b>Makes ×${r.out.qty * this.qty}</b><span class="cd-chips"><i>In pack <em>${this.count(r.out.itemId)}</em></i>${known ? `<i>Can make <em>${maxT * r.out.qty}</em></i>` : ''}</span></div>${known ? `<span class="ar">${ok ? 'Ready' : 'Missing'}</span>` : ''}</div>
           <div class="cd-uses">${ICONS.quill ?? ''}<span>${escapeHtml(usesNote(r.out.itemId))}</span></div>
         </div>
         ${
@@ -197,8 +197,9 @@ export class CraftingScreen extends Screen {
       root.appendChild(ring);
       setTimeout(() => ring.remove(), 700);
       const plus = el('div', 'u-craftplus', `+${outQty} <small>${escapeHtml(itemDef(x.r.out.itemId)?.name ?? '')}</small>`);
+      // Rises from the medallion's lower rim (never up into the ribbon).
       plus.style.left = `${cx}px`;
-      plus.style.top = `${r.top}px`;
+      plus.style.top = `${r.bottom - 26}px`;
       root.appendChild(plus);
       setTimeout(() => plus.remove(), 1300);
       const tab = this.root.querySelector<HTMLElement>('.u-tabs .u-tab');

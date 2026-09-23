@@ -3599,3 +3599,566 @@ svg.valley {
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
   animation: deZ 2s ease-in-out infinite;
 }
+
+/* ═══ r2: one fixed game-menu frame for every tab ═══════════════════════════════════════════════════
+   Backpack · Workbench · Map · Options share an identical 1140×690 wood frame: the ribbon, the close button
+   and the bookmark tabs never move between tabs; each page lays itself out inside. Switching tabs
+   (body.u-tabswap, set by the router) skips the pop / backdrop animations and only cross-fades the page. */
+.inv-wrap,
+.craft-wrap,
+.map-wrap,
+.set-wrap {
+  width: 1140px;
+  height: 690px;
+  transform: translate(-50%, -50%);
+}
+.inv-wrap > .u-frame,
+.craft-wrap > .u-frame,
+.map-wrap > .u-frame,
+.set-wrap > .u-frame {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.inv-wrap > .u-frame > .u-paper,
+.craft-wrap > .u-frame > .u-paper,
+.map-wrap > .u-frame > .u-paper,
+.set-wrap > .u-frame > .u-paper {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.inv-wrap > .u-tabs,
+.craft-wrap > .u-tabs,
+.map-wrap > .u-tabs,
+.set-wrap > .u-tabs {
+  top: 70px;
+}
+body.u-tabswap .hv-screen.hv-hidden.is-closing {
+  display: none !important;
+}
+body.u-tabswap .is-opening .u-backdrop,
+body.u-tabswap .is-opening .u-pop {
+  animation: none;
+}
+body.u-tabswap .is-opening .u-pop > .u-frame > .u-paper > * {
+  animation: uTabIn 240ms var(--ease-out) both;
+}
+body.u-tabswap .is-opening .u-pop > .u-frame > .u-ribbon span {
+  animation: uTabIn 200ms var(--ease-out) both;
+}
+@keyframes uTabIn {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+/* Backpack inside the fixed frame */
+.inv-frame > .u-paper {
+  gap: 26px;
+  padding: 40px 30px 22px 28px;
+}
+.inv-card {
+  width: 232px;
+  justify-content: flex-start;
+}
+.inv-card .stats {
+  margin-top: auto;
+}
+.inv-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.inv-grid {
+  grid-template-columns: repeat(10, 70px);
+  gap: 9px 8px;
+}
+.inv-grid .u-slot {
+  width: 70px;
+  height: 70px;
+}
+.inv-grid .u-slot > img.u-ic {
+  width: 54px;
+  height: 54px;
+}
+.inv-detail {
+  height: 112px;
+  margin-top: auto;
+}
+.inv-detail .idt-pic {
+  width: 84px;
+  height: 84px;
+}
+.inv-detail .idt-pic > img.u-ic {
+  width: 68px;
+  height: 68px;
+}
+.inv-foot {
+  margin-top: 16px;
+}
+
+/* Workbench inside the fixed frame */
+.craft-frame > .u-paper {
+  gap: 30px;
+  padding: 40px 30px 24px;
+}
+.craft-left {
+  width: 432px;
+  display: flex;
+  flex-direction: column;
+}
+.craft-cards {
+  flex: 1;
+  grid-auto-rows: 1fr;
+  gap: 12px;
+}
+.craft-card {
+  height: auto;
+  min-height: 0;
+}
+.craft-card .pic {
+  width: 76px;
+  height: 76px;
+}
+.craft-card .pic img {
+  width: 70px;
+  height: 70px;
+}
+.craft-card .yield {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  min-width: 20px;
+  height: 22px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  color: #fff8e6;
+  background: linear-gradient(180deg, #c98a4a, #a0602c);
+  box-shadow: 0 2px 0 #5a3418, inset 0 1px 0 rgba(255, 230, 190, 0.6);
+}
+.craft-detail {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+.cd-out small {
+  white-space: nowrap;
+}
+.cd-chips {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.cd-chips i {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 1px 8px 2px;
+  border-radius: 9px;
+  color: #8a6a48;
+  background: rgba(138, 100, 64, 0.12);
+}
+.cd-chips em {
+  font-style: normal;
+  color: var(--ink);
+}
+.cd-uses {
+  margin-top: 2px;
+}
+
+/* Map inside the fixed frame: the painted sheet fills the height, centred on the parchment. */
+.map-frame > .u-paper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 22px 12px;
+}
+.map-frame svg.valley {
+  flex: 1;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  aspect-ratio: 1000 / 640;
+}
+.map-frame .map-legend {
+  align-self: stretch;
+}
+
+/* Shop list: bounded scroller with a wood rail + "more" chevron; warm gold hover (red = can't afford). */
+.shop-listwrap {
+  position: relative;
+}
+.shop-list {
+  padding-right: 22px;
+}
+.shop-rail {
+  position: absolute;
+  right: 2px;
+  top: 18px;
+  bottom: 18px;
+  width: 9px;
+  border-radius: 6px;
+  background: rgba(138, 100, 64, 0.16);
+  box-shadow: inset 0 1px 2px rgba(80, 40, 10, 0.25);
+  cursor: pointer;
+}
+.shop-rail i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  border-radius: 6px;
+  background: var(--u-wood) 0 0 / 512px 256px, linear-gradient(90deg, #d49a58, #a8672e);
+  box-shadow: inset 0 0 0 1px rgba(80, 40, 10, 0.4), 0 1px 2px rgba(60, 30, 6, 0.35);
+  transition: transform 80ms linear;
+}
+.shop-more {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 12px 3px 9px;
+  border: 0;
+  border-radius: 12px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 12px;
+  color: #fff6e0;
+  background: linear-gradient(180deg, #c98a4a, #a0602c);
+  box-shadow: 0 2px 0 #5a3418, 0 4px 8px rgba(60, 30, 6, 0.25);
+  cursor: pointer;
+  animation: shopMore 1.6s ease-in-out infinite;
+  transition: opacity 200ms;
+}
+.shop-more.gone {
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes shopMore {
+  50% {
+    translate: -50% 3px;
+  }
+}
+.shop-row.on {
+  box-shadow: inset 0 0 0 3px #e8b04a, 0 4px 10px rgba(200, 140, 40, 0.25);
+}
+.shop-row:hover:not(.on) {
+  box-shadow: inset 0 0 0 2px rgba(232, 176, 74, 0.7), 0 2px 0 rgba(120, 70, 20, 0.12);
+}
+.shop-row.cant .pr {
+  color: #c0402a;
+}
+
+/* Options inside the fixed frame: Graphics + Display · Sound + Interface · Controls */
+.set-frame > .u-paper {
+  gap: 24px;
+  padding: 36px 26px 20px;
+}
+.set-col {
+  width: auto;
+  min-width: 0;
+  gap: 12px;
+}
+.set-col.a {
+  flex: 1.12;
+}
+.set-col.b {
+  flex: 0.95;
+}
+.set-col.c {
+  flex: 1;
+}
+.set-sec h3 {
+  margin-bottom: 8px;
+}
+.set-seg .seg {
+  position: relative;
+  justify-items: center;
+  gap: 1px;
+}
+.set-seg .seg small {
+  white-space: nowrap;
+}
+.set-seg .seg .spd {
+  display: flex;
+  gap: 2px;
+  margin-top: 3px;
+}
+.set-seg .seg .spd em {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7aa84a;
+}
+.set-seg .seg .spd em.off {
+  background: rgba(120, 80, 40, 0.22);
+}
+.set-seg .seg.on .spd em {
+  background: #fff;
+}
+.set-seg .seg.on .spd em.off {
+  background: rgba(255, 255, 255, 0.35);
+}
+.set-seg.mini {
+  grid-template-columns: repeat(3, 1fr);
+  width: 184px;
+  flex: none;
+}
+.set-seg.mini .seg {
+  padding: 4px 4px 5px;
+}
+.set-seg.mini .seg b {
+  font-size: 15px;
+}
+.set-fpsline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: rgba(255, 252, 240, 0.7);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.16);
+}
+.set-fpsline:empty {
+  display: none;
+}
+.set-fpsline i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #5fa83c;
+  box-shadow: 0 0 0 3px rgba(95, 168, 60, 0.25);
+  animation: uFpsDot 1s ease-in-out infinite;
+}
+.set-fpsline.ok i {
+  background: #e0a030;
+  box-shadow: 0 0 0 3px rgba(224, 160, 48, 0.25);
+}
+.set-fpsline.bad i {
+  background: #d0503a;
+  box-shadow: 0 0 0 3px rgba(208, 80, 58, 0.25);
+}
+.set-fpsline b {
+  color: var(--ink);
+}
+.set-fpsline small {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: #a08060;
+  white-space: nowrap;
+}
+@keyframes uFpsDot {
+  50% {
+    opacity: 0.45;
+  }
+}
+.set-caprow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  margin-bottom: 4px;
+}
+.set-caprow .lb {
+  display: grid;
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.set-caprow .lb small {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #a08060;
+}
+.set-fixed {
+  grid-template-columns: 1fr;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 12.5px;
+}
+.set-fixed b {
+  white-space: nowrap;
+}
+.set-fixed .pad b {
+  white-space: normal;
+  text-align: right;
+}
+.set-slider {
+  grid-template-columns: 78px 1fr 40px;
+}
+
+/* Backpack r2 layout: big slots across the full width; farmer card + item detail side by side below. */
+.inv-frame > .u-paper {
+  display: block;
+  padding: 38px 36px 20px;
+}
+.inv-main {
+  height: 100%;
+}
+.inv-label,
+.inv-grid {
+  width: 988px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.inv-grid {
+  grid-template-columns: repeat(10, 88px);
+  gap: 12px 12px;
+}
+.inv-grid .u-slot {
+  width: 88px;
+  height: 88px;
+  border-radius: 15px;
+}
+.inv-grid .u-slot > img.u-ic {
+  width: 68px;
+  height: 68px;
+}
+.inv-grid .u-slot .qty {
+  font-size: 18px;
+  right: 7px;
+  bottom: 3px;
+}
+.inv-grid .u-slot .u-star {
+  width: 22px;
+  height: 22px;
+}
+.inv-lower {
+  display: flex;
+  gap: 16px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+.inv-card {
+  width: 452px;
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  box-sizing: border-box;
+}
+.inv-card .av {
+  flex: none;
+  width: 104px;
+  height: 104px;
+  box-shadow: 0 0 0 4px #b8783e, 0 0 0 7px #4a2810, 0 6px 12px rgba(40, 18, 4, 0.35);
+}
+.inv-card .col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.inv-card .who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.inv-card .who .nm {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+.inv-card .who .farm {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inv-card .stats {
+  margin-top: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.inv-card .stats > div {
+  padding: 4px 6px;
+}
+.inv-card .stats b {
+  font-size: 14px;
+}
+.inv-detail {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  margin-top: 0;
+}
+.craft-detail {
+  gap: 16px;
+}
+.craft-detail .pedestal {
+  width: 136px;
+  height: 136px;
+}
+.craft-detail .pedestal img {
+  width: 98px;
+  height: 98px;
+}
+.craft-detail .cd-cols {
+  flex: 1;
+  min-height: 0;
+  gap: 22px;
+}
+.craft-detail .cd-ings {
+  gap: 10px;
+}
+.craft-detail .cd-prev {
+  width: 268px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.craft-detail .cd-prev svg.grid.iso {
+  width: 268px;
+}
+.craft-detail .cd-uses {
+  font-size: 14px;
+}
+
+/* Save cards: real world snapshots + who's journal it is; overwrite confirm glow. */
+.save-card .thumb img.snap {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  filter: saturate(1.05) contrast(1.03);
+}
+.save-card .meta .who {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+  color: #b8602a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.save-card.confirm.ow {
+  box-shadow: inset 0 0 0 3px #e8b04a, 0 6px 14px rgba(200, 140, 40, 0.3);
+}

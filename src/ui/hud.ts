@@ -26,12 +26,14 @@ import { ShopScreen } from './shop';
 import { CraftingScreen } from './crafting';
 import { MapScreen } from './mapscreen';
 import { SettingsScreen, loadSettings, settings } from './settings';
-import { PauseScreen, SavesScreen } from './pause';
+import { PauseScreen, SavesScreen, installSaveThumbs } from './pause';
 import { DayEndScreen } from './dayend';
 import { IconSheetScreen } from './iconsheet';
 import { PlacementGhost } from './placement';
 import { DemoKit } from './demo-kit';
+import { NewGameScreen } from './newgame';
 import { itemDef } from '../data/items';
+import { loadJournal, registerJournalSave, journal } from './profile';
 
 export { slotHtml } from './itemtip';
 
@@ -67,6 +69,8 @@ interface Toast {
 }
 
 export class Hud {
+  /** Measured frames per second (HUD frame counter). */
+  static fps = 0;
   readonly root: HTMLElement;
   readonly screens: HTMLElement;
   private panels = new Map<string, RichPanel>();
@@ -108,10 +112,24 @@ export class Hud {
   private ghost: PlacementGhost;
   private demoKit: DemoKit;
   private pad = { prev: [] as boolean[], navT: 0, navDir: '' as NavDir | '' };
+  private swapTimer = 0;
+  private fpsEl: HTMLElement;
+  private fpsT = 0;
+  private fpsN = 0;
+  private fpsLast = performance.now();
 
   constructor(private game: Game, uiRoot: HTMLElement, visible: boolean) {
     installTextures();
     loadSettings(game);
+    loadJournal();
+    registerJournalSave(game);
+    installSaveThumbs(game, () => {
+      try {
+        return localStorage.getItem('hearthvale.journal') ? journal.slot : null;
+      } catch {
+        return null;
+      }
+    });
     this.root = el('div', 'hv-hud');
     uiRoot.appendChild(this.root);
     if (!visible) this.root.classList.add('hv-hidden');
@@ -122,6 +140,8 @@ export class Hud {
     this.buildBars();
     this.toastBox = el('div', 'h-toasts');
     this.root.appendChild(this.toastBox);
+    this.fpsEl = el('div', 'h-fps hv-hidden');
+    this.root.appendChild(this.fpsEl);
 
     const S = this.screens;
     this.registerPanel('inventory', new InventoryScreen(game, S));
@@ -136,6 +156,32 @@ export class Hud {
     this.registerPanel('saves', new SavesScreen(game, S));
     this.registerPanel('dayend', new DayEndScreen(game, S));
     this.registerPanel('icons', new IconSheetScreen(game, S));
+    this.registerPanel('newgame', new NewGameScreen(game, S));
+    // 'place:<itemId>' — hold a placeable on the toolbar so the in-world ghost shows (staging / tutorials).
+    this.registerPanel('place', {
+      open: (arg?: string) => {
+        const inv = game.services.inventory;
+        const id = arg && itemDef(arg) ? arg : 'chest';
+        const find = (): number => inv?.slots.slice(0, 10).findIndex((st) => st?.id === id) ?? -1;
+        if (find() < 0) game.events.emit('item:give', { itemId: id, qty: 1 });
+        setTimeout(() => {
+          let k = find();
+          if (k < 0 && inv) {
+            // Given into the backpack: swap it onto the toolbar's last slot.
+            const j = inv.slots.findIndex((st) => st?.id === id);
+            if (j >= 0) {
+              const bar = inv.slots[9] ?? null;
+              inv.setSlot(9, inv.slots[j]!);
+              inv.setSlot(j, bar);
+              k = 9;
+            }
+          }
+          if (k >= 0) game.events.emit('toolbar:select', { slot: k });
+          this.open('none');
+        }, 0);
+      },
+      close: () => {},
+    });
     this.fadeEl = el('div', 'hv-fade');
     this.bannerEl = el('div', 'hv-banner');
     uiRoot.append(this.fadeEl, this.bannerEl);
@@ -267,7 +313,7 @@ export class Hud {
       b.title = title;
       return b;
     };
-    this.healthBar = bar('health hv-hidden', ICONS.heart!, 'Health');
+    this.healthBar = bar('health rest', ICONS.heart!, 'Health');
     this.energyBar = bar('energy', ICONS.bolt!, 'Energy');
     box.append(this.healthBar, this.energyBar);
     this.root.appendChild(box);
@@ -421,6 +467,13 @@ export class Hud {
     const name = i < 0 ? nameArg : nameArg.slice(0, i);
     const arg = i < 0 ? undefined : nameArg.slice(i + 1);
     tooltip.hide();
+    // Tab to tab inside the game menu: the frame, ribbon and tabs stay put; only the page content cross-fades.
+    const isTab = (n: string | null): boolean => !!n && (MENU_TABS as readonly string[]).includes(n);
+    if (isTab(this.openPanel) && isTab(name) && name !== this.openPanel) {
+      document.body.classList.add('u-tabswap');
+      clearTimeout(this.swapTimer);
+      this.swapTimer = window.setTimeout(() => document.body.classList.remove('u-tabswap'), 380);
+    }
     if (this.openPanel) {
       const prev = this.openPanel;
       this.openPanel = null;
@@ -643,17 +696,35 @@ export class Hud {
     const hp = (this.game.services as Record<string, unknown>).health as { value(): number; max(): number } | undefined;
     const mapId = this.game.world.current?.id ?? 'farm';
     const hv = hp ? hp.value() / Math.max(1, hp.max()) : 1;
-    const showHp = !!hp && (hv < 1 || mapId === 'mine');
-    this.healthBar.classList.toggle('hv-hidden', !showHp);
-    if (showHp && hv !== this.healthShown) {
+    // Both tubes always show; a full heart outside the mine rests shorter and dimmer so energy leads.
+    this.healthBar.classList.toggle('rest', hv >= 1 && mapId !== 'mine');
+    if (hv !== this.healthShown) {
       if (this.healthShown >= 0) replay(this.healthBar, 'bump');
       this.healthShown = hv;
       const fill = this.healthBar.querySelector('.fill') as HTMLElement;
       fill.style.height = `${hv * 100}%`;
       fill.style.background = 'linear-gradient(90deg, #b8202a, #ff6a5a 45%, #b8202a)';
       this.healthBar.classList.toggle('low', hv < 0.25);
-      (this.healthBar.querySelector('.val') as HTMLElement).textContent = `${Math.round(hp!.value())} / ${hp!.max()}`;
+      (this.healthBar.querySelector('.val') as HTMLElement).textContent = hp ? `${Math.round(hp.value())} / ${hp.max()}` : '';
     }
+    this.root.classList.toggle('h-hurt', hv < 0.25 || e < 0.12);
+    // FPS chip (Options → Display → Show FPS): real frames, measured here, refreshed twice a second.
+    const now = performance.now();
+    this.fpsN++;
+    this.fpsT += now - this.fpsLast;
+    this.fpsLast = now;
+    if (this.fpsT >= 500) {
+      const fps = (this.fpsN * 1000) / this.fpsT;
+      Hud.fps = fps;
+      if (settings.showFps) {
+        this.fpsEl.innerHTML = `<b>${Math.round(fps)}</b><small>fps</small>`;
+        this.fpsEl.classList.toggle('warn', fps < 50);
+        this.fpsEl.classList.toggle('bad', fps < 30);
+      }
+      this.fpsT = 0;
+      this.fpsN = 0;
+    }
+    this.fpsEl.classList.toggle('hv-hidden', !settings.showFps);
     this.ghost.update(this.openPanel === null && !this.root.classList.contains('hv-title-mode'));
   }
 }
