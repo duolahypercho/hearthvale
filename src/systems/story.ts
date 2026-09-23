@@ -5,8 +5,13 @@
  *   New Game ────────► intro (Gran's letter → evening coach → Mayor Hollis → farm → first night)
  *   first Hall visit ─► hall-first (the six dark rooms)
  *   room restored ───► room-<id> (lantern ignites, the valley changes) + one of Gran's sealed letters
+ *   1 room lit ──────► glimmer-survey: Sterling measures the Hall (Spring 15+: his kiosk by the fountain)
+ *   2 rooms lit ─────► glimmer-marigold: he tries to buy Thimble & Pip's out from under Marigold
  *   3 rooms lit ─────► Glimmerco's offer on the Hall steps (moral choice: sign / refuse)
- *   Winter 28 eve ───► the Lantern Festival finale, then Gran's last letter
+ *                      sign:   +5,000g, the Hall goes EverGlow white, a van + floodlight on the square,
+ *                              Marigold, Bram and Hazel each think one heart less of you
+ *                      refuse: the kiosk packs up; once the Hall is lit by hand, sterling-redeem
+ *   Winter 28 eve ───► the Lantern Festival finale (the whole valley, lanterns in hand), Gran's last letter
  *
  * Mail: letters arrive in the farm mailbox each morning (or at once for sealed letters handed over in
  * a scene). Read them from the mailbox, the envelope badge by the clock, or the journal (J).
@@ -22,6 +27,7 @@ import { LetterPanel } from '../ui/journal-letter';
 import { JournalPanel, StoryBadge } from '../ui/journal';
 import { BundlePanel } from '../ui/journal-bundles';
 import { BoardPanel } from '../ui/journal-board';
+import { WorldHints, type HintPoint } from '../ui/journal-hint';
 
 export interface MailItem {
   id: string;
@@ -83,6 +89,7 @@ export class StorySystem implements System, StoryApi {
   private queued: string[] = [];
   private letters!: LetterPanel;
   private staging = false;
+  private hints!: WorldHints;
 
   init(game: Game): void {
     this.game = game;
@@ -93,6 +100,12 @@ export class StorySystem implements System, StoryApi {
     game.hud.registerPanel('bundles', new BundlePanel(game, root));
     game.hud.registerPanel('board', new BoardPanel(game, root));
     new StoryBadge(game, root);
+    const HINTS: HintPoint[] = [
+      { map: MAILBOX.map, x: MAILBOX.x + 0.5, z: MAILBOX.z + 0.5, y: 1.7, label: 'Read letters', r: 2.2 },
+      { map: BOARD.map, x: BOARD.x + 0.5, z: BOARD.z + 0.5, y: 2.6, label: 'Help Wanted', r: 2.4 },
+      { map: 'town', x: 38.4, z: 30.2, y: 2.6, label: 'Read the flyer', r: 2.2 },
+    ];
+    this.hints = new WorldHints(game, root.parentElement ?? root, () => HINTS.filter((h) => h.label !== 'Read the flyer' || this.kioskUp()));
     game.provide('story', this);
     game.provide('letters', { show: (id) => this.letters.show(id) });
 
@@ -143,7 +156,12 @@ export class StorySystem implements System, StoryApi {
       this.game.services.economy?.add(5000, 'glimmerco');
       this.game.services.quests?.glimmerFinish();
       this.deliver('marigold-sad', true);
+      // The valley remembers who sold the Hall.
+      const rel = this.game.services.relationships;
+      for (const id of ['marigold', 'bram', 'hazel']) rel?.adjust(id, -250);
+      this.game.events.emit('ui:toast', { text: 'Marigold, Bram and Hazel think a little less of you', kind: 'bad' });
     }
+    if (key === 'glimmer' && value === 'refused') this.deliver('hollis-proud', true);
     if (key === 'intro' && value === 'done') {
       this.deliver('hollis-welcome', true);
       this.deliver('marigold-seeds', true);
@@ -209,6 +227,17 @@ export class StorySystem implements System, StoryApi {
     else this.setFlag('intro', 'done');
   }
 
+  /** The EverGlow kiosk stands by the fountain (Spring 15 on, until the offer is refused). */
+  private kioskUp(): boolean {
+    const c = this.game.calendar;
+    const past15 = c.year > 1 || c.season !== 'spring' || c.day >= 15;
+    return this.flags.intro === 'done' && ((past15 && this.flags.glimmer !== 'refused') || this.flags.glimmer === 'accepted');
+  }
+
+  update(): void {
+    this.hints.update();
+  }
+
   private play(scene: string): void {
     const cs = this.game.services.cutscene;
     if (!cs || cs.playing || this.staging || this.game.paused) return;
@@ -230,6 +259,21 @@ export class StorySystem implements System, StoryApi {
     if (map === 'town' && lit >= 3 && !this.flags.glimmer && c.hour >= 16 && c.hour < 22) {
       this.flags.glimmer = 'pending';
       this.play('glimmer-offer');
+      return;
+    }
+    if (map === 'town' && lit >= 1 && !this.flags.glimmer && !this.flags.glimmerSurvey && c.hour >= 10 && c.hour < 18) {
+      this.flags.glimmerSurvey = 'pending';
+      this.play('glimmer-survey');
+      return;
+    }
+    if (map === 'town' && lit >= 2 && !this.flags.glimmer && this.flags.glimmerSurvey === 'yes' && !this.flags.glimmerMarigold && c.hour >= 9 && c.hour < 17) {
+      this.flags.glimmerMarigold = 'pending';
+      this.play('glimmer-marigold');
+      return;
+    }
+    if (map === 'town' && this.flags.glimmer === 'refused' && this.flags.hall === 'restored' && !this.flags.sterling && c.hour >= 17 && c.hour < 23) {
+      this.flags.sterling = 'pending';
+      this.play('sterling-redeem');
       return;
     }
     if (map === 'town' && c.season === 'winter' && c.day === 28 && c.hour >= 17 && !this.flags.festival) {
@@ -299,9 +343,26 @@ export class StorySystem implements System, StoryApi {
           if (inv && n > 0 && n < 6) for (const [id, k] of [['tomato', 4], ['corn', 7], ['sunflower', 2], ['pumpkin', 2], ['potato', 12], ['parsnip', 6], ['wood', 60], ['fiber', 30]] as const) if (inv.count(id) < k) inv.add(id, k - inv.count(id));
           break;
         }
-        case 'scene':
-          if (cs && arg) await cs.stage(arg, mark);
+        case 'glimmer': {
+          // The Glimmerco path: three rooms by hand, the charter signed, the rest in EverGlow.
+          q?.debugFill(3);
+          this.flags = { ...this.flags, intro: 'done', hallVisited: 'yes', hallKey: 'yes', glimmerLetter: 'yes', glimmerSurvey: 'yes', glimmerMarigold: 'yes', glimmer: 'accepted' };
+          q?.glimmerFinish();
+          this.game.events.emit('story:beat', { id: 'glimmer:accepted' });
           break;
+        }
+        case 'scene': {
+          // Room celebrations: `&room=<id>` swaps in another room's scene (lit up to and including it).
+          let scene = arg;
+          const room = new URLSearchParams(location.search).get('room');
+          const idx = ROOMS.findIndex((r) => r.id === room);
+          if (scene?.startsWith('room-') && idx >= 0) {
+            scene = `room-${room}`;
+            q?.debugFill(idx + 1);
+          }
+          if (cs && scene) await cs.stage(scene, mark);
+          break;
+        }
       }
     }
   }

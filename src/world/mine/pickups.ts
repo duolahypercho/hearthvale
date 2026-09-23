@@ -6,6 +6,16 @@ import * as THREE from 'three';
 import { Rng } from '../../core/rng';
 import { facetRock, crystalPrism } from './rockgeo';
 import { ORE_STYLE, type OreId } from './biomes';
+import { glowPoint } from './fx';
+
+/** Halo colour per loot kind (gems glow their own colour, metals warm, monster drops soft). */
+function haloColor(id: string): number {
+  const ore = (ORE_STYLE as Record<string, (typeof ORE_STYLE)[OreId] | undefined>)[id];
+  if (ore) return ore.kind === 'coal' ? 0xffd8a0 : ore.color;
+  if (id === 'slimeGel') return 0x9aff7a;
+  if (id === 'duskWing') return 0xd8b0ff;
+  return 0xffe8c0;
+}
 
 interface Pickup {
   id: string;
@@ -98,6 +108,8 @@ export class Pickups {
     const vis = visualFor(id);
     const g = new THREE.Group();
     const m = new THREE.Mesh(vis.geo, vis.mat);
+    // A little oversized + a soft halo: loot must read from the 17–25 m mine camera.
+    m.scale.setScalar(1.3);
     g.add(m);
     blob ??= new THREE.CircleGeometry(0.16, 14).rotateX(-Math.PI / 2);
     blobMat ??= new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false });
@@ -105,6 +117,9 @@ export class Pickups {
     sh.renderOrder = 1;
     sh.name = 'shadow';
     g.add(sh);
+    const halo = glowPoint(haloColor(id), 0.8, 0.7);
+    halo.name = 'halo';
+    g.add(halo);
     this.group.add(g);
     const a = Math.random() * Math.PI * 2;
     const sp = (0.8 + Math.random() * 1.4) * power;
@@ -131,7 +146,7 @@ export class Pickups {
         p.pos.y += ((player.y + 0.7) - p.pos.y) * (1 - Math.exp(-dt * 8));
         if (d < 0.38) {
           this.onCollect(p.id, p.qty, p.pos.clone());
-          this.group.remove(p.mesh);
+          this.drop(p);
           this.list.splice(i, 1);
           continue;
         }
@@ -155,14 +170,25 @@ export class Pickups {
       const item = p.mesh.children[0]!;
       item.rotation.y = time * 1.8 + p.seed;
       item.rotation.x = p.rest ? 0 : p.age * 9;
+      const halo = p.mesh.children[2];
+      if (halo) ((halo as THREE.Points).material as THREE.PointsMaterial).size = (p.rest ? 0.85 : 0.6) * (1 + 0.18 * Math.sin(time * 4 + p.seed * 3));
       const sh = p.mesh.children[1]!;
       sh.position.y = fy - p.pos.y - bob + 0.02;
       sh.scale.setScalar(Math.max(0.3, 1 - (p.pos.y + bob - fy) * 0.8));
     }
   }
 
+  private drop(p: Pickup): void {
+    this.group.remove(p.mesh);
+    const h = p.mesh.children[2] as THREE.Points | undefined;
+    if (h) {
+      h.geometry.dispose();
+      (h.material as THREE.Material).dispose();
+    }
+  }
+
   clear(): void {
-    for (const p of this.list) this.group.remove(p.mesh);
+    for (const p of this.list) this.drop(p);
     this.list.length = 0;
   }
 

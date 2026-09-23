@@ -40,6 +40,6 @@ export class AudioEngine {
       this.graph.sfxBus.gain.setTargetAtTime(v.sfx * 0.85, t, 0.05);
       this.graph.uiBus.gain.setTargetAtTime(v.sfx * 0.7, t, 0.05);
     }
-    if (v.ambience !== undefined) this.graph.ambBus.gain.setTargetAtTime(v.ambience * 0.7, t, 0.1);
+    if (v.ambience !== undefined) this.graph.ambBus.gain.setTargetAtTime(v.ambience * 0.9, t, 0.1);
   }
 }

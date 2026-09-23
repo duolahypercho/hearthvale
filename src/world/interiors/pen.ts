@@ -9,13 +9,17 @@ import { mat, lumpySphere, roundedBox } from '../geom';
 import type { Kit } from './kit';
 
 export interface PenSlot {
-  /** Where the animal stands to eat (floor, room coords). */
+  /** The manger / trough mouth point (floor coords): the animal stands `reach` behind it, facing feedHeading. */
   feed: THREE.Vector3;
   feedHeading: number;
-  /** Where it sleeps. */
+  /** Where it sleeps (y > 0: a roost bar the bird flutters up onto). */
   bed: THREE.Vector3;
-  /** Hay portion position in the trough. */
+  /** Heading while asleep (default: random). */
+  bedHeading?: number;
+  /** Hay portion position in the manger / trough. */
   hay: THREE.Vector3;
+  /** Own stall (barn): the animal lives inside this rect (root position), confined. */
+  stall?: { x0: number; z0: number; x1: number; z1: number };
 }
 
 export interface PenAnchors {
@@ -26,11 +30,15 @@ export interface PenAnchors {
   nests: THREE.Vector3[];
   /** Wander rectangle (room coords). */
   area: { x0: number; z0: number; x1: number; z1: number };
-  /** Interact with any tile in this rect (inclusive) to fill the trough. */
+  /** Manger / trough tiles (inclusive): interact here holding hay (or with no animal in reach) to fill. */
   trough: { x0: number; z0: number; x1: number; z1: number };
   feedTile: { x: number; z: number };
-  /** Stall name plaques (barn): where to hang each animal's name. */
+  /** Stall name plaques (barn): where to hang each animal's name (facing +z). */
   plaques?: THREE.Vector3[];
+  /** Chalkboard with the flock's names (coop): centre + yaw. */
+  board?: { at: THREE.Vector3; ry: number };
+  /** Roost perches (coop): chickens sleep up here (y = bar top), ducks keep to the slot beds. */
+  perches?: THREE.Vector3[];
 }
 
 const STRAW = [0xf2dc94, 0xe0bc62, 0xf6e6aa, 0xd4a850, 0xe8cc7a];
@@ -129,4 +137,62 @@ export function pitchfork(k: Kit, x: number, z: number, lean = 0.2, ry = 0): voi
     const g = new THREE.CylinderGeometry(0.006, 0.004, 0.3, 4);
     k.add('iron', g, mat(x + Math.sin(-lean) * -0.75 + (i - 1) * 0.04, 1.75, z, 0, ry, lean), { tint: 0x5a5a5a });
   }
+}
+
+/** Tall dairy can: shouldered lathe body, lid, two side handles. */
+export function milkCan(k: Kit, x: number, z: number, ry = 0): void {
+  const prof = [[0, 0], [0.15, 0], [0.16, 0.02], [0.16, 0.38], [0.14, 0.44], [0.08, 0.5], [0.075, 0.56], [0.085, 0.57], [0.085, 0.6], [0, 0.61]];
+  k.add('tin', new THREE.LatheGeometry(prof.map(([a, b]) => new THREE.Vector2(a!, b!)), 20), mat(x, 0, z, 0, ry, 0), { tint: 0xd4dade });
+  for (const y of [0.06, 0.34]) k.add('tin', new THREE.TorusGeometry(0.162, 0.008, 5, 22), mat(x, y, z, Math.PI / 2, 0, 0), { tint: 0xa8b0b4 });
+  for (const s of [-1, 1]) k.add('iron', new THREE.TorusGeometry(0.04, 0.009, 5, 10, Math.PI), mat(x + Math.cos(ry) * s * 0.15, 0.46, z - Math.sin(ry) * s * 0.15, 0, ry + Math.PI / 2, 0), { tint: 0x6a6a6a });
+  k.cyl('tin', 0.09, 0.09, 0.03, [x, 0.6, z], { tint: 0xc0c8cc, seg: 16 });
+}
+
+/** Wooden wheelbarrow heaped with hay. */
+export function wheelbarrow(k: Kit, rng: Rng, x: number, z: number, ry: number): void {
+  const c = Math.cos(ry);
+  const s = Math.sin(ry);
+  const m = (lx: number, ly: number, lz: number, rx = 0, rz = 0) => mat(x + lx * c + lz * s, ly, z - lx * s + lz * c, rx, ry, rz);
+  // Tray (tapered box of planks)
+  k.add('wood', roundedBox(0.62, 0.05, 0.78, 0.015), m(0, 0.36, 0), { tint: 0xa87450 });
+  for (const sd of [-1, 1]) k.add('wood', roundedBox(0.04, 0.26, 0.82, 0.012), m(sd * 0.33, 0.49, 0, 0, sd * 0.2), { tint: 0xb88058 });
+  k.add('wood', roundedBox(0.7, 0.26, 0.04, 0.012), m(0, 0.49, 0.41, -0.3, 0), { tint: 0xb07a52 });
+  k.add('wood', roundedBox(0.66, 0.24, 0.04, 0.012), m(0, 0.48, -0.4), { tint: 0xb07a52 });
+  // Handles + legs + wheel
+  for (const sd of [-1, 1]) {
+    k.add('wood', new THREE.CylinderGeometry(0.022, 0.022, 1.3, 7).rotateX(Math.PI / 2), m(sd * 0.25, 0.36, -0.2, -0.22), { tint: 0x8a5a3a });
+    k.add('wood', new THREE.CylinderGeometry(0.02, 0.02, 0.36, 6), m(sd * 0.22, 0.17, -0.42), { tint: 0x8a5a3a });
+  }
+  k.add('wood', new THREE.CylinderGeometry(0.17, 0.17, 0.06, 16).rotateZ(Math.PI / 2), m(0, 0.17, 0.62), { tint: 0x7a5236 });
+  k.add('iron', new THREE.TorusGeometry(0.17, 0.014, 5, 18).rotateY(Math.PI / 2), m(0, 0.17, 0.62), { tint: 0x3a3634 });
+  // Heap of hay
+  k.add('straw', lumpySphere(0.34, 2, 0.28, rng), m(0, 0.56, 0.02, 0, 0), { tint: 0xfff0c8 });
+  strawTufts(k, rng, x, 0.72, z, 18, 0.3, () => 0);
+}
+
+/** Slatted wooden crate (optionally lying on another: y). */
+export function crate(k: Kit, x: number, z: number, ry: number, tint: number, y = 0): void {
+  const c = Math.cos(ry);
+  const s = Math.sin(ry);
+  const m = (lx: number, ly: number, lz: number) => mat(x + lx * c + lz * s, y + ly, z - lx * s + lz * c, 0, ry, 0);
+  k.add('wood', roundedBox(0.52, 0.04, 0.4, 0.01), m(0, 0.02, 0), { tint });
+  for (const ly of [0.1, 0.26, 0.42]) {
+    for (const sd of [-1, 1]) {
+      k.add('wood', roundedBox(0.54, 0.1, 0.025, 0.01), m(0, ly, sd * 0.2), { tint: ly === 0.26 ? tint : 0xb08058 });
+      k.add('wood', roundedBox(0.025, 0.1, 0.42, 0.01), m(sd * 0.265, ly, 0), { tint });
+    }
+  }
+  for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) k.add('wood', roundedBox(0.04, 0.48, 0.04, 0.01), m(lx * 0.26, 0.24, lz * 0.19), { tint: 0x8a5a3a });
+}
+
+/** A low, flat drift of loose straw across the floor (breaks up the bedding texture). */
+export function strawDrift(k: Kit, rng: Rng, x: number, z: number, w: number, d: number): void {
+  const n = 3 + Math.floor(w * d * 2);
+  for (let i = 0; i < n; i++) {
+    const dx = (rng.next() - 0.5) * w * 0.8;
+    const dz = (rng.next() - 0.5) * d * 0.8;
+    const s = 0.28 + rng.next() * 0.3;
+    k.add('straw', lumpySphere(0.5, 2, 0.35, rng), mat(x + dx, -0.03, z + dz, 0, rng.next() * 3, 0, s * w * 0.9, 0.09 + rng.next() * 0.05, s * d * 0.9), { tint: i % 2 ? 0xfff4d8 : 0xffe8b8 });
+  }
+  strawTufts(k, rng, x, 0.02, z, Math.round(10 + w * d * 12), Math.max(w, d) * 0.5);
 }

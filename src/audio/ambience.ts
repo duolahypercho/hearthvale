@@ -85,7 +85,12 @@ export class Ambience {
     bed('fountain', g.pink, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800)]);
     bed('surf', g.pink, [bf('lowpass', 500, 0.6)]);
     // Brook: bubbly band of noise with a fast, irregular filter wobble.
-    const brook = bed('brook', g.white, [bf('bandpass', 1100, 1.2), bf('lowpass', 3500)]);
+    const tame = (): BiquadFilterNode => {
+      const b = bf('peaking', 3500, 1.1);
+      b.gain.value = -3.5;
+      return b;
+    };
+    const brook = bed('brook', g.white, [bf('bandpass', 1100, 1.2), bf('lowpass', 3200), tame()]);
     for (const [rate, depth] of [[3.1, 260], [7.3, 180], [0.43, 300]] as const) {
       const lfo = ctx.createOscillator();
       lfo.frequency.value = rate;
@@ -94,7 +99,8 @@ export class Ambience {
       lfo.connect(lg).connect(brook.filter!.frequency);
       lfo.start(0);
     }
-    bed('cave', g.brown, [bf('lowpass', 160, 0.7)]);
+    // Cave air: a low hollow roar, kept above the sub range so it doesn't swamp small speakers.
+    bed('cave', g.brown, [bf('highpass', 70, 0.7), bf('lowpass', 320, 0.7)]);
     bed('caveAir', g.pink, [bf('bandpass', 700, 3)], 0.6);
     bed('howl', g.pink, [bf('bandpass', 620, 9)]);
     bed('snowHush', g.pink, [bf('highpass', 2500, 0.5), bf('lowpass', 6000)]);
@@ -103,7 +109,7 @@ export class Ambience {
     // Fireplace: a soft roar under the crackles.
     bed('fire', g.pink, [bf('lowpass', 520, 0.7)], 0.7);
     // Cicadas: narrow noise band amplitude-modulated at ~30 Hz.
-    const cic = bed('cicada', g.white, [bf('bandpass', 5300, 5)]);
+    const cic = bed('cicada', g.white, [bf('bandpass', 5300, 5), tame()]);
     const am = ctx.createOscillator();
     am.frequency.value = 29;
     const amG = ctx.createGain();
@@ -162,7 +168,7 @@ export class Ambience {
     this.setBed('rain', outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0, now, 2);
     this.setBed('rainLow', raining && !mine ? (storm ? 0.3 : 0.12) * (s.indoor ? 0.5 : 1) : 0, now, 2);
     this.setBed('fountain', outdoors ? 0.14 * s.fountain : 0, now, 0.6);
-    this.setBed('cave', mine ? 0.3 : 0, now, 2);
+    this.setBed('cave', mine ? 0.16 : 0, now, 2);
     this.setBed('caveAir', mine ? 0.05 : 0, now, 2);
     const cold = s.season === 'winter' && outdoors;
     this.setBed('howl', cold ? 0.012 + 0.03 * this.gust * windy : 0, now, 1);
@@ -206,7 +212,8 @@ export class Ambience {
     // Birds: morning chorus, quieter afternoons, none at night or in the rain.
     const chorus = h < 9.5 ? 1 : h < 17 ? 0.45 : h < 19.5 ? 0.6 : 0;
     const birdsActive = outdoors && !beach && !raining && s.night < 0.35 && chorus > 0 && s.season !== 'winter';
-    let t = due('bird', 1.4 / Math.max(0.2, chorus), 6 / Math.max(0.2, chorus), birdsActive);
+    // Dawn chorus: roughly one phrase every 1.5 s at sunrise, sparser through the afternoon.
+    let t = due('bird', 0.7 / Math.max(0.2, chorus), 3 / Math.max(0.2, chorus), birdsActive);
     if (t !== null) this.bird(t, s);
     t = due('dove', 14, 30, birdsActive && h < 10.5);
     if (t !== null) this.dove(t);
@@ -274,7 +281,7 @@ export class Ambience {
     return lp;
   }
 
-  private chirp(dest: AudioNode, t: number, f0: number, f1: number, dur: number, amp: number, fm = 0): void {
+  private chirp(dest: AudioNode, t: number, f0: number, f1: number, dur: number, amp: number, fm = 0, trill = 0): void {
     const ctx = this.g.ctx;
     const o = ctx.createOscillator();
     o.frequency.setValueAtTime(f0, t);
@@ -293,30 +300,42 @@ export class Ambience {
     a.gain.linearRampToValueAtTime(amp, t + Math.min(0.012, dur * 0.3));
     a.gain.setValueAtTime(amp, t + dur * 0.6);
     a.gain.linearRampToValueAtTime(0, t + dur);
-    o.connect(a).connect(dest);
+    if (trill > 0) {
+      // Amplitude-modulated trill: the note is chopped into fast pulses.
+      const am = ctx.createGain();
+      am.gain.value = 0.5;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = trill;
+      const lg = ctx.createGain();
+      lg.gain.value = 0.5;
+      lfo.connect(lg).connect(am.gain);
+      lfo.start(t);
+      lfo.stop(t + dur + 0.02);
+      o.connect(am).connect(a).connect(dest);
+    } else o.connect(a).connect(dest);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
 
   private bird(t: number, s: EnvState): void {
     const r = this.rng;
-    const dist = r.next();
+    const dist = r.next() * 0.85;
     const d = this.dest(r.range(-0.9, 0.9), dist);
-    const species = r.weighted([['warbler', 3], ['robin', 4], ['finch', 3], ['chickadee', s.season === 'spring' ? 1.5 : 0.8]] as const);
-    const amp = 0.05;
+    const species = r.weighted([['warbler', 3], ['robin', 4], ['finch', 3], ['thrush', 2.5], ['wren', 1.5], ['chickadee', s.season === 'spring' ? 1.5 : 0.8]] as const);
+    const amp = 0.075;
     if (species === 'warbler') {
-      // Fast descending trill.
+      // Fast descending trill, slightly tremolo'd.
       const n = r.int(7, 13);
-      const base = r.range(4200, 5600);
-      for (let i = 0; i < n; i++) this.chirp(d, t + i * 0.045, base * (1 - i * 0.012), base * 0.82 * (1 - i * 0.012), 0.035, amp * 0.8, 180);
+      const base = r.range(4000, 5200);
+      for (let i = 0; i < n; i++) this.chirp(d, t + i * 0.045, base * (1 - i * 0.012), base * 0.82 * (1 - i * 0.012), 0.035, amp * 0.7, 160);
     } else if (species === 'robin') {
-      // Carolling phrase: 3–5 slurred syllables.
-      const n = r.int(3, 5);
+      // Carolling phrase: 3–6 slurred syllables, a few of them trilled.
+      const n = r.int(3, 6);
       let tt = t;
       for (let i = 0; i < n; i++) {
-        const f = r.range(2100, 3300);
+        const f = r.range(2000, 3200);
         const up = r.chance(0.5);
-        this.chirp(d, tt, up ? f * 0.8 : f * 1.15, up ? f * 1.2 : f * 0.85, r.range(0.08, 0.14), amp);
+        this.chirp(d, tt, up ? f * 0.8 : f * 1.15, up ? f * 1.2 : f * 0.85, r.range(0.08, 0.14), amp, 0, r.chance(0.3) ? r.range(28, 45) : 0);
         tt += r.range(0.13, 0.22);
       }
     } else if (species === 'finch') {
@@ -324,19 +343,36 @@ export class Ambience {
       const n = r.int(4, 8);
       let tt = t;
       for (let i = 0; i < n; i++) {
-        const f = r.range(3000, 4600);
-        this.chirp(d, tt, f, f * r.range(1.1, 1.5), 0.05, amp * 0.8);
+        const f = r.range(2900, 4300);
+        this.chirp(d, tt, f, f * r.range(1.1, 1.4), 0.05, amp * 0.75);
         tt += r.range(0.06, 0.1);
       }
-      this.chirp(d, tt + 0.05, 4800, 2800, 0.16, amp * 0.9);
+      this.chirp(d, tt + 0.05, 4400, 2700, 0.16, amp * 0.85, 0, 36);
+    } else if (species === 'thrush') {
+      // Song thrush: a motif sung twice, then a trilled tail.
+      const motif = [r.range(1900, 2600), r.range(2400, 3200), r.range(1700, 2300)];
+      let tt = t;
+      for (let rep = 0; rep < 2; rep++) {
+        for (const f of motif) {
+          this.chirp(d, tt, f, f * r.range(0.92, 1.1), 0.1, amp * 0.9);
+          tt += 0.14;
+        }
+        tt += 0.1;
+      }
+      this.chirp(d, tt, motif[1]! * 1.1, motif[1]! * 0.9, 0.35, amp * 0.7, 0, 40);
+    } else if (species === 'wren') {
+      // Tiny bird, huge voice: a long rattling trill that climbs, then drops.
+      const f = r.range(3200, 4000);
+      this.chirp(d, t, f, f * 1.25, 0.5, amp * 0.7, 0, 55);
+      this.chirp(d, t + 0.55, f * 1.2, f * 0.85, 0.3, amp * 0.6, 0, 48);
     } else this.chickadee(t, r.range(-0.8, 0.8));
   }
 
   private chickadee(t: number, pan: number): void {
     const d = this.dest(pan, this.rng.next() * 0.6);
     // "fee-bee": two clear whistles, the second lower.
-    this.chirp(d, t, 3950, 3900, 0.3, 0.045);
-    this.chirp(d, t + 0.38, 3450, 3350, 0.26, 0.04);
+    this.chirp(d, t, 3950, 3900, 0.3, 0.08);
+    this.chirp(d, t + 0.38, 3450, 3350, 0.26, 0.07);
   }
 
   private dove(t: number): void {
@@ -346,7 +382,7 @@ export class Ambience {
     lp.frequency.value = 900;
     lp.connect(d);
     const seq: [number, number, number][] = [[0, 0.32, 1], [0.42, 0.5, 1.12], [1.0, 0.36, 0.96], [1.55, 0.3, 0.95], [1.95, 0.3, 0.95]];
-    for (const [dt, dur, k] of seq) this.chirp(lp, t + dt, 520 * k, 480 * k, dur, 0.07);
+    for (const [dt, dur, k] of seq) this.chirp(lp, t + dt, 520 * k, 480 * k, dur, 0.1);
   }
 
   private crow(t: number): void {
@@ -565,7 +601,7 @@ export class Ambience {
     const p = this.g.ctx.createGain();
     p.connect(this.out);
     p.connect(this.g.cave);
-    noiseHit(this.g, p, t, { type: 'lowpass', f: 120, amp, attack: 1.2, tau: 1.2, buf: this.g.brown });
+    noiseHit(this.g, p, t, { type: 'bandpass', f: 140, q: 0.8, amp, attack: 1.2, tau: 1.2, buf: this.g.brown });
   }
 
   private wave(t: number, size: number): void {

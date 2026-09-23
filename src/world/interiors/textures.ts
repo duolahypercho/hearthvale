@@ -9,49 +9,95 @@ import { Rng } from '../../core/rng';
 import { PeriodicNoise, makeTileNoise, tileFbm, smoothstep, clamp } from '../../core/noise';
 import { type TexPair, type RGB, hex, mix3, scale3, makeCanvas, toTexture, pixels, cached } from '../../render/tex/core';
 
-/** Long honey-oak floorboards running along X. 1 repeat = 1 m × 1 m, 5 boards. */
+/**
+ * Honey-oak floorboards running along X. 1 texture = 4 m × 4 m (the material sets repeat ¼, so UVs
+ * stay in metres): 20 rows of 0.2 m boards, each row broken into random 1.2–2.4 m lengths with
+ * staggered joints, ±6 % per-board tone, dark seams, the odd knot, and nail heads at every board end.
+ */
 export function floorPlanks(): TexPair {
   return cached('i:floor', () => {
-    const S = 512;
-    const rows = 5;
-    const grain = new PeriodicNoise(6, 'fl-grain');
+    const S = 1536;
+    const M = 4; // metres per texture
+    const rows = 20;
+    const grain = new PeriodicNoise(24, 'fl-grain');
+    const fine = new PeriodicNoise(96, 'fl-fine');
     const n = makeTileNoise(4, 4, 'fl');
     const rng = new Rng('floor');
-    const tone: number[][] = [];
-    const joint: number[] = [];
+    interface Board { u0: number; u1: number; tone: number; warm: number; knots: [number, number, number][] }
+    const table: Board[][] = [];
     for (let r = 0; r < rows; r++) {
-      tone.push([0.84 + rng.next() * 0.26, 0.84 + rng.next() * 0.26]);
-      joint.push(rng.next());
+      const list: Board[] = [];
+      let u = rng.next();
+      const start = u;
+      while (u < start + 1 - 1e-6) {
+        let len = (1.2 + rng.next() * 1.2) / M;
+        if (start + 1 - (u + len) < 1.0 / M) len = start + 1 - u; // last board closes the loop
+        const knots: [number, number, number][] = [];
+        const kn = rng.next() < 0.45 ? 1 + (rng.next() < 0.3 ? 1 : 0) : 0;
+        for (let i = 0; i < kn; i++) knots.push([u + len * (0.15 + rng.next() * 0.7), 0.25 + rng.next() * 0.5, 0.6 + rng.next() * 0.8]);
+        list.push({ u0: u, u1: u + len, tone: 0.94 + rng.next() * 0.12, warm: (rng.next() - 0.5) * 0.08, knots });
+        u += len;
+      }
+      table.push(list);
     }
-    const light = hex(0xd9a067);
+    const light = hex(0xdba36a);
     const dark = hex(0x9a5f34);
+    const ppm = S / M; // pixels per metre
     const { color, height } = pixels(S, (u, v) => {
       const pv = v * rows;
-      const ri = Math.floor(pv);
+      const ri = Math.min(rows - 1, Math.floor(pv));
       const rf = pv - ri;
-      const j = joint[ri]!;
-      const seg = (u - j + 1) % 1 < 0.5 ? 0 : 1;
-      const local = ((u - j + 1) % 1) * 2 - seg;
-      const g1 = grain.get(u * 1.5 + ri * 3.1, rf * 0.9 + seg * 2.3);
-      const rings = Math.sin((rf * 2.2 + g1 * 1.6 + u * 0.4) * 14) * 0.5 + 0.5;
-      const f = tileFbm(n, u, v, 4);
-      let c = mix3(dark, light, 0.4 + rings * 0.35 + f * 0.25);
-      c = scale3(c, tone[ri]![seg]!);
-      const edgeV = Math.min(rf, 1 - rf);
-      const gapV = smoothstep(0, 0.045, edgeV);
-      const edgeU = Math.min(local, 1 - local) * 0.5;
-      const gapU = smoothstep(0, 0.006, edgeU);
-      const bevel = smoothstep(0.02, 0.14, edgeV);
-      c = scale3(c, (0.42 + 0.58 * gapV * gapU) * (0.86 + 0.14 * bevel));
-      // Nail heads near each board end.
-      for (const nu of [0.03, 0.47]) {
-        const du = ((u - j + 1) % 1) - nu - seg * 0.5;
-        const dv = rf - 0.5;
-        if (Math.abs(dv) < 0.25 && Math.hypot(du * 4, (Math.abs(dv) - 0.28) * 1) < 0.018) c = scale3(c, 0.55);
+      const list = table[ri]!;
+      let bd = list[0]!;
+      let uu = u;
+      for (const b of list) {
+        const x = u < b.u0 ? u + 1 : u;
+        if (x >= b.u0 && x < b.u1) {
+          bd = b;
+          uu = x;
+          break;
+        }
       }
-      return { c, h: gapV * gapU * (0.75 + 0.25 * bevel) + rings * 0.06 };
+      const local = (uu - bd.u0) / (bd.u1 - bd.u0);
+      const lenM = (bd.u1 - bd.u0) * M;
+      // Grain: long streaks along the board + growth rings that swirl round the knots
+      const g1 = grain.get(u * 24, rf * 1.2 + ri * 1.7);
+      let ringArg = rf * 2.4 + g1 * 1.8 + local * 0.6;
+      let knot = 0;
+      for (const [ku, kv, ks] of bd.knots) {
+        const dx = ((uu - ku) * M) / 0.06 / ks;
+        const dy = (rf - kv) / 0.28 / ks;
+        const d = Math.hypot(dx, dy);
+        ringArg += Math.exp(-d * d * 0.35) * 2.2;
+        knot = Math.max(knot, 1 - smoothstep(0.35, 0.8, d));
+      }
+      const rings = Math.sin(ringArg * 14) * 0.5 + 0.5;
+      const f = tileFbm(n, u, v, 4);
+      const streak = fine.get(u * 96, v * 8) * 0.12;
+      let c = mix3(dark, light, 0.38 + rings * 0.3 + f * 0.24 + streak);
+      c = scale3(c, bd.tone);
+      c = [c[0] * (1 + bd.warm), c[1], c[2] * (1 - bd.warm)];
+      c = mix3(c, hex(0x5a3218), knot * 0.75);
+      // Seams: long edges between rows, butt joints between boards (dark, slightly soft)
+      const edgeV = Math.min(rf, 1 - rf);
+      const gapV = smoothstep(0, 0.05, edgeV);
+      const endPx = Math.min(local, 1 - local) * lenM * ppm;
+      const gapU = smoothstep(0.6, 2.2, endPx);
+      const bevel = smoothstep(0.02, 0.14, edgeV) * smoothstep(1, 8, endPx);
+      c = scale3(c, (0.38 + 0.62 * gapV * gapU) * (0.86 + 0.14 * bevel));
+      // Nail heads: two per board end, 5 cm in
+      const endM = Math.min(local, 1 - local) * lenM;
+      for (const nv of [0.28, 0.72]) {
+        const d = Math.hypot((endM - 0.05) * 90, (rf - nv) * 0.2 * 90);
+        if (d < 1) c = scale3(c, 0.45 + 0.35 * d);
+      }
+      return { c, h: gapV * gapU * (0.75 + 0.25 * bevel) + rings * 0.05 - knot * 0.05 };
     });
-    return { map: toTexture(color, true), bump: toTexture(height, false) };
+    const map = toTexture(color, true);
+    const bump = toTexture(height, false);
+    map.repeat.set(1 / M, 1 / M);
+    bump.repeat.set(1 / M, 1 / M);
+    return { map, bump };
   });
 }
 

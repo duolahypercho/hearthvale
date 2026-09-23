@@ -2,15 +2,23 @@
  * StoryWorldSystem: the valley's story dressing and the world beats of the cutscenes.
  *
  *   coach        the evening valley coach (sage + cream, roof rack of luggage, warm windows and
- *                headlamps) that brings you to Hearthvale: `coach:place` / `coach:arrive` / `coach:leave`
+ *                headlamps) that brings you to Hearthvale: `coach:place` / `coach:arrive` / `coach:leave`.
+ *                Three draws: one tinted body, one emissive sheet (windows + lamps), four instanced wheels.
+ *   Hall         the Lantern Hall as the square's landmark: a front gable with a great round lantern
+ *                window, a lantern cupola on the ridge and broad steps. Both glow brighter with every
+ *                room lit (cold EverGlow white on the Glimmerco path).
  *   restorations what each relit room gives back to the town — the Blossom Arch over the Hall steps,
  *                Market Day stalls, harvest lanterns along the west road, a smoking Hall chimney,
- *                flower baskets on the plaza lamps, glowing koi + candle lilies in the fountain.
+ *                flower baskets on the plaza lamps, glowing koi (wake trails, caustics) in the fountain.
  *                Visible once a room is restored; `town:restore` hides it for the reveal, `town:reveal`
  *                grows it in with a sparkle burst.
- *   Hall lantern the great lantern over the Hall doors glows brighter with every room lit.
- *   festival     `festival:on` dresses the square, `festival:greatLantern` flares the Hall lantern,
- *                `festival:skyLanterns` releases a sky full of paper lanterns (one instanced draw).
+ *   Glimmerco    from Spring 15 an EverGlow kiosk by the fountain (F: read the flyer); once the charter
+ *                is signed a van on the plaza, a floodlight blasting the Hall facade and a sign over its
+ *                doors. The kiosk is packed away if you refuse.
+ *   festival     `festival:on` dresses the square for the finale (lantern strings from the Hall eaves,
+ *                braziers by the steps), `festival:greatLantern` flares the Hall, `festival:skyLanterns`
+ *                releases a sky full of tapered paper lanterns from the crowd's hands.
+ *   house:night  the intro's first night: a warm key light on Gran's table, bloom held off the lamp.
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -19,8 +27,8 @@ import type { Game } from '../core/game';
 import { MeshBuilder, roundedBox, bevelCylinder, lumpySphere, mat, mergeStatic } from '../world/geom';
 import { materials } from '../render/materials';
 import { buildMarketStall } from '../world/props/townkit';
-import { buildLanternPole } from '../world/props/festival';
-import { BurstFX, SmokeEmitter } from '../render/particles';
+import { buildLanternPole, buildBunting, buildBrazier } from '../world/props/festival';
+import { BurstFX, SmokeEmitter, FireFX } from '../render/particles';
 import { Rng } from '../core/rng';
 import { ROOMS, type RoomId } from '../data/bundles';
 
@@ -28,15 +36,32 @@ const STOP = { x: 9.6, z: 26.2 };
 const COACH_PARK = { x: STOP.x - 2.2, z: STOP.z - 0.7 };
 const HALL_LANTERN = new THREE.Vector3(32, 3.35, 12.7);
 const PLAZA = { x: 32, z: 25 };
+/** The Hall: centre x, front face z, eave height above its base, ridge height. */
+const HALL = { x: 32, z: 8.6, front: 11.8, eave: 5.0, ridge: 7.7 };
+const KIOSK = { x: 38.4, z: 30.2 };
+const VAN = { x: 25.2, z: 30.4 };
+const EVERGLOW = 0xdff4ff;
+
+// ─────────────────────────────────────────────── shared glowing materials
+
+function glowMat(color: number, name: string): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0, roughness: 0.4 });
+  m.name = name;
+  return m;
+}
 
 // ─────────────────────────────────────────────── coach
 
-/** Four lamp-lit coach windows on one canvas strip (curtains, a warm ceiling lamp, passengers' heads). */
+/**
+ * Coach sheet: four lamp-lit windows (curtains, a warm ceiling lamp, passengers' heads) plus a warm
+ * lamp swatch and a red tail-lamp swatch — every glowing part of the coach samples this one canvas.
+ */
 let COACH_WIN: THREE.MeshStandardMaterial | null = null;
+const SLOTS = 6;
 function coachWindowMaterial(): THREE.MeshStandardMaterial {
   if (COACH_WIN) return COACH_WIN;
   const c = document.createElement('canvas');
-  c.width = 512;
+  c.width = 128 * SLOTS;
   c.height = 96;
   const g = c.getContext('2d')!;
   const heads = [[0.62, 0x3a2a24], [0.3, 0x6a4a2a], null, [0.5, 0x2a2a3a]] as const;
@@ -48,12 +73,10 @@ function coachWindowMaterial(): THREE.MeshStandardMaterial {
     bg.addColorStop(1, '#8a4a2a');
     g.fillStyle = bg;
     g.fillRect(x0, 0, 128, 96);
-    // Seat backs along the bottom.
     g.fillStyle = '#7a3a2e';
     g.beginPath();
     g.roundRect(x0 + 10, 66, 108, 40, 10);
     g.fill();
-    // A passenger's head + shoulders (silhouette against the lamp).
     const h = heads[k];
     if (h) {
       const hx = x0 + 128 * h[0];
@@ -65,7 +88,6 @@ function coachWindowMaterial(): THREE.MeshStandardMaterial {
       g.roundRect(hx - 26, 72, 52, 40, 14);
       g.fill();
     }
-    // Gathered curtains at both sides + a pelmet.
     for (const side of [0, 1]) {
       const cx = side ? x0 + 128 : x0;
       const grd = g.createLinearGradient(cx, 0, side ? cx - 30 : cx + 30, 0);
@@ -81,13 +103,20 @@ function coachWindowMaterial(): THREE.MeshStandardMaterial {
     }
     g.fillStyle = '#8a3a30';
     g.fillRect(x0, 0, 128, 9);
-    // Mullion.
     g.fillStyle = 'rgba(60,40,28,0.9)';
     g.fillRect(x0 + 62, 0, 4, 96);
     g.fillStyle = 'rgba(40,24,14,0.95)';
     g.fillRect(x0, 0, 3, 96);
     g.fillRect(x0 + 125, 0, 3, 96);
   }
+  // Slot 4: warm lamp (headlamps, destination board). Slot 5: tail lamps.
+  const lamp = g.createRadialGradient(4 * 128 + 64, 48, 2, 4 * 128 + 64, 48, 80);
+  lamp.addColorStop(0, '#fffbe8');
+  lamp.addColorStop(1, '#ffd08a');
+  g.fillStyle = lamp;
+  g.fillRect(4 * 128, 0, 128, 96);
+  g.fillStyle = '#ff5a3a';
+  g.fillRect(5 * 128, 0, 128, 96);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   COACH_WIN = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.55, roughness: 0.25, metalness: 0 });
@@ -95,87 +124,221 @@ function coachWindowMaterial(): THREE.MeshStandardMaterial {
   return COACH_WIN;
 }
 
-function buildCoach(): { group: THREE.Group; wheels: THREE.Object3D[] } {
+/** Remap a geometry's UVs into one slot of the coach sheet. */
+function slot<T extends THREE.BufferGeometry>(geo: T, k: number): T {
+  const uv = geo.attributes.uv as THREE.BufferAttribute | undefined;
+  if (uv) for (let i = 0; i < uv.count; i++) uv.setXY(i, (k + 0.1 + uv.getX(i) * 0.8) / SLOTS, 0.1 + uv.getY(i) * 0.8);
+  return geo;
+}
+
+interface Coach {
+  group: THREE.Group;
+  wheels: THREE.InstancedMesh;
+  spin: number;
+}
+
+function buildCoach(): Coach {
   const b = new MeshBuilder();
   const L = 4.6;
   const W = 1.9;
   const SAGE = 0x6f9a7a;
   const CREAM = 0xf3e6c8;
-  // Chassis + body: sage lower half, cream upper, rounded everything.
+  const CHROME = 0xd8dde4;
+  const win = coachWindowMaterial();
+  // Everything that doesn't glow is one vertex-tinted 'white' mesh.
   b.add('white', roundedBox(L, 0.95, W, 0.28), mat(0, 0.95, 0), { tint: SAGE });
   b.add('white', roundedBox(L - 0.1, 0.85, W - 0.06, 0.3), mat(-0.05, 1.8, 0), { tint: CREAM });
   b.add('white', roundedBox(L - 0.3, 0.18, W - 0.2, 0.09), mat(-0.1, 2.3, 0), { tint: 0xe8d8b4 });
-  b.add('white', roundedBox(L + 0.04, 0.1, W + 0.04, 0.04), mat(0, 1.45, 0), { tint: 0xc8573e }); // red waist stripe
-  b.add('white', roundedBox(0.5, 0.55, W - 0.3, 0.2), mat(L / 2 - 0.05, 0.85, 0), { tint: SAGE }); // snout
-  b.add('metal', roundedBox(0.12, 0.35, 1.1, 0.04), mat(L / 2 + 0.2, 0.85, 0), { tint: 0xd8dde4 }); // grille
-  for (let k = 0; k < 5; k++) b.add('metal', roundedBox(0.03, 0.3, 0.02, 0.01), mat(L / 2 + 0.27, 0.85, -0.4 + k * 0.2), { tint: 0x8a9098 });
-  b.add('metal', roundedBox(0.16, 0.12, W + 0.1, 0.05), mat(L / 2 + 0.2, 0.52, 0), { tint: 0xd8dde4 }); // bumper
-  b.add('metal', roundedBox(0.16, 0.12, W + 0.1, 0.05), mat(-L / 2 - 0.08, 0.52, 0), { tint: 0xd8dde4 });
-  // Windows: a row down each side + windscreen. Side windows are painted cards (lamp-lit interior,
-  // gathered curtains, a passenger or two) framed in dark trim, so they read as rooms, not white slabs.
-  const win = coachWindowMaterial();
+  b.add('white', roundedBox(L + 0.04, 0.1, W + 0.04, 0.04), mat(0, 1.45, 0), { tint: 0xc8573e });
+  b.add('white', roundedBox(0.5, 0.55, W - 0.3, 0.2), mat(L / 2 - 0.05, 0.85, 0), { tint: SAGE });
+  b.add('white', roundedBox(0.12, 0.35, 1.1, 0.04), mat(L / 2 + 0.2, 0.85, 0), { tint: CHROME });
+  for (let k = 0; k < 5; k++) b.add('white', roundedBox(0.03, 0.3, 0.02, 0.01), mat(L / 2 + 0.27, 0.85, -0.4 + k * 0.2), { tint: 0x8a9098 });
+  for (const x of [L / 2 + 0.2, -L / 2 - 0.08]) b.add('white', roundedBox(0.16, 0.12, W + 0.1, 0.05), mat(x, 0.52, 0), { tint: CHROME });
   for (const sz of [-1, 1]) {
     for (let k = 0; k < 4; k++) {
       const x = -1.55 + k * 0.86;
       b.add('white', roundedBox(0.8, 0.58, 0.04, 0.05), mat(x, 1.86, sz * (W / 2 - 0.035)), { tint: 0x4a3a2c });
       const card = new THREE.PlaneGeometry(0.7, 0.48);
-      const u0 = (k % 4) / 4;
       const uv = card.attributes.uv as THREE.BufferAttribute;
-      for (let i = 0; i < uv.count; i++) uv.setX(i, u0 + uv.getX(i) / 4);
+      for (let i = 0; i < uv.count; i++) uv.setX(i, (k + uv.getX(i)) / SLOTS);
       b.add(win, card, mat(x, 1.86, sz * (W / 2 + 0.002), 0, sz > 0 ? 0 : Math.PI, 0));
-      b.add('white', roundedBox(0.76, 0.05, 0.08, 0.02), mat(x, 1.6, sz * (W / 2 + 0.01)), { tint: 0x4a3a2c }); // sill
+      b.add('white', roundedBox(0.76, 0.05, 0.08, 0.02), mat(x, 1.6, sz * (W / 2 + 0.01)), { tint: 0x4a3a2c });
     }
   }
-  b.add('glass', roundedBox(0.04, 0.5, W - 0.5, 0.06), mat(L / 2 - 0.02, 1.86, 0));
-  // Door (south side, towards the front).
+  b.add('white', roundedBox(0.04, 0.5, W - 0.5, 0.06), mat(L / 2 - 0.02, 1.86, 0), { tint: 0x2a3440 });
+  // Door with its own window (a slice of window 2).
   b.add('white', roundedBox(0.66, 1.3, 0.05, 0.04), mat(1.2, 1.12, W / 2 + 0.01), { tint: 0x5a8a6a });
   const doorWin = new THREE.PlaneGeometry(0.46, 0.4);
   const duv = doorWin.attributes.uv as THREE.BufferAttribute;
-  for (let i = 0; i < duv.count; i++) duv.setX(i, 0.5 + duv.getX(i) / 4);
+  for (let i = 0; i < duv.count; i++) duv.setX(i, (2 + duv.getX(i)) / SLOTS);
   b.add(win, doorWin, mat(1.2, 1.52, W / 2 + 0.045));
-  b.add('metal', roundedBox(0.08, 0.04, 0.05, 0.01), mat(0.98, 1.1, W / 2 + 0.05), { tint: 0xe8b84a });
-  b.add('white', roundedBox(0.7, 0.1, 0.5, 0.04), mat(1.2, 0.36, W / 2 + 0.1), { tint: 0x4a4a4a }); // step
-  // Headlamps + tail lamps.
+  b.add('white', roundedBox(0.08, 0.04, 0.05, 0.01), mat(0.98, 1.1, W / 2 + 0.05), { tint: 0xe8b84a });
+  b.add('white', roundedBox(0.7, 0.1, 0.5, 0.04), mat(1.2, 0.36, W / 2 + 0.1), { tint: 0x4a4a4a });
+  // Headlamps (chrome rims + lamp swatch) and tail lamps (red swatch).
   for (const sz of [-0.62, 0.62]) {
-    b.add('metal', new THREE.CylinderGeometry(0.17, 0.17, 0.1, 14).rotateZ(Math.PI / 2), mat(L / 2 + 0.25, 1.1, sz), { tint: 0xd8dde4 });
-    b.add('lampGlow', new THREE.CylinderGeometry(0.13, 0.13, 0.04, 14).rotateZ(Math.PI / 2), mat(L / 2 + 0.31, 1.1, sz));
-    b.add('lampGlow', roundedBox(0.04, 0.12, 0.2, 0.02), mat(-L / 2 - 0.03, 0.95, sz), { tint: 0xff6a4a });
+    b.add('white', new THREE.CylinderGeometry(0.17, 0.17, 0.1, 14).rotateZ(Math.PI / 2), mat(L / 2 + 0.25, 1.1, sz), { tint: CHROME });
+    b.add(win, slot(new THREE.CylinderGeometry(0.13, 0.13, 0.04, 14).rotateZ(Math.PI / 2), 4), mat(L / 2 + 0.31, 1.1, sz));
+    b.add(win, slot(roundedBox(0.04, 0.12, 0.2, 0.02), 5), mat(-L / 2 - 0.03, 0.95, sz));
   }
   // Roof rack with luggage.
-  for (const sz of [-0.7, 0.7]) b.add('metal', roundedBox(3.0, 0.05, 0.05, 0.02), mat(-0.3, 2.5, sz), { tint: 0x5a554f });
-  for (let k = 0; k < 4; k++) b.add('metal', roundedBox(0.05, 0.12, 1.45, 0.02), mat(-1.6 + k * 0.9, 2.44, 0), { tint: 0x5a554f });
-  b.add('wood', roundedBox(0.9, 0.42, 0.7, 0.06), mat(-1.2, 2.72, -0.2), { tint: 0x8a5a36 });
+  for (const sz of [-0.7, 0.7]) b.add('white', roundedBox(3.0, 0.05, 0.05, 0.02), mat(-0.3, 2.5, sz), { tint: 0x5a554f });
+  for (let k = 0; k < 4; k++) b.add('white', roundedBox(0.05, 0.12, 1.45, 0.02), mat(-1.6 + k * 0.9, 2.44, 0), { tint: 0x5a554f });
+  b.add('white', roundedBox(0.9, 0.42, 0.7, 0.06), mat(-1.2, 2.72, -0.2), { tint: 0x8a5a36 });
   b.add('white', roundedBox(0.7, 0.3, 0.5, 0.08), mat(-0.3, 2.66, 0.3), { tint: 0xc8573e });
   b.add('white', roundedBox(0.55, 0.36, 0.42, 0.08), mat(0.5, 2.68, -0.25), { tint: 0x3f76a8 });
   b.add('white', roundedBox(0.12, 0.03, 0.44, 0.01), mat(0.5, 2.87, -0.25), { tint: 0x2a2a2a });
   // Destination board over the windscreen.
   b.add('white', roundedBox(0.06, 0.24, 1.2, 0.03), mat(L / 2 - 0.05, 2.28, 0), { tint: 0x2a2a2a });
-  b.add('lampGlow', roundedBox(0.03, 0.14, 1.05, 0.02), mat(L / 2 - 0.01, 2.28, 0), { tint: 0xffd08a });
+  b.add(win, slot(roundedBox(0.03, 0.14, 1.05, 0.02), 4), mat(L / 2 - 0.01, 2.28, 0));
+  // Mudguards.
+  for (const [x, z] of [[1.45, -0.9], [1.45, 0.9], [-1.45, -0.9], [-1.45, 0.9]] as const) b.add('white', new THREE.TorusGeometry(0.5, 0.08, 6, 14, Math.PI), mat(x, 0.45, z), { tint: 0x6a8a72 });
   const group = b.build({ name: 'coach' });
-  // Wheels (separate so they can spin).
-  const wheels: THREE.Object3D[] = [];
+  // Wheels: one tinted geometry, four instances (they spin).
   const wb = new MeshBuilder();
   wb.add('white', bevelCylinder(0.42, 0.42, 0.3, 0.06, 18).rotateX(Math.PI / 2), undefined, { tint: 0x2a2624 });
-  wb.add('metal', bevelCylinder(0.22, 0.22, 0.32, 0.03, 14).rotateX(Math.PI / 2), undefined, { tint: 0xd8dde4 });
-  wb.add('metal', new THREE.CylinderGeometry(0.06, 0.06, 0.34, 8).rotateX(Math.PI / 2), undefined, { tint: 0xc8573e });
-  const wheel = wb.build({ name: 'coach-wheel' });
-  for (const [x, z] of [[1.45, -0.86], [1.45, 0.86], [-1.45, -0.86], [-1.45, 0.86]] as const) {
-    const w = wheel.clone();
-    w.position.set(x, 0.42, z);
-    group.add(w);
-    wheels.push(w);
-  }
-  // Mudguards.
-  for (const [x, z] of [[1.45, -0.9], [1.45, 0.9], [-1.45, -0.9], [-1.45, 0.9]] as const) {
-    const arch = new THREE.TorusGeometry(0.5, 0.08, 6, 14, Math.PI);
-    const m = new THREE.Mesh(arch, materials.get('white'));
-    m.position.set(x, 0.45, z);
-    (m.geometry as THREE.BufferGeometry).setAttribute('color', new THREE.Float32BufferAttribute(new Array(arch.attributes.position!.count * 3).fill(0.42), 3));
-    m.castShadow = true;
-    group.add(m);
-  }
+  wb.add('white', bevelCylinder(0.22, 0.22, 0.32, 0.03, 14).rotateX(Math.PI / 2), undefined, { tint: CHROME });
+  for (let k = 0; k < 5; k++) wb.add('white', roundedBox(0.05, 0.36, 0.33, 0.01), mat(0, 0, 0, 0, 0, (k / 5) * Math.PI), { tint: 0xb8bec6 });
+  wb.add('white', new THREE.CylinderGeometry(0.06, 0.06, 0.34, 8).rotateX(Math.PI / 2), undefined, { tint: 0xc8573e });
+  const wheelGeo = wb.geometries().get('white')!;
+  const wheels = new THREE.InstancedMesh(wheelGeo, materials.get('white'), 4);
+  wheels.name = 'coach-wheels';
+  wheels.castShadow = true;
+  wheels.frustumCulled = false;
+  group.add(wheels);
   group.traverse((o) => (o.userData.dynamic = true));
-  return { group, wheels };
+  const c: Coach = { group, wheels, spin: 0 };
+  setWheels(c);
+  return c;
+}
+
+const _wm = new THREE.Object3D();
+function setWheels(c: Coach): void {
+  [[1.45, -0.86], [1.45, 0.86], [-1.45, -0.86], [-1.45, 0.86]].forEach(([x, z], i) => {
+    _wm.position.set(x!, 0.42, z!);
+    _wm.rotation.set(0, 0, c.spin);
+    _wm.updateMatrix();
+    c.wheels.setMatrixAt(i, _wm.matrix);
+  });
+  c.wheels.instanceMatrix.needsUpdate = true;
+}
+
+// ─────────────────────────────────────────────── the Hall as a landmark
+
+interface Landmark {
+  group: THREE.Group;
+  window: THREE.MeshStandardMaterial;
+  cupola: THREE.MeshStandardMaterial;
+}
+
+/** Rose-window tracery for the great round lantern window. */
+function roseTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const bg = g.createRadialGradient(S / 2, S / 2, 4, S / 2, S / 2, S / 2);
+  bg.addColorStop(0, '#fff6dc');
+  bg.addColorStop(0.5, '#ffd38a');
+  bg.addColorStop(1, '#e89a4a');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, S, S);
+  // Six coloured petals (one per room) round a bright heart.
+  const cols = ROOMS.map((r) => `#${r.color.toString(16).padStart(6, '0')}`);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+    g.save();
+    g.translate(S / 2 + Math.cos(a) * 62, S / 2 + Math.sin(a) * 62);
+    g.rotate(a + Math.PI / 2);
+    g.fillStyle = cols[i]!;
+    g.globalAlpha = 0.75;
+    g.beginPath();
+    g.ellipse(0, 0, 24, 42, 0, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+  }
+  g.globalAlpha = 1;
+  g.strokeStyle = '#3a2a22';
+  g.lineWidth = 7;
+  g.beginPath();
+  g.arc(S / 2, S / 2, 26, 0, Math.PI * 2);
+  g.stroke();
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    g.beginPath();
+    g.moveTo(S / 2 + Math.cos(a) * 26, S / 2 + Math.sin(a) * 26);
+    g.lineTo(S / 2 + Math.cos(a) * 124, S / 2 + Math.sin(a) * 124);
+    g.stroke();
+  }
+  g.lineWidth = 5;
+  g.beginPath();
+  g.arc(S / 2, S / 2, 92, 0, Math.PI * 2);
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function buildLandmark(y0: number): Landmark {
+  const b = new MeshBuilder();
+  const STONE = 0xd8cfc0;
+  const ROOF = 0x7d8ea8;
+  const { x, front } = HALL;
+  // Front cross-gable: a stone pediment standing proud of the roof slope, its own little roof.
+  const gw = 4.6;
+  const gz0 = 8.6;
+  const gz1 = front + 0.55;
+  const base = y0 + 4.45;
+  const apex = y0 + HALL.ridge + 0.55;
+  const tri = new THREE.Shape();
+  tri.moveTo(-gw / 2, 0);
+  tri.lineTo(gw / 2, 0);
+  tri.lineTo(0, apex - base);
+  tri.closePath();
+  const prism = new THREE.ExtrudeGeometry(tri, { depth: gz1 - gz0, bevelEnabled: false });
+  b.add('stone', prism, mat(x, base, gz0), { tint: STONE });
+  // Quoins down the pediment's front corners and a moulded cornice.
+  b.add('stone', roundedBox(gw + 0.3, 0.22, 0.5, 0.05), mat(x, base - 0.05, gz1 - 0.1), { tint: 0xc8bfb0 });
+  // Roof slabs over the gable, meeting at a ridge along z.
+  const run = gw / 2 + 0.35;
+  const rise = apex - base;
+  const slope = Math.atan2(rise, gw / 2);
+  const len = Math.hypot(run, rise * (run / (gw / 2)));
+  for (const s of [-1, 1]) b.add('roofTile', roundedBox(len, 0.14, gz1 - gz0 + 0.5, 0.04), mat(x + (s * run) / 2, base + rise / 2 + 0.08, (gz0 + gz1) / 2 + 0.2, 0, 0, -s * slope), { tint: ROOF });
+  b.add('stone', roundedBox(0.3, 0.3, gz1 - gz0 + 0.6, 0.06), mat(x, apex + 0.08, (gz0 + gz1) / 2 + 0.2), { tint: 0xb8b0a4 });
+  // Stone ring round the great window.
+  const wy = base + 1.25;
+  const ring = new THREE.TorusGeometry(0.92, 0.13, 8, 32);
+  b.add('stone', ring, mat(x, wy, gz1 + 0.03), { tint: 0xe2d8c8 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    b.add('stone', roundedBox(0.16, 0.26, 0.12, 0.03), mat(x + Math.cos(a) * 1.05, wy + Math.sin(a) * 1.05, gz1 + 0.05, 0, 0, a + Math.PI / 2), { tint: 0xc8bfb0 });
+  }
+  // Cupola on the ridge: a stone drum, four open arches round a lantern, a verdigris cap, a gold finial.
+  const cy = y0 + HALL.ridge - 0.35;
+  const cz = HALL.z;
+  b.add('stone', roundedBox(1.7, 0.7, 1.7, 0.06), mat(x, cy + 0.35, cz), { tint: STONE });
+  b.add('stone', roundedBox(1.9, 0.14, 1.9, 0.04), mat(x, cy + 0.74, cz), { tint: 0xc8bfb0 });
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add('stone', roundedBox(0.26, 1.3, 0.26, 0.04), mat(x + dx * 0.7, cy + 1.46, cz + dz * 0.7), { tint: STONE });
+  b.add('stone', roundedBox(1.9, 0.16, 1.9, 0.04), mat(x, cy + 2.16, cz), { tint: 0xc8bfb0 });
+  const cap = new THREE.ConeGeometry(1.32, 1.5, 4, 1);
+  cap.rotateY(Math.PI / 4);
+  b.add('roofTile', cap, mat(x, cy + 2.98, cz), { tint: 0x6fa08e });
+  b.add('metal', new THREE.SphereGeometry(0.12, 10, 8), mat(x, cy + 3.8, cz), { tint: 0xe8b84a });
+  b.add('metal', new THREE.CylinderGeometry(0.025, 0.025, 0.7, 5), mat(x, cy + 4.1, cz), { tint: 0xe8b84a });
+  // Broad stone steps and a landing in front of the doors (low: the square walks over them).
+  for (let i = 0; i < 2; i++) b.add('stone', roundedBox(6.4 - i * 0.9, 0.09, 0.9, 0.03), mat(x, y0 - 0.02 + i * 0.07, front + 1.9 - i * 0.55), { tint: 0xcac2b4 });
+  const group = b.build({ name: 'hall-landmark' });
+  const window = glowMat(0xffffff, 'hall-rose');
+  window.map = roseTexture();
+  window.emissiveMap = window.map;
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.9, 32), window);
+  disc.position.set(x, wy, gz1 + 0.02);
+  group.add(disc);
+  const cupola = glowMat(0xfff0d0, 'hall-cupola');
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.95, 8), cupola);
+  core.position.set(x, cy + 1.3, cz);
+  group.add(core);
+  return { group, window, cupola };
 }
 
 // ─────────────────────────────────────────────── restorations
@@ -188,13 +351,11 @@ function buildBlossomArch(r: Rng): THREE.Group {
   for (const sx of [-1, 1]) {
     b.add('wood', roundedBox(0.16, 2.6, 0.16, 0.04), mat(cx + sx * span, 1.3, cz), { tint: 0xf2ead8 });
     b.add('stone', roundedBox(0.36, 0.2, 0.36, 0.05), mat(cx + sx * span, 0.1, cz), { tint: 0xc8c0b2 });
-    // planter at the foot
     b.add('soilPot', bevelCylinder(0.3, 0.24, 0.42, 0.04, 12), mat(cx + sx * (span + 0.55), 0.21, cz + 0.3), { tint: 0xc8704a });
     for (let k = 0; k < 7; k++) b.add('boxFlower', lumpySphere(0.12, 0, 0.2, r), mat(cx + sx * (span + 0.55) + (r.next() - 0.5) * 0.4, 0.5 + r.next() * 0.1, cz + 0.3 + (r.next() - 0.5) * 0.4), { tint: [0xff8fab, 0xffffff, 0xffc0d0][k % 3] });
   }
   const arc = new THREE.TorusGeometry(span, 0.08, 6, 24, Math.PI);
   b.add('wood', arc, mat(cx, 2.6, cz), { tint: 0xf2ead8 });
-  // Blossom clusters climbing the posts and crowding the arch.
   for (let k = 0; k < 70; k++) {
     const t = r.next();
     let x: number;
@@ -211,15 +372,13 @@ function buildBlossomArch(r: Rng): THREE.Group {
     const leafy = r.next() < 0.35;
     b.add('boxFlower', lumpySphere(0.14 + r.next() * 0.1, 1, 0.22, r), mat(x + (r.next() - 0.5) * 0.25, y + (r.next() - 0.5) * 0.2, cz + (r.next() - 0.5) * 0.3), { tint: leafy ? [0x4f8a34, 0x5a9a3a][k % 2]! : [0xff9ec0, 0xffc0d4, 0xffffff, 0xff7aa2][k % 4]! });
   }
-  // A string of warm fairy bulbs threaded through the blossoms (glow after dusk).
   for (let k = 0; k <= 16; k++) {
     const a = (k / 16) * Math.PI;
     const sag = 0.12 * Math.sin(a * 8);
     b.add('lampGlow', new THREE.SphereGeometry(0.045, 8, 6), mat(cx + Math.cos(a) * (span - 0.05), 2.6 + Math.sin(a) * (span - 0.05) - 0.1 + sag * 0.3, cz + 0.2));
   }
   for (const sx of [-1, 1]) for (let k = 0; k < 6; k++) b.add('lampGlow', new THREE.SphereGeometry(0.045, 8, 6), mat(cx + sx * (span + 0.1), 0.6 + k * 0.36, cz + 0.16 * (k % 2 ? 1 : -1)));
-  const g = b.build({ name: 'restore-seed' });
-  return g;
+  return b.build({ name: 'restore-seed' });
 }
 
 function buildMarket(r: Rng): THREE.Group {
@@ -234,7 +393,6 @@ function buildMarket(r: Rng): THREE.Group {
     s.rotation.y = rot;
     g.add(s);
   }
-  // Produce crates + baskets in front of the stalls.
   const b = new MeshBuilder();
   for (const [x, z, rot] of spots) {
     for (let k = 0; k < 3; k++) {
@@ -262,9 +420,7 @@ function mergeKeep(g: THREE.Group, name: string): THREE.Group {
 
 function buildRoadLanterns(r: Rng, heightAt: (x: number, z: number) => number): THREE.Group {
   const g = new THREE.Group();
-  const pts: [number, number][] = [
-    [4.5, 24.2], [8.5, 28.3], [12.5, 24.4], [16.5, 28.0], [20.5, 23.9],
-  ];
+  const pts: [number, number][] = [[4.5, 24.2], [8.5, 28.3], [12.5, 24.4], [16.5, 28.0], [20.5, 23.9]];
   pts.forEach(([x, z], i) => {
     const p = buildLanternPole(r, i + 2);
     p.position.set(x, heightAt(x, z) - 0.03, z);
@@ -276,7 +432,6 @@ function buildRoadLanterns(r: Rng, heightAt: (x: number, z: number) => number): 
 
 function buildChimney(): THREE.Group {
   const b = new MeshBuilder();
-  // Stone chimney stack rising from the Hall roof (right side, behind the ridge).
   b.add('stone', roundedBox(0.9, 2.2, 0.9, 0.06), mat(35.4, 6.6, 7.4), { tint: 0xc8bca8 });
   b.add('stone', roundedBox(1.1, 0.2, 1.1, 0.05), mat(35.4, 7.75, 7.4), { tint: 0xb0a492 });
   b.add('soilPot', bevelCylinder(0.16, 0.18, 0.4, 0.03, 10), mat(35.25, 8.05, 7.3), { tint: 0xb8643e });
@@ -291,41 +446,131 @@ function buildBaskets(r: Rng, heightAt: (x: number, z: number) => number): THREE
     const px = PLAZA.x + Math.cos(a) * 7.6;
     const pz = PLAZA.z + Math.sin(a) * 7.6;
     const y0 = heightAt(px, pz);
-    // Hang from a little bracket on the plaza side of the post.
-    const dx = -Math.cos(a) * 0.5;
-    const dz = -Math.sin(a) * 0.5;
-    b.add('metal', roundedBox(0.04, 0.04, 0.55, 0.01), mat(px + dx / 2, y0 + 1.95, pz + dz / 2, 0, Math.atan2(dx, dz), 0), { tint: 0x2e2a28 });
-    b.add('metal', new THREE.CylinderGeometry(0.01, 0.01, 0.3, 4), mat(px + dx, y0 + 1.8, pz + dz), { tint: 0x2e2a28 });
-    b.add('wood', bevelCylinder(0.24, 0.16, 0.2, 0.03, 12), mat(px + dx, y0 + 1.58, pz + dz), { tint: 0xa8743f });
-    for (let k = 0; k < 12; k++) {
-      const t = (k / 12) * Math.PI * 2;
-      const trail = k % 3 === 0 ? 0.2 + r.next() * 0.25 : 0;
-      b.add('boxFlower', lumpySphere(0.08 + r.next() * 0.04, 0, 0.2, r), mat(px + dx + Math.cos(t) * 0.22, y0 + 1.66 - trail, pz + dz + Math.sin(t) * 0.22), { tint: trail ? 0x4f8a34 : [0xff7aa2, 0xffffff, 0xc77dff, 0xffd166][k % 4]! });
+    // Hung low and out from the post, below the lamp's glare: a wicker bowl brimming with blooms and trailing ivy.
+    const dx = -Math.cos(a) * 0.62;
+    const dz = -Math.sin(a) * 0.62;
+    const by = y0 + 1.3;
+    b.add('metal', roundedBox(0.04, 0.04, 0.68, 0.01), mat(px + dx / 2, y0 + 1.72, pz + dz / 2, 0, Math.atan2(dx, dz), 0), { tint: 0x2e2a28 });
+    for (let k = 0; k < 3; k++) {
+      const t = (k / 3) * Math.PI * 2;
+      b.add('metal', new THREE.CylinderGeometry(0.008, 0.008, 0.42, 4), mat(px + dx + Math.cos(t) * 0.12, by + 0.26, pz + dz + Math.sin(t) * 0.12, Math.sin(t) * 0.25, 0, -Math.cos(t) * 0.25), { tint: 0x2e2a28 });
+    }
+    b.add('wood', bevelCylinder(0.28, 0.17, 0.24, 0.04, 14), mat(px + dx, by, pz + dz), { tint: 0xb88048 });
+    b.add('wood', new THREE.TorusGeometry(0.28, 0.025, 5, 16), mat(px + dx, by + 0.12, pz + dz, Math.PI / 2, 0, 0), { tint: 0x8a5a2e });
+    for (let k = 0; k < 18; k++) {
+      const t = (k / 18) * Math.PI * 2 + r.next() * 0.3;
+      const rad = k < 12 ? 0.24 : 0.1;
+      b.add('boxFlower', lumpySphere(0.075 + r.next() * 0.035, 1, 0.18, r), mat(px + dx + Math.cos(t) * rad, by + 0.2 + (k < 12 ? 0 : 0.08) + r.next() * 0.05, pz + dz + Math.sin(t) * rad), { tint: [0xff7aa2, 0xffffff, 0xc77dff, 0xffd166, 0xff9a5a][k % 5]! });
+    }
+    for (let k = 0; k < 6; k++) {
+      const t = (k / 6) * Math.PI * 2 + 0.3;
+      const len = 0.25 + r.next() * 0.3;
+      for (let j = 0; j < 4; j++) b.add('boxFlower', lumpySphere(0.045, 0, 0.2, r), mat(px + dx + Math.cos(t) * (0.27 + j * 0.01), by + 0.05 - (j / 3) * len, pz + dz + Math.sin(t) * (0.27 + j * 0.01)), { tint: j % 2 ? 0x3f7a2c : 0x5a9a3a });
     }
   }
   return b.build({ name: 'restore-craft' });
 }
 
+/**
+ * Lantern Koi: six glowing fish (orange, gold, calico bodies lit from within by the Tide Lantern's
+ * teal) circling the basin, each trailing an additive wake; caustic light plays over the water and
+ * a soft deep-water shade darkens the middle of the basin so it reads as depth, not paint.
+ */
 class Koi {
   readonly group = new THREE.Group();
-  /** Six fish in one instanced draw; lily pads + floating candles merged into two static meshes. */
   private fish: THREE.InstancedMesh;
   private tmp = new THREE.Object3D();
-  private mat = new THREE.MeshStandardMaterial({ color: 0xffb070, emissive: 0xff8a3a, emissiveIntensity: 1.2, roughness: 0.4 });
+  private mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x5fe3d6, emissiveIntensity: 0.4, roughness: 0.3 });
   private lilyMat = new THREE.MeshStandardMaterial({ color: 0x4f8a3a, roughness: 0.7 });
   private candleMat = new THREE.MeshStandardMaterial({ color: 0xfff2dc, emissive: 0xffb050, emissiveIntensity: 2.6 });
+  private wake: THREE.Mesh;
+  private wakePos: Float32Array;
+  private wakeA: Float32Array;
+  private hist: THREE.Vector3[][] = [];
+  private caustic: THREE.ShaderMaterial;
   private t = 0;
+  private static SEG = 14;
   constructor(private y: number) {
-    const body = new THREE.SphereGeometry(0.16, 10, 8);
-    body.scale(1, 0.45, 2.2);
-    const tail = new THREE.ConeGeometry(0.12, 0.22, 4);
+    const body = new THREE.SphereGeometry(0.085, 12, 8);
+    body.scale(1, 0.5, 2.3);
+    const tail = new THREE.ConeGeometry(0.08, 0.16, 4);
+    tail.scale(1, 1, 0.25);
     tail.rotateX(-Math.PI / 2);
-    tail.translate(0, 0, -0.42);
-    const fishGeo = mergeGeometries([body.toNonIndexed(), tail.toNonIndexed()])!;
+    tail.translate(0, 0, -0.25);
+    const fins = new THREE.ConeGeometry(0.05, 0.12, 3);
+    fins.rotateZ(Math.PI / 2);
+    fins.scale(1.6, 1, 0.2);
+    fins.translate(0, -0.01, 0.02);
+    const fishGeo = mergeGeometries([body.toNonIndexed(), tail.toNonIndexed(), fins.toNonIndexed()])!;
     this.fish = new THREE.InstancedMesh(fishGeo, this.mat, 6);
+    [0xff6a1e, 0xffb040, 0xfff0e0, 0xff4a22, 0xffd070, 0xff8a3a].forEach((c, i) => this.fish.setColorAt(i, new THREE.Color(c)));
     this.fish.userData.noAO = true;
     this.fish.frustumCulled = false;
+    this.fish.castShadow = false;
     this.group.add(this.fish);
+    // Wake ribbons: one additive strip per fish, following its last positions.
+    const n = 6 * Koi.SEG * 2;
+    this.wakePos = new Float32Array(n * 3);
+    this.wakeA = new Float32Array(n);
+    const idx: number[] = [];
+    for (let f = 0; f < 6; f++) {
+      for (let s = 0; s < Koi.SEG - 1; s++) {
+        const a = (f * Koi.SEG + s) * 2;
+        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+      this.hist.push([]);
+    }
+    const wg = new THREE.BufferGeometry();
+    wg.setAttribute('position', new THREE.BufferAttribute(this.wakePos, 3).setUsage(THREE.DynamicDrawUsage));
+    wg.setAttribute('aA', new THREE.BufferAttribute(this.wakeA, 1).setUsage(THREE.DynamicDrawUsage));
+    wg.setIndex(idx);
+    this.wake = new THREE.Mesh(
+      wg,
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        vertexShader: 'attribute float aA; varying float vA; void main(){ vA = aA; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+        fragmentShader: 'varying float vA; void main(){ gl_FragColor = vec4(vec3(0.45, 1.0, 0.92) * vA * 0.55, vA); }',
+      }),
+    );
+    this.wake.frustumCulled = false;
+    this.wake.userData.noAO = true;
+    this.wake.renderOrder = 4;
+    this.group.add(this.wake);
+    // Caustics + deep-water shade on an annulus just over the water surface.
+    this.caustic = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: { uTime: { value: 0 }, uGlow: { value: 1 } },
+      vertexShader: 'varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: /* glsl */ `
+        uniform float uTime; uniform float uGlow; varying vec2 vP;
+        float cell(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); float d = 1.0;
+          for (int y=-1;y<=1;y++) for (int x=-1;x<=1;x++){ vec2 g = vec2(float(x),float(y));
+            vec2 o = 0.5 + 0.5*sin(uTime*0.9 + 6.2831*fract(sin(dot(i+g, vec2(127.1,311.7)))*43758.5));
+            d = min(d, length(g + o - f)); }
+          return d; }
+        void main(){
+          float r = length(vP);
+          float edge = smoothstep(0.55, 0.8, r) * smoothstep(2.15, 1.85, r);
+          float c = pow(1.0 - cell(vP * 2.6), 6.0) + 0.6 * pow(1.0 - cell(vP * 4.1 + 3.0), 8.0);
+          float deep = smoothstep(2.1, 0.7, r);
+          vec3 col = vec3(0.55, 1.0, 0.9) * c * 0.9 * uGlow;
+          // Premultiplied: darken toward the middle (depth), add the caustic light.
+          gl_FragColor = vec4(col * edge, edge * (0.28 * deep));
+        }`,
+    });
+    this.caustic.blending = THREE.CustomBlending;
+    this.caustic.blendSrc = THREE.OneFactor;
+    this.caustic.blendDst = THREE.OneMinusSrcAlphaFactor;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 2.2, 48, 1), this.caustic);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(PLAZA.x, y + 0.012, PLAZA.z);
+    ring.userData.noAO = true;
+    ring.renderOrder = 3;
+    this.group.add(ring);
     const r = new Rng('koi-lilies');
     const b = new MeshBuilder();
     for (let i = 0; i < 5; i++) {
@@ -341,37 +586,186 @@ class Koi {
     this.group.add(statics);
     this.group.name = 'restore-tide';
   }
+  private fishAt(i: number, t: number, out: THREE.Vector3): number {
+    const dir = i % 2 ? 1 : -1;
+    const a = t * (0.35 + i * 0.04) * dir + i * 1.3;
+    const rad = 1.05 + (i % 3) * 0.28 + Math.sin(t * 0.7 + i) * 0.08;
+    out.set(PLAZA.x + Math.cos(a) * rad, this.y - 0.03 + Math.sin(t * 2 + i) * 0.015, PLAZA.z + Math.sin(a) * rad);
+    return a;
+  }
   update(dt: number, night: number): void {
     this.t += dt;
+    const p = new THREE.Vector3();
     for (let i = 0; i < 6; i++) {
       const dir = i % 2 ? 1 : -1;
-      const a = this.t * (0.35 + i * 0.04) * dir + i * 1.3;
-      const rad = 1.05 + (i % 3) * 0.28;
+      const a = this.fishAt(i, this.t, p);
       const f = this.tmp;
-      f.position.set(PLAZA.x + Math.cos(a) * rad, this.y - 0.05 + Math.sin(this.t * 2 + i) * 0.02, PLAZA.z + Math.sin(a) * rad);
+      f.position.copy(p);
       f.rotation.set(0, -a + (dir > 0 ? 0 : Math.PI), Math.sin(this.t * 6 + i) * 0.15);
       f.updateMatrix();
       this.fish.setMatrixAt(i, f.matrix);
+      // Wake: sample the path behind the fish (analytic, so it's always a smooth arc).
+      for (let s = 0; s < Koi.SEG; s++) {
+        const q = new THREE.Vector3();
+        const ta = this.fishAt(i, this.t - s * 0.09, q);
+        const tx = -Math.sin(ta) * dir;
+        const tz = Math.cos(ta) * dir;
+        const w = 0.07 * (1 - s / Koi.SEG) + 0.015;
+        const k = (i * Koi.SEG + s) * 2;
+        this.wakePos.set([q.x - tz * w, this.y + 0.004, q.z + tx * w], k * 3);
+        this.wakePos.set([q.x + tz * w, this.y + 0.004, q.z - tx * w], (k + 1) * 3);
+        const al = (1 - s / Koi.SEG) * (0.35 + night * 0.65);
+        this.wakeA[k] = this.wakeA[k + 1] = al;
+      }
     }
     this.fish.instanceMatrix.needsUpdate = true;
-    this.mat.emissiveIntensity = 0.6 + night * 1.6;
+    (this.wake.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (this.wake.geometry.attributes.aA as THREE.BufferAttribute).needsUpdate = true;
+    this.mat.emissiveIntensity = 0.35 + night * 1.6;
+    this.caustic.uniforms.uTime!.value = this.t;
+    this.caustic.uniforms.uGlow!.value = 0.45 + night * 0.9;
     this.candleMat.emissiveIntensity = (0.8 + night * 2.2) * (0.9 + Math.sin(this.t * 9) * 0.06);
   }
 }
 
-// ─────────────────────────────────────────────── sky lanterns
+// ─────────────────────────────────────────────── Glimmerco in the valley
+
+/** The Glimmerco mark: a cyan sunburst in a silver ring + wordmark, on a canvas card. */
+function glimmerSign(w: number, h: number, text: string, sub: string): THREE.MeshStandardMaterial {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = Math.round((512 * h) / w);
+  const g = c.getContext('2d')!;
+  const H = c.height;
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#f4fbff');
+  bg.addColorStop(1, '#cfe6f2');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, 512, H);
+  g.strokeStyle = '#8aa4b8';
+  g.lineWidth = 8;
+  g.strokeRect(6, 6, 500, H - 12);
+  const cx = H * 0.5;
+  const cy = H * 0.5;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    g.strokeStyle = '#2fc8e8';
+    g.lineWidth = 6;
+    g.beginPath();
+    g.moveTo(cx + Math.cos(a) * H * 0.18, cy + Math.sin(a) * H * 0.18);
+    g.lineTo(cx + Math.cos(a) * H * 0.34, cy + Math.sin(a) * H * 0.34);
+    g.stroke();
+  }
+  g.fillStyle = '#2fc8e8';
+  g.beginPath();
+  g.arc(cx, cy, H * 0.14, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#1a3a52';
+  g.font = `800 ${Math.round(H * 0.36)}px Fredoka, Nunito, sans-serif`;
+  g.textBaseline = 'middle';
+  g.fillText(text, H * 0.95, H * 0.42);
+  g.fillStyle = '#4a7088';
+  g.font = `700 ${Math.round(H * 0.16)}px Nunito, sans-serif`;
+  g.fillText(sub, H * 0.97, H * 0.76);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.6, roughness: 0.3 });
+  m.name = 'glimmer-sign';
+  return m;
+}
+
+function buildKiosk(): THREE.Group {
+  const b = new MeshBuilder();
+  const SILVER = 0xc8d4de;
+  const CYAN = 0x3fc8e0;
+  b.add('white', roundedBox(1.8, 1.05, 1.0, 0.08), mat(0, 0.52, 0), { tint: SILVER });
+  b.add('white', roundedBox(1.84, 0.12, 1.04, 0.04), mat(0, 1.08, 0), { tint: CYAN });
+  for (const sx of [-1, 1]) b.add('white', roundedBox(0.08, 1.3, 0.08, 0.02), mat(sx * 0.82, 1.7, -0.36), { tint: SILVER });
+  b.add('white', roundedBox(2.1, 0.1, 1.3, 0.05), mat(0, 2.36, -0.1, 0.12, 0, 0), { tint: SILVER });
+  b.add('white', roundedBox(2.12, 0.06, 1.32, 0.02), mat(0, 2.3, -0.1, 0.12, 0, 0), { tint: CYAN });
+  // Boxed bulbs stacked on the counter.
+  for (let k = 0; k < 5; k++) b.add('white', roundedBox(0.22, 0.26, 0.22, 0.03), mat(-0.6 + k * 0.3, 1.27, 0.15), { tint: k % 2 ? 0xf4fbff : CYAN });
+  const g = b.build({ name: 'glimmer-kiosk' });
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.46), glimmerSign(1.6, 0.46, 'EverGlow', 'by Glimmerco · 15% off!'));
+  sign.position.set(0, 1.85, -0.3);
+  g.add(sign);
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.5), glimmerSign(1.5, 0.5, 'Glimmerco', 'Brighter. Faster. Forever.'));
+  front.position.set(0, 0.56, 0.51);
+  g.add(front);
+  return g;
+}
+
+function buildVan(): THREE.Group {
+  const b = new MeshBuilder();
+  const SILVER = 0xd8e2ea;
+  b.add('white', roundedBox(3.6, 1.7, 1.8, 0.3), mat(0, 1.25, 0), { tint: SILVER });
+  b.add('white', roundedBox(1.1, 1.1, 1.74, 0.28), mat(1.95, 0.95, 0), { tint: SILVER });
+  b.add('white', roundedBox(0.06, 0.55, 1.5, 0.08), mat(2.47, 1.28, 0), { tint: 0x2a3440 });
+  b.add('white', roundedBox(3.64, 0.14, 1.84, 0.04), mat(0, 0.72, 0), { tint: 0x3fc8e0 });
+  for (const [x, z] of [[1.6, -0.85], [1.6, 0.85], [-1.2, -0.85], [-1.2, 0.85]] as const) b.add('white', bevelCylinder(0.36, 0.36, 0.26, 0.05, 14).rotateX(Math.PI / 2), mat(x, 0.36, z), { tint: 0x2a2624 });
+  b.add('white', new THREE.CylinderGeometry(0.1, 0.1, 0.5, 8), mat(-0.6, 2.35, 0), { tint: 0x8a9aa8 });
+  b.add('white', new THREE.SphereGeometry(0.22, 12, 8), mat(-0.6, 2.62, 0), { tint: 0xf4fbff });
+  const g = b.build({ name: 'glimmer-van' });
+  for (const sz of [-1, 1]) {
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.9), glimmerSign(2.6, 0.9, 'Glimmerco', 'EverGlow™ Valley Services'));
+    s.position.set(-0.2, 1.35, sz * 0.91);
+    s.rotation.y = sz > 0 ? 0 : Math.PI;
+    g.add(s);
+  }
+  return g;
+}
+
+function buildFloodlight(): THREE.Group {
+  const b = new MeshBuilder();
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2;
+    b.add('white', new THREE.CylinderGeometry(0.03, 0.03, 1.5, 5), mat(Math.cos(a) * 0.3, 0.7, Math.sin(a) * 0.3, Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35), { tint: 0x5a646e });
+  }
+  b.add('white', roundedBox(0.7, 0.5, 0.3, 0.06), mat(0, 1.55, 0, -0.5, 0, 0), { tint: 0x8a9aa8 });
+  const g = b.build({ name: 'glimmer-flood' });
+  const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.38), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: EVERGLOW, emissiveIntensity: 4, roughness: 0.2 }));
+  lens.position.set(0, 1.62, -0.16);
+  lens.rotation.x = Math.PI + 0.5;
+  lens.userData.noAO = true;
+  g.add(lens);
+  return g;
+}
+
+interface GlimmerSet {
+  kiosk: THREE.Group;
+  after: THREE.Group;
+  spot: THREE.SpotLight;
+}
+
+// ─────────────────────────────────────────────── finale dressing + sky lanterns
+
+/** Tapered paper lantern: bright at the mouth (the flame), shading up into the paper. */
+function paperLanternGeo(): THREE.BufferGeometry {
+  const pts = [new THREE.Vector2(0.001, -0.2), new THREE.Vector2(0.11, -0.19), new THREE.Vector2(0.17, -0.05), new THREE.Vector2(0.2, 0.12), new THREE.Vector2(0.17, 0.22), new THREE.Vector2(0.001, 0.24)];
+  const g = new THREE.LatheGeometry(pts, 10);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    const k = THREE.MathUtils.clamp(1 - (y + 0.2) / 0.44, 0, 1);
+    const v = 0.55 + k * 1.9;
+    col.set([v * 1.0, v * 0.78, v * 0.52], i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
 
 class SkyLanterns {
   readonly mesh: THREE.InstancedMesh;
-  private n = 90;
-  private data: { x: number; y: number; z: number; v: number; ph: number; s: number; t0: number }[] = [];
+  private n = 130;
+  private data: { x: number; y: number; z: number; v: number; ph: number; s: number; t0: number; drift: number }[] = [];
   private tmp = new THREE.Object3D();
   active = false;
   private t = 0;
   constructor() {
-    const g = new THREE.CylinderGeometry(0.16, 0.12, 0.34, 8);
-    const m = new THREE.MeshStandardMaterial({ color: 0xffd8a0, emissive: 0xff9a3a, emissiveIntensity: 3.2, roughness: 0.6 });
-    this.mesh = new THREE.InstancedMesh(g, m, this.n);
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false });
+    m.name = 'sky-lantern';
+    this.mesh = new THREE.InstancedMesh(paperLanternGeo(), m, this.n);
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
     this.mesh.userData.noAO = true;
@@ -379,10 +773,14 @@ class SkyLanterns {
     this.mesh.name = 'sky-lanterns';
     const r = new Rng('sky-lanterns');
     for (let i = 0; i < this.n; i++) {
-      const a = r.next() * Math.PI * 2;
-      const rad = 2 + r.next() * 16;
-      this.data.push({ x: PLAZA.x + Math.cos(a) * rad, y: 1 + r.next() * 0.5, z: PLAZA.z - 4 + Math.sin(a) * rad * 0.7, v: 0.45 + r.next() * 0.55, ph: r.next() * 10, s: 0.8 + r.next() * 0.5, t0: r.next() * 5 });
-      this.mesh.setColorAt(i, new THREE.Color().setHSL(0.06 + r.next() * 0.06, 0.9, 0.6 + r.next() * 0.15));
+      // Released from the crowd round the steps first, then from all over the square.
+      const early = i < 36;
+      const a = early ? (r.next() - 0.5) * Math.PI * 1.1 : r.next() * Math.PI * 2;
+      const rad = early ? 3.6 + r.next() * 1.6 : 3 + r.next() * 14;
+      const cx = early ? 32 : PLAZA.x;
+      const cz = early ? 14.9 : PLAZA.z - 3;
+      this.data.push({ x: cx + Math.sin(a) * rad, y: 1.4 + r.next() * 0.4, z: cz + Math.abs(Math.cos(a)) * rad * (early ? 1 : 0.7), v: 0.5 + r.next() * 0.5, ph: r.next() * 10, s: 0.7 + r.next() * 0.6, t0: early ? r.next() * 1.8 : 1.2 + r.next() * 5, drift: (r.next() - 0.5) * 0.3 });
+      this.mesh.setColorAt(i, new THREE.Color().setHSL(0.04 + r.next() * 0.07, 0.9, 0.5 + r.next() * 0.2));
     }
   }
   start(prewarm = 0): void {
@@ -400,16 +798,55 @@ class SkyLanterns {
     this.t += dt;
     this.data.forEach((d, i) => {
       const t = Math.max(0, this.t - d.t0);
-      const y = d.y + t * d.v;
-      this.tmp.position.set(d.x + Math.sin(t * 0.4 + d.ph) * 0.6 + t * 0.12, y, d.z + Math.cos(t * 0.3 + d.ph) * 0.4 - t * 0.08);
-      this.tmp.rotation.set(Math.sin(t + d.ph) * 0.12, t * 0.2, Math.cos(t * 0.8 + d.ph) * 0.12);
-      const s = t > 0 ? d.s * Math.min(1, t * 2) : 0;
-      this.tmp.scale.setScalar(s * (y > 26 ? Math.max(0, 1 - (y - 26) / 8) : 1));
+      // Ease off the hands (slow first second), then a steady climb with a lazy sway.
+      const climb = t < 1.2 ? t * t * 0.42 : 0.6 + (t - 1.2) * d.v;
+      const y = d.y + climb;
+      this.tmp.position.set(d.x + Math.sin(t * 0.45 + d.ph) * 0.35 + t * d.drift, y, d.z + Math.cos(t * 0.33 + d.ph) * 0.3 - t * 0.12);
+      this.tmp.rotation.set(Math.sin(t * 0.9 + d.ph) * 0.1, t * 0.15 + d.ph, Math.cos(t * 0.7 + d.ph) * 0.1);
+      const s = t > 0 ? d.s * Math.min(1, t * 3) : 0;
+      this.tmp.scale.setScalar(s * (y > 30 ? Math.max(0, 1 - (y - 30) / 10) : 1));
       this.tmp.updateMatrix();
       this.mesh.setMatrixAt(i, this.tmp.matrix);
     });
     this.mesh.instanceMatrix.needsUpdate = true;
   }
+}
+
+function buildFinale(r: Rng, H: (x: number, z: number) => number): { group: THREE.Group; fires: THREE.Vector3[] } {
+  const parts = new THREE.Group();
+  const eave = H(32, 12.4) + 4.35;
+  const post = (deg: number): THREE.Vector3 => {
+    const a = (deg * Math.PI) / 180;
+    const x = PLAZA.x + Math.cos(a) * 7.6;
+    const z = PLAZA.z + Math.sin(a) * 7.6;
+    return new THREE.Vector3(x, H(x, z) + 3.0, z);
+  };
+  // Lantern strings fanning from the Hall eaves out to the plaza lamp posts, and one across the steps.
+  const strings: [THREE.Vector3, THREE.Vector3, number][] = [
+    [new THREE.Vector3(27.4, eave, 12.5), post(210), 0.6],
+    [new THREE.Vector3(36.6, eave, 12.5), post(330), 0.6],
+    [new THREE.Vector3(29.6, eave, 12.5), post(150), 0.8],
+    [new THREE.Vector3(34.4, eave, 12.5), post(30), 0.8],
+    [post(210), post(330), 0.55],
+  ];
+  for (const [a, b, sag] of strings) parts.add(buildBunting(r, a, b, sag, 14, 2));
+  const fires: THREE.Vector3[] = [];
+  for (const x of [28.2, 35.8]) {
+    const z = 15.6;
+    const br = buildBrazier();
+    br.group.position.set(x, H(x, z) - 0.03, z);
+    parts.add(br.group);
+    fires.push(br.fire.clone().add(br.group.position));
+  }
+  const group = mergeKeep(parts, 'finale-dressing');
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) {
+      m.castShadow = false;
+      m.userData.noAO = true;
+    }
+  });
+  return { group, fires };
 }
 
 // ─────────────────────────────────────────────── system
@@ -423,7 +860,7 @@ interface Anim {
 export class StoryWorldSystem implements System {
   readonly name = 'story-world';
   private game!: Game;
-  private coach: { group: THREE.Group; wheels: THREE.Object3D[] } | null = null;
+  private coach: Coach | null = null;
   private coachMove: { from: number; to: number; t: number; dur: number; leave: boolean } | null = null;
   private restore = new Map<RoomId, THREE.Object3D>();
   private hidden = new Set<RoomId>();
@@ -434,31 +871,71 @@ export class StoryWorldSystem implements System {
   private sky = new SkyLanterns();
   private hallGlow = new THREE.MeshStandardMaterial({ color: 0xfff0d0, emissive: 0xffb050, emissiveIntensity: 0, roughness: 0.3 });
   private hallLight = new THREE.PointLight(0xffb45e, 0, 10, 1.6);
+  private landmark: Landmark | null = null;
+  private glimmer: GlimmerSet | null = null;
+  private finale: { group: THREE.Group; fire: FireFX; light: THREE.PointLight } | null = null;
   private hallFlare = 0;
   private anims: Anim[] = [];
   private festivalLit = false;
   /** Finale on the Glimmerco path: the EverGlow is switched off and the Hall burns warm again. */
   private everglowOff = false;
   private dim = 0;
+  /** Demo override for the Glimmerco dressing ('glimmer' / 'kiosk'). */
+  private glimmerPreview: 'glimmer' | 'kiosk' | null = null;
+  private houseNight = false;
+  private houseKey = new THREE.PointLight(0xffc890, 0, 3.2, 1.8);
 
   init(game: Game): void {
     this.game = game;
     this.burst.object.userData.noAO = true;
+    this.houseKey.position.set(2.5, 1.75, 5.2);
+    game.scene.add(this.houseKey);
     game.events.on('map:change', ({ map }) => this.onMap(map));
     game.events.on('quest:room', () => this.refresh());
     game.events.on('quest:sync', () => this.refresh());
     game.events.on('quest:hallRestored', () => this.refresh());
+    game.events.on('story:beat', () => this.refresh());
+    game.events.on('day:start', () => this.refresh());
     game.events.on('demo:stage', ({ showcase }) => {
       this.festivalLit = showcase.includes('story:festival');
+      this.glimmerPreview = showcase.includes('story:glimmer') ? 'glimmer' : showcase.includes('story:kiosk') ? 'kiosk' : null;
       this.hidden.clear();
+      this.everglowOff = false;
       if (!showcase.includes('story:festival')) this.sky.stop();
       this.refresh();
     });
     game.events.on('cutscene:end', () => {
       this.hidden.clear();
+      this.houseNight = false;
       this.refresh();
     });
     game.events.on('cutscene:cue', ({ cue, arg, instant }) => this.cue(cue, arg, instant));
+    game.events.on('player:interact', ({ x, z }) => {
+      if (game.world.current?.id !== 'town' || !this.glimmer?.kiosk.visible) return;
+      const p = game.player.position;
+      if (Math.min(Math.hypot(p.x - KIOSK.x, p.z - KIOSK.z), Math.hypot(x + 0.5 - KIOSK.x, z + 0.5 - KIOSK.z)) < 2.2) void game.services.letters?.show('glimmer-flyer');
+    });
+    // The intro's first night: hold bloom off the table lamp (runs after the interior light rig).
+    const scene = game.scene;
+    const prev = scene.onBeforeRender;
+    scene.onBeforeRender = (...args) => {
+      prev.apply(scene, args);
+      const on = this.houseNight && game.world.current?.id === 'house';
+      this.houseKey.intensity = on ? 2.4 : 0;
+      if (on) game.rc.post.setBloom(0.3, 1.6);
+    };
+  }
+
+  /** Kiosk up from Spring 15 until the offer is answered (kept if signed); van + floodlight once signed. */
+  private glimmerState(): { kiosk: boolean; after: boolean } {
+    if (this.glimmerPreview === 'glimmer') return { kiosk: true, after: true };
+    if (this.glimmerPreview === 'kiosk') return { kiosk: true, after: false };
+    const flag = this.game.services.story?.flag('glimmer');
+    const c = this.game.calendar;
+    const intro = this.game.services.story?.flag('intro') === 'done';
+    const past15 = c.year > 1 || c.season !== 'spring' || c.day >= 15;
+    const signed = flag === 'accepted' && !this.everglowOff;
+    return { kiosk: intro && ((past15 && flag !== 'refused') || flag === 'accepted') && !this.everglowOff, after: signed };
   }
 
   private onMap(map: string): void {
@@ -488,7 +965,6 @@ export class StoryWorldSystem implements System {
       if (c.name !== 'market-produce') c.position.y = H(c.position.x, c.position.z) - 0.03;
     });
     market.getObjectByName('market-produce')!.position.y = H(31.5, 28) - 0.02;
-    // Kit props arrive as many small meshes: merge each restoration by material (render budget).
     place('sun', mergeKeep(market, 'restore-sun'));
     place('harvest', mergeKeep(buildRoadLanterns(r, H), 'restore-harvest'));
     const chimney = new THREE.Group();
@@ -499,6 +975,10 @@ export class StoryWorldSystem implements System {
     place('tide', this.koi.group);
     this.smoke = new SmokeEmitter(new THREE.Vector3(35.4, 8.3, 7.4), 5);
     root.add(this.smoke.object);
+    // The Hall's landmark dressing (always there).
+    const hy = H(HALL.x, HALL.z) - 0.03 + 0.6;
+    this.landmark = buildLandmark(hy);
+    root.add(this.landmark.group);
     // The great lantern over the Hall doors: a glowing core inside the existing iron lantern.
     HALL_LANTERN.y = H(32, 8.6) - 0.03 + 3.35;
     const core = new THREE.Mesh(new THREE.CylinderGeometry(0.215, 0.255, 0.5, 6), this.hallGlow);
@@ -507,10 +987,43 @@ export class StoryWorldSystem implements System {
     root.add(core);
     this.hallLight.position.copy(core.position).add(new THREE.Vector3(0, -0.2, 0.5));
     root.add(this.hallLight);
+    // Glimmerco: kiosk, and (after the charter) van + floodlight + sign over the Hall doors.
+    const kiosk = buildKiosk();
+    kiosk.position.set(KIOSK.x, H(KIOSK.x, KIOSK.z) - 0.02, KIOSK.z);
+    kiosk.rotation.y = Math.atan2(PLAZA.x - KIOSK.x, PLAZA.z - KIOSK.z);
+    const after = new THREE.Group();
+    const van = buildVan();
+    van.position.set(VAN.x, H(VAN.x, VAN.z) - 0.02, VAN.z);
+    van.rotation.y = 0.35;
+    after.add(van);
+    for (const x of [28.4, 35.6]) {
+      const f = buildFloodlight();
+      f.position.set(x, H(x, 16.2) - 0.02, 16.2);
+      f.rotation.y = Math.atan2(32 - x, 11.8 - 16.2) + Math.PI;
+      after.add(f);
+    }
+    const hallSign = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.62), glimmerSign(2.3, 0.62, 'EverGlow Hall', 'a Glimmerco venue'));
+    hallSign.position.set(32, hy + 3.08, HALL.front + 0.46);
+    after.add(hallSign);
+    const spot = new THREE.SpotLight(0xe8f6ff, 0, 22, 0.75, 0.5, 1.2);
+    spot.position.set(32, H(32, 17) + 1.6, 17.2);
+    spot.target.position.set(32, hy + 2.6, HALL.front);
+    root.add(spot, spot.target, kiosk, after);
+    this.glimmer = { kiosk, after, spot };
+    // Finale dressing (hidden until the festival).
+    const fin = buildFinale(r, H);
+    const fire = new FireFX(fin.fires);
+    fin.group.add(fire.object);
+    const light = new THREE.PointLight(0xff8a3a, 0, 11, 1.6);
+    light.position.set(32, H(32, 15.6) + 1.8, 15.9);
+    root.add(light);
+    fin.group.visible = false;
+    root.add(fin.group);
+    this.finale = { group: fin.group, fire, light };
     root.add(this.burst.object, this.sky.mesh);
     // Render budget: these props sit on already-AO'd ground and mostly read at a distance, so they
-    // skip the AO G-buffer; only the structural pieces (posts, stalls, chimney) cast shadows.
-    const CASTS = new Set(['wood', 'stone', 'white', 'woodGrain']);
+    // skip the AO G-buffer; only the structural pieces (posts, stalls, chimney, Hall) cast shadows.
+    const CASTS = new Set(['wood', 'stone', 'white', 'woodGrain', 'roofTile']);
     root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
@@ -533,6 +1046,15 @@ export class StoryWorldSystem implements System {
     const vis = this.visibleRooms();
     for (const [id, o] of this.restore) o.visible = vis.has(id);
     if (this.smoke) this.smoke.object.visible = vis.has('hearth');
+    const gs = this.glimmerState();
+    if (this.glimmer) {
+      this.glimmer.kiosk.visible = gs.kiosk && !this.festivalLit;
+      this.glimmer.after.visible = gs.after;
+    }
+    if (this.finale) {
+      this.finale.group.visible = this.festivalLit;
+      this.finale.fire.active = this.festivalLit;
+    }
   }
 
   private cue(cue: string, arg: string | undefined, instant: boolean): void {
@@ -577,23 +1099,29 @@ export class StoryWorldSystem implements System {
         }
         break;
       }
-      case 'festival:on': {
-        const town = g.world.current as unknown as { setFestival?: (on: boolean) => void };
-        town.setFestival?.(true);
+      case 'festival:on':
+      case 'festival:onGlimmer':
         this.festivalLit = true;
+        this.everglowOff = false;
         this.refresh();
         break;
-      }
       case 'festival:everglowOff':
         this.everglowOff = true;
         this.dim = instant ? 0 : 1;
+        this.refresh();
         break;
       case 'festival:greatLantern':
         this.hallFlare = instant ? 0.4 : 1;
         this.burst.emit(HALL_LANTERN.clone(), { color: 0xffd070, count: 40, speed: 2.5, size: 0.18, gravity: 0.8, life: 2, up: 1.4, spread: 0.4 });
         break;
       case 'festival:skyLanterns':
-        this.sky.start(instant ? 7 : 0);
+        this.sky.start(instant ? 6.5 : 0);
+        break;
+      case 'house:night':
+        this.houseNight = true;
+        break;
+      case 'house:off':
+        this.houseNight = false;
         break;
     }
   }
@@ -601,7 +1129,6 @@ export class StoryWorldSystem implements System {
   update(dt: number, game: Game): void {
     if (!this.built || game.world.current?.id !== 'town') return;
     const night = game.lighting.night;
-    // Coach drive (ease in / out), wheels spin with distance.
     const cm = this.coachMove;
     if (cm && this.coach) {
       cm.t += dt;
@@ -609,15 +1136,14 @@ export class StoryWorldSystem implements System {
       const k = cm.leave ? u * u : 1 - Math.pow(1 - u, 3);
       const prev = this.coach.group.position.x;
       this.coach.group.position.x = cm.from + (cm.to - cm.from) * k;
-      const d = this.coach.group.position.x - prev;
-      for (const w of this.coach.wheels) w.rotation.z -= d / 0.42;
+      this.coach.spin -= (this.coach.group.position.x - prev) / 0.42;
+      setWheels(this.coach);
       this.coach.group.position.y = game.world.heightAt(this.coach.group.position.x, COACH_PARK.z) + 0.02 + Math.abs(Math.sin(cm.t * 9)) * 0.015 * (1 - u);
       if (u >= 1) {
         this.coachMove = null;
         if (cm.leave) this.coach.group.removeFromParent();
       }
     }
-    // Reveal: grow in with an overshoot.
     this.anims = this.anims.filter((a) => {
       a.t += dt;
       const u = Math.min(1, a.t / a.dur);
@@ -629,16 +1155,32 @@ export class StoryWorldSystem implements System {
     if (this.smoke?.object.visible) this.smoke.update(dt, night, game.rc.renderer.domElement.height);
     this.burst.update(dt, game.rc.renderer.domElement.height);
     this.sky.update(dt);
-    // Hall lantern: brighter with every room lit; flares for the festival.
+    // Hall lantern, rose window and cupola: brighter with every room lit; flare for the festival.
     const lit = game.services.quests?.lanternsLit() ?? 0;
-    const glimmer = !this.everglowOff && (game.services.quests?.rooms().some((r) => r.glimmer) ?? false);
+    const gs = this.glimmerState();
+    const glimmer = !this.everglowOff && (gs.after || (game.services.quests?.rooms().some((r) => r.glimmer) ?? false));
     this.dim = Math.max(0, this.dim - dt * 0.6);
     const base = this.festivalLit ? 1 : lit / 6;
     this.hallFlare = Math.max(this.festivalLit ? 0.25 : 0, this.hallFlare - dt * 0.25);
     const flick = 0.92 + Math.sin(game.time * 9) * 0.05;
-    this.hallGlow.emissive.setHex(glimmer ? 0xdff4ff : 0xffb050);
+    const hum = glimmer ? 0.94 + (Math.sin(game.time * 47) > 0.96 ? -0.25 : 0) : flick;
     const off = 1 - Math.min(1, this.dim * 1.6);
-    this.hallGlow.emissiveIntensity = (base * (0.8 + night * 2.6) + this.hallFlare * 6) * flick * off;
-    this.hallLight.intensity = (base * night * 7 + this.hallFlare * 14) * flick * off;
+    this.hallGlow.emissive.setHex(glimmer ? EVERGLOW : 0xffb050);
+    this.hallGlow.emissiveIntensity = (glimmer ? 5 : base * (0.8 + night * 2.6) + this.hallFlare * 6) * hum * off;
+    this.hallLight.color.setHex(glimmer ? 0xd8f0ff : 0xffb45e);
+    this.hallLight.intensity = (glimmer ? 9 * night + 3 : base * night * 7 + this.hallFlare * 14) * hum * off;
+    if (this.landmark) {
+      const w = glimmer ? 1 : Math.max(0.12, base);
+      this.landmark.window.emissive.setHex(glimmer ? 0xbfe6ff : 0xffffff);
+      this.landmark.window.emissiveIntensity = (glimmer ? 2.6 : w * (0.35 + night * 1.5) + this.hallFlare * 1.5) * hum * off;
+      this.landmark.cupola.emissive.setHex(glimmer ? EVERGLOW : 0xffb050);
+      this.landmark.cupola.emissiveIntensity = (glimmer ? 5 : base * (0.6 + night * 2.8) + this.hallFlare * 5) * hum * off;
+    }
+    if (this.glimmer) this.glimmer.spot.intensity = this.glimmer.after.visible ? (14 + night * 26) * hum : 0;
+    if (this.finale) {
+      const on = this.finale.group.visible;
+      this.finale.light.intensity = on ? 6 * (0.85 + Math.sin(game.time * 11) * 0.08 + Math.sin(game.time * 23) * 0.05) : 0;
+      if (on) this.finale.fire.update(dt, game.rc.renderer.domElement.height);
+    }
   }
 }

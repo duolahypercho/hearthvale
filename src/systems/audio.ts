@@ -28,14 +28,28 @@ import type { EnvState, AmbSeason, AmbWeather } from '../audio/ambience';
 import { chooseTheme } from '../audio/select';
 import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
 import { voiceFor, type Surface } from '../audio/sfx';
+import { tuneHook } from '../audio/composer';
+import type { DirectorTrace } from '../audio/music';
+import { NowPlaying } from '../audio/nowplaying';
 
 export interface AudioState {
   running: boolean;
   theme: string | null;
   wanted: string | null;
   resting: boolean;
+  /** Seconds until the next song may start. */
+  restLeft: number;
   env: EnvState | null;
   voices: number;
+  /** Notes refused by the polyphony budget since start. */
+  dropped: number;
+  /** Players still fading out. */
+  fading: number;
+  /** AudioContext time and how often its clock was found stalled (watchdog). */
+  ctxTime: number;
+  stalls: number;
+  /** The music director's recent decisions (newest last). */
+  trace: DirectorTrace[];
   /** Output RMS (dBFS) at the moment of the call. */
   levelDb: number;
 }
@@ -104,6 +118,15 @@ export class AudioSystem implements System {
   private lastSfx = new Map<string, number>();
   private demoSfx: { name: string; next: number } | null = null;
   private tickFailed = false;
+  private mineFloor = 0;
+  private lastWall = 0;
+  private lastCtxTime = -1;
+  private ctxStuckSince = 0;
+  private stalls = 0;
+  private ambLift = -1;
+  private card = new NowPlaying();
+  private pinCard = false;
+  private cardShown: string | null = null;
 
   init(game: Game): void {
     this.game = game;
@@ -117,6 +140,13 @@ export class AudioSystem implements System {
     if (theme) this.forced = theme;
     const sfx = params.get('sfx');
     if (sfx) this.demoSfx = { name: sfx, next: 0 };
+    // &card=1 keeps the now-playing card on screen (screenshots); &card=0 never shows it.
+    this.pinCard = params.get('card') === '1';
+    if (params.get('card') === '0') this.card.disabled = true;
+    // Watchdog: keep the score moving even if the game loop stalls (long loads, a throttled tab).
+    window.setInterval(() => {
+      if (performance.now() - this.lastWall > 400) this.tickAudio(0.6);
+    }, 250);
 
     const self = this;
     game.provide('audio', {
@@ -146,8 +176,14 @@ export class AudioSystem implements System {
         theme: this.engine?.music.playing ?? null,
         wanted: this.wanted(),
         resting: this.engine?.music.resting ?? false,
+        restLeft: Math.round((this.engine?.music.restLeft ?? 0) * 10) / 10,
         env: this.env,
         voices: this.engine?.graph.voices ?? 0,
+        dropped: this.engine?.graph.dropped ?? 0,
+        fading: this.engine?.music.oldCount ?? 0,
+        ctxTime: Math.round((this.ctx?.currentTime ?? 0) * 100) / 100,
+        stalls: this.stalls,
+        trace: this.engine ? [...this.engine.music.trace] : [],
         levelDb: Math.round(this.meter() * 10) / 10,
       }),
     });
@@ -230,7 +266,7 @@ export class AudioSystem implements System {
     ev.on('tool:impact', ({ tool, hit, strength }) => this.impact(tool, hit, strength));
     ev.on('crop:harvested', ({ quality }) => this.sfx('harvest', { gain: 1 + (quality ?? 0) * 0.05, level: quality ?? 0 }));
     ev.on('crop:giant', () => this.sfx('giant', { gain: 0.7 }));
-    ev.on('crow:arrive', () => this.sfx('ui:tick', { gain: 0 }));
+    ev.on('crow:arrive', () => this.sfx('crow', { gain: 0.8, pan: 0.3 }, 3));
     ev.on('forage:picked', () => this.sfx('pickup'));
     ev.on('item:gained', () => this.sfx('pickup', { gain: 0.7 }, 0.12));
     ev.on('gold:change', ({ delta }) => {
@@ -300,11 +336,17 @@ export class AudioSystem implements System {
       this.sfx('sleep');
       this.engine?.music.stopAll(2.5);
     });
-    ev.on('day:start', () => {
+    ev.on('day:start', ({ day }) => {
       this.sleeping = false;
       this.engine?.music.reseed(this.daySeed());
       this.engine?.music.kick();
-      this.sfx('morning', { gain: 0.8 });
+      // Morning stinger quotes the tune you're about to hear; a new season gets its whole hook.
+      const th = THEMES[this.wanted() ?? ''];
+      const hook = th ? tuneHook(th, day === 1 ? 2 : 1) : [];
+      if (this.engine && hook.length) {
+        const first = hook[0]!.midi;
+        this.engine.sfx.phrase(day === 1 ? 'harp' : 'celesta', hook.map((n) => ({ ...n, midi: n.midi + (first < 72 ? 12 : 0) })), { bpm: th!.bpm * 1.1, gain: day === 1 ? 0.9 : 0.7 });
+      } else this.sfx('morning', { gain: 0.8 });
     });
     ev.on('energy:change', ({ energy }) => {
       if (energy <= 0) this.sfx('exhausted', undefined, 5);
@@ -315,6 +357,9 @@ export class AudioSystem implements System {
     ev.on('fishing:bite', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.75, 0.6, 0.6));
     ev.on('combat:playerHit', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.7, 0.2, 0.5));
     ev.on('mine:ladder', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.7, 0.4, 0.8));
+    ev.on('mine:floor', ({ floor }) => {
+      this.mineFloor = floor;
+    });
 
     // Festivals.
     ev.on('festival:music', (h) => {
@@ -428,56 +473,94 @@ export class AudioSystem implements System {
       title: panel === 'title' || panel.endsWith(':title'),
       festival: this.festival ?? this.demoTheme?.theme ?? null,
       forced: this.forced,
+      mineFloor: this.mineFloor,
     });
   }
 
   update(dt: number, game: Game): void {
     this.footsteps(dt, game);
+    if (this.pinCard) {
+      // Pinned card (screenshots): show the wanted theme even before the context can start.
+      const w = this.wanted();
+      if (w && w !== this.cardShown && THEMES[w]) {
+        this.cardShown = w;
+        this.card.show(THEMES[w]!, true);
+      }
+    }
     const ctx = this.ctx;
     const e = this.engine;
     if (!ctx || !e || ctx.state !== 'running') return;
-    const now = ctx.currentTime;
-    if (now - this.lastTick < 0.045) return;
-    this.lastTick = now;
-    const env = this.envState(dt, game);
-    this.env = env;
+    // Wall-clock throttle (a stalled AudioContext clock must never freeze the decisions).
+    const wall = performance.now();
+    if (wall - this.lastWall < 45) return;
+    this.lastWall = wall;
+    this.env = this.envState(dt, game);
 
     // Music: selection, level and tone.
     const want = this.sleeping ? null : this.wanted();
     if (want !== e.music.desired) {
-      // Same place, new hour / weather: let the song drift out slowly. New place: a normal crossfade.
+      // Same place, new hour / weather: finish the phrase, then hand over. New place: quick fade.
       const map = game.world.current?.id ?? '';
-      e.music.fade = map === this.lastMap ? 9 : 3.5;
+      e.music.handoff = map === this.lastMap ? 'drift' : 'move';
       e.music.desired = want;
     }
     this.lastMap = game.world.current?.id ?? '';
     const panel = game.hud.openPanelName ?? '';
     const paused = panel === 'pause' || panel.startsWith('settings');
     let level = 1;
-    if (env.night > 0.5 && e.music.desired !== 'night') level *= 0.8;
+    if (this.env.night > 0.5 && e.music.desired !== 'night') level *= 0.8;
     if (this.speaking) level *= 0.78;
-    if (env.indoor) level *= 0.9;
+    if (this.env.indoor) level *= 0.9;
     e.music.setLevel(level);
     const muffle = paused ? 0.55 : this.sleeping ? 0.8 : 0;
     if (Math.abs(muffle - this.muffle) > 0.01) {
       this.muffle = muffle;
       e.graph.setMusicMuffle(muffle);
     }
+    this.tickAudio(0.3);
+    const playing = e.music.playing;
+    if (playing !== this.lastTheme) {
+      this.lastTheme = playing;
+      if (playing) {
+        const def = THEMES[playing];
+        game.events.emit('audio:theme', { id: playing, title: def?.title ?? playing });
+        const title = panel === 'title' || panel.endsWith(':title');
+        if (def && !title && !this.pinCard) this.card.show(def);
+      }
+    }
+    const lift = e.music.resting || !playing ? 1 : 0;
+    if (lift !== this.ambLift) {
+      this.ambLift = lift;
+      e.graph.setAmbienceLift(lift);
+    }
+    if (this.demoSfx && ctx.currentTime >= this.demoSfx.next) {
+      this.demoSfx.next = ctx.currentTime + 2.5;
+      this.sfx(this.demoSfx.name);
+    }
+  }
+
+  /** Advance the engine (from the frame loop, or from the watchdog when the loop stalls). */
+  private tickAudio(lookahead: number): void {
+    const ctx = this.ctx;
+    const e = this.engine;
+    if (!ctx || !e || ctx.state !== 'running' || !this.env) return;
+    if (lookahead > 0.5) this.lastWall = performance.now();
+    // Clock watchdog: a running context whose clock has not moved for 1.5 s gets a kick.
+    const wall = performance.now();
+    if (ctx.currentTime !== this.lastCtxTime) {
+      this.lastCtxTime = ctx.currentTime;
+      this.ctxStuckSince = wall;
+    } else if (wall - this.ctxStuckSince > 1500 && !document.hidden) {
+      this.stalls++;
+      this.ctxStuckSince = wall;
+      void ctx.suspend().then(() => ctx.resume());
+    }
     try {
-      e.tick(env, 0.3);
+      e.tick(this.env, lookahead);
     } catch (err) {
       // Audio must never take the game loop down with it: report once, keep playing what we can.
       if (!this.tickFailed) console.warn('[audio] tick failed', err);
       this.tickFailed = true;
-    }
-    const playing = e.music.playing;
-    if (playing !== this.lastTheme) {
-      this.lastTheme = playing;
-      if (playing) game.events.emit('audio:theme', { id: playing, title: THEMES[playing]?.title ?? playing });
-    }
-    if (this.demoSfx && now >= this.demoSfx.next) {
-      this.demoSfx.next = now + 2.5;
-      this.sfx(this.demoSfx.name);
     }
   }
 

@@ -22,6 +22,7 @@ import { buildLanternPost, buildBarrel, buildCrate, buildWoodpile, type BuiltPro
 import { Ambience, SmokeEmitter } from '../../render/particles';
 import { facetRock } from './rockgeo';
 import { mineRockMaterial, poolMaterial } from './props';
+import { CAVE_GLSL } from './cave';
 import { buildTool } from '../props/tools';
 import { patchMaterial, after, before } from '../../render/patch';
 import { NOISE_GLSL } from '../../render/shaders/noise';
@@ -34,6 +35,8 @@ export const MOUTH = { x: 22, z: 10.4, w: 3.2 };
 export const ENTRANCE_SPAWN = { x: 22.5, z: 13.2 };
 /** Lift headframe (elevator) interact point. */
 export const LIFT = { x: 28.6, z: 11.4 };
+/** Depth of the timbered tunnel behind the portal (m). */
+const TUNNEL = 3.8;
 
 export class MineEntranceMap implements GameMap {
   readonly id = 'mine-entrance';
@@ -58,6 +61,8 @@ export class MineEntranceMap implements GameMap {
   /** Lantern practicals on this shelf light up early (16:30): the miners work late. */
   private lamps: { light: THREE.PointLight; max: number; glow: THREE.Mesh }[] = [];
   private coldAir: THREE.Points | null = null;
+  /** World height of the rock over the portal (the cliff sheet is cut below it). */
+  private portalTop = 3.6;
 
   constructor(private game: Game) {
     this.root.name = 'map:mine-entrance';
@@ -102,8 +107,8 @@ export class MineEntranceMap implements GameMap {
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.ambience.group);
     // Lamp deep in the tunnel (always on: the miners never put it out).
-    this.innerGlow = new THREE.PointLight(0xffa048, 1.2, 3.2, 2);
-    this.innerGlow.position.set(MOUTH.x, this.terrain.heightAt(MOUTH.x, MOUTH.z) + 2.4, MOUTH.z - 0.2);
+    this.innerGlow = new THREE.PointLight(0xffa048, 0.7, 4.2, 1.6);
+    this.innerGlow.position.set(MOUTH.x, this.terrain.heightAt(MOUTH.x, MOUTH.z) + 2.3, MOUTH.z - 0.6);
     this.root.add(this.innerGlow);
     this.poi.flowers = [{ x: 14, z: 20 }, { x: 31, z: 21 }];
     this.poi.birds = [{ x: 18, z: 18 }];
@@ -118,13 +123,13 @@ export class MineEntranceMap implements GameMap {
     return MOUTH.z - 0.2 + n * (1 - straight) - smoothstep(10, 22, Math.abs(x - MOUTH.x)) * 1.5;
   }
 
-  private height(x: number, z: number): number {
+  private height(x: number, z: number, mouth = true): number {
     const n = this.noise;
     const cz = this.cliffZ(x);
     // North cliff: steep strata face up to a pine-topped plateau.
     const cliff = smoothstep(cz + 0.25, cz - 1.25, z) * (7.2 + n.fbm(x * 0.08, z * 0.08 + 4, 3) * 2.2) + smoothstep(cz - 2, cz - 12, z) * 3;
     // Recess for the mine mouth.
-    const inMouth = smoothstep(MOUTH.w / 2 + 0.2, MOUTH.w / 2 - 0.1, Math.abs(x - MOUTH.x)) * smoothstep(MOUTH.z - 2.4, MOUTH.z - 2.0, z);
+    const inMouth = mouth ? smoothstep(MOUTH.w / 2 + 0.2, MOUTH.w / 2 - 0.1, Math.abs(x - MOUTH.x)) * smoothstep(MOUTH.z - TUNNEL - 0.5, MOUTH.z - TUNNEL - 0.1, z) : 0;
     // Side slopes + scree skirts.
     const sides = smoothstep(9, 1, x) * (3.5 + n.fbm(x * 0.1, z * 0.1, 2) * 2) + smoothstep(W - 9, W - 1, x) * (3.5 + n.fbm(x * 0.1 + 7, z * 0.1, 2) * 2);
     const south = smoothstep(D - 5, D + 4, z) * -1.2 * smoothstep(8, 3, Math.abs(x - 21.5));
@@ -238,57 +243,86 @@ export class MineEntranceMap implements GameMap {
     b.add('woodGrain', boxUV(roundedBox(MOUTH.w + 1.1, 0.5, 0.5, 0.07), 1.2), mat(0, H + 0.2, 0.08), { tint: 0xa87a4a });
     b.add('woodGrain', boxUV(roundedBox(MOUTH.w + 0.6, 0.28, 0.36, 0.05), 1.2), mat(0, H + 0.62, -0.05), { tint: 0x9a6c40 });
     for (const x of [-1.2, 0, 1.2]) b.add('metal', new THREE.SphereGeometry(0.045, 8, 6), mat(x, H + 0.2, 0.34), { tint: 0x8a8076 });
-    // Tunnel liner: side planks, ceiling boards, dark back.
-    const depth = 2.3;
+    // Tunnel: a 3.8 m timbered drift. Timber sets (two posts + cap) every metre, lagging boards
+    // between them, a rock roof, all baked darker with depth (exponential), then fog cards so the
+    // drift falls off to black instead of reading as a flat dark rectangle.
+    const depth = TUNNEL;
+    const fogK = (z: number): number => Math.exp(-Math.max(0, -z - 0.4) * 0.55);
+    for (let d = 0.9; d < depth; d += 1.0) {
+      for (const sx of [-1, 1]) {
+        b.add('woodGrain', boxUV(roundedBox(0.2, H - 0.1, 0.2, 0.04), 1.5), mat(sx * (halfW - 0.28), (H - 0.1) / 2, -d, 0, 0, sx * 0.04), { tint: 0xa07448, aoWorld: (p) => fogK(p.z) * (0.55 + 0.45 * smoothstep(0, 0.9, p.y)) });
+      }
+      b.add('woodGrain', boxUV(roundedBox(MOUTH.w - 0.2, 0.22, 0.24, 0.04), 1.5), mat(0, H - 0.2, -d), { tint: 0x9a6c40, aoWorld: (p) => fogK(p.z) });
+    }
     for (const sx of [-1, 1]) {
-      for (let k = 0; k < 5; k++) b.add('woodDark', roundedBox(0.08, 0.34, depth, 0.02), mat(sx * (halfW - 0.2), 0.3 + k * 0.52, -depth / 2 - 0.1), { tint: 0x7a5a40, aoWorld: (p) => 0.35 + 0.65 * smoothstep(-depth, 0, p.z) });
+      for (let k = 0; k < 5; k++) b.add('woodDark', roundedBox(0.07, 0.4, depth, 0.02), mat(sx * (halfW - 0.4), 0.3 + k * 0.52, -depth / 2 - 0.1), { tint: 0x7a5a40, aoWorld: (p) => 0.25 + 0.75 * fogK(p.z) });
     }
-    for (let k = 0; k < 4; k++) b.add('woodDark', roundedBox(MOUTH.w - 0.3, 0.18, 0.22, 0.03), mat(0, H - 0.1, -0.4 - k * 0.6), { tint: 0x6a4a30, aoWorld: (p) => 0.3 + 0.7 * smoothstep(-depth, 0, p.z) });
-    // Rock lintel mass bridging the recess top into the cliff.
+    for (let k = 0; k < 7; k++) b.add('woodDark', roundedBox(MOUTH.w - 0.4, 0.07, 0.42, 0.02), mat(0, H - 0.04, -0.4 - k * 0.52), { tint: 0x6a4a30, aoWorld: (p) => fogK(p.z) });
+    // Rock roof over the drift (the camera looks down into the slot).
+    b.add(mineRockMaterial(), boxUV(roundedBox(MOUTH.w + 1.3, 0.9, depth, 0.25), 1), mat(0, H + 0.62, -depth / 2 - 0.35), { tint: 0x5e5244 });
+    // Mossy ledges stepping up the cliff over the portal (not a pile of loose boulders).
+    this.portalTop = y0 + H + 0.45;
     const r = this.rng.fork('lintel');
-    for (let k = 0; k < 7; k++) {
-      const g = facetRock(r, 0.62 + r.next() * 0.3, [0x6e6258, 0x5e544a, 0x7a6c5e][k % 3]!, { chunky: true, squash: 0.75, rim: 0.2 });
-      b.add(mineRockMaterial(), g, mat(-2.1 + k * 0.7 + (r.next() - 0.5) * 0.3, H + 0.55 + r.next() * 0.35, -1.5 - r.next() * 0.6, r.next(), r.next() * 6, r.next()));
+    /** z (local, from the portal plane) of the uncut rock face at height y over portal column x. */
+    const faceAt = (lx: number, y: number): number => {
+      for (let dz = 0.6; dz > -4; dz -= 0.05) if (this.height(MOUTH.x + lx, MOUTH.z + dz, false) - y0 >= y) return dz;
+      return -1.5;
+    };
+    const ledges: [number, number, number, number][] = [
+      [-0.7, H + 1.0, 2.3, 0.0],
+      [1.0, H + 1.75, 1.9, 0.25],
+      [-0.9, H + 2.6, 2.1, -0.2],
+    ];
+    for (const [lx, ly, w, yaw] of ledges) {
+      const lz = faceAt(lx, ly) - 0.15;
+      const g = facetRock(r, 0.62, [0xa08c70, 0x94806a, 0xac9676][Math.floor(r.next() * 3)]!, { chunky: true, squash: 0.62, cap: 0x5f7f38, capAmt: 0.45, rim: 0.45, detail: 2, smooth: 0.3 });
+      g.scale(w / 1.24, 0.95, 1.3);
+      b.add(mineRockMaterial(), g, mat(lx, ly, lz, (r.next() - 0.5) * 0.08, yaw, (r.next() - 0.5) * 0.08));
     }
-    // Hanging lantern just inside + the sign board.
+    // Hanging lantern just inside (its own dimmer glass so it never blooms to white) + sign board.
     const lan = new MeshBuilder();
-    lan.add('metal', new THREE.CylinderGeometry(0.01, 0.01, 0.4, 4), mat(0, H - 0.25, -0.35));
-    lanternKit(lan, 0, H - 0.62, -0.35, 1.25);
+    lan.add('metal', new THREE.CylinderGeometry(0.01, 0.01, 0.4, 4), mat(0, H - 0.25, -0.55));
+    lanternKit(lan, 0, H - 0.62, -0.55, 1.15, mouthGlass());
     this.add(lan.build({ name: 'mouth-lantern' }), MOUTH.x, MOUTH.z, 0, [], y0);
     this.add(b.build({ name: 'mine-mouth' }), MOUTH.x, MOUTH.z, 0, [], y0);
-    // Darkness inside: a gradient card at the back, and a soft dark floor fade.
+    // Darkness at the end of the drift, and a floor fade that deepens with depth.
     const dark = new THREE.Mesh(
       new THREE.PlaneGeometry(MOUTH.w - 0.3, H + 0.3),
       new THREE.ShaderMaterial({
         uniforms: {},
         vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-        fragmentShader: `varying vec2 vUv; void main(){ float g = smoothstep(0.0, 0.9, vUv.y) * 0.03; gl_FragColor = vec4(vec3(0.012, 0.01, 0.012) + vec3(0.05, 0.035, 0.03) * g, 1.0); }`,
+        fragmentShader: `varying vec2 vUv; void main(){ gl_FragColor = vec4(vec3(0.004, 0.003, 0.004), 1.0); }`,
       }),
     );
     dark.position.set(MOUTH.x, y0 + (H + 0.3) / 2, MOUTH.z - depth - 0.05);
     this.root.add(dark);
-    const fade = new THREE.Mesh(new THREE.PlaneGeometry(MOUTH.w - 0.2, depth + 0.4).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.92, depthWrite: false }));
-    fade.position.set(MOUTH.x, y0 + 0.03, MOUTH.z - depth / 2 - 0.2);
-    fade.renderOrder = 1;
-    this.root.add(fade);
-    // Depth veil: a vertical black gradient card just inside the frame swallows the liner, rails
-    // and ladder a metre in, so the mouth reads as a cold dark hole, not a lit corridor.
-    const veil = new THREE.Mesh(
-      new THREE.PlaneGeometry(MOUTH.w - 0.25, H + 0.1),
+    const fade = new THREE.Mesh(
+      new THREE.PlaneGeometry(MOUTH.w - 0.2, depth + 0.4).rotateX(-Math.PI / 2),
       new THREE.ShaderMaterial({
         transparent: true,
         depthWrite: false,
         vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-        fragmentShader: `varying vec2 vUv; void main(){ float a = 0.62 + 0.3 * smoothstep(0.0, 0.8, vUv.y); float side = smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x); gl_FragColor = vec4(vec3(0.0), a * mix(0.75, 1.0, side)); }`,
+        // uv.y = 1 at the portal, 0 at the far end: black soaks in exponentially.
+        fragmentShader: `varying vec2 vUv; void main(){ float a = 1.0 - exp(-(1.0 - vUv.y) * 3.2) * 0.75; gl_FragColor = vec4(vec3(0.0), a); }`,
       }),
     );
-    veil.position.set(MOUTH.x, y0 + (H + 0.1) / 2, MOUTH.z - 0.55);
-    veil.renderOrder = 2;
-    veil.userData.noAO = true;
-    this.root.add(veil);
-    const veil2 = veil.clone();
-    veil2.position.z = MOUTH.z - 1.2;
-    this.root.add(veil2);
+    fade.position.set(MOUTH.x, y0 + 0.03, MOUTH.z - depth / 2 - 0.2);
+    fade.renderOrder = 1;
+    this.root.add(fade);
+    // Exponential fog: a stack of thin black cards through the drift; each swallows a bit more.
+    const fogMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `varying vec2 vUv; void main(){ float side = smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x); float top = 0.85 + 0.15 * smoothstep(0.2, 0.9, vUv.y); gl_FragColor = vec4(vec3(0.0), 0.3 * mix(0.7, 1.0, side) * top); }`,
+    });
+    for (let d = 1.35; d < depth; d += 0.6) {
+      const veil = new THREE.Mesh(new THREE.PlaneGeometry(MOUTH.w - 0.3, H + 0.1), fogMat);
+      veil.position.set(MOUTH.x, y0 + (H + 0.1) / 2, MOUTH.z - d);
+      veil.renderOrder = 2;
+      veil.userData.noAO = true;
+      this.root.add(veil);
+    }
     // Cold air: faint pale motes drifting out of the dark and sinking over the apron.
     {
       const N = 42;
@@ -371,10 +405,12 @@ export class MineEntranceMap implements GameMap {
         const t = j / (rows - 1);
         // Deep enough to climb the recess back wall over the portal (the lintel rock above it).
         const z = cz + 0.45 - t * 3.1;
-        const y = this.height(x, z);
+        // The sheet follows the cliff as if uncut: over the portal it becomes the rock face the
+        // drift is driven into (no open notch up the cliff).
+        const y = this.height(x, z, false);
         const e = 0.05;
-        const gx = (this.height(x + e, z) - this.height(x - e, z)) / (2 * e);
-        const gz = (this.height(x, z + e) - this.height(x, z - e)) / (2 * e);
+        const gx = (this.height(x + e, z, false) - this.height(x - e, z, false)) / (2 * e);
+        const gz = (this.height(x, z + e, false) - this.height(x, z - e, false)) / (2 * e);
         const nrm = new THREE.Vector3(-gx, 1, -gz).normalize();
         const steep = smoothstep(0.8, 2.6, Math.hypot(gx, gz));
         const v = (y + n.fbm(x * 0.09 + 3, 1.5, 2) * 1.4) / bandH;
@@ -397,7 +433,7 @@ export class MineEntranceMap implements GameMap {
         // Albedo: per-band tone, lighter band tops, dark under-ledge shadow + joints, moss on ledges.
         c.copy(PAL[((band % PAL.length) + PAL.length) % PAL.length]!).multiplyScalar(0.86 + block * 0.22);
         c.multiplyScalar((0.38 + 0.62 * smoothstep(0.0, 0.12, f)) * (1 - joint * 0.6) * (0.88 + 0.24 * smoothstep(0.6, 1.0, f)));
-        const foot = smoothstep(1.4, 0.0, y - this.height(x, cz + 0.8));
+        const foot = smoothstep(1.4, 0.0, y - this.height(x, cz + 0.8, false));
         c.multiplyScalar(1 - foot * 0.3);
         const ledgeTop = smoothstep(0.86, 0.98, f) * steep * (0.4 + 0.6 * smoothstep(0.1, 0.5, n.fbm(x * 0.4, y * 0.4, 2) + 0.2));
         const topLip = (1 - steep) * smoothstep(3, 6, y);
@@ -415,7 +451,7 @@ export class MineEntranceMap implements GameMap {
         const a = i * rows + j;
         const b = a + rows;
         // Leave the portal itself open (recess floor + back card), keep the rock above it.
-        if (mouthCol && (pos[a * 3 + 1]! < 3.6 || pos[b * 3 + 1]! < 3.6)) continue;
+        if (mouthCol && (pos[a * 3 + 1]! < this.portalTop || pos[b * 3 + 1]! < this.portalTop)) continue;
         idx.push(a, b, a + 1, a + 1, b, b + 1);
       }
     }
@@ -426,26 +462,57 @@ export class MineEntranceMap implements GameMap {
     g.computeVertexNormals();
     const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
     m.name = 'entrance-cliff';
-    patchMaterial(m, 'entrance-cliff', (shader) => {
+    patchMaterial(m, 'entrance-cliff-r3', (shader) => {
       let vs = before(shader.vertexShader, 'void main() {', 'varying vec3 vCfW; varying vec3 vCfN;');
       vs = after(vs, '#include <project_vertex>', 'vCfW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCfN = normalize(mat3(modelMatrix) * objectNormal);');
       shader.vertexShader = vs;
-      let fs = before(shader.fragmentShader, 'void main() {', `varying vec3 vCfW; varying vec3 vCfN;\n${NOISE_GLSL}`);
+      let fs = before(shader.fragmentShader, 'void main() {', `varying vec3 vCfW; varying vec3 vCfN;\n${NOISE_GLSL}\n${CAVE_GLSL}`);
       fs = after(
         fs,
         '#include <color_fragment>',
-        /* glsl */ `{
+        /* glsl */ `
+          // Rock texture at 2–3 m tiling: warped Voronoi slabs (wider than tall = bedding), open
+          // joints, crazing, grit; bump-mapped below. Moss collects on the up-facing ledges.
           vec3 an = abs(normalize(vCfN));
-          vec3 w = an / (an.x + an.y + an.z);
-          float gx = hvNoise(vCfW.zy * 5.0) * 0.6 + hvNoise(vCfW.zy * 17.0) * 0.4;
-          float gy = hvNoise(vCfW.xz * 5.0) * 0.6 + hvNoise(vCfW.xz * 17.0) * 0.4;
-          float gz = hvNoise(vCfW.xy * vec2(3.0, 7.0)) * 0.6 + hvNoise(vCfW.xy * 17.0) * 0.4;
-          float grit = gx * w.x + gy * w.y + gz * w.z;
-          float macro = hvFbm(vCfW.xy * 0.18 + 4.0);
-          diffuseColor.rgb *= (0.8 + 0.34 * grit) * (0.88 + 0.26 * macro);
+          vec2 tp = an.y > 0.72 ? vCfW.xz : (an.x > an.z ? vCfW.zy : vCfW.xy);
+          vec2 wq = tp * vec2(0.3, 0.72);
+          wq += (vec2(hvFbm(tp * 0.3 + 3.0), hvFbm(tp * 0.3 + 9.0)) - 0.5) * 1.3;
+          vec4 st = hvMineStone(wq);
+          float edge = st.y - st.x;
+          vec4 st2 = hvMineStone(wq * 2.7 + 4.1);
+          float edge2 = st2.y - st2.x;
+          // Only some slab borders open into joints (a cliff, not a dry-stone wall).
+          float open = smoothstep(0.42, 0.66, hvNoise(floor(wq) * 0.41 + st.z * 5.0 + tp * 0.18));
+          float crack = (1.0 - smoothstep(0.02, 0.09, edge)) * open;
+          float cavity = (1.0 - smoothstep(0.0, 0.3, edge)) * (0.35 + 0.65 * open);
+          float craze = (1.0 - smoothstep(0.0, 0.035, edge2)) * smoothstep(0.5, 0.75, hvNoise(tp * 0.8)) * (1.0 - cavity);
+          float grit = hvNoise(tp * 5.0) * 0.55 + hvNoise(tp * 16.0) * 0.45;
+          float cfH = smoothstep(0.0, 0.45, edge) * 0.12 * (0.4 + 0.6 * open) + (st.z - 0.5) * 0.05 + grit * 0.025 - craze * 0.012;
+          float lit = mix(1.1, 0.86, smoothstep(-0.5, 0.5, st.w));
+          diffuseColor.rgb *= (0.86 + 0.26 * st.z) * lit * (1.0 - crack * 0.62) * (1.0 - cavity * 0.18) * (1.0 - craze * 0.2) * (0.86 + 0.28 * grit);
           // Mineral streaks weeping down the face.
-          float streak = smoothstep(0.62, 0.8, hvNoise(vec2(vCfW.x * 2.2, vCfW.y * 0.25 + 3.0)));
-          diffuseColor.rgb *= 1.0 - streak * 0.14 * w.z;
+          float streak = smoothstep(0.62, 0.82, hvNoise(vec2(vCfW.x * 2.2, vCfW.y * 0.25 + 3.0)));
+          diffuseColor.rgb *= 1.0 - streak * 0.12;
+          // Moss on the up-facing ledges and slab tops.
+          float up = smoothstep(0.35, 0.75, normalize(vCfN).y);
+          float mossN = smoothstep(0.35, 0.6, hvFbm(vCfW.xz * 0.9 + 2.0) + grit * 0.25);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.3, 0.1) * (0.8 + 0.4 * grit), up * mossN * 0.85);
+        `,
+      );
+      fs = after(
+        fs,
+        '#include <normal_fragment_maps>',
+        /* glsl */ `
+        {
+          vec3 dpx = dFdx(-vViewPosition);
+          vec3 dpy = dFdy(-vViewPosition);
+          float dhx = dFdx(cfH);
+          float dhy = dFdy(cfH);
+          vec3 r1 = cross(dpy, normal);
+          vec3 r2 = cross(normal, dpx);
+          float det = dot(dpx, r1);
+          vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
+          if (abs(det) > 1e-8) normal = normalize(abs(det) * normal - grad * 2.2);
         }`,
       );
       shader.fragmentShader = fs;
@@ -572,7 +639,7 @@ export class MineEntranceMap implements GameMap {
     // Rails out of the mouth, curving east to a buffer stop, with a loaded cart.
     const curve = new THREE.CatmullRomCurve3(
       [
-        new THREE.Vector3(MOUTH.x, 0, MOUTH.z - 2.2),
+        new THREE.Vector3(MOUTH.x, 0, MOUTH.z - TUNNEL + 0.3),
         new THREE.Vector3(MOUTH.x, 0, MOUTH.z + 0.8),
         new THREE.Vector3(MOUTH.x + 1.6, 0, MOUTH.z + 2.6),
         new THREE.Vector3(MOUTH.x + 4.2, 0, MOUTH.z + 3.4),
@@ -789,9 +856,7 @@ export class MineEntranceMap implements GameMap {
     this.terrain.stampCover('ao', LIFT.x, LIFT.z - 1.4, 1.8, 0.7);
     this.terrain.stampCover('ao', 13.2, 13.4, 2.2, 0.6);
     // Chimney-less camp: a thin smoke curl from the tunnel mouth (warm air meeting the evening).
-    const s = new SmokeEmitter(new THREE.Vector3(MOUTH.x, this.H(MOUTH.x, MOUTH.z) + 3.2, MOUTH.z + 0.2), 1.2, 24);
-    this.smoke.push(s);
-    this.root.add(s.object);
+    // (No smoke curl off the lintel any more: it smeared the sign and the rock over the portal.)
   }
 
   // ───────────────────────────────────────────── runtime
@@ -809,7 +874,7 @@ export class MineEntranceMap implements GameMap {
     const h = game.rc.renderer.domElement.height;
     for (const s of this.smoke) s.update(dt, game.lighting.night, h);
     this.ambience.update(dt, game.time, game.rc.rig.focus, game.lighting.night, h);
-    this.innerGlow.intensity = 1.1 + Math.sin(game.time * 9) * 0.1 + Math.sin(game.time * 23) * 0.08;
+    this.innerGlow.intensity = 1.5 + Math.sin(game.time * 9) * 0.12 + Math.sin(game.time * 23) * 0.08;
     // Shelf lanterns: on from 16:30 until dawn (a warm glow + a real light pool on the apron).
     const hr = game.calendar.hour;
     const on = hr >= 12 ? THREE.MathUtils.smoothstep(hr, 16.3, 16.9) : 1 - THREE.MathUtils.smoothstep(hr, 6.2, 6.8);
@@ -837,10 +902,18 @@ export class MineEntranceMap implements GameMap {
   }
 }
 
-function lanternKit(b: MeshBuilder, x: number, y: number, z: number, s = 1): void {
+let glassMat: THREE.MeshStandardMaterial | null = null;
+/** Warm lantern glass at ~60 % of the shared lamp glow (the portal lantern must not bloom white). */
+function mouthGlass(): THREE.MeshStandardMaterial {
+  glassMat ??= new THREE.MeshStandardMaterial({ color: 0xffc27a, emissive: 0xffa24a, emissiveIntensity: 1.35, roughness: 0.4 });
+  glassMat.name = 'mouth-lantern-glass';
+  return glassMat;
+}
+
+function lanternKit(b: MeshBuilder, x: number, y: number, z: number, s = 1, glass?: THREE.Material): void {
   b.add('metal', roundedBox(0.2 * s, 0.05 * s, 0.2 * s, 0.015), mat(x, y + 0.14 * s, z));
   b.add('metal', new THREE.ConeGeometry(0.15 * s, 0.1 * s, 4), mat(x, y + 0.21 * s, z, 0, Math.PI / 4, 0));
-  b.add('lampGlow', roundedBox(0.13 * s, 0.2 * s, 0.13 * s, 0.02), mat(x, y + 0.02 * s, z));
+  b.add(glass ?? 'lampGlow', roundedBox(0.13 * s, 0.2 * s, 0.13 * s, 0.02), mat(x, y + 0.02 * s, z));
   for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add('metal', new THREE.BoxGeometry(0.02 * s, 0.24 * s, 0.02 * s), mat(x + dx * 0.075 * s, y + 0.02 * s, z + dz * 0.075 * s));
   b.add('metal', roundedBox(0.18 * s, 0.035 * s, 0.18 * s, 0.01), mat(x, y - 0.1 * s, z));
 }

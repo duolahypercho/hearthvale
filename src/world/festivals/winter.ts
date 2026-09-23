@@ -207,6 +207,10 @@ export class StarfallSquare extends FestivalMap {
 
   private buildRiver(r: Rng): void {
     this.river = new FrozenRiver(this.terrain, ICE_Y, { x0: -20, z0: 24, x1: 84, z1: 44 });
+    // Boot prints (weather system) skip ground under the water level: tell it the frozen channel is
+    // "water" so skating leaves blade scratches, not snow footprints. The terrain shader's water
+    // uniform was captured at build time, so the snowy banks keep their shading.
+    (this.terrain.opts as { waterLevel: number }).waterLevel = ICE_Y + 0.05;
     this.root.add(this.river.mesh);
     const bz = this.riverZ(BRIDGE_X);
     const br = buildBridge(r, 7.2, 2.2, 0.35);

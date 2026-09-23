@@ -36,13 +36,17 @@ export const ORE_STYLE: Record<OreId, OreStyle> = {
   diamond: { color: 0xeaffff, kind: 'gem', glow: 1.8, hp: 4 },
 };
 
-export type MonsterKind = 'slime' | 'bat' | 'crab';
+/** slime / bat / crab everywhere; the frost wisp (chills: slows the farmer) haunts the ice band,
+ * the cinder imp (keeps its distance and lobs fireballs) the lava band. */
+export type MonsterKind = 'slime' | 'bat' | 'crab' | 'wisp' | 'imp';
 
 export interface BiomeDef {
   id: Biome;
   name: string;
   /** Rock strata bands (bottom → top), hex. */
   strata: number[];
+  /** Wall albedo multiplier vs. the strata colours (walls read darker than the walkable floor). */
+  wallValue: number;
   /** Floor base + variation + damp/dark tone. */
   floor: [number, number, number];
   /** Breakable rock base tints. */
@@ -80,8 +84,10 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     id: 'earth',
     name: 'Earthen Hollows',
     strata: [0x5a3d2b, 0x7a5236, 0x94673f, 0x6e4a33, 0xa8794a, 0x80573a],
-    floor: [0x8a6a4c, 0x6f5238, 0x4a3526],
-    rock: [0x8d7a66, 0x7d6c5c, 0x9a8670],
+    wallValue: 0.68,
+    floor: [0x9c7a56, 0x84643f, 0x4e3828],
+    // Cool grey breakables on warm dirt: the classic read (rocks never melt into the floor).
+    rock: [0xa29c94, 0x938d86, 0xb0aaa0],
     crystals: [0x3fe0c8, 0xffb347, 0x6fd8ff, 0x3fe0c8],
     crystalCount: 10,
     hemi: [0x8a7a90, 0x3a2618, 0.86],
@@ -116,6 +122,7 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     id: 'ice',
     name: 'Frostvein Grotto',
     strata: [0x3e5a7c, 0x5f84ac, 0x86acd0, 0x6a8fb8, 0xb4d2ea, 0x7fa4c8],
+    wallValue: 0.72,
     floor: [0xbcd4e6, 0x8fb0cc, 0x5a7896],
     rock: [0x9fb4c8, 0x8aa2ba, 0xb8cadc],
     crystals: [0x5fe8ff, 0x8fb8ff, 0xc8f4ff],
@@ -143,8 +150,9 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     ],
     monsters: [
       ['slime', 4],
-      ['bat', 3],
+      ['bat', 2],
       ['crab', 2],
+      ['wisp', 3],
     ],
     motes: 'snow',
     moteColor: 0xdff4ff,
@@ -153,20 +161,21 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     id: 'lava',
     name: 'Cinder Depths',
     strata: [0x1e1618, 0x2e2224, 0x3a2a28, 0x241a1c, 0x4a3430, 0x2a1e20],
+    wallValue: 0.9,
     floor: [0x5e4840, 0x44322c, 0x261c1a],
     rock: [0x4e4240, 0x3e3434, 0x5a4a44],
     crystals: [0xff6a1a, 0xff3a2a, 0xffb040],
     crystalCount: 9,
     hemi: [0x8a4a3a, 0x2a0c06, 0.9],
     fog: 0x120505,
-    lantern: [0xffc890, 30],
+    lantern: [0xffc890, 18],
     exposure: 1.1,
-    lift: [0.03, 0.01, 0.01],
-    gain: [1.08, 0.97, 0.9],
-    sat: 1.1,
-    contrast: 1.12,
+    lift: [0.03, 0.015, 0.02],
+    gain: [1.04, 0.98, 0.94],
+    sat: 0.98,
+    contrast: 1.1,
     vignette: 0.74,
-    bloom: [0.55, 0.86],
+    bloom: [0.42, 0.9],
     floorRough: 0.8,
     ores: [
       [null, 52],
@@ -179,8 +188,9 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     ],
     monsters: [
       ['slime', 4],
-      ['bat', 3],
+      ['bat', 2],
       ['crab', 2],
+      ['imp', 3],
     ],
     motes: 'embers',
     moteColor: 0xff8a3a,

@@ -43,9 +43,9 @@ const CSS = /* css */ `
 .hv-dmg-layer { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
 .hv-dmg { position:absolute; left:0; top:0; font-family: var(--font-head, 'Fredoka', system-ui); font-weight:700; font-size:30px; color:#fff;
   -webkit-text-stroke: 5px #3a1a0a; paint-order: stroke fill; text-shadow: 0 3px 0 rgba(40,15,5,.55); will-change: transform, opacity; white-space:nowrap; }
-.hv-dmg.crit { color:#ffd84a; font-size:40px; }
+.hv-dmg.crit { color:#ffd84a; font-size:48px; -webkit-text-stroke:6px #3a1a0a; }
 .hv-dmg.player { color:#ff6a58; font-size:34px; -webkit-text-stroke:4px #2a0604; text-shadow: 0 3px 0 rgba(20,2,0,.7), 0 0 14px rgba(0,0,0,.55); }
-.hv-dmg.loot { color:#bff5a8; font-size:21px; -webkit-text-stroke:4px #1e3a14; }
+.hv-dmg.loot { color:#fff4dc; font-size:22px; -webkit-text-stroke:3px #2a1a0c; text-shadow: 0 2px 0 rgba(20,10,4,.7); }
 .hv-dmg.info { color:#ffe9c4; font-size:22px; -webkit-text-stroke:4px #3a2410; }
 
 .hv-hurt { position:absolute; inset:0; pointer-events:none; opacity:0; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 48%, rgba(200,20,20,.55) 100%); transition: opacity .35s ease-out; }
@@ -175,10 +175,28 @@ export class FloorPlaque {
 interface Num {
   el: HTMLElement;
   pos: THREE.Vector3;
+  /** Live anchor (e.g. the farmer's position) + world offset, instead of a fixed point. */
+  follow: THREE.Vector3 | null;
+  off: THREE.Vector3;
   age: number;
   life: number;
   dx: number;
+  /** Fixed screen offset (px): pushes a number clear of the farmer / stacks loot lines. */
+  sx: number;
+  sy: number;
   kind: string;
+  text: string;
+  qty: number;
+}
+
+export interface PopOpts {
+  /** Track `at` (a live vector) every frame instead of copying it. */
+  follow?: boolean;
+  /** World offset added to the anchor. */
+  off?: THREE.Vector3;
+  /** Screen offset in px. */
+  dx?: number;
+  dy?: number;
 }
 
 export class DamageNumbers {
@@ -195,12 +213,52 @@ export class DamageNumbers {
     parent.appendChild(this.layer);
   }
 
-  pop(at: THREE.Vector3, text: string, kind: 'dmg' | 'crit' | 'player' | 'loot' | 'info' = 'dmg'): void {
+  pop(at: THREE.Vector3, text: string, kind: 'dmg' | 'crit' | 'player' | 'loot' | 'info' = 'dmg', opts: PopOpts = {}): void {
+    // Loot: one line per item id; a repeat within 0.5 s bumps the count instead of overprinting.
+    if (kind === 'loot') {
+      const m = /^\+(\d+)\s+(.*)$/.exec(text);
+      const name = m ? m[2]! : text;
+      const q = m ? Number(m[1]) : 1;
+      const same = this.list.find((n) => n.kind === 'loot' && n.text === name && n.age < 0.5);
+      if (same) {
+        same.qty += q;
+        same.el.textContent = `+${same.qty} ${name}`;
+        same.age = Math.min(same.age, 0.12);
+        return;
+      }
+      const slot = this.list.filter((n) => n.kind === 'loot' && n.age < n.life * 0.8).length;
+      opts = { ...opts, dy: (opts.dy ?? 0) - slot * 26 };
+      text = `+${q} ${name}`;
+      this.push(at, text, kind, opts, name, q);
+      return;
+    }
+    // Numbers landing on the same spot within half a second stack upwards instead of overprinting.
+    if (!opts.follow) {
+      const near = this.list.filter((n) => n.kind !== 'loot' && !n.follow && n.age < 0.5 && n.pos.distanceToSquared(at) < 0.9 * 0.9).length;
+      if (near) opts = { ...opts, dy: (opts.dy ?? 0) - near * 36, dx: (opts.dx ?? 0) + (near % 2 ? 18 : -18) };
+    }
+    this.push(at, text, kind, opts, text, 1);
+  }
+
+  private push(at: THREE.Vector3, text: string, kind: string, opts: PopOpts, key: string, qty: number): void {
     const el = document.createElement('div');
     el.className = `hv-dmg ${kind}`;
     el.textContent = text;
     this.layer.appendChild(el);
-    this.list.push({ el, pos: at.clone(), age: 0, life: kind === 'loot' || kind === 'info' ? 1.3 : 0.95, dx: (Math.random() - 0.5) * 40, kind });
+    this.list.push({
+      el,
+      pos: opts.follow ? at : at.clone(),
+      follow: opts.follow ? at : null,
+      off: opts.off?.clone() ?? new THREE.Vector3(),
+      age: 0,
+      life: kind === 'loot' || kind === 'info' ? 1.3 : kind === 'crit' ? 1.1 : 0.95,
+      dx: kind === 'loot' ? 0 : (Math.random() - 0.5) * 30,
+      sx: opts.dx ?? 0,
+      sy: opts.dy ?? 0,
+      kind,
+      text: key,
+      qty,
+    });
     if (this.list.length > 40) this.list.shift()!.el.remove();
   }
 
@@ -214,9 +272,9 @@ export class DamageNumbers {
         this.list.splice(i, 1);
         continue;
       }
-      this.v.copy(n.pos).project(camera);
-      const x = (this.v.x * 0.5 + 0.5) * w;
-      const y = (-this.v.y * 0.5 + 0.5) * h;
+      this.v.copy(n.follow ?? n.pos).add(n.off).project(camera);
+      const x = (this.v.x * 0.5 + 0.5) * w + n.sx;
+      const y = (-this.v.y * 0.5 + 0.5) * h + n.sy;
       // Pop: overshoot scale, hop up, drift, fade.
       const pop = t < 0.15 ? 0.4 + (t / 0.15) * 1.0 : t < 0.3 ? 1.4 - ((t - 0.15) / 0.15) * 0.4 : 1;
       const rise = n.kind === 'loot' || n.kind === 'info' ? t * 60 : Math.sin(Math.min(1, t * 1.6) * Math.PI * 0.5) * 70 - Math.max(0, t - 0.6) * 20;

@@ -147,3 +147,45 @@ export function sprinklerOffsets(id: string): [number, number][] {
 
 /** Scarecrow protection radius (tiles). */
 export const SCARECROW_RADIUS = 8.5;
+
+// ── Fertilizer, farming skill and the quality roll ─────────────────
+/** Fertilizers worked into a tilled tile before (or just after) sowing: tier shifts the quality roll. */
+export const FERTILIZERS: Record<string, { tier: 1 | 2; tint: number }> = {
+  fertilizer: { tier: 1, tint: 0xd8cfb8 },
+  qualityFertilizer: { tier: 2, tint: 0x8fd0c0 },
+};
+
+/** Farming XP needed for levels 1..10. */
+export const FARMING_LEVELS = [100, 380, 770, 1300, 2150, 3300, 4800, 6900, 10000, 15000] as const;
+
+export function farmingLevel(xp: number): number {
+  let l = 0;
+  while (l < FARMING_LEVELS.length && xp >= FARMING_LEVELS[l]!) l++;
+  return l;
+}
+
+/** XP for one harvest of `def` (pricier crops teach more). */
+export function harvestXp(def: CropDef): number {
+  return Math.max(1, Math.round(16 * Math.log(0.018 * def.sell + 1)));
+}
+
+/**
+ * Quality odds for a harvest: skill (level 0..10), fertilizer tier (0..2) and care (share of
+ * growing days the tile was watered, 0..1). With no skill, fertilizer or misses: 1 % gold,
+ * ~2 % silver — quality is earned, not rolled.
+ */
+export function qualityOdds(level: number, fert: number, care: number): { radiant: number; gold: number; silver: number } {
+  const c = 0.5 + 0.5 * Math.max(0, Math.min(1, care));
+  const gold = (0.2 * (level / 10) + 0.2 * fert * ((level + 2) / 12) + 0.01) * c;
+  const silver = Math.min(0.75, gold * 2);
+  const radiant = fert >= 2 ? gold * 0.1 + (level >= 10 ? 0.02 : 0) : level >= 10 ? 0.01 : 0;
+  return { radiant, gold, silver };
+}
+
+/** Roll a quality from odds with a uniform [0,1) sample (caller supplies a seeded RNG value). */
+export function rollQualityFrom(odds: { radiant: number; gold: number; silver: number }, u1: number, u2: number, u3: number): CropQuality {
+  if (u1 < odds.radiant) return 3;
+  if (u2 < odds.gold) return 2;
+  if (u3 < odds.silver) return 1;
+  return 0;
+}

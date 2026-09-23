@@ -16,9 +16,14 @@ import { InteriorMap } from './room';
 import { Kit } from './kit';
 import { mat, lumpySphere } from '../geom';
 import type { PenAnchors } from './pen';
-import { hayPile, strawTufts, lanternHook, feedSack, bucket, pitchfork } from './pen';
+import { hayPile, strawTufts, lanternHook, feedSack, bucket, pitchfork, strawDrift } from './pen';
 
 export const COOP_EXIT = { x: 39.5, z: 35.4 };
+/** Roost ladder: bar i sits at y = Y0 + i·DY, z = Z0 − i·DZ (x 5.15 … 7.65). */
+const ROOST_Y0 = 0.3;
+const ROOST_DY = 0.42;
+const ROOST_Z0 = 1.4;
+const ROOST_DZ = 0.18;
 
 export class CoopInterior extends InteriorMap {
   readonly pen: PenAnchors;
@@ -45,20 +50,24 @@ export class CoopInterior extends InteriorMap {
       ],
       sunDir: [-0.4, 0.62, -0.68],
     });
-    this.camera = { yaw: 0, pitch: 52, distance: 12.5, offsetX: 0, offsetZ: 0.3 };
+    this.camera = { yaw: 0, pitch: 47, distance: 15.5, offsetX: 0, offsetZ: 0.8 };
     this.dayScale = 1.3;
     this.exposureBoost = 0.28;
     const rng = new Rng('coop-interior');
     const trough = { x0: 0.55, x1: 3.55, z: 6.35 };
+    // Beds on the straw under the roost (ducks); chickens flutter up onto the perches.
+    const beds = [[5.6, 2.35], [6.4, 2.55], [7.2, 2.3], [5.95, 2.95], [6.85, 3.0], [7.6, 2.8]];
     const slots = Array.from({ length: 6 }, (_, i) => {
       const x = 0.85 + i * 0.5;
       return {
-        feed: new THREE.Vector3(x, 0, 5.82),
+        feed: new THREE.Vector3(x, 0, trough.z - 0.15),
         feedHeading: 0,
-        bed: new THREE.Vector3(5.5 + (i % 3) * 0.75, 0, 1.5 + Math.floor(i / 3) * 0.7),
+        bed: new THREE.Vector3(beds[i]![0], 0, beds[i]![1]),
         hay: new THREE.Vector3(x, 0.24, trough.z),
       };
     });
+    const perches: THREE.Vector3[] = [];
+    for (const bar of [1, 2]) for (let j = 0; j < 3; j++) perches.push(new THREE.Vector3(5.65 + j * 0.72 + (bar - 1) * 0.3, ROOST_Y0 + bar * ROOST_DY + 0.03, ROOST_Z0 - bar * ROOST_DZ));
     const nests: THREE.Vector3[] = [];
     for (let row = 0; row < 2; row++) for (let i = 0; i < 3; i++) nests.push(new THREE.Vector3(0.75 + i * 0.72, 0.52 + row * 0.66, 0.32));
     this.pen = {
@@ -67,8 +76,10 @@ export class CoopInterior extends InteriorMap {
       slots,
       nests,
       area: { x0: 0.6, z0: 1.2, x1: 8.4, z1: 5.9 },
-      trough: { x0: 0, z0: 5, x1: 4, z1: 6 },
+      trough: { x0: 0, z0: 6, x1: 3, z1: 6 },
       feedTile: { x: 2, z: 6 },
+      board: { at: new THREE.Vector3(8.925, 1.51, 4.6), ry: -Math.PI / 2 },
+      perches,
     };
     this.furnish(rng, trough);
     this.finalize();
@@ -113,8 +124,8 @@ export class CoopInterior extends InteriorMap {
       k.add('wood', g, mat(rx0 + s * 2.4, 0.95, 1.05, -0.42, 0, 0), { tint: DARK });
     }
     for (let i = 0; i < 4; i++) {
-      const y = 0.3 + i * 0.42;
-      const z = 1.4 - i * 0.18;
+      const y = ROOST_Y0 + i * ROOST_DY;
+      const z = ROOST_Z0 - i * ROOST_DZ;
       const g = new THREE.CylinderGeometry(0.03, 0.03, 2.5, 8);
       g.rotateZ(Math.PI / 2);
       k.add('wood', g, mat(rx0 + 1.2, y, z), { tint: 0x8a6040 });
@@ -164,14 +175,49 @@ export class CoopInterior extends InteriorMap {
     // Straw scatter + a spilled grain pile
     strawTufts(k, rng, 4.5, 0.02, 3.4, 40, 3.8);
     for (let i = 0; i < 30; i++) k.sphere('ceramic', 0.012, [2 + rng.next() * 0.5, 0.012, 5.4 + rng.next() * 0.3], 0xe8c050);
-    // Hanging galvanised feeder pan (chain from the rafters)
-    const hx = 3.1;
-    const hz = 3.7;
-    k.cyl('iron', 0.006, 0.006, 1.9, [hx, 0.9, hz], { tint: 0x5a5654 });
+    // A tie beam across the room: the feeder and the lantern hang plumb from it.
+    const beamZ = 3.6;
+    const beamY = 2.62;
+    k.box('wood', [9.1, 0.16, 0.16], [4.5, beamY, beamZ], { tint: 0x7a5a3e });
+    // Hanging galvanised feeder: chain straight down from an iron hook in the beam
+    const hx = 4.9;
+    const hz = beamZ;
+    k.add('iron', new THREE.TorusGeometry(0.035, 0.009, 5, 10), mat(hx, beamY - 0.03, hz, 0, Math.PI / 2, 0), { tint: 0x3a3634 });
+    for (let i = 0; i < 22; i++) k.add('iron', new THREE.TorusGeometry(0.018, 0.005, 4, 8), mat(hx, beamY - 0.08 - i * 0.075, hz, 0, (i % 2) * (Math.PI / 2), 0), { tint: 0x5a5654 });
     k.cyl('tin', 0.1, 0.13, 0.34, [hx, 0.46, hz], { tint: 0xd8dee2 });
     k.add('tin', new THREE.ConeGeometry(0.11, 0.1, 16), mat(hx, 0.85, hz), { tint: 0xc8d0d4 });
     k.cyl('tin', 0.3, 0.24, 0.07, [hx, 0.36, hz], { tint: 0xc0c8cc, seg: 24 });
     k.cyl('ceramic', 0.25, 0.25, 0.01, [hx, 0.42, hz], { tint: 0xe0b040, seg: 24 });
+    // Scattered grain around the feeder (the hens are messy)
+    for (let i = 0; i < 60; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = 0.34 + Math.sqrt(rng.next()) * 0.6;
+      k.sphere('ceramic', 0.011, [hx + Math.cos(a) * r, 0.012, hz + Math.sin(a) * r * 0.8], rng.next() < 0.3 ? 0xc89a40 : 0xe8c050);
+    }
+    // Dust bath: a scooped hollow of fine dry soil ringed by kicked-up clods
+    const dbx = 3.3;
+    const dbz = 2.2;
+    k.add('fabric', new THREE.CircleGeometry(0.62, 28).rotateX(-Math.PI / 2).scale(1.2, 1, 0.85), mat(dbx, 0.014, dbz), { tint: 0x8a6a4c });
+    k.add('fabric', new THREE.CircleGeometry(0.44, 24).rotateX(-Math.PI / 2).scale(1.2, 1, 0.85), mat(dbx, 0.018, dbz), { tint: 0x9e7c5a });
+    for (let i = 0; i < 22; i++) {
+      const a = (i / 22) * Math.PI * 2 + rng.next() * 0.3;
+      k.add('fabric', lumpySphere(0.05 + rng.next() * 0.04, 1, 0.4, rng), mat(dbx + Math.cos(a) * 0.72, 0.01, dbz + Math.sin(a) * 0.52, 0, rng.next() * 3, 0, 1, 0.5, 1), { tint: rng.next() < 0.5 ? 0x7a5a40 : 0x946e4e });
+    }
+    // Perch log across the middle of the floor + a stump
+    const lg = new THREE.CylinderGeometry(0.13, 0.15, 1.7, 12);
+    lg.rotateZ(Math.PI / 2);
+    k.add('wood', lg, mat(4.3, 0.13, 4.75, 0, 0.25, 0), { tint: 0x7a5236 });
+    for (const s of [-1, 1]) k.add('wood', new THREE.CircleGeometry(0.12, 12).rotateY(Math.PI / 2), mat(4.3 + s * 0.83 * Math.cos(0.25), 0.13, 4.75 - s * 0.83 * Math.sin(0.25), 0, 0.25 + (s < 0 ? Math.PI : 0), 0), { tint: 0xd8b080 });
+    k.cyl('wood', 0.2, 0.23, 0.36, [5.55, 0, 4.45], { tint: 0x7a5236 });
+    k.cyl('wood', 0.19, 0.19, 0.01, [5.55, 0.36, 4.45], { tint: 0xd8b080 });
+    // Grit bowl + a spare egg basket by the nests
+    k.cyl('tin', 0.16, 0.12, 0.07, [1.35, 0, 3.4], { tint: 0xc8d0d4, seg: 18 });
+    for (let i = 0; i < 26; i++) k.sphere('ceramic', 0.013, [1.35 + (rng.next() - 0.5) * 0.2, 0.072, 3.4 + (rng.next() - 0.5) * 0.2], rng.next() < 0.5 ? 0x9a948c : 0xc8c0b4);
+    k.cyl('thatch', 0.19, 0.14, 0.15, [0.35, 0, 1.35], { tint: 0xc8a068 });
+    k.add('thatch', new THREE.TorusGeometry(0.15, 0.015, 5, 16, Math.PI), mat(0.35, 0.15, 1.35, 0, Math.PI / 2, 0), { tint: 0xb08850 });
+    for (let i = 0; i < 3; i++) k.sphere('ceramic', 0.045, [0.3 + (i % 2) * 0.1, 0.15, 1.3 + i * 0.05], i === 1 ? 0xd99a62 : 0xf4ecde, [1, 1.25, 1]);
+    // Straw drifts break up the bedding
+    for (const [x, z, w, d] of [[1.8, 4.3, 1.4, 0.9], [6.9, 4.2, 1.6, 1.0], [3.1, 5.4, 1.0, 0.5], [7.6, 1.2, 1.0, 0.6]] as const) strawDrift(k, rng, x, z, w, d);
     // Egg shelf with cartons + a lantern on the right wall (back corner)
     k.box('wood', [0.3, 0.04, 1.1], [8.84, 1.3, 1.1], { tint: 0xb08058 });
     for (const z of [0.7, 1.5]) k.box('wood', [0.2, 0.18, 0.04], [8.9, 1.14, z], { tint: 0x6a4a32 });
@@ -197,14 +243,22 @@ export class CoopInterior extends InteriorMap {
     this.solid(7.6, 5.4, 8.9, 6.6, 'sacks');
     this.solid(5.1, 6.1, 5.7, 6.6, 'basket');
     this.solid(7.05, 6.35, 7.45, 6.75, 'flowers');
+    this.solid(3.5, 4.6, 5.1, 4.9, 'perch-log');
+    this.solid(4.6, 3.4, 5.2, 3.8, 'feeder');
+    this.solid(5.3, 4.2, 5.8, 4.7, 'stump');
+    this.solid(0.1, 1.1, 0.6, 1.6, 'basket');
 
     // Lantern + practical light (evening warmth)
     const lk = new Kit();
-    lanternHook(lk, 4.5, 2.35, 3.0);
-    const lg = lk.build('coop-lantern', false);
-    this.statics.push(lg);
-    this.addLamp(new THREE.Vector3(4.5, 2.0, 3.0), 0xffc27a, 0.5, 3.2, 0.03, 8);
-    this.glowPool(4.5, 3.0, 2.6, 0xffb060, () => 0.05 + this.light.night * 0.18);
+    lanternHook(lk, 2.5, 2.3, 3.6);
+    // A second lantern on a bracket over the roost (lights the sleeping flock)
+    lk.box('iron', [0.04, 0.04, 0.45], [6.4, 2.2, 0.28], { tint: 0x2a2624 });
+    lanternHook(lk, 6.4, 2.22, 0.5);
+    const lgp = lk.build('coop-lantern', false);
+    this.statics.push(lgp);
+    this.addLamp(new THREE.Vector3(2.5, 1.95, 3.6), 0xffc27a, 0.5, 3.2, 0.03, 8);
+    this.addLamp(new THREE.Vector3(6.4, 1.85, 0.85), 0xffb870, 0.0, 3.6, 0.04, 5);
+    this.glowPool(2.5, 3.6, 2.6, 0xffb060, () => 0.05 + this.light.night * 0.16);
     void pitchfork;
     void bucket;
   }

@@ -45,7 +45,13 @@ const MAX_HP = 100;
 const IFRAMES = 1.1;
 const REACH = 1.75;
 const ARC_COS = Math.cos(THREE.MathUtils.degToRad(82));
-const BASE_DMG: [number, number] = [8, 13];
+/** Sword tiers: reforged by the treasure chests on floors 10, 20 and 30. */
+export const SWORD_TIERS: { name: string; dmg: [number, number] }[] = [
+  { name: "Miner's Shortsword", dmg: [8, 13] },
+  { name: 'Tempered Shortsword', dmg: [13, 19] },
+  { name: 'Glimmersteel Blade', dmg: [19, 27] },
+  { name: 'Emberheart Sword', dmg: [27, 38] },
+];
 const CRIT = 0.1;
 
 const FACE: Record<string, THREE.Vector3> = {
@@ -99,10 +105,12 @@ export class CombatSystem implements System, HealthApi {
       this.numbers.pop(new THREE.Vector3(x, (this.mine()?.heightAt(x, z) ?? 0) + 1.1, z), String(damage), crit ? 'crit' : 'dmg');
     });
     game.events.on('day:start', () => this.set(MAX_HP));
+    game.events.on('mine:chest', ({ floor }) => this.upgradeSword(Math.floor(floor / 10)));
     game.events.on('map:change', ({ map }) => {
       this.trail.reset();
       this.numbers.clear();
       if (map !== 'mine') this.auto = null;
+      this.unchill();
       if ((map === 'mine' || map === 'mine-entrance') && !this.passing) this.grantSword();
     });
     game.events.on('demo:stage', ({ name }) => {
@@ -124,6 +132,8 @@ export class CombatSystem implements System, HealthApi {
   set(n: number): void {
     this.hp = Math.max(0, Math.min(MAX_HP, Math.round(n)));
     this.game.events.emit('combat:health', { hp: this.hp, max: MAX_HP });
+    // Any source that empties the tube (monsters, lava, other systems, debug) collapses the farmer.
+    if (this.hp <= 0 && !this.passing) void this.passOut(this.mine());
   }
 
   heal(n: number): void {
@@ -145,6 +155,45 @@ export class CombatSystem implements System, HealthApi {
   }
 
   private swinging = false;
+  /** Sword tier (0 = the Miner's Shortsword). */
+  tier = 0;
+
+  /** Reforge the sword (never downgrades). */
+  upgradeSword(tier: number, announce = true): void {
+    const t = Math.max(0, Math.min(SWORD_TIERS.length - 1, Math.floor(tier)));
+    if (t <= this.tier) return;
+    this.tier = t;
+    this.sword = null;
+    if (!announce) return;
+    const d = SWORD_TIERS[t]!;
+    this.game.events.emit('ui:toast', { text: `Sword reforged: <b>${d.name}</b> (${d.dmg[0]}–${d.dmg[1]} dmg)`, icon: 'sword', kind: 'good' });
+  }
+
+  // ───────────────────────────────────────────── chill (frost wisp)
+
+  private slowT = 0;
+  private baseSpeed: [number, number] | null = null;
+  private frostT = 0;
+
+  private chill(): void {
+    const p = this.game.player;
+    this.slowT = 2.5;
+    if (!this.baseSpeed) {
+      this.baseSpeed = [p.speed, p.runSpeed];
+      p.speed *= 0.55;
+      p.runSpeed *= 0.55;
+    }
+  }
+
+  private unchill(): void {
+    const p = this.game.player;
+    this.slowT = 0;
+    if (this.baseSpeed) {
+      p.speed = this.baseSpeed[0];
+      p.runSpeed = this.baseSpeed[1];
+      this.baseSpeed = null;
+    }
+  }
 
   private grantSword(): void {
     const inv = this.game.services.inventory;
@@ -159,7 +208,11 @@ export class CombatSystem implements System, HealthApi {
     this.game.events.emit('ui:toast', { text: `Found a <b>${itemDef('sword')?.name ?? 'sword'}</b> by the mine mouth`, icon: 'sword', kind: 'good' });
   }
 
-  /** Face the nearest live monster in reach (cardinal, like the rest of the controls). */
+  /**
+   * Face the nearest live monster in reach (cardinal, like the rest of the controls). Side-on swings
+   * are preferred whenever the target is not almost straight above / below the farmer: the crescent
+   * reads across the frame and the monster is never hidden behind the farmer's back.
+   */
   private aim(): void {
     const m = this.mine();
     if (!m) return;
@@ -173,7 +226,8 @@ export class CombatSystem implements System, HealthApi {
       if (d < REACH + 0.9 && (!best || d < best.d)) best = { d, dx, dz };
     }
     if (!best) return;
-    const f = Math.abs(best.dx) > Math.abs(best.dz) ? (best.dx > 0 ? 'right' : 'left') : best.dz > 0 ? 'down' : 'up';
+    const side = Math.abs(best.dx) > Math.abs(best.dz) * 0.45;
+    const f = side ? (best.dx > 0 ? 'right' : 'left') : best.dz > 0 ? 'down' : 'up';
     if (f !== this.game.player.facing) this.game.player.setFacing(f);
   }
 
@@ -184,7 +238,7 @@ export class CombatSystem implements System, HealthApi {
     const player = this.game.player;
     const acts = mineActions(player);
     if (acts.active) return;
-    this.sword ??= buildSword();
+    this.sword ??= buildSword(this.tier);
     this.aim();
     const kind = this.side ? 'backslash' : 'slash';
     this.side = !this.side;
@@ -220,25 +274,55 @@ export class CombatSystem implements System, HealthApi {
     });
   }
 
+  private proj = new THREE.Vector3();
+
+  /**
+   * Screen-space push (px) that keeps a number anchored at `at` off the farmer's silhouette: when
+   * it would land inside the farmer's screen box (+40 px) it slides sideways along the knockback
+   * (`kx` = world x from farmer to monster) until it clears the box, at least 70 px.
+   */
+  private clearOfFarmer(at: THREE.Vector3, kx: number): number {
+    const cam = this.game.rc.camera;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const toScreen = (v: THREE.Vector3): [number, number] => {
+      this.proj.copy(v).project(cam);
+      return [(this.proj.x * 0.5 + 0.5) * w, (-this.proj.y * 0.5 + 0.5) * h];
+    };
+    const p = this.game.player.position;
+    const [fx, fy] = toScreen(new THREE.Vector3(p.x, p.y, p.z));
+    const [, hy] = toScreen(new THREE.Vector3(p.x, p.y + 2.1, p.z));
+    const [ex] = toScreen(new THREE.Vector3(p.x + 0.55, p.y + 1.0, p.z));
+    const halfW = Math.abs(ex - fx) + 40;
+    const top = hy - 40;
+    const bottom = fy + 40;
+    const [nx, ny] = toScreen(at);
+    if (ny < top || ny > bottom || Math.abs(nx - fx) > halfW) return 0;
+    const dirX = Math.abs(kx) > 0.08 ? Math.sign(kx) : nx >= fx ? 1 : -1;
+    const need = dirX > 0 ? fx + halfW - nx : nx - (fx - halfW);
+    return dirX * Math.max(70, need + 18);
+  }
+
   private resolve(origin: THREE.Vector3, dir: THREE.Vector3): void {
     const m = this.mine();
     if (!m) return;
     const acts = mineActions(this.game.player);
-    const hits = m.strike(origin, dir, REACH, ARC_COS, BASE_DMG, CRIT);
+    const hits = m.strike(origin, dir, REACH + this.tier * 0.12, ARC_COS, SWORD_TIERS[this.tier]!.dmg, CRIT);
     this.arc.impact(hits.some((h) => h.crit));
     if (!hits.length) return;
     this.swinging = true;
     let crit = false;
     let kill = false;
     const at = new THREE.Vector3();
-    for (const h of hits) {
+    hits.forEach((h, i) => {
       crit ||= h.crit;
       kill ||= h.killed;
       h.monster.headPos(at);
       at.y -= h.monster.kind === 'bat' ? 0.3 : 0.1;
-      this.numbers.pop(at, String(h.damage), h.crit ? 'crit' : 'dmg');
+      const kx = h.monster.pos.x - this.game.player.position.x;
+      this.numbers.pop(at, String(h.damage), h.crit ? 'crit' : 'dmg', { dx: this.clearOfFarmer(at, kx) + (i % 2 ? 1 : -1) * i * 14, dy: -i * 22 });
       this.game.events.emit('combat:monsterHit', { kind: h.monster.kind, damage: h.damage, crit: h.crit, killed: h.killed, x: h.monster.pos.x, z: h.monster.pos.z });
-    }
+    });
     this.swinging = false;
     acts.hitStop = crit || kill ? 0.11 : 0.065;
     // (side-on hits only: the crescent reads best across the frame, never hidden behind the hat)
@@ -259,50 +343,69 @@ export class CombatSystem implements System, HealthApi {
 
   // ───────────────────────────────────────────── getting hurt
 
-  private hurt(damage: number, x: number, z: number, kind: MonsterKind): void {
+  /** Knockback strength per attacker kind (hazards push hardest: get off the lava lip). */
+  private static readonly KNOCK: Record<string, number> = { crab: 7, slime: 5.5, bat: 5.5, wisp: 4.5, imp: 6, lava: 8 };
+
+  private hurt(damage: number, x: number, z: number, kind: MonsterKind | 'lava'): void {
     const m = this.mine();
     if (!m || this.passing || this.god) return;
+    if (this.iframes > 0) return;
     let dmg = damage;
     if (this.auto) dmg = Math.min(dmg, Math.max(0, this.hp - this.auto.min));
-    const dealt = this.damage(dmg);
-    if (dealt <= 0 && !this.auto) return;
-    this.iframes = IFRAMES;
     const p = this.game.player.position;
     const away = new THREE.Vector3(p.x - x, 0, p.z - z);
     if (away.lengthSq() < 1e-4) away.copy(FACE[this.game.player.facing]!).negate();
     away.normalize();
-    this.push.copy(away).multiplyScalar(kind === 'crab' ? 7 : 5.5);
-    // Above the hat and off to the side away from the attacker (never red-on-straw).
+    this.push.copy(away).multiplyScalar(CombatSystem.KNOCK[kind] ?? 5.5);
+    // Number first (damage() may start the pass-out, which clears nothing we need here).
+    // Anchored to the farmer's shoulder, off to the side away from the attacker (never on the hat).
     const side = Math.abs(p.x - x) > 0.05 ? Math.sign(p.x - x) : 1;
-    this.numbers.pop(new THREE.Vector3(p.x + side * 0.6, p.y + 2.6, p.z), `-${this.auto ? damage : Math.max(dealt, dmg)}`, 'player');
+    const hpBefore = this.hp;
+    const dealt = this.damage(dmg);
+    if (dealt <= 0 && !this.auto) return;
+    this.iframes = IFRAMES;
+    this.numbers.pop(p, `-${this.auto ? damage : Math.max(dealt, Math.min(dmg, hpBefore))}`, 'player', { follow: true, off: new THREE.Vector3(side * 0.75, 2.2, 0), dx: side * 26 });
+    if (kind === 'wisp') this.chill();
     this.screen.hit();
-    this.game.rc.rig.addShake(0.35);
+    this.game.rc.rig.addShake(kind === 'lava' ? 0.22 : 0.35);
     m.lighting.flash = 0.2;
     mineSfx.hurt();
-    if (this.hp <= 0) void this.passOut(m);
   }
 
-  private async passOut(m: MineMap): Promise<void> {
+  private async passOut(m: MineMap | null): Promise<void> {
     if (this.passing) return;
     this.passing = true;
     const game = this.game;
-    const floor = m.floor;
+    const floor = m?.floor ?? 0;
+    this.iframes = 0;
+    this.push.set(0, 0, 0);
     game.events.emit('combat:passOut', { floor });
     game.player.controllable = false;
     mineActions(game.player).cancel();
-    m.playerTargetable = false;
+    if (m) m.playerTargetable = false;
     mineSfx.passOut();
     // Lantern gutters out, then black.
     const t0 = performance.now();
     await new Promise<void>((res) => {
       const tick = (): void => {
         const k = Math.min(1, (performance.now() - t0) / 1400);
-        m.lighting.lanternScale = 1 - k * 0.92;
+        if (m) m.lighting.lanternScale = 1 - k * 0.92;
         if (k < 1) requestAnimationFrame(tick);
         else res();
       };
       tick();
     });
+    if (!m) {
+      // Topside collapse (another system drained the tube): a short blackout, wake where you fell.
+      this.screen.blackout(true, 'You collapse from exhaustion…');
+      await new Promise((r) => setTimeout(r, 1800));
+      this.hp = 0;
+      this.set(Math.round(MAX_HP * 0.35));
+      this.screen.blackout(false);
+      game.player.controllable = true;
+      this.passing = false;
+      return;
+    }
     const lost = this.penalty();
     this.screen.blackout(true, `You collapse on floor ${floor}…<br><small>A passing miner carries you back up to the light.</small>`);
     await new Promise((r) => setTimeout(r, 2400));
@@ -311,8 +414,8 @@ export class CombatSystem implements System, HealthApi {
     await game.teleport('mine-entrance', 14.6, 15.2);
     game.player.setFacing('down');
     game.calendar.setHour(Math.min(25.5, game.calendar.hour + 2));
-    this.hp = 0;
-    this.set(Math.round(MAX_HP * 0.35));
+    this.hp = Math.round(MAX_HP * 0.35);
+    this.set(this.hp);
     game.services.energy?.set(Math.round((game.services.energy?.max() ?? 100) * 0.3));
     this.screen.blackout(false);
     await new Promise((r) => setTimeout(r, 900));
@@ -363,9 +466,12 @@ export class CombatSystem implements System, HealthApi {
     // I-frame flicker + knockback slide (collision-checked against the tile grid).
     if (this.iframes > 0) {
       this.iframes = Math.max(0, this.iframes - dt);
-      // Classic i-frame blink (not in the staged demo: a still must never catch the farmer invisible).
-      player.root.visible = !!this.auto || this.held || this.iframes <= 0 || Math.floor(this.iframes * 16) % 2 === 0;
-    } else if (!player.root.visible && !this.passing) player.root.visible = true;
+      // I-frame blink between full and 35 % opacity (never invisible: a busy frame or a still must
+      // always show the farmer). Not in the staged demo stills.
+      const dim = !this.auto && !this.held && this.iframes > 0 && Math.floor(this.iframes * 14) % 2 === 1;
+      this.blink(dim ? 0.35 : 1);
+    } else if (this.blinking) this.blink(1);
+    if (!player.root.visible && !this.passing) player.root.visible = true;
     if (this.push.lengthSq() > 1e-4) {
       const grid = game.world.current?.grid;
       const p = player.position;
@@ -378,7 +484,49 @@ export class CombatSystem implements System, HealthApi {
       p.y = game.world.heightAt(p.x, p.z);
       this.push.multiplyScalar(Math.exp(-dt * 9));
     }
+    if (this.slowT > 0) {
+      this.slowT -= dt;
+      this.frostT -= dt;
+      if (m && this.frostT <= 0) {
+        this.frostT = 0.12;
+        const pp = player.position;
+        m.fx.sparks(new THREE.Vector3(pp.x + (Math.random() - 0.5) * 0.6, pp.y + 0.3 + Math.random() * 1.2, pp.z + (Math.random() - 0.5) * 0.6), { color: 0xcff4ff, count: 1, speed: 0.2, up: 0.2, size: 0.16, gravity: 0.5, drag: 2, life: 0.6, star: true });
+      }
+      if (this.slowT <= 0) this.unchill();
+    }
     if (this.auto && m) this.autopilot(dt, m);
+  }
+
+  private blinkMats: { m: THREE.Material; transparent: boolean; opacity: number }[] | null = null;
+  private blinking = false;
+
+  /** Fade the farmer's own materials (restored exactly when the blink ends). */
+  private blink(opacity: number): void {
+    if (!this.blinkMats) {
+      const seen = new Set<THREE.Material>();
+      const list: { m: THREE.Material; transparent: boolean; opacity: number }[] = [];
+      this.blinkMats = list;
+      this.game.player.root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || mesh.name === 'shadow') return;
+        for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          if (seen.has(m) || m.transparent) continue;
+          seen.add(m);
+          list.push({ m, transparent: m.transparent, opacity: m.opacity });
+        }
+      });
+    }
+    const on = opacity < 0.999;
+    if (!on && !this.blinking) return;
+    for (const b of this.blinkMats) {
+      b.m.transparent = on ? true : b.transparent;
+      b.m.opacity = on ? opacity : b.opacity;
+      b.m.depthWrite = true;
+    }
+    // Stay in the transparent pass for the whole i-frame window (one program switch each way).
+    if (on) this.blinking = true;
+    else if (this.iframes <= 0) this.blinking = false;
+    else for (const b of this.blinkMats) (b.m.transparent = true), (b.m.opacity = 1);
   }
 
   // ───────────────────────────────────────────── demo
@@ -407,13 +555,14 @@ export class CombatSystem implements System, HealthApi {
   /** Keep a small pack of monsters around the player in the demo arena. */
   private populate(m: MineMap, initial: boolean): void {
     const p = this.game.player.position;
-    const want: MonsterKind[] = ['slime', 'slime', 'bat', 'crab'];
+    const biome = m.layout.biome;
+    const want: MonsterKind[] = biome === 'ice' ? ['slime', 'wisp', 'bat', 'wisp'] : biome === 'lava' ? ['slime', 'imp', 'bat', 'imp'] : ['slime', 'slime', 'bat', 'crab'];
     const have = m.monsters.filter((x) => x.alive && Math.hypot(x.pos.x - p.x, x.pos.z - p.z) < 7);
     if (initial) {
       // Clear the rest of the floor's monsters so the fight reads.
       for (const x of m.monsters) if (!have.includes(x)) x.dead = true;
     }
-    const counts: Record<MonsterKind, number> = { slime: 0, bat: 0, crab: 0 };
+    const counts: Record<MonsterKind, number> = { slime: 0, bat: 0, crab: 0, wisp: 0, imp: 0 };
     for (const h of have) counts[h.kind]++;
     const ring = [
       [1.9, -0.6],
@@ -433,7 +582,7 @@ export class CombatSystem implements System, HealthApi {
         const [ox, oz] = ring[k % ring.length]!;
         const x = p.x + ox!;
         const z = p.z + oz!;
-        if (!m.grid.isWalkable(Math.floor(x), Math.floor(z))) continue;
+        if (!m.grid.isWalkable(Math.floor(x), Math.floor(z)) || !m.clearAt(x, z, 0.55, kind === 'bat' || kind === 'wisp')) continue;
         const mo = m.addMonster(kind, x, z);
         mo.aggro = true;
         if (mo instanceof Crab) mo.wake();
@@ -461,11 +610,15 @@ export class CombatSystem implements System, HealthApi {
   }
 
   save(): unknown {
-    return { hp: this.hp };
+    return { hp: this.hp, sword: this.tier };
   }
 
   load(data: unknown): void {
-    const hp = (data as { hp?: number })?.hp;
-    if (typeof hp === 'number') this.hp = Math.max(1, Math.min(MAX_HP, hp));
+    const d = data as { hp?: number; sword?: number } | null;
+    if (typeof d?.hp === 'number') this.hp = Math.max(1, Math.min(MAX_HP, d.hp));
+    if (typeof d?.sword === 'number') {
+      this.tier = 0;
+      this.upgradeSword(d.sword, false);
+    }
   }
 }

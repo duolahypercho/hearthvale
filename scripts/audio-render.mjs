@@ -9,7 +9,9 @@
  *   node scripts/audio-render.mjs --analyze shots/audio/theme-spring.wav   # analyse any WAV
  *   node scripts/audio-render.mjs --describe spring   # print the composed melody (symbolic)
  *   node scripts/audio-render.mjs --stems --only spring,town   # per-track (solo) loudness / spectrum → mix balance
- *   node scripts/audio-render.mjs --live              # boot the real game: theme per scene + audible output + SFX
+ *   node scripts/audio-render.mjs --live              # boot the real game: theme per scene + audible output + SFX,
+ *                                                     # 20 beach⇄mine handoffs, node creation rate
+ *   node scripts/audio-render.mjs --no-trans          # skip the offline director handoff renders (transition-*.wav)
  *   (each render also gets a PNG: piano roll of the score + spectrogram + loudness; --no-plots to skip)
  *
  * Renders through the game's real mixer (src/audio/*, limiter included) with OfflineAudioContext
@@ -32,7 +34,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = resolve(root, 'shots/audio');
 
 function parseArgs(argv) {
-  const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, plots: true, stems: false, themes: true };
+  const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, plots: true, stems: false, themes: true, trans: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -44,6 +46,7 @@ function parseArgs(argv) {
     else if (a === '--no-mix') o.mix = false;
     else if (a === '--no-themes') o.themes = false;
     else if (a === '--no-plots') o.plots = false;
+    else if (a === '--no-trans') o.trans = false;
     else if (a === '--stems') o.stems = true;
     else if (a === '--analyze') o.analyze = next();
     else if (a === '--describe') o.describe = next();
@@ -304,15 +307,20 @@ function analyze(inter, sr) {
   };
 }
 
-function flags(a, kind) {
+/** Day themes must have some sparkle: presence + air ≥ 12 % of the energy. */
+const DAY_THEME = /^(theme|mix)-(spring|summer|fall|winter|town|beach|title|inn|forest|festival.*)$/;
+
+function flags(a, kind, name = '') {
   const f = [];
+  if (DAY_THEME.test(name) && a.bands.presence + a.bands.air < 0.12) f.push(`DULL(${((a.bands.presence + a.bands.air) * 100).toFixed(0)}%)`);
   if (a.clippedSamples > 0) f.push(`CLIP(${a.clippedSamples})`);
   if (a.truePeakDb > -0.5) f.push('TRUEPEAK');
   if (kind !== 'sfx' && a.lufsIntegrated > -12) f.push('TOO-LOUD');
   if (kind === 'theme' && a.lufsIntegrated < -28) f.push('TOO-QUIET');
   if (kind === 'amb' && a.lufsIntegrated < -45) f.push('INAUDIBLE');
   if (kind !== 'sfx' && kind !== 'reel' && a.silencePct > 20) f.push(`SILENCE(${a.silencePct.toFixed(0)}%)`);
-  if (a.bands.presence > 0.25) f.push('HARSH(2-5k)');
+  // Birdsong and cicadas live at 2–5 kHz, so ambience beds get more headroom there than music.
+  if (a.bands.presence > (kind === 'amb' ? 0.5 : 0.25)) f.push('HARSH(2-5k)');
   if (a.bands.air > 0.18) f.push('HISSY(5k+)');
   if (a.centroidHz > 3500) f.push('BRIGHT');
   if (a.bands.sub > 0.35) f.push('BOOMY');
@@ -323,7 +331,7 @@ function flags(a, kind) {
 
 function row(name, a, kind) {
   const b = a.bands;
-  const fl = flags(a, kind);
+  const fl = flags(a, kind, name);
   return [
     name.padEnd(26),
     fmt(a.peakDb).padStart(6),
@@ -375,7 +383,8 @@ async function main() {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   // Only errors from the audio modules count (other teams' in-progress files may 500 in the dev server).
-  page.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errors.push(m.text()));
+  // Tune-notation mistakes surface as "[audio] ..." warnings from the composer: treat them as errors.
+  page.on('console', (m) => ((m.type() === 'error' && !/Failed to load resource/.test(m.text())) || (m.type() === 'warning' && /\[audio\]/.test(m.text()))) && errors.push(m.text()));
   await page.route('**/favicon.ico', (r) => r.fulfill({ status: 204, body: '' }));
   // We only need the dev server's origin to import the audio modules from. Serve an empty page
   // there ourselves: the dev server's SPA fallback would otherwise hand back index.html and boot the
@@ -418,6 +427,12 @@ async function main() {
   if (args.mix && args.themes) for (const t of themes) jobs.push({ kind: 'mix', fn: 'renderTheme', a: [t, args.seconds, 44100, args.seed, true] });
   for (const p of ambs) jobs.push({ kind: 'amb', fn: 'renderAmbience', a: [p, args.seconds, 44100] });
   if (args.sfx && !args.only) jobs.push({ kind: 'sfx', fn: 'renderSfxReel', a: [44100] });
+  // The live state machine offline: a same-place mood drift (phrase-quantised) and two changes of place.
+  if (args.trans && !args.only) {
+    jobs.push({ kind: 'trans', fn: 'renderTransition', a: ['spring', 'night', 12, 30, 'drift'] });
+    jobs.push({ kind: 'trans', fn: 'renderTransition', a: ['town', 'beach', 12, 26, 'move'] });
+    jobs.push({ kind: 'trans', fn: 'renderTransition', a: ['beach', 'mine', 12, 26, 'move'] });
+  }
 
   console.log(HEADER);
   for (const job of jobs) {
@@ -431,10 +446,31 @@ async function main() {
       const piece = job.fn === 'renderTheme' ? await page.evaluate(([id, seed, secs]) => window.__audioOffline.pieceData(id, seed, secs), [job.a[0], args.seed, args.seconds]) : undefined;
       plotRender(resolve(outDir, `${res.name}.png`), inter, res.sampleRate, { title: res.name, sub: `LUFS ${fmt(a.lufsIntegrated)}  dBTP ${fmt(a.truePeakDb)}  centroid ${fmt(a.centroidHz, 0)}HZ`, piece, markers: res.markers });
     }
-    const kind = job.kind === 'mix' ? 'theme' : job.kind;
+    const kind = job.kind === 'mix' ? 'theme' : job.kind === 'trans' ? 'reel' : job.kind;
     console.log(row(res.name, a, job.kind === 'sfx' ? 'reel' : kind) + `  (${((Date.now() - t0) / 1000).toFixed(1)}s${res.notes ? `, ${res.notes} notes` : ''})`);
-    report.renders.push({ name: res.name, kind: job.kind, file: `shots/audio/${res.name}.wav`, notes: res.notes, ...a, flags: flags(a, kind) });
-    if (res.markers) {
+    const fl = flags(a, kind, res.name);
+    if (job.kind === 'trans') {
+      // Handoff check: between the change request and the new song's start the old song must
+      // die away (no two keys at once). Report the quietest 400 ms and the loudness just before the start.
+      const sr = res.sampleRate;
+      const req = res.markers[0].t;
+      const start = res.markers.find((m, i) => i > 0 && /^start /.test(m.name) && m.t > req)?.t ?? req;
+      const blk = (t0s) => {
+        const s0 = Math.max(0, Math.floor(t0s * sr)), s1 = Math.min(inter.length / 2, s0 + Math.floor(0.4 * sr));
+        let e = 0;
+        for (let i = s0; i < s1; i++) e += inter[i * 2] ** 2 + inter[i * 2 + 1] ** 2;
+        return 10 * Math.log10(e / Math.max(1, (s1 - s0) * 2) + 1e-12);
+      };
+      let floor = 0;
+      for (let t = req; t < start - 0.2; t += 0.1) floor = Math.min(floor, blk(t));
+      const before = blk(Math.max(req, start - 0.45));
+      const ok = before < -38;
+      if (!ok) fl.push('OVERLAP');
+      console.log(`  director trace: ${res.markers.slice(1).map((m) => `${m.t.toFixed(1)}s ${m.name}`).join(' | ')}`);
+      console.log(`  request ${req.toFixed(1)}s → new song ${start.toFixed(1)}s; quietest block ${fmt(floor)} dBFS, last 400 ms before the new song ${fmt(before)} dBFS  ${ok ? 'ok (no overlap)' : 'OVERLAP'}\n`);
+    }
+    report.renders.push({ name: res.name, kind: job.kind, file: `shots/audio/${res.name}.wav`, notes: res.notes, ...a, flags: fl });
+    if (res.markers && job.kind === 'sfx') {
       // Per-effect analysis.
       console.log(`\n  SFX balance (per effect: peak dBFS, true peak, momentary max LUFS, centroid)`);
       const sr = res.sampleRate;
@@ -461,7 +497,7 @@ async function main() {
     }
   }
   writeFileSync(resolve(outDir, 'report.json'), JSON.stringify(report, null, 2));
-  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC/.test(f)));
+  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|OVERLAP/.test(f)));
   console.log(`\nwrote ${report.renders.length} WAVs + report.json to shots/audio/`);
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   if (bad.length) console.log(`HARD FAILS: ${bad.map((b) => `${b.name}[${b.flags.join(',')}]`).join(' ')}`);
@@ -516,8 +552,21 @@ async function live() {
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => m.type() === 'error' && /audio/i.test(m.text()) && errors.push(m.text()));
   page.setDefaultTimeout(240000);
-  await page.goto(`${base}/?notitle=1&audio=1&quality=low`, { waitUntil: 'load' });
+  await page.goto(`${base}/?notitle=1&audio=1&quality=low&card=0`, { waitUntil: 'load' });
   await page.waitForFunction(() => typeof window.__game?.ready === 'function');
+  // Count audio node creation (render budget for the synth): wrap every BaseAudioContext.create*.
+  await page.evaluate(() => {
+    window.__audioNodes = 0;
+    const P = BaseAudioContext.prototype;
+    for (const k of Object.getOwnPropertyNames(P)) {
+      if (!/^create(?!Buffer$|PeriodicWave$)/.test(k) || typeof P[k] !== 'function') continue;
+      const f = P[k];
+      P[k] = function (...a) {
+        window.__audioNodes++;
+        return f.apply(this, a);
+      };
+    }
+  });
   await page.evaluate(() => window.__game.ready());
   await page.mouse.click(480, 270);
   let fails = 0;
@@ -552,6 +601,58 @@ async function live() {
     if (!ok) fails++;
     console.log(`${(sc.demo + (sc.season ? `/${sc.season}` : '')).padEnd(22)} ${String(res.wanted).padEnd(20)} ${String(res.playing).padEnd(20)} ${fmt(res.max).padStart(7)}  ${ok ? 'ok' : `FAIL (expected ${want})`}`);
   }
+  // Reliability: the scene change that failed intermittently in round 1, twenty times in a row.
+  const loop = await page.evaluate(async () => {
+    const g = window.__game;
+    const a = g.game.services.audio;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const out = [];
+    for (let i = 0; i < 20; i++) {
+      const target = i % 2 === 0 ? 'mine' : 'beach-day';
+      g.openUI('none');
+      await g.demo(target);
+      a.music(null);
+      const t0 = performance.now();
+      let st = a.state();
+      while (performance.now() - t0 < 12000) {
+        st = a.state();
+        if (st.running && st.theme && st.theme === st.wanted) break;
+        await sleep(100);
+      }
+      out.push({ target, wanted: st.wanted, theme: st.theme, ms: Math.round(performance.now() - t0), ok: st.theme === st.wanted && !!st.theme, trace: st.trace.slice(-3).map((x) => `${x.t}s ${x.note}`).join(' | '), stalls: st.stalls });
+    }
+    return out;
+  });
+  const loopFails = loop.filter((l) => !l.ok);
+  console.log(`\nbeach⇄mine handoffs: ${loop.length - loopFails.length}/${loop.length} ok, median ${loop.map((l) => l.ms).sort((x, y) => x - y)[loop.length >> 1]} ms to the right theme (max ${Math.max(...loop.map((l) => l.ms))} ms)`);
+  for (const l of loopFails) console.log(`  FAIL → ${l.target}: wanted ${l.wanted}, playing ${l.theme} after ${l.ms} ms; trace: ${l.trace}; clock stalls ${l.stalls}`);
+  fails += loopFails.length;
+
+  // Synth cost: audio nodes created per second while the spring theme plays on the farm.
+  const cost = await page.evaluate(async () => {
+    const g = window.__game;
+    const a = g.game.services.audio;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    g.openUI('none');
+    await g.demo('farm-morning');
+    a.music('spring');
+    await sleep(6000);
+    const n0 = window.__audioNodes;
+    let maxVoices = 0;
+    for (let i = 0; i < 40; i++) {
+      await sleep(250);
+      maxVoices = Math.max(maxVoices, a.state().voices);
+    }
+    const st = a.state();
+    a.music(null);
+    return { nodesPerSec: (window.__audioNodes - n0) / 10, maxVoices, dropped: st.dropped, theme: st.theme };
+  });
+  console.log(`synth cost (${cost.theme} on the farm): ${cost.nodesPerSec.toFixed(0)} audio nodes/s, peak ${cost.maxVoices} voices, ${cost.dropped} notes dropped by the budget`);
+  if (cost.nodesPerSec > 400) {
+    fails++;
+    console.log('  FAIL: node creation rate over 400/s');
+  }
+
   // SFX through the game service over the farm's ambience bed (music silenced).
   const sfx = await page.evaluate(async (names) => {
     const g = window.__game;

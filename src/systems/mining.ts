@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { MineMap, setPendingMineFloor } from '../world/mine';
+import { MineMap, setPendingMineFloor, OPENED_CHESTS } from '../world/mine';
 import { MineEntranceMap, MOUTH, LIFT, ENTRANCE_SPAWN } from '../world/mine/entrance';
 import { BIOMES, ELEVATOR_EVERY, MAX_FLOOR, biomeForFloor } from '../world/mine/biomes';
 import { FLOOR_W, FLOOR_D } from '../world/mine/gen';
@@ -43,7 +43,7 @@ declare module '../core/game' {
 }
 
 /** Demo floors (URL `&floor=N` overrides). */
-const DEMO_FLOORS: Record<string, number> = { 'mine-floor': 3, 'mine-ice': 14, 'mine-lava': 24, 'mine-combat': 2, mine: 1 };
+const DEMO_FLOORS: Record<string, number> = { 'mine-floor': 3, 'mine-ice': 14, 'mine-lava': 24, 'mine-combat': 2, 'mine-chest': 10, mine: 1 };
 
 export class MiningSystem implements System, MiningApi {
   readonly name = 'mining';
@@ -54,6 +54,8 @@ export class MiningSystem implements System, MiningApi {
   private plaque!: FloorPlaque;
   private numbers!: DamageNumbers;
   private pickaxe: THREE.Object3D | null = null;
+  /** Floors whose milestone chest is open (shared with the map, saved here). */
+  private chests = OPENED_CHESTS;
   private pickTier = -1;
 
   init(game: Game): void {
@@ -85,10 +87,8 @@ export class MiningSystem implements System, MiningApi {
       if (z <= Math.floor(MOUTH.z - 0.6) && Math.abs(x + 0.5 - MOUTH.x) < 1.8) void this.goto(1, 'entrance');
     });
     game.events.on('mine:goto', ({ floor, via }) => void this.goto(floor, via));
-    game.events.on('mine:pickup', ({ itemId, qty }) => {
-      const m = this.mine();
-      if (m) this.numbers.pop(game.player.position.clone().add(new THREE.Vector3(0.55, 2.55, 0)), `+${qty} ${itemName(itemId)}`, 'loot');
-    });
+    // Loot feedback has ONE channel: the HUD item toast (item:give) + the pickup sparkle. No world
+    // label over the farmer's hat (they piled up into unreadable overprints).
     game.events.on('demo:stage', ({ name }) => this.stageDemo(name));
   }
 
@@ -253,6 +253,12 @@ export class MiningSystem implements System, MiningApi {
       case 'elevator':
         game.events.emit('ui:open', { name: 'elevator' });
         break;
+      case 'chest':
+        if (m.openChest()) {
+          this.chests.add(m.floor);
+          game.events.emit('mine:chest', { floor: m.floor });
+        }
+        break;
     }
   }
 
@@ -300,6 +306,24 @@ export class MiningSystem implements System, MiningApi {
     m.setFloor(n);
     this.cur = n;
     this.best = Math.max(this.best, n);
+    if (name === 'mine-chest' && m.layout.chest) {
+      // Stand just south of the chest, facing it; open it after a beat (&open=0 keeps it shut).
+      const c = m.layout.chest;
+      if (q.get('open') !== '0') this.chests.delete(n);
+      m.freezeAI = true;
+      for (const mo of [...m.monsters]) if (Math.hypot(mo.pos.x - c.x, mo.pos.z - c.z) < 5) m.removeMonster(mo);
+      // Side-on: the farmer stands west of the chest, facing it, so lid, glow and farmer all read.
+      game.player.teleport(c.x - 0.75, c.z + 0.62);
+      setTimeout(() => game.player.setFacing('right'), 0);
+      if (q.get('open') !== '0')
+        setTimeout(() => {
+          if (this.mine() !== m) return;
+          game.player.setFacing('right');
+          this.interact(c.x, c.z);
+        }, 700);
+      this.plaqueKey = '';
+      return;
+    }
     const spot = showcaseSpot(m, name === 'mine-combat');
     game.player.teleport(spot.x, spot.z);
     // Nothing standing inside the farmer (or hiding them) in a staged frame.
@@ -345,11 +369,14 @@ export class MiningSystem implements System, MiningApi {
   }
 
   save(): unknown {
-    return { deepest: this.best };
+    return { deepest: this.best, chests: [...this.chests] };
   }
 
   load(data: unknown): void {
-    this.best = (data as { deepest?: number })?.deepest ?? 0;
+    const d = data as { deepest?: number; chests?: number[] } | null;
+    this.best = d?.deepest ?? 0;
+    this.chests.clear();
+    for (const f of d?.chests ?? []) this.chests.add(f);
   }
 }
 
@@ -357,9 +384,6 @@ function facingVec(f: string): THREE.Vector3 {
   return f === 'up' ? new THREE.Vector3(0, 0, -1) : f === 'down' ? new THREE.Vector3(0, 0, 1) : f === 'left' ? new THREE.Vector3(-1, 0, 0) : new THREE.Vector3(1, 0, 0);
 }
 
-function itemName(id: string): string {
-  return itemDef(id)?.name ?? id;
-}
 
 /**
  * Pick the most photogenic walkable tile on a floor: ore rocks and crystals close by (and for the

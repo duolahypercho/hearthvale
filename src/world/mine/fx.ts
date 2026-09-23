@@ -10,6 +10,8 @@ import { textures } from '../../render/textures';
 import { facetRock } from './rockgeo';
 import { Rng } from '../../core/rng';
 
+const RUBBLE = 220;
+
 const VS = /* glsl */ `
 attribute float aSize;
 attribute float aAlpha;
@@ -240,6 +242,8 @@ export class MineFX {
   private chunkMesh: THREE.InstancedMesh;
   private chunks: Chunk[] = [];
   private chunkNext = 0;
+  private rubbleMesh: THREE.InstancedMesh;
+  private rubbleN = 0;
   private dummy = new THREE.Object3D();
   private motes: THREE.Points;
   private moteData: Float32Array;
@@ -263,8 +267,21 @@ export class MineFX {
     // Rock shards.
     const r = new Rng('mine-chunks');
     const cg = facetRock(r, 0.1, 0xffffff, { detail: 0, squash: 0.9, chunky: true, rim: 0.2 });
-    const cm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true });
+    const cm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, flatShading: true });
     cm.name = 'mine-chunk';
+    // Lit chunks, not dark flecks: a little self-light in their own colour + a bright view rim, so
+    // every shard reads against the floor from the 17–25 m camera.
+    cm.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        {
+          float fr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.0);
+          totalEmissiveRadiance += diffuseColor.rgb * (0.22 + fr * 0.9);
+        }`,
+      );
+    };
+    cm.customProgramCacheKey = () => 'mine-chunk-lit';
     this.chunkMesh = new THREE.InstancedMesh(cg, cm, 96);
     this.chunkMesh.name = 'mine-chunks';
     this.chunkMesh.castShadow = true;
@@ -280,6 +297,18 @@ export class MineFX {
       this.chunkMesh.setColorAt(i, white);
     }
     this.group.add(this.chunkMesh);
+
+    // Persistent rubble left where rocks broke (cleared per floor).
+    const rg = facetRock(new Rng('mine-rubble'), 0.1, 0xffffff, { detail: 0, squash: 0.45, chunky: true, rim: 0.3 });
+    const rmat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true });
+    rmat.name = 'mine-rubble-fx';
+    this.rubbleMesh = new THREE.InstancedMesh(rg, rmat, RUBBLE);
+    this.rubbleMesh.name = 'mine-rubble-fx';
+    this.rubbleMesh.frustumCulled = false;
+    this.rubbleMesh.receiveShadow = true;
+    this.rubbleMesh.count = 0;
+    this.rubbleMesh.userData.noAO = false;
+    this.group.add(this.rubbleMesh);
 
     // Ambient motes.
     const mg = new THREE.BufferGeometry();
@@ -343,6 +372,31 @@ export class MineFX {
       c.age = 99;
       c.p.set(0, -50, 0);
     }
+    this.rubbleN = 0;
+    this.rubbleMesh.count = 0;
+  }
+
+  /** Leave a little persistent scree where a rock broke. */
+  rubble(p: THREE.Vector3, color: THREE.Color, count = 4, spread = 0.42): void {
+    const tmp = new THREE.Color();
+    for (let k = 0; k < count; k++) {
+      const i = this.rubbleN % RUBBLE;
+      this.rubbleN++;
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.sqrt(Math.random()) * spread;
+      const x = p.x + Math.cos(a) * d;
+      const z = p.z + Math.sin(a) * d;
+      this.dummy.position.set(x, this.floorY(x, z) - 0.01, z);
+      this.dummy.rotation.set((Math.random() - 0.5) * 0.4, Math.random() * 6, (Math.random() - 0.5) * 0.4);
+      this.dummy.scale.setScalar(0.6 + Math.random() * 1.1 * (k === 0 ? 1.6 : 1));
+      this.dummy.updateMatrix();
+      this.rubbleMesh.setMatrixAt(i, this.dummy.matrix);
+      tmp.copy(color).multiplyScalar(0.7 + Math.random() * 0.35);
+      this.rubbleMesh.setColorAt(i, tmp);
+    }
+    this.rubbleMesh.count = Math.min(RUBBLE, this.rubbleN);
+    this.rubbleMesh.instanceMatrix.needsUpdate = true;
+    if (this.rubbleMesh.instanceColor) this.rubbleMesh.instanceColor.needsUpdate = true;
   }
 
   /** Sparks / sparkles / embers (additive). */
@@ -358,7 +412,7 @@ export class MineFX {
   }
 
   /** Rock shards bursting from p. */
-  shatter(p: THREE.Vector3, color: number | THREE.Color, count = 8, power = 1, dir?: THREE.Vector3): void {
+  shatter(p: THREE.Vector3, color: number | THREE.Color, count = 8, power = 1, dir?: THREE.Vector3, big = false): void {
     const c = color instanceof THREE.Color ? color : new THREE.Color(color);
     const tmp = new THREE.Color();
     for (let k = 0; k < count; k++) {
@@ -371,9 +425,9 @@ export class MineFX {
       ch.v.set(Math.cos(a) * sp + (dir?.x ?? 0) * 1.5, 2.2 + Math.random() * 2.8 * power, Math.sin(a) * sp + (dir?.z ?? 0) * 1.5);
       ch.q.setFromEuler(new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6));
       ch.w.set((Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18);
-      ch.s = 0.7 + Math.random() * 1.1;
+      ch.s = big ? 1.2 + Math.random() * 1.3 : 0.7 + Math.random() * 1.1;
       ch.age = 0;
-      ch.life = 1.1 + Math.random() * 0.9;
+      ch.life = big ? 1.2 + Math.random() * 0.6 : 1.1 + Math.random() * 0.9;
       ch.rest = false;
       tmp.copy(c).multiplyScalar(0.8 + Math.random() * 0.35);
       this.chunkMesh.setColorAt(i, tmp);
@@ -405,7 +459,7 @@ export class MineFX {
         const fy = this.floorY(c.p.x, c.p.z) + 0.05 * c.s;
         if (c.p.y < fy) {
           c.p.y = fy;
-          if (Math.abs(c.v.y) < 1.2) {
+          if (Math.abs(c.v.y) < 2.2) {
             c.v.set(0, 0, 0);
             c.rest = true;
           } else {
@@ -469,7 +523,25 @@ export class MineFX {
     this.soft.dispose();
     this.chunkMesh.geometry.dispose();
     (this.chunkMesh.material as THREE.Material).dispose();
+    this.rubbleMesh.geometry.dispose();
+    (this.rubbleMesh.material as THREE.Material).dispose();
     this.motes.geometry.dispose();
     this.moteMat.dispose();
   }
+}
+
+/**
+ * A single additive glow dot (halo) as THREE.Points: unlike a Sprite it is skipped by the AO
+ * G-buffer pass (which only hides meshes / points / lines), so it never stamps a dark square.
+ * `size` is roughly its diameter in metres.
+ */
+export function glowPoint(color: number, size: number, opacity = 0.8): THREE.Points {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+  const m = new THREE.PointsMaterial({ map: textures.softDot().map, color, size, sizeAttenuation: true, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
+  const p = new THREE.Points(g, m);
+  p.frustumCulled = false;
+  p.renderOrder = 9;
+  p.userData.noAO = true;
+  return p;
 }

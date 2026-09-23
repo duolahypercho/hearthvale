@@ -19,9 +19,9 @@ import { TileGrid, TileType, TileFlag } from '../tiles';
 import { Rng } from '../../core/rng';
 import { generateFloor, FLOOR_W, FLOOR_D, type FloorLayout } from './gen';
 import { buildCave, type CaveBuild } from './cave';
-import { buildProps, buildLadderDown, type MineProps } from './props';
+import { buildProps, buildLadderDown, buildChest, FG_FADE, type MineProps } from './props';
 import { RockField, oreColor, type MineRock } from './ores';
-import { MineFX } from './fx';
+import { MineFX, glowPoint } from './fx';
 import { Pickups } from './pickups';
 import { CaveLighting } from './lighting';
 import { BIOMES, ORE_STYLE, biomeForFloor, type MonsterKind } from './biomes';
@@ -36,7 +36,7 @@ export interface StrikeHit {
   killed: boolean;
 }
 
-export type MineInteract = 'ladderUp' | 'ladderDown' | 'elevator' | null;
+export type MineInteract = 'ladderUp' | 'ladderDown' | 'elevator' | 'chest' | null;
 
 /** Loot tables for monsters: [item, chance]. */
 const MONSTER_DROPS: Record<MonsterKind, [string, number][]> = {
@@ -53,7 +53,27 @@ const MONSTER_DROPS: Record<MonsterKind, [string, number][]> = {
     ['stone', 0.8],
     ['copperOre', 0.3],
   ],
+  wisp: [
+    ['frostShard', 0.45],
+    ['quartz', 0.25],
+  ],
+  imp: [
+    ['coal', 0.6],
+    ['emberOpal', 0.08],
+  ],
 };
+
+interface Projectile {
+  mesh: THREE.Object3D;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  age: number;
+  damage: number;
+  owner: MonsterKind;
+}
+
+/** Floors whose milestone chest has been opened (module-level: survives map rebuilds). */
+export const OPENED_CHESTS = new Set<number>();
 
 let pendingFloor = 1;
 /** Floor the map builds when it is first constructed (set before the first load). */
@@ -86,6 +106,9 @@ export class MineMap implements GameMap {
   live = false;
   /** Demo stills: particles / chunks / rock wobble hold their current frame. */
   freezeFx = false;
+  /** Floors whose milestone chest has been opened (saved by the mining system). */
+  readonly openedChests = OPENED_CHESTS;
+  private chest: { group: THREE.Group; lid: THREE.Object3D; glow: THREE.Mesh; open: number; target: number; x: number; z: number } | null = null;
 
   private floorGroup = new THREE.Group();
   private cave: CaveBuild | null = null;
@@ -99,6 +122,7 @@ export class MineMap implements GameMap {
   private active = false;
   private savedCam: { pitch: number; yaw: number; distance: number; off: THREE.Vector3 } | null = null;
   private brokenCount = 0;
+  private hazardT = 0;
 
   constructor(private game: Game) {
     this.root.name = 'map:mine';
@@ -122,8 +146,10 @@ export class MineMap implements GameMap {
       walkable: (x, z) => this.grid.isWalkable(x, z),
       flyable: (x, z) => x >= 0 && z >= 0 && x < FLOOR_W && z < FLOOR_D && !this.layout.solid[z * FLOOR_W + x],
       heightAt: (x, z) => this.heightAt(x, z),
+      clear: (x, z, r, fly) => this.clearAt(x, z, r, fly),
       onAttack: (m, dmg) => game.events.emit('combat:playerHit', { damage: dmg, x: m.pos.x, z: m.pos.z, kind: m.kind }),
       puff: (p, color, count, kind) => this.puff(p, color, count, kind),
+      shoot: (m, from, dir, damage) => this.shoot(m.kind, from, dir, damage),
       rng: this.rng,
     };
     game.events.on('map:change', ({ map }) => {
@@ -179,6 +205,18 @@ export class MineMap implements GameMap {
       if (!L.solid[tz * FLOOR_W + tx]) g.setObject(tx, tz, { kind: 'prop', id: 'crystal', solid: true });
     }
     if (L.elevator) g.setObject(L.elevator.x, L.elevator.z, { kind: 'prop', id: 'elevator', solid: true });
+    if (L.chest) {
+      const c = buildChest();
+      const cx = L.chest.x + 0.5;
+      const cz = L.chest.z + 0.5;
+      c.group.position.set(cx, this.cave.heightAt(cx, cz), cz);
+      const opened = this.openedChests.has(n);
+      c.lid.rotation.x = opened ? -1.95 : 0;
+      (c.glow.material as THREE.ShaderMaterial).uniforms.uStrength!.value = opened ? 0.8 : 0.0;
+      this.floorGroup.add(c.group);
+      this.chest = { ...c, open: opened ? 1 : 0, target: opened ? 1 : 0, x: cx, z: cz };
+      g.setObject(L.chest.x, L.chest.z, { kind: 'prop', id: 'chest', solid: true });
+    }
 
     this.rocks = new RockField(L, r.fork('rocks'), (x, z) => this.cave!.heightAt(x, z));
     this.floorGroup.add(this.rocks.group);
@@ -275,6 +313,8 @@ export class MineMap implements GameMap {
   }
 
   private clearFloor(): void {
+    for (const pr of this.projectiles ?? []) pr.mesh.removeFromParent();
+    if (this.projectiles) this.projectiles.length = 0;
     for (const m of this.monsters) {
       m.root.removeFromParent();
       m.dispose();
@@ -282,6 +322,7 @@ export class MineMap implements GameMap {
     this.monsters = [];
     this.pickups.clear();
     if (this.ladderGroup) this.ladderGroup.removeFromParent();
+    this.chest = null;
     this.ladderGroup = null;
     this.ladderDown = null;
     this.rocks?.dispose();
@@ -329,6 +370,27 @@ export class MineMap implements GameMap {
     return this.cave ? this.cave.heightAt(x, z) : 0;
   }
 
+  /**
+   * A disc of radius r at (x, z) sits on open floor: walkable tiles (flyable for `fly`) and no
+   * cave shell raised above the floor under it (walkers) / above bat height (fliers).
+   */
+  clearAt(x: number, z: number, r: number, fly = false): boolean {
+    const cave = this.cave;
+    if (!cave) return true;
+    const lim = fly ? 1.0 : 0.12;
+    for (let k = 0; k <= 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const rr = k === 8 ? 0 : r;
+      const px = x + Math.cos(a) * rr;
+      const pz = z + Math.sin(a) * rr;
+      const tx = Math.floor(px);
+      const tz = Math.floor(pz);
+      if (fly ? !this.ctx.flyable(tx, tz) : !this.grid.isWalkable(tx, tz)) return false;
+      if (cave.surfaceAt(px, pz) - cave.heightAt(px, pz) > lim) return false;
+    }
+    return true;
+  }
+
   rockAt(tx: number, tz: number): MineRock | undefined {
     return this.rocks?.at(tx, tz);
   }
@@ -359,14 +421,23 @@ export class MineMap implements GameMap {
     this.grid.setObject(tx, tz, null);
     this.brokenCount++;
     const big = rock.spec.big;
-    this.fx.shatter(pos, baseCol, big ? 12 : 8, big ? 1.2 : 1);
-    this.fx.puff(pos, { color: baseCol.clone().lerp(new THREE.Color(0xe8dcc8), 0.5), count: big ? 12 : 8, speed: 1.4, up: 0.5, size: 0.8, grow: 1.6, gravity: -0.2, drag: 3, life: 0.9, alpha: 0.5 });
+    // Break: 8–14 lit chunks that arc out, bounce once and settle for ~1.5 s, a dust bloom, a
+    // little persistent scree, and a white flash where the rock was.
+    const chunkCol = baseCol.clone().multiplyScalar(1.15);
+    this.fx.shatter(pos, chunkCol, big ? 14 : 10, big ? 1.15 : 0.95, undefined, true);
+    this.fx.puff(pos, { color: baseCol.clone().lerp(new THREE.Color(0xe8dcc8), 0.5), count: big ? 12 : 8, speed: 1.4, up: 0.5, size: 0.8, grow: 1.6, gravity: -0.2, drag: 3, life: 1.1, alpha: 0.5 });
+    this.fx.sparks(pos.clone().setY(pos.y + 0.1), { color: 0xfff6e0, count: 1, speed: 0, up: 0, size: big ? 2.2 : 1.7, gravity: 0, drag: 0, life: 0.12, alpha: 0.85 });
+    this.fx.rubble(rock.pos, baseCol.clone().multiplyScalar(0.9), big ? 6 : 4, big ? 0.55 : 0.42);
     this.game.rc.rig.addShake(big ? 0.3 : 0.18);
     mineSfx.crumble(big);
     if (ore) {
       const oc = oreColor(ore as never);
-      this.fx.shatter(pos, oc, 5, 1.1);
-      this.fx.sparks(pos, { color: oc.clone().lerp(new THREE.Color(0xffffff), 0.5), count: 14, speed: 2.2, up: 1.4, size: 0.2, gravity: 2, drag: 2.5, life: 0.8, star: true });
+      const bright = oc.clone().lerp(new THREE.Color(0xffffff), 0.45);
+      this.fx.shatter(pos, oc, 5, 1.1, undefined, true);
+      // Ore burst: a 0.3 s additive star in the ore colour + a spray of glints.
+      this.fx.sparks(pos.clone().setY(pos.y + 0.25), { color: bright, count: 2, speed: 0.05, up: 0, size: 1.5, gravity: 0, drag: 0, life: 0.3, star: true });
+      this.fx.sparks(pos, { color: bright, count: 16, speed: 2.4, up: 1.4, size: 0.24, gravity: 2, drag: 2.5, life: 0.9, star: true });
+      this.fx.rubble(rock.pos, oc.clone().multiplyScalar(0.8), 1, 0.3);
       if (ORE_STYLE[ore as keyof typeof ORE_STYLE]?.kind === 'gem') mineSfx.gem();
       this.pickups.spawn(ore, rock.pos, 1);
       if (this.rng.next() < 0.3) this.pickups.spawn(ore, rock.pos, 1);
@@ -387,8 +458,28 @@ export class MineMap implements GameMap {
     return { broke, ore, pos };
   }
 
-  revealLadder(tx: number, tz: number): void {
+  /** Nearest free tile with ≥ 2 tiles of open floor all around it (a ladder never reads as a
+   * ladder into the void on a cliff lip). Falls back to the requested tile. */
+  private ladderTile(tx: number, tz: number): [number, number] {
+    const L = this.layout;
+    const open = (x: number, z: number): boolean => x >= 0 && z >= 0 && x < L.w && z < L.d && !L.solid[z * L.w + x] && !L.lava[z * L.w + x];
+    const inside = (x: number, z: number): boolean => {
+      for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (Math.abs(dx) + Math.abs(dz) <= 3 && !open(x + dx, z + dz)) return false;
+      return !this.grid.getObject(x, z) && this.clearAt(x + 0.5, z + 0.5, 0.7);
+    };
+    if (inside(tx, tz)) return [tx, tz];
+    for (let r = 1; r <= 6; r++)
+      for (let dz = -r; dz <= r; dz++)
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          if (inside(tx + dx, tz + dz)) return [tx + dx, tz + dz];
+        }
+    return [tx, tz];
+  }
+
+  revealLadder(tx0: number, tz0: number): void {
     if (this.ladderDown) return;
+    const [tx, tz] = this.ladderTile(tx0, tz0);
     this.ladderDown = { x: tx, z: tz };
     const g = buildLadderDown(this.layout.biome, this.rng);
     g.position.set(tx + 0.5, this.heightAt(tx + 0.5, tz + 0.5), tz + 0.5);
@@ -420,7 +511,7 @@ export class MineMap implements GameMap {
       if (!Number.isFinite(kdir.x)) kdir.copy(dir);
       const killed = m.hit(damage, kdir, crit ? 1.5 : 1);
       hits.push({ monster: m, damage, crit, killed });
-      const at = m.pos.clone().setY(m.pos.y + (m.kind === 'bat' ? 0.1 : 0.4));
+      const at = m.pos.clone().setY(m.pos.y + (m.kind === 'bat' ? 0.1 : m.kind === 'wisp' ? 0.95 : 0.4));
       const col = monsterColor(m.kind, this.layout.biome);
       if (m.kind === 'slime') {
         this.fx.puff(at, { color: col, count: 10, speed: 2.6, up: 1.2, size: 0.16, gravity: 9, drag: 1, life: 0.6, dir: kdir, cone: 0.5 });
@@ -428,13 +519,97 @@ export class MineMap implements GameMap {
       } else if (m.kind === 'crab') {
         this.fx.shatter(at, new THREE.Color(col), 3, 0.7, kdir);
         mineSfx.hitShell();
+      } else if (m.kind === 'wisp') {
+        this.fx.sparks(at, { color: 0xdff6ff, count: 14, speed: 3, up: 0.8, size: 0.14, gravity: 3, drag: 2, life: 0.5, dir: kdir, cone: 0.5, star: true });
+        mineSfx.zap();
+      } else if (m.kind === 'imp') {
+        this.fx.sparks(at, { color: 0xffb040, to: 0xff3010, count: 16, speed: 3, up: 1.2, size: 0.12, gravity: 4, drag: 2, life: 0.5, dir: kdir, cone: 0.5 });
+        mineSfx.squish();
       } else {
         mineSfx.screech();
       }
       this.fx.sparks(at, { color: 0xffffff, to: crit ? 0xffc040 : 0xffe8c0, count: crit ? 18 : 10, speed: crit ? 5 : 3.6, up: 0.8, size: crit ? 0.14 : 0.1, gravity: 4, drag: 3, life: 0.28, dir: kdir, cone: 0.4 });
       mineSfx.hitFlesh(crit);
     }
+    // The blade cuts fireballs out of the air.
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i]!;
+      const dx = pr.pos.x - origin.x;
+      const dz = pr.pos.z - origin.z;
+      const d = Math.hypot(dx, dz);
+      if (d > reach + 0.3 || (d > 0.5 && (dx * dir.x + dz * dir.z) / d < arcCos)) continue;
+      this.popProjectile(i, true);
+    }
     return hits;
+  }
+
+  // ───────────────────────────────────────────── projectiles (imp fireballs)
+
+  private projectiles: Projectile[] = [];
+  private fireGeo: THREE.SphereGeometry | null = null;
+  private fireMat: THREE.MeshBasicMaterial | null = null;
+
+  private shoot(owner: MonsterKind, from: THREE.Vector3, dir: THREE.Vector3, damage: number): void {
+    this.fireGeo ??= new THREE.SphereGeometry(0.14, 14, 10);
+    this.fireMat ??= new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffc060).multiplyScalar(2.4) });
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(this.fireGeo, this.fireMat));
+    g.add(glowPoint(0xff7a20, 1.1, 0.9));
+    g.position.copy(from);
+    g.userData.noAO = true;
+    this.floorGroup.add(g);
+    this.projectiles.push({ mesh: g, pos: from.clone(), vel: dir.clone().setY(0).normalize().multiplyScalar(5.2), age: 0, damage, owner });
+    this.fx.sparks(from, { color: 0xffc060, to: 0xff4010, count: 10, speed: 1.5, up: 1, size: 0.12, gravity: 1, drag: 2, life: 0.4 });
+    mineSfx.fireball();
+  }
+
+  private popProjectile(i: number, parried = false): void {
+    const pr = this.projectiles[i]!;
+    this.projectiles.splice(i, 1);
+    pr.mesh.removeFromParent();
+    const hp = pr.mesh.children[1] as THREE.Points | undefined;
+    if (hp) {
+      hp.geometry.dispose();
+      (hp.material as THREE.Material).dispose();
+    }
+    this.fx.sparks(pr.pos, { color: parried ? 0xfff0c0 : 0xffb040, to: 0xff3010, count: parried ? 22 : 16, speed: 2.6, up: 1.2, size: 0.13, gravity: 3, drag: 2, life: 0.55, star: parried });
+    this.fx.puff(pr.pos, { color: 0x4a3a38, count: 4, speed: 0.6, up: 1, size: 0.6, grow: 1.6, gravity: -0.6, drag: 2, life: 0.8, alpha: 0.4 });
+    if (parried) mineSfx.hitShell();
+  }
+
+  private updateProjectiles(dt: number, player: THREE.Vector3): void {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i]!;
+      pr.age += dt;
+      pr.pos.addScaledVector(pr.vel, dt);
+      const g = this.heightAt(pr.pos.x, pr.pos.z);
+      pr.pos.y += (g + 0.6 - pr.pos.y) * (1 - Math.exp(-dt * 4));
+      pr.mesh.position.copy(pr.pos);
+      const hp = pr.mesh.children[1] as THREE.Points | undefined;
+      if (hp) (hp.material as THREE.PointsMaterial).size = 1.0 + Math.sin(pr.age * 30) * 0.15;
+      if (Math.random() < 0.7) this.fx.sparks(pr.pos, { color: 0xffa040, to: 0xff2a08, count: 1, speed: 0.3, up: 0.5, size: 0.1, gravity: -0.5, drag: 1, life: 0.45 });
+      const hitP = this.playerTargetable && Math.hypot(pr.pos.x - player.x, pr.pos.z - player.z) < 0.45;
+      if (hitP) {
+        this.game.events.emit('combat:playerHit', { damage: pr.damage, x: pr.pos.x - pr.vel.x * 0.1, z: pr.pos.z - pr.vel.z * 0.1, kind: pr.owner });
+        this.popProjectile(i);
+        continue;
+      }
+      if (pr.age > 2.6 || !this.clearAt(pr.pos.x, pr.pos.z, 0.1, true)) this.popProjectile(i);
+    }
+  }
+
+  /** Swing the milestone chest open (burst of gold light + glints). Returns false if none / open. */
+  openChest(): boolean {
+    const c = this.chest;
+    if (!c || c.target === 1) return false;
+    c.target = 1;
+    this.openedChests.add(this.floor);
+    const p = new THREE.Vector3(c.x, c.group.position.y + 0.6, c.z);
+    this.fx.sparks(p, { color: 0xffe6a0, count: 34, speed: 2.4, up: 2, size: 0.26, gravity: 1.2, drag: 2, life: 1.3, star: true });
+    this.fx.sparks(p, { color: 0xfff6d0, count: 1, speed: 0, up: 0, size: 2.4, gravity: 0, drag: 0, life: 0.25 });
+    this.lighting.flash = Math.max(this.lighting.flash, 0.4);
+    mineSfx.chest();
+    return true;
   }
 
   /** What is at / next to this tile for the interact key. */
@@ -445,6 +620,7 @@ export class MineMap implements GameMap {
     if (this.ladderDown && ((tx === this.ladderDown.x && tz === this.ladderDown.z) || near(this.ladderDown.x + 0.5, this.ladderDown.z + 0.5, 1.0))) return 'ladderDown';
     if ((tx === L.ladderUp.x && tz === L.ladderUp.z) || near(L.ladderUp.x + 0.5, L.ladderUp.z + 1.5, 1.1)) return 'ladderUp';
     if (L.elevator && ((tx === L.elevator.x && tz === L.elevator.z) || near(L.elevator.x + 0.5, L.elevator.z + 1.2, 1.2))) return 'elevator';
+    if (this.chest && this.chest.target === 0 && ((L.chest && tx === L.chest.x && tz === L.chest.z) || near(this.chest.x, this.chest.z, 1.3))) return 'chest';
     return null;
   }
 
@@ -485,19 +661,63 @@ export class MineMap implements GameMap {
         const dx = b.pos.x - a.pos.x;
         const dz = b.pos.z - a.pos.z;
         const d = Math.hypot(dx, dz);
-        const min = a.radius + b.radius;
-        if (d > 1e-3 && d < min) {
-          const push = (min - d) * 0.5;
-          const nx = dx / d;
-          const nz = dz / d;
-          if (this.grid.isWalkable(Math.floor(a.pos.x - nx * push), Math.floor(a.pos.z - nz * push))) {
+        // Fliers and walkers pass over each other; same-layer monsters never merge into one blob.
+        if (a.flies !== b.flies) continue;
+        const min = (a.radius + b.radius) * 1.08;
+        if (d < min) {
+          const nx = d > 1e-3 ? dx / d : 1;
+          const nz = d > 1e-3 ? dz / d : 0;
+          // Soft push (≈ 6·overlap per frame at 60 fps, capped) so packs spread instead of popping.
+          const push = Math.min((min - d) * 0.5, (min - d) * Math.min(1, 6 * dt * 6));
+          const fa = a.flies;
+          if (this.clearAt(a.pos.x - nx * push, a.pos.z - nz * push, a.radius * 0.8, fa)) {
             a.pos.x -= nx * push;
             a.pos.z -= nz * push;
           }
-          if (this.grid.isWalkable(Math.floor(b.pos.x + nx * push), Math.floor(b.pos.z + nz * push))) {
+          if (this.clearAt(b.pos.x + nx * push, b.pos.z + nz * push, b.radius * 0.8, fa)) {
             b.pos.x += nx * push;
             b.pos.z += nz * push;
           }
+        }
+      }
+    }
+    // Lava lip: standing on the hot shoreline scorches (tick + shove back onto the rock).
+    this.hazardT = Math.max(0, this.hazardT - simDt);
+    if (this.cave && this.layout.biome === 'lava' && this.playerTargetable && simDt > 0 && this.hazardT <= 0) {
+      let hot: { x: number; z: number; v: number } | null = null;
+      for (let k = 0; k < 9; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        const rr = k === 8 ? 0 : 0.34;
+        const x = player.x + Math.cos(a) * rr;
+        const z = player.z + Math.sin(a) * rr;
+        const v = this.cave.lavaAt(x, z);
+        if (v > 0.45 && (!hot || v > hot.v)) hot = { x, z, v };
+      }
+      if (hot) {
+        this.hazardT = 0.9;
+        const at = new THREE.Vector3(player.x, player.y + 0.1, player.z);
+        this.fx.sparks(at, { color: 0xffc060, to: 0xff3010, count: 14, speed: 1.6, up: 2.2, size: 0.12, gravity: 1, drag: 1.5, life: 0.7 });
+        this.fx.puff(at, { color: 0x6a5a58, count: 5, speed: 0.6, up: 1.4, size: 0.6, grow: 1.8, gravity: -1, drag: 2, life: 0.9, alpha: 0.4 });
+        mineSfx.sizzle();
+        this.game.events.emit('combat:playerHit', { damage: 5 + this.layout.tier * 3, x: hot.x, z: hot.z, kind: 'lava' });
+      }
+    }
+    // Personal space: walkers never stand inside the farmer (contact attacks still land at the rim).
+    if (this.playerTargetable) {
+      for (const m of this.monsters) {
+        if (!m.alive || m.flies) continue;
+        const dx = m.pos.x - player.x;
+        const dz = m.pos.z - player.z;
+        const d = Math.hypot(dx, dz);
+        const min = m.radius + 0.24;
+        if (d >= min) continue;
+        const nx = d > 1e-3 ? dx / d : 0;
+        const nz = d > 1e-3 ? dz / d : 1;
+        const x = player.x + nx * min;
+        const z = player.z + nz * min;
+        if (this.clearAt(x, z, m.radius * 0.8)) {
+          m.pos.x = x;
+          m.pos.z = z;
         }
       }
     }
@@ -516,6 +736,15 @@ export class MineMap implements GameMap {
         const tz = Math.floor(m.pos.z);
         if (this.grid.isWalkable(tx, tz)) this.revealLadder(tx, tz);
       }
+    }
+    if (!this.freezeFx) this.updateProjectiles(this.live ? dt : simDt, player);
+    if (this.chest) {
+      const c = this.chest;
+      c.open += (c.target - c.open) * (1 - Math.exp(-dt * 6));
+      const k = c.open;
+      c.lid.rotation.x = -1.95 * (k < 1 ? 1 - Math.pow(1 - k, 3) : 1) + Math.sin(k * Math.PI) * 0.15;
+      (c.glow.material as THREE.ShaderMaterial).uniforms.uStrength!.value = c.target ? 0.8 + (1 - k) * 1.2 + 0.12 * Math.sin(time * 3) : 0.0;
+      if (c.target === 0 && Math.random() < dt * 2.2) this.fx.sparks(new THREE.Vector3(c.x + (Math.random() - 0.5) * 0.8, c.group.position.y + 0.3 + Math.random() * 0.4, c.z + 0.1), { color: 0xffe6a0, count: 1, speed: 0.05, up: 0, size: 0.3, gravity: 0, drag: 5, life: 0.6, star: true });
     }
     this.rocks?.update(this.freezeFx ? 0 : dt);
     this.pickups.update(dt, time, player, this.playerTargetable);
@@ -556,6 +785,7 @@ export class MineMap implements GameMap {
       }
     }
     const h = game.rc.renderer.domElement.height;
+    FG_FADE.uFgH.value = h;
     this.lighting.update(dt, time, player);
     this.fx.update(this.freezeFx ? 0 : dt, time, h, game.rc.rig.focus, this.lighting.fill.position);
   }

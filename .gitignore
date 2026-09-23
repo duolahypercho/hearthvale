@@ -3,3 +3,5 @@ dist
 shots
 .DS_Store
 *.log
+refs/
+.workflows/

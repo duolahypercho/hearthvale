@@ -35,6 +35,12 @@ const base: ItemDef[] = [
   { id: 'scarecrow', name: 'Scarecrow', kind: 'placeable', icon: 'scarecrow', sell: 0, stack: 99, description: 'Keeps crows off every crop within 8 tiles.' },
   { id: 'woodFence', name: 'Wood Fence', kind: 'placeable', icon: 'woodFence', sell: 1, stack: 999, description: 'Keeps animals in. Keeps weeds out (mostly).' },
   { id: 'stonePath', name: 'Stone Path', kind: 'placeable', icon: 'stonePath', sell: 1, stack: 999, description: 'Paves a tile. Grass and weeds won’t grow through it.' },
+  // Sprinkler tiers (data/crops.ts SPRINKLERS; farming places them, recipes are discovered from mine ores).
+  { id: 'brassSprinkler', name: 'Brass Sprinkler', kind: 'placeable', icon: 'brassSprinkler', sell: 120, stack: 99, color: 0xd97a3a, description: 'Waters all 8 tiles around it every morning.' },
+  { id: 'goldSprinkler', name: 'Gilded Sprinkler', kind: 'placeable', icon: 'goldSprinkler', sell: 300, stack: 99, color: 0xf2c230, description: 'Waters a whole 5×5 patch — 24 tiles — every morning.' },
+  // Fertilizers (data/crops.ts FERTILIZERS): worked into tilled soil, they lift the harvest quality odds.
+  { id: 'fertilizer', name: 'Basic Fertilizer', kind: 'resource', icon: 'fertilizer', sell: 2, stack: 999, color: 0xd8cfb8, description: 'Work it into tilled soil before sowing. Better odds of silver and gold produce.' },
+  { id: 'qualityFertilizer', name: 'Quality Fertilizer', kind: 'resource', icon: 'qualityFertilizer', sell: 10, stack: 999, color: 0x8fd0c0, description: 'Rich, dark and a little smelly. Much better odds of gold produce.' },
 ];
 
 // Mines (world/mine): weapon, ores, gems, monster drops. Icons: world/mine/icons.ts.
@@ -55,6 +61,19 @@ base.push(
   { id: 'slimeGel', name: 'Slime Gel', kind: 'resource', icon: 'slimeGel', sell: 5, stack: 999, color: 0x7ed957, description: 'Wobbly. Surprisingly useful.' },
   { id: 'duskWing', name: 'Duskwing Membrane', kind: 'resource', icon: 'duskWing', sell: 15, stack: 999, color: 0x5a4668, description: 'Thin as paper, tough as leather.' },
   { id: 'crabCarapace', name: 'Rock Carapace', kind: 'resource', icon: 'crabCarapace', sell: 30, stack: 999, color: 0xb08a60, description: 'A rock crab’s shell. Still looks like a rock.' },
+);
+
+// Farm animals (systems/animals.ts): produce (quality from happiness) + feed. Extra icons: world/buildings/icons.ts.
+base.push(
+  { id: 'egg', name: 'Egg', kind: 'produce', icon: 'egg', sell: 50, stack: 999, color: 0xf7efe0, description: 'Still warm from the nesting box.' },
+  { id: 'brownEgg', name: 'Brown Egg', kind: 'produce', icon: 'egg', sell: 50, stack: 999, color: 0xd89a62, description: 'Speckled, sturdy, excellent in a cake.' },
+  { id: 'duckEgg', name: 'Duck Egg', kind: 'produce', icon: 'egg', sell: 95, stack: 999, color: 0xcfe8dc, description: 'A pale sea-green egg with a rich yolk.' },
+  { id: 'duckFeather', name: 'Duck Feather', kind: 'produce', icon: 'duckFeather', sell: 125, stack: 999, color: 0x3a8a5a, description: 'An iridescent green feather, shed by a very happy duck.' },
+  { id: 'milk', name: 'Milk', kind: 'produce', icon: 'milk', sell: 125, stack: 999, description: 'Fresh, creamy and still frothy from the pail.' },
+  { id: 'goatMilk', name: 'Goat Milk', kind: 'produce', icon: 'goatMilk', sell: 225, stack: 999, description: 'Tangy and sweet. The goats are very proud of it.' },
+  { id: 'wool', name: 'Wool', kind: 'produce', icon: 'wool', sell: 340, stack: 999, description: 'A soft, springy fleece. Smells faintly of clover.' },
+  { id: 'truffle', name: 'Truffle', kind: 'produce', icon: 'truffle', sell: 625, stack: 999, description: 'A knobbly black treasure a pig snuffled up from under the oak.' },
+  { id: 'hay', name: 'Hay', kind: 'resource', icon: 'hay', sell: 0, stack: 999, description: 'Sweet dried grass. Put it in a feed trough.' },
 );
 
 for (const id of CROP_IDS) {

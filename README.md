@@ -173,20 +173,42 @@ and falls back to SwiftShader, awaits `__game.ready()`, prints console errors an
 ## Audio
 
 Fully procedural WebAudio, no files: `src/audio/` is the engine (mixer + generated-IR convolution reverbs +
-glue compressor / limiter, generative composer, synthesised instruments, ambience beds, SFX library) and
-`src/systems/audio.ts` adapts it to game events. The score is written live from `src/audio/themes.ts`
-(spring/summer/fall/winter farm themes, town, beach, mine, night, rain, festival jig + four festival
-arrangements, title); `src/audio/select.ts` picks the theme from map / hour / weather / UI.
+music-bus EQ + glue compressor / limiter, composer, synthesised instruments, ambience beds, SFX library) and
+`src/systems/audio.ts` adapts it to game events.
 
+- **The score** (`src/audio/themes.ts`): every song has a hand-written tune — scale degrees + rhythm per bar,
+  an anacrusis into each A, an alternate final cadence — restated literally whenever A comes round, so the
+  player learns it. `src/audio/composer.ts` arranges it: roman-numeral harmony with voice-led voicings,
+  per-bar figuration variants, a fill every 4th bar (bass pickup runs, anticipations), drum fills into the
+  final A, a stop-time (or 3/4 "breath") bar before B, section crescendi, a key lift in the title theme.
+  The day seed only varies figuration and humanisation, never the tune. Themes: spring (flute + kalimba),
+  summer (marimba + nylon guitar), fall (clarinet waltz + cello), winter (music box + celesta), town
+  (ocarina + pizzicato), beach (steel pan + ukulele), forest (dorian whistle + harp, 6/8), inn (swing
+  epiano, also the town square 17:30–20:00), night lullaby, rain lo-fi, mine / mine-ice / mine-lava
+  (by floor band), festival jig + four festival arrangements, title.
+- **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
+  (kalimba tine inharmonics + buzz + box body, marimba, music box case, celesta, hand bells, steel pan);
+  plucked strings are Karplus-Strong with body modes baked in; bowed strings are detuned Helmholtz
+  oscillators with bow noise and velocity-following tilt through generated body IRs; the pad is a
+  five-voice drifting string ensemble with formant EQ. Shared LFOs, a buffer cache and a polyphony budget
+  (72 voices, texture tracks dropped first) keep the per-note cost low.
+- **Transitions** (`src/audio/music.ts`): never two keys at once — a mood change in the same place waits
+  for the phrase to end, then fades ≤ 2.5 s; a change of place fades 1.4 s; the new song starts after.
+  The director's recent decisions are in `__game.info().audio.trace`.
+- **In game**: a "now playing" card (`src/audio/nowplaying.ts`) engraves the first two bars of the new
+  tune on a staff; the morning chime quotes the tune about to play, the first day of a season its hook.
 - Hear it: `?demo=audio&theme=<id>` (`&theme=none` for ambience only, `&sfx=<name>` repeats an SFX every 2.5 s,
-  `&audio=1` starts the context without a click where autoplay allows). Any demo plays its own music after a click.
+  `&audio=1` starts the context without a click where autoplay allows, `&card=1` pins the now-playing card,
+  `&card=0` hides it). Any demo plays its own music after a click.
 - From code: `game.services.audio.play('coin')`, `.music('festival' | null | 'none')`, `.state()`, `.meter()`;
   cutscenes use `{ do: 'cue', cue: 'music' | 'sfx', arg }`. `__game.info().audio` shows the live state.
 - Judge it without speakers: `node scripts/audio-render.mjs` renders every theme (30 s), theme+ambience mixes,
-  ambience presets and an SFX reel through the real mixer with `OfflineAudioContext` into `shots/audio/*.wav`
-  (+ piano-roll/spectrogram PNGs) and prints loudness (LUFS), true peak, clipping, silence, spectral centroid and
-  band balance with flags. `--describe <theme>` dumps the melody, `--stems --only <ids>` solos every track,
-  `--live` boots the game and checks theme-per-scene, audible output and SFX end to end.
+  ambience presets, the SFX reel and three live-director handoffs (`transition-*.wav`, checked for overlap)
+  through the real mixer with `OfflineAudioContext` into `shots/audio/*.wav` (+ piano-roll/spectrogram PNGs)
+  and prints loudness (LUFS), true peak, clipping, silence, spectral centroid and band balance with flags
+  (day themes fail as `DULL` under 12 % presence + air). `--describe <theme>` dumps the melody,
+  `--stems --only <ids>` solos every track, `--live` boots the game and checks theme-per-scene, audible
+  output, 20 beach⇄mine handoffs, the audio-node creation rate and SFX end to end.
 
 ## Town & villagers
 
@@ -250,3 +272,28 @@ Demos: `beach-day`, `beach-sunset` (a line in the water at dusk), `beach-night`,
 `fishing-cast`, `fishing-flight` (the cast arc in the air), `fishing-wait`, `fishing-bite`, `fishing-reel`, `fishing-catch`,
 `fishing-pond`, `fishing-river`. Fishing demos take `&fish=<fishId>` and `&phase=cast|flight|wait|bite|reel|catch`.
 `openUI('fishing')` starts a practice fight on the spot.
+
+## Farming
+
+`systems/farming.ts` runs the loop (hoe → water → sow → grow → harvest) and its game feel; visuals live in
+`world/props/` (`soil.ts` lofted furrow mounds + torn sod lips + sub-tile wet flood, `crops.ts` 18 crops × 6 stages,
+giant crops, crow-eaten stubs, produce crates, `farmfx.ts` clods / streak water / can stream / splash crowns / cracks /
+dust walls / harvest pop + quality star / swing smear / scarecrow radius, `tilecursor.ts` corner-bracket cursor,
+`tools.ts` tiered tool meshes, `crows.ts`), poses in `entities/farmer-actions.ts`.
+
+- **Mechanics**: seeded rolls (`game.rng.fork('farming')`); farming XP + level 0–10 (`farming.level()`, `farming:xp`,
+  `farming:level`); quality = skill + fertilizer + care (1 % gold at level 0 without fertilizer); `fertilizer` /
+  `qualityFertilizer` items; greenhouse ground (`farming.setGreenhouse(rect)`, or a `greenhouse` plot on the map)
+  ignores seasons; energy may run to −15 (farmer trudges, sweats) then passes out; charged slams are refused at 0
+  (`tool:refused`, `energy:refused`); missed swings cost 1.
+- **Events for audio**: `tool:swing` / `tool:impact` (impact frame) / `tool:charge` / `tool:refused`, `can:refill` /
+  `can:empty`, `soil:tilled` / `soil:watered` / `soil:fertilized`, `crop:planted` / `crop:harvested` / `crop:withered` /
+  `crop:giant`, `crow:arrive` / `crow:eat`, `sprinkler:spray`, `harvest:collect`, `energy:exhausted` / `energy:passout`.
+- **Demos**: `farm-harvest` (summer hero field), `farm-harvest-fall`, `farm-harvest&season=spring`, `farm-giant`,
+  `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe, frozen just after
+  impact), `farm-water`, `farm-pop` (harvest held overhead with a gold star; `&quality=0..3`), `farm-slam` (tier-3
+  charged hoe), `farm-crows` (raid outside the scarecrow's radius ring), `farm-wither`, `farm-field`.
+  Params: `&tool=hoe|wateringCan|scythe|axe|pickaxe|sow|harvest|charge`, `&pose=<s>` freezes the action at s seconds
+  (`__game.game.services.farming.scrub(t)` advances a frozen pose), `&loop=<tool>` repeats the action,
+  `&slow=0.25` slow motion (so `--frames 8 --every 80` spans a whole swing), `&tier=0..3`.
+  e.g. `node scripts/shot.mjs --url "?demo=farm-tools&loop=hoe&slow=0.3" --frames 8 --every 80 --out shots/hoe.png`.

@@ -123,6 +123,43 @@ export function poolMaterial(color: number, strength = 0.5): THREE.ShaderMateria
   });
 }
 
+/** Shared uniforms of the foreground fade (buffer height set per frame by the mine map). */
+export const FG_FADE = { uFgH: { value: 1080 } };
+
+const fgCache = new Map<THREE.Material, THREE.Material>();
+/**
+ * Clone of a (possibly shared library) material with its shader patches, plus a screen-space
+ * dither fade over the bottom ~18 % of the frame. Cached per source material.
+ */
+function fgFade(src: THREE.Material): THREE.Material {
+  const hit = fgCache.get(src);
+  if (hit) return hit;
+  const c = src.clone();
+  c.name = `${src.name}+fg`;
+  const patches = (src as THREE.Material & { __hvPatches?: { key: string; fn: Parameters<typeof patchMaterial>[2] }[] }).__hvPatches;
+  if (patches) for (const p of patches) patchMaterial(c, p.key, p.fn);
+  else if (src.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) {
+    const ob = src.onBeforeCompile.bind(src);
+    patchMaterial(c, `orig:${src.customProgramCacheKey()}`, (sh, r) => ob(sh, r));
+  }
+  patchMaterial(c, 'mine-fg-fade', (shader) => {
+    shader.uniforms.uFgH = FG_FADE.uFgH;
+    let fs = before(shader.fragmentShader, 'void main() {', 'uniform float uFgH;');
+    fs = after(
+      fs,
+      '#include <clipping_planes_fragment>',
+      `{
+        float fgk = 1.0 - smoothstep(uFgH * 0.07, uFgH * 0.19, gl_FragCoord.y);
+        float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        if (ign < fgk * 0.88) discard;
+      }`,
+    );
+    shader.fragmentShader = fs;
+  });
+  fgCache.set(src, c);
+  return c;
+}
+
 export interface MineProps {
   group: THREE.Group;
   /** Positions of ember vents (particle emitters). */
@@ -136,7 +173,8 @@ export interface MineProps {
 let obsidianMat: THREE.MeshStandardMaterial | null = null;
 function obsidianMaterial(): THREE.MeshStandardMaterial {
   if (!obsidianMat) {
-    obsidianMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.14, metalness: 0.35, flatShading: true, envMapIntensity: 1.4 });
+    // Emissive floor (min ambient ≈ 0.06): obsidian keeps its silhouette out of the lantern.
+    obsidianMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.14, metalness: 0.35, flatShading: true, envMapIntensity: 1.4, emissive: 0x1a1016, emissiveIntensity: 1 });
     obsidianMat.name = 'mine-obsidian';
   }
   return obsidianMat;
@@ -447,6 +485,13 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
   // Merge every placed prop into a few meshes per material.
   const merged = mergeStaticLocal([...roots, ...built]);
   group.add(merged);
+  // Foreground occluders (props at the bottom of the frame, between lens and floor, under the
+  // toolbar) dither away instead of cutting into the shot.
+  merged.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(fgFade) : fgFade(mesh.material);
+  });
   merged.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh) disposables.push(m.geometry);
@@ -789,4 +834,65 @@ function wallDressing(L: FloorLayout, r: Rng, heightAt: H, surfaceAt: H, B: Buil
       }
     }
   }
+}
+
+/** Milestone treasure chest: iron-banded wood, a brass lock, and a lid that swings open. */
+export function buildChest(): { group: THREE.Group; lid: THREE.Object3D; glow: THREE.Mesh } {
+  const g = new THREE.Group();
+  g.name = 'mine-chest';
+  const body = new MeshBuilder();
+  const W = 0.9;
+  const Dp = 0.6;
+  const H = 0.46;
+  body.add('woodGrain', boxUV(roundedBox(W, H, Dp, 0.05), 1.2), mat(0, H / 2, 0), { tint: 0xb06a34, aoWorld: (p) => 0.6 + 0.4 * THREE.MathUtils.smoothstep(p.y, 0, 0.3) });
+  for (const sx of [-0.3, 0.3]) body.add('metal', roundedBox(0.07, H + 0.02, Dp + 0.03, 0.015), mat(sx, H / 2, 0), { tint: 0x5a524a });
+  body.add('metal', roundedBox(W + 0.03, 0.06, Dp + 0.03, 0.015), mat(0, 0.05, 0), { tint: 0x5a524a });
+  body.add('metal', roundedBox(0.16, 0.18, 0.05, 0.02), mat(0, H - 0.06, Dp / 2 + 0.02), { tint: 0xe8b84a });
+  g.add(body.build({ name: 'chest-body', castShadow: true }));
+  // Treasure heaped inside (hidden under the domed lid until it swings open).
+  const gold = new THREE.MeshStandardMaterial({ color: 0xffc83a, roughness: 0.28, metalness: 0.85, emissive: 0x8a5a08, emissiveIntensity: 0.6 });
+  gold.name = 'chest-gold';
+  const tb = new MeshBuilder();
+  const tr = { next: (() => {
+    let t = 0.37;
+    return () => (t = (t * 9301 + 0.49297) % 1);
+  })() };
+  for (let k = 0; k < 16; k++) {
+    const a = tr.next() * Math.PI * 2;
+    const d = Math.sqrt(tr.next()) * 0.28;
+    tb.add(gold, new THREE.CylinderGeometry(0.055, 0.055, 0.018, 10), mat(Math.cos(a) * d * 1.3, H + 0.02 + (0.3 - d) * 0.25 + tr.next() * 0.03, Math.sin(a) * d * 0.8, (tr.next() - 0.5) * 0.8, 0, (tr.next() - 0.5) * 0.8));
+  }
+  tb.add(crystalMaterial(), crystalPrism(0.05, 0.16, 0.35), mat(0.16, H + 0.04, 0.05, 0.3, 0, -0.4), { tint: 0x40e0e8 });
+  tb.add(crystalMaterial(), crystalPrism(0.045, 0.13, 0.35), mat(-0.2, H + 0.04, -0.05, -0.2, 0, 0.5), { tint: 0xff4a6a });
+  g.add(tb.build({ name: 'chest-treasure' }));
+  const lidB = new MeshBuilder();
+  const lidG = new THREE.CylinderGeometry(Dp / 2, Dp / 2, W, 16, 1, false, 0, Math.PI);
+  lidG.rotateZ(Math.PI / 2);
+  lidG.scale(1, 0.62, 1);
+  lidB.add('woodGrain', lidG, mat(0, 0, Dp / 2), { tint: 0xc07a40 });
+  for (const sx of [-0.3, 0.3]) {
+    const band = new THREE.CylinderGeometry(Dp / 2 + 0.015, Dp / 2 + 0.015, 0.07, 16, 1, false, 0, Math.PI);
+    band.rotateZ(Math.PI / 2);
+    band.scale(1, 0.62, 1);
+    lidB.add('metal', band, mat(sx, 0, Dp / 2), { tint: 0x5a524a });
+  }
+  // Solid underside so the open lid never shows its hollow back faces.
+  lidB.add('woodDark', roundedBox(W, 0.04, Dp, 0.015), mat(0, 0.02, Dp / 2), { tint: 0x7a4a26 });
+  const lid = lidB.build({ name: 'chest-lid', castShadow: true });
+  const hinge = new THREE.Group();
+  hinge.position.set(0, H, -Dp / 2);
+  hinge.add(lid);
+  g.add(hinge);
+  // Treasure glow spilling out when the lid opens (and a faint gleam at the seam while shut).
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.9, Dp * 0.8).rotateX(-Math.PI / 2), poolMaterial(0xffd070, 1.2));
+  glow.position.y = H + 0.012;
+  glow.renderOrder = 8;
+  glow.userData.noAO = true;
+  g.add(glow);
+  const floorGlow = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6).rotateX(-Math.PI / 2), poolMaterial(0xffc060, 0.35));
+  floorGlow.position.y = 0.03;
+  floorGlow.renderOrder = 7;
+  floorGlow.userData.noAO = true;
+  g.add(floorGlow);
+  return { group: g, lid: hinge, glow };
 }

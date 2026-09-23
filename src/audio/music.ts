@@ -1,19 +1,29 @@
 /**
  * Music playback: MusicPlayer schedules one theme's pieces with a look-ahead clock; MusicDirector
- * picks the theme for the moment (title / festival / map / time of day / weather), crossfades
- * between players and lets the score breathe — after a piece ends there is a stretch of ambience
- * only before the next song, like a hand-composed OST.
+ * picks the theme for the moment (title / festival / map / time of day / weather) and hands over
+ * between songs without ever overlapping two keys:
+ *
+ *   - a mood drift in the same place (hour, weather) waits for the current phrase to end, then the
+ *     old song fades over ≤ 2.5 s and the new one starts only once the old is silent;
+ *   - a change of place fades the old song out quickly (≤ 1.6 s) and starts the new one after it;
+ *   - after a song ends there is a stretch of ambience only before the next, like a hand-composed OST.
+ *
+ * Every decision is logged to a small trace (`trace`) that the game exposes in __game.info().audio.
  */
 import type { AudioGraph } from './graph';
 import { Composer, type Piece, type ThemeDef, type TrackName } from './composer';
-import { INSTRUMENTS } from './instruments';
+import { INSERTS, INSTRUMENTS, TAIL, type InstrumentName } from './instruments';
 import { THEMES } from './themes';
 import { Rand, hashString } from './dsp';
+
+/** Polyphony priority per track: melody and bass always play; texture thins first. */
+const PRIO: Record<TrackName, number> = { melody: 3, bass: 3, counter: 2, accomp: 2, double: 1, accomp2: 1, pad: 1, perc: 1 };
 
 export class MusicPlayer {
   readonly out: GainNode;
   readonly wet: GainNode;
   private tracks = new Map<TrackName, GainNode>();
+  private inputs = new Map<string, AudioNode>();
   private piece: Piece;
   private idx = 0;
   private pieceStart: number;
@@ -23,6 +33,8 @@ export class MusicPlayer {
   endTime: number;
   /** Offline stem renders: only schedule this track. */
   solo: TrackName | null = null;
+  /** Notes scheduled (diagnostics). */
+  notes = 0;
 
   constructor(private g: AudioGraph, readonly theme: ThemeDef, seed: number, startAt: number, fadeIn = 0) {
     const ctx = g.ctx;
@@ -67,6 +79,18 @@ export class MusicPlayer {
     return t;
   }
 
+  /** Track input for an instrument: through its per-track insert (body IR, formant EQ) if it has one. */
+  private input(name: TrackName, inst: InstrumentName): AudioNode {
+    const key = `${name}:${inst}`;
+    let n = this.inputs.get(key);
+    if (!n) {
+      const make = INSERTS[inst];
+      n = make ? make(this.g, this.track(name)) : this.track(name);
+      this.inputs.set(key, n);
+    }
+    return n;
+  }
+
   /** Schedule every event that starts before `until`. Returns false once finished. */
   pump(until: number): boolean {
     while (true) {
@@ -89,40 +113,87 @@ export class MusicPlayer {
       if (t >= this.stopAt) continue;
       if (this.solo && ev.track !== this.solo && !(this.solo === 'melody' && ev.track === 'double')) continue;
       if (t < this.g.ctx.currentTime - 0.05) continue; // late (tab was hidden): skip rather than pile up
-      INSTRUMENTS[ev.inst](this.g, this.track(ev.track), Math.max(t, this.g.ctx.currentTime), ev.midi, ev.dur, Math.max(0.05, Math.min(1.2, ev.vel)), ev.o);
+      const at = Math.max(t, this.g.ctx.currentTime);
+      if (!this.g.voiceStart(at, ev.dur + (TAIL[ev.inst] ?? 0.4), PRIO[ev.track])) continue;
+      this.notes++;
+      INSTRUMENTS[ev.inst](this.g, this.input(ev.track, ev.inst), at, ev.midi, ev.dur, Math.max(0.05, Math.min(1.2, ev.vel)), ev.o);
     }
   }
 
-  /** Fade out over `time` seconds and stop scheduling. */
-  stop(time: number): void {
+  /**
+   * Absolute time of the next phrase boundary (a bar whose index in its section is a multiple of
+   * 4, or a section start) at least `min` seconds from now, if one comes within `max` seconds.
+   */
+  nextPhrase(now: number, min: number, max: number): number | null {
+    const bars = this.piece.barInfo ?? [];
+    for (const b of bars) {
+      const t = this.pieceStart + b.t;
+      if (t < now + min) continue;
+      if (t > now + max) break;
+      if (b.i % 4 === 0) return t;
+    }
+    const end = this.pieceStart + this.piece.duration;
+    return end >= now + min && end <= now + max ? end : null;
+  }
+
+  /** Current key including any lift in progress (for tuned SFX). */
+  keyAt(now: number): number {
+    const bars = this.piece.barInfo ?? [];
+    let shift = 0;
+    for (const b of bars) {
+      if (this.pieceStart + b.t > now) break;
+      shift = b.shift;
+    }
+    return this.theme.key + shift;
+  }
+
+  /** Fade out over `time` seconds starting at `at` (default now) and stop scheduling. */
+  stop(time: number, at = this.g.ctx.currentTime): void {
     const now = this.g.ctx.currentTime;
-    this.stopAt = now + time;
+    const t0 = Math.max(now, at);
+    this.stopAt = t0 + time;
     for (const n of [this.out, this.wet]) {
       n.gain.cancelScheduledValues(now);
       n.gain.setValueAtTime(n.gain.value, now);
-      n.gain.linearRampToValueAtTime(0, now + time);
+      if (t0 > now) n.gain.setValueAtTime(n.gain.value, t0);
+      // Equal-power-ish: most of the drop happens early, the tail is silent by the end.
+      n.gain.setTargetAtTime(0, t0, time / 4);
+      n.gain.setValueAtTime(0, t0 + time);
     }
-    this.endTime = Math.min(this.endTime, now + time);
-    if (this.g.ctx instanceof AudioContext) {
+    this.endTime = Math.min(this.endTime, t0 + time);
+    if (!this.g.offline) {
       setTimeout(() => {
         this.out.disconnect();
         this.wet.disconnect();
-      }, (time + 4) * 1000);
+      }, (t0 - now + time + 4) * 1000);
     }
   }
 
   /** Scale the level (e.g. quieter at night, muffled indoors). */
   setLevel(v: number, tau = 1.5): void {
     const now = this.g.ctx.currentTime;
-    if (now < this.stopAt) {
+    if (now < this.stopAt && this.stopAt === Infinity) {
       this.out.gain.setTargetAtTime(this.theme.gain * v, now, tau);
       this.wet.gain.setTargetAtTime(this.theme.gain * v, now, tau);
     }
   }
 
+  get stopping(): boolean {
+    return this.stopAt !== Infinity;
+  }
+
   get finished(): boolean {
     return this.g.ctx.currentTime > this.endTime + 1;
   }
+}
+
+export interface DirectorTrace {
+  t: number;
+  want: string | null;
+  current: string | null;
+  restUntil: number;
+  old: number;
+  note: string;
 }
 
 export class MusicDirector {
@@ -136,8 +207,11 @@ export class MusicDirector {
   desired: string | null = null;
   forced: string | null = null;
   level = 1;
-  /** Crossfade length for ordinary mood changes (the adapter lengthens it for time/weather drifts). */
-  fade = 4;
+  /** Crossfade style for the next change: 'drift' = same place (phrase-quantised), 'move' = new place. */
+  handoff: 'drift' | 'move' = 'move';
+  /** Recent decisions, newest last (debugging the state machine from __game.info().audio). */
+  readonly trace: DirectorTrace[] = [];
+  private lastNote = '';
 
   constructor(private g: AudioGraph, seed = 1) {
     this.rng = new Rand(seed);
@@ -147,10 +221,24 @@ export class MusicDirector {
     return this.current?.theme.id ?? null;
   }
   get key(): number {
-    return this.current?.key ?? 60;
+    return this.current?.keyAt(this.g.ctx.currentTime) ?? 60;
   }
   get resting(): boolean {
     return !this.current && this.g.ctx.currentTime < this.restUntil;
+  }
+  /** Seconds until the next song may start (0 when not resting). */
+  get restLeft(): number {
+    return Math.max(0, this.restUntil - this.g.ctx.currentTime);
+  }
+  get oldCount(): number {
+    return this.old.length;
+  }
+
+  private log(note: string, want: string | null): void {
+    if (note === this.lastNote) return;
+    this.lastNote = note;
+    this.trace.push({ t: Math.round(this.g.ctx.currentTime * 100) / 100, want, current: this.playing, restUntil: Math.round(this.restUntil * 100) / 100, old: this.old.length, note });
+    if (this.trace.length > 16) this.trace.shift();
   }
 
   /** New day / new context: next piece starts fresh with a seed for this day. */
@@ -159,25 +247,36 @@ export class MusicDirector {
     this.pieceCount = 0;
   }
 
-  /** Start the wanted theme now (e.g. the morning song), skipping any rest. */
+  /** Start the wanted theme as soon as the old one is out of the way, skipping any rest. */
   kick(): void {
-    this.restUntil = 0;
+    const now = this.g.ctx.currentTime;
+    const busy = this.old.reduce((t, p) => Math.max(t, p.stopping ? p.endTime : 0), 0);
+    this.restUntil = Math.max(0, busy > now ? busy + 0.2 : 0);
   }
 
   update(lookahead = 0.5): void {
     const now = this.g.ctx.currentTime;
     const want = this.forced ?? this.desired;
     if (this.current && this.current.theme.id !== want) {
-      // Long, gentle crossfades between moods; quicker into festival/title.
-      const quick = want === 'festival' || want === 'title' || this.current.theme.id === 'title';
-      this.current.stop(quick ? 1.6 : this.fade);
-      this.old.push(this.current);
+      const cur = this.current;
+      const quick = !want || want.startsWith('festival') || want === 'title' || cur.theme.id === 'title' || this.handoff === 'move';
+      let at = now;
+      let fade = quick ? 1.4 : 2.5;
+      if (!quick) {
+        // Same place, new mood: finish the phrase first (within 6 s), then a short fade.
+        at = cur.nextPhrase(now, 0.2, 6) ?? now;
+      } else if (!want) fade = 2;
+      cur.stop(fade, at);
+      this.old.push(cur);
       this.current = null;
-      this.restUntil = now + (quick ? 0.4 : 1.5);
+      // The new song waits until the old one is silent: never two keys at once.
+      this.restUntil = at + fade + 0.35;
+      this.log(`handoff ${cur.theme.id}→${want ?? 'silence'} at +${(at - now).toFixed(1)}s fade ${fade}s`, want);
     }
     if (this.current?.finished) {
       const [a, b] = this.current.theme.rest;
       this.old.push(this.current);
+      this.log(`finished ${this.current.theme.id}`, want);
       this.current = null;
       this.restUntil = now + a + this.rng.next() * (b - a);
     }
@@ -185,9 +284,10 @@ export class MusicDirector {
       const th = THEMES[want];
       if (th) {
         const seed = (this.baseSeed * 131 + hashString(want) + this.pieceCount++) >>> 0;
-        this.current = new MusicPlayer(this.g, th, seed, now + 0.15, 1.2);
+        this.current = new MusicPlayer(this.g, th, seed, now + 0.1, 0.6);
         this.current.setLevel(this.level, 0.1);
-      }
+        this.log(`start ${want}`, want);
+      } else this.log(`unknown theme ${want}`, want);
     }
     this.current?.pump(now + lookahead);
     this.old = this.old.filter((p) => p.pump(now + lookahead) && !p.finished);
@@ -203,6 +303,7 @@ export class MusicDirector {
     if (this.current) {
       this.current.stop(fade);
       this.old.push(this.current);
+      this.log(`stopAll ${this.current.theme.id}`, null);
       this.current = null;
     }
   }

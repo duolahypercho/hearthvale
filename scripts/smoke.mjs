@@ -106,6 +106,27 @@ try {
     const p0 = inv.count('parsnip');
     ev.emit('player:interact', { x: tx, z: tz });
     out.harvested = inv.count('parsnip') > p0;
+    // farming depth: harvest XP, fertilizer, exhaustion (heavy work refused at 0, plain swings run
+    // the bar negative), a scrubbed hoe swing on the tools demo keeps presenting frames
+    const fm = g.game.services.farming;
+    out.xp = fm.xp() > 0;
+    const en = g.game.services.energy;
+    const ft = { x: 45, z: 30 };
+    grid.removeObject(ft.x, ft.z);
+    ev.emit('item:use', { itemId: 'hoe', x: ft.x, z: ft.z, slot: 0 });
+    inv.add('qualityFertilizer', 1);
+    ev.emit('item:use', { itemId: 'qualityFertilizer', x: ft.x, z: ft.z, slot: inv.slots.findIndex((s) => s && s.id === 'qualityFertilizer') });
+    out.fertilized = fm.fertAt(ft.x, ft.z) === 2;
+    const eSave = en.value();
+    en.set(0);
+    fm.setToolTier('hoe', 3);
+    fm.act('charge', { level: 3 });
+    out.heavyRefused = en.value() === 0;
+    grid.removeObject(46, 30);
+    ev.emit('item:use', { itemId: 'hoe', x: 46, z: 30, slot: 0 });
+    out.negative = en.value() < 0;
+    fm.setToolTier('hoe', 0);
+    en.set(eSave);
     // gameplay pillar services (each system owns its state; teams land work independently)
     const sv = g.game.services;
     out.services = ['economy', 'energy', 'sleep', 'relationships', 'fishing', 'mining', 'crafting', 'quests'].filter((k) => !sv[k]);
@@ -143,6 +164,12 @@ try {
       g.step(2);
       out.demos.push(d);
     }
+    await g.demo('farm-tools');
+    for (let i = 0; i < 6; i++) {
+      g.game.services.farming.scrub(0.1 + i * 0.06);
+      g.step(3);
+    }
+    out.toolsSeq = g.game.player.position.x > 0;
     // quality + camera + pause + save/load
     g.quality('low');
     g.step(3);
@@ -181,6 +208,11 @@ try {
   check('farming: can waters', r.watered);
   check('farming: seeds plant', r.planted);
   check('farming: grow + harvest', r.harvested);
+  check('farming: harvest XP', r.xp);
+  check('farming: fertilizer', r.fertilized);
+  check('energy: heavy work refused at 0', r.heavyRefused);
+  check('energy: plain swings run negative', r.negative);
+  check('farming: scrubbed tools sequence', r.toolsSeq);
   check('panels registered (shop, dialogue, fishing, crafting, map, title)', r.panels.length === 0, r.panels.join(','));
   check('farm overgrowth debris ≥ 350', r.debris >= 350, `${r.debris}`);
   check('town map loads with villagers', r.townMap === 'town' && r.npcs >= 3, `${r.townMap}, ${r.npcs} npcs`);

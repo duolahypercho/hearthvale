@@ -24,7 +24,9 @@ function wood(): THREE.MeshStandardMaterial {
 function metal(tier: number): THREE.MeshStandardMaterial {
   let m = metalMats.get(tier);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: tier === 3 ? 0.22 : 0.3, metalness: 0.55, envMapIntensity: 1.3 });
+    // basic: forged, slightly rough iron · copper: warm satin · iron: bright steel · gold: polished.
+    const rough = [0.42, 0.32, 0.26, 0.2][tier] ?? 0.3;
+    m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: rough, metalness: 0.6, envMapIntensity: 1.3 });
     if (tier === 3) {
       m.emissive = new THREE.Color(0x3a2a00);
       m.emissiveIntensity = 0.4;
@@ -37,6 +39,74 @@ function metal(tier: number): THREE.MeshStandardMaterial {
 }
 
 const HANDLE = 0xa8743f;
+/** Blade body colour per tier (the tint is the honed-edge colour). */
+const HEAD_BODY = [0x70767e, 0xc0703c, 0xb4bec8, 0xe8b43a];
+
+/** Tapered tube along a curve (vertex colour white; tinted by the builder). */
+function neckTube(pts: THREE.Vector3[], r0: number, r1: number): THREE.BufferGeometry {
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const segs = 10;
+  const radial = 7;
+  const g = new THREE.TubeGeometry(curve, segs, 1, radial, false);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const p = new THREE.Vector3();
+  for (let i = 0; i <= segs; i++) {
+    const c = curve.getPointAt(i / segs);
+    const r = THREE.MathUtils.lerp(r0, r1, i / segs);
+    for (let j = 0; j <= radial; j++) {
+      const k = i * (radial + 1) + j;
+      p.fromBufferAttribute(pos, k).sub(c).multiplyScalar(r).add(c);
+      pos.setXYZ(k, p.x, p.y, p.z);
+    }
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Hoe blade hanging down from the origin (top edge at y=0, cutting edge at y≈-0.155): bevelled
+ * extruded trapezoid, dished along its width; vertex colours carry the forged body with hammer
+ * mottling, a dark line where the bevel starts and a bright honed edge.
+ */
+function hoeBlade(body: THREE.Color, edge: THREE.Color): THREE.BufferGeometry {
+  const sh = new THREE.Shape();
+  const tw = 0.092;
+  const bw = 0.118;
+  const h = 0.15;
+  sh.moveTo(-tw + 0.02, 0);
+  sh.lineTo(tw - 0.02, 0);
+  sh.quadraticCurveTo(tw, 0, tw + 0.004, -0.02);
+  sh.lineTo(bw, -h + 0.012);
+  sh.quadraticCurveTo(bw, -h, bw - 0.014, -h);
+  sh.lineTo(-bw + 0.014, -h);
+  sh.quadraticCurveTo(-bw, -h, -bw, -h + 0.012);
+  sh.lineTo(-tw - 0.004, -0.02);
+  sh.quadraticCurveTo(-tw, 0, -tw + 0.02, 0);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.005, bevelSize: 0.006, bevelSegments: 2, curveSegments: 4 });
+  g.translate(0, 0, -0.006);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const col = new Float32Array(pos.count * 3);
+  const dark = body.clone().multiplyScalar(0.42);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    // Dish the blade (the cutting edge curls slightly forward) and thin it toward the edge.
+    const z = pos.getZ(i) * (1 - 0.55 * THREE.MathUtils.smoothstep(-y, 0.1, h)) + (x / bw) * (x / bw) * 0.012 + THREE.MathUtils.smoothstep(-y, 0.08, h) * 0.01;
+    pos.setZ(i, z);
+    const d = -y; // 0 top → h edge
+    if (d > h - 0.022) c.copy(edge);
+    else if (d > h - 0.03) c.copy(dark);
+    else {
+      const mott = 0.86 + 0.14 * Math.sin(x * 210 + y * 150) * Math.sin(x * 97 - y * 230);
+      c.copy(body).multiplyScalar(mott * (0.8 + 0.2 * (1 - d / h)));
+    }
+    col.set([c.r, c.g, c.b], i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
 const GRIP = 0x6a4128;
 const cache = new Map<string, THREE.Group>();
 
@@ -59,11 +129,15 @@ export function buildTool(id: string, tier: number): THREE.Group {
   switch (id) {
     case 'hoe': {
       handle(b, 1.0);
-      b.add(M, new THREE.CylinderGeometry(0.03, 0.03, 0.08, 8), mat(0, 0.7, 0), { tint });
-      b.add(M, roundedBox(0.05, 0.05, 0.14, 0.015), mat(0, 0.72, 0.06), { tint });
-      // Blade: wide plate turned down, bright bevelled edge.
-      b.add(M, roundedBox(0.24, 0.17, 0.028, 0.012), mat(0, 0.64, 0.14, -0.15, 0, 0), { tint });
-      b.add(M, roundedBox(0.245, 0.03, 0.03, 0.01), mat(0, 0.56, 0.155, -0.15, 0, 0), { tint: edge });
+      const body = new THREE.Color(HEAD_BODY[tier] ?? tint);
+      // Socket: a tapered ferrule clamping the handle, with a rolled collar.
+      b.add(M, new THREE.CylinderGeometry(0.029, 0.036, 0.11, 12), mat(0, 0.675, 0), { tint: body.clone().multiplyScalar(0.8).getHex() });
+      b.add(M, new THREE.TorusGeometry(0.033, 0.009, 6, 14), mat(0, 0.625, 0, Math.PI / 2, 0, 0), { tint: body.clone().multiplyScalar(0.7).getHex() });
+      // Goose neck: a forged bar bending forward and down to the blade.
+      b.add(M, neckTube([new THREE.Vector3(0, 0.72, 0), new THREE.Vector3(0, 0.765, 0.045), new THREE.Vector3(0, 0.755, 0.115), new THREE.Vector3(0, 0.705, 0.158)], 0.015, 0.012), undefined, { tint: body.clone().multiplyScalar(0.85).getHex() });
+      // Blade: a bevelled, slightly dished trapezoid — dark forged body, a dark line at the bevel,
+      // a bright honed cutting edge.
+      b.add(M, hoeBlade(body, new THREE.Color(edge)), mat(0, 0.705, 0.165, -0.22, 0, 0));
       break;
     }
     case 'axe': {

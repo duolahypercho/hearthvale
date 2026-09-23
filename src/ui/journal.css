@@ -77,6 +77,21 @@
 .cin-caption.low::after {
   display: none;
 }
+.cin-caption .cap-scrim {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 118%;
+  height: 230%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(12, 6, 3, 0.62), rgba(12, 6, 3, 0.34) 55%, rgba(12, 6, 3, 0));
+  z-index: -1;
+  pointer-events: none;
+}
+.cin-caption.low .cap-scrim {
+  height: 260%;
+  background: radial-gradient(closest-side, rgba(12, 6, 3, 0.55), rgba(12, 6, 3, 0.25) 60%, rgba(12, 6, 3, 0));
+}
 .cin-caption .cap-orn {
   font-size: 22px;
   color: #f5c542;
@@ -158,9 +173,9 @@
 .cin-dlg {
   position: absolute;
   left: 50%;
-  bottom: calc(10.5vh - 26px);
+  bottom: calc(10.5vh + 10px);
   transform: translateX(-50%);
-  width: min(1180px, calc(100vw - 80px));
+  width: min(1120px, calc(100vw - 80px));
   pointer-events: auto;
   cursor: pointer;
   display: flex;
@@ -180,10 +195,10 @@
   position: relative;
   z-index: 2;
   flex: none;
-  width: 210px;
-  height: 210px;
+  width: 184px;
+  height: 184px;
   margin-right: -46px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   border-radius: 50%;
   overflow: hidden;
   background: #f6e2bc;
@@ -204,9 +219,9 @@
 }
 .cin-dlg .cin-box .hv-inner {
   position: relative;
-  min-height: 150px;
+  min-height: 128px;
   box-sizing: border-box;
-  padding: 36px 44px 28px 78px;
+  padding: 32px 44px 24px 78px;
   background:
     repeating-linear-gradient(0deg, rgba(150, 100, 50, 0.07) 0 1px, transparent 1px 34px) 0 16px,
     radial-gradient(120% 90% at 50% 20%, var(--parch-1), var(--parch-2));
@@ -264,7 +279,7 @@
 .cin-choices {
   position: absolute;
   right: max(40px, calc(50vw - 590px));
-  bottom: calc(10.5vh + 170px);
+  bottom: calc(10.5vh + 172px);
   display: grid;
   gap: 12px;
   pointer-events: auto;
@@ -285,9 +300,43 @@
   animation-delay: var(--d);
   transition: transform 140ms var(--ease-back), box-shadow 140ms;
 }
-.cin-choice:hover {
-  transform: translateX(-8px) scale(1.02);
-  box-shadow: 0 5px 0 var(--wood-3), 0 0 0 4px rgba(255, 210, 120, 0.9), 0 14px 26px rgba(20, 8, 2, 0.5);
+.cin-choice {
+  position: relative;
+  padding-left: 60px;
+}
+.cin-choice .key {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 18px;
+  color: #fff4dc;
+  background: linear-gradient(180deg, var(--wood-1), var(--wood-2));
+  box-shadow: 0 3px 0 var(--wood-3);
+}
+.cin-choice.sel {
+  transform: translateX(-10px) scale(1.03);
+  background: radial-gradient(120% 120% at 20% 10%, #fffdf6, #f7e4b4);
+  box-shadow: 0 5px 0 var(--wood-3), 0 0 0 4px #ffd27a, 0 0 26px 6px rgba(255, 200, 100, 0.55), 0 14px 26px rgba(20, 8, 2, 0.5);
+}
+.cin-choice.sel .lbl::before {
+  content: '▶ ';
+  color: #d8733a;
+}
+.cin-choice.picked {
+  animation: choicePick 220ms ease-out both;
+}
+@keyframes choicePick {
+  50% {
+    transform: translateX(-14px) scale(1.07);
+  }
 }
 .cin-choice .lbl {
   font-family: var(--font-head);
@@ -601,4 +650,62 @@
 }
 .lt-glogo {
   width: 210px;
+}
+
+/* Painted cutscene backdrop (the coach window) */
+.hv-cinema-layer .cin-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 600ms ease;
+  image-rendering: auto;
+}
+.hv-cinema-layer .cin-backdrop.on {
+  opacity: 1;
+}
+
+/* Floating key hint over story interactables */
+.hv-world-hint {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px 4px 5px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fff6e2, #f0d8a8);
+  border: 2px solid var(--wood-2, #8a5a34);
+  box-shadow: 0 3px 0 var(--wood-3, #5a3a20), 0 8px 18px rgba(20, 8, 2, 0.4);
+  font-family: var(--font-head, Fredoka, sans-serif);
+  font-weight: 700;
+  font-size: 16px;
+  color: #5a2e12;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  z-index: 30;
+  white-space: nowrap;
+}
+.hv-world-hint.on {
+  opacity: 1;
+  animation: hintBob 1.3s ease-in-out infinite alternate;
+}
+.hv-world-hint .k {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: #fff4dc;
+  background: linear-gradient(180deg, #c8573e, #9a3a26);
+  box-shadow: 0 2px 0 #6a2414;
+  font-size: 15px;
+}
+@keyframes hintBob {
+  to {
+    margin-top: -5px;
+  }
 }

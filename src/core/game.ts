@@ -18,8 +18,8 @@ import { DayNight } from '../render/lighting';
 import { World } from '../world/map';
 import { FarmMap } from '../world/farm';
 import { TownMap } from '../world/town';
-import { BeachMap } from '../world/beach';
 import { ForestMap } from '../world/forest';
+import { BeachMap } from '../world/beach';
 import { Player } from '../entities/player';
 import { Hud } from '../ui/hud';
 
@@ -44,6 +44,10 @@ import { QuestSystem } from '../systems/quests';
 import { FestivalSystem } from '../systems/festivals';
 import { BuildingSystem } from '../world/buildings/system';
 import { AnimalSystem } from '../systems/animals';
+import { CutsceneSystem } from '../systems/cutscene';
+import { StorySystem } from '../systems/story';
+import { LanternHallSystem } from '../systems/story-hall';
+import { StoryWorldSystem } from '../systems/story-world';
 
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
@@ -68,6 +72,10 @@ const SYSTEMS: (() => System)[] = [
   () => new FestivalSystem(),
   () => new BuildingSystem(),
   () => new AnimalSystem(),
+  () => new CutsceneSystem(),
+  () => new LanternHallSystem(),
+  () => new StoryWorldSystem(),
+  () => new StorySystem(),
 ];
 
 /**
@@ -105,6 +113,8 @@ export class Game {
 
   /** Simulation paused (time frozen, no fixed updates). Rendering continues. */
   paused = false;
+  /** A cutscene owns the camera: the rig stops following the player. */
+  cinematic = false;
   /** Seconds since start (render clock). */
   time = 0;
   /** Sim-scaled delta of the current frame (0 while paused). */
@@ -131,8 +141,8 @@ export class Game {
 
     this.world.registerMap('farm', (g) => new FarmMap(g));
     this.world.registerMap('town', (g) => new TownMap(g));
-    this.world.registerMap('beach', (g) => new BeachMap(g));
     this.world.registerMap('forest', (g) => new ForestMap(g));
+    this.world.registerMap('beach', (g) => new BeachMap(g));
 
     this.events.on('toolbar:select', ({ slot }) => (this.toolbarSlot = slot));
 
@@ -237,6 +247,7 @@ export class Game {
   }
 
   followPlayer(snap: boolean): void {
+    if (this.cinematic) return;
     this.rc.rig.target.copy(this.player.position);
     this.rc.focusPoint.copy(this.player.position).setY(this.player.position.y + 0.8);
     if (snap) this.rc.rig.snap();

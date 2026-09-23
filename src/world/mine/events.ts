@@ -16,11 +16,13 @@ declare module '../../core/events' {
     'mine:ladder': { x: number; z: number; floor: number };
     /** Request to change floor (ladder / elevator / debug). */
     'mine:goto': { floor: number; via: 'ladder' | 'elevator' | 'debug' | 'entrance' };
+    /** A milestone treasure chest (floors 10 / 20 / 30) was opened. */
+    'mine:chest': { floor: number };
     /** Loot vacuumed up. */
     'mine:pickup': { itemId: string; qty: number };
 
-    /** A monster touched the player. */
-    'combat:playerHit': { damage: number; x: number; z: number; kind: MonsterKind };
+    /** A monster (or a hazard: the lava lip) hurt the player. */
+    'combat:playerHit': { damage: number; x: number; z: number; kind: MonsterKind | 'lava' };
     /** Player health changed. */
     'combat:health': { hp: number; max: number };
     /** A sword strike connected. */

@@ -4,7 +4,7 @@
  * (limiter included) with an OfflineAudioContext. Results come back as base64 Float32 stereo.
  */
 import { AudioGraph } from './graph';
-import { scheduleTheme } from './music';
+import { MusicDirector, scheduleTheme } from './music';
 import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
 import { THEMES } from './themes';
@@ -67,6 +67,10 @@ const MIX_ENV: Record<string, EnvState> = {
   rain: AMBIENCE_PRESETS['farm-rain']!,
   festival: ENV({ map: 'town', hour: 20, season: 'summer', night: 0.8, fountain: 0.5 }),
   title: ENV({ hour: 18.7 }),
+  inn: ENV({ map: 'town', hour: 18.5, fountain: 0.3 }),
+  forest: AMBIENCE_PRESETS['forest-stream']!,
+  'mine-ice': AMBIENCE_PRESETS.mine!,
+  'mine-lava': AMBIENCE_PRESETS.mine!,
 };
 
 async function render(seconds: number, sr: number, build: (g: AudioGraph) => void): Promise<AudioBuffer> {
@@ -135,6 +139,36 @@ export async function renderSfxReel(sr = 44100): Promise<Rendered> {
     }
   });
   return { name: 'sfx-reel', sampleRate: sr, data: encode(buf), frames: buf.length, markers };
+}
+
+/**
+ * The live state machine, offline: a MusicDirector ticked every 100 ms through OfflineAudioContext
+ * suspend points, wanting `from` until `at` seconds and then `to` (a same-place mood drift by
+ * default: phrase-quantised handoff; `move` = change of place). The render shows that the two
+ * pieces never overlap. Markers: the change request and the director's trace.
+ */
+export async function renderTransition(from: string, to: string, at = 14, seconds = 30, handoff: 'drift' | 'move' = 'drift', sr = 44100): Promise<Rendered> {
+  const ctx = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
+  const g = new AudioGraph(ctx, 1234);
+  const dir = new MusicDirector(g, 3);
+  dir.desired = from;
+  const markers: { name: string; t: number }[] = [{ name: `want ${to}`, t: at }];
+  const step = 0.1;
+  for (let t = step; t < seconds - step; t += step) {
+    const tt = Math.round(t * 1000) / 1000;
+    void ctx.suspend(tt).then(() => {
+      if (tt >= at && dir.desired !== to) {
+        dir.handoff = handoff;
+        dir.desired = to;
+      }
+      dir.update(0.3);
+      void ctx.resume();
+    });
+  }
+  dir.update(0.3);
+  const buf = await ctx.startRendering();
+  for (const tr of dir.trace) markers.push({ name: tr.note, t: tr.t });
+  return { name: `transition-${from}-${to}${handoff === 'move' ? '-move' : ''}`, sampleRate: sr, data: encode(buf), frames: buf.length, markers };
 }
 
 export function listThemes(): string[] {

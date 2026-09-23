@@ -242,12 +242,23 @@ export function mineActions(player: Player): MineActions {
 
 // ───────────────────────────────────────────── sword
 
-let swordProto: THREE.Group | null = null;
-/** Miner's shortsword: grip at the origin, blade up +Y (tool-socket convention). */
-export function buildSword(): THREE.Group {
-  if (swordProto) return swordProto.clone();
-  const steel = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.9, envMapIntensity: 1.6 });
-  steel.name = 'sword-steel';
+const swordProtos = new Map<number, THREE.Group>();
+/** Blade / trim / glow per sword tier (0 = the notched Miner's Shortsword). */
+const SWORD_LOOK = [
+  { blade: 0xe8eef4, fuller: 0x7a8aa0, trim: 0xd8a84a, grip: 0x6a3a22, glow: 0x000000, len: 1 },
+  { blade: 0xf6f9ff, fuller: 0x8c9cb4, trim: 0xd0d6e0, grip: 0x3a2a4a, glow: 0x000000, len: 1.06 },
+  { blade: 0xd8f6ff, fuller: 0x4aa8c8, trim: 0x7ad8e8, grip: 0x24405a, glow: 0x2a8ab8, len: 1.1 },
+  { blade: 0xffe2c0, fuller: 0xc8481a, trim: 0xe8b04a, grip: 0x3a1a14, glow: 0xc84a10, len: 1.14 },
+];
+
+/** Sword for a tier: grip at the origin, blade up +Y (tool-socket convention). */
+export function buildSword(tier = 0): THREE.Group {
+  const t = Math.max(0, Math.min(SWORD_LOOK.length - 1, tier));
+  const cached = swordProtos.get(t);
+  if (cached) return cached.clone();
+  const L = SWORD_LOOK[t]!;
+  const steel = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.9, envMapIntensity: 1.6, emissive: L.glow, emissiveIntensity: L.glow ? 0.9 : 0 });
+  steel.name = `sword-steel-${t}`;
   const trim = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.7 });
   trim.name = 'sword-trim';
   const leather = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
@@ -255,30 +266,34 @@ export function buildSword(): THREE.Group {
   const b = new MeshBuilder();
   // Blade: tapered diamond cross-section with a darker fuller, bright bevel edges.
   const s = new THREE.Shape();
+  const top = 0.6 * L.len;
   s.moveTo(-0.062, 0);
-  s.lineTo(-0.058, 0.6);
-  s.lineTo(0, 0.8);
-  s.lineTo(0.058, 0.6);
+  s.lineTo(-0.058, top);
+  s.lineTo(0, top + 0.2);
+  s.lineTo(0.058, top);
   s.lineTo(0.062, 0);
   s.closePath();
   const blade = new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.009, bevelSegments: 1 });
   blade.translate(0, 0.17, -0.006);
-  b.add(steel, blade, undefined, { tint: 0xe8eef4 });
-  b.add(steel, roundedBox(0.022, 0.52, 0.034, 0.008), mat(0, 0.45, 0), { tint: 0x7a8aa0 });
-  // Crossguard + ricasso collar.
-  b.add(trim, roundedBox(0.3, 0.055, 0.07, 0.02), mat(0, 0.15, 0), { tint: 0xd8a84a });
-  for (const sx of [-1, 1]) b.add(trim, new THREE.SphereGeometry(0.03, 10, 8), mat(sx * 0.135, 0.15, 0), { tint: 0xe8b85a });
+  b.add(steel, blade, undefined, { tint: L.blade });
+  b.add(steel, roundedBox(0.022, 0.52 * L.len, 0.034, 0.008), mat(0, 0.17 + 0.28 * L.len, 0), { tint: L.fuller });
+  // Crossguard + ricasso collar (winged on the higher tiers).
+  b.add(trim, roundedBox(0.3 + t * 0.03, 0.055, 0.07, 0.02), mat(0, 0.15, 0), { tint: L.trim });
+  for (const sx of [-1, 1]) b.add(trim, new THREE.SphereGeometry(0.03 + t * 0.004, 10, 8), mat(sx * (0.135 + t * 0.015), 0.15 + t * 0.012, 0), { tint: L.trim });
+  if (t >= 2) b.add(steel, new THREE.OctahedronGeometry(0.035, 0), mat(0, 0.15, 0.04), { tint: L.fuller });
   // Grip wrap + pommel.
-  b.add(leather, new THREE.CylinderGeometry(0.026, 0.03, 0.2, 10), mat(0, 0.03, 0), { tint: 0x6a3a22 });
-  for (let i = 0; i < 4; i++) b.add(leather, new THREE.TorusGeometry(0.029, 0.006, 5, 12), mat(0, -0.05 + i * 0.05, 0, Math.PI / 2, 0, 0), { tint: 0x4a2414 });
-  b.add(trim, new THREE.SphereGeometry(0.042, 12, 10), mat(0, -0.09, 0), { tint: 0xd8a84a });
-  swordProto = b.build({ name: 'sword', castShadow: true });
-  return swordProto.clone();
+  b.add(leather, new THREE.CylinderGeometry(0.026, 0.03, 0.2, 10), mat(0, 0.03, 0), { tint: L.grip });
+  for (let i = 0; i < 4; i++) b.add(leather, new THREE.TorusGeometry(0.029, 0.006, 5, 12), mat(0, -0.05 + i * 0.05, 0, Math.PI / 2, 0, 0), { tint: 0x2a1a10 });
+  b.add(trim, new THREE.SphereGeometry(0.042, 12, 10), mat(0, -0.09, 0), { tint: L.trim });
+  const proto = b.build({ name: 'sword', castShadow: true });
+  swordProtos.set(t, proto);
+  return proto.clone();
 }
 
 /** Blade-tip / blade-base in sword-local space (for the trail + hit sparks). */
 export const SWORD_TIP = new THREE.Vector3(0, 0.98, 0);
-export const SWORD_BASE = new THREE.Vector3(0, 0.22, 0);
+/** Ribbon root: well up the blade (from the grip it folded over the hands into ghost fingers). */
+export const SWORD_BASE = new THREE.Vector3(0, 0.5, 0);
 
 // ───────────────────────────────────────────── trail
 
@@ -320,9 +335,10 @@ export class SwordTrail {
       uniforms: { uColor: { value: new THREE.Color(color) } },
       vertexShader: `attribute float aAlpha; attribute float aEdge; varying float vA; varying float vE; void main(){ vA = aAlpha; vE = aEdge; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: `uniform vec3 uColor; varying float vA; varying float vE; void main(){
-        float edge = smoothstep(0.0, 0.9, vE);
+        // Thin accent under the crescent: transparent at the blade root, a bright line at the tip.
+        float edge = smoothstep(0.0, 1.0, vE);
         vec3 c = mix(uColor * 0.7, vec3(1.5, 1.45, 1.3), pow(edge, 2.5));
-        float a = vA * (0.6 + 0.4 * edge);
+        float a = vA * pow(edge, 1.6) * 0.3;
         gl_FragColor = vec4(c * a, a);
       }`,
     });
@@ -342,6 +358,8 @@ export class SwordTrail {
 
   /** Push a blade sample (world space) while slashing. */
   push(tip: THREE.Vector3, base: THREE.Vector3): void {
+    // Near-still blade (wind-up / hit-stop): no new sample, so the ribbon never bunches up.
+    if (this.tips.length && this.tips[0]!.distanceToSquared(tip) < 0.05 * 0.05) return;
     this.tips.unshift(tip.clone());
     this.bases.unshift(base.clone());
     this.ages.unshift(0);

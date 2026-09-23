@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import type { Player, PlayerRig, ActionPose } from './player';
 
-export type ActionKind = 'chop' | 'sweep' | 'pour' | 'sow' | 'pull' | 'place' | 'slam' | 'refill';
+export type ActionKind = 'chop' | 'sweep' | 'pour' | 'sow' | 'pull' | 'place' | 'slam' | 'refill' | 'shrug';
 
 interface Key {
   t: number;
@@ -39,17 +39,19 @@ const TRACKS: Record<ActionKind, Key[]> = {
   // Anticipation: a quick crouch, then the whole body stretches up with the tool held high
   // overhead (blade reads above the hat from the 3/4 camera); the downswing whips the head of the
   // tool through faster than the arms; impact squashes the body and plants the legs.
+  // The wind-up swings the tool up over the shoulder on the camera side (see FarmerActions.side),
+  // torso twisted and leaning back, so the tool head clears the hat silhouette at the top.
   chop: [
     { t: 0 },
-    { t: 0.06, ease: 'out', aR: [-0.7, -0.1], aL: [-0.6, 0.1], torso: [0.12, 0, 0], head: 0.05, sy: 0.93, tool: [Math.PI / 2 - 0.1, 0, 0] },
-    { t: 0.19, ease: 'back', aR: [-2.9, -0.1], aL: [-2.6, 0.1], torso: [-0.26, 0, 0], head: -0.22, sy: 1.07, grip: 0.32, tool: [2.75, 0, 0.3] },
-    { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.4, 0, 0], head: -0.08, sy: 0.9, bob: -0.02, tool: [Math.PI / 2 - 0.2, 0, 0] },
-    { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.42, 0, 0], head: -0.04, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
+    { t: 0.07, ease: 'out', aR: [-0.7, -0.1], aL: [-0.6, 0.1], torso: [0.14, 0.12, 0], head: 0.05, sy: 0.92, tool: [Math.PI / 2 - 0.1, 0, 0] },
+    { t: 0.2, ease: 'back', aR: [-2.45, -0.62], aL: [-2.1, -0.28], torso: [-0.24, -0.5, -0.16], head: -0.16, sy: 1.07, grip: 0.3, tool: [2.55, 0, 0.75] },
+    { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.42, 0.06, 0], head: -0.08, sy: 0.88, bob: -0.025, tool: [Math.PI / 2 - 0.2, 0, 0] },
+    { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.44, 0.04, 0], head: -0.04, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
     { t: 0.66, ease: 'inout' },
   ],
   slam: [
     { t: 0 },
-    { t: 0.14, ease: 'back', aR: [-3.1, -0.1], aL: [-2.8, 0.1], torso: [-0.3, 0, 0], head: -0.25, sy: 1.1, grip: 0.34, tool: [2.75, 0, 0.3] },
+    { t: 0.14, ease: 'back', aR: [-2.7, -0.55], aL: [-2.4, -0.25], torso: [-0.3, -0.42, -0.12], head: -0.2, sy: 1.1, grip: 0.34, tool: [2.6, 0, 0.7] },
     { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.55, 0, 0], head: 0.2, sy: 0.86, bob: -0.04, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.36, ease: 'out', aR: [-0.18, -0.05], aL: [-0.12, 0.05], torso: [0.6, 0, 0], head: 0.2, sy: 0.92, bob: -0.03, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.75, ease: 'inout' },
@@ -87,6 +89,13 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.22, ease: 'in', aR: [-0.6, -0.1], aL: [-0.6, 0.1], torso: [0.55, 0, 0], sy: 0.9 },
     { t: 0.5, ease: 'inout' },
   ],
+  // Too tired: shoulders lift, arms flop out, head droops (a sigh).
+  shrug: [
+    { t: 0 },
+    { t: 0.14, ease: 'out', aR: [-0.25, -0.55], aL: [-0.25, 0.55], torso: [-0.08, 0, 0], head: -0.12, sy: 1.05 },
+    { t: 0.36, ease: 'inout', aR: [-0.05, -0.3], aL: [-0.05, 0.3], torso: [0.12, 0, 0], head: 0.3, sy: 0.93 },
+    { t: 0.7, ease: 'inout' },
+  ],
   pull: [
     { t: 0 },
     { t: 0.13, ease: 'out', aR: [-0.75, -0.1], aL: [-0.75, 0.1], torso: [0.52, 0, 0], head: 0.2, sy: 0.87 },
@@ -97,7 +106,7 @@ const TRACKS: Record<ActionKind, Key[]> = {
   ],
 };
 
-export const IMPACT: Record<ActionKind, number> = { chop: 0.27, slam: 0.22, sweep: 0.2, pour: 0.3, refill: 0.24, sow: 0.19, place: 0.2, pull: 0.2 };
+export const IMPACT: Record<ActionKind, number> = { chop: 0.27, slam: 0.22, sweep: 0.2, pour: 0.3, refill: 0.24, sow: 0.19, place: 0.2, pull: 0.2, shrug: 0.36 };
 
 function ease(k: Key['ease'], t: number): number {
   switch (k) {
@@ -165,6 +174,12 @@ export class FarmerActions {
   timeScale = 1;
   /** Seconds since the last action ended (the idle blends back from the last pose). */
   private recover = 1;
+  /**
+   * +1 = wind up over the right shoulder, -1 = over the left (mirrors the twist / lean / tool
+   * roll). The farming system points it at the camera so the tool head never hides behind the hat.
+   */
+  side = 1;
+  private hatK = 1;
 
   constructor(private player: Player) {
     this.rig = player.rig;
@@ -279,21 +294,26 @@ export class FarmerActions {
   private apply(rig: PlayerRig, p: Pose, w = 1): ActionPose {
     const R = rig.armR.rotation;
     const L = rig.armL.rotation;
+    const sd = this.side;
+    // Mirror about the rest pose: the arm roll offsets, torso twist / lean and tool roll flip sides.
+    const mz = (v: number, rest: number): number => (sd > 0 ? v : rest - (v - rest));
     R.x = lerp(R.x, p.aR[0], w);
-    R.z = lerp(R.z, p.aR[1], w);
+    R.z = lerp(R.z, mz(p.aR[1], REST.aR[1]), w);
     L.x = lerp(L.x, p.aL[0], w);
-    L.z = lerp(L.z, p.aL[1], w);
+    L.z = lerp(L.z, mz(p.aL[1], REST.aL[1]), w);
     rig.torso.rotation.x = lerp(rig.torso.rotation.x, p.torso[0], w);
-    rig.torso.rotation.y = lerp(rig.torso.rotation.y, p.torso[1], w);
-    rig.torso.rotation.z = lerp(rig.torso.rotation.z, p.torso[2], w);
+    rig.torso.rotation.y = lerp(rig.torso.rotation.y, p.torso[1] * sd, w);
+    rig.torso.rotation.z = lerp(rig.torso.rotation.z, p.torso[2] * sd, w);
     rig.head.rotation.x = lerp(rig.head.rotation.x, p.head, w);
+    // The big straw hat shrinks a little while working so the swing and the target tile stay visible.
+    if (rig.hat) rig.hat.scale.setScalar(this.hatK);
     const tool = rig.tool;
     tool.position.set(0, -0.3, 0.02);
     if (p.level !== null) {
       // Keep the can upright in the torso frame (undo the arm pitch), then tip it forward.
       tool.rotation.set(-R.x + p.level * 0.95, 0, -R.z * 0.5);
     } else if (p.tool) {
-      tool.rotation.set(p.tool[0], p.tool[1], p.tool[2]);
+      tool.rotation.set(p.tool[0], p.tool[1] * sd, p.tool[2] * sd);
     } else {
       tool.rotation.set(TOOL_REST[0], TOOL_REST[1], TOOL_REST[2]);
     }
@@ -336,13 +356,17 @@ export class FarmerActions {
 
   private pose(rig: PlayerRig, dt: number): ActionPose | null {
     const d = dt * this.timeScale;
+    // Hat: ease to 85 % while an action runs, back to full size after (real time, so stills keep it).
+    const want = this.cur || this.charging ? 0.85 : 1;
+    this.hatK += (want - this.hatK) * (1 - Math.exp(-dt * 14));
+    if (!this.cur && !this.charging && rig.hat) rig.hat.scale.setScalar(this.hatK);
     if (this.charging) {
       const c = this.charging;
       c.t += d;
       // Raise the tool overhead, then hold with a building tremble.
       const up = 1 - Math.pow(1 - Math.min(1, c.t / 0.2), 3);
       const tremble = Math.sin(c.t * 55) * 0.03 * Math.min(1, c.t);
-      const p: Pose = { ...REST, aR: [-2.85 * up + tremble, -0.1], aL: [-2.5 * up, 0.1], torso: [-0.2 * up, 0, 0], head: -0.15 * up, sy: 1 - 0.07 * up + Math.sin(c.t * 40) * 0.006, bob: 0, grip: 0.3 * up, tool: [Math.PI / 2 + 1.2 * up, 0, 0.3 * up], level: null };
+      const p: Pose = { ...REST, aR: [-2.55 * up + tremble, -0.1 - 0.5 * up], aL: [-2.2 * up, 0.1 - 0.35 * up], torso: [-0.2 * up, -0.42 * up, -0.1 * up], head: -0.15 * up, sy: 1 - 0.07 * up + Math.sin(c.t * 40) * 0.006, bob: 0, grip: 0.3 * up, tool: [Math.PI / 2 + 1.0 * up, 0, 0.7 * up], level: null };
       rig.tool.visible = true;
       return this.apply(rig, p);
     }

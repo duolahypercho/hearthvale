@@ -164,13 +164,185 @@ export interface PluckOptions {
   /** Pluck position along the string (0.05..0.5); lower = thinner, brighter. */
   position: number;
   seconds: number;
+  /** Body resonances mixed onto the string: [Hz, Q, gain]. */
+  body?: readonly (readonly [number, number, number])[];
+}
+
+/** One biquad bandpass (constant 0 dB peak) for offline JS rendering. */
+class Bp {
+  private b0: number;
+  private b2: number;
+  private a1: number;
+  private a2: number;
+  private x1 = 0;
+  private x2 = 0;
+  private y1 = 0;
+  private y2 = 0;
+  constructor(sr: number, f: number, q: number) {
+    const w = (2 * Math.PI * Math.min(f, sr * 0.45)) / sr;
+    const al = Math.sin(w) / (2 * q);
+    const a0 = 1 + al;
+    this.b0 = al / a0;
+    this.b2 = -al / a0;
+    this.a1 = (-2 * Math.cos(w)) / a0;
+    this.a2 = (1 - al) / a0;
+  }
+  run(x: number): number {
+    const y = this.b0 * x + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+    this.x2 = this.x1;
+    this.x1 = x;
+    this.y2 = this.y1;
+    this.y1 = y;
+    return y;
+  }
+}
+
+/** Mix body resonances onto a mono signal in place: y = x + Σ gain·bandpass(x). */
+export function applyBody(d: Float32Array, sr: number, modes: readonly (readonly [number, number, number])[]): void {
+  const fs = modes.map(([f, q]) => new Bp(sr, f, q));
+  for (let i = 0; i < d.length; i++) {
+    const x = d[i]!;
+    let y = x;
+    for (let k = 0; k < fs.length; k++) y += fs[k]!.run(x) * modes[k]![2];
+    d[i] = y;
+  }
+}
+
+/** A modal partial for pre-rendered struck/plucked notes. */
+export interface ModalPartial {
+  /** Frequency ratio to the fundamental. */
+  r: number;
+  amp: number;
+  /** Decay time constant (s). */
+  tau: number;
+  /** Attack (s) — >0 blooms in. */
+  atk?: number;
+  /** Beating twin: frequency offset in Hz and relative amplitude. */
+  beat?: [number, number];
+}
+
+export interface ModalSpec {
+  partials: ModalPartial[];
+  /** Initial pitch offset in cents that settles over `glideTime` (tines, pans). */
+  glide?: number;
+  glideTime?: number;
+  /** Strike noise: amplitude, decay tau, one-pole lowpass cutoff (Hz). */
+  click?: { amp: number; tau: number; lp: number; hp?: number };
+  /** Metallic buzz (tine rattle): noise gated by the waveform, amplitude + tau. */
+  buzz?: { amp: number; tau: number };
+  body?: readonly (readonly [number, number, number])[];
+  seconds: number;
 }
 
 /**
- * Extended Karplus-Strong string, rendered to a buffer in JS (feedback delays inside WebAudio
- * cannot go below one render quantum, i.e. no high notes). Fractional delay via allpass
- * interpolation keeps tuning exact; a DC blocker and peak normalisation make buffers uniform.
+ * Render a struck / plucked note as a sum of decaying (possibly inharmonic) partials with a strike
+ * click, optional tine buzz and body resonances. Rendered once per pitch and cached, so a mallet
+ * note costs one buffer source at play time. A render costs a few ms, once per pitch.
  */
+export function modalBuffer(ctx: BaseAudioContext, freq: number, spec: ModalSpec, rng: Rand): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const len = Math.max(64, Math.floor(sr * spec.seconds));
+  const buf = ctx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  const gl = spec.glide ? Math.pow(2, spec.glide / 1200) - 1 : 0;
+  const glT = Math.max(0.001, spec.glideTime ?? 0.03);
+  for (const p of spec.partials) {
+    const layers: [number, number][] = [[p.r * freq, p.amp]];
+    if (p.beat) layers.push([p.r * freq + p.beat[0], p.amp * p.beat[1]]);
+    for (const [f, amp] of layers) {
+      if (f >= sr * 0.45 || amp < 1e-5) continue;
+      let ph = rng.next() * 0.3;
+      const dec = Math.exp(-1 / (p.tau * sr));
+      let env = 1;
+      const atkN = Math.max(1, Math.floor((p.atk ?? 0.0015) * sr));
+      const n = Math.min(len, Math.floor(p.tau * 8 * sr) + atkN);
+      const glN = gl ? Math.floor(glT * 4 * sr) : 0;
+      for (let i = 0; i < n; i++) {
+        const fi = gl && i < glN ? f * (1 + gl * Math.exp(-i / (glT * sr))) : f;
+        ph += fi / sr;
+        if (ph > 1) ph -= 1;
+        const a = i < atkN ? i / atkN : 1;
+        d[i] = d[i]! + Math.sin(2 * Math.PI * ph) * amp * env * a;
+        if (i >= atkN) env *= dec;
+      }
+    }
+  }
+  if (spec.buzz) {
+    const dec = Math.exp(-1 / (spec.buzz.tau * sr));
+    let env = spec.buzz.amp;
+    let ph = 0;
+    let lp = 0;
+    const n = Math.min(len, Math.floor(spec.buzz.tau * 7 * sr));
+    for (let i = 0; i < n; i++) {
+      ph += freq / sr;
+      if (ph > 1) ph -= 1;
+      // Rattle: bright noise let through in short bursts once per cycle.
+      const gate = Math.pow(Math.max(0, Math.sin(2 * Math.PI * ph)), 8);
+      const w = rng.next() * 2 - 1;
+      lp += 0.5 * (w - lp);
+      d[i] = d[i]! + (w - lp) * gate * env;
+      env *= dec;
+    }
+  }
+  if (spec.click) {
+    const c = spec.click;
+    const dec = Math.exp(-1 / (c.tau * sr));
+    const k = 1 - Math.exp((-2 * Math.PI * c.lp) / sr);
+    const kh = c.hp ? 1 - Math.exp((-2 * Math.PI * c.hp) / sr) : 0;
+    let env = c.amp;
+    let lp = 0;
+    let hpLp = 0;
+    const n = Math.min(len, Math.floor(c.tau * 8 * sr));
+    for (let i = 0; i < n; i++) {
+      lp += k * (rng.next() * 2 - 1 - lp);
+      let x = lp;
+      if (kh) {
+        hpLp += kh * (x - hpLp);
+        x -= hpLp;
+      }
+      d[i] = d[i]! + x * env * 2.5;
+      env *= dec;
+    }
+  }
+  if (spec.body?.length) applyBody(d, sr, spec.body);
+  // Short fade at the end of the buffer.
+  const f = Math.min(len, Math.floor(sr * 0.06));
+  for (let i = 0; i < f; i++) d[len - 1 - i] = d[len - 1 - i]! * (i / f);
+  return buf;
+}
+
+export type BodyKind = 'violin' | 'cello' | 'guitar';
+
+/**
+ * Instrument-body impulse response: a sum of damped modes (air cavity, top/back plate modes and
+ * the violin's bridge hill around 2–3 kHz) plus a whisper of diffuse noise, energy-normalised.
+ * Convolving a bowed oscillator with it gives the formant structure and "wood" of a real body.
+ */
+export function bodyImpulse(ctx: BaseAudioContext, kind: BodyKind, rng: Rand): AudioBuffer {
+  const sr = ctx.sampleRate;
+  // [Hz, decay tau (s), peak gain at resonance (linear, on top of the direct sound)]
+  const modes: [number, number, number][] =
+    kind === 'violin'
+      ? [[275, 0.025, 1.3], [440, 0.02, 1.1], [540, 0.018, 0.9], [790, 0.012, 0.6], [1050, 0.01, 0.6], [2300, 0.005, 1.1], [2900, 0.004, 1.3], [3600, 0.004, 0.6]]
+      : kind === 'cello'
+        ? [[98, 0.03, 0.9], [185, 0.025, 1.1], [220, 0.022, 0.9], [395, 0.018, 0.9], [590, 0.014, 0.7], [1100, 0.008, 0.6], [2000, 0.005, 0.6]]
+        : [[100, 0.03, 0.8], [205, 0.025, 1], [400, 0.018, 0.6], [560, 0.014, 0.4], [1200, 0.008, 0.4], [2600, 0.004, 0.4]];
+  const len = Math.floor(sr * 0.12);
+  const buf = ctx.createBuffer(2, len, sr);
+  for (let c = 0; c < 2; c++) {
+    const d = buf.getChannelData(c);
+    d[0] = 1; // direct sound
+    for (const [f, tau, gpk] of modes) {
+      const ff = f * (1 + (rng.next() - 0.5) * 0.04);
+      const a = (gpk * 2) / (tau * sr); // a damped sinusoid's gain at resonance ≈ a·tau·sr/2
+      const ph = rng.next() * 0.4;
+      for (let i = 1; i < len; i++) d[i] = d[i]! + a * Math.sin((2 * Math.PI * ff * i) / sr + ph) * Math.exp(-i / (tau * sr));
+    }
+    for (let i = 1; i < len; i++) d[i] = d[i]! + (rng.next() * 2 - 1) * 0.004 * Math.exp(-i / (0.006 * sr));
+  }
+  return buf;
+}
+
 export function pluckBuffer(ctx: BaseAudioContext, freq: number, o: PluckOptions, rng: Rand): AudioBuffer {
   const sr = ctx.sampleRate;
   const len = Math.floor(sr * o.seconds);
@@ -218,6 +390,11 @@ export function pluckBuffer(ctx: BaseAudioContext, freq: number, o: PluckOptions
     out[n] = d;
     const ad = Math.abs(d);
     if (ad > peak) peak = ad;
+  }
+  if (o.body?.length) {
+    applyBody(out, sr, o.body);
+    peak = 1e-6;
+    for (let n = 0; n < len; n++) peak = Math.max(peak, Math.abs(out[n]!));
   }
   const norm = 0.9 / peak;
   for (let n = 0; n < len; n++) out[n] = out[n]! * norm;

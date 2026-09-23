@@ -48,32 +48,35 @@ declare module '../core/events' {
 }
 
 const CSS = /* css */ `
-.hv-dialogue.dlg2 { bottom: 26px; }
-.hv-dialogue.dlg2 .dlg-box .hv-inner { padding: 24px 34px 28px; }
-.hv-dialogue.dlg2 .dlg-text { min-height: 102px; font-size: 26px; line-height: 36px; letter-spacing: 0.1px; }
+.hv-dialogue.dlg2 { bottom: 24px; width: min(1120px, calc(100vw - 40px)); gap: 14px; align-items: stretch; }
+/* The parchment fills the whole text box (no bare plank under short lines); text sits centred. */
+.hv-dialogue.dlg2 .dlg-box { min-height: 0; display: flex; flex-direction: column; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 34px 46px 38px; overflow: hidden;
+  box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.35), inset 0 0 0 2px rgba(150, 100, 50, 0.25), inset 0 0 38px rgba(150, 90, 30, 0.2); }
+/* Ink flourishes in the parchment corners + a pressed rule under the text. */
+.hv-dialogue.dlg2 .dlg-box .hv-inner::before, .hv-dialogue.dlg2 .dlg-box .hv-inner::after { content: ''; position: absolute; width: 58px; height: 58px; pointer-events: none; opacity: 0.5;
+  background: var(--dlg-flourish) center / contain no-repeat; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner::before { left: 8px; top: 8px; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner::after { right: 8px; bottom: 8px; transform: rotate(180deg); }
+.hv-dialogue.dlg2 .dlg-text { min-height: 0; font-size: 27px; line-height: 39px; letter-spacing: 0.1px; position: relative; z-index: 1; }
 .hv-dialogue.dlg2 .dlg-text .w { display: inline; }
-.hv-dialogue.dlg2 .dlg-speaker { position: absolute; top: -18px; left: 26px; font-family: var(--font-head); font-weight: 700; font-size: 20px; color: #fff; padding: 2px 16px 4px; border-radius: 10px;
-  background: linear-gradient(180deg, var(--wood-1), var(--wood-2)); border: 2px solid var(--wood-3); text-shadow: 0 2px 0 var(--wood-3); box-shadow: 0 3px 0 rgba(60,30,10,.3); }
+.hv-dialogue.dlg2 .dlg-next { right: 26px; bottom: 16px; z-index: 2; }
+.hv-dialogue.dlg2 .dlg-speaker { position: absolute; top: -20px; left: 30px; z-index: 3; font-family: var(--font-head); font-weight: 700; font-size: 21px; color: #fff; padding: 3px 18px 5px; border-radius: 10px;
+  background: linear-gradient(180deg, var(--wood-1), var(--wood-2)); border: 2px solid var(--wood-3); text-shadow: 0 2px 0 var(--wood-3); box-shadow: 0 3px 0 rgba(60,30,10,.3), inset 0 1px 0 var(--wood-hi); }
+.hv-dialogue.dlg2 .dlg-box { position: relative; }
 .hv-dialogue.dlg2.narr .dlg-side { display: none; }
 .hv-dialogue.dlg2.narr .dlg-speaker { display: none; }
-.hv-dialogue.dlg2.narr .dlg-text { font-style: italic; font-weight: 700; color: #6a4a2a; text-align: center; padding-top: 14px; }
-.hv-dialogue.dlg2 { width: min(1000px, calc(100vw - 40px)); }
-.hv-dialogue.dlg2 .dlg-side { width: 258px; }
-.hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 10px 10px 10px; gap: 2px; }
-.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 232px; height: 232px; margin: 4px 0 0; }
+.hv-dialogue.dlg2.narr .dlg-text { font-style: italic; font-weight: 700; color: #6a4a2a; text-align: center; }
+.hv-dialogue.dlg2 .dlg-side { width: 284px; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 12px 12px 12px; gap: 2px; align-content: start; }
+.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 256px; height: 256px; margin: 2px 0 0; }
 /* Painted-on-canvas finish: a static brush-grain layer (soft light) and a varnish vignette over the art. */
 .hv-dialogue.dlg2 .dlg-portrait::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit;
-  background: var(--dlg-grain, none) 0 0 / 232px 232px; mix-blend-mode: soft-light; opacity: 0.42;
-  box-shadow: inset 0 0 22px rgba(70, 36, 12, 0.38), inset 0 0 3px rgba(70, 36, 12, 0.5); }
-.hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: -16px; font-size: 22px; padding: 0 16px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
-.hv-dialogue.dlg2 .dlg-role { max-width: 232px; font-size: 12px; line-height: 15px; margin-top: 3px; }
-.hv-dialogue.dlg2 .dlg-box .hv-inner { min-height: 0; }
-/* The text box hugs its lines; the portrait card stands taller beside it. */
-.hv-dialogue.dlg2 { align-items: flex-end; }
+  background: var(--dlg-grain, none) 0 0 / 256px 256px; mix-blend-mode: soft-light; opacity: 0.42;
+  box-shadow: inset 0 0 24px rgba(70, 36, 12, 0.38), inset 0 0 3px rgba(70, 36, 12, 0.5); }
+.hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: -18px; font-size: 23px; padding: 0 18px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
+.hv-dialogue.dlg2 .dlg-role { max-width: 256px; font-size: 12.5px; line-height: 15px; margin-top: 3px; }
 .hv-dialogue.dlg2.cine { bottom: calc(7.5vh + 16px); transition: bottom 400ms var(--ease-out); }
-.hv-dialogue.dlg2 .dlg-box { min-height: 176px; display: flex; }
-.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1; }
-.hv-dialogue.dlg2 .dlg-text { min-height: 0; }
 .hv-hud.hv-heartcine .h-clock, .hv-hud.hv-heartcine .hv-toolbar, .hv-hud.hv-heartcine .hv-energy, .hv-hud.hv-heartcine .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }
 .hv-dialogue.dlg2 .dlg-portrait .layer svg { animation: dlgBreathe 3.2s ease-in-out infinite; transform-origin: 50% 90%; }
@@ -112,11 +115,15 @@ const CSS = /* css */ `
 .dlg-letterbox::before { top: 0; }
 .dlg-letterbox::after { bottom: 0; }
 .dlg-letterbox.on::before, .dlg-letterbox.on::after { height: 7.5vh; }
-.dlg-title { position: absolute; left: 50%; top: 13vh; transform: translateX(-50%); text-align: center; pointer-events: none; opacity: 0; transition: opacity 600ms, translate 600ms var(--ease-out); translate: 0 -8px; z-index: 6; }
+.dlg-title { position: absolute; left: 50%; top: 3.75vh; transform: translate(-50%, -50%); text-align: center; pointer-events: none; opacity: 0; transition: opacity 700ms, translate 700ms var(--ease-out); translate: 0 -6px; z-index: 6; white-space: nowrap;
+  display: flex; align-items: center; gap: 16px; }
 .dlg-title.on { opacity: 1; translate: 0 0; }
-.dlg-title .t { font-family: var(--font-head); font-weight: 700; font-size: 44px; color: #fff8e8; text-shadow: 0 3px 0 #6a3a1a, 0 8px 24px rgba(0,0,0,.45); letter-spacing: 0.5px; }
-.dlg-title .s { font-family: var(--font-body); font-weight: 800; font-size: 18px; color: #ffd8b0; text-shadow: 0 2px 0 #5a2a14; margin-top: 2px; display: flex; gap: 8px; align-items: center; justify-content: center; }
-.dlg-title .s svg { width: 18px; height: 16px; }
+.dlg-title.dim { opacity: 0.55; }
+.dlg-title .t { font-family: var(--font-head); font-weight: 700; font-size: clamp(22px, 3.3vh, 36px); color: #fff4dc; text-shadow: 0 2px 0 #5a2a10, 0 0 18px rgba(255, 190, 110, .35); letter-spacing: 0.6px; }
+.dlg-title .s { font-family: var(--font-body); font-weight: 800; font-size: clamp(12px, 1.6vh, 17px); color: #f6c89a; display: flex; gap: 7px; align-items: center; justify-content: center; padding: 3px 12px 4px; border-radius: 999px; border: 1.5px solid rgba(246, 200, 154, .45); }
+.dlg-title .s svg { width: 16px; height: 14px; }
+.dlg-title .rule { width: 60px; height: 2px; background: linear-gradient(90deg, transparent, rgba(246, 200, 154, .7)); }
+.dlg-title .rule.r { transform: scaleX(-1); }
 .dlg-toast { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); z-index: 7; display: flex; align-items: center; gap: 12px; padding: 6px 18px 6px 8px; pointer-events: none; }
 .dlg-toast .hv-inner { display: flex; align-items: center; gap: 12px; padding: 6px 16px 6px 6px; font-weight: 800; color: #4a2c14; font-size: 18px; }
 .dlg-toast .pp { width: 52px; height: 52px; border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 3px var(--wood-2); }
@@ -223,6 +230,7 @@ export class DialoguePanel implements Panel {
   private titleCard: HTMLElement;
   private toastEl: HTMLElement;
   private toastTimer = 0;
+  private titleTimer = 0;
   private line = '';
   private shown = 0;
   private timer = 0;
@@ -527,10 +535,13 @@ export class DialoguePanel implements Panel {
     this.game.hud.root.classList.toggle('hv-heartcine', on);
     this.el.classList.toggle('cine', on);
     if (on && title) {
-      this.titleCard.innerHTML = `<div class="t">${title}</div>${sub ? `<div class="s">${HEART(1, 'tc')}<span>${sub}</span>${HEART(1, 'tc2')}</div>` : ''}`;
+      // The title sits in the top letterbox band (never over the actors) and stays, dimmed, for the scene.
+      this.titleCard.innerHTML = `<div class="rule"></div><div class="t">${title}</div>${sub ? `<div class="s">${HEART(1, 'tc')}<span>${sub}</span></div>` : ''}<div class="rule r"></div>`;
+      this.titleCard.classList.remove('dim');
       this.titleCard.classList.add('on');
-      window.setTimeout(() => this.titleCard.classList.remove('on'), 2600);
-    } else if (!on) this.titleCard.classList.remove('on');
+      window.clearTimeout(this.titleTimer);
+      this.titleTimer = window.setTimeout(() => this.titleCard.classList.add('dim'), 4200);
+    } else if (!on) this.titleCard.classList.remove('on', 'dim');
   }
 
   private setSpeaking(on: boolean): void {

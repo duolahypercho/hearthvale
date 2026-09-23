@@ -87,12 +87,27 @@ declare module '../core/events' {
     'animal:petted': { id: number; species: string; name: string; friendship: number };
     'animal:produce': { id: number; species: string; itemId: string; quality: number };
     'animal:bought': { id: number; species: string; name: string };
+    /** Overnight report (emitted from day:start, before the end-of-day screen opens). */
+    'animals:summary': AnimalSummary;
   }
+}
+
+export interface AnimalSummary {
+  /** The day that just ended. */
+  day: number;
+  fed: number;
+  hungry: number;
+  unpetted: number;
+  /** Per animal: yesterday's care and the overnight friendship change. */
+  animals: { id: number; name: string; species: Livestock; fed: boolean; petted: boolean; delta: number; friendship: number }[];
+  /** Laid overnight / ready to collect this morning. */
+  produce: { item: string; q: number }[];
+  pet?: { name: string; species: 'dog' | 'cat'; bowl: boolean };
 }
 
 const CAP = 6;
 /** Presentation scale per species (chibi models read small next to the farmer otherwise). */
-const SCALE: Record<Species, number> = { chicken: 1.12, duck: 1.12, cow: 1.22, goat: 1.12, sheep: 1.14, pig: 1.12, dog: 1.38, cat: 1.3 };
+const SCALE: Record<Species, number> = { chicken: 1.14, duck: 1.14, cow: 1.1, goat: 1.08, sheep: 1.1, pig: 1.08, dog: 1.3, cat: 1.25 };
 const QUALITY_NAME = ['', 'silver', 'gold', 'iridium'];
 
 interface Live {
@@ -119,6 +134,8 @@ export class AnimalSystem implements System, AnimalsApi {
   private demoHeartT = 0;
   private checkT = 0;
   private rng = new Rng('animals');
+  /** Morning notes (hungry animals...), shown once the farmer is up again. */
+  private morning: { text: string; icon?: string; kind: 'info' | 'good' | 'bad' }[] = [];
 
   private static fresh(): State {
     return {
@@ -150,7 +167,8 @@ export class AnimalSystem implements System, AnimalsApi {
       // Watering can on the pet bowl fills it too.
       if (this.mapId === 'farm' && this.isBowl(x, z) && game.services.inventory?.selected()?.id === 'wateringCan') this.fillBowl();
     });
-    game.events.on('day:start', () => this.newDay());
+    game.events.on('day:start', ({ day }) => this.newDay(day));
+    game.events.on('sleep:wake', () => this.flushMorning());
     // Scything meadow weeds gathers hay once there's a building to store it for.
     game.events.on('tool:impact', ({ tool, hit }) => {
       const b = game.services.buildings;
@@ -243,17 +261,22 @@ export class AnimalSystem implements System, AnimalsApi {
     return s > 0.97 ? 3 : s > 0.8 ? 2 : s > 0.55 ? 1 : 0;
   }
 
-  private newDay(): void {
+  private newDay(day = this.game.calendar.day): void {
     const eggs = this.st.eggs;
     const made = new Map<string, number>();
+    const produce: AnimalSummary['produce'] = [];
+    const report: AnimalSummary['animals'] = [];
     const homes = { coop: this.st.animals.filter((a) => a.home === 'coop'), barn: this.st.animals.filter((a) => a.home === 'barn') };
     for (const a of this.st.animals) {
       const slot = homes[a.home].indexOf(a);
+      const f0 = a.friendship;
       // Hay left in the trough overnight feeds whoever didn't eat.
       if (!a.fed && this.st.hay[a.home][slot]) {
         this.st.hay[a.home][slot] = false;
         a.fed = true;
       }
+      const fed = a.fed;
+      const petted = a.petted;
       a.mood = THREE.MathUtils.clamp(a.mood + (a.fed ? 30 : -60) + (a.petted ? 20 : -10), 0, 255);
       if (!a.petted) a.friendship = Math.max(0, a.friendship - 8);
       if (!a.fed) a.friendship = Math.max(0, a.friendship - 20);
@@ -263,29 +286,64 @@ export class AnimalSystem implements System, AnimalsApi {
         if (a.days >= info.every) {
           a.days = 0;
           const q = this.quality(a);
-          if (info.byHand) a.ready = true;
-          else if (info.home === 'coop') {
+          if (info.byHand) {
+            a.ready = true;
+            produce.push({ item: produceFor(a.species, a.variant), q });
+          } else if (info.home === 'coop') {
             const free = [0, 1, 2, 3, 4, 5].filter((n) => !eggs.some((e) => e.nest === n));
             if (free.length) {
               let item = produceFor(a.species, a.variant);
               if (a.species === 'duck' && a.mood > 200 && a.friendship > 600 && this.rng.next() < 0.3) item = 'duckFeather';
               eggs.push({ nest: free[0]!, item, q });
               made.set(item, (made.get(item) ?? 0) + 1);
+              produce.push({ item, q });
             }
-          } else if (a.species === 'pig' && this.grazing()) this.digTruffles(q);
+          } else if (a.species === 'pig' && this.grazing()) {
+            this.digTruffles(q);
+            produce.push({ item: 'truffle', q });
+          }
         }
       }
+      report.push({ id: a.id, name: a.name, species: a.species, fed, petted, delta: a.friendship - f0 + (petted ? 15 : 0), friendship: a.friendship });
       a.fed = false;
       a.petted = false;
     }
     const pet = this.st.pet;
+    const bowl = pet.bowl;
     if (pet.bowl) pet.friendship = Math.min(1000, pet.friendship + 6);
     pet.bowl = this.game.calendar.weather === 'rain' || this.game.calendar.weather === 'storm';
     pet.petted = false;
     this.refreshProps();
     if (this.mapId) this.respawn();
-    const eggN = [...made.values()].reduce((a, b) => a + b, 0);
-    if (eggN) this.toast(`The coop has <b>${eggN}</b> fresh egg${eggN > 1 ? 's' : ''} this morning`, [...made.keys()][0]);
+    // Overnight report for the end-of-day screen + morning notes once the farmer is up.
+    const prevDay = day > 1 ? day - 1 : 28;
+    if (this.st.animals.length) {
+      const hungry = report.filter((r) => !r.fed);
+      this.game.events.emit('animals:summary', {
+        day: prevDay,
+        fed: report.length - hungry.length,
+        hungry: hungry.length,
+        unpetted: report.filter((r) => !r.petted).length,
+        animals: report,
+        produce,
+        pet: { name: pet.name, species: pet.species, bowl },
+      });
+      this.morning = [];
+      if (hungry.length === 1) this.morning.push({ text: `<b>${hungry[0]!.name}</b> looks hungry — fill the ${LIVESTOCK[hungry[0]!.species].home === 'barn' ? 'manger' : 'trough'} with hay`, icon: 'hay', kind: 'bad' });
+      else if (hungry.length > 1) this.morning.push({ text: `<b>${hungry[0]!.name}</b> and ${hungry.length - 1} other${hungry.length > 2 ? 's' : ''} look hungry this morning`, icon: 'hay', kind: 'bad' });
+      const eggN = [...made.values()].reduce((a, b) => a + b, 0);
+      if (eggN) this.morning.push({ text: `The coop has <b>${eggN}</b> fresh egg${eggN > 1 ? 's' : ''} this morning`, icon: [...made.keys()][0], kind: 'good' });
+      const ready = this.st.animals.filter((a) => a.ready);
+      if (ready.length) this.morning.push({ text: `<b>${ready[0]!.name}</b>${ready.length > 1 ? ` and ${ready.length - 1} more are` : ' is'} ready to ${ready[0]!.species === 'sheep' ? 'shear' : 'milk'}`, icon: produceFor(ready[0]!.species, ready[0]!.variant), kind: 'info' });
+      // No bed to wake up from (debug day rolls): show them right away.
+      if (!this.game.services.sleep) this.flushMorning();
+    }
+  }
+
+  private flushMorning(): void {
+    const notes = this.morning;
+    this.morning = [];
+    notes.forEach((n, i) => setTimeout(() => this.toast(n.text, n.icon, n.kind), 600 + i * 900));
   }
 
   private digTruffles(q: number): void {
@@ -325,6 +383,8 @@ export class AnimalSystem implements System, AnimalsApi {
     actor.heightAt = (x, z) => map.heightAt(x, z);
     actor.walkable = (x, z) => map.grid.isWalkable(Math.floor(x), Math.floor(z));
     if (rec && species === 'sheep') actor.wool = rec.ready ? 1 : 0.35 + 0.65 * Math.min(1, rec.days / LIVESTOCK.sheep.every);
+    actor.player = this.game.player.position;
+    actor.slotId = rec ? rec.id : 99;
     this.group.add(actor.root);
     const l: Live = { rec, actor, zT: Math.random() * 2, slot, leaving: false };
     this.live.push(l);
@@ -342,18 +402,20 @@ export class AnimalSystem implements System, AnimalsApi {
     if (pen) {
       const mine = this.st.animals.filter((a) => a.home === pen.kind);
       const out = this.outsideNow(pen.kind) && this.game.services.buildings?.has(pen.kind);
+      let perch = 0;
       mine.forEach((rec, i) => {
         if (out) return;
         const l = this.spawn(rec, rec.species, rec.variant, i);
         const s = pen.slots[i % pen.slots.length]!;
         const a = l.actor;
-        a.area = pen.area;
-        a.feedSpot = s.feed;
-        a.feedHeading = s.feedHeading;
-        a.bedSpot = s.bed;
+        this.seat(a, s, pen);
+        // Hens roost on the perches; ducks sleep in the straw.
+        const roost = rec.species === 'chicken' ? pen.perches?.[perch++] : undefined;
+        if (roost) a.bedSpot = roost;
         a.sleeping = night;
-        const p = night ? s.bed : this.randomIn(pen.area, a);
-        a.place(p.x, p.z, night ? Math.PI * (0.6 + Math.random() * 0.8) : Math.random() * Math.PI * 2);
+        const p = night ? a.bedSpot! : s.stall ? new THREE.Vector3((a.area.x0 + a.area.x1) / 2 + (Math.random() - 0.5) * 0.3, 0, THREE.MathUtils.lerp(a.area.z0, a.area.z1, Math.random())) : this.randomIn(pen.area, a);
+        const h = night ? (roost ? (Math.random() - 0.5) * 0.4 : (s.bedHeading ?? Math.PI * (0.6 + Math.random() * 0.8)) + (Math.random() - 0.5) * 0.5) : s.stall ? (Math.random() - 0.5) * 0.6 : Math.random() * Math.PI * 2;
+        a.place(p.x, p.z, h);
         a.settle();
       });
     } else if (map.id === 'farm') {
@@ -376,10 +438,31 @@ export class AnimalSystem implements System, AnimalsApi {
     }
   }
 
+  /** Wire an actor to its pen slot: manger stand spot (reach behind the mouth point), bed, own stall. */
+  private seat(a: AnimalActor, s: PenAnchors['slots'][number], pen: PenAnchors): void {
+    const reach = a.gait.reach * a.scale;
+    a.feedHeading = s.feedHeading;
+    a.feedSpot = new THREE.Vector3(s.feed.x - Math.sin(s.feedHeading) * reach, 0, s.feed.z - Math.cos(s.feedHeading) * reach);
+    a.bedSpot = s.bed;
+    if (s.stall) {
+      // Stall life: confined to its own stall, between the bedding and the manger.
+      const len = a.gait.len * a.scale;
+      const st = s.stall;
+      a.area = { x0: st.x0, z0: Math.min(st.z0 + len, a.feedSpot.z - 0.05), x1: st.x1, z1: a.feedSpot.z };
+      a.stalled = true;
+      a.confine = true;
+      a.walkable = () => true;
+    } else {
+      a.area = pen.area;
+      a.curious = true;
+    }
+  }
+
   private setupPasture(a: AnimalActor): void {
     const p = this.game.services.buildings!.pasture();
     a.area = { x0: p.x0 + 0.9, z0: p.z0 + 1.0, x1: p.x1 - 0.9, z1: p.z1 - 0.9 };
     a.grazes = true;
+    a.curious = true;
     a.sleeping = false;
   }
 
@@ -389,11 +472,11 @@ export class AnimalSystem implements System, AnimalsApi {
     const a = l.actor;
     a.sitter = true;
     if (indoors) {
-      // Curled up on the braided rug in front of the hearth.
-      a.area = { x0: 5.2, z0: 2.0, x1: 7.8, z1: 3.4 };
+      // Curled up in the wicker pet bed by the hearth.
+      a.area = { x0: 5.2, z0: 1.4, x1: 7.9, z1: 3.4 };
       a.sleeping = true;
-      a.bedSpot = new THREE.Vector3(6.2, 0, 2.15);
-      a.place(6.2, 2.15, 0.9);
+      a.bedSpot = new THREE.Vector3(7.95, 0.1, 1.5);
+      a.place(7.95, 1.5, -0.6);
     } else {
       const d = SITES.doghouse;
       a.area = { x0: 30.5, z0: 17.6, x1: 37.6, z1: 21.5 };
@@ -448,15 +531,15 @@ export class AnimalSystem implements System, AnimalsApi {
           const at = pen.plaques![i];
           if (!at) return;
           const m = new THREE.Mesh(plaqueGeo(), nameMaterial(a.name, 'plaque'));
-          m.position.set(at.x, 1.245, at.z + 0.012);
+          m.position.set(at.x, at.y, at.z);
           m.userData.noAO = true;
           this.props.add(m);
           this.hayMeshes.push(m);
         });
       } else if (pen.kind === 'coop' && mine.length) {
         const m = new THREE.Mesh(new THREE.PlaneGeometry(0.78, 0.48), nameMaterial(mine.map((a) => a.name).join('\n'), 'chalk'));
-        m.position.set(8.925, 1.51, 4.6);
-        m.rotation.y = -Math.PI / 2;
+        m.position.copy(pen.board?.at ?? new THREE.Vector3(8.925, 1.51, 4.6));
+        m.rotation.y = pen.board?.ry ?? -Math.PI / 2;
         m.userData.noAO = true;
         this.props.add(m);
         this.hayMeshes.push(m);
@@ -514,13 +597,25 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   private interact(x: number, z: number): void {
-    const cx = x + 0.5;
-    const cz = z + 0.5;
     const pen = this.pen();
-    if (pen) {
-      const t = pen.trough;
-      if (x >= t.x0 && x <= t.x1 && z >= t.z0 && z <= t.z1 && this.feed(pen)) return;
-      if (pen.kind === 'coop' && z <= 0 && x <= 2 && this.collectEggs()) return;
+    const holding = this.game.services.inventory?.selected()?.id;
+    const t = pen?.trough;
+    const onTrough = !!t && x >= t.x0 && x <= t.x1 && z >= t.z0 && z <= t.z1;
+    // Hay in hand + a manger / trough tile: always feed.
+    if (pen && onTrough && holding === 'hay') {
+      this.feed(pen);
+      return;
+    }
+    if (pen?.kind === 'coop' && z <= 0 && x <= 2 && this.collectEggs()) return;
+    // Otherwise an animal in reach wins (animals spend their day standing at the trough).
+    const hit = this.hitAnimal(x, z);
+    if (hit) {
+      this.petActor(hit);
+      return;
+    }
+    if (pen && onTrough) {
+      this.feed(pen);
+      return;
     }
     if (this.mapId === 'farm') {
       if (this.isBowl(x, z)) {
@@ -532,29 +627,45 @@ export class AnimalSystem implements System, AnimalsApi {
         const tr = this.st.truffles.splice(ti, 1)[0]!;
         this.give('truffle', tr.q, -1, 'pig');
         this.refreshProps();
-        return;
       }
     }
-    // Nearest animal to the faced tile (or right in front of the player).
+  }
+
+  /** The animal the farmer is reaching for: body capsule nearest to points along the facing ray. */
+  private hitAnimal(x: number, z: number): Live | null {
     const pp = this.game.player.position;
+    let dx = x + 0.5 - pp.x;
+    let dz = z + 0.5 - pp.z;
+    const dl = Math.hypot(dx, dz) || 1;
+    dx /= dl;
+    dz /= dl;
+    const samples = [0.45, 0.9, 1.35].map((k) => [pp.x + dx * k, pp.z + dz * k] as const);
+    samples.push([x + 0.5, z + 0.5]);
     let best: Live | null = null;
-    let bd = Infinity;
+    let bs = Infinity;
     for (const l of this.live) {
       if (l.leaving) continue;
-      const a = l.actor;
-      const d = Math.min(Math.hypot(a.pos.x - cx, a.pos.z - cz), Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z) + 0.25);
-      if (d < a.gait.radius + 0.75 && d < bd) {
-        bd = d;
-        best = l;
-      }
+      const c = l.actor.capsule();
+      samples.forEach(([sx, sz], i) => {
+        const ux = c.bx - c.ax;
+        const uz = c.bz - c.az;
+        const l2 = ux * ux + uz * uz;
+        const k = l2 > 1e-8 ? THREE.MathUtils.clamp(((sx - c.ax) * ux + (sz - c.az) * uz) / l2, 0, 1) : 0;
+        const d = Math.hypot(sx - (c.ax + ux * k), sz - (c.az + uz * k)) - c.r;
+        const score = d + i * 0.04;
+        if (d < 0.45 && score < bs) {
+          bs = score;
+          best = l;
+        }
+      });
     }
-    if (best) this.petActor(best);
+    return best;
   }
 
   private petActor(l: Live, quiet = false): void {
     const a = l.actor;
     a.pet();
-    this.pops.heart(a.topPoint());
+    this.pops.heart(a.topPoint(), a);
     if (!quiet) this.voice(a.species, a.species === 'chicken' || a.species === 'duck' ? 1.1 : 1);
     if (quiet) return;
     this.game.services.audio?.play('heart');
@@ -700,6 +811,69 @@ export class AnimalSystem implements System, AnimalsApi {
       }
     }
     this.pops.update(dt, game.rc.camera);
+    this.fadeHat(dt, game);
+  }
+
+  // ───────────────────────────────────────────── hat fade
+
+  private hatMats: THREE.Material[] | null = null;
+  private hatK = 1;
+  private _hp = new THREE.Vector3();
+  private _hq = new THREE.Vector3();
+  private _hl: THREE.Vector3[] = [];
+
+  /**
+   * The farmer's straw hat is big from the high camera: dither it down (alpha-hashed, no sorting
+   * issues) whenever the animal being petted / a heart pop sits behind it on screen.
+   */
+  private fadeHat(dt: number, game: Game): void {
+    const hat = (game.player as unknown as { rig?: { hat?: THREE.Object3D } }).rig?.hat;
+    if (!hat) return;
+    if (!this.hatMats) {
+      this.hatMats = [];
+      hat.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const list = (Array.isArray(m.material) ? m.material : [m.material]).map((mm) => {
+          const c = mm.clone();
+          c.alphaHash = true;
+          this.hatMats!.push(c);
+          return c;
+        });
+        m.material = Array.isArray(m.material) ? list : list[0]!;
+      });
+    }
+    let want = 1;
+    if (this.live.length) {
+      const cam = game.rc.camera;
+      hat.getWorldPosition(this._hp);
+      const camD = this._hp.distanceTo(cam.position);
+      const c = this._hq.copy(this._hp).project(cam);
+      const cx = c.x;
+      const cy = c.y;
+      // Hat radius on screen (NDC y units, ~0.42 m brim).
+      const r = (0.42 / (camD * Math.tan(THREE.MathUtils.degToRad((cam as THREE.PerspectiveCamera).fov / 2)))) * 1.15;
+      const asp = (cam as THREE.PerspectiveCamera).aspect;
+      const behind = (p: THREE.Vector3): boolean => {
+        if (p.distanceTo(cam.position) < camD + 0.05) return false;
+        const q = this._hq.copy(p).project(cam);
+        return Math.hypot((q.x - cx) * asp, q.y - cy) < r;
+      };
+      const pp = game.player.position;
+      for (const h of this.pops.hearts(this._hl)) if (behind(h)) want = 0.35;
+      if (want === 1) {
+        for (const l of this.live) {
+          const a = l.actor;
+          if (Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z) > 2.2) continue;
+          if (behind(a.topPoint(this._hq.clone())) || behind(a.pos.clone().setY(a.pos.y + a.gait.top * a.scale * 0.5))) {
+            want = 0.35;
+            break;
+          }
+        }
+      }
+    }
+    this.hatK += (want - this.hatK) * (1 - Math.exp(-10 * dt));
+    for (const m of this.hatMats) m.opacity = this.hatK;
   }
 
   // ───────────────────────────────────────────── demos
@@ -714,8 +888,16 @@ export class AnimalSystem implements System, AnimalsApi {
     st.pet = { species: petKind, variant: Number(params.get('petVariant') ?? 0) % 2, name: PET_NAMES[petKind], friendship: 700, bowl: true, petted: false };
     const coop: [Livestock, number, number][] = [['chicken', 0, 820], ['chicken', 1, 640], ['duck', 1, 720], ['chicken', 0, 400], ['duck', 0, 560], ['chicken', 1, 900]];
     const barn: [Livestock, number, number][] = [['cow', 0, 800], ['cow', 1, 620], ['sheep', 0, 700], ['goat', 1, 540], ['pig', 0, 880], ['sheep', 1, 450]];
+    const gallery = name === 'animals-gallery';
+    if (gallery) {
+      // Every species and coat side by side (the building caps don't apply to a line-up).
+      coop.splice(0, coop.length, ['chicken', 0, 800], ['chicken', 1, 800], ['duck', 0, 800], ['duck', 1, 800]);
+      barn.splice(0, barn.length, ['cow', 0, 800], ['cow', 1, 800], ['goat', 0, 800], ['goat', 1, 800], ['sheep', 0, 800], ['sheep', 1, 800], ['pig', 0, 800], ['pig', 1, 800]);
+    }
     for (const [s, v, f] of [...coop, ...barn]) this.add(s, v, undefined, f).mood = 230;
     for (const a of st.animals) if (a.species === 'sheep') a.ready = true;
+    // &petted=1 pre-marks today's petting (default: nobody petted yet, so a critic's pet shows the +friendship).
+    if (params.get('petted') === '1') for (const a of st.animals) a.petted = true;
     st.eggs = [
       { nest: 0, item: 'egg', q: 1 },
       { nest: 1, item: 'brownEgg', q: 0 },
@@ -734,9 +916,19 @@ export class AnimalSystem implements System, AnimalsApi {
     if (pen && night) {
       // Night showcase: everyone tucked into the straw; no petting hearts.
       this.demoHearts = 0;
+      this.holdHay();
       return;
     }
-    if (pen) {
+    if (pen?.kind === 'barn') {
+      // Everyone up at the front of their stall looking out over the manger; the fed ones munching.
+      for (const l of this.live) {
+        if (!l.rec || !l.actor.feedSpot) continue;
+        const a = l.actor;
+        a.hungry = !!st.hay.barn[l.slot];
+        a.place(a.feedSpot!.x + (Math.random() - 0.5) * 0.2, a.feedSpot!.z - (a.hungry ? 0 : 0.15), (Math.random() - 0.5) * 0.3);
+        a.settle();
+      }
+    } else if (pen) {
       const pp = this.game.player.position;
       this.live.forEach((l, i) => {
         if (!l.rec) return;
@@ -747,7 +939,7 @@ export class AnimalSystem implements System, AnimalsApi {
         }
       });
       const free = this.live.find((l) => l.rec && !st.hay[pen.kind][l.slot]);
-      if (free) free.actor.place(pp.x + (pen.kind === 'coop' ? 0.75 : 1.05), pp.z - 0.55, -2.2);
+      if (free) free.actor.place(pp.x + 0.78, pp.z + 0.05, -Math.PI / 2);
     } else if (this.mapId === 'farm') {
       // Hand-placed pasture composition (world coords) so the framing reads.
       const spots: Record<string, [number, number, number][]> = {
@@ -758,6 +950,31 @@ export class AnimalSystem implements System, AnimalsApi {
         chicken: [[40.1, 38.4, 2.4], [40.9, 39.3, -1.0], [37.9, 39.9, 0.5], [42.0, 38.1, 1.9]],
         duck: [[43.0, 42.6, 1.4], [43.8, 42.9, -2.5]],
       };
+      if (gallery) {
+        const row: Record<string, [number, number, number][]> = {
+          cow: [[38.9, 39.2, 0.4], [41.0, 39.2, 0.4]],
+          goat: [[42.9, 39.4, 0.4], [44.3, 39.4, 0.4]],
+          sheep: [[45.7, 39.4, 0.4], [47.1, 39.4, 0.4]],
+          pig: [[48.5, 39.4, 0.4], [49.9, 39.4, 0.4]],
+          chicken: [[41.6, 40.9, 0.45], [42.5, 40.9, 0.45]],
+          duck: [[43.5, 40.9, 0.45], [44.4, 40.9, 0.45]],
+        };
+        const n: Record<string, number> = {};
+        for (const l of this.live) {
+          const k = l.rec?.species ?? 'pet';
+          const s = k === 'pet' ? ([46.2, 41.0, 0.5] as [number, number, number]) : row[k]?.[(n[k] = (n[k] ?? -1) + 1)];
+          if (!s) continue;
+          l.actor.area = { x0: s[0], z0: s[1], x1: s[0], z1: s[1] };
+          l.actor.curious = false;
+          l.actor.sitter = false;
+          l.actor.calm = true;
+          l.actor.place(s[0], s[1], s[2]);
+          l.actor.settle();
+        }
+        this.demoHearts = 0;
+        this.holdHay();
+        return;
+      }
       const used: Record<string, number> = {};
       for (const l of this.live) {
         if (!l.rec) continue;
@@ -780,6 +997,17 @@ export class AnimalSystem implements System, AnimalsApi {
     }
     this.demoHearts = params.get('hearts') === '0' ? 0 : 1;
     this.demoHeartT = 0.2;
+    this.holdHay();
+  }
+
+  /** Demos: hay in hand (a toolbar slot), so no tile cursor sits under the shot and feeding is one click. */
+  private holdHay(): void {
+    const inv = this.game.services.inventory;
+    if (!inv) return;
+    let slot = inv.slots.slice(0, 10).findIndex((s) => !s || s.id === 'hay');
+    if (slot < 0) slot = 9;
+    inv.setSlot(slot, { id: 'hay', qty: 24 });
+    this.game.events.emit('toolbar:select', { slot });
   }
 
   // ───────────────────────────────────────────── save

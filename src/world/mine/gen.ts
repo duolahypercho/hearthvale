@@ -9,7 +9,7 @@
  */
 import { Rng } from '../../core/rng';
 import { Noise2D } from '../../core/noise';
-import { BIOMES, ELEVATOR_EVERY, biomeForFloor, tierForFloor, type Biome, type MonsterKind, type OreId } from './biomes';
+import { BIOMES, ELEVATOR_EVERY, ORE_STYLE, biomeForFloor, tierForFloor, type Biome, type MonsterKind, type OreId } from './biomes';
 
 export interface RockSpec {
   x: number;
@@ -83,6 +83,8 @@ export interface FloorLayout {
   ladderUp: { x: number; z: number };
   spawn: { x: number; z: number };
   elevator: { x: number; z: number } | null;
+  /** Milestone treasure chest (floors 10, 20, 30, …): reforges the sword. */
+  chest: { x: number; z: number } | null;
   rocks: RockSpec[];
   monsters: { kind: MonsterKind; x: number; z: number }[];
   crystals: CrystalSpec[];
@@ -227,6 +229,37 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       elevator = { x: eb.x, z: eb.z };
       reserve(eb.x, eb.z, 1);
       reserve(eb.x, eb.z + 1, 0);
+    }
+  }
+
+  // ── milestone chest every 10 floors: a few steps from the arrival, in open floor ─────
+  let chest: { x: number; z: number } | null = null;
+  if (floor % 10 === 0) {
+    let cb: { x: number; z: number; s: number } | null = null;
+    for (let z = 3; z < D - 3; z++)
+      for (let x = 3; x < W - 3; x++) {
+        if (reserved[idx(x, z)]) continue;
+        let ok = true;
+        for (let dz = -1; dz <= 1 && ok; dz++) for (let dx = -1; dx <= 1 && ok; dx++) if (!open(x + dx, z + dz) || reserved[idx(x + dx, z + dz)]) ok = false;
+        if (!ok) continue;
+        const d = Math.hypot(x - spawn.x, z - spawn.z);
+        if (d < 2.5) continue;
+        // Open floor towards the camera (south) and to the west (where the farmer stands to open
+        // it), a wall a few tiles north as a backdrop.
+        let southOpen = true;
+        for (let dz = 2; dz <= 4 && southOpen; dz++) for (let dx = -2; dx <= 1 && southOpen; dx++) if (!open(x + dx, z + dz)) southOpen = false;
+        if (!southOpen || !open(x - 2, z)) continue;
+        let wallN = 3;
+        for (let dz = 2; dz <= 5; dz++) if (!open(x, z - dz)) {
+          wallN = 0;
+          break;
+        }
+        const sc = Math.abs(d - 4.5) * 0.6 + wallN + rng.next() * 0.5;
+        if (!cb || sc < cb.s) cb = { x, z, s: sc };
+      }
+    if (cb) {
+      chest = { x: cb.x, z: cb.z };
+      reserve(cb.x, cb.z, 1);
     }
   }
 
@@ -466,7 +499,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     for (const t of lavaTiles) {
       if (!spaced(picked, t.x, t.z, 5)) continue;
       picked.push(t);
-      lightSources.push({ x: t.x + 0.5, y: 1.1, z: t.z + 0.5, color: 0xff5a1a, intensity: 5.5, distance: 7.5, flicker: 0.5, w: 3 });
+      lightSources.push({ x: t.x + 0.5, y: 1.1, z: t.z + 0.5, color: 0xff6a24, intensity: 3.6, distance: 6.5, flicker: 0.5, w: 3 });
     }
   }
   if (biome === 'earth') {
@@ -482,7 +515,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
   // ── breakable rocks ─────────────────────────────────────────────
   const rocks: RockSpec[] = [];
   const depthInBand = ((floor - 1) % 10) / 9;
-  const oreTable = def.ores.map(([o, w]) => [o, o === null ? w * (1 - depthInBand * 0.25) : w * (1 + depthInBand * 0.4 + tier * 0.3)] as const);
+  const oreTable = oreTableFor(floor, def.ores, depthInBand, tier);
   for (let z = 2; z < D - 2; z++) {
     for (let x = 2; x < W - 2; x++) {
       const i = idx(x, z);
@@ -527,7 +560,13 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
   const monsters: { kind: MonsterKind; x: number; z: number }[] = [];
   const count = Math.min(12, 3 + Math.floor(((floor - 1) % 10) * 0.5) + tier * 2 + (floor >= 3 ? 1 : 0));
   const spots: { x: number; z: number }[] = [];
-  for (let z = 2; z < D - 2; z++) for (let x = 2; x < W - 2; x++) if (isFloor(x, z) && !taken[idx(x, z)] && dist[idx(x, z)]! >= 7) spots.push({ x, z });
+  // Never on a tile within 1.5 tiles of rock or lava (the shell's foot and the lava lip wander into
+  // the edge tiles: a monster there reads as half-buried in the wall).
+  const roomy = (x: number, z: number): boolean => {
+    for (const [dx, dz] of N8) if (!isFloor(x + dx, z + dz)) return false;
+    return true;
+  };
+  for (let z = 2; z < D - 2; z++) for (let x = 2; x < W - 2; x++) if (isFloor(x, z) && !taken[idx(x, z)] && dist[idx(x, z)]! >= 7 && roomy(x, z)) spots.push({ x, z });
   rng.shuffle(spots);
   const mTable = def.monsters.filter(([k]) => k !== 'crab' || floor >= 4);
   for (const s of spots) {
@@ -547,7 +586,30 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     lights.push({ x: l.x, y: l.y, z: l.z, color: l.color, intensity: l.intensity, distance: l.distance, flicker: l.flicker });
   }
 
-  return { floor, biome, tier, w: W, d: D, solid, lava, pool, ladderUp, spawn, elevator, rocks, monsters, crystals, decor, lights, dist };
+  return { floor, biome, tier, w: W, d: D, solid, lava, pool, ladderUp, spawn, elevator, chest, rocks, monsters, crystals, decor, lights, dist };
+}
+
+/**
+ * Floor-gated ore weights: copper (+ coal / quartz) on floors 1–4, iron from 5, gold from 21, and
+ * gems kept to ≤ 2 % of rolls above floor 10 (a gem up there is an event, not a pocketful).
+ * Richer deeper in each band and on the repeat tiers.
+ */
+export function oreTableFor(floor: number, ores: [OreId | null, number][], depthInBand: number, tier: number): (readonly [OreId | null, number])[] {
+  const gate = (o: OreId): boolean => {
+    if (tier > 0) return true;
+    if (o === 'ironOre') return floor >= 5;
+    if (o === 'goldOre') return floor >= 21;
+    return true;
+  };
+  const rows = ores.filter(([o]) => o === null || gate(o)).map(([o, w]) => [o, o === null ? w * (1 - depthInBand * 0.25) : w * (1 + depthInBand * 0.4 + tier * 0.3)] as [OreId | null, number]);
+  if (floor < 10 && tier === 0) {
+    const isGem = (o: OreId | null): boolean => o !== null && o !== 'quartz' && ORE_STYLE[o].kind === 'gem';
+    const total = rows.reduce((a, [, w]) => a + w, 0);
+    const gems = rows.filter(([o]) => isGem(o)).reduce((a, [, w]) => a + w, 0);
+    const cap = total * 0.02;
+    if (gems > cap) for (const r of rows) if (isGem(r[0])) r[1] *= cap / gems;
+  }
+  return rows;
 }
 
 /** Keep only the largest 4-connected open region (others become rock). */

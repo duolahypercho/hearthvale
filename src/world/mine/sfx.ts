@@ -140,6 +140,22 @@ export const mineSfx = {
   reveal(): void {
     [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.3, 'triangle', 0.07, 1, i * 0.07));
   },
+  sizzle(): void {
+    noise(0.45, 0.35, 5200, 2200, 0.7, 'highpass');
+    noise(0.3, 0.2, 900, 300, 1, 'lowpass', 0.03);
+  },
+  chest(): void {
+    noise(0.2, 0.25, 600, 200, 1, 'lowpass');
+    [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.45, 'triangle', 0.08, 1, 0.12 + i * 0.08));
+  },
+  zap(): void {
+    tone(r(1500, 1700), 0.25, 'sine', 0.06, 0.4);
+    noise(0.2, 0.12, 4000, 1500, 2, 'bandpass', 0.02);
+  },
+  fireball(): void {
+    noise(0.35, 0.25, 400, 1400, 0.8, 'bandpass');
+    tone(r(140, 170), 0.3, 'sawtooth', 0.04, 0.7);
+  },
   passOut(): void {
     [392, 330, 262, 196].forEach((f, i) => tone(f, 0.5, 'triangle', 0.08, 0.98, i * 0.22));
   },

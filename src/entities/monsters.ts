@@ -16,7 +16,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Rng } from '../core/rng';
 import { lumpySphere, smoothNormals } from '../world/geom';
-import { facetRock } from '../world/mine/rockgeo';
+import { facetRock, crystalPrism } from '../world/mine/rockgeo';
+import { glowPoint } from '../world/mine/fx';
 import { patchMaterial, after, before } from '../render/patch';
 import type { Biome, MonsterKind } from '../world/mine/biomes';
 
@@ -28,7 +29,14 @@ export interface ArenaCtx {
   walkable(x: number, z: number): boolean;
   flyable(x: number, z: number): boolean;
   heightAt(x: number, z: number): number;
+  /**
+   * Is a disc of radius r at (x, z) on open floor, clear of the cave shell (whose rock foot wanders
+   * into the edge tiles)? `fly` = only the wall mass above bat height counts.
+   */
+  clear?(x: number, z: number, r: number, fly?: boolean): boolean;
   onAttack(m: Monster, damage: number): void;
+  /** Launch a projectile (imp fireballs) from `from` along the xz direction `dir`. */
+  shoot?(m: Monster, from: THREE.Vector3, dir: THREE.Vector3, damage: number): void;
   /** Particle hooks. */
   puff(p: THREE.Vector3, color: number, count: number, kind: 'dust' | 'goo' | 'spark'): void;
   rng: Rng;
@@ -38,7 +46,7 @@ export interface ArenaCtx {
 const BAT_RIM: Record<Biome, number> = { earth: 0xe0b8ff, ice: 0xffd8a8, lava: 0xff9a4a };
 
 const PALETTE: Record<Biome, { slime: number; slimeCore: number; bat: number; batEye: number; crab: number; crabLeg: number }> = {
-  earth: { slime: 0x7ed957, slimeCore: 0x3f9a2a, bat: 0x5a4668, batEye: 0xffd24a, crab: 0x8d7a66, crabLeg: 0xd8764a },
+  earth: { slime: 0x7ed957, slimeCore: 0x3f9a2a, bat: 0x5a4668, batEye: 0xffd24a, crab: 0xa29c94, crabLeg: 0xd8764a },
   ice: { slime: 0x7fd8ff, slimeCore: 0x2a7ac8, bat: 0x3e4a86, batEye: 0xffd24a, crab: 0x9fb4c8, crabLeg: 0x5a8ac8 },
   lava: { slime: 0xff7a2a, slimeCore: 0xc81e0a, bat: 0x3a2a2a, batEye: 0xff5a1a, crab: 0x4e4240, crabLeg: 0xa83a1a },
 };
@@ -47,6 +55,8 @@ const STATS: Record<MonsterKind, { hp: number; dmg: number; radius: number; knoc
   slime: { hp: 24, dmg: 6, radius: 0.42, knock: 6.5 },
   bat: { hp: 16, dmg: 6, radius: 0.35, knock: 7.5 },
   crab: { hp: 42, dmg: 9, radius: 0.45, knock: 3 },
+  wisp: { hp: 20, dmg: 4, radius: 0.36, knock: 6 },
+  imp: { hp: 26, dmg: 7, radius: 0.38, knock: 6.5 },
 };
 
 /** Standard material with a patchable flash + rim (per monster, so each can flash on its own). */
@@ -164,6 +174,11 @@ export abstract class Monster {
     return this.dying < 0 && !this.dead;
   }
 
+  /** Fliers (bats, wisps) pass over walkers and hover at head height. */
+  get flies(): boolean {
+    return this.kind === 'bat' || this.kind === 'wisp';
+  }
+
   /** Apply a hit; returns true if it killed. */
   hit(dmg: number, dir: THREE.Vector3, power = 1): boolean {
     if (!this.alive) return false;
@@ -190,7 +205,7 @@ export abstract class Monster {
 
   /** Slide-move with tile collision. */
   protected move(dt: number, ctx: ArenaCtx, fly = false): void {
-    const ok = (x: number, z: number): boolean => {
+    const tiles = (x: number, z: number): boolean => {
       const r = this.radius * 0.8;
       for (const [ox, oz] of [[-r, -r], [r, -r], [-r, r], [r, r]] as const) {
         const tx = Math.floor(x + ox);
@@ -199,6 +214,10 @@ export abstract class Monster {
       }
       return true;
     };
+    // Radius-aware against the rock itself (never half inside a wall). A monster that somehow is
+    // already overlapping the rock may still move (so it can walk out).
+    const inRock = ctx.clear ? !ctx.clear(this.pos.x, this.pos.z, this.radius, fly) : false;
+    const ok = (x: number, z: number): boolean => tiles(x, z) && (inRock || !ctx.clear || ctx.clear(x, z, this.radius, fly));
     const nx = this.pos.x + this.vel.x * dt;
     const nz = this.pos.z + this.vel.z * dt;
     if (ok(nx, this.pos.z)) this.pos.x = nx;
@@ -799,6 +818,321 @@ export class Crab extends Monster {
   }
 }
 
+// ───────────────────────────────────────────── Frost wisp (ice band)
+
+/**
+ * A little knot of cold light with a cute face and three ice shards orbiting it. Drifts in slow
+ * figure-eights, then glides in and "chills" the farmer on contact (small damage + a 2.5 s slow),
+ * and backs off. Floats at head height (a flier: passes over rocks and slimes).
+ */
+export class Wisp extends Monster {
+  private body = new THREE.Group();
+  private shards: THREE.Group;
+  private halo: THREE.Points;
+  private core: THREE.Mesh;
+  private mode: 'drift' | 'glide' | 'back' = 'drift';
+  private modeT = 0;
+  private home: THREE.Vector2;
+  private alt = 0.95;
+  private pulse = 0;
+  private trailT = 0;
+
+  constructor(biome: Biome, x: number, z: number, tier: number, band: number, seed: number) {
+    super('wisp', biome, x, z, tier, band, seed);
+    const r = new Rng(seed);
+    this.home = new THREE.Vector2(x, z);
+    const coreMat = monsterMat(0xc8f0ff, { rough: 0.15, clearcoat: true, emissive: 0x4ab0e8, emissiveI: 0.5, rim: 0.9, rimColor: 0xe8fbff });
+    this.mats.push(coreMat);
+    const cg = lumpySphere(0.22, 2, 0.03, r, 2);
+    smoothNormals(cg);
+    this.core = new THREE.Mesh(cg, coreMat);
+    this.core.scale.set(1, 1.08, 0.95);
+    this.body.add(this.core);
+    for (const sx of [-1, 1]) {
+      const e = eye(0.055);
+      e.position.set(sx * 0.075, 0.02, 0.18);
+      this.body.add(e);
+    }
+    const blush = new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.7 });
+    for (const sx of [-1, 1]) {
+      const b = new THREE.Mesh(new THREE.CircleGeometry(0.03, 10), blush);
+      b.position.set(sx * 0.13, -0.05, 0.19);
+      b.rotation.y = sx * 0.4;
+      this.body.add(b);
+    }
+    this.halo = glowPoint(0x6fc8f0, 1.3, 0.42);
+    this.body.add(this.halo);
+    this.shards = new THREE.Group();
+    const iceMat = monsterMat(0xe8f8ff, { rough: 0.08, flat: true, emissive: 0x3a90c8, emissiveI: 0.8, rim: 0.8 });
+    this.mats.push(iceMat);
+    for (let k = 0; k < 3; k++) {
+      const g = crystalPrism(0.045, 0.2 + r.next() * 0.08, 0.35);
+      const m = new THREE.Mesh(g, iceMat);
+      const a = (k / 3) * Math.PI * 2;
+      m.position.set(Math.cos(a) * 0.36, (k - 1) * 0.06, Math.sin(a) * 0.36);
+      m.rotation.set(r.next() * 0.6, r.next() * 6, 0.5 + r.next() * 0.4);
+      m.castShadow = true;
+      this.shards.add(m);
+    }
+    this.body.add(this.shards);
+    this.body.position.y = this.alt;
+    this.root.add(this.body);
+    this.pulse = r.next() * 10;
+  }
+
+  override headPos(out: THREE.Vector3): THREE.Vector3 {
+    return out.copy(this.pos).setY(this.pos.y + this.alt + 0.45);
+  }
+
+  protected override onHit(): void {
+    this.mode = 'back';
+    this.modeT = 0;
+  }
+
+  protected think(dt: number, ctx: ArenaCtx): void {
+    const g = ctx.heightAt(this.pos.x, this.pos.z);
+    const to = new THREE.Vector2(ctx.player.x - this.pos.x, ctx.player.z - this.pos.z);
+    const dist = to.length();
+    if (dist < 6.5) this.aggro = true;
+    this.modeT += dt;
+    const want = new THREE.Vector2();
+    if (this.stun <= 0) {
+      if (this.mode === 'drift') {
+        const a = ctx.time * 0.6 + this.seed;
+        want.set(this.home.x + Math.sin(a) * 1.6 - this.pos.x, this.home.y + Math.sin(a * 2) * 0.8 - this.pos.z).clampLength(0, 1).multiplyScalar(1.4);
+        if (this.aggro && ctx.playerTargetable && this.modeT > 0.6) {
+          this.mode = 'glide';
+          this.modeT = 0;
+        }
+      } else if (this.mode === 'glide') {
+        const side = new THREE.Vector2(-to.y, to.x).normalize().multiplyScalar(Math.sin(ctx.time * 2.2 + this.seed) * 0.9);
+        want.copy(to).normalize().multiplyScalar(2.1).add(side);
+        if (!ctx.playerTargetable) this.mode = 'drift';
+        if (dist < this.radius + 0.42 && this.attackCooldown <= 0) {
+          this.attackCooldown = 1.6;
+          ctx.onAttack(this, this.damage);
+          ctx.puff(new THREE.Vector3(ctx.player.x, g + 0.9, ctx.player.z), 0xcff4ff, 14, 'spark');
+          this.mode = 'back';
+          this.modeT = 0;
+        }
+      } else {
+        want.copy(to).normalize().multiplyScalar(-2.4);
+        if (this.modeT > 1.1) {
+          this.mode = 'glide';
+          this.modeT = 0;
+        }
+      }
+      const k = 1 - Math.exp(-dt * 3);
+      this.vel.x += (want.x - this.vel.x) * k;
+      this.vel.z += (want.y - this.vel.z) * k;
+    }
+    this.move(dt, ctx, true);
+    this.pos.y = g;
+    this.animate(dt, ctx);
+  }
+
+  private animate(dt: number, ctx: ArenaCtx): void {
+    this.pulse += dt;
+    const bob = Math.sin(ctx.time * 2.4 + this.seed) * 0.1;
+    this.body.position.y = this.alt + bob;
+    this.shards.rotation.y += dt * (this.mode === 'glide' ? 3.2 : 1.6);
+    const glow = 0.85 + 0.15 * Math.sin(this.pulse * 5);
+    (this.halo.material as THREE.PointsMaterial).size = 1.25 * glow + (this.mode === 'glide' ? 0.2 : 0);
+    this.core.scale.set(1 / Math.sqrt(glow), 1.08 * glow, 0.95);
+    this.core.rotation.y = Math.sin(ctx.time * 1.3 + this.seed) * 0.3;
+    this.blob.position.y = 0.03;
+    this.blob.scale.setScalar(this.radius * 0.9);
+    (this.blob.material as THREE.MeshBasicMaterial).opacity = 0.18;
+    this.trailT -= dt;
+    if (this.trailT <= 0 && Math.hypot(this.vel.x, this.vel.z) > 0.6) {
+      this.trailT = 0.16;
+      ctx.puff(this.pos.clone().setY(this.pos.y + this.alt + bob), 0xbfefff, 1, 'spark');
+    }
+  }
+
+  protected override pose(dt: number, ctx: ArenaCtx): void {
+    this.pos.y = ctx.heightAt(this.pos.x, this.pos.z);
+    this.animate(dt, ctx);
+  }
+
+  protected animateDeath(dt: number, ctx: ArenaCtx): void {
+    const t = this.dying;
+    this.body.scale.setScalar(1 + t * 2.5);
+    this.shards.rotation.y += dt * 12;
+    (this.halo.material as THREE.PointsMaterial).opacity = Math.max(0, 0.75 - t * 3);
+    this.root.position.copy(this.pos);
+    if (t > 0.22 && !this.dead) {
+      this.dead = true;
+      const p = this.pos.clone().setY(this.pos.y + this.alt);
+      ctx.puff(p, 0xdff6ff, 24, 'spark');
+      ctx.puff(p, 0xe8f4ff, 10, 'dust');
+    }
+  }
+}
+
+// ───────────────────────────────────────────── Cinder imp (lava band)
+
+/**
+ * A soot-black imp with a glowing belly, stubby horns and a flame tuft. Keeps 3.5–5 m away,
+ * strafes, and every couple of seconds winds up (belly and flame flare, squash) and lobs a fireball
+ * at where the farmer stands. Fireballs can be dodged — or cut out of the air with the sword.
+ */
+export class Imp extends Monster {
+  private body = new THREE.Group();
+  private belly: THREE.Mesh;
+  private flame: THREE.Mesh;
+  private legs: THREE.Mesh[] = [];
+  private tail: THREE.Group;
+  private windup = -1;
+  private fireCd: number;
+  private strafe = 1;
+  private strafeT = 0;
+  private hop = 0;
+  private sy = 1;
+  private vy = 0;
+
+  constructor(biome: Biome, x: number, z: number, tier: number, band: number, seed: number) {
+    super('imp', biome, x, z, tier, band, seed);
+    const r = new Rng(seed);
+    const skin = monsterMat(0x4a1e18, { rough: 0.55, emissive: 0x2a0600, emissiveI: 1, rim: 0.7, rimColor: 0xff8a3a });
+    this.mats.push(skin);
+    const bg = lumpySphere(0.27, 2, 0.04, r, 2);
+    smoothNormals(bg);
+    const bodyM = new THREE.Mesh(bg, skin);
+    bodyM.scale.set(1, 0.95, 0.92);
+    bodyM.position.y = 0.36;
+    bodyM.castShadow = true;
+    this.body.add(bodyM);
+    const bellyMat = monsterMat(0xff8a2a, { rough: 0.4, emissive: 0xff6a10, emissiveI: 1.6, rim: 0.3 });
+    this.mats.push(bellyMat);
+    this.belly = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), bellyMat);
+    this.belly.scale.set(1, 1.1, 0.5);
+    this.belly.position.set(0, 0.3, 0.19);
+    this.body.add(this.belly);
+    const hornMat = monsterMat(0xefe0c0, { rough: 0.5, rim: 0.3 });
+    this.mats.push(hornMat);
+    for (const sx of [-1, 1]) {
+      const h = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 7), hornMat);
+      h.position.set(sx * 0.14, 0.6, 0.02);
+      h.rotation.z = -sx * 0.5;
+      this.body.add(h);
+      const e = eye(0.05, 0xffd84a);
+      e.position.set(sx * 0.085, 0.45, 0.22);
+      this.body.add(e);
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.1, 3, 6), skin);
+      leg.position.set(sx * 0.12, 0.1, 0);
+      leg.castShadow = true;
+      this.legs.push(leg);
+      this.body.add(leg);
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.04, 0.12, 3, 6), skin);
+      arm.position.set(sx * 0.27, 0.32, 0.04);
+      arm.rotation.z = sx * 0.7;
+      this.body.add(arm);
+    }
+    const flameMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb040).multiplyScalar(2.2), transparent: true, opacity: 0.95 });
+    this.flame = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 8), flameMat);
+    this.flame.position.set(0, 0.72, -0.02);
+    this.body.add(this.flame);
+    this.tail = new THREE.Group();
+    const tailSeg = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.28, 3, 6), skin);
+    tailSeg.rotation.x = -1.0;
+    tailSeg.position.set(0, 0.12, -0.14);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.1, 4), bellyMat);
+    tip.position.set(0, 0.25, -0.3);
+    tip.rotation.x = -0.6;
+    this.tail.add(tailSeg, tip);
+    this.tail.position.set(0, 0.18, -0.12);
+    this.body.add(this.tail);
+    this.root.add(this.body);
+    this.fireCd = 1.2 + r.next() * 1.5;
+  }
+
+  override headPos(out: THREE.Vector3): THREE.Vector3 {
+    return out.copy(this.pos).setY(this.pos.y + 0.95);
+  }
+
+  protected override onHit(): void {
+    this.windup = -1;
+    this.vy -= 4;
+  }
+
+  protected think(dt: number, ctx: ArenaCtx): void {
+    const g = ctx.heightAt(this.pos.x, this.pos.z);
+    const to = new THREE.Vector2(ctx.player.x - this.pos.x, ctx.player.z - this.pos.z);
+    const dist = to.length();
+    if (dist < 7.5) this.aggro = true;
+    this.fireCd -= dt;
+    if (this.stun <= 0 && this.aggro && ctx.playerTargetable) {
+      const dir = to.clone().normalize();
+      // Keep range: back off inside 3.5 m, close in beyond 5 m, strafe in between.
+      const range = dist < 3.4 ? -1 : dist > 5 ? 1 : 0;
+      this.strafeT -= dt;
+      if (this.strafeT <= 0) {
+        this.strafe = -this.strafe;
+        this.strafeT = 1 + ctx.rng.next();
+      }
+      const want = dir.clone().multiplyScalar(range * 1.8).add(new THREE.Vector2(-dir.y, dir.x).multiplyScalar(this.strafe * (this.windup >= 0 ? 0 : 1.1)));
+      const k = 1 - Math.exp(-dt * 5);
+      this.vel.x += (want.x - this.vel.x) * k;
+      this.vel.z += (want.y - this.vel.z) * k;
+      this.root.rotation.y += (Math.atan2(to.x, to.y) - this.root.rotation.y) * (1 - Math.exp(-dt * 8));
+      if (this.windup < 0 && this.fireCd <= 0 && dist < 7) this.windup = 0;
+      if (this.windup >= 0) {
+        this.windup += dt;
+        if (this.windup > 0.5) {
+          this.windup = -1;
+          this.fireCd = 2.2 + ctx.rng.next() * 0.8;
+          this.vy += 5;
+          const from = this.pos.clone().setY(g + 0.55).addScaledVector(new THREE.Vector3(dir.x, 0, dir.y), 0.3);
+          ctx.shoot?.(this, from, new THREE.Vector3(dir.x, 0, dir.y), this.damage);
+        }
+      }
+    } else {
+      this.vel.x *= Math.exp(-dt * 6);
+      this.vel.z *= Math.exp(-dt * 6);
+    }
+    this.move(dt, ctx);
+    this.pos.y = g;
+    this.animate(dt, ctx);
+    this.touchPlayer(ctx, 0.25);
+  }
+
+  private animate(dt: number, ctx: ArenaCtx): void {
+    const speed = Math.hypot(this.vel.x, this.vel.z);
+    this.hop += dt * (4 + speed * 3);
+    const hopY = Math.abs(Math.sin(this.hop * Math.PI)) * 0.08 * Math.min(1, speed + 0.3);
+    const target = this.windup >= 0 ? 0.8 : 1;
+    this.vy += (-(this.sy - target) * 160 - this.vy * 10) * dt;
+    this.sy += this.vy * dt;
+    const sy = THREE.MathUtils.clamp(this.sy, 0.6, 1.4);
+    this.body.scale.set(1 / Math.sqrt(sy), sy, 1 / Math.sqrt(sy));
+    this.body.position.y = hopY;
+    const w = this.windup >= 0 ? Math.min(1, this.windup / 0.5) : 0;
+    this.flame.scale.set(1 + w * 0.6 + Math.sin(ctx.time * 20 + this.seed) * 0.08, 1 + w * 0.9 + Math.sin(ctx.time * 15) * 0.15, 1 + w * 0.6);
+    this.belly.scale.set(1 + w * 0.25, 1.1 + w * 0.25, 0.5);
+    this.legs.forEach((l, i) => (l.rotation.x = Math.sin(this.hop * Math.PI + i * Math.PI) * 0.5 * Math.min(1, speed)));
+    this.tail.rotation.y = Math.sin(ctx.time * 4 + this.seed) * 0.5;
+    this.blob.position.y = 0.03;
+  }
+
+  protected override pose(dt: number, ctx: ArenaCtx): void {
+    this.pos.y = ctx.heightAt(this.pos.x, this.pos.z);
+    this.animate(dt, ctx);
+  }
+
+  protected animateDeath(dt: number, ctx: ArenaCtx): void {
+    this.body.scale.setScalar(Math.max(0.01, 1 - this.dying * 3.5));
+    this.body.rotation.y += dt * 20;
+    this.root.position.copy(this.pos);
+    if (this.dying > 0.2 && !this.dead) {
+      this.dead = true;
+      const p = this.pos.clone().setY(this.pos.y + 0.4);
+      ctx.puff(p, 0xffa040, 22, 'spark');
+      ctx.puff(p, 0x3a2a28, 12, 'dust');
+    }
+  }
+}
+
 function easeOutBack(x: number): number {
   const c1 = 1.70158;
   const c3 = c1 + 1;
@@ -813,11 +1147,15 @@ export function createMonster(kind: MonsterKind, biome: Biome, x: number, z: num
       return new Bat(biome, x, z, tier, band, seed);
     case 'crab':
       return new Crab(biome, x, z, tier, band, seed);
+    case 'wisp':
+      return new Wisp(biome, x, z, tier, band, seed);
+    case 'imp':
+      return new Imp(biome, x, z, tier, band, seed);
   }
 }
 
 /** Colour of a monster's drop puff / goo (for the arena's particle hooks). */
 export function monsterColor(kind: MonsterKind, biome: Biome): number {
   const p = PALETTE[biome];
-  return kind === 'slime' ? p.slime : kind === 'bat' ? p.bat : p.crab;
+  return kind === 'slime' ? p.slime : kind === 'bat' ? p.bat : kind === 'wisp' ? 0xbfefff : kind === 'imp' ? 0xff7a2a : p.crab;
 }

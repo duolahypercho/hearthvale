@@ -100,23 +100,31 @@ export class CrowFlock {
       w.position.set(s * 0.07, 0.19, 0.0);
       w.add(
         part((b) => {
-          const g = new THREE.PlaneGeometry(0.3, 0.16, 3, 1);
-          const p = g.attributes.position as THREE.BufferAttribute;
-          for (let i = 0; i < p.count; i++) {
-            const x = p.getX(i) + 0.15;
-            // Tapered, fingered primary feathers.
-            p.setY(i, p.getY(i) * (1 - x * 1.6) - x * 0.04);
-            p.setZ(i, Math.sin(x * 9) * 0.01);
-            p.setX(i, x);
+          // A proper wing silhouette: rounded shoulder, then four splayed primary "fingers".
+          const sh = new THREE.Shape();
+          sh.moveTo(0, 0.05);
+          sh.quadraticCurveTo(0.12, 0.09, 0.2, 0.06);
+          const fingers = 4;
+          for (let f = 0; f < fingers; f++) {
+            const x0 = 0.2 + f * 0.035;
+            sh.lineTo(x0 + 0.075, 0.035 - f * 0.028);
+            sh.lineTo(x0 + 0.03, 0.02 - f * 0.028);
           }
+          sh.lineTo(0.2, -0.08);
+          sh.quadraticCurveTo(0.08, -0.1, 0, -0.06);
+          sh.closePath();
+          const g = new THREE.ShapeGeometry(sh, 3);
           g.rotateX(-Math.PI / 2);
+          const p = g.attributes.position as THREE.BufferAttribute;
+          for (let i = 0; i < p.count; i++) p.setY(i, Math.sin(p.getX(i) * 9) * 0.012);
           g.computeVertexNormals();
-          const mm = new THREE.MeshStandardMaterial();
-          void mm;
           b.add(M, g, mat(0, 0, 0, 0, 0, 0, s, 1, 1), { tint: INK });
+          // Covert feathers: a slightly lighter band along the leading edge.
+          const cv = new THREE.PlaneGeometry(0.16, 0.05, 2, 1);
+          cv.rotateX(-Math.PI / 2);
+          b.add(M, cv, mat(s * 0.09, 0.004, -0.035, 0, 0, 0, s, 1, 1), { tint: SHEEN });
         }, 'crow-wing'),
       );
-      (w.children[0] as THREE.Mesh).material = M;
       ((w.children[0] as THREE.Mesh).material as THREE.Material).side = THREE.DoubleSide;
       return w;
     };
@@ -146,6 +154,8 @@ export class CrowFlock {
       flap: this.rng.next() * 6,
     };
     crow.root.position.copy(from);
+    // 1.5× so the silhouette (wings, tail fan, beak) reads from the gameplay camera.
+    crow.root.scale.setScalar(1.5);
     crow.root.visible = delay <= 0;
     this.group.add(crow.root);
     this.crows.push(crow);
@@ -201,8 +211,6 @@ export class CrowFlock {
         }
       } else if (c.state === 'peck') {
         // Folded wings; hop, look around, peck.
-        c.wingL.rotation.z = -0.05;
-        c.wingR.rotation.z = 0.05;
         c.peckT -= dt;
         const k = Math.max(0, c.peckT);
         if (c.peckT <= 0) {
@@ -215,9 +223,13 @@ export class CrowFlock {
           root.rotation.y += (this.rng.next() - 0.5) * 1.2;
         }
         const peck = Math.max(0, Math.sin((1 - k / 0.55) * Math.PI));
-        c.body.rotation.x = peck * 0.7;
-        c.head.rotation.x = peck * 0.5;
-        root.position.y = c.to.y + Math.abs(Math.sin(c.t * 7)) * 0.02 * (peck < 0.1 ? 1 : 0);
+        c.body.rotation.x = peck * 0.8;
+        c.head.rotation.x = peck * 0.6;
+        // Between pecks: a little two-footed hop with a wing flick.
+        const hop = c.peckT > 0.45 ? Math.sin(((c.peckT - 0.45) / 0.3) * Math.PI) : 0;
+        root.position.y = c.to.y + Math.max(0, hop) * 0.06;
+        c.wingL.rotation.z = -0.05 - Math.max(0, hop) * 0.5;
+        c.wingR.rotation.z = 0.05 + Math.max(0, hop) * 0.5;
         if (c.pecks >= 6 || Math.hypot(player.x - root.position.x, player.z - root.position.z) < 2.6) {
           c.state = 'out';
           c.t = 0;

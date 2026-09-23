@@ -26,6 +26,8 @@ export interface PlayerRig {
   legR: THREE.Group;
   /** Hand prop socket on the right arm (swap its children for the held tool). */
   tool: THREE.Group;
+  /** The straw hat (tool actions shrink it so it never hides the swing). */
+  hat?: THREE.Group;
 }
 
 /** Returned by an action-pose driver: overrides for the body squash / bob this frame. */
@@ -304,7 +306,7 @@ export class Player {
   }
 
   get rig(): PlayerRig {
-    return { body: this.body, hips: this.hips, torso: this.torso, head: this.head, armL: this.armL, armR: this.armR, legL: this.legL, legR: this.legR, tool: this.tool };
+    return { body: this.body, hips: this.hips, torso: this.torso, head: this.head, armL: this.armL, armR: this.armR, legL: this.legL, legR: this.legR, tool: this.tool, hat: this.hat };
   }
 
   /** Place at world coords (snaps height to ground). */

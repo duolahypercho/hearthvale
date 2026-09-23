@@ -70,6 +70,8 @@ export interface CaveBuild {
   heightAt(x: number, z: number): number;
   /** Height of the cave shell itself (rises into the walls): props test they are not buried. */
   surfaceAt(x: number, z: number): number;
+  /** Molten-surface mask at a point (≥ 0.5 = standing in / on the lava's edge). */
+  lavaAt(x: number, z: number): number;
   update(time: number): void;
   dispose(): void;
 }
@@ -101,11 +103,28 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
     return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
   };
 
+  /**
+   * Lava shoreline mask: the tile mask sampled through a domain warp and a noisy threshold, so the
+   * molten edge wanders (coves, spits, rounded bays) instead of tracing tile rectangles.
+   */
+  const lavaRaw = (px: number, pz: number): number => {
+    const wx = noise.get(px * 0.55 + 21, pz * 0.55) * 0.42 + noise.get(px * 1.6, pz * 1.6 + 8) * 0.14;
+    const wz = noise.get(px * 0.55, pz * 0.55 + 37) * 0.42 + noise.get(px * 1.6 + 5, pz * 1.6) * 0.14;
+    return maskAt(L.lava, px + wx, pz + wz) + noise.get(px * 0.9 + 3, pz * 0.9 - 2) * 0.16;
+  };
+  const hasLava = L.lava.some((v) => v === 1);
   const floorBase = (px: number, pz: number): number => {
     const n = noise.fbm(px * 0.35, pz * 0.35, 2) * 0.035 + noise.get(px * 1.7, pz * 1.7) * 0.012;
-    const lava = smoothstep(0.3, 0.72, maskAt(L.lava, px, pz));
+    let dip = 0;
+    if (hasLava) {
+      const lr = lavaRaw(px, pz);
+      const lava = smoothstep(0.34, 0.6, lr);
+      // Raised basalt lip (≈ 15 cm) just outside the molten edge: a rim you stand on and look over.
+      const lip = smoothstep(0.06, 0.26, lr) * (1 - smoothstep(0.3, 0.46, lr));
+      dip = lava * 0.42 - lip * (0.13 + noise.get(px * 2.3, pz * 2.3) * 0.04);
+    }
     const pool = smoothstep(0.28, 0.7, maskAt(L.pool, px, pz));
-    return 0.05 + n - lava * 0.42 - pool * 0.12;
+    return 0.05 + n - dip - pool * 0.12;
   };
 
   // ── signed distance to the rock boundary (tile units, + inside rock) ─────────
@@ -207,16 +226,19 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
       c.multiplyScalar(0.62 + 0.38 * (1 - smoothstep(-0.9, -0.02, s)));
       const pm = maskAt(L.pool, px, pz);
       if (pm > 0.05) c.lerp(fl2, smoothstep(0.1, 0.6, pm) * 0.5);
-      const lm = maskAt(L.lava, px, pz);
-      aLava[k] = smoothstep(0.02, 0.5, lm);
+      const lm = hasLava ? lavaRaw(px, pz) : 0;
+      aLava[k] = smoothstep(0.0, 0.5, lm);
+      // Basalt lip: darker, cooled rim stone.
+      if (hasLava) c.multiplyScalar(1 - smoothstep(0.08, 0.3, lm) * 0.35);
 
       // Rock albedo: sediment strata by height (+ slow warp), AO at the foot, lit rim, void above.
-      const sv = (h + noise.fbm(px * 0.3, pz * 0.3 + 9, 2) * 0.55) * 1.35;
+      const sv = (h + noise.fbm(px * 0.3, pz * 0.3 + 9, 2) * 0.9 + noise.get(px * 0.9 + 4, pz * 0.9) * 0.25) * 1.1;
       const bi = Math.floor(sv);
       const bf = sv - bi;
       const n0 = strata.length;
-      cw.copy(strata[((bi % n0) + n0) % n0]!).lerp(strata[(((bi + 1) % n0) + n0) % n0]!, smoothstep(0.78, 1.0, bf));
-      cw.multiplyScalar(0.9 + noise.get(px * 1.3, pz * 1.3 + h * 2) * 0.18);
+      cw.copy(strata[((bi % n0) + n0) % n0]!).lerp(strata[(((bi + 1) % n0) + n0) % n0]!, smoothstep(0.55, 1.0, bf));
+      // Walls sit ~30 % below the floor in value (the walkable floor must own the frame).
+      cw.multiplyScalar((0.9 + noise.get(px * 1.3, pz * 1.3 + h * 2) * 0.18) * def.wallValue);
       const rel = h - fh;
       cw.multiplyScalar(0.42 + 0.58 * smoothstep(0.0, 1.1, rel));
       // Rim light along the cliff crest.
@@ -336,29 +358,54 @@ ${CAVE_GLSL}`,
         diffuseColor.rgb *= 1.0 - fis * 0.55;
         hvCrackV = fis;
       }
-      // WALLS: bedded strata courses. Wavy horizontal ledges ~0.4 m tall broken into blocks of
-      // random width; each block is pillowed (edges roll into dark joints), lit along its top and
-      // shadowed under the ledge above, so the face reads as layered rock with scale.
+      // WALLS: natural fractured rock, not masonry. A domain-warped Voronoi breaks the face into
+      // irregular slabs (wider than tall: bedding), only some slab borders open into dark cracks,
+      // a finer fracture set crazes the big slabs, and each slab bulges (bump-mapped below) so the
+      // lantern rakes real relief across it. No straight lines, no regular joints.
+      float hvWallH = 0.0;
       if (onWall > 0.01) {
         float steep = smoothstep(0.5, 0.82, 1.0 - abs(cwn.y));
-        float rowH = 0.42;
-        float vv = tp.y / rowH + (hvNoise(vec2(tp.x * 0.3, 1.7)) - 0.5) * 1.1;
-        float row = floor(vv);
-        float fv = fract(vv);
-        float rh = hvHash12(vec2(row, 7.1));
-        float bw = 0.6 + rh * 0.9;
-        float uu = tp.x / bw + hvHash12(vec2(row, 1.3)) * 10.0 + (hvNoise(vec2(tp.y * 2.0, row)) - 0.5) * 0.35;
-        float colI = floor(uu);
-        float fu = fract(uu);
-        float id = hvHash12(vec2(row, colI) + 0.37);
-        float e = min(min(fu, 1.0 - fu) * bw, min(fv, 1.0 - fv) * rowH) + (hvNoise(tp * 11.0) - 0.5) * 0.035;
-        float joint = 1.0 - smoothstep(0.012, 0.05, e);
-        float pillow = mix(0.7, 1.0, smoothstep(0.0, 0.11, e));
-        float lip = mix(0.72, 1.12, smoothstep(0.05, 0.95, fv));
-        float stone = (0.8 + 0.32 * id) * pillow * lip * (1.0 - joint * 0.78);
-        diffuseColor.rgb *= mix(1.0, stone * 1.08, onWall * steep);
+        vec2 wq = tp * vec2(0.46, 0.82);
+        wq += (vec2(hvFbm(tp * 0.45 + 3.0), hvFbm(tp * 0.45 + 11.0)) - 0.5) * 1.2;
+        vec4 st = hvMineStone(wq);
+        float edge = st.y - st.x;
+        vec4 st2 = hvMineStone(wq * 2.4 + vec2(5.3, 1.7));
+        float edge2 = st2.y - st2.x;
+        float open = smoothstep(0.25, 0.55, hvNoise(floor(wq) * 0.37 + st.z * 7.0 + tp * 0.2));
+        float crack = (1.0 - smoothstep(0.02, 0.11, edge)) * (0.45 + 0.55 * open);
+        float cavity = 1.0 - smoothstep(0.0, 0.34, edge);
+        float craze = (1.0 - smoothstep(0.0, 0.03, edge2)) * smoothstep(0.55, 0.8, hvNoise(tp * 0.7 + 4.0)) * (1.0 - cavity);
+        float bulge = smoothstep(0.0, 0.5, edge);
+        float grain2 = hvNoise(tp * 6.0) * 0.6 + hvNoise(tp * 17.0) * 0.4;
+        hvWallH = bulge * 0.17 + (st.z - 0.5) * 0.06 - craze * 0.015 + grain2 * 0.022;
+        // Slab tone + light from above (upper part of each slab catches more lantern), cavity AO
+        // soaking into every joint.
+        float lit = mix(1.2, 0.74, smoothstep(-0.5, 0.5, st.w));
+        float tone = (0.78 + 0.4 * st.z) * lit * (1.0 - crack * 0.8) * (1.0 - cavity * 0.3) * (1.0 - craze * 0.18);
+        diffuseColor.rgb *= mix(1.0, tone, onWall * steep);
+        // Mineral staining weeping down from the cracks (cooler, darker streaks).
+        float weep = smoothstep(0.62, 0.85, hvNoise(vec2(tp.x * 2.4, tp.y * 0.22 + st.z * 3.0))) * steep * onWall;
+        diffuseColor.rgb *= 1.0 - weep * 0.16;
+        hvWallH *= onWall * steep;
       }
       `,
+    );
+    fs = after(
+      fs,
+      '#include <normal_fragment_maps>',
+      /* glsl */ `
+      {
+        // Bump from the slab height field (screen-space derivatives, like three's perturbNormalArb).
+        vec3 dpx = dFdx(-vViewPosition);
+        vec3 dpy = dFdy(-vViewPosition);
+        float dhx = dFdx(hvWallH);
+        float dhy = dFdy(hvWallH);
+        vec3 r1 = cross(dpy, normal);
+        vec3 r2 = cross(normal, dpx);
+        float det = dot(dpx, r1);
+        vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
+        if (abs(det) > 1e-8) normal = normalize(abs(det) * normal - grad * 2.4);
+      }`,
     );
     fs = after(
       fs,
@@ -383,10 +430,15 @@ ${CAVE_GLSL}`,
         totalEmissiveRadiance += uGlint * step(0.93, gh2) * dotK * (0.25 + tw) * smoothstep(0.3, 0.7, vWall) * (1.0 - vVoid);
         // Lit lip along every cliff crest: the wall silhouette always reads against the dark.
         totalEmissiveRadiance += uRimCol * vCrest * (0.75 + 0.25 * hvNoise(vCW.xz * 2.0));
+        // Minimum ambient on the rock (the lava band's basalt keeps its form out of the light).
+        totalEmissiveRadiance += diffuseColor.rgb * (uCrack > 0.5 && uCrack < 1.5 ? 0.06 : 0.015) * (1.0 - vVoid);
         if (uCrack > 0.5 && uCrack < 1.5) {
           // Lava band: seams glow and breathe, stronger near the channels.
           float pulse = 0.65 + 0.35 * sin(uTime * 1.3 + vCW.x * 0.7 + vCW.z * 0.4);
           totalEmissiveRadiance += vec3(1.0, 0.24, 0.03) * (hvCrackV * (0.03 + vLava * vLava * 1.6) * pulse * 1.3 + vLava * onFloor * 0.12);
+          // A ~0.3 m hot band where the rock meets the melt (the shoreline glows, the path stays dark).
+          float shore = smoothstep(0.55, 0.9, vLava) * (1.0 - smoothstep(0.92, 1.0, vLava));
+          totalEmissiveRadiance += vec3(1.0, 0.32, 0.05) * shore * onFloor * 0.55 * pulse;
         }
       }`,
     );
@@ -444,7 +496,7 @@ ${CAVE_GLSL}`,
         void main() {
           vec4 wp = modelMatrix * vec4(position, 1.0);
           float n = hvCrust(wp.xz, uTime);
-          wp.y += smoothstep(0.57, 0.67, n) * 0.045 + hvNoise(wp.xz * 3.0) * 0.012;
+          wp.y += smoothstep(0.6, 0.68, n) * 0.045 + hvNoise(wp.xz * 3.0) * 0.012;
           vW = wp.xyz;
           vec4 mvPosition = viewMatrix * wp;
           gl_Position = projectionMatrix * mvPosition;
@@ -455,12 +507,13 @@ ${CAVE_GLSL}`,
         varying vec3 vW;
         #include <fog_pars_fragment>
         ${NOISE_GLSL}
+        ${CAVE_GLSL}
         ${LAVA_FN}
         void main() {
           vec2 p = vW.xz;
           float t = uTime;
           float n = hvCrust(p, t);
-          float crust = smoothstep(0.57, 0.63, n);
+          float crust = smoothstep(0.6, 0.65, n);
           // Crust relief lighting from finite differences (lantern from above-front).
           float e = 0.06;
           float nx = hvCrust(p + vec2(e, 0.0), t) - n;
@@ -475,15 +528,18 @@ ${CAVE_GLSL}`,
           molten = mix(molten, vec3(1.35, 0.78, 0.24), smoothstep(0.78, 1.0, hot) * pulse * 0.8);
           // Crust rafts: near-black basalt (linear!), a faint sheen on the relief.
           float grain = hvNoise(p * 7.0) * 0.6 + hvNoise(p * 19.0) * 0.4;
-          vec3 crustC = mix(vec3(0.006, 0.003, 0.003), vec3(0.028, 0.012, 0.01), grain) * lit;
-          float cr = abs(hvNoise(p * 2.6 + hvNoise(p * 5.0) * 0.4) - 0.5);
-          crustC += vec3(0.55, 0.08, 0.005) * (1.0 - smoothstep(0.0, 0.03, cr)) * 0.5 * pulse;
+          vec3 crustC = mix(vec3(0.018, 0.011, 0.01), vec3(0.055, 0.032, 0.026), grain) * lit;
+          // Crust breaks into cooled plates: glowing fissures between irregular Voronoi plates.
+          vec2 cellP = hvMineCell(p * 1.35 + vec2(hvNoise(p * 2.0), hvNoise(p * 2.0 + 3.0)) * 0.5);
+          float plate = cellP.y - cellP.x;
+          crustC *= 0.75 + 0.5 * smoothstep(0.0, 0.3, plate);
+          crustC += vec3(0.9, 0.18, 0.01) * (1.0 - smoothstep(0.0, 0.07, plate)) * 0.75 * pulse;
           // The crust edge cools gradually: dull red rim before the seam.
-          float edgeHeat = 1.0 - smoothstep(0.57, 0.7, n);
+          float edgeHeat = 1.0 - smoothstep(0.6, 0.72, n);
           crustC += vec3(0.25, 0.03, 0.0) * edgeHeat * crust;
           vec3 col = mix(molten, crustC, crust);
           // Bright glowing seam where crust meets melt.
-          float seam = 1.0 - smoothstep(0.0, 0.025, abs(n - 0.585));
+          float seam = 1.0 - smoothstep(0.0, 0.03, abs(n - 0.61));
           col += vec3(1.3, 0.55, 0.08) * seam * pulse;
           gl_FragColor = vec4(col, 1.0);
           #include <fog_fragment>
@@ -579,7 +635,7 @@ ${CAVE_GLSL}`,
       if (r.next() > (foot ? 0.42 : 0.28)) continue;
       const h = sampleArr(hArr, x, z);
       const rad = foot ? 0.28 + r.next() * 0.42 : 0.35 + r.next() * 0.5;
-      const band = strata[Math.floor(r.next() * 3)]!.clone().multiplyScalar(foot ? 1.0 : 0.85);
+      const band = strata[Math.floor(r.next() * 3)]!.clone().multiplyScalar((foot ? 1.0 : 0.85) * Math.min(1, def.wallValue * 1.2));
       const g = facetRock(r, rad, band.getHex(), { chunky: true, squash: 0.62 + r.next() * 0.3, cap: capCol, capAmt, rim: 0.6, detail: rad > 0.4 ? 2 : 1, smooth: 0.45, lumps: 0.14 });
       const m = new THREE.Matrix4().compose(new THREE.Vector3(x, (foot ? floorBase(x, z) : h) - rad * 0.15, z), new THREE.Quaternion().setFromEuler(new THREE.Euler((r.next() - 0.5) * 0.3, r.next() * 6, (r.next() - 0.5) * 0.3)), new THREE.Vector3(1, 1, 1));
       g.applyMatrix4(m);
@@ -593,7 +649,7 @@ ${CAVE_GLSL}`,
     const x = 2 + pr.next() * (W - 4);
     const z = 2 + pr.next() * (D - 4);
     const s = sampleArr(sd, x, z);
-    if (s > -0.15 || maskAt(L.lava, x, z) > 0.05) continue;
+    if (s > -0.15 || (hasLava && lavaRaw(x, z) > 0.1)) continue;
     // Denser near walls.
     if (pr.next() > 0.25 + smoothstep(-2.5, -0.2, s) * 0.75) continue;
     const rad = 0.035 + pr.next() * pr.next() * 0.12;
@@ -607,6 +663,11 @@ ${CAVE_GLSL}`,
     const merged = mergeGeos(geos);
     const rm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: L.biome === 'ice' ? 0.5 : 0.88, metalness: 0 });
     rm.name = 'cave-boulders';
+    // Minimum ambient: dark basalt keeps its form in the unlit foreground (never crushed to black).
+    const amb = L.biome === 'lava' ? 0.07 : 0.025;
+    patchMaterial(rm, `cave-boulders-amb:${amb}`, (shader) => {
+      shader.fragmentShader = after(shader.fragmentShader, '#include <emissivemap_fragment>', `totalEmissiveRadiance += diffuseColor.rgb * ${amb.toFixed(3)};`);
+    });
     const bm = new THREE.Mesh(merged, rm);
     bm.name = 'cave-boulders';
     bm.castShadow = true;
@@ -625,6 +686,7 @@ ${CAVE_GLSL}`,
     group,
     heightAt,
     surfaceAt: (x: number, z: number) => sampleArr(hArr, x, z),
+    lavaAt: (x: number, z: number) => (hasLava ? smoothstep(0.34, 0.6, lavaRaw(x, z)) : 0),
     update: () => {
       /* animated via shared uTime */
     },

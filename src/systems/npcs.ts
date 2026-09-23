@@ -189,11 +189,17 @@ export class NpcSystem implements System {
     game.hud.registerPanel('portraits', new PortraitSheetPanel(game, game.hud.root));
     game.events.on('player:interact', ({ x, z }) => this.tryTalk(x, z));
     game.events.on('ui:close', ({ name }) => {
-      if (name === 'dialogue' && this.talking) {
+      if (name !== 'dialogue') return;
+      // The clock stands still while you read.
+      if (!this.eventRunning) game.calendar.frozen = game.paused;
+      if (this.talking) {
         this.talking.v.talkTo = null;
         this.talking.v.speaking = false;
         this.talking = null;
       }
+    });
+    game.events.on('ui:open', ({ name }) => {
+      if (name.startsWith('dialogue')) game.calendar.frozen = true;
     });
     game.events.on('dialogue:speaking', ({ id, on }) => {
       const a = this.agents.get(id as NpcId);
@@ -226,7 +232,9 @@ export class NpcSystem implements System {
   }
 
   private tryTalk(x: number, z: number): void {
-    if (!this.active || this.eventRunning) return;
+    // One press = one conversation: the player's fixed-step loop can re-emit 'interact' on every
+    // substep of a frame; once the box is open (or input is off) further presses are ignored.
+    if (!this.active || this.eventRunning || this.talking || this.game.hud.openPanelName || !this.game.input.enabled) return;
     const p = this.game.player.position;
     let best: Agent | null = null;
     let bd = 1.45;

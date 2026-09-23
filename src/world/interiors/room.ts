@@ -134,6 +134,9 @@ export abstract class InteriorMap implements GameMap {
   private dust: THREE.Points;
   private dustSeeds: Float32Array;
   private dustBeams: { win: THREE.Vector3[]; floor: THREE.Vector3[] }[] = [];
+  private groundMat!: THREE.MeshBasicMaterial;
+  /** Cool moon rim on the farmer at night (keeps the silhouette off the dark floor). */
+  private rim: THREE.PointLight;
   /** Room-specific daylight multiplier (barns are dim, the house is bright). */
   protected dayScale = 1;
   /** Extra exposure in daylight (small, dim-walled rooms read too murky otherwise). */
@@ -190,6 +193,10 @@ export abstract class InteriorMap implements GameMap {
     this.dust.userData.noAO = true;
     this.dust.name = 'dust';
 
+    this.rim = new THREE.PointLight(0xa8bcff, 0, 3.4, 2);
+    this.rim.castShadow = false;
+    this.root.add(this.rim);
+
     this.buildShell();
   }
 
@@ -201,8 +208,8 @@ export abstract class InteriorMap implements GameMap {
     const T = 0.22;
     // Floor + slab (its cut edge shows under the knee wall at the front).
     k.add(this.spec.floor, floorPlane(W, D + 0.02, this.spec.floor === 'straw' ? 0.5 : 1), new THREE.Matrix4().makeTranslation(W / 2, 0, D / 2), { tint: this.spec.floorTint ?? 0xffffff });
-    k.box('stone', [W + 2 * T + 0.1, 0.5, D + 2 * T + 0.1], [W / 2, -0.52, D / 2], { tint: 0x8a7a6a, uv: 1.2 });
-    k.box('wood', [W + 2 * T + 0.14, 0.08, 0.1], [W / 2, -0.06, D + T + 0.04], { tint: 0x5a3a24 });
+    k.box('stone', [W + 2 * T + 0.1, 0.5, D + 2 * T + 0.1], [W / 2, -0.52, D / 2], { tint: 0xa8947e, uv: 1.2 });
+    k.box('wood', [W + 2 * T + 0.14, 0.1, 0.12], [W / 2, -0.07, D + T + 0.04], { tint: 0x8a5a38, r: 0.03, uv: 1.5 });
 
     const wallMat: IMat = this.spec.wallMat ?? (style === 'house' ? 'wallpaper' : 'barn');
     const wallTint = this.spec.wallTint ?? (style === 'house' ? 0xffffff : 0xd8c8b0);
@@ -211,11 +218,12 @@ export abstract class InteriorMap implements GameMap {
     this.wall(k, wallMat, wallTint, 'back', W + 2 * T, H, T, holes('back'));
     this.wall(k, wallMat, wallTint, 'left', D + 2 * T, H, T, holes('left'));
     this.wall(k, wallMat, wallTint, 'right', D + 2 * T, H, T, holes('right'));
-    // Cut caps on wall tops (dark top plate reads as the dollhouse section line).
-    const cap = 0x3a2618;
-    k.box('wood', [W + 2 * T + 0.04, 0.1, T + 0.04], [W / 2, H, -T / 2], { tint: cap });
-    k.box('wood', [T + 0.04, 0.1, D + 2 * T + 0.04], [-T / 2, H, D / 2], { tint: cap });
-    k.box('wood', [T + 0.04, 0.1, D + 2 * T + 0.04], [W + T / 2, H, D / 2], { tint: cap });
+    // Cut caps on wall tops: a bevelled, lit wood-grain top plate (the dollhouse section line reads as
+    // crafted trim, not a black slab).
+    const cap = 0x8a5a38;
+    k.box('wood', [W + 2 * T + 0.12, 0.12, T + 0.12], [W / 2, H, -T / 2], { tint: cap, r: 0.04, uv: 1.5 });
+    k.box('wood', [T + 0.12, 0.12, D + 2 * T + 0.12], [-T / 2, H, D / 2], { tint: cap, r: 0.04, uv: 1.5 });
+    k.box('wood', [T + 0.12, 0.12, D + 2 * T + 0.12], [W + T / 2, H, D / 2], { tint: cap, r: 0.04, uv: 1.5 });
 
     // Knee wall at the front with the door gap.
     const kneeH = 0.42;
@@ -226,7 +234,7 @@ export abstract class InteriorMap implements GameMap {
     for (const [a, b] of [[-T, gap0], [gap1, W + T]] as const) {
       const w = b - a;
       k.box(frontMat, [w, kneeH, T], [(a + b) / 2, 0, D + T / 2], { tint: frontTint, uv: 1 });
-      k.box('wood', [w + 0.02, 0.07, T + 0.06], [(a + b) / 2, kneeH, D + T / 2], { tint: cap });
+      k.box('wood', [w + 0.06, 0.1, T + 0.12], [(a + b) / 2, kneeH, D + T / 2], { tint: cap, r: 0.04, uv: 1.5 });
     }
     // Threshold + mat
     k.box('wood', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: 0x7a5236 });
@@ -253,6 +261,16 @@ export abstract class InteriorMap implements GameMap {
     ao.userData.dynamic = true;
     ao.name = 'room-ao';
     this.root.add(ao);
+
+    // The diorama sits on a dark warm surface: a soft pool of bounce light under the model fading to
+    // the backdrop colour, darkest right against the plinth (contact shadow).
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(W + 16, D + 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: dioramaGround(W, D), fog: false, depthWrite: true }));
+    ground.position.set(W / 2, -0.53, D / 2);
+    ground.userData.noAO = true;
+    ground.userData.dynamic = true;
+    ground.name = 'diorama-ground';
+    this.root.add(ground);
+    this.groundMat = ground.material;
 
     // Invisible shadow casters: ceiling + upper front wall (daylight only enters via windows).
     const caster = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
@@ -480,8 +498,8 @@ export abstract class InteriorMap implements GameMap {
     const w = cal.weather;
     const overcast = w === 'rain' ? 0.85 : w === 'storm' ? 1 : w === 'snow' ? 0.5 : 0;
     const S = THREE.MathUtils.smoothstep;
-    // Daylight 0..1: dawn 5.8 → 7.6, dusk 18.2 → 20.2.
-    const day = h < 12 ? S(h, 5.8, 7.6) : 1 - S(h, 18.2, 20.2);
+    // Daylight 0..1: dawn 5.5 → 7.0 (shafts ramp in with it), dusk 18.2 → 20.2.
+    const day = h < 12 ? S(h, 5.5, 7.0) : 1 - S(h, 18.2, 20.2);
     const night = 1 - day;
     const warm = h < 12 ? 1 - S(h, 7, 10.5) : S(h, 15.5, 19);
     const L = this.light;
@@ -491,19 +509,21 @@ export abstract class InteriorMap implements GameMap {
     const sunDay = _c.setHex(0xfff1dc).lerp(new THREE.Color(0xffb46a), warm * 0.85);
     L.sunColor.copy(sunDay).lerp(new THREE.Color(0x8aa6ff), night);
     L.sunI = (day * 5.2 * (1 - overcast * 0.85) + night * 0.9) * this.dayScale;
-    // Ambient: warm wood bounce by day, dim dusky blue-brown at night.
-    L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x3a3a5a), night);
-    L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x2a1a14), night);
-    L.hemiI = (0.55 + day * 0.55) * (1 - overcast * 0.2) * (0.7 + 0.3 * this.dayScale);
-    L.envI = 0.12 + day * 0.14;
-    L.exposure = 1.0 + night * 0.18 + overcast * 0.1 + this.exposureBoost * day;
+    // Ambient: warm wood bounce by day; at night a cool moonlight fill through the windows so the
+    // floor never crushes to black (the lamps then paint warm pools over it).
+    L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x6f86c9), night);
+    L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x3a2a24), night);
+    L.hemiI = THREE.MathUtils.lerp((0.55 + day * 0.55) * (1 - overcast * 0.2) * (0.7 + 0.3 * this.dayScale), 0.46, night);
+    L.envI = 0.12 + day * 0.14 + night * 0.06;
+    // +0.4 EV indoors at night.
+    L.exposure = (1.0 + night * 0.18 + overcast * 0.1 + this.exposureBoost * day) * (1 + night * 0.32);
     L.bg.setHex(0x1c140e).lerp(new THREE.Color(0x0a0a12), night);
     L.lift = [0.025 + night * 0.01, 0.018, 0.012 + night * 0.03];
     L.gain = [1.06 + warm * 0.04, 1.0, 0.93 - warm * 0.03 + night * 0.06];
     L.sat = 1.1 - night * 0.05;
     L.contrast = 1.06 + night * 0.04;
     L.vignette = 0.52 + night * 0.12;
-    L.bloom = 0.35 + night * 0.25;
+    L.bloom = 0.35 + night * 0.12;
   }
 
   // ─────────────────────────────────────────── GameMap
@@ -516,6 +536,10 @@ export abstract class InteriorMap implements GameMap {
     this.computeLight();
     const L = this.light;
     const t = game.time;
+    const pp = game.player.position;
+    this.rim.position.set(pp.x + 0.4, pp.y + 2.3, pp.z + 0.5);
+    this.rim.intensity = L.night * 1.5;
+    this.groundMat.color.setScalar(0.55 + 0.45 * L.day);
     const lampK = Math.max(L.night, 1 - L.day * 1.05);
     for (const l of this.lamps) {
       const base = THREE.MathUtils.lerp(l.day, l.night, THREE.MathUtils.clamp(lampK, 0, 1));
@@ -563,6 +587,35 @@ export abstract class InteriorMap implements GameMap {
   dispose(): void {
     this.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
   }
+}
+
+/** Backdrop surface under the diorama: warm bounce pool under the plinth, contact-dark at its edge. */
+function dioramaGround(W: number, D: number): THREE.CanvasTexture {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const px = (m: number, of: number) => (m / of) * S;
+  const TW = W + 16;
+  const TD = D + 16;
+  g.fillStyle = '#140e0a';
+  g.fillRect(0, 0, S, S);
+  const grad = g.createRadialGradient(S / 2, S / 2, px(Math.min(W, D) * 0.3, TW), S / 2, S / 2, px(Math.max(W, D) * 0.95, TW));
+  grad.addColorStop(0, '#3b2a1d');
+  grad.addColorStop(0.55, '#2a1d14');
+  grad.addColorStop(1, '#140e0a');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  // Contact shadow hugging the plinth
+  g.filter = 'blur(6px)';
+  g.fillStyle = 'rgba(8,5,3,0.85)';
+  const w = px(W + 1.0, TW);
+  const d = px(D + 1.0, TD);
+  g.fillRect(S / 2 - w / 2, S / 2 - d / 2, w, d);
+  g.filter = 'none';
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 /** Convenience: material handle (for subclasses creating custom meshes). */

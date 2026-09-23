@@ -148,8 +148,8 @@ export function plotRender(path, inter, sr, o) {
   const seconds = n / sr;
   const X0 = 50, X1 = W - 12;
   const tx = (t) => X0 + (t / seconds) * (X1 - X0);
-  c.text(12, 12, o.title, [255, 230, 180], 2);
-  if (o.sub) c.text(12 + (o.title.length + 2) * 12, 18, o.sub, [170, 165, 160]);
+  c.text(12, 12, o.title.toUpperCase(), [255, 230, 180], 2);
+  if (o.sub) c.text(12 + (o.title.length + 2) * 12, 18, o.sub.toUpperCase(), [170, 165, 160]);
   let y = 40;
   if (hasRoll) {
     const { events, bars } = o.piece;
@@ -165,7 +165,7 @@ export function plotRender(path, inter, sr, o) {
       const x = tx(b.t);
       c.rect(x, y, x + 1, y + rollH, [70, 64, 86]);
       c.text(x + 3, y + 3, b.chords.replace(/maj/g, 'M'), [200, 190, 170]);
-      if (b.section) c.text(x + 3, y + 13, b.section, [255, 200, 120]);
+      if (b.section) c.text(x + 3, y + 13, b.section.toUpperCase(), [255, 200, 120]);
     }
     for (const e of events) {
       if (e.track === 'perc') {
@@ -177,11 +177,12 @@ export function plotRender(path, inter, sr, o) {
       const x0 = tx(e.t), x1 = Math.max(x0 + 2, tx(e.t + e.dur));
       c.rect(x0, py(e.midi + 0.5), x1, py(e.midi - 0.5), col, Math.min(1, 0.35 + 0.65 * e.vel));
     }
-    let lx = X1 - 8 * 70;
-    for (const [k, col] of Object.entries(TRACK_COLORS)) {
+    const entries = Object.entries(TRACK_COLORS);
+    let lx = X1 - entries.reduce((a, [k]) => a + 11 + k.length * 6 + 14, 0);
+    for (const [k, col] of entries) {
       c.rect(lx, y + rollH + 3, lx + 8, y + rollH + 10, col);
-      c.text(lx + 11, y + rollH + 3, k, [180, 175, 170]);
-      lx += 70;
+      c.text(lx + 11, y + rollH + 3, k.toUpperCase(), [180, 175, 170]);
+      lx += 11 + k.length * 6 + 14;
     }
     y += rollH + 12;
   }

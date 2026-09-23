@@ -133,7 +133,7 @@ function build(name: IMat): THREE.MeshStandardMaterial {
         );
       };
       m.customProgramCacheKey = () => 'i-glow';
-      interiorEmissive.push({ material: m, day: 0.15, night: 2.2 });
+      interiorEmissive.push({ material: m, day: 0.15, night: 1.05 });
       return m;
     }
     case 'ember': {

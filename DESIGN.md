@@ -111,7 +111,7 @@ Critics judge from these PNGs. Put scratch shots in `shots/` (gitignored).
 9. **Animals** (stretch): coop/barn, chickens, cows.
 10. **Festivals** (stretch): one per season.
 11. **Audio**: procedural WebAudio — ambient bed per map/time/weather, footsteps per surface, tool SFX,
-    UI clicks, a gentle generative music system (pentatonic, seasonal instrument timbres).
+    UI clicks, a composed score (hand-written tunes per theme arranged live, seasonal instrument timbres).
 12. **Save/Load**: localStorage slots, autosave at end of day.
 
 ## Quality bar

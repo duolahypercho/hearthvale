@@ -85,7 +85,7 @@ export const SFX_NAMES = [
   'ui:click', 'ui:hover', 'ui:open', 'ui:close', 'ui:error', 'ui:select', 'ui:tab', 'ui:toggle', 'ui:tick', 'ui:trash', 'ui:drop', 'ui:sell',
   'blip', 'gift:love', 'gift:like', 'gift:neutral', 'gift:dislike', 'heart',
   'cast', 'plop', 'bite', 'catch', 'catch:perfect', 'escape', 'splash', 'reel',
-  'ladder', 'door', 'warp', 'exhausted', 'eat', 'bundle', 'lantern', 'hall', 'morning', 'sleep', 'thunder',
+  'ladder', 'door', 'warp', 'exhausted', 'eat', 'bundle', 'lantern', 'hall', 'morning', 'sleep', 'thunder', 'crow',
 ] as const;
 export type SfxName = (typeof SFX_NAMES)[number];
 
@@ -97,11 +97,13 @@ export type SfxName = (typeof SFX_NAMES)[number];
 const TRIM: Record<string, number> = {
   harvest: 0.62, coin: 0.6, craft: 0.6, 'gift:love': 0.5, 'gift:like': 0.7, heart: 0.6, catch: 0.55, 'catch:perfect': 0.55,
   lantern: 0.62, hall: 0.45, treefall: 0.7, purchase: 0.75, ship: 0.8, bite: 0.8, sleep: 0.8, morning: 0.8,
-  swing: 3.4, 'axe:miss': 5, warp: 2.6, eat: 2.2, plant: 2.2, sword: 2.6, scythe: 3, weed: 1.4, splash: 1.8, water: 1.3,
-  'ui:select': 1.6, 'ui:toggle': 1.6, giant: 0.7,
+  swing: 3.6, 'axe:miss': 6, warp: 4.4, eat: 4, plant: 2.2, sword: 3.2, scythe: 3.4, weed: 1.4, splash: 1.8, water: 1.3,
+  'ui:select': 1.6, 'ui:toggle': 1.6, giant: 0.7, reel: 1.4, crow: 1.2,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
   rockbreak: 0.72, hoe: 0.85,
 };
+
+const LONG_SFX = new Set(['treefall', 'hall', 'lantern', 'catch', 'catch:perfect', 'sleep', 'thunder', 'giant', 'gift:love']);
 
 export class Sfx {
   private out: GainNode;
@@ -279,20 +281,25 @@ export class Sfx {
   }
 
   private splashSmall(d: AudioNode, t: number, amp: number): void {
-    this.noise(d, t, { f: 1600, f1: 700, q: 0.8, amp: 0.2 * amp, attack: 0.01, tau: 0.06, buf: this.g.pink });
+    this.noise(d, t, { f: 1200, f1: 550, q: 0.8, amp: 0.22 * amp, attack: 0.01, tau: 0.06, buf: this.g.pink });
     for (let i = 0; i < 3; i++) {
-      const f = 900 + this.rng.next() * 1400;
-      this.tone(d, t + 0.02 + i * 0.04 + this.rng.next() * 0.02, { f0: f, f1: f * 1.8, glide: 0.03, amp: 0.05 * amp, tau: 0.015 });
+      const f = 520 + this.rng.next() * 700;
+      this.tone(d, t + 0.02 + i * 0.04 + this.rng.next() * 0.02, { f0: f, f1: f * 1.5, glide: 0.03, amp: 0.06 * amp, tau: 0.015 });
     }
   }
 
   play(name: SfxName | string, o?: SfxOpts): void {
     const r = this.rng;
     const ui = name.startsWith('ui:') || name === 'blip';
+    // SFX outrank the score in the polyphony budget; only cosmetic repeats are refused under load.
+    const at = Math.max(o?.at ?? this.g.ctx.currentTime, this.g.ctx.currentTime);
+    if (!this.g.voiceStart(at, LONG_SFX.has(name) ? 3 : 0.8, name === 'ui:hover' || name === 'reel' || name.startsWith('step:') ? 2 : 3)) return;
     const { d, t } = this.bus({ ...o, gain: (o?.gain ?? 1) * (TRIM[name] ?? 1) }, ui);
     switch (name) {
       case 'swing':
-        this.whoosh(d, t, 380, 1900, 0.16, 0.16);
+        // Air moving past the tool: a low-mid swish with a little body, nothing above ~1.5 kHz.
+        this.whoosh(d, t, 260, 1250, 0.16, 0.17);
+        this.noise(d, t + 0.03, { type: 'lowpass', f: 700, amp: 0.06, attack: 0.05, tau: 0.04, buf: this.g.pink });
         break;
       case 'hoe':
         this.noise(d, t, { type: 'lowpass', f: 650, amp: 0.42, attack: 0.003, tau: 0.05, buf: this.g.pink });
@@ -319,15 +326,23 @@ export class Sfx {
         this.crumbs(d, t + 0.01, 4, 0.05);
         break;
       case 'axe:miss':
-        this.whoosh(d, t, 500, 1400, 0.12, 0.08);
+        this.whoosh(d, t, 280, 1100, 0.13, 0.12);
+        this.tone(d, t + 0.12, { f0: 140, f1: 90, glide: 0.05, amp: 0.05, tau: 0.03 });
         break;
       case 'treefall':
         this.creak(d, t, 0.9);
         this.creak(d, t + 0.5, 0.6);
+        // The trunk splits: a woody crack that small speakers can reproduce.
+        this.noise(d, t + 0.78, { f: 160, q: 2, amp: 0.45, tau: 0.05, buf: this.g.pink });
+        this.tone(d, t + 0.78, { f0: 175, f1: 120, glide: 0.08, amp: 0.3, tau: 0.06 });
+        this.noise(d, t + 0.78, { f: 1400, q: 1.2, amp: 0.12, tau: 0.02 });
         this.whoosh(d, t + 0.9, 250, 1300, 0.5, 0.22);
-        this.tone(d, t + 1.45, { f0: 62, f1: 34, glide: 0.3, amp: 0.7, tau: 0.22 });
-        this.noise(d, t + 1.45, { type: 'lowpass', f: 320, amp: 0.5, tau: 0.2, buf: this.g.brown });
-        this.noise(d, t + 1.5, { f: 3800, q: 0.6, amp: 0.08, attack: 0.05, tau: 0.25, buf: this.g.pink });
+        // Landing: a thud with a 120–180 Hz body, the ground's low end, and the canopy's leaves.
+        this.tone(d, t + 1.45, { f0: 150, f1: 95, glide: 0.12, amp: 0.45, tau: 0.09 });
+        this.tone(d, t + 1.45, { f0: 62, f1: 34, glide: 0.3, amp: 0.45, tau: 0.2 });
+        this.noise(d, t + 1.45, { type: 'lowpass', f: 420, amp: 0.4, tau: 0.18, buf: this.g.brown });
+        this.noise(d, t + 1.47, { f: 2300, q: 0.8, amp: 0.14, attack: 0.04, tau: 0.3, buf: this.g.pink });
+        this.crumbs(d, t + 1.5, 10, 0.05, 0.6);
         this.g.duckMusic(t + 1.4, 0.6, 0.6, 0.8);
         break;
       case 'pickaxe':
@@ -343,8 +358,9 @@ export class Sfx {
         this.g.duckMusic(t, 0.8, 0.15, 0.4);
         break;
       case 'scythe':
-        // A soft airy swish (kept under ~3 kHz so repeated mowing never gets hissy).
-        this.noise(d, t, { f: 900, f1: 2600, q: 1.2, amp: 0.15, attack: 0.05, tau: 0.045, buf: this.g.pink });
+        // A soft airy swish (kept under ~2 kHz so repeated mowing never gets hissy).
+        this.noise(d, t, { f: 650, f1: 1700, q: 1.1, amp: 0.16, attack: 0.05, tau: 0.045, buf: this.g.pink });
+        this.noise(d, t + 0.02, { type: 'lowpass', f: 600, amp: 0.05, attack: 0.03, tau: 0.04, buf: this.g.pink });
         break;
       case 'weed':
         // Stems snapping + leafy rustle.
@@ -357,11 +373,14 @@ export class Sfx {
         this.noise(d, t, { type: 'lowpass', f: 700, amp: 0.2, tau: 0.03, buf: this.g.pink });
         this.crumbs(d, t + 0.03, 3, 0.03, 0.06);
         break;
-      case 'sword':
-        this.whoosh(d, t, 500, 1800, 0.15, 0.22);
-        this.tone(d, t + 0.02, { f0: 3100, amp: 0.012, tau: 0.1 });
-        this.tone(d, t + 0.02, { f0: 4700, amp: 0.008, tau: 0.08 });
+      case 'sword': {
+        // Weighty swing: a 180–250 Hz body under a whoosh kept below 2.2 kHz, a faint blade ring.
+        this.whoosh(d, t, 420, 1500, 0.15, 0.2);
+        this.tone(d, t + 0.03, { f0: 250, f1: 180, glide: 0.1, amp: 0.14, attack: 0.03, tau: 0.05, lp: 600 });
+        this.noise(d, t + 0.02, { type: 'lowpass', f: 2200, amp: 0.05, attack: 0.04, tau: 0.04, buf: this.g.pink });
+        this.tone(d, t + 0.04, { f0: 2640, amp: 0.004, tau: 0.08 });
         break;
+      }
       case 'sword:hit':
         this.tone(d, t, { f0: 180, f1: 90, glide: 0.06, amp: 0.4, tau: 0.045 });
         this.noise(d, t, { f: 1500, q: 1.2, amp: 0.28, tau: 0.025 });
@@ -461,7 +480,9 @@ export class Sfx {
         this.tone(d, t + 0.045, { f0: 1350, amp: 0.08, tau: 0.012 });
         break;
       case 'ui:tick':
-        this.tone(d, t, { f0: 2100, amp: 0.05, tau: 0.006 });
+        // A small wooden tick (clock, counters).
+        this.tone(d, t, { f0: 1500, amp: 0.12, tau: 0.008 });
+        this.noise(d, t, { f: 2200, q: 2, amp: 0.05, tau: 0.004, buf: this.g.pink });
         break;
       case 'ui:trash':
         this.noise(d, t, { f: 2600, f1: 600, q: 1, amp: 0.1, attack: 0.02, tau: 0.06, buf: this.g.pink });
@@ -541,8 +562,10 @@ export class Sfx {
         this.splashSmall(d, t + 0.05, 1);
         break;
       case 'reel':
-        this.noise(d, t, { f: 3300 + r.next() * 500, q: 4, amp: 0.07, tau: 0.004 });
-        this.tone(d, t, { f0: 1800 + r.next() * 200, amp: 0.02, tau: 0.004 });
+        // Ratchet click: a 1.2–2 kHz pawl tick on a 300 Hz spool body.
+        this.noise(d, t, { f: 1250 + r.next() * 700, q: 3, amp: 0.22, tau: 0.005 });
+        this.tone(d, t, { f0: 300 + r.next() * 25, amp: 0.14, tau: 0.012 });
+        this.noise(d, t + 0.003, { type: 'lowpass', f: 900, amp: 0.08, tau: 0.006, buf: this.g.pink });
         break;
       case 'catch':
       case 'catch:perfect': {
@@ -572,13 +595,20 @@ export class Sfx {
         break;
       case 'warp':
         this.noise(d, t, { f: 400, f1: 1600, q: 0.8, amp: 0.08, attack: 0.25, tau: 0.12, buf: this.g.pink });
+        [0, 2, 4].forEach((k, i) => this.chime(d, t + 0.12 + i * 0.07, this.kn(k), 0.035, 'celesta'));
         break;
       case 'exhausted':
         this.tone(d, t, { type: 'triangle', f0: 392, f1: 196, glide: 0.6, amp: 0.12, tau: 0.25, lp: 1200 });
         this.tone(d, t + 0.7, { f0: 90, f1: 50, amp: 0.3, tau: 0.08 });
         break;
       case 'eat':
-        for (let i = 0; i < 3; i++) this.noise(d, t + i * 0.16, { f: 1400, q: 1, amp: 0.18, tau: 0.03, buf: this.g.pink });
+        // Three crunchy bites (a low munch under each) and a happy little gulp.
+        for (let i = 0; i < 3; i++) {
+          this.noise(d, t + i * 0.16, { f: 1500, q: 1, amp: 0.16, tau: 0.03, buf: this.g.pink });
+          this.tone(d, t + i * 0.16, { f0: 190, f1: 140, glide: 0.04, amp: 0.1, tau: 0.03 });
+          this.crumbs(d, t + i * 0.16 + 0.01, 3, 0.03, 0.05);
+        }
+        this.tone(d, t + 0.56, { f0: 260, f1: 420, glide: 0.07, amp: 0.1, tau: 0.04, lp: 1200 });
         break;
       case 'bundle':
         [0, 2, 4, 5].forEach((k, i) => this.chime(d, t + i * 0.09, this.kn(k), 0.26, 'harp'));
@@ -607,10 +637,44 @@ export class Sfx {
       case 'thunder':
         this.noise(d, t, { type: 'lowpass', f: 300, amp: 0.6, attack: 0.1, tau: 0.9, buf: this.g.brown });
         break;
+      case 'crow': {
+        // A crow drops onto the field: two hoarse caws.
+        const ctx = this.g.ctx;
+        for (let i = 0; i < 2; i++) {
+          const tt = t + i * 0.36;
+          const o2 = ctx.createOscillator();
+          o2.type = 'sawtooth';
+          o2.frequency.setValueAtTime(620 - i * 40, tt);
+          o2.frequency.exponentialRampToValueAtTime(450, tt + 0.28);
+          const bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.value = 1250;
+          bp.Q.value = 2.2;
+          const a = ctx.createGain();
+          a.gain.setValueAtTime(0, tt);
+          a.gain.linearRampToValueAtTime(0.14, tt + 0.03);
+          a.gain.setTargetAtTime(0, tt + 0.2, 0.05);
+          o2.connect(bp).connect(a).connect(d);
+          o2.start(tt);
+          o2.stop(tt + 0.45);
+          this.noise(d, tt, { f: 1800, q: 1.5, amp: 0.03, attack: 0.02, tau: 0.08, buf: this.g.pink });
+        }
+        break;
+      }
       default:
         if (name.startsWith('step:')) this.step(name.slice(5) as Surface, o);
         break;
     }
+  }
+
+  /**
+   * Play a short tune fragment (a theme's hook) on one of the score's instruments — the season and
+   * morning stingers quote the music the player is about to hear.
+   */
+  phrase(inst: 'celesta' | 'kalimba' | 'harp' | 'musicBox' | 'marimba' | 'bell' | 'flute' | 'clarinet', notes: { midi: number; t: number; beats: number }[], o?: SfxOpts & { bpm?: number }): void {
+    const { d, t } = this.bus(o);
+    const beat = 60 / (o?.bpm ?? 100);
+    for (const n of notes) INSTRUMENTS[inst](this.g, d, t + n.t * beat, n.midi, Math.max(0.2, n.beats * beat * 0.95), 0.34, undefined);
   }
 
   /** Dialogue blip for one character of text (kept for single-character callers). */

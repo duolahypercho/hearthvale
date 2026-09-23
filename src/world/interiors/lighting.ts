@@ -14,6 +14,7 @@
 import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { globalUniforms } from '../../render/uniforms';
+import { atmosphere } from '../../render/heightfog';
 import type { InteriorMap } from './room';
 
 export function isInterior(m: unknown): m is InteriorMap {
@@ -82,6 +83,8 @@ export function installInteriorLighting(game: Game): void {
     globalUniforms.uSnow.value = 0;
     globalUniforms.uRain.value = 0;
     globalUniforms.uCloudShadow.value = 0;
+    // No ground mist indoors (the weather system re-writes it every frame outside).
+    atmosphere.fog = 0;
     globalUniforms.uRim.value = 0;
     globalUniforms.uSunDir.value.copy(L.sunDir);
     globalUniforms.uSunColor.value.copy(L.sunColor).multiplyScalar(L.sunI / 3);

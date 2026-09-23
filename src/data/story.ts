@@ -34,8 +34,10 @@ export const CAST: Record<CastId, CastDef> = {
     name: 'Sterling Vance',
     short: 'Sterling',
     role: 'Regional Brightness Director, Glimmerco',
-    look: { skin: 0xf2d0b6, hair: 0x2a2630, hairStyle: 'short', top: 0xb8c6d8, bottom: 0x2c3444, scarf: 0x6fd2e8, scale: 1.06, build: 0.96 },
-    portraitBg: [0xe4ecf6, 0x9fb4d0],
+    // Taller and narrower than anyone in the valley: a slim silver suit with Glimmerco-cyan lapels,
+    // slicked hair, a cyan tie, pointed black shoes (the glowing lapel badge is a cutscene prop).
+    look: { skin: 0xf2d6c4, hair: 0x1e1c26, hairStyle: 'slick', top: 0xdfe8f0, bottom: 0x3a4658, coat: 0xa8b8c8, vest: 0x2fb8d8, bowtie: 0x1f9fc0, shoes: 0x14161c, scale: 1.14, build: 0.86, legs: 1.28, head: 0.92, face: 'long', eyes: 0x3fa8c8 },
+    portraitBg: [0xe8f4fa, 0x7fc8e0],
   },
   gran: {
     id: 'gran',
@@ -176,6 +178,33 @@ export const LETTERS: Record<string, LetterDef> = {
     ],
     sign: '— W. (painter, bad at sitting still)',
   },
+  'glimmer-flyer': {
+    id: 'glimmer-flyer',
+    from: 'The EverGlow™ Kiosk',
+    subject: 'Why wait for light?',
+    stationery: 'glimmer',
+    greeting: 'Hello, Valued Neighbour!',
+    body: [
+      'Tired of lanterns that need you? EverGlow™ bulbs switch on by themselves, stay on by themselves, and never, ever need anyone at all.',
+      'This week at the kiosk: seeds 15% off, lamp oil 40% off, and a free EverGlow™ nightlight with every signature.* Why haggle with a shopkeeper when you can simply agree with us?',
+      'Brighter. Faster. Forever.™',
+    ],
+    sign: 'Your friends at Glimmerco',
+    ps: '*Signatures are binding in all regions, including this one.',
+  },
+  'hollis-proud': {
+    id: 'hollis-proud',
+    from: 'Mayor Hollis Pennyroyal',
+    subject: 'Regarding a certain cheque (declined)',
+    stationery: 'town',
+    greeting: 'Dear Neighbour,',
+    body: [
+      'Word travels fast in a small town, and faster when Bram is the one carrying it. You turned down a very round number on the Hall steps.',
+      "I have been Mayor for twenty-two years and I have never once been offered a very round number. I'm told it is harder to refuse than it looks. Thank you.",
+      'The kiosk by the fountain was packed up this morning. The fountain looks relieved.',
+    ],
+    sign: 'With considerable pride,\nHollis',
+  },
   'gran-winter': {
     id: 'gran-winter',
     from: 'Gran Rosalind',
@@ -247,7 +276,7 @@ export const STORY_QUESTS: StoryQuestDef[] = [
   { id: 'arrive', title: 'A Letter from Gran', text: "Gran left you the farm at Hearthvale — and a valley that has forgotten how to shine.", goal: 'Arrive in Hearthvale', giver: 'Gran Rosalind' },
   { id: 'visit-hall', title: 'The Dark Hall', text: "Mayor Hollis handed you the old key. The Lantern Hall waits at the top of the square.", goal: 'Enter the Lantern Hall', giver: 'Mayor Hollis' },
   { id: 'first-lantern', title: 'The First Lantern', text: 'Each of the Hall\'s six rooms wants a bundle of what the valley grows. Fill one room to relight its lantern.', goal: 'Relight any room', giver: 'Mayor Hollis' },
-  { id: 'glimmer', title: 'A Glimmer of Trouble', text: "Glimmerco has noticed your work. Their director wants a word on the Hall steps.", goal: 'Hear Glimmerco out (3 rooms lit)', giver: 'Glimmerco' },
+  { id: 'glimmer', title: 'A Glimmer of Trouble', text: "A man in a silver suit has been measuring the Hall, and a glowing kiosk has opened by the fountain. Glimmerco wants the Lantern Hall.", goal: 'Hear Glimmerco out (3 rooms lit)', giver: 'Glimmerco' },
   { id: 'all-lanterns', title: 'Light What You Can', text: 'Relight every room in the Lantern Hall and the valley will remember how to gather.', goal: 'Relight all six rooms', giver: 'Gran Rosalind' },
   { id: 'festival', title: 'The Lantern Festival', text: 'On the last night of winter the valley walks its lanterns to the Hall.', goal: 'Attend the Festival (Winter 28, evening)', giver: 'Mayor Hollis' },
 ];
