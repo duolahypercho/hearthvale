@@ -204,6 +204,12 @@ export const DEMOS: Record<string, DemoDef> = {
   'ui-pause': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'pause' },
   'ui-saves': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'saves' },
   'ui-icons': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'icons' },
+  // New Journal (character creator in the world: name, farm, look, pet, slot) — `ui=newgame:demo` pre-fills it.
+  'ui-newgame': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.4, season: 'spring', weather: 'sun', ui: 'newgame:demo', showcase: ['field'] },
+  // Late-afternoon HUD at low energy + low health: both tubes, the low pulse and the red heartbeat vignette.
+  'ui-hud-low': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 17.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
+  // Co-op entry from the title (host / join lobby with invite code and farmer slots; staged, no server).
+  'ui-coop': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
   // Multiplayer pod (src/net, src/ui/coop*): three scripted farmhands on the host's farm (no server needed) — hoeing,
   // watering, chatting — with cabins, name tags, emote bubbles and the roster; the lobby / character creator.
   'coop-farm': { map: 'farm', x: 28.4, z: 25.8, facing: 'left', time: 9.4, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 23, offsetX: -3.4, offsetZ: -3.2 }, showcase: ['field', 'coop'] },
