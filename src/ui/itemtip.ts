@@ -26,6 +26,12 @@ export function slotInner(s: StackView | null | undefined): string {
   return itemIcon(s.id) + (s.qty > 1 ? `<span class="qty">${s.qty}</span>` : '') + qualityStar(s.quality ?? 0);
 }
 
+/** Quality as a row of three stars: `q` lit in the quality's colour, the rest as faint outlines. */
+export function starRow(q: number): string {
+  if (!q) return '';
+  return Array.from({ length: 3 }, (_, i) => qualityStar(q, i < q ? 'u-star' : 'u-star dim')).join('');
+}
+
 /** Legacy helper (old HUD API). */
 export function slotHtml(s: StackView | null): string {
   return slotInner(s);
@@ -48,7 +54,7 @@ export function itemTooltipHtml(s: StackView, opts: { hint?: string; price?: num
   } else if (d?.kind === 'produce' && !desc) desc = 'Fresh from the farm. Ship it, gift it, or cook with it.';
   else if (d?.kind === 'resource' && !desc) desc = 'A useful crafting material.';
   const q = s.quality ?? 0;
-  const quality = q ? `<div class="t-q">${qualityStar(q)}${qualityStar(q)}${q >= 2 ? qualityStar(q) : ''} <span>${Q_NAMES[q]} quality</span></div>` : '';
+  const quality = q ? `<div class="t-q">${starRow(q)} <span>${Q_NAMES[q]} quality · ×${QUALITY_MULT[q]} value</span></div>` : '';
   const each = opts.price ?? unitPrice(s);
   let row = '';
   if (each > 0) {

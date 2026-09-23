@@ -1171,7 +1171,7 @@ export function iconFor(itemId: string, _icon?: string, _color?: number): string
 
 // ── Categories (tooltips, ledgers) ─────────────────────────────────────────
 
-const FLOWERS = /sunflower|tulip|rose|daisy|poppy|lily|flower/i;
+const FLOWERS = /sunflower|tulip|rose|daisy|poppy|lily|(?<!cauli)flower/i;
 const FRUIT = /strawberry|berry|melon|apple|cherry|grape|peach|orange|blueberr/i;
 
 export function itemCategory(id: string): { label: string; color: string; group: string } {

@@ -4,7 +4,8 @@
  * so critics see full grids, star badges, craftable recipes and a discovered one. Never runs in normal play
  * (it only arms on `demo:stage`), and only fills empty backpack slots.
  *
- * `ui-*` demos (demos.ts) name each screen; `ui-hud` also fires a few toasts and bumps the toolbar.
+ * `ui-*` demos (demos.ts) name each screen; `ui-hud` also fires a few toasts and bumps the toolbar;
+ * `ui-placement` holds a sprinkler so the in-world placement ghost shows.
  */
 import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
@@ -42,6 +43,13 @@ export class DemoKit {
         this.holdToasts = true;
         this.hudShow();
       }
+      // `ui-placement`: hold the first placeable on the toolbar so the in-world ghost + reach tint shows.
+      if (name === 'ui-placement')
+        setTimeout(() => {
+          const slots = this.game.services.inventory?.slots ?? [];
+          const i = slots.slice(0, 10).findIndex((s) => !!s && itemDef(s.id)?.kind === 'placeable');
+          if (i >= 0) this.game.events.emit('toolbar:select', { slot: i });
+        }, 200);
     });
   }
 

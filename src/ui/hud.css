@@ -433,15 +433,15 @@ body {
   opacity: 0.25;
 }
 
-/* Keyboard / gamepad focus */
+/* Keyboard / gamepad focus: a warm pulsing ring that reads on parchment and on wood alike. */
 .u-kbd .u-focus {
-  outline: 3px solid #ffd76a;
+  outline: 3px solid #e8674a;
   outline-offset: 3px;
   animation: uFocus 1.1s ease-in-out infinite;
 }
 @keyframes uFocus {
   50% {
-    outline-color: #fff3c0;
+    outline-color: #ffb347;
     outline-offset: 5px;
   }
 }

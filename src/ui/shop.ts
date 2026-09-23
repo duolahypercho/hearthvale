@@ -34,7 +34,51 @@ const LINES: Record<string, { hello: string[]; buy: string[]; sell: string[]; br
     sell: ['Oh, these are lovely. I’ll put them right in the window.', 'Fair price for fair work.', 'The bakery will want these, mark my words.'],
     broke: ['Ah — a little short, dear. Come back after market day.'],
   },
+  odessa: {
+    hello: ['Mind the sparks. What are we making today?', 'Good ore sings when you strike it. Listen.', 'Bring me copper and I’ll show you what a sprinkler can be.'],
+    buy: ['Forged true. It’ll outlast us both.', 'Tempered this morning. Treat it kindly.', 'That’s honest steel.'],
+    sell: ['Hm. Decent grain in this. I’ll take it.', 'The forge will put that to good use.', 'Not bad for a farmer.'],
+    broke: ['Steel isn’t cheap. Come back with a heavier purse.'],
+  },
+  rowan: {
+    hello: ['Measure twice, buy once. What do you need built?', 'Kit borrowed my good hammer again. Browse, I’ll be a minute.', 'Fresh-cut oak today. Smell that?'],
+    buy: ['Built it myself. Every joint’s square.', 'Mind the splinters.', 'That’ll hold. Probably forever.'],
+    sell: ['Good timber. I’ll find a use for it.', 'Straight grain — that’s the stuff.', 'Deal. Stack it by the door?'],
+    broke: ['Tell you what — come back when the harvest’s in.'],
+  },
 };
+
+/** Per-keeper shelves beyond Marigold's seed store: [itemId, price, shelf, note]. */
+const STOCK: Record<string, [string, number, string, string][]> = {
+  odessa: [
+    ['coal', 40, 'Forge stock', 'Burns hot and long'],
+    ['copperOre', 30, 'Forge stock', 'From the upper Hollows'],
+    ['ironOre', 60, 'Forge stock', 'Heavy and honest'],
+    ['goldOre', 150, 'Forge stock', 'For the ambitious'],
+    ['sprinkler', 150, 'Sprinklers', 'Waters 4 tiles each morning'],
+    ['brassSprinkler', 450, 'Sprinklers', 'Waters all 8 tiles around it'],
+    ['goldSprinkler', 1100, 'Sprinklers', 'A whole 5×5 patch'],
+    ['sword', 350, 'Blades', 'For things that wobble in the dark'],
+  ],
+  rowan: [
+    ['wood', 10, 'Timber & stone', 'Seasoned oak, split and stacked'],
+    ['stone', 20, 'Timber & stone', 'Good for paths and sprinklers'],
+    ['fiber', 5, 'Timber & stone', 'Twisted twine'],
+    ['hay', 50, 'Timber & stone', 'Sweet dried grass for the troughs'],
+    ['chest', 250, 'Built to order', 'Holds 36 stacks of anything'],
+    ['scarecrow', 150, 'Built to order', 'Keeps crows off 8 tiles'],
+    ['woodFence', 6, 'Built to order', 'By the post'],
+    ['stonePath', 8, 'Built to order', 'Per paving stone'],
+  ],
+};
+
+function shopName(id: string): string {
+  if (id === 'marigold') return 'Thimble &amp; Pip’s';
+  const n = NPCS[id as NpcId];
+  if (!n) return 'Shop';
+  const at = n.role.indexOf(' at ');
+  return escapeHtml(at >= 0 ? n.role.slice(at + 4) : `${n.name.split(' ')[0]}’s Workshop`);
+}
 
 function portraitFor(id: string): string {
   const n = NPCS[id as NpcId];
@@ -86,7 +130,7 @@ export class ShopScreen extends Screen {
     this.root.querySelector('.u-pop')?.remove();
     const npc = NPCS[this.keeper as NpcId];
     const wrap = el('div', 'shop-wrap u-pop');
-    const { frame: f, body } = frame(this.keeper === 'marigold' ? 'Thimble &amp; Pip’s' : `${escapeHtml(npc?.name ?? 'Shop')}`, 'shop-frame');
+    const { frame: f, body } = frame(shopName(this.keeper), 'shop-frame');
     f.appendChild(closeButton(() => this.requestClose()));
 
     const left = el('div', 'shop-keeper');
@@ -129,6 +173,8 @@ export class ShopScreen extends Screen {
   }
 
   private stock(): Good[] {
+    const own = STOCK[this.keeper];
+    if (own) return own.filter(([id]) => itemDef(id)).map(([id, price, shelf, note]) => ({ id, price, shelf, note }));
     const season = this.game.calendar.season;
     const out: Good[] = [];
     const ids = [...CROP_IDS].sort((a, b) => Number(!CROPS[a].seasons.includes(season)) - Number(!CROPS[b].seasons.includes(season)));

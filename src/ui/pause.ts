@@ -136,7 +136,13 @@ function thumb(season = 'spring'): string {
     winter: ['#d8e8f4', '#f4f8fb', '#c4d4e4'],
   };
   const [sky, h1, h2] = land[season] ?? land.spring!;
-  return `<svg viewBox="0 0 120 80"><rect width="120" height="80" fill="${sky}"/><circle cx="92" cy="20" r="9" fill="#ffe08a"/><path d="M0 44 C30 30 60 34 80 42 C96 48 110 38 120 40 V80 H0 Z" fill="${h1}"/><path d="M0 60 C34 50 70 54 120 58 V80 H0 Z" fill="${h2}"/><g transform="translate(38 44)"><rect x="-10" y="-2" width="20" height="13" fill="#f2e2c0" stroke="#3b2313" stroke-width="1.4"/><path d="M-13 -1 L0 -12 L13 -1 Z" fill="#c8573e" stroke="#3b2313" stroke-width="1.4"/><rect x="-2.5" y="4" width="5" height="7" fill="#8a5a36"/></g>${[0, 1, 2, 3].map((i) => `<rect x="${62 + i * 7}" y="58" width="4" height="12" rx="1" fill="#7a4e2e"/>`).join('')}</svg>`;
+  return `<svg viewBox="0 0 120 80" preserveAspectRatio="xMidYMid slice"><rect width="120" height="80" fill="${sky}"/><circle cx="92" cy="20" r="9" fill="#ffe08a"/><path d="M0 44 C30 30 60 34 80 42 C96 48 110 38 120 40 V80 H0 Z" fill="${h1}"/><path d="M0 60 C34 50 70 54 120 58 V80 H0 Z" fill="${h2}"/><g transform="translate(38 44)"><rect x="-10" y="-2" width="20" height="13" fill="#f2e2c0" stroke="#3b2313" stroke-width="1.4"/><path d="M-13 -1 L0 -12 L13 -1 Z" fill="#c8573e" stroke="#3b2313" stroke-width="1.4"/><rect x="-2.5" y="4" width="5" height="7" fill="#8a5a36"/></g>${[0, 1, 2, 3].map((i) => `<rect x="${62 + i * 7}" y="58" width="4" height="12" rx="1" fill="#7a4e2e"/>`).join('')}</svg>`;
+}
+
+/** Empty journal page: a faint graphite sketch of the farm waiting to be drawn in. */
+function blankThumb(): string {
+  const g = 'fill="none" stroke="#b09470" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"';
+  return `<svg viewBox="0 0 120 80" class="sketch" preserveAspectRatio="xMidYMid slice"><rect width="120" height="80" fill="#fbf3de"/><g ${g} opacity=".75"><path d="M4 46 C30 34 58 38 80 44 C96 49 108 41 116 42"/><path d="M6 62 C36 54 70 57 114 60" stroke-dasharray="3 3"/><path d="M28 43 V32 H48 V43"/><path d="M25 33 L38 23 L51 33"/><path d="M36 43 V37 H40 V43"/><path d="M62 58 V52 M69 58 V51 M76 58 V52 M83 58 V51"/><path d="M92 18 m-7 0 a7 7 0 1 0 14 0 a7 7 0 1 0 -14 0" stroke-dasharray="2 2.4"/></g><path d="M86 70 L104 52 L108 56 L90 74 L84 76 Z" fill="#f2c86a" stroke="#6a4428" stroke-width="1.2"/><path d="M84 76 L86 70 L90 74 Z" fill="#3b2313"/><path d="M104 52 L108 56 L110 54 C111 53 111 51 110 50 L108 48 C107 47 105 47 104 48 L102 50 Z" fill="#e89a9a" stroke="#6a4428" stroke-width="1.2"/></svg>`;
 }
 
 export class SavesScreen extends Screen {
@@ -181,7 +187,7 @@ export class SavesScreen extends Screen {
       const canSave = this.mode === 'save' && s.slot !== 'auto';
       const confirming = this.confirm === s.slot;
       card.innerHTML = `
-        <div class="thumb">${s.exists ? thumb(s.season) : '<div class="blank">— empty —</div>'}<span class="tag">${escapeHtml(s.label)}</span></div>
+        <div class="thumb">${s.exists ? thumb(s.season) : `<div class="blank">${blankThumb()}</div>`}<span class="tag">${escapeHtml(s.label)}</span></div>
         <div class="meta">${
           s.exists
             ? `<b>${SEASON_NAME[s.season ?? 'spring']} ${s.day ?? 1}, Year ${s.year ?? 1}</b><span>${ICONS.coin}${(s.gold ?? 0).toLocaleString()}g</span><small>saved ${ago(s.savedAt)}</small>`

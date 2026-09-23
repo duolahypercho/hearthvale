@@ -11,7 +11,7 @@ import { itemDef } from '../data/items';
 import { ICONS, itemIcon, itemCategory, qualityStar } from './icons';
 import { CROPS, daysToRipe, type CropId } from '../data/crops';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
-import { slotInner, itemTooltipHtml, unitPrice, type StackView } from './itemtip';
+import { slotInner, itemTooltipHtml, unitPrice, starRow, type StackView } from './itemtip';
 import { menuTabs } from './menutabs';
 import { farmerAvatar } from './avatar';
 
@@ -187,7 +187,7 @@ export class InventoryScreen extends Screen {
         : d?.kind === 'tool'
           ? `<div class="idt-val tool">${ICONS.hammer}<b>Tool</b><small>not for sale</small></div>`
           : '';
-    const stars = q ? `<span class="idt-q">${qualityStar(q)}${q >= 2 ? qualityStar(q) : ''}${q >= 3 ? qualityStar(q) : ''}</span>` : '';
+    const stars = q ? `<span class="idt-q">${starRow(q)}</span>` : '';
     this.detail.innerHTML = `
       <div class="u-slot idt-pic">${itemIcon(s.id)}${qualityStar(q)}</div>
       <div class="idt-txt">
@@ -209,10 +209,14 @@ export class InventoryScreen extends Screen {
       tooltip.hide();
       return;
     }
+    // Keyboard / gamepad focus reads the detail card under the grid — a floating tip would cover the
+    // neighbouring slots the player is navigating to.
+    if (anchor) {
+      tooltip.hide();
+      return;
+    }
     const hint = i < 10 ? 'Toolbar slot' : '';
-    const html = itemTooltipHtml(s, { hint });
-    if (anchor) tooltip.anchor(html, this.cells[i]!);
-    else tooltip.show(html);
+    tooltip.show(itemTooltipHtml(s, { hint }));
   }
 
   private onSlotDown(i: number, e: PointerEvent): void {
