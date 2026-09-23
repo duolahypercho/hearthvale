@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "shot": "node scripts/shot.mjs",
     "shots": "node scripts/shots.mjs",
+    "perf": "node scripts/perf.mjs",
     "lint": "node scripts/check-imports.mjs",
     "test": "node scripts/smoke.mjs",
     "check": "npm run typecheck && npm run lint && npm test"
