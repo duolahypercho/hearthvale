@@ -113,6 +113,17 @@ Critics judge from these PNGs. Put scratch shots in `shots/` (gitignored).
 11. **Audio**: procedural WebAudio — ambient bed per map/time/weather, footsteps per surface, tool SFX,
     UI clicks, a composed score (hand-written tunes per theme arranged live, seasonal instrument timbres).
 12. **Save/Load**: localStorage slots, autosave at end of day.
+13. **Multiplayer co-op (required)**: 1–4 players share one farm. Host-authoritative: the host's
+    browser runs the simulation; a small Node WebSocket relay (`server/`, `npm run server`) handles
+    lobbies/invite codes. Clients send intents (move, tool use, interact), host broadcasts state
+    deltas + events; remote players are interpolated (~100 ms buffer) with client-side prediction
+    for the local player. Shared world, gold, and calendar; per-player inventory, energy, and
+    relationships. Day ends when all players sleep. Player name tags, emotes, color-customised
+    farmers, chat. Join via title screen "Co-op" (host / join by code). Solo play needs no server.
+14. **Performance (required, checked every loop)**: ≥ 60 fps at 1440p "high" on an M-series laptop
+    in every demo and with 4 players online; adaptive quality drops post effects/shadow res before
+    frames drop. `npm run perf` renders each demo for N seconds and reports avg/p95/p99 frame time;
+    a regression is a blocker for any team.
 
 ## Quality bar
 
