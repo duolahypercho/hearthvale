@@ -34,7 +34,7 @@ export const THEMES: Record<string, ThemeDef> = {
       melody: { gain: 0.8, pan: 0.08, send: 0.32 },
       counter: { gain: 0.55, pan: 0.32, send: 0.35 },
       accomp: { gain: 0.62, pan: -0.28, send: 0.3 },
-      bass: { gain: 0.52, pan: 0, send: 0.05 },
+      bass: { gain: 0.74, pan: 0, send: 0.05 },
       pad: { gain: 0.5, pan: 0, send: 0.5 },
       perc: { gain: 0.35, pan: 0.22, send: 0.15 },
     },
@@ -69,7 +69,7 @@ export const THEMES: Record<string, ThemeDef> = {
       counter: { gain: 0.5, pan: -0.35, send: 0.35 },
       accomp: { gain: 0.72, pan: -0.25, send: 0.22 },
       accomp2: { gain: 0.45, pan: 0.35, send: 0.25 },
-      bass: { gain: 0.52, pan: 0, send: 0.05 },
+      bass: { gain: 0.74, pan: 0, send: 0.05 },
       perc: { gain: 0.35, pan: -0.15, send: 0.12 },
     },
     rest: [25, 60],
@@ -100,7 +100,7 @@ export const THEMES: Record<string, ThemeDef> = {
       melody: { gain: 0.85, pan: 0.06, send: 0.34 },
       counter: { gain: 0.5, pan: -0.3, send: 0.38 },
       accomp: { gain: 0.6, pan: 0.28, send: 0.34 },
-      bass: { gain: 0.50, pan: 0, send: 0.06 },
+      bass: { gain: 0.74, pan: 0, send: 0.06 },
       pad: { gain: 0.45, pan: 0, send: 0.5 },
     },
     rest: [25, 60],
@@ -165,7 +165,7 @@ export const THEMES: Record<string, ThemeDef> = {
       counter: { gain: 0.5, pan: 0.35, send: 0.3 },
       accomp: { gain: 0.65, pan: -0.3, send: 0.25 },
       accomp2: { gain: 0.45, pan: 0.25, send: 0.35 },
-      bass: { gain: 0.52, pan: 0, send: 0.06 },
+      bass: { gain: 0.74, pan: 0, send: 0.06 },
       perc: { gain: 0.35, pan: 0.25, send: 0.15 },
     },
     rest: [15, 40],
@@ -197,7 +197,7 @@ export const THEMES: Record<string, ThemeDef> = {
       melody: { gain: 0.8, pan: 0.1, send: 0.32 },
       counter: { gain: 0.45, pan: 0.35, send: 0.3 },
       accomp: { gain: 0.6, pan: -0.28, send: 0.22 },
-      bass: { gain: 0.52, pan: 0, send: 0.05 },
+      bass: { gain: 0.74, pan: 0, send: 0.05 },
       perc: { gain: 0.38, pan: -0.12, send: 0.15 },
     },
     rest: [20, 50],
@@ -313,7 +313,7 @@ export const THEMES: Record<string, ThemeDef> = {
       double: { gain: 0.32, pan: -0.25, send: 0.25 },
       accomp: { gain: 0.5, pan: -0.3, send: 0.2 },
       accomp2: { gain: 0.45, pan: 0.35, send: 0.18 },
-      bass: { gain: 0.52, pan: 0, send: 0.05 },
+      bass: { gain: 0.74, pan: 0, send: 0.05 },
       perc: { gain: 0.5, pan: 0.05, send: 0.12 },
     },
     rest: [0, 0],
@@ -351,4 +351,90 @@ export const THEMES: Record<string, ThemeDef> = {
   },
 };
 
-export const THEME_IDS = Object.keys(THEMES);
+
+/** Mood hints the festival system broadcasts (`festival:music`). */
+export interface FestivalHint {
+  id: string;
+  tempo: number;
+  mode: string;
+  timbre: string;
+}
+
+/**
+ * Each festival gets its own arrangement of the Lantern Jig family, built from the festival's mood
+ * hint: the Blossom Parade is a bright lydian harp-and-whistle jig, Tide Lantern Night a slow
+ * mixolydian barcarolle for bells and harp, the Harvest Fair a driving dorian fiddle reel and
+ * Starfall a music-box carol with sleigh-bell tambourine. Unknown hints fall back to the jig.
+ */
+export function festivalTheme(h: FestivalHint): ThemeDef {
+  const base = THEMES.festival!;
+  const id = `festival-${h.id}`;
+  const bpm = Math.max(60, Math.min(140, h.tempo || base.bpm));
+  switch (h.timbre) {
+    case 'pluck':
+      return {
+        ...base, id, title: 'Ribbon Parade', bpm, key: 67, mode: 'lydian',
+        prog: { intro: ['I', 'II'], A: ['I', 'II', 'I', 'V', 'I', 'II', 'IV V', 'I'], B: ['vi', 'II', 'IV', 'I', 'vi', 'II', 'ii V', 'I'] },
+        melody: { inst: 'harp', range: [67, 86], density: 0.85, ornament: 0.2, double: { inst: 'whistle', interval: 12, on: 'repeat' } },
+        accomp: { inst: 'kalimba', pattern: 'oompah', range: [60, 74], voices: 3, vel: 0.55 },
+        accomp2: { inst: 'guitar', pattern: 'oompah', range: [50, 64], voices: 4, vel: 0.45, on: 'repeat' },
+        mix: { ...base.mix, melody: { gain: 0.9, pan: 0.1, send: 0.3 }, double: { gain: 0.28, pan: -0.25, send: 0.3 } },
+        // Loudness-matched to the other themes (~-15.5 LUFS, scripts/audio-render.mjs).
+        gain: 0.9,
+      };
+    case 'bell':
+      if (h.mode === 'mixolydian') {
+        return {
+          ...base, id, title: 'Lanterns on the Tide', bpm: Math.min(bpm, 84), key: 64, mode: 'mixolydian',
+          form: ['intro', 'A', 'B', 'A', 'outro'],
+          prog: { intro: ['I', 'bVII'], A: ['I', 'bVII', 'IV', 'I', 'vi', 'bVII', 'IV V', 'I'], B: ['IV', 'I', 'bVII', 'IV', 'ii', 'bVII', 'IV', 'V'], outro: ['bVII', 'I'] },
+          melody: { inst: 'celesta', range: [72, 90], density: 0.45, ornament: 0.1, double: { inst: 'bell', interval: 0, on: 'repeat' } },
+          accomp: { inst: 'harp', pattern: 'waltzArp', range: [55, 72], voices: 4, vel: 0.5 },
+          accomp2: undefined,
+          bass: { inst: 'softBass', pattern: 'jig', range: [38, 50], vel: 0.55 },
+          pad: { inst: 'pad', range: [52, 69], voices: 3, vel: 0.42, on: 'always' },
+          perc: { pattern: 'light', on: 'repeat', vel: 0.4 },
+          mix: { melody: { gain: 0.8, pan: 0.1, send: 0.5 }, double: { gain: 0.22, pan: -0.3, send: 0.6 }, accomp: { gain: 0.6, pan: -0.25, send: 0.4 }, bass: { gain: 0.5, pan: 0, send: 0.1 }, pad: { gain: 0.5, pan: 0, send: 0.55 }, perc: { gain: 0.3, pan: 0.2, send: 0.2 } },
+          rest: [0, 0],
+          gain: 0.85,
+        };
+      }
+      return {
+        ...base, id, title: 'Starfall Carol', bpm: Math.min(bpm, 96), key: 65, mode: 'major',
+        form: ['intro', 'A', 'B', 'A', 'outro'],
+        prog: { intro: ['I', 'IV'], A: ['I', 'vi', 'IV', 'V', 'I', 'vi', 'ii V', 'I'], B: ['IV', 'I', 'ii', 'V', 'IV', 'iii vi', 'ii', 'V'], outro: ['IV', 'I'] },
+        melody: { inst: 'musicBox', range: [74, 91], density: 0.55, ornament: 0.15, double: { inst: 'bell', interval: -12, on: 'repeat' } },
+        accomp: { inst: 'celesta', pattern: 'musicBox', range: [62, 79], voices: 3, vel: 0.45 },
+        accomp2: undefined,
+        bass: { inst: 'softBass', pattern: 'jig', range: [38, 50], vel: 0.55 },
+        pad: { inst: 'pad', range: [52, 69], voices: 4, vel: 0.45, on: 'always' },
+        perc: { pattern: 'light', on: 'always', vel: 0.45 },
+        mix: { melody: { gain: 0.85, pan: 0.1, send: 0.45 }, double: { gain: 0.25, pan: -0.3, send: 0.5 }, accomp: { gain: 0.55, pan: -0.22, send: 0.45 }, bass: { gain: 0.5, pan: 0, send: 0.1 }, pad: { gain: 0.5, pan: 0, send: 0.55 }, perc: { gain: 0.3, pan: 0.2, send: 0.2 } },
+        rest: [0, 0],
+        gain: 0.62,
+      };
+    case 'fiddle':
+      return {
+        ...base, id, title: 'Harvest Reel', bpm: Math.max(bpm, 118), key: 62, mode: 'dorian',
+        prog: { intro: ['i', 'bVII'], A: ['i', 'i', 'bVII', 'bVII', 'i', 'i', 'IV bVII', 'i'], B: ['bIII', 'bVII', 'IV', 'i', 'bIII', 'bVII', 'iv V', 'i'] },
+      };
+    default:
+      return { ...base, id, bpm };
+  }
+}
+
+/**
+ * The four festival arrangements are registered up front (hints mirror src/data/festivals.ts), so
+ * `?demo=audio&theme=festival-harvest`, cutscene cues and offline renders can reach them before the
+ * festival system has broadcast its hint; the live hint re-registers the same id when it arrives.
+ */
+export const FESTIVAL_HINTS: FestivalHint[] = [
+  { id: 'blossom', tempo: 112, mode: 'lydian', timbre: 'pluck' },
+  { id: 'tide', tempo: 76, mode: 'mixolydian', timbre: 'bell' },
+  { id: 'harvest', tempo: 124, mode: 'dorian', timbre: 'fiddle' },
+  { id: 'starfall', tempo: 92, mode: 'major', timbre: 'bell' },
+];
+for (const h of FESTIVAL_HINTS) {
+  const def = festivalTheme(h);
+  THEMES[def.id] = def;
+}

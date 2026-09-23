@@ -21,6 +21,8 @@ export class MusicPlayer {
   private seed: number;
   /** Absolute time when the current (last) piece's music ends. */
   endTime: number;
+  /** Offline stem renders: only schedule this track. */
+  solo: TrackName | null = null;
 
   constructor(private g: AudioGraph, readonly theme: ThemeDef, seed: number, startAt: number, fadeIn = 0) {
     const ctx = g.ctx;
@@ -85,6 +87,7 @@ export class MusicPlayer {
       if (t >= until) return true;
       this.idx++;
       if (t >= this.stopAt) continue;
+      if (this.solo && ev.track !== this.solo && !(this.solo === 'melody' && ev.track === 'double')) continue;
       if (t < this.g.ctx.currentTime - 0.05) continue; // late (tab was hidden): skip rather than pile up
       INSTRUMENTS[ev.inst](this.g, this.track(ev.track), Math.max(t, this.g.ctx.currentTime), ev.midi, ev.dur, Math.max(0.05, Math.min(1.2, ev.vel)), ev.o);
     }
@@ -133,6 +136,8 @@ export class MusicDirector {
   desired: string | null = null;
   forced: string | null = null;
   level = 1;
+  /** Crossfade length for ordinary mood changes (the adapter lengthens it for time/weather drifts). */
+  fade = 4;
 
   constructor(private g: AudioGraph, seed = 1) {
     this.rng = new Rand(seed);
@@ -165,7 +170,7 @@ export class MusicDirector {
     if (this.current && this.current.theme.id !== want) {
       // Long, gentle crossfades between moods; quicker into festival/title.
       const quick = want === 'festival' || want === 'title' || this.current.theme.id === 'title';
-      this.current.stop(quick ? 1.6 : 4);
+      this.current.stop(quick ? 1.6 : this.fade);
       this.old.push(this.current);
       this.current = null;
       this.restUntil = now + (quick ? 0.4 : 1.5);
@@ -204,10 +209,11 @@ export class MusicDirector {
 }
 
 /** Offline helper: schedule a theme from t=0 for `seconds`. */
-export function scheduleTheme(g: AudioGraph, id: string, seconds: number, seed = 1): MusicPlayer {
+export function scheduleTheme(g: AudioGraph, id: string, seconds: number, seed = 1, solo: TrackName | null = null): MusicPlayer {
   const th = THEMES[id];
   if (!th) throw new Error(`unknown theme ${id}`);
   const p = new MusicPlayer(g, th, seed, 0);
+  p.solo = solo;
   p.pump(seconds);
   return p;
 }

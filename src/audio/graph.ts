@@ -18,6 +18,8 @@ export class AudioGraph {
   readonly mix: GainNode;
   readonly musicBus: GainNode;
   readonly duck: GainNode;
+  /** Music tone control: a gentle low-pass for "muffled" states (indoors, pause menu, fainting). */
+  readonly musicTone: BiquadFilterNode;
   readonly ambBus: GainNode;
   readonly sfxBus: GainNode;
   readonly uiBus: GainNode;
@@ -78,7 +80,11 @@ export class AudioGraph {
     this.ambBus = g(0.7);
     this.sfxBus = g(0.85);
     this.uiBus = g(0.7);
-    this.musicBus.connect(this.duck).connect(this.mix);
+    this.musicTone = ctx.createBiquadFilter();
+    this.musicTone.type = 'lowpass';
+    this.musicTone.frequency.value = 20000;
+    this.musicTone.Q.value = 0.5;
+    this.musicBus.connect(this.duck).connect(this.musicTone).connect(this.mix);
     this.ambBus.connect(this.mix);
     this.sfxBus.connect(this.mix);
     this.uiBus.connect(this.mix);
@@ -144,6 +150,15 @@ export class AudioGraph {
     g.setTargetAtTime(1, t + hold, release / 3);
     this.duckUntil = t + hold;
     this.duckDepth = d;
+  }
+
+  /**
+   * Muffle the score (0 = open, 1 = heavily muffled, as if through a wall). Smooth, so it can be
+   * driven every frame.
+   */
+  setMusicMuffle(amount: number, at = this.ctx.currentTime, tau = 0.4): void {
+    const a = Math.max(0, Math.min(1, amount));
+    this.musicTone.frequency.setTargetAtTime(20000 * Math.pow(900 / 20000, a), at, tau);
   }
 
   /** Continuous mix state per environment (0..1 cave amount, e.g. in the mine). */

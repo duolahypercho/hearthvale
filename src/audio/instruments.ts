@@ -91,8 +91,11 @@ export function noiseHit(
   src.stop(t + attack + o.tau * 7);
 }
 
-/** Delayed vibrato LFO on a frequency param. */
-function vibrato(g: AudioGraph, param: AudioParam, t: number, dur: number, f: number, rate: number, depth: number, delay: number): void {
+/**
+ * Delayed vibrato LFO on a frequency param. With `amp` (a unity gain node in the voice's chain)
+ * the same LFO also breathes the level a few percent, as a wind player's vibrato does.
+ */
+function vibrato(g: AudioGraph, param: AudioParam, t: number, dur: number, f: number, rate: number, depth: number, delay: number, amp?: { node: GainNode; depth: number }): void {
   if (dur < delay + 0.15) return;
   const lfo = sine(g, rate * (0.95 + g.rng.next() * 0.1), t, t + dur + 0.6);
   const d = gain(g);
@@ -100,6 +103,18 @@ function vibrato(g: AudioGraph, param: AudioParam, t: number, dur: number, f: nu
   d.gain.setValueAtTime(0, t + delay);
   d.gain.linearRampToValueAtTime(f * depth, t + delay + 0.35);
   lfo.connect(d).connect(param);
+  if (amp) {
+    const ad = gain(g);
+    ad.gain.setValueAtTime(0, t + delay);
+    ad.gain.linearRampToValueAtTime(amp.depth, t + delay + 0.45);
+    lfo.connect(ad).connect(amp.node.gain);
+  }
+}
+
+/** Tongued onset: the pitch settles from a few cents flat, like a real breath attack. */
+function scoop(param: AudioParam, t: number, f: number, cents: number, time: number): void {
+  param.setValueAtTime(f * Math.pow(2, -cents / 1200), t);
+  param.exponentialRampToValueAtTime(f, t + time);
 }
 
 function glide(param: AudioParam, t: number, f: number, from: number | undefined, time: number): void {
@@ -238,13 +253,15 @@ export const epiano: InstrumentFn = (g, dest, t, m, dur, v) => {
   car.connect(a).connect(dest);
 };
 
-type PluckFlavour = { key: string; brightness: number; position: number; decay: (m: number) => number; seconds: number; gain: number; damp: number };
+type PluckFlavour = { key: string; brightness: number; position: number; decay: (m: number) => number; seconds: number; gain: number; damp: number; lpMax: number };
+// Gains are loudness-calibrated (scripts/audio-render.mjs --stems): a decaying string carries far
+// less energy than a sustained wind voice at the same peak, so plucks sit ~6–9 dB hotter.
 const PLUCKS: Record<string, PluckFlavour> = {
-  guitar: { key: 'gtr', brightness: 0.42, position: 0.17, decay: (m) => clamp(3.4 - (m - 50) * 0.06, 1.2, 4), seconds: 3, gain: 0.8, damp: 0.09 },
-  harp: { key: 'hrp', brightness: 0.62, position: 0.32, decay: (m) => clamp(5 - (m - 55) * 0.08, 1.6, 5.5), seconds: 4, gain: 0.72, damp: 0.5 },
-  ukulele: { key: 'uke', brightness: 0.72, position: 0.2, decay: (m) => clamp(1.9 - (m - 60) * 0.03, 0.8, 2), seconds: 1.8, gain: 0.7, damp: 0.06 },
-  bass: { key: 'bas', brightness: 0.22, position: 0.24, decay: (m) => clamp(2.2 - (m - 36) * 0.04, 1, 2.4), seconds: 2, gain: 0.75, damp: 0.08 },
-  pizz: { key: 'piz', brightness: 0.35, position: 0.28, decay: () => 0.55, seconds: 0.8, gain: 0.75, damp: 0.05 },
+  guitar: { key: 'gtr', brightness: 0.42, position: 0.17, decay: (m) => clamp(3.4 - (m - 50) * 0.06, 1.2, 4), seconds: 3, gain: 1.55, damp: 0.09, lpMax: 5200 },
+  harp: { key: 'hrp', brightness: 0.55, position: 0.32, decay: (m) => clamp(5 - (m - 55) * 0.08, 1.6, 5.5), seconds: 4, gain: 1.95, damp: 0.5, lpMax: 5200 },
+  ukulele: { key: 'uke', brightness: 0.72, position: 0.2, decay: (m) => clamp(1.9 - (m - 60) * 0.03, 0.8, 2), seconds: 1.8, gain: 1.3, damp: 0.06, lpMax: 6500 },
+  bass: { key: 'bas', brightness: 0.22, position: 0.24, decay: (m) => clamp(2.2 - (m - 36) * 0.04, 1, 2.4), seconds: 2, gain: 1.9, damp: 0.08, lpMax: 900 },
+  pizz: { key: 'piz', brightness: 0.35, position: 0.28, decay: () => 0.55, seconds: 0.8, gain: 2.3, damp: 0.05, lpMax: 3800 },
 };
 
 function plucked(flavour: PluckFlavour): InstrumentFn {
@@ -260,7 +277,7 @@ function plucked(flavour: PluckFlavour): InstrumentFn {
     const end = Math.min(t + buf.duration, t + dur + flavour.damp * 4);
     a.gain.setTargetAtTime(0, t + dur + 0.02, flavour.damp);
     // Velocity-dependent tone: softer notes are darker.
-    const lp = filter(g, 'lowpass', 1500 + 7000 * v * flavour.brightness + mtof(m) * 2, 0.5);
+    const lp = filter(g, 'lowpass', Math.min(flavour.lpMax, 1500 + 7000 * v * flavour.brightness + mtof(m) * 2), 0.5);
     src.connect(lp).connect(a).connect(dest);
     src.start(t);
     src.stop(end + 0.05);
@@ -280,8 +297,8 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   const s = sine(g, f, t, stop);
   const a = gain(g);
   a.gain.setValueAtTime(0, t);
-  a.gain.linearRampToValueAtTime(v * 0.12, t + 0.012);
-  a.gain.setTargetAtTime(v * 0.05, t + 0.012, 0.25);
+  a.gain.linearRampToValueAtTime(v * 0.3, t + 0.012);
+  a.gain.setTargetAtTime(v * 0.14, t + 0.012, 0.25);
   a.gain.setTargetAtTime(0, t + Math.min(dur, 1.2), 0.07);
   s.connect(a).connect(dest);
 };
@@ -290,7 +307,8 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
 
 const FLUTE = (): number[] => [1, 0.42, 0.14, 0.07, 0.03, 0.015];
 const WHISTLE = (): number[] => [1, 0.22, 0.2, 0.05, 0.03];
-const CLARINET = (): number[] => [1, 0.04, 0.72, 0.05, 0.45, 0.04, 0.24, 0.03, 0.14, 0.02, 0.08, 0.01, 0.04];
+// Odd-harmonic reed spectrum, upper partials eased off (stems showed 25 % of the energy at 2–5 kHz).
+const CLARINET = (): number[] => [1, 0.04, 0.66, 0.05, 0.36, 0.04, 0.17, 0.03, 0.09, 0.02, 0.05, 0.01, 0.025];
 const BOWED = (): number[] => Array.from({ length: 30 }, (_, i) => {
   const n = i + 1;
   const fm = n * 110; // pseudo formants for a ~110 Hz reference: bumps near 300 / 1100 / 2600 Hz
@@ -307,12 +325,18 @@ function windVoice(opts: { wave: () => number[]; name: string; attack: number; b
     const attack = legato ? 0.03 : opts.attack;
     const osc = g.ctx.createOscillator();
     osc.setPeriodicWave(wave(g.ctx, opts.name, opts.wave));
-    glide(osc.frequency, t, f, legato ? o?.from : undefined, 0.05);
-    vibrato(g, osc.frequency, t, dur, f, opts.vibRate, opts.vibDepth, 0.22);
-    const lp = filter(g, 'lowpass', clamp(f * opts.bright + 900 * v, 400, 12000), 0.6);
+    if (legato) glide(osc.frequency, t, f, o?.from, 0.05);
+    else scoop(osc.frequency, t, f, 14 + g.rng.next() * 8, 0.045);
+    const trem = gain(g, 1);
+    vibrato(g, osc.frequency, t, dur, f, opts.vibRate, opts.vibDepth, 0.22, { node: trem, depth: 0.06 });
+    // Softer notes are darker; the filter opens a touch as the breath settles in.
+    const lpF = clamp(f * opts.bright + 900 * v, 400, 12000);
+    const lp = filter(g, 'lowpass', lpF, 0.6);
+    lp.frequency.setValueAtTime(lpF * 0.7, t);
+    lp.frequency.linearRampToValueAtTime(lpF, t + attack + 0.08);
     const a = gain(g);
     const stop = sustainEnv(a.gain, t, dur, v * opts.level, attack, 0.86, opts.release);
-    osc.connect(lp).connect(a).connect(dest);
+    osc.connect(lp).connect(trem).connect(a).connect(dest);
     osc.start(t);
     osc.stop(stop);
     // Breath: band-limited noise that follows the note.
@@ -334,7 +358,7 @@ function windVoice(opts: { wave: () => number[]; name: string; attack: number; b
 export const flute = windVoice({ wave: FLUTE, name: 'flute', attack: 0.07, breath: 0.07, chiff: 0.09, vibRate: 5.1, vibDepth: 0.0045, bright: 4, release: 0.06, level: 0.62 });
 export const whistle = windVoice({ wave: WHISTLE, name: 'whistle', attack: 0.03, breath: 0.05, chiff: 0.14, vibRate: 5.8, vibDepth: 0.004, bright: 6, release: 0.04, level: 0.5 });
 export const ocarina = windVoice({ wave: () => [1, 0.12, 0.05, 0.02], name: 'ocarina', attack: 0.05, breath: 0.09, chiff: 0.05, vibRate: 5.4, vibDepth: 0.005, bright: 3, release: 0.05, level: 0.62 });
-export const clarinet = windVoice({ wave: CLARINET, name: 'clarinet', attack: 0.05, breath: 0.025, chiff: 0.02, vibRate: 4.6, vibDepth: 0.0022, bright: 3.2, release: 0.07, level: 0.5 });
+export const clarinet = windVoice({ wave: CLARINET, name: 'clarinet', attack: 0.05, breath: 0.025, chiff: 0.02, vibRate: 4.6, vibDepth: 0.0022, bright: 2.7, release: 0.07, level: 0.52 });
 
 export const cello: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   const f = mtof(m);

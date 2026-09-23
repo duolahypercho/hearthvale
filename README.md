@@ -165,3 +165,21 @@ node scripts/shot.mjs --url "?demo=farm-field" --out shots/x.png --eval "__game.
 Each run starts its own Vite server on a free port (parallel-safe), uses headless Chromium with GPU (ANGLE/Metal)
 and falls back to SwiftShader, awaits `__game.ready()`, prints console errors and exits non-zero on page errors.
 `SHOT_VERBOSE=1` echoes page logs. Shots go in `shots/` (gitignored).
+
+## Audio
+
+Fully procedural WebAudio, no files: `src/audio/` is the engine (mixer + generated-IR convolution reverbs +
+glue compressor / limiter, generative composer, synthesised instruments, ambience beds, SFX library) and
+`src/systems/audio.ts` adapts it to game events. The score is written live from `src/audio/themes.ts`
+(spring/summer/fall/winter farm themes, town, beach, mine, night, rain, festival jig + four festival
+arrangements, title); `src/audio/select.ts` picks the theme from map / hour / weather / UI.
+
+- Hear it: `?demo=audio&theme=<id>` (`&theme=none` for ambience only, `&sfx=<name>` repeats an SFX every 2.5 s,
+  `&audio=1` starts the context without a click where autoplay allows). Any demo plays its own music after a click.
+- From code: `game.services.audio.play('coin')`, `.music('festival' | null | 'none')`, `.state()`, `.meter()`;
+  cutscenes use `{ do: 'cue', cue: 'music' | 'sfx', arg }`. `__game.info().audio` shows the live state.
+- Judge it without speakers: `node scripts/audio-render.mjs` renders every theme (30 s), theme+ambience mixes,
+  ambience presets and an SFX reel through the real mixer with `OfflineAudioContext` into `shots/audio/*.wav`
+  (+ piano-roll/spectrogram PNGs) and prints loudness (LUFS), true peak, clipping, silence, spectral centroid and
+  band balance with flags. `--describe <theme>` dumps the melody, `--stems --only <ids>` solos every track,
+  `--live` boots the game and checks theme-per-scene, audible output and SFX end to end.

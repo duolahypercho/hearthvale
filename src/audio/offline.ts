@@ -7,8 +7,8 @@ import { AudioGraph } from './graph';
 import { scheduleTheme } from './music';
 import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
-import { THEMES, THEME_IDS } from './themes';
-import { Composer } from './composer';
+import { THEMES } from './themes';
+import { Composer, type TrackName } from './composer';
 
 export interface Rendered {
   name: string;
@@ -48,6 +48,10 @@ export const AMBIENCE_PRESETS: Record<string, EnvState> = {
   'town-day': ENV({ map: 'town', hour: 11, fountain: 0.8 }),
   beach: ENV({ map: 'beach', hour: 16, season: 'summer', water: 1 }),
   mine: ENV({ map: 'mine', hour: 12 }),
+  'house-night-rain': ENV({ map: 'house', hour: 21, night: 1, indoor: true, weather: 'rain', season: 'fall' }),
+  'forest-stream': ENV({ map: 'forest', hour: 10, season: 'summer', water: 0.8 }),
+  'farm-pond-dusk': ENV({ hour: 19.5, season: 'spring', night: 0.6, water: 0.7 }),
+  'festival-crowd': ENV({ map: 'fest-spring', hour: 12, season: 'spring' }),
 };
 
 /** Which ambience goes under each theme in the "mix" renders. */
@@ -77,14 +81,15 @@ function tickAmbience(g: AudioGraph, env: EnvState, seconds: number): void {
   for (let t = 0; t < seconds; t += 0.05) amb.tick(t, env, 0.12);
 }
 
-export async function renderTheme(id: string, seconds = 30, sr = 44100, seed = 1, withAmbience = false): Promise<Rendered> {
+export async function renderTheme(id: string, seconds = 30, sr = 44100, seed = 1, withAmbience = false, solo: TrackName | null = null): Promise<Rendered> {
   let notes = 0;
   const buf = await render(seconds, sr, (g) => {
-    scheduleTheme(g, id, seconds, seed);
+    scheduleTheme(g, id, seconds, seed, solo);
     notes = new Composer(THEMES[id]!, seed).compose().events.filter((e) => e.t < seconds).length;
-    if (withAmbience) tickAmbience(g, { ...MIX_ENV[id]!, key: THEMES[id]!.key }, seconds);
+    const env = MIX_ENV[id] ?? (id.startsWith('festival') ? MIX_ENV.festival! : MIX_ENV.spring!);
+    if (withAmbience) tickAmbience(g, { ...env, key: THEMES[id]!.key }, seconds);
   });
-  return { name: withAmbience ? `mix-${id}` : `theme-${id}`, sampleRate: sr, data: encode(buf), frames: buf.length, notes };
+  return { name: solo ? `stem-${id}-${solo}` : withAmbience ? `mix-${id}` : `theme-${id}`, sampleRate: sr, data: encode(buf), frames: buf.length, notes };
 }
 
 export async function renderAmbience(preset: string, seconds = 30, sr = 44100): Promise<Rendered> {
@@ -106,7 +111,7 @@ export async function renderSfxReel(sr = 44100): Promise<Rendered> {
   }
   for (const v of Object.keys(VOICES)) {
     markers.push({ name: `voice:${v}`, t });
-    t += 2.2;
+    t += 2.6;
   }
   markers.push({ name: 'reel', t });
   t += 2;
@@ -117,12 +122,12 @@ export async function renderSfxReel(sr = 44100): Promise<Rendered> {
     for (const m of markers) {
       if (m.name.startsWith('voice:')) {
         const voice = VOICES[m.name.slice(6)]!;
-        const line = 'Well hello there, neighbour! Lovely morning?';
-        let k = 0;
-        for (let i = 0; i < line.length; i += 2) {
-          const ch = line[i]!;
-          if (ch !== ' ') sfx.blip(voice, ch, { at: m.t + k * 0.045 / voice.rate });
-          k++;
+        // Dialogue murmurs one "word" per typed word, paced like the typewriter (~28 chars/s).
+        const line = 'Well hello there, neighbour! Lovely morning, isn\'t it?';
+        let tt = m.t;
+        for (const w of line.split(' ')) {
+          sfx.murmur(voice, w, { at: tt });
+          tt += Math.max(0.2, (w.length + 1) / 28);
         }
       } else if (m.name === 'reel') {
         for (let tt = 0; tt < 1.5; tt += 0.06) sfx.play('reel', { at: m.t + tt, gain: 0.8 });
@@ -133,7 +138,12 @@ export async function renderSfxReel(sr = 44100): Promise<Rendered> {
 }
 
 export function listThemes(): string[] {
-  return THEME_IDS;
+  return Object.keys(THEMES);
+}
+
+/** Tracks a theme actually uses (for stem renders). */
+export function themeTracks(id: string): TrackName[] {
+  return [...new Set(new Composer(THEMES[id]!, 1).compose().events.map((e) => e.track))].filter((t) => t !== 'double');
 }
 export function listAmbience(): string[] {
   return Object.keys(AMBIENCE_PRESETS);

@@ -90,6 +90,10 @@ export const DEMOS: Record<string, DemoDef> = {
   'fishing-pond': { map: 'farm', x: 19.2, z: 40.1, facing: 'left', time: 17.6, season: 'summer', weather: 'sun', camera: { yaw: -18, pitch: 50, distance: 14, offsetX: -2.6, offsetZ: -1.2 }, showcase: ['fishing-reel'] },
   'fishing-river': { map: 'town', x: 61.6, z: 31.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 8, pitch: 42, distance: 15, offsetX: 2.2, offsetZ: -0.4 }, showcase: ['fishing-wait'] },
   'fishing-catch': { map: 'beach', x: 46.4, z: 60.6, facing: 'left', time: 18.2, season: 'summer', weather: 'sun', camera: FISH_CATCH_CAM, showcase: ['fishing-catch'] },
+  // Audio pod: the farm at golden morning with a "now playing" banner. URL: &theme=<spring|summer|fall|winter|town|
+  // beach|mine|night|rain|festival|festival-blossom|festival-tide|festival-harvest|festival-starfall|title|none>,
+  // &sfx=<name> repeats an SFX every 2.5 s, &audio=1 starts the AudioContext without a click where autoplay allows.
+  audio: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
   // Cindergrove forest + weather showcases (world/forest, systems/weather). 'fog-morning' / 'rainbow'
   // also switch on the matching atmosphere (the weather system keys off the demo name).
   'forest-day': { map: 'forest', x: 19.4, z: 26.6, facing: 'up', time: 10.4, season: 'summer', weather: 'sun', camera: FOREST_FALLS_CAM },

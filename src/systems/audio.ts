@@ -1,22 +1,58 @@
 /**
- * AudioSystem: fully procedural WebAudio (no files).
- *   ambient bed   wind in the leaves (noise → swept band-pass), daytime songbirds (FM chirp
- *                 phrases), night crickets (AM pulse trains), rain hiss + drips, the town fountain
- *   music         sparse generative pentatonic plucks through a synthetic-impulse reverb,
- *                 scale + timbre per season, quieter at night
- *   footsteps     per surface: grass (soft), dirt path (crunch), cobbles (click), snow (squeak)
- *   SFX           tool whoosh, hoe thunk, watering splash, harvest pop, item pickup, UI click, chatter
- * The context is created on the first user gesture (autoplay policy). Service `audio`:
- * setVolume(0..1), mute(bool), readonly running.
+ * AudioSystem — the game adapter for the procedural audio engine in src/audio/ (no audio files):
+ *
+ *   music      a generative score (src/audio/composer.ts + themes.ts): per-season farm themes, town,
+ *              beach, mine, night, rain, festival arrangements and the title theme, chosen by
+ *              src/audio/select.ts from map / time / weather / UI and crossfaded by the director,
+ *              with rests between songs, a quieter night mix and a muffle for the pause menu
+ *   ambience   layered beds + scheduled wildlife / weather one-shots (src/audio/ambience.ts) fed by
+ *              map, hour, season, weather, fountain and water proximity, indoor state
+ *   SFX        footsteps per surface (synced to the stride, wet in the rain), every farm tool
+ *              (swing, charge, impact per hit kind), harvest pops, coins, UI kit cues, villager
+ *              "sim-speak" per word of dialogue, gifts, hearts, crafting, shipping, stingers
+ *              (Lantern Hall ignition / restoration), sleep and morning chimes
+ *
+ * The AudioContext is created on the first user gesture (autoplay policy; `?audio=1` tries at boot).
+ * Mine combat / rocks and fishing are voiced by their own pods (world/mine/sfx.ts, ui/fishing-sfx.ts),
+ * so those events only duck the score here. Other modules can play any SFX by name:
+ *   game.services.audio?.play('coin')          // see SFX_NAMES in src/audio/sfx.ts
+ *   game.services.audio?.music('festival')     // force a theme (null = automatic, 'none' = silence)
+ * Cutscenes: `{ do: 'cue', cue: 'music', arg: '<theme>|auto|none' }` and `{ do: 'cue', cue: 'sfx', arg: '<name>' }`.
+ * Demo: `?demo=audio&theme=<id>&sfx=<name>` (see README "Audio").
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { TileType } from '../world/tiles';
+import { TileFlag, TileType } from '../world/tiles';
+import { AudioEngine } from '../audio/engine';
+import type { EnvState, AmbSeason, AmbWeather } from '../audio/ambience';
+import { chooseTheme } from '../audio/select';
+import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
+import { voiceFor, type Surface } from '../audio/sfx';
+
+export interface AudioState {
+  running: boolean;
+  theme: string | null;
+  wanted: string | null;
+  resting: boolean;
+  env: EnvState | null;
+  voices: number;
+  /** Output RMS (dBFS) at the moment of the call. */
+  levelDb: number;
+}
 
 export interface AudioApi {
   setVolume(v: number): void;
   mute(m: boolean): void;
   readonly running: boolean;
+  /** Play a named SFX (src/audio/sfx.ts SFX_NAMES), optionally panned / scaled. */
+  play(name: string, opts?: { pan?: number; gain?: number; level?: number }): void;
+  /** Force a theme id (see src/audio/themes.ts), 'none' for silence, null for automatic selection. */
+  music(theme: string | null): void;
+  /** Title of the theme currently playing (for a "now playing" line). */
+  nowPlaying(): string | null;
+  state(): AudioState;
+  /** Output level right now (dBFS RMS over ~46 ms) — for tests: is the game actually making sound? */
+  meter(): number;
 }
 
 declare module '../core/game' {
@@ -25,276 +61,539 @@ declare module '../core/game' {
   }
 }
 
-const SCALES: Record<string, number[]> = {
-  spring: [0, 2, 4, 7, 9, 12, 14, 16],
-  summer: [0, 2, 4, 7, 9, 12, 14, 19],
-  fall: [0, 3, 5, 7, 10, 12, 15, 17],
-  winter: [0, 2, 3, 7, 8, 12, 14, 15],
+declare module '../core/events' {
+  interface GameEvents {
+    /** Fired when a new piece of music starts (id + human title). */
+    'audio:theme': { id: string; title: string };
+  }
+}
+
+const INDOOR_MAPS = new Set(['house', 'coop', 'barn', 'hall', 'shop', 'clinic', 'inn', 'bakery', 'smithy']);
+const TOOL_SWING: Record<string, string> = { hoe: 'swing', axe: 'swing', pickaxe: 'swing', scythe: 'scythe', sword: 'sword' };
+const UI_KIND: Record<string, string> = {
+  click: 'ui:click', hover: 'ui:hover', open: 'ui:open', close: 'ui:close', error: 'ui:error', buy: 'purchase',
+  sell: 'ui:sell', coin: 'coin', craft: 'craft', trash: 'ui:trash', pickup: 'pickup', drop: 'ui:drop', tab: 'ui:tab',
+  toggle: 'ui:toggle', tick: 'ui:tick', sort: 'ui:tab', select: 'ui:select',
 };
 
 export class AudioSystem implements System {
   readonly name = 'audio';
   private game!: Game;
   private ctx: AudioContext | null = null;
-  private master!: GainNode;
-  private sfxBus!: GainNode;
-  private ambBus!: GainNode;
-  private musicBus!: GainNode;
-  private reverb!: ConvolverNode;
-  private noise!: AudioBuffer;
-  private wind: { g: GainNode; f: BiquadFilterNode } | null = null;
-  private rain: { g: GainNode } | null = null;
-  private fountain: { g: GainNode } | null = null;
-  private volume = 0.7;
+  private engine: AudioEngine | null = null;
+  private vol = { master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7 };
   private muted = false;
-  private nextBird = 2;
-  private nextCricket = 0;
-  private nextNote = 1;
-  private nextDrip = 0;
-  private lastStep = 0;
-  private stepSide = 0;
+  private forced: string | null = null;
+  private demoTheme: { theme: string; map: string } | null = null;
+  private festival: string | null = null;
+  private lastTheme: string | null = null;
+  private lastMap = '';
+  private analyser: AnalyserNode | null = null;
+  private env: EnvState | null = null;
+  private lastTick = 0;
+  private muffle = -1;
+  private speaking = false;
+  private sleeping = false;
+  // footsteps
+  private stride = 0;
+  private lastPos = { x: NaN, z: NaN };
+  // cached map facts
+  private fountain: { x: number; z: number } | null = null;
+  private waterNear = 0;
+  private waterT = 0;
+  private lastSfx = new Map<string, number>();
+  private demoSfx: { name: string; next: number } | null = null;
+  private tickFailed = false;
 
   init(game: Game): void {
     this.game = game;
-    const start = (): void => {
-      if (!this.ctx) this.boot();
-      else if (this.ctx.state === 'suspended') void this.ctx.resume();
-    };
-    window.addEventListener('pointerdown', start);
-    window.addEventListener('keydown', start);
+    const start = (): void => this.start();
+    window.addEventListener('pointerdown', start, { capture: true });
+    window.addEventListener('keydown', start, { capture: true });
+    document.addEventListener('visibilitychange', () => this.onVisibility());
+    const params = new URLSearchParams(location.search);
+    if (params.get('audio') === '1') queueMicrotask(() => this.start());
+    const theme = params.get('theme');
+    if (theme) this.forced = theme;
+    const sfx = params.get('sfx');
+    if (sfx) this.demoSfx = { name: sfx, next: 0 };
+
+    const self = this;
     game.provide('audio', {
       setVolume: (v) => {
-        this.volume = Math.max(0, Math.min(1, v));
-        this.applyVolume();
+        this.vol.master = Math.max(0, Math.min(1, v));
+        this.applyVolumes();
       },
       mute: (m) => {
         this.muted = m;
-        this.applyVolume();
+        this.applyVolumes();
       },
       get running() {
-        return false;
+        return !!self.ctx && self.ctx.state === 'running';
       },
+      play: (name, o) => this.sfx(name, o),
+      music: (t) => {
+        this.forced = t;
+        this.engine?.music.kick();
+      },
+      nowPlaying: () => {
+        const id = this.engine?.music.playing;
+        return id ? THEMES[id]?.title ?? id : null;
+      },
+      meter: () => this.meter(),
+      state: () => ({
+        running: !!this.ctx && this.ctx.state === 'running',
+        theme: this.engine?.music.playing ?? null,
+        wanted: this.wanted(),
+        resting: this.engine?.music.resting ?? false,
+        env: this.env,
+        voices: this.engine?.graph.voices ?? 0,
+        levelDb: Math.round(this.meter() * 10) / 10,
+      }),
     });
-    Object.defineProperty(game.services.audio!, 'running', { get: () => !!this.ctx && this.ctx.state === 'running' });
-
-    const ev = game.events;
-    ev.on('player:tile', () => this.footstep());
-    ev.on('player:use', () => this.whoosh());
-    ev.on('ui:open', ({ name }) => this.click(name === 'none' ? 520 : 780));
-    ev.on('item:gained', () => this.blip(880, 1320, 0.08));
-    ev.on('npc:talk', () => this.chatter());
-    // Farming feedback (events declared by the farming system via declaration merging).
-    ev.on('soil:tilled', () => this.thunk());
-    ev.on('soil:watered', () => this.splash());
-    ev.on('crop:harvested', () => this.pop());
+    this.subscribe(game);
   }
 
-  private boot(): void {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  private meter(): number {
+    const e = this.engine;
+    if (!e || !this.ctx) return -Infinity;
+    if (!this.analyser) {
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 2048;
+      e.graph.out.connect(this.analyser);
+    }
+    const buf = new Float32Array(this.analyser.fftSize);
+    this.analyser.getFloatTimeDomainData(buf);
+    let ss = 0;
+    for (const v of buf) ss += v * v;
+    return 10 * Math.log10(ss / buf.length + 1e-12);
+  }
+
+  // ───────────────────────────────────────────── lifecycle
+
+  private start(): void {
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume();
+      return;
+    }
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
-    const ctx = new Ctx();
-    this.ctx = ctx;
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -16;
-    comp.ratio.value = 3;
-    this.master = ctx.createGain();
-    this.master.connect(comp).connect(ctx.destination);
-    this.sfxBus = ctx.createGain();
-    this.ambBus = ctx.createGain();
-    this.musicBus = ctx.createGain();
-    this.sfxBus.gain.value = 0.9;
-    this.ambBus.gain.value = 0.55;
-    this.musicBus.gain.value = 0.32;
-    this.sfxBus.connect(this.master);
-    this.ambBus.connect(this.master);
-    this.musicBus.connect(this.master);
-    // White noise buffer + synthetic reverb impulse (exponentially decaying stereo noise).
-    this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-    const d = this.noise.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    const len = ctx.sampleRate * 2.6;
-    const imp = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let c = 0; c < 2; c++) {
-      const ch = imp.getChannelData(c);
-      for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+    try {
+      this.ctx = new Ctx({ latencyHint: 'interactive' });
+    } catch {
+      return;
     }
-    this.reverb = ctx.createConvolver();
-    this.reverb.buffer = imp;
-    const wet = ctx.createGain();
-    wet.gain.value = 0.55;
-    this.reverb.connect(wet).connect(this.master);
-    // Continuous beds
-    this.wind = this.loopNoise('bandpass', 520, 0.9, 0);
-    const r = this.loopNoise('highpass', 900, 0.4, 0);
-    this.rain = { g: r.g };
-    const f = this.loopNoise('bandpass', 1800, 1.4, 0);
-    this.fountain = { g: f.g };
-    this.applyVolume();
+    this.engine = new AudioEngine(this.ctx, 1);
+    this.engine.music.reseed(this.daySeed());
+    this.applyVolumes();
+    if (this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
-  private applyVolume(): void {
-    if (this.master) this.master.gain.value = this.muted ? 0 : this.volume;
-  }
-
-  private loopNoise(type: BiquadFilterType, freq: number, q: number, gain: number): { g: GainNode; f: BiquadFilterNode } {
-    const ctx = this.ctx!;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    src.loop = true;
-    const f = ctx.createBiquadFilter();
-    f.type = type;
-    f.frequency.value = freq;
-    f.Q.value = q;
-    const g = ctx.createGain();
-    g.gain.value = gain;
-    src.connect(f).connect(g).connect(this.ambBus);
-    src.start();
-    return { g, f };
-  }
-
-  /** Short filtered noise burst. */
-  private burst(opts: { type: BiquadFilterType; freq: number; q?: number; dur: number; gain: number; bus?: AudioNode; sweep?: number; pan?: number }): void {
+  private onVisibility(): void {
     const ctx = this.ctx;
-    if (!ctx) return;
-    const t = ctx.currentTime;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    src.playbackRate.value = 0.8 + Math.random() * 0.4;
-    const f = ctx.createBiquadFilter();
-    f.type = opts.type;
-    f.frequency.setValueAtTime(opts.freq, t);
-    if (opts.sweep) f.frequency.exponentialRampToValueAtTime(opts.freq * opts.sweep, t + opts.dur);
-    f.Q.value = opts.q ?? 1;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(opts.gain, t + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + opts.dur);
-    const p = ctx.createStereoPanner();
-    p.pan.value = opts.pan ?? 0;
-    src.connect(f).connect(g).connect(p).connect(opts.bus ?? this.sfxBus);
-    src.start(t, Math.random() * 1.5, opts.dur + 0.05);
-  }
-
-  private tone(opts: { type: OscillatorType; f0: number; f1?: number; dur: number; gain: number; attack?: number; bus?: AudioNode; pan?: number; at?: number; reverb?: number }): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    const t = ctx.currentTime + (opts.at ?? 0);
-    const o = ctx.createOscillator();
-    o.type = opts.type;
-    o.frequency.setValueAtTime(opts.f0, t);
-    if (opts.f1) o.frequency.exponentialRampToValueAtTime(opts.f1, t + opts.dur * 0.8);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(opts.gain, t + (opts.attack ?? 0.01));
-    g.gain.exponentialRampToValueAtTime(0.0001, t + opts.dur);
-    const p = ctx.createStereoPanner();
-    p.pan.value = opts.pan ?? 0;
-    o.connect(g).connect(p).connect(opts.bus ?? this.sfxBus);
-    if (opts.reverb) {
-      const s = ctx.createGain();
-      s.gain.value = opts.reverb;
-      p.connect(s).connect(this.reverb);
+    if (!ctx || !this.engine) return;
+    const out = this.engine.graph.out.gain;
+    if (document.hidden) {
+      out.setTargetAtTime(0, ctx.currentTime, 0.08);
+      setTimeout(() => document.hidden && void ctx.suspend(), 400);
+    } else {
+      void ctx.resume().then(() => this.applyVolumes());
     }
-    o.start(t);
-    o.stop(t + opts.dur + 0.05);
   }
 
-  // ───────────────────────────────────────────── SFX
+  private applyVolumes(): void {
+    if (!this.engine) return;
+    const m = this.muted ? 0 : this.vol.master;
+    this.engine.setVolumes({ master: m, music: this.vol.music, sfx: this.vol.sfx, ambience: this.vol.ambience });
+  }
 
-  private footstep(): void {
-    if (!this.ctx) return;
+  private daySeed(): number {
+    const c = this.game.calendar;
+    return (c.year * 1000 + ['spring', 'summer', 'fall', 'winter'].indexOf(c.season) * 100 + c.day) >>> 0;
+  }
+
+  // ───────────────────────────────────────────── events
+
+  private subscribe(game: Game): void {
+    const ev = game.events;
+    ev.on('settings:change', ({ settings }) => {
+      this.vol = { master: settings.master, music: settings.music, sfx: settings.sfx, ambience: settings.ambience };
+      this.applyVolumes();
+    });
+
+    // Farming tools.
+    ev.on('tool:swing', ({ tool, charge }) => {
+      const s = TOOL_SWING[tool];
+      if (s) this.sfx(s, { gain: 0.8 + Math.min(3, charge) * 0.12 });
+    });
+    ev.on('tool:charge', ({ level }) => this.sfx('charge', { level }));
+    ev.on('tool:impact', ({ tool, hit, strength }) => this.impact(tool, hit, strength));
+    ev.on('crop:harvested', ({ quality }) => this.sfx('harvest', { gain: 1 + (quality ?? 0) * 0.05, level: quality ?? 0 }));
+    ev.on('crop:giant', () => this.sfx('giant', { gain: 0.7 }));
+    ev.on('crow:arrive', () => this.sfx('ui:tick', { gain: 0 }));
+    ev.on('forage:picked', () => this.sfx('pickup'));
+    ev.on('item:gained', () => this.sfx('pickup', { gain: 0.7 }, 0.12));
+    ev.on('gold:change', ({ delta }) => {
+      if (delta > 0) this.sfx('coin', { gain: delta >= 500 ? 1.1 : 0.9 }, 0.08);
+    });
+    ev.on('shipping:add', () => this.sfx('ship'));
+    ev.on('craft:made', () => this.sfx('craft', undefined, 0.2));
+    ev.on('building:built', () => this.sfx('hall', { gain: 0.6 }));
+    ev.on('building:enter', () => this.sfx('door'));
+
+    // UI.
+    ev.on('ui:sfx', ({ kind }) => {
+      const n = UI_KIND[kind];
+      if (!n) return;
+      // open/close are also voiced from ui:open / ui:close — don't double them.
+      this.sfx(n, undefined, n === 'ui:hover' ? 0.045 : 0.05);
+    });
+    ev.on('ui:open', ({ name }) => {
+      if (name === 'none' || name.startsWith('title') || name.startsWith('dialogue')) return;
+      this.sfx('ui:open', undefined, 0.05);
+    });
+    ev.on('ui:close', ({ name }) => {
+      if (name.startsWith('title') || name.startsWith('dialogue')) return;
+      this.sfx('ui:close', undefined, 0.05);
+    });
+    ev.on('ui:toast', ({ kind }) => {
+      if (kind === 'bad') this.sfx('ui:error', { gain: 0.6 }, 0.3);
+    });
+
+    // Dialogue: a murmur per typed word in the speaker's voice.
+    let wordIdx = 0;
+    ev.on('ui:blip', ({ id }) => {
+      if (!this.engine) return;
+      const v = voiceFor(id);
+      this.engine.sfx.murmur(v, `${id}${wordIdx++ % 7}${'aeiou'[wordIdx % 5]}`, { gain: 0.85 });
+    });
+    ev.on('dialogue:speaking', ({ on }) => {
+      this.speaking = on;
+    });
+    ev.on('npc:talk', () => this.sfx('ui:select', { gain: 0.8 }));
+    ev.on('npc:gift', ({ reaction }) => this.sfx(`gift:${reaction}`));
+    ev.on('relationship:change', ({ delta, hearts, points }) => {
+      // A new heart earned (points crossed a 250 boundary).
+      if (delta > 0 && Math.floor(points / 250) > Math.floor((points - delta) / 250) && hearts > 0) this.sfx('heart', undefined, 1);
+    });
+
+    // Story & world beats.
+    ev.on('quest:bundleDone', () => this.sfx('bundle'));
+    ev.on('quest:complete', () => this.sfx('bundle', { gain: 0.8 }));
+    ev.on('quest:hallRestored', () => this.sfx('hall'));
+    ev.on('mail:new', ({ id }) => id && this.sfx('ui:open', { gain: 0.7 }, 1));
+    ev.on('cutscene:cue', ({ cue, arg, instant }) => {
+      if (cue === 'music') {
+        this.forced = !arg || arg === 'auto' ? null : arg;
+        return;
+      }
+      if (instant) return;
+      if (cue === 'sfx' && arg) this.sfx(arg);
+      else if (cue === 'hall:ignite') this.sfx('lantern');
+      else if (cue === 'festival:greatLantern') this.sfx('hall');
+      else if (cue === 'town:restore') this.sfx('hall', { gain: 0.8 });
+    });
+
+    // Day cycle.
+    ev.on('sleep:start', () => {
+      this.sleeping = true;
+      this.sfx('sleep');
+      this.engine?.music.stopAll(2.5);
+    });
+    ev.on('day:start', () => {
+      this.sleeping = false;
+      this.engine?.music.reseed(this.daySeed());
+      this.engine?.music.kick();
+      this.sfx('morning', { gain: 0.8 });
+    });
+    ev.on('energy:change', ({ energy }) => {
+      if (energy <= 0) this.sfx('exhausted', undefined, 5);
+    });
+
+    // Other pods voice these; the score just makes room.
+    ev.on('fishing:catch', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.5, 1.2, 1));
+    ev.on('fishing:bite', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.75, 0.6, 0.6));
+    ev.on('combat:playerHit', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.7, 0.2, 0.5));
+    ev.on('mine:ladder', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.7, 0.4, 0.8));
+
+    // Festivals.
+    ev.on('festival:music', (h) => {
+      const def = festivalTheme(h as FestivalHint);
+      THEMES[def.id] = def;
+      this.festival = def.id;
+    });
+    ev.on('festival:start', ({ id }) => {
+      if (!this.festival?.endsWith(id)) this.festival = 'festival';
+    });
+    ev.on('festival:end', () => {
+      this.festival = null;
+    });
+
+    // Maps & demos.
+    ev.on('map:change', ({ map, prev }) => {
+      this.fountain = null;
+      this.waterT = 0;
+      this.lastPos = { x: NaN, z: NaN };
+      if (this.demoTheme && this.demoTheme.map !== map) this.demoTheme = null;
+      if (prev && (INDOOR_MAPS.has(map) || INDOOR_MAPS.has(prev) || this.isIndoor())) this.sfx('door', { gain: 0.8 });
+      else if (prev) this.sfx('warp', { gain: 0.7 });
+    });
+    ev.on('demo:stage', ({ name }) => {
+      const map = game.world.current?.id ?? '';
+      this.demoTheme = name === 'festival' ? { theme: 'festival', map } : null;
+      this.engine?.music.kick();
+      if (name === 'audio') {
+        const th = this.forced ?? this.wanted();
+        const def = th ? THEMES[th] : null;
+        game.hud.banner(def ? `♪ ${def.title}` : '♪ Hearthvale', 'click anywhere to start the sound');
+      }
+    });
+  }
+
+  private impact(tool: string, hit: string, strength: number): void {
+    switch (tool) {
+      case 'hoe':
+        if (hit === 'soil') this.sfx('hoe', { gain: Math.min(1.2, 0.8 + strength * 0.2) });
+        else if (hit === 'tilled') this.sfx('hoe', { gain: 0.55 });
+        else this.sfx('hoe:dull');
+        break;
+      case 'wateringCan':
+        if (hit === 'refill') this.sfx('refill');
+        else this.sfx('water', { gain: hit === 'water' ? Math.min(1.2, 0.8 + strength * 0.2) : 0.5 });
+        break;
+      case 'axe':
+        if (hit === 'wood') {
+          this.sfx('axe');
+          this.sfx('rockbreak', { gain: 0.35 });
+        } else if (hit === 'giant') {
+          this.sfx('axe');
+          if (strength >= 1.5) this.sfx('giant');
+        } else if (hit === 'weed') {
+          this.sfx('weed');
+          this.sfx('scythe', { gain: 0.6 });
+        } else this.sfx('axe:miss');
+        break;
+      case 'pickaxe':
+        if (hit === 'stone') {
+          this.sfx('pickaxe');
+          this.sfx('rockbreak', { gain: 0.9 });
+        } else if (hit === 'soil') this.sfx('hoe', { gain: 0.7 });
+        else this.sfx('pickaxe', { gain: 0.45 });
+        break;
+      case 'scythe':
+        if (hit === 'weed' || hit === 'crop') this.sfx('weed');
+        break;
+      case 'seeds':
+        this.sfx('plant');
+        break;
+      case 'place':
+        this.sfx('place');
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Play an SFX (with an optional per-name minimum interval, seconds). */
+  private sfx(name: string, o?: { pan?: number; gain?: number; level?: number }, minGap = 0): void {
+    const e = this.engine;
+    if (!e || !this.ctx || this.ctx.state !== 'running') return;
+    if (o?.gain === 0) return;
     const now = this.ctx.currentTime;
-    if (now - this.lastStep < 0.16) return;
-    this.lastStep = now;
-    const map = this.game.world.current;
-    const p = this.game.player.position;
-    const type = map?.grid.getType(Math.floor(p.x), Math.floor(p.z)) ?? TileType.Grass;
-    const pan = (this.stepSide = 1 - this.stepSide) ? -0.15 : 0.15;
-    if (this.game.calendar.season === 'winter') this.burst({ type: 'bandpass', freq: 2400, q: 2.2, dur: 0.11, gain: 0.22, pan });
-    else if (type === TileType.Stone) this.burst({ type: 'bandpass', freq: 3200, q: 4, dur: 0.05, gain: 0.26, pan });
-    else if (type === TileType.Path || type === TileType.Dirt) this.burst({ type: 'bandpass', freq: 1500, q: 1.2, dur: 0.09, gain: 0.3, pan });
-    else this.burst({ type: 'lowpass', freq: 900, q: 0.7, dur: 0.1, gain: 0.26, pan });
+    if (minGap > 0) {
+      const last = this.lastSfx.get(name) ?? -1e9;
+      if (now - last < minGap) return;
+      this.lastSfx.set(name, now);
+    }
+    e.sfx.play(name, o);
   }
 
-  private whoosh(): void {
-    this.burst({ type: 'bandpass', freq: 500, q: 1.5, dur: 0.22, gain: 0.25, sweep: 4 });
-  }
-  private thunk(): void {
-    this.tone({ type: 'sine', f0: 150, f1: 60, dur: 0.18, gain: 0.5 });
-    this.burst({ type: 'lowpass', freq: 700, dur: 0.14, gain: 0.3 });
-  }
-  private splash(): void {
-    this.burst({ type: 'bandpass', freq: 2200, q: 0.8, dur: 0.35, gain: 0.3, sweep: 0.5 });
-    for (let i = 0; i < 3; i++) this.tone({ type: 'sine', f0: 1400 + Math.random() * 900, f1: 2600, dur: 0.06, gain: 0.06, at: 0.05 + i * 0.07 });
-  }
-  private pop(): void {
-    this.tone({ type: 'triangle', f0: 520, f1: 900, dur: 0.14, gain: 0.35 });
-    this.tone({ type: 'sine', f0: 1318, dur: 0.4, gain: 0.12, at: 0.08, reverb: 0.4 });
-    this.tone({ type: 'sine', f0: 1760, dur: 0.5, gain: 0.1, at: 0.16, reverb: 0.4 });
-  }
-  private blip(f0: number, f1: number, gain: number): void {
-    this.tone({ type: 'triangle', f0, f1, dur: 0.1, gain });
-  }
-  private click(f: number): void {
-    this.tone({ type: 'square', f0: f, f1: f * 0.7, dur: 0.05, gain: 0.05 });
-  }
-  private chatter(): void {
-    for (let i = 0; i < 5; i++) this.tone({ type: 'triangle', f0: 380 + Math.random() * 260, dur: 0.07, gain: 0.07, at: i * 0.085 });
+  // ───────────────────────────────────────────── per frame
+
+  private isIndoor(): boolean {
+    const m = this.game.world.current as (import('../world/map').GameMap & { interior?: boolean }) | null;
+    return !!m && (m.interior === true || INDOOR_MAPS.has(m.id));
   }
 
-  // ───────────────────────────────────────────── ambience + music
+  private wanted(): string | null {
+    const g = this.game;
+    const panel = g.hud.openPanelName ?? '';
+    const map = g.world.current?.id ?? 'farm';
+    return chooseTheme({
+      map,
+      hour: g.calendar.hour,
+      season: g.calendar.season,
+      weather: g.calendar.weather,
+      indoor: this.isIndoor(),
+      title: panel === 'title' || panel.endsWith(':title'),
+      festival: this.festival ?? this.demoTheme?.theme ?? null,
+      forced: this.forced,
+    });
+  }
 
   update(dt: number, game: Game): void {
+    this.footsteps(dt, game);
     const ctx = this.ctx;
-    if (!ctx || ctx.state !== 'running') return;
-    const t = ctx.currentTime;
+    const e = this.engine;
+    if (!ctx || !e || ctx.state !== 'running') return;
+    const now = ctx.currentTime;
+    if (now - this.lastTick < 0.045) return;
+    this.lastTick = now;
+    const env = this.envState(dt, game);
+    this.env = env;
+
+    // Music: selection, level and tone.
+    const want = this.sleeping ? null : this.wanted();
+    if (want !== e.music.desired) {
+      // Same place, new hour / weather: let the song drift out slowly. New place: a normal crossfade.
+      const map = game.world.current?.id ?? '';
+      e.music.fade = map === this.lastMap ? 9 : 3.5;
+      e.music.desired = want;
+    }
+    this.lastMap = game.world.current?.id ?? '';
+    const panel = game.hud.openPanelName ?? '';
+    const paused = panel === 'pause' || panel.startsWith('settings');
+    let level = 1;
+    if (env.night > 0.5 && e.music.desired !== 'night') level *= 0.8;
+    if (this.speaking) level *= 0.78;
+    if (env.indoor) level *= 0.9;
+    e.music.setLevel(level);
+    const muffle = paused ? 0.55 : this.sleeping ? 0.8 : 0;
+    if (Math.abs(muffle - this.muffle) > 0.01) {
+      this.muffle = muffle;
+      e.graph.setMusicMuffle(muffle);
+    }
+    try {
+      e.tick(env, 0.3);
+    } catch (err) {
+      // Audio must never take the game loop down with it: report once, keep playing what we can.
+      if (!this.tickFailed) console.warn('[audio] tick failed', err);
+      this.tickFailed = true;
+    }
+    const playing = e.music.playing;
+    if (playing !== this.lastTheme) {
+      this.lastTheme = playing;
+      if (playing) game.events.emit('audio:theme', { id: playing, title: THEMES[playing]?.title ?? playing });
+    }
+    if (this.demoSfx && now >= this.demoSfx.next) {
+      this.demoSfx.next = now + 2.5;
+      this.sfx(this.demoSfx.name);
+    }
+  }
+
+  private envState(dt: number, game: Game): EnvState {
+    const map = game.world.current;
+    const p = game.player.position;
     const cal = game.calendar;
-    const night = game.lighting.night;
-    const weather = cal.weather;
-    const raining = weather === 'rain' || weather === 'storm';
-    const windy = weather === 'wind' || weather === 'storm' ? 1 : raining ? 0.6 : 0.35;
-    const k = 1 - Math.exp(-dt * 1.5);
-    if (this.wind) {
-      const target = 0.12 * windy * (0.7 + 0.3 * Math.sin(t * 0.23) * Math.sin(t * 0.61));
-      this.wind.g.gain.value += (target - this.wind.g.gain.value) * k;
-      this.wind.f.frequency.value = 380 + 320 * (0.5 + 0.5 * Math.sin(t * 0.17));
+    const indoor = this.isIndoor();
+    // Fountain: locate once per map (grid objects tagged 'fountain').
+    let fountain = 0;
+    if (map?.id === 'town') {
+      if (!this.fountain) this.fountain = this.findObject('fountain') ?? { x: 1e9, z: 1e9 };
+      const d = Math.hypot(p.x - this.fountain.x, p.z - this.fountain.z);
+      fountain = Math.max(0, Math.min(1, 1.25 - d / 14));
     }
-    if (this.rain) this.rain.g.gain.value += ((raining ? (weather === 'storm' ? 0.34 : 0.22) : 0) - this.rain.g.gain.value) * k;
-    if (this.fountain) this.fountain.g.gain.value += ((game.world.current?.id === 'town' ? 0.05 : 0) - this.fountain.g.gain.value) * k;
-    if (raining && t > this.nextDrip) {
-      this.nextDrip = t + 0.05 + Math.random() * 0.25;
-      this.tone({ type: 'sine', f0: 1800 + Math.random() * 1600, f1: 900, dur: 0.05, gain: 0.03, bus: this.ambBus, pan: Math.random() * 2 - 1 });
-    }
-    // Songbirds by day, crickets by night.
-    const outdoorsDay = night < 0.4 && !raining && cal.season !== 'winter';
-    if (outdoorsDay && t > this.nextBird) {
-      this.nextBird = t + 1.6 + Math.random() * 5;
-      const base = 2400 + Math.random() * 1800;
-      const n = 2 + Math.floor(Math.random() * 4);
-      const pan = Math.random() * 1.6 - 0.8;
-      for (let i = 0; i < n; i++) this.tone({ type: 'sine', f0: base * (1 + Math.random() * 0.3), f1: base * (0.7 + Math.random() * 0.8), dur: 0.07 + Math.random() * 0.06, gain: 0.045, at: i * 0.11, bus: this.ambBus, pan, reverb: 0.2 });
-    }
-    if (night > 0.6 && cal.season !== 'winter' && !raining && t > this.nextCricket) {
-      this.nextCricket = t + 0.9 + Math.random() * 1.8;
-      const f = 4200 + Math.random() * 800;
-      const pan = Math.random() * 2 - 1;
-      for (let i = 0; i < 6; i++) this.tone({ type: 'sine', f0: f, dur: 0.025, gain: 0.02, at: i * 0.045, bus: this.ambBus, pan });
-    }
-    // Generative music: soft pentatonic plucks, a phrase every few seconds.
-    if (t > this.nextNote) {
-      const scale = SCALES[cal.season] ?? SCALES.spring!;
-      const root = cal.season === 'winter' ? 220 : cal.season === 'fall' ? 196 : 261.63;
-      const phrase = 2 + Math.floor(Math.random() * 3);
-      const quiet = night > 0.5 ? 0.6 : 1;
-      let deg = Math.floor(Math.random() * 4);
-      for (let i = 0; i < phrase; i++) {
-        deg = Math.max(0, Math.min(scale.length - 1, deg + Math.floor(Math.random() * 3) - 1));
-        const f = root * Math.pow(2, scale[deg]! / 12);
-        this.tone({ type: cal.season === 'winter' ? 'sine' : 'triangle', f0: f, dur: 1.4, gain: 0.07 * quiet, attack: 0.02, at: i * 0.42, bus: this.musicBus, pan: Math.random() * 0.6 - 0.3, reverb: 0.8 });
+    // Open water nearby (pond, stream, sea): sampled a few times a second.
+    this.waterT -= dt;
+    if (this.waterT <= 0 && map) {
+      this.waterT = 0.4;
+      let best = 99;
+      const px = Math.floor(p.x);
+      const pz = Math.floor(p.z);
+      for (let dz = -8; dz <= 8; dz += 2) {
+        for (let dx = -8; dx <= 8; dx += 2) {
+          if (map.grid.inBounds(px + dx, pz + dz) && map.grid.getType(px + dx, pz + dz) === TileType.Water) best = Math.min(best, Math.hypot(dx, dz));
+        }
       }
-      // Occasional low drone note under the phrase.
-      if (Math.random() < 0.4) this.tone({ type: 'sine', f0: root / 2, dur: 3.5, gain: 0.05 * quiet, attack: 0.6, bus: this.musicBus, reverb: 0.6 });
-      this.nextNote = t + 3.2 + Math.random() * 3.5;
+      this.waterNear = best > 10 ? 0 : Math.max(0, 1 - best / 10);
+    }
+    return {
+      map: map?.id ?? 'farm',
+      hour: cal.hour,
+      season: cal.season as AmbSeason,
+      weather: cal.weather as AmbWeather,
+      night: Number.isFinite(game.lighting?.night) ? game.lighting.night : cal.hour >= 20 || cal.hour < 6 ? 1 : 0,
+      fountain,
+      water: this.waterNear,
+      indoor,
+      key: this.engine?.music.key ?? 60,
+    };
+  }
+
+  private findObject(id: string): { x: number; z: number } | null {
+    const grid = this.game.world.current?.grid;
+    if (!grid) return null;
+    const W = grid.width;
+    const H = grid.depth;
+    let sx = 0;
+    let sz = 0;
+    let n = 0;
+    for (let z = 0; z < H; z++) {
+      for (let x = 0; x < W; x++) {
+        if ((grid.getObject(x, z) as { id?: string } | undefined)?.id === id) {
+          sx += x + 0.5;
+          sz += z + 0.5;
+          n++;
+        }
+      }
+    }
+    return n ? { x: sx / n, z: sz / n } : null;
+  }
+
+  /**
+   * Footfalls mirror the player rig's stride (phase += distance × 2.6 walking / 2.3 running, a foot
+   * lands every π), so steps line up with the animation without reaching into the player.
+   */
+  private footsteps(dt: number, game: Game): void {
+    const p = game.player.position;
+    if (Number.isNaN(this.lastPos.x)) {
+      this.lastPos = { x: p.x, z: p.z };
+      return;
+    }
+    const d = Math.hypot(p.x - this.lastPos.x, p.z - this.lastPos.z);
+    this.lastPos = { x: p.x, z: p.z };
+    if (d > 1.5 || dt <= 0) return; // teleport
+    const speed = d / dt;
+    if (speed < 0.4) {
+      this.stride = Math.PI * 0.5; // next step lands soon after starting to walk
+      return;
+    }
+    const run = speed > game.player.speed * 1.15;
+    const before = Math.floor(this.stride / Math.PI);
+    this.stride += d * (run ? 2.3 : 2.6);
+    if (Math.floor(this.stride / Math.PI) === before) return;
+    if (!this.engine || !this.ctx || this.ctx.state !== 'running') return;
+    const surface = this.surface(game);
+    const wet = (game.calendar.weather === 'rain' || game.calendar.weather === 'storm') && !this.isIndoor();
+    this.engine.sfx.step(surface, { gain: run ? 0.85 : 0.62, wet });
+  }
+
+  private surface(game: Game): Surface {
+    const map = game.world.current;
+    if (!map) return 'grass';
+    if (this.isIndoor()) return map.id === 'hall' ? 'stone' : 'wood';
+    if (map.id === 'mine') return 'stone';
+    const x = Math.floor(game.player.position.x);
+    const z = Math.floor(game.player.position.z);
+    const winter = game.calendar.season === 'winter';
+    const obj = map.grid.getObject(x, z) as { kind?: string; id?: string } | undefined;
+    if (obj && /bridge|dock|pier|boardwalk|deck/.test(`${obj.kind ?? ''}${obj.id ?? ''}`)) return 'wood';
+    switch (map.grid.getType(x, z)) {
+      case TileType.Water:
+        return 'water';
+      case TileType.Sand:
+        return 'sand';
+      case TileType.Stone:
+        return 'stone';
+      case TileType.Floor:
+        return 'wood';
+      case TileType.Path:
+        return map.id === 'town' || map.id.startsWith('fest') ? 'stone' : winter ? 'snow' : 'dirt';
+      case TileType.Dirt:
+        if (map.grid.hasFlag(x, z, TileFlag.Tilled)) return 'tilled';
+        return winter ? 'snow' : 'dirt';
+      default:
+        return winter ? 'snow' : 'grass';
     }
   }
 }

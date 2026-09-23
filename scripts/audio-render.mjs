@@ -5,8 +5,11 @@
  *   node scripts/audio-render.mjs                     # every theme (30 s), theme+ambience mixes, ambience presets, SFX reel
  *   node scripts/audio-render.mjs --only spring,fall  # subset of themes (also filters mixes)
  *   node scripts/audio-render.mjs --seconds 45 --seed 3 --no-amb --no-sfx --no-mix
+ *   node scripts/audio-render.mjs --no-themes         # ambience presets + SFX reel only
  *   node scripts/audio-render.mjs --analyze shots/audio/theme-spring.wav   # analyse any WAV
  *   node scripts/audio-render.mjs --describe spring   # print the composed melody (symbolic)
+ *   node scripts/audio-render.mjs --stems --only spring,town   # per-track (solo) loudness / spectrum → mix balance
+ *   node scripts/audio-render.mjs --live              # boot the real game: theme per scene + audible output + SFX
  *   (each render also gets a PNG: piano roll of the score + spectrogram + loudness; --no-plots to skip)
  *
  * Renders through the game's real mixer (src/audio/*, limiter included) with OfflineAudioContext
@@ -29,7 +32,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = resolve(root, 'shots/audio');
 
 function parseArgs(argv) {
-  const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, plots: true };
+  const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, plots: true, stems: false, themes: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -39,7 +42,9 @@ function parseArgs(argv) {
     else if (a === '--no-amb') o.amb = false;
     else if (a === '--no-sfx') o.sfx = false;
     else if (a === '--no-mix') o.mix = false;
+    else if (a === '--no-themes') o.themes = false;
     else if (a === '--no-plots') o.plots = false;
+    else if (a === '--stems') o.stems = true;
     else if (a === '--analyze') o.analyze = next();
     else if (a === '--describe') o.describe = next();
   }
@@ -306,7 +311,7 @@ function flags(a, kind) {
   if (kind !== 'sfx' && a.lufsIntegrated > -12) f.push('TOO-LOUD');
   if (kind === 'theme' && a.lufsIntegrated < -28) f.push('TOO-QUIET');
   if (kind === 'amb' && a.lufsIntegrated < -45) f.push('INAUDIBLE');
-  if (kind !== 'sfx' && a.silencePct > 20) f.push(`SILENCE(${a.silencePct.toFixed(0)}%)`);
+  if (kind !== 'sfx' && kind !== 'reel' && a.silencePct > 20) f.push(`SILENCE(${a.silencePct.toFixed(0)}%)`);
   if (a.bands.presence > 0.25) f.push('HARSH(2-5k)');
   if (a.bands.air > 0.18) f.push('HISSY(5k+)');
   if (a.centroidHz > 3500) f.push('BRIGHT');
@@ -372,7 +377,12 @@ async function main() {
   // Only errors from the audio modules count (other teams' in-progress files may 500 in the dev server).
   page.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errors.push(m.text()));
   await page.route('**/favicon.ico', (r) => r.fulfill({ status: 204, body: '' }));
-  await page.goto(`${base}/@vite/client`);
+  // We only need the dev server's origin to import the audio modules from. Serve an empty page
+  // there ourselves: the dev server's SPA fallback would otherwise hand back index.html and boot the
+  // whole game (WebGL + game loop) in the background, starving the offline renders of CPU.
+  page.setDefaultTimeout(0);
+  await page.route(`${base}/__audio__`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>audio</title>' }));
+  await page.goto(`${base}/__audio__`, { waitUntil: 'load', timeout: 180000 });
   await page.evaluate(async () => {
     window.__audioOffline = await import('/src/audio/offline.ts');
   });
@@ -387,8 +397,25 @@ async function main() {
   const ambs = args.amb && !args.only ? await page.evaluate(() => window.__audioOffline.listAmbience()) : [];
   const report = { generated: new Date().toISOString(), seconds: args.seconds, seed: args.seed, renders: [], sfx: [] };
   const jobs = [];
-  for (const t of themes) jobs.push({ kind: 'theme', fn: 'renderTheme', a: [t, args.seconds, 44100, args.seed, false] });
-  if (args.mix) for (const t of themes) jobs.push({ kind: 'mix', fn: 'renderTheme', a: [t, args.seconds, 44100, args.seed, true] });
+  if (args.stems) {
+    // Mix balance: every track of each theme soloed through the full chain (no WAV/plot output).
+    console.log(`${'stem'.padEnd(30)}  LUFS  peak  centHz  sub/bas/lm/pr/air`);
+    for (const t of themes) {
+      const tracks = await page.evaluate((id) => window.__audioOffline.themeTracks(id), t);
+      for (const tr of tracks) {
+        const res = await page.evaluate(async ([id, secs, seed, solo]) => window.__audioOffline.renderTheme(id, secs, 44100, seed, false, solo), [t, args.seconds, args.seed, tr]);
+        const bytes = Buffer.from(res.data, 'base64');
+        const a = analyze(new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4), res.sampleRate);
+        const b = a.bands;
+        console.log(`${res.name.padEnd(30)} ${fmt(a.lufsIntegrated).padStart(6)} ${fmt(a.peakDb).padStart(5)} ${fmt(a.centroidHz, 0).padStart(6)}  ${(b.sub * 100).toFixed(0)}/${(b.bass * 100).toFixed(0)}/${(b.lowmid * 100).toFixed(0)}/${(b.presence * 100).toFixed(0)}/${(b.air * 100).toFixed(0)}`);
+      }
+    }
+    await browser.close();
+    await server.close();
+    return;
+  }
+  if (args.themes) for (const t of themes) jobs.push({ kind: 'theme', fn: 'renderTheme', a: [t, args.seconds, 44100, args.seed, false] });
+  if (args.mix && args.themes) for (const t of themes) jobs.push({ kind: 'mix', fn: 'renderTheme', a: [t, args.seconds, 44100, args.seed, true] });
   for (const p of ambs) jobs.push({ kind: 'amb', fn: 'renderAmbience', a: [p, args.seconds, 44100] });
   if (args.sfx && !args.only) jobs.push({ kind: 'sfx', fn: 'renderSfxReel', a: [44100] });
 
@@ -443,7 +470,126 @@ async function main() {
   if (errors.length || bad.length) process.exitCode = 1;
 }
 
-main().catch((e) => {
+// ─────────────────────────────────────────────────────────── live (in-game) probe
+
+/**
+ * `--live`: boots the real game (GPU Chromium, autoplay allowed, one real click for the gesture),
+ * stages scenes through window.__game and checks the audio adapter end to end: the theme the
+ * selector wants for each place / time / weather, that the director actually crossfades to it, that
+ * the output is audible (RMS meter), plus a burst of SFX through the game service.
+ */
+const LIVE_SCENES = [
+  { demo: 'farm-morning', expect: 'spring' },
+  { demo: 'audio', season: 'summer', expect: 'summer' },
+  { demo: 'audio', season: 'fall', expect: 'fall' },
+  { demo: 'audio', season: 'winter', weather: 'sun', expect: 'winter' },
+  { demo: 'town-day', expect: 'town' },
+  { demo: 'beach-day', expect: 'beach' },
+  { demo: 'mine', expect: 'mine' },
+  { demo: 'winter-night', expect: 'night' },
+  { demo: 'town-rain', expect: 'rain' },
+  { demo: 'fest-spring', expect: /^festival/ },
+  { demo: 'title', expect: 'title' },
+];
+const LIVE_SFX = ['step:grass', 'hoe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'splash', 'sword', 'slime', 'heart'];
+
+async function live() {
+  const server = await createServer({
+    root,
+    configFile: resolve(root, 'vite.config.ts'),
+    logLevel: 'error',
+    clearScreen: false,
+    cacheDir: resolve(tmpdir(), `hearthvale-vite-audiolive-${process.pid}`),
+    server: { port: 0, host: '127.0.0.1', strictPort: false, hmr: false, watch: null },
+  });
+  await server.listen();
+  const base = `http://127.0.0.1:${server.httpServer.address().port}`;
+  const flags = ['--autoplay-policy=no-user-gesture-required', '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--enable-webgl'];
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true, channel: 'chromium', args: flags });
+  } catch {
+    browser = await chromium.launch({ headless: true, args: flags });
+  }
+  const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => m.type() === 'error' && /audio/i.test(m.text()) && errors.push(m.text()));
+  page.setDefaultTimeout(240000);
+  await page.goto(`${base}/?notitle=1&audio=1&quality=low`, { waitUntil: 'load' });
+  await page.waitForFunction(() => typeof window.__game?.ready === 'function');
+  await page.evaluate(() => window.__game.ready());
+  await page.mouse.click(480, 270);
+  let fails = 0;
+  console.log(`${'scene'.padEnd(22)} ${'wanted'.padEnd(20)} ${'playing'.padEnd(20)} ${'maxRMS'.padStart(7)}  result`);
+  for (const sc of LIVE_SCENES) {
+    const res = await page.evaluate(async (sc) => {
+      const g = window.__game;
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      g.openUI('none');
+      await g.demo(sc.demo);
+      if (sc.season) g.setSeason(sc.season);
+      if (sc.weather) g.setWeather(sc.weather);
+      const a = g.game.services.audio;
+      a.music(null);
+      let st = a.state();
+      const t0 = performance.now();
+      while (performance.now() - t0 < 20000) {
+        st = a.state();
+        if (st.running && st.theme && st.theme === st.wanted) break;
+        await sleep(250);
+      }
+      let max = -Infinity;
+      for (let i = 0; i < 12; i++) {
+        max = Math.max(max, a.meter());
+        await sleep(200);
+      }
+      return { wanted: st.wanted, playing: st.theme, running: st.running, max };
+    }, { ...sc, expect: undefined });
+    const want = sc.expect;
+    const okTheme = res.playing && (want instanceof RegExp ? want.test(res.playing) : res.playing === want);
+    const ok = res.running && okTheme && res.max > -45;
+    if (!ok) fails++;
+    console.log(`${(sc.demo + (sc.season ? `/${sc.season}` : '')).padEnd(22)} ${String(res.wanted).padEnd(20)} ${String(res.playing).padEnd(20)} ${fmt(res.max).padStart(7)}  ${ok ? 'ok' : `FAIL (expected ${want})`}`);
+  }
+  // SFX through the game service over the farm's ambience bed (music silenced).
+  const sfx = await page.evaluate(async (names) => {
+    const g = window.__game;
+    const a = g.game.services.audio;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    g.openUI('none');
+    await g.demo('farm-morning');
+    a.music('none');
+    await sleep(5000);
+    const floor = a.meter();
+    const out = [];
+    for (const n of names) {
+      a.play(n);
+      let max = -Infinity;
+      for (let i = 0; i < 8; i++) {
+        await sleep(30);
+        max = Math.max(max, a.meter());
+      }
+      out.push({ name: n, max });
+      await sleep(500);
+    }
+    a.music(null);
+    return { floor, out };
+  }, LIVE_SFX);
+  console.log(`\nSFX via game service (ambience floor ${fmt(sfx.floor)} dBFS RMS):`);
+  for (const s of sfx.out) {
+    const ok = s.max > sfx.floor + 3 && s.max < -3;
+    if (!ok) fails++;
+    console.log(`  ${s.name.padEnd(14)} ${fmt(s.max).padStart(7)}  ${ok ? 'ok' : 'FAIL'}`);
+  }
+  if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
+  console.log(fails || errors.length ? `\n${fails} live check(s) failed` : '\nall live checks passed');
+  await browser.close();
+  await server.close();
+  if (fails || errors.length) process.exitCode = 1;
+}
+
+(process.argv.includes('--live') ? live() : main()).catch((e) => {
   console.error(e);
   process.exit(2);
 });

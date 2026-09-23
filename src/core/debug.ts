@@ -111,6 +111,7 @@ export function installDebugApi(game: Game): DebugApi {
       frame: game.frame,
       drawCalls: game.rc.renderer.info.render.calls,
       triangles: game.rc.renderer.info.render.triangles,
+      audio: game.services.audio?.state(),
     }),
     demos: Object.keys(DEMOS),
   };

@@ -78,15 +78,30 @@ export class Ambience {
       return b;
     };
     bed('wind', g.pink, [bf('bandpass', 420, 0.55), bf('lowpass', 1600)]);
-    bed('leaves', g.white, [bf('bandpass', 3400, 0.6), bf('lowpass', 7000)], 0.9);
+    // Leaf rustle: pink (not white) noise so a windy day reads as foliage, not hiss (render: 63 % > 2 kHz).
+    bed('leaves', g.pink, [bf('bandpass', 2600, 0.6), bf('lowpass', 5500)], 0.9);
     bed('rain', g.pink, [bf('bandpass', 2600, 0.35), bf('highshelf', 6000, 0.7)]);
     bed('rainLow', g.brown, [bf('lowpass', 420, 0.5)]);
-    bed('fountain', g.white, [bf('bandpass', 1500, 0.45), bf('lowpass', 4500)]);
+    bed('fountain', g.pink, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800)]);
     bed('surf', g.pink, [bf('lowpass', 500, 0.6)]);
+    // Brook: bubbly band of noise with a fast, irregular filter wobble.
+    const brook = bed('brook', g.white, [bf('bandpass', 1100, 1.2), bf('lowpass', 3500)]);
+    for (const [rate, depth] of [[3.1, 260], [7.3, 180], [0.43, 300]] as const) {
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = rate;
+      const lg = ctx.createGain();
+      lg.gain.value = depth;
+      lfo.connect(lg).connect(brook.filter!.frequency);
+      lfo.start(0);
+    }
     bed('cave', g.brown, [bf('lowpass', 160, 0.7)]);
     bed('caveAir', g.pink, [bf('bandpass', 700, 3)], 0.6);
     bed('howl', g.pink, [bf('bandpass', 620, 9)]);
     bed('snowHush', g.pink, [bf('highpass', 2500, 0.5), bf('lowpass', 6000)]);
+    // Interior room tone: a faint low hum of a quiet wooden house.
+    bed('room', g.brown, [bf('lowpass', 240, 0.6)], 0.8);
+    // Fireplace: a soft roar under the crackles.
+    bed('fire', g.pink, [bf('lowpass', 520, 0.7)], 0.7);
     // Cicadas: narrow noise band amplitude-modulated at ~30 Hz.
     const cic = bed('cicada', g.white, [bf('bandpass', 5300, 5)]);
     const am = ctx.createOscillator();
@@ -113,7 +128,7 @@ export class Ambience {
 
   private setBed(name: string, level: number, now: number, tau = 1.2): void {
     const b = this.beds[name];
-    if (!b) return;
+    if (!b || !Number.isFinite(level)) return; // a malformed env must never throw inside the game loop
     if (Math.abs(b.level - level) < 0.002) return;
     b.level = level;
     b.gain.gain.setTargetAtTime(level, now, tau);
@@ -143,29 +158,35 @@ export class Ambience {
     const wf = this.beds.wind!.filter!;
     wf.frequency.setTargetAtTime(300 + 360 * this.gust, now, 1.2);
     const hasLeaves = s.season !== 'winter' && outdoors && !beach;
-    this.setBed('leaves', hasLeaves ? 0.012 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.4 : 1) : 0, now, 0.6);
+    this.setBed('leaves', hasLeaves ? 0.014 + 0.04 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1) : 0, now, 0.6);
     this.setBed('rain', outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0, now, 2);
     this.setBed('rainLow', raining && !mine ? (storm ? 0.3 : 0.12) * (s.indoor ? 0.5 : 1) : 0, now, 2);
-    this.setBed('fountain', outdoors ? 0.1 * s.fountain : 0, now, 0.6);
+    this.setBed('fountain', outdoors ? 0.14 * s.fountain : 0, now, 0.6);
     this.setBed('cave', mine ? 0.3 : 0, now, 2);
     this.setBed('caveAir', mine ? 0.05 : 0, now, 2);
     const cold = s.season === 'winter' && outdoors;
     this.setBed('howl', cold ? 0.012 + 0.03 * this.gust * windy : 0, now, 1);
     this.beds.howl!.filter!.frequency.setTargetAtTime(480 + 420 * this.gust, now, 2);
     this.setBed('snowHush', outdoors && s.weather === 'snow' ? 0.02 : 0, now, 2);
+    const hearth = s.indoor && (s.night > 0.3 || s.season === 'winter' || s.season === 'fall' || raining);
+    this.setBed('room', s.indoor ? 0.05 : 0, now, 1);
+    this.setBed('fire', hearth ? 0.035 : 0, now, 1.5);
+    const town = s.map === 'town' || s.map.startsWith('fest');
     const cicadaTime = s.season === 'summer' && outdoors && !raining && h >= 10 && h <= 18.5;
     if ((this.next.cicadaSwell ?? 0) <= now) this.next.cicadaSwell = now + 6 + r.next() * 10;
     const swell = 0.5 + 0.5 * Math.sin((now / 9) * Math.PI);
-    this.setBed('cicada', cicadaTime ? 0.018 + 0.02 * swell : 0, now, 2);
+    this.setBed('cicada', cicadaTime ? 0.014 + 0.016 * swell : 0, now, 2);
 
-    // Surf: individual waves.
-    if (beach || s.water > 0.6) {
+    // Surf: individual waves on the coast. Inland water babbles (forest stream) or laps (pond).
+    if (beach) {
       if ((this.next.wave ?? 0) <= now + ahead) {
         const t = Math.max(now, this.next.wave ?? now);
-        this.wave(t, beach ? 1 : 0.35);
+        this.wave(t, 1);
         this.next.wave = t + 6.5 + r.next() * 4;
       }
     } else this.setBed('surf', 0, now, 2);
+    const stream = outdoors && s.map === 'forest';
+    this.setBed('brook', stream ? 0.02 + 0.07 * s.water : 0, now, 1);
 
     const until = now + ahead;
     const due = (k: string, min: number, max: number, active: boolean): number | null => {
@@ -213,6 +234,19 @@ export class Ambience {
     // Leaf skitter in fall.
     t = due('skitter', 3, 10, outdoors && s.season === 'fall' && this.gust > 0.6);
     if (t !== null) this.skitter(t);
+    // Pond lapping and the odd fish rising.
+    t = due('lap', 0.8, 2.6, outdoors && !beach && s.map !== 'forest' && s.water > 0.25);
+    if (t !== null) this.lap(t, s.water);
+    // Hearth crackles indoors.
+    t = due('crackle', 0.08, 0.6, hearth);
+    if (t !== null) this.crackle(t);
+    // Town life: distant chatter by day (busier at festivals), the smithy's anvil, a cart.
+    const festive = s.map.startsWith('fest');
+    const bustle = town && !raining && ((h >= 8 && h < 19.5) || festive);
+    t = due('walla', festive ? 0.25 : 0.9, festive ? 1.2 : 3.2, bustle);
+    if (t !== null) this.walla(t, festive ? 1 : 0.6);
+    t = due('anvil', 12, 30, town && !festive && h >= 9 && h < 17 && !raining);
+    if (t !== null) this.anvil(t);
     // Mine life.
     t = due('caveDrip', 1.2, 4.5, mine);
     if (t !== null) this.caveDrip(t);
@@ -427,6 +461,78 @@ export class Ambience {
   private skitter(t: number): void {
     const d = this.dest(this.rng.range(-0.8, 0.8), 0.3);
     for (let i = 0; i < 5; i++) noiseHit(this.g, d, t + i * 0.05 + this.rng.next() * 0.03, { f: 2600, q: 1.5, amp: 0.03, tau: 0.012 });
+  }
+
+  private lap(t: number, near: number): void {
+    const r = this.rng;
+    const d = this.dest(r.range(-0.8, 0.8), 0.5 - near * 0.3);
+    const n = r.int(1, 3);
+    for (let i = 0; i < n; i++) {
+      const f = r.range(380, 900);
+      this.chirp(d, t + i * r.range(0.06, 0.15), f, f * 1.6, 0.05, 0.02 * near);
+    }
+    noiseHit(this.g, d, t, { f: 700, q: 0.8, amp: 0.025 * near, attack: 0.05, tau: 0.12, buf: this.g.pink });
+  }
+
+  private crackle(t: number): void {
+    const r = this.rng;
+    const d = this.dest(r.range(-0.5, -0.2), 0.2);
+    const n = r.int(1, 3);
+    for (let i = 0; i < n; i++) noiseHit(this.g, d, t + i * r.range(0.01, 0.04), { f: r.range(1800, 5200), q: 2, amp: r.range(0.02, 0.06), tau: 0.004 + r.next() * 0.006 });
+    if (r.chance(0.08)) noiseHit(this.g, d, t, { type: 'lowpass', f: 700, amp: 0.05, attack: 0.004, tau: 0.03, buf: this.g.pink }); // a log settles
+  }
+
+  /** Distant crowd murmur: a few overlapping formant syllables, far away and lowpassed. */
+  private walla(t: number, level: number): void {
+    const ctx = this.g.ctx;
+    const r = this.rng;
+    const d = this.dest(r.range(-0.9, 0.9), 0.7 + r.next() * 0.3);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1400;
+    lp.connect(d);
+    const base = r.pick([120, 150, 190, 230, 280]);
+    const syl = r.int(3, 7);
+    let tt = t;
+    const F = [[730, 1090], [530, 1840], [300, 2200], [570, 840], [440, 1020]];
+    for (let i = 0; i < syl; i++) {
+      const dur = r.range(0.08, 0.16);
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      const f0 = base * Math.pow(2, r.range(-3, 4) / 12);
+      o.frequency.setValueAtTime(f0, tt);
+      o.frequency.linearRampToValueAtTime(f0 * r.range(0.9, 1.08), tt + dur);
+      const [f1, f2] = r.pick(F);
+      const a = ctx.createGain();
+      a.gain.setValueAtTime(0, tt);
+      a.gain.linearRampToValueAtTime(0.012 * level, tt + 0.02);
+      a.gain.linearRampToValueAtTime(0, tt + dur);
+      for (const [ff, q] of [[f1!, 5], [f2!, 8]] as const) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = ff;
+        bp.Q.value = q;
+        o.connect(bp).connect(a);
+      }
+      a.connect(lp);
+      o.start(tt);
+      o.stop(tt + dur + 0.02);
+      tt += dur + r.range(0.01, 0.06) + (r.chance(0.2) ? 0.2 : 0);
+    }
+    // Now and then somebody laughs.
+    if (r.chance(0.12)) for (let i = 0; i < 4; i++) this.chirp(lp, tt + 0.1 + i * 0.13, base * 2.1, base * 1.8, 0.08, 0.008 * level);
+  }
+
+  /** The smithy: two or three ringing hammer strikes on the anvil, far across the square. */
+  private anvil(t: number): void {
+    const r = this.rng;
+    const d = this.dest(0.6, 0.75);
+    const n = r.int(2, 4);
+    for (let i = 0; i < n; i++) {
+      const tt = t + i * r.range(0.42, 0.55);
+      for (const [ratio, amp] of [[1, 0.018], [2.76, 0.01], [5.4, 0.005]] as const) this.chirp(d, tt, 1180 * ratio, 1175 * ratio, 0.6, amp);
+      noiseHit(this.g, d, tt, { f: 3000, q: 2, amp: 0.02, tau: 0.006 });
+    }
   }
 
   private caveDrip(t: number): void {

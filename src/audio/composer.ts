@@ -119,18 +119,22 @@ interface MNote {
   grace?: number;
 }
 
-const CELLS: Record<Meter, { normal: number[][]; slow: number[][]; cadence: number[][] }> = {
+const CELLS: Record<Meter, { normal: number[][]; slow: number[][]; cadence: number[][]; busy: number[][] }> = {
   '4/4': {
+    // Running figures for the lively themes (town, summer): eighth-note motion with a landing note.
+    busy: [[1, 1, 2, 1, 1, 2], [2, 1, 1, 1, 1, 2], [1, 1, 1, 1, 2, 2], [3, 1, 1, 1, 2], [1, 1, 2, 2, 2], [2, 1, 1, 2, 1, 1]],
     normal: [[2, 2, 2, 2], [3, 1, 2, 2], [2, 1, 1, 2, 2], [2, 2, 4], [4, 2, 2], [1, 1, 2, 4], [3, 1, 4], [2, 2, 1, 1, 2], [2, 4, 2], [1, 1, 1, 1, 2, 2], [3, 3, 2]],
     slow: [[4, 4], [6, 2], [2, 2, 4], [8], [4, 2, 2], [3, 1, 4], [2, 6]],
     cadence: [[2, 2, 3, -1], [4, 3, -1], [6, -2], [2, 5, -1], [3, 1, 3, -1], [1, 1, 2, 3, -1]],
   },
   '3/4': {
+    busy: [[1, 1, 1, 1, 2], [2, 1, 1, 1, 1], [1, 1, 2, 1, 1]],
     normal: [[2, 2, 2], [3, 1, 2], [4, 2], [2, 1, 1, 2], [1, 1, 2, 2], [2, 4]],
     slow: [[6], [4, 2], [2, 4], [3, 1, 2]],
     cadence: [[2, 3, -1], [5, -1], [4, 2], [1, 1, 3, -1]],
   },
   '6/8': {
+    busy: [[1, 1, 1, 1, 1, 1], [2, 1, 1, 1, 1]],
     // Jigs live on running triplet quavers: weight the busy cells.
     normal: [[1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [2, 1, 1, 1, 1], [1, 1, 1, 2, 1], [2, 1, 2, 1], [1, 1, 1, 1, 1, 1], [2, 1, 1, 1, 1], [1, 1, 1, 3]],
     slow: [[3, 3], [2, 1, 3], [6]],
@@ -347,14 +351,18 @@ export class Composer {
     const r = this.rng;
     const lib = CELLS[this.th.meter];
     const density = this.th.melody?.density ?? 0.5;
-    const pickCell = (): number[] => {
-      const slow = r.next() > density;
-      const pool = slow ? lib.slow : lib.normal;
+    // Held-note cells: lively themes only get the ones that still move (no whole-bar drones).
+    const slowPool = density > 0.65 ? lib.slow.filter((c) => c.length >= 2) : lib.slow;
+    const pickCell = (head = false): number[] => {
+      // Lively themes (density > 0.65) reach for running figures part of the time.
+      const busy = (): number[] => r.pick(r.next() < (density - 0.65) * 2.2 ? lib.busy : lib.normal);
+      // The head cell carries the tune's character: it only rests on long notes in slow themes.
+      if (head) return density >= 0.5 ? busy() : r.next() > density + 0.25 ? r.pick(slowPool) : r.pick(lib.normal);
       // B sections lean lyrical (longer notes).
-      if (isB && density < 0.85 && r.chance(0.4)) return r.pick(lib.slow);
-      return r.pick(pool);
+      if (isB && density < 0.85 && r.chance(0.35)) return r.pick(slowPool);
+      return r.next() > density ? r.pick(slowPool) : busy();
     };
-    const c0 = pickCell();
+    const c0 = pickCell(true);
     const c1 = r.chance(0.45) ? c0 : pickCell();
     const c2 = r.chance(0.5) ? c0 : pickCell();
     const c3 = r.pick(lib.cadence);
