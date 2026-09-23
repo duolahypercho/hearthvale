@@ -23,13 +23,20 @@
  *   FAIL  avg < 60 fps or p99 > 25 ms (the pillar-14 bar),
  *   REGR  vs the median of the last 3 comparable history runs: avg fps −10 % (and ≥ 3 fps),
  *         p99 +25 % (and ≥ 3 ms), or draw calls / triangles +20 % (content growth, noise-free).
+ *   REGR? a timing drop measured while the machine was saturated (load > 1.5× cores or main
+ *         thread on-CPU < 35 %) — reported, not trusted; re-run `--demos <name>` on a quiet machine.
  *
- * Timing mode: headless Chromium (new headless) with ANGLE/Metal on the real GPU, with
- * --disable-gpu-vsync --disable-frame-rate-limit so rAF is not capped at the display refresh
- * and headroom above 60 fps is visible. `--headed` parks a real window off-screen instead; both
- * report the same GPU (the renderer string is recorded in the JSON). Other agents' shot/smoke
- * runs share the GPU — the run records concurrent Chromium processes + load average in `env` so a
- * noisy run can be told apart from a real regression (draw calls / triangles are deterministic).
+ * Timing mode: HEADLESS by default — Playwright's full Chromium (channel 'chromium' = new headless,
+ * same compositor as desktop Chrome, not chrome-headless-shell) with ANGLE/Metal on the real GPU and
+ * --disable-gpu-vsync --disable-frame-rate-limit. Verified uncapped: the empty-canvas calibration
+ * runs at 650–1300 fps and light interiors reach 130+ fps, so headless does not hide headroom and
+ * headed is not needed. `--headed` parks a real window off-screen for cross-checking.
+ * Other agents' shot/smoke runs share the CPU + GPU — every run records concurrent Chromium GPU
+ * processes, load average, the calibration fps and a per-demo on-CPU ratio (main-thread CPU time /
+ * wall time) so a contended run can be told apart from a real regression. Draw calls, triangles,
+ * GL uploads/frame and new-program counts are deterministic and are the noise-free signals.
+ * `gpuAvgMs` (EXT_disjoint_timer_query_webgl2 around Game.step) is elapsed GPU time and is
+ * inflated when other processes share the GPU — use it relatively, not absolutely.
  * Exit code: 0 always unless the harness itself fails (2) — FAIL/REGR are reported, not fatal,
  * unless `--strict` is given (then 1 when anything fails or regresses).
  */
@@ -66,6 +73,8 @@ const GPU_ARGS = [
   '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
   // Un-quantised performance.memory for the allocation-rate estimate.
   '--enable-precise-memory-info',
+  // EXT_disjoint_timer_query_webgl2 for per-frame GPU time.
+  '--enable-privileged-webgl-extensions',
 ];
 
 const pct = (arr, p) => {
@@ -113,9 +122,30 @@ const RECORD_FN = async (ms) => {
   const rc = g.rc;
   const origStep = g.step;
   let stepMs = 0;
+  // GPU time per frame via EXT_disjoint_timer_query_webgl2 (null when the extension is missing).
+  const glq = rc.renderer.getContext();
+  const tq = glq.getExtension('EXT_disjoint_timer_query_webgl2');
+  const pending = [];
+  const gpu = [];
+  const programs0 = rc.renderer.info.programs?.length ?? 0;
+  const progIds0 = new Set((rc.renderer.info.programs ?? []).map((p) => p.id));
   g.step = function (dt) {
     const t = performance.now();
+    let q = null;
+    if (tq) {
+      q = glq.createQuery();
+      glq.beginQuery(tq.TIME_ELAPSED_EXT, q);
+    }
     origStep.call(this, dt);
+    if (q) {
+      glq.endQuery(tq.TIME_ELAPSED_EXT);
+      pending.push(q);
+    }
+    while (pending.length && glq.getQueryParameter(pending[0], glq.QUERY_RESULT_AVAILABLE)) {
+      const pq = pending.shift();
+      if (!glq.getParameter(tq.GPU_DISJOINT_EXT)) gpu.push(glq.getQueryParameter(pq, glq.QUERY_RESULT) / 1e6);
+      glq.deleteQuery(pq);
+    }
     stepMs = performance.now() - t;
   };
   const perfSamples = [];
@@ -138,6 +168,9 @@ const RECORD_FN = async (ms) => {
     requestAnimationFrame(tick);
   });
   delete g.step; // restore the prototype method
+  for (const q of pending) glq.deleteQuery(q);
+  const programs1 = rc.renderer.info.programs?.length ?? 0;
+  const newProgramNames = (rc.renderer.info.programs ?? []).filter((p) => !progIds0.has(p.id)).map((p) => p.name).slice(0, 12);
   if (g.step !== origStep) g.step = origStep;
 
   // GL upload churn: count texture / buffer uploads per frame over ~60 extra frames (after the timed
@@ -197,7 +230,7 @@ const RECORD_FN = async (ms) => {
   const perf = g.perf();
   const sun = g.lighting?.sun;
   return {
-    deltas, cpu, alloc, gcs, heapMB: heap.length ? heap[heap.length - 1] / 1048576 : 0,
+    deltas, cpu, gpu, newPrograms: programs1 - programs0, newProgramNames, alloc, gcs, heapMB: heap.length ? heap[heap.length - 1] / 1048576 : 0,
     perfSamples, perf, census, passes, geometries: mem.geometries, textures: mem.textures, programs,
     shadowMap: sun?.shadow?.mapSize?.x ?? 0,
     drawingBuffer: [rc.renderer.domElement.width, rc.renderer.domElement.height],
@@ -308,6 +341,12 @@ async function measureDemo(ctx, base, name) {
       hitches50: r.deltas.filter((x) => x > 50).length,
       cpuAvgMs: r2(mean(r.cpu)),
       cpuP95Ms: r2(pct(r.cpu, 95)),
+      // GPU ms per frame (timer query around Game.step: shadow + AO + main + post). ≈ frame time → GPU-bound.
+      gpuAvgMs: r.gpu.length ? r2(mean(r.gpu)) : null,
+      gpuP95Ms: r.gpu.length ? r2(pct(r.gpu, 95)) : null,
+      // Programs compiled during the timed window (first-use shader compiles = multi-100 ms hitches).
+      newPrograms: r.newPrograms,
+      newProgramNames: r.newProgramNames,
       allocMBs: r2(r.alloc / 1048576 / (sumMs / 1000)),
       gcPerSec: r2(r.gcs / (sumMs / 1000)),
       heapMB: r1(r.heapMB),
@@ -460,7 +499,7 @@ async function main() {
       const res = await measureDemo(ctx, base, name);
       results.push(res);
       if (res.error) console.log(`[perf] ${i + 1}/${demos.length} ${name}: ERROR ${res.error}`);
-      else console.log(`[perf] ${i + 1}/${demos.length} ${name}: ${res.avgFps} fps  p95 ${res.p95Ms}  p99 ${res.p99Ms} ms  cpu ${res.cpuAvgMs} ms (on-cpu ${Math.round(res.onCpuRatio * 100)}%)  alloc ${res.allocMBs} MB/s  ${res.drawCalls} dc  ${(res.triangles / 1e6).toFixed(2)}M tris`);
+      else console.log(`[perf] ${i + 1}/${demos.length} ${name}: ${res.avgFps} fps  p95 ${res.p95Ms}  p99 ${res.p99Ms} ms  gpu ${res.gpuAvgMs ?? '-'} ms  cpu ${res.cpuAvgMs} ms (on-cpu ${Math.round(res.onCpuRatio * 100)}%)  alloc ${res.allocMBs} MB/s  ${res.drawCalls} dc  ${(res.triangles / 1e6).toFixed(2)}M tris`);
     }
     const envEnd = envLoad();
 
@@ -470,6 +509,7 @@ async function main() {
     const cfg = { w: args.w, h: args.h, quality: args.quality };
     const fails = [];
     const regressions = [];
+    const suspect = [];
     for (const r of results) {
       if (r.error) { fails.push({ demo: r.demo, why: `error: ${r.error}` }); continue; }
       const why = [];
@@ -480,30 +520,38 @@ async function main() {
       r.baseline = b;
       if (!b) continue;
       const rw = [];
-      if (r.avgFps < b.avgFps * 0.9 && b.avgFps - r.avgFps >= 3) rw.push(`avg ${b.avgFps}→${r.avgFps} fps`);
-      if (r.p99Ms > b.p99Ms * 1.25 && r.p99Ms - b.p99Ms >= 3) rw.push(`p99 ${b.p99Ms}→${r.p99Ms} ms`);
+      // Timing is only trusted when the machine was not saturated during this demo (1-min load average
+      // below 1.5× cores and the main thread was on-CPU ≥ 35 % of the time); otherwise a timing drop is
+      // reported as 'suspect' (REGR?) and does not fail --strict. Content growth is always trusted.
+      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35;
+      const tw = [];
+      if (r.avgFps < b.avgFps * 0.9 && b.avgFps - r.avgFps >= 3) tw.push(`avg ${b.avgFps}→${r.avgFps} fps`);
+      if (r.p99Ms > b.p99Ms * 1.25 && r.p99Ms - b.p99Ms >= 3) tw.push(`p99 ${b.p99Ms}→${r.p99Ms} ms`);
       if (r.drawCalls > b.drawCalls * 1.2 && r.drawCalls - b.drawCalls >= 10) rw.push(`draw calls ${b.drawCalls}→${r.drawCalls}`);
       if (r.triangles > b.triangles * 1.2 && r.triangles - b.triangles >= 50000) rw.push(`tris ${(b.triangles / 1e6).toFixed(2)}M→${(r.triangles / 1e6).toFixed(2)}M`);
+      if (!contended) rw.push(...tw);
       if (rw.length) regressions.push({ demo: r.demo, why: rw.join(', ') });
+      else if (tw.length) suspect.push({ demo: r.demo, why: `${tw.join(', ')} (contended: load ${r.loadavg1}, on-CPU ${Math.round(r.onCpuRatio * 100)} %)` });
     }
 
     // Table.
     const W = Math.max(8, ...results.map((r) => r.demo.length));
-    const head = `${pad('demo', W, true)} | ${pad('avg fps', 7)} | ${pad('p95 ms', 6)} | ${pad('p99 ms', 6)} | ${pad('cpu ms', 6)} | ${pad('draws', 5)} | ${pad('tris', 7)} | flag`;
+    const head = `${pad('demo', W, true)} | ${pad('avg fps', 7)} | ${pad('p95 ms', 6)} | ${pad('p99 ms', 6)} | ${pad('cpu ms', 6)} | ${pad('gpu ms', 6)} | ${pad('draws', 5)} | ${pad('tris', 7)} | flag`;
     console.log('\n' + head + '\n' + '-'.repeat(head.length));
     for (const r of results) {
       if (r.error) { console.log(`${pad(r.demo, W, true)} | ERROR ${r.error}`); continue; }
-      const flag = [fails.some((f) => f.demo === r.demo) ? 'FAIL' : '', regressions.some((f) => f.demo === r.demo) ? 'REGR' : ''].filter(Boolean).join(' ');
-      console.log(`${pad(r.demo, W, true)} | ${pad(r.avgFps.toFixed(1), 7)} | ${pad(r.p95Ms.toFixed(1), 6)} | ${pad(r.p99Ms.toFixed(1), 6)} | ${pad(r.cpuAvgMs.toFixed(1), 6)} | ${pad(r.drawCalls, 5)} | ${pad((r.triangles / 1e6).toFixed(2) + 'M', 7)} | ${flag}`);
+      const flag = [fails.some((f) => f.demo === r.demo) ? 'FAIL' : '', regressions.some((f) => f.demo === r.demo) ? 'REGR' : '', suspect.some((f) => f.demo === r.demo) ? 'REGR?' : ''].filter(Boolean).join(' ');
+      console.log(`${pad(r.demo, W, true)} | ${pad(r.avgFps.toFixed(1), 7)} | ${pad(r.p95Ms.toFixed(1), 6)} | ${pad(r.p99Ms.toFixed(1), 6)} | ${pad(r.cpuAvgMs.toFixed(1), 6)} | ${pad(r.gpuAvgMs == null ? '-' : r.gpuAvgMs.toFixed(1), 6)} | ${pad(r.drawCalls, 5)} | ${pad((r.triangles / 1e6).toFixed(2) + 'M', 7)} | ${flag}`);
     }
     const ok = results.filter((r) => !r.error);
     const worst = [...ok].sort((a, b) => a.avgFps - b.avgFps)[0];
     const worstP99 = [...ok].sort((a, b) => b.p99Ms - a.p99Ms)[0];
     console.log('');
     if (worst) console.log(`[perf] worst avg: ${worst.demo} ${worst.avgFps} fps · worst p99: ${worstP99.demo} ${worstP99.p99Ms} ms`);
-    console.log(`[perf] ${fails.length} below bar (avg<60 or p99>25), ${regressions.length} regressions vs history (${history.length} prior runs)`);
+    console.log(`[perf] ${fails.length} below bar (avg<60 or p99>25), ${regressions.length} regressions vs history (${history.length} prior runs), ${suspect.length} suspect timing drops under contention`);
     for (const f of fails) console.log(`  FAIL ${f.demo}: ${f.why}`);
     for (const f of regressions) console.log(`  REGR ${f.demo}: ${f.why}`);
+    for (const f of suspect) console.log(`  REGR? ${f.demo}: ${f.why}`);
 
     const run = {
       ts: new Date().toISOString(),
@@ -520,6 +568,7 @@ async function main() {
       allAt60: fails.length === 0,
       fails,
       regressions,
+      suspect,
       results,
     };
     const outPath = resolve(root, args.out);
@@ -531,7 +580,7 @@ async function main() {
       for (const r of results) {
         compact[r.demo] = r.error
           ? { error: r.error }
-          : { avgFps: r.avgFps, p95Ms: r.p95Ms, p99Ms: r.p99Ms, cpuAvgMs: r.cpuAvgMs, drawCalls: r.drawCalls, triangles: r.triangles, allocMBs: r.allocMBs };
+          : { avgFps: r.avgFps, p95Ms: r.p95Ms, p99Ms: r.p99Ms, cpuAvgMs: r.cpuAvgMs, gpuAvgMs: r.gpuAvgMs, onCpu: r.onCpuRatio, drawCalls: r.drawCalls, triangles: r.triangles, allocMBs: r.allocMBs };
       }
       mkdirSync(dirname(histPath), { recursive: true });
       appendFileSync(histPath, JSON.stringify({ ts: run.ts, rev: run.rev, label: run.label, gpu, mode, w: run.w, h: run.h, quality: run.quality, env: envStart, results: compact }) + '\n');
