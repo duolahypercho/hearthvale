@@ -344,7 +344,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
   const crystalPts: { x: number; z: number }[] = [];
   for (const e of edges) {
     if (crystals.length >= def.crystalCount) break;
-    if (!spaced(crystalPts, e.x, e.z, biome === 'ice' ? 2.4 : 3.6) || Math.hypot(e.x - spawn.x, e.z - spawn.z) < 2.5) continue;
+    if (!spaced(crystalPts, e.x, e.z, biome === 'ice' ? 2.4 : 3.1) || Math.hypot(e.x - spawn.x, e.z - spawn.z) < 2.5) continue;
     crystalPts.push(e);
     const ox = e.dir === 1 ? -0.42 : e.dir === 2 ? 0.42 : (rng.next() - 0.5) * 0.4;
     const oz = e.dir === 0 ? -0.4 : (rng.next() - 0.5) * 0.4;

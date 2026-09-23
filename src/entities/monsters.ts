@@ -217,7 +217,7 @@ export abstract class Monster {
   }
 
   update(dt: number, ctx: ArenaCtx, frozen = false): void {
-    this.flash = this.holdFlash ? 0.4 : Math.max(0, this.flash - dt * 7);
+    this.flash = this.holdFlash ? 0.22 : Math.max(0, this.flash - dt * 7);
     if (frozen) {
       for (const m of this.mats) (m.userData.uFlash as { value: number }).value = this.flash;
       this.pose(dt, ctx);
@@ -494,7 +494,7 @@ export class Bat extends Monster {
       fang.rotation.x = Math.PI;
       this.body.add(fang);
     }
-    const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(0.7).getHex(), { rough: 0.7, rim: 0.35, rimColor: BAT_RIM[biome] });
+    const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(0.7).getHex(), { rough: 0.7, rim: 0.1, rimColor: BAT_RIM[biome] });
     wingMat.side = THREE.DoubleSide;
     this.mats.push(wingMat);
     const wg = wingGeometry();

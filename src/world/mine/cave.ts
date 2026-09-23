@@ -340,7 +340,7 @@ ${CAVE_GLSL}`,
       // random width; each block is pillowed (edges roll into dark joints), lit along its top and
       // shadowed under the ledge above, so the face reads as layered rock with scale.
       if (onWall > 0.01) {
-        float steep = smoothstep(0.35, 0.75, 1.0 - abs(cwn.y));
+        float steep = smoothstep(0.5, 0.82, 1.0 - abs(cwn.y));
         float rowH = 0.42;
         float vv = tp.y / rowH + (hvNoise(vec2(tp.x * 0.3, 1.7)) - 0.5) * 1.1;
         float row = floor(vv);

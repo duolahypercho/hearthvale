@@ -398,6 +398,7 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
 
   // ── wall dressing: every 4–6 m of camera-facing wall gets a set piece ─────
   wallDressing(L, rng.fork('walls'), heightAt, surfaceAt, { b, glowB, iceB, rockB, woodTint });
+  sideDressing(L, rng.fork('side-walls'), heightAt, surfaceAt, { b, glowB, iceB, rockB, woodTint });
 
   // ── crystal clusters ────────────────────────────────────────────
   for (const c of L.crystals) {
@@ -540,6 +541,72 @@ interface Builders {
   iceB: MeshBuilder;
   rockB: MeshBuilder;
   woodTint: number;
+}
+
+/**
+ * Side walls (facing east / west, seen obliquely): lighter dressing only, strands that follow the
+ * face: roots + vines (earth), icicle fringes off the crest (ice), magma seams (lava).
+ */
+function sideDressing(L: FloorLayout, r: Rng, heightAt: H, surfaceAt: H, B: Builders): void {
+  const W = L.w;
+  const solid = (x: number, z: number): boolean => x < 0 || z < 0 || x >= W || z >= L.d || L.solid[z * W + x] === 1;
+  const kept: { x: number; z: number }[] = [];
+  const cands: { x: number; z: number; s: number }[] = [];
+  for (let z = 3; z < L.d - 3; z++)
+    for (let x = 3; x < W - 3; x++) {
+      if (solid(x, z) || L.lava[z * W + x]) continue;
+      if (solid(x - 1, z) && solid(x - 2, z) && solid(x - 1, z - 1) && solid(x - 1, z + 1)) cands.push({ x, z, s: -1 });
+      else if (solid(x + 1, z) && solid(x + 2, z) && solid(x + 1, z - 1) && solid(x + 1, z + 1)) cands.push({ x, z, s: 1 });
+    }
+  r.shuffle(cands);
+  for (const c of cands) {
+    if (kept.length >= 7) break;
+    if (kept.some((k) => Math.hypot(k.x - c.x, k.z - c.z) < 4.5)) continue;
+    const xb = c.s < 0 ? c.x : c.x + 1;
+    const base = heightAt(c.x + 0.5, c.z + 0.5);
+    /** Face x at height y (walking from the floor into the wall). */
+    const faceX = (z: number, y: number): number | null => {
+      for (let k = -0.7; k < 2.4; k += 0.04) {
+        const xx = xb + c.s * k;
+        if (surfaceAt(xx, z) - base >= y) return xx;
+      }
+      return null;
+    };
+    const crestY = surfaceAt(xb + c.s * 1.3, c.z + 0.5) - base;
+    if (crestY < 2.2) continue;
+    kept.push(c);
+    const n = L.biome === 'ice' ? 6 + r.int(0, 4) : 3 + r.int(0, 3);
+    for (let k = 0; k < n; k++) {
+      const z = c.z + 0.1 + r.next() * 0.8;
+      if (L.biome === 'ice') {
+        const len = 0.3 + r.next() * r.next() * 1.1;
+        const yy = crestY - 0.12;
+        const fx = faceX(z, Math.max(0.2, yy - len * 0.5));
+        if (fx === null) continue;
+        const g = new THREE.ConeGeometry(0.04 + r.next() * 0.04, len, 5);
+        g.rotateX(Math.PI);
+        B.iceB.add(iceMaterial(), g, mat(fx - c.s * 0.1, base + yy - len / 2, z), { tint: 0xdff2ff });
+        continue;
+      }
+      const lava = L.biome === 'lava';
+      const vine = !lava && r.next() < 0.5;
+      const len = lava ? crestY - 0.3 : 0.8 + r.next() * 1.3;
+      const pts: THREE.Vector3[] = [];
+      let zz = z;
+      for (let t = 0; t <= 1.0001; t += lava ? 0.12 : 0.2) {
+        const yy = crestY - 0.05 - t * len;
+        if (lava) zz += (r.next() - 0.5) * 0.25;
+        const fx = faceX(zz, Math.max(0.1, yy));
+        if (fx === null) break;
+        pts.push(new THREE.Vector3(fx - c.s * (lava ? 0.02 : 0.05), base + yy, zz + (lava ? 0 : Math.sin(t * 5 + k) * 0.08)));
+      }
+      if (pts.length < 3) continue;
+      const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 2, lava ? 0.03 : vine ? 0.02 : 0.032, 5, false);
+      if (lava) B.glowB.add(glowMaterial(), tube, undefined, { tint: 0xff4a0c });
+      else B.b.add(vine ? 'cloth' : 'bark', tube, undefined, { tint: vine ? 0x3f6a2e : 0x5a3e2a });
+      if (lava) break;
+    }
+  }
 }
 
 /**

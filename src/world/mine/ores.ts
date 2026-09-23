@@ -48,8 +48,8 @@ function metalMaterial(): THREE.MeshStandardMaterial {
 
 const COPPER = new THREE.Color(0xe39258);
 const PATINA = new THREE.Color(0x58c0a0);
-const IRON = new THREE.Color(0x5e6e8a);
-const IRON_EDGE = new THREE.Color(0xc4d2e8);
+const IRON = new THREE.Color(0x8494b0);
+const IRON_EDGE = new THREE.Color(0xe8eef8);
 const GOLD = new THREE.Color(0xffc22a);
 
 /** Paint a merged ore geometry's vertex colours from its normals / heights. */
@@ -181,7 +181,7 @@ function kitFor(biome: Biome, r: Rng): Kit {
   if (k) return k;
   const def = BIOMES[biome];
   const cap = biome === 'ice' ? 0xf4faff : biome === 'lava' ? 0x6e3024 : undefined;
-  const capAmt = biome === 'ice' ? 0.9 : 0.35;
+  const capAmt = biome === 'ice' ? 0.55 : 0.35;
   k = { body: [], big: [], coal: [], nuggets: new Map() };
   const soft = { detail: 2, smooth: 0.5, lumps: 0.16, crevice: 0.5 };
   for (let v = 0; v < VARIANTS; v++) k.body.push(facetRock(r, 0.44, def.rock[v % def.rock.length]!, { ...soft, chunky: v % 2 === 1, squash: 0.74, cap, capAmt, rim: 0.5 }));

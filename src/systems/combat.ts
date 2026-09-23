@@ -67,6 +67,8 @@ export class CombatSystem implements System, HealthApi {
   private god = false;
   /** URL `&still=1` on mine-combat: freeze the first landed hit (crescent + hit flash) for a still. */
   private still = false;
+  /** A still is being held: never blink the farmer out of it. */
+  private held = false;
   private numbers!: DamageNumbers;
   private screen!: ScreenFx;
   private side = false;
@@ -239,7 +241,8 @@ export class CombatSystem implements System, HealthApi {
     }
     this.swinging = false;
     acts.hitStop = crit || kill ? 0.11 : 0.065;
-    if (this.still && this.auto) {
+    // (side-on hits only: the crescent reads best across the frame, never hidden behind the hat)
+    if (this.still && this.auto && Math.abs(dir.x) > 0.5) {
       // Staged still: hold the impact frame (pose, crescent, flash, numbers) indefinitely.
       acts.frozen = true;
       this.arc.pin();
@@ -248,6 +251,7 @@ export class CombatSystem implements System, HealthApi {
       this.numbers.hold = true;
       for (const h of hits) h.monster.holdFlash = true;
       this.auto = null;
+      this.held = true;
     }
     this.game.rc.rig.addShake(crit ? 0.32 : kill ? 0.26 : 0.16);
     m.lighting.flash = Math.max(m.lighting.flash, crit ? 0.35 : 0.15);
@@ -360,7 +364,7 @@ export class CombatSystem implements System, HealthApi {
     if (this.iframes > 0) {
       this.iframes = Math.max(0, this.iframes - dt);
       // Classic i-frame blink (not in the staged demo: a still must never catch the farmer invisible).
-      player.root.visible = !!this.auto || this.iframes <= 0 || Math.floor(this.iframes * 16) % 2 === 0;
+      player.root.visible = !!this.auto || this.held || this.iframes <= 0 || Math.floor(this.iframes * 16) % 2 === 0;
     } else if (!player.root.visible && !this.passing) player.root.visible = true;
     if (this.push.lengthSq() > 1e-4) {
       const grid = game.world.current?.grid;

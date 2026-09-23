@@ -20,13 +20,16 @@ import type { LightSpec } from './gen';
 const ACCENTS = 5;
 
 /** Live-tunable light levels (exposed as window.__caveTune for look-dev). */
-export const CAVE_TUNE = { key: 1.15, fill: 0.05, accent: 1, hemi: 0.8, exposure: 1 };
+export const CAVE_TUNE = { key: 1.15, fill: 0.05, bounce: 0.3, accent: 1, hemi: 0.8, exposure: 1 };
 (globalThis as unknown as { __caveTune: typeof CAVE_TUNE }).__caveTune = CAVE_TUNE;
 
 export class CaveLighting {
   readonly group = new THREE.Group();
   readonly key: THREE.SpotLight;
   readonly fill: THREE.PointLight;
+  /** Broad, soft lantern bounce high over the farmer: the hall 6–12 m out keeps a readable
+   * silhouette (walls, rocks) instead of crushing to black. */
+  readonly bounce: THREE.PointLight;
   private accents: { light: THREE.PointLight; spec: LightSpec | null; seed: number }[] = [];
   private def: BiomeDef | null = null;
   private active = false;
@@ -52,6 +55,8 @@ export class CaveLighting {
     this.group.add(this.key, this.key.target);
     this.fill = new THREE.PointLight(0xffb46a, 3, 6, 1.6);
     this.group.add(this.fill);
+    this.bounce = new THREE.PointLight(0xffc890, 0, 15, 1.1);
+    this.group.add(this.bounce);
     for (let i = 0; i < ACCENTS; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 7, 1.6);
       l.position.set(0, -100, 0);
@@ -65,6 +70,7 @@ export class CaveLighting {
     this.fog.setHex(def.fog);
     this.key.color.setHex(def.lantern[0]);
     this.fill.color.setHex(def.lantern[0]);
+    this.bounce.color.setHex(def.lantern[0]).lerp(new THREE.Color(def.hemi[0]), 0.35);
     this.accents.forEach((a, i) => {
       const s = lights[i] ?? null;
       a.spec = s;
@@ -121,6 +127,8 @@ export class CaveLighting {
     this.key.intensity = def.lantern[1] * CAVE_TUNE.key * flick * this.lanternScale;
     this.fill.position.set(player.x + 0.35, player.y + 1.25, player.z + 0.45);
     this.fill.intensity = def.lantern[1] * CAVE_TUNE.fill * flick * this.lanternScale;
+    this.bounce.position.set(player.x, player.y + 5.5, player.z + 0.5);
+    this.bounce.intensity = def.lantern[1] * CAVE_TUNE.bounce * this.lanternScale;
     for (const a of this.accents) {
       const s = a.spec;
       if (!s) continue;

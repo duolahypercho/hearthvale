@@ -487,20 +487,20 @@ export class MineEntranceMap implements GameMap {
     // Rail spur + second cart with ore glints.
     {
       const b = new MeshBuilder();
-      const z = 17.9;
-      for (let x = 26.6; x <= 32.2; x += 0.5) b.add('woodDark', roundedBox(0.17, 0.07, 0.9, 0.02), mat(x, this.H(x, z) + 0.02, z, 0, Math.sin(x * 7.1) * 0.06, 0), { tint: 0x9a7a5a });
-      for (const sz of [-0.3, 0.3]) b.add('metal', new THREE.CylinderGeometry(0.032, 0.032, 5.8, 5).rotateZ(Math.PI / 2), mat(29.4, this.H(29.4, z + sz) + 0.1, z + sz), { tint: 0x8a8480 });
-      b.add('woodDark', roundedBox(0.25, 0.5, 0.9, 0.05), mat(32.55, this.H(32.55, z) + 0.3, z), { tint: 0xc05a3a });
+      const z = 17.4;
+      for (let x = 25.9; x <= 31.0; x += 0.5) b.add('woodDark', roundedBox(0.17, 0.07, 0.9, 0.02), mat(x, this.H(x, z) + 0.02, z, 0, Math.sin(x * 7.1) * 0.06, 0), { tint: 0x9a7a5a });
+      for (const sz of [-0.3, 0.3]) b.add('metal', new THREE.CylinderGeometry(0.032, 0.032, 5.3, 5).rotateZ(Math.PI / 2), mat(28.45, this.H(28.45, z + sz) + 0.1, z + sz), { tint: 0x8a8480 });
+      b.add('woodDark', roundedBox(0.25, 0.5, 0.9, 0.05), mat(31.3, this.H(31.3, z) + 0.3, z), { tint: 0xc05a3a });
       this.add(b.build({ name: 'yard-rails' }), 0, 0, 0, [], 0);
       const cart = buildCart(r.fork('cart2'));
-      this.add(cart, 29.6, z, 0, [[29, 17]]);
-      this.addGlints([new THREE.Vector3(29.4, this.H(29.6, z) + 1.0, z - 0.1), new THREE.Vector3(29.85, this.H(29.6, z) + 0.95, z + 0.15), new THREE.Vector3(29.2, this.H(29.6, z) + 0.93, z + 0.2)]);
+      this.add(cart, 28.6, z, 0, [[28, 17]]);
+      this.addGlints([new THREE.Vector3(28.4, this.H(28.6, z) + 1.0, z - 0.1), new THREE.Vector3(28.85, this.H(28.6, z) + 0.95, z + 0.15), new THREE.Vector3(28.2, this.H(28.6, z) + 0.93, z + 0.2)]);
     }
     // Open ore crates.
     {
       const spots: [number, number, number][] = [
-        [32.3, 15.6, 0.2],
-        [33.2, 16.5, -0.35],
+        [31.7, 15.3, 0.2],
+        [32.5, 16.1, -0.35],
       ];
       const glints: THREE.Vector3[] = [];
       spots.forEach(([x, z, rot], i) => {
@@ -525,9 +525,9 @@ export class MineEntranceMap implements GameMap {
       this.addGlints(glints);
       const lan = new MeshBuilder();
       lanternKit(lan, 0, 0.72, 0, 1.0);
-      this.add(lan.build({ name: 'crate-lantern' }), 33.2, 16.5, 0, [], this.H(33.2, 16.5) + 0.02);
+      this.add(lan.build({ name: 'crate-lantern' }), 32.5, 16.1, 0, [], this.H(32.5, 16.1) + 0.02);
       const lamp = new THREE.PointLight(0xffb060, 0, 5, 1.8);
-      lamp.position.set(33.2, this.H(33.2, 16.5) + 0.9, 16.5);
+      lamp.position.set(32.5, this.H(32.5, 16.1) + 0.9, 16.1);
       this.root.add(lamp);
       const halo = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
       halo.position.copy(lamp.position).setY(lamp.position.y - 0.16);
