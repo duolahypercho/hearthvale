@@ -12,6 +12,12 @@
 import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
 import { Noise2D } from '../../core/noise';
+
+/** GLSL-order smoothstep(edge0, edge1, x); edges may be reversed (falls from 1 to 0). */
+const ss = (e0: number, e1: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
 import { applyWorldFx } from '../../render/worldfx';
 import { beachRockMaterial } from './rocks';
 import { TIDE_POOLS, TIDE_POOL_Y, type BeachShape } from './layout';
@@ -45,26 +51,26 @@ export function buildShelf(S: BeachShape, seed: number): THREE.Mesh {
       inside[k] = wr < 0.24 && pd > 0.86 ? 1 : 0;
       // Slab seams (worn cracks) + pitting pressed into the stone.
       const cr = Math.abs(n.fbm(x * 0.55, z * 0.55, 2));
-      const seam = THREE.MathUtils.smoothstep(0.07, 0.0, cr);
+      const seam = ss(0.07, 0.0, cr);
       const pit = n.fbm(x * 3.1 + 11, z * 3.1, 2);
-      const topK = THREE.MathUtils.smoothstep(0.06, -0.06, wr) * THREE.MathUtils.smoothstep(1.0, 1.35, pd);
+      const topK = ss(0.06, -0.06, wr) * ss(1.0, 1.35, pd);
       // Sits 5 cm proud of the (coarser) terrain so the ground never pokes through; past the rim the
       // slab dives under the sand, so the visible edge is the smooth contour, never grid steps.
-      const dive = THREE.MathUtils.smoothstep(0.1, 0.22, wr);
+      const dive = ss(0.1, 0.22, wr);
       const y = S.height(x, z) + 0.05 * (1 - dive) - 0.14 * dive + (pit * 0.02 - seam * 0.025) * topK;
       pos[k * 3] = x;
       pos[k * 3 + 1] = y;
       pos[k * 3 + 2] = z;
       // Vertex AO: seams / pits darker, the rim foot (meeting the sand) darker.
-      const foot = THREE.MathUtils.smoothstep(-0.02, 0.09, wr);
+      const foot = ss(-0.02, 0.09, wr);
       const a = (1 - seam * 0.35 * topK) * (0.9 + pit * 0.12) * (1 - foot * 0.35);
       col[k * 3] = a;
       col[k * 3 + 1] = a;
       col[k * 3 + 2] = a;
       // uv.x = 1 - moss: weed only on the low, spray-fed parts; uv.y = wet lip around the pools.
-      const low = THREE.MathUtils.smoothstep(0.72, 0.45, y);
-      uv[k * 2] = 1 - Math.min(1, low * 0.6 + THREE.MathUtils.smoothstep(1.3, 1.0, pd) * 0.25);
-      uv[k * 2 + 1] = THREE.MathUtils.smoothstep(1.28, 0.95, pd) * 0.85;
+      const low = ss(0.72, 0.45, y);
+      uv[k * 2] = 1 - Math.min(1, low * 0.6 + ss(1.3, 1.0, pd) * 0.25);
+      uv[k * 2 + 1] = ss(1.25, 0.98, pd) * 0.55;
     }
   }
   const idx: number[] = [];
@@ -87,8 +93,10 @@ export function buildShelf(S: BeachShape, seed: number): THREE.Mesh {
   g.computeBoundingSphere();
   const m = new THREE.Mesh(g, beachRockMaterial());
   m.name = 'tide-shelf';
-  m.castShadow = true;
+  // Flat slab: its own shadow adds nothing but triangles; stone AO is baked into the vertices.
+  m.castShadow = false;
   m.receiveShadow = true;
+  m.userData.noAO = true;
   m.userData.perfTag = 'props';
   return m;
 }

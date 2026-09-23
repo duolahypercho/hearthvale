@@ -177,7 +177,7 @@ export function beachRockMaterial(): THREE.MeshStandardMaterial {
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.14, 1.1, 1.02), smoothstep(0.7, 0.95, N.y) * (1.0 - wet) * (1.0 - moss));
       }`,
     );
-    fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.3, hvBRWet);');
+    fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.4, hvBRWet);');
     shader.fragmentShader = fs;
   });
   applyWorldFx(m, { snowUp: 0.62 });

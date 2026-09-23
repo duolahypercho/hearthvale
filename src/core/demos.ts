@@ -98,7 +98,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'beach-tidepools': { map: 'beach', x: 12, z: 40, facing: 'down', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 20, offsetX: 0, offsetZ: 4 }, showcase: ['beach'] },
   // Co-op: a second farmer fishing beside you, rendered from snapshots (&rphase=cast|wait|bite|reel|catch,
   // &live=1 cycles the remote through a whole cast → catch loop).
-  'coop-fishing': { map: 'beach', x: 48.9, z: 50.8, facing: 'left', time: 17.6, season: 'summer', weather: 'sun', camera: { yaw: -14, pitch: 40, distance: 19, offsetX: -3.4, offsetZ: -1.8 }, showcase: ['fishing-wait', 'coop-fishing'] },
+  'coop-fishing': { map: 'beach', x: 48.9, z: 50.8, facing: 'left', time: 17.6, season: 'summer', weather: 'sun', camera: { yaw: -14, pitch: 40, distance: 19, offsetX: -3.6, offsetZ: 0.6 }, showcase: ['fishing-wait', 'coop-fishing'] },
   'beach-tackle': { map: 'beach', x: 53.6, z: 29.2, facing: 'right', time: 10.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['beach'], ui: 'tackle' },
   // Cindergrove forest + weather showcases (world/forest, systems/weather). 'fog-morning' / 'rainbow'
   // also switch on the matching atmosphere (the weather system keys off the demo name).

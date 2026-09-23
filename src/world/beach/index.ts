@@ -61,6 +61,7 @@ import {
   addCampVignette,
   addBeachSign,
   addSandcastle,
+  addParasolVignette,
   type DriftKind,
   type Lighthouse,
 } from './props';
@@ -145,6 +146,15 @@ export class BeachMap implements GameMap {
     this.root.add(this.flora.group);
     const merged = mergeStatic(this.staticRoots, 'beach-static');
     merged.userData.perfTag = 'props';
+    // Render-budget trims: flat / tiny batches cast no shadow; stone (vertex-AO baked) skips GTAO.
+    merged.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const n = (m.material as THREE.Material).name;
+      // Wrack-line bits (kelp, shell chips 'white', eel-grass 'cloth'), nails, nets: no shadow, no AO.
+      if (n === 'kelp' || n === 'metal' || n === 'netHeap' || n === 'boxFlower' || n === 'white') m.castShadow = false;
+      if (n === 'beachRock' || n === 'kelp' || n === 'white' || n === 'metal') m.userData.noAO = true;
+    });
     this.root.add(merged);
     mark('props');
 
@@ -326,8 +336,11 @@ export class BeachMap implements GameMap {
     const w = createPoolWater(this.terrain, TIDE_POOL_Y, { x0: 2, z0: 39, x1: 19, z1: 53 }, (x, z) => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.05) && S.height(x, z) < TIDE_POOL_Y + 0.04);
     this.root.add(w);
     this.root.add(buildShelf(S, this.rng.fork('shelf').seed));
-    this.root.add(buildAlgaeTufts(S, this.rng.fork('algae'), (x, z) => S.height(x, z) + 0.012));
+    const algae = buildAlgaeTufts(S, this.rng.fork('algae'), (x, z) => S.height(x, z) + 0.05);
+    algae.userData.noAO = true;
+    this.root.add(algae);
     const life = buildTidePoolLife(this.rng.fork('tidepool'), TIDE_POOLS, (x, z) => this.terrain.heightAt(x, z));
+    life.userData.noAO = true;
     this.root.add(life);
   }
 
@@ -425,6 +438,10 @@ export class BeachMap implements GameMap {
     addBoatVignette(b, r.fork('boatv'), ROWBOAT.x, ROWBOAT.z, ROWBOAT.rot, hAt);
     addBeachSign(b, 26.2, 29.2, hAt);
     addSandcastle(b, r.fork('castle'), 45.6, 35.2, hAt);
+    addParasolVignette(b, r.fork('parasol'), 41.6, 31.4, hAt);
+    this.block(41.6, 31.4, 0.5, 'parasol');
+    this.block(40.9, 31.8, 0.4, 'cooler');
+    T.stampCover('ao', 42.1, 32.2, 1.6, 0.25);
     this.block(45.6, 35.2, 0.9, 'sandcastle');
     T.stampCover('ao', 45.6, 35.2, 1.2, 0.35);
     this.block(26.2, 29.2, 0.6, 'sign');
@@ -473,13 +490,13 @@ export class BeachMap implements GameMap {
       this.block(x, z, rad * 0.8, 'rock');
     }
     // Shelf clutter: a few loose boulders + cobbles on the shelf (never inside a pool), for relief.
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 26; i++) {
       const x = -2 + rr.next() * 22;
       const z = 38 + rr.next() * 15;
       if (this.shape.westRock(x, z) > -0.08) continue;
       if (TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.3)) continue;
-      const rad = rr.next() < 0.3 ? 0.35 + rr.next() * 0.3 : 0.12 + rr.next() * 0.12;
-      addBeachRock(b, rr, x, hAt(x, z) - rad * 0.1, z, rad, { squash: 0.5 + rr.next() * 0.25, detail: rad < 0.3 ? 1 : 2 });
+      const rad = 0.3 + rr.next() * 0.4;
+      addBeachRock(b, rr, x, hAt(x, z) - rad * 0.12, z, rad, { squash: 0.5 + rr.next() * 0.25 });
     }
     for (const [x, z, rad] of [[69.5, 56.5, 1.6], [67.4, 57.8, 0.9], [71.4, 55.2, 1.1]] as const) rock(x, z, rad, 0.85, 0.25);
     // The groyne: boulders piled two abreast along the ridge, smaller + lower out into the surf.

@@ -1185,7 +1185,9 @@ export class FishingSystem implements System, FishingApi {
     }
     this.stT += sdt;
     const holding = this.useHeld();
-    const pressed = holding && !this.wasHolding;
+    // Edge from the held state, or the input's per-frame latch (a tap shorter than one frame — easy
+    // at low fps — still sets the hook).
+    const pressed = (holding && !this.wasHolding) || game.input.pressed('use');
     this.wasHolding = holding;
     const player = game.player;
     const head = this.screenAt(player.position, 2.2);

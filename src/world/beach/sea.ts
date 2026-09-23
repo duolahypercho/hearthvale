@@ -159,7 +159,7 @@ export class SeaProps {
     // Moored dory.
     this.boat = buildRowboat(rng.fork('dory'), 0xc8583a, 0xf4efe2);
     // (No shadow pass for the dory: it sits on open water, and it saves 3 draw calls.)
-    this.boatAt = new THREE.Vector3(boat.x, level - 0.2, boat.z);
+    this.boatAt = new THREE.Vector3(boat.x, level - 0.1, boat.z);
     this.boatYaw = boat.rot;
     this.group.add(this.boat);
     // Buoy line floats + the rope they ride on (a thin ribbon at the waterline).

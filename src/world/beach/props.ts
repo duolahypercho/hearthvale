@@ -93,6 +93,9 @@ function rope(b: MeshBuilder, a: THREE.Vector3, c: THREE.Vector3, sag: number, r
 }
 
 /** Barnacles + weed darken pilings from just above the water down. */
+/** A nail head: one flat 6-sided disc (4 tris) on the plank top. */
+const NAIL = new THREE.CircleGeometry(0.013, 6).rotateX(-Math.PI / 2);
+
 const pilingAO = (p: THREE.Vector3): number => (p.y < 0.35 ? 0.42 + 0.2 * THREE.MathUtils.smoothstep(p.y, -1.5, 0.35) : 0.7 + 0.3 * THREE.MathUtils.smoothstep(p.y, 0.35, 1.2));
 
 // ───────────────────────────────────────────── pier
@@ -126,7 +129,7 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
       aoWorld: (p) => 0.8 + 0.2 * THREE.MathUtils.clamp((p.y - deck + 0.07) / 0.07, 0, 1),
     });
     // Two nail heads at each end.
-    for (const nx of [x0 + 0.1, x1 - 0.1]) for (const dz of [-0.07, 0.07]) b.add('metal', new THREE.CylinderGeometry(0.011, 0.011, 0.008, 5), mat(nx + (rng.next() - 0.5) * 0.02, deck + 0.001, z + dz), { tint: 0x5a4a40 });
+    for (const nx of [x0 + 0.1, x1 - 0.1]) for (const dz of [-0.07, 0.07]) b.add('metal', NAIL.clone(), mat(nx + (rng.next() - 0.5) * 0.02, deck + 0.002, z + dz), { tint: 0x4a3c34 });
   };
   // Main walkway.
   for (let z = PIER.z0 + 0.15; z < PIER.head.z0; z += 0.3) plank(cx - hw, cx + hw, z);
@@ -370,7 +373,8 @@ export function buildShack(rng: Rng): BuiltProp {
   const board = (x: number, z: number, h: number, ry: number, y0 = F): void => {
     const c = new THREE.Color(paint[Math.floor(rng.next() * paint.length)]!).multiplyScalar(0.9 + rng.next() * 0.15);
     // Weathering: some boards lose paint towards the bottom.
-    b.add('woodPaint', roundedBox(0.21, h, 0.06, 0.012), mat(x, y0 + h / 2, z, 0, ry, 0), {
+    // (Plain boxes: 12 tris vs 108 for a 1 cm bevel nobody sees at gameplay zoom.)
+    b.add('woodPaint', new THREE.BoxGeometry(0.21, h, 0.06), mat(x, y0 + h / 2, z, 0, ry, 0), {
       tint: c,
       aoWorld: (p) => 0.72 + 0.28 * THREE.MathUtils.smoothstep(p.y, y0, y0 + 0.9),
     });
@@ -1057,7 +1061,8 @@ export function addSandFence(b: MeshBuilder, rng: Rng, pts: [number, number][], 
     const lean = (rng.next() - 0.5) * 0.12 + Math.sin(t * 5) * 0.08;
     if (!gap) {
       const tint = new THREE.Color(0xc8b8a0).multiplyScalar(0.8 + rng.next() * 0.25);
-      b.add('woodGrain', roundedBox(0.06, h, 0.02, 0.008), mat(p.x, y + h / 2 - 0.15, p.z, lean, Math.atan2(tan.x, tan.z) + Math.PI / 2, 0), { tint, aoWorld: (q) => 0.6 + 0.4 * THREE.MathUtils.smoothstep(q.y - y, 0, 0.3) });
+      // Thin slats: a plain box (12 tris) reads the same as a rounded one at this size (108 tris).
+      b.add('woodGrain', new THREE.BoxGeometry(0.06, h, 0.02), mat(p.x, y + h / 2 - 0.15, p.z, lean, Math.atan2(tan.x, tan.z) + Math.PI / 2, 0), { tint, aoWorld: (q) => 0.6 + 0.4 * THREE.MathUtils.smoothstep(q.y - y, 0, 0.3) });
     }
     wireA.push(new THREE.Vector3(p.x, y + 0.12, p.z));
     wireB.push(new THREE.Vector3(p.x, y + h - 0.28, p.z));
@@ -1095,4 +1100,71 @@ export function addCoastRock(b: MeshBuilder, rng: Rng, x: number, y: number, z: 
     aoWorld: (p) => (p.y < 0.35 ? 0.5 + 0.2 * THREE.MathUtils.smoothstep(p.y, -0.6, 0.35) : 0.75 + 0.25 * THREE.MathUtils.smoothstep(p.y, 0.35, 1.2)),
   });
   void prep;
+}
+
+/**
+ * Sunbather's corner: a tilted striped parasol, a striped towel with a folded book, a cooler and a
+ * beach ball (world coords, base on the sand).
+ */
+export function addParasolVignette(b: MeshBuilder, rng: Rng, x: number, z: number, heightAt: (x: number, z: number) => number): void {
+  const y = heightAt(x, z);
+  const tilt = 0.18;
+  const lean = 0.6;
+  // Pole (leaning towards the sun a touch).
+  const top = new THREE.Vector3(x + Math.sin(lean) * tilt * 2.1, y + 2.05, z + Math.cos(lean) * tilt * 2.1);
+  b.add('woodPaint', beam(0.025, 0.025, new THREE.Vector3(x, y - 0.25, z), top, 6), undefined, { tint: 0xf2eee4 });
+  // Canopy: 12 alternating panels (coral / cream), a scalloped rim, a finial.
+  const cone = new THREE.ConeGeometry(1.25, 0.42, 12, 1, true).toNonIndexed();
+  const pos = cone.attributes.position as THREE.BufferAttribute;
+  const col = new Float32Array(pos.count * 3);
+  const A = new THREE.Color(0xe8584a);
+  const B = new THREE.Color(0xf6eedc);
+  for (let i = 0; i < pos.count; i += 3) {
+    const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
+    const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
+    const seg = Math.floor(((Math.atan2(cz, cx) + Math.PI) / (Math.PI * 2)) * 12 + 0.5) % 2;
+    for (let k = 0; k < 3; k++) (seg ? A : B).toArray(col, (i + k) * 3);
+  }
+  cone.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const m = new THREE.Matrix4().compose(top.clone().add(new THREE.Vector3(0, -0.12, 0)), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.cos(lean) * tilt, 0, -Math.sin(lean) * tilt)), new THREE.Vector3(1, 1, 1));
+  b.add('cloth', cone, m);
+  // Underside (so the canopy isn't see-through from below / shadowed side).
+  const under = new THREE.ConeGeometry(1.24, 0.4, 12, 1, true);
+  under.scale(1, 1, 1);
+  const flip = new THREE.Matrix4().makeScale(1, 1, -1);
+  b.add('cloth', under.applyMatrix4(flip), m, { tint: 0xd8c8b0 });
+  b.add('woodPaint', new THREE.SphereGeometry(0.06, 8, 6), mat(top.x, top.y + 0.12, top.z), { tint: 0xe8584a });
+  // Towel: 5 stripes, lying flat, slightly rumpled.
+  const tx = x + 0.6;
+  const tz = z + 0.9;
+  const ty = heightAt(tx, tz);
+  const rot = 0.35;
+  const stripes = [0x3f7ab0, 0xf6eedc, 0xf2b84a, 0xf6eedc, 0x3f7ab0];
+  stripes.forEach((c, i) => {
+    const off = (i - 2) * 0.36;
+    b.add('cloth', new THREE.BoxGeometry(0.36, 0.025, 1.0), mat(tx + Math.cos(rot) * off, ty + 0.012 + Math.sin(i * 1.7) * 0.004, tz - Math.sin(rot) * off, 0, rot, (rng.next() - 0.5) * 0.02), { tint: c });
+  });
+  // A paperback left open, face down, on the towel.
+  b.add('woodPaint', new THREE.BoxGeometry(0.16, 0.03, 0.22), mat(tx + 0.2, ty + 0.04, tz - 0.15, 0, rot + 0.3, 0.35), { tint: 0x5a8a6a });
+  b.add('woodPaint', new THREE.BoxGeometry(0.16, 0.03, 0.22), mat(tx + 0.34, ty + 0.04, tz - 0.08, 0, rot + 0.3, -0.35), { tint: 0x5a8a6a });
+  // Cooler (teal box, white lid, handle).
+  const cx = x - 0.7;
+  const cz = z + 0.4;
+  const cy = heightAt(cx, cz);
+  b.add('woodPaint', roundedBox(0.55, 0.36, 0.36, 0.05), mat(cx, cy + 0.18, cz, 0, 0.5, 0), { tint: 0x3fa89a });
+  b.add('woodPaint', roundedBox(0.58, 0.07, 0.39, 0.03), mat(cx, cy + 0.38, cz, 0, 0.5, 0), { tint: 0xf2eee4 });
+  // Beach ball.
+  const bx = x + 1.7;
+  const bz = z - 0.2;
+  const ball = new THREE.SphereGeometry(0.22, 12, 8).toNonIndexed();
+  const bp = ball.attributes.position as THREE.BufferAttribute;
+  const bc = new Float32Array(bp.count * 3);
+  const cols = [0xe8484a, 0xf6eedc, 0x3f8ad0, 0xf6eedc, 0xf2c23a, 0xf6eedc].map((h) => new THREE.Color(h));
+  for (let i = 0; i < bp.count; i += 3) {
+    const a = Math.atan2((bp.getZ(i) + bp.getZ(i + 1) + bp.getZ(i + 2)) / 3, (bp.getX(i) + bp.getX(i + 1) + bp.getX(i + 2)) / 3);
+    const c = cols[Math.floor(((a + Math.PI) / (Math.PI * 2)) * 6) % 6]!;
+    for (let k = 0; k < 3; k++) c.toArray(bc, (i + k) * 3);
+  }
+  ball.setAttribute('color', new THREE.BufferAttribute(bc, 3));
+  b.add('woodPaint', ball, mat(bx, heightAt(bx, bz) + 0.2, bz, 0.4, 0.2, 0.3));
 }
