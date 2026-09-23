@@ -354,3 +354,24 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
 - Demos: `fest-spring`, `fest-summer`, `fest-fall`, `fest-winter`, `fest-winter-night`, and the mini-games
   `fest-spring-dance`, `fest-summer-lanterns`, `fest-fall-race`, `fest-fall-judging`, `fest-winter-gifts`,
   `fest-winter-skate`. `&result=1` ends on the result card; `&coop=1` adds two visiting farmers to its board.
+
+## Farm buildings, interiors & animals
+
+Enterable dollhouse interiors (`world/interiors/*`: `house.ts` grandmother's farmhouse — quilted bed, stone hearth with
+animated fire + embers + glow, kitchen, braided rug, shelves, family photos, window light shafts + dust; `coop.ts`,
+`barn.ts`, shared `room.ts` shell / light profile, `lighting.ts` indoor light rig, `pen.ts` straw / hay / lantern kit).
+Farm structures + carpenter's board (`world/buildings/*`): coop and barn are ordered at the board by the farmhouse
+(gold + wood + stone), stand as a staked site overnight, and are finished next morning. Animals
+(`entities/animals*.ts`, `systems/animals.ts`): chickens, ducks, cows, goats, sheep, pigs + the family dog or cat —
+one skinned mesh each (idle / walk / eat / sleep / sit / happy hop), petting hearts, hay troughs, eggs / milk / wool /
+truffles with quality from friendship + mood, pasture on fine days, pet bowl + kennel (hearth-side at night).
+Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`, animals add `animals:summary`).
+
+- Co-op (host-authoritative): `animals.setAuthority(false)` / `buildings.setAuthority(false)` on a farmhand. Farmhand
+  actions leave as `animals:intent` / `buildings:intent` → host `applyIntent(peer, intent)`; collected items come back
+  as `animals:grant` / `buildings:grant` → farmhand `receiveGrant(items)`. Shared state: host `animals:changed` /
+  `buildings:changed` → `snapshot()` → farmhand `applySnapshot()`. Herd poses (same map as the host): host
+  `animals.poses()` at ~4 Hz → farmhand `animals.applyPoses()`.
+- Demos: `house-interior`, `house-night`, `coop-interior`, `coop-night`, `coop-dawn`, `barn-interior`, `barn-night`,
+  `animals-pasture`, `animals-gallery` (every species + coat), `pet-yard`, `carpenter`, `carpenter-animals`.
+  `&pet=dog|cat` picks the pet, `&hearts=0` stops the staged petting hearts, `&petted=1` pre-marks today's petting.
