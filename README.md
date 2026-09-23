@@ -71,7 +71,10 @@ src/
   ui/                    hud.ts + hud.css (clock dial, toolbar, energy/health, toasts, fade, banner, screen router, focus nav,
                          gamepad) · kit.ts (Screen base, frames, tooltip, focus) · ui.css (all screens; UI zoomed to the
                          window via --uiz) · title.ts · inventory.ts (drag & drop, detail card) · shop.ts (per-keeper stock) ·
-                         crafting.ts (iso placement preview) · placement.ts (in-world ghost) · dayend.ts · mapscreen.ts ·
+                         crafting.ts (iso placement preview, craft payoff → Backpack tab) · placement.ts (in-world ghost:
+                         real colours + pulsing outline, dashed reach tiles, red ✕ where blocked) · dayend.ts + dayend-art.ts
+                         (painted night valley, quiet-day vignette; `ui=dayend:quiet`) · mapscreen.ts + mapart.ts (watercolour
+                         valley: paper grain, washes, fields, Poisson woods, villager heads, season palettes) ·
                          settings.ts (quality, volumes, UI size, reduce motion, 24h clock, key rebinding) · pause.ts (+ save
                          slots) · icons.ts (procedural SVG item icons; `registerItemIcon` for other teams) · itemtip.ts ·
                          demo-kit.ts (stocks the backpack for ui-* demos) · dialogue.ts · portraits.ts · fishing.ts · journal*
@@ -151,7 +154,7 @@ Demos: `farm-morning`, `farm-noon`, `farm-evening`, `farm-night`, `farm-fall`, `
 `farm-field`, `winter-night` (+ DESIGN names `town-evening`, `beach-sunset`, `forest-rain`, `mine`, `festival`, which
 stage on the farm until those maps exist).
 UI screens: `ui-title`, `ui-hud` (toasts), `ui-inventory`, `ui-shop`, `ui-shop-smith`, `ui-shop-carpenter`, `ui-crafting`,
-`ui-placement` (in-world ghost), `ui-dayend`, `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac) — or
+`ui-placement` (in-world ghost), `ui-dayend`, `ui-dayend-quiet` (nothing shipped), `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac) — or
 `?demo=<any>&ui=<screen>[:arg]` (e.g. `ui=shop:odessa`, `ui=saves:save`).
 
 ## Screenshots
