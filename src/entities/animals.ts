@@ -22,6 +22,8 @@ import { textures } from '../render/textures';
 export type { Species } from './animals-models';
 
 type State = 'idle' | 'walk' | 'eat' | 'sleep' | 'happy' | 'sit';
+/** Wire codes for co-op pose sync (index = code). */
+const STATES: readonly State[] = ['idle', 'walk', 'eat', 'sleep', 'happy', 'sit'];
 
 interface Rest {
   bone: THREE.Bone;
@@ -117,6 +119,8 @@ export class AnimalActor {
   private lift = 0;
   private squashT = -1;
   private blinkHold = 0;
+  /** Co-op mirror: the host's pose for this animal (null = own wander brain). */
+  private remote: { x: number; z: number; h: number; s: State } | null = null;
 
   constructor(species: Species, variant = 0) {
     const m = instantiate(species, variant);
@@ -164,6 +168,33 @@ export class AnimalActor {
 
   get busy(): boolean {
     return !!this.forced;
+  }
+
+  /** Current behaviour as a small wire code (co-op pose sync; see `follow`). */
+  get stateCode(): number {
+    return Math.max(0, STATES.indexOf(this.state));
+  }
+
+  /**
+   * Co-op clients: mirror the host's animal. Walks over to the host's position (snaps when far
+   * off, e.g. after a map change), then holds the host's behaviour and heading. Cosmetic reactions
+   * (petting hops) still play locally. `release()` hands the animal back to its own brain.
+   */
+  follow(x: number, z: number, heading: number, stateCode: number): void {
+    const s = STATES[stateCode] ?? 'idle';
+    this.sleeping = s === 'sleep';
+    if (Math.hypot(x - this.pos.x, z - this.pos.z) > 3) {
+      this.place(x, z, heading);
+      this.settle();
+    }
+    const r = this.remote;
+    const moved = !r || Math.hypot(r.x - x, r.z - z) > 0.2 || r.s !== s;
+    this.remote = { x, z, h: heading, s };
+    if (moved && this.state !== 'happy' && !this.forced) this.think();
+  }
+
+  release(): void {
+    this.remote = null;
   }
 
   pet(): void {
@@ -224,6 +255,17 @@ export class AnimalActor {
     if (this.forced) {
       this.target.set(this.forced.x, 0, this.forced.z);
       this.setState('walk', 60);
+      return;
+    }
+    if (this.remote) {
+      const r = this.remote;
+      if (Math.hypot(r.x - this.pos.x, r.z - this.pos.z) > 0.25) {
+        this.target.set(r.x, 0, r.z);
+        this.setState('walk', 30);
+      } else {
+        this.setState(r.s === 'walk' || r.s === 'happy' ? 'idle' : r.s, 30);
+        this.faceTo = r.h;
+      }
       return;
     }
     if (this.sleeping) {
@@ -289,7 +331,7 @@ export class AnimalActor {
   update(dt: number, t: number, neighbours: readonly AnimalActor[]): void {
     this.stateT += dt;
     // Night: wind down wherever we are (or at the bed spot once reached).
-    if (this.sleeping && !this.forced && this.state !== 'sleep' && this.state !== 'walk') this.think();
+    if (this.sleeping && !this.forced && !this.remote && this.state !== 'sleep' && this.state !== 'walk') this.think();
     if (!this.sleeping && this.state === 'sleep') this.setState('idle', 0.6 + Math.random());
     if (this.stateT > this.dur && !(this.forced && this.state === 'walk')) this.think();
 
@@ -305,7 +347,8 @@ export class AnimalActor {
           this.forced = null;
           this.setState('idle', 0.5 + Math.random());
           cb?.();
-        } else if (this.sleeping) this.setState('sleep', 30);
+        } else if (this.remote) this.think();
+        else if (this.sleeping) this.setState('sleep', 30);
         else if (this.hungry && this.feedSpot && Math.hypot(this.feedSpot.x - this.pos.x, this.feedSpot.z - this.pos.z) < 0.35) {
           this.heading = this.feedHeading;
           this.setState('eat', 5 + Math.random() * 3);

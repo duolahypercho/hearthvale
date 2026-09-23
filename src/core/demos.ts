@@ -115,7 +115,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'house-interior': { map: 'house', x: 7.6, z: 4.9, facing: 'left', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
   'house-night': { map: 'house', x: 8.9, z: 4.4, facing: 'left', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
   'coop-interior': { map: 'coop', x: 4.2, z: 5.2, facing: 'right', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 15.5, offsetZ: 0.8 }, showcase: ['animals'] },
-  'barn-interior': { map: 'barn', x: 6.35, z: 3.85, facing: 'up', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: 0.45 }, showcase: ['animals'] },
+  'barn-interior': { map: 'barn', x: 6.5, z: 4.3, facing: 'up', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: 0.45 }, showcase: ['animals'] },
   'animals-pasture': { map: 'farm', x: 41.5, z: 39.6, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
   // &pet=dog|cat picks the pet, &hearts=0 stops the staged petting hearts (all 'animals' showcases).
   'coop-night': { map: 'coop', x: 4.5, z: 5.4, facing: 'up', time: 21.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 15.5, offsetZ: 0.8 }, showcase: ['animals'] },

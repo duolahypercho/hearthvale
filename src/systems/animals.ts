@@ -15,6 +15,15 @@
  *   produce     each morning fed animals produce: eggs appear in the coop's nesting boxes (interact to
  *               collect), cows / goats / sheep are ready to milk / shear, pigs dig truffles in the pasture.
  *   events      out: animal:petted, animal:produce, animal:bought.
+ *   co-op       host-authoritative (DESIGN §13). The host (and solo play) simulates the herd; a client
+ *               calls `setAuthority(false)` and mirrors it. Every farmer action is an `AnimalIntent`:
+ *               on the host it applies at once, on a client it plays its cosmetics (hop, heart, voice),
+ *               applies optimistically and is emitted as `animals:intent` for the net layer to forward;
+ *               the host runs `applyIntent(peer, intent)` and answers collected items with
+ *               `animals:grant` → client `receiveGrant(items)`. Shared state: host emits
+ *               `animals:changed` (throttled) → broadcast `snapshot()` → client `applySnapshot()`.
+ *               Herd poses for whoever shares the host's map: host `poses()` a few times a second →
+ *               client `applyPoses()` (animals walk to the host's positions, local brain otherwise).
  *   demos       showcase 'animals' stocks a full coop + barn and stages petting hearts (&hearts=0 off,
  *               &pet=dog|cat picks the pet).
  */
@@ -67,6 +76,32 @@ interface State {
   doors: Record<AnimalHome, boolean>;
 }
 
+/** A farmer's action on the herd (co-op wire format: plain JSON). `id` 0 = the family pet. */
+export type AnimalIntent =
+  | { kind: 'pet'; id: number }
+  | { kind: 'feed'; home: AnimalHome; hay: number }
+  | { kind: 'eggs' }
+  | { kind: 'truffle'; x: number; z: number }
+  | { kind: 'bowl' }
+  | { kind: 'buy'; species: Livestock; name?: string };
+
+export interface AnimalGrant {
+  itemId: string;
+  qty: number;
+  quality: number;
+}
+
+export interface AnimalSnapshot {
+  rev: number;
+  state: unknown;
+}
+
+/** Herd poses on one map: flat [id, x, z, heading, stateCode] × n (id 0 = the pet). */
+export interface AnimalPoses {
+  map: string;
+  list: number[];
+}
+
 export interface AnimalsApi {
   roster(): readonly AnimalRec[];
   count(home: AnimalHome): number;
@@ -74,6 +109,18 @@ export interface AnimalsApi {
   /** Buy an animal (spends gold). Returns an error message or null. */
   buy(species: Livestock, name?: string): string | null;
   pet(): { species: 'dog' | 'cat'; name: string; friendship: number };
+  // ── co-op (see header)
+  /** false on a co-op client: mirror the host instead of simulating. */
+  setAuthority(host: boolean): void;
+  readonly authority: boolean;
+  snapshot(): AnimalSnapshot;
+  applySnapshot(s: AnimalSnapshot): void;
+  /** Host: a remote farmer's action. Items they collect come back as `animals:grant`. */
+  applyIntent(peer: string, intent: AnimalIntent): void;
+  /** Client: items the host granted this farmer. */
+  receiveGrant(items: AnimalGrant[]): void;
+  poses(): AnimalPoses;
+  applyPoses(p: AnimalPoses): void;
 }
 
 declare module '../core/game' {
@@ -87,6 +134,12 @@ declare module '../core/events' {
     'animal:petted': { id: number; species: string; name: string; friendship: number };
     'animal:produce': { id: number; species: string; itemId: string; quality: number };
     'animal:bought': { id: number; species: string; name: string };
+    /** Co-op host: shared herd state changed (broadcast `animals.snapshot()`). */
+    'animals:changed': { rev: number };
+    /** Co-op client: forward this action to the host (`animals.applyIntent(peer, intent)`). */
+    'animals:intent': { intent: AnimalIntent };
+    /** Co-op host: items a remote farmer collected (route to that peer's `animals.receiveGrant`). */
+    'animals:grant': { peer: string; items: AnimalGrant[] };
     /** Overnight report (emitted from day:start, before the end-of-day screen opens). */
     'animals:summary': AnimalSummary;
   }
@@ -136,6 +189,11 @@ export class AnimalSystem implements System, AnimalsApi {
   private rng = new Rng('animals');
   /** Morning notes (hungry animals...), shown once the farmer is up again. */
   private morning: { text: string; icon?: string; kind: 'info' | 'good' | 'bad' }[] = [];
+  /** Co-op: host (and solo) simulate; clients mirror. */
+  authority = true;
+  private rev = 0;
+  private dirty = false;
+  private dirtyT = 0;
 
   private static fresh(): State {
     return {
@@ -176,7 +234,10 @@ export class AnimalSystem implements System, AnimalsApi {
     });
     game.events.on('time:hour', ({ hour }) => {
       // A fine day: everyone grazes.
-      if (hour === 12 && this.grazing()) for (const a of this.st.animals) a.fed = true;
+      if (hour === 12 && this.grazing() && this.authority) {
+        for (const a of this.st.animals) a.fed = true;
+        this.touch();
+      }
     });
     game.events.on('building:built', () => {
       if (this.mapId === 'farm') this.respawn();
@@ -212,10 +273,17 @@ export class AnimalSystem implements System, AnimalsApi {
     if (!this.game.services.buildings?.has(info.home)) return `Needs a ${info.home}.`;
     if (this.count(info.home) >= CAP) return `The ${info.home} is full.`;
     const eco = this.game.services.economy;
+    if (!this.authority) {
+      // Co-op client: the purse is shared and the host spends it; check here for a friendly message.
+      if (eco && eco.gold() < info.price) return `Needs ${info.price.toLocaleString()}g.`;
+      this.dispatch({ kind: 'buy', species, name });
+      return null;
+    }
     if (!eco || !eco.spend(info.price, `animal:${species}`)) return `Needs ${info.price.toLocaleString()}g.`;
     const rec = this.add(species, Math.floor(this.rng.next() * info.variants), name);
     this.game.events.emit('animal:bought', { id: rec.id, species, name: rec.name });
     if (this.mapId === info.home || this.mapId === 'farm') this.respawn();
+    this.touch();
     return null;
   }
 
@@ -244,6 +312,185 @@ export class AnimalSystem implements System, AnimalsApi {
     return rec;
   }
 
+  // ───────────────────────────────────────────── co-op
+
+  setAuthority(host: boolean): void {
+    this.authority = host;
+    if (host) for (const l of this.live) l.actor.release();
+  }
+
+  /** Shared state changed (host): announce it, throttled in update(). */
+  private touch(): void {
+    if (this.authority) this.dirty = true;
+  }
+
+  snapshot(): AnimalSnapshot {
+    return { rev: this.rev, state: JSON.parse(JSON.stringify(this.st)) as unknown };
+  }
+
+  applySnapshot(s: AnimalSnapshot): void {
+    if (this.authority || !s || typeof s.state !== 'object') return;
+    const prevIds = this.st.animals.map((a) => `${a.id}:${a.home}`).join(',');
+    const prevPet = `${this.st.pet.species}:${this.st.pet.variant}`;
+    this.merge(s.state);
+    this.rev = s.rev;
+    const ids = this.st.animals.map((a) => `${a.id}:${a.home}`).join(',');
+    if (ids !== prevIds || prevPet !== `${this.st.pet.species}:${this.st.pet.variant}`) {
+      if (this.mapId) this.respawn();
+      return;
+    }
+    // Same herd: re-link the live actors to the fresh records, refresh props (hay, eggs, truffles, bowl).
+    for (const l of this.live) {
+      if (!l.rec) continue;
+      const r = this.st.animals.find((a) => a.id === l.rec!.id);
+      if (!r) continue;
+      l.rec = r;
+      if (r.species === 'sheep') l.actor.wool = r.ready ? 1 : 0.35 + 0.65 * Math.min(1, r.days / LIVESTOCK.sheep.every);
+    }
+    this.refreshProps();
+  }
+
+  /** Farmer action: applied here on the host / solo, forwarded (with optimistic cosmetics) on a client. */
+  private dispatch(it: AnimalIntent): void {
+    if (this.authority) {
+      this.apply(null, it);
+      return;
+    }
+    this.game.events.emit('animals:intent', { intent: it });
+    // Optimistic: the props react at once; the host's next snapshot settles it.
+    const pen = this.pen();
+    if (it.kind === 'eggs') this.st.eggs = [];
+    else if (it.kind === 'truffle') this.st.truffles = this.st.truffles.filter((t) => Math.floor(t.x) !== it.x || Math.floor(t.z) !== it.z);
+    else if (it.kind === 'bowl') this.st.pet.bowl = true;
+    else if (it.kind === 'feed' && pen) {
+      let n = it.hay;
+      const hay = this.st.hay[it.home];
+      for (let i = 0; i < hay.length && n > 0; i++) if (!hay[i]) (hay[i] = true), n--;
+    }
+    this.refreshProps();
+  }
+
+  applyIntent(peer: string, intent: AnimalIntent): void {
+    if (!this.authority || !intent || typeof intent !== 'object') return;
+    this.apply(peer, intent);
+  }
+
+  receiveGrant(items: AnimalGrant[]): void {
+    for (const g of items ?? []) {
+      if (!g || typeof g.itemId !== 'string') continue;
+      this.game.events.emit('item:give', { itemId: g.itemId, qty: Math.max(1, g.qty | 0), quality: g.quality | 0 });
+      if (g.quality > 0) this.toast(`A <b>${QUALITY_NAME[g.quality]}</b>-star find!`, g.itemId, 'good');
+    }
+    if (items?.length) this.game.services.audio?.play('pickup');
+  }
+
+  /** The authoritative effect of an intent. `peer` null = this machine's farmer. */
+  private apply(peer: string | null, it: AnimalIntent): void {
+    const out: AnimalGrant[] = [];
+    const grant = (itemId: string, quality: number, id: number, species: string, qty = 1): void => {
+      this.game.events.emit('animal:produce', { id, species, itemId, quality });
+      if (peer == null) this.give(itemId, quality, qty);
+      else out.push({ itemId, qty, quality });
+    };
+    switch (it.kind) {
+      case 'pet': {
+        if (it.id === 0) {
+          const p = this.st.pet;
+          if (!p.petted) {
+            p.petted = true;
+            p.friendship = Math.min(1000, p.friendship + 12);
+          }
+          break;
+        }
+        const r = this.st.animals.find((a) => a.id === it.id);
+        if (!r) break;
+        if (r.ready) {
+          r.ready = false;
+          grant(produceFor(r.species, r.variant), this.quality(r), r.id, r.species);
+          const l = this.live.find((v) => v.rec === r);
+          if (l && r.species === 'sheep') l.actor.wool = 0.35;
+        }
+        if (!r.petted) {
+          r.petted = true;
+          r.friendship = Math.min(1000, r.friendship + 15);
+          r.mood = Math.min(255, r.mood + 20);
+        }
+        // A remote farmer's pet: the host sees the hop + heart too when it's on this map.
+        if (peer != null) {
+          const l = this.live.find((v) => v.rec === r);
+          if (l) {
+            l.actor.pet();
+            this.pops.heart(l.actor.topPoint(), l.actor);
+          }
+        }
+        this.game.events.emit('animal:petted', { id: r.id, species: r.species, name: r.name, friendship: r.friendship });
+        break;
+      }
+      case 'feed': {
+        const hay = this.st.hay[it.home];
+        if (!hay) break;
+        let n = Math.max(0, it.hay | 0);
+        for (let i = 0; i < hay.length && n > 0; i++) if (!hay[i]) (hay[i] = true), n--;
+        if (n > 0) {
+          // Someone else filled it first: hand the spare hay back.
+          if (peer == null) this.game.events.emit('item:give', { itemId: 'hay', qty: n });
+          else out.push({ itemId: 'hay', qty: n, quality: 0 });
+        }
+        this.refreshProps();
+        break;
+      }
+      case 'eggs': {
+        for (const e of this.st.eggs) grant(e.item, e.q, -1, 'chicken');
+        this.st.eggs = [];
+        this.refreshProps();
+        break;
+      }
+      case 'truffle': {
+        const ti = this.st.truffles.findIndex((tr) => Math.floor(tr.x) === it.x && Math.floor(tr.z) === it.z);
+        if (ti < 0) break;
+        const tr = this.st.truffles.splice(ti, 1)[0]!;
+        grant('truffle', tr.q, -1, 'pig');
+        this.refreshProps();
+        break;
+      }
+      case 'bowl': {
+        if (this.st.pet.bowl) break;
+        this.st.pet.bowl = true;
+        this.syncBowl();
+        break;
+      }
+      case 'buy': {
+        if (peer != null && LIVESTOCK[it.species]) this.buy(it.species, it.name);
+        break;
+      }
+    }
+    if (peer != null && out.length) this.game.events.emit('animals:grant', { peer, items: out });
+    this.touch();
+  }
+
+  poses(): AnimalPoses {
+    const list: number[] = [];
+    for (const l of this.live) {
+      if (l.leaving) continue;
+      const a = l.actor;
+      list.push(l.rec ? l.rec.id : 0, Math.round(a.pos.x * 100) / 100, Math.round(a.pos.z * 100) / 100, Math.round(a.heading * 100) / 100, a.stateCode);
+    }
+    return { map: this.mapId, list };
+  }
+
+  applyPoses(p: AnimalPoses): void {
+    if (this.authority || !p || p.map !== this.mapId || !Array.isArray(p.list)) return;
+    const seen = new Set<Live>();
+    for (let i = 0; i + 4 < p.list.length; i += 5) {
+      const id = p.list[i]!;
+      const l = this.live.find((v) => (v.rec ? v.rec.id : 0) === id);
+      if (!l || l.leaving) continue;
+      l.actor.follow(p.list[i + 1]!, p.list[i + 2]!, p.list[i + 3]!, p.list[i + 4]!);
+      seen.add(l);
+    }
+    for (const l of this.live) if (!seen.has(l)) l.actor.release();
+  }
+
   // ───────────────────────────────────────────── day cycle
 
   private grazing(): boolean {
@@ -262,6 +509,12 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   private newDay(day = this.game.calendar.day): void {
+    if (!this.authority) {
+      // Co-op client: the host rolls the herd over; its snapshot follows. Just re-seat for the morning.
+      if (this.mapId) this.respawn();
+      return;
+    }
+    this.touch();
     const eggs = this.st.eggs;
     const made = new Map<string, number>();
     const produce: AnimalSummary['produce'] = [];
@@ -590,7 +843,7 @@ export class AnimalSystem implements System, AnimalsApi {
 
   private fillBowl(): void {
     if (this.st.pet.bowl) return;
-    this.st.pet.bowl = true;
+    this.dispatch({ kind: 'bowl' });
     this.syncBowl();
     this.game.services.audio?.play('refill');
     this.toast(`You filled ${this.st.pet.name}'s water bowl`, undefined, 'info');
@@ -606,7 +859,10 @@ export class AnimalSystem implements System, AnimalsApi {
       this.feed(pen);
       return;
     }
-    if (pen?.kind === 'coop' && z <= 0 && x <= 2 && this.collectEggs()) return;
+    if (pen?.kind === 'coop' && z <= 0 && x <= 2 && this.st.eggs.length) {
+      this.dispatch({ kind: 'eggs' });
+      return;
+    }
     // Otherwise an animal in reach wins (animals spend their day standing at the trough).
     const hit = this.hitAnimal(x, z);
     if (hit) {
@@ -622,12 +878,7 @@ export class AnimalSystem implements System, AnimalsApi {
         this.fillBowl();
         return;
       }
-      const ti = this.st.truffles.findIndex((tr) => Math.floor(tr.x) === x && Math.floor(tr.z) === z);
-      if (ti >= 0) {
-        const tr = this.st.truffles.splice(ti, 1)[0]!;
-        this.give('truffle', tr.q, -1, 'pig');
-        this.refreshProps();
-      }
+      if (this.st.truffles.some((tr) => Math.floor(tr.x) === x && Math.floor(tr.z) === z)) this.dispatch({ kind: 'truffle', x, z });
     }
   }
 
@@ -669,32 +920,13 @@ export class AnimalSystem implements System, AnimalsApi {
     if (!quiet) this.voice(a.species, a.species === 'chicken' || a.species === 'duck' ? 1.1 : 1);
     if (quiet) return;
     this.game.services.audio?.play('heart');
-    if (!l.rec) {
-      const p = this.st.pet;
-      if (!p.petted) {
-        p.petted = true;
-        p.friendship = Math.min(1000, p.friendship + 12);
-      }
-      return;
-    }
-    const r = l.rec;
-    if (r.ready) {
-      r.ready = false;
-      const item = produceFor(r.species, r.variant);
-      this.give(item, this.quality(r), r.id, r.species);
-      if (r.species === 'sheep') a.wool = 0.35;
-    }
-    if (!r.petted) {
-      r.petted = true;
-      r.friendship = Math.min(1000, r.friendship + 15);
-      r.mood = Math.min(255, r.mood + 20);
-    }
-    this.game.events.emit('animal:petted', { id: r.id, species: r.species, name: r.name, friendship: r.friendship });
+    // Shearing shows at once (a client's host confirms the fleece with its next snapshot).
+    if (l.rec?.ready && l.rec.species === 'sheep') a.wool = 0.35;
+    this.dispatch({ kind: 'pet', id: l.rec ? l.rec.id : 0 });
   }
 
-  private give(itemId: string, q: number, id: number, species: string): void {
-    this.game.events.emit('item:give', { itemId, qty: 1, quality: q });
-    this.game.events.emit('animal:produce', { id, species, itemId, quality: q });
+  private give(itemId: string, q: number, qty = 1): void {
+    this.game.events.emit('item:give', { itemId, qty, quality: q });
     this.game.services.audio?.play('pickup');
     if (q > 0) this.toast(`A <b>${QUALITY_NAME[q]}</b>-star find!`, itemId, 'good');
   }
@@ -707,7 +939,6 @@ export class AnimalSystem implements System, AnimalsApi {
     for (let i = 0; i < Math.min(want, hay.length); i++) {
       if (hay[i]) continue;
       if (!inv || !inv.remove('hay', 1)) break;
-      hay[i] = true;
       placed++;
     }
     if (!placed) {
@@ -715,17 +946,9 @@ export class AnimalSystem implements System, AnimalsApi {
       else this.toast('You need <b>hay</b> — the carpenter’s board sells it', 'hay', 'bad');
       return true;
     }
+    this.dispatch({ kind: 'feed', home: pen.kind, hay: placed });
     this.game.services.audio?.play('place');
     this.toast(`Filled the trough with <b>${placed}</b> hay`, 'hay', 'info');
-    this.refreshProps();
-    return true;
-  }
-
-  private collectEggs(): boolean {
-    if (!this.st.eggs.length) return false;
-    for (const e of this.st.eggs) this.give(e.item, e.q, -1, 'chicken');
-    this.st.eggs = [];
-    this.refreshProps();
     return true;
   }
 
@@ -780,7 +1003,9 @@ export class AnimalSystem implements System, AnimalsApi {
 
   update(dt: number, game: Game): void {
     const t = game.time;
-    const actors = this.live.map((l) => l.actor);
+    const actors = this._actors;
+    actors.length = 0;
+    for (const l of this.live) actors.push(l.actor);
     for (const l of this.live) {
       l.actor.update(dt, t, actors);
       if (l.actor.isSleeping) {
@@ -794,7 +1019,8 @@ export class AnimalSystem implements System, AnimalsApi {
       if (l.rec && l.actor.isEating && l.actor.hungry && l.slot >= 0) {
         const pen = this.pen();
         if (pen && this.st.hay[pen.kind][l.slot]) {
-          l.rec.fed = true;
+          if (this.authority && !l.rec.fed) this.touch();
+          if (this.authority) l.rec.fed = true;
           const m = this.hayMeshes[l.slot];
           if (m) m.scale.setScalar(0.55);
         }
@@ -812,10 +1038,19 @@ export class AnimalSystem implements System, AnimalsApi {
     }
     this.pops.update(dt, game.rc.camera);
     this.fadeHat(dt, game);
+    // Co-op: announce shared-state changes at most ~5x a second.
+    this.dirtyT -= dt;
+    if (this.dirty && this.dirtyT <= 0) {
+      this.dirty = false;
+      this.dirtyT = 0.2;
+      this.game.events.emit('animals:changed', { rev: ++this.rev });
+    }
   }
 
   // ───────────────────────────────────────────── hat fade
 
+  private _actors: AnimalActor[] = [];
+  private _ht = new THREE.Vector3();
   private hatMats: THREE.Material[] | null = null;
   private hatK = 1;
   private _hp = new THREE.Vector3();
@@ -865,7 +1100,7 @@ export class AnimalSystem implements System, AnimalsApi {
         for (const l of this.live) {
           const a = l.actor;
           if (Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z) > 2.2) continue;
-          if (behind(a.topPoint(this._hq.clone())) || behind(a.pos.clone().setY(a.pos.y + a.gait.top * a.scale * 0.5))) {
+          if (behind(a.topPoint(this._ht)) || behind(this._ht.copy(a.pos).setY(a.pos.y + a.gait.top * a.scale * 0.5))) {
             want = 0.35;
             break;
           }
@@ -910,6 +1145,7 @@ export class AnimalSystem implements System, AnimalsApi {
     // Interior showcases keep the pop doors shut so the flock is home.
     if (this.pen()) st.doors = { coop: false, barn: false };
     this.respawn();
+    this.touch();
     // Stage: a few animals already at the trough, one right by the player for the petting hearts.
     const pen = this.pen();
     const night = this.isNight();
@@ -1017,10 +1253,16 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   load(data: unknown): void {
+    this.merge(data);
+    if (this.mapId) this.respawn();
+    this.touch();
+  }
+
+  /** Replace the state from saved / host JSON, filling anything missing from a fresh farm. */
+  private merge(data: unknown): void {
     const d = data as Partial<State> | null;
     const f = AnimalSystem.fresh();
-    this.st = { ...f, ...(d ?? {}), hay: { ...f.hay, ...(d?.hay ?? {}) }, pet: { ...f.pet, ...(d?.pet ?? {}) } };
-    if (this.mapId) this.respawn();
+    this.st = { ...f, ...(d ?? {}), hay: { ...f.hay, ...(d?.hay ?? {}) }, pet: { ...f.pet, ...(d?.pet ?? {}) }, doors: { ...f.doors, ...(d?.doors ?? {}) } };
   }
 }
 

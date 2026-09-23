@@ -244,7 +244,7 @@ function bodyMasses(r: RigBuilder, d: QuadDims, tint: THREE.ColorRepresentation,
 function cow(variant: number): AnimalModel {
   const r = new RigBuilder();
   const jersey = variant === 1;
-  const base = jersey ? 0xcb8d58 : 0xe6e0d4;
+  const base = jersey ? 0xcb8d58 : 0xdfd9cc;
   const spots: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [3.4, 3.0, 3.2], seed: 4.3, edge: 0.24, sinAmp: 0.25 };
   // Jersey: fawn, shading darker over the hindquarters and down the legs (a smooth gradient, no patches).
   const shade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.16 * THREE.MathUtils.smoothstep(-p.z, 0.0, 0.6)) : undefined;
@@ -360,16 +360,17 @@ function sheep(variant: number): AnimalModel {
   const r = new RigBuilder();
   // 0: cream fleece, soft taupe face · 1: black-faced (Suffolk-ish). Both: dark legs + face under white wool.
   const blackFace = variant === 1;
-  const wool = blackFace ? 0xf2ece0 : 0xf4efe4;
+  const wool = blackFace ? 0xebe4d6 : 0xede6d8;
   const face = blackFace ? 0x2e2826 : 0x6e5a50;
-  const d: QuadDims = { bodyY: 0.6, bodyR: 0.23, bodyLen: 0.28, hipX: 0.12, frontZ: 0.16, backZ: -0.18, legR: 0.04, hoof: 0.06 };
+  // Short, sturdy legs (chibi): long thin ones read as sticks under the fleece from the high camera.
+  const d: QuadDims = { bodyY: 0.53, bodyR: 0.23, bodyLen: 0.28, hipX: 0.12, frontZ: 0.16, backZ: -0.18, legR: 0.056, hoof: 0.068 };
   r.bone('body', 'root', [0, d.bodyY, 0]);
   r.bone('wool', 'body', [0, d.bodyY + 0.04, -0.02]);
-  r.bone('head', 'body', [0, 0.76, 0.3]);
-  r.bone('eyes', 'head', [0, 0.87, 0.575]);
-  r.bone('earL', 'head', [-0.12, 0.88, 0.45]);
-  r.bone('earR', 'head', [0.12, 0.88, 0.45]);
-  r.bone('tail', 'body', [0, 0.66, -0.42]);
+  r.bone('head', 'body', [0, 0.69, 0.3]);
+  r.bone('eyes', 'head', [0, 0.8, 0.575]);
+  r.bone('earL', 'head', [-0.12, 0.81, 0.45]);
+  r.bone('earR', 'head', [0.12, 0.81, 0.45]);
+  r.bone('tail', 'body', [0, 0.59, -0.42]);
   // Shorn body underneath
   r.part('body', capsuleZ(d.bodyR, d.bodyLen, 8, 16), mat(0, d.bodyY, -0.02), 0xe8dcc8);
   // Fleece: an overlapping cloud of puffs over the back and flanks — kept above the knees so the legs read
@@ -392,25 +393,25 @@ function sheep(variant: number): AnimalModel {
   puff(0, d.bodyY + 0.07, 0.24, 0.17);
   for (const s of [-1, 1]) puff(s * 0.2, d.bodyY - 0.05, 0.0, 0.15);
   legs(r, d, face, 0x221c1a);
-  r.part('tail', new THREE.IcosahedronGeometry(0.07, 1), mat(0, 0.66, -0.43), wool);
+  r.part('tail', new THREE.IcosahedronGeometry(0.07, 1), mat(0, 0.59, -0.43), wool);
   // Head poking forward out of the fleece: long face, dark nose, ears sticking straight out sideways
-  r.part('head', ellipsoid(0.125, 0.14, 0.16), mat(0, 0.86, 0.48), face);
-  r.part('head', ellipsoid(0.09, 0.085, 0.1), mat(0, 0.79, 0.59, 0.25, 0, 0), blackFace ? 0x3a3230 : 0x7e6a60);
-  r.part('head', ellipsoid(0.034, 0.014, 0.01, 6, 5), mat(0, 0.8, 0.685), 0x1a1414, { flat: true });
-  r.part('head', ellipsoid(0.028, 0.005, 0.01, 6, 4), mat(0, 0.765, 0.675), 0x1a1414, { flat: true });
+  r.part('head', ellipsoid(0.125, 0.14, 0.16), mat(0, 0.79, 0.48), face);
+  r.part('head', ellipsoid(0.09, 0.085, 0.1), mat(0, 0.72, 0.59, 0.25, 0, 0), blackFace ? 0x3a3230 : 0x7e6a60);
+  r.part('head', ellipsoid(0.034, 0.014, 0.01, 6, 5), mat(0, 0.73, 0.685), 0x1a1414, { flat: true });
+  r.part('head', ellipsoid(0.028, 0.005, 0.01, 6, 4), mat(0, 0.695, 0.675), 0x1a1414, { flat: true });
   // Wool topknot
-  for (const [x, y, z, s] of [[0, 1.0, 0.43, 0.095], [-0.075, 0.97, 0.46, 0.07], [0.075, 0.97, 0.46, 0.07], [0, 0.97, 0.36, 0.1]] as const) {
+  for (const [x, y, z, s] of [[0, 0.93, 0.43, 0.095], [-0.075, 0.9, 0.46, 0.07], [0.075, 0.9, 0.46, 0.07], [0, 0.9, 0.36, 0.1]] as const) {
     r.part('head', new THREE.IcosahedronGeometry(s, 1), mat(x, y, z), wool);
   }
   for (const s of [-1, 1]) {
     const ear = s < 0 ? 'earL' : 'earR';
-    r.part(ear, ellipsoid(0.11, 0.032, 0.05), mat(s * 0.2, 0.88, 0.45, 0, 0.3 * s, s * -0.12), face);
-    r.part(ear, ellipsoid(0.075, 0.015, 0.03), mat(s * 0.205, 0.885, 0.47, 0, 0.3 * s, s * -0.12), 0xe8a098, { flat: true });
+    r.part(ear, ellipsoid(0.11, 0.032, 0.05), mat(s * 0.2, 0.81, 0.45, 0, 0.3 * s, s * -0.12), face);
+    r.part(ear, ellipsoid(0.075, 0.015, 0.03), mat(s * 0.205, 0.815, 0.47, 0, 0.3 * s, s * -0.12), 0xe8a098, { flat: true });
   }
-  eyes(r, 0.085, 0.875, 0.585, 0.036, 0.48, { rim: 0xf6f0e6 });
-  cheeks(r, 0.11, 0.8, 0.56, 0.026, 0xe88a86);
+  eyes(r, 0.085, 0.805, 0.585, 0.036, 0.48, { rim: 0xf6f0e6 });
+  cheeks(r, 0.11, 0.73, 0.56, 0.026, 0xe88a86);
   const { mesh, bones } = r.build(animalMaterial(), 'sheep');
-  return { mesh, bones, species: 'sheep', gait: { biped: false, speed: 0.5, freq: 2.0, legAmp: 0.4, bob: 0.02, eatPitch: 0.95, radius: 0.3, len: 0.18, reach: 0.64, top: 1.2, sleepDrop: 0.28, fold: 0.3 } };
+  return { mesh, bones, species: 'sheep', gait: { biped: false, speed: 0.5, freq: 2.0, legAmp: 0.4, bob: 0.02, eatPitch: 0.95, radius: 0.3, len: 0.18, reach: 0.64, top: 1.13, sleepDrop: 0.24, fold: 0.3 } };
 }
 
 function pig(variant: number): AnimalModel {

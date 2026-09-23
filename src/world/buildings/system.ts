@@ -8,6 +8,11 @@
  *   - construction: the carpenter panel orders a coop / barn → a staked construction site appears,
  *     the building is finished the next morning (`building:built`); service `buildings`;
  *   - demos: coop-interior / barn-interior / animals-pasture stage the buildings instantly.
+ *   - co-op (host-authoritative, DESIGN §13): a client `setAuthority(false)`; its carpenter orders take
+ *     the wood / stone from its own backpack and go out as `buildings:intent` → host
+ *     `applyIntent(peer, intent)` (spends the shared purse; refunds a lost race via `buildings:grant`
+ *     → client `receiveGrant`). Host emits `buildings:changed` → broadcast `snapshot()` →
+ *     client `applySnapshot()`.
  */
 import type { System } from '../../core/system';
 import type { Game } from '../../core/game';
@@ -33,6 +38,18 @@ export interface BuildingsApi {
   doorFront(kind: BuildingKind): { x: number; z: number };
   /** Show / hide the water in the pet bowl. */
   setBowl(full: boolean): void;
+  // ── co-op (see header)
+  setAuthority(host: boolean): void;
+  snapshot(): BuildingsSnapshot;
+  applySnapshot(s: BuildingsSnapshot): void;
+  applyIntent(peer: string, intent: BuildingIntent): void;
+  receiveGrant(items: { itemId: string; qty: number }[]): void;
+}
+
+export type BuildingIntent = { kind: 'order'; building: BuildingKind };
+export interface BuildingsSnapshot {
+  built: BuildingKind[];
+  orders: BuildingKind[];
 }
 
 declare module '../../core/game' {
@@ -47,6 +64,12 @@ declare module '../../core/events' {
     'building:built': { kind: string };
     /** Player entered / left a building interior. */
     'building:enter': { kind: string };
+    /** Co-op host: farm buildings changed (broadcast `buildings.snapshot()`). */
+    'buildings:changed': Record<string, never>;
+    /** Co-op client: forward to the host (`buildings.applyIntent(peer, intent)`). */
+    'buildings:intent': { intent: BuildingIntent };
+    /** Co-op host: hand these back to a remote farmer (`buildings.receiveGrant`). */
+    'buildings:grant': { peer: string; items: { itemId: string; qty: number }[] };
   }
 }
 
@@ -67,6 +90,8 @@ export class BuildingSystem implements System, BuildingsApi {
   private busy = false;
   private pushT = 0;
   private bowlFull = false;
+  /** Co-op: host (and solo) own the farm's buildings; clients mirror. */
+  private authority = true;
 
   init(game: Game): void {
     this.game = game;
@@ -84,6 +109,7 @@ export class BuildingSystem implements System, BuildingsApi {
         this.built.add(k);
         this.refreshFarm();
         game.events.emit('building:built', { kind: k });
+        this.changed();
       }
     });
     game.events.on('demo:stage', ({ showcase }) => this.stageDemo(showcase));
@@ -107,13 +133,65 @@ export class BuildingSystem implements System, BuildingsApi {
     if (!eco || eco.gold() < c.gold) return `Needs ${c.gold.toLocaleString()}g.`;
     if (!inv || inv.count('wood') < c.wood) return `Needs ${c.wood} wood.`;
     if (inv.count('stone') < c.stone) return `Needs ${c.stone} stone.`;
-    eco.spend(c.gold, `build:${kind}`);
     inv.remove('wood', c.wood);
     inv.remove('stone', c.stone);
+    if (!this.authority) {
+      // Co-op client: materials come from this farmer's backpack; the host spends the shared purse.
+      this.game.events.emit('buildings:intent', { intent: { kind: 'order', building: kind } });
+      return null;
+    }
+    eco.spend(c.gold, `build:${kind}`);
+    this.placeOrder(kind);
+    return null;
+  }
+
+  private placeOrder(kind: BuildingKind): void {
     this.orders.add(kind);
     this.refreshFarm();
     this.game.events.emit('building:ordered', { kind });
-    return null;
+    this.changed();
+  }
+
+  // ───────────────────────────────────────────── co-op
+
+  private changed(): void {
+    if (this.authority) this.game.events.emit('buildings:changed', {});
+  }
+
+  setAuthority(host: boolean): void {
+    this.authority = host;
+  }
+
+  snapshot(): BuildingsSnapshot {
+    return { built: [...this.built], orders: [...this.orders] };
+  }
+
+  applySnapshot(s: BuildingsSnapshot): void {
+    if (this.authority || !s) return;
+    const known = (k: unknown): k is BuildingKind => k === 'coop' || k === 'barn';
+    const before = [...this.built].sort().join();
+    this.built = new Set((s.built ?? []).filter(known));
+    this.orders = new Set((s.orders ?? []).filter(known));
+    this.refreshFarm();
+    for (const k of this.built) if (!before.includes(k)) this.game.events.emit('building:built', { kind: k });
+  }
+
+  applyIntent(peer: string, intent: BuildingIntent): void {
+    if (!this.authority || intent?.kind !== 'order') return;
+    const kind = intent.building;
+    const c = COSTS[kind];
+    if (!c) return;
+    const eco = this.game.services.economy;
+    if (this.built.has(kind) || this.orders.has(kind) || !eco || !eco.spend(c.gold, `build:${kind}`)) {
+      // Lost the race (or the purse ran dry): the materials go back to that farmer.
+      this.game.events.emit('buildings:grant', { peer, items: [{ itemId: 'wood', qty: c.wood }, { itemId: 'stone', qty: c.stone }].filter((i) => i.qty > 0) });
+      return;
+    }
+    this.placeOrder(kind);
+  }
+
+  receiveGrant(items: { itemId: string; qty: number }[]): void {
+    for (const i of items ?? []) if (i && typeof i.itemId === 'string' && i.qty > 0) this.game.events.emit('item:give', { itemId: i.itemId, qty: i.qty | 0 });
   }
 
   complete(kind: BuildingKind): void {
@@ -122,6 +200,7 @@ export class BuildingSystem implements System, BuildingsApi {
     this.built.add(kind);
     this.refreshFarm();
     this.game.events.emit('building:built', { kind });
+    this.changed();
   }
 
   pasture(): { x0: number; z0: number; x1: number; z1: number } {

@@ -30,6 +30,19 @@ const SF = 3.1;
 const PLANK = 0xc08a62;
 const POST = 0x6a4430;
 
+/** A little standing hurricane lantern: tin base, glowing glass chimney in a wire cage, cap + bail handle. */
+function hurricaneLantern(k: Kit, x: number, y: number, z: number): void {
+  k.cyl('iron', 0.075, 0.085, 0.06, [x, y, z], { tint: 0x3a3634 });
+  k.add('glow', new THREE.CylinderGeometry(0.05, 0.062, 0.16, 12), mat(x, y + 0.14, z), { tint: 0xffd49a });
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.3;
+    k.cyl('iron', 0.006, 0.006, 0.19, [x + Math.cos(a) * 0.07, y + 0.05, z + Math.sin(a) * 0.07], { tint: 0x2a2624 });
+  }
+  k.cyl('iron', 0.08, 0.06, 0.035, [x, y + 0.235, z], { tint: 0x3a3634 });
+  k.add('iron', new THREE.ConeGeometry(0.05, 0.05, 10), mat(x, y + 0.275, z), { tint: 0x3a3634 });
+  k.add('iron', new THREE.TorusGeometry(0.075, 0.006, 4, 14, Math.PI), mat(x, y + 0.27, z, 0, 0.4, 0), { tint: 0x2a2624 });
+}
+
 /** Flip a geometry's faces (and normals) so it reads from the inside (the tank's inner wall). */
 function insideOut(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const idx = g.getIndex();
@@ -125,17 +138,32 @@ export class BarnInterior extends InteriorMap {
 
     // Lanterns: two over the aisle, one between each pair of stalls over the bedding.
     const lk = new Kit();
-    for (const x of [3.25, 9.75]) {
-      lanternHook(lk, x, 3.1, 3.9);
-      this.addLamp(new THREE.Vector3(x, 2.7, 3.9), 0xffc27a, 0.6, 3.4, 0.03, 8);
-      this.glowPool(x, 3.9, 2.6, 0xffb060, () => 0.05 + this.light.night * 0.14);
+    // The aisle pair hang from iron brackets on the side walls (a lantern hung over the aisle sits
+    // right in front of the stalls from the high camera).
+    for (const s of [-1, 1]) {
+      const wx = s < 0 ? 0.05 : W - 0.05;
+      const x = s < 0 ? 0.42 : W - 0.42;
+      const z = 3.72;
+      lk.box('iron', [0.4, 0.04, 0.04], [(wx + x) / 2, 2.88, z], { tint: 0x2a2624 });
+      lk.box('iron', [0.03, 0.26, 0.03], [wx, 2.66, z], { tint: 0x2a2624 });
+      lanternHook(lk, x, 2.9, z);
+      this.addLamp(new THREE.Vector3(x + s * -0.25, 2.5, z), 0xffc27a, 0.6, 3.6, 0.03, 8.5);
+      this.glowPool(x - s * 1.2, z, 2.6, 0xffb060, () => 0.03 + this.light.night * 0.1, 0.05);
     }
     for (const i of [1, 3, 5]) {
       const x = i * SW;
-      // Iron bracket on the divider post, lantern hung out over the bedding.
-      lk.box('iron', [0.04, 0.04, 0.5], [x, 2.28, 0.45], { tint: 0x2a2624 });
-      lanternHook(lk, x, 2.3, 0.68);
-      this.addLamp(new THREE.Vector3(x, 1.95, 0.9), 0xffb870, 0.0, 4.2, 0.04, 5);
+      // Iron bracket high on the back wall over the divider: hung above the animals' heads so it
+      // never sits in front of a face from the camera, still pooling light over the bedding.
+      lk.box('iron', [0.04, 0.04, 0.36], [x, 2.78, 0.18], { tint: 0x2a2624 });
+      lk.box('iron', [0.03, 0.22, 0.03], [x, 2.58, 0.03], { tint: 0x2a2624 });
+      lanternHook(lk, x, 2.8, 0.34);
+      this.addLamp(new THREE.Vector3(x, 2.45, 0.6), 0xffb870, 0.0, 4.6, 0.04, 5.5);
+    }
+    // Two hurricane lanterns set down on the floor furniture: warm pools for the lower half of the
+    // barn at night (emissive + a floor glow, no extra real lights — keeps the light count flat).
+    for (const [x, y, z] of [[3.25, 0.76, 5.18], [9.02, 0.18, 7.52]] as const) {
+      hurricaneLantern(lk, x, y, z);
+      this.glowPool(x, z + 0.1, 1.7, 0xffa850, () => this.light.night * 0.09, 0.05);
     }
     this.statics.push(lk.build('barn-lanterns', false));
   }
