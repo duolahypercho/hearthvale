@@ -193,7 +193,8 @@ forge, The Copper Kettle inn, the Birch house + lumber yard, the lamplighter's c
 south (Willowmere Clinic, the schoolhouse with its bell cupola, the Pennywhistle cottage's kitchen garden, an
 orchard). Street life: everyday festoon lights (`world/town/festoons.ts`: strings over the plaza, a zig-zag over the
 market row, the inn terrace; on from dusk, coloured holiday bulbs in winter), songbirds, the town cat asleep on the
-west plaza bench; winter adds snow drifts banked against every building and snowmen (`world/town/winter.ts`).
+west plaza bench; winter adds shovelled cobble lanes with snow banks along their edges, drifts against every building
+and snowmen (`world/town/winter.ts`).
 Layout data lives in `world/town/layout.ts` (buildings, streets, props, trees, festoons, snowmen, named `SPOTS`).
 Static props are merged per 12 m cell and fed to one `BatchPool`: one multi-draw per material, per-cell culling.
 
