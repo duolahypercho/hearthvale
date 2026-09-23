@@ -1611,3 +1611,149 @@
   color: #3e2410;
   opacity: 1;
 }
+
+/* Bundle altar: where-to-find hints, "Offer all", the Hall's six lanterns under the room lantern */
+.jb-slot .src {
+  margin-top: -2px;
+  width: 132px;
+  justify-self: center;
+  font-family: var(--hand);
+  font-size: 16px;
+  line-height: 1.1;
+  color: #9a6a3a;
+  text-align: center;
+}
+.jb-packhead .jb-all {
+  margin-left: auto;
+  padding: 4px 14px;
+  font-size: 14px;
+  align-self: center;
+}
+.jb-left .jb-hall {
+  margin-top: auto;
+  width: 100%;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(246, 220, 180, 0.22);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+.jb-left {
+  align-content: stretch;
+  grid-template-rows: auto auto auto auto auto 1fr;
+}
+.jb-left .jb-hall small {
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(246, 230, 200, 0.6);
+}
+.jb-left .jb-hall .row {
+  display: flex;
+  gap: 8px;
+}
+.jb-left .jb-hall .row {
+  gap: 6px;
+}
+.jb-left .jb-hall i {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 50px;
+  border-radius: 10px;
+  background: radial-gradient(70% 60% at 50% 45%, rgba(255, 236, 200, 0.14), rgba(255, 236, 200, 0.04));
+}
+.jb-left .jb-hall i .jl-mini {
+  width: 28px;
+  height: 40px;
+}
+.jb-left .jb-hall i.me {
+  background: rgba(255, 230, 190, 0.12);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--room) 70%, white);
+}
+
+/* Journal: "what next" tip under the goal; today's board notes pinned into the book */
+.jn-tip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 6px 12px 6px 6px;
+  font-family: var(--hand);
+  font-size: 22px;
+  line-height: 1.15;
+  color: #7a4a22;
+}
+.jn-tip i {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 40px;
+}
+.jn-pins {
+  display: flex;
+  gap: 14px;
+  padding: 6px 4px 2px;
+}
+.jn-pin {
+  position: relative;
+  flex: 1;
+  max-width: 220px;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  grid-template-rows: auto auto auto;
+  column-gap: 8px;
+  align-items: center;
+  padding: 14px 12px 10px;
+  background: linear-gradient(180deg, var(--paper), color-mix(in srgb, var(--paper) 88%, #c8a070));
+  box-shadow: 0 2px 0 rgba(120, 80, 40, 0.18), 0 6px 12px rgba(60, 30, 10, 0.16), inset 0 0 0 1px rgba(150, 100, 50, 0.18);
+  transform: rotate(var(--tilt));
+  border-radius: 3px 3px 10px 3px;
+}
+.jn-pin .jb-pin {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translateX(-50%);
+}
+.jn-pin i {
+  grid-row: 1 / span 3;
+  display: grid;
+  place-items: center;
+}
+.jn-pin i .u-ic,
+.jn-pin i svg {
+  width: 42px;
+  height: 42px;
+}
+.jn-pin b {
+  font-family: var(--font-head);
+  font-size: 18px;
+  color: #4a2410;
+}
+.jn-pin span {
+  font-weight: 800;
+  font-size: 14px;
+  color: #6a4a2a;
+}
+.jn-pin small {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 15px;
+  color: #8a5a10;
+}
+.jn-pin small svg {
+  width: 16px;
+  height: 16px;
+}
+.jn-empty.small {
+  font-size: 19px;
+  padding-top: 6px;
+}

@@ -8,6 +8,9 @@
  *   node scripts/audio-render.mjs --no-themes         # ambience presets + SFX reel only
  *   node scripts/audio-render.mjs --analyze shots/audio/theme-spring.wav   # analyse any WAV
  *   node scripts/audio-render.mjs --describe spring   # print the composed melody (symbolic)
+ *   node scripts/audio-render.mjs --compose           # composition critic only (symbolic, fast): melody shape,
+ *                                                     # rubs vs the sounding harmony, parallels, cadences, texture
+ *                                                     # (also printed before every theme render; --verbose lists rubs)
  *   node scripts/audio-render.mjs --stems --only spring,town   # per-track (solo) loudness / spectrum → mix balance
  *   node scripts/audio-render.mjs --live              # boot the real game: theme per scene + audible output + SFX,
  *                                                     # 20 beach⇄mine handoffs, node creation rate
@@ -34,7 +37,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = resolve(root, 'shots/audio');
 
 function parseArgs(argv) {
-  const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, plots: true, stems: false, themes: true, trans: true };
+  const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, compose: false, verbose: false, plots: true, stems: false, themes: true, trans: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -50,6 +53,8 @@ function parseArgs(argv) {
     else if (a === '--stems') o.stems = true;
     else if (a === '--analyze') o.analyze = next();
     else if (a === '--describe') o.describe = next();
+    else if (a === '--compose') o.compose = true;
+    else if (a === '--verbose') o.verbose = true;
   }
   return o;
 }
@@ -349,6 +354,44 @@ function row(name, a, kind) {
 }
 const HEADER = `${'name'.padEnd(26)}  peak    dBTP   LUFS  STmax   LRA crest sil%  centHz  sub/bas/lm/pr/air  corr flags`;
 
+// ─────────────────────────────────────────────────────────── composition critic
+
+/**
+ * Prints the symbolic critique (src/audio/critique.ts). Hard fails: a minor 9th over the bass, a
+ * final A that does not land on the tonic, or unresolved rubs above 2.5 per minute.
+ */
+function printCritique(crits, verbose) {
+  console.log(`\nCOMPOSITION (symbolic, seed ${args.seed})`);
+  console.log(`${'theme'.padEnd(18)} ${'len'.padStart(5)} bars  range  step% leap% rep% unrec  strongCT%  chords  rubs(clash/b9/appog)  par/min  poly  cadences                 flags`);
+  const fails = [];
+  for (const c of crits) {
+    const m = c.melody, h = c.harmony;
+    console.log([
+      c.theme.padEnd(18),
+      `${c.seconds.toFixed(0)}s`.padStart(5),
+      String(c.bars).padStart(4),
+      `${m.lo}-${m.hi}`.padStart(8),
+      String(m.stepPct).padStart(5),
+      String(m.leapPct).padStart(5),
+      String(m.repeatPct).padStart(4),
+      `${m.unrecoveredLeaps}/${m.leaps}`.padStart(6),
+      String(m.strongChordTonePct).padStart(9),
+      `${h.distinct}/${h.chords}`.padStart(7),
+      `${h.clashes}/${h.b9}/${h.appoggiaturas}`.padStart(20),
+      String(c.parallels.perMin).padStart(8),
+      `${c.texture.peakPoly}/${c.texture.meanPoly}`.padStart(8),
+      c.cadences.join(' ').padEnd(24).slice(0, 24),
+      c.flags.join(' ') || 'ok',
+    ].join(' '));
+    if (verbose || c.flags.length) for (const r of h.worst) console.log(`    ${r.kind.padEnd(12)} ${r.t.toFixed(1)}s bar ${r.bar} (${r.section}) ${r.melody} vs ${r.against}`);
+    if (verbose) for (const x of c.parallels.examples) console.log(`    parallel     ${x}`);
+    if (verbose || c.flags.includes('LEAPY')) for (const x of c.melody.leapExamples ?? []) console.log(`    leap         ${x}`);
+    if (c.flags.some((f) => /B9-BASS|NO-TONIC|CLASHY/.test(f))) fails.push(`${c.theme}[${c.flags.join(',')}]`);
+  }
+  console.log('');
+  return fails;
+}
+
 // ─────────────────────────────────────────────────────────── main
 
 if (args.analyze) {
@@ -403,6 +446,19 @@ async function main() {
     return;
   }
   const themes = (await page.evaluate(() => window.__audioOffline.listThemes())).filter((t) => !args.only || args.only.includes(t));
+  let compFails = [];
+  if (args.themes || args.compose) {
+    const crits = await page.evaluate(([ids, seed]) => ids.map((id) => window.__audioOffline.critiquePiece(id, seed)), [themes, args.seed]);
+    compFails = printCritique(crits, args.verbose);
+    writeFileSync(resolve(outDir, 'composition.json'), JSON.stringify(crits, null, 2));
+    if (args.compose) {
+      await browser.close();
+      await server.close();
+      if (compFails.length || errors.length) process.exitCode = 1;
+      if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
+      return;
+    }
+  }
   const ambs = args.amb && !args.only ? await page.evaluate(() => window.__audioOffline.listAmbience()) : [];
   const report = { generated: new Date().toISOString(), seconds: args.seconds, seed: args.seed, renders: [], sfx: [] };
   const jobs = [];
@@ -501,9 +557,10 @@ async function main() {
   console.log(`\nwrote ${report.renders.length} WAVs + report.json to shots/audio/`);
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   if (bad.length) console.log(`HARD FAILS: ${bad.map((b) => `${b.name}[${b.flags.join(',')}]`).join(' ')}`);
+  if (compFails.length) console.log(`COMPOSITION FAILS: ${compFails.join(' ')}`);
   await browser.close();
   await server.close();
-  if (errors.length || bad.length) process.exitCode = 1;
+  if (errors.length || bad.length || compFails.length) process.exitCode = 1;
 }
 
 // ─────────────────────────────────────────────────────────── live (in-game) probe

@@ -13,7 +13,7 @@ import type { Game } from '../core/game';
 import { Screen, el, closeButton, sfx, replay, escapeHtml } from './kit';
 import { ROOMS, roomDef } from '../data/bundles';
 import { LETTERS } from '../data/story';
-import { lanternSvg, sackSvg, iconOf, itemName, valleySvg, SEAL_MINI, ENVELOPE, CHECK, COIN } from './journal-art';
+import { lanternSvg, sackSvg, iconOf, itemName, valleySvg, SEAL_MINI, ENVELOPE, CHECK, COIN, PIN } from './journal-art';
 import { loadStoryFonts } from './journal-cutscene';
 
 type Tab = 'quests' | 'hall' | 'letters';
@@ -123,7 +123,9 @@ export class JournalPanel extends Screen {
       : (() => {
           const pinned = (this.game.services.quests?.postings() ?? []).filter((p) => p.state === 'posted');
           return pinned.length
-            ? `<div class="jn-empty">On the board today: ${pinned.map((p) => `<b>${escapeHtml(p.giver)}</b> wants ${p.qty} ${escapeHtml(itemName(p.itemId))}`).join(' · ')}. Accept at the notice board in the square.</div>`
+            ? `<div class="jn-pins">${pinned
+                .map((p, i) => `<div class="jn-pin" style="--paper:${css(p.paper)};--tilt:${i % 2 ? 2.2 : -1.8}deg">${PIN(i % 2 ? '#3f76a8' : '#d8473a')}<i>${iconOf(p.itemId)}</i><b>${escapeHtml(p.giver)}</b><span>${p.qty} × ${escapeHtml(itemName(p.itemId))}</span><small>${COIN}${p.gold.toLocaleString()}g</small></div>`)
+                .join('')}</div><div class="jn-empty small">Pinned on the notice board in the square. Accept a request there.</div>`
             : `<div class="jn-empty">No requests taken. Check the notice board in the square.</div>`;
         })();
     this.leftPage.innerHTML = `<h2 class="jn-h">The story so far</h2><div class="jn-list">${storyRows}</div>
@@ -147,6 +149,7 @@ export class JournalPanel extends Screen {
           <div class="jn-giver">— ${escapeHtml(q.giver)}</div>
           <p class="jn-text">${escapeHtml(q.text)}</p>
           <div class="jn-goal ${q.state}"><i>${q.state === 'done' ? CHECK : ''}</i><span>${escapeHtml(q.goal)}</span>${q.progress ? `<b>${q.progress[0]} / ${q.progress[1]}</b>` : ''}</div>
+          ${q.hint && q.state === 'active' ? `<div class="jn-tip"><i>${lanternSvg(0xffb84a, 0.8, 'jl-mini')}</i><span>${escapeHtml(q.hint)}</span></div>` : ''}
           ${q.id === 'all-lanterns' || q.id === 'first-lantern' ? `<div class="jn-strip">${strip}</div>` : ''}
           ${q.id === 'glimmer' && this.game.services.story?.flag('glimmer') ? `<div class="jn-note">You ${this.game.services.story?.flag('glimmer') === 'accepted' ? 'signed the charter. The Hall burns white.' : 'turned Glimmerco down.'}</div>` : ''}
           <figure class="jn-plate">${this.valley()}<figcaption>Hearthvale, from Gran's hill · ${this.game.services.quests?.lanternsLit() ?? 0} of 6 lanterns</figcaption></figure>`;

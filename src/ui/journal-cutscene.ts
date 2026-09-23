@@ -173,18 +173,25 @@ class CoachWindow {
       }
       const x = d.x * w;
       const y = d.y * h;
-      // Each bead refracts a bit of warm light (bright lower rim) and has a dark top edge.
-      g.fillStyle = 'rgba(10,8,20,0.35)';
+      // Each bead is a tiny lens: it gathers the glow behind it (a pale, cool body brighter at the
+      // bottom where it focuses the town lights), a hairline shadow under its lower rim, and a
+      // pin-point highlight from the coach lamp. Kept pale so beads never read as specks of dirt.
+      const body = g.createRadialGradient(x, y + d.r * 0.35, 0, x, y, d.r * 1.15);
+      body.addColorStop(0, 'rgba(255,226,190,0.42)');
+      body.addColorStop(0.55, 'rgba(190,200,240,0.16)');
+      body.addColorStop(1, 'rgba(190,200,240,0.05)');
+      g.fillStyle = body;
       g.beginPath();
-      g.ellipse(x, y - d.r * 0.15, d.r, d.r * 1.1, 0, 0, Math.PI * 2);
+      g.ellipse(x, y, d.r, d.r * 1.08, 0, 0, Math.PI * 2);
       g.fill();
-      g.fillStyle = 'rgba(255,214,160,0.35)';
+      g.strokeStyle = 'rgba(8,6,16,0.22)';
+      g.lineWidth = Math.max(0.6, d.r * 0.22);
       g.beginPath();
-      g.ellipse(x, y + d.r * 0.35, d.r * 0.7, d.r * 0.45, 0, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.55)';
+      g.ellipse(x, y + d.r * 0.08, d.r * 0.95, d.r * 1.02, 0, Math.PI * 0.15, Math.PI * 0.85);
+      g.stroke();
+      g.fillStyle = 'rgba(255,250,240,0.75)';
       g.beginPath();
-      g.arc(x - d.r * 0.35, y - d.r * 0.4, Math.max(0.6, d.r * 0.22), 0, Math.PI * 2);
+      g.arc(x - d.r * 0.35, y - d.r * 0.42, Math.max(0.5, d.r * 0.2), 0, Math.PI * 2);
       g.fill();
     }
     // The coach interior: warm lamp reflection across the glass, the window frame, a curtain.

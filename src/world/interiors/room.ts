@@ -537,8 +537,9 @@ export abstract class InteriorMap implements GameMap {
     const L = this.light;
     const t = game.time;
     const pp = game.player.position;
-    this.rim.position.set(pp.x + 0.4, pp.y + 2.3, pp.z + 0.5);
-    this.rim.intensity = L.night * 1.5;
+    // Behind the farmer at head height (a true rim): from above it blew the straw hat out to white.
+    this.rim.position.set(pp.x - 0.45, pp.y + 1.25, pp.z - 1.15);
+    this.rim.intensity = L.night * 0.85;
     this.groundMat.color.setScalar(0.55 + 0.45 * L.day);
     const lampK = Math.max(L.night, 1 - L.day * 1.05);
     for (const l of this.lamps) {

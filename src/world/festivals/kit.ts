@@ -366,12 +366,12 @@ export function buildCherryTrees(rng: Rng, trees: { x: number; y: number; z: num
     const lean = rng.next() * Math.PI * 2;
     const fork = base.clone().add(P(Math.cos(lean) * 0.25 * s, 1.5 * s, Math.sin(lean) * 0.25 * s));
     const trunk = new THREE.CatmullRomCurve3([base, base.clone().add(P(Math.cos(lean) * 0.05, 0.7 * s, Math.sin(lean) * 0.05)), fork]);
-    bark.add('bark', taperTube(trunk, 6, 0.24 * s, 0.15 * s, 8), undefined, { tint: 0x5a3e36, aoWorld: groundAO(0.6) });
+    bark.add('bark', taperTube(trunk, 6, 0.24 * s, 0.15 * s, 8), undefined, { tint: 0x6e4c40, aoWorld: groundAO(0.6) });
     // Root flare.
     for (let i = 0; i < 4; i++) {
       const a = lean + (i / 4) * Math.PI * 2;
       const root = new THREE.CatmullRomCurve3([base.clone().add(P(0, 0.35 * s, 0)), base.clone().add(P(Math.cos(a) * 0.45 * s, 0.02, Math.sin(a) * 0.45 * s))]);
-      bark.add('bark', taperTube(root, 2, 0.12 * s, 0.03 * s, 5), undefined, { tint: 0x4a322a });
+      bark.add('bark', taperTube(root, 2, 0.12 * s, 0.03 * s, 5), undefined, { tint: 0x5e4034 });
     }
     const n = 4 + Math.floor(rng.next() * 2);
     let top = 0;
@@ -383,10 +383,10 @@ export function buildCherryTrees(rng: Rng, trees: { x: number; y: number; z: num
       const mid = fork.clone().addScaledVector(out, len * 0.45).add(P(0, len * up * 0.55, 0));
       const end = fork.clone().addScaledVector(out, len).add(P(0, len * up, 0));
       const limb = new THREE.CatmullRomCurve3([fork, mid, end]);
-      bark.add('bark', taperTube(limb, 5, 0.1 * s, 0.035 * s, 6), undefined, { tint: 0x4e3630 });
+      bark.add('bark', taperTube(limb, 5, 0.1 * s, 0.035 * s, 6), undefined, { tint: 0x644638 });
       // A twig off each limb.
       const tw = mid.clone().add(P(-out.z * 0.5 * s, 0.35 * s, out.x * 0.5 * s));
-      bark.add('bark', taperTube(new THREE.CatmullRomCurve3([mid, mid.clone().lerp(tw, 0.5).add(P(0, 0.1 * s, 0)), tw]), 3, 0.04 * s, 0.015 * s, 5), undefined, { tint: 0x4e3630 });
+      bark.add('bark', taperTube(new THREE.CatmullRomCurve3([mid, mid.clone().lerp(tw, 0.5).add(P(0, 0.1 * s, 0)), tw]), 3, 0.04 * s, 0.015 * s, 5), undefined, { tint: 0x644638 });
       // Blossom clumps at the limb end (a cluster of 3 puffs) + a smaller one on the twig.
       const puffs: [THREE.Vector3, number][] = [[tw.clone().add(P(0, 0.08 * s, 0)), 0.34 * s]];
       const cr0 = (0.55 + rng.next() * 0.2) * s;
@@ -413,6 +413,33 @@ export function buildCherryTrees(rng: Rng, trees: { x: number; y: number; z: num
         });
         top = Math.max(top, cp.y);
       }
+    }
+    // Crown fill: a few big interior clumps over the fork knit the limb-end puffs into one lobed
+    // cloud (reads as a single blossoming crown, not a bunch of separate balls on sticks).
+    const fillN = 5;
+    for (let i = 0; i < fillN; i++) {
+      const a = lean + (i / fillN) * Math.PI * 2 + 0.6;
+      const rr = (i === 0 ? 0 : 0.75) * s;
+      const cp = fork.clone().add(P(Math.cos(a) * rr, (i === 0 ? 1.55 : 1.05 + rng.next() * 0.3) * s, Math.sin(a) * rr));
+      const cr = (i === 0 ? 0.95 : 0.72 + rng.next() * 0.12) * s;
+      const g = lumpySphere(cr, 2, 0.3, rng, 2.4);
+      g.scale(1.12, 0.72, 1.12);
+      sphericalNormals(g, new THREE.Vector3(), 0.8);
+      const tint = pinks[Math.floor(rng.next() * pinks.length)]!;
+      bloom.add('boxFlower', g, mat(cp.x, cp.y, cp.z), {
+        tint,
+        aoWorld: (q, nn) => (0.5 + 0.5 * THREE.MathUtils.smoothstep(q.y, cp.y - cr * 0.7, cp.y + cr * 0.6)) * (nn.y < -0.3 ? 0.74 : 1),
+      });
+      top = Math.max(top, cp.y);
+    }
+    // Pendant drips: small clumps hanging under the crown edge break the underside line.
+    for (let i = 0; i < 4; i++) {
+      const a = lean + rng.next() * Math.PI * 2;
+      const cp = fork.clone().add(P(Math.cos(a) * 1.2 * s, 0.55 * s + rng.next() * 0.2 * s, Math.sin(a) * 1.2 * s));
+      const cr = (0.26 + rng.next() * 0.1) * s;
+      const g = lumpySphere(cr, 1, 0.3, rng, 2.6);
+      g.scale(1, 1.25, 1);
+      bloom.add('boxFlower', g, mat(cp.x, cp.y, cp.z), { tint: pinks[Math.floor(rng.next() * pinks.length)]!, aoWorld: () => 0.72 });
     }
     canopies.push({ x: fork.x, y: top, z: fork.z, r: 1.9 * s, ground: t.y });
   }

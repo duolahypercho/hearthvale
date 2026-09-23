@@ -34,7 +34,7 @@ export const THEMES: Record<string, ThemeDef> = {
         octave: 1,
         // "F.. G A C | D.. C Bb A | A C D.. C | Bb A G.. (C D) | ..." — a dotted walk up and a sigh down.
         A: ['1:3 2:1 3:2 5:2', '6:3 5:1 4:2 3:2', '3:2 5:2 6:3 5:1', "4:1 3:1 2:4 5,:1 6,:1", '1:3 2:1 3:2 5:2', "1':3 7:1 6:2 5:2", '6:2 4:2 2:2 7,:2', '1:6 r:2'],
-        B: ['6:4 5:2 4:2', '5:4 4:2 3:2', '3:4 2:2 1:2', '2:2 3:2 6,:4', "4:2 6:2 1':3 7:1", "1':2 7:2 5:4", '6:3 5:1 4:2 3:2', '2:6 r:2'],
+        B: ['6:4 5:2 4:2', '5:4 4:2 3:2', '3:4 5:2 3:2', '2:2 3:2 6,:4', "4:2 6:2 1':3 7:1", "1':2 7:2 5:4", '6:3 5:1 4:2 3:2', '2:6 r:2'],
         Aend: ['6:2 4:1 3:1 2:2 7,:2', '1:8'],
         pickup: '5,:1 6,:1',
       },
@@ -72,6 +72,7 @@ export const THEMES: Record<string, ThemeDef> = {
       A: ['Imaj7', 'IV', 'Imaj7', 'IV', 'vi7', 'ii7', 'IV', 'V'],
       B: ['IV', 'V', 'iii7', 'vi7', 'ii7', 'V', 'bVII', 'V7sus4 V'],
       outro: ['IV', 'Imaj7'],
+      Aend: ['ii7 V7', 'I'],
     },
     melody: {
       inst: 'marimba', range: [62, 86], density: 0.8, ornament: 0.12,
@@ -79,6 +80,7 @@ export const THEMES: Record<string, ThemeDef> = {
         octave: 0,
         // "B D . D E D B | C E . E G E D | ..." — the hiccup rest is the hook.
         A: ['3:1 5:1 r:1 5:1 6:1 5:1 3:2', "4:1 6:1 r:1 6:1 1':1 6:1 5:2", '3:1 5:1 r:1 5:1 6:1 5:1 3:1 2:1', '1:1 2:1 3:2 6,:1 1:1 r:2', '5:1 6:1 5:1 3:1 2:1 3:1 5:2', "6:3 1':1 6:2 5:2", "4:1 3:1 4:1 6:1 1':2 6:1 5:1", '2:3 7,:1 5,:2 r:2'],
+        Aend: ['4:1 3:1 4:1 6:1 5:2 4:1 2:1', '1:3 5,:1 1:2 r:2'],
         B: ["1':4 6:2 5:2", "2':4 7:2 6:2", "3':4 2':2 1':2", "6:2 7:2 1':4", "1':3 7:1 6:2 1':2", '7:4 r:2 5:1 6:1', 'b7:3 6:1 4:2 2:2', '5:6 r:2'],
         pickup: '1:1 2:1',
       },
@@ -243,14 +245,17 @@ export const THEMES: Record<string, ThemeDef> = {
       A: ['Imaj7', 'IVmaj7', 'Imaj7', 'IVmaj7', 'ii7', 'V', 'iii7 vi7', 'ii7 V'],
       B: ['IV', 'iii7', 'ii7', 'Imaj7', 'IV', 'V', 'vi7', 'Vsus4 V'],
       outro: ['IVmaj7', 'Imaj7'],
+      Aend: ['ii7 V7', 'I6'],
     },
     melody: {
       inst: 'steelPan', range: [66, 88], density: 0.55, ornament: 0.1,
       tune: {
         octave: 0,
-        // "E.. C#.. E | F#.. D.. F# | A.. G#.. E C# | ..." — 3+3+2 all the way.
-        A: ['5:3 3:3 5:2', '6:3 4:3 6:2', "1':3 7:3 5:1 3:1", '6:3 4:1 3:2 1:2', "4:1 6:1 1':1 6:1 4:2 2:2", "5:3 7:3 2':2", '7:2 5:2 6:2 3:2', '4:2 2:2 7,:2 5,:2'],
-        B: ["1':4 6:2 4:2", '7:4 5:2 3:2', '6:4 4:2 2:2', '5:3 3:1 5:2 7:2', "6:1 1':1 2':1 1':1 6:2 4:2", "7:1 2':1 3':1 2':1 7:2 5:2", "1':3 6:3 3:2", '2:4 r:4'],
+        // "E.. F#.. E | D.. C#.. A | C#.. E.. G# A | A G# F#.. E |" — 3+3+2, a neighbour-note hook that
+        // climbs the arpeggio and sighs back down by step; B is a falling sequence (A G# F# / G# F# E / ...).
+        A: ['5:3 6:3 5:2', '4:3 3:3 1:2', "3:3 5:3 7:1 1':1", "1':2 7:1 6:3 5:2", '2:1 3:1 4:1 6:1 4:2 2:2', '5:3 4:2 3:1 2:2', '3:2 5:2 6:2 5:1 3:1', '4:2 2:2 2:1 1:1 7,:2'],
+        B: ["1':4 7:2 6:2", '7:4 6:2 5:2', '6:4 5:2 4:2', '3:3 2:1 3:2 5:2', "6:1 1':1 2':1 1':1 6:2 4:2", "7:1 2':1 3':1 2':1 7:2 5:2", "1':3 7:1 6:2 5:2", '2:4 r:4'],
+        Aend: ['4:2 2:2 5:2 4:1 2:1', '1:3 3:3 1:2'],
         pickup: '3:1 4:1',
       },
     },
@@ -360,14 +365,17 @@ export const THEMES: Record<string, ThemeDef> = {
       A: ['Imaj7', 'iii7', 'IVmaj7', 'iv6', 'Imaj7', 'vi7', 'ii7', 'V7sus4'],
       B: ['vi7', 'iii7', 'IVmaj7', 'Imaj7', 'ii7', 'iii7', 'IVmaj7', 'V7sus4'],
       outro: ['IVmaj7', 'Imaj7'],
+      Aend: ['ii7 V7', 'Imaj7'],
     },
     melody: {
       inst: 'celesta', range: [68, 90], density: 0.3, ornament: 0,
       tune: {
         octave: 1,
-        // "F. Eb Db Ab | F.. Ab C | Bb. Ab Gb F | A(bb).. Ab Gb |" — a lullaby that dips into the minor iv.
-        A: ['3:3 2:1 1:2 5,:2', '3:4 5:2 7:2', '6:3 5:1 4:2 3:2', 'b6:4 5:2 4:2', '3:3 2:1 1:2 5,:2', "1':3 7:1 6:2 5:2", '4:3 3:1 2:4', '2:2 1:2 5,:4'],
-        B: ["5:4 6:2 1':2", "7:4 1':2 2':2", "3':4 2':2 1':2", '7:4 5:4', '6:3 5:1 4:4', '5:3 3:1 5:4', "6:2 1':2 3':4", "2':4 1':4"],
+        // "F. Eb Db Ab | C Eb F.. | Bb. Ab Gb F | A(bb).. Ab Gb |" — a lullaby that dips and climbs back,
+        // borrows the minor iv, then rises to the high Db and falls home by step.
+        A: ['3:3 2:1 1:2 5,:2', '7,:2 2:2 3:4', '6:3 5:1 4:2 3:2', 'b6:4 5:2 4:2', '3:3 2:1 1:2 3:1 5:1', "1':3 7:1 6:2 5:2", '4:3 3:1 2:4', '2:2 1:2 2:2 4:2'],
+        B: ["5:4 6:2 1':2", "7:4 1':2 2':2", "3':4 2':2 1':2", '7:4 5:4', '6:3 5:1 4:4', '5:3 3:1 5:4', "6:2 1':2 3':4", "2':4 1':2 6:1 5:1"],
+        Aend: ['4:3 3:1 2:2 7,:2', '1:8'],
       },
     },
     accomp: { inst: 'epiano', pattern: 'epComp', range: [53, 70], voices: 4, vel: 0.5 },
@@ -399,13 +407,16 @@ export const THEMES: Record<string, ThemeDef> = {
       A: ['vi7', 'IVmaj7', 'Imaj7', 'V7sus4', 'vi7', 'ii7', 'IVmaj7', 'V7sus4 V'],
       B: ['IVmaj7', 'V', 'iii7', 'vi7', 'ii7', 'V', 'IVmaj7', 'iv6'],
       outro: ['IVmaj7', 'vi7'],
+      Aend: ['ii7 V7', 'Imaj7'],
     },
     melody: {
       inst: 'epiano', range: [68, 88], density: 0.35, ornament: 0,
       tune: {
         octave: 1,
-        // ". G Bb. G Eb C | . Eb G. Eb C Ab | . Bb D. Bb G F | F Eb.." — every phrase starts on the "and".
-        A: ['r:1 3:1 5:2 3:1 1:1 6,:2', 'r:1 1:1 3:2 1:1 6,:1 4,:2', 'r:1 5:1 7:2 5:1 3:1 2:2', '2:2 1:4 r:2', 'r:1 3:1 5:2 3:1 1:1 6,:2', 'r:1 4:1 6:2 4:1 2:1 1:2', '3:3 2:1 1:2 6,:2', '2:4 7,:2 r:2'],
+        // ". G Bb. G F Eb | . Eb G. F Eb C | . Eb G. Bb D C | Bb Ab F... |" — every phrase starts on the
+        // "and", sighs down by step, and the third bar climbs the Ebmaj7 before settling on the sus.
+        A: ['r:1 3:1 5:2 3:1 2:1 1:2', 'r:1 1:1 3:2 2:1 1:1 6,:2', 'r:1 1:1 3:2 5:1 7:1 6:2', '5:2 4:2 2:4', 'r:1 3:1 5:2 3:1 2:1 1:2', 'r:1 2:1 4:2 6:1 5:1 4:2', '3:3 2:1 1:2 6,:2', '2:4 7,:2 r:2'],
+        Aend: ['6:2 4:2 5:2 2:2', '1:6 r:2'],
         B: ["1':4 7:2 6:2", '7:4 6:2 5:2', '5:4 3:2 2:2', '3:3 5:1 6:4', "6:2 1':2 2':2 1':2", '7:4 5:4', "1':3 6:1 3:4", 'b6:4 5:2 4:2'],
       },
     },
@@ -637,9 +648,10 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
             inst: 'celesta', range: [72, 91], density: 0.45, ornament: 0.1, double: { inst: 'bell', interval: 0, on: 'repeat' },
             tune: {
               octave: 1,
-              // A slow barcarolle in 6/8: "E.. G#. B | D.. C#. B | ..." — mixolydian D natural over the bVII.
-              A: ['1:3 3:2 5:1', '7,:3 2:2 4:1', '6:3 4:2 1:1', '3:3 2:3', '6:3 5:2 3:1', '7:3 6:2 4:1', '6:1 4:1 1:1 5,:1 #7,:1 2:1', '1:6'],
-              B: ['6:3 1\':2 6:1', '5:3 3:2 1:1', '4:3 2:2 7,:1', '1:3 4:3', '6:3 4:2 2:1', '2:3 4:2 7:1', '6:2 4:1 1:3', '5,:3 2:3'],
+              // A slow barcarolle in 6/8, rising and falling like swell: "E.. G#. B | A.. G#. F# | E.. G#. C# |
+              // B.. G#.. |" — mixolydian D natural over the bVII; B is a falling sequence of three-note waves.
+              A: ['1:3 3:2 5:1', '4:3 3:2 2:1', '1:3 3:2 6:1', '5:3 3:3', '3:3 5:2 6:1', '7:3 6:2 4:1', '6:2 4:1 2:2 #7,:1', '1:6'],
+              B: ['6:3 5:2 4:1', '5:3 4:2 3:1', '4:3 3:2 2:1', '1:3 3:2 4:1', '6:3 4:2 2:1', '2:3 4:2 7:1', '6:2 4:1 1:3', '5,:3 2:3'],
             },
           },
           accomp: { inst: 'harp', pattern: 'waltzArp', range: [55, 72], voices: 4, vel: 0.5 },

@@ -67,7 +67,11 @@ export interface ThemeDef {
   /** 0.5 = straight eighths; 0.58 = lilting swing. */
   swing?: number;
   form: Section[];
-  prog: { A: string[]; B: string[]; intro?: string[]; outro?: string[] };
+  /**
+   * Roman-numeral harmony per section. `Aend` replaces the last bars of the final A (an authentic
+   * cadence when A itself ends open on V); slash chords ('I/3', 'V/5') put that chord member in the bass.
+   */
+  prog: { A: string[]; B: string[]; intro?: string[]; outro?: string[]; Aend?: string[] };
   /** Key lift (semitones) for the final A; the bar before it becomes the pivot. */
   lift?: number;
   /** What happens in the bar before B: a stop-time hit, a held rolled chord, or nothing. */
@@ -210,6 +214,10 @@ export class Composer {
   private S: number;
   private stepSec: number;
   private chordCache = new Map<string, Chord>();
+  /** Last bass note and the melody note sounding against it (outer-voice counterpoint). */
+  private bassPrev: { b: number; m: number | null } | null = null;
+  /** The melody of the bar being arranged (the bass reads it to avoid doubling the tune). */
+  private barMel: MNote[] | undefined;
 
   constructor(private th: ThemeDef, readonly seed: number) {
     this.rng = new Rand(seed * 7919 + hash(th.id));
@@ -240,7 +248,8 @@ export class Composer {
     const breaks = th.breaks ?? (th.meter === '3/4' ? 'breath' : 'stop');
     th.form.forEach((sec, si) => {
       const o = (occ[sec] = (occ[sec] ?? -1) + 1);
-      const prog = sec === 'intro' ? th.prog.intro ?? [th.prog.A[0]!, th.prog.A[0]!] : sec === 'outro' ? th.prog.outro ?? ['IV', 'I'] : th.prog[sec];
+      let prog = sec === 'intro' ? th.prog.intro ?? [th.prog.A[0]!, th.prog.A[0]!] : sec === 'outro' ? th.prog.outro ?? ['IV', 'I'] : th.prog[sec];
+      if (sec === 'A' && si === lastA && lastA > 1 && th.prog.Aend) prog = [...prog.slice(0, prog.length - th.prog.Aend.length), ...th.prog.Aend];
       const next = th.form[si + 1];
       prog.forEach((entry, i) => {
         const syms = entry.split(/\s+/).filter(Boolean);
@@ -309,6 +318,7 @@ export class Composer {
     const ev: NoteEvent[] = [];
     const r = this.rng;
     const mel = this.melodyPlan(bars);
+    this.bassPrev = null;
 
     // ── melody
     if (th.melody) {
@@ -379,6 +389,7 @@ export class Composer {
           const swell = b.section === 'B' ? 0.9 + 0.2 * b.pos : 1;
           padV.forEach((p, k) => ev.push({ t: t + k * 0.012, track: 'pad', inst: th.pad!.inst, midi: p, dur, vel: th.pad!.vel * swell * (0.92 + 0.08 * Math.sin(bi * 0.7)) }));
         }
+        this.barMel = mel[bi] ?? undefined;
         if (th.bass && !(isIntro && b.i === 0 && th.prog.intro === undefined)) this.bass(ev, b, sp, nextChord, lastBar, lastSpan && (b.fill || b.brk) && !!nextBar);
         if (th.counter && this.active(th.counter.on, b)) {
           cntPrev = this.counter(ev, b, sp, nextChord, cntPrev, mel[bi] ?? undefined);
@@ -772,8 +783,14 @@ export class Composer {
     const r = this.rng;
     const [lo, hi] = cfg.range;
     const rootPc = (this.keyPc + sp.chord.root) % 12;
-    const root = placeIn(rootPc, lo, hi, lo + 5);
+    // Voice-led: the new root lands near the last bass note (pulled gently back to the low register),
+    // so I–IV–V–I walks by 4ths/5ths the short way instead of always jumping to the bottom.
+    const home = lo + 5;
+    const near = this.bassPrev ? this.bassPrev.b * 0.6 + home * 0.4 : home;
+    const root = placeIn(rootPc, lo, hi, near);
     const fifth = root + 7 <= hi + 2 ? root + 7 : root - 5;
+    // A written inversion (I/3, V/5) sounds that member on the downbeat instead of the root.
+    const down = sp.chord.bass !== undefined ? placeIn((rootPc + sp.chord.bass) % 12, lo, hi + 2, root) : root;
     const len = sp.s1 - sp.s0;
     const stepDur = b.dur / this.S;
     const S = this.S;
@@ -782,11 +799,13 @@ export class Composer {
     const cut = doRun ? S - runLen : S;
     const push = (step: number, midi: number, steps: number, vel: number): void => {
       if (step >= cut) return;
-      ev.push({ t: this.at(b, step) + this.jit(0.004), track: 'bass', inst: cfg.inst, midi, dur: Math.min(steps, cut - step) * stepDur * 0.92, vel: vel * cfg.vel * (0.95 + r.gauss(0.03)) });
+      const m = cfg.pattern === 'pedal' ? midi : this.counterpoint(sp, step, midi, lo, hi);
+      ev.push({ t: this.at(b, step) + this.jit(0.004), track: 'bass', inst: cfg.inst, midi: m, dur: Math.min(steps, cut - step) * stepDur * 0.92, vel: vel * cfg.vel * (0.95 + r.gauss(0.03)) });
     };
     const s0 = sp.s0;
     if (lastBar) {
       ev.push({ t: this.at(b, s0), track: 'bass', inst: cfg.inst, midi: root, dur: len * 1.5 * stepDur, vel: cfg.vel });
+      this.bassPrev = { b: root, m: null };
       return;
     }
     const approach = (): number | null => {
@@ -798,18 +817,18 @@ export class Composer {
     };
     if (b.brk) {
       // Stop-time: root hit, silence, then the run.
-      push(s0, root, 1, 1);
+      push(s0, down, 1, 1);
     } else {
       switch (cfg.pattern) {
         case 'root':
-          push(s0, root, len, 1);
+          push(s0, down, len, 1);
           break;
         case 'pedal':
           if (s0 === 0) push(0, placeIn(this.keyPc, lo, hi, lo + 5), S, 0.9);
           break;
         case 'rootFifth': {
           const half = Math.floor(len / 2);
-          push(s0, root, half, 1);
+          push(s0, down, half, 1);
           if (len >= 4) {
             const ap = !doRun && r.chance(0.55) ? approach() : null;
             push(s0 + half, fifth, ap !== null ? half - 1 : half, 0.8);
@@ -820,20 +839,20 @@ export class Composer {
         case 'walk': {
           const scale = chordScale(sp.chord, this.keyPc, this.th.mode);
           const third = nearestIn(root + 4, chordPcs(sp.chord, this.keyPc), 1);
-          const line = [root, r.chance(0.5) ? third : fifth, fifth, approach() ?? scaleStep(root, 1, scale)];
+          const line = [down, r.chance(0.5) ? third : fifth, fifth, approach() ?? scaleStep(root, 1, scale)];
           for (let q = 0; q * 2 < len; q++) push(s0 + q * 2, line[q % 4]!, 1.8, q === 0 ? 1 : 0.8);
           break;
         }
         case 'waltz':
-          push(s0, b.i % 2 === 1 && r.chance(0.4) ? fifth : root, 2, 1);
+          push(s0, down !== root ? down : b.i % 2 === 1 && r.chance(0.4) ? fifth : root, 2, 1);
           if (len >= 6 && r.chance(0.3)) push(s0 + 4, fifth, 2, 0.6);
           break;
         case 'jig':
-          push(s0, root, 2, 1);
+          push(s0, down, 2, 1);
           if (len >= 6) push(s0 + 3, r.chance(0.7) ? fifth : root, 2, 0.8);
           break;
         case 'tresillo':
-          push(s0, root, 3, 1);
+          push(s0, down, 3, 1);
           if (len >= 6) push(s0 + 3, root + 12 <= hi + 5 ? root + 12 : fifth, 1, 0.6);
           if (len >= 8) push(s0 + 6, approach() ?? fifth, 2, 0.8);
           break;
@@ -848,9 +867,55 @@ export class Composer {
       for (let k = runLen; k >= 1; k--) notes.push(scaleStep(nRoot, dir * k, scale));
       notes.forEach((p, k) => {
         const st = S - runLen + k;
-        ev.push({ t: this.at(b, st) + this.jit(0.004), track: 'bass', inst: cfg.inst, midi: Math.max(lo - 2, Math.min(hi + 2, p)), dur: stepDur * 0.9, vel: cfg.vel * (0.72 + 0.08 * k) });
+        const q = Math.max(lo - 2, Math.min(hi + 2, p));
+        const over = this.melAt(st)?.midi;
+        if (over !== undefined && (((over - q) % 12) + 12) % 12 === 1) return; // a passing note a b9 under the tune: leave the gap
+        ev.push({ t: this.at(b, st) + this.jit(0.004), track: 'bass', inst: cfg.inst, midi: q, dur: stepDur * 0.9, vel: cfg.vel * (0.72 + 0.08 * k) });
+        this.bassPrev = { b: q, m: this.melAt(st)?.midi ?? null };
       });
     }
+  }
+
+  /** The melody note sounding at `step` of the bar being arranged. */
+  private melAt(step: number): MNote | undefined {
+    let found: MNote | undefined;
+    for (const n of this.barMel ?? []) if (n.step <= step + 0.01 && n.step + n.steps > step + 0.01) found = n;
+    return found;
+  }
+
+  /**
+   * Outer-voice counterpoint: a bass note that would move in parallel octaves / fifths with the tune
+   * (same interval as the last bass note against the melody, both voices moving the same way) is
+   * swapped for another chord member — usually the third, which turns the chord into a sweeter first
+   * inversion — the way an arranger re-voices the bass under a melody that sits on the roots.
+   */
+  private counterpoint(sp: Span, step: number, midi: number, lo: number, hi: number): number {
+    const m = this.melAt(step)?.midi ?? null;
+    const prev = this.bassPrev;
+    let out = midi;
+    const mod = (x: number): number => ((x % 12) + 12) % 12;
+    const parallelWith = (q: number): boolean => {
+      if (m === null || !prev || prev.m === null || m === prev.m || q === prev.b) return false;
+      const ic0 = mod(prev.m - prev.b);
+      const ic1 = mod(m - q);
+      return ic0 === ic1 && (ic1 === 0 || ic1 === 7) && Math.sign(m - prev.m) === Math.sign(q - prev.b);
+    };
+    const rootPc = (this.keyPc + sp.chord.root) % 12;
+    // A passing / approach note a minor 9th under the tune bites; a root under a b9 is the tune's rub, not ours.
+    const b9 = (q: number): boolean => m !== null && mod(m - q) === 1;
+    if (parallelWith(midi) || (b9(midi) && mod(midi) !== rootPc)) {
+      const pcs = chordPcs(sp.chord, this.keyPc);
+      for (const pc of [pcs[1], pcs[2], pcs[0]]) {
+        if (pc === undefined || pc === mod(midi)) continue;
+        const q = placeIn(pc, lo - 1, hi + 2, prev ? prev.b : midi);
+        if (m !== null && mod(m - q) === 0) continue; // never double the tune
+        if (parallelWith(q) || b9(q)) continue;
+        out = q;
+        break;
+      }
+    }
+    this.bassPrev = { b: out, m };
+    return out;
   }
 
   /**

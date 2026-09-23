@@ -3,6 +3,8 @@
  * push pins, wax seals, envelopes and the little hall floor-plan used by the journal.
  */
 import { itemDef } from '../data/items';
+import { CROPS } from '../data/crops';
+import { fishDef } from '../data/fish';
 import { itemIcon } from './icons';
 
 const css = (h: number): string => `#${h.toString(16).padStart(6, '0')}`;
@@ -82,6 +84,31 @@ export function iconOf(itemId: string, fallback?: { name?: string; color?: numbe
   return fishy
     ? `<svg class="u-ic" viewBox="0 0 48 48"><path d="M6 24 C12 12 30 10 38 22 L46 14 L44 24 L46 34 L38 26 C30 38 12 36 6 24 Z" fill="${c}" stroke="${shade(fallback?.color ?? 0x9ab8c8, 0.5)}" stroke-width="2.4" stroke-linejoin="round"/><circle cx="14" cy="22" r="2.4" fill="#1a1a1a"/><path d="M20 18 q4 6 0 12" stroke="rgba(0,0,0,.25)" stroke-width="2" fill="none"/><path d="M12 18 q6 -4 14 -2" stroke="rgba(255,255,255,.45)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`
     : `<svg class="u-ic" viewBox="0 0 48 48"><circle cx="24" cy="25" r="15" fill="${c}" stroke="${shade(fallback?.color ?? 0x9ab8c8, 0.5)}" stroke-width="2.4"/><circle cx="19" cy="20" r="4" fill="rgba(255,255,255,.5)"/></svg>`;
+}
+
+const MAP_NAMES: Record<string, string> = { farm: 'farm pond', town: 'river', beach: 'sea', forest: 'forest creek', mine: 'mine pools' };
+const cap = (s: string): string => s[0]!.toUpperCase() + s.slice(1);
+const hh = (h: number): string => {
+  const x = ((h % 24) + 24) % 24;
+  return `${x % 12 === 0 ? 12 : x % 12}${x < 12 ? 'am' : 'pm'}`;
+};
+
+/** A one-line "where do I get this?" hint for bundle slots (crop season, fish spot, resource source). */
+export function whereFrom(itemId: string): string {
+  const crop = (CROPS as Record<string, { seasons: string[]; produce: string } | undefined>)[itemId];
+  if (crop) return `${crop.seasons.map(cap).join(' / ')} crop`;
+  const f = fishDef(itemId);
+  if (f) {
+    const where = [...new Set(f.maps.map((m) => MAP_NAMES[m] ?? m))].slice(0, 2).join(' or ');
+    const when = f.hours[0] <= 6 && f.hours[1] >= 26 ? '' : ` · ${hh(f.hours[0])}–${hh(f.hours[1])}`;
+    const wx = f.weather?.length ? ` · ${f.weather.includes('rain') ? 'rain' : f.weather[0]}` : '';
+    return `Fish · ${where}${when}${wx}`;
+  }
+  const RES: Record<string, string> = { wood: 'Chop branches & stumps', stone: 'Break stones', fiber: 'Scythe weeds', sprinkler: 'Craft at the bench' };
+  if (RES[itemId]) return RES[itemId]!;
+  const d = itemDef(itemId);
+  if (d?.kind === 'placeable') return 'Craft it';
+  return '';
 }
 
 export function itemName(itemId: string, fallback?: string): string {

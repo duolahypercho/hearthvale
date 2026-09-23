@@ -91,7 +91,7 @@ function chicken(variant: number): AnimalModel {
   const r = new RigBuilder();
   const brown = variant === 1;
   const body = brown ? 0xc9773c : 0xeae4d8;
-  const tail = brown ? 0x8e4420 : 0xe8e0d0;
+  const tail = brown ? 0xa4542a : 0xe8e0d0;
   const tailTip = brown ? 0x3a4a3a : 0xe4dccb;
   const leg = 0xf0a832;
   r.bone('body', 'root', [0, 0.3, 0]);
@@ -112,8 +112,9 @@ function chicken(variant: number): AnimalModel {
   // Fluffy bottom
   r.part('body', ellipsoid(0.14, 0.08, 0.15), mat(0, 0.18, -0.03), brown ? 0xe0a06a : 0xf4f0e6);
   // Tail: a cocked fan of rounded feathers (tips darker on the red hen)
-  for (const [a, h, z] of [[-0.55, 0.15, -0.2], [-0.2, 0.18, -0.21], [0.15, 0.15, -0.19]] as const) {
-    r.part('tail', ellipsoid(0.04, h, 0.075, 10, 8), mat(a * 0.08, 0.44, z, -0.55, 0, a * 0.5), tail, { patch: band(tailTip, 0.56, false) });
+  // Fanned wide and cocked up over the back so it reads as a plume from behind, never as a dark hole.
+  for (const [a, h, z] of [[-0.75, 0.15, -0.19], [-0.25, 0.19, -0.21], [0.25, 0.19, -0.21], [0.75, 0.15, -0.19]] as const) {
+    r.part('tail', ellipsoid(0.05, h, 0.07, 10, 8), mat(a * 0.1, 0.47, z, -0.38, 0, a * 0.55), tail, { patch: band(tailTip, 0.6, false) });
   }
   for (const s of [-1, 1]) {
     const w = s < 0 ? 'wingL' : 'wingR';
@@ -187,7 +188,7 @@ function duck(variant: number): AnimalModel {
   eyes(r, 0.07, 0.545, 0.245, 0.03, 0.72);
   if (!mallard) cheeks(r, 0.085, 0.505, 0.23, 0.02);
   const { mesh, bones } = r.build(animalMaterial(), 'duck');
-  return { mesh, bones, species: 'duck', gait: { biped: true, speed: 0.5, freq: 2.8, legAmp: 0.5, bob: 0.02, eatPitch: 0.75, radius: 0.19, len: 0.08, reach: 0.36, top: 0.72, sleepDrop: 0.1, fold: 0.25 } };
+  return { mesh, bones, species: 'duck', gait: { biped: true, speed: 0.5, freq: 2.8, legAmp: 0.5, bob: 0.02, eatPitch: 0.6, radius: 0.19, len: 0.08, reach: 0.36, top: 0.72, sleepDrop: 0.1, fold: 0.25 } };
 }
 
 // ───────────────────────────────────────────── quadrupeds
@@ -243,7 +244,7 @@ function bodyMasses(r: RigBuilder, d: QuadDims, tint: THREE.ColorRepresentation,
 function cow(variant: number): AnimalModel {
   const r = new RigBuilder();
   const jersey = variant === 1;
-  const base = jersey ? 0xcb8d58 : 0xf2eee6;
+  const base = jersey ? 0xcb8d58 : 0xe6e0d4;
   const spots: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [3.4, 3.0, 3.2], seed: 4.3, edge: 0.24, sinAmp: 0.25 };
   // Jersey: fawn, shading darker over the hindquarters and down the legs (a smooth gradient, no patches).
   const shade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.16 * THREE.MathUtils.smoothstep(-p.z, 0.0, 0.6)) : undefined;
@@ -298,7 +299,7 @@ function goat(variant: number): AnimalModel {
   const r = new RigBuilder();
   const togg = variant === 1;
   // 0: snowy Saanen · 1: Toggenburg (cocoa coat, cream muzzle, ear rims and socks)
-  const base = togg ? 0x8e5c38 : 0xf8f4ea;
+  const base = togg ? 0x8e5c38 : 0xeee8dc;
   const cream = 0xf4e8d4;
   const socks = togg ? band(cream, 0.26) : undefined;
   const d: QuadDims = { bodyY: 0.64, bodyR: 0.21, bodyLen: 0.34, hipX: 0.12, frontZ: 0.2, backZ: -0.2, legR: 0.042, hoof: 0.07 };

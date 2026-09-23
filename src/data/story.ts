@@ -269,14 +269,16 @@ export interface StoryQuestDef {
   /** Short objective line. */
   goal: string;
   giver: string;
+  /** "What to do next" tip shown under the goal in the journal. */
+  hint?: string;
 }
 
 /** Main story beats in order; the story system decides which is active / done. */
 export const STORY_QUESTS: StoryQuestDef[] = [
-  { id: 'arrive', title: 'A Letter from Gran', text: "Gran left you the farm at Hearthvale — and a valley that has forgotten how to shine.", goal: 'Arrive in Hearthvale', giver: 'Gran Rosalind' },
-  { id: 'visit-hall', title: 'The Dark Hall', text: "Mayor Hollis handed you the old key. The Lantern Hall waits at the top of the square.", goal: 'Enter the Lantern Hall', giver: 'Mayor Hollis' },
-  { id: 'first-lantern', title: 'The First Lantern', text: 'Each of the Hall\'s six rooms wants a bundle of what the valley grows. Fill one room to relight its lantern.', goal: 'Relight any room', giver: 'Mayor Hollis' },
-  { id: 'glimmer', title: 'A Glimmer of Trouble', text: "A man in a silver suit has been measuring the Hall, and a glowing kiosk has opened by the fountain. Glimmerco wants the Lantern Hall.", goal: 'Hear Glimmerco out (3 rooms lit)', giver: 'Glimmerco' },
-  { id: 'all-lanterns', title: 'Light What You Can', text: 'Relight every room in the Lantern Hall and the valley will remember how to gather.', goal: 'Relight all six rooms', giver: 'Gran Rosalind' },
-  { id: 'festival', title: 'The Lantern Festival', text: 'On the last night of winter the valley walks its lanterns to the Hall.', goal: 'Attend the Festival (Winter 28, evening)', giver: 'Mayor Hollis' },
+  { id: 'arrive', title: 'A Letter from Gran', text: "Gran left you the farm at Hearthvale — and a valley that has forgotten how to shine.", goal: 'Arrive in Hearthvale', giver: 'Gran Rosalind', hint: 'Sit back. The evening coach knows the way.' },
+  { id: 'visit-hall', title: 'The Dark Hall', text: "Mayor Hollis handed you the old key. The Lantern Hall waits at the top of the square.", goal: 'Enter the Lantern Hall', giver: 'Mayor Hollis', hint: 'Walk north through the square to the big doors under the rose window.' },
+  { id: 'first-lantern', title: 'The First Lantern', text: 'Each of the Hall\'s six rooms wants a bundle of what the valley grows. Fill one room to relight its lantern.', goal: 'Relight any room', giver: 'Mayor Hollis', hint: "Each room's lantern plinth shows what its bundles want. Spring crops fill the Seed Room fastest." },
+  { id: 'glimmer', title: 'A Glimmer of Trouble', text: "A man in a silver suit has been measuring the Hall, and a glowing kiosk has opened by the fountain. Glimmerco wants the Lantern Hall.", goal: 'Hear Glimmerco out (3 rooms lit)', giver: 'Glimmerco', hint: "Keep relighting rooms. Glimmerco will come to you, and you'll have to decide what the Hall is for." },
+  { id: 'all-lanterns', title: 'Light What You Can', text: 'Relight every room in the Lantern Hall and the valley will remember how to gather.', goal: 'Relight all six rooms', giver: 'Gran Rosalind', hint: "Seasonal rooms want seasonal goods. Plan ahead from the Lantern Hall tab, and don't forget the fishing rod." },
+  { id: 'festival', title: 'The Lantern Festival', text: 'On the last night of winter the valley walks its lanterns to the Hall.', goal: 'Attend the Festival (Winter 28, evening)', giver: 'Mayor Hollis', hint: 'Winter 28, after 5 pm, in the town square. Bring nothing but yourself.' },
 ];

@@ -257,9 +257,14 @@ export class NightSea {
  * it). Blue-green depth under clear ice, milky snow-dusted edges, criss-crossing skate scratches,
  * frozen bubbles and cracks, a sky / aurora-tinted Fresnel sheen and warm lamp glints.
  */
+const MAX_ICE_LAMPS = 12;
+
 export class FrozenRiver {
   readonly mesh: THREE.Mesh;
   readonly aurora = { value: 1 };
+  /** Bank lanterns mirrored in the ice (xyz = lamp head, up to MAX_ICE_LAMPS). */
+  private lampPos = Array.from({ length: MAX_ICE_LAMPS }, () => new THREE.Vector3());
+  private lampN = { value: 0 };
   constructor(terrain: Terrain, level: number, bounds: { x0: number; z0: number; x1: number; z1: number }) {
     const t = terrain.opts;
     const w = bounds.x1 - bounds.x0;
@@ -285,7 +290,10 @@ export class FrozenRiver {
         uNight: globalUniforms.uNight,
         uLamps: globalUniforms.uLamps,
         uAurora: this.aurora,
+        uLampPos: { value: this.lampPos },
+        uLampN: this.lampN,
       },
+      defines: { NLAMP: MAX_ICE_LAMPS },
       vertexShader: /* glsl */ `
         varying vec3 vW;
         #include <fog_pars_vertex>
@@ -299,6 +307,7 @@ export class FrozenRiver {
       fragmentShader: /* glsl */ `
         uniform sampler2D uHeight; uniform vec2 uHOrigin; uniform vec2 uHSize; uniform float uLevel; uniform float uTime;
         uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uSkyColor; uniform vec3 uHorizonColor; uniform float uNight; uniform float uLamps; uniform float uAurora;
+        uniform vec3 uLampPos[NLAMP]; uniform int uLampN;
         varying vec3 vW;
         ${NOISE_GLSL}
         #include <fog_pars_fragment>
@@ -360,6 +369,32 @@ export class FrozenRiver {
           float edge = 1.0 - smoothstep(0.02, 0.12, depth);
           float drift = smoothstep(0.45, 0.75, hvFbm(p * 0.7 + 9.0));
           vec3 snow = vec3(0.86, 0.9, 0.98) * (uSkyColor * 0.9 + uSunColor * 0.35 * ndl + 0.05);
+          // Bank lanterns: a warm pool on the ice under each lamp + its reflection, a tall streak
+          // pulled toward the viewer (mirror image of the lamp, smeared vertically by the frozen
+          // ripples) — the classic lamplight-on-black-ice read.
+          vec3 warm = vec3(1.0, 0.5, 0.18);
+          vec3 vv = normalize(vW - cameraPosition);
+          float pool = 0.0;
+          float strk = 0.0;
+          for (int i = 0; i < NLAMP; i++) {
+            if (i >= uLampN) break;
+            vec3 lp = uLampPos[i];
+            vec2 dxz = lp.xz - vW.xz;
+            pool += exp(-dot(dxz, dxz) * 0.45);
+            vec3 lm = vec3(lp.x, 2.0 * uLevel - lp.y, lp.z);
+            vec3 vl = normalize(lm - cameraPosition);
+            vec3 rt = normalize(cross(vl, vec3(0.0, 1.0, 0.0)));
+            vec3 up = cross(rt, vl);
+            vec3 dv = vv - vl;
+            float h = dot(dv, rt) + (r1 - r2) * 0.018;
+            float v = dot(dv, up);
+            float body = exp(-h * h / 0.00003 - v * v / 0.0012);
+            float core = exp(-h * h / 0.00001 - v * v / 0.00015);
+            strk += body * (0.35 + 0.65 * hvNoise(vec2(v * 90.0, uTime * 0.6 + float(i)))) + core * 0.9;
+          }
+          float lampK = uLamps * (1.0 - edge * 0.6);
+          lit += warm * col * pool * lampK;
+          lit += warm * strk * 0.5 * lampK;
           lit = mix(lit, snow, clamp(edge + drift * 0.12, 0.0, 1.0));
           gl_FragColor = vec4(lit, 1.0);
           #include <fog_fragment>
@@ -372,5 +407,12 @@ export class FrozenRiver {
     this.mesh.userData.noAO = true;
     this.mesh.userData.perfTag = 'water';
     this.mesh.renderOrder = 1;
+  }
+
+  /** Lamp heads (world space) whose light pools and reflects on the ice. */
+  setLamps(list: readonly THREE.Vector3[]): void {
+    const n = Math.min(MAX_ICE_LAMPS, list.length);
+    for (let i = 0; i < n; i++) this.lampPos[i]!.copy(list[i]!);
+    this.lampN.value = n;
   }
 }

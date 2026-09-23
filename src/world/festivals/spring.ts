@@ -192,8 +192,8 @@ export class SpringParade extends FestivalMap {
   private buildHouses(r: Rng): void {
     const houses: [number, number, Parameters<typeof buildTownHouse>[1]][] = [
       [14.5, 11.8, { w: 5.6, d: 4.4, wallH: 2.8, wall: 'plaster', wallTint: 0xfbe6ec, roofTint: 0xd87a8a, doorTint: 0x5a8ab0, shutterTint: 0x7ab0c8, chimney: true, flowerBoxes: true }],
-      [23.5, 11.4, { w: 6.4, d: 4.8, wallH: 3.1, wall: 'wood', wallTint: 0xf6ecd0, roofTint: 0x7ab0a0, doorTint: 0xd06a5a, awning: [0xf7a8c0, 0xfbf2e8], flowerBoxes: true, doorX: 1 }],
-      [32, 10.9, { w: 7.0, d: 5.0, wallH: 3.4, wall: 'stone', wallTint: 0xf2e2d0, roofTint: 0x8a7ab8, doorTint: 0x3f7a6a, awning: [0xb8e0f0, 0xfbf2e8], flowerBoxes: true, chimney: true }],
+      [23.5, 11.4, { w: 6.4, d: 4.8, wallH: 3.1, wall: 'wood', wallTint: 0xf6ecd0, roofTint: 0x7ab0a0, doorTint: 0xd06a5a, awning: [0xf09ab4, 0xeee0d0], flowerBoxes: true, doorX: 1 }],
+      [32, 10.9, { w: 7.0, d: 5.0, wallH: 3.4, wall: 'stone', wallTint: 0xf2e2d0, roofTint: 0x8a7ab8, doorTint: 0x3f7a6a, awning: [0x86bcd8, 0xe8dccb], flowerBoxes: true, chimney: true }],
       [40.5, 11.4, { w: 6.2, d: 4.6, wallH: 3.0, wall: 'plaster', wallTint: 0xeaf4e4, roofTint: 0xe0a060, doorTint: 0x8a5a9a, shutterTint: 0xb07ab0, flowerBoxes: true, doorX: -1 }],
       [49.5, 11.8, { w: 5.6, d: 4.4, wallH: 2.7, wall: 'wood', wallTint: 0xfff0dc, roofTint: 0xd8b068, roof: 'thatch', doorTint: 0x4f7fb0, shutterTint: 0x4f7fb0, chimney: true, flowerBoxes: true }],
     ];

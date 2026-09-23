@@ -297,3 +297,29 @@ dust walls / harvest pop + quality star / swing smear / scarecrow radius, `tilec
   (`__game.game.services.farming.scrub(t)` advances a frozen pose), `&loop=<tool>` repeats the action,
   `&slow=0.25` slow motion (so `--frames 8 --every 80` spans a whole swing), `&tier=0..3`.
   e.g. `node scripts/shot.mjs --url "?demo=farm-tools&loop=hoe&slow=0.3" --frames 8 --every 80 --out shots/hoe.png`.
+
+## Story, quests & the Lantern Hall
+
+"The Lanterns of Hearthvale" (data in `src/data/story.ts`, `story-scenes.ts`, `bundles.ts`, `quests.ts`): Gran Rosalind's
+letter read on the rainy evening coach, Mayor Hollis meeting you at the stop with a lantern, the overgrown farm by
+lantern light, the first night at her kitchen table. The Lantern Hall at the top of the square is dark: six rooms
+(Seed · Sun · Harvest · Hearth · Crafter's · Tide), each with bundles of seasonal goods. Filling a room relights its
+lantern (celebration cutscene: ignition, glowmoths, the room's dressing swaps from dust sheets to rugs, festoons and
+baskets) and restores something in the valley (blossom arch, market day, the harvest-lantern lane, the Hall chimney,
+flower baskets, glowing koi). Glimmerco's Sterling Vance surveys the Hall, leans on Marigold's shop, then makes an
+offer on the Hall steps at three rooms — sign (+5,000 g, EverGlow white Hall, three villagers cool on you) or refuse
+(his kiosk packs up; after the Hall is lit by hand he returns, redeemed). Winter 28's Lantern Festival lights the
+whole valley. Gran's sealed letters, villager mail and Glimmerco flyers arrive in the farm mailbox; daily Help
+Wanted notes are pinned to the board in the square.
+
+- Systems: `systems/story.ts` (flags, mail, beats), `systems/quests.ts` (bundles + Help Wanted), `systems/cutscene.ts`
+  (camera keys + Catmull-Rom rails, letterbox, fades, captions, actors walk / face / emote / hold props, dialogue +
+  choices, `cue`s for world beats; Esc twice skips), `systems/story-hall.ts` (the Hall interior), `systems/story-world.ts`
+  (coach, Hall landmark, valley restorations, Glimmerco kiosk / van). UI: `ui/journal*.ts` (journal J, bundle altar,
+  notice board, letter reader, cinema overlay + painted coach window).
+- Services: `story`, `letters`, `quests`, `cutscene` (`play`, `stage(scene, mark)`, `skip`, `audit()`).
+- Demos: `intro-letter`, `intro-establish`, `intro-arrival`, `intro-farm`, `intro-night`, `lantern-hall-dark`,
+  `lantern-hall-restored`, `lantern-room-lit`, `lantern-room-reveal` (`&room=seed|sun|harvest|hearth|craft|tide`),
+  `bundle-ui` (or `ui=bundles:<room>`), `journal` (`ui=journal:quests|hall|letters`), `help-board`, `glimmer-kiosk`,
+  `glimmer-survey`, `glimmer-marigold`, `glimmer-offer` (the choice), `glimmer-accept`, `glimmer-town`,
+  `lantern-hall-glimmer`, `sterling-redeem`, `lantern-festival`, `lantern-festival-sky`. `&lit=N` sets rooms lit.

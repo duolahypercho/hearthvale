@@ -46,6 +46,8 @@ export class Ambience {
   private surfPhase = 0;
   private crickets: { pan: number; period: number; next: number; f: number }[] = [];
   lightningAt = -1;
+  /** Until this time the game drives thunder from its own lightning strikes (no random rolls). */
+  externalThunderUntil = -1;
 
   constructor(private g: AudioGraph, seed = 7) {
     this.rng = new Rand(seed);
@@ -233,7 +235,7 @@ export class Ambience {
     // Weather.
     t = due('drip', 0.05, 0.25, raining && !mine);
     if (t !== null) this.drip(t, s.indoor ? 0.4 : 1);
-    t = due('thunder', 14, 38, storm);
+    t = due('thunder', 14, 38, storm && now > this.externalThunderUntil);
     if (t !== null) this.thunder(t, r.next());
     // Farm wind chimes on strong gusts.
     t = due('chime', 3, 9, s.map === 'farm' && this.gust > 0.75 && !storm);
@@ -477,7 +479,8 @@ export class Ambience {
       noiseHit(g, d, tt, { type: 'lowpass', f: 200 + (1 - dist) * 250, q: 0.7, amp: (0.6 - i * 0.05) * (1 - dist * 0.5), attack: 0.15 + this.rng.next() * 0.3, tau: 0.6 + this.rng.next() * 0.8, buf: g.brown });
       tt += 0.4 + this.rng.next() * 0.9;
     }
-    g.duckMusic(t, 0.55, 2.5, 2);
+    // Near strikes push the score right down; distant rolls only make a little room.
+    g.duckMusic(t, 0.55 + 0.3 * dist, 1 + 1.5 * (1 - dist), 2);
     this.lightningAt = t;
   }
 

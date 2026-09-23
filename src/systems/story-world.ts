@@ -549,7 +549,7 @@ class Koi {
         uniform float uTime; uniform float uGlow; varying vec2 vP;
         float cell(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); float d = 1.0;
           for (int y=-1;y<=1;y++) for (int x=-1;x<=1;x++){ vec2 g = vec2(float(x),float(y));
-            vec2 o = 0.5 + 0.5*sin(uTime*0.9 + 6.2831*fract(sin(dot(i+g, vec2(127.1,311.7)))*43758.5));
+            vec2 h = fract(sin(vec2(dot(i+g, vec2(127.1,311.7)), dot(i+g, vec2(269.5,183.3))))*43758.5); vec2 o = 0.5 + 0.5*sin(uTime*0.9 + 6.2831*h);
             d = min(d, length(g + o - f)); }
           return d; }
         void main(){

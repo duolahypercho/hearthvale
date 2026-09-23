@@ -32,7 +32,7 @@ const STAMP = `<svg class="lt-stamp" viewBox="0 0 90 110" aria-hidden="true">
   <rect x="36" y="36" width="18" height="26" rx="4" fill="url(#stg)" stroke="#1a2230" stroke-width="2.5"/>
   <path d="M33 62 h24 l-4 6 h-16 z" fill="#1a2230"/>
   <path d="M11 80 q17 -8 34 0 t34 0 v7 h-68 z" fill="#3f6a4a"/>
-  <text x="45" y="100" text-anchor="middle" font-family="Fredoka, sans-serif" font-size="11" font-weight="700" fill="#6a4a2a">HEARTHVALE · 2c</text>
+  <text x="45" y="100" text-anchor="middle" font-family="Fredoka, sans-serif" font-size="9.5" font-weight="700" letter-spacing=".2" textLength="70" lengthAdjust="spacingAndGlyphs" fill="#6a4a2a">HEARTHVALE · 2c</text>
 </svg>`;
 
 const SEAL = (letter: string, color = '#b8322a'): string => `<svg class="lt-seal" viewBox="0 0 100 100" aria-hidden="true">

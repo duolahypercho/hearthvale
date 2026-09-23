@@ -519,6 +519,44 @@ export class HouseInterior extends InteriorMap {
     this.spinningWheel(k, 10.35, 5.25, -0.5);
     k.cyl('thatch', 0.2, 0.16, 0.18, [9.55, 0, 6.05], { tint: 0xc8a068 });
     for (const [i, c] of [[0, 0xf4efe4], [1, 0xe8dcc8], [2, 0xd8b0a0]] as const) k.add('fabric', lumpySphere(0.075, 1, 0.25, rng), mat(9.5 + i * 0.07, 0.22, 6.02 + (i % 2) * 0.06), { tint: c });
+    // Entry bench (front right): a settle with a plaid cushion, a basket of apples + a farm-gloves pair,
+    // a tin milk can and an umbrella leaning at its end — the farmer's drop zone by the door.
+    const bx = 8.75;
+    const bz = 7.45;
+    k.box('wood', [1.45, 0.07, 0.42], [bx, 0.44, bz], { tint: OAK, r: 0.025, uv: 1.4 });
+    for (const sx of [-1, 1]) {
+      k.box('wood', [0.07, 0.62, 0.44], [bx + sx * 0.7, 0, bz], { tint: WALNUT, r: 0.02 });
+      k.box('wood', [0.1, 0.05, 0.5], [bx + sx * 0.7, 0.62, bz], { tint: WALNUT, r: 0.02 });
+    }
+    k.box('wood', [1.35, 0.05, 0.05], [bx, 0.12, bz - 0.15], { tint: 0x8a5a38 });
+    k.add('fabric', roundedBox(0.66, 0.08, 0.36, 0.035), mat(bx - 0.3, 0.51, bz - 0.02, 0, 0.03, 0), { tint: 0x9a3a3a });
+    for (let i = 0; i < 3; i++) k.box('fabric', [0.66, 0.084, 0.02], [bx - 0.3, 0.508, bz - 0.12 + i * 0.1], { tint: 0x2a4a3a, ry: 0.03 });
+    const ab = new THREE.LatheGeometry([[0, 0], [0.13, 0], [0.17, 0.04], [0.18, 0.13], [0.16, 0.13], [0.15, 0.04], [0, 0.03]].map(([a, b]) => new THREE.Vector2(a!, b!)), 18);
+    k.add('thatch', ab, mat(bx + 0.35, 0.475, bz - 0.02), { tint: 0xc89a60 });
+    for (let i = 0; i < 6; i++) k.sphere('ceramic', 0.052, [bx + 0.29 + (i % 3) * 0.06, 0.6 + Math.floor(i / 3) * 0.045, bz - 0.06 + (i % 2) * 0.07], i === 4 ? 0x9ab83a : i % 2 ? 0xb8262a : 0xd8442e);
+    k.add('fabric', roundedBox(0.16, 0.03, 0.1, 0.012), mat(bx + 0.02, 0.495, bz - 0.08, 0, 0.5, 0), { tint: 0xc8a068 });
+    k.add('fabric', roundedBox(0.16, 0.03, 0.1, 0.012), mat(bx + 0.06, 0.52, bz - 0.05, 0, 0.8, 0.1), { tint: 0xb89058 });
+    k.cyl('tin', 0.1, 0.12, 0.34, [bx - 0.95, 0, bz - 0.02], { tint: 0xc8d0d4, seg: 18 });
+    k.cyl('tin', 0.07, 0.1, 0.08, [bx - 0.95, 0.34, bz - 0.02], { tint: 0xc8d0d4, seg: 18 });
+    k.cyl('tin', 0.075, 0.075, 0.04, [bx - 0.95, 0.42, bz - 0.02], { tint: 0xb0b8bc, seg: 18 });
+    k.add('fabric', new THREE.ConeGeometry(0.07, 0.72, 8), mat(bx + 0.88, 0.4, bz + 0.05, 0, 0, -0.2), { tint: 0x2f6a8a });
+    k.cyl('wood', 0.008, 0.008, 0.2, [bx + 0.96, 0.72, bz + 0.05], { rz: -0.2, tint: WALNUT });
+    k.add('wood', new THREE.TorusGeometry(0.045, 0.01, 5, 10, Math.PI), mat(bx + 1.0, 0.92, bz + 0.05, 0, 0, -0.2), { tint: WALNUT });
+    this.solid(7.9, 7.1, 9.8, 7.9, 'bench');
+    // Seed chest (front left): a painted blanket-box of seed packets, a crate of seed potatoes, sacks
+    const cx = 2.35;
+    const cz = 7.35;
+    k.box('paint', [1.0, 0.46, 0.5], [cx, 0.04, cz], { tint: CAB, r: 0.03, ao: 0.25 });
+    k.box('wood', [1.06, 0.06, 0.56], [cx, 0.5, cz], { tint: BLOCK, r: 0.025 });
+    for (const sx of [-1, 1]) k.box('brass', [0.05, 0.36, 0.02], [cx + sx * 0.38, 0.1, cz - 0.26], { tint: 0x8a6a3a });
+    k.box('paint', [0.4, 0.2, 0.012], [cx, 0.18, cz - 0.255], { tint: 0xf2e6c8 });
+    for (const [px, pr, c] of [[-0.3, 0.2, 0xe0a040], [-0.12, -0.15, 0x7ab04a], [0.1, 0.35, 0xd86a8a], [0.3, -0.05, 0x6a9ad8]] as const) {
+      k.box('paint', [0.13, 0.012, 0.18], [cx + px, 0.566, cz + (pr > 0 ? -0.05 : 0.06)], { tint: c, ry: pr, r: 0.003 });
+      k.box('paint', [0.09, 0.013, 0.06], [cx + px, 0.572, cz + (pr > 0 ? -0.05 : 0.06)], { tint: 0xf6efe0, ry: pr, r: 0.003 });
+    }
+    k.box('wood', [0.5, 0.26, 0.36], [cx + 0.9, 0, cz + 0.04], { tint: 0xb08058, r: 0.015, ry: -0.12 });
+    for (let i = 0; i < 9; i++) k.add('ceramic', lumpySphere(0.06, 1, 0.22, rng), mat(cx + 0.76 + (i % 3) * 0.14, 0.27 + (i % 2) * 0.02, cz - 0.05 + Math.floor(i / 3) * 0.1), { tint: i % 4 ? 0xc89a62 : 0xb08050 });
+    this.solid(1.8, 7.0, 3.3, 7.8, 'seed-chest');
     this.statics.push(k.build('front'));
     this.solid(9.7, 4.7, 10.9, 5.8, 'spinning-wheel');
     this.solid(4.6, 7.1, 5.3, 7.8, 'coat-rack');

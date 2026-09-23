@@ -215,19 +215,22 @@ export class StarfallSquare extends FestivalMap {
     const bz = this.riverZ(BRIDGE_X);
     const br = buildBridge(r, 7.2, 2.2, 0.35);
     this.addProp(br, BRIDGE_X, bz, Math.PI / 2, { y: 0 });
-    // Lanterns along the east reach light the skating lane.
-    for (const x of [38.5, 44.5, 50.5]) {
-      const z = this.riverZ(x) - 3.1;
-      this.addProp(buildLanternPost(), x, z, Math.PI, { solidR: 0.35, lights: 'glow' });
-    }
+    // Lanterns along both reaches light the ice (their pools + reflections are drawn by the ice).
+    const lamps: THREE.Vector3[] = [];
+    const post = (x: number, z: number, rot: number): void => {
+      // addProp turns the post's lamp into a glow sprite (world position) — mirror those.
+      const n0 = this.glowList.length;
+      this.addProp(buildLanternPost(), x, z, rot, { solidR: 0.35, lights: 'glow' });
+      for (const g of this.glowList.slice(n0)) lamps.push(new THREE.Vector3(g.x, g.y, g.z));
+    };
+    for (const x of [38.5, 44.5, 50.5]) post(x, this.riverZ(x) - 3.1, Math.PI);
+    for (const x of [15.5, 21.5, 26.8]) post(x, this.riverZ(x) - 3.1, 0);
+    for (const x of [18.5, 45.5]) post(x, this.riverZ(x) + 3.2, x < BRIDGE_X ? 0 : Math.PI);
     // Lamps at the bridge ends.
     for (const sz of [-1, 1]) {
-      for (const sx of [-1, 1]) {
-        const x = BRIDGE_X + sx * 1.5;
-        const z = bz + sz * 4.0;
-        this.addProp(buildLanternPost(), x, z, sx < 0 ? 0 : Math.PI, { solidR: 0.35, lights: 'glow' });
-      }
+      for (const sx of [-1, 1]) post(BRIDGE_X + sx * 1.5, bz + sz * 4.0, sx < 0 ? 0 : Math.PI);
     }
+    this.river.setLamps(lamps);
   }
 
   private buildSquare(r: Rng): void {

@@ -773,6 +773,8 @@ export class HallMap implements GameMap {
     const PLASTER = 0xf0e2c6;
     const WAIN = 0x8a5a36;
     const TRIM = 0x5e3a22;
+    /** Wall-top caps: the cut-away section the camera looks down on reads as honey oak, not a black bar. */
+    const CAP = 0xa87448;
     const STONE = 0xb8ad9c;
     const H = 5.2;
     const SIDE_H = 4.4;
@@ -784,7 +786,7 @@ export class HallMap implements GameMap {
       box(b, 'wood', w, 1.05, t + 0.04, (x0 + x1) / 2, 0.35, z, WAIN);
       box(b, 'plaster', w, h - 1.4, t, (x0 + x1) / 2, 1.4, z, PLASTER, 0, 0.02);
       box(b, 'woodGrain', w, 0.12, t + 0.14, (x0 + x1) / 2, 1.38, z, TRIM);
-      box(b, 'woodGrain', w + 0.1, 0.26, t + 0.2, (x0 + x1) / 2, h - 0.02, z, TRIM);
+      box(b, 'woodGrain', w + 0.1, 0.26, t + 0.2, (x0 + x1) / 2, h - 0.02, z, CAP);
     };
     // Back wall pieces around the two side windows; the centre section rises higher for the rose window.
     const bz = 2.8;
@@ -796,7 +798,7 @@ export class HallMap implements GameMap {
       box(b, 'wood', 1.7, 1.05, 0.44, wx, 0.35, bz, WAIN);
       box(b, 'plaster', 1.7, 0.5, 0.4, wx, 1.4, bz, PLASTER);
       box(b, 'plaster', 1.7, 0.75, 0.4, wx, 4.45, bz, PLASTER);
-      box(b, 'woodGrain', 1.8, 0.26, 0.6, wx, H - 0.02, bz, TRIM);
+      box(b, 'woodGrain', 1.8, 0.26, 0.6, wx, H - 0.02, bz, CAP);
       this.windowAt(b, wx, 1.9, bz + 0.21, 1.6, 2.3);
     }
     // Rose window (6 petals = 6 rooms) over the dais.
@@ -820,7 +822,7 @@ export class HallMap implements GameMap {
         box(b, 'wood', 0.44, 1.05, w, sx, 0.35, (z0 + z1) / 2, WAIN);
         box(b, 'plaster', 0.4, SIDE_H - 1.4, w, sx, 1.4, (z0 + z1) / 2, PLASTER, 0, 0.02);
         box(b, 'woodGrain', 0.54, 0.12, w, sx, 1.38, (z0 + z1) / 2, TRIM);
-        box(b, 'woodGrain', 0.6, 0.26, w, sx, SIDE_H - 0.02, (z0 + z1) / 2, TRIM);
+        box(b, 'woodGrain', 0.6, 0.26, w, sx, SIDE_H - 0.02, (z0 + z1) / 2, CAP);
       };
       seg(2.6, 21.3);
     }
@@ -846,17 +848,15 @@ export class HallMap implements GameMap {
       for (const [x0, x1] of [[2, 11.8], [18.2, 28]] as const) {
         box(b, 'stone', x1 - x0, 0.3, 0.34, (x0 + x1) / 2, 0, wz, STONE);
         box(b, 'wood', x1 - x0, 1.0, 0.3, (x0 + x1) / 2, 0.3, wz, WAIN);
-        box(b, 'woodGrain', x1 - x0 + 0.04, 0.1, 0.46, (x0 + x1) / 2, 1.3, wz, TRIM);
-        // Turned spindles + a honey-oak rail (a dark rail reads as a black wire across the room from above).
-        for (let x = x0 + 1.2; x < x1 - 0.6; x += 2.2) cyl(b, 'woodGrain', 0.06, 0.07, 0.9, x, 1.85, wz, 0xa8764a, 8);
-        box(b, 'woodGrain', x1 - x0, 0.1, 0.16, (x0 + x1) / 2, 2.28, wz, 0xb8844e);
+        // A honey-oak cap only: an upper rail on spindles read as a wire strung across the room from above.
+        box(b, 'woodGrain', x1 - x0 + 0.04, 0.1, 0.46, (x0 + x1) / 2, 1.3, wz, CAP);
       }
     }
     // Front knee wall with the doorway (cut-away so the camera sees in).
     for (const [x0, x1] of [[1.8, 13.6], [16.4, 28.2]] as const) {
       box(b, 'stone', x1 - x0, 0.35, 0.46, (x0 + x1) / 2, 0, 21.2, STONE);
       box(b, 'wood', x1 - x0, 0.55, 0.4, (x0 + x1) / 2, 0.35, 21.2, WAIN);
-      box(b, 'woodGrain', x1 - x0 + 0.1, 0.12, 0.56, (x0 + x1) / 2, 0.9, 21.2, TRIM);
+      box(b, 'woodGrain', x1 - x0 + 0.1, 0.12, 0.56, (x0 + x1) / 2, 0.9, 21.2, CAP);
     }
     for (const dx of [13.5, 16.5]) {
       cyl(b, 'stone', 0.28, 0.32, 0.4, dx, 0.2, 21.2, STONE, 12);
@@ -885,13 +885,13 @@ export class HallMap implements GameMap {
     box(b, 'wood', 0.36, 0.95, w, x, 0.3, (z0 + z1) / 2, 0x8a5a36);
     box(b, 'plaster', 0.3, h - 1.25, w, x, 1.25, (z0 + z1) / 2, 0xf0e2c6, 0, 0.02);
     box(b, 'woodGrain', 0.46, 0.1, w, x, 1.24, (z0 + z1) / 2, 0x5e3a22);
-    box(b, 'woodGrain', 0.5, 0.2, w, x, h - 0.05, (z0 + z1) / 2, 0x5e3a22);
+    box(b, 'woodGrain', 0.5, 0.2, w, x, h - 0.05, (z0 + z1) / 2, 0xa87448);
   }
 
   private archAt(b: B, x: number, z: number, h: number): void {
     // Lintel above the opening and a round timber arch.
     box(b, 'plaster', 0.3, h - 2.45, 3.0, x, 2.45, z, 0xf0e2c6, 0, 0.02);
-    box(b, 'woodGrain', 0.5, 0.2, 3.0, x, h - 0.05, z, 0x5e3a22);
+    box(b, 'woodGrain', 0.5, 0.2, 3.0, x, h - 0.05, z, 0xa87448);
     const arch = new THREE.TorusGeometry(1.5, 0.1, 6, 20, Math.PI);
     arch.rotateY(Math.PI / 2);
     b.add(hallMats().woodGrain, arch, mat(x, 1.25, z, 0, 0, 0, 1, 0.8, 1), { tint: 0x6a4226 });
@@ -1383,6 +1383,51 @@ export class HallMap implements GameMap {
     }
     // Candles on the plinth base.
     for (const dz of [-0.35, 0.35]) b.add(m.candle, new THREE.CylinderGeometry(0.035, 0.035, 0.18 + r.next() * 0.08, 8), mat(f.plinth.x - f.side * 0.52, 0.3, f.plinth.z + dz));
+    // (Only materials this builder already uses — cloth, leaf, candle — so the dressing adds no draw calls.)
+    // Festoon strings of warm bulbs from the outer wall to the nave arcade (back and front of the room):
+    // the room reads as "someone is having a party in here" from the gameplay camera.
+    const bulb = new THREE.SphereGeometry(0.055, 8, 6);
+    for (const [zA, zB, y0, sag] of [[f.z0 + 0.55, f.z0 + 1.1, 3.05, 0.5], [f.z1 - 0.45, f.z1 - 1.0, 2.75, 0.4]] as const) {
+      const u0 = 0.25;
+      const u1 = 9.35;
+      const N = 15;
+      let prev: THREE.Vector3 | null = null;
+      for (let k = 0; k <= N; k++) {
+        const t = k / N;
+        const p = new THREE.Vector3(f.X(u0 + (u1 - u0) * t), y0 - Math.sin(t * Math.PI) * sag, zA + (zB - zA) * t);
+        if (prev) {
+          const d = p.clone().sub(prev);
+          const seg = new THREE.CylinderGeometry(0.01, 0.01, d.length(), 4);
+          seg.rotateZ(Math.PI / 2);
+          const yaw = Math.atan2(-d.z, d.x);
+          const pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+          b.add(m.cloth, seg, mat((p.x + prev.x) / 2, (p.y + prev.y) / 2, (p.z + prev.z) / 2, 0, yaw, pitch), { tint: 0x3a2a20 });
+        }
+        if (k > 0 && k < N) b.add(m.candle, bulb, mat(p.x, p.y - 0.07, p.z));
+        prev = p;
+      }
+    }
+    // A harvest basket of the room's goods by the rug, and a second small one by the outer wall.
+    const GOODS: Record<RoomId, number[]> = {
+      seed: [0xf2dfa8, 0x8fc46a, 0xe8607a, 0xf3efe0],
+      sun: [0xe8573e, 0xf2c43a, 0xffd166, 0x8fbf4a],
+      harvest: [0xe8812e, 0xc8955a, 0xd8573e, 0xf2c43a],
+      hearth: [0xd8573e, 0xf3e6c8, 0x9ad8ff, 0xc8955a],
+      craft: [0x8ab86a, 0xc8a068, 0x5a9ab8, 0xd8b04a],
+      tide: [0x5fe3d6, 0x9ac8e8, 0xf2c46a, 0x7a9a5a],
+    };
+    const goods = GOODS[f.def.id];
+    for (const [u, dz, s] of [[7.9, 2.25, 1], [1.1, -0.2, 0.8]] as const) {
+      const bx = f.X(u);
+      const bz = f.def.z + dz;
+      b.add(m.cloth, bevelCylinder(0.34 * s, 0.26 * s, 0.26 * s, 0.04, 12), mat(bx, 0.13 * s, bz), { tint: 0xb8864e });
+      b.add(m.cloth, new THREE.TorusGeometry(0.34 * s, 0.03, 5, 16).rotateX(Math.PI / 2), mat(bx, 0.26 * s, bz), { tint: 0x8a5a30 });
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + r.next();
+        const rr = k === 0 ? 0 : 0.17 * s;
+        b.add(m.leaf, lumpySphere((0.09 + r.next() * 0.04) * s, 0, 0.25, r), mat(bx + Math.cos(a) * rr, 0.3 * s + (k === 0 ? 0.07 : 0), bz + Math.sin(a) * rr), { tint: goods[k % goods.length]! });
+      }
+    }
   }
 
   /** The EverGlow fit-out: a humming ceiling panel on chains, cable runs, a logo plaque, no rugs or flowers. */

@@ -41,6 +41,7 @@ export interface StoryQuestView {
   text: string;
   goal: string;
   giver: string;
+  hint?: string;
   state: 'locked' | 'active' | 'done';
   progress?: [number, number];
 }

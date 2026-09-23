@@ -9,6 +9,7 @@ import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
 import { THEMES } from './themes';
 import { Composer, type TrackName } from './composer';
+export { critiquePiece, critiqueAll } from './critique';
 
 export interface Rendered {
   name: string;

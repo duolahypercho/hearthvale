@@ -119,7 +119,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'cue', cue: 'coach:arrive', t: 0 },
     { do: 'cam', to: { x: STOP.x - 1.6, z: STOP.z + 0.2, y: 1.5, yaw: 58, pitch: 15, dist: 15 }, dur: 4.6, ease: 'inOut' },
     { do: 'mark', id: 'establish' },
-    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 60, dist: 8.6, pitch: 13, y: 1.3 }), dur: 2.8, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 60, dist: 9.2, pitch: 19, y: 1.25 }), dur: 2.8, ease: 'inOut', wait: false },
     { do: 'player', visible: true },
     { do: 'walk', id: 'player', path: [[STOP.x - 1, STOP.z + 1.4], ARR_P], facing: 'right' },
     { do: 'emote', id: 'hollis', emote: 'exclaim' },
@@ -464,10 +464,11 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
   const px = room.x + (side < 0 ? 0.4 : -0.4);
   const archX = side < 0 ? 11.55 : 18.45;
   const [a, b] = PEEKERS[room.id] ?? ['hazel', 'kit'];
-  // From high over the room's back corner, looking across the lantern to the arch where two
-  // villagers peek in (their faces lit by the new light); the orbit swings 40° round the plinth.
+  // From high over the room's front-outer corner (the knee walls between rooms are low, the back
+  // wall is not: a lens behind it saw only plaster), looking across the lantern to the arch where two
+  // villagers peek in, their faces lit by the new light; the orbit swings 40° round the plinth.
   const look = { x: (px + archX) / 2 - side * 0.2, z: room.z - 0.1, y: 1.2 };
-  const orbit = (d: number): CamKey => ({ ...look, yaw: side * 135 + d, pitch: 46, dist: 8.8 });
+  const orbit = (d: number): CamKey => ({ ...look, yaw: side * 22 + d, pitch: 44, dist: 8.8 });
   return [
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },

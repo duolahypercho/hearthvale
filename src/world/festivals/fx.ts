@@ -206,8 +206,8 @@ const FW_PALETTE: [number, number, number][] = [
   [0.35, 0.8, 1.0],
   [0.55, 1.0, 0.45],
   [0.78, 0.45, 1.0],
-  [1.0, 0.88, 0.7],
-  [1.0, 0.5, 0.2],
+  [1.0, 0.84, 0.3],
+  [1.0, 0.45, 0.15],
 ];
 
 function fract(x: number): number {
@@ -378,10 +378,12 @@ export class Fireworks {
                 float tw = hvHash12(vec2(j + aInfo.x * 131.0, floor(uTime * 22.0)));
                 a *= f > 0.55 ? step(0.45, tw) * 1.4 : 1.0;
                 vec3 hot = vec3(1.0, 0.95, 0.85);
-                col = mix(hot, mix(c1, c2, step(0.5, fract(j * 0.37))), smoothstep(0.02, 0.22, f)) * 2.4;
+                // Hot white only for the first instant, then saturated colour (additive overlap would
+                // otherwise sum a dense shell to white).
+                col = mix(hot, mix(c1, c2, step(0.5, fract(j * 0.37))), smoothstep(0.0, 0.08, f)) * 1.45;
                 size = (0.34 - tr * 0.08) * (1.0 - f * 0.45) * (type == 3 ? 1.5 : 1.0);
                 // Initial white flash core.
-                if (tb < 0.12 && j < 1.5) { size = 3.2 * (1.0 - tb / 0.12); a = 1.0; col = vec3(1.0, 0.9, 0.75) * 2.0; }
+                if (tb < 0.12 && j < 1.5) { size = 2.2 * (1.0 - tb / 0.12); a = 1.0; col = vec3(1.0, 0.9, 0.75) * 2.0; }
               }
             }
             #if MIRROR == 1

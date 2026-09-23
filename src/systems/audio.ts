@@ -108,6 +108,8 @@ export class AudioSystem implements System {
   private muffle = -1;
   private speaking = false;
   private sleeping = false;
+  /** AudioContext time of the last lightning strike voiced from a weather:thunder event. */
+  private strikeAt = -10;
   // footsteps
   private stride = 0;
   private lastPos = { x: NaN, z: NaN };
@@ -324,6 +326,8 @@ export class AudioSystem implements System {
         return;
       }
       if (instant) return;
+      // The weather pod follows its thunder event with a generic cue; the strike already rolled.
+      if (cue === 'sfx' && arg === 'thunder' && this.ctx && this.ctx.currentTime - this.strikeAt < 0.25) return;
       if (cue === 'sfx' && arg) this.sfx(arg);
       else if (cue === 'hall:ignite') this.sfx('lantern');
       else if (cue === 'festival:greatLantern') this.sfx('hall');
@@ -350,6 +354,17 @@ export class AudioSystem implements System {
     });
     ev.on('energy:change', ({ energy }) => {
       if (energy <= 0) this.sfx('exhausted', undefined, 5);
+    });
+
+    // Storm strikes: the thunder answers the bolt you just saw — near strikes crack and rumble hard,
+    // far ones only roll. While strikes are coming the ambience stops rolling its own random thunder.
+    ev.on('weather:thunder', ({ intensity, distance }) => {
+      if (!this.engine || !this.ctx || game.paused) return;
+      const now = this.ctx.currentTime;
+      this.strikeAt = now;
+      const dist01 = Math.max(0, Math.min(1, distance / 36 + (1 - intensity) * 0.35));
+      this.engine.amb.externalThunderUntil = now + 20;
+      this.engine.amb.thunder(now + 0.02, dist01);
     });
 
     // Other pods voice these; the score just makes room.

@@ -20,6 +20,7 @@ import { OUTFIT_PALETTES } from '../../data/festivals';
 import { TileType } from '../tiles';
 import { MeshBuilder, bevelCylinder, mat, groundAO } from '../geom';
 import { textures } from '../../render/textures';
+import { applyWorldFx } from '../../render/worldfx';
 import { buildMarketStall, buildTownHouse } from '../props/townkit';
 import { buildBunting, buildFeastTable } from '../props/festival';
 import { buildHayBale, buildHarvestPile, buildScarecrow, buildBench } from '../props/farmkit';
@@ -103,7 +104,14 @@ export class HarvestFair extends FestivalMap {
 
   protected paint(): void {
     this.terrain.paint('path', (x, z) => this.pathValue(x, z));
-    this.terrain.paintCover('dry', (x, z) => Math.max(this.laneValue(x, z) * 0.95, smoothstep(0.55, 0.8, this.noise.fbm(x * 0.12, z * 0.12, 2) * 0.5 + 0.5) * 0.5), { x0: -2, z0: -2, x1: 66, z1: 50 });
+    // The race lane is a mown sports-day strip: alternating light / dark lanes (one per racer).
+    const mown = (x: number, z: number): number => {
+      const lane = this.laneValue(x, z);
+      if (lane <= 0) return 0;
+      const k = Math.floor((z - (LANE.z - 1.5)) / 0.6);
+      return lane * (k % 2 === 0 ? 0.9 : 0.55);
+    };
+    this.terrain.paintCover('dry', (x, z) => Math.max(mown(x, z), smoothstep(0.55, 0.8, this.noise.fbm(x * 0.12, z * 0.12, 2) * 0.5 + 0.5) * 0.5), { x0: -2, z0: -2, x1: 66, z1: 50 });
     this.terrain.paintCover('clover', (x, z) => smoothstep(0.62, 0.78, this.noise.fbm(x * 0.15 + 9, z * 0.15, 2) * 0.5 + 0.5) * (1 - this.pathValue(x, z)) * 0.6, { x0: -2, z0: -2, x1: 66, z1: 50 });
   }
 
@@ -269,6 +277,77 @@ export class HarvestFair extends FestivalMap {
       for (let i = 0; i + 1 < A.length; i++) this.addProp(buildBunting(r, A[i]!, A[i + 1]!, 0.12, 5, 0), 0, 0, 0, { y: 0 });
     }
     for (const [x, z] of [[16.5, 27.2], [23.2, 21.2], [34.4, 27.4]] as const) this.addProp(buildHayBale(r), x, z, (x * 3) % 0.4, { solidRect: [1.0, 0.6] });
+    this.buildLaneChalk(r);
+  }
+
+  /** Hand-limed chalk: lane dividers, start + finish lines, distance ticks, and straw kicked up along the ropes. */
+  private buildLaneChalk(r: Rng): void {
+    const b = new MeshBuilder();
+    const chalk = new THREE.MeshStandardMaterial({ color: 0xf4efe0, roughness: 1, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    applyWorldFx(chalk);
+    const strip = (ax: number, az: number, bx: number, bz: number, w: number): void => {
+      const len = Math.hypot(bx - ax, bz - az);
+      const n = Math.max(1, Math.ceil(len / 0.5));
+      const ux = (bx - ax) / len;
+      const uz = (bz - az) / len;
+      const px = -uz * w * 0.5;
+      const pz = ux * w * 0.5;
+      const pos: number[] = [];
+      const idx: number[] = [];
+      for (let i = 0; i <= n; i++) {
+        const x = ax + ((bx - ax) * i) / n;
+        const z = az + ((bz - az) * i) / n;
+        // Worn edges: the width breathes a little along the line.
+        const k = 0.75 + r.next() * 0.35;
+        pos.push(x + px * k, this.H(x + px, z + pz) + 0.018, z + pz * k, x - px * k, this.H(x - px, z - pz) + 0.018, z - pz * k);
+        if (i < n) idx.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      b.add(chalk, g, undefined, { tint: 0xffffff, ao: () => 0.9 + r.next() * 0.1 });
+    };
+    const xs = LANE.x0 + 1.0;
+    const xf = LANE.x1 - 1.0;
+    // Dividers: dashed, a hand-pushed marker's rhythm with scuffed gaps where racers crossed.
+    for (let k = 0; k <= 5; k++) {
+      const z = LANE.z - 1.5 + k * 0.6;
+      let x = xs;
+      while (x < xf) {
+        const seg = 0.9 + r.next() * 1.6;
+        const x1 = Math.min(xf, x + seg);
+        strip(x, z + (r.next() - 0.5) * 0.04, x1, z + (r.next() - 0.5) * 0.04, k === 0 || k === 5 ? 0.09 : 0.06);
+        x = x1 + (r.next() < 0.3 ? 0.25 + r.next() * 0.4 : 0.06);
+      }
+    }
+    // Start + finish lines (the finish doubled) and a tick every five metres.
+    strip(xs, LANE.z - 1.5, xs, LANE.z + 1.5, 0.12);
+    strip(xf, LANE.z - 1.5, xf, LANE.z + 1.5, 0.12);
+    strip(xf - 0.3, LANE.z - 1.5, xf - 0.3, LANE.z + 1.5, 0.07);
+    for (let x = xs + 5; x < xf - 2; x += 5) for (const sz of [-1, 1]) strip(x, LANE.z + sz * 1.5, x, LANE.z + sz * 1.25, 0.08);
+    const g = b.build({ name: 'lane-chalk' });
+    g.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) {
+        o.castShadow = false;
+        o.receiveShadow = true;
+        o.userData.noAO = true;
+      }
+    });
+    g.userData.perfTag = 'festival';
+    this.root.add(g);
+    // Straw flicked out of the sacks, thickest near the start and along the ropes.
+    const items: { x: number; y: number; z: number; rot: number; color: number; scale: number }[] = [];
+    for (let i = 0; i < 520; i++) {
+      const x = LANE.x0 + r.next() * (LANE.x1 - LANE.x0);
+      const edge = r.next() < 0.6;
+      const z = edge ? LANE.z + (r.next() < 0.5 ? -1 : 1) * (1.55 + r.next() * 0.4) : LANE.z + (r.next() - 0.5) * 3;
+      if (!edge && r.next() < smoothstep(LANE.x0, LANE.x0 + 10, x) * 0.8) continue;
+      items.push({ x, y: this.H(x, z), z, rot: r.next() * 6.28, color: [0xe8c878, 0xd8b060, 0xc8a050, 0xf0d890][Math.floor(r.next() * 4)]!, scale: 0.6 + r.next() * 0.5 });
+    }
+    const straw = new GroundScatter(items, 'leaf');
+    straw.mesh.userData.perfTag = 'festival';
+    this.root.add(straw.mesh);
   }
 
   private buildStalls(r: Rng): void {
@@ -400,7 +479,7 @@ export class HarvestFair extends FestivalMap {
     for (let k2 = 0; k2 < 5; k2++) {
       const z = LANE.z - 1.2 + k2 * 0.6;
       const i = person(randomLook(r, { palette: P.tops, child: k2 === 3 }), 'sack', LANE.x0 + 2, z, Math.PI / 2, { props: ['sack'], top: racerTints[k2], speed: 1 + k2 * 0.04 });
-      this.racers.push({ i, speed: 1.9 + r.next() * 0.6, off: r.next() * 3 });
+      this.racers.push({ i, speed: 1.7 + k2 * 0.22 + r.next() * 0.2, off: r.next() * 3 });
     }
     // Spectators along the lane in little knots of 2–4 (varied stances, some perched on bales),
     // turned to the race and the camera. The north bank is the grandstand; the south bank is sparse.
@@ -412,8 +491,10 @@ export class HarvestFair extends FestivalMap {
       [32.2, -1, 3],
       [37.8, -1, 2],
       [18.2, 1, 2],
+      [23.8, 1, 3],
       [29.6, 1, 3],
       [36.4, 1, 2],
+      [38.9, 1, 2],
     ];
     for (const [kx, side, size] of knots) {
       const z0 = LANE.z + side * 2.75;
@@ -504,8 +585,8 @@ export class HarvestFair extends FestivalMap {
 
   override stage(): void {
     super.stage();
-    // Catch the sack race mid-lane.
-    this.raceT0 = this.raceClock - 7.5;
+    // Catch the sack race mid-lane, the field strung out between the leader and the stragglers.
+    this.raceT0 = this.raceClock - 9;
   }
 
   // ───────────────────────────────────────────── Sack Race + Produce Judging mini-games

@@ -194,21 +194,38 @@ export class CoopInterior extends InteriorMap {
       const r = 0.34 + Math.sqrt(rng.next()) * 0.6;
       k.sphere('ceramic', 0.011, [hx + Math.cos(a) * r, 0.012, hz + Math.sin(a) * r * 0.8], rng.next() < 0.3 ? 0xc89a40 : 0xe8c050);
     }
-    // Dust bath: a scooped hollow of fine dry soil ringed by kicked-up clods
+    // Dust bath: a scooped hollow of fine dry soil — a soft-edged dusty patch (layered, ragged discs so
+    // no hard outline), a low kicked-up berm and loose clods flung out unevenly, a couple of feathers.
     const dbx = 3.3;
     const dbz = 2.2;
-    k.add('fabric', new THREE.CircleGeometry(0.62, 28).rotateX(-Math.PI / 2).scale(1.2, 1, 0.85), mat(dbx, 0.014, dbz), { tint: 0x8a6a4c });
-    k.add('fabric', new THREE.CircleGeometry(0.44, 24).rotateX(-Math.PI / 2).scale(1.2, 1, 0.85), mat(dbx, 0.018, dbz), { tint: 0x9e7c5a });
-    for (let i = 0; i < 22; i++) {
-      const a = (i / 22) * Math.PI * 2 + rng.next() * 0.3;
-      k.add('fabric', lumpySphere(0.05 + rng.next() * 0.04, 1, 0.4, rng), mat(dbx + Math.cos(a) * 0.72, 0.01, dbz + Math.sin(a) * 0.52, 0, rng.next() * 3, 0, 1, 0.5, 1), { tint: rng.next() < 0.5 ? 0x7a5a40 : 0x946e4e });
+    for (let i = 0; i < 7; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = 0.12 + rng.next() * 0.18;
+      const sc = 0.62 - i * 0.045 + rng.next() * 0.08;
+      const tint = new THREE.Color(0xa87c42).lerp(new THREE.Color(0x8a6444), i / 6);
+      k.add('fabric', new THREE.CircleGeometry(sc, 18).rotateX(-Math.PI / 2).scale(1.25, 1, 0.85), mat(dbx + Math.cos(a) * r * (1 - i / 8), 0.01 + i * 0.003, dbz + Math.sin(a) * r * 0.7 * (1 - i / 8)), { tint });
+    }
+    k.add('fabric', new THREE.CircleGeometry(0.36, 22).rotateX(-Math.PI / 2).scale(1.2, 1, 0.8), mat(dbx + 0.05, 0.034, dbz), { tint: 0x7a5a3e });
+    // Loose straw stalks strewn across the rim so the hollow melts into the bedding.
+    for (let i = 0; i < 34; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const rr = 0.5 + rng.next() * 0.35;
+      k.cyl('thatch', 0.007, 0.007, 0.14 + rng.next() * 0.14, [dbx + Math.cos(a) * rr * 1.2, 0.045, dbz + Math.sin(a) * rr * 0.85], { rz: Math.PI / 2, ry: rng.next() * Math.PI, tint: rng.next() < 0.5 ? 0xe8c878 : 0xc8a050 });
+    }
+    for (let i = 0; i < 18; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const rr = 0.55 + rng.next() * 0.7;
+      k.add('fabric', lumpySphere(0.018 + rng.next() * 0.025, 1, 0.4, rng), mat(dbx + Math.cos(a) * rr, 0.01, dbz + Math.sin(a) * rr * 0.72, 0, rng.next() * 3, 0, 1, 0.6, 1), { tint: rng.next() < 0.5 ? 0x7e5e42 : 0xa0805c });
+    }
+    for (const [fx, fz, fr, c] of [[0.55, 0.2, 0.6, 0xf4efe4], [-0.7, -0.15, 2.2, 0xc9773c], [0.2, -0.5, 4.1, 0xefe8da]] as const) {
+      k.add('fabric', new THREE.CircleGeometry(0.05, 8).rotateX(-Math.PI / 2).scale(0.45, 1, 1.5), mat(dbx + fx, 0.04, dbz + fz, 0, fr, 0.15), { tint: c });
     }
     // Perch log across the middle of the floor + a stump
     const lg = new THREE.CylinderGeometry(0.13, 0.15, 1.7, 12);
     lg.rotateZ(Math.PI / 2);
-    k.add('wood', lg, mat(4.3, 0.13, 4.75, 0, 0.25, 0), { tint: 0x7a5236 });
+    k.add('wood', lg, mat(4.3, 0.13, 4.75, 0, 0.25, 0), { tint: 0x9a6a44 });
     for (const s of [-1, 1]) k.add('wood', new THREE.CircleGeometry(0.12, 12).rotateY(Math.PI / 2), mat(4.3 + s * 0.83 * Math.cos(0.25), 0.13, 4.75 - s * 0.83 * Math.sin(0.25), 0, 0.25 + (s < 0 ? Math.PI : 0), 0), { tint: 0xd8b080 });
-    k.cyl('wood', 0.2, 0.23, 0.36, [5.55, 0, 4.45], { tint: 0x7a5236 });
+    k.cyl('wood', 0.2, 0.23, 0.36, [5.55, 0, 4.45], { tint: 0x96683f });
     k.cyl('wood', 0.19, 0.19, 0.01, [5.55, 0.36, 4.45], { tint: 0xd8b080 });
     // Grit bowl + a spare egg basket by the nests
     k.cyl('tin', 0.16, 0.12, 0.07, [1.35, 0, 3.4], { tint: 0xc8d0d4, seg: 18 });

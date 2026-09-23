@@ -30,6 +30,23 @@ const SF = 3.1;
 const PLANK = 0xc08a62;
 const POST = 0x6a4430;
 
+/** Flip a geometry's faces (and normals) so it reads from the inside (the tank's inner wall). */
+function insideOut(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const idx = g.getIndex();
+  if (idx) {
+    const a = idx.array as Uint16Array | Uint32Array;
+    for (let i = 0; i < a.length; i += 3) {
+      const t = a[i + 1]!;
+      a[i + 1] = a[i + 2]!;
+      a[i + 2] = t;
+    }
+    idx.needsUpdate = true;
+  }
+  const n = g.getAttribute('normal');
+  for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i));
+  return g;
+}
+
 export class BarnInterior extends InteriorMap {
   readonly pen: PenAnchors;
 
@@ -277,10 +294,19 @@ export class BarnInterior extends InteriorMap {
     // Mid-right: a round galvanised stock tank with a hand pump, a sawhorse with a saddle blanket
     const tx = 10.3;
     const tz = 5.9;
-    k.cyl('tin', 0.62, 0.6, 0.5, [tx, 0, tz], { tint: 0xc8d0d4, seg: 28 });
-    k.add('tin', new THREE.TorusGeometry(0.62, 0.025, 6, 28), mat(tx, 0.5, tz, Math.PI / 2, 0, 0), { tint: 0xa8b0b4 });
-    for (const y of [0.14, 0.32]) k.add('tin', new THREE.TorusGeometry(0.615, 0.012, 5, 28), mat(tx, y, tz, Math.PI / 2, 0, 0), { tint: 0xb0b8bc });
-    k.cyl('ceramic', 0.58, 0.58, 0.01, [tx, 0.44, tz], { tint: 0x5a8aa8, seg: 28 });
+    // Open-topped: an outer skin, an inward-facing inner wall, the rolled rim, then the water inside.
+    k.add('tin', new THREE.CylinderGeometry(0.62, 0.6, 0.5, 28, 1, true), mat(tx, 0.25, tz), { tint: 0xb8c0c4 });
+    k.add('tin', insideOut(new THREE.CylinderGeometry(0.595, 0.575, 0.48, 28, 1, true)), mat(tx, 0.26, tz), { tint: 0x7c8488 });
+    k.add('tin', new THREE.TorusGeometry(0.61, 0.028, 6, 28), mat(tx, 0.5, tz, Math.PI / 2, 0, 0), { tint: 0xd4dadc });
+    for (const y of [0.14, 0.32]) k.add('tin', new THREE.TorusGeometry(0.615, 0.014, 5, 28), mat(tx, y, tz, Math.PI / 2, 0, 0), { tint: 0x98a0a4 });
+    // Water: deep teal with a lighter sky-lit band toward the window side, hay stalks + a leaf afloat.
+    k.add('ceramic', new THREE.CircleGeometry(0.59, 28).rotateX(-Math.PI / 2), mat(tx, 0.4, tz), { tint: 0x2e5a66 });
+    k.add('ceramic', new THREE.RingGeometry(0.36, 0.5, 28, 1, 2.2, 1.6).rotateX(-Math.PI / 2), mat(tx, 0.402, tz), { tint: 0x6a9aa4 });
+    for (let i = 0; i < 6; i++) {
+      const a = i * 1.7 + 0.3;
+      const r = 0.15 + (i % 3) * 0.12;
+      k.cyl('thatch', 0.006, 0.006, 0.16 + (i % 2) * 0.08, [tx + Math.cos(a) * r, 0.405, tz + Math.sin(a) * r], { rz: Math.PI / 2, ry: a * 2.3, tint: 0xe0c070 });
+    }
     k.box('wood', [0.14, 0.95, 0.14], [tx + 0.72, 0, tz - 0.35], { tint: POST });
     k.cyl('iron', 0.06, 0.06, 0.34, [tx + 0.72, 0.95, tz - 0.35], { tint: 0x4a6a5a });
     k.cyl('iron', 0.02, 0.02, 0.36, [tx + 0.5, 1.12, tz - 0.35], { rz: Math.PI / 2 - 0.35, tint: 0x3a3634 });

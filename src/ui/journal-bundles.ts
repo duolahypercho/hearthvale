@@ -12,7 +12,7 @@ import type { Game } from '../core/game';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
 import { ROOMS, roomDef, type BundleDef } from '../data/bundles';
 import { itemDef } from '../data/items';
-import { lanternSvg, sackSvg, iconOf, itemName, CHECK, COIN } from './journal-art';
+import { lanternSvg, sackSvg, iconOf, itemName, whereFrom, CHECK, COIN } from './journal-art';
 import { itemIcon } from './icons';
 import { loadStoryFonts } from './journal-cutscene';
 
@@ -58,7 +58,8 @@ export class BundlePanel extends Screen {
     const right = el('div', 'jb-right');
     this.sacks = el('div', 'jb-sacks');
     this.card = el('div', 'jb-card');
-    const packWrap = el('div', 'jb-packwrap', `<div class="jb-packhead"><span>Your backpack</span><small>Click glowing items to offer them</small></div>`);
+    const packWrap = el('div', 'jb-packwrap', `<div class="jb-packhead"><span>Your backpack</span><small>Click glowing items to offer them</small><button class="u-btn green jb-all" data-nav>Offer all</button></div>`);
+    packWrap.querySelector('.jb-all')?.addEventListener('click', () => this.offerAll());
     this.pack = el('div', 'jb-pack');
     packWrap.appendChild(this.pack);
     right.append(this.sacks, this.card, packWrap);
@@ -111,7 +112,8 @@ export class BundlePanel extends Screen {
         <small>${st?.done ? 'Restored to the valley' : 'When this lantern burns'}</small>
         <b>${escapeHtml(def.restores.title)}</b>
         <span>${escapeHtml(def.restores.text)}</span>
-      </div>`;
+      </div>
+      <div class="jb-hall"><small>The Hall · ${this.q?.lanternsLit() ?? 0} of ${ROOMS.length} lanterns</small><div class="row">${ROOMS.map((r) => `<i class="${r.id === this.room ? 'me' : ''}" title="${escapeHtml(r.name)}">${lanternSvg(this.q?.room(r.id)?.glimmer ? 0xdff4ff : r.color, this.q?.room(r.id)?.done ? 1 : 0, 'jl-mini')}</i>`).join('')}</div></div>`;
   }
 
   private renderSacks(): void {
@@ -153,7 +155,7 @@ export class BundlePanel extends Screen {
         return `<div class="jb-slot ${full ? 'full' : have ? 'part' : ''}" data-item="${it.itemId}" style="--p:${pct}">
           <div class="ring"></div><div class="ic">${iconOf(it.itemId, it)}</div>
           <div class="cnt">${full ? CHECK : `${have}/${it.qty}`}</div>
-          <div class="lbl">${escapeHtml(itemName(it.itemId, it.name))}</div></div>`;
+          <div class="lbl">${escapeHtml(itemName(it.itemId, it.name))}</div>${!full && whereFrom(it.itemId) ? `<div class="src">${escapeHtml(whereFrom(it.itemId))}</div>` : ''}</div>`;
       })
       .join('');
     const gold = d.gold
@@ -193,9 +195,12 @@ export class BundlePanel extends Screen {
     const b = this.bundle();
     const want = new Set(b && !b.done ? b.def.items.filter((it) => (b.given[it.itemId] ?? 0) < it.qty).map((it) => it.itemId) : []);
     this.pack.innerHTML = '';
+    const all = this.pack.parentElement?.querySelector<HTMLElement>('.jb-all');
+    if (all) all.classList.toggle('hv-hidden', !(inv?.slots ?? []).some((s) => s && want.has(s.id)));
     (inv?.slots ?? []).slice(0, 30).forEach((s, i) => {
       const c = el('div', `u-slot jb-pslot${s && want.has(s.id) ? ' want' : ''}${!s ? ' empty' : ''}`);
       if (s) {
+        c.dataset.id = s.id;
         c.innerHTML = `${itemIcon(s.id)}${s.qty > 1 ? `<span class="qty">${s.qty}</span>` : ''}`;
         c.addEventListener('pointerenter', () => tooltip.show(`<b>${escapeHtml(itemDef(s.id)?.name ?? s.id)}</b>${want.has(s.id) ? '<br/><span style="color:#3f8a2e">Wanted by this bundle — click to offer</span>' : ''}`));
         c.addEventListener('pointerleave', () => tooltip.hide());
@@ -224,6 +229,33 @@ export class BundlePanel extends Screen {
     const target = this.card.querySelector<HTMLElement>(`.jb-slot[data-item="${itemId}"]`);
     this.fly(from, target);
     window.setTimeout(() => this.afterGive(roomWasDone), 380);
+  }
+
+  /** Offer every wanted item in the backpack to the selected bundle at once. */
+  private offerAll(): void {
+    const b = this.bundle();
+    const q = this.q;
+    if (!b || !q || b.done) return;
+    const roomWasDone = !!q.room(this.room)?.done;
+    let given = 0;
+    let delay = 0;
+    for (const it of b.def.items) {
+      const left = it.qty - (b.given[it.itemId] ?? 0);
+      if (left <= 0) continue;
+      const from = this.pack.querySelector<HTMLElement>(`.jb-pslot.want[data-id="${it.itemId}"]`);
+      const n = q.contribute(b.def.id, it.itemId, left);
+      if (n <= 0) continue;
+      given += n;
+      const target = this.card.querySelector<HTMLElement>(`.jb-slot[data-item="${it.itemId}"]`);
+      if (from) window.setTimeout(() => this.fly(from, target), delay);
+      delay += 90;
+    }
+    if (!given) {
+      sfx(this.game, 'error');
+      return;
+    }
+    sfx(this.game, 'drop');
+    window.setTimeout(() => this.afterGive(roomWasDone), 380 + delay);
   }
 
   private payGold(): void {

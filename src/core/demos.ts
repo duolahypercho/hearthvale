@@ -116,7 +116,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'house-night': { map: 'house', x: 8.9, z: 4.4, facing: 'left', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: -0.35 }, showcase: ['interior'] },
   'coop-interior': { map: 'coop', x: 4.2, z: 5.2, facing: 'right', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 15.5, offsetZ: 0.8 }, showcase: ['animals'] },
   'barn-interior': { map: 'barn', x: 6.35, z: 3.85, facing: 'up', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: 0.45 }, showcase: ['animals'] },
-  'animals-pasture': { map: 'farm', x: 41.5, z: 39.6, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
+  'animals-pasture': { map: 'farm', x: 41.5, z: 39.6, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
   // &pet=dog|cat picks the pet, &hearts=0 stops the staged petting hearts (all 'animals' showcases).
   'coop-night': { map: 'coop', x: 4.5, z: 5.4, facing: 'up', time: 21.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 15.5, offsetZ: 0.8 }, showcase: ['animals'] },
   'barn-night': { map: 'barn', x: 6.5, z: 5.6, facing: 'up', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: 0.45 }, showcase: ['animals'] },
@@ -141,7 +141,9 @@ export const DEMOS: Record<string, DemoDef> = {
   'fest-spring': { map: 'fest-spring', x: 25.2, z: 27.9, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 31, offsetX: 6.6, offsetZ: -2.1 }, showcase: ['festival-show'] },
   'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 32, offsetX: -3.2, offsetZ: -7.5 }, showcase: ['festival-show'] },
   'fest-fall': { map: 'fest-fall', x: 30.2, z: 27.6, facing: 'up', time: 15.1, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 35, offsetX: 3.2, offsetZ: -8.2 }, showcase: ['festival-show'] },
-  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 40, offsetX: -0.4, offsetZ: -8.6 }, showcase: ['festival-show'] },
+  // Starfall opens at dusk (rose-lit snow, the first lamps); `fest-winter-night` = full dark, aurora + lamplight on the ice.
+  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 18.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 31, distance: 43, offsetX: -0.4, offsetZ: -7.6 }, showcase: ['festival-show'] },
+  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 42, offsetX: -0.4, offsetZ: -7.8 }, showcase: ['festival-show'] },
   // Festival mini-games (they play themselves while the demo is paused): Ribbon Dance, Lantern Release, Sack Race,
   // Produce Judging, Gift Exchange, Starlight Skate. Same as `?demo=fest-<season>&ui=festival:<activity>`.
   'fest-spring-dance': { map: 'fest-spring', x: 31.2, z: 37.2, facing: 'up', time: 12.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 38, distance: 19.5, offsetX: 0.4, offsetZ: -4.4 }, showcase: ['festival-show'], ui: 'festival:dance' },

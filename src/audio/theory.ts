@@ -20,6 +20,8 @@ export interface Chord {
   root: number;
   /** Chord tones as semitone offsets above the chord root (root first). */
   tones: number[];
+  /** Written inversion: the bass note in semitones above the chord root ('I/3' → 4, 'V/5' → 7). */
+  bass?: number;
 }
 
 const NUMERALS: Record<string, number> = { I: 0, II: 2, III: 4, IV: 5, V: 7, VI: 9, VII: 11 };
@@ -29,7 +31,9 @@ const NUMERALS: Record<string, number> = { I: 0, II: 2, III: 4, IV: 5, V: 7, VI:
  * accidentals explicit): 'I', 'vi7', 'IVmaj7', 'bVII', 'V7', 'ii7', 'Isus2', 'iv6', 'Iadd9', 'viidim', 'bVImaj7'.
  */
 export function parseChord(sym: string): Chord {
-  const m = /^(b|#)?(VII|VI|IV|V|III|II|I|vii|vi|iv|v|iii|ii|i)(.*)$/.exec(sym.trim());
+  // Slash inversions name the chord member in the bass: '/3' third, '/5' fifth, '/7' seventh.
+  const [body, inv] = sym.trim().split('/') as [string, string | undefined];
+  const m = /^(b|#)?(VII|VI|IV|V|III|II|I|vii|vi|iv|v|iii|ii|i)(.*)$/.exec(body);
   if (!m) throw new Error(`bad chord symbol "${sym}"`);
   const acc = m[1] === 'b' ? -1 : m[1] === '#' ? 1 : 0;
   const num = m[2]!;
@@ -50,7 +54,13 @@ export function parseChord(sym: string): Chord {
   else if (q === 'dim') tones = [0, 3, 6];
   else if (q === 'm7b5') tones = [0, 3, 6, 10];
   else if (q !== '') throw new Error(`bad chord quality "${q}" in "${sym}"`);
-  return { symbol: sym, root, tones };
+  const c: Chord = { symbol: sym, root, tones };
+  if (inv) {
+    const idx = inv === '3' ? 1 : inv === '5' ? 2 : inv === '7' ? 3 : -1;
+    if (idx < 0 || tones[idx] === undefined) throw new Error(`bad inversion "/${inv}" in "${sym}"`);
+    c.bass = tones[idx]! % 12;
+  }
+  return c;
 }
 
 /** Absolute pitch classes (0..11, relative to C) of a chord in a key. */
