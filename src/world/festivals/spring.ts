@@ -151,7 +151,7 @@ export class SpringParade extends FestivalMap {
     this.plantTrees(r);
     this.plantNature(r);
     this.buildCrowd(r);
-    this.petals = new PetalStorm({ count: 2600, box: new THREE.Vector3(46, 9, 34), colors: [0xf9c6d6, 0xfbd8e2, 0xffffff, 0xf4aec4, 0xfde8ee], drift: 1.3, fall: 0.3 });
+    this.petals = new PetalStorm({ count: 3200, box: new THREE.Vector3(46, 9, 34), colors: [0xf9c6d6, 0xfbd8e2, 0xffffff, 0xf4aec4, 0xfde8ee], drift: 1.3, fall: 0.3, size: 1.7 });
     this.root.add(this.petals.mesh);
     this.fx.push({ update: (_dt, game) => this.petals.update(game.rc.rig.focus) });
     // Petal carpet on the lane and the green's ring.
@@ -249,6 +249,8 @@ export class SpringParade extends FestivalMap {
     kinds.forEach((k, i) => {
       const f = buildFlowerFloat(r, k);
       f.group.userData.perfTag = 'floats';
+      // Moving props skip the GTAO pass (contact shade comes from their shadows).
+      f.group.traverse((o) => (o.userData.noAO = true));
       this.root.add(f.group);
       // Showcase spacing: the queen centre stage, others fore and aft.
       const s = [0.47, 0.34, 0.6, 0.2][i]!;

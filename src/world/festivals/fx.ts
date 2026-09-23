@@ -664,7 +664,7 @@ export class Lanterns {
 export class Aurora {
   readonly group = new THREE.Group();
   readonly strength = { value: 1 };
-  constructor(center: THREE.Vector3, radius: number, bands = 3, o: { base?: number; height?: number; arc?: number; spacing?: number } = {}) {
+  constructor(center: THREE.Vector3, radius: number, bands = 3, o: { base?: number; height?: number; arc?: number; spacing?: number; lean?: number } = {}) {
     const hs = (o.height ?? 34) / 34;
     const arc = o.arc ?? 1.25;
     for (let b = 0; b < bands; b++) {
@@ -681,7 +681,9 @@ export class Aurora {
         const v = pos.getY(i) + 0.5;
         const a = ang0 + (ang1 - ang0) * u;
         const wob = Math.sin(u * 9 + b * 2) * 10 + Math.sin(u * 23 + b) * 4;
-        pos.setXYZ(i, center.x + Math.sin(a) * (rr + wob), base + v * h + Math.sin(u * 5 + b) * 6 * hs, center.z - Math.cos(a) * (rr + wob));
+        // `lean` tips the curtain tops towards the (southern) camera so a high diorama view sees their faces.
+        const lean = (o.lean ?? 0) * v * h;
+        pos.setXYZ(i, center.x + Math.sin(a) * (rr + wob - lean), base + v * h + Math.sin(u * 5 + b) * 6 * hs, center.z - Math.cos(a) * (rr + wob - lean));
       }
       // u along the band, v up.
       const uv = g.attributes.uv as THREE.BufferAttribute;
@@ -710,7 +712,7 @@ export class Aurora {
             float t = uTime;
             // Vertical rays drifting sideways + slow large folds.
             float rays = hvNoise(vec2(u * 90.0 + t * 0.35 + uBand * 13.0, 0.5)) * 0.6 + hvNoise(vec2(u * 230.0 - t * 0.6, 3.0)) * 0.4;
-            rays = pow(rays, 2.2) * 1.9;
+            rays = pow(rays, 1.5) * 1.35;
             float fold = 0.45 + 0.55 * hvNoise(vec2(u * 6.0 - t * 0.05 + uBand * 3.0, t * 0.03));
             // Bright lower hem, fading upwards; lower edge wavers.
             float hem = smoothstep(0.0, 0.08 + 0.05 * hvNoise(vec2(u * 30.0, t * 0.2)), v);

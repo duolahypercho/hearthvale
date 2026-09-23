@@ -253,8 +253,8 @@ export class FrozenRiver {
           vec3 n = normalize(vec3((r1 - r2) * 0.35, 1.0, (r1 - r3) * 0.35));
           float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
           float dk = smoothstep(0.0, 0.5, depth);
-          vec3 deep = vec3(0.04, 0.16, 0.26);
-          vec3 clear = vec3(0.22, 0.46, 0.58);
+          vec3 deep = vec3(0.025, 0.1, 0.19);
+          vec3 clear = vec3(0.13, 0.32, 0.44);
           vec3 col = mix(clear, deep, dk);
           // Frozen bubbles.
           vec2 bc = floor(p * 3.0);
@@ -276,7 +276,7 @@ export class FrozenRiver {
           float band = hvNoise(vec2(p.x * 0.08 + uTime * 0.02, p.y * 0.02)) * hvNoise(vec2(p.x * 0.5 - uTime * 0.05, 1.3));
           vec3 aur = mix(vec3(0.1, 0.9, 0.5), vec3(0.1, 0.6, 0.9), hvNoise(p * 0.05 + 4.0)) * pow(band, 1.6) * 0.9 * uAurora * smoothstep(0.4, 0.9, uNight);
           lit = mix(lit, sky * 0.5 + aur, min(fres, 0.6) * 0.55);
-          lit += aur * 0.45;
+          lit += aur * 0.22;
           // Glassy lamp glints: warm sparkles scattered where the lamplight grazes the ice.
           vec2 gc = floor(p * 2.2);
           vec2 gf = fract(p * 2.2) - 0.5 - (hvHash22(gc + 2.1) - 0.5) * 0.6;

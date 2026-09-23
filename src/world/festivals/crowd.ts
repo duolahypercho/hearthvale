@@ -342,11 +342,12 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
       b.add(Bone.Head, HP, lock, hm(Math.sin(a) * R * 0.72, R * 1.36, Math.cos(a) * R * 0.72, 0.6, a, 0), L.hair);
     }
   } else if (L.hairStyle === 'cap') {
-    const capTint = winter ? accent : 0xe2d8c6;
+    // Tweed / linen caps (a pale cream read as a chef's hat under the sun + bloom).
+    const capTint = winter ? accent : o === 'fall' ? shade(accent, 0.5) : [0x8a7a62, 0x5a6a7a, 0x9a8468][Math.floor((spec.phase ?? 0) * 3) % 3]!;
     b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.02, R * 1.02, 0.12, 16, 1, true), hm(0, R * 1.55, -0.02, -0.12), capTint);
     const pf = lumpySphere(R * 1.05, 1, 0.12, rng, 1.6);
     pf.scale(1.1, 0.55, 1.1);
-    b.add(Bone.Head, HP, pf, hm(0, R * 1.78, -0.05, -0.15), winter ? shade(accent, 1.1) : 0xe6ddcc);
+    b.add(Bone.Head, HP, pf, hm(0, R * 1.78, -0.05, -0.15), winter ? shade(accent, 1.1) : shade(capTint, 1.12));
     for (const sx of [-1, 1]) b.add(Bone.Head, HP, lumpySphere(0.1, 1, 0.12, rng), hm(sx * R * 0.9, R * 0.95, R * 0.1, 0, 0, 0, 0.6, 1, 0.9), L.hair);
   } else {
     for (let i = 0; i < 6; i++) {

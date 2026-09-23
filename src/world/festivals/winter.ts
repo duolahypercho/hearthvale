@@ -362,7 +362,7 @@ export class StarfallSquare extends FestivalMap {
   private buildSky(): void {
     // The diorama camera never sees open sky, so the curtains hang low over the forest just behind the
     // rooftops: a luminous veil rising out of the northern treeline (houses occlude its hem).
-    this.aurora = new Aurora(new THREE.Vector3(32, 0, 36), 30, 3, { base: 2.5, height: 15, arc: 0.95, spacing: 0.035 });
+    this.aurora = new Aurora(new THREE.Vector3(32, 0, 36), 32, 3, { base: 3, height: 14, arc: 1.0, spacing: 0.03, lean: 0.9 });
     this.aurora.group.userData.perfTag = 'sky';
     this.root.add(this.aurora.group);
     this.snow = new Snowfall(1600, new THREE.Vector3(40, 14, 32));

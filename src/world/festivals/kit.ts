@@ -28,7 +28,8 @@ function flowerHead(b: MeshBuilder, x: number, y: number, z: number, color: numb
 
 /** Mound of foliage studded with blooms (used on floats, arches, bandstand). */
 function bloomMound(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, r: number, colors: readonly number[], density = 1): void {
-  const leaf = lumpySphere(r, 1, 0.22, rng, 2);
+  // Small mounds read fine as a lumpy icosahedron (20 tris); big ones get one subdivision.
+  const leaf = lumpySphere(r, r < 0.25 ? 0 : 1, 0.22, rng, 2);
   sphericalNormals(leaf, new THREE.Vector3(), 0.5);
   b.add('boxFlower', leaf, mat(x, y, z), { tint: 0x4f9a3a, aoWorld: (p) => 0.7 + 0.3 * THREE.MathUtils.smoothstep(p.y, y - r, y + r * 0.5) });
   const n = Math.round(10 * r * r * 12 * density);
@@ -79,15 +80,15 @@ export function buildFlowerFloat(rng: Rng, kind: 'tulip' | 'tree' | 'throne' | '
   for (let row = 0; row < 3; row++) {
     const y = deckY - 0.08 - row * 0.16;
     for (const sz of [-1, 1]) {
-      for (let i = 0; i <= 22; i++) flowerHead(b, -L / 2 + (i / 22) * L, y + (rng.next() - 0.5) * 0.04, sz * (W / 2 + 0.03), bands[row]!, 1.25, rng);
+      for (let i = 0; i <= 15; i++) flowerHead(b, -L / 2 + ((i + (row % 2) * 0.5) / 15.5) * L, y + (rng.next() - 0.5) * 0.04, sz * (W / 2 + 0.03), bands[row]!, 1.6, rng);
     }
-    for (const sx of [-1, 1]) for (let i = 0; i <= 12; i++) flowerHead(b, sx * (L / 2 + 0.03), y + (rng.next() - 0.5) * 0.04, -W / 2 + (i / 12) * W, bands[row]!, 1.25, rng);
+    for (const sx of [-1, 1]) for (let i = 0; i <= 8; i++) flowerHead(b, sx * (L / 2 + 0.03), y + (rng.next() - 0.5) * 0.04, -W / 2 + ((i + (row % 2) * 0.5) / 8.5) * W, bands[row]!, 1.6, rng);
   }
   b.add('boxFlower', roundedBox(L - 0.1, 0.46, W - 0.1, 0.06, 1), mat(0, deckY - 0.26, 0), { tint: 0x3f7a2e });
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) wheel(b, sx * 1.05, 0.38, sz * (W / 2 + 0.12), 0.36);
   // Deck rim garland.
-  for (let i = 0; i < 40; i++) {
-    const t = i / 40;
+  for (let i = 0; i < 30; i++) {
+    const t = i / 30;
     const per = 2 * (L + W);
     let d = t * per;
     let x = -L / 2;

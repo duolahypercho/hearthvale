@@ -20,7 +20,7 @@
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { FESTIVALS, ACTIVITIES, festivalOn, festivalForMap, activitiesFor, type FestivalDef, type FestivalId, type ActivityId } from '../data/festivals';
-import { NPCS, type NpcId } from '../data/npcs';
+import { NPCS, MOODS, type NpcId, type Mood } from '../data/npcs';
 import { SpringParade } from '../world/festivals/spring';
 import { SummerLanterns } from '../world/festivals/summer';
 import { HarvestFair } from '../world/festivals/fall';
@@ -198,7 +198,8 @@ export class FestivalSystem implements System {
     if (!box || !NPCS[id]) return;
     this.busy = true;
     try {
-      await box.say(id, text.startsWith('[') ? text : `[happy] ${text}`);
+      const l = splitMood(text, 'happy');
+      await box.say(id, l.text, l.mood);
       box.end();
     } finally {
       this.busy = false;
@@ -212,7 +213,8 @@ export class FestivalSystem implements System {
     if (!box) return this.runActivity(a, false);
     this.busy = true;
     try {
-      const k = await box.choose(host, def.ask, [def.yes, def.no], 'happy');
+      const l = splitMood(def.ask, 'happy');
+      const k = await box.choose(host, l.text, [def.yes, def.no], l.mood);
       box.end();
       if (k !== 0) return;
     } finally {
@@ -232,7 +234,7 @@ export class FestivalSystem implements System {
     if (!box) return opts[0]!;
     this.busy = true;
     try {
-      const k = await box.choose('hazel', '[thinking] Now — who will you dance with?', [...opts.map((i) => NPCS[i].name.split(' ')[0]!), 'Surprise me!'], 'happy');
+      const k = await box.choose('hazel', 'Now — who will you dance with?', [...opts.map((i) => NPCS[i].name.split(' ')[0]!), 'Surprise me!'], 'thinking');
       box.end();
       if (k < 0) return null;
       return k < 3 ? opts[k]! : ids[3 + Math.floor(Math.random() * (ids.length - 3))]!;
@@ -303,6 +305,13 @@ export class FestivalSystem implements System {
     this.visited = new Set(d?.visited ?? []);
     this.done = new Set(d?.done ?? []);
   }
+}
+
+/** "[mood] text" → mood + clean text (the scripted dialogue box doesn't parse tags). */
+function splitMood(text: string, fallback: Mood): { mood: Mood; text: string } {
+  const m = /^\[(\w+)\]\s*/.exec(text);
+  const mood = m && (MOODS as string[]).includes(m[1]!) ? (m[1] as Mood) : fallback;
+  return { mood, text: m ? text.slice(m[0].length) : text };
 }
 
 function fmtHour(h: number): string {
