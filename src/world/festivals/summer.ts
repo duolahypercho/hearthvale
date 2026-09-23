@@ -66,6 +66,8 @@ export class SummerLanterns extends FestivalMap {
       warps: [{ x0: 29, z0: 47, x1: 34, z1: 47, to: 'farm', x: 61.5, z: 28.5, facing: 'left' }],
     });
     this.activitySpots.push({ id: 'lanterns', x: ARCH.x, z: ARCH.z + 0.6, r: 2.8 });
+    this.visitorSpots.push({ x: 28.6, z: 23.4, yaw: 2.6 }, { x: 35.0, z: 23.2, yaw: -2.7 });
+    this.confettiColors = [0xffb050, 0xff8a60, 0x5fd8e8, 0xf6c8d8, 0xffffff];
   }
 
   // ───────────────────────────────────────────── shape
@@ -215,8 +217,8 @@ export class SummerLanterns extends FestivalMap {
     this.beam.position.set(LIGHTHOUSE.x, lampY, LIGHTHOUSE.z);
     this.beam.userData.perfTag = 'festival';
     this.root.add(this.beam);
+    // The lamp room is a glow sprite + the sweeping beam (no point light: ≤ 3 dynamic lights a map).
     this.glowPt(LIGHTHOUSE.x, lampY, LIGHTHOUSE.z, 0xfff0c0, 3.2, 0.02);
-    this.addLight(LIGHTHOUSE.x, lampY, LIGHTHOUSE.z, 0xfff0c0, 6, 0, 14);
   }
 
   private buildBeach(r: Rng): void {
@@ -282,7 +284,8 @@ export class SummerLanterns extends FestivalMap {
     for (const [x, z] of [[25.6, 35.0], [38.2, 35.2]] as const) {
       this.glowPt(x - 0.9, this.H(x, z) + 2.0, z + 0.5, 0xffc070, 0.9, 0.04);
       this.glowPt(x + 0.9, this.H(x, z) + 2.0, z + 0.5, 0xffc070, 0.9, 0.04);
-      this.addLight(x, this.H(x, z) + 2.1, z + 1.2, 0xffb060, 4, 0.02, 6);
+      // Stall lamps: halo sprites + a warm pool decal on the boardwalk (faked, not a point light).
+      this.pools.add(x, z + 1.0, this.H(x, z + 1), 2.2);
     }
   }
 
@@ -348,7 +351,7 @@ export class SummerLanterns extends FestivalMap {
     const specs: CrowdSpec[] = [];
     const pick = <T,>(a: readonly T[]): T => a[Math.floor(r.next() * a.length)]!;
     const person = (look: NpcLook, anim: CrowdSpec['anim'], x: number, z: number, yaw: number, extra: Partial<CrowdSpec> = {}): number => {
-      specs.push({ look, outfit: 'summer', anim, x, z, yaw, top: pick(P.tops), accent: pick(P.accents), phase: r.next(), speed: 0.85 + r.next() * 0.3, ...extra });
+      specs.push({ look, outfit: 'summer', anim, x, z, yaw, top: pick(P.tops), accent: pick(P.accents), hatTint: pick(P.hats), phase: r.next(), speed: 0.85 + r.next() * 0.3, ...extra });
       return specs.length - 1;
     };
     const warm = [0xffb050, 0xff8a60, 0xffc870, 0xf6c8d8];
@@ -440,7 +443,9 @@ export class SummerLanterns extends FestivalMap {
     const sky = new Lanterns({ count: 26, area: new THREE.Vector4(14, 54, 20, 30), seaY: 1.2, mode: 'sky', rng: r.fork('sky'), points: pts.filter((_, i) => i % 3 === 0) });
     sky.group.userData.perfTag = 'lanterns';
     this.root.add(sky.group);
-    this.fireworks = new Fireworks({ area: new THREE.Vector4(30, 6, 30, 6), heights: new THREE.Vector2(5.5, 8), groundY: 0.2, shells: 8, sparks: 120, mirrorY: 0, spread: 0.5, size: 0.8 });
+    // Shells burst low over the bay, inside the high diorama camera's frame (the sky is never in
+    // shot), and read twice: once in the air and again as coloured reflections on the water.
+    this.fireworks = new Fireworks({ area: new THREE.Vector4(32, 8, 28, 5), heights: new THREE.Vector2(4.4, 6.6), groundY: 0.2, shells: 7, sparks: 110, mirrorY: 0, spread: 0.72, size: 1.25 });
     this.fireworks.group.userData.perfTag = 'fireworks';
     this.root.add(this.fireworks.group);
     this.flashLight = new THREE.PointLight(0xffffff, 0, 60, 1.2);
@@ -464,8 +469,8 @@ export class SummerLanterns extends FestivalMap {
     const f = this.fireworks.flash(t, this.flashCol);
     const night = game.lighting.night;
     this.flashLight.color.copy(this.flashCol.r + this.flashCol.g + this.flashCol.b > 0 ? this.flashCol : this.flashLight.color);
-    this.flashLight.intensity = Math.min(f, 2.5) * 55 * night;
-    this.sea.flash.value.copy(this.flashCol).multiplyScalar(Math.min(f, 2) * 0.35 * night);
+    this.flashLight.intensity = Math.min(f, 2.5) * 30 * night;
+    this.sea.flash.value.copy(this.flashCol).multiplyScalar(Math.min(f, 2) * 0.14 * night);
     this.fireworks.intensity.value = 0.25 + night * 0.75;
     // Lighthouse beam sweeps the bay.
     this.beam.rotation.y = t * 0.55;

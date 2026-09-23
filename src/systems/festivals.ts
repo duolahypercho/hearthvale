@@ -25,7 +25,7 @@
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { FESTIVALS, ACTIVITIES, festivalOn, festivalForMap, activitiesFor, shortName, type FestivalDef, type FestivalId, type ActivityId } from '../data/festivals';
+import { FESTIVALS, ACTIVITIES, ACTIVITY_PAR, festivalOn, festivalForMap, activitiesFor, shortName, coopVisitors, type FestivalDef, type FestivalId, type ActivityId } from '../data/festivals';
 import { NPCS, MOODS, type NpcId, type Mood } from '../data/npcs';
 import { SpringParade } from '../world/festivals/spring';
 import { SummerLanterns } from '../world/festivals/summer';
@@ -90,6 +90,14 @@ declare module '../core/events' {
   }
 }
 
+/** Score bands (fraction of par) per ribbon tier: [top, 1st/2nd cut, 2nd/3rd cut, 3rd/none cut]. */
+const TIER_BANDS: Partial<Record<ActivityId, number[]>> = {
+  dance: [0.92, 0.74, 0.55, 0.37],
+  lanterns: [1.0, 0.83, 0.57, 0.37],
+  pumpkin: [0.99, 0.86, 0.78, 0.6],
+  skate: [0.98, 0.85, 0.65, 0.45],
+};
+
 type MapCtor = new (game: Game) => FestivalMap;
 const MAPS: Partial<Record<string, MapCtor>> = {
   'fest-spring': SpringParade,
@@ -113,6 +121,8 @@ export class FestivalSystem implements System {
   private lineIx = new Map<string, number>();
   /** Co-op boards for today, keyed by dayKey(activity). */
   private boards = new Map<string, FestivalScore[]>();
+  /** The festival map the player is on (so its prize ribbon comes off when they leave). */
+  private grounds: FestivalMap | null = null;
 
   init(game: Game): void {
     this.game = game;
@@ -163,6 +173,7 @@ export class FestivalSystem implements System {
       const f = festivalOn(cal.season, cal.day);
       const onGrounds = festivalForMap(map);
       if (onGrounds) {
+        this.grounds = this.map();
         if (this.current?.id !== onGrounds.id) {
           this.current = onGrounds;
           game.events.emit('festival:start', { id: onGrounds.id, name: onGrounds.name, map });
@@ -170,6 +181,8 @@ export class FestivalSystem implements System {
         }
         return;
       }
+      this.grounds?.unpin();
+      this.grounds = null;
       if (this.current) {
         game.events.emit('festival:end', { id: this.current.id });
         this.current = null;
@@ -217,13 +230,29 @@ export class FestivalSystem implements System {
     for (const [a, list] of Object.entries(snap.boards) as [ActivityId, FestivalScore[]][]) for (const e of list ?? []) if (e.player !== 'local') this.record(a, e);
   }
 
-  /** `&coop=1` staging (attract mode only): two visiting farmers who played just behind you. */
-  private demoPeers(auto: boolean, score: number, place: number): FestivalScore[] {
+  /**
+   * `&coop=1` staging (attract mode only): two visiting farmers with results of their own, drawn from
+   * a seeded skill distribution against the game's par (independent of your score), so a flop ranks
+   * below them and a great run above.
+   */
+  private demoPeers(auto: boolean, a: ActivityId): FestivalScore[] {
     if (!auto || !new URLSearchParams(location.search).has('coop')) return [];
-    return [
-      { player: 'peer:juniper', name: 'Juniper', score: Math.round(score * 0.91), place: Math.min(3, place + 1), color: '#5aa0d8' },
-      { player: 'peer:rowan', name: 'Rowan', score: Math.round(score * 0.74), place: Math.min(3, place + 2), color: '#d8785a' },
-    ];
+    const names = Object.entries(NPCS).flatMap(([id, n]) => [id, shortName(n.name)]);
+    const c = this.game.calendar;
+    return coopVisitors(names).map((v, k) => {
+      // Deterministic per day / farmer / game: skill in 0.5..0.97.
+      let h = 2166136261;
+      for (const ch of `${c.year}:${c.season}:${c.day}:${a}:${v.id}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+      const u = ((((h >>> 0) % 1000) / 1000) * 0.97 + k * 0.29) % 1;
+      // Ribbon tier first (skill), then a score inside that tier's band of the par, so the board
+      // never shows a lower tier out-scoring a higher one.
+      const place = u >= 0.72 ? 0 : u >= 0.45 ? 1 : u >= 0.22 ? 2 : 3;
+      const band = TIER_BANDS[a] ?? TIER_BANDS.dance!;
+      const [lo, hi] = [band[place + 1] ?? 0.1, band[place]!];
+      const w = (u * 7.3) % 1;
+      const score = a === 'sackrace' ? 1000 - 200 * Math.min(4, place + k) : Math.round(ACTIVITY_PAR[a] * (lo + (hi - lo) * (0.15 + w * 0.7)));
+      return { player: v.id, name: v.name, score, place, color: v.color };
+    });
   }
 
   private map(): FestivalMap | null {
@@ -367,8 +396,8 @@ export class FestivalSystem implements System {
         // The result card ranks every farmer who played today (co-op); your row is folded in live.
         board: (r) => {
           const you: FestivalScore = { player: 'local', name: 'You', score: r.score, place: r.noRibbon ? 3 : r.place };
-          const rows = [...this.board(a).filter((e) => e.player !== 'local'), ...this.demoPeers(auto, you.score, you.place), you];
-          return rows.sort((x, y) => x.place - y.place || y.score - x.score);
+          const rows = [...this.board(a).filter((e) => e.player !== 'local'), ...this.demoPeers(auto, a), you];
+          return rows.sort((x, y) => Math.min(x.place, 3) - Math.min(y.place, 3) || y.score - x.score);
         },
       });
     } finally {

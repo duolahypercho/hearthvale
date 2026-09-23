@@ -82,6 +82,8 @@ export interface CrowdSpec {
   top?: number;
   bottom?: number;
   accent?: number;
+  /** Townsfolk hat colour (only ~40 % wear a hat; see `headwear`). */
+  hatTint?: number;
 }
 
 const enum Bone {
@@ -165,6 +167,12 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     return local ? m.multiply(local) : m;
   };
   const shoe = L.shoes ?? (winter ? 0x6a4a36 : o === 'summer' ? 0xc89a6a : 0x5a3a24);
+  // Townsfolk headwear roll: ~40 % a seasonal hat, ~25 % a small accessory (headband / earmuffs /
+  // hair bow), the rest bare hair — so the crowd shows its hair styles and colours.
+  const hw = named ? -1 : new Rng(`${seed}:hw`).next();
+  const hatOn = named || hw < 0.4;
+  const accOn = !named && hw >= 0.4 && hw < 0.65;
+  const hatTint = spec.hatTint ?? accent;
   const skirt = L.skirt || o === 'summer' || (o === 'spring' && !named && L.hairStyle !== 'short' && L.hairStyle !== 'cap') || SKIRTED.has(L.hairStyle);
 
   // ── legs (a single capsule + a rounded shoe — legs and feet read below every hem)
@@ -233,7 +241,11 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     b.add(Bone.Torso, P, box(0.1, 0.2, 0.045), TT(0.12, 0.34, -0.19, -0.3, 0, 0.3), scarf);
     if (winter) b.add(Bone.Torso, P, box(0.105, 0.02, 0.05), TT(-0.08, 0.12, 0.21), 0xf4efe6);
   }
-  if (L.acc?.includes('satchel') && named) b.add(Bone.Torso, P, box(0.04, 0.5, 0.03), TT(0, 0.2, 0.2 * bw, 0, 0, 0.75), 0x7a5234);
+  if ((L.acc?.includes('satchel') && named) || (!named && hw > 0.8 && !winter)) {
+    b.add(Bone.Torso, P, box(0.04, 0.5, 0.03), TT(0, 0.2, 0.2 * bw, 0, 0, 0.75), 0x7a5234);
+    // (townsfolk: the bag itself on the hip)
+    if (!named) b.add(Bone.Torso, P, roundedBox(0.16, 0.14, 0.07, 0.02, 1), TT(0.2 * bw, -0.02, 0.1), shade(bottom, 0.8));
+  }
   // Skirt / robe / coat tails (skirt bone: swings with the legs, flares on hops). Short enough that
   // legs and shoes always show underneath.
   if (skirt || winter || coat) {
@@ -379,7 +391,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
 
   // Hair (winter beanies replace the crown; named villagers keep their signature hat)
   const hat = named ? L.hat : undefined;
-  const winterHat = winter && !hat && L.hairStyle !== 'cap';
+  const winterHat = winter && !hat && L.hairStyle !== 'cap' && hatOn;
   const style = L.hairStyle;
   if (style !== 'bald') {
     const cap = new THREE.SphereGeometry(R * 1.07, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.55);
@@ -439,7 +451,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     b.add(Bone.Head, HP, pf, hm(0, R * 1.62, -0.02, -0.1), hatC);
     b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.7, R * 0.75, 0.03, 10, 1, false, -Math.PI * 0.5, Math.PI), hm(0, R * 1.45, R * 0.72, 0.22), shade(hatC, 0.85));
   } else if (hat === 'beanie' || (winterHat && !named) || (winter && hat === 'sunhat')) {
-    const c = hat ? hatC : accent;
+    const c = hat ? hatC : hatTint;
     const bh = new THREE.SphereGeometry(R * 1.1, 10, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
     b.add(Bone.Head, HP, bh, hm(0, R * 1.12, -0.02, -0.2), c);
     b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 1.06, 0.05, 4, 14), hm(0, R * 1.15, -0.02, Math.PI / 2 - 0.2), shade(c, 0.8));
@@ -460,7 +472,11 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     b.add(Bone.Head, HP, lump(0.09, rng, 0, 0.2), hm(0, R * 2.2, -R * 0.25), 0xf4efe6);
   }
   // Festival headwear
-  if (o === 'spring' && hat !== 'sunhat') {
+  if (o === 'spring' && hat !== 'sunhat' && !hatOn && accOn) {
+    // A ribbon bow in the hair.
+    for (const sx of [-1, 1]) b.add(Bone.Head, HP, new THREE.ConeGeometry(0.06, 0.12, 4), hm(R * 0.5 + sx * 0.06, R * 1.62, -R * 0.1, 0, 0, sx * Math.PI / 2), accent);
+    b.add(Bone.Head, HP, ball(0.03, 5, 3), hm(R * 0.5, R * 1.62, -R * 0.1), shade(accent, 0.8));
+  } else if (o === 'spring' && hat !== 'sunhat' && hatOn) {
     // Flower crown (rides on the hat band when there is one).
     const cy = hat ? R * 1.5 : R * 1.52;
     b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 0.98, 0.026, 3, 14), hm(0, cy, -0.02, Math.PI / 2 - 0.28), 0x5a9a3a);
@@ -471,7 +487,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
       const y = cy + fz * Math.sin(-0.28);
       b.add(Bone.Head, HP, new THREE.IcosahedronGeometry(i % 3 === 0 ? 0.06 : 0.047, 0), hm(fx2, y, fz * Math.cos(0.28) - 0.02), [0xff8fab, 0xffffff, 0xffd166, 0xc77dff, 0xff6a8a][(i + (spec.phase ?? 0) * 10) % 5 | 0]!);
     }
-  } else if (o === 'summer') {
+  } else if (o === 'summer' && (named || hw < 0.55)) {
     // A big flower tucked behind the ear.
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2;
@@ -480,12 +496,25 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
       b.add(Bone.Head, HP, pet, hm(R * 0.95 + Math.cos(a) * 0.05, R * 1.25 + Math.sin(a) * 0.05, R * 0.25, 0, Math.PI / 2, a), accent);
     }
     b.add(Bone.Head, HP, ball(0.03, 5, 3), hm(R * 1.0, R * 1.25, R * 0.25), 0xffe070);
-  } else if (o === 'fall' && !hat && style !== 'cap' && style !== 'bun') {
-    // Felt hat with a band and a feather.
-    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.35, R * 1.35, 0.03, 14), hm(0, R * 1.5, 0, -0.12), shade(accent, 0.55));
-    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.75, R * 0.85, 0.24, 10), hm(0, R * 1.5 + 0.13, -0.02, -0.12), shade(accent, 0.55));
-    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.86, R * 0.86, 0.06, 10, 1, true), hm(0, R * 1.5 + 0.05, -0.02, -0.12), 0x8a2a1e);
+  } else if (o === 'fall' && !hat && style !== 'cap' && style !== 'bun' && hatOn) {
+    // Felt hat (muted browns / slates / olives) with a contrasting band and a feather.
+    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.35, R * 1.35, 0.03, 14), hm(0, R * 1.5, 0, -0.12), hatTint);
+    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.75, R * 0.85, 0.24, 10), hm(0, R * 1.5 + 0.13, -0.02, -0.12), hatTint);
+    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.86, R * 0.86, 0.06, 10, 1, true), hm(0, R * 1.5 + 0.05, -0.02, -0.12), accent);
     b.add(Bone.Head, HP, box(0.03, 0.22, 0.01), hm(R * 0.8, R * 1.9, -0.05, 0, 0, -0.5), 0xd8a040);
+  }
+  if (accOn && style !== 'bald') {
+    if (winter) {
+      // Earmuffs: a band over the crown + two fluffy muffs.
+      b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 1.12, 0.022, 3, 12, Math.PI), hm(0, R * 1.0, 0, 0, 0, 0), shade(accent, 0.8));
+      for (const sx of [-1, 1]) b.add(Bone.Head, HP, lump(0.1, rng, 0, 0.1), hm(sx * R * 1.08, R * 0.95, 0, 0, 0, 0, 0.7, 1, 1), accent);
+    } else if (o === 'fall') {
+      // Knit headband.
+      b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 1.04, 0.045, 4, 14), hm(0, R * 1.28, -0.02, Math.PI / 2 - 0.3), accent);
+    } else if (o !== 'spring') {
+      // Hair bow / clip.
+      for (const sx of [-1, 1]) b.add(Bone.Head, HP, new THREE.ConeGeometry(0.05, 0.1, 4), hm(-R * 0.55 + sx * 0.05, R * 1.55, R * 0.2, 0, 0, sx * Math.PI / 2), accent);
+    }
   }
 
   // ── eyes (blink)
@@ -829,8 +858,8 @@ export class Crowd {
 // ───────────────────────────────────────────── townsfolk generator
 
 const SKINS = [0xf2c8a2, 0xe8b894, 0xf0c4a0, 0xc88a64, 0x9a6444, 0xf6d2b4, 0xb87a56, 0x7a4a32];
-const HAIRS = [0x3a2418, 0x6a4228, 0x8a6a58, 0xd8b068, 0x2a1a14, 0xb8542a, 0xa8a29a, 0x4a3a30, 0xe0b880];
-const STYLES: NpcLook['hairStyle'][] = ['short', 'bob', 'bun', 'curly', 'bob', 'cap', 'ponytail', 'short', 'braids', 'spiky'];
+const HAIRS = [0x3a2418, 0x6a4228, 0x8a6a58, 0xd8b068, 0x2a1a14, 0xb8542a, 0xa8a29a, 0x4a3a30, 0xe0b880, 0x8a3a1e, 0xe8e0d0, 0x1a1a24, 0xc88a4a, 0x5a2a1a];
+const STYLES: NpcLook['hairStyle'][] = ['short', 'bob', 'bun', 'curly', 'long', 'cap', 'ponytail', 'short', 'braids', 'spiky', 'slick', 'bob', 'curly', 'long'];
 
 /** A seeded random villager look (townsfolk filling out the crowd). */
 export function randomLook(rng: Rng, opts: { child?: boolean; palette: number[] }): NpcLook {
@@ -838,16 +867,19 @@ export function randomLook(rng: Rng, opts: { child?: boolean; palette: number[] 
   const child = !!opts.child;
   let style = pick(STYLES);
   if (!child && style === 'spiky') style = 'short';
+  const elder = !child && rng.next() < 0.18;
+  if (elder && rng.next() < 0.3) style = 'bald';
   return {
     skin: pick(SKINS),
-    hair: pick(HAIRS),
+    hair: elder ? pick([0xa8a29a, 0xe8e0d0, 0xc8c0b8]) : pick(HAIRS),
     hairStyle: style,
     top: pick(opts.palette),
-    bottom: pick([0x4a5a78, 0x5a4a6a, 0x6a5a48, 0x3e4a5a, 0x7a6a5a, 0x5a6a4a]),
-    glasses: !child && rng.next() < 0.15,
-    beard: !child && style === 'short' && rng.next() < 0.3,
-    scale: child ? 0.74 + rng.next() * 0.06 : 0.92 + rng.next() * 0.1,
-    build: child ? 0.95 : 0.95 + rng.next() * 0.2,
+    bottom: pick([0x4a5a78, 0x5a4a6a, 0x6a5a48, 0x3e4a5a, 0x7a6a5a, 0x5a6a4a, 0x2e3a4a, 0x8a6a4a, 0x6a3a3a, 0x4a4a3a]),
+    glasses: !child && rng.next() < (elder ? 0.5 : 0.14),
+    beard: !child && (style === 'short' || style === 'bald') && rng.next() < 0.35 ? (rng.next() < 0.4 ? 'mustache' : 'full') : undefined,
+    // Height ±10 %, width ±8 % (children and elders read at a glance).
+    scale: child ? 0.7 + rng.next() * 0.1 : (elder ? 0.9 : 0.92) + rng.next() * 0.18,
+    build: child ? 0.92 + rng.next() * 0.08 : 0.92 + rng.next() * 0.26,
     head: child ? 1.1 : 1,
   };
 }

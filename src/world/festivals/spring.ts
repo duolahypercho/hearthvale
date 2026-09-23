@@ -19,10 +19,10 @@ import { textures } from '../../render/textures';
 import { buildTownHouse, buildMarketStall, buildFlowerCart, buildPlanter, buildHedge } from '../props/townkit';
 import { buildLanternPost } from '../props/structures';
 import { buildBench } from '../props/farmkit';
-import { buildBunting, buildFeastTable, FESTIVAL_COLORS } from '../props/festival';
+import { buildBunting, FESTIVAL_COLORS } from '../props/festival';
 import { FestivalMap, type PlayState } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
-import { buildFlowerFloat, buildFlowerArch, buildBandstand, buildBlossomPole, buildCherryTrees } from './kit';
+import { buildFlowerFloat, buildFlowerArch, buildBandstand, buildBlossomPole, buildCherryTrees, buildBanquetTable } from './kit';
 import { PetalStorm, GroundScatter, PetalFall, Ribbons } from './fx';
 import { patchMaterial, after, before } from '../../render/patch';
 import { randomLook, type CrowdSpec } from './crowd';
@@ -59,6 +59,9 @@ export class SpringParade extends FestivalMap {
   private curveLen = 1;
   /** Dance partner while the Ribbon Dance mini-game runs. */
   private partner: { i: number; x: number; z: number; yaw: number; anim: number } | null = null;
+  /** Partner twirl (1 → 0 over a Bloom!) and the harmony hearts' cadence. */
+  private twirl = 0;
+  private heartT = 0;
 
   constructor(game: Game) {
     super(game, {
@@ -79,6 +82,8 @@ export class SpringParade extends FestivalMap {
       this.avenueSamples.push({ x: p.x, z: p.z });
     }
     this.activitySpots.push({ id: 'dance', x: GREEN.x, z: GREEN.z, r: POLE_R + 2.2 });
+    this.visitorSpots.push({ x: 29.4, z: 37.2, yaw: 2.9 }, { x: 35.2, z: 37.0, yaw: -2.8 });
+    this.confettiColors = [0xf06a8a, 0xffd166, 0x7ec8ff, 0xc77dff, 0xffffff];
   }
 
   // ───────────────────────────────────────────── shape
@@ -257,10 +262,10 @@ export class SpringParade extends FestivalMap {
     this.plait.position.set(GREEN.x, this.poleY + POLE_H - 0.06, GREEN.z);
     this.root.add(this.plait);
     // Bandstand east, picnic + bun stall west.
-    this.addProp(buildBandstand(r), 46, 31.5, 0, { solidR: 2.7, ao: 3 });
+    this.addProp(buildBandstand(r), 43.8, 32.4, 0, { solidR: 2.7, ao: 3 });
     this.addProp(buildMarketStall(r, [0xf7a8c0, 0xfbf2e8]), 20.2, 27.6, 0.35, { solidRect: [2.8, 1.2], ao: 1.6 });
     this.addProp(buildFlowerCart(r), 14.6, 30.4, 0.6, { solidRect: [2, 1.2] });
-    this.addProp(buildFeastTable(r, 4.2), 19.4, 34.2, 0.12, { solidRect: [4.4, 2.4], ao: 2 });
+    this.addProp(buildBanquetTable(r, 4.2, 'spring'), 19.4, 34.2, 0.12, { solidRect: [4.4, 2.4], ao: 2 });
     this.addProp(buildBench(), 26.0, 38.2, Math.PI, { solidR: 0.6 });
     this.addProp(buildBench(), 38.0, 38.2, Math.PI, { solidR: 0.6 });
     this.addProp(buildMarketStall(r, [0xb8e0f0, 0xfbf2e8]), 44.4, 26.6, -0.3, { solidRect: [2.8, 1.2], ao: 1.6 });
@@ -327,7 +332,7 @@ export class SpringParade extends FestivalMap {
       f.group.traverse((o) => (o.userData.noAO = true));
       this.root.add(f.group);
       // Showcase spacing: the queen centre stage, others fore and aft.
-      const s = [0.47, 0.375, 0.575, 0.285][i]!;
+      const s = [0.47, 0.395, 0.545, 0.32][i]!;
       this.floats.push({ group: f.group, s, riderLocal: f.anchors.seat, riderYawOff: k === 'throne' ? 0 : -Math.PI / 2 + 0.5 });
     });
   }
@@ -404,7 +409,7 @@ export class SpringParade extends FestivalMap {
     const specs: CrowdSpec[] = [];
     const pick = <T,>(a: T[]): T => a[Math.floor(r.next() * a.length)]!;
     const person = (look: NpcLook, anim: CrowdSpec['anim'], x: number, z: number, yaw: number, extra: Partial<CrowdSpec> = {}): number => {
-      specs.push({ look, outfit: 'spring', anim, x, z, yaw, top: pick(P.tops), accent: pick(P.accents), phase: r.next(), speed: 0.85 + r.next() * 0.3, ...extra });
+      specs.push({ look, outfit: 'spring', anim, x, z, yaw, top: pick(P.tops), accent: pick(P.accents), hatTint: pick(P.hats), phase: r.next(), speed: 0.85 + r.next() * 0.3, ...extra });
       return specs.length - 1;
     };
     // Named villagers.
@@ -423,10 +428,18 @@ export class SpringParade extends FestivalMap {
         const i = person({ ...def.look, apron: undefined }, s[3], s[0], s[1], s[2], { id: def.id, props: s[4] });
         void i;
       } else {
-        // Other named villagers line the lane.
-        const x = 13 + extraIdx * 5.3;
+        // The rest of the cast: the first few ring the green in the foreground (faces to the camera,
+        // watching the dance), the others line the lane.
+        const fore: [number, number, number, CrowdSpec['anim']][] = [
+          [27.2, 36.4, 2.7, 'clap'],
+          [36.9, 36.2, -2.6, 'cheer'],
+          [24.6, 33.6, 2.2, 'wave'],
+          [39.6, 34.4, -2.3, 'clap'],
+        ];
+        const f = fore[extraIdx];
+        if (f) person({ ...def.look, apron: undefined }, f[3], f[0], f[1], f[2], { id: def.id });
+        else person({ ...def.look, apron: undefined }, extraIdx % 2 ? 'cheer' : 'clap', 13 + (extraIdx - fore.length) * 7.5, 17.9 + (r.next() - 0.5) * 0.4, (r.next() - 0.5) * 0.5, { id: def.id });
         extraIdx++;
-        person({ ...def.look, apron: undefined }, extraIdx % 2 ? 'cheer' : 'clap', x, 17.9 + (r.next() - 0.5) * 0.4, (r.next() - 0.5) * 0.5, { id: def.id });
       }
     }
     // Townsfolk on both kerbs (north faces the lane / camera; south mostly faces the lane).
@@ -451,8 +464,8 @@ export class SpringParade extends FestivalMap {
       this.dancers.push({ i, dir, a });
     }
     // Band in the bandstand.
-    const bx = 46;
-    const bz = 31.5;
+    const bx = 43.8;
+    const bz = 32.4;
     person(randomLook(r, { palette: P.tops }), 'fiddle', bx - 0.9, bz - 0.4, 0.3, { props: ['fiddle'], lift: 0.62 });
     person(randomLook(r, { palette: P.tops }), 'toast', bx + 0.9, bz - 0.3, -0.3, { props: ['flute'], lift: 0.62 });
     person(randomLook(r, { palette: P.tops }), 'carol', bx, bz + 0.6, 0, { props: ['songbook'], lift: 0.62 });
@@ -533,9 +546,19 @@ export class SpringParade extends FestivalMap {
       const b = play.live ? play.beat : play.t * 1.6;
       const sway = Math.sin(b * Math.PI) * 0.1;
       const m = crowd.members[this.partner.i]!;
-      crowd.place(this.partner.i, s.qx + sway, s.qz, -0.5 + Math.sin(b * Math.PI * 0.5) * 0.3, Math.max(0, -h.x) * 0.6);
+      // Mirrors your steps (turned in towards you), spins a full twirl on a Bloom!, stumbles on an Oops.
+      this.twirl = Math.max(0, this.twirl - dt / 0.55);
+      const spin = this.twirl > 0 ? THREE.MathUtils.smootherstep(1 - this.twirl, 0, 1) * Math.PI * 2 : 0;
+      crowd.place(this.partner.i, s.qx - sway, s.qz, -0.55 - Math.sin(b * Math.PI * 0.5) * 0.3 + spin, Math.max(0, -h.x) * 0.6);
       m.squash = 1 + h.x;
       m.lean *= Math.exp(-4 * dt);
+      // Hearts rise over the pair as the harmony (your accuracy) fills.
+      const acc = play.progress[0] ?? 0;
+      this.heartT -= dt;
+      if (play.live && acc > 0.55 && this.heartT <= 0) {
+        this.heartT = 1.6 - acc;
+        this.burst((s.px + s.qx) / 2, this.H(s.px, s.pz) + 2.3, s.pz, { color: acc > 0.8 ? 0xff5a7a : 0xffa0b8, count: 3 + Math.round(acc * 5), speed: 0.8, size: 0.2, gravity: -0.5, life: 1.6, up: 0.9, spread: 0.3 });
+      }
     }
     crowd.commit();
     // Ribbons: pole (just under the plait) → each dancer's raised hand.
@@ -561,8 +584,9 @@ export class SpringParade extends FestivalMap {
   // ───────────────────────────────────────────── Ribbon Dance mini-game
 
   private danceSpot(): { px: number; pz: number; qx: number; qz: number } {
-    const z = GREEN.z + POLE_R + 2.7;
-    return { px: GREEN.x - 0.9, pz: z, qx: GREEN.x + 0.9, qz: z };
+    // Just outside the weaving ring, on the green (part of the dance, not off at the edge).
+    const z = GREEN.z + POLE_R + 1.35;
+    return { px: GREEN.x - 0.75, pz: z, qx: GREEN.x + 0.75, qz: z };
   }
 
   protected override onBeginPlay(play: PlayState): void {
@@ -598,6 +622,7 @@ export class SpringParade extends FestivalMap {
         // A petal burst at your partner + a squash-and-stretch hop.
         this.burst(pm.x, pm.y + 1.5, pm.z, { color: cols[value % cols.length]!, count: big ? 26 : 10, speed: big ? 2.8 : 1.8, size: 0.13, gravity: 1.2, life: 1.4, up: 1.6, spread: 0.35 });
         this.hop.v -= big ? 3.2 : 1.6;
+        if (big && value % 3 === 0) this.twirl = 1;
       }
       const s = this.danceSpot();
       this.burst(s.px, this.H(s.px, s.pz) + 1.4, s.pz, { color: cols[(value + 1) % cols.length]!, count: big ? 12 : 5, speed: 1.8, size: 0.12, gravity: 1.2, life: 1.2, up: 1.3, spread: 0.3 });
@@ -610,9 +635,9 @@ export class SpringParade extends FestivalMap {
         this.burst(GREEN.x, this.poleY + POLE_H - this.plaitLen.value, GREEN.z, { color: 0xffd166, count: 30, speed: 2.4, size: 0.12, gravity: 1, life: 1.6, up: 0.6, spread: 0.3 });
       }
     } else if (kind === 'miss' && pm) {
-      // A stumble: the partner wobbles.
-      pm.lean = (value % 2 ? 1 : -1) * 0.22;
-      this.hop.v += 1.2;
+      // A stumble: the partner trips sideways (a big lean + a squash).
+      pm.lean = (value % 2 ? 1 : -1) * 0.42;
+      this.hop.v += 2.4;
     }
   }
 

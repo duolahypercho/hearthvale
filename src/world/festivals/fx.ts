@@ -200,14 +200,15 @@ export class GroundScatter {
 
 // ───────────────────────────────────────────── fireworks
 
+/** Saturated shell colours (kept well below white so additive overlap + tone mapping stay coloured). */
 const FW_PALETTE: [number, number, number][] = [
-  [1.0, 0.72, 0.3],
-  [1.0, 0.32, 0.45],
-  [0.35, 0.8, 1.0],
-  [0.55, 1.0, 0.45],
-  [0.78, 0.45, 1.0],
-  [1.0, 0.84, 0.3],
-  [1.0, 0.45, 0.15],
+  [1.0, 0.16, 0.3],
+  [0.12, 0.55, 1.0],
+  [0.3, 1.0, 0.25],
+  [0.7, 0.2, 1.0],
+  [1.0, 0.62, 0.08],
+  [0.1, 0.95, 0.85],
+  [1.0, 0.3, 0.75],
 ];
 
 function fract(x: number): number {
@@ -380,17 +381,20 @@ export class Fireworks {
                 vec3 hot = vec3(1.0, 0.95, 0.85);
                 // Hot white only for the first instant, then saturated colour (additive overlap would
                 // otherwise sum a dense shell to white).
-                col = mix(hot, mix(c1, c2, step(0.5, fract(j * 0.37))), smoothstep(0.0, 0.08, f)) * 1.45;
-                size = (0.34 - tr * 0.08) * (1.0 - f * 0.45) * (type == 3 ? 1.5 : 1.0);
-                // Initial white flash core.
-                if (tb < 0.12 && j < 1.5) { size = 2.2 * (1.0 - tb / 0.12); a = 1.0; col = vec3(1.0, 0.9, 0.75) * 2.0; }
+                // Two-colour shells (alternate stars) + a gold crackle / glitter tail on peonies and rings.
+                vec3 base = mix(c1, c2, step(0.5, fract(j * 0.37)));
+                if (type < 2 && f > 0.55) base = mix(base, vec3(1.0, 0.78, 0.3), 0.55);
+                col = mix(hot, base, smoothstep(0.0, 0.05, f)) * (tr > 0.5 ? 0.75 : 1.5);
+                size = (0.46 - tr * 0.12) * (1.0 - f * 0.4) * (type == 3 ? 1.5 : 1.0);
+                // A small coloured flash core (not a white puff).
+                if (tb < 0.1 && j < 1.5) { size = 0.75 * (1.0 - tb / 0.1); a = 1.0; col = c1 * 1.3; }
               }
             }
             #if MIRROR == 1
               p.y = 2.0 * uMirrorY - p.y;
               p.x += sin(p.y * 2.3 + uTime * 3.0) * 0.12;
-              a *= 0.32 * step(p.y, uMirrorY);
-              size *= 1.3;
+              a *= 0.5 * step(p.y, uMirrorY);
+              size *= 1.45;
             #endif
             vCol = col * uIntensity;
             vA = a;
@@ -725,22 +729,26 @@ export class Aurora {
           void main() {
             float u = vUv.x; float v = vUv.y;
             float t = uTime * 0.314;
-            // Pleats: broad bright folds drifting slowly along the curtain, a little fine texture.
+            // Pleats: broad bright folds drifting slowly along the curtain.
             float fold = hvNoise(vec2(u * 9.0 - t * 0.6 + uBand * 5.0, 0.5 + v * 0.35));
-            fold = 0.25 + 0.75 * smoothstep(0.3, 0.85, fold);
-            float fine = 0.85 + 0.15 * hvNoise(vec2(u * 60.0 + t, v * 2.0));
-            // Soft lower hem (brightest just above it), fading out towards the top.
-            float hem = smoothstep(0.0, 0.1 + 0.06 * hvNoise(vec2(u * 20.0, t)), v);
-            float body = hem * (0.35 + 0.65 * pow(1.0 - v, 1.4)) * (1.0 + 1.2 * exp(-v * 9.0));
+            fold = 0.12 + 0.88 * smoothstep(0.28, 0.85, fold);
+            // Vertical rays: fine streaks running up the curtain (constant along v, shimmering sideways).
+            float rays = 0.45 + 0.55 * pow(hvNoise(vec2(u * 150.0 + t * 0.35 + uBand * 17.0, uBand * 3.0 + v * 0.6)), 1.6);
+            rays *= 0.7 + 0.3 * hvNoise(vec2(u * 420.0 - t * 0.8, uBand + v * 1.5));
+            // A rippling bright hem (its height wanders along the curtain) fading up into violet.
+            float hemY = 0.06 + 0.07 * hvNoise(vec2(u * 14.0 - t * 0.5, uBand * 2.0));
+            float hem = smoothstep(hemY - 0.05, hemY + 0.015, v);
+            float body = hem * (0.3 + 0.7 * pow(1.0 - v, 1.3)) * (1.0 + 1.8 * exp(-max(v - hemY, 0.0) * 14.0));
             float ends = smoothstep(0.0, 0.14, u) * (1.0 - smoothstep(0.86, 1.0, u));
-            vec3 green = vec3(0.16, 1.0, 0.5);
-            vec3 teal = vec3(0.12, 0.8, 0.75);
-            vec3 magenta = vec3(0.8, 0.22, 0.78);
-            vec3 col = mix(green, teal, smoothstep(0.1, 0.45, v));
-            col = mix(col, magenta, smoothstep(0.4, 0.95, v));
+            vec3 green = vec3(0.16, 1.0, 0.48);
+            vec3 teal = vec3(0.1, 0.78, 0.8);
+            vec3 violet = vec3(0.62, 0.24, 0.9);
+            vec3 col = mix(green, teal, smoothstep(0.15, 0.5, v));
+            col = mix(col, violet, smoothstep(0.45, 0.95, v));
             float clear = smoothstep(uMask.y * 0.55, uMask.y, abs(vW.x - uMask.x));
-            float a = body * fold * fine * ends * clear * uK;
-            gl_FragColor = vec4(col * a * 0.9 * uStrength * smoothstep(0.4, 0.9, uNight), 1.0);
+            float a = body * fold * rays * ends * clear * uK;
+            // Visible from dusk (faint) through full night.
+            gl_FragColor = vec4(col * a * 1.05 * uStrength * smoothstep(0.12, 0.75, uNight), 1.0);
           }`,
       });
       const mesh = new THREE.Mesh(g, m);

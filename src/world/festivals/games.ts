@@ -18,7 +18,7 @@ import type { Game } from '../../core/game';
 import { NPCS, type NpcId, type Mood } from '../../data/npcs';
 import { itemDef } from '../../data/items';
 import { CROPS } from '../../data/crops';
-import { WISHES, PRODUCE_RIVALS, STARFALL_GIFTS, PRIZES, CONSOLATION, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
+import { WISHES, produceRivals, PRESENTATIONS, favouredPresentation, STARFALL_GIFTS, PRIZES, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
 import { portraitSvg } from '../../ui/portraits';
 import { itemIcon } from '../../ui/icons';
 import type { FestivalMap, PlayState } from './base';
@@ -80,11 +80,6 @@ const CSS = /* css */ `
 .fg-result .burst { width: 150px; height: 140px; margin: -86px auto 0; animation: fgBounce 700ms var(--ease-back) both; }
 .fg-result .burst svg { width: 100%; height: 100%; filter: drop-shadow(0 6px 5px rgba(0,0,0,.3)); }
 .fg-result .tier { display: inline-block; margin: 4px 0 2px; padding: 3px 14px; border-radius: 999px; font-family: var(--font-head); font-weight: 700; font-size: 15px; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; }
-.fg-speed { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 220ms ease; background:
-  repeating-linear-gradient(97deg, transparent 0 46px, rgba(235, 246, 255, .22) 46px 48px, transparent 48px 120px),
-  repeating-linear-gradient(83deg, transparent 0 70px, rgba(235, 246, 255, .16) 70px 72px, transparent 72px 160px);
-  -webkit-mask: radial-gradient(ellipse at 50% 55%, transparent 38%, #000 78%); mask: radial-gradient(ellipse at 50% 55%, transparent 38%, #000 78%); animation: fgSpeed 380ms linear infinite; }
-@keyframes fgSpeed { from { background-position: 0 0, 0 0; } to { background-position: -240px 0, -320px 0; } }
 .fg-skate .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 6px; text-align: left; font-weight: 800; color: #3a5a7a; font-size: 15px; }
 .fg-skate .rows b { font-family: var(--font-head); font-size: 20px; color: #2f6a9a; }
 .fg-skate .rows .bad b { color: #c8503a; }
@@ -107,8 +102,8 @@ const CSS = /* css */ `
 .fg-count { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); font-family: var(--font-head); font-weight: 700; font-size: 150px; color: #fff8e8;
   text-shadow: 0 6px 0 #6a3a1a, 0 14px 30px rgba(0,0,0,.45); animation: fgBounce 520ms var(--ease-back) both; }
 .fg-judge { position: absolute; left: 50%; font-family: var(--font-head); font-weight: 700; font-size: 34px; white-space: nowrap; pointer-events: none; animation: fgPop 700ms ease-out both;
-  text-shadow: 0 3px 0 rgba(60,30,10,.55), 0 0 16px rgba(255,255,255,.6); }
-.fg-judge.p { color: #ffd84a; } .fg-judge.g { color: #9ce07a; } .fg-judge.m { color: #ff8a7a; }
+  -webkit-text-stroke: 5px #3a1c0c; paint-order: stroke fill; text-shadow: 0 4px 0 #3a1c0c, 0 6px 12px rgba(0,0,0,.45); }
+.fg-judge.p { color: #ffd84a; } .fg-judge.g { color: #a8ec82; } .fg-judge.m { color: #ff7a66; }
 /* ── dance ── */
 .fg-dance { left: 50%; bottom: 34px; transform: translateX(-50%); width: min(900px, calc(100vw - 32px)); }
 .fg-dance > .in { height: 150px; padding: 0; }
@@ -248,11 +243,29 @@ const CSS = /* css */ `
 .fg-go kbd { font-family: var(--font-head); font-size: 13px; padding: 1px 7px; border-radius: 6px; background: rgba(0,0,0,.2); }
 .fg-board { margin: 14px auto 0; max-width: 380px; text-align: left; border-radius: 12px; padding: 6px 8px; background: rgba(120, 70, 30, .08); box-shadow: inset 0 0 0 2px rgba(150, 100, 50, .18); }
 .fg-board .h { font-family: var(--font-head); font-weight: 700; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-soft); text-align: center; margin: 2px 0 4px; }
-.fg-board .r { display: grid; grid-template-columns: 30px 14px 1fr auto; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 9px; font-weight: 800; font-size: 17px; animation: fgIn 360ms var(--ease-back) both; }
+.fg-board .r { display: grid; grid-template-columns: 34px 14px 1fr auto; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 9px; font-weight: 800; font-size: 17px; animation: fgIn 360ms var(--ease-back) both; }
 .fg-board .r.me { background: rgba(255, 244, 214, .95); box-shadow: 0 0 0 2px #e8b64a; }
 .fg-board .r .pl { font-family: var(--font-head); font-weight: 700; font-size: 18px; color: #8a5a10; text-align: center; }
 .fg-board .r .dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 1px 0 rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.5); }
 .fg-board .r .sc { font-family: var(--font-head); font-weight: 700; color: var(--ink); }
+/* Win stinger: a slow-motion title slam + light sweep; loss: a sheepish droop. */
+.fg-sting { position: absolute; left: 50%; top: 20%; transform: translate(-50%, -50%); font-family: var(--font-head); font-weight: 700; font-size: 96px; letter-spacing: 4px; white-space: nowrap; pointer-events: none; z-index: 2;
+  color: #ffe27a; -webkit-text-stroke: 8px #5a2c0c; paint-order: stroke fill; text-shadow: 0 8px 0 #5a2c0c, 0 18px 40px rgba(0,0,0,.5), 0 0 60px rgba(255,210,90,.8); animation: fgSting 2400ms cubic-bezier(.16,.9,.3,1) both; }
+@keyframes fgSting { 0% { opacity: 0; transform: translate(-50%, -50%) scale(2.6) rotate(-8deg); } 18% { opacity: 1; transform: translate(-50%, -50%) scale(.94) rotate(2deg); } 26% { transform: translate(-50%, -50%) scale(1.04) rotate(-1deg); }
+  80% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 100% { opacity: 0; transform: translate(-50%, -64%) scale(1.1); } }
+.fg-rays { position: absolute; left: 50%; top: 42%; width: 1100px; height: 1100px; margin: -550px 0 0 -550px; pointer-events: none; border-radius: 50%; opacity: 0;
+  background: repeating-conic-gradient(rgba(255, 226, 130, .35) 0 8deg, transparent 8deg 18deg); -webkit-mask: radial-gradient(circle, #000 10%, transparent 62%); mask: radial-gradient(circle, #000 10%, transparent 62%);
+  animation: fgRays 3.6s ease-out both, fgSpin 24s linear infinite; }
+@keyframes fgRays { 0% { opacity: 0; } 15% { opacity: 1; } 75% { opacity: .8; } 100% { opacity: 0; } }
+.fg-result.lose .in { filter: saturate(.72); }
+.fg-result .wilt { width: 150px; height: 140px; margin: -86px auto 0; transform-origin: 50% 100%; animation: fgWilt 1400ms cubic-bezier(.3,.7,.3,1) both; }
+.fg-result .wilt svg { width: 100%; height: 100%; filter: drop-shadow(0 6px 5px rgba(0,0,0,.3)); }
+@keyframes fgWilt { 0% { transform: scale(.4); opacity: 0; } 30% { transform: scale(1.05) rotate(0); opacity: 1; } 60% { transform: rotate(-9deg); } 100% { transform: rotate(-5deg); } }
+.fg-result .trophy { width: 130px; height: 140px; margin: -92px auto 0; animation: fgBounce 900ms var(--ease-back) both; }
+.fg-result .trophy svg { width: 100%; height: 100%; filter: drop-shadow(0 8px 6px rgba(0,0,0,.35)) drop-shadow(0 0 22px rgba(255, 210, 90, .7)); }
+.fg-chip.none { color: #8a7a6a; background: rgba(230, 220, 205, .7); }
+.fg-board .r .pl small { color: var(--ink-soft); }
+.fg-board .r .pl svg { width: 26px; height: 32px; display: block; margin: 0 auto; }
 .fg-confetti { position: absolute; width: 10px; height: 14px; border-radius: 2px; pointer-events: none; animation: fgConf 1600ms cubic-bezier(.2,.7,.4,1) forwards; }
 @keyframes fgConf { from { transform: translate(0, 0) rotate(0); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) rotate(var(--r)); opacity: 0; } }
 `;
@@ -306,15 +319,16 @@ const LANTERN_SVG = `<svg viewBox="0 0 60 72"><path d="M22 6 h16 v5 h-16z" fill=
 <defs><radialGradient id="lg" cx=".5" cy=".45" r=".6"><stop offset="0" stop-color="#fff6d0"/><stop offset=".6" stop-color="#ffb050" stop-opacity=".4"/><stop offset="1" stop-color="#d8603a" stop-opacity=".2"/></radialGradient></defs>
 <path d="M18 13 Q16 32 18 52 M30 9 V58 M42 13 Q44 32 42 52" stroke="#c8602a" stroke-width="1.5" fill="none" opacity=".6"/><path d="M14 52 Q30 60 46 52 L44 58 Q30 64 16 58 Z" fill="#8a4a2a"/><path d="M30 60 v10" stroke="#f2d27a" stroke-width="2"/></svg>`;
 
+/** Presentation cards (produce judging). */
+const PRESENT_SVG: Record<string, string> = {
+  polish: `<svg viewBox="0 0 56 56"><circle cx="28" cy="32" r="16" fill="#f07a1e"/><path d="M28 16 q2 -6 6 -8" stroke="#5a7a2a" stroke-width="3" fill="none"/><path d="M20 26 q4 -5 9 -5" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M42 12 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2z" fill="#ffe27a"/></svg>`,
+  nest: `<svg viewBox="0 0 56 56"><ellipse cx="28" cy="42" rx="22" ry="8" fill="#d8b060"/><path d="M8 40 q20 8 40 0 M10 44 q18 6 36 0" stroke="#a8803a" stroke-width="2" fill="none"/><circle cx="28" cy="30" r="13" fill="#f07a1e"/><path d="M28 17 q2 -5 5 -7" stroke="#5a7a2a" stroke-width="3" fill="none"/></svg>`,
+  bow: `<svg viewBox="0 0 56 56"><circle cx="28" cy="32" r="16" fill="#f07a1e"/><path d="M28 18 C 16 8 12 20 26 20 Z M28 18 C 40 8 44 20 30 20 Z" fill="#d84a6a" stroke="#8a2a3a" stroke-width="1.5"/><circle cx="28" cy="19" r="3" fill="#f06a8a"/></svg>`,
+  plain: `<svg viewBox="0 0 56 56"><circle cx="28" cy="32" r="16" fill="#e8862a"/><path d="M28 16 q2 -6 6 -8" stroke="#5a7a2a" stroke-width="3" fill="none"/></svg>`,
+};
+
 const STAR_SVG = `<svg viewBox="0 0 40 40"><path d="M20 3 L25 15 L38 15.5 L28 24 L31.5 37 L20 29.5 L8.5 37 L12 24 L2 15.5 L15 15 Z" fill="#ffd84a" stroke="#fff4c0" stroke-width="2" stroke-linejoin="round"/></svg>`;
 
-function giftBoxSvg(c1: string, c2: string, open = false): string {
-  const lid = open ? 'transform="translate(40 -70) rotate(28 90 60)"' : '';
-  return `<svg viewBox="0 0 180 180"><rect x="30" y="72" width="120" height="96" rx="10" fill="${c1}"/><rect x="30" y="72" width="120" height="96" rx="10" fill="url(#gb)" opacity=".35"/>
-<rect x="82" y="72" width="16" height="96" fill="${c2}"/><g ${lid}><rect x="22" y="50" width="136" height="30" rx="8" fill="${c1}"/><rect x="82" y="50" width="16" height="30" fill="${c2}"/>
-<path d="M90 50 C 60 14 42 34 64 48 Z M90 50 C 120 14 138 34 116 48 Z" fill="${c2}" stroke="rgba(0,0,0,.2)" stroke-width="2"/></g>
-<defs><linearGradient id="gb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient></defs></svg>`;
-}
 
 type Keys = { down: Set<string>; pressed: string[] };
 
@@ -548,26 +562,50 @@ export class FestivalOverlay {
     if (r.item) chips.push(`<div class="fg-chip"><span class="ci">${itemIcon(r.item)}</span>${itemDef(r.item)?.name ?? r.item}</div>`);
     for (const h of r.hearts ?? []) {
       const n = NPCS[h.id as NpcId];
-      if (n && h.delta > 0) chips.push(`<div class="fg-chip heart"><span class="ci">${portraitSvg(n.look, n.portraitBg, 'happy')}</span>${shortName(n.name)} · ${friendWord(h.delta)}</div>`);
+      if (n && h.delta > 0) chips.push(`<div class="fg-chip heart"><span class="ci">${portraitSvg(n.look, n.portraitBg, r.noRibbon ? 'neutral' : 'happy')}</span>${shortName(n.name)} · ${friendWord(h.delta, !!r.noRibbon)}</div>`);
     }
-    const art = r.reaction ? `<div class="burst">${heartSvg(r.reaction)}</div><div class="tier" style="background:${REACTION[r.reaction].c}">${REACTION[r.reaction].label}</div>` : r.noRibbon ? `<div class="burst">${LAUGH_SVG}</div>` : `<div class="ros">${rosetteSvg(r.place)}</div>`;
+    if (r.noRibbon && !chips.length) chips.push(`<div class="fg-chip none">No prize this year</div>`);
+    const win = !r.reaction && !r.noRibbon;
+    // Each tier has its own emblem: a gold trophy for 1st, blue / red rosettes, a wilted flower below
+    // the ribbon line (no prize money, no hearts unless you were already close).
+    const art = r.reaction
+      ? `<div class="burst">${heartSvg(r.reaction)}</div><div class="tier" style="background:${REACTION[r.reaction].c}">${REACTION[r.reaction].label}</div>`
+      : r.noRibbon
+        ? `<div class="wilt">${WILT_SVG}</div><div class="tier" style="background:#8a7a6a">No ribbon</div>`
+        : r.place === 0
+          ? `<div class="trophy">${TROPHY_SVG}</div><div class="tier" style="background:#d89a1a">1st place</div>`
+          : `<div class="ros">${rosetteSvg(r.place)}</div><div class="tier" style="background:${r.place === 1 ? '#3f6fd0' : '#c8452f'}">${r.place === 1 ? '2nd' : '3rd'} place</div>`;
     const rows = !r.reaction && env.board ? env.board(r) : [];
-    const PLACE = ['1st', '2nd', '3rd'];
+    const ORD = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
     const board =
       rows.length > 1
         ? `<div class="fg-board"><div class="h">Farmers today</div>${rows
-            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="animation-delay:${200 + i * 90}ms"><span class="pl">${PLACE[e.place] ?? '—'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${escapeHtml(e.name)}</span><span class="sc">${e.score}</span></div>`)
+            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="animation-delay:${200 + i * 90}ms"><span class="pl">${e.place < 3 && i < 3 ? miniRosette(i) : '<small>—</small>'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${ORD[i] ?? ''} · ${escapeHtml(e.name)}</span><span class="sc">${e.score.toLocaleString()}</span></div>`)
             .join('')}</div>`
         : '';
-    const card = div('fg-panel fg-result fg-live', `<div class="in">${art}<h2>${r.title}</h2><div class="sub">${r.sub}</div><div class="fg-chips">${chips.join('')}</div>${board}<div class="fg-go">Continue <kbd>Space</kbd></div></div>`);
+    const card = div(`fg-panel fg-result fg-live${r.noRibbon ? ' lose' : ''}`, `<div class="in">${art}<h2>${r.title}</h2><div class="sub">${r.sub}</div><div class="fg-chips">${chips.join('')}</div>${board}<div class="fg-go">Continue <kbd>Space</kbd></div></div>`);
+    const big = r.reaction ? r.reaction === 'love' : win && r.place === 0;
+    if (win && r.place === 0) {
+      // The payoff: rays + a slow-motion title slam, a confetti storm, the whole crowd cheering in 3D
+      // and the ribbon pinned to your chest.
+      root.append(div('fg-rays'), div('fg-sting', env.def.id === 'sackrace' ? 'CHAMPION!' : '1ST PLACE!'));
+    }
+    if (win || r.reaction) env.map.playEvent('win', r.reaction ? 0 : r.place);
+    else env.map.playEvent('lose', r.place);
     root.append(card);
-    const big = r.reaction ? r.reaction === 'love' : !r.noRibbon && r.place === 0;
-    if (!r.noRibbon && r.reaction !== 'dislike') this.confetti(root, r.reaction ? [0xff5a7a, 0xffa0b8, 0xffffff, 0xf2d27a] : env.festival.colors, big ? 70 : 36);
+    if (!r.noRibbon && r.reaction !== 'dislike') this.confetti(root, r.reaction ? [0xff5a7a, 0xffa0b8, 0xffffff, 0xf2d27a] : env.festival.colors, big ? 130 : 40);
     this.sfx(r.noRibbon || r.reaction === 'dislike' ? 'plop' : big ? 'catch:perfect' : 'catch', 1);
     let go = false;
     card.querySelector('.fg-go')!.addEventListener('click', () => (go = true));
     await this.loop((_dt, t) => (hold ? false : env.auto ? t > 4.2 : go || (t > 0.5 && this.hit('Space', 'Enter', 'KeyX', 'KeyF', 'Escape'))));
     card.remove();
+    root.querySelectorAll('.fg-rays, .fg-sting').forEach((e) => e.remove());
+  }
+
+  /** Below the ribbon line: no prize money, and only a partner who already loves you smiles anyway. */
+  private sympathy(id: string): { id: string; delta: number }[] {
+    const rel = this.game.services.relationships;
+    return rel && rel.hearts(id) >= 4 ? [{ id, delta: 5 }] : [];
   }
 
   // ───────────────────────────────────────────── dance
@@ -674,7 +712,16 @@ export class FestivalOverlay {
       // Auto (demo): hit most notes near-perfectly.
       const pressed: number[] = [];
       if (env.auto) {
-        for (const n of notes) if (n.state === 0 && t >= n.t - 0.02 && (n.t * 7) % 1 > 0.08) pressed.push(n.dir);
+        // Attract mode plays like a skilled dancer (~88 % blooms / sweets, the odd slip): each note is
+        // judged directly so a slow frame never turns into a string of misses.
+        for (const n of notes) {
+          if (n.state !== 0 || t < n.t - 0.01) continue;
+          const h = (n.t * 7.31) % 1;
+          if (h < 0.06) continue; // a deliberate slip (expires as an Oops)
+          keyEls[n.dir]!.classList.add('on');
+          setTimeout(() => keyEls[n.dir]!.classList.remove('on'), 110);
+          hitNote(n, h < 0.8 ? 0.01 : 0.11);
+        }
       } else codes.forEach((c, d) => this.hit(...c) && pressed.push(d));
       for (const d of pressed) {
         keyEls[d]!.classList.add('on');
@@ -721,8 +768,8 @@ export class FestivalOverlay {
         place: 3,
         noRibbon: true,
         score,
-        gold: CONSOLATION.dance,
-        hearts: [{ id: partner, delta: 10 }],
+        gold: 0,
+        hearts: this.sympathy(partner),
         title: 'Tangled in the Ribbons!',
         sub: `${stats} — ${first} laughed so hard the fiddler lost the tune. “Again next year?”`,
       };
@@ -818,8 +865,8 @@ export class FestivalOverlay {
         place: 3,
         noRibbon: true,
         score: total,
-        gold: CONSOLATION.lanterns,
-        hearts: [{ id: 'marigold', delta: 10 }],
+        gold: 0,
+        hearts: this.sympathy('marigold'),
         title: 'The Sea Said “Maybe”',
         sub: `“${wishes[w]}” — two of them sputtered on the sand. Marigold relit one for you, very gently.`,
       };
@@ -844,14 +891,17 @@ export class FestivalOverlay {
     const panel = div('fg-panel fg-race fg-live', `<div class="in"><div class="keys2"><div class="fg-key">◀</div><div class="fg-key">▶</div></div><div class="bounce"><small>Bounce</small><div class="fg-meter"><i></i></div></div><div class="fg-track"><div class="lanes"></div><div class="fg-flag"></div></div><div class="place">–</div></div>`);
     const lanes = panel.querySelector('.lanes') as HTMLElement;
     const toks: HTMLElement[] = [];
+    const rowsEl: HTMLElement[] = [];
     for (let i = 0; i < N; i++) {
       const l = div('');
       const t = div(i === 0 ? 'fg-token me' : 'fg-token', i === 0 ? '<b>YOU</b>' : '');
       if (i) t.style.background = tints[i]!;
       l.append(t);
-      lanes.append(l);
+      rowsEl.push(l);
       toks.push(t);
     }
+    // Rows top → bottom = lanes far → near in 3D (you race the lane nearest the camera).
+    for (let i = N - 1; i >= 0; i--) lanes.append(rowsEl[i]!);
     const [kL, kR] = [...panel.querySelectorAll('.keys2 .fg-key')] as HTMLElement[];
     kL!.addEventListener('pointerdown', () => this.keys.pressed.push('ArrowLeft'));
     kR!.addEventListener('pointerdown', () => this.keys.pressed.push('ArrowRight'));
@@ -941,8 +991,8 @@ export class FestivalOverlay {
         place,
         noRibbon: true,
         score: Math.round(1000 - place * 200),
-        gold: place === 3 ? CONSOLATION.sackrace : 0,
-        hearts: [{ id: 'wren', delta: 15 }],
+        gold: 0,
+        hearts: this.sympathy('wren'),
         title: ['', '', '', 'Fourth — Valiant!', 'Last, but Bouncy'][place]!,
         sub: ['', '', '', 'No ribbon, but a round of applause and a cup of cider.', 'Kit says you “hopped with feeling”. The sack says otherwise.'][place]!,
       };
@@ -999,16 +1049,27 @@ export class FestivalOverlay {
     }
     cands.sort((a, b) => b.score - a.score);
     const list = cands.slice(0, 8);
+    const rivals = produceRivals(this.game.calendar.year);
+    const top = Math.max(...rivals.map((r) => r.score));
+    const topBy = rivals.find((r) => r.score === top)!;
     let mine: Entry;
     if (!list.length) mine = { id: 'stone', name: 'A Very Polished Stone', q: 0, score: 12, note: 'the judges are baffled' };
     else {
       const stars = (q: number): string => (q ? `<span class="star">${'★'.repeat(q)}</span>` : 'Regular');
-      const k = await this.pick(env, 'Choose your entry', `Judged on value, quality and presentation. Entries under ${MIN_ENTRY_VALUE}g rarely place — Duchess scores 86.`, list.map((c) => `${itemIcon(c.id)}<div class="nm">${c.name}</div><div class="meta">${stars(c.q)}</div>`), 0);
+      const k = await this.pick(env, 'Choose your entry', `Judged on value, quality and presentation. Entries under ${MIN_ENTRY_VALUE}g rarely place — this year's favourite, ${topBy.name.split(' (')[0]}, scores ${top}.`, list.map((c) => `${itemIcon(c.id)}<div class="nm">${c.name}</div><div class="meta">${stars(c.q)}</div>`), 0);
       if (k === null) return null;
-      mine = list[k]!;
+      mine = { ...list[k]! };
+      // Presentation: the judges favour one touch each year (the hint is the tell).
+      const fav = favouredPresentation(this.game.calendar.year);
+      const pk = await this.pick(env, 'Present it', PRESENTATIONS[fav]!.hint, [...PRESENTATIONS.map((p) => `<div class="ic">${PRESENT_SVG[p.id]}</div><div class="nm">${p.name}</div>`), `<div class="ic">${PRESENT_SVG.plain}</div><div class="nm">Just as it is</div>`], fav);
+      if (pk === null) return null;
+      const bonus = pk === fav ? 7 : pk < PRESENTATIONS.length ? 2 : 0;
+      mine.score = Math.min(99, mine.score + bonus);
+      if (pk < PRESENTATIONS.length) mine.note += ` · ${PRESENTATIONS[pk]!.name.toLowerCase()}${pk === fav ? ' (the judges swooned)' : ''}`;
     }
+    env.play.partner = mine.id;
     env.map.playEvent('enter');
-    const entries = [...PRODUCE_RIVALS.map((r) => ({ ...r, me: false, icon: '' })), { name: mine.name, by: 'You', score: mine.score, tint: '', me: true, icon: mine.id }];
+    const entries = [...rivals.map((r) => ({ ...r, me: false, icon: '' })), { name: mine.name, by: 'You', score: mine.score, tint: '', me: true, icon: mine.id }];
     // Shuffle the table, but keep yours third.
     const table = [entries[1]!, entries[0]!, entries[3]!, entries[2]!];
     const panel = div('fg-panel fg-show fg-live', `<div class="in"><h3>The judges confer…</h3><div class="fg-entries"></div></div>`);
@@ -1054,10 +1115,10 @@ export class FestivalOverlay {
         place,
         noRibbon: true,
         score: mine.score,
-        gold: CONSOLATION.pumpkin,
-        hearts: [{ id: 'marigold', delta: 10 }],
+        gold: 0,
+        hearts: this.sympathy('marigold'),
         title: 'Honourable Mention',
-        sub: `${mine.score} points — ${mine.note}. Kit's Lumpy Lou beat you, and Kit will never, ever let it go.`,
+        sub: `${mine.score} points — ${mine.note}. ${rivals[2]!.by}'s ${rivals[2]!.name.split(' (')[0]} beat you, and ${rivals[2]!.by} will never, ever let it go.`,
       };
     }
     return {
@@ -1066,7 +1127,7 @@ export class FestivalOverlay {
       gold: PRIZES.pumpkin[place]!,
       hearts: [{ id: 'marigold', delta: 30 }],
       title: ['Best in Show!', 'Second Prize!', 'Third Prize!'][place]!,
-      sub: `${mine.score} points (${mine.note}) — ${[`your ${mine.name.toLowerCase()} beat Duchess. Bram has gone very quiet.`, 'a blue ribbon! Your gran would have pinned it to her hat.', 'a red ribbon for a fine entry!'][place]}`,
+      sub: `${mine.score} points (${mine.note}) — ${[`your ${mine.name.toLowerCase()} beat ${topBy.name.split(' (')[0]}. ${topBy.by} has gone very quiet.`, 'a blue ribbon! Your gran would have pinned it to her hat.', 'a red ribbon for a fine entry!'][place]}`,
     };
   }
 
@@ -1146,21 +1207,24 @@ export class FestivalOverlay {
     env.map.playEvent('given', reaction === 'love' ? 3 : reaction === 'like' ? 2 : 1);
     if (!(await this.loop((_dt, t) => (env.auto ? t > 2.2 : t > 0.6 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')) || t > 7))) return null;
     react.remove();
-    // 4) Somebody drew you: unwrap.
+    // 4) Somebody drew you: the present appears in your hands in 3D; unwrap it there (lid pops,
+    // ribbon flies, confetti), THEN the card names what was inside.
     const giver = ids.filter((i) => i !== target)[Math.floor(Math.random() * (ids.length - 1))]!;
     const got = STARFALL_GIFTS.filter((g) => itemDef(g))[Math.floor(Math.random() * STARFALL_GIFTS.filter((g) => itemDef(g)).length)] ?? 'topaz';
-    const box = div('fg-panel fg-draw fg-live', `<div class="in"><div class="rl">Someone drew <b>your</b> name!</div><div class="fg-box shake">${giftBoxSvg('#c8302a', '#f2d27a')}</div><div class="nm">From ${shortName(NPCS[giver].name)}</div><div class="rl">Press Space to unwrap</div></div>`);
-    root.append(box);
-    const bx = box.querySelector('.fg-box') as HTMLElement;
+    env.map.playEvent('gift-appear');
+    const prompt = div('fg-hint fg-live', `<b>${shortName(NPCS[giver].name)}</b> drew your name! Press <b>Space</b> to unwrap`);
+    root.append(prompt);
     let open = false;
-    bx.addEventListener('click', () => (open = true));
-    if (!(await this.loop((_dt, t) => (env.auto ? t > 1.4 : open || (t > 0.4 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')))))) return null;
-    bx.classList.remove('shake');
-    bx.innerHTML = `<div class="rays"></div>${giftBoxSvg('#c8302a', '#f2d27a', true)}<div class="gift">${itemIcon(got)}</div>`;
-    (box.querySelectorAll('.rl')[1] as HTMLElement).textContent = itemDef(got)?.name ?? got;
-    this.sfx('catch:perfect', 0.9);
-    this.confetti(root, env.festival.colors, 40);
+    prompt.addEventListener('click', () => (open = true));
+    if (!(await this.loop((_dt, t) => (env.auto ? t > 1.6 : open || (t > 0.4 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')))))) return null;
+    prompt.remove();
     env.map.playEvent('unwrap');
+    this.sfx('catch:perfect', 0.9);
+    if (!(await this.wait(1300))) return null;
+    const box = div('fg-panel fg-draw fg-live', `<div class="in"><div class="rl">From ${shortName(NPCS[giver].name)}, with love</div><div class="fg-box"><div class="rays"></div><div class="gift">${itemIcon(got)}</div></div><div class="nm">${itemDef(got)?.name ?? got}</div></div>`);
+    box.style.top = '34%';
+    root.append(box);
+    this.confetti(root, env.festival.colors, 40);
     if (!env.auto) inv?.add(got, 1);
     if (!(await this.wait(1800))) return null;
     box.remove();
@@ -1188,8 +1252,7 @@ export class FestivalOverlay {
       `<div class="in"><small class="lap">Lap 1 / 4</small><div class="big">${STAR_SVG}<span>0</span></div><div class="rows"><div>Gates <b class="g">0</b></div><div class="bad">Cracks <b class="c">0</b></div></div><div class="combo"><span>×0</span><small>combo</small></div><div class="ctimer"><i></i></div><div class="fg-meter"><i style="width:0%"></i></div></div>`,
     );
     const hint = div('fg-hint', '<b>↑ ↓</b> steer across the ice · hold <b>Space</b> to push · thread the lantern gates, dodge the cracks');
-    const speed = div('fg-speed');
-    root.append(speed, panel, hint);
+    root.append(panel, hint);
     const q = (sel: string): HTMLElement => panel.querySelector(sel) as HTMLElement;
     const num = q('.big span');
     const bar = q('.fg-meter i');
@@ -1236,14 +1299,12 @@ export class FestivalOverlay {
       comboEl.textContent = `×${st.combo ?? 0}`;
       ctimer.style.width = `${Math.round((st.comboT ?? 0) * 100)}%`;
       bar.style.width = `${Math.round((env.play.progress[0] ?? 0) * 100)}%`;
-      speed.style.opacity = env.play.boost && !(st.stun ?? 0) ? '1' : '0';
       return env.play.done;
     });
     env.play.live = false;
     if (!ok) return null;
     panel.remove();
     hint.remove();
-    speed.remove();
     // Skill rating: gates threaded (50 %), stars (30 %), clean ice (20 %).
     const gf = (st.gates ?? 0) / Math.max(1, st.gatesTotal ?? 1);
     const sf = (st.stars ?? 0) / Math.max(1, st.starsTotal ?? 1);
@@ -1255,8 +1316,8 @@ export class FestivalOverlay {
         place: 3,
         noRibbon: true,
         score: Math.round(rating * 100),
-        gold: CONSOLATION.skate,
-        hearts: [{ id: 'odessa', delta: 10 }],
+        gold: 0,
+        hearts: this.sympathy('odessa'),
         title: 'Mostly Upright',
         sub: `${line} — Odessa hands you a cocoa “for the bruises”.`,
       };
@@ -1297,10 +1358,32 @@ function heartSvg(r: 'love' | 'like' | 'neutral' | 'dislike'): string {
   return `<svg viewBox="0 0 150 140">${sat}${heart(75, 84, 2.3, main)}${crack}</svg>`;
 }
 
-/** Below the ribbon line: a giggling daisy that has seen things. */
-const LAUGH_SVG = `<svg viewBox="0 0 150 140"><g transform="translate(75 68)">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `<ellipse cx="0" cy="-34" rx="13" ry="24" fill="#fff8ec" stroke="#e8d8b8" stroke-width="2" transform="rotate(${i * 45 + (i === 3 ? 12 : 0)})"/>`).join('')}<circle r="26" fill="#ffd166" stroke="#e0a830" stroke-width="3"/><path d="M-12 -6 q4 -6 8 0 M4 -6 q4 -6 8 0" stroke="#5a3218" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M-11 6 q11 14 22 0 z" fill="#8a3a2a"/><circle cx="-16" cy="4" r="4" fill="#f29a86"/><circle cx="16" cy="4" r="4" fill="#f29a86"/></g><path d="M75 96 q-6 18 2 40" stroke="#5a9a3a" stroke-width="6" fill="none" stroke-linecap="round"/></svg>`;
+/** 1st place: a gold loving cup with a laurel and a ribbon bow. */
+const TROPHY_SVG = `<svg viewBox="0 0 150 160"><defs><linearGradient id="tg" x1="0" x2="1"><stop offset="0" stop-color="#b8781a"/><stop offset=".35" stop-color="#ffe27a"/><stop offset=".55" stop-color="#f6c63a"/><stop offset="1" stop-color="#9a5e10"/></linearGradient></defs>
+<path d="M40 30 C 10 30 12 70 46 74" stroke="#c8901a" stroke-width="9" fill="none"/><path d="M110 30 C 140 30 138 70 104 74" stroke="#c8901a" stroke-width="9" fill="none"/>
+<path d="M36 18 H114 C 114 70 100 92 75 96 C 50 92 36 70 36 18 Z" fill="url(#tg)" stroke="#7a4a0c" stroke-width="3"/><ellipse cx="75" cy="18" rx="39" ry="7" fill="#ffe9a0" stroke="#7a4a0c" stroke-width="3"/>
+<rect x="68" y="95" width="14" height="22" fill="url(#tg)" stroke="#7a4a0c" stroke-width="3"/><path d="M46 118 H104 L110 140 H40 Z" fill="#6a3a1a" stroke="#3a1c0c" stroke-width="3"/><rect x="58" y="124" width="34" height="9" rx="2" fill="#f6c63a"/>
+<path d="M58 38 C 60 64 68 78 75 82" stroke="#fff8d0" stroke-width="5" fill="none" stroke-linecap="round" opacity=".75"/>
+<text x="75" y="66" text-anchor="middle" font-family="Fredoka, sans-serif" font-weight="700" font-size="26" fill="#7a4a0c">1</text>
+<path d="M60 96 L48 150 L60 142 L66 154 L72 100 Z" fill="#d84a3a"/><path d="M90 96 L102 150 L90 142 L84 154 L78 100 Z" fill="#b8302a"/></svg>`;
 
-function friendWord(delta: number): string {
+/** Board row mini rosette (1st gold, 2nd blue, 3rd red). */
+function miniRosette(place: number): string {
+  const c = [['#f6c63a', '#c8901a'], ['#4a8ad8', '#2a5aa0'], ['#d84a3a', '#a02a1e']][Math.min(place, 2)]!;
+  let petals = '';
+  for (let i = 0; i < 10; i++) petals += `<ellipse cx="20" cy="9" rx="4.5" ry="7" fill="${i % 2 ? c[0] : c[1]}" transform="rotate(${i * 36} 20 18)"/>`;
+  return `<svg viewBox="0 0 40 48"><path d="M14 26 L9 46 L15 42 L18 47 L20 28 Z" fill="${c[1]}"/><path d="M26 26 L31 46 L25 42 L22 47 L20 28 Z" fill="${c[0]}"/>${petals}<circle cx="20" cy="18" r="8" fill="#fff8e0" stroke="${c[1]}" stroke-width="1.5"/><text x="20" y="22" text-anchor="middle" font-family="Fredoka, sans-serif" font-weight="700" font-size="10" fill="${c[1]}">${place + 1}</text></svg>`;
+}
+
+/** Below the ribbon line: a wilted flower with a sheepish face (petals drooping, one fallen). */
+const WILT_SVG = `<svg viewBox="0 0 150 140"><path d="M75 136 q-4 -30 6 -58 q8 -18 -2 -30" stroke="#7a9a4a" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M78 104 q-22 -4 -28 8 q16 6 28 -8z" fill="#8aa85a"/>
+<g transform="translate(70 46) rotate(28)">${[0, 1, 2, 3, 4, 5, 6].map((i) => `<ellipse cx="0" cy="-28" rx="10" ry="20" fill="#efe2cc" stroke="#cdbb98" stroke-width="2" transform="rotate(${110 + i * 26})"/>`).join('')}<circle r="21" fill="#d8b050" stroke="#b08a30" stroke-width="3"/>
+<path d="M-10 -2 q4 3 8 0 M3 -2 q4 3 8 0" stroke="#5a3218" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M-6 10 q6 -5 12 0" stroke="#5a3218" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M13 -10 q4 6 0 9 q-4 -3 0 -9z" fill="#7ac0e8"/></g>
+<ellipse cx="112" cy="128" rx="9" ry="17" fill="#efe2cc" stroke="#cdbb98" stroke-width="2" transform="rotate(70 112 128)"/></svg>`;
+
+
+function friendWord(delta: number, lost = false): string {
+  if (lost) return 'A sympathetic smile';
   return delta >= 100 ? 'Best friends vibes' : delta >= 60 ? 'Friendship ♥♥' : delta >= 30 ? 'Friendship ♥' : 'A warm smile';
 }
 

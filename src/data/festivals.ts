@@ -158,11 +158,28 @@ export function festivalForMap(map: string): FestivalDef | null {
 }
 
 /** Palettes for townsfolk festival outfits. */
-export const OUTFIT_PALETTES: Record<Season, { tops: number[]; accents: number[] }> = {
-  spring: { tops: [0xf7b8cc, 0xfde2a0, 0xb8dcf0, 0xd8c0f0, 0xc8e8b8, 0xf8f0e4, 0xf4a8a0], accents: [0xf06a8a, 0xffd166, 0x7ec8ff, 0xc77dff, 0x8fce6a] },
-  summer: { tops: [0x2e4a8a, 0x3a6aa8, 0x5a3a7a, 0x2a6a6a, 0x8a3a4a, 0xf2e6d0], accents: [0xf2b928, 0xf06a5a, 0xf6c8d8, 0x5fd8e8, 0xffffff] },
-  fall: { tops: [0xa8482a, 0xc8783a, 0x8a5a2a, 0x6a7a3a, 0xb89a5a, 0x7a3a2a], accents: [0xf2b928, 0xd8392f, 0x3a5a2a, 0x8a2a1e, 0xe8864a] },
-  winter: { tops: [0xc8302a, 0x2f6a4a, 0x3a5a9a, 0xf2ece0, 0x8a3a5a, 0xd8a040], accents: [0xf6f0e6, 0xd8312a, 0x2f6a4a, 0xf2b928, 0x5ab8e0] },
+export const OUTFIT_PALETTES: Record<Season, { tops: number[]; accents: number[]; hats: number[] }> = {
+  // 12+ hue families a season (so a crowd never reads as three repeated hat colours).
+  spring: {
+    tops: [0xf7b8cc, 0xfde2a0, 0xb8dcf0, 0xd8c0f0, 0xc8e8b8, 0xf8f0e4, 0xf4a8a0, 0x9ad0c8, 0xf6d0a8, 0xa8b8e8, 0xe8e0a0, 0xd89ab8, 0xb0d890, 0xf0c8e8],
+    accents: [0xf06a8a, 0xffd166, 0x7ec8ff, 0xc77dff, 0x8fce6a, 0xff9a5a, 0x5ac8b8, 0xe85a9a],
+    hats: [0xf2e6c8, 0xd8c09a, 0xb8d8e8, 0xf0c8d0],
+  },
+  summer: {
+    tops: [0x2e4a8a, 0x3a6aa8, 0x5a3a7a, 0x2a6a6a, 0x8a3a4a, 0xf2e6d0, 0xc85a3a, 0x3a8a6a, 0xd8a03a, 0x6a4aa0, 0x2a7a9a, 0xa84a6a, 0xe8d8b0, 0x4a5a8a],
+    accents: [0xf2b928, 0xf06a5a, 0xf6c8d8, 0x5fd8e8, 0xffffff, 0xa8e070, 0xc89aff, 0xff8a3a],
+    hats: [0xe8d8a8, 0xf2e6d0, 0xc8a878],
+  },
+  fall: {
+    tops: [0xa8482a, 0xc8783a, 0x8a5a2a, 0x6a7a3a, 0xb89a5a, 0x7a3a2a, 0x3f5a7a, 0x5a3a5a, 0x2f5a4a, 0xd8b878, 0x8a8a9a, 0x9a4a5a, 0x4a6a8a, 0xe8d8c0],
+    accents: [0xf2b928, 0xd8392f, 0x3a5a2a, 0x8a2a1e, 0xe8864a, 0x3a6a9a, 0x7a4a8a, 0xf0e0c0, 0x2f7a6a],
+    hats: [0x5a3a24, 0x3a4a5a, 0x6a6a4a, 0x4a2a3a, 0x8a7a5a, 0x2a2a2e, 0x6a3a2a],
+  },
+  winter: {
+    tops: [0xc8302a, 0x2f6a4a, 0x3a5a9a, 0xf2ece0, 0x8a3a5a, 0xd8a040, 0x5a8ab8, 0x6a4a8a, 0x3a3a4a, 0xe8784a, 0x7ab0a0, 0xb8a888, 0x9a2a4a, 0x4a7a3a],
+    accents: [0xf6f0e6, 0xd8312a, 0x2f6a4a, 0xf2b928, 0x5ab8e0, 0xc87ae0, 0xff8a6a, 0x8ad0a0],
+    hats: [0xd8312a, 0x2f6a4a, 0xf6f0e6, 0x3a5a9a, 0xf2b928, 0x8a3a5a],
+  },
 };
 
 // ───────────────────────────────────────────── activities (mini-games)
@@ -256,10 +273,37 @@ export const WISHES = ['A kind harvest', 'Good weather for the valley', 'The Lan
 
 /** Rival entries at the produce judging: name, entrant, weight (lb), look. */
 export const PRODUCE_RIVALS: { name: string; by: string; score: number; tint: string }[] = [
-  { name: 'Duchess (giant pumpkin)', by: 'Bram', score: 86, tint: '#f07a1e' },
-  { name: 'The Pale Moon (white pumpkin)', by: 'Hazel', score: 78, tint: '#eadcb8' },
-  { name: 'Lumpy Lou (green squash)', by: 'Kit', score: 54, tint: '#8a9a4a' },
+  { name: 'Duchess (giant pumpkin)', by: 'Bram', score: 84, tint: '#f07a1e' },
+  { name: 'The Pale Moon (white pumpkin)', by: 'Hazel', score: 77, tint: '#eadcb8' },
+  { name: 'Lumpy Lou (green squash)', by: 'Kit', score: 55, tint: '#8a9a4a' },
+  { name: 'Old Faithful (marrow)', by: 'Tobias', score: 70, tint: '#7a9a3a' },
+  { name: 'Sir Beetsworth (beet)', by: 'June', score: 66, tint: '#9a2a4a' },
+  { name: 'The Sunset (striped gourd)', by: 'Odessa', score: 74, tint: '#e8a040' },
+  { name: 'Big Wendell (turnip)', by: 'Wren', score: 61, tint: '#e8d8e8' },
 ];
+
+/** This year's three rivals at the produce table: drawn per year, a little better every year. */
+export function produceRivals(year: number): { name: string; by: string; score: number; tint: string }[] {
+  let seed = 97 + year * 7919;
+  const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const pool = PRODUCE_RIVALS.slice();
+  const out: typeof pool = [];
+  while (out.length < 3 && pool.length) {
+    const r = pool.splice(Math.floor(rnd() * pool.length), 1)[0]!;
+    out.push({ ...r, score: Math.min(97, Math.round(r.score + Math.min(12, (year - 1) * 4) + (rnd() - 0.5) * 6)) });
+  }
+  return out;
+}
+
+/** Presentation touches for a produce entry; the judges favour one each year (hinted on the card). */
+export const PRESENTATIONS = [
+  { id: 'polish', name: 'Polished to a shine', hint: 'Marigold has been muttering about “a proper shine” all week.' },
+  { id: 'nest', name: 'On a straw nest', hint: 'The judges were overheard admiring the hay-bale seating. Rustic is in.' },
+  { id: 'bow', name: 'With a ribbon bow', hint: 'Hazel says a little ribbon never hurt anybody’s chances.' },
+] as const;
+export function favouredPresentation(year: number): number {
+  return (year * 5 + 1) % PRESENTATIONS.length;
+}
 
 /** Presents villagers might wrap for the player at Starfall (festival keepsakes weighted in). */
 export const STARFALL_GIFTS = ['starfallOpal', 'starfallOpal', 'gingerbreadVillager', 'winterRoseTea', 'ruby', 'aquamarine', 'emberOpal', 'truffle'];
@@ -272,7 +316,7 @@ export function shortName(name: string): string {
 
 /**
  * Mini-game prizes: gold by result tier (0 = 1st .. 2 = 3rd). Below the ribbon threshold there is
- * no rosette — just `CONSOLATION` gold and a laugh.
+ * no rosette, no prize money and no friendship (only a partner who already loves you smiles anyway).
  */
 export const PRIZES: Record<ActivityId, number[]> = {
   dance: [400, 250, 120],
@@ -282,7 +326,37 @@ export const PRIZES: Record<ActivityId, number[]> = {
   giftswap: [0],
   skate: [450, 250, 120],
 };
-export const CONSOLATION: Record<ActivityId, number> = { dance: 15, lanterns: 10, sackrace: 20, pumpkin: 20, giftswap: 0, skate: 15 };
 
 /** Produce judging: entries must be worth at least this much to be judged seriously. */
 export const MIN_ENTRY_VALUE = 40;
+
+/**
+ * Par score per mini-game (a flawless run) — co-op peers' staged results are drawn against it.
+ * dance: 43 notes all Bloom with the full combo bonus; sackrace: 1000 − 200 × place.
+ */
+export const ACTIVITY_PAR: Record<ActivityId, number> = { dance: 7700, lanterns: 300, sackrace: 1000, pumpkin: 99, giftswap: 0, skate: 100 };
+
+/**
+ * Visiting co-op farmers used to stage the festival board + 3D visitors in demos (`&coop=1`).
+ * Names come from a farmer pool that never collides with a villager's name (see coopVisitors()).
+ * Looks are FarmerLook-shaped (entities/remote-look.ts).
+ */
+export interface CoopVisitor {
+  id: string;
+  name: string;
+  color: string;
+  look: { skin: number; hair: number; hairStyle: 'tousled' | 'bob' | 'bun' | 'spiky' | 'long' | 'buzz'; shirt: number; overalls: number; scarf: number; hat: 'straw' | 'cap' | 'beanie' | 'flower' | 'none'; hatColor: number };
+}
+const FARMER_NAMES = ['Juniper', 'Tamsin', 'Oren', 'Linnea', 'Casper', 'Maren', 'Idris', 'Sable', 'Fenn', 'Isla', 'Arlo', 'Pim'];
+const VISITOR_LOOKS: CoopVisitor['look'][] = [
+  { skin: 0xd99c72, hair: 0x2b1d16, hairStyle: 'bun', shirt: 0xc9e0f2, overalls: 0x4b6c9e, scarf: 0x4e9ee0, hat: 'flower', hatColor: 0xf2f2ec },
+  { skin: 0xf7d7bd, hair: 0xc0512c, hairStyle: 'spiky', shirt: 0xf5e19e, overalls: 0xa05a45, scarf: 0xe07a5f, hat: 'cap', hatColor: 0xd9534f },
+];
+const VISITOR_COLORS = ['#4e9ee0', '#e07a5f'];
+
+/** Two visiting farmers whose names avoid every villager's id / first name. */
+export function coopVisitors(villagerNames: string[]): CoopVisitor[] {
+  const taken = new Set(villagerNames.map((n) => n.toLowerCase()));
+  const names = FARMER_NAMES.filter((n) => !taken.has(n.toLowerCase())).slice(0, 2);
+  return names.map((name, i) => ({ id: `peer:${name.toLowerCase()}`, name, color: VISITOR_COLORS[i]!, look: VISITOR_LOOKS[i]! }));
+}

@@ -24,8 +24,12 @@ import type { ActivityId } from '../../data/festivals';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { LightPools } from '../props/decals';
 import type { BuiltProp } from '../props/structures';
-import { Crowd, type CrowdSpec } from './crowd';
+import { Crowd, Anim, type CrowdSpec } from './crowd';
 import { GlowPoints, type GlowPoint } from './fx';
+import { buildRosette } from './kit';
+import { RemoteFarmer } from '../../entities/remote-farmer';
+import { coopVisitors } from '../../data/festivals';
+import { NPCS } from '../../data/npcs';
 
 export interface FestivalMapDef {
   id: string;
@@ -124,6 +128,16 @@ export abstract class FestivalMap implements GameMap {
   private poseFn: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
   /** Seconds since the showcase / festival started (render clock). */
   protected showT = 0;
+  /** Confetti colours for win celebrations (per festival). */
+  protected confettiColors = [0xf2b928, 0xe8574a, 0x3f8fd0, 0x6ab04a, 0xffffff];
+  /** Crowd members cheering a win (restored to their own clip when it ends). */
+  private winCheer: { i: number; anim: number }[] = [];
+  private cheerUntil = 0;
+  /** The prize ribbon pinned to the player's chest after a win (until they leave the grounds). */
+  private pin: THREE.Group | null = null;
+  /** Where visiting co-op farmers stand (by the activities) when staged with `&coop=1`. */
+  protected visitorSpots: { x: number; z: number; yaw: number }[] = [];
+  private visitors: { f: RemoteFarmer; x: number; z: number; yaw: number; seed: number }[] = [];
 
   constructor(protected game: Game, protected def: FestivalMapDef) {
     this.id = def.id;
@@ -202,6 +216,7 @@ export abstract class FestivalMap implements GameMap {
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.ambience.group);
     if (this.crowdSpecs.length) {
+      this.separateCrowd();
       this.crowd = new Crowd(this.crowdSpecs, (x, z) => this.terrain.heightAt(x, z), `${this.id}-crowd`);
       this.crowdSpecs.forEach((s, i) => {
         if (s.id) this.named.set(s.id, i);
@@ -221,10 +236,74 @@ export abstract class FestivalMap implements GameMap {
     this.bursts.object.userData.noAO = true;
     this.root.add(this.bursts.object);
     this.terrain.commitCover();
+    if (new URLSearchParams(location.search).has('coop')) this.stageVisitors();
     return this;
   }
 
+  /**
+   * Demo co-op staging: the two visiting farmers from the festival board, standing at the activity
+   * spots in their own looks with colour name tags (the real net layer drives its own farmers).
+   */
+  private stageVisitors(): void {
+    const names = Object.entries(NPCS).flatMap(([id, n]) => [id, n.name.split(/\s+/)[0]!]);
+    coopVisitors(names).forEach((v, k) => {
+      const spot = this.visitorSpots[k];
+      if (!spot) return;
+      const f = new RemoteFarmer(v.look);
+      f.position.set(spot.x, this.heightAt(spot.x, spot.z), spot.z);
+      f.yaw = f.targetYaw = spot.yaw;
+      f.root.add(nameTag(v.name, v.color));
+      this.root.add(f.root);
+      this.visitors.push({ f, x: spot.x, z: spot.z, yaw: spot.yaw, seed: k * 2.7 });
+    });
+  }
+
   // ───────────────────────────────────────────── helpers
+
+  /**
+   * Relax the staged crowd so nobody stands inside anybody else: standing members closer than
+   * ~0.65 m (scaled by size; children count smaller) are pushed apart, named villagers move less,
+   * anyone seated / lifted / on a scripted path (skaters, racers, maypole dancers) stays put, and a
+   * push never lands someone on a blocked tile.
+   */
+  protected separateCrowd(minD = 0.66): void {
+    const S = this.crowdSpecs;
+    const pinned = new Set<string>(['skate', 'sack', 'ribbonR', 'ribbonL', 'perch', 'sit']);
+    const w = S.map((s) => (s.lift || pinned.has(s.anim) ? 0 : s.id ? 0.35 : 1));
+    const r = S.map((s) => minD * 0.5 * Math.max(0.75, s.look.scale) * (0.9 + 0.1 * s.look.build));
+    for (let it = 0; it < 16; it++) {
+      let moved = false;
+      for (let i = 0; i < S.length; i++) {
+        for (let j = i + 1; j < S.length; j++) {
+          const a = S[i]!;
+          const b = S[j]!;
+          const wa = w[i]!;
+          const wb = w[j]!;
+          if (!wa && !wb) continue;
+          if (Math.abs((a.lift ?? 0) - (b.lift ?? 0)) > 0.6) continue;
+          let dx = b.x - a.x;
+          let dz = b.z - a.z;
+          let d = Math.hypot(dx, dz);
+          const need = r[i]! + r[j]!;
+          if (d >= need) continue;
+          if (d < 1e-4) {
+            dx = Math.cos(i * 2.4);
+            dz = Math.sin(i * 2.4);
+            d = 1;
+          }
+          const push = (need - d) / (wa + wb);
+          const ax = a.x - (dx / d) * push * wa;
+          const az = a.z - (dz / d) * push * wa;
+          const bx = b.x + (dx / d) * push * wb;
+          const bz = b.z + (dz / d) * push * wb;
+          if (wa && this.grid.isWalkable(Math.floor(ax), Math.floor(az))) [a.x, a.z] = [ax, az];
+          if (wb && this.grid.isWalkable(Math.floor(bx), Math.floor(bz))) [b.x, b.z] = [bx, bz];
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+  }
 
   protected H(x: number, z: number): number {
     return this.terrain.heightAt(x, z);
@@ -350,7 +429,23 @@ export abstract class FestivalMap implements GameMap {
     }
     for (const f of this.fx) f.update(dt, game, h);
     this.bursts.update(dt, h);
+    for (const v of this.visitors) {
+      // Shuffle on the spot now and then, glance at the player.
+      const p = game.player.position;
+      const look = Math.atan2(p.x - v.x, p.z - v.z);
+      const t = game.time * 0.25 + v.seed;
+      v.f.targetYaw = Math.sin(t) > 0.3 ? look : v.yaw;
+      v.f.update(dt, game.time);
+    }
     if (this.play) this.play.t += dt;
+    if (this.winCheer.length && this.showT > this.cheerUntil) {
+      const c = this.crowd;
+      if (c) {
+        for (const k of this.winCheer) c.members[k.i]!.anim = k.anim;
+        c.commit();
+      }
+      this.winCheer = [];
+    }
     if (this.camGoal) {
       const r = game.rc.rig;
       const k = 1 - Math.exp(-2.6 * dt);
@@ -408,6 +503,15 @@ export abstract class FestivalMap implements GameMap {
     this.camRelease = 0;
   }
 
+  /** Update the live mini-game framing (camera look offset + distance) without saving it again. */
+  protected reframe(ox: number, oz: number, distance?: number): void {
+    const g = this.camGoal;
+    if (!g) return;
+    g.ox = ox;
+    g.oz = oz;
+    if (distance !== undefined) g.distance = distance;
+  }
+
   /** Put the player somewhere for a mini-game (snaps height, faces `facing`). */
   protected placePlayer(x: number, z: number, facing?: Facing, y?: number): void {
     const p = this.game.player;
@@ -437,9 +541,58 @@ export abstract class FestivalMap implements GameMap {
     return this.play;
   }
 
-  /** A moment in the mini-game worth staging (hit, miss, release, finish…). */
+  /** A moment in the mini-game worth staging (hit, miss, release, finish, win / lose…). */
   playEvent(kind: string, value = 0): void {
-    if (this.play) this.onPlayEvent(this.play, kind, value);
+    if (!this.play) return;
+    if (kind === 'win') this.celebrate(value);
+    else if (kind === 'lose') {
+      // No ribbon: a little grey sigh-cloud puffs over your head; the crowd claps politely.
+      const p = this.game.player.position;
+      this.burst(p.x, p.y + 2.3, p.z, { color: 0xb8c0cc, count: 10, speed: 0.5, size: 0.22, gravity: -0.2, life: 1.8, up: 0.3, spread: 0.25 });
+    }
+    this.onPlayEvent(this.play, kind, value);
+  }
+
+  /**
+   * A win: everyone standing nearby jumps up cheering (5 s), confetti cannons pop around the player
+   * and the prize ribbon (1st gold / 2nd blue / 3rd red) is pinned to their chest.
+   */
+  protected celebrate(place: number): void {
+    const p = this.game.player.position;
+    const c = this.crowd;
+    if (c) {
+      // Keep clips whose staging depends on them (skaters, racers, maypole ribbons, the seated).
+      const keep = new Set([Anim.skate, Anim.sack, Anim.ribbonR, Anim.ribbonL, Anim.sit, Anim.perch, Anim.fiddle]);
+      c.members.forEach((m, i) => {
+        if (keep.has(m.anim as never) || Math.hypot(m.x - p.x, m.z - p.z) > 18 || this.winCheer.some((k) => k.i === i)) return;
+        this.winCheer.push({ i, anim: m.anim });
+        m.anim = (i * 7) % 5 === 0 ? Anim.clap : Anim.cheer;
+      });
+      c.commit();
+    }
+    this.cheerUntil = this.showT + 5;
+    for (const v of this.visitors) v.f.emote(place === 0 ? 'heart' : 'happy', 3);
+    const cols = this.confettiColors;
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      this.burst(p.x + Math.cos(a) * 1.6, p.y + 0.4, p.z + Math.sin(a) * 1.2, { color: cols[k % cols.length]!, count: 26, speed: 3.4, size: 0.12, gravity: 2.2, life: 2.6, up: 2.6, spread: 0.45 });
+    }
+    if (place <= 2) {
+      this.unpin();
+      const g = buildRosette((place + 1) as 1 | 2 | 3, true);
+      g.scale.setScalar(0.5);
+      g.position.set(-0.11, 0.26 - 0.62 * 0.5, 0.2);
+      g.rotation.x = -0.1;
+      g.traverse((o) => (o.userData.noAO = true));
+      this.game.player.rig.torso.add(g);
+      this.pin = g;
+    }
+  }
+
+  /** Take the prize ribbon off (leaving the festival grounds). */
+  unpin(): void {
+    this.pin?.removeFromParent();
+    this.pin = null;
   }
 
   endPlay(result: { place?: number; score?: number } = {}): void {
@@ -480,4 +633,34 @@ export abstract class FestivalMap implements GameMap {
   dispose(): void {
     this.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
   }
+}
+
+/** A small pill name tag (co-op visitor) above a farmer's head. */
+function nameTag(name: string, color: string): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  g.font = '700 30px Fredoka, Nunito, sans-serif';
+  const w = Math.min(240, g.measureText(name).width + 58);
+  const x0 = (256 - w) / 2;
+  g.fillStyle = 'rgba(40, 22, 10, 0.72)';
+  g.beginPath();
+  g.roundRect(x0, 10, w, 44, 22);
+  g.fill();
+  g.fillStyle = color;
+  g.beginPath();
+  g.arc(x0 + 24, 32, 9, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#fff6e4';
+  g.textBaseline = 'middle';
+  g.fillText(name, x0 + 40, 33);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true, fog: false }));
+  sp.scale.set(1.6, 0.4, 1);
+  sp.position.y = 2.55;
+  sp.renderOrder = 10;
+  sp.userData.noAO = true;
+  return sp;
 }

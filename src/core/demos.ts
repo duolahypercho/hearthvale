@@ -149,7 +149,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
   'fest-spring': { map: 'fest-spring', x: 25.2, z: 27.9, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 31, offsetX: 6.6, offsetZ: -2.1 }, showcase: ['festival-show'] },
   'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 32, offsetX: -3.2, offsetZ: -7.5 }, showcase: ['festival-show'] },
-  'fest-fall': { map: 'fest-fall', x: 30.2, z: 27.6, facing: 'up', time: 15.1, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 35, offsetX: 3.2, offsetZ: -8.2 }, showcase: ['festival-show'] },
+  'fest-fall': { map: 'fest-fall', x: 30.2, z: 27.6, facing: 'up', time: 15.1, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 35, offsetX: 3.2, offsetZ: -9.0 }, showcase: ['festival-show'] },
   // Starfall opens at dusk (rose-lit snow, the first lamps); `fest-winter-night` = full dark, aurora + lamplight on the ice.
   'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 18.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 31, distance: 43, offsetX: -0.4, offsetZ: -7.6 }, showcase: ['festival-show'] },
   'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 42, offsetX: -0.4, offsetZ: -7.8 }, showcase: ['festival-show'] },

@@ -163,15 +163,22 @@ export class NightSea {
             // Sun glint by day.
             vec3 L = normalize(uSunDir);
             col += uSunColor * pow(max(dot(R, L), 0.0), 220.0) * 2.0 * (1.0 - uNight);
-            // Warm light pools under lanterns / boats (+ rippled glints inside them).
+            // Warm light pools under lanterns / boats (+ rippled glints inside them) and, for the
+            // small (boat / lantern) pools, a soft cyan plankton wake ring — one pass over the pools.
             vec3 warm = vec3(1.0, 0.55, 0.2);
+            float glint = smoothstep(0.55, 0.85, h0 + hvNoise(p * 3.1 + t * 0.4) * 0.35);
+            float wakeRings = 0.0;
             for (int i = 0; i < ${SEA_POOLS}; i++) {
               vec4 q = uPools[i];
               if (q.w <= 0.0) continue;
               vec2 dq = p - q.xy;
-              float fall = exp(-dot(dq, dq) / (q.z * q.z));
-              float glint = smoothstep(0.55, 0.85, h0 + hvNoise(p * 3.1 + t * 0.4) * 0.35);
+              float dd2 = dot(dq, dq);
+              float fall = exp(-dd2 / (q.z * q.z));
               col += warm * q.w * fall * (0.12 + 0.55 * fres + glint * 0.9) * (0.3 + uLamps * 0.7);
+              if (q.z <= 1.7) {
+                float dd = sqrt(dd2);
+                wakeRings += exp(-pow((dd - 0.9 - 0.12 * sin(t * 1.3 + q.x)) / 0.14, 2.0)) * 0.45 + exp(-dd2 * 0.9) * 0.05;
+              }
             }
             // Fireworks wash.
             col += uFlash * (0.2 + fres * 0.9) * (0.4 + 0.6 * h0);
@@ -203,30 +210,19 @@ export class NightSea {
               stir += ring * f.w * exp(-f.z * 1.1);
             }
             stir *= (1.0 - smoothstep(0.1, 1.2, dSea));
-            // Open-water blooms: slow plankton rivers that the currents stretch into glowing
-            // filaments (domain-warped noise ridges), flecked with blinking cells, plus cyan wake
-            // rings where the boats rock.
-            vec2 dq0 = p * 0.11 + vec2(t * 0.012, -t * 0.007);
-            vec2 warp = vec2(hvNoise(dq0 * 1.6 + 3.1), hvNoise(dq0 * 1.6 - 5.2)) - 0.5;
-            float band = hvNoise(dq0 * 2.2 + warp * 2.6);
-            float fil = pow(1.0 - abs(band * 2.0 - 1.0), 12.0);
-            float fil2 = pow(1.0 - abs(hvNoise(dq0 * 4.3 - warp * 1.7 + 17.0) * 2.0 - 1.0), 14.0);
-            float bloomMask = smoothstep(0.5, 0.82, hvNoise(p * 0.045 + 11.0 + vec2(t * 0.004, 0.0))) * (0.6 + 0.4 * smoothstep(0.3, 0.8, hvNoise(p * 0.13 - 4.0)));
-            float fleck = cellSpark(p * 3.4 + 13.0, t * 0.8) + cellSpark(p * 6.3 - 4.0, t * 1.1) * 0.6;
-            float drift = (fil * 0.4 + fil2 * 0.2 + fleck * (fil * 0.8 + fil2 * 0.5 + 0.12) * 2.6) * bloomMask * smoothstep(0.6, 2.4, dSea);
-            drift *= 0.75 + 0.25 * sin(t * 0.6 + band * 12.0);
-            for (int i = 0; i < ${SEA_POOLS}; i++) {
-              vec4 q = uPools[i];
-              if (q.w <= 0.0 || q.z > 1.7) continue;
-              float dd = length(p - q.xy);
-              float ring = exp(-pow((dd - 0.9 - 0.12 * sin(t * 1.3 + q.x)) / 0.16, 2.0)) * (0.5 + 0.5 * hvNoise(p * 4.0 + t * 0.5));
-              drift += ring * 0.55;
-            }
+            // Open water: only SPARSE plankton speckles in slow drifting patches (no filament lines),
+            // plus soft cyan rings where the boats rock / lanterns bob (the glow belongs to the break
+            // line, the wakes and the feet in the shallows — not a noise texture across the bay).
+            float bloomMask = smoothstep(0.58, 0.86, hvNoise(p * 0.05 + 11.0 + vec2(t * 0.004, 0.0)));
+            float fleck = cellSpark(p * 2.2 + 13.0, t * 0.8) * 0.7 + cellSpark(p * 4.1 - 4.0, t * 1.1) * 0.35;
+            float soft = smoothstep(0.55, 0.95, hvNoise(p * 0.16 - t * 0.01)) * 0.04;
+            float drift = (fleck * 0.5 + soft) * bloomMask * smoothstep(0.6, 2.4, dSea);
+            drift += wakeRings * (0.5 + 0.5 * hvNoise(p * 4.0 + t * 0.5));
             float bright = crest * 3.0 * (0.55 + 0.45 * lace) + wake * 2.0 + edge * 2.2 + film + plank * 2.4 + stir * 2.6 + drift * 1.1;
             vec3 cyan = vec3(0.2, 0.95, 1.0);
             vec3 blue = vec3(0.08, 0.42, 1.0);
             vec3 teal = vec3(0.05, 0.75, 0.72);
-            vec3 bio = mix(blue, cyan, clamp(crest + edge + stir * 0.5, 0.0, 1.0)) * (bright - drift * 1.1) + mix(blue, teal, clamp(fil2 + fleck, 0.0, 1.0)) * drift * 1.1;
+            vec3 bio = mix(blue, cyan, clamp(crest + edge + stir * 0.5, 0.0, 1.0)) * (bright - drift * 1.1) + mix(blue, teal, clamp(fleck, 0.0, 1.0)) * drift * 1.1;
             col += bio * uGlow * smoothstep(0.35, 0.85, uNight) * (1.0 - uFar);
             // Pale foam by day.
             col = mix(col, vec3(0.82, 0.86, 0.86), clamp(crest + wake * 0.5 + edge, 0.0, 1.0) * 0.5 * (1.0 - uNight));
