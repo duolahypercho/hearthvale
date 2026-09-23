@@ -693,6 +693,10 @@ export class Villager {
     this.mesh.updateMatrixWorld(true);
     const skeleton = new THREE.Skeleton(this.bones);
     this.mesh.bind(skeleton);
+    // Cull off-screen villagers (main + shadow passes): a rest-pose sphere padded for gestures / props.
+    this.mesh.boundingSphere = (geo.boundingSphere ?? new THREE.Sphere(new THREE.Vector3(0, 0.8, 0), 1.2)).clone();
+    this.mesh.boundingSphere.radius *= 1.35;
+    this.mesh.frustumCulled = true;
     this.body.add(this.mesh);
     this.root.add(this.body);
     this.showProps(acc.has('cane') ? ['cane'] : []);
@@ -987,7 +991,9 @@ export class Villager {
       bn[i]!.position.copy(this.rest[i]!);
       bn[i]!.rotation.set(0, 0, 0);
     }
-    for (const b of [B.eyeL, B.eyeR, B.mouth]) bn[b]!.scale.set(1, 1, 1);
+    bn[B.eyeL]!.scale.set(1, 1, 1);
+    bn[B.eyeR]!.scale.set(1, 1, 1);
+    bn[B.mouth]!.scale.set(1, 1, 1);
     const hips = bn[B.hips]!;
     const spine = bn[B.spine]!;
     const head = bn[B.head]!;

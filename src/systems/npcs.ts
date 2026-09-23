@@ -175,12 +175,11 @@ export class NpcSystem implements System {
   private baseYaw = 0;
   private camCur = { yaw: 0, pitch: 45, dist: 15, target: new THREE.Vector3(), set: false };
   private camPick: { key: string; t: number; dy: number; dp: number; k: number } = { key: '', t: 0, dy: 0, dp: 0, k: 1 };
-  private camRelease: { t: number; from: { yaw: number; pitch: number; distance: number } } | null = null;
+  private camRelease: { t: number; from: { yaw: number; pitch: number; distance: number; off: THREE.Vector3 } } | null = null;
   private lineNo = 0;
   /** Tree instances hidden because they stood between the lens and an actor (restored after). */
   private occluded: { mesh: THREE.BatchedMesh; id: number }[] = [];
   private treeCache: { map: string; meshes: THREE.BatchedMesh[] } | null = null;
-  private ray = new THREE.Raycaster();
   private occFrame = 0;
   private eventProps: THREE.Object3D[] = [];
   private fx = new ReactionFx();
@@ -339,6 +338,7 @@ export class NpcSystem implements System {
     this.fx.group.removeFromParent();
     this.occluded = [];
     this.treeCache = null;
+    this.treeBalls = null;
     if (!this.active || !map) return;
     map.root.add(this.blobs, this.fx.group);
     for (const a of this.agents.values()) map.root.add(a.v.root);
@@ -672,19 +672,24 @@ export class NpcSystem implements System {
     }
     this.camMode = mode;
     this.camPick.key = '';
-    this.game.cinematic = true;
+    // Heart events are cinematics (the rig stops following; co-op hides other farmers). A chat only
+    // leans the camera in through the look offset, so everyone else stays on screen in co-op.
+    this.game.cinematic = mode === 'event';
     rig.lookOffset.set(0, 0, 0);
   }
 
   /** Hand the camera back to the player follow, blending yaw / pitch / distance home. */
   private releaseCam(): void {
     if (!this.camMode) return;
+    const wasEvent = this.camMode === 'event';
     this.camMode = null;
     this.game.cinematic = false;
     const rig = this.game.rc.rig;
     if (this.camSaved) {
-      this.camRelease = { t: 0, from: { yaw: rig.yaw, pitch: rig.pitch, distance: rig.distance } };
-      rig.lookOffset.copy(this.camSaved.off);
+      // Event cams hand back from their own target (the rig's follow smooths it); chats blend the offset home.
+      const off = wasEvent ? this.camSaved.off.clone() : rig.lookOffset.clone();
+      this.camRelease = { t: 0, from: { yaw: rig.yaw, pitch: rig.pitch, distance: rig.distance, off } };
+      rig.lookOffset.copy(off);
     }
     this.game.followPlayer(false);
     this.restoreOccluders();
@@ -710,8 +715,13 @@ export class NpcSystem implements System {
     rig.yaw = this.camCur.yaw;
     rig.pitch = this.camCur.pitch;
     rig.distance = this.camCur.dist;
-    rig.target.copy(this.camCur.target);
-    rig.lookOffset.set(0, 0, 0);
+    if (this.camMode === 'talk') {
+      const p = this.game.player.position;
+      rig.lookOffset.set(this.camCur.target.x - p.x, this.camCur.target.y - p.y, this.camCur.target.z - p.z);
+    } else {
+      rig.target.copy(this.camCur.target);
+      rig.lookOffset.set(0, 0, 0);
+    }
     this.lookPoint.copy(this.camCur.target);
   }
 
@@ -731,10 +741,11 @@ export class NpcSystem implements System {
 
   /** Building footprints + roof heights (the director keeps them out of the sight lines). */
   private static readonly BLOCKERS: { r: [number, number, number, number]; h: number }[] = [
-    ...BUILDINGS.map((b) => ({ r: [b.block[0] - 0.2, b.block[1] - 0.2, b.block[2] + 1.2, b.block[3] + 1.2] as [number, number, number, number], h: b.kind === 'hall' ? 11 : 6.2 })),
-    ...NEW_BUILDINGS.map((b) => ({ r: [b.block[0] - 0.2, b.block[1] - 0.2, b.block[2] + 1.2, b.block[3] + 1.2] as [number, number, number, number], h: b.kind === 'inn' || b.kind === 'school' ? 7.5 : 6.2 })),
-    // The fountain's upper basin + spout.
-    { r: [30.2, 23.2, 33.8, 26.8], h: 2.1 },
+    ...BUILDINGS.map((b) => ({ r: [b.block[0], b.block[1], b.block[2] + 1, b.block[3] + 1] as [number, number, number, number], h: b.kind === 'hall' ? 11 : 6.2 })),
+    ...NEW_BUILDINGS.map((b) => ({ r: [b.block[0], b.block[1], b.block[2] + 1, b.block[3] + 1] as [number, number, number, number], h: b.kind === 'inn' || b.kind === 'school' ? 7.5 : 6.2 })),
+    // The fountain: low basin rim, then the tiered spout.
+    { r: [29.7, 22.7, 34.3, 27.3], h: 0.62 },
+    { r: [31.0, 24.0, 33.0, 26.0], h: 2.2 },
   ];
 
   /** Number of actor sight lines (head + chest) cut by a building from this camera position. */
@@ -750,7 +761,7 @@ export class NpcSystem implements System {
         const len = Math.hypot(cam.x - ax, cam.y - ay, cam.z - az);
         const n = Math.ceil(len / 0.3);
         let hit = false;
-        for (let i = 2; i < n && !hit; i++) {
+        for (let i = Math.ceil(0.9 / 0.3); i < n && !hit; i++) {
           const t = i / n;
           const x = ax + (cam.x - ax) * t;
           const y = ay + (cam.y - ay) * t;
@@ -824,13 +835,8 @@ export class NpcSystem implements System {
       // Camera offset (sin y, cos y) perpendicular to the pair: y = atan2(-dz, dx) or + 180°.
       const c1 = THREE.MathUtils.radToDeg(Math.atan2(-(other.z - lead.z), other.x - lead.x));
       const d = (a: number): number => Math.abs(((a - base + 540) % 360) - 180);
-      let pick = d(c1) < d(c1 + 180) ? c1 : c1 + 180;
-      // Swing round towards the listener's shoulder so the speaker is seen three-quarter, not in profile.
-      const lx = other.x - lead.x;
-      const lz = other.z - lead.z;
-      const pr = THREE.MathUtils.degToRad(pick);
-      const side = Math.sin(pr) * lz - Math.cos(pr) * lx;
-      pick += (side > 0 ? -1 : 1) * (this.camMode === 'talk' ? 14 : 16);
+      const pick = d(c1) < d(c1 + 180) ? c1 : c1 + 180;
+      // (the candidate search below swings towards the listener's shoulder for a three-quarter view)
       let delta = ((pick - base + 540) % 360) - 180;
       delta = THREE.MathUtils.clamp(delta, -34, 34);
       yaw = base + delta;
@@ -851,7 +857,8 @@ export class NpcSystem implements System {
       pitch = this.camMode === 'talk' ? 38 : 33;
       dist = this.camMode === 'talk' ? 11 : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
     } else {
-      pitch = 28;
+      // Close-up: lower for short actors (children) so the lens meets the face, not the crown.
+      pitch = lead.head < 1.6 ? 22 : 28;
       dist = THREE.MathUtils.clamp(spread * 0.8 + 5.4, 6.2, 8.5);
       cx = THREE.MathUtils.lerp(cx, lead.x, 0.5);
       cz = THREE.MathUtils.lerp(cz, lead.z, 0.5);
@@ -865,18 +872,40 @@ export class NpcSystem implements System {
       cands.push([0, 22, 0.8]);
       let best = cands[cands.length - 1]!;
       let bestHits = 99;
-      // Score: blocked sight lines dominate; then a speaker turned away from the lens; then change.
+      // Score: blocked sight lines dominate; then a speaker turned from the lens (three-quarter is
+      // best), the listener's head in front of the speaker's face, then distance from the base angle.
       const fy = la ? (la.v as unknown as { yaw: number }).yaw : null;
+      const sh = new THREE.Vector3(lead.x, lead.y + lead.head - 0.25, lead.z);
+      const lh = other ? new THREE.Vector3(other.x, other.y + other.head - 0.25, other.z) : null;
+      const v1 = new THREE.Vector3();
+      const v2 = new THREE.Vector3();
+      // Bystanders (other villagers near the pair) must not stand in front of the actors either.
+      const ids = new Set(acts.map((a) => a.id));
+      const by: THREE.Vector3[] = [];
+      for (const o of this.agents.values())
+        if (!ids.has(o.def.id) && !o.inside && o.v.root.visible && Math.hypot(o.v.position.x - cx, o.v.position.z - cz) < 10) by.push(new THREE.Vector3(o.v.position.x, o.v.position.y + o.v.headTop * 0.55, o.v.position.z));
+      const segD = (a: THREE.Vector3, b: THREE.Vector3, p: THREE.Vector3): number => {
+        v1.subVectors(b, a);
+        const t = THREE.MathUtils.clamp(v2.subVectors(p, a).dot(v1) / (v1.lengthSq() || 1), 0, 1);
+        return v2.copy(a).addScaledVector(v1, t).distanceTo(p);
+      };
       for (const c of cands) {
         const cy = yaw + c[0];
         const pos = this.camPosFor(probe, cy, Math.min(62, pitch + c[1]), dist * c[2]);
         let h = this.buildingHits(pos, acts) * 10;
+        for (const b of by) for (const a of acts) if (segD(pos, new THREE.Vector3(a.x, a.y + a.head * 0.6, a.z), b) < 0.55) h += 3;
         if (fy !== null && kind !== 'wide') {
           const cr = THREE.MathUtils.degToRad(cy);
           const off = Math.abs(Math.atan2(Math.sin(fy - cr), Math.cos(fy - cr)));
           if (off > THREE.MathUtils.degToRad(100)) h += 6;
+          h += (Math.abs(off - 0.6) / Math.PI) * 3;
+          if (lh) {
+            v1.subVectors(sh, pos);
+            v2.subVectors(lh, pos);
+            if (v2.length() < v1.length() && v1.angleTo(v2) < THREE.MathUtils.degToRad(kind === 'close' ? 9 : 6)) h += 4;
+          }
         }
-        h += Math.abs(c[0]) / 90 + c[1] / 60;
+        h += Math.abs(c[0]) / 180 + c[1] / 60;
         if (h < bestHits) {
           bestHits = h;
           best = c;
@@ -910,6 +939,7 @@ export class NpcSystem implements System {
       rig.yaw = r.from.yaw + dy * e;
       rig.pitch = THREE.MathUtils.lerp(r.from.pitch, this.camSaved.pitch, e);
       rig.distance = THREE.MathUtils.lerp(r.from.distance, this.camSaved.distance, e);
+      rig.lookOffset.lerpVectors(r.from.off, this.camSaved.off, e);
       if (u >= 1) {
         this.camRelease = null;
         this.camSaved = null;
@@ -926,7 +956,7 @@ export class NpcSystem implements System {
     this.camCur.dist += (g.dist - this.camCur.dist) * k;
     this.camCur.target.lerp(g.target, k);
     this.applyCam();
-    this.game.rc.focusPoint.lerp(g.focus, k);
+    if (this.camMode === 'event') this.game.rc.focusPoint.lerp(g.focus, k);
     this.guardView();
   }
 
@@ -948,51 +978,71 @@ export class NpcSystem implements System {
     return meshes;
   }
 
-  private treeHits(a: THREE.Vector3, b: THREE.Vector3): { mesh: THREE.BatchedMesh; id: number }[] {
-    const meshes = this.trees().filter((m) => m.visible);
-    if (!meshes.length) return [];
-    const out: { mesh: THREE.BatchedMesh; id: number }[] = [];
-    const len = a.distanceTo(b);
-    for (const [from, to] of [[a, b], [b, a]] as const) {
-      this.ray.set(from, to.clone().sub(from).normalize());
-      this.ray.near = 0;
-      this.ray.far = Math.max(0, len - 0.3);
-      for (const h of this.ray.intersectObjects(meshes, false)) {
-        const id = (h as unknown as { batchId?: number }).batchId;
-        if (id !== undefined) out.push({ mesh: h.object as THREE.BatchedMesh, id });
+  /**
+   * Tree instances as bounding spheres grouped by trunk position (canopy + trunk batches share a
+   * spot), built once per map: occlusion tests are segment-vs-sphere, not triangle raycasts.
+   */
+  private treeBalls: { map: string; list: { c: THREE.Vector3; r: number; parts: { mesh: THREE.BatchedMesh; id: number }[] }[] } | null = null;
+  private balls(): { c: THREE.Vector3; r: number; parts: { mesh: THREE.BatchedMesh; id: number }[] }[] {
+    const map = this.game.world.current;
+    if (!map) return [];
+    if (this.treeBalls?.map === map.id) return this.treeBalls.list;
+    const groups = new Map<string, { c: THREE.Vector3; r: number; parts: { mesh: THREE.BatchedMesh; id: number }[] }>();
+    const m = new THREE.Matrix4();
+    const sp = new THREE.Sphere();
+    for (const mesh of this.trees()) {
+      mesh.updateMatrixWorld();
+      const max = (mesh as unknown as { maxInstanceCount?: number }).maxInstanceCount ?? 0;
+      for (let i = 0; i < max; i++) {
+        let gid: number;
+        try {
+          mesh.getMatrixAt(i, m);
+          gid = mesh.getGeometryIdAt(i);
+          if (gid < 0 || !mesh.getBoundingSphereAt(gid, sp)) continue;
+        } catch {
+          continue;
+        }
+        m.premultiply(mesh.matrixWorld);
+        const base = new THREE.Vector3().setFromMatrixPosition(m);
+        const key = `${Math.round(base.x * 10)},${Math.round(base.z * 10)}`;
+        const c = sp.center.clone().applyMatrix4(m);
+        const r = sp.radius * m.getMaxScaleOnAxis();
+        let g = groups.get(key);
+        if (!g) groups.set(key, (g = { c, r, parts: [] }));
+        else if (r > g.r) {
+          g.c = c;
+          g.r = r;
+        }
+        g.parts.push({ mesh, id: i });
       }
+    }
+    this.treeBalls = { map: map.id, list: [...groups.values()] };
+    return this.treeBalls.list;
+  }
+
+  private treeHits(a: THREE.Vector3, b: THREE.Vector3): { mesh: THREE.BatchedMesh; id: number }[] {
+    const out: { mesh: THREE.BatchedMesh; id: number }[] = [];
+    const ab = new THREE.Vector3().subVectors(b, a);
+    const len2 = ab.lengthSq() || 1;
+    const q = new THREE.Vector3();
+    for (const g of this.balls()) {
+      // Closest point on the segment to the canopy centre (spheres are loose: shrink 15 %).
+      const t = THREE.MathUtils.clamp(q.subVectors(g.c, a).dot(ab) / len2, 0, 1);
+      q.copy(a).addScaledVector(ab, t);
+      const rr = g.r * 0.85;
+      if (q.distanceToSquared(g.c) < rr * rr) out.push(...g.parts);
     }
     return out;
   }
 
   private hideTree(mesh: THREE.BatchedMesh, id: number): void {
     if (this.occluded.some((o) => o.mesh === mesh && o.id === id)) return;
-    const m = new THREE.Matrix4();
     try {
-      mesh.getMatrixAt(id, m);
+      if (!mesh.getVisibleAt(id)) return;
+      mesh.setVisibleAt(id, false);
+      this.occluded.push({ mesh, id });
     } catch {
-      return;
-    }
-    const at = new THREE.Vector3().setFromMatrixPosition(m);
-    const hide = (bm: THREE.BatchedMesh, i: number): void => {
-      if (!bm.getVisibleAt(i)) return;
-      bm.setVisibleAt(i, false);
-      this.occluded.push({ mesh: bm, id: i });
-    };
-    hide(mesh, id);
-    const q = new THREE.Matrix4();
-    const pos = new THREE.Vector3();
-    for (const other of this.trees()) {
-      if (other === mesh) continue;
-      const max = (other as unknown as { maxInstanceCount?: number }).maxInstanceCount ?? 0;
-      for (let i = 0; i < max; i++) {
-        try {
-          other.getMatrixAt(i, q);
-        } catch {
-          continue;
-        }
-        if (pos.setFromMatrixPosition(q).distanceToSquared(at) < 0.01) hide(other, i);
-      }
+      /* instance gone */
     }
   }
 
