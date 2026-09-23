@@ -13,6 +13,7 @@
 import './hud.css';
 import './screens.css';
 import './ui.css';
+import * as THREE from 'three';
 import type { Game } from '../core/game';
 import { ICONS, WEATHER_ICON, itemIcon } from './icons';
 import { el, installTextures, tooltip, replay, sfx, Screen, type NavDir } from './kit';
@@ -48,6 +49,7 @@ const PAUSING = new Set(['inventory', 'crafting', 'map', 'settings', 'shop', 'da
 /** Game-menu tabs (E closes, [ ] / LB RB cycle). */
 export const MENU_TABS = ['inventory', 'crafting', 'map', 'settings'] as const;
 /** Screens that keep the clock / purse plate sharp above their blurred backdrop (you shop with your purse in view). */
+const NOPE_TOOLS = new Set(['hoe', 'pickaxe', 'axe', 'scythe', 'wateringCan']);
 const CRISP_CLOCK = new Set(['inventory', 'crafting', 'map', 'settings', 'shop']);
 
 const HILLS: Record<string, [string, string]> = {
@@ -151,6 +153,11 @@ export class Hud {
         s.classList.toggle('empty', !st);
       });
     });
+    // Silent failures feel broken: a tool that finds nothing to do gets a little red "nope" at the tile.
+    game.events.on('tool:impact', ({ tool, x, z, hit }) => {
+      if (hit !== 'none' || !NOPE_TOOLS.has(tool)) return;
+      this.nope(x + 0.5, z + 0.5);
+    });
     game.events.on('item:use', ({ slot }) => {
       if (slot >= 0 && slot < 10) replay(this.slots[slot], 'use');
     });
@@ -233,9 +240,15 @@ export class Hud {
       });
       s.addEventListener('pointerenter', () => {
         const st = this.stacks[i];
-        if (st) tooltip.show(itemTooltipHtml(st));
+        if (!st) return;
+        // Anchored above the whole bar (never over the slots or the selected-item flag, which hides meanwhile).
+        tooltip.over(itemTooltipHtml(st), s, this.toolbar, 14);
+        this.toolbar.classList.add('tip-on');
       });
-      s.addEventListener('pointerleave', () => tooltip.hide());
+      s.addEventListener('pointerleave', () => {
+        tooltip.hide();
+        this.toolbar.classList.remove('tip-on');
+      });
       row.appendChild(s);
       this.slots.push(s);
     }
@@ -415,6 +428,8 @@ export class Hud {
       this.game.events.emit('ui:close', { name: prev });
     }
     this.root.classList.toggle('h-crisp', CRISP_CLOCK.has(name));
+    // Full-screen night ledger: the HUD steps aside before the card fades in (no clock/gold under the moon).
+    this.root.classList.toggle('h-away', name === 'dayend');
     if (name === 'none') {
       this.game.input.enabled = true;
       this.setMenuPause(false);
@@ -445,6 +460,18 @@ export class Hud {
       this.pausedByUi = false;
       this.game.setPaused(this.pauseBefore);
     }
+  }
+
+  /** Red ✕ that head-shakes over a tile the tool couldn't work (projected from world to screen). */
+  private nope(wx: number, wz: number): void {
+    const cam = this.game.rc.camera;
+    const v = new THREE.Vector3(wx, this.game.world.heightAt(wx, wz) + 0.35, wz).project(cam);
+    if (v.z > 1) return;
+    const n = el('div', 'h-nope', `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#e0584a" stroke="#5a1a0c" stroke-width="2"/><path d="M8 8 L16 16 M16 8 L8 16" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>`);
+    n.style.left = `${((v.x + 1) / 2) * innerWidth}px`;
+    n.style.top = `${((1 - v.y) / 2) * innerHeight}px`;
+    this.root.appendChild(n);
+    setTimeout(() => n.remove(), 700);
   }
 
   /** Fade to black (on=true) / back in; resolves when the transition is done. */

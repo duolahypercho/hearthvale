@@ -14,6 +14,7 @@ import { ICONS, itemIcon, itemIconUrl, itemCategory } from './icons';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
 import { itemTooltipHtml } from './itemtip';
 import { menuTabs } from './menutabs';
+import { flyItemTo } from './item-fly';
 
 export class CraftingScreen extends Screen {
   private sel = 0;
@@ -124,8 +125,15 @@ export class CraftingScreen extends Screen {
           <p>${known ? escapeHtml(d?.description ?? '') : `Learn it: ${escapeHtml(r.unlock ?? 'keep exploring')}.`}</p></div>
       </div>
       <div class="cd-cols">
-        <div class="cd-ings"><div class="cd-h">Ingredients</div>${ing}</div>
-        <div class="cd-prev"><div class="cd-h">Placement</div>${previewSvg(r.out.itemId)}<small>${previewNote(r.out.itemId)}</small></div>
+        <div class="cd-ings"><div class="cd-h">Ingredients</div>${ing}
+          <div class="cd-out ${ok ? 'ready' : ''}"><div class="u-slot mini">${known ? itemIcon(r.out.itemId) : `<img class="u-ic sil" src="${itemIconUrl(r.out.itemId)}" alt=""/>`}</div><div><b>Makes ×${r.out.qty * this.qty}</b><small>In pack <em>${this.count(r.out.itemId)}</em>${maxT > 0 && known ? ` · up to <em>${maxT * r.out.qty}</em>` : ''}</small></div>${known ? `<span class="ar">${ok ? 'Ready' : 'Missing'}</span>` : ''}</div>
+          <div class="cd-uses">${ICONS.quill ?? ''}<span>${escapeHtml(usesNote(r.out.itemId))}</span></div>
+        </div>
+        ${
+          r.placeable
+            ? `<div class="cd-prev"><div class="cd-h">Placement</div>${previewSvg(r.out.itemId)}<small>${previewNote(r.out.itemId)}</small></div>`
+            : `<div class="cd-prev bag"><div class="cd-h">Goes to</div><div class="bagpic">${ICONS.bag ?? ''}<div class="in">${known ? itemIcon(r.out.itemId) : ''}</div></div><small>Into your backpack</small></div>`
+        }
       </div>
       <div class="cd-go">
         <div class="pk-qty"><button class="u-btn small" data-q="-1" data-nav>−</button><div class="pk-n"><span>${this.qty}</span><small>× ${r.out.qty}</small></div><button class="u-btn small" data-q="1" data-nav>+</button><button class="u-btn small" data-q="max" data-nav>Max</button></div>
@@ -157,23 +165,62 @@ export class CraftingScreen extends Screen {
     for (let i = 0; i < this.qty; i++) if (svc.craft(x.r.id)) made++;
     if (!made) return;
     sfx(this.game, 'craft');
-    const ped = this.detail.querySelector('.pedestal');
-    replay(ped, 'strike');
-    // Sparkle burst around the pedestal.
-    const r = ped?.getBoundingClientRect();
-    if (r)
-      for (let i = 0; i < 12; i++) {
-        const s = el('div', 'u-spark');
-        const a = (i / 12) * Math.PI * 2;
-        s.style.left = `${r.left + r.width / 2}px`;
-        s.style.top = `${r.top + r.height / 2}px`;
-        s.style.setProperty('--dx', `${Math.cos(a) * (60 + Math.random() * 30)}px`);
-        s.style.setProperty('--dy', `${Math.sin(a) * (60 + Math.random() * 30)}px`);
-        document.getElementById('ui-root')?.appendChild(s);
-        setTimeout(() => s.remove(), 800);
-      }
+    const outQty = made * x.r.out.qty;
     this.qty = 1;
     this.refreshCards();
+    // Payoff (after the re-render, so it lands on the live nodes): card pops, pedestal strikes and bursts,
+    // a "+N" rises, and the item arcs into the Backpack tab, which bounces and shows a count badge.
+    const card = this.cards.children[this.sel] as HTMLElement | undefined;
+    replay(card, 'made');
+    const ped = this.detail.querySelector<HTMLElement>('.pedestal');
+    replay(ped, 'strike');
+    const r = ped?.getBoundingClientRect();
+    const root = document.getElementById('ui-root');
+    if (r && root) {
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      for (let i = 0; i < 16; i++) {
+        const s = el('div', `u-spark${i % 3 === 0 ? ' big' : ''}`);
+        const a = (i / 16) * Math.PI * 2 + Math.random() * 0.3;
+        const d = 70 + Math.random() * 50;
+        s.style.left = `${cx}px`;
+        s.style.top = `${cy}px`;
+        s.style.setProperty('--dx', `${Math.cos(a) * d}px`);
+        s.style.setProperty('--dy', `${Math.sin(a) * d - 20}px`);
+        s.style.animationDelay = `${(i % 4) * 25}ms`;
+        root.appendChild(s);
+        setTimeout(() => s.remove(), 900);
+      }
+      const ring = el('div', 'u-craftring');
+      ring.style.left = `${cx}px`;
+      ring.style.top = `${cy}px`;
+      root.appendChild(ring);
+      setTimeout(() => ring.remove(), 700);
+      const plus = el('div', 'u-craftplus', `+${outQty} <small>${escapeHtml(itemDef(x.r.out.itemId)?.name ?? '')}</small>`);
+      plus.style.left = `${cx}px`;
+      plus.style.top = `${r.top}px`;
+      root.appendChild(plus);
+      setTimeout(() => plus.remove(), 1300);
+      const tab = this.root.querySelector<HTMLElement>('.u-tabs .u-tab');
+      window.setTimeout(() => {
+        if (!this.isOpen) return;
+        flyItemTo(x.r.out.itemId, { x: cx, y: cy }, tab, 0, () => {
+          if (!tab || !this.isOpen) return;
+          sfx(this.game, 'pickup');
+          let badge = tab.querySelector<HTMLElement>('.u-tabbadge');
+          if (!badge) {
+            badge = el('b', 'u-tabbadge');
+            badge.dataset.n = '0';
+            tab.appendChild(badge);
+          }
+          const n = Number(badge.dataset.n) + outQty;
+          badge.dataset.n = String(n);
+          badge.textContent = `+${n}`;
+          replay(badge, 'pop');
+          replay(tab, 'got');
+        }, 52);
+      }, 180);
+    }
   }
 }
 
@@ -270,6 +317,17 @@ function previewSvg(itemId: string): string {
     out.push(`<g class="${ghost ? '' : 'pv-item'}"><image href="${url}" x="${sx - w / 2}" y="${cy - w * 0.9}" width="${w}" height="${w}" opacity="${ghost ? 0.62 : 1}"/></g>`);
   }
   return `<svg class="grid iso" viewBox="0 0 210 ${Y0 + N * TH + DEPTH + 6}">${out.join('')}</svg>`;
+}
+
+function usesNote(itemId: string): string {
+  if (SPRINKLERS[itemId]) return 'Set it among crops and forget the watering can.';
+  if (itemId === 'scarecrow') return 'Plant it mid-field before the crows find the seedlings.';
+  if (itemId === 'woodFence') return 'Pens, garden borders and cow paddocks.';
+  if (itemId === 'stonePath') return 'Tidy paths between beds; nothing grows through.';
+  if (itemId === 'chest') return 'Extra storage for the harvest rush.';
+  if (itemId === 'hay') return 'Fill the feed troughs in the coop and barn.';
+  if (itemId === 'coal') return 'Fuel for the smith and for smelting ore.';
+  return itemDef(itemId)?.description ?? '';
 }
 
 function previewNote(itemId: string): string {

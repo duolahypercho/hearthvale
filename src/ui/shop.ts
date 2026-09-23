@@ -9,7 +9,7 @@ import { itemDef } from '../data/items';
 import { CROPS, CROP_IDS, daysToRipe } from '../data/crops';
 import { NPCS, type NpcId } from '../data/npcs';
 import { portraitSvg } from './portraits';
-import { ICONS, itemIcon, itemCategory } from './icons';
+import { ICONS, itemIcon, itemCategory, qualityStar, QUALITY_NAME } from './icons';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, rollTo, escapeHtml } from './kit';
 import { itemTooltipHtml, unitPrice, type StackView } from './itemtip';
 
@@ -19,8 +19,8 @@ interface Good {
   shelf: string;
   note: string;
   off?: string;
-  /** Sell tab: backpack slot. */
-  slot?: number;
+  /** Sell tab: backpack slots holding this item (id + quality merged into one row). */
+  slots?: number[];
   have?: number;
   quality?: number;
 }
@@ -105,7 +105,20 @@ export class ShopScreen extends Screen {
 
   constructor(game: Game, parent: HTMLElement) {
     super(game, parent, 'hv-shop', { backdrop: true });
+    // The purse mirrors the economy wherever gold changes (debug, shipping, quests…), with the HUD's roll.
+    game.events.on('gold:change', ({ gold }) => {
+      if (!this.isOpen || !this.purse) return;
+      const v = this.purse.querySelector('.v') as HTMLElement | null;
+      if (!v || v.dataset.v === String(gold)) return;
+      rollTo(v, gold, 650);
+      replay(this.purse, 'bump');
+      if (this.tab === 'buy') this.buildPicker();
+    });
+    game.events.on('inventory:change', () => {
+      if (this.isOpen && this.tab === 'sell' && !this.selling) this.build();
+    });
   }
+  private selling = false;
 
   private line(kind: 'hello' | 'buy' | 'sell' | 'broke'): void {
     const set = (LINES[this.keeper] ?? LINES.marigold!)[kind];
@@ -199,17 +212,31 @@ export class ShopScreen extends Screen {
     return out;
   }
 
+  /** Sell rows: one per item id + quality (stacks merged), produce first, then by value. */
   private sellables(): Good[] {
     const inv = this.game.services.inventory;
-    const out: Good[] = [];
+    const rows = new Map<string, Good>();
     inv?.slots.forEach((s, i) => {
       if (!s) return;
       const d = itemDef(s.id);
       if (!d || d.kind === 'tool' || d.sell <= 0) return;
       const sv = s as StackView;
-      out.push({ id: s.id, price: unitPrice(sv), shelf: itemCategory(s.id).label, note: `You have ${s.qty}`, slot: i, have: s.qty, quality: sv.quality });
+      const key = `${s.id}|${sv.quality ?? 0}`;
+      const row = rows.get(key);
+      if (row) {
+        row.have = (row.have ?? 0) + s.qty;
+        row.slots!.push(i);
+        row.note = `You have ${row.have}`;
+        return;
+      }
+      rows.set(key, { id: s.id, price: unitPrice(sv), shelf: itemCategory(s.id).label, note: `You have ${s.qty}`, slots: [i], have: s.qty, quality: sv.quality });
     });
-    return out;
+    const order = ['Vegetable', 'Fruit', 'Flower', 'Artisan Good', 'Fish', 'Forage', 'Cooking', 'Mineral', 'Resource', 'Crafted', 'Seed'];
+    const rank = (g: Good): number => {
+      const k = order.indexOf(g.shelf);
+      return k < 0 ? order.length : k;
+    };
+    return [...rows.values()].sort((a, b) => rank(a) - rank(b) || b.price - a.price || a.id.localeCompare(b.id));
   }
 
   private build(): void {
@@ -229,8 +256,8 @@ export class ShopScreen extends Screen {
       const row = el(
         'div',
         `shop-row${g.off ? ' off' : ''}${i === this.sel ? ' on' : ''}`,
-        `<div class="u-slot mini">${itemIcon(g.id)}${g.quality ? '' : ''}</div>
-         <div class="nm"><b>${escapeHtml(d?.name ?? g.id)}</b><small>${g.off ? `${g.off} only` : escapeHtml(g.note)}</small></div>
+        `<div class="u-slot mini">${itemIcon(g.id)}${g.quality ? qualityStar(g.quality) : ''}</div>
+         <div class="nm"><b>${escapeHtml(d?.name ?? g.id)}${g.quality ? ` <em class="q${g.quality}">${QUALITY_NAME[g.quality] ?? ''}</em>` : ''}</b><small>${g.off ? `${g.off} only` : escapeHtml(g.note)}</small></div>
          <div class="pr">${ICONS.coin}<span>${g.price.toLocaleString()}</span></div>`,
       );
       row.dataset.nav = '';
@@ -273,7 +300,7 @@ export class ShopScreen extends Screen {
     const gold = this.game.services.economy?.gold() ?? 0;
     const can = this.tab === 'sell' || (!g.off && total <= gold);
     this.picker.innerHTML = `
-      <div class="pk-item"><div class="u-slot">${itemIcon(g.id)}</div><div><b>${escapeHtml(d?.name ?? g.id)}</b><small>${g.price}g each</small></div></div>
+      <div class="pk-item"><div class="u-slot">${itemIcon(g.id)}</div><div><b title="${escapeHtml(d?.name ?? g.id)}">${escapeHtml(d?.name ?? g.id)}</b><small>${g.price}g each</small></div></div>
       <div class="pk-qty">
         <button class="u-btn small" data-q="-1" data-nav>−</button>
         <div class="pk-n"><span>${this.qty}</span><small>qty</small></div>
@@ -323,18 +350,28 @@ export class ShopScreen extends Screen {
       this.line('buy');
     } else {
       const inv = this.game.services.inventory;
-      if (!inv || g.slot === undefined) return;
-      const got = inv.takeFromSlot(g.slot, this.qty);
-      if (!got) return;
-      eco.add(g.price * got.qty, 'shop-sell');
+      if (!inv || !g.slots?.length) return;
+      let left = this.qty;
+      let sold = 0;
+      this.selling = true;
+      for (const slot of g.slots) {
+        if (left <= 0) break;
+        const got = inv.takeFromSlot(slot, left);
+        if (got) {
+          sold += got.qty;
+          left -= got.qty;
+        }
+      }
+      this.selling = false;
+      if (!sold) return;
+      eco.add(g.price * sold, 'shop-sell');
       sfx(this.game, 'sell');
       this.burst(go, true);
       this.line('sell');
       this.qty = 1;
       this.build();
     }
-    rollTo(this.purse.querySelector('.v') as HTMLElement, eco.gold(), 650);
-    replay(this.purse, 'bump');
+    // The purse rolls via the gold:change subscription (same path as gold changed anywhere else).
     if (this.tab === 'buy') this.buildPicker();
   }
 

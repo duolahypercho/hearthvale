@@ -229,6 +229,7 @@ class Tooltip {
   /** Show near the pointer (follows it). */
   show(html: string): void {
     const n = this.ensure();
+    n.classList.remove('over');
     if (n.innerHTML !== html) n.innerHTML = html;
     n.dataset.follow = '1';
     if (!this.visible) replay(n, 'on');
@@ -239,12 +240,34 @@ class Tooltip {
   /** Show anchored beside an element (keyboard / gamepad focus). */
   anchor(html: string, target: Element): void {
     const n = this.ensure();
+    n.classList.remove('over');
     if (n.innerHTML !== html) n.innerHTML = html;
     n.dataset.follow = '0';
     if (!this.visible) replay(n, 'on');
     this.visible = true;
     const r = target.getBoundingClientRect();
     this.place(r.right - 6, r.top + r.height * 0.5 - 10);
+  }
+
+  /**
+   * Show centred above `target`, with its bottom edge `gap` px above the top of `above` (defaults to the
+   * target). Used by the HUD toolbar so the card never covers the bar or the selected-item flag.
+   */
+  over(html: string, target: Element, above: Element = target, gap = 12): void {
+    const n = this.ensure();
+    if (n.innerHTML !== html) n.innerHTML = html;
+    n.dataset.follow = '0';
+    n.classList.add('over');
+    if (!this.visible) replay(n, 'on');
+    this.visible = true;
+    const z = parseFloat(document.documentElement.style.getPropertyValue('--uiz')) || 1;
+    const r = target.getBoundingClientRect();
+    const top = above.getBoundingClientRect().top;
+    const w = n.offsetWidth * z;
+    const hh = n.offsetHeight * z;
+    const tx = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    const ty = Math.max(8, top - gap - hh);
+    n.style.transform = `translate(${tx / z}px, ${ty / z}px)`;
   }
 
   private place(x: number, y: number): void {

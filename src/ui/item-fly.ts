@@ -9,6 +9,11 @@ export function flyItemToToolbar(root: HTMLElement, itemId: string, from: { x: n
   const bar = root.querySelector<HTMLElement>('.hv-toolbar');
   const slots = bar ? [...bar.querySelectorAll<HTMLElement>('.u-slot')] : [];
   const target = slot >= 0 && slot < slots.length ? slots[slot]! : bar;
+  flyItemTo(itemId, from, target ?? null, quality);
+}
+
+/** Arc an item icon from a screen point into any element (e.g. the Backpack menu tab); squash-bumps it on landing. */
+export function flyItemTo(itemId: string, from: { x: number; y: number }, target: HTMLElement | null, quality = 0, onLand?: () => void, size = 44): void {
   const r = target?.getBoundingClientRect();
   const to = r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: window.innerWidth / 2, y: window.innerHeight - 40 };
   const el = document.createElement('div');
@@ -18,10 +23,10 @@ export function flyItemToToolbar(root: HTMLElement, itemId: string, from: { x: n
     position: 'fixed',
     left: '0px',
     top: '0px',
-    width: '44px',
-    height: '44px',
-    marginLeft: '-22px',
-    marginTop: '-22px',
+    width: `${size}px`,
+    height: `${size}px`,
+    marginLeft: `${-size / 2}px`,
+    marginTop: `${-size / 2}px`,
     pointerEvents: 'none',
     zIndex: '60',
     filter: 'drop-shadow(0 3px 3px rgba(40,20,0,.35))',
@@ -46,6 +51,7 @@ export function flyItemToToolbar(root: HTMLElement, itemId: string, from: { x: n
   const anim = el.animate(frames, { duration: 620, easing: 'cubic-bezier(.45,.05,.55,.95)' });
   anim.onfinish = () => {
     el.remove();
+    onLand?.();
     target?.animate(
       [{ transform: 'scale(1)' }, { transform: 'scale(1.22, 0.86)' }, { transform: 'scale(0.94, 1.08)' }, { transform: 'scale(1)' }],
       { duration: 280, easing: 'ease-out' },

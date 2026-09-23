@@ -11,7 +11,7 @@ import { itemDef } from '../data/items';
 import { ICONS, itemIcon, itemCategory, qualityStar } from './icons';
 import { CROPS, daysToRipe, type CropId } from '../data/crops';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
-import { slotInner, itemTooltipHtml, unitPrice, starRow, type StackView } from './itemtip';
+import { slotInner, unitPrice, starRow, type StackView } from './itemtip';
 import { menuTabs } from './menutabs';
 import { farmerAvatar } from './avatar';
 
@@ -209,15 +209,16 @@ export class InventoryScreen extends Screen {
       tooltip.hide();
       return;
     }
-    // Keyboard / gamepad focus reads the detail card under the grid — a floating tip would cover the
-    // neighbouring slots the player is navigating to.
-    if (anchor) {
-      tooltip.hide();
-      return;
+    // The detail card under the grid is the tooltip here: a floating card would repeat it and cover the
+    // neighbouring slots. The hovered slot lifts + glows (CSS) with a soft tick.
+    tooltip.hide();
+    if (!anchor) {
+      const now = performance.now();
+      if (now - this.tickAt > 45) sfx(this.game, 'tick');
+      this.tickAt = now;
     }
-    const hint = i < 10 ? 'Toolbar slot' : '';
-    tooltip.show(itemTooltipHtml(s, { hint }));
   }
+  private tickAt = 0;
 
   private onSlotDown(i: number, e: PointerEvent): void {
     e.stopPropagation();

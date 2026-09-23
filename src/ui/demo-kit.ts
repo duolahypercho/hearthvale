@@ -67,6 +67,13 @@ export class DemoKit {
     let slot = 10;
     for (const [id, qty, quality] of STOCK) {
       if (!itemDef(id)) continue;
+      // Merge into a matching stack first (same id + quality) — e.g. wood from an earlier give() — like add() does.
+      const same = inv.slots.findIndex((s) => !!s && s.id === id && (s.quality ?? 0) === quality);
+      if (same >= 0) {
+        const s = inv.slots[same]!;
+        inv.setSlot(same, { ...s, qty: Math.min(inv.stackMax(id), s.qty + qty) });
+        continue;
+      }
       while (slot < inv.slots.length && inv.slots[slot]) slot++;
       if (slot >= inv.slots.length) break;
       // setSlot → inventory:change, which also lets recipe discovery see the ores.

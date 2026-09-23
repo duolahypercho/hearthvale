@@ -16,4 +16,6 @@ export const RECIPES: RecipeDef[] = [
   { id: 'scarecrow', name: 'Scarecrow', out: { itemId: 'scarecrow', qty: 1 }, cost: [{ itemId: 'wood', qty: 20 }, { itemId: 'fiber', qty: 20 }], placeable: true },
   { id: 'woodFence', name: 'Wood Fence', out: { itemId: 'woodFence', qty: 5 }, cost: [{ itemId: 'wood', qty: 5 }], placeable: true },
   { id: 'stonePath', name: 'Stone Path', out: { itemId: 'stonePath', qty: 5 }, cost: [{ itemId: 'stone', qty: 5 }], placeable: true },
+  { id: 'hay', name: 'Hay Bale', out: { itemId: 'hay', qty: 3 }, cost: [{ itemId: 'fiber', qty: 10 }], placeable: false },
+  { id: 'coal', name: 'Charcoal', out: { itemId: 'coal', qty: 1 }, cost: [{ itemId: 'wood', qty: 20 }], placeable: false },
 ];
