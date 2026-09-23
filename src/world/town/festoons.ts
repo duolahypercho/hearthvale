@@ -195,10 +195,12 @@ function mergeSimple(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
 /** A slim festoon pole (turned post, iron hook arm, stone footing), origin at the ground. */
 export function buildFestoonPole(h = 3.3): THREE.Group {
   const b = new MeshBuilder();
-  b.add('stone', roundedBox(0.34, 0.18, 0.34, 0.05), mat(0, 0.09, 0), { tint: 0xb8ab98 });
-  b.add('woodDark', bevelCylinder(0.06, 0.075, h, 0.02, 8), mat(0, h / 2 + 0.1, 0), { tint: 0x5a4030 });
-  b.add('woodDark', new THREE.SphereGeometry(0.075, 8, 6), mat(0, h + 0.12, 0), { tint: 0x4a3426 });
-  b.add('metal', new THREE.TorusGeometry(0.05, 0.011, 4, 8), mat(0, h - 0.08, 0.07, Math.PI / 2, 0, 0));
+  b.add('stone', roundedBox(0.36, 0.2, 0.36, 0.05), mat(0, 0.1, 0), { tint: 0xc4b8a4 });
+  b.add('woodGrain', bevelCylinder(0.07, 0.09, h, 0.02, 8), mat(0, h / 2 + 0.12, 0), { tint: 0xa07a54 });
+  // A short cross-tree near the top carries the strings.
+  b.add('woodGrain', roundedBox(0.5, 0.07, 0.07, 0.02), mat(0, h - 0.05, 0), { tint: 0x8a6444 });
+  b.add('woodGrain', new THREE.SphereGeometry(0.085, 10, 8), mat(0, h + 0.14, 0), { tint: 0x8a6444 });
+  b.add('metal', new THREE.TorusGeometry(0.05, 0.011, 4, 8), mat(0, h - 0.12, 0.08, Math.PI / 2, 0, 0));
   return b.build({ name: 'festoon-pole' });
 }
 

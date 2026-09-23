@@ -240,7 +240,7 @@ export const EXTRA_TREES: ['oak' | 'maple' | 'pine' | 'blossom', number, number,
 ];
 
 /** Square trees moved out of heart-event sight lines: [fromX, fromZ, toX, toZ]. */
-export const TREE_MOVES: [number, number, number, number][] = [[58.5, 30.5, 49.6, 41.4], [56.5, 38.5, 56.8, 52.6]];
+export const TREE_MOVES: [number, number, number, number][] = [[58.5, 30.5, 49.6, 41.4], [56.5, 38.5, 56.8, 52.6], [50.6, 22.2, 49.8, 16.9]];
 
 /**
  * Named places villagers walk to. [x, z, facing or yaw radians]. 'door:<buildingId>' spots are
@@ -295,8 +295,7 @@ const POLE = 3.3;
 export const FESTOON_POLES: [number, number][] = [
   // Market row zig-zag (south side of the east road, then north side).
   [49.6, 27.7],
-  [52.6, 23.0],
-  [55.6, 27.5],
+  [53.2, 23.0],
   // Copper Kettle terrace front.
   [73.6, 28.2],
   [86.2, 28.6],
@@ -316,11 +315,11 @@ export const FESTOON_SPANS: { a: [number, number, number]; b: [number, number, n
   // Shop-front corners (under the eaves) out to the north masts.
   { a: [24.35, 3.2, 18.45], b: [NW[0], MAST, NW[1]], sag: 0.14 },
   { a: [39.65, 3.15, 18.45], b: [NE[0], MAST, NE[1]], sag: 0.14 },
-  // Market row: lamp → pole → pole → pole → lamp, zig-zagging over the road.
+  // Market row: lamp → pole → pole, zig-zagging over the road, then along the stall fronts to the
+  // bridge lamp (no pole south of the road by the bridge: that bank is the heart-event stage).
   { a: [46.4, 2.28, 23.2], b: [49.6, POLE, 27.7], sag: 0.22 },
-  { a: [49.6, POLE, 27.7], b: [52.6, POLE, 23.0], sag: 0.26 },
-  { a: [52.6, POLE, 23.0], b: [55.6, POLE, 27.5], sag: 0.26 },
-  { a: [55.6, POLE, 27.5], b: [58.8, 2.28, 23.3], sag: 0.22 },
+  { a: [49.6, POLE, 27.7], b: [53.2, POLE, 23.0], sag: 0.26 },
+  { a: [53.2, POLE, 23.0], b: [58.8, 2.28, 23.3], sag: 0.3 },
   // Copper Kettle terrace: along the front, and back up to the facade.
   { a: [73.6, POLE, 28.2], b: [86.2, POLE, 28.6], sag: 0.42 },
   { a: [73.6, POLE, 28.2], b: [76.0, 3.7, 32.45], sag: 0.2 },
