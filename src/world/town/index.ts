@@ -6,8 +6,9 @@
  * the south lane, the lamplighter's cottage by the west road (from the farm) and a rope
  * footbridge downstream. Villagers are spawned by systems/npcs.ts (names / spots in layout.ts).
  *
- * Static props are merged per district (west / middle / east) so the shadow + main passes can
- * frustum-cull whole quarters of town.
+ * Static props are merged per district (west / mid / river / east) so the shadow, main and AO
+ * passes can frustum-cull whole quarters of town (the river quarter keeps the heavy stone bridge
+ * and market row out of plaza shots).
  */
 import * as THREE from 'three';
 import type { Game } from '../../core/game';
@@ -83,7 +84,8 @@ const HOUSES: Record<Exclude<TownBuilding['kind'], 'hall'>, HouseSpec> = {
 /** Static-merge districts (x ranges) for culling. */
 const DISTRICTS = [
   { id: 'west', x0: -99, x1: 40 },
-  { id: 'mid', x0: 40, x1: 69 },
+  { id: 'mid', x0: 40, x1: 55 },
+  { id: 'river', x0: 55, x1: 69 },
   { id: 'east', x0: 69, x1: 999 },
 ];
 

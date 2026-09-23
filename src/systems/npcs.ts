@@ -69,6 +69,49 @@ const FACING_YAW: Record<Facing, number> = { down: 0, up: Math.PI, left: -Math.P
 const PLAZA_C = { x: 32, z: 25, r: 3.55 };
 const EMOTES_CHAT: Emote[] = ['music', 'exclaim', 'question', 'heart', 'dots', 'idea'];
 
+/** Beauty-shot blocking for the town demos: [villager, x, z, yaw (deg, 0 = facing camera), activity]. */
+type Mark = [NpcId, number, number, number, Activity];
+const STAGES: Record<string, Mark[]> = {
+  'town-day': [
+    ['marigold', 20.4, 21.1, 20, 'sweep'],
+    ['hazel', 28.6, 15.4, 180, 'water'],
+    ['tobias', 25.75, 23.8, 100, 'sit'],
+    ['wren', 25.3, 22.25, 175, 'paint'],
+    ['bram', 42.4, 20.9, -15, 'knead'],
+    ['odessa', 43.7, 22.3, -120, 'chat'],
+    ['kit', 37.6, 27.4, -40, 'play'],
+    ['june', 29.0, 27.9, 60, 'chat'],
+    ['linus', 30.3, 28.5, -110, 'chat'],
+    ['rowan', 27.6, 20.9, 170, 'idle'],
+  ],
+  'town-evening': [
+    ['tobias', 33.3, 14.4, 180, 'idle'],
+    ['kit', 31.3, 14.1, 20, 'sit'],
+    ['marigold', 27.4, 20.9, 180, 'read'],
+    ['hazel', 25.75, 23.8, 100, 'sit'],
+    ['wren', 32.3, 27.7, 0, 'sit'],
+    ['bram', 44.6, 22.7, -150, 'chat'],
+    ['june', 45.5, 21.4, -40, 'chat'],
+    ['odessa', 38.9, 25.7, -60, 'chat'],
+    ['rowan', 37.7, 26.6, 120, 'chat'],
+    ['linus', 21.8, 24.6, 60, 'read'],
+  ],
+  'town-winter': [
+    ['marigold', 20.4, 21.1, 20, 'sweep'],
+    ['tobias', 25.75, 23.8, 100, 'sit'],
+    ['bram', 42.4, 20.9, -15, 'knead'],
+    ['kit', 37.6, 27.4, -40, 'play'],
+    ['odessa', 29.0, 27.9, 60, 'chat'],
+    ['rowan', 30.3, 28.5, -110, 'chat'],
+    ['june', 44.4, 22.8, -130, 'chat'],
+    ['linus', 43.4, 21.9, 50, 'chat'],
+    ['wren', 33.4, 14.9, 180, 'idle'],
+    ['hazel', 36.0, 20.6, 200, 'idle'],
+  ],
+};
+/** 'town-cast': everyone in a row in front of the fountain (model sheet). */
+const CAST_ORDER: NpcId[] = ['kit', 'wren', 'marigold', 'bram', 'odessa', 'linus', 'june', 'tobias', 'rowan', 'hazel'];
+
 interface Agent {
   v: Villager;
   def: NpcDef;
@@ -326,6 +369,33 @@ export class NpcSystem implements System {
         a.v.setPosition(x, map.heightAt(x, z), z);
         a.v.setYaw(Math.atan2(PLAZA_C.x - x, PLAZA_C.z - z));
         this.setActivity(a, i % 3 === 0 ? 'chat' : 'idle');
+        a.anchor = { x, z };
+      });
+      return;
+    }
+    const marks = STAGES[name];
+    if (marks) {
+      for (const [id, x, z, deg, act] of marks) {
+        const a = this.agents.get(id)!;
+        this.setInside(a, false, true);
+        a.v.setPosition(x, map.heightAt(x, z), z);
+        a.v.setYaw((deg * Math.PI) / 180);
+        this.setActivity(a, act);
+        a.anchor = { x, z };
+        a.stepKey = '';
+        if (act === 'chat') a.v.speaking = Math.random() < 0.5;
+      }
+      return;
+    }
+    if (name === 'town-cast') {
+      CAST_ORDER.forEach((id, i) => {
+        const a = this.agents.get(id)!;
+        const x = 26.6 + i * 1.3;
+        const z = 29.2;
+        this.setInside(a, false, true);
+        a.v.setPosition(x, map.heightAt(x, z), z);
+        a.v.setYaw(0);
+        this.setActivity(a, 'idle');
         a.anchor = { x, z };
       });
       return;

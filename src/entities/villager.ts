@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Facing } from '../core/events';
 import type { NpcDef, NpcLook, Activity, Emote, WalkStyle } from '../data/npcs';
+import { NPCS } from '../data/npcs';
 import { roundedBox, lumpySphere } from '../world/geom';
 import { applyWorldFx } from '../render/worldfx';
 import { Rng } from '../core/rng';
@@ -46,6 +47,17 @@ const ACTIVITY_PROPS: Partial<Record<Activity, PropName[]>> = {
   saw: ['saw'],
   fish: ['rod'],
 };
+
+/** Activities a villager may perform (schedules, rainy days, heart-event beats) → their props. */
+function usedProps(def: NpcDef): Set<PropName> {
+  const acts = new Set<string>();
+  for (const s of [...def.schedule, ...(def.rainSchedule ?? [])]) if (s[2]) acts.add(s[2]);
+  for (const n of Object.values(NPCS)) for (const ev of n.events) for (const st of ev.script) if ('act' in st && st.act === def.id) acts.add(st.activity);
+  const out = new Set<PropName>();
+  for (const a of acts) for (const p of ACTIVITY_PROPS[a as Activity] ?? []) out.add(p);
+  if (def.look.acc?.includes('cane')) out.add('cane');
+  return out;
+}
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -408,9 +420,9 @@ export class Villager {
     // ── legs
     for (const [thigh, shin, sx] of [[B.thighL, B.shinL, -1], [B.thighR, B.shinR, 1]] as const) {
       const x = sx * 0.12 * bw;
-      rb.add(thigh, new THREE.CapsuleGeometry(0.1, legLen * 0.34, 4, 10), M(x, hipY - legLen * 0.24, 0), L.skirt ? shadeHex(L.bottom, 0.8) : L.bottom);
-      rb.add(shin, new THREE.CapsuleGeometry(0.088, legLen * 0.32, 4, 10), M(x, hipY - legLen * 0.68, 0), L.skirt ? shadeHex(L.skin, 0.95) : L.bottom);
-      rb.add(shin, roundedBox(0.19, 0.14, 0.27, 0.06), M(x, 0.08, 0.04), shoes);
+      rb.add(thigh, new THREE.CapsuleGeometry(0.1, legLen * 0.34, 3, 8), M(x, hipY - legLen * 0.24, 0), L.skirt ? shadeHex(L.bottom, 0.8) : L.bottom);
+      rb.add(shin, new THREE.CapsuleGeometry(0.088, legLen * 0.32, 3, 8), M(x, hipY - legLen * 0.68, 0), L.skirt ? shadeHex(L.skin, 0.95) : L.bottom);
+      rb.add(shin, roundedBox(0.19, 0.14, 0.27, 0.06, 1), M(x, 0.08, 0.04), shoes);
       rb.add(shin, roundedBox(0.2, 0.04, 0.29, 0.02), M(x, 0.02, 0.045), shadeHex(shoes, 0.6));
     }
     // ── torso (spine)
@@ -476,18 +488,18 @@ export class Villager {
     for (const [arm, fore, sx] of [[B.armL, B.foreL, -1], [B.armR, B.foreR, 1]] as const) {
       const x = sx * 0.25 * bw;
       rb.add(arm, new THREE.SphereGeometry(0.085, 10, 8), M(x, shoulderY, 0), sleeve);
-      rb.add(arm, new THREE.CapsuleGeometry(0.074, 0.07, 4, 10), M(x, shoulderY - 0.07, 0), sleeve);
-      rb.add(fore, new THREE.CapsuleGeometry(0.06, 0.1, 4, 10), M(x, shoulderY - 0.2, 0), L.coat !== undefined ? L.coat : acc.has('toolbelt') || L.apron !== undefined ? L.skin : L.top);
-      rb.add(fore, new THREE.SphereGeometry(0.07, 12, 10), M(x, shoulderY - 0.31, 0.01), L.skin);
+      rb.add(arm, new THREE.CapsuleGeometry(0.074, 0.07, 3, 8), M(x, shoulderY - 0.07, 0), sleeve);
+      rb.add(fore, new THREE.CapsuleGeometry(0.06, 0.1, 3, 8), M(x, shoulderY - 0.2, 0), L.coat !== undefined ? L.coat : acc.has('toolbelt') || L.apron !== undefined ? L.skin : L.top);
+      rb.add(fore, new THREE.SphereGeometry(0.07, 10, 8), M(x, shoulderY - 0.31, 0.01), L.skin);
     }
 
     // ── head
     const H = (x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx): THREE.Matrix4 => new THREE.Matrix4().makeTranslation(0, headY, 0).multiply(new THREE.Matrix4().makeScale(hs, hs, hs)).multiply(M(x, y, z, rx, ry, rz, sx, sy, sz));
     const face = L.face ?? 'round';
     const faceS: [number, number, number] = face === 'long' ? [0.97, 1.05, 1] : face === 'square' ? [1.08, 0.95, 1] : face === 'heart' ? [1.02, 0.98, 1] : [1.04, 0.96, 1];
-    rb.add(B.head, new THREE.SphereGeometry(R, 24, 18), H(0, R * 0.92, 0, 0, 0, 0, ...faceS), L.skin);
+    rb.add(B.head, new THREE.SphereGeometry(R, 20, 14), H(0, R * 0.92, 0, 0, 0, 0, ...faceS), L.skin);
     if (face === 'square') rb.add(B.head, new THREE.SphereGeometry(R * 0.72, 16, 10), H(0, R * 0.62, R * 0.12, 0, 0, 0, 1.25, 0.8, 1), L.skin);
-    for (const sx of [-1, 1]) rb.add(B.head, new THREE.SphereGeometry(0.07, 10, 8), H(sx * R * 0.98, R * 0.88, 0, 0, 0, 0, 0.6, 1, 1), L.skin);
+    for (const sx of [-1, 1]) rb.add(B.head, new THREE.SphereGeometry(0.07, 8, 6), H(sx * R * 0.98, R * 0.88, 0, 0, 0, 0, 0.6, 1, 1), L.skin);
     rb.add(B.head, new THREE.SphereGeometry(0.03, 10, 8), H(0, R * 0.78, R * 0.99), shadeHex(L.skin, 1.04));
     for (const sx of [-1, 1]) {
       rb.add(B.head, new THREE.CapsuleGeometry(0.013, 0.055, 3, 6), H(sx * 0.115, R * 1.22, R * 0.92, 0, 0, Math.PI / 2 + sx * 0.14), shadeHex(L.hair, 0.72));
@@ -533,12 +545,16 @@ export class Villager {
     // Eyes (blink bones).
     for (const [eye, sx] of [[B.eyeL, -1], [B.eyeR, 1]] as const) {
       const ex = sx * 0.115;
-      rb.add(eye, new THREE.CapsuleGeometry(0.036, 0.046, 4, 10), H(ex, R * 0.95, R * 0.9, -0.12), 0x1d1612);
+      rb.add(eye, new THREE.CapsuleGeometry(0.036, 0.046, 3, 8), H(ex, R * 0.95, R * 0.9, -0.12), 0x1d1612);
       rb.add(eye, new THREE.SphereGeometry(0.014, 8, 6), H(ex + 0.013, R * 0.95 + 0.024, R * 0.9 + 0.03), 0xffffff);
       rb.add(eye, new THREE.SphereGeometry(0.008, 6, 4), H(ex - 0.012, R * 0.95 - 0.02, R * 0.9 + 0.03), mixHex(0xffffff, L.eyes ?? 0x3a2418, 0.3));
     }
     // ── held props (built at the hand, in rig space)
+    // Only the props this villager ever uses (schedule, rainy days, heart events, staged demos)
+    // are built — hidden props still cost triangles in every pass.
+    const used = usedProps(this.def);
     const addProp = (p: PropName, fn: (add: (g: THREE.BufferGeometry, m: THREE.Matrix4, c: number) => void) => void): void => {
+      if (!used.has(p)) return;
       const bi = propIndex.get(p)!;
       const hand = p === 'palette' || p === 'cane' ? handL : handR;
       fn((g, m, c) => rb.add(bi, g, new THREE.Matrix4().makeTranslation(hand.x, hand.y, hand.z).multiply(m), c));
@@ -546,7 +562,7 @@ export class Villager {
     addProp('broom', (add) => {
       add(new THREE.CylinderGeometry(0.018, 0.018, 1.2, 6), M(0, -0.1, 0.05, 0.25, 0, 0), 0xb89060);
       add(new THREE.ConeGeometry(0.12, 0.28, 8), M(0, -0.68, 0.2, 0.25, 0, 0), 0xd8b060);
-      add(new THREE.TorusGeometry(0.05, 0.012, 4, 10), M(0, -0.56, 0.17, Math.PI / 2 + 0.25, 0, 0), 0xc8412f);
+      add(new THREE.TorusGeometry(0.05, 0.012, 3, 8), M(0, -0.56, 0.17, Math.PI / 2 + 0.25, 0, 0), 0xc8412f);
     });
     addProp('book', (add) => {
       add(roundedBox(0.2, 0.26, 0.05, 0.015), M(-0.1 * Math.sign(handR.x), 0.02, 0.14, -0.9, 0, 0), 0x8a3a3a);
@@ -611,7 +627,7 @@ export class Villager {
     const style = L.hairStyle;
     const hatted = L.hat === 'beanie' || L.hat === 'bandana' || L.hat === 'flatcap';
     if (style !== 'bald' && style !== 'cap') {
-      const cap = new THREE.SphereGeometry(R * 1.07, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.55);
+      const cap = new THREE.SphereGeometry(R * 1.07, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55);
       rb.add(B.head, cap, H(0, R * 0.98, -0.02, -0.25, 0, 0), hair);
     }
     switch (style) {

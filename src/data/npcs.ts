@@ -74,7 +74,11 @@ export interface NpcLook {
   head?: number;
   face?: 'round' | 'long' | 'square' | 'heart';
   acc?: Accessory[];
+  /** Painted portrait backdrop (the villager's place, out of focus). */
+  backdrop?: Backdrop;
 }
+
+export type Backdrop = 'shop' | 'bakery' | 'river' | 'forge' | 'clinic' | 'inn' | 'hall' | 'meadow' | 'workshop' | 'garden';
 
 export interface Ask {
   q: string;
@@ -165,7 +169,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Marigold Thimble',
     role: 'Keeps Thimble & Pip’s general store',
     birthday: { season: 'spring', day: 11 },
-    look: { skin: 0xf0c4a0, hair: 0x9a7a66, hairStyle: 'bun', top: 0x8f6fb0, bottom: 0x5a4a6a, apron: 0xf2e6d0, glasses: true, scale: 0.96, build: 1.18, eyes: 0x6a8a4a, skirt: true, face: 'round', acc: ['wrinkles', 'earrings'], shoes: 0x6a3a3a },
+    look: { skin: 0xf0c4a0, hair: 0x9a7a66, hairStyle: 'bun', top: 0x8f6fb0, bottom: 0x5a4a6a, apron: 0xf2e6d0, glasses: true, scale: 0.96, build: 1.18, eyes: 0x6a8a4a, skirt: true, face: 'round', acc: ['wrinkles', 'earrings'], shoes: 0x6a3a3a, backdrop: 'shop' },
     walk: W(1.35, 0.42, 0.035, 0.06, 0.04, 0.35),
     home: 'general_store',
     portraitBg: [0xf6d9a8, 0xe8a888],
@@ -286,7 +290,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Bram Oakhollow',
     role: 'Baker at The Hearth Oven',
     birthday: { season: 'fall', day: 3 },
-    look: { skin: 0xd9a07a, hair: 0x5a3a24, hairStyle: 'cap', top: 0xf2ece0, bottom: 0x6a5a48, apron: 0xe8dcc4, beard: 'full', scale: 1.08, build: 1.42, eyes: 0x5a3a24, face: 'square', legs: 0.92, shoes: 0x4a3222 },
+    look: { skin: 0xd9a07a, hair: 0x5a3a24, hairStyle: 'cap', top: 0xf2ece0, bottom: 0x6a5a48, apron: 0xe8dcc4, beard: 'full', scale: 1.08, build: 1.42, eyes: 0x5a3a24, face: 'square', legs: 0.92, shoes: 0x4a3222, backdrop: 'bakery' },
     walk: W(1.4, 0.45, 0.03, 0.12, 0.0, 0.3),
     home: 'bakery',
     portraitBg: [0xf4d49a, 0xe89a5a],
@@ -389,7 +393,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Wren Fairweather',
     role: 'Painter, wanderer, bad at sitting still',
     birthday: { season: 'summer', day: 22 },
-    look: { skin: 0xf6d2b8, hair: 0x3f8f8a, hairStyle: 'bob', top: 0xe8c45a, bottom: 0x3a4a6a, scarf: 0xe8674a, scale: 0.94, build: 0.92, eyes: 0x3a7a8a, face: 'heart', acc: ['pencil', 'freckles', 'satchel'], shoes: 0xc8573e },
+    look: { skin: 0xf6d2b8, hair: 0x3f8f8a, hairStyle: 'bob', top: 0xe8c45a, bottom: 0x3a4a6a, scarf: 0xe8674a, scale: 0.94, build: 0.92, eyes: 0x3a7a8a, face: 'heart', acc: ['pencil', 'freckles', 'satchel'], shoes: 0xc8573e, backdrop: 'river' },
     walk: W(1.7, 0.6, 0.06, 0.05, -0.02, 0.55),
     home: 'cottage_west',
     portraitBg: [0xbfe0e8, 0x8fb8d8],
@@ -498,7 +502,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Odessa Flint',
     role: 'Blacksmith at Flint & Ember',
     birthday: { season: 'winter', day: 9 },
-    look: { skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.36, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.12, acc: ['toolbelt', 'earrings'], shoes: 0x2e2420 },
+    look: { skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.36, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.12, acc: ['toolbelt', 'earrings'], shoes: 0x2e2420, backdrop: 'forge' },
     walk: W(1.6, 0.52, 0.025, 0.03, 0.02, 0.3),
     home: 'forge',
     portraitBg: [0xf2b48a, 0xb8563a],
@@ -594,7 +598,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Dr. Linus Pell',
     role: 'Runs the Willowmere Clinic',
     birthday: { season: 'summer', day: 5 },
-    look: { skin: 0xf2d0b4, hair: 0x9a9690, hairStyle: 'slick', top: 0xd8e4ea, bottom: 0x4a5058, coat: 0xf6f6f2, bowtie: 0x2f8f8a, glasses: true, beard: 'mustache', scale: 1.1, build: 0.86, eyes: 0x4a6a8a, face: 'long', legs: 1.2, acc: ['stethoscope'], shoes: 0x2a2624 },
+    look: { skin: 0xf2d0b4, hair: 0x9a9690, hairStyle: 'slick', top: 0xd8e4ea, bottom: 0x4a5058, coat: 0xf6f6f2, bowtie: 0x2f8f8a, glasses: true, beard: 'mustache', scale: 1.1, build: 0.86, eyes: 0x4a6a8a, face: 'long', legs: 1.2, acc: ['stethoscope'], shoes: 0x2a2624, backdrop: 'clinic' },
     walk: W(1.75, 0.5, 0.02, 0.02, -0.04, 0.2),
     home: 'clinic',
     portraitBg: [0xd4ece4, 0x8ec4b8],
@@ -690,7 +694,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'June Ashby',
     role: 'Innkeeper of The Copper Kettle',
     birthday: { season: 'spring', day: 24 },
-    look: { skin: 0xf4c8a8, hair: 0xc8482a, hairStyle: 'curly', top: 0xf4ead8, bottom: 0x6a3a4a, vest: 0x3f7a5a, skirt: true, scale: 1.0, build: 1.14, eyes: 0x3a8a5a, face: 'heart', acc: ['earrings', 'freckles'], shoes: 0x4a2a22 },
+    look: { skin: 0xf4c8a8, hair: 0xc8482a, hairStyle: 'curly', top: 0xf4ead8, bottom: 0x6a3a4a, vest: 0x3f7a5a, skirt: true, scale: 1.0, build: 1.14, eyes: 0x3a8a5a, face: 'heart', acc: ['earrings', 'freckles'], shoes: 0x4a2a22, backdrop: 'inn' },
     walk: W(1.5, 0.45, 0.04, 0.16, 0.0, 0.45),
     home: 'inn',
     portraitBg: [0xf6c89a, 0xc8584a],
@@ -786,7 +790,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Tobias Reed',
     role: 'The last lamplighter of the Lantern Hall',
     birthday: { season: 'winter', day: 20 },
-    look: { skin: 0xe8b894, hair: 0xeae6de, hairStyle: 'short', top: 0x7a5a3e, bottom: 0x5a5046, coat: 0x6a5238, beard: 'full', hat: 'flatcap', hatColor: 0x5a6a5a, scale: 0.92, build: 1.02, eyes: 0x6a8aa8, face: 'long', legs: 0.9, acc: ['cane', 'wrinkles'], shoes: 0x3a2a1e },
+    look: { skin: 0xe8b894, hair: 0xeae6de, hairStyle: 'short', top: 0x7a5a3e, bottom: 0x5a5046, coat: 0x6a5238, beard: 'full', hat: 'flatcap', hatColor: 0x5a6a5a, scale: 0.92, build: 1.02, eyes: 0x6a8aa8, face: 'long', legs: 0.9, acc: ['cane', 'wrinkles'], shoes: 0x3a2a1e, backdrop: 'hall' },
     walk: W(0.95, 0.3, 0.015, 0.05, 0.24, 0.15),
     home: 'keeper_cottage',
     portraitBg: [0xd8d0b8, 0x8a8a6a],
@@ -889,7 +893,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Kit Birch',
     role: 'Nine and three-quarters. Future explorer',
     birthday: { season: 'summer', day: 14 },
-    look: { skin: 0xf2c8a2, hair: 0xa8602e, hairStyle: 'spiky', top: 0xe8843a, bottom: 0x4a6a9a, scale: 0.7, build: 0.92, eyes: 0x5a8a3a, head: 1.18, face: 'round', acc: ['freckles', 'bandage', 'satchel'], shoes: 0xd84a3a },
+    look: { skin: 0xf2c8a2, hair: 0xa8602e, hairStyle: 'spiky', top: 0xe8843a, bottom: 0x4a6a9a, scale: 0.7, build: 0.92, eyes: 0x5a8a3a, head: 1.18, face: 'round', acc: ['freckles', 'bandage', 'satchel'], shoes: 0xd84a3a, backdrop: 'meadow' },
     walk: W(2.3, 0.75, 0.09, 0.05, -0.05, 0.75, true),
     home: 'birch_house',
     portraitBg: [0xf8e0a0, 0x9ac87a],
@@ -991,7 +995,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Rowan Birch',
     role: 'Carpenter, fixer, Kit’s long-suffering brother',
     birthday: { season: 'fall', day: 18 },
-    look: { skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.0, eyes: 0x6a4a2a, face: 'long', legs: 1.14, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24 },
+    look: { skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.0, eyes: 0x6a4a2a, face: 'long', legs: 1.14, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
     walk: W(1.55, 0.55, 0.035, 0.09, 0.03, 0.4),
     home: 'birch_house',
     portraitBg: [0xd8e8c0, 0x7aa86a],
@@ -1088,7 +1092,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Hazel Moss',
     role: 'Retired gardener, keeper of the square’s flowers',
     birthday: { season: 'spring', day: 3 },
-    look: { skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, hat: 'sunhat', hatColor: 0xe8d098, skirt: true, scale: 0.9, build: 1.06, eyes: 0x7a6a9a, face: 'round', acc: ['shawl', 'wrinkles', 'flower'], shoes: 0x6a4a3a },
+    look: { skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, hat: 'sunhat', hatColor: 0xe8d098, skirt: true, scale: 0.9, build: 1.06, eyes: 0x7a6a9a, face: 'round', acc: ['shawl', 'wrinkles', 'flower'], shoes: 0x6a4a3a, backdrop: 'garden' },
     walk: W(1.05, 0.34, 0.02, 0.07, 0.14, 0.22),
     home: 'cottage_east',
     portraitBg: [0xe8d8f0, 0xa88ab8],

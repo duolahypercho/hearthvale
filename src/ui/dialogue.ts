@@ -57,7 +57,15 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2.narr .dlg-side { display: none; }
 .hv-dialogue.dlg2.narr .dlg-speaker { display: none; }
 .hv-dialogue.dlg2.narr .dlg-text { font-style: italic; font-weight: 700; color: #6a4a2a; text-align: center; padding-top: 14px; }
-.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 204px; height: 204px; }
+.hv-dialogue.dlg2 { width: min(1000px, calc(100vw - 40px)); }
+.hv-dialogue.dlg2 .dlg-side { width: 212px; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 10px 10px 10px; gap: 2px; }
+.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 184px; height: 184px; margin: 4px 0 0; }
+.hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: -16px; font-size: 22px; padding: 0 16px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
+.hv-dialogue.dlg2 .dlg-role { max-width: 188px; font-size: 12px; line-height: 15px; margin-top: 3px; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { min-height: 0; }
+.hv-dialogue.dlg2 .dlg-text { min-height: 0; }
+.hv-hud.hv-cinema .h-clock, .hv-hud.hv-cinema .hv-toolbar, .hv-hud.hv-cinema .hv-energy, .hv-hud.hv-cinema .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }
 .hv-dialogue.dlg2 .dlg-portrait .layer svg { animation: dlgBreathe 3.2s ease-in-out infinite; transform-origin: 50% 90%; }
 .hv-dialogue.dlg2 .dlg-portrait .layer.in { animation: dlgSwap 260ms var(--ease-back) both; }
@@ -67,8 +75,8 @@ const CSS = /* css */ `
 @keyframes dlgNod { to { translate: 0 1.6px; } }
 @keyframes dlgSwap { from { opacity: 0; transform: scale(1.06) translateY(4px); } }
 @keyframes dlgOut { to { opacity: 0; } }
-.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(5, 20px); gap: 2px 4px; margin-top: 2px; }
-.hv-dialogue.dlg2 .dlg-hearts svg { width: 20px; height: 18px; display: block; }
+.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 16px); gap: 2px; margin-top: 4px; }
+.hv-dialogue.dlg2 .dlg-hearts svg { width: 16px; height: 15px; display: block; }
 .hv-dialogue.dlg2 .dlg-hearts.pulse svg { animation: dlgHeart 520ms var(--ease-back) both; }
 .hv-dialogue.dlg2 .dlg-hearts.pulse svg:nth-child(2n) { animation-delay: 40ms; }
 .hv-dialogue.dlg2 .dlg-hearts.shake { animation: dlgShake 380ms ease-in-out; }
@@ -459,6 +467,7 @@ export class DialoguePanel implements Panel {
 
   cinema(on: boolean, title?: string, sub?: string): void {
     this.letterbox.classList.toggle('on', on);
+    this.game.hud.root.classList.toggle('hv-cinema', on);
     if (on && title) {
       this.titleCard.innerHTML = `<div class="t">${title}</div>${sub ? `<div class="s">${HEART(1, 'tc')}<span>${sub}</span>${HEART(1, 'tc2')}</div>` : ''}`;
       this.titleCard.classList.add('on');

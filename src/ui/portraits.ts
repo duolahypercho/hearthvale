@@ -10,7 +10,7 @@
  * Nine moods: neutral, happy, laugh, sad, angry, surprised, blush, worried, thinking — each drives
  * lids, gaze, brows, mouth, blush and little manga marks (tear, sweat drop, anger vein, sparkles).
  */
-import type { NpcLook, Mood } from '../data/npcs';
+import type { NpcLook, Mood, Backdrop } from '../data/npcs';
 
 export type { Mood };
 
@@ -138,21 +138,109 @@ function mouth(mood: Mood, cx: number, y: number, skin: number, beard: boolean):
   }
 }
 
-/** Soft painted backdrop: gradient + bokeh + brush strokes + vignette. */
-function backdrop(id: string, bg: [number, number]): string {
+/** Soft painted backdrop: gradient, the villager's place out of focus, bokeh, brush strokes, vignette. */
+function backdrop(id: string, bg: [number, number], kind?: Backdrop): string {
   const p: string[] = [];
   p.push(`<rect width="200" height="200" fill="url(#${id}bg)"/>`);
+  p.push(`<g filter="url(#${id}dof)">${scene(kind, bg)}</g>`);
   for (let i = 0; i < 9; i++) {
     const x = (i * 53 + 17) % 200;
     const y = (i * 37 + 11) % 130;
-    p.push(`<circle cx="${x}" cy="${y}" r="${7 + (i % 4) * 5}" fill="#fff" opacity="${0.05 + (i % 3) * 0.04}"/>`);
+    p.push(`<circle cx="${x}" cy="${y}" r="${7 + (i % 4) * 5}" fill="#fff" opacity="${0.04 + (i % 3) * 0.03}"/>`);
   }
+  // Brushy horizontal strokes + a soft diagonal light shaft.
   for (let i = 0; i < 6; i++) {
     const y = 20 + i * 30;
-    p.push(`<path d="M-10 ${y} q 60 ${-8 + (i % 3) * 6} 110 ${2} t 110 ${-4}" stroke="${shade(bg[1], 1.12)}" stroke-width="${10 + (i % 2) * 6}" fill="none" opacity="0.18" stroke-linecap="round"/>`);
+    p.push(`<path d="M-10 ${y} q 60 ${-8 + (i % 3) * 6} 110 ${2} t 110 ${-4}" stroke="${shade(bg[1], 1.12)}" stroke-width="${10 + (i % 2) * 6}" fill="none" opacity="0.1" stroke-linecap="round"/>`);
   }
+  p.push(`<path d="M-20 -10 L 70 -10 L 150 210 L 60 210 Z" fill="url(#${id}shaft)" opacity="0.28"/>`);
   p.push(`<rect width="200" height="200" fill="url(#${id}vig)"/>`);
   return p.join('');
+}
+
+/** Out-of-focus place behind each villager (drawn sharp, blurred by the dof filter). */
+function scene(kind: Backdrop | undefined, bg: [number, number]): string {
+  const s: string[] = [];
+  const R = (x: number, y: number, w: number, h: number, c: string, rx = 2, o = 1): string => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${c}" opacity="${o}"/>`;
+  const C = (x: number, y: number, r: number, c: string, o = 1): string => `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}" opacity="${o}"/>`;
+  const jar = ['#c8574a', '#e8b84a', '#6a9a5a', '#5a7ab0', '#e89a6a', '#a86ab0', '#f2e2c0'];
+  switch (kind) {
+    case 'shop':
+      s.push(R(0, 0, 200, 200, '#e9c898', 0, 0.55));
+      for (const [k, y] of [[0, 54], [1, 108], [2, 162]] as [number, number][]) {
+        s.push(R(-4, y, 208, 8, '#7a4a28', 1), R(-4, y + 8, 208, 4, '#5a3418', 0, 0.6));
+        for (let i = 0; i < 9; i++) {
+          const x = 4 + i * 23 + ((k * 7) % 11);
+          const h = 20 + ((i * 7 + k * 3) % 4) * 6;
+          const c = jar[(i + k * 3) % jar.length]!;
+          s.push(R(x, y - h, 15, h, c, 4), R(x + 2, y - h - 4, 11, 5, '#8a5a32', 1), R(x + 3, y - h + 4, 3, h - 8, '#fff', 1.5, 0.35));
+        }
+      }
+      break;
+    case 'bakery':
+      s.push(R(0, 0, 200, 200, '#c87a52', 0, 0.8));
+      for (let r = 0; r < 14; r++) for (let i = 0; i < 8; i++) s.push(R(i * 28 - (r % 2) * 14, r * 15, 26, 13, r % 3 === 0 ? '#b8663e' : '#d0845a', 2, 0.8));
+      s.push(`<path d="M-10 200 L -10 96 Q 34 40 78 96 L 78 200 Z" fill="#3a1c10"/>`, `<ellipse cx="34" cy="150" rx="40" ry="46" fill="#ff9a3a" opacity="0.85"/>`, `<ellipse cx="34" cy="160" rx="24" ry="26" fill="#ffd27a"/>`);
+      s.push(R(120, 70, 90, 8, '#6a3a1e', 1));
+      for (let i = 0; i < 4; i++) s.push(`<ellipse cx="${136 + i * 20}" cy="62" rx="10" ry="8" fill="#d89048"/><path d="M${130 + i * 20} 60 q 6 -4 12 0" stroke="#f2c47a" stroke-width="2" fill="none"/>`);
+      break;
+    case 'river':
+      s.push(`<path d="M0 110 Q 40 78 90 96 T 200 86 L 200 200 L 0 200 Z" fill="#7aa88a"/>`, `<path d="M0 124 Q 60 104 120 118 T 200 112 L 200 200 L 0 200 Z" fill="#5f9474"/>`);
+      s.push(R(0, 140, 200, 60, '#5fa0c4', 0), R(0, 140, 200, 6, '#a8d8e8', 0, 0.7));
+      for (let i = 0; i < 12; i++) s.push(R((i * 37) % 190, 150 + ((i * 13) % 44), 16 + (i % 3) * 8, 2.4, '#e8f6ff', 1, 0.7));
+      for (const x of [8, 18, 180, 192]) s.push(`<path d="M${x} 200 Q ${x - 3} 150 ${x + 4} 118" stroke="#4a7a3a" stroke-width="3" fill="none"/><ellipse cx="${x + 4}" cy="124" rx="3" ry="9" fill="#7a4a2a"/>`);
+      s.push(`<ellipse cx="46" cy="30" rx="30" ry="10" fill="#fff" opacity="0.7"/><ellipse cx="160" cy="44" rx="24" ry="8" fill="#fff" opacity="0.6"/>`);
+      break;
+    case 'forge':
+      s.push(R(0, 0, 200, 200, '#3a2218', 0), `<ellipse cx="30" cy="170" rx="90" ry="70" fill="#ff7a2a" opacity="0.55"/>`, `<ellipse cx="30" cy="176" rx="46" ry="34" fill="#ffc05a" opacity="0.8"/>`);
+      for (let i = 0; i < 26; i++) s.push(C((i * 41 + 7) % 200, (i * 29 + 13) % 150, 1.4 + (i % 3), i % 2 ? '#ffd27a' : '#ff9a3a', 0.9));
+      s.push(`<path d="M150 30 L 156 110 M 170 26 L 166 108 M 146 28 L 176 28" stroke="#1a100a" stroke-width="5" stroke-linecap="round"/><path d="M130 150 L 200 150 L 196 164 L 180 166 L 184 200 L 146 200 L 150 166 L 134 162 Z" fill="#1e1410"/>`);
+      break;
+    case 'clinic':
+      s.push(R(0, 0, 200, 200, '#cfe6de', 0), R(0, 130, 200, 70, '#9ac2b4', 0), R(0, 128, 200, 5, '#f4fbf8', 0));
+      s.push(R(128, 18, 70, 92, '#f6fbff', 3), R(134, 24, 58, 80, '#bfe0f4', 2), `<path d="M163 24 V 104 M 134 64 H 192" stroke="#f6fbff" stroke-width="5"/>`);
+      s.push(`<path d="M120 12 Q 130 70 122 118 L 138 118 Q 132 60 140 12 Z M200 12 Q 190 70 198 118 L 210 118 L 210 12 Z" fill="#f2e2c8"/>`);
+      s.push(R(16, 104, 30, 30, '#c87a52', 4), `<ellipse cx="31" cy="92" rx="22" ry="20" fill="#5f9a5a"/><ellipse cx="22" cy="80" rx="12" ry="14" fill="#7ab86a"/>`);
+      break;
+    case 'inn':
+      s.push(R(0, 0, 200, 200, '#7a4a2a', 0));
+      for (let i = 0; i < 9; i++) s.push(R(i * 24, 0, 22, 200, i % 2 ? '#8a5632' : '#6e4024', 1, 0.9));
+      s.push(R(0, 116, 200, 8, '#4a2a16', 1));
+      for (let i = 0; i < 7; i++) s.push(R(10 + i * 28, 84, 10, 32, ['#3f7a5a', '#8a3a2a', '#c8a04a', '#4a5a8a'][i % 4]!, 3), R(12 + i * 28, 76, 6, 9, '#3a2a1a', 1));
+      for (const [x, y] of [[38, 30], [158, 22], [100, 8]] as [number, number][]) s.push(C(x, y, 26, '#ffb85a', 0.35), C(x, y, 11, '#ffe0a0', 0.95));
+      break;
+    case 'hall':
+      s.push(`<rect width="200" height="200" fill="#5a4a7a"/><rect y="90" width="200" height="110" fill="#e8946a" opacity="0.55"/>`);
+      for (let i = 0; i < 16; i++) s.push(C((i * 47 + 11) % 200, (i * 23 + 5) % 80, 1 + (i % 2), '#fff6d8', 0.9));
+      s.push(`<path d="M20 200 L 20 120 L 70 92 L 120 120 L 120 200 Z M 140 200 L 140 70 L 160 52 L 180 70 L 180 200 Z" fill="#2e2440"/><rect x="152" y="80" width="16" height="16" rx="3" fill="#ffcf7a" opacity="0.75"/>`);
+      s.push(C(160, 88, 20, '#ffcf7a', 0.25));
+      break;
+    case 'meadow':
+      s.push(`<ellipse cx="40" cy="40" rx="36" ry="13" fill="#fff" opacity="0.85"/><ellipse cx="62" cy="34" rx="22" ry="12" fill="#fff" opacity="0.85"/><ellipse cx="164" cy="56" rx="30" ry="10" fill="#fff" opacity="0.8"/>`);
+      s.push(`<path d="M0 132 Q 60 104 120 124 T 200 116 L 200 200 L 0 200 Z" fill="#8ec46a"/><path d="M0 156 Q 70 136 140 152 T 200 146 L 200 200 L 0 200 Z" fill="#6aa84a"/>`);
+      for (let i = 0; i < 18; i++) s.push(C((i * 31 + 5) % 200, 140 + ((i * 17) % 56), 2.4, ['#fff', '#ffd166', '#ff8fab'][i % 3]!));
+      s.push(`<path d="M168 96 q -8 -8 -10 2 q 8 4 10 -2 q 8 -8 10 2 q -8 4 -10 -2" fill="#ffb14a"/>`);
+      break;
+    case 'workshop':
+      s.push(R(0, 0, 200, 200, '#d8b884', 0));
+      for (let i = 0; i < 12; i++) s.push(R(0, i * 17, 200, 15, i % 2 ? '#e2c290' : '#cfa874', 1, 0.9));
+      s.push(`<path d="M140 30 L 196 30 L 190 52 L 146 52 Z" fill="#9aa4ac"/><path d="M146 52 l 4 6 l 4 -6 l 4 6 l 4 -6 l 4 6 l 4 -6 l 4 6 l 4 -6 l 4 6" stroke="#7a848c" stroke-width="2" fill="none"/><rect x="128" y="32" width="14" height="18" rx="4" fill="#8a4a2a"/>`);
+      s.push(`<path d="M20 40 L 20 96" stroke="#6a4424" stroke-width="6" stroke-linecap="round"/><rect x="8" y="30" width="26" height="12" rx="3" fill="#5a5a62"/>`);
+      for (let i = 0; i < 8; i++) s.push(`<path d="M${10 + i * 24} 190 q 6 -8 12 0" stroke="#f2dcae" stroke-width="3" fill="none"/>`);
+      break;
+    case 'garden':
+      for (let i = -4; i < 12; i++) s.push(`<path d="M${i * 22} 0 L ${i * 22 + 120} 200 M ${i * 22 + 120} 0 L ${i * 22} 200" stroke="#f4ecd8" stroke-width="3" opacity="0.6"/>`);
+      for (let i = 0; i < 22; i++) {
+        const x = (i * 43 + 9) % 200;
+        const y = (i * 31 + 7) % 190;
+        s.push(`<ellipse cx="${x}" cy="${y}" rx="11" ry="7" fill="#6a9a5a" opacity="0.7" transform="rotate(${(i * 47) % 180} ${x} ${y})"/>`);
+        if (i % 2 === 0) s.push(C(x + 6, y - 4, 7 + (i % 3) * 2, ['#ff8fab', '#fff0f4', '#ffd166', '#e86a8a'][i % 4]!));
+      }
+      break;
+    default:
+      s.push(C(40, 40, 30, shade(bg[0], 1.1), 0.5));
+  }
+  return s.join('');
 }
 
 function backHair(id: string, L: NpcLook, f: Face): string {
@@ -179,6 +267,10 @@ function backHair(id: string, L: NpcLook, f: Face): string {
       return `<path d="M${cx - w - 6} ${top + 40} Q ${cx - w - 16} ${top + 120} ${cx - w - 4} ${top + 150} L ${cx + w + 4} ${top + 150} Q ${cx + w + 16} ${top + 120} ${cx + w + 6} ${top + 40} Q ${cx} ${top - 28} ${cx - w - 6} ${top + 40} Z" fill="${H}" ${s}/>`;
     case 'ponytail':
       return `<path d="M${cx + w - 6} ${top + 22} Q ${cx + w + 34} ${top + 30} ${cx + w + 24} ${top + 96} Q ${cx + w + 20} ${top + 112} ${cx + w + 8} ${top + 118} Q ${cx + w + 16} ${top + 80} ${cx + w - 2} ${top + 46} Z" fill="${H}" ${s}/><path d="M${cx + w + 10} ${top + 50} q 10 20 4 50" stroke="${shade(L.hair, 1.3)}" stroke-width="2.4" fill="none" opacity="0.5"/>`;
+    case 'spiky':
+    case 'short':
+      // Crown dome behind the spikes / fringe so no scalp shows between them.
+      return `<path d="M${cx - w - 3} ${top + 44} Q ${cx - w - 6} ${top - 6} ${cx} ${top - 8} Q ${cx + w + 6} ${top - 6} ${cx + w + 3} ${top + 44} Z" fill="${shade(L.hair, 0.8)}" ${s}/>`;
     default:
       return '';
   }
@@ -198,7 +290,7 @@ function frontHair(id: string, L: NpcLook, f: Face): string {
     case 'bob':
       return `<path d="M${cx - w - 6} ${t + 58} Q ${cx - w - 8} ${t - 2} ${cx} ${t - 4} Q ${cx + w + 8} ${t - 2} ${cx + w + 6} ${t + 58} L ${cx + w - 2} ${t + 34} L ${cx + 24} ${t + 32} L ${cx + 18} ${t + 24} L ${cx + 8} ${t + 34} L ${cx - 4} ${t + 24} L ${cx - 14} ${t + 34} L ${cx - 24} ${t + 26} L ${cx - w + 2} ${t + 36} Z" fill="${H}" ${s}/>` + strands(`M${cx - 30} ${t + 10} Q ${cx - 4} ${t - 2} ${cx + 22} ${t + 8}`) + strands(`M${cx + w - 2} ${t + 30} q 4 14 2 24`);
     case 'cap':
-      return `<path d="M${cx - w - 2} ${t + 40} Q ${cx - w + 2} ${t + 22} ${cx - w + 10} ${t + 20} L ${cx + w - 10} ${t + 20} Q ${cx + w - 2} ${t + 22} ${cx + w + 2} ${t + 40} L ${cx + w - 2} ${t + 50} L ${cx - w + 2} ${t + 50} Z" fill="${H}" ${s}/>` + `<rect x="${cx - w - 4}" y="${t + 8}" width="${2 * w + 8}" height="18" rx="7" fill="#f3ece0" stroke="${ink(0xf3ece0)}" stroke-width="1.6"/>` + `<path d="M${cx - w - 10} ${t + 12} Q ${cx - w - 16} ${t - 30} ${cx - 22} ${t - 36} Q ${cx - 2} ${t - 54} ${cx + 22} ${t - 38} Q ${cx + w + 18} ${t - 34} ${cx + w + 10} ${t + 12} Z" fill="#fbf7ee" stroke="${ink(0xfbf7ee)}" stroke-width="1.8"/>` + `<path d="M${cx - 30} ${t - 14} Q ${cx - 12} ${t - 30} ${cx + 4} ${t - 20} M${cx + 8} ${t - 26} Q ${cx + 22} ${t - 30} ${cx + 30} ${t - 14}" stroke="#e6dccb" stroke-width="3.2" fill="none" stroke-linecap="round"/>`;
+      return `<path d="M${cx - w - 2} ${t + 54} Q ${cx - w - 2} ${t + 30} ${cx - w + 8} ${t + 22} L ${cx - w + 16} ${t + 24} Q ${cx - w + 8} ${t + 36} ${cx - w + 6} ${t + 54} Z M${cx + w + 2} ${t + 54} Q ${cx + w + 2} ${t + 30} ${cx + w - 8} ${t + 22} L ${cx + w - 16} ${t + 24} Q ${cx + w - 8} ${t + 36} ${cx + w - 6} ${t + 54} Z M${cx - 26} ${t + 22} Q ${cx - 14} ${t + 34} ${cx - 4} ${t + 24} Q ${cx + 8} ${t + 32} ${cx + 20} ${t + 23} Z" fill="${H}" ${s}/>` + `<rect x="${cx - w - 4}" y="${t + 8}" width="${2 * w + 8}" height="18" rx="7" fill="#f3ece0" stroke="${ink(0xf3ece0)}" stroke-width="1.6"/>` + `<path d="M${cx - w - 10} ${t + 12} Q ${cx - w - 16} ${t - 30} ${cx - 22} ${t - 36} Q ${cx - 2} ${t - 54} ${cx + 22} ${t - 38} Q ${cx + w + 18} ${t - 34} ${cx + w + 10} ${t + 12} Z" fill="#fbf7ee" stroke="${ink(0xfbf7ee)}" stroke-width="1.8"/>` + `<path d="M${cx - 30} ${t - 14} Q ${cx - 12} ${t - 30} ${cx + 4} ${t - 20} M${cx + 8} ${t - 26} Q ${cx + 22} ${t - 30} ${cx + 30} ${t - 14}" stroke="#e6dccb" stroke-width="3.2" fill="none" stroke-linecap="round"/>`;
     case 'curly': {
       const c: string[] = [];
       for (let i = 0; i < 9; i++) {
@@ -336,15 +428,28 @@ export function portraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'h
     <linearGradient id="${id}top" x1="0" y1="0" x2="0.3" y2="1"><stop offset="0" stop-color="${shade(L.coat ?? L.top, 1.14)}"/><stop offset="1" stop-color="${shade(L.coat ?? L.top, 0.74)}"/></linearGradient>
     <radialGradient id="${id}iris" cx="50%" cy="62%" r="60%"><stop offset="0" stop-color="${shade(iris, 1.55)}"/><stop offset="0.55" stop-color="${css(iris)}"/><stop offset="1" stop-color="${shade(iris, 0.55)}"/></radialGradient>
     <radialGradient id="${id}bl" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#f0706a" stop-opacity="0.75"/><stop offset="1" stop-color="#f0706a" stop-opacity="0"/></radialGradient>
+    <linearGradient id="${id}shaft" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff8e0" stop-opacity="0"/><stop offset="0.5" stop-color="#fff8e0" stop-opacity="0.32"/><stop offset="1" stop-color="#fff8e0" stop-opacity="0"/></linearGradient>
     <clipPath id="${id}face"><path d="${facePath(f)}"/></clipPath>
+    <filter id="${id}dof" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="2.6"/></filter>
+    <filter id="${id}soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>
+    <filter id="${id}soft2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.8"/></filter>
+    <filter id="${id}wob" x="-4%" y="-4%" width="108%" height="108%"><feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="${(uid * 7) % 97}"/><feDisplacementMap in="SourceGraphic" scale="1.7" xChannelSelector="R" yChannelSelector="G"/></filter>
+    <filter id="${id}grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="4"/><feColorMatrix type="saturate" values="0"/></filter>
+    <filter id="${id}brush" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.012 0.07" numOctaves="3" seed="9"/><feColorMatrix type="saturate" values="0"/></filter>
   </defs>`);
-  p.push(backdrop(id, bg));
+  p.push(backdrop(id, bg, L.backdrop));
+  // The bust is drawn slightly larger than the frame for a closer, more intimate crop.
+  p.push(`<g transform="translate(100 206) scale(1.07) translate(-100 -206)"><g filter="url(#${id}wob)">`);
   // Braids drape in front of the shoulders, so body first for everything else.
   p.push(backHair(id, L, f));
   p.push(clothing(id, L, sw));
+  // Soft light on the torso: lit near shoulder, shaded far side and underarms.
+  p.push(`<clipPath id="${id}bd"><path d="M${100 - sw - 22} 200 C ${100 - sw - 14} 160 ${100 - sw + 4} 146 100 144 C ${100 + sw - 4} 146 ${100 + sw + 14} 160 ${100 + sw + 22} 200 Z"/></clipPath>`);
+  p.push(`<g clip-path="url(#${id}bd)" filter="url(#${id}soft)"><ellipse cx="${100 - sw * 0.7}" cy="164" rx="${sw * 0.45}" ry="16" fill="#fff8ea" opacity="0.3"/><ellipse cx="${100 + sw + 6}" cy="190" rx="${sw * 0.45}" ry="40" fill="#1a0a04" opacity="0.28"/><ellipse cx="${100 - sw - 10}" cy="200" rx="14" ry="30" fill="#1a0a04" opacity="0.22"/></g>`);
   // Neck + jaw shadow
   p.push(`<path d="M86 ${f.chin - 18} L 86 150 Q 100 158 114 150 L 114 ${f.chin - 18} Z" fill="${shade(skin, 0.88)}" stroke="${ink(skin)}" stroke-width="1.6"/>`);
   p.push(`<path d="M86 ${f.chin - 10} Q 100 ${f.chin + 8} 114 ${f.chin - 10} L 114 ${f.chin - 2} Q 100 ${f.chin + 10} 86 ${f.chin - 2} Z" fill="${shade(skin, 0.7)}" opacity="0.6"/>`);
+  p.push(`<ellipse cx="100" cy="${f.chin + 12}" rx="${sw * 0.62}" ry="11" fill="#2a1408" opacity="0.26" filter="url(#${id}soft)"/>`);
   if (L.hairStyle === 'braids') {
     for (const sx of [-1, 1]) {
       const bx = 100 + sx * (f.w - 6);
@@ -367,10 +472,18 @@ export function portraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'h
   p.push(`<path d="${facePath(f)}" fill="url(#${id}sk)" stroke="${ink(skin)}" stroke-width="2"/>`);
   p.push(`<g clip-path="url(#${id}face)">`);
   // Cel shadow on the far cheek + rim light on the near one
-  p.push(`<path d="M${100 + f.w * 0.55} ${f.top} Q ${100 + f.w * 1.1} ${eyeY} ${100 + f.w * 0.3} ${f.chin + 4} L ${100 + f.w + 10} ${f.chin + 4} L ${100 + f.w + 10} ${f.top} Z" fill="${shade(skin, 0.78)}" opacity="0.32"/>`);
-  p.push(`<path d="M${100 - f.w + 3} ${eyeY - 20} Q ${100 - f.w + 1} ${eyeY + 16} ${100 - f.w * 0.6} ${f.chin - 12}" stroke="#fff" stroke-width="3" fill="none" opacity="0.28" stroke-linecap="round"/>`);
+  const warmShadow = mix(skin, 0x8a3028, 0.42);
+  p.push(`<g filter="url(#${id}soft)">`);
+  p.push(`<path d="M${100 + f.w * 0.5} ${f.top - 6} Q ${100 + f.w * 1.05} ${eyeY} ${100 + f.w * 0.25} ${f.chin + 6} L ${100 + f.w + 14} ${f.chin + 6} L ${100 + f.w + 14} ${f.top - 6} Z" fill="${warmShadow}" opacity="0.42"/>`);
+  p.push(`<ellipse cx="100" cy="${f.chin + 2}" rx="${f.w * 0.75}" ry="12" fill="${warmShadow}" opacity="0.4"/>`);
+  p.push(`<ellipse cx="${100 - f.w * 0.42}" cy="${eyeY + 14}" rx="13" ry="9" fill="#fff6ea" opacity="0.38"/>`);
+  p.push(`<ellipse cx="${100 - 8}" cy="${f.top + 20}" rx="${f.w * 0.5}" ry="10" fill="#fff6ea" opacity="0.3"/>`);
+  p.push(`<ellipse cx="100" cy="${eyeY + 22}" rx="7" ry="4" fill="${warmShadow}" opacity="0.28"/>`);
+  for (const sx of [-1, 1]) p.push(`<ellipse cx="${100 + sx * (f.w - 2)}" cy="${eyeY + 4}" rx="6" ry="16" fill="${warmShadow}" opacity="0.3"/>`);
+  p.push(`</g>`);
+  p.push(`<path d="M${100 - f.w + 3} ${eyeY - 20} Q ${100 - f.w + 1} ${eyeY + 16} ${100 - f.w * 0.6} ${f.chin - 12}" stroke="#fff" stroke-width="3" fill="none" opacity="0.28" stroke-linecap="round" filter="url(#${id}soft2)"/>`);
   // Fringe shadow on the forehead
-  if (L.hairStyle !== 'bald') p.push(`<path d="M${100 - f.w} ${f.top + 30} Q 100 ${f.top + 44} ${100 + f.w} ${f.top + 30} L ${100 + f.w} ${f.top} L ${100 - f.w} ${f.top} Z" fill="${shade(skin, 0.6)}" opacity="0.22"/>`);
+  if (L.hairStyle !== 'bald') p.push(`<path d="M${100 - f.w} ${f.top + 30} Q 100 ${f.top + 46} ${100 + f.w} ${f.top + 30} L ${100 + f.w} ${f.top} L ${100 - f.w} ${f.top} Z" fill="${warmShadow}" opacity="0.4" filter="url(#${id}soft2)"/>`);
   // Stubble / beard base inside the face
   if (beard === 'stubble') p.push(`<path d="M${100 - f.w} ${mouthY - 12} Q 100 ${mouthY - 4} ${100 + f.w} ${mouthY - 12} L ${100 + f.w} ${f.chin + 4} L ${100 - f.w} ${f.chin + 4} Z" fill="${css(hair)}" opacity="0.22"/>`);
   p.push(`</g>`);
@@ -385,15 +498,21 @@ export function portraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'h
     p.push(`<path d="M${100 - 13} ${eyeY + 14} q -4 10 -2 18 M${100 + 13} ${eyeY + 14} q 4 10 2 18" stroke="${shade(skin, 0.7)}" stroke-width="1.2" fill="none" opacity="0.55"/>`);
   }
   // Eyes + brows
-  const ex = 20.5;
-  p.push(eye(id, 100 - ex, eyeY, -1, m, iris, lash, skin, old));
-  p.push(eye(id, 100 + ex, eyeY, 1, m, iris, lash, skin, old));
+  const kid = hs > 1.05;
+  const ex = kid ? 21.5 : old ? 20 : 20.5;
+  const es = kid ? 1.14 : old ? 0.93 : 1;
+  const scaled = (x: number, svg: string): string => (es === 1 ? svg : `<g transform="translate(${x} ${eyeY}) scale(${es}) translate(${-x} ${-eyeY})">${svg}</g>`);
+  p.push(scaled(100 - ex, eye(id, 100 - ex, eyeY, -1, m, iris, lash, skin, old)));
+  p.push(scaled(100 + ex, eye(id, 100 + ex, eyeY, 1, m, iris, lash, skin, old)));
   const browC = L.hairStyle === 'bald' || L.hat ? shade(hair, 0.82) : shade(hair, 0.8);
   const browT = beard === 'full' || L.build > 1.3 ? 5 : 4;
   p.push(brow(100 - ex, eyeY - 18, -1, m, browC, browT));
   p.push(brow(100 + ex, eyeY - 18, 1, m, browC, browT));
   // Nose
-  p.push(`<path d="M${99} ${eyeY + 6} Q ${103} ${eyeY + 14} ${98} ${eyeY + 17}" stroke="${shade(skin, 0.7)}" stroke-width="2.2" fill="none" stroke-linecap="round"/><ellipse cx="${101}" cy="${eyeY + 13}" rx="2.2" ry="1.6" fill="#fff" opacity="0.4"/>`);
+  // Painted nose: soft shadow down the far side of the bridge, a nostril shade, a lit tip.
+  const nl = kid ? 0.8 : faceKind === 'long' ? 1.2 : 1;
+  p.push(`<g filter="url(#${id}soft2)"><path d="M${102} ${eyeY + 2} Q ${106} ${eyeY + 10 * nl} ${104} ${eyeY + 16 * nl}" stroke="${warmShadow}" stroke-width="4" fill="none" opacity="0.45" stroke-linecap="round"/><ellipse cx="${100}" cy="${eyeY + 18 * nl}" rx="6" ry="2.6" fill="${warmShadow}" opacity="0.5"/></g>`);
+  p.push(`<path d="M${97} ${eyeY + 16 * nl} Q ${100} ${eyeY + 18.5 * nl} ${104} ${eyeY + 15.5 * nl}" stroke="${shade(skin, 0.62)}" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0.8"/><ellipse cx="${99}" cy="${eyeY + 12 * nl}" rx="2.6" ry="2" fill="#fff" opacity="0.5" filter="url(#${id}soft2)"/>`);
   if (beard === 'full' || beard === 'mustache') {
     const mc = `url(#${id}hr)`;
     p.push(`<path d="M${100} ${mouthY - 7} Q ${88} ${mouthY - 12} ${78} ${mouthY - 2} Q ${86} ${mouthY - 3} ${92} ${mouthY - 1} Q ${97} ${mouthY - 3} ${100} ${mouthY - 5} Q ${103} ${mouthY - 3} ${108} ${mouthY - 1} Q ${114} ${mouthY - 3} ${122} ${mouthY - 2} Q ${112} ${mouthY - 12} ${100} ${mouthY - 7} Z" fill="${mc}" stroke="${ink(hair)}" stroke-width="1.6" stroke-linejoin="round"/>`);
@@ -406,7 +525,14 @@ export function portraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'h
     p.push(`<path d="M${100 - ex - 15} ${eyeY - 3} L ${100 - f.w} ${eyeY - 5} M${100 + ex + 15} ${eyeY - 3} L ${100 + f.w} ${eyeY - 5}" stroke="${gc}" stroke-width="2.6"/>`);
   }
   // Hair + hat
-  p.push(frontHair(id, L, f));
+  const fh = frontHair(id, L, f);
+  p.push(fh);
+  if (fh && L.hairStyle !== 'bald') {
+    // Painted sheen: a soft light band across the crown + a darker band where hair meets the face.
+    p.push(`<clipPath id="${id}hc">${fh.replace(/<path d="[^"]*" stroke="[^"]*" stroke-width="[^"]*" fill="none"[^>]*\/>/g, '')}</clipPath>`);
+    p.push(`<g clip-path="url(#${id}hc)"><g filter="url(#${id}soft2)"><path d="M${100 - f.w * 0.8} ${f.top + 12} Q ${100 - 4} ${f.top - 2} ${100 + f.w * 0.6} ${f.top + 10}" stroke="#fffaf0" stroke-width="7" fill="none" opacity="0.32" stroke-linecap="round"/>`);
+    p.push(`<path d="M${100 - f.w} ${f.top + 34} Q 100 ${f.top + 22} ${100 + f.w} ${f.top + 34}" stroke="${shade(L.hair, 0.45)}" stroke-width="9" fill="none" opacity="0.35"/></g></g>`);
+  }
   p.push(hat(L, f));
   if (acc.has('pencil')) p.push(`<path d="M${100 + f.w - 4} ${eyeY - 14} L ${100 + f.w + 20} ${eyeY - 30}" stroke="#f2c43a" stroke-width="5" stroke-linecap="round"/><path d="M${100 + f.w + 18} ${eyeY - 29} l 5 -3" stroke="#e8a0a0" stroke-width="5" stroke-linecap="round"/>`);
   if (acc.has('flower') && L.hat !== 'sunhat') p.push(`<circle cx="${100 - f.w + 6}" cy="${f.top + 16}" r="7" fill="#ff8fab" stroke="${ink(0xff8fab)}" stroke-width="1.2"/><circle cx="${100 - f.w + 6}" cy="${f.top + 16}" r="2.6" fill="#ffd166"/>`);
@@ -419,5 +545,9 @@ export function portraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'h
   if (mood === 'blush' || mood === 'laugh') p.push(`<g fill="#fff6c0" stroke="#e8b84a" stroke-width="0.8"><path d="M${100 + f.w + 8} ${f.top + 10} l 2 5 l 5 2 l -5 2 l -2 5 l -2 -5 l -5 -2 l 5 -2 Z"/><path d="M${100 - f.w - 10} ${f.top + 30} l 1.4 3.6 l 3.6 1.4 l -3.6 1.4 l -1.4 3.6 l -1.4 -3.6 l -3.6 -1.4 l 3.6 -1.4 Z"/></g>`);
   if (mood === 'thinking') p.push(`<g fill="#fffaf0" stroke="#7a5a3a" stroke-width="1.4"><circle cx="${100 + f.w + 10}" cy="${f.top + 4}" r="3"/><circle cx="${100 + f.w + 18}" cy="${f.top - 6}" r="4.5"/><circle cx="${100 + f.w + 28}" cy="${f.top - 20}" r="7"/></g>`);
   p.push(`</g>`);
+  p.push(`</g></g>`);
+  // Painted surface: brush streaks + fine canvas grain.
+  p.push(`<rect width="200" height="200" filter="url(#${id}brush)" opacity="0.15" style="mix-blend-mode:soft-light"/>`);
+  p.push(`<rect width="200" height="200" filter="url(#${id}grain)" opacity="0.13" style="mix-blend-mode:overlay"/>`);
   return `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">${p.join('')}</svg>`;
 }
