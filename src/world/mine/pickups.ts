@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Rng } from '../../core/rng';
 import { facetRock, crystalPrism } from './rockgeo';
 import { ORE_STYLE, type OreId } from './biomes';
-import { glowPoint } from './fx';
+import { textures } from '../../render/textures';
 
 /** Halo colour per loot kind (gems glow their own colour, metals warm, monster drops soft). */
 function haloColor(id: string): number {
@@ -20,7 +20,6 @@ function haloColor(id: string): number {
 interface Pickup {
   id: string;
   qty: number;
-  mesh: THREE.Group;
   pos: THREE.Vector3;
   vel: THREE.Vector3;
   age: number;
@@ -105,33 +104,69 @@ function merge(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return out;
 }
 
-let blob: THREE.BufferGeometry | null = null;
-const ringMats = new Map<number, THREE.Material>();
 let ringTex: THREE.Texture | null = null;
-/** Contact shadow + a soft coloured glow ring on the floor (one texture, tinted per loot kind). */
-function ringMat(color: number): THREE.Material {
-  let m = ringMats.get(color);
-  if (m) return m;
-  if (!ringTex) {
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const g = c.getContext('2d')!;
-    const sh = g.createRadialGradient(32, 32, 0, 32, 32, 16);
-    sh.addColorStop(0, 'rgba(0,0,0,0.55)');
-    sh.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = sh;
-    g.fillRect(0, 0, 64, 64);
-    const ring = g.createRadialGradient(32, 32, 14, 32, 32, 31);
-    ring.addColorStop(0, 'rgba(255,255,255,0)');
-    ring.addColorStop(0.55, 'rgba(255,255,255,0.75)');
-    ring.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = ring;
-    g.fillRect(0, 0, 64, 64);
-    ringTex = new THREE.CanvasTexture(c);
+/** Contact shadow + soft glow ring texture (tinted per instance). */
+function ringTexture(): THREE.Texture {
+  if (ringTex) return ringTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const sh = g.createRadialGradient(32, 32, 0, 32, 32, 16);
+  sh.addColorStop(0, 'rgba(0,0,0,0.55)');
+  sh.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = sh;
+  g.fillRect(0, 0, 64, 64);
+  const ring = g.createRadialGradient(32, 32, 14, 32, 32, 31);
+  ring.addColorStop(0, 'rgba(255,255,255,0)');
+  ring.addColorStop(0.55, 'rgba(255,255,255,0.75)');
+  ring.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = ring;
+  g.fillRect(0, 0, 64, 64);
+  ringTex = new THREE.CanvasTexture(c);
+  return ringTex;
+}
+
+const CAP = 96;
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _e = new THREE.Euler();
+const _s = new THREE.Vector3();
+const _c = new THREE.Color();
+const HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
+
+/** One instanced mesh per loot kind (grown on demand). */
+class ItemPool {
+  mesh: THREE.InstancedMesh;
+  used = 0;
+  constructor(
+    readonly id: string,
+    private parent: THREE.Object3D,
+  ) {
+    const v = visualFor(id);
+    this.mesh = new THREE.InstancedMesh(v.geo, v.mat, 16);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.castShadow = false;
+    this.mesh.name = `pickup:${id}`;
+    parent.add(this.mesh);
   }
-  m = new THREE.MeshBasicMaterial({ map: ringTex, color: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.3), transparent: true, depthWrite: false, toneMapped: false });
-  ringMats.set(color, m);
-  return m;
+  set(i: number, m: THREE.Matrix4): void {
+    if (i >= this.mesh.instanceMatrix.count) {
+      const old = this.mesh;
+      const n = new THREE.InstancedMesh(old.geometry, old.material, old.instanceMatrix.count * 2);
+      n.frustumCulled = false;
+      n.name = old.name;
+      for (let k = 0; k < old.count; k++) {
+        old.getMatrixAt(k, _m);
+        n.setMatrixAt(k, _m);
+      }
+      this.parent.remove(old);
+      old.dispose();
+      this.parent.add(n);
+      this.mesh = n;
+    }
+    this.mesh.setMatrixAt(i, m);
+  }
 }
 
 export class Pickups {
@@ -141,6 +176,14 @@ export class Pickups {
   /** Seconds before loot starts flying to a collector / radius (tiles) that pulls it in. */
   static readonly MAGNET_DELAY = 0.5;
   static readonly MAGNET_R = 2.5;
+  // Instanced rendering: ONE draw per loot kind + one for every ground ring + one for every halo
+  // (was 3 draws per drop: a pile of monster loot blew the frame's draw-call budget).
+  private pools = new Map<string, ItemPool>();
+  private rings: THREE.InstancedMesh;
+  private halos: THREE.Points;
+  private haloPos: Float32Array;
+  private haloCol: Float32Array;
+  private haloSize: Float32Array;
 
   constructor(
     private heightAt: (x: number, z: number) => number,
@@ -149,6 +192,36 @@ export class Pickups {
     this.group.name = 'mine-pickups';
     this.group.userData.perfTag = 'mine-pickups';
     this.group.userData.noAO = true;
+    const rg = new THREE.PlaneGeometry(0.9, 0.9).rotateX(-Math.PI / 2);
+    const rm = new THREE.MeshBasicMaterial({ map: ringTexture(), transparent: true, depthWrite: false, toneMapped: false });
+    this.rings = new THREE.InstancedMesh(rg, rm, CAP);
+    this.rings.count = 0;
+    this.rings.frustumCulled = false;
+    this.rings.renderOrder = 1;
+    this.rings.name = 'pickup-rings';
+    this.group.add(this.rings);
+    const hg = new THREE.BufferGeometry();
+    this.haloPos = new Float32Array(CAP * 3);
+    this.haloCol = new Float32Array(CAP * 3);
+    this.haloSize = new Float32Array(CAP);
+    hg.setAttribute('position', new THREE.BufferAttribute(this.haloPos, 3).setUsage(THREE.DynamicDrawUsage));
+    hg.setAttribute('aColor', new THREE.BufferAttribute(this.haloCol, 3).setUsage(THREE.DynamicDrawUsage));
+    hg.setAttribute('aSize', new THREE.BufferAttribute(this.haloSize, 1).setUsage(THREE.DynamicDrawUsage));
+    hg.setDrawRange(0, 0);
+    const hm = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uMap: { value: textures.softDot().map }, uScale: { value: 1000 } },
+      vertexShader: `attribute vec3 aColor; attribute float aSize; uniform float uScale; varying vec3 vC;
+        void main(){ vC = aColor; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = aSize * uScale / -mv.z; }`,
+      fragmentShader: `uniform sampler2D uMap; varying vec3 vC; void main(){ float a = texture2D(uMap, gl_PointCoord).a * 0.7; gl_FragColor = vec4(vC * a, a); }`,
+    });
+    this.halos = new THREE.Points(hg, hm);
+    this.halos.frustumCulled = false;
+    this.halos.renderOrder = 9;
+    this.halos.name = 'pickup-halos';
+    this.group.add(this.halos);
   }
 
   /**
@@ -157,27 +230,13 @@ export class Pickups {
    * `vel` replays a host's exact launch on a farmhand.
    */
   spawn(id: string, at: THREE.Vector3, qty = 1, power = 1, net = 0, vel?: THREE.Vector3): number {
-    const vis = visualFor(id);
-    const g = new THREE.Group();
-    const m = new THREE.Mesh(vis.geo, vis.mat);
-    // A little oversized + a soft halo: loot must read from the 17–25 m mine camera.
-    m.scale.setScalar(1.3);
-    g.add(m);
-    blob ??= new THREE.PlaneGeometry(0.9, 0.9).rotateX(-Math.PI / 2);
-    const sh = new THREE.Mesh(blob, ringMat(haloColor(id)));
-    sh.renderOrder = 1;
-    sh.name = 'shadow';
-    g.add(sh);
-    const halo = glowPoint(haloColor(id), 0.8, 0.7);
-    halo.name = 'halo';
-    g.add(halo);
-    this.group.add(g);
+    if (!this.pools.has(id)) this.pools.set(id, new ItemPool(id, this.group));
     const a = Math.random() * Math.PI * 2;
     const sp = (0.9 + Math.random() * 0.9) * power;
     const v = vel ? vel.clone() : new THREE.Vector3(Math.cos(a) * sp, 3.8 + Math.random() * 1.2, Math.sin(a) * sp);
     const n = net || this.nextNet++;
     if (net >= this.nextNet) this.nextNet = net + 1;
-    this.list.push({ id, qty, mesh: g, pos: at.clone().setY(at.y + 0.35), vel: v, age: 0, rest: false, seed: Math.random() * 10, magnet: false, net: n, to: -1 });
+    this.list.push({ id, qty, pos: at.clone().setY(at.y + 0.35), vel: v, age: 0, rest: false, seed: Math.random() * 10, magnet: false, net: n, to: -1 });
     return n;
   }
 
@@ -190,8 +249,6 @@ export class Pickups {
   take(net: number, flyTo?: THREE.Vector3): boolean {
     const i = this.list.findIndex((p) => p.net === net);
     if (i < 0) return false;
-    const p = this.list[i]!;
-    this.drop(p);
     this.list.splice(i, 1);
     void flyTo;
     return true;
@@ -245,7 +302,6 @@ export class Pickups {
         p.pos.y += ((player.y + 0.7) - p.pos.y) * (1 - Math.exp(-dt * 8));
         if (d < 0.38 && authority) {
           this.onCollect(p.id, p.qty, p.pos.clone(), p.to, p.net);
-          this.drop(p);
           this.list.splice(i, 1);
           continue;
         }
@@ -264,32 +320,60 @@ export class Pickups {
           }
         }
       }
-      const bob = p.rest && !p.magnet ? 0.08 + Math.sin(time * 3 + p.seed) * 0.05 : 0;
-      p.mesh.position.set(p.pos.x, p.pos.y + bob, p.pos.z);
-      const item = p.mesh.children[0]!;
-      item.rotation.y = time * 1.8 + p.seed;
-      item.rotation.x = p.rest ? 0 : p.age * 9;
-      const halo = p.mesh.children[2];
-      if (halo) ((halo as THREE.Points).material as THREE.PointsMaterial).size = (p.rest ? 0.85 : 0.6) * (1 + 0.18 * Math.sin(time * 4 + p.seed * 3));
-      const sh = p.mesh.children[1]!;
-      sh.position.y = fy - p.pos.y - bob + 0.02;
-      sh.scale.setScalar(Math.max(0.3, 1 - (p.pos.y + bob - fy) * 0.8) * (p.rest ? 1 + 0.08 * Math.sin(time * 4 + p.seed) : 1));
-      sh.rotation.y = -time * 0.6;
     }
+    this.render(time);
   }
 
-  private drop(p: Pickup): void {
-    this.group.remove(p.mesh);
-    const h = p.mesh.children[2] as THREE.Points | undefined;
-    if (h) {
-      h.geometry.dispose();
-      (h.material as THREE.Material).dispose();
+  /** Write every drop into the instanced pools (items by kind, rings, halos). */
+  private render(time: number): void {
+    for (const pool of this.pools.values()) pool.used = 0;
+    let n = 0;
+    for (const p of this.list) {
+      const fy = this.heightAt(p.pos.x, p.pos.z);
+      const bob = p.rest && !p.magnet ? 0.08 + Math.sin(time * 3 + p.seed) * 0.05 : 0;
+      const pool = this.pools.get(p.id)!;
+      _e.set(p.rest ? 0 : p.age * 9, time * 1.8 + p.seed, 0);
+      _q.setFromEuler(_e);
+      _s.set(p.pos.x, p.pos.y + bob, p.pos.z);
+      _m.compose(_s, _q, new THREE.Vector3(1.3, 1.3, 1.3));
+      pool.set(pool.used++, _m);
+      if (n >= CAP) continue;
+      // Ring: contact shadow + tinted glow on the floor, shrinking while the drop is in the air.
+      const air = p.pos.y + bob - fy;
+      const rs = Math.max(0.3, 1 - air * 0.8) * (p.rest ? 1 + 0.08 * Math.sin(time * 4 + p.seed) : 1);
+      _e.set(0, -time * 0.6, 0);
+      _q.setFromEuler(_e);
+      _m.compose(_s.set(p.pos.x, fy + 0.02, p.pos.z), _q, new THREE.Vector3(rs, 1, rs));
+      this.rings.setMatrixAt(n, _m);
+      _c.setHex(haloColor(p.id)).lerp(new THREE.Color(1, 1, 1), 0.3);
+      this.rings.setColorAt(n, _c);
+      _c.setHex(haloColor(p.id));
+      this.haloPos.set([p.pos.x, p.pos.y + bob, p.pos.z], n * 3);
+      this.haloCol.set([_c.r, _c.g, _c.b], n * 3);
+      this.haloSize[n] = (p.rest ? 0.85 : 0.6) * (1 + 0.18 * Math.sin(time * 4 + p.seed * 3));
+      n++;
     }
+    for (const pool of this.pools.values()) {
+      pool.mesh.count = pool.used;
+      pool.mesh.visible = pool.used > 0;
+      pool.mesh.instanceMatrix.needsUpdate = true;
+    }
+    this.rings.count = n;
+    this.rings.visible = n > 0;
+    this.rings.instanceMatrix.needsUpdate = true;
+    if (this.rings.instanceColor) this.rings.instanceColor.needsUpdate = true;
+    const g = this.halos.geometry;
+    g.setDrawRange(0, n);
+    this.halos.visible = n > 0;
+    (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (g.attributes.aColor as THREE.BufferAttribute).needsUpdate = true;
+    (g.attributes.aSize as THREE.BufferAttribute).needsUpdate = true;
+    (this.halos.material as THREE.ShaderMaterial).uniforms.uScale!.value = (typeof innerHeight === 'number' ? innerHeight : 1000) * 1.1;
   }
 
   clear(): void {
-    for (const p of this.list) this.drop(p);
     this.list.length = 0;
+    this.render(0);
   }
 
   get count(): number {

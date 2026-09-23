@@ -275,6 +275,7 @@ export class MiningSystem implements System, MiningApi {
     const id = game.world.current?.id;
     const inMine = id === 'mine' || id === 'mine-entrance';
     this.plaque.show(inMine && game.opts.hud);
+    if (inMine) this.plaque.dodge(dt);
     this.numbers.update(dt, game.rc.camera, window.innerWidth, window.innerHeight);
     if (!inMine) return;
     const key = `${id}:${this.cur}`;
@@ -430,8 +431,11 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
       // feet — no crystal ever clips into the hat or body in a staged frame.
       const cx = x + 0.5;
       const cz = z + 0.5;
-      if (m.rocks?.rocks.some((r) => r.alive && Math.hypot(r.pos.x - cx, r.pos.z - cz) < 0.75 + 0.5 * r.scale * (r.spec.big ? 1.4 : 1))) continue;
-      if (L.crystals.some((c) => Math.hypot(c.x - cx, c.z - cz) < 1.6)) continue;
+      // (anything just NORTH of the farmer is drawn behind the hat by the 3/4 camera: it needs
+      // ~1.7x the room of things beside / in front)
+      const room = (x: number, z: number): number => Math.hypot(x - cx, (z - cz) * (z < cz ? 0.6 : 1));
+      if (m.rocks?.rocks.some((r) => r.alive && room(r.pos.x, r.pos.z) < 0.75 + 0.5 * r.scale * (r.spec.big ? 1.4 : 1))) continue;
+      if (L.crystals.some((c) => room(c.x, c.z) < 1.6)) continue;
       if (L.decor.some((d) => d.solid && Math.hypot(d.x - cx, d.z - cz) < 1.2)) continue;
       if (!m.clearAt(cx, cz, 0.6)) continue;
       let s = 0;
@@ -456,7 +460,7 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
       for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (m.grid.isWalkable(x + dx, z + dz)) openN++;
       s += openN * (open ? 0.6 : 0.2);
       // Keep the lower half of the frame (towards the camera) inside the cave.
-      for (let dz = 1; dz <= 4; dz++) if (L.solid[(z + dz) * FLOOR_W + x]) s -= 1.5;
+      for (let dz = 1; dz <= 5; dz++) if (L.solid[(z + dz) * FLOOR_W + x]) s -= dz <= 3 ? 2.5 : 1.5;
       // ...and a dressed back wall in the upper third: open floor for 2–3 tiles north, then rock.
       for (let dz = 1; dz <= 2; dz++) if (L.solid[(z - dz) * FLOOR_W + x]) s -= 2.5;
       let wallN = false;

@@ -170,6 +170,22 @@ export class FloorPlaque {
   show(on: boolean): void {
     this.el.classList.toggle('off', !on);
   }
+
+  private dodgeT = 0;
+  /** Slide below the co-op roster plate (top-left) when one is showing. */
+  dodge(dt: number): void {
+    this.dodgeT -= dt;
+    if (this.dodgeT > 0) return;
+    this.dodgeT = 0.5;
+    const r = document.querySelector('.coop-roster') as HTMLElement | null;
+    const rect = r && r.offsetParent !== null ? r.getBoundingClientRect() : null;
+    const par = this.el.parentElement;
+    const pr = par?.getBoundingClientRect();
+    const zoom = pr && par && par.offsetWidth ? pr.width / par.offsetWidth : 1;
+    const top = rect && pr && rect.height > 0 && rect.left < 300 ? Math.round((rect.bottom - pr.top) / zoom + 10) : 16;
+    const want = `${top}px`;
+    if (this.el.style.top !== want) this.el.style.top = want;
+  }
 }
 
 interface Num {

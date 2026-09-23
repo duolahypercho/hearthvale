@@ -472,6 +472,42 @@ Friends on other machines open the game from the host's address; the relay defau
   roster), `coop-lobby` (creator + lobby). Debug: `services.net` (`host()`, `join(code)`, `players()`, `stats()`,
   `simulateDrop()`), `services.net.sync.digest()` (the per-tile farm state that must match on every client).
 
+## The Hollowdeep (mines, ores, monsters & combat)
+
+The mine (`src/world/mine/`, `systems/mining.ts`, `systems/combat.ts`, `entities/monsters.ts`): a mountain-shelf
+entrance (`entrance.ts`: strata cliff, timbered mouth with a lamp-lit drift, the lift headframe) and seeded floors
+(`gen.ts`: cellular-automata caverns from `(floor, seed)`) in three biome bands every 10 floors: Earthen Hollows,
+Frostvein Grotto, Cinder Depths (`biomes.ts`), repeating with a tier (tougher monsters, richer ore) from 31.
+
+- **Look**: `cave.ts` shell (baked strata + blended biplanar slab texture + clamped derivative bump, glowing lava
+  fissures, dark-navy frozen sheets with bubbles, a glossy frozen pool with caustics), `lighting.ts` (lantern spot
+  key + fill + bounce + a cool rim light behind the farmer, 5 accent lights, per-biome grade), `props.ts` (shoring,
+  lanterns, carts on rails with polished heads ending in a buffer stop / rockfall, crystals, spikes, basalt, vents).
+- **Rocks & ore** (`ores.ts`, `stone.ts`): one batched draw per material; a procedural stone shader (3D-noise albedo,
+  roughness, bump; no UVs) carves ore **veins** into the rock (copper with verdigris, blue-grey iron with rust, gold
+  with star glints, glossy coal), gems break out as emissive hexagonal clusters, ice rocks get a frosted fresnel skin.
+  Hits flash the rock white, squash it, throw 8–12 chips + a dust ring; breaks burst 20+ chunks and pop loot
+  (≥ 1 stone per rock) that bobs over a tinted glow ring and flies to the nearest farmer within 2.5 tiles after 0.5 s
+  (`pickups.ts`, instanced: one draw per loot kind). Ore by depth: 12–17 % of rocks on floors 1–5 (gems ≤ 1 %),
+  ≈ 20–40 % deeper, iron from 5, gold from 21, diamonds from 25 (≤ 0.5 %); repeat bands start at iron, gold ≥ 10 %.
+- **Combat**: slimes (spring jiggle), bats, rock crabs, frost wisps (chill), cinder imps (fireballs). The sword
+  (`actions.ts`: short polished blade, alternating slashes) draws a thick additive crescent over everything, hits
+  knock monsters back 1.65 tiles (eased 0.18 s) with a squash + hot-rim flash, damage numbers pop 1.4→1 at the hit
+  point (42 px, crits 56 px gold + shake), kills freeze the arena 60 ms, kick the camera and leave a goo splat.
+  Health tube, i-frames, passing out → carried to the entrance lean-to (+2 h, some gold / loot lost).
+- **Co-op** (`coop.ts`, wired through `net/bridge.ts`): the host is authoritative for every occupied floor — seed
+  sync, a ledger of broken / damaged rocks, the ladder and loot, 10 Hz monster snapshots interpolated 120 ms behind on
+  farmhands, pick / sword **intents** resolved by the host and broadcast (rock state + exact drops, hits with damage /
+  crit / kill), monsters chase the nearest living farmer and their hits go to that farmer (health and passing out
+  are per player), loot goes to whoever vacuums it. Floors the host isn't on run as **headless sims** on the host
+  and migrate live ⇄ headless (same monster ids, hp, loot) when the host arrives / leaves; farmers on other floors
+  are hidden. `node scripts/mine-coop-test.mjs` runs the two-browser e2e (shots in `shots/mine-coop/`);
+  `services.mineNet.stats()` shows floors, headless sims and message counts.
+- **Demos**: `mine-entrance`, `mine-floor` (earth, floor 3), `mine-ice` (14), `mine-lava` (24), `mine-combat`
+  (live arena + autopilot; `&still=1` freezes a landed hit, `&god=1`), `mine-coop` (two scripted farmhands fighting
+  and mining beside you, name tags; no server), `mine-chest` (floor 10 reforge). Params: `&floor=N`, `&pick=1`
+  (`&still=1` freezes the pick impact), `&foe=0` (no staged monster), `&ui=elevator`.
+
 ## Cindergrove forest, weather & seasons
 
 Cindergrove (`src/world/forest/`) is south of the farm (warp at the farm's south gate). `layout.ts` holds the anchors
