@@ -23,6 +23,7 @@ import { TreeField } from '../props/trees';
 import { Nature } from '../props/nature';
 import { mergeStatic } from '../geom';
 import { BatchPool, InstancedSet } from '../props/instanced';
+import { FountainFX } from './fountain';
 import { createWater } from '../water';
 import { textures } from '../../render/textures';
 import { SmokeEmitter, Ambience, FireFX } from '../../render/particles';
@@ -120,6 +121,7 @@ export class TownMap implements GameMap {
   private fire: FireFX | null = null;
   private forgeFire: FireFX | null = null;
   private forgeLight: THREE.PointLight | null = null;
+  private fountainFx: FountainFX | null = null;
   /** Festival practicals (budget: 4 point lights), always in the scene so toggling never recompiles. */
   private festivalLights: { light: THREE.PointLight; max: number; seed: number }[] = [];
 
@@ -489,6 +491,8 @@ export class TownMap implements GameMap {
       if (Math.hypot(x + 0.5 - PLAZA.x, z + 0.5 - PLAZA.z) < 2.45) this.grid.setObject(x, z, { kind: 'prop', id: 'fountain', solid: true });
     });
     this.poi.plaza = [{ x: PLAZA.x, z: PLAZA.z }];
+    this.fountainFx = new FountainFX(new THREE.Vector3(PLAZA.x, this.terrain.heightAt(PLAZA.x, PLAZA.z) - 0.03, PLAZA.z));
+    this.root.add(this.fountainFx.group);
   }
 
   private buildExtraProps(): void {
@@ -819,6 +823,7 @@ export class TownMap implements GameMap {
     this.ambience.update(dt, game.time, game.rc.rig.focus, game.lighting.night, h);
     if (this.festivalOn && this.fire) this.fire.update(dt, h);
     if (this.forgeFire) this.forgeFire.update(dt, h);
+    this.fountainFx?.update(dt, game.lighting.night);
     // Forge hearth: coals breathe, the light flickers (brighter against the dusk).
     const t = game.time;
     const flick = 0.78 + 0.12 * Math.sin(t * 11.3) + 0.07 * Math.sin(t * 27.1 + 1.3) + 0.05 * Math.sin(t * 3.1);
@@ -832,6 +837,8 @@ export class TownMap implements GameMap {
   }
 
   setSeason(season: Season): void {
+    // The basin freezes over in winter: no running water.
+    if (this.fountainFx) this.fountainFx.group.visible = season !== 'winter';
     this.trees.setSeason(season);
     this.nature.setSeason(season);
     this.ambience.setSeason(season);
