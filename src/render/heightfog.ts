@@ -43,6 +43,7 @@ const FogShader = {
     uProjInv: { value: new THREE.Matrix4() },
     uCamWorld: { value: new THREE.Matrix4() },
     uCamPos: { value: new THREE.Vector3() },
+    uCamFwd: { value: new THREE.Vector3(0, -1, 0) },
     uFog: { value: 0 },
     uBase: { value: 0 },
     uFalloff: { value: 1.6 },
@@ -67,6 +68,7 @@ const FogShader = {
     uniform mat4 uProjInv;
     uniform mat4 uCamWorld;
     uniform vec3 uCamPos;
+    uniform vec3 uCamFwd;
     uniform float uFog;
     uniform float uBase;
     uniform float uFalloff;
@@ -123,6 +125,10 @@ const FogShader = {
       }
       if (uShaftK > 0.001) {
         vec3 Ls = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.42), uSunDir.z));
+        // Art direction: tilt the beams away from the view axis so they always read as slanting
+        // shafts across the frame, never as a blob seen end-on.
+        Ls = normalize(Ls - uCamFwd * dot(Ls, uCamFwd) * 0.8);
+        if (Ls.y < 0.3) Ls = normalize(Ls + vec3(0.0, 0.3 - Ls.y, 0.0));
         float acc = 0.0;
         for (int i = 0; i < ${MAX_SHAFTS}; i++) {
           if (i >= uShaftCount) break;
@@ -213,6 +219,7 @@ export class HeightFogPass extends Pass {
     (u.uProjInv!.value as THREE.Matrix4).copy(this.camera.projectionMatrixInverse);
     (u.uCamWorld!.value as THREE.Matrix4).copy(this.camera.matrixWorld);
     (u.uCamPos!.value as THREE.Vector3).setFromMatrixPosition(this.camera.matrixWorld);
+    this.camera.getWorldDirection(u.uCamFwd!.value as THREE.Vector3);
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
   }

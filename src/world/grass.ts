@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { Rng } from '../core/rng';
 import { globalUniforms } from '../render/uniforms';
 import { NOISE_GLSL } from '../render/shaders/noise';
-import { applyWind } from '../render/wind';
+import { applyWind, GUST_GLSL } from '../render/wind';
 import { patchMaterial, after, before, replace } from '../render/patch';
 
 const CHUNK = 10;
@@ -120,7 +120,7 @@ function grassMaterial(): THREE.MeshStandardMaterial {
     fs = before(
       fs,
       'void main() {',
-      `varying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform sampler2D uGrassCover;\nuniform vec4 uGrassCoverRect;\nuniform vec3 uGrassA;\nuniform vec3 uGrassB;\nuniform vec3 uGrassTip;\nuniform vec3 uGrassDry;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;\nuniform float uCloudShadow;\nuniform float uTime;\nuniform float uDryAmt;\nuniform vec4 uSeasonW;\nuniform float uRim;\nuniform float uSnow;\n${NOISE_GLSL}`,
+      `varying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform sampler2D uGrassCover;\nuniform vec4 uGrassCoverRect;\nuniform vec3 uGrassA;\nuniform vec3 uGrassB;\nuniform vec3 uGrassTip;\nuniform vec3 uGrassDry;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;\nuniform float uCloudShadow;\nuniform float uTime;\nuniform float uDryAmt;\nuniform vec4 uSeasonW;\nuniform float uRim;\nuniform float uSnow;\nuniform float uWindStrength;\nuniform vec2 uWindDir;\n${NOISE_GLSL}\n${GUST_GLSL}`,
     );
     fs = replace(
       fs,
@@ -160,6 +160,9 @@ function grassMaterial(): THREE.MeshStandardMaterial {
         vec3 V = normalize(cameraPosition - vGWorld);
         float back = pow(max(dot(-V, normalize(uSunDir)), 0.0), 2.0) * 1.1 + 0.1;
         totalEmissiveRadiance += gcol * uSunColor * gh * gh * (back * 0.35 + uRim * 0.5) * hvCloudShadow(vGWorld.xz, uTime, uCloudShadow);
+        // Gust fronts: a silvery band of bent blades rolling across the meadow on windy days.
+        float gw = hvGustWave(vGOrigin.xz, uTime, uWindDir, uWindStrength);
+        totalEmissiveRadiance += mix(gcol, vec3(0.9, 0.95, 0.8), 0.35) * gw * gh * (uSunColor * 0.45 + 0.08) * (1.0 - uSnow);
       }`,
     );
     shader.fragmentShader = fs;

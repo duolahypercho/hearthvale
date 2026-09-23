@@ -338,8 +338,16 @@ export class Terrain {
     return g;
   }
 
+  private driftFn: ((x: number, z: number) => number) | null = null;
+
+  /** Drift mask at a point (the raised winter snow = driftAt * 0.2 m at full snow cover). */
+  driftAt(x: number, z: number): number {
+    return this.driftFn ? this.driftFn(x, z) : 0;
+  }
+
   /** Bake the winter snow-drift mask (0..1 per vertex): fn(worldX, worldZ). */
   setDrift(fn: (x: number, z: number) => number): void {
+    this.driftFn = fn;
     for (const m of this.mesh.children as THREE.Mesh[]) {
       const dr = m.geometry?.attributes.aDrift as THREE.BufferAttribute | undefined;
       if (!dr) continue;

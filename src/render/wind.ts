@@ -26,12 +26,29 @@ export interface WindOptions {
   playerPush?: boolean;
 }
 
+/**
+ * Travelling gust fronts on windy / stormy days: narrow waves rolling downwind with a wobbly,
+ * patchy crest (0 on calm days). Shared by the sway below and the grass sheen (grass.ts), so the
+ * bright band in the grass and the bending blades travel together. Needs NOISE_GLSL.
+ */
+export const GUST_GLSL = /* glsl */ `
+float hvGustWave(vec2 xz, float t, vec2 dir, float strength) {
+  float along = dot(xz, dir);
+  float across = dot(xz, vec2(-dir.y, dir.x));
+  float ph = along * 0.11 - t * (0.7 + 0.35 * strength) + hvNoise(vec2(across * 0.045, t * 0.04)) * 2.5;
+  float crest = pow(0.5 + 0.5 * sin(ph), 7.0);
+  float gate = smoothstep(0.3, 0.7, hvNoise(vec2(across * 0.035 + 7.0, floor(ph / 6.2832) * 1.7)));
+  return crest * gate * smoothstep(1.2, 2.1, strength);
+}
+`;
+
 export const WIND_GLSL = /* glsl */ `
 uniform float uTime;
 uniform float uWindStrength;
 uniform vec2 uWindDir;
 uniform vec3 uPlayerPos;
 ${NOISE_GLSL}
+${GUST_GLSL}
 vec3 hvWindOffset(vec3 wpos, vec3 origin, float w, float amp, float flutter) {
   vec2 dir = uWindDir;
   float t = uTime;
@@ -40,7 +57,8 @@ vec3 hvWindOffset(vec3 wpos, vec3 origin, float w, float amp, float flutter) {
   gust = gust * gust * 1.6;
   float sway = sin(t * 1.6 + phase) * 0.55 + sin(t * 2.7 + phase * 1.3) * 0.3;
   float s = uWindStrength;
-  vec2 off = dir * (0.25 * s + gust * s + sway * 0.45 * s);
+  float front = hvGustWave(origin.xz, t, dir, s);
+  vec2 off = dir * (0.25 * s + gust * s + sway * 0.45 * s + front * 1.6 * s);
   float fl = sin(t * 8.5 + dot(wpos, vec3(3.1, 2.3, 2.7))) * flutter * s;
   vec3 o = vec3(off.x + fl * 0.3 * dir.y, 0.0, off.y - fl * 0.3 * dir.x) * amp;
   o.y = fl * 0.25 * amp - length(o.xz) * 0.35;

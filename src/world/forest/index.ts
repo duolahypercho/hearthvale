@@ -88,6 +88,8 @@ export class ForestMap implements GameMap {
   private ambience: Ambience;
   private litter: LeafLitter;
   private shafts: { x: number; y: number; z: number; w: number }[];
+  /** Snow-drift catchers: trunks, boulders, logs (x, z, radius). */
+  private obstacles: { x: number; z: number; r: number }[] = [];
   private forage: ForageField;
   private forageSpots: ForageSpot[] = [];
   private fx = new BurstFX(200);
@@ -141,6 +143,7 @@ export class ForestMap implements GameMap {
     this.placeMushrooms();
     mark('nature');
     this.terrain.commitCover();
+    this.bakeDrifts();
     this.giants.group.userData.perfTag = 'trees';
     this.trees.group.userData.perfTag = 'trees';
     this.nature.group.userData.perfTag = 'nature';
@@ -302,6 +305,9 @@ export class ForestMap implements GameMap {
           float mn = hvFbm(vec2(along * 0.6, p.y * 0.8) + 11.0);
           float moss = smoothstep(0.62, 0.95, f + (mn - 0.5) * 0.5) * smoothstep(0.35, 0.65, mn);
           c = mix(c, uMossC * (0.6 + 0.5 * mn), moss * 0.75);
+          // Winter: snow lies along every band top / ledge and in the joints.
+          float ledge = smoothstep(0.66, 0.9, f + (mn - 0.5) * 0.35) + smoothstep(0.3, 0.9, n.y) * 0.8;
+          c = mix(c, vec3(0.6, 0.65, 0.74), clamp(ledge, 0.0, 1.0) * smoothstep(0.3, 0.85, uSnow));
           return c;
         }`,
       );
@@ -516,6 +522,39 @@ export class ForestMap implements GameMap {
 
   // ───────────────────────────────────────────── undergrowth
 
+  /**
+   * Winter drifts (terrain `aDrift`, raised with the snow cover): wind-blown banks piled against the
+   * windward side of every trunk, boulder and log, a deep bank along the foot of the cliffs, and a
+   * gentle rolling undulation everywhere else; trampled flat on the paths.
+   */
+  private bakeDrifts(): void {
+    const S = this.shape;
+    const obst = [...this.obstacles];
+    for (const g of this.giants.handles) obst.push({ x: g.x, z: g.z, r: (g.kind === 'elder' ? 1.2 : 0.8) * g.scale });
+    for (const [x, z, rot, len, rad] of LOGS) {
+      for (let k = -len / 2; k <= len / 2; k += 0.8) obst.push({ x: x + Math.cos(rot) * k, z: z - Math.sin(rot) * k, r: rad });
+    }
+    const wind = globalUniforms.uWindDir.value;
+    this.terrain.setDrift((x, z) => {
+      if (this.terrain.heightAt(x, z) < WATER_LOW + 0.04) return 0;
+      let d = 0;
+      for (const o of obst) {
+        const dx = x - o.x;
+        const dz = z - o.z;
+        if (Math.abs(dx) > o.r + 3 || Math.abs(dz) > o.r + 3) continue;
+        const l = Math.hypot(dx, dz);
+        const gap = l - o.r;
+        // Snow piles up on the windward face (wind blows towards +windDir).
+        const windward = 0.55 + 0.45 * -((dx * wind.x + dz * wind.y) / Math.max(l, 1e-3));
+        d = Math.max(d, THREE.MathUtils.smoothstep(gap, 2.6, 0.1) * windward * 1.9);
+      }
+      const pd = S.plateauDist(x, z);
+      if (pd > 0) d = Math.max(d, THREE.MathUtils.smoothstep(pd, 3.0, 0.6) * 1.6);
+      const und = 0.55 * THREE.MathUtils.smoothstep(S.noise.fbm(x * 0.14 + 3, z * 0.14, 2), -0.3, 0.6);
+      return Math.min(2.6, (d + und) * (1 - S.pathValue(x, z) * 0.85));
+    });
+  }
+
   private freeTile(x: number, z: number): boolean {
     const tx = Math.floor(x);
     const tz = Math.floor(z);
@@ -599,6 +638,7 @@ export class ForestMap implements GameMap {
         else tuft(tx, tz, 0.7 + r.next() * 0.4);
       }
       if (solid) this.grid.setObject(Math.floor(x), Math.floor(z), { kind: 'boulder', id: 'boulder', solid: true });
+      this.obstacles.push({ x, z, r: rad });
     };
     for (let i = 0; i < 30; i++) {
       const x = 6 + r.next() * 54;

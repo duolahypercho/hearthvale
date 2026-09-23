@@ -288,8 +288,9 @@ export class Footprints {
         void main() {
           float c = cos(aPrint.w);
           float s = sin(aPrint.w);
-          // Boot print ~0.14 x 0.26 m, offset to its side of the stride.
-          vec2 lp = vec2(position.x * 0.19, position.z * 0.33) + vec2(aMeta.y * 0.09, 0.0);
+          // Boot print ~0.21 x 0.39 m (reads at diorama distance), offset to its side of the stride;
+          // the quad is padded so the blue shadow AO can bleed past the rim.
+          vec2 lp = vec2(position.x * 0.36, position.z * 0.6) + vec2(aMeta.y * 0.13, 0.0);
           vec2 r = vec2(lp.x * c + lp.y * s, -lp.x * s + lp.y * c);
           vec3 wp = vec3(aPrint.x + r.x, aPrint.y + 0.012, aPrint.z + r.y);
           vUv = uv;
@@ -320,17 +321,22 @@ export class Footprints {
         }
         void main() {
           if (vAge > 1.0 || vAge < 0.0) discard;
-          float n = hvNoise(vUv * 9.0) * 0.18;
-          float d = sole(vUv) + n;
+          // Quad is padded 1.25x: remap so the sole keeps its proportions.
+          vec2 uv = (vUv - 0.5) * 1.25 + 0.5;
+          float n = hvNoise(uv * 9.0) * 0.18;
+          float d = sole(uv) + n;
           float inside = smoothstep(0.1, -0.15, d);
           float rim = smoothstep(0.34, 0.1, d) * (1.0 - inside);
           // The wall facing the sun is lit, the one facing away sits in the dent's own shadow.
-          vec2 dir = normalize(vUv - 0.5 + 1e-4);
+          vec2 dir = normalize(uv - 0.5 + 1e-4);
           float toward = dot(dir, vSun);
           float k = smoothstep(0.3, 0.7, uSnow) * (1.0 - smoothstep(0.55, 1.0, vAge)) * vFade;
-          vec3 dent = mix(vec3(1.0), vec3(0.5, 0.58, 0.78) * (0.9 + 0.14 * toward), inside * (0.85 + 0.15 * step(0.5, fract(vUv.y * 7.0))));
+          // Deep blue dent (cold skylight in the hollow), tread bars, a soft blue AO halo around it.
+          vec3 dent = mix(vec3(1.0), vec3(0.4, 0.5, 0.78) * (0.88 + 0.16 * toward), inside * (0.82 + 0.18 * step(0.5, fract(uv.y * 7.0))));
+          float halo = smoothstep(0.55, 0.05, d) * (1.0 - inside);
+          vec3 ao = mix(vec3(1.0), vec3(0.8, 0.86, 0.98), halo * 0.8);
           vec3 lip = mix(vec3(1.0), vec3(1.14, 1.13, 1.1), rim * clamp(0.4 - toward, 0.0, 1.0));
-          vec3 m = mix(vec3(1.0), dent * lip, k);
+          vec3 m = mix(vec3(1.0), dent * lip * ao, k);
           gl_FragColor = vec4(m * 0.5, 1.0);
         }`,
     });
@@ -382,7 +388,7 @@ export class LeafGusts {
   readonly mesh: THREE.Mesh;
   private mat: THREE.ShaderMaterial;
 
-  constructor(private readonly max = 520) {
+  constructor(private readonly max = 640) {
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
@@ -406,7 +412,7 @@ export class LeafGusts {
         {
           uTime: { value: 0 },
           uCenter: { value: new THREE.Vector3() },
-          uBox: { value: new THREE.Vector3(26, 7, 22) },
+          uBox: { value: new THREE.Vector3(26, 4.5, 22) },
           uAmount: { value: 0 },
           uCount: { value: max },
           uWind: { value: new THREE.Vector2(1, 0) },
@@ -434,6 +440,8 @@ export class LeafGusts {
         varying vec2 vUv;
         varying float vPick;
         varying float vShade;
+        float lgHash(float n) { return fract(sin(n) * 43758.5453); }
+        float lgNoise(float x) { float i = floor(x); float f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(lgHash(i), lgHash(i + 1.0), f); }
         mat3 rot(vec3 a) {
           float cx = cos(a.x), sx = sin(a.x), cy = cos(a.y), sy = sin(a.y), cz = cos(a.z), sz = sin(a.z);
           return mat3(cy * cz, cy * sz, -sy, sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy, cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy);
@@ -456,10 +464,20 @@ export class LeafGusts {
           rel.xz = mod(rel.xz, size.xz);
           rel.y = mod(rel.y, size.y) + 0.3;
           vec3 wp = base + rel;
-          // Tumble: spin about a per-leaf axis.
-          vec3 ang = vec3(uTime * (2.0 + aSeed.x * 4.0) + ph, uTime * (1.3 + aSeed.y * 3.0) + ph * 0.7, uTime * (0.7 + aSeed.z * 2.0));
+          // Gust bursts: leaves ride in on travelling fronts (clouds of them), a few stragglers between.
+          float along = dot(wp.xz, uWind);
+          float front = lgNoise(along * 0.09 - uTime * 0.55 + aSeed.y * 0.6);
+          float burst = mix(0.25, 1.0, smoothstep(0.45, 0.75, front));
+          wp.y += burst * 0.8;
+          // Tumble: spin about a per-leaf axis (faster in the gust).
+          float spin = 1.0 + burst * 1.5;
+          vec3 ang = vec3(uTime * (2.0 + aSeed.x * 4.0) * spin + ph, uTime * (1.3 + aSeed.y * 3.0) * spin + ph * 0.7, uTime * (0.7 + aSeed.z * 2.0));
           mat3 R = rot(ang);
-          vec3 local = R * vec3(position.x, position.y * 0.62, 0.0) * uSize * (0.7 + 0.6 * aSeed.z) * on;
+          float keep = step(aSeed.x * 0.999, burst);
+          // Leaves right in front of the lens would read as giant blotches: shrink them away.
+          float camD = length(cameraPosition - wp);
+          float nearK = smoothstep(9.0, 15.0, camD);
+          vec3 local = R * vec3(position.x, position.y * 0.62, 0.0) * uSize * (0.75 + 0.6 * aSeed.z) * on * keep * nearK;
           vShade = 0.6 + 0.4 * abs((R * vec3(0.0, 0.0, 1.0)).y);
           vUv = uv;
           vPick = fract(aSeed.x * 7.0 + aSeed.z * 3.0);
@@ -478,13 +496,15 @@ export class LeafGusts {
         varying float vPick;
         varying float vShade;
         void main() {
-          // Leaf / petal silhouette: pointed ellipse with a central vein.
+          // Leaf / petal silhouette: pointed ellipse with a short stem, central vein and side veins.
           vec2 q = vUv * 2.0 - 1.0;
-          float w = (1.0 - q.y * q.y) * 0.62;
-          float inside = step(abs(q.x), w);
+          float w = (1.0 - q.y * q.y) * 0.62 * (1.0 - 0.25 * smoothstep(0.2, 1.0, q.y));
+          float stem = step(abs(q.x), 0.05) * step(q.y, -0.75);
+          float inside = max(step(abs(q.x), w), stem);
           if (inside < 0.5) discard;
           vec3 c = vPick < 0.34 ? uC0 : vPick < 0.67 ? uC1 : uC2;
-          c *= 0.85 + 0.15 * smoothstep(0.0, 0.15, abs(q.x));
+          float vein = smoothstep(0.06, 0.0, abs(q.x)) + smoothstep(0.05, 0.0, abs(fract(q.y * 3.0 + abs(q.x) * 1.5) - 0.5)) * 0.4 * step(abs(q.x), w * 0.8);
+          c *= (0.88 + 0.2 * smoothstep(0.0, 0.5, w - abs(q.x))) * (1.0 - vein * 0.18);
           vec3 light = uSkyColor * 0.45 + uSunColor * 0.75 * vShade;
           gl_FragColor = vec4(c * light, 1.0);
           #include <fog_fragment>
@@ -505,7 +525,7 @@ export class LeafGusts {
     (u.uC0!.value as THREE.Color).setHex(a);
     (u.uC1!.value as THREE.Color).setHex(b);
     (u.uC2!.value as THREE.Color).setHex(c);
-    u.uSize!.value = p === 'petals' ? 0.12 : 0.17;
+    u.uSize!.value = p === 'petals' ? 0.3 : 0.42;
   }
 
   update(center: THREE.Vector3, amount: number, time: number): void {

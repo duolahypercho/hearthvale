@@ -85,7 +85,8 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
         hvSnowAmt = hvS;
         float hvDrift = hvNoise(vHvWorldPos.xz * 0.9 + 3.0);
         // Albedo capped at ~0.82 so lamp-lit snow never clips into a bloom blob at night.
-        vec3 hvSnowCol = vec3(0.88, 0.92, 0.98) * 0.85 * (0.93 + 0.07 * hvN) * (0.96 + 0.06 * hvDrift);
+        // Albedo held well below white so sunlit snow keeps its form and shadows can go properly blue.
+        vec3 hvSnowCol = vec3(0.8, 0.85, 0.93) * 0.78 * (0.93 + 0.07 * hvN) * (0.95 + 0.08 * hvDrift);
         hvSnowCol = mix(hvSnowCol, vec3(0.62, 0.58, 0.52) * (0.9 + 0.2 * hvN), clamp(${slush}, 0.0, 1.0));
         diffuseColor.rgb = mix(diffuseColor.rgb, hvSnowCol, hvS);
       }`;
@@ -129,10 +130,10 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
         light += /* glsl */ `
         if (hvSnowAmt > 0.01) {
           // Cool skylight in snow shadows + glints where the sun hits.
-          reflectedLight.indirectDiffuse *= mix(vec3(1.0), vec3(0.82, 0.94, 1.22), hvSnowAmt);
+          reflectedLight.indirectDiffuse *= mix(vec3(1.0), vec3(0.66, 0.82, 1.28), hvSnowAmt);
           vec3 hvV = normalize(cameraPosition - vHvWorldPos);
           vec2 hvCell = floor(vHvWorldPos.xz * 34.0);
-          float hvG = step(0.992, hvHash12(hvCell + floor(hvV.xz * 5.0) * 13.1));
+          float hvG = step(0.987, hvHash12(hvCell + floor(hvV.xz * 5.0) * 13.1));
           float hvLit = dot(reflectedLight.directDiffuse, vec3(0.333));
           reflectedLight.directSpecular += vec3(hvG * 3.5 * hvSnowAmt * hvLit);
         }`;

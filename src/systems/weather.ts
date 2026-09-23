@@ -242,7 +242,7 @@ export class WeatherSystem implements System, WeatherApi {
       z = nz;
       // Prints point towards the player (walking direction is the reverse of the trail).
       this.printSide = -this.printSide;
-      this.prints.stamp(x, map.heightAt(x, z), z, ang + Math.PI, this.printSide, g.time - i * 0.9);
+      this.prints.stamp(x, this.snowTop(x, z), z, ang + Math.PI, this.printSide, g.time - i * 0.9);
     }
   }
 
@@ -378,6 +378,14 @@ export class WeatherSystem implements System, WeatherApi {
     this.strikeFx.update(game.paused ? 0 : dt, hPx);
   }
 
+  /** Ground height including the raised winter drifts (prints must sit on the snow surface). */
+  private snowTop(x: number, z: number): number {
+    const map = this.game.world.current;
+    if (!map) return 0;
+    const drift = map.terrain?.driftAt(x, z) ?? 0;
+    return map.heightAt(x, z) + drift * 0.2 * THREE.MathUtils.smoothstep(globalUniforms.uSnow.value, 0.3, 1.0);
+  }
+
   private updateFootprints(game: Game): void {
     const snow = globalUniforms.uSnow.value;
     this.prints.update(snow, game.time);
@@ -397,7 +405,7 @@ export class WeatherSystem implements System, WeatherApi {
     }
     const yaw = Math.atan2(p.x - this.lastPrint.x, p.z - this.lastPrint.z);
     this.printSide = -this.printSide;
-    this.prints.stamp(p.x, map.heightAt(p.x, p.z), p.z, yaw, this.printSide, game.time);
+    this.prints.stamp(p.x, this.snowTop(p.x, p.z), p.z, yaw, this.printSide, game.time);
     this.lastPrint.copy(p);
   }
 

@@ -77,6 +77,21 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
              + hvNoise(q * 2.6 - vec2(t * 0.2, t * 0.31)) * 0.3
              + hvNoise(q * 6.3 + vec2(t * 0.5, -t * 0.35)) * 0.2;
       }
+      // Voronoi border distance (F2 - F1): irregular fracture network for winter ice.
+      float iceEdge(vec2 q) {
+        vec2 ip = floor(q);
+        vec2 fp = fract(q);
+        float d1 = 8.0;
+        float d2 = 8.0;
+        for (int y = -1; y <= 1; y++)
+        for (int x = -1; x <= 1; x++) {
+          vec2 o = vec2(float(x), float(y));
+          vec2 r = o + hvHash22(ip + o) - fp;
+          float d = dot(r, r);
+          if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
+        }
+        return sqrt(d2) - sqrt(d1);
+      }
       void main() {
         vec2 huv = (vW.xz - uHOrigin) / uHSize;
         float ground = texture2D(uHeight, huv).r;
@@ -139,13 +154,43 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         vec3 foamCol = vec3(0.95, 0.97, 0.96) * (uSunColor * 0.6 + uSkyColor * 0.6);
         c = mix(c, foamCol, foam);
 
-        // Winter: the pond freezes — pale blue ice with frosty cracks and snow drifting at the rim.
+        // Winter: the pond freezes — dark, glassy black ice (deep blue-teal, mirror-bright sky in it),
+        // an irregular network of white fracture lines, trapped air bubbles, and wind-swept frost /
+        // snow dusting thickening towards the shore.
         if (ice > 0.0) {
-          float crack = smoothstep(0.03, 0.0, abs(hvNoise(p * 1.7) - 0.5)) * 0.5 + smoothstep(0.02, 0.0, abs(hvNoise(p * 4.1 + 3.0) - 0.5)) * 0.3;
-          vec3 iceCol = mix(vec3(0.55, 0.72, 0.82), vec3(0.8, 0.88, 0.94), smoothstep(0.6, 0.0, dd)) * (uSunColor * 0.5 + uSkyColor * 0.7);
-          iceCol += crack * 0.25;
-          iceCol = mix(iceCol, vec3(0.92, 0.95, 1.0) * (uSunColor * 0.5 + uSkyColor * 0.6), smoothstep(0.35, 0.0, depth + (fn - 0.5) * 0.3));
-          c = mix(c, iceCol + uSunColor * spec * 0.4, ice);
+          vec2 wq = p + (vec2(hvNoise(p * 0.7), hvNoise(p * 0.7 + 5.2)) - 0.5) * 1.6;
+          float e1 = iceEdge(wq * 0.55);
+          float e2 = iceEdge(wq * 1.45 + 7.0);
+          float crack = smoothstep(0.05, 0.0, e1) * 0.85 + smoothstep(0.035, 0.0, e2) * 0.45 * smoothstep(0.35, 0.65, hvNoise(p * 0.6 + 2.0));
+          // Hairline cracks glow faintly under the surface (depth offset along the view).
+          float sub = smoothstep(0.08, 0.0, iceEdge((wq - V.xz * 0.12) * 0.55)) * 0.25;
+          vec3 deepIce = vec3(0.035, 0.1, 0.16);
+          vec3 shallowIce = vec3(0.16, 0.3, 0.38);
+          vec3 iceCol = mix(deepIce, shallowIce, smoothstep(1.2, 0.0, dd));
+          iceCol *= uSunColor * 0.35 + uSkyColor * 0.9;
+          // Bubbles: clusters of little white discs frozen in the ice.
+          vec2 bq = p * 5.0;
+          vec2 bid = floor(bq);
+          vec2 bo = hvHash22(bid) - 0.5;
+          float bsz = 0.1 + 0.18 * hvHash12(bid + 3.1);
+          float bub = smoothstep(bsz, bsz * 0.55, length(fract(bq) - 0.5 - bo * 0.5)) * step(hvHash12(bid + 7.7), 0.2) * smoothstep(0.4, 0.7, hvNoise(p * 0.8 + 9.0));
+          // Glassy: strong Fresnel sky mirror + a broad sheen and a crisp sun glint.
+          vec3 Vn = normalize(cameraPosition - vW);
+          float ifr = 0.12 + 0.88 * pow(1.0 - max(Vn.y, 0.0), 4.0);
+          vec3 ic = mix(iceCol, skyR * 0.9, clamp(ifr * 0.9 + 0.12, 0.0, 0.7));
+          ic += vec3(0.75, 0.88, 1.0) * (crack * 0.55 + sub) * (uSunColor * 0.4 + uSkyColor * 0.8);
+          ic = mix(ic, vec3(0.8, 0.88, 0.95) * (uSkyColor * 0.9 + uSunColor * 0.25), bub * 0.7);
+          vec3 Ri = reflect(-L, vec3(0.0, 1.0, 0.0));
+          float ispec = pow(max(dot(Ri, Vn), 0.0), 60.0) * 1.2 + pow(max(dot(Ri, Vn), 0.0), 900.0) * 6.0;
+          ic += uSunColor * ispec;
+          // Frost + blown snow: streaky drifts across the ice, thick at the rim.
+          vec2 sw = mat2(0.8, 0.6, -0.6, 0.8) * p;
+          float drift = smoothstep(0.55, 0.85, hvNoise(vec2(sw.x * 0.35, sw.y * 1.6)) * 0.6 + hvNoise(p * 1.3) * 0.4);
+          float rim = smoothstep(0.45, 0.0, depth + (fn - 0.5) * 0.35);
+          float snowOn = clamp(max(rim, drift * 0.8) * smoothstep(0.3, 0.9, uSnow), 0.0, 1.0);
+          vec3 snowCol = vec3(0.78, 0.84, 0.92) * (uSunColor * 0.45 + uSkyColor * 0.7);
+          ic = mix(ic, snowCol, snowOn);
+          c = mix(c, ic, ice);
         }
         float alpha = mix(0.55, 0.94, smoothstep(0.0, 0.7, dd));
         alpha = mix(alpha, 0.97, ice);
