@@ -113,7 +113,9 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
   const o = terrain.opts;
   const mat = new THREE.ShaderMaterial({
     transparent: true,
-    depthWrite: false,
+    // Writes depth so the post passes (height fog, tilt-shift) see the water surface, not the sea
+    // floor under it (otherwise misty weather pools as a milky fog bank over the whole sea).
+    depthWrite: true,
     fog: false,
     uniforms: {
       uHeight: { value: terrain.heightTex },

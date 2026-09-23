@@ -1072,7 +1072,16 @@ export class FishingSystem implements System, FishingApi {
     this.ui.drawReel(view, dt);
     if (this.demo === 'reel') return;
     if (mg.progress >= 1) this.catchFish();
-    else if (mg.progress <= 0) this.escape();
+    else if (mg.progress <= 0) {
+      if (this.practice) {
+        // Practice never ends in a lost fish: it slips, you get another go.
+        mg.progress = 0.35;
+        mg.grace = mg.t + 1.5;
+        mg.perfect = true;
+        this.sfx.escape();
+        this.note('It slipped! Again…');
+      } else this.escape();
+    }
   }
 
   /** Pose the farmer's arms + rod, move the float, simulate the line. */
