@@ -303,33 +303,23 @@ Demos: `beach-day`, `beach-sunset` (a line in the water at dusk), `beach-night`,
 ## Farming
 
 `systems/farming.ts` runs the loop (hoe → water → sow → grow → harvest) and its game feel; visuals live in
-`world/props/` (`soil.ts` lofted furrow mounds + torn sod lips + sub-tile wet flood — dry soil is pale, warm and
-crazed with hairline cracks, wet soil dark, cool and glossy; `crops.ts` 18 crops × 6 stages with soft-plant light
-(wrap + sun transmission + rim), giant crops on a heaved soil berm with radiating vines (fractal-floret giant
-cauliflower cupped by ribbed leaves), crow-eaten stubs, produce crates; `farmfx.ts` clods / torn-sod blades / can
-stream (tapered camera-facing ribbon + 2 side jets, droplets, splash crowns with ripple rings) / dusty slam stamps /
-dust walls / harvest pop + 3D quality star / swing smear / sprinkler mist / scarecrow radius; `tilecursor.ts`
-corner-bracket cursor, `tools.ts` tiered tool meshes, `crows.ts`), poses in `entities/farmer-actions.ts`.
-Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTile` margin, farm `clearGroundCover`).
+`world/props/` (`soil.ts` lofted furrow mounds + torn sod lips + sub-tile wet flood, `crops.ts` 18 crops × 6 stages,
+giant crops, crow-eaten stubs, produce crates, `farmfx.ts` clods / streak water / can stream / splash crowns / cracks /
+dust walls / harvest pop + quality star / swing smear / scarecrow radius, `tilecursor.ts` corner-bracket cursor,
+`tools.ts` tiered tool meshes, `crows.ts`), poses in `entities/farmer-actions.ts`.
 
 - **Mechanics**: seeded rolls (`game.rng.fork('farming')`); farming XP + level 0–10 (`farming.level()`, `farming:xp`,
   `farming:level`); quality = skill + fertilizer + care (1 % gold at level 0 without fertilizer); `fertilizer` /
   `qualityFertilizer` items; greenhouse ground (`farming.setGreenhouse(rect)`, or a `greenhouse` plot on the map)
   ignores seasons; energy may run to −15 (farmer trudges, sweats) then passes out; charged slams are refused at 0
   (`tool:refused`, `energy:refused`); missed swings cost 1.
-- **Harvest feel**: yank (crouch → spring) → the produce arcs into the raised right hand, lands with a squash
-  (1.25 / 0.8 → 1, ease-out-back), is held up ~0.4 s with a rim-lit presenting sway while a bevelled 4-point quality
-  star spins in beside it (0 → 1.3 → 1, emissive → bloom, twinkles), then its icon flies to the toolbar slot (460 ms,
-  1.15 slot bounce). Co-op: another farmer's harvest (`harvest(x, z, 'instant')`) pops the produce in place over the tile.
 - **Events for audio**: `tool:swing` / `tool:impact` (impact frame) / `tool:charge` / `tool:refused`, `can:refill` /
   `can:empty`, `soil:tilled` / `soil:watered` / `soil:fertilized`, `crop:planted` / `crop:harvested` / `crop:withered` /
   `crop:giant`, `crow:arrive` / `crow:eat`, `sprinkler:spray`, `harvest:collect`, `energy:exhausted` / `energy:passout`.
-- **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
-  empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
-  `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
-  side-on, frozen just after impact), `farm-water`, `farm-pop` (produce held up with a gold star; `&quality=0..3`),
-  `farm-slam` (tier-3 charged hoe), `farm-crows` (a raid in progress: crows pecking, feathers, a chewed stub;
-  `&raid=fly` = crows flying in), `farm-wither`, `farm-field`.
+- **Demos**: `farm-harvest` (summer hero field), `farm-harvest-fall`, `farm-harvest&season=spring`, `farm-giant`,
+  `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe, frozen just after
+  impact), `farm-water`, `farm-pop` (harvest held overhead with a gold star; `&quality=0..3`), `farm-slam` (tier-3
+  charged hoe), `farm-crows` (raid outside the scarecrow's radius ring), `farm-wither`, `farm-field`.
   Params: `&tool=hoe|wateringCan|scythe|axe|pickaxe|sow|harvest|charge`, `&pose=<s>` freezes the action at s seconds
   (`__game.game.services.farming.scrub(t)` advances a frozen pose), `&loop=<tool>` repeats the action,
   `&slow=0.25` slow motion (so `--frames 8 --every 80` spans a whole swing), `&tier=0..3`.
@@ -381,19 +371,7 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
 (festival outfits, 19 clips), one-draw fx (petals, lanterns, fireworks, snow, aurora).
 
 - Mini-games (`world/festivals/games.ts`): Ribbon Dance, Lantern Release, Sack Race, Produce Judging, Gift Exchange,
-  Starlight Skate. `openUI('festival:<activity>')` starts one on its map; while paused (demos) it plays itself
-  (attract mode plays skilfully, ~85–90 % accuracy). Real stakes: a gold trophy (1st) / blue / red rosettes, and
-  below the ribbon line a wilted flower — no prize money, no friendship (unless the partner already loves you). A win
-  gets a slow title slam + rays + confetti storm, the whole nearby crowd cheering in 3D and the rosette pinned to your
-  chest for the rest of the day. Produce Judging draws three rivals per year (stronger each year), stages your entry
-  on a draped plinth (judges gather round it) and adds a presentation pick (the judges favour one touch a year).
-  Sack Race: five 1.05 m lanes whose 3D positions are the HUD's progress, dust on every landing, tumbles on wobbles,
-  finishers fan out past the tape, the camera tracks the pack. Gift Exchange unwraps the present in 3D in your hands.
-- Crowds: townsfolk get 12+ hue families a season, ~40 % seasonal hats (the rest bare hair / headbands / earmuffs /
-  bows), elders + children, ±10 % height / ±8 % width, bags; the staged crowd is relaxed so nobody stands inside
-  anybody else (`FestivalMap.separateCrowd`).
-- Perf: at most 3 dynamic point lights per festival map (constant count; lamps / stalls / lighthouse are glow sprites +
-  pool decals, the firework flash is one shared light + a sea tint); the cocoa lamp rides with the skater in the skate.
+  Starlight Skate. `openUI('festival:<activity>')` starts one on its map; while paused (demos) it plays itself.
 - Events: `festival:start` / `festival:end`, `festival:music` (tempo / mode / timbre hints), `festival:minigame`,
   `festival:score` (co-op relay payload).
 - Co-op: `festivals.record(activity, score)` takes a peer's relayed `festival:score` (player `'local'` = this browser;
@@ -401,8 +379,7 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
   score. `festivals.snapshot()` / `applySnapshot()` hand the festival day (done activities + boards) to a joiner.
 - Demos: `fest-spring`, `fest-summer`, `fest-fall`, `fest-winter`, `fest-winter-night`, and the mini-games
   `fest-spring-dance`, `fest-summer-lanterns`, `fest-fall-race`, `fest-fall-judging`, `fest-winter-gifts`,
-  `fest-winter-skate`. `&result=1` ends on the result card; `&coop=1` adds two visiting farmers (villager-safe names,
-  seeded skill vs each game's par) to its board AND stages them in 3D at the activity spots with name tags.
+  `fest-winter-skate`. `&result=1` ends on the result card; `&coop=1` adds two visiting farmers to its board.
 
 ## Farm buildings, interiors & animals
 
