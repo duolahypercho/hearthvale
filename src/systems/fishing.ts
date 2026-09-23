@@ -17,6 +17,16 @@
  * Records (count + best length per species) are saved.
  *   in:  item:use (rod), demo:stage ('fishing-cast' | 'fishing-reel' | 'fishing-catch'), ui:open fishing (practice)
  *   out: fishing:cast, fishing:bite, fishing:hook, fishing:catch, fishing:escape, item:give
+ *
+ * Co-op (DESIGN §13, host-authoritative) — the net layer wires these; solo play needs none of it:
+ *   fishing:net     out, ~10 Hz while fishing + on every state change: a compact FishNetSnap of this
+ *                   farmer's angling (state, power, feet, yaw, float, fish, catch arc, tension)
+ *   remote(id, snap, t)   feed another farmer's snapshots in: they render as a RemoteAngler (rod,
+ *                   catenary line, float, bite "!", splash, fish held up) interpolated ~100 ms behind
+ *   setRoller(fn)   a farmhand installs the host round-trip: every cast's fish / size luck / treasure
+ *                   is rolled by the host (hostRoll) — the minigame itself stays local
+ *   hostRoll(from, req) / validateCatch(from, claim)   host side: roll with the host's calendar and
+ *                   remember it; a catch claim must match an issued, unused roll ('fishing:claim' out)
  */
 import * as THREE from 'three';
 import type { System } from '../core/system';
@@ -26,6 +36,10 @@ import { itemDef } from '../data/items';
 import { TileFlag } from '../world/tiles';
 import { FishingGear } from '../world/beach/tackle';
 import { FishingOverlay, type ReelView } from '../ui/fishing';
+import { newReel, stepReel, treasureVisible, type ReelState } from '../ui/fishing-reel';
+import { RemoteAngler, STATE_CODES, poseAnglerArms, type FishNetSnap, type NetState } from '../world/beach/remote-angler';
+import { RemoteFarmer } from '../entities/remote-farmer';
+import { PRESET_LOOKS } from '../entities/remote-look';
 import { FishingSfx } from '../ui/fishing-sfx';
 import '../ui/fishing-art';
 import { TackleScreen } from '../ui/fishing-shop';
@@ -53,6 +67,18 @@ export interface FishingApi {
   /** Legacy: force the minigame result (≥ 1 catches, ≤ 0 escapes). */
   reel(progress: number): void;
   records(): Record<string, FishingRecord>;
+  /** Co-op: current local snapshot (null when idle). */
+  snapshot(): FishNetSnap | null;
+  /** Co-op: another farmer's snapshot (null = gone); `t` = sender clock ms (defaults to now). */
+  remote(id: number, snap: FishNetSnap | null, t?: number): void;
+  /** Co-op (farmhand): route every cast's roll through the host; null = roll locally (host / solo). */
+  setRoller(fn: ((req: FishRollReq) => Promise<FishRoll>) | null): void;
+  /** Co-op (host): roll a farmhand's cast with the host's calendar and remember it for validation. */
+  hostRoll(from: number, req: FishRollReq): FishRoll;
+  /** Co-op (host): does a farmhand's catch match a roll we issued (and not already claimed)? */
+  validateCatch(from: number, claim: FishClaim): boolean;
+  /** Is this remote farmer fishing (the net layer hides its own rod pose while it is)? */
+  remoteActive(id: number): boolean;
 }
 
 declare module '../core/game' {
@@ -69,28 +95,53 @@ declare module '../core/events' {
     'fishing:catch': { fishId: string; perfect: boolean; size?: number; quality?: number; treasure?: boolean };
     'fishing:escape': { fishId: string };
     'fishing:level': { level: number };
+    /** Co-op: this farmer's angling snapshot (relay to peers; null = stopped fishing). */
+    'fishing:net': { snap: FishNetSnap | null };
+    /** Co-op: a farmhand's catch claim for the host to validate (FishingApi.validateCatch). */
+    'fishing:claim': { claim: FishClaim };
   }
 }
 
-interface Minigame extends ReelView {
-  def: FishDef;
-  barV: number;
-  fishTarget: number;
-  retarget: number;
-  t: number;
-  auto: boolean;
-  /** Seconds the fish spent inside the bar (quality = how well you fought, not dice). */
-  insideT: number;
-  /** No progress is lost before this many seconds (time to find the fish). */
-  grace: number;
+/** What the host rolls for a cast (fish, luck for the size, treasure, bite timing). */
+export interface FishRoll {
+  rid: number;
+  fishId: string | null;
+  /** 0..1 luck share of the size roll. */
+  luck: number;
+  treasure: boolean;
+  /** Seconds to the bite and nibble times (counting down). */
+  wait: number;
+  nibbles: number[];
 }
 
-/** Catch-bar physics (track units / s²; the track is 1 tall). */
-const BAR_LIFT = 3.6;
-const BAR_GRAVITY = 3.0;
-const BAR_VMAX = 2.0;
-const BAR_TOP_BOUNCE = 0.35;
-const BAR_FLOOR_BOUNCE = 0.42;
+export interface FishRollReq {
+  rid: number;
+  map: string;
+  /** Water depth at the float (m) and cast power (0..1) — clamped by the host. */
+  depth: number;
+  power: number;
+  baited: boolean;
+  lure: boolean;
+  level: number;
+  tier: number;
+  streak: number;
+}
+
+export interface FishClaim {
+  rid: number;
+  fishId: string;
+  perfect: boolean;
+  treasure: boolean;
+}
+
+interface Minigame extends ReelState {
+  def: FishDef;
+}
+
+/** Snapshot rate while fishing (Hz); state changes are sent immediately. */
+const NET_HZ = 10;
+/** Farmhand: give up on the host's roll after this long (the float just sits: nothing bites). */
+const ROLL_TIMEOUT = 2500;
 /** Tackle wears out after this many catches while carried. */
 const TACKLE_USES = 20;
 
@@ -185,6 +236,22 @@ export class FishingSystem implements System, FishingApi {
   private hitstop = 0;
   private powerStep = -1;
   private lastXp: { gained: number; leveled: boolean } = { gained: 0, leveled: false };
+  /** This cast's roll (host-rolled in co-op); null in practice / demo fights. */
+  private roll: FishRoll | null = null;
+  private roller: ((req: FishRollReq) => Promise<FishRoll>) | null = null;
+  private pendingRid = 0;
+  private ridSeq = 1;
+  /** Host: rolls issued to farmhands, keyed `${from}:${rid}`. */
+  private issued = new Map<string, { roll: FishRoll; claimed: boolean; at: number }>();
+  private remotes = new Map<number, RemoteAngler>();
+  private netT = 0;
+  private netSt: FishingState = 'idle';
+  /** Camera push-in applied for end-of-fight tension (m, subtracted from the rig distance). */
+  private camPush = 0;
+  /** `?demo=coop-fishing`: a scripted second angler streamed through the real snapshot path. */
+  private coopDemo: { farmer: RemoteFarmer; t: number; phase: number; live: boolean; netT: number; x: number; z: number; y: number } | null = null;
+  /** Reused minigame view (no per-frame allocation). */
+  private view: ReelView = { bar: 0, barH: 0, fish: 0, fishV: 0, progress: 0, treasure: null, holding: false, inside: false, perfect: true, bounce: 0, slack: false };
 
   init(game: Game): void {
     this.game = game;
@@ -205,11 +272,16 @@ export class FishingSystem implements System, FishingApi {
     });
     game.events.on('map:change', ({ map }) => {
       this.cancel(true);
+      this.releaseCamPush(true);
       this.sfx.setBeach(map === 'beach');
     });
     // The demo sets hour + facing right after 'demo:stage' (same tick): stage once that settles.
     game.events.on('demo:stage', ({ showcase }) => {
       this.cancel(true);
+      this.stopCoopDemo();
+      if (showcase.includes('coop-fishing')) queueMicrotask(() => this.startCoopDemo());
+      // The demo sets its own camera distance: drop the push without undoing it.
+      this.camPush = 0;
       queueMicrotask(() => this.stageDemo(showcase));
     });
     // Bait & Tackle counter (the Driftsand shack; `__game.openUI('tackle')`).
@@ -271,6 +343,122 @@ export class FishingSystem implements System, FishingApi {
   reel(progress: number): void {
     if (this.st !== 'reeling' || !this.mg) return;
     this.mg.progress = progress;
+  }
+
+  // ───────────────────────────────────────────── co-op
+
+  snapshot(): FishNetSnap | null {
+    if (this.st === 'idle') return null;
+    const p = this.game.player.position;
+    const b = this.gear.bobber.visible ? this.gear.bobber.position : this.bob;
+    const r2 = (v: number): number => Math.round(v * 100) / 100;
+    const fishId = (this.st === 'caught' ? this.result?.def.id : this.hooked?.id) ?? '';
+    const tension = this.st === 'reeling' && this.mg ? this.mg.progress : 0;
+    return [
+      STATE_CODES.indexOf(this.st),
+      r2(this.power),
+      r2(p.x),
+      r2(p.y),
+      r2(p.z),
+      r2(this.rig.yaw ?? 0),
+      r2(b.x),
+      r2(b.y),
+      r2(b.z),
+      fishId,
+      r2(this.catchArc),
+      r2(tension),
+      Math.round(this.result?.lengthCm ?? 0),
+      this.game.world.current?.id ?? '',
+    ];
+  }
+
+  remote(id: number, snap: FishNetSnap | null, t = performance.now()): void {
+    let a = this.remotes.get(id);
+    if (!a) {
+      if (!snap) return;
+      a = new RemoteAngler(id);
+      this.remotes.set(id, a);
+      this.game.scene.add(a.gear.group);
+    }
+    a.push(t, snap);
+  }
+
+  remoteActive(id: number): boolean {
+    return !!this.remotes.get(id)?.active;
+  }
+
+  /** Drop a remote angler entirely (player left). */
+  removeRemote(id: number): void {
+    const a = this.remotes.get(id);
+    if (!a) return;
+    a.dispose();
+    this.ui.remoteBang(id, false);
+    this.remotes.delete(id);
+  }
+
+  setRoller(fn: ((req: FishRollReq) => Promise<FishRoll>) | null): void {
+    this.roller = fn;
+  }
+
+  hostRoll(from: number, req: FishRollReq): FishRoll {
+    const roll = this.rollFor(req);
+    const now = performance.now();
+    for (const [k, v] of this.issued) if (now - v.at > 10 * 60 * 1000) this.issued.delete(k);
+    this.issued.set(`${from}:${req.rid}`, { roll, claimed: false, at: now });
+    return roll;
+  }
+
+  validateCatch(from: number, claim: FishClaim): boolean {
+    const e = this.issued.get(`${from}:${claim.rid}`);
+    if (!e || e.claimed || !e.roll.fishId || e.roll.fishId !== claim.fishId) return false;
+    if (claim.treasure && !e.roll.treasure) return false;
+    e.claimed = true;
+    return true;
+  }
+
+  /**
+   * Roll a cast: which fish (map / season / hour / weather / depth zone, weighted by rarity; long
+   * casts into deep water favour the rare ones), size luck, treasure and the bite timing. Uses this
+   * machine's calendar — in co-op only the host calls it for everyone.
+   */
+  private rollFor(req: FishRollReq): FishRoll {
+    const c = this.game.calendar;
+    const depth = THREE.MathUtils.clamp(req.depth, 0, 4.5);
+    const power = THREE.MathUtils.clamp(req.power, 0, 1);
+    const tier = ROD_TIERS[THREE.MathUtils.clamp(Math.round(req.tier), 0, ROD_TIERS.length - 1)]!;
+    const deep = depth > 1.05;
+    const pool = FISH.filter(
+      (f) =>
+        f.maps.includes(req.map) &&
+        f.seasons.includes(c.season) &&
+        c.hour >= f.hours[0] &&
+        c.hour <= f.hours[1] &&
+        (!f.weather || f.weather.includes(c.weather)) &&
+        (f.zone === 'any' || (f.zone === 'deep' ? deep : !deep || depth < 1.6)),
+    );
+    const fish = pool.length ? this.pickFish(pool, power, depth) : null;
+    const quick = (req.baited ? 0.5 : 1) * tier.wait;
+    const wait = fish ? (1.6 + Math.random() * 6.5 * (1.1 - power * 0.35)) * quick : 9 + Math.random() * 4;
+    const nibbles: number[] = [];
+    const n = Math.floor(Math.random() * 4);
+    for (let i = 0; i < n; i++) nibbles.push(wait * (0.3 + Math.random() * 0.6));
+    nibbles.sort((a, b) => b - a);
+    const lv = THREE.MathUtils.clamp(req.level, 0, 10);
+    const treasureOdds = 0.14 + lv * 0.01 + (req.lure ? 0.25 : 0) + Math.min(Math.max(0, req.streak), 5) * 0.02;
+    return { rid: req.rid, fishId: fish?.id ?? null, luck: Math.random(), treasure: !!fish && Math.random() < treasureOdds, wait, nibbles };
+  }
+
+  private applyRoll(r: FishRoll): void {
+    this.roll = r;
+    this.pendingRid = 0;
+    this.hooked = r.fishId ? (fishDef(r.fishId) ?? null) : null;
+    this.waitT = r.wait;
+    this.nibbles = r.nibbles.slice().sort((a, b) => b - a);
+  }
+
+  private releaseCamPush(apply: boolean): void {
+    if (apply) this.game.rc.rig.distance += this.camPush;
+    this.camPush = 0;
   }
 
   save(): unknown {
@@ -431,30 +619,41 @@ export class FishingSystem implements System, FishingApi {
     this.gear.hold(null);
   }
 
-  private release(): void {
+  /**
+   * Where a cast of `power` lands along the aim: the farthest water point along the throw (so a
+   * strong cast over a narrow pond still lands wet), else the full distance on dry ground.
+   */
+  private landing(power: number, out: THREE.Vector3): { onWater: boolean; depth: number } {
     const p = this.game.player.position;
-    const dir = _fwd.copy(this.aim);
-    const dist = 1.6 + this.power * this.maxCast();
-    this.castPower = this.power;
-    this.lockPlayer(true);
-    this.gear.setRodVisible(true);
-    this.waterY = this.waterLevel();
-    this.gear.waterY = this.waterY;
-    // Farthest water point along the throw (so a strong cast over a narrow pond still lands wet).
-    this.onWater = false;
+    const dir = this.aim;
+    const dist = 1.6 + power * this.maxCast();
+    let onWater = false;
     let land = dist;
     for (let d = dist; d >= 0.9; d -= 0.2) {
       if (this.isWater(p.x + dir.x * d, p.z + dir.z * d)) {
         land = d;
-        this.onWater = true;
+        onWater = true;
         break;
       }
     }
-    this.target.set(p.x + dir.x * land, 0, p.z + dir.z * land);
+    out.set(p.x + dir.x * land, 0, p.z + dir.z * land);
     const map = this.game.world.current;
-    const ground = map ? map.heightAt(this.target.x, this.target.z) : 0;
-    this.target.y = this.onWater ? this.waterY : ground + 0.05;
-    this.depth = this.onWater ? Math.max(0, this.waterY - ground) : 0;
+    const ground = map ? map.heightAt(out.x, out.z) : 0;
+    const wy = this.waterLevel();
+    out.y = onWater ? wy : ground + 0.05;
+    return { onWater, depth: onWater ? Math.max(0, wy - ground) : 0 };
+  }
+
+  private release(): void {
+    this.castPower = this.power;
+    this.lockPlayer(true);
+    this.gear.setRodVisible(true);
+    this.gear.setReticle(null);
+    this.waterY = this.waterLevel();
+    this.gear.waterY = this.waterY;
+    const l = this.landing(this.power, this.target);
+    this.onWater = l.onWater;
+    this.depth = l.depth;
     this.setState('casting');
     this.game.services.energy?.spend(3);
     this.sfx.whoosh(this.power);
@@ -471,26 +670,41 @@ export class FishingSystem implements System, FishingApi {
     this.gear.splash(this.target, false);
     this.sfx.plop();
     this.setState('waiting');
-    const pool = this.pickPool();
-    this.hooked = pool.length ? this.pickFish(pool) : null;
     // Bait (one per cast, if carried) and a better rod bring the bite on sooner.
     const inv = this.game.services.inventory;
     this.baited = !!inv && inv.count('bait') > 0 && inv.remove('bait', 1);
-    const quick = (this.baited ? 0.5 : 1) * ROD_TIERS[this.tier]!.wait;
-    this.waitT = this.hooked ? (1.6 + Math.random() * 6.5 * (1.1 - this.castPower * 0.35)) * quick : 9 + Math.random() * 4;
+    const req: FishRollReq = {
+      rid: this.ridSeq++,
+      map: this.game.world.current?.id ?? '',
+      depth: this.depth,
+      power: this.castPower,
+      baited: this.baited,
+      lure: !!inv && inv.count('treasureLure') > 0,
+      level: this.level(),
+      tier: this.tier,
+      streak: this.streak,
+    };
+    this.hooked = null;
+    this.roll = null;
     this.nibbles = [];
-    const n = Math.floor(Math.random() * 4);
-    for (let i = 0; i < n; i++) this.nibbles.push(this.waitT * (0.3 + Math.random() * 0.6));
-    this.nibbles.sort((a, b) => a - b);
+    this.waitT = 1e9;
+    if (!this.roller) {
+      this.applyRoll(this.rollFor(req));
+      return;
+    }
+    // Farmhand: the host rolls the fish; the float just sits until it answers (or gives up).
+    const rid = req.rid;
+    this.pendingRid = rid;
+    const give = (r: FishRoll): void => {
+      if (this.pendingRid !== rid || this.st !== 'waiting') return;
+      this.applyRoll(r);
+    };
+    setTimeout(() => give({ rid, fishId: null, luck: 0, treasure: false, wait: 5, nibbles: [] }), ROLL_TIMEOUT);
+    this.roller(req).then(give, () => give({ rid, fishId: null, luck: 0, treasure: false, wait: 3, nibbles: [] }));
   }
 
-  private pickPool(): FishDef[] {
-    const deep = this.depth > 1.05;
-    return this.available().filter((f) => f.zone === 'any' || (f.zone === 'deep' ? deep : !deep || this.depth < 1.6));
-  }
-
-  private pickFish(pool: FishDef[]): FishDef {
-    const bonus = this.castPower * 0.5 + Math.min(1, this.depth / 2) * 0.5;
+  private pickFish(pool: FishDef[], power = this.castPower, depth = this.depth): FishDef {
+    const bonus = power * 0.5 + Math.min(1, depth / 2) * 0.5;
     const w = pool.map((f) => f.rarity + (1 - f.rarity) * bonus * 0.35);
     let r = Math.random() * w.reduce((a, b) => a + b, 0);
     for (let i = 0; i < pool.length; i++) {
@@ -521,31 +735,10 @@ export class FishingSystem implements System, FishingApi {
     const cork = !!inv && inv.count('corkBobber') > 0;
     const lure = !!inv && inv.count('treasureLure') > 0;
     const lv = this.level();
-    const treasureOdds = 0.14 + lv * 0.01 + (lure ? 0.25 : 0) + Math.min(this.streak, 5) * 0.02;
-    const fish = 0.35 + Math.random() * 0.3;
+    // Treasure: the roll decided it (host-authoritative in co-op); practice / demo fights roll here.
+    const treasureOdds = this.roll ? (this.roll.treasure ? 1 : 0) : 0.14 + lv * 0.01 + (lure ? 0.25 : 0) + Math.min(this.streak, 5) * 0.02;
     const barH = 0.27 - def.difficulty * 0.04 + lv * 0.012 + ROD_TIERS[this.tier]!.bar + (cork ? 0.035 : 0);
-    this.mg = {
-      def,
-      // Start with the bar around the fish so the fight opens fair.
-      bar: THREE.MathUtils.clamp(fish - barH * 0.5, 0, 1 - barH),
-      barH,
-      barV: 0,
-      fish,
-      fishV: 0,
-      fishTarget: 0.5,
-      retarget: 0.45,
-      progress: 0.35,
-      treasure: Math.random() < treasureOdds ? { pos: 0.2 + Math.random() * 0.6, prog: 0, got: false } : null,
-      holding: false,
-      inside: false,
-      perfect: true,
-      bounce: 0,
-      t: 0,
-      auto: this.demo !== null,
-      insideT: 0,
-      grace: 0.6,
-    };
-    if (this.mg.treasure) this.mg.treasure.prog = -0.8; // appears after a moment
+    this.mg = { def, ...newReel({ difficulty: def.difficulty, behavior: def.behavior, barH, treasureOdds, rand: Math.random, auto: this.demo !== null }) };
     this.ui.openReel(def, { level: lv, bait: this.baited, cork, lure, tier: this.tier });
     this.game.events.emit('fishing:hook', { fishId: def.id });
   }
@@ -558,7 +751,8 @@ export class FishingSystem implements System, FishingApi {
     // and skill; only a pinch of luck.
     const insideK = THREE.MathUtils.clamp(mg.insideT / Math.max(0.5, mg.t), 0, 1);
     const streakK = Math.min(this.streak, 5) * 0.03;
-    const sizeFrac = THREE.MathUtils.clamp(0.08 + insideK * 0.3 + this.castPower * 0.25 + lv * 0.025 + (mg.perfect ? 0.1 : 0) + Math.random() * 0.25, 0, 1);
+    const luck = this.roll?.luck ?? Math.random();
+    const sizeFrac = THREE.MathUtils.clamp(0.08 + insideK * 0.3 + this.castPower * 0.25 + lv * 0.025 + (mg.perfect ? 0.1 : 0) + luck * 0.25, 0, 1);
     const lengthCm = def.size[0] + (def.size[1] - def.size[0]) * sizeFrac;
     const score = insideK * 0.62 + (mg.perfect ? 0.18 : 0) + this.castPower * 0.08 + lv * 0.02 + streakK + sizeFrac * 0.06;
     const quality = mg.perfect && score > 0.95 && lv >= 4 ? 3 : score > 0.76 ? 2 : score > 0.55 ? 1 : 0;
@@ -583,6 +777,7 @@ export class FishingSystem implements System, FishingApi {
     this.sfx.fishSplash(true);
     this.game.events.emit('item:give', { itemId: def.id, qty: 1 });
     this.game.events.emit('fishing:catch', { fishId: def.id, perfect: mg.perfect, size: lengthCm, quality, treasure: !!treasure });
+    if (this.roll && this.roller) this.game.events.emit('fishing:claim', { claim: { rid: this.roll.rid, fishId: def.id, perfect: mg.perfect, treasure: !!treasure } });
   }
 
   /** Tackle carried in the pack wears out per catch. */
@@ -636,7 +831,7 @@ export class FishingSystem implements System, FishingApi {
       levelFrac: hi > lo ? (this.totalXp - lo) / (hi - lo) : 1,
       leveled: this.lastXp.leveled,
       streak: this.streak,
-    });
+    }, this.screenAt(this.game.player.position, 1.3));
     this.sfx.catchJingle(res.quality);
     if (res.treasure) setTimeout(() => this.sfx.treasure(), 450);
   }
@@ -655,6 +850,7 @@ export class FishingSystem implements System, FishingApi {
 
   private cancel(instant = false): void {
     if (this.st === 'idle') return;
+    this.gear.setReticle(null);
     this.ui.hideAll();
     this.mg = null;
     this.result = null;
@@ -665,6 +861,7 @@ export class FishingSystem implements System, FishingApi {
 
   private finish(): void {
     this.setState('idle');
+    this.gear.setReticle(null);
     this.ui.hideAll();
     this.gear.setRodVisible(false);
     this.gear.bobber.visible = false;
@@ -680,6 +877,8 @@ export class FishingSystem implements System, FishingApi {
     if (this.rig.torso) this.rig.torso.rotation.y = 0;
     this.hooked = null;
     this.result = null;
+    this.roll = null;
+    this.pendingRid = 0;
     this.demo = null;
     if (this.practice) {
       this.practice = false;
@@ -715,6 +914,107 @@ export class FishingSystem implements System, FishingApi {
   private note(text: string): void {
     const s = this.screenAt(this.game.player.position, 2.6);
     this.ui.note(text, s.x, s.y);
+  }
+
+  // ───────────────────────────────────────────── co-op demo
+
+  private static readonly COOP_ID = 77;
+  /** Scripted remote cycle: [state, seconds]. */
+  private static readonly COOP_SCRIPT: [NetState, number][] = [
+    ['charging', 1.3],
+    ['casting', 0.95],
+    ['waiting', 3.2],
+    ['bite', 0.7],
+    ['reeling', 5.5],
+    ['caught', 3.4],
+    ['reelin', 0.4],
+    ['idle', 1.2],
+  ];
+
+  private startCoopDemo(): void {
+    const g = this.game;
+    const q = new URLSearchParams(location.search);
+    const want = q.get('rphase') ?? 'reel';
+    const map: Record<string, NetState> = { cast: 'casting', charge: 'charging', wait: 'waiting', bite: 'bite', reel: 'reeling', catch: 'caught' };
+    const st = map[want] ?? 'reeling';
+    const farmer = new RemoteFarmer(PRESET_LOOKS[1]!);
+    const p = g.player.position;
+    const x = p.x;
+    const z = p.z + 2.7;
+    const y = g.world.current ? g.world.current.heightAt(x, z) : p.y;
+    farmer.position.set(x, y, z);
+    farmer.yaw = farmer.targetYaw = -Math.PI / 2;
+    g.scene.add(farmer.root);
+    const idx = FishingSystem.COOP_SCRIPT.findIndex(([s]) => s === st);
+    this.coopDemo = { farmer, t: FishingSystem.COOP_SCRIPT[idx]![1] * (st === 'caught' ? 0.6 : 0.5), phase: idx, live: q.get('live') === '1', netT: 0, x, z, y };
+  }
+
+  private stopCoopDemo(): void {
+    const d = this.coopDemo;
+    if (!d) return;
+    d.farmer.dispose();
+    this.remote(FishingSystem.COOP_ID, null);
+    this.ui.remoteTag(FishingSystem.COOP_ID, null);
+    this.coopDemo = null;
+  }
+
+  /** Drive the scripted remote: its body here, its fishing only through snapshots (like the net). */
+  private updateCoopDemo(dt: number, game: Game): void {
+    const d = this.coopDemo;
+    if (!d) return;
+    if (game.world.current?.id !== 'beach') return this.stopCoopDemo();
+    const script = FishingSystem.COOP_SCRIPT;
+    if (d.live) {
+      d.t += dt;
+      if (d.t > script[d.phase]![1]) {
+        d.t = 0;
+        d.phase = (d.phase + 1) % script.length;
+      }
+    } else if (script[d.phase]![0] === 'caught') d.t = Math.min(d.t + dt, script[d.phase]![1] * 0.9);
+    const [st, dur] = script[d.phase]!;
+    const k = Math.min(1, d.t / dur);
+    const t = game.time;
+    // Body: idle rig + the fishing arm pose (the RemoteFarmer's own rod stays hidden).
+    const f = d.farmer;
+    f.anim = 'idle';
+    f.speed = 0;
+    f.targetYaw = st === 'caught' && k > 0.2 ? THREE.MathUtils.degToRad(game.rc.rig.yaw) : -Math.PI / 2;
+    f.update(dt, t);
+    const power = st === 'charging' ? Math.min(1, k * 1.3) : 0.8;
+    const arc = st === 'caught' ? Math.min(1, d.t / 0.5) : 0;
+    if (st !== 'idle') poseAnglerArms(f.rig, st, t, power, arc);
+    // Snapshot: feet, float along the scripted flight / wait / fight, streamed at 10 Hz.
+    d.netT -= dt;
+    if (d.netT > 0) return;
+    d.netT = 0.1;
+    const wy = this.waterLevel();
+    const tx = d.x - 5.6;
+    const tz = d.z + 0.5;
+    let bx = tx;
+    let by = wy;
+    let bz = tz;
+    if (st === 'charging' || st === 'idle') {
+      bx = d.x - 0.4;
+      by = d.y + 2.4;
+      bz = d.z;
+    } else if (st === 'casting') {
+      const kk = Math.max(0, (d.t - 0.22) / (dur - 0.22));
+      bx = THREE.MathUtils.lerp(d.x - 1.6, tx, kk);
+      bz = THREE.MathUtils.lerp(d.z, tz, kk);
+      by = THREE.MathUtils.lerp(d.y + 2.8, wy, kk) + Math.sin(kk * Math.PI) * 2.2;
+    } else if (st === 'bite') by = wy - 0.2;
+    else if (st === 'reeling') {
+      bx = tx + Math.sin(t * 1.3) * 0.5 + d.t * 0.25;
+      bz = tz + Math.sin(t * 0.9) * 0.9;
+      by = wy - 0.08;
+    } else if (st === 'reelin') {
+      bx = THREE.MathUtils.lerp(tx, d.x - 1.5, k);
+      by = THREE.MathUtils.lerp(wy, d.y + 2.5, k);
+    }
+    const tension = st === 'reeling' ? 0.3 + 0.7 * k : 0;
+    const r2 = (v: number): number => Math.round(v * 100) / 100;
+    const snap: FishNetSnap = [STATE_CODES.indexOf(st), r2(power), r2(d.x), r2(d.y), r2(d.z), r2(f.yaw), r2(bx), r2(by), r2(bz), st === 'reeling' || st === 'bite' || st === 'caught' ? 'coralSnapper' : '', r2(arc), r2(tension), 46, 'beach'];
+    this.remote(FishingSystem.COOP_ID, snap, performance.now());
   }
 
   // ───────────────────────────────────────────── demos
@@ -784,7 +1084,7 @@ export class FishingSystem implements System, FishingApi {
         this.mg!.progress = 0.64;
         this.mg!.fish = 0.52;
         this.mg!.bar = 0.4;
-        this.mg!.treasure = { pos: 0.78, prog: 0.45, got: false };
+        this.mg!.treasure = { pos: 0.22, prog: 0.45, got: false };
         this.mg!.auto = true;
         this.gear.resetLine(this.bob);
         break;
@@ -823,7 +1123,8 @@ export class FishingSystem implements System, FishingApi {
     const pxM = Math.abs(this.screenAt(p, 2.1).y - s.y);
     const a = this.screenAt(_w.copy(p).addScaledVector(this.aim, 1.5), 1.1);
     const side = a.x < s.x - 2 ? -1 : 1;
-    return { x: s.x + side * (30 + pxM * 1.25), y: s.y + 20 };
+    // Well clear of the farmer (and the pier posts beside them), level with the chest.
+    return { x: s.x + side * (46 + pxM * 1.45), y: s.y + 10 };
   }
 
   private useHeld(): boolean {
@@ -831,10 +1132,46 @@ export class FishingSystem implements System, FishingApi {
     return i.mouse.left || i.keys.has('Space') || i.keys.has('KeyC') || i.held('use');
   }
 
+  /** Co-op: publish our snapshot, draw other farmers' angling. */
+  private updateCoop(dt: number, game: Game, h: number): void {
+    this.updateCoopDemo(dt, game);
+    if (this.coopDemo) {
+      const s = this.screenAt(this.coopDemo.farmer.position, 2.75);
+      this.ui.remoteTag(FishingSystem.COOP_ID, 'Juniper', s.x, s.y, '#4e9ee0');
+    }
+    this.netT -= dt;
+    if (this.st !== this.netSt || (this.st !== 'idle' && this.netT <= 0)) {
+      this.netT = 1 / NET_HZ;
+      this.netSt = this.st;
+      game.events.emit('fishing:net', { snap: this.snapshot() });
+    }
+    if (!this.remotes.size) return;
+    const here = game.world.current?.id ?? '';
+    const cam = game.rc.camera;
+    for (const a of this.remotes.values()) {
+      a.update(dt, game.time, cam, here, h, (p) => this.screenAt(p, 0));
+      this.ui.remoteBang(a.id, a.bang.on, a.bang.x, a.bang.y);
+      if (a.caughtNote) {
+        const s = this.screenAt(_w.set(a.gear.heldRoot.position.x, a.gear.heldRoot.position.y, a.gear.heldRoot.position.z), 1.0);
+        this.ui.note(`${a.caughtNote}!`, s.x, s.y);
+        a.caughtNote = null;
+      }
+    }
+  }
+
   update(dt: number, game: Game): void {
     const h = game.rc.renderer.domElement.height;
     this.gear.update(dt, game.time, h);
     this.sfx.update(dt, game.time * 0.9);
+    this.updateCoop(dt, game, h);
+    // End-of-fight camera push-in (eases back out once the fight is over).
+    {
+      const want = this.tension() * 0.9;
+      let np = this.camPush + (want - this.camPush) * (1 - Math.exp(-dt * (want > this.camPush ? 2.5 : 4)));
+      if (want === 0 && np < 1e-3) np = 0;
+      game.rc.rig.distance -= np - this.camPush;
+      this.camPush = np;
+    }
     if (this.st === 'idle') {
       this.wasHolding = this.useHeld();
       return;
@@ -875,9 +1212,12 @@ export class FishingSystem implements System, FishingApi {
         }
         const s = this.meterAt(player.position);
         this.ui.showPower(this.power, s.x, s.y);
+        const l = this.landing(this.power, _sp);
+        this.gear.setReticle(_sp, this.power, !l.onWater, dt);
         break;
       }
       case 'casting': {
+        this.gear.setReticle(null);
         {
           const s1 = this.meterAt(player.position);
           this.ui.showPower(this.power > 0.965 && this.stT < 0.3 ? this.power : null, s1.x, s1.y);
@@ -898,6 +1238,8 @@ export class FishingSystem implements System, FishingApi {
         const apex = 1.4 + this.castFrom.distanceTo(this.target) * 0.22;
         this.bob.lerpVectors(this.castFrom, this.target, kk);
         this.bob.y += Math.sin(kk * Math.PI) * apex;
+        // Whoosh trail behind the flying float.
+        if (k < 0.97) this.gear.fx.emit(this.bob, { color: 0xf4fbff, count: 1, speed: 0.08, size: 0.06 + this.castPower * 0.04, gravity: 0.2, life: 0.32, up: 0.05 });
         if (k >= 1 && this.demo !== 'flight') this.landed();
         break;
       }
@@ -907,7 +1249,7 @@ export class FishingSystem implements System, FishingApi {
           break;
         }
         if (this.demo !== 'wait') this.waitT -= sdt;
-        while (this.nibbles.length && this.waitT <= this.nibbles[0]!) {
+        while (this.nibbles.length && this.waitT <= this.nibbles[0]! && this.waitT < 1e8) {
           this.nibbles.shift();
           this.gear.ripple(this.bob, 0.8, 0.9);
           this.sfx.nibble();
@@ -974,105 +1316,41 @@ export class FishingSystem implements System, FishingApi {
     const mg = this.mg;
     if (!mg) return;
     const def = mg.def;
-    // Sub-steps for stable physics at any frame rate.
-    const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
-    const h = dt / steps;
-    for (let s = 0; s < steps; s++) {
-      mg.t += h;
-      // Autopilot for demos: chase the fish with a little lag.
-      const hold = mg.auto ? mg.fish + mg.fishV * 0.25 > mg.bar + mg.barH * 0.55 : holdingInput;
-      mg.holding = hold;
-      mg.barV += (hold ? BAR_LIFT : -BAR_GRAVITY) * h;
-      mg.barV = THREE.MathUtils.clamp(mg.barV, -BAR_VMAX, BAR_VMAX);
-      mg.bar += mg.barV * h;
-      if (mg.bar < 0) {
-        if (mg.barV < -0.4) mg.bounce = Math.min(1, -mg.barV * 0.5);
-        mg.bar = 0;
-        mg.barV = -mg.barV * BAR_FLOOR_BOUNCE;
-      }
-      if (mg.bar > 1 - mg.barH) {
-        mg.bar = 1 - mg.barH;
-        if (mg.barV > 0) mg.barV = -mg.barV * BAR_TOP_BOUNCE;
-      }
-      mg.bounce = Math.max(0, mg.bounce - h * 5);
-      // Fish AI.
-      mg.retarget -= h;
-      const d = def.difficulty;
-      if (mg.retarget <= 0) {
-        const r = Math.random();
-        let tgt: number;
-        switch (def.behavior) {
-          case 'smooth':
-            tgt = THREE.MathUtils.clamp(mg.fish + (Math.random() - 0.5) * 0.5, 0.05, 0.95);
-            mg.retarget = 0.9 + Math.random() * 1.2 - d * 0.5;
-            break;
-          case 'dart':
-            tgt = r < 0.5 ? Math.random() * 0.35 + (mg.fish > 0.5 ? 0 : 0.6) : Math.random();
-            mg.retarget = 0.35 + Math.random() * 0.9 - d * 0.25;
-            break;
-          case 'sinker':
-            tgt = Math.pow(Math.random(), 1.8) * 0.9 + 0.03;
-            mg.retarget = 0.6 + Math.random() * 1.1 - d * 0.35;
-            break;
-          case 'floater':
-            tgt = 0.97 - Math.pow(Math.random(), 1.8) * 0.9;
-            mg.retarget = 0.6 + Math.random() * 1.1 - d * 0.35;
-            break;
-          default:
-            tgt = 0.05 + Math.random() * 0.9;
-            mg.retarget = 0.5 + Math.random() * 1.0 - d * 0.3;
-        }
-        mg.fishTarget = tgt;
-        mg.retarget = Math.max(0.2, mg.retarget);
-      }
-      const k = 5 + d * 22 * (def.behavior === 'dart' ? 1.4 : def.behavior === 'smooth' ? 0.6 : 1);
-      mg.fishV += (mg.fishTarget - mg.fish) * k * h;
-      mg.fishV *= Math.exp(-h * (4.2 - d * 1.6));
-      mg.fishV += Math.sin(mg.t * (7 + d * 9)) * d * 0.9 * h; // jitter
-      mg.fish = THREE.MathUtils.clamp(mg.fish + mg.fishV * h, 0.02, 0.98);
-      if (mg.fish <= 0.02 || mg.fish >= 0.98) mg.fishV *= -0.3;
-      mg.inside = mg.fish >= mg.bar - 0.01 && mg.fish <= mg.bar + mg.barH + 0.01;
-      if (mg.inside) mg.insideT += h;
-      if (!mg.auto || this.demo !== 'reel') {
-        const grace = mg.t < mg.grace;
-        if (mg.inside) mg.progress += 0.24 * h;
-        else if (!grace) {
-          mg.progress -= (0.12 + d * 0.1) * h;
-          mg.perfect = false;
-        }
-      } else {
-        // Demo: breathe around a good-looking value.
-        mg.progress = 0.64 + Math.sin(mg.t * 0.7) * 0.05;
-        mg.perfect = true;
-      }
-      if (mg.treasure && !mg.treasure.got) {
-        const tr = mg.treasure;
-        if (tr.prog < 0) tr.prog += h; // hidden until it appears
-        else if (this.demo !== 'reel') {
-          const inT = tr.pos >= mg.bar && tr.pos <= mg.bar + mg.barH;
-          tr.prog = Math.max(0, tr.prog + (inT ? 0.75 : -0.35) * h);
-          if (tr.prog >= 1) {
-            tr.got = true;
-            this.sfx.treasure();
-          }
-        }
-      }
+    const frozen = this.demo === 'reel';
+    const end = stepReel(mg, dt, holdingInput, Math.random, { frozen, onTreasure: () => this.sfx.treasure() });
+    if (frozen) {
+      // Demo: breathe around a good-looking value.
+      mg.progress = 0.64 + Math.sin(mg.t * 0.7) * 0.05;
+      mg.perfect = true;
     }
-    this.sfx.reel(dt, mg.holding ? 16 : 0);
+    // Tension past 75 %: faster, higher reel clicks (+ the rod bends harder, the camera pushes in).
+    const tension = this.tension();
+    this.sfx.reel(dt, mg.holding ? 16 + tension * 14 : 0, 1 + tension * 0.35);
     // Splashes at the float as the fish fights.
     this.splashT -= dt;
     if (this.splashT <= 0) {
-      this.splashT = 0.5 + Math.random() * 1.1 - def.difficulty * 0.3;
-      this.gear.splash(this.bob, false);
+      this.splashT = (0.5 + Math.random() * 1.1 - def.difficulty * 0.3) * (1 - tension * 0.45);
+      this.gear.splash(this.bob, tension > 0.6 && Math.random() < 0.4);
       if (Math.random() < 0.5) this.sfx.fishSplash();
     }
-    const view: ReelView = { ...mg, treasure: mg.treasure && mg.treasure.prog >= 0 ? mg.treasure : null };
+    const v = this.view;
+    v.bar = mg.bar;
+    v.barH = mg.barH;
+    v.fish = mg.fish;
+    v.fishV = mg.fishV;
+    v.progress = mg.progress;
+    v.treasure = treasureVisible(mg) ? mg.treasure : null;
+    v.holding = mg.holding;
+    v.inside = mg.inside;
+    v.perfect = mg.perfect;
+    v.bounce = mg.bounce;
+    v.slack = mg.slack;
     const s = this.screenAt(this.game.player.position, 1.2);
     this.ui.placeReel(s.x, s.y);
-    this.ui.drawReel(view, dt);
-    if (this.demo === 'reel') return;
-    if (mg.progress >= 1) this.catchFish();
-    else if (mg.progress <= 0) {
+    this.ui.drawReel(v, dt);
+    if (frozen) return;
+    if (end === 'caught') this.catchFish();
+    else if (end === 'escaped') {
       if (this.practice) {
         // Practice never ends in a lost fish: it slips, you get another go.
         mg.progress = 0.35;
@@ -1082,6 +1360,11 @@ export class FishingSystem implements System, FishingApi {
         this.note('It slipped! Again…');
       } else this.escape();
     }
+  }
+
+  /** 0..1 end-of-fight tension (progress 0.75 → 1). */
+  private tension(): number {
+    return this.st === 'reeling' && this.mg ? THREE.MathUtils.clamp((this.mg.progress - 0.75) / 0.25, 0, 1) : 0;
   }
 
   /** Pose the farmer's arms + rod, move the float, simulate the line. */
@@ -1119,7 +1402,7 @@ export class FishingSystem implements System, FishingApi {
         torsoX = THREE.MathUtils.lerp(-0.24, 0.18, e);
         torsoY = THREE.MathUtils.lerp(0.26, -0.08, e);
       } else if (reelingNow) {
-        const shake = st === 'reeling' ? Math.sin(t * 38) * 0.05 : 0;
+        const shake = st === 'reeling' ? Math.sin(t * 38) * (0.05 + this.tension() * 0.05) : 0;
         ar = -1.35 + shake;
         al = -1.05 + Math.sin(t * (this.mg?.holding ? 16 : 5)) * 0.25;
         alz = -0.45 + Math.cos(t * (this.mg?.holding ? 16 : 5)) * 0.15;
@@ -1139,6 +1422,11 @@ export class FishingSystem implements System, FishingApi {
       }
       r.armR.rotation.set(ar, 0, arz);
       r.armL.rotation.set(al, 0, alz);
+      if (st === 'casting' && this.stT < 0.14) {
+        // Release squash: a quick crouch-and-spring (~3 frames down, then back).
+        const q = Math.sin((this.stT / 0.14) * Math.PI) * (0.1 + this.castPower * 0.06);
+        r.body.scale.set(r.body.scale.x * (1 + q * 0.5), r.body.scale.y * (1 - q), r.body.scale.z * (1 + q * 0.5));
+      }
       r.torso.rotation.x = torsoX;
       r.torso.rotation.y = torsoY;
       if (holdOverhead) {
@@ -1183,7 +1471,8 @@ export class FishingSystem implements System, FishingApi {
       dir = _dir.copy(fwd).multiplyScalar(0.55).addScaledVector(_UP, 1.05);
       dir.x += Math.sin(t * 9) * 0.04;
       // Heavy load: the blank arcs right over towards the fish.
-      bend = st === 'reeling' ? 0.84 + 0.08 * Math.sin(t * 13) + (this.mg ? (this.mg.inside ? 0.06 : -0.08) : 0) : 0.9;
+      const ten = this.tension();
+      bend = st === 'reeling' ? 0.84 + 0.08 * Math.sin(t * (13 + ten * 10)) + (this.mg ? (this.mg.inside ? 0.06 : -0.08) : 0) + ten * 0.14 : 0.9;
     } else if (holdOverhead) {
       _side.set(fwd.z, 0, -fwd.x);
       dir = _dir.copy(fwd).multiplyScalar(-0.3).addScaledVector(_UP, 0.2).addScaledVector(_side, -0.9);

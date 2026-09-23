@@ -51,6 +51,15 @@ export const SAND_FENCE: [number, number][][] = [
     [64, 20.6],
   ],
 ];
+/** Rock groyne running out from the beach west of the pier (a line of piled boulders). */
+export const GROYNE: [number, number][] = [
+  [34.6, 38.2],
+  [34.0, 42.5],
+  [33.1, 46.8],
+  [32.2, 50.6],
+];
+/** Tide-pool shelf: rock slab thickness above the old ground (m) — its rim reads as a real ledge. */
+export const SHELF_LIFT = 0.26;
 export const BEACH_WARPS = [{ x0: 0, z0: 16, x1: 0, z1: 23, to: 'town', x: 97.4, z: 26, facing: 'left' as const }];
 export const BEACH_SPAWN = { x: 2.6, z: 19.8 };
 
@@ -104,10 +113,10 @@ export class BeachShape {
       h = -s * 0.085 - smoothstep(7, 26, s) * 2.6 + 0.32 * Math.exp(-Math.pow((s - 8.5) / 2.4, 2)) + n.fbm(x * 0.1, z * 0.1, 2) * 0.12;
       h = Math.max(h, -4.2);
     }
-    // West rock shelf with tide pools.
+    // West rock shelf with tide pools: a slab with a real, bevelled rim (SHELF_LIFT thick).
     const wr = this.westRock(x, z);
     if (wr < 0.35) {
-      const shelf = 0.62 + n.fbm(x * 0.4, z * 0.4, 2) * 0.28 + smoothstep(0, -0.6, wr) * 0.35;
+      const shelf = 0.62 + n.fbm(x * 0.4, z * 0.4, 2) * 0.28 + smoothstep(0, -0.6, wr) * 0.35 + SHELF_LIFT * smoothstep(0.07, -0.03, wr);
       const k = smoothstep(0.35, -0.05, wr);
       h = Math.max(h, h * (1 - k) + shelf * k);
       for (const [px, pz, pr] of TIDE_POOLS) {
@@ -128,10 +137,43 @@ export class BeachShape {
       const k = smoothstep(0.45, -0.25, eh);
       h = h * (1 - k) + Math.max(h, top) * k;
     }
+    // Groyne: a ridge of piled rock from the dry sand out through the surf.
+    {
+      const g = this.groyneDist(x, z);
+      if (g.d < 2.2) {
+        const top = 0.55 - g.t * 0.35 + n.fbm(x * 0.9, z * 0.9, 2) * 0.12;
+        const k = smoothstep(2.2, 0.7, g.d);
+        h = Math.max(h, h * (1 - k) + top * k);
+      }
+    }
     // Sea stack off the headland.
     const st = Math.hypot(x - 69.5, z - 56.5);
     if (st < 3) h = Math.max(h, (1 - smoothstep(1.2, 2.6, st)) * 3.6 - 0.6);
     return h;
+  }
+
+  /** Distance to the groyne polyline and the position along it (0 = beach end .. 1 = sea end). */
+  groyneDist(x: number, z: number): { d: number; t: number } {
+    let best = 99;
+    let bt = 0;
+    let acc = 0;
+    let total = 0;
+    for (let i = 0; i < GROYNE.length - 1; i++) total += Math.hypot(GROYNE[i + 1]![0] - GROYNE[i]![0], GROYNE[i + 1]![1] - GROYNE[i]![1]);
+    for (let i = 0; i < GROYNE.length - 1; i++) {
+      const [ax, az] = GROYNE[i]!;
+      const [bx, bz] = GROYNE[i + 1]!;
+      const dx = bx - ax;
+      const dz = bz - az;
+      const L = Math.hypot(dx, dz);
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (L * L)));
+      const d = Math.hypot(x - ax - dx * t, z - az - dz * t);
+      if (d < best) {
+        best = d;
+        bt = (acc + t * L) / total;
+      }
+      acc += L;
+    }
+    return { d: best, t: bt };
   }
 
   /** 0 on the grassy bluff / headland tops .. 1 on sand. */

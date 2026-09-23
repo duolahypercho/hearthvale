@@ -9,10 +9,29 @@
  *   catch   the procedural fish (fishmesh.ts) held up over the farmer's head
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BurstFX } from '../../render/particles';
 import { globalUniforms } from '../../render/uniforms';
 import type { FishDef } from '../../data/fish';
 import { buildFishMesh, type FishMesh } from './fishmesh';
+
+/** Merge [geometry, colour, transform] parts into one vertex-coloured geometry. */
+function mergeColored(parts: [THREE.BufferGeometry, number, THREE.Matrix4][]): THREE.BufferGeometry {
+  const list = parts.map(([g, c, m]) => {
+    const n = (g.index ? g.toNonIndexed() : g).applyMatrix4(m);
+    for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal') n.deleteAttribute(k);
+    const col = new THREE.Color(c);
+    const a = new Float32Array(n.attributes.position!.count * 3);
+    for (let i = 0; i < a.length; i += 3) {
+      a[i] = col.r;
+      a[i + 1] = col.g;
+      a[i + 2] = col.b;
+    }
+    n.setAttribute('color', new THREE.BufferAttribute(a, 3));
+    return n;
+  });
+  return mergeGeometries(list)!;
+}
 
 const ROD_LEN = 2.15;
 const ROD_SEG = 14;
@@ -78,6 +97,9 @@ export class FishingGear {
   readonly glory: THREE.Mesh;
   private gloryMat: THREE.MeshBasicMaterial;
   private meshCache = new Map<string, FishMesh>();
+  /** Landing reticle on the water while charging a cast. */
+  readonly reticle: THREE.Mesh;
+  private reticleMat: THREE.ShaderMaterial;
   /** Line state: slack 0 (taut) .. 1 (lazy curve on the water). */
   slack = 1;
   /** 0..1: how hard the rope is pulled towards a clean catenary each frame (no kinks while it's moving). */
@@ -120,47 +142,38 @@ export class FishingGear {
     this.rodLine.frustumCulled = false;
     this.setRodTier(0);
 
-    // Grip + reel (local frame: +Y along the blank, +Z = the blank's upper side, reel hangs below).
+    // Grip + reel (local frame: +Y along the blank, +Z = the blank's upper side, reel hangs below),
+    // merged into one vertex-coloured mesh + the turning handle (2 draw calls instead of 11).
     this.grip = new THREE.Group();
-    const cork = new THREE.MeshStandardMaterial({ color: 0xd8a070, roughness: 0.85 });
-    const brass = new THREE.MeshStandardMaterial({ color: 0xe8b850, roughness: 0.28, metalness: 0.75 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.6 });
-    const g1 = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.04, 0.4, 12), cork);
-    g1.position.y = -0.08;
-    const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.042, 0.1, 12), cork);
-    fore.position.y = 0.2;
-    const butt = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), dark);
-    butt.position.y = -0.3;
-    const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.12, 10), brass);
-    seat.position.y = 0.08;
-    // Reel: brass spool between two dark side plates on a short foot, below the blank.
-    const reel = new THREE.Group();
-    reel.position.set(0, 0.08, -0.11);
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.1, 0.07), brass);
-    foot.position.z = 0.05;
-    const spool = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 18), brass);
-    spool.rotation.z = Math.PI / 2;
-    const lineWrap = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.062, 18), new THREE.MeshStandardMaterial({ color: 0xf2ece0, roughness: 0.7 }));
-    lineWrap.rotation.z = Math.PI / 2;
-    for (const sx of [-0.036, 0.036]) {
-      const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.088, 0.088, 0.012, 18), dark);
-      plate.rotation.z = Math.PI / 2;
-      plate.position.x = sx;
-      reel.add(plate);
-    }
-    reel.add(foot, spool, lineWrap);
-    this.reelHandle = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.11, 0.02), dark);
-    this.reelHandle.geometry.translate(0, 0.05, 0);
-    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.04, 8), cork);
-    knob.rotation.z = Math.PI / 2;
-    knob.position.set(0.03, 0.1, 0);
-    this.reelHandle.add(knob);
+    const CORK = 0xd8a070;
+    const BRASS = 0xe8b850;
+    const DARK = 0x3a2a1a;
+    const T = (x: number, y: number, z: number, rz = 0): THREE.Matrix4 => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rz), new THREE.Vector3(1, 1, 1));
+    const gripGeo = mergeColored([
+      [new THREE.CylinderGeometry(0.046, 0.04, 0.4, 12), CORK, T(0, -0.08, 0)],
+      [new THREE.CylinderGeometry(0.036, 0.042, 0.1, 12), CORK, T(0, 0.2, 0)],
+      [new THREE.SphereGeometry(0.05, 12, 8), DARK, T(0, -0.3, 0)],
+      [new THREE.CylinderGeometry(0.038, 0.038, 0.12, 10), BRASS, T(0, 0.08, 0)],
+      [new THREE.BoxGeometry(0.03, 0.1, 0.07), BRASS, T(0, 0.08, -0.06)],
+      [new THREE.CylinderGeometry(0.075, 0.075, 0.06, 18), BRASS, T(0, 0.08, -0.11, Math.PI / 2)],
+      [new THREE.CylinderGeometry(0.058, 0.058, 0.062, 18), 0xf2ece0, T(0, 0.08, -0.11, Math.PI / 2)],
+      [new THREE.CylinderGeometry(0.088, 0.088, 0.012, 18), DARK, T(-0.036, 0.08, -0.11, Math.PI / 2)],
+      [new THREE.CylinderGeometry(0.088, 0.088, 0.012, 18), DARK, T(0.036, 0.08, -0.11, Math.PI / 2)],
+    ]);
+    const gripMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.35 });
+    gripMat.name = 'rodGrip';
+    const gripMesh = new THREE.Mesh(gripGeo, gripMat);
     const handleHub = new THREE.Group();
-    handleHub.position.set(0.05, 0, 0);
+    handleHub.position.set(0.05, 0.08, -0.11);
+    this.reelHandle = new THREE.Mesh(
+      mergeColored([
+        [new THREE.BoxGeometry(0.016, 0.11, 0.02), DARK, T(0, 0.05, 0)],
+        [new THREE.CylinderGeometry(0.018, 0.018, 0.04, 8), CORK, T(0.03, 0.1, 0, Math.PI / 2)],
+      ]),
+      gripMat,
+    );
     handleHub.add(this.reelHandle);
-    reel.add(handleHub);
-    this.grip.add(g1, fore, butt, seat, reel);
-    this.grip.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o as THREE.Mesh).castShadow = true) : null));
+    this.grip.add(gripMesh, handleHub);
 
     // Line ribbon.
     this.lineGeo = new THREE.BufferGeometry();
@@ -178,20 +191,23 @@ export class FishingGear {
       this.prev.push(new THREE.Vector3());
     }
 
-    // Bobber: red cap, white belly, quill.
+    // Bobber: red cap, white belly, dark band, quill (one mesh).
     this.bobber = new THREE.Group();
-    const red = new THREE.MeshStandardMaterial({ color: 0xe8402e, roughness: 0.35 });
-    const white = new THREE.MeshStandardMaterial({ color: 0xf6f2ea, roughness: 0.35 });
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.085, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), red);
-    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.085, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), white);
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.012, 6, 20), dark);
-    band.rotation.x = Math.PI / 2;
-    const quill = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.013, 0.16, 6), red);
-    quill.position.y = 0.13;
-    const nub = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), white);
-    nub.position.y = 0.21;
-    this.bobber.add(cap, belly, band, quill, nub);
-    this.bobber.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o as THREE.Mesh).castShadow = true) : null));
+    const RED = 0xe8402e;
+    const WHITE = 0xf6f2ea;
+    const bandM = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const bobMesh = new THREE.Mesh(
+      mergeColored([
+        [new THREE.SphereGeometry(0.085, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), RED, new THREE.Matrix4()],
+        [new THREE.SphereGeometry(0.085, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), WHITE, new THREE.Matrix4()],
+        [new THREE.TorusGeometry(0.085, 0.012, 6, 20), 0x3a2a1a, bandM],
+        [new THREE.CylinderGeometry(0.009, 0.013, 0.16, 6), RED, new THREE.Matrix4().makeTranslation(0, 0.13, 0)],
+        [new THREE.SphereGeometry(0.018, 8, 6), WHITE, new THREE.Matrix4().makeTranslation(0, 0.21, 0)],
+      ]),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35 }),
+    );
+    bobMesh.castShadow = true;
+    this.bobber.add(bobMesh);
     this.bobber.scale.setScalar(1.7);
 
     // Ripple rings (shader: soft ring at radius r, fading).
@@ -220,6 +236,36 @@ export class FishingGear {
       this.ripples.push({ mesh: m, mat, age: 1, life: 1, size: 1 });
       this.group.add(m);
     }
+
+    // Cast reticle: soft double ring + 4 ticks, pulsing; red over dry land.
+    this.reticleMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      uniforms: { uT: globalUniforms.uTime, uPower: { value: 0 }, uBad: { value: 0 }, uAlpha: { value: 0 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv; uniform float uT; uniform float uPower; uniform float uBad; uniform float uAlpha;
+        void main(){
+          vec2 d = vUv - 0.5;
+          float r = length(d) * 2.0;
+          float pulse = 0.5 + 0.5 * sin(uT * 7.0);
+          float ring = smoothstep(0.06, 0.0, abs(r - 0.82 - pulse * 0.04));
+          float inner = smoothstep(0.045, 0.0, abs(r - 0.34)) * 0.7;
+          float a = atan(d.y, d.x) + uT * 0.8;
+          float ticks = smoothstep(0.12, 0.0, abs(r - 0.6)) * smoothstep(0.9, 0.97, abs(cos(a * 2.0)));
+          float glow = smoothstep(1.0, 0.0, r) * 0.18;
+          float v = max(max(ring, inner), ticks) + glow;
+          vec3 good = mix(vec3(1.0, 0.95, 0.75), vec3(1.0, 0.82, 0.3), smoothstep(0.85, 1.0, uPower));
+          vec3 c = mix(good, vec3(1.0, 0.4, 0.3), uBad);
+          gl_FragColor = vec4(c, v * uAlpha * smoothstep(1.0, 0.94, r));
+        }`,
+    });
+    this.reticle = new THREE.Mesh(ringGeo, this.reticleMat);
+    this.reticle.name = 'cast-reticle';
+    this.reticle.visible = false;
+    this.reticle.renderOrder = 6;
+    this.group.add(this.reticle);
 
     // Foam discs (splash aftermath: a white, broken patch that spreads and fizzes out).
     const foamGeo = new THREE.PlaneGeometry(1, 1);
@@ -519,6 +565,20 @@ export class FishingGear {
     f.mesh.position.set(p.x, this.waterY + 0.015, p.z);
     f.mesh.rotation.y = Math.random() * 6.28;
     f.mesh.visible = true;
+  }
+
+  /** Predicted landing point while charging (null hides); `bad` = it would land on dry ground. */
+  setReticle(p: THREE.Vector3 | null, power = 0, bad = false, dt = 0): void {
+    const u = this.reticleMat.uniforms;
+    const target = p ? 1 : 0;
+    u.uAlpha!.value += (target - u.uAlpha!.value) * Math.min(1, dt * 10 || 1);
+    this.reticle.visible = u.uAlpha!.value > 0.02;
+    if (!p) return;
+    this.reticle.position.set(p.x, p.y + 0.03, p.z);
+    const s = 0.9 + power * 0.9;
+    this.reticle.scale.set(s, 1, s);
+    u.uPower!.value = power;
+    u.uBad!.value = bad ? 1 : 0;
   }
 
   /** Fish shadow near the bobber (0 = hidden). */

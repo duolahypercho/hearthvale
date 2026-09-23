@@ -21,7 +21,6 @@ import { TileGrid, TileType, TileFlag } from '../tiles';
 import { Terrain } from '../terrain';
 import { GrassField } from '../grass';
 import { MeshBuilder, mergeStatic } from '../geom';
-import { LightPools } from '../props/decals';
 import { Ambience, BurstFX, FireFX, SmokeEmitter } from '../../render/particles';
 import { globalUniforms } from '../../render/uniforms';
 import {
@@ -40,8 +39,12 @@ import {
   SAND_FENCE,
   BEACH_WARPS,
   BEACH_SPAWN,
+  GROYNE,
   BeachShape,
 } from './layout';
+import { addBeachRock, beachRockMaterial } from './rocks';
+import { buildShelf, buildAlgaeTufts } from './shelf';
+import { SeaProps, LampPools } from './sea';
 import { createOcean, createHorizonClouds, setOceanPilings, setOceanLamps, createPoolWater } from './ocean';
 import { applyBeachSand } from './sand';
 import {
@@ -53,7 +56,6 @@ import {
   addCampfire,
   addSandFence,
   addBoardwalk,
-  addCoastRock,
   addWrackLine,
   addBoatVignette,
   addCampVignette,
@@ -100,12 +102,13 @@ export class BeachMap implements GameMap {
   private fire: FireFX;
   private fireLight: THREE.PointLight;
   private smoke: SmokeEmitter;
-  private pools = new LightPools();
+  private pools = new LampPools();
   private lighthouse: Lighthouse;
   private beamMat: THREE.ShaderMaterial;
   private clouds: THREE.Mesh;
   private ocean!: THREE.Group;
   private glintT = 0;
+  private sea: SeaProps;
   /** Where the farmer stands to use the shack's Bait & Tackle honesty box. */
   private counter = new THREE.Vector3();
 
@@ -182,6 +185,27 @@ export class BeachMap implements GameMap {
     }
     this.life = new BeachLife(this.rng.fork('life'), (x, z) => this.terrain.heightAt(x, z), SEA_LEVEL, perches, crabs);
     this.root.add(this.life.group);
+    // Open water off the pier: a moored dory, the swim-area buoy line, drifting weed, a fish school.
+    this.sea = new SeaProps(
+      this.rng.fork('sea'),
+      SEA_LEVEL,
+      [
+        [PIER.x - PIER.w / 2 - 0.3, 47.2],
+        [43.2, 48.2],
+        [37.8, 48.9],
+        [34.2, 48.4],
+      ],
+      { x: 40.4, z: 54.6, rot: 0.32 },
+      { x: 44.2, z: 57.2, r: 3.6 },
+      [
+        [38.6, 52.6],
+        [45.2, 51.2],
+        [35.8, 56.4],
+        [44.8, 60.6],
+        [58.5, 53.5],
+      ],
+    );
+    this.root.add(this.sea.group);
 
     // Motes and leaves drift over land only (over the sea they'd hang in the water): lift them out of view.
     this.ambience = new Ambience((x, z) => {
@@ -213,7 +237,9 @@ export class BeachMap implements GameMap {
     const t = this.terrain;
     t.paint('sand', (x, z) => S.sandMask(x, z, S.height(x, z)));
     // Rock shelf + headland flanks read as bare rock (path channel = the sand shader's rock tint).
-    t.paint('path', (x, z) => Math.max(smoothstep(0.1, -0.35, S.westRock(x, z)), smoothstep(0.25, -0.1, S.eastHead(x, z)) * smoothstep(3.2, 1.2, S.height(x, z))));
+    // (The west shelf is its own stone mesh now: the rock splat stays well inside it, so the coarse
+    // splat never shows a stepped edge on the sand.)
+    t.paint('path', (x, z) => Math.max(smoothstep(-0.02, -0.25, S.westRock(x, z)), smoothstep(0.25, -0.1, S.eastHead(x, z)) * smoothstep(3.2, 1.2, S.height(x, z))));
     t.commitSplat();
     const B = { x0: -20, z0: -16, x1: 100, z1: 60 };
     // Bluff top: clover in the hollows, dry straw along the dune edge.
@@ -261,6 +287,11 @@ export class BeachMap implements GameMap {
           return;
         }
       }
+      if (S.groyneDist(cx, cz).d < 1.2) {
+        g.type[i] = TileType.Stone;
+        g.flags[i] = TileFlag.Blocked;
+        return;
+      }
       if (S.westRock(cx, cz) < 0 || (S.eastHead(cx, cz) < 0.1 && h < 3)) g.type[i] = TileType.Stone;
       else g.type[i] = S.sandMask(cx, cz, h) > 0.5 ? TileType.Sand : TileType.Grass;
     });
@@ -290,8 +321,12 @@ export class BeachMap implements GameMap {
 
   private buildTidePools(): void {
     // Clear, still pool water (the ocean shader in pool mode); the terrain's rim lip hides the edge.
-    const w = createPoolWater(this.terrain, TIDE_POOL_Y, { x0: 2, z0: 39, x1: 19, z1: 53 }, (x, z) => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.2));
+    // Water only over the pool bowls (never a sheet hanging past a lip).
+    const S = this.shape;
+    const w = createPoolWater(this.terrain, TIDE_POOL_Y, { x0: 2, z0: 39, x1: 19, z1: 53 }, (x, z) => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.05) && S.height(x, z) < TIDE_POOL_Y + 0.04);
     this.root.add(w);
+    this.root.add(buildShelf(S, this.rng.fork('shelf').seed));
+    this.root.add(buildAlgaeTufts(S, this.rng.fork('algae'), (x, z) => S.height(x, z) + 0.012));
     const life = buildTidePoolLife(this.rng.fork('tidepool'), TIDE_POOLS, (x, z) => this.terrain.heightAt(x, z));
     this.root.add(life);
   }
@@ -328,7 +363,7 @@ export class BeachMap implements GameMap {
       this.game.lighting.addNightLight(light, 5);
       // Lamp pool on the planks only (centred on the deck so it never hangs out over the water).
       const onHead = l.z > PIER.head.z0;
-      this.pools.add(onHead ? l.x - 1.3 : PIER.x, onHead ? l.z - 1.3 : l.z, PIER.deckY, onHead ? 1.5 : 1.45);
+      this.pools.add(onHead ? l.x - 1.3 : PIER.x, onHead ? l.z - 1.3 : l.z, PIER.deckY, onHead ? 2.1 : 2.0);
     }
 
     // Fisherman's shack.
@@ -351,7 +386,8 @@ export class BeachMap implements GameMap {
     sl.position.copy(lampW);
     this.root.add(sl);
     this.game.lighting.addNightLight(sl, 4);
-    this.pools.add(lampW.x, lampW.z, hAt(lampW.x, lampW.z), 2.4);
+    this.pools.add(lampW.x, lampW.z, hAt(lampW.x, lampW.z), 2.8);
+    this.pools.build();
     for (const l of shack.lights) {
       this.root.add(l.light);
       this.game.lighting.addNightLight(l.light, l.max);
@@ -415,15 +451,17 @@ export class BeachMap implements GameMap {
     addWrackLine(b, r.fork('wrack'), this.wrackLine(), hAt);
     for (const f of SAND_FENCE) addSandFence(b, r, f, hAt);
     addBoardwalk(b, r, BOARDWALK, hAt);
-    // Rocks: the west shelf rim, the headland toe, a few awash in the surf.
+    // Rocks (smooth, sea-worn; wet band + barnacles below the tide line): the west shelf rim, the
+    // headland toe, a few awash in the surf.
     const rr = r.fork('rocks');
+    const rock = (x: number, z: number, rad: number, squash: number, sink = 0.12): void => addBeachRock(b, rr, x, hAt(x, z) - rad * sink, z, rad, { squash });
     for (let i = 0; i < 26; i++) {
       const a = (i / 26) * Math.PI * 2 + rr.next() * 0.2;
       const x = 8 + Math.cos(a) * 11 * (0.95 + rr.next() * 0.15);
       const z = 45 + Math.sin(a) * 7.5 * (0.95 + rr.next() * 0.15);
       if (z < 38.5) continue;
       const rad = 0.6 + rr.next() * 0.9;
-      addCoastRock(b, rr, x, hAt(x, z) - rad * 0.35, z, rad, 0.7 + rr.next() * 0.4);
+      rock(x, z, rad, 0.5 + rr.next() * 0.3);
       this.block(x, z, rad * 0.8, 'rock');
     }
     for (let i = 0; i < 18; i++) {
@@ -431,29 +469,57 @@ export class BeachMap implements GameMap {
       const x = 77 + Math.cos(a) * 9.5 * (1 + rr.next() * 0.12);
       const z = 42 + Math.sin(a) * 11.5 * (1 + rr.next() * 0.12);
       const rad = 0.8 + rr.next() * 1.3;
-      addCoastRock(b, rr, x, hAt(x, z) - rad * 0.4, z, rad, 0.8 + rr.next() * 0.5);
+      rock(x, z, rad, 0.6 + rr.next() * 0.35, 0.2);
       this.block(x, z, rad * 0.8, 'rock');
     }
-    // Shelf clutter: small boulders + pebbles on the rock shelf (never inside a pool), for relief.
-    for (let i = 0; i < 60; i++) {
+    // Shelf clutter: a few loose boulders + cobbles on the shelf (never inside a pool), for relief.
+    for (let i = 0; i < 40; i++) {
       const x = -2 + rr.next() * 22;
       const z = 38 + rr.next() * 15;
-      if (this.shape.westRock(x, z) > -0.05) continue;
-      if (TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.25)) continue;
-      const rad = rr.next() < 0.3 ? 0.35 + rr.next() * 0.35 : 0.1 + rr.next() * 0.14;
-      addCoastRock(b, rr, x, hAt(x, z) - rad * 0.35, z, rad, 0.55 + rr.next() * 0.3);
+      if (this.shape.westRock(x, z) > -0.08) continue;
+      if (TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.3)) continue;
+      const rad = rr.next() < 0.3 ? 0.35 + rr.next() * 0.3 : 0.12 + rr.next() * 0.12;
+      addBeachRock(b, rr, x, hAt(x, z) - rad * 0.1, z, rad, { squash: 0.5 + rr.next() * 0.25, detail: rad < 0.3 ? 1 : 2 });
     }
-    for (const [x, z, rad] of [[69.5, 56.5, 1.6], [67.4, 57.8, 0.9], [71.4, 55.2, 1.1]] as const) {
-      addCoastRock(b, rr, x, hAt(x, z) - rad * 0.3, z, rad, 0.9);
+    for (const [x, z, rad] of [[69.5, 56.5, 1.6], [67.4, 57.8, 0.9], [71.4, 55.2, 1.1]] as const) rock(x, z, rad, 0.85, 0.25);
+    // The groyne: boulders piled two abreast along the ridge, smaller + lower out into the surf.
+    {
+      const gr = r.fork('groyne');
+      let acc = 0;
+      for (let i = 0; i < GROYNE.length - 1; i++) {
+        const [ax, az] = GROYNE[i]!;
+        const [bx, bz] = GROYNE[i + 1]!;
+        const L = Math.hypot(bx - ax, bz - az);
+        const sx = -(bz - az) / L;
+        const sz = (bx - ax) / L;
+        for (let d = 0; d < L; d += 1.05) {
+          const k = (acc + d) / 13;
+          for (const side of [-1, 1]) {
+            if (gr.next() < 0.15) continue;
+            const x = ax + ((bx - ax) * d) / L + sx * side * (0.55 + gr.next() * 0.25);
+            const z = az + ((bz - az) * d) / L + sz * side * (0.55 + gr.next() * 0.25);
+            const rad = (gr.next() < 0.3 ? 0.4 + gr.next() * 0.2 : 0.62 + gr.next() * 0.6) * (1 - k * 0.2);
+            addBeachRock(b, gr, x, hAt(x, z) - rad * 0.25, z, rad, { squash: 0.6 + gr.next() * 0.25, elong: 1 + gr.next() * 0.4 });
+          }
+          // A capstone on the crest now and then.
+          if (gr.next() < 0.5) {
+            const x = ax + ((bx - ax) * (d + 0.5)) / L;
+            const z = az + ((bz - az) * (d + 0.5)) / L;
+            addBeachRock(b, gr, x, hAt(x, z) - 0.05, z, 0.5 + gr.next() * 0.25, { squash: 0.55 });
+          }
+        }
+        acc += L;
+      }
     }
     // Bluff boulders.
     for (let i = 0; i < 10; i++) {
       const x = 4 + rr.next() * 66;
       const z = 3 + rr.next() * 8;
       const rad = 0.5 + rr.next() * 0.7;
-      addCoastRock(b, rr, x, hAt(x, z) - rad * 0.3, z, rad, 0.75);
+      rock(x, z, rad, 0.65, 0.15);
       this.block(x, z, rad * 0.7, 'rock');
     }
+    void beachRockMaterial;
     const small = b.build({ name: 'beach-bits' });
     this.root.add(small);
     this.staticRoots.push(small);
@@ -469,7 +535,7 @@ export class BeachMap implements GameMap {
       if (Math.abs(x - PIER.x) < 2.3) continue;
       let z = S.shoreZ(x) - 9;
       while (z < S.shoreZ(x) && this.terrain.heightAt(x, z) > SEA_LEVEL + 0.47) z += 0.1;
-      if (S.westRock(x, z) < 0.35 || S.eastHead(x, z) < 0.35) continue;
+      if (S.westRock(x, z) < 0.35 || S.eastHead(x, z) < 0.35 || S.groyneDist(x, z).d < 1.6) continue;
       if (Math.hypot(x - ROWBOAT.x, z - ROWBOAT.z) < 2.2 || Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < 2.5) continue;
       const w = 0.25 + 0.75 * smoothstep(-0.25, 0.45, S.n2fbm(x * 0.13, 7.3));
       out.push({ x, z, w });
@@ -511,10 +577,19 @@ export class BeachMap implements GameMap {
         const clump = smoothstep(0.05, 0.5, S.n2fbm(jx * 0.2, jz * 0.2) + S.n2fbm(jx * 0.7 + 3, jz * 0.7) * 0.25);
         const p = dune * (0.025 + clump * 0.95);
         const roll = r.next();
+        // Species mix by a second noise field: marram crests, sedge swales, holly / pea on the lee
+        // slopes, thrift on the bluff edge.
+        const mix = S.n2fbm(jx * 0.09 + 13, jz * 0.11);
         if (roll < p * 0.8) {
-          F.addMarram(jx, h, jz, 0.75 + r.next() * 0.55 + clump * 0.45);
+          if (mix < -0.25 && clump < 0.6) F.addSedge(jx, h, jz, 0.9 + r.next() * 0.5);
+          else F.addMarram(jx, h, jz, 0.75 + r.next() * 0.55 + clump * 0.45);
           this.terrain.stampCover('ao', jx, jz, 0.5, 0.25);
         } else if (jz < 14 && jz > 9 && roll < p * 0.8 + 0.05) F.addThrift(jx, h, jz, 0.9 + r.next() * 0.6);
+        else if (dune > 0.2 && roll < p * 0.8 + 0.035 * dune) {
+          if (mix > 0.15) F.addHolly(jx, h, jz, 0.9 + r.next() * 0.5);
+          else if (mix > -0.15) F.addPea(jx, h, jz, 0.9 + r.next() * 0.6);
+          else F.addSedge(jx, h, jz, 0.8 + r.next() * 0.4);
+        }
       }
     }
     // A few stray tufts down on the dry beach.
@@ -523,7 +598,11 @@ export class BeachMap implements GameMap {
       const z = S.shoreZ(x) - 5 - r.next() * 6;
       if (Math.abs(x - PIER.x) < 2.5 || S.eastHead(x, z) < 0.3 || S.westRock(x, z) < 0.3) continue;
       if (Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < 3 || Math.hypot(x - SHACK.x, z - SHACK.z) < 4.5) continue;
-      F.addMarram(x, hAt(x, z), z, 0.6 + r.next() * 0.4);
+      const k = r.next();
+      if (k < 0.45) F.addMarram(x, hAt(x, z), z, 0.6 + r.next() * 0.4);
+      else if (k < 0.7) F.addSedge(x, hAt(x, z), z, 0.8 + r.next() * 0.4);
+      else if (k < 0.85) F.addPea(x, hAt(x, z), z, 0.9 + r.next() * 0.5);
+      else F.addHolly(x, hAt(x, z), z, 0.8 + r.next() * 0.4);
     }
     // Wind-bent pines along the bluff and on the headland; they lean inland (away from the sea).
     const pines: [number, number, number][] = [
@@ -612,7 +691,10 @@ export class BeachMap implements GameMap {
     const t = game.time;
     this.ambience.update(dt, t, focus, night, h);
     this.fx.update(dt, h);
-    this.life.update(dt, t, game.player.position, h);
+    const hr0 = game.calendar.hour;
+    this.life.update(dt, t, game.player.position, h, game.rc.camera, hr0);
+    this.sea.update(dt, t);
+    this.sea.setNight(night);
     this.smoke.update(dt, night, h);
     this.pools.update();
     // Campfire: lit from late afternoon until late night, out in the rain.

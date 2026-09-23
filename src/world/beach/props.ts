@@ -15,6 +15,9 @@ import { catenary } from '../props/festival';
 import { rockGeometry } from '../props/rocks';
 import { lantern, type BuiltProp } from '../props/structures';
 import { PIER } from './layout';
+import { textures } from '../../render/textures';
+import { applyWorldFx } from '../../render/worldfx';
+import { patchMaterial } from '../../render/patch';
 
 const _up = new THREE.Vector3(0, 1, 0);
 
@@ -103,23 +106,36 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
   const deck = PIER.deckY;
   const hw = PIER.w / 2;
   const cx = PIER.x;
+  const wood = pierWoodMaterial();
   const plank = (x0: number, x1: number, z: number, w = 0.26): void => {
     const len = x1 - x0;
     const warp = (rng.next() - 0.5) * 0.02;
-    const v = 0.82 + rng.next() * 0.22;
-    const weather = rng.next() < 0.18 ? 0xb8b0a4 : 0xd6b48c;
-    b.add('woodGrain', roundedBox(len, 0.07, w, 0.018), mat((x0 + x1) / 2 + (rng.next() - 0.5) * 0.04, deck - 0.035 + warp, z, warp, (rng.next() - 0.5) * 0.02, 0), {
-      tint: new THREE.Color(weather).multiplyScalar(v),
-      aoWorld: (p) => 0.85 + 0.15 * THREE.MathUtils.clamp((p.y - deck + 0.07) / 0.07, 0, 1),
+    // ±6 % value / slight hue jitter per plank; ~12 % sun-and-salt weathered grey boards.
+    const v = 0.94 + rng.next() * 0.12;
+    const grey = rng.next() < 0.12;
+    const tint = new THREE.Color(grey ? 0xb4aca0 : 0xd6b48c).offsetHSL((rng.next() - 0.5) * 0.02, 0, 0).multiplyScalar(v);
+    const g = roundedBox(len, 0.07, w, 0.018);
+    // Fine grain: map U across the board (≈ 5 cm per ring), V along it, a random offset per plank.
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    const uv = g.attributes.uv as THREE.BufferAttribute;
+    const ou = rng.next() * 10;
+    const ov = rng.next() * 10;
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, ou + pos.getZ(i) / 0.5, ov + pos.getX(i) / 1.6);
+    b.add(wood, g, mat((x0 + x1) / 2 + (rng.next() - 0.5) * 0.04, deck - 0.035 + warp, z, warp, (rng.next() - 0.5) * 0.02, 0), {
+      tint,
+      aoWorld: (p) => 0.8 + 0.2 * THREE.MathUtils.clamp((p.y - deck + 0.07) / 0.07, 0, 1),
     });
-    // Nail heads.
-    if (rng.next() < 0.5) for (const nx of [x0 + 0.12, x1 - 0.12]) b.add('metal', new THREE.CylinderGeometry(0.012, 0.012, 0.01, 5), mat(nx, deck + 0.002, z));
+    // Two nail heads at each end.
+    for (const nx of [x0 + 0.1, x1 - 0.1]) for (const dz of [-0.07, 0.07]) b.add('metal', new THREE.CylinderGeometry(0.011, 0.011, 0.008, 5), mat(nx + (rng.next() - 0.5) * 0.02, deck + 0.001, z + dz), { tint: 0x5a4a40 });
   };
   // Main walkway.
   for (let z = PIER.z0 + 0.15; z < PIER.head.z0; z += 0.3) plank(cx - hw, cx + hw, z);
   // Head platform.
   const H = PIER.head;
   for (let z = H.z0 + 0.15; z < H.z1; z += 0.3) plank(H.x0, H.x1, z);
+  // Dark underlay: the gaps between boards read as deep shadow lines (AO), not see-through slits.
+  b.add('woodDark', new THREE.BoxGeometry(PIER.w - 0.1, 0.02, H.z0 - PIER.z0), mat(cx, deck - 0.085, (PIER.z0 + H.z0) / 2), { tint: 0x2a1c12 });
+  b.add('woodDark', new THREE.BoxGeometry(H.x1 - H.x0 - 0.1, 0.02, H.z1 - H.z0), mat((H.x0 + H.x1) / 2, deck - 0.085, (H.z0 + H.z1) / 2), { tint: 0x2a1c12 });
   // Stringers.
   for (const sx of [-hw + 0.2, 0, hw - 0.2]) {
     b.add('woodDark', roundedBox(0.14, 0.2, H.z0 - PIER.z0, 0.03), mat(cx + sx, deck - 0.17, (PIER.z0 + H.z0) / 2));
@@ -220,6 +236,33 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
   }
   const g = b.build({ name: 'pier' });
   return { static: g, lamps, pilings };
+}
+
+/**
+ * Pier deck boards: the shared wood-grain texture at 40 % less ring contrast (blended towards its
+ * own mean colour), sampled with the fine per-plank UVs set in buildPier.
+ */
+let pierWood: THREE.MeshStandardMaterial | null = null;
+function pierWoodMaterial(): THREE.MeshStandardMaterial {
+  if (pierWood) return pierWood;
+  const t = textures.woodGrain();
+  const m = new THREE.MeshStandardMaterial({ map: t.map, bumpMap: t.bump, bumpScale: 0.9, roughness: 0.82, vertexColors: true });
+  m.name = 'pierWood';
+  patchMaterial(m, 'pier-wood', (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      /* glsl */ `
+      #ifdef USE_MAP
+        vec4 sampledDiffuseColor = texture2D(map, vMapUv);
+        vec3 meanC = vec3(0.3, 0.15, 0.06);
+        sampledDiffuseColor.rgb = mix(meanC, sampledDiffuseColor.rgb, 0.6);
+        diffuseColor *= sampledDiffuseColor;
+      #endif`,
+    );
+  });
+  applyWorldFx(m);
+  pierWood = m;
+  return m;
 }
 
 // ───────────────────────────────────────────── shack

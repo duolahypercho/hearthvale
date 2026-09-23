@@ -27,6 +27,8 @@ export interface ReelView {
   perfect: boolean;
   /** Bar bounce squash (0..1), set by the sim when the bar hits the bottom. */
   bounce: number;
+  /** The bar lies idle on the floor: the line is slack and earns nothing. */
+  slack?: boolean;
 }
 
 export interface CatchCard {
@@ -94,6 +96,8 @@ export class FishingOverlay {
   private t = 0;
   private dpr = 1;
   private cardTimer = 0;
+  private remoteBangs = new Map<number, HTMLElement>();
+  private remoteTags = new Map<number, HTMLElement>();
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hvf-layer');
@@ -102,7 +106,7 @@ export class FishingOverlay {
     this.powerFill = this.power.querySelector('.fill')!;
     this.bang = el('div', 'hvf-bang hvf-hidden', BANG);
     this.reel = el('div', 'hvf-reel hvf-hidden');
-    this.reel.innerHTML = `<div class="frame"><div class="rivet" style="left:7px;top:7px"></div><div class="rivet" style="right:7px;top:7px"></div><div class="rivet" style="left:7px;bottom:7px"></div><div class="rivet" style="right:7px;bottom:7px"></div><canvas></canvas></div><div class="head">Reel it in!</div><div class="tags"></div><div class="perfect">PERFECT</div>`;
+    this.reel.innerHTML = `<div class="frame"><div class="rivet" style="left:7px;top:7px"></div><div class="rivet" style="right:7px;top:7px"></div><div class="rivet" style="left:7px;bottom:7px"></div><div class="rivet" style="right:7px;bottom:7px"></div><canvas></canvas><div class="foot"><div class="tags"></div><div class="perfect">Perfect!</div></div></div><div class="head">Reel it in!</div>`;
     this.reelHead = this.reel.querySelector('.head')!;
     this.reelTags = this.reel.querySelector('.tags')!;
     this.reelPerfect = this.reel.querySelector('.perfect')!;
@@ -144,6 +148,50 @@ export class FishingOverlay {
     this.bang.style.top = `${y}px`;
   }
 
+  /** Another co-op farmer's bite "!" (smaller, same bounce). */
+  remoteBang(id: number, on: boolean, x = 0, y = 0): void {
+    let b = this.remoteBangs.get(id);
+    if (!on) {
+      if (b && !b.classList.contains('hvf-hidden')) b.classList.add('hvf-hidden');
+      return;
+    }
+    if (!b) {
+      b = el('div', 'hvf-bang remote hvf-hidden', BANG);
+      this.root.appendChild(b);
+      this.remoteBangs.set(id, b);
+    }
+    if (b.classList.contains('hvf-hidden')) {
+      b.classList.remove('hvf-hidden');
+      b.style.animation = 'none';
+      void b.offsetWidth;
+      b.style.animation = '';
+    }
+    b.style.left = `${x}px`;
+    b.style.top = `${y}px`;
+  }
+
+  /** A co-op farmer's name pill (demo / when the net layer has no tag of its own); null hides. */
+  remoteTag(id: number, name: string | null, x = 0, y = 0, color = '#e07a5f'): void {
+    let t = this.remoteTags.get(id);
+    if (!name) {
+      t?.classList.add('hvf-hidden');
+      return;
+    }
+    if (!t) {
+      t = el('div', 'hvf-tag');
+      this.root.appendChild(t);
+      this.remoteTags.set(id, t);
+    }
+    if (t.dataset.name !== name) {
+      t.dataset.name = name;
+      t.innerHTML = `<i style="background:${color}"></i><span></span>`;
+      t.querySelector('span')!.textContent = name;
+    }
+    t.classList.remove('hvf-hidden');
+    t.style.left = `${x}px`;
+    t.style.top = `${y}px`;
+  }
+
   // ── notes ────────────────────────────────────────────────
   note(text: string, x: number, y: number): void {
     const n = el('div', 'hvf-note', text);
@@ -169,6 +217,7 @@ export class FishingOverlay {
       if (gear.lure) tags.push(`<span class="gear" title="Glimmer Lure">${itemIcon('treasureLure')}</span>`);
     }
     this.reelTags.innerHTML = tags.join('');
+    this.reelPerfect.classList.remove('lost');
     if (this.fishImgId !== def.id) {
       this.fishImgId = def.id;
       const img = new Image();
@@ -290,7 +339,7 @@ export class FishingOverlay {
     const barTop = toY(v.bar + v.barH);
     const barBot = toY(v.bar);
     const squash = v.bounce * 5;
-    const inside = v.inside;
+    const inside = v.inside && !v.slack;
     g.save();
     g.shadowColor = inside ? 'rgba(160,255,140,0.9)' : 'rgba(0,0,0,0)';
     g.shadowBlur = inside ? 16 : 0;
@@ -315,6 +364,20 @@ export class FishingOverlay {
     g.fillStyle = 'rgba(255,255,255,0.35)';
     rr(g, tx + 9, barTop + 5 + squash, 6, Math.max(4, barBot - barTop - 10 - squash), 3);
     g.fill();
+    if (v.slack) {
+      // Slack line: the idle bar greys out and earns nothing until you reel again.
+      rr(g, tx + 4, barTop, tw - 8, barBot - barTop, 9);
+      g.fillStyle = 'rgba(40,50,60,0.45)';
+      g.fill();
+      g.font = '800 13px Fredoka, Nunito, sans-serif';
+      g.textAlign = 'center';
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(30,20,10,0.8)';
+      const ly = (barTop + barBot) / 2 + 4 + Math.sin(this.t * 8) * 1.5;
+      g.strokeText('SLACK!', tx + tw / 2, ly);
+      g.fillStyle = '#ffe9b0';
+      g.fillText('SLACK!', tx + tw / 2, ly);
+    }
     // Treasure chest.
     if (v.treasure && !v.treasure.got) {
       const cy = toY(v.treasure.pos);
@@ -395,13 +458,25 @@ export class FishingOverlay {
     g.stroke();
 
     this.reel.classList.toggle('shake', !v.inside && v.progress < 0.35);
+    this.reel.classList.toggle('tense', v.progress > 0.75);
     this.reelPerfect.classList.toggle('lost', !v.perfect);
   }
 
   // ── catch card ───────────────────────────────────────────
-  showCard(c: CatchCard): void {
+  /** `at` = the farmer's screen position: the card sits beside them (never over the hero). */
+  showCard(c: CatchCard, at?: { x: number; y: number }): void {
     this.hideCard(true);
     const card = el('div', 'hvf-card');
+    if (at) {
+      const W = 470;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const right = at.x + 110 + W < w - 16;
+      const x = right ? at.x + 110 : Math.max(16, at.x - 110 - W);
+      card.classList.add('beside', right ? 'r' : 'l');
+      card.style.left = `${x}px`;
+      card.style.top = `${Math.round(Math.min(h - 330, Math.max(90, at.y - 90)))}px`;
+    }
     const q = c.quality > 0 ? `<span class="chip q${c.quality}">${STAR(c.quality)}${['', 'Silver', 'Gold', 'Iridium'][c.quality]}</span>` : '';
     card.innerHTML = `<div class="frame">
       ${c.isNew ? '<div class="ribbon">NEW!</div>' : ''}${c.isRecord && !c.isNew ? '<div class="ribbon record">RECORD!</div>' : ''}

@@ -220,6 +220,18 @@ export class BeachLife {
   private q = new THREE.Quaternion();
   private e = new THREE.Euler();
   private s = new THREE.Vector3(1, 1, 1);
+  // Scratch (no per-frame allocations).
+  private v1 = new THREE.Vector3();
+  private v2 = new THREE.Vector3();
+  private v3 = new THREE.Vector3();
+  private wq = new THREE.Quaternion();
+  private wm = new THREE.Matrix4();
+  private fm = new THREE.Matrix4();
+  private m2 = new THREE.Matrix4();
+  private we = new THREE.Euler();
+  private ws = new THREE.Vector3();
+  /** Gull visibility (0..1): fades out after dusk and when one would photobomb the camera. */
+  private gullVis: number[] = [];
 
   constructor(
     private rng: Rng,
@@ -294,7 +306,14 @@ export class BeachLife {
     this.leap = { mesh, t: 0, from: new THREE.Vector3(), dir: new THREE.Vector3(), active: false, next: 3 + rng.next() * 5 };
   }
 
-  update(dt: number, t: number, player: THREE.Vector3, viewportH: number): void {
+  /**
+   * `cam` (optional) caps how big a gull may get on screen: one whose wingspan would cover more than
+   * 12 % of the view height fades out instead of photobombing the shot. `hour`: gulls roost after
+   * 20:00 (gone till dawn) and all but two crabs stay in their burrows at night.
+   */
+  update(dt: number, t: number, player: THREE.Vector3, viewportH: number, cam?: THREE.PerspectiveCamera, hour = 12): void {
+    const night = hour >= 20 || hour < 5.5;
+    const tanHalf = cam ? Math.tan(THREE.MathUtils.degToRad(cam.fov * 0.5)) : 1;
     // Gulls.
     this.gulls.forEach((g, i) => {
       const near = player.distanceTo(g.pos) < 3.2;
@@ -313,14 +332,14 @@ export class BeachLife {
         const tx = g.cx + Math.cos(g.ang) * g.r;
         const tz = g.cz + Math.sin(g.ang) * g.r * 0.6;
         const ty = this.seaLevel + g.h + Math.sin(t * 0.4 + i) * 0.8;
-        let target = new THREE.Vector3(tx, ty, tz);
+        const target = this.v1.set(tx, ty, tz);
         if (g.perch) {
           const k = g.fly > 0 ? g.fly : 1 + g.fly;
-          target = g.perch.clone().lerp(target, THREE.MathUtils.smoothstep(k, 0, 1));
+          target.lerpVectors(g.perch, this.v2.copy(target), THREE.MathUtils.smoothstep(k, 0, 1));
         }
-        const prev = g.pos.clone();
+        const prev = this.v3.copy(g.pos);
         g.pos.lerp(target, 1 - Math.exp(-dt * (g.perch ? 3 : 8)));
-        const v = g.pos.clone().sub(prev);
+        const v = prev.subVectors(g.pos, prev);
         if (v.lengthSq() > 1e-6) g.yaw = Math.atan2(-v.z, v.x);
         g.bank = THREE.MathUtils.lerp(g.bank, -Math.sign(g.speed) * 0.35, dt * 2);
       } else {
@@ -338,24 +357,40 @@ export class BeachLife {
       let wing = 0.1;
       if (flying) wing = cyc < 1.6 ? Math.sin(g.flapT * 11) * 0.75 : 0.12 + Math.sin(t * 2 + i) * 0.05;
       else wing = -1.25; // folded
+      // Visibility: roost at night; never let one fill the frame (wingspan ≤ 12 % of view height).
+      let want = night ? 0 : 1;
+      if (cam && want > 0) {
+        const d = Math.max(0.1, cam.position.distanceTo(g.pos));
+        const frac = 0.95 / (2 * d * tanHalf);
+        want = THREE.MathUtils.clamp((0.12 - frac) / 0.03, 0, 1);
+      }
+      const vis = (this.gullVis[i] = (this.gullVis[i] ?? want) + (want - (this.gullVis[i] ?? want)) * Math.min(1, dt * 3));
       this.e.set(g.bank, g.yaw + (flying ? 0 : g.look * 0.3), 0, 'YXZ');
       this.q.setFromEuler(this.e);
-      this.s.set(1, 1, 1);
+      this.s.setScalar(vis < 0.02 ? 0.0001 : vis);
       this.m.compose(g.pos, this.q, this.s);
       this.gullBody.setMatrixAt(i, this.m);
       for (const [im, side] of [[this.wingL, 1], [this.wingR, -1]] as const) {
-        const wq = new THREE.Quaternion().setFromEuler(new THREE.Euler(side * -wing, 0, 0));
-        const wm = new THREE.Matrix4().compose(new THREE.Vector3(0.02, 0.06, side * 0.08), wq, new THREE.Vector3(1, 1, side));
-        const folded = !flying ? new THREE.Matrix4().makeScale(0.75, 1, 0.5) : new THREE.Matrix4();
-        im.setMatrixAt(i, this.m.clone().multiply(wm).multiply(folded));
+        this.wq.setFromEuler(this.we.set(side * -wing, 0, 0));
+        this.wm.compose(this.ws.set(0.02, 0.06, side * 0.08), this.wq, this.v1.set(1, 1, side));
+        if (!flying) this.fm.makeScale(0.75, 1, 0.5);
+        else this.fm.identity();
+        im.setMatrixAt(i, this.m2.copy(this.m).multiply(this.wm).multiply(this.fm));
       }
     });
     this.gullBody.instanceMatrix.needsUpdate = true;
     this.wingL.instanceMatrix.needsUpdate = true;
     this.wingR.instanceMatrix.needsUpdate = true;
 
-    // Crabs.
+    // Crabs (night: all but two stay down in their burrows).
     this.crabs.forEach((c, i) => {
+      if (night && i >= 2) {
+        this.s.setScalar(0.0001);
+        this.m.compose(c.pos, this.q.identity(), this.s);
+        this.crabMesh.setMatrixAt(i, this.m);
+        this.crabShadow.setMatrixAt(i, this.m);
+        return;
+      }
       c.t -= dt;
       const d = Math.hypot(player.x - c.pos.x, player.z - c.pos.z);
       if (c.hidden > 0) {
@@ -405,11 +440,11 @@ export class BeachLife {
       this.q.setFromEuler(this.e);
       this.s.setScalar(c.hidden > 0 ? 0.0001 : 2.05);
       const cy = Math.max(y, this.seaLevel - 0.1);
-      this.m.compose(new THREE.Vector3(c.pos.x, cy - sink * 1.8 + Math.abs(Math.sin(t * 28 + i)) * 0.02 * moving, c.pos.z), this.q, this.s);
+      this.m.compose(this.v1.set(c.pos.x, cy - sink * 1.8 + Math.abs(Math.sin(t * 28 + i)) * 0.02 * moving, c.pos.z), this.q, this.s);
       this.crabMesh.setMatrixAt(i, this.m);
       this.s.setScalar(c.hidden > 0 ? 0.0001 : 1 - sink * 2);
       this.q.identity();
-      this.m.compose(new THREE.Vector3(c.pos.x, y + 0.012, c.pos.z), this.q, this.s);
+      this.m.compose(this.v1.set(c.pos.x, y + 0.012, c.pos.z), this.q, this.s);
       this.crabShadow.setMatrixAt(i, this.m);
     });
     this.crabMesh.instanceMatrix.needsUpdate = true;
@@ -430,7 +465,7 @@ export class BeachLife {
     if (L.active) {
       L.t += dt / 0.9;
       const k = Math.min(1, L.t);
-      const p = L.from.clone().addScaledVector(L.dir, k * 2.2);
+      const p = this.v1.copy(L.from).addScaledVector(L.dir, k * 2.2);
       p.y += Math.sin(k * Math.PI) * 1.1;
       L.mesh.group.position.copy(p);
       L.mesh.group.rotation.set(0, Math.atan2(-L.dir.z, L.dir.x) + Math.PI, (0.5 - k) * 2.2, 'YXZ');

@@ -152,12 +152,13 @@ export class FishingSfx {
   }
 
   /** Call every frame while reeling; `rate` = clicks per second (0 = silent). */
-  reel(dt: number, rate: number): void {
+  /** Reel ratchet clicks; `pitch` > 1 near the end of a fight (tension). */
+  reel(dt: number, rate: number, pitch = 1): void {
     if (!this.ctx || rate <= 0) return;
     this.reelAcc += dt * rate;
     while (this.reelAcc >= 1) {
       this.reelAcc -= 1;
-      this.tone(3000 + Math.random() * 400, 0.01, 'square', 0.03);
+      this.tone((3000 + Math.random() * 400) * pitch, 0.01, 'square', 0.03);
     }
   }
 

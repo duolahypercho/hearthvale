@@ -224,6 +224,12 @@ try {
   check('save/load', r.saved && r.loaded);
   const p = r.perfEnd;
   check('render budget (farm-morning)', p.ok, `${p.drawCalls} calls, ${(p.triangles / 1e6).toFixed(2)}M tris`);
+  // Fishing reel minigame (pure sim, Node): idle play never lands a fish, pacing bands, treasure delay.
+  {
+    const { runReelTests } = await import('./fishing-reel.test.mjs');
+    const reelFails = runReelTests(() => {});
+    check('fishing reel: no AFK catches, 5-8 s commons, treasure ≥ 1.5 s', reelFails.length === 0, reelFails.slice(0, 2).join(' | '));
+  }
   const real = errors.filter((e) => !/not implemented yet|staging on farm/.test(e));
   check('no page / console errors', real.length === 0, real.slice(0, 3).join(' | '));
 } catch (e) {

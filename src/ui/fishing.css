@@ -13,8 +13,8 @@
 /* ── Power meter ─────────────────────────────────────────── */
 .hvf-power {
   position: absolute;
-  width: 34px;
-  height: 150px;
+  width: 44px;
+  height: 200px;
   transform: translate(-50%, -100%);
   border-radius: 18px;
   padding: 6px;
@@ -41,7 +41,7 @@
   height: 0%;
   border-radius: 10px;
   background: linear-gradient(0deg, #e8483a 0%, #f2a23a 38%, #f5d442 62%, #7fd84a 100%);
-  background-size: 100% 128px;
+  background-size: 100% 176px;
   background-position: bottom;
   box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5);
 }
@@ -96,7 +96,7 @@
   border: 2px solid #5e3517;
   font-family: var(--font-head, 'Fredoka', sans-serif);
   font-weight: 700;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.08em;
   color: #5a3a1e;
   white-space: nowrap;
@@ -104,7 +104,7 @@
 .hvf-power .ticks {
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(0deg, transparent 0 22px, rgba(0, 0, 0, 0.22) 22px 24px);
+  background: repeating-linear-gradient(0deg, transparent 0 30px, rgba(0, 0, 0, 0.22) 30px 32px);
 }
 .hvf-power.max {
   /* Keep hvf-pop first in the list so toggling .max never restarts the pop-in (which fades from 0). */
@@ -199,23 +199,74 @@
   color: #5a3a1e;
   white-space: nowrap;
 }
+.hvf-reel .foot {
+  /* Footer plaque inside the frame: skill level + tackle on the left, the Perfect badge right. */
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 6px 4px 5px;
+  min-height: 26px;
+  flex-wrap: wrap;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #4a2c14, #3a200c);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 220, 170, 0.35);
+}
 .hvf-reel .perfect {
-  position: absolute;
-  left: 50%;
-  bottom: -26px;
-  transform: translateX(-50%);
   font-family: var(--font-head, 'Fredoka', sans-serif);
   font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.06em;
-  color: #fff6c8;
-  -webkit-text-stroke: 1px #6a3a10;
-  text-shadow: 0 2px 0 #6a3a10;
-  transition: opacity 0.25s, transform 0.25s;
+  font-size: 17px;
+  line-height: 20px;
+  color: #fff3b8;
+  -webkit-text-stroke: 1.4px #5a2a06;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 0 #2a1406, 0 0 10px rgba(255, 214, 90, 0.8);
+  white-space: nowrap;
+  animation: hvf-perfect-glow 0.9s ease-in-out infinite alternate;
 }
 .hvf-reel .perfect.lost {
-  opacity: 0;
-  transform: translateX(-50%) translateY(6px);
+  animation: hvf-perfect-lost 0.7s ease-out forwards;
+}
+@keyframes hvf-perfect-glow {
+  from {
+    text-shadow: 0 2px 0 #2a1406, 0 0 6px rgba(255, 214, 90, 0.5);
+  }
+  to {
+    text-shadow: 0 2px 0 #2a1406, 0 0 14px rgba(255, 224, 110, 1);
+  }
+}
+@keyframes hvf-perfect-lost {
+  0% {
+    color: #ff7a5a;
+    scale: 1.25;
+    rotate: 0deg;
+    opacity: 1;
+  }
+  25% {
+    rotate: -9deg;
+    translate: -2px 1px;
+    color: #ff5a3a;
+  }
+  45% {
+    rotate: 7deg;
+    translate: 2px 3px;
+  }
+  100% {
+    rotate: 14deg;
+    translate: 4px 16px;
+    opacity: 0;
+    scale: 0.85;
+    color: #9a6a4a;
+  }
+}
+.hvf-reel.tense .frame {
+  box-shadow: inset 0 2px 0 rgba(255, 220, 170, 0.55), inset 0 -4px 0 rgba(60, 30, 10, 0.4), 0 6px 0 rgba(60, 30, 10, 0.4), 0 0 26px rgba(255, 214, 90, 0.75), 0 18px 34px rgba(20, 10, 4, 0.45);
+}
+.hvf-bang.remote {
+  width: 62px;
+  height: 70px;
 }
 .hvf-reel.shake .frame {
   animation: hvf-shake 0.09s linear infinite;
@@ -232,6 +283,26 @@
   width: 470px;
   transform: translateX(-50%);
   animation: hvf-card-in 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.hvf-card.beside {
+  bottom: auto;
+  transform: none;
+  animation-name: hvf-card-side;
+}
+.hvf-card.beside.l {
+  --side: -40px;
+}
+@keyframes hvf-card-side {
+  from {
+    opacity: 0;
+    translate: var(--side, 40px) 0;
+    scale: 0.85;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
 }
 .hvf-card .frame {
   position: relative;
@@ -510,10 +581,7 @@
 
 /* ── Skill / gear readouts ───────────────────────────────── */
 .hvf-reel .tags {
-  position: absolute;
-  left: 50%;
-  bottom: -52px;
-  transform: translateX(-50%);
+  position: relative;
   display: flex;
   gap: 3px;
   align-items: center;
@@ -523,12 +591,14 @@
 .hvf-reel .tags .lv {
   padding: 0 6px;
   border-radius: 7px;
-  background: rgba(20, 50, 70, 0.72);
+  background: #1f4e66;
+  border: 1.5px solid #0e2a38;
   color: #eaf8ff;
   font-family: var(--font-head, 'Fredoka', sans-serif);
   font-weight: 700;
-  font-size: 11px;
-  line-height: 17px;
+  font-size: 16px;
+  line-height: 19px;
+  white-space: nowrap;
 }
 .hvf-reel .tags .gear {
   width: 19px;
@@ -753,4 +823,28 @@
 }
 .hvf-tk-row.owned .nm small {
   color: #2f8a3a;
+}
+
+/* ── Co-op name pill (demo / fallback) ────────────────────── */
+.hvf-tag {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 3px 6px;
+  border-radius: 10px;
+  background: rgba(30, 20, 12, 0.72);
+  color: #fff6e4;
+  font-family: var(--font-head, 'Fredoka', sans-serif);
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.hvf-tag i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.7);
 }

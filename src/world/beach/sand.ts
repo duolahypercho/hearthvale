@@ -17,6 +17,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
     shader.uniforms.uBSea = { value: seaLevel };
     shader.uniforms.uBSun = globalUniforms.uSunColor;
     shader.uniforms.uBSunDir = globalUniforms.uSunDir;
+    shader.uniforms.uBNight = globalUniforms.uNight;
     const pv = [0, 1, 2, 3].map((i) => (pools[i] ? new THREE.Vector3(pools[i]![0], pools[i]![1], pools[i]![2]) : new THREE.Vector3(1e5, 1e5, 0.01)));
     shader.uniforms.uBPools = { value: pv };
     let fs = shader.fragmentShader;
@@ -27,6 +28,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
       uniform float uBSea;
       uniform vec3 uBSun;
       uniform vec3 uBSunDir;
+      uniform float uBNight;
       uniform vec3 uBPools[4];
       float hvBWet = 0.0;
       float hvBCaus = 0.0;
@@ -142,7 +144,8 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           lichen *= smoothstep(0.55, 0.75, hvNoise(p * 9.0 + 1.0));
           rock = mix(rock, mix(vec3(0.5, 0.42, 0.2), vec3(0.58, 0.34, 0.16), hvNoise(p * 3.0)), lichen * 0.28);
           // Weed + algae low down near the waterline.
-          float weed = max(smoothstep(0.62, 0.3, bh), ring * 0.8) * smoothstep(0.32, 0.62, hvNoise(p * 1.9 + 5.0) + hvNoise(p * 7.0) * 0.25 + ring * 0.2);
+          // (No painted halo round the pools: the rims get real weed tufts, see shelf.ts.)
+          float weed = smoothstep(0.62, 0.3, bh) * smoothstep(0.32, 0.62, hvNoise(p * 1.9 + 5.0) + hvNoise(p * 7.0) * 0.25);
           rock = mix(rock, mix(vec3(0.12, 0.2, 0.08), vec3(0.24, 0.3, 0.1), hvNoise(p * 5.0)), weed * 0.85);
           // Barnacles: round pale dots clustered in the splash zone.
           vec2 bq = p * 9.0;
@@ -180,7 +183,10 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         vec3 Vb = normalize(cameraPosition - vTWorld);
         float frb = 0.2 + 0.8 * pow(1.0 - max(Vb.y, 0.0), 3.0);
         // Wet-sand sky sheen; held back under a low sun so a sunset beach keeps its contrast.
-        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.45) * hvBWet * frb * 0.22 * mix(0.45, 1.0, smoothstep(0.08, 0.4, uBSunDir.y));
+        // (The moon drives uBSunDir at night: sheen + caustics fade out so the wet band never glows.)
+        float dayK = 1.0 - uBNight;
+        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.45) * hvBWet * frb * 0.22 * mix(0.45, 1.0, smoothstep(0.08, 0.4, uBSunDir.y)) * mix(0.25, 1.0, dayK);
+        hvBCaus *= dayK;
         totalEmissiveRadiance += uBSun * hvBCaus * diffuseColor.rgb * 1.25;
       }`,
     );

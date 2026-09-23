@@ -4,6 +4,9 @@
  *   thrift     sea-thrift cushions with pink pom-pom heads on wiry stems
  *   bentPine   wind-bent coastal pines: a trunk leaning away from the sea and flat, layered canopy
  *              pads streaming leeward (evergreen)
+ *   holly      sea holly: a spiky silver-blue rosette with steel-blue thistle heads
+ *   peaMat     beach pea: a low sprawling mat of round leaves with magenta / violet pea flowers
+ *   sedge      short, fine, straw-and-green dune sedge tufts (fills between the marram)
  */
 import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
@@ -108,6 +111,84 @@ function thriftGeo(rng: Rng): { leaves: THREE.BufferGeometry; heads: THREE.Buffe
     heads.push(head);
   }
   return { leaves: merge(stems), heads: merge(heads) };
+}
+
+function hollyGeo(rng: Rng): { leaves: THREE.BufferGeometry; heads: THREE.BufferGeometry } {
+  const parts: THREE.BufferGeometry[] = [];
+  const n = 9 + rng.int(0, 4);
+  for (let i = 0; i < n; i++) {
+    const len = 0.16 + rng.next() * 0.12;
+    const g = leafBlade(len, 0.05 + rng.next() * 0.02, 0.75 + rng.next() * 0.2, 4);
+    g.rotateY((i / n) * Math.PI * 2 + rng.next() * 0.4);
+    colorGeo(g, (p) => new THREE.Color(0x7a9aa0).lerp(new THREE.Color(0xc8d8d4), THREE.MathUtils.clamp(p.y / len, 0, 1)).multiplyScalar(0.8 + rng.next() * 0.1));
+    parts.push(g);
+  }
+  const heads: THREE.BufferGeometry[] = [];
+  const k = 3 + rng.int(0, 3);
+  for (let i = 0; i < k; i++) {
+    const a = rng.next() * Math.PI * 2;
+    const r = 0.03 + rng.next() * 0.08;
+    const h = 0.22 + rng.next() * 0.16;
+    const stem = new THREE.CylinderGeometry(0.007, 0.01, h, 3).translate(Math.cos(a) * r, h / 2, Math.sin(a) * r);
+    colorGeo(stem, () => new THREE.Color(0x7890a8));
+    parts.push(stem);
+    const head = new THREE.IcosahedronGeometry(0.04, 1).scale(1, 1.25, 1).translate(Math.cos(a) * r, h + 0.03, Math.sin(a) * r);
+    colorGeo(head, (p) => new THREE.Color(0x5a78c8).multiplyScalar(0.75 + (p.y - h) * 5));
+    heads.push(head);
+    // Spiky ruff (bracts) under the head.
+    for (let j = 0; j < 6; j++) {
+      const br = leafBlade(0.07, 0.014, 0.9, 2);
+      br.rotateZ(-1.1).rotateY((j / 6) * Math.PI * 2).translate(Math.cos(a) * r, h, Math.sin(a) * r);
+      colorGeo(br, () => new THREE.Color(0x8aa6c8));
+      heads.push(br);
+    }
+  }
+  return { leaves: merge(parts), heads: merge(heads) };
+}
+
+function peaGeo(rng: Rng): { leaves: THREE.BufferGeometry; heads: THREE.BufferGeometry } {
+  const parts: THREE.BufferGeometry[] = [];
+  const heads: THREE.BufferGeometry[] = [];
+  // Runners radiating over the sand, each with pairs of round leaves.
+  const runners = 5 + rng.int(0, 3);
+  for (let i = 0; i < runners; i++) {
+    const a = (i / runners) * Math.PI * 2 + rng.next() * 0.5;
+    const len = 0.35 + rng.next() * 0.35;
+    for (let s = 1; s <= 4; s++) {
+      const d = (s / 4) * len;
+      const x = Math.cos(a) * d;
+      const z = Math.sin(a) * d;
+      for (const side of [-1, 1]) {
+        const leaf = new THREE.CircleGeometry(0.045 + rng.next() * 0.02, 6).rotateX(-Math.PI / 2 + 0.35 * side).rotateY(a + side * 0.9).translate(x + Math.cos(a + side * 1.57) * 0.03, 0.04 + rng.next() * 0.03, z + Math.sin(a + side * 1.57) * 0.03);
+        colorGeo(leaf, () => new THREE.Color(0x4f7a3e).multiplyScalar(0.8 + rng.next() * 0.35));
+        parts.push(leaf);
+      }
+      if (s >= 3 && rng.next() < 0.6) {
+        const f = new THREE.IcosahedronGeometry(0.035, 0).scale(1, 0.8, 1).translate(x, 0.09, z);
+        const c = new THREE.Color(rng.next() < 0.5 ? 0xc84aa0 : 0x8a5ad0).multiplyScalar(0.9 + rng.next() * 0.2);
+        colorGeo(f, () => c);
+        heads.push(f);
+      }
+    }
+  }
+  return { leaves: merge(parts), heads: merge(heads) };
+}
+
+function sedgeGeo(rng: Rng): THREE.BufferGeometry {
+  const blades: THREE.BufferGeometry[] = [];
+  const n = 22 + rng.int(0, 8);
+  const straw = new THREE.Color(0xd8c690);
+  const green = new THREE.Color(0x7a9a52);
+  for (let i = 0; i < n; i++) {
+    const len = 0.18 + rng.next() * 0.2;
+    const g = leafBlade(len, 0.012, 0.5 + rng.next() * 0.45, 3);
+    g.rotateY(rng.next() * Math.PI * 2);
+    g.translate((rng.next() - 0.5) * 0.12, 0, (rng.next() - 0.5) * 0.12);
+    const k = rng.next();
+    colorGeo(g, (p) => green.clone().lerp(straw, THREE.MathUtils.clamp(k * 0.6 + p.y / len * 0.6, 0, 1)));
+    blades.push(g);
+  }
+  return merge(blades);
 }
 
 let pineLeafMat: THREE.MeshStandardMaterial | null = null;
@@ -222,6 +303,9 @@ export class BeachFlora {
   private marram: InstancedSet[] = [];
   private thrift: InstancedSet[] = [];
   private pines: InstancedSet[] = [];
+  private holly: InstancedSet[] = [];
+  private pea: InstancedSet[] = [];
+  private sedge: InstancedSet[] = [];
   private marramMat: THREE.MeshStandardMaterial;
   private thriftLeafMat: THREE.MeshStandardMaterial;
   private thriftHeadMat: THREE.MeshStandardMaterial;
@@ -250,6 +334,20 @@ export class BeachFlora {
           this.pool,
         ),
       );
+    }
+    const lowWind = { mode: 'height' as const, height: 0.35, amplitude: 0.04, flutter: 0.3 };
+    const hollyLeaf = plantMaterial('seaHolly', lowWind, { roughness: 0.6 });
+    const hollyHead = plantMaterial('seaHollyHead', lowWind, { roughness: 0.55 });
+    const peaLeaf = plantMaterial('beachPea', lowWind, { roughness: 0.75 });
+    const peaFlower = plantMaterial('beachPeaFlower', lowWind, { roughness: 0.6 });
+    const sedgeMat = plantMaterial('duneSedge', MARRAM_WIND, { roughness: 0.85 });
+    const lDepth = windDepthMaterial(lowWind);
+    for (let i = 0; i < 1; i++) {
+      const h = hollyGeo(rng);
+      this.holly.push(new InstancedSet(`holly${i}`, [{ geometry: h.leaves, material: hollyLeaf, depthMaterial: lDepth, castShadow: false }, { geometry: h.heads, material: hollyHead, depthMaterial: lDepth, castShadow: false }], this.pool));
+      const p = peaGeo(rng);
+      this.pea.push(new InstancedSet(`pea${i}`, [{ geometry: p.leaves, material: peaLeaf, depthMaterial: lDepth, castShadow: false }, { geometry: p.heads, material: peaFlower, depthMaterial: lDepth, castShadow: false }], this.pool));
+      this.sedge.push(new InstancedSet(`sedge${i}`, [{ geometry: sedgeGeo(rng), material: sedgeMat, depthMaterial: mDepth, tinted: true, castShadow: false }], this.pool));
     }
     const { bark, leaf } = pineMaterials();
     const dT = windDepthMaterial(PINE_TRUNK);
@@ -280,6 +378,19 @@ export class BeachFlora {
 
   addThrift(x: number, y: number, z: number, s = 1): void {
     this.rng.pick(this.thrift).add(this.m(x, y - 0.02, z, s, this.rng.next() * 6.28));
+  }
+
+  addHolly(x: number, y: number, z: number, s = 1): void {
+    this.rng.pick(this.holly).add(this.m(x, y - 0.02, z, s, this.rng.next() * 6.28));
+  }
+
+  addPea(x: number, y: number, z: number, s = 1): void {
+    this.rng.pick(this.pea).add(this.m(x, y - 0.02, z, s, this.rng.next() * 6.28));
+  }
+
+  addSedge(x: number, y: number, z: number, s = 1): void {
+    const v = 0.85 + this.rng.next() * 0.3;
+    this.rng.pick(this.sedge).add(this.m(x, y - 0.02, z, s, this.rng.next() * 6.28), new THREE.Color(v, v, v));
   }
 
   /** `lean` = yaw of the lean (0 = leaning towards -Z / inland). */
