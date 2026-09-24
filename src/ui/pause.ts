@@ -373,33 +373,64 @@ export class SavesScreen extends Screen {
  * HUD never appear in it) into localStorage `hearthvale.thumb.<slot>` for the save cards.
  */
 export function installSaveThumbs(game: Game, mirrorSlot: () => string | null): void {
+  /** Render a fresh frame and grab a 320×180 JPEG; null when the frame is black (sleep fade, map swap, shader compile). */
+  const grab = (): string | null => {
+    // Force a real render even while menus throttle the backdrop (the buffer is only valid right after one).
+    const rc = game.rc as unknown as { backdropHz?: number };
+    const hz = rc.backdropHz;
+    if (hz !== undefined) rc.backdropHz = 0;
+    game.rc.render(0, game.time);
+    if (hz !== undefined) rc.backdropHz = hz;
+    const src = game.rc.renderer.domElement;
+    const c = document.createElement('canvas');
+    c.width = 320;
+    c.height = 180;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    if (!g) return null;
+    // Centre-crop to 16:9.
+    const sw = src.width;
+    const sh = src.height;
+    const k = Math.min(sw / 16, sh / 9);
+    g.drawImage(src, (sw - k * 16) / 2, (sh - k * 9) / 2, k * 16, k * 9, 0, 0, 320, 180);
+    // Mean luma on a sparse grid: an overnight autosave lands mid-fade (or while the next morning's shaders
+    // compile), which reads back as a black card.
+    const px = g.getImageData(0, 0, 320, 180).data;
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < px.length; i += 4 * 37) {
+      sum += px[i]! * 0.3 + px[i + 1]! * 0.59 + px[i + 2]! * 0.11;
+      n++;
+    }
+    if (sum / Math.max(1, n) < 14) return null;
+    const url = c.toDataURL('image/jpeg', 0.72);
+    return url.length < 200 ? null : url;
+  };
+  const store = (slot: string, url: string): void => {
+    localStorage.setItem(`hearthvale.thumb.${slot}`, url);
+    const m = slot === 'auto' ? mirrorSlot() : null;
+    if (m) localStorage.setItem(`hearthvale.thumb.${m}`, url);
+  };
+  let retry = 0;
   game.events.on('save:after', ({ slot }) => {
     if (slot === 'smoke') return;
-    try {
-      // Force a real render even while menus throttle the backdrop (the buffer is only valid right after one).
-      const rc = game.rc as unknown as { backdropHz?: number };
-      const hz = rc.backdropHz;
-      if (hz !== undefined) rc.backdropHz = 0;
-      game.rc.render(0, game.time);
-      if (hz !== undefined) rc.backdropHz = hz;
-      const src = game.rc.renderer.domElement;
-      const c = document.createElement('canvas');
-      c.width = 320;
-      c.height = 180;
-      const g = c.getContext('2d');
-      if (!g) return;
-      // Centre-crop to 16:9.
-      const sw = src.width;
-      const sh = src.height;
-      const k = Math.min(sw / 16, sh / 9);
-      g.drawImage(src, (sw - k * 16) / 2, (sh - k * 9) / 2, k * 16, k * 9, 0, 0, 320, 180);
-      const url = c.toDataURL('image/jpeg', 0.72);
-      if (url.length < 200) return;
-      localStorage.setItem(`hearthvale.thumb.${slot}`, url);
-      const m = slot === 'auto' ? mirrorSlot() : null;
-      if (m) localStorage.setItem(`hearthvale.thumb.${m}`, url);
-    } catch {
-      /* storage full / tainted canvas: the painted season card stands in */
-    }
+    window.clearTimeout(retry);
+    let tries = 0;
+    let waits = 0;
+    const attempt = (): void => {
+      // Overnight: the day-end card is still up — wait for the farmer to wake before grabbing the frame.
+      if (tries > 0 && game.hud.openPanelName && ++waits < 900) {
+        retry = window.setTimeout(attempt, 750);
+        return;
+      }
+      try {
+        const url = grab();
+        if (url) return store(slot, url);
+      } catch {
+        return; /* storage full / tainted canvas: the painted season card stands in */
+      }
+      // Dark frame: try again once the morning is on screen (the card keeps its last good picture meanwhile).
+      if (++tries < 40) retry = window.setTimeout(attempt, 750);
+    };
+    attempt();
   });
 }

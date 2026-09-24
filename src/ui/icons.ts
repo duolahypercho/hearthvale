@@ -883,25 +883,20 @@ const diamond: Painter = (p) => {
 
 const amethyst: Painter = (p) => {
   shadow(p, 22);
-  // Split geode: rough shell, pale inner band, violet crystals pointing into a dark heart.
-  p.shape('M8 36 C6 20 18 8 32 8 C48 8 58 20 57 36 C56 50 46 58 32 58 C18 58 9 50 8 36 Z', p.rad(['#b8a894', '#8a7a66', '#5a4c3e'], 0.35, 0.3, 0.9), 2.6);
-  p.line('M12 26 L16 28 M50 18 L46 22 M52 44 L48 42 M20 52 L22 48', '#4a3c2e', 1.3, 0.7);
-  p.ellipse(32, 34, 19, 18, '#efe6f4', true, 1);
-  p.ellipse(32, 34, 16, 15, p.rad(['#f6e8ff', '#b070ff', '#5a2a9a'], 0.5, 0.5, 0.7), false);
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2 + 0.2;
-    const ox = 32 + Math.cos(a) * 15;
-    const oy = 34 + Math.sin(a) * 14;
-    const ix = 32 + Math.cos(a) * 6.5;
-    const iy = 34 + Math.sin(a) * 6;
-    const px = Math.cos(a + Math.PI / 2) * 3.4;
-    const py = Math.sin(a + Math.PI / 2) * 3.4;
-    p.raw(`<path d="M${(ox + px).toFixed(1)} ${(oy + py).toFixed(1)} L${ix.toFixed(1)} ${iy.toFixed(1)} L${(ox - px).toFixed(1)} ${(oy - py).toFixed(1)} Z" fill="${i % 2 ? '#c890ff' : '#9a52e8'}" stroke="#4a1e7a" stroke-width=".8"/>`);
-    p.line(`M${ox.toFixed(1)} ${oy.toFixed(1)} L${ix.toFixed(1)} ${iy.toFixed(1)}`, '#f4e0ff', 0.8, 0.7);
-  }
-  p.ellipse(32, 34, 5.5, 5, '#2a0e4a', false);
-  p.glint(26, 28, 2.4, 1.2, -30, 0.9);
-  sparkle(p, 52, 12, 0.8);
+  // Split geode bowl: rough shell rim, a pale chalcedony band, and a violet crystal cluster growing out of it
+  // (reads as "purple crystals" at toolbar size — the old full-disc geode looked like an eye).
+  p.ellipse(32, 41, 24, 8, p.rad(['#8a7a66', '#5a4c3e'], 0.5, 0.4, 0.9), true);
+  p.ellipse(32, 41, 20.5, 6, '#efe6f4', false);
+  p.ellipse(32, 41.5, 17.5, 4.6, p.rad(['#d8b0ff', '#7a3ac8'], 0.5, 0.5, 0.8), false);
+  const f: [string, string, string] = ['#f2dcff', '#b070f0', '#6a2ab0'];
+  prism(p, 20, 44, 10, 13, -26, f);
+  prism(p, 44, 44, 9, 11, 24, f);
+  prism(p, 32, 45, 13, 22, -3, f);
+  p.shape('M8 41 C8 52 18 58 32 58 C46 58 56 52 56 41 C50 46 42 48 32 48 C22 48 14 46 8 41 Z', p.lin(['#b8a894', '#8a7a66', '#5a4c3e'], 0, 0, 0, 1), 2.6);
+  p.fill('M11 44 C16 48 24 50 32 50 C40 50 48 48 53 44 C49 49 41 51 32 51 C23 51 15 49 11 44 Z', '#e8dcf0', 0.85);
+  p.line('M16 53 L19 51 M44 55 L46 52 M28 56 L30 54', '#4a3c2e', 1.3, 0.7);
+  sparkle(p, 50, 12, 0.9);
+  sparkle(p, 14, 20, 0.55);
 };
 
 const ruby: Painter = (p) => {

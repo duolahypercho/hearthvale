@@ -15,7 +15,8 @@ import './newgame.css';
 import type { Game } from '../core/game';
 import { Screen, el, sfx, replay, escapeHtml } from './kit';
 import { ICONS } from './icons';
-import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, DEFAULT_LOOK, randomLook, type FarmerLook, type HairStyle, type HatStyle } from '../entities/remote-look';
+import { farmerAvatar } from './avatar';
+import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, DEFAULT_LOOK, randomLook, sameLook, type FarmerLook, type HairStyle, type HatStyle } from '../entities/remote-look';
 import { journal, setJournal, JOURNAL_SLOTS, type PetChoice } from './profile';
 import { beginNewGame } from './title';
 
@@ -31,6 +32,14 @@ const PETS: { species: 'dog' | 'cat'; variant: number; label: string; name: stri
   { species: 'cat', variant: 0, label: 'Ginger tabby', name: 'Tuppence' },
   { species: 'cat', variant: 1, label: 'Grey tabby', name: 'Pewter' },
 ];
+
+/** Ready-made farmers for the "Quick looks" strip: the house presets, the default farmer and two seeded extras. */
+const QUICK_LOOKS: FarmerLook[] = (() => {
+  let seed = 7;
+  const rand = (): number => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  return [DEFAULT_LOOK, ...PRESET_LOOKS, randomLook(rand), randomLook(rand)].slice(0, 6);
+})();
+const QUICK_BG: [string, string][] = [['#fbe6c4', '#f0b870'], ['#ffe0e4', '#f0a0b0'], ['#d8ecff', '#90c0e8'], ['#e4f4d8', '#a0d080'], ['#efe0ff', '#b8a0e0'], ['#fff2c8', '#e8c860']];
 
 const FARM_IDEAS = ['Honeybrook', 'Thistledown', 'Willowmere', 'Bramblegate', 'Cloverhill', 'Foxglove Hollow', 'Mossy Acre', 'Lanternfield'];
 
@@ -115,6 +124,7 @@ export class NewGameScreen extends Screen {
   private from = { yaw: 0, pitch: 36, distance: 30, ox: 0, oy: 0, oz: 0 };
   private plate!: HTMLElement;
   private optsBox!: HTMLElement;
+  private quickBox!: HTMLElement;
   private petBox!: HTMLElement;
   private slotBox!: HTMLElement;
 
@@ -174,7 +184,8 @@ export class NewGameScreen extends Screen {
 
     const look = el('section', 'ng-sec ng-look', `<h3><span>Appearance</span></h3>`);
     this.optsBox = el('div', 'ng-opts');
-    look.appendChild(this.optsBox);
+    this.quickBox = el('div', 'ng-quick');
+    look.append(this.optsBox, el('div', 'ng-sub', '<span>Quick looks</span><small>tap one, then fine-tune</small>'), this.quickBox);
 
     const side = el('div', 'ng-side');
     const petSec = el('section', 'ng-sec', `<h3>${ICONS.paw}<span>Companion</span></h3>`);
@@ -204,6 +215,7 @@ export class NewGameScreen extends Screen {
     body.append(who, mid, go);
     this.root.append(stage, f);
     this.renderOpts();
+    this.renderQuick();
     this.renderPets();
     this.renderSlots(slots);
     this.renderPlate();
@@ -294,6 +306,24 @@ export class NewGameScreen extends Screen {
     this.restoreFocus(this.optsBox, focusIdx);
   }
 
+  private renderQuick(): void {
+    const focusIdx = this.focusIndex(this.quickBox);
+    this.quickBox.innerHTML = '';
+    QUICK_LOOKS.forEach((l, i) => {
+      const b = el('button', `ng-face${sameLook(l, this.look) ? ' on' : ''}`, farmerAvatar(QUICK_BG[i % QUICK_BG.length], l));
+      b.dataset.nav = '';
+      b.setAttribute('aria-label', `Quick look ${i + 1}`);
+      b.addEventListener('click', () => {
+        this.look = { ...l };
+        sfx(this.game, 'toggle');
+        this.commitLook();
+        replay(this.quickBox.querySelector('.ng-face.on'), 'bump');
+      });
+      this.quickBox.appendChild(b);
+    });
+    this.restoreFocus(this.quickBox, focusIdx);
+  }
+
   private renderPets(): void {
     const focusIdx = this.focusIndex(this.petBox);
     this.petBox.innerHTML = '';
@@ -349,6 +379,7 @@ export class NewGameScreen extends Screen {
 
   private commitLook(): void {
     this.renderOpts();
+    this.renderQuick();
     this.applyLook();
   }
 

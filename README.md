@@ -79,9 +79,10 @@ src/
                          (painted night valley, quiet-day vignette; `ui=dayend:quiet`) · mapscreen.ts + mapart.ts (watercolour
                          valley: paper grain, washes, fields, Poisson woods, villager heads, season palettes) ·
                          settings.ts (quality + live fps, fullscreen, frame limit 30/60/vsync, FPS chip, volumes, UI size, reduce
-                         motion, 24h clock, key rebinding) · pause.ts (+ save slots with real world snapshots, overwrite / delete
-                         confirms) · newgame.ts (New Journal: in-world character creator — name, farm, look via the co-op profile,
-                         pet, journal slot) · profile.ts (journal: name / farm / pet / slot, saved per slot) · menutabs.ts (one
+                         motion, 24h clock, key rebinding) · pause.ts (+ save slots with real world snapshots — a dark frame (overnight
+                         fade) is skipped and re-grabbed once the morning is on screen — overwrite / delete confirms) · newgame.ts
+                         (New Journal: in-world character creator — name, farm, look via the co-op profile, six Quick looks, pet,
+                         journal slot) · profile.ts (journal: name / farm / pet / slot, saved per slot) · menutabs.ts (one
                          fixed 1140×690 game-menu frame; tab swaps cross-fade the page only) · `place:<item>` panel · icons.ts (procedural SVG item icons; `registerItemIcon` for other teams) · itemtip.ts ·
                          demo-kit.ts (stocks the backpack for ui-* demos) · dialogue.ts · portraits.ts · fishing.ts · journal*
   systems/               economy (gold), energy, season, weather, inventory, farming, shipping, critters, npcs, warps,

@@ -121,7 +121,9 @@ export class TitlePanel extends Screen {
       ['settings', 'Options', 'gear', 'Sound & graphics', true],
       ['credits', 'Credits', 'quill', 'Who made this', true],
     ];
-    items.forEach(([a, label, icon, sub, enabled], i) => {
+    // First launch: no journal yet, so Continue / Load would only be dead planks. Leave them out and let the
+    // live buttons centre themselves (they appear as soon as a journal exists).
+    items.filter((it) => it[4]).forEach(([a, label, icon, sub, enabled], i) => {
       const b = el('button', `ts-btn${a === 'new' ? ' main is-default' : ''}${enabled ? '' : ' off'}`, `<span class="ic">${ICONS[icon] ?? ''}</span><span class="tx"><b>${label}</b><small>${sub}</small></span>`);
       b.dataset.nav = '';
       b.dataset.a = a;

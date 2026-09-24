@@ -574,7 +574,7 @@ body.u-calm #ui-root *::after {
 }
 .shop-bubble {
   position: relative;
-  margin-top: 14px;
+  margin-top: 21px;
   width: 100%;
   box-sizing: border-box;
   min-height: 96px;
@@ -4402,7 +4402,7 @@ svg.valley {
   min-height: 104px;
 }
 .shop-have {
-  margin-top: 16px;
+  margin-top: 12px;
   grid-template-columns: 56px 1fr;
   grid-template-areas: 'ic hv' 'fr fr';
   row-gap: 8px;
