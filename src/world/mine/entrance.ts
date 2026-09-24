@@ -44,10 +44,12 @@ vec3 hvCliffTex(vec2 tp) {
   // thinning below ~2 px widens + fades into the cavity shading instead of breaking into dashes.
   float open = smoothstep(0.42, 0.66, hvNoise(floor(wq) * 0.41 + st.z * 5.0 + tp * 0.18));
   float aa = fwidth(edge) * 2.0;
-  float crack = (1.0 - smoothstep(0.02, 0.09 + aa, edge)) * open * (0.09 / (0.09 + aa * 2.0));
+  // Joints only where they are several pixels wide: thinner ones fade out entirely (at the
+  // gameplay zoom they rasterised as dotted hairlines tracing every slab border).
+  float crack = (1.0 - smoothstep(0.02, 0.09 + aa, edge)) * open * smoothstep(0.05, 0.015, aa);
   float cavity = (1.0 - smoothstep(0.0, 0.3, edge)) * (0.35 + 0.65 * open);
   float aa2 = fwidth(edge2) * 2.0;
-  float craze = (1.0 - smoothstep(0.0, 0.035 + aa2, edge2)) * smoothstep(0.5, 0.75, hvNoise(tp * 0.8)) * (1.0 - cavity) * (0.035 / (0.035 + aa2 * 2.0));
+  float craze = (1.0 - smoothstep(0.0, 0.035 + aa2, edge2)) * smoothstep(0.5, 0.75, hvNoise(tp * 0.8)) * (1.0 - cavity) * smoothstep(0.02, 0.006, aa2);
   float grit = hvNoise(tp * 5.0) * 0.55 + hvNoise(tp * 16.0) * 0.45;
   float h = smoothstep(0.0, 0.45, edge) * 0.12 * (0.4 + 0.6 * open) + (st.z - 0.5) * 0.05 + hvNoise(tp * 5.0) * 0.02 - craze * 0.012;
   float lit = mix(1.1, 0.86, smoothstep(-0.5, 0.5, st.w));

@@ -130,7 +130,8 @@ export const FG_FADE = { uFgH: { value: 1080 } };
 const fgCache = new Map<THREE.Material, THREE.Material>();
 /**
  * Clone of a (possibly shared library) material with its shader patches, plus a screen-space
- * dither fade over the bottom ~18 % of the frame. Cached per source material.
+ * fade into the dark over the bottom ~18 % of the frame (foreground rubble recedes instead of
+ * crowding the HUD edge). Cached per source material.
  */
 function fgFade(src: THREE.Material): THREE.Material {
   const hit = fgCache.get(src);
@@ -146,13 +147,13 @@ function fgFade(src: THREE.Material): THREE.Material {
   patchMaterial(c, 'mine-fg-fade', (shader) => {
     shader.uniforms.uFgH = FG_FADE.uFgH;
     let fs = before(shader.fragmentShader, 'void main() {', 'uniform float uFgH;');
+    // (was a screen-door dither: in a still it printed a visible stipple mesh over the boulders)
     fs = after(
       fs,
-      '#include <clipping_planes_fragment>',
+      '#include <dithering_fragment>',
       `{
-        float fgk = 1.0 - smoothstep(uFgH * 0.07, uFgH * 0.19, gl_FragCoord.y);
-        float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-        if (ign < fgk * 0.88) discard;
+        float fgk = 1.0 - smoothstep(uFgH * 0.04, uFgH * 0.2, gl_FragCoord.y);
+        gl_FragColor.rgb *= 1.0 - fgk * 0.6;
       }`,
     );
     shader.fragmentShader = fs;
@@ -408,8 +409,12 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
           const x = d.x + Math.cos(a) * dd;
           const z = d.z + Math.sin(a) * dd;
           b.add('stone', g, mat(x, heightAt(x, z) - 0.05, z, 0, r.next(), 0), { tint: 0x3a3032, aoWorld: (p) => 0.5 + 0.5 * THREE.MathUtils.smoothstep(p.y - y, 0, 1.0) });
-          const topc = new THREE.CylinderGeometry(0.2, 0.2, 0.03, 6);
-          glowB.add(glowMaterial(), topc, mat(x, heightAt(x, z) + hgt - 0.03, z, 0, r.next(), 0), { tint: 0x5a1a08 });
+          // Bevelled basalt crown (a flat red hex read as plastic) with a small ember heart.
+          const ry = r.next();
+          const topc = new THREE.CylinderGeometry(0.15, 0.205, 0.07, 6);
+          b.add('stone', topc, mat(x, heightAt(x, z) - 0.05 + hgt + 0.035, z, 0, ry, 0), { tint: 0x2c2426 });
+          const ember = new THREE.CircleGeometry(0.075, 6).rotateX(-Math.PI / 2);
+          glowB.add(glowMaterial(), ember, mat(x, heightAt(x, z) - 0.05 + hgt + 0.072, z, 0, ry, 0), { tint: 0x3a1004 });
         }
         break;
       }
@@ -837,8 +842,15 @@ function wallDressing(L: FloorLayout, r: Rng, heightAt: H, surfaceAt: H, B: Buil
         g.setAttribute('color', new THREE.BufferAttribute(col, 3));
         const th = Math.atan2(tz - fz, hh);
         B.rockB.add(obsidianMaterial(), g.toNonIndexed(), mat(x, by + hh / 2 - 0.05, (fz + tz) / 2 + 0.22, th, r.next(), 0));
-        const capG = new THREE.CylinderGeometry(0.21, 0.21, 0.03, 6);
-        B.glowB.add(glowMaterial(), capG, mat(x, by + hh - 0.04, tz + 0.22 + Math.sin(th) * 0.02, th, r.next(), 0), { tint: 0x4a1406 });
+        // Bevelled obsidian crown (a flat glowing red hex cap read as plastic) + a small ember heart.
+        const ry = r.next();
+        const capG = new THREE.CylinderGeometry(0.15, 0.215, 0.08, 6);
+        const cc = new Float32Array(capG.attributes.position!.count * 3);
+        for (let i = 0; i < cc.length; i += 3) cc.set([0.2, 0.16, 0.24], i);
+        capG.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+        B.rockB.add(obsidianMaterial(), capG.toNonIndexed(), mat(x, by + hh - 0.02, tz + 0.22 + Math.sin(th) * 0.02, th, ry, 0));
+        const ember = new THREE.CircleGeometry(0.07, 6).rotateX(-Math.PI / 2);
+        B.glowB.add(glowMaterial(), ember, mat(x, by + hh + 0.022, tz + 0.22 + Math.sin(th) * 0.03, th, ry, 0), { tint: 0x3a0e04 });
       }
       const seams = 1 + r.int(0, 1);
       for (let k = 0; k < seams; k++) {

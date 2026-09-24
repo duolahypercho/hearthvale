@@ -125,7 +125,8 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     wallValue: 0.72,
     // Deep navy-teal ice sheet (value ≈ 0.2): the lantern and the crystals carve the light pools.
     floor: [0x46708a, 0x345a74, 0x1a3044],
-    rock: [0x9fb4c8, 0x8aa2ba, 0xb8cadc],
+    // Blue-slate boulders (mid value): the rime caps and frost rim carry the ice read, not a white body.
+    rock: [0x4a6682, 0x3f5a76, 0x5a7692],
     crystals: [0x5fe8ff, 0x8fb8ff, 0xc8f4ff],
     crystalCount: 18,
     hemi: [0x6f98d0, 0x101c30, 0.55],

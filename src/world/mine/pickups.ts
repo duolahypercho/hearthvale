@@ -176,6 +176,9 @@ export class Pickups {
   /** Seconds before loot starts flying to a collector / radius (tiles) that pulls it in. */
   static readonly MAGNET_DELAY = 0.5;
   static readonly MAGNET_R = 2.5;
+  /** Live pull radius (the mine-combat demo arena widens it so its farmer, who never walks, still
+   * vacuums every drop instead of leaving a carpet of gel). */
+  magnetR = Pickups.MAGNET_R;
   // Instanced rendering: ONE draw per loot kind + one for every ground ring + one for every halo
   // (was 3 draws per drop: a pile of monster loot blew the frame's draw-call budget).
   private pools = new Map<string, ItemPool>();
@@ -269,7 +272,7 @@ export class Pickups {
       const fy = this.heightAt(p.pos.x, p.pos.z);
       if (canCollect && p.age > Pickups.MAGNET_DELAY && !p.magnet) {
         let best: Collector | null = null;
-        let bd = Pickups.MAGNET_R;
+        let bd = this.magnetR;
         for (const c of collectors) {
           const dd = Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z);
           if (dd < bd) {
@@ -292,7 +295,7 @@ export class Pickups {
       const dz = player.z - p.pos.z;
       const d = Math.hypot(dx, dz);
       if (p.magnet) {
-        const pull = 14 + (2.5 - Math.min(2.5, d)) * 10;
+        const pull = 14 + (2.5 - Math.min(2.5, d)) * 10 + Math.max(0, d - 2.5) * 6;
         p.vel.x += (dx / (d + 1e-4)) * pull * dt;
         p.vel.z += (dz / (d + 1e-4)) * pull * dt;
         p.vel.x *= Math.exp(-dt * 3);

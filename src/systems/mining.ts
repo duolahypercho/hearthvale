@@ -382,27 +382,32 @@ export class MiningSystem implements System, MiningApi {
     let best: { x: number; z: number; s: number } | null = null;
     for (const rk of m.rocks?.rocks ?? []) {
       if (!rk.alive) continue;
-      const sx = rk.spec.x - 1;
-      const sz = rk.spec.z;
-      if (!m.grid.isWalkable(sx, sz)) continue;
+      // Stand just NORTH of the rock, facing down: the farmer faces the camera and the pick comes
+      // down in front of them onto the rock (never a back-of-the-hat swing).
+      const sx = rk.spec.x;
+      const sz = rk.spec.z - 1;
+      if (!m.grid.isWalkable(sx, sz) || m.rockAt(sx, sz)) continue;
       const s = Math.hypot(sx + 0.5 - p.x, sz + 0.5 - p.z) - (rk.spec.ore ? 2.5 : 0);
       if (!best || s < best.s) best = { x: rk.spec.x, z: rk.spec.z, s };
     }
     if (!best) return;
-    this.game.player.teleport(best.x - 0.5, best.z + 0.5);
+    this.game.player.teleport(best.x + 0.5, best.z - 0.42);
+    // Nothing else crowding the swing: rocks right beside the farmer / pick would hide the impact.
+    const crowd = (m.rocks?.rocks ?? []).filter((r) => r.alive && !(r.spec.x === best!.x && r.spec.z === best!.z) && Math.hypot(r.pos.x - (best!.x + 0.5), r.pos.z - (best!.z - 0.4)) < 1.4);
+    m.removeRocks(crowd.map((r) => r.spec.z * FLOOR_W + r.spec.x));
     m.freezeAI = true;
     const tx = best.x;
     const tz = best.z;
     this.freezeOnImpact = still;
     // After the demo applies its own facing (same tick), turn to the rock; then chop on a loop so
     // any capture sequence catches a full swing (a still freezes the first impact, chips and all).
-    setTimeout(() => this.game.player.setFacing('right'), 0);
+    setTimeout(() => this.game.player.setFacing('down'), 0);
     const loop = (): void => {
       if (this.mine() !== m) return;
       const rk = m.rockAt(tx, tz);
       if (!rk) return;
       rk.hp = Math.max(rk.hp, 2);
-      this.game.player.setFacing('right');
+      this.game.player.setFacing('down');
       this.usePickaxe(tx, tz);
       if (!still) setTimeout(loop, 1500);
     };
@@ -446,6 +451,10 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
       if (L.rocks.some((r) => Math.hypot(r.x + 0.5 - cx, r.z + 0.5 - cz) < 1.15)) continue;
       if (L.crystals.some((c) => room(c.x, c.z) < 1.3)) continue;
       if (L.decor.some((d) => d.solid && Math.hypot(d.x - cx, d.z - cz) < 1.2)) continue;
+      // Combat arena: no timber shoring within reach (its cross-beam cuts through the farmer once a
+      // fight shoves them about), and open floor to both sides so side-on swings read.
+      if (open && L.decor.some((d) => (d.kind === 'post' || d.kind === 'lanternPost') && Math.hypot(d.x - cx, d.z - cz) < 3.2)) continue;
+      if (open && [-2, -1, 1, 2].some((dx) => !m.grid.isWalkable(x + dx, z))) continue;
       if (!m.clearAt(cx, cz, 0.6)) continue;
       let s = 0;
       for (const r of L.rocks) {

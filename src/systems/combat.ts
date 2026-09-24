@@ -74,7 +74,7 @@ export class CombatSystem implements System, HealthApi {
   private tip = new THREE.Vector3();
   private base = new THREE.Vector3();
   /** mine-combat demo autopilot. */
-  private auto: { t: number; min: number } | null = null;
+  private auto: { t: number; min: number; home: THREE.Vector2 } | null = null;
 
   init(game: Game): void {
     this.game = game;
@@ -106,6 +106,8 @@ export class CombatSystem implements System, HealthApi {
     });
     game.events.on('demo:stage', ({ name }) => {
       this.auto = null;
+      const m = this.mine();
+      if (m) m.pickups.magnetR = 2.5;
       if (name === 'mine-combat') this.stageCombat();
     });
   }
@@ -295,8 +297,12 @@ export class CombatSystem implements System, HealthApi {
       // Staged still: hold the impact frame (pose, crescent, flash, numbers) indefinitely.
       acts.frozen = true;
       this.arc.pin();
-      m.freezeAI = true;
-      setTimeout(() => (m.freezeFx = true), 50);
+      // Let the knockback carry the victim ~1 tile clear of the blade (it overlapped the farmer on
+      // the impact frame) before the arena freezes; the pose and crescent hold from the impact.
+      setTimeout(() => {
+        m.freezeAI = true;
+        m.freezeFx = true;
+      }, 75);
       this.numbers.hold = true;
       for (const h of hits) h.monster.holdFlash = true;
       this.auto = null;
@@ -537,8 +543,11 @@ export class CombatSystem implements System, HealthApi {
     }
     this.set(MAX_HP * 0.78);
     m.live = true;
+    // The staged farmer never walks: loot streams in from anywhere in the arena (no gel carpet).
+    m.pickups.magnetR = 9;
     this.populate(m, true);
-    this.auto = { t: 0.9, min: 62 };
+    const p = this.game.player.position;
+    this.auto = { t: 0.9, min: 62, home: new THREE.Vector2(p.x, p.z) };
   }
 
   /** Keep a small pack of monsters around the player in the demo arena. */
@@ -586,6 +595,20 @@ export class CombatSystem implements System, HealthApi {
     const a = this.auto!;
     a.t -= dt;
     const acts = mineActions(this.game.player);
+    // Knockback drifts the staged farmer; ease back to the framed spot between swings (so a long
+    // capture never ends with the farmer pinned under the wall shoring, out of the frame's centre).
+    const pp = this.game.player.position;
+    const off = Math.hypot(a.home.x - pp.x, a.home.y - pp.z);
+    if (!acts.active && this.push.lengthSq() < 0.05 && off > 0.35) {
+      const step = Math.min(off, dt * 2.2);
+      const nx = pp.x + ((a.home.x - pp.x) / off) * step;
+      const nz = pp.z + ((a.home.y - pp.z) / off) * step;
+      if (m.grid.isWalkable(Math.floor(nx), Math.floor(nz))) {
+        pp.x = nx;
+        pp.z = nz;
+        pp.y = m.heightAt(nx, nz);
+      }
+    }
     if (a.t > 0 || acts.active) return;
     const p = this.game.player.position;
     const near = m.monsters.some((x) => x.alive && Math.hypot(x.pos.x - p.x, x.pos.z - p.z) < REACH + 1);

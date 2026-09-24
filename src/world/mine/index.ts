@@ -141,6 +141,8 @@ export function setPendingMineFloor(n: number): void {
 
 export class MineMap implements GameMap {
   readonly id = 'mine';
+  /** Underground: the weather system keeps rain / snow / petals out (systems/weather). */
+  readonly covered = true;
   title = 'The Hollowdeep';
   readonly grid = new TileGrid(FLOOR_W, FLOOR_D);
   readonly root = new THREE.Group();
@@ -867,6 +869,7 @@ export class MineMap implements GameMap {
       this.ctx.player = player;
       this.ctx.playerTargetable = this.playerTargetable && !this.freezeAI;
     }
+    this.cullMonsters(game.rc.camera);
     // Separation between monsters.
     for (let i = 0; i < this.monsters.length; i++) {
       const a = this.monsters[i]!;
@@ -1013,6 +1016,25 @@ export class MineMap implements GameMap {
     FG_FADE.uFgH.value = h;
     this.lighting.update(dt, time, player);
     this.fx.update(this.freezeFx ? 0 : dt, time, h, game.rc.rig.focus, this.lighting.fill.position);
+  }
+
+  private readonly frustum = new THREE.Frustum();
+  private readonly pv = new THREE.Matrix4();
+  private readonly cullSphere = new THREE.Sphere();
+
+  /**
+   * Off-screen monsters skip every pass (main, shadow, AO): a deep floor's whole pack costs draw
+   * calls only for the ones in (or just outside) the frame. Uses last frame's camera.
+   */
+  private cullMonsters(cam: THREE.Camera): void {
+    this.pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.pv);
+    const s = this.cullSphere;
+    s.radius = 2.2;
+    for (const m of this.monsters) {
+      s.center.set(m.pos.x, m.pos.y + 0.8, m.pos.z);
+      m.root.visible = this.frustum.intersectsSphere(s);
+    }
   }
 
   dispose(): void {

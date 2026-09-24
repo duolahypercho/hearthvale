@@ -183,7 +183,7 @@ function kitFor(biome: Biome, r: Rng): Kit {
   if (k) return k;
   const def = BIOMES[biome];
   const cap = biome === 'ice' ? 0xf4faff : biome === 'lava' ? 0x6e3024 : undefined;
-  const capAmt = biome === 'ice' ? 0.55 : 0.35;
+  const capAmt = biome === 'ice' ? 0.28 : 0.35;
   k = { body: [], big: [], coal: [], nuggets: new Map() };
   const soft = { detail: 2, smooth: 0.62, lumps: 0.16, crevice: 0.55 };
   for (let v = 0; v < VARIANTS; v++) k.body.push(facetRock(r, 0.44, def.rock[v % def.rock.length]!, { ...soft, chunky: v % 2 === 1, squash: 0.74, cap, capAmt, rim: 0.5 }));

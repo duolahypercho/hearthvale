@@ -181,7 +181,7 @@ export function stoneMaterial(veins: boolean, scale = 1, frost = false): THREE.M
           // thin top edges (fake subsurface), sparkling rime on the up-facing surfaces.
           vec3 fnW = normalize(inverseTransformDirection(normal, viewMatrix));
           float frr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.2);
-          totalEmissiveRadiance += vec3(0.35, 0.62, 1.0) * frr * 0.55 + vec3(0.2, 0.45, 0.7) * smoothstep(0.3, 0.9, fnW.y) * 0.1;
+          totalEmissiveRadiance += vec3(0.35, 0.62, 1.0) * frr * 0.45 + vec3(0.2, 0.45, 0.7) * smoothstep(0.3, 0.9, fnW.y) * 0.1;
           vec3 rc = floor(vStP * 5.0);
           float rh = hvS_h(rc + 9.1);
           float rd = smoothstep(0.14, 0.0, length(fract(vStP * 5.0) - 0.5 - (vec3(hvS_h(rc), hvS_h(rc + 2.0), hvS_h(rc + 4.0)) - 0.5) * 0.6));

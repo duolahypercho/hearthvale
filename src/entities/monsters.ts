@@ -163,6 +163,74 @@ function mergeParts(parent: THREE.Object3D, parts: THREE.Mesh[], mat?: THREE.Mat
   return out;
 }
 
+/** Bake a part's material colour into a per-vertex colour attribute. */
+function bakeColor(g: THREE.BufferGeometry, m: THREE.Mesh): void {
+  const c = ((m.material as THREE.MeshBasicMaterial).color ?? new THREE.Color(1, 1, 1)).clone();
+  const n = g.attributes.position!.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+}
+
+/**
+ * Draw-call diet for ARTICULATED parts (legs, claws, eye stalks, tails): bake meshes hanging off
+ * several animated pivots into ONE rigidly skinned mesh. Every vertex is bound 100 % to its nearest
+ * pivot in `bones` (or to `host` itself), so the pivots' existing rotation / scale animation keeps
+ * working untouched. `mat` given = shared lit material (the parts' own colours are baked into
+ * vertex colours when `mat.vertexColors` is on); otherwise one unlit vertex-coloured material.
+ * Call while every pivot is at rest scale (before any reveal / squash is applied).
+ */
+function rigidSkin(host: THREE.Object3D, bones: THREE.Object3D[], parts: THREE.Mesh[], mat?: THREE.Material): THREE.SkinnedMesh {
+  host.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(host.matrixWorld).invert();
+  const geos: THREE.BufferGeometry[] = [];
+  const bake = !mat || (mat as THREE.MeshStandardMaterial).vertexColors;
+  const owned = new Set<THREE.Material>();
+  for (const m of parts) {
+    let bi = bones.length;
+    for (let o: THREE.Object3D | null = m.parent; o && o !== host; o = o.parent) {
+      const k = bones.indexOf(o);
+      if (k >= 0) {
+        bi = k;
+        break;
+      }
+    }
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    if (!g.attributes.normal) g.computeVertexNormals();
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
+    if (bake) bakeColor(g, m);
+    const n = g.attributes.position!.count;
+    const si = new Uint16Array(n * 4);
+    const sw = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      si[i * 4] = bi;
+      sw[i * 4] = 1;
+    }
+    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
+    g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+    geos.push(g);
+    m.removeFromParent();
+    m.geometry.dispose();
+    const mm = m.material as THREE.Material;
+    if (mm !== mat) owned.add(mm);
+  }
+  const merged = mergeGeometries(geos)!;
+  for (const g of geos) g.dispose();
+  const out = new THREE.SkinnedMesh(merged, mat ?? new THREE.MeshBasicMaterial({ vertexColors: true }));
+  host.add(out);
+  out.updateMatrixWorld(true);
+  out.bind(new THREE.Skeleton([...bones, host] as THREE.Bone[]));
+  merged.computeBoundingSphere();
+  // Generous: the limbs swing around the rest pose (never culled while partly on screen).
+  out.boundingSphere = merged.boundingSphere!.clone();
+  out.boundingSphere.radius += 0.35;
+  // Only the parts' private materials go; ones still used elsewhere on the rig stay (monster mats
+  // are disposed with the rig).
+  for (const mm of owned) if (!mm.userData.uFlash) mm.dispose();
+  return out;
+}
+
 export abstract class Monster {
   readonly root = new THREE.Group();
   readonly pos = new THREE.Vector3();
@@ -383,6 +451,7 @@ export abstract class Monster {
         if (m.geometry !== blobGeo) m.geometry.dispose();
         const mm = m.material as THREE.Material;
         mm.dispose();
+        (m as THREE.SkinnedMesh).skeleton?.dispose();
       }
     });
   }
@@ -867,6 +936,25 @@ export class Crab extends Monster {
       this.body.add(claw);
     }
     this.root.add(this.body);
+    {
+      // Draw-call diet (was 26 meshes): legs + knuckles + claws + stalks as ONE rigidly skinned lit
+      // mesh (leg / joint colours baked per vertex), the four eye parts as one unlit skinned mesh.
+      const limbMat = monsterMat(0xffffff, { rough: 0.48, clearcoat: true, rim: 0.45 });
+      limbMat.vertexColors = true;
+      this.mats.push(limbMat);
+      const bones: THREE.Object3D[] = [...this.legs, ...this.stalks, ...this.claws];
+      const lit: THREE.Mesh[] = [];
+      const face: THREE.Mesh[] = [];
+      for (const b of bones)
+        b.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          (m.material === legMat || m.material === jointMat ? lit : face).push(m);
+        });
+      const limbs = rigidSkin(this.body, bones, lit, limbMat);
+      limbs.castShadow = true;
+      rigidSkin(this.body, bones, face);
+    }
     this.root.rotation.y = r.next() * 6;
     this.applyReveal();
   }
@@ -1010,6 +1098,23 @@ export class Wisp extends Monster {
     this.body.add(this.shards);
     this.body.position.y = this.alt;
     this.root.add(this.body);
+    {
+      // Draw-call diet (was 14 meshes): the three orbiting shards as one mesh (one shadow caster),
+      // eyes + blush as one unlit mesh.
+      const shardParts: THREE.Mesh[] = [];
+      this.shards.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) shardParts.push(o as THREE.Mesh);
+      });
+      mergeParts(this.shards, shardParts, iceMat).castShadow = true;
+      const face: THREE.Mesh[] = [];
+      for (const c of [...this.body.children]) {
+        if (c === this.core || c === this.shards || c === this.halo) continue;
+        c.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) face.push(o as THREE.Mesh);
+        });
+      }
+      mergeParts(this.body, face);
+    }
     this.pulse = r.next() * 10;
   }
 
@@ -1112,9 +1217,9 @@ export class Wisp extends Monster {
  */
 export class Imp extends Monster {
   private body = new THREE.Group();
-  private belly: THREE.Mesh;
+  private belly: THREE.Object3D;
   private flame: THREE.Mesh;
-  private legs: THREE.Mesh[] = [];
+  private legs: THREE.Group[] = [];
   private tail: THREE.Group;
   private windup = -1;
   private fireCd: number;
@@ -1138,10 +1243,11 @@ export class Imp extends Monster {
     this.body.add(bodyM);
     const bellyMat = monsterMat(0xff8a2a, { rough: 0.4, emissive: 0xff6a10, emissiveI: 1.6, rim: 0.3 });
     this.mats.push(bellyMat);
-    this.belly = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), bellyMat);
-    this.belly.scale.set(1, 1.1, 0.5);
-    this.belly.position.set(0, 0.3, 0.19);
-    this.body.add(this.belly);
+    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), bellyMat);
+    belly.scale.set(1, 1.1, 0.5);
+    belly.position.set(0, 0.3, 0.19);
+    this.body.add(belly);
+    this.belly = belly;
     const hornMat = monsterMat(0xefe0c0, { rough: 0.5, rim: 0.3 });
     this.mats.push(hornMat);
     for (const sx of [-1, 1]) {
@@ -1152,9 +1258,9 @@ export class Imp extends Monster {
       const e = eye(0.05, 0xffd84a);
       e.position.set(sx * 0.085, 0.45, 0.22);
       this.body.add(e);
-      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.1, 3, 6), skin);
+      const leg = new THREE.Group();
+      leg.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.1, 3, 6), skin));
       leg.position.set(sx * 0.12, 0.1, 0);
-      leg.castShadow = true;
       this.legs.push(leg);
       this.body.add(leg);
       const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.04, 0.12, 3, 6), skin);
@@ -1177,6 +1283,36 @@ export class Imp extends Monster {
     this.tail.position.set(0, 0.18, -0.12);
     this.body.add(this.tail);
     this.root.add(this.body);
+    {
+      // Draw-call diet (was 14 meshes): soot skin + horns + limbs + tail as ONE rigidly skinned
+      // mesh (legs / tail keep animating), the glowing belly + tail tip as another, eyes merged.
+      const skinV = monsterMat(0xffffff, { rough: 0.55, emissive: 0x2a0600, emissiveI: 1, rim: 0.7, rimColor: 0xff8a3a });
+      skinV.vertexColors = true;
+      this.mats.push(skinV);
+      const pivot = new THREE.Group();
+      pivot.position.copy(this.belly.position);
+      this.body.add(pivot);
+      belly.removeFromParent();
+      belly.position.set(0, 0, 0);
+      pivot.add(belly);
+      const bones: THREE.Object3D[] = [...this.legs, this.tail, pivot];
+      const lit: THREE.Mesh[] = [];
+      const hot: THREE.Mesh[] = [];
+      const face: THREE.Mesh[] = [];
+      this.body.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || m === this.flame) return;
+        if (m.material === skin || m.material === hornMat) lit.push(m);
+        else if (m.material === bellyMat) hot.push(m);
+        else face.push(m);
+      });
+      const sk = rigidSkin(this.body, bones, lit, skinV);
+      sk.castShadow = true;
+      rigidSkin(this.body, bones, hot, bellyMat);
+      mergeParts(this.body, face);
+      // The belly flare now scales its pivot (the skinned belly follows).
+      this.belly = pivot;
+    }
     this.fireCd = 1.2 + r.next() * 1.5;
   }
 
@@ -1242,7 +1378,7 @@ export class Imp extends Monster {
     this.body.position.y = hopY;
     const w = this.windup >= 0 ? Math.min(1, this.windup / 0.5) : 0;
     this.flame.scale.set(1 + w * 0.6 + Math.sin(ctx.time * 20 + this.seed) * 0.08, 1 + w * 0.9 + Math.sin(ctx.time * 15) * 0.15, 1 + w * 0.6);
-    this.belly.scale.set(1 + w * 0.25, 1.1 + w * 0.25, 0.5);
+    this.belly.scale.set(1 + w * 0.25, 1 + w * 0.23, 1);
     this.legs.forEach((l, i) => (l.rotation.x = Math.sin(this.hop * Math.PI + i * Math.PI) * 0.5 * Math.min(1, speed)));
     this.tail.rotation.y = Math.sin(ctx.time * 4 + this.seed) * 0.5;
     this.blob.position.y = 0.03;
