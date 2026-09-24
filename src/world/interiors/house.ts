@@ -592,7 +592,8 @@ export class HouseInterior extends InteriorMap {
     this.solid(3.4, 7.3, 3.85, 7.75, 'lantern');
     // (Glow pools, not point lights: every point light is paid per pixel by every lit material in the
     // room, and the farmhouse already carries the hearth, four lamps and the farmer's rim.)
-    this.glowPool(hx - 0.1, hz - 0.4, 2.3, 0xffa458, () => this.light.night * 0.42 * (1 - this.dim));
+    // (kept inside the knee wall: an additive floor card past it glowed over the void under the diorama)
+    this.glowPool(hx + 0.1, hz - 0.95, 1.45, 0xffa458, () => this.light.night * 0.42 * (1 - this.dim));
     this.glowPool(hx, hz - 0.1, 0.8, 0xffc080, () => this.light.night * 0.5 * (1 - this.dim), 0.02);
     this.statics.push(k.build('front'));
     this.solid(9.7, 4.7, 10.9, 5.8, 'spinning-wheel');
