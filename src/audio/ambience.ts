@@ -8,6 +8,7 @@
 import type { AudioGraph } from './graph';
 import { Rand, clamp, makeRain, mtof } from './dsp';
 import { noiseHit } from './instruments';
+import { BirdBank, chimeBuffer, phrase, type Species } from './birds';
 
 export type AmbSeason = 'spring' | 'summer' | 'fall' | 'winter';
 export type AmbWeather = 'sun' | 'rain' | 'storm' | 'snow' | 'wind';
@@ -50,13 +51,26 @@ export class Ambience {
   private drops: { light: GainNode; heavy: GainNode } | null = null;
   private dropsKey = '';
   private crickets: { pan: number; period: number; next: number; f: number }[] = [];
+  /** Pre-rendered syllable banks (birds, crickets, drips). */
+  private bank: BirdBank;
+  /** Two perches per species (call and response), re-picked every minute or two. */
+  private perches: Partial<Record<Species, { a: [number, number]; b: [number, number]; ma: number[]; mb: number[]; until: number }>> = {};
+  /** Slow weather swell for rain and wind (−1..1), a random walk at 0.05–0.2 Hz. */
+  private wx = 0;
+  private wxTarget = 0;
+  /** Cicada chorus envelope bookkeeping. */
+  private cicadaOn = false;
+  private chimeBufs = new Map<number, AudioBuffer>();
   lightningAt = -1;
   /** Until this time the game drives thunder from its own lightning strikes (no random rolls). */
   externalThunderUntil = -1;
 
   constructor(private g: AudioGraph, seed = 7) {
     this.rng = new Rand(seed);
+    this.bank = new BirdBank(g.ctx, seed + 11);
     this.out = g.ctx.createGain();
+    // +6.4 dB make-up: the round-2 beds / syllable banks are leaner than the old sine birds.
+    this.out.gain.value = 2.1;
     this.out.connect(g.ambBus);
     this.send = g.ctx.createGain();
     this.send.gain.value = 0.35;
@@ -87,7 +101,10 @@ export class Ambience {
     // Every bed runs on decorrelated stereo noise (L/R correlation ~0.3): wide, not a point in the head.
     bed('wind', g.pinkSt, [bf('bandpass', 420, 0.55), bf('lowpass', 1600)]);
     // Leaf rustle: pink (not white) noise so a windy day reads as foliage, not hiss (render: 63 % > 2 kHz).
-    bed('leaves', g.pinkSt, [bf('bandpass', 2600, 0.6), bf('lowpass', 5500)], 0.9);
+    // (tilted: pink through a 350 Hz–2.8 kHz band and a −6 dB shelf above 4 kHz — no steady hiss).
+    const tilt = bf('highshelf', 4000, 0.7);
+    tilt.gain.value = -6;
+    bed('leaves', g.pinkSt, [bf('lowpass', 2800, 0.5), bf('highpass', 350, 0.5), tilt], 0.9);
     // Rain hiss lives up at 4–6 kHz; the droplet layers (makeRain) carry the individual drops.
     bed('rain', g.pinkSt, [bf('bandpass', 5000, 0.55), bf('highshelf', 7000, 0.7)]);
     bed('rainLow', g.brownSt, [bf('lowpass', 380, 0.5)]);
@@ -120,14 +137,15 @@ export class Ambience {
     bed('room', g.brownSt, [bf('lowpass', 240, 0.6)], 0.8);
     // Fireplace: a soft roar under the crackles.
     bed('fire', g.pinkSt, [bf('lowpass', 520, 0.7)], 0.7);
-    // Cicadas: narrow noise band amplitude-modulated at ~30 Hz.
-    const cic = bed('cicada', g.whiteSt, [bf('bandpass', 5300, 5), tame()]);
+    // Cicadas: a 4–7 kHz noise band pulsed at ~40 Hz (the tymbal buzz), in choruses that swell in and
+    // out every 10–25 s (see tick) — never a constant band.
+    const cic = bed('cicada', g.whiteSt, [bf('bandpass', 5300, 3), tame()]);
     const am = ctx.createOscillator();
-    am.frequency.value = 29;
+    am.frequency.value = 41;
     const amG = ctx.createGain();
-    amG.gain.value = 0.5;
+    amG.gain.value = 0.85;
     const cicMod = ctx.createGain();
-    cicMod.gain.value = 0.5;
+    cicMod.gain.value = 0.15;
     cic.gain.disconnect();
     cic.gain.connect(cicMod).connect(this.out);
     am.connect(amG).connect(cicMod.gain);
@@ -192,28 +210,40 @@ export class Ambience {
       this.next.gust = now + 2 + r.next() * 5;
     }
     this.gust += (this.gustTarget - this.gust) * 0.03;
-    const wind = outdoors ? (0.05 + 0.1 * windy) * (0.55 + 0.6 * this.gust) : mine ? 0.015 : 0;
+    // Weather swell: slower than the gusts (a new target every 5–20 s = 0.05–0.2 Hz), it pushes
+    // rain intensity, drop density and the wind's body up and down together.
+    if ((this.next.wx ?? 0) <= now) {
+      this.wxTarget = (r.chance(0.5) ? 1 : -1) * r.range(0.45, 1);
+      this.next.wx = now + 5 + r.next() * 15;
+    }
+    this.wx += (this.wxTarget - this.wx) * 0.03;
+    const swellDb = (d: number): number => Math.pow(10, (d * this.wx) / 20);
+    const wind = outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) : mine ? 0.015 : 0;
     this.setBed('wind', wind, now, 0.8);
     const wf = this.beds.wind!.filter!;
-    wf.frequency.setTargetAtTime(300 + 360 * this.gust, now, 1.2);
+    wf.frequency.setTargetAtTime((260 + 520 * this.gust) * (1 + 0.15 * this.wx), now, 1.2);
     const hasLeaves = s.season !== 'winter' && outdoors && !beach;
-    this.setBed('leaves', hasLeaves ? 0.014 + 0.04 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1) : 0, now, 0.6);
-    this.setBed('rain', outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0, now, 2);
-    this.setBed('rainLow', raining && !mine ? (storm ? 0.15 : 0.06) * (s.indoor ? 0.5 : 1) : 0, now, 2);
+    this.setBed('leaves', hasLeaves ? 0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1) : 0, now, 0.6);
+    // Rain: ±4 dB and ±30 % of the hiss band with the weather swell (showers come and go).
+    this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0) * swellDb(5), now, 1.5);
+    this.beds.rain!.filter!.frequency.setTargetAtTime(5000 * (1 + 0.3 * this.wx), now, 1.5);
+    this.setBed('rainLow', (raining && !mine ? (storm ? 0.15 : 0.06) * (s.indoor ? 0.5 : 1) : 0) * swellDb(3), now, 1.5);
     // Individual drops: a light patter always, the heavy layer in a storm; muffled on the roof indoors.
     if (raining && !mine && !this.drops) this.buildDrops();
     if (this.drops) {
       const lv = !raining || mine ? 0 : s.indoor ? 0.18 : 1;
-      const key = `${lv}:${storm}`;
+      // Drop density follows the swell: the heavy layer fades in on the downpours even in plain rain.
+      const q = Math.round(this.wx * 20) / 20;
+      const key = `${lv}:${storm}:${q}`;
       if (key !== this.dropsKey) {
         this.dropsKey = key;
-        this.drops.light.gain.setTargetAtTime(0.5 * lv, now, 2);
-        this.drops.heavy.gain.setTargetAtTime((storm ? 0.55 : 0) * lv, now, 2);
+        this.drops.light.gain.setTargetAtTime(0.5 * lv * (1 + 0.5 * q), now, 1.5);
+        this.drops.heavy.gain.setTargetAtTime((storm ? 0.55 * (1 + 0.3 * q) : Math.max(0, q - 0.15) * 0.45) * lv, now, 1.5);
       }
     }
     this.setBed('fountain', outdoors ? 0.14 * s.fountain : 0, now, 0.6);
-    this.setBed('cave', mine ? 0.16 : 0, now, 2);
-    this.setBed('caveAir', mine ? 0.05 : 0, now, 2);
+    this.setBed('cave', mine ? 0.1 : 0, now, 2);
+    this.setBed('caveAir', mine ? 0.07 : 0, now, 2);
     const cold = s.season === 'winter' && outdoors;
     this.setBed('howl', cold ? 0.012 + 0.03 * this.gust * windy : 0, now, 1);
     this.beds.howl!.filter!.frequency.setTargetAtTime(480 + 420 * this.gust, now, 2);
@@ -223,9 +253,7 @@ export class Ambience {
     this.setBed('fire', hearth ? 0.035 : 0, now, 1.5);
     const town = s.map === 'town' || s.map.startsWith('fest');
     const cicadaTime = s.season === 'summer' && outdoors && !raining && h >= 10 && h <= 18.5;
-    if ((this.next.cicadaSwell ?? 0) <= now) this.next.cicadaSwell = now + 6 + r.next() * 10;
-    const swell = 0.5 + 0.5 * Math.sin((now / 9) * Math.PI);
-    this.setBed('cicada', cicadaTime ? 0.011 + 0.013 * swell : 0, now, 2); // -2 dB: the wide (decorrelated) chorus reads louder
+    this.cicadas(now, cicadaTime);
 
     // Surf: individual waves on the coast. Inland water babbles (forest stream) or laps (pond).
     if (beach) {
@@ -256,8 +284,8 @@ export class Ambience {
     // Birds: morning chorus, quieter afternoons, none at night or in the rain.
     const chorus = h < 9.5 ? 1 : h < 17 ? 0.45 : h < 19.5 ? 0.6 : 0;
     const birdsActive = outdoors && !beach && !raining && s.night < 0.35 && chorus > 0 && s.season !== 'winter';
-    // Dawn chorus: roughly one phrase every 1.5 s at sunrise, sparser through the afternoon.
-    let t = due('bird', 0.7 / Math.max(0.2, chorus), 3 / Math.max(0.2, chorus), birdsActive);
+    // Dawn chorus: a phrase (often answered) every ~2 s at sunrise, sparser through the afternoon.
+    let t = due('bird', 1.1 / Math.max(0.2, chorus), 3.6 / Math.max(0.2, chorus), birdsActive);
     if (t !== null) this.bird(t, s);
     t = due('dove', 14, 30, birdsActive && h < 10.5);
     if (t !== null) this.dove(t);
@@ -280,7 +308,7 @@ export class Ambience {
     t = due('thunder', 14, 38, storm && now > this.externalThunderUntil);
     if (t !== null) this.thunder(t, r.next());
     // Farm wind chimes on strong gusts.
-    t = due('chime', 3, 9, s.map === 'farm' && this.gust > 0.75 && !storm);
+    t = due('chime', raining ? 7 : 3, raining ? 16 : 9, s.map === 'farm' && this.gust > 0.75 && !storm);
     if (t !== null) this.chimes(t, s.key);
     // Leaf skitter in fall.
     t = due('skitter', 3, 10, outdoors && s.season === 'fall' && this.gust > 0.6);
@@ -345,7 +373,6 @@ export class Ambience {
     a.gain.setValueAtTime(amp, t + dur * 0.6);
     a.gain.linearRampToValueAtTime(0, t + dur);
     if (trill > 0) {
-      // Amplitude-modulated trill: the note is chopped into fast pulses.
       const am = ctx.createGain();
       am.gain.value = 0.5;
       const lfo = ctx.createOscillator();
@@ -361,72 +388,57 @@ export class Ambience {
     o.stop(t + dur + 0.02);
   }
 
-  private bird(t: number, s: EnvState): void {
-    const r = this.rng;
-    const dist = r.next() * 0.85;
-    const d = this.dest(r.range(-0.9, 0.9), dist);
-    const species = r.weighted([['warbler', 3], ['robin', 4], ['finch', 3], ['thrush', 2.5], ['wren', 1.5], ['chickadee', s.season === 'spring' ? 1.5 : 0.8]] as const);
-    const amp = 0.075;
-    if (species === 'warbler') {
-      // Fast descending trill, slightly tremolo'd.
-      const n = r.int(7, 13);
-      const base = r.range(4000, 5200);
-      for (let i = 0; i < n; i++) this.chirp(d, t + i * 0.045, base * (1 - i * 0.012), base * 0.82 * (1 - i * 0.012), 0.035, amp * 0.7, 160);
-    } else if (species === 'robin') {
-      // Carolling phrase: 3–6 slurred syllables, a few of them trilled.
-      const n = r.int(3, 6);
-      let tt = t;
-      for (let i = 0; i < n; i++) {
-        const f = r.range(2000, 3200);
-        const up = r.chance(0.5);
-        this.chirp(d, tt, up ? f * 0.8 : f * 1.15, up ? f * 1.2 : f * 0.85, r.range(0.08, 0.14), amp, 0, r.chance(0.3) ? r.range(28, 45) : 0);
-        tt += r.range(0.13, 0.22);
-      }
-    } else if (species === 'finch') {
-      // Bright twitter with a flourish.
-      const n = r.int(4, 8);
-      let tt = t;
-      for (let i = 0; i < n; i++) {
-        const f = r.range(2900, 4300);
-        this.chirp(d, tt, f, f * r.range(1.1, 1.4), 0.05, amp * 0.75);
-        tt += r.range(0.06, 0.1);
-      }
-      this.chirp(d, tt + 0.05, 4400, 2700, 0.16, amp * 0.85, 0, 36);
-    } else if (species === 'thrush') {
-      // Song thrush: a motif sung twice, then a trilled tail.
-      const motif = [r.range(1900, 2600), r.range(2400, 3200), r.range(1700, 2300)];
-      let tt = t;
-      for (let rep = 0; rep < 2; rep++) {
-        for (const f of motif) {
-          this.chirp(d, tt, f, f * r.range(0.92, 1.1), 0.1, amp * 0.9);
-          tt += 0.14;
-        }
-        tt += 0.1;
-      }
-      this.chirp(d, tt, motif[1]! * 1.1, motif[1]! * 0.9, 0.35, amp * 0.7, 0, 40);
-    } else if (species === 'wren') {
-      // Tiny bird, huge voice: a long rattling trill that climbs, then drops.
-      const f = r.range(3200, 4000);
-      this.chirp(d, t, f, f * 1.25, 0.5, amp * 0.7, 0, 55);
-      this.chirp(d, t + 0.55, f * 1.2, f * 0.85, 0.3, amp * 0.6, 0, 48);
-    } else this.chickadee(t, r.range(-0.8, 0.8));
+  /** A species' personal material: 6 bank indices (the answering bird gets its own). */
+  private motif(): number[] {
+    return Array.from({ length: 6 }, () => this.rng.int(0, 39));
   }
 
-  private chickadee(t: number, pan: number): void {
-    const d = this.dest(pan, this.rng.next() * 0.6);
-    // "fee-bee": two clear whistles, the second lower.
-    this.chirp(d, t, 3950, 3900, 0.3, 0.08);
-    this.chirp(d, t + 0.38, 3450, 3350, 0.26, 0.07);
+  /** One bird sings a phrase from its perch. Returns when it ends. */
+  private sayPhrase(sp: Species, t: number, perch: [number, number], motif: number[], amp: number): number {
+    const d = this.dest(perch[0], perch[1]);
+    let end = t;
+    for (const [k, dt, gain, rate] of phrase(sp, this.rng, motif)) {
+      const dur = this.bank.play(d, sp, k, t + dt, amp * gain, rate);
+      end = Math.max(end, t + dt + dur);
+    }
+    return end;
+  }
+
+  /**
+   * Call and response: one of two birds of a species (each on its own perch, left and right of
+   * the listener) sings; often the other answers with its own variant a moment later.
+   */
+  private sing(sp: Species, t: number, amp: number, answer = 0.6): void {
+    const r = this.rng;
+    let p = this.perches[sp];
+    if (!p || t > p.until) {
+      const left: [number, number] = [r.range(-0.95, -0.25), r.next() * 0.75];
+      const right: [number, number] = [r.range(0.25, 0.95), r.next() * 0.75];
+      p = this.perches[sp] = { a: left, b: right, ma: this.motif(), mb: this.motif(), until: t + r.range(40, 110) };
+    }
+    const first = r.chance(0.5);
+    const end = this.sayPhrase(sp, t, first ? p.a : p.b, first ? p.ma : p.mb, amp);
+    if (r.chance(answer)) {
+      // The reply re-uses its own motif with one syllable changed (birds vary as they counter-sing).
+      const m = [...(first ? p.mb : p.ma)];
+      m[r.int(0, m.length - 1)] = r.int(0, 39);
+      this.sayPhrase(sp, end + r.range(0.25, 1.1), first ? p.b : p.a, m, amp * r.range(0.7, 1));
+    }
+  }
+
+  private bird(t: number, s: EnvState): void {
+    const r = this.rng;
+    const species = r.weighted([['warbler', 3], ['robin', 4], ['finch', 3], ['thrush', 2.5], ['wren', 1.5], ['chickadee', s.season === 'spring' ? 1.5 : 0.8]] as const);
+    if (species === 'chickadee') this.chickadee(t, 0);
+    else this.sing(species, t, species === 'wren' ? 0.042 : species === 'thrush' ? 0.056 : 0.06);
+  }
+
+  private chickadee(t: number, _pan: number): void {
+    this.sing('chickadee', t, 0.06, 0.5);
   }
 
   private dove(t: number): void {
-    const d = this.dest(this.rng.range(-0.8, 0.8), 0.6);
-    const lp = this.g.ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 900;
-    lp.connect(d);
-    const seq: [number, number, number][] = [[0, 0.32, 1], [0.42, 0.5, 1.12], [1.0, 0.36, 0.96], [1.55, 0.3, 0.95], [1.95, 0.3, 0.95]];
-    for (const [dt, dur, k] of seq) this.chirp(lp, t + dt, 520 * k, 480 * k, dur, 0.1);
+    this.sing('dove', t, 0.09, 0.3);
   }
 
   private crow(t: number): void {
@@ -454,20 +466,19 @@ export class Ambience {
   }
 
   private gull(t: number): void {
-    const d = this.dest(this.rng.range(-0.9, 0.9), 0.3 + this.rng.next() * 0.6);
-    const n = this.rng.int(1, 4);
-    for (let i = 0; i < n; i++) this.chirp(d, t + i * 0.22, 1500, 980, 0.19, 0.04, 30);
+    this.sing('gull', t, 0.045, 0.45);
   }
 
   private cricketChorus(now: number, until: number, count: number): void {
     const r = this.rng;
-    while (this.crickets.length < count) this.crickets.push({ pan: r.range(-0.9, 0.9), period: r.range(0.55, 1.1), next: now + r.next(), f: r.range(4300, 5100) });
+    while (this.crickets.length < count) this.crickets.push({ pan: r.range(-0.9, 0.9), period: r.range(0.55, 1.1), next: now + r.next(), f: r.range(0.94, 1.06) });
     for (const c of this.crickets) {
       if (c.next < now - 1) c.next = now;
       while (c.next < until) {
         const d = this.dest(c.pan, 0.5);
         const pulses = r.int(3, 4);
-        for (let i = 0; i < pulses; i++) this.chirp(d, c.next + i * 0.022, c.f, c.f * 0.99, 0.014, 0.014);
+        const k = r.int(0, 11);
+        for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, c.next + i * 0.022, 0.028, c.f);
         c.next += c.period * r.range(0.9, 1.1);
       }
     }
@@ -498,16 +509,15 @@ export class Ambience {
   }
 
   private owl(t: number): void {
-    const d = this.dest(this.rng.range(-0.9, 0.9), 0.75);
-    const seq: [number, number][] = [[0, 0.3], [0.55, 0.16], [0.75, 0.16], [1.05, 0.55]];
-    for (const [dt, dur] of seq) this.chirp(d, t + dt, 390, 360, dur, 0.06);
+    const o = 4 * this.rng.int(0, 2);
+    this.sayPhrase('owl', t, [this.rng.range(-0.9, 0.9), 0.75], [o, o + 1, o + 2, o + 3], 0.07);
   }
 
   private drip(t: number, level: number): void {
     const r = this.rng;
     const d = this.dest(r.range(-1, 1), r.next() * 0.8);
-    const f = r.range(1800, 4200);
-    this.chirp(d, t, f, f * 0.55, 0.035, 0.018 * level);
+    // A drop into a puddle: gone in < 80 ms with a slight downward glide (pre-rendered bank).
+    this.bank.play(d, 'drip', r.int(0, 23), t, 0.02 * level, r.range(0.9, 1.1));
   }
 
   thunder(t: number, dist: number): void {
@@ -527,15 +537,23 @@ export class Ambience {
   }
 
   private chimes(t: number, key: number): void {
+    // Tubular chimes on the porch: inharmonic tube partials + clapper tick (pre-rendered per note).
     const d = this.dest(-0.55, 0.3);
     const pent = [0, 2, 4, 7, 9, 12, 14, 16];
     const n = this.rng.int(1, 3);
     for (let i = 0; i < n; i++) {
-      const m = (key % 12) + 84 + this.rng.pick(pent);
-      const f = mtof(m);
-      const tt = t + i * this.rng.range(0.15, 0.4);
-      this.chirp(d, tt, f, f, 1.6, 0.02);
-      this.chirp(d, tt, f * 2.76, f * 2.76, 0.4, 0.004);
+      const m = (key % 12) + 72 + this.rng.pick(pent);
+      let buf = this.chimeBufs.get(m);
+      if (!buf) {
+        buf = chimeBuffer(this.g.ctx, mtof(m), new Rand(m * 31));
+        this.chimeBufs.set(m, buf);
+      }
+      const src = this.g.ctx.createBufferSource();
+      src.buffer = buf;
+      const a = this.g.ctx.createGain();
+      a.gain.value = 0.022 * this.rng.range(0.6, 1);
+      src.connect(a).connect(d);
+      src.start(t + i * this.rng.range(0.15, 0.4));
     }
   }
 
@@ -624,8 +642,8 @@ export class Ambience {
     s.gain.value = 1;
     p.connect(this.out);
     p.connect(s).connect(this.g.cave);
-    const f = this.rng.range(900, 1700);
-    this.chirp(p, t, f, f * 0.5, 0.06, 0.05);
+    // A drop into a still pool: the drip bank an octave down, lots of cave.
+    this.bank.play(p, 'drip', this.rng.int(0, 23), t, 0.06, this.rng.range(0.45, 0.65));
   }
 
   private pebbles(t: number): void {
@@ -647,6 +665,39 @@ export class Ambience {
     p.connect(this.out);
     p.connect(this.g.cave);
     noiseHit(this.g, p, t, { type: 'bandpass', f: 140, q: 0.8, amp, attack: 1.2, tau: 1.2, buf: this.g.brown });
+  }
+
+  /**
+   * Cicada choruses: a swell every 10–25 s — in over 3–5 s, a few seconds at full buzz, out over
+   * 3–6 s, then a gap — with the band retuned (4.5–6.5 kHz) for each new chorus.
+   */
+  private cicadas(now: number, active: boolean): void {
+    const b = this.beds.cicada!;
+    const gp = b.gain.gain;
+    if (!active) {
+      if (this.cicadaOn) {
+        gp.cancelScheduledValues(now);
+        gp.setTargetAtTime(0, now, 2);
+        this.cicadaOn = false;
+        b.level = 0;
+      }
+      return;
+    }
+    this.cicadaOn = true;
+    if ((this.next.cicada ?? 0) > now) return;
+    const r = this.rng;
+    const rise = r.range(3, 5);
+    const hold = r.range(2, 6);
+    const fall = r.range(3, 6);
+    const peak = r.range(0.012, 0.02);
+    b.filter!.frequency.setTargetAtTime(r.range(4500, 6500), now, 1);
+    gp.cancelScheduledValues(now);
+    gp.setValueAtTime(Math.max(0.0005, b.level), now);
+    gp.linearRampToValueAtTime(peak, now + rise);
+    gp.setValueAtTime(peak, now + rise + hold);
+    gp.linearRampToValueAtTime(0.0015, now + rise + hold + fall);
+    b.level = 0.0015;
+    this.next.cicada = now + rise + hold + fall + r.range(1, 9);
   }
 
   private wave(t: number, size: number): void {

@@ -50,6 +50,10 @@ export interface AudioState {
   voices: number;
   /** Notes refused by the polyphony budget since start. */
   dropped: number;
+  /** Most voices the budget has had sounding at once. */
+  peakVoices: number;
+  /** Sidechain follower driving the music ducking ('worklet' | 'native' | null). */
+  ducker: string | null;
   /** Players still fading out. */
   fading: number;
   /** AudioContext time and how often its clock was found stalled (watchdog). */
@@ -239,6 +243,8 @@ export class AudioSystem implements System {
         env: this.env,
         voices: this.engine?.graph.voices ?? 0,
         dropped: this.engine?.graph.dropped ?? 0,
+        peakVoices: this.engine?.graph.peakVoices ?? 0,
+        ducker: this.engine?.graph.ducker ?? null,
         fading: this.engine?.music.oldCount ?? 0,
         ctxTime: Math.round((this.ctx?.currentTime ?? 0) * 100) / 100,
         stalls: this.stalls,
@@ -495,7 +501,6 @@ export class AudioSystem implements System {
     // Other pods voice these; the score just makes room.
     ev.on('fishing:catch', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.5, 1.2, 1));
     ev.on('fishing:bite', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.75, 0.6, 0.6));
-    ev.on('combat:playerHit', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.7, 0.2, 0.5));
     ev.on('mine:ladder', () => this.engine?.graph.duckMusic(this.ctx!.currentTime, 0.7, 0.4, 0.8));
     ev.on('mine:floor', ({ floor }) => {
       this.mineFloor = floor;

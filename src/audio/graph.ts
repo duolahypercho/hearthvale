@@ -1,20 +1,40 @@
 /**
  * Mixer graph. Works on AudioContext and OfflineAudioContext alike.
  *
- *   music players ──► musicBus ──► duck ──► tone (muffle) ──► EQ (-3 dB @280, +2 dB @3.2k, +3 dB shelf @7k) ─┐
- *   ambience      ──► ambBus ─────────────────────────────────────────────────────────────────────┤
- *   sfx           ──► sfxBus ─────────────────────────────────────────────────────────────────────┼─► mix ─► glue ─► limiter ─► soft clip ─► out
- *   ui / voices   ──► uiBus ──────────────────────────────────────────────────────────────────────┘
- *        sends    ──► hall (music), space (world sfx/ambience), cave (mine) convolvers ──► mix
+ *   music players ──► musicBus ──► duck ──► sideDuck ──► tone (muffle) ──► EQ ──► glue ──► musicVol ─┐
+ *   ambience      ──► ambBus ──► ambRest ─────────────────────────────────────────────────────────────┤
+ *   sfx           ──► sfxBus ─────────────────────────────────────────────────────────────────────────┼─► mix ─► limiter ─► soft clip ─► out
+ *   ui / voices   ──► uiBus ──────────────────────────────────────────────────────────────────────────┘
+ *        sends    ──► hall (music, joins before the duck), space (world sfx/ambience), cave (mine) ──► mix
  *
- * Ducking is "sidechain-ish": important one-shots schedule a short dip on the music duck gain
- * (attack 25 ms, hold, exponential recovery) instead of analysing the signal.
+ * The glue compressor sits on the score alone, so gameplay SFX never pump the music and are never
+ * squashed by it. Ducking is a real sidechain: world SFX (not footsteps / hover ticks) also feed
+ * `duckKey`, an AudioWorklet envelope follower (ducker.ts) that pulls `sideDuck` down 2–3 dB with a
+ * 30 ms attack and 250 ms release. `duckMusic` remains for deliberate musical stingers (a
+ * scheduled dip that makes room for a fanfare).
+ *
+ * Levels: the graph starts at the game's default volume settings (DEFAULT_VOLUMES), so offline
+ * renders measure exactly what a player hears at default settings.
  *
  * Shared resources so per-note cost stays low: a buffer cache for pre-rendered notes (plucked
  * strings, mallets), running LFOs shared by every vibrato, slow detune drifts for string
  * ensembles, generated instrument-body impulse responses, and a polyphony budget.
  */
+import { attachDucker } from './ducker';
 import { Rand, makeImpulse, makeNoise, pluckBuffer, softClipCurve, bodyImpulse, type PluckOptions, type BodyKind } from './dsp';
+
+/** The game's default volume settings (systems/audio.ts): the graph starts here. */
+export const DEFAULT_VOLUMES = { master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7 };
+/** Fixed bus trims under the user volumes. */
+// SFX sit ~8 dB hotter than round 1 (the gameplay render: verbs must clear the score by +4 LU).
+export const BUS_TRIM = { master: 0.8, music: 1, sfx: 2.2, ui: 0.9, ambience: 0.9 };
+
+export interface GraphOptions {
+  /** Offline only: apply the live polyphony budget (72 voices) so renders match the game. */
+  liveBudget?: boolean;
+  /** Offline: register-before-build flag — the ducker worklet module is loaded on this context. */
+  worklet?: boolean;
+}
 
 export class AudioGraph {
   readonly ctx: BaseAudioContext;
@@ -22,6 +42,12 @@ export class AudioGraph {
   readonly mix: GainNode;
   readonly musicBus: GainNode;
   readonly duck: GainNode;
+  /** Sidechain gain: driven by the SFX envelope follower (see ducker.ts). */
+  readonly sideDuck: GainNode;
+  /** Sidechain key: world SFX that should make the score step back. */
+  readonly duckKey: GainNode;
+  /** User music volume (after the glue compressor, so the glue sees the same level at any setting). */
+  readonly musicVol: GainNode;
   /** Music tone control: a gentle low-pass for "muffled" states (indoors, pause menu, fainting). */
   readonly musicTone: BiquadFilterNode;
   readonly ambBus: GainNode;
@@ -42,25 +68,30 @@ export class AudioGraph {
   readonly whiteSt: AudioBuffer;
   readonly pinkSt: AudioBuffer;
   readonly brownSt: AudioBuffer;
-  readonly rng: Rand;
+  /** Shared randomness (noise start offsets, detunes). SFX swap in their own stream while they build. */
+  rng: Rand;
   private buffers = new Map<string, AudioBuffer>();
   private lfos = new Map<number, OscillatorNode>();
   private drifts: GainNode[] = [];
   private bodies = new Map<BodyKind, AudioBuffer>();
   private duckUntil = 0;
   private duckDepth = 1;
-  /** Polyphony budget (real time only): end times of sounding voices. */
-  private voiceEnds: number[] = [];
+  /** Polyphony budget: [start, end] of every voice that may still sound (sorted by start). */
+  private spans: [number, number][] = [];
   readonly maxVoices: number;
   readonly offline: boolean;
   /** Notes dropped by the budget (diagnostics). */
   dropped = 0;
+  /** Highest simultaneous voice count the budget has granted (diagnostics). */
+  peakVoices = 0;
+  /** Which follower drives the sidechain: 'worklet', 'native' or null (not attached yet). */
+  ducker: 'worklet' | 'native' | null = null;
 
-  constructor(ctx: BaseAudioContext, seed = 1234, dest?: AudioNode) {
+  constructor(ctx: BaseAudioContext, seed = 1234, dest?: AudioNode, opts: GraphOptions = {}) {
     this.ctx = ctx;
     this.rng = new Rand(seed);
     this.offline = typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext;
-    this.maxVoices = this.offline ? 100000 : 72;
+    this.maxVoices = this.offline && !opts.liveBudget ? 100000 : 72;
     const g = (v = 1): GainNode => {
       const n = ctx.createGain();
       n.gain.value = v;
@@ -74,44 +105,53 @@ export class AudioGraph {
       b.gain.value = gain;
       return b;
     };
-    this.out = g(0.8);
+    const V = DEFAULT_VOLUMES;
+    this.out = g(V.master * BUS_TRIM.master);
     this.mix = g(1);
-    // Glue compressor (gentle) → brickwall-ish limiter → soft clip safety.
-    const glue = ctx.createDynamicsCompressor();
-    glue.threshold.value = -20;
-    glue.knee.value = 12;
-    glue.ratio.value = 2.2;
-    glue.attack.value = 0.02;
-    glue.release.value = 0.25;
+    // Master: DC / subsonic cleanup → brickwall-ish limiter → soft clip safety. No glue here: the
+    // score has its own, so an SFX transient never pulls the music down by accident.
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -4;
+    // -1 dBFS: SFX transients need the headroom (the score itself sits ~18 dB below this).
+    limiter.threshold.value = -1;
     limiter.knee.value = 0;
     limiter.ratio.value = 20;
     limiter.attack.value = 0.002;
-    limiter.release.value = 0.12;
-    const makeup = g(1.18);
+    limiter.release.value = 0.1;
     const clip = ctx.createWaveShaper();
-    clip.curve = softClipCurve();
+    clip.curve = softClipCurve(0.9, 0.99);
     clip.oversample = '2x';
     // DC / subsonic cleanup (FM voices with 1:1 ratios produce a DC sideband).
     const hpf = bq('highpass', 24, 0.6);
-    this.mix.connect(hpf).connect(glue).connect(makeup).connect(limiter).connect(clip).connect(this.out).connect(dest ?? ctx.destination);
+    this.mix.connect(hpf).connect(limiter).connect(clip).connect(this.out).connect(dest ?? ctx.destination);
 
     this.musicBus = g(0.34);
     this.duck = g(1);
-    this.ambBus = g(0.9);
+    this.sideDuck = g(1);
+    this.duckKey = g(1);
+    this.musicVol = g(V.music * BUS_TRIM.music);
+    this.ambBus = g(V.ambience * BUS_TRIM.ambience);
     this.ambRest = g(1);
-    this.sfxBus = g(0.85);
-    this.uiBus = g(0.7);
+    this.sfxBus = g(V.sfx * BUS_TRIM.sfx);
+    this.uiBus = g(V.sfx * BUS_TRIM.ui);
     this.musicTone = bq('lowpass', 20000, 0.5);
     // Music EQ: clear the 250 Hz mud, open the top (the synthesised ensemble reads dull without it).
     const mud = bq('peaking', 280, 0.9, -3);
     const presence = bq('peaking', 3200, 0.7, 2);
     const air = bq('highshelf', 7000, 0.7, 3);
-    this.musicBus.connect(this.duck).connect(this.musicTone).connect(mud).connect(presence).connect(air).connect(this.mix);
+    // Glue on the score only: 2:1 above -14 dBFS, so it only rounds off phrase climaxes (the score
+    // runs around -16 LUFS here) and never flattens the phrase dynamics.
+    const glue = ctx.createDynamicsCompressor();
+    glue.threshold.value = -14;
+    glue.knee.value = 8;
+    glue.ratio.value = 2;
+    glue.attack.value = 0.03;
+    glue.release.value = 0.3;
+    const glueMakeup = g(1);
+    this.musicBus.connect(this.duck).connect(this.sideDuck).connect(this.musicTone).connect(mud).connect(presence).connect(air).connect(glue).connect(glueMakeup).connect(this.musicVol).connect(this.mix);
     this.ambBus.connect(this.ambRest).connect(this.mix);
     this.sfxBus.connect(this.mix);
     this.uiBus.connect(this.mix);
+    if (opts.worklet) this.attachSidechain(true);
 
     const r = this.rng;
     this.white = makeNoise(ctx, 3, 'white', r);
@@ -246,38 +286,54 @@ export class AudioGraph {
     this.ambRest.gain.setTargetAtTime(1 + 0.41 * amount, at, 1.5); // +3 dB
   }
 
-  /** Voices sounding right now (real time). */
-  get voices(): number {
-    this.prune();
-    return this.voiceEnds.length;
+  /**
+   * Connect the sidechain follower (idempotent). `worklet` = the hv-duck module is registered on
+   * this context (see loadDucker); otherwise a native-node follower is used.
+   */
+  attachSidechain(worklet: boolean): void {
+    if (this.ducker) return;
+    try {
+      attachDucker(this.ctx, this.duckKey, this.sideDuck, worklet);
+      this.ducker = worklet ? 'worklet' : 'native';
+    } catch {
+      attachDucker(this.ctx, this.duckKey, this.sideDuck, false);
+      this.ducker = 'native';
+    }
   }
 
-  private prune(): void {
+  /** Voices sounding right now. */
+  get voices(): number {
+    return this.countAt(this.ctx.currentTime);
+  }
+
+  /** Voices whose [start, end) covers `t`. Drops spans that ended before the context's clock. */
+  private countAt(t: number): number {
     const now = this.ctx.currentTime;
-    if (this.voiceEnds.length && this.voiceEnds[0]! <= now) {
-      let k = 0;
-      while (k < this.voiceEnds.length && this.voiceEnds[k]! <= now) k++;
-      this.voiceEnds.splice(0, k);
-    }
+    // Real time: anything that ended is gone for good. Offline the whole score is scheduled at
+    // t = 0, so spans are only forgotten once they end well before the note being asked about.
+    const horizon = this.offline ? Math.max(now, t - 30) : now;
+    if (this.spans.length > 64) this.spans = this.spans.filter((s) => s[1] > horizon);
+    let n = 0;
+    for (const s of this.spans) if (s[0] <= t && s[1] > t) n++;
+    return n;
   }
 
   /**
    * Ask for a voice from `t` for `dur` seconds. `prio` 0..3 (3 = must play: melody, bass, SFX):
-   * low-priority parts are refused first as the budget fills. Returns false when refused.
+   * low-priority parts are refused first as the budget fills. Returns false when refused. The
+   * count is of voices actually sounding at `t` (a note scheduled 0.5 s ahead is not charged for
+   * voices that will have ended by then).
    */
   voiceStart(t: number, dur: number, prio = 2): boolean {
-    if (this.offline) return true;
-    this.prune();
-    const load = this.voiceEnds.length / this.maxVoices;
+    if (this.maxVoices > 10000) return true;
+    const n = this.countAt(t);
+    const load = n / this.maxVoices;
     if (load >= 1.25 || (load >= 1 && prio < 3) || (load >= 0.75 && prio < 2)) {
       this.dropped++;
       return false;
     }
-    const end = t + dur;
-    // Keep the list sorted by end time (short list, insertion from the back).
-    let i = this.voiceEnds.length;
-    while (i > 0 && this.voiceEnds[i - 1]! > end) i--;
-    this.voiceEnds.splice(i, 0, end);
+    this.spans.push([t, t + dur]);
+    if (n + 1 > this.peakVoices) this.peakVoices = n + 1;
     return true;
   }
 }

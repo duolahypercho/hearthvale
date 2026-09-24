@@ -588,7 +588,8 @@ function windVoice(o: WindSpec): InstrumentFn {
     }
     const freqs = [oscS.frequency, oscB.frequency];
     for (const fp of freqs) {
-      if (legato) glide(fp, t, f, opt?.from, 0.05);
+      // Portamento: the slur takes a little longer the wider it is (35 ms for a step, ~70 ms a 4th).
+      if (legato) glide(fp, t, f, opt?.from, 0.035 + 0.007 * Math.min(6, Math.abs(m - (opt?.from ?? m))));
       else scoop(fp, t, f, 14 + g.rng.next() * 8, 0.045);
     }
     // Pitch drift: a slow random walk of a few cents over the note, shared by both spectra
@@ -604,7 +605,8 @@ function windVoice(o: WindSpec): InstrumentFn {
     }
     const trem = gain(g, 1);
     vibrato(g, freqs, t, dur, f, o.vibRate, o.vibDepth, long ? 0.3 : 0.22, { node: trem, depth: 0.05 }, long ? 1.7 : 1);
-    const lpF = clamp(f * o.ceil + 1400 * v, 600, 15000);
+    // Velocity drives the tone: the ceiling opens ~2.8× from pp (0.3) to f (1.0).
+    const lpF = clamp(f * o.ceil * Math.pow(2.6, (v - 0.65) * 1.6) + 600 * v, 500, 15000);
     const lp = filter(g, 'lowpass', lpF, 0.6);
     // The tone opens as the breath settles (a-rate filter automation is costly: long notes only).
     if (dur > 0.3) {
@@ -672,7 +674,8 @@ function bowed(opts: { name: string; voices: number[]; level: number; attack: nu
       a.gain.setTargetAtTime(0, t + dur, opts.release);
     }
     // Spectral tilt follows the bow: the tone opens during the attack and with velocity.
-    const top = Math.min(14000, f * (opts.tilt + 10 * v) + 1400 * v);
+    // (pp → f opens the bow's spectrum ~2.5×.)
+    const top = Math.min(14000, f * (opts.tilt * 0.6 + 14 * v) + 1600 * v);
     const lp = filter(g, 'lowpass', top, 0.6);
     if (dur > 0.3) {
       lp.frequency.setValueAtTime(Math.max(opts.lo, top * 0.35), t);

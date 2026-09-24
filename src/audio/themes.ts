@@ -307,7 +307,8 @@ export const THEMES: Record<string, ThemeDef> = {
     sheen: 4.5,
   },
 
-  /** The mine (earth floors) — a drone with glass bells that keep returning to one small figure. */
+  /** The mine (earth floors) — a drone with glass bells that keep returning to one small figure, over
+   * a tuned-drip kalimba ostinato (the mine's hook, in the 400–1000 Hz range small speakers carry). */
   mine: {
     id: 'mine',
     title: 'Under Stone',
@@ -318,16 +319,19 @@ export const THEMES: Record<string, ThemeDef> = {
     mode: 'phrygian',
     form: ['A'],
     prog: { A: ['i', 'i', 'bII', 'i', 'iv', 'iv', 'bII', 'v'], B: ['i'] },
-    ambient: { inst: 'glass', range: [69, 88], noteChance: 0.5, bars: 16, motif: [0, 1, -1, -3] },
+    ambient: { inst: 'glass', range: [69, 88], noteChance: 0.5, bars: 16, motif: [0, 1, -1, -3], ostinato: { inst: 'kalimba', range: [67, 84], pattern: [[0, 1], [4, 0.5], [2, 0.5], [3, 1], [1, 1]], vel: 0.5 } },
     counter: { inst: 'cello', range: [45, 60], on: 'always' },
     bass: { inst: 'drone', pattern: 'pedal', range: [33, 45], vel: 0.6 },
     pad: { inst: 'pad', range: [52, 67], voices: 3, vel: 0.35, on: 'always' },
     mix: {
+      accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
       melody: { gain: 0.62, pan: 0.2, send: 0.7 },
       counter: { gain: 0.38, pan: -0.3, send: 0.6 },
       bass: { gain: 0.55, pan: 0, send: 0.2 },
       pad: { gain: 0.42, pan: 0, send: 0.6 },
     },
+    // Tone: no sub rumble under the drone, 150–250 Hz mud cut (laptop speakers heard only boom).
+    eq: { hp: 60, cut: { f: 200, db: -3, q: 0.8 } },
     rest: [4, 12],
     gain: 1.1,
   },
@@ -343,16 +347,19 @@ export const THEMES: Record<string, ThemeDef> = {
     mode: 'lydian',
     form: ['A'],
     prog: { A: ['I', 'II', 'Imaj7', 'II', 'vi', 'II', 'IVmaj7', 'II'], B: ['I'] },
-    ambient: { inst: 'celesta', range: [76, 93], noteChance: 0.6, bars: 16, motif: [0, 2, 1, -2] },
+    ambient: { inst: 'celesta', range: [76, 93], noteChance: 0.6, bars: 16, motif: [0, 2, 1, -2], ostinato: { inst: 'musicBox', range: [74, 91], pattern: [[0, 0.5], [2, 0.5], [4, 1], [3, 0.5], [1, 0.5], [2, 1]], vel: 0.5 } },
     counter: { inst: 'bell', range: [64, 79], on: 'always' },
     bass: { inst: 'drone', pattern: 'pedal', range: [40, 52], vel: 0.45 },
     pad: { inst: 'pad', range: [60, 76], voices: 3, vel: 0.32, on: 'always' },
     mix: {
+      accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
       melody: { gain: 0.6, pan: 0.25, send: 0.75 },
       counter: { gain: 0.34, pan: -0.3, send: 0.7 },
       bass: { gain: 0.48, pan: 0, send: 0.2 },
       pad: { gain: 0.42, pan: 0, send: 0.65 },
     },
+    // Tone: no sub rumble under the drone, 150–250 Hz mud cut (laptop speakers heard only boom).
+    eq: { hp: 60, cut: { f: 200, db: -3, q: 0.8 } },
     rest: [4, 12],
     gain: 1.1,
   },
@@ -368,16 +375,19 @@ export const THEMES: Record<string, ThemeDef> = {
     mode: 'phrygian',
     form: ['A'],
     prog: { A: ['i', 'bII', 'i', 'bII', 'iv', 'bII', 'i', 'viidim'], B: ['i'] },
-    ambient: { inst: 'bell', range: [62, 79], noteChance: 0.45, bars: 16, motif: [0, -1, 1, -2] },
+    ambient: { inst: 'bell', range: [62, 79], noteChance: 0.45, bars: 16, motif: [0, -1, 1, -2], ostinato: { inst: 'marimba', range: [64, 81], pattern: [[0, 1.5], [1, 0.5], [0, 1], [-2, 1]], vel: 0.5 } },
     counter: { inst: 'cello', range: [40, 55], on: 'always' },
     bass: { inst: 'drone', pattern: 'pedal', range: [35, 47], vel: 0.55 },
     pad: { inst: 'pad', range: [48, 62], voices: 3, vel: 0.34, on: 'always' },
     mix: {
+      accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
       melody: { gain: 0.5, pan: 0.2, send: 0.7 },
       counter: { gain: 0.44, pan: -0.3, send: 0.6 },
       bass: { gain: 0.62, pan: 0, send: 0.2 },
       pad: { gain: 0.4, pan: 0, send: 0.6 },
     },
+    // Tone: no sub rumble under the drone, 150–250 Hz mud cut (laptop speakers heard only boom).
+    eq: { hp: 60, cut: { f: 200, db: -3, q: 0.8 } },
     rest: [4, 12],
     gain: 1.12,
   },
@@ -573,11 +583,16 @@ export const THEMES: Record<string, ThemeDef> = {
     meter: '6/8',
     key: 62, // D
     mode: 'major',
-    form: ['intro', 'A', 'A', 'B', 'B', 'A'],
+    // A full set, ~90 s before it loops: the jig twice, its B strain twice, a lyrical C strain in
+    // longer notes (IV–V–iii–vi, a new harmonic area), the jig home lifted a whole step, a last B.
+    form: ['intro', 'A', 'A', 'B', 'B', 'C', 'C', 'A', 'A', 'B', 'A', 'outro'],
+    lift: 2,
     prog: {
       intro: ['I', 'V'],
       A: ['I', 'I', 'IV', 'V', 'I', 'I', 'IV V', 'I'],
       B: ['vi', 'IV', 'I', 'V', 'vi', 'IV', 'ii V', 'I'],
+      C: ['IV', 'V', 'iii', 'vi', 'ii', 'V', 'I', 'V'],
+      outro: ['IV', 'I'],
     },
     melody: {
       inst: 'fiddle', range: [66, 91], density: 0.95, ornament: 0.35, double: { inst: 'whistle', interval: 12, on: 'repeat' },
@@ -586,6 +601,9 @@ export const THEMES: Record<string, ThemeDef> = {
         // "F# E D A D F# | A2 F# B A F# | G B d B2 G | A B A C# E A |" — running jig quavers.
         A: ['3:1 2:1 1:1 5,:1 1:1 3:1', '5:2 3:1 6:1 5:1 3:1', "4:1 6:1 1':1 6:2 4:1", '5:1 6:1 5:1 7,:1 2:1 5,:1', '3:1 2:1 1:1 5,:1 1:1 3:1', "5:1 6:1 7:1 1':2 5:1", '6:1 5:1 4:1 3:1 2:1 7,:1', '1:3 r:3'],
         B: ["6:2 3:1 6:1 1':1 6:1", "4:2 6:1 1':1 6:1 4:1", "3:1 5:1 1':1 5:1 3:1 1:1", '2:1 7,:1 5,:1 2:2 3:1', "6:1 1':1 3':1 1':2 6:1", "6:1 1':1 6:1 4:2 6:1", '2:1 4:1 6:1 5:1 3:1 2:1', '1:3 r:3'],
+        // C: the singing strain — crotchet-quaver lilt instead of running quavers, climbing through
+        // the new chords and settling on the dominant before the jig comes home.
+        C: ["4:2 6:1 1':2 6:1", "5:2 7:1 2':2 7:1", '3:2 5:1 7:2 5:1', "6:3 1':2 7:1", "2':2 1':1 6:2 4:1", "5:1 6:1 7:1 2':2 7:1", "1':2 7:1 6:1 5:1 3:1", '5:4 r:2'],
         pickup: '1:1 2:1',
       },
     },
@@ -677,7 +695,7 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
     case 'pluck':
       return {
         ...base, id, title: 'Ribbon Parade', blurb: 'The Blossom Parade', bpm, key: 67, mode: 'lydian',
-        prog: { intro: ['I', 'II'], A: ['I', 'I', 'II', 'V', 'I', 'I', 'II V', 'I'], B: ['vi', 'II', 'I', 'V', 'vi', 'II', 'II V', 'I'] },
+        prog: { intro: ['I', 'II'], A: ['I', 'I', 'II', 'V', 'I', 'I', 'II V', 'I'], B: ['vi', 'II', 'I', 'V', 'vi', 'II', 'II V', 'I'], C: ['II7', 'V', 'iii', 'vi', 'II', 'V', 'I', 'V'], outro: ['II', 'I'] },
         melody: { ...base.melody!, inst: 'harp', range: [67, 91], density: 0.85, ornament: 0.2, double: { inst: 'whistle', interval: 12, on: 'repeat' } },
         accomp: { inst: 'kalimba', pattern: 'oompah', range: [60, 76], voices: 3, vel: 0.55 },
         accomp2: { inst: 'guitar', pattern: 'oompah', range: [50, 64], voices: 4, vel: 0.45, on: 'repeat' },
@@ -688,8 +706,9 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
       if (h.mode === 'mixolydian') {
         return {
           ...base, id, title: 'Lanterns on the Tide', blurb: 'Tide Lantern Night', bpm: Math.min(bpm, 84), key: 64, mode: 'mixolydian',
-          form: ['intro', 'A', 'B', 'A', 'outro'],
-          prog: { intro: ['I', 'bVII'], A: ['I', 'bVII', 'IV', 'I', 'vi', 'bVII', 'IV V', 'I'], B: ['IV', 'I', 'bVII', 'IV', 'ii', 'bVII', 'IV', 'V'], outro: ['bVII', 'I'] },
+          form: ['intro', 'A', 'A', 'B', 'A', 'C', 'B', 'A', 'outro'],
+          lift: 0,
+          prog: { intro: ['I', 'bVII'], A: ['I', 'bVII', 'IV', 'I', 'vi', 'bVII', 'IV V', 'I'], B: ['IV', 'I', 'bVII', 'IV', 'ii', 'bVII', 'IV', 'V'], C: ['vi', 'IV', 'bVII', 'I', 'vi', 'ii', 'IV', 'V'], outro: ['bVII', 'I'] },
           melody: {
             inst: 'celesta', range: [72, 91], density: 0.45, ornament: 0.1, double: { inst: 'glock', interval: 12, on: 'repeat' },
             tune: {
@@ -698,6 +717,8 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
               // B.. G#.. |" — mixolydian D natural over the bVII; B is a falling sequence of three-note waves.
               A: ['1:3 3:2 5:1', '4:3 3:2 2:1', '1:3 3:2 6:1', '5:3 3:3', '3:3 5:2 6:1', '7:3 6:2 4:1', '6:2 4:1 2:2 #7,:1', '1:6'],
               B: ['6:3 5:2 4:1', '5:3 4:2 3:1', '4:3 3:2 2:1', '1:3 3:2 4:1', '6:3 4:2 2:1', '2:3 4:2 7:1', '6:2 4:1 1:3', '5,:3 2:3'],
+              // C: out on the relative minor, the lanterns drifting further — wider waves, a long D natural.
+              C: ["6:3 1':2 6:1", "4:3 6:2 1':1", "7:3 2':2 7:1", "1':3 5:3", '3:3 6:2 5:1', '4:3 2:2 6:1', "4:2 6:1 1':2 6:1", '5:3 2:3'],
             },
           },
           accomp: { inst: 'harp', pattern: 'waltzArp', range: [55, 72], voices: 4, vel: 0.5 },
@@ -713,8 +734,9 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
       }
       return {
         ...base, id, title: 'Starfall Carol', blurb: 'The Starfall Vigil', bpm: Math.min(bpm, 96), key: 65, mode: 'major', meter: '4/4',
-        form: ['intro', 'A', 'B', 'A', 'outro'],
-        prog: { intro: ['I', 'IV'], A: ['I', 'vi', 'IV', 'V', 'I', 'vi', 'ii V', 'I'], B: ['IV', 'I', 'ii', 'V', 'IV', 'iii vi', 'ii', 'V'], outro: ['IV', 'I'] },
+        form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
+        lift: 0,
+        prog: { intro: ['I', 'IV'], A: ['I', 'vi', 'IV', 'V', 'I', 'vi', 'ii V', 'I'], B: ['IV', 'I', 'ii', 'V', 'IV', 'iii vi', 'ii', 'V'], C: ['vi', 'iii', 'IV', 'I', 'ii', 'V', 'iii vi', 'ii V'], outro: ['IV', 'I'] },
         melody: {
           inst: 'musicBox', range: [72, 93], density: 0.55, ornament: 0.15, double: { inst: 'bell', interval: -12, on: 'repeat' },
           tune: {
@@ -722,6 +744,8 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
             // A carol: "C. D C A. F | D. E F. A | Bb. A G. F | E.. G.. |"
             A: ['5:3 6:1 5:2 3:2', '6:3 7:1 1\':2 3:2', '4:3 3:1 2:2 1:2', '7,:4 2:4', '5:3 6:1 5:2 3:2', '6:3 7:1 1\':2 6:2', '4:2 6:2 5:2 2:2', '1:8'],
             B: ['6:4 1\':2 6:2', '5:4 3:2 1:2', '2:3 3:1 4:2 6:2', '5:6 r:2', '4:3 5:1 6:2 1\':2', '7:2 5:2 1\':2 6:2', '6:3 5:1 4:2 2:2', '5:6 r:2'],
+            // C: the vigil's quiet middle — the carol turns to the relative minor and climbs back.
+            C: ['3:3 4:1 6:4', '5:3 3:1 7,:4', "4:2 6:2 1':4", '5:2 6:1 5:1 3:4', '2:3 4:1 6:4', "5:3 7:1 2':4", "7:2 5:2 6:2 1':2", '4:2 2:2 5:4'],
           },
         },
         accomp: { inst: 'celesta', pattern: 'arp8', range: [62, 79], voices: 3, vel: 0.42 },
@@ -737,7 +761,9 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
     case 'fiddle':
       return {
         ...base, id, title: 'Harvest Reel', blurb: 'The Harvest Fair', bpm: Math.max(bpm, 118), key: 62, mode: 'dorian',
-        prog: { intro: ['i', 'bVII'], A: ['i', 'i', 'IV', 'v', 'i', 'i', 'IV v', 'i'], B: ['bVII', 'bVII', 'i', 'i', 'bVII', 'bVII', 'IV v', 'i'] },
+        // Faster than the jig, so one more B strain keeps the set past 90 s.
+        form: ['intro', 'A', 'A', 'B', 'B', 'C', 'C', 'A', 'A', 'B', 'B', 'A', 'outro'],
+        prog: { intro: ['i', 'bVII'], A: ['i', 'i', 'IV', 'v', 'i', 'i', 'IV v', 'i'], B: ['bVII', 'bVII', 'i', 'i', 'bVII', 'bVII', 'IV v', 'i'], C: ['IV', 'v', 'bIII', 'IV', 'ii', 'v', 'i', 'v'], outro: ['bVII', 'i'] },
         melody: {
           ...base.melody!,
           tune: {

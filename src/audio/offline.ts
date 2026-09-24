@@ -4,6 +4,7 @@
  * (limiter included) with an OfflineAudioContext. Results come back as base64 Float32 stereo.
  */
 import { AudioGraph } from './graph';
+import { loadDucker } from './ducker';
 import { MusicDirector, scheduleTheme } from './music';
 import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
@@ -74,9 +75,24 @@ const MIX_ENV: Record<string, EnvState> = {
   'mine-lava': AMBIENCE_PRESETS.mine!,
 };
 
-async function render(seconds: number, sr: number, build: (g: AudioGraph) => void): Promise<AudioBuffer> {
+/** Render-wide options (set by the harness): `liveBudget` applies the game's 72-voice polyphony budget. */
+const renderOpts = { liveBudget: false };
+export function setRenderOptions(o: Partial<typeof renderOpts>): typeof renderOpts {
+  Object.assign(renderOpts, o);
+  return { ...renderOpts };
+}
+
+/** A graph on a fresh offline context, with the sidechain worklet registered first (as in game). */
+async function offlineGraph(seconds: number, sr: number): Promise<{ ctx: OfflineAudioContext; g: AudioGraph }> {
   const ctx = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
-  const g = new AudioGraph(ctx, 1234);
+  const ok = await loadDucker(ctx);
+  const g = new AudioGraph(ctx, 1234, undefined, { worklet: ok, liveBudget: renderOpts.liveBudget });
+  if (!ok) g.attachSidechain(false);
+  return { ctx, g };
+}
+
+async function render(seconds: number, sr: number, build: (g: AudioGraph) => void): Promise<AudioBuffer> {
+  const { ctx, g } = await offlineGraph(seconds, sr);
   build(g);
   return ctx.startRendering();
 }
@@ -105,21 +121,25 @@ export async function renderAmbience(preset: string, seconds = 30, sr = 44100): 
 }
 
 /** Every SFX in sequence (1.6 s apart; long stingers get more room) + a line of dialogue per voice. */
-export async function renderSfxReel(sr = 44100): Promise<Rendered> {
+export async function renderSfxReel(sr = 44100, only: string[] | null = null): Promise<Rendered> {
   const markers: { name: string; t: number }[] = [];
   let t = 0.3;
   const long: Record<string, number> = { treefall: 3.2, hall: 5, lantern: 3.5, catch: 2.4, 'catch:perfect': 2.6, water: 2, cast: 2.2, sleep: 2.4, thunder: 3 };
-  for (const n of SFX_NAMES) {
+  for (const n of only ?? SFX_NAMES) {
     if (n === 'reel' || n === 'blip') continue;
     markers.push({ name: n, t });
     t += long[n] ?? 1.3;
   }
-  for (const v of Object.keys(VOICES)) {
-    markers.push({ name: `voice:${v}`, t });
-    t += 2.6;
+  if (!only) {
+    for (const v of Object.keys(VOICES)) {
+      markers.push({ name: `voice:${v}`, t });
+      t += 2.6;
+    }
   }
-  markers.push({ name: 'reel', t });
-  t += 2;
+  if (!only || only.includes('reel')) {
+    markers.push({ name: 'reel', t });
+    t += 2;
+  }
   const seconds = t + 1;
   const buf = await render(seconds, sr, (g) => {
     const sfx = new Sfx(g, 5);
@@ -150,8 +170,7 @@ export async function renderSfxReel(sr = 44100): Promise<Rendered> {
  * Markers: the change request and the director's trace.
  */
 export async function renderTransition(from: string, to: string, at = 14, seconds = 30, handoff: 'drift' | 'move' = 'drift', sr = 44100): Promise<Rendered> {
-  const ctx = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
-  const g = new AudioGraph(ctx, 1234);
+  const { ctx, g } = await offlineGraph(seconds, sr);
   const dir = new MusicDirector(g, 3);
   dir.desired = from;
   const markers: { name: string; t: number }[] = [{ name: `want ${to}`, t: at }];
@@ -171,6 +190,39 @@ export async function renderTransition(from: string, to: string, at = 14, second
   const buf = await ctx.startRendering();
   for (const tr of dir.trace) markers.push({ name: tr.note, t: tr.t });
   return { name: `transition-${from}-${to}${handoff === 'move' ? '-move' : ''}`, sampleRate: sr, data: encode(buf), frames: buf.length, markers };
+}
+
+/**
+ * The gameplay check: SFX over the score, the question that matters for game feel. The spring
+ * theme + the spring-morning farm bed, and a scripted 10 s of farming from 9 s in. Rendered three
+ * ways with identical seeds — `full` (everything), `sfx` (the effects alone through the same
+ * graph) and `bed` (music + ambience, no effects) — so the harness can measure each effect against
+ * the music actually sounding under it (full − sfx = the ducked bed) and how far the sidechain dipped.
+ */
+export const GAMEPLAY_SCRIPT: { name: string; t: number; verb?: boolean }[] = [
+  ...Array.from({ length: 8 }, (_, i) => ({ name: 'step:grass', t: 9 + i * 0.32 })),
+  { name: 'hoe', t: 12, verb: true },
+  { name: 'hoe', t: 12.7, verb: true },
+  { name: 'hoe', t: 13.4, verb: true },
+  { name: 'water', t: 14.4, verb: true },
+  { name: 'harvest', t: 15.8, verb: true },
+  { name: 'coin', t: 16.8 },
+  { name: 'ui:open', t: 17.8 },
+];
+
+export async function renderGameplay(part: 'full' | 'sfx' | 'bed', seconds = 20, sr = 44100, theme = 'spring'): Promise<Rendered> {
+  const buf = await render(seconds, sr, (g) => {
+    if (part !== 'sfx') {
+      scheduleTheme(g, theme, seconds, 1);
+      tickAmbience(g, { ...AMBIENCE_PRESETS['farm-spring-morning']!, key: THEMES[theme]!.key }, seconds);
+    }
+    if (part !== 'bed') {
+      const sfx = new Sfx(g, 5);
+      sfx.key = THEMES[theme]!.key;
+      for (const e of GAMEPLAY_SCRIPT) sfx.play(e.name, { at: e.t });
+    }
+  });
+  return { name: `gameplay-${part}`, sampleRate: sr, data: encode(buf), frames: buf.length, markers: GAMEPLAY_SCRIPT.map((e) => ({ name: e.verb ? `${e.name}*` : e.name, t: e.t })) };
 }
 
 export function listThemes(): string[] {

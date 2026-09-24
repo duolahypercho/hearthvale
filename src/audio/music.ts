@@ -19,6 +19,7 @@ import { INSERTS, INSTRUMENTS, TAIL, type InstrumentName } from './instruments';
 import { THEMES } from './themes';
 import { Rand, hashString } from './dsp';
 import { PiecePrefetch } from './prefetch';
+import { loudnessTrim } from './loudness';
 import { PLAYLISTS, songFor } from './select';
 import { MODES, chordPcs, parseChord, voiceChord, type ModeName } from './theory';
 
@@ -50,6 +51,9 @@ export class MusicPlayer {
   /** Called for every melody note as it is scheduled (the now-playing card's floating notes). */
   onMelody: ((at: number, midi: number, dur: number) => void) | null = null;
 
+  /** Normalised output level of this theme (theme.gain × loudness trim). */
+  private lvl = 1;
+
   /** Bridge events (absolute times) played before the piece proper. */
   private pre: { t: number; inst: InstrumentName; midi: number; dur: number; vel: number; track: TrackName }[] = [];
 
@@ -68,7 +72,8 @@ export class MusicPlayer {
     this.seed = seed;
     this.out = ctx.createGain();
     this.wet = ctx.createGain();
-    const lvl = theme.gain;
+    // Theme level: the arrangement's own trim × loudness normalisation (loudness.ts).
+    const lvl = (this.lvl = theme.gain * loudnessTrim(theme.id));
     if (fadeIn > 0) {
       this.out.gain.setValueAtTime(0, startAt);
       this.out.gain.linearRampToValueAtTime(lvl, startAt + fadeIn);
@@ -88,7 +93,26 @@ export class MusicPlayer {
       f.connect(dest);
       return f;
     };
-    this.out.connect(shelf(g.musicBus));
+    // Per-song tone fixes (the mines: a 60 Hz high-pass under the drone, 150–250 Hz mud cut).
+    let dry: AudioNode = shelf(g.musicBus);
+    if (theme.eq?.cut) {
+      const c = ctx.createBiquadFilter();
+      c.type = 'peaking';
+      c.frequency.value = theme.eq.cut.f;
+      c.Q.value = theme.eq.cut.q ?? 0.9;
+      c.gain.value = theme.eq.cut.db;
+      c.connect(dry);
+      dry = c;
+    }
+    if (theme.eq?.hp) {
+      const h = ctx.createBiquadFilter();
+      h.type = 'highpass';
+      h.frequency.value = theme.eq.hp;
+      h.Q.value = 0.7;
+      h.connect(dry);
+      dry = h;
+    }
+    this.out.connect(dry);
     this.wet.connect(shelf(g.hall));
     this.piece = pieces ? pieces.take(theme, seed) : new Composer(theme, seed).compose();
     // Seamless loops chain the next piece on the downbeat: have it composed in the background by then.
@@ -136,7 +160,9 @@ export class MusicPlayer {
     t = ctx.createGain();
     t.gain.value = mix.gain;
     const p = ctx.createStereoPanner();
-    p.pan.value = mix.pan;
+    // Stage: the tune near the middle, harmony and counter-line out at ±0.5…0.7 on opposite sides.
+    const side = Math.sign(mix.pan) || (name === 'counter' || name === 'accomp2' ? 1 : -1);
+    p.pan.value = name === 'accomp' || name === 'accomp2' || name === 'counter' ? side * Math.min(0.7, Math.max(0.5, Math.abs(mix.pan) * 1.6)) : mix.pan;
     const send = ctx.createGain();
     send.gain.value = mix.send;
     // Track EQ: an air shelf on the tune (it should glint above the band), and the 250–400 Hz
@@ -155,6 +181,30 @@ export class MusicPlayer {
       box.Q.value = 1.1;
       box.gain.value = -2.5;
       head = head.connect(box);
+    }
+    if (name === 'double') {
+      // Doubles are spread with a Haas pair: the dry copy left of centre, a 15 ms copy right.
+      p.pan.value = -0.55;
+      const late = ctx.createDelay(0.05);
+      late.delayTime.value = 0.015;
+      const pr = ctx.createStereoPanner();
+      pr.pan.value = 0.55;
+      const lg = ctx.createGain();
+      lg.gain.value = 0.8;
+      head.connect(late).connect(lg).connect(pr).connect(this.out);
+    }
+    if (name === 'melody') {
+      // A pair of early reflections (11 / 17 ms, either side) puts the soloist on a stage instead
+      // of inside the listener's head, without moving it off centre.
+      for (const [dt, pan] of [[0.011, -0.8], [0.017, 0.8]] as const) {
+        const er = ctx.createDelay(0.05);
+        er.delayTime.value = dt;
+        const eg = ctx.createGain();
+        eg.gain.value = 0.2;
+        const ep = ctx.createStereoPanner();
+        ep.pan.value = pan;
+        head.connect(er).connect(eg).connect(ep).connect(this.out);
+      }
     }
     head.connect(p).connect(this.out);
     p.connect(send).connect(this.wet);
@@ -265,8 +315,8 @@ export class MusicPlayer {
   setLevel(v: number, tau = 1.5): void {
     const now = this.g.ctx.currentTime;
     if (now < this.stopAt && this.stopAt === Infinity) {
-      this.out.gain.setTargetAtTime(this.theme.gain * v, now, tau);
-      this.wet.gain.setTargetAtTime(this.theme.gain * v, now, tau);
+      this.out.gain.setTargetAtTime(this.lvl * v, now, tau);
+      this.wet.gain.setTargetAtTime(this.lvl * v, now, tau);
     }
   }
 

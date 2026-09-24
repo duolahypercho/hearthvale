@@ -101,12 +101,25 @@ export interface ThemeDef {
   pad?: { inst: InstrumentName; range: [number, number]; voices: 3 | 4; vel: number; on: When };
   perc?: { pattern: PercPattern; on: When; vel: number };
   /** Sparse ambient generation instead of a song form (mine). */
-  ambient?: { inst: InstrumentName; range: [number, number]; noteChance: number; bars: number; motif?: number[] };
+  ambient?: {
+    inst: InstrumentName;
+    range: [number, number];
+    noteChance: number;
+    bars: number;
+    motif?: number[];
+    /**
+     * A mid-register ostinato (the mine's "tuned drips"): per bar, [scale steps from the chord
+     * root placed in `range`, beats] — rests every 4th bar so it breathes.
+     */
+    ostinato?: { inst: InstrumentName; range: [number, number]; pattern: [number, number][]; vel: number };
+  };
   mix: Partial<Record<TrackName, TrackMix>>;
   /** Seconds of silence (ambience only) after each piece, [min, max]. [0,0] loops seamlessly. */
   rest: [number, number];
-  /** Overall level trim for this theme. */
+  /** Overall level trim for this theme (loudness.ts normalises on top of it). */
   gain: number;
+  /** Tone fixes on the theme's dry bus: a high-pass (Hz) and one peaking cut. */
+  eq?: { hp?: number; cut?: { f: number; db: number; q?: number } };
   /**
    * Per-song mastering EQ: high-shelf gain (dB) at 2.4 kHz on this theme's bus — lifts the attack
    * and overtones of near-pure mallet / music-box timbres without touching their instruments.
@@ -179,6 +192,9 @@ interface MNote {
   grace?: number;
   pick?: boolean;
 }
+
+/** Wind voices (slurs / portamento). */
+const WINDS: ReadonlySet<InstrumentName> = new Set(['flute', 'whistle', 'ocarina', 'clarinet', 'oboe']);
 
 const CELLS: Record<Meter, { normal: number[][]; slow: number[][]; cadence: number[][]; busy: number[][] }> = {
   '4/4': {
@@ -349,6 +365,19 @@ export class Composer {
           const tied = m.legato && nextN && nextN.step === n.step + n.steps;
           const o: NoteOpts = {};
           if (m.legato && last !== undefined && Math.abs(n.midi + oct - last) <= 7) o.art = 'legato';
+          // Winds slur: in a legato tune every connected step glides from the note before; in a
+          // tongued one, stepwise notes that follow without a rest are slurred about half the time
+          // (never across a phrase start), so the line phrases like a player's breath, not a sequencer.
+          const wind = WINDS.has(inst);
+          const prevN = notes[ni - 1];
+          const connected = prevN !== undefined && prevN.step + prevN.steps === n.step;
+          if (wind && !m.staccato && last !== undefined && connected && !(n.step === 0 && b.i % 4 === 0)) {
+            const iv = Math.abs(n.midi + oct - last);
+            if ((m.legato && iv <= 7) || (iv > 0 && iv <= 4 && this.mr.chance(0.55))) {
+              o.art = 'legato';
+              o.from = last;
+            }
+          }
           if (!m.legato && n.steps >= 4 && inst === 'marimba') o.art = 'roll';
           if (m.staccato) o.art = 'staccato';
           if ((inst === 'fiddle' || inst === 'cello') && o.art === 'legato' && this.mr.chance(0.18) && last !== undefined) o.from = last;
@@ -411,10 +440,42 @@ export class Composer {
       this.transpose(ev, n0, b.shift);
     });
 
+    this.shapeDynamics(ev, bars);
     ev.sort((a, b) => a.t - b.t);
     const lastBar = bars[bars.length - 1]!;
     const barInfo = bars.map((b) => ({ t: b.t0, chords: b.spans.map((sp) => sp.chord.symbol).join(' '), section: b.i === 0 ? b.section : '', i: b.i, shift: b.shift }));
     return { theme: th.id, seed: this.seed, events: ev, duration: lastBar.t0 + lastBar.dur, bars: bars.length, barInfo };
+  }
+
+  /**
+   * Performance dynamics. Every 4-bar phrase is an arch — it starts about 3 dB under, swells to
+   * +3.5 dB around its third bar and relaxes into the cadence — on top of a section contour: the
+   * intro and the first statement mp, restatements mf, B and C build through their length, the
+   * final A is the loudest, the outro dies away. The whole band breathes together (the melody
+   * rides it fully, harmony 80 %, percussion 60 %). Velocity also drives timbre in the
+   * instruments, so a swell brightens as it grows.
+   */
+  private shapeDynamics(ev: NoteEvent[], bars: Bar[]): void {
+    if (!bars.length) return;
+    const smooth = (x: number): number => {
+      const c = Math.max(0, Math.min(1, x));
+      return c * c * (3 - 2 * c);
+    };
+    const depth: Record<TrackName, number> = { melody: 1, double: 1, counter: 0.9, accomp: 0.8, accomp2: 0.8, pad: 0.8, bass: 0.75, perc: 0.6 };
+    let bi = 0;
+    const sorted = [...ev].sort((a, b) => a.t - b.t);
+    for (const e of sorted) {
+      while (bi < bars.length - 1 && bars[bi + 1]!.t0 <= e.t + 0.02) bi++;
+      const b = bars[bi]!;
+      const inBar = Math.max(0, Math.min(0.999, (e.t - b.t0) / b.dur));
+      const pos = ((b.i % 4) + inBar) / 4;
+      const arch = pos < 0.62 ? -3 + 6.5 * smooth(pos / 0.62) : 3.5 - 5 * smooth((pos - 0.62) / 0.38);
+      const secPos = b.len > 1 ? (b.i + inBar) / b.len : inBar;
+      const section = b.section === 'intro' ? -2 : b.section === 'outro' ? -1 - 4 * secPos : b.section === 'B' ? 0.5 + 1.5 * secPos : b.section === 'C' ? 0 + 2.5 * secPos : this.isFinalA(b) ? 2 : b.occ === 0 ? -1 : 0.5;
+      const archAmt = b.section === 'intro' || b.section === 'outro' ? 0.4 : 0.9;
+      const db = (arch * archAmt + section) * depth[e.track];
+      e.vel *= Math.pow(10, db / 20);
+    }
   }
 
   private transpose(ev: NoteEvent[], from: number, shift: number): void {
@@ -1205,6 +1266,20 @@ export class Composer {
           if (p > a.range[1]) p -= 12;
           if (p < a.range[0]) p += 12;
         }
+      }
+      if (a.ostinato && i % 4 !== 3 && i > 0) {
+        const o = a.ostinato;
+        const beat = 60 / th.bpm;
+        let tt = t + this.jit(0.01);
+        const root = placeIn(pcs[0]!, o.range[0], o.range[1], (o.range[0] + o.range[1]) / 2 - 3);
+        o.pattern.forEach(([step, beats], k) => {
+          let p = scaleStep(root, step, scale);
+          if (p > o.range[1]) p -= 12;
+          if (p < o.range[0]) p += 12;
+          // Accent the downbeat, a little push-pull in the rest.
+          ev.push({ t: tt, track: 'accomp', inst: o.inst, midi: p, dur: beats * beat * 0.9, vel: o.vel * (k === 0 ? 1.1 : 0.82 + r.range(0, 0.12)) });
+          tt += beats * beat + this.jit(0.012);
+        });
       }
       if (th.counter && r.chance(0.3)) {
         const p = placeIn(pcs[r.int(0, pcs.length - 1)]!, th.counter.range[0], th.counter.range[1], (th.counter.range[0] + th.counter.range[1]) / 2);
