@@ -113,7 +113,7 @@ export class Hud {
   private bannerEl: HTMLElement;
   private ghost: PlacementGhost;
   private demoKit: DemoKit;
-  private pad = { prev: [] as boolean[], navT: 0, navDir: '' as NavDir | '' };
+  private pad = { prev: [] as boolean[], navT: 0, navDir: '' as NavDir | '', keys: {} as Record<string, boolean> };
   private fpsEl: HTMLElement;
   private fpsT = 0;
   private fpsN = 0;
@@ -604,7 +604,10 @@ export class Hud {
   private pollPad(dt: number): void {
     const pads = navigator.getGamepads?.() ?? [];
     const gp = [...pads].find((p) => p && p.connected);
-    if (!gp) return;
+    if (!gp) {
+      for (const k in this.pad.keys) if (this.pad.keys[k]) return this.padKeys({});
+      return;
+    }
     const down = gp.buttons.map((b) => b.pressed);
     const hit = (i: number): boolean => !!down[i] && !this.pad.prev[i];
     this.pad.prev = down;
@@ -628,8 +631,26 @@ export class Hud {
       if (hit(9) && this.openPanel !== 'title' && this.openPanel !== 'newgame') this.open('none');
     } else if (!this.openPanel) {
       if (hit(9)) this.open('pause');
-      if (hit(3) || hit(8)) this.open('inventory');
+      if (hit(3)) this.open('inventory');
+      if (hit(8)) this.open('map');
       if (hit(4) || hit(5)) this.game.events.emit('toolbar:select', { slot: (this.game.toolbarSlot + (hit(4) ? 9 : 1)) % 10 });
+      // Play on the pad: stick / d-pad walk, X uses the tool, A talks / interacts, B held runs (settings PAD_MAP).
+      const ax = gp.axes[0] ?? 0;
+      const ay = gp.axes[1] ?? 0;
+      this.padKeys({ KeyW: !!down[12] || ay < -0.45, KeyS: !!down[13] || ay > 0.45, KeyA: !!down[14] || ax < -0.45, KeyD: !!down[15] || ax > 0.45, KeyC: !!down[2], KeyX: !!down[0], ShiftLeft: !!down[1] });
+      return;
+    }
+    this.padKeys({});
+  }
+
+  /** Mirror pad buttons as the default key codes the game listens for (keydown / keyup on change only). */
+  private padKeys(want: Record<string, boolean>): void {
+    const keys = this.pad.keys;
+    for (const code of new Set([...Object.keys(keys), ...Object.keys(want)])) {
+      const on = !!want[code];
+      if (on === !!keys[code]) continue;
+      keys[code] = on;
+      window.dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code, key: code, bubbles: true, cancelable: true }));
     }
   }
 

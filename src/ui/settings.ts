@@ -31,6 +31,10 @@ export interface Settings {
   fpsCap: number;
   /** Frame counter chip under the clock. */
   showFps: boolean;
+  /** Key / button hint strips on menus (backpack footer, title, tooltips). */
+  hints: boolean;
+  /** Darker, heavier small print on parchment. */
+  contrast: boolean;
   /** action → physical key code */
   keys: Record<string, string>;
 }
@@ -55,7 +59,7 @@ export const BINDABLE: [string, string, string][] = [
 ];
 
 const KEY = 'hearthvale.settings';
-const DEFAULTS: Settings = { quality: 'high', master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7, toasts: true, tooltips: true, clock24: false, uiScale: 1, calm: false, fpsCap: 0, showFps: false, keys: {} };
+const DEFAULTS: Settings = { quality: 'high', master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7, toasts: true, tooltips: true, clock24: false, uiScale: 1, calm: false, fpsCap: 0, showFps: false, hints: true, contrast: false, keys: {} };
 
 export const settings: Settings = { ...DEFAULTS, keys: {} };
 /** physical code → default code */
@@ -129,6 +133,8 @@ function apply(game: Game): void {
   document.body.classList.toggle('u-no-toasts', !settings.toasts);
   document.body.classList.toggle('u-no-tips', !settings.tooltips);
   document.body.classList.toggle('u-calm', settings.calm);
+  document.body.classList.toggle('u-no-hints', !settings.hints);
+  document.body.classList.toggle('u-contrast', settings.contrast);
   (game as { frameCap?: number }).frameCap = settings.fpsCap || 0;
   applyUiScale();
 }
@@ -154,8 +160,34 @@ export function keyLabel(code: string): string {
 }
 
 type SliderKey = 'master' | 'music' | 'sfx' | 'ambience' | 'uiScale';
-type ToggleKey = 'toasts' | 'tooltips' | 'clock24' | 'calm' | 'showFps';
+type ToggleKey = 'toasts' | 'tooltips' | 'clock24' | 'calm' | 'showFps' | 'hints' | 'contrast';
 type Row = { kind: 'slider'; key: SliderKey; label: string; icon: string } | { kind: 'toggle'; key: ToggleKey; label: string; note: string };
+
+/** Keys the rebinder refuses (toolbar digits, menu / tab keys). */
+const RESERVED = new Set(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'BracketLeft', 'BracketRight', 'Tab', 'F11']);
+
+/** Gamepad legend (standard mapping): glyph, glyph style, what it does. Driven by hud.ts pollPad. */
+export const PAD_MAP: [string, string, string][] = [
+  ['A', 'a', 'Talk · select'],
+  ['X', 'x', 'Use tool'],
+  ['B', 'b', 'Run · back'],
+  ['Y', 'y', 'Backpack'],
+  ['LB', 'sh', 'Toolbar ◂'],
+  ['RB', 'sh', 'Toolbar ▸'],
+  ['L', 'st', 'Walk'],
+  ['☰', 'sys', 'Pause'],
+];
+
+const PAD_ICON = `<svg viewBox="0 0 24 24"><path d="M6.6 7 H17.4 C20 7 21.6 9.4 22 13 L22.6 17.4 C22.8 19 21.2 20.2 19.8 19.2 L16.6 16.6 H7.4 L4.2 19.2 C2.8 20.2 1.2 19 1.4 17.4 L2 13 C2.4 9.4 4 7 6.6 7 Z" fill="#8a94a6" stroke="#2e3440" stroke-width="1.4" stroke-linejoin="round"/><path d="M6.6 10.4 V14 M4.8 12.2 H8.4" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="16.4" cy="11" r="1.2" fill="#5fb85a"/><circle cx="18.6" cy="13.2" r="1.2" fill="#e0584a"/><circle cx="14.2" cy="13.2" r="1.2" fill="#4a8ae0"/><circle cx="16.4" cy="15.2" r="1.2" fill="#f0c040"/></svg>`;
+
+function padName(): string {
+  try {
+    const gp = [...(navigator.getGamepads?.() ?? [])].find((p) => p && p.connected);
+    return gp ? 'connected' : 'plug in to play';
+  } catch {
+    return '';
+  }
+}
 
 export class SettingsScreen extends Screen {
   private fromTitle = false;
@@ -255,18 +287,18 @@ export class SettingsScreen extends Screen {
     disp.append(fs, capRow, this.toggle('showFps', 'Show FPS', 'frame counter under the clock'));
     // Accessibility
     const acc = el('section', 'set-sec', `<h3>${ICONS.people}<span>Accessibility</span></h3>`);
-    acc.append(this.slider('uiScale', 'UI size', 0.8, 1.25), this.toggle('calm', 'Reduce motion', 'gentler animations'));
+    acc.append(this.slider('uiScale', 'UI size', 0.8, 1.25), this.toggle('calm', 'Reduce motion', 'gentler animations'), this.toggle('contrast', 'High-contrast text', 'darker small print'));
     colA.append(gfx, disp, acc);
 
     // Audio
     const aud = el('section', 'set-sec', `<h3>${ICONS.speaker}<span>Sound</span></h3>`);
-    const rows: Row[] = [
-      { kind: 'slider', key: 'master', label: 'Master', icon: '🔊' },
-      { kind: 'slider', key: 'music', label: 'Music', icon: '♪' },
-      { kind: 'slider', key: 'sfx', label: 'Effects', icon: '✦' },
-      { kind: 'slider', key: 'ambience', label: 'Ambience', icon: '≈' },
-    ];
-    for (const r of rows) if (r.kind === 'slider') aud.appendChild(this.slider(r.key, r.label));
+    for (const [key, label] of [
+      ['master', 'Master'],
+      ['music', 'Music'],
+      ['sfx', 'Effects'],
+      ['ambience', 'Ambience'],
+    ] as [SliderKey, string][])
+      aud.appendChild(this.slider(key, label));
 
     // Interface
     const ui = el('section', 'set-sec', `<h3>${ICONS.gear}<span>Interface</span></h3>`);
@@ -274,26 +306,55 @@ export class SettingsScreen extends Screen {
       { kind: 'toggle', key: 'toasts', label: 'Pickup notes', note: 'toasts in the corner' },
       { kind: 'toggle', key: 'tooltips', label: 'Item tooltips', note: 'hover cards' },
       { kind: 'toggle', key: 'clock24', label: '24-hour clock', note: 'HUD time format' },
+      { kind: 'toggle', key: 'hints', label: 'Control hints', note: 'key & button prompts' },
     ];
     for (const t of toggles) if (t.kind === 'toggle') ui.appendChild(this.toggle(t.key, t.label, t.note));
-    colB.append(aud, ui);
+
+    // Gamepad: every button as a glyph chip (2 columns, so no lone word ever wraps).
+    const pad = el('section', 'set-sec pad', `<h3>${PAD_ICON}<span>Gamepad</span><small class="pad-state">${padName()}</small></h3>`);
+    pad.appendChild(
+      el(
+        'div',
+        'set-pad',
+        PAD_MAP.map(([g, cls, label]) => `<div class="pc"><i class="gl ${cls}">${g}</i><span>${label}</span></div>`).join(''),
+      ),
+    );
+    colB.append(aud, ui, pad);
 
     // Controls
-    const ctl = el('section', 'set-sec keys', `<h3>${ICONS.hammer}<span>Controls</span></h3>`);
+    const ctl = el('section', 'set-sec keys', `<h3>${ICONS.hammer}<span>Controls</span><small class="kb-hint">click a key to rebind</small></h3>`);
     const list = el('div', 'set-keys');
     for (const [action, label, def] of BINDABLE) {
       const cur = settings.keys[action] ?? def;
       const row = el('div', 'krow', `<span>${label}</span><button class="kcap" data-nav>${keyLabel(cur)}</button>`);
+      row.dataset.action = action;
       const cap = row.querySelector('.kcap') as HTMLElement;
       cap.addEventListener('click', () => {
         sfx(this.game, 'click');
+        this.root.querySelectorAll('.krow.listening').forEach((r) => r.classList.remove('listening'));
+        row.classList.add('listening');
         cap.classList.add('listening');
         cap.textContent = 'press a key…';
         capture = (code) => {
           cap.classList.remove('listening');
-          if (code !== 'Escape') {
-            // A key can only drive one action: clear it from any other binding.
-            for (const [a, , d] of BINDABLE) if (a !== action && (settings.keys[a] ?? d) === code) settings.keys[a] = d === code ? '' : d;
+          row.classList.remove('listening');
+          let flash: [string, string, string][] = [];
+          if (code === 'Escape') {
+            /* cancelled */
+          } else if (RESERVED.has(code)) {
+            flash = [[action, 'bad', `${keyLabel(code)} is reserved`]];
+            sfx(this.game, 'error');
+          } else {
+            // A key drives one action: if another action had it, the two swap keys (flagged on both rows).
+            const prev = settings.keys[action] ?? def;
+            for (const [a, la, d] of BINDABLE) {
+              if (a === action || (settings.keys[a] ?? d) !== code) continue;
+              settings.keys[a] = prev;
+              flash = [
+                [a, 'swap', `now ${keyLabel(prev)}`],
+                [action, 'swap', `swapped with ${la}`],
+              ];
+            }
             settings.keys[action] = code;
             rebuildRemap();
             save();
@@ -302,15 +363,21 @@ export class SettingsScreen extends Screen {
           this.render();
           this.nav.attach(this.root, [...this.root.querySelectorAll<HTMLElement>('.kcap')][BINDABLE.findIndex((b) => b[0] === action)] ?? null);
           this.root.classList.remove('is-opening');
+          for (const [a, cls, msg] of flash) {
+            const r = this.root.querySelector<HTMLElement>(`.krow[data-action="${a}"]`);
+            if (!r) continue;
+            r.classList.add(cls);
+            r.appendChild(el('em', 'kmsg', msg));
+            window.setTimeout(() => {
+              r.classList.remove(cls);
+              r.querySelector('.kmsg')?.remove();
+            }, 2400);
+          }
         };
       });
       list.appendChild(row);
     }
-    const fixed = el(
-      'div',
-      'set-fixed',
-      `<div><span>Toolbar</span><b>1 – 0 · wheel</b></div><div><span>Menu / back</span><b>Esc</b></div><div><span>Switch tabs</span><b>[ ]</b></div><div class="pad"><span>Gamepad</span><b>A select · B back · Y bag · LB/RB tabs · Start</b></div>`,
-    );
+    const fixed = el('div', 'set-fixed', `<div><span>Toolbar</span><b><kbd>1</kbd>–<kbd>0</kbd> · wheel</b></div><div><span>Menu / back</span><b><kbd>Esc</kbd></b></div><div><span>Switch tabs</span><b><kbd>[</kbd> <kbd>]</kbd></b></div>`);
     const reset = el('button', 'u-btn small', 'Reset to defaults');
     reset.dataset.nav = '';
     reset.addEventListener('click', () => {

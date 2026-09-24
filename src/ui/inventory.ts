@@ -356,7 +356,7 @@ export class InventoryScreen extends Screen {
     this.held = null;
     if (!inv.slots[from]) inv.setSlot(from, stack);
     else {
-      const left = inv.add(stack.id, stack.qty);
+      const left = inv.add(stack.id, stack.qty, stack.quality);
       if (left > 0) console.warn(`[ui] backpack full; ${left}× ${stack.id} lost`);
     }
     this.renderHeld();

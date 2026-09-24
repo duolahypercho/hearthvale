@@ -10,7 +10,7 @@
 import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
 import { NPCS } from '../data/npcs';
-import { ICONS, itemIcon, itemCategory, qualityStar } from './icons';
+import { ICONS, itemIcon, itemIconUrl, itemCategory, qualityStar } from './icons';
 import { Screen, el, sfx, rollTo, replay, escapeHtml } from './kit';
 import { nightValleySvg, quietVignetteSvg } from './dayend-art';
 
@@ -30,6 +30,7 @@ interface Summary {
     petted: number;
     produce: { item: string; q: number }[];
     pet?: { name: string; species: string; bowl: boolean };
+    chores?: { icon: string; text: string }[];
   };
 }
 
@@ -185,6 +186,19 @@ export class DayEndScreen extends Screen {
           </div>`;
         })()
       : '';
+    // Tomorrow's chores (animals): fills the side column on a quiet day.
+    const chores = an?.chores ?? [];
+    const choresCard = chores.length
+      ? `<div class="de-chores" style="margin-top:10px;padding:9px 12px 10px;border-radius:14px;background:rgba(255,252,240,.6);box-shadow:inset 0 0 0 2px rgba(138,100,64,.16)">
+          <div class="de-h" style="margin-bottom:5px">Tomorrow’s chores</div>
+          ${chores
+            .map(
+              (c, i) =>
+                `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-weight:800;font-size:14px;color:#6a4424;${i ? 'border-top:1px dashed rgba(138,100,64,.25);' : ''}"><span style="flex:0 0 24px;height:24px;display:grid;place-items:center">${c.icon === 'heart' ? (ICONS.heart ?? '').replace('<svg ', '<svg style="width:20px;height:20px" ') : `<img src="${itemIconUrl(c.icon)}" alt="" style="width:24px;height:24px"/>`}</span><span style="flex:1;min-width:0">${escapeHtml(c.text)}</span><span style="flex:0 0 14px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 2px rgba(122,74,34,.45)"></span></div>`,
+            )
+            .join('')}
+        </div>`
+      : '';
     const body = quiet
       ? `<div class="de-body quiet">
           <div class="de-quiet"><div class="qv-art">${quietVignetteSvg()}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>
@@ -193,6 +207,7 @@ export class DayEndScreen extends Screen {
             <div class="de-rest"><div class="de-h">Rest</div><div class="bar"><i style="--e:${(eNow / eMax).toFixed(3)}"></i></div><div class="rl"><span>${ICONS.bolt ?? ''}Energy</span><b>${eNow} / ${eMax}</b></div><small>${s.passedOut ? 'You slept where you fell — half your energy returns.' : 'A full night’s sleep. You wake refreshed.'}</small></div>
             ${tmrCard}
             <div class="de-purse"><span>Purse</span><b>${ICONS.coin}<span class="pv">${gold.toLocaleString()}</span>g</b></div>
+            ${choresCard}
             <div class="de-note"><small>From Grandmother’s almanac</small><p>${(ALMANAC[tSeason] ?? ALMANAC.spring!)[s.day % 3]}</p></div>
           </div>
         </div>`

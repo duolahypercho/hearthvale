@@ -18,8 +18,8 @@ export interface InventoryApi {
   readonly slots: (Stack | null)[];
   /** Currently selected toolbar stack. */
   selected(): Stack | null;
-  /** Adds items; returns how many did not fit. */
-  add(id: string, qty?: number): number;
+  /** Adds items (at a produce quality, default 0 — stacks only merge at equal quality); returns how many did not fit. */
+  add(id: string, qty?: number, quality?: number): number;
   /** Removes qty of an item (from any slot); false if not enough. */
   remove(id: string, qty?: number): boolean;
   /** Removes qty from a specific slot; returns what was removed. */
@@ -79,12 +79,12 @@ export class InventorySystem implements System, InventoryApi {
       const s = this.slots[slot];
       if (s) game.events.emit('item:use', { itemId: s.id, x, z, slot });
     });
-    game.events.on('item:give', ({ itemId, qty }) => {
+    game.events.on('item:give', ({ itemId, qty, quality }) => {
       if (!itemDef(itemId)) {
         console.warn(`[inventory] unknown item "${itemId}"`);
         return;
       }
-      this.add(itemId, qty);
+      this.add(itemId, qty, quality);
     });
     game.events.on('toolbar:select', () => this.changed());
     this.changed();
@@ -98,13 +98,14 @@ export class InventorySystem implements System, InventoryApi {
     return this.slots[this.game.toolbarSlot] ?? null;
   }
 
-  add(id: string, qty = 1): number {
+  add(id: string, qty = 1, quality = 0): number {
     const def = itemDef(id);
     const max = def?.stack ?? 999;
+    const q = Math.max(0, Math.min(3, quality | 0));
     let left = qty;
     for (const s of this.slots) {
       if (left <= 0) break;
-      if (s && s.id === id && s.qty < max) {
+      if (s && s.id === id && (s.quality ?? 0) === q && s.qty < max) {
         const n = Math.min(left, max - s.qty);
         s.qty += n;
         left -= n;
@@ -113,7 +114,7 @@ export class InventorySystem implements System, InventoryApi {
     for (let i = 0; i < SIZE && left > 0; i++) {
       if (!this.slots[i]) {
         const n = Math.min(left, max);
-        this.slots[i] = { id, qty: n };
+        this.slots[i] = q ? { id, qty: n, quality: q } : { id, qty: n };
         left -= n;
       }
     }
@@ -145,7 +146,7 @@ export class InventorySystem implements System, InventoryApi {
     s.qty -= n;
     if (s.qty <= 0) this.slots[slot] = null;
     this.changed();
-    return { id: s.id, qty: n };
+    return s.quality ? { id: s.id, qty: n, quality: s.quality } : { id: s.id, qty: n };
   }
 
   setSlot(slot: number, stack: Stack | null): void {

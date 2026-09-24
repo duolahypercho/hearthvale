@@ -4253,3 +4253,631 @@ svg.valley {
     opacity: 0.6;
   }
 }
+
+/* ═══ r3: Shop — the "more" chevron lives in its own gutter (never on a row), a bottom paper fade instead of
+   guillotined rows, an "In your pack" card fills the keeper column, payment coins + goods fly. ═══ */
+.shop-list {
+  height: 326px;
+  padding-bottom: 26px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 16px, #000 calc(100% - 30px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 16px, #000 calc(100% - 30px), transparent 100%);
+}
+.shop-morebar {
+  position: relative;
+  height: 26px;
+  margin: 2px 22px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.shop-morebar::before,
+.shop-morebar::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  margin: 0 10px;
+  background: repeating-linear-gradient(90deg, rgba(138, 100, 64, 0.3) 0 6px, transparent 6px 11px);
+}
+.shop-more {
+  position: static;
+  translate: none;
+  flex: none;
+  padding: 3px 13px 4px 10px;
+  font-size: 13px;
+  animation: shopMoreR3 1.6s ease-in-out infinite;
+}
+@keyframes shopMoreR3 {
+  50% {
+    transform: translateY(2px);
+  }
+}
+.shop-more.gone {
+  display: none;
+}
+.shop-morebar.end::before {
+  flex: 1;
+}
+.shop-morebar.end .shop-more {
+  display: none;
+}
+.shop-morebar:not(.end):has(.shop-more.gone)::before,
+.shop-morebar:not(.end):has(.shop-more.gone)::after {
+  opacity: 0;
+}
+
+.shop-have {
+  margin-top: 14px;
+  width: 100%;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 253, 244, 0.9), rgba(250, 238, 210, 0.9));
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.25), 0 3px 0 rgba(120, 70, 20, 0.12);
+}
+.shop-have:empty {
+  display: none;
+}
+.shop-have .u-slot.mini {
+  width: 52px;
+  height: 52px;
+}
+.shop-have .u-slot.mini img.u-ic {
+  width: 42px;
+  height: 42px;
+}
+.shop-have small {
+  display: block;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #a08060;
+}
+.shop-have b {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 1.1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.shop-have .fr {
+  text-align: right;
+}
+.shop-have .fr b {
+  font-size: 19px;
+}
+.shop-have .fr em {
+  font-style: normal;
+  font-size: 13px;
+  color: #a08060;
+}
+.shop-have .meter {
+  display: block;
+  width: 64px;
+  height: 6px;
+  margin: 3px 0 0 auto;
+  border-radius: 4px;
+  background: rgba(120, 80, 40, 0.18);
+  overflow: hidden;
+}
+.shop-have .meter i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #6ab04a, #9ad86a);
+}
+.shop-have.got {
+  animation: shopGot 420ms var(--ease-back);
+}
+@keyframes shopGot {
+  35% {
+    transform: scale(1.04);
+    box-shadow: inset 0 0 0 3px #8cd06a, 0 0 18px 4px rgba(140, 220, 100, 0.45);
+  }
+}
+.hv-popbadge {
+  padding: 2px 10px 3px;
+  border-radius: 12px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 20px;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: 0 2px 0 rgba(40, 20, 4, 0.5);
+  background: linear-gradient(180deg, #7cc85a, #4f9a36);
+  box-shadow: 0 0 0 2px #2f5a1a, 0 4px 10px rgba(20, 40, 10, 0.35);
+}
+.hv-popbadge.gold {
+  background: linear-gradient(180deg, #ffd66a, #e0a030);
+  color: #5a3408;
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.8);
+  box-shadow: 0 0 0 2px #8a5a0a, 0 4px 10px rgba(60, 30, 4, 0.35);
+}
+.shop-bubble {
+  min-height: 104px;
+}
+.shop-have {
+  margin-top: 16px;
+  grid-template-columns: 56px 1fr;
+  grid-template-areas: 'ic hv' 'fr fr';
+  row-gap: 8px;
+  padding: 10px 14px 10px 10px;
+}
+.shop-have .u-slot.mini {
+  grid-area: ic;
+  width: 56px;
+  height: 56px;
+}
+.shop-have .hv {
+  grid-area: hv;
+}
+.shop-have .hv b {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 28px;
+}
+.shop-have .hv em.to {
+  font-style: normal;
+  font-size: 17px;
+  color: #3f8a2a;
+}
+.shop-have .fr {
+  grid-area: fr;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+  text-align: left;
+  padding-top: 7px;
+  border-top: 2px dashed rgba(138, 100, 64, 0.22);
+}
+.shop-have .fr .meter {
+  width: auto;
+  height: 8px;
+  margin: 0;
+}
+.shop-have .fr b {
+  font-size: 17px;
+}
+
+/* ═══ r3: Workbench detail — no dead band: 56px ingredient rows, a bigger placement diorama anchored to the
+   column foot, a "Uses" strip of icon chips, and the craft payoff launched from the Craft button. ═══ */
+.craft-detail {
+  gap: 12px;
+}
+.craft-detail .cd-cols {
+  flex: 1;
+  min-height: 0;
+  gap: 18px;
+  align-items: stretch;
+}
+.craft-detail .cd-ings {
+  gap: 8px;
+  min-width: 0;
+}
+.craft-detail .ing {
+  min-height: 56px;
+  box-sizing: border-box;
+  gap: 11px;
+  padding: 6px 12px 6px 6px;
+}
+.craft-detail .ing .u-slot.mini {
+  width: 46px;
+  height: 46px;
+  flex: none;
+}
+.craft-detail .ing .u-slot.mini img.u-ic {
+  width: 40px;
+  height: 40px;
+}
+.craft-detail .ing .bar b {
+  font-size: 17px;
+}
+.craft-detail .ing .track {
+  height: 9px;
+}
+.craft-detail .ing .n {
+  font-size: 16px;
+}
+.craft-detail .ing .n b {
+  font-size: 21px;
+}
+.craft-detail .cd-out {
+  min-height: 60px;
+  box-sizing: border-box;
+}
+.craft-detail .cd-out .u-slot.mini {
+  width: 46px;
+  height: 46px;
+}
+.craft-detail .cd-prev {
+  width: 300px;
+  flex: none;
+}
+.craft-detail .cd-prev .pv-stage {
+  flex: 1;
+  width: 100%;
+  display: grid;
+  place-items: end center;
+  min-height: 0;
+}
+.craft-detail .cd-prev svg.grid.iso {
+  width: 300px;
+}
+.craft-detail .cd-prev small {
+  margin-top: 6px;
+}
+.craft-detail .cd-prev.bag .bagpic {
+  width: 170px;
+  height: 170px;
+  margin-bottom: 4px;
+}
+.cd-facts .chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.cd-facts .fact {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 253, 244, 0.92), rgba(248, 236, 208, 0.9));
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.2), 0 2px 0 rgba(120, 70, 20, 0.1);
+  min-width: 0;
+}
+.cd-facts .fact.wide {
+  grid-column: 1 / -1;
+}
+.cd-facts .fact > svg {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 4px;
+  border-radius: 50%;
+  background: #fff8e6;
+  box-shadow: 0 0 0 2px rgba(184, 120, 62, 0.4);
+}
+.cd-facts .fact b {
+  display: block;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.15;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cd-facts .fact small {
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  color: #a08060;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cd-facts .fact.wide small {
+  white-space: normal;
+}
+.cd-facts .cd-h {
+  margin-bottom: 6px;
+}
+.craft-detail .cd-go {
+  margin-top: 0;
+}
+.cd-facts.stack {
+  margin-top: auto;
+}
+.cd-facts.stack .chips {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.cd-facts.stack .fact {
+  padding: 5px 10px 5px 6px;
+}
+.cd-facts.stack .fact > svg {
+  width: 28px;
+  height: 28px;
+}
+.cd-facts.stack .fact > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.craft-detail .cd-prev {
+  width: 276px;
+}
+.craft-detail .cd-prev svg.grid.iso {
+  width: 276px;
+}
+.craft-detail .cd-out {
+  padding-right: 8px;
+}
+.craft-detail .cd-out > div:nth-child(2) {
+  min-width: 0;
+}
+.craft-detail .cd-out .ar {
+  flex: none;
+}
+.craft-detail .cd-chips {
+  overflow: hidden;
+}
+.cd-facts.stack .fact > div {
+  display: block;
+}
+.cd-facts.stack .fact b {
+  font-size: 15px;
+}
+.cd-facts.stack .fact small {
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+.craft-detail.many .pedestal {
+  width: 112px;
+  height: 112px;
+}
+.craft-detail.many .pedestal img {
+  width: 82px;
+  height: 82px;
+}
+.craft-detail.many .ing {
+  min-height: 50px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.craft-detail.many .ing .u-slot.mini {
+  width: 42px;
+  height: 42px;
+}
+.craft-detail.many .cd-ings {
+  gap: 6px;
+}
+.craft-detail.many .cd-out {
+  min-height: 52px;
+}
+.craft-detail.many .cd-h {
+  margin-bottom: 4px;
+}
+/* The craft "+N" is a solid wood pill rising off the Craft button: legible over any art. */
+.u-craftplus {
+  padding: 3px 14px 5px;
+  border-radius: 14px;
+  font-size: 24px;
+  color: #ffe9a8;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, #6a3e1c, #4a2810);
+  box-shadow: 0 0 0 2px #e8b04a, 0 6px 14px rgba(40, 18, 4, 0.45);
+  animation: cPlusR3 1.25s var(--ease-out) forwards;
+}
+.u-craftplus small {
+  font-size: 16px;
+  color: #fff6e0;
+}
+@keyframes cPlusR3 {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.6);
+  }
+  16% {
+    opacity: 1;
+    transform: translateY(0) scale(1.08);
+  }
+  75% {
+    opacity: 1;
+    transform: translateY(-14px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-24px) scale(0.95);
+  }
+}
+
+/* ═══ r3: Options — Accessibility under Display, Gamepad under Interface (glyph chips, 2 columns), rebinding
+   flags swaps (amber) and reserved keys (red) on the rows themselves. ═══ */
+.set-sec h3 small {
+  margin-left: auto;
+  font-family: var(--font-body, inherit);
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #a08060;
+}
+.set-sec.pad h3 small {
+  padding: 1px 8px 2px;
+  border-radius: 10px;
+  background: rgba(138, 100, 64, 0.12);
+}
+.set-pad {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.set-pad .pc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px 4px 4px;
+  border-radius: 10px;
+  background: rgba(255, 252, 240, 0.72);
+  box-shadow: inset 0 0 0 1.5px rgba(138, 100, 64, 0.16);
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.set-pad .pc span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.set-pad .gl {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-style: normal;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.35), 0 2px 0 rgba(60, 30, 6, 0.3);
+}
+.set-pad .gl.a {
+  background: #4fa84a;
+}
+.set-pad .gl.b {
+  background: #d8503e;
+}
+.set-pad .gl.x {
+  background: #3f7fd6;
+}
+.set-pad .gl.y {
+  background: #e0a82a;
+}
+.set-pad .gl.sh {
+  width: 34px;
+  border-radius: 8px 8px 6px 6px;
+  font-size: 12px;
+  background: #5a6474;
+}
+.set-pad .gl.st {
+  background: radial-gradient(circle at 50% 40%, #7a8494, #3e4654);
+  box-shadow: 0 0 0 2px #2e3440, inset 0 -2px 0 rgba(0, 0, 0, 0.3);
+}
+.set-pad .gl.sys {
+  width: 30px;
+  border-radius: 9px;
+  font-size: 12px;
+  background: #3e4654;
+}
+.set-col.b .set-slider {
+  margin-bottom: 1px;
+}
+.krow {
+  position: relative;
+  transition: box-shadow 200ms, background 200ms;
+}
+.krow.listening {
+  background: #fff6d0;
+  box-shadow: inset 0 0 0 2px #e8b04a;
+}
+.kcap.listening {
+  min-width: 118px;
+  border-color: #c8861a;
+  animation: kListen 0.9s ease-in-out infinite;
+}
+@keyframes kListen {
+  50% {
+    box-shadow: 0 4px 0 #5a3a1e, 0 0 0 5px rgba(232, 176, 74, 0.45);
+  }
+}
+.krow.swap {
+  background: #fff1cc;
+  box-shadow: inset 0 0 0 2px #e8a040;
+  animation: uShake 320ms;
+}
+.krow.bad {
+  background: #ffe2da;
+  box-shadow: inset 0 0 0 2px #d0503a;
+  animation: uShake 320ms;
+}
+.krow .kmsg {
+  position: absolute;
+  right: 84px;
+  top: 50%;
+  translate: 0 -50%;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 900;
+  color: #b8742a;
+  white-space: nowrap;
+}
+.krow.bad .kmsg {
+  color: #b8321e;
+}
+.set-fixed {
+  grid-template-columns: 1fr;
+}
+.set-fixed kbd {
+  display: inline-block;
+  min-width: 14px;
+  padding: 0 5px 1px;
+  border-radius: 5px;
+  font-family: var(--font-head);
+  font-size: 12px;
+  text-align: center;
+  background: #fffdf6;
+  box-shadow: 0 0 0 1.5px #8a6440, 0 2px 0 #8a6440;
+}
+/* Control hints off / high-contrast text (Options → Interface / Accessibility). */
+body.u-no-hints .inv-hint,
+body.u-no-hints .ts-keys,
+body.u-no-hints .t-hint,
+body.u-no-hints .ng-hint,
+body.u-no-hints .kb-hint {
+  visibility: hidden;
+}
+body.u-contrast #ui-root small,
+body.u-contrast #ui-root .set-label small,
+body.u-contrast #ui-root .shop-row small {
+  color: #4a2e14 !important;
+  font-weight: 800;
+}
+body.u-contrast #ui-root {
+  --ink-soft: #3a2410;
+}
+.set-col.b .set-toggle {
+  padding: 5px 8px;
+  margin-bottom: 2px;
+}
+.set-col.b {
+  gap: 10px;
+}
+.set-pad {
+  gap: 5px 6px;
+}
+.set-pad .pc {
+  padding: 3px 8px 3px 3px;
+}
+
+/* ═══ r4: Workbench placement preview sits on a lit tabletop card that fills its column (no floating
+   diorama under an empty band); the note is a caption chip on the card's foot. ═══ */
+.craft-detail .cd-prev {
+  align-self: stretch;
+  box-sizing: border-box;
+  padding: 10px 10px 12px;
+  border-radius: 16px;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 58%, rgba(255, 246, 214, 0.95), rgba(255, 246, 214, 0) 72%),
+    linear-gradient(180deg, rgba(232, 214, 176, 0.55), rgba(214, 190, 146, 0.5));
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.2), inset 0 10px 18px -12px rgba(90, 52, 20, 0.35);
+}
+.craft-detail .cd-prev .cd-h {
+  align-self: flex-start;
+  margin-left: 4px;
+}
+.craft-detail .cd-prev .pv-stage {
+  place-items: center;
+}
+.craft-detail .cd-prev svg.grid.iso {
+  width: 256px;
+}
+.craft-detail .cd-prev small {
+  padding: 3px 10px 4px;
+  border-radius: 10px;
+  background: rgba(255, 252, 240, 0.8);
+  box-shadow: inset 0 0 0 1.5px rgba(106, 138, 58, 0.3);
+}

@@ -10,6 +10,7 @@ import { ICONS } from './icons';
 import { Screen, el, frame, closeButton, tooltip, escapeHtml } from './kit';
 import { menuTabs } from './menutabs';
 import { farmerAvatar } from './avatar';
+import type { FarmerLook } from '../entities/remote-look';
 import { portraitSvg } from './portraits';
 import { NPCS, type NpcId } from '../data/npcs';
 import { valleyBase, PAL, type Season } from './mapart';
@@ -42,7 +43,7 @@ interface Head {
   y: number;
 }
 
-function valleySvg(season: Season, here: string, heads: Head[]): string {
+function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook | null = null): string {
   const snow = season === 'winter';
   const { defs, under, trees, paper } = valleyBase(season);
   const P = PAL[season];
@@ -103,7 +104,7 @@ function valleySvg(season: Season, here: string, heads: Head[]): string {
     .join('')}
   ${villagers}
   ${labels}
-  ${pinAt ? `<g class="m-pin" transform="translate(${pinAt.x} ${pinAt.y - 18})"><ellipse cy="26" rx="12" ry="4" fill="#000" opacity=".25"/><g class="bob"><path d="M0 22 C-16 4 -18 -18 0 -20 C18 -18 16 4 0 22 Z" fill="#e8574a" stroke="#6a1e10" stroke-width="3"/><foreignObject x="-14" y="-18" width="28" height="28"><div xmlns="http://www.w3.org/1999/xhtml" class="m-face">${farmerAvatar(['#fff4d8', '#f0d8a0'])}</div></foreignObject></g></g>` : ''}
+  ${pinAt ? `<g class="m-pin" transform="translate(${pinAt.x} ${pinAt.y - 18})"><ellipse cy="26" rx="12" ry="4" fill="#000" opacity=".25"/><g class="bob"><path d="M0 22 C-16 4 -18 -18 0 -20 C18 -18 16 4 0 22 Z" fill="#e8574a" stroke="#6a1e10" stroke-width="3"/><foreignObject x="-14" y="-18" width="28" height="28"><div xmlns="http://www.w3.org/1999/xhtml" class="m-face">${farmerAvatar(['#fff4d8', '#f0d8a0'], look)}</div></foreignObject></g></g>` : ''}
   ${paper}
 </svg>`;
 }
@@ -151,7 +152,7 @@ export class MapScreen extends Screen {
     f.appendChild(closeButton(() => this.requestClose()));
     wrap.append(menuTabs(this.game, 'map'), f);
     const heads = villagerHeads(this.game);
-    body.innerHTML = valleySvg(c.season as Season, here, heads);
+    body.innerHTML = valleySvg(c.season as Season, here, heads, this.game.services.net?.profile().look ?? null);
     const sub = body.querySelector('.m-sub');
     if (sub) sub.textContent = `${c.season} · year ${c.year}`;
     const place = PLACES.find((p) => p.id === here);

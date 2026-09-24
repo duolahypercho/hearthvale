@@ -52,7 +52,7 @@ export function rollTo(node: HTMLElement, to: number, ms = 700, fmt = (n: number
   const t0 = performance.now();
   const step = (now: number): void => {
     if (node.dataset.v !== String(to)) return;
-    const k = Math.min(1, (now - t0) / ms);
+    const k = Math.max(0, Math.min(1, (now - t0) / ms));
     const e = 1 - Math.pow(1 - k, 3);
     node.textContent = fmt(Math.round(from + (to - from) * e));
     if (k < 1) requestAnimationFrame(step);

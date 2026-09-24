@@ -1,7 +1,7 @@
 /**
  * Shop ('shop' or 'shop:<npcId>'): shopkeeper portrait in a carved frame with a speech bubble, purse,
  * Buy / Sell tabs, goods grouped by shelf, quantity picker (− / + / ×5 / max) with a live total, and a
- * coin-burst on purchase. Buying goes through the `economy` service + `item:give`; selling takes the
+ * payment choreography on purchase (coins purse → keeper, goods → "In your pack"). Buying goes through the `economy` service + `item:give`; selling takes the
  * stack from the backpack via the `inventory` service.
  */
 import type { Game } from '../core/game';
@@ -12,6 +12,7 @@ import { portraitSvg } from './portraits';
 import { ICONS, itemIcon, itemCategory, qualityStar, QUALITY_NAME } from './icons';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, rollTo, escapeHtml } from './kit';
 import { itemTooltipHtml, unitPrice, type StackView } from './itemtip';
+import { flyCoins, flyItemTo, centerOf, popBadge } from './item-fly';
 
 interface Good {
   id: string;
@@ -103,6 +104,8 @@ export class ShopScreen extends Screen {
   private rail!: HTMLElement;
   private more!: HTMLElement;
   private portrait!: HTMLElement;
+  private have!: HTMLElement;
+  private moreBar!: HTMLElement;
   private typeT = 0;
 
   constructor(game: Game, parent: HTMLElement) {
@@ -153,7 +156,9 @@ export class ShopScreen extends Screen {
     const plate = el('div', 'shop-name', `<b>${escapeHtml(npc?.name.split(' ')[0] ?? 'Shopkeeper')}</b><small>${escapeHtml(npc?.role ?? '')}</small>`);
     this.bubble = el('div', 'shop-bubble', '<p></p>');
     this.purse = el('div', 'shop-purse', `${ICONS.coin}<span class="v"></span><small>your purse</small>`);
-    left.append(this.portrait, plate, this.bubble, this.purse);
+    // "In your pack": the selected good's count + free slots — where bought goods land (they fly in here).
+    this.have = el('div', 'shop-have');
+    left.append(this.portrait, plate, this.bubble, this.have, this.purse);
 
     const right = el('div', 'shop-right');
     const tabs = el('div', 'shop-tabs');
@@ -165,8 +170,9 @@ export class ShopScreen extends Screen {
       tabs.appendChild(b);
     }
     this.list = el('div', 'shop-list');
-    // Wood scroll rail + "more below" chevron: the list scrolls under a soft fade, and the rail shows where
-    // you are (native scrollbars are hidden on many setups).
+    // Wood scroll rail + "more below" chevron: the list scrolls under a soft bottom fade, the rail shows where
+    // you are (native scrollbars are hidden on many setups), and the chevron lives in its own gutter under the
+    // list, so it never sits on a row.
     const lw = el('div', 'shop-listwrap');
     this.rail = el('div', 'shop-rail', '<i></i>');
     this.more = el('button', 'shop-more', `<svg viewBox="0 0 20 12" width="18" height="11"><path d="M3 3 L10 9 L17 3" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span>more</span>`);
@@ -181,9 +187,11 @@ export class ShopScreen extends Screen {
       this.list.scrollTo({ top: k * (this.list.scrollHeight - this.list.clientHeight), behavior: 'smooth' });
     });
     this.list.addEventListener('scroll', () => this.syncRail(), { passive: true });
-    lw.append(this.list, this.rail, this.more);
+    lw.append(this.list, this.rail);
+    this.moreBar = el('div', 'shop-morebar');
+    this.moreBar.appendChild(this.more);
     this.picker = el('div', 'shop-picker');
-    right.append(tabs, lw, this.picker);
+    right.append(tabs, lw, this.moreBar, this.picker);
     body.append(left, right);
     wrap.appendChild(f);
     this.root.appendChild(wrap);
@@ -302,7 +310,16 @@ export class ShopScreen extends Screen {
     const over = l.scrollHeight - l.clientHeight;
     const scrolls = over > 4;
     this.rail.classList.toggle('hv-hidden', !scrolls);
-    this.more.classList.toggle('gone', !scrolls || l.scrollTop >= over - 6);
+    const atEnd = !scrolls || l.scrollTop >= over - 6;
+    this.more.classList.toggle('gone', atEnd);
+    this.moreBar.classList.toggle('end', scrolls && atEnd);
+    if (scrolls && !atEnd) {
+      // How many rows are still (even partly) hidden below the fold.
+      const bottom = l.getBoundingClientRect().bottom - 20;
+      const below = [...l.querySelectorAll('.shop-row')].filter((r) => r.getBoundingClientRect().bottom > bottom).length;
+      const sp = this.more.querySelector('span');
+      if (sp) sp.textContent = below ? `${below} more` : 'more';
+    }
     if (!scrolls) return;
     const rh = this.rail.clientHeight;
     const th = Math.max(34, (l.clientHeight / l.scrollHeight) * rh);
@@ -321,6 +338,19 @@ export class ShopScreen extends Screen {
     this.buildPicker();
   }
 
+  /** Left-column "In your pack" card for the selected good. */
+  private buildHave(): void {
+    const g = this.goods[this.sel];
+    const inv = this.game.services.inventory;
+    const free = inv ? inv.slots.filter((s) => !s).length : 0;
+    const size = inv?.slots.length ?? 30;
+    const n = g ? (inv?.count(g.id) ?? 0) : 0;
+    const after = g && this.tab === 'buy' ? n + this.qty : g && this.tab === 'sell' ? Math.max(0, n - this.qty) : n;
+    this.have.innerHTML = g
+      ? `<div class="u-slot mini">${itemIcon(g.id)}</div><div class="hv"><small>In your pack</small><b><span class="n">${n.toLocaleString()}</span>${after !== n ? `<em class="to">→ ${after.toLocaleString()}</em>` : ''}</b></div><div class="fr"><small>Free slots</small><i class="meter"><i style="width:${Math.round((free / Math.max(1, size)) * 100)}%"></i></i><b>${free}<em>/${size}</em></b></div>`
+      : '';
+  }
+
   private maxQty(g: Good): number {
     if (this.tab === 'sell') return g.have ?? 1;
     const gold = this.game.services.economy?.gold() ?? 0;
@@ -331,10 +361,12 @@ export class ShopScreen extends Screen {
     const g = this.goods[this.sel];
     if (!g) {
       this.picker.innerHTML = '';
+      this.buildHave();
       return;
     }
     const d = itemDef(g.id);
     this.qty = Math.max(1, Math.min(this.qty, this.maxQty(g)));
+    this.buildHave();
     const total = g.price * this.qty;
     const gold = this.game.services.economy?.gold() ?? 0;
     const can = this.tab === 'sell' || (!g.off && total <= gold);
@@ -383,9 +415,10 @@ export class ShopScreen extends Screen {
         this.line('broke');
         return;
       }
+      const from = centerOf(this.picker.querySelector('.pk-item .u-slot'));
       this.game.events.emit('item:give', { itemId: g.id, qty: this.qty });
       sfx(this.game, 'buy');
-      this.burst(go, false);
+      this.payoff(g.id, this.qty, from, false);
       this.line('buy');
     } else {
       const inv = this.game.services.inventory;
@@ -403,9 +436,10 @@ export class ShopScreen extends Screen {
       }
       this.selling = false;
       if (!sold) return;
+      const from = centerOf(this.picker.querySelector('.pk-item .u-slot'));
       eco.add(g.price * sold, 'shop-sell');
       sfx(this.game, 'sell');
-      this.burst(go, true);
+      this.payoff(g.id, sold, from, true);
       this.line('sell');
       this.qty = 1;
       this.build();
@@ -414,22 +448,39 @@ export class ShopScreen extends Screen {
     if (this.tab === 'buy') this.buildPicker();
   }
 
-  /** Coins arc from the button into the purse (buy) or the other way (sell). */
-  private burst(from: HTMLElement | null, toPurse: boolean): void {
-    if (!from) return;
-    const a = from.getBoundingClientRect();
-    const b = this.purse.getBoundingClientRect();
-    const [sx, sy, ex, ey] = toPurse ? [a.left + a.width / 2, a.top, b.left + 24, b.top + b.height / 2] : [b.left + 24, b.top + b.height / 2, a.left + a.width / 2, a.top];
-    for (let i = 0; i < 7; i++) {
-      const c = el('div', 'u-coinfly', ICONS.coin);
-      c.style.left = `${sx}px`;
-      c.style.top = `${sy}px`;
-      c.style.setProperty('--dx', `${ex - sx + (Math.random() - 0.5) * 30}px`);
-      c.style.setProperty('--dy', `${ey - sy}px`);
-      c.style.setProperty('--arc', `${-60 - Math.random() * 60}px`);
-      c.style.animationDelay = `${i * 45}ms`;
-      document.getElementById('ui-root')?.appendChild(c);
-      setTimeout(() => c.remove(), 900 + i * 45);
+  /**
+   * Purchase choreography. Buy: coins leave the purse for the shopkeeper (the payment) while the goods
+   * arc from the picker into the "In your pack" card with a "+N". Sell: the goods go to the shopkeeper and
+   * the coins come back into the purse. The shopkeeper gives a little bounce either way.
+   */
+  private payoff(itemId: string, qty: number, from: { x: number; y: number } | null, sell: boolean): void {
+    const purse = centerOf(this.purse.querySelector('svg') ?? this.purse);
+    const keeper = centerOf(this.portrait);
+    if (!purse || !keeper) return;
+    const face = { x: keeper.x, y: keeper.y + 30 };
+    const price = this.goods[this.sel]?.price ?? 0;
+    const n = Math.min(7, 3 + Math.ceil(Math.log10(Math.max(10, qty * price))));
+    const bounce = (): void => {
+      this.portrait.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.05) translateY(-3px)' }, { transform: 'scale(.99)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'ease-out' });
+    };
+    if (!sell) {
+      flyCoins(ICONS.coin!, purse, face, n, bounce);
+      if (from) {
+        // Resolve the landing slot at launch (the card re-renders on every inventory change).
+        const slotEl = (): HTMLElement => this.have.querySelector<HTMLElement>('.u-slot') ?? this.have;
+        window.setTimeout(() => {
+          if (!this.isOpen) return;
+          flyItemTo(itemId, from, slotEl(), 0, () => {
+            if (!this.isOpen) return;
+            popBadge(slotEl(), `+${qty}`, 'good');
+            this.buildHave();
+            replay(this.have, 'got');
+          }, 48, { duration: 560 });
+        }, 120);
+      }
+    } else {
+      if (from) flyItemTo(itemId, from, this.portrait, 0, bounce, 48, { duration: 520, bounce: 1.04 });
+      window.setTimeout(() => this.isOpen && flyCoins(ICONS.coin!, face, purse, n, () => popBadge(this.purse, `+${(qty * price).toLocaleString()}g`, 'gold')), 260);
     }
   }
 

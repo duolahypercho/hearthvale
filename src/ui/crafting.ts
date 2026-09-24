@@ -121,23 +121,35 @@ export class CraftingScreen extends Screen {
         return `<div class="ing ${have >= need ? 'have' : ''}"><div class="u-slot mini">${itemIcon(c.itemId)}</div><div class="bar"><b>${escapeHtml(itemDef(c.itemId)?.name ?? c.itemId)}</b><div class="track"><div class="fill" style="width:${pct}%"></div></div></div><div class="n"><b>${have}</b>/${need}</div></div>`;
       })
       .join('');
+    // One-ingredient recipes stack the "Uses" chips under the ingredients; longer recipes get a full-width strip.
+    const few = r.cost.length <= 1;
+    const factsHtml = `<div class="cd-facts${few ? ' stack' : ''}"><div class="cd-h">${known ? 'Uses' : 'How to learn'}</div><div class="chips">${
+        known
+          ? facts(r.out.itemId)
+              .map(([ic, big, small]) => `<div class="fact">${ICONS[ic] ?? ''}<div><b>${escapeHtml(big)}</b><small>${escapeHtml(small)}</small></div></div>`)
+              .join('')
+          : `<div class="fact wide">${ICONS.question ?? ''}<div><b>${escapeHtml(r.unlock ?? 'Keep exploring')}</b><small>The recipe appears here once every ingredient has passed through your backpack.</small></div></div>`
+      }</div>
+      </div>`;
+    this.detail.classList.toggle('many', r.cost.length >= 3);
     this.detail.innerHTML = `
       <div class="cd-top">
         <div class="pedestal ${ok ? 'lit' : ''}">${known ? itemIcon(RECIPE_ART[r.id] ?? r.out.itemId) : `<img class="u-ic sil" src="${itemIconUrl(r.out.itemId)}" alt=""/>`}</div>
         <div class="cd-title"><b>${known ? escapeHtml(r.name) : 'Unknown recipe'}</b><span class="t-cat" style="background:${cat.color}">${r.placeable ? 'Placeable' : cat.label}</span>
-          <p>${known ? escapeHtml(d?.description ?? '') : `Learn it: ${escapeHtml(r.unlock ?? 'keep exploring')}.`}</p></div>
+          <p>${known ? escapeHtml(d?.description || usesNote(r.out.itemId)) : `Learn it: ${escapeHtml(r.unlock ?? 'keep exploring')}.`}</p></div>
       </div>
       <div class="cd-cols">
         <div class="cd-ings"><div class="cd-h">Ingredients</div>${ing}
           <div class="cd-out ${ok ? 'ready' : ''}"><div class="u-slot mini">${known ? itemIcon(r.out.itemId) : `<img class="u-ic sil" src="${itemIconUrl(r.out.itemId)}" alt=""/>`}</div><div><b>Makes ×${r.out.qty * this.qty}</b><span class="cd-chips"><i>In pack <em>${this.count(r.out.itemId)}</em></i>${known ? `<i>Can make <em>${maxT * r.out.qty}</em></i>` : ''}</span></div>${known ? `<span class="ar">${ok ? 'Ready' : 'Missing'}</span>` : ''}</div>
-          <div class="cd-uses">${ICONS.quill ?? ''}<span>${escapeHtml(usesNote(r.out.itemId))}</span></div>
+          ${few ? factsHtml : ''}
         </div>
         ${
           r.placeable
-            ? `<div class="cd-prev"><div class="cd-h">Placement</div>${previewSvg(r.out.itemId)}<small>${previewNote(r.out.itemId)}</small></div>`
-            : `<div class="cd-prev bag"><div class="cd-h">Goes to</div><div class="bagpic">${ICONS.bag ?? ''}<div class="in">${known ? itemIcon(r.out.itemId) : ''}</div></div><small>Into your backpack</small></div>`
+            ? `<div class="cd-prev"><div class="cd-h">Placement</div><div class="pv-stage">${previewSvg(r.out.itemId)}</div><small>${previewNote(r.out.itemId)}</small></div>`
+            : `<div class="cd-prev bag"><div class="cd-h">Goes to</div><div class="pv-stage"><div class="bagpic">${ICONS.bag ?? ''}<div class="in">${known ? itemIcon(r.out.itemId) : ''}</div></div></div><small>Into your backpack</small></div>`
         }
       </div>
+      ${few ? '' : factsHtml}
       <div class="cd-go">
         <div class="pk-qty"><button class="u-btn small" data-q="-1" data-nav>−</button><div class="pk-n"><span>${this.qty}</span><small>× ${r.out.qty}</small></div><button class="u-btn small" data-q="1" data-nav>+</button><button class="u-btn small" data-q="max" data-nav>Max</button></div>
         <button class="u-btn green craft-go ${ok ? '' : 'disabled'}" data-nav>${ICONS.hammer}<span>Craft${this.qty > 1 ? ` ×${this.qty}` : ''}</span></button>
@@ -176,6 +188,7 @@ export class CraftingScreen extends Screen {
     const card = this.cards.children[this.sel] as HTMLElement | undefined;
     replay(card, 'made');
     const ped = this.detail.querySelector<HTMLElement>('.pedestal');
+    const go2 = this.detail.querySelector<HTMLElement>('.craft-go');
     replay(ped, 'strike');
     const r = ped?.getBoundingClientRect();
     const root = document.getElementById('ui-root');
@@ -199,16 +212,20 @@ export class CraftingScreen extends Screen {
       ring.style.top = `${cy}px`;
       root.appendChild(ring);
       setTimeout(() => ring.remove(), 700);
+      // The "+N" rises off the Craft button and the item arcs from there into the Backpack tab (never over
+      // the medallion art).
+      const gr = go2?.getBoundingClientRect();
+      const bx = gr && gr.width ? gr.left + gr.width / 2 : cx;
+      const by = gr && gr.width ? gr.top : cy;
       const plus = el('div', 'u-craftplus', `+${outQty} <small>${escapeHtml(itemDef(x.r.out.itemId)?.name ?? '')}</small>`);
-      // Rises from the medallion's lower rim (never up into the ribbon).
-      plus.style.left = `${cx}px`;
-      plus.style.top = `${r.bottom - 26}px`;
+      plus.style.left = `${bx}px`;
+      plus.style.top = `${by - 44}px`;
       root.appendChild(plus);
       setTimeout(() => plus.remove(), 1300);
       const tab = this.root.querySelector<HTMLElement>('.u-tabs .u-tab');
       window.setTimeout(() => {
         if (!this.isOpen) return;
-        flyItemTo(x.r.out.itemId, { x: cx, y: cy }, tab, 0, () => {
+        flyItemTo(x.r.out.itemId, { x: bx, y: by }, tab, 0, () => {
           if (!tab || !this.isOpen) return;
           sfx(this.game, 'pickup');
           let badge = tab.querySelector<HTMLElement>('.u-tabbadge');
@@ -321,6 +338,31 @@ function previewSvg(itemId: string): string {
     out.push(`<g class="${ghost ? '' : 'pv-item'}"><image href="${url}" x="${sx - w / 2}" y="${cy - w * 0.9}" width="${w}" height="${w}" opacity="${ghost ? 0.62 : 1}"/></g>`);
   }
   return `<svg class="grid iso" viewBox="0 0 210 ${Y0 + N * TH + DEPTH + 6}">${out.join('')}</svg>`;
+}
+
+/** Three "Uses" chips for the detail pane: [HUD glyph, headline, detail]. */
+function facts(itemId: string): [string, string, string][] {
+  const d = itemDef(itemId);
+  if (SPRINKLERS[itemId]) {
+    const n = sprinklerOffsets(itemId).length;
+    const reach = Math.max(...sprinklerOffsets(itemId).map(([dx, dz]) => Math.max(Math.abs(dx), Math.abs(dz))));
+    return [
+      ['drop', `Waters ${n} tiles`, n <= 4 ? 'the four around it' : reach > 1 ? `a ${reach * 2 + 1}×${reach * 2 + 1} patch` : 'all eight around it'],
+      ['clock', 'Every morning', 'before you wake'],
+      ['sprout', 'Among crops', 'on any open tile'],
+    ];
+  }
+  if (itemId === 'scarecrow') return [['crow', 'Radius 8', 'crows stay clear'], ['sprout', 'Mid-field', 'before seedlings sprout'], ['shield', 'Never wears', 'stands all year']];
+  if (itemId === 'chest') return [['bag', '36 stacks', 'of anything at all'], ['grid', 'One tile', 'right-click to open'], ['basket', 'Harvest rush', 'overflow storage']];
+  if (itemId === 'woodFence') return [['grid', 'Runs of 5', 'posts join up'], ['paw', 'Pens animals', 'paddocks & coops'], ['sprout', 'Garden edges', 'keeps paths tidy']];
+  if (itemId === 'stonePath') return [['grid', '5 stones', 'one tile each'], ['shield', 'Blocks weeds', 'nothing grows through'], ['play', 'Tidy walks', 'between the beds']];
+  if (itemId === 'hay') return [['paw', 'Feeds 1 animal', 'for a whole day'], ['basket', 'Into troughs', 'coop & barn'], ['sun', 'Keeps forever', 'stack up for winter']];
+  if (itemId === 'coal') return [['flame', 'Smelting fuel', 'for the forge'], ['hammer', 'Odessa trades', 'bars & upgrades'], ['coin', `Sells ${d?.sell ?? 15}g`, 'at the bin']];
+  return [
+    ['star', d?.name ?? 'Crafted', 'handmade'],
+    ['bag', 'Stacks', `up to ${d?.stack ?? 99}`],
+    ['coin', `Sells ${d?.sell ?? 0}g`, 'at the bin'],
+  ];
 }
 
 function usesNote(itemId: string): string {
