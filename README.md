@@ -309,7 +309,10 @@ actors such as Pip the shop cat).
 - **Camera director** (`systems/npcs.ts`): heart events cut between wide, two-shot and close-up; the angle is
   scored so the speaker is three-quarter to the lens, the listener or a bystander isn't in front of their face and no
   building cuts a sight line (swing ±15–45°, raise, pull in), trees in the way are hidden (sphere-cached), and the
-  actors sit above the dialogue box; tilt-shift focuses on them. `npcs.auditEvents(id?)` checks every talky beat of
+  actors sit above the dialogue box; tilt-shift focuses on them. A speaker who addresses a thing (a lantern, a rose, a cat
+  on a roof) gets a reverse three-quarter lens in front of them instead of their back; villagers who turn to another actor
+  (or to the farmer in a chat) cheat ~25° open towards the lens; unlit festoon cords come down for daytime events.
+  `npcs.auditEvents(id?)` checks every talky beat of
   all 20 events. Conversations lean in the same way through the look offset (no cinematic, so co-op farmers stay
   visible). Friendship is per player (co-op farmhands keep their own), villagers run from the shared calendar.
 - **Gifts**: the item arcs from the farmer's hands, the villager squashes and reacts (hug / open arms / shrug),

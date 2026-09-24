@@ -264,6 +264,16 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'crates', x: 86.9, z: 31.9, rot: 0.3, solid: [[86, 31]] },
   { kind: 'bicycle', x: 35.9, z: 42.6, rot: 0.2, colors: [0x5f9a4a] },
   { kind: 'wheelbarrow', x: 48.4, z: 43.3, rot: -0.5, solid: [[48, 43]] },
+  // South lawns of the square (round 2b): a raised bed and pots on the west lawn, a picnic table
+  // with its own bed on the east one, so the walk down from the fountain isn't a bare green.
+  { kind: 'planter', x: 25.6, z: 33.6, colors: [0xff8fab, 0xffffff, 0xffd166], solid: [[25, 33]] },
+  { kind: 'flowerPot', x: 26.9, z: 34.2, colors: [0xc77dff] },
+  { kind: 'flowerPot', x: 24.4, z: 34.3, colors: [0xffd166] },
+  { kind: 'beehive', x: 20.8, z: 34.6, rot: 0.25, solid: [[20, 34]] },
+  { kind: 'cafeSet', x: 40.2, z: 34.6, rot: 0.3, solid: [[40, 34]] },
+  { kind: 'planter', x: 43.2, z: 35.8, colors: [0xffffff, 0xc77dff, 0xff8fab], solid: [[43, 35]] },
+  { kind: 'flowerPot', x: 38.9, z: 36.1, colors: [0xff7aa2] },
+  { kind: 'sandwichBoard', x: 35.4, z: 36.6, rot: -0.3, colors: [0x2f4a3e] },
 ];
 
 /** Extra trees: [species, x, z, scale]. */
