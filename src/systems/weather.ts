@@ -72,6 +72,8 @@ function flashEnvelope(t: number): number {
 }
 
 const _buf = new THREE.Vector2();
+/** Strength of a natural (random) morning mist on a sunny day: a light haze, not the fog-morning bank. */
+const MORNING_HAZE = 0.16;
 
 function hash01(n: number): number {
   const h = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -388,7 +390,9 @@ export class WeatherSystem implements System, WeatherApi {
     // ~1 morning in 4 (1 in 2 in fall) wakes up to ground mist, burning off by 9:30.
     const seasonK = { spring: 0.3, summer: 0.18, fall: 0.5, winter: 0.25 }[c.season];
     if (hash01(c.year * 1000 + c.day * 13 + c.season.length * 101) > seasonK) return 0;
-    return 1 - THREE.MathUtils.smoothstep(h, 8, 9.6);
+    // On an ordinary sunny day this is only a light low haze (fields and crops stay readable); the
+    // dense ground fog is reserved for the explicit fog staging (`?demo=fog-morning` / `&fog=1`).
+    return MORNING_HAZE * (1 - THREE.MathUtils.smoothstep(h, 8, 9.6));
   }
 
   private rainbowTarget(): number {
