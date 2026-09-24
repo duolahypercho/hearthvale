@@ -71,7 +71,7 @@ function marramGeo(rng: Rng): THREE.BufferGeometry {
   const n = 16 + rng.int(0, 6);
   for (let i = 0; i < n; i++) {
     const len = 0.55 + rng.next() * 0.5;
-    const g = leafBlade(len, 0.022 + rng.next() * 0.012, 0.35 + rng.next() * 0.45, 5);
+    const g = leafBlade(len, 0.022 + rng.next() * 0.012, 0.35 + rng.next() * 0.45, 4);
     const ry = rng.next() * Math.PI * 2;
     const tilt = 0.12 + rng.next() * 0.35;
     g.rotateX(-tilt * 0.3);

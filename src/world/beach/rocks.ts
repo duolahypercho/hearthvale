@@ -222,6 +222,15 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
           diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.62 + vec3(0.04, 0.06, 0.08), pud);
           diffuseColor.rgb += vec3(0.06, 0.07, 0.07) * smoothstep(0.018, 0.0, abs(pudN - 0.712)) * smoothstep(0.85, 0.97, N.y);
           hvBRWet = max(hvBRWet, max(pud * 0.95, pitWater));
+          // Lichen rosettes on the dry, sunlit tops (the spray zone's zonation): sparse clusters of
+          // muted orange with ragged edges, never in the wet / puddles.
+          float dryTop = smoothstep(edge + 0.12, edge + 0.4, y) * (1.0 - pud) * smoothstep(0.8, 0.95, N.y) * (1.0 - wet);
+          vec2 lq = q * 1.5;
+          vec2 lc = floor(lq);
+          vec2 lf = fract(lq) - 0.5 - (vec2(brHash(lc + 4.2), brHash(lc + 6.6)) - 0.5) * 0.45;
+          float lr = mix(0.14, 0.3, brHash(lc + 2.9)) * (0.75 + 0.5 * brNoise(q * 9.0));
+          float ros = smoothstep(lr, lr * 0.55, length(lf)) * step(brHash(lc + 12.3), 0.3) * smoothstep(0.5, 0.7, brNoise(q * 0.45 + 41.0)) * dryTop;
+          diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.66, 0.46, 0.2), vec3(0.78, 0.6, 0.3), brNoise(q * 14.0)) * (0.8 + 0.25 * brNoise(q * 30.0)), ros * 0.55);
           // Pink coralline crust + mussel clumps on the wet lips (pools / sea rim).
           float lipZ = max(vBRK.y * 1.6, wet * 0.8);
           float cor = smoothstep(0.45, 0.7, brNoise(q * 3.3 + 2.0)) * smoothstep(0.2, 0.6, lipZ);
