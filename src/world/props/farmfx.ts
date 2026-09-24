@@ -880,6 +880,9 @@ interface Pop {
   radius: number;
   /** Distance from the mesh origin down to its underside (it rests on `to` by this much). */
   bottom: number;
+  /** Half extents of the item's box: across (max of x / z) and up (y). The star hugs this corner. */
+  hw: number;
+  hh: number;
 }
 
 // ───────────────────────────────────────────── swing smear
@@ -1012,40 +1015,73 @@ export class SwingTrail {
 }
 
 
+/** Clamp a lit colour's luminance under the bloom threshold (0.92) so hero FX never flare white. */
+const NO_BLOOM_GLSL = /* glsl */ `
+{
+  float hvL = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722));
+  outgoingLight = mix(vec3(hvL), outgoingLight, 1.12);
+  outgoingLight *= min(1.0, 0.84 / max(hvL, 1e-4));
+}`;
+
+function starShape(R: number, r: number): THREE.Shape {
+  const sh = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const a = Math.PI / 2 + (i / 10) * Math.PI * 2;
+    const rr = i % 2 ? r : R;
+    // Slightly rounded tips: pull each point toward its neighbours a touch with a quadratic.
+    const x = Math.cos(a) * rr;
+    const y = Math.sin(a) * rr;
+    if (i === 0) sh.moveTo(x, y);
+    else sh.lineTo(x, y);
+  }
+  sh.closePath();
+  return sh;
+}
+
 let starGeo: THREE.BufferGeometry | null = null;
-/** Chunky four-point quality star (bevelled, extruded), ~0.1 m radius, centred. */
+let starOutlineGeo: THREE.BufferGeometry | null = null;
+/** Chunky five-point quality star (bevelled, extruded), ~0.1 m radius, centred, facing +Z. */
 function starGeometry(): THREE.BufferGeometry {
   if (starGeo) return starGeo;
-  const sh = new THREE.Shape();
-  const R = 1;
-  const r = 0.36;
-  for (let i = 0; i < 4; i++) {
-    const a = Math.PI / 2 + (i / 4) * Math.PI * 2;
-    const a2 = a + Math.PI / 4;
-    const a3 = a + Math.PI / 2;
-    const tip = [Math.cos(a) * R, Math.sin(a) * R] as const;
-    if (i === 0) sh.moveTo(tip[0], tip[1]);
-    // Concave sides: curve in toward the waist between two tips (a plump sparkle, not a cross).
-    sh.quadraticCurveTo(Math.cos(a2) * r * 0.9, Math.sin(a2) * r * 0.9, Math.cos(a3) * R, Math.sin(a3) * R);
-  }
-  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.22, bevelEnabled: true, bevelThickness: 0.14, bevelSize: 0.1, bevelSegments: 3, curveSegments: 6 });
-  g.translate(0, 0, -0.11);
+  const g = new THREE.ExtrudeGeometry(starShape(1, 0.47), { depth: 0.16, bevelEnabled: true, bevelThickness: 0.16, bevelSize: 0.09, bevelSegments: 3, curveSegments: 4 });
+  g.translate(0, 0, -0.08);
   g.scale(0.1, 0.1, 0.1);
   g.computeVertexNormals();
   starGeo = g;
   return g;
 }
+/** The star's dark outline: a flat, fatter star just behind it. */
+function starOutlineGeometry(): THREE.BufferGeometry {
+  if (starOutlineGeo) return starOutlineGeo;
+  const g = new THREE.ShapeGeometry(starShape(1.3, 0.66), 2);
+  g.translate(0, -0.02, -0.3);
+  g.scale(0.1, 0.1, 0.1);
+  starOutlineGeo = g;
+  return g;
+}
 
 const starMats = new Map<number, THREE.MeshStandardMaterial>();
-/** Metallic, self-lit star (emissive ≈ 1.2 → the bloom picks it up). */
+/** Metallic star in the quality colour, lit (bevels catch the sun) but kept under the bloom threshold. */
 function starMaterial(color: number): THREE.MeshStandardMaterial {
   let m = starMats.get(color);
   if (m) return m;
   const c = new THREE.Color(color);
-  m = new THREE.MeshStandardMaterial({ color: c, emissive: c.clone().lerp(new THREE.Color(0xffffff), 0.15), emissiveIntensity: 1.2, metalness: 0.55, roughness: 0.28, depthTest: false, depthWrite: false, transparent: true });
+  m = new THREE.MeshStandardMaterial({ color: c, emissive: c.clone().multiplyScalar(0.32), metalness: 0.35, roughness: 0.32, depthTest: false, depthWrite: false, transparent: true });
   m.name = 'fx-star';
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `${NO_BLOOM_GLSL}\n#include <opaque_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'fx-star-nobloom';
   starMats.set(color, m);
   return m;
+}
+let starOutlineMat: THREE.MeshBasicMaterial | null = null;
+function starOutlineMaterial(): THREE.MeshBasicMaterial {
+  if (!starOutlineMat) {
+    starOutlineMat = new THREE.MeshBasicMaterial({ color: 0x3a220e, depthTest: false, depthWrite: false, transparent: true, opacity: 0.92, toneMapped: false, side: THREE.DoubleSide });
+    starOutlineMat.name = 'fx-star-outline';
+  }
+  return starOutlineMat;
 }
 
 /** Ease-out-back (overshoot ~10 %). */
@@ -1080,6 +1116,7 @@ export class FarmFX {
   /** Camera basis (set each frame via setCamera): stars face the camera and sit to the item's right. */
   readonly viewRight = new THREE.Vector3(1, 0, 0);
   readonly viewQuat = new THREE.Quaternion();
+  private viewUp = new THREE.Vector3(0, 1, 0);
 
   setCamera(cam: THREE.Camera): void {
     cam.getWorldDirection(this.trail.view);
@@ -1152,11 +1189,11 @@ export class FarmFX {
         {
           float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
           float rim = pow(1.0 - ndv, 2.6);
-          totalEmissiveRadiance += diffuseColor.rgb * (0.08 + rim * 0.55) + vec3(1.0, 0.92, 0.75) * rim * 0.12;
+          totalEmissiveRadiance += diffuseColor.rgb * (0.05 + rim * 0.4) + vec3(1.0, 0.9, 0.7) * rim * 0.06;
         }`,
-      );
+      ).replace('#include <opaque_fragment>', `${NO_BLOOM_GLSL}\n#include <opaque_fragment>`);
     };
-    this.popMat.customProgramCacheKey = () => 'fx-pop-rim';
+    this.popMat.customProgramCacheKey = () => 'fx-pop-rim-nobloom';
 
     this.group.add(this.clods.mesh, this.leaves.mesh, this.streaks.mesh, this.ringMesh, this.dust.points, this.glow.points, this.trail.mesh, this.wet.mesh, this.cracks.mesh, this.stream.mesh);
   }
@@ -1332,6 +1369,23 @@ export class FarmFX {
     void dirZ;
   }
 
+  /**
+   * Charged-slam shockwave, kept inside the struck block: an expanding ring of ~20 small dust puffs
+   * that thin out as they travel (≤ 0.35 s, ≤ 0.45 opacity) + one thin pale ring flashing out to the
+   * block's rim. `half` = half the block's width (1.5 for 3×3).
+   */
+  slamBurst(center: THREE.Vector3, half: number, color = 0xc2a47e): void {
+    const n = 20;
+    const a0 = rnd(0, Math.PI * 2);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * Math.PI * 2 + rnd(-0.08, 0.08);
+      const r0 = 0.3 + rnd(0, 0.1);
+      const sp = (half - r0) / 0.3 + rnd(-0.4, 0.4);
+      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0, rnd(0.03, 0.08), Math.sin(a) * r0)), new THREE.Vector3(Math.cos(a) * sp, rnd(0.2, 0.5), Math.sin(a) * sp), { color, size: rnd(0.13, 0.19), life: rnd(0.28, 0.35), grow: 1.5, alpha: 0.42, gravity: 0, drag: 2.2 });
+    }
+    this.ring(center.clone().setY(center.y + 0.03), 0.25, half * 1.02, 0.3, 0x6a5a40);
+  }
+
   ring(p: THREE.Vector3, r0: number, r1: number, life: number, color: number | THREE.Color): void {
     const g = this.rings[this.ringNext]!;
     this.ringNext = (this.ringNext + 1) % this.rings.length;
@@ -1360,9 +1414,11 @@ export class FarmFX {
       const p = center.clone().add(new THREE.Vector3(rnd(-0.18, 0.18), 0.04, rnd(-0.18, 0.18)));
       this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.06, 0.05)), i < 4 ? rnd(0.06, 0.085) : rnd(0.03, 0.06));
     }
-    for (let i = 0; i < 7; i++) {
+    // Dust: a full cloud for a single bite; a whisper per tile when a slam strikes a whole block.
+    const np = Math.max(2, Math.round(7 * strength * strength));
+    for (let i = 0; i < np; i++) {
       const a = rnd(0, Math.PI * 2);
-      this.puff(center.clone().add(new THREE.Vector3(Math.cos(a) * 0.2, 0.06, Math.sin(a) * 0.2)), new THREE.Vector3(Math.cos(a) * 0.9, rnd(0.3, 0.9), Math.sin(a) * 0.9), 0xb89a78, rnd(0.18, 0.3), rnd(0.7, 1.1), { alpha: 0.42 });
+      this.puff(center.clone().add(new THREE.Vector3(Math.cos(a) * 0.2, 0.06, Math.sin(a) * 0.2)), new THREE.Vector3(Math.cos(a) * 0.9, rnd(0.3, 0.9), Math.sin(a) * 0.9), 0xb89a78, rnd(0.18, 0.3) * (0.6 + 0.4 * strength), rnd(0.7, 1.1) * (0.5 + 0.5 * strength), { alpha: 0.42 * (0.5 + 0.5 * strength) });
     }
   }
 
@@ -1432,6 +1488,9 @@ export class FarmFX {
       star = new THREE.Mesh(starGeometry(), starMaterial(opts.star));
       star.scale.setScalar(0.001);
       star.renderOrder = 10;
+      const outline = new THREE.Mesh(starOutlineGeometry(), starOutlineMaterial());
+      outline.renderOrder = 9;
+      star.add(outline);
       this.group.add(star);
     }
     if (!geo.boundingSphere) geo.computeBoundingSphere();
@@ -1439,7 +1498,10 @@ export class FarmFX {
     const radius = geo.boundingSphere?.radius ?? 0.12;
     const bottom = geo.boundingBox ? -geo.boundingBox.min.y : radius;
     this.group.add(mesh);
-    this.pops.push({ mesh, star, glint, from: from.clone(), opts, age: 0, arrived: false, done: false, spin: rnd(-1, 1), radius, bottom });
+    const bb = geo.boundingBox;
+    const hw = bb ? Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2 : radius;
+    const hh = bb ? (bb.max.y - bb.min.y) / 2 : radius;
+    this.pops.push({ mesh, star, glint, from: from.clone(), opts, age: 0, arrived: false, done: false, spin: rnd(-1, 1), radius, bottom, hw, hh });
   }
 
   /** Drop every live effect (demo staging: nothing from the previous scene leaks into the next). */
@@ -1620,18 +1682,24 @@ export class FarmFX {
         // follows the produce out.
         const st = p.star;
         const ts = p.age - flight - 0.04;
+        // Scale punch on the catch: 0.6 → 1.2 → 1.0 over 180 ms (ease in, spring out).
         let k = 0;
-        if (ts > 0) k = ts < 0.1 ? THREE.MathUtils.lerp(0, 1.3, ts / 0.1) : 1 + 0.3 * (1 - outBack(Math.min(1, (ts - 0.1) / 0.18)));
+        if (ts > 0) k = ts < 0.08 ? THREE.MathUtils.lerp(0.6, 1.2, ts / 0.08) : 1 + 0.2 * (1 - outBack(Math.min(1, (ts - 0.08) / 0.1)));
         const out = p.age > flight + hold ? Math.max(0, 1 - (p.age - flight - hold) / 0.12) : 1;
         const sc = Math.max(0.001, k * out);
-        st.scale.setScalar(sc * Math.max(0.9, S * 0.8));
+        st.scale.setScalar(sc * Math.max(0.95, S * 0.62));
+        // Top-right of the item (screen space), clear of its silhouette and of the farmer's head.
         const side = p.opts.pivot ? (_v.subVectors(m.position, p.opts.pivot()).dot(this.viewRight) >= 0 ? 1 : -1) : 1;
-        st.position.copy(m.position).addScaledVector(this.viewRight, side * (p.radius * S * 0.9 + 0.1)).add(_v.set(0, p.radius * S * 0.45, 0));
+        this.viewUp.set(0, 1, 0).applyQuaternion(this.viewQuat);
+        // Hugs the item's top-right corner (its box, not its bounding sphere: a long parsnip or a
+        // bean pod keeps the star close instead of flinging it half a metre away).
+        const cy = m.position.y - p.bottom * S + p.hh * S;
+        st.position.copy(m.position).setY(cy).addScaledVector(this.viewRight, side * (Math.min(p.hw * S * 0.55, 0.16) + 0.09)).addScaledVector(this.viewUp, Math.min(p.hh * S * 0.6, 0.24) + 0.05);
         // Spin in (a full turn that settles), then a slow wobble facing the camera.
-        const spinIn = ts > 0 ? Math.max(0, 1 - ts / 0.32) : 1;
+        const spinIn = ts > 0 ? Math.max(0, 1 - ts / 0.24) : 1;
         st.quaternion.copy(this.viewQuat);
-        st.rotateY(spinIn * spinIn * Math.PI * 2 + Math.sin(p.age * 3) * 0.25);
-        st.rotateZ(Math.sin(p.age * 2.2) * 0.12);
+        st.rotateY(spinIn * spinIn * Math.PI * 2 + Math.sin(p.age * 3) * 0.18);
+        st.rotateZ(Math.sin(p.age * 2.2) * 0.1);
         // Twinkles: tiny additive glints popping around the star.
         if (sc > 0.5 && out > 0.5 && dt > 0 && fxr.next() < dt * 14) {
           const a = rnd(0, Math.PI * 2);

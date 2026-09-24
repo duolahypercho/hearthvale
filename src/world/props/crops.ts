@@ -38,6 +38,8 @@ interface LeafOpts {
   curl?: number;
   /** Midrib colour (defaults to a lighter c0→c1). */
   rib?: THREE.Color;
+  /** Cup across the blade: the margins curl up (× half-width). Default 0.3. */
+  cup?: number;
   c0: THREE.Color;
   c1: THREE.Color;
   segs?: number;
@@ -58,8 +60,9 @@ function hashN(...v: number[]): number {
 
 /**
  * Leaf UV convention (the crop shaders read it): uv.x = 0 at the stem → 1 at the tip,
- * uv.y = LEAF_UV (a leaf) or LEAF_UV_TIP (a leaf whose tip browns in fall, ~20 %). Other parts keep
- * their 0..1 primitive UVs, so the markers never collide.
+ * uv.y = LEAF_UV (a leaf) or LEAF_UV_TIP (a leaf whose tip browns in fall, ~20 %) plus
+ * 0..0.49 across the blade (left margin → right margin; the vein painter reads it). Other parts
+ * keep their 0..1 primitive UVs, so the markers never collide.
  */
 const LEAF_UV = 5;
 const LEAF_UV_TIP = 6;
@@ -67,6 +70,13 @@ const LEAF_UV_TIP = 6;
 /** A leaf growing along +Z from the origin (midrib + two halves, vertex coloured, smooth normals). */
 function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry {
   const segs = o.segs ?? 5;
+  // Per-blade character (no two leaves alike): hue ±7°, value ±8 %, a slight roll about the midrib
+  // and lopsided halves (one side a little wider) — a living leaf, not a stamped card.
+  const h1 = hashN(len, width, segs, o.c0.g);
+  const h2 = hashN(width, len * 3.1, o.c1.r);
+  const h3 = hashN(len * 7.3, width * 1.7);
+  const roll = (h3 - 0.5) * 0.5;
+  const lop = 1 + (h1 - 0.5) * 0.16;
   const lift = o.lift ?? 0.6;
   const bend = o.bend ?? 0.4;
   const fold = o.fold ?? 0.25;
@@ -100,7 +110,9 @@ function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry 
     const m = new THREE.Vector3(0, y, z);
     const rf = o.ruffle ? o.ruffle * w * Math.sin(t * Math.PI * 13) * Math.min(1, t * 4) : 0;
     const rfr = o.ruffle ? o.ruffle * w * Math.sin(t * Math.PI * 13 + 1.7) * Math.min(1, t * 4) : 0;
-    rows.push({ l: new THREE.Vector3(-w, y - w * fold + rf, z), m, r: new THREE.Vector3(w, y - w * fold + rfr, z), t });
+    const wl = w * lop;
+    const wr = w / lop;
+    rows.push({ l: new THREE.Vector3(-wl, y - wl * fold + rf - wl * roll, z), m, r: new THREE.Vector3(wr, y - wr * fold + rfr + wr * roll, z), t });
   }
   if (o.curl) {
     for (const row of rows) {
@@ -121,26 +133,38 @@ function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry 
       if (o.rib) c.lerp(o.rib, 0.7 * (1 - t * 0.6));
       else c.multiplyScalar(1.12);
     }
-    return c.multiplyScalar(0.72 + 0.28 * Math.min(1, t * 3));
+    c.offsetHSL((h1 - 0.5) * 0.04, (h2 - 0.5) * 0.08, 0);
+    return c.multiplyScalar((0.72 + 0.28 * Math.min(1, t * 3)) * (0.92 + h2 * 0.16));
   };
-  // Indexed (3 verts per row) so normals come out smooth across the midrib — no faceted cards.
+  // Five verts per row (margin, half, midrib, half, margin), indexed so normals come out smooth:
+  // a V-fold along the midrib plus a cup that curls the margins up — a living blade, not a card.
+  const cup = o.cup ?? 0.3;
   const pos: number[] = [];
   const col: number[] = [];
   const uv: number[] = [];
   const tip = hashN(len, width, o.c0.r, o.c1.g, segs) < 0.2 ? LEAF_UV_TIP : LEAF_UV;
+  const US = [-1, -0.5, 0, 0.5, 1];
   for (const row of rows) {
-    for (const [v, edge] of [[row.l, true], [row.m, false], [row.r, true]] as const) {
-      pos.push(v.x, v.y, v.z);
-      const c = colAt(row.t, edge);
+    const w = row.r.x;
+    for (const u of US) {
+      const k = Math.abs(u);
+      const side = u < 0 ? row.l : row.r;
+      // Interpolate the margin (with its ruffle) from the midrib, then add the cup.
+      const x = row.m.x + (side.x - row.m.x) * k;
+      const y = row.m.y + (side.y - row.m.y) * k + cup * w * u * u;
+      const z = row.m.z + (side.z - row.m.z) * k;
+      pos.push(x, y, z);
+      const c = colAt(row.t, k > 0.25);
+      if (k > 0.25 && k < 0.75) c.lerp(colAt(row.t, false), 0.2);
       col.push(c.r, c.g, c.b);
-      uv.push(row.t, tip);
+      uv.push(row.t, tip + ((u + 1) / 2) * 0.49);
     }
   }
   const idx: number[] = [];
   for (let i = 0; i < segs; i++) {
-    const a = i * 3;
-    const b = a + 3;
-    idx.push(a, a + 1, b + 1, a, b + 1, b, a + 1, a + 2, b + 2, a + 1, b + 2, b + 1);
+    const a = i * 5;
+    const b = a + 5;
+    for (let j = 0; j < 4; j++) idx.push(a + j, a + j + 1, b + j + 1, a + j, b + j + 1, b + j);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -195,7 +219,7 @@ function ruffledLeaf(len: number, width: number, r: Rng, c0: THREE.Color, c1: TH
     c.lerp(rib, Math.max(0, 1 - edge * 5) * 0.75 * (1 - t * 0.5));
     c.multiplyScalar((0.7 + 0.3 * Math.min(1, t * 3)) * (0.85 + 0.15 * (frill * 0.5 + 0.5)));
     col.set([c.r, c.g, c.b], i * 3);
-    uv.setXY(i, t, tip);
+    uv.setXY(i, t, tip + ((u + 1) / 2) * 0.49);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   g.computeVertexNormals();
@@ -491,15 +515,12 @@ function trellis(add: Adder, h = 1.05, w = 0.34): void {
     const cap = new THREE.ConeGeometry(0.03, 0.05, 5);
     add(colored(cap, () => WOOD.light), mat(sx * w, h - 0.02, 0), 'wood');
   }
-  for (const y of [0.32, 0.64, 0.96]) {
+  // Two rails and a single twine (was 3 + 3): the frame supports the plant, it isn't the subject.
+  for (const y of [0.46, 0.95]) {
     const rail = stalk(w * 2 + 0.06, 0.011, 0.011, WOOD.light, WOOD.post, 0, 4);
     add(rail, mat(-w - 0.03, y * h, 0, 0, 0, -Math.PI / 2), 'wood');
   }
-  // Twine lattice
-  for (let i = 0; i < 3; i++) {
-    const x0 = -w + (i / 2) * w * 2;
-    add(stalk(h * 0.93, 0.004, 0.004, WOOD.twine, WOOD.twine, 0, 3), mat(x0 * 0.8, 0, 0.012), 'wood');
-  }
+  add(stalk(h * 0.93, 0.004, 0.004, WOOD.twine, WOOD.twine, 0, 3), mat(0, 0, 0.012), 'wood');
 }
 
 /**
@@ -643,7 +664,7 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   cauliflower(add, r, k) {
     // Broad, waxy blue-green leaves with pale ribs, wrapping the curd as it swells.
-    const leaf = { shape: 'oval' as const, lift: 0.55 + k * 0.08, bend: 0.45, fold: 0.32, ruffle: 0.07, rib: C(0x7fae8a), c0: C(0x2a5a44), c1: C(0x6a9a5e), segs: 5 };
+    const leaf = { shape: 'oval' as const, lift: 0.55 + k * 0.08, bend: 0.45, fold: 0.32, ruffle: 0.07, cup: 0.45, rib: C(0xa8cca0), c0: C(0x345f42), c1: C(0x72a262), segs: 6 };
     rosette(add, r, 4 + k, 0.18 + k * 0.09, 0.15 + k * 0.02, leaf);
     const inner = { shape: 'oval' as const, lift: 1.15, bend: 0.05, fold: 0.45, curl: 0.9, rib: C(0x86b490), c0: C(0x2e5e48), c1: C(0x6e9e62), segs: 4 };
     if (k >= 2) {
@@ -655,21 +676,25 @@ const BUILDERS: Record<CropId, Builder> = {
     }
   },
   kale(add, r, k) {
-    // Frilly, curled blue-green leaves on pale stems, in upright tiers.
+    // Big frilly leaves on pale stalks that arch OUT and over (a loose, open vase), deep blue-green
+    // with yellow-green frilled tips — never the cauliflower's flat, pale, waxy rosette.
     const tiers = 1 + Math.min(2, k);
-    // Lifted ~20 % from the old near-black teal, with warm yellow-green toward the frilled tips.
-    const c0 = k === 3 ? C(0x285a48) : C(0x306650);
-    const c1 = C(0x6c9a5c);
-    const rib = C(0xaccab0);
+    const c0 = k === 3 ? C(0x1f4a3a) : C(0x245440);
+    const c1 = C(0x4f8a5e);
+    const rib = C(0xc2dcc0);
     for (let t = 0; t < tiers; t++) {
-      const n = 4 + (k >= 2 ? 1 : 0);
-      const len = 0.15 + k * 0.06 - t * 0.03;
+      const n = 4 + (k >= 2 ? 1 : 0) - (t === tiers - 1 && t > 0 ? 1 : 0);
+      const len = 0.16 + k * 0.065 - t * 0.035;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2 + t * 0.62 + (r.next() - 0.5) * 0.4;
-        const m = mat(0, t * 0.035, 0, 0, a, 0);
-        add(stalk(0.07 + t * 0.02, 0.008, 0.006, C(0xb0c8a8), C(0x9cbc98), 0, 3), m.clone().multiply(mat(0, 0, 0.02, 0.5, 0, 0)));
-        const lf = ruffledLeaf(len * (0.85 + r.next() * 0.3), 0.15 + k * 0.03, r, c0, c1, rib, 0.6 + t * 0.25 + r.next() * 0.25);
-        add(lf, m.clone().multiply(mat(0, 0.05, 0.02, -0.55 - t * 0.2, 0, 0)));
+        const m = mat(0, t * 0.04, 0, 0, a, 0);
+        // Outer tiers lean well out, the heart stays upright.
+        const lean = 0.95 - t * 0.28 + (r.next() - 0.5) * 0.2;
+        const stalkL = 0.06 + t * 0.03 + k * 0.01;
+        add(stalk(stalkL, 0.009, 0.006, C(0xb8d0b0), C(0x9cbc98), 0, 3), m.clone().multiply(mat(0, 0, 0, lean, 0, 0)));
+        const lf = ruffledLeaf(len * (0.85 + r.next() * 0.3), 0.17 + k * 0.035, r, c0, c1, rib, 0.35 + t * 0.2 + r.next() * 0.2, 6, 12);
+        // The blade continues the stalk's lean (rotateX +: tips fall outward), arching back up.
+        add(lf, m.clone().multiply(mat(0, Math.cos(lean) * stalkL, Math.sin(lean) * stalkL, lean - 0.95 - 0.25, 0, 0)));
       }
     }
   },
@@ -700,7 +725,7 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   greenBean(add, r, k) {
     const top = [0.3, 0.6, 0.95, 1.0][k]!;
-    climber(add, r, top, { shape: 'heart', lift: 0.2, bend: 0.5, fold: 0.25, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }, k >= 2 ? 0.14 : 0.12, k >= 2 ? 0.13 : 0.11, 1.0, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.6 : 1);
+    climber(add, r, top, { shape: 'heart', lift: 0.2, bend: 0.5, fold: 0.25, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }, k >= 2 ? 0.14 : 0.12, k >= 2 ? 0.13 : 0.11, 1.0, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.35 : 1);
     if (k === 2) {
       for (let i = 0; i < 7; i++) flower(add, 0.022, C(0xf6e8ff), C(0xe0c8f0), mat((r.next() - 0.5) * 0.6, 0.3 + r.next() * 0.6, 0.08, Math.PI / 2, 0, 0));
     }
@@ -708,7 +733,7 @@ const BUILDERS: Record<CropId, Builder> = {
       const n = k === 3 ? 11 : 4;
       for (let i = 0; i < n; i++) {
         const len = k === 3 ? 0.17 + r.next() * 0.05 : 0.07;
-        add(hangingPod(len, 0.014, 0.25 + r.next() * 0.2, C(0x6aaa3a), C(0x9ad05a), 0.5, 4), mat((r.next() - 0.5) * 0.62, 0.35 + r.next() * 0.55, (r.next() < 0.5 ? 1 : -1) * 0.06, 0, r.next() * 6, 0), 'gloss');
+        add(hangingPod(len, 0.016, 0.25 + r.next() * 0.2, C(0x6aaa3a), C(0x9ad05a), 0.5, 4), mat((r.next() - 0.5) * 0.62, 0.35 + r.next() * 0.55, 0.1 + r.next() * 0.04, 0, r.next() * 6, 0), 'gloss');
       }
     }
   },
@@ -819,7 +844,7 @@ const BUILDERS: Record<CropId, Builder> = {
     }
   },
   melon(add, r, k) {
-    const leaf = { shape: 'lobed' as const, lift: 0.3, bend: 0.35, fold: 0.22, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 4 };
+    const leaf = { shape: 'lobed' as const, lift: 0.3, bend: 0.35, fold: 0.22, serrate: 0.2, cup: 0.5, c0: GREEN.dark, c1: GREEN.mid, segs: 8 };
     const nv = 2 + Math.min(2, k);
     const vines: THREE.Vector3[][] = [];
     for (let i = 0; i < nv; i++) vines.push(vine(add, r, (i / nv) * Math.PI * 2 + r.next(), 0.22 + k * 0.07, leaf, 0.12 + k * 0.03, 0.15 + k * 0.03, 2 + Math.min(1, k), k >= 2 && i < 2 ? 1 : 0));
@@ -854,17 +879,18 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   hops(add, r, k) {
     const top = [0.3, 0.65, 1.0, 1.0][k]!;
-    climber(add, r, top, { shape: 'lobed', lift: 0.2, bend: 0.5, fold: 0.25, serrate: 0.3, c0: C(0x3f7a2e), c1: C(0x6aaa3a), segs: 4 }, 0.13, 0.13, 1.08, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.5 : 1);
+    climber(add, r, top, { shape: 'lobed', lift: 0.2, bend: 0.5, fold: 0.25, serrate: 0.3, c0: C(0x3f7a2e), c1: C(0x6aaa3a), segs: 4 }, 0.13, 0.13, 1.08, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.3 : 1);
     if (k >= 2) {
       const n = k === 3 ? 12 : 6;
       for (let i = 0; i < n; i++) {
-        const m = mat((r.next() - 0.5) * 0.62, 0.3 + r.next() * 0.72, (r.next() < 0.5 ? 1 : -1) * 0.07);
-        add(hopCone(k === 3 ? 0.045 : 0.03, k === 3 ? C(0xc8e07a) : C(0x8ac04a)), m, 'skin');
+        // Cones hang in front of the bine (toward the camera) so they read from the game view.
+        const m = mat((r.next() - 0.5) * 0.62, 0.3 + r.next() * 0.72, 0.11 + r.next() * 0.04);
+        add(hopCone(k === 3 ? 0.052 : 0.032, k === 3 ? C(0xd0e684) : C(0x8ac04a)), m, 'skin');
       }
     }
   },
   pumpkin(add, r, k) {
-    const leaf = { shape: 'heart' as const, lift: 0.18, bend: 0.28, fold: 0.22, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 4 };
+    const leaf = { shape: 'heart' as const, lift: 0.18, bend: 0.28, fold: 0.22, serrate: 0.2, cup: 0.5, c0: GREEN.dark, c1: GREEN.mid, segs: 7 };
     const nv = 2 + Math.min(2, k);
     const vines: THREE.Vector3[][] = [];
     for (let i = 0; i < nv; i++) vines.push(vine(add, r, (i / nv) * Math.PI * 2 + r.next(), 0.24 + k * 0.08, leaf, 0.14 + k * 0.03, 0.18 + k * 0.03, 2 + Math.min(1, k), k >= 2 && i < 2 ? 1 : 0));
@@ -904,12 +930,13 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   grape(add, r, k) {
     const top = [0.35, 0.7, 1.0, 1.0][k]!;
-    climber(add, r, top, { shape: 'lobed', lift: 0.15, bend: 0.5, fold: 0.2, serrate: 0.25, c0: C(0x4a7a2e), c1: C(0x7aaa44), segs: 4 }, 0.15, 0.16, 1.0, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.45 : 1);
+    climber(add, r, top, { shape: 'lobed', lift: 0.15, bend: 0.5, fold: 0.2, serrate: 0.25, c0: C(0x4a7a2e), c1: C(0x7aaa44), segs: 4 }, 0.15, 0.16, 1.0, 0.3, k >= 2 ? 3 : 2, k >= 2 ? 1.3 : 1);
     if (k >= 2) {
       const n = k === 3 ? 5 : 4;
       for (let i = 0; i < n; i++) {
-        const m = mat((i / (n - 1) - 0.5) * 0.56 + (r.next() - 0.5) * 0.06, 0.55 + r.next() * 0.35, (i % 2 ? 1 : -1) * 0.07);
-        bunch(add, r, k === 3 ? 10 : 7, k === 3 ? 0.028 : 0.018, k === 3 ? 0.15 : 0.09, k === 3 ? C(0x5a2a78) : C(0x9ac060), m, k === 3 ? 0.45 : 0);
+        // Bunches hang in front of the leaves, fat and dusty, so they read from the game camera.
+        const m = mat((i / (n - 1) - 0.5) * 0.56 + (r.next() - 0.5) * 0.06, 0.5 + r.next() * 0.36, 0.13 + r.next() * 0.03);
+        bunch(add, r, k === 3 ? 14 : 8, k === 3 ? 0.032 : 0.019, k === 3 ? 0.19 : 0.1, k === 3 ? C(0x6a2e8a) : C(0x9ac060), m, k === 3 ? 0.45 : 0);
       }
     }
   },
@@ -934,7 +961,7 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   yam(add, r, k) {
     // Heart-leaved vines trailing over the ridge; tuber shoulders just breaking the soil.
-    const leaf = { shape: 'heart' as const, lift: 0.22, bend: 0.4, fold: 0.25, c0: C(0x3f7a2e), c1: C(0x7aaa44), segs: 4 };
+    const leaf = { shape: 'heart' as const, lift: 0.22, bend: 0.4, fold: 0.25, c0: C(0x3f7a2e), c1: C(0x7aaa44), segs: 6, cup: 0.45 };
     const nv = 2 + Math.min(2, k);
     for (let i = 0; i < nv; i++) vine(add, r, (i / nv) * Math.PI * 2 + r.next(), 0.14 + k * 0.07, leaf, 0.1 + k * 0.02, 0.1 + k * 0.018, 2 + Math.min(1, k), 0);
     // A short twining stem in the middle.
@@ -974,34 +1001,108 @@ function hopCone(r0: number, c: THREE.Color): THREE.BufferGeometry {
 
 // ═════════════════════════════════════════════ withered / giant / produce
 
-/** Dead plant after a season change: brown, drooping, collapsed. */
-function buildWithered(r: Rng, trellised: boolean): Map<Bucket, THREE.BufferGeometry> {
+/** Husk silhouette families (by what the living plant was). */
+export type WitherKind = 'tall' | 'vine' | 'bush' | 'leafy';
+
+export function witherKind(id: CropId): WitherKind {
+  if (id === 'corn' || id === 'sunflower') return 'tall';
+  if (id === 'melon' || id === 'pumpkin' || id === 'yam' || id === 'strawberry') return 'vine';
+  if (id === 'tomato' || id === 'hotPepper' || id === 'eggplant' || id === 'blueberry' || id === 'potato') return 'bush';
+  return 'leafy';
+}
+
+/**
+ * Dead plant after a season change. Four families (tall stalk / collapsed vine / twiggy bush / slumped
+ * rosette) × three silhouettes (0 collapsed, 1 leaning, 2 bare stalk), straw-to-grey-brown, papery
+ * curled leaves, some fallen onto the soil. Instances also get a random yaw and tint.
+ */
+function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v = 0): Map<Bucket, THREE.BufferGeometry> {
   const b = new MeshBuilder();
   const keys: Record<Bucket, THREE.Material> = { leaf: 'leaf' as unknown as THREE.Material, gloss: 'gloss' as unknown as THREE.Material, skin: 'skin' as unknown as THREE.Material, wood: 'wood' as unknown as THREE.Material };
   const add: Adder = (g, m, bucket = 'leaf') => void b.add(keys[bucket], g, m);
   const brown0 = C(0x5a4630);
   const brown1 = C(0x9a7c52);
+  const straw0 = C(0x6a5234);
+  const straw1 = C(0xc8a86e);
+  const curled = (len: number, w: number): THREE.BufferGeometry => leafGeo(len, w, { shape: 'oval', lift: 0.05, bend: 0.1, fold: 0.55, curl: 0.8 + r.next() * 0.5, ruffle: 0.25, c0: C(0x7a603e), c1: C(0xb08e5c), segs: 3 });
+  const fallen = (n: number, rad: number): void => {
+    for (let i = 0; i < n; i++) {
+      const a = r.next() * Math.PI * 2;
+      const d = rad * (0.4 + r.next() * 0.6);
+      add(curled(0.08 + r.next() * 0.04, 0.055), mat(Math.cos(a) * d, 0.005, Math.sin(a) * d, 0, a, 0));
+    }
+  };
   if (trellised) {
     trellis(add);
-    climber(add, r, 0.7, { shape: 'heart', lift: -0.2, bend: 0.9, fold: 0.4, c0: brown0, c1: brown1, segs: 3 }, 0.1, 0.09, 1.0, 0.3, 2);
-  } else {
-    // A slumped, straw-coloured husk: a bent main stalk with a broken, nodding top, drooping
-    // papery leaves, a couple of side stems and curled leaves fallen onto the soil.
-    const straw0 = C(0x6a5234);
-    const straw1 = C(0xc8a86e);
-    const lean = 0.18 + r.next() * 0.12;
-    add(stalk(0.34, 0.016, 0.007, brown0, straw1, lean, 5));
-    add(stalk(0.12, 0.008, 0.005, brown0, brown1, -0.06, 3), mat(lean * 0.9, 0.3, 0, 0, 0, -2.2));
-    for (let i = 0; i < 2; i++) {
-      const a = r.next() * Math.PI * 2;
-      add(stalk(0.2, 0.01, 0.005, brown0, brown1, 0.1, 4), mat(0, 0, 0, 0, a, 0.5));
+    climber(add, r, v === 2 ? 0.45 : 0.7, { shape: 'heart', lift: -0.2, bend: 0.9, fold: 0.4, c0: brown0, c1: brown1, segs: 3 }, 0.1, 0.09, 1.0, 0.3, 2);
+    fallen(4, 0.3);
+  } else if (kind === 'tall') {
+    // A dry cane: snapped and folded over (0), leaning hard (1) or standing bare (2).
+    const h = 0.55 + r.next() * 0.2;
+    const lean = v === 1 ? 0.28 : v === 0 ? 0.06 : 0.03;
+    const hMain = v === 0 ? h * 0.55 : h;
+    add(stalk(hMain, 0.02, 0.012, brown0, straw1, lean, 5));
+    if (v === 0) add(stalk(h * 0.5, 0.012, 0.008, straw0, straw1, 0.05, 4), mat(lean, hMain - 0.01, 0, 0, r.next() * 6, -2.3));
+    const nl = v === 2 ? 2 : 4;
+    for (let i = 0; i < nl; i++) {
+      const y = (0.2 + (i / nl) * 0.6) * hMain;
+      add(leafGeo(0.22 + r.next() * 0.08, 0.05, { shape: 'ribbon', lift: -0.3, bend: 1.2, fold: 0.3, ruffle: 0.2, c0: straw0, c1: straw1, segs: 4 }), mat(lean * (y / hMain) ** 2, y, 0, 0, i * 2.3 + r.next(), 0));
     }
-    rosette(add, r, 6, 0.19, 0.1, { shape: 'lance', lift: 0.5, bend: 0.85, fold: 0.5, ruffle: 0.3, c0: straw0, c1: straw1, segs: 4 });
-    rosette(add, r, 4, 0.13, 0.08, { shape: 'oval', lift: 0.35, bend: 1.0, fold: 0.6, curl: 0.5, c0: C(0x6a5436), c1: C(0xb89a62), segs: 3 }, 0.5, 0.16);
-    for (let i = 0; i < 3; i++) {
-      const a = r.next() * Math.PI * 2;
-      const d = 0.12 + r.next() * 0.12;
-      add(leafGeo(0.1, 0.06, { shape: 'oval', lift: 0.05, bend: 0.1, fold: 0.5, curl: 0.7, c0: C(0x7a603e), c1: C(0xb08e5c), segs: 3 }), mat(Math.cos(a) * d, 0.005, Math.sin(a) * d, 0, a, 0));
+    if (v !== 2) {
+      // A dead, nodding seed head.
+      const head = fruit(0.05, C(0x4a3424), { sy: 0.55, seg: 7 });
+      add(head, mat(lean + (v === 0 ? 0.25 : 0.04), v === 0 ? hMain * 0.6 : hMain + 0.02, 0.02, v === 0 ? 1.8 : 0.9, 0, 0.3));
+    }
+    fallen(3, 0.2);
+  } else if (kind === 'vine') {
+    // Collapsed vines lying on the soil, shrivelled leaves clinging to them.
+    const nv = v === 2 ? 2 : 3;
+    for (let i = 0; i < nv; i++) {
+      const a = (i / nv) * Math.PI * 2 + r.next();
+      const len = 0.25 + r.next() * 0.12 + (v === 0 ? 0.08 : 0);
+      const pts: THREE.Vector3[] = [];
+      let ang = a;
+      for (let k = 0; k <= 4; k++) {
+        ang += (r.next() - 0.5) * 0.8;
+        const d = (len * k) / 4;
+        pts.push(new THREE.Vector3(Math.cos(ang) * d, 0.012 + (k === 1 ? 0.02 : 0), Math.sin(ang) * d));
+      }
+      add(tube(pts, 0.009, 0.005, brown0, straw0, 6, 4));
+      const cv = new THREE.CatmullRomCurve3(pts);
+      for (let k = 0; k < (v === 2 ? 1 : 2); k++) {
+        const pp = cv.getPointAt(0.45 + k * 0.4);
+        add(curled(0.1 + r.next() * 0.04, 0.09), mat(pp.x, pp.y + 0.01, pp.z, 0, r.next() * 6, 0));
+      }
+    }
+    if (v === 1) add(stalk(0.12, 0.01, 0.006, brown0, straw1, 0.08, 4));
+  } else if (kind === 'bush') {
+    // Twiggy dead shrub: woody stems, a few curled leaves; slumped (0), leaning (1) or bare (2).
+    const ns = v === 2 ? 3 : 4;
+    const lean = v === 1 ? 0.2 : 0;
+    for (let i = 0; i < ns; i++) {
+      const a = (i / ns) * Math.PI * 2 + r.next() * 0.5;
+      const h = (v === 0 ? 0.16 : 0.26) + r.next() * 0.1;
+      add(stalk(h, 0.011, 0.005, C(0x5a4632), C(0x8a7050), lean + 0.06, 4), mat(0, 0, 0, 0, a, v === 0 ? 0.9 : 0.35));
+    }
+    if (v !== 2) {
+      for (let i = 0; i < 5; i++) {
+        const a = r.next() * Math.PI * 2;
+        const y = (v === 0 ? 0.08 : 0.14) + r.next() * 0.1;
+        add(curled(0.09, 0.06), mat(Math.cos(a) * 0.08 + lean * 0.4, y, Math.sin(a) * 0.08, 0.6, a, 0));
+      }
+    }
+    fallen(v === 2 ? 5 : 3, 0.22);
+  } else {
+    // A slumped rosette of papery leaves; flat collapsed (0), leaning tuft (1) or a bare stub (2).
+    if (v === 2) {
+      add(stalk(0.12, 0.012, 0.007, brown0, straw1, 0.03, 4));
+      add(stalk(0.09, 0.009, 0.005, brown0, straw1, -0.05, 4), mat(0, 0, 0, 0, 1.3, 0.4));
+      fallen(5, 0.2);
+    } else {
+      const lift = v === 0 ? 0.12 : 0.55;
+      rosette(add, r, 6, 0.17, 0.1, { shape: 'lance', lift, bend: 0.9, fold: 0.5, ruffle: 0.3, c0: straw0, c1: straw1, segs: 4 }, 0, 0.01);
+      if (v === 1) add(stalk(0.2, 0.012, 0.006, brown0, straw1, 0.12, 4));
+      fallen(2, 0.2);
     }
   }
   const out = new Map<Bucket, THREE.BufferGeometry>();
@@ -1368,7 +1469,8 @@ export function produceGeometry(id: CropId): THREE.BufferGeometry {
       add(stalk(0.05, 0.008, 0.006, C(0x6a5a3a), C(0x6a5a3a), 0, 4), mat(0, 0.1, 0));
       break;
     case 'melon':
-      add(fruit(0.13, C(0x9cc85e), { sy: 0.86, long: 1.15, stripes: 8, stripeColor: C(0x28521f), seg: 18, rows: 10, shade: 0.55 }));
+      // Crisp dark stripes on a pale rind: reads as a melon (not a cabbage) at arm's length.
+      add(fruit(0.13, C(0xb4dc74), { sy: 0.86, long: 1.18, stripes: 10, stripeColor: C(0x1c4416), seg: 20, rows: 12, shade: 0.6 }));
       add(stalk(0.04, 0.01, 0.008, C(0x6a7a3a), C(0x8a8a4a), 0.02, 4), mat(0, 0.1, 0));
       break;
     case 'hotPepper':
@@ -1511,7 +1613,7 @@ function fallShift(m: THREE.Material, key: string, tips = true): void {
  * through thin leaves (≈ 0.25) and a faint warm rim — dense beds glow at mid-morning like the lawn
  * instead of reading as plastic. Runs after applyPlantLighting (reuses its sun uniforms).
  */
-function applyCropGlow(m: THREE.Material, key: string, trans: number, rim: number): void {
+function applyCropGlow(m: THREE.Material, key: string, trans: number, rim: number, wrap = 0.16): void {
   patchMaterial(m, key, (shader) => {
     shader.fragmentShader = after(
       shader.fragmentShader,
@@ -1525,8 +1627,36 @@ function applyCropGlow(m: THREE.Material, key: string, trans: number, rim: numbe
         float transL = max(-ndl, 0.0);
         vec3 Vw = normalize(cameraPosition - vHvWorldPos);
         float rimL = pow(1.0 - clamp(abs(dot(Nw, Vw)), 0.0, 1.0), 3.0);
-        totalEmissiveRadiance += diffuseColor.rgb * uSunColor * (wrapL * 0.16 + transL * ${trans.toFixed(3)})
+        // Wrap on the shadow side + sun transmission through the blade (leaves glow yellow-green).
+        totalEmissiveRadiance += diffuseColor.rgb * uSunColor * (wrapL * ${wrap.toFixed(3)} + transL * ${trans.toFixed(3)} * vec3(1.0, 1.12, 0.72))
           + diffuseColor.rgb * uSunColor * vec3(1.1, 1.0, 0.8) * rimL * ${rim.toFixed(3)};
+      }`,
+    );
+  });
+}
+
+/**
+ * Painted leaf veins (crop material only): a pale midrib, paired side veins sweeping toward the tip
+ * and a slightly darker, cooler margin — read from the leaf UVs (see leafGeo), so every blade gets
+ * them for free with no texture fetch.
+ */
+function leafVeins(m: THREE.Material, key: string): void {
+  patchMaterial(m, key, (shader) => {
+    shader.fragmentShader = after(
+      shader.fragmentShader,
+      '#include <color_fragment>',
+      /* glsl */ `
+      if (vLeafUv.y > 4.5 && vLeafUv.y < 6.6) {
+        float across = fract(vLeafUv.y) / 0.49 * 2.0 - 1.0;
+        float aa = abs(across);
+        float t = vLeafUv.x;
+        float mid = (1.0 - smoothstep(0.035, 0.12, aa)) * smoothstep(0.02, 0.1, t) * (1.0 - smoothstep(0.85, 1.0, t));
+        float vv = abs(fract(t * 4.5 - aa * 1.3 + 0.2) - 0.5);
+        float side = (1.0 - smoothstep(0.03, 0.09, vv)) * smoothstep(0.12, 0.3, aa) * (1.0 - smoothstep(0.72, 0.95, aa)) * smoothstep(0.1, 0.25, t) * (1.0 - smoothstep(0.8, 0.98, t));
+        vec3 c = diffuseColor.rgb;
+        c *= mix(1.0, 0.86, smoothstep(0.6, 1.0, aa));
+        c += c * vec3(0.22, 0.26, 0.05) * (mid * 0.85 + side * 0.4);
+        diffuseColor.rgb = c;
       }`,
     );
   });
@@ -1539,8 +1669,9 @@ export function cropMaterial(): THREE.MeshStandardMaterial {
     applyWorldFx(cropMat, { snowUp: 0.6 });
     applyWind(cropMat, CROP_WIND);
     applyPlantLighting(cropMat, { translucency: 0.4, floor: 0.05 });
-    applyCropGlow(cropMat, 'crop-glow', 0.25, 0.22);
+    applyCropGlow(cropMat, 'crop-glow', 0.3, 0.22, 0.3);
     fallShift(cropMat, 'crop-fall');
+    leafVeins(cropMat, 'crop-veins');
     cropDepth = windDepthMaterial(CROP_WIND);
   }
   return cropMat;
@@ -1626,12 +1757,12 @@ export class CropVisuals {
     this.group.add(this.pool.group);
   }
 
-  private makeSet(key: string, geos: Map<Bucket, THREE.BufferGeometry>, shadow: boolean): InstancedSet {
+  private makeSet(key: string, geos: Map<Bucket, THREE.BufferGeometry>, shadow: boolean, tinted = false): InstancedSet {
     const parts: InstancedPart[] = [];
     const leaf = geos.get('leaf');
     const gloss = geos.get('gloss');
     const wood = geos.get('wood');
-    if (leaf) parts.push({ geometry: leaf, material: cropMaterial(), depthMaterial: cropDepth!, castShadow: shadow });
+    if (leaf) parts.push({ geometry: leaf, material: cropMaterial(), depthMaterial: cropDepth!, castShadow: shadow, tinted });
     // Small shiny fruit (berries, tomatoes, pods) hang inside the foliage's shadow: skip the shadow pass.
     if (gloss) parts.push({ geometry: gloss, material: glossMaterial(), depthMaterial: cropDepth!, castShadow: false });
     const skin = geos.get('skin');
@@ -1644,24 +1775,24 @@ export class CropVisuals {
     const key = `${id}:${stage}:${variant}`;
     let s = this.sets.get(key);
     if (!s) {
-      s = this.makeSet(key, buildCrop(id, stage, new Rng(`crop:${key}`)), stage >= 3 || !!CROPS[id].trellis);
+      s = this.makeSet(key, buildCrop(id, stage, new Rng(`crop:${key}`)), stage >= 3 || !!CROPS[id].trellis, true);
       this.sets.set(key, s);
     }
     return s;
   }
 
-  private special(key: string, build: () => Map<Bucket, THREE.BufferGeometry>): InstancedSet {
+  private special(key: string, build: () => Map<Bucket, THREE.BufferGeometry>, tinted = false): InstancedSet {
     let s = this.sets.get(key);
     if (!s) {
-      s = this.makeSet(key, build(), true);
+      s = this.makeSet(key, build(), true, tinted);
       this.sets.set(key, s);
     }
     return s;
   }
 
-  private place(set: InstancedSet, pos: THREE.Vector3, yaw: number, scale: THREE.Vector3): CropHandle {
+  private place(set: InstancedSet, pos: THREE.Vector3, yaw: number, scale: THREE.Vector3, tint?: THREE.Color): CropHandle {
     const h: CropHandle = { set, id: -1, pos, yaw, scale };
-    h.id = set.add(this.compose(h, 1, 1, 0, 0));
+    h.id = set.add(this.compose(h, 1, 1, 0, 0), tint);
     return h;
   }
 
@@ -1678,19 +1809,30 @@ export class CropVisuals {
     // Fruiting stages get a third variant (fruit size / turn / tilt differ per variant).
     const set = this.setFor(id, stage, seed % (stage >= 4 ? 3 : 2));
     const pl = PLACE[id] ?? {};
-    const s = STAGE_SCALE[stage]! * (pl.scale ?? 1) * (0.93 + ((seed >> 3) % 15) / 100);
-    const jitter = CROPS[id].trellis ? 0 : 0.012;
+    const trel = !!CROPS[id].trellis;
+    // No two plants alike: ±18 % size (±6 % on trellises, which must fill their frame), a little
+    // height stretch, a lean of the whole plant, and a hue / value shift of the foliage.
+    const hv = (sh: number, m: number): number => ((seed >>> sh) % m) / (m - 1);
+    const s = STAGE_SCALE[stage]! * (pl.scale ?? 1) * (1 + (hv(3, 37) - 0.5) * (trel ? 0.12 : 0.36));
+    const jitter = trel ? 0 : 0.014;
     const pos = new THREE.Vector3(x + (((seed >> 5) % 7) - 3) * jitter, y, z + (((seed >> 8) % 7) - 3) * jitter);
     const yawRange = pl.yaw ?? Math.PI * 2;
     const yaw = yawRange >= Math.PI * 2 ? ((seed % 360) * Math.PI) / 180 : ((((seed % 1000) / 1000) - 0.5) * yawRange);
-    return this.place(set, pos, yaw, new THREE.Vector3(s, s * (0.94 + ((seed >> 11) % 13) / 100), s));
+    const j = hv(13, 29) - 0.5;
+    const l = 0.92 + hv(17, 23) * 0.16;
+    const tint = new THREE.Color(l * (1 + j * 0.1), l * (1 + j * 0.03), l * (1 - j * 0.12));
+    return this.place(set, pos, yaw, new THREE.Vector3(s, s * (0.92 + hv(11, 17) * 0.16), s), tint);
   }
 
-  addWithered(x: number, y: number, z: number, seed: number, trellised: boolean): CropHandle {
+  addWithered(x: number, y: number, z: number, seed: number, trellised: boolean, id?: CropId): CropHandle {
     const v = seed % 3;
-    const set = this.special(`withered:${trellised ? 't' : 'p'}:${v}`, () => buildWithered(new Rng(`withered:${v}`), trellised));
-    const s = 1.4 * (0.9 + ((seed >> 3) % 20) / 100);
-    return this.place(set, new THREE.Vector3(x, y, z), trellised ? 0 : ((seed % 360) * Math.PI) / 180, new THREE.Vector3(s, s, s));
+    const kind = id ? witherKind(id) : 'leafy';
+    const set = this.special(`withered:${trellised ? 't' : kind}:${v}`, () => buildWithered(new Rng(`withered:${kind}:${v}`), trellised, kind, v), true);
+    const s = (kind === 'tall' ? 1.3 : 1.4) * (0.88 + ((seed >> 3) % 24) / 100);
+    // Straw-gold to grey-brown, a little lighter / darker per plant.
+    const h = ((seed >> 7) % 100) / 100;
+    const tint = new THREE.Color().setRGB(1, 0.96, 0.86).lerp(new THREE.Color(0.82, 0.8, 0.78), h).multiplyScalar(0.86 + (((seed >> 11) % 30) / 100));
+    return this.place(set, new THREE.Vector3(x, y, z), trellised ? 0 : ((seed % 360) * Math.PI) / 180, new THREE.Vector3(s, s * (0.9 + ((seed >> 5) % 20) / 100), s), tint);
   }
 
   /** What a crow leaves: ragged stalks, torn leaves on the soil (dead; scythe clears it). */

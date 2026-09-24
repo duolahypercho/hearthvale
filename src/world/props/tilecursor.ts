@@ -62,6 +62,30 @@ function cursorTexture(): THREE.CanvasTexture {
   return t;
 }
 
+/** A rounded "✕" (dark under-stroke + light core) marking a tile the tool can't work. */
+function crossTexture(): THREE.CanvasTexture {
+  const S = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  g.lineCap = 'round';
+  const X = (w: number, style: string, o = 0): void => {
+    g.lineWidth = w;
+    g.strokeStyle = style;
+    g.beginPath();
+    g.moveTo(16 + o, 16 + o);
+    g.lineTo(48 + o, 48 + o);
+    g.moveTo(48 + o, 16 + o);
+    g.lineTo(16 + o, 48 + o);
+    g.stroke();
+  };
+  X(15, 'rgba(28,10,6,0.45)', 1.5);
+  X(9, 'rgba(255,255,255,1)');
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export type CursorState = 'valid' | 'blocked' | 'charge' | 'neutral';
 
 const COLORS: Record<CursorState, THREE.Color> = {
@@ -74,6 +98,8 @@ const ALPHA: Record<CursorState, number> = { valid: 1, blocked: 0.8, charge: 1, 
 
 export class TileCursor {
   readonly mesh: THREE.InstancedMesh;
+  /** ✕ marks in the middle of blocked tiles (child of `mesh`, same draw order). */
+  private cross: THREE.InstancedMesh;
   private t = 0;
   private tiles: { x: number; y: number; z: number; state: CursorState }[] = [];
   private m = new THREE.Matrix4();
@@ -93,6 +119,17 @@ export class TileCursor {
     this.mesh.renderOrder = 4;
     this.mesh.count = 0;
     for (let i = 0; i < max; i++) this.mesh.setColorAt(i, this.c.set(0xffffff));
+    const cg = new THREE.PlaneGeometry(1, 1);
+    cg.rotateX(-Math.PI / 2);
+    const cm = new THREE.MeshBasicMaterial({ map: crossTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, toneMapped: false, fog: false });
+    cm.name = 'tile-cursor-x';
+    this.cross = new THREE.InstancedMesh(cg, cm, 4);
+    this.cross.name = 'tile-cursor-x';
+    this.cross.frustumCulled = false;
+    this.cross.renderOrder = 4;
+    this.cross.count = 0;
+    for (let i = 0; i < 4; i++) this.cross.setColorAt(i, this.c.set(0xffffff));
+    this.mesh.add(this.cross);
   }
 
   /** Replace the targeted tiles (world tile coords + surface height). */
@@ -106,7 +143,9 @@ export class TileCursor {
     this.shown += (target - this.shown) * (1 - Math.exp(-dt * (visible ? 14 : 22)));
     const n = this.shown > 0.02 ? this.tiles.length : 0;
     this.mesh.count = n;
+    this.cross.count = 0;
     if (!n) return;
+    let nx = 0;
     for (let i = 0; i < n; i++) {
       const tl = this.tiles[i]!;
       // Brackets breathe inward a touch; charged tiles pulse faster.
@@ -115,6 +154,18 @@ export class TileCursor {
       this.m.makeScale(s, 1, s).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
       this.mesh.setMatrixAt(i, this.m);
       this.mesh.setColorAt(i, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * ALPHA[tl.state]));
+      if (tl.state === 'blocked' && nx < 4) {
+        const k = 0.34 * (0.85 + 0.15 * this.shown);
+        this.m.makeScale(k, 1, k).setPosition(tl.x + 0.5, tl.y + 0.002, tl.z + 0.5);
+        this.cross.setMatrixAt(nx, this.m);
+        this.cross.setColorAt(nx, this.c.copy(COLORS.blocked).multiplyScalar(this.shown));
+        nx++;
+      }
+    }
+    this.cross.count = nx;
+    if (nx) {
+      this.cross.instanceMatrix.needsUpdate = true;
+      if (this.cross.instanceColor) this.cross.instanceColor.needsUpdate = true;
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;

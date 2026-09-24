@@ -323,6 +323,17 @@ export class Player {
     this.game.events.emit('player:facing', { facing: f });
   }
 
+  /**
+   * Optional aim override (farming: the tile toward the mouse pointer, any of the 8 around the
+   * farmer). Null / returning null = the faced tile.
+   */
+  aimTile: (() => { x: number; z: number } | null) | null = null;
+
+  /** Tile a tool use / interaction acts on: the aimed tile (mouse) or the faced one. */
+  targetTile(): { x: number; z: number } {
+    return this.aimTile?.() ?? this.facingTile();
+  }
+
   /** Tile the player is facing (for tool use / interaction). */
   facingTile(): { x: number; z: number } {
     const tx = Math.floor(this.position.x);
@@ -396,12 +407,12 @@ export class Player {
     }
 
     if (canMove && input.pressed('use')) {
-      const t = this.facingTile();
+      const t = this.targetTile();
       this.swing();
       this.game.events.emit('player:use', { x: t.x, z: t.z, slot: this.game.toolbarSlot, itemId: null });
     }
     if (canMove && input.pressed('interact')) {
-      const t = this.facingTile();
+      const t = this.targetTile();
       this.game.events.emit('player:interact', { x: t.x, z: t.z });
     }
 

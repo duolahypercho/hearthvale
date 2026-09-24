@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { MeshBuilder, lumpySphere, mat } from '../geom';
 import { Rng } from '../../core/rng';
 import { applyWorldFx } from '../../render/worldfx';
+import { patchMaterial, after } from '../../render/patch';
 
 type State = 'in' | 'peck' | 'out';
 
@@ -16,6 +17,8 @@ interface Crow {
   head: THREE.Group;
   wingL: THREE.Group;
   wingR: THREE.Group;
+  /** Closed wings (smooth volumes along the flanks, primaries crossing over the tail) on the ground. */
+  folded: THREE.Mesh;
   state: State;
   t: number;
   from: THREE.Vector3;
@@ -32,14 +35,36 @@ interface Crow {
   /** Peck on which `onEat` fires. */
   eatAt: number;
   bob: number;
+  /** The plant being raided (the crow faces it and pecks toward it). */
+  crop: THREE.Vector3;
+  /** Heading toward the crop while on the ground. */
+  face: number;
 }
 
 let crowMat: THREE.MeshStandardMaterial | null = null;
+/**
+ * Two-tone blue-black plumage: glossy (low roughness) with an iridescent blue-violet rim so the
+ * silhouette reads against dark soil, and a warm-grey beak that catches the same rim light.
+ */
 function material(): THREE.MeshStandardMaterial {
   if (!crowMat) {
-    crowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.1 });
+    crowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.38, metalness: 0.08 });
     crowMat.name = 'crow';
     applyWorldFx(crowMat, { snow: false });
+    patchMaterial(crowMat, 'crow-sheen', (shader) => {
+      shader.fragmentShader = after(
+        shader.fragmentShader,
+        '#include <emissivemap_fragment>',
+        /* glsl */ `
+        {
+          float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
+          float rim = pow(1.0 - ndv, 2.4);
+          // Oil-slick sheen: blue at the rim shading to violet, stronger on the darkest feathers.
+          float ink = 1.0 - smoothstep(0.05, 0.3, dot(diffuseColor.rgb, vec3(0.33)));
+          totalEmissiveRadiance += mix(vec3(0.16, 0.24, 0.5), vec3(0.3, 0.2, 0.46), ndv) * rim * (0.35 + 0.4 * ink) + diffuseColor.rgb * rim * 0.5;
+        }`,
+      );
+    });
   }
   return crowMat;
 }
@@ -53,8 +78,8 @@ function part(fn: (b: MeshBuilder) => void, name: string): THREE.Mesh {
   return m;
 }
 
-const INK = 0x1c1d26;
-const SHEEN = 0x2e3450;
+const INK = 0x16171f;
+const SHEEN = 0x2c3456;
 
 export class CrowFlock {
   readonly group = new THREE.Group();
@@ -70,7 +95,7 @@ export class CrowFlock {
     return this.crows.length;
   }
 
-  private build(): Pick<Crow, 'root' | 'body' | 'head' | 'wingL' | 'wingR'> {
+  private build(): Pick<Crow, 'root' | 'body' | 'head' | 'wingL' | 'wingR' | 'folded'> {
     const M = material();
     const r = this.rng;
     const root = new THREE.Group();
@@ -94,10 +119,12 @@ export class CrowFlock {
       part((b) => {
         b.add(M, new THREE.SphereGeometry(0.065, 10, 8), mat(0, 0.02, 0.02), { tint: INK });
         const beak = new THREE.ConeGeometry(0.024, 0.1, 6);
-        b.add(M, beak, mat(0, 0.005, 0.115, Math.PI / 2, 0, 0), { tint: 0x6a6258 });
+        b.add(M, beak, mat(0, 0.005, 0.115, Math.PI / 2, 0, 0), { tint: 0x8a8174 });
         for (const s of [-1, 1]) {
-          b.add(M, new THREE.SphereGeometry(0.018, 8, 6), mat(s * 0.043, 0.036, 0.055), { tint: 0xf4ecd8 });
-          b.add(M, new THREE.SphereGeometry(0.01, 6, 4), mat(s * 0.05, 0.038, 0.064), { tint: 0x101010 });
+          // Glossy dark eye ringed in grey, with a hard white glint (reads at gameplay zoom).
+          b.add(M, new THREE.SphereGeometry(0.019, 8, 6), mat(s * 0.043, 0.036, 0.055), { tint: 0x55586a });
+          b.add(M, new THREE.SphereGeometry(0.014, 8, 6), mat(s * 0.049, 0.037, 0.06), { tint: 0x0a0a0e });
+          b.add(M, new THREE.SphereGeometry(0.0055, 6, 4), mat(s * 0.058, 0.044, 0.068), { tint: 0xffffff });
         }
         // A glossy blue-violet sheen over the crown (readable form instead of a black blob).
         b.add(M, new THREE.SphereGeometry(0.05, 8, 6), mat(0, 0.05, -0.005, 0, 0, 0, 1.05, 0.7, 1.05), { tint: 0x3a4468 });
@@ -139,8 +166,19 @@ export class CrowFlock {
     };
     const wingL = wing(-1);
     const wingR = wing(1);
-    body.add(wingL, wingR);
-    return { root, body, head, wingL, wingR };
+    // On the ground the flat flight wings would read as blades sticking out of a blob: a perched
+    // crow shows closed wings instead — smooth, glossy teardrops hugging the flanks, the long
+    // primaries crossing in a point over the tail.
+    const folded = part((b) => {
+      for (const s of [-1, 1]) {
+        b.add(M, new THREE.SphereGeometry(0.06, 10, 8), mat(s * 0.062, 0.165, -0.035, 0.22, s * 0.12, 0, 0.5, 0.62, 1.75), { tint: 0x262c46 });
+        const prim = new THREE.ConeGeometry(0.03, 0.17, 6);
+        b.add(M, prim, mat(s * 0.022, 0.19, -0.2, -Math.PI / 2 - 0.12, 0, s * 0.18, 1, 1, 0.45), { tint: INK });
+      }
+    }, 'crow-folded');
+    folded.visible = false;
+    body.add(wingL, wingR, folded);
+    return { root, body, head, wingL, wingR, folded };
   }
 
   /**
@@ -148,18 +186,23 @@ export class CrowFlock {
    * `opts.eatAt`). `opts.landed` starts it already on the ground mid-raid (demos); `opts.stay`
    * keeps it pecking until the farmer scares it; `opts.onPeck` fires on every peck.
    */
-  spawn(x: number, z: number, onEat: () => void, delay = 0, opts: { landed?: boolean; stay?: boolean; eatAt?: number; onPeck?: (p: THREE.Vector3) => void; scale?: number } = {}): void {
+  spawn(x: number, z: number, onEat: () => void, delay = 0, opts: { landed?: boolean; stay?: boolean; eatAt?: number; onPeck?: (p: THREE.Vector3) => void; scale?: number; side?: number } = {}): void {
     if (this.crows.length >= 5) return;
     const parts = this.build();
-    const gy = this.ground(x, z);
     const a = this.rng.next() * Math.PI - Math.PI;
+    // Lands on the soil at the tile's edge (never in the middle of the plant), facing the crop.
+    const side = opts.side ?? this.rng.next() * Math.PI * 2;
+    const lx = x + Math.cos(side) * 0.4;
+    const lz = z + Math.sin(side) * 0.4;
+    const gy = this.ground(lx, lz);
     const from = new THREE.Vector3(x + Math.cos(a) * 12, gy + 7 + this.rng.next() * 2, z + Math.sin(a) * 8 - 6);
     const crow: Crow = {
       ...parts,
       state: 'in',
       t: -delay,
       from,
-      to: new THREE.Vector3(x + (this.rng.next() - 0.5) * 0.3, gy, z + 0.28),
+      to: new THREE.Vector3(lx, gy, lz),
+      crop: new THREE.Vector3(x, gy, z),
       exit: new THREE.Vector3(x - Math.cos(a) * 14, gy + 9, z - 10),
       pecks: 0,
       peckT: 0.4,
@@ -169,6 +212,7 @@ export class CrowFlock {
       stay: !!opts.stay,
       eatAt: opts.eatAt ?? 3,
       bob: this.rng.next() * 6,
+      face: Math.atan2(x - lx, z - lz),
     };
     crow.root.position.copy(from);
     if (opts.landed) {
@@ -176,10 +220,10 @@ export class CrowFlock {
       crow.t = 0;
       crow.peckT = 0.15 + this.rng.next() * 0.5;
       crow.root.position.copy(crow.to);
-      crow.root.rotation.y = this.rng.next() * Math.PI * 2;
+      crow.root.rotation.y = crow.face;
     }
-    // 1.5× so the silhouette (wings, tail fan, beak) reads from the gameplay camera.
-    crow.root.scale.setScalar(opts.scale ?? 1.5);
+    // ~0.25 m body: a real crow beside a knee-high plant (the old 1.5× read as head-sized).
+    crow.root.scale.setScalar(opts.scale ?? 0.95);
     crow.root.visible = delay <= 0;
     this.group.add(crow.root);
     this.crows.push(crow);
@@ -200,12 +244,31 @@ export class CrowFlock {
     return n;
   }
 
-  clear(): void {
-    for (const c of this.crows) c.root.removeFromParent();
+  /**
+   * Remove every crow. `finish`: crows that were not scared off still get their meal (the raid
+   * resolves off-screen when the farmer leaves the farm / the map reloads).
+   */
+  clear(finish = false): void {
+    for (const c of this.crows) {
+      if (finish && c.state !== 'out' && c.onEat) c.onEat();
+      c.onEat = null;
+      c.root.removeFromParent();
+    }
     this.crows.length = 0;
   }
 
-  update(dt: number, player: THREE.Vector3): void {
+  private showWings(c: Crow, open: boolean): void {
+    c.wingL.visible = open;
+    c.wingR.visible = open;
+    c.folded.visible = !open;
+  }
+
+  update(dt: number, player: THREE.Vector3, others: THREE.Vector3[] = []): void {
+    const near = (p: THREE.Vector3, r: number): boolean => {
+      if (Math.hypot(player.x - p.x, player.z - p.z) < r) return true;
+      for (const o of others) if (Math.hypot(o.x - p.x, o.z - p.z) < r) return true;
+      return false;
+    };
     for (let i = this.crows.length - 1; i >= 0; i--) {
       const c = this.crows[i]!;
       c.t += dt;
@@ -214,8 +277,11 @@ export class CrowFlock {
       c.flap += dt;
       const root = c.root;
       if (c.state === 'in') {
+        this.showWings(c, true);
         c.wingL.rotation.y = 0;
         c.wingR.rotation.y = 0;
+        c.wingL.scale.set(1, 1, 1);
+        c.wingR.scale.set(1, 1, 1);
         const T = 2.6;
         const t = Math.min(1, c.t / T);
         const e = 1 - Math.pow(1 - t, 2.2);
@@ -230,10 +296,18 @@ export class CrowFlock {
         c.wingL.rotation.z = -f * 0.9;
         c.wingR.rotation.z = f * 0.9;
         c.body.rotation.x = -0.25 * flare + 0.15 * (1 - flare);
+        // A farmer standing by the landing spot: veer off instead of landing on a hat.
+        if (near(c.to, 1.6)) {
+          c.state = 'out';
+          c.t = 0;
+          c.from.copy(root.position);
+          continue;
+        }
         if (t >= 1) {
           c.state = 'peck';
           c.t = 0;
           c.body.rotation.x = 0;
+          root.rotation.y = c.face;
         }
       } else if (c.state === 'peck') {
         // Folded wings; hop, look around, peck.
@@ -250,7 +324,8 @@ export class CrowFlock {
             c.head.updateWorldMatrix(true, false);
             c.onPeck(c.head.localToWorld(new THREE.Vector3(0, -0.02, 0.14)));
           }
-          root.rotation.y += (this.rng.next() - 0.5) * 1.2;
+          // Shuffle about but keep facing the plant.
+          root.rotation.y = c.face + (this.rng.next() - 0.5) * 0.9;
         }
         const peck = Math.max(0, Math.sin((1 - k / 0.55) * Math.PI));
         c.bob += dt;
@@ -265,11 +340,18 @@ export class CrowFlock {
         root.position.y = c.to.y + Math.max(0, hop) * 0.06;
         // Wings folded back along the body (a quick flick open on each hop).
         const flick = Math.max(0, hop);
-        c.wingL.rotation.y = -(Math.PI / 2 - 0.22) * (1 - flick * 0.6);
-        c.wingR.rotation.y = (Math.PI / 2 - 0.22) * (1 - flick * 0.6);
-        c.wingL.rotation.z = 0.32 - flick * 0.5;
-        c.wingR.rotation.z = -0.32 + flick * 0.5;
-        if ((c.pecks >= 6 && !c.stay) || Math.hypot(player.x - root.position.x, player.z - root.position.z) < 2.6) {
+        // Folded tight along the back (tips crossing over the tail), a quick flick on each hop.
+        c.wingL.rotation.y = -(Math.PI / 2 - 0.06) * (1 - flick * 0.6);
+        c.wingR.rotation.y = (Math.PI / 2 - 0.06) * (1 - flick * 0.6);
+        c.wingL.rotation.z = -0.12 - flick * 0.6;
+        c.wingR.rotation.z = 0.12 + flick * 0.6;
+        // Folded, the primaries stack up: the wing is ~70 % of its spread length along the back.
+        const fold = 0.7 + flick * 0.3;
+        c.wingL.scale.set(fold, 1, 1);
+        c.wingR.scale.set(fold, 1, 1);
+        // Only a real flick opens the flight wings; otherwise the closed-wing volumes show.
+        this.showWings(c, flick > 0.35);
+        if ((c.pecks >= 6 && !c.stay) || near(root.position, 2.6)) {
           c.state = 'out';
           c.t = 0;
           c.from.copy(root.position);
@@ -282,8 +364,11 @@ export class CrowFlock {
         root.position.y += Math.sin(t * Math.PI * 0.5) * 1.5;
         const d = new THREE.Vector3().subVectors(c.exit, c.from).setY(0);
         root.rotation.y = Math.atan2(d.x, d.z);
+        this.showWings(c, true);
         c.wingL.rotation.y = 0;
         c.wingR.rotation.y = 0;
+        c.wingL.scale.set(1, 1, 1);
+        c.wingR.scale.set(1, 1, 1);
         c.body.rotation.x = -0.35 * (1 - t);
         const f = Math.sin(c.flap * 26);
         c.wingL.rotation.z = -f;

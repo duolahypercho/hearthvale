@@ -182,6 +182,29 @@ try {
       g.step(3);
     }
     out.toolsSeq = g.game.player.position.x > 0;
+    // farming: a ripe 3×3 melon block fuses into a giant; crows eat an unguarded 16-crop field
+    await g.demo('farm-noon');
+    {
+      const f = g.game.services.farming;
+      const fr = g.game.world.current.plots?.field;
+      const g0 = f.giantCount();
+      out.giantPlanted = fr ? f.plantBlock('melon', fr.x0 + 1, fr.z0 + 1, 3, 3, true) : 0;
+      out.giants = f.forceGiants() - g0;
+      let planted = 0;
+      const cells = [];
+      for (const [x0, z0] of [[23, 30], [24, 29], [22, 31]]) {
+        planted = f.plantBlock('parsnip', x0, z0, 4, 4, false);
+        if (planted >= 16) {
+          for (let z = z0; z < z0 + 4; z++) for (let x = x0; x < x0 + 4; x++) cells.push([x, z]);
+          break;
+        }
+      }
+      g.grow(2);
+      out.crowField = planted;
+      out.crowsSent = f.raid(40, true);
+      out.crowEaten = cells.filter(([x, z]) => f.cropAt(x, z)?.dead).length;
+      g.step(3);
+    }
     // farming: sleeping in the house bed still runs the farm's overnight update (growth + dried soil)
     {
       const f = g.game.services.farming;
@@ -244,7 +267,9 @@ try {
   check('setGold', r.gold === 1234);
   check('give', r.gave === 3);
   check('farming: hoe tills', r.tilled);
+  check('farming: ripe 3×3 block forms a giant crop', r.giantPlanted === 9 && r.giants >= 1, `planted=${r.giantPlanted} giants=${r.giants}`);
   check('farming: sleeping in the house grows farm crops overnight', r.houseSleep.sown === 4 && r.houseSleep.inHouse === 'house' && r.houseSleep.grew && r.houseSleep.dried, JSON.stringify(r.houseSleep));
+  check('farming: crows eat an unguarded field', r.crowField >= 16 && r.crowsSent > 0 && r.crowEaten > 0, `field=${r.crowField} sent=${r.crowsSent} eaten=${r.crowEaten}`);
   check('energy: tools spend stamina', r.energySpent > 0, `${r.energySpent}`);
   check('pillar services registered', r.services.length === 0, r.services.join(','));
   check('economy: refuses unaffordable spend', r.spendRefused);
