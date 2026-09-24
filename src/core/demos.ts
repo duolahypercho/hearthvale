@@ -54,14 +54,14 @@ export const DEMOS: Record<string, DemoDef> = {
   // tool feel stills (&tool=hoe|wateringCan|scythe|axe|pickaxe|charge|harvest|sow, &tier=0-3,
   // &pose=<seconds> to freeze, -1 = live; &loop=<tool> repeats the action), giant crops, crows.
   'farm-harvest': { map: 'farm', x: 20.5, z: 24.5, facing: 'down', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: 6, pitch: 44, distance: 17, offsetX: 2.0, offsetZ: 0.5 }, showcase: ['harvest'] },
-  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -25, pitch: 32, distance: 8, offsetX: -0.35, offsetZ: -0.9 }, showcase: ['tools'] },
+  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -50, pitch: 30, distance: 7.6, offsetX: -0.45, offsetZ: -1.55 }, showcase: ['tools'] },
   'farm-giant': { map: 'farm', x: 21.2, z: 29.4, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: 10, pitch: 44, distance: 14, offsetX: -2.4, offsetZ: -2.4 }, showcase: ['giant'] },
   'farm-crops': { map: 'farm', x: 28.6, z: 27.2, facing: 'left', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 12.2, offsetX: -4.6, offsetZ: -4.0 }, showcase: ['gallery'] },
   'farm-crows': { map: 'farm', x: 30.5, z: 30.5, facing: 'left', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 42, distance: 7.2, offsetX: -5.0, offsetZ: 0.3 }, showcase: ['crows'] },
   'farm-harvest-fall': { map: 'farm', x: 19.5, z: 24.5, facing: 'down', time: 10.4, season: 'fall', weather: 'sun', camera: { yaw: 18, pitch: 41, distance: 15.5, offsetX: 1.8, offsetZ: 1.4 }, showcase: ['harvest'] },
-  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -25, pitch: 32, distance: 7.4, offsetX: -0.35, offsetZ: -0.9 }, showcase: ['tools', 'tool:wateringCan'] },
+  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -50, pitch: 30, distance: 7.2, offsetX: -0.5, offsetZ: -1.45 }, showcase: ['tools', 'tool:wateringCan'] },
   'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest'] },
-  'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -35, pitch: 34, distance: 9.5, offsetX: -0.7, offsetZ: -0.73 }, showcase: ['tools', 'tool:charge'] },
+  'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 32, distance: 9.6, offsetX: -0.7, offsetZ: -1.6 }, showcase: ['tools', 'tool:charge'] },
   'farm-wither': { map: 'farm', x: 23.5, z: 29.2, facing: 'up', time: 16.2, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 21.5, offsetX: -1.2, offsetZ: -4.6 }, showcase: ['wither'] },
   // Town square (plaza, Lantern Hall, villagers).
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },

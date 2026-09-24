@@ -1912,7 +1912,8 @@ export class FarmingSystem implements System, FarmingApi {
     const walk = 23; // packed-dirt walkway column
     const pathRows = plan.rows.map((id, i) => (id ? -1 : Z0 + i)).filter((z) => z >= 0);
     const giantAt = { x: X0 + 1, z: Z1 - 2 };
-    const sprinklers: [number, number][] = [[26, 22], [20, 22]];
+    // The west head sits clear of the hero farmer (its jets used to stripe across him).
+    const sprinklers: [number, number][] = [[26, 22], [17, 21]];
     const propTiles: [number, number][] = [];
     for (let z = Z0; z <= Z1; z++) {
       for (let x = X0; x <= X1; x++) {
@@ -1968,7 +1969,11 @@ export class FarmingSystem implements System, FarmingApi {
         if (this.isTilled(x, z) || !g.inBounds(x, z) || g.getType(x, z) === TileType.Water) continue;
         const inner = x === walk || pathRows.includes(z);
         const edge = x === X0 - 1 || x === X1 + 1 || z === Z0 - 1 || z === Z1 + 1;
-        if (inner && z >= Z0 && z <= Z1) this.stagePath(x, z, 0.9);
+        if (inner && z >= Z0 && z <= Z1) {
+          this.stagePath(x, z, 0.9);
+          // Trodden walkways are bare: tall lawn tufts standing in them read as random clutter.
+          this.map?.clearGroundCover?.(x, z);
+        }
         else if (edge || inner) this.stagePath(x, z, 0.5);
       }
     }
@@ -2384,7 +2389,8 @@ export class FarmingSystem implements System, FarmingApi {
       const on = (spraying || sp.test > 0) && dry;
       if (!on) continue;
       const s = SPRINKLERS[sp.id] ?? SPRINKLERS.sprinkler!;
-      sp.spin += dt * (s.tier >= 2 ? 2.6 : 3.4);
+      const spinRate = s.tier >= 2 ? 2.6 : 3.4;
+      sp.spin += dt * spinRate;
       sp.model.head.rotation.y = sp.spin;
       // 8–12 rotating droplet trails per head: each trail throws a steady ballistic stream to its
       // own reach, so the spinning head draws coherent arcing spirals (not confetti), plus a soft
@@ -2392,10 +2398,35 @@ export class FarmingSystem implements System, FarmingApi {
       const trails = Math.max(8, Math.min(12, sp.model.jets * 2 + s.tier * 2));
       const reach = s.reach + (s.cross ? 0.35 : 0.5);
       const base = sp.model.root.position;
-      const rate = dt * 24;
+      // Loose beads breaking off the jets (the jets themselves are GPU arcs, below).
+      const rate = dt * 9;
+      const pp = game.player.position;
+      const px = pp.x - base.x;
+      const pz = pp.z - base.z;
       for (let j = 0; j < trails; j++) {
         const a = sp.spin + (j / trails) * Math.PI * 2;
-        const d0 = reach * (0.5 + 0.5 * ((j * 0.618034 + 0.2) % 1));
+        let d0 = reach * (0.5 + 0.5 * ((j * 0.618034 + 0.2) % 1));
+        {
+          const ox = base.x + Math.cos(a) * 0.1;
+          const oz = base.z + Math.sin(a) * 0.1;
+          const oy = base.y + sp.model.nozzle;
+          // A farmer standing in the spray catches the jet: it breaks on their legs (short arc +
+          // splash) instead of passing through them or striping across their face.
+          const along = px * Math.cos(a) + pz * Math.sin(a);
+          const perp = Math.abs(-px * Math.sin(a) + pz * Math.cos(a));
+          let hit = false;
+          if (along > 0.25 && along < d0 + 0.3 && perp < 0.3) {
+            d0 = Math.max(0.3, along - 0.18);
+            hit = true;
+          }
+          const ex = base.x + Math.cos(a) * d0;
+          const ez = base.z + Math.sin(a) * d0;
+          p.set(ox, oy, oz);
+          const T = 0.36 + d0 * 0.1;
+          const land = this.surfaceY(ex, ez) + (hit ? 0.28 : 0);
+          this.fx.sprayArc(p, a, d0 - 0.1, T, land - oy, j * 0.731 + sp.model.root.position.x * 0.37, 0.5, spinRate * T * 0.6);
+          if (hit && fxRng.next() < dt * 6) this.fx.crown(new THREE.Vector3(ex, land, ez), 0.6, 4);
+        }
         let acc = rate + fxRng.next();
         while (acc >= 1) {
           acc -= 1;

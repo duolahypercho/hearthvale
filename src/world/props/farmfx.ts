@@ -553,6 +553,39 @@ class Decals {
   }
 }
 
+/**
+ * Soft ripple ring (white on black, additive): a thin gaussian crest near the rim with a faint
+ * inner wash and a broken, wobbly crest — a water ripple, never a hard-edged target gizmo.
+ */
+function ringTexture(): THREE.CanvasTexture {
+  const S = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const dx = (x + 0.5) / (S / 2) - 1;
+      const dy = (y + 0.5) / (S / 2) - 1;
+      const r = Math.hypot(dx, dy);
+      const a = Math.atan2(dy, dx);
+      // The crest wanders a little and thins in places (a real ripple is never a perfect circle).
+      const rc = 0.84 + 0.025 * Math.sin(a * 5 + 1.3) + 0.015 * Math.sin(a * 11);
+      const w = 0.06 * (0.8 + 0.2 * Math.sin(a * 3 + 0.4));
+      const crest = Math.exp(-(((r - rc) / w) ** 2)) * (0.75 + 0.25 * Math.sin(a * 7 + 2.1));
+      const wash = 0.1 * (1 - THREE.MathUtils.smoothstep(r, 0.2, rc));
+      const v = Math.round(255 * Math.min(1, crest + wash) * (r < 1 ? 1 : 0));
+      const i = (y * S + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function decalTexture(kind: 'wet' | 'crack'): THREE.CanvasTexture {
   const S = 128;
   const c = document.createElement('canvas');
@@ -845,6 +878,159 @@ interface Ring {
   active: boolean;
 }
 
+// ───────────────────────────────────────────── sprinkler jets
+
+const ARC_SEG = 20;
+const ARC_VS = /* glsl */ `
+attribute vec4 aO;
+attribute vec4 aP;
+attribute vec2 aA;
+varying vec2 vUv;
+varying float vA;
+varying float vPh;
+#include <fog_pars_vertex>
+void main() {
+  float s = position.x;
+  // The head spins while the water flies: the drop at flight fraction s left the nozzle s·T ago,
+  // when the jet pointed aA.y·s radians further back — so each jet traces a trailing spiral
+  // (a pinwheel of water), not a static wire parabola.
+  float ang = aO.w - aA.y * s;
+  vec3 dir = vec3(cos(ang), 0.0, sin(ang));
+  vec3 dirP = vec3(-sin(ang), 0.0, cos(ang));
+  float g = 4.9 * aP.y * aP.y;
+  vec3 p = aO.xyz + dir * aP.x * s + vec3(0.0, aP.z * s + g * s * (1.0 - s), 0.0);
+  vec3 tan = dir * aP.x - dirP * (aP.x * s * aA.y) + vec3(0.0, aP.z + g * (1.0 - 2.0 * s), 0.0);
+  vec3 toCam = normalize(cameraPosition - p);
+  vec3 side = cross(tan, toCam);
+  side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
+  // A tight jet at the nozzle that fans into a wide, soft veil of spray as it falls.
+  float w = mix(0.018, 0.085, s);
+  p += side * position.y * w;
+  vec4 mvPosition = viewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  vUv = vec2(s, position.y);
+  vA = aA.x;
+  vPh = aP.w;
+  #include <fog_vertex>
+}`;
+const ARC_FS = /* glsl */ `
+uniform float uTime;
+uniform vec3 uBody;
+uniform vec3 uCore;
+varying vec2 vUv;
+varying float vA;
+varying float vPh;
+#include <fog_pars_fragment>
+float h21(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+float vn(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
+}
+void main() {
+  float s = vUv.x;
+  float x = abs(vUv.y);
+  // Water rushing out along the arc: a glassy solid jet near the nozzle that breaks into beads.
+  float n = vn(vec2(s * 16.0 - uTime * 11.0 + vPh * 13.0, vPh * 5.0 + vUv.y * 0.8));
+  float n2 = vn(vec2(s * 37.0 - uTime * 17.0 + vPh * 3.0, vUv.y * 2.0 + 9.0));
+  float bead = smoothstep(0.38, 0.62, n * 0.7 + n2 * 0.3);
+  float brk = smoothstep(0.06, 0.45, s);
+  float body = mix(1.0, bead, brk);
+  float edge = 1.0 - smoothstep(0.35 - brk * 0.15, 1.0, x + (n2 - 0.5) * 0.3 * brk);
+  // The veil widens as it falls, so it thins out too (same water over a wider ribbon).
+  float a = edge * body * vA * mix(1.0, 0.42, s) * smoothstep(0.0, 0.05, s) * (1.0 - smoothstep(0.8, 1.0, s));
+  if (a < 0.01) discard;
+  float core = (1.0 - smoothstep(0.0, 0.55, x)) * (1.0 - 0.6 * s);
+  vec3 c = mix(uBody, uCore, core * (0.35 + 0.45 * n));
+  c += vec3(0.16) * smoothstep(0.72, 0.95, n2) * (1.0 - x);
+  gl_FragColor = vec4(c, a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+
+/**
+ * Sprinkler jets: every rotating nozzle trail is one GPU-evaluated ballistic ribbon (camera-facing,
+ * glassy, beading up toward its landing point), so a spinning head reads as coherent arcs of water
+ * rather than scattered droplets. Queued per frame with `add`, drawn in one instanced call.
+ */
+class SprayArcs {
+  readonly mesh: THREE.Mesh;
+  private o: Float32Array;
+  private p: Float32Array;
+  private a: Float32Array;
+  private geo: THREE.InstancedBufferGeometry;
+  private count = 0;
+  readonly mat: THREE.ShaderMaterial;
+
+  constructor(readonly n: number) {
+    const g = new THREE.InstancedBufferGeometry();
+    const pos: number[] = [];
+    const idx: number[] = [];
+    for (let i = 0; i <= ARC_SEG; i++) {
+      pos.push(i / ARC_SEG, -1, 0, i / ARC_SEG, 1, 0);
+      if (i < ARC_SEG) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+    }
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    this.o = new Float32Array(n * 4);
+    this.p = new Float32Array(n * 4);
+    this.a = new Float32Array(n * 2);
+    g.setAttribute('aO', new THREE.InstancedBufferAttribute(this.o, 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aP', new THREE.InstancedBufferAttribute(this.p, 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aA', new THREE.InstancedBufferAttribute(this.a, 2).setUsage(THREE.DynamicDrawUsage));
+    g.instanceCount = 0;
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x86bde6) }, uCore: { value: new THREE.Color(0xe4f3ff) } }]),
+      vertexShader: ARC_VS,
+      fragmentShader: ARC_FS,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: true,
+    });
+    this.mat.name = 'fx-spray-arc';
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.name = 'fx-spray-arcs';
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 6;
+    this.mesh.visible = false;
+  }
+
+  add(o: THREE.Vector3, angle: number, reach: number, T: number, dy: number, phase: number, alpha: number, lag = 0): void {
+    if (this.count >= this.n) return;
+    const k = this.count++;
+    this.o[k * 4] = o.x;
+    this.o[k * 4 + 1] = o.y;
+    this.o[k * 4 + 2] = o.z;
+    this.o[k * 4 + 3] = angle;
+    this.p[k * 4] = reach;
+    this.p[k * 4 + 1] = T;
+    this.p[k * 4 + 2] = dy;
+    this.p[k * 4 + 3] = phase;
+    this.a[k * 2] = alpha;
+    this.a[k * 2 + 1] = lag;
+  }
+
+  /** Upload this frame's queue and start the next one. */
+  flush(time: number): void {
+    const k = this.count;
+    this.geo.instanceCount = k;
+    this.mesh.visible = k > 0;
+    this.mat.uniforms.uTime!.value = time;
+    if (k > 0) {
+      for (const n of ['aO', 'aP', 'aA']) {
+        const at = this.geo.attributes[n] as THREE.InstancedBufferAttribute;
+        at.needsUpdate = true;
+        at.clearUpdateRanges();
+        at.addUpdateRange(0, k * at.itemSize);
+      }
+    }
+    this.count = 0;
+  }
+}
+
 // ───────────────────────────────────────────── produce pops
 
 export interface PopOpts {
@@ -1106,6 +1292,8 @@ export class FarmFX {
   private cracks: Decals;
   /** Watering-can pour stream (aimed each frame by the farming system while pouring). */
   readonly stream = new Stream();
+  /** Sprinkler jets, queued each frame by the farming system (`sprayArc`). */
+  private arcs = new SprayArcs(160);
   private rings: Ring[] = [];
   private ringMesh: THREE.InstancedMesh;
   private ringNext = 0;
@@ -1166,9 +1354,9 @@ export class FarmFX {
     this.wet = new Decals(96, decalTexture('wet'), 0x0e0a06, 'fx-wet');
     this.cracks = new Decals(24, decalTexture('crack'), 0xc9a47a, 'fx-cracks');
 
-    const rg = new THREE.RingGeometry(0.78, 1, 28);
+    const rg = new THREE.PlaneGeometry(2, 2);
     rg.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, map: ringTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
     ringMat.name = 'fx-ring';
     this.ringMesh = new THREE.InstancedMesh(rg, ringMat, 64);
     this.ringMesh.name = 'fx-rings';
@@ -1198,7 +1386,7 @@ export class FarmFX {
     };
     this.popMat.customProgramCacheKey = () => 'fx-pop-rim-nobloom';
 
-    this.group.add(this.clods.mesh, this.leaves.mesh, this.streaks.mesh, this.ringMesh, this.dust.points, this.glow.points, this.trail.mesh, this.wet.mesh, this.cracks.mesh, this.stream.mesh);
+    this.group.add(this.clods.mesh, this.leaves.mesh, this.streaks.mesh, this.ringMesh, this.dust.points, this.glow.points, this.trail.mesh, this.wet.mesh, this.cracks.mesh, this.stream.mesh, this.arcs.mesh);
   }
 
   // ═══════════════════════════════════════ primitives
@@ -1232,6 +1420,14 @@ export class FarmFX {
 
   sparkle(p: THREE.Vector3, v: THREE.Vector3, color: number | THREE.Color, size: number, life: number, gravity = 0): void {
     this.glow.emit(p, v, { color, size, life, grow: 0.3, alpha: 1, gravity, drag: 1.2 });
+  }
+
+  /**
+   * One sprinkler jet this frame: a ballistic arc from `o` along `angle` (rad, from +X toward +Z),
+   * landing `reach` m out and `dy` m below the nozzle after `T` s of flight.
+   */
+  sprayArc(o: THREE.Vector3, angle: number, reach: number, T: number, dy: number, phase: number, alpha = 0.6, lag = 0): void {
+    this.arcs.add(o, angle, reach, T, dy, phase, alpha, lag);
   }
 
   drop(p: THREE.Vector3, v: THREE.Vector3, r = 0.022, crown = false): void {
@@ -1430,9 +1626,9 @@ export class FarmFX {
    * up and out + a wisp of mist (the soil itself darkens underneath).
    */
   splash(p: THREE.Vector3, big = 1): void {
-    // Two ripples (a bright quick inner one, a wider soft outer one) so the ring reads on dark soil.
-    this.ring(p.clone().setY(p.y + 0.015), 0.04 * big, 0.34 * big, 0.5, 0x4f86b0);
-    this.ring(p.clone().setY(p.y + 0.017), 0.02 * big, 0.16 * big, 0.28, 0xb8dcf4);
+    // One soft ripple washing out over the soil (splashes land several times a second while
+    // pouring, so stacked bright rings read as a target gizmo — keep each one a whisper).
+    this.ring(p.clone().setY(p.y + 0.015), 0.05 * big, 0.3 * big, 0.45, 0x5a8cb4);
     this.crown(p, big, 8);
     // A couple of fat drops flicked high (they crown again where they land).
     for (let i = 0; i < 2; i++) {
@@ -1561,6 +1757,7 @@ export class FarmFX {
     this.wet.update(dt);
     this.cracks.update(dt);
     this.stream.update(dt);
+    this.arcs.flush(this.time);
     this.updateRadius(dt);
   }
 
