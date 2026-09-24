@@ -38,7 +38,8 @@
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { LETTERS, STORY_QUESTS } from '../data/story';
+import { LETTERS, STORY_QUESTS, GLIMMER_TALK } from '../data/story';
+import { NPCS, type DialogueGroup, type NpcId } from '../data/npcs';
 import { ROOMS } from '../data/bundles';
 import { LetterPanel } from '../ui/journal-letter';
 import { JournalPanel, StoryBadge } from '../ui/journal';
@@ -132,6 +133,13 @@ export class StorySystem implements System, StoryApi {
   private hints!: WorldHints;
   private coop: StoryRole = 'solo';
   private dirty = false;
+  /**
+   * Beats that could not start when they came due (another scene playing, a panel open, the game
+   * paused, a demo staging): they play, in order, as soon as the way is clear — a room completed
+   * behind the pause menu still gets its celebration.
+   */
+  private pendingScenes: string[] = [];
+  private flushTimer = 0;
 
   init(game: Game): void {
     this.game = game;
@@ -161,6 +169,10 @@ export class StorySystem implements System, StoryApi {
       if (cue === 'story:hallKey') this.setFlag('hallKey', 'yes');
     });
     game.events.on('day:start', ({ day, season }) => this.morning(day, season));
+    // The way clears: a scene ends, a panel closes, the game unpauses.
+    game.events.on('cutscene:end', () => this.flushSoon(700));
+    game.events.on('ui:close', () => this.flushSoon(350));
+    game.events.on('game:pause', ({ paused }) => !paused && this.flushSoon(350));
     // Deferred a tick: a demo / debug teleport finishes staging (and pausing) before beats are checked.
     game.events.on('map:change', ({ map }) => window.setTimeout(() => this.onMap(map), 0));
     game.events.on('time:hour', () => this.onMap(game.world.current?.id ?? ''));
@@ -200,15 +212,30 @@ export class StorySystem implements System, StoryApi {
     this.flags[key] = value;
     this.game.events.emit('story:beat', { id: `${key}:${value}` });
     if (key === 'glimmer' && value === 'accepted') {
-      this.game.services.economy?.add(5000, 'glimmerco');
+      // The second offer (after a lost wager) is the rounder number.
+      this.game.services.economy?.add(this.flags.glimmerDue ? 8000 : 5000, 'glimmerco');
       this.game.services.quests?.glimmerFinish();
       this.deliver('marigold-sad', true);
+      this.deliver('glimmer-welcome', true);
+      this.deliver('bram-accepted', true);
       // The valley remembers who sold the Hall.
       const rel = this.game.services.relationships;
       for (const id of ['marigold', 'bram', 'hazel']) rel?.adjust(id, -250);
       this.game.events.emit('ui:toast', { text: 'Marigold, Bram and Hazel think a little less of you', kind: 'bad' });
     }
-    if (key === 'glimmer' && value === 'refused') this.deliver('hollis-proud', true);
+    if (key === 'glimmer' && value === 'refused') {
+      this.deliver('hollis-proud', true);
+      this.deliver('kit-refused', true);
+      this.deliver('bram-refused', true);
+    }
+    if (key === 'glimmer' && value === 'time') {
+      // Twenty-eight days from today to light four rooms by hand.
+      this.flags.glimmerDue = String(this.today() + 28);
+      this.deliver('glimmer-terms');
+      this.deliver('odessa-time', true);
+      this.deliver('hollis-time', true);
+    }
+    if (key === 'glimmer') this.injectTalk();
     if (key === 'intro' && value === 'done') {
       this.deliver('hollis-welcome', true);
       this.deliver('marigold-seeds', true);
@@ -267,7 +294,9 @@ export class StorySystem implements System, StoryApi {
     this.flags = {};
     this.box = [];
     this.queued = [];
+    this.pendingScenes = [];
     this.staging = false;
+    this.injectTalk();
     this.game.services.quests?.debugFill(0, false);
     const cs = this.game.services.cutscene;
     if (cs) void cs.play('intro');
@@ -291,10 +320,53 @@ export class StorySystem implements System, StoryApi {
 
   private play(scene: string): void {
     const cs = this.game.services.cutscene;
-    if (!cs || cs.playing || this.staging || this.game.paused || this.coop === 'guest') return;
-    if (this.game.hud.openPanelName) this.game.events.emit('ui:open', { name: 'none' });
+    if (!cs || this.coop === 'guest') return;
+    const panel = this.game.hud.openPanelName;
+    // Blocked → queued, never dropped (a beat's flag is already 'pending'). A room celebration also
+    // waits for the bundle altar to close itself; any other beat closes whatever panel is open.
+    if (cs.playing || this.staging || this.game.paused || (panel && scene.startsWith('room-'))) {
+      if (!this.pendingScenes.includes(scene)) this.pendingScenes.push(scene);
+      return;
+    }
+    if (panel) this.game.events.emit('ui:open', { name: 'none' });
     this.game.events.emit('story:scene', { scene });
     void cs.play(scene);
+  }
+
+  private flushSoon(ms: number): void {
+    if (!this.pendingScenes.length) return;
+    window.clearTimeout(this.flushTimer);
+    this.flushTimer = window.setTimeout(() => {
+      const cs = this.game.services.cutscene;
+      if (!cs || cs.playing || this.staging || this.game.paused) return;
+      if (this.game.hud.openPanelName && this.pendingScenes[0]?.startsWith('room-')) return;
+      const next = this.pendingScenes.shift();
+      if (next) this.play(next);
+    }, ms);
+  }
+
+  private today(): number {
+    const c = this.game.calendar;
+    return (c.year - 1) * 112 + ['spring', 'summer', 'fall', 'winter'].indexOf(c.season) * 28 + c.day;
+  }
+
+  /**
+   * Put the valley's take on the Glimmerco choice in front of five villagers' everyday lines (after
+   * any first-meeting / birthday groups). Rebuilt whenever the flag changes, a save loads or co-op
+   * state arrives.
+   */
+  private injectTalk(): void {
+    const g = this.flags.glimmer;
+    const set = g === 'refused' || g === 'accepted' || g === 'time' ? GLIMMER_TALK[g] : null;
+    for (const id of Object.keys(NPCS) as NpcId[]) {
+      const def = NPCS[id];
+      def.dialogue = def.dialogue.filter((d) => !(d as DialogueGroup & { story?: boolean }).story);
+      const lines = set?.[id];
+      if (!lines) continue;
+      const at = def.dialogue.findIndex((d) => !d.first && !d.birthday);
+      const grp: DialogueGroup & { story?: boolean } = { lines, story: true };
+      def.dialogue.splice(at < 0 ? def.dialogue.length : at, 0, grp);
+    }
   }
 
   // ───────────────────────────── co-op
@@ -317,6 +389,7 @@ export class StorySystem implements System, StoryApi {
     this.flags = { ...s.flags };
     this.box = s.box.map((m) => ({ ...m, read: m.read || read.has(m.id) }));
     this.queued = [...s.queued];
+    this.injectTalk();
     if (s.quests) this.game.systems.find((q) => q.name === 'quests')?.load?.(s.quests);
     this.game.events.emit('mail:new', { id: '' });
   }
@@ -348,6 +421,20 @@ export class StorySystem implements System, StoryApi {
       this.play('glimmer-offer');
       return;
     }
+    // The wager: four rooms by the deadline → Sterling concedes; the deadline passes → he returns.
+    if (map === 'town' && this.flags.glimmer === 'time' && c.hour >= 9 && c.hour < 22) {
+      const due = Number(this.flags.glimmerDue ?? 0);
+      if (lit >= 4) {
+        this.flags.glimmer = 'pending-concede';
+        this.play('glimmer-concede');
+        return;
+      }
+      if (due && this.today() > due && c.hour >= 16) {
+        this.flags.glimmer = 'pending-return';
+        this.play('glimmer-return');
+        return;
+      }
+    }
     if (map === 'town' && lit >= 1 && !this.flags.glimmer && !this.flags.glimmerSurvey && c.hour >= 10 && c.hour < 18) {
       this.flags.glimmerSurvey = 'pending';
       this.play('glimmer-survey');
@@ -371,10 +458,8 @@ export class StorySystem implements System, StoryApi {
 
   private roomRestored(roomId: string, lit: number, glimmer: boolean): void {
     if (glimmer) return;
-    if (this.game.hud.openPanelName) {
-      // Let the bundle panel show its "room restored" stamp for a beat first.
-      window.setTimeout(() => this.play(`room-${roomId}`), 1400);
-    } else this.play(`room-${roomId}`);
+    // The bundle altar shows its restore seal, closes itself, and the celebration plays (queued).
+    this.play(`room-${roomId}`);
     if (lit === 1) this.deliver('gran-first-lantern', true);
     if (lit === 3) this.deliver('gran-tired', true);
     if (roomId === 'harvest') this.deliver('bram-bread', true);
@@ -401,7 +486,12 @@ export class StorySystem implements System, StoryApi {
       }
       // The Glimmerco beat and the room count run in parallel with each other.
       if (!done[q.id] && q.id === 'all-lanterns' && lit >= 1) state = 'active';
-      const progress: [number, number] | undefined = q.id === 'all-lanterns' ? [lit, ROOMS.length] : q.id === 'glimmer' ? [Math.min(3, lit), 3] : undefined;
+      const wager = q.id === 'glimmer' && f.glimmer === 'time';
+      const progress: [number, number] | undefined = q.id === 'all-lanterns' ? [lit, ROOMS.length] : wager ? [Math.min(4, lit), 4] : q.id === 'glimmer' ? [Math.min(3, lit), 3] : undefined;
+      if (wager) {
+        const left = Math.max(0, Number(f.glimmerDue ?? 0) - this.today());
+        return { ...q, state, progress, goal: `Light 4 rooms by hand · ${left} day${left === 1 ? '' : 's'} left`, hint: 'Sterling gave you 28 days. The board by the fountain has folk offering to help.' };
+      }
       return { ...q, state, progress };
     });
   }
@@ -441,6 +531,48 @@ export class StorySystem implements System, StoryApi {
             }
           break;
         }
+        case 'complete': {
+          // bundle-complete: one item short of finishing a room, the backpack holding it. The altar
+          // opens, "Offer all" is pressed for you (unless `&auto=0`), the seal lands, the altar closes
+          // and the celebration plays — unpaused, the way a player sees it.
+          const roomId = (new URLSearchParams(location.search).get('room') ?? arg ?? 'harvest') as string;
+          const idx = Math.max(0, ROOMS.findIndex((r) => r.id === roomId));
+          q?.debugFill(idx);
+          this.flags = { intro: 'done', hallVisited: 'yes', hallKey: 'yes', glimmerLetter: 'yes', glimmer: 'refused' };
+          const room = q?.room(ROOMS[idx]!.id);
+          const inv = this.game.services.inventory;
+          let want = '';
+          room?.bundles.forEach((b, j) => {
+            const last = j === room.bundles.length - 1;
+            b.paid = b.def.gold ?? 0;
+            b.def.items.forEach((it, k) => {
+              const inPick = k < (b.def.pick ?? b.def.items.length);
+              b.given[it.itemId] = inPick ? it.qty : 0;
+            });
+            b.done = !last;
+            if (last) {
+              const it = b.def.items.find((_, k) => k < (b.def.pick ?? b.def.items.length)) ?? null;
+              if (it) {
+                b.given[it.itemId] = Math.max(0, it.qty - 1);
+                want = it.itemId;
+              } else b.paid = Math.max(0, (b.def.gold ?? 0) - 100);
+            }
+          });
+          this.game.events.emit('quest:sync', {});
+          if (inv && want) {
+            const id = want;
+            const free = inv.slots.findIndex((sl, i) => i >= 10 && !sl);
+            if (free >= 0) inv.setSlot(free, { id, qty: 3, quality: 2 });
+          }
+          const auto = new URLSearchParams(location.search).get('auto') !== '0';
+          window.setTimeout(() => {
+            this.staging = false;
+            this.game.setPaused(false);
+            this.game.events.emit('ui:open', { name: `bundles:${ROOMS[idx]!.id}` });
+            if (auto) window.setTimeout(() => document.querySelector<HTMLElement>('.hv-bundles .jb-all')?.click(), 1400);
+          }, 900);
+          break;
+        }
         case 'glimmer': {
           // The Glimmerco path: three rooms by hand, the charter signed, the rest in EverGlow.
           q?.debugFill(3);
@@ -476,6 +608,7 @@ export class StorySystem implements System, StoryApi {
     this.flags = { ...(d?.flags ?? {}) };
     this.box = d?.box ?? [];
     this.queued = d?.queued ?? [];
+    this.injectTalk();
     this.game.events.emit('mail:new', { id: '' });
   }
 }

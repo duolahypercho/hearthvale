@@ -343,22 +343,47 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
 ## Story, quests & the Lantern Hall
 
 "The Lanterns of Hearthvale" (data in `src/data/story.ts`, `story-scenes.ts`, `bundles.ts`, `quests.ts`): Gran Rosalind's
-letter read on the rainy evening coach, Mayor Hollis meeting you at the stop with a lantern, the overgrown farm by
-lantern light, the first night at her kitchen table. The Lantern Hall at the top of the square is dark: six rooms
-(Seed · Sun · Harvest · Hearth · Crafter's · Tide), each with bundles of seasonal goods. Filling a room relights its
-lantern (celebration cutscene: ignition, glowmoths, the room's dressing swaps from dust sheets to rugs, festoons and
-baskets) and restores something in the valley (blossom arch, market day, the harvest-lantern lane, the Hall chimney,
-flower baskets, glowing koi). Glimmerco's Sterling Vance surveys the Hall, leans on Marigold's shop, then makes an
-offer on the Hall steps at three rooms — sign (+5,000 g, EverGlow white Hall, three villagers cool on you) or refuse
-(his kiosk packs up; after the Hall is lit by hand he returns, redeemed). Winter 28's Lantern Festival lights the
-whole valley. Gran's sealed letters, villager mail and Glimmerco flyers arrive in the farm mailbox; daily Help
-Wanted notes are pinned to the board in the square.
+letter read on the rainy evening coach, the coach pulling into Hearthvale at dusk (a low three-quarter crane from the
+north verge, lamps on, road dust) where Mayor Hollis waits with a lantern, the overgrown farm by lantern light, the first
+night at her kitchen table. The Lantern Hall at the top of the square is dark: six rooms (Seed · Sun · Harvest · Hearth ·
+Crafter's · Tide), 26 bundles. Filling a room relights its lantern (celebration cutscene: ignition, glowmoths, the room's
+dressing swaps from derelict to restored) and restores something in the valley (blossom arch, market day, the
+harvest-lantern lane, the Hall chimney, flower baskets, glowing koi). Glimmerco's Sterling Vance surveys the Hall, leans on
+Marigold's shop, then — after Kit confides that the charter would reopen the old mill and bring his dad home from the city —
+makes an offer on the Hall steps at three rooms with three answers: **sign** (+5,000 g, EverGlow white Hall, three villagers
+cool on you), **ask for time** (a wager: four rooms lit by hand within 28 days → Sterling tears the charter up in public;
+miss it → he returns with 8,000 g and one last choice) or **refuse** (his kiosk packs up; after the Hall is lit by hand he
+returns, redeemed). Each answer brings three follow-up letters and changes what Marigold, Bram, Hazel, Kit and Odessa say
+to you. Winter 28's Lantern Festival lights the whole valley: the speech on the steps, sky lanterns over the Hall, then a
+crane out along the west lane as its lanterns light outward from the Hall in groups (0.15 s apart), ending behind the farmer
+and friends. Gran's sealed letters, villager mail and Glimmerco flyers arrive in the farm mailbox; daily Help Wanted notes
+are pinned to the board in the square.
 
-- Systems: `systems/story.ts` (flags, mail, beats), `systems/quests.ts` (bundles + Help Wanted), `systems/cutscene.ts`
-  (camera keys + Catmull-Rom rails, letterbox, fades, captions, actors walk / face / emote / hold props, dialogue +
-  choices, `cue`s for world beats; Esc twice skips), `systems/story-hall.ts` (the Hall interior), `systems/story-world.ts`
-  (coach, Hall landmark, valley restorations, Glimmerco kiosk / van). UI: `ui/journal*.ts` (journal J, bundle altar,
-  notice board, letter reader, cinema overlay + painted coach window).
+- Bundles (`data/bundles.ts`): pick-N-of-M slots (`pick`, "any 4 of 6"), minimum produce quality (`quality`: silver /
+  gold star — `quests.offerable()` only counts qualifying stacks), cross-system asks (forest forage per season, the mine's
+  ores and gems, barn and coop produce, pond / river / sea fish, beachcombing), grinds capped at 30–50. Rewards unlock
+  things: sprinkler tiers, fertiliser, tackle, chests, and standing perks (`reward.perk`: the Treasury's Market Charter
+  pays Help Wanted +25 %, the Beachcomber bundle makes every morning a three-note board).
+- Help Wanted (`systems/quests.ts`): a note only asks for what can be delivered in time — already in the backpack, wild
+  (forage, fish, wood, stone, fiber), or ripe / ripening on the farm by the deadline; otherwise a smaller ask or fiber.
+- The Hall (`systems/story-hall.ts`): every room has a hero piece with its own silhouette — Gran's sage seed cabinet with a
+  library ladder, a glasshouse lean-to with lemon trees, the cider press + four barrels + a table for forty down the whole
+  room, the great hearth + an open bookcase + rocking chair, the hundred-drawer wall + a floor loom, lit caustic tanks +
+  the rowboat on the wall + net swags — each lantern its own cage (verdigris globe with enamel petals, gilded sunburst,
+  iron-ribbed pumpkin, silver onion dome with icicles, geared copper box, teal ship's lantern), one diagonal festoon per
+  room, raised-panel wainscot on the knee walls, vertex contact AO + baked floor shadows under every footprint. Dark:
+  split boards to the soil with weeds, ivy in from the walls, leaf drifts, cobwebs, toppled chairs, a fallen banner, the
+  room's goods spoiled; two moon shafts pool on the nave runner, the Great Lantern keeps an ember, the farmer's lantern
+  carries the frame.
+- Systems: `systems/story.ts` (flags, mail, beats, the scene queue — a room completed behind a panel / the pause menu /
+  another scene plays its celebration as soon as the way is clear), `systems/quests.ts` (bundles + Help Wanted),
+  `systems/cutscene.ts` (camera keys + Catmull-Rom rails, letterbox, fades, captions, actors walk / face / emote / hold
+  props, dialogue + choices, `hide` / `show`, `cue`s for world beats; Esc twice skips; actors opt into the GTAO G-buffer
+  for the scene so close-up faces never pick up the AO of the wall behind them), `systems/story-hall.ts`,
+  `systems/story-world.ts` (coach + headlamps + dust, Hall landmark, valley restorations, Glimmerco kiosk / van, finale
+  dressing, sky lanterns and the instanced valley lights). UI: `ui/journal*.ts` (journal J, bundle altar — 3-column slot
+  grid, pick / quality chips, progress bar, breathing lantern, the restore seal with its spark burst that closes the altar
+  itself — notice board, letter reader, cinema overlay + painted coach window).
 - Services: `story`, `letters`, `quests`, `cutscene` (`play`, `stage(scene, mark)`, `skip`, `audit()`).
 - Co-op (host-authoritative; the net layer drives it): `story.setRole('host'|'guest')`; the host authors every beat
   (`story:scene` → guests `story.playRemote(scene)`, which returns the farmhand to where they stood), picks the moral
@@ -366,14 +391,18 @@ Wanted notes are pinned to the board in the square.
   (`story:dirty` once a frame → `story.netState()` / `applyNetState()`: flags, mail, bundles, board). Farmhand hand-ins
   reach the host as `quests.contributeRemote / contributeGoldRemote / deliverRemote`. Co-op avatars (`remote-farmer`)
   and ambient villagers who would twin a cast member or block the lens step aside while a scene plays.
-- Perf: the Hall's showing room dressings + bundle sacks are merged per material (`hall-dressing`, ~25 draws for all
-  six rooms); cutscene tree occlusion tests cached canopy spheres every third frame (no per-frame raycasts).
+- Perf: the Hall's showing room dressings + bundle sacks are merged per material (`hall-dressing`); the finale's sky
+  lanterns and valley lights are one instanced draw each; bloom is held at 0.42 while the finale plays; cutscene tree
+  occlusion tests cached canopy spheres every third frame (no per-frame raycasts).
 - Demos: `intro-letter`, `intro-establish`, `intro-arrival`, `intro-farm`, `intro-night`, `lantern-hall-dark`,
   `lantern-hall-restored`, `lantern-room-lit`, `lantern-room-reveal` (`&room=seed|sun|harvest|hearth|craft|tide`),
-  `bundle-ui` (or `ui=bundles:<room>`), `journal` (`ui=journal:quests|hall|letters`), `help-board`, `glimmer-kiosk`,
-  `glimmer-survey`, `glimmer-marigold`, `glimmer-offer` (the choice), `glimmer-accept`, `glimmer-town`,
-  `lantern-hall-glimmer`, `sterling-redeem`, `lantern-festival`, `lantern-festival-sky`. `&lit=N` sets rooms lit;
-  `&coop=guest` stages a scene as a farmhand sees it (e.g. `?demo=glimmer-offer&coop=guest`: the choice, locked).
+  `bundle-ui` (or `ui=bundles:<room>`), `bundle-complete` (the whole room-complete flow, unpaused: "Offer all" is pressed
+  for you, the seal lands, the altar closes, the celebration plays; `&room=`, `&auto=0`), `journal`
+  (`ui=journal:quests|hall|letters`), `help-board`, `glimmer-kiosk`, `glimmer-survey`, `glimmer-marigold`,
+  `glimmer-doubts` (Kit), `glimmer-offer` (the three-way choice), `glimmer-accept`, `glimmer-concede`, `glimmer-return`,
+  `glimmer-town`, `lantern-hall-glimmer`, `sterling-redeem`, `lantern-festival`, `lantern-festival-sky`,
+  `lantern-festival-valley`. `&lit=N` sets rooms lit; `&coop=guest` stages a scene as a farmhand sees it (e.g.
+  `?demo=glimmer-offer&coop=guest`: the choice, locked).
 
 ## Seasonal festivals
 

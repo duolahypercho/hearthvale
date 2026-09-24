@@ -257,6 +257,24 @@ interface Actor {
   holdsLantern: boolean;
 }
 
+/**
+ * Characters skip the GTAO G-buffer pass (\`noAO\`, a perf default for the gameplay camera). In a
+ * cutscene close-up that let the AO of the wall / canopy *behind* a head print onto the face (heads
+ * read as glass at quality=high). Actors opt back in (\`userData.ao\`) for the length of the scene:
+ * opaque parts only (emote cards, contact blobs and glowing props stay out).
+ */
+function aoOptIn(root: THREE.Object3D, on: boolean): void {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || Array.isArray(m.material)) return;
+    const mat = m.material as THREE.Material;
+    if (mat.transparent || !mat.depthWrite) return;
+    if (!(m as THREE.SkinnedMesh).isSkinnedMesh && m.userData.noAO) return;
+    if (on) m.userData.ao = true;
+    else delete m.userData.ao;
+  });
+}
+
 function buildLanternProp(): THREE.Group {
   const g = new THREE.Group();
   const metal = new THREE.MeshStandardMaterial({ color: 0x2e2a28, roughness: 0.5, metalness: 0.4 });
@@ -291,7 +309,7 @@ function buildClipboardProp(): THREE.Group {
 let PAPER_MAT: THREE.MeshStandardMaterial | null = null;
 function buildPaperLanternProp(hue: number): THREE.Group {
   const g = new THREE.Group();
-  PAPER_MAT ??= new THREE.MeshStandardMaterial({ color: 0xfff0d8, emissive: 0xff9a40, emissiveIntensity: 2.4, roughness: 0.7, vertexColors: true });
+  PAPER_MAT ??= new THREE.MeshStandardMaterial({ color: 0xfff0d8, emissive: 0xff9a40, emissiveIntensity: 1.5, roughness: 0.7, vertexColors: true });
   const pts = [new THREE.Vector2(0.02, -0.13), new THREE.Vector2(0.1, -0.1), new THREE.Vector2(0.135, 0), new THREE.Vector2(0.12, 0.1), new THREE.Vector2(0.05, 0.14), new THREE.Vector2(0.02, 0.145)];
   const body = new THREE.LatheGeometry(pts, 12);
   const c = new THREE.Color().setHSL(hue, 0.85, 0.62);
@@ -500,6 +518,7 @@ export class CutsceneSystem implements System, CutsceneApi {
     this.readCam();
     this.lineNo = 0;
     this.actors.set('player', { id: 'player', villager: null, headY: 2.15, path: [], speed: 2.2, onArrive: null, prop: null, holdsLantern: false });
+    aoOptIn(g.player.root, true);
     g.events.emit('cutscene:start', { scene: name });
   }
 
@@ -566,6 +585,7 @@ export class CutsceneSystem implements System, CutsceneApi {
     this.cam = null;
     this.playerHidden = false;
     g.player.root.visible = true;
+    aoOptIn(g.player.root, false);
     g.cinematic = false;
     g.calendar.frozen = g.paused;
     g.player.controllable = true;
@@ -639,6 +659,15 @@ export class CutsceneSystem implements System, CutsceneApi {
             this.hidden.push(o);
           }
         }
+        return;
+      }
+      case 'show': {
+        // Undo a `hide` for these names (wide shots want the festoons back).
+        this.hidden = this.hidden.filter((o) => {
+          if (!c.names.includes(o.name)) return true;
+          o.visible = true;
+          return false;
+        });
         return;
       }
       case 'crowd': {
@@ -801,6 +830,7 @@ export class CutsceneSystem implements System, CutsceneApi {
     v.setPosition(x, map.heightAt(x, z), z);
     if (facing) v.setFacing(facing);
     map.root.add(v.root);
+    aoOptIn(v.root, true);
     let p: THREE.Object3D | null = null;
     const S = 1.22 * def.look.scale;
     if (prop === 'lantern') {

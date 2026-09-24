@@ -52,8 +52,9 @@ export type Cmd =
   | { do: 'hud'; on: boolean }
   /** A painted full-screen backdrop over the 3D view (null = off). */
   | { do: 'backdrop'; kind: 'coach' | null }
-  /** Hide named objects on the current map for the rest of the scene. */
+  /** Hide named objects on the current map for the rest of the scene (or until `show`). */
   | { do: 'hide'; names: string[] }
+  | { do: 'show'; names: string[] }
   /** Villagers on an arc round (x, z) at `radius`, from angle a0 to a1 (degrees, 0 = +z), all facing `face`. */
   | { do: 'crowd'; ids: string[]; x: number; z: number; radius: number; a0: number; a1: number; face: { x: number; z: number }; prop?: PropKind }
   /** Demo freeze point; `id` names one of several marks in a scene (`stage(scene, id)`). */
@@ -86,13 +87,15 @@ const STORE = { x: 21.2, z: 21.3 };
 
 /** Intro blocking at the coach stop: the farmer by the coach door, Hollis up the lane. */
 const ARR_P: P2 = [STOP.x - 0.5, STOP.z + 0.85];
-const ARR_H: P2 = [STOP.x + 1.95, STOP.z + 0.25];
+const ARR_H: P2 = [STOP.x + 2.35, STOP.z + 0.2];
 /** The farmhouse porch. */
 const FARM_P: P2 = [30.4, 21.3];
 const FARM_H: P2 = [32.5, 20.5];
 /** Glimmerco on the Hall steps. */
 const OFFER_S: P2 = [STEPS.x + 1.1, STEPS.z + 0.2];
 const OFFER_P: P2 = [STEPS.x - 1.0, STEPS.z + 1.2];
+/** Kit catches the farmer at the foot of the steps first. */
+const KIT_P: P2 = [STEPS.x - 2.6, STEPS.z + 2.2];
 
 export const SCENES: Record<string, Cmd[]> = {
   /** New game: Gran's letter on the evening coach → Hearthvale at dusk → the mayor → the farm → first night. */
@@ -114,16 +117,19 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'backdrop', kind: null },
     { do: 'caption', text: 'Hearthvale', sub: 'Spring · the valley at dusk', dur: 2.8 },
     // The coach comes down the west road into the valley; Hollis waits by the lamp with a lantern.
-    // Hollis waits under the blossom tree by the lamp, clear of the lens → coach line.
-    { do: 'actor', id: 'hollis', x: STOP.x + 4.3, z: STOP.z - 2.3, yaw: 245, prop: 'lantern' },
-    // From the east, down the lane: the coach comes towards the lens out of the dusk (cottage_west
-    // sits south-east of the stop, so the lens stays north of it).
-    { do: 'cam', to: { x: STOP.x - 4.5, z: STOP.z - 0.2, y: 1.8, yaw: 96, pitch: 14, dist: 21 }, dur: 0 },
+    // Establishing: a low three-quarter view from the north verge (cottage_west's roof filled the
+    // south-east angles), the sunset glow down the lane behind, the coach pulling in from the tree line
+    // with its lamps on (and a little road dust) towards Hollis, small on the left with his lantern.
+    // A slow push-in while it arrives.
+    { do: 'actor', id: 'hollis', x: 11.9, z: 26.9, yaw: -128, prop: 'lantern' },
+    { do: 'cam', to: { x: 8.0, z: 25.2, y: 3.0, yaw: 104, pitch: 7, dist: 19.5 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 1.4 },
     { do: 'cue', cue: 'coach:arrive', t: 0 },
-    { do: 'cam', to: { x: STOP.x - 1.6, z: STOP.z + 0.2, y: 1.5, yaw: 97, pitch: 13, dist: 14 }, dur: 4.6, ease: 'inOut' },
+    { do: 'cam', to: { x: 8.3, z: 25.3, y: 2.8, yaw: 106, pitch: 8, dist: 16.5 }, dur: 4.4, ease: 'out' },
     { do: 'mark', id: 'establish' },
-    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 60, dist: 9.2, pitch: 19, y: 1.25 }), dur: 2.8, ease: 'inOut', wait: false },
+    // Two-shot, near side-on: the farmer three-quarter from behind on the left, Hollis three-quarter to
+    // the lens on the right, clear air between them.
+    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 74, dist: 8.2, pitch: 15, y: 1.3 }), dur: 2.8, ease: 'inOut', wait: false },
     { do: 'player', visible: true },
     { do: 'walk', id: 'player', path: [[STOP.x - 1, STOP.z + 1.4], ARR_P], facing: 'right' },
     { do: 'emote', id: 'hollis', emote: 'exclaim' },
@@ -277,30 +283,121 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'fade', to: 'clear', dur: 0.8 },
   ],
 
-  /** Glimmerco's offer on the Hall steps (3 rooms lit). */
+  /**
+   * Glimmerco's offer on the Hall steps (3 rooms lit). Kit gets to you first: the charter comes with
+   * the old mill reopened, and Kit's dad would stop taking the Monday coach to the city. The offer is
+   * not a cartoon — then Sterling makes it, and there are three answers, not two.
+   */
   'glimmer-offer': [
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
     { do: 'map', map: 'town', x: OFFER_P[0] - 1.2, z: OFFER_P[1] + 2.4, facing: 'up' },
     { do: 'hide', names: ['festoon-bulbs', 'festoon-cords'] },
-    { do: 'actor', id: 'sterling', x: STEPS.x + 0.3, z: STEPS.z - 0.4, facing: 'down', prop: 'clipboard' },
-    { do: 'cam', to: { x: STEPS.x, z: STEPS.z + 1.4, y: 1.6, yaw: -20, pitch: 20, dist: 13 }, dur: 0 },
+    { do: 'actor', id: 'kit', x: KIT_P[0] + 2.2, z: KIT_P[1] + 1.4, facing: 'left' },
+    { do: 'cam', to: { x: STEPS.x - 0.6, z: STEPS.z + 2.6, y: 1.3, yaw: -24, pitch: 18, dist: 12 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 0.8 },
     { do: 'walk', id: 'player', path: [OFFER_P], facing: 'up', wait: false },
+    { do: 'walk', id: 'kit', path: [KIT_P], speed: 2.2 },
+    { do: 'face', id: 'kit', toward: 'player' },
+    { do: 'face', id: 'player', toward: 'kit' },
+    { do: 'cam', to: ots(OFFER_P, KIT_P, { side: -1, off: 55, dist: 7.6, pitch: 16, y: 1.0 }), dur: 1.4, ease: 'inOut', wait: false },
+    { do: 'emote', id: 'kit', emote: 'exclaim' },
+    { do: 'mark', id: 'doubts' },
+    { do: 'say', who: 'kit', text: 'Psst. Farmer. The shiny man gave Dad a leaflet. Glimmerco wants to open the old mill again. With JOBS.' },
+    { do: 'say', who: 'kit', text: 'Dad takes the Monday coach to the city and comes back Friday too tired to do the voices when he reads to me. If the mill opened he could do the voices every night.' },
+    { do: 'emote', id: 'kit', emote: 'sweat' },
+    { do: 'say', who: 'kit', text: "I'm not saying sign anything. I'm just saying. ...He's coming. Act natural." },
+    { do: 'walk', id: 'kit', path: [[KIT_P[0] - 3.5, KIT_P[1] + 3.2], [KIT_P[0] - 8, KIT_P[1] + 5]], speed: 2.4, wait: false },
+    { do: 'actor', id: 'sterling', x: STEPS.x + 0.3, z: STEPS.z - 0.4, facing: 'down', prop: 'clipboard' },
+    { do: 'face', id: 'player', facing: 'up' },
+    { do: 'cam', to: { x: STEPS.x, z: STEPS.z + 1.4, y: 1.6, yaw: -20, pitch: 20, dist: 13 }, dur: 1.2, ease: 'inOut', wait: false },
     { do: 'walk', id: 'sterling', path: [OFFER_S], speed: 1.1 },
+    { do: 'remove', id: 'kit' },
     { do: 'face', id: 'sterling', toward: 'player' },
     { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, dist: 8.8, pitch: 15, y: 1.45 }), dur: 1.8, ease: 'inOut', wait: false },
     { do: 'say', who: 'sterling', text: 'Impressive. Genuinely. Three lanterns, lit by hand. Do you know what that costs per lumen?' },
     { do: 'emote', id: 'sterling', emote: 'sparkle' },
-    { do: 'say', who: 'sterling', text: "Here's the thing: winters are long, the valley is small, and you are one person with a hoe." },
+    { do: 'say', who: 'sterling', text: "Here's the thing: winters are long, the valley is small, and you are one person with a hoe. Also, two hundred jobs at the old mill. Kit's father has already asked for a form." },
+    { do: 'mark', id: 'choice' },
+    {
+      do: 'choice',
+      who: 'sterling',
+      text: 'Sign the Hall charter over to Glimmerco and by morning every room will blaze with EverGlow™. No bundles. No waiting. The mill reopens. And a cheque for you — a very round number.',
+      options: [
+        { label: 'Sign the charter', hint: '+5,000g · the mill reopens · Glimmerco lights the rest · the valley will remember', flag: 'glimmer', value: 'accepted', then: 'glimmer-accept' },
+        { label: 'Ask for time', hint: 'Light four rooms by hand within 28 days — or he comes back with more', flag: 'glimmer', value: 'time', then: 'glimmer-time' },
+        { label: 'Refuse', hint: 'The valley lights its own lanterns', flag: 'glimmer', value: 'refused', then: 'glimmer-refuse' },
+      ],
+    },
+  ],
+  /** "Ask for time": a wager with a deadline (the story system counts the 28 days). */
+  'glimmer-time': [
+    { do: 'hud', on: false },
+    { do: 'letterbox', on: true },
+    { do: 'emote', id: 'sterling', emote: 'dots' },
+    { do: 'say', who: 'sterling', text: "Time. The one thing we don't stock." },
+    { do: 'say', who: 'sterling', text: "Fine. Four lanterns, lit by hand, inside twenty-eight days. Do it and I'll tear this up in front of the whole square." },
+    { do: 'emote', id: 'sterling', emote: 'sparkle' },
+    { do: 'say', who: 'sterling', text: 'Miss it, and I come back with a rounder number. By then the valley will be tired enough to want it. They always are.' },
+    { do: 'walk', id: 'sterling', path: [[STEPS.x + 4, STEPS.z + 3], [STEPS.x + 9, STEPS.z + 7]], speed: 1.4, wait: false },
+    { do: 'wait', t: 1.8 },
+    { do: 'fade', to: 'black', dur: 1 },
+    { do: 'remove', id: 'sterling' },
+    { do: 'letterbox', on: false },
+    { do: 'hud', on: true },
+    { do: 'fade', to: 'clear', dur: 1 },
+  ],
+  /** The wager won: four rooms lit by hand in time. Sterling keeps his word, in front of the pigeons. */
+  'glimmer-concede': [
+    { do: 'hud', on: false },
+    { do: 'letterbox', on: true },
+    { do: 'map', map: 'town', x: OFFER_P[0] - 1.2, z: OFFER_P[1] + 2.4, facing: 'up' },
+    { do: 'hide', names: ['festoon-bulbs', 'festoon-cords'] },
+    { do: 'actor', id: 'sterling', x: OFFER_S[0], z: OFFER_S[1], facing: 'down', prop: 'clipboard' },
+    { do: 'cam', to: { x: STEPS.x, z: STEPS.z + 1.4, y: 1.6, yaw: -20, pitch: 20, dist: 13 }, dur: 0 },
+    { do: 'fade', to: 'clear', dur: 0.8 },
+    { do: 'walk', id: 'player', path: [OFFER_P], facing: 'up' },
+    { do: 'face', id: 'sterling', toward: 'player' },
+    { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, dist: 8.6, pitch: 15, y: 1.45 }), dur: 1.6, ease: 'inOut', wait: false },
+    { do: 'mark' },
+    { do: 'say', who: 'sterling', text: "Four. By hand. I checked each one twice, in case you'd used a torch." },
+    { do: 'emote', id: 'sterling', emote: 'sweat' },
+    { do: 'say', who: 'sterling', text: 'I said I would tear it up in front of the square. The square is mostly pigeons at this hour, but a promise is a promise.' },
+    { do: 'cue', cue: 'sfx', arg: 'paper' },
+    { do: 'emote', id: 'sterling', emote: 'sparkle' },
+    { do: 'say', who: 'sterling', text: "Kit's father came to see me, by the way. He's fixing the mill wheel himself. No charter. Says the valley is worth staying for now. Apparently that's your fault." },
+    { do: 'walk', id: 'sterling', path: [[STEPS.x + 4, STEPS.z + 3], [STEPS.x + 9, STEPS.z + 7]], speed: 1.2, wait: false },
+    { do: 'wait', t: 1.8 },
+    { do: 'fade', to: 'black', dur: 1 },
+    { do: 'remove', id: 'sterling' },
+    { do: 'flag', key: 'glimmerWon', value: 'yes' },
+    { do: 'flag', key: 'glimmer', value: 'refused' },
+    { do: 'letterbox', on: false },
+    { do: 'hud', on: true },
+    { do: 'fade', to: 'clear', dur: 1 },
+  ],
+  /** The wager lost: the deadline passed short of four rooms. A bigger number, one more chance to say no. */
+  'glimmer-return': [
+    { do: 'hud', on: false },
+    { do: 'letterbox', on: true },
+    { do: 'map', map: 'town', x: OFFER_P[0] - 1.2, z: OFFER_P[1] + 2.4, facing: 'up' },
+    { do: 'hide', names: ['festoon-bulbs', 'festoon-cords'] },
+    { do: 'actor', id: 'sterling', x: OFFER_S[0], z: OFFER_S[1], facing: 'down', prop: 'clipboard' },
+    { do: 'cam', to: { x: STEPS.x, z: STEPS.z + 1.4, y: 1.6, yaw: -20, pitch: 20, dist: 13 }, dur: 0 },
+    { do: 'fade', to: 'clear', dur: 0.8 },
+    { do: 'walk', id: 'player', path: [OFFER_P], facing: 'up' },
+    { do: 'face', id: 'sterling', toward: 'player' },
+    { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, dist: 8.6, pitch: 15, y: 1.45 }), dur: 1.6, ease: 'inOut', wait: false },
+    { do: 'say', who: 'sterling', text: 'Twenty-eight days. Fewer than four lanterns and a great deal of mud. I did warn you.' },
+    { do: 'emote', id: 'sterling', emote: 'sparkle' },
     { do: 'mark' },
     {
       do: 'choice',
       who: 'sterling',
-      text: 'Sign the Hall charter over to Glimmerco and by morning every room will blaze with EverGlow™. No bundles. No waiting. And a cheque for you — a very round number.',
+      text: 'Eight thousand. The mill, the jobs, the EverGlow™. This is the last time I ask nicely — after this I ask with lawyers.',
       options: [
-        { label: 'Sign the charter', hint: '+5,000g · Glimmerco lights the rest · the valley will remember', flag: 'glimmer', value: 'accepted', then: 'glimmer-accept' },
-        { label: 'Refuse', hint: 'The valley lights its own lanterns', flag: 'glimmer', value: 'refused', then: 'glimmer-refuse' },
+        { label: 'Sign the charter', hint: '+8,000g · the mill reopens · Glimmerco lights the rest · the valley will remember', flag: 'glimmer', value: 'accepted', then: 'glimmer-accept' },
+        { label: 'Refuse, for good', hint: 'Slower. Ours.', flag: 'glimmer', value: 'refused', then: 'glimmer-refuse' },
       ],
     },
   ],
@@ -412,24 +509,33 @@ function finaleScene(glimmer: boolean): Cmd[] {
         { do: 'face', id: 'hollis', toward: 'player' },
         { do: 'say', who: 'hollis', text: 'Would you do the honours?' },
       ];
+  const crowd = [...(glimmer ? CROWD_W.slice(0, 3) : CROWD_W), ...(glimmer ? CROWD_E.slice(2, 4) : CROWD_E), ...(glimmer ? [] : ['sterling'])];
+  // The farmer and three friends on the west edge of the square, backs to the lens, the lit lane ahead.
+  const SIL: P2 = [19.8, 25.9];
   return [
     { do: 'hud', on: false },
     { do: 'fade', to: 'black', dur: 0.8 },
     { do: 'letterbox', on: true },
-    { do: 'map', map: 'town', x: STEPS.x - 1.4, z: STEPS.z + 4.4, facing: 'up' },
+    { do: 'map', map: 'town', x: STEPS.x - 3.3, z: STEPS.z + 4.1, facing: 'up' },
     { do: 'time', hour: 19.9 },
     { do: 'cue', cue: glimmer ? 'festival:onGlimmer' : 'festival:on' },
+    // The square's own festoons would string across the lens in every shot of the steps.
+    { do: 'hide', names: ['festoon-bulbs', 'festoon-cords', 'finale-strings'] },
     { do: 'actor', id: 'hollis', x: HOLLIS[0], z: HOLLIS[1], facing: 'down', prop: 'lantern' },
-    { do: 'crowd', ids: glimmer ? CROWD_W.slice(0, 3) : CROWD_W, x: STEPS.x, z: STEPS.z, radius: 4.4, a0: -80, a1: -28, face: { x: STEPS.x, z: STEPS.z - 0.6 }, prop: 'paperLantern' },
-    { do: 'crowd', ids: glimmer ? CROWD_E.slice(2, 4) : CROWD_E, x: STEPS.x, z: STEPS.z, radius: 4.4, a0: 28, a1: 80, face: { x: STEPS.x, z: STEPS.z - 0.6 }, prop: 'paperLantern' },
-    ...(glimmer ? [] : ([{ do: 'actor', id: 'sterling', x: STEPS.x + 5.8, z: STEPS.z + 5.4, yaw: 215, prop: 'paperLantern' }] as Cmd[])),
+    { do: 'crowd', ids: glimmer ? CROWD_W.slice(0, 3) : CROWD_W, x: STEPS.x, z: STEPS.z, radius: 4.9, a0: -86, a1: -44, face: { x: STEPS.x, z: STEPS.z - 0.6 }, prop: 'paperLantern' },
+    { do: 'crowd', ids: glimmer ? CROWD_E.slice(2, 4) : CROWD_E, x: STEPS.x, z: STEPS.z, radius: 4.9, a0: 44, a1: 86, face: { x: STEPS.x, z: STEPS.z - 0.6 }, prop: 'paperLantern' },
+    ...(glimmer ? [] : ([{ do: 'actor', id: 'sterling', x: STEPS.x + 6.2, z: STEPS.z + 5.8, yaw: 215, prop: 'paperLantern' }] as Cmd[])),
     { do: 'cam', to: { x: STEPS.x, z: STEPS.z + 3, y: 2.4, yaw: 8, pitch: 20, dist: 25 }, dur: 0 },
+    { do: 'show', names: ['finale-strings'] },
     { do: 'caption', text: 'The Lantern Festival', sub: 'Winter 28 · the longest night', dur: 3 },
     { do: 'fade', to: 'clear', dur: 1.6 },
-    // Down the open aisle between the two arcs, over the crowd's shoulders to the steps.
-    { do: 'cam', to: { x: STEPS.x + 0.3, z: STEPS.z + 0.4, y: 2.1, yaw: 14, pitch: 11, dist: 10.5 }, dur: 5, ease: 'inOut' },
+    // Down the open aisle between the two arcs to a clean single on the mayor: the lens stays below
+    // the lantern strings (they hang above the frame) and at least 3 m off the nearest head.
+    { do: 'cam', to: { x: STEPS.x + 0.1, z: STEPS.z - 0.2, y: 1.55, yaw: 4, pitch: 16, dist: 11 }, dur: 5, ease: 'inOut' },
+    { do: 'hide', names: ['finale-strings'] },
     { do: 'mark', id: 'speech' },
     ...speech,
+    { do: 'show', names: ['finale-strings'] },
     { do: 'cam', to: { x: STEPS.x, z: STEPS.z - 2.5, y: 3.6, yaw: 0, pitch: 10, dist: 11 }, dur: 2.4, ease: 'inOut' },
     { do: 'cue', cue: 'festival:greatLantern', t: 1.6 },
     { do: 'cue', cue: 'festival:skyLanterns' },
@@ -437,10 +543,37 @@ function finaleScene(glimmer: boolean): Cmd[] {
     { do: 'cam', to: { x: STEPS.x, z: STEPS.z - 3, y: 7.5, yaw: -6, pitch: -9, dist: 22 }, dur: 8, ease: 'inOut', wait: false },
     { do: 'wait', t: 3.8 },
     { do: 'mark', id: 'sky' },
+    { do: 'caption', text: 'The lanterns go up over the Hall.', sub: 'And down in the valley, one by one, the lane lights answer.', dur: 3.6, low: true },
+    { do: 'fade', to: 'black', dur: 1.0 },
+    // The whole valley: a crane from over the square out along the west lane as its lanterns light
+    // outward from the Hall, settling low behind the farmer and friends in silhouette.
+    ...crowd.map((id): Cmd => ({ do: 'remove', id })),
+    { do: 'remove', id: 'hollis' },
+    { do: 'map', map: 'town', x: SIL[0], z: SIL[1], facing: 'left' },
+    { do: 'time', hour: 21.2 },
+    { do: 'actor', id: 'hollis', x: SIL[0] + 0.3, z: SIL[1] - 1.2, yaw: -100, prop: 'lantern' },
+    { do: 'actor', id: 'marigold', x: SIL[0] + 0.4, z: SIL[1] + 1.25, yaw: -80, prop: 'paperLantern' },
+    { do: 'actor', id: 'kit', x: SIL[0] - 0.3, z: SIL[1] + 0.75, yaw: -95, prop: 'paperLantern' },
+    { do: 'cam', to: { x: 25.5, z: 24.6, y: 1.2, yaw: 58, pitch: 34, dist: 16 }, dur: 0 },
+    { do: 'fade', to: 'clear', dur: 0.9 },
+    { do: 'cue', cue: 'festival:valley', t: 0.4 },
+    {
+      do: 'rail',
+      keys: [
+        { x: 25.5, z: 24.6, y: 1.2, yaw: 58, pitch: 34, dist: 16 },
+        { x: 18.5, z: 25.6, y: 1.0, yaw: 72, pitch: 38, dist: 26 },
+        { x: 12.5, z: 26.0, y: 1.0, yaw: 80, pitch: 24, dist: 19 },
+        { x: 12.0, z: 26.1, y: 0.6, yaw: 84, pitch: 21, dist: 18 },
+      ],
+      dur: 8.5,
+    },
+    { do: 'mark', id: 'valley' },
     { do: 'caption', text: 'For one night, the whole valley glows like a hearth.', dur: 4.5 },
-    { do: 'wait', t: 1.5 },
+    { do: 'wait', t: 1.2 },
     { do: 'fade', to: 'black', dur: 2 },
     { do: 'remove', id: 'hollis' },
+    { do: 'remove', id: 'marigold' },
+    { do: 'remove', id: 'kit' },
     { do: 'flag', key: 'festival', value: 'done' },
     { do: 'caption', text: 'Thank you for playing', sub: 'The valley keeps going. So can you.', dur: 3.5 },
     { do: 'letterbox', on: false },

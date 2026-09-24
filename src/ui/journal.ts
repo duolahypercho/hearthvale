@@ -11,7 +11,7 @@ import './journal.css';
 import './journal-ui.css';
 import type { Game } from '../core/game';
 import { Screen, el, closeButton, sfx, replay, escapeHtml } from './kit';
-import { ROOMS, roomDef } from '../data/bundles';
+import { ROOMS, roomDef, slotsNeeded, QUALITY_NAME } from '../data/bundles';
 import { LETTERS } from '../data/story';
 import { lanternSvg, sackSvg, iconOf, itemName, valleySvg, SEAL_MINI, ENVELOPE, CHECK, COIN, PIN } from './journal-art';
 import { loadStoryFonts } from './journal-cutscene';
@@ -151,7 +151,7 @@ export class JournalPanel extends Screen {
           <div class="jn-goal ${q.state}"><i>${q.state === 'done' ? CHECK : ''}</i><span>${escapeHtml(q.goal)}</span>${q.progress ? `<b>${q.progress[0]} / ${q.progress[1]}</b>` : ''}</div>
           ${q.hint && q.state === 'active' ? `<div class="jn-tip"><i>${lanternSvg(0xffb84a, 0.8, 'jl-mini')}</i><span>${escapeHtml(q.hint)}</span></div>` : ''}
           ${q.id === 'all-lanterns' || q.id === 'first-lantern' ? `<div class="jn-strip">${strip}</div>` : ''}
-          ${q.id === 'glimmer' && this.game.services.story?.flag('glimmer') ? `<div class="jn-note">You ${this.game.services.story?.flag('glimmer') === 'accepted' ? 'signed the charter. The Hall burns white.' : 'turned Glimmerco down.'}</div>` : ''}
+          ${q.id === 'glimmer' && this.glimmerNote() ? `<div class="jn-note">${escapeHtml(this.glimmerNote())}</div>` : ''}
           <figure class="jn-plate">${this.valley()}<figcaption>Hearthvale, from Gran's hill · ${this.game.services.quests?.lanternsLit() ?? 0} of 6 lanterns</figcaption></figure>`;
     } else if (p) {
       const have = this.game.services.inventory?.count(p.itemId) ?? 0;
@@ -160,6 +160,16 @@ export class JournalPanel extends Screen {
         <div class="jn-goal ${have >= p.qty ? 'done' : 'active'}"><i>${have >= p.qty ? CHECK : ''}</i><span>Bring ${p.qty} × ${escapeHtml(itemName(p.itemId))}</span><b>${Math.min(have, p.qty)} / ${p.qty}</b></div>
         <div class="jn-reward">${COIN}<b>${p.gold.toLocaleString()}g</b><small>Deliver at the notice board in the square</small></div>`;
     } else this.rightPage.innerHTML = '';
+  }
+
+  /** What the journal says about where things stand with Glimmerco. */
+  private glimmerNote(): string {
+    const st = this.game.services.story;
+    const f = st?.flag('glimmer');
+    if (f === 'accepted') return 'You signed the charter. The Hall burns white.';
+    if (f === 'refused') return st?.flag('glimmerWon') ? 'Four rooms, by hand, in time. Sterling tore the charter up in front of the pigeons.' : 'You turned Glimmerco down.';
+    if (f === 'time') return 'You asked for time: four rooms lit by hand before the deadline, or the offer comes back bigger.';
+    return '';
   }
 
   private valley(): string {
@@ -211,7 +221,9 @@ export class JournalPanel extends Screen {
           })
           .join('');
         const gold = bs.def.gold ? `<span class="jn-it ${bs.paid >= bs.def.gold ? 'ok' : ''}">${COIN}<b>${bs.def.gold.toLocaleString()}g</b></span>` : '';
-        return `<div class="jn-bundle ${bs.done ? 'done' : ''}"><div class="sk">${sackSvg(bs.def.color, bs.done, 0.5)}</div><div class="bd"><b>${escapeHtml(bs.def.name)}</b><div class="its">${items}${gold}</div></div></div>`;
+        const pick = slotsNeeded(bs.def) < bs.def.items.length ? ` · any ${slotsNeeded(bs.def)} of ${bs.def.items.length}` : '';
+        const qual = bs.def.quality ? ` · ★ ${QUALITY_NAME[bs.def.quality]}` : '';
+        return `<div class="jn-bundle ${bs.done ? 'done' : ''}"><div class="sk">${sackSvg(bs.def.color, bs.done, 0.5)}</div><div class="bd"><b>${escapeHtml(bs.def.name)}<small class="jn-pick">${pick}${qual}</small></b><div class="its">${items}${gold}</div></div></div>`;
       })
       .join('');
     this.rightPage.innerHTML = `<div class="jn-kicker" style="color:${css(r.color)}">${escapeHtml(r.lantern)}</div>

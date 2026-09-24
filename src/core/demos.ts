@@ -186,7 +186,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'bundle-ui': { map: 'hall', x: 9.4, z: 7.2, facing: 'left', time: 21, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 31, offsetZ: -5.2 }, showcase: ['story:progress:2'], ui: 'bundles:harvest' },
   journal: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'sun', camera: HOME_CAM, showcase: ['story:progress:2'], ui: 'journal' },
   'help-board': { map: 'town', x: 27.5, z: 20.4, facing: 'up', time: 10.5, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs', 'story:progress:2'], ui: 'board' },
-  'glimmer-offer': { map: 'town', x: 31.8, z: 18.1, facing: 'up', time: 18.2, season: 'summer', weather: 'sun', showcase: ['story:progress:3', 'story:scene:glimmer-offer'] },
+  'glimmer-offer': { map: 'town', x: 31.8, z: 18.1, facing: 'up', time: 18.2, season: 'summer', weather: 'sun', showcase: ['story:progress:3', 'story:scene:glimmer-offer:choice'] },
   'lantern-festival': { map: 'town', x: 32, z: 20.2, facing: 'up', time: 20, season: 'winter', weather: 'sun', showcase: ['npcs', 'story:progress:6', 'story:scene:finale'] },
   'lantern-festival-sky': { map: 'town', x: 32, z: 20.2, facing: 'up', time: 20, season: 'winter', weather: 'sun', showcase: ['npcs', 'story:progress:6', 'story:scene:finale:sky'] },
   'lantern-room-reveal': { map: 'hall', x: 15, z: 17.5, facing: 'up', time: 21, season: 'spring', weather: 'sun', showcase: ['story:progress:1', 'story:scene:room-seed:reveal'] },
@@ -199,6 +199,13 @@ export const DEMOS: Record<string, DemoDef> = {
   'glimmer-survey': { map: 'town', x: 30.2, z: 21.2, facing: 'up', time: 14.5, season: 'spring', weather: 'sun', showcase: ['story:progress:1', 'story:scene:glimmer-survey'] },
   'glimmer-marigold': { map: 'town', x: 23.8, z: 23.5, facing: 'left', time: 12.5, season: 'spring', weather: 'sun', showcase: ['story:progress:2', 'story:scene:glimmer-marigold'] },
   'sterling-redeem': { map: 'town', x: 30.2, z: 19.4, facing: 'up', time: 19.6, season: 'fall', weather: 'sun', showcase: ['story:progress:6', 'story:scene:sterling-redeem'] },
+  // Story r2: the whole room-complete flow unpaused (altar → seal → auto-close → celebration; `&room=`,
+  // `&auto=0`), Kit's doubts before the offer, the wager's two endings, the valley-wide finale crane.
+  'bundle-complete': { map: 'hall', x: 9.4, z: 13.2, facing: 'left', time: 21, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 31, offsetZ: -5.2 }, showcase: ['story:complete:harvest'] },
+  'glimmer-doubts': { map: 'town', x: 31.8, z: 18.1, facing: 'up', time: 18.2, season: 'summer', weather: 'sun', showcase: ['story:progress:3', 'story:scene:glimmer-offer:doubts'] },
+  'glimmer-concede': { map: 'town', x: 31.8, z: 18.1, facing: 'up', time: 17.2, season: 'summer', weather: 'sun', showcase: ['story:progress:4', 'story:scene:glimmer-concede'] },
+  'glimmer-return': { map: 'town', x: 31.8, z: 18.1, facing: 'up', time: 18.4, season: 'summer', weather: 'sun', showcase: ['story:progress:3', 'story:scene:glimmer-return'] },
+  'lantern-festival-valley': { map: 'town', x: 32, z: 20.2, facing: 'up', time: 20, season: 'winter', weather: 'sun', showcase: ['npcs', 'story:progress:6', 'story:scene:finale:valley'] },
   // UI/UX pod (src/ui): one demo per screen over the morning farm; a staged demo stocks a lived-in backpack
   // (ui/demo-kit.ts). `ui-hud` = gameplay HUD with toasts; `?demo=farm-morning&ui=<screen>` works too.
   'ui-hud': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM },

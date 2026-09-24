@@ -14,9 +14,10 @@
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
-import { BUNDLES, ROOMS, type BundleDef, type RoomDef, type RoomId } from '../data/bundles';
+import { BUNDLES, ROOMS, bundleComplete, slotsNeeded, slotsFull, type BundleDef, type BundlePerk, type RoomDef, type RoomId } from '../data/bundles';
 import { HELP_WANTED, MASS_NOUNS, type HelpWantedTemplate } from '../data/quests';
 import { itemDef } from '../data/items';
+import { CROPS } from '../data/crops';
 import { Rng } from '../core/rng';
 
 export interface BundleState {
@@ -60,6 +61,10 @@ export interface QuestApi {
   bundleDone(id: string): boolean;
   /** Hand in up to `qty` of an item to a bundle; returns how many were accepted. */
   contribute(bundleId: string, itemId: string, qty?: number): number;
+  /** How many of an item in the backpack a bundle would accept (quality-filtered). */
+  offerable(bundleId: string, itemId: string): number;
+  /** Standing perks unlocked by finished bundles. */
+  perks(): BundlePerk[];
   /** Pay into a gold bundle; returns coins accepted. */
   contributeGold(bundleId: string): number;
   lanternsLit(): number;
@@ -145,8 +150,50 @@ export class QuestSystem implements System, QuestApi {
 
   contribute(bundleId: string, itemId: string, qty = 1): number {
     const inv = this.game.services.inventory;
+    const s = this.bundle(bundleId);
+    if (!inv || !s) return 0;
+    const q = s.def.quality ?? 0;
+    return this.give(bundleId, itemId, Math.min(qty, this.countQ(itemId, q)), (n) => this.removeQ(itemId, n, q));
+  }
+
+  offerable(bundleId: string, itemId: string): number {
+    const s = this.bundle(bundleId);
+    const need = s?.def.items.find((i) => i.itemId === itemId);
+    if (!s || s.done || !need) return 0;
+    return Math.min(need.qty - (s.given[itemId] ?? 0), this.countQ(itemId, s.def.quality ?? 0));
+  }
+
+  perks(): BundlePerk[] {
+    const out: BundlePerk[] = [];
+    for (const b of this.bundles()) if (b.done && b.def.reward.perk) out.push(b.def.reward.perk);
+    return out;
+  }
+
+  /** Backpack count of an item at or above a produce quality. */
+  private countQ(itemId: string, q: number): number {
+    const inv = this.game.services.inventory;
     if (!inv) return 0;
-    return this.give(bundleId, itemId, Math.min(qty, inv.count(itemId)), (n) => inv.remove(itemId, n));
+    if (q <= 0) return inv.count(itemId);
+    return inv.slots.reduce((a, s) => a + (s && s.id === itemId && (s.quality ?? 0) >= q ? s.qty : 0), 0);
+  }
+
+  /** Take `n` of an item at or above quality `q`, lowest qualifying quality first. */
+  private removeQ(itemId: string, n: number, q: number): boolean {
+    const inv = this.game.services.inventory;
+    if (!inv || this.countQ(itemId, q) < n) return false;
+    if (q <= 0) return inv.remove(itemId, n);
+    const slots = inv.slots
+      .map((s, i) => ({ s, i }))
+      .filter((x) => x.s && x.s.id === itemId && (x.s.quality ?? 0) >= q)
+      .sort((a, b) => (a.s!.quality ?? 0) - (b.s!.quality ?? 0));
+    let left = n;
+    for (const { s, i } of slots) {
+      if (left <= 0) break;
+      const k = Math.min(left, s!.qty);
+      inv.takeFromSlot(i, k);
+      left -= k;
+    }
+    return left <= 0;
   }
 
   contributeRemote(bundleId: string, itemId: string, qty: number): number {
@@ -157,6 +204,8 @@ export class QuestSystem implements System, QuestApi {
     const s = this.bundle(bundleId);
     const need = s?.def.items.find((i) => i.itemId === itemId);
     if (!s || s.done || !need) return 0;
+    // A pick-N bundle with N slots full is complete; a slot already full takes nothing more.
+    if (slotsFull(s.def, s.given) >= slotsNeeded(s.def) && !s.def.gold) return 0;
     const n = Math.min(qty, need.qty - (s.given[itemId] ?? 0));
     if (n <= 0 || !take(n)) return 0;
     s.given[itemId] = (s.given[itemId] ?? 0) + n;
@@ -190,8 +239,7 @@ export class QuestSystem implements System, QuestApi {
   }
 
   private complete(s: BundleState): boolean {
-    if (s.def.gold && s.paid < s.def.gold) return false;
-    return s.def.items.every((i) => (s.given[i.itemId] ?? 0) >= i.qty);
+    return bundleComplete(s.def, s.given, s.paid);
   }
 
   private check(s: BundleState): void {
@@ -200,6 +248,7 @@ export class QuestSystem implements System, QuestApi {
     const r = s.def.reward;
     if (r.gold) this.game.services.economy?.add(r.gold, `bundle:${s.def.id}`);
     if (r.itemId) this.game.events.emit('item:give', { itemId: r.itemId, qty: r.qty ?? 1 });
+    if (r.label && (r.perk || !r.itemId)) this.game.events.emit('ui:toast', { text: r.label, kind: 'good' });
     this.game.events.emit('quest:bundleDone', { bundleId: s.def.id, roomId: s.def.room });
     const room = this.room(s.def.room)!;
     if (!room.done && room.bundles.every((b) => b.done)) this.finishRoom(room, false);
@@ -232,7 +281,10 @@ export class QuestSystem implements System, QuestApi {
         b.done = full;
         b.given = {};
         b.paid = full && b.def.gold ? b.def.gold : 0;
-        for (const it of b.def.items) b.given[it.itemId] = full ? it.qty : partial && i === n && j === 0 ? Math.floor(it.qty / 2) : 0;
+        b.def.items.forEach((it, k) => {
+          const inPick = k < slotsNeeded(b.def);
+          b.given[it.itemId] = full && inPick ? it.qty : partial && i === n && j === 0 && inPick ? Math.floor(it.qty / 2) : 0;
+        });
       });
     });
     this.game.events.emit('quest:sync', {});
@@ -258,8 +310,10 @@ export class QuestSystem implements System, QuestApi {
     }
     this.board = this.board.filter((p) => p.state === 'active');
     const rng = new Rng(`board:${today}`);
-    // Two notes most mornings, three on a busy day (the board should never look abandoned).
-    const n = 2 + (rng.next() < 0.3 ? 1 : 0);
+    this.cropReady = null;
+    // Two notes most mornings, three on a busy day (the board should never look abandoned). The
+    // Beachcomber perk (word gets round the harbour) makes every day a busy one.
+    const n = 2 + (rng.next() < 0.3 || this.perks().includes('board-busy') ? 1 : 0);
     const pool = [...HELP_WANTED];
     for (let k = 0; k < n && pool.length; k++) {
       const t = pool.splice(Math.floor(rng.next() * pool.length), 1)[0]!;
@@ -272,23 +326,76 @@ export class QuestSystem implements System, QuestApi {
     }
   }
 
+  /**
+   * Could the farmer get `qty` of an item within `days`? A note nobody can fill is worse than no note
+   * (Spring 1 asking for five Kale, a six-day crop the shop doesn't sell). Yes if it's already in the
+   * backpack, or it's wild (forage / fish / wood / stone / fiber: always out there), or enough of that
+   * crop is ripe or will ripen in time on the farm. Ores, gems and animal goods need some on hand.
+   */
+  private obtainable(itemId: string, qty: number, days: number): boolean {
+    const inv = this.game.services.inventory;
+    const have = inv?.count(itemId) ?? 0;
+    if (have >= qty) return true;
+    const def = itemDef(itemId);
+    if (!def) return false;
+    if (def.kind === 'forage' || def.kind === 'fish' || itemId === 'wood' || itemId === 'stone' || itemId === 'fiber') return true;
+    if (def.kind === 'produce' && (CROPS as Record<string, unknown>)[itemId]) return have + this.cropsReady(itemId, days) >= qty;
+    return have > 0 && have * 2 >= qty;
+  }
+
+  /** Planted tiles of a crop that are ripe, or near enough to ripe to make a `days`-day deadline. */
+  private cropReady: Map<string, number[]> | null = null;
+  private cropsReady(crop: string, days: number): number {
+    if (!this.cropReady) {
+      this.cropReady = new Map();
+      const farm = this.game.services.farming;
+      if (farm)
+        for (let z = 0; z < 72; z++)
+          for (let x = 0; x < 72; x++) {
+            const c = farm.cropAt(x, z);
+            if (!c || c.dead) continue;
+            // Stage 0..4 (seedling → mature), ripe after the last; a stage is at least a day.
+            const left = c.ripe ? 0 : Math.max(1, 5 - c.stage);
+            const arr = this.cropReady.get(c.id) ?? [];
+            arr.push(left);
+            this.cropReady.set(c.id, arr);
+          }
+    }
+    return (this.cropReady.get(crop) ?? []).filter((d) => d <= days).length;
+  }
+
   private roll(t: HelpWantedTemplate, rng: Rng, today: number): Posting | null {
-    const items = [...(t.pool[this.game.calendar.season] ?? []), ...(t.pool.any ?? [])].filter((id) => !!itemDef(id));
-    if (!items.length) return null;
-    const itemId = items[Math.floor(rng.next() * items.length)]!;
+    const season = this.game.calendar.season;
+    const all = [...(t.pool[season] ?? []), ...(t.pool.any ?? [])].filter((id) => !!itemDef(id));
+    if (!all.length) return null;
     const qty = t.qty[0] + Math.floor(rng.next() * (t.qty[1] - t.qty[0] + 1));
+    // Prefer what can actually be delivered in time; fall back to a smaller ask, then to fiber / wood.
+    let items = all.filter((id) => this.obtainable(id, qty, t.days));
+    let n = qty;
+    if (!items.length) {
+      n = t.qty[0];
+      items = all.filter((id) => this.obtainable(id, n, t.days));
+    }
+    if (!items.length) {
+      const wild = ['fiber', 'wood', 'stone'].find((id) => all.includes(id)) ?? (t.days >= 2 ? 'fiber' : null);
+      if (!wild) return null;
+      items = [wild];
+      n = Math.max(n, 8);
+    }
+    const itemId = items[Math.floor(rng.next() * items.length)]!;
     const def = itemDef(itemId);
     const name = def?.name ?? itemId;
-    const gold = Math.max(60, Math.round(((def?.sell ?? 10) * qty * t.mult) / 5) * 5);
+    const pay = this.perks().includes('board-pay') ? 1.25 : 1;
+    const gold = Math.max(60, Math.round(((def?.sell ?? 10) * n * t.mult * pay) / 5) * 5);
     return {
       id: `${t.id}:${today}`,
       template: t.id,
       giver: t.giver,
       npc: t.npc,
       title: t.title,
-      text: t.text.replace('{qty}', String(qty)).replace('{item}', qty > 1 && !/s$/.test(name) && !MASS_NOUNS.has(itemId) ? name + (/(ch|sh)$/.test(name) ? 'es' : 's') : name),
+      text: t.text.replace('{qty}', String(n)).replace('{item}', n > 1 && !/s$/.test(name) && !MASS_NOUNS.has(itemId) ? name + (/(ch|sh)$/.test(name) ? 'es' : 's') : name),
       itemId,
-      qty,
+      qty: n,
       gold,
       due: today + t.days,
       paper: t.paper,

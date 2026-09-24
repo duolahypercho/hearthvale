@@ -10,7 +10,7 @@ import './journal.css';
 import './journal-ui.css';
 import type { Game } from '../core/game';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
-import { ROOMS, roomDef, type BundleDef } from '../data/bundles';
+import { ROOMS, roomDef, bundleProgress, slotsNeeded, QUALITY_NAME, type BundleDef } from '../data/bundles';
 import { itemDef } from '../data/items';
 import { lanternSvg, sackSvg, iconOf, itemName, whereFrom, CHECK, COIN } from './journal-art';
 import { itemIcon } from './icons';
@@ -84,14 +84,9 @@ export class BundlePanel extends Screen {
     let have = 0;
     let need = 0;
     for (const b of st.bundles) {
-      for (const it of b.def.items) {
-        need += it.qty;
-        have += Math.min(it.qty, b.given[it.itemId] ?? 0);
-      }
-      if (b.def.gold) {
-        need += 10;
-        have += Math.round((b.paid / b.def.gold) * 10);
-      }
+      const p = bundleProgress(b.def, b.given, b.paid);
+      have += b.done ? p.need : p.have;
+      need += p.need;
     }
     return need ? have / need : 0;
   }
@@ -101,10 +96,11 @@ export class BundlePanel extends Screen {
     const st = this.q?.room(this.room);
     const doneN = st?.bundles.filter((b) => b.done).length ?? 0;
     const total = st?.bundles.length ?? 0;
-    const glow = st?.done ? 1 : this.progress() * 0.75;
+    // An unlit room still shows its ember (a lantern waiting, not a dead one), brighter with progress.
+    const glow = st?.done ? 1 : 0.22 + this.progress() * 0.6;
     const season = def.season === 'any' ? 'All year' : def.season[0]!.toUpperCase() + def.season.slice(1);
     this.left.innerHTML = `
-      <div class="jb-lanternbox">${lanternSvg(def.color, glow, 'jl-lantern big')}</div>
+      <div class="jb-lanternbox${st?.done ? ' on' : ''}" style="--g:${glow.toFixed(2)}">${lanternSvg(def.color, glow, 'jl-lantern big')}</div>
       <div class="jb-lname">${escapeHtml(def.lantern)}</div>
       <div class="jb-season">${season} room · ${doneN} / ${total} bundles</div>
       <p class="jb-blurb">${escapeHtml(def.blurb)}</p>
@@ -120,8 +116,7 @@ export class BundlePanel extends Screen {
     const st = this.q?.room(this.room);
     this.sacks.innerHTML = '';
     st?.bundles.forEach((b, i) => {
-      const need = b.def.items.reduce((s, it) => s + it.qty, 0) + (b.def.gold ? 1 : 0);
-      const have = b.def.items.reduce((s, it) => s + Math.min(it.qty, b.given[it.itemId] ?? 0), 0) + (b.def.gold && b.paid >= b.def.gold ? 1 : 0);
+      const { have, need } = bundleProgress(b.def, b.given, b.paid);
       const t = el('button', `jb-sack${i === this.sel ? ' on' : ''}${b.done ? ' done' : ''}`);
       t.dataset.nav = '';
       t.innerHTML = `${sackSvg(b.def.color, b.done, need ? have / need : 0)}<span class="nm">${escapeHtml(b.def.name)}</span><span class="pr">${b.done ? 'Complete' : b.def.gold ? `${b.paid.toLocaleString()} / ${b.def.gold.toLocaleString()}g` : `${have} / ${need}`}</span>`;
@@ -147,28 +142,41 @@ export class BundlePanel extends Screen {
       return;
     }
     const d = b.def;
+    const qn = d.quality ? QUALITY_NAME[d.quality] : '';
+    const pick = slotsNeeded(d);
     const slots = d.items
       .map((it) => {
         const have = Math.min(it.qty, b.given[it.itemId] ?? 0);
         const full = have >= it.qty;
         const pct = have / it.qty;
+        const src = !full ? whereFrom(it.itemId) : '';
         return `<div class="jb-slot ${full ? 'full' : have ? 'part' : ''}" data-item="${it.itemId}" style="--p:${pct}">
-          <div class="ring"></div><div class="ic">${iconOf(it.itemId, it)}</div>
-          <div class="cnt">${full ? CHECK : `${have}/${it.qty}`}</div>
-          <div class="lbl">${escapeHtml(itemName(it.itemId, it.name))}</div>${!full && whereFrom(it.itemId) ? `<div class="src">${escapeHtml(whereFrom(it.itemId))}</div>` : ''}</div>`;
+          <div class="jb-ringbox"><div class="ring"></div><div class="ic">${iconOf(it.itemId, it)}</div>${d.quality ? `<i class="jb-star q${d.quality}" title="${qn} or better">★</i>` : ''}</div>
+          <div class="jb-slottxt"><div class="lbl">${escapeHtml(itemName(it.itemId, it.name))}</div>
+          <div class="cnt">${full ? `${CHECK}<span>Given</span>` : `<b>${have}</b> / ${it.qty}`}</div>${src ? `<div class="src">${escapeHtml(src)}</div>` : ''}</div></div>`;
       })
       .join('');
     const gold = d.gold
-      ? `<div class="jb-gold ${b.paid >= d.gold ? 'full' : ''}"><div class="coins">${COIN}${COIN}${COIN}</div><b>${d.gold.toLocaleString()}g</b><small>${b.paid >= d.gold ? 'Paid in full' : `${b.paid.toLocaleString()}g given`}</small>
+      ? `<div class="jb-gold ${b.paid >= d.gold ? 'full' : ''}"><div class="coins">${COIN}${COIN}${COIN}</div><div class="gt"><b>${d.gold.toLocaleString()}g</b><small>${b.paid >= d.gold ? 'Paid in full' : `${b.paid.toLocaleString()}g given`}</small></div>
           ${b.paid < d.gold ? `<button class="u-btn green jb-pay" data-nav>Pay ${(d.gold - b.paid).toLocaleString()}g</button>` : ''}</div>`
       : '';
     const r = d.reward;
     const reward = r.itemId ? `${itemIcon(r.itemId)}<b>${r.qty ?? 1} × ${escapeHtml(itemDef(r.itemId)?.name ?? r.itemId)}</b>` : r.gold ? `${COIN}<b>${r.gold.toLocaleString()}g</b>` : `<b>${escapeHtml(r.label ?? '—')}</b>`;
+    const sub = r.label && (r.itemId || r.gold) ? `<em>${escapeHtml(r.label)}</em>` : '';
+    const { have, need } = bundleProgress(d, b.given, b.paid);
+    const frac = b.done ? 1 : need ? have / need : 0;
+    const chips = [
+      pick < d.items.length ? `<span class="jb-chip">Any ${pick} of ${d.items.length}</span>` : '',
+      d.quality ? `<span class="jb-chip q${d.quality}">★ ${qn} or better</span>` : '',
+    ].join('');
     this.card.innerHTML = `
-      <div class="jb-cardhead"><div><h3>${escapeHtml(d.name)}</h3><div class="note">${escapeHtml(d.note)}</div></div>
-        <div class="jb-reward ${b.done ? 'got' : ''}"><small>${b.done ? 'Received' : 'Reward'}</small><div>${reward}</div></div></div>
-      <div class="jb-slots">${slots}${gold}</div>
-      <div class="jb-bigsack" aria-hidden="true">${sackSvg(d.color, b.done, this.fillOf(b))}</div>
+      <div class="jb-cardhead"><div class="jb-ht"><h3>${escapeHtml(d.name)}</h3><div class="note">${escapeHtml(d.note)}</div>${chips ? `<div class="jb-chips">${chips}</div>` : ''}</div>
+        <div class="jb-bigsack" aria-hidden="true">${sackSvg(d.color, b.done, this.fillOf(b))}</div></div>
+      <div class="jb-slots${d.items.length > 3 ? ' two' : ''}">${slots}${gold}</div>
+      <div class="jb-cardfoot">
+        <div class="jb-prog${b.done ? ' done' : ''}" style="--f:${frac.toFixed(3)}"><div class="bar"><i></i></div><span>${b.done ? 'Complete' : d.gold && !d.items.length ? `${Math.round(frac * 100)}%` : `${have} / ${need} items`}</span></div>
+        <div class="jb-reward ${b.done ? 'got' : ''}"><small>${b.done ? 'Received' : 'Reward'}</small><div>${reward}</div>${sub}</div>
+      </div>
       ${b.done ? `<div class="jb-done">Bundle complete</div>` : ''}`;
     this.card.querySelector('.jb-pay')?.addEventListener('click', () => this.payGold());
     replay(this.card, 'swap');
@@ -177,23 +185,17 @@ export class BundlePanel extends Screen {
   /** 0..1: how much of a bundle has been given (items + coins). */
   private fillOf(b: { def: BundleDef; given: Record<string, number>; paid: number; done: boolean }): number {
     if (b.done) return 1;
-    let have = 0;
-    let need = 0;
-    for (const it of b.def.items) {
-      have += Math.min(it.qty, b.given[it.itemId] ?? 0);
-      need += it.qty;
-    }
-    if (b.def.gold) {
-      have += (b.paid / b.def.gold) * Math.max(1, need);
-      need += Math.max(1, need);
-    }
+    const { have, need } = bundleProgress(b.def, b.given, b.paid);
     return need ? have / need : 0;
   }
 
   private renderPack(): void {
     const inv = this.game.services.inventory;
     const b = this.bundle();
-    const want = new Set(b && !b.done ? b.def.items.filter((it) => (b.given[it.itemId] ?? 0) < it.qty).map((it) => it.itemId) : []);
+    const q = this.q;
+    const want = new Set(b && !b.done && q ? b.def.items.filter((it) => q.offerable(b.def.id, it.itemId) > 0).map((it) => it.itemId) : []);
+    const needs = new Set(b && !b.done ? b.def.items.filter((it) => (b.given[it.itemId] ?? 0) < it.qty).map((it) => it.itemId) : []);
+    const qn = b?.def.quality ? QUALITY_NAME[b.def.quality] : '';
     this.pack.innerHTML = '';
     const all = this.pack.parentElement?.querySelector<HTMLElement>('.jb-all');
     if (all) all.classList.toggle('hv-hidden', !(inv?.slots ?? []).some((s) => s && want.has(s.id)));
@@ -202,7 +204,9 @@ export class BundlePanel extends Screen {
       if (s) {
         c.dataset.id = s.id;
         c.innerHTML = `${itemIcon(s.id)}${s.qty > 1 ? `<span class="qty">${s.qty}</span>` : ''}`;
-        c.addEventListener('pointerenter', () => tooltip.show(`<b>${escapeHtml(itemDef(s.id)?.name ?? s.id)}</b>${want.has(s.id) ? '<br/><span style="color:#3f8a2e">Wanted by this bundle — click to offer</span>' : ''}`));
+        const tip = want.has(s.id) ? '<br/><span style="color:#3f8a2e">Wanted by this bundle — click to offer</span>' : needs.has(s.id) && qn ? `<br/><span style="color:#a8741a">This bundle wants ${qn} or better</span>` : '';
+        if (s.quality) c.classList.add(`q${s.quality}`);
+        c.addEventListener('pointerenter', () => tooltip.show(`<b>${escapeHtml(itemDef(s.id)?.name ?? s.id)}</b>${tip}`));
         c.addEventListener('pointerleave', () => tooltip.hide());
         c.addEventListener('click', () => this.offer(s.id, c));
         if (want.has(s.id)) c.dataset.nav = '';
@@ -217,7 +221,7 @@ export class BundlePanel extends Screen {
     const q = this.q;
     if (!b || !q || b.done) return;
     const need = b.def.items.find((it) => it.itemId === itemId);
-    if (!need || (b.given[itemId] ?? 0) >= need.qty) {
+    if (!need || q.offerable(b.def.id, itemId) <= 0) {
       replay(from, 'nope');
       sfx(this.game, 'error');
       return;
@@ -240,8 +244,9 @@ export class BundlePanel extends Screen {
     let given = 0;
     let delay = 0;
     for (const it of b.def.items) {
+      if (b.done) break;
       const left = it.qty - (b.given[it.itemId] ?? 0);
-      if (left <= 0) continue;
+      if (left <= 0 || q.offerable(b.def.id, it.itemId) <= 0) continue;
       const from = this.pack.querySelector<HTMLElement>(`.jb-pslot.want[data-id="${it.itemId}"]`);
       const n = q.contribute(b.def.id, it.itemId, left);
       if (n <= 0) continue;
@@ -281,11 +286,7 @@ export class BundlePanel extends Screen {
     const slot = this.card.querySelectorAll('.jb-slot');
     slot.forEach((s) => s.classList.contains('full') && replay(s, 'pop'));
     const room = this.q?.room(this.room);
-    if (room?.done && !roomWasDone) {
-      this.stamp.innerHTML = `<div class="st-in"><small>The ${escapeHtml(roomDef(this.room)!.lantern)} stirs…</small><b>${escapeHtml(roomDef(this.room)!.name)} restored!</b></div>`;
-      replay(this.stamp, 'show');
-      sfx(this.game, 'buy');
-    } else if (b?.done) {
+    if (room?.done && !roomWasDone) this.celebrate(); else if (b?.done) {
       replay(this.card.querySelector('.jb-done'), 'show');
       sfx(this.game, 'craft');
       // Hop to the next unfinished bundle after a beat.
@@ -300,6 +301,27 @@ export class BundlePanel extends Screen {
         }
       }, 1100);
     }
+  }
+
+  /**
+   * Room restored: the seal thumps down (scale 1.4 → 1, ease-out-back), the lantern glyph flares, 24
+   * sparks burst out in the room's colour — then the altar closes itself after 1.2 s so the
+   * celebration cutscene (queued by the story system) can take the screen.
+   */
+  private celebrate(): void {
+    const def = roomDef(this.room)!;
+    const sparks = Array.from({ length: 24 }, (_, i) => {
+      const a = (i / 24) * 360 + (i % 3) * 7;
+      const d = 150 + ((i * 37) % 90);
+      return `<i style="--a:${a}deg;--d:${d}px;--s:${0.6 + ((i * 13) % 7) / 10};--t:${(i % 5) * 40}ms"></i>`;
+    }).join('');
+    this.stamp.innerHTML = `<div class="st-burst">${sparks}</div><div class="st-in"><div class="st-flare"></div><div class="st-lantern">${lanternSvg(def.color, 1, 'jl-lantern big')}</div><small>The ${escapeHtml(def.lantern)} stirs…</small><b>${escapeHtml(def.name)} restored!</b><span class="st-sub">${escapeHtml(def.restores.title)} · ${escapeHtml(def.restores.text)}</span></div>`;
+    replay(this.stamp, 'show');
+    sfx(this.game, 'buy');
+    const room = this.room;
+    window.setTimeout(() => {
+      if (this.isOpen && this.room === room) this.requestClose();
+    }, 1750);
   }
 
   private fly(from: HTMLElement, to: HTMLElement | null): void {

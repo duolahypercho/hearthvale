@@ -22,7 +22,7 @@ import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import type { GameMap, MapWarp } from '../world/map';
 import { TileGrid, TileType, TileFlag } from '../world/tiles';
-import { MeshBuilder, roundedBox, bevelCylinder, lumpySphere, mat, boxUV } from '../world/geom';
+import { MeshBuilder, roundedBox, bevelCylinder, lumpySphere, mat, boxUV, groundAO } from '../world/geom';
 import { leafBlade } from '../world/props/flora';
 import { textures } from '../render/textures';
 import { FireFX } from '../render/particles';
@@ -323,12 +323,57 @@ function beamMaterial(): THREE.ShaderMaterial {
 // ─────────────────────────────────────────────── geometry helpers
 
 type B = MeshBuilder;
+/** Contact AO baked into vertex colours: everything darkens over its last half metre to the floor. */
+const GAO = groundAO(0.5, 0.55);
 const box = (b: B, m: HallMat, w: number, h: number, d: number, x: number, y: number, z: number, tint: number, ry = 0, r = 0.04): void => {
-  b.add(hallMats()[m], m === 'wood' || m === 'stone' || m === 'woodGrain' ? boxUV(roundedBox(w, h, d, r), 0.9) : roundedBox(w, h, d, r), mat(x, y + h / 2, z, 0, ry, 0), { tint });
+  // Tiny bevels don't read at Hall distance: drawer fronts, labels, trim and panels are plain boxes
+  // (12 triangles, not ~150) — the Hall has a few thousand of them.
+  const geo = r <= 0.015 || Math.min(w, h, d) < 0.045 ? new THREE.BoxGeometry(w, h, d) : roundedBox(w, h, d, r);
+  b.add(hallMats()[m], m === 'wood' || m === 'stone' || m === 'woodGrain' ? boxUV(geo, 0.9) : geo, mat(x, y + h / 2, z, 0, ry, 0), { tint, aoWorld: GAO });
 };
 const cyl = (b: B, m: HallMat, rt: number, rb: number, h: number, x: number, y: number, z: number, tint: number, seg = 10): void => {
-  b.add(hallMats()[m], bevelCylinder(rt, rb, h, Math.min(0.03, rt * 0.3), seg), mat(x, y, z), { tint });
+  b.add(hallMats()[m], bevelCylinder(rt, rb, h, Math.min(0.03, rt * 0.3), seg), mat(x, y, z), { tint, aoWorld: GAO });
 };
+/** A hanging strip (net, cloth swag) against a wall at x: top edge (ya, za) → (yb, zb), `drop` deep, both faces. */
+function hangQuad(x: number, ya: number, za: number, yb: number, zb: number, drop: number): THREE.BufferGeometry {
+  const v = [x, ya, za, x, yb, zb, x, yb - drop, zb, x, ya - drop, za];
+  const idx = [0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2];
+  const pos: number[] = [];
+  for (const i of idx) pos.push(v[i * 3]!, v[i * 3 + 1]!, v[i * 3 + 2]!);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Caustic light for the Tide Room tanks: a tileable web of bright ripples (animated by offset). */
+function causticTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#0a4a5a';
+  g.fillRect(0, 0, S, S);
+  const r = new Rng('caustics');
+  g.lineCap = 'round';
+  for (let k = 0; k < 70; k++) {
+    const x = r.next() * S;
+    const y = r.next() * S;
+    const rad = 10 + r.next() * 26;
+    g.strokeStyle = `rgba(190,255,245,${0.25 + r.next() * 0.45})`;
+    g.lineWidth = 1.5 + r.next() * 2.5;
+    for (const ox of [-S, 0, S])
+      for (const oy of [-S, 0, S]) {
+        g.beginPath();
+        g.ellipse(x + ox, y + oy, rad, rad * (0.55 + r.next() * 0.4), r.next() * 3, 0, Math.PI * (1.2 + r.next() * 0.8));
+        g.stroke();
+      }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 interface RoomFrame {
   def: RoomDef;
@@ -351,13 +396,17 @@ function frameFor(def: RoomDef): RoomFrame {
 type Hole = [number, number, number, number, 'plank' | 'tile' | 'flag', number];
 const HOLES: Hole[] = [
   [5.7, 6.4, 0.9, 0.9, 'tile', 0],
-  [25.5, 6.2, 1.2, 0.6, 'tile', 0],
-  [4.3, 10.9, 1.5, 0.55, 'plank', 0],
+  [26.3, 7.4, 0.9, 0.6, 'tile', 0],
+  [5.4, 11.0, 1.4, 0.55, 'plank', 0],
   [25.1, 12.2, 1.1, 0.8, 'flag', 0.4],
-  [5.1, 19.9, 0.52, 1.5, 'plank', 0],
-  [25.2, 16.3, 1.2, 0.8, 'tile', 0],
+  [6.9, 20.3, 0.52, 1.1, 'plank', 0],
+  [26.0, 19.9, 1.0, 0.8, 'tile', 0],
+  // The nave: split boards along the runner up to the dais.
   [17.1, 16.6, 0.6, 1.4, 'plank', 0],
   [12.9, 10.2, 0.6, 1.0, 'plank', 0],
+  [14.1, 13.3, 0.62, 1.7, 'plank', 0.05],
+  [16.3, 18.9, 0.9, 0.62, 'plank', 0],
+  [15.8, 8.6, 0.55, 1.1, 'plank', -0.04],
 ];
 
 /**
@@ -440,11 +489,12 @@ export class HallMap implements GameMap {
   private floorTex!: THREE.CanvasTexture;
   private beams: THREE.Mesh[] = [];
   private beamMat = beamMaterial();
+  private naveBeamMat = beamMaterial();
   private windowMat: THREE.MeshStandardMaterial;
   private greatCore: THREE.MeshStandardMaterial;
   private greatLight: THREE.PointLight;
   /** The farmer's hand-lantern pool: warm against the moonlight while the hall is dark. */
-  private carryLight = new THREE.PointLight(0xffb060, 0, 7.5, 1.6);
+  private carryLight = new THREE.PointLight(0xffb060, 0, 9, 1.5);
   private hearthFire: FireFX;
   private hearthLight: THREE.PointLight;
   private ring = new THREE.Mesh(new THREE.CircleGeometry(1, 64).rotateX(-Math.PI / 2), ringMaterial());
@@ -457,8 +507,8 @@ export class HallMap implements GameMap {
   private burstAlive = false;
   private moths = new GlowPoints(140);
   private mothSeed = new Float32Array(140 * 4);
-  private motes = new GlowPoints(90);
-  private moteVel = new Float32Array(90 * 3);
+  private motes = new GlowPoints(150);
+  private moteVel = new Float32Array(150 * 3);
   private t = 0;
   /** 0..1 how restored the whole hall looks (drives the interior grade). */
   warmth = 0;
@@ -470,6 +520,14 @@ export class HallMap implements GameMap {
   private sources = new THREE.Group();
   private dressing: THREE.Group | null = null;
   private dressDirty = true;
+  /** The nave's derelict dressing (split boards, weeds, the fallen banner, leaf drifts at the door). */
+  private naveDark = new THREE.Group();
+  private water: THREE.MeshStandardMaterial | null = null;
+  private caustic: THREE.CanvasTexture | null = null;
+  /** Every furniture footprint (x0, z0, x1, z1): baked as soft contact shadows into the floor. */
+  private footprints: [number, number, number, number][] = [];
+  /** Moonlight pooled on the nave floor (additive decals) while the Hall is dark. */
+  private moonPools: THREE.ShaderMaterial[] = [];
 
   constructor(private game: Game) {
     this.root.name = 'map:hall';
@@ -504,6 +562,26 @@ export class HallMap implements GameMap {
     this.ring.renderOrder = 6;
     this.ring.userData.noAO = true;
     this.root.add(this.ring);
+    // Two shafts of moonlight from the clerestory fall across the nave and pool on the runner: a lit
+    // path from the doors to the dais while the Hall is dark.
+    for (const [x, z, rz, rx] of [[14.3, 14.6, 0.1, -0.72], [15.7, 9.4, -0.08, -0.72]] as const) {
+      const beam = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 7.5), this.naveBeamMat);
+      beam.position.set(x, 2.6, z - 1.6);
+      beam.rotation.set(rx, 0, rz);
+      beam.userData.noAO = true;
+      beam.renderOrder = 5;
+      this.beams.push(beam);
+      this.root.add(beam);
+      const pm = poolMaterial(0xa8c4ff);
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(3.2, 40), pm);
+      pool.rotation.x = -Math.PI / 2;
+      pool.scale.set(0.5, 0.78, 1);
+      pool.position.set(x, 0.018, z + 0.6);
+      pool.renderOrder = 2;
+      pool.userData.noAO = true;
+      this.moonPools.push(pm);
+      this.root.add(pool);
+    }
     for (let i = 0; i < this.motes.n; i++) this.respawnMote(i, true);
     this.redrawDust();
   }
@@ -538,7 +616,18 @@ export class HallMap implements GameMap {
     this.poi.hall = [{ x: HALL.dais.x, z: HALL.dais.z }];
   }
 
+  /** Tide Room tank water: emissive caustics (the texture drifts in update()). */
+  private waterMat(): THREE.MeshStandardMaterial {
+    if (this.water) return this.water;
+    this.caustic = causticTexture();
+    this.caustic.repeat.set(1.5, 1);
+    this.water = new THREE.MeshStandardMaterial({ color: 0x1f7a8a, emissive: 0x6af0e0, emissiveMap: this.caustic, emissiveIntensity: 1.25, roughness: 0.12, transparent: true, opacity: 0.86 });
+    this.water.name = 'hall-tank-water';
+    return this.water;
+  }
+
   blockRect(x0: number, z0: number, x1: number, z1: number): void {
+    this.footprints.push([x0, z0, x1, z1]);
     for (let z = Math.floor(z0); z <= Math.floor(z1); z++) for (let x = Math.floor(x0); x <= Math.floor(x1); x++) if (this.grid.inBounds(x, z)) this.grid.setFlag(x, z, TileFlag.Blocked);
   }
 
@@ -550,9 +639,75 @@ export class HallMap implements GameMap {
     this.buildShell(b);
     this.buildGreatLantern(b);
     for (const def of ROOMS) this.buildRoom(b, def);
+    this.buildNaveDark();
+    this.bakeContact();
     const shell = b.build({ name: 'hall-shell' });
     shell.userData.perfTag = 'hall';
     this.root.add(shell);
+  }
+
+  /** The nave while the Hall is dark: its runner is split to the soil in a trail of holes up to the dais. */
+  private buildNaveDark(): void {
+    const b = new MeshBuilder();
+    const m = hallMats();
+    const r = new Rng('nave-dark');
+    for (const [hx, hz, hw, hd, kind] of HOLES) {
+      if (hx < 12 || hx > 18) continue;
+      this.splinters(b, r, hx, hz, hw, hd, kind);
+      for (let k = 0; k < 9; k++) {
+        const blade = leafBlade(0.35 * (0.6 + r.next() * 0.7), 0.05 + r.next() * 0.04, 0.35 + r.next() * 0.4, 3);
+        b.add(m.leaf, blade, mat(hx + (r.next() - 0.5) * hw * 0.7, 0, hz + (r.next() - 0.5) * hd * 0.7, (r.next() - 0.5) * 0.4, r.next() * 6, (r.next() - 0.5) * 0.4), { tint: [0x5a8a34, 0x6a9a3a, 0x4a7a2e][k % 3]! });
+      }
+    }
+    // The banner that fell from beside the rose window, crumpled on the dais steps.
+    const banner = new THREE.PlaneGeometry(1.1, 1.9, 8, 12);
+    const bp = banner.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < bp.count; i++) {
+      const x = bp.getX(i);
+      const y = bp.getY(i);
+      bp.setZ(i, 0.08 * Math.sin(x * 7 + y * 3) + 0.06 * Math.sin(y * 9));
+    }
+    banner.computeVertexNormals();
+    b.add(m.cloth, banner, mat(12.95, 0.06, 7.4, -Math.PI / 2 + 0.05, 0, 0.6), { tint: 0x6a3a4a });
+    b.add(m.cloth, new THREE.ConeGeometry(0.55, 0.4, 3).rotateZ(Math.PI).scale(1, 1, 0.05), mat(13.5, 0.05, 6.5, -Math.PI / 2, 0, 0.6), { tint: 0x6a3a4a });
+    b.add(m.woodGrain, roundedBox(1.3, 0.08, 0.08, 0.02), mat(12.7, 0.05, 8.1, 0, 0.6, 0), { tint: 0x5e3a22 });
+    // A knocked-over stool and a bucket, leaf litter drifted in at the doors and along the arcade.
+    b.add(m.woodGrain, bevelCylinder(0.2, 0.2, 0.05, 0.01, 12), mat(16.9, 0.2, 12.2, Math.PI / 2 - 0.15, 0.4, 0), { tint: 0x8a5a36 });
+    for (let k = 0; k < 3; k++) b.add(m.woodGrain, new THREE.CylinderGeometry(0.02, 0.025, 0.46, 5), mat(16.9 + Math.cos(k * 2.1) * 0.12, 0.2, 12.2 + 0.2 + Math.sin(k * 2.1) * 0.12, Math.PI / 2 - 0.15, 0.4, 0), { tint: 0x7a4a2a });
+    b.add(m.metal, new THREE.CylinderGeometry(0.16, 0.12, 0.3, 12, 1, true), mat(13.4, 0.14, 17.6, Math.PI / 2 - 0.1, 0.8, 0), { tint: 0x6a7078 });
+    for (let k = 0; k < 170; k++) {
+      const door = k < 100;
+      const x = door ? 13.4 + r.next() * 3.2 : r.next() < 0.5 ? 12.3 + r.next() * 0.5 : 17.2 + r.next() * 0.5;
+      const zz = door ? 20.9 - Math.pow(r.next(), 1.8) * 3.2 : 4 + r.next() * 16;
+      const leaf = new THREE.CircleGeometry(0.07 + r.next() * 0.05, 5);
+      leaf.rotateX(-Math.PI / 2);
+      b.add(m.leaf, leaf, mat(x, 0.014 + k * 0.0002, zz, (r.next() - 0.5) * 0.3, r.next() * 6, 0), { tint: [0x9a5a24, 0xb8702c, 0x7a5a2a, 0x8a7a34, 0xa8402a][k % 5]! });
+    }
+    // Ivy in over the threshold.
+    for (let k = 0; k < 26; k++) b.add(m.leaf, lumpySphere(0.08 + r.next() * 0.05, 0, 0.3, r), mat(13.6 + r.next() * 0.6 + (k % 2) * 2.4, 0.03, 20.2 + r.next() * 0.9, 0, 0, 0, 1, 0.3, 1), { tint: [0x4a7a30, 0x5a8a36, 0x3f6a2a][k % 3]! });
+    b.add(m.web, new THREE.CircleGeometry(0.9, 10, 0, Math.PI / 2), mat(12.25, 2.9, 3.2, 0, Math.PI / 4, Math.PI));
+    b.add(m.web, new THREE.CircleGeometry(0.9, 10, 0, Math.PI / 2), mat(17.75, 2.9, 3.2, 0, -Math.PI / 4 - Math.PI / 2, Math.PI));
+    this.naveDark.add(b.build({ name: 'hall-nave-dark' }));
+    this.sources.add(this.naveDark);
+  }
+
+  /** Soft contact shadows under every piece of furniture, painted into both floor canvases. */
+  private bakeContact(): void {
+    const PX = 80;
+    const X = (x: number): number => (x - 2) * PX;
+    const Z = (z: number): number => (z - 3) * PX;
+    for (const c of [this.floorClean, this.floorGrime]) {
+      const g = c.getContext('2d')!;
+      g.save();
+      g.filter = 'blur(10px)';
+      g.fillStyle = 'rgba(22,12,4,0.42)';
+      for (const [x0, z0, x1, z1] of this.footprints) {
+        g.beginPath();
+        g.roundRect(X(x0 - 0.1), Z(z0 - 0.06), (x1 - x0 + 0.2) * PX, (z1 - z0 + 0.2) * PX, 14);
+        g.fill();
+      }
+      g.restore();
+    }
   }
 
   private buildFloor(): void {
@@ -859,6 +1014,7 @@ export class HallMap implements GameMap {
         box(b, 'wood', x1 - x0, 1.0, 0.3, (x0 + x1) / 2, 0.3, wz, WAIN);
         // A honey-oak cap only: an upper rail on spindles read as a wire strung across the room from above.
         box(b, 'woodGrain', x1 - x0 + 0.04, 0.1, 0.46, (x0 + x1) / 2, 1.3, wz, CAP);
+        this.wainscot(b, x0, x1, wz, 'x', 0.15);
       }
     }
     // Front knee wall with the doorway (cut-away so the camera sees in).
@@ -887,11 +1043,38 @@ export class HallMap implements GameMap {
 
   private pendingPetals: { room: RoomId; geo: THREE.BufferGeometry; m: THREE.Matrix4 }[] = [];
 
+  /**
+   * Raised-panel wainscot on both faces of a low wall (along x or z at `at`, faces `half` out from
+   * its centre line): a skirting board, a row of fielded panels with lit / shadowed edges, a dado rail.
+   */
+  private wainscot(b: B, a0: number, a1: number, at: number, along: 'x' | 'z', half: number, top = 1.18): void {
+    const len = a1 - a0;
+    const n = Math.max(1, Math.round(len / 1.05));
+    const pw = len / n;
+    const ph = top - 0.52;
+    for (const s of [-1, 1]) {
+      const o = at + s * (half + 0.012);
+      const place = (u: number, y: number, w: number, h: number, d: number, tint: number): void => {
+        if (along === 'x') box(b, 'woodGrain', w, h, d, u, y, o, tint, 0, 0.012);
+        else box(b, 'woodGrain', d, h, w, o, y, u, tint, 0, 0.012);
+      };
+      place((a0 + a1) / 2, 0.3, len, 0.14, 0.03, 0x5e3a22);
+      place((a0 + a1) / 2, top, len, 0.07, 0.05, 0xb07a4a);
+      for (let k = 0; k < n; k++) {
+        const c = a0 + pw * (k + 0.5);
+        place(c, 0.5, pw - 0.16, ph, 0.028, 0x9a6a40);
+        place(c, 0.5 + ph - 0.03, pw - 0.16, 0.03, 0.036, 0xc8945a);
+        place(c, 0.5, pw - 0.16, 0.03, 0.036, 0x4a2e1a);
+      }
+    }
+  }
+
   private dividerSeg(b: B, x: number, z0: number, z1: number, h: number): void {
     if (z1 - z0 < 0.05) return;
     const w = z1 - z0;
     box(b, 'stone', 0.4, 0.3, w, x, 0, (z0 + z1) / 2, 0xb8ad9c);
     box(b, 'wood', 0.36, 0.95, w, x, 0.3, (z0 + z1) / 2, 0x8a5a36);
+    if (w > 0.6) this.wainscot(b, z0 + 0.05, z1 - 0.05, x, 'z', 0.18, 1.12);
     box(b, 'plaster', 0.3, h - 1.25, w, x, 1.25, (z0 + z1) / 2, 0xf0e2c6, 0, 0.02);
     box(b, 'woodGrain', 0.46, 0.1, w, x, 1.24, (z0 + z1) / 2, 0x5e3a22);
     box(b, 'woodGrain', 0.5, 0.2, w, x, h - 0.05, (z0 + z1) / 2, 0xa87448);
@@ -1014,29 +1197,17 @@ export class HallMap implements GameMap {
     shell.add(m.stone, bevelCylinder(0.5, 0.42, 0.14, 0.04, 8), mat(p.x, 1.06, p.z), { tint: 0xb0a898 });
     shell.add(m.metal, bevelCylinder(0.32, 0.36, 0.08, 0.03, 16), mat(p.x, 1.17, p.z), { tint: BRASS_D });
     shell.add(m.metal, bevelCylinder(0.28, 0.31, 0.06, 0.02, 16), mat(p.x, 1.24, p.z), { tint: BRASS });
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
-      shell.add(m.metal, roundedBox(0.05, 0.64, 0.05, 0.015), mat(p.x + Math.cos(a) * 0.255, 1.27, p.z + Math.sin(a) * 0.255, 0, -a, 0), { tint: BRASS });
-    }
-    shell.add(m.metal, new THREE.TorusGeometry(0.265, 0.025, 6, 24).rotateX(Math.PI / 2), mat(p.x, 1.6, p.z), { tint: BRASS_D });
-    shell.add(m.metal, bevelCylinder(0.31, 0.28, 0.07, 0.02, 16), mat(p.x, 1.92, p.z), { tint: BRASS });
-    const dome = new THREE.SphereGeometry(0.29, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-    dome.scale(1, 0.62, 1);
-    shell.add(m.metal, dome, mat(p.x, 1.955, p.z), { tint: BRASS });
-    shell.add(m.metal, new THREE.ConeGeometry(0.06, 0.16, 8), mat(p.x, 2.2, p.z), { tint: BRASS_D });
-    shell.add(m.metal, new THREE.SphereGeometry(0.045, 10, 8), mat(p.x, 2.3, p.z), { tint: 0xf0c060 });
-    shell.add(m.metal, new THREE.TorusGeometry(0.08, 0.018, 6, 14), mat(p.x, 2.4, p.z), { tint: BRASS });
-    // Wick holder under the filament.
-    shell.add(m.metal, bevelCylinder(0.05, 0.07, 0.14, 0.015, 10), mat(p.x, 1.34, p.z), { tint: BRASS_D });
-    const lg = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.235, 0.6, 6, 1, true).rotateY(Math.PI / 6), glass);
-    lg.position.set(p.x, 1.58, p.z);
+    shell.add(m.metal, bevelCylinder(0.05, 0.07, 0.14, 0.015, 10), mat(p.x, 1.4, p.z), { tint: BRASS_D });
+    const glassGeo = this.buildLantern(shell, def, p);
+    const lg = new THREE.Mesh(glassGeo, glass);
+    lg.position.set(p.x, 0, p.z);
     lg.castShadow = false;
     lg.renderOrder = 3;
     this.root.add(lg);
     const fil = new THREE.SphereGeometry(0.07, 12, 10);
     fil.scale(1, 1.7, 1);
     const fm = new THREE.Mesh(fil, core);
-    fm.position.set(p.x, 1.56, p.z);
+    fm.position.set(p.x, 1.64, p.z);
     fm.castShadow = false;
     fm.userData.noAO = true;
     this.root.add(fm);
@@ -1073,13 +1244,165 @@ export class HallMap implements GameMap {
     this.dressSterile(sterile, f);
   }
 
-  /** Place furniture; `dark`/`lit` builders get the state-specific bits (sheets vs. uncovered). */
+  /**
+   * Each room's lantern has its own cage, so the room reads from across the Hall: a verdigris globe
+   * crowned with enamel petals (Seed), a gilded sunburst (Sun), an iron-ribbed pumpkin (Harvest), a
+   * silver onion dome dripping icicles (Hearth), a square copper cage with gears (Crafter's), a teal
+   * ship's lantern with guard bars and a rope wrap (Tide). Returns the glass (room material), local to
+   * the plinth centre.
+   */
+  private buildLantern(b: B, def: RoomDef, p: THREE.Vector3): THREE.BufferGeometry {
+    const m = hallMats();
+    const at = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx): THREE.Matrix4 => mat(p.x + x, y, p.z + z, rx, ry, rz, sx, sy, sz);
+    const ring = (r: number, t: number, y: number, tint: number, sy = 1): void => {
+      b.add(m.metal, new THREE.TorusGeometry(r, t, 6, 28).rotateX(Math.PI / 2), at(0, y, 0, 0, 0, 0, 1, sy, 1), { tint });
+    };
+    const meridians = (r: number, t: number, y: number, sy: number, n: number, tint: number): void => {
+      for (let i = 0; i < n; i++) b.add(m.metal, new THREE.TorusGeometry(r, t, 4, 32), at(0, y, 0, 0, (i / n) * Math.PI, 0, 1, sy, 1), { tint });
+    };
+    switch (def.id) {
+      case 'seed': {
+        const CU = 0x5aa88e;
+        const CUD = 0x2f6252;
+        b.add(m.metal, bevelCylinder(0.19, 0.25, 0.1, 0.02, 16), at(0, 1.31, 0), { tint: CUD });
+        meridians(0.3, 0.017, 1.62, 1.08, 4, CU);
+        ring(0.3, 0.02, 1.62, CU);
+        // Five enamel petals opening round the crown, a copper collar and a green leaf-bud finial.
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2;
+          const petal = new THREE.SphereGeometry(0.15, 10, 8);
+          petal.scale(0.55, 0.22, 1);
+          b.add(m.metal, petal, at(Math.cos(a) * 0.14, 1.97, Math.sin(a) * 0.14, 0, -a + Math.PI / 2, 0.5), { tint: 0xf2a6c0 });
+        }
+        b.add(m.metal, bevelCylinder(0.09, 0.12, 0.08, 0.02, 12), at(0, 1.97, 0), { tint: CUD });
+        b.add(m.leaf, new THREE.ConeGeometry(0.06, 0.2, 8), at(0, 2.12, 0), { tint: 0x6ab04a });
+        b.add(m.metal, new THREE.TorusGeometry(0.07, 0.016, 6, 14), at(0, 2.28, 0), { tint: CU });
+        const g = new THREE.SphereGeometry(0.285, 20, 14);
+        g.scale(1, 1.06, 1);
+        return g.translate(0, 1.62, 0);
+      }
+      case 'sun': {
+        const AU = 0xf0c050;
+        const AUD = 0xa87420;
+        b.add(m.metal, bevelCylinder(0.24, 0.28, 0.08, 0.02, 16), at(0, 1.3, 0), { tint: AUD });
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          b.add(m.metal, bevelCylinder(0.014, 0.014, 0.74, 0.004, 6), at(Math.cos(a) * 0.235, 1.7, Math.sin(a) * 0.235), { tint: AU });
+        }
+        ring(0.235, 0.02, 1.36, AU);
+        ring(0.235, 0.02, 2.05, AU);
+        // The sunburst: a gilded disc with twelve alternating long and short rays.
+        b.add(m.metal, bevelCylinder(0.2, 0.24, 0.07, 0.02, 20), at(0, 2.1, 0), { tint: AU });
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          const L = i % 2 ? 0.2 : 0.34;
+          b.add(m.metal, new THREE.ConeGeometry(0.045, L, 4), at(Math.cos(a) * (0.24 + L / 2), 2.12, Math.sin(a) * (0.24 + L / 2), 0, -a, -Math.PI / 2), { tint: i % 2 ? AUD : AU });
+        }
+        b.add(m.metal, new THREE.SphereGeometry(0.1, 14, 10), at(0, 2.24, 0), { tint: 0xffd878 });
+        return new THREE.CylinderGeometry(0.215, 0.215, 0.7, 16, 1, true).translate(0, 1.7, 0);
+      }
+      case 'harvest': {
+        const FE = 0x3a3230;
+        b.add(m.metal, bevelCylinder(0.22, 0.28, 0.12, 0.03, 16), at(0, 1.32, 0), { tint: FE });
+        meridians(0.34, 0.022, 1.64, 0.74, 4, FE);
+        ring(0.34, 0.024, 1.64, 0xb8702a);
+        // Squat stem and a curled copper leaf.
+        b.add(m.woodGrain, bevelCylinder(0.05, 0.07, 0.2, 0.015, 8), at(0.02, 1.98, 0, 0, 0, 0.25), { tint: 0x5a3a1e });
+        const leaf = new THREE.SphereGeometry(0.12, 10, 6);
+        leaf.scale(1, 0.15, 0.55);
+        b.add(m.metal, leaf, at(0.12, 1.94, 0.05, 0, 0.6, -0.3), { tint: 0xc87a2a });
+        b.add(m.metal, new THREE.TorusGeometry(0.08, 0.018, 6, 14), at(0, 2.1, 0), { tint: FE });
+        const g = new THREE.SphereGeometry(0.325, 20, 14);
+        g.scale(1, 0.72, 1);
+        return g.translate(0, 1.64, 0);
+      }
+      case 'hearth': {
+        const AG = 0xe4e8ee;
+        const AGD = 0x8a929c;
+        b.add(m.metal, bevelCylinder(0.23, 0.28, 0.1, 0.02, 16), at(0, 1.31, 0), { tint: AGD });
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+          b.add(m.metal, roundedBox(0.04, 0.62, 0.04, 0.012), at(Math.cos(a) * 0.245, 1.66, Math.sin(a) * 0.245, 0, -a, 0), { tint: AG });
+        }
+        // Onion dome (a lathe), a spire, and icicles hanging from the rim.
+        const pts: THREE.Vector2[] = [];
+        for (let i = 0; i <= 14; i++) {
+          const t = i / 14;
+          const r = 0.3 * Math.sin(Math.min(1, t * 1.35) * Math.PI * 0.62 + 0.55) * (1 - Math.pow(t, 2.2)) + 0.012;
+          pts.push(new THREE.Vector2(Math.max(0.012, r), t * 0.5));
+        }
+        b.add(m.metal, new THREE.LatheGeometry(pts, 18), at(0, 1.97, 0), { tint: AG });
+        b.add(m.metal, new THREE.ConeGeometry(0.03, 0.2, 8), at(0, 2.55, 0), { tint: AGD });
+        ring(0.27, 0.02, 1.98, AGD);
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2;
+          b.add(m.glass, new THREE.ConeGeometry(0.022, 0.09 + (i % 3) * 0.04, 5).rotateX(Math.PI), at(Math.cos(a) * 0.28, 1.92 - (i % 3) * 0.02, Math.sin(a) * 0.28));
+        }
+        return new THREE.CylinderGeometry(0.23, 0.23, 0.62, 6, 1, true).rotateY(Math.PI / 6).translate(0, 1.66, 0);
+      }
+      case 'craft': {
+        const CU = 0xc8844a;
+        const BR = 0xe0b050;
+        b.add(m.metal, roundedBox(0.54, 0.08, 0.54, 0.02), at(0, 1.34, 0), { tint: 0x7a4a24 });
+        for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add(m.metal, roundedBox(0.05, 0.64, 0.05, 0.012), at(dx * 0.23, 1.68, dz * 0.23), { tint: CU });
+        b.add(m.metal, roundedBox(0.54, 0.06, 0.54, 0.02), at(0, 2.02, 0), { tint: 0x7a4a24 });
+        b.add(m.metal, new THREE.ConeGeometry(0.4, 0.26, 4).rotateY(Math.PI / 4), at(0, 2.18, 0), { tint: CU });
+        // Brass gears on two faces and a small one turning on top.
+        const gear = (r: number, x: number, y: number, z: number, ry: number): void => {
+          b.add(m.metal, bevelCylinder(r, r, 0.035, 0.008, 18).rotateX(Math.PI / 2), at(x, y, z, 0, ry, 0), { tint: BR });
+          for (let k = 0; k < 10; k++) {
+            const a = (k / 10) * Math.PI * 2;
+            const ox = Math.cos(a) * (r + 0.015);
+            const oy = Math.sin(a) * (r + 0.015);
+            b.add(m.metal, roundedBox(0.04, 0.035, 0.036, 0.006), at(x + ox * Math.cos(ry), y + oy, z - ox * Math.sin(ry), 0, ry, a), { tint: BR });
+          }
+          b.add(m.metal, new THREE.SphereGeometry(r * 0.28, 8, 6), at(x, y, z), { tint: 0x7a4a24 });
+        };
+        gear(0.1, 0.29, 1.8, 0.06, Math.PI / 2);
+        gear(0.07, 0.29, 1.58, -0.1, Math.PI / 2);
+        gear(0.09, -0.08, 1.74, 0.29, 0);
+        b.add(m.metal, new THREE.TorusGeometry(0.08, 0.018, 6, 14), at(0, 2.36, 0), { tint: BR });
+        return new THREE.BoxGeometry(0.42, 0.6, 0.42).translate(0, 1.68, 0);
+      }
+      case 'tide':
+      default: {
+        const TEAL = 0x2f9a96;
+        const BR = 0xd8a44a;
+        b.add(m.metal, bevelCylinder(0.24, 0.28, 0.12, 0.02, 16), at(0, 1.32, 0), { tint: TEAL });
+        // Guard bars bowed out over the glass, three brass bands, rope wrap at the foot.
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+          const bar = new THREE.TorusGeometry(0.34, 0.014, 4, 16, 1.25).rotateZ(-0.625);
+          b.add(m.metal, bar, at(Math.cos(a) * -0.07, 1.67, Math.sin(a) * -0.07, 0, -a, 0), { tint: BR });
+        }
+        for (const y of [1.42, 1.67, 1.92]) ring(0.235, 0.016, y, BR);
+        for (let k = 0; k < 4; k++) b.add(m.cloth, new THREE.TorusGeometry(0.26, 0.022, 6, 20).rotateX(Math.PI / 2), at(0, 1.25 + k * 0.035, 0), { tint: 0xc8a878 });
+        b.add(m.metal, bevelCylinder(0.26, 0.22, 0.1, 0.02, 16), at(0, 1.99, 0), { tint: TEAL });
+        const dome = new THREE.SphereGeometry(0.2, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+        dome.scale(1, 0.7, 1);
+        b.add(m.metal, dome, at(0, 2.04, 0), { tint: TEAL });
+        b.add(m.metal, new THREE.TorusGeometry(0.13, 0.02, 6, 18), at(0, 2.3, 0), { tint: BR });
+        return new THREE.CylinderGeometry(0.21, 0.21, 0.56, 16, 1, true).translate(0, 1.67, 0);
+      }
+    }
+  }
+
+  /**
+   * Place furniture; `dark`/`lit` builders get the state-specific bits. Every room has a hero piece
+   * over two metres with its own silhouette (the seed cabinet, the glasshouse roof, the cider press,
+   * the great hearth, the loom + hundred-drawer wall, the lit tanks + the rowboat on the wall) and
+   * clusters of dressing round it, grounded with contact AO (vertex AO near the floor + a baked
+   * shadow in the floor texture under every footprint).
+   */
   private furnish(b: B, dark: B, lit: B, f: RoomFrame): void {
     const { X, side } = f;
     const z = f.def.z;
     const r = this.rng.fork(f.def.id);
+    const m = hallMats();
+    const GA = { aoWorld: GAO };
+    /** Facing into the room from the outer wall (+x in the west wing, -x in the east). */
+    const inward = side > 0 ? Math.PI / 2 : -Math.PI / 2;
     const shelf = (u: number, zc: number, w: number, h: number, alongZ: boolean, jars: number[]): void => {
-      // A tall open shelf unit against a wall with jars / crocks on each board.
       const sx = X(u);
       const bw = alongZ ? 0.45 : w;
       const bd = alongZ ? w : 0.45;
@@ -1101,261 +1424,568 @@ export class HallMap implements GameMap {
       }
       this.blockRect(sx - bw / 2, zc - bd / 2, sx + bw / 2, zc + bd / 2);
     };
-    const table = (x: number, zc: number, w: number, d: number, tint = 0x8a5a36): void => {
-      box(b, 'woodGrain', w, 0.08, d, x, 0.72, zc, tint, 0, 0.03);
-      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) box(b, 'woodGrain', 0.08, 0.72, 0.08, x + (dx * (w - 0.16)) / 2, 0, zc + (dz * (d - 0.16)) / 2, 0x6a4226, 0, 0.02);
+    const table = (x: number, zc: number, w: number, d: number, tint = 0x8a5a36, h = 0.72): void => {
+      box(b, 'woodGrain', w, 0.08, d, x, h, zc, tint, 0, 0.03);
+      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) box(b, 'woodGrain', 0.08, h, 0.08, x + (dx * (w - 0.16)) / 2, 0, zc + (dz * (d - 0.16)) / 2, 0x6a4226, 0, 0.02);
       this.blockRect(x - w / 2, zc - d / 2, x + w / 2, zc + d / 2);
     };
-    const barrel = (x: number, zc: number, tint = 0x8a5a36, s = 1): void => {
-      b.add(hallMats().wood, bevelCylinder(0.3 * s, 0.28 * s, 0.8 * s, 0.04, 12), mat(x, 0.4 * s, zc), { tint });
-      for (const y of [0.15, 0.65]) b.add(hallMats().metal, new THREE.TorusGeometry(0.3 * s, 0.018, 4, 16), mat(x, y * s, zc, Math.PI / 2), { tint: 0x3a3430 });
-      this.blockRect(x - 0.3, zc - 0.3, x + 0.3, zc + 0.3);
+    const barrel = (bb: B, x: number, zc: number, tint = 0x8a5a36, s = 1, lying = false): void => {
+      const bar = new THREE.CylinderGeometry(0.3 * s, 0.3 * s, 0.8 * s, 14, 3);
+      // Bulge the staves.
+      const pp = bar.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pp.count; i++) {
+        const k = 1 + 0.12 * Math.cos((pp.getY(i) / (0.4 * s)) * Math.PI * 0.5);
+        pp.setX(i, pp.getX(i) * k);
+        pp.setZ(i, pp.getZ(i) * k);
+      }
+      bar.computeVertexNormals();
+      const R = lying ? mat(x, 0.36 * s, zc, 0, 0, Math.PI / 2) : mat(x, 0.4 * s, zc);
+      bb.add(m.wood, bar, R, { tint, aoWorld: GAO });
+      for (const y of [-0.28, 0.28]) {
+        const hoop = new THREE.TorusGeometry(0.335 * s, 0.018, 4, 18).rotateX(Math.PI / 2).translate(0, y * s, 0);
+        bb.add(m.metal, hoop, R, { tint: 0x3a3430 });
+      }
+      bb.add(m.wood, new THREE.CircleGeometry(0.29 * s, 14).rotateX(-Math.PI / 2).translate(0, 0.401 * s, 0), R, { tint: new THREE.Color(tint).multiplyScalar(0.8).getHex() });
+      if (lying) {
+        bb.add(m.woodGrain, roundedBox(0.9 * s, 0.12, 0.12, 0.02), mat(x, 0.06, zc - 0.22 * s), { tint: 0x5a3a20, aoWorld: GAO });
+        bb.add(m.woodGrain, roundedBox(0.9 * s, 0.12, 0.12, 0.02), mat(x, 0.06, zc + 0.22 * s), { tint: 0x5a3a20, aoWorld: GAO });
+        bb.add(m.metal, bevelCylinder(0.03, 0.03, 0.12, 0.01, 8).rotateZ(Math.PI / 2), mat(x + 0.46 * s * (side > 0 ? 1 : -1), 0.3 * s, zc), { tint: 0xc8a050 });
+      }
+      this.blockRect(x - 0.34 * s, zc - 0.34 * s, x + 0.34 * s, zc + 0.34 * s);
     };
     const pot = (bb: B, x: number, zc: number, s: number, leaf: number, bloom?: number): void => {
-      bb.add(hallMats().cloth, bevelCylinder(0.16 * s, 0.12 * s, 0.24 * s, 0.02, 10), mat(x, 0.12 * s, zc), { tint: 0xb8643e });
+      bb.add(m.cloth, bevelCylinder(0.16 * s, 0.12 * s, 0.24 * s, 0.02, 10), mat(x, 0.12 * s, zc), { tint: 0xb8643e, aoWorld: GAO });
       const top = lumpySphere(0.24 * s, 1, 0.1, r, 2.2);
-      bb.add(hallMats().leaf, top, mat(x, 0.36 * s, zc, 0, 0, 0, 1, 0.9, 1), { tint: leaf });
-      if (bloom !== undefined) for (let k = 0; k < 5; k++) bb.add(hallMats().leaf, new THREE.SphereGeometry(0.045 * s, 6, 5), mat(x + (r.next() - 0.5) * 0.3 * s, 0.44 * s + r.next() * 0.12 * s, zc + (r.next() - 0.5) * 0.3 * s), { tint: bloom });
+      bb.add(m.leaf, top, mat(x, 0.36 * s, zc, 0, 0, 0, 1, 0.9, 1), { tint: leaf });
+      if (bloom !== undefined) for (let k = 0; k < 5; k++) bb.add(m.leaf, new THREE.SphereGeometry(0.045 * s, 6, 5), mat(x + (r.next() - 0.5) * 0.3 * s, 0.44 * s + r.next() * 0.12 * s, zc + (r.next() - 0.5) * 0.3 * s), { tint: bloom });
     };
+    const crate = (bb: B, x: number, y: number, zc: number, ry: number, fill?: number[]): void => {
+      // Slatted fruit crate (open top), pale pine: reads as a crate, not a black cube.
+      for (const dz of [-0.2, 0.2]) bb.add(m.woodGrain, roundedBox(0.56, 0.3, 0.035, 0.01), mat(x, y + 0.15, zc, 0, ry, 0).multiply(mat(0, 0, dz)), { tint: 0xc8a070, aoWorld: GAO });
+      for (const dx of [-0.26, 0.26]) bb.add(m.woodGrain, roundedBox(0.035, 0.3, 0.42, 0.01), mat(x, y + 0.15, zc, 0, ry, 0).multiply(mat(dx, 0, 0)), { tint: 0xb89060, aoWorld: GAO });
+      bb.add(m.woodGrain, roundedBox(0.5, 0.03, 0.38, 0.01), mat(x, y + 0.03, zc, 0, ry, 0), { tint: 0xa88050 });
+      if (fill) for (let k = 0; k < 7; k++) bb.add(m.leaf, lumpySphere(0.075, 0, 0.2, r), mat(x, y + 0.27, zc, 0, ry, 0).multiply(mat(-0.16 + (k % 4) * 0.11, 0, -0.08 + Math.floor(k / 4) * 0.16)), { tint: fill[k % fill.length]! });
+    };
+    const bench = (x: number, zc: number, len: number, alongX: boolean): void => {
+      box(b, 'woodGrain', alongX ? len : 0.34, 0.07, alongX ? 0.34 : len, x, 0.42, zc, 0x6a4226, 0, 0.02);
+      const n = Math.max(2, Math.round(len / 1.6));
+      for (let k = 0; k <= n; k++) {
+        const o = -len / 2 + 0.15 + (k / n) * (len - 0.3);
+        box(b, 'woodGrain', 0.07, 0.42, 0.28, alongX ? x + o : x, 0, alongX ? zc : zc + o, 0x5a3a20, alongX ? 0 : Math.PI / 2, 0.015);
+      }
+    };
+    const herbs = (x: number, zc: number, alongZ: boolean, n: number, tints: number[]): void => {
+      // Bundles hung upside down from a peg rail.
+      box(b, 'woodGrain', alongZ ? 0.06 : n * 0.36, 0.06, alongZ ? n * 0.36 : 0.06, x, 2.05, zc, 0x5e3a22);
+      for (let k = 0; k < n; k++) {
+        const o = -n * 0.18 + 0.18 + k * 0.36;
+        const hx = alongZ ? x + side * 0.08 : x + o;
+        const hz = alongZ ? zc + o : zc + 0.08;
+        b.add(m.cloth, new THREE.CylinderGeometry(0.012, 0.012, 0.18, 4), mat(hx, 1.97, hz), { tint: 0xc8a878 });
+        b.add(m.leaf, new THREE.ConeGeometry(0.1, 0.36, 7), mat(hx, 1.72, hz, Math.PI, 0, (r.next() - 0.5) * 0.2), { tint: tints[k % tints.length]! });
+      }
+    };
+    const P = f.plinth;
     switch (f.def.id) {
       case 'seed': {
-        shelf(0.4, z - 1.2, 2.4, 2.3, true, [0xd8c8a0, 0xc8a878, 0xa8c890, 0xe8c070, 0xb89a70]);
-        shelf(2.6, f.z0 + 0.45, 2.6, 2.1, false, [0xd8c8a0, 0xe8a070, 0xa8c890, 0xf0d890]);
-        table(X(2.2), z + 1.9, 2.2, 0.8);
-        for (let k = 0; k < 4; k++) pot(lit, X(1.4 + k * 0.5), z + 1.9, 0.9, 0x5a9a3a, k % 2 ? 0xff9ec0 : undefined);
-        for (let k = 0; k < 4; k++) pot(dark, X(1.4 + k * 0.5), z + 1.9, 0.9, 0x6a5a3a);
-        // seed sacks by the arch
-        for (let k = 0; k < 3; k++) b.add(hallMats().cloth, lumpySphere(0.3, 1, 0.12, r, 2), mat(X(6.6 + k * 0.55), 0.26, f.z0 + 0.6 + (k % 2) * 0.3, 0, 0, 0, 1, 1.2, 1), { tint: 0xc8a878 });
-        this.blockRect(X(6.4) - 0.4, f.z0 + 0.2, X(8) + 0.4, f.z0 + 1.1);
+        // Hero: Gran's seed cabinet — 2.6 m of little labelled drawers under a carved cornice, with a
+        // library ladder leaning on it.
+        const cx = X(2.7);
+        const cz = f.z0 + 0.42;
+        // Painted sage, the drawers cream: Gran's colours (a dark cabinet read as a black box from above).
+        box(b, 'plaster', 3.0, 2.5, 0.52, cx, 0, cz, 0x86a88c, 0, 0.04);
+        box(b, 'plaster', 3.24, 0.16, 0.66, cx, 2.5, cz + 0.02, 0xa8c4a8, 0, 0.04);
+        box(b, 'plaster', 3.1, 0.1, 0.6, cx, 2.66, cz + 0.02, 0x6f8f74, 0, 0.03);
+        box(b, 'plaster', 3.1, 0.12, 0.58, cx, 0, cz + 0.02, 0x5a7a60, 0, 0.03);
+        const cols = 9;
+        const rows = 8;
+        for (let i = 0; i < cols; i++)
+          for (let j = 0; j < rows; j++) {
+            const dx = -1.36 + i * 0.34;
+            const y = 0.22 + j * 0.285;
+            const tone = [0xf2e6c8, 0xeadcb8, 0xf6ecd4][(i * 7 + j * 3) % 3]!;
+            box(b, 'plaster', 0.3, 0.25, 0.04, cx + dx, y, cz + 0.27, tone, 0, 0.012);
+            b.add(m.cloth, new THREE.BoxGeometry(0.13, 0.055, 0.01), mat(cx + dx, y + 0.17, cz + 0.295), { tint: [0xb8905a, 0xa8784a, 0x8a9a6a][(i + j) % 3]! });
+            b.add(m.metal, new THREE.SphereGeometry(0.018, 5, 3), mat(cx + dx, y + 0.09, cz + 0.3), { tint: 0xd4a24a });
+          }
+        this.blockRect(cx - 1.55, cz - 0.3, cx + 1.55, cz + 0.35);
+        // Library ladder on its rail.
+        const lx = cx + side * 1.8;
+        for (const dx of [-0.2, 0.2]) b.add(m.woodGrain, roundedBox(0.06, 2.7, 0.06, 0.015), mat(lx + dx, 1.3, cz + 0.62, -0.26, 0, 0), { tint: 0x9a6a40 });
+        for (let k = 0; k < 7; k++) b.add(m.woodGrain, roundedBox(0.42, 0.04, 0.05, 0.01), mat(lx, 0.2 + k * 0.36, cz + 0.84 - k * 0.094, -0.26, 0, 0), { tint: 0x9a6a40 });
+        box(b, 'metal', 3.1, 0.03, 0.03, cx, 2.45, cz + 0.36, 0xc8a050);
+        // Jar shelves along the outer wall, a peg rail of drying herbs above.
+        shelf(0.4, z - 0.4, 2.2, 2.1, true, [0xd8c8a0, 0xc8a878, 0xa8c890, 0xe8c070, 0xb89a70]);
+        herbs(X(0.12), z + 1.7, true, 5, [0x7a9a4a, 0x9a8a5a, 0xb08ac0, 0x6a8a3a]);
+        // Potting bench (front): seed trays, a watering can, stacked pots.
+        const bx = X(2.4);
+        const bz = f.z1 - 0.72;
+        table(bx, bz, 2.4, 0.72, 0x7a4a2a, 0.82);
+        box(b, 'woodGrain', 2.4, 0.4, 0.06, bx, 0.9, bz + 0.33, 0x6a4226);
+        for (let k = 0; k < 3; k++) {
+          const tx = bx - 0.75 + k * 0.75;
+          box(b, 'woodGrain', 0.62, 0.08, 0.44, tx, 0.9, bz - 0.04, 0xa87a4a, 0, 0.01);
+          for (let q = 0; q < 12; q++) {
+            const sx = tx - 0.24 + (q % 4) * 0.16;
+            const sz = bz - 0.18 + Math.floor(q / 4) * 0.14;
+            lit.add(m.leaf, leafBlade(0.12 + r.next() * 0.06, 0.03, 0.5, 2), mat(sx, 0.9, sz, 0, r.next() * 6, 0), { tint: [0x6ab04a, 0x8ac85a, 0x5a9a3a][q % 3]! });
+            dark.add(m.leaf, new THREE.CylinderGeometry(0.004, 0.006, 0.07, 3), mat(sx, 1.0, sz, 0.7, r.next() * 6, 0), { tint: 0x7a6a44 });
+          }
+        }
+        b.add(m.metal, bevelCylinder(0.12, 0.14, 0.26, 0.02, 12), mat(bx + 1.0, 0.99, bz + 0.05), { tint: 0x6a9ab0 });
+        b.add(m.metal, new THREE.CylinderGeometry(0.018, 0.03, 0.4, 6), mat(bx + 1.2, 1.12, bz + 0.05, 0, 0, -0.9), { tint: 0x6a9ab0 });
+        for (let k = 0; k < 4; k++) b.add(m.cloth, bevelCylinder(0.15, 0.11, 0.2, 0.02, 10), mat(X(4.1), 0.1 + k * 0.13, f.z1 - 0.5, 0.05 * k, 0, 0), { tint: 0xb8643e, aoWorld: GAO });
+        this.blockRect(X(4.1) - 0.2, f.z1 - 0.7, X(4.1) + 0.2, f.z1 - 0.3);
+        // Wheelbarrow of soil by the arch.
+        const wx = X(7.9);
+        const wz = f.z1 - 0.9;
+        const tray = new THREE.CylinderGeometry(0.42, 0.3, 0.3, 4, 1, true).rotateY(Math.PI / 4);
+        tray.scale(1.4, 1, 0.9);
+        b.add(m.metal, tray, mat(wx, 0.52, wz, 0, 0.3, 0), { tint: 0x5a7a8a });
+        b.add(m.cloth, lumpySphere(0.42, 1, 0.12, r, 2), mat(wx, 0.6, wz, 0, 0.3, 0, 1.35, 0.3, 0.85), { tint: 0x4a3222 });
+        b.add(m.woodGrain, new THREE.TorusGeometry(0.2, 0.05, 6, 16), mat(wx + 0.62 * Math.cos(0.3), 0.2, wz - 0.62 * Math.sin(0.3), 0, 0.3 + Math.PI / 2, 0), { tint: 0x3a3430 });
+        for (const s of [-1, 1]) b.add(m.woodGrain, roundedBox(1.4, 0.05, 0.05, 0.015), mat(wx - 0.2, 0.42, wz + s * 0.28, 0, 0.3, 0.14), { tint: 0x8a5a36 });
+        this.blockRect(wx - 0.8, wz - 0.5, wx + 0.8, wz + 0.5);
+        // Seed sacks slumped by the arch.
+        for (let k = 0; k < 3; k++) b.add(m.cloth, lumpySphere(0.3, 1, 0.12, r, 2), mat(X(6.9 + k * 0.55), 0.26, f.z0 + 0.55 + (k % 2) * 0.3, 0, 0, 0, 1, 1.2, 1), { tint: 0xc8a878, aoWorld: GAO });
+        this.blockRect(X(6.6) - 0.4, f.z0 + 0.2, X(8.2) + 0.4, f.z0 + 1.1);
+        for (let k = 0; k < 4; k++) pot(lit, X(1.2 + k * 0.55), z + 0.9, 0.95, 0x5a9a3a, k % 2 ? 0xff9ec0 : 0xfff2a0);
+        for (let k = 0; k < 4; k++) pot(dark, X(1.2 + k * 0.55), z + 0.9, 0.95, 0x6a5a3a);
+        this.blockRect(X(0.9), z + 0.6, X(3.2), z + 1.2);
         break;
       }
       case 'sun': {
-        // Cold frames (glass boxes on timber) along the back wall.
-        for (const u of [1.4, 3.8]) {
-          box(b, 'woodGrain', 2.0, 0.5, 0.9, X(u + 0.6), 0, f.z0 + 0.7, 0x8a5a36);
-          b.add(hallMats().glass, roundedBox(1.9, 0.5, 0.8, 0.02), mat(X(u + 0.6), 0.75, f.z0 + 0.7));
-          for (let k = 0; k < 5; k++) lit.add(hallMats().leaf, lumpySphere(0.13, 0, 0.1, r), mat(X(u + 0.6) - 0.7 + k * 0.35, 0.58, f.z0 + 0.7), { tint: 0x6aaa3a });
-          this.blockRect(X(u + 0.6) - 1, f.z0 + 0.2, X(u + 0.6) + 1, f.z0 + 1.1);
+        // Hero: a glasshouse lean-to over the outer half of the room — sloping glass on a timber frame.
+        const u0 = 0;
+        const u1 = 4.2;
+        const zTop = f.z0 + 0.1;
+        const zLow = f.z0 + 2.3;
+        const yTop = 3.7;
+        const yLow = 2.45;
+        const slope = Math.atan2(yTop - yLow, zLow - zTop);
+        const len = Math.hypot(yTop - yLow, zLow - zTop);
+        const cxr = (X(u0) + X(u1)) / 2;
+        const wr = Math.abs(X(u1) - X(u0));
+        const midY = (yTop + yLow) / 2;
+        const midZ = (zTop + zLow) / 2;
+        b.add(m.glass, new THREE.PlaneGeometry(wr, len).rotateX(-Math.PI / 2 + slope), mat(cxr, midY, midZ));
+        for (let k = 0; k <= 5; k++) {
+          const x = X(u0 + ((u1 - u0) * k) / 5);
+          b.add(m.woodGrain, roundedBox(0.07, 0.09, len + 0.1, 0.015), mat(x, midY + 0.03, midZ, slope, 0, 0), { tint: 0xf2ead2 });
         }
-        // Potted citrus trees in the corners.
-        for (const [u, zz] of [[0.7, z + 2.2], [7.8, f.z0 + 0.8]] as const) {
-          b.add(hallMats().cloth, bevelCylinder(0.34, 0.26, 0.5, 0.03, 12), mat(X(u), 0.25, zz), { tint: 0xc8704a });
-          b.add(hallMats().woodGrain, new THREE.CylinderGeometry(0.05, 0.07, 1.0, 6), mat(X(u), 0.95, zz), { tint: 0x6a4226 });
-          lit.add(hallMats().leaf, lumpySphere(0.62, 1, 0.16, r, 2), mat(X(u), 1.75, zz), { tint: 0x4a8a34 });
-          for (let k = 0; k < 7; k++) lit.add(hallMats().leaf, new THREE.SphereGeometry(0.07, 8, 6), mat(X(u) + (r.next() - 0.5) * 0.9, 1.5 + r.next() * 0.7, zz + (r.next() - 0.5) * 0.9), { tint: 0xf2c43a });
-          dark.add(hallMats().leaf, new THREE.CylinderGeometry(0.02, 0.04, 0.8, 5), mat(X(u) + 0.15, 1.6, zz, 0, 0, 0.5), { tint: 0x5a4a30 });
-          dark.add(hallMats().leaf, new THREE.CylinderGeometry(0.02, 0.04, 0.7, 5), mat(X(u) - 0.1, 1.55, zz, 0.4, 0, -0.4), { tint: 0x5a4a30 });
-          this.blockRect(X(u) - 0.35, zz - 0.35, X(u) + 0.35, zz + 0.35);
+        for (const t of [0.33, 0.66]) b.add(m.woodGrain, roundedBox(wr, 0.05, 0.05, 0.012), mat(cxr, yTop + (yLow - yTop) * t + 0.04, zTop + (zLow - zTop) * t), { tint: 0xf2ead2 });
+        box(b, 'woodGrain', wr + 0.16, 0.14, 0.14, cxr, yLow - 0.1, zLow, 0xe8dcc0);
+        for (const u of [u0 + 0.12, u1 - 0.12, (u0 + u1) / 2]) {
+          box(b, 'woodGrain', 0.12, yLow - 0.05, 0.12, X(u), 0, zLow, 0xe8dcc0);
+          this.blockRect(X(u) - 0.1, zLow - 0.1, X(u) + 0.1, zLow + 0.1);
         }
-        // Wicker settee.
-        box(b, 'woodGrain', 1.8, 0.42, 0.7, X(3.2), 0, z + 2.1, 0xc8a060);
-        box(b, 'woodGrain', 1.8, 0.5, 0.14, X(3.2), 0.42, z + 2.45, 0xc8a060);
-        lit.add(hallMats().cloth, roundedBox(0.7, 0.14, 0.55, 0.06), mat(X(2.8), 0.49, z + 2.05), { tint: 0xf2c43a });
-        lit.add(hallMats().cloth, roundedBox(0.7, 0.14, 0.55, 0.06), mat(X(3.6), 0.49, z + 2.05), { tint: 0xe8674a });
-        this.blockRect(X(3.2) - 0.9, z + 1.7, X(3.2) + 0.9, z + 2.5);
+        // Cold frames under the glass.
+        for (const u of [0.9, 2.9]) {
+          box(b, 'woodGrain', 1.7, 0.5, 0.9, X(u + 0.5), 0, f.z0 + 0.75, 0x8a5a36);
+          b.add(m.glass, roundedBox(1.6, 0.4, 0.8, 0.02), mat(X(u + 0.5), 0.72, f.z0 + 0.75, 0.25, 0, 0));
+          for (let k = 0; k < 5; k++) lit.add(m.leaf, lumpySphere(0.13, 0, 0.1, r), mat(X(u + 0.5) - 0.6 + k * 0.3, 0.58, f.z0 + 0.75), { tint: 0x6aaa3a });
+          this.blockRect(X(u + 0.5) - 0.85, f.z0 + 0.3, X(u + 0.5) + 0.85, f.z0 + 1.2);
+        }
+        // Lemon trees in square planters: 2.4 m, the room's second silhouette.
+        for (const [u, zz] of [[0.9, z + 2.0], [8.0, f.z0 + 0.85], [5.8, f.z1 - 0.8]] as const) {
+          box(b, 'woodGrain', 0.7, 0.55, 0.7, X(u), 0, zz, 0x5a7a8a, 0, 0.04);
+          box(b, 'woodGrain', 0.78, 0.06, 0.78, X(u), 0.55, zz, 0xe8dcc0, 0, 0.02);
+          b.add(m.woodGrain, new THREE.CylinderGeometry(0.05, 0.08, 1.3, 6), mat(X(u), 1.2, zz), { tint: 0x6a4226 });
+          lit.add(m.leaf, lumpySphere(0.7, 1, 0.16, r, 2), mat(X(u), 2.05, zz, 0, 0, 0, 1, 0.9, 1), { tint: 0x4a8a34 });
+          lit.add(m.leaf, lumpySphere(0.45, 1, 0.16, r, 2), mat(X(u) + 0.3, 2.35, zz - 0.2), { tint: 0x5a9a3a });
+          for (let k = 0; k < 10; k++) lit.add(m.leaf, new THREE.SphereGeometry(0.075, 8, 6), mat(X(u) + (r.next() - 0.5) * 1.1, 1.75 + r.next() * 0.8, zz + (r.next() - 0.5) * 1.1, 0, 0, 0, 1, 1.25, 1), { tint: 0xf2d43a });
+          for (let k = 0; k < 4; k++) dark.add(m.leaf, new THREE.CylinderGeometry(0.015, 0.035, 0.8, 5), mat(X(u) + (r.next() - 0.5) * 0.3, 2.05, zz + (r.next() - 0.5) * 0.3, (r.next() - 0.5) * 1.2, 0, (r.next() - 0.5) * 1.2), { tint: 0x5a4a30 });
+          dark.add(m.leaf, lumpySphere(0.2, 0, 0.2, r), mat(X(u) + 0.3, 0.62, zz + 0.1, 0, 0, 0, 1, 0.3, 1), { tint: 0x7a5a2a });
+          this.blockRect(X(u) - 0.38, zz - 0.38, X(u) + 0.38, zz + 0.38);
+        }
+        // Wicker settee with cushions, a sundial, lemon crates, a watering can.
+        box(b, 'woodGrain', 1.8, 0.42, 0.7, X(3.1), 0, z + 2.1, 0xd8b070);
+        box(b, 'woodGrain', 1.8, 0.5, 0.14, X(3.1), 0.42, z + 2.45, 0xd8b070);
+        lit.add(m.cloth, roundedBox(0.7, 0.14, 0.55, 0.06), mat(X(2.7), 0.49, z + 2.05), { tint: 0xf2c43a });
+        lit.add(m.cloth, roundedBox(0.7, 0.14, 0.55, 0.06), mat(X(3.5), 0.49, z + 2.05), { tint: 0xe8674a });
+        this.blockRect(X(3.1) - 0.9, z + 1.7, X(3.1) + 0.9, z + 2.5);
+        const sd = X(2.4);
+        b.add(m.stone, bevelCylinder(0.14, 0.2, 0.8, 0.03, 10), mat(sd, 0.4, z + 0.6), { tint: 0xc8bca8, aoWorld: GAO });
+        b.add(m.stone, bevelCylinder(0.3, 0.26, 0.07, 0.02, 18), mat(sd, 0.84, z + 0.6), { tint: 0xd8cfc0 });
+        b.add(m.metal, new THREE.ConeGeometry(0.16, 0.2, 3).rotateZ(Math.PI / 2).scale(1, 1, 0.12), mat(sd, 0.95, z + 0.6, 0, 0.6, 0), { tint: 0xc8a050 });
+        this.blockRect(sd - 0.3, z + 0.3, sd + 0.3, z + 0.9);
+        crate(b, X(7.0), 0, f.z1 - 0.55, 0.2, [0xf2d43a, 0xe8c030, 0x9ac04a]);
+        crate(b, X(7.0), 0.31, f.z1 - 0.55, -0.15, [0xf2d43a, 0xf6e060]);
+        crate(b, X(7.7), 0, f.z1 - 0.5, 0.5, [0xe8573e, 0xf2c43a]);
+        this.blockRect(X(7.0) - 0.35, f.z1 - 0.9, X(7.7) + 0.35, f.z1 - 0.2);
         break;
       }
       case 'harvest': {
-        // Long table with benches.
-        table(X(3.4), z + 1.2, 3.8, 1.0, 0x7a4a2a);
-        for (const dz of [-0.75, 0.75]) box(b, 'woodGrain', 3.4, 0.08, 0.34, X(3.4), 0.44, z + 1.2 + dz, 0x6a4226);
-        // Barrels + cider press along the outer wall.
-        for (let k = 0; k < 3; k++) barrel(X(0.5), f.z0 + 0.7 + k * 0.7, [0x8a5a36, 0x7a4a2a, 0x9a6a40][k]);
-        barrel(X(1.2), f.z0 + 0.6, 0x8a5a36, 0.85);
-        box(b, 'woodGrain', 0.9, 0.9, 0.9, X(6.6), 0, f.z0 + 0.6, 0x6a4226);
-        b.add(hallMats().metal, new THREE.CylinderGeometry(0.05, 0.05, 0.9, 6), mat(X(6.6), 1.3, f.z0 + 0.6), { tint: 0x3a3430 });
-        b.add(hallMats().metal, new THREE.TorusGeometry(0.3, 0.04, 6, 14), mat(X(6.6), 1.72, f.z0 + 0.6, Math.PI / 2), { tint: 0x3a3430 });
-        this.blockRect(X(6.6) - 0.45, f.z0 + 0.15, X(6.6) + 0.45, f.z0 + 1.05);
-        // Hay bale + pumpkins.
-        box(b, 'cloth', 1.2, 0.55, 0.7, X(8.5), 0, z + 2.3, 0xd8b868, 0.3, 0.1);
-        this.blockRect(X(8.5) - 0.6, z + 1.9, X(8.5) + 0.6, z + 2.7);
-        for (let k = 0; k < 3; k++) lit.add(hallMats().leaf, lumpySphere(0.22 - k * 0.03, 1, 0.08, r), mat(X(7.6 + k * 0.4), 0.2, z + 2.6 - k * 0.2, 0, 0, 0, 1.1, 0.8, 1.1), { tint: 0xe8812e });
-        // Candles + a loaf on the table (lit only).
-        for (const u of [2.4, 4.4]) {
-          lit.add(hallMats().candle, new THREE.CylinderGeometry(0.035, 0.035, 0.22, 8), mat(X(u), 0.87, z + 1.2));
+        // Hero: the cider press — a heavy frame, an iron screw with a turning bar, a slatted tub, a spout.
+        const px = X(1.3);
+        const pz = f.z0 + 1.05;
+        box(b, 'woodGrain', 1.5, 0.3, 1.4, px, 0, pz, 0x8a5a36, 0, 0.04);
+        for (let k = 0; k < 14; k++) {
+          const a = (k / 14) * Math.PI * 2;
+          b.add(m.woodGrain, roundedBox(0.16, 0.62, 0.05, 0.015), mat(px + Math.cos(a) * 0.44, 0.61, pz + Math.sin(a) * 0.44, 0, -a + Math.PI / 2, 0), { tint: k % 2 ? 0x9a6a40 : 0x8a5a36 });
         }
-        lit.add(hallMats().cloth, roundedBox(3.4, 0.01, 0.4, 0.004), mat(X(3.4), 0.77, z + 1.2), { tint: 0xe8d8b8 });
-        lit.add(hallMats().leaf, lumpySphere(0.14, 1, 0.05, r), mat(X(3.4), 0.84, z + 1.2, 0, 0, 0, 1.6, 0.7, 1), { tint: 0xc8843a });
+        for (const y of [0.42, 0.82]) b.add(m.metal, new THREE.TorusGeometry(0.47, 0.022, 4, 24).rotateX(Math.PI / 2), mat(px, y, pz), { tint: 0x3a3430 });
+        lit.add(m.leaf, lumpySphere(0.4, 1, 0.1, r, 3), mat(px, 0.86, pz, 0, 0, 0, 1, 0.3, 1), { tint: 0xc8403a });
+        b.add(m.woodGrain, bevelCylinder(0.42, 0.42, 0.1, 0.02, 18), mat(px, 1.05, pz), { tint: 0x7a4a2a });
+        for (const s of [-1, 1]) box(b, 'woodGrain', 0.18, 2.3, 0.2, px + s * 0.66, 0.3, pz, 0xa87448, 0, 0.03);
+        box(b, 'woodGrain', 1.6, 0.26, 0.28, px, 2.45, pz, 0xa87448, 0, 0.04);
+        box(b, 'woodGrain', 1.5, 0.14, 0.24, px, 1.52, pz, 0x6a4226, 0, 0.03);
+        b.add(m.metal, bevelCylinder(0.075, 0.075, 1.25, 0.02, 10), mat(px, 1.78, pz), { tint: 0x4a4440 });
+        for (let k = 0; k < 18; k++) {
+          const a = k * 0.9;
+          b.add(m.metal, roundedBox(0.05, 0.03, 0.06, 0.01), mat(px + Math.cos(a) * 0.08, 1.25 + k * 0.06, pz + Math.sin(a) * 0.08, 0, -a, 0.3), { tint: 0x5a544e });
+        }
+        b.add(m.metal, bevelCylinder(0.13, 0.13, 0.16, 0.02, 12), mat(px, 1.98, pz), { tint: 0x3a3430 });
+        b.add(m.woodGrain, new THREE.CylinderGeometry(0.04, 0.04, 1.9, 8).rotateZ(Math.PI / 2), mat(px, 1.98, pz, 0, 0.5, 0), { tint: 0xa87a4a });
+        for (const s of [-1, 1]) b.add(m.woodGrain, new THREE.SphereGeometry(0.06, 8, 6), mat(px + s * 0.95 * Math.cos(0.5), 1.98, pz - s * 0.95 * Math.sin(0.5)), { tint: 0x6a4226 });
+        b.add(m.woodGrain, roundedBox(0.16, 0.08, 0.5, 0.02), mat(px + side * 0.2, 0.26, pz + 0.85, -0.2, 0, 0), { tint: 0x7a4a2a });
+        b.add(m.wood, bevelCylinder(0.16, 0.13, 0.26, 0.02, 12), mat(px + side * 0.2, 0.13, pz + 1.15), { tint: 0x8a5a36, aoWorld: GAO });
+        this.blockRect(px - 0.8, pz - 0.75, px + 0.8, pz + 1.3);
+        // Barrels: three stood along the outer wall, one on its cradle with a tap.
+        for (let k = 0; k < 3; k++) barrel(b, X(0.45), z - 0.1 + k * 0.72, [0x8a5a36, 0x7a4a2a, 0x9a6a40][k]);
+        barrel(b, X(3.0), f.z0 + 0.62, 0x8a5a36, 0.95, true);
+        // The long table for forty, the room's full length, benches both sides.
+        const tz = f.z1 - 1.25;
+        const tx = X(4.75);
+        table(tx, tz, 8.2, 0.95, 0x6a3e22, 0.74);
+        for (let k = 1; k < 5; k++) box(b, 'woodGrain', 0.1, 0.62, 0.1, tx - 4.1 + k * 1.64, 0, tz, 0x5a3a20, 0, 0.02);
+        bench(tx, tz - 0.72, 7.6, true);
+        bench(tx, tz + 0.72, 7.6, true);
+        this.blockRect(tx - 4.1, tz - 0.9, tx + 4.1, tz + 0.9);
+        lit.add(m.cloth, roundedBox(7.8, 0.012, 0.46, 0.004), mat(tx, 0.83, tz), { tint: 0xb8452e });
+        for (const s2 of [-1, 1]) lit.add(m.cloth, roundedBox(7.8, 0.014, 0.03, 0.004), mat(tx, 0.832, tz + s2 * 0.18), { tint: 0xf2c46a });
+        for (let k = 0; k < 7; k++) {
+          const cxk = tx - 3.6 + k * 1.2;
+          lit.add(m.candle, new THREE.CylinderGeometry(0.035, 0.035, 0.22, 8), mat(cxk, 0.95, tz));
+          lit.add(m.cloth, bevelCylinder(0.14, 0.1, 0.035, 0.01, 12), mat(cxk + 0.45, 0.85, tz - 0.28), { tint: 0xd8c8a8 });
+          lit.add(m.leaf, lumpySphere(0.12, 1, 0.05, r), mat(cxk + 0.5, 0.9, tz + 0.2, 0, r.next() * 3, 0, 1.6, 0.7, 1), { tint: k % 2 ? 0xc8843a : 0xd8573e });
+        }
+        for (let k = 0; k < 6; k++) dark.add(m.woodGrain, roundedBox(0.44, 0.04, 0.4, 0.02), mat(tx - 3 + k * 1.3, 0.47, tz + (k % 2 ? 0.72 : -0.72), 0, r.next(), 0), { tint: 0x5a3a20 });
+        // Braids of corn and garlic on the outer wall, apple crates, pumpkins by a hay bale.
+        herbs(X(0.12), z - 0.9, true, 4, [0xf2c43a, 0xf0e6d0, 0xe8a030, 0xf0e6d0]);
+        crate(b, X(5.9), 0, f.z0 + 0.5, 0.1, [0xc8403a, 0xd84a3a, 0x9ac04a]);
+        crate(b, X(6.6), 0, f.z0 + 0.55, -0.2, [0xc8403a, 0xe86a3a]);
+        crate(b, X(6.2), 0.31, f.z0 + 0.52, 0.35, [0xd84a3a, 0xc8403a]);
+        this.blockRect(X(5.6), f.z0 + 0.15, X(6.95), f.z0 + 0.9);
+        {
+          const hx = X(8.5);
+          const hz2 = f.z0 + 0.6;
+          b.add(m.cloth, lumpySphere(0.5, 2, 0.05, r, 6), mat(hx, 0.3, hz2, 0, 0.1, 0, 1.2, 0.6, 0.72), { tint: 0xc8a450, aoWorld: GAO });
+          for (const o of [-0.3, 0.3]) b.add(m.cloth, new THREE.TorusGeometry(0.34, 0.012, 4, 20).scale(1, 0.88, 1.06), mat(hx + o, 0.3, hz2, 0, Math.PI / 2 + 0.1, 0), { tint: 0x8a6a3a });
+          for (let k = 0; k < 14; k++) b.add(m.leaf, new THREE.CylinderGeometry(0.006, 0.006, 0.3, 3), mat(hx + (r.next() - 0.5) * 1.4, 0.03, hz2 + 0.4 + r.next() * 0.3, Math.PI / 2, r.next() * 3, 0), { tint: 0xe0c070 });
+        }
+        this.blockRect(X(8.5) - 0.6, f.z0 + 0.25, X(8.5) + 0.6, f.z0 + 0.95);
+        for (let k = 0; k < 3; k++) lit.add(m.leaf, lumpySphere(0.22 - k * 0.03, 1, 0.08, r), mat(X(7.7 + k * 0.4), 0.2, f.z0 + 1.2 - k * 0.12, 0, 0, 0, 1.1, 0.8, 1.1), { tint: 0xe8812e });
         break;
       }
       case 'hearth': {
-        // The great hearth on the outer wall.
+        // Hero: the great hearth on the outer wall, its chimney breast to the rafters.
         const hz = z + 0.2;
         box(b, 'stone', 1.1, 2.7, 3.2, X(0.45), 0, hz, 0xb0a290, 0, 0.06);
         box(b, 'stone', 0.8, 1.9, 3.4, X(0.4), 2.7, hz, 0xa89a88, 0, 0.05);
-        box(b, 'stone', 0.5, 1.05, 1.5, X(1.0), 0, hz, 0x2a2420, 0, 0.03); // firebox mouth (dark)
-        box(b, 'woodGrain', 0.5, 0.16, 3.5, X(1.1), 1.35, hz, 0x5e3a22); // mantel
-        box(b, 'stone', 1.0, 0.1, 3.3, X(1.35), 0, hz, 0x8a8076); // hearthstone
+        box(b, 'stone', 0.5, 1.05, 1.5, X(1.0), 0, hz, 0x2a2420, 0, 0.03);
+        box(b, 'woodGrain', 0.5, 0.16, 3.5, X(1.1), 1.35, hz, 0x5e3a22);
+        box(b, 'stone', 1.0, 0.1, 3.3, X(1.35), 0, hz, 0x8a8076);
         this.blockRect(X(0) - 0.5, hz - 1.7, X(1.6) + 0.1, hz + 1.7);
-        // Andirons + logs (lit: burning, dark: cold ash).
-        lit.add(hallMats().woodGrain, new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6).rotateX(Math.PI / 2), mat(X(0.9), 0.2, hz - 0.1, 0, 0.3, 0), { tint: 0x3a2618 });
-        lit.add(hallMats().woodGrain, new THREE.CylinderGeometry(0.07, 0.07, 0.7, 6).rotateX(Math.PI / 2), mat(X(0.95), 0.32, hz + 0.1, 0, -0.4, 0), { tint: 0x3a2618 });
-        dark.add(hallMats().cloth, lumpySphere(0.3, 1, 0.1, r), mat(X(0.95), 0.08, hz, 0, 0, 0, 1.3, 0.3, 1), { tint: 0x6a6660 });
-        // Mantel things: clock, candlesticks, a portrait frame above.
+        lit.add(m.woodGrain, new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6).rotateX(Math.PI / 2), mat(X(0.9), 0.2, hz - 0.1, 0, 0.3, 0), { tint: 0x3a2618 });
+        lit.add(m.woodGrain, new THREE.CylinderGeometry(0.07, 0.07, 0.7, 6).rotateX(Math.PI / 2), mat(X(0.95), 0.32, hz + 0.1, 0, -0.4, 0), { tint: 0x3a2618 });
+        dark.add(m.cloth, lumpySphere(0.3, 1, 0.1, r), mat(X(0.95), 0.08, hz, 0, 0, 0, 1.3, 0.3, 1), { tint: 0x6a6660 });
+        // Kettle on its crane arm, mantel clock and candlesticks, a painting above.
+        b.add(m.metal, new THREE.CylinderGeometry(0.02, 0.02, 0.7, 6).rotateZ(Math.PI / 2), mat(X(1.0), 0.95, hz - 0.3, 0, inward, 0), { tint: 0x2e2a28 });
+        b.add(m.metal, lumpySphere(0.16, 1, 0.02, r), mat(X(1.25), 0.62, hz - 0.3, 0, 0, 0, 1, 0.8, 1), { tint: 0x3a3430 });
+        b.add(m.metal, new THREE.CylinderGeometry(0.02, 0.035, 0.2, 6), mat(X(1.25) + side * 0.15, 0.68, hz - 0.3, 0, 0, side * -0.9), { tint: 0x3a3430 });
         box(b, 'woodGrain', 0.25, 0.4, 0.3, X(1.05), 1.51, hz, 0x6a4226);
-        lit.add(hallMats().candle, new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8), mat(X(1.1), 1.61, hz - 1.1));
-        lit.add(hallMats().candle, new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8), mat(X(1.1), 1.61, hz + 1.1));
+        b.add(m.metal, new THREE.CircleGeometry(0.09, 16), mat(X(1.05) + side * 0.155, 1.78, hz, 0, inward, 0), { tint: 0xf2ead2 });
+        lit.add(m.candle, new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8), mat(X(1.1), 1.61, hz - 1.1));
+        lit.add(m.candle, new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8), mat(X(1.1), 1.61, hz + 1.1));
         box(b, 'woodGrain', 0.08, 0.9, 1.2, X(0.9), 2.0, hz, 0xc8a050);
         box(b, 'cloth', 0.04, 0.72, 1.02, X(0.95), 2.09, hz, 0x6a8a9a);
-        // Armchairs + side table + firewood stack.
-        for (const dz of [-1.3, 1.3]) {
-          const cx = X(3.1);
+        // Three knitted stockings on the mantel (lit).
+        for (let k = 0; k < 3; k++) {
+          const sz = hz - 0.8 + k * 0.8;
+          lit.add(m.cloth, roundedBox(0.06, 0.34, 0.14, 0.04), mat(X(1.35), 1.2, sz), { tint: [0xd8473a, 0x3f7a4a, 0xf2ead2][k]! });
+          lit.add(m.cloth, roundedBox(0.06, 0.1, 0.2, 0.04), mat(X(1.35), 1.05, sz + 0.05), { tint: [0xd8473a, 0x3f7a4a, 0xf2ead2][k]! });
+        }
+        // Armchairs round the fire, a rocking chair, a tall bookcase, a log basket, the woodpile.
+        for (const dz of [-1.35, 1.35]) {
+          const cx = X(3.0);
           box(b, 'cloth', 0.9, 0.45, 0.85, cx, 0, hz + dz, 0x7a3a3a, 0, 0.12);
-          box(b, 'cloth', 0.9, 0.7, 0.2, cx + side * 0.36, 0.4, hz + dz, 0x7a3a3a, 0, 0.1);
+          box(b, 'cloth', 0.2, 0.75, 0.85, cx + side * 0.36, 0.4, hz + dz, 0x7a3a3a, 0, 0.1);
+          for (const s of [-1, 1]) box(b, 'cloth', 0.8, 0.28, 0.14, cx, 0.4, hz + dz + s * 0.38, 0x6a3030, 0, 0.06);
           this.blockRect(cx - 0.45, hz + dz - 0.45, cx + 0.45, hz + dz + 0.45);
         }
-        for (let k = 0; k < 9; k++) b.add(hallMats().woodGrain, new THREE.CylinderGeometry(0.1, 0.1, 0.9, 7).rotateZ(Math.PI / 2), mat(X(7.4), 0.1 + Math.floor(k / 3) * 0.19, f.z0 + 0.55 + (k % 3) * 0.21 + (Math.floor(k / 3) % 2) * 0.1, 0, Math.PI / 2, 0), { tint: [0x8a5a36, 0x7a4a2a, 0x9a6a40][k % 3] });
-        this.blockRect(X(7.4) - 0.5, f.z0 + 0.3, X(7.4) + 0.5, f.z0 + 1.2);
+        lit.add(m.cloth, lumpySphere(0.16, 1, 0.1, r), mat(X(3.0), 0.55, hz - 1.35, 0, 0, 0, 1.4, 0.6, 1), { tint: 0xe89a4a });
+        lit.add(m.cloth, new THREE.TorusGeometry(0.12, 0.035, 5, 12, Math.PI * 1.2), mat(X(3.0) - 0.12, 0.5, hz - 1.2, Math.PI / 2, 0, 0), { tint: 0xe89a4a });
+        const rk = X(4.4);
+        const rz = z + 2.1;
+        for (const s of [-1, 1]) b.add(m.woodGrain, new THREE.TorusGeometry(0.6, 0.03, 4, 18, 0.9).rotateZ(-Math.PI / 2 - 0.45), mat(rk, 0.62, rz + s * 0.24), { tint: 0x6a4226 });
+        box(b, 'woodGrain', 0.5, 0.06, 0.5, rk, 0.42, rz, 0x7a4a2a, 0, 0.02);
+        box(b, 'woodGrain', 0.06, 0.8, 0.5, rk + side * 0.24, 0.45, rz, 0x7a4a2a, 0, 0.02);
+        lit.add(m.cloth, roundedBox(0.44, 0.03, 0.8, 0.01), mat(rk + side * 0.1, 0.62, rz, 0, 0, side * 0.9), { tint: 0x5a8ab8 });
+        this.blockRect(rk - 0.4, rz - 0.4, rk + 0.4, rz + 0.4);
+        const bcx = X(4.6);
+        const bcz = f.z0 + 0.35;
+        // Open-fronted: a back board, sides, a crown, shelves — the books show.
+        box(b, 'woodGrain', 1.9, 2.25, 0.05, bcx, 0, bcz - 0.19, 0x7a4a2a, 0, 0.02);
+        for (const s2 of [-1, 1]) box(b, 'woodGrain', 0.06, 2.25, 0.42, bcx + s2 * 0.92, 0, bcz, 0x9a6a40, 0, 0.02);
+        box(b, 'woodGrain', 2.02, 0.1, 0.48, bcx, 2.25, bcz, 0xa87448, 0, 0.03);
+        for (let k = 0; k < 5; k++) {
+          const y = 0.12 + k * 0.42;
+          box(b, 'woodGrain', 1.8, 0.04, 0.36, bcx, y, bcz + 0.03, 0x9a6a40, 0, 0.01);
+          let x = bcx - 0.82;
+          while (x < bcx + 0.78) {
+            const w = 0.05 + r.next() * 0.05;
+            const h = 0.24 + r.next() * 0.1;
+            if (r.next() > 0.12) b.add(m.cloth, new THREE.BoxGeometry(w, h, 0.26), mat(x + w / 2, y + 0.04 + h / 2, bcz + 0.06, 0, 0, r.next() < 0.1 ? 0.25 : 0), { tint: [0x8a2a2a, 0x2a4a6a, 0x3f6a3a, 0x8a6a2a, 0x6a3a5a, 0xd8c8a0][Math.floor(r.next() * 6)]! });
+            x += w + 0.008;
+          }
+        }
+        this.blockRect(bcx - 0.95, bcz - 0.21, bcx + 0.95, bcz + 0.25);
+        b.add(m.cloth, bevelCylinder(0.3, 0.24, 0.36, 0.03, 12), mat(X(2.0), 0.18, z - 1.9), { tint: 0xa8784a, aoWorld: GAO });
+        for (let k = 0; k < 4; k++) b.add(m.woodGrain, new THREE.CylinderGeometry(0.07, 0.07, 0.6, 7).rotateZ(Math.PI / 2), mat(X(2.0), 0.4, z - 2.02 + k * 0.08, 0, 0.3 + k * 0.4, 0.3), { tint: 0x8a5a36 });
+        this.blockRect(X(2.0) - 0.3, z - 2.2, X(2.0) + 0.3, z - 1.6);
+        for (let k = 0; k < 12; k++) b.add(m.woodGrain, new THREE.CylinderGeometry(0.1, 0.1, 0.9, 7).rotateZ(Math.PI / 2), mat(X(7.6), 0.1 + Math.floor(k / 3) * 0.19, f.z0 + 0.55 + (k % 3) * 0.21 + (Math.floor(k / 3) % 2) * 0.1, 0, Math.PI / 2, 0), { tint: [0x8a5a36, 0x7a4a2a, 0x9a6a40][k % 3] });
+        this.blockRect(X(7.6) - 0.5, f.z0 + 0.3, X(7.6) + 0.5, f.z0 + 1.2);
         break;
       }
       case 'craft': {
-        // Workbench along the outer wall with a pegboard of tools.
-        table(X(0.7), z - 0.2, 0.9, 2.6, 0x7a4a2a);
-        box(b, 'woodGrain', 0.06, 1.2, 2.4, X(0.08), 1.0, z - 0.2, 0xb88a5a);
-        for (let k = 0; k < 6; k++) b.add(hallMats().metal, roundedBox(0.04, 0.35, 0.08, 0.01), mat(X(0.15), 1.5, z - 1.1 + k * 0.36, 0, 0, (r.next() - 0.5) * 0.3), { tint: k % 2 ? 0xa8aeb4 : 0x8a5a36 });
-        // Loom.
-        const lx = X(4.8);
-        const lz = f.z0 + 0.8;
-        for (const dx of [-0.8, 0.8]) box(b, 'woodGrain', 0.1, 1.6, 0.1, lx + dx, 0, lz, 0x8a5a36);
-        box(b, 'woodGrain', 1.8, 0.1, 0.12, lx, 1.55, lz, 0x8a5a36);
-        box(b, 'woodGrain', 1.8, 0.08, 0.5, lx, 0.72, lz + 0.2, 0x8a5a36);
-        lit.add(hallMats().cloth, roundedBox(1.4, 0.7, 0.02, 0.01), mat(lx, 1.15, lz), { tint: 0x5a9a8a });
-        for (let k = 0; k < 5; k++) lit.add(hallMats().cloth, roundedBox(1.4, 0.06, 0.025, 0.01), mat(lx, 0.9 + k * 0.12, lz), { tint: [0xe8b64a, 0xd8573e, 0xf2ead2][k % 3] });
-        this.blockRect(lx - 0.9, lz - 0.2, lx + 0.9, lz + 0.5);
-        // Lumber + stone blocks.
-        for (let k = 0; k < 5; k++) box(b, 'woodGrain', 2.2, 0.12, 0.2, X(7.6), k * 0.12, z + 2.2 - (k % 2) * 0.22, 0xb88a5a, 0, 0.02);
-        for (let k = 0; k < 3; k++) box(b, 'stone', 0.45, 0.35, 0.45, X(8.8 - k * 0.5), 0, z - 1.4 + (k % 2) * 0.3, 0xb0a898);
-        this.blockRect(X(6.5), z + 1.8, X(8.7), z + 2.5);
-        // Spools.
-        for (let k = 0; k < 3; k++) lit.add(hallMats().cloth, new THREE.CylinderGeometry(0.06, 0.06, 0.1, 10), mat(X(0.8), 0.81, z + 0.6 + k * 0.16), { tint: [0xe8574a, 0x4a8ab8, 0xf2c43a][k] });
+        // Hero: the hundred-drawer wall along the outer wall (10 × 10 little drawers, brass pulls,
+        // hand-lettered cards), and the big floor loom beside it.
+        const dx = X(0.3);
+        const dz = z - 0.2;
+        box(b, 'plaster', 0.5, 2.55, 3.3, dx, 0, dz, 0x5f84a8, 0, 0.04);
+        box(b, 'plaster', 0.64, 0.14, 3.5, dx, 2.55, dz, 0x86a6c4, 0, 0.04);
+        for (let i = 0; i < 10; i++)
+          for (let j = 0; j < 10; j++) {
+            const zz = dz - 1.45 + i * 0.322;
+            const y = 0.15 + j * 0.238;
+            const tone = [0xd8a870, 0xc89a64, 0xe0b47c, 0xc0905a][(i * 3 + j * 5) % 4]!;
+            box(b, 'woodGrain', 0.04, 0.21, 0.29, dx + side * 0.27, y, zz, tone, 0, 0.01);
+            b.add(m.metal, new THREE.TorusGeometry(0.025, 0.007, 3, 5, Math.PI).rotateZ(Math.PI), mat(dx + side * 0.3, y + 0.08, zz, 0, inward, 0), { tint: 0xd4a24a });
+            if ((i + j) % 3 === 0) b.add(m.cloth, new THREE.BoxGeometry(0.008, 0.045, 0.1), mat(dx + side * 0.295, y + 0.15, zz), { tint: 0xf2ead2 });
+          }
+        this.blockRect(dx - 0.3, dz - 1.7, dx + 0.35, dz + 1.7);
+        // The floor loom: four posts, beams, a fan of coloured warp, half a blanket woven.
+        const lx = X(3.0);
+        const lz = z + 0.35;
+        for (const [ox, oz] of [[-0.9, -0.65], [0.9, -0.65], [-0.9, 0.65], [0.9, 0.65]] as const) box(b, 'woodGrain', 0.12, 2.15, 0.12, lx + ox, 0, lz + oz, 0xb88a5a, 0, 0.02);
+        for (const oz of [-0.65, 0.65]) box(b, 'woodGrain', 1.95, 0.14, 0.14, lx, 2.05, lz + oz, 0xa87a4a, 0, 0.03);
+        for (const ox of [-0.9, 0.9]) box(b, 'woodGrain', 0.14, 0.14, 1.44, lx + ox, 2.05, lz, 0xa87a4a, 0, 0.03);
+        b.add(m.woodGrain, bevelCylinder(0.09, 0.09, 1.8, 0.02, 10).rotateZ(Math.PI / 2), mat(lx, 0.95, lz + 0.62), { tint: 0xa87a4a });
+        b.add(m.woodGrain, bevelCylinder(0.07, 0.07, 1.8, 0.02, 10).rotateZ(Math.PI / 2), mat(lx, 1.85, lz - 0.6), { tint: 0xa87a4a });
+        box(b, 'woodGrain', 1.8, 0.24, 0.06, lx, 1.35, lz - 0.1, 0x6a4226, 0, 0.02);
+        const warp = [0xe8b64a, 0xd8573e, 0xf2ead2, 0x4a8ab8, 0x5aa86a];
+        for (let k = 0; k < 22; k++) {
+          const wx = lx - 0.8 + k * (1.6 / 21);
+          b.add(m.cloth, new THREE.CylinderGeometry(0.006, 0.006, 1.2, 3), mat(wx, 1.4, lz, -0.95, 0, 0), { tint: warp[k % warp.length]! });
+        }
+        lit.add(m.cloth, roundedBox(1.6, 0.02, 0.62, 0.005), mat(lx, 1.06, lz + 0.32, 0.18, 0, 0), { tint: 0x5a9a8a });
+        for (let k = 0; k < 5; k++) lit.add(m.cloth, roundedBox(1.6, 0.025, 0.07, 0.005), mat(lx, 1.08, lz + 0.08 + k * 0.1, 0.18, 0, 0), { tint: [0xe8b64a, 0xd8573e, 0xf2ead2][k % 3]! });
+        box(b, 'woodGrain', 1.3, 0.07, 0.34, lx, 0.5, lz + 1.15, 0x6a4226, 0, 0.02);
+        for (const s of [-1, 1]) box(b, 'woodGrain', 0.07, 0.5, 0.3, lx + s * 0.55, 0, lz + 1.15, 0x5a3a20, 0, 0.015);
+        this.blockRect(lx - 1.0, lz - 0.75, lx + 1.0, lz + 1.35);
+        // Workbench on the back rail with a pegboard of tools, spools; spinning wheel; yarn basket.
+        const wbx = X(5.9);
+        table(wbx, f.z0 + 0.6, 2.2, 0.7, 0x7a4a2a, 0.8);
+        box(b, 'woodGrain', 2.1, 0.9, 0.05, wbx, 0.95, f.z0 + 0.27, 0xb88a5a, 0, 0.01);
+        for (let k = 0; k < 7; k++) b.add(m.metal, roundedBox(0.05, 0.36, 0.05, 0.01), mat(wbx - 0.85 + k * 0.28, 1.35, f.z0 + 0.32, 0, 0, (r.next() - 0.5) * 0.4), { tint: k % 2 ? 0xa8aeb4 : 0x8a5a36 });
+        for (let k = 0; k < 3; k++) b.add(m.cloth, new THREE.CylinderGeometry(0.06, 0.06, 0.1, 10), mat(wbx - 0.6 + k * 0.18, 0.93, f.z0 + 0.7), { tint: [0xe8574a, 0x4a8ab8, 0xf2c43a][k]! });
+        const swx = X(7.7);
+        const swz = f.z1 - 1.0;
+        b.add(m.woodGrain, new THREE.TorusGeometry(0.42, 0.035, 6, 24), mat(swx, 0.82, swz, 0, inward, 0), { tint: 0x9a6a40 });
+        for (let k = 0; k < 8; k++) b.add(m.woodGrain, new THREE.CylinderGeometry(0.012, 0.012, 0.82, 4), mat(swx, 0.82, swz, (k / 8) * Math.PI, inward, 0), { tint: 0xb88a5a });
+        box(b, 'woodGrain', 1.1, 0.08, 0.3, swx - side * 0.2, 0.35, swz, 0x7a4a2a, 0, 0.02);
+        for (const s of [-1, 1]) b.add(m.woodGrain, new THREE.CylinderGeometry(0.025, 0.03, 0.62, 6), mat(swx + s * 0.36, 0.2, swz + 0.1, 0, 0, s * 0.18), { tint: 0x6a4226 });
+        this.blockRect(swx - 0.6, swz - 0.35, swx + 0.6, swz + 0.35);
+        b.add(m.cloth, bevelCylinder(0.3, 0.24, 0.3, 0.03, 12), mat(X(5.6), 0.15, f.z1 - 0.55), { tint: 0xa8784a, aoWorld: GAO });
+        for (let k = 0; k < 5; k++) b.add(m.cloth, lumpySphere(0.12, 1, 0.06, r), mat(X(5.6) + (r.next() - 0.5) * 0.3, 0.36 + (k > 2 ? 0.1 : 0), f.z1 - 0.55 + (r.next() - 0.5) * 0.3), { tint: [0xe8574a, 0x4a8ab8, 0xf2c43a, 0x7ac06a, 0xf2ead2][k]! });
+        this.blockRect(X(5.6) - 0.32, f.z1 - 0.85, X(5.6) + 0.32, f.z1 - 0.25);
+        for (let k = 0; k < 5; k++) box(b, 'woodGrain', 1.6, 0.1, 0.18, X(8.3), k * 0.1, f.z0 + 0.5 + (k % 2) * 0.2, 0xc89a64, 0, 0.02);
+        this.blockRect(X(7.5), f.z0 + 0.3, X(9.1), f.z0 + 0.9);
         break;
       }
       case 'tide': {
-        // Two aquariums on stands along the outer wall.
-        for (const dz of [-1.2, 1.2]) {
-          const ax = X(0.75);
-          box(b, 'woodGrain', 1.0, 0.7, 2.0, ax, 0, z + dz * 0.95, 0x5a4a3a);
-          b.add(hallMats().glass, roundedBox(0.9, 0.8, 1.9, 0.02), mat(ax, 1.1, z + dz * 0.95));
-          lit.add(hallMats().water, roundedBox(0.84, 0.66, 1.84, 0.01), mat(ax, 1.05, z + dz * 0.95));
-          dark.add(hallMats().cloth, roundedBox(0.84, 0.08, 1.84, 0.01), mat(ax, 0.76, z + dz * 0.95), { tint: 0x6a6450 });
-          for (let k = 0; k < 4; k++) lit.add(hallMats().leaf, new THREE.ConeGeometry(0.05, 0.35 + r.next() * 0.2, 5), mat(ax + (r.next() - 0.5) * 0.5, 0.95, z + dz * 0.95 + (r.next() - 0.5) * 1.4), { tint: 0x3a9a5a });
-          this.blockRect(ax - 0.5, z + dz * 0.95 - 1, ax + 0.5, z + dz * 0.95 + 1);
+        // Hero: two big lit tanks on stands along the back (their water is its own caustic material),
+        // and the painted rowboat hung on the outer wall.
+        for (const [u, w] of [[2.0, 2.2], [4.15, 1.5]] as const) {
+          const ax = X(u);
+          const az = f.z0 + 0.6;
+          box(b, 'woodGrain', w + 0.12, 0.7, 0.86, ax, 0, az, 0x3f5a6a, 0, 0.03);
+          box(b, 'woodGrain', w + 0.2, 0.06, 0.94, ax, 0.7, az, 0x2f4a5a, 0, 0.02);
+          b.add(m.glass, roundedBox(w, 1.0, 0.76, 0.02), mat(ax, 1.24, az));
+          for (const s of [-1, 1]) box(b, 'metal', 0.05, 1.02, 0.05, ax + s * (w / 2), 0.73, az + 0.38, 0x2e2a28, 0, 0.01);
+          box(b, 'metal', w + 0.06, 0.05, 0.8, ax, 1.74, az, 0x2e2a28, 0, 0.01);
+          lit.add(this.waterMat(), roundedBox(w - 0.06, 0.82, 0.68, 0.01), mat(ax, 1.16, az));
+          for (let k = 0; k < 5; k++) lit.add(m.leaf, new THREE.ConeGeometry(0.05, 0.4 + r.next() * 0.3, 5), mat(ax + (r.next() - 0.5) * (w - 0.2), 0.95, az + (r.next() - 0.5) * 0.4), { tint: [0x3a9a5a, 0x5ab86a, 0x2f7a4a][k % 3]! });
+          for (let k = 0; k < 4; k++) lit.add(m.leaf, new THREE.SphereGeometry(0.06, 8, 6).scale(1.8, 0.8, 0.6), mat(ax + (r.next() - 0.5) * (w - 0.3), 1.1 + r.next() * 0.4, az + (r.next() - 0.5) * 0.3, 0, r.next() * 0.6, 0), { tint: [0xf29a3a, 0xf2d43a, 0xe8574a, 0x9ad8ff][k]! });
+          b.add(m.cloth, lumpySphere(0.08, 0, 0.3, r), mat(ax - w * 0.3, 0.8, az, 0, 0, 0, 1.6, 0.5, 1), { tint: 0xd8c8a0 });
+          this.blockRect(ax - w / 2 - 0.06, az - 0.45, ax + w / 2 + 0.06, az + 0.45);
         }
-        // Rowboat hanging on the knee wall side / crab pots / anchor.
-        // A painted rowboat on trestles: hull (bowl-up), cream gunwale, thwarts and a pair of oars.
-        const bx = X(5.2);
-        const bz = f.z1 - 0.9;
-        const hull = new THREE.SphereGeometry(1, 20, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-        hull.scale(1.3, 0.42, 0.52);
-        b.add(hallMats().woodGrain, hull, mat(bx, 0.72, bz), { tint: 0x4a9ab8 });
-        b.add(hallMats().woodGrain, new THREE.TorusGeometry(1, 0.05, 5, 28).scale(1.3, 0.52, 1), mat(bx, 0.72, bz, Math.PI / 2, 0, 0), { tint: 0xf2ead2 });
-        b.add(hallMats().woodGrain, new THREE.CircleGeometry(1, 24).scale(1.22, 0.46, 1), mat(bx, 0.6, bz, -Math.PI / 2, 0, 0), { tint: 0xb88a5a });
-        for (const dx of [-0.45, 0.35]) b.add(hallMats().woodGrain, roundedBox(0.16, 0.05, 0.92, 0.015), mat(bx + dx, 0.66, bz), { tint: 0xc89a64 });
-        for (const dx of [-0.9, 0.9]) box(b, 'woodGrain', 0.12, 0.34, 0.7, bx + dx, 0, bz, 0x6a4226);
+        // The rowboat on wall brackets: tipped towards the room so its painted inside and thwarts show.
+        const bx = X(0.42);
+        const bz = z - 0.3;
+        const tilt = -side * 1.05;
+        const T = mat(bx, 1.75, bz, 0, 0, tilt);
+        const L = (x: number, y: number, zz: number, rx = 0, ry = 0, rz = 0): THREE.Matrix4 => T.clone().multiply(mat(x, y, zz, rx, ry, rz));
+        const hull = new THREE.SphereGeometry(1, 22, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+        hull.scale(0.5, 0.4, 1.35);
+        b.add(m.woodGrain, hull, L(0, 0, 0), { tint: 0x3a8ab0 });
+        b.add(m.woodGrain, new THREE.TorusGeometry(1, 0.05, 5, 28).scale(0.5, 1.35, 1), L(0, 0, 0, Math.PI / 2, 0, 0), { tint: 0xf2ead2 });
+        b.add(m.woodGrain, new THREE.CircleGeometry(1, 24).scale(0.46, 1.25, 1), L(0, -0.14, 0, -Math.PI / 2, 0, 0), { tint: 0xd8573e });
+        for (const dz of [-0.45, 0.35]) b.add(m.woodGrain, roundedBox(0.9, 0.05, 0.16, 0.015), L(0, -0.06, dz), { tint: 0xc89a64 });
+        for (const dz of [-0.9, 0.9]) box(b, 'metal', 0.3, 0.06, 0.08, X(0.18), 1.2, bz + dz, 0x2e2a28, 0, 0.01);
         for (const s of [-1, 1]) {
-          b.add(hallMats().woodGrain, new THREE.CylinderGeometry(0.03, 0.03, 1.9, 6), mat(bx + 0.1, 0.8, bz + s * 0.18, 0, 0, Math.PI / 2 + s * 0.06), { tint: 0xd8b07a });
-          b.add(hallMats().woodGrain, roundedBox(0.36, 0.02, 0.12, 0.01), mat(bx + 1.05, 0.8 + s * 0.06, bz + s * 0.18, 0, 0, s * 0.06), { tint: 0xd84a3a });
+          b.add(m.woodGrain, new THREE.CylinderGeometry(0.03, 0.03, 2.0, 6), mat(X(0.12), 1.9, z + 2.0, 0.7 * s, 0, 0), { tint: 0xd8b07a });
+          b.add(m.woodGrain, roundedBox(0.04, 0.42, 0.14, 0.01), mat(X(0.12), 1.9 + Math.cos(0.7) * 0.95, z + 2.0 + s * Math.sin(0.7) * 0.95, 0.7 * s, 0, 0), { tint: 0xd84a3a });
         }
-        this.blockRect(bx - 1.4, f.z1 - 1.4, bx + 1.4, f.z1 - 0.4);
+        // Net swags with cork floats along the outer wall, buoys, an anchor, crab pots, a rope coil.
+        for (let k = 0; k < 2; k++) {
+          const z0 = f.z0 + 0.4 + k * 2.7;
+          const z1 = z0 + 2.4;
+          const N = 12;
+          for (let q = 0; q < N; q++) {
+            const t0 = q / N;
+            const t1 = (q + 1) / N;
+            const y0 = 3.1 - Math.sin(t0 * Math.PI) * 0.7;
+            const y1 = 3.1 - Math.sin(t1 * Math.PI) * 0.7;
+            const za = z0 + (z1 - z0) * t0;
+            const zb = z0 + (z1 - z0) * t1;
+            b.add(m.cloth, hangQuad(X(0.1), y0, za, y1, zb, 0.5), undefined, { tint: 0x9a9070 });
+            if (q % 2 === 0) b.add(m.cloth, bevelCylinder(0.045, 0.045, 0.1, 0.01, 8), mat(X(0.12), y0 + 0.02, za, Math.PI / 2, 0, 0), { tint: 0xd8a048 });
+          }
+        }
+        for (let k = 0; k < 3; k++) {
+          const bz2 = f.z0 + 0.5 + k * 0.42;
+          b.add(m.cloth, new THREE.SphereGeometry(0.16, 12, 10).scale(1, 1.2, 1), mat(X(0.2), 2.25 - k * 0.12, bz2), { tint: k % 2 ? 0xf2ead2 : 0xd8473a });
+          b.add(m.cloth, new THREE.CylinderGeometry(0.008, 0.008, 0.5, 3), mat(X(0.2), 2.6 - k * 0.12, bz2), { tint: 0x8a7a5a });
+        }
+        const anx = X(7.9);
+        const anz = f.z1 - 0.55;
+        b.add(m.metal, roundedBox(0.1, 1.3, 0.1, 0.03), mat(anx, 0.62, anz, 0.25, 0, 0), { tint: 0x3a3a40 });
+        b.add(m.metal, new THREE.TorusGeometry(0.42, 0.06, 6, 18, Math.PI), mat(anx, 0.15, anz - 0.15, Math.PI + 0.25, 0, 0), { tint: 0x3a3a40 });
+        b.add(m.metal, new THREE.TorusGeometry(0.12, 0.03, 6, 14), mat(anx, 1.34, anz + 0.3, 0.25, 0, 0), { tint: 0x3a3a40 });
+        box(b, 'metal', 0.7, 0.08, 0.08, anx, 1.05, anz + 0.22, 0x3a3a40, 0, 0.02);
+        this.blockRect(anx - 0.45, anz - 0.5, anx + 0.45, anz + 0.3);
         for (let k = 0; k < 2; k++) {
           const cx = X(8.2 + k * 0.7);
-          b.add(hallMats().woodGrain, new THREE.CylinderGeometry(0.3, 0.3, 0.45, 8, 1, true), mat(cx, 0.23, f.z0 + 0.7), { tint: 0x8a6a48 });
-          b.add(hallMats().cloth, new THREE.CylinderGeometry(0.28, 0.28, 0.02, 8), mat(cx, 0.45, f.z0 + 0.7), { tint: 0x9aa890 });
+          b.add(m.woodGrain, new THREE.CylinderGeometry(0.3, 0.3, 0.45, 8, 1, true), mat(cx, 0.23, f.z0 + 0.7), { tint: 0x8a6a48 });
+          b.add(m.cloth, new THREE.CylinderGeometry(0.28, 0.28, 0.02, 8), mat(cx, 0.45, f.z0 + 0.7), { tint: 0x9aa890 });
         }
         this.blockRect(X(8.2) - 0.3, f.z0 + 0.35, X(8.9) + 0.3, f.z0 + 1.05);
-        // Net draped on the back half wall.
-        b.add(hallMats().cloth, new THREE.PlaneGeometry(2.4, 0.9, 6, 3), mat(X(4.5), 1.0, f.z0 + 0.2), { tint: 0x9a9070 });
+        for (let k = 0; k < 5; k++) b.add(m.cloth, new THREE.TorusGeometry(0.28 - k * 0.035, 0.035, 6, 20).rotateX(Math.PI / 2), mat(X(4.6), 0.04 + k * 0.05, f.z1 - 0.6), { tint: 0xc8a878, aoWorld: GAO });
+        this.blockRect(X(4.6) - 0.3, f.z1 - 0.9, X(4.6) + 0.3, f.z1 - 0.3);
         break;
       }
     }
+    void P;
   }
 
+  /**
+   * Derelict: not dust sheets and black boxes but a story of neglect — boards split to the soil,
+   * weeds through the gaps, ivy in from the outer wall, a fallen banner, toppled chairs, leaf drifts,
+   * cobwebs in the corners and over the lantern, the room's own goods spoiled (dry trays, dead
+   * lemons, an empty press, cracked tanks).
+   */
   private dressDark(b: B, f: RoomFrame): void {
     const r = this.rng.fork(`dark-${f.def.id}`);
     const m = hallMats();
-    const { X } = f;
+    const { X, side } = f;
     const z = f.def.z;
-    // Dust sheets over the furniture: dull beige-grey, heavy folds (not bright marshmallows).
-    const sheets = f.def.id === 'hearth' ? [[3.1, -1.3], [3.1, 1.3]] : f.def.id === 'harvest' ? [[3.4, 1.2]] : f.def.id === 'sun' ? [[3.2, 2.1]] : [[5.4, 2.2]];
-    const SHEET = [0x8c8476, 0x857d70, 0x91887a];
-    for (const [u, dz] of sheets) {
-      const w = 1.3 + r.next() * 0.5;
-      b.add(m.cloth, drapedSheet(r, w, 0.95 + r.next() * 0.35, w * (0.7 + r.next() * 0.2)), mat(X(u!), 0, z + dz!, 0, (r.next() - 0.5) * 0.6, 0), { tint: SHEET[Math.floor(r.next() * 3)]! });
-    }
-    b.add(m.cloth, drapedSheet(r, 0.75, 0.85, 0.7), mat(X(6.3), 0, z - 1.9, 0, r.next(), 0), { tint: 0x837b6e });
-    b.add(m.cloth, drapedSheet(r, 1.0, 0.22, 0.7), mat(X(8.2), 0, z + 2.3, 0, r.next() * 3, 0), { tint: 0x7c7468 });
-    // Blown-in leaves, drifted towards the walls.
-    for (let k = 0; k < 40; k++) {
-      const leaf = new THREE.CircleGeometry(0.07 + r.next() * 0.05, 5);
-      leaf.rotateX(-Math.PI / 2);
-      const u = k < 22 ? 0.3 + r.next() * 1.4 : 1.5 + r.next() * 8;
-      b.add(m.leaf, leaf, mat(X(u), 0.012 + k * 0.0004, z + (r.next() - 0.5) * 5.4, 0, r.next() * 6, 0), { tint: [0x8a4a24, 0xa8602c, 0x6a4a2a, 0x7a6a34][k % 4] });
-    }
-    // Toppled crates, a broken chair, barrel staves, plaster fallen from the ceiling.
-    b.add(m.woodGrain, boxUV(roundedBox(0.55, 0.45, 0.55, 0.03), 1), mat(X(7.2), 0.25, z + 0.9, 0.2, 0.6, 1.3), { tint: 0x7a5a3a });
-    b.add(m.woodGrain, boxUV(roundedBox(0.5, 0.5, 0.5, 0.03), 1), mat(X(8.6), 0.25, z - 0.6, 0, 0.3, 0), { tint: 0x6a4a30 });
-    b.add(m.woodGrain, boxUV(roundedBox(0.42, 0.36, 0.42, 0.03), 1), mat(X(8.5), 0.68, z - 0.55, 0, 0.9, 0.12), { tint: 0x7a5a3a });
-    for (let k = 0; k < 4; k++) b.add(m.woodGrain, roundedBox(0.09, 0.03, 0.7, 0.01), mat(X(6.2 + r.next() * 1.5), 0.02, z - 2.2 + r.next() * 1.2, 0, r.next() * 3, 0.05), { tint: 0x6a4a2a });
-    const cx = X(1.6);
-    const cz = z - 2.1;
-    b.add(m.woodGrain, roundedBox(0.44, 0.05, 0.44, 0.02), mat(cx, 0.2, cz, 0.3, 0.4, 1.35), { tint: 0x7a5234 });
-    for (const [dx, dz, rx] of [[-0.18, -0.18, 0.9], [0.2, 0.1, 1.2], [0.05, 0.25, 0.4]] as const) b.add(m.woodGrain, roundedBox(0.05, 0.45, 0.05, 0.015), mat(cx + dx, 0.06, cz + dz, rx, r.next() * 3, 0), { tint: 0x6a4226 });
-    for (let k = 0; k < 7; k++) b.add(m.plaster, lumpySphere(0.07 + r.next() * 0.1, 0, 0.3, r), mat(X(2.5 + r.next() * 5), 0.03, z + (r.next() - 0.5) * 4.6, 0, 0, 0, 1, 0.45, 1), { tint: 0xc8bca6 });
-    // Dry, dead stalks in the plinth vase.
+    // One dust sheet, only where it reads as furniture (the armchairs by the cold hearth).
+    if (f.def.id === 'hearth') b.add(m.cloth, drapedSheet(r, 1.3, 0.28, 0.9), mat(X(3.0), 0.45, z + 1.55, 0, 0.3, 0.1), { tint: 0x9a9284 });
+    // Blown-in leaves, drifted into the corners and along the wall feet.
+    const leafDrift = (cx: number, cz: number, n: number, rad: number): void => {
+      for (let k = 0; k < n; k++) {
+        const a = r.next() * Math.PI * 2;
+        const d = Math.pow(r.next(), 1.6) * rad;
+        const leaf = new THREE.CircleGeometry(0.07 + r.next() * 0.05, 5);
+        leaf.rotateX(-Math.PI / 2);
+        b.add(m.leaf, leaf, mat(cx + Math.cos(a) * d, 0.012 + k * 0.0003, cz + Math.sin(a) * d * 0.7, (r.next() - 0.5) * 0.3, r.next() * 6, 0), { tint: [0x9a5a24, 0xb8702c, 0x7a5a2a, 0x8a7a34, 0xa8402a][k % 5]! });
+      }
+    };
+    leafDrift(X(0.5), f.z0 + 0.5, 22, 0.9);
+    leafDrift(X(0.5), f.z1 - 0.5, 16, 0.8);
+    leafDrift(X(8.8), f.z1 - 0.4, 14, 0.8);
+    // A toppled chair and a knocked-over stool.
+    const cx = X(1.9);
+    const cz = z - 0.4;
+    b.add(m.woodGrain, roundedBox(0.44, 0.05, 0.44, 0.02), mat(cx, 0.22, cz, 0, 0.4, Math.PI / 2 - 0.1), { tint: 0x9a6a40 });
+    b.add(m.woodGrain, roundedBox(0.44, 0.5, 0.05, 0.02), mat(cx - 0.3, 0.05, cz, Math.PI / 2, 0.4, 0), { tint: 0x9a6a40 });
+    for (const [dx, dz] of [[0.2, -0.18], [0.2, 0.18]] as const) b.add(m.woodGrain, roundedBox(0.4, 0.05, 0.05, 0.015), mat(cx + dx + 0.1, 0.05 + (dz > 0 ? 0.36 : 0.06), cz + dz, 0, 0.4, 0), { tint: 0x8a5a36 });
+    b.add(m.woodGrain, bevelCylinder(0.18, 0.18, 0.05, 0.01, 12), mat(X(7.4), 0.2, z + 1.6, Math.PI / 2 - 0.2, r.next(), 0), { tint: 0x8a5a36 });
+    for (let k = 0; k < 3; k++) b.add(m.woodGrain, new THREE.CylinderGeometry(0.02, 0.025, 0.45, 5).rotateZ(Math.PI / 2), mat(X(7.2) + (r.next() - 0.5) * 0.3, 0.03, z + 1.3 + k * 0.12, 0, r.next() * 3, 0), { tint: 0x7a4a2a });
+    // Plaster fallen from the walls, a broken pot, spilled soil.
+    for (let k = 0; k < 7; k++) b.add(m.plaster, lumpySphere(0.07 + r.next() * 0.1, 0, 0.3, r), mat(X(2.5 + r.next() * 5), 0.03, z + (r.next() - 0.5) * 4.6, 0, 0, 0, 1, 0.45, 1), { tint: 0xd8ccb6 });
+    const bpx = X(6.3);
+    const bpz = z + 2.2;
+    for (let k = 0; k < 4; k++) b.add(m.cloth, new THREE.CylinderGeometry(0.15, 0.12, 0.2, 8, 1, true, k * 1.4, 1.2), mat(bpx + (r.next() - 0.5) * 0.4, 0.06, bpz + (r.next() - 0.5) * 0.3, Math.PI / 2 * r.next(), r.next() * 3, 0), { tint: 0xb8643e });
+    b.add(m.cloth, lumpySphere(0.28, 1, 0.14, r), mat(bpx, 0.02, bpz, 0, 0, 0, 1.4, 0.18, 1), { tint: 0x4a3222 });
+    // Dry stalks in the plinth vase.
     b.add(m.cloth, bevelCylinder(0.09, 0.07, 0.24, 0.02, 8), mat(f.plinth.x + f.side * 0.62, 0.12, f.plinth.z + 0.5), { tint: 0x6a5a4a });
     for (let k = 0; k < 4; k++) b.add(m.leaf, new THREE.CylinderGeometry(0.008, 0.012, 0.42, 4), mat(f.plinth.x + f.side * 0.62, 0.42, f.plinth.z + 0.5, (r.next() - 0.5) * 0.9, 0, (r.next() - 0.5) * 0.9), { tint: 0x6a5a3a });
-    // Weeds pushing up through the broken floor and along the wall foot; ivy creeping in at the outer wall.
+    // Weeds up through the broken floor, splintered boards standing proud of the holes.
     const weed = (x: number, zz: number, n: number, h: number): void => {
       for (let k = 0; k < n; k++) {
         const blade = leafBlade(h * (0.6 + r.next() * 0.6), 0.05 + r.next() * 0.04, 0.35 + r.next() * 0.4, 3);
-        b.add(m.leaf, blade, mat(x + (r.next() - 0.5) * 0.25, 0, zz + (r.next() - 0.5) * 0.25, (r.next() - 0.5) * 0.4, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.4), { tint: [0x5a7a34, 0x6a8a3a, 0x4a6a2e, 0x7a8a44][k % 4] });
+        b.add(m.leaf, blade, mat(x + (r.next() - 0.5) * 0.3, 0, zz + (r.next() - 0.5) * 0.3, (r.next() - 0.5) * 0.4, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.4), { tint: [0x5a8a34, 0x6a9a3a, 0x4a7a2e, 0x7a9a44][k % 4]! });
       }
     };
-    for (const [hx, hz, , , kind] of HOLES) {
+    for (const [hx, hz, hw, hd, kind] of HOLES) {
       if (Math.abs(hx - f.def.x) > 5.2 || Math.abs(hz - z) > 3.1) continue;
-      weed(hx, hz, kind === 'flag' ? 9 : 6, kind === 'flag' ? 0.5 : 0.42);
-      if (kind === 'plank') {
-        // Splintered board ends standing proud of the hole.
-        for (let k = 0; k < 4; k++) {
-          const a = (k / 4) * Math.PI * 2 + r.next();
-          b.add(m.woodGrain, roundedBox(0.1, 0.03, 0.34 + r.next() * 0.2, 0.01), mat(hx + Math.cos(a) * 0.3, 0.05, hz + Math.sin(a) * 0.45, (r.next() - 0.5) * 0.7, r.next() * 0.3, (r.next() - 0.5) * 0.5), { tint: 0x9a7048 });
-        }
-      } else if (kind === 'tile') {
-        for (let k = 0; k < 3; k++) b.add(m.stone, roundedBox(0.2, 0.03, 0.18, 0.01), mat(hx + (r.next() - 0.5) * 1.5, 0.015, hz + (r.next() - 0.5) * 1.3, 0, r.next() * 3, (r.next() - 0.5) * 0.3), { tint: 0x8a8274 });
-      }
+      weed(hx, hz, kind === 'flag' ? 11 : 8, kind === 'flag' ? 0.55 : 0.45);
+      this.splinters(b, r, hx, hz, hw, hd, kind);
     }
-    for (let k = 0; k < 3; k++) weed(X(0.35), z - 2.4 + k * 2.2 + r.next() * 0.4, 5, 0.34);
-    // Ivy: stems climbing the outer wall from a floor crack, clusters of leaves along them.
-    for (let v = 0; v < 2; v++) {
-      const vz = z - 1.6 + v * 3.1 + r.next() * 0.5;
+    for (let k = 0; k < 3; k++) weed(X(0.35), z - 2.4 + k * 2.2 + r.next() * 0.4, 6, 0.38);
+    // Ivy: stems climbing the outer wall from floor cracks, spreading onto the floor in a mat.
+    for (let v = 0; v < 3; v++) {
+      const vz = z - 2.2 + v * 2.2 + r.next() * 0.5;
       let y = 0;
       let dz = 0;
-      for (let k = 0; k < 11; k++) {
+      const H = 9 + Math.floor(r.next() * 6);
+      for (let k = 0; k < H; k++) {
         const ny = y + 0.2 + r.next() * 0.1;
-        const ndz = dz + (r.next() - 0.5) * 0.22;
+        const ndz = dz + (r.next() - 0.5) * 0.24;
         b.add(m.leaf, new THREE.CylinderGeometry(0.012, 0.015, ny - y + 0.03, 4), mat(X(0.08), (y + ny) / 2, vz + (dz + ndz) / 2, (ndz - dz) * 1.5, 0, 0), { tint: 0x4a5a2a });
-        for (let q = 0; q < 2; q++) b.add(m.leaf, lumpySphere(0.06 + r.next() * 0.04, 0, 0.3, r), mat(X(0.12), ny, vz + ndz + (q ? 0.08 : -0.08), 0, 0, 0, 0.35, 1, 1), { tint: [0x4a7a30, 0x5a8a36, 0x3f6a2a][Math.floor(r.next() * 3)]! });
+        for (let q = 0; q < 2; q++) b.add(m.leaf, lumpySphere(0.07 + r.next() * 0.04, 0, 0.3, r), mat(X(0.12), ny, vz + ndz + (q ? 0.09 : -0.09), 0, 0, 0, 0.35, 1, 1), { tint: [0x4a7a30, 0x5a8a36, 0x3f6a2a][Math.floor(r.next() * 3)]! });
         y = ny;
         dz = ndz;
       }
+      for (let k = 0; k < 9; k++) b.add(m.leaf, lumpySphere(0.08 + r.next() * 0.05, 0, 0.3, r), mat(X(0.2 + r.next() * 0.9), 0.03, vz + (r.next() - 0.5) * 0.9, 0, 0, 0, 1, 0.3, 1), { tint: [0x4a7a30, 0x5a8a36, 0x3f6a2a][k % 3]! });
     }
-    // Cobwebs: in the outer back corner (high), over the plinth lantern, between a shelf and the wall.
+    // Cobwebs: the outer back corner (high), the outer front corner, over the lantern, shelf to wall.
     const webG = (s: number): THREE.BufferGeometry => new THREE.CircleGeometry(s, 10, 0, Math.PI / 2);
-    b.add(m.web, webG(1.0), mat(X(0.22), f.def.id === 'hearth' ? 3.8 : 2.4, f.z0 + 0.22, 0, f.side > 0 ? Math.PI / 4 : -Math.PI / 4 - Math.PI / 2, Math.PI));
-    b.add(m.web, webG(0.8), mat(X(0.22), 2.3, f.z1 - 0.3, 0, f.side > 0 ? -Math.PI / 4 - Math.PI / 2 + Math.PI : Math.PI / 4, Math.PI));
-    b.add(m.web, new THREE.CircleGeometry(0.42, 10), mat(f.plinth.x, 1.66, f.plinth.z + 0.3, 0, 0, 0.3));
+    b.add(m.web, webG(1.1), mat(X(0.22), f.def.id === 'hearth' ? 3.8 : 2.4, f.z0 + 0.22, 0, f.side > 0 ? Math.PI / 4 : -Math.PI / 4 - Math.PI / 2, Math.PI));
+    b.add(m.web, webG(0.9), mat(X(0.22), 2.3, f.z1 - 0.3, 0, f.side > 0 ? -Math.PI / 4 - Math.PI / 2 + Math.PI : Math.PI / 4, Math.PI));
+    b.add(m.web, new THREE.CircleGeometry(0.42, 10), mat(f.plinth.x, 1.72, f.plinth.z + 0.34, 0, 0, 0.3));
     b.add(m.web, new THREE.PlaneGeometry(0.9, 0.7), mat(f.plinth.x + f.side * 0.8, 1.05, f.plinth.z + 0.12, 0, 0, 0));
-    // The Tide Room's tanks: dry, cracked, crusted.
+    // The room's own goods, spoiled.
     if (f.def.id === 'tide') {
-      for (const dz of [-1.2, 1.2]) {
-        const ax = X(0.75);
-        const az = z + dz * 0.95;
-        b.add(m.web, new THREE.PlaneGeometry(1.8, 0.76), mat(ax - f.side * 0.47, 1.1, az, 0, f.side > 0 ? Math.PI / 2 : -Math.PI / 2, 0));
-        b.add(m.cloth, roundedBox(0.84, 0.06, 1.84, 0.01), mat(ax, 0.73, az), { tint: 0x7a6a4a });
-        for (let k = 0; k < 6; k++) b.add(m.leaf, lumpySphere(0.05, 0, 0.3, r), mat(ax + (r.next() - 0.5) * 0.6, 0.78, az + (r.next() - 0.5) * 1.6, 0, 0, 0, 1, 0.4, 1), { tint: 0x5a6a3a });
+      for (const u of [2.0, 4.15]) {
+        const ax = X(u);
+        const az = f.z0 + 0.6;
+        b.add(m.web, new THREE.PlaneGeometry(1.2, 0.9), mat(ax, 1.24, az + 0.39));
+        b.add(m.cloth, roundedBox(u === 2 ? 2.1 : 1.4, 0.06, 0.7, 0.01), mat(ax, 0.8, az), { tint: 0x8a7a54 });
+        for (let k = 0; k < 6; k++) b.add(m.leaf, lumpySphere(0.05, 0, 0.3, r), mat(ax + (r.next() - 0.5) * 1.2, 0.84, az + (r.next() - 0.5) * 0.5, 0, 0, 0, 1, 0.4, 1), { tint: 0x5a6a3a });
       }
-      // A shattered pane on the floor.
-      for (let k = 0; k < 8; k++) b.add(m.glass, new THREE.CircleGeometry(0.06 + r.next() * 0.08, 3).rotateX(-Math.PI / 2), mat(X(1.5) + (r.next() - 0.5) * 0.8, 0.012, z - 0.2 + (r.next() - 0.5) * 1.2, 0, r.next() * 3, 0));
+      for (let k = 0; k < 10; k++) b.add(m.glass, new THREE.CircleGeometry(0.06 + r.next() * 0.09, 3).rotateX(-Math.PI / 2), mat(X(2.4) + (r.next() - 0.5) * 1.2, 0.012, f.z0 + 1.4 + (r.next() - 0.5) * 0.6, 0, r.next() * 3, 0));
+    }
+    if (f.def.id === 'harvest') for (let k = 0; k < 6; k++) b.add(m.woodGrain, roundedBox(0.09, 0.03, 0.62, 0.01), mat(X(1.3) + (r.next() - 0.5) * 1.4, 0.02, f.z0 + 1.9 + (r.next() - 0.5) * 0.6, 0, r.next() * 3, 0.05), { tint: 0x7a5234 });
+    if (f.def.id === 'craft') for (let k = 0; k < 6; k++) b.add(m.cloth, new THREE.TorusGeometry(0.2 + r.next() * 0.2, 0.01, 3, 16, 2 + r.next() * 2), mat(X(3.2) + (r.next() - 0.5) * 1.5, 0.02, z + 1.7 + (r.next() - 0.5) * 0.6, Math.PI / 2, 0, r.next() * 6), { tint: [0xa88a5a, 0x8a7a64][k % 2]! });
+    void side;
+  }
+
+  /** Splintered boards / chipped tiles standing proud round a hole in the floor. */
+  private splinters(b: B, r: Rng, hx: number, hz: number, hw: number, hd: number, kind: string): void {
+    const m = hallMats();
+    if (kind === 'plank') {
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + r.next();
+        b.add(m.woodGrain, roundedBox(0.12, 0.035, 0.36 + r.next() * 0.3, 0.01), mat(hx + Math.cos(a) * hw * 0.5, 0.05 + r.next() * 0.04, hz + Math.sin(a) * hd * 0.5, (r.next() - 0.5) * 0.9, r.next() * 0.4, (r.next() - 0.5) * 0.6), { tint: [0xb8844e, 0xa87448, 0xc89a64][k % 3]! });
+      }
+    } else if (kind === 'tile') {
+      for (let k = 0; k < 5; k++) b.add(m.stone, roundedBox(0.22, 0.035, 0.2, 0.01), mat(hx + (r.next() - 0.5) * hw * 1.6, 0.02, hz + (r.next() - 0.5) * hd * 1.6, (r.next() - 0.5) * 0.4, r.next() * 3, (r.next() - 0.5) * 0.4), { tint: 0x9a9284 });
+    } else {
+      for (let k = 0; k < 4; k++) b.add(m.stone, lumpySphere(0.12 + r.next() * 0.08, 0, 0.3, r), mat(hx + (r.next() - 0.5) * hw, 0.04, hz + (r.next() - 0.5) * hd, 0, 0, 0, 1.2, 0.4, 1), { tint: 0x9a9082 });
     }
   }
 
@@ -1364,13 +1994,22 @@ export class HallMap implements GameMap {
     const m = hallMats();
     const accent = f.def.color;
     // Woven room rug (its own texture) with a tasselled fringe at both ends.
-    const rx = f.X(4.6);
-    const rz = f.def.z + 0.9;
+    const RUG: Record<RoomId, [number, number, number, number]> = {
+      seed: [4.2, 0.2, 3.0, 1.9],
+      sun: [4.6, 0.9, 3.2, 1.9],
+      harvest: [4.4, -0.4, 2.6, 1.6],
+      hearth: [2.6, 0.2, 2.4, 2.8],
+      craft: [5.8, 1.0, 2.2, 1.7],
+      tide: [5.4, 1.2, 2.8, 1.8],
+    };
+    const [ru, rdz, rw, rd] = RUG[f.def.id];
+    const rx = f.X(ru);
+    const rz = f.def.z + rdz;
     const rugMat = new THREE.MeshStandardMaterial({ map: rugTexture(accent, `rug-${f.def.id}`), roughness: 1 });
     rugMat.name = `hall-rug-${f.def.id}`;
-    b.add(rugMat, new THREE.PlaneGeometry(3.4, 2.0).rotateX(-Math.PI / 2), mat(rx, 0.016, rz));
-    for (const sx of [-1, 1]) for (let k = 0; k < 11; k++) b.add(m.cloth, roundedBox(0.14, 0.012, 0.035, 0.005), mat(rx + sx * 1.76, 0.01, rz - 0.9 + k * 0.18), { tint: 0xe8d8b0 });
-    void r;
+    b.add(rugMat, new THREE.PlaneGeometry(rw, rd).rotateX(-Math.PI / 2), mat(rx, 0.016, rz));
+    const nT = Math.round(rd / 0.18);
+    for (const sx of [-1, 1]) for (let k = 0; k < nT; k++) b.add(m.cloth, roundedBox(0.14, 0.012, 0.035, 0.005), mat(rx + sx * (rw / 2 + 0.06), 0.01, rz - rd / 2 + 0.09 + k * 0.18), { tint: 0xe8d8b0 });
     // Flowers in the plinth vase.
     const vx = f.plinth.x + f.side * 0.62;
     const vz = f.plinth.z + 0.5;
@@ -1378,7 +2017,7 @@ export class HallMap implements GameMap {
     for (let k = 0; k < 7; k++) {
       const a = (k / 7) * Math.PI * 2;
       b.add(m.leaf, new THREE.CylinderGeometry(0.008, 0.01, 0.34, 4), mat(vx + Math.cos(a) * 0.04, 0.38, vz + Math.sin(a) * 0.04, Math.sin(a) * 0.3, 0, Math.cos(a) * 0.3), { tint: 0x4a8a34 });
-      b.add(m.leaf, new THREE.SphereGeometry(0.05, 7, 5), mat(vx + Math.cos(a) * 0.1, 0.56 + r.next() * 0.05, vz + Math.sin(a) * 0.1), { tint: [accent, 0xffffff, 0xffd166][k % 3] });
+      b.add(m.leaf, new THREE.SphereGeometry(0.05, 7, 5), mat(vx + Math.cos(a) * 0.1, 0.56 + r.next() * 0.05, vz + Math.sin(a) * 0.1), { tint: [accent, 0xffffff, 0xffd166][k % 3]! });
     }
     // Bunting along the outer wall top.
     const n = 9;
@@ -1388,35 +2027,37 @@ export class HallMap implements GameMap {
       const y = 3.35 - Math.sin(t * Math.PI) * 0.35;
       const flag = new THREE.ConeGeometry(0.13, 0.3, 3);
       flag.rotateZ(Math.PI);
-      b.add(m.cloth, flag, mat(f.X(0.12), y, zz, 0, Math.PI / 2, 0, 1, 1, 0.2), { tint: [accent, 0xf2ead2, new THREE.Color(accent).multiplyScalar(0.7).getHex()][k % 3] });
+      b.add(m.cloth, flag, mat(f.X(0.12), y, zz, 0, Math.PI / 2, 0, 1, 1, 0.2), { tint: [accent, 0xf2ead2, new THREE.Color(accent).multiplyScalar(0.7).getHex()][k % 3]! });
     }
     // Candles on the plinth base.
     for (const dz of [-0.35, 0.35]) b.add(m.candle, new THREE.CylinderGeometry(0.035, 0.035, 0.18 + r.next() * 0.08, 8), mat(f.plinth.x - f.side * 0.52, 0.3, f.plinth.z + dz));
-    // (Only materials this builder already uses — cloth, leaf, candle — so the dressing adds no draw calls.)
-    // Festoon strings of warm bulbs from the outer wall to the nave arcade (back and front of the room):
-    // the room reads as "someone is having a party in here" from the gameplay camera.
-    const bulb = new THREE.SphereGeometry(0.055, 8, 6);
-    for (const [zA, zB, y0, sag] of [[f.z0 + 0.55, f.z0 + 1.1, 3.05, 0.5], [f.z1 - 0.45, f.z1 - 1.0, 2.75, 0.4]] as const) {
-      const u0 = 0.25;
-      const u1 = 9.35;
-      const N = 15;
-      let prev: THREE.Vector3 | null = null;
-      for (let k = 0; k <= N; k++) {
-        const t = k / N;
-        const p = new THREE.Vector3(f.X(u0 + (u1 - u0) * t), y0 - Math.sin(t * Math.PI) * sag, zA + (zB - zA) * t);
-        if (prev) {
-          const d = p.clone().sub(prev);
-          const seg = new THREE.CylinderGeometry(0.01, 0.01, d.length(), 4);
-          seg.rotateZ(Math.PI / 2);
-          const yaw = Math.atan2(-d.z, d.x);
-          const pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
-          b.add(m.cloth, seg, mat((p.x + prev.x) / 2, (p.y + prev.y) / 2, (p.z + prev.z) / 2, 0, yaw, pitch), { tint: 0x3a2a20 });
-        }
-        if (k > 0 && k < N) b.add(m.candle, bulb, mat(p.x, p.y - 0.07, p.z));
-        prev = p;
+    // One festoon per room, strung corner to arch on a diagonal that alternates room to room, with
+    // fat warm bulbs (not a uniform grid of fairy lights across the Hall).
+    const bulb = new THREE.SphereGeometry(0.075, 10, 8);
+    const flip = ROOMS.indexOf(f.def) % 2 === 0;
+    const zA = flip ? f.z0 + 0.5 : f.z1 - 0.5;
+    const zB = flip ? f.z1 - 1.3 : f.z0 + 1.3;
+    const u0 = 0.25;
+    const u1 = 9.3;
+    const N = 11;
+    const y0 = 3.4;
+    const y1 = 3.15;
+    let prev: THREE.Vector3 | null = null;
+    for (let k = 0; k <= N; k++) {
+      const t = k / N;
+      const p = new THREE.Vector3(f.X(u0 + (u1 - u0) * t), y0 + (y1 - y0) * t - Math.sin(t * Math.PI) * 0.5, zA + (zB - zA) * t);
+      if (prev) {
+        const d = p.clone().sub(prev);
+        const seg = new THREE.CylinderGeometry(0.012, 0.012, d.length(), 4);
+        seg.rotateZ(Math.PI / 2);
+        const yaw = Math.atan2(-d.z, d.x);
+        const pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+        b.add(m.cloth, seg, mat((p.x + prev.x) / 2, (p.y + prev.y) / 2, (p.z + prev.z) / 2, 0, yaw, pitch), { tint: 0x3a2a20 });
       }
+      if (k > 0 && k < N) b.add(m.candle, bulb, mat(p.x, p.y - 0.09, p.z));
+      prev = p;
     }
-    // A harvest basket of the room's goods by the rug, and a second small one by the outer wall.
+    // A harvest basket of the room's goods by the rug.
     const GOODS: Record<RoomId, number[]> = {
       seed: [0xf2dfa8, 0x8fc46a, 0xe8607a, 0xf3efe0],
       sun: [0xe8573e, 0xf2c43a, 0xffd166, 0x8fbf4a],
@@ -1426,16 +2067,14 @@ export class HallMap implements GameMap {
       tide: [0x5fe3d6, 0x9ac8e8, 0xf2c46a, 0x7a9a5a],
     };
     const goods = GOODS[f.def.id];
-    for (const [u, dz, s] of [[7.9, 2.25, 1], [1.1, -0.2, 0.8]] as const) {
-      const bx = f.X(u);
-      const bz = f.def.z + dz;
-      b.add(m.cloth, bevelCylinder(0.34 * s, 0.26 * s, 0.26 * s, 0.04, 12), mat(bx, 0.13 * s, bz), { tint: 0xb8864e });
-      b.add(m.cloth, new THREE.TorusGeometry(0.34 * s, 0.03, 5, 16).rotateX(Math.PI / 2), mat(bx, 0.26 * s, bz), { tint: 0x8a5a30 });
-      for (let k = 0; k < 7; k++) {
-        const a = (k / 7) * Math.PI * 2 + r.next();
-        const rr = k === 0 ? 0 : 0.17 * s;
-        b.add(m.leaf, lumpySphere((0.09 + r.next() * 0.04) * s, 0, 0.25, r), mat(bx + Math.cos(a) * rr, 0.3 * s + (k === 0 ? 0.07 : 0), bz + Math.sin(a) * rr), { tint: goods[k % goods.length]! });
-      }
+    const bx = rx + f.side * (rw / 2 - 0.1);
+    const bz = rz + rd / 2 + 0.25;
+    b.add(m.cloth, bevelCylinder(0.32, 0.25, 0.25, 0.04, 12), mat(bx, 0.125, bz), { tint: 0xb8864e, aoWorld: GAO });
+    b.add(m.cloth, new THREE.TorusGeometry(0.32, 0.03, 5, 16).rotateX(Math.PI / 2), mat(bx, 0.25, bz), { tint: 0x8a5a30 });
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * Math.PI * 2 + r.next();
+      const rr = k === 0 ? 0 : 0.16;
+      b.add(m.leaf, lumpySphere(0.09 + r.next() * 0.04, 0, 0.25, r), mat(bx + Math.cos(a) * rr, 0.29 + (k === 0 ? 0.07 : 0), bz + Math.sin(a) * rr), { tint: goods[k % goods.length]! });
     }
   }
 
@@ -1610,6 +2249,7 @@ export class HallMap implements GameMap {
       });
     };
     for (const v of this.rooms.values()) for (const g of [v.dark, v.lit, v.sterile, v.sacks]) take(g);
+    take(this.naveDark);
     const out = new THREE.Group();
     out.name = 'hall-dressing';
     out.userData.perfTag = 'hall-dressing';
@@ -1644,6 +2284,8 @@ export class HallMap implements GameMap {
     v.core.emissive.copy(v.glimmer ? new THREE.Color(0xffffff) : col.clone().lerp(new THREE.Color(0xfff2d8), 0.38));
     (v.pool.uniforms.uColor!.value as THREE.Color).copy(v.glimmer ? new THREE.Color(0x9ab8d8) : col);
     if (v.frame.def.id === 'hearth') this.hearthFire.active = on && !v.glimmer;
+    // The nave clears once most of the Hall is lit again.
+    this.naveDark.visible = this.litCount < 4;
   }
 
   /** How many rooms burn EverGlow white (drives the cold interior grade). */
@@ -1879,14 +2521,17 @@ export class HallMap implements GameMap {
   }
 
   private respawnMote(i: number, anywhere: boolean): void {
-    const w = [7, 15, 23][i % 3]!;
-    this.motes.pos[i * 3] = w + (Math.random() - 0.5) * 2.2;
+    // Motes drift in the three window beams and the two nave shafts (where they catch the light).
+    const k = i % 5;
+    const nave = k >= 3;
+    const w = nave ? (k === 3 ? 15.0 : 14.6) : [7, 15, 23][k]!;
+    this.motes.pos[i * 3] = w + (Math.random() - 0.5) * (nave ? 1.6 : 2.2);
     this.motes.pos[i * 3 + 1] = anywhere ? Math.random() * 4 : 3.8 + Math.random() * 0.6;
-    this.motes.pos[i * 3 + 2] = 3.5 + Math.random() * 5.5;
+    this.motes.pos[i * 3 + 2] = nave ? (k === 3 ? 14.6 : 9.4) + (Math.random() - 0.5) * 2.4 : 3.5 + Math.random() * 5.5;
     this.moteVel[i * 3] = (Math.random() - 0.5) * 0.05;
     this.moteVel[i * 3 + 1] = -0.03 - Math.random() * 0.05;
     this.moteVel[i * 3 + 2] = (Math.random() - 0.2) * 0.06;
-    this.motes.size[i] = 0.035 + Math.random() * 0.04;
+    this.motes.size[i] = 0.05 + Math.random() * 0.05;
     this.motes.alpha[i] = 0;
   }
 
@@ -1918,8 +2563,9 @@ export class HallMap implements GameMap {
       v.light.intensity = v.ign >= 0 ? Math.max(v.glow * steady * flick, 12 * spike + steady * Math.min(1, v.ign / 0.4) * (1 - spike)) : v.glow * steady * flick;
       // A dark lantern keeps an ember: a slow faint pulse in its wick that says "light me" across the room.
       const ember = (1 - Math.min(1, v.glow * 4)) * (0.9 + 0.55 * Math.sin(t * 1.6 + v.frame.def.x * 0.7));
-      v.glass.emissiveIntensity = v.glow * (v.glimmer ? 2.4 : 1.9) * flick + spike * 4 + ember * 0.12;
-      v.core.emissiveIntensity = v.glow * (v.glimmer ? 7 : 5.5) * flick + spike * 8 + ember;
+      // Glass glows, the filament burns — but not so hot the room's own cage shape blooms away.
+      v.glass.emissiveIntensity = v.glow * (v.glimmer ? 2.4 : 1.25) * flick + spike * 4 + ember * 0.12;
+      v.core.emissiveIntensity = v.glow * (v.glimmer ? 7 : 3.6) * flick + spike * 8 + ember;
       v.pane.emissiveIntensity = v.glow * (v.glimmer ? 1.8 : 1.3) * flick + v.flash * 4;
       v.pool.uniforms.uI!.value = v.glow * (v.glimmer ? 0.18 : 0.42) * flick + spike * 0.6 + ember * 0.035;
       lit += v.glow;
@@ -1930,12 +2576,15 @@ export class HallMap implements GameMap {
     }
     const frac = lit / 6;
     this.warmth = frac;
-    this.greatCore.emissiveIntensity = frac * frac * 2.6 * (0.94 + Math.sin(t * 5.1) * 0.04);
-    this.greatLight.intensity = frac * frac * 8;
+    // Dark, the Great Lantern keeps an ember: a low warm pulse at the end of the moonlit path.
+    const ember = (1 - frac) * (0.8 + 0.2 * Math.sin(t * 1.3));
+    this.greatCore.emissiveIntensity = frac * frac * 2.6 * (0.94 + Math.sin(t * 5.1) * 0.04) + ember * 0.5;
+    this.greatLight.intensity = frac * frac * 8 + ember * 2.2;
+    if (this.caustic) this.caustic.offset.set(t * 0.025, Math.sin(t * 0.37) * 0.06);
     // Hand lantern: a warm pool around the farmer that fades as the rooms relight.
     const pp = game.player.position;
     this.carryLight.position.set(pp.x + 0.35, 1.35, pp.z + 0.35);
-    this.carryLight.intensity = Math.max(0, 1 - frac * 1.6) * 6.5 * (0.93 + Math.sin(t * 9.1) * 0.04 + Math.sin(t * 23.3) * 0.03) * (game.player.root.visible ? 1 : 0);
+    this.carryLight.intensity = Math.max(0, 1 - frac * 1.6) * 9 * (0.93 + Math.sin(t * 9.1) * 0.04 + Math.sin(t * 23.3) * 0.03) * (game.player.root.visible ? 1 : 0);
     this.hearthLight.intensity = this.hearthFire.active ? 5.5 * (0.8 + Math.sin(t * 13) * 0.1 + Math.sin(t * 29) * 0.08) : 0;
     const h = game.rc.renderer.domElement.height;
     this.hearthFire.update(dt, h);
@@ -1944,7 +2593,14 @@ export class HallMap implements GameMap {
     const day = hour > 7 && hour < 18.5 ? 1 : 0;
     this.beamMat.uniforms.uTime!.value = t;
     (this.beamMat.uniforms.uColor!.value as THREE.Color).setHex(day ? 0xffe2b0 : 0x7a98ff).lerp(new THREE.Color(0xffc890), frac * 0.6);
-    this.beamMat.uniforms.uStrength!.value = (day ? 0.38 : 0.62) * (1 - frac * 0.55);
+    this.beamMat.uniforms.uStrength!.value = (day ? 0.45 : 1.05) * (1 - frac * 0.7);
+    this.naveBeamMat.uniforms.uTime!.value = t;
+    (this.naveBeamMat.uniforms.uColor!.value as THREE.Color).copy(this.beamMat.uniforms.uColor!.value as THREE.Color);
+    this.naveBeamMat.uniforms.uStrength!.value = (day ? 0.3 : 0.62) * Math.max(0, 1 - frac * 1.4);
+    for (const pm of this.moonPools) {
+      (pm.uniforms.uColor!.value as THREE.Color).setHex(day ? 0xffe8c0 : 0xa8c4ff);
+      pm.uniforms.uI!.value = (day ? 0.2 : 0.55) * Math.max(0, 1 - frac * 1.3);
+    }
     this.windowMat.emissive.setHex(day ? 0xcfe4ff : 0x4a68c0);
     this.windowMat.emissiveIntensity = day ? 1.1 : 0.9;
     // Dust motes drift down through the beams.
@@ -1953,8 +2609,8 @@ export class HallMap implements GameMap {
       p[i * 3]! += (this.moteVel[i * 3]! + Math.sin(t * 0.7 + i) * 0.02) * dt;
       p[i * 3 + 1]! += this.moteVel[i * 3 + 1]! * dt;
       p[i * 3 + 2]! += this.moteVel[i * 3 + 2]! * dt;
-      this.motes.alpha[i] = Math.min(1, this.motes.alpha[i]! + dt * 0.5) * (0.5 + 0.5 * Math.sin(t * 2 + i * 1.7));
-      const c = day ? [1.4, 1.3, 1.1] : [0.9, 1.1, 1.8];
+      this.motes.alpha[i] = Math.min(1, this.motes.alpha[i]! + dt * 0.5) * (0.55 + 0.45 * Math.sin(t * 2 + i * 1.7)) * (1 - frac * 0.5);
+      const c = day ? [1.6, 1.5, 1.25] : [1.2, 1.45, 2.3];
       this.motes.col.set(c, i * 3);
       if (p[i * 3 + 1]! < 0.2) this.respawnMote(i, false);
     }
@@ -2133,7 +2789,8 @@ export class LanternHallSystem implements System {
     L.sun.intensity = 1.25 - w * 0.55 + cold * 0.5;
     L.hemi.color.set(0x5a6aa8).lerp(new THREE.Color(0xffd8b0), w).lerp(new THREE.Color(0xdde8f4), cold);
     L.hemi.groundColor.set(0x2a2230).lerp(new THREE.Color(0x5a3a28), w).lerp(new THREE.Color(0x4a5460), cold);
-    L.hemi.intensity = 0.85 + w * 0.1 + cold * 0.35;
+    // Dark: 30 % less cold fill than before, so the moon shafts and the farmer's lantern carry the frame.
+    L.hemi.intensity = 0.6 + w * 0.35 + cold * 0.35;
     L.bounce.intensity = 0.12 + w * 0.2;
     L.bounce.color.set(0xffb070).lerp(new THREE.Color(0xcfe0f0), cold);
     const bg = new THREE.Color(0x0a0c16).lerp(new THREE.Color(0x160e0a), w).lerp(new THREE.Color(0x0e1418), cold);

@@ -243,6 +243,96 @@ export const LETTERS: Record<string, LetterDef> = {
     ],
     sign: 'Marigold',
   },
+  // ── The Glimmerco choice, as the valley took it (three letters per answer).
+  'kit-refused': {
+    id: 'kit-refused',
+    from: 'Kit (age 9¾)',
+    subject: 'IMPORTANT (read the whole thing)',
+    stationery: 'villager',
+    greeting: 'Farmer,',
+    body: [
+      'Dad says you were right. Then he said you were wrong. Then he went quiet and got his toolbox out, and now he is up a ladder at the old mill fixing the wheel himself, for free, which he says is "the worst business plan in the valley".',
+      'He was home by supper. He did ALL the voices. Even the goose.',
+    ],
+    sign: '— Kit (TOP SECRET: I told Rowan)',
+  },
+  'bram-refused': {
+    id: 'bram-refused',
+    from: 'Bram Oakhollow',
+    subject: 'A pie with your name on it',
+    stationery: 'villager',
+    greeting: 'Farmer!',
+    body: [
+      "I heard you told the silver man no. I have baked a pie with your name on it. Literally: I wrote it in pastry. The 'R' came out like a pretzel. It is still a pie.",
+      "Come by the bakery. It's on the second shelf. If it's gone, Hazel had it, and I'll make another.",
+    ],
+    sign: 'Floury and proud, Bram',
+    attach: { gold: 150 },
+  },
+  'glimmer-welcome': {
+    id: 'glimmer-welcome',
+    from: 'Glimmerco Regional Office',
+    subject: 'Welcome to the Glimmerco Family!™',
+    stationery: 'glimmer',
+    greeting: 'Dear Valued Charter Partner,',
+    body: [
+      'Thank you for choosing Brighter, Faster, Forever™! Your Lantern Hall has been fitted with 214 EverGlow™ panels, which will never flicker, never fade and never need anyone at all.',
+      'The old mill reopens next season as an EverGlow™ Assembly Hub. Local hiring begins soon. Uniforms are cyan. Smiles are provided.',
+      'Please do not attempt to light anything by hand on Charter premises. It voids the warranty.',
+    ],
+    sign: 'The Glimmerco Family',
+    ps: 'Enclosed: one (1) EverGlow™ keyring. It is very bright. Please do not look directly at it.',
+  },
+  'bram-accepted': {
+    id: 'bram-accepted',
+    from: 'Bram Oakhollow',
+    subject: 'The oven is warm (still)',
+    stationery: 'villager',
+    greeting: 'Farmer,',
+    body: [
+      "I'm not writing to be cross. I tried being cross and burnt a batch of rolls. The oven doesn't care who lit the Hall, and neither do rolls.",
+      "It's only that folk used to linger in the square after the lanterns came on. Now the light's so bright nobody lingers. They squint, and go home. Come by for bread anyway. The door's the same door.",
+    ],
+    sign: 'Bram',
+  },
+  'glimmer-terms': {
+    id: 'glimmer-terms',
+    from: 'Sterling Vance, Glimmerco',
+    subject: 'MEMORANDUM · Re: Time (requested)',
+    stationery: 'glimmer',
+    greeting: 'Farmer,',
+    body: [
+      'Per our conversation on the Hall steps: four (4) lanterns, lit by hand, within twenty-eight (28) days of this memo. If achieved, the charter is void and I will tear it up in public, as discussed. If not achieved, the offer returns, revised upward.',
+      'I have written the deadline in your journal for you. I did not ask. That is how we do things.',
+    ],
+    sign: '— S. Vance, Regional Brightness Director',
+    ps: 'For the avoidance of doubt: torches, bonfires and "a very large candle" do not count.',
+  },
+  'odessa-time': {
+    id: 'odessa-time',
+    from: 'Odessa',
+    subject: 'Four',
+    stationery: 'villager',
+    greeting: 'Farmer.',
+    body: [
+      "Heard about the bet. Twenty-eight days is not long. It's not short either. It's a forge's worth of days, if you don't waste the mornings.",
+      "Coal enclosed. Burns hot. Don't thank me, just win.",
+    ],
+    sign: '— O.',
+    attach: { itemId: 'coal', qty: 5 },
+  },
+  'hollis-time': {
+    id: 'hollis-time',
+    from: 'Mayor Hollis Pennyroyal',
+    subject: 'A wager, I am told',
+    stationery: 'town',
+    greeting: 'Dear Neighbour,',
+    body: [
+      "The Council (me) has been informed (by Bram, loudly, in the bakery) that you have wagered the Lantern Hall against a man in a silver suit. The Council would like to say that it was not consulted, and that it is thrilled.",
+      'Four rooms. If there is anything the town can bring you, the board by the fountain is yours. Folk are pinning notes already — I think they want to help.',
+    ],
+    sign: 'Nervously,\nHollis',
+  },
   'gran-final': {
     id: 'gran-final',
     from: 'Gran Rosalind',
@@ -256,6 +346,34 @@ export const LETTERS: Record<string, LetterDef> = {
       "Keep the lanterns trimmed. Hum while you work. And every so often, on a clear night, look up at the Hall and say hello. I'll be the one that flickers.",
     ],
     sign: 'Forever and ever,\nGran',
+  },
+};
+
+/**
+ * What the valley says about the Glimmerco choice (the story system puts these in front of each
+ * villager's everyday lines while the choice is fresh — the first two seasons after it).
+ */
+export const GLIMMER_TALK: Record<'refused' | 'accepted' | 'time', Record<string, string[]>> = {
+  refused: {
+    marigold: ['[happy] You told him no! On the Hall steps! Rosalind would have given you her good teapot for that. I shall give you exactly two coins off. Every Tuesday.'],
+    bram: ["[laugh] 'Sentiment doesn't scale', he says! Well, neither does my sourdough, and folk queue for it."],
+    hazel: ["[happy] Seven winters I watered those Hall planters out of spite. Turns out spite was hope with its sleeves rolled up."],
+    kit: ['[thinking] Dad says no charter, no mill. Then he went and fixed the mill wheel anyway. Grown-ups are VERY confusing.'],
+    odessa: ['Good answer. Round numbers are for people who never had to weld anything.'],
+  },
+  accepted: {
+    marigold: ["[sad] It's very bright up there now. Bright enough to read by. I just don't know who it's for."],
+    bram: ["[worried] Folk don't linger in the square after dark anymore. They squint, and they go home. I'm baking fewer rolls."],
+    hazel: ['[sad] They took my planters off the Hall steps. Said they were a "trip hazard". Sixty years, and not a single trip.'],
+    kit: ["[happy] Dad got a job at the mill! He has to wear cyan. He says it's fine. He says 'it's fine' a lot now."],
+    odessa: ["Those panels hum. Every night. I can hear it from the forge. Can't hear the river over it anymore."],
+  },
+  time: {
+    marigold: ["[thinking] Four rooms in twenty-eight days? Take whatever you need off my shelves, dear. We'll settle up after. (We'll haggle after.)"],
+    bram: ['[laugh] A WAGER! In Hearthvale! I have put two loaves on you. Do not tell Hazel, she put one.'],
+    hazel: ['[happy] I put a loaf on you with Bram. Only one. I have to be careful at my age. Win, would you?'],
+    kit: ["[surprised] Dad says if you win, he'll fix the mill himself. If you lose, he takes the job. So... no pressure! (LOTS of pressure.)"],
+    odessa: ['Twenty-eight days. I counted. Stop talking to me and go fill a bundle.'],
   },
 };
 

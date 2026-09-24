@@ -21,25 +21,29 @@ export function lanternSvg(color: number, glow: number, cls = 'jl-lantern'): str
   const id = `jl${uid++}`;
   const lit = glow > 0.02;
   const g = Math.max(0, Math.min(1, glow));
+  // Warm brass cap + base (a lit rim on the left, bronze in shadow), a dark bronze cage, room-tinted glass.
   return `<svg class="${cls}${lit ? ' lit' : ''}" viewBox="0 0 100 140" aria-hidden="true" style="--g:${g.toFixed(2)};--c:${css(color)}">
   <defs>
     <radialGradient id="${id}f" cx="50%" cy="58%" r="55%"><stop offset="0" stop-color="#fffbe8"/><stop offset=".35" stop-color="${shade(color, 1.25)}"/><stop offset="1" stop-color="${shade(color, 0.7)}"/></radialGradient>
     <radialGradient id="${id}h" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="${css(color)}" stop-opacity=".65"/><stop offset="1" stop-color="${css(color)}" stop-opacity="0"/></radialGradient>
-    <linearGradient id="${id}d" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3a4250"/><stop offset="1" stop-color="#232833"/></linearGradient>
+    <linearGradient id="${id}d" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${shade(color, 0.32)}"/><stop offset="1" stop-color="#241a16"/></linearGradient>
+    <linearGradient id="${id}b" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#f2c878"/><stop offset=".35" stop-color="#c8903e"/><stop offset="1" stop-color="#6a4020"/></linearGradient>
   </defs>
   ${lit ? `<circle cx="50" cy="78" r="${46 + g * 8}" fill="url(#${id}h)" opacity="${(0.35 + g * 0.65).toFixed(2)}"/>` : ''}
-  <path d="M50 4 v10" stroke="#2e2a28" stroke-width="3.5" stroke-linecap="round"/>
-  <circle cx="50" cy="6" r="4.5" fill="none" stroke="#2e2a28" stroke-width="3"/>
-  <path d="M26 34 L50 16 L74 34 Z" fill="#3a3430" stroke="#1e1a18" stroke-width="2" stroke-linejoin="round"/>
-  <rect x="24" y="33" width="52" height="6" rx="2" fill="#4a423c"/>
+  <path d="M50 4 v10" stroke="#4a3222" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="50" cy="6" r="4.5" fill="none" stroke="#8a5a2a" stroke-width="3"/>
+  <path d="M26 34 L50 16 L74 34 Z" fill="url(#${id}b)" stroke="#3a2414" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M32 31 L50 19" stroke="#ffe0a0" stroke-width="2" stroke-linecap="round" opacity=".7"/>
+  <rect x="24" y="33" width="52" height="6" rx="2" fill="url(#${id}b)" stroke="#3a2414" stroke-width="1.2"/>
   <rect x="29" y="39" width="42" height="62" rx="8" fill="url(#${id}d)"/>
   <rect x="29" y="39" width="42" height="62" rx="8" fill="url(#${id}f)" opacity="${g.toFixed(2)}"/>
   ${lit ? `<path d="M50 ${86 - g * 22} C ${43 - g * 2} ${80 - g * 10}, 44 88, 50 92 C 56 88, ${57 + g * 2} ${80 - g * 10}, 50 ${86 - g * 22} Z" fill="#fffdf2" opacity="${(0.5 + g * 0.5).toFixed(2)}"/>` : `<path d="M50 80 v10" stroke="#5a5048" stroke-width="2.5" stroke-linecap="round"/>`}
-  <path d="M50 39 V101 M29 70 H71" stroke="#2e2a28" stroke-width="3" opacity=".9"/>
-  <rect x="29" y="39" width="42" height="62" rx="8" fill="none" stroke="#2e2a28" stroke-width="4"/>
+  <path d="M50 39 V101 M29 70 H71" stroke="#3a2618" stroke-width="3" opacity=".9"/>
+  <rect x="29" y="39" width="42" height="62" rx="8" fill="none" stroke="#3a2618" stroke-width="4"/>
+  <path d="M31 46 v46" stroke="#e8b060" stroke-width="1.6" opacity=".55" stroke-linecap="round"/>
   <path d="M34 44 q4 -2 6 2 v22" stroke="#fff" stroke-width="2.5" fill="none" opacity="${lit ? 0.45 : 0.18}" stroke-linecap="round"/>
-  <path d="M24 101 H76 L68 112 H32 Z" fill="#3a3430" stroke="#1e1a18" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M44 112 v8 h12 v-8" fill="#2e2a28"/>
+  <path d="M24 101 H76 L68 112 H32 Z" fill="url(#${id}b)" stroke="#3a2414" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M44 112 v8 h12 v-8" fill="#5a3a1e"/>
 </svg>`;
 }
 

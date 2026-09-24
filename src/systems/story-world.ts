@@ -194,6 +194,26 @@ function buildCoach(): Coach {
   // Mudguards.
   for (const [x, z] of [[1.45, -0.9], [1.45, 0.9], [-1.45, -0.9], [-1.45, 0.9]] as const) b.add('white', new THREE.TorusGeometry(0.5, 0.08, 6, 14, Math.PI), mat(x, 0.45, z), { tint: 0x6a8a72 });
   const group = b.build({ name: 'coach' });
+  // Headlight beams: soft additive cones reaching down the road ahead (they read at dusk).
+  const beamMat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    uniforms: { uI: { value: 0.13 } },
+    vertexShader: 'varying float vL; varying vec2 vUv; void main(){ vUv = uv; vL = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'uniform float uI; varying float vL; varying vec2 vUv; void main(){ float a = pow(vL, 1.8) * uI * (0.6 + 0.4 * sin(vUv.x * 6.2832) * sin(vUv.x * 6.2832)); gl_FragColor = vec4(vec3(1.0, 0.86, 0.6) * a, a); }',
+  });
+  for (const sz of [-0.62, 0.62]) {
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(1.3, 7, 16, 1, true), beamMat);
+    cone.rotation.z = Math.PI / 2;
+    cone.position.set(L / 2 + 0.3 + 3.5, 0.95, sz);
+    cone.rotation.y = 0;
+    cone.userData.noAO = true;
+    cone.renderOrder = 4;
+    cone.name = 'coach-beam';
+    group.add(cone);
+  }
   // Wheels: one tinted geometry, four instances (they spin).
   const wb = new MeshBuilder();
   wb.add('white', bevelCylinder(0.42, 0.42, 0.3, 0.06, 18).rotateX(Math.PI / 2), undefined, { tint: 0x2a2624 });
@@ -841,7 +861,8 @@ function paperLanternGeo(): THREE.BufferGeometry {
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i);
     const k = THREE.MathUtils.clamp(1 - (y + 0.2) / 0.44, 0, 1);
-    const v = 0.55 + k * 1.9;
+    // Peak ~1.9 (was 2.45): bright enough to bloom, not to blow out into white discs.
+    const v = 0.5 + k * 1.4;
     col.set([v * 1.0, v * 0.78, v * 0.52], i * 3);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -905,6 +926,101 @@ class SkyLanterns {
   }
 }
 
+/**
+ * The valley lights up: shepherd's-crook lanterns along both verges of the west lane and round the
+ * plaza, one instanced draw. They stand dim from `festival:on`; `festival:valley` ignites them in
+ * groups of three, nearest the Hall first, 0.15 s apart, each with a flash and a spark.
+ */
+class ValleyLights {
+  readonly mesh: THREE.InstancedMesh;
+  private pts: THREE.Vector3[] = [];
+  private t = -1;
+  private lit: number[] = [];
+  private col = new THREE.Color();
+  onIgnite: ((p: THREE.Vector3) => void) | null = null;
+  constructor(heightAt: (x: number, z: number) => number) {
+    const r = new Rng('valley-lights');
+    for (let i = 0, x = 25.5; x > -1; x -= 2.5, i++) {
+      const z = i % 2 ? 29.0 : 23.2;
+      this.pts.push(new THREE.Vector3(x + (r.next() - 0.5) * 0.5, 0, z + (r.next() - 0.5) * 0.4));
+      const z2 = i % 2 ? 23.3 : 28.9;
+      if (i % 3 === 1) this.pts.push(new THREE.Vector3(x - 1.2, 0, z2));
+    }
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2 + 0.26;
+      const x = PLAZA.x + Math.cos(a) * 9.4;
+      const z = PLAZA.z + Math.sin(a) * 8.6;
+      if (z < 19.5) continue;
+      this.pts.push(new THREE.Vector3(x, 0, z));
+    }
+    for (const p of this.pts) p.y = heightAt(p.x, p.z);
+    // Sort by distance from the Hall steps: the light runs outward from the Hall.
+    this.pts.sort((a, b) => Math.hypot(a.x - 32, a.z - 15) - Math.hypot(b.x - 32, b.z - 15));
+    const post = new THREE.CylinderGeometry(0.03, 0.04, 1.9, 6).translate(0, 0.95, 0);
+    const arm = new THREE.CylinderGeometry(0.022, 0.022, 0.42, 5).rotateZ(Math.PI / 2).translate(0.19, 1.86, 0);
+    const hook = new THREE.CylinderGeometry(0.01, 0.01, 0.16, 4).translate(0.38, 1.76, 0);
+    const lantern = paperLanternGeo().scale(0.85, 0.85, 0.85).translate(0.38, 1.5, 0);
+    const dark = (g: THREE.BufferGeometry): THREE.BufferGeometry => {
+      const n = g.attributes.position!.count;
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(0.1), 3));
+      return g.index ? g.toNonIndexed() : g;
+    };
+    const geo = mergeGeometries([dark(post), dark(arm), dark(hook), lantern.index ? lantern.toNonIndexed() : lantern].map((g) => {
+      for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'color') g.deleteAttribute(k);
+      return g;
+    }))!;
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false });
+    m.name = 'valley-lights';
+    this.mesh = new THREE.InstancedMesh(geo, m, this.pts.length);
+    this.mesh.name = 'valley-lights';
+    this.mesh.frustumCulled = false;
+    this.mesh.castShadow = false;
+    this.mesh.userData.noAO = true;
+    const o = new THREE.Object3D();
+    this.pts.forEach((p, i) => {
+      o.position.copy(p);
+      o.rotation.y = r.next() * Math.PI * 2;
+      o.updateMatrix();
+      this.mesh.setMatrixAt(i, o.matrix);
+    });
+    this.lit = this.pts.map(() => 0);
+    this.reset();
+  }
+  reset(): void {
+    this.t = -1;
+    this.lit.fill(0);
+    this.paint();
+  }
+  ignite(instant: boolean): void {
+    this.t = instant ? 99 : 0;
+    if (instant) this.lit.fill(1);
+    this.paint();
+  }
+  private paint(): void {
+    this.pts.forEach((_, i) => {
+      const u = this.lit[i]!;
+      const flash = u > 0 && u < 1 ? Math.sin(u * Math.PI) * 0.9 : 0;
+      const k = 0.16 + u * 0.84 + flash;
+      this.mesh.setColorAt(i, this.col.setRGB(k, k * (0.92 - flash * 0.1), k * (0.8 - flash * 0.2)));
+    });
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+  update(dt: number): void {
+    if (this.t < 0) return;
+    this.t += dt;
+    let changed = false;
+    this.pts.forEach((p, i) => {
+      const at = Math.floor(i / 3) * 0.15;
+      if (this.t < at || this.lit[i]! >= 1) return;
+      const before = this.lit[i]!;
+      this.lit[i] = Math.min(1, (this.t - at) / 0.45);
+      if (before === 0) this.onIgnite?.(p.clone().add(new THREE.Vector3(0.38, 1.5, 0)));
+      changed = true;
+    });
+    if (changed) this.paint();
+  }
+}
+
 function buildFinale(r: Rng, H: (x: number, z: number) => number): { group: THREE.Group; fires: THREE.Vector3[] } {
   const parts = new THREE.Group();
   const eave = H(32, 12.4) + 4.35;
@@ -922,7 +1038,9 @@ function buildFinale(r: Rng, H: (x: number, z: number) => number): { group: THRE
     [new THREE.Vector3(34.4, eave, 12.5), post(30), 0.8],
     [post(210), post(330), 0.55],
   ];
-  for (const [a, b, sag] of strings) parts.add(buildBunting(r, a, b, sag, 14, 2));
+  // The strings are their own object ('finale-strings') so a two-shot can clear them off the lens.
+  const stringParts = new THREE.Group();
+  for (const [a, b, sag] of strings) stringParts.add(buildBunting(r, a, b, sag, 14, 2));
   const fires: THREE.Vector3[] = [];
   for (const x of [28.2, 35.8]) {
     const z = 15.6;
@@ -932,6 +1050,8 @@ function buildFinale(r: Rng, H: (x: number, z: number) => number): { group: THRE
     fires.push(br.fire.clone().add(br.group.position));
   }
   const group = mergeKeep(parts, 'finale-dressing');
+  const stringsMerged = mergeKeep(stringParts, 'finale-strings');
+  group.add(stringsMerged);
   group.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh) {
@@ -955,6 +1075,8 @@ export class StoryWorldSystem implements System {
   private game!: Game;
   private coach: Coach | null = null;
   private coachMove: { from: number; to: number; t: number; dur: number; leave: boolean } | null = null;
+  /** Road dust kicked up behind the coach's rear wheels while it moves (parked below ground otherwise). */
+  private dust: SmokeEmitter | null = null;
   private restore = new Map<RoomId, THREE.Object3D>();
   private hidden = new Set<RoomId>();
   private built: THREE.Object3D | null = null;
@@ -962,6 +1084,7 @@ export class StoryWorldSystem implements System {
   private smoke: SmokeEmitter | null = null;
   private burst = new BurstFX(360);
   private sky = new SkyLanterns();
+  private valley: ValleyLights | null = null;
   private hallGlow = new THREE.MeshStandardMaterial({ color: 0xfff0d0, emissive: 0xffb050, emissiveIntensity: 0, roughness: 0.3 });
   private hallLight = new THREE.PointLight(0xffb45e, 0, 10, 1.6);
   private landmark: Landmark | null = null;
@@ -1016,6 +1139,8 @@ export class StoryWorldSystem implements System {
       const on = this.houseNight && game.world.current?.id === 'house';
       this.houseKey.intensity = on ? 2.4 : 0;
       if (on) game.rc.post.setBloom(0.3, 1.6);
+      // The finale: dozens of lanterns in frame — hold bloom down so they read as lanterns, not discs.
+      if (this.festivalLit && game.world.current?.id === 'town' && game.services.cutscene?.playing) game.rc.post.setBloom(0.42, 1.0);
     };
   }
 
@@ -1111,6 +1236,9 @@ export class StoryWorldSystem implements System {
     const light = new THREE.PointLight(0xff8a3a, 0, 11, 1.6);
     light.position.set(32, H(32, 15.6) + 1.8, 15.9);
     root.add(light);
+    this.valley = new ValleyLights(H);
+    this.valley.onIgnite = (p) => this.burst.emit(p, { color: 0xffc070, count: 6, speed: 1.2, size: 0.12, gravity: 0.6, life: 0.9, up: 1.2, spread: 0.3 });
+    fin.group.add(this.valley.mesh);
     fin.group.visible = false;
     root.add(fin.group);
     this.finale = { group: fin.group, fire, light };
@@ -1197,6 +1325,7 @@ export class StoryWorldSystem implements System {
       case 'festival:onGlimmer':
         this.festivalLit = true;
         this.everglowOff = false;
+        this.valley?.reset();
         this.refresh();
         break;
       case 'festival:everglowOff':
@@ -1210,6 +1339,9 @@ export class StoryWorldSystem implements System {
         break;
       case 'festival:skyLanterns':
         this.sky.start(instant ? 6.5 : 0);
+        break;
+      case 'festival:valley':
+        this.valley?.ignite(instant);
         break;
       case 'house:night':
         this.houseNight = true;
@@ -1233,6 +1365,14 @@ export class StoryWorldSystem implements System {
       this.coach.spin -= (this.coach.group.position.x - prev) / 0.42;
       setWheels(this.coach);
       this.coach.group.position.y = game.world.heightAt(this.coach.group.position.x, COACH_PARK.z) + 0.02 + Math.abs(Math.sin(cm.t * 9)) * 0.015 * (1 - u);
+      if (!this.dust) {
+        this.dust = new SmokeEmitter(new THREE.Vector3(0, -100, 0), 16, 40);
+        this.dust.object.name = 'coach-dust';
+        this.dust.object.userData.noAO = true;
+      }
+      if (this.dust.object.parent !== this.coach.group.parent) this.coach.group.parent?.add(this.dust.object);
+      const moving = u < 0.92;
+      this.dust.origin.set(this.coach.group.position.x - 2.0, moving ? this.coach.group.position.y + 0.12 : -100, COACH_PARK.z + (Math.random() - 0.5) * 1.2);
       if (u >= 1) {
         this.coachMove = null;
         if (cm.leave) this.coach.group.removeFromParent();
@@ -1271,6 +1411,8 @@ export class StoryWorldSystem implements System {
       this.landmark.cupola.emissiveIntensity = (glimmer ? 5 : base * (0.6 + night * 2.8) + this.hallFlare * 5) * hum * off;
     }
     if (this.glimmer) this.glimmer.spot.intensity = this.glimmer.after.visible ? (14 + night * 26) * hum : 0;
+    this.valley?.update(dt);
+    if (this.dust?.object.parent) this.dust.update(dt, night, game.rc.renderer.domElement.height);
     if (this.finale) {
       const on = this.finale.group.visible;
       this.finale.light.intensity = on ? 6 * (0.85 + Math.sin(game.time * 11) * 0.08 + Math.sin(game.time * 23) * 0.05) : 0;

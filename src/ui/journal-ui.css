@@ -1757,3 +1757,395 @@
   font-size: 19px;
   padding-top: 6px;
 }
+
+/* ── Bundle altar r2: 3-column slot grid, sack top-right, progress bar, glowing lantern, restore seal ── */
+.jb-card {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 12px;
+}
+.jb-cardhead .jb-ht {
+  min-width: 0;
+}
+.jb-cardhead .jb-bigsack {
+  position: static;
+  flex: none;
+  width: 104px;
+  height: 108px;
+  margin: -10px -4px -6px 0;
+  filter: drop-shadow(0 8px 10px rgba(80, 40, 10, 0.28));
+  transform: rotate(4deg);
+}
+.jb-cardhead .jb-bigsack svg {
+  width: 100%;
+  height: 100%;
+}
+.jb-chips {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.jb-chip {
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 4px 11px;
+  border-radius: 999px;
+  color: #6a3a14;
+  background: color-mix(in srgb, var(--room) 16%, #fff6e0);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--room) 45%, #b08050);
+}
+.jb-chip.q1 {
+  color: #4a5260;
+  background: linear-gradient(180deg, #f7f9fc, #dde2ea);
+  box-shadow: inset 0 0 0 2px #a8b0bc;
+}
+.jb-chip.q2 {
+  color: #7a4a0a;
+  background: linear-gradient(180deg, #fff4c8, #f4d27a);
+  box-shadow: inset 0 0 0 2px #d8a02a;
+}
+.jb-slots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 14px;
+  margin-top: 0;
+  align-content: start;
+}
+.jb-slot {
+  width: auto;
+  grid-template-columns: 80px minmax(0, 1fr);
+  justify-items: start;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 16px;
+  background: rgba(255, 250, 236, 0.66);
+  box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.16);
+}
+.jb-slot.full {
+  background: linear-gradient(180deg, #f2fae6, #def0c8);
+  box-shadow: inset 0 0 0 2px rgba(90, 160, 60, 0.42);
+}
+.jb-ringbox {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+.jb-slot .ring,
+.jb-slot .ic {
+  left: 0;
+  top: 0;
+  width: 80px;
+  height: 80px;
+}
+.jb-slot .ic .u-ic,
+.jb-slot .ic svg {
+  width: 50px;
+  height: 50px;
+}
+.jb-slottxt {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.jb-slot .lbl {
+  text-align: left;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 18px;
+  color: #4a2410;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.jb-slot .cnt {
+  position: static;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  place-items: initial;
+  background: none;
+  box-shadow: none;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+.jb-slot .cnt b {
+  font-size: 20px;
+  color: #5a3a14;
+}
+.jb-slot.full .cnt {
+  background: none;
+  box-shadow: none;
+  color: #3f8a2e;
+}
+.jb-slot.full .cnt svg {
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: #5aa83c;
+  box-shadow: 0 2px 0 #2a5a1e;
+}
+.jb-slot .src {
+  font-family: var(--hand);
+  font-size: 17px;
+  line-height: 1.05;
+  color: #8a5a30;
+}
+.jb-star {
+  position: absolute;
+  right: -4px;
+  top: -2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-size: 15px;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(90, 50, 0, 0.5);
+  background: radial-gradient(circle at 35% 30%, #fff2b0, #e0a42a 70%);
+  box-shadow: 0 2px 0 rgba(120, 70, 10, 0.45);
+}
+.jb-star.q1 {
+  background: radial-gradient(circle at 35% 30%, #ffffff, #a8b0bc 70%);
+  box-shadow: 0 2px 0 rgba(60, 70, 90, 0.45);
+}
+.jb-slots .jb-gold {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 24px;
+}
+.jb-gold .gt {
+  display: grid;
+}
+.jb-gold .jb-pay {
+  margin-left: auto;
+}
+.jb-cardfoot {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.jb-prog {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.jb-prog .bar {
+  flex: 1;
+  height: 16px;
+  border-radius: 8px;
+  background: rgba(150, 100, 50, 0.16);
+  box-shadow: inset 0 2px 3px rgba(60, 30, 10, 0.25), 0 1px 0 rgba(255, 250, 235, 0.9);
+  overflow: hidden;
+}
+.jb-prog .bar i {
+  display: block;
+  height: 100%;
+  width: calc(var(--f) * 100%);
+  min-width: 8px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--room) 55%, #fff8e0), color-mix(in srgb, var(--room) 85%, #b8702a));
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.12), inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 0 12px color-mix(in srgb, var(--room) 60%, transparent);
+  transition: width 420ms var(--ease-out);
+}
+.jb-prog.done .bar i {
+  background: linear-gradient(180deg, #a8e08a, #5aa83c);
+}
+.jb-prog span {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.jb-cardfoot .jb-reward {
+  transform: rotate(-1.5deg);
+  max-width: 300px;
+}
+.jb-reward em {
+  font-family: var(--hand);
+  font-style: normal;
+  font-size: 17px;
+  line-height: 1.05;
+  color: #8a5a30;
+  text-align: center;
+}
+.jb-card .jb-done {
+  right: 340px;
+  bottom: 16px;
+}
+.jb-pslot.q1::after,
+.jb-pslot.q2::after {
+  content: '★';
+  position: absolute;
+  left: 4px;
+  bottom: 2px;
+  font-size: 13px;
+  color: #c8ccd4;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+.jb-pslot.q2::after {
+  color: #f2c230;
+}
+/* The altar lantern: warm inner glow that breathes (0.85 → 1 over 1.6 s), tinted per room. */
+.jb-lanternbox {
+  position: relative;
+  isolation: isolate;
+}
+.jb-lanternbox::before {
+  content: '';
+  position: absolute;
+  inset: -6px -46px -2px;
+  z-index: -1;
+  background: radial-gradient(closest-side at 50% 58%, color-mix(in srgb, var(--room) 75%, #fff4d0) 0%, color-mix(in srgb, var(--room) 45%, transparent) 38%, transparent 72%);
+  opacity: calc(0.35 + var(--g) * 0.65);
+  animation: jbGlow 1.6s ease-in-out infinite alternate;
+}
+.jb-lanternbox .jl-lantern.lit {
+  animation: jlFlicker 2.8s ease-in-out infinite, jbFlick 1.6s ease-in-out infinite;
+}
+@keyframes jbGlow {
+  from {
+    opacity: calc((0.35 + var(--g) * 0.65) * 0.85);
+    transform: scale(0.97);
+  }
+  to {
+    opacity: calc(0.35 + var(--g) * 0.65);
+    transform: scale(1.03);
+  }
+}
+@keyframes jbFlick {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  35% {
+    opacity: 0.88;
+  }
+  60% {
+    opacity: 0.97;
+  }
+  80% {
+    opacity: 0.86;
+  }
+}
+/* Restore seal: thumps down (1.4 → 1, ease-out-back), the lantern flares, 24 sparks burst. */
+.jb-stamp .st-in {
+  position: relative;
+  overflow: visible;
+  padding: 20px 64px 28px;
+  animation: jbSeal 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes jbSeal {
+  from {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+  45% {
+    opacity: 1;
+  }
+}
+.jb-stamp .st-lantern {
+  position: relative;
+  z-index: 1;
+  margin-top: -64px;
+  animation: jbLift 900ms cubic-bezier(0.34, 1.56, 0.64, 1) both 120ms;
+}
+.jb-stamp .st-lantern svg {
+  width: 96px;
+  height: 134px;
+  filter: drop-shadow(0 0 22px var(--room));
+}
+@keyframes jbLift {
+  from {
+    transform: translateY(18px) scale(0.6);
+    opacity: 0;
+  }
+}
+.jb-stamp .st-flare {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 440px;
+  height: 440px;
+  translate: -50% -50%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(closest-side, color-mix(in srgb, var(--room) 60%, #fff) 0%, transparent 42%),
+    repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--room) 70%, #fff8e0) 0deg 5deg, transparent 5deg 20deg);
+  -webkit-mask: radial-gradient(closest-side, #000 18%, transparent 72%);
+  mask: radial-gradient(closest-side, #000 18%, transparent 72%);
+  animation: jbFlare 1.7s ease-out both 80ms;
+}
+@keyframes jbFlare {
+  from {
+    transform: rotate(0deg) scale(0.3);
+    opacity: 0;
+  }
+  22% {
+    opacity: 1;
+  }
+  to {
+    transform: rotate(50deg) scale(1.15);
+    opacity: 0.25;
+  }
+}
+.jb-stamp .st-sub {
+  max-width: 440px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 16px;
+  color: #6a4424;
+}
+.jb-stamp .st-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  z-index: 6;
+}
+.jb-stamp .st-burst i {
+  position: absolute;
+  left: -7px;
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 22%, color-mix(in srgb, var(--room) 85%, #fff) 45%, transparent 72%);
+  box-shadow: 0 0 14px var(--room);
+  animation: jbSpark 950ms cubic-bezier(0.15, 0.7, 0.3, 1) both;
+  animation-delay: calc(160ms + var(--t));
+}
+@keyframes jbSpark {
+  from {
+    transform: rotate(var(--a)) translateX(30px) scale(var(--s));
+    opacity: 1;
+  }
+  to {
+    transform: rotate(var(--a)) translateX(calc(var(--d) + 140px)) scale(0);
+    opacity: 0;
+  }
+}
+.jn-bundle .jn-pick {
+  margin-left: 6px;
+  font-family: var(--font-body, inherit);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #9a6a3a;
+}
