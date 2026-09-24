@@ -248,6 +248,8 @@ export class FarmingSystem implements System, FarmingApi {
   private crows!: CrowFlock;
   private actions: FarmerActions | null = null;
   private map: GameMap | null = null;
+  /** The farm map once seen: stays cached (with soil + crops parented to its root) while the farmer is elsewhere. */
+  private farmMap: GameMap | null = null;
   private seededGarden = false;
   private showcase: string | null = null;
   private splatDirty = false;
@@ -296,9 +298,10 @@ export class FarmingSystem implements System, FarmingApi {
     game.provide('farming', this);
     game.events.on('item:use', (e) => this.useItem(e.itemId, e.x, e.z, e.slot));
     game.events.on('player:interact', ({ x, z }) => this.interact(x, z));
-    game.events.on('day:start', () => this.newDay());
-    game.events.on('crops:grow', ({ days }) => this.growAll(days, false));
-    game.events.on('season:change', ({ season }) => this.onSeason(season));
+    // Day-driven updates run on the farm even when the farmer sleeps in the house (or is anywhere else).
+    game.events.on('day:start', () => this.onFarmMap(() => this.newDay()));
+    game.events.on('crops:grow', ({ days }) => this.onFarmMap(() => this.growAll(days, false)));
+    game.events.on('season:change', ({ season }) => this.onFarmMap(() => this.onSeason(season)));
     game.events.on('demo:stage', ({ name, showcase }) => this.onDemo(name, showcase));
   }
 
@@ -311,6 +314,7 @@ export class FarmingSystem implements System, FarmingApi {
       return;
     }
     this.map = map;
+    this.farmMap = map;
     if (!this.soil) {
       this.soil = new SoilBeds(map.grid.width, map.grid.depth);
       this.crops = new CropVisuals();
@@ -366,6 +370,23 @@ export class FarmingSystem implements System, FarmingApi {
     acts.setFreeze(t);
     acts.timeScale = this.slow;
     this.fxScale = this.slow;
+  }
+
+  /**
+   * Run `fn` against the cached farm map while another map is current. Tile/crop state and visuals
+   * update off-scene; cursor, crow flights, actions and FX stay gated on `world.current === this.map`.
+   */
+  private onFarmMap(fn: () => void): void {
+    if (this.map || !this.farmMap) {
+      fn();
+      return;
+    }
+    this.map = this.farmMap;
+    try {
+      fn();
+    } finally {
+      this.map = null;
+    }
   }
 
   // ═════════════════════════════════════════════ tile helpers

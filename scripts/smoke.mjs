@@ -182,6 +182,39 @@ try {
       g.step(3);
     }
     out.toolsSeq = g.game.player.position.x > 0;
+    // farming: sleeping in the house bed still runs the farm's overnight update (growth + dried soil)
+    {
+      const f = g.game.services.farming;
+      const cells = [];
+      for (let z = 22; z < 40 && cells.length < 4; z++) {
+        for (let x = 20; x < 44 && cells.length < 4; x++) {
+          if (f.cropAt(x, z)) continue;
+          f.till(x, z, true);
+          if (f.plant('parsnip', x, z) && f.water(x, z)) cells.push([x, z]);
+        }
+      }
+      const sown = cells.length;
+      const before = cells.map(([x, z]) => f.cropAt(x, z)?.stage ?? -9);
+      await g.teleport('house', 4.5, 4.5);
+      const inHouse = g.game.world.current.id;
+      const rain = () => ['rain', 'storm'].includes(g.game.calendar.weather);
+      g.game.services.sleep.sleep();
+      await new Promise((res) => setTimeout(res, 60));
+      g.openUI('none');
+      await g.teleport('farm', 31.5, 20);
+      const grid = g.game.world.current.grid;
+      const after = cells.map(([x, z]) => f.cropAt(x, z));
+      const alive = after.map((c, i) => [c, i]).filter(([c]) => c && !c.dead);
+      out.houseSleep = {
+        sown,
+        inHouse,
+        before,
+        after: after.map((c) => (c ? (c.dead ? 'dead' : c.stage) : null)),
+        grew: alive.length > 0 && alive.every(([c, i]) => c.stage === before[i] + 1),
+        dried: rain() || cells.every(([x, z]) => !grid.hasFlag(x, z, 8)), // 8 = TileFlag.Watered
+      };
+      g.step(2);
+    }
     // quality + camera + pause + save/load
     g.quality('low');
     g.step(3);
@@ -211,6 +244,7 @@ try {
   check('setGold', r.gold === 1234);
   check('give', r.gave === 3);
   check('farming: hoe tills', r.tilled);
+  check('farming: sleeping in the house grows farm crops overnight', r.houseSleep.sown === 4 && r.houseSleep.inHouse === 'house' && r.houseSleep.grew && r.houseSleep.dried, JSON.stringify(r.houseSleep));
   check('energy: tools spend stamina', r.energySpent > 0, `${r.energySpent}`);
   check('pillar services registered', r.services.length === 0, r.services.join(','));
   check('economy: refuses unaffordable spend', r.spendRefused);
