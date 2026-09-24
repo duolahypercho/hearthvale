@@ -353,6 +353,11 @@ export class Villager {
   private squashK = 1;
   /** World point to face while talking (null = not talking). */
   talkTo: THREE.Vector3 | null = null;
+  /**
+   * Stage cheat while talking: the direction (yaw) of the lens. The villager opens up to ~28° from
+   * the farmer towards it, so the face reads three-quarter instead of in profile.
+   */
+  talkCheat: number | null = null;
   /** Mouth flaps while true (dialogue typewriter). */
   speaking = false;
   /** Current activity (loops while standing still). */
@@ -977,6 +982,10 @@ export class Villager {
     this.position.y = heightAt(this.position.x, this.position.z);
     if (this.talkTo) {
       this.targetYaw = Math.atan2(this.talkTo.x - this.position.x, this.talkTo.z - this.position.z);
+      if (this.talkCheat !== null) {
+        const d = Math.atan2(Math.sin(this.talkCheat - this.targetYaw), Math.cos(this.talkCheat - this.targetYaw));
+        this.targetYaw += THREE.MathUtils.clamp(d, -0.5, 0.5);
+      }
       this.talkT += dt;
     } else this.talkT = 0;
     let dy = this.targetYaw - this.yaw;

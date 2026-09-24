@@ -544,12 +544,15 @@ export class NpcSystem implements System {
       const a = this.agents.get(id) ?? this.agents.get('marigold')!;
       // Face-to-face with the farmer on a diagonal (up-screen, to the right) so both read clearly.
       const p = this.game.player.position;
-      const x = p.x + 1.4;
+      // (to the left instead when a building stands close on the right: the lens needs the gap)
+      const near = (qx: number, qz: number): number => Math.min(...NpcSystem.BLOCKERS.filter((b) => b.h > 3).map((b) => Math.hypot(Math.max(b.r[0] - qx, 0, qx - b.r[2]), Math.max(b.r[1] - qz, 0, qz - b.r[3]))));
+      const side = near(p.x + 1.4, p.z - 0.6) < 3.2 && near(p.x - 1.4, p.z - 0.6) > near(p.x + 1.4, p.z - 0.6) ? -1 : 1;
+      const x = p.x + 1.4 * side;
       const z = p.z - 0.6;
       this.setInside(a, false, true);
       a.v.setPosition(x, map.heightAt(x, z), z);
       a.v.setYaw(Math.atan2(p.x - x, p.z - z));
-      this.game.player.setFacing('right');
+      this.game.player.setFacing(side > 0 ? 'right' : 'left');
       // Anyone else standing right behind the pair steps aside.
       for (const b of this.agents.values()) if (b !== a && Math.hypot(b.v.position.x - x, b.v.position.z - z) < 2.2) this.setInside(b, true, true);
       this.setActivity(a, 'idle');
@@ -561,6 +564,10 @@ export class NpcSystem implements System {
       this.talking = a;
       this.startTalkCam();
       this.snapCam();
+      // Settle the stage cheat before the shot (the rig yaw is final after the snap).
+      a.v.talkCheat = THREE.MathUtils.degToRad(this.camCur.yaw);
+      a.v.update(0, (qx, qz) => this.game.world.heightAt(qx, qz), false);
+      a.v.setYaw((a.v as unknown as { targetYaw: number }).targetYaw);
       window.setTimeout(() => this.game.services.dialogueBox?.finishLine(), 30);
       return;
     }
@@ -930,8 +937,9 @@ export class NpcSystem implements System {
         dist = s.anchor.distance ?? dist;
       }
     } else if (kind === 'two') {
-      pitch = this.camMode === 'talk' ? 38 : 33;
-      dist = this.camMode === 'talk' ? 11 : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
+      // Conversations lean in close (the villager's face and outfit read at thumbnail size).
+      pitch = this.camMode === 'talk' ? 34 : 33;
+      dist = this.camMode === 'talk' ? 9.2 : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
     } else {
       // Close-up: lower for short actors (children) so the lens meets the face, not the crown.
       pitch = lead.head < 1.6 ? 22 : 28;
@@ -1033,6 +1041,7 @@ export class NpcSystem implements System {
     this.camCur.dist += (g.dist - this.camCur.dist) * k;
     this.camCur.target.lerp(g.target, k);
     this.applyCam();
+    if (this.camMode === 'talk' && this.talking) this.talking.v.talkCheat = THREE.MathUtils.degToRad(this.camCur.yaw);
     if (this.camMode === 'event') this.game.rc.focusPoint.lerp(g.focus, k);
     this.guardView();
     this.festoonGuard();
@@ -1628,12 +1637,13 @@ export class NpcSystem implements System {
       this.keyPos.set(this.lookPoint.x - cx * 0.6 + cz * 0.6, 0, this.lookPoint.z - cz * 0.6 - cx * 0.6);
     } else if (this.talking) {
       want = 1;
+      // Hung in front of the villager's face (camera side), clear of the farmer's hat brim.
       const a = this.talking.v.position;
       const p = game.player.position;
-      this.keyPos.set((a.x + p.x) / 2 + cx * 1.2, 0, (a.z + p.z) / 2 + cz * 1.2);
+      this.keyPos.set(a.x * 0.8 + p.x * 0.2 + cx * 1.5, 0, a.z * 0.8 + p.z * 0.2 + cz * 1.5);
     }
     const map = game.world.current;
-    if (map && want) this.keyLight.position.set(this.keyPos.x, map.heightAt(this.keyPos.x, this.keyPos.z) + 2.6, this.keyPos.z);
+    if (map && want) this.keyLight.position.set(this.keyPos.x, map.heightAt(this.keyPos.x, this.keyPos.z) + 3.1, this.keyPos.z);
     const target = want * night * 7;
     this.keyLight.intensity += (target - this.keyLight.intensity) * (1 - Math.exp(-4 * dt));
     if (this.keyLight.intensity < 0.01 && !want) this.keyLight.intensity = 0;
