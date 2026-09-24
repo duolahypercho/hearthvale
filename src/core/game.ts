@@ -255,6 +255,9 @@ export class Game {
     this.followPlayer(false);
     this.lighting.update(dt, this.calendar.hour);
     this.hud.update(dt);
+    // Pausing menus (inventory, map, options, shop, day end…) sit on a blurred backdrop over a
+    // frozen sim: refresh the world behind them at 20 Hz instead of every frame (pillar 14).
+    this.rc.backdropHz = this.hud.root.classList.contains('h-menu-open') ? 20 : 0;
     if (!this.renderOverride?.(dt)) this.rc.render(dt, this.time);
     for (const f of this.afterRender) f();
     this.input.endFrame();
@@ -275,10 +278,20 @@ export class Game {
     budget: { drawCalls: number; triangles: number };
     ok: boolean;
     bySystem: Record<string, { calls: number; triangles: number }>;
+    lights: { total: number; active: number };
+    adaptive: { enabled: boolean; level: number; shed: string[] };
   } {
     const r = this.rc.renderer.info.render;
     const budget = { drawCalls: 300, triangles: 1_500_000 };
-    return { drawCalls: r.calls, triangles: r.triangles, budget, ok: r.calls <= budget.drawCalls && r.triangles <= budget.triangles, bySystem: this.rc.perfBreakdown() };
+    return {
+      drawCalls: r.calls,
+      triangles: r.triangles,
+      budget,
+      ok: r.calls <= budget.drawCalls && r.triangles <= budget.triangles,
+      bySystem: this.rc.perfBreakdown(),
+      lights: { ...this.rc.lights.stats },
+      adaptive: this.rc.governor.state,
+    };
   }
 
   /** Snap (instant) or blend the season visuals; handled by SeasonSystem. */

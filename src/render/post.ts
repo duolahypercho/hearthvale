@@ -1,7 +1,8 @@
 /**
  * Post-processing pipeline:
  *   Render(HDR) → GTAO (subtle) → UnrealBloom (high threshold) → Output (ACES + sRGB)
- *   → SMAA → tilt-shift (H,V) → grade (lift/gamma/gain, saturation, contrast, vignette, grain)
+ *   → SMAA → tilt-shift H → grade (+ tilt-shift V fused; lift/gamma/gain, saturation, contrast, vignette, grain)
+ * GTAO runs at `aoScale` resolution and multiplies straight onto the read buffer.
  * Each stage is toggled by the quality preset.
  */
 import * as THREE from 'three';
@@ -28,13 +29,17 @@ export interface QualityPreset {
   grassDensity: number;
   /** Film-grain amplitude (luminance-weighted, shadows only); 0 disables it. */
   grain: number;
+  /** GTAO resolution scale (0.5 = half-res normal / AO / denoise targets, bilinear upsample in the blend). */
+  aoScale: number;
+  /** Max forward-shaded point lights per frame (render/lightbudget.ts); the most important in view win. */
+  pointLights: number;
 }
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
-  low: { pixelRatioCap: 1, shadowMapSize: 1024, shadowRadius: 2, ao: false, aoSamples: 8, bloom: false, tiltShift: false, smaa: true, grassDensity: 0.35, grain: 0 },
-  medium: { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowRadius: 3, ao: false, aoSamples: 8, bloom: true, tiltShift: true, smaa: true, grassDensity: 0.65, grain: 0 },
-  high: { pixelRatioCap: 1.5, shadowMapSize: 4096, shadowRadius: 3, ao: true, aoSamples: 12, bloom: true, tiltShift: true, smaa: true, grassDensity: 1, grain: 0.016 },
-  ultra: { pixelRatioCap: 2, shadowMapSize: 4096, shadowRadius: 4, ao: true, aoSamples: 16, bloom: true, tiltShift: true, smaa: true, grassDensity: 1.3, grain: 0.018 },
+  low: { pixelRatioCap: 1, shadowMapSize: 1024, shadowRadius: 2, ao: false, aoSamples: 8, bloom: false, tiltShift: false, smaa: true, grassDensity: 0.35, grain: 0, aoScale: 0.5, pointLights: 4 },
+  medium: { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowRadius: 3, ao: false, aoSamples: 8, bloom: true, tiltShift: true, smaa: true, grassDensity: 0.65, grain: 0, aoScale: 0.5, pointLights: 6 },
+  high: { pixelRatioCap: 1.5, shadowMapSize: 4096, shadowRadius: 3, ao: true, aoSamples: 12, bloom: true, tiltShift: true, smaa: true, grassDensity: 1, grain: 0.016, aoScale: 0.5, pointLights: 8 },
+  ultra: { pixelRatioCap: 2, shadowMapSize: 4096, shadowRadius: 4, ao: true, aoSamples: 16, bloom: true, tiltShift: true, smaa: true, grassDensity: 1.3, grain: 0.018, aoScale: 1, pointLights: 12 },
 };
 
 const FULLSCREEN_VS = /* glsl */ `
@@ -108,8 +113,30 @@ export const GradeShader = {
     uniform vec2 uResolution;
     varying vec2 vUv;
     float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+    #ifdef TILT
+    // Vertical tilt-shift blur fused into the grade (saves a full-screen pass; same kernel as TiltShift).
+    uniform float uFocus;
+    uniform float uBand;
+    uniform float uStrength;
+    vec3 sampleScene() {
+      float d = abs(vUv.y - uFocus);
+      float amt = smoothstep(uBand, uBand + 0.42, d) * uStrength * (uResolution.y / 1080.0);
+      if (amt < 0.05) return texture2D(tDiffuse, vUv).rgb;
+      vec3 sum = vec3(0.0);
+      float wsum = 0.0;
+      for (int i = -6; i <= 6; i++) {
+        float fi = float(i);
+        float w = exp(-fi * fi / 18.0);
+        sum += texture2D(tDiffuse, vUv + vec2(0.0, fi * amt / uResolution.y)).rgb * w;
+        wsum += w;
+      }
+      return sum / wsum;
+    }
+    #else
+    vec3 sampleScene() { return texture2D(tDiffuse, vUv).rgb; }
+    #endif
     void main() {
-      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec3 c = sampleScene();
       c = c * uGain + uLift * (1.0 - c);
       c = pow(max(c, vec3(0.0)), 1.0 / uGamma);
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -138,8 +165,10 @@ export class PostPipeline {
   private bloom: UnrealBloomPass | null = null;
   private smaa: SMAAPass | null = null;
   private tiltH: ShaderPass | null = null;
-  private tiltV: ShaderPass | null = null;
   private size = new THREE.Vector2();
+  /** Adaptive-quality switches (render/governor.ts): passes can be dropped without recompiles. */
+  aoEnabled = true;
+  bloomEnabled = true;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -164,20 +193,80 @@ export class PostPipeline {
       // Skip objects flagged `userData.noAO` (dense grass, water, particles) in the AO G-buffer pass.
       const g = this.gtao as unknown as { _overrideVisibility: () => void; _visibilityCache: THREE.Object3D[] };
       // A subtree is skipped when any ancestor has noAO (unless the object opts back in with `ao`).
-      const skip = (o: THREE.Object3D): boolean => {
-        if (o.userData.ao) return false;
-        for (let n: THREE.Object3D | null = o; n; n = n.parent) if (n.userData.noAO) return true;
-        return false;
-      };
+      // One iterative walk of the visible tree carrying the inherited flag (was a full traverse
+      // plus an ancestor walk per mesh every frame); reused stacks, no per-frame allocation.
+      const stack: THREE.Object3D[] = [];
+      const inherited: boolean[] = [];
       g._overrideVisibility = () => {
-        scene.traverse((o) => {
+        stack.push(scene);
+        inherited.push(false);
+        while (stack.length) {
+          const o = stack.pop()!;
+          const noAO = inherited.pop()! || !!o.userData.noAO;
+          if (!o.visible) continue;
           const p = o as THREE.Object3D & { isPoints?: boolean; isLine?: boolean; isMesh?: boolean };
-          if (!o.visible || !(p.isPoints || p.isLine || p.isMesh)) return;
-          if (p.isPoints || p.isLine || skip(o)) {
+          if (p.isPoints || p.isLine || (p.isMesh && noAO && !o.userData.ao)) {
             o.visible = false;
             g._visibilityCache.push(o);
+            continue; // hidden: its children don't draw either
           }
-        });
+          const ch = o.children;
+          for (let i = 0; i < ch.length; i++) {
+            stack.push(ch[i]!);
+            inherited.push(noAO);
+          }
+        }
+      };
+      // Half-res G-buffer / AO / denoise (≈¼ the fill of the extra scene pass and the AO kernel);
+      // the blend samples the AO bilinearly at full res. Blend straight onto the read buffer
+      // (multiply) instead of copy + blend into the write buffer: one full-screen pass fewer.
+      const aoScale = preset.aoScale;
+      const gp = this.gtao as unknown as {
+        setSize: (w: number, h: number) => void;
+        render: (r: THREE.WebGLRenderer, wb: THREE.WebGLRenderTarget, rb: THREE.WebGLRenderTarget, dt?: number, mask?: boolean) => void;
+        _renderGBuffer: boolean;
+        _restoreVisibility: () => void;
+        _renderOverride: (r: THREE.WebGLRenderer, m: THREE.Material, t: THREE.WebGLRenderTarget, c: number, a: number) => void;
+        _renderPass: (r: THREE.WebGLRenderer, m: THREE.Material, t: THREE.WebGLRenderTarget | null, c?: number, a?: number) => void;
+        normalMaterial: THREE.Material;
+        normalRenderTarget: THREE.WebGLRenderTarget;
+        gtaoRenderTarget: THREE.WebGLRenderTarget;
+        pdRenderTarget: THREE.WebGLRenderTarget;
+        gtaoMaterial: THREE.ShaderMaterial;
+        pdMaterial: THREE.ShaderMaterial;
+        blendMaterial: THREE.ShaderMaterial;
+        blendIntensity: number;
+        output: number;
+        needsSwap: boolean;
+      };
+      const baseSetSize = gp.setSize.bind(this.gtao);
+      gp.setSize = (w: number, h: number) => baseSetSize(Math.max(1, Math.round(w * aoScale)), Math.max(1, Math.round(h * aoScale)));
+      const baseRender = gp.render.bind(this.gtao);
+      gp.needsSwap = false;
+      gp.render = (r, wb, rb, dt, mask) => {
+        if (gp.output !== 0) {
+          gp.needsSwap = true;
+          baseRender(r, wb, rb, dt, mask);
+          return;
+        }
+        gp.needsSwap = false;
+        if (gp._renderGBuffer) {
+          g._overrideVisibility();
+          gp._renderOverride(r, gp.normalMaterial, gp.normalRenderTarget, 0x7777ff, 1.0);
+          gp._restoreVisibility();
+        }
+        const u = gp.gtaoMaterial.uniforms;
+        u.cameraNear!.value = camera.near;
+        u.cameraFar!.value = camera.far;
+        (u.cameraProjectionMatrix!.value as THREE.Matrix4).copy(camera.projectionMatrix);
+        (u.cameraProjectionMatrixInverse!.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
+        (u.cameraWorldMatrix!.value as THREE.Matrix4).copy(camera.matrixWorld);
+        gp._renderPass(r, gp.gtaoMaterial, gp.gtaoRenderTarget, 0xffffff, 1.0);
+        (gp.pdMaterial.uniforms.cameraProjectionMatrixInverse!.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
+        gp._renderPass(r, gp.pdMaterial, gp.pdRenderTarget, 0xffffff, 1.0);
+        gp.blendMaterial.uniforms.intensity!.value = gp.blendIntensity;
+        gp.blendMaterial.uniforms.tDiffuse!.value = gp.pdRenderTarget.texture;
+        gp._renderPass(r, gp.blendMaterial, rb);
       };
       this.composer.addPass(this.gtao);
     }
@@ -192,12 +281,14 @@ export class PostPipeline {
     }
     if (preset.tiltShift) {
       this.tiltH = new ShaderPass(TiltShiftShader);
-      this.tiltV = new ShaderPass(TiltShiftShader);
-      (this.tiltV.uniforms.uDir!.value as THREE.Vector2).set(0, 1);
       this.composer.addPass(this.tiltH);
-      this.composer.addPass(this.tiltV);
     }
-    this.grade = new ShaderPass(GradeShader);
+    // The vertical tilt-shift blur runs inside the grade pass (TILT define).
+    this.grade = new ShaderPass(
+      preset.tiltShift
+        ? { ...GradeShader, defines: { TILT: 1 }, uniforms: { ...GradeShader.uniforms, uFocus: { value: 0.5 }, uBand: { value: 0.2 }, uStrength: { value: 1.7 } } }
+        : GradeShader,
+    );
     this.grade.uniforms.uGrain!.value = preset.grain;
     this.composer.addPass(this.grade);
     this.setSize(this.size.x, this.size.y);
@@ -205,8 +296,8 @@ export class PostPipeline {
 
   /** Tilt-shift parameters: focus (0 bottom..1 top), clear band half-height, blur strength px. */
   setTiltShift(focus: number, band: number, strength: number): void {
-    for (const p of [this.tiltH, this.tiltV]) {
-      if (!p) continue;
+    if (!this.tiltH) return;
+    for (const p of [this.tiltH, this.grade]) {
       p.uniforms.uFocus!.value = focus;
       p.uniforms.uBand!.value = band;
       p.uniforms.uStrength!.value = strength;
@@ -223,9 +314,25 @@ export class PostPipeline {
     this.size.set(w, h);
     this.composer.setPixelRatio(1);
     this.composer.setSize(w, h);
-    for (const p of [this.tiltH, this.tiltV, this.grade]) {
+    for (const p of [this.tiltH, this.grade]) {
       if (p) (p.uniforms.uResolution!.value as THREE.Vector2).set(w, h);
     }
+  }
+
+  /** Adaptive quality: drop / restore GTAO and bloom without touching any shader. */
+  setAOEnabled(on: boolean): void {
+    this.aoEnabled = on;
+    if (this.gtao) this.gtao.enabled = on;
+  }
+
+  setBloomEnabled(on: boolean): void {
+    this.bloomEnabled = on;
+    if (this.bloom) this.bloom.enabled = on;
+  }
+
+  /** Active composer passes (for perf reports). */
+  activePasses(): string[] {
+    return this.composer.passes.filter((p) => p.enabled).map((p) => (p as unknown as { constructor: { name: string } }).constructor.name);
   }
 
   render(time: number): void {

@@ -151,6 +151,15 @@ Useful hooks for gameplay teams:
 plus `quality(q)`, `camera({yaw,pitch,distance,offsetX,offsetZ})`, `step(frames)`, `save/load(slot)`, `info()`, `demos`.
 `info().perf` reports draw calls / triangles for the last frame (all passes) against the budget
 (≤ 300 draw calls, ≤ 1.5 M triangles); `scripts/shot.mjs` prints a warning when a shot exceeds it.
+It also carries `lights` (point lights in the scene / handed to the renderer) and `adaptive` (governor state).
+
+Render-engine perf rules (pillar 14, `src/render/`): BatchedMesh keeps a draw list per camera and only re-uploads it
+when it changes (`batching.ts`); at most `preset.pointLights` point lights (high: 8) shade each frame, the most
+important in view, cross-faded, constant count so no recompiles (`lightbudget.ts`); objects whose shaders aren't
+compiled yet are held back a frame or two and compiled off-thread (`shadergate.ts`), compiled programs are never
+evicted, map warps compile behind the fade; GTAO runs at half res; pausing menus refresh the world at 20 Hz; the
+adaptive governor (`governor.ts`) sheds GTAO → bloom → shadow res → render scale when the 1 s average runs over
+16.7 ms and restores them with back-off (off under automation; `?adaptive=1|0` to force).
 
 URL: `?demo=farm-morning`, `?map=farm&x=30&z=20&time=18.5&season=fall&weather=rain&day=3&gold=900&facing=up&pause=1`,
 `&ui=inventory`, `&quality=low|medium|high|ultra`, `&hud=0` (hide HUD), `&cam=yaw,pitch,dist[,offX,offZ]`, `&seed=abc`,

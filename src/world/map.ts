@@ -85,6 +85,9 @@ export class World {
     map.setWeather?.(this.game.calendar.weather);
     this.game.rc.rig.bounds = map.cameraBounds;
     this.game.events.emit('map:change', { map: id, prev: prev?.id ?? null });
+    // Mid-game warps: compile the new map's shaders off-thread (behind the warp fade) instead of
+    // stalling the first frames on synchronous compiles (pillar 14). Boot compiles in Game.start.
+    if (this.game.frame > 0) await this.game.rc.compile();
     return map;
   }
 
