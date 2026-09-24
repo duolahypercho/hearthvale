@@ -28,7 +28,7 @@
   box-shadow: 0 -6px 30px rgba(0, 0, 0, 0.35);
 }
 .hv-cinema-layer.boxed .cin-bar {
-  height: 10.5vh;
+  height: 8.5vh;
 }
 .hv-cinema-layer.instant .cin-bar,
 .hv-cinema-layer.instant .cin-fade {
@@ -173,7 +173,7 @@
 .cin-dlg {
   position: absolute;
   left: 50%;
-  bottom: calc(10.5vh + 10px);
+  bottom: calc(8.5vh + 10px);
   transform: translateX(-50%);
   width: min(1120px, calc(100vw - 80px));
   pointer-events: auto;
@@ -279,7 +279,7 @@
 .cin-choices {
   position: absolute;
   right: max(40px, calc(50vw - 590px));
-  bottom: calc(10.5vh + 172px);
+  bottom: calc(8.5vh + 172px);
   display: grid;
   gap: 12px;
   pointer-events: auto;
@@ -395,7 +395,7 @@
 .cin-skip {
   position: absolute;
   right: 28px;
-  top: calc(10.5vh + 14px);
+  top: calc(8.5vh + 14px);
   padding: 6px 14px;
   border-radius: 10px;
   background: rgba(10, 5, 2, 0.55);

@@ -237,6 +237,7 @@ export class StorySystem implements System, StoryApi {
     }
     if (key === 'glimmer') this.injectTalk();
     if (key === 'intro' && value === 'done') {
+      this.deliver('gran-morning', true);
       this.deliver('hollis-welcome', true);
       this.deliver('marigold-seeds', true);
     }

@@ -395,6 +395,18 @@ export class CutsceneSystem implements System, CutsceneApi {
   private occFrame = 0;
   private blockLog: string[] = [];
   private lineNo = 0;
+  /**
+   * Letterbox safe area: a pedestal lift (m) / dolly-out (× dist) that keeps every head and emote
+   * bubble in frame below the top bar. `safe` is what is applied (eased over ~0.3 s), `safeWant`
+   * what the solver asked for this frame.
+   */
+  private safe = { lift: 0, dist: 1 };
+  private safeSnap = true;
+  private boxed = false;
+  private speakerId: string | null = null;
+  private frameDt = 0;
+  private safeV = new THREE.Vector3();
+  private safeLog: string[] = [];
 
   init(game: Game): void {
     this.game = game;
@@ -435,7 +447,7 @@ export class CutsceneSystem implements System, CutsceneApi {
   }
 
   blocking(): string[] {
-    return [...this.blockLog];
+    return [...this.blockLog, ...this.safeLog];
   }
 
   resolveRemoteChoice(index: number): void {
@@ -517,6 +529,10 @@ export class CutsceneSystem implements System, CutsceneApi {
     g.rc.rig.bounds = null;
     this.readCam();
     this.lineNo = 0;
+    this.speakerId = null;
+    this.boxed = false;
+    this.safe = { lift: 0, dist: 1 };
+    this.safeSnap = true;
     this.actors.set('player', { id: 'player', villager: null, headY: 2.15, path: [], speed: 2.2, onArrive: null, prop: null, holdsLantern: false });
     aoOptIn(g.player.root, true);
     g.events.emit('cutscene:start', { scene: name });
@@ -642,6 +658,7 @@ export class CutsceneSystem implements System, CutsceneApi {
         return;
       case 'letterbox':
         this.overlay.letterbox(c.on, this.fast);
+        this.boxed = c.on;
         return;
       case 'hud':
         this.overlay.hud(c.on);
@@ -712,7 +729,7 @@ export class CutsceneSystem implements System, CutsceneApi {
       case 'walk':
         return this.walk(c.id, c.path, c.facing, c.speed, c.wait !== false);
       case 'face':
-        this.face(c.id, c.facing, c.toward);
+        this.face(c.id, c.facing, c.toward, c.at);
         return;
       case 'emote':
         this.emote(c.id, c.emote);
@@ -720,6 +737,7 @@ export class CutsceneSystem implements System, CutsceneApi {
         return;
       case 'say': {
         const who = this.speaker(c.who, c.mood);
+        this.speakerId = c.who;
         const listener = this.actors.get(c.who)?.villager;
         const pl = g.player.position;
         if (listener) listener.talkTo = pl;
@@ -737,6 +755,7 @@ export class CutsceneSystem implements System, CutsceneApi {
       }
       case 'choice': {
         const who = this.speaker(c.who);
+        this.speakerId = c.who;
         const sp = this.actors.get(c.who)?.villager;
         if (sp) sp.talkTo = g.player.position;
         this.skipping = false;
@@ -916,20 +935,32 @@ export class CutsceneSystem implements System, CutsceneApi {
     return Math.abs(s) > Math.abs(c) ? (s > 0 ? 'right' : 'left') : c > 0 ? 'down' : 'up';
   }
 
-  private face(id: string, facing?: Facing, toward?: string): void {
+  private face(id: string, facing?: Facing, toward?: string, at?: [number, number]): void {
     const a = this.actors.get(id);
     if (!a) return;
     let yaw = facing ? FACING_YAW[facing] : 0;
+    let exact = false;
+    const p = this.actorPos(a);
     if (toward) {
       const t = this.actors.get(toward);
       if (t) {
-        const p = this.actorPos(a);
         const q = this.actorPos(t);
         yaw = Math.atan2(q.x - p.x, q.z - p.z);
+        exact = true;
       }
+    } else if (at) {
+      yaw = Math.atan2(at[0] - p.x, at[1] - p.z);
+      exact = true;
     }
     if (a.villager) a.villager.setYaw(yaw);
-    else this.game.player.setFacing(facing ?? this.yawToFacing(yaw));
+    else {
+      this.game.player.setFacing(facing ?? this.yawToFacing(yaw));
+      // The farmer can turn to any angle too (a reaction shot looks *at* the lantern, not north of it).
+      if (exact && !facing) {
+        const pl = this.game.player as unknown as { yaw: number; targetYaw: number };
+        pl.yaw = pl.targetYaw = yaw;
+      }
+    }
   }
 
   private emote(id: string, e: Emote): void {
@@ -963,6 +994,8 @@ export class CutsceneSystem implements System, CutsceneApi {
     if (this.fast || dur <= 0) {
       this.cam = null;
       this.camNow = { y: 0.8, ...to };
+      // A cut: the safe-area correction starts from scratch on the new framing.
+      this.safeSnap = true;
       this.applyCam();
       return Promise.resolve();
     }
@@ -975,6 +1008,7 @@ export class CutsceneSystem implements System, CutsceneApi {
   private camRail(keys: CamKey[], dur: number, wait: boolean): Promise<void> {
     if (this.fast) {
       this.camNow = { y: 0.8, ...keys[keys.length - 1]! };
+      this.safeSnap = true;
       this.applyCam();
       return Promise.resolve();
     }
@@ -1040,6 +1074,82 @@ export class CutsceneSystem implements System, CutsceneApi {
     rig.distance = wall !== null ? Math.max(2.5, wall - 0.7) : n.dist;
     g.rc.focusPoint.set(n.x, gy + (n.y ?? 0.8), n.z);
     rig.snap();
+    this.keepSafe(wall === null);
+  }
+
+  /**
+   * Letterbox safe area: project every head (and emote bubble) the audience should read — the speaker,
+   * anyone emoting, any actor within 16 m of the lens and on screen — and if one rises into the top
+   * bar's margin (NDC y > SAFE_TOP), lift the camera on its pedestal (and past 1.1 m of lift, dolly
+   * out a little) until it clears. Eased over ~0.3 s so a correction never pops; snapped on a cut.
+   */
+  private keepSafe(canDolly: boolean): void {
+    const g = this.game;
+    const rig = g.rc.rig;
+    const cam = g.rc.camera;
+    if (!this.boxed || !this.running) {
+      this.safe = { lift: 0, dist: 1 };
+      return;
+    }
+    const baseY = rig.target.y;
+    const baseD = rig.distance;
+    // Letterbox bars are 8.5vh: their inner edge sits at NDC ±0.83. Keep heads 0.1 below it.
+    const SAFE_TOP = 0.72;
+    const heads: { x: number; y: number; z: number }[] = [];
+    const emoting = new Set(this.emotes.map((e) => e.actor));
+    for (const a of this.actors.values()) {
+      if (!a.villager && !g.player.root.visible) continue;
+      if (a.villager && !a.villager.root.visible) continue;
+      const p = this.actorPos(a);
+      const near = cam.position.distanceTo(p) < 16;
+      if (!near && a.id !== this.speakerId && !emoting.has(a)) continue;
+      const bubble = emoting.has(a) ? 0.62 * Math.max(0.6, cam.position.distanceTo(p) / 14) * 0.5 + 0.06 : -0.12;
+      heads.push({ x: p.x, y: p.y + a.headY + bubble, z: p.z });
+    }
+    const want = { lift: 0, dist: 1 };
+    const v = this.safeV;
+    const top = (): number => {
+      let m = -Infinity;
+      for (const h of heads) {
+        v.set(h.x, h.y, h.z).project(cam);
+        if (v.z > 1 || Math.abs(v.x) > 1.05) continue;
+        m = Math.max(m, v.y);
+      }
+      return m;
+    };
+    const place = (lift: number, dist: number): void => {
+      rig.target.y = baseY + lift;
+      rig.distance = baseD * dist;
+      rig.snap();
+      cam.updateMatrixWorld();
+    };
+    if (heads.length) {
+      cam.updateMatrixWorld();
+      for (let i = 0; i < 8; i++) {
+        const t = top();
+        if (t <= SAFE_TOP) break;
+        const over = t - SAFE_TOP;
+        // NDC → metres at the depth of the frame (≈ half the visible height per NDC unit).
+        const perNdc = rig.distance * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+        if (want.lift < 1.1 || !canDolly) want.lift = Math.min(1.8, want.lift + over * perNdc * 1.05 + 0.02);
+        else want.dist = Math.min(1.35, want.dist * (1 + over * 0.6 + 0.02));
+        place(want.lift, want.dist);
+      }
+    }
+    const k = this.safeSnap || this.fast ? 1 : 1 - Math.exp(-this.frameDt / 0.3);
+    this.safeSnap = false;
+    // Ease towards what is needed now (release more slowly than we correct: no see-sawing).
+    const rel = want.lift < this.safe.lift ? k * 0.5 : k;
+    this.safe.lift += (want.lift - this.safe.lift) * rel;
+    this.safe.dist += (want.dist - this.safe.dist) * (want.dist < this.safe.dist ? k * 0.5 : k);
+    place(this.safe.lift, this.safe.dist);
+    if (this.speakerId && heads.length) {
+      const t = top();
+      if (t > 0.83) {
+        const msg = `${this.running}: line ${this.lineNo} — a head is clipped by the letterbox`;
+        if (!this.safeLog.includes(msg)) this.safeLog.push(msg);
+      }
+    }
   }
 
   // ─────────────────────────────── framing guards
@@ -1285,6 +1395,8 @@ export class CutsceneSystem implements System, CutsceneApi {
         if (wall !== null && wall < k.key.dist - 1) issues.push(`${k.scene}#${k.i} (${m}): building ${wall.toFixed(1)} m in front of the target`);
       }
     }
+    // Heads the safe-area guard could not keep below the letterbox this session (played scenes only).
+    for (const s of this.safeLog) issues.push(`head clipped by letterbox — ${s}`);
     return issues;
   }
 
@@ -1322,6 +1434,7 @@ export class CutsceneSystem implements System, CutsceneApi {
 
   update(dt: number): void {
     this.clock += dt;
+    this.frameDt = dt;
     if (this.running && this.playerHidden) this.game.player.root.visible = false;
     if (this.running) this.hideRemotes();
     if (this.waiters.length) {

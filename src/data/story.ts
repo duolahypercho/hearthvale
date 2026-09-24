@@ -86,6 +86,21 @@ export const LETTERS: Record<string, LetterDef> = {
     sign: 'All my love, always —\nGran Rosalind',
     ps: 'The key is under the blue pot. It has always been under the blue pot.',
   },
+  'gran-morning': {
+    id: 'gran-morning',
+    from: 'Gran Rosalind',
+    subject: 'For your first morning',
+    stationery: 'gran',
+    seal: 'Open on your first morning',
+    greeting: 'Good morning, sprout,',
+    body: [
+      "If you're reading this, you slept under my roof. The kettle has probably already told you it's temperamental. Bang it twice. It likes that.",
+      "Don't try to fix the whole farm today. Clear a little square by the porch, plant what Marigold gives you, and water it before the sun gets high. The valley rewards small things done every day.",
+      "When you're ready — not before — take the key up to the Hall. Hollis will make a speech. Let him; it's good for him.",
+    ],
+    sign: 'Gran',
+    ps: 'I left you a journal. Write down what you mean to do; it makes it more likely.',
+  },
   'hollis-welcome': {
     id: 'hollis-welcome',
     from: 'Mayor Hollis Pennyroyal',

@@ -33,7 +33,7 @@ import { WorldHints, type HintPoint } from '../ui/journal-hint';
 
 // ─────────────────────────────────────────────── materials (interior: no snow / rain / cloud patch)
 
-type HallMat = 'plaster' | 'wood' | 'woodGrain' | 'stone' | 'metal' | 'cloth' | 'glass' | 'water' | 'leaf' | 'candle' | 'web';
+type HallMat = 'plaster' | 'wood' | 'woodGrain' | 'stone' | 'metal' | 'cloth' | 'glass' | 'water' | 'leaf' | 'candle' | 'bulb' | 'web';
 let MATS: Record<HallMat, THREE.Material> | null = null;
 function hallMats(): Record<HallMat, THREE.Material> {
   if (MATS) return MATS;
@@ -56,6 +56,8 @@ function hallMats(): Record<HallMat, THREE.Material> {
     water: std({ roughness: 0.15, color: 0x2a8a9a, emissive: 0x1a6a8a, emissiveIntensity: 0.6, transparent: true, opacity: 0.82 }, 'water'),
     leaf: std({ roughness: 0.8, side: THREE.DoubleSide }, 'leaf'),
     candle: std({ roughness: 0.5, color: 0xfff2dc, emissive: 0xffb050, emissiveIntensity: 2.4 }, 'candle'),
+    // Festoon bulbs: warm but under the bloom knee — they hang in every celebration close-up.
+    bulb: std({ roughness: 0.4, color: 0xffe8c8, emissive: 0xffa040, emissiveIntensity: 1.15 }, 'bulb'),
     web: std({ roughness: 1, color: 0xe8ecf2, map: webTexture(), transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }, 'web'),
   };
   (MATS.glass as THREE.MeshStandardMaterial).vertexColors = false;
@@ -2054,7 +2056,7 @@ export class HallMap implements GameMap {
         const pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
         b.add(m.cloth, seg, mat((p.x + prev.x) / 2, (p.y + prev.y) / 2, (p.z + prev.z) / 2, 0, yaw, pitch), { tint: 0x3a2a20 });
       }
-      if (k > 0 && k < N) b.add(m.candle, bulb, mat(p.x, p.y - 0.09, p.z));
+      if (k > 0 && k < N) b.add(m.bulb, bulb, mat(p.x, p.y - 0.09, p.z));
       prev = p;
     }
     // A harvest basket of the room's goods by the rug.
@@ -2653,6 +2655,141 @@ export class HallMap implements GameMap {
 
 // ─────────────────────────────────────────────── system
 
+// ─────────────────────────────────────────────── the intro's first night: Gran's dusty farmhouse
+
+/**
+ * Seven years shut up: dust sheets over the armchair and the rocker, tea chests and a trunk stacked by
+ * the door, cobwebs in the corners and the beams, a pale moonlight shaft through the kitchen window
+ * full of slow motes, and dust on the floor with the farmer's first footprints through it. Only for
+ * the intro (`house:dust` / cleared on `house:off`, the end of the scene or `intro:done`): day 1 opens
+ * on a swept, lived-in house — your care, not the house's neglect.
+ */
+class HouseDust {
+  readonly group = new THREE.Group();
+  private motes: THREE.Points;
+  private moteBase: Float32Array;
+  private t = 0;
+  constructor() {
+    const r = new Rng('house-dust');
+    const m = hallMats();
+    const b = new MeshBuilder();
+    const SHEET = 0xd8d2c4;
+    // Dust sheets (the furniture's silhouette still reads through them).
+    b.add(m.cloth, drapedSheet(r, 1.05, 1.08, 1.0), mat(4.95, 0, 2.85, 0, 0.75, 0), { tint: SHEET, aoWorld: groundAO(0.35) });
+    b.add(m.cloth, drapedSheet(r, 0.85, 1.15, 1.05), mat(8.05, 0, 2.8, 0, -0.85, 0), { tint: 0xcfc8b8, aoWorld: groundAO(0.35) });
+    b.add(m.cloth, drapedSheet(r, 0.62, 0.7, 0.62), mat(8.95, 0, 1.85, 0, 0.3, 0), { tint: 0xd4cebe, aoWorld: groundAO(0.3) });
+    // Tea chests and a trunk by the door, a rolled rug on top.
+    const crate = (x: number, y: number, z: number, w: number, h: number, d: number, rot: number, tint: number): void => {
+      b.add(m.woodGrain, roundedBox(w, h, d, 0.03), mat(x, y + h / 2, z, 0, rot, 0), { tint, aoWorld: groundAO(0.3) });
+      b.add(m.metal, roundedBox(w + 0.02, 0.035, d + 0.02, 0.01), mat(x, y + h * 0.8, z, 0, rot, 0), { tint: 0x5a4a3a });
+    };
+    crate(8.4, 0, 7.35, 0.62, 0.5, 0.5, 0.2, 0xb08a5a);
+    crate(8.45, 0.5, 7.33, 0.5, 0.42, 0.42, -0.15, 0xc09a68);
+    crate(9.2, 0, 7.45, 0.55, 0.45, 0.48, 0.5, 0xa07a4e);
+    b.add(m.woodGrain, roundedBox(0.95, 0.5, 0.52, 0.06), mat(4.3, 0.25, 7.35, 0, 0.1, 0), { tint: 0x6a4630, aoWorld: groundAO(0.3) });
+    b.add(m.metal, roundedBox(0.97, 0.04, 0.54, 0.01), mat(4.3, 0.38, 7.35, 0, 0.1, 0), { tint: 0xb8903a });
+    const roll = new THREE.CylinderGeometry(0.13, 0.13, 1.2, 12);
+    roll.rotateZ(Math.PI / 2);
+    b.add(m.cloth, roll, mat(4.35, 0.64, 7.35, 0, 0.18, 0), { tint: 0x8a4a3a });
+    // Cobwebs: the back corners, over the dresser, between beam and wall.
+    for (const [x, y, z, ry, sc] of [
+      [0.3, 2.75, 0.3, Math.PI / 4, 1.1],
+      [12.7, 2.75, 0.3, -Math.PI / 4, 1.2],
+      [0.3, 2.6, 7.6, (Math.PI * 3) / 4, 0.9],
+      [7.4, 2.85, 0.14, 0, 0.8],
+      [3.9, 2.6, 0.14, 0, 0.7],
+    ] as const) b.add(m.web, new THREE.CircleGeometry(0.55 * sc, 12), mat(x, y, z, 0, ry, 0.3));
+    // Dust on the floor: soft grey drifts, a clean trail of footprints from the door to the table.
+    const dust = new THREE.PlaneGeometry(12.6, 7.6);
+    dust.rotateX(-Math.PI / 2);
+    const dustMat = new THREE.MeshBasicMaterial({ map: dustTexture(), transparent: true, depthWrite: false, opacity: 0.55 });
+    dustMat.name = 'house-dust-floor';
+    const floor = new THREE.Mesh(dust, dustMat);
+    floor.position.set(6.5, 0.012, 4.0);
+    floor.renderOrder = 1;
+    const g = b.build({ name: 'house-dust' });
+    g.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.userData.noAO = true;
+    });
+    this.group.add(g, floor);
+    // Moonlight through the kitchen window: a desaturated additive shaft down onto the boards.
+    const shaftMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: { uCol: { value: new THREE.Color(0x8c98a8) } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader:
+        'varying vec2 vUv; uniform vec3 uCol; void main(){ float edge = smoothstep(0.0,0.28,vUv.x)*smoothstep(1.0,0.72,vUv.x); float fall = mix(0.25,1.0,vUv.y); gl_FragColor = vec4(uCol * edge * fall * 0.32, 1.0); }',
+    });
+    const shaft = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 3.0), shaftMat);
+    shaft.position.set(1.9, 1.15, 1.0);
+    shaft.rotation.set(-0.62, 0, 0);
+    shaft.userData.noAO = true;
+    shaft.renderOrder = 2;
+    this.group.add(shaft);
+    const N = 70;
+    this.moteBase = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) this.moteBase.set([1.4 + r.next() * 1.0, 0.3 + r.next() * 2.0, 0.3 + r.next() * 1.7], i * 3);
+    const mg = new THREE.BufferGeometry();
+    mg.setAttribute('position', new THREE.BufferAttribute(this.moteBase.slice(), 3));
+    this.motes = new THREE.Points(mg, new THREE.PointsMaterial({ color: 0xdfe6ee, size: 0.025, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.motes.userData.noAO = true;
+    this.motes.frustumCulled = false;
+    this.group.add(this.motes);
+    this.group.name = 'intro-house-dust';
+    this.group.userData.perfTag = 'story';
+  }
+  update(dt: number): void {
+    this.t += dt;
+    const p = this.motes.geometry.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      const b = i * 3;
+      p.setXYZ(i, this.moteBase[b]! + Math.sin(this.t * 0.3 + i) * 0.08, this.moteBase[b + 1]! + Math.sin(this.t * 0.21 + i * 1.7) * 0.1, this.moteBase[b + 2]! + Math.cos(this.t * 0.25 + i * 0.9) * 0.08);
+    }
+    p.needsUpdate = true;
+  }
+}
+
+/** Floor dust: mottled grey drifts thicker at the walls, with a swept path of boot prints door → table. */
+function dustTexture(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 280;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const r = new Rng('dust-tex');
+  for (let i = 0; i < 260; i++) {
+    const x = r.next() * W;
+    const y = r.next() * H;
+    const edge = Math.min(x, W - x, y, H - y) / 90;
+    const a = 0.05 + 0.1 * Math.max(0, 1 - edge);
+    const rad = 14 + r.next() * 36;
+    const gr = g.createRadialGradient(x, y, 1, x, y, rad);
+    gr.addColorStop(0, `rgba(196,190,178,${a})`);
+    gr.addColorStop(1, 'rgba(196,190,178,0)');
+    g.fillStyle = gr;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  // Boot prints from the door (front centre) to the kitchen table (left): cleared ovals.
+  g.globalCompositeOperation = 'destination-out';
+  for (let k = 0; k < 11; k++) {
+    const t = k / 10;
+    const x = W * (0.55 - t * 0.33) + (k % 2 ? 7 : -7);
+    const y = H * (0.98 - t * 0.42);
+    g.fillStyle = 'rgba(0,0,0,0.85)';
+    g.beginPath();
+    g.ellipse(x, y, 5, 9, -0.5, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.globalCompositeOperation = 'source-over';
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export class LanternHallSystem implements System {
   readonly name = 'hall';
   private game!: Game;
@@ -2663,6 +2800,8 @@ export class LanternHallSystem implements System {
   private preview: 'dark' | 'restored' | null = null;
   private baseRender: THREE.Object3D['onBeforeRender'] | null = null;
   private hints!: WorldHints;
+  /** The intro's dusty first night (built on demand, dropped after the intro). */
+  private dust: HouseDust | null = null;
 
   init(game: Game): void {
     this.game = game;
@@ -2702,6 +2841,11 @@ export class LanternHallSystem implements System {
       this.pending.clear();
       this.sync();
     });
+    game.events.on('cutscene:cue', ({ cue }) => {
+      if (cue === 'house:night') this.houseDust(true);
+      else if (cue === 'house:off') this.houseDust(false);
+    });
+    game.events.on('cutscene:end', () => this.houseDust(false));
     game.events.on('cutscene:cue', ({ cue, arg, instant }) => {
       if (cue !== 'hall:ignite' || !arg) return;
       this.pending.delete(arg as RoomId);
@@ -2725,8 +2869,19 @@ export class LanternHallSystem implements System {
     };
   }
 
-  update(): void {
+  update(dt: number): void {
     this.hints.update();
+    if (this.dust?.group.parent) this.dust.update(dt);
+  }
+
+  private houseDust(on: boolean): void {
+    const map = this.game.world.current;
+    if (on && map?.id === 'house') {
+      this.dust ??= new HouseDust();
+      map.root.add(this.dust.group);
+    } else if (!on && this.dust) {
+      this.dust.group.removeFromParent();
+    }
   }
 
   private isGlimmer(room: string): boolean {

@@ -26,6 +26,7 @@ import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { MeshBuilder, roundedBox, bevelCylinder, lumpySphere, mat, mergeStatic } from '../world/geom';
 import { materials } from '../render/materials';
+import { applyWind } from '../render/wind';
 import { buildMarketStall, buildSandwichBoard } from '../world/props/townkit';
 import { buildLanternPole, buildBunting, buildBrazier } from '../world/props/festival';
 import { buildHarvestPile, buildHayBale } from '../world/props/farmkit';
@@ -48,6 +49,34 @@ const EVERGLOW = 0xdff4ff;
 function glowMat(color: number, name: string): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0, roughness: 0.4 });
   m.name = name;
+  return m;
+}
+
+/**
+ * Camera near-fade: fragments closer than `far` to the lens fade out (alpha), gone entirely inside
+ * `near`. A lantern post that swings past the lens on a crane
+ * dissolves instead of filling the frame with a faceted paper wall.
+ */
+function nearFade<M extends THREE.Material>(m: M, near: number, far: number): M {
+  const prev = m.onBeforeCompile;
+  m.transparent = true;
+  m.onBeforeCompile = (s, r) => {
+    prev.call(m, s, r);
+    s.uniforms.uNearFade = { value: new THREE.Vector2(near, far) };
+    s.vertexShader = s.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vNfDist;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vNfDist = length(mvPosition.xyz);');
+    s.fragmentShader = s.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vNfDist;\nuniform vec2 uNearFade;')
+      .replace(
+        'void main() {',
+        `void main() {
+  float nfK = smoothstep(uNearFade.x, uNearFade.y, vNfDist);
+  if (nfK < 0.02) discard;`,
+      )
+      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n  gl_FragColor.a *= nfK;');
+  };
+  m.customProgramCacheKey = () => `nearfade-${near}-${far}`;
   return m;
 }
 
@@ -334,18 +363,27 @@ function buildLandmark(y0: number): Landmark {
     const a = (i / 8) * Math.PI * 2;
     b.add('stone', roundedBox(0.16, 0.26, 0.12, 0.03), mat(x + Math.cos(a) * 1.05, wy + Math.sin(a) * 1.05, gz1 + 0.05, 0, 0, a + Math.PI / 2), { tint: 0xc8bfb0 });
   }
-  // Cupola on the ridge: a stone drum, four open arches round a lantern, a verdigris cap, a gold finial.
+  // Clock-and-lantern tower on the ridge (it has to outrank every shop roof on the skyline): a tall
+  // stone drum with a clock face to the square, an open lantern stage (four piers round the glowing
+  // core), a steep verdigris spire and a gilt finial with a weathervane lantern.
   const cy = y0 + HALL.ridge - 0.35;
-  const cz = HALL.z;
-  b.add('stone', roundedBox(1.7, 0.7, 1.7, 0.06), mat(x, cy + 0.35, cz), { tint: STONE });
-  b.add('stone', roundedBox(1.9, 0.14, 1.9, 0.04), mat(x, cy + 0.74, cz), { tint: 0xc8bfb0 });
-  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add('stone', roundedBox(0.26, 1.3, 0.26, 0.04), mat(x + dx * 0.7, cy + 1.46, cz + dz * 0.7), { tint: STONE });
-  b.add('stone', roundedBox(1.9, 0.16, 1.9, 0.04), mat(x, cy + 2.16, cz), { tint: 0xc8bfb0 });
-  const cap = new THREE.ConeGeometry(1.32, 1.5, 4, 1);
+  const cz = HALL.z + 0.4;
+  const DR = 2.3;
+  b.add('stone', roundedBox(2.1, DR, 2.1, 0.07), mat(x, cy + DR / 2, cz), { tint: STONE });
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add('stone', roundedBox(0.3, DR + 0.05, 0.3, 0.05), mat(x + dx * 1.0, cy + DR / 2, cz + dz * 1.0), { tint: 0xc8bfb0 });
+  b.add('stone', roundedBox(2.35, 0.18, 2.35, 0.05), mat(x, cy + DR + 0.05, cz), { tint: 0xc0b6a6 });
+  // Clock: bronze bezel round the face (the face itself is a canvas card, below).
+  b.add('metal', new THREE.TorusGeometry(0.66, 0.06, 8, 32), mat(x, cy + 1.25, cz + 1.07), { tint: 0xb88a3a });
+  const L = cy + DR + 0.14;
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add('stone', roundedBox(0.3, 1.45, 0.3, 0.04), mat(x + dx * 0.78, L + 0.72, cz + dz * 0.78), { tint: STONE });
+  b.add('stone', roundedBox(2.1, 0.18, 2.1, 0.05), mat(x, L + 1.52, cz), { tint: 0xc8bfb0 });
+  const cap = new THREE.ConeGeometry(1.5, 2.6, 4, 1);
   cap.rotateY(Math.PI / 4);
-  b.add('roofTile', cap, mat(x, cy + 2.98, cz), { tint: 0x6fa08e });
-  b.add('metal', new THREE.SphereGeometry(0.12, 10, 8), mat(x, cy + 3.8, cz), { tint: 0xe8b84a });
-  b.add('metal', new THREE.CylinderGeometry(0.025, 0.025, 0.7, 5), mat(x, cy + 4.1, cz), { tint: 0xe8b84a });
+  b.add('roofTile', cap, mat(x, L + 2.9, cz), { tint: 0x6fa08e });
+  b.add('metal', new THREE.SphereGeometry(0.14, 12, 10), mat(x, L + 4.28, cz), { tint: 0xe8b84a });
+  b.add('metal', new THREE.CylinderGeometry(0.028, 0.028, 1.0, 6), mat(x, L + 4.75, cz), { tint: 0xe8b84a });
+  b.add('metal', roundedBox(0.5, 0.05, 0.03, 0.01), mat(x + 0.08, L + 5.0, cz), { tint: 0xe8b84a });
+  b.add('metal', new THREE.ConeGeometry(0.07, 0.16, 4), mat(x - 0.2, L + 5.0, cz, 0, 0, Math.PI / 2), { tint: 0xe8b84a });
   // Broad stone steps and a landing in front of the doors (low: the square walks over them).
   for (let i = 0; i < 2; i++) b.add('stone', roundedBox(6.4 - i * 0.9, 0.09, 0.9, 0.03), mat(x, y0 - 0.02 + i * 0.07, front + 1.9 - i * 0.55), { tint: 0xcac2b4 });
   const group = b.build({ name: 'hall-landmark' });
@@ -356,50 +394,388 @@ function buildLandmark(y0: number): Landmark {
   disc.position.set(x, wy, gz1 + 0.02);
   group.add(disc);
   const cupola = glowMat(0xfff0d0, 'hall-cupola');
-  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.95, 8), cupola);
-  core.position.set(x, cy + 1.3, cz);
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 1.15, 8), cupola);
+  core.position.set(x, L + 0.72, cz);
   group.add(core);
+  const face = new THREE.Mesh(new THREE.CircleGeometry(0.62, 40), clockFaceMaterial());
+  face.position.set(x, cy + 1.25, cz + 1.065);
+  group.add(face);
   return { group, window, cupola };
 }
 
+/** The Hall clock: cream enamel, roman hour marks, black iron hands stopped at ten to seven. */
+function clockFaceMaterial(): THREE.MeshStandardMaterial {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const bg = g.createRadialGradient(S / 2, S * 0.42, 10, S / 2, S / 2, S / 2);
+  bg.addColorStop(0, '#fbf3df');
+  bg.addColorStop(1, '#e2d2ae');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, S, S);
+  g.strokeStyle = '#3a2c20';
+  g.lineWidth = 5;
+  g.beginPath();
+  g.arc(S / 2, S / 2, S * 0.44, 0, Math.PI * 2);
+  g.stroke();
+  g.fillStyle = '#2e241c';
+  g.font = '700 30px Georgia, serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  const R = ['XII', 'I', 'II', 'III', 'IIII', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+    g.save();
+    g.translate(S / 2 + Math.cos(a) * S * 0.33, S / 2 + Math.sin(a) * S * 0.33);
+    g.rotate(a + Math.PI / 2);
+    g.font = `700 ${i % 3 === 0 ? 30 : 22}px Georgia, serif`;
+    g.fillText(R[i]!, 0, 0);
+    g.restore();
+  }
+  const hand = (a: number, len: number, w: number): void => {
+    g.save();
+    g.translate(S / 2, S / 2);
+    g.rotate(a);
+    g.fillStyle = '#1e1812';
+    g.beginPath();
+    g.moveTo(-w, 10);
+    g.lineTo(0, -len);
+    g.lineTo(w, 10);
+    g.closePath();
+    g.fill();
+    g.restore();
+  };
+  hand(((6 + 50 / 60) / 12) * Math.PI * 2, S * 0.2, 7);
+  hand((50 / 60) * Math.PI * 2, S * 0.3, 5);
+  g.beginPath();
+  g.arc(S / 2, S / 2, 8, 0, Math.PI * 2);
+  g.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  const m = new THREE.MeshStandardMaterial({ map: t, roughness: 0.55, emissiveMap: t, emissive: 0xffe0a8, emissiveIntensity: 0 });
+  m.name = 'hall-clock';
+  return m;
+}
+
+/**
+ * The Hall facade tells you how far you've come from anywhere in the square: six iron lantern
+ * brackets under the eave (one per room, in room order left → right), dark smoked glass until the
+ * room is lit, then its own colour. And while the Hall is dark it looks it: boards nailed over the
+ * front windows, a gutter hanging off its bracket, a torn "Hall closed" notice — cleared as the rooms
+ * come back (2 lit: west window unboarded, 3: gutter mended, 4: east window, 5: notice gone).
+ */
+interface Facade {
+  group: THREE.Group;
+  cores: THREE.InstancedMesh;
+  /** Derelict pieces with the lantern count that clears them. */
+  derelict: { obj: THREE.Object3D; clearAt: number }[];
+}
+const FACADE_X = [27.55, 29.15, 30.7, 33.3, 34.85, 36.45];
+
+function buildFacade(y0: number, r: Rng): Facade {
+  const fz = HALL.front;
+  const iron = new MeshBuilder();
+  const ly = y0 + 3.35;
+  FACADE_X.forEach((x) => {
+    // Wall plate, scrolled arm out from the wall, a hook, then the cage: cap, six ribs, base.
+    iron.add('metal', roundedBox(0.16, 0.32, 0.05, 0.02), mat(x, ly + 0.55, fz + 0.03), { tint: 0x2a2624 });
+    iron.add('metal', roundedBox(0.05, 0.05, 0.5, 0.015), mat(x, ly + 0.6, fz + 0.28), { tint: 0x2a2624 });
+    iron.add('metal', new THREE.TorusGeometry(0.1, 0.018, 5, 10, Math.PI), mat(x, ly + 0.5, fz + 0.2, 0, Math.PI / 2, 0), { tint: 0x2a2624 });
+    iron.add('metal', new THREE.CylinderGeometry(0.012, 0.012, 0.14, 4), mat(x, ly + 0.52, fz + 0.5), { tint: 0x2a2624 });
+    iron.add('metal', new THREE.ConeGeometry(0.17, 0.16, 6), mat(x, ly + 0.38, fz + 0.5), { tint: 0x2a2624 });
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      iron.add('metal', new THREE.CylinderGeometry(0.012, 0.012, 0.36, 4), mat(x + Math.cos(a) * 0.12, ly + 0.14, fz + 0.5 + Math.sin(a) * 0.12), { tint: 0x2a2624 });
+    }
+    iron.add('metal', new THREE.CylinderGeometry(0.15, 0.1, 0.06, 6), mat(x, ly - 0.06, fz + 0.5), { tint: 0x2a2624 });
+    iron.add('metal', new THREE.SphereGeometry(0.03, 6, 4), mat(x, ly - 0.12, fz + 0.5), { tint: 0x2a2624 });
+  });
+  const group = iron.build({ name: 'hall-facade-lanterns' });
+  // Glass cores: one instanced draw, instance colour = dark smoke (unlit) or the room's colour (lit).
+  const coreGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.3, 6);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  coreMat.name = 'hall-facade-glass';
+  const cores = new THREE.InstancedMesh(coreGeo, coreMat, FACADE_X.length);
+  cores.name = 'hall-facade-glass';
+  const o = new THREE.Object3D();
+  FACADE_X.forEach((x, i) => {
+    o.position.set(x, ly + 0.14, fz + 0.5);
+    o.updateMatrix();
+    cores.setMatrixAt(i, o.matrix);
+    cores.setColorAt(i, new THREE.Color(0x14161a));
+  });
+  cores.castShadow = false;
+  cores.userData.noAO = true;
+  group.add(cores);
+  // Derelict dressing.
+  const derelict: { obj: THREE.Object3D; clearAt: number }[] = [];
+  const boards = (wx: number, clearAt: number): void => {
+    const b = new MeshBuilder();
+    const wy = y0 + 1.85;
+    const plank = (dy: number, rot: number, w: number, tint: number): void => {
+      b.add('wood', roundedBox(w, 0.2, 0.05, 0.02), mat(wx + (r.next() - 0.5) * 0.06, wy + dy, fz + 0.2, 0, 0, rot), { tint });
+      for (const s of [-1, 1]) b.add('metal', new THREE.SphereGeometry(0.018, 5, 4), mat(wx + s * Math.cos(rot) * (w / 2 - 0.08), wy + dy + s * Math.sin(rot) * (w / 2 - 0.08), fz + 0.23), { tint: 0x3a3430 });
+    };
+    plank(0.55, 0.62, 1.55, 0x8a7258);
+    plank(0.55, -0.6, 1.5, 0x7a6450);
+    plank(-0.35, 0.08, 1.35, 0x947a5c);
+    plank(-0.72, -0.1, 1.3, 0x806a52);
+    const g = b.build({ name: 'hall-derelict-boards' });
+    derelict.push({ obj: g, clearAt });
+  };
+  boards(32 - 3.33, 2);
+  boards(32 + 3.33, 4);
+  // A gutter hanging off its bracket at the east eave, a torn notice by the door.
+  const gb = new MeshBuilder();
+  const gutter = new THREE.CylinderGeometry(0.09, 0.09, 3.2, 8, 1, true, 0, Math.PI);
+  gutter.rotateZ(Math.PI / 2);
+  gb.add('metal', gutter, mat(35.6, y0 + 3.55, fz + 0.32, 0, 0, -0.32), { tint: 0x5a5f58 });
+  gb.add('metal', new THREE.CylinderGeometry(0.05, 0.05, 1.1, 6), mat(37.05, y0 + 2.65, fz + 0.3, 0, 0, 0.35), { tint: 0x5a5f58 });
+  derelict.push({ obj: gb.build({ name: 'hall-derelict-gutter' }), clearAt: 3 });
+  const notice = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.8), noticeMaterial());
+  notice.position.set(34.0, y0 + 1.3, fz + 0.2);
+  notice.rotation.z = -0.08;
+  const ng = new THREE.Group();
+  ng.name = 'hall-derelict-notice';
+  ng.add(notice);
+  derelict.push({ obj: ng, clearAt: 5 });
+  for (const d of derelict) {
+    d.obj.traverse((m) => ((m as THREE.Mesh).isMesh ? ((m.castShadow = false), (m.userData.noAO = true)) : 0));
+    group.add(d.obj);
+  }
+  return { group, cores, derelict };
+}
+
+/** "HALL CLOSED — by order of the council", water-stained, a corner torn away, pinned with two tacks. */
+function noticeMaterial(): THREE.MeshStandardMaterial {
+  const c = document.createElement('canvas');
+  c.width = 160;
+  c.height = 206;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#e8dcc0';
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(160, 0);
+  g.lineTo(160, 150);
+  g.lineTo(128, 206);
+  g.lineTo(0, 206);
+  g.closePath();
+  g.fill();
+  const stain = g.createRadialGradient(40, 150, 4, 40, 150, 70);
+  stain.addColorStop(0, 'rgba(120,90,50,0.35)');
+  stain.addColorStop(1, 'rgba(120,90,50,0)');
+  g.fillStyle = stain;
+  g.fillRect(0, 0, 160, 206);
+  g.fillStyle = '#3a2a1c';
+  g.textAlign = 'center';
+  g.font = '800 30px Georgia, serif';
+  g.fillText('HALL', 80, 56);
+  g.fillText('CLOSED', 80, 90);
+  g.font = 'italic 15px Georgia, serif';
+  g.fillText('by order of', 80, 124);
+  g.fillText('the council', 80, 142);
+  g.fillStyle = '#8a2a22';
+  for (const x of [22, 138]) {
+    g.beginPath();
+    g.arc(x, 14, 6, 0, Math.PI * 2);
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.MeshStandardMaterial({ map: t, roughness: 0.9, alphaTest: 0.5, transparent: false });
+  m.name = 'hall-notice';
+  return m;
+}
+
 // ─────────────────────────────────────────────── restorations
+
+/** Petal atlas: a five-petal blossom (left half) and a sprig of three leaves (right half), white-tinted. */
+let BLOSSOM_TEX: THREE.CanvasTexture | null = null;
+function blossomAtlas(): THREE.CanvasTexture {
+  if (BLOSSOM_TEX) return BLOSSOM_TEX;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  // Blossom: five notched petals with a pale throat and darker veins, a gold heart.
+  g.save();
+  g.translate(64, 64);
+  for (let i = 0; i < 5; i++) {
+    g.save();
+    g.rotate((i / 5) * Math.PI * 2);
+    const grd = g.createLinearGradient(0, 0, 0, -56);
+    grd.addColorStop(0, '#ffffff');
+    grd.addColorStop(0.55, '#f4f0f0');
+    grd.addColorStop(1, '#d8d0d4');
+    g.fillStyle = grd;
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.bezierCurveTo(-30, -18, -28, -52, -8, -58);
+    g.lineTo(0, -50);
+    g.lineTo(8, -58);
+    g.bezierCurveTo(28, -52, 30, -18, 0, 0);
+    g.fill();
+    g.strokeStyle = 'rgba(150,110,120,0.35)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(0, -6);
+    g.lineTo(0, -40);
+    g.stroke();
+    g.restore();
+  }
+  const heart = g.createRadialGradient(0, 0, 1, 0, 0, 14);
+  heart.addColorStop(0, '#fff2a0');
+  heart.addColorStop(1, '#e0a030');
+  g.fillStyle = heart;
+  g.beginPath();
+  g.arc(0, 0, 12, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#b8701e';
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    g.beginPath();
+    g.arc(Math.cos(a) * 17, Math.sin(a) * 17, 2.6, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+  // Leaf sprig.
+  g.save();
+  g.translate(192, 70);
+  for (const [rot, len] of [[-0.9, 50], [0, 58], [0.9, 50]] as const) {
+    g.save();
+    g.rotate(rot);
+    const lg = g.createLinearGradient(-18, 0, 18, 0);
+    lg.addColorStop(0, '#c8d8b0');
+    lg.addColorStop(1, '#ffffff');
+    g.fillStyle = lg;
+    g.beginPath();
+    g.moveTo(0, 4);
+    g.quadraticCurveTo(-22, -len * 0.5, 0, -len);
+    g.quadraticCurveTo(22, -len * 0.5, 0, 4);
+    g.fill();
+    g.strokeStyle = 'rgba(80,100,60,0.45)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(0, 2);
+    g.lineTo(0, -len + 6);
+    g.stroke();
+    g.restore();
+  }
+  g.restore();
+  BLOSSOM_TEX = new THREE.CanvasTexture(c);
+  BLOSSOM_TEX.colorSpace = THREE.SRGBColorSpace;
+  BLOSSOM_TEX.anisotropy = 4;
+  return BLOSSOM_TEX;
+}
+
+/**
+ * Blossom clusters as crossed petal cards: `nodes` (centre, radius) each get 12–20 blossoms and a few
+ * leaf sprigs, every card two crossed quads with a hue-jittered tint, normals bent out from the node
+ * centre (soft, rounded shading) and vertex AO darker towards the heart of the cluster. One draw.
+ */
+function blossomCards(nodes: { c: THREE.Vector3; r: number }[], rng: Rng, palette: number[]): THREE.Mesh {
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const uv: number[] = [];
+  const col: number[] = [];
+  const wind: number[] = [];
+  const idx: number[] = [];
+  const tmp = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const color = new THREE.Color();
+  const leafCol = new THREE.Color();
+  const quad = (center: THREE.Vector3, size: number, leaf: boolean, tint: THREE.Color, out: THREE.Vector3, ao: number): void => {
+    e.set(rng.next() * Math.PI, rng.next() * Math.PI * 2, rng.next() * Math.PI);
+    q.setFromEuler(e);
+    for (let k = 0; k < 2; k++) {
+      const base = pos.length / 3;
+      const u0 = leaf ? 0.5 : 0;
+      for (const [cx, cy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+        tmp.set(cx * size * 0.5, cy * size * 0.5, 0);
+        if (k) tmp.set(0, cy * size * 0.5, cx * size * 0.5);
+        tmp.applyQuaternion(q).add(center);
+        pos.push(tmp.x, tmp.y, tmp.z);
+        nor.push(out.x, out.y, out.z);
+        uv.push(u0 + (cx * 0.5 + 0.5) * 0.5, cy * 0.5 + 0.5);
+        col.push(tint.r * ao, tint.g * ao, tint.b * ao);
+        wind.push(0.35 + rng.next() * 0.3);
+      }
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  };
+  for (const node of nodes) {
+    const count = 12 + Math.floor(rng.next() * 9);
+    for (let i = 0; i < count + 5; i++) {
+      const leaf = i >= count;
+      // Blossoms on the outside of the ball, leaves tucked in.
+      n.set(rng.next() * 2 - 1, rng.next() * 2 - 1, rng.next() * 2 - 1).normalize();
+      const d = node.r * (leaf ? 0.55 + rng.next() * 0.3 : 0.7 + rng.next() * 0.35);
+      const p = node.c.clone().addScaledVector(n, d);
+      const out = n.clone().multiplyScalar(0.75).add(new THREE.Vector3(0, 0.35, 0)).normalize();
+      const ao = 0.62 + 0.38 * THREE.MathUtils.clamp(d / node.r, 0, 1);
+      if (leaf) {
+        leafCol.setHSL(0.26 + rng.next() * 0.05, 0.45, 0.32 + rng.next() * 0.08);
+        quad(p, 0.2 + rng.next() * 0.08, true, leafCol, out, ao);
+      } else {
+        color.setHex(palette[Math.floor(rng.next() * palette.length)]!);
+        const hsl = { h: 0, s: 0, l: 0 };
+        color.getHSL(hsl);
+        color.setHSL(hsl.h + (rng.next() - 0.5) * 0.03, hsl.s * (0.9 + rng.next() * 0.15), THREE.MathUtils.clamp(hsl.l + (rng.next() - 0.5) * 0.08, 0, 0.95));
+        quad(p, 0.13 + rng.next() * 0.07, false, color, out, ao);
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute('aWind', new THREE.Float32BufferAttribute(wind, 1));
+  geo.setIndex(idx);
+  const m = new THREE.MeshStandardMaterial({ map: blossomAtlas(), alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true, roughness: 0.75 });
+  m.name = 'blossom-cards';
+  applyWind(m, { mode: 'attribute', amplitude: 0.05, flutter: 0.8 });
+  const mesh = new THREE.Mesh(geo, m);
+  mesh.name = 'blossom-cards';
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  return mesh;
+}
 
 function buildBlossomArch(r: Rng): THREE.Group {
   const b = new MeshBuilder();
   const cx = 32;
   const cz = 14.55;
   const span = 1.95;
+  const nodes: { c: THREE.Vector3; r: number }[] = [];
   for (const sx of [-1, 1]) {
     b.add('wood', roundedBox(0.16, 2.6, 0.16, 0.04), mat(cx + sx * span, 1.3, cz), { tint: 0xf2ead8 });
     b.add('stone', roundedBox(0.36, 0.2, 0.36, 0.05), mat(cx + sx * span, 0.1, cz), { tint: 0xc8c0b2 });
-    b.add('soilPot', bevelCylinder(0.3, 0.24, 0.42, 0.04, 12), mat(cx + sx * (span + 0.55), 0.21, cz + 0.3), { tint: 0xc8704a });
-    for (let k = 0; k < 7; k++) b.add('boxFlower', lumpySphere(0.12, 0, 0.2, r), mat(cx + sx * (span + 0.55) + (r.next() - 0.5) * 0.4, 0.5 + r.next() * 0.1, cz + 0.3 + (r.next() - 0.5) * 0.4), { tint: [0xff8fab, 0xffffff, 0xffc0d0][k % 3] });
+    b.add('soilPot', bevelCylinder(0.3, 0.24, 0.42, 0.03, 12), mat(cx + sx * (span + 0.55), 0.21, cz + 0.3), { tint: 0xc8704a });
+    nodes.push({ c: new THREE.Vector3(cx + sx * (span + 0.55), 0.62, cz + 0.3), r: 0.3 });
   }
   const arc = new THREE.TorusGeometry(span, 0.08, 6, 24, Math.PI);
   b.add('wood', arc, mat(cx, 2.6, cz), { tint: 0xf2ead8 });
-  for (let k = 0; k < 70; k++) {
-    const t = r.next();
-    let x: number;
-    let y: number;
-    if (t < 0.55) {
-      const a = r.next() * Math.PI;
-      x = cx + Math.cos(a) * span;
-      y = 2.6 + Math.sin(a) * span;
-    } else {
-      const sx = r.next() < 0.5 ? -1 : 1;
-      x = cx + sx * span;
-      y = 0.4 + r.next() * 2.2;
-    }
-    const leafy = r.next() < 0.35;
-    b.add('boxFlower', lumpySphere(0.14 + r.next() * 0.1, 1, 0.22, r), mat(x + (r.next() - 0.5) * 0.25, y + (r.next() - 0.5) * 0.2, cz + (r.next() - 0.5) * 0.3), { tint: leafy ? [0x4f8a34, 0x5a9a3a][k % 2]! : [0xff9ec0, 0xffc0d4, 0xffffff, 0xff7aa2][k % 4]! });
+  // Clusters along the arc (denser at the crown) and climbing both posts.
+  for (let k = 0; k <= 13; k++) {
+    const a = (k / 13) * Math.PI;
+    nodes.push({ c: new THREE.Vector3(cx + Math.cos(a) * span, 2.6 + Math.sin(a) * span, cz + (r.next() - 0.5) * 0.1), r: 0.26 + Math.sin(a) * 0.08 });
   }
+  for (const sx of [-1, 1]) for (let k = 0; k < 5; k++) nodes.push({ c: new THREE.Vector3(cx + sx * span + (r.next() - 0.5) * 0.1, 0.55 + k * 0.45, cz + (k % 2 ? 0.08 : -0.08)), r: 0.2 + r.next() * 0.06 });
+  // Fairy lights woven through.
   for (let k = 0; k <= 16; k++) {
     const a = (k / 16) * Math.PI;
     const sag = 0.12 * Math.sin(a * 8);
-    b.add('lampGlow', new THREE.SphereGeometry(0.045, 8, 6), mat(cx + Math.cos(a) * (span - 0.05), 2.6 + Math.sin(a) * (span - 0.05) - 0.1 + sag * 0.3, cz + 0.2));
+    b.add('lampGlow', new THREE.SphereGeometry(0.04, 8, 6), mat(cx + Math.cos(a) * (span - 0.05), 2.6 + Math.sin(a) * (span - 0.05) - 0.1 + sag * 0.3, cz + 0.28));
   }
-  for (const sx of [-1, 1]) for (let k = 0; k < 6; k++) b.add('lampGlow', new THREE.SphereGeometry(0.045, 8, 6), mat(cx + sx * (span + 0.1), 0.6 + k * 0.36, cz + 0.16 * (k % 2 ? 1 : -1)));
-  return b.build({ name: 'restore-seed' });
+  for (const sx of [-1, 1]) for (let k = 0; k < 6; k++) b.add('lampGlow', new THREE.SphereGeometry(0.04, 8, 6), mat(cx + sx * (span + 0.1), 0.6 + k * 0.36, cz + 0.26 * (k % 2 ? 1 : -1)));
+  const g = b.build({ name: 'restore-seed' });
+  g.add(blossomCards(nodes, r, [0xff9ec0, 0xffc0d4, 0xfff4f6, 0xff7aa2, 0xffb0c8]));
+  return g;
 }
 
 function buildMarket(r: Rng): THREE.Group {
@@ -713,12 +1089,14 @@ function glimmerSign(w: number, h: number, text: string, sub: string): THREE.Mes
   c.height = Math.round((512 * h) / w);
   const g = c.getContext('2d')!;
   const H = c.height;
+  // A dark corporate panel with cold light type: it reads as a logo from across the square instead of
+  // a white smear, and its blue-white is the only 6500 K colour in a 2700 K valley.
   const bg = g.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#f4fbff');
-  bg.addColorStop(1, '#cfe6f2');
+  bg.addColorStop(0, '#1c3a54');
+  bg.addColorStop(1, '#0f2236');
   g.fillStyle = bg;
   g.fillRect(0, 0, 512, H);
-  g.strokeStyle = '#8aa4b8';
+  g.strokeStyle = '#a8bccb';
   g.lineWidth = 8;
   g.strokeRect(6, 6, 500, H - 12);
   const cx = H * 0.5;
@@ -736,16 +1114,16 @@ function glimmerSign(w: number, h: number, text: string, sub: string): THREE.Mes
   g.beginPath();
   g.arc(cx, cy, H * 0.14, 0, Math.PI * 2);
   g.fill();
-  g.fillStyle = '#1a3a52';
+  g.fillStyle = '#eef9ff';
   g.font = `800 ${Math.round(H * 0.36)}px Fredoka, Nunito, sans-serif`;
   g.textBaseline = 'middle';
   g.fillText(text, H * 0.95, H * 0.42);
-  g.fillStyle = '#4a7088';
+  g.fillStyle = '#7fd8ec';
   g.font = `700 ${Math.round(H * 0.16)}px Nunito, sans-serif`;
   g.fillText(sub, H * 0.97, H * 0.76);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  const m = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.6, roughness: 0.3 });
+  const m = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.3 });
   m.name = 'glimmer-sign';
   return m;
 }
@@ -755,51 +1133,70 @@ function glimmerSign(w: number, h: number, text: string, sub: string): THREE.Mes
  * glowing sample bulbs under glass domes and a giant bulb beacon on a chrome mast — the one thing on
  * the plaza that is not made of wood, stone or cloth, and it wants you to notice.
  */
+let PLASTIC: THREE.MeshStandardMaterial | null = null;
+/** Glimmerco's house finish: glossy moulded plastic (vertex-tinted), nothing in the valley shines like it. */
+function plastic(): THREE.MeshStandardMaterial {
+  PLASTIC ??= Object.assign(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.26, metalness: 0.05, vertexColors: true }), { name: 'glimmer-plastic' });
+  return PLASTIC;
+}
+
 function buildKiosk(): THREE.Group {
   const b = new MeshBuilder();
-  const WHITE = 0xf2f7fa;
-  const SILVER = 0xb8c6d2;
-  const CYAN = 0x3fc8e0;
-  // Pod counter (rounded hard) + plinth shadow gap + cyan kick strip.
-  b.add('white', roundedBox(1.95, 0.08, 1.05, 0.03), mat(0, 0.04, 0), { tint: 0x8a98a4 });
-  b.add('white', roundedBox(1.9, 0.98, 1.0, 0.2), mat(0, 0.57, 0), { tint: WHITE });
-  b.add('white', roundedBox(1.98, 0.09, 1.08, 0.04), mat(0, 1.08, 0), { tint: SILVER });
-  // Back panel with rounded shoulders, and the mast rising out of it.
-  b.add('white', roundedBox(1.9, 1.45, 0.16, 0.08), mat(0, 1.8, -0.42), { tint: WHITE });
-  b.add('white', roundedBox(1.96, 0.07, 0.2, 0.03), mat(0, 2.54, -0.42), { tint: CYAN });
-  for (const sx of [-1, 1]) b.add('metal', bevelCylinder(0.035, 0.035, 1.45, 0.01, 8), mat(sx * 0.9, 1.1, 0.42), { tint: SILVER });
-  // Curved shell canopy: a half-tube over the counter, cyan scallop trim along its lip.
+  // Cool pale grey, not paper white: under the noon sun white plastic clipped to a featureless slab.
+  const SHELL = 0xc4d0da;
+  const GRAPHITE = 0x2a3139;
+  const CHROME = 0x9aa8b6;
+  const CYAN = 0x2fb6d0;
+  const P = plastic();
+  // Graphite plinth, pod counter with chrome edge frames, cyan kick strip.
+  b.add(P, roundedBox(2.0, 0.12, 1.1, 0.03), mat(0, 0.06, 0), { tint: GRAPHITE });
+  b.add(P, roundedBox(1.9, 0.94, 1.0, 0.16), mat(0, 0.59, 0), { tint: SHELL });
+  b.add('metal', roundedBox(1.98, 0.06, 1.08, 0.02), mat(0, 1.08, 0), { tint: CHROME });
+  for (const sx of [-1, 1]) b.add('metal', roundedBox(0.05, 0.94, 1.04, 0.02), mat(sx * 0.955, 0.59, 0), { tint: CHROME });
+  // Panel seams on the counter front.
+  for (const sx of [-0.32, 0.32]) b.add(P, roundedBox(0.02, 0.8, 0.02, 0.005), mat(sx * 1.5, 0.6, 0.505), { tint: 0x8898a6 });
+  // Back panel (graphite frame round a shell insert) and the mast rising out of it.
+  b.add(P, roundedBox(1.94, 1.5, 0.14, 0.06), mat(0, 1.82, -0.43), { tint: GRAPHITE });
+  b.add(P, roundedBox(1.78, 1.32, 0.05, 0.04), mat(0, 1.82, -0.35), { tint: SHELL });
+  for (const sx of [-1, 1]) b.add('metal', bevelCylinder(0.035, 0.035, 1.45, 0.01, 8), mat(sx * 0.9, 1.1, 0.42), { tint: CHROME });
+  // Curved shell canopy: a half-tube over the counter, graphite underside lip, cyan scallop trim.
   const shell = new THREE.CylinderGeometry(0.62, 0.62, 2.15, 20, 1, true, -Math.PI / 2, Math.PI);
   shell.rotateZ(Math.PI / 2);
   shell.scale(1, 0.55, 1);
-  b.add('white', shell, mat(0, 2.52, 0.02), { tint: WHITE });
+  b.add(P, shell, mat(0, 2.52, 0.02), { tint: SHELL });
+  b.add('metal', roundedBox(2.18, 0.05, 0.06, 0.02), mat(0, 2.52, 0.63), { tint: CHROME });
   for (let i = 0; i < 9; i++) {
     const sc = new THREE.SphereGeometry(0.12, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
     sc.scale(1, 0.55, 0.5);
-    b.add('cloth', sc, mat(-0.96 + i * 0.24, 2.52, 0.64), { tint: CYAN });
+    b.add(P, sc, mat(-0.96 + i * 0.24, 2.5, 0.64), { tint: CYAN });
   }
-  b.add('metal', bevelCylinder(0.03, 0.04, 0.9, 0.01, 8), mat(0, 3.1, -0.42), { tint: SILVER });
-  b.add('metal', bevelCylinder(0.14, 0.1, 0.16, 0.02, 14), mat(0, 3.58, -0.42), { tint: SILVER });
-  // Boxed bulbs stacked at the counter end.
-  for (let k = 0; k < 4; k++) b.add('white', roundedBox(0.2, 0.24, 0.2, 0.03), mat(0.62 + (k % 2) * 0.22, 1.25 + Math.floor(k / 2) * 0.25, 0.12 - (k % 2) * 0.04, 0, k * 0.2, 0), { tint: k % 2 ? 0xf4fbff : CYAN });
+  b.add(P, bevelCylinder(0.03, 0.04, 0.9, 0.01, 8), mat(0, 3.1, -0.42), { tint: GRAPHITE });
+  b.add('metal', bevelCylinder(0.13, 0.09, 0.14, 0.02, 14), mat(0, 3.56, -0.42), { tint: CHROME });
+  // Boxed bulbs stacked at the counter end (cyan and shell cartons with a graphite band).
+  for (let k = 0; k < 4; k++) b.add(P, roundedBox(0.2, 0.24, 0.2, 0.03), mat(0.62 + (k % 2) * 0.22, 1.25 + Math.floor(k / 2) * 0.25, 0.12 - (k % 2) * 0.04, 0, k * 0.2, 0), { tint: k % 2 ? SHELL : CYAN });
   // Sample-bulb stands.
-  for (let k = 0; k < 3; k++) b.add('metal', bevelCylinder(0.09, 0.11, 0.07, 0.02, 12), mat(-0.66 + k * 0.4, 1.16, 0.12), { tint: SILVER });
+  for (let k = 0; k < 3; k++) b.add('metal', bevelCylinder(0.09, 0.11, 0.07, 0.02, 12), mat(-0.66 + k * 0.4, 1.16, 0.12), { tint: CHROME });
   const g = b.build({ name: 'glimmer-kiosk' });
-  // Everything that glows shares one cold-white material: strip, sample bulbs, the beacon.
+  // Everything that glows shares one cold-white material: hard-edged light bars, sample bulbs, the
+  // beacon. Kept under ~1.4 so it reads as a cold 6500 K tube, not a blown highlight.
   const glow = new MeshBuilder();
   const gm = glowMat(EVERGLOW, 'glimmer-kiosk-glow');
-  gm.emissiveIntensity = 1.8;
-  glow.add(gm, roundedBox(1.92, 0.05, 1.02, 0.02), mat(0, 0.2, 0));
-  for (let k = 0; k < 3; k++) glow.add(gm, new THREE.SphereGeometry(0.085, 14, 10), mat(-0.66 + k * 0.4, 1.29, 0.12));
-  glow.add(gm, new THREE.SphereGeometry(0.28, 20, 14), mat(0, 3.92, -0.42));
+  gm.color.setHex(0x9fdcf0);
+  gm.emissiveIntensity = 1.25;
+  glow.add(gm, roundedBox(1.84, 0.04, 0.02, 0.01), mat(0, 0.22, 0.505));
+  glow.add(gm, roundedBox(0.04, 1.2, 0.02, 0.01), mat(-0.86, 1.82, -0.32));
+  glow.add(gm, roundedBox(0.04, 1.2, 0.02, 0.01), mat(0.86, 1.82, -0.32));
+  glow.add(gm, roundedBox(2.12, 0.035, 0.03, 0.01), mat(0, 2.47, 0.62));
+  for (let k = 0; k < 3; k++) glow.add(gm, new THREE.SphereGeometry(0.075, 14, 10), mat(-0.66 + k * 0.4, 1.28, 0.12));
+  glow.add(gm, new THREE.SphereGeometry(0.19, 20, 14), mat(0, 3.82, -0.42));
   const gg = glow.build({ name: 'glimmer-kiosk-glow' });
   gg.traverse((o) => ((o as THREE.Mesh).isMesh ? ((o.castShadow = false), (o.userData.noAO = true)) : 0));
   g.add(gg);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.46), glimmerSign(1.6, 0.46, 'EverGlow', 'by Glimmerco · 15% off!'));
-  sign.position.set(0, 1.95, -0.335);
+  sign.position.set(0, 1.95, -0.32);
   g.add(sign);
   const front = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.5), glimmerSign(1.5, 0.5, 'Glimmerco', 'Brighter. Faster. Forever.'));
-  front.position.set(0, 0.62, 0.505);
+  front.position.set(0, 0.64, 0.508);
   g.add(front);
   const board = buildSandwichBoard(CYAN);
   board.position.set(1.45, 0, 0.7);
@@ -810,7 +1207,7 @@ function buildKiosk(): THREE.Group {
 
 function buildVan(): THREE.Group {
   const b = new MeshBuilder();
-  const SILVER = 0xd8e2ea;
+  const SILVER = 0xb4c2ce;
   b.add('white', roundedBox(3.6, 1.7, 1.8, 0.3), mat(0, 1.25, 0), { tint: SILVER });
   b.add('white', roundedBox(1.1, 1.1, 1.74, 0.28), mat(1.95, 0.95, 0), { tint: SILVER });
   b.add('white', roundedBox(0.06, 0.55, 1.5, 0.08), mat(2.47, 1.28, 0), { tint: 0x2a3440 });
@@ -836,7 +1233,7 @@ function buildFloodlight(): THREE.Group {
   }
   b.add('white', roundedBox(0.7, 0.5, 0.3, 0.06), mat(0, 1.55, 0, -0.5, 0, 0), { tint: 0x8a9aa8 });
   const g = b.build({ name: 'glimmer-flood' });
-  const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.38), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: EVERGLOW, emissiveIntensity: 4, roughness: 0.2 }));
+  const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.38), new THREE.MeshStandardMaterial({ color: 0xcfe8f4, emissive: EVERGLOW, emissiveIntensity: 2.2, roughness: 0.2 }));
   lens.position.set(0, 1.62, -0.16);
   lens.rotation.x = Math.PI + 0.5;
   lens.userData.noAO = true;
@@ -877,7 +1274,7 @@ class SkyLanterns {
   active = false;
   private t = 0;
   constructor() {
-    const m = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false });
+    const m = nearFade(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false }), 3, 7);
     m.name = 'sky-lantern';
     this.mesh = new THREE.InstancedMesh(paperLanternGeo(), m, this.n);
     this.mesh.frustumCulled = false;
@@ -906,6 +1303,12 @@ class SkyLanterns {
   stop(): void {
     this.active = false;
     this.mesh.count = 0;
+  }
+  /** Jump the flight forward (a scene cut: the lanterns have been climbing meanwhile). */
+  advance(t: number): void {
+    if (!this.active) return;
+    this.t = Math.max(this.t, 6.5) + t;
+    this.update(0);
   }
   update(dt: number): void {
     if (!this.active) return;
@@ -969,7 +1372,7 @@ class ValleyLights {
       for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'color') g.deleteAttribute(k);
       return g;
     }))!;
-    const m = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false });
+    const m = nearFade(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false }), 3, 7);
     m.name = 'valley-lights';
     this.mesh = new THREE.InstancedMesh(geo, m, this.pts.length);
     this.mesh.name = 'valley-lights';
@@ -1088,6 +1491,8 @@ export class StoryWorldSystem implements System {
   private hallGlow = new THREE.MeshStandardMaterial({ color: 0xfff0d0, emissive: 0xffb050, emissiveIntensity: 0, roughness: 0.3 });
   private hallLight = new THREE.PointLight(0xffb45e, 0, 10, 1.6);
   private landmark: Landmark | null = null;
+  private facade: Facade | null = null;
+  private facadeKey = '';
   private glimmer: GlimmerSet | null = null;
   private finale: { group: THREE.Group; fire: FireFX; light: THREE.PointLight } | null = null;
   private hallFlare = 0;
@@ -1197,6 +1602,8 @@ export class StoryWorldSystem implements System {
     const hy = H(HALL.x, HALL.z) - 0.03 + 0.6;
     this.landmark = buildLandmark(hy);
     root.add(this.landmark.group);
+    this.facade = buildFacade(hy, r);
+    root.add(this.facade.group);
     // The great lantern over the Hall doors: a glowing core inside the existing iron lantern.
     HALL_LANTERN.y = H(32, 8.6) - 0.03 + 3.35;
     const core = new THREE.Mesh(new THREE.CylinderGeometry(0.215, 0.255, 0.5, 6), this.hallGlow);
@@ -1245,7 +1652,7 @@ export class StoryWorldSystem implements System {
     root.add(this.burst.object, this.sky.mesh);
     // Render budget: these props sit on already-AO'd ground and mostly read at a distance, so they
     // skip the AO G-buffer; only the structural pieces (posts, stalls, chimney, Hall) cast shadows.
-    const CASTS = new Set(['wood', 'stone', 'white', 'woodGrain', 'roofTile']);
+    const CASTS = new Set(['wood', 'stone', 'white', 'woodGrain', 'roofTile', 'glimmer-plastic']);
     root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
@@ -1277,6 +1684,29 @@ export class StoryWorldSystem implements System {
       this.finale.group.visible = this.festivalLit;
       this.finale.fire.active = this.festivalLit;
     }
+    this.paintFacade();
+  }
+
+  /** Facade lanterns in their room colours (lit) / smoked glass (dark); derelict dressing cleared by count. */
+  private paintFacade(): void {
+    const f = this.facade;
+    if (!f) return;
+    const q = this.game.services.quests;
+    const lit = ROOMS.map((r) => this.festivalLit || !!q?.room(r.id)?.done);
+    const n = lit.filter(Boolean).length;
+    const glimmer = this.glimmerState().after && !this.everglowOff;
+    const key = `${lit.join()}|${glimmer}`;
+    if (key === this.facadeKey) return;
+    this.facadeKey = key;
+    const c = new THREE.Color();
+    ROOMS.forEach((r, i) => {
+      if (glimmer) c.setHex(EVERGLOW).multiplyScalar(1.3);
+      else if (lit[i]) c.setHex(r.color).lerp(new THREE.Color(0xfff0c8), 0.35).multiplyScalar(1.7);
+      else c.setHex(0x14161a);
+      f.cores.setColorAt(i, c);
+    });
+    if (f.cores.instanceColor) f.cores.instanceColor.needsUpdate = true;
+    for (const d of f.derelict) d.obj.visible = !glimmer && n < d.clearAt;
   }
 
   private cue(cue: string, arg: string | undefined, instant: boolean): void {
@@ -1341,6 +1771,8 @@ export class StoryWorldSystem implements System {
         this.sky.start(instant ? 6.5 : 0);
         break;
       case 'festival:valley':
+        // By the time the lane lights, the sky lanterns are high over the Hall (none at head height).
+        this.sky.advance(9);
         this.valley?.ignite(instant);
         break;
       case 'house:night':
@@ -1400,17 +1832,17 @@ export class StoryWorldSystem implements System {
     const hum = glimmer ? 0.94 + (Math.sin(game.time * 47) > 0.96 ? -0.25 : 0) : flick;
     const off = 1 - Math.min(1, this.dim * 1.6);
     this.hallGlow.emissive.setHex(glimmer ? EVERGLOW : 0xffb050);
-    this.hallGlow.emissiveIntensity = (glimmer ? 5 : base * (0.8 + night * 2.6) + this.hallFlare * 6) * hum * off;
+    this.hallGlow.emissiveIntensity = (glimmer ? 2.2 : base * (0.8 + night * 2.6) + this.hallFlare * 6) * hum * off;
     this.hallLight.color.setHex(glimmer ? 0xd8f0ff : 0xffb45e);
-    this.hallLight.intensity = (glimmer ? 9 * night + 3 : base * night * 7 + this.hallFlare * 14) * hum * off;
+    this.hallLight.intensity = (glimmer ? 4 * night + 1.5 : base * night * 7 + this.hallFlare * 14) * hum * off;
     if (this.landmark) {
       const w = glimmer ? 1 : Math.max(0.12, base);
       this.landmark.window.emissive.setHex(glimmer ? 0xbfe6ff : 0xffffff);
-      this.landmark.window.emissiveIntensity = (glimmer ? 2.6 : w * (0.35 + night * 1.5) + this.hallFlare * 1.5) * hum * off;
+      this.landmark.window.emissiveIntensity = (glimmer ? 1.5 : w * (0.35 + night * 1.5) + this.hallFlare * 1.5) * hum * off;
       this.landmark.cupola.emissive.setHex(glimmer ? EVERGLOW : 0xffb050);
-      this.landmark.cupola.emissiveIntensity = (glimmer ? 5 : base * (0.6 + night * 2.8) + this.hallFlare * 5) * hum * off;
+      this.landmark.cupola.emissiveIntensity = (glimmer ? 2.2 : base * (0.6 + night * 2.8) + this.hallFlare * 5) * hum * off;
     }
-    if (this.glimmer) this.glimmer.spot.intensity = this.glimmer.after.visible ? (14 + night * 26) * hum : 0;
+    if (this.glimmer) this.glimmer.spot.intensity = this.glimmer.after.visible ? (5 + night * 9) * hum : 0;
     this.valley?.update(dt);
     if (this.dust?.object.parent) this.dust.update(dt, night, game.rc.renderer.domElement.height);
     if (this.finale) {

@@ -821,6 +821,74 @@
   background: color-mix(in srgb, var(--room) 25%, transparent);
   border-color: color-mix(in srgb, var(--room) 70%, white);
 }
+/* The room's bundles at a glance: sack colour, name, what it pays (✓ once given). */
+.jb-ledger {
+  width: 100%;
+  margin-top: 14px;
+  display: grid;
+  gap: 6px;
+}
+.jb-ledger small {
+  text-align: center;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(246, 230, 200, 0.6);
+}
+.jb-ledger .row {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 240, 210, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(246, 220, 180, 0.12);
+}
+.jb-ledger .row i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--c) 70%, transparent);
+}
+.jb-ledger .nm {
+  font-weight: 800;
+  font-size: 14px;
+  color: #f6e6c8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jb-ledger .rw {
+  font-weight: 700;
+  font-size: 12px;
+  color: rgba(246, 230, 200, 0.62);
+  white-space: nowrap;
+}
+.jb-ledger .rw svg {
+  width: 16px;
+  height: 16px;
+}
+.jb-ledger .row.done {
+  background: color-mix(in srgb, var(--room) 18%, transparent);
+}
+.jb-ledger .row.done .nm {
+  color: color-mix(in srgb, var(--room) 40%, #fff4dc);
+}
+.jb-reward em.perk {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--room) 25%, #fff8e8);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--room) 60%, #a07040);
+  font-style: normal;
+  font-weight: 800;
+  font-size: 12px;
+  color: #6a3a14;
+}
 .jb-right {
   display: grid;
   grid-template-rows: auto 1fr auto;

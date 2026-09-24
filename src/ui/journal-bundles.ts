@@ -109,6 +109,13 @@ export class BundlePanel extends Screen {
         <b>${escapeHtml(def.restores.title)}</b>
         <span>${escapeHtml(def.restores.text)}</span>
       </div>
+      <div class="jb-ledger"><small>The room's bundles</small>${(st?.bundles ?? [])
+        .map((b) => {
+          const r = b.def.reward;
+          const what = r.itemId ? `${r.qty ?? 1} × ${itemDef(r.itemId)?.name ?? r.itemId}` : r.gold ? `${r.gold.toLocaleString()}g` : (r.label ?? '');
+          return `<div class="row${b.done ? ' done' : ''}"><i style="--c:${css(b.def.color)}"></i><span class="nm">${escapeHtml(b.def.name)}</span><span class="rw">${b.done ? CHECK : escapeHtml(r.perk ? '✦ perk' : what)}</span></div>`;
+        })
+        .join('')}</div>
       <div class="jb-hall"><small>The Hall · ${this.q?.lanternsLit() ?? 0} of ${ROOMS.length} lanterns</small><div class="row">${ROOMS.map((r) => `<i class="${r.id === this.room ? 'me' : ''}" title="${escapeHtml(r.name)}">${lanternSvg(this.q?.room(r.id)?.glimmer ? 0xdff4ff : r.color, this.q?.room(r.id)?.done ? 1 : 0, 'jl-mini')}</i>`).join('')}</div></div>`;
   }
 
@@ -162,9 +169,13 @@ export class BundlePanel extends Screen {
       : '';
     const r = d.reward;
     const reward = r.itemId ? `${itemIcon(r.itemId)}<b>${r.qty ?? 1} × ${escapeHtml(itemDef(r.itemId)?.name ?? r.itemId)}</b>` : r.gold ? `${COIN}<b>${r.gold.toLocaleString()}g</b>` : `<b>${escapeHtml(r.label ?? '—')}</b>`;
-    const sub = r.label && (r.itemId || r.gold) ? `<em>${escapeHtml(r.label)}</em>` : '';
+    const PERK: Record<string, string> = { 'board-pay': 'Help Wanted pays +25 %', 'board-busy': 'Three notes on the board every morning' };
+    const sub = r.perk ? `<em class="perk">✦ ${escapeHtml(PERK[r.perk] ?? r.label ?? '')}</em>` : r.label && (r.itemId || r.gold) ? `<em>${escapeHtml(r.label)}</em>` : '';
     const { have, need } = bundleProgress(d, b.given, b.paid);
     const frac = b.done ? 1 : need ? have / need : 0;
+    // Progress in slots, the unit the player reads on the card ("any 4 of 6" → "2 of 4 slots filled").
+    const filled = Math.min(pick, d.items.filter((it) => (b.given[it.itemId] ?? 0) >= it.qty).length);
+    const progLabel = b.done ? 'Complete' : d.gold && !d.items.length ? `${Math.round(frac * 100)}%` : `${filled} of ${pick} slot${pick === 1 ? '' : 's'} filled`;
     const chips = [
       pick < d.items.length ? `<span class="jb-chip">Any ${pick} of ${d.items.length}</span>` : '',
       d.quality ? `<span class="jb-chip q${d.quality}">★ ${qn} or better</span>` : '',
@@ -174,11 +185,26 @@ export class BundlePanel extends Screen {
         <div class="jb-bigsack" aria-hidden="true">${sackSvg(d.color, b.done, this.fillOf(b))}</div></div>
       <div class="jb-slots${d.items.length > 3 ? ' two' : ''}">${slots}${gold}</div>
       <div class="jb-cardfoot">
-        <div class="jb-prog${b.done ? ' done' : ''}" style="--f:${frac.toFixed(3)}"><div class="bar"><i></i></div><span>${b.done ? 'Complete' : d.gold && !d.items.length ? `${Math.round(frac * 100)}%` : `${have} / ${need} items`}</span></div>
+        <div class="jb-prog${b.done ? ' done' : ''}" style="--f:${frac.toFixed(3)}"><div class="bar"><i></i></div><span>${progLabel}</span></div>
         <div class="jb-reward ${b.done ? 'got' : ''}"><small>${b.done ? 'Received' : 'Reward'}</small><div>${reward}</div>${sub}</div>
       </div>
       ${b.done ? `<div class="jb-done">Bundle complete</div>` : ''}`;
     this.card.querySelector('.jb-pay')?.addEventListener('click', () => this.payGold());
+    // Hover a slot: what it is, where it comes from, and how many you carry.
+    this.card.querySelectorAll<HTMLElement>('.jb-slot').forEach((slot) => {
+      const id = slot.dataset.item ?? '';
+      const it = d.items.find((x) => x.itemId === id);
+      if (!it) return;
+      slot.addEventListener('pointerenter', () => {
+        const got = this.game.services.inventory?.count?.(id) ?? 0;
+        const src = whereFrom(id);
+        const given = Math.min(it.qty, b.given[id] ?? 0);
+        tooltip.show(
+          `<b>${escapeHtml(itemName(id, it.name))}</b>${src ? `<br/><span style="color:#7a5a2a">Found: ${escapeHtml(src)}</span>` : ''}<br/><span style="color:#5a6a4a">${given >= it.qty ? 'Given in full' : `${given} / ${it.qty} given · ${got} in your backpack`}</span>`,
+        );
+      });
+      slot.addEventListener('pointerleave', () => tooltip.hide());
+    });
     replay(this.card, 'swap');
   }
 

@@ -38,7 +38,8 @@ export type Cmd =
   | { do: 'actor'; id: string; x: number; z: number; facing?: Facing; prop?: PropKind; yaw?: number }
   | { do: 'remove'; id: string }
   | { do: 'walk'; id: string; path: [number, number][]; facing?: Facing; speed?: number; wait?: boolean }
-  | { do: 'face'; id: string; facing?: Facing; toward?: string }
+  /** Turn to a direction, another actor (`toward`) or a point (`at`: [x, z]). */
+  | { do: 'face'; id: string; facing?: Facing; toward?: string; at?: [number, number] }
   | { do: 'emote'; id: string; emote: Emote; wait?: boolean }
   | { do: 'say'; who: string; text: string; mood?: 'happy' | 'neutral' | 'surprised' }
   | { do: 'choice'; who: string; text: string; options: { label: string; hint?: string; flag: string; value: string; then?: string }[] }
@@ -69,12 +70,14 @@ type P2 = [number, number];
  * speaker line (on the given side), looking at a point 55 % of the way to the speaker.
  */
 export function ots(listener: P2, speaker: P2, o: { side?: 1 | -1; off?: number; dist?: number; pitch?: number; y?: number } = {}): CamKey {
+  // Defaults: the diorama two-shot — high enough (28°) and far enough (11.5 m) that the chunky rigs
+  // read as whole figures on a set, 40° off the line so the speaker's face is three-quarter to the lens.
   const dx = speaker[0] - listener[0];
   const dz = speaker[1] - listener[1];
   // Camera offset = the speaker→listener direction rotated by ±off.
   const back = Math.atan2(-dx, -dz);
-  const yaw = ((back + ((o.side ?? 1) * (o.off ?? 50) * Math.PI) / 180) * 180) / Math.PI;
-  return { x: listener[0] + dx * 0.55, z: listener[1] + dz * 0.55, y: o.y ?? 1.2, yaw, pitch: o.pitch ?? 18, dist: o.dist ?? 8.5 };
+  const yaw = ((back + ((o.side ?? 1) * (o.off ?? 40) * Math.PI) / 180) * 180) / Math.PI;
+  return { x: listener[0] + dx * 0.55, z: listener[1] + dz * 0.55, y: o.y ?? 1.0, yaw, pitch: o.pitch ?? 28, dist: o.dist ?? 11.5 };
 }
 
 // ─────────────────────────────────────────────── places
@@ -92,8 +95,9 @@ const ARR_H: P2 = [STOP.x + 2.35, STOP.z + 0.2];
 const FARM_P: P2 = [30.4, 21.3];
 const FARM_H: P2 = [32.5, 20.5];
 /** Glimmerco on the Hall steps. */
-const OFFER_S: P2 = [STEPS.x + 1.1, STEPS.z + 0.2];
-const OFFER_P: P2 = [STEPS.x - 1.0, STEPS.z + 1.2];
+// Sterling stands in front of the Blossom Arch (never under it: its blossoms crowned his head).
+const OFFER_S: P2 = [STEPS.x + 1.3, STEPS.z + 1.5];
+const OFFER_P: P2 = [STEPS.x - 1.1, STEPS.z + 2.6];
 /** Kit catches the farmer at the foot of the steps first. */
 const KIT_P: P2 = [STEPS.x - 2.6, STEPS.z + 2.2];
 
@@ -129,7 +133,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'mark', id: 'establish' },
     // Two-shot, near side-on: the farmer three-quarter from behind on the left, Hollis three-quarter to
     // the lens on the right, clear air between them.
-    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 74, dist: 8.2, pitch: 15, y: 1.3 }), dur: 2.8, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 30, dist: 12, pitch: 30, y: 1.0 }), dur: 2.8, ease: 'inOut', wait: false },
     { do: 'player', visible: true },
     { do: 'walk', id: 'player', path: [[STOP.x - 1, STOP.z + 1.4], ARR_P], facing: 'right' },
     { do: 'emote', id: 'hollis', emote: 'exclaim' },
@@ -156,7 +160,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'walk', id: 'player', path: [FARM_P], facing: 'right', wait: false },
     { do: 'walk', id: 'hollis', path: [FARM_H], speed: 1.3 },
     { do: 'face', id: 'hollis', toward: 'player' },
-    { do: 'cam', to: ots(FARM_P, FARM_H, { side: 1, dist: 9.5, pitch: 20, y: 1.35 }), dur: 2.4, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots(FARM_P, FARM_H, { side: 1, off: 36, dist: 11.5, pitch: 28 }), dur: 2.4, ease: 'inOut', wait: false },
     { do: 'mark', id: 'farm' },
     { do: 'say', who: 'hollis', text: "Here we are. She's, ah... she's got good bones." },
     { do: 'emote', id: 'hollis', emote: 'sweat' },
@@ -189,10 +193,17 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'time', hour: 6.1, day: 1 },
     { do: 'map', map: 'farm', x: 31.5, z: 18.6, facing: 'down' },
     { do: 'caption', text: 'Spring 1', sub: 'Year 1', dur: 2.4 },
-    { do: 'letterbox', on: false },
+    // Morning: the porch in low sun, then a push to the mailbox — Gran left one more letter.
     { do: 'flag', key: 'intro', value: 'done' },
+    { do: 'cam', to: { x: 32.6, z: 19.4, y: 1.0, yaw: -14, pitch: 32, dist: 14 }, dur: 0 },
+    { do: 'fade', to: 'clear', dur: 1.4 },
+    { do: 'walk', id: 'player', path: [[32.6, 19.3], [34.2, 19.2]], facing: 'right', speed: 1.8 },
+    { do: 'cam', to: { x: 35.0, z: 18.9, y: 1.0, yaw: -26, pitch: 27, dist: 8.5 }, dur: 2.2, ease: 'out', wait: false },
+    { do: 'emote', id: 'player', emote: 'exclaim' },
+    { do: 'mark', id: 'morning' },
+    { do: 'caption', text: 'A letter is waiting in the mailbox.', sub: 'F by the mailbox to read it  ·  J opens your journal', dur: 3.6, low: true },
+    { do: 'letterbox', on: false },
     { do: 'hud', on: true },
-    { do: 'fade', to: 'clear', dur: 1.2 },
   ],
 
   /** First time through the Hall doors. */
@@ -207,7 +218,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'wait', t: 2.4 },
     { do: 'actor', id: 'hollis', x: 15.6, z: 21.4, facing: 'up', prop: 'lantern' },
     { do: 'walk', id: 'hollis', path: [[16.6, 18.2]], facing: 'up', speed: 1.4 },
-    { do: 'cam', to: ots([15, 18.5], [16.6, 18.2], { side: 1, dist: 9, pitch: 26, y: 1.2 }), dur: 2, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots([15, 18.5], [16.6, 18.2], { side: 1, dist: 11, pitch: 32 }), dur: 2, ease: 'inOut', wait: false },
     { do: 'say', who: 'hollis', text: 'Mind the third floorboard. And the fourth. Actually, mind all of them. Some of them are just holes with ambitions.' },
     { do: 'say', who: 'hollis', text: "Six rooms, six lanterns, and the great one in the middle. Each room was kept by the whole valley — seeds, harvests, firewood, a fish or two. When the rooms were full, the lanterns burned." },
     { do: 'face', id: 'hollis', toward: 'player' },
@@ -238,7 +249,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'emote', id: 'sterling', emote: 'sparkle' },
     { do: 'walk', id: 'player', path: [[31.6, 19.8]], facing: 'right' },
     { do: 'face', id: 'sterling', toward: 'player' },
-    { do: 'cam', to: ots([31.6, 19.8], [33.9, 18.9], { side: 1, dist: 8.5, pitch: 16, y: 1.3 }), dur: 1.6, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots([31.6, 19.8], [33.9, 18.9], { side: 1, dist: 11, pitch: 26 }), dur: 1.6, ease: 'inOut', wait: false },
     { do: 'mark' },
     { do: 'say', who: 'sterling', text: "Oh! The lantern person. Sterling Vance, Glimmerco. Don't mind me — just measuring. Lumens, mostly. Also feelings. Feelings are a kind of lumen." },
     { do: 'say', who: 'sterling', text: "We'll talk properly soon. I'll bring the good pen." },
@@ -259,19 +270,19 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'map', map: 'town', x: STORE.x + 3.6, z: STORE.z + 2.6, facing: 'left' },
     { do: 'actor', id: 'marigold', x: STORE.x - 0.6, z: STORE.z + 0.4, facing: 'right' },
     { do: 'actor', id: 'sterling', x: STORE.x + 1.3, z: STORE.z + 0.9, facing: 'left', prop: 'clipboard' },
-    { do: 'cam', to: ots([STORE.x + 1.3, STORE.z + 0.9], [STORE.x - 0.6, STORE.z + 0.4], { side: -1, dist: 10.5, pitch: 23, y: 1.3 }), dur: 0 },
+    { do: 'cam', to: ots([STORE.x + 1.3, STORE.z + 0.9], [STORE.x - 0.6, STORE.z + 0.4], { side: -1, dist: 11.5, pitch: 27 }), dur: 0 },
     { do: 'fade', to: 'clear', dur: 0.8 },
     { do: 'mark' },
     { do: 'say', who: 'sterling', text: 'Picture it, Mrs. Thimble: an EverGlow Express, right here. Self-checkout. Open all night. No haggling. Ever.' },
     { do: 'say', who: 'marigold', text: "No haggling? Then what would Rosalind's grandchild and I talk about?", mood: 'neutral' },
-    { do: 'cam', to: ots([STORE.x - 0.6, STORE.z + 0.4], [STORE.x + 1.3, STORE.z + 0.9], { side: 1, dist: 10.5, pitch: 23, y: 1.3 }), dur: 0 },
+    { do: 'cam', to: ots([STORE.x - 0.6, STORE.z + 0.4], [STORE.x + 1.3, STORE.z + 0.9], { side: 1, dist: 11.5, pitch: 27 }), dur: 0 },
     { do: 'say', who: 'sterling', text: 'The weather. Via the app.' },
     { do: 'emote', id: 'marigold', emote: 'angry' },
     { do: 'say', who: 'marigold', text: 'Out. And take your good pen with you.', mood: 'surprised' },
     { do: 'walk', id: 'sterling', path: [[STORE.x + 5, STORE.z + 3.4], [STORE.x + 12, STORE.z + 5]], speed: 1.5, wait: false },
     { do: 'walk', id: 'player', path: [[STORE.x + 1.4, STORE.z + 1.4]], facing: 'left' },
     { do: 'face', id: 'marigold', toward: 'player' },
-    { do: 'cam', to: ots([STORE.x + 1.4, STORE.z + 1.4], [STORE.x - 0.6, STORE.z + 0.4], { side: -1, dist: 9.5, pitch: 21, y: 1.3 }), dur: 1.2, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots([STORE.x + 1.4, STORE.z + 1.4], [STORE.x - 0.6, STORE.z + 0.4], { side: -1, dist: 11, pitch: 27 }), dur: 1.2, ease: 'inOut', wait: false },
     { do: 'say', who: 'marigold', text: "Thirty-one years I've run this shop. I'm not selling it to a man who alphabetises his smiles." },
     { do: 'say', who: 'marigold', text: "...He's put a little glowing booth by the fountain, you know. Cheaper seeds, he says. Cheaper everything. I suppose we'll see." },
     { do: 'fade', to: 'black', dur: 0.8 },
@@ -300,7 +311,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'walk', id: 'kit', path: [KIT_P], speed: 2.2 },
     { do: 'face', id: 'kit', toward: 'player' },
     { do: 'face', id: 'player', toward: 'kit' },
-    { do: 'cam', to: ots(OFFER_P, KIT_P, { side: -1, off: 55, dist: 7.6, pitch: 16, y: 1.0 }), dur: 1.4, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots(OFFER_P, KIT_P, { side: -1, off: 42, dist: 10.5, pitch: 27 }), dur: 1.4, ease: 'inOut', wait: false },
     { do: 'emote', id: 'kit', emote: 'exclaim' },
     { do: 'mark', id: 'doubts' },
     { do: 'say', who: 'kit', text: 'Psst. Farmer. The shiny man gave Dad a leaflet. Glimmerco wants to open the old mill again. With JOBS.' },
@@ -314,7 +325,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'walk', id: 'sterling', path: [OFFER_S], speed: 1.1 },
     { do: 'remove', id: 'kit' },
     { do: 'face', id: 'sterling', toward: 'player' },
-    { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, dist: 8.8, pitch: 15, y: 1.45 }), dur: 1.8, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, off: 34, dist: 11.5, pitch: 26, y: 1.2 }), dur: 1.8, ease: 'inOut', wait: false },
     { do: 'say', who: 'sterling', text: 'Impressive. Genuinely. Three lanterns, lit by hand. Do you know what that costs per lumen?' },
     { do: 'emote', id: 'sterling', emote: 'sparkle' },
     { do: 'say', who: 'sterling', text: "Here's the thing: winters are long, the valley is small, and you are one person with a hoe. Also, two hundred jobs at the old mill. Kit's father has already asked for a form." },
@@ -358,7 +369,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'fade', to: 'clear', dur: 0.8 },
     { do: 'walk', id: 'player', path: [OFFER_P], facing: 'up' },
     { do: 'face', id: 'sterling', toward: 'player' },
-    { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, dist: 8.6, pitch: 15, y: 1.45 }), dur: 1.6, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, off: 34, dist: 11.5, pitch: 26, y: 1.2 }), dur: 1.6, ease: 'inOut', wait: false },
     { do: 'mark' },
     { do: 'say', who: 'sterling', text: "Four. By hand. I checked each one twice, in case you'd used a torch." },
     { do: 'emote', id: 'sterling', emote: 'sweat' },
@@ -387,7 +398,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'fade', to: 'clear', dur: 0.8 },
     { do: 'walk', id: 'player', path: [OFFER_P], facing: 'up' },
     { do: 'face', id: 'sterling', toward: 'player' },
-    { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, dist: 8.6, pitch: 15, y: 1.45 }), dur: 1.6, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots(OFFER_P, OFFER_S, { side: 1, off: 34, dist: 11.5, pitch: 26, y: 1.2 }), dur: 1.6, ease: 'inOut', wait: false },
     { do: 'say', who: 'sterling', text: 'Twenty-eight days. Fewer than four lanterns and a great deal of mud. I did warn you.' },
     { do: 'emote', id: 'sterling', emote: 'sparkle' },
     { do: 'mark' },
@@ -414,7 +425,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'time', hour: 21.2 },
     { do: 'player', visible: false },
     { do: 'cam', to: { x: STEPS.x, z: STEPS.z - 2, y: 3.2, yaw: 8, pitch: 12, dist: 20 }, dur: 0 },
-    { do: 'crowd', ids: ['marigold', 'bram', 'hazel'], x: STEPS.x, z: STEPS.z + 3, radius: 5.2, a0: -40, a1: 40, face: { x: STEPS.x, z: STEPS.z - 2 } },
+    { do: 'crowd', ids: ['marigold', 'bram', 'hazel'], x: STEPS.x, z: STEPS.z + 1.2, radius: 4.4, a0: -32, a1: 32, face: { x: STEPS.x, z: STEPS.z - 2 } },
     { do: 'fade', to: 'clear', dur: 1.4 },
     { do: 'cam', to: { x: STEPS.x, z: STEPS.z - 1, y: 3.6, yaw: 4, pitch: 10, dist: 17 }, dur: 6, ease: 'out', wait: false },
     { do: 'mark', id: 'after' },
@@ -459,7 +470,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'say', who: 'sterling', text: "...It's warmer than I remembered. The light. I'd convinced myself I'd remembered it wrong." },
     { do: 'walk', id: 'player', path: [[31.1, 17.6]], facing: 'right' },
     { do: 'face', id: 'sterling', toward: 'player' },
-    { do: 'cam', to: ots([31.1, 17.6], [32.9, 16.6], { side: 1, dist: 8, pitch: 14, y: 1.35 }), dur: 1.6, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots([31.1, 17.6], [32.9, 16.6], { side: 1, dist: 11, pitch: 25, y: 1.2 }), dur: 1.6, ease: 'inOut', wait: false },
     { do: 'mark' },
     { do: 'say', who: 'sterling', text: 'I handed in the badge. They gave me a very small cake. It had the logo on it. I ate the logo first.' },
     { do: 'emote', id: 'sterling', emote: 'sweat' },
@@ -561,14 +572,16 @@ function finaleScene(glimmer: boolean): Cmd[] {
       do: 'rail',
       keys: [
         { x: 25.5, z: 24.6, y: 1.2, yaw: 58, pitch: 34, dist: 16 },
-        { x: 18.5, z: 25.6, y: 1.0, yaw: 72, pitch: 38, dist: 26 },
-        { x: 12.5, z: 26.0, y: 1.0, yaw: 80, pitch: 24, dist: 19 },
-        { x: 12.0, z: 26.1, y: 0.6, yaw: 84, pitch: 21, dist: 18 },
+        { x: 18.5, z: 25.6, y: 1.0, yaw: 72, pitch: 40, dist: 26 },
+        // Settle high behind the farmer and friends (the lens stays up over the lane posts, never
+        // among them): the lit lane recedes up the frame towards the farm.
+        { x: 15.0, z: 25.9, y: 1.0, yaw: 86, pitch: 35, dist: 22 },
+        { x: 14.0, z: 25.6, y: 1.0, yaw: 96, pitch: 33, dist: 21 },
       ],
       dur: 8.5,
     },
     { do: 'mark', id: 'valley' },
-    { do: 'caption', text: 'For one night, the whole valley glows like a hearth.', dur: 4.5 },
+    { do: 'caption', text: 'For one night, the whole valley glows like a hearth.', dur: 4.5, low: true },
     { do: 'wait', t: 1.2 },
     { do: 'fade', to: 'black', dur: 2 },
     { do: 'remove', id: 'hollis' },
@@ -598,50 +611,71 @@ const PEEKERS: Record<string, [string, string]> = {
 };
 
 /**
- * Room restored: the camera pushes in on the room's lantern, it ignites (a light pool floods the
- * floor, a shockwave ring, a column of sparks, glowmoths), the lens orbits the plinth while two
- * villagers peek in through the arch — then we cut out to the valley to see what came back.
+ * Room restored — a hero composition, not a security-camera view:
+ *   1. wide on thirds: the dark lantern on the left third, the farmer and two villagers on the right
+ *      third, all 1.4–2.6 m from the plinth and turned *to* it (three-quarter faces to the lens);
+ *   2. the lantern ignites while the lens dollies in from 9 m to 5.5 m over 2.5 s;
+ *   3. a reaction shot from beside the lantern: their faces in its new light;
+ *   then out to the valley to see what came back.
  */
 export function roomScene(room: RoomDef, town: { x: number; z: number; y?: number; yaw: number; pitch: number; dist: number }): Cmd[] {
-  const side = room.x < 15 ? -1 : 1;
-  // Plinth + the arch into the nave (divider walls at x = 12 / 18).
-  const px = room.x + (side < 0 ? 0.4 : -0.4);
-  const archX = side < 0 ? 11.55 : 18.45;
+  // `s` = direction from the room's outer wall towards the nave (+1 west wing, -1 east wing).
+  const s = room.x < 15 ? 1 : -1;
+  const L: P2 = [room.x + s * 0.4, room.z - 0.6];
+  const archX = s > 0 ? 11.55 : 18.45;
   const [a, b] = PEEKERS[room.id] ?? ['hazel', 'kit'];
-  // From high over the room's front-outer corner (the knee walls between rooms are low, the back
-  // wall is not: a lens behind it saw only plaster), looking across the lantern to the arch where two
-  // villagers peek in, their faces lit by the new light; the orbit swings 40° round the plinth.
-  const look = { x: (px + archX) / 2 - side * 0.2, z: room.z - 0.1, y: 1.2 };
-  const orbit = (d: number): CamKey => ({ ...look, yaw: side * 22 + d, pitch: 44, dist: 8.8 });
+  const PL: P2 = [L[0] + s * 1.45, L[1] + 1.05];
+  const A: P2 = [L[0] + s * 2.55, L[1] + 0.05];
+  const B: P2 = [L[0] + s * 2.35, L[1] + 1.95];
+  // Look between the lantern and the faces; the lens sits out front on the lantern's side (yaw ±48°):
+  // lantern on one third, three faces turned to it on the other.
+  const look = { x: L[0] + s * 1.35, z: L[1] + 0.75, y: 1.15 };
+  const wide: CamKey = { ...look, yaw: -s * 44, pitch: 33, dist: 9 };
+  const push: CamKey = { ...look, x: look.x - s * 0.1, yaw: -s * 50, pitch: 30, dist: 5.6 };
+  // Reaction: from just outside the lantern (behind it, off its shoulder), the faces lit.
+  const react: CamKey = { x: L[0] + s * 1.9, z: L[1] + 0.9, y: 1.3, yaw: -s * 72, pitch: 20, dist: 6.2 };
   return [
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
-    { do: 'actor', id: a, x: archX, z: room.z - 0.65, facing: side < 0 ? 'left' : 'right' },
-    { do: 'actor', id: b, x: archX + side * 0.35, z: room.z + 0.6, facing: side < 0 ? 'left' : 'right' },
-    { do: 'cam', to: orbit(side * -20), dur: 1.8, ease: 'inOut' },
+    { do: 'actor', id: a, x: archX, z: L[1] - 0.2, facing: s > 0 ? 'left' : 'right' },
+    { do: 'actor', id: b, x: archX + s * 0.5, z: L[1] + 1.6, facing: s > 0 ? 'left' : 'right' },
+    { do: 'cam', to: wide, dur: 1.4, ease: 'inOut', wait: false },
+    { do: 'walk', id: 'player', path: [PL], speed: 2.2, wait: false },
+    { do: 'walk', id: a, path: [A], speed: 1.6, wait: false },
+    { do: 'walk', id: b, path: [B], speed: 1.6 },
+    { do: 'face', id: 'player', at: L },
+    { do: 'face', id: a, at: L },
+    { do: 'face', id: b, at: L },
+    { do: 'wait', t: 0.3 },
     { do: 'cue', cue: 'hall:ignite', arg: room.id },
     { do: 'cue', cue: 'sfx', arg: 'hall' },
-    { do: 'rail', keys: [orbit(side * -7), orbit(side * 7), orbit(side * 20)], dur: 6.5, wait: false },
-    { do: 'wait', t: 1.1 },
+    { do: 'cam', to: push, dur: 2.5, ease: 'out', wait: false },
+    { do: 'wait', t: 0.9 },
     { do: 'emote', id: a, emote: 'exclaim', wait: false },
     { do: 'mark', id: 'ignite' },
-    { do: 'caption', text: `${room.name} is restored`, sub: `The ${room.lantern} burns again.`, dur: 2.8, low: true },
+    { do: 'caption', text: `${room.name} is restored`, sub: `The ${room.lantern} burns again.`, dur: 2.6, low: true },
+    { do: 'cam', to: react, dur: 0 },
     { do: 'emote', id: b, emote: 'heart', wait: false },
-    { do: 'wait', t: 1.4 },
+    { do: 'emote', id: 'player', emote: 'sparkle', wait: false },
+    { do: 'cam', to: { ...react, dist: 5.4, yaw: react.yaw + s * 6 }, dur: 2.6, ease: 'out', wait: false },
+    { do: 'mark', id: 'react' },
+    { do: 'wait', t: 2.2 },
     { do: 'fade', to: 'black', dur: 0.9 },
     { do: 'remove', id: a },
     { do: 'remove', id: b },
     { do: 'map', map: 'town', x: 32, z: 29.4, facing: 'up' },
     { do: 'player', visible: false },
+    // The square's festoons would bloom across the lens of every reveal.
+    { do: 'hide', names: ['festoon-bulbs', 'festoon-cords'] },
     { do: 'cue', cue: 'town:restore', arg: room.id },
     { do: 'cam', to: { y: 1.2, ...town }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 1 },
     { do: 'cam', to: { y: 1.2, ...town, dist: town.dist * 0.82 }, dur: 4, ease: 'out', wait: false },
     { do: 'cue', cue: 'town:reveal', arg: room.id, t: 1.8 },
     { do: 'mark', id: 'reveal' },
-    { do: 'caption', text: room.restores.title, sub: room.restores.text, dur: 3 },
+    { do: 'caption', text: room.restores.title, sub: room.restores.text, dur: 3, low: true },
     { do: 'fade', to: 'black', dur: 0.9 },
-    { do: 'map', map: 'hall', x: room.x - side * 3.2, z: room.z + 0.5, facing: side < 0 ? 'left' : 'right' },
+    { do: 'map', map: 'hall', x: PL[0], z: PL[1] + 0.6, facing: 'up' },
     { do: 'player', visible: true },
     { do: 'letterbox', on: false },
     { do: 'hud', on: true },

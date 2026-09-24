@@ -108,7 +108,54 @@ export function whereFrom(itemId: string): string {
     const wx = f.weather?.length ? ` · ${f.weather.includes('rain') ? 'rain' : f.weather[0]}` : '';
     return `Fish · ${where}${when}${wx}`;
   }
-  const RES: Record<string, string> = { wood: 'Chop branches & stumps', stone: 'Break stones', fiber: 'Scythe weeds', sprinkler: 'Craft at the bench' };
+  const RES: Record<string, string> = {
+    wood: 'Chop branches & stumps',
+    stone: 'Break stones',
+    fiber: 'Scythe weeds',
+    coal: 'Mine · the Hollowdeep',
+    sprinkler: 'Craft at the bench',
+    // Forage (Cindergrove + verges), by season.
+    wildLeek: 'Forage · Spring · Cindergrove',
+    fiddlehead: 'Forage · Spring · Cindergrove',
+    morel: 'Forage · Spring · Cindergrove',
+    sweetPea: 'Forage · Summer · verges',
+    hedgeBerry: 'Forage · Summer · hedgerows',
+    duskViolet: 'Forage · Summer evenings',
+    chanterelle: 'Forage · Fall · Cindergrove',
+    hazelnut: 'Forage · Fall · Cindergrove',
+    emberCap: 'Forage · Fall · Cindergrove',
+    frostHolly: 'Forage · Winter · Cindergrove',
+    snowRoot: 'Forage · Winter · dig in the snow',
+    crystalCone: 'Forage · Winter · pines',
+    // The Hollowdeep.
+    copperOre: 'Mine · Hollowdeep floors 1–20',
+    ironOre: 'Mine · Hollowdeep floors 20+',
+    quartz: 'Mine · any floor',
+    amethyst: 'Mine · gem rocks',
+    topaz: 'Mine · gem rocks',
+    aquamarine: 'Mine · gem rocks',
+    frostShard: 'Mine · the frozen floors',
+    slimeGel: 'Mine · defeat slimes',
+    // Barn & coop.
+    egg: 'Coop · white hens',
+    brownEgg: 'Coop · brown hens',
+    duckEgg: 'Coop · ducks',
+    milk: 'Barn · cows',
+    goatMilk: 'Barn · goats',
+    wool: 'Barn · sheep',
+    hay: 'Scythe grass · or buy at the barn',
+    // The beach.
+    cockle: 'Beachcombing · Driftsand',
+    seaGlass: 'Beachcombing · Driftsand',
+    sandDollar: 'Beachcombing · Driftsand',
+    spiralConch: 'Beachcombing · Driftsand',
+    starfish: 'Beachcombing · low tide',
+    crabCarapace: 'Beachcombing · Driftsand',
+    bait: 'Craft · or the tackle shop',
+    corkBobber: 'Tackle shop',
+    treasureLure: 'Tackle shop',
+    winterRoseTea: "Marigold's shop · Winter",
+  };
   if (RES[itemId]) return RES[itemId]!;
   const d = itemDef(itemId);
   if (d?.kind === 'placeable') return 'Craft it';

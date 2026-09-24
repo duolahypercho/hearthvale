@@ -457,7 +457,9 @@ export class CinemaOverlay {
     this.choices.classList.remove('hv-hidden');
     this.choices.classList.toggle('locked', !!waiting);
     this.choices.querySelector('.cin-wait')?.remove();
-    this.selectChoice(0);
+    // A moral choice opens with nothing pre-selected: no option is nudged towards the player.
+    this.selectChoice(-1);
+    this.seatChoices();
     if (hold) return Promise.resolve(-1);
     if (waiting) {
       const note = document.createElement('div');
@@ -486,6 +488,24 @@ export class CinemaOverlay {
       });
       this.pollPad();
     });
+  }
+
+  /**
+   * Seat the choice stack 12 px above the speaker's nameplate (not the text box): the box grows with
+   * a long line, and a fixed offset let the first card cover the role under the name.
+   */
+  private seatChoices(): void {
+    const seat = (): void => {
+      const plate = this.root.querySelector<HTMLElement>('.cin-nameplate');
+      const host = this.root.getBoundingClientRect();
+      if (!plate || !host.height) return;
+      const top = plate.getBoundingClientRect().top;
+      if (top <= 0) return;
+      this.choices.style.bottom = `${Math.round(host.bottom - top + 12)}px`;
+    };
+    seat();
+    requestAnimationFrame(seat);
+    window.setTimeout(seat, 260);
   }
 
   private selectChoice(i: number): void {
@@ -519,13 +539,13 @@ export class CinemaOverlay {
       }
     } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
       e.preventDefault();
-      this.selectChoice((this.choiceSel + 1) % n);
+      this.selectChoice(this.choiceSel < 0 ? 0 : (this.choiceSel + 1) % n);
     } else if (e.code === 'ArrowUp' || e.code === 'KeyW') {
       e.preventDefault();
-      this.selectChoice((this.choiceSel + n - 1) % n);
+      this.selectChoice(this.choiceSel < 0 ? n - 1 : (this.choiceSel + n - 1) % n);
     } else if (['Enter', 'Space', 'KeyE', 'NumpadEnter'].includes(e.code)) {
       e.preventDefault();
-      this.pick(this.choiceSel);
+      if (this.choiceSel >= 0) this.pick(this.choiceSel);
     }
   }
 
@@ -546,13 +566,13 @@ export class CinemaOverlay {
           const ay = gp.axes[1] ?? 0;
           this.padAxisT -= dt;
           if (hit(13) || (ay > 0.55 && this.padAxisT <= 0)) {
-            this.selectChoice((this.choiceSel + 1) % this.choiceCount);
+            this.selectChoice(this.choiceSel < 0 ? 0 : (this.choiceSel + 1) % this.choiceCount);
             this.padAxisT = 0.28;
           } else if (hit(12) || (ay < -0.55 && this.padAxisT <= 0)) {
-            this.selectChoice((this.choiceSel + this.choiceCount - 1) % this.choiceCount);
+            this.selectChoice(this.choiceSel < 0 ? this.choiceCount - 1 : (this.choiceSel + this.choiceCount - 1) % this.choiceCount);
             this.padAxisT = 0.28;
           } else if (Math.abs(ay) < 0.3) this.padAxisT = 0;
-          if (hit(0)) this.pick(this.choiceSel);
+          if (hit(0) && this.choiceSel >= 0) this.pick(this.choiceSel);
         } else if (hit(0)) this.advance();
         this.padPrev = down;
       }
