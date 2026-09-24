@@ -575,7 +575,7 @@ export class HallMap implements GameMap {
       const pm = poolMaterial(0xa8c4ff);
       const pool = new THREE.Mesh(new THREE.CircleGeometry(3.2, 40), pm);
       pool.rotation.x = -Math.PI / 2;
-      pool.scale.set(0.5, 0.78, 1);
+      pool.scale.set(0.62, 1.05, 1);
       pool.position.set(x, 0.018, z + 0.6);
       pool.renderOrder = 2;
       pool.userData.noAO = true;
@@ -2599,7 +2599,7 @@ export class HallMap implements GameMap {
     this.naveBeamMat.uniforms.uStrength!.value = (day ? 0.3 : 0.62) * Math.max(0, 1 - frac * 1.4);
     for (const pm of this.moonPools) {
       (pm.uniforms.uColor!.value as THREE.Color).setHex(day ? 0xffe8c0 : 0xa8c4ff);
-      pm.uniforms.uI!.value = (day ? 0.2 : 0.55) * Math.max(0, 1 - frac * 1.3);
+      pm.uniforms.uI!.value = (day ? 0.14 : 0.32) * Math.max(0, 1 - frac * 1.3);
     }
     this.windowMat.emissive.setHex(day ? 0xcfe4ff : 0x4a68c0);
     this.windowMat.emissiveIntensity = day ? 1.1 : 0.9;
