@@ -412,7 +412,7 @@ export class LeafGusts {
         {
           uTime: { value: 0 },
           uCenter: { value: new THREE.Vector3() },
-          uBox: { value: new THREE.Vector3(26, 4.5, 22) },
+          uBox: { value: new THREE.Vector3(26, 3.0, 22) },
           uAmount: { value: 0 },
           uCount: { value: max },
           uWind: { value: new THREE.Vector2(1, 0) },
@@ -479,7 +479,7 @@ export class LeafGusts {
           float keep = step(aSeed.x * 0.999, burst);
           // Leaves right in front of the lens would read as giant blotches: shrink them away.
           float camD = length(cameraPosition - wp);
-          float nearK = smoothstep(9.0, 15.0, camD);
+          float nearK = smoothstep(7.0, 12.0, camD);
           vec3 local = R * vec3(position.x, position.y, 0.0) * uSize * (0.75 + 0.6 * aSeed.z) * on * keep * nearK;
           vShade = 0.6 + 0.4 * abs((R * vec3(0.0, 0.0, 1.0)).y);
           vUv = uv;
@@ -570,8 +570,8 @@ export class LeafGusts {
     (u.uC0!.value as THREE.Color).setHex(a);
     (u.uC1!.value as THREE.Color).setHex(b);
     (u.uC2!.value as THREE.Color).setHex(c);
-    // ~12-18 px at gameplay zoom.
-    u.uSize!.value = p === 'petals' ? 0.17 : 0.24;
+    // ~28-40 px at gameplay zoom: readable leaves / petals, not confetti.
+    u.uSize!.value = p === 'petals' ? 0.36 : 0.52;
     u.uPetals!.value = p === 'petals' ? 1 : 0;
   }
 
@@ -584,6 +584,101 @@ export class LeafGusts {
     (u.uWind!.value as THREE.Vector2).copy(wd);
     u.uSpeed!.value = 1.2 + globalUniforms.uWindStrength.value * 2.2;
     u.uGloom!.value = Math.min(1, globalUniforms.uRain.value * 1.1);
+    this.mesh.visible = amount > 0.01;
+  }
+}
+
+/**
+ * Wind ribbons: a handful of faint, long, wavy white streaks sliding along the wind a couple of
+ * metres up (the classic "you can see the wind" read). Only on windy / stormy days. One draw call.
+ */
+export class WindRibbons {
+  readonly mesh: THREE.Mesh;
+  private mat: THREE.ShaderMaterial;
+
+  constructor(private readonly max = 26) {
+    // A strip of 24 segments along +x (0..1), across -0.5..0.5.
+    const seg = 24;
+    const pos: number[] = [];
+    const idx: number[] = [];
+    for (let i = 0; i <= seg; i++) pos.push(i / seg, -0.5, 0, i / seg, 0.5, 0);
+    for (let i = 0; i < seg; i++) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    const seeds = new Float32Array(max * 4);
+    let sd = 777;
+    for (let i = 0; i < seeds.length; i++) {
+      sd = (Math.imul(sd ^ (sd >>> 15), 2246822519) + 0x9e3779b9) >>> 0;
+      seeds[i] = (sd >>> 8) / 16777216;
+    }
+    g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 4));
+    g.instanceCount = max;
+    this.mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: { value: 0 }, uCenter: { value: new THREE.Vector3() }, uWind: { value: new THREE.Vector2(1, 0) }, uAmount: { value: 0 }, uPx: { value: 0.0006 } },
+      vertexShader: /* glsl */ `
+        uniform float uTime;
+        uniform vec3 uCenter;
+        uniform vec2 uWind;
+        uniform float uAmount;
+        uniform float uPx;
+        attribute vec4 aSeed;
+        varying float vA;
+        varying float vU;
+        void main() {
+          vec3 wind = normalize(vec3(uWind.x, 0.0, uWind.y) + 1e-4);
+          vec3 side = vec3(-wind.z, 0.0, wind.x);
+          float life = 3.2 + aSeed.w * 2.4;
+          float t = uTime / life + aSeed.x * 7.0;
+          float cyc = fract(t);
+          float id = floor(t);
+          float h1 = fract(sin((id + aSeed.y * 13.0) * 12.9898) * 43758.5453);
+          float h2 = fract(sin((id + aSeed.z * 17.0) * 78.233) * 43758.5453);
+          float len = 3.5 + aSeed.z * 4.0;
+          // Each ribbon slides ~9 m along the wind over its life, spawning around the focus.
+          vec3 base = uCenter + side * (h1 - 0.5) * 30.0 + wind * ((h2 - 0.5) * 24.0 + (cyc - 0.5) * 9.0);
+          float u = position.x;
+          vec3 p = base + wind * (u - 0.5) * len;
+          p.y += 1.3 + aSeed.y * 2.2 + sin(u * 6.28 * (0.8 + aSeed.w) + uTime * 2.0 + aSeed.x * 20.0) * 0.28;
+          p += side * sin(u * 3.14 * 1.4 + uTime * 1.3 + aSeed.z * 9.0) * 0.35;
+          float camD = length(cameraPosition - p);
+          // ~1.5 px wide, tapered at both ends.
+          float w = camD * uPx * 1.6 * sin(u * 3.14159);
+          vec3 toCam = normalize(cameraPosition - p);
+          vec3 across = normalize(cross(wind, toCam));
+          p += across * position.y * w;
+          vA = uAmount * sin(cyc * 3.14159) * smoothstep(0.0, 0.25, u) * (1.0 - smoothstep(0.55, 1.0, u)) * step(float(gl_InstanceID), 26.0 * uAmount);
+          vU = u;
+          gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+        }`,
+      fragmentShader: /* glsl */ `
+        varying float vA;
+        varying float vU;
+        void main() {
+          if (vA < 0.004) discard;
+          gl_FragColor = vec4(vec3(0.9, 0.95, 1.0) * vA * 0.16, 1.0);
+        }`,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 7;
+    this.mesh.visible = false;
+    this.mesh.name = 'wind-ribbons';
+    this.mesh.userData.perfTag = 'weather';
+    this.mesh.userData.noAO = true;
+  }
+
+  update(center: THREE.Vector3, amount: number, time: number, pxAngle: number): void {
+    const u = this.mat.uniforms;
+    u.uTime!.value = time;
+    (u.uCenter!.value as THREE.Vector3).copy(center);
+    (u.uWind!.value as THREE.Vector2).copy(globalUniforms.uWindDir.value);
+    u.uAmount!.value = amount;
+    u.uPx!.value = pxAngle;
     this.mesh.visible = amount > 0.01;
   }
 }

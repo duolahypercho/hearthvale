@@ -34,6 +34,8 @@ export const atmosphere = {
   shaftList: [] as { x: number; y: number; z: number; w: number }[],
   /** Shaft length along the sun direction (m). */
   shaftLen: 14,
+  /** The local farmer (feet, world): mist and shafts stay thin on him so he never goes milky. */
+  player: new THREE.Vector3(1e4, 0, 1e4),
 };
 
 const FogShader = {
@@ -58,6 +60,7 @@ const FogShader = {
     uTime: globalUniforms.uTime,
     uWindDir: globalUniforms.uWindDir,
     uSunDir: globalUniforms.uSunDir,
+    uPlayer: { value: new THREE.Vector3(1e4, 0, 1e4) },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -83,6 +86,7 @@ const FogShader = {
     uniform float uTime;
     uniform vec2 uWindDir;
     uniform vec3 uSunDir;
+    uniform vec3 uPlayer;
     varying vec2 vUv;
     ${NOISE_GLSL}
     vec3 worldAt(vec2 uv, float d) {
@@ -100,6 +104,9 @@ const FogShader = {
       float L = length(rd);
       rd /= max(L, 1e-4);
       vec3 c = col.rgb;
+      // Pixels on the farmer (a 0.55 m column from the ankles up): fog and shafts at ~40 %.
+      float onPlayer = (1.0 - smoothstep(0.42, 0.62, length(P.xz - uPlayer.xz))) * step(uPlayer.y + 0.12, P.y) * (1.0 - step(uPlayer.y + 2.2, P.y));
+      float keepK = 1.0 - onPlayer * 0.6;
       if (uFog > 0.001) {
         // Exact integral of exp(-(y-base)/H) along the segment.
         float H = uFalloff;
@@ -115,15 +122,16 @@ const FogShader = {
         float n = hvFbm(P.xz * 0.075 - drift * 0.075) * 0.7 + hvNoise(P.xz * 0.23 + vec2(uTime * 0.03, -uTime * 0.02)) * 0.3;
         // Wispy sheets: a second, finer stretched layer tears the banks into drifting ribbons.
         float sheet = hvNoise(vec2(P.x * 0.16 + P.z * 0.05, P.z * 0.42) - drift * 0.16);
-        float bank = smoothstep(0.44, 0.8, n) * (0.5 + 0.5 * smoothstep(0.3, 0.7, sheet));
-        float dens = uDensity * uFog * (0.06 + 1.8 * bank);
+        // Separate pockets: banks with clear lanes between them (squared: thin mist stays thin).
+        float bank = smoothstep(0.46, 0.78, n) * (0.35 + 0.65 * smoothstep(0.3, 0.7, sheet));
+        float dens = uDensity * uFog * (0.02 + 3.4 * bank * bank);
         float f = 1.0 - exp(-optical * dens);
         // Sky pixels (far plane): keep only a thin veil.
         f *= d > 0.99999 ? 0.4 : 1.0;
         float sunF = pow(max(dot(rd, normalize(uSunDir)), 0.0), 4.0);
         vec3 fc = mix(uShade, uLit, 0.45 + 0.55 * bank);
         fc += uLit * sunF * 0.35;
-        c = mix(c, fc, clamp(f, 0.0, 0.8));
+        c = mix(c, fc, clamp(f * keepK, 0.0, 0.72));
       }
       if (uShaftK > 0.001) {
         // Art direction: beams fall steeply from the canopy (~35 deg off vertical), leaning across the
@@ -151,7 +159,8 @@ const FogShader = {
           float dist = length(ro + rd * tr2 - q);
           float wdt = s.w * (1.0 + ts / uShaftLen * 0.35);
           // Bright along the whole fall, fading only where the beam leaves the canopy / meets the ground.
-          float along = smoothstep(0.0, 0.08, ts / uShaftLen) * (1.0 - smoothstep(0.62, 1.0, ts / uShaftLen));
+          // …and they dissolve into the air ~3 m above the ground instead of splashing onto it.
+          float along = smoothstep(0.02, 0.24, ts / uShaftLen) * (1.0 - smoothstep(0.62, 1.0, ts / uShaftLen));
           // Chord length through the soft cylinder ~ width / sin(angle between ray and axis).
           float chord = min(wdt * 2.0 / max(sqrt(den), 0.15), 8.0);
           float g = exp(-dist * dist / (wdt * wdt) * 3.0);
@@ -161,7 +170,10 @@ const FogShader = {
           float flick = (0.75 + 0.25 * hvNoise(vec2(float(i) * 7.3 + uTime * 0.25, ts * 0.3 - uTime * 0.1))) * stri;
           acc += g * along * chord * flick;
         }
-        c += uShaftCol * acc * uShaftK * 0.1;
+        // Capped: a beam brightens the air, it never bleaches what stands in it.
+        vec3 add = uShaftCol * acc * uShaftK * 0.1 * keepK;
+        float lum = dot(add, vec3(0.3, 0.5, 0.2));
+        c += add * min(1.0, 0.12 / max(lum, 1e-4));
       }
       gl_FragColor = vec4(c, col.a);
     }`,
@@ -199,6 +211,7 @@ export class HeightFogPass extends Pass {
     u.uBase!.value = a.base;
     u.uFalloff!.value = a.falloff;
     u.uDensity!.value = a.density;
+    (u.uPlayer!.value as THREE.Vector3).copy(a.player);
     const n = Math.min(MAX_SHAFTS, a.shaftList.length);
     u.uShaftCount!.value = n;
     u.uShaftK!.value = a.shafts;

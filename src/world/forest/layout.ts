@@ -70,6 +70,22 @@ export const GIANTS: [GiantKind, number, number, number][] = [
   ['elder', 38.2, 5.6, 0.9],
 ];
 
+/**
+ * Where the demos (and so the critics' hero shots) put the farmer: [x, z, radius]. No fern, shrub or
+ * tall tuft grows inside these, so the farmer is never half-buried in foliage.
+ */
+export const STAGE_SPOTS: [number, number, number][] = [
+  [21.0, 23.4, 1.4], // forest-day fishing bank
+  [36.3, 32.4, 1.2], // forest-rain / forest-wind trail
+  [18.8, 35.8, 1.4], // storm meadow
+  [35.6, 34.4, 1.2], // snow-day stream bank
+  [41.4, 45.0, 1.3], // fog-morning bridge bank
+  [24.2, 24.8, 1.2], // rainbow pool spur
+  [50.6, 23.8, 1.2], // glade
+  [17.4, 37.2, 2.4], // coop-forest meadow
+  [32.5, 4.2, 1.6], // arrival
+];
+
 /** Mossy fallen giants: [x, z, rotY, length, radius]. */
 export const LOGS: [number, number, number, number, number][] = [
   [24.8, 20.4, 0.18, 5.2, 0.52],

@@ -50,7 +50,16 @@ let barkMat: THREE.MeshStandardMaterial | null = null;
 export function giantBarkMaterial(): THREE.MeshStandardMaterial {
   if (barkMat) return barkMat;
   const t = textures.bark();
-  barkMat = new THREE.MeshStandardMaterial({ map: t.map, bumpMap: t.bump, bumpScale: 3.2, roughness: 0.96, vertexColors: true, color: 0xc4b2a0 });
+  // Mirrored vertical tiling: the bark tile is not seamless top-to-bottom, and a plain repeat drew a
+  // hard horizontal seam every ~1.8 m up the elder trunks (clones: other barks keep their wrap).
+  const mirror = (tx: THREE.Texture | undefined): THREE.Texture | null => {
+    if (!tx) return null;
+    const c = tx.clone();
+    c.wrapT = THREE.MirroredRepeatWrapping;
+    c.needsUpdate = true;
+    return c;
+  };
+  barkMat = new THREE.MeshStandardMaterial({ map: mirror(t.map), bumpMap: mirror(t.bump), bumpScale: 3.2, roughness: 0.96, vertexColors: true, color: 0xc4b2a0 });
   barkMat.name = 'giantBark';
   patchMaterial(barkMat, 'giant-moss', (shader) => {
     shader.uniforms.uMoss = { value: mossColor };
@@ -641,12 +650,12 @@ function fir(rng: Rng): GiantGeo {
     sphericalNormals(gg, new THREE.Vector3(0, y - th * 0.6, 0), 0.5);
     const tierAO = (q: THREE.Vector3) => {
       const local = THREE.MathUtils.clamp((q.y - y + 0.9) / (th + 0.9), 0, 1);
-      return (0.5 + 0.5 * local) * (0.8 + 0.2 * f);
+      return (0.4 + 0.6 * local) * (0.8 + 0.2 * f);
     };
     b.add(leaf, gg, undefined, { aoWorld: tierAO });
     // Needle sprays hanging off the tier rim + a few lying on the tier top (break the skirt outline).
     const tint = new THREE.Color(1, 1, 1).offsetHSL((rng.next() - 0.5) * 0.03, 0, (rng.next() - 0.5) * 0.06);
-    const nRim = Math.round(r * 8.5);
+    const nRim = Math.round(r * 11);
     for (let k = 0; k < nRim; k++) {
       const ang = (k / nRim) * Math.PI * 2 + (rng.next() - 0.5) * 0.3;
       const sc = 1 + 0.12 * Math.sin(ang * lobes + ph) + 0.04 * Math.sin(ang * (lobes * 2 + 1) + ph * 2);
@@ -655,20 +664,22 @@ function fir(rng: Rng): GiantGeo {
       const yy = y - droopAt(q) - 0.18 * Math.max(0, Math.sin(ang * lobes + ph)) * q * q + 0.1;
       pp.set(Math.cos(ang) * rr, yy, Math.sin(ang) * rr);
       nrm.set(Math.cos(ang), 0.75, Math.sin(ang)).normalize();
-      const s = (0.9 + rng.next() * 0.35) * (0.75 + 0.25 * (1 - f));
-      cc.copy(tint).multiplyScalar(tierAO(pp) * (0.92 + rng.next() * 0.22));
+      const s = (1.0 + rng.next() * 0.4) * (0.75 + 0.25 * (1 - f));
+      // Fresh growth at the bough tips: lighter, a touch warmer (top-light gradient).
+      cc.copy(tint).multiplyScalar(tierAO(pp) * (1.08 + rng.next() * 0.22)).offsetHSL(0.01, 0.02, 0.03);
       cards.add(pp, nrm, s * 0.9, s * 1.25, (rng.next() - 0.5) * 0.5, cc, { anchorY: 0.78 });
     }
     // Sprays lying all over the tier tops: seen from the diorama camera the tiers read as layered
     // needle boughs instead of smooth dark cones.
-    const nTop = Math.round(r * 8);
+    const nTop = Math.round(r * 15);
     for (let k = 0; k < nTop; k++) {
       const ang = rng.next() * Math.PI * 2;
-      const q = 0.25 + rng.next() * 0.6;
+      const q = 0.2 + rng.next() * 0.72;
       pp.set(Math.cos(ang) * r * q, y + th * (1 - q) - droopAt(q) + 0.15, Math.sin(ang) * r * q);
       nrm.set(Math.cos(ang) * 0.6, 1, Math.sin(ang) * 0.6).normalize();
-      const s = 0.9 + rng.next() * 0.5;
-      cc.copy(tint).multiplyScalar(tierAO(pp) * (1.0 + rng.next() * 0.22));
+      const s = 1.0 + rng.next() * 0.6;
+      // Outer sprays lighter than the ones tucked in by the stem.
+      cc.copy(tint).multiplyScalar(tierAO(pp) * (0.95 + q * 0.3 + rng.next() * 0.18));
       cards.add(pp, nrm, s, s * 1.1, rng.next() * Math.PI * 2, cc);
     }
   }

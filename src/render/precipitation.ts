@@ -139,18 +139,21 @@ export class RainStreaks {
           p.y = y;
           p += uCenter - vec3(uBox.x, uBox.y * 0.25, uBox.z);
           p = wrapBox(p);
-          vec3 dir = normalize(vel);
+          // Every drop leans a little differently (±6 deg): no ruled sheet of identical slashes.
+          vec3 dir = normalize(vel + vec3(aSeed.x - 0.5, 0.0, aSeed.z - 0.5) * sp * 0.21);
           vec3 toCam = normalize(cameraPosition - p);
           vec3 side = normalize(cross(dir, toCam));
-          // Storms: longer, bolder streaks (driving rain), slanted harder by the gusts.
-          float len = uLen * (0.75 + 0.5 * aSeed.w) * (1.0 + uGust * 1.1);
           float camD = length(cameraPosition - p);
-          // Constant on-screen width: ~1-1.5 px hairlines whatever the distance.
-          float w = camD * uPxAngle * uPx * (0.85 + 0.3 * aSeed.x) * (1.0 + uGust * 0.35);
+          // Storms: longer streaks (driving rain), slanted harder by the gusts; near drops read
+          // longer, far ones shorter and fainter (depth).
+          float depthK = smoothstep(12.0, 40.0, camD);
+          float len = uLen * (0.6 + 0.8 * fract(aSeed.w * 7.31)) * (1.0 + uGust * 1.1) * mix(1.25, 0.65, depthK);
+          // Constant on-screen width: thin hairlines (~0.9 px) whatever the distance.
+          float w = camD * uPxAngle * uPx * 0.62 * (0.85 + 0.3 * aSeed.x) * (1.0 + uGust * 0.15);
           vec3 wp = p + side * position.x * w - dir * position.y * len;
           vUv = uv;
           // Depth fade: drops right in front of the lens read as smears, not rain.
-          vA = on * (0.55 + 0.45 * aSeed.w) * smoothstep(7.0, 16.0, camD);
+          vA = on * (0.55 + 0.45 * aSeed.w) * smoothstep(7.0, 16.0, camD) * mix(1.0, 0.6, depthK);
           // Storm gusts: denser sheets of rain sweep through downwind, thin gaps between them.
           vec2 gw = normalize(uWind + vec2(1e-4, 0.0));
           vec2 gq = vec2(dot(p.xz, gw), dot(p.xz, vec2(-gw.y, gw.x)));
@@ -335,6 +338,8 @@ export class SnowFlakes {
           uWind: { value: new THREE.Vector2() },
           uColor: { value: new THREE.Color(1, 1, 1) },
           uCount: { value: max },
+          uPxAngle: { value: 0.0006 },
+          uCamDist: { value: 24 },
         },
       ]),
       vertexShader: /* glsl */ `
@@ -342,6 +347,8 @@ export class SnowFlakes {
         #include <fog_pars_vertex>
         uniform vec2 uWind;
         uniform float uCount;
+        uniform float uPxAngle;
+        uniform float uCamDist;
         varying vec2 vUv;
         varying float vA;
         void main() {
@@ -357,11 +364,15 @@ export class SnowFlakes {
           p += uCenter - vec3(uBox.x, uBox.y * 0.25, uBox.z);
           p = wrapBox(p);
           float s = 0.05 + aSeed.w * 0.06;
+          // Never a blurry disc on the lens: at most ~8 px on screen, and flakes closer than a
+          // quarter of the camera distance fade out.
+          float camD = length(cameraPosition - p);
+          s = min(s, camD * uPxAngle * 8.0);
           vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
           vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
           vec3 wp = p + (right * position.x + up * (position.y - 0.5)) * s;
           vUv = uv;
-          vA = on * (0.55 + 0.45 * aSeed.w);
+          vA = on * (0.55 + 0.45 * aSeed.w) * smoothstep(uCamDist * 0.25, uCamDist * 0.42, camD);
           vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
@@ -386,8 +397,10 @@ export class SnowFlakes {
     this.mesh.userData.noAO = true;
   }
 
-  update(center: THREE.Vector3, intensity: number, time: number): void {
+  update(center: THREE.Vector3, intensity: number, time: number, pxAngle = 0.0006, camDist = 24): void {
     const u = this.mat.uniforms;
+    u.uPxAngle!.value = pxAngle;
+    u.uCamDist!.value = camDist;
     u.uTime!.value = time;
     (u.uCenter!.value as THREE.Vector3).copy(center);
     u.uIntensity!.value = intensity;

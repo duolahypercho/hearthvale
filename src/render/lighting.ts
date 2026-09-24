@@ -55,8 +55,9 @@ const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1,
 /** Distance (world units) from the view centre back towards the sun that shadow casters are gathered. */
 const SHADOW_REACH = 25;
 
-const _stormLift = new THREE.Vector3(0.035, 0.05, 0.085);
-const _stormGain = new THREE.Vector3(0.9, 0.96, 1.08);
+// Storm grade: a clear cold teal-blue (lifted slate shadows, pulled-down warm highlights).
+const _stormLift = new THREE.Vector3(0.045, 0.075, 0.125);
+const _stormGain = new THREE.Vector3(0.74, 0.86, 1.04);
 const _flashLift = new THREE.Vector3();
 const _stormFog = new THREE.Color(0.2, 0.25, 0.34);
 const _stormGround = new THREE.Color(0.36, 0.4, 0.44);
@@ -319,6 +320,11 @@ export class DayNight {
     const grey = new THREE.Color(0.75, 0.78, 0.82);
     this.sun.color.lerp(grey, oc * 0.6);
     this.sun.intensity = L(a.sunI, b.sunI, t) * (1 - oc * 0.8);
+    // Lightning: a hard cold key from above for the stroke, so shadows snap (≤ +1.2 EV overall).
+    if (this.flash > 0.001) {
+      this.sun.color.lerp(_flashSky, Math.min(1, this.flash * 1.4));
+      this.sun.intensity += this.flash * 4.2;
+    }
     globalUniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity / 3);
 
     // Hemisphere + bounce (snow: cool blue skylight fills the shadows; lightning: flash)
@@ -332,7 +338,7 @@ export class DayNight {
     this.hemi.intensity = L(a.hemiI, b.hemiI, t) * 0.8 * (1 + oc * 0.35) * (1 + stormFill * 0.3);
     if (this.flash > 0.001) {
       this.hemi.color.lerp(_flashSky, Math.min(1, this.flash * 1.5));
-      this.hemi.intensity += this.flash * 6.5;
+      this.hemi.intensity += this.flash * 2.2;
     }
     this.bounce.color.copy(this.hemi.groundColor).lerp(this.sun.color, 0.5);
     this.bounce.intensity = this.sun.intensity * 0.12;
@@ -369,7 +375,7 @@ export class DayNight {
     // Exposure + grade. Storms: ~-0.5 EV, cold blue-slate shadows, 20 % desaturated; plain rain only
     // dims a little. Lightning: the return stroke pushes the frame ~+2.5 EV for its 60 ms.
     const stormK = THREE.MathUtils.smoothstep(oc, 0.92, 1.0) * (1 - this.night * 0.6);
-    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) * (1 - stormK * 0.14) * (1 + this.flash * 4.6);
+    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) * (1 - stormK * 0.1) * (1 + this.flash * 1.3);
     // Golden-hour rim: strongest with a low sun, gone at night / under overcast.
     const elev = Math.asin(THREE.MathUtils.clamp(this.sunDir.y, -1, 1));
     // …and a cool moonlit rim at night so canopies keep their silhouettes against the dark.
@@ -377,14 +383,14 @@ export class DayNight {
     const g = this.rc.post.grade.uniforms;
     (g.uLift!.value as THREE.Vector3).set(L(a.lift[0], b.lift[0], t), L(a.lift[1], b.lift[1], t), L(a.lift[2], b.lift[2], t));
     (g.uGain!.value as THREE.Vector3).set(L(a.gain[0], b.gain[0], t), L(a.gain[1], b.gain[1], t), L(a.gain[2], b.gain[2], t));
-    g.uSaturation!.value = L(a.sat, b.sat, t) * (1 - oc * 0.18) * (1 - stormK * 0.12);
-    g.uContrast!.value = L(a.contrast, b.contrast, t) * (1 - oc * 0.04) * (1 + stormK * 0.03);
+    g.uSaturation!.value = L(a.sat, b.sat, t) * (1 - oc * 0.18) * (1 - stormK * 0.22);
+    g.uContrast!.value = L(a.contrast, b.contrast, t) * (1 - oc * 0.04) * (1 + stormK * 0.1);
     if (stormK > 0.001) {
       (g.uLift!.value as THREE.Vector3).lerp(_stormLift, stormK);
       (g.uGain!.value as THREE.Vector3).lerp(_stormGain, stormK);
     }
     // Lightning: the whole frame blooms blue-white for an instant.
-    if (this.flash > 0.001) (g.uLift!.value as THREE.Vector3).add(_flashLift.set(0.06, 0.07, 0.1).multiplyScalar(this.flash));
+    if (this.flash > 0.001) (g.uLift!.value as THREE.Vector3).add(_flashLift.set(0.03, 0.035, 0.05).multiplyScalar(this.flash));
     g.uVignette!.value = L(a.vignette, b.vignette, t);
     // Bloom threshold stays high day and night (only emissives / sun glints exceed it); night only
     // raises the strength a little so lit windows and lanterns glow — lamp-lit ground never blooms.

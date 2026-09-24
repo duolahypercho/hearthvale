@@ -5,9 +5,9 @@
  *    ground-flash disc.
  *  - FogBank: morning ground mist — four translucent layers draped over the terrain (height texture)
  *    at 0.25–2.2 m, drifting noise wisps lit by the low sun, thinned on steep slopes.
- *  - Rainbow: a soft spectral arc (+ faint secondary) hung over the view after rain. The diorama
- *    camera never sees the horizon, so it is placed relative to the camera and drawn over the scene
- *    before post (it still gets the tilt-shift + grade).
+ *  - Rainbow: world-space spectral arcs (+ faint secondaries) after rain, depth-tested against the
+ *    scene: a valley bow stood up-screen of the player and a map-pinned spray bow (waterfall mist)
+ *    with its reflection on the pool.
  */
 import * as THREE from 'three';
 import { globalUniforms } from './uniforms';
@@ -139,12 +139,15 @@ export class LightningBolt {
   }
 
   /** Build a new bolt from high above `ground` down to it. */
-  build(ground: THREE.Vector3, _camPos: THREE.Vector3, seed: number): void {
+  build(ground: THREE.Vector3, camPos: THREE.Vector3, seed: number): void {
     const rnd = prng(seed);
     this.strike.copy(ground);
     // The channel leaves the frame top (well below the lens: the diorama camera sits ~17 m up), leaning
-    // away from the camera so the whole bolt reads as one jagged stroke down the screen.
-    const top = ground.clone().add(new THREE.Vector3((rnd() - 0.5) * 6, 13 + rnd() * 3, -9 - rnd() * 4));
+    // a little away from the camera: steep enough that a cliff or a crown behind the strike point
+    // never swallows the channel, slanted enough to read as one jagged stroke down the screen.
+    const away = new THREE.Vector3(ground.x - camPos.x, 0, ground.z - camPos.z).normalize();
+    const lean = 3 + rnd() * 2.5;
+    const top = ground.clone().add(new THREE.Vector3((rnd() - 0.5) * 5 + away.x * lean, 12 + rnd() * 3, away.z * lean));
     const segs: BoltSeg[] = [];
     // Midpoint displacement with sharp kinks (5-8 zig-zags per 10 m on the main channel).
     const channel = (a: THREE.Vector3, b: THREE.Vector3, depth: number, jag: number): THREE.Vector3[] => {
@@ -490,75 +493,152 @@ export class FogBank {
 
 // ───────────────────────────────────────────── rainbow
 
+/** A bow anchor a map can pin (`poi.rainbow`): world centre (y = arc centre height) + radius. */
+export interface BowAnchor {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+}
+
+/**
+ * Rainbow: a world-space spectral arc, depth-tested against the scene (canopies and trunks in front
+ * hide it; it only lays over what is behind it). Two bows:
+ *  - the valley bow: stood on the ground well up-screen of the player, facing the camera, its feet
+ *    rising out of the haze (an elevated viewer sees a real rainbow against the landscape, not sky);
+ *  - an optional spray bow pinned by the map (Cindergrove: in the waterfall mist) + its faint
+ *    reflection laid on the pool surface.
+ * Soft-edged bands (smoothstep inner / outer), peak opacity ≤ 0.3, screen-blended.
+ */
 export class Rainbow {
-  readonly mesh: THREE.Mesh;
+  readonly mesh: THREE.Group;
   private mat: THREE.ShaderMaterial;
+  private sky: THREE.Mesh;
+  private spray: THREE.Mesh;
+  private refl: THREE.Mesh;
+  private reflMat: THREE.ShaderMaterial;
 
   constructor() {
-    const g = new THREE.PlaneGeometry(2, 2);
-    this.mat = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      depthTest: false,
-      blending: THREE.CustomBlending,
-      blendSrc: THREE.OneFactor,
-      blendDst: THREE.OneMinusSrcColorFactor,
-      uniforms: { uAmount: { value: 0 }, uAspect: { value: 1.6 }, uTime: globalUniforms.uTime },
-      vertexShader: /* glsl */ `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          // Full-screen quad in clip space, drawn with the scene (before post) so it gets the grade + tilt-shift.
-          gl_Position = vec4(position.xy, 0.0, 1.0);
-        }`,
-      fragmentShader: /* glsl */ `
-        uniform float uAmount;
-        uniform float uAspect;
-        uniform float uTime;
-        varying vec2 vUv;
-        ${NOISE_GLSL}
-        vec3 spectrum(float t) {
-          // t: 0 inner (violet) .. 1 outer (red)
-          vec3 c = vec3(0.0);
-          c += vec3(0.55, 0.25, 0.85) * exp(-pow((t - 0.05) * 7.0, 2.0));
-          c += vec3(0.25, 0.4, 1.0) * exp(-pow((t - 0.22) * 7.0, 2.0));
-          c += vec3(0.2, 0.85, 0.55) * exp(-pow((t - 0.42) * 7.0, 2.0));
-          c += vec3(1.0, 0.92, 0.3) * exp(-pow((t - 0.6) * 7.0, 2.0));
-          c += vec3(1.0, 0.55, 0.2) * exp(-pow((t - 0.76) * 7.0, 2.0));
-          c += vec3(1.0, 0.25, 0.25) * exp(-pow((t - 0.92) * 7.0, 2.0));
-          return c;
-        }
-        void main() {
-          // Arc hung high over the canopy (crest near the top of the frame, feet in the upper third):
-          // the diorama never shows the horizon, so it must not sweep across the play area.
-          vec2 p = (vUv - vec2(0.46, -0.8)) * vec2(uAspect, 1.0);
-          float r = length(p);
-          float R = 1.72;
-          float W = 0.085;
-          float t = (r - (R - W)) / (2.0 * W);
-          float band = smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(0.88, 1.0, t));
-          vec3 c = spectrum(clamp(t, 0.0, 1.0)) * band;
-          // Faint secondary bow (reversed colours) and the brighter sky inside the primary.
-          float t2 = (r - (R + 0.22)) / (2.0 * W * 1.3);
-          c += spectrum(1.0 - clamp(t2, 0.0, 1.0)) * smoothstep(0.0, 0.2, t2) * (1.0 - smoothstep(0.8, 1.0, t2)) * 0.28;
-          c += vec3(0.08, 0.08, 0.1) * smoothstep(R - W, R - W - 0.5, r) * smoothstep(R - W - 1.2, R - W - 0.2, r);
-          // Fades out towards the bottom of the frame and where it meets the screen edge; soft breakup.
-          float fade = smoothstep(0.56, 0.8, vUv.y) * (0.75 + 0.25 * hvNoise(vec2(atan(p.y, p.x) * 6.0, uTime * 0.05)));
-          gl_FragColor = vec4(c * fade * uAmount * 0.24, 1.0);
-        }`,
-    });
-    this.mesh = new THREE.Mesh(g, this.mat);
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 11;
+    // Unit half-annulus in XY (radius 0.8..1.2), feet on y = 0; the shader bands it.
+    const g = new THREE.RingGeometry(0.8, 1.2, 96, 2, 0, Math.PI);
+    const uniforms = { uAmount: { value: 0 }, uTime: globalUniforms.uTime, uFeet: { value: 0 }, uSink: { value: 0 } };
+    const vs = /* glsl */ `
+      varying vec2 vP;
+      varying float vWy;
+      void main() {
+        vP = position.xy;
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vWy = w.y;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`;
+    const fs = (reflect: boolean) => /* glsl */ `
+      uniform float uAmount;
+      uniform float uTime;
+      uniform float uFeet;
+      uniform float uSink;
+      varying vec2 vP;
+      varying float vWy;
+      ${NOISE_GLSL}
+      vec3 spectrum(float t) {
+        vec3 c = vec3(0.0);
+        c += vec3(0.45, 0.22, 0.75) * exp(-pow((t - 0.07) * 6.5, 2.0));
+        c += vec3(0.22, 0.42, 1.0) * exp(-pow((t - 0.24) * 6.5, 2.0));
+        c += vec3(0.2, 0.85, 0.5) * exp(-pow((t - 0.43) * 6.5, 2.0));
+        c += vec3(1.0, 0.9, 0.3) * exp(-pow((t - 0.61) * 6.5, 2.0));
+        c += vec3(1.0, 0.55, 0.2) * exp(-pow((t - 0.77) * 6.5, 2.0));
+        c += vec3(1.0, 0.28, 0.25) * exp(-pow((t - 0.92) * 6.5, 2.0));
+        return c;
+      }
+      void main() {
+        float r = length(vP);
+        float t = (r - 0.9) / 0.2;
+        // Soft inner / outer edges: no hard lines anywhere.
+        float band = smoothstep(0.0, 0.22, t) * (1.0 - smoothstep(0.78, 1.0, t));
+        vec3 c = spectrum(clamp(t, 0.0, 1.0)) * band;
+        // Faint secondary (reversed) just outside, and the brighter sky inside the primary.
+        float t2 = (r - 1.06) / 0.14;
+        c += spectrum(1.0 - clamp(t2, 0.0, 1.0)) * smoothstep(0.0, 0.3, t2) * (1.0 - smoothstep(0.7, 1.0, t2)) * 0.22;
+        c += vec3(0.06, 0.06, 0.07) * smoothstep(0.9, 0.7, r) * smoothstep(0.55, 0.85, r);
+        // Feet dissolve into the haze; a slow breakup along the arc.
+        float feet = smoothstep(uFeet, uFeet + 2.5, vWy);
+        float brk = 0.72 + 0.28 * hvNoise(vec2(atan(vP.y, vP.x) * 5.0, uTime * 0.04));
+        ${reflect ? 'feet = 1.0;' : ''}
+        gl_FragColor = vec4(c * feet * brk * uAmount * ${reflect ? '0.1' : '0.3'}, 1.0);
+      }`;
+    const mk = (reflect: boolean): THREE.ShaderMaterial =>
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneMinusSrcColorFactor,
+        uniforms: reflect ? THREE.UniformsUtils.clone(uniforms) : uniforms,
+        vertexShader: vs,
+        fragmentShader: fs(reflect),
+      });
+    this.mat = mk(false);
+    this.reflMat = mk(true);
+    this.reflMat.uniforms.uTime = globalUniforms.uTime;
+    this.sky = new THREE.Mesh(g, this.mat);
+    this.spray = new THREE.Mesh(g, this.mat.clone());
+    (this.spray.material as THREE.ShaderMaterial).uniforms = { uAmount: { value: 0 }, uTime: globalUniforms.uTime, uFeet: { value: 0 }, uSink: { value: 0 } };
+    this.refl = new THREE.Mesh(g, this.reflMat);
+    this.mesh = new THREE.Group();
+    for (const m of [this.sky, this.spray, this.refl]) {
+      m.frustumCulled = false;
+      m.renderOrder = 11;
+      m.userData.noAO = true;
+      this.mesh.add(m);
+    }
     this.mesh.visible = false;
     this.mesh.name = 'rainbow';
     this.mesh.userData.noAO = true;
     this.mesh.userData.perfTag = 'weather';
   }
 
-  update(amount: number, aspect: number): void {
-    this.mat.uniforms.uAmount!.value = amount * (1 - globalUniforms.uNight.value);
-    this.mat.uniforms.uAspect!.value = aspect;
-    this.mesh.visible = this.mat.uniforms.uAmount!.value > 0.01;
+  /**
+   * `focus` = camera look target (ground), `groundAt` samples terrain, `anchor` = the map's pinned
+   * spray bow (or null), `waterY` its pool surface for the reflection.
+   */
+  update(amount: number, cam: THREE.Camera, focus: THREE.Vector3, groundAt: (x: number, z: number) => number, anchor: BowAnchor | null, waterY: number | null): void {
+    const a = amount * (1 - globalUniforms.uNight.value);
+    this.mesh.visible = a > 0.01;
+    if (!this.mesh.visible) return;
+    // Horizontal view direction.
+    const fwd = new THREE.Vector3();
+    cam.getWorldDirection(fwd);
+    fwd.y = 0;
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+    fwd.normalize();
+    const yaw = Math.atan2(fwd.x, fwd.z) + Math.PI;
+    // Valley bow: ~13 m up-screen of the focus, 11 m radius, centre sunk 3 m below the ground.
+    const cx = focus.x + fwd.x * 13;
+    const cz = focus.z + fwd.z * 13;
+    const gy = groundAt(cx, cz);
+    this.sky.position.set(cx, gy - 3.2, cz);
+    this.sky.rotation.set(0, yaw, 0);
+    this.sky.scale.setScalar(11);
+    const u = this.mat.uniforms;
+    u.uAmount!.value = a;
+    u.uFeet!.value = gy - 0.4;
+    // Spray bow in the falls' mist + its reflection on the pool.
+    const su = (this.spray.material as THREE.ShaderMaterial).uniforms;
+    this.spray.visible = !!anchor;
+    this.refl.visible = !!anchor && waterY !== null;
+    if (anchor) {
+      this.spray.position.set(anchor.x, anchor.y, anchor.z);
+      this.spray.rotation.set(0, yaw, 0);
+      this.spray.scale.setScalar(anchor.r);
+      su.uAmount!.value = a * 1.1;
+      su.uFeet!.value = (waterY ?? anchor.y) - 0.6;
+      if (waterY !== null) {
+        // Mirror about the water plane (flip Y) and let the pool bed cut it: a faint wobbling copy.
+        this.refl.position.set(anchor.x, 2 * waterY - anchor.y, anchor.z);
+        this.refl.rotation.set(0, yaw, 0);
+        this.refl.scale.set(anchor.r, -anchor.r, anchor.r);
+        this.reflMat.uniforms.uAmount!.value = a;
+      }
+    }
   }
 }

@@ -46,13 +46,17 @@ import {
   UPPER_STREAM,
   GIANTS,
   LOGS,
+  STAGE_SPOTS,
   ForestShape,
   type GiantKind,
 } from './layout';
 import { GiantGrove, ShrubField, giantBarkMaterial } from './giants';
 import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
 import { buildWaterfall, buildChurn, buildMist, buildFlow } from './stream';
-import { ForageField, type ForageSpot } from './forage';
+import { ForageField, forageKey, type ForageSpot, type ForageItem } from './forage';
+import { PluckAction } from './pluck';
+import { ArrivalCard } from './arrival';
+import { flyItemToToolbar } from '../../ui/item-fly';
 import { updateSeeThrough } from './foliage';
 import { ShaftMotes } from './motes';
 import { CLIFF_STRATA_GLSL, buildCliffWall } from './cliffs';
@@ -69,11 +73,12 @@ declare module '../../core/events' {
 
 export class ForestMap implements GameMap {
   readonly id = 'forest';
-  readonly title = 'Cindergrove';
+  /** Shown on arrival by our own card (world/forest/arrival.ts), not the generic banner. */
+  readonly areaName = 'Cindergrove';
   readonly grid = new TileGrid(FOREST_SIZE.w, FOREST_SIZE.d);
   readonly root = new THREE.Group();
   readonly spawn = { x: ENTRY.x, z: ENTRY.z, facing: 'down' as const };
-  readonly cameraBounds = new THREE.Box2(new THREE.Vector2(12, 9), new THREE.Vector2(53, 52));
+  readonly cameraBounds = new THREE.Box2(new THREE.Vector2(12, 6.5), new THREE.Vector2(53, 52));
   /** North edge → the farm's south gate. */
   readonly warps: MapWarp[] = [{ x0: 29, z0: 0, x1: 36, z1: 1, to: 'farm', x: 33.2, z: 61.4, facing: 'up' }];
   readonly terrain: Terrain;
@@ -95,6 +100,11 @@ export class ForestMap implements GameMap {
   private obstacles: { x: number; z: number; r: number }[] = [];
   private forage: ForageField;
   private forageSpots: ForageSpot[] = [];
+  private forageDay = '';
+  private pluck: PluckAction;
+  private card: ArrivalCard;
+  /** Farmhand picks waiting for the host's verdict (the item is granted on 'ok'). */
+  private awaiting = new Map<number, ForageItem>();
   private fx = new BurstFX(200);
   private ember: FireFX;
   private emberLight: THREE.PointLight;
@@ -202,18 +212,61 @@ export class ForestMap implements GameMap {
     this.root.add(this.fx.object);
 
     this.forage = new ForageField(this.pool, this.rng.fork('forage'));
+    this.root.add(this.forage.group);
+    this.pluck = new PluckAction(game.player);
+    this.card = new ArrivalCard(game.opts.uiRoot);
+    game.events.on('demo:stage', ({ name }) => {
+      if (name === 'forest-arrival') requestAnimationFrame(() => this.showArrivalCard());
+    });
+    // Walking in from the farm: the carved area plate (demos stage paused and skip it).
+    game.events.on('map:change', ({ map, prev }) => {
+      // Only a real walk-in (arrival at the north gate), never a demo / debug teleport.
+      if (map !== this.id || prev !== 'farm') return;
+      setTimeout(() => {
+        const p = game.player.position;
+        if (game.world.current === this && !game.paused && Math.hypot(p.x - ENTRY.x, p.z - ENTRY.z) < 4) this.card.show(this.areaName, this.season);
+      }, 380);
+    });
     this.collectForageSpots();
     this.respawnForage();
     game.events.on('day:start', () => this.respawnForage());
     game.events.on('season:change', () => this.respawnForage());
+    game.events.on('season:apply', () => this.respawnForage());
     game.events.on('player:interact', ({ x, z }) => this.pick(x, z));
+    // Co-op (world/forest/coop.ts): another farmer's pick, the host's verdict on ours, join sync.
+    game.events.on('forage:removed', ({ day, tx, tz }) => {
+      if (day !== this.forageDay) return;
+      this.releaseTile(tx, tz);
+      const it = this.forage.take(tx, tz);
+      if (!it) return;
+      if (game.world.current === this) this.forage.burstAt(it, 0.6);
+      this.forage.drop(it);
+    });
+    game.events.on('forage:ledger', ({ day, tiles }) => {
+      if (day !== this.forageDay) return;
+      for (const [tx, tz] of tiles) {
+        this.releaseTile(tx, tz);
+        this.forage.remove(tx, tz);
+      }
+    });
+    game.events.on('forage:verdict', ({ day, tx, tz, ok }) => {
+      const k = forageKey(tx, tz);
+      const it = this.awaiting.get(k);
+      this.awaiting.delete(k);
+      if (!it || day !== this.forageDay) return;
+      if (ok) this.grant(it);
+      else game.events.emit('ui:toast', { text: 'Someone beat you to it!', icon: it.def.id });
+    });
 
     this.poi.birds = [{ x: 30, z: 24 }, { x: 36, z: 30 }, { x: GLADE.x, z: GLADE.z + 3 }];
     this.poi.flowers = [{ x: GLADE.x - 3, z: GLADE.z + 4 }, { x: 34, z: 25 }];
     this.poi.shrine = [{ x: SHRINE.x, z: SHRINE.z }];
     this.poi.waterfall = [{ x: FALLS.x, z: FALLS.poolZ }];
     // Where the storm demo's posed lightning bolt lands (open bank east of the plunge pool).
-    this.poi.strike = [{ x: 25.6, z: 19.6 }];
+    // Hero strike spots per demo (weather.ts picks an open, in-frame tile otherwise).
+    this.poi.strike = [{ x: 13.6, z: 31.4, demo: 'storm' } as { x: number; z: number }, { x: 12.2, z: 32.6, demo: 'coop-forest' } as { x: number; z: number }];
+    // Spray bow in the waterfall mist (weather: rainbows after rain); `rot` carries its radius.
+    this.poi.rainbow = [{ x: FALLS.x + 0.2, y: WATER_LOW - 0.35, z: FALLS.lipZ + 3.4, rot: 2.9 }];
     // Rain drips off the canopy rims of the giants in the basin (read by the weather system).
     const dr = this.rng.fork('drips');
     this.poi.drips = [];
@@ -641,6 +694,12 @@ export class ForestMap implements GameMap {
     });
   }
 
+  /** Inside a demo staging spot (kept clear of ferns / shrubs / tufts)? */
+  private staged(x: number, z: number): boolean {
+    for (const [sx, sz, r] of STAGE_SPOTS) if (Math.hypot(x - sx, z - sz) < r) return true;
+    return false;
+  }
+
   private freeTile(x: number, z: number): boolean {
     const tx = Math.floor(x);
     const tz = Math.floor(z);
@@ -694,6 +753,7 @@ export class ForestMap implements GameMap {
         const roll = r.next();
         const walk = d < -0.2 && pm < 0.2;
         if (walk && !this.freeTile(jx, jz)) continue;
+        if (this.staged(jx, jz)) continue;
         if (roll < fernP * 0.5) place('fern', jx, jz, { scale: 1.0 + r.next() * 0.9 + bed * 0.4 });
         else if (roll < fernP * 0.5 + edge * 0.1 + nearGiant * 0.035 + bed * 0.02) this.shrubs.add(jx, h, jz, 0.8 + r.next() * 0.7);
         else if (bank > 0.3 && roll < fernP * 0.5 + 0.16 * bank) place('reed', jx, jz, { scale: 0.9 + r.next() * 0.4 });
@@ -719,7 +779,7 @@ export class ForestMap implements GameMap {
         const dd = rad * (0.95 + r.next() * 0.4);
         const tx = x + Math.cos(a) * dd;
         const tz = z + Math.sin(a) * dd;
-        if (this.terrain.heightAt(tx, tz) < WATER_LOW + 0.05) continue;
+        if (this.terrain.heightAt(tx, tz) < WATER_LOW + 0.05 || this.staged(tx, tz)) continue;
         if (r.next() < 0.35) place('fern', tx, tz, { scale: 0.8 + r.next() * 0.5 });
         else tuft(tx, tz, 0.7 + r.next() * 0.4);
       }
@@ -729,7 +789,7 @@ export class ForestMap implements GameMap {
     for (let i = 0; i < 30; i++) {
       const x = 6 + r.next() * 54;
       const z = 12 + r.next() * 46;
-      if (!this.freeTile(x, z) || S.streamCarve(x, z) > 0.1) continue;
+      if (!this.freeTile(x, z) || S.streamCarve(x, z) > 0.1 || this.staged(x, z)) continue;
       boulder(x, z, 0.45 + r.next() * 0.55, true);
     }
     // Small stones scattered in clusters near roots and banks.
@@ -844,7 +904,7 @@ export class ForestMap implements GameMap {
     for (let i = 0; i < 900; i++) {
       const x = 2 + r.next() * 60;
       const z = 8 + r.next() * 52;
-      if (!this.freeTile(x, z) || this.shape.pathValue(x, z) > 0.05) continue;
+      if (!this.freeTile(x, z) || this.shape.pathValue(x, z) > 0.05 || this.staged(x, z)) continue;
       const u = r.next();
       if (u < 0.1) put(r.pick(berries), x, z, 0.8 + r.next() * 0.6);
       else if (u < 0.45) put(r.pick(twigs), x, z, 0.8 + r.next() * 0.5);
@@ -872,6 +932,10 @@ export class ForestMap implements GameMap {
       [33.5, 24.5, 0.7],
       [30.5, 34, 0.55],
       [38.4, 31.6, 0.45],
+      // The footbridge reach (fog mornings are staged there).
+      [40.6, 42.6, 0.6],
+      [37.2, 40.8, 0.45],
+      [43.4, 46.8, 0.5],
     ] as const) {
       out.push({ x, y: this.terrain.heightAt(x, z), z, w });
     }
@@ -906,15 +970,56 @@ export class ForestMap implements GameMap {
 
   private respawnForage(): void {
     const c = this.game.calendar;
-    this.forage.spawn(`forage:${c.year}:${c.season}:${c.day}`, c.season, this.forageSpots, 11, (tx, tz, item) => {
-      if (this.grid.getObject(tx, tz)) return false;
-      this.grid.setObject(tx, tz, { kind: 'forage', id: item.def.id, solid: false, onRemove: () => this.forage.take(tx, tz) });
-      return true;
+    const day = `forage:${c.year}:${c.season}:${c.day}`;
+    const ledger = this.game.services.forageNet;
+    this.forageDay = day;
+    this.awaiting.clear();
+    this.forage.spawn(
+      day,
+      c.season,
+      this.forageSpots,
+      11,
+      (tx, tz, item) => {
+        if (ledger?.isPicked(tx, tz, day)) return 'picked';
+        if (this.grid.getObject(tx, tz)) return false;
+        this.grid.setObject(tx, tz, { kind: 'forage', id: item.def.id, solid: false, onRemove: () => this.forage.remove(tx, tz) });
+        return true;
+      },
+      // Yesterday's finds give their tiles back (else they pile up as invisible ghosts).
+      (tx, tz) => this.releaseTile(tx, tz),
+    );
+  }
+
+  /** Free a forage tile in the grid (only if it still holds a forage entry). */
+  private releaseTile(tx: number, tz: number): void {
+    if (this.grid.getObject(tx, tz)?.kind === 'forage') this.grid.setObject(tx, tz, null);
+  }
+
+  /** Nearest live find within `r` of (x, z) (demos, bots). */
+  forageNear(x: number, z: number, r: number): { tx: number; tz: number; x: number; z: number } | null {
+    let best: { tx: number; tz: number; x: number; z: number } | null = null;
+    let bd = r;
+    for (const it of this.forage.items.values()) {
+      const d = Math.hypot(it.pos.x - x, it.pos.z - z);
+      if (d < bd) {
+        bd = d;
+        best = { tx: it.tx, tz: it.tz, x: it.pos.x, z: it.pos.z };
+      }
+    }
+    return best;
+  }
+
+  /** Forage objects in the grid (tests: must never exceed the day's finds). */
+  forageTiles(): number {
+    let n = 0;
+    this.grid.forEach((x, z) => {
+      if (this.grid.getObject(x, z)?.kind === 'forage') n++;
     });
+    return n;
   }
 
   private pick(x: number, z: number): void {
-    if (this.game.world.current !== this) return;
+    if (this.game.world.current !== this || this.pluck.active) return;
     // Facing tile first, then the tile underfoot.
     const p = this.game.player.position;
     for (const [tx, tz] of [[x, z], [Math.floor(p.x), Math.floor(p.z)]] as const) {
@@ -922,13 +1027,41 @@ export class ForestMap implements GameMap {
       if (o?.kind !== 'forage') continue;
       const it = this.forage.take(tx, tz);
       this.grid.setObject(tx, tz, null);
-      if (!it) return;
-      this.fx.emit(it.pos.clone().setY(it.pos.y + 0.2), { color: it.def.color, count: 14, speed: 1.4, size: 0.1, gravity: 4, up: 1.4 });
-      this.fx.emit(it.pos.clone().setY(it.pos.y + 0.3), { color: 0xfff2b0, count: 8, speed: 0.9, size: 0.07, gravity: 0.3, up: 1.1, life: 0.9 });
-      this.game.player.swing();
-      this.game.events.emit('item:give', { itemId: it.def.id, qty: 1 });
-      this.game.events.emit('forage:picked', { itemId: it.def.id, x: tx, z: tz, map: this.id });
+      // A stale entry (no find behind it) must not swallow the interact: try the next tile.
+      if (!it) continue;
+      const verdict = this.game.services.forageNet?.claim(tx, tz) ?? 'grant';
+      if (verdict === 'deny') {
+        this.forage.drop(it);
+        continue;
+      }
+      // Face the find, crouch, pluck on the grab frame.
+      const dx = it.pos.x - p.x;
+      const dz = it.pos.z - p.z;
+      if (Math.hypot(dx, dz) > 0.25) this.game.player.setFacing(Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 'right' : 'left') : dz > 0 ? 'down' : 'up');
+      this.pluck.start(() => {
+        this.forage.pluck(it, (world) => {
+          if (verdict === 'grant') this.grant(it, world);
+          else this.awaiting.set(forageKey(tx, tz), it);
+        });
+        this.game.events.emit('tool:impact', { tool: 'hand', x: tx, z: tz, hit: 'crop', strength: 0.6 });
+      });
       return;
+    }
+  }
+
+  /** The find is ours: item, toolbar flight, events. */
+  private grant(it: ForageItem, world = it.pos.clone().setY(it.pos.y + 0.6)): void {
+    this.game.events.emit('item:give', { itemId: it.def.id, qty: 1 });
+    this.game.events.emit('forage:picked', { itemId: it.def.id, x: it.tx, z: it.tz, map: this.id });
+    if (this.game.world.current !== this) return;
+    try {
+      const v = world.clone().project(this.game.rc.camera);
+      const el = this.game.rc.renderer.domElement.getBoundingClientRect();
+      const inv = this.game.services.inventory;
+      const slot = inv ? inv.slots.findIndex((s) => s?.id === it.def.id) : -1;
+      flyItemToToolbar(this.game.opts.uiRoot, it.def.id, { x: el.left + (v.x * 0.5 + 0.5) * el.width, y: el.top + (-v.y * 0.5 + 0.5) * el.height }, slot, 0, { duration: 520, bounce: 1.2 });
+    } catch {
+      /* HUD not mounted (tests) */
     }
   }
 
@@ -938,12 +1071,27 @@ export class ForestMap implements GameMap {
     return this.terrain.heightAt(x, z);
   }
 
+  /** Open sky over (x, z)? (weather: lightning only lands where the bolt can be seen.) */
+  openSky(x: number, z: number): boolean {
+    if (this.shape.rimDist(x, z) > -1.5 || this.shape.plateauMask(x, z) > 0.1 || this.shape.plateauDist(x, z) < 4) return false;
+    for (const g of this.giants.handles) {
+      if (Math.hypot(x - g.x, z - g.z) < g.radius * (g.kind === 'elder' ? 1.05 : 0.8) + 0.6) return false;
+    }
+    return this.terrain.heightAt(x, z) > WATER_LOW - 0.1;
+  }
+
   clearGroundCover(x: number, z: number): void {
     this.grass.clearTile(x, z);
   }
 
   private fogBoost = 0;
   /** Morning-fog boost for the light shafts (set by the weather system through `setAtmosphere`). */
+  /** Demo stills: show the arrival plate and hold it. */
+  showArrivalCard(pin = true): void {
+    this.card.show(this.areaName, this.season);
+    if (pin) setTimeout(() => this.card.pin(), 900);
+  }
+
   setAtmosphere(fog: number): void {
     this.fogBoost = fog;
   }
@@ -951,11 +1099,16 @@ export class ForestMap implements GameMap {
   update(dt: number, game: Game): void {
     this.grass.update(game.rc.rig.focus);
     const buf = game.rc.renderer.getDrawingBufferSize(this.bufSize);
-    updateSeeThrough(game.rc.camera, game.player.position, buf.x, buf.y);
+    // The entry corridor (farm gate → first clearing) opens a ~4-tile window: the first view of
+    // Cindergrove must be the forest floor and the farmer, not a wall of crowns.
+    const pp = game.player.position;
+    const entry = THREE.MathUtils.smoothstep(pp.z, 15, 9) * THREE.MathUtils.smoothstep(Math.abs(pp.x - ENTRY.x), 7, 3);
+    updateSeeThrough(game.rc.camera, pp, buf.x, buf.y, entry);
     const h = game.rc.renderer.domElement.height;
     const night = game.lighting.night;
     this.ambience.update(dt, game.time, game.rc.rig.focus, night, h);
     this.fx.update(dt, h);
+    this.forage.update(dt, game.time, h);
     this.ember.update(dt, h);
     const t = game.time;
     // Crystal bobs and turns; runes breathe; the practical flickers with it.
@@ -977,7 +1130,7 @@ export class ForestMap implements GameMap {
     const lum = sun.r * 0.3 + sun.g * 0.5 + sun.b * 0.2;
     atmosphere.shaftList = this.shafts;
     atmosphere.shaftLen = 17;
-    atmosphere.shafts = Math.max(0, 1 - globalUniforms.uRain.value * 1.2) * (1 - globalUniforms.uSnow.value * 0.4) * THREE.MathUtils.smoothstep(lum, 0.08, 0.5) * (1 - night) * (0.8 + this.fogBoost * 1.8);
+    atmosphere.shafts = Math.max(0, 1 - globalUniforms.uRain.value * 1.2) * (1 - globalUniforms.uSnow.value * 0.4) * THREE.MathUtils.smoothstep(lum, 0.08, 0.5) * (1 - night) * (0.7 + this.fogBoost * 0.9);
     this.motes.update(t, this.shafts, atmosphere.shafts * (0.35 + this.fogBoost * 0.65), globalUniforms.uSunDir.value, game.rc.camera, h);
   }
 

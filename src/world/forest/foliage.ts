@@ -492,15 +492,30 @@ export const seeThrough = {
   uOccCenter: { value: new THREE.Vector2(-1e4, -1e4) },
   uOccRadius: { value: 0 },
   uOccDepth: { value: 0 },
+  /** Player feet (world): shrubs / low leaves within ~1.2 m of the farmer part around them. */
+  uOccPlayer: { value: new THREE.Vector3(1e4, 0, 1e4) },
+  /**
+   * Main camera view-projection + drawing-buffer size: the window is computed from the fragment's
+   * WORLD position, so half-res prepasses (AO normals / depth) cut exactly the same holes as the
+   * colour pass (gl_FragCoord differs per pass → holes in the depth that the fog read as sky).
+   */
+  uOccVP: { value: new THREE.Matrix4() },
+  uOccBuf: { value: new THREE.Vector2(1920, 1080) },
 };
 
 const _v = new THREE.Vector3();
-/** Project the player's chest into drawing-buffer pixels; radius scales with the view height. */
-export function updateSeeThrough(camera: THREE.Camera, player: THREE.Vector3, bufW: number, bufH: number): void {
+/**
+ * Project the player's chest into drawing-buffer pixels; radius scales with the view height.
+ * `wide` (0..1) opens a larger window (the entry corridor: ~4 tiles).
+ */
+export function updateSeeThrough(camera: THREE.Camera, player: THREE.Vector3, bufW: number, bufH: number, wide = 0): void {
   _v.copy(player).add(new THREE.Vector3(0, 0.8, 0)).project(camera);
   seeThrough.uOccCenter.value.set((_v.x * 0.5 + 0.5) * bufW, (_v.y * 0.5 + 0.5) * bufH);
-  seeThrough.uOccRadius.value = bufH * 0.13;
+  seeThrough.uOccRadius.value = bufH * (0.13 + 0.14 * wide);
   seeThrough.uOccDepth.value = camera.position.distanceTo(player);
+  seeThrough.uOccPlayer.value.copy(player);
+  seeThrough.uOccVP.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  seeThrough.uOccBuf.value.set(bufW, bufH);
 }
 
 const IGN = 'float hvIgn(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }';
@@ -516,7 +531,7 @@ export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRa
   return patchMaterial(m, `hv-see-through2:${near}:${nearRange}:${keepExpr}`, (shader) => {
     Object.assign(shader.uniforms, seeThrough);
     let fs = shader.fragmentShader;
-    fs = before(fs, 'void main() {', `uniform vec2 uOccCenter;\nuniform float uOccRadius;\nuniform float uOccDepth;\n${IGN}`);
+    fs = before(fs, 'void main() {', `uniform vec2 uOccCenter;\nuniform float uOccRadius;\nuniform float uOccDepth;\nuniform vec3 uOccPlayer;\nuniform mat4 uOccVP;\nuniform vec2 uOccBuf;\n${IGN}`);
     fs = after(
       fs,
       'void main() {',
@@ -524,13 +539,23 @@ export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRa
       {
         float hvCamD = length(vHvWorldPos - cameraPosition);
         float hvKeep = smoothstep(${near.toFixed(2)}, ${(near + nearRange).toFixed(2)}, hvCamD);
-        float hvPx = length(gl_FragCoord.xy - uOccCenter);
+        vec4 hvClip = uOccVP * vec4(vHvWorldPos, 1.0);
+        vec2 hvScr = (hvClip.xy / hvClip.w * 0.5 + 0.5) * uOccBuf;
+        float hvPx = length(hvScr - uOccCenter);
         float hvFront = smoothstep(uOccDepth - 0.4, uOccDepth - 1.6, hvCamD);
-        float hvHole = (1.0 - smoothstep(uOccRadius - 44.0, uOccRadius, hvPx)) * hvFront;
+        // Round window around the farmer + a keyhole running down-screen from it to the frame's
+        // bottom edge (the corridor between lens and farmer), so the ground in front of the farmer
+        // is never walled off by a crown in the foreground.
+        vec2 hvD = hvScr - uOccCenter;
+        float hvKey = (1.0 - smoothstep(uOccRadius * 0.3, uOccRadius * 0.95, abs(hvD.x))) * smoothstep(0.0, -uOccRadius * 0.6, hvD.y);
+        float hvHole = max(1.0 - smoothstep(uOccRadius * 0.62, uOccRadius * 1.05, hvPx), hvKey) * hvFront;
+        // Leaves at knee-to-head height within ~1.2 m of the farmer (shrubs he walks through).
+        float hvNear = (1.0 - smoothstep(0.75, 1.25, length(vHvWorldPos.xz - uOccPlayer.xz))) * (1.0 - smoothstep(1.7, 2.3, vHvWorldPos.y - uOccPlayer.y));
+        hvHole = max(hvHole, hvNear * smoothstep(uOccDepth + 0.8, uOccDepth - 0.3, hvCamD));
         hvKeep = min(hvKeep, max(1.0 - hvHole, clamp(${keepExpr}, 0.0, 1.0)));
         if (hvKeep < 0.999) {
           vec3 hvQ = vHvWorldPos * 3.1;
-          float hvE = hvNoise(hvQ.xz + hvQ.y * 0.73) * 0.62 + hvNoise(hvQ.zy * 1.7 + 5.1) * 0.26 + hvIgn(gl_FragCoord.xy) * 0.12;
+          float hvE = hvNoise(hvQ.xz + hvQ.y * 0.73) * 0.66 + hvNoise(hvQ.zy * 1.7 + 5.1) * 0.29 + hvIgn(floor(hvScr)) * 0.05;
           if (hvKeep < hvE * 0.94 + 0.03) discard;
         }
       }`,

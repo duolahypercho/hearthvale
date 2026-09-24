@@ -872,12 +872,16 @@ export function buildFallsRocks(rng: Rng, lip: THREE.Vector3, pool: THREE.Vector
       b.add(rock, smoothRock(rng, r), mat(lip.x + side * (width * 0.62 + i * 0.7 + rng.next() * 0.3), lip.y - 0.35 - i * 0.2, lip.z - 0.3 + i * 0.5, 0, rng.next() * 6, 0));
     }
   }
-  // Pool rim.
-  for (let i = 0; i < 11; i++) {
-    const a = Math.PI * (0.05 + rng.next() * 0.9) + (i % 2 ? Math.PI : 0) * 0.15;
-    const d = 3.2 + rng.next() * 1.4;
-    const r = 0.35 + rng.next() * 0.55;
-    b.add(rock, smoothRock(rng, r, { detail: 2 }), mat(pool.x + Math.cos(a) * d * 1.1, pool.y - 0.15, pool.z + Math.sin(a) * d * 0.5 - 1.6, 0, rng.next() * 6, 0));
+  // Three distinct, chiselled stones in the pool (a tall bedded slab, a broad flat sitting stone,
+  // a low mossy hump) + a few small rim stones — not a row of identical blobs.
+  const pool3: [number, number, number, { elong: number; squash: number; lumpy: number; strata: number }, number][] = [
+    [-2.5, 0.4, 0.78, { elong: 1.35, squash: 1.18, lumpy: 0.1, strata: 1.4 }, 0.5],
+    [1.6, 1.4, 0.82, { elong: 1.7, squash: 0.46, lumpy: 0.12, strata: 1.1 }, 2.2],
+    [-0.4, 2.9, 0.5, { elong: 1.1, squash: 0.72, lumpy: 0.2, strata: 0.6 }, 4.0],
+  ];
+  for (const [dx, dz, r, o, rot] of pool3) b.add(rock, smoothRock(rng, r, { detail: 3, ...o }), mat(pool.x + dx, pool.y - 0.28, pool.z + dz, (rng.next() - 0.5) * 0.12, rot, (rng.next() - 0.5) * 0.12));
+  for (const [dx, dz, r] of [[3.7, -0.9, 0.42], [-3.9, -1.3, 0.38], [3.0, 3.1, 0.34], [-3.3, 2.6, 0.3]] as const) {
+    b.add(rock, smoothRock(rng, r, { detail: 2, strata: 0.8 }), mat(pool.x + dx, pool.y - 0.12, pool.z + dz, 0, rng.next() * 6, 0));
   }
   // Rocks the falling water breaks over at the base.
   for (let i = 0; i < 4; i++) {

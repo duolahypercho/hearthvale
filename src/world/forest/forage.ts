@@ -14,6 +14,8 @@ import { applyWorldFx } from '../../render/worldfx';
 import { applyPlantLighting } from '../../render/foliage';
 import { InstancedSet, type BatchPool, type InstancedPart } from '../props/instanced';
 import { ITEMS, type ItemDef } from '../../data/items';
+import { patchMaterial, after, before } from '../../render/patch';
+import { globalUniforms } from '../../render/uniforms';
 
 export interface ForageDef {
   id: string;
@@ -51,6 +53,22 @@ function forageMaterial(): THREE.MeshStandardMaterial {
   _mat.name = 'forage';
   applyWorldFx(_mat, { snowUp: 0.9 });
   applyPlantLighting(_mat, { translucency: 0.3, floor: 0.08 });
+  // A warm view-rim + a faint self-lit floor: finds separate from the ferns / clover around them
+  // (the eye catches the glowing edge before it parses the shape).
+  patchMaterial(_mat, 'forage-rim', (shader) => {
+    shader.uniforms.uTime = globalUniforms.uTime;
+    let fs = shader.fragmentShader;
+    if (!/uniform float uTime;/.test(fs)) fs = before(fs, 'void main() {', 'uniform float uTime;');
+    shader.fragmentShader = after(
+      fs,
+      '#include <emissivemap_fragment>',
+      `{
+        float fr = pow(1.0 - clamp(abs(dot(normalize(vNormal), normalize(vViewPosition))), 0.0, 1.0), 2.2);
+        float pulse = 0.75 + 0.25 * sin(uTime * 2.4);
+        totalEmissiveRadiance += vColor.rgb * (0.12 + fr * 0.55 * pulse) + vec3(1.0, 0.9, 0.6) * fr * 0.18 * pulse;
+      }`,
+    );
+  });
   return _mat;
 }
 
@@ -180,16 +198,233 @@ export interface ForageItem {
   set: InstancedSet;
   id: number;
   pos: THREE.Vector3;
+  /** Resting transform (bob / pop animate around it). */
+  rot: number;
+  /** Per-item phase for the bob and the glint. */
+  phase: number;
+}
+
+/** Tile key shared by the field, the grid and the co-op ledger. */
+export const forageKey = (tx: number, tz: number): number => tz * 4096 + tx;
+
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _v = new THREE.Vector3();
+const _s = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+const SCALE = 1.35;
+
+// ───────────────────────────────────────────── glints
+
+/**
+ * One point per find: a soft warm halo on the ground-cover and a 4-point star that flashes every
+ * 2-3 s (phase-offset per item) so a find reads from across the clearing. One draw call.
+ */
+class ForageGlints {
+  readonly points: THREE.Points;
+  private pos: Float32Array;
+  private ph: Float32Array;
+  private col: Float32Array;
+  private geo: THREE.BufferGeometry;
+  readonly max = 32;
+
+  constructor() {
+    this.geo = new THREE.BufferGeometry();
+    this.pos = new Float32Array(this.max * 3);
+    this.ph = new Float32Array(this.max);
+    this.col = new Float32Array(this.max * 3);
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('aPhase', new THREE.BufferAttribute(this.ph, 1).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('aColor', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setDrawRange(0, 0);
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: globalUniforms.uTime, uPx: { value: 1080 }, uNight: globalUniforms.uNight },
+      vertexShader: /* glsl */ `
+        attribute float aPhase;
+        attribute vec3 aColor;
+        uniform float uTime;
+        uniform float uPx;
+        varying float vFlash;
+        varying float vHalo;
+        varying vec3 vCol;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          // Draw a little in front so the halo is not eaten by the find's own leaves.
+          gl_Position.z -= 0.002 * gl_Position.w;
+          float period = 2.2 + fract(aPhase * 7.13) * 0.9;
+          float c = fract(uTime / period + aPhase);
+          vFlash = smoothstep(0.0, 0.05, c) * (1.0 - smoothstep(0.05, 0.26, c));
+          vHalo = 0.55 + 0.45 * sin(uTime * 2.4 + aPhase * 6.28);
+          vCol = aColor;
+          // ~64 px at 1080p gameplay zoom, capped so it never balloons near the camera.
+          gl_PointSize = clamp(uPx * 1.25 / -mv.z, 18.0, 90.0);
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uNight;
+        varying float vFlash;
+        varying float vHalo;
+        varying vec3 vCol;
+        void main() {
+          vec2 p = gl_PointCoord * 2.0 - 1.0;
+          float r = length(p);
+          // Soft halo (the find's colour, warmed), strongest at night.
+          float halo = exp(-r * r * 5.0) * (0.11 + vHalo * 0.07) * (1.0 + uNight * 1.2);
+          // 4-point star: two thin crossed lobes + a hot core, rotated 20 deg.
+          vec2 q = mat2(0.94, -0.34, 0.34, 0.94) * p;
+          float star = (exp(-abs(q.x) * 26.0) * exp(-abs(q.y) * 3.2) + exp(-abs(q.y) * 26.0) * exp(-abs(q.x) * 3.2)) * 0.9;
+          star += exp(-r * r * 60.0) * 1.2;
+          vec3 c = mix(vCol, vec3(1.0, 0.95, 0.8), 0.55) * halo + vec3(1.0, 0.97, 0.86) * star * vFlash;
+          if (max(c.r, max(c.g, c.b)) < 0.003) discard;
+          gl_FragColor = vec4(c, 1.0);
+        }`,
+    });
+    this.points = new THREE.Points(this.geo, mat);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = 6;
+    this.points.name = 'forage-glints';
+    this.points.userData.perfTag = 'fx';
+    this.points.userData.noAO = true;
+  }
+
+  set(items: Iterable<ForageItem>, pxHeight: number): void {
+    let n = 0;
+    for (const it of items) {
+      if (n >= this.max) break;
+      this.pos[n * 3] = it.pos.x;
+      this.pos[n * 3 + 1] = it.pos.y + 0.16;
+      this.pos[n * 3 + 2] = it.pos.z;
+      this.ph[n] = it.phase;
+      const c = new THREE.Color(it.def.color);
+      this.col[n * 3] = c.r;
+      this.col[n * 3 + 1] = c.g;
+      this.col[n * 3 + 2] = c.b;
+      n++;
+    }
+    this.geo.setDrawRange(0, n);
+    for (const k of ['position', 'aPhase', 'aColor']) (this.geo.attributes[k] as THREE.BufferAttribute).needsUpdate = true;
+    ((this.points.material as THREE.ShaderMaterial).uniforms.uPx!.value as number) = pxHeight;
+  }
+
+  setPx(px: number): void {
+    (this.points.material as THREE.ShaderMaterial).uniforms.uPx!.value = px;
+  }
+}
+
+// ───────────────────────────────────────────── pluck burst
+
+/**
+ * Leaf / petal burst for a pluck: ~26 tumbling cards (3x the old specks) in the find's colours +
+ * forest greens, flung up and out, fluttering down. One instanced draw.
+ */
+class LeafBurst {
+  readonly mesh: THREE.InstancedMesh;
+  private max = 96;
+  private n = 0;
+  private p: { pos: THREE.Vector3; vel: THREE.Vector3; rot: THREE.Euler; spin: THREE.Vector3; life: number; age: number; s: number }[] = [];
+
+  constructor() {
+    const shape = new THREE.Shape();
+    shape.moveTo(0, -0.5);
+    shape.quadraticCurveTo(0.42, -0.1, 0, 0.5);
+    shape.quadraticCurveTo(-0.42, -0.1, 0, -0.5);
+    const g = new THREE.ShapeGeometry(shape, 4);
+    const m = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.7, color: 0xffffff });
+    m.name = 'forage-burst';
+    applyWorldFx(m, { snow: false });
+    applyPlantLighting(m, { translucency: 0.5, floor: 0.12 });
+    this.mesh = new THREE.InstancedMesh(g, m, this.max);
+    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.max * 3), 3);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.name = 'forage-burst';
+    this.mesh.userData.perfTag = 'fx';
+    this.mesh.userData.noAO = true;
+  }
+
+  emit(at: THREE.Vector3, colors: number[], count = 26): void {
+    for (let i = 0; i < count; i++) {
+      if (this.p.length >= this.max) this.p.shift();
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.9 + Math.random() * 1.6;
+      this.p.push({
+        pos: at.clone().add(new THREE.Vector3(Math.cos(a) * 0.08, 0.05 + Math.random() * 0.1, Math.sin(a) * 0.08)),
+        vel: new THREE.Vector3(Math.cos(a) * sp, 2.2 + Math.random() * 1.8, Math.sin(a) * sp),
+        rot: new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6),
+        spin: new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 14),
+        life: 1.1 + Math.random() * 0.7,
+        age: 0,
+        s: 0.07 + Math.random() * 0.07,
+      });
+      const c = new THREE.Color(colors[i % colors.length]!).offsetHSL((Math.random() - 0.5) * 0.04, 0, (Math.random() - 0.5) * 0.12);
+      (this.p[this.p.length - 1] as unknown as { c: THREE.Color }).c = c;
+    }
+  }
+
+  update(dt: number): void {
+    let n = 0;
+    const out = this.p;
+    for (let i = out.length - 1; i >= 0; i--) {
+      const q = out[i]!;
+      q.age += dt;
+      if (q.age >= q.life) {
+        out.splice(i, 1);
+        continue;
+      }
+      // Flutter: heavy drag once falling, sideways sway.
+      q.vel.y -= 7.5 * dt;
+      const drag = q.vel.y < 0 ? 4.2 : 1.2;
+      q.vel.multiplyScalar(Math.exp(-drag * dt));
+      q.pos.addScaledVector(q.vel, dt);
+      q.pos.x += Math.sin(q.age * 9 + i) * dt * 0.35;
+      q.rot.x += q.spin.x * dt;
+      q.rot.y += q.spin.y * dt;
+      q.rot.z += q.spin.z * dt;
+    }
+    for (const q of out) {
+      if (n >= this.max) break;
+      const k = q.age / q.life;
+      const s = q.s * (k < 0.1 ? k / 0.1 : 1) * (1 - Math.max(0, k - 0.75) / 0.25);
+      _m.compose(q.pos, _q.setFromEuler(q.rot), _s.set(s, s, s));
+      this.mesh.setMatrixAt(n, _m);
+      this.mesh.setColorAt(n, (q as unknown as { c: THREE.Color }).c);
+      n++;
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.mesh.visible = n > 0;
+  }
+}
+
+// ───────────────────────────────────────────── field
+
+interface Pop {
+  it: ForageItem;
+  t: number;
+  onDone: (world: THREE.Vector3) => void;
 }
 
 export class ForageField {
   private sets = new Map<string, InstancedSet>();
   readonly items = new Map<number, ForageItem>();
+  readonly group = new THREE.Group();
+  private glints = new ForageGlints();
+  private burst = new LeafBurst();
+  private pops: Pop[] = [];
+  private dirty = true;
+  private px = 1080;
 
   constructor(
     private pool: BatchPool,
     private rng: Rng,
-  ) {}
+  ) {
+    this.group.name = 'forage-fx';
+    this.group.add(this.glints.points, this.burst.mesh);
+  }
 
   private setFor(id: string): InstancedSet {
     let s = this.sets.get(id);
@@ -200,18 +435,28 @@ export class ForageField {
     return s;
   }
 
-  /** Remove everything (visuals only). */
-  clear(): void {
-    for (const it of this.items.values()) it.set.remove(it.id);
+  /**
+   * Remove everything: visuals AND the tile claims (`release(tx, tz)` for each live find, so the
+   * grid never keeps ghost entries from an earlier day).
+   */
+  clear(release?: (tx: number, tz: number) => void): void {
+    for (const it of this.items.values()) {
+      release?.(it.tx, it.tz);
+      it.set.remove(it.id);
+    }
     this.items.clear();
+    for (const p of this.pops) p.it.set.remove(p.it.id);
+    this.pops = [];
+    this.dirty = true;
   }
 
   /**
    * Fresh finds for a day: `count` picks from the season's table at seeded spots.
-   * `key(tx, tz)` gives a unique tile key; `claim` reserves a tile (returns false if occupied).
+   * `claim` reserves a tile (returns false if occupied / already picked); `release` frees the
+   * tiles of the previous day's finds first.
    */
-  spawn(seedKey: string, season: Season, spots: ForageSpot[], count: number, claim: (tx: number, tz: number, item: ForageItem) => boolean): void {
-    this.clear();
+  spawn(seedKey: string, season: Season, spots: ForageSpot[], count: number, claim: (tx: number, tz: number, item: ForageItem) => boolean | 'picked', release?: (tx: number, tz: number) => void): void {
+    this.clear(release);
     const table = FOREST_FORAGE.filter((f) => f.season === season);
     if (!table.length || !spots.length) return;
     const r = new RngClass(seedKey);
@@ -223,22 +468,108 @@ export class ForageField {
       const def = table[Math.floor(r.next() * table.length)]!;
       const tx = Math.floor(s.x);
       const tz = Math.floor(s.z);
-      const set = this.setFor(def.id);
-      const m = new THREE.Matrix4().compose(new THREE.Vector3(s.x, s.y - 0.01, s.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6.28), new THREE.Vector3(1.25, 1.25, 1.25));
-      const item: ForageItem = { def, tx, tz, set, id: -1, pos: new THREE.Vector3(s.x, s.y, s.z) };
-      if (!claim(tx, tz, item)) continue;
-      item.id = set.add(m);
-      this.items.set(tz * 4096 + tx, item);
+      const rot = r.next() * 6.28;
+      // Every machine rolls the same list: the tile claim may still refuse (a picked tile in co-op).
+      const item: ForageItem = { def, tx, tz, set: null as unknown as InstancedSet, id: -1, pos: new THREE.Vector3(s.x, s.y, s.z), rot, phase: r.next() };
+      if (this.items.has(forageKey(tx, tz))) continue;
+      const c = claim(tx, tz, item);
+      if (c === 'picked') {
+        // Already picked today (co-op ledger): it still counts, so every farmer rolls the same set.
+        placed++;
+        continue;
+      }
+      if (!c) continue;
+      item.set = this.setFor(def.id);
+      item.id = item.set.add(this.rest(item, 0));
+      this.items.set(forageKey(tx, tz), item);
       placed++;
     }
+    this.dirty = true;
   }
 
+  private rest(it: ForageItem, t: number): THREE.Matrix4 {
+    // A slow breathing bob + sway (never perfectly still, but planted).
+    const b = Math.sin(t * 1.9 + it.phase * 6.28);
+    const s = SCALE * (1 + b * 0.035);
+    _q.setFromAxisAngle(UP, it.rot + Math.sin(t * 0.8 + it.phase * 9) * 0.08);
+    return _m.compose(_v.set(it.pos.x, it.pos.y - 0.01 + Math.max(0, b) * 0.012, it.pos.z), _q, _s.set(s, s * (1 + b * 0.05), s));
+  }
+
+  /** Remove a find from the field (its visual stays until `pluck` / `drop`). */
   take(tx: number, tz: number): ForageItem | null {
-    const k = tz * 4096 + tx;
+    const k = forageKey(tx, tz);
     const it = this.items.get(k);
     if (!it) return null;
-    it.set.remove(it.id);
     this.items.delete(k);
+    this.dirty = true;
     return it;
+  }
+
+  /** Drop a taken find's visual right away (someone else picked it / the day rolled over). */
+  drop(it: ForageItem): void {
+    it.set.remove(it.id);
+  }
+
+  /** Remove the find at a tile (visual included), e.g. when another farmer picked it. */
+  remove(tx: number, tz: number): ForageItem | null {
+    const it = this.take(tx, tz);
+    if (it) this.drop(it);
+    return it;
+  }
+
+  /**
+   * The pluck: squash into the ground (0.08 s), pop half a tile up with a stretch and a spin,
+   * hang for a beat, then `onDone(worldPos)` (the caller flies the icon to the toolbar).
+   * A leaf / petal burst fires at the pop.
+   */
+  pluck(it: ForageItem, onDone: (world: THREE.Vector3) => void): void {
+    this.pops.push({ it, t: 0, onDone });
+    this.burstAt(it, 1);
+  }
+
+  /** A burst of leaves in the find's colours (1 = a full pluck, less for someone else's). */
+  burstAt(it: ForageItem, k: number): void {
+    const greens = [0x5a9a3a, 0x7fbe4f, 0x4f8a34];
+    this.burst.emit(it.pos.clone().setY(it.pos.y + 0.12), [it.def.color, it.def.color, ...greens], Math.round(26 * k));
+  }
+
+  update(dt: number, t: number, pxHeight: number): void {
+    for (const it of this.items.values()) it.set.setMatrix(it.id, this.rest(it, t));
+    for (let i = this.pops.length - 1; i >= 0; i--) {
+      const p = this.pops[i]!;
+      p.t += dt;
+      const it = p.it;
+      const T = p.t;
+      let y = 0;
+      let sy = 1;
+      let sx = 1;
+      let spin = 0;
+      if (T < 0.08) {
+        const k = T / 0.08;
+        sy = 1 - 0.3 * k;
+        sx = 1 + 0.18 * k;
+      } else {
+        const k = Math.min(1, (T - 0.08) / 0.24);
+        const e = 1 - Math.pow(1 - k, 3);
+        y = 0.55 * e;
+        sy = 1 + 0.35 * (1 - k) - 0.05;
+        sx = 1 - 0.15 * (1 - k);
+        spin = e * 3.4;
+      }
+      const s = SCALE * 1.25;
+      _q.setFromAxisAngle(UP, it.rot + spin);
+      it.set.setMatrix(it.id, _m.compose(_v.set(it.pos.x, it.pos.y + y, it.pos.z), _q, _s.set(s * sx, s * sy, s * sx)));
+      if (T >= 0.46) {
+        this.pops.splice(i, 1);
+        it.set.remove(it.id);
+        p.onDone(new THREE.Vector3(it.pos.x, it.pos.y + 0.55 + 0.1, it.pos.z));
+      }
+    }
+    if (this.dirty || pxHeight !== this.px) {
+      this.px = pxHeight;
+      this.glints.set(this.items.values(), pxHeight);
+      this.dirty = false;
+    }
+    this.burst.update(dt);
   }
 }
