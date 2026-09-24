@@ -110,6 +110,57 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         hvBDepth = depth;
         vec3 bed = sand * vec3(0.6, 0.72, 0.68) * (0.88 + 0.12 * rip);
         s = mix(s, bed, smoothstep(0.0, 0.3, depth));
+        // Life on the sea bed, seen through the clear shallows (so the water off the pier is never a
+        // plain pale swimming-pool sheet): seagrass meadows with swaying blades, dark rippled sand in
+        // their lee, scattered pebbles and shell bits, the odd starfish / sand dollar.
+        if (depth > 0.03 && onSand > 0.01) {
+          float bedK = smoothstep(0.03, 0.2, depth) * onSand;
+          // Meadows: ragged, domain-warped patches (0.3 → 2.5 m deep), never in the swash.
+          vec2 mw = p + vec2(hvNoise(p * 0.21 + 3.1), hvNoise(p * 0.21 + 8.7)) * 4.0;
+          float mfield = hvNoise(mw * 0.12) * 0.75 + hvNoise(p * 0.7 + 1.9) * 0.25;
+          float meadow = smoothstep(0.54, 0.62, mfield) * smoothstep(0.22, 0.5, depth) * (1.0 - smoothstep(2.2, 3.2, depth));
+          // Blades: long streaks leaning with the surge (they sway back and forth with the swash phase).
+          float surge = sin(6.2832 * hvSwashPhase(p, t)) * 0.6;
+          vec2 bq = vec2(p.x * 9.0 + p.y * 2.2 + surge * 1.5, p.y * 1.1 - p.x * 0.25);
+          float blades = hvNoise(bq) * 0.65 + hvNoise(bq * vec2(2.1, 1.7) + 4.0) * 0.35;
+          vec3 grassC = mix(vec3(0.06, 0.15, 0.08), vec3(0.2, 0.34, 0.13), smoothstep(0.3, 0.8, blades));
+          grassC = mix(grassC, vec3(0.3, 0.33, 0.12), smoothstep(0.75, 0.95, blades) * 0.6);
+          // Denser, darker cores; thin, sandy fringes.
+          float core = smoothstep(0.6, 0.72, mfield);
+          s = mix(s, grassC * mix(1.1, 0.8, core), meadow * mix(0.55, 0.95, core) * bedK);
+          // A darker sand halo just outside each meadow (organic silt).
+          float halo = smoothstep(0.46, 0.54, mfield) * (1.0 - meadow);
+          s *= 1.0 - 0.14 * halo * bedK * smoothstep(0.2, 0.5, depth);
+          // Pebbles + shell grit: small ovals with a soft contact shadow, in drifts.
+          vec2 pq = p * 2.6;
+          vec2 pc = floor(pq);
+          vec2 pf = fract(pq) - 0.5 - (hvHash22(pc) - 0.5) * 0.55;
+          float ph2 = hvHash12(pc + 5.3);
+          float pdrift = smoothstep(0.35, 0.65, hvNoise(p * 0.3 + 12.0));
+          float pr = mix(0.07, 0.16, hvHash12(pc + 2.9));
+          float pd = length(pf * vec2(1.0, 1.35));
+          float peb = smoothstep(pr, pr * 0.7, pd) * step(ph2, 0.2 * pdrift + 0.03) * (1.0 - meadow);
+          float pshadow = smoothstep(pr * 1.5, pr, length(pf - vec2(0.03, -0.03))) * step(ph2, 0.2 * pdrift + 0.03) * (1.0 - meadow);
+          vec3 pebC = ph2 < 0.07 ? vec3(0.82, 0.78, 0.7) : mix(vec3(0.3, 0.3, 0.28), vec3(0.5, 0.46, 0.4), hvHash12(pc + 9.1));
+          s *= 1.0 - 0.3 * pshadow * bedK;
+          s = mix(s, pebC * (0.85 + 0.25 * smoothstep(0.0, -pr, pf.y)), peb * 0.9 * bedK);
+          // Starfish + sand dollars: rare, one per ~3 m cell at most.
+          vec2 sq = p * 0.42;
+          vec2 sc = floor(sq);
+          float sh = hvHash12(sc + 17.3);
+          vec2 sf = (fract(sq) - 0.5 - (hvHash22(sc + 4.4) - 0.5) * 0.6) / 0.42;
+          float sa = atan(sf.y, sf.x) + sh * 30.0;
+          float sr = length(sf);
+          float armR = 0.16 * (0.55 + 0.45 * pow(abs(cos(sa * 2.5)), 1.6));
+          float star = smoothstep(armR + 0.015, armR - 0.01, sr) * step(sh, 0.16) * smoothstep(0.08, 0.2, depth) * (1.0 - smoothstep(1.3, 1.8, depth)) * (1.0 - meadow);
+          vec3 starC = sh < 0.06 ? vec3(0.85, 0.36, 0.16) : sh < 0.11 ? vec3(0.7, 0.3, 0.45) : vec3(0.9, 0.55, 0.2);
+          starC *= 0.85 + 0.3 * smoothstep(0.12, 0.0, sr);
+          float dollar = smoothstep(0.1, 0.085, sr) * step(0.16, sh) * step(sh, 0.24) * smoothstep(0.08, 0.2, depth) * (1.0 - smoothstep(1.2, 1.6, depth)) * (1.0 - meadow);
+          float petal = smoothstep(0.012, 0.0, abs(sr - 0.045)) * smoothstep(0.3, 0.9, abs(cos(atan(sf.y, sf.x) * 2.5)));
+          s *= 1.0 - 0.35 * smoothstep(armR + 0.06, armR, sr) * step(sh, 0.16) * bedK * (1.0 - meadow);
+          s = mix(s, starC, star * bedK);
+          s = mix(s, mix(vec3(0.86, 0.82, 0.72), vec3(0.62, 0.58, 0.5), petal), dollar * bedK * 0.9);
+        }
         s = mix(s, vec3(0.05, 0.16, 0.2), smoothstep(0.8, 3.5, depth));
         float caus = hvCaustic(p * 1.05, t);
         float patchC = smoothstep(0.2, 0.65, hvNoise(p * 0.16 + vec2(t * 0.02, 0.0)));

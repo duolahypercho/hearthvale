@@ -70,7 +70,8 @@ interface PetRec {
 interface State {
   animals: AnimalRec[];
   hay: Record<AnimalHome, boolean[]>;
-  eggs: { nest: number; item: string; q: number }[];
+  /** Eggs waiting in the nest boxes (`id` / `sp`: the layer — older saves have none). */
+  eggs: { nest: number; item: string; q: number; id?: number; sp?: Livestock }[];
   truffles: { x: number; z: number; q: number }[];
   pet: PetRec;
   nextId: number;
@@ -158,12 +159,14 @@ export interface AnimalSummary {
   /** Laid overnight / ready to collect this morning. */
   produce: { item: string; q: number }[];
   pet?: { name: string; species: 'dog' | 'cat'; bowl: boolean };
+  /** The morning's to-do list (end-of-day card "Tomorrow's chores"): icon item id + short line. */
+  chores?: { icon: string; text: string }[];
 }
 
 const CAP = 6;
 /** Presentation scale per species (chibi models read small next to the farmer otherwise). */
 const SCALE: Record<Species, number> = { chicken: 1.14, duck: 1.14, cow: 1.1, goat: 1.08, sheep: 1.1, pig: 1.08, dog: 1.3, cat: 1.25 };
-const QUALITY_NAME = ['', 'silver', 'gold', 'iridium'];
+const QUALITY_NAME = ['', 'silver', 'gold', 'radiant'];
 
 interface Live {
   rec: AnimalRec | null;
@@ -444,7 +447,7 @@ export class AnimalSystem implements System, AnimalsApi {
       case 'eggs': {
         // One nest (per-box pickup) or the whole shelf (older co-op peers send no nest).
         const take = it.nest == null ? this.st.eggs : this.st.eggs.filter((e) => e.nest === it.nest);
-        for (const e of take) grant(e.item, e.q, -1, 'chicken');
+        for (const e of take) grant(e.item, e.q, e.id ?? -1, e.sp ?? (e.item === 'duckEgg' || e.item === 'duckFeather' ? 'duck' : 'chicken'));
         this.st.eggs = this.st.eggs.filter((e) => !take.includes(e));
         this.refreshProps();
         break;
@@ -551,7 +554,7 @@ export class AnimalSystem implements System, AnimalsApi {
             if (free.length) {
               let item = produceFor(a.species, a.variant);
               if (a.species === 'duck' && a.mood > 200 && a.friendship > 600 && this.rng.next() < 0.3) item = 'duckFeather';
-              eggs.push({ nest: free[0]!, item, q });
+              eggs.push({ nest: free[0]!, item, q, id: a.id, sp: a.species });
               made.set(item, (made.get(item) ?? 0) + 1);
               produce.push({ item, q });
             }
@@ -584,17 +587,41 @@ export class AnimalSystem implements System, AnimalsApi {
         animals: report,
         produce,
         pet: { name: pet.name, species: pet.species, bowl },
+        chores: this.chores(),
       });
       this.morning = [];
       if (hungry.length === 1) this.morning.push({ text: `<b>${hungry[0]!.name}</b> looks hungry — fill the ${LIVESTOCK[hungry[0]!.species].home === 'barn' ? 'manger' : 'trough'} with hay`, icon: 'hay', kind: 'bad' });
       else if (hungry.length > 1) this.morning.push({ text: `<b>${hungry[0]!.name}</b> and ${hungry.length - 1} other${hungry.length > 2 ? 's' : ''} look hungry this morning`, icon: 'hay', kind: 'bad' });
-      const eggN = [...made.values()].reduce((a, b) => a + b, 0);
-      if (eggN) this.morning.push({ text: `The coop has <b>${eggN}</b> fresh egg${eggN > 1 ? 's' : ''} this morning`, icon: [...made.keys()][0], kind: 'good' });
+      // Everything waiting in the nest boxes (fresh + any left from yesterday), not just tonight's lay.
+      const eggN = eggs.length;
+      const fresh = [...made.values()].reduce((a, b) => a + b, 0);
+      if (eggN) this.morning.push({ text: `<b>${eggN}</b> egg${eggN > 1 ? 's' : ''} waiting in the nest boxes${fresh && fresh < eggN ? ` (${fresh} fresh)` : ''}`, icon: [...made.keys()][0] ?? eggs[0]!.item, kind: 'good' });
       const ready = this.st.animals.filter((a) => a.ready);
       if (ready.length) this.morning.push({ text: `<b>${ready[0]!.name}</b>${ready.length > 1 ? ` and ${ready.length - 1} more are` : ' is'} ready to ${ready[0]!.species === 'sheep' ? 'shear' : 'milk'}`, icon: produceFor(ready[0]!.species, ready[0]!.variant), kind: 'info' });
       // No bed to wake up from (debug day rolls): show them right away.
       if (!this.game.services.sleep) this.flushMorning();
     }
+  }
+
+  /** What's waiting for the farmer this morning (after the overnight roll-over). */
+  private chores(): { icon: string; text: string }[] {
+    const out: { icon: string; text: string }[] = [];
+    const st = this.st;
+    const plural = (n: number, a: string, b = `${a}s`): string => `${n} ${n === 1 ? a : b}`;
+    const milk = st.animals.filter((a) => a.ready && a.species !== 'sheep');
+    const wool = st.animals.filter((a) => a.ready && a.species === 'sheep');
+    if (milk.length) out.push({ icon: produceFor(milk[0]!.species, milk[0]!.variant), text: `Milk ${milk.length === 1 ? milk[0]!.name : plural(milk.length, 'animal')}` });
+    if (wool.length) out.push({ icon: 'wool', text: `Shear ${wool.length === 1 ? wool[0]!.name : plural(wool.length, 'sheep', 'sheep')}` });
+    if (st.eggs.length) out.push({ icon: st.eggs[0]!.item, text: `Collect ${plural(st.eggs.length, 'egg')} from the nests` });
+    if (st.truffles.length) out.push({ icon: 'truffle', text: `Dig up ${plural(st.truffles.length, 'truffle')} in the pasture` });
+    for (const home of ['coop', 'barn'] as const) {
+      const n = this.count(home);
+      const empty = st.hay[home].slice(0, n).filter((h) => !h).length;
+      if (n && empty && !this.grazing()) out.push({ icon: 'hay', text: `Put ${plural(empty, 'portion')} of hay in the ${home === 'barn' ? 'manger' : 'trough'}` });
+    }
+    if (!st.pet.bowl) out.push({ icon: 'wateringCan', text: `Fill ${st.pet.name}’s water bowl` });
+    if (st.animals.length) out.push({ icon: 'heart', text: `Say good morning to ${plural(st.animals.length, 'animal')}` });
+    return out.slice(0, 5);
   }
 
   private flushMorning(): void {
@@ -871,8 +898,16 @@ export class AnimalSystem implements System, AnimalsApi {
     const holding = this.game.services.inventory?.selected()?.id;
     const t = pen?.trough;
     const onTrough = !!t && x >= t.x0 && x <= t.x1 && z >= t.z0 && z <= t.z1;
-    // Hay in hand + a manger / trough tile: always feed.
+    // Hay in hand + a manger / trough tile. Barn animals spend the day at the manger, so an animal that
+    // wants attention (ready to milk / shear, or not yet petted today) wins; otherwise fill empty slots,
+    // and a full trough never swallows the click when there's an animal there to pet.
     if (pen && onTrough && holding === 'hay') {
+      const hit = this.hitAnimal(x, z);
+      const wants = !!hit?.rec && (hit.rec.ready || !hit.rec.petted);
+      if (hit && (wants || !this.troughHasRoom(pen))) {
+        this.petActor(hit);
+        return;
+      }
       this.feed(pen);
       return;
     }
@@ -959,6 +994,12 @@ export class AnimalSystem implements System, AnimalsApi {
     if (q > 0) this.toast(`A <b>${QUALITY_NAME[q]}</b>-star find!`, itemId, 'good');
   }
 
+  /** An empty hay slot for one of this building's animals? */
+  private troughHasRoom(pen: PenAnchors): boolean {
+    const want = Math.max(1, this.count(pen.kind));
+    return this.st.hay[pen.kind].slice(0, want).some((h) => !h);
+  }
+
   private feed(pen: PenAnchors): boolean {
     const hay = this.st.hay[pen.kind];
     const inv = this.game.services.inventory;
@@ -1034,7 +1075,9 @@ export class AnimalSystem implements System, AnimalsApi {
     const actors = this._actors;
     actors.length = 0;
     for (const l of this.live) actors.push(l.actor);
+    const farmers = this.remoteFarmers();
     for (const l of this.live) {
+      l.actor.farmers = farmers;
       l.actor.update(dt, t, actors);
       if (l.actor.isSleeping) {
         l.zT -= dt;
@@ -1074,6 +1117,20 @@ export class AnimalSystem implements System, AnimalsApi {
       this.dirtyT = 0.2;
       this.game.events.emit('animals:changed', { rev: ++this.rev });
     }
+  }
+
+  private _farmers: THREE.Vector3[] = [];
+
+  /** Co-op farmers standing on this map (animals keep a personal-space ring round each). */
+  private remoteFarmers(): THREE.Vector3[] {
+    const out = this._farmers;
+    out.length = 0;
+    if (!this.live.length) return out;
+    const net = this.game.services.net as unknown as { remotes?: { list?: Map<number, { map: string; away: boolean; farmer: { root: THREE.Object3D } }> } } | undefined;
+    const list = net?.remotes?.list;
+    if (!list?.size) return out;
+    for (const p of list.values()) if (!p.away && p.map === this.mapId && p.farmer?.root) out.push(p.farmer.root.position);
+    return out;
   }
 
   // ───────────────────────────────────────────── farmer poses (pet / lift)

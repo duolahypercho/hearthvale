@@ -67,7 +67,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
   'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
-  'town-dialogue': { map: 'town', x: 29.6, z: 23.2, facing: 'left', time: 16.5, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
+  'town-dialogue': { map: 'town', x: 31.2, z: 30.8, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
   // Town pod: `&event=<npc>-<2|4>&step=N` picks the heart event; `&npc=<id>&mood=<mood>|&gift=<item>|&ask=1` the dialogue.
   'town-heart-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
   'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 38, distance: 29, offsetX: -2.9, offsetZ: -4.2 }, showcase: ['npcs'] },
@@ -103,22 +103,40 @@ export const DEMOS: Record<string, DemoDef> = {
   // Cindergrove forest + weather showcases (world/forest, systems/weather). 'fog-morning' / 'rainbow'
   // also switch on the matching atmosphere (the weather system keys off the demo name).
   'forest-day': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 10.4, season: 'summer', weather: 'sun', camera: FOREST_FALLS_CAM, showcase: ['fishing-wait'] },
-  'forest-rain': { map: 'forest', x: 35.2, z: 32.6, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
+  // Spring shower on the main trail: puddles on the path, wet bark, drips off the crowns.
+  'forest-rain': { map: 'forest', x: 38.5, z: 32.3, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
   'forest-fall': { map: 'forest', x: 50.6, z: 23.8, facing: 'up', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -8, pitch: 48, distance: 28, offsetX: 1.8, offsetZ: -6.2 } },
   // The Ember Glade up close: tower (roof, door, lit window, ivy), menhir ring and the ember altar.
   'forest-glade': { map: 'forest', x: 50.2, z: 22.6, facing: 'up', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: -12, pitch: 48, distance: 25, offsetX: 3.2, offsetZ: -5.4 } },
   'forest-night': { map: 'forest', x: 50.6, z: 23.8, facing: 'up', time: 22.2, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 48, distance: 28, offsetX: 1.8, offsetZ: -6.2 } },
-  storm: { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 15.5, season: 'summer', weather: 'storm', camera: FOREST_FALLS_CAM },
-  'snow-day': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 11, season: 'winter', weather: 'snow', camera: FOREST_FALLS_CAM },
-  'fog-morning': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 6.8, season: 'spring', weather: 'sun', camera: FOREST_FALLS_CAM },
-  'forest-wind': { map: 'forest', x: 35.2, z: 32.6, facing: 'down', time: 15.2, season: 'fall', weather: 'wind', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
-  rainbow: { map: 'forest', x: 35.2, z: 32.6, facing: 'up', time: 16.2, season: 'spring', weather: 'sun', camera: { yaw: 8, pitch: 46, distance: 26, offsetX: 1.2, offsetZ: -2 } },
+  // Storm over the open west meadow: the stream and the falls behind, a bolt on open ground (&bolt=0 off).
+  storm: { map: 'forest', x: 18.8, z: 35.8, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: { yaw: -4, pitch: 47, distance: 26, offsetX: -2.6, offsetZ: -3.6 } },
+  // Winter on the frozen stream: stepping stones, the snow-capped footbridge, boot prints.
+  'snow-day': { map: 'forest', x: 35.6, z: 34.4, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: { yaw: -8, pitch: 48, distance: 21, offsetX: 0.4, offsetZ: 0.8 } },
+  // Dawn mist drifting over the plunge pool below the falls, the low sun raking through the crowns.
+  'fog-morning': { map: 'forest', x: 24.2, z: 24.8, facing: 'left', time: 6.8, season: 'spring', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 24, offsetX: -5.6, offsetZ: -3.0 } },
+  // Mist pooling over the stream at the footbridge.
+  'fog-bridge': { map: 'forest', x: 41.2, z: 35.4, facing: 'down', time: 6.8, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 45, distance: 22, offsetX: -1.8, offsetZ: 2.2 } },
+  'forest-wind': { map: 'forest', x: 38.5, z: 32.3, facing: 'down', time: 15.2, season: 'fall', weather: 'wind', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
+  // After the shower: a spray bow in the falls' mist (+ its reflection) and the valley bow behind the crowns.
+  rainbow: { map: 'forest', x: 24.2, z: 24.8, facing: 'left', time: 16.2, season: 'spring', weather: 'sun', camera: { yaw: 4, pitch: 44, distance: 25, offsetX: -4.5, offsetZ: -3.5 } },
+  // Walking in from the farm: the entry corridor opens up, the carved area plate hangs in the upper third.
+  'forest-arrival': { map: 'forest', x: 32.5, z: 4.2, facing: 'down', time: 9.5, season: 'summer', weather: 'sun' },
+  // Co-op: two scripted farmhands (no server) — one plucks a find through the host's forage ledger,
+  // both under a host-rolled lightning strike (world/forest/coop.ts, systems/weather.ts 'w.bolt').
+  'coop-forest': { map: 'forest', x: 17.4, z: 37.2, facing: 'up', time: 15.4, season: 'spring', weather: 'storm', camera: { yaw: -4, pitch: 46, distance: 22, offsetX: -0.6, offsetZ: -3.2 } },
   'farm-storm': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 15, season: 'summer', weather: 'storm', camera: HOME_CAM },
   'farm-wind': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'wind', camera: HOME_CAM },
-  // Audio pod: the farm at golden morning with a "now playing" banner. URL: &theme=<spring|summer|fall|winter|town|
-  // beach|mine|night|rain|festival|festival-blossom|festival-tide|festival-harvest|festival-starfall|title|none>,
-  // &sfx=<name> repeats an SFX every 2.5 s, &audio=1 starts the AudioContext without a click where autoplay allows.
+  // Audio pod: the farm at golden morning with a "now playing" banner. URL: &theme=<spring|spring-2|spring-3|summer|
+  // summer-2|summer-3|fall|fall-2|fall-3|winter|winter-2|winter-3|night|night-spring|night-fall|night-winter|town|beach|
+  // mine|mine-ice|mine-lava|rain|inn|forest|festival|festival-blossom|festival-tide|festival-harvest|festival-starfall|
+  // title|none> or a playlist (farm:spring, night:fall ...), &card=1 pins the now-playing card (notes float out of it
+  // in time with the tune once sound runs — press any key), &sfx=<name> repeats an SFX every 2.5 s, &audio=1 starts the
+  // AudioContext without a click where autoplay allows. audio-summer / audio-fall / audio-winter stage the other seasons.
   audio: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
+  'audio-summer': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 13.5, season: 'summer', weather: 'sun', camera: HOME_CAM },
+  'audio-fall': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 15.5, season: 'fall', weather: 'sun', camera: HOME_CAM },
+  'audio-winter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: HOME_CAM },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'left', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.2, offsetZ: -0.35 }, showcase: ['interior'] },

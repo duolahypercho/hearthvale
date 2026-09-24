@@ -308,7 +308,11 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         col = mix(col, mix(vec3(0.1, 0.13, 0.26), vec3(0.08, 0.2, 0.24), 1.0 - smoothstep(0.3, 1.4, depth)) * 0.9, uNight * 0.85);
         float cloud = hvCloudShadow(p, t, uCloudShadow);
         float diff = 0.6 + 0.4 * max(dot(n, L), 0.0);
-        vec3 lit = col * (uSunColor * diff * 0.75 * cloud + uSkyColor * 0.5 + uHorizonColor * 0.12);
+        vec3 light = uSunColor * diff * 0.75 * cloud + uSkyColor * 0.5 + uHorizonColor * 0.12;
+        // At night the moon / sky light is a saturated blue: multiplied into the ink-blue body it
+        // tints the sea a flat royal blue. Keep its brightness, drop most of its hue.
+        light = mix(light, vec3(dot(light, vec3(0.3, 0.55, 0.15))) * vec3(0.86, 0.93, 1.06), uNight * 0.8);
+        vec3 lit = col * light;
         // Sub-surface glow in thin crests, back-lit by the sun.
         float sss = pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 3.0) * crest * (breakZone + swellZone * 0.3);
         lit += vec3(0.1, 0.55, 0.5) * uSunColor * sss * 0.9;

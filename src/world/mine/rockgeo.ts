@@ -25,6 +25,11 @@ export interface FacetOpts {
   lumps?: number;
   /** 0..1 baked crevice AO (pushed-in regions darken). */
   crevice?: number;
+  /**
+   * Cleaved stone: the chisel planes become crisp flat faces with hard creases (and a worn,
+   * lighter edge along each crease) while the rest of the boulder keeps its soft normals.
+   */
+  cleave?: boolean;
 }
 
 const _p = new THREE.Vector3();
@@ -51,14 +56,14 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
   const g = new THREE.IcosahedronGeometry(1, o.detail ?? 1);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const planes: THREE.Vector3[] = [];
-  const nPlanes = (o.chunky ? 3 : 2) + r.int(0, 2);
+  const nPlanes = (o.chunky ? 3 : 2) + r.int(0, 2) + (o.cleave ? 1 : 0);
   for (let i = 0; i < nPlanes; i++) {
     const a = r.next() * Math.PI * 2;
     const el = i === 0 ? 1.1 + r.next() * 0.4 : 0.05 + r.next() * 0.9;
     planes.push(new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el)));
   }
   const offs = planes.map((_, i) => (i === 0 ? 0.6 : 0.68) + r.next() * 0.16);
-  const cache = new Map<string, [number, number, number, number]>();
+  const cache = new Map<string, [number, number, number, number, number]>();
   const stretch = 0.85 + r.next() * 0.4;
   const lumps = o.lumps ?? 0;
   const field = lumps > 0 ? lumpField(r) : null;
@@ -66,6 +71,8 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
   const sq = o.squash ?? 0.7;
   const keys: string[] = new Array(pos.count);
   const lumpV = new Float32Array(pos.count);
+  // Which chisel plane each vertex was cut onto (-1 = the natural surface).
+  const cutV = new Int8Array(pos.count);
   for (let i = 0; i < pos.count; i++) {
     _p.fromBufferAttribute(pos, i);
     const key = `${_p.x.toFixed(3)},${_p.y.toFixed(3)},${_p.z.toFixed(3)}`;
@@ -74,19 +81,26 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
     if (!v) {
       const lv = field ? field(_p.x, _p.y, _p.z) : 0;
       const q = _p.clone().multiplyScalar(1 + (r.next() * 2 - 1) * jit + lv * lumps);
+      let cut = -1;
+      let cutT = 0.004;
       planes.forEach((n, k) => {
         const t = q.dot(n) - offs[k]!;
-        if (t > 0) q.addScaledVector(n, -t * 0.92);
+        if (t > cutT) {
+          cut = k;
+          cutT = t;
+        }
+        if (t > 0) q.addScaledVector(n, -t * (o.cleave ? 1 : 0.92));
       });
       if (q.y < -0.3) q.y = -0.3 + (q.y + 0.3) * 0.12;
       q.x *= stretch;
       q.z /= Math.sqrt(stretch);
       q.y *= sq;
-      v = [q.x * radius, q.y * radius, q.z * radius, lv];
+      v = [q.x * radius, q.y * radius, q.z * radius, lv, cut];
       cache.set(key, v);
     }
     pos.setXYZ(i, v[0], v[1], v[2]);
     lumpV[i] = v[3];
+    cutV[i] = v[4];
   }
   g.computeVertexNormals();
   const nor = g.attributes.normal as THREE.BufferAttribute;
@@ -107,6 +121,23 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
       nor.setXYZ(i, _n.x, _n.y, _n.z);
     }
   }
+  // Cleaved faces: every triangle lying wholly on one chisel plane takes that plane's (squashed)
+  // normal — a crisp flat cut catching the lantern as one sheet, meeting the soft boulder at a hard
+  // crease. Crease vertices (cut, in a mixed triangle) are remembered for the worn edge highlight.
+  const face = new Int8Array(pos.count).fill(-1);
+  const crease = new Uint8Array(pos.count);
+  if (o.cleave) {
+    const pn = planes.map((n) => new THREE.Vector3(n.x / stretch, n.y / sq, n.z * Math.sqrt(stretch)).normalize());
+    for (let f = 0; f < pos.count; f += 3) {
+      const c0 = cutV[f]!;
+      if (c0 >= 0 && cutV[f + 1] === c0 && cutV[f + 2] === c0) {
+        for (let k = 0; k < 3; k++) {
+          nor.setXYZ(f + k, pn[c0]!.x, pn[c0]!.y, pn[c0]!.z);
+          face[f + k] = c0;
+        }
+      } else for (let k = 0; k < 3; k++) if (cutV[f + k]! >= 0) crease[f + k] = 1;
+    }
+  }
   const col = new Float32Array(pos.count * 3);
   const base = new THREE.Color(color).offsetHSL((r.next() - 0.5) * 0.02, (r.next() - 0.5) * 0.04, (r.next() - 0.5) * 0.05);
   const cap = o.cap !== undefined ? new THREE.Color(o.cap) : null;
@@ -116,7 +147,9 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
   const spread = (o.facet ?? 0.2) * (smooth > 0 ? 0.55 : 1);
   const crev = o.crevice ?? (lumps > 0 ? 0.45 : 0);
   for (let f = 0; f < pos.count; f += 3) {
-    const facet = 1 - spread / 2 + r.next() * spread;
+    let facet = 1 - spread / 2 + r.next() * spread;
+    // A cleaved face is fresher stone: a touch lighter, one even value per plane.
+    if (face[f]! >= 0) facet = 1.07 + (face[f]! % 3) * 0.035;
     _n.fromBufferAttribute(nor, f);
     const capT = cap ? THREE.MathUtils.smoothstep(_n.y, 0.35, 0.8) * (o.capAmt ?? 0.8) : 0;
     for (let k = 0; k < 3; k++) {
@@ -124,7 +157,10 @@ export function facetRock(r: Rng, radius: number, color: number, o: FacetOpts = 
       _p.fromBufferAttribute(pos, i);
       const h = THREE.MathUtils.clamp((_p.y - yMin) / (yMax - yMin), 0, 1);
       const ao = (1 - rim + rim * THREE.MathUtils.smoothstep(h, 0.0, 0.5)) * (1 - crev + crev * THREE.MathUtils.smoothstep(lumpV[i]!, -0.55, 0.35));
-      _c.copy(base).multiplyScalar(ao * facet * (0.94 + 0.14 * h));
+      const cleaved = face[i]! >= 0;
+      // (cut faces shed most of the crevice darkening: they are fresh planes, not pits)
+      const aoK = cleaved ? 0.55 + 0.45 * ao : ao;
+      _c.copy(base).multiplyScalar(aoK * facet * (0.94 + 0.14 * h) * (crease[i] ? 1.16 : 1));
       if (cap) _c.lerp(cap, capT * (0.6 + 0.4 * h));
       col[i * 3] = _c.r;
       col[i * 3 + 1] = _c.g;

@@ -22,13 +22,47 @@ import { applyWorldFx } from '../../render/worldfx';
 import { beachRockMaterial } from './rocks';
 import { TIDE_POOLS, TIDE_POOL_Y, type BeachShape } from './layout';
 
+/** How far the slab's top stands proud of the ground under it (BeachMap.heightAt adds it for feet). */
+export const SHELF_PROUD = 0.05;
+
 const poolD = (x: number, z: number): number => {
   let d = 9;
   for (const [px, pz, pr] of TIDE_POOLS) d = Math.min(d, Math.hypot(x - px, (z - pz) * 1.15) / pr);
   return d;
 };
 
-export function buildShelf(S: BeachShape, seed: number): THREE.Mesh {
+/**
+ * Bowl the slab down into a tide pool: a rounded rim (convex shoulder) that rolls over from the top
+ * into a wall dropping below the waterline, then hugs just under the terrain's pool floor.
+ */
+function poolWall(S: BeachShape, x: number, z: number, top: number, pd: number, gmax: number): number {
+  if (pd >= 1.34) return top;
+  const floor = Math.min(TIDE_POOL_Y - 0.16, S.height(x, z) - 0.06);
+  const t = ss(1.34, 0.8, pd);
+  // Ease-in: the shoulder stays high then rolls over (reads as a worn, rounded lip).
+  const k = t * t * (1.3 - 0.3 * t);
+  const wall = top + (floor - top) * Math.min(1, k);
+  // Below the rolled shoulder, the terrain's own lip (still above the water) must not poke through.
+  return gmax > TIDE_POOL_Y + 0.02 && pd > 0.9 ? Math.max(wall, Math.min(top, gmax + 0.02)) : wall;
+}
+
+const groundMax = (S: BeachShape, groundAt: (x: number, z: number) => number, x: number, z: number): number =>
+  Math.max(S.height(x, z), groundAt(x, z), groundAt(x + 0.25, z), groundAt(x - 0.25, z), groundAt(x, z + 0.25), groundAt(x, z - 0.25));
+
+/** Top of the tide-pool slab at (x, z) (no fine pitting) — for things set on the stone. */
+export function shelfTopAt(S: BeachShape, groundAt: (x: number, z: number) => number, x: number, z: number): number {
+  const wr = S.westRock(x, z);
+  const dive = ss(0.1, 0.22, wr);
+  const gm = groundMax(S, groundAt, x, z);
+  const base = dive < 0.999 ? gm : S.height(x, z);
+  return poolWall(S, x, z, base + (SHELF_PROUD + 0.03) * (1 - dive) - 0.14 * dive, poolD(x, z), gm);
+}
+
+/**
+ * `groundAt`: the coarse terrain's own height (its 0.5 m grid bows above the analytic surface in the
+ * dips) — the slab keeps clear of it everywhere, so no sand / old rock splat pokes through as flakes.
+ */
+export function buildShelf(S: BeachShape, seed: number, groundAt: (x: number, z: number) => number): THREE.Mesh {
   const step = 0.2;
   const x0 = -6;
   const x1 = 22;
@@ -48,7 +82,10 @@ export function buildShelf(S: BeachShape, seed: number): THREE.Mesh {
       const z = z0 + j * step;
       const wr = S.westRock(x, z);
       const pd = poolD(x, z);
-      inside[k] = wr < 0.24 && pd > 0.86 ? 1 : 0;
+      // Pools are NOT cut out of the grid (a 0.2 m grid cut reads as a saw-tooth rim): the slab
+      // itself curves down into each bowl and slips under the still water, so the visible pool edge
+      // is the smooth, per-pixel waterline. Only the deep centre (under the terrain floor) is skipped.
+      inside[k] = wr < 0.24 && pd > 0.5 ? 1 : 0;
       // Slab seams (worn cracks) + pitting pressed into the stone.
       const cr = Math.abs(n.fbm(x * 0.55, z * 0.55, 2));
       const seam = ss(0.07, 0.0, cr);
@@ -57,7 +94,10 @@ export function buildShelf(S: BeachShape, seed: number): THREE.Mesh {
       // Sits 5 cm proud of the (coarser) terrain so the ground never pokes through; past the rim the
       // slab dives under the sand, so the visible edge is the smooth contour, never grid steps.
       const dive = ss(0.1, 0.22, wr);
-      const y = S.height(x, z) + 0.05 * (1 - dive) - 0.14 * dive + (pit * 0.02 - seam * 0.025) * topK;
+      const gm = groundMax(S, groundAt, x, z);
+      const base = dive < 0.999 ? gm : S.height(x, z);
+      let y = base + (SHELF_PROUD + 0.03) * (1 - dive) - 0.14 * dive + (pit * 0.02 - seam * 0.025) * topK;
+      if (dive < 0.999) y = poolWall(S, x, z, y, pd, gm);
       pos[k * 3] = x;
       pos[k * 3 + 1] = y;
       pos[k * 3 + 2] = z;
@@ -70,7 +110,7 @@ export function buildShelf(S: BeachShape, seed: number): THREE.Mesh {
       // uv.x = 1 - moss: weed only on the low, spray-fed parts; uv.y = wet lip around the pools.
       const low = ss(0.72, 0.45, y);
       uv[k * 2] = 1 - Math.min(1, low * 0.6 + ss(1.3, 1.0, pd) * 0.25);
-      uv[k * 2 + 1] = ss(1.25, 0.98, pd) * 0.55;
+      uv[k * 2 + 1] = ss(1.3, 0.95, pd) * 0.75;
     }
   }
   const idx: number[] = [];
@@ -91,7 +131,7 @@ export function buildShelf(S: BeachShape, seed: number): THREE.Mesh {
   g.setIndex(idx);
   g.computeVertexNormals();
   g.computeBoundingSphere();
-  const m = new THREE.Mesh(g, beachRockMaterial());
+  const m = new THREE.Mesh(g, beachRockMaterial('shelf'));
   m.name = 'tide-shelf';
   // Flat slab: its own shadow adds nothing but triangles; stone AO is baked into the vertices.
   m.castShadow = false;
@@ -156,8 +196,8 @@ export function buildAlgaeTufts(S: BeachShape, rng: Rng, heightAt: (x: number, z
     const k = Math.round(pr * 5);
     for (let i = 0; i < k; i++) {
       const a = (i / k) * Math.PI * 2 + rng.next() * 0.6;
-      const x = px + Math.cos(a) * pr * 0.98;
-      const z = pz + (Math.sin(a) * pr * 0.98) / 1.15;
+      const x = px + Math.cos(a) * pr * 0.97;
+      const z = pz + (Math.sin(a) * pr * 0.97) / 1.15;
       if (heightAt(x, z) < TIDE_POOL_Y) continue;
       tuft(x, z, -Math.cos(a), -Math.sin(a), 0.55 + rng.next() * 0.3);
     }

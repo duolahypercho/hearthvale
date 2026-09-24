@@ -101,13 +101,15 @@ export function noiseHit(
  * Delayed vibrato from the graph's shared LFO: one depth gain per note fans out to every
  * oscillator of the voice; with `amp` the same LFO also breathes the level a few percent.
  */
-function vibrato(g: AudioGraph, params: AudioParam[], t: number, dur: number, f: number, rate: number, depth: number, delay: number, amp?: { node: GainNode; depth: number }): void {
+function vibrato(g: AudioGraph, params: AudioParam[], t: number, dur: number, f: number, rate: number, depth: number, delay: number, amp?: { node: GainNode; depth: number }, grow = 1): void {
   if (dur < delay + 0.15) return;
   const lfo = g.lfo(rate);
   const d = gain(g);
   d.gain.setValueAtTime(0, t);
   d.gain.setValueAtTime(0, t + delay);
   d.gain.linearRampToValueAtTime(f * depth, t + delay + 0.35);
+  // Held notes: the vibrato keeps deepening toward the end of the note.
+  if (grow !== 1 && dur > delay + 0.6) d.gain.linearRampToValueAtTime(f * depth * grow, t + dur);
   d.gain.setTargetAtTime(0, t + dur + 0.05, 0.05);
   lfo.connect(d);
   for (const p of params) d.connect(p);
@@ -176,7 +178,7 @@ type Mallet = { key: string; spec: (m: number, f: number) => ModalSpec; level: n
 function mallet(def: Mallet): InstrumentFn {
   return (g, dest, t, m, _dur, v, o) => {
     const f = mtof(m);
-    const buf = g.buffer(`${def.key}:${m}`, () => modalBuffer(g.ctx, f, def.spec(m, f), new Rand(m * 7919 + def.key.length)));
+    const buf = g.buffer(`${def.key}:${m}`, () => modalBuffer(g.ctx, f, sparkle(def, def.spec(m, f), f), new Rand(m * 7919 + def.key.length)));
     const src = g.ctx.createBufferSource();
     src.buffer = buf;
     if (o?.detune) src.detune.value = o.detune;
@@ -185,6 +187,19 @@ function mallet(def: Mallet): InstrumentFn {
     src.connect(lp).connect(a).connect(dest);
     src.start(t);
     src.stop(t + buf.duration);
+  };
+}
+
+/**
+ * Mallet sparkle: modes above 3 kHz (+4.5 dB) and the strike click (+3 dB) are lifted, so plucks and
+ * bells speak with a real transient in a mix instead of reading as soft sine tones.
+ */
+function sparkle(def: Mallet, spec: ModalSpec, f: number): ModalSpec {
+  if (def.key === 'ride') return spec;
+  return {
+    ...spec,
+    partials: spec.partials.map((p) => (p.r * f > 3000 ? { ...p, amp: p.amp * 1.68 } : p)),
+    click: spec.click ? { ...spec.click, amp: spec.click.amp * 1.41 } : undefined,
   };
 }
 
@@ -494,55 +509,150 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
 
 // ─────────────────────────────────────────────────────────── sustained
 
-const FLUTE = (): number[] => [1, 0.5, 0.22, 0.12, 0.06, 0.03, 0.015];
-const WHISTLE = (): number[] => [1, 0.22, 0.2, 0.06, 0.04, 0.015];
-// Odd-harmonic reed spectrum, upper partials eased off.
-const CLARINET = (): number[] => [1, 0.05, 0.58, 0.05, 0.24, 0.035, 0.1, 0.02, 0.045, 0.012, 0.022, 0.006, 0.01];
+// Wind spectra come in pairs: the soft / low-register colour and the loud / high-register one. A
+// note crossfades between them with its velocity, its register and its own swell, so a phrase
+// changes colour the way a real player's tone does.
+const FLUTE_SOFT = (): number[] => [1, 0.22, 0.07, 0.025, 0.01];
+const FLUTE_BRIGHT = (): number[] => [1, 0.62, 0.36, 0.22, 0.13, 0.07, 0.04, 0.02];
+const WHISTLE_SOFT = (): number[] => [1, 0.12, 0.1, 0.02];
+const WHISTLE_BRIGHT = (): number[] => [1, 0.34, 0.3, 0.12, 0.08, 0.03, 0.015];
+const OCARINA_SOFT = (): number[] => [1, 0.07, 0.03, 0.01];
+const OCARINA_BRIGHT = (): number[] => [1, 0.24, 0.12, 0.05, 0.025];
+// Clarinet: the chalumeau is almost purely odd harmonics; played louder / higher the even
+// harmonics come in (the "clarion" edge) — the crossfade suppresses them dynamically.
+const CLARINET_SOFT = (): number[] => [1, 0.01, 0.52, 0.01, 0.2, 0.01, 0.07, 0, 0.025, 0, 0.01];
+const CLARINET_BRIGHT = (): number[] => [1, 0.14, 0.6, 0.11, 0.3, 0.07, 0.14, 0.04, 0.07, 0.02, 0.035];
+// Oboe: a double reed — strong 2nd–4th harmonics, a long bright tail (formants live in its insert).
+const OBOE_SOFT = (): number[] => [1, 0.7, 0.7, 0.38, 0.2, 0.1, 0.05];
+const OBOE_BRIGHT = (): number[] => [1, 0.9, 0.95, 0.7, 0.45, 0.28, 0.17, 0.1, 0.06, 0.035];
 /** Bowed string (Helmholtz sawtooth ~1/n), slightly softened even harmonics. */
 const BOWED = (): number[] => Array.from({ length: 36 }, (_, i) => (1 / Math.pow(i + 1, 1.02)) * ((i + 1) % 2 ? 1 : 0.9));
 const REED = (): number[] => [1, 0.75, 0.62, 0.5, 0.46, 0.36, 0.3, 0.26, 0.2, 0.16, 0.12, 0.1, 0.08, 0.06];
 
-function windVoice(opts: { wave: () => number[]; name: string; attack: number; breath: number; chiff: number; vibRate: number; vibDepth: number; bright: number; release: number; level: number }): InstrumentFn {
-  return (g, dest, t, m, dur, v, o) => {
+interface WindSpec {
+  name: string;
+  soft: () => number[];
+  bright: () => number[];
+  /** MIDI note around which the bright spectrum takes over (register colour). */
+  mid: number;
+  attack: number;
+  /** Resonant (pitched) breath level: noise through a narrow band at the fundamental. */
+  breath: number;
+  /** Broadband breath hiss level. */
+  air: number;
+  /** Q of the pitched breath band. */
+  breathQ: number;
+  chiff: number;
+  vibRate: number;
+  vibDepth: number;
+  /** Lowpass ceiling as a multiple of the fundamental. */
+  ceil: number;
+  release: number;
+  level: number;
+}
+
+/**
+ * A wind voice: two band-limited spectra (soft / bright) crossfaded by velocity, register and the
+ * note's own swell; tongued pitch scoop or legato glide; a slow random-walk pitch drift of a few
+ * cents; vibrato that arrives late and deepens on held notes; a messa di voce (swell and taper) on
+ * long notes that also opens the tone; breath modelled as noise through a resonant band that
+ * tracks the pitch (the "air in the tone"), plus a little broadband hiss and an onset chiff.
+ */
+function windVoice(o: WindSpec): InstrumentFn {
+  return (g, dest, t, m, dur, v, opt) => {
     const f = mtof(m);
-    const legato = o?.art === 'legato';
-    const attack = legato ? 0.03 : opts.attack;
-    const osc = g.ctx.createOscillator();
-    osc.setPeriodicWave(wave(g.ctx, opts.name, opts.wave));
-    if (legato) glide(osc.frequency, t, f, o?.from, 0.05);
-    else scoop(osc.frequency, t, f, 14 + g.rng.next() * 8, 0.045);
-    const trem = gain(g, 1);
-    vibrato(g, [osc.frequency], t, dur, f, opts.vibRate, opts.vibDepth, 0.22, { node: trem, depth: 0.06 });
-    // Softer notes are darker; the filter opens a touch as the breath settles in.
-    const lpF = clamp(f * opts.bright + 1200 * v, 500, 14000);
-    const lp = filter(g, 'lowpass', lpF, 0.6);
-    lp.frequency.setValueAtTime(lpF * 0.7, t);
-    lp.frequency.linearRampToValueAtTime(lpF, t + attack + 0.08);
-    const a = gain(g);
-    const stop = sustainEnv(a.gain, t, dur, v * opts.level, attack, 0.86, opts.release);
-    osc.connect(lp).connect(trem).connect(a).connect(dest);
-    osc.start(t);
-    osc.stop(stop);
-    // Breath: band-limited noise that follows the note (a little stronger at the onset).
-    if (opts.breath > 0) {
-      const src = g.ctx.createBufferSource();
-      src.buffer = g.pink;
-      src.loop = true;
-      const bp = filter(g, 'bandpass', Math.min(f * 2.2 + 600, 9000), 0.9);
-      const b = gain(g);
-      sustainEnv(b.gain, t, dur, v * opts.breath, attack * 0.7, 0.55, opts.release);
-      src.connect(bp).connect(b).connect(dest);
-      src.start(t, g.rng.next() * 2);
-      src.stop(stop);
+    const legato = opt?.art === 'legato';
+    const attack = legato ? 0.03 : o.attack;
+    const end = t + Math.max(dur, attack + 0.02);
+    const long = dur > 0.7;
+    // Colour: louder and higher = brighter.
+    const b0 = clamp(0.3 + (v - 0.65) * 1.1 + (m - o.mid) / 20, 0.05, 0.95);
+    const oscS = g.ctx.createOscillator();
+    oscS.setPeriodicWave(wave(g.ctx, `${o.name}:s`, o.soft));
+    const oscB = g.ctx.createOscillator();
+    oscB.setPeriodicWave(wave(g.ctx, `${o.name}:b`, o.bright));
+    const gS = gain(g);
+    const gB = gain(g);
+    // Tongued attack is a touch brighter, then the tone settles; long notes bloom mid-note.
+    const bAtk = legato ? b0 : Math.min(1, b0 + 0.22);
+    gB.gain.setValueAtTime(bAtk, t);
+    gB.gain.setTargetAtTime(b0, t + attack, 0.08);
+    gS.gain.setValueAtTime(1 - bAtk, t);
+    gS.gain.setTargetAtTime(1 - b0, t + attack, 0.08);
+    if (long) {
+      const bloom = Math.min(1, b0 + 0.28);
+      gB.gain.setTargetAtTime(bloom, t + dur * 0.3, dur * 0.18);
+      gS.gain.setTargetAtTime(1 - bloom, t + dur * 0.3, dur * 0.18);
+      gB.gain.setTargetAtTime(b0 * 0.8, t + dur * 0.72, dur * 0.12);
+      gS.gain.setTargetAtTime(1 - b0 * 0.8, t + dur * 0.72, dur * 0.12);
     }
-    if (!legato && opts.chiff > 0) noiseHit(g, dest, t, { f: Math.min(f * 3, 9000), q: 1.5, amp: v * opts.chiff, attack: 0.008, tau: 0.018 });
+    const freqs = [oscS.frequency, oscB.frequency];
+    for (const fp of freqs) {
+      if (legato) glide(fp, t, f, opt?.from, 0.05);
+      else scoop(fp, t, f, 14 + g.rng.next() * 8, 0.045);
+    }
+    // Pitch drift: a slow random walk of a few cents over the note, shared by both spectra
+    // (short notes just get a fixed random offset — no automation to compute).
+    let cents = g.rng.gauss(2);
+    const det = [oscS.detune, oscB.detune];
+    for (const d of det) d.setValueAtTime(cents, t);
+    if (dur > 0.4) {
+      for (let tt = t + 0.18; tt < end; tt += 0.22 + g.rng.next() * 0.12) {
+        cents = clamp(cents + g.rng.gauss(2.2), -6, 6);
+        for (const d of det) d.linearRampToValueAtTime(cents, tt);
+      }
+    }
+    const trem = gain(g, 1);
+    vibrato(g, freqs, t, dur, f, o.vibRate, o.vibDepth, long ? 0.3 : 0.22, { node: trem, depth: 0.05 }, long ? 1.7 : 1);
+    const lpF = clamp(f * o.ceil + 1400 * v, 600, 15000);
+    const lp = filter(g, 'lowpass', lpF, 0.6);
+    // The tone opens as the breath settles (a-rate filter automation is costly: long notes only).
+    if (dur > 0.3) {
+      lp.frequency.setValueAtTime(lpF * 0.7, t);
+      lp.frequency.linearRampToValueAtTime(lpF, t + attack + 0.08);
+    }
+    const a = gain(g);
+    const stop = sustainEnv(a.gain, t, dur, v * o.level, attack, 0.86, o.release);
+    if (long) {
+      // Messa di voce: swell to the middle of the note, taper toward its end.
+      a.gain.setTargetAtTime(v * o.level * 1.08, t + attack + 0.1, dur * 0.25);
+      a.gain.setTargetAtTime(v * o.level * 0.8, t + dur * 0.62, dur * 0.2);
+      a.gain.setTargetAtTime(0, end, o.release);
+    }
+    oscS.connect(gS).connect(lp);
+    oscB.connect(gB).connect(lp);
+    lp.connect(trem).connect(a).connect(dest);
+    for (const osc of [oscS, oscB]) {
+      osc.start(t);
+      osc.stop(stop);
+    }
+    // Breath: one noise source feeding a resonant band on the fundamental (tracks the pitch,
+    // glides with it) and a soft broadband hiss; strongest at the onset, riding the swell.
+    const src = g.ctx.createBufferSource();
+    src.buffer = g.pink;
+    src.loop = true;
+    const res = filter(g, 'bandpass', f, o.breathQ);
+    if (legato && opt?.from !== undefined) glide(res.frequency, t, f, opt.from, 0.05);
+    const rg = gain(g);
+    sustainEnv(rg.gain, t, dur, v * o.breath, attack * 0.6, 0.6, o.release);
+    src.connect(res).connect(rg).connect(dest);
+    if (o.air > 0 && dur > 0.25) {
+      const hiss = filter(g, 'bandpass', Math.min(f * 2.4 + 700, 9500), 0.8);
+      const hg = gain(g);
+      sustainEnv(hg.gain, t, dur, v * o.air, attack * 0.7, 0.5, o.release);
+      src.connect(hiss).connect(hg).connect(dest);
+    }
+    src.start(t, g.rng.next() * 2);
+    src.stop(stop);
+    if (!legato && o.chiff > 0) noiseHit(g, dest, t, { f: Math.min(f * 3, 9000), q: 1.5, amp: v * o.chiff, attack: 0.008, tau: 0.018 });
   };
 }
 
-export const flute = windVoice({ wave: FLUTE, name: 'flute', attack: 0.07, breath: 0.14, chiff: 0.09, vibRate: 5.1, vibDepth: 0.0045, bright: 5, release: 0.07, level: 0.62 });
-export const whistle = windVoice({ wave: WHISTLE, name: 'whistle', attack: 0.03, breath: 0.06, chiff: 0.14, vibRate: 5.8, vibDepth: 0.004, bright: 6, release: 0.04, level: 0.5 });
-export const ocarina = windVoice({ wave: () => [1, 0.18, 0.08, 0.04, 0.02], name: 'ocarina', attack: 0.05, breath: 0.12, chiff: 0.06, vibRate: 5.4, vibDepth: 0.005, bright: 3.5, release: 0.05, level: 0.62 });
-export const clarinet = windVoice({ wave: CLARINET, name: 'clarinet', attack: 0.05, breath: 0.03, chiff: 0.02, vibRate: 4.6, vibDepth: 0.0022, bright: 2.1, release: 0.07, level: 0.54 });
+export const flute = windVoice({ name: 'flute', soft: FLUTE_SOFT, bright: FLUTE_BRIGHT, mid: 83, attack: 0.07, breath: 0.5, air: 0.07, breathQ: 9, chiff: 0.09, vibRate: 5.1, vibDepth: 0.0042, ceil: 6, release: 0.07, level: 0.6 });
+export const whistle = windVoice({ name: 'whistle', soft: WHISTLE_SOFT, bright: WHISTLE_BRIGHT, mid: 84, attack: 0.03, breath: 0.3, air: 0.04, breathQ: 10, chiff: 0.14, vibRate: 5.8, vibDepth: 0.0038, ceil: 7, release: 0.04, level: 0.5 });
+export const ocarina = windVoice({ name: 'ocarina', soft: OCARINA_SOFT, bright: OCARINA_BRIGHT, mid: 78, attack: 0.05, breath: 0.45, air: 0.05, breathQ: 8, chiff: 0.06, vibRate: 5.4, vibDepth: 0.0048, ceil: 4.5, release: 0.05, level: 0.6 });
+export const clarinet = windVoice({ name: 'clarinet', soft: CLARINET_SOFT, bright: CLARINET_BRIGHT, mid: 76, attack: 0.05, breath: 0.16, air: 0.02, breathQ: 12, chiff: 0.02, vibRate: 4.6, vibDepth: 0.0018, ceil: 3, release: 0.07, level: 0.52 });
+export const oboe = windVoice({ name: 'oboe', soft: OBOE_SOFT, bright: OBOE_BRIGHT, mid: 72, attack: 0.04, breath: 0.12, air: 0.02, breathQ: 12, chiff: 0.04, vibRate: 5.3, vibDepth: 0.0032, ceil: 3.2, release: 0.06, level: 0.34 });
 
 /**
  * Bowed strings: `voices` detuned Helmholtz oscillators under one lowpass whose cutoff follows
@@ -564,9 +674,11 @@ function bowed(opts: { name: string; voices: number[]; level: number; attack: nu
     // Spectral tilt follows the bow: the tone opens during the attack and with velocity.
     const top = Math.min(14000, f * (opts.tilt + 10 * v) + 1400 * v);
     const lp = filter(g, 'lowpass', top, 0.6);
-    lp.frequency.setValueAtTime(Math.max(opts.lo, top * 0.35), t);
-    lp.frequency.setTargetAtTime(top, t, attack * 0.8);
-    lp.frequency.setTargetAtTime(top * 0.8, t + dur, 0.1);
+    if (dur > 0.3) {
+      lp.frequency.setValueAtTime(Math.max(opts.lo, top * 0.35), t);
+      lp.frequency.setTargetAtTime(top, t, attack * 0.8);
+      lp.frequency.setTargetAtTime(top * 0.8, t + dur, 0.1);
+    } else lp.frequency.value = top * 0.85; // quick notes: a fixed bow colour (no a-rate filter automation)
     lp.connect(a).connect(dest);
     const freqs: AudioParam[] = [];
     const links: [AudioNode, AudioParam][] = [];
@@ -769,14 +881,14 @@ export const triangleDing: InstrumentFn = (g, dest, t, _m, _d, v) => {
 export const INSTRUMENTS = {
   kalimba, marimba, musicBox, bell, celesta, steelPan, glock, vibes, epiano,
   guitar, harp, ukulele, pizz, upright,
-  flute, whistle, ocarina, clarinet, cello, fiddle, accordion, pad, softBass, drone, glass,
+  flute, whistle, ocarina, clarinet, oboe, cello, fiddle, accordion, pad, softBass, drone, glass,
   shaker, woodblock, bodhran, tambourine, softKick, brush, conga, triangleDing, ride,
 } satisfies Record<string, InstrumentFn>;
 
 export type InstrumentName = keyof typeof INSTRUMENTS;
 
 /** Which instruments sustain (get legato glides, no strums). */
-export const SUSTAINED: ReadonlySet<InstrumentName> = new Set(['flute', 'whistle', 'ocarina', 'clarinet', 'cello', 'fiddle', 'accordion', 'pad', 'softBass', 'drone']);
+export const SUSTAINED: ReadonlySet<InstrumentName> = new Set(['flute', 'whistle', 'ocarina', 'clarinet', 'oboe', 'cello', 'fiddle', 'accordion', 'pad', 'softBass', 'drone']);
 
 /** Seconds a note keeps sounding after its written end (voice budget). */
 export const TAIL: Partial<Record<InstrumentName, number>> = {
@@ -803,6 +915,15 @@ function bodyInsert(kind: BodyKind, wet: number, dry: number): (g: AudioGraph, o
 export const INSERTS: Partial<Record<InstrumentName, (g: AudioGraph, out: AudioNode) => AudioNode>> = {
   cello: bodyInsert('cello', 0.8, 0),
   fiddle: bodyInsert('violin', 0.8, 0),
+  // Oboe: the double reed's nasal formants (~1.1 kHz and ~2.9 kHz), no rumble.
+  oboe: (g, out) => {
+    const hp = filter(g, 'highpass', 240, 0.7);
+    const f1 = filter(g, 'peaking', 1150, 1.4, 5);
+    const f2 = filter(g, 'peaking', 3000, 1.2, -3);
+    const dip = filter(g, 'peaking', 600, 1.2, -3);
+    hp.connect(dip).connect(f1).connect(f2).connect(out);
+    return hp;
+  },
   pad: (g, out) => {
     const hp = filter(g, 'highpass', 150, 0.6);
     const f1 = filter(g, 'peaking', 400, 1.3, 2.5);

@@ -48,9 +48,10 @@ declare module '../core/events' {
 }
 
 const CSS = /* css */ `
-.hv-dialogue.dlg2 { bottom: 24px; width: min(1120px, calc(100vw - 40px)); gap: 14px; align-items: stretch; }
+.hv-dialogue.dlg2 { bottom: 24px; width: min(1140px, calc(100vw - 40px)); gap: 14px; align-items: flex-end; }
 /* The parchment fills the whole text box; text is anchored top-left so the reading position never moves. */
-.hv-dialogue.dlg2 .dlg-box { min-height: 0; display: flex; flex-direction: column; }
+/* The text box keeps a compact height (3 lines) and sits level with the bottom of the taller portrait card. */
+.hv-dialogue.dlg2 .dlg-box { min-height: 244px; display: flex; flex-direction: column; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; padding: 40px 48px 30px; overflow: hidden;
   box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.35), inset 0 0 0 2px rgba(150, 100, 50, 0.25), inset 0 0 38px rgba(150, 90, 30, 0.2); }
 /* Ink flourishes in the parchment corners + a pressed rule under the text. */
@@ -67,15 +68,15 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2.narr .dlg-side { display: none; }
 .hv-dialogue.dlg2.narr .dlg-speaker { display: none; }
 .hv-dialogue.dlg2.narr .dlg-text { font-style: italic; font-weight: 700; color: #6a4a2a; text-align: center; }
-.hv-dialogue.dlg2 .dlg-side { width: 248px; }
+.hv-dialogue.dlg2 .dlg-side { width: 276px; }
 .hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 10px 10px 10px; gap: 2px; align-content: start; overflow: hidden; }
-.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 222px; height: 222px; margin: 2px 0 0; }
+.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 252px; height: 252px; margin: 2px 0 0; }
 /* Painted-on-canvas finish: a static brush-grain layer (soft light) and a varnish vignette over the art. */
 .hv-dialogue.dlg2 .dlg-portrait::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit;
-  background: var(--dlg-grain, none) 0 0 / 222px 222px; mix-blend-mode: soft-light; opacity: 0.42;
+  background: var(--dlg-grain, none) 0 0 / 252px 252px; mix-blend-mode: soft-light; opacity: 0.42;
   box-shadow: inset 0 0 24px rgba(70, 36, 12, 0.38), inset 0 0 3px rgba(70, 36, 12, 0.5); }
 .hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: -18px; font-size: 23px; padding: 0 18px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
-.hv-dialogue.dlg2 .dlg-role { max-width: 224px; font-size: 12.5px; line-height: 15px; margin-top: 3px; }
+.hv-dialogue.dlg2 .dlg-role { max-width: 250px; font-size: 12.5px; line-height: 15px; margin-top: 2px; }
 .hv-dialogue.dlg2.cine { bottom: calc(7.5vh + 16px); transition: bottom 400ms var(--ease-out); }
 .hv-hud.hv-heartcine .h-clock, .hv-hud.hv-heartcine .hv-toolbar, .hv-hud.hv-heartcine .hv-energy, .hv-hud.hv-heartcine .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }

@@ -1366,7 +1366,7 @@ export class FarmingSystem implements System, FarmingApi {
         this.fx.stream.aim(sp, aim, FLY);
         // Droplets shed along the stream (a rose showers, it doesn't pour a laser): ~30 per pour
         // ride the same ballistic arc, fanned a little, and a fine spray around the landing spot.
-        const want = Math.floor((t - P0) * 70 * (1 + charge * 0.4));
+        const want = Math.floor((t - P0) * 90 * (1 + charge * 0.4));
         while (emitted < want) {
           emitted++;
           const T = rnd(0.28, 0.4);
@@ -2192,7 +2192,7 @@ export class FarmingSystem implements System, FarmingApi {
     const t = this.game.player.facingTile();
     const g = this.grid();
     if (!g) return;
-    const freeze = pose ?? (what === 'wateringCan' ? 0.55 : what === 'harvest' ? 0.72 : what === 'scythe' ? 0.26 : IMPACT.chop + 0.07);
+    const freeze = pose ?? (what === 'wateringCan' ? 0.74 : what === 'harvest' ? 0.72 : what === 'scythe' ? 0.26 : IMPACT.chop + 0.07);
     if (what === 'hoe' || what === 'charge') {
       if (this.isTilled(t.x, t.z)) this.untill(t.x, t.z);
       g.removeObject(t.x, t.z);

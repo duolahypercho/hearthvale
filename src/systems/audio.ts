@@ -27,7 +27,9 @@ import type { Game } from '../core/game';
 import { TileFlag, TileType } from '../world/tiles';
 import { AudioEngine } from '../audio/engine';
 import type { EnvState, AmbSeason, AmbWeather } from '../audio/ambience';
-import { chooseTheme } from '../audio/select';
+import { chooseTheme, songFor } from '../audio/select';
+import { PiecePrefetch } from '../audio/prefetch';
+import { MusicDirector } from '../audio/music';
 import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
 import { voiceFor, type Surface } from '../audio/sfx';
 import { tuneHook } from '../audio/composer';
@@ -37,7 +39,10 @@ import { NowPlaying } from '../audio/nowplaying';
 export interface AudioState {
   running: boolean;
   theme: string | null;
+  /** The song the director is playing / will play for the current selection. */
   wanted: string | null;
+  /** The selection itself: a theme id or a playlist ('farm:spring', 'night:fall'). */
+  group: string | null;
   resting: boolean;
   /** Seconds until the next song may start. */
   restLeft: number;
@@ -150,6 +155,10 @@ export class AudioSystem implements System {
   private card = new NowPlaying();
   private pinCard = false;
   private cardShown: string | null = null;
+  /** Song composer worker, created at boot so the first song is ready before the first click. */
+  private prefetch: PiecePrefetch | null = null;
+  /** Last craft:learned (ms) — a recipe learned with a toast gets the jingle, a silent refresh doesn't. */
+  private learnedAt = -1;
 
   init(game: Game): void {
     this.game = game;
@@ -167,6 +176,9 @@ export class AudioSystem implements System {
     // &card=1 keeps the now-playing card on screen (screenshots); &card=0 never shows it.
     this.pinCard = params.get('card') === '1';
     if (params.get('card') === '0') this.card.disabled = true;
+    // Compose the opening song off the main thread while the save / demo loads.
+    this.prefetch = new PiecePrefetch(true);
+    window.setTimeout(() => this.preload(), 0);
     // Watchdog: keep the score moving even if the game loop stalls (long loads, a throttled tab).
     // It also re-decides the wanted theme, so a scene change staged while frames are starved (a heavy
     // map build on a loaded machine) still hands the music over instead of waiting for the loop.
@@ -209,6 +221,7 @@ export class AudioSystem implements System {
       say: (id, text, x, z) => this.say(id, text, x, z),
       music: (t) => {
         this.forced = t;
+        this.preload();
         this.engine?.music.kick();
       },
       nowPlaying: () => {
@@ -219,7 +232,8 @@ export class AudioSystem implements System {
       state: () => ({
         running: !!this.ctx && this.ctx.state === 'running',
         theme: this.engine?.music.playing ?? null,
-        wanted: this.wanted(),
+        wanted: this.resolved(this.wanted()),
+        group: this.wanted(),
         resting: this.engine?.music.resting ?? false,
         restLeft: Math.round((this.engine?.music.restLeft ?? 0) * 10) / 10,
         env: this.env,
@@ -269,7 +283,9 @@ export class AudioSystem implements System {
     } catch {
       return;
     }
-    this.engine = new AudioEngine(this.ctx, 1);
+    this.engine = new AudioEngine(this.ctx, 1, this.prefetch ?? undefined);
+    const ctx = this.ctx;
+    this.engine.music.onMelody = (at, midi) => this.card.note(midi, at - ctx.currentTime);
     this.engine.music.reseed(this.daySeed());
     this.applyVolumes();
     if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -349,6 +365,9 @@ export class AudioSystem implements System {
     });
     ev.on('ui:toast', ({ kind }) => {
       if (kind === 'bad') this.sfx('ui:error', { gain: 0.6 }, 0.3);
+      // A recipe discovery announces itself with a toast in the same tick; the silent re-learning
+      // that happens when the inventory refreshes (opening the backpack) has none — no jingle then.
+      if (kind === 'good' && performance.now() - this.learnedAt < 30) this.sfx('learn', undefined, 0.3);
     });
 
     // Dialogue: a murmur per typed word in the speaker's voice.
@@ -380,7 +399,9 @@ export class AudioSystem implements System {
     ev.on('mail:read', () => this.sfx('paper', undefined, 0.3));
     ev.on('quest:posted', () => this.sfx('paper', { gain: 0.8 }, 0.5));
     ev.on('quest:accepted', () => this.sfx('learn', { gain: 0.8 }, 0.5));
-    ev.on('craft:learned', () => this.sfx('learn', undefined, 0.3));
+    ev.on('craft:learned', () => {
+      this.learnedAt = performance.now();
+    });
     ev.on('farming:level', () => this.sfx('levelup', undefined, 2));
     ev.on('fishing:level', () => this.sfx('levelup', undefined, 2));
     ev.on('mine:chest', () => this.sfx('chest', undefined, 1));
@@ -425,6 +446,7 @@ export class AudioSystem implements System {
     ev.on('cutscene:cue', ({ cue, arg, instant }) => {
       if (cue === 'music') {
         this.forced = !arg || arg === 'auto' ? null : arg;
+        this.preload();
         return;
       }
       if (instant) return;
@@ -447,7 +469,8 @@ export class AudioSystem implements System {
       this.engine?.music.reseed(this.daySeed());
       this.engine?.music.kick();
       // Morning stinger quotes the tune you're about to hear; a new season gets its whole hook.
-      const th = THEMES[this.wanted() ?? ''];
+      this.preload();
+      const th = THEMES[this.resolved(this.wanted()) ?? ''];
       const hook = th ? tuneHook(th, day === 1 ? 2 : 1) : [];
       if (this.engine && hook.length) {
         const first = hook[0]!.midi;
@@ -497,15 +520,17 @@ export class AudioSystem implements System {
       this.waterT = 0;
       this.lastPos = { x: NaN, z: NaN };
       if (this.demoTheme && this.demoTheme.map !== map) this.demoTheme = null;
+      this.preload();
       if (prev && (INDOOR_MAPS.has(map) || INDOOR_MAPS.has(prev) || this.isIndoor())) this.sfx('door', { gain: 0.8 });
       else if (prev) this.sfx('warp', { gain: 0.7 });
     });
     ev.on('demo:stage', ({ name }) => {
       const map = game.world.current?.id ?? '';
       this.demoTheme = name === 'festival' ? { theme: 'festival', map } : null;
+      this.preload();
       this.engine?.music.kick();
-      if (name === 'audio') {
-        const th = this.forced ?? this.wanted();
+      if (name === 'audio' || name.startsWith('audio-')) {
+        const th = this.resolved(this.forced ?? this.wanted());
         const def = th ? THEMES[th] : null;
         game.hud.banner(def ? `♪ ${def.title}` : '♪ Hearthvale', 'click anywhere to start the sound');
       }
@@ -611,7 +636,7 @@ export class AudioSystem implements System {
     this.footsteps(dt, game);
     if (this.pinCard) {
       // Pinned card (screenshots): show the wanted theme even before the context can start.
-      const w = this.wanted();
+      const w = this.resolved(this.wanted());
       if (w && w !== this.cardShown && THEMES[w]) {
         this.cardShown = w;
         this.card.show(THEMES[w]!, true);
@@ -631,7 +656,7 @@ export class AudioSystem implements System {
     const panel = game.hud.openPanelName ?? '';
     const paused = panel === 'pause' || panel.startsWith('settings');
     let level = 1;
-    if (this.env.night > 0.5 && e.music.desired !== 'night') level *= 0.8;
+    if (this.env.night > 0.5 && !e.music.desired?.startsWith('night')) level *= 0.8;
     if (this.speaking) level *= 0.78;
     if (this.env.indoor) level *= 0.9;
     e.music.setLevel(level);
@@ -683,6 +708,32 @@ export class AudioSystem implements System {
     else if (beat === 1) api.playAt('emote:heart', x, z);
     else if (beat === 2) api.say('player:2', 'Morning! The turnips look great today', x, z);
     else api.playAt('water', x, z);
+  }
+
+  /** The concrete song a selection (theme or playlist) resolves to right now. */
+  private resolved(want: string | null): string | null {
+    if (!want) return null;
+    return this.engine ? this.engine.music.resolve(want) : songFor(want, this.daySeed(), 0);
+  }
+
+  /**
+   * Ask the worker for the song the game will want next (boot, map change, new day, forced themes
+   * from demos and cutscenes), so starting it never composes on the frame.
+   */
+  private preload(): void {
+    try {
+      const want = this.wanted();
+      if (!want) return;
+      if (this.engine) {
+        this.engine.music.prefetch(want);
+        return;
+      }
+      const id = songFor(want, this.daySeed(), 0);
+      const th = THEMES[id];
+      if (th) this.prefetch?.request(th, MusicDirector.seedFor(this.daySeed(), id, 0));
+    } catch {
+      /* the world may not be built yet */
+    }
   }
 
   /** Pick the theme for the moment and tell the director how to hand over to it. */

@@ -91,7 +91,7 @@ export async function renderTheme(id: string, seconds = 30, sr = 44100, seed = 1
   const buf = await render(seconds, sr, (g) => {
     scheduleTheme(g, id, seconds, seed, solo);
     notes = new Composer(THEMES[id]!, seed).compose().events.filter((e) => e.t < seconds).length;
-    const env = MIX_ENV[id] ?? (id.startsWith('festival') ? MIX_ENV.festival! : MIX_ENV.spring!);
+    const env = MIX_ENV[id] ?? MIX_ENV[id.split('-')[0]!] ?? MIX_ENV.spring!;
     if (withAmbience) tickAmbience(g, { ...env, key: THEMES[id]!.key }, seconds);
   });
   return { name: solo ? `stem-${id}-${solo}` : withAmbience ? `mix-${id}` : `theme-${id}`, sampleRate: sr, data: encode(buf), frames: buf.length, notes };
@@ -145,8 +145,9 @@ export async function renderSfxReel(sr = 44100): Promise<Rendered> {
 /**
  * The live state machine, offline: a MusicDirector ticked every 100 ms through OfflineAudioContext
  * suspend points, wanting `from` until `at` seconds and then `to` (a same-place mood drift by
- * default: phrase-quantised handoff; `move` = change of place). The render shows that the two
- * pieces never overlap. Markers: the change request and the director's trace.
+ * default: the handoff waits for the phrase end; `move` = change of place, crossfade at once). The
+ * render shows the bridged crossfade: no dead air, the new song opening on shared tones.
+ * Markers: the change request and the director's trace.
  */
 export async function renderTransition(from: string, to: string, at = 14, seconds = 30, handoff: 'drift' | 'move' = 'drift', sr = 44100): Promise<Rendered> {
   const ctx = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);

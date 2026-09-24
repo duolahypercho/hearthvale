@@ -58,35 +58,95 @@ export const mtof = (m: number): number => 440 * Math.pow(2, (m - 69) / 12);
 export const dbToGain = (db: number): number => Math.pow(10, db / 20);
 export const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
 
-/** White / pink / brown noise buffers (mono, looping-friendly). */
-export function makeNoise(ctx: BaseAudioContext, seconds: number, color: 'white' | 'pink' | 'brown', rng: Rand): AudioBuffer {
+/**
+ * White / pink / brown noise buffers, looping-friendly. Mono by default; with `corr` a stereo
+ * buffer whose right channel shares that much of the left's source (0 = independent, 1 = mono):
+ * ambience beds use ~0.3 so rain, surf and wind fill the stereo field instead of sitting in the
+ * middle of the head.
+ */
+export function makeNoise(ctx: BaseAudioContext, seconds: number, color: 'white' | 'pink' | 'brown', rng: Rand, corr?: number): AudioBuffer {
   const len = Math.floor(ctx.sampleRate * seconds);
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = buf.getChannelData(0);
-  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, last = 0;
+  const stereo = corr !== undefined;
+  const buf = ctx.createBuffer(stereo ? 2 : 1, len, ctx.sampleRate);
+  const chans = stereo ? [buf.getChannelData(0), buf.getChannelData(1)] : [buf.getChannelData(0)];
+  const c = clamp(corr ?? 1, 0, 1);
+  const k = Math.sqrt(1 - c * c);
+  const st = chans.map(() => ({ b0: 0, b1: 0, b2: 0, b3: 0, b4: 0, b5: 0, b6: 0, last: 0 }));
   for (let i = 0; i < len; i++) {
-    const w = rng.next() * 2 - 1;
-    if (color === 'white') d[i] = w;
-    else if (color === 'pink') {
-      // Paul Kellet's refined pink filter.
-      b0 = 0.99886 * b0 + w * 0.0555179;
-      b1 = 0.99332 * b1 + w * 0.0750759;
-      b2 = 0.969 * b2 + w * 0.153852;
-      b3 = 0.8665 * b3 + w * 0.3104856;
-      b4 = 0.55 * b4 + w * 0.5329522;
-      b5 = -0.7616 * b5 - w * 0.016898;
-      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
-      b6 = w * 0.115926;
-    } else {
-      last = (last + 0.02 * w) / 1.02;
-      d[i] = last * 3.5;
+    const w1 = rng.next() * 2 - 1;
+    const w2 = stereo ? rng.next() * 2 - 1 : 0;
+    for (let ch = 0; ch < chans.length; ch++) {
+      const w = ch === 0 ? w1 : c * w1 + k * w2;
+      const z = st[ch]!;
+      const d = chans[ch]!;
+      if (color === 'white') d[i] = w;
+      else if (color === 'pink') {
+        // Paul Kellet's refined pink filter.
+        z.b0 = 0.99886 * z.b0 + w * 0.0555179;
+        z.b1 = 0.99332 * z.b1 + w * 0.0750759;
+        z.b2 = 0.969 * z.b2 + w * 0.153852;
+        z.b3 = 0.8665 * z.b3 + w * 0.3104856;
+        z.b4 = 0.55 * z.b4 + w * 0.5329522;
+        z.b5 = -0.7616 * z.b5 - w * 0.016898;
+        d[i] = (z.b0 + z.b1 + z.b2 + z.b3 + z.b4 + z.b5 + z.b6 + w * 0.5362) * 0.11;
+        z.b6 = w * 0.115926;
+      } else {
+        z.last = (z.last + 0.02 * w) / 1.02;
+        d[i] = z.last * 3.5;
+      }
     }
   }
   // Crossfade the loop seam (50 ms) so looping sources never click.
   const fade = Math.min(len >> 2, Math.floor(ctx.sampleRate * 0.05));
-  for (let i = 0; i < fade; i++) {
-    const k = i / fade;
-    d[i] = d[i]! * k + d[len - fade + i]! * (1 - k);
+  for (const d of chans) {
+    for (let i = 0; i < fade; i++) {
+      const q = i / fade;
+      d[i] = d[i]! * q + d[len - fade + i]! * (1 - q);
+    }
+  }
+  return buf;
+}
+
+/**
+ * Rain on leaves, roofs and puddles as a loopable stereo texture: `perSecond` individual drops,
+ * each a tiny tick plus a damped resonant ping (2–8 kHz, log-spread; a few big drops plop lower on
+ * puddles, their pitch falling), scattered across the stereo field with equal-power panning.
+ * Rendered once; the ambience loops it and rides its level, so a downpour costs one buffer source.
+ */
+export function makeRain(ctx: BaseAudioContext, seconds: number, perSecond: number, rng: Rand): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const len = Math.floor(sr * seconds);
+  const buf = ctx.createBuffer(2, len, sr);
+  const L = buf.getChannelData(0);
+  const R = buf.getChannelData(1);
+  const n = Math.round(perSecond * seconds);
+  for (let d = 0; d < n; d++) {
+    const at = Math.floor(rng.next() * len);
+    const pan = rng.next() * 2 - 1;
+    const gl = Math.cos(((pan + 1) * Math.PI) / 4);
+    const gr = Math.sin(((pan + 1) * Math.PI) / 4);
+    const big = rng.next() < 0.07;
+    const amp = (big ? 0.28 : 0.1 + 0.3 * Math.pow(rng.next(), 2.2)) * (0.6 + 0.4 * rng.next());
+    const f0 = big ? 700 + rng.next() * 900 : 2000 * Math.pow(4, rng.next());
+    const tau = big ? 0.012 + rng.next() * 0.01 : 0.0007 + rng.next() * 0.0022;
+    const m = Math.floor(tau * 6 * sr);
+    let ph = rng.next();
+    let lpN = 0;
+    for (let i = 0; i < m; i++) {
+      const t = i / sr;
+      const env = Math.exp(-t / tau);
+      // Big drops: the bubble's pitch rises as it closes (the "plink" of a puddle).
+      const f = big ? f0 * (1 + 1.6 * (1 - env)) : f0;
+      ph += f / sr;
+      const ping = Math.sin(2 * Math.PI * ph) * env;
+      // Impact tick: a few samples of bright noise.
+      lpN += 0.6 * ((rng.next() * 2 - 1) - lpN);
+      const tick = i < 12 ? (rng.next() * 2 - 1 - lpN) * (1 - i / 12) * 0.7 : 0;
+      const v = (ping * (big ? 0.8 : 0.55) + tick) * amp;
+      const j = (at + i) % len;
+      L[j] = L[j]! + v * gl;
+      R[j] = R[j]! + v * gr;
+    }
   }
   return buf;
 }

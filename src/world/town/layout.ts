@@ -170,7 +170,7 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'dock', x: 62.6, z: 36.6, rot: Math.PI },
   { kind: 'rowboat', x: 62.9, z: 39.6, rot: 0.5 },
   { kind: 'easel', x: 60.1, z: 22.3, rot: -Math.PI / 2 + 0.2, solid: [[60, 22]] },
-  { kind: 'easel', x: 25.3, z: 21.6, rot: Math.PI * 0.95, solid: [[25, 21]] },
+  { kind: 'easel', x: 26.5, z: 23.2, rot: -1.83 },
   // Forge yard.
   { kind: 'barrel', x: 81.6, z: 18.8, solid: [[81, 18]] },
   { kind: 'logpile', x: 73.0, z: 17.2, rot: Math.PI / 2, solid: [[72, 16], [72, 17], [73, 17]] },
@@ -312,7 +312,7 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   market_produce: [50.4, 23.1, 'up'],
   market_flowers: [55.6, 23.2, 'up'],
   easel_river: [59.3, 22.5, 'right'],
-  easel_plaza: [25.4, 22.75, 'up'],
+  easel_plaza: [25.4, 22.9, 1.3],
   bridge_mid: [64.4, 26.25, 'down'],
   river_dock: [61.3, 36.6, 'right'],
   river_walk: [58.6, 31.6, 'right'],

@@ -82,14 +82,17 @@ export class CoopDemo {
         if (b.step % 2 === 0) {
           // walk one tile east
           const tx = 23.5 + Math.floor(b.step / 2);
-          b.x = Math.min(tx, b.x + dt * 2.2);
+          b.x = Math.min(tx, b.x + dt * 3);
           b.facing = 'right';
-          b.p.farmer.speed = 2.2;
+          b.p.farmer.speed = 3;
           if (b.x >= tx) {
             b.step++;
             b.t = 0;
           }
-        } else if (b.t > 0.2) {
+        } else if (b.t < 0.6) {
+          // a beat facing the camera, hoe ready
+          b.facing = 'down';
+        } else {
           b.facing = 'down';
           this.act(b, 'hoe', Math.floor(b.x), BED_Z);
           b.step = (b.step + 1) % 8;
@@ -99,12 +102,26 @@ export class CoopDemo {
       // Pip: an armful of parsnips, strolling down the path toward the shipping bin (and back).
       mk(1, 31.2, 20.6, 'down', (b, dt) => {
         b.t += dt;
-        const down = b.step === 0;
-        b.facing = down ? 'down' : 'up';
-        b.z += (down ? 1 : -1) * dt * 1.7;
-        b.p.farmer.speed = 1.7;
-        if (down && b.z >= 26.2) b.step = 1;
-        else if (!down && b.z <= 20.6) b.step = 0;
+        if (b.step === 0) {
+          // down the path toward the camera…
+          b.facing = 'down';
+          b.z += dt * 1.7;
+          b.p.farmer.speed = 1.7;
+          if (b.z >= 26.2) {
+            b.step = 1;
+            b.t = 0;
+          }
+        } else if (b.step === 1) {
+          // …a breather at the bottom…
+          b.facing = 'down';
+          if (b.t > 2.2) b.step = 2;
+        } else {
+          // …and a quick trot back up.
+          b.facing = 'up';
+          b.z -= dt * 3.2;
+          b.p.farmer.speed = 3.2;
+          if (b.z <= 20.6) b.step = 0;
+        }
       }),
       // Rowan: by their cabin, chatting and emoting at the others.
       mk(2, 20.3, 24.1, 'down', (b) => {

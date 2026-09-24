@@ -1,7 +1,7 @@
 /**
  * Mixer graph. Works on AudioContext and OfflineAudioContext alike.
  *
- *   music players ──► musicBus ──► duck ──► tone (muffle) ──► EQ (-2 dB @250, +2 dB @3k, +2.5 dB shelf @7k) ─┐
+ *   music players ──► musicBus ──► duck ──► tone (muffle) ──► EQ (-3 dB @280, +2 dB @3.2k, +3 dB shelf @7k) ─┐
  *   ambience      ──► ambBus ─────────────────────────────────────────────────────────────────────┤
  *   sfx           ──► sfxBus ─────────────────────────────────────────────────────────────────────┼─► mix ─► glue ─► limiter ─► soft clip ─► out
  *   ui / voices   ──► uiBus ──────────────────────────────────────────────────────────────────────┘
@@ -38,6 +38,10 @@ export class AudioGraph {
   readonly white: AudioBuffer;
   readonly pink: AudioBuffer;
   readonly brown: AudioBuffer;
+  /** Stereo noise (L/R correlation ~0.3) for the ambience beds. */
+  readonly whiteSt: AudioBuffer;
+  readonly pinkSt: AudioBuffer;
+  readonly brownSt: AudioBuffer;
   readonly rng: Rand;
   private buffers = new Map<string, AudioBuffer>();
   private lfos = new Map<number, OscillatorNode>();
@@ -101,9 +105,9 @@ export class AudioGraph {
     this.uiBus = g(0.7);
     this.musicTone = bq('lowpass', 20000, 0.5);
     // Music EQ: clear the 250 Hz mud, open the top (the synthesised ensemble reads dull without it).
-    const mud = bq('peaking', 250, 0.8, -2);
-    const presence = bq('peaking', 3000, 0.6, 2);
-    const air = bq('highshelf', 7000, 0.7, 2.5);
+    const mud = bq('peaking', 280, 0.9, -3);
+    const presence = bq('peaking', 3200, 0.7, 2);
+    const air = bq('highshelf', 7000, 0.7, 3);
     this.musicBus.connect(this.duck).connect(this.musicTone).connect(mud).connect(presence).connect(air).connect(this.mix);
     this.ambBus.connect(this.ambRest).connect(this.mix);
     this.sfxBus.connect(this.mix);
@@ -113,6 +117,9 @@ export class AudioGraph {
     this.white = makeNoise(ctx, 3, 'white', r);
     this.pink = makeNoise(ctx, 4, 'pink', r);
     this.brown = makeNoise(ctx, 4, 'brown', r);
+    this.whiteSt = makeNoise(ctx, 3, 'white', r, 0.3);
+    this.pinkSt = makeNoise(ctx, 4.3, 'pink', r, 0.3);
+    this.brownSt = makeNoise(ctx, 4.1, 'brown', r, 0.35);
 
     // Reverbs: warm hall for music, short outdoor "space" for the world, long dark cave.
     const conv = (buf: AudioBuffer): ConvolverNode => {

@@ -876,10 +876,13 @@ export function buildFallsRocks(rng: Rng, lip: THREE.Vector3, pool: THREE.Vector
   // a low mossy hump) + a few small rim stones — not a row of identical blobs.
   const pool3: [number, number, number, { elong: number; squash: number; lumpy: number; strata: number }, number][] = [
     [-2.5, 0.4, 0.78, { elong: 1.35, squash: 1.18, lumpy: 0.1, strata: 1.4 }, 0.5],
-    [1.6, 1.4, 0.82, { elong: 1.7, squash: 0.46, lumpy: 0.12, strata: 1.1 }, 2.2],
-    [-0.4, 2.9, 0.5, { elong: 1.1, squash: 0.72, lumpy: 0.2, strata: 0.6 }, 4.0],
+    [1.6, 1.4, 0.82, { elong: 1.45, squash: 0.64, lumpy: 0.14, strata: 1.1 }, 2.2],
+    [-0.4, 2.9, 0.5, { elong: 1.1, squash: 0.86, lumpy: 0.2, strata: 0.6 }, 4.0],
   ];
-  for (const [dx, dz, r, o, rot] of pool3) b.add(rock, smoothRock(rng, r, { detail: 3, ...o }), mat(pool.x + dx, pool.y - 0.28, pool.z + dz, (rng.next() - 0.5) * 0.12, rot, (rng.next() - 0.5) * 0.12));
+  // Each stands clear of the surface (grey flanks + a wet waterline showing), never a flat green
+  // lid lying awash at water level.
+  const sink = [0.28, 0.12, 0.1];
+  pool3.forEach(([dx, dz, r, o, rot], i) => b.add(rock, smoothRock(rng, r, { detail: 3, ...o }), mat(pool.x + dx, pool.y - sink[i]!, pool.z + dz, (rng.next() - 0.5) * 0.12, rot, (rng.next() - 0.5) * 0.12)));
   for (const [dx, dz, r] of [[3.7, -0.9, 0.42], [-3.9, -1.3, 0.38], [3.0, 3.1, 0.34], [-3.3, 2.6, 0.3]] as const) {
     b.add(rock, smoothRock(rng, r, { detail: 2, strata: 0.8 }), mat(pool.x + dx, pool.y - 0.12, pool.z + dz, 0, rng.next() * 6, 0));
   }

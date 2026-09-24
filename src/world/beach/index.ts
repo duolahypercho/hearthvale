@@ -45,7 +45,7 @@ import {
   BeachShape,
 } from './layout';
 import { addBeachRock, beachRockMaterial } from './rocks';
-import { buildShelf, buildAlgaeTufts } from './shelf';
+import { buildShelf, buildAlgaeTufts, shelfTopAt } from './shelf';
 import { SeaProps, LampPools } from './sea';
 import { createOcean, createHorizonClouds, setOceanPilings, setOceanLamps, createPoolWater } from './ocean';
 import { applyBeachSand } from './sand';
@@ -92,6 +92,8 @@ export class BeachMap implements GameMap {
   readonly warps: MapWarp[] = BEACH_WARPS;
   /** Sea level (read by the fishing system for the float height). */
   readonly waterLevel = SEA_LEVEL;
+  /** No tumbling green leaves over the open sea (weather's wind gusts): only wind ribbons / spray read here. */
+  readonly leafGusts = 0;
   readonly terrain: Terrain;
   readonly grass: GrassField;
   readonly shape: BeachShape;
@@ -366,12 +368,13 @@ export class BeachMap implements GameMap {
 
   private buildTidePools(): void {
     // Clear, still pool water (the ocean shader in pool mode); the terrain's rim lip hides the edge.
-    // Water only over the pool bowls (never a sheet hanging past a lip).
+    // Water over each bowl out past the waterline: the slab's rolled shoulder (above the water) hides
+    // the sheet's grid edge, so the visible pool edge is the smooth, per-pixel waterline.
     const S = this.shape;
-    const w = createPoolWater(this.terrain, TIDE_POOL_Y, { x0: 2, z0: 39, x1: 19, z1: 53 }, (x, z) => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.05) && S.height(x, z) < TIDE_POOL_Y + 0.04);
+    const w = createPoolWater(this.terrain, TIDE_POOL_Y, { x0: 2, z0: 39, x1: 19, z1: 53 }, (x, z) => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.28));
     this.root.add(w);
-    this.root.add(buildShelf(S, this.rng.fork('shelf').seed));
-    const algae = buildAlgaeTufts(S, this.rng.fork('algae'), (x, z) => S.height(x, z) + 0.05);
+    this.root.add(buildShelf(S, this.rng.fork('shelf').seed, (x, z) => this.terrain.heightAt(x, z)));
+    const algae = buildAlgaeTufts(S, this.rng.fork('algae'), (x, z) => Math.max(S.height(x, z) + 0.05, shelfTopAt(S, this.groundAt, x, z) + 0.02));
     algae.userData.noAO = true;
     this.root.add(algae);
     const life = buildTidePoolLife(this.rng.fork('tidepool'), TIDE_POOLS, (x, z) => this.terrain.heightAt(x, z));
@@ -775,8 +778,15 @@ export class BeachMap implements GameMap {
 
   // ───────────────────────────────────────────── runtime
 
+  private readonly groundAt = (x: number, z: number): number => this.terrain.heightAt(x, z);
+
   heightAt(x: number, z: number): number {
-    const h = this.terrain.heightAt(x, z);
+    let h = this.terrain.heightAt(x, z);
+    // On the tide-pool slab: feet on the stone, which stands a little proud of the coarse ground.
+    if (x > -6 && x < 22 && z > 35 && z < 55) {
+      const wr = this.shape.westRock(x, z);
+      if (wr < 0.1) h = Math.max(h, h + (shelfTopAt(this.shape, this.groundAt, x, z) - h) * smoothstep(0.1, 0.0, wr));
+    }
     return this.onPierDeck(x, z) ? Math.max(h, PIER.deckY) : h;
   }
 

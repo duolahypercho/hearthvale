@@ -36,6 +36,8 @@ export interface SleepAnimals {
   petted: number;
   produce: { item: string; q: number }[];
   pet?: { name: string; species: string; bowl: boolean };
+  /** Tomorrow's chores (ready to milk / shear, eggs in the nests, empty troughs...). */
+  chores?: { icon: string; text: string }[];
 }
 
 declare module '../core/game' {
@@ -120,6 +122,7 @@ export class SleepSystem implements System, SleepApi {
         petted: s.animals.length - s.unpetted,
         produce: s.produce.map((p) => ({ item: p.item, q: p.q })),
         pet: s.pet ? { name: s.pet.name, species: s.pet.species, bowl: s.pet.bowl } : undefined,
+        chores: s.chores?.slice(0, 5),
       };
     });
     game.events.on('player:interact', ({ x, z }) => {

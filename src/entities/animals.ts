@@ -53,6 +53,11 @@ function instantiate(species: Species, variant: number): AnimalModel {
   return { mesh, bones, gait: t.gait, species };
 }
 
+/** Personal space per species (m, world): capsules are padded to at least this radius when separating. */
+const SPACE: Record<Species, number> = { chicken: 0.25, duck: 0.25, goat: 0.4, sheep: 0.42, cow: 0.46, pig: 0.44, dog: 0.3, cat: 0.25 };
+/** Soft personal-space ring round each farmer (m, from the animal's body surface). */
+const FARMER_SPACE = 0.7;
+
 /** Animals currently walking up to the farmer (curiosity is capped so the herd never mobs them). */
 const curiousNow = new Set<AnimalActor>();
 const MAX_CURIOUS = 3;
@@ -98,6 +103,8 @@ export class AnimalActor {
   perched = false;
   /** Where the farmer stands (set by the system each frame; animals step around them). */
   player: THREE.Vector3 | null = null;
+  /** Other farmers on this map (co-op): same personal-space ring as the local farmer. */
+  farmers: readonly THREE.Vector3[] = [];
 
   private b: Record<string, THREE.Bone>;
   private rest: Record<string, Rest> = {};
@@ -415,9 +422,11 @@ export class AnimalActor {
       if (Math.abs(dh) < 0.02) this.faceTo = null;
     }
     if (this.state === 'walk') this.faceTo = null;
-    // Separation: body capsules (long cows vs goats), resolved fully each step (each side takes half),
-    // plus the farmer as a solid obstacle.
+    // Separation: body capsules (long cows vs goats) padded to a per-species personal space, resolved
+    // fully each step (each side takes half; a confined stall animal pushes the other the whole way),
+    // plus a personal-space ring round every farmer on the map.
     const me = this.capsule();
+    const myR = Math.max(me.r, SPACE[this.species]);
     for (const o of neighbours) {
       if (o === this) continue;
       const oc = o.capsule();
@@ -425,24 +434,31 @@ export class AnimalActor {
       let dx = _cp.px - _cp.qx;
       let dz = _cp.pz - _cp.qz;
       let d = Math.hypot(dx, dz);
-      const min = me.r + oc.r;
+      const min = myR + Math.max(oc.r, SPACE[o.species]);
       if (d >= min) continue;
       if (d < 1e-4) {
         dx = Math.sin(this.seed * 7.1);
         dz = Math.cos(this.seed * 7.1);
         d = 1;
       }
-      const push = ((min - d) / d) * 0.5;
+      const push = ((min - d) / d) * (o.confine && !this.confine ? 1 : 0.5);
       this.nudge(dx * push, dz * push, me);
     }
-    if (this.player) {
-      segPoint(me.ax, me.az, me.bx, me.bz, this.player.x, this.player.z, _cp);
-      const dx = _cp.px - this.player.x;
-      const dz = _cp.pz - this.player.z;
+    // Farmers: a soft 0.7 m ring (eased out over a few frames, so a petted animal settles beside the
+    // farmer instead of bouncing), hard at 0.45 m.
+    const ring = (fx: number, fz: number): void => {
+      segPoint(me.ax, me.az, me.bx, me.bz, fx, fz, _cp);
+      const dx = _cp.px - fx;
+      const dz = _cp.pz - fz;
       const d = Math.hypot(dx, dz);
-      const min = me.r + 0.42;
-      if (d < min && d > 1e-4) this.nudge(dx * ((min - d) / d), dz * ((min - d) / d), me);
-    }
+      const soft = me.r + FARMER_SPACE;
+      if (d >= soft || d < 1e-4) return;
+      const hard = me.r + 0.45;
+      const k = d < hard ? (hard - d) / d + Math.min(1, 10 * dt) * ((soft - hard) / d) : Math.min(1, 10 * dt) * ((soft - d) / d);
+      this.nudge(dx * k, dz * k, me);
+    };
+    if (this.player) ring(this.player.x, this.player.z);
+    for (const f of this.farmers) ring(f.x, f.z);
     if (this.confine) {
       const a = this.area;
       this.pos.x = THREE.MathUtils.clamp(this.pos.x, a.x0, a.x1);
@@ -814,6 +830,7 @@ function nameTag(name: string, hearts: number): { tex: THREE.Texture; aspect: nu
 
 const _top = new THREE.Vector3();
 const _cp2 = new THREE.Vector3();
+const _right = new THREE.Vector3(1, 0, 0);
 const easeOutBack = (x: number): number => {
   const c1 = 1.9;
   return 1 + (c1 + 1) * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
@@ -842,7 +859,7 @@ export class AnimalPops {
    * 1.2 s. With `actor` it all rides on the animal's head as it moves.
    */
   heart(at: THREE.Vector3, actor?: AnimalActor, tag?: { name: string; hearts: number }): void {
-    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.45, 0) : at.clone().setY(at.y + 0.45), this.heartMat.clone(), 1.3);
+    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.25, 0) : at.clone().setY(at.y + 0.25), this.heartMat.clone(), 1.3);
     h.actor = actor;
     h.px = 64 / 1080;
     const n = 3 + Math.floor(Math.random() * 3);
@@ -868,7 +885,7 @@ export class AnimalPops {
       const m = new THREE.MeshBasicMaterial({ map: nt.tex, transparent: true, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
       const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.45);
       p.actor = actor;
-      p.px = 40 / 1080;
+      p.px = 46 / 1080;
       p.aspect = nt.aspect;
     }
   }
@@ -926,21 +943,30 @@ export class AnimalPops {
         continue;
       }
       if (p.kind === 'heart') {
-        // 0 → 1.25 → 1 over ~180 ms (ease-out-back), then float up 0.6 m with a gentle sway and fade.
+        // 0 → 1.25 → 1 over ~180 ms (ease-out-back); its bottom tip sits 0.25 m over the head, then it
+        // eases up 0.35 m over 0.6 s with a gentle sway and fades — always reading as *this* animal's heart.
         const o = base ? _cp2.copy(base).add(p.from) : p.from;
         const pt = p.t;
         const pop = pt < 0.18 ? easeOutBack(pt / 0.18) * 1.0 : 1;
-        const rise = 0.6 * (1 - Math.pow(1 - Math.min(1, pt / p.life), 2));
-        p.sprite.position.set(o.x + Math.sin(pt * 6) * 0.05, o.y + 0.35 + rise, o.z);
-        p.sprite.scale.setScalar(Math.max(0.01, (p.px ?? 0.06) * screenK(p.sprite.position) * 1.18 * pop));
+        const rise = 0.35 * (1 - Math.pow(1 - Math.min(1, pt / 0.6), 3));
+        const size = Math.max(0.01, (p.px ?? 0.06) * screenK(o) * 1.18);
+        p.sprite.position.set(o.x + Math.sin(pt * 6) * 0.04, o.y + size * 0.42 + rise, o.z);
+        p.sprite.scale.setScalar(Math.max(0.01, size * pop));
         m.opacity = k > 0.72 ? 1 - (k - 0.72) / 0.28 : 1;
       } else if (p.kind === 'tag') {
-        // Name + heart meter just above the head: springs in, holds 1.2 s, fades.
+        // Name + heart meter beside the heart (camera-right of it, same height): springs in, holds 1.2 s,
+        // fades. Side by side keeps the pair tight over the animal instead of stacking a tall tower.
         const o = base ?? p.from;
         const pop = p.t < 0.16 ? easeOutBack(p.t / 0.16) : 1;
-        p.sprite.position.set(o.x, o.y + 0.22 + Math.min(0.08, p.t * 0.2), o.z);
-        const h = (p.px ?? 0.04) * screenK(p.sprite.position) * pop;
-        p.sprite.scale.set(h * (p.aspect ?? 3), h, 1);
+        const sk = screenK(o);
+        // Constant on screen, a touch larger from far cameras (≥16 px cap height at the pasture framing).
+        const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(0.9 + (sk - 7) * 0.045, 0.9, 1.4) * pop;
+        const heart = (64 / 1080) * sk * 1.18;
+        const w = h * (p.aspect ?? 3);
+        if (camera) _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
+        const side = heart * 0.45 + w * 0.5;
+        p.sprite.position.set(o.x + _right.x * side, o.y + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);
+        p.sprite.scale.set(w, h, 1);
         m.opacity = p.t > 1.2 ? Math.max(0, 1 - (p.t - 1.2) / (p.life - 1.2)) : 1;
       } else if (p.kind === 'z') {
         p.sprite.scale.setScalar(0.12 + k * 0.18);

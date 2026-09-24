@@ -101,8 +101,13 @@ export type SfxName = (typeof SFX_NAMES)[number];
 const TRIM: Record<string, number> = {
   harvest: 0.62, coin: 0.6, craft: 0.6, 'gift:love': 0.5, 'gift:like': 0.7, heart: 0.6, catch: 0.55, 'catch:perfect': 0.55,
   lantern: 0.62, hall: 0.45, treefall: 0.7, purchase: 0.75, ship: 0.8, bite: 0.8, sleep: 0.8, morning: 0.8,
-  swing: 3.6, 'axe:miss': 6, warp: 4.4, eat: 4, plant: 2.2, sword: 3.2, scythe: 3.4, weed: 2.4, splash: 1.8, water: 1.3,
-  'ui:select': 1.6, 'ui:toggle': 1.6, giant: 0.7, reel: 1.4, crow: 1.2,
+  swing: 3.6, 'axe:miss': 6, warp: 4.4, eat: 4, plant: 4, sword: 3.2, scythe: 10, weed: 2.4, splash: 1.8,
+  'ui:toggle': 1.6, giant: 0.7, reel: 1.4, crow: 1.2,
+  // Round 4 hierarchy (in-game probe: watering and walking were lost under birdsong while menus
+  // were louder than tools). Gameplay verbs peak around -18…-22 dBFS in game, UI -24…-28, ambience
+  // events at or below -30: watering +14.6 dB (plus a soil-splash transient), scythe +9.4 dB, menu
+  // open / close -5 / -4 dB, hover +10 dB, select (talking to a villager) +8 dB.
+  water: 7, 'ui:open': 0.56, 'ui:close': 0.63, 'ui:hover': 5, 'ui:select': 4,
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
   'ui:click': 1.8, 'ui:tick': 1.8,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
@@ -208,9 +213,13 @@ export class Sfx {
   step(surface: Surface, o?: SfxOpts): void {
     this.stepSide = -this.stepSide;
     // Per-surface trims level the set (reel analysis: wood knocked ~12 dB over dirt / stone).
-    const trim = surface === 'wood' ? 0.4 : surface === 'grass' ? 0.8 : 1;
-    const { d, t } = this.bus({ ...o, pan: (o?.pan ?? 0) + this.stepSide * 0.06, gain: (o?.gain ?? 1) * trim * this.v(1.45) });
+    // +6.5 dB over round 3 (steps were buried under the dawn chorus), sand / snow / shallow water
+    // brought up to the set.
+    const trim = surface === 'wood' ? 0.4 : surface === 'grass' ? 0.8 : surface === 'sand' ? 1.5 : surface === 'snow' || surface === 'water' ? 1.8 : 1;
+    const { d, t } = this.bus({ ...o, pan: (o?.pan ?? 0) + this.stepSide * 0.06, gain: (o?.gain ?? 1) * trim * this.v(1.45 * 2.1) });
     const k = 0.9 + this.rng.next() * 0.2;
+    // Sole scuff: a short 2–4 kHz grain on every surface — the part that cuts through birdsong.
+    if (surface !== 'water') this.noise(d, t + 0.004, { f: 2900 * k, q: 1.3, amp: surface === 'wood' ? 0.05 : 0.07, attack: 0.003, tau: 0.014, buf: this.g.pink });
     switch (surface) {
       case 'grass':
         this.noise(d, t, { f: 1300 * k, q: 0.7, amp: 0.2, attack: 0.008, tau: 0.03, buf: this.g.pink });
@@ -326,6 +335,14 @@ export class Sfx {
           this.tone(d, t + tt, { f0: f, f1: f * 1.5, glide: 0.02, amp: 0.035 * (1 - tt / dur), tau: 0.012 });
         }
         this.noise(d, t + dur * 0.7, { type: 'lowpass', f: 1100, amp: 0.12, attack: 0.05, tau: 0.12, buf: this.g.pink });
+        // The stream hits the soil: a soft wet slap, then a spatter of droplets bouncing off it.
+        const hit = t + 0.1;
+        this.noise(d, hit, { f: 900, f1: 420, q: 0.9, amp: 0.16, attack: 0.004, tau: 0.045, buf: this.g.pink });
+        this.noise(d, hit, { f: 3200, q: 1.1, amp: 0.05, attack: 0.002, tau: 0.02 });
+        for (let i = 0; i < 6; i++) {
+          const f = 1400 + r.next() * 2400;
+          this.tone(d, hit + 0.02 + r.next() * 0.25, { f0: f, f1: f * 1.35, glide: 0.015, amp: 0.028, tau: 0.008 });
+        }
         break;
       }
       case 'axe':

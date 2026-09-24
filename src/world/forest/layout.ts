@@ -23,7 +23,18 @@ export const POOL = { x: 15.6, z: 22.2, r: 4.4 };
 export const GLADE = { x: 51, z: 19.5, r: 7.2 };
 export const SHRINE = { x: 51.2, z: 18.6 };
 export const TOWER = { x: 56.8, z: 13.6 };
-export const BRIDGE = { x: 38.6, z: 39.2, rot: -0.72, len: 5.4 };
+/**
+ * Footbridge on the main trail. It SPANS the stream: its local +X (the deck) runs perpendicular to
+ * the stream tangent at the crossing (segment [36.6, 37.6] → [40.2, 40.8]), so both abutments bear
+ * on dry bank (stream half-width 1.25 → 1.45 m of bearing each side at len 5.6).
+ */
+const _bt = { x: 40.2 - 36.6, z: 40.8 - 37.6 };
+const _bl = Math.hypot(_bt.x, _bt.z);
+/** Unit vector along the deck (world XZ), north-east bank → south-west bank. */
+export const BRIDGE_DIR = { x: _bt.z / _bl, z: -_bt.x / _bl };
+export const BRIDGE = { x: 38.5, z: 39.25, rot: Math.atan2(-BRIDGE_DIR.z, BRIDGE_DIR.x), len: 5.6 };
+/** Trail points just off each end of the deck (the path runs straight onto it). */
+const bEnd = (s: number, k: number): [number, number] => [BRIDGE.x + BRIDGE_DIR.x * s * (BRIDGE.len / 2 + k), BRIDGE.z + BRIDGE_DIR.z * s * (BRIDGE.len / 2 + k)];
 
 /** Lower stream centreline: plunge pool → south-east exit. */
 export const STREAM: [number, number][] = [
@@ -36,9 +47,9 @@ export const UPPER_STREAM: [number, number][] = [
 
 /** Paths (Catmull-Rom). 0 main trail, 1 pool spur, 2 south loop, 3 hidden deer path to the glade. */
 export const PATHS: [number, number][][] = [
-  [[32.5, -6], [32.6, 3], [32.1, 9.5], [33.4, 16.5], [34.4, 23.5], [36.2, 30.5], [BRIDGE.x - 1.9, BRIDGE.z - 2.2], [BRIDGE.x + 1.9, BRIDGE.z + 2.2], [42.6, 46], [41.6, 52.5], [37.5, 57.5]],
+  [[32.5, -6], [32.6, 3], [32.1, 9.5], [33.4, 16.5], [34.4, 23.5], [37.0, 30.4], bEnd(1, 1.6), bEnd(1, 0.3), bEnd(-1, 0.3), bEnd(-1, 1.6), [37.2, 46.2], [39.6, 52.2], [37.5, 57.5]],
   [[34.1, 22.2], [29.4, 23.6], [24.4, 24.6], [21.3, 25.4]],
-  [[42.6, 46], [48.6, 44.4], [53.5, 42.2]],
+  [[37.4, 46.0], [42.8, 46.6], [48.6, 44.4], [53.5, 42.2]],
   [[34.0, 15.2], [38.6, 14.8], [42.4, 17.2], [45.2, 18.4], [GLADE.x - 1.6, GLADE.z + 0.4]],
 ];
 export const PATH_WIDTH = [1.2, 0.8, 0.75, 0.55];
@@ -76,10 +87,10 @@ export const GIANTS: [GiantKind, number, number, number][] = [
  */
 export const STAGE_SPOTS: [number, number, number][] = [
   [21.0, 23.4, 1.4], // forest-day fishing bank
-  [36.3, 32.4, 1.2], // forest-rain / forest-wind trail
+  [38.5, 32.3, 1.2], // forest-rain / forest-wind trail
   [18.8, 35.8, 1.4], // storm meadow
   [35.6, 34.4, 1.2], // snow-day stream bank
-  [41.4, 45.0, 1.3], // fog-morning bridge bank
+  [41.2, 35.4, 1.3], // fog-morning bridge bank
   [24.2, 24.8, 1.2], // rainbow pool spur
   [50.6, 23.8, 1.2], // glade
   [17.4, 37.2, 2.4], // coop-forest meadow

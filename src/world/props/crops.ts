@@ -1400,7 +1400,7 @@ export function produceGeometry(id: CropId): THREE.BufferGeometry {
   };
   switch (id) {
     case 'parsnip': {
-      add(rootVeg(0.27, 0.068, C(0xe9cb8a), C(0xb88e56), r, 0.03));
+      add(rootVeg(0.27, 0.068, C(0xdcb170), C(0x9a6c3c), r, 0.03));
       // Leafy crown: stalks fanning out of the shoulder, serrated blades.
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2 + r.next() * 0.4;

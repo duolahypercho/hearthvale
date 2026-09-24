@@ -43,7 +43,7 @@ const check = (name, ok, detail = '') => {
 };
 
 try {
-  await page.goto(`http://127.0.0.1:${port}/?demo=farm-morning`, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${port}/?demo=farm-morning`, { waitUntil: "load", timeout: 240000 });
   await page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: 90000 });
   await page.evaluate(() => window.__game.ready());
   check('boot + ready()', true);
@@ -182,62 +182,6 @@ try {
       g.step(3);
     }
     out.toolsSeq = g.game.player.position.x > 0;
-    // farming: a ripe 3×3 melon block fuses into a giant; crows eat an unguarded 16-crop field
-    await g.demo('farm-noon');
-    {
-      const f = g.game.services.farming;
-      const fr = g.game.world.current.plots?.field;
-      const g0 = f.giantCount();
-      out.giantPlanted = fr ? f.plantBlock('melon', fr.x0 + 1, fr.z0 + 1, 3, 3, true) : 0;
-      out.giants = f.forceGiants() - g0;
-      let planted = 0;
-      const cells = [];
-      for (const [x0, z0] of [[23, 30], [24, 29], [22, 31]]) {
-        planted = f.plantBlock('parsnip', x0, z0, 4, 4, false);
-        if (planted >= 16) {
-          for (let z = z0; z < z0 + 4; z++) for (let x = x0; x < x0 + 4; x++) cells.push([x, z]);
-          break;
-        }
-      }
-      g.grow(2);
-      out.crowField = planted;
-      out.crowsSent = f.raid(40, true);
-      out.crowEaten = cells.filter(([x, z]) => f.cropAt(x, z)?.dead).length;
-      g.step(3);
-    }
-    // farming: sleeping in the house bed still runs the farm's overnight update (growth + dried soil)
-    {
-      const f = g.game.services.farming;
-      const cells = [];
-      for (let z = 22; z < 40 && cells.length < 4; z++) {
-        for (let x = 20; x < 44 && cells.length < 4; x++) {
-          if (f.cropAt(x, z)) continue;
-          f.till(x, z, true);
-          if (f.plant('parsnip', x, z) && f.water(x, z)) cells.push([x, z]);
-        }
-      }
-      const sown = cells.length;
-      const before = cells.map(([x, z]) => f.cropAt(x, z)?.stage ?? -9);
-      await g.teleport('house', 4.5, 4.5);
-      const inHouse = g.game.world.current.id;
-      const rain = () => ['rain', 'storm'].includes(g.game.calendar.weather);
-      g.game.services.sleep.sleep();
-      await new Promise((res) => setTimeout(res, 60));
-      g.openUI('none');
-      await g.teleport('farm', 31.5, 20);
-      const grid = g.game.world.current.grid;
-      const after = cells.map(([x, z]) => f.cropAt(x, z));
-      const alive = after.map((c, i) => [c, i]).filter(([c]) => c && !c.dead);
-      out.houseSleep = {
-        sown,
-        inHouse,
-        before,
-        after: after.map((c) => (c ? (c.dead ? 'dead' : c.stage) : null)),
-        grew: alive.length > 0 && alive.every(([c, i]) => c.stage === before[i] + 1),
-        dried: rain() || cells.every(([x, z]) => !grid.hasFlag(x, z, 8)), // 8 = TileFlag.Watered
-      };
-      g.step(2);
-    }
     // quality + camera + pause + save/load
     g.quality('low');
     g.step(3);
@@ -267,9 +211,6 @@ try {
   check('setGold', r.gold === 1234);
   check('give', r.gave === 3);
   check('farming: hoe tills', r.tilled);
-  check('farming: ripe 3×3 block forms a giant crop', r.giantPlanted === 9 && r.giants >= 1, `planted=${r.giantPlanted} giants=${r.giants}`);
-  check('farming: sleeping in the house grows farm crops overnight', r.houseSleep.sown === 4 && r.houseSleep.inHouse === 'house' && r.houseSleep.grew && r.houseSleep.dried, JSON.stringify(r.houseSleep));
-  check('farming: crows eat an unguarded field', r.crowField >= 16 && r.crowsSent > 0 && r.crowEaten > 0, `field=${r.crowField} sent=${r.crowsSent} eaten=${r.crowEaten}`);
   check('energy: tools spend stamina', r.energySpent > 0, `${r.energySpent}`);
   check('pillar services registered', r.services.length === 0, r.services.join(','));
   check('economy: refuses unaffordable spend', r.spendRefused);

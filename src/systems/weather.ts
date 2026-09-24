@@ -74,6 +74,7 @@ function flashEnvelope(t: number): number {
 const _buf = new THREE.Vector2();
 /** Strength of a natural (random) morning mist on a sunny day: a light haze, not the fog-morning bank. */
 const MORNING_HAZE = 0.16;
+type GameMapTerrain = NonNullable<Game['world']['current']>['terrain'];
 
 function hash01(n: number): number {
   const h = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -251,7 +252,7 @@ export class WeatherSystem implements System, WeatherApi {
   }
 
   private stageDemo(name: string): void {
-    this.fogOverride = name === 'fog-morning' ? 1 : null;
+    this.fogOverride = name === 'fog-morning' || name === 'fog-bridge' ? 1 : null;
     this.rainbowOverride = name === 'rainbow' ? 1 : null;
     this.readUrl();
     // Demos jump the clock: settle the atmosphere now instead of fading in from the boot hour.
@@ -390,9 +391,10 @@ export class WeatherSystem implements System, WeatherApi {
     // ~1 morning in 4 (1 in 2 in fall) wakes up to ground mist, burning off by 9:30.
     const seasonK = { spring: 0.3, summer: 0.18, fall: 0.5, winter: 0.25 }[c.season];
     if (hash01(c.year * 1000 + c.day * 13 + c.season.length * 101) > seasonK) return 0;
-    // On an ordinary sunny day this is only a light low haze (fields and crops stay readable); the
-    // dense ground fog is reserved for the explicit fog staging (`?demo=fog-morning` / `&fog=1`).
-    return MORNING_HAZE * (1 - THREE.MathUtils.smoothstep(h, 8, 9.6));
+    // Thickest at dawn, thinning from 7:30, gone by 9:00. On an ordinary sunny day this is only a
+    // light low haze (fields and crops stay readable); the dense ground fog is reserved for the
+    // explicit fog staging (`?demo=fog-morning` / `&fog=1` → `fogOverride`).
+    return MORNING_HAZE * (1 - THREE.MathUtils.smoothstep(h, 7.5, 9.0));
   }
 
   private rainbowTarget(): number {
@@ -444,7 +446,8 @@ export class WeatherSystem implements System, WeatherApi {
     this.splash.update(this.center, this.rainAmt * sky, t);
     this.snow.update(this.center, this.snowAmt * sky, t, pxAngle, cam.position.distanceTo(rig.focus));
     this.drips.update(this.dripAmt * sky, t);
-    this.leaves.update(this.center, this.leafAmt * sky, t);
+    // Maps can thin the tumbling leaves (`leafGusts`, e.g. the treeless beach: no green leaves over the sea).
+    this.leaves.update(this.center, this.leafAmt * sky * ((game.world.current as { leafGusts?: number } | null)?.leafGusts ?? 1), t);
     // Visible wind: ribbons on windy days (and faintly in storms).
     this.ribbons.update(this.center, sky * (this.weather === 'wind' ? Math.min(1, this.leafAmt * 1.2) : this.weather === 'storm' ? 0.35 : 0), t, pxAngle);
     // Ground mist is a depth-aware height fog (post pass): it pools in the hollows and fades softly
@@ -454,8 +457,19 @@ export class WeatherSystem implements System, WeatherApi {
     const map = game.world.current;
     // Fog mornings: the mist hugs the ground (dense below ~0.8 m, clear above ~1.5 m) so it pools
     // over the water and in the hollows while the canopy, the cliffs and the farmer stay crisp.
-    atmosphere.fog = clear ? this.fogAmt : this.fogAmt * 0.5 + this.rainAmt * 0.16;
+    // (Storms keep less of it: the drama is the dark grade, the rain sheets and the bolts, not a
+    // milky veil over the pond.)
+    const stormy = this.weather === 'storm' ? 1 : 0;
+    atmosphere.fog = clear ? this.fogAmt * 0.06 : this.fogAmt * (0.5 - stormy * 0.2) + this.rainAmt * (0.16 - stormy * 0.08);
     atmosphere.player.copy(game.player.position);
+    // Terrain-following ground mist: the real thing on fog mornings (a 0.6-1.2 m layer lying on the
+    // floor, the banks, the water), a faint low haze in rain / storms / snow.
+    const tr = map?.terrain;
+    atmosphere.ground = tr && !(map as { covered?: boolean }).covered ? this.groundSrc(tr) : null;
+    // (Rain keeps it to a thin scud over the water / hollows: a grey veil on everything reads as a
+    // washed-out frame, not weather.)
+    atmosphere.mist = clear ? this.fogAmt * 0.85 : this.rainAmt * 0.09 + this.snowAmt * 0.06;
+    atmosphere.mistH = clear ? 0.95 : 1.4;
     atmosphere.base = map?.terrain ? map.terrain.opts.waterLevel + (clear ? 0.05 : 0.25) : rig.focus.y - 0.3;
     atmosphere.falloff = clear ? 0.55 : 3.0;
     atmosphere.density = clear ? 0.7 : 0.06;
@@ -474,6 +488,17 @@ export class WeatherSystem implements System, WeatherApi {
     this.updateLightning(dt, game);
     this.scorch.update(game.time);
     this.strikeFx.update(game.paused ? 0 : dt, hPx);
+  }
+
+  private groundCache: { t: unknown; v: NonNullable<typeof atmosphere.ground> } | null = null;
+  private groundSrc(t: NonNullable<GameMapTerrain>): NonNullable<typeof atmosphere.ground> {
+    if (this.groundCache?.t !== t) {
+      this.groundCache = {
+        t,
+        v: { tex: t.heightTex, origin: new THREE.Vector2(t.opts.minX, t.opts.minZ), size: new THREE.Vector2(t.opts.maxX - t.opts.minX, t.opts.maxZ - t.opts.minZ), water: t.opts.waterLevel },
+      };
+    }
+    return this.groundCache.v;
   }
 
   /** Ground height including the raised winter drifts (prints must sit on the snow surface). */

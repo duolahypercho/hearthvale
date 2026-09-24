@@ -42,6 +42,7 @@ import {
   SHRINE,
   TOWER,
   BRIDGE,
+  BRIDGE_DIR,
   STREAM,
   UPPER_STREAM,
   GIANTS,
@@ -626,7 +627,12 @@ export class ForestMap implements GameMap {
     this.blockDisc(TOWER.x, TOWER.z, 3.0, 'tower');
     // Footbridge over the stream on the main trail.
     const bridge = buildFootbridge(r, BRIDGE.len);
-    bridge.position.set(BRIDGE.x, WATER_LOW + 0.2, BRIDGE.z);
+    // Seat the abutments on the lower of the two banks (the deck ends flush with the trail).
+    const bank = Math.min(
+      this.terrain.heightAt(BRIDGE.x + BRIDGE_DIR.x * BRIDGE.len * 0.5, BRIDGE.z + BRIDGE_DIR.z * BRIDGE.len * 0.5),
+      this.terrain.heightAt(BRIDGE.x - BRIDGE_DIR.x * BRIDGE.len * 0.5, BRIDGE.z - BRIDGE_DIR.z * BRIDGE.len * 0.5),
+    );
+    bridge.position.set(BRIDGE.x, Math.max(WATER_LOW + 0.2, bank - 0.24), BRIDGE.z);
     bridge.rotation.y = BRIDGE.rot;
     this.root.add(bridge);
     this.staticRoots.push(bridge);

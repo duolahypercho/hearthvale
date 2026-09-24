@@ -6,7 +6,7 @@
  * in real time and offline.
  */
 import type { AudioGraph } from './graph';
-import { Rand, clamp, mtof } from './dsp';
+import { Rand, clamp, makeRain, mtof } from './dsp';
 import { noiseHit } from './instruments';
 
 export type AmbSeason = 'spring' | 'summer' | 'fall' | 'winter';
@@ -44,6 +44,11 @@ export class Ambience {
   private gust = 0.4;
   private gustTarget = 0.4;
   private surfPhase = 0;
+  /** Surf swells travel across the stereo field (this panner is automated per wave). */
+  private surfPan: StereoPannerNode;
+  /** Droplet layers (light / heavy), built on the first rain. */
+  private drops: { light: GainNode; heavy: GainNode } | null = null;
+  private dropsKey = '';
   private crickets: { pan: number; period: number; next: number; f: number }[] = [];
   lightningAt = -1;
   /** Until this time the game drives thunder from its own lightning strikes (no random rolls). */
@@ -79,20 +84,25 @@ export class Ambience {
       b.Q.value = q;
       return b;
     };
-    bed('wind', g.pink, [bf('bandpass', 420, 0.55), bf('lowpass', 1600)]);
+    // Every bed runs on decorrelated stereo noise (L/R correlation ~0.3): wide, not a point in the head.
+    bed('wind', g.pinkSt, [bf('bandpass', 420, 0.55), bf('lowpass', 1600)]);
     // Leaf rustle: pink (not white) noise so a windy day reads as foliage, not hiss (render: 63 % > 2 kHz).
-    bed('leaves', g.pink, [bf('bandpass', 2600, 0.6), bf('lowpass', 5500)], 0.9);
-    bed('rain', g.pink, [bf('bandpass', 2600, 0.35), bf('highshelf', 6000, 0.7)]);
-    bed('rainLow', g.brown, [bf('lowpass', 420, 0.5)]);
-    bed('fountain', g.pink, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800)]);
-    bed('surf', g.pink, [bf('lowpass', 500, 0.6)]);
+    bed('leaves', g.pinkSt, [bf('bandpass', 2600, 0.6), bf('lowpass', 5500)], 0.9);
+    // Rain hiss lives up at 4–6 kHz; the droplet layers (makeRain) carry the individual drops.
+    bed('rain', g.pinkSt, [bf('bandpass', 5000, 0.55), bf('highshelf', 7000, 0.7)]);
+    bed('rainLow', g.brownSt, [bf('lowpass', 380, 0.5)]);
+    bed('fountain', g.pinkSt, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800)]);
+    const surf = bed('surf', g.pinkSt, [bf('lowpass', 500, 0.6)]);
+    this.surfPan = ctx.createStereoPanner();
+    surf.gain.disconnect();
+    surf.gain.connect(this.surfPan).connect(this.out);
     // Brook: bubbly band of noise with a fast, irregular filter wobble.
     const tame = (): BiquadFilterNode => {
       const b = bf('peaking', 3500, 1.1);
       b.gain.value = -3.5;
       return b;
     };
-    const brook = bed('brook', g.white, [bf('bandpass', 1100, 1.2), bf('lowpass', 3200), tame()]);
+    const brook = bed('brook', g.whiteSt, [bf('bandpass', 1100, 1.2), bf('lowpass', 3200), tame()]);
     for (const [rate, depth] of [[3.1, 260], [7.3, 180], [0.43, 300]] as const) {
       const lfo = ctx.createOscillator();
       lfo.frequency.value = rate;
@@ -102,16 +112,16 @@ export class Ambience {
       lfo.start(0);
     }
     // Cave air: a low hollow roar, kept above the sub range so it doesn't swamp small speakers.
-    bed('cave', g.brown, [bf('highpass', 70, 0.7), bf('lowpass', 320, 0.7)]);
-    bed('caveAir', g.pink, [bf('bandpass', 700, 3)], 0.6);
-    bed('howl', g.pink, [bf('bandpass', 620, 9)]);
-    bed('snowHush', g.pink, [bf('highpass', 2500, 0.5), bf('lowpass', 6000)]);
+    bed('cave', g.brownSt, [bf('highpass', 70, 0.7), bf('lowpass', 320, 0.7)]);
+    bed('caveAir', g.pinkSt, [bf('bandpass', 700, 3)], 0.6);
+    bed('howl', g.pinkSt, [bf('bandpass', 620, 9)]);
+    bed('snowHush', g.pinkSt, [bf('highpass', 2500, 0.5), bf('lowpass', 6000)]);
     // Interior room tone: a faint low hum of a quiet wooden house.
-    bed('room', g.brown, [bf('lowpass', 240, 0.6)], 0.8);
+    bed('room', g.brownSt, [bf('lowpass', 240, 0.6)], 0.8);
     // Fireplace: a soft roar under the crackles.
-    bed('fire', g.pink, [bf('lowpass', 520, 0.7)], 0.7);
+    bed('fire', g.pinkSt, [bf('lowpass', 520, 0.7)], 0.7);
     // Cicadas: narrow noise band amplitude-modulated at ~30 Hz.
-    const cic = bed('cicada', g.white, [bf('bandpass', 5300, 5), tame()]);
+    const cic = bed('cicada', g.whiteSt, [bf('bandpass', 5300, 5), tame()]);
     const am = ctx.createOscillator();
     am.frequency.value = 29;
     const amG = ctx.createGain();
@@ -132,6 +142,27 @@ export class Ambience {
     // Reverb sends from the airy beds.
     this.beds.fountain!.gain.connect(this.send);
     this.beds.rain!.gain.connect(this.send);
+  }
+
+  /** The two droplet textures (~45 and ~110 drops/s), looping from different points. */
+  private buildDrops(): void {
+    const g = this.g;
+    const ctx = g.ctx;
+    const layer = (perSec: number, seed: number, lp: number): GainNode => {
+      const src = ctx.createBufferSource();
+      src.buffer = makeRain(ctx, 5.3, perSec, new Rand(seed));
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = lp;
+      const gn = ctx.createGain();
+      gn.gain.value = 0;
+      src.connect(f).connect(gn).connect(this.out);
+      gn.connect(this.send);
+      src.start(ctx.currentTime, this.rng.next() * 5);
+      return gn;
+    };
+    this.drops = { light: layer(45, 4101, 9000), heavy: layer(110, 5202, 11000) };
   }
 
   private setBed(name: string, level: number, now: number, tau = 1.2): void {
@@ -168,7 +199,18 @@ export class Ambience {
     const hasLeaves = s.season !== 'winter' && outdoors && !beach;
     this.setBed('leaves', hasLeaves ? 0.014 + 0.04 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1) : 0, now, 0.6);
     this.setBed('rain', outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0, now, 2);
-    this.setBed('rainLow', raining && !mine ? (storm ? 0.3 : 0.12) * (s.indoor ? 0.5 : 1) : 0, now, 2);
+    this.setBed('rainLow', raining && !mine ? (storm ? 0.15 : 0.06) * (s.indoor ? 0.5 : 1) : 0, now, 2);
+    // Individual drops: a light patter always, the heavy layer in a storm; muffled on the roof indoors.
+    if (raining && !mine && !this.drops) this.buildDrops();
+    if (this.drops) {
+      const lv = !raining || mine ? 0 : s.indoor ? 0.18 : 1;
+      const key = `${lv}:${storm}`;
+      if (key !== this.dropsKey) {
+        this.dropsKey = key;
+        this.drops.light.gain.setTargetAtTime(0.5 * lv, now, 2);
+        this.drops.heavy.gain.setTargetAtTime((storm ? 0.55 : 0) * lv, now, 2);
+      }
+    }
     this.setBed('fountain', outdoors ? 0.14 * s.fountain : 0, now, 0.6);
     this.setBed('cave', mine ? 0.16 : 0, now, 2);
     this.setBed('caveAir', mine ? 0.05 : 0, now, 2);
@@ -183,7 +225,7 @@ export class Ambience {
     const cicadaTime = s.season === 'summer' && outdoors && !raining && h >= 10 && h <= 18.5;
     if ((this.next.cicadaSwell ?? 0) <= now) this.next.cicadaSwell = now + 6 + r.next() * 10;
     const swell = 0.5 + 0.5 * Math.sin((now / 9) * Math.PI);
-    this.setBed('cicada', cicadaTime ? 0.014 + 0.016 * swell : 0, now, 2);
+    this.setBed('cicada', cicadaTime ? 0.011 + 0.013 * swell : 0, now, 2); // -2 dB: the wide (decorrelated) chorus reads louder
 
     // Surf: individual waves on the coast. Inland water babbles (forest stream) or laps (pond).
     if (beach) {
@@ -612,6 +654,14 @@ export class Ambience {
     const gp = b.gain.gain;
     const fp = b.filter!.frequency;
     const peak = 0.22 * size * (0.8 + this.rng.next() * 0.4);
+    // The swell rolls in on one side and breaks across to the other.
+    const dir = this.surfPhase % 2 === 0 ? 1 : -1;
+    const pp = this.surfPan.pan;
+    pp.cancelScheduledValues(t);
+    pp.setValueAtTime(pp.value, t);
+    pp.linearRampToValueAtTime(-0.65 * dir, t + 0.6);
+    pp.linearRampToValueAtTime(0.1 * dir, t + 2.4);
+    pp.linearRampToValueAtTime(0.6 * dir, t + 4.6);
     gp.cancelScheduledValues(t);
     gp.setTargetAtTime(peak * 0.5, t, 0.9);
     gp.setTargetAtTime(peak, t + 2.2, 0.25);
@@ -620,8 +670,8 @@ export class Ambience {
     fp.setTargetAtTime(420, t, 0.9);
     fp.setTargetAtTime(1900, t + 2.2, 0.2);
     fp.setTargetAtTime(700, t + 3.0, 1.0);
-    // Foam hiss as the wave recedes.
-    noiseHit(this.g, this.out, t + 2.6, { type: 'bandpass', f: 4200, q: 0.4, amp: 0.05 * size, attack: 0.3, tau: 0.9, buf: this.g.pink });
+    // Foam hiss as the wave recedes, fizzing out on the far side.
+    noiseHit(this.g, this.dest(0.45 * dir, 0.2), t + 2.6, { type: 'bandpass', f: 4200, q: 0.4, amp: 0.05 * size, attack: 0.3, tau: 0.9, buf: this.g.pinkSt });
     this.surfPhase++;
   }
 }

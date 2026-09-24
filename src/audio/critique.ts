@@ -231,7 +231,7 @@ export function critiquePiece(id: string, seed = 1): Critique {
     }
   }
 
-  // ── cadences: the last melody note of each A / B section
+  // ── cadences: the last melody note of each A / B / C section
   const cadences: string[] = [];
   const info = p.barInfo ?? [];
   const DEG = ['1', 'b2', '2', 'b3', '3', '4', '#4', '5', 'b6', '6', 'b7', '7'];
@@ -244,7 +244,7 @@ export function critiquePiece(id: string, seed = 1): Critique {
         return '';
       })();
       const endOfSection = !nb || nb.section !== '';
-      if (!endOfSection || (secName !== 'A' && secName !== 'B')) return;
+      if (!endOfSection || (secName !== 'A' && secName !== 'B' && secName !== 'C')) return;
       const t1 = nb?.t ?? p.duration;
       const last = mel.filter((m) => m.t >= b.t && m.t < t1).pop() ?? mel.filter((m) => m.t < t1).pop();
       if (!last) return;

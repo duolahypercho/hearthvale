@@ -1,9 +1,10 @@
 /**
  * Piece prefetch: composes upcoming songs in a Web Worker (src/audio/compose.worker.ts) so starting a
- * song never stalls the frame. The director requests (theme, seed) as soon as it can predict it —
- * while the old song fades or the score rests — and takes the finished piece at start time. Anything
- * not ready yet (or no Worker: offline renders, tests) falls back to composing synchronously, so
- * the music is identical either way (same Composer, same seed).
+ * song never stalls the frame. The audio system requests the first song as soon as the save loads
+ * (before the AudioContext even exists) and the director requests (theme, seed) as soon as it can
+ * predict it — while the old song fades or the score rests — and takes the finished piece at start
+ * time. In real time the director waits for the worker rather than composing on the frame; only
+ * without a Worker (offline renders, tests) or with a crashed one is a song composed synchronously.
  */
 import { Composer, type Piece, type ThemeDef } from './composer';
 
@@ -24,8 +25,8 @@ export class PiecePrefetch {
       this.worker.onmessage = (e: MessageEvent<{ key: string; piece?: Piece }>) => {
         this.pending.delete(e.data.key);
         if (e.data.piece) this.ready.set(e.data.key, e.data.piece);
-        // Keep the cache tiny: only the next song or two are ever useful.
-        while (this.ready.size > 4) this.ready.delete(this.ready.keys().next().value!);
+        // Keep the cache small: only the next few songs (and forced demo / cutscene themes) matter.
+        while (this.ready.size > 6) this.ready.delete(this.ready.keys().next().value!);
       };
       this.worker.onerror = () => {
         this.worker?.terminate();
@@ -35,6 +36,11 @@ export class PiecePrefetch {
     } catch {
       this.worker = null;
     }
+  }
+
+  /** True while a worker is available (real time); without one songs are composed directly. */
+  get hasWorker(): boolean {
+    return this.worker !== null;
   }
 
   private static key(theme: ThemeDef, seed: number): string {

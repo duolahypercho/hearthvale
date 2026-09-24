@@ -35,6 +35,7 @@ const GAPS: [number, number][] = [
 
 const LIGHT_ONLY = new Set(['windowCard', 'lampGlow', 'stillWater', 'boxFlower']);
 const DEBRIS = new Set(['weed', 'stone', 'twig', 'stump', 'boulder', 'bush', 'log', 'branch', 'pebbles']);
+const LONG_DEBRIS = new Set(['log', 'branch', 'stump']);
 
 export class FarmBuildings {
   private group = new THREE.Group();
@@ -168,6 +169,13 @@ export class FarmBuildings {
   private buildPasture(rng: Rng, parts: THREE.Object3D[]): void {
     const p = SITES.pasture;
     this.clearRect(Math.floor(p.x0), Math.floor(p.z0), Math.floor(p.x1), Math.floor(p.z1), false);
+    // Long debris (logs, branches, stumps) just outside the fence reaches in over the rails and read as
+    // an animal standing inside a log: clear a 2-tile apron of them round the paddock.
+    for (let z = Math.floor(p.z0) - 2; z <= Math.floor(p.z1) + 2; z++)
+      for (let x = Math.floor(p.x0) - 2; x <= Math.floor(p.x1) + 2; x++) {
+        const o = this.map.grid.getObject(x, z);
+        if (o && (LONG_DEBRIS.has(o.kind) || LONG_DEBRIS.has(o.id))) this.map.grid.removeObject(x, z);
+      }
     // The field oak in the middle of the paddock is felled for grazing (and so the barn reads).
     for (let z = Math.floor(p.z0); z <= Math.floor(p.z1); z++)
       for (let x = Math.floor(p.x0); x <= Math.floor(p.x1); x++) if (this.map.grid.getObject(x, z)?.kind === 'tree') this.map.grid.removeObject(x, z);

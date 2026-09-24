@@ -7,6 +7,7 @@ import { AudioGraph } from './graph';
 import { MusicDirector } from './music';
 import { Ambience, type EnvState } from './ambience';
 import { Sfx } from './sfx';
+import type { PiecePrefetch } from './prefetch';
 
 export class AudioEngine {
   readonly graph: AudioGraph;
@@ -14,9 +15,9 @@ export class AudioEngine {
   readonly amb: Ambience;
   readonly sfx: Sfx;
 
-  constructor(readonly ctx: BaseAudioContext, seed = 1) {
+  constructor(readonly ctx: BaseAudioContext, seed = 1, pieces?: PiecePrefetch) {
     this.graph = new AudioGraph(ctx, seed);
-    this.music = new MusicDirector(this.graph, seed);
+    this.music = new MusicDirector(this.graph, seed, pieces);
     this.amb = new Ambience(this.graph, seed + 1);
     this.sfx = new Sfx(this.graph, seed + 2);
   }

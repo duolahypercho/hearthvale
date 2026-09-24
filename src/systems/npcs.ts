@@ -92,37 +92,37 @@ const STAGES: Record<string, Mark[]> = {
   'town-day': [
     ['marigold', 20.6, 21.3, 25, 'sweep'],
     ['hazel', 32.9, 21.35, -10, 'water', 'music'],
-    ['tobias', 27.9, 22.7, -75, 'chat'],
-    ['rowan', 26.5, 22.1, 70, 'chat', 'exclaim'],
-    ['wren', 25.35, 22.75, 175, 'paint'],
+    ['tobias', 27.9, 22.7, -48, 'chat'],
+    ['rowan', 26.5, 22.1, 42, 'chat', 'exclaim'],
+    ['wren', 25.4, 22.9, 75, 'paint'],
     ['bram', 42.4, 20.9, -15, 'knead'],
-    ['odessa', 43.9, 22.4, -125, 'chat', 'idea'],
+    ['odessa', 43.9, 22.4, -62, 'chat', 'idea'],
     ['kit', 37.4, 27.6, -30, 'play'],
-    ['june', 27.5, 26.5, 55, 'chat', 'heart'],
-    ['linus', 28.8, 27.1, -70, 'chat'],
+    ['june', 27.5, 26.5, 38, 'chat', 'heart'],
+    ['linus', 28.8, 27.1, -40, 'chat'],
   ],
   'town-evening': [
     ['tobias', 33.3, 14.4, 180, 'idle'],
     ['kit', 31.3, 14.1, 20, 'sit'],
-    ['marigold', 26.3, 22.1, 55, 'chat', 'heart'],
-    ['hazel', 27.7, 22.7, -100, 'chat'],
+    ['marigold', 26.3, 22.1, 40, 'chat', 'heart'],
+    ['hazel', 27.7, 22.7, -55, 'chat'],
     ['wren', 29.4, 28.7, 25, 'idle', 'idea'],
-    ['bram', 44.3, 22.9, 80, 'chat', 'music'],
+    ['bram', 44.3, 22.9, 48, 'chat', 'music'],
     ['june', 45.6, 22.1, -25, 'chat'],
-    ['odessa', 36.4, 24.6, 75, 'chat'],
+    ['odessa', 36.4, 24.6, 45, 'chat'],
     ['rowan', 37.7, 23.9, -28, 'chat', 'exclaim'],
     ['linus', 21.8, 24.6, 60, 'read'],
   ],
   'town-winter': [
     ['marigold', 20.6, 21.3, 25, 'sweep'],
     ['hazel', 32.9, 21.35, -10, 'idle', 'music'],
-    ['tobias', 27.9, 22.7, -75, 'chat'],
-    ['rowan', 26.5, 22.1, 70, 'chat', 'exclaim'],
+    ['tobias', 27.9, 22.7, -48, 'chat'],
+    ['rowan', 26.5, 22.1, 42, 'chat', 'exclaim'],
     ['bram', 42.4, 20.9, -15, 'knead'],
-    ['odessa', 43.9, 22.4, -125, 'chat', 'idea'],
+    ['odessa', 43.9, 22.4, -62, 'chat', 'idea'],
     ['kit', 37.4, 27.6, -30, 'play'],
-    ['june', 27.5, 26.5, 55, 'chat', 'heart'],
-    ['linus', 28.8, 27.1, -70, 'chat'],
+    ['june', 27.5, 26.5, 38, 'chat', 'heart'],
+    ['linus', 28.8, 27.1, -40, 'chat'],
     ['wren', 36.2, 24.4, -20, 'idle'],
   ],
 };
@@ -488,7 +488,21 @@ export class NpcSystem implements System {
     }
     const marks = STAGES[name];
     if (marks) {
+      this.applyMarks(marks);
+      return;
+    }
+    if (name === 'town-social' || name === 'town-dialogue' || name === 'town-night-talk') this.seedFriendship(name !== 'town-social' && params.get('first') === '1' ? ((params.get('npc') as NpcId | null) ?? 'marigold') : null);
+    // A daytime conversation happens in the living square: the rest of the town keeps its day blocking.
+    if (name === 'town-dialogue' && this.game.calendar.hour < 17) this.applyMarks(STAGES['town-day']!, (params.get('npc') as NpcId | null) ?? 'marigold');
+    this.stageRest(name, params);
+  }
+
+  /** Demo blocking: put each marked villager on their spot, holding yaw, activity and emote. */
+  private applyMarks(marks: Mark[], skip?: NpcId): void {
+    const map = this.game.world.current!;
+    {
       for (const [id, x, z, deg, act, emote] of marks) {
+        if (id === skip) continue;
         const a = this.agents.get(id)!;
         this.setInside(a, false, true);
         a.v.setPosition(x, map.heightAt(x, z), z);
@@ -503,9 +517,11 @@ export class NpcSystem implements System {
           a.emoteT = 600;
         }
       }
-      return;
     }
-    if (name === 'town-social' || name === 'town-dialogue' || name === 'town-night-talk') this.seedFriendship(name !== 'town-social' && params.get('first') === '1' ? ((params.get('npc') as NpcId | null) ?? 'marigold') : null);
+  }
+
+  private stageRest(name: string, params: URLSearchParams): void {
+    const map = this.game.world.current!;
     // The social page rendered before the seeding: reopen it.
     if (name === 'town-social') this.game.events.emit('ui:open', { name: 'social' });
     if (name === 'town-cast') {
@@ -787,6 +803,34 @@ export class NpcSystem implements System {
     return hits;
   }
 
+  /**
+   * How many of the speaker's face points (eyes, mouth) are hidden behind another actor's head /
+   * hat or shoulders from this lens position (0–2). Heads are spheres sized for hats and hair.
+   */
+  private faceBlocked(pos: THREE.Vector3, lead: { id: Who; x: number; y: number; z: number; head: number }, acts: { id: Who; x: number; y: number; z: number; head: number }[]): number {
+    let n = 0;
+    const la = lead.id !== 'player' ? this.agents.get(lead.id) : null;
+    const fr = la ? 0.62 * (la.v.headTop / 1.9) : 0.3;
+    for (const dy of [0.42, 0.72]) {
+      _ab.set(lead.x, lead.y + lead.head - fr * (dy + 0.2), lead.z);
+      const dl = pos.distanceTo(_ab);
+      let hit = false;
+      for (const o of acts) {
+        if (o === lead) continue;
+        // Head (with a hat brim for the farmer), then the shoulders.
+        for (const [oy, r] of [[o.head - (o.id === 'player' ? 0.38 : 0.34), o.id === 'player' ? 0.5 : 0.4], [o.head * 0.55, 0.3]] as const) {
+          _hp.set(o.x, o.y + oy, o.z);
+          if (pos.distanceTo(_hp) > dl - 0.2) continue;
+          _q.subVectors(_ab, pos);
+          const t = THREE.MathUtils.clamp(_q2.subVectors(_hp, pos).dot(_q) / _q.lengthSq(), 0, 1);
+          if (_q2.copy(pos).addScaledVector(_q, t).distanceTo(_hp) < r) hit = true;
+        }
+      }
+      if (hit) n++;
+    }
+    return n;
+  }
+
   private camPosFor(target: THREE.Vector3, yawDeg: number, pitchDeg: number, dist: number, out = new THREE.Vector3()): THREE.Vector3 {
     const p = THREE.MathUtils.degToRad(pitchDeg);
     const y = THREE.MathUtils.degToRad(yawDeg);
@@ -886,7 +930,6 @@ export class NpcSystem implements System {
       // Score: blocked sight lines dominate; then a speaker turned from the lens (three-quarter is
       // best), the listener's head in front of the speaker's face, then distance from the base angle.
       const fy = la ? (la.v as unknown as { yaw: number }).yaw : null;
-      const sh = new THREE.Vector3(lead.x, lead.y + lead.head - 0.25, lead.z);
       const lh = other ? new THREE.Vector3(other.x, other.y + other.head - 0.25, other.z) : null;
       const v1 = new THREE.Vector3();
       const v2 = new THREE.Vector3();
@@ -916,11 +959,7 @@ export class NpcSystem implements System {
           const off = Math.abs(Math.atan2(Math.sin(fy - cr), Math.cos(fy - cr)));
           if (off > THREE.MathUtils.degToRad(100)) h += 6;
           h += (Math.abs(off - 0.6) / Math.PI) * 3;
-          if (lh) {
-            v1.subVectors(sh, pos);
-            v2.subVectors(lh, pos);
-            if (v2.length() < v1.length() && v1.angleTo(v2) < THREE.MathUtils.degToRad(kind === 'close' ? 9 : 6)) h += 4;
-          }
+          if (lh) h += this.faceBlocked(pos, lead, acts) * 8;
         }
         h += Math.abs(c[0]) / 180 + c[1] / 60 + (1 - c[2]) * 2;
         if (h < bestHits) {
@@ -1348,6 +1387,17 @@ export class NpcSystem implements System {
             const acts = this.camActors();
             const hits = this.buildingHits(cam.position, acts);
             if (hits) out.fails.push(`${ev.id}#${i}: ${hits} sight line(s) behind a building (lens ${cam.position.x.toFixed(1)},${cam.position.y.toFixed(1)},${cam.position.z.toFixed(1)}; ${acts.map((a) => `${a.id} ${a.x.toFixed(1)},${a.z.toFixed(1)}`).join(' ')})`);
+            // The speaker's face must read: turned towards the lens and not behind the listener's head / hat.
+            const spk = this.shot.speaker ? acts.find((a) => a.id === this.shot.speaker) : null;
+            const sa = spk && spk.id !== 'player' ? this.agents.get(spk.id) : null;
+            if (spk && sa && this.shot.kind !== 'wide') {
+              const fy = (sa.v as unknown as { yaw: number }).yaw;
+              const toC = Math.atan2(cam.position.x - spk.x, cam.position.z - spk.z);
+              const off = Math.abs(Math.atan2(Math.sin(fy - toC), Math.cos(fy - toC)));
+              if (off > THREE.MathUtils.degToRad(105)) out.fails.push(`${ev.id}#${i}: ${spk.id} turned from the lens (${THREE.MathUtils.radToDeg(off).toFixed(0)}°)`);
+              const fb = this.faceBlocked(cam.position, spk, acts);
+              if (fb) out.fails.push(`${ev.id}#${i}: ${spk.id}'s face behind another actor (${fb}/2 points)`);
+            }
             for (const a of acts) {
               if (this.shot.kind === 'close' && a.id !== this.shot.speaker) continue;
               const t = this.treeHits(cam.position, new THREE.Vector3(a.x, a.y + a.head - 0.3, a.z)).length;
@@ -1490,12 +1540,31 @@ export class NpcSystem implements System {
       v.update(dt, h, simulate);
     }
     this.updateBlobs();
+    this.updateEasels(map.root);
     if (!this.eventRunning && !game.paused) {
       this.eventCheckT -= dt;
       if (this.eventCheckT <= 0) {
         this.eventCheckT = 1;
         this.checkEvents();
       }
+    }
+  }
+
+  private easels: { root: THREE.Object3D; list: THREE.Object3D[] } | null = null;
+  /** A painter's easel stands in the street only while someone paints at it. */
+  private updateEasels(root: THREE.Object3D): void {
+    if (this.easels?.root !== root) {
+      const list: THREE.Object3D[] = [];
+      root.traverse((o) => {
+        if (o.name === 'painter-easel') list.push(o);
+      });
+      this.easels = { root, list };
+    }
+    for (const e of this.easels.list) {
+      let on = false;
+      for (const a of this.agents.values())
+        if (a.activity === 'paint' && !a.inside && a.v.root.visible && Math.hypot(a.v.position.x - e.position.x, a.v.position.z - e.position.z) < 1.8) on = true;
+      e.visible = on;
     }
   }
 
@@ -1615,7 +1684,14 @@ export class NpcSystem implements System {
       if (a.staged) {
         /* hold the blocking */
       } else if (a.activity === 'chat' && partner) {
-        v.facePoint(partner.v.position.x, partner.v.position.z);
+        // Turn to the partner, but cheat three-quarter towards the lens (stage blocking) so both
+        // faces read from the diorama camera instead of two profiles / a back of the head.
+        const toP = Math.atan2(partner.v.position.x - v.position.x, partner.v.position.z - v.position.z);
+        const cam = this.game.rc.camera.position;
+        const toC = Math.atan2(cam.x - v.position.x, cam.z - v.position.z);
+        let dc = toC - toP;
+        dc = Math.atan2(Math.sin(dc), Math.cos(dc));
+        v.faceYaw(toP + THREE.MathUtils.clamp(dc, -0.75, 0.75));
         a.chatT -= dt;
         if (a.chatT <= 0) {
           a.chatT = 1.8 + Math.random() * 2.4;

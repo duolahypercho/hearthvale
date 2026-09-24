@@ -36,6 +36,14 @@ export const atmosphere = {
   shaftLen: 14,
   /** The local farmer (feet, world): mist and shafts stay thin on him so he never goes milky. */
   player: new THREE.Vector3(1e4, 0, 1e4),
+  /**
+   * Terrain-following ground mist (0 = off): a layer `mistH` m thick that lies on the ground wherever
+   * it is (valley floor, banks, plateau, over the water), read from the map's height texture. Dense
+   * drifting banks with clear lanes between them; fades softly against anything standing in it.
+   */
+  mist: 0,
+  mistH: 0.9,
+  ground: null as { tex: THREE.Texture; origin: THREE.Vector2; size: THREE.Vector2; water: number } | null,
 };
 
 const FogShader = {
@@ -61,6 +69,12 @@ const FogShader = {
     uWindDir: globalUniforms.uWindDir,
     uSunDir: globalUniforms.uSunDir,
     uPlayer: { value: new THREE.Vector3(1e4, 0, 1e4) },
+    uMist: { value: 0 },
+    uMistH: { value: 0.9 },
+    uGround: { value: null as THREE.Texture | null },
+    uGOrigin: { value: new THREE.Vector2() },
+    uGSize: { value: new THREE.Vector2(1, 1) },
+    uGWater: { value: -99 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -87,7 +101,24 @@ const FogShader = {
     uniform vec2 uWindDir;
     uniform vec3 uSunDir;
     uniform vec3 uPlayer;
+    uniform float uMist;
+    uniform float uMistH;
+    uniform sampler2D uGround;
+    uniform vec2 uGOrigin;
+    uniform vec2 uGSize;
+    uniform float uGWater;
     varying vec2 vUv;
+    float hvGround(vec2 xz) {
+      vec2 uv = clamp((xz - uGOrigin) / uGSize, vec2(0.001), vec2(0.999));
+      return max(texture2D(uGround, uv).r, uGWater);
+    }
+    // Optical depth of exp(-(y - g) / H) along a segment (camera y0 → surface y1, both relative to g).
+    float hvOptical(float L, float y0, float y1, float H) {
+      float dy = y1 - y0;
+      float e0 = exp(-max(y0, -2.0) / H);
+      float e1 = exp(-max(y1, -2.0) / H);
+      return abs(dy) > 1e-3 ? abs(L * H * (e0 - e1) / dy) : L * e0;
+    }
     ${NOISE_GLSL}
     vec3 worldAt(vec2 uv, float d) {
       vec4 ndc = vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
@@ -107,6 +138,53 @@ const FogShader = {
       // Pixels on the farmer (a 0.55 m column from the ankles up): fog and shafts at ~40 %.
       float onPlayer = (1.0 - smoothstep(0.42, 0.62, length(P.xz - uPlayer.xz))) * step(uPlayer.y + 0.12, P.y) * (1.0 - step(uPlayer.y + 2.2, P.y));
       float keepK = 1.0 - onPlayer * 0.6;
+      // Near the farmer (the focus of every frame) beams stay subtle: a log or a bush standing in a
+      // shaft must never turn into a translucent ghost.
+      float nearFocus = 1.0 - smoothstep(1.2, 3.0, length(P.xz - uPlayer.xz));
+      if (uMist > 0.001) {
+        // Ground under the surface point: the lowest of five taps (on a cliff face or a trunk the
+        // foot of it is found, so walls are misted at their base only, not all the way up).
+        // (Every term below is continuous in P: the old hard step on "over water" drew a sharp-edged
+        // grey slab 1.4 m out along every straight bank.)
+        float g0 = hvGround(P.xz);
+        float g = g0;
+        g = min(g, hvGround(P.xz + vec2(1.4, 0.0)));
+        g = min(g, hvGround(P.xz - vec2(1.4, 0.0)));
+        g = min(g, hvGround(P.xz + vec2(0.0, 1.4)));
+        g = min(g, hvGround(P.xz - vec2(0.0, 1.4)));
+        // Flat ground: the surface's own height (the min only matters on walls and trunks).
+        g = mix(g, g0, smoothstep(0.6, 0.15, g0 - g));
+        vec2 drift = uWindDir * uTime * 0.22;
+        // Where mist gathers: over open water (the stream, the pool) and in the hollows (ground lower
+        // than its surroundings 4 m out). Grass lanes and raised banks stay nearly clear, so the
+        // mist reads as low-lying rivers of vapour, not a veil over the whole frame.
+        float overWater = 1.0 - smoothstep(uGWater + 0.02, uGWater + 0.55, g0);
+        float gw = 0.25 * (hvGround(P.xz + vec2(4.0, 0.0)) + hvGround(P.xz - vec2(4.0, 0.0)) + hvGround(P.xz + vec2(0.0, 4.0)) + hvGround(P.xz - vec2(0.0, 4.0)));
+        float hollow = smoothstep(0.05, 0.7, gw - g0);
+        // Banks: big slow cells (thickness) × torn ribbons (density) → dense pools, clear lanes.
+        float nb = hvFbm(P.xz * 0.06 - drift * 0.06 + 17.0);
+        float nr = hvNoise(vec2(P.x * 0.13 + P.z * 0.06, P.z * 0.3 - P.x * 0.04) - drift * 0.2);
+        // Fine wisps: long thin tendrils streaming downwind (gives the sheet a visible texture).
+        float nw = hvNoise(vec2(P.x * 0.42 + P.z * 0.21, P.z * 0.95 - P.x * 0.12) - drift * 0.55 + nb * 1.7);
+        float bank = smoothstep(0.5, 0.74, nb);
+        bank = max(bank * 0.7, max(overWater * (0.5 + 0.5 * nb), hollow * 0.5));
+        float H = uMistH * (0.45 + 0.95 * bank);
+        float optical = hvOptical(L, ro.y - g, P.y - g, H);
+        // Ribbons with real gaps between them: over the pool the dark water shows through the lanes,
+        // so the mist reads as drifting vapour rather than a sheet of milk.
+        float tear = smoothstep(0.32, 0.78, nr) * (0.35 + 0.65 * smoothstep(0.28, 0.72, nw));
+        tear = 0.05 + 0.95 * tear * tear;
+        float dens = uMist * (0.02 + 0.62 * bank * tear);
+        float f = 1.0 - exp(-optical * dens);
+        f *= d > 0.99999 ? 0.5 : 1.0;
+        // Lit mist: warm towards the sun, cool lavender-blue in the shade; the tops of the banks catch
+        // more light than their feet (never a flat white sheet: the water still reads through it).
+        float sunF = pow(max(dot(rd, normalize(uSunDir)), 0.0), 3.0);
+        float top = smoothstep(0.0, H * 1.2, P.y - g);
+        vec3 fc = mix(uShade * 0.86, uLit * 0.98, 0.15 + 0.45 * tear + 0.25 * top);
+        fc += uLit * sunF * 0.2;
+        c = mix(c, fc, clamp(f * (1.0 - onPlayer * 0.8), 0.0, 0.5));
+      }
       if (uFog > 0.001) {
         // Exact integral of exp(-(y-base)/H) along the segment.
         float H = uFalloff;
@@ -171,13 +249,18 @@ const FogShader = {
           acc += g * along * chord * flick;
         }
         // Capped: a beam brightens the air, it never bleaches what stands in it.
-        vec3 add = uShaftCol * acc * uShaftK * 0.1 * keepK;
+        // In a misty morning the beams have something to light: brighter, and allowed to glow more.
+        float misty = clamp(uMist, 0.0, 1.0);
+        vec3 add = uShaftCol * acc * uShaftK * (0.1 + 0.08 * misty) * keepK * (1.0 - nearFocus * 0.55);
         float lum = dot(add, vec3(0.3, 0.5, 0.2));
-        c += add * min(1.0, 0.12 / max(lum, 1e-4));
+        c += add * min(1.0, (0.12 + 0.14 * misty) / max(lum, 1e-4));
       }
       gl_FragColor = vec4(c, col.a);
     }`,
 };
+
+const _tint = new THREE.Color(1.05, 0.97, 0.8);
+const _warmWhite = new THREE.Color(1.0, 0.96, 0.86);
 
 export class HeightFogPass extends Pass {
   private quad: FullScreenQuad;
@@ -204,7 +287,8 @@ export class HeightFogPass extends Pass {
   /** Called before the composer renders: enable only when there is something to draw. */
   sync(): void {
     const a = atmosphere;
-    this.enabled = a.fog > 0.002 || (a.shafts > 0.002 && a.shaftList.length > 0);
+    const mist = a.ground ? a.mist : 0;
+    this.enabled = a.fog > 0.002 || mist > 0.002 || (a.shafts > 0.002 && a.shaftList.length > 0);
     if (!this.enabled) return;
     const u = this.mat.uniforms;
     u.uFog!.value = a.fog;
@@ -212,6 +296,14 @@ export class HeightFogPass extends Pass {
     u.uFalloff!.value = a.falloff;
     u.uDensity!.value = a.density;
     (u.uPlayer!.value as THREE.Vector3).copy(a.player);
+    u.uMist!.value = mist;
+    u.uMistH!.value = a.mistH;
+    if (a.ground) {
+      u.uGround!.value = a.ground.tex;
+      (u.uGOrigin!.value as THREE.Vector2).copy(a.ground.origin);
+      (u.uGSize!.value as THREE.Vector2).copy(a.ground.size);
+      u.uGWater!.value = a.ground.water;
+    }
     const n = Math.min(MAX_SHAFTS, a.shaftList.length);
     u.uShaftCount!.value = n;
     u.uShaftK!.value = a.shafts;
@@ -228,7 +320,10 @@ export class HeightFogPass extends Pass {
     const night = globalUniforms.uNight.value;
     (u.uLit!.value as THREE.Color).setRGB(0.62 + sun.r * 0.28 + hor.r * 0.12, 0.62 + sun.g * 0.26 + hor.g * 0.12, 0.62 + sun.b * 0.2 + hor.b * 0.12).multiplyScalar(1 - night * 0.8);
     (u.uShade!.value as THREE.Color).setRGB(0.48 + sky.r * 0.3, 0.52 + sky.g * 0.3, 0.6 + sky.b * 0.3).multiplyScalar(1 - night * 0.82);
-    (u.uShaftCol!.value as THREE.Color).copy(sun).multiply(new THREE.Color(1.05, 0.97, 0.8)).multiplyScalar(1 - night);
+    // Beams stay a warm white even at a low orange sun (a deep-orange beam over a dark crown reads as
+    // a brown smear, not light).
+    const sl = Math.max(0.05, sun.r * 0.3 + sun.g * 0.5 + sun.b * 0.2);
+    (u.uShaftCol!.value as THREE.Color).copy(sun).multiply(_tint).lerp(_warmWhite.clone().multiplyScalar(sl), 0.55).multiplyScalar(1 - night);
   }
 
   override render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget): void {

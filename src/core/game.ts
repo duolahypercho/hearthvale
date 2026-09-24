@@ -49,6 +49,7 @@ import { StorySystem } from '../systems/story';
 import { LanternHallSystem } from '../systems/story-hall';
 import { StoryWorldSystem } from '../systems/story-world';
 import { NetSystem } from '../net/system';
+import { ForestCoopSystem } from '../world/forest/coop';
 
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
@@ -78,6 +79,7 @@ const SYSTEMS: (() => System)[] = [
   () => new StoryWorldSystem(),
   () => new StorySystem(),
   () => new NetSystem(),
+  () => new ForestCoopSystem(),
 ];
 
 /**

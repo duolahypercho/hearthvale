@@ -14,6 +14,7 @@
  *   node scripts/audio-render.mjs --stems --only spring,town   # per-track (solo) loudness / spectrum → mix balance
  *   node scripts/audio-render.mjs --live              # boot the real game: theme per scene + audible output + SFX,
  *                                                     # 20 beach⇄mine handoffs, node creation rate
+ *   node scripts/audio-render.mjs --out shots/audio-r2   # write WAVs / PNGs / report.json elsewhere
  *   node scripts/audio-render.mjs --no-trans          # skip the offline director handoff renders (transition-*.wav)
  *   (each render also gets a PNG: piano roll of the score + spectrogram + loudness; --no-plots to skip)
  *
@@ -34,7 +35,10 @@ import { tmpdir } from 'node:os';
 import { plotRender } from './audio-plot.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const outDir = resolve(root, 'shots/audio');
+// --out <dir> renders somewhere other than shots/audio (e.g. a critic's own folder).
+const outArg = process.argv.indexOf('--out');
+const outDir = resolve(root, outArg > 0 ? process.argv[outArg + 1] : 'shots/audio');
+const outRel = outDir.startsWith(root) ? outDir.slice(root.length + 1) : outDir;
 
 function parseArgs(argv) {
   const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, compose: false, verbose: false, plots: true, stems: false, themes: true, trans: true };
@@ -55,6 +59,7 @@ function parseArgs(argv) {
     else if (a === '--describe') o.describe = next();
     else if (a === '--compose') o.compose = true;
     else if (a === '--verbose') o.verbose = true;
+    else if (a === '--out') next();
   }
   return o;
 }
@@ -252,22 +257,24 @@ function analyze(inter, sr) {
     blocks++;
     if (lv < -50) { silent++; run++; longest = Math.max(longest, run); } else run = 0;
   }
-  // Spectrum (mid channel).
+  // Spectrum: the power a listener hears — left and right analysed separately and summed (a mid
+  // (L+R)/2 spectrum would under-count wide, decorrelated beds like rain or surf by up to 3 dB).
   const N = 4096;
   const spec = new Float64Array(N / 2);
   const re = new Float64Array(N), im = new Float64Array(N);
   let frames = 0;
   for (let s = 0; s + N <= n; s += N) {
     let e = 0;
-    for (let i = 0; i < N; i++) {
-      const m = (L[s + i] + R[s + i]) * 0.5;
-      e += m * m;
-      re[i] = m * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
-      im[i] = 0;
-    }
+    for (let i = 0; i < N; i++) e += (L[s + i] * L[s + i] + R[s + i] * R[s + i]) * 0.5;
     if (db(e / N) < -55) continue;
-    fft(re, im);
-    for (let k = 0; k < N / 2; k++) spec[k] += re[k] * re[k] + im[k] * im[k];
+    for (const ch of [L, R]) {
+      for (let i = 0; i < N; i++) {
+        re[i] = ch[s + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
+        im[i] = 0;
+      }
+      fft(re, im);
+      for (let k = 0; k < N / 2; k++) spec[k] += re[k] * re[k] + im[k] * im[k];
+    }
     frames++;
   }
   let tot = 0, cen = 0;
@@ -314,17 +321,16 @@ function analyze(inter, sr) {
 
 /**
  * Day themes must have some sparkle. Calibration: a long-term spectrum that is pink up to 1 kHz and
- * falls a further 3 dB/oct above it (the commercial-mix norm) puts ~12 % of its power above 2 kHz;
- * a mellow acoustic mix (-4.5 dB/oct: marimba, nylon guitar, music box — near-pure partials by
- * nature) lands at ~8 %. Below 7 % a mix reads muffled: hard fail (DULL). 7–12 % is reported as
- * MELLOW (a warning to weigh by ear against the theme's instrumentation, not a failure).
+ * falls a further 3 dB/oct above it (the commercial-mix norm) puts ~12 % of its power above 2 kHz.
+ * Target for day themes: 12–18 %. Below 9 % a mix reads muffled: hard fail (DULL); 9–12 % is
+ * reported as MELLOW (a warning).
  */
-const DAY_THEME = /^(theme|mix)-(spring|summer|fall|winter|town|beach|title|inn|forest|festival.*)$/;
+const DAY_THEME = /^(theme|mix)-(spring|summer|fall|winter|town|beach|title|inn|forest|festival)(-[a-z0-9]+)?$/;
 
 function flags(a, kind, name = '') {
   const f = [];
   const top = a.bands.presence + a.bands.air;
-  if (DAY_THEME.test(name) && top < 0.07) f.push(`DULL(${(top * 100).toFixed(0)}%)`);
+  if (DAY_THEME.test(name) && top < 0.09) f.push(`DULL(${(top * 100).toFixed(0)}%)`);
   else if (DAY_THEME.test(name) && top < 0.12) f.push(`mellow(${(top * 100).toFixed(0)}%)`);
   if (a.clippedSamples > 0) f.push(`CLIP(${a.clippedSamples})`);
   if (a.truePeakDb > -0.5) f.push('TRUEPEAK');
@@ -388,7 +394,7 @@ function printCritique(crits, verbose) {
       `${h.clashes}/${h.b9}/${h.appoggiaturas}`.padStart(20),
       String(c.parallels.perMin).padStart(8),
       `${c.texture.peakPoly}/${c.texture.meanPoly}`.padStart(8),
-      c.cadences.join(' ').padEnd(24).slice(0, 24),
+      c.cadences.join(' ').padEnd(30).slice(0, 30),
       c.flags.join(' ') || 'ok',
     ].join(' '));
     if (verbose || c.flags.length) for (const r of h.worst) console.log(`    ${r.kind.padEnd(12)} ${r.t.toFixed(1)}s bar ${r.bar} (${r.section}) ${r.melody} vs ${r.against}`);
@@ -476,11 +482,13 @@ async function main() {
     for (const t of themes) {
       const tracks = await page.evaluate((id) => window.__audioOffline.themeTracks(id), t);
       for (const tr of tracks) {
+        const ts = Date.now();
         const res = await page.evaluate(async ([id, secs, seed, solo]) => window.__audioOffline.renderTheme(id, secs, 44100, seed, false, solo), [t, args.seconds, args.seed, tr]);
+        const took = (Date.now() - ts) / 1000;
         const bytes = Buffer.from(res.data, 'base64');
         const a = analyze(new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4), res.sampleRate);
         const b = a.bands;
-        console.log(`${res.name.padEnd(30)} ${fmt(a.lufsIntegrated).padStart(6)} ${fmt(a.peakDb).padStart(5)} ${fmt(a.centroidHz, 0).padStart(6)}  ${(b.sub * 100).toFixed(0)}/${(b.bass * 100).toFixed(0)}/${(b.lowmid * 100).toFixed(0)}/${(b.presence * 100).toFixed(0)}/${(b.air * 100).toFixed(0)}`);
+        console.log(`${res.name.padEnd(30)} ${fmt(a.lufsIntegrated).padStart(6)} ${fmt(a.peakDb).padStart(5)} ${fmt(a.centroidHz, 0).padStart(6)}  ${(b.sub * 100).toFixed(0)}/${(b.bass * 100).toFixed(0)}/${(b.lowmid * 100).toFixed(0)}/${(b.presence * 100).toFixed(0)}/${(b.air * 100).toFixed(0)}  (render ${took.toFixed(1)}s)`);
       }
     }
     await browser.close();
@@ -493,7 +501,7 @@ async function main() {
   if (args.sfx && !args.only) jobs.push({ kind: 'sfx', fn: 'renderSfxReel', a: [44100] });
   // The live state machine offline: a same-place mood drift (phrase-quantised) and two changes of place.
   if (args.trans && !args.only) {
-    jobs.push({ kind: 'trans', fn: 'renderTransition', a: ['spring', 'night', 12, 30, 'drift'] });
+    jobs.push({ kind: 'trans', fn: 'renderTransition', a: ['spring', 'night-spring', 12, 30, 'drift'] });
     jobs.push({ kind: 'trans', fn: 'renderTransition', a: ['town', 'beach', 12, 26, 'move'] });
     jobs.push({ kind: 'trans', fn: 'renderTransition', a: ['beach', 'mine', 12, 26, 'move'] });
   }
@@ -514,26 +522,36 @@ async function main() {
     console.log(row(res.name, a, job.kind === 'sfx' ? 'reel' : kind) + `  (${((Date.now() - t0) / 1000).toFixed(1)}s${res.notes ? `, ${res.notes} notes` : ''})`);
     const fl = flags(a, kind, res.name);
     if (job.kind === 'trans') {
-      // Handoff check: between the change request and the new song's start the old song must
-      // die away (no two keys at once). Report the quietest 400 ms and the loudness just before the start.
+      // Handoff check: the director crossfades (the new song opens on a key bridge of tones both
+      // keys share while the old one fades), so what matters is (a) how long the change takes —
+      // a change of place ≤ 1.6 s, a same-place drift waits for its phrase (≤ 7 s) — and (b) no
+      // dead air: the longest stretch under -45 dBFS between the request and 3 s after the start.
       const sr = res.sampleRate;
       const req = res.markers[0].t;
       const start = res.markers.find((m, i) => i > 0 && /^start /.test(m.name) && m.t > req)?.t ?? req;
       const blk = (t0s) => {
-        const s0 = Math.max(0, Math.floor(t0s * sr)), s1 = Math.min(inter.length / 2, s0 + Math.floor(0.4 * sr));
+        const s0 = Math.max(0, Math.floor(t0s * sr)), s1 = Math.min(inter.length / 2, s0 + Math.floor(0.1 * sr));
         let e = 0;
         for (let i = s0; i < s1; i++) e += inter[i * 2] ** 2 + inter[i * 2 + 1] ** 2;
         return 10 * Math.log10(e / Math.max(1, (s1 - s0) * 2) + 1e-12);
       };
+      let gap = 0;
+      let run = 0;
       let floor = 0;
-      for (let t = req; t < start - 0.2; t += 0.1) floor = Math.min(floor, blk(t));
-      const before = blk(Math.max(req, start - 0.45));
-      const ok = before < -38;
-      if (!ok) fl.push('OVERLAP');
+      for (let t = req; t < start + 3; t += 0.1) {
+        const db = blk(t);
+        floor = Math.min(floor, db);
+        run = db < -45 ? run + 0.1 : 0;
+        gap = Math.max(gap, run);
+      }
+      const move = /-move$/.test(res.name);
+      const delay = start - req;
+      const ok = gap < 0.5 && delay <= (move ? 1.6 : 7);
+      if (!ok) fl.push(gap >= 0.5 ? 'DEAD-AIR' : 'SLOW-HANDOFF');
       console.log(`  director trace: ${res.markers.slice(1).map((m) => `${m.t.toFixed(1)}s ${m.name}`).join(' | ')}`);
-      console.log(`  request ${req.toFixed(1)}s → new song ${start.toFixed(1)}s; quietest block ${fmt(floor)} dBFS, last 400 ms before the new song ${fmt(before)} dBFS  ${ok ? 'ok (no overlap)' : 'OVERLAP'}\n`);
+      console.log(`  request ${req.toFixed(1)}s → new song ${start.toFixed(1)}s (+${delay.toFixed(1)}s); quietest 100 ms ${fmt(floor)} dBFS, longest stretch under -45 dBFS ${gap.toFixed(1)}s  ${ok ? 'ok (crossfaded, no dead air)' : fl[fl.length - 1]}\n`);
     }
-    report.renders.push({ name: res.name, kind: job.kind, file: `shots/audio/${res.name}.wav`, notes: res.notes, ...a, flags: fl });
+    report.renders.push({ name: res.name, kind: job.kind, file: `${outRel}/${res.name}.wav`, notes: res.notes, ...a, flags: fl });
     if (res.markers && job.kind === 'sfx') {
       // Per-effect analysis.
       console.log(`\n  SFX balance (per effect: peak dBFS, true peak, momentary max LUFS, centroid)`);
@@ -561,8 +579,8 @@ async function main() {
     }
   }
   writeFileSync(resolve(outDir, 'report.json'), JSON.stringify(report, null, 2));
-  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|OVERLAP/.test(f)));
-  console.log(`\nwrote ${report.renders.length} WAVs + report.json to shots/audio/`);
+  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|DEAD-AIR|SLOW-HANDOFF/.test(f)));
+  console.log(`\nwrote ${report.renders.length} WAVs + report.json to ${outRel}/`);
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   if (bad.length) console.log(`HARD FAILS: ${bad.map((b) => `${b.name}[${b.flags.join(',')}]`).join(' ')}`);
   if (compFails.length) console.log(`COMPOSITION FAILS: ${compFails.join(' ')}`);
@@ -580,19 +598,23 @@ async function main() {
  * the output is audible (RMS meter), plus a burst of SFX through the game service.
  */
 const LIVE_SCENES = [
-  { demo: 'farm-morning', expect: 'spring' },
-  { demo: 'audio', season: 'summer', expect: 'summer' },
-  { demo: 'audio', season: 'fall', expect: 'fall' },
-  { demo: 'audio', season: 'winter', weather: 'sun', expect: 'winter' },
+  // The farm plays the season's playlist (three songs, rotated by day): any of them is right.
+  { demo: 'farm-morning', expect: /^spring(-\d)?$/ },
+  { demo: 'audio', season: 'summer', expect: /^summer(-\d)?$/ },
+  { demo: 'audio', season: 'fall', expect: /^fall(-\d)?$/ },
+  { demo: 'audio', season: 'winter', weather: 'sun', expect: /^winter(-\d)?$/ },
   { demo: 'town-day', expect: 'town' },
   { demo: 'beach-day', expect: 'beach' },
   { demo: 'mine', expect: 'mine' },
-  { demo: 'winter-night', expect: 'night' },
+  { demo: 'winter-night', expect: /^night(-winter)?$/ },
   { demo: 'town-rain', expect: 'rain' },
   { demo: 'fest-spring', expect: /^festival/ },
   { demo: 'title', expect: 'title' },
 ];
-const LIVE_SFX = ['step:grass', 'hoe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'splash', 'sword', 'slime', 'heart', 'levelup', 'chest', 'join', 'chat', 'emote:heart'];
+const LIVE_SFX = ['step:grass', 'water', 'hoe', 'scythe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'ui:close', 'ui:hover', 'ui:select', 'splash', 'sword', 'slime', 'heart', 'levelup', 'chest', 'join', 'chat', 'emote:heart'];
+/** Level hierarchy: the farming verbs must sit above the menu sounds, and all of them above the ambience. */
+const VERBS = ['step:grass', 'water', 'hoe', 'scythe'];
+const MENU = ['ui:open', 'ui:close'];
 
 async function live() {
   const server = await createServer({
@@ -748,6 +770,12 @@ async function live() {
     if (!ok) fails++;
     console.log(`  ${s.name.padEnd(14)} ${fmt(s.max).padStart(7)}  ${ok ? 'ok' : 'FAIL'}`);
   }
+  const lvl = (names) => names.map((n) => sfx.out.find((x) => x.name === n)?.max ?? -99);
+  const verbMin = Math.min(...lvl(VERBS));
+  const menuMax = Math.max(...lvl(MENU));
+  const hierOk = verbMin > menuMax - 3 && verbMin > sfx.floor + 6;
+  if (!hierOk) fails++;
+  console.log(`  hierarchy: quietest farming verb ${fmt(verbMin)} vs loudest menu cue ${fmt(menuMax)} (ambience ${fmt(sfx.floor)})  ${hierOk ? 'ok' : 'FAIL'}`);
   // Co-op / positional: a partner's sound must pan toward them and fade with distance; far = silent.
   const pos = await page.evaluate(async () => {
     const g = window.__game;
@@ -768,8 +796,10 @@ async function live() {
     };
     const near = await peak(() => a.playAt('hoe', p.x + 1, p.z));
     const mid = await peak(() => a.playAt('hoe', p.x + 12, p.z));
-    const far = await peak(() => a.playAt('hoe', p.x + 40, p.z));
-    const floor = a.meter();
+    // Far = inaudible: compare its window with an identical window where nothing is fired (the
+    // ambience's own bird calls can peak in either, so each is the quieter of two tries).
+    const far = Math.min(await peak(() => a.playAt('hoe', p.x + 40, p.z)), await peak(() => a.playAt('hoe', p.x + 40, p.z)));
+    const floor = Math.min(await peak(() => {}), await peak(() => {}));
     await peak(() => a.stepAt(p.x + 3, p.z, { run: true }));
     a.say('player:2', 'Hello there, neighbour!', p.x - 4, p.z);
     await sleep(1500);
@@ -778,7 +808,7 @@ async function live() {
   });
   const posOk = pos.near > pos.mid + 4 && pos.far < pos.floor + 3;
   if (!posOk) fails++;
-  console.log(`\npositional (co-op): hoe at 1 tile ${fmt(pos.near)}, 12 tiles ${fmt(pos.mid)}, 40 tiles ${fmt(pos.far)} (floor ${fmt(pos.floor)}) dBFS  ${posOk ? 'ok' : 'FAIL'}`);
+  console.log(`\npositional (co-op): hoe at 1 tile ${fmt(pos.near)}, 12 tiles ${fmt(pos.mid)}, 40 tiles ${fmt(pos.far)} (same window, nothing fired: ${fmt(pos.floor)}) dBFS  ${posOk ? 'ok' : 'FAIL'}`);
   const c = pos.compose;
   console.log(`songs composed in the worker: ${c.hits}, on the main thread: ${c.misses} (${c.syncMs} ms total)${c.hits === 0 ? '  FAIL' : ''}`);
   if (c.hits === 0) fails++;

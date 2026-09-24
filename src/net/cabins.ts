@@ -28,7 +28,7 @@ export const cabinFront = (slot: number): { x: number; z: number } => {
 // materials (lit window, porch lamp) — 4 draws + 2 shadow draws for ALL cabins together.
 const W_ = 'woodGrain';
 /** A log centred on its own origin (bevelCylinder grows up from y = 0). */
-const log = (r: number, len: number, bevel = 0.03, radial = 12): THREE.BufferGeometry => bevelCylinder(r, r, len, bevel, radial).translate(0, -len / 2, 0);
+const log = (r: number, len: number, bevel = 0.03, radial = 9): THREE.BufferGeometry => bevelCylinder(r, r, len, bevel, radial).translate(0, -len / 2, 0);
 
 function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: number, seed: number): void {
   const at = (x: number, yy: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx): THREE.Matrix4 => mat(cx + x, y + yy, cz + z, rx, ry, rz, sx, sy, sz);
@@ -54,7 +54,7 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
     for (const sz of [-1, 1]) b.add(W_, log(lh * 0.52, W + 0.42), at(0, yy, sz * D * 0.5, 0, 0, Math.PI / 2), { tint: tone });
     for (const sx of [-1, 1]) b.add(W_, log(lh * 0.5, D + 0.42), at(sx * W * 0.5, yy + lh * 0.25, 0, Math.PI / 2, 0, 0), { tint: tone });
     // Cut log ends at the corners (paler end grain)
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add(W_, new THREE.CylinderGeometry(lh * 0.46, lh * 0.46, 0.02, 12), at(sx * (W / 2 + 0.21), yy, sz * D * 0.5, 0, 0, Math.PI / 2), { tint: 0xf0cf98 });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add(W_, new THREE.CylinderGeometry(lh * 0.46, lh * 0.46, 0.02, 9), at(sx * (W / 2 + 0.21), yy, sz * D * 0.5, 0, 0, Math.PI / 2), { tint: 0xf0cf98 });
   }
   b.add(W_, roundedBox(W - 0.12, wallH, D - 0.12, 0.04), at(0, base + wallH / 2, 0), { tint: 0x6a4428 });
   // Gable ends: vertical planks in a triangle
@@ -102,8 +102,8 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
   b.add(W_, roundedBox(0.66, 0.15, 0.22, 0.03), at(wx, wy - 0.36, fz + 0.06), { tint: 0x8a5a34 });
   for (let i = 0; i < 5; i++) {
     const c = [0xf06a8a, 0xffd35a, 0xf5f0ff, 0xf09a4a, 0xb87ae0][(i + seed) % 5]!;
-    b.add(W_, new THREE.SphereGeometry(0.065, 8, 6), at(wx - 0.24 + i * 0.12, wy - 0.24 + (i % 2) * 0.03, fz + 0.1), { tint: c });
-    b.add(W_, new THREE.SphereGeometry(0.05, 6, 5), at(wx - 0.22 + i * 0.12, wy - 0.28, fz + 0.02), { tint: 0x5f9a3c });
+    b.add(W_, new THREE.SphereGeometry(0.065, 7, 5), at(wx - 0.24 + i * 0.12, wy - 0.24 + (i % 2) * 0.03, fz + 0.1), { tint: c });
+    b.add(W_, new THREE.SphereGeometry(0.05, 5, 4), at(wx - 0.22 + i * 0.12, wy - 0.28, fz + 0.02), { tint: 0x5f9a3c });
   }
   // Porch lamp east of the door
   b.add(W_, roundedBox(0.05, 0.28, 0.05, 0.01), at(0.62, base + 1.18, fz + 0.02), { tint: 0x3a3230 });

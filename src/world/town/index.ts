@@ -676,6 +676,17 @@ export class TownMap implements GameMap {
       const y = p.kind === 'dock' ? WATER_Y + 0.16 : p.kind === 'rowboat' ? WATER_Y - 0.12 : undefined;
       // Small street clutter skips the shadow pass (contact AO grounds it; saves shadow triangles).
       if (p.noShadow) (g instanceof THREE.Group ? g : g.group).traverse((o) => (o.castShadow = false));
+      if (p.kind === 'easel' && g instanceof THREE.Group) {
+        // The painter's easel only stands out while its painter is at work (npcs toggles it): kept
+        // out of the static batch, hidden until then, and never a solid tile.
+        g.name = 'painter-easel';
+        g.position.set(p.x, this.terrain.heightAt(p.x, p.z) - 0.03, p.z);
+        g.rotation.y = p.rot ?? 0;
+        g.visible = false;
+        g.userData.perfTag = 'props';
+        this.root.add(g);
+        continue;
+      }
       this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid, { lights, y });
       if (!['hedge', 'dock', 'rowboat', 'laundry', 'fence', 'flowerRing'].includes(p.kind)) this.terrain.stampCover('ao', p.x, p.z, p.kind === 'stall' ? 1.6 : p.kind === 'well' ? 1.2 : 0.6, 0.6);
     }

@@ -88,14 +88,22 @@ export function beachRockGeometry(rng: Rng, radius: number, o: BeachRockOpts = {
   return g;
 }
 
-let rockMat: THREE.MeshStandardMaterial | null = null;
+const rockMats: Partial<Record<'rock' | 'shelf', THREE.MeshStandardMaterial>> = {};
 
-export function beachRockMaterial(): THREE.MeshStandardMaterial {
-  if (rockMat) return rockMat;
+/**
+ * `shelf`: the flat tide-pool slab variant — soft granite grain only (at slab scale its crack cells
+ * read as crazy paving), plus sweeping sedimentary bedding, a few long jagged fractures, weathering
+ * pockmarks (some holding water), glossy spray puddles in the dips, pink coralline crust and
+ * mussel clumps round the wet pool lips.
+ */
+export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshStandardMaterial {
+  const cached = rockMats[kind];
+  if (cached) return cached;
+  const shelf = kind === 'shelf';
   const t = textures.granite();
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0, color: 0xffffff });
-  m.name = 'beachRock';
-  patchMaterial(m, 'beach-rock', (shader) => {
+  m.name = shelf ? 'beachShelf' : 'beachRock';
+  patchMaterial(m, shelf ? 'beach-rock-shelf' : 'beach-rock', (shader) => {
     shader.uniforms.uBRGranite = { value: t.map };
     shader.uniforms.uBRTide = ROCK_TIDE;
     shader.uniforms.uBRTime = globalUniforms.uTime;
@@ -108,6 +116,7 @@ export function beachRockMaterial(): THREE.MeshStandardMaterial {
       shader.fragmentShader,
       'void main() {',
       /* glsl */ `
+      ${shelf ? '#define BR_SHELF' : ''}
       varying vec3 vBRW;
       varying vec3 vBRN;
       varying vec2 vBRK;
@@ -142,6 +151,9 @@ export function beachRockMaterial(): THREE.MeshStandardMaterial {
         vec3 gy = texture2D(uBRGranite, P.xz).rgb;
         vec3 gz = texture2D(uBRGranite, P.xy).rgb;
         vec3 gr = gx * bw.x + gy * bw.y + gz * bw.z;
+        #ifdef BR_SHELF
+        gr = mix(vec3(1.0), gr, 0.3);
+        #endif
         // Warm sandstone-grey base with broad tonal variation.
         float broad = brNoise(vBRW.xz * 0.35 + vBRW.y * 0.2);
         vec3 stone = mix(vec3(0.19, 0.175, 0.16), vec3(0.33, 0.3, 0.26), broad);
@@ -175,13 +187,58 @@ export function beachRockMaterial(): THREE.MeshStandardMaterial {
         // Sea-dark and saturated when wet; sun-bleached on the dry tops.
         diffuseColor.rgb *= mix(1.0, 0.5, wet);
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.14, 1.1, 1.02), smoothstep(0.7, 0.95, N.y) * (1.0 - wet) * (1.0 - moss));
+        #ifdef BR_SHELF
+        {
+          vec2 q = vBRW.xz;
+          vec2 wq = q + vec2(brNoise(q * 0.3), brNoise(q * 0.3 + 7.0)) * 2.4;
+          // Sedimentary bedding: broad warm / cool bands sweeping across the slab + fine laminae.
+          float u = dot(wq, vec2(0.8, 0.6));
+          diffuseColor.rgb *= mix(vec3(0.94, 0.96, 1.02), vec3(1.08, 1.0, 0.9), 0.5 + 0.5 * sin(u * 1.1));
+          float lam = smoothstep(0.08, 0.0, abs(fract(u * 1.7) - 0.5) - 0.42) * smoothstep(0.45, 0.7, brNoise(q * 0.5 + 3.0));
+          diffuseColor.rgb *= 1.0 - lam * 0.12;
+          // A few long, jagged fractures (dark hairline + a sunlit lip on one side).
+          float fr = brNoise(wq * 0.55 + 11.0) + (brNoise(q * 3.0) - 0.5) * 0.06;
+          float fmask = smoothstep(0.45, 0.62, brNoise(q * 0.2 + 5.0));
+          float crack = smoothstep(0.022, 0.004, abs(fr - 0.5)) * fmask;
+          float lip = smoothstep(0.05, 0.022, fr - 0.5) * step(0.5, fr) * fmask;
+          diffuseColor.rgb *= 1.0 - crack * 0.5;
+          diffuseColor.rgb *= 1.0 + lip * 0.1;
+          // Weathering pockmarks: round pits with a dark floor and a light rim; a few hold water.
+          vec2 pq = q * 2.2;
+          vec2 pc = floor(pq);
+          float ph = brHash(pc + 3.7);
+          vec2 pf = fract(pq) - 0.5 - (vec2(brHash(pc), brHash(pc + 1.3)) - 0.5) * 0.5;
+          float pr = mix(0.1, 0.22, brHash(pc + 9.1));
+          float pd = length(pf * vec2(1.0, 1.2));
+          float pit = smoothstep(pr, pr * 0.75, pd) * step(ph, 0.16) * (1.0 - moss) * smoothstep(0.6, 0.85, N.y);
+          float rimP = smoothstep(pr * 1.35, pr, pd) * (1.0 - smoothstep(pr, pr * 0.8, pd)) * step(ph, 0.16) * smoothstep(0.0, -pr, pf.y) * smoothstep(0.6, 0.85, N.y);
+          diffuseColor.rgb *= 1.0 - pit * 0.38;
+          diffuseColor.rgb *= 1.0 + rimP * 0.15;
+          float pitWater = pit * step(ph, 0.06);
+          // Puddles in the dips (glossy, dark, sky-reflecting through the roughness below).
+          float pud = smoothstep(0.64, 0.7, brNoise(q * 0.45 + 13.0) * 0.8 + brNoise(q * 2.0) * 0.2) * smoothstep(0.85, 0.97, N.y);
+          diffuseColor.rgb *= 1.0 - pud * 0.35;
+          hvBRWet = max(hvBRWet, max(pud * 0.95, pitWater));
+          // Pink coralline crust + mussel clumps on the wet lips (pools / sea rim).
+          float lipZ = max(vBRK.y * 1.6, wet * 0.8);
+          float cor = smoothstep(0.45, 0.7, brNoise(q * 3.3 + 2.0)) * smoothstep(0.2, 0.6, lipZ);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.6, 0.4, 0.42) * (0.8 + 0.3 * brNoise(q * 11.0)), cor * 0.4 * smoothstep(0.45, 0.8, N.y));
+          vec2 mq = q * vec2(6.0, 7.5);
+          vec2 mc = floor(mq);
+          vec2 mf = fract(mq) - 0.5 - (vec2(brHash(mc + 2.0), brHash(mc + 5.0)) - 0.5) * 0.4;
+          float musselZ = smoothstep(0.5, 0.75, brNoise(q * 0.9 + 21.0)) * smoothstep(0.3, 0.7, lipZ) * smoothstep(0.55, 0.8, N.y);
+          float mus = smoothstep(0.3, 0.2, length(mf * vec2(1.0, 1.5))) * step(brHash(mc + 8.0), 0.4) * musselZ;
+          diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.04, 0.05, 0.08), vec3(0.16, 0.2, 0.3), smoothstep(0.0, -0.2, mf.y)), mus * 0.7);
+          hvBRWet = max(hvBRWet, mus * 0.7);
+        }
+        #endif
       }`,
     );
-    fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.4, hvBRWet);');
+    fs = after(fs, '#include <roughnessmap_fragment>', shelf ? 'roughnessFactor = mix(roughnessFactor, 0.16, hvBRWet);' : 'roughnessFactor = mix(roughnessFactor, 0.4, hvBRWet);');
     shader.fragmentShader = fs;
   });
   applyWorldFx(m, { snowUp: 0.62 });
-  rockMat = m;
+  rockMats[kind] = m;
   return m;
 }
 

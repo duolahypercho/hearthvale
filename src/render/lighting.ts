@@ -56,7 +56,7 @@ const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1,
 const SHADOW_REACH = 25;
 
 // Storm grade: a clear cold teal-blue (lifted slate shadows, pulled-down warm highlights).
-const _stormLift = new THREE.Vector3(0.045, 0.075, 0.125);
+const _stormLift = new THREE.Vector3(0.022, 0.04, 0.07);
 const _stormGain = new THREE.Vector3(0.74, 0.86, 1.04);
 const _flashLift = new THREE.Vector3();
 const _stormFog = new THREE.Color(0.2, 0.25, 0.34);

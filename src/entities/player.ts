@@ -165,7 +165,8 @@ export class Player {
           if (sx > 0) b.add(denim, roundedBox(0.09, 0.08, 0.02, 0.015), mat(0, -0.2, 0.09, 0.1, 0, 0.1), { tint: 0x8fb88a });
           b.add(shirt, new THREE.CylinderGeometry(0.1, 0.1, 0.05, 12), mat(0, -0.34, 0), { tint: 0xd8cfb8 });
           b.add(boot, roundedBox(0.19, 0.14, 0.27, 0.06), mat(0, -0.43, 0.035));
-          b.add(boot, roundedBox(0.2, 0.04, 0.29, 0.02), mat(0, -0.49, 0.04), { tint: 0x3a2618 });
+          // Sole: a warm dark-brown rim tucked inside the boot's footprint (was a black plate poking out).
+          b.add(boot, roundedBox(0.176, 0.034, 0.255, 0.016), mat(0, -0.489, 0.037), { tint: 0x5e3c26 });
         }, 'leg'),
       );
       this.hips.add(leg);

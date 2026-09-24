@@ -632,9 +632,12 @@ function decalTexture(kind: 'wet' | 'crack'): THREE.CanvasTexture {
 const STREAM_N = 22;
 /** Jets out of the rose: a fat main stream + two thinner side jets that fan apart as they fall. */
 const JETS: { w0: number; w1: number; spread: number; lag: number; a: number }[] = [
-  { w0: 0.07, w1: 0.024, spread: 0, lag: 0, a: 0.95 },
-  { w0: 0.03, w1: 0.012, spread: 0.1, lag: 0.02, a: 0.75 },
-  { w0: 0.03, w1: 0.012, spread: -0.1, lag: 0.035, a: 0.75 },
+  { w0: 0.095, w1: 0.034, spread: 0, lag: 0, a: 0.96 },
+  { w0: 0.042, w1: 0.016, spread: 0.13, lag: 0.02, a: 0.8 },
+  { w0: 0.042, w1: 0.016, spread: -0.13, lag: 0.035, a: 0.8 },
+  // The rose's outer holes: two hair-fine jets that fan wide and break up first.
+  { w0: 0.022, w1: 0.009, spread: 0.26, lag: 0.05, a: 0.6 },
+  { w0: 0.022, w1: 0.009, spread: -0.24, lag: 0.065, a: 0.6 },
 ];
 
 const STREAM_VS = /* glsl */ `
@@ -1427,9 +1430,17 @@ export class FarmFX {
    * up and out + a wisp of mist (the soil itself darkens underneath).
    */
   splash(p: THREE.Vector3, big = 1): void {
-    this.ring(p.clone().setY(p.y + 0.015), 0.04 * big, 0.3 * big, 0.42, 0x3f6e90);
-    this.crown(p, big, 6);
-    if (fxr.next() < 0.5) this.mist(p.clone().setY(p.y + 0.06), 0.22 * big, 0.14);
+    // Two ripples (a bright quick inner one, a wider soft outer one) so the ring reads on dark soil.
+    this.ring(p.clone().setY(p.y + 0.015), 0.04 * big, 0.34 * big, 0.5, 0x4f86b0);
+    this.ring(p.clone().setY(p.y + 0.017), 0.02 * big, 0.16 * big, 0.28, 0xb8dcf4);
+    this.crown(p, big, 8);
+    // A couple of fat drops flicked high (they crown again where they land).
+    for (let i = 0; i < 2; i++) {
+      const a = rnd(0, Math.PI * 2);
+      this.drop(p.clone().setY(p.y + 0.02), new THREE.Vector3(Math.cos(a) * rnd(0.5, 0.9) * big, rnd(1.8, 2.4) * big, Math.sin(a) * rnd(0.5, 0.9) * big), 0.016 * big, true);
+    }
+    this.mist(p.clone().setY(p.y + 0.06), 0.26 * big, 0.16);
+    if (fxr.next() < 0.45) this.sparkle(p.clone().add(_v.set(rnd(-0.1, 0.1), rnd(0.06, 0.16), rnd(-0.1, 0.1))), _v.set(0, rnd(0.2, 0.5), 0), 0xd8f0ff, rnd(0.07, 0.11), 0.35);
   }
 
   /** Seeds scattered into a tile + a little dust. */

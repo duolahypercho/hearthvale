@@ -18,6 +18,8 @@ const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3(1, 1, 1);
+/** Fish in the school off the pier. */
+const SCHOOL_N = 9;
 
 function floatGeometry(): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(0.16, 14, 10);
@@ -136,31 +138,79 @@ function flotsamGeometry(kind: number, rng: Rng): THREE.BufferGeometry {
   }))!;
 }
 
-/** Soft fish silhouette (body ellipse + forked tail), drawn as a dark translucent shadow. */
+/**
+ * Fish silhouette (tapered head, body, narrow tail stock, forked tail, pectoral fins), blurred into a
+ * soft, cool shadow — reads as a fish at gameplay zoom, never as a dark oval "hole" in the water.
+ */
 function fishShadowMaterial(): THREE.MeshBasicMaterial {
   const c = document.createElement('canvas');
   c.width = 128;
   c.height = 64;
   const g = c.getContext('2d')!;
-  const rg = g.createRadialGradient(74, 32, 2, 74, 32, 44);
-  rg.addColorStop(0, 'rgba(255,255,255,1)');
-  rg.addColorStop(0.7, 'rgba(255,255,255,0.75)');
-  rg.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = rg;
+  g.filter = 'blur(2.5px)';
+  g.fillStyle = '#fff';
   g.beginPath();
-  g.ellipse(74, 32, 46, 15, 0, 0, Math.PI * 2);
+  // Head at +x (right), tail at -x.
+  g.moveTo(118, 32);
+  g.bezierCurveTo(112, 20, 92, 17, 74, 18);
+  g.bezierCurveTo(56, 19, 42, 25, 30, 29);
+  g.lineTo(30, 35);
+  g.bezierCurveTo(42, 39, 56, 45, 74, 46);
+  g.bezierCurveTo(92, 47, 112, 44, 118, 32);
   g.fill();
-  g.globalAlpha = 0.7;
+  // Forked tail.
   g.beginPath();
-  g.moveTo(34, 32);
-  g.lineTo(6, 16);
-  g.lineTo(14, 32);
-  g.lineTo(6, 48);
+  g.moveTo(33, 32);
+  g.lineTo(10, 14);
+  g.quadraticCurveTo(18, 32, 10, 50);
   g.closePath();
   g.fill();
+  // Pectoral fins.
+  g.globalAlpha = 0.6;
+  for (const s of [-1, 1]) {
+    g.beginPath();
+    g.moveTo(86, 32 + s * 12);
+    g.lineTo(72, 32 + s * 24);
+    g.lineTo(78, 32 + s * 12);
+    g.closePath();
+    g.fill();
+  }
   const tex = new THREE.CanvasTexture(c);
-  const m = new THREE.MeshBasicMaterial({ map: tex, color: 0x04161e, transparent: true, opacity: 0.46, depthWrite: false });
+  const m = new THREE.MeshBasicMaterial({ map: tex, color: 0x0b3440, transparent: true, opacity: 0.38, depthWrite: false });
   m.name = 'fishSchool';
+  return m;
+}
+
+/** Waterline collar for the moored dory: a lacy foam ring hugging the hull + a dim wet band inside it. */
+function boatRingMaterial(): THREE.ShaderMaterial {
+  const m = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: { uT: { value: 0 }, uNight: globalUniforms.uNight, uSun: globalUniforms.uSunColor, uSky: globalUniforms.uSkyColor },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */ `
+      varying vec2 vUv; uniform float uT; uniform float uNight; uniform vec3 uSun; uniform vec3 uSky;
+      float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float n(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h(i), h(i + vec2(1.0, 0.0)), f.x), mix(h(i + vec2(0.0, 1.0)), h(i + vec2(1.0, 1.0)), f.x), f.y); }
+      void main(){
+        // Hull plan: bow at +x (pointed), transom at -x (blunt) - a superellipse in the 4.3 x 2.3 quad.
+        vec2 q = (vUv - 0.5) * vec2(4.3, 2.3);
+        float bow = smoothstep(-0.4, 1.6, q.x);
+        vec2 e = q / vec2(1.72, 0.8 - bow * 0.38);
+        float r = pow(pow(abs(e.x), 2.4) + pow(abs(e.y), 2.4), 1.0 / 2.4);
+        float a = atan(q.y, q.x);
+        float wob = n(vec2(a * 3.0, uT * 0.7)) * 0.12 + n(vec2(a * 9.0, uT * 1.3)) * 0.06;
+        float ring = smoothstep(0.1, 0.0, abs(r - 1.02 - wob)) * (0.55 + 0.45 * n(vec2(a * 14.0, uT * 2.0)));
+        // Faint lace spreading from the collar.
+        float lace = smoothstep(0.62, 0.8, n(q * 5.0 + vec2(uT * 0.3, 0.0))) * smoothstep(1.5, 1.05, r) * step(1.0, r) * 0.45;
+        float foam = max(ring, lace) * (1.0 - uNight * 0.6);
+        vec3 fc = vec3(0.95, 0.97, 0.96) * (uSun * 0.6 + uSky * 0.5);
+        float band = smoothstep(0.86, 0.98, r) * smoothstep(1.05, 0.98, r) * 0.25;
+        gl_FragColor = vec4(mix(vec3(0.02, 0.08, 0.1), fc, foam / max(foam + band, 1e-3)), clamp(foam * 0.85 + band, 0.0, 1.0));
+      }`,
+  });
+  m.name = 'doryWaterline';
   return m;
 }
 
@@ -182,6 +232,7 @@ export class SeaProps {
   private boat: THREE.Group;
   private boatAt: THREE.Vector3;
   private boatYaw: number;
+  private boatRing: THREE.Mesh;
   private floats: THREE.InstancedMesh;
   private floatPts: THREE.Vector3[] = [];
   private flotsam: THREE.InstancedMesh[] = [];
@@ -204,7 +255,14 @@ export class SeaProps {
     // Moored dory.
     this.boat = buildRowboat(rng.fork('dory'), 0xc8583a, 0xf4efe2);
     // (No shadow pass for the dory: it sits on open water, and it saves 3 draw calls.)
-    this.boatAt = new THREE.Vector3(boat.x, level - 0.1, boat.z);
+    this.boatAt = new THREE.Vector3(boat.x, level - 0.22, boat.z);
+    // A soft waterline collar round the hull (foam + a darker contact band): the dory sits IN the
+    // water, it doesn't hover over it.
+    this.boatRing = new THREE.Mesh(new THREE.PlaneGeometry(4.3, 2.3).rotateX(-Math.PI / 2), boatRingMaterial());
+    this.boatRing.name = 'dory-waterline';
+    this.boatRing.renderOrder = 3;
+    this.boatRing.frustumCulled = false;
+    this.group.add(this.boatRing);
     this.boatYaw = boat.rot;
     this.group.add(this.boat);
     // Buoy line floats + the rope they ride on (a thin ribbon at the waterline).
@@ -266,9 +324,9 @@ export class SeaProps {
       this.group.add(im);
     }
     // Fish school shadows.
-    const sg = new THREE.PlaneGeometry(1.1, 0.55);
+    const sg = new THREE.PlaneGeometry(0.78, 0.39);
     sg.rotateX(-Math.PI / 2);
-    this.school = new THREE.InstancedMesh(sg, fishShadowMaterial(), 5);
+    this.school = new THREE.InstancedMesh(sg, fishShadowMaterial(), SCHOOL_N);
     this.school.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.school.frustumCulled = false;
     this.school.renderOrder = 3;
@@ -283,6 +341,9 @@ export class SeaProps {
     const sw = Math.sin(this.boatAt.z * 0.42 + this.boatAt.x * 0.05 - t * 0.9);
     b.position.set(this.boatAt.x, this.boatAt.y + sw * 0.05 + Math.sin(t * 1.4) * 0.012, this.boatAt.z);
     b.rotation.set(Math.sin(t * 0.9 + 1) * 0.045, this.boatYaw + Math.sin(t * 0.21) * 0.08, Math.cos(t * 0.9) * 0.035, 'YXZ');
+    this.boatRing.position.set(b.position.x, L + 0.045, b.position.z);
+    this.boatRing.rotation.y = b.rotation.y;
+    (this.boatRing.material as THREE.ShaderMaterial).uniforms.uT!.value = t;
     // Floats (+ the mooring buoy off the dory's bow).
     const n = this.floatPts.length;
     for (let i = 0; i < n; i++) {
@@ -318,18 +379,19 @@ export class SeaProps {
     const S = this.schoolAt;
     const cx = S.x + Math.sin(this.schoolT * 0.05) * S.r * 0.5;
     const cz = S.z + Math.cos(this.schoolT * 0.037) * S.r * 0.35;
-    for (let i = 0; i < 5; i++) {
-      const u = this.schoolT * 0.22 - i * 0.16;
-      const x = cx + Math.sin(u) * S.r * 0.6 + Math.sin(i * 2.3) * 0.5;
-      const z = cz + Math.sin(u * 2) * S.r * 0.3 + Math.cos(i * 1.7) * 0.4;
+    for (let i = 0; i < SCHOOL_N; i++) {
+      // Each fish trails the leader a little on the loop, offset sideways, with its own dart / drift.
+      const u = this.schoolT * 0.22 - i * 0.09 + Math.sin(t * 0.7 + i * 1.9) * 0.02;
+      const x = cx + Math.sin(u) * S.r * 0.6 + Math.sin(i * 2.3) * 0.55 + Math.sin(t * 0.5 + i) * 0.08;
+      const z = cz + Math.sin(u * 2) * S.r * 0.3 + Math.cos(i * 1.7) * 0.45;
       const dx = Math.cos(u) * S.r * 0.6;
       const dz = Math.cos(u * 2) * 2 * S.r * 0.3;
-      const yaw = Math.atan2(-dz, dx) + Math.sin(t * 7 + i) * 0.12;
+      const yaw = Math.atan2(-dz, dx) + Math.sin(t * 7 + i * 1.3) * 0.1;
       // Above the swell's highest lift (the sea writes depth), so the shadows are never swallowed.
       _p.set(x, L + 0.075, z);
       _e.set(0, yaw, 0);
       _q.setFromEuler(_e);
-      const sc = 0.75 + (i % 3) * 0.15;
+      const sc = 0.8 + ((i * 7) % 5) * 0.08;
       _s.set(sc, 1, sc);
       _m.compose(_p, _q, _s);
       this.school.setMatrixAt(i, _m);
@@ -339,7 +401,7 @@ export class SeaProps {
 
   /** Night: the school goes deep (fades), everything else keeps bobbing. */
   setNight(night: number): void {
-    (this.school.material as THREE.MeshBasicMaterial).opacity = 0.46 * (1 - night * 0.8);
+    (this.school.material as THREE.MeshBasicMaterial).opacity = 0.38 * (1 - night * 0.8);
   }
 }
 

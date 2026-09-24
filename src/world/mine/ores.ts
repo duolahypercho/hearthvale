@@ -185,7 +185,9 @@ function kitFor(biome: Biome, r: Rng): Kit {
   const cap = biome === 'ice' ? 0xf4faff : biome === 'lava' ? 0x6e3024 : undefined;
   const capAmt = biome === 'ice' ? 0.28 : 0.35;
   k = { body: [], big: [], coal: [], nuggets: new Map() };
-  const soft = { detail: 2, smooth: 0.62, lumps: 0.16, crevice: 0.55 };
+  // Soft boulders with a few crisp cleaved faces (hard-creased planes + worn edges): defined,
+  // hand-cut silhouettes instead of smooth potatoes.
+  const soft = { detail: 2, smooth: 0.62, lumps: 0.16, crevice: 0.55, cleave: true };
   for (let v = 0; v < VARIANTS; v++) k.body.push(facetRock(r, 0.44, def.rock[v % def.rock.length]!, { ...soft, chunky: v % 2 === 1, squash: 0.74, cap, capAmt, rim: 0.5 }));
   const dark = new THREE.Color(def.rock[0]!).multiplyScalar(biome === 'ice' ? 0.55 : 0.5).getHex();
   for (let v = 0; v < VARIANTS; v++) k.coal.push(facetRock(r, 0.44, dark, { ...soft, chunky: v % 2 === 0, squash: 0.72, cap, capAmt: capAmt * 0.2, rim: 0.55 }));

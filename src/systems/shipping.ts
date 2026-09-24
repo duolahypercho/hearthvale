@@ -5,6 +5,10 @@
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
+import { QUALITY_MULT } from '../data/crops';
+
+/** Sale value of a stack: base price × produce-quality multiplier (1 / 1.25 / 1.5 / 2). */
+const priceOf = (itemId: string, qty: number, quality = 0): number => Math.floor((itemDef(itemId)?.sell ?? 0) * (QUALITY_MULT[quality] ?? 1)) * qty;
 
 declare module '../core/events' {
   interface GameEvents {
@@ -16,7 +20,7 @@ declare module '../core/events' {
 export class ShippingSystem implements System {
   readonly name = 'shipping';
   private game!: Game;
-  private bin: { itemId: string; qty: number }[] = [];
+  private bin: { itemId: string; qty: number; quality?: number }[] = [];
 
   init(game: Game): void {
     this.game = game;
@@ -29,15 +33,15 @@ export class ShippingSystem implements System {
       if (!inv || !s || !def || def.sell <= 0 || def.kind === 'tool') return;
       const taken = inv.takeFromSlot(game.toolbarSlot, s.qty);
       if (!taken) return;
-      this.bin.push({ itemId: taken.id, qty: taken.qty });
-      game.events.emit('shipping:add', { itemId: taken.id, qty: taken.qty, value: def.sell * taken.qty });
+      this.bin.push(taken.quality ? { itemId: taken.id, qty: taken.qty, quality: taken.quality } : { itemId: taken.id, qty: taken.qty });
+      game.events.emit('shipping:add', { itemId: taken.id, qty: taken.qty, value: priceOf(taken.id, taken.qty, taken.quality) });
     });
     game.events.on('day:end', () => this.payout());
   }
 
   private payout(): void {
     if (!this.bin.length) return;
-    const items = this.bin.map((b) => ({ ...b, value: (itemDef(b.itemId)?.sell ?? 0) * b.qty }));
+    const items = this.bin.map((b) => ({ itemId: b.itemId, qty: b.qty, value: priceOf(b.itemId, b.qty, b.quality) }));
     const total = items.reduce((a, b) => a + b.value, 0);
     this.bin = [];
     this.game.services.economy?.add(total, 'shipping');
@@ -49,6 +53,6 @@ export class ShippingSystem implements System {
   }
 
   load(data: unknown): void {
-    this.bin = (data as { bin?: { itemId: string; qty: number }[] })?.bin ?? [];
+    this.bin = (data as { bin?: { itemId: string; qty: number; quality?: number }[] })?.bin ?? [];
   }
 }

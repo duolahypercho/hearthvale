@@ -198,26 +198,49 @@ music-bus EQ + glue compressor / limiter, composer, synthesised instruments, amb
   player learns it. `src/audio/composer.ts` arranges it: roman-numeral harmony with voice-led voicings,
   per-bar figuration variants, a fill every 4th bar (bass pickup runs, anticipations), drum fills into the
   final A, a stop-time (or 3/4 "breath") bar before B, section crescendi, a key lift in the title theme.
-  The day seed only varies figuration and humanisation, never the tune. Themes: spring (flute + kalimba),
-  summer (marimba + nylon guitar, glockenspiel on the repeats), fall (clarinet waltz + cello), winter (music
-  box + celesta), town (ocarina + pizzicato), beach (steel pan + ukulele), forest (dorian whistle + harp, 6/8),
-  inn (swing vibraphone over Rhodes comp, also the town square 17:30–20:00), night lullaby, rain lo-fi, mine / mine-ice / mine-lava
-  (by floor band), festival jig + four festival arrangements, title.
+  The day seed only varies figuration and humanisation, never the tune. Songs run intro · A · A · B · A ·
+  C (a bridge in a new harmonic area, often handed to another voice) · A · outro, 2–3 minutes each; the
+  counter-line answers the tune (it moves on the beats where the melody holds or rests, in contrary motion)
+  and 'always' pads sit out the first A and thin to two voices in the later ones.
+  **Three songs per season** (`themes.ts` + `src/audio/songbook.ts`), rotated by `select.ts` playlists
+  (`farm:<season>`: day-seeded, never the same opener two days running, never the same song twice in a row):
+  spring — First Furrow (flute + kalimba, 4/4), Clover Lane (kalimba jig, 6/8), Apple Blossom Waltz (ocarina,
+  3/4); summer — Long Light (marimba + nylon guitar), Porch Swing (fiddle waltz), Lemonade Afternoon (bossa
+  nylon-guitar lead); fall — Amber Waltz (clarinet, cello bridge), Cider & Candle (cello hymn, 4/4), Woodsmoke
+  (oboe, 6/8); winter — Hush of Snow (music box), Frostglass (celesta + harp rolls, bell bridge), Hearthside
+  (low flute over a music-box figure, 6/8). Nights (`night:<season>`): Lamplight, Dew at Dusk, Owl Hour,
+  Snowlight Lullaby. Plus town (ocarina + pizzicato), beach (steel pan + ukulele), forest (dorian whistle + harp,
+  6/8), inn (swing vibraphone over Rhodes comp, also the town square 17:30–20:00), rain lo-fi, mine / mine-ice /
+  mine-lava (by floor band), festival jig + four festival arrangements, title.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);
-  plucked strings are Karplus-Strong with body modes baked in; bowed strings are detuned Helmholtz
+  plucked strings are Karplus-Strong with body modes baked in; winds (flute, whistle, ocarina, clarinet, oboe)
+  crossfade a soft and a bright spectrum by velocity, register and the note's own swell (the clarinet's even
+  harmonics only arrive when it is pushed), with a random-walk pitch drift of a few cents, vibrato that deepens
+  on held notes, a messa di voce on long notes and breath as noise through a resonant band tracking the pitch;
+  bowed strings are detuned Helmholtz
   oscillators with bow noise and velocity-following tilt through generated body IRs; the pad is a
   five-voice drifting string ensemble with formant EQ. Shared LFOs, a buffer cache and a polyphony budget
   (72 voices, texture tracks dropped first) keep the per-note cost low.
-- **Transitions** (`src/audio/music.ts`): never two keys at once — a mood change in the same place waits
-  for the phrase to end, then fades ≤ 2.5 s; a change of place fades 1.4 s; the new song starts after.
+- **Transitions** (`src/audio/music.ts`): crossfades with a key bridge — a change of place fades the old song
+  over 1.3 s while the new one opens on a bar of its tonic chord built only from tones both keys share; a mood
+  change in the same place waits for the phrase to end first (2.5 s fade). No dead air, no clashing keys.
   The director's recent decisions are in `__game.info().audio.trace`. Songs are composed in a Web Worker
-  (`src/audio/compose.worker.ts` via `prefetch.ts`) while the previous one fades / the score rests, so a
-  song start never costs a frame (`__game.info().audio.compose` counts worker hits vs main-thread misses).
+  (`src/audio/compose.worker.ts` via `prefetch.ts`): the opening song is requested as the save loads (before
+  the first click), forced demo / cutscene themes on request, the next song while the old fades — and in real
+  time a song is never composed on the main thread (`__game.info().audio.compose`: worker hits vs misses).
 - **In game**: a "now playing" card (`src/audio/nowplaying.ts`) engraves the first two bars of the new
-  tune on a staff; the morning chime quotes the tune about to play, the first day of a season its hook.
-- Hear it: `?demo=audio&theme=<id>` (`&theme=none` for ambience only, `&sfx=<name>` repeats an SFX every 2.5 s,
+  tune on a staff, and little notes float out of it into the scene in time with the melody while it is up;
+  the morning chime quotes the tune about to play, the first day of a season its hook.
+- **Ambience**: every bed is decorrelated stereo noise (L/R correlation ~0.3); rain is a 4–6 kHz hiss plus
+  two looping droplet textures (45 / 110 drops/s, 2–8 kHz pings and the odd puddle plink, spread across the
+  field); surf swells travel from one side to the other.
+- **Mix**: gameplay verbs (hoe, watering with its soil splash, footsteps with a 2–4 kHz scuff, scythe) peak
+  around -18…-22 dBFS in game, menu cues -24…-28, ambience events at or below -30; the music bus cuts 280 Hz,
+  lifts 3.2 kHz / 7 kHz, harmony tracks lose 2.5 dB at 320 Hz and the melody gets a 9 kHz air shelf.
+- Hear it: `?demo=audio&theme=<id>` (also `audio-summer` / `audio-fall` / `audio-winter`; `theme` takes a song id or a
+  playlist like `farm:fall`; `&theme=none` for ambience only, `&sfx=<name>` repeats an SFX every 2.5 s,
   `&audio=1` starts the context without a click where autoplay allows, `&card=1` pins the now-playing card,
   `&card=0` hides it). Any demo plays its own music after a click.
 - From code: `game.services.audio.play('coin')`, `.music('festival' | null | 'none')`, `.state()`, `.meter()`;

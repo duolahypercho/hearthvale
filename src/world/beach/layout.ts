@@ -141,10 +141,12 @@ export class BeachShape {
       h = Math.max(h, h * (1 - k) + shelf * k);
       for (const [px, pz, pr] of TIDE_POOLS) {
         const d = Math.hypot(x - px, (z - pz) * 1.15) / pr;
-        if (d < 1.25) h = Math.min(h, h * smoothstep(0.55, 1.2, d) + 0.12 * (1 - smoothstep(0.55, 1.2, d)));
+        // Bowl floor under the water right out to the stone wall (shelf.ts rolls the slab down into
+        // the water there, so no raw ground ever shows above the waterline inside a pool).
+        if (d < 1.35) h = Math.min(h, h * smoothstep(0.92, 1.35, d) + 0.12 * (1 - smoothstep(0.92, 1.35, d)));
         // Rock lip: every pool is enclosed above its water line (no water plane hanging over low ground).
-        if (d > 0.75 && d < 1.7) {
-          const k = smoothstep(0.75, 1.0, d) * smoothstep(1.7, 1.25, d);
+        if (d > 1.1 && d < 1.8) {
+          const k = smoothstep(1.1, 1.3, d) * smoothstep(1.8, 1.4, d);
           const lip = TIDE_POOL_Y + 0.13;
           if (h < lip) h += (lip - h) * k;
         }

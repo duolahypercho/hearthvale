@@ -15,7 +15,7 @@ import { LIVESTOCK, LIVESTOCK_ORDER, type Livestock } from '../../entities/anima
 import { registerAnimalIcons } from './icons';
 import type { BuildingKind } from './farm';
 
-const HAY_PRICE = 50;
+const HAY_PRICE = 45;
 
 type Tab = 'build' | 'animals' | 'supplies';
 
@@ -88,11 +88,13 @@ const CSS = `
 .cp-cost svg, .cp-cost img { width:22px; height:22px; flex:0 0 auto; }
 .cp-row { display:flex; align-items:center; gap:10px; }
 .cp-row .u-btn { font-size:17px; padding:7px 18px 9px; margin-left:auto; }
-.cp-row .u-btn.off { filter: grayscale(.8) brightness(.9); cursor: default; }
+.cp-row .u-btn.off, .cp-row .u-btn:disabled { filter: grayscale(.85) brightness(.92); opacity:.7; cursor: not-allowed; box-shadow:none; }
 .cp-stamp { margin-left:auto; padding:4px 12px; border:3px solid currentColor; border-radius:8px; font-family:var(--font-head); font-weight:700;
   font-size:15px; letter-spacing:.06em; text-transform:uppercase; transform: rotate(-6deg); opacity:.85; }
 .cp-stamp.built { color:#3f8a2a; } .cp-stamp.pending { color:#c07a1a; }
-.cp-animal { flex-direction:row; align-items:center; gap:12px; }
+.cp-animal { flex-direction:row; align-items:stretch; gap:12px; }
+.cp-animal .cp-face { align-self:center; }
+.cp-animal .cp-row { margin-top:auto; padding-top:4px; }
 .cp-animal .cp-face { flex:0 0 64px; height:64px; border-radius:50%; display:grid; place-items:center; background: radial-gradient(circle at 40% 35%, #fff8e8, #f0d8a8);
   border:3px solid #a8743c; box-shadow: inset 0 -4px 0 rgba(150,90,30,.2); }
 .cp-animal .cp-face svg { width:54px; height:54px; }
@@ -210,7 +212,8 @@ export class CarpenterPanel extends Screen {
       const pending = b?.pending(kind);
       if (built || pending) row.appendChild(el('div', `cp-stamp ${built ? 'built' : 'pending'}`, built ? 'Built' : 'Tomorrow'));
       else {
-        const btn = el('button', 'u-btn', 'Order');
+        const can = gold >= c.gold && (inv?.count('wood') ?? 0) >= c.wood && (inv?.count('stone') ?? 0) >= c.stone;
+        const btn = el('button', `u-btn${can ? '' : ' off'}`, 'Order');
         btn.dataset.nav = '';
         btn.addEventListener('click', () => {
           const err = b?.order(kind) ?? 'The carpenter is out.';
@@ -244,8 +247,11 @@ export class CarpenterPanel extends Screen {
       body.innerHTML = `<div class="cp-name">${info.name}</div><div class="cp-blurb">${info.blurb}</div>
         <div class="cp-occ">${has ? `${info.home === 'coop' ? 'Coop' : 'Barn'} <b>${n} / 6</b>` : `Needs a <b>${info.home}</b>`}</div>`;
       const row = el('div', 'cp-row');
-      row.innerHTML = `<div class="cp-cost"><span>${ICONS.coin ?? ''}${info.price.toLocaleString()}g</span></div>`;
-      const btn = el('button', `u-btn${has && n < 6 ? '' : ' off'}`, 'Buy');
+      const afford = (this.game.services.economy?.gold() ?? 0) >= info.price;
+      row.innerHTML = `<div class="cp-cost"><span${afford ? '' : ' class="short" title="Not enough gold"'}>${ICONS.coin ?? ''}${info.price.toLocaleString()}g</span></div>`;
+      const ok = has && n < 6 && afford;
+      const btn = el('button', `u-btn${ok ? '' : ' off'}`, 'Buy');
+      if (!ok) btn.setAttribute('aria-disabled', 'true');
       btn.dataset.nav = '';
       btn.addEventListener('click', () => {
         const err = an?.buy(s) ?? 'Nobody is selling today.';
@@ -274,8 +280,9 @@ export class CarpenterPanel extends Screen {
       const body = el('div', 'cp-body');
       body.innerHTML = `<div class="cp-name">Hay ×${qty}</div><div class="cp-blurb">Sweet meadow hay. One portion per animal per day in the feed trough.</div>`;
       const row = el('div', 'cp-row');
-      row.innerHTML = `<div class="cp-cost"><span>${ICONS.coin ?? ''}${(qty * HAY_PRICE).toLocaleString()}g</span></div>`;
-      const btn = el('button', 'u-btn', 'Buy');
+      const afford = (this.game.services.economy?.gold() ?? 0) >= qty * HAY_PRICE;
+      row.innerHTML = `<div class="cp-cost"><span${afford ? '' : ' class="short"'}>${ICONS.coin ?? ''}${(qty * HAY_PRICE).toLocaleString()}g</span></div>`;
+      const btn = el('button', `u-btn${afford ? '' : ' off'}`, 'Buy');
       btn.dataset.nav = '';
       btn.addEventListener('click', () => {
         const eco = this.game.services.economy;
@@ -299,6 +306,6 @@ export class CarpenterPanel extends Screen {
 
 /** Mirror of the build costs (system.ts owns the authoritative table; kept in sync by COSTS import there). */
 export const COSTS_VIEW: Record<BuildingKind, { gold: number; wood: number; stone: number; name: string; blurb: string; houses: string }> = {
-  coop: { gold: 4000, wood: 300, stone: 100, name: 'Coop', blurb: 'A snug red henhouse with nesting boxes, a roost ladder and a feed trough.', houses: 'chickens · ducks' },
-  barn: { gold: 6000, wood: 350, stone: 150, name: 'Barn', blurb: 'A tall gambrel barn with straw stalls, a hay loft and a long feed trough.', houses: 'cows · goats · sheep · pigs' },
+  coop: { gold: 3600, wood: 240, stone: 80, name: 'Coop', blurb: 'A snug red henhouse with nesting boxes, a roost ladder and a feed trough.', houses: 'chickens · ducks' },
+  barn: { gold: 5800, wood: 320, stone: 120, name: 'Barn', blurb: 'A tall gambrel barn with straw stalls, a hay loft and a long feed trough.', houses: 'cows · goats · sheep · pigs' },
 };

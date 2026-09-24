@@ -29,6 +29,15 @@ const CSS = `
 .hv-np-staff .n{opacity:0;animation:hv-np-pop .34s cubic-bezier(.34,1.8,.64,1) forwards}
 @keyframes hv-np-pop{from{opacity:0;transform:translateY(-5px) scale(.6)}to{opacity:1;transform:none}}
 @keyframes hv-np-bob{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-2px) rotate(6deg)}}
+.hv-np-fly{position:absolute;left:30px;top:30px;width:24px;height:24px;pointer-events:none;opacity:0;z-index:-1;
+  filter:drop-shadow(0 2px 0 rgba(74,44,18,.95)) drop-shadow(0 0 1.5px rgba(74,44,18,.9)) drop-shadow(0 0 10px rgba(255,214,140,.7));
+  animation:hv-np-fly var(--d,2.8s) cubic-bezier(.22,.7,.36,1) forwards}
+.hv-np-fly svg{width:100%;height:100%;display:block}
+@keyframes hv-np-fly{0%{opacity:0;transform:translate(0,0) scale(.45) rotate(var(--r0,-10deg))}
+  12%{opacity:1;transform:translate(calc(var(--dx,0px)*.18),calc(var(--dy,-40px)*.15)) scale(1.05) rotate(0deg)}
+  60%{opacity:.95;transform:translate(calc(var(--dx,0px)*.7),calc(var(--dy,-40px)*.8)) scale(.95) rotate(var(--r1,8deg))}
+  100%{opacity:0;transform:translate(var(--dx,0px),var(--dy,-40px)) scale(.8) rotate(var(--r0,-10deg))}}
+@media (prefers-reduced-motion:reduce){.hv-np-fly{display:none}}
 @media (max-width:640px){.hv-np{left:10px;bottom:96px;transform-origin:left bottom}.hv-np-card{transform:scale(.86);transform-origin:left bottom}}
 `;
 
@@ -164,9 +173,19 @@ export function engrave(th: ThemeDef, bars = 2, width = 268): string {
   return `<svg class="hv-np-staff" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}" aria-label="First bars of the melody">${out.join('')}</svg>`;
 }
 
+const FLY_NOTES = [
+  NOTE_ICON,
+  `<svg viewBox="0 0 32 32" aria-hidden="true"><path fill="#fff4d8" d="M17 4h3c.4 3.2 2.4 5 5 6.8 2.6 1.8 3.4 5.2 1.8 8.2-.4-2.6-1.8-4.6-4.4-5.4-.8-.3-1.6-.4-2.4-.3v8.6a5 4 -20 1 1-3-3.6z"/></svg>`,
+];
+const FLY_TINTS = ['#ffe9b0', '#ffd27a', '#ffc9b4', '#e2f0b8', '#cfe6ff'];
+
 export class NowPlaying {
   private el: HTMLElement | null = null;
   private timer = 0;
+  private shownAt = -1e9;
+  private pinned = false;
+  private lastFly = 0;
+  private flying = 0;
   disabled = false;
 
   private ensure(): HTMLElement {
@@ -194,6 +213,8 @@ export class NowPlaying {
     void el.offsetWidth;
     el.classList.add('on');
     window.clearTimeout(this.timer);
+    this.shownAt = performance.now();
+    this.pinned = pin;
     if (!pin) {
       this.timer = window.setTimeout(() => {
         el.classList.remove('on');
@@ -204,6 +225,44 @@ export class NowPlaying {
 
   hide(): void {
     this.el?.classList.remove('on');
+  }
+
+  /**
+   * A melody note is about to sound `delay` seconds from now: while the card is up, a little note
+   * glyph floats out of its disc in time with the tune, drifting left or right by pitch.
+   */
+  note(midi: number, delay: number): void {
+    if (this.disabled || !this.el || typeof document === 'undefined') return;
+    const live = this.pinned || performance.now() - this.shownAt < 6500;
+    if (!live || this.flying >= 14) return;
+    const at = performance.now() + Math.max(0, delay) * 1000;
+    if (at - this.lastFly < 190) return;
+    this.lastFly = at;
+    const el = this.el;
+    window.setTimeout(() => {
+      const f = document.createElement('span');
+      f.className = 'hv-np-fly';
+      const k = ((midi % 12) + 12) % 12;
+      f.innerHTML = FLY_NOTES[midi % 2]!.replace('#fff4d8', FLY_TINTS[k % FLY_TINTS.length]!);
+      // Out of the disc into the scene: leftward when the card sits on the right of the screen.
+      const r = el.getBoundingClientRect();
+      const side = r.left + r.width / 2 > window.innerWidth / 2 ? -1 : 1;
+      const dx = side * Math.round(170 + Math.random() * 190);
+      const dy = Math.round(30 - (k / 11) * 150 - Math.random() * 40);
+      f.style.setProperty('--dx', `${dx}px`);
+      f.style.setProperty('--dy', `${dy}px`);
+      f.style.setProperty('--r0', `${Math.round((Math.random() - 0.5) * 30)}deg`);
+      f.style.setProperty('--r1', `${Math.round((Math.random() - 0.5) * 24)}deg`);
+      f.style.setProperty('--d', `${(2.8 + Math.random() * 1.0).toFixed(2)}s`);
+      const size = 38 + Math.round(Math.random() * 16);
+      f.style.width = f.style.height = `${size}px`;
+      el.append(f);
+      this.flying++;
+      window.setTimeout(() => {
+        f.remove();
+        this.flying--;
+      }, 4000);
+    }, Math.max(0, delay) * 1000);
   }
 }
 

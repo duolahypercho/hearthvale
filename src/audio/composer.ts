@@ -24,7 +24,7 @@ import { MODES, chordPcs, chordScale, nearestIn, parseChord, scaleStep, voiceCho
 
 export type Meter = '4/4' | '3/4' | '6/8';
 export type TrackName = 'melody' | 'double' | 'counter' | 'accomp' | 'accomp2' | 'bass' | 'pad' | 'perc';
-export type Section = 'intro' | 'A' | 'B' | 'outro';
+export type Section = 'intro' | 'A' | 'B' | 'C' | 'outro';
 export type When = 'always' | 'repeat' | 'B' | 'late';
 export type AccompPattern = 'arp8' | 'arpUp' | 'fingerpick' | 'strum' | 'waltz' | 'waltzArp' | 'block' | 'oompah' | 'ostinato332' | 'musicBox' | 'pizzOff' | 'epComp' | 'harpRoll';
 export type BassPattern = 'root' | 'rootFifth' | 'walk' | 'waltz' | 'jig' | 'tresillo' | 'pedal';
@@ -48,6 +48,8 @@ export interface Tune {
   octave?: number;
   A: string[];
   B?: string[];
+  /** The bridge: a contrasting third strain (new register, new harmonic area) before the last A. */
+  C?: string[];
   /** Replaces the last bars of the final A (a stronger cadence to finish on). */
   Aend?: string[];
   /** Anacrusis into every A, written into the end of the bar before it. */
@@ -71,7 +73,7 @@ export interface ThemeDef {
    * Roman-numeral harmony per section. `Aend` replaces the last bars of the final A (an authentic
    * cadence when A itself ends open on V); slash chords ('I/3', 'V/5') put that chord member in the bass.
    */
-  prog: { A: string[]; B: string[]; intro?: string[]; outro?: string[]; Aend?: string[] };
+  prog: { A: string[]; B: string[]; C?: string[]; intro?: string[]; outro?: string[]; Aend?: string[] };
   /** Key lift (semitones) for the final A; the bar before it becomes the pivot. */
   lift?: number;
   /** What happens in the bar before B: a stop-time hit, a held rolled chord, or nothing. */
@@ -86,6 +88,8 @@ export interface ThemeDef {
     /** Grace-note probability on long strong notes (restatements only). */
     ornament?: number;
     bInst?: InstrumentName;
+    /** The bridge (C) passes the tune to another voice. */
+    cInst?: InstrumentName;
     octaveOnRepeat?: boolean;
     double?: { inst: InstrumentName; interval: number; on: When };
     tune?: Tune;
@@ -253,7 +257,7 @@ export class Composer {
     const breaks = th.breaks ?? (th.meter === '3/4' ? 'breath' : 'stop');
     th.form.forEach((sec, si) => {
       const o = (occ[sec] = (occ[sec] ?? -1) + 1);
-      let prog = sec === 'intro' ? th.prog.intro ?? [th.prog.A[0]!, th.prog.A[0]!] : sec === 'outro' ? th.prog.outro ?? ['IV', 'I'] : th.prog[sec];
+      let prog = sec === 'intro' ? th.prog.intro ?? [th.prog.A[0]!, th.prog.A[0]!] : sec === 'outro' ? th.prog.outro ?? ['IV', 'I'] : sec === 'C' ? th.prog.C ?? th.prog.B : th.prog[sec];
       if (sec === 'A' && si === lastA && lastA > 1 && th.prog.Aend) prog = [...prog.slice(0, prog.length - th.prog.Aend.length), ...th.prog.Aend];
       const next = th.form[si + 1];
       prog.forEach((entry, i) => {
@@ -268,7 +272,7 @@ export class Composer {
         const dur = this.S * this.stepSec * scale;
         const brk = !!breaks && last && sec === 'A' && next === 'B';
         const preFinal = last && si === lastA - 1 && lastA > 1;
-        const fill = !brk && (sec === 'A' || sec === 'B') && (i % 4 === 3 || preFinal);
+        const fill = !brk && (sec === 'A' || sec === 'B' || sec === 'C') && (i % 4 === 3 || preFinal);
         bars.push({ section: sec, occ: o, i, len: prog.length, spans, t0: t, dur, brk, fill, preFinal, shift: 0, pos: i / Math.max(1, prog.length - 1), si });
         t += dur;
       });
@@ -287,11 +291,11 @@ export class Composer {
       case 'always':
         return true;
       case 'repeat':
-        return bar.section === 'B' || bar.occ > 0;
+        return bar.section === 'B' || bar.section === 'C' || bar.occ > 0;
       case 'B':
-        return bar.section === 'B';
+        return bar.section === 'B' || bar.section === 'C';
       case 'late':
-        return bar.section === 'B' || (bar.section === 'A' && bar.occ > 1);
+        return bar.section === 'B' || bar.section === 'C' || (bar.section === 'A' && bar.occ > 1);
     }
   }
 
@@ -333,9 +337,9 @@ export class Composer {
         const notes = mel[bi];
         if (!notes) return;
         const n0 = ev.length;
-        const secInst = b.section === 'B' && m.bInst ? m.bInst : m.inst;
+        const secInst = b.section === 'B' && m.bInst ? m.bInst : b.section === 'C' && m.cInst ? m.cInst : m.inst;
         const oct = m.octaveOnRepeat && b.section === 'A' && b.occ > 0 ? 12 : 0;
-        const crescendo = b.section === 'B' ? 0.94 + 0.1 * b.pos : this.isFinalA(b) ? 1.05 : 1;
+        const crescendo = b.section === 'B' ? 0.94 + 0.1 * b.pos : b.section === 'C' ? 0.9 + 0.14 * b.pos : this.isFinalA(b) ? 1.05 : 1;
         notes.forEach((n, ni) => {
           const inst = n.pick ? m.inst : secInst;
           const t = this.at(b, n.step) + this.jit(0.007);
@@ -386,13 +390,16 @@ export class Composer {
           acc2V = voiceChord(sp.chord, this.keyPc, th.accomp2.voices, th.accomp2.range[0], th.accomp2.range[1], acc2V);
           this.accomp(ev, 'accomp2', th.accomp2, b, sp, acc2V, lastBar, lastSpan ? fillKind : null, nextChord);
         }
-        const padOn = th.pad && (this.active(th.pad.on, b) || (th.pad.on === 'always' && (isIntro || isOutro)) || (isOutro && th.pad.on !== 'B'));
+        // An 'always' pad sits out the first A (the tune enters alone) and thins to two voices in
+        // the later A's, so the full string wall only arrives with the contrast sections.
+        const padOn = th.pad && (this.active(th.pad.on, b) || (th.pad.on === 'always' && (isIntro || isOutro)) || (isOutro && th.pad.on !== 'B')) && !(b.section === 'A' && b.occ === 0 && th.pad.on === 'always');
         if (th.pad && padOn && !(b.brk && th.meter !== '3/4')) {
           padV = voiceChord(sp.chord, this.keyPc, th.pad.voices, th.pad.range[0], th.pad.range[1], padV);
           const t = this.at(b, sp.s0);
           const dur = ((sp.s1 - sp.s0) / this.S) * b.dur * (lastBar ? 1.6 : 1.02);
-          const swell = b.section === 'B' ? 0.9 + 0.2 * b.pos : 1;
-          padV.forEach((p, k) => ev.push({ t: t + k * 0.012, track: 'pad', inst: th.pad!.inst, midi: p, dur, vel: th.pad!.vel * swell * (0.92 + 0.08 * Math.sin(bi * 0.7)) }));
+          const swell = b.section === 'B' || b.section === 'C' ? 0.9 + 0.2 * b.pos : 1;
+          const voices = b.section === 'A' ? padV.slice(-2) : padV;
+          voices.forEach((p, k) => ev.push({ t: t + k * 0.012, track: 'pad', inst: th.pad!.inst, midi: p, dur, vel: th.pad!.vel * swell * (0.92 + 0.08 * Math.sin(bi * 0.7)) }));
         }
         this.barMel = mel[bi] ?? undefined;
         if (th.bass && !(isIntro && b.i === 0 && th.prog.intro === undefined)) this.bass(ev, b, sp, nextChord, lastBar, lastSpan && (b.fill || b.brk) && !!nextBar);
@@ -443,6 +450,8 @@ export class Composer {
     const barsOf = (sec: Section, occ: number): Bar[] => bars.filter((b) => b.section === sec && b.occ === occ);
     const baseA = tune ? this.parseSection(tune.A, nA) : this.genCanonical(barsOf('A', 0), 'A', nextAfter('A'));
     const baseB = th.form.includes('B') ? (tune?.B ? this.parseSection(tune.B, nB) : this.genCanonical(barsOf('B', 0), 'B', nextAfter('B'))) : [];
+    const nC = (th.prog.C ?? th.prog.B).length;
+    const baseC = th.form.includes('C') ? (tune?.C ? this.parseSection(tune.C, nC) : tune?.B && !th.prog.C ? this.parseSection(tune.B, nC) : this.genCanonical(barsOf('C', 0), 'C', nextAfter('C'))) : [];
     const endA = tune?.Aend ? this.parseSection(tune.Aend, tune.Aend.length) : null;
     let prev: number | null = null;
     bars.forEach((b, bi) => {
@@ -451,12 +460,12 @@ export class Composer {
         if (bi === bars.length - 1) out[bi] = [{ step: 0, steps: this.S, midi: nearestIn(prev ?? th.key + 12, [this.keyPc]), vel: 0.6 }];
         return;
       }
-      const base = b.section === 'A' ? baseA : baseB;
+      const base = b.section === 'A' ? baseA : b.section === 'C' ? baseC : baseB;
       let src = base[b.i % base.length] ?? [];
       if (b.section === 'A' && b.occ === finalOcc && endA && b.i >= b.len - endA.length) src = endA[b.i - (b.len - endA.length)] ?? src;
       const notes = src.map((n) => ({ ...n }));
       // Restatements get ornaments (canonical, so the same every time).
-      if ((b.occ > 0 || b.section === 'B') && (m.ornament ?? 0) > 0) {
+      if ((b.occ > 0 || b.section !== 'A') && (m.ornament ?? 0) > 0) {
         const orr = new Rand(hash(`${th.id}:${b.section}:${b.occ}:${b.i}`));
         for (const n of notes) {
           if (n.steps >= 3 && this.strength(n.step) >= 0.8 && orr.chance(m.ornament!)) n.grace = scaleStep(n.midi, 1, chordScale(this.spanAt(b, n.step).chord, this.keyPc, th.mode));
@@ -517,7 +526,7 @@ export class Composer {
   /** A melody composed once from the canonical seed (themes without a written tune). */
   private genCanonical(secBars: Bar[], sec: Section, next: Section | undefined): MNote[][] {
     if (!secBars.length) return [];
-    const motif = this.genMotif(sec === 'B');
+    const motif = this.genMotif(sec !== 'A');
     return this.genSection(secBars, motif, null, sec, next);
   }
 
@@ -565,7 +574,7 @@ export class Composer {
     const m = th.melody!;
     const r = this.mr;
     const [lo, hi] = m.range;
-    const center = Math.round((lo + hi) / 2) + (sec === 'B' ? 2 : 0);
+    const center = Math.round((lo + hi) / 2) + (sec === 'B' ? 2 : sec === 'C' ? -2 : 0);
     const arc = [0, 1, 3, 1, 0, 2, 5, -1];
     let prev = prevIn ?? nearestIn(center - 2, chordPcs(bars[0]!.spans[0]!.chord, this.keyPc));
     const out: MNote[][] = [];
@@ -599,7 +608,7 @@ export class Composer {
       }
       const notes = this.realizeBar(b, cell, moves, prev, target, lo, hi, targetPcs);
       const phraseArc = 0.84 + 0.16 * Math.sin((Math.PI * ((bi % 8) + 0.5)) / 8);
-      for (const n of notes) n.vel *= phraseArc * (sec === 'B' ? 1.05 : 1);
+      for (const n of notes) n.vel *= phraseArc * (sec !== 'A' ? 1.05 : 1);
       if (bi % 8 === 0) {
         firstBarNotes.length = 0;
         firstBarNotes.push(...notes.map((n) => ({ ...n })));
@@ -668,7 +677,7 @@ export class Composer {
     const stepDur = b.dur / this.S;
     const inst = cfg.inst;
     const V = [...v, v[0]! + 12, v[1]! + 12, v[2]! + 12];
-    const crescendo = b.section === 'B' ? 0.95 + 0.1 * b.pos : this.isFinalA(b) ? 1.04 : 1;
+    const crescendo = b.section === 'B' ? 0.95 + 0.1 * b.pos : b.section === 'C' ? 0.88 + 0.14 * b.pos : this.isFinalA(b) ? 1.04 : 1;
     // Fill bars: the last eighth anticipates the next chord, or the figure drops out for the bass run.
     const cut = fill === 'antic' && next ? this.S - 1 : fill === 'rest' ? this.S - 2 : this.S;
     const push = (step: number, midi: number, steps: number, vel: number, jitter = 0.005, o?: NoteOpts): void => {
@@ -964,31 +973,90 @@ export class Composer {
       }
       return p;
     }
+    // Guide-tone line that answers the tune: it takes the 3rd / 7th of each chord (voice-led) and
+    // holds it while the melody is busy, but wherever the melody holds a long note or rests it
+    // moves — two to four notes stepping against the melody's last motion (contrary motion),
+    // passing through scale tones and landing on a chord tone, the way a second player fills
+    // the gaps in a tune instead of sitting under it.
+    const scale = chordScale(sp.chord, this.keyPc, this.th.mode);
+    const mod = (x: number): number => ((x % 12) + 12) % 12;
+    const melAtStep = (st: number): MNote | undefined => mel?.find((n) => n.step <= st && n.step + n.steps > st);
+    const clashes = (q: number, st: number, strong: boolean): boolean => {
+      const mn = melAtStep(st);
+      if (!mn) return false;
+      const ic = mod(mn.midi - q);
+      return ic === 0 || ic === 1 || ic === 11 || (strong && (ic === 2 || ic === 10));
+    };
     const ref = prev ?? Math.round((lo + hi) / 2);
     let p = nearestIn(ref, guide);
-    const mNote = mel?.find((n) => n.step >= sp.s0 && n.step < sp.s1);
-    if (mNote && (mNote.midi - p) % 12 === 0) p = nearestIn(p + 2, guide.concat(pcs[0]!), 1);
+    if (clashes(p, sp.s0, true)) p = nearestIn(p + 2, guide.concat(pcs[0]!), 1);
     p = fit(p);
-    const t = this.at(b, sp.s0) + this.jit(0.01);
-    let holdSteps = len;
-    let passing: number | null = null;
-    if (next && len >= 4 && r.chance(0.4)) {
+    // Moving notes go where the tune is NOT attacking: on the beats (quarter notes; the second
+    // dotted beat in 6/8) inside this chord where the melody sustains or rests — a complementary
+    // rhythm, so the line answers the tune instead of doubling its rhythm.
+    const inSpan = (mel ?? []).filter((n) => n.step + n.steps > sp.s0 && n.step < sp.s1).sort((x, y) => x.step - y.step);
+    const onsets = new Set(inSpan.map((n) => Math.round(n.step)));
+    const beatSteps = this.th.meter === '6/8' ? [3] : this.th.meter === '3/4' ? [2, 4] : [2, 4, 6];
+    const slots = beatSteps.map((k) => sp.s0 + k).filter((st) => st < sp.s1 && !onsets.has(st));
+    const notes: { st: number; midi: number }[] = [{ st: sp.s0, midi: p }];
+    if (slots.length && len >= 4) {
+      let q = p;
+      for (const st of slots) {
+        // Contrary motion: against the tune's last move before this beat, else back toward the middle.
+        const before = inSpan.filter((n) => n.step < st);
+        const m1 = before[before.length - 1] ?? mel?.filter((n) => n.step < st).pop();
+        const m0 = before[before.length - 2];
+        let dir = m1 && m0 ? -Math.sign(m1.midi - m0.midi) : 0;
+        if (dir === 0) dir = q > (lo + hi) / 2 ? -1 : 1;
+        const strong = this.strength(st) >= 0.8;
+        let cand = scaleStep(q, dir, scale);
+        if (cand > hi || cand < lo) {
+          dir = -dir;
+          cand = scaleStep(q, dir, scale);
+        }
+        if (strong) cand = nearestIn(cand, pcs, dir);
+        if (clashes(cand, st, strong)) cand = scaleStep(cand, dir, scale);
+        if (clashes(cand, st, strong) || cand > hi + 2 || cand < lo - 2) continue;
+        notes.push({ st, midi: cand });
+        q = cand;
+      }
+      // Arrive: the last moving note resolves to the nearest tone of the next chord when it can.
+      if (notes.length > 1 && next) {
+        const last = notes[notes.length - 1]!;
+        const np = nearestIn(last.midi, chordPcs(next, this.keyPc));
+        if (Math.abs(np - last.midi) <= 2 && !clashes(np, last.st, false)) last.midi = np;
+      }
+    } else if (next && len >= 4 && r.chance(0.4)) {
+      // Busy tune: hold, with a passing tone into the next chord.
       const np = nearestIn(p, chordPcs(next, this.keyPc));
       if (Math.abs(np - p) >= 3 && Math.abs(np - p) <= 4) {
-        passing = scaleStep(p, np > p ? 1 : -1, chordScale(sp.chord, this.keyPc, this.th.mode));
-        holdSteps = len - Math.max(1, Math.floor(len / 4));
+        const st = sp.s1 - Math.max(1, Math.floor(len / 4));
+        const pass = scaleStep(p, np > p ? 1 : -1, scale);
+        if (!clashes(pass, st, false)) notes.push({ st, midi: pass });
       }
     }
-    ev.push({ t, track: 'counter', inst: cfg.inst, midi: p, dur: holdSteps * stepDur * 0.98, vel: 0.58 + r.gauss(0.03), o: prev !== null && Math.abs(prev - p) <= 5 ? { art: 'legato' } : undefined });
-    if (passing !== null) ev.push({ t: this.at(b, sp.s0 + holdSteps), track: 'counter', inst: cfg.inst, midi: passing, dur: (len - holdSteps) * stepDur, vel: 0.5, o: { art: 'legato' } });
-    return passing ?? p;
+    let last = prev;
+    notes.forEach((n, k) => {
+      const end = notes[k + 1]?.st ?? sp.s1;
+      ev.push({
+        t: this.at(b, n.st) + this.jit(0.01),
+        track: 'counter',
+        inst: cfg.inst,
+        midi: n.midi,
+        dur: (end - n.st) * stepDur * 0.98,
+        vel: (k === 0 ? 0.58 : 0.52) + r.gauss(0.03),
+        o: last !== null && Math.abs(last - n.midi) <= 5 ? (cfg.inst === 'cello' || cfg.inst === 'fiddle' ? { art: 'legato', from: last } : { art: 'legato' }) : undefined,
+      });
+      last = n.midi;
+    });
+    return notes[notes.length - 1]!.midi;
   }
 
   private perc(ev: NoteEvent[], b: Bar): void {
     const cfg = this.th.perc!;
     const r = this.rng;
     const S = this.S;
-    const crescendo = b.section === 'B' ? 0.94 + 0.12 * b.pos : this.isFinalA(b) ? 1.06 : 1;
+    const crescendo = b.section === 'B' ? 0.94 + 0.12 * b.pos : b.section === 'C' ? 0.85 + 0.15 * b.pos : this.isFinalA(b) ? 1.06 : 1;
     const hit = (step: number, inst: InstrumentName, vel: number, midi = 0, jitter = 0.004): void => {
       if (step >= S) return;
       ev.push({ t: this.at(b, step) + this.jit(jitter), track: 'perc', inst, midi, dur: 0.2, vel: vel * cfg.vel * crescendo * (0.92 + r.gauss(0.05)) });

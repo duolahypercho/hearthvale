@@ -493,7 +493,9 @@ export class NetSystem implements System, NetApi {
     };
     const out = [me];
     for (const p of this.remotes.list.values()) {
-      out.push({ id: p.id, name: p.name, look: p.look, isHost: p.isHost, isMe: false, ready: p.ready, ping: p.ping, map: p.map, away: p.away, cabin: p.cabin });
+      // (a farmhand's latency to the host is its own round trip)
+      const ping = this._role === 'client' && p.id === this.hostId ? this.rtt() : p.ping;
+      out.push({ id: p.id, name: p.name, look: p.look, isHost: p.isHost, isMe: false, ready: p.ready, ping, map: p.map, away: p.away, cabin: p.cabin });
     }
     return out.sort((a, b) => Number(b.isHost) - Number(a.isHost) || a.id - b.id);
   }

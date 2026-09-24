@@ -10,6 +10,7 @@
  *   npm run perf -- --no-history                   # don't append to shots/perf/history.jsonl
  *   npm run perf -- --eval "<js>"                   # run JS after ready (A/B experiments; tag with --label)
  *   npm run perf -- --profile 15                   # + top-15 self-time JS functions per demo (CDP sampling profiler)
+ *   npm run perf -- --resume                       # skip demos already in shots/perf/partial.json (after a killed run)
  *
  * Per demo: fresh page on `?demo=<name>&quality=<q>`, await __game.ready(), warm up `--warmup` ms,
  * then record `--record` ms of requestAnimationFrame deltas plus:
@@ -57,7 +58,7 @@ function parseArgs(argv) {
     if (!a.startsWith('--')) continue;
     const key = a.slice(2);
     if (key === 'no-history') { out.history = false; continue; }
-    if (key === 'headed' || key === 'strict') { out[key] = true; continue; }
+    if (key === 'headed' || key === 'strict' || key === 'resume') { out[key] = true; continue; }
     const val = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : 'true';
     out[key] = ['w', 'h', 'warmup', 'record', 'timeout'].includes(key) ? Number(val) : val;
   }
@@ -289,30 +290,58 @@ async function cdpMetrics(cdp) {
   return m;
 }
 
+/**
+ * One demo, hardened against a repo that other agents edit mid-run: a hard wall-clock budget (a
+ * `ready()` that never resolves or a dead rAF loop used to hang the whole run), and an early abort when
+ * the page throws an uncaught error every frame (a half-saved source file) instead of timing garbage.
+ * A failed demo is retried once on a fresh page (the dev server re-transforms edited files).
+ */
+async function measureDemoSafe(ctx, base, name) {
+  let res = await measureDemo(ctx, base, name);
+  if (res.error) {
+    await new Promise((r) => setTimeout(r, 4000));
+    const again = await measureDemo(ctx, base, name);
+    res = again.error ? { ...again, error: `${again.error} (retried; first: ${res.error})` } : { ...again, retried: res.error };
+  }
+  return res;
+}
+
 async function measureDemo(ctx, base, name) {
   const page = await ctx.newPage();
   const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e?.message || e)));
-  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+  let uncaught = 0;
+  let abortRun = null;
+  const aborted = new Promise((_, reject) => { abortRun = reject; });
+  aborted.catch(() => {});
+  const budgetMs = Math.max(60000, 75000 + args.warmup + args.record);
+  const budget = setTimeout(() => abortRun(new Error(`timed out after ${Math.round(budgetMs / 1000)} s`)), budgetMs);
+  page.on('pageerror', (e) => {
+    const msg = String(e?.message || e);
+    if (errors.length < 50) errors.push(msg);
+    // A throw every frame (e.g. a method call whose definition was half-saved) — the timing would be meaningless.
+    if (++uncaught === 30) abortRun(new Error(`runtime error storm: ${msg}`));
+  });
+  page.on('console', (msg) => { if (msg.type() === 'error' && errors.length < 50) errors.push(msg.text()); });
+  const guard = (p) => Promise.race([p, aborted]);
   try {
     const cdp = await ctx.newCDPSession(page);
     await cdp.send('Performance.enable', { timeDomain: 'timeTicks' });
     const t0 = Date.now();
-    await page.goto(`${base}?demo=${encodeURIComponent(name)}&quality=${args.quality}`, { waitUntil: 'domcontentloaded', timeout: args.timeout });
-    await page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: args.timeout });
-    await page.evaluate(() => window.__game.ready());
+    await guard(page.goto(`${base}?demo=${encodeURIComponent(name)}&quality=${args.quality}`, { waitUntil: 'domcontentloaded', timeout: args.timeout }));
+    await guard(page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: args.timeout }));
+    await guard(page.evaluate(() => window.__game.ready()));
     const readyMs = Date.now() - t0;
     // --eval "<js>": A/B experiments without touching source, e.g.
     // --eval "__game.game.rc.scene.traverse(o => { if (o.isBatchedMesh) o.perObjectFrustumCulled = false })"
-    if (args.eval) await page.evaluate(`(async () => { ${args.eval} })()`);
-    await page.waitForTimeout(args.warmup);
+    if (args.eval) await guard(page.evaluate(`(async () => { ${args.eval} })()`));
+    await guard(page.waitForTimeout(args.warmup));
     if (args.profile) {
       await cdp.send('Profiler.enable');
       await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
       await cdp.send('Profiler.start');
     }
     const m0 = await cdpMetrics(cdp);
-    const r = await page.evaluate(RECORD_FN, args.record);
+    const r = await guard(page.evaluate(RECORD_FN, args.record));
     const m1 = await cdpMetrics(cdp);
     let profile;
     if (args.profile) {
@@ -373,11 +402,13 @@ async function measureDemo(ctx, base, name) {
       domNodes: r.domNodes,
       glPerFrame: r.glPerFrame,
       batchedMeshes: r.batchedMeshes,
+      pageErrors: uncaught,
       errors: errors.slice(0, 5),
     };
   } catch (err) {
     return { demo: name, error: String(err?.message || err).split('\n')[0], errors: errors.slice(0, 5) };
   } finally {
+    clearTimeout(budget);
     await page.close().catch(() => {});
   }
 }
@@ -418,7 +449,10 @@ async function main() {
     logLevel: 'error',
     clearScreen: false,
     cacheDir,
-    server: { port: 0, host: '127.0.0.1', strictPort: false, hmr: false, watch: null },
+    // watch ON (hmr off): with `watch: null` Vite never invalidates its transform cache, so a file another
+    // agent saved half-way through its edit stayed broken for every later demo of the run. forwardConsole
+    // off: Vite otherwise echoes every uncaught page error to this terminal (50 MB of log per broken run).
+    server: { port: 0, host: '127.0.0.1', strictPort: false, hmr: false, forwardConsole: false, watch: { ignored: ['**/shots/**', '**/dist/**', '**/refs/**', '**/.workflows/**', '**/node_modules/**', '**/.git/**'] } },
   });
   await server.listen();
   const addr = server.httpServer.address();
@@ -433,8 +467,15 @@ async function main() {
   try {
     // channel 'chromium' = the full browser (new headless when headless) — same compositor as desktop Chrome;
     // plain launch falls back to chrome-headless-shell (old headless).
-    browser = await chromium.launch({ headless: !args.headed, args: launchArgs, channel: 'chromium' }).catch(() => chromium.launch({ headless: !args.headed, args: launchArgs }));
-    const ctx = await browser.newContext({ viewport: { width: args.w, height: args.h }, deviceScaleFactor: 1 });
+    // Relaunchable: other agents' cleanup (pkill of stray Chromium) has killed the browser mid-run twice,
+    // which used to throw away every demo measured so far.
+    let ctx = null;
+    const launch = async () => {
+      if (browser) await browser.close().catch(() => {});
+      browser = await chromium.launch({ headless: !args.headed, args: launchArgs, channel: 'chromium' }).catch(() => chromium.launch({ headless: !args.headed, args: launchArgs }));
+      ctx = await browser.newContext({ viewport: { width: args.w, height: args.h }, deviceScaleFactor: 1 });
+    };
+    await launch();
 
     // GPU + demo list from a plain boot.
     const probe = await ctx.newPage();
@@ -494,10 +535,39 @@ async function main() {
     console.log(`[perf] ${gpu} · ${mode} · ${args.w}x${args.h} quality=${args.quality} · warmup ${args.warmup} ms, record ${args.record} ms · ${demos.length} demos`);
     console.log(`[perf] concurrent load: ${envStart.gpuProcesses} other Chromium GPU processes, ${envStart.harnessProcesses} harness scripts, loadavg ${envStart.loadavg.join(' ')} · empty-canvas calibration ${calib.fps} fps (p99 ${calib.p99Ms} ms)`);
 
+    // Checkpoint after every demo (shots/perf/partial.json); `--resume` skips demos already measured there
+    // with the same resolution / quality (after a crashed or killed run).
+    const partialPath = resolve(root, 'shots/perf/partial.json');
+    const done = new Map();
+    if (args.resume && existsSync(partialPath)) {
+      try {
+        const prev = JSON.parse(readFileSync(partialPath, 'utf8'));
+        if (prev.w === args.w && prev.h === args.h && prev.quality === args.quality) for (const r of prev.results ?? []) if (!r.error) done.set(r.demo, r);
+        console.log(`[perf] resuming: ${done.size} demos already measured in ${partialPath}`);
+      } catch { /* ignore */ }
+    }
     const results = [];
+    const isClosed = (e) => /closed|disconnected|crash/i.test(String(e?.message || e));
     for (const [i, name] of demos.entries()) {
-      const res = await measureDemo(ctx, base, name);
+      if (done.has(name)) { results.push(done.get(name)); continue; }
+      let res;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          if (!browser?.isConnected()) { console.log('[perf] browser gone — relaunching'); await launch(); }
+          res = await measureDemoSafe(ctx, base, name);
+          if (res.error && isClosed(res.error) && attempt < 2) { await launch(); continue; }
+          break;
+        } catch (err) {
+          if (attempt >= 2 || !isClosed(err)) { res = { demo: name, error: String(err?.message || err).split('\n')[0] }; break; }
+          console.log(`[perf] browser closed during ${name} — relaunching (${attempt + 1}/2)`);
+          await launch().catch(() => {});
+        }
+      }
       results.push(res);
+      try {
+        mkdirSync(dirname(partialPath), { recursive: true });
+        writeFileSync(partialPath, JSON.stringify({ w: args.w, h: args.h, quality: args.quality, label: args.label || undefined, results }, null, 1));
+      } catch { /* ignore */ }
       if (res.error) console.log(`[perf] ${i + 1}/${demos.length} ${name}: ERROR ${res.error}`);
       else console.log(`[perf] ${i + 1}/${demos.length} ${name}: ${res.avgFps} fps  p95 ${res.p95Ms}  p99 ${res.p99Ms} ms  gpu ${res.gpuAvgMs ?? '-'} ms  cpu ${res.cpuAvgMs} ms (on-cpu ${Math.round(res.onCpuRatio * 100)}%)  alloc ${res.allocMBs} MB/s  ${res.drawCalls} dc  ${(res.triangles / 1e6).toFixed(2)}M tris`);
     }
