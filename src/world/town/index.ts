@@ -104,6 +104,9 @@ const HOUSES: Record<Exclude<TownBuilding['kind'], 'hall'>, HouseSpec> = {
 const CELL = 12;
 const cellOf = (x: number, z: number): string => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
 
+/** Knee-high street clutter: grounded by the contact-AO stamp, so it skips the shadow pass. */
+const SMALL_CLUTTER = new Set<string>(['flowerPot', 'mailbox', 'sandwichBoard', 'chalkBoard', 'produce', 'sacks', 'bicycle', 'wheelbarrow']);
+
 export class TownMap implements GameMap {
   readonly id = 'town';
   readonly title = 'Hearthvale';
@@ -675,7 +678,7 @@ export class TownMap implements GameMap {
       // Dock + rowboat sit at the water line.
       const y = p.kind === 'dock' ? WATER_Y + 0.16 : p.kind === 'rowboat' ? WATER_Y - 0.12 : undefined;
       // Small street clutter skips the shadow pass (contact AO grounds it; saves shadow triangles).
-      if (p.noShadow) (g instanceof THREE.Group ? g : g.group).traverse((o) => (o.castShadow = false));
+      if (p.noShadow || SMALL_CLUTTER.has(p.kind)) (g instanceof THREE.Group ? g : g.group).traverse((o) => (o.castShadow = false));
       if (p.kind === 'easel' && g instanceof THREE.Group) {
         // The painter's easel only stands out while its painter is at work (npcs toggles it): kept
         // out of the static batch, hidden until then, and never a solid tile.

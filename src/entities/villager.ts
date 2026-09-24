@@ -715,7 +715,7 @@ export class Villager {
     switch (style) {
       case 'bun':
         rb.add(B.hairBack, lumpySphere(0.17, 1, 0.12, rng, 2), H(0, R * 1.85, -R * 0.35), hair);
-        for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.12, 1, 0.1, rng), H(sx * R * 0.86, R * 1.0, R * 0.2, 0, 0, 0, 0.6, 1.1, 0.9), hair);
+        for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.12, 1, 0.1, rng), H(sx * R * 0.9, R * 1.1, -R * 0.08, 0, 0, 0, 0.55, 1.0, 0.85), hair);
         rb.add(B.head, lumpySphere(0.2, 1, 0.1, rng, 1.4), H(0, R * 1.42, R * 0.55, 0.5, 0, 0, 1.6, 0.5, 0.7), hi);
         rb.add(B.hairBack, new THREE.TorusGeometry(0.1, 0.02, 5, 12), H(0, R * 1.72, -R * 0.3, 1.2, 0, 0), shadeHex(L.top, 0.9));
         break;
@@ -833,7 +833,7 @@ export class Villager {
         rb.add(B.head, bevelCylinder(R * 1.12, R * 1.14, 0.12, 0.03, 24), H(0, R * 1.4, -0.06, -0.34, 0, 0), shadeHex(c, 0.88));
         for (let i = 0; i < 16; i++) {
           const a = (i / 16) * Math.PI * 2;
-          rb.add(B.head, roundedBox(0.03, 0.1, 0.02, 0.01, 1), H(Math.sin(a) * R * 1.135, R * 1.4 + Math.cos(a) * R * 1.135 * 0.333, Math.cos(a) * R * 1.135 * 0.943 - 0.06, -0.34, a, 0), shadeHex(c, 0.8));
+          rb.add(B.head, roundedBox(0.026, 0.09, 0.012, 0.005, 1), H(Math.sin(a) * R * 1.128, R * 1.4 + Math.cos(a) * R * 1.128 * 0.333, Math.cos(a) * R * 1.128 * 0.943 - 0.06, -0.34, a, 0), shadeHex(c, 0.84));
         }
         const pom = lumpySphere(0.075, 1, 0.22, rng, 3);
         rb.add(B.head, pom, H(-0.03, R * 2.36, -0.32), shadeHex(c, 1.08));

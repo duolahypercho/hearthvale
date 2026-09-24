@@ -242,7 +242,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
           { emote: 'marigold', icon: 'question' },
           { say: 'marigold', text: 'Pip? Pip! …Oh, it’s you, dear. Have you seen a cat? Orange, round, judgmental?', mood: 'worried' },
           { say: 'marigold', text: 'He hasn’t touched his breakfast. He ALWAYS touches his breakfast. He touches everyone’s breakfast.', mood: 'worried' },
-          { walk: 'marigold', to: [27.7, 21.15], face: 'up' },
+          { walk: 'marigold', to: [28.7, 18.8], face: 'down' },
           { face: 'player', to: 'up' },
           { emote: 'marigold', icon: 'exclaim' },
           { say: 'marigold', text: 'There! On the notice board roof, sleeping on the Glimmerco flyer like it owes him money.', mood: 'surprised' },
@@ -483,8 +483,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         script: [
           { say: 'wren', text: 'Every painting of the hall I’ve ever done comes out grey. I thought it was my paints.', mood: 'sad' },
           { walk: 'wren', to: [32.4, 21.0], face: 'up' },
+          { walk: 'player', to: [33.5, 21.5], face: 'wren' },
           { say: 'wren', text: 'But it’s not the paints. It’s that I’ve never seen it lit. You can’t paint a light you’ve only heard about.', mood: 'thinking' },
-          { walk: 'player', to: [33.4, 21.6], face: 'wren' },
           { face: 'wren', to: 'player' },
           { say: 'wren', text: 'Will you tell me when it happens? Even if it’s three in the morning. Especially if it’s three in the morning.', mood: 'worried' },
           {
@@ -650,7 +650,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         title: 'House Call',
         hours: [9, 17],
         cast: { linus: [[33.2, 38.4], 'up'], tobias: ['bench_se', 'down'], player: [[35.2, 31.4], 'up'] },
-        camera: { x: 35.4, z: 30.2, yaw: 4, pitch: 40, distance: 15 },
+        camera: { x: 35.8, z: 29.8, yaw: -150, pitch: 40, distance: 15 },
         script: [
           { walk: 'linus', to: [35.8, 30.2], face: 'tobias' },
           { say: 'linus', text: 'Tobias. Your check-up was at ten.', mood: 'neutral' },
@@ -749,6 +749,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         cast: { june: ['inn_front', 'down'], rowan: ['inn_tables', 'right'], player: [[81.4, 27.4], 'down'] },
         camera: { x: 79.4, z: 28.4, yaw: 180, pitch: 48, distance: 15 },
         script: [
+          { face: 'june', to: 'rowan' },
+          { face: 'rowan', to: 'up' },
           { emote: 'june', icon: 'anger' },
           { say: 'june', text: 'ROWAN BIRCH. What did I say about leaning back?', mood: 'angry' },
           { say: 'rowan', text: 'That it builds character?', mood: 'laugh' },
@@ -873,7 +875,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [10, 17],
         dry: true,
         cast: { tobias: ['bench_se', 'down'], player: [[35.2, 31.2], 'up'] },
-        camera: { x: 36.0, z: 29.8, yaw: 6, pitch: 40, distance: 13 },
+        camera: { x: 36.0, z: 29.8, yaw: -146, pitch: 40, distance: 13 },
         script: [
           { say: 'tobias', text: 'Sit, sit. This was her side. She’d bring the tea, I’d bring the complaints.', mood: 'happy' },
           { walk: 'player', to: [35.8, 29.9], face: 'tobias' },
@@ -980,7 +982,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         camera: { x: 32.4, z: 15.8, yaw: 0, pitch: 40, distance: 14 },
         script: [
           { say: 'kit', text: 'Okay. I’m gonna show you something. It’s TOP secret. Cross your heart.', mood: 'worried' },
-          { walk: 'kit', to: [32.8, 16.6], face: 'player' },
+          { walk: 'kit', to: [32.2, 17.4], face: 'player' },
           { say: 'kit', text: 'A map! Of the whole valley! I drew it. That’s the farm. That blob is you.', mood: 'happy' },
           { say: 'kit', text: 'And this X is where the old lamplight stuff is hidden. Mr. Reed said so. Kind of. He was mostly asleep.', mood: 'thinking' },
           {

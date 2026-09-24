@@ -183,6 +183,8 @@ export class NpcSystem implements System {
   private camPick: { key: string; t: number; dy: number; dp: number; k: number } = { key: '', t: 0, dy: 0, dp: 0, k: 1 };
   private camRelease: { t: number; from: { yaw: number; pitch: number; distance: number; off: THREE.Vector3 } } | null = null;
   private lineNo = 0;
+  /** What the last shotGoal() really framed ('ots' = a reverse three-quarter on a speaker who looks at a thing, not a person). */
+  private goalKind: { kind: 'wide' | 'two' | 'close'; ots: boolean } = { kind: 'wide', ots: false };
   /** Tree instances hidden because they stood between the lens and an actor (restored after). */
   private occluded: { mesh: THREE.BatchedMesh; id: number }[] = [];
   private treeCache: { map: string; meshes: THREE.BatchedMesh[] } | null = null;
@@ -601,6 +603,13 @@ export class NpcSystem implements System {
       const a = this.whoPos(w);
       const b = this.whoPos(to as Who);
       yaw = Math.atan2(b.x - a.x, b.z - a.z);
+      // Stage cheat: in a heart event, a villager turning to another actor opens up ~25° towards the
+      // lens so the two-shot reads as two three-quarter faces, not two profiles.
+      if (this.camMode === 'event' && w !== 'player') {
+        const toCam = THREE.MathUtils.degToRad(this.baseYaw);
+        const d = Math.atan2(Math.sin(toCam - yaw), Math.cos(toCam - yaw));
+        yaw += THREE.MathUtils.clamp(d, -0.44, 0.44);
+      }
     }
     if (w === 'player') {
       const f: Facing = Math.abs(Math.sin(yaw)) > Math.abs(Math.cos(yaw)) ? (Math.sin(yaw) > 0 ? 'right' : 'left') : Math.cos(yaw) > 0 ? 'down' : 'up';
@@ -715,6 +724,7 @@ export class NpcSystem implements System {
     }
     this.game.followPlayer(false);
     this.restoreOccluders();
+    this.festoonGuard(true);
   }
 
   /** Jump straight to the current shot (staging, cuts). */
@@ -728,6 +738,7 @@ export class NpcSystem implements System {
     this.camCur.dist = g.dist;
     this.camCur.target.copy(g.target);
     this.applyCam();
+    this.festoonGuard();
     this.game.rc.rig.snap();
     this.game.rc.camera.updateMatrixWorld(true);
   }
@@ -768,6 +779,8 @@ export class NpcSystem implements System {
     // The fountain: low basin rim, then the tiered spout.
     { r: [29.7, 22.7, 34.3, 27.3], h: 0.62 },
     { r: [31.0, 24.0, 33.0, 26.0], h: 2.2 },
+    // The notice board (roofed, head height) by the store.
+    { r: [26.1, 19.25, 28.3, 19.95], h: 2.35 },
   ];
 
   /** Number of actor sight lines (head + chest) cut by a building from this camera position. */
@@ -866,6 +879,7 @@ export class NpcSystem implements System {
     const base = this.baseYaw;
     let yaw = base;
     let kind = s.kind;
+    let ots = false;
     // A speaker turned away from the lens (talking to a cat on a roof…) gets the wide frame instead.
     const la = lead.id !== 'player' ? this.agents.get(lead.id) : null;
     if (la && kind !== 'wide') {
@@ -873,11 +887,16 @@ export class NpcSystem implements System {
       const fy = (la.v as unknown as { yaw: number }).yaw;
       const off = Math.abs(Math.atan2(Math.sin(fy - toCam), Math.cos(fy - toCam)));
       if (off > THREE.MathUtils.degToRad(115)) {
-        // …framed over their shoulder on what they are looking at, far actors left out.
-        kind = 'wide';
-        cx = lead.x + Math.sin(fy) * 2.2;
-        cz = lead.z + Math.cos(fy) * 2.2;
-        spread = 0;
+        // …the lens swings round in front of them instead (a reverse three-quarter, 40° off their
+        // gaze on the side nearer the usual view) so the face reads while they look at a lantern,
+        // a rose or a cat; the frame holds the speaker and what they look at, far actors drop out.
+        const f = THREE.MathUtils.radToDeg(fy);
+        const d = (a: number): number => Math.abs(((a - base + 540) % 360) - 180);
+        yaw = d(f + 40) < d(f - 40) ? f + 40 : f - 40;
+        ots = true;
+        cx = lead.x + Math.sin(fy) * 0.9;
+        cz = lead.z + Math.cos(fy) * 0.9;
+        spread = 1.2;
       }
     }
     // Scene props (Pip on the roof) pull the wide frame towards them.
@@ -887,7 +906,8 @@ export class NpcSystem implements System {
         cz = (cz * W + o.position.z * 0.8) / (W + 0.8);
       }
     }
-    if (kind !== 'wide' && other && Math.hypot(other.x - lead.x, other.z - lead.z) > 0.5) {
+    if (ots) kind = 'two';
+    else if (kind !== 'wide' && other && Math.hypot(other.x - lead.x, other.z - lead.z) > 0.5) {
       // Camera offset (sin y, cos y) perpendicular to the pair: y = atan2(-dz, dx) or + 180°.
       const c1 = THREE.MathUtils.radToDeg(Math.atan2(-(other.z - lead.z), other.x - lead.x));
       const d = (a: number): number => Math.abs(((a - base + 540) % 360) - 180);
@@ -948,7 +968,7 @@ export class NpcSystem implements System {
         // Test the lens where it will really sit: the look point is lifted towards it (see below).
         const cp = Math.min(62, pitch + c[1]);
         const cd = dist * c[2];
-        const upK = kind === 'close' ? 0.2 : this.camMode === 'talk' || kind === 'two' ? 0.28 : 0.16;
+        const upK = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' || kind === 'two' ? 0.28 : 0.16;
         const lf = (cd * Math.tan(upK * Math.tan(THREE.MathUtils.degToRad(this.game.rc.camera.fov) / 2))) / Math.sin(THREE.MathUtils.degToRad(cp));
         const cyr = THREE.MathUtils.degToRad(cy);
         const pos = this.camPosFor(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf), cy, cp, cd);
@@ -974,12 +994,13 @@ export class NpcSystem implements System {
     dist *= this.camPick.k;
     // Lift the look point towards the lens so the actors sit ~26 % above centre (clear of the box).
     const fov = THREE.MathUtils.degToRad(this.game.rc.camera.fov);
-    const up = kind === 'close' ? 0.2 : this.camMode === 'talk' || kind === 'two' ? 0.28 : 0.16;
+    const up = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' || kind === 'two' ? 0.28 : 0.16;
     const lift = (dist * Math.tan(up * Math.tan(fov / 2))) / Math.sin(THREE.MathUtils.degToRad(pitch));
     const yr = THREE.MathUtils.degToRad(yaw);
     const gy = map.heightAt(cx, cz);
     const target = new THREE.Vector3(cx + Math.sin(yr) * lift, gy + lead.head * (kind === 'close' ? 0.5 : 0.42), cz + Math.cos(yr) * lift);
     const focus = new THREE.Vector3(cx, gy + 1.0, cz);
+    this.goalKind = { kind, ots };
     return { yaw, pitch, dist, target, focus };
   }
 
@@ -1014,6 +1035,18 @@ export class NpcSystem implements System {
     this.applyCam();
     if (this.camMode === 'event') this.game.rc.focusPoint.lerp(g.focus, k);
     this.guardView();
+    this.festoonGuard();
+  }
+
+  /**
+   * Daytime heart events take the unlit festoon strings down: close lenses sit under them and a
+   * black cord keeps cutting across faces. Lit strings (dusk / night) stay up — they are the mood.
+   */
+  private festoonGuard(restore = false): void {
+    const map = this.game.world.current;
+    const f = map?.root.getObjectByName('festoons');
+    if (!f) return;
+    f.visible = restore || this.camMode !== 'event' || this.game.lighting.night > 0.3;
   }
 
   // ── trees in the sight lines (same approach as the story cutscenes)
@@ -1215,7 +1248,7 @@ export class NpcSystem implements System {
       if ('say' in s || 'choice' in s) break;
     }
     const box = this.game.services.dialogueBox;
-    box?.cinema(true, ev.title, `${npc.name.split(' ')[0]} · ${ev.hearts} hearts`);
+    box?.cinema(true, ev.title, `${npc.name.startsWith('Dr. ') ? `Dr. ${npc.name.split(' ').pop()}` : npc.name.split(' ')[0]} · ${ev.hearts} hearts`);
     this.snapCam();
     this.guardView(true);
     const s = ev.script[mark];
@@ -1252,7 +1285,7 @@ export class NpcSystem implements System {
     this.snapCam();
     this.guardView(true);
     await this.game.hud.fade(false);
-    box?.cinema(true, ev.title, `${npc.name.split(' ')[0]} · ${ev.hearts} hearts`);
+    box?.cinema(true, ev.title, `${npc.name.startsWith('Dr. ') ? `Dr. ${npc.name.split(' ').pop()}` : npc.name.split(' ')[0]} · ${ev.hearts} hearts`);
     await this.wait(1.6);
     let boxOpen = false;
     for (let i = 0; i < ev.script.length; i++) {
@@ -1390,6 +1423,9 @@ export class NpcSystem implements System {
             // The speaker's face must read: turned towards the lens and not behind the listener's head / hat.
             const spk = this.shot.speaker ? acts.find((a) => a.id === this.shot.speaker) : null;
             const sa = spk && spk.id !== 'player' ? this.agents.get(spk.id) : null;
+            // A reverse three-quarter (the speaker addresses a lantern / a rose / a cat) frames only the
+            // speaker and what they look at: the far actors are meant to be out of it.
+            const ots = this.goalKind.ots;
             if (spk && sa && this.shot.kind !== 'wide') {
               const fy = (sa.v as unknown as { yaw: number }).yaw;
               const toC = Math.atan2(cam.position.x - spk.x, cam.position.z - spk.z);
@@ -1399,7 +1435,7 @@ export class NpcSystem implements System {
               if (fb) out.fails.push(`${ev.id}#${i}: ${spk.id}'s face behind another actor (${fb}/2 points)`);
             }
             for (const a of acts) {
-              if (this.shot.kind === 'close' && a.id !== this.shot.speaker) continue;
+              if ((this.shot.kind === 'close' || ots) && a.id !== this.shot.speaker) continue;
               const t = this.treeHits(cam.position, new THREE.Vector3(a.x, a.y + a.head - 0.3, a.z)).length;
               out.trees += t;
               const hp = new THREE.Vector3(a.x, a.y + a.head - 0.2, a.z).project(cam);
