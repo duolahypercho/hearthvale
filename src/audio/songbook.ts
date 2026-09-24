@@ -215,6 +215,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       perc: { gain: 0.38, pan: 0.2, send: 0.12 },
     },
     rest: [25, 60],
+    // The glock double and flute counter crowd 2–5 kHz: a gentle presence dip.
+    eq: { cut: { f: 3600, db: -2.5, q: 0.8 } },
     gain: 1.7,
   },
 

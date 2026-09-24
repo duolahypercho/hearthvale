@@ -750,9 +750,9 @@ export const pad: InstrumentFn = (g, dest, t, m, dur, v) => {
   lp.frequency.linearRampToValueAtTime(1500 + 2600 * v, t + attack);
   lp.connect(a).connect(dest);
   const L = g.ctx.createStereoPanner();
-  L.pan.value = -0.55;
+  L.pan.value = -0.8;
   const R = g.ctx.createStereoPanner();
-  R.pan.value = 0.55;
+  R.pan.value = 0.8;
   L.connect(lp);
   R.connect(lp);
   const links: [AudioNode, AudioParam][] = [];

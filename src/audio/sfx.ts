@@ -99,19 +99,22 @@ export type SfxName = (typeof SFX_NAMES)[number];
  * big stingers stay under the score's loudness (they also duck it).
  */
 const TRIM: Record<string, number> = {
-  harvest: 0.62, coin: 0.6, craft: 0.6, 'gift:love': 0.5, 'gift:like': 0.7, heart: 0.6, catch: 0.55, 'catch:perfect': 0.55,
-  lantern: 0.62, hall: 0.45, treefall: 0.7, purchase: 0.75, ship: 0.8, bite: 0.8, sleep: 0.8, morning: 0.8,
-  swing: 3.6, 'axe:miss': 6, warp: 4.4, eat: 4, plant: 4, sword: 3.2, scythe: 10, weed: 2.4, splash: 1.8,
-  'ui:toggle': 1.6, giant: 0.7, reel: 1.4, crow: 1.2,
+  harvest: 0.62, coin: 0.6, craft: 0.6, 'gift:love': 0.4, 'gift:like': 0.6, heart: 0.6, catch: 0.42, 'catch:perfect': 0.42,
+  lantern: 0.48, hall: 0.34, treefall: 1.1, purchase: 0.75, ship: 0.8, bite: 0.6, bundle: 0.75, sleep: 0.8, morning: 0.8,
+  swing: 3.6, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 2.4, scythe: 16, weed: 5, splash: 2.4,
+  'ui:toggle': 2.4, giant: 0.45, reel: 1.4, crow: 1.2,
   // Round 4 hierarchy (in-game probe: watering and walking were lost under birdsong while menus
   // were louder than tools). Gameplay verbs peak around -18…-22 dBFS in game, UI -24…-28, ambience
   // events at or below -30: watering +14.6 dB (plus a soil-splash transient), scythe +9.4 dB, menu
   // open / close -5 / -4 dB, hover +10 dB, select (talking to a villager) +8 dB.
-  water: 7, 'ui:open': 0.56, 'ui:close': 0.63, 'ui:hover': 8.5, 'ui:select': 4, 'ui:drop': 1.6,
+  water: 7, 'ui:open': 0.9, 'ui:close': 0.63, 'ui:hover': 16, 'ui:select': 4, 'ui:drop': 2.6, 'ui:trash': 1.8,
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
-  'ui:click': 1.8, 'ui:tick': 1.8,
+  'ui:click': 1.8,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
-  rockbreak: 0.72, hoe: 4.4,
+  rockbreak: 1.6, hoe: 5,
+  // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
+  // momentary on the reel), rewards / stingers pulled ~2 dB under them so they stay under median + 9.
+  axe: 2.2, pickaxe: 2.6, 'sword:hit': 1.8, hurt: 2, 'ui:tick': 2.6,
   // Round 3 additions, levelled from the reel (median momentary max ≈ -21 LUFS): level-up / chest sit
   // with the rewards (~-15), emotes and chat around the small foley (~-20 … -26).
   levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 6, chat: 2,
@@ -256,7 +259,7 @@ export class Sfx {
     // Per-surface trims level the set (reel analysis: wood knocked ~12 dB over dirt / stone).
     // +6.5 dB over round 3 (steps were buried under the dawn chorus), sand / snow / shallow water
     // brought up to the set.
-    const trim = surface === 'wood' ? 0.4 : surface === 'grass' ? 0.8 : surface === 'sand' ? 1.5 : surface === 'snow' || surface === 'water' ? 1.8 : 1;
+    const trim = surface === 'wood' ? 0.4 : surface === 'grass' ? 1.05 : surface === 'sand' ? 1.5 : surface === 'snow' || surface === 'water' ? 1.8 : 1;
     const { d, t } = this.bus({ ...o, pan: (o?.pan ?? 0) + this.stepSide * 0.06, gain: (o?.gain ?? 1) * trim * this.v(1.45 * 2.1) }, false, false);
     const k = 0.9 + this.rng.next() * 0.2;
     // Sole scuff: a short 2–4 kHz grain on every surface — the part that cuts through birdsong.
@@ -457,8 +460,8 @@ export class Sfx {
         break;
       case 'pickaxe':
         // Steel on stone: a bright ring, a chip-crunch and a small knock.
-        this.tone(d, t, { f0: 2150, amp: 0.1, tau: 0.045 });
-        this.tone(d, t, { f0: 3380, amp: 0.06, tau: 0.03 });
+        this.tone(d, t, { f0: 2150, amp: 0.07, tau: 0.04 });
+        this.tone(d, t, { f0: 3380, amp: 0.035, tau: 0.025 });
         this.noise(d, t, { f: 2900, q: 1.5, amp: 0.2, tau: 0.018 });
         this.tone(d, t, { f0: 180, f1: 140, glide: 0.03, amp: 0.18, tau: 0.03 });
         this.crunch(d, t + 0.002, 0.14, { n: 4, span: 0.03, lo: 2000, hi: 5000, click: 0.6, clickF: 1700 });

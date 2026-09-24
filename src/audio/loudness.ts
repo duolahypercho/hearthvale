@@ -19,7 +19,7 @@ export const TARGET_OFFSET: Record<string, number> = {
 // @generated-begin (scripts/audio-render.mjs --calibrate)
 export const MEASURED_LUFS: Record<string, number> = {
   'beach': -22.6,
-  'fall': -19.4,
+  'fall': -19.7,
   'fall-2': -23.9,
   'fall-3': -24.6,
   'festival': -22.4,
@@ -31,7 +31,7 @@ export const MEASURED_LUFS: Record<string, number> = {
   'inn': -23.6,
   'mine': -29.7,
   'mine-ice': -27.7,
-  'mine-lava': -30.1,
+  'mine-lava': -29.5,
   'night': -27.4,
   'night-fall': -22.8,
   'night-spring': -23.8,

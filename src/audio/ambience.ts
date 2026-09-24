@@ -286,7 +286,7 @@ export class Ambience {
     const birdsActive = outdoors && !beach && !raining && s.night < 0.35 && chorus > 0 && s.season !== 'winter';
     // Dawn chorus: a phrase (often answered) every ~2 s at sunrise, sparser through the afternoon.
     let t = due('bird', 1.1 / Math.max(0.2, chorus), 3.6 / Math.max(0.2, chorus), birdsActive);
-    if (t !== null) this.bird(t, s);
+    if (t !== null) this.bird(t, s, chorus);
     t = due('dove', 14, 30, birdsActive && h < 10.5);
     if (t !== null) this.dove(t);
     t = due('chickadee', 12, 35, outdoors && !raining && s.season === 'winter' && s.night < 0.3);
@@ -426,11 +426,11 @@ export class Ambience {
     }
   }
 
-  private bird(t: number, s: EnvState): void {
+  private bird(t: number, s: EnvState, chorus = 0.5): void {
     const r = this.rng;
     const species = r.weighted([['warbler', 3], ['robin', 4], ['finch', 3], ['thrush', 2.5], ['wren', 1.5], ['chickadee', s.season === 'spring' ? 1.5 : 0.8]] as const);
     if (species === 'chickadee') this.chickadee(t, 0);
-    else this.sing(species, t, species === 'wren' ? 0.042 : species === 'thrush' ? 0.056 : 0.06);
+    else this.sing(species, t, (species === 'wren' ? 0.042 : species === 'thrush' ? 0.056 : 0.06) * (chorus > 0.9 ? 0.85 : 1));
   }
 
   private chickadee(t: number, _pan: number): void {

@@ -157,6 +157,8 @@ export const THEMES: Record<string, ThemeDef> = {
     gain: 0.92,
     // Clarinet in its clarion register + harp: take a little edge off (2–5 kHz sat at ~26 %).
     sheen: -2.5,
+    // …and a broad 3.4 kHz dip (the mix still read 25 % presence with the ambience on top).
+    eq: { cut: { f: 3400, db: -2, q: 0.7 } },
   },
 
   /** Winter — a music-box tune in a slow 3/4 with a minor-iv sigh, celesta, bells on the repeat, soft strings. */
@@ -375,19 +377,21 @@ export const THEMES: Record<string, ThemeDef> = {
     mode: 'phrygian',
     form: ['A'],
     prog: { A: ['i', 'bII', 'i', 'bII', 'iv', 'bII', 'i', 'viidim'], B: ['i'] },
-    ambient: { inst: 'bell', range: [62, 79], noteChance: 0.45, bars: 16, motif: [0, -1, 1, -2], ostinato: { inst: 'marimba', range: [64, 81], pattern: [[0, 1.5], [1, 0.5], [0, 1], [-2, 1]], vel: 0.5 } },
-    counter: { inst: 'cello', range: [40, 55], on: 'always' },
-    bass: { inst: 'drone', pattern: 'pedal', range: [35, 47], vel: 0.55 },
-    pad: { inst: 'pad', range: [48, 62], voices: 3, vel: 0.34, on: 'always' },
+    ambient: { inst: 'bell', range: [64, 81], noteChance: 0.5, bars: 16, motif: [0, -1, 1, -2], ostinato: { inst: 'marimba', range: [66, 83], pattern: [[0, 1.5], [1, 0.5], [0, 1], [-2, 1]], vel: 0.55 } },
+    // Cello groans a fifth higher than round 1 (40–55 put its fundamental in the 80–190 Hz mud).
+    counter: { inst: 'cello', range: [45, 60], on: 'always' },
+    bass: { inst: 'drone', pattern: 'pedal', range: [35, 47], vel: 0.45 },
+    pad: { inst: 'pad', range: [52, 67], voices: 3, vel: 0.34, on: 'always' },
     mix: {
-      accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
-      melody: { gain: 0.5, pan: 0.2, send: 0.7 },
-      counter: { gain: 0.44, pan: -0.3, send: 0.6 },
-      bass: { gain: 0.62, pan: 0, send: 0.2 },
+      accomp: { gain: 0.6, pan: 0.45, send: 0.6 },
+      melody: { gain: 0.62, pan: 0.2, send: 0.7 },
+      counter: { gain: 0.4, pan: -0.35, send: 0.6 },
+      bass: { gain: 0.48, pan: 0, send: 0.2 },
       pad: { gain: 0.4, pan: 0, send: 0.6 },
     },
-    // Tone: no sub rumble under the drone, 150–250 Hz mud cut (laptop speakers heard only boom).
-    eq: { hp: 60, cut: { f: 200, db: -3, q: 0.8 } },
+    // Tone: no sub rumble under the drone, a deeper 150–250 Hz mud cut than the other floors
+    // (the lava floor still measured 41 % bass with the ice / earth fixes).
+    eq: { hp: 70, cut: { f: 190, db: -4.5, q: 0.7 } },
     rest: [4, 12],
     gain: 1.12,
   },

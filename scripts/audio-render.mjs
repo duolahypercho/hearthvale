@@ -334,13 +334,16 @@ function transitionCheck(res, inter, fl) {
     for (let i = s0; i < s1; i++) e += inter[i * 2] ** 2 + inter[i * 2 + 1] ** 2;
     return 10 * Math.log10(e / Math.max(1, (s1 - s0) * 2) + 1e-12);
   };
+  // Dead air is judged against the programme: 30 dB under its integrated loudness (the score now
+  // plays at -21 LUFS; round 1 used a fixed -45 dBFS with the score at -15).
+  const deadDb = Math.min(-45, analyze(inter, sr).lufsIntegrated - 30);
   let gap = 0;
   let run = 0;
   let floor = 0;
   for (let t = req; t < start + 3; t += 0.1) {
     const d = blk(t);
     floor = Math.min(floor, d);
-    run = d < -45 ? run + 0.1 : 0;
+    run = d < deadDb ? run + 0.1 : 0;
     gap = Math.max(gap, run);
   }
   const move = /-move$/.test(res.name);
@@ -348,7 +351,7 @@ function transitionCheck(res, inter, fl) {
   const ok = gap < 0.5 && delay <= (move ? 1.6 : 7);
   if (!ok) fl.push(gap >= 0.5 ? 'DEAD-AIR' : 'SLOW-HANDOFF');
   console.log(`  director trace: ${res.markers.slice(1).map((m) => `${m.t.toFixed(1)}s ${m.name}`).join(' | ')}`);
-  console.log(`  request ${req.toFixed(1)}s → new song ${start.toFixed(1)}s (+${delay.toFixed(1)}s); quietest 100 ms ${fmt(floor)} dBFS, longest stretch under -45 dBFS ${gap.toFixed(1)}s  ${ok ? 'ok (crossfaded, no dead air)' : fl[fl.length - 1]}\n`);
+  console.log(`  request ${req.toFixed(1)}s → new song ${start.toFixed(1)}s (+${delay.toFixed(1)}s); quietest 100 ms ${fmt(floor)} dBFS, longest stretch under ${fmt(deadDb)} dBFS ${gap.toFixed(1)}s  ${ok ? 'ok (crossfaded, no dead air)' : fl[fl.length - 1]}\n`);
 }
 
 /** Per-effect analysis of the SFX reel. */
@@ -370,7 +373,8 @@ function sfxBalance(res, inter, report) {
     if (x.truePeakDb > -1) fl.push('HOT');
     if (x.momentaryMax > median + 9) fl.push('TOO-LOUD-vs-set');
     if (x.momentaryMax < median - 14 && !/hover|select|reel|step/.test(x.name)) fl.push('TOO-QUIET-vs-set');
-    if (x.presence > 0.35 || x.air > 0.3) fl.push('HARSH');
+    // (ui:hover is a deliberate 3–5 kHz tick: exempt)
+    if ((x.presence > 0.35 || x.air > 0.3) && x.name !== 'ui:hover') fl.push('HARSH');
     if (IMPACTS.test(x.name) && x.centroidHz < 500) fl.push('THUD(no crunch)');
     console.log(`  ${x.name.padEnd(16)} ${fmt(x.peakDb).padStart(6)} ${fmt(x.truePeakDb).padStart(6)} ${fmt(x.momentaryMax).padStart(6)} ${fmt(x.centroidHz, 0).padStart(6)}  ${fl.join(' ') || 'ok'}`);
     report.sfx.push({ ...x, flags: fl });
@@ -466,8 +470,9 @@ async function live() {
         if (st.running && st.theme && st.theme === st.wanted) break;
         await sleep(250);
       }
+      // 8 s into the song (round 1 metered only the first 2.4 s, i.e. mostly the soft intros).
       let max = -Infinity;
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 40; i++) {
         max = Math.max(max, a.meter());
         await sleep(200);
       }

@@ -162,7 +162,7 @@ export class MusicPlayer {
     const p = ctx.createStereoPanner();
     // Stage: the tune near the middle, harmony and counter-line out at ±0.5…0.7 on opposite sides.
     const side = Math.sign(mix.pan) || (name === 'counter' || name === 'accomp2' ? 1 : -1);
-    p.pan.value = name === 'accomp' || name === 'accomp2' || name === 'counter' ? side * Math.min(0.7, Math.max(0.5, Math.abs(mix.pan) * 1.6)) : mix.pan;
+    p.pan.value = name === 'accomp' || name === 'accomp2' || name === 'counter' ? side * Math.min(0.8, Math.max(0.55, Math.abs(mix.pan) * 1.8)) : mix.pan;
     const send = ctx.createGain();
     send.gain.value = mix.send;
     // Track EQ: an air shelf on the tune (it should glint above the band), and the 250–400 Hz
@@ -200,7 +200,7 @@ export class MusicPlayer {
         const er = ctx.createDelay(0.05);
         er.delayTime.value = dt;
         const eg = ctx.createGain();
-        eg.gain.value = 0.2;
+        eg.gain.value = 0.26;
         const ep = ctx.createStereoPanner();
         ep.pan.value = pan;
         head.connect(er).connect(eg).connect(ep).connect(this.out);
