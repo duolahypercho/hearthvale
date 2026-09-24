@@ -11,11 +11,17 @@
  *   can later upgrade to WebRTC P2P by relaying SDP / ICE through the same `R` messages).
  * - Rejoin: every peer gets a token; a dropped farmhand can reclaim its slot (same id) within
  *   REJOIN_MS; a dropped host gets HOST_GRACE_MS to come back before the lobby closes.
+ * - Identity: farmhands send a persistent per-browser player id (`pid`, localStorage). A crashed tab
+ *   (no session token) reclaims its held slot by pid; a second live tab with the same pid gets a
+ *   derived pid (`<pid>~<id>`), so the host never mixes two players' personal saves.
+ * - Names are unique per lobby ("Ash", "Ash 2"). A full lobby evicts a slot that has been away for
+ *   EVICT_MS to make room. The host can kick a farmhand ({t:'kick', id}); a kicked pid is refused for
+ *   KICK_BAN_MS.
  * - Also serves the production build (dist/) when present, so `npm run build && npm run server`
  *   is a complete one-port deployment.
  *
  * Wire format (text frames):
- *   control   JSON objects   {"t":"host"|"join"|"leave"|"ping", ...}   ⇄   {"t":"hosted"|"joined"|"peer+"|"peer-"|"peer~"|"error"|"pong"|"closed"|"host~"|"host+", ...}
+ *   control   JSON objects   {"t":"host"|"join"|"leave"|"ping"|"kick", ...}   ⇄   {"t":"hosted"|"joined"|"peer+"|"peer-"|"peer~"|"error"|"pong"|"closed"|"host~"|"host+", ...}
  *   relay     "R<to>|<payload>"  client → server   (<to> = peer id, or * for everyone else)
  *             "M<from>|<payload>" server → client  (payload is forwarded verbatim, never parsed)
  */
@@ -33,6 +39,8 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const REJOIN_MS = 120_000;
 const HOST_GRACE_MS = 20_000;
 const IDLE_MS = 30_000;
+const EVICT_MS = 10_000;
+const KICK_BAN_MS = 60_000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -47,9 +55,9 @@ const MIME = {
 
 /**
  * @typedef {{ id: number, name: string, look: unknown, token: string, conn: import('./ws.mjs').WsConn | null,
- *             lobby: Lobby, awayTimer: NodeJS.Timeout | null }} Peer
+ *             lobby: Lobby, awayTimer: NodeJS.Timeout | null, awaySince: number, pid: string }} Peer
  * @typedef {{ code: string, hostId: number, peers: Map<number, Peer>, nextId: number, created: number,
- *             closeTimer: NodeJS.Timeout | null, relayed: number }} Lobby
+ *             closeTimer: NodeJS.Timeout | null, relayed: number, banned: Map<string, number> }} Lobby
  */
 
 export function startServer({ port = Number(process.env.PORT ?? 8787), host = '0.0.0.0', log = true, serveDist = true } = {}) {
@@ -66,6 +74,15 @@ export function startServer({ port = Number(process.env.PORT ?? 8787), host = '0
     }
   };
   const token = () => randomBytes(12).toString('hex');
+  /** "Ash" → "Ash 2" if another farmer in the lobby already goes by that name. */
+  const uniqueName = (lobby, name) => {
+    const taken = new Set([...lobby.peers.values()].map((p) => p.name.toLowerCase()));
+    if (!taken.has(name.toLowerCase())) return name;
+    for (let n = 2; ; n++) {
+      const cand = `${name.slice(0, 21)} ${n}`;
+      if (!taken.has(cand.toLowerCase())) return cand;
+    }
+  };
   const clean = (s, n) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').slice(0, n);
 
   const send = (peer, obj) => peer.conn?.send(typeof obj === 'string' ? obj : JSON.stringify(obj));
@@ -105,6 +122,7 @@ export function startServer({ port = Number(process.env.PORT ?? 8787), host = '0
       return;
     }
     // Keep the slot warm for a rejoin with the same token.
+    peer.awaySince = Date.now();
     broadcast(lobby, { t: 'peer~', id: peer.id, reason });
     peer.awayTimer = setTimeout(() => {
       lobby.peers.delete(peer.id);
@@ -143,6 +161,21 @@ export function startServer({ port = Number(process.env.PORT ?? 8787), host = '0
         case 'ping':
           conn.send(JSON.stringify({ t: 'pong', c: msg.c, s: Date.now() }));
           return;
+        case 'kick': {
+          if (!me || me.id !== me.lobby.hostId) return;
+          const lobby = me.lobby;
+          const target = lobby.peers.get(Number(msg.id));
+          if (!target || target.id === lobby.hostId) return;
+          if (target.awayTimer) clearTimeout(target.awayTimer);
+          lobby.peers.delete(target.id);
+          if (target.pid) lobby.banned.set(target.pid, Date.now() + KICK_BAN_MS);
+          send(target, { t: 'closed', reason: 'kicked' });
+          target.conn?.close(1000, 'kicked');
+          target.conn = null;
+          broadcast(lobby, { t: 'peer-', id: target.id, reason: 'kicked' });
+          say(`lobby ${lobby.code}: ${target.name}#${target.id} kicked`);
+          return;
+        }
         case 'host': {
           if (me) return;
           // Host rejoin within the grace period.
@@ -160,8 +193,8 @@ export function startServer({ port = Number(process.env.PORT ?? 8787), host = '0
               return;
             }
           }
-          const lobby = { code: newCode(), hostId: 1, peers: new Map(), nextId: 2, created: Date.now(), closeTimer: null, relayed: 0 };
-          me = { id: 1, name: clean(msg.name, 24) || 'Host', look: msg.look ?? null, token: token(), conn, lobby, awayTimer: null };
+          const lobby = { code: newCode(), hostId: 1, peers: new Map(), nextId: 2, created: Date.now(), closeTimer: null, relayed: 0, banned: new Map() };
+          me = { id: 1, name: clean(msg.name, 24) || 'Host', look: msg.look ?? null, token: token(), conn, lobby, awayTimer: null, awaySince: 0, pid: clean(msg.pid, 48) };
           lobby.peers.set(1, me);
           lobbies.set(lobby.code, lobby);
           send(me, { t: 'hosted', code: lobby.code, id: 1, token: me.token, peers: roster(lobby) });
@@ -173,28 +206,43 @@ export function startServer({ port = Number(process.env.PORT ?? 8787), host = '0
           const code = String(msg.code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
           const lobby = lobbies.get(code);
           if (!lobby) return void conn.send(JSON.stringify({ t: 'error', code: 'nolobby', text: `No farm with code ${code || '—'}` }));
-          // Rejoin: reclaim the held slot.
-          if (msg.token) {
-            const old = [...lobby.peers.values()].find((p) => p.token === msg.token && p.id !== lobby.hostId);
+          const pid = clean(msg.pid, 48).replace(/[^\w~-]/g, '');
+          if (pid && (lobby.banned.get(pid) ?? 0) > Date.now()) return void conn.send(JSON.stringify({ t: 'error', code: 'kicked', text: 'The host asked you to leave this farm — try again in a minute' }));
+          // Rejoin: reclaim the held slot (session token, or the same player's pid after a crash / new tab).
+          {
+            const farmhands = [...lobby.peers.values()].filter((p) => p.id !== lobby.hostId);
+            const old = (msg.token ? farmhands.find((p) => p.token === msg.token) : null) ?? (pid ? farmhands.find((p) => p.pid === pid && !p.conn) : null);
             if (old) {
               if (old.awayTimer) clearTimeout(old.awayTimer);
               old.awayTimer = null;
+              old.awaySince = 0;
               old.conn?.close(4000, 'replaced');
               old.conn = conn;
               if (msg.name) old.name = clean(msg.name, 24);
               if (msg.look) old.look = msg.look;
               me = old;
-              send(me, { t: 'joined', code, id: me.id, token: me.token, hostId: lobby.hostId, peers: roster(lobby), rejoin: true });
+              send(me, { t: 'joined', code, id: me.id, token: me.token, pid: me.pid, hostId: lobby.hostId, peers: roster(lobby), rejoin: true });
               broadcast(lobby, { t: 'peer+', id: me.id, name: me.name, look: me.look, rejoin: true }, me.id);
               say(`lobby ${code}: ${me.name}#${me.id} rejoined`);
               return;
             }
           }
-          if (lobby.peers.size >= MAX_PLAYERS) return void conn.send(JSON.stringify({ t: 'error', code: 'full', text: 'That farm already has 4 farmers' }));
+          if (lobby.peers.size >= MAX_PLAYERS) {
+            // Make room: evict the farmhand that has been away the longest (if long enough).
+            const now = Date.now();
+            const away = [...lobby.peers.values()].filter((p) => p.id !== lobby.hostId && !p.conn && now - p.awaySince >= EVICT_MS).sort((a, b) => a.awaySince - b.awaySince)[0];
+            if (!away) return void conn.send(JSON.stringify({ t: 'error', code: 'full', text: 'That farm already has 4 farmers' }));
+            if (away.awayTimer) clearTimeout(away.awayTimer);
+            lobby.peers.delete(away.id);
+            broadcast(lobby, { t: 'peer-', id: away.id, reason: 'evicted' });
+            say(`lobby ${code}: evicted away slot ${away.name}#${away.id}`);
+          }
           const id = lobby.nextId++;
-          me = { id, name: clean(msg.name, 24) || `Farmhand ${id}`, look: msg.look ?? null, token: token(), conn, lobby, awayTimer: null };
+          // A second live tab of the same browser: derive a distinct pid (own backpack, own slot).
+          const livePid = pid && [...lobby.peers.values()].some((p) => p.pid === pid);
+          me = { id, name: uniqueName(lobby, clean(msg.name, 24) || `Farmhand ${id}`), look: msg.look ?? null, token: token(), conn, lobby, awayTimer: null, awaySince: 0, pid: pid ? (livePid ? `${pid}~${id}` : pid) : `anon-${token()}` };
           lobby.peers.set(id, me);
-          send(me, { t: 'joined', code, id, token: me.token, hostId: lobby.hostId, peers: roster(lobby) });
+          send(me, { t: 'joined', code, id, token: me.token, pid: me.pid, name: me.name, hostId: lobby.hostId, peers: roster(lobby) });
           broadcast(lobby, { t: 'peer+', id, name: me.name, look: me.look }, id);
           say(`lobby ${code}: ${me.name}#${id} joined (${lobby.peers.size}/${MAX_PLAYERS})`);
           return;

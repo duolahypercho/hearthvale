@@ -1,8 +1,10 @@
 /**
  * Co-op UI (DESIGN pillar 13):
  *   'coop' screen    character creator (live 3D turntable preview, name, skin / hair / outfit / hat) +
- *                    Host / Join-by-code / lobby (invite code tiles, 4 farmer slots, pings) — `coop:title`
- *                    when opened from the title screen, `coop:demo` = staged lobby for screenshots.
+ *                    Host / Join-by-code / lobby (invite code tiles, 4 farmer slots, pings, Kick) —
+ *                    `coop:title` when opened from the title screen, `coop:demo` = staged lobby.
+ *                    Rendered cheaply (ui/coop-stage.ts): the world is a cached blurred still and the
+ *                    turntable is drawn by the main renderer — no second WebGL context.
  *   HUD              roster plate (top-left: farmers, ping, who's in bed), chat log + input (T),
  *                    emote wheel (hold G, 1-8), "waiting for the others" bedtime overlay,
  *                    a "Co-op" card injected into the pause menu (player list, invite code, open to co-op).
@@ -16,6 +18,7 @@ import { RemoteFarmer } from '../entities/remote-farmer';
 import { EMOTES, EMOTE_LABEL, emoteIconUrl, type EmoteId } from '../entities/remote-emotes';
 import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, hex, randomLook, type FarmerLook, type HairStyle, type HatStyle } from '../entities/remote-look';
 import { resetCamera } from './pause';
+import { LobbyRenderer, type TurntableView } from './coop-stage';
 
 const PEOPLE_ICON = `<svg viewBox="0 0 24 24" width="22" height="22"><circle cx="8.5" cy="8" r="3.4" fill="#f5c9a0" stroke="#5a3418" stroke-width="1.3"/><path d="M2.6 19.5 C3 14.6 5.6 13 8.5 13 C11.4 13 14 14.6 14.4 19.5Z" fill="#5f8a5c" stroke="#2f4a2c" stroke-width="1.3"/><circle cx="16.2" cy="9" r="3" fill="#e0a878" stroke="#5a3418" stroke-width="1.3"/><path d="M12.4 19.5 C12.8 15.4 14.4 14 16.2 14 C19 14 21 15.6 21.4 19.5Z" fill="#4b6c9e" stroke="#26375a" stroke-width="1.3"/></svg>`;
 const CROWN = `<svg viewBox="0 0 24 16" width="18" height="12"><path d="M2 14 L3.5 4 L8.5 9 L12 2 L15.5 9 L20.5 4 L22 14Z" fill="#f7cf4a" stroke="#8a5a0a" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
@@ -44,25 +47,53 @@ function pingBars(ms: number): string {
 
 // ───────────────────────────────────────────────────────── 3D preview
 
-class FarmerPreview {
+const STAGE_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position.xy, 0.9999, 1.0);
+}`;
+// The parchment stage behind the farmer (the same gradients the CSS stage used): warm radial light
+// and a soft green floor shadow. Display-referred colours, not tone mapped.
+const STAGE_FRAG = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vec2 p = vec2(vUv.x, 1.0 - vUv.y);
+  float r = length((p - vec2(0.5, 0.28)) / vec2(0.9, 0.8));
+  vec3 c = mix(vec3(1.0, 0.965, 0.863), vec3(0.953, 0.863, 0.651), smoothstep(0.0, 0.55, r));
+  c = mix(c, vec3(0.851, 0.706, 0.455), smoothstep(0.55, 1.0, r));
+  float g = length((p - vec2(0.5, 0.88)) / vec2(0.6, 0.22));
+  c = mix(c, vec3(0.235, 0.353, 0.118), 0.45 * (1.0 - smoothstep(0.0, 0.7, g)));
+  float e = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
+  c *= 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.12, 1.0 - p.y));
+  c *= 1.0 - 0.1 * (1.0 - smoothstep(0.0, 0.03, e));
+  gl_FragColor = vec4(c, 1.0);
+}`;
+
+/** Character-creator turntable: a scene the lobby renderer draws with the main WebGL context. */
+class FarmerPreview implements TurntableView {
   readonly canvas: HTMLCanvasElement;
-  private renderer: THREE.WebGLRenderer | null = null;
-  private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(30, 300 / 262, 0.1, 50);
+  readonly scene = new THREE.Scene();
+  readonly camera = new THREE.PerspectiveCamera(30, 300 / 262, 0.1, 50);
+  width = 300;
+  height = 262;
   private farmer: RemoteFarmer;
-  private raf = 0;
-  private last = 0;
   private spin = 0.35;
   private drag: number | null = null;
   private t = 0;
 
   constructor(look: FarmerLook) {
     this.canvas = el('canvas', 'coop-preview');
-    this.canvas.width = 300;
-    this.canvas.height = 262;
+    const pr = Math.min(2, devicePixelRatio || 1);
+    this.canvas.width = Math.round(this.width * pr);
+    this.canvas.height = Math.round(this.height * pr);
     this.farmer = new RemoteFarmer(look);
     this.farmer.root.remove(this.farmer.bubble.sprite);
     this.scene.add(this.farmer.root);
+    const bg = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ vertexShader: STAGE_VERT, fragmentShader: STAGE_FRAG, depthWrite: false }));
+    bg.frustumCulled = false;
+    bg.renderOrder = -10;
+    this.scene.add(bg);
     const hemi = new THREE.HemisphereLight(0xfff2da, 0x7a8a5a, 2.2);
     const key = new THREE.DirectionalLight(0xffe2b8, 2.6);
     key.position.set(2.5, 4, 3.5);
@@ -93,43 +124,33 @@ class FarmerPreview {
     this.farmer.act('pull', null);
   }
 
-  start(): void {
-    if (!this.renderer) {
-      try {
-        this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true, powerPreference: 'low-power' });
-        this.renderer.setPixelRatio(Math.min(2, devicePixelRatio));
-        this.renderer.setSize(300, 262, false);
-        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-      } catch {
-        return;
-      }
+  /** Stop the spin at `yaw` (radians, 0 = facing the camera). */
+  hold(yaw: number): void {
+    this.spin = 0;
+    this.farmer.yaw = yaw;
+    this.farmer.targetYaw = yaw;
+  }
+
+  tick(dt: number): void {
+    // Fill the whole stage (its width follows the panel).
+    const w = this.canvas.clientWidth || 300;
+    const h = this.canvas.clientHeight || 262;
+    if (w !== this.width || h !== this.height) {
+      this.width = w;
+      this.height = h;
+      const pr = Math.min(2, devicePixelRatio || 1);
+      this.canvas.width = Math.round(w * pr);
+      this.canvas.height = Math.round(h * pr);
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
     }
-    cancelAnimationFrame(this.raf);
-    this.last = performance.now();
-    const loop = (now: number): void => {
-      this.raf = requestAnimationFrame(loop);
-      const dt = Math.min(0.05, (now - this.last) / 1000);
-      this.last = now;
-      this.t += dt;
-      if (this.drag === null) {
-        this.farmer.yaw += dt * this.spin;
-        this.farmer.targetYaw = this.farmer.yaw;
-      }
-      this.farmer.update(dt, this.t);
-      this.renderer!.render(this.scene, this.camera);
-    };
-    this.raf = requestAnimationFrame(loop);
-  }
-
-  stop(): void {
-    cancelAnimationFrame(this.raf);
-  }
-
-  /** Render one frame now (screenshots). */
-  renderOnce(): void {
-    this.farmer.update(1 / 60, this.t);
-    this.renderer?.render(this.scene, this.camera);
+    dt = Math.min(0.05, dt);
+    this.t += dt;
+    if (this.drag === null) {
+      this.farmer.yaw += dt * this.spin;
+      this.farmer.targetYaw = this.farmer.yaw;
+    }
+    this.farmer.update(dt, this.t);
   }
 }
 
@@ -145,6 +166,7 @@ class CoopScreen extends Screen {
   private demo = false;
   private err = '';
   private view: View = 'menu';
+  private stage: LobbyRenderer;
 
   constructor(
     game: Game,
@@ -152,6 +174,7 @@ class CoopScreen extends Screen {
     private net: NetApi,
   ) {
     super(game, parent, 'hv-coop', { backdrop: true, backdropCloses: false });
+    this.stage = new LobbyRenderer(game);
     const p = net.profile();
     this.look = { ...p.look };
     this.name = p.name;
@@ -198,8 +221,8 @@ class CoopScreen extends Screen {
   // ── character creator ──
 
   private renderMaker(body: HTMLElement): void {
-    this.preview?.stop();
     this.preview = new FarmerPreview(this.look);
+    this.stage.setView(this.preview);
     const stage = el('div', 'coop-stage');
     stage.appendChild(this.preview.canvas);
     const dice = el('button', 'u-btn small coop-dice', `<svg viewBox="0 0 24 24" width="18" height="18"><rect x="3" y="3" width="18" height="18" rx="4" fill="#fff6e0" stroke="#5e3517" stroke-width="1.8"/><circle cx="8" cy="8" r="1.7" fill="#5e3517"/><circle cx="16" cy="16" r="1.7" fill="#5e3517"/><circle cx="12" cy="12" r="1.7" fill="#5e3517"/><circle cx="16" cy="8" r="1.7" fill="#5e3517"/><circle cx="8" cy="16" r="1.7" fill="#5e3517"/></svg><span>Surprise me</span>`);
@@ -227,7 +250,6 @@ class CoopScreen extends Screen {
     body.appendChild(nameRow);
 
     this.renderMakerOptions(body);
-    if (this.isOpen || this.demo) this.preview.start();
   }
 
   private chipRow<T extends string>(label: string, values: readonly T[], names: Record<T, string>, cur: T, set: (v: T) => void, body: HTMLElement): HTMLElement {
@@ -345,7 +367,7 @@ class CoopScreen extends Screen {
       }
       this.err = '';
       this.saveProfile();
-      void this.net.join(code.value).catch((e: Error) => {
+      void this.net.join(code.value, { fromTitle: this.fromTitle }).catch((e: Error) => {
         this.err = e.message;
         this.renderSession();
       });
@@ -436,7 +458,8 @@ class CoopScreen extends Screen {
       }
       const s = el('div', `coop-slot${p.isMe ? ' me' : ''}${p.away ? ' away' : ''}`);
       s.style.animationDelay = `${i * 70}ms`;
-      s.innerHTML = `${avatar(p.look, 42)}<div><b>${escapeHtml(p.name)}${p.isHost ? ` ${CROWN}` : ''}</b><small>${p.isHost ? 'Host' : p.cabin >= 0 ? `Farmhand · cabin ${p.cabin + 1}` : 'Farmhand'}${p.isMe ? ' · you' : ''}${p.away ? ' · reconnecting…' : ''}</small></div>${p.isMe && p.isHost ? '' : pingBars(p.ping)}`;
+      s.innerHTML = `${avatar(p.look, 42)}<div><b>${escapeHtml(p.name)}${p.isHost ? ` ${CROWN}` : ''}</b><small>${p.isHost ? 'Host' : p.cabin >= 0 ? `Farmhand · cabin ${p.cabin + 1}` : 'Farmhand'}${p.isMe ? ' · you' : ''}${p.away ? ' · reconnecting…' : ''}</small></div><span class="side">${p.isMe && p.isHost ? '' : pingBars(p.ping)}</span>`;
+      if (hosting && !p.isMe) s.querySelector('.side')!.appendChild(this.kickButton(p));
       slots.appendChild(s);
     }
     body.appendChild(slots);
@@ -469,6 +492,31 @@ class CoopScreen extends Screen {
     );
   }
 
+  /** Host: a small "Kick" on a farmhand's card (asks once). */
+  private kickButton(p: PlayerView): HTMLElement {
+    const b = el('button', 'coop-kick', `<span>Kick</span>`);
+    b.dataset.nav = '';
+    b.title = `Ask ${p.name} to leave (frees the slot)`;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.demo) return;
+      if (!b.classList.contains('sure')) {
+        b.classList.add('sure');
+        b.querySelector('span')!.textContent = 'Sure?';
+        sfx(this.game, 'toggle');
+        setTimeout(() => {
+          b.classList.remove('sure');
+          const sp = b.querySelector('span');
+          if (sp) sp.textContent = 'Kick';
+        }, 2500);
+        return;
+      }
+      sfx(this.game, 'click');
+      this.net.kick(p.id);
+    });
+    return b;
+  }
+
   /** Leave the title backdrop and start the day (host from title). */
   private begin(): void {
     const g = this.game;
@@ -491,12 +539,19 @@ class CoopScreen extends Screen {
 
   override open(arg?: string): void {
     super.open(arg);
-    this.preview?.start();
-    if (arg === 'demo') setTimeout(() => this.preview?.wave(), 250);
+    this.stage.begin(this.preview);
+    // The HUD under the lobby is softened (it used to sit under the CSS backdrop blur).
+    this.game.hud.root.classList.add('h-coop-open');
+    if (arg === 'demo') {
+      // Stills: hold a friendly three-quarter pose instead of catching the turntable mid-spin.
+      this.preview?.hold(0.45);
+      setTimeout(() => this.preview?.wave(), 250);
+    }
   }
 
   protected override onClose(): void {
-    this.preview?.stop();
+    this.stage.end();
+    this.game.hud.root.classList.remove('h-coop-open');
   }
 }
 
@@ -524,6 +579,7 @@ export class CoopUi {
   private wheelSel: EmoteId | null = null;
   private rosterKey = '';
   private lines: { node: HTMLElement; t: number }[] = [];
+  private forceShown = false;
 
   constructor(
     private game: Game,
@@ -605,8 +661,17 @@ export class CoopUi {
     EMOTES.forEach((id, i) => {
       const a = (i / EMOTES.length) * Math.PI * 2;
       const b = el('button', 'wedge', `<img src="${emoteIconUrl(id)}" alt=""/><small>${EMOTE_LABEL[id]}</small><kbd>${i + 1}</kbd>`);
-      b.style.left = `calc(50% + ${Math.sin(a) * 118}px)`;
-      b.style.top = `calc(50% - ${Math.cos(a) * 118}px)`;
+      const sx = Math.sin(a);
+      const cy = -Math.cos(a);
+      b.style.left = `calc(50% + ${sx * 118}px)`;
+      b.style.top = `calc(50% + ${cy * 118}px)`;
+      // Key badge on the inner rim, label outside the ring: they never meet a neighbour's.
+      const kbd = b.querySelector('kbd')!;
+      kbd.style.left = `${36 - sx * 40 - 9}px`;
+      kbd.style.top = `${36 - cy * 40 - 9}px`;
+      const lab = b.querySelector('small')!;
+      lab.style.left = `${36 + sx * 64}px`;
+      lab.style.top = `${36 + cy * 58}px`;
       b.dataset.emote = id;
       b.addEventListener('pointerenter', () => this.selectWedge(id));
       b.addEventListener('click', () => {
@@ -693,9 +758,20 @@ export class CoopUi {
     this.sleepEl.innerHTML = `<div class="stars"></div><div class="card"><div class="moon"></div><h3>Sweet dreams…</h3><p>${waiting ? `Waiting for <b>${waiting}</b> ${waiting === 1 ? 'farmer' : 'farmers'} to turn in` : 'Everyone is in bed — goodnight!'}</p><div class="beds">${players
       .map((p) => `<div class="bed${ready.has(p.id) ? ' in' : ''}">${avatar(p.look, 30)}<small>${escapeHtml(p.name)}</small>${ready.has(p.id) ? ZZZ : '<em>awake</em>'}</div>`)
       .join('')}</div></div>`;
+    const row = el('div', 'coop-sleep-btns');
     const c = el('button', 'u-btn small', '<span>Get up</span>');
     c.addEventListener('click', () => this.net.cancelBed());
-    this.sleepEl.querySelector('.card')!.appendChild(c);
+    row.appendChild(c);
+    // Host: after a while, "Sleep anyway" ends the day for everyone (nobody is held hostage by an
+    // AFK farmhand — the awake ones wake up in their cabins).
+    if (this.net.role() === 'host' && waiting) {
+      const f = el('button', 'u-btn small blue coop-force', '<span>Sleep anyway</span>');
+      f.title = 'End the day for everyone now';
+      f.addEventListener('click', () => this.net.forceSleep());
+      row.appendChild(f);
+    }
+    this.sleepEl.querySelector('.card')!.appendChild(row);
+    this.forceShown = false;
   }
 
   private injectPause(): void {
@@ -708,8 +784,26 @@ export class CoopUi {
       body.innerHTML = `<p>Invite up to three friends to farm with you.</p>`;
     } else {
       body.innerHTML = `<div class="code">Code <b>${escapeHtml(this.net.code() ?? '')}</b></div>${players
-        .map((p) => `<div class="pl">${avatar(p.look, 28)}<b>${escapeHtml(p.name)}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`)
+        .map((p) => `<div class="pl" data-id="${p.id}">${avatar(p.look, 28)}<b>${escapeHtml(p.name)}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}${p.away ? '<em>away</em>' : ''}${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`)
         .join('')}`;
+      if (role === 'host') {
+        for (const row of body.querySelectorAll<HTMLElement>('.pl')) {
+          const id = Number(row.dataset.id);
+          if (id === this.net.myId()) continue;
+          const k = el('button', 'coop-kick', '<span>Kick</span>');
+          k.dataset.nav = '';
+          k.addEventListener('click', () => {
+            if (!k.classList.contains('sure')) {
+              k.classList.add('sure');
+              k.querySelector('span')!.textContent = 'Sure?';
+              return;
+            }
+            this.net.kick(id);
+            row.remove();
+          });
+          row.appendChild(k);
+        }
+      }
     }
     const b = el('button', 'u-btn small green', `<span>${role === 'solo' ? 'Open farm to co-op' : 'Farmers & invite'}</span>`);
     b.dataset.nav = '';
@@ -724,5 +818,14 @@ export class CoopUi {
       l.node.classList.toggle('old', l.t < 0 && !this.chatBox.classList.contains('typing'));
     }
     if (this.wheelOpen && !this.canPlay() && this.game.hud.openPanelName) this.closeWheel(false);
+    // Reveal "Sleep anyway" once the host has waited 10 s.
+    const since = this.net.bedSince();
+    if (!this.forceShown && since && performance.now() - since > 10_000) {
+      const f = this.sleepEl.querySelector('.coop-force');
+      if (f) {
+        f.classList.add('on');
+        this.forceShown = true;
+      }
+    }
   }
 }

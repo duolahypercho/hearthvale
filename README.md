@@ -472,7 +472,7 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
 ```bash
 npm run server        # relay + lobby server on ws://<host>:8787/ws (also serves dist/ after npm run build)
 npm run dev           # then Title → Co-op → "New farm" / "My saved farm" (host) or type the 6-letter code (join)
-npm run mp-test       # e2e: relay + Vite + 3 headless clients; screenshots + results in shots/mp/
+npm run mp-test       # e2e + adversarial: relay + Vite + headless clients; screenshots + results in shots/mp/
 ```
 
 Friends on other machines open the game from the host's address; the relay defaults to the page's host on port
@@ -480,39 +480,63 @@ Friends on other machines open the game from the host's address; the relay defau
 "Open farm to co-op". URL shortcuts: `?coop=host&name=Ann`, `?join=ABC123&name=Bob&preset=0..2`.
 
 - **Topology** (`server/`, no dependencies): a tiny Node WebSocket relay (`ws.mjs` is a hand-rolled RFC 6455
-  implementation) with lobbies, 6-char invite codes, 4 slots, rejoin tokens (a dropped farmhand keeps its slot for
-  2 min; a dropped host gets 20 s) and heartbeats. It never parses game traffic (`R<to>|payload` → `M<from>|payload`),
-  so it doubles as a signaling channel for a later WebRTC upgrade.
+  implementation) with lobbies, 6-char invite codes, 4 slots and heartbeats. It never parses game traffic
+  (`R<to>|payload` → `M<from>|payload`), so it doubles as a signaling channel for a later WebRTC upgrade.
+  **Identity**: every browser has a persistent player id (`localStorage hearthvale.pid`); a dropped farmhand
+  reclaims its slot by session token *or* pid (a crashed tab / new tab gets straight back in, same backpack), a
+  second live tab of the same browser gets a derived pid. Names are unique per lobby ("Ash", "Ash 2"). A full lobby
+  evicts a slot that has been away ≥ 10 s; the host can **Kick** (lobby cards / pause menu; refused for 60 s).
+- **Transport** (`net/transport.ts` + `net/socket-worker.ts`): the socket lives in a Web Worker, which answers and
+  times pings itself, so `stats().rtt` is real network RTT (relay legs in `relayRtt`, main-thread round trip in
+  `appRtt`). All periodic sends run on a 50 ms interval ticker (not the render loop) and carry the timestamp of the
+  frame the state was sampled on. Non-volatile messages queue while reconnecting and flush, in order, on re-admission.
 - **Host-authoritative** (`src/net/system.ts`): the host's browser runs the simulation. Farmhands send intents
-  (`use` tool/seed, `act` harvest, `gold`, `chat`, `emo`, `bed`, `look`) and their own movement at 20 Hz; the host
-  validates (reach, speed in the sender's clock, blocked tiles, rate) and applies them through the farming system's
-  normal `item:use` path (`net/farmsync.ts` runs it "as another farmer": our farmer parked, their energy/XP/loot
-  routed to them, toasts swallowed), then broadcasts 20 Hz snapshots, `did` events (replayed with full FX on every
-  other client at the swing's impact frame), per-tile farm deltas (≤ 5 Hz, only when something changed), calendar,
-  weather and the shared purse. Every morning (and on join/rejoin) farmhands get the whole farm (`full`).
-- **Prediction + reconciliation**: a farmhand's own swings, seeds and harvests play instantly (full juice); the
-  host's `ack` carries the authoritative state of the touched tiles, a 2.5 s drift check fixes anything else, and
-  predicted loot is dropped in favour of the host's `give`. Movement is predicted; the host's `fix` is reconciled
-  against the position history and bled in over ~150 ms. Remote farmers are interpolated 100 ms behind the freshest
-  sample (clock offset = min observed delay), with brief extrapolation.
+  (`use` tool/seed, `act` harvest, `gold`, `psave`, `chat`, `emo`, `bed`, `look`) and their own movement (`st`,
+  20 Hz, to everyone: the host validates it, the other farmhands interpolate it on the sender's clock — no host
+  re-stamping). The host validates (reach, speed in the sender's clock, blocked tiles, rate, **owns the seed** via a
+  mirror of the farmhand's backpack) and applies intents through the farming system's normal `item:use` path
+  (`net/farmsync.ts` runs it "as another farmer"), then broadcasts its own 20 Hz sample, `did` events (replayed with
+  full FX at the swing's impact frame), per-tile farm deltas (≤ 5 Hz, only when something changed), calendar,
+  weather and the purse. Every morning (and on join/rejoin) farmhands get the whole farm (`full`).
+- **Shared purse**: farmhand purse changes are sequenced intents; the host drops resends it already applied, refuses a
+  spend the purse can't cover (two farmhands spending the same coins → `gdeny`: the loser's purchase goes back) and
+  absurd gains. Changes made while disconnected are queued + resent after the rejoin, so purses always converge.
+- **Prediction + reconciliation**: a farmhand's own swings, seeds and harvests play instantly; the host's `ack`
+  (applied / refused / no-op) carries the touched tiles, a lost race refunds the predicted seed, a 2.5 s drift check
+  fixes anything else, predicted loot yields to the host's `give`. Movement is predicted; the host's `fix` is
+  reconciled against the position history and bled in over ~150 ms. Remote farmers use an adaptive jitter buffer
+  (100 ms floor, grows with measured arrival jitter up to 260 ms) with brief extrapolation.
+- **Saves**: a farmhand never writes the host's farm into its own slots (`SaveManager.guard`: "saving" stores the
+  personal part on the host + a local per-farm copy). Personal state (`psave`: backpack, energy, friendships,
+  skills) is versioned and sent on every backpack change and on `pagehide`; on (re)join the newest of the host's and
+  the local copy wins, so a reload never rolls the backpack back (no dupes). First visit = a fresh farmhand kit.
+  Leaving (or the host closing up / kicking you) restores your own farm exactly as you left it (or the title screen
+  if you joined from it). **No host migration**: if the host leaves, farmhands go home.
 - **Shared**: farm tiles, crops, debris, sprinklers, gold, calendar, weather (plus, through `net/bridge.ts`, the
   animals / buildings / story / Hall pods' own co-op hooks and fishing's host rolls). **Per player**: backpack,
-  energy, skills, relationships (each farmhand's own systems; the host keeps a copy for rejoins).
+  energy, skills, relationships. `net:ext` payloads are only delivered from lobby members.
 - **Farmers** (`entities/remote-farmer.ts`): one skinned mesh per farmer (1 draw + 1 shadow), the same shapes and
   the same FarmerActions tool poses as the local farmer; 6 hair styles, 5 hats, skin / hair / shirt / overalls /
-  kerchief / hat colours (`entities/remote-look.ts`). A custom look re-skins the local farmer too (bound to the
-  Player's own rig groups). Emote bubbles are 3D sprites (`remote-emotes.ts`), name tags / chat bubbles are DOM.
+  kerchief / hat colours (`entities/remote-look.ts`). Emote bubbles are 3D sprites (`remote-emotes.ts`). Name tags /
+  chat bubbles are DOM, placed after each render (`game.afterRender`, so they match the frame's camera even while
+  paused) and stacked when farmers bunch up; your own chat shows over your own head too.
 - **UI** (`ui/coop.ts`): Title → Co-op screen (character creator with a live turntable, Host / Join by code,
-  lobby with invite-code tiles, 4 slots, ping bars), roster plate (top-left), chat (**T**), emote wheel (hold **G**,
-  1–8), join/leave toasts, bedtime overlay ("waiting for 2 farmers"), a Co-op card in the pause menu.
-- **Day end**: the bed (farmhouse) or your cabin door marks you ready; the day ends when everyone is in bed.
-  Cabins (`net/cabins.ts`, one merged builder: ~6 draws for all three) appear on the farm for each farmhand.
-- **Perf**: 3 remote farmers cost ~17 draws (skinned body + shadow + blob + held tool + bubble); net work is a few
-  small JSON messages per frame; farm digests only when dirty. `__game.game.services.net.stats()` reports fps /
-  frame-time percentiles, RTT, bytes and reconcile counters.
-- Demos: `coop-farm` (host view: three scripted farmhands hoeing, watering and chatting, their cabins, tags,
-  roster), `coop-lobby` (creator + lobby). Debug: `services.net` (`host()`, `join(code)`, `players()`, `stats()`,
-  `simulateDrop()`), `services.net.sync.digest()` (the per-tile farm state that must match on every client).
+  lobby with invite-code tiles, 4 slots, ping bars, Kick), roster plate (top-left), chat (**T**), emote wheel (hold
+  **G**, 1–8), join/leave toasts, bedtime overlay ("waiting for 2 farmers"; the host gets **Sleep anyway** after
+  10 s), a Co-op card in the pause menu (players, away state, Kick).
+- **Day end**: the bed (farmhouse) or your cabin door marks you ready; the day ends when everyone connected is in
+  bed (a farmer who drops no longer holds the night hostage). Cabins (`net/cabins.ts`) appear for each farmhand.
+- **Perf**: 3 remote farmers cost ~17 draws; net work is a few small JSON messages per tick; farm digests only when
+  dirty. The co-op screen (`ui/coop-stage.ts`) renders the world **once** into a GPU-blurred still and draws the
+  turntable with the main renderer (no second WebGL context): ~4 draw calls per frame. `services.net.stats()`
+  reports fps / frame-time percentiles, RTT, bytes, queue and reconcile / refund / denied counters.
+- **Tests**: `npm run mp-test` (relay in its own process + Vite + headless clients) covers sync, convergence, RTT,
+  farmhand→farmhand smoothness, drop/rejoin, and the adversarial cases: own save untouched by a co-op night,
+  return home on leave, reload without dupes, crash of the last awake farmer, crash-tab rejoin, same-name impostor,
+  kick, gold while disconnected, double spend, sowing race refund.
+- Demos: `coop-farm` (host view: three scripted farmhands hoeing, hauling the harvest and chatting, their cabins,
+  tags, roster), `coop-lobby` (creator + lobby). Debug: `services.net` (`host()`, `join(code)`, `kick(id)`,
+  `players()`, `stats()`, `simulateDrop()`), `services.net.sync.digest()` (per-tile farm state that must match).
 
 ## The Hollowdeep (mines, ores, monsters & combat)
 

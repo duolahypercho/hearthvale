@@ -482,7 +482,7 @@ export class RemoteFarmer {
   }
 
   /** Name-tag lift: above the hat, or above the emote bubble while one is showing. */
-  private tagLift = 2.55;
+  private tagLift = 2.3;
 
   /** Head top in world space (name tags / chat bubbles). */
   headWorld(out: THREE.Vector3): THREE.Vector3 {
@@ -599,7 +599,7 @@ export class RemoteFarmer {
     p.hat.position.y = HEAD_R * 1.55 + (state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);
     this.blob.scale.setScalar(1 - bob * 1.5);
     this.bubble.update(dt, time);
-    const want = this.bubble.active ? 3.75 : 2.55;
+    const want = this.bubble.active ? 3.55 : 2.3;
     this.tagLift += (want - this.tagLift) * (1 - Math.exp(-dt * 12));
   }
 

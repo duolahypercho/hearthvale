@@ -22,6 +22,11 @@ const PREFIX = 'hearthvale.save.';
 
 export class SaveManager {
   private entries = new Map<string, Saveable>();
+  /**
+   * Optional veto consulted by save(): return a boolean to short-circuit the write with that result
+   * (co-op farmhands must never write the host's farm into their own slots), null to save normally.
+   */
+  guard: ((slot: string) => boolean | null) | null = null;
 
   constructor(private events: EventBus) {}
 
@@ -55,6 +60,8 @@ export class SaveManager {
   }
 
   save(slot = 'auto'): boolean {
+    const veto = this.guard?.(slot);
+    if (veto !== null && veto !== undefined) return veto;
     this.events.emit('save:before', { slot });
     try {
       localStorage.setItem(PREFIX + slot, JSON.stringify(this.snapshot()));

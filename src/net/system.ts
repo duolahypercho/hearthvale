@@ -5,27 +5,44 @@
  * authoritative simulation; farmhands (clients) send intents, the host validates + applies them and
  * broadcasts compact deltas. Solo play never touches any of this (role 'solo', no socket).
  *
- *   farmhand → host   ['st', seq, t, map, xcm, zcm, yawc, anim, energy, rtt]   20 Hz own state
- *                     ['use', seq, itemId, x, z, facing]  tool / seed intent (predicted locally)
+ *   farmhand → *      ['st', seq, t, map, xcm, zcm, yawc, anim, energy, rtt]   20 Hz own state, stamped
+ *                     with the farmhand's frame clock. Sent to everyone: the host validates it (['fix']),
+ *                     the other farmhands interpolate it on the sender's clock (no host re-stamping).
+ *   farmhand → host   ['use', seq, itemId, x, z, facing]  tool / seed intent (predicted locally)
  *                     ['act', seq, x, z]                   harvest-by-hand intent (predicted)
- *                     ['gold', seq, delta] · ['chat', text] · ['emo', id] · ['bed', 0|1]
- *                     ['look', look, name] · ['ping', t] · ['psave', data] · ['need'] · ['hello', {...}]
- *   host → farmhands  ['s', t, [[id, map, xcm, zcm, yawc, anim], ...]]      20 Hz snapshot
+ *                     ['gold', seq, delta]                 purse change (host may deny a spend: ['gdeny'])
+ *                     ['psave', seq, data, counts]         personal save (versioned; on every backpack change)
+ *                     ['chat', text] · ['emo', id] · ['bed', 0|1] · ['look', look, name] · ['ping', t]
+ *                     ['need'] · ['hello', {name, look, pid, fresh, rejoin}]
+ *   host → farmhands  ['s', t, [[id, map, xcm, zcm, yawc, anim]]]   20 Hz host sample (host frame clock)
  *                     ['did', id, itemId|'@act', x, z, facing]  another farmer acted (replayed + animated)
- *                     ['ack', seq, ok, [[tile, state], ...]] · ['give', itemId, qty, quality] · ['fix', seq, x, z]
+ *                     ['ack', seq, ok, [[tile, state], ...]]    ok: 0 refused · 1 applied · 2 no-op
+ *                     ['give', itemId, qty, quality] · ['fix', seq, x, z] · ['gdeny', seq]
  *                     ['farm', [[tile, state], ...]]   farm tile deltas (≤ 5 Hz, only when something changed)
  *                     ['full', {save, debris, digest}] whole farm (join, rejoin, every morning)
  *                     ['cal', day, season, year, hour, weather] 1 Hz · ['gold', total, {id: seq}]
  *                     ['roster', [...]] · ['beds', [ids]] · ['sleep'] · ['chat', id, text] · ['emo', id, emote]
- *                     ['welcome', {...}] · ['pong', t] · ['psave', data]
+ *                     ['welcome', {...}] · ['pong', t]
+ *   worker ↔ worker   ['~ping', t] / ['~pong', t]  network RTT, answered in the socket worker (transport.ts)
+ *
+ * Timing: all periodic sends run on a 50 ms interval ticker (not the render loop) and carry the
+ * timestamp of the frame the state was sampled on, so irregular frame pacing never distorts motion.
+ *
+ * Identity + saves: every browser has a persistent player id (localStorage `hearthvale.pid`); the host
+ * keys farmhand personal saves by it (never by display name). A farmhand never writes the host's farm
+ * into its own save slots (SaveManager guard) — its personal state lives on the host (psave) and in a
+ * local per-farm copy; when the session ends it goes back to its own farm (the snapshot taken on join).
  *
  * Local player: movement is predicted locally; the host range-checks it and answers with ['fix'],
  * which the farmhand reconciles against its position history. Remote players: interpolated ~100 ms
  * behind (net/players.ts). Shared: farm tiles, crops, debris, gold, calendar, weather. Per player:
  * inventory, energy, skills, relationships (each farmhand's own game systems).
+ *
+ * Limits: no host migration — if the host leaves, farmhands return to their own farms.
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
+import type { SaveFile } from '../core/save';
 import type { EventName, GameEvents, Facing } from '../core/events';
 import { SEASONS, WEATHERS, type Season, type Weather } from '../core/time';
 import { FarmSync, FARM_TOOLS } from './farmsync';
@@ -63,7 +80,12 @@ export interface NetStats {
   code: string | null;
   id: number;
   players: number;
+  /** Network round trip to the host through the relay (worker-timed), ms. */
   rtt: number;
+  /** Round trip to the relay server only, ms. */
+  relayRtt: number;
+  /** App-level round trip (main thread → host main thread → back), ms. */
+  appRtt: number;
   fps: number;
   frameMs: { avg: number; p95: number; p99: number };
   bytesIn: number;
@@ -71,10 +93,13 @@ export interface NetStats {
   msgsIn: number;
   msgsOut: number;
   pendingIntents: number;
+  queued: number;
   farmTiles: number;
   reconciles: number;
   fullSyncs: number;
   corrections: number;
+  refunds: number;
+  goldDenied: number;
 }
 
 export interface NetApi {
@@ -87,19 +112,28 @@ export interface NetApi {
   setProfile(p: FarmerProfile): void;
   /** Open this farm to co-op (connects to the relay, returns the invite code). */
   host(): Promise<string>;
-  join(code: string): Promise<void>;
+  /** Join a farm. `fromTitle`: leaving later returns to the title screen instead of a restored farm. */
+  join(code: string, opts?: { fromTitle?: boolean }): Promise<void>;
   leave(): void;
+  /** Host: remove a farmhand from the farm (frees their slot; they can't rejoin for a minute). */
+  kick(id: number): void;
   chat(text: string): void;
   emote(id: EmoteId): void;
   /** Ready for bed (co-op: the day ends when everyone is). */
   goToBed(where: 'house' | 'cabin'): void;
   cancelBed(): void;
   sleeping(): boolean;
+  /** Host: end the day now even though someone is still up ("sleep anyway"). */
+  forceSleep(): void;
+  /** performance.now() when this farmer got into bed (0 = awake). */
+  bedSince(): number;
   stats(): NetStats;
   serverUrl: string;
   /** Tests: drop the socket (auto-reconnect + rejoin follows). */
   simulateDrop(): void;
   mySlot(): number;
+  /** This browser's persistent player id (keys the host's personal saves). */
+  playerId(): string;
   /**
    * Extension channel for other pods: send `data` (JSON array) to a player id, everyone ('*') or the
    * host ('host'); it arrives there as the `net:ext` event. No-op in solo play.
@@ -123,19 +157,24 @@ declare module '../core/events' {
     'net:error': { text: string };
     /**
      * Extension channel for other pods' co-op wiring (e.g. world/mine/coop.ts): a payload another
-     * machine sent with `services.net.sendExt(to, data)`. `from` = sender's player id.
+     * machine sent with `services.net.sendExt(to, data)`. `from` = sender's player id (always a
+     * member of this lobby — anything else is dropped before it reaches you).
      */
     'net:ext': { from: number; data: unknown[] };
   }
 }
 
-const SNAP_MS = 50;
+const TICK_MS = 50;
 const FARM_MS = 200;
 const CAL_MS = 1000;
 const PING_MS = 2000;
+const PSAVE_MS = 10_000;
 const MAX_REACH = 2.9;
 const MAX_SPEED = 9.5;
+/** Largest single purse gain a farmhand may report (a full shipping bin of rare goods). */
+const MAX_GOLD_GAIN = 250_000;
 const PERSONAL_KEYS = ['inventory', 'energy', 'relationships', 'fishing', 'mining', 'combat'];
+const PID_KEY = 'hearthvale.pid';
 
 /** Produce / materials a farm action can hand out (recognises our own predicted loot). */
 const FARM_LOOT = new Set<string>(['fiber', 'wood', 'stone', 'hardwood', 'sap', 'coal', 'copperOre', 'ironOre', 'clay', 'sprinkler', 'qualitySprinkler', ...Object.values(CROPS).map((c) => c.produce)]);
@@ -146,6 +185,11 @@ function isFarmItem(id: string): boolean {
   if (FARM_TOOLS.has(id)) return true;
   const d = itemDef(id);
   return d?.kind === 'seed' || /fertilizer/i.test(id) || /sprinkler/i.test(id);
+}
+
+/** Items a farm action uses up (the host checks the farmhand has them; refunded if the action no-ops). */
+function isConsumable(id: string): boolean {
+  return !FARM_TOOLS.has(id) && isFarmItem(id);
 }
 
 export function actionFor(itemId: string): { kind: ActionKind; tool: string | null } {
@@ -160,10 +204,45 @@ export function actionFor(itemId: string): { kind: ActionKind; tool: string | nu
 const FACINGS: Facing[] = ['up', 'down', 'left', 'right'];
 const yawOf = (f: Facing): number => (f === 'down' ? 0 : f === 'up' ? Math.PI : f === 'left' ? -Math.PI / 2 : Math.PI / 2);
 
+/** Persistent per-browser player id. */
+function loadPid(): string {
+  const make = (): string => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `p${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`);
+  try {
+    let id = localStorage.getItem(PID_KEY);
+    if (!id) {
+      id = make();
+      localStorage.setItem(PID_KEY, id);
+    }
+    return id;
+  } catch {
+    return make();
+  }
+}
+
 interface Pending {
   seq: number;
   tiles: number[];
   t: number;
+  /** Consumable spent by the local prediction (refunded if the host's answer is refused / no-op). */
+  spent: string | null;
+}
+
+interface PSave {
+  seq: number;
+  data: Record<string, unknown>;
+}
+
+interface GoldPending {
+  seq: number;
+  delta: number;
+  /** Items that arrived with this purchase (rolled back if the host denies the spend). */
+  items: Map<string, number> | null;
+}
+
+interface Home {
+  snap: SaveFile;
+  debris: [number, string][];
+  fromTitle: boolean;
 }
 
 export class NetSystem implements System, NetApi {
@@ -185,25 +264,39 @@ export class NetSystem implements System, NetApi {
   private token: string | null = null;
   serverUrl = defaultServerUrl();
   private prof: FarmerProfile = { name: 'Farmer', look: DEFAULT_LOOK };
+  /** Name the lobby gave us (deduped: "Ash 2"). */
+  private sessionName: string | null = null;
+  private pid = '';
+  /** pid as the relay sees it (a second tab of the same browser gets a derived one). */
+  private sessionPid = '';
   private undoLook: (() => void) | null = null;
   private myBubble: EmoteBubble | null = null;
 
   // shared
   private timers: { at: number; fn: () => void }[] = [];
-  private tSnap = 0;
+  private ticker = 0;
   private tFarm = 0;
   private tCal = 0;
   private tPing = 0;
   private tDrift = 0;
   private tPsave = 0;
-  private rtt = 0;
-  private frameTimes: number[] = [];
+  private lastTickAt = 0;
+  /** Frame clock: when the latest rendered frame sampled the player (ms, performance.now()). */
+  private frameAt = 0;
+  private frameNo = 0;
+  private sentFrame = -1;
+  private appRtt = 0;
+  private appRtts: number[] = [];
+  private frameTimes = new Float32Array(240);
+  private frameIdx = 0;
+  private frameCount = 0;
   private ready = false;
   private asleep = false;
+  private asleepAt = 0;
   private bedWhere: 'house' | 'cabin' = 'house';
   private applyingGold = false;
   private hostBeds = new Set<number>();
-  private counters = { reconciles: 0, fullSyncs: 0, corrections: 0 };
+  private counters = { reconciles: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
 
   // host
   private sentTiles = new Map<number, string>();
@@ -211,7 +304,11 @@ export class NetSystem implements System, NetApi {
   private goldDirty = false;
   private goldAcks: Record<number, number> = {};
   private cabinOf = new Map<number, number>();
-  private psaves = new Map<string, unknown>();
+  /** Farmhand personal saves, keyed by persistent player id. */
+  private psaves = new Map<string, PSave>();
+  private pidOf = new Map<number, string>();
+  /** Host mirror of each farmhand's consumables (from psave counts; decremented per applied use). */
+  private stock = new Map<number, Map<string, number>>();
   private lastFullAt = 0;
 
   // farmhand
@@ -220,7 +317,7 @@ export class NetSystem implements System, NetApi {
   private pending = new Map<number, Pending>();
   private pendingTiles = new Map<number, number>();
   private hostTiles = new Map<number, string>();
-  private goldPending: { seq: number; delta: number }[] = [];
+  private goldPending: GoldPending[] = [];
   private giveOk = false;
   private predictUntil = 0;
   private history: { seq: number; x: number; z: number }[] = [];
@@ -228,14 +325,23 @@ export class NetSystem implements System, NetApi {
   private needFullAt = 0;
   private welcomed = false;
   private hostName = 'Host';
-  private lastPos = { x: 0, z: 0, map: '' };
+  private lastPos = { x: 0, z: 0, map: '', t: 0 };
   private teleported = false;
+  private planted = -1;
+  private pseq = 0;
+  private psaveDirty = false;
+  private psaveTimer = 0;
+  private localPsaveTimer = 0;
+  private starter: Record<string, unknown> = {};
+  private home: Home | null = null;
+  private restoring = false;
 
   init(game: Game): void {
     this.game = game;
     this.sync = new FarmSync(game);
     this.remotes = new RemotePlayers(game);
     game.provide('net', this);
+    this.pid = loadPid();
     const p = loadProfile();
     if (p) this.prof = p;
     this.applyLocalLook();
@@ -255,6 +361,8 @@ export class NetSystem implements System, NetApi {
       const mn = (game.services as Record<string, unknown>).mineNet as { sameFloor?: (id: number) => boolean } | undefined;
       return typeof mn?.sameFloor === 'function' ? mn.sameFloor(id) : true;
     };
+    // A new farmhand arrives with a fresh starter kit (their own farm's backpack stays at home).
+    this.starter = this.personalData();
 
     // One permanent interceptor: routes bed / cabin interactions in co-op, recognises our own
     // predicted farm actions, and swallows loot we predicted (the host's ['give'] is authoritative).
@@ -271,8 +379,33 @@ export class NetSystem implements System, NetApi {
       tp(x, z);
       this.teleported = true;
     };
+    // A farmhand never writes the host's farm into its own save slots: "saving" stores the personal
+    // part (backpack, energy, friendships, skills) on the host + in a local per-farm copy instead.
+    game.saves.guard = (slot) => {
+      if (this._role !== 'client') return null;
+      void slot;
+      this.persistLocalPsave();
+      if (this.welcomed) this.sendPersonal();
+      return true;
+    };
+    game.events.on('load:after', () => {
+      // Loading one of your own saves mid-session: you're home now.
+      if (this._role === 'client' && !this.restoring) {
+        this.home = null;
+        this.leave();
+      }
+    });
     game.events.on('item:use', (e) => this.onLocalUse(e));
+    game.events.on('crop:planted', ({ x, z }) => {
+      const g = this.sync.grid();
+      if (g && !this.sync.inRemote) this.planted = g.idx(x, z);
+    });
+    game.events.on('soil:fertilized', ({ x, z }) => {
+      const g = this.sync.grid();
+      if (g && !this.sync.inRemote) this.planted = g.idx(x, z);
+    });
     game.events.on('gold:change', ({ delta }) => this.onGold(delta));
+    game.events.on('inventory:change', () => this.markPersonal());
     game.events.on('day:start', () => this.onDayStart());
     game.events.on('map:change', () => this.refreshCabins());
     game.events.on('demo:stage', ({ showcase, name }) => this.demo.stage(name, showcase));
@@ -284,6 +417,14 @@ export class NetSystem implements System, NetApi {
       game.events.on(n, () => (this.farmDirty = true));
     }
     game.events.on('game:ready', () => this.autoStart());
+    // Name tags / chat bubbles follow this frame's camera (placed after the render, even when paused).
+    game.afterRender.push(() => this.remotes.placeTags(this.game.simDt));
+    // Last chance to hand the host our backpack before the tab goes away.
+    window.addEventListener('pagehide', () => {
+      if (this._role !== 'client') return;
+      this.persistLocalPsave();
+      if (this.welcomed) this.sendPersonal();
+    });
   }
 
   // ════════════════════════════════════════════════════════════ API
@@ -300,21 +441,33 @@ export class NetSystem implements System, NetApi {
   myId(): number {
     return this.id;
   }
+  playerId(): string {
+    return this.sessionPid || this.pid;
+  }
   profile(): FarmerProfile {
     return this.prof;
   }
   sleeping(): boolean {
     return this.asleep;
   }
+  bedSince(): number {
+    return this.asleep ? this.asleepAt : 0;
+  }
   mySlot(): number {
     return this._role === 'client' ? (this.cabinOf.get(this.id) ?? -1) : -1;
+  }
+  private myName(): string {
+    return this.sessionName ?? this.prof.name;
   }
 
   setProfile(p: FarmerProfile): void {
     this.prof = { name: p.name.trim().slice(0, 20) || 'Farmer', look: sanitizeLook(p.look) };
     saveProfile(this.prof);
     this.applyLocalLook();
-    if (this._role === 'client') this.toHost(['look', this.prof.look, this.prof.name]);
+    if (this._role === 'client') {
+      this.sessionName = null;
+      this.toHost(['look', this.prof.look, this.prof.name]);
+    }
     if (this._role === 'host') this.broadcastRoster();
     this.emitRoster();
   }
@@ -328,12 +481,12 @@ export class NetSystem implements System, NetApi {
   players(): PlayerView[] {
     const me: PlayerView = {
       id: this.id || 1,
-      name: this.prof.name,
+      name: this.myName(),
       look: this.prof.look,
       isHost: this._role !== 'client',
       isMe: true,
       ready: this.asleep,
-      ping: this._role === 'client' ? this.rtt : 0,
+      ping: this._role === 'client' ? this.rtt() : 0,
       map: this.game.world.current?.id ?? '',
       away: false,
       cabin: this.mySlot(),
@@ -345,18 +498,28 @@ export class NetSystem implements System, NetApi {
     return out.sort((a, b) => Number(b.isHost) - Number(a.isHost) || a.id - b.id);
   }
 
-  stats(): NetStats {
-    const ft = [...this.frameTimes].sort((a, b) => a - b);
-    const avg = ft.length ? ft.reduce((s, v) => s + v, 0) / ft.length : 0;
-    const q = (k: number): number => (ft.length ? ft[Math.min(ft.length - 1, Math.floor(ft.length * k))]! : 0);
+  /** Network RTT to the host (worker-timed through the relay), falling back to the app ping. */
+  private rtt(): number {
     const t = this.transport;
+    return t && t.timedInWorker && t.peerRtt > 0 ? t.peerRtt : this.appRtt;
+  }
+
+  stats(): NetStats {
+    const n = Math.min(this.frameCount, this.frameTimes.length);
+    const ft = Array.from(this.frameTimes.subarray(0, n)).sort((a, b) => a - b);
+    const avg = n ? ft.reduce((s, v) => s + v, 0) / n : 0;
+    const q = (k: number): number => (n ? ft[Math.min(n - 1, Math.floor(n * k))]! : 0);
+    const t = this.transport;
+    const r1 = (v: number): number => Math.round(v * 10) / 10;
     return {
       role: this._role,
       status: this._status,
       code: this._code,
       id: this.id,
       players: 1 + this.remotes.list.size,
-      rtt: Math.round(this.rtt * 10) / 10,
+      rtt: r1(this._role === 'client' ? this.rtt() : 0),
+      relayRtt: r1(t?.relayRtt ?? 0),
+      appRtt: r1(this.appRtt),
       fps: avg ? Math.round(10000 / avg) / 10 : 0,
       frameMs: { avg: Math.round(avg * 100) / 100, p95: Math.round(q(0.95) * 100) / 100, p99: Math.round(q(0.99) * 100) / 100 },
       bytesIn: t?.bytesIn ?? 0,
@@ -364,6 +527,7 @@ export class NetSystem implements System, NetApi {
       msgsIn: t?.msgsIn ?? 0,
       msgsOut: t?.msgsOut ?? 0,
       pendingIntents: this.pending.size,
+      queued: t?.queued ?? 0,
       farmTiles: this._role === 'client' ? this.hostTiles.size : this.sentTiles.size,
       ...this.counters,
     };
@@ -376,10 +540,11 @@ export class NetSystem implements System, NetApi {
     this._role = 'host';
     this.id = 1;
     this.hostId = 1;
+    this.sessionName = null;
     this.setStatus('connecting');
     return new Promise((resolve, reject) => {
       const t = this.makeTransport();
-      t.hello = () => (this._code && this.token ? { t: 'host', code: this._code, token: this.token, name: this.prof.name, look: this.prof.look } : { t: 'host', name: this.prof.name, look: this.prof.look });
+      t.hello = () => (this._code && this.token ? { t: 'host', code: this._code, token: this.token, name: this.prof.name, look: this.prof.look, pid: this.pid } : { t: 'host', name: this.prof.name, look: this.prof.look, pid: this.pid });
       let settled = false;
       const off = this.game.events.on('net:status', ({ status }) => {
         if (settled) return;
@@ -403,12 +568,18 @@ export class NetSystem implements System, NetApi {
     });
   }
 
-  join(code: string): Promise<void> {
-    this.leave();
+  join(code: string, opts?: { fromTitle?: boolean }): Promise<void> {
+    // Remember our own farm so leaving (or the host closing up) brings us home.
+    // (Joined from the title screen: the world in memory was never started — go back to the title.)
+    if (this._role === 'solo') this.home = { snap: this.game.saves.snapshot(), debris: this.sync.debris(), fromTitle: opts?.fromTitle ?? this.game.hud.openPanelName === 'title' };
+    this.leave(true);
     this.demo.clear();
     this._role = 'client';
     this._code = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
     this.welcomed = false;
+    this.sessionName = null;
+    // Intent seqs start at wall-clock ms: always newer than anything a previous page load sent.
+    this.seq = Math.max(this.seq, Date.now());
     this.setStatus('connecting');
     let rejoinToken: string | null = null;
     try {
@@ -420,7 +591,7 @@ export class NetSystem implements System, NetApi {
     this.token = rejoinToken;
     return new Promise((resolve, reject) => {
       const t = this.makeTransport();
-      t.hello = () => ({ t: 'join', code: this._code, name: this.prof.name, look: this.prof.look, token: this.token ?? undefined });
+      t.hello = () => ({ t: 'join', code: this._code, name: this.prof.name, look: this.prof.look, token: this.token ?? undefined, pid: this.pid });
       let settled = false;
       const offW = this.game.events.on('net:status', ({ status }) => {
         if (settled) return;
@@ -454,11 +625,21 @@ export class NetSystem implements System, NetApi {
     });
   }
 
-  leave(): void {
+  /** `keepHome`: switching farms — don't restore our own farm in between. */
+  leave(keepHome = false): void {
     if (this._role === 'solo' && !this.transport) return;
+    if (this._role === 'client' && this.welcomed) {
+      this.persistLocalPsave();
+      this.sendPersonal();
+    }
     this.transport?.close();
     this.transport = null;
-    this.endSession();
+    this.endSession(keepHome);
+  }
+
+  kick(id: number): void {
+    if (this._role !== 'host' || id === this.id) return;
+    this.transport?.sendCtrl({ t: 'kick', id });
   }
 
   simulateDrop(): void {
@@ -474,11 +655,13 @@ export class NetSystem implements System, NetApi {
     else if (to !== this.id) this.to(to, msg);
   }
 
-  private endSession(): void {
+  private endSession(keepHome = false): void {
+    const wasClient = this._role === 'client';
     this._role = 'solo';
     this.bridge?.setRole('solo');
     this._code = null;
     this.id = 0;
+    this.sessionName = null;
     this.remotes.clear();
     this.cabinOf.clear();
     this.refreshCabins();
@@ -488,9 +671,39 @@ export class NetSystem implements System, NetApi {
     this.sentTiles.clear();
     this.goldPending = [];
     this.hostBeds.clear();
+    this.stock.clear();
+    this.stopTicker();
+    clearTimeout(this.psaveTimer);
+    this.psaveTimer = 0;
+    this.psaveDirty = false;
     if (this.asleep) this.wakeUp();
+    const welcomed = this.welcomed;
+    this.welcomed = false;
     this.setStatus('offline');
     this.emitRoster();
+    if (wasClient && !keepHome) this.returnHome(welcomed);
+  }
+
+  /** Farmhand: the session is over — back to our own farm, exactly as we left it. */
+  private returnHome(wasOnFarm: boolean): void {
+    const h = this.home;
+    this.home = null;
+    if (!h || !wasOnFarm) return;
+    const g = this.game;
+    this.restoring = true;
+    try {
+      g.saves.restore(h.snap);
+      const farm = h.snap.data.farming;
+      if (farm) this.sync.applyFull({ save: farm, debris: h.debris });
+    } catch (err) {
+      console.error('[net] could not restore the home farm', err);
+    } finally {
+      this.restoring = false;
+    }
+    g.applySeason(g.calendar.season, true);
+    g.applyWeather(g.calendar.weather, true);
+    if (h.fromTitle) g.events.emit('ui:open', { name: 'title' });
+    else g.events.emit('ui:toast', { text: 'Back on <b>your own farm</b>', kind: 'info' });
   }
 
   private makeTransport(): Transport {
@@ -504,12 +717,25 @@ export class NetSystem implements System, NetApi {
         else if (s === 'connecting') this.setStatus('connecting');
         else if (s === 'closed' && this._role !== 'solo') {
           this.game.events.emit('ui:toast', { text: 'Lost the co-op server — playing <b>solo</b>', kind: 'bad' });
+          this.transport = null;
           this.endSession();
         }
       },
     });
     this.transport = t;
+    this.startTicker();
     return t;
+  }
+
+  private startTicker(): void {
+    if (this.ticker) return;
+    this.lastTickAt = performance.now();
+    this.ticker = window.setInterval(() => this.tick(), TICK_MS);
+  }
+
+  private stopTicker(): void {
+    clearInterval(this.ticker);
+    this.ticker = 0;
   }
 
   private setStatus(s: string): void {
@@ -540,6 +766,7 @@ export class NetSystem implements System, NetApi {
       return;
     }
     this.asleep = true;
+    this.asleepAt = performance.now();
     this.bedWhere = where;
     const pl = this.game.player;
     pl.controllable = false;
@@ -564,8 +791,17 @@ export class NetSystem implements System, NetApi {
     this.emitRoster();
   }
 
+  forceSleep(): void {
+    if (this._role !== 'host') return;
+    this.chatSystem(`<b>${esc(this.myName())}</b> called it a night for everyone`, 'info');
+    this.hostBeds.clear();
+    this.toAll(['sleep']);
+    this.sleepNow();
+  }
+
   private wakeUp(): void {
     this.asleep = false;
+    this.asleepAt = 0;
     const pl = this.game.player;
     pl.controllable = true;
     pl.root.visible = true;
@@ -602,6 +838,7 @@ export class NetSystem implements System, NetApi {
         this.token = m.token;
         this.id = m.id;
         this.hostId = m.id;
+        this.transport?.flush();
         this.setStatus('hosting');
         this.bridge.setRole('host');
         if (!m.rejoin) {
@@ -616,6 +853,8 @@ export class NetSystem implements System, NetApi {
         this.token = m.token;
         this.id = m.id;
         this.hostId = m.hostId;
+        if (m.pid) this.sessionPid = m.pid;
+        if (m.name && m.name !== this.prof.name) this.sessionName = m.name;
         try {
           sessionStorage.setItem('hearthvale.coop', JSON.stringify({ code: m.code, token: m.token }));
         } catch {
@@ -623,8 +862,11 @@ export class NetSystem implements System, NetApi {
         }
         const h = m.peers.find((p) => p.id === m.hostId);
         if (h) this.hostName = h.name;
+        this.transport?.setPingTarget(m.hostId);
+        // Anything that queued up while we were away goes out first (in order), then hello.
+        this.transport?.flush();
         this.setStatus(m.rejoin && this.welcomed ? 'resyncing' : 'joining');
-        this.toHost(['hello', { name: this.prof.name, look: this.prof.look, fresh: !this.welcomed, rejoin: !!m.rejoin }]);
+        this.toHost(['hello', { name: this.myName(), look: this.prof.look, fresh: !this.welcomed, rejoin: !!m.rejoin, pid: this.playerId() }]);
         return;
       }
       case 'peer+': {
@@ -644,7 +886,11 @@ export class NetSystem implements System, NetApi {
           p.ready = false;
           this.hostBeds.delete(m.id);
           this.chatSystem(`<b>${esc(p.name)}</b> lost connection…`, 'bad');
-          if (this._role === 'host') this.broadcastRoster();
+          if (this._role === 'host') {
+            this.broadcastRoster();
+            // They might have been the last one awake: the rest of the farm can sleep now.
+            this.checkBeds();
+          }
           this.emitRoster();
         }
         return;
@@ -652,10 +898,14 @@ export class NetSystem implements System, NetApi {
       case 'peer-': {
         const p = this.remotes.get(m.id);
         if (p) {
-          this.chatSystem(`<b>${esc(p.name)}</b> left the farm`, 'info');
+          const why = m.reason === 'kicked' ? 'was asked to leave' : m.reason === 'evicted' ? 'gave up their slot' : 'left the farm';
+          this.chatSystem(`<b>${esc(p.name)}</b> ${why}`, 'info');
           this.remotes.remove(m.id);
           this.cabinOf.delete(m.id);
           this.hostBeds.delete(m.id);
+          this.stock.delete(m.id);
+          this.pidOf.delete(m.id);
+          delete this.goldAcks[m.id];
           this.refreshCabins();
           if (this._role === 'host') {
             this.broadcastRoster();
@@ -682,7 +932,8 @@ export class NetSystem implements System, NetApi {
         return;
       case 'closed':
         if (this._role !== 'solo') {
-          this.game.events.emit('ui:toast', { text: m.reason === 'host-left' ? 'The host closed the farm — playing <b>solo</b>' : 'Co-op session ended', kind: 'info' });
+          const text = m.reason === 'host-left' ? `${esc(this.hostName)} closed the farm` : m.reason === 'kicked' ? `${esc(this.hostName)} asked you to leave the farm` : 'Co-op session ended';
+          this.game.events.emit('ui:toast', { text, kind: m.reason === 'kicked' ? 'bad' : 'info' });
           try {
             sessionStorage.removeItem('hearthvale.coop');
           } catch {
@@ -701,16 +952,19 @@ export class NetSystem implements System, NetApi {
   private onGame(from: number, d: unknown[]): void {
     const kind = d[0];
     if (typeof kind !== 'string') return;
+    // Only lobby members may talk to us (the relay routes peer → peer directly).
+    const member = from === this.hostId || this.remotes.list.has(from);
     if (kind === 'x') {
-      // Extension payloads may come from any peer (the relay routes them directly).
-      if (Array.isArray(d[1])) this.game.events.emit('net:ext', { from, data: d[1] as unknown[] });
+      if (member && Array.isArray(d[1])) this.game.events.emit('net:ext', { from, data: d[1] as unknown[] });
       return;
     }
     try {
       if (this._role === 'host') {
         if (!this.bridge.handle(kind, from, d)) this.hostMsg(from, kind, d);
-      } else if (this._role === 'client' && from === this.hostId) {
-        if (!this.bridge.handle(kind, from, d)) this.clientMsg(kind, d);
+      } else if (this._role === 'client') {
+        if (from === this.hostId) {
+          if (!this.bridge.handle(kind, from, d)) this.clientMsg(kind, d);
+        } else if (kind === 'st' && member) this.peerState(from, d);
       }
     } catch (err) {
       console.error('[net] bad message', kind, err);
@@ -722,12 +976,14 @@ export class NetSystem implements System, NetApi {
   private hostMsg(from: number, kind: string, d: unknown[]): void {
     const g = this.game;
     if (kind === 'hello') {
-      const h = d[1] as { name?: string; look?: unknown; fresh?: boolean };
+      const h = d[1] as { name?: string; look?: unknown; fresh?: boolean; pid?: string };
       const look = sanitizeLook(h.look);
-      const name = String(h.name ?? `Farmhand ${from}`).slice(0, 20);
+      const name = String(h.name ?? `Farmhand ${from}`).slice(0, 24);
+      const pid = String(h.pid ?? `id${from}`).slice(0, 64);
       const isNew = !this.remotes.get(from);
       const p = this.remotes.add(from, name, look);
       p.away = false;
+      this.pidOf.set(from, pid);
       if (!this.cabinOf.has(from)) this.cabinOf.set(from, this.freeCabin());
       p.cabin = this.cabinOf.get(from)!;
       this.refreshCabins();
@@ -736,17 +992,20 @@ export class NetSystem implements System, NetApi {
         p.snap(spawn.x, spawn.z, 'farm');
         this.chatSystem(`<b>${esc(name)}</b> joined the farm`, 'good');
       }
+      const ps = this.psaves.get(pid) ?? null;
+      if (ps) this.setStock(from, ps.data);
       const full = this.sync.fullState();
       this.to(from, [
         'welcome',
         {
-          host: this.prof.name,
+          host: this.myName(),
           cal: this.calPayload(),
           gold: g.services.economy?.gold() ?? 0,
+          goldAck: this.goldAcks[from] ?? 0,
           cabin: p.cabin,
           spawn,
           full: full ? { ...full, digest: [...this.sync.digest()] } : null,
-          psave: h.fresh ? (this.psaves.get(name) ?? null) : null,
+          psave: ps,
           reps: this.bridge.snapshots(),
         },
       ]);
@@ -791,7 +1050,7 @@ export class NetSystem implements System, NetApi {
       }
       case 'use': {
         const [, seq, itemId, x, z, facing] = d as [string, number, string, number, number, Facing];
-        this.hostApply(p, seq, itemId, x, z, FACINGS.includes(facing) ? facing : 'down');
+        this.hostApply(p, seq, String(itemId), x, z, FACINGS.includes(facing) ? facing : 'down');
         return;
       }
       case 'act': {
@@ -801,10 +1060,19 @@ export class NetSystem implements System, NetApi {
       }
       case 'gold': {
         const [, seq, delta] = d as [string, number, number];
-        if (Math.abs(delta) > 1e6) return;
-        g.services.economy?.add(delta);
+        if (typeof seq !== 'number' || seq <= (this.goldAcks[from] ?? 0)) return; // resend of one we already applied
+        const eco = g.services.economy;
+        if (!eco) return;
         this.goldAcks[from] = seq;
         this.goldDirty = true;
+        const gold = eco.gold();
+        if (!Number.isFinite(delta) || delta > MAX_GOLD_GAIN || (delta < 0 && gold + delta < 0)) {
+          // Two farmers spent the same coins (or a bogus amount): the host's purse is the truth.
+          this.counters.goldDenied++;
+          this.to(from, ['gdeny', seq]);
+          return;
+        }
+        eco.add(Math.round(delta));
         return;
       }
       case 'chat': {
@@ -834,7 +1102,7 @@ export class NetSystem implements System, NetApi {
       case 'look': {
         const look = sanitizeLook(d[1]);
         p.setLook(look);
-        if (typeof d[2] === 'string') p.setName(d[2].slice(0, 20), look);
+        if (typeof d[2] === 'string') p.setName(d[2].slice(0, 24), look);
         this.refreshCabins();
         this.broadcastRoster();
         this.emitRoster();
@@ -843,9 +1111,16 @@ export class NetSystem implements System, NetApi {
       case 'ping':
         this.to(from, ['pong', d[1]]);
         return;
-      case 'psave':
-        this.psaves.set(p.name, d[1]);
+      case 'psave': {
+        const [, seq, data, counts] = d as [string, number, Record<string, unknown>, Record<string, number> | undefined];
+        const pid = this.pidOf.get(from);
+        if (!pid || typeof seq !== 'number' || !data || typeof data !== 'object') return;
+        const cur = this.psaves.get(pid);
+        if (cur && cur.seq >= seq) return;
+        this.psaves.set(pid, { seq, data });
+        this.setStock(from, data, counts);
         return;
+      }
       case 'need': {
         const now = performance.now();
         if (now - this.lastFullAt < 1500) return;
@@ -856,13 +1131,27 @@ export class NetSystem implements System, NetApi {
     }
   }
 
+  /** Host mirror of a farmhand's consumables (seeds, fertilizer, sprinklers). */
+  private setStock(id: number, data: Record<string, unknown>, counts?: Record<string, number>): void {
+    const m = new Map<string, number>();
+    if (counts && typeof counts === 'object') {
+      for (const [k, v] of Object.entries(counts)) if (typeof v === 'number') m.set(k, v);
+    } else {
+      const slots = (data.inventory as { slots?: ({ id: string; qty: number } | null)[] } | undefined)?.slots ?? [];
+      for (const s of slots) if (s && isConsumable(s.id)) m.set(s.id, (m.get(s.id) ?? 0) + s.qty);
+    }
+    this.stock.set(id, m);
+  }
+
   /** Validate + apply a farmhand's tool / harvest intent at their swing's impact frame. */
   private hostApply(p: RemotePlayer, seq: number, itemId: string, x: number, z: number, facing: Facing): void {
     const grid = this.sync.grid();
     const now = performance.now();
     const pos = p.last;
     const reach = Math.hypot(pos.x - (x + 0.5), pos.z - (z + 0.5));
-    const ok = !!grid && pos.map === 'farm' && reach <= MAX_REACH && grid.inBounds(x, z) && (itemId === '@act' || isFarmItem(itemId)) && now - p.lastUse > 120;
+    const stock = this.stock.get(p.id);
+    const owns = !isConsumable(itemId) || !stock || (stock.get(itemId) ?? 0) > 0;
+    const ok = !!grid && pos.map === 'farm' && reach <= MAX_REACH && grid.inBounds(x, z) && (itemId === '@act' || isFarmItem(itemId)) && owns && now - p.lastUse > 120;
     const tiles = this.affected(itemId, x, z, facing);
     if (!ok) {
       this.to(p.id, ['ack', seq, 0, this.sync.tiles(tiles)]);
@@ -875,10 +1164,10 @@ export class NetSystem implements System, NetApi {
     this.toOthers(p.id, ['did', p.id, itemId, x, z, facing]);
     this.later(IMPACT[act.kind] * 1000, () => {
       const give = (id: string, qty: number, quality: number): void => this.to(p.id, ['give', id, qty, quality]);
-      if (itemId === '@act') this.sync.applyHarvest(x, z, give);
-      else this.sync.applyUse(itemId, x, z, facing, give);
+      const changed = itemId === '@act' ? this.sync.applyHarvest(x, z, give) : this.sync.applyUse(itemId, x, z, facing, give);
+      if (changed && stock && isConsumable(itemId)) stock.set(itemId, Math.max(0, (stock.get(itemId) ?? 0) - 1));
       this.farmDirty = true;
-      this.to(p.id, ['ack', seq, 1, this.sync.tiles(tiles)]);
+      this.to(p.id, ['ack', seq, changed ? 1 : 2, this.sync.tiles(tiles)]);
     });
   }
 
@@ -906,7 +1195,7 @@ export class NetSystem implements System, NetApi {
   }
 
   private rosterPayload(): unknown[] {
-    const me = [this.id, this.prof.name, this.prof.look, this.hostBeds.has(this.id) ? 1 : 0, 0, -1, 0];
+    const me = [this.id, this.myName(), this.prof.look, this.hostBeds.has(this.id) ? 1 : 0, 0, -1, 0];
     const rest = [...this.remotes.list.values()].map((p) => [p.id, p.name, p.look, p.ready ? 1 : 0, Math.round(p.ping), p.cabin, p.away ? 1 : 0]);
     return [me, ...rest];
   }
@@ -924,6 +1213,7 @@ export class NetSystem implements System, NetApi {
   private checkBeds(): void {
     if (this._role !== 'host') return;
     this.broadcastBeds();
+    if (!this.hostBeds.size) return;
     const everyone = [this.id, ...[...this.remotes.list.values()].filter((p) => !p.away).map((p) => p.id)];
     if (!everyone.every((i) => this.hostBeds.has(i))) return;
     this.hostBeds.clear();
@@ -939,26 +1229,21 @@ export class NetSystem implements System, NetApi {
     else this.to(to, msg);
   }
 
-  private hostTick(dt: number): void {
+  /** Host: periodic sends (interval ticker). */
+  private hostTick(ms: number): void {
     const g = this.game;
-    this.tSnap += dt * 1000;
-    if (this.tSnap >= SNAP_MS) {
-      this.tSnap %= SNAP_MS;
-      const now = performance.now();
+    const others = this.remotes.list.size > 0;
+    if (others && this.frameNo !== this.sentFrame) {
+      this.sentFrame = this.frameNo;
       const pl = g.player;
-      const me = [this.id, g.world.current?.id ?? '', cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), this.localAnim()];
-      const rows: unknown[] = [me];
-      for (const p of this.remotes.list.values()) {
-        const l = p.last;
-        rows.push([p.id, l.map, cm(l.x), cm(l.z), Math.round(l.yaw * 100), p.away ? 4 : l.anim]);
-      }
-      if (this.remotes.list.size) this.toAll(['s', now, rows]);
-      if (this.goldDirty) {
-        this.goldDirty = false;
-        this.toAll(['gold', g.services.economy?.gold() ?? 0, this.goldAcks]);
-      }
+      const row = [this.id, g.world.current?.id ?? '', cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), this.localAnim()];
+      this.toAll(['s', this.frameAt, [row]]);
     }
-    this.tFarm += dt * 1000;
+    if (this.goldDirty) {
+      this.goldDirty = false;
+      this.toAll(['gold', g.services.economy?.gold() ?? 0, this.goldAcks]);
+    }
+    this.tFarm += ms;
     if (this.tFarm >= FARM_MS) {
       this.tFarm = 0;
       this.tDrift += FARM_MS;
@@ -970,24 +1255,32 @@ export class NetSystem implements System, NetApi {
         for (const [i, s] of dg) if (this.sentTiles.get(i) !== s) changes.push([i, s]);
         for (const i of this.sentTiles.keys()) if (!dg.has(i)) changes.push([i, '']);
         this.sentTiles = dg;
-        if (changes.length && this.remotes.list.size) this.toAll(['farm', changes]);
+        if (changes.length && others) this.toAll(['farm', changes]);
       }
     }
-    this.tCal += dt * 1000;
+    this.tCal += ms;
     if (this.tCal >= CAL_MS) {
       this.tCal = 0;
-      if (this.remotes.list.size) this.toAll(['cal', ...this.calPayload()]);
+      if (others) this.toAll(['cal', ...this.calPayload()]);
       this.broadcastRoster();
     }
   }
 
   // ════════════════════════════════════════════════════════════ farmhand
 
+  /** Another farmhand's own state sample (sent to everyone; stamped with *their* clock). */
+  private peerState(from: number, d: unknown[]): void {
+    const [, , t, map, x, z, yaw, flags] = d as [string, number, number, string, number, number, number, number];
+    const p = this.remotes.get(from);
+    if (!p || typeof t !== 'number') return;
+    p.push(t, x / 100, z / 100, yaw / 100, flags & 7, map);
+  }
+
   private clientMsg(kind: string, d: unknown[]): void {
     const g = this.game;
     switch (kind) {
       case 'welcome': {
-        const w = d[1] as { host: string; cal: unknown[]; gold: number; cabin: number; spawn: { x: number; z: number }; full: { save: unknown; debris: [number, string][]; digest: [number, string][] } | null; psave: unknown; reps?: Record<string, unknown> };
+        const w = d[1] as Welcome;
         this.hostName = w.host;
         this.bridge.setRole('client');
         this.bridge.applySnapshots(w.reps);
@@ -1047,8 +1340,17 @@ export class NetSystem implements System, NetApi {
         return;
       }
       case 'ack': {
-        const [, seq, , tiles] = d as [string, number, number, [number, string][]];
+        const [, seq, ok, tiles] = d as [string, number, number, [number, string][]];
+        const pd = this.pending.get(seq);
         this.pending.delete(seq);
+        // Our predicted sow / fertilize didn't happen on the host (someone beat us to the tile, or it
+        // was refused): give the seed back.
+        if (pd?.spent && ok !== 1) {
+          this.counters.refunds++;
+          this.giveOk = true;
+          g.events.emit('item:give', { itemId: pd.spent, qty: 1 });
+          this.giveOk = false;
+        }
         for (const [i, s] of tiles) {
           this.hostTiles.set(i, s);
           if ((this.pendingTiles.get(i) ?? 0) <= seq) {
@@ -1074,7 +1376,7 @@ export class NetSystem implements System, NetApi {
         return;
       }
       case 'full': {
-        this.applyFull(d[1] as { save: unknown; debris: [number, string][]; digest: [number, string][] });
+        this.applyFull(d[1] as FullState);
         return;
       }
       case 'cal':
@@ -1082,15 +1384,27 @@ export class NetSystem implements System, NetApi {
         return;
       case 'gold': {
         const [, total, acks] = d as [string, number, Record<string, number>];
-        const acked = acks?.[this.id] ?? 0;
-        this.goldPending = this.goldPending.filter((x) => x.seq > acked);
-        const want = total + this.goldPending.reduce((s, x) => s + x.delta, 0);
-        const eco = g.services.economy;
-        if (eco && eco.gold() !== want) {
-          this.applyingGold = true;
-          eco.set(want);
-          this.applyingGold = false;
+        this.settleGold(total, acks?.[this.id] ?? 0);
+        return;
+      }
+      case 'gdeny': {
+        const seq = Number(d[1]);
+        const i = this.goldPending.findIndex((x) => x.seq === seq);
+        if (i < 0) return;
+        const [gp] = this.goldPending.splice(i, 1);
+        this.counters.goldDenied++;
+        // Put back what that purchase brought in (the purse never paid for it).
+        const inv = g.services.inventory;
+        let back = 0;
+        if (gp?.items && inv) {
+          for (const [id, n] of gp.items) {
+            const take = Math.min(n, inv.count(id));
+            if (take > 0 && inv.remove(id, take)) back += take;
+          }
         }
+        g.events.emit('ui:toast', { text: back ? 'The shared purse came up short — <b>purchase returned</b>' : 'The shared purse came up short', kind: 'bad' });
+        const eco = g.services.economy;
+        if (eco) this.setGold(eco.gold() - (gp?.delta ?? 0));
         return;
       }
       case 'fix': {
@@ -1130,17 +1444,29 @@ export class NetSystem implements System, NetApi {
       case 'pong': {
         const t = Number(d[1]);
         const r = performance.now() - t;
-        this.rtt = this.rtt ? this.rtt * 0.7 + r * 0.3 : r;
-        return;
-      }
-      case 'psave': {
-        this.restorePersonal(d[1]);
+        this.appRtts.push(r);
+        if (this.appRtts.length > 7) this.appRtts.shift();
+        this.appRtt = [...this.appRtts].sort((x, y) => x - y)[this.appRtts.length >> 1]!;
         return;
       }
     }
   }
 
-  private async enterWorld(first: boolean, w: { cal: unknown[]; gold: number; cabin: number; spawn: { x: number; z: number }; full: { save: unknown; debris: [number, string][]; digest: [number, string][] } | null; psave: unknown }): Promise<void> {
+  private setGold(n: number): void {
+    const eco = this.game.services.economy;
+    if (!eco || eco.gold() === n) return;
+    this.applyingGold = true;
+    eco.set(n);
+    this.applyingGold = false;
+  }
+
+  /** Host total + our purse changes it hasn't seen yet. */
+  private settleGold(total: number, acked: number): void {
+    this.goldPending = this.goldPending.filter((x) => x.seq > acked);
+    this.setGold(total + this.goldPending.reduce((s, x) => s + x.delta, 0));
+  }
+
+  private async enterWorld(first: boolean, w: Welcome): Promise<void> {
     const g = this.game;
     if (first) {
       g.events.emit('ui:open', { name: 'none' });
@@ -1155,18 +1481,26 @@ export class NetSystem implements System, NetApi {
       rig.distance = 24;
       rig.lookOffset.set(0, 0, 0);
       g.followPlayer(true);
-      if (w.psave) this.restorePersonal(w.psave);
+      // Personal state on this farm: the newest of the host's copy and ours (a reload never rolls
+      // the backpack back); a first visit starts from a fresh farmhand kit.
+      const local = this.loadLocalPsave();
+      const hostPs = w.psave;
+      const best = local && (!hostPs || local.seq > hostPs.seq) ? local : hostPs;
+      this.restorePersonal(best ? best.data : this.starter);
+      this.pseq = Math.max(this.pseq, best?.seq ?? 0);
+      if (best !== hostPs || !best) this.psaveDirty = true;
+    } else {
+      // Rejoin in the same page: our in-memory state is the newest — tell the host, and resend purse
+      // changes it may never have seen (it drops the ones it already applied by seq).
+      this.psaveDirty = true;
+      for (const gp of this.goldPending) if (gp.seq > (w.goldAck ?? 0)) this.toHost(['gold', gp.seq, gp.delta]);
     }
     this.applyCal(w.cal, true);
-    const eco = g.services.economy;
-    if (eco) {
-      this.applyingGold = true;
-      eco.set(w.gold + this.goldPending.reduce((s, x) => s + x.delta, 0));
-      this.applyingGold = false;
-    }
+    this.settleGold(w.gold, w.goldAck ?? 0);
     if (w.full) this.applyFull(w.full);
     this.refreshCabins();
     this.setStatus('playing');
+    this.flushPersonal();
     if (first) {
       g.hud.banner(`${this.hostName}'s Farm`, 'Co-op · farm together, sleep together');
       this.chatSystem(`You joined <b>${esc(this.hostName)}</b>'s farm`, 'good');
@@ -1196,7 +1530,7 @@ export class NetSystem implements System, NetApi {
     }
   }
 
-  private applyFull(f: { save: unknown; debris: [number, string][]; digest: [number, string][] }): void {
+  private applyFull(f: FullState): void {
     this.counters.fullSyncs++;
     this.sync.applyFull(f);
     this.hostTiles = new Map(f.digest);
@@ -1234,26 +1568,12 @@ export class NetSystem implements System, NetApi {
     for (const i of local.keys()) if (!this.hostTiles.has(i)) check(i);
   }
 
-  private clientTick(dt: number): void {
+  /** Farmhand: periodic sends (interval ticker). */
+  private clientTick(ms: number): void {
     const g = this.game;
-    // Reconciliation: bleed position corrections in over ~150 ms (no snapping).
-    const c = this.correction;
-    if (Math.abs(c.x) + Math.abs(c.z) > 1e-3) {
-      const k = 1 - Math.exp(-dt * 20);
-      const pos = g.player.position;
-      pos.x += c.x * k;
-      pos.z += c.z * k;
-      c.x -= c.x * k;
-      c.z -= c.z * k;
-      if (Math.hypot(c.x, c.z) > 3) {
-        g.player.teleport(pos.x + c.x, pos.z + c.z);
-        c.x = c.z = 0;
-      }
-    }
     if (!this.welcomed) return;
-    this.tSnap += dt * 1000;
-    if (this.tSnap >= SNAP_MS) {
-      this.tSnap %= SNAP_MS;
+    if (this.frameNo !== this.sentFrame) {
+      this.sentFrame = this.frameNo;
       const pl = g.player;
       const seq = ++this.stSeq;
       const map = g.world.current?.id ?? '';
@@ -1261,17 +1581,18 @@ export class NetSystem implements System, NetApi {
       // Big jumps (warps, beds) are flagged so the host doesn't treat them as speeding.
       if (this.teleported || map !== this.lastPos.map || Math.hypot(pl.position.x - this.lastPos.x, pl.position.z - this.lastPos.z) > 1.5) anim |= 8;
       this.teleported = false;
-      this.lastPos = { x: pl.position.x, z: pl.position.z, map };
+      this.lastPos = { x: pl.position.x, z: pl.position.z, map, t: this.frameAt };
       this.history.push({ seq, x: pl.position.x, z: pl.position.z });
       if (this.history.length > 60) this.history.shift();
-      this.toHost(['st', seq, performance.now(), map, cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), anim, Math.round(g.services.energy?.value() ?? 0), Math.round(this.rtt)]);
+      // To everyone: the host validates it, the other farmhands interpolate it on our clock.
+      this.toAll(['st', seq, this.frameAt, map, cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), anim, Math.round(g.services.energy?.value() ?? 0), Math.round(this.rtt())]);
     }
-    this.tPing += dt * 1000;
+    this.tPing += ms;
     if (this.tPing >= PING_MS) {
       this.tPing = 0;
       this.toHost(['ping', performance.now()]);
     }
-    this.tDrift += dt * 1000;
+    this.tDrift += ms;
     if (this.tDrift >= 2500) {
       this.tDrift = 0;
       this.driftCheck();
@@ -1283,23 +1604,110 @@ export class NetSystem implements System, NetApi {
         for (const i of pd.tiles) if (this.pendingTiles.get(i) === seq) this.pendingTiles.delete(i);
       }
     }
-    this.tPsave += dt * 1000;
-    if (this.tPsave >= 30000) {
+    this.tPsave += ms;
+    if (this.tPsave >= PSAVE_MS) {
       this.tPsave = 0;
-      this.sendPersonal();
+      this.psaveDirty = true;
+      this.flushPersonal();
     }
   }
 
-  private sendPersonal(): void {
-    const snap = this.game.saves.snapshot();
+  private tick(): void {
+    const now = performance.now();
+    const ms = Math.min(1000, now - this.lastTickAt);
+    this.lastTickAt = now;
+    if (this._role === 'host') this.hostTick(ms);
+    else if (this._role === 'client') this.clientTick(ms);
+  }
+
+  // ── personal saves (farmhand) ──
+
+  private personalData(): Record<string, unknown> {
     const data: Record<string, unknown> = {};
-    for (const k of PERSONAL_KEYS) if (k in snap.data) data[k] = snap.data[k];
-    this.toHost(['psave', data]);
+    for (const k of PERSONAL_KEYS) {
+      const s = this.game.systems.find((x) => x.name === k);
+      if (!s?.save) continue;
+      try {
+        data[k] = JSON.parse(JSON.stringify(s.save()));
+      } catch {
+        /* skip */
+      }
+    }
+    return data;
+  }
+
+  private consumableCounts(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const s of this.game.services.inventory?.slots ?? []) if (s && isConsumable(s.id)) out[s.id] = (out[s.id] ?? 0) + s.qty;
+    return out;
+  }
+
+  /** The backpack (or energy, friendships…) changed: persist locally now, tell the host soon. */
+  private markPersonal(): void {
+    if (this._role !== 'client' || !this.welcomed || this.sync.inRemote) return;
+    this.psaveDirty = true;
+    if (!this.localPsaveTimer) this.localPsaveTimer = window.setTimeout(() => this.persistLocalPsave(), 0);
+    if (!this.psaveTimer) this.psaveTimer = window.setTimeout(() => this.flushPersonal(), 250);
+  }
+
+  private flushPersonal(): void {
+    clearTimeout(this.psaveTimer);
+    this.psaveTimer = 0;
+    if (!this.psaveDirty || this._role !== 'client' || !this.welcomed) return;
+    this.sendPersonal();
+  }
+
+  private nextPseq(): number {
+    this.pseq = Math.max(this.pseq + 1, Date.now());
+    return this.pseq;
+  }
+
+  private sendPersonal(bias?: string): void {
+    if (this._role !== 'client' || !this.welcomed) return;
+    this.psaveDirty = false;
+    const counts = this.consumableCounts();
+    // Sent just before the 'use' that spent `bias`: the host checks against the pre-use count.
+    if (bias) counts[bias] = (counts[bias] ?? 0) + 1;
+    this.toHost(['psave', this.nextPseq(), this.personalData(), counts]);
+    this.persistLocalPsave();
+  }
+
+  private localKey(): string | null {
+    return this._code ? `hearthvale.coop.psave.${this._code}.${this.playerId()}` : null;
+  }
+
+  private persistLocalPsave(): void {
+    clearTimeout(this.localPsaveTimer);
+    this.localPsaveTimer = 0;
+    if (this._role !== 'client' || !this.welcomed) return;
+    const k = this.localKey();
+    if (!k) return;
+    try {
+      localStorage.setItem(k, JSON.stringify({ seq: this.nextPseq(), data: this.personalData() }));
+    } catch {
+      /* storage full / blocked */
+    }
+  }
+
+  private loadLocalPsave(): PSave | null {
+    const k = this.localKey();
+    if (!k) return null;
+    try {
+      const v = JSON.parse(localStorage.getItem(k) ?? 'null') as PSave | null;
+      return v && typeof v.seq === 'number' && v.data && typeof v.data === 'object' ? v : null;
+    } catch {
+      return null;
+    }
   }
 
   private restorePersonal(data: unknown): void {
     if (!data || typeof data !== 'object') return;
-    this.game.saves.restore({ version: 1, savedAt: '', data: data as Record<string, unknown> });
+    this.restoring = true;
+    try {
+      this.game.saves.restore({ version: 1, savedAt: '', data: data as Record<string, unknown> });
+    } finally {
+      this.restoring = false;
+    }
   }
 
   // ════════════════════════════════════════════════════════════ local events
@@ -1339,7 +1747,7 @@ export class NetSystem implements System, NetApi {
         const crop = this.sync.farming()?.cropAt(x, z);
         if (crop?.ripe && !crop.dead) {
           if (this._role === 'client') {
-            this.predict('@act', x, z, g.player.facing);
+            this.predict('@act', x, z, g.player.facing, null);
             this.toHost(['act', this.seq, x, z]);
           } else this.toAll(['did', this.id, '@act', x, z, g.player.facing]);
         }
@@ -1348,20 +1756,30 @@ export class NetSystem implements System, NetApi {
     return false;
   }
 
-  private predict(itemId: string, x: number, z: number, facing: Facing): void {
+  private predict(itemId: string, x: number, z: number, facing: Facing, spent: string | null): void {
     const seq = ++this.seq;
     const tiles = this.affected(itemId, x, z, facing);
-    this.pending.set(seq, { seq, tiles, t: performance.now() });
+    this.pending.set(seq, { seq, tiles, t: performance.now(), spent });
     for (const i of tiles) this.pendingTiles.set(i, seq);
     this.predictUntil = performance.now() + 1500;
   }
 
   private onLocalUse(e: GameEvents['item:use']): void {
+    const planted = this.planted;
+    this.planted = -1;
     if (this._role === 'solo' || this.sync.inRemote || e.slot < 0) return;
     if (this.game.world.current?.id !== 'farm' || !isFarmItem(e.itemId)) return;
     const f = this.game.player.facing;
     if (this._role === 'client') {
-      this.predict(e.itemId, e.x, e.z, f);
+      // Did our local prediction actually use the seed / fertilizer up? (refunded if the host no-ops)
+      const g = this.sync.grid();
+      const spent = isConsumable(e.itemId) && g && g.inBounds(e.x, e.z) && planted === g.idx(e.x, e.z) ? e.itemId : null;
+      if (isConsumable(e.itemId) && (this.psaveDirty || spent)) {
+        clearTimeout(this.psaveTimer);
+        this.psaveTimer = 0;
+        this.sendPersonal(spent ?? undefined);
+      }
+      this.predict(e.itemId, e.x, e.z, f, spent);
       this.toHost(['use', this.seq, e.itemId, e.x, e.z, f]);
     } else {
       this.toAll(['did', this.id, e.itemId, e.x, e.z, f]);
@@ -1370,11 +1788,25 @@ export class NetSystem implements System, NetApi {
   }
 
   private onGold(delta: number): void {
-    if (this.applyingGold || !delta) return;
+    if (this.applyingGold || this.restoring || !delta) return;
     if (this._role === 'client' && this.welcomed) {
       const seq = ++this.seq;
-      this.goldPending.push({ seq, delta });
+      const gp: GoldPending = { seq, delta, items: null };
+      this.goldPending.push(gp);
       this.toHost(['gold', seq, delta]);
+      if (delta < 0) {
+        // A purchase: note what lands in the backpack along with it (shops add right after spending).
+        const inv = this.game.services.inventory;
+        const before = new Map<string, number>();
+        for (const s of inv?.slots ?? []) if (s) before.set(s.id, (before.get(s.id) ?? 0) + s.qty);
+        setTimeout(() => {
+          const got = new Map<string, number>();
+          const now = new Map<string, number>();
+          for (const s of inv?.slots ?? []) if (s) now.set(s.id, (now.get(s.id) ?? 0) + s.qty);
+          for (const [id, n] of now) if (n > (before.get(id) ?? 0)) got.set(id, n - (before.get(id) ?? 0));
+          if (got.size) gp.items = got;
+        }, 0);
+      }
     } else if (this._role === 'host') this.goldDirty = true;
   }
 
@@ -1385,7 +1817,11 @@ export class NetSystem implements System, NetApi {
     if (this._role === 'host') {
       this.later(400, () => this.sendFull('*'));
       this.farmDirty = true;
-    } else this.later(3000, () => this.sendPersonal());
+    } else
+      this.later(3000, () => {
+        this.psaveDirty = true;
+        this.flushPersonal();
+      });
     this.emitRoster();
   }
 
@@ -1395,6 +1831,7 @@ export class NetSystem implements System, NetApi {
     const sl = g.services.sleep;
     const where = this.bedWhere;
     this.asleep = false;
+    this.asleepAt = 0;
     g.player.root.visible = true;
     g.events.emit('net:beds', { ready: [], total: 1 + this.remotes.list.size, sleeping: false });
     const endDay = (): void => {
@@ -1438,18 +1875,21 @@ export class NetSystem implements System, NetApi {
     if (st && st !== 'idle') return 3;
     const pos = g.player.position;
     const lp = this.lastPos;
-    const sp = Math.hypot(pos.x - lp.x, pos.z - lp.z) / (SNAP_MS / 1000);
-    if (this._role === 'host') this.lastPos = { x: pos.x, z: pos.z, map: g.world.current?.id ?? '' };
+    const dt = Math.max(16, this.frameAt - lp.t) / 1000;
+    const sp = Math.hypot(pos.x - lp.x, pos.z - lp.z) / dt;
+    if (this._role === 'host') this.lastPos = { x: pos.x, z: pos.z, map: g.world.current?.id ?? '', t: this.frameAt };
     return sp > 5.2 ? 2 : sp > 0.4 ? 1 : 0;
   }
 
-  showChat(id: number, text: string): void {
+  /** Speech bubble over the farmer + a line in the chat log (`log: false` = bubble only, demos). */
+  showChat(id: number, text: string, log = true): void {
     const isMe = id === (this.id || 1);
     const p = this.remotes.get(id);
-    const name = isMe ? this.prof.name : (p?.name ?? '?');
+    const name = isMe ? this.myName() : (p?.name ?? '?');
     const look = isMe ? this.prof.look : (p?.look ?? DEFAULT_LOOK);
-    p?.chat(text);
-    this.game.events.emit('net:chat', { id, name, text, color: hex(look.scarf) });
+    if (isMe) this.remotes.sayLocal(text);
+    else p?.chat(text);
+    if (log) this.game.events.emit('net:chat', { id, name, text, color: hex(look.scarf) });
   }
 
   private chatSystem(html: string, kind: 'good' | 'bad' | 'info'): void {
@@ -1507,15 +1947,20 @@ export class NetSystem implements System, NetApi {
   // ════════════════════════════════════════════════════════════ frame
 
   update(dt: number, game: Game): void {
-    // Frame-time meter (the co-op perf gate reads it).
-    this.frameTimes.push(dt * 1000);
-    if (this.frameTimes.length > 240) this.frameTimes.shift();
+    // Frame-time meter (the co-op perf gate reads it) — a ring buffer, no per-frame allocation.
+    this.frameTimes[this.frameIdx] = dt * 1000;
+    this.frameIdx = (this.frameIdx + 1) % this.frameTimes.length;
+    this.frameCount++;
     const now = performance.now();
-    if (this.timers.length && this.timers.some((t) => t.at <= now)) {
-      const due = this.timers.filter((t) => t.at <= now);
-      {
+    this.frameAt = now;
+    this.frameNo++;
+    if (this.timers.length) {
+      let due = false;
+      for (const t of this.timers) if (t.at <= now) due = true;
+      if (due) {
+        const run = this.timers.filter((t) => t.at <= now);
         this.timers = this.timers.filter((t) => t.at > now);
-        for (const t of due) {
+        for (const t of run) {
           try {
             t.fn();
           } catch (err) {
@@ -1524,11 +1969,25 @@ export class NetSystem implements System, NetApi {
         }
       }
     }
-    if (this._role === 'host') this.hostTick(dt);
-    else if (this._role === 'client') this.clientTick(dt);
+    if (this._role === 'client') {
+      // Reconciliation: bleed position corrections in over ~150 ms (no snapping).
+      const c = this.correction;
+      if (Math.abs(c.x) + Math.abs(c.z) > 1e-3) {
+        const k = 1 - Math.exp(-dt * 20);
+        const pos = game.player.position;
+        pos.x += c.x * k;
+        pos.z += c.z * k;
+        c.x -= c.x * k;
+        c.z -= c.z * k;
+        if (Math.hypot(c.x, c.z) > 3) {
+          game.player.teleport(pos.x + c.x, pos.z + c.z);
+          c.x = c.z = 0;
+        }
+      }
+    }
     if (this._role !== 'solo') this.bridge.tick(dt);
     this.demo.update(dt, game.time);
-    this.remotes.update(dt, game.time, !this.demo.active);
+    this.remotes.update(dt, game.time, !this.demo.active, now);
     this.myBubble?.update(dt, game.time);
     this.ui.update(dt);
   }
@@ -1538,12 +1997,36 @@ export class NetSystem implements System, NetApi {
   }
 
   load(data: unknown): void {
+    if (this.restoring) return;
     const d = data as { psaves?: Record<string, unknown> } | null;
-    if (d?.psaves) this.psaves = new Map(Object.entries(d.psaves));
+    if (!d?.psaves) return;
+    this.psaves.clear();
+    // Only versioned, pid-keyed entries (older saves keyed farmhands by display name).
+    for (const [k, v] of Object.entries(d.psaves)) {
+      const p = v as PSave | null;
+      if (p && typeof p.seq === 'number' && p.data && typeof p.data === 'object') this.psaves.set(k, p);
+    }
   }
+}
+
+interface FullState {
+  save: unknown;
+  debris: [number, string][];
+  digest: [number, string][];
+}
+
+interface Welcome {
+  host: string;
+  cal: unknown[];
+  gold: number;
+  goldAck?: number;
+  cabin: number;
+  spawn: { x: number; z: number };
+  full: FullState | null;
+  psave: PSave | null;
+  reps?: Record<string, unknown>;
 }
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
-

@@ -1,13 +1,21 @@
 #!/usr/bin/env node
 /**
- * Co-op end-to-end test: relay server + Vite + 3 headless Chromium pages (host + 2 farmhands).
+ * Co-op end-to-end test: relay server + Vite + headless Chromium pages (host + 2 farmhands, then a
+ * crash-rejoin tab and an impostor).
  *
  *   node scripts/mp-test.mjs [--keep] [--gpu swiftshader]      (npm run mp-test)
  *
  * Drives movement, hoeing, watering, sowing, harvesting and gold on different clients; asserts the
- * shared farm / purse / calendar converge on every client; measures RTT, bandwidth and fps; drops a
- * farmhand's socket and checks the auto-rejoin; ends the day with everyone in bed; screenshots each
- * client's view into shots/mp/. Exits non-zero on any failed check.
+ * shared farm / purse / calendar converge on every client; measures network RTT (worker-timed),
+ * farmhand → farmhand motion smoothness, bandwidth and fps; drops a farmhand's socket and checks the
+ * auto-rejoin; ends the day with everyone in bed; screenshots each client's view into shots/mp/.
+ *
+ * Adversarial (round 2): a farmhand's own save survives a co-op night and comes back when they leave;
+ * a reload never rolls the backpack back (no item dupe); the last awake farmer crashing ends the
+ * night; a crashed tab reclaims its slot (persistent player id); an impostor with the same name
+ * gets a fresh backpack and a unique name; the host can kick; gold earned while disconnected
+ * arrives; two farmhands can't spend the same coins; a lost sowing race refunds the seed.
+ * Exits non-zero on any failed check.
  */
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
@@ -15,7 +23,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { startServer } from '../server/index.mjs';
+import { spawn } from 'node:child_process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = resolve(root, 'shots/mp');
@@ -41,8 +49,24 @@ const check = (name, ok, detail = '') => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const relay = await startServer({ port: 0, log: false, serveDist: false });
-const wsUrl = `ws://127.0.0.1:${relay.port}/ws`;
+// The relay runs in its own process (like `npm run server`), not on this harness's busy event loop
+// (Vite transforms + the Playwright driver would otherwise add their latency to every relayed frame).
+const relayProc = spawn(process.execPath, [resolve(root, 'server/index.mjs'), '--port', '0'], { stdio: ['ignore', 'pipe', 'inherit'] });
+const relayPort = await new Promise((res, rej) => {
+  let buf = '';
+  relayProc.stdout.on('data', (d) => {
+    buf += String(d);
+    const m = /listening on ws:\/\/[^:]+:(\d+)/.exec(buf);
+    if (m) res(Number(m[1]));
+    if (process.env.MP_VERBOSE) process.stdout.write(String(d));
+  });
+  relayProc.on('exit', (c) => rej(new Error(`relay exited (${c})`)));
+});
+const wsUrl = `ws://127.0.0.1:${relayPort}/ws`;
+const relay = {
+  health: () => fetch(`http://127.0.0.1:${relayPort}/health`).then((r) => r.json()).catch(() => null),
+  close: async () => relayProc.kill(),
+};
 const cacheDir = resolve(tmpdir(), `hearthvale-mp-${process.pid}`);
 const vite = await createServer({ root, logLevel: 'error', cacheDir, server: { port: 0, host: '127.0.0.1', hmr: false, watch: null } });
 await vite.listen();
@@ -79,6 +103,14 @@ async function openClient(label, query) {
 }
 
 const net = (page, fn, arg) => page.evaluate(fn, arg);
+/** Screenshots are evidence, not checks: a slow compositor on a loaded box must not fail the run. */
+const snap = async (page, file) => {
+  try {
+    await page.screenshot({ path: file, timeout: 60000 });
+  } catch (e) {
+    log(`screenshot ${file} skipped: ${String(e?.message ?? e).split('\n')[0]}`);
+  }
+};
 const waitFor = async (page, fn, arg, timeout = 20000) => {
   try {
     await page.waitForFunction(fn, arg, { timeout, polling: 100 });
@@ -89,12 +121,20 @@ const waitFor = async (page, fn, arg, timeout = 20000) => {
 };
 
 let host, a, b;
+let idA = 0;
+let idB = 0;
 try {
   // ── boot: host + two farmhands ────────────────────────────────────
   host = await openClient('host', 'notitle=1&map=farm&x=30.5&z=22.5&time=9&name=Hazel');
   const code = await net(host, () => window.__game.game.services.net.host());
   check('host opened a lobby', /^[A-Z0-9]{6}$/.test(code), code);
   [a, b] = await Promise.all([openClient('ash', 'name=Ash&preset=0'), openClient('bea', 'name=Bea&preset=1')]);
+  // Ash has a farm of their own (gold 77777, saved) — co-op must never touch it.
+  await net(a, () => {
+    window.__game.setGold(77777);
+    window.__game.save('auto');
+  });
+  const ashOwn = await net(a, () => JSON.parse(localStorage.getItem('hearthvale.save.auto')).savedAt);
   const tj = Date.now();
   await Promise.all([a, b].map((p) => net(p, (c) => window.__game.game.services.net.join(c), code)));
   log(`both farmhands joined in ${Date.now() - tj} ms`);
@@ -104,7 +144,7 @@ try {
   check('roster names propagate', names === 'Ash,Bea,Hazel', names);
   const onFarm = await Promise.all([a, b].map((p) => net(p, () => window.__game.info().map)));
   check('farmhands spawn on the host farm', onFarm.every((m) => m === 'farm'), onFarm.join(','));
-  const [idA, idB] = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.net.myId())));
+  [idA, idB] = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.net.myId())));
   const cabins = await net(host, () => window.__game.game.services.net.players().filter((p) => !p.isHost).map((p) => p.cabin));
   check('farmhands get cabins', cabins.every((c) => c >= 0) && new Set(cabins).size === 2, JSON.stringify(cabins));
 
@@ -216,6 +256,20 @@ try {
   st = await allTile(T2);
   check('host hoes: farmhands see the tilled tile', st.every((s) => s.startsWith('1')), st.join(' | '));
 
+  // ── sowing race: Ash + Bea sow the same tilled tile at once → one crop, one seed spent ──
+  await net(a, (t) => { window.__game.teleport('farm', t.x + 0.5, t.z + 1.5); window.__game.facing('up'); }, T2);
+  await net(b, (t) => { window.__game.teleport('farm', t.x - 0.5, t.z + 0.5); window.__game.facing('right'); }, T2);
+  await net(host, (t) => window.__game.teleport('farm', t.x + 2.5, t.z + 2.5), T2);
+  await sleep(700);
+  const race0 = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.inventory.count('parsnipSeeds'))));
+  await Promise.all([a, b].map((p) => p.keyboard.press('Digit6')));
+  await Promise.all([a, b].map((p) => p.keyboard.press('KeyC')));
+  await sleep(2600);
+  const race1 = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.inventory.count('parsnipSeeds'))));
+  st = await allTile(T2);
+  const spent = race0[0] - race1[0] + race0[1] - race1[1];
+  check('sowing race: one crop, exactly one seed spent (loser refunded)', spent === 1 && st.every((s) => s.includes('parsnip') && s === st[0]), `spent ${spent} (${race0.join('/')} → ${race1.join('/')}) · ${st[0]}`);
+
   // ── grow + harvest by hand (Bea) → item goes to Bea only ──────────
   await net(host, () => window.__game.grow(6));
   await sleep(1500);
@@ -253,6 +307,16 @@ try {
   const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 5000);
   check('chat reaches the host', gotChat);
 
+  // ── Ash leaves → back on their own farm (own purse), then comes back ──
+  await net(a, () => window.__game.game.services.net.leave());
+  await sleep(1500);
+  const home = await net(a, () => ({ gold: window.__game.game.services.economy.gold(), role: window.__game.game.services.net.role() }));
+  check('leaving returns the farmhand to their own farm (own purse restored)', home.role === 'solo' && home.gold === 77777, JSON.stringify(home));
+  await net(a, (c) => window.__game.game.services.net.join(c), code);
+  await waitFor(a, () => window.__game.game.services.net.status() === 'playing', null, 20000);
+  idA = await net(a, () => window.__game.game.services.net.myId());
+  await waitFor(host, () => window.__game.game.services.net.players().length === 3, null, 10000);
+
   // ── convergence of the whole farm ─────────────────────────────────
   await sleep(3000);
   const digests = await Promise.all([host, a, b].map((p) => net(p, () => [...window.__game.game.services.net.sync.digest()].sort((x, y) => x[0] - y[0]).map((e) => e.join('=')).join(';'))));
@@ -270,7 +334,51 @@ try {
   const stats = await Promise.all([host, a, b].map((p) => net(p, () => window.__game.game.services.net.stats())));
   for (const [i, s] of stats.entries()) log(`${['host', 'ash', 'bea'][i]} stats`, JSON.stringify(s));
   const rtts = stats.slice(1).map((s) => s.rtt);
-  check('RTT measured (farmhand → host → farmhand)', rtts.every((r) => r > 0 && r < 250), rtts.map((r) => `${r} ms`).join(' / '));
+  // Loopback: < 100 ms, or — on a machine too loaded for that — about the two relay legs
+  // (farmhand↔relay + host↔relay, both measured the same way): the transport itself adds nothing.
+  const hostLeg = stats[0].relayRtt;
+  check('network RTT farmhand → relay → host → back (worker-timed, loopback)', rtts.every((r, i) => r > 0 && (r < 100 || r <= (stats[i + 1].relayRtt + hostLeg) * 1.25 + 30)), rtts.map((r, i) => `${r} ms (relay legs ${stats[i + 1].relayRtt} + ${hostLeg}, app ${stats[i + 1].appRtt})`).join(' / '));
+
+  // ── farmhand → farmhand motion: Bea watches Ash walk (samples on Ash's own clock) ──
+  const aIdNow = await net(a, () => window.__game.game.services.net.myId());
+  await net(a, (l) => { window.__game.teleport('farm', l.x + 0.5, l.z + 0.5); window.__game.facing('right'); }, lane);
+  await net(b, (l) => window.__game.teleport('farm', l.x + 3, l.z + 3.5), lane);
+  await sleep(1200);
+  await net(b, (id) => {
+    const r = window.__game.game.services.net.remotes.get(id);
+    window.__raw = [];
+    const orig = r.push.bind(r);
+    r.__orig = orig;
+    r.push = (t, x, z, ...rest) => { window.__raw.push([performance.now(), t, x]); return orig(t, x, z, ...rest); };
+    window.__samp = [];
+    const tick = () => { window.__samp.push([performance.now(), r.farmer.position.x]); window.__raf = requestAnimationFrame(tick); };
+    tick();
+  }, aIdNow);
+  await a.keyboard.down('KeyD');
+  await sleep(1600);
+  await a.keyboard.up('KeyD');
+  await sleep(800);
+  const motion = await net(b, (id) => {
+    cancelAnimationFrame(window.__raf);
+    const r = window.__game.game.services.net.remotes.get(id);
+    r.push = r.__orig;
+    const raw = window.__raw;
+    const samp = window.__samp;
+    let dup = 0, moving = 0;
+    const x0 = raw.length ? raw[0][2] : 0, x1 = raw.length ? raw[raw.length - 1][2] : 0;
+    for (let i = 1; i < raw.length; i++) if (raw[i][2] > x0 + 0.05 && raw[i][2] < x1 - 0.05) { moving++; if (Math.abs(raw[i][2] - raw[i - 1][2]) < 1e-6) dup++; }
+    const v = [];
+    for (let i = 1; i < samp.length; i++) v.push(((samp[i][1] - samp[i - 1][1]) / Math.max(1, samp[i][0] - samp[i - 1][0])) * 1000);
+    let f = v.findIndex((q) => Math.abs(q) > 0.05), l = v.length - 1;
+    while (l > 0 && Math.abs(v[l]) < 0.05) l--;
+    const mid = f >= 0 ? v.slice(f, l + 1) : [];
+    const stalls = mid.filter((q) => Math.abs(q) < 0.05).length;
+    const mean = mid.reduce((s, q) => s + q, 0) / Math.max(1, mid.length);
+    const sd = Math.sqrt(mid.reduce((s, q) => s + (q - mean) ** 2, 0) / Math.max(1, mid.length));
+    return { moving, dup, frames: mid.length, stalls, mean: +mean.toFixed(2), sd: +sd.toFixed(2) };
+  }, aIdNow);
+  log('farmhand→farmhand motion', JSON.stringify(motion));
+  check('farmhand sees farmhand walk smoothly (no duplicate samples, few stalls)', motion.moving >= 8 && motion.dup <= Math.ceil(motion.moving * 0.05) && motion.stalls <= Math.ceil(motion.frames * 0.08), `${motion.dup}/${motion.moving} duplicate samples, ${motion.stalls}/${motion.frames} stalled frames, ${motion.mean}±${motion.sd} m/s`);
   const perf = await Promise.all([host, a, b].map((p) => net(p, () => window.__game.info().perf)));
   check('render budget with 3 farmers in view (host)', perf[0].drawCalls <= 300, `${perf[0].drawCalls} draw calls, ${(perf[0].triangles / 1e6).toFixed(2)}M tris`);
 
@@ -281,12 +389,19 @@ try {
   await net(a, () => window.__game.game.services.net.emote('happy'));
   await net(b, () => window.__game.game.services.net.chat('Race you to the pond!'));
   await sleep(1200);
-  for (const [p, n] of [[host, 'host'], [a, 'ash'], [b, 'bea']]) await p.screenshot({ path: resolve(outDir, `client-${n}.png`) });
+  for (const [p, n] of [[host, 'host'], [a, 'ash'], [b, 'bea']]) await snap(p, resolve(outDir, `client-${n}.png`));
   log('screenshots → shots/mp/client-*.png');
 
   // ── drop + rejoin ─────────────────────────────────────────────────
+  // (event-based: on a fast box the farmhand is back before a poll would catch the "away" state)
+  await net(host, () => {
+    window.__beaAway = false;
+    window.__game.game.events.on('net:roster', ({ players }) => {
+      if (players.some((p) => p.name === 'Bea' && p.away)) window.__beaAway = true;
+    });
+  });
   await net(b, () => window.__game.game.services.net.simulateDrop());
-  const awaySeen = await waitFor(host, () => window.__game.game.services.net.players().some((p) => p.name === 'Bea' && p.away), null, 8000);
+  const awaySeen = await waitFor(host, () => window.__beaAway === true, null, 8000);
   check('host notices the dropped farmhand', awaySeen);
   const back = await waitFor(b, () => window.__game.game.services.net.status() === 'playing', null, 15000);
   const backHost = await waitFor(host, () => window.__game.game.services.net.players().some((p) => p.name === 'Bea' && !p.away), null, 15000);
@@ -303,6 +418,54 @@ try {
   st = await allTile(T2);
   check('world keeps syncing after the rejoin', st.every((s) => s.startsWith('11')), st.join(' | '));
 
+  const purses = () => Promise.all([host, a, b].map((p) => net(p, () => window.__game.game.services.economy.gold())));
+  // ── gold earned while the socket is down still reaches the shared purse ──
+  await net(host, () => window.__game.setGold(1000));
+  await sleep(1200);
+  await net(b, () => window.__game.game.services.net.simulateDrop());
+  await sleep(120);
+  await net(b, () => window.__game.game.services.economy.add(123));
+  await waitFor(b, () => window.__game.game.services.net.status() === 'playing', null, 15000);
+  await sleep(2500);
+  let gp = await purses();
+  check('gold earned while disconnected arrives (purses agree)', gp.every((g) => g === 1123), gp.join(' / '));
+
+  // ── double spend: two farmhands spend 800 of a 1000 purse at the same moment ──
+  await net(host, () => window.__game.setGold(1000));
+  await sleep(1500);
+  const buy = (p) => net(p, () => {
+    const g = window.__game.game.services;
+    const ok = g.economy.spend(800, 'test');
+    if (ok) g.inventory.add('cauliflowerSeeds', 4);
+    return ok;
+  });
+  const seedsBefore = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.inventory.count('cauliflowerSeeds'))));
+  await Promise.all([buy(a), buy(b)]);
+  await sleep(2500);
+  gp = await purses();
+  const seedsAfter = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.inventory.count('cauliflowerSeeds'))));
+  const bought = seedsAfter[0] - seedsBefore[0] + seedsAfter[1] - seedsBefore[1];
+  check('double spend refused: one purchase stands, the other is returned', gp.every((g) => g === 200) && bought === 4, `purses ${gp.join(' / ')}, seeds bought ${bought}`);
+
+  // ── reload: the backpack never rolls back (no item dupe) ──
+  const seedsA0 = await net(a, () => window.__game.game.services.inventory.count('parsnipSeeds'));
+  await net(a, () => {
+    window.__game.game.services.inventory.remove('parsnipSeeds', 5);
+    window.__game.game.services.economy.add(100);
+  });
+  await sleep(700);
+  const goldSold = (await purses())[0];
+  await a.reload({ waitUntil: 'load' });
+  await a.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: 180000 });
+  await a.evaluate(() => window.__game.ready());
+  await net(a, (c) => window.__game.game.services.net.join(c), code);
+  await waitFor(a, () => window.__game.game.services.net.status() === 'playing', null, 20000);
+  await sleep(1500);
+  const seedsA1 = await net(a, () => window.__game.game.services.inventory.count('parsnipSeeds'));
+  const idA2 = await net(a, () => window.__game.game.services.net.myId());
+  gp = await purses();
+  check('reload keeps the backpack as it was (no dupe) and the same slot', seedsA1 === seedsA0 - 5 && idA2 === idA && gp[0] === goldSold && gp.every((g) => g === gp[0]), `seeds ${seedsA0} → sold 5 → after reload ${seedsA1}; id ${idA2} (was ${idA}); purse ${gp.join(' / ')}`);
+
   // ── day end: everyone to bed ──────────────────────────────────────
   const day0 = await net(host, () => window.__game.info().calendar.day);
   await net(host, () => window.__game.setTime(22));
@@ -312,14 +475,60 @@ try {
   await sleep(700);
   const waiting = await net(host, () => window.__game.info().calendar.day);
   check('day waits while someone is still up', waiting === day0);
-  await host.screenshot({ path: resolve(outDir, 'client-host-waiting.png') });
+  await snap(host, resolve(outDir, 'client-host-waiting.png'));
   await net(host, () => window.__game.game.services.net.goToBed('house'));
   const rolled = await Promise.all([host, a, b].map((p) => waitFor(p, (d) => window.__game.info().calendar.day === d + 1, day0, 15000)));
   check('day ends for everyone once all are in bed', rolled.every(Boolean));
   await sleep(4000);
   const digests2 = await Promise.all([host, a, b].map((p) => net(p, () => [...window.__game.game.services.net.sync.digest()].sort((x, y) => x[0] - y[0]).map((e) => e.join('=')).join(';'))));
   check('farm converges after the night (growth, weeds, crows)', diff(digests2[0], digests2[1]) === 0 && diff(digests2[0], digests2[2]) === 0, `diff ${diff(digests2[0], digests2[1])} / ${diff(digests2[0], digests2[2])}`);
-  for (const [p, n] of [[host, 'host'], [a, 'ash'], [b, 'bea']]) await p.screenshot({ path: resolve(outDir, `client-${n}-morning.png`) });
+  for (const [p, n] of [[host, 'host'], [a, 'ash'], [b, 'bea']]) await snap(p, resolve(outDir, `client-${n}-morning.png`));
+  const ashSave = await net(a, () => { const f = JSON.parse(localStorage.getItem('hearthvale.save.auto')); return { savedAt: f.savedAt, gold: f.data.economy?.gold }; });
+  check("farmhand's own save untouched by the co-op night", ashSave.gold === 77777 && ashSave.savedAt === ashOwn, JSON.stringify(ashSave));
+
+  // ── bedtime: the last one awake crashes → the night still ends ──
+  const dayB = await net(host, () => window.__game.info().calendar.day);
+  await net(host, () => window.__game.setTime(22.5));
+  await sleep(1300);
+  await net(a, () => window.__game.game.services.net.goToBed('cabin'));
+  await net(host, () => window.__game.game.services.net.goToBed('house'));
+  await sleep(800);
+  const bCtx = b.context();
+  await b.close();
+  const crashT = Date.now();
+  const rolledB = await waitFor(host, (d) => window.__game.info().calendar.day === d + 1, dayB, 12000);
+  check('last awake farmer crashes → the day still ends', rolledB, `${((Date.now() - crashT) / 1000).toFixed(1)} s`);
+  await sleep(2500);
+
+  // ── the crashed player opens a new tab: same slot, same backpack (persistent player id) ──
+  b = await bCtx.newPage();
+  b.on('pageerror', (e) => errors.push(`bea2 pageerror: ${e.message}`));
+  await b.goto(`http://127.0.0.1:${port}/?name=Bea&preset=1&server=${encodeURIComponent(wsUrl)}`, { waitUntil: 'load', timeout: 180000 });
+  await b.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: 180000 });
+  await b.evaluate(() => window.__game.ready());
+  const reB = await net(b, (c) => window.__game.game.services.net.join(c).then(() => 'joined', (e) => `refused: ${e.message}`), code);
+  const idB2 = await net(b, () => window.__game.game.services.net.myId());
+  const beaSeeds = await net(b, () => window.__game.game.services.inventory.count('cauliflowerSeeds'));
+  check('crashed farmhand rejoins from a new tab into the same slot', reB === 'joined' && idB2 === idB, `${reB}, id ${idB2} (was ${idB}), cauliflower seeds ${beaSeeds}`);
+
+  // ── an impostor called "Ash" gets their own name + a fresh backpack ──
+  const imp = await openClient('imp', 'name=Ash&preset=2');
+  const reI = await net(imp, (c) => window.__game.game.services.net.join(c).then(() => 'joined', (e) => `refused: ${e.message}`), code);
+  await sleep(1500);
+  const impName = await net(imp, () => window.__game.game.services.net.players().find((p) => p.isMe).name);
+  const impSeeds = await net(imp, () => window.__game.game.services.inventory.count('parsnipSeeds'));
+  const ashSeeds = await net(a, () => window.__game.game.services.inventory.count('parsnipSeeds'));
+  check('same-name impostor: unique name, own (starter) backpack', reI === 'joined' && impName !== 'Ash' && impSeeds === 15 && ashSeeds !== 15, `${reI} as "${impName}", seeds ${impSeeds} (real Ash ${ashSeeds})`);
+
+  // ── the host kicks the impostor: slot freed, they're sent home, can't walk straight back in ──
+  const impId = await net(imp, () => window.__game.game.services.net.myId());
+  await net(host, (id) => window.__game.game.services.net.kick(id), impId);
+  const kicked = await waitFor(imp, () => window.__game.game.services.net.role() === 'solo', null, 8000);
+  const gone = await waitFor(host, (id) => !window.__game.game.services.net.players().some((p) => p.id === id), impId, 8000);
+  const reK = await net(imp, (c) => window.__game.game.services.net.join(c).then(() => 'joined', (e) => `refused: ${e.message}`), code);
+  check('host kick frees the slot; kicked player is refused for a while', kicked && gone && reK.startsWith('refused'), `${kicked}/${gone} · rejoin: ${reK}`);
+  await imp.context().close();
+
 
   // ── frame-time with 3 clients running (headless, shared GPU) ──────
   await sleep(3000);
@@ -328,7 +537,7 @@ try {
   const fpsHost = 1000 / Math.max(1, fps[0].avg);
   results.push({ name: 'fps (host, 3 headless browsers sharing one GPU)', ok: true, detail: `${fpsHost.toFixed(1)} fps avg` });
   console.log(`• fps host ${fpsHost.toFixed(1)} (3 headless pages share one GPU; see npm run perf for the real gate)`);
-  const relayStats = [...relay.lobbies.values()].map((l) => ({ code: l.code, relayed: l.relayed, players: l.peers.size }));
+  const relayStats = await relay.health();
   log('relay', JSON.stringify(relayStats));
   writeFileSync(resolve(outDir, 'mp-results.json'), JSON.stringify({ at: new Date().toISOString(), results, stats, frameMs: fps, relay: relayStats, errors }, null, 2));
 } catch (err) {

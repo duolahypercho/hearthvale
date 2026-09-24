@@ -36,11 +36,10 @@
 }
 .coop-preview {
   position: absolute;
-  left: 50%;
+  left: 0;
   top: 0;
-  width: 300px;
-  height: 262px;
-  translate: -50% 0;
+  width: 100%;
+  height: 100%;
   cursor: grab;
 }
 .coop-preview:active {
@@ -902,4 +901,97 @@
   50% {
     opacity: 0.4;
   }
+}
+
+/* ── round 2 ─────────────────────────────────────────────────────── */
+
+/* The world behind the co-op screen is already blurred + graded on the GPU (ui/coop-stage.ts):
+   no CSS backdrop blur over a full-screen canvas (the expensive part of the old lobby). */
+.hv-coop .u-backdrop {
+  backdrop-filter: none;
+}
+
+/* Your own chat line over your own head (no name pill under it). */
+.coop-tag.self .coop-say {
+  bottom: 6px;
+}
+
+/* Emote wheel: labels sit outside the ring, key badges on the inner rim (set inline per wedge). */
+.coop-wheel .wedge small {
+  bottom: auto;
+  translate: -50% -50%;
+  padding: 2px 8px 3px;
+  border-radius: 999px;
+  background: rgba(46, 24, 10, 0.72);
+  box-shadow: 0 0 0 1.5px rgba(255, 230, 180, 0.45);
+}
+.coop-wheel .wedge kbd {
+  right: auto;
+  text-align: center;
+}
+
+/* Host: Kick on a farmhand's slot card / pause-menu row (click twice). */
+.coop-kick {
+  flex: none;
+  margin-left: auto;
+  padding: 3px 9px 4px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(150, 60, 30, 0.12);
+  box-shadow: inset 0 0 0 1.5px rgba(150, 60, 30, 0.45);
+  color: #8a3418;
+  font: 700 12px var(--font-head);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.coop-kick:hover,
+.coop-kick:focus-visible,
+.coop-kick.sure {
+  background: #c8502e;
+  color: #fff6ea;
+  box-shadow: inset 0 0 0 1.5px #7a2a12, 0 2px 0 rgba(90, 30, 10, 0.35);
+}
+.coop-slot .coop-kick {
+  align-self: center;
+}
+.coop-pause .pl em {
+  font: 600 12px var(--font-body);
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* Bedtime overlay: Get up + (host, after a wait) Sleep anyway. */
+.coop-sleep-btns {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.coop-sleep .coop-force {
+  display: none;
+}
+.coop-sleep .coop-force.on {
+  display: inline-flex;
+  animation: coopRise 320ms var(--ease-back) both;
+}
+
+/* HUD under the co-op screen: soft and quiet (the GPU backdrop doesn't blur DOM). Static layers, so
+   the filter is rasterised once. */
+.hv-hud.h-coop-open > * {
+  filter: blur(3px) saturate(1.2);
+  opacity: 0.55;
+  transition: opacity 200ms, filter 200ms;
+}
+
+.coop-slot .side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.coop-slot .side .coop-kick {
+  margin: 0;
+  padding: 2px 8px 3px;
+  font-size: 11px;
 }
