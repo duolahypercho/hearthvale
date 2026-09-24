@@ -62,7 +62,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -50, pitch: 30, distance: 7.2, offsetX: -0.5, offsetZ: -1.45 }, showcase: ['tools', 'tool:wateringCan'] },
   'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest'] },
   'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 32, distance: 9.6, offsetX: -0.7, offsetZ: -1.6 }, showcase: ['tools', 'tool:charge'] },
-  'farm-wither': { map: 'farm', x: 23.5, z: 29.2, facing: 'up', time: 16.2, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 21.5, offsetX: -1.2, offsetZ: -4.6 }, showcase: ['wither'] },
+  'farm-wither': { map: 'farm', x: 19.4, z: 24.5, facing: 'down', time: 16.2, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 19.5, offsetX: 2.9, offsetZ: 0.3 }, showcase: ['wither'] },
   // Town square (plaza, Lantern Hall, villagers).
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).

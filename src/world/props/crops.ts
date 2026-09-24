@@ -1024,7 +1024,8 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
   const brown1 = C(0x9a7c52);
   const straw0 = C(0x6a5234);
   const straw1 = C(0xc8a86e);
-  const curled = (len: number, w: number): THREE.BufferGeometry => leafGeo(len, w, { shape: 'oval', lift: 0.05, bend: 0.1, fold: 0.55, curl: 0.8 + r.next() * 0.5, ruffle: 0.25, c0: C(0x7a603e), c1: C(0xb08e5c), segs: 3 });
+  // Papery dead leaves are straw-pale so a withered bed still reads against the dark soil.
+  const curled = (len: number, w: number): THREE.BufferGeometry => leafGeo(len, w, { shape: 'oval', lift: 0.05, bend: 0.1, fold: 0.55, curl: 0.8 + r.next() * 0.5, ruffle: 0.25, c0: C(0x7e6240), c1: C(0xbc9a66), segs: 3 });
   const fallen = (n: number, rad: number): void => {
     for (let i = 0; i < n; i++) {
       const a = r.next() * Math.PI * 2;
@@ -1059,7 +1060,7 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
     const nv = v === 2 ? 2 : 3;
     for (let i = 0; i < nv; i++) {
       const a = (i / nv) * Math.PI * 2 + r.next();
-      const len = 0.25 + r.next() * 0.12 + (v === 0 ? 0.08 : 0);
+      const len = 0.32 + r.next() * 0.14 + (v === 0 ? 0.1 : 0);
       const pts: THREE.Vector3[] = [];
       let ang = a;
       for (let k = 0; k <= 4; k++) {
@@ -1069,12 +1070,25 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
       }
       add(tube(pts, 0.009, 0.005, brown0, straw0, 6, 4));
       const cv = new THREE.CatmullRomCurve3(pts);
-      for (let k = 0; k < (v === 2 ? 1 : 2); k++) {
-        const pp = cv.getPointAt(0.45 + k * 0.4);
-        add(curled(0.1 + r.next() * 0.04, 0.09), mat(pp.x, pp.y + 0.01, pp.z, 0, r.next() * 6, 0));
+      // Big papery leaves still pinned along the runner: the sprawl's footprint survives as a pale,
+      // straw mat that reads against the dark bed (thin brown vines alone vanished into the soil).
+      for (let k = 0; k < (v === 2 ? 2 : 3); k++) {
+        const pp = cv.getPointAt(0.3 + k * 0.3);
+        const big = 0.14 + r.next() * 0.06;
+        add(curled(big, big * 0.85), mat(pp.x, pp.y + 0.012, pp.z, 0.12, r.next() * 6, 0.1));
       }
     }
     if (v === 1) add(stalk(0.12, 0.01, 0.006, brown0, straw1, 0.08, 4));
+    // The fruit left on the vine: a sunken, wrinkled, sun-bleached gourd slumped into the soil.
+    if (v !== 2) {
+      // Sun-bleached khaki / sickly olive rind, caved in on top (not a brown potato).
+      const R = 0.08 + r.next() * 0.03;
+      const rot = r.next();
+      const g = lumpyColored(R, C(rot < 0.45 ? 0xa39a62 : rot < 0.8 ? 0x8a8a52 : 0x7a6440), r, 2, 0.34);
+      g.scale(1.35, 0.46, 1.05);
+      const a = r.next() * Math.PI * 2;
+      add(g, mat(Math.cos(a) * 0.14, R * 0.42, Math.sin(a) * 0.14, 0.12, a, 0.08), 'skin');
+    }
   } else if (kind === 'bush') {
     // Twiggy dead shrub: woody stems, a few curled leaves; slumped (0), leaning (1) or bare (2).
     const ns = v === 2 ? 3 : 4;
@@ -1090,6 +1104,15 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
         const y = (v === 0 ? 0.08 : 0.14) + r.next() * 0.1;
         add(curled(0.09, 0.06), mat(Math.cos(a) * 0.08 + lean * 0.4, y, Math.sin(a) * 0.08, 0.6, a, 0));
       }
+    }
+    // A couple of shrivelled fruits hanging on / dropped under the dead shrub.
+    for (let i = 0; i < (v === 2 ? 1 : 2); i++) {
+      const a = r.next() * Math.PI * 2;
+      const R = 0.028 + r.next() * 0.012;
+      const g = lumpyColored(R, C(r.next() < 0.6 ? 0x6a2a1c : 0x4a3a2a), r, 1, 0.3);
+      g.scale(1, 0.8, 1);
+      const hang = i === 0 && v !== 2;
+      add(g, mat(Math.cos(a) * (hang ? 0.07 : 0.15), hang ? 0.1 : R * 0.7, Math.sin(a) * (hang ? 0.07 : 0.15)), 'skin');
     }
     fallen(v === 2 ? 5 : 3, 0.22);
   } else {
