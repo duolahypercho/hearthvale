@@ -24,10 +24,10 @@ export interface LivestockInfo {
 export const LIVESTOCK: Record<Livestock, LivestockInfo> = {
   chicken: { name: 'Chicken', home: 'coop', price: 650, produce: 'egg', every: 1, byHand: false, blurb: 'Lays an egg in the nesting boxes every morning.', variants: 2 },
   duck: { name: 'Duck', home: 'coop', price: 1100, produce: 'duckEgg', every: 2, byHand: false, blurb: 'A duck egg every other day. Very happy ducks shed feathers.', variants: 2 },
-  cow: { name: 'Cow', home: 'barn', price: 1800, produce: 'milk', every: 1, byHand: true, blurb: 'Fresh milk every day. Give her a pat and a pail.', variants: 2 },
-  goat: { name: 'Goat', home: 'barn', price: 3600, produce: 'goatMilk', every: 2, byHand: true, blurb: 'Goat milk every other day, and a lot of opinions.', variants: 2 },
-  sheep: { name: 'Sheep', home: 'barn', price: 6500, produce: 'wool', every: 3, byHand: true, blurb: 'Grows a fleece every three days. Shear with a friendly hand.', variants: 2 },
-  pig: { name: 'Pig', home: 'barn', price: 12500, produce: 'truffle', every: 1, byHand: false, blurb: 'Snuffles up truffles in the pasture on fine days.', variants: 2 },
+  cow: { name: 'Cow', home: 'barn', price: 1800, produce: 'milk', every: 1, byHand: true, blurb: 'Fresh milk every day — bring a milk pail and give her a pat.', variants: 2 },
+  goat: { name: 'Goat', home: 'barn', price: 3600, produce: 'goatMilk', every: 2, byHand: true, blurb: 'Goat milk every other day (milk pail), and a lot of opinions.', variants: 2 },
+  sheep: { name: 'Sheep', home: 'barn', price: 6500, produce: 'wool', every: 3, byHand: true, blurb: 'Grows a full fleece every three days. Bring shears.', variants: 2 },
+  pig: { name: 'Pig', home: 'barn', price: 12500, produce: 'truffle', every: 1, byHand: false, blurb: 'Roots up truffles after a day out on the pasture.', variants: 2 },
 };
 
 export const LIVESTOCK_ORDER: Livestock[] = ['chicken', 'duck', 'cow', 'goat', 'sheep', 'pig'];

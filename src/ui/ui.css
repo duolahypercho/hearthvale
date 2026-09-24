@@ -4893,3 +4893,12 @@ body.u-contrast #ui-root {
 .pause-wrap > .coop-pause p {
   text-wrap: balance;
 }
+
+/* ═══ UI r9 (critic round 3) ═══════════════════════════════════════ */
+/* Shop: can't afford the selected good — the "→ N in pack" preview is struck out and greyed. */
+.shop-have .hv em.to.no {
+  color: #a8987e;
+  opacity: 0.75;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}

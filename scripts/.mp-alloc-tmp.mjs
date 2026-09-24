@@ -1,0 +1,31 @@
+import { chromium } from 'playwright';
+import { createServer } from 'vite';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+const root = '/Users/ziwenxu/Desktop/Code/hearthvale';
+const demo = process.argv[2] || 'coop-farm';
+const vite = await createServer({ root, logLevel: 'error', cacheDir: resolve(tmpdir(), 'hv-alloc-' + process.pid), server: { port: 0, host: '127.0.0.1', hmr: false, watch: null } });
+await vite.listen();
+const port = vite.httpServer.address().port;
+const browser = await chromium.launch({ headless: true, args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] });
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+await page.goto(`http://127.0.0.1:${port}/?demo=${demo}`, { timeout: 240000 });
+await page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: 240000 });
+await page.evaluate(() => window.__game.ready());
+await new Promise((r) => setTimeout(r, 3000));
+const cdp = await page.context().newCDPSession(page);
+await cdp.send('HeapProfiler.enable');
+await cdp.send('HeapProfiler.startSampling', { samplingInterval: 4096, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+await new Promise((r) => setTimeout(r, 6000));
+const { profile } = await cdp.send('HeapProfiler.stopSampling');
+const self = new Map();
+const walk = (n, stack) => {
+  const f = n.callFrame; const name = `${f.functionName || '(anon)'} ${f.url.replace(/.*\/(src|deps)\//, '$1/')}:${f.lineNumber + 1}`;
+  const s = n.selfSize; if (s) { const key = name + '  <- ' + stack.slice(-3).reverse().join(' <- '); self.set(key, (self.get(key) || 0) + s); }
+  for (const c of n.children) walk(c, [...stack, `${f.functionName || '(anon)'}:${f.lineNumber + 1}${f.url.includes('/src/') ? '@' + f.url.replace(/.*\/src\//, '') : ''}`]);
+};
+walk(profile.head, []);
+const tot = [...self.values()].reduce((a, b) => a + b, 0);
+console.log('total sampled MB over 6s', (tot / 1e6).toFixed(1));
+for (const [k, v] of [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40)) console.log((v / 6e6).toFixed(2), 'MB/s', k.slice(0, 260));
+await browser.close(); await vite.close();

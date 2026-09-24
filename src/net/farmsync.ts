@@ -268,13 +268,20 @@ export class FarmSync {
    * Bring one farm tile to the host's state `want` ('' = plain ground). Returns false if the tile
    * needs a full resync (a state we can't build incrementally, e.g. a withered crop).
    */
+  /** Did the last reconcileTile change anything / what did we have there (drift diagnostics)? */
+  lastChanged = false;
+  lastHave = '';
+
   reconcileTile(idx: number, want: string, known?: string): boolean {
+    this.lastChanged = false;
     const g = this.grid();
     const f = this.farming();
     if (!g || !f) return true;
     const x = idx % g.width;
     const z = Math.floor(idx / g.width);
     const have = known ?? this.stateOf(g, idx, this.savedTiles().get(idx));
+    this.lastHave = have;
+    this.lastChanged = have !== want;
     if (have === want) return true;
     const [hf = '00', hd = '', hc = '', hs = ''] = have ? have.split('|') : [];
     const [wf = '00', wd = '', wc = '', ws = ''] = want ? want.split('|') : [];

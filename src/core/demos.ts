@@ -109,10 +109,14 @@ export const DEMOS: Record<string, DemoDef> = {
   // The Ember Glade up close: tower (roof, door, lit window, ivy), menhir ring and the ember altar.
   'forest-glade': { map: 'forest', x: 50.2, z: 22.6, facing: 'up', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: -12, pitch: 48, distance: 25, offsetX: 3.2, offsetZ: -5.4 } },
   'forest-night': { map: 'forest', x: 50.6, z: 23.8, facing: 'up', time: 22.2, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 48, distance: 28, offsetX: 1.8, offsetZ: -6.2 } },
-  // Storm over the open west meadow: the stream and the falls behind, a bolt on open ground (&bolt=0 off).
-  storm: { map: 'forest', x: 18.8, z: 35.8, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: { yaw: -4, pitch: 47, distance: 26, offsetX: -2.6, offsetZ: -3.6 } },
+  // Storm at the falls: rain sheets over the churning plunge pool, flooded path puddles, a bolt on
+  // the west bank (&bolt=0 off). 'storm-meadow' is the open west meadow with the stream behind.
+  storm: { map: 'forest', x: 22.5, z: 25.0, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: FOREST_FALLS_CAM },
+  'storm-meadow': { map: 'forest', x: 18.8, z: 35.8, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: { yaw: -4, pitch: 47, distance: 26, offsetX: -2.6, offsetZ: -3.6 } },
   // Winter on the frozen stream: stepping stones, the snow-capped footbridge, boot prints.
-  'snow-day': { map: 'forest', x: 35.6, z: 34.4, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: { yaw: -8, pitch: 48, distance: 21, offsetX: 0.4, offsetZ: 0.8 } },
+  'snow-day': { map: 'forest', x: 35.6, z: 34.4, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: { yaw: 20, pitch: 48, distance: 21, offsetX: 0.4, offsetZ: 0.8 } },
+  // Winter at the falls: frozen curtain + icicles over the cracked plunge-pool ice, snow-laden ledges.
+  'snow-falls': { map: 'forest', x: 21.0, z: 23.4, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: FOREST_FALLS_CAM },
   // Dawn mist drifting over the plunge pool below the falls, the low sun raking through the crowns.
   'fog-morning': { map: 'forest', x: 24.2, z: 24.8, facing: 'left', time: 6.8, season: 'spring', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 24, offsetX: -5.6, offsetZ: -3.0 } },
   // Mist pooling over the stream at the footbridge.
@@ -139,28 +143,28 @@ export const DEMOS: Record<string, DemoDef> = {
   'audio-winter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: HOME_CAM },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
-  'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'left', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.2, offsetZ: -0.35 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 9.9, z: 6.5, facing: 'left', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior'] },
+  'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.2, offsetZ: -0.35 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 9.4, z: 6.3, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior'] },
   // Bedtime: the "Go to bed for the night?" prompt beside the quilted bed / tucked in under the quilt, room dimmed, Zzz.
   'house-bedtime': { map: 'house', x: 9.6, z: 2.9, facing: 'right', time: 21.8, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-ask'] },
   'animals-dayend': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'animals', 'dayend'] },
   'house-asleep': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-lie'] },
-  'coop-interior': { map: 'coop', x: 6.6, z: 3.95, facing: 'down', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 14.6, offsetZ: 0.5 }, showcase: ['animals'] },
+  'coop-interior': { map: 'coop', x: 4.85, z: 4.05, facing: 'down', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals'] },
   // Morning egg round: the farmer lifts a gold-star egg overhead from the nesting boxes (&nest=0..5).
-  'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 14.6, offsetZ: 0.5 }, showcase: ['animals', 'eggs'] },
-  'barn-interior': { map: 'barn', x: 8.67, z: 4.3, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.4, offsetZ: 0.45 }, showcase: ['animals'] },
+  'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals', 'eggs'] },
+  'barn-interior': { map: 'barn', x: 8.67, z: 4.3, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 17.2, offsetZ: 0.1 }, showcase: ['animals'] },
   'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
   // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
   'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals', 'coop'] },
   // Petting close-up: crouch + reach, big heart pop with mini hearts, the animal's name + heart meter.
   'animals-petting': { map: 'farm', x: 45.3, z: 40.2, facing: 'left', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: -4, pitch: 40, distance: 11, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals', 'pet-close'] },
   // &pet=dog|cat picks the pet, &hearts=0 stops the staged petting hearts (all 'animals' showcases).
-  'coop-night': { map: 'coop', x: 4.5, z: 5.4, facing: 'up', time: 21.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 15.5, offsetZ: 0.8 }, showcase: ['animals'] },
-  'barn-night': { map: 'barn', x: 6.5, z: 5.6, facing: 'up', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.5, offsetZ: 0.45 }, showcase: ['animals'] },
+  'coop-night': { map: 'coop', x: 4.5, z: 4.6, facing: 'down', time: 21.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 13.2, offsetZ: 0.6 }, showcase: ['animals'] },
+  'barn-night': { map: 'barn', x: 6.5, z: 5.6, facing: 'down', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 16.8, offsetZ: 0.1 }, showcase: ['animals'] },
   // Close-up line-up of every species + coat (model review): &cam= to orbit.
   'animals-gallery': { map: 'farm', x: 50.2, z: 42.4, facing: 'left', time: 15.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 26, distance: 10.5, offsetX: -5.8, offsetZ: -2.4 }, showcase: ['animals'] },
   // 6 am in the coop: dawn light shafts, eggs in the nest boxes.
-  'coop-dawn': { map: 'coop', x: 4.5, z: 3.2, facing: 'up', time: 6.1, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 15.5, offsetZ: 0.8 }, showcase: ['animals'] },
+  'coop-dawn': { map: 'coop', x: 4.6, z: 4.1, facing: 'up', time: 6.1, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 13.2, offsetZ: 0.6 }, showcase: ['animals'] },
   'pet-yard': { map: 'farm', x: 36.5, z: 18.7, facing: 'left', time: 16.4, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 13, offsetX: 0.4, offsetZ: -1.2 }, showcase: ['animals'] },
   carpenter: { map: 'farm', x: 36.5, z: 31.2, facing: 'up', time: 11, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 17, offsetX: 1.5, offsetZ: -0.5 }, showcase: ['animals'], ui: 'carpenter' },
   'carpenter-animals': { map: 'farm', x: 36.5, z: 31.2, facing: 'up', time: 11, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 17, offsetX: 1.5, offsetZ: -0.5 }, showcase: ['animals'], ui: 'carpenter:animals' },

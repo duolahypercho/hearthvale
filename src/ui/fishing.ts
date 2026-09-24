@@ -29,6 +29,10 @@ export interface ReelView {
   bounce: number;
   /** The bar lies idle on the floor: the line is slack and earns nothing. */
   slack?: boolean;
+  /** 0..1 while the fish shivers before a dash / dive (its tell). */
+  tell?: number;
+  /** 0..1 while the fish thrashes (the frame shakes, progress bleeds). */
+  thrash?: number;
 }
 
 export interface CatchCard {
@@ -395,13 +399,40 @@ export class FishingOverlay {
     }
     // Fish sprite.
     const fy = toY(v.fish);
-    const fx = tx + tw * 0.5 + Math.sin(this.t * 7) * 2;
+    const tell = v.tell ?? 0;
+    const thrash = v.thrash ?? 0;
+    // The tell: the fish shivers side to side and a warning ring tightens on it (read it, move first).
+    const fx = tx + tw * 0.5 + Math.sin(this.t * 7) * 2 + (tell > 0 ? Math.sin(this.t * 90) * 3.5 : 0) + thrash * Math.sin(this.t * 60) * 4;
     const tilt = Math.max(-0.9, Math.min(0.9, -v.fishV * 0.8));
+    if (tell > 0) {
+      g.save();
+      g.globalAlpha = 0.35 + tell * 0.6;
+      g.strokeStyle = '#fff3c0';
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(fx, fy, 30 - tell * 12, 0, Math.PI * 2);
+      g.stroke();
+      g.restore();
+    }
+    if (Math.abs(v.fishV) > 1.6) {
+      // Dash streaks trailing the fish.
+      g.save();
+      g.strokeStyle = 'rgba(255,255,255,0.55)';
+      g.lineWidth = 2;
+      const dirY = v.fishV > 0 ? 1 : -1;
+      for (const ox of [-14, 0, 14]) {
+        g.beginPath();
+        g.moveTo(fx + ox, fy + dirY * 16);
+        g.lineTo(fx + ox * 0.8, fy + dirY * (34 + Math.abs(ox) * -0.6));
+        g.stroke();
+      }
+      g.restore();
+    }
     if (this.fishImg?.complete) {
       g.save();
       g.translate(fx, fy);
-      g.rotate(tilt + Math.sin(this.t * 11) * 0.05);
-      const s = 1 + Math.sin(this.t * 9) * 0.03;
+      g.rotate(tilt + Math.sin(this.t * 11) * 0.05 + thrash * Math.sin(this.t * 45) * 0.5);
+      const s = 1 + Math.sin(this.t * 9) * 0.03 + tell * 0.12;
       g.scale(s, s);
       g.drawImage(this.fishImg, -30, -19, 60, 38);
       g.restore();
@@ -457,7 +488,7 @@ export class FishingOverlay {
     rr(g, px, ty, pw, th, 11);
     g.stroke();
 
-    this.reel.classList.toggle('shake', !v.inside && v.progress < 0.35);
+    this.reel.classList.toggle('shake', (!v.inside && v.progress < 0.35) || (v.thrash ?? 0) > 0);
     this.reel.classList.toggle('tense', v.progress > 0.75);
     this.reelPerfect.classList.toggle('lost', !v.perfect);
   }

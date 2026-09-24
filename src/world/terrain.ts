@@ -13,10 +13,36 @@ import { globalUniforms } from '../render/uniforms';
 import { NOISE_GLSL } from '../render/shaders/noise';
 import { applyWorldFx } from '../render/worldfx';
 import { patchMaterial, after, before, replace } from '../render/patch';
+import { bakeInto, bakeTarget, queueBake } from '../render/bake';
 
 export const SPLAT_RES = 2;
 /** Ground-cover texels per world unit (clover / moss / dry-trampled / contact AO). */
 export const COVER_RES = 4;
+/**
+ * Baked ground-noise texels per world unit (pillar 14): the static low-frequency fields (season
+ * tint / dry / lush fbm, meadow hue + value, lawn mottle, splat domain warp — 27 value-noise
+ * evaluations) are rendered once into two RGBA8 textures with the very same GLSL, then read with
+ * two bilinear fetches per pixel. Their finest octave is ≥ 0.46 m, so 5 texels/m reproduces them.
+ */
+const NOISE_RES = 5;
+
+const NOISE_BAKE_FS = /* glsl */ `
+  varying vec2 vUv;
+  uniform vec2 uOrigin;
+  uniform vec2 uSize;
+  uniform float uPass;
+  ${NOISE_GLSL}
+  void main() {
+    vec2 p = uOrigin + vUv * uSize;
+    if (uPass < 0.5) {
+      vec2 q = mat2(0.8, 0.6, -0.6, 0.8) * p;
+      float m = hvFbm(q * 0.27 + 61.0) * 0.75 + hvNoise(q * 0.9 + 13.0) * 0.25;
+      gl_FragColor = vec4(hvFbm(p * 0.055), hvFbm(p * 0.09 + 5.0), hvFbm(p * 0.11 + 20.0), m);
+    } else {
+      gl_FragColor = vec4(hvFbm(p * 0.095 + 41.0), hvFbm(p * 0.11 + 83.0), hvNoise(p * 0.8 + 3.1), hvNoise(p * 0.8 + 8.7));
+    }
+  }
+`;
 
 export interface TerrainOptions {
   minX: number;
@@ -419,10 +445,34 @@ export class Terrain {
     return out;
   }
 
+  /** Bake the static ground-noise fields (see NOISE_RES) before the terrain's first draw. */
+  private bakeNoise(): [THREE.Texture, THREE.Texture] {
+    const { minX, minZ, maxX, maxZ } = this.opts;
+    const w = Math.max(2, Math.ceil((maxX - minX) * NOISE_RES));
+    const h = Math.max(2, Math.ceil((maxZ - minZ) * NOISE_RES));
+    const a = bakeTarget(w, h);
+    const b = bakeTarget(w, h);
+    queueBake((renderer) => {
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { uOrigin: { value: new THREE.Vector2(minX, minZ) }, uSize: { value: new THREE.Vector2(maxX - minX, maxZ - minZ) }, uPass: { value: 0 } },
+        vertexShader: 'varying vec2 vUv;\nvoid main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: NOISE_BAKE_FS,
+        depthTest: false,
+        depthWrite: false,
+      });
+      bakeInto(renderer, mat, a);
+      mat.uniforms.uPass!.value = 1;
+      bakeInto(renderer, mat, b);
+      mat.dispose();
+    });
+    return [a.texture, b.texture];
+  }
+
   private buildMaterial(): THREE.MeshStandardMaterial {
     const m = new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0, vertexColors: true });
     m.name = 'terrain';
     const { minX, minZ, maxX, maxZ } = this.opts;
+    const [noiseA, noiseB] = this.bakeNoise();
     const u = {
       uSplat: { value: this.splat },
       uCover: { value: this.cover },
@@ -436,6 +486,8 @@ export class Terrain {
       uCliffTex: { value: textures.cliff().map },
       uSandTex: { value: textures.sand().map },
       uWaterLevel: { value: this.opts.waterLevel },
+      uNoiseA: { value: noiseA },
+      uNoiseB: { value: noiseB },
     };
     patchMaterial(m, 'terrain', (shader) => {
       Object.assign(shader.uniforms, u);
@@ -480,6 +532,9 @@ export class Terrain {
         uniform vec3 uGrassDry;
         uniform vec3 uGrassTip;
         uniform float uWaterLevel;
+        // Baked static noise (NOISE_RES): A = season / dry / lush fbm + mottle, B = meadow hue / value + warp.
+        uniform sampler2D uNoiseA;
+        uniform sampler2D uNoiseB;
         uniform float uDryAmt;
         uniform vec4 uSeasonW;
         uniform float uRain;
@@ -513,25 +568,31 @@ export class Terrain {
         vec3 wp = vTWorld;
         vec3 wn = normalize(vTNormal);
         vec2 suv = (wp.xz - uSplatOrigin) / uSplatSize;
+        vec4 hvNA = texture2D(uNoiseA, suv);
+        vec4 hvNB = texture2D(uNoiseB, suv);
         float tn1 = hvNoise(wp.xz * 1.9);
         float tn2 = hvNoise(wp.xz * 5.3 + 4.0);
-        vec2 warp = (vec2(hvNoise(wp.xz * 0.8 + 3.1), hvNoise(wp.xz * 0.8 + 8.7)) - 0.5) * 0.55;
+        vec2 warp = (hvNB.ba - 0.5) * 0.55;
         vec4 spW = texture2D(uSplat, suv + warp / uSplatSize);
         vec4 spR = texture2D(uSplat, suv);
 
         // Grass: seasonal two-tone + dry patches + detail strokes.
-        float gmix = smoothstep(0.3, 0.72, hvFbm(wp.xz * 0.055));
+        float gmix = smoothstep(0.3, 0.72, hvNA.r);
         vec3 grass = mix(uGrassA, uGrassB, gmix);
         float dryLo = 0.62 - 0.14 * uSeasonW.z;
-        grass = mix(grass, uGrassDry, smoothstep(dryLo, dryLo + 0.22, hvFbm(wp.xz * 0.09 + 5.0)) * uDryAmt);
+        grass = mix(grass, uGrassDry, smoothstep(dryLo, dryLo + 0.22, hvNA.g) * uDryAmt);
         grass = mix(grass, uGrassTip, smoothstep(0.55, 0.95, hvNoise(wp.xz * 0.35)) * 0.18);
         float gd = texture2D(uGrassTex, wp.xz * 0.23).r;
         float gd2 = texture2D(uGrassTex, wp.xz * 0.071 + 0.37).r;
-        float lush = smoothstep(0.35, 0.78, hvFbm(wp.xz * 0.11 + 20.0));
+        float lush = smoothstep(0.35, 0.78, hvNA.b);
         grass = mix(grass, uGrassA * vec3(0.7, 0.86, 0.74), lush * 0.55);
         grass *= (0.62 + gd * 0.55 + gd2 * 0.25) * 0.86;
-        grass = hvMeadowVar(grass, wp.xz);
-        grass = hvMottle(grass, wp.xz);
+        // = hvMeadowVar(grass, wp.xz) + hvMottle(grass, wp.xz), from the baked fields.
+        grass = hvHueShift(grass, (hvNB.r - 0.5) * 0.28) * (1.0 + (hvNB.g - 0.5) * 0.24);
+        {
+          float hvTone = smoothstep(0.52, 0.64, hvNA.a) - smoothstep(0.42, 0.3, hvNA.a);
+          grass = hvTone > 0.0 ? mix(grass, hvHueShift(grass, -0.12) * 1.12, hvTone) : mix(grass, hvHueShift(grass, 0.1) * 0.88, -hvTone);
+        }
 
         // Ground cover: clover carpets, moss, dry / trampled straw (+ baked contact AO, below).
         vec4 cov = texture2D(uCover, suv + warp * 0.35 / uSplatSize);
@@ -603,7 +664,8 @@ export class Terrain {
 
         // Puddles: noise-masked on flat ground (paths and soil most likely) while it's wet.
         float flatG = smoothstep(0.965, 0.995, wn.y);
-        float pudN = hvFbm(wp.xz * 0.42 + 11.0) + pathM * 0.08;
+        // Dry ground (uWetT <= 0.5 → hvWetK = 0) never shows a puddle: skip the fbm.
+        float pudN = uWetT > 0.5 ? hvFbm(wp.xz * 0.42 + 11.0) + pathM * 0.08 : 0.0;
         float hvWetK = smoothstep(0.5, 0.95, uWetT);
         // Islands, not sheets: only the deepest dips of the path hold water.
         float hvPuddle = smoothstep(0.625, 0.67, pudN) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
@@ -619,8 +681,9 @@ export class Terrain {
         float hvLum = dot(hvWetG, vec3(0.333));
         ground = mix(vec3(hvLum), hvWetG, 1.0 + 0.18 * hvWetPath);
         ground *= mix(1.0, 0.68, hvPudRim);
-        ground *= mix(1.0, 0.26, hvPuddle);
-        ground = mix(ground, ground * vec3(0.86, 0.94, 1.1), hvPuddle);
+        // Standing water: the dirt under it goes near-black (the mirror term carries the colour).
+        ground *= mix(1.0, 0.16, hvPuddle);
+        ground = mix(ground, ground * vec3(0.8, 0.92, 1.12), hvPuddle);
         float hvTPath = pathM;
 
         // Baked contact AO under props / vignettes (painted blobs), strongest in the centre.
@@ -643,17 +706,25 @@ export class Terrain {
           float fr = 0.5 + 0.5 * pow(1.0 - max(Vp.y, 0.0), 2.0);
           // Mirror of the sky with the dark masses of trees / eaves reflected in it (a cheap
           // screen-free "probe": low-frequency blotches offset along the view direction).
+          // The reflected ray climbs away from the lens: it sees the far side of the puddle's sky, so
+          // the probe is offset down-screen of the fragment and stretched along the view (a mirror
+          // image smears along the reflection plane, never across it).
+          vec2 vd = normalize(Vp.xz + 1e-4);
           vec2 rq = vTWorld.xz - Vp.xz * 6.0;
-          float trees = smoothstep(0.4, 0.56, hvFbm(rq * 0.12 + 3.0));
-          // Bright overcast sky with a soft brighter streak (the cloud break), dark crowns across it.
-          float cloud = 0.85 + 0.3 * hvNoise(rq * 0.05 + 9.0);
-          vec3 refl = mix(mix(uHorizonT, uSkyT, 0.35) * 1.2 * cloud, mix(uHorizonT, uSkyT, 0.5) * vec3(0.1, 0.13, 0.11), trees * 0.92);
+          vec2 rs = vec2(dot(rq, vd) * 0.55, dot(rq, vec2(-vd.y, vd.x)));
+          // Dark crowns / trunks over most of it, torn sky gaps between them (reads as water, not a
+          // grey sheet: a still puddle is mostly a dark mirror with a few bright openings).
+          float trees = smoothstep(0.4, 0.58, hvFbm(rs * 0.16 + 3.0));
+          float gapHi = smoothstep(0.55, 0.8, hvNoise(rs * 0.09 + 9.0));
+          vec3 skyR = mix(uHorizonT, uSkyT, 0.45) * (1.05 + 0.45 * gapHi) * vec3(0.92, 1.0, 1.12);
+          vec3 crownR = mix(uHorizonT, uSkyT, 0.5) * vec3(0.07, 0.09, 0.085);
+          vec3 refl = mix(skyR, crownR, trees);
           // Ripple rings catch the light.
           float rr = length(hvRipples(vTWorld.xz, uTimeT)) * uRain;
-          // A faint sky hint only: the real sheen comes from the environment specular (roughness 0.05).
-          totalEmissiveRadiance += (refl * fr * 0.62 + vec3(rr * 0.16)) * hvPuddle;
+          totalEmissiveRadiance += (refl * fr * 0.5 + mix(uHorizonT, uSkyT, 0.3) * rr * 0.22) * hvPuddle;
         }
-        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.3) * hvPudEdge * 0.05;`,
+        // Bright meniscus at the waterline (1-2 px), a touch stronger where the sky is reflected.
+        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.3) * hvPudEdge * 0.1;`,
       );
       fs = after(
         fs,

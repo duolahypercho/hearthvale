@@ -967,6 +967,8 @@ export class CutsceneSystem implements System, CutsceneApi {
     const a = this.actors.get(id);
     if (!a) return;
     const mat = new THREE.MeshBasicMaterial({ map: emoteTexture(e), depthTest: false, depthWrite: false, transparent: true, toneMapped: false, fog: false });
+    // Just under the bloom threshold: a crisp paper bubble, not a glowing lamp over every head.
+    mat.color.setScalar(0.8);
     const s = new THREE.Mesh(EMOTE_QUAD, mat);
     s.frustumCulled = false;
     s.castShadow = s.receiveShadow = false;

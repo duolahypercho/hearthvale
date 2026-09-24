@@ -12,7 +12,7 @@ import type { Game } from '../../core/game';
 import { Screen, el, frame, closeButton, sfx, replay, escapeHtml } from '../../ui/kit';
 import { ICONS, itemIcon } from '../../ui/icons';
 import { LIVESTOCK, LIVESTOCK_ORDER, type Livestock } from '../../entities/animals-data';
-import { registerAnimalIcons } from './icons';
+import { registerAnimalIcons, animalPortraits } from './icons';
 import type { BuildingKind } from './farm';
 
 const HAY_PRICE = 45;
@@ -104,7 +104,16 @@ const CSS = `
 .cp-animal .cp-blurb { font-size:12.5px; min-height:0; }
 .cp-occ { font-size:12.5px; font-weight:800; color:#8a6a4a; }
 .cp-occ b { color:#4a2810; }
-.cp-card.locked { opacity:.55; filter:saturate(.6); }
+.cp-card.locked { opacity:.62; filter:saturate(.55); }
+.cp-animal .cp-face.cp-portrait { flex:0 0 116px; width:116px; height:116px; border-radius:18px; background: radial-gradient(circle at 50% 40%, #fffaf0 0%, #f6e4bc 60%, #e2c28a 100%);
+  border:3px solid #a8743c; box-shadow: inset 0 -6px 0 rgba(150,90,30,.18), 0 2px 0 rgba(122,74,34,.3); overflow:hidden; }
+.cp-animal .cp-face.cp-portrait img { width:124px; height:124px; margin-top:4px; filter: drop-shadow(0 4px 3px rgba(80,40,10,.35)); }
+.cp-animal .cp-face.cp-portrait svg { width:80px; height:80px; }
+.cp-occ { display:flex; flex-wrap:wrap; gap:5px; }
+.cp-chip { display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:999px; font-family:var(--font-head); font-weight:700; font-size:13px; }
+.cp-chip img { width:18px; height:18px; }
+.cp-chip.ok { background:rgba(80,150,50,.16); color:#2f6a1e; } .cp-chip.need { background:rgba(200,70,40,.14); color:#a8321e; }
+.cp-chip.prod { background:rgba(120,70,20,.1); color:#5a3414; }
 .cp-msg { margin-top:10px; min-height:22px; text-align:center; font-weight:800; font-size:15px; color:#7a5230; }
 .cp-msg.bad { color:#c0392b; } .cp-msg.good { color:#3f8a2a; }
 .cp-msg.pop { animation: cp-pop 380ms var(--ease-back); }
@@ -237,15 +246,18 @@ export class CarpenterPanel extends Screen {
   private animals(): void {
     const b = this.game.services.buildings;
     const an = this.game.services.animals;
+    const shots = animalPortraits(LIVESTOCK_ORDER.map((sp) => ({ species: sp, variant: sp === 'cow' ? 1 : 0 })));
     LIVESTOCK_ORDER.forEach((s, i) => {
       const info = LIVESTOCK[s];
       const has = !!b?.has(info.home);
       const n = an?.count(info.home) ?? 0;
-      const card = el('div', `cp-card cp-animal${has ? '' : ' locked'}`);
+      const card = el('div', `cp-card cp-animal cp-live${has ? '' : ' locked'}`);
       card.style.animationDelay = `${i * 40}ms`;
       const body = el('div', 'cp-body');
+      const full = has && n >= 6;
+      const chip = !has ? `<span class="cp-chip need">Needs: ${info.home === 'coop' ? 'Coop' : 'Barn'}</span>` : full ? `<span class="cp-chip need">${info.home === 'coop' ? 'Coop' : 'Barn'} full</span>` : `<span class="cp-chip ok">${info.home === 'coop' ? 'Coop' : 'Barn'} ${n} / 6</span>`;
       body.innerHTML = `<div class="cp-name">${info.name}</div><div class="cp-blurb">${info.blurb}</div>
-        <div class="cp-occ">${has ? `${info.home === 'coop' ? 'Coop' : 'Barn'} <b>${n} / 6</b>` : `Needs a <b>${info.home}</b>`}</div>`;
+        <div class="cp-occ">${chip}<span class="cp-chip prod">${itemIcon(info.produce)}${info.every === 1 ? 'daily' : `every ${info.every} days`}</span></div>`;
       const row = el('div', 'cp-row');
       const afford = (this.game.services.economy?.gold() ?? 0) >= info.price;
       row.innerHTML = `<div class="cp-cost"><span${afford ? '' : ' class="short" title="Not enough gold"'}>${ICONS.coin ?? ''}${info.price.toLocaleString()}g</span></div>`;
@@ -268,39 +280,54 @@ export class CarpenterPanel extends Screen {
       });
       row.appendChild(btn);
       body.appendChild(row);
-      card.append(el('div', 'cp-face', face(s)), body);
+      const pic = shots.get(`${s}:${s === 'cow' ? 1 : 0}`);
+      card.append(el('div', 'cp-face cp-portrait', pic ? `<img src="${pic}" alt="" draggable="false"/>` : face(s)), body);
       this.list.appendChild(card);
     });
   }
 
   private supplies(): void {
-    for (const [qty, i] of [[1, 0], [10, 1], [30, 2]] as const) {
+    const inv = this.game.services.inventory;
+    type Supply = { id: string; qty: number; price: number; name: string; blurb: string; once?: boolean };
+    const list: Supply[] = [
+      { id: 'hay', qty: 1, price: HAY_PRICE, name: 'Hay ×1', blurb: 'Sweet meadow hay. One portion per animal per day in the feed trough.' },
+      { id: 'hay', qty: 10, price: HAY_PRICE * 10, name: 'Hay ×10', blurb: 'A cartload for rainy weeks and winter, when the herd stays in.' },
+      { id: 'hay', qty: 30, price: HAY_PRICE * 30, name: 'Hay ×30', blurb: 'Stack it in the loft. Nobody goes hungry this season.' },
+      { id: 'milkPail', qty: 1, price: 650, name: 'Milk Pail', blurb: 'Cows and goats that are ready fill it when you give them a pat.', once: true },
+      { id: 'shears', qty: 1, price: 700, name: 'Shears', blurb: 'For a sheep in full fleece. Snip-snip, and a soft bundle of wool.', once: true },
+    ];
+    list.forEach((it, i) => {
+      const owned = !!it.once && (inv?.count(it.id) ?? 0) > 0;
       const card = el('div', 'cp-card cp-animal');
       card.style.animationDelay = `${i * 50}ms`;
       const body = el('div', 'cp-body');
-      body.innerHTML = `<div class="cp-name">Hay ×${qty}</div><div class="cp-blurb">Sweet meadow hay. One portion per animal per day in the feed trough.</div>`;
+      body.innerHTML = `<div class="cp-name">${it.name}</div><div class="cp-blurb">${it.blurb}</div>`;
       const row = el('div', 'cp-row');
-      const afford = (this.game.services.economy?.gold() ?? 0) >= qty * HAY_PRICE;
-      row.innerHTML = `<div class="cp-cost"><span${afford ? '' : ' class="short"'}>${ICONS.coin ?? ''}${(qty * HAY_PRICE).toLocaleString()}g</span></div>`;
-      const btn = el('button', `u-btn${afford ? '' : ' off'}`, 'Buy');
-      btn.dataset.nav = '';
-      btn.addEventListener('click', () => {
-        const eco = this.game.services.economy;
-        if (!eco?.spend(qty * HAY_PRICE, 'hay')) {
-          sfx(this.game, 'error');
-          this.say(`Needs ${(qty * HAY_PRICE).toLocaleString()}g.`, 'bad');
-          return;
-        }
-        this.game.events.emit('item:give', { itemId: 'hay', qty });
-        sfx(this.game, 'buy');
-        this.say(`${qty} hay loaded onto your cart.`, 'good');
-        this.refreshPurse();
-      });
-      row.appendChild(btn);
+      const afford = (this.game.services.economy?.gold() ?? 0) >= it.price;
+      row.innerHTML = `<div class="cp-cost"><span${afford || owned ? '' : ' class="short"'}>${ICONS.coin ?? ''}${it.price.toLocaleString()}g</span></div>`;
+      if (owned) row.appendChild(el('div', 'cp-stamp built', 'Owned'));
+      else {
+        const btn = el('button', `u-btn${afford ? '' : ' off'}`, 'Buy');
+        btn.dataset.nav = '';
+        btn.addEventListener('click', () => {
+          const eco = this.game.services.economy;
+          if (!eco?.spend(it.price, it.id)) {
+            sfx(this.game, 'error');
+            this.say(`Needs ${it.price.toLocaleString()}g.`, 'bad');
+            replay(card, 'cp-shake');
+            return;
+          }
+          this.game.events.emit('item:give', { itemId: it.id, qty: it.qty });
+          sfx(this.game, 'buy');
+          this.say(it.id === 'hay' ? `${it.qty} hay loaded onto your cart.` : `The <b>${it.name.toLowerCase()}</b> is in your backpack.`, 'good');
+          this.build();
+        });
+        row.appendChild(btn);
+      }
       body.appendChild(row);
-      card.append(el('div', 'cp-face', itemIcon('hay')), body);
+      card.append(el('div', 'cp-face', itemIcon(it.id)), body);
       this.list.appendChild(card);
-    }
+    });
   }
 }
 

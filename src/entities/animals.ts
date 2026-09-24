@@ -105,6 +105,8 @@ export class AnimalActor {
   player: THREE.Vector3 | null = null;
   /** Other farmers on this map (co-op): same personal-space ring as the local farmer. */
   farmers: readonly THREE.Vector3[] = [];
+  /** Solid props (world AABBs: feeders, troughs, hay racks): the body capsule is pushed out of them. */
+  blockers: readonly { x0: number; z0: number; x1: number; z1: number }[] = [];
 
   private b: Record<string, THREE.Bone>;
   private rest: Record<string, Rest> = {};
@@ -217,10 +219,30 @@ export class AnimalActor {
     curiousNow.delete(this);
   }
 
-  pet(): void {
+  /** Petted: happy hop + squash; with `from` (the farmer) it turns to look up at them. */
+  pet(from?: THREE.Vector3): void {
     this.happyT = 0;
     this.squashT = 0;
     if (this.state !== 'sleep') this.setState('happy', 0.9);
+    if (from && this.state !== 'sleep') {
+      const want = Math.atan2(from.x - this.pos.x, from.z - this.pos.z);
+      // Stall animals keep facing out over the manger (the farmer reaches in from the aisle).
+      if (!this.stalled) this.faceTo = want;
+    }
+  }
+
+  /** Glide (≈0.4 s) to a spot + heading without walking (petting: settle at arm's length). */
+  easeTo(x: number, z: number, heading: number): void {
+    this.ease = { x, z, h: heading, t: 0.45 };
+    this.faceTo = heading;
+  }
+
+  private ease: { x: number; z: number; h: number; t: number } | null = null;
+
+  /** Where the mouth / muzzle is (world XZ, at the gait reach in front of the root). */
+  muzzle(out = new THREE.Vector3()): THREE.Vector3 {
+    const r = this.gait.reach * this.scale;
+    return out.set(this.pos.x + Math.sin(this.heading) * r, this.pos.y, this.pos.z + Math.cos(this.heading) * r);
   }
 
   get isSleeping(): boolean {
@@ -422,6 +444,18 @@ export class AnimalActor {
       if (Math.abs(dh) < 0.02) this.faceTo = null;
     }
     if (this.state === 'walk') this.faceTo = null;
+    if (this.ease) {
+      const e = this.ease;
+      const k = 1 - Math.exp(-12 * dt);
+      const nx = this.pos.x + (e.x - this.pos.x) * k;
+      const nz = this.pos.z + (e.z - this.pos.z) * k;
+      if (this.walkable(nx, nz)) {
+        this.pos.x = nx;
+        this.pos.z = nz;
+      }
+      e.t -= dt;
+      if (e.t <= 0) this.ease = null;
+    }
     // Separation: body capsules (long cows vs goats) padded to a per-species personal space, resolved
     // fully each step (each side takes half; a confined stall animal pushes the other the whole way),
     // plus a personal-space ring round every farmer on the map.
@@ -459,6 +493,21 @@ export class AnimalActor {
     };
     if (this.player) ring(this.player.x, this.player.z);
     for (const f of this.farmers) ring(f.x, f.z);
+    // Props: push the body capsule (tail, middle, muzzle end) out of every blocker box along the
+    // shallowest axis — no sheep sinking into the hay rack, no cow standing in the water trough.
+    for (const bx of this.blockers) {
+      for (let i = 0; i < 3; i++) {
+        const k = i * 0.5;
+        const px = me.ax + (me.bx - me.ax) * k;
+        const pz = me.az + (me.bz - me.az) * k;
+        const r = me.r * 0.9;
+        const ox = Math.min(px - (bx.x0 - r), bx.x1 + r - px);
+        const oz = Math.min(pz - (bx.z0 - r), bx.z1 + r - pz);
+        if (ox <= 0 || oz <= 0) continue;
+        if (ox < oz) this.nudge(px - (bx.x0 + bx.x1) / 2 < 0 ? -ox : ox, 0, me);
+        else this.nudge(0, pz - (bx.z0 + bx.z1) / 2 < 0 ? -oz : oz, me);
+      }
+    }
     if (this.confine) {
       const a = this.area;
       this.pos.x = THREE.MathUtils.clamp(this.pos.x, a.x0, a.x1);
@@ -554,6 +603,9 @@ export class AnimalActor {
       if (g.biped) body.rotation.x += (this.species === 'duck' ? 0.14 : 0.35) * E;
       else body.rotation.x += 0.06 * E;
     }
+
+    // Stall life from the high camera: chin up over the manger so the face reads (not the poll + ears).
+    if (this.stalled) head.rotation.x -= 0.28 * (1 - E) * (1 - Z);
 
     // Idle look-around
     if (Math.random() < dt * 0.25) this.lookTarget = (Math.random() - 0.5) * 1.1;
@@ -722,7 +774,11 @@ interface Pop {
   t: number;
   life: number;
   from: THREE.Vector3;
-  kind: 'heart' | 'z' | 'note' | 'mini' | 'tag';
+  kind: 'heart' | 'z' | 'note' | 'mini' | 'tag' | 'drop' | 'fluff';
+  /** Seconds before it appears (bursts stagger their particles). */
+  delay?: number;
+  /** World size (drops / fluff). */
+  size?: number;
   /** Follow this animal's head (from = offset from its top point). */
   actor?: AnimalActor;
   vel?: THREE.Vector3;
@@ -730,6 +786,8 @@ interface Pop {
   px?: number;
   /** Tag aspect (w / h). */
   aspect?: number;
+  /** Tag side (+1 camera-right / -1 left), fixed when it appears. */
+  side?: number;
 }
 
 let zTex: THREE.Texture | null = null;
@@ -831,6 +889,7 @@ function nameTag(name: string, hearts: number): { tex: THREE.Texture; aspect: nu
 const _top = new THREE.Vector3();
 const _cp2 = new THREE.Vector3();
 const _right = new THREE.Vector3(1, 0, 0);
+const _toCam = new THREE.Vector3();
 const easeOutBack = (x: number): number => {
   const c1 = 1.9;
   return 1 + (c1 + 1) * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
@@ -844,6 +903,8 @@ export class AnimalPops {
   private heartMat = new THREE.MeshBasicMaterial({ map: heartSprite().map, transparent: true, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
   private zMat = new THREE.MeshBasicMaterial({ map: zzzTexture(), transparent: true, depthWrite: false, fog: false, opacity: 0.85 });
   private sparkMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0xfff2b0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  private dropMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0xffffff, transparent: true, depthWrite: false, fog: false });
+  private fluffMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0xfff8ec, transparent: true, depthWrite: false, fog: false });
   private quad = new THREE.PlaneGeometry(1, 1);
 
   constructor() {
@@ -853,27 +914,32 @@ export class AnimalPops {
     this.group.renderOrder = 20;
   }
 
+  /** The farmer (tags sit on the side of the animal away from them, the heart is nudged off them). */
+  farmer: THREE.Vector3 | null = null;
+
   /**
-   * Heart pop: a big heart (~64 px at 1080p) that springs in with an ease-out-back overshoot and floats
-   * up 0.6 m, a burst of mini hearts + sparkles, and (with `tag`) the animal's name + heart meter for
-   * 1.2 s. With `actor` it all rides on the animal's head as it moves.
+   * Heart pop: one crisp heart (~72 px at 1080p) 0.35 m over the animal's head, nudged towards the
+   * camera so it never sits on the farmer: springs 0 → 1.25 → 1 in 220 ms, holds at full strength,
+   * then shrinks away fast (no long translucent fade). A burst of mini hearts + sparkles, and (with
+   * `tag`) the name + heart meter on the side away from the farmer. With `actor` it all rides on the
+   * animal's head as it moves.
    */
   heart(at: THREE.Vector3, actor?: AnimalActor, tag?: { name: string; hearts: number }): void {
-    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.25, 0) : at.clone().setY(at.y + 0.25), this.heartMat.clone(), 1.3);
+    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.35, 0) : at.clone().setY(at.y + 0.35), this.heartMat.clone(), 1.55);
     h.actor = actor;
-    h.px = 64 / 1080;
+    h.px = 72 / 1080;
     const n = 3 + Math.floor(Math.random() * 3);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.8;
-      const off = new THREE.Vector3(Math.cos(a) * 0.12, 0.2, Math.sin(a) * 0.12);
+      const off = new THREE.Vector3(Math.cos(a) * 0.12, 0.28, Math.sin(a) * 0.12);
       const p = this.spawn('mini', actor ? off : at.clone().add(off), this.heartMat.clone(), 0.75 + Math.random() * 0.3);
       p.actor = actor;
-      p.px = (20 + Math.random() * 8) / 1080;
+      p.px = (22 + Math.random() * 8) / 1080;
       p.vel = new THREE.Vector3(Math.cos(a) * 1.1, 1.0 + Math.random() * 0.5, Math.sin(a) * 0.7);
     }
     for (let i = 0; i < 5; i++) {
       const a = Math.random() * Math.PI * 2;
-      const off = new THREE.Vector3(Math.cos(a) * 0.1, 0.15 + Math.random() * 0.15, Math.sin(a) * 0.1);
+      const off = new THREE.Vector3(Math.cos(a) * 0.1, 0.2 + Math.random() * 0.15, Math.sin(a) * 0.1);
       const p = this.spawn('note', actor ? off : at.clone().add(off), this.sparkMat.clone(), 0.5 + Math.random() * 0.35);
       p.actor = actor;
       p.vel = new THREE.Vector3(Math.cos(a) * 0.7, 0.8 + Math.random() * 0.5, Math.sin(a) * 0.7);
@@ -883,10 +949,26 @@ export class AnimalPops {
       for (const q of this.pops) if (q.kind === 'tag' && q.actor === actor) q.t = Math.max(q.t, q.life - 0.12);
       const nt = nameTag(tag.name, tag.hearts);
       const m = new THREE.MeshBasicMaterial({ map: nt.tex, transparent: true, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
-      const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.45);
+      const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.9);
       p.actor = actor;
-      p.px = 46 / 1080;
+      p.px = 60 / 1080;
       p.aspect = nt.aspect;
+    }
+  }
+
+  /**
+   * Milking squirts (white droplets arcing into the pail) or shearing fluff (soft wool tufts puffing
+   * off the fleece), at `at` (world).
+   */
+  burst(at: THREE.Vector3, kind: 'milk' | 'wool'): void {
+    const n = kind === 'milk' ? 14 : 12;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const p = this.spawn(kind === 'milk' ? 'drop' : 'fluff', at.clone(), (kind === 'milk' ? this.dropMat : this.fluffMat).clone(), kind === 'milk' ? 0.45 + Math.random() * 0.35 : 0.9 + Math.random() * 0.5);
+      p.delay = (i / n) * (kind === 'milk' ? 0.55 : 0.4);
+      p.vel = kind === 'milk' ? new THREE.Vector3(Math.cos(a) * 0.25, -0.2 - Math.random() * 0.6, Math.sin(a) * 0.25) : new THREE.Vector3(Math.cos(a) * 0.9, 0.5 + Math.random() * 0.7, Math.sin(a) * 0.9);
+      p.sprite.visible = false;
+      p.size = kind === 'milk' ? 0.05 + Math.random() * 0.03 : 0.12 + Math.random() * 0.08;
     }
   }
 
@@ -942,32 +1024,66 @@ export class AnimalPops {
         this.pops.splice(i, 1);
         continue;
       }
+      if (p.delay != null && p.delay > 0) {
+        p.delay -= dt;
+        p.t = 0;
+        continue;
+      }
       if (p.kind === 'heart') {
-        // 0 → 1.25 → 1 over ~180 ms (ease-out-back); its bottom tip sits 0.25 m over the head, then it
-        // eases up 0.35 m over 0.6 s with a gentle sway and fades — always reading as *this* animal's heart.
-        const o = base ? _cp2.copy(base).add(p.from) : p.from;
+        // 0 → 1.25 → 1 over 220 ms (ease-out, then settle), eases up 0.3 m, holds crisp, shrinks away
+        // in the last 0.28 s. Nudged 0.3 m towards the camera so it floats in front of the farmer.
+        const o = base ? _cp2.copy(base).add(p.from) : _cp2.copy(p.from);
+        if (cam) o.addScaledVector(_toCam.copy(cam.position).sub(o).normalize(), 0.3);
         const pt = p.t;
-        const pop = pt < 0.18 ? easeOutBack(pt / 0.18) * 1.0 : 1;
-        const rise = 0.35 * (1 - Math.pow(1 - Math.min(1, pt / 0.6), 3));
+        const pop = pt < 0.13 ? 1.25 * (1 - Math.pow(1 - pt / 0.13, 3)) : pt < 0.22 ? 1.25 - 0.25 * Math.sin(((pt - 0.13) / 0.09) * Math.PI * 0.5) : 1;
+        const out = Math.max(0, (pt - (p.life - 0.28)) / 0.28);
+        const rise = 0.3 * (1 - Math.pow(1 - Math.min(1, pt / 0.7), 3));
         const size = Math.max(0.01, (p.px ?? 0.06) * screenK(o) * 1.18);
-        p.sprite.position.set(o.x + Math.sin(pt * 6) * 0.04, o.y + size * 0.42 + rise, o.z);
-        p.sprite.scale.setScalar(Math.max(0.01, size * pop));
-        m.opacity = k > 0.72 ? 1 - (k - 0.72) / 0.28 : 1;
+        // Slide off the farmer's side on screen (the heart belongs over the animal, never on a face).
+        if (this.farmer && camera) {
+          _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
+          const fx = (this.farmer.x - o.x) * _right.x + (this.farmer.z - o.z) * _right.z;
+          if (p.side == null) p.side = Math.abs(fx) < 0.08 ? 0 : fx > 0 ? -1 : 1;
+          o.addScaledVector(_right, p.side * size * 0.45);
+        }
+        p.sprite.position.set(o.x + Math.sin(pt * 5) * 0.03, o.y + size * 0.42 + rise, o.z);
+        p.sprite.scale.setScalar(Math.max(0.01, size * pop * (1 - out * out)));
+        m.opacity = 1 - out * 0.35;
       } else if (p.kind === 'tag') {
-        // Name + heart meter beside the heart (camera-right of it, same height): springs in, holds 1.2 s,
-        // fades. Side by side keeps the pair tight over the animal instead of stacking a tall tower.
+        // Name + heart meter beside the heart, on the side away from the farmer (screen space): springs
+        // in, holds, fades. Side by side keeps the pair tight over the animal (no tall tower).
         const o = base ?? p.from;
         const pop = p.t < 0.16 ? easeOutBack(p.t / 0.16) : 1;
         const sk = screenK(o);
-        // Constant on screen, a touch larger from far cameras (≥16 px cap height at the pasture framing).
-        const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(0.9 + (sk - 7) * 0.045, 0.9, 1.4) * pop;
-        const heart = (64 / 1080) * sk * 1.18;
+        // Constant on screen, a touch larger from far cameras (≥ 18 px text at 1080p everywhere).
+        const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(1 + (sk - 7) * 0.04, 1, 1.4) * pop;
+        const heart = (72 / 1080) * sk * 1.18;
         const w = h * (p.aspect ?? 3);
         if (camera) _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
-        const side = heart * 0.45 + w * 0.5;
-        p.sprite.position.set(o.x + _right.x * side, o.y + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);
+        let dir = 1;
+        if (this.farmer) {
+          const fx = (this.farmer.x - o.x) * _right.x + (this.farmer.z - o.z) * _right.z;
+          dir = fx > 0.05 ? -1 : 1;
+        }
+        if (p.side == null) p.side = dir;
+        const side = p.side * (heart * 0.95 + w * 0.5);
+        p.sprite.position.set(o.x + _right.x * side, o.y + 0.35 + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);
         p.sprite.scale.set(w, h, 1);
-        m.opacity = p.t > 1.2 ? Math.max(0, 1 - (p.t - 1.2) / (p.life - 1.2)) : 1;
+        m.opacity = p.t > p.life - 0.35 ? Math.max(0, (p.life - p.t) / 0.35) : 1;
+      } else if (p.kind === 'drop' || p.kind === 'fluff') {
+        p.sprite.visible = true;
+        if (p.vel) {
+          p.from.addScaledVector(p.vel, dt);
+          if (p.kind === 'drop') p.vel.y -= dt * 5.5;
+          else {
+            p.vel.multiplyScalar(Math.exp(-2.5 * dt));
+            p.vel.y -= dt * 0.35;
+          }
+        }
+        p.sprite.position.copy(p.from);
+        const s0 = p.size ?? 0.08;
+        p.sprite.scale.set(s0 * (p.kind === 'drop' ? 0.7 : 1), s0 * (p.kind === 'drop' ? 1.2 : 1), 1);
+        m.opacity = p.kind === 'drop' ? 0.95 * (1 - k * k) : Math.min(1, k * 6) * (1 - k);
       } else if (p.kind === 'z') {
         p.sprite.scale.setScalar(0.12 + k * 0.18);
         p.sprite.position.set(p.from.x + Math.sin(k * 5) * 0.12 + k * 0.2, p.from.y + k * 0.6, p.from.z);

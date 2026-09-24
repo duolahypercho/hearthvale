@@ -267,8 +267,16 @@ function farmland(season: Season, r: () => number): string {
   return s;
 }
 
+const MILL_X = 420;
+const MILL_Y = 238;
+
+/** The windmill's turning sails alone (animated, so they stay live SVG over the rasterised painting). */
+function millSails(x: number, y: number): string {
+  return `<g transform="translate(${x} ${y})"><g class="m-mill" transform="translate(0 -12)"><g fill="#fbf0d6" stroke="#5a3418" stroke-width="1.1">${[0, 90, 180, 270].map((a) => `<path d="M0 0 L2.2 -18 L-2.6 -18 L-1 0 Z" transform="rotate(${a})"/>`).join('')}</g><circle r="2.2" fill="#5a3418"/></g></g>`;
+}
+
 function windmill(x: number, y: number): string {
-  return `<g transform="translate(${x} ${y})"><ellipse cx="3" cy="14" rx="14" ry="4" fill="#3a2e18" opacity=".24"/><path d="M-8 14 L-5 -12 H5 L8 14 Z" fill="#f2e2c0" stroke="#3b2313" stroke-width="1.5"/><path d="M-7 -12 L0 -20 L7 -12 Z" fill="#b8573e" stroke="#3b2313" stroke-width="1.5"/><rect x="-2" y="6" width="4" height="8" fill="#8a5a36"/><g class="m-mill" transform="translate(0 -12)"><g fill="#fbf0d6" stroke="#5a3418" stroke-width="1.1">${[0, 90, 180, 270].map((a) => `<path d="M0 0 L2.2 -18 L-2.6 -18 L-1 0 Z" transform="rotate(${a})"/>`).join('')}</g><circle r="2.2" fill="#5a3418"/></g></g>`;
+  return `<g transform="translate(${x} ${y})"><ellipse cx="3" cy="14" rx="14" ry="4" fill="#3a2e18" opacity=".24"/><path d="M-8 14 L-5 -12 H5 L8 14 Z" fill="#f2e2c0" stroke="#3b2313" stroke-width="1.5"/><path d="M-7 -12 L0 -20 L7 -12 Z" fill="#b8573e" stroke="#3b2313" stroke-width="1.5"/><rect x="-2" y="6" width="4" height="8" fill="#8a5a36"/></g>`;
 }
 
 function bridge(x: number, y: number, rot: number): string {
@@ -278,7 +286,17 @@ function bridge(x: number, y: number, rot: number): string {
 // ── Assembly ────────────────────────────────────────────────────────────────
 
 /** Paper, land, water, fields, woods — everything under the houses, labels and pins. */
-export function valleyBase(season: Season): { defs: string; under: string; trees: string; paper: string } {
+export function valleyBase(season: Season): {
+  defs: string;
+  under: string;
+  trees: string;
+  /** Windmill sails (animated; draw above `under`). */
+  mill: string;
+  /** Vignette + fold creases (cheap: gradient / plain strokes). */
+  paper: string;
+  /** Paper grain (feTurbulence over the whole sheet: static, rasterise once). */
+  grain: string;
+} {
   const P = PAL[season];
   const r = rng(42);
   const land = (x: number, y: number): boolean => y > 38 && y < 505 && x > 26 && x < 980;
@@ -358,7 +376,7 @@ export function valleyBase(season: Season): { defs: string; under: string; trees
   <g stroke="#5a3418" stroke-width="1.5"><path d="M236 136 l-10 18 M242 138 l-6 20" /><rect x="222" y="150" width="14" height="8" rx="2" fill="#8a6a4a"/></g>
   <!-- fields, orchard, windmill -->
   <g filter="url(#mWc)">${farmland(season, r)}</g>
-  ${windmill(420, 238)}
+  ${windmill(MILL_X, MILL_Y)}
   <!-- river, stream, lake -->
   <g filter="url(#mWc)" fill="none" stroke-linecap="round">
     <path d="${RIVER.map(bezD).join(' ')}" stroke="#3f7ea8" stroke-width="22" opacity=".45"/>
@@ -387,7 +405,7 @@ export function valleyBase(season: Season): { defs: string; under: string; trees
   ${dots}`;
   const paper = `
   <rect width="1000" height="640" fill="url(#mVig)" pointer-events="none"/>
-  <g pointer-events="none" opacity=".22" style="mix-blend-mode:soft-light"><path d="M500 0 V640" stroke="#fff" stroke-width="4"/><path d="M503.5 0 V640" stroke="#5a3a10" stroke-width="2"/><path d="M0 320 H1000" stroke="#fff" stroke-width="4"/><path d="M0 323.5 H1000" stroke="#5a3a10" stroke-width="2"/></g>
-  <rect width="1000" height="640" filter="url(#mPaper)" fill="#fff" pointer-events="none" opacity=".9"/>`;
-  return { defs, under, trees, paper };
+  <g pointer-events="none" opacity=".22" style="mix-blend-mode:soft-light"><path d="M500 0 V640" stroke="#fff" stroke-width="4"/><path d="M503.5 0 V640" stroke="#5a3a10" stroke-width="2"/><path d="M0 320 H1000" stroke="#fff" stroke-width="4"/><path d="M0 323.5 H1000" stroke="#5a3a10" stroke-width="2"/></g>`;
+  const grain = `<rect width="1000" height="640" filter="url(#mPaper)" fill="#fff" pointer-events="none" opacity=".9"/>`;
+  return { defs, under, trees, mill: millSails(MILL_X, MILL_Y), paper, grain };
 }

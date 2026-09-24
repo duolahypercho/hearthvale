@@ -279,6 +279,28 @@ class Tooltip {
   }
 
   /**
+   * Show beside `target` on one side (vertically centred on it, clamped to the window); flips to the other side
+   * when there is no room. Used where the card must never reach into a neighbouring column (crafting detail).
+   */
+  beside(html: string, target: Element, side: 'left' | 'right' = 'left', gap = 12): void {
+    const n = this.ensure();
+    n.classList.remove('over');
+    if (n.innerHTML !== html) n.innerHTML = html;
+    n.dataset.follow = '0';
+    if (!this.visible) replay(n, 'on');
+    this.visible = true;
+    const z = parseFloat(document.documentElement.style.getPropertyValue('--uiz')) || 1;
+    const r = target.getBoundingClientRect();
+    const w = n.offsetWidth * z;
+    const hh = n.offsetHeight * z;
+    let tx = side === 'left' ? r.left - gap - w : r.right + gap;
+    if (side === 'left' && tx < 8) tx = r.right + gap;
+    else if (side === 'right' && tx + w > innerWidth - 8) tx = r.left - gap - w;
+    const ty = Math.max(8, Math.min(innerHeight - hh - 8, r.top + r.height / 2 - hh / 2));
+    n.style.transform = `translate(${Math.max(8, tx) / z}px, ${ty / z}px)`;
+  }
+
+  /**
    * Show centred above `target`, with its bottom edge `gap` px above the top of `above` (defaults to the
    * target). Used by the HUD toolbar so the card never covers the bar or the selected-item flag.
    */

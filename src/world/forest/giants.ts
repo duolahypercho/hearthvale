@@ -93,7 +93,9 @@ export function giantBarkMaterial(): THREE.MeshStandardMaterial {
   });
   applyWorldFx(barkMat, { snowUp: 0.62 });
   applyWind(barkMat, WIND_TRUNK);
-  // Trunks stay solid (a dithered trunk reads as a screen door); only the canopy opens up.
+  // Trunks stay solid (a dithered trunk reads as a screen door): only the crown boughs above ~6 m
+  // part around the farmer (in winter they are all that is left of the canopy over the path).
+  applySeeThrough(barkMat, 4, 3, 'smoothstep(6.5, 5.0, vGLocalY)');
   return barkMat;
 }
 
@@ -109,6 +111,7 @@ export function giantTwigMaterial(): THREE.MeshStandardMaterial {
   twigMat.name = 'giantTwig';
   applyWorldFx(twigMat, { snowUp: 0.42 });
   applyWind(twigMat, WIND_TRUNK);
+  applySeeThrough(twigMat, 5.5, 3);
   return twigMat;
 }
 
@@ -122,7 +125,7 @@ function branchTree(b: MeshBuilder, m: THREE.Material, rng: Rng, from: THREE.Vec
   // Branches arc upward towards the light, then droop a touch at the tips.
   const ctrl = from.clone().lerp(end, 0.5).add(new THREE.Vector3((rng.next() - 0.5) * len * 0.35, len * (0.12 + rng.next() * 0.18), (rng.next() - 0.5) * len * 0.35));
   // Lean geometry: the whole winter crown of an elder is ~3k triangles.
-  bough(b, m, r, r * 0.62, from, ctrl, end, Math.max(3, 5 - level), level === 2 ? 1 : 2, 1);
+  bough(b, m, r, r * (level === 2 ? 0.3 : 0.55), from, ctrl, end, 6 - level, level === 2 ? 2 : 3, 1);
   if (level >= 2) return;
   const curve = new THREE.QuadraticBezierCurve3(from, ctrl, end);
   const kids = level === 0 ? 3 : 2 + rng.int(0, 1);
@@ -180,6 +183,11 @@ export interface LeafClumpOptions {
   cut?: number;
   /** Spring blossom flecks on a share of the clumps (follows the season weights). */
   blossom?: boolean;
+  /**
+   * Conifer mode: every cell is a drooping needle spray — dark where the spray above overlaps it,
+   * light at its lower tip, with fine needle strands running down it.
+   */
+  needles?: boolean;
 }
 
 /**
@@ -190,7 +198,7 @@ export interface LeafClumpOptions {
 export function applyLeafClumps(m: THREE.Material, o: LeafClumpOptions): void {
   const f = `vec3(${o.freq.map((v) => v.toFixed(3)).join(', ')})`;
   const cut = (o.cut ?? 1).toFixed(3);
-  patchMaterial(m, `leaf-clumps:${o.freq.join(',')}:${o.bend}:${o.seam}:${cut}:${o.blossom ? 1 : 0}`, (shader) => {
+  patchMaterial(m, `leaf-clumps:${o.freq.join(',')}:${o.bend}:${o.seam}:${cut}:${o.blossom ? 1 : 0}:${o.needles ? 1 : 0}`, (shader) => {
     shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
     let fs = shader.fragmentShader;
     fs = before(fs, 'void main() {', LEAF_CELLS_GLSL + (fs.includes('uniform vec4 uSeasonW;') ? '' : 'uniform vec4 uSeasonW;\n'));
@@ -211,6 +219,17 @@ export function applyLeafClumps(m: THREE.Material, o: LeafClumpOptions): void {
         diffuseColor.rgb *= ${(1 - o.seam).toFixed(3)} + ${o.seam.toFixed(3)} * smoothstep(0.0, 0.22, hvLeafEdge);
         float hvSpk = hvNoise(vHvWorldPos.xz * 17.0 + vHvWorldPos.y * 11.0);
         diffuseColor.rgb *= 0.9 + 0.2 * smoothstep(0.35, 0.8, hvSpk);
+        ${o.needles ? `{
+          float hvV = hvLeafDir.y * clamp(hvD1 * 1.8, 0.0, 1.0);
+          float hvTip = smoothstep(0.25, -0.65, hvV);
+          diffuseColor.rgb *= 0.58 + 0.6 * hvTip;
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.06, 1.18, 0.84), hvTip * 0.55);
+          vec3 hvNn = normalize(vHvWorldNormal);
+          vec3 hvH = normalize(vec3(-hvNn.z, 0.0, hvNn.x) + vec3(1e-3, 0.0, 0.0));
+          vec3 hvRel = hvLeafDir * hvD1;
+          float hvS = hvNoise(vec2(dot(hvRel, hvH) * 17.0 + hvLeafRnd * 41.0, hvRel.y * 2.4 + hvLeafRnd * 7.0));
+          diffuseColor.rgb *= 0.78 + 0.36 * smoothstep(0.3, 0.78, hvS);
+        }` : ''}
         ${o.blossom ? `{
           // Spring: pale blossom flecks crowd the sunny side of a third of the clumps.
           // Round florets at the heart of a share of the clumps (not whole cells: those read as chips).
@@ -288,8 +307,10 @@ function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
   if (m) return m;
   m = new THREE.MeshStandardMaterial({ roughness: 0.9, vertexColors: true, color: 0xffffff });
   m.name = `giantLeaf-${kind}`;
-  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.12 } : { snowUp: 0.6 });
+  applyWorldFx(m, { snowUp: kind === 'fir' ? 0.12 : 0.6, wetGloss: 0.85, wetDark: 0.22 });
   applyWind(m, WIND_LEAF);
+  // Fir tiers: a mass of overlapping needle sprays with a torn outline (not a smooth dark cone).
+  if (kind === 'fir') applyLeafClumps(m, { freq: [1.3, 1.8, 1.3], bend: 0.35, seam: 0.28, cut: 1, needles: true });
   canopyLook(m, kind);
   applyPaintedLight(m);
   applySeeThrough(m, 5.5, 3);
@@ -311,7 +332,7 @@ function cardMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
     color: 0xffffff,
   });
   m.name = `giantCard-${kind}`;
-  applyWorldFx(m, kind === 'fir' ? { snowUp: 0.05 } : { snowUp: 0.55 });
+  applyWorldFx(m, { snowUp: kind === 'fir' ? 0.05 : 0.55, wetGloss: 0.85, wetDark: 0.22 });
   applyWind(m, WIND_CARD);
   applyBillboard(m);
   applyCardMap(m, kind === 'elder');
@@ -650,7 +671,9 @@ function fir(rng: Rng): GiantGeo {
     sphericalNormals(gg, new THREE.Vector3(0, y - th * 0.6, 0), 0.5);
     const tierAO = (q: THREE.Vector3) => {
       const local = THREE.MathUtils.clamp((q.y - y + 0.9) / (th + 0.9), 0, 1);
-      return (0.4 + 0.6 * local) * (0.8 + 0.2 * f);
+      // Deep shade under each skirt, bright sunlit rims: the tiers read as stacked boughs.
+      const radial = THREE.MathUtils.smoothstep(Math.hypot(q.x, q.z) / r, 0.15, 0.95);
+      return (0.26 + 0.74 * Math.pow(local, 0.8)) * (0.45 + 0.55 * radial) * (0.8 + 0.2 * f);
     };
     b.add(leaf, gg, undefined, { aoWorld: tierAO });
     // Needle sprays hanging off the tier rim + a few lying on the tier top (break the skirt outline).
@@ -666,12 +689,12 @@ function fir(rng: Rng): GiantGeo {
       nrm.set(Math.cos(ang), 0.75, Math.sin(ang)).normalize();
       const s = (1.0 + rng.next() * 0.4) * (0.75 + 0.25 * (1 - f));
       // Fresh growth at the bough tips: lighter, a touch warmer (top-light gradient).
-      cc.copy(tint).multiplyScalar(tierAO(pp) * (1.08 + rng.next() * 0.22)).offsetHSL(0.01, 0.02, 0.03);
+      cc.copy(tint).multiplyScalar((1.05 + rng.next() * 0.25) * (0.8 + 0.2 * f)).offsetHSL(0.012, 0.03, 0.035);
       cards.add(pp, nrm, s * 0.9, s * 1.25, (rng.next() - 0.5) * 0.5, cc, { anchorY: 0.78 });
     }
     // Sprays lying all over the tier tops: seen from the diorama camera the tiers read as layered
     // needle boughs instead of smooth dark cones.
-    const nTop = Math.round(r * 15);
+    const nTop = Math.round(r * 10);
     for (let k = 0; k < nTop; k++) {
       const ang = rng.next() * Math.PI * 2;
       const q = 0.2 + rng.next() * 0.72;
@@ -679,7 +702,8 @@ function fir(rng: Rng): GiantGeo {
       nrm.set(Math.cos(ang) * 0.6, 1, Math.sin(ang) * 0.6).normalize();
       const s = 1.0 + rng.next() * 0.6;
       // Outer sprays lighter than the ones tucked in by the stem.
-      cc.copy(tint).multiplyScalar(tierAO(pp) * (0.95 + q * 0.3 + rng.next() * 0.18));
+      // (the stem end sits in the shade of the tier above: the tiers separate into stacked skirts).
+      cc.copy(tint).multiplyScalar((0.42 + 0.72 * q * q + rng.next() * 0.14) * (0.8 + 0.2 * f));
       cards.add(pp, nrm, s, s * 1.1, rng.next() * Math.PI * 2, cc);
     }
   }

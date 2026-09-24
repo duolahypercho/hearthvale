@@ -89,7 +89,8 @@ export const STAGE_SPOTS: [number, number, number][] = [
   [21.0, 23.4, 1.4], // forest-day fishing bank
   [38.5, 32.3, 1.2], // forest-rain / forest-wind trail
   [18.8, 35.8, 1.4], // storm meadow
-  [35.6, 34.4, 1.2], // snow-day stream bank
+  [22.5, 25.0, 1.1], // storm at the falls (path by the pool)
+  [35.6, 34.4, 2.0], // snow-day stream bank (berry bushes kept out of the hat)
   [41.2, 35.4, 1.3], // fog-morning bridge bank
   [24.2, 24.8, 1.2], // rainbow pool spur
   [50.6, 23.8, 1.2], // glade

@@ -56,8 +56,8 @@ const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1,
 const SHADOW_REACH = 25;
 
 // Storm grade: a clear cold teal-blue (lifted slate shadows, pulled-down warm highlights).
-const _stormLift = new THREE.Vector3(0.022, 0.04, 0.07);
-const _stormGain = new THREE.Vector3(0.74, 0.86, 1.04);
+const _stormLift = new THREE.Vector3(0.03, 0.048, 0.078);
+const _stormGain = new THREE.Vector3(0.84, 0.93, 1.07);
 const _flashLift = new THREE.Vector3();
 const _stormFog = new THREE.Color(0.2, 0.25, 0.34);
 const _stormGround = new THREE.Color(0.36, 0.4, 0.44);
@@ -335,7 +335,7 @@ export class DayNight {
     // the drama: on the return stroke the sky light jumps ~6x, cold blue-white.
     const stormFill = THREE.MathUtils.smoothstep(oc, 0.92, 1.0) * (1 - this.night);
     this.hemi.groundColor.lerp(_stormGround, stormFill * 0.45);
-    this.hemi.intensity = L(a.hemiI, b.hemiI, t) * 0.8 * (1 + oc * 0.35) * (1 + stormFill * 0.3);
+    this.hemi.intensity = L(a.hemiI, b.hemiI, t) * 0.8 * (1 + oc * 0.35) * (1 + stormFill * 0.5);
     if (this.flash > 0.001) {
       this.hemi.color.lerp(_flashSky, Math.min(1, this.flash * 1.5));
       this.hemi.intensity += this.flash * 2.2;
@@ -370,12 +370,12 @@ export class DayNight {
     (this.skyMat.uniforms.uHorizon!.value as THREE.Color).lerp(this.fog.color, oc * 0.7);
     globalUniforms.uSkyColor.value.copy(this.skyMat.uniforms.uTop!.value as THREE.Color);
     globalUniforms.uHorizonColor.value.copy(this.skyMat.uniforms.uHorizon!.value as THREE.Color);
-    globalUniforms.uCloudShadow.value = (0.32 * (1 - oc) + storm * 0.5) * (1 - this.night);
+    globalUniforms.uCloudShadow.value = (0.32 * (1 - oc) + storm * 0.35) * (1 - this.night);
 
     // Exposure + grade. Storms: ~-0.5 EV, cold blue-slate shadows, 20 % desaturated; plain rain only
     // dims a little. Lightning: the return stroke pushes the frame ~+2.5 EV for its 60 ms.
     const stormK = THREE.MathUtils.smoothstep(oc, 0.92, 1.0) * (1 - this.night * 0.6);
-    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) * (1 - stormK * 0.1) * (1 + this.flash * 1.3);
+    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) * (1 + stormK * 0.06) * (1 + this.flash * 1.3);
     // Golden-hour rim: strongest with a low sun, gone at night / under overcast.
     const elev = Math.asin(THREE.MathUtils.clamp(this.sunDir.y, -1, 1));
     // …and a cool moonlit rim at night so canopies keep their silhouettes against the dark.
@@ -384,7 +384,7 @@ export class DayNight {
     (g.uLift!.value as THREE.Vector3).set(L(a.lift[0], b.lift[0], t), L(a.lift[1], b.lift[1], t), L(a.lift[2], b.lift[2], t));
     (g.uGain!.value as THREE.Vector3).set(L(a.gain[0], b.gain[0], t), L(a.gain[1], b.gain[1], t), L(a.gain[2], b.gain[2], t));
     g.uSaturation!.value = L(a.sat, b.sat, t) * (1 - oc * 0.18) * (1 - stormK * 0.22);
-    g.uContrast!.value = L(a.contrast, b.contrast, t) * (1 - oc * 0.04) * (1 + stormK * 0.1);
+    g.uContrast!.value = L(a.contrast, b.contrast, t) * (1 - oc * 0.04) * (1 + stormK * 0.03);
     if (stormK > 0.001) {
       (g.uLift!.value as THREE.Vector3).lerp(_stormLift, stormK);
       (g.uGain!.value as THREE.Vector3).lerp(_stormGain, stormK);

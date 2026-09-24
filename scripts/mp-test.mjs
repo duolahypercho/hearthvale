@@ -122,6 +122,14 @@ const waitFor = async (page, fn, arg, timeout = 20000) => {
   }
 };
 
+// ── remote-farmer playout (pure, no browser): jitter / spikes / stalls never step backwards ──
+{
+  const { torture, CASES } = await import('./mp-interp.mjs');
+  const rs = CASES.map((c) => ({ c, r: torture(c) }));
+  const bad = rs.filter(({ c, r }) => !(r.back === 0 && r.pops === 0 && r.snaps === 0 && (c.maxSd == null || r.sd <= c.maxSd)));
+  check('playout torture: no backward steps / pops over jitter, spikes and a stall', bad.length === 0, rs.map(({ c, r }) => `${c.name.split(',')[0]} back ${r.back} pops ${r.pops} maxV ${r.maxV} sd ${r.sd}`).join(' · '));
+}
+
 let host, a, b;
 let idA = 0;
 let idB = 0;
@@ -363,7 +371,7 @@ try {
     r.__orig = orig;
     r.push = (t, x, z, ...rest) => { window.__raw.push([performance.now(), t, x]); return orig(t, x, z, ...rest); };
     window.__samp = [];
-    const tick = () => { window.__samp.push([performance.now(), r.farmer.position.x]); window.__raf = requestAnimationFrame(tick); };
+    const tick = () => { window.__samp.push([performance.now(), r.farmer.position.x, r.farmer.position.z]); window.__raf = requestAnimationFrame(tick); };
     tick();
   }, aIdNow);
   await a.keyboard.down('KeyD');
@@ -387,10 +395,22 @@ try {
     const stalls = mid.filter((q) => Math.abs(q) < 0.05).length;
     const mean = mid.reduce((s, q) => s + q, 0) / Math.max(1, mid.length);
     const sd = Math.sqrt(mid.reduce((s, q) => s + (q - mean) ** 2, 0) / Math.max(1, mid.length));
-    return { moving, dup, frames: mid.length, stalls, mean: +mean.toFixed(2), sd: +sd.toFixed(2) };
+    // Per frame (dt-normalised): backward steps against the walk (+x) and the fastest frame vs the
+    // walk speed the samples themselves show.
+    const walk = raw.length > 1 ? Math.abs(x1 - x0) / Math.max(1e-3, (raw[raw.length - 1][1] - raw[0][1]) / 1000) : 0;
+    const vx = raw.length > 2 ? (() => { let best = 0; for (let i = 1; i < raw.length; i++) { const dt = (raw[i][1] - raw[i - 1][1]) / 1000; if (dt > 0.02) best = Math.max(best, Math.abs(raw[i][2] - raw[i - 1][2]) / dt); } return best; })() : walk;
+    let back = 0, maxV = 0;
+    for (let i = 1; i < samp.length; i++) {
+      const dt = Math.max(1, samp[i][0] - samp[i - 1][0]) / 1000;
+      const dx = samp[i][1] - samp[i - 1][1], dz = samp[i][2] - samp[i - 1][2];
+      if (dx < -0.01) back++;
+      maxV = Math.max(maxV, Math.hypot(dx, dz) / dt);
+    }
+    return { moving, dup, frames: mid.length, stalls, mean: +mean.toFixed(2), sd: +sd.toFixed(2), back, maxV: +maxV.toFixed(2), walk: +Math.max(walk, vx).toFixed(2) };
   }, aIdNow);
   log('farmhand→farmhand motion', JSON.stringify(motion));
   check('farmhand sees farmhand walk smoothly (no duplicate samples, few stalls)', motion.moving >= 8 && motion.dup <= Math.ceil(motion.moving * 0.05) && motion.stalls <= Math.ceil(motion.frames * 0.08), `${motion.dup}/${motion.moving} duplicate samples, ${motion.stalls}/${motion.frames} stalled frames, ${motion.mean}±${motion.sd} m/s`);
+  check('farmhand sees farmhand walk: no backward steps, no pops (per frame)', motion.back === 0 && motion.maxV <= Math.max(2, motion.walk * 2), `${motion.back} backward frames, fastest frame ${motion.maxV} m/s vs walk ${motion.walk} m/s`);
   const perf = await Promise.all([host, a, b].map((p) => net(p, () => window.__game.info().perf)));
   check('render budget with 3 farmers in view (host)', perf[0].drawCalls <= 300, `${perf[0].drawCalls} draw calls, ${(perf[0].triangles / 1e6).toFixed(2)}M tris`);
 
@@ -495,6 +515,17 @@ try {
   const digests2 = await Promise.all([host, a, b].map((p) => net(p, () => [...window.__game.game.services.net.sync.digest()].sort((x, y) => x[0] - y[0]).map((e) => e.join('=')).join(';'))));
   check('farm converges after the night (growth, weeds, crows)', diff(digests2[0], digests2[1]) === 0 && diff(digests2[0], digests2[2]) === 0, `diff ${diff(digests2[0], digests2[1])} / ${diff(digests2[0], digests2[2])}`);
   for (const [p, n] of [[host, 'host'], [a, 'ash'], [b, 'bea']]) await snap(p, resolve(outDir, `client-${n}-morning.png`));
+  // Name tags / chat / emote bubbles never float over the day-end card (or any open panel).
+  const overCard = await Promise.all([host, a, b].map((p) => net(p, () => {
+    const panel = window.__game.game.hud.openPanelName;
+    const vis = [...document.querySelectorAll('.coop-tag.on')].filter((e) => {
+      const cs = getComputedStyle(e);
+      const r = e.getBoundingClientRect();
+      return cs.visibility !== 'hidden' && +cs.opacity > 0.3 && r.bottom > 0 && r.top < innerHeight && e.closest('.coop-tags')?.offsetParent !== null;
+    }).length;
+    return { panel, vis };
+  })));
+  check('no name tags over the day-end card (every client)', overCard.every((o) => !o.panel || o.vis === 0) && overCard.some((o) => o.panel), overCard.map((o, i) => `${['host', 'ash', 'bea'][i]}: ${o.panel ?? 'no panel'} / ${o.vis} tags`).join(' · '));
   const ashSave = await net(a, () => { const f = JSON.parse(localStorage.getItem('hearthvale.save.auto')); return { savedAt: f.savedAt, gold: f.data.economy?.gold }; });
   check("farmhand's own save untouched by the co-op night", ashSave.gold === 77777 && ashSave.savedAt === ashOwn, JSON.stringify(ashSave));
 
@@ -549,6 +580,9 @@ try {
   const fpsHost = 1000 / Math.max(1, fps[0].avg);
   results.push({ name: 'fps (host, 3 headless browsers sharing one GPU)', ok: true, detail: `${fpsHost.toFixed(1)} fps avg` });
   console.log(`• fps host ${fpsHost.toFixed(1)} (3 headless pages share one GPU; see npm run perf for the real gate)`);
+  const st2 = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.net.stats())));
+  for (const [i, s2] of st2.entries()) log(`${['ash', 'bea'][i]} farm sync: ${s2.reconciles} host edits, ${s2.drift} drift, ${s2.needs} mid-day resyncs, ${s2.fullSyncs} full syncs`, s2.driftLog.join(' '));
+  check('steady-state farm drift ≈ 0 (prediction agrees with the host)', st2.every((s2) => s2.drift <= 2 && s2.needs <= 1), st2.map((s2, i) => `${['ash', 'bea'][i]} drift ${s2.drift}, resyncs ${s2.needs}`).join(' · '));
   const relayStats = await relay.health();
   log('relay', JSON.stringify(relayStats));
   writeFileSync(resolve(outDir, 'mp-results.json'), JSON.stringify({ at: new Date().toISOString(), results, stats, frameMs: fps, relay: relayStats, errors }, null, 2));

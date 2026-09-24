@@ -555,7 +555,8 @@ export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRa
         hvKeep = min(hvKeep, max(1.0 - hvHole, clamp(${keepExpr}, 0.0, 1.0)));
         if (hvKeep < 0.999) {
           vec3 hvQ = vHvWorldPos * 3.1;
-          float hvE = hvNoise(hvQ.xz + hvQ.y * 0.73) * 0.66 + hvNoise(hvQ.zy * 1.7 + 5.1) * 0.29 + hvIgn(floor(hvScr)) * 0.05;
+          // Pure world-space erosion (no per-pixel noise: that is what read as a screen-door hatch).
+          float hvE = hvNoise(hvQ.xz + hvQ.y * 0.73) * 0.68 + hvNoise(hvQ.zy * 1.7 + 5.1) * 0.32;
           if (hvKeep < hvE * 0.94 + 0.03) discard;
         }
       }`,

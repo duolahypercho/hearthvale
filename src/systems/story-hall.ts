@@ -2585,8 +2585,12 @@ export class HallMap implements GameMap {
     if (this.caustic) this.caustic.offset.set(t * 0.025, Math.sin(t * 0.37) * 0.06);
     // Hand lantern: a warm pool around the farmer that fades as the rooms relight.
     const pp = game.player.position;
-    this.carryLight.position.set(pp.x + 0.35, 1.35, pp.z + 0.35);
-    this.carryLight.intensity = Math.max(0, 1 - frac * 1.6) * 9 * (0.93 + Math.sin(t * 9.1) * 0.04 + Math.sin(t * 23.3) * 0.03) * (game.player.root.visible ? 1 : 0);
+    // Held out at arm's length and low (0.9 m off the body, hip height): a pool on the boards round the
+    // farmer, not a hot spot on the shirt and hat. Cutscenes stage their own light (a lit room's lantern,
+    // Hollis's lamp) — the hand lantern would burn out the faces next to the farmer.
+    this.carryLight.position.set(pp.x + 0.65, 1.05, pp.z + 0.65);
+    const staged = game.services.cutscene?.playing ? 0.15 : 1;
+    this.carryLight.intensity = Math.max(0, 1 - frac * 1.6) * 7 * staged * (0.93 + Math.sin(t * 9.1) * 0.04 + Math.sin(t * 23.3) * 0.03) * (game.player.root.visible ? 1 : 0);
     this.hearthLight.intensity = this.hearthFire.active ? 5.5 * (0.8 + Math.sin(t * 13) * 0.1 + Math.sin(t * 29) * 0.08) : 0;
     const h = game.rc.renderer.domElement.height;
     this.hearthFire.update(dt, h);

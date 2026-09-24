@@ -113,6 +113,9 @@ export class BuildingSystem implements System, BuildingsApi {
       }
     });
     game.events.on('demo:stage', ({ showcase }) => this.stageDemo(showcase));
+    game.events.on('animals:door', ({ home, open }) => {
+      if (home === 'coop' || home === 'barn') this.farm?.setDoor(home, open);
+    });
   }
 
   // ───────────────────────────────────────────── api

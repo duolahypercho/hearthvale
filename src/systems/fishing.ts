@@ -126,6 +126,8 @@ export interface FishRollReq {
   level: number;
   tier: number;
   streak: number;
+  /** The angler has landed a fish but never opened a chest: this cast's fight is guaranteed one. */
+  firstChest?: boolean;
 }
 
 export interface FishClaim {
@@ -236,6 +238,8 @@ export class FishingSystem implements System, FishingApi {
   private corkUses = 0;
   /** Consecutive perfect catches (feeds quality + treasure odds). */
   private streak = 0;
+  /** Treasure chests opened (the first one is guaranteed early: the second fish you hook carries one). */
+  private chests = 0;
   private baited = false;
   private hitstop = 0;
   private powerStep = -1;
@@ -448,7 +452,7 @@ export class FishingSystem implements System, FishingApi {
     for (let i = 0; i < n; i++) nibbles.push(wait * (0.3 + Math.random() * 0.6));
     nibbles.sort((a, b) => b - a);
     const lv = THREE.MathUtils.clamp(req.level, 0, 10);
-    const treasureOdds = 0.14 + lv * 0.01 + (req.lure ? 0.25 : 0) + Math.min(Math.max(0, req.streak), 5) * 0.02;
+    const treasureOdds = req.firstChest ? 1 : 0.14 + lv * 0.01 + (req.lure ? 0.25 : 0) + Math.min(Math.max(0, req.streak), 5) * 0.02;
     return { rid: req.rid, fishId: fish?.id ?? null, luck: Math.random(), treasure: !!fish && Math.random() < treasureOdds, wait, nibbles };
   }
 
@@ -466,17 +470,19 @@ export class FishingSystem implements System, FishingApi {
   }
 
   save(): unknown {
-    return { recs: this.recs, xp: this.totalXp, tier: this.tier, lure: this.lureUses, cork: this.corkUses, streak: this.streak };
+    return { recs: this.recs, xp: this.totalXp, tier: this.tier, lure: this.lureUses, cork: this.corkUses, streak: this.streak, chests: this.chests };
   }
 
   load(data: unknown): void {
-    const d = data as { recs?: Record<string, FishingRecord>; xp?: number; tier?: number; lure?: number; cork?: number; streak?: number } | null;
+    const d = data as { recs?: Record<string, FishingRecord>; xp?: number; tier?: number; lure?: number; cork?: number; streak?: number; chests?: number } | null;
     if (d?.recs) this.recs = d.recs;
     this.totalXp = d?.xp ?? 0;
     this.tier = d?.tier ?? 0;
     this.lureUses = d?.lure ?? 0;
     this.corkUses = d?.cork ?? 0;
     this.streak = d?.streak ?? 0;
+    // Old saves with catches but no chest count: treat as already having seen one.
+    this.chests = d?.chests ?? (d?.recs && Object.keys(d.recs).length > 1 ? 1 : 0);
     this.applyRodTier();
   }
 
@@ -709,6 +715,7 @@ export class FishingSystem implements System, FishingApi {
       level: this.level(),
       tier: this.tier,
       streak: this.streak,
+      firstChest: this.firstChest(),
     };
     this.hooked = null;
     this.roll = null;
@@ -727,6 +734,14 @@ export class FishingSystem implements System, FishingApi {
     };
     setTimeout(() => give({ rid, fishId: null, luck: 0, treasure: false, wait: 5, nibbles: [] }), ROLL_TIMEOUT);
     this.roller(req).then(give, () => give({ rid, fishId: null, luck: 0, treasure: false, wait: 3, nibbles: [] }));
+  }
+
+  /** Landed a fish but never opened a chest yet → the next fight carries one (so everyone sees it early). */
+  private firstChest(): boolean {
+    if (this.chests > 0 || this.demo) return false;
+    let caught = 0;
+    for (const r of Object.values(this.recs)) caught += r.caught;
+    return caught >= 1;
   }
 
   private pickFish(pool: FishDef[], power = this.castPower, depth = this.depth): FishDef {
@@ -762,7 +777,7 @@ export class FishingSystem implements System, FishingApi {
     const lure = !!inv && inv.count('treasureLure') > 0;
     const lv = this.level();
     // Treasure: the roll decided it (host-authoritative in co-op); practice / demo fights roll here.
-    const treasureOdds = this.roll ? (this.roll.treasure ? 1 : 0) : 0.14 + lv * 0.01 + (lure ? 0.25 : 0) + Math.min(this.streak, 5) * 0.02;
+    const treasureOdds = this.roll ? (this.roll.treasure ? 1 : 0) : this.firstChest() ? 1 : 0.14 + lv * 0.01 + (lure ? 0.25 : 0) + Math.min(this.streak, 5) * 0.02;
     const barH = 0.27 - def.difficulty * 0.04 + lv * 0.012 + ROD_TIERS[this.tier]!.bar + (cork ? 0.035 : 0);
     this.mg = { def, ...newReel({ difficulty: def.difficulty, behavior: def.behavior, barH, treasureOdds, rand: Math.random, auto: this.demo !== null }) };
     this.ui.openReel(def, { level: lv, bait: this.baited, cork, lure, tier: this.tier });
@@ -780,10 +795,15 @@ export class FishingSystem implements System, FishingApi {
     const luck = this.roll?.luck ?? Math.random();
     const sizeFrac = THREE.MathUtils.clamp(0.08 + insideK * 0.3 + this.castPower * 0.25 + lv * 0.025 + (mg.perfect ? 0.1 : 0) + luck * 0.25, 0, 1);
     const lengthCm = def.size[0] + (def.size[1] - def.size[0]) * sizeFrac;
-    const score = insideK * 0.62 + (mg.perfect ? 0.18 : 0) + this.castPower * 0.08 + lv * 0.02 + streakK + sizeFrac * 0.06;
-    const quality = mg.perfect && score > 0.95 && lv >= 4 ? 3 : score > 0.76 ? 2 : score > 0.55 ? 1 : 0;
+    const score = insideK * 0.56 + (mg.perfect ? 0.14 : 0) + this.castPower * 0.08 + lv * 0.025 + streakK + sizeFrac * 0.06;
+    // Gold is a skill tier: 0.94 at lv 0 (a perfect fight + a max cast + a streak), easing to 0.79 at lv 10;
+    // below lv 2 it also needs a perfect fight. Silver ≈ a clean fight; iridium is lv ≥ 4 + perfect.
+    const goldT = 0.94 - lv * 0.015;
+    const gold = score > goldT && (lv >= 2 || mg.perfect);
+    const quality = mg.perfect && score > 0.97 && lv >= 4 ? 3 : gold ? 2 : score > 0.6 - lv * 0.01 ? 1 : 0;
     let treasure: string | null = null;
     if (mg.treasure?.got) {
+      this.chests++;
       const [id, qty] = TREASURE[Math.floor(Math.random() * TREASURE.length)]!;
       this.game.events.emit('item:give', { itemId: id, qty });
       const gold = 40 + Math.floor(Math.random() * 90);
@@ -1413,6 +1433,9 @@ export class FishingSystem implements System, FishingApi {
     v.perfect = mg.perfect;
     v.bounce = mg.bounce;
     v.slack = mg.slack;
+    v.tell = mg.tell;
+    v.thrash = mg.thrash;
+    if ((mg.thrash ?? 0) > 0.95) this.game.rc.rig.addShake(0.12);
     const s = this.screenAt(this.game.player.position, 1.2);
     this.ui.placeReel(s.x, s.y);
     this.ui.drawReel(v, dt);

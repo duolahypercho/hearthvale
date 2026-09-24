@@ -102,6 +102,10 @@ export class FishingGear {
   private pts: THREE.Vector3[] = [];
   private prev: THREE.Vector3[] = [];
   readonly bobber: THREE.Group;
+  /** The float's fluorescent antenna tip (faint emissive pulse; brighter while a fish bites). */
+  private tipMat: THREE.MeshStandardMaterial;
+  /** 0..1 extra tip glow (set by the fishing system on a bite / nibble). */
+  tipFlash = 0;
   private ripples: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; life: number; size: number }[] = [];
   private shadow: THREE.Mesh;
   private shadowMat: THREE.MeshBasicMaterial;
@@ -205,23 +209,40 @@ export class FishingGear {
       this.prev.push(new THREE.Vector3());
     }
 
-    // Bobber: red cap, white belly, dark band, quill (one mesh).
+    // Bobber: a tall stick float (nothing else on the water has this silhouette): a slim spindle body —
+    // cream belly, deep-red shoulder, black waist band — with a long antenna and a fluorescent
+    // amber tip that pulses faintly (its own emissive mesh), so your float reads at a glance.
     this.bobber = new THREE.Group();
-    const RED = 0xe8402e;
-    const WHITE = 0xf6f2ea;
+    const RED = 0xc8281e;
+    const CREAM = 0xf4eee0;
+    const INK = 0x1e1612;
     const bandM = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const spindle = (y0: number, y1: number, r0: number, r1: number, rMid: number): THREE.BufferGeometry => {
+      const pts: THREE.Vector2[] = [];
+      for (let i = 0; i <= 8; i++) {
+        const k = i / 8;
+        const r = THREE.MathUtils.lerp(r0, r1, k) + Math.sin(k * Math.PI) * (rMid - (r0 + r1) / 2);
+        pts.push(new THREE.Vector2(Math.max(0.002, r), THREE.MathUtils.lerp(y0, y1, k)));
+      }
+      return new THREE.LatheGeometry(pts, 12);
+    };
     const bobMesh = new THREE.Mesh(
       mergeColored([
-        [new THREE.SphereGeometry(0.085, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), RED, new THREE.Matrix4()],
-        [new THREE.SphereGeometry(0.085, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), WHITE, new THREE.Matrix4()],
-        [new THREE.TorusGeometry(0.085, 0.012, 6, 20), 0x3a2a1a, bandM],
-        [new THREE.CylinderGeometry(0.009, 0.013, 0.16, 6), RED, new THREE.Matrix4().makeTranslation(0, 0.13, 0)],
-        [new THREE.SphereGeometry(0.018, 8, 6), WHITE, new THREE.Matrix4().makeTranslation(0, 0.21, 0)],
+        [spindle(-0.16, 0, 0.004, 0.058, 0.05), CREAM, new THREE.Matrix4()],
+        [spindle(0, 0.11, 0.058, 0.012, 0.05), RED, new THREE.Matrix4()],
+        [new THREE.TorusGeometry(0.058, 0.01, 6, 18), INK, bandM],
+        [new THREE.CylinderGeometry(0.0085, 0.011, 0.2, 6), CREAM, new THREE.Matrix4().makeTranslation(0, 0.2, 0)],
+        [new THREE.CylinderGeometry(0.0115, 0.0115, 0.022, 6), INK, new THREE.Matrix4().makeTranslation(0, 0.2, 0)],
+        [new THREE.SphereGeometry(0.012, 6, 4), RED, new THREE.Matrix4().makeTranslation(0, 0.11, 0)],
       ]),
-      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35 }),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4 }),
     );
     bobMesh.castShadow = true;
-    this.bobber.add(bobMesh);
+    this.tipMat = new THREE.MeshStandardMaterial({ color: 0xffa020, emissive: 0xff7a10, emissiveIntensity: 0.3, roughness: 0.3 });
+    this.tipMat.name = 'floatTip';
+    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.012, 0.075, 8).translate(0, 0.335, 0), this.tipMat);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.372, 0), this.tipMat);
+    this.bobber.add(bobMesh, tip, cap);
     this.bobber.scale.setScalar(1.7);
 
     // Ripple rings (shader: soft ring at radius r, fading).
@@ -678,6 +699,9 @@ export class FishingGear {
       f.mat.uniforms.uAge!.value = f.age;
     }
     this.fx.update(dt, h);
+    // Faint pulse (never a bloom spike: 0.2–0.4, up to ~1 on a bite flash).
+    this.tipFlash = Math.max(0, this.tipFlash - dt * 1.5);
+    this.tipMat.emissiveIntensity = 0.3 + Math.sin(t * 3.2) * 0.1 + this.tipFlash * 0.6;
     if (this.held) this.held.mesh.flex(t, 0.8 + 0.4 * Math.sin(t * 3));
   }
 }

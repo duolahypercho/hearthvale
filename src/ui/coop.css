@@ -541,6 +541,11 @@
   pointer-events: none;
   overflow: hidden;
   z-index: 2;
+  --coop-s: 1;
+}
+/* A menu, the day-end card or a cutscene is up: nothing floats over it. */
+.coop-tags.hush {
+  visibility: hidden;
 }
 .coop-tag {
   position: absolute;
@@ -553,6 +558,10 @@
 .coop-tag.on {
   opacity: 1;
 }
+/* Over a HUD card (clock, roster, now-playing, hotbar): step back. */
+.coop-tag.on.dim {
+  opacity: 0.16;
+}
 .coop-name {
   position: absolute;
   left: 0;
@@ -560,34 +569,37 @@
   translate: -50% 0;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 9px 3px 6px;
+  gap: calc(5px * var(--coop-s));
+  padding: calc(2px * var(--coop-s)) calc(10px * var(--coop-s)) calc(3px * var(--coop-s)) calc(6px * var(--coop-s));
   border-radius: 999px;
   white-space: nowrap;
-  font: 700 14px var(--font-head);
+  font: 700 calc(15px * var(--coop-s)) / 1.25 var(--font-head);
   color: #fff8ea;
-  background: rgba(46, 26, 12, 0.72);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  background: rgba(46, 26, 12, 0.76);
+  box-shadow: 0 0 0 1.5px rgba(255, 236, 200, 0.28), 0 2px 6px rgba(0, 0, 0, 0.25);
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 .coop-name i {
-  width: 10px;
-  height: 10px;
+  width: calc(11px * var(--coop-s));
+  height: calc(11px * var(--coop-s));
   border-radius: 50%;
   box-shadow: 0 0 0 2px rgba(255, 248, 234, 0.8);
 }
+/* Laid out by net/players.ts (bottom-centre on the tag anchor + a JS offset clear of other bubbles). */
 .coop-say {
   position: absolute;
   left: 0;
-  bottom: 30px;
+  bottom: 0;
   translate: -50% 0;
-  max-width: 260px;
+  max-width: calc(300px * var(--coop-s));
   width: max-content;
-  padding: 7px 12px;
-  border-radius: 14px;
+  padding: calc(7px * var(--coop-s)) calc(13px * var(--coop-s));
+  border-radius: calc(14px * var(--coop-s));
   background: #fffaf0;
   color: var(--ink);
-  font: 700 14px/1.3 var(--font-body);
+  font: 700 calc(15px * var(--coop-s)) / 1.3 var(--font-body);
+  text-wrap: balance;
+  text-align: center;
   box-shadow: 0 0 0 2px #6a3c1a, 0 5px 12px rgba(20, 10, 4, 0.3);
   opacity: 0;
   scale: 0.6;
@@ -597,7 +609,7 @@
 .coop-say::after {
   content: '';
   position: absolute;
-  left: 50%;
+  left: calc(50% + var(--tail, 0px));
   bottom: -9px;
   width: 14px;
   height: 14px;
@@ -911,10 +923,6 @@
   backdrop-filter: none;
 }
 
-/* Your own chat line over your own head (no name pill under it). */
-.coop-tag.self .coop-say {
-  bottom: 6px;
-}
 
 /* Emote wheel: labels sit outside the ring, key badges on the inner rim (set inline per wedge). */
 .coop-wheel .wedge small {

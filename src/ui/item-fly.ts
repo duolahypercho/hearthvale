@@ -70,7 +70,7 @@ export function centerOf(node: Element | null | undefined): { x: number; y: numb
  * A little stream of coins arcing from one screen point to another (payment: purse → shopkeeper, or
  * earnings the other way). Fixed-position WAAPI sprites on <body>, so the path is exact at any UI zoom.
  */
-export function flyCoins(coinSvg: string, from: { x: number; y: number }, to: { x: number; y: number }, n = 5, onLand?: () => void): void {
+export function flyCoins(coinSvg: string, from: { x: number; y: number }, to: { x: number; y: number }, n = 5, onLand?: () => void, via?: [{ x: number; y: number }, { x: number; y: number }]): void {
   for (let i = 0; i < n; i++) {
     const c = document.createElement('div');
     c.className = 'hv-flycoin';
@@ -86,8 +86,18 @@ export function flyCoins(coinSvg: string, from: { x: number; y: number }, to: { 
     const N = 12;
     for (let k = 0; k <= N; k++) {
       const t = k / N;
-      const x = (1 - t) * (1 - t) * from.x + 2 * (1 - t) * t * peak.x + t * t * (to.x + jx * 0.4);
-      const y = (1 - t) * (1 - t) * from.y + 2 * (1 - t) * t * peak.y + t * t * (to.y + jy * 0.4);
+      let x: number;
+      let y: number;
+      if (via) {
+        // Cubic around an obstacle (e.g. the shopkeeper's speech bubble): both handles jittered a little.
+        const [a, b] = via;
+        const u = 1 - t;
+        x = u * u * u * from.x + 3 * u * u * t * (a.x + jx * 0.5) + 3 * u * t * t * (b.x + jx * 0.5) + t * t * t * (to.x + jx * 0.4);
+        y = u * u * u * from.y + 3 * u * u * t * (a.y + jy) + 3 * u * t * t * (b.y + jy) + t * t * t * (to.y + jy * 0.4);
+      } else {
+        x = (1 - t) * (1 - t) * from.x + 2 * (1 - t) * t * peak.x + t * t * (to.x + jx * 0.4);
+        y = (1 - t) * (1 - t) * from.y + 2 * (1 - t) * t * peak.y + t * t * (to.y + jy * 0.4);
+      }
       frames.push({ transform: `translate(${x}px, ${y}px) scale(${t < 0.12 ? 0.5 + t * 4 : 1 - t * 0.25}) rotateY(${t * 540}deg)`, opacity: t > 0.9 ? 1 - (t - 0.9) * 10 : 1, offset: t });
     }
     const a = c.animate(frames, { duration: 560 + i * 20, delay: i * 55, easing: 'cubic-bezier(.4,.05,.6,1)', fill: 'backwards' });

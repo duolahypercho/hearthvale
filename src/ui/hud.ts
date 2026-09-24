@@ -564,7 +564,12 @@ export class Hud {
     if (!this.openPanel || !p) return;
     if (p.back?.()) return;
     sfx(this.game, 'close');
-    this.open('none');
+    this.go('none');
+  }
+
+  /** Open through the event bus (the same path as `openUI`), so every ui:open listener (co-op pause card, co-op HUD) hears keyboard / pad opens too. */
+  private go(name: string): void {
+    this.game.events.emit('ui:open', { name });
   }
 
   private cycleTab(dir: number): void {
@@ -625,14 +630,14 @@ export class Hud {
       this.pad.navT -= dt;
       if (hit(0)) p?.nav?.activate();
       if (hit(1)) this.back();
-      if (hit(3) && MENU_TABS.includes(this.openPanel as (typeof MENU_TABS)[number])) this.open('none');
+      if (hit(3) && MENU_TABS.includes(this.openPanel as (typeof MENU_TABS)[number])) this.go('none');
       if (hit(4)) this.cycleTab(-1);
       if (hit(5)) this.cycleTab(1);
-      if (hit(9) && this.openPanel !== 'title' && this.openPanel !== 'newgame') this.open('none');
+      if (hit(9) && this.openPanel !== 'title' && this.openPanel !== 'newgame') this.go('none');
     } else if (!this.openPanel) {
-      if (hit(9)) this.open('pause');
-      if (hit(3)) this.open('inventory');
-      if (hit(8)) this.open('map');
+      if (hit(9)) this.go('pause');
+      if (hit(3)) this.go('inventory');
+      if (hit(8)) this.go('map');
       if (hit(4) || hit(5)) this.game.events.emit('toolbar:select', { slot: (this.game.toolbarSlot + (hit(4) ? 9 : 1)) % 10 });
       // Play on the pad: stick / d-pad walk, X uses the tool, A talks / interacts, B held runs (settings PAD_MAP).
       const ax = gp.axes[0] ?? 0;
@@ -662,16 +667,16 @@ export class Hud {
     if (op === 'title') {
       /* title screen handles its own keys */
     } else if (op === 'dialogue') {
-      if (input.pressed('menu')) this.open('none');
+      if (input.pressed('menu')) this.go('none');
     } else if (input.pressed('menu')) {
       if (op) this.back();
-      else this.open('pause');
+      else this.go('pause');
     } else if (input.pressed('inventory')) {
-      if (!op) this.open('inventory');
-      else if (MENU_TABS.includes(op as (typeof MENU_TABS)[number])) this.open('none');
+      if (!op) this.go('inventory');
+      else if (MENU_TABS.includes(op as (typeof MENU_TABS)[number])) this.go('none');
     } else if (input.pressed('map')) {
-      if (!op) this.open('map');
-      else if (op === 'map') this.open('none');
+      if (!op) this.go('map');
+      else if (op === 'map') this.go('none');
     }
     this.pollPad(dt);
     this.current?.update?.(dt);

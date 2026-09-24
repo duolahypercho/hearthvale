@@ -70,16 +70,28 @@ export class CraftingScreen extends Screen {
       c.dataset.nav = '';
       c.style.animationDelay = `${i * 40}ms`;
       c.addEventListener('click', () => {
-        if (this.sel !== i) sfx(this.game, 'click');
-        this.sel = i;
-        this.qty = 1;
-        this.refreshCards();
+        tooltip.hide();
+        this.select(i);
       });
       c.addEventListener('dblclick', () => this.craft());
-      c.addEventListener('pointerenter', (ev) => x.known && tooltip.show(itemTooltipHtml({ id: x.r.out.itemId, qty: x.r.out.qty }), ev));
+      // Keyboard / gamepad focus drives the selection (the detail column follows, like a click).
+      c.addEventListener('u-focus', () => this.select(i));
+      // Hover preview for the other recipes only (the selected one is already spelled out in the detail
+      // column), docked to the card's left so it never covers the ingredient counts.
+      c.addEventListener('pointerenter', () => {
+        if (x.known && i !== this.sel) tooltip.beside(itemTooltipHtml({ id: x.r.out.itemId, qty: x.r.out.qty }), c, 'left');
+      });
       c.addEventListener('pointerleave', () => tooltip.hide());
       this.cards.appendChild(c);
     });
+    this.refreshCards();
+  }
+
+  private select(i: number): void {
+    if (this.sel === i) return;
+    sfx(this.game, 'click');
+    this.sel = i;
+    this.qty = 1;
     this.refreshCards();
   }
 
@@ -91,7 +103,7 @@ export class CraftingScreen extends Screen {
     this.list.forEach((x, i) => {
       const c = this.cards.children[i] as HTMLElement;
       const ok = x.known && this.can(x.r);
-      c.className = `craft-card${x.known ? '' : ' locked'}${ok ? ' ok' : ''}${i === this.sel ? ' on' : ''}`;
+      c.className = `craft-card${x.known ? '' : ' locked'}${ok ? ' ok' : ''}${i === this.sel ? ' on' : ''}${c === this.nav.current ? ' u-focus' : ''}`;
       const d = itemDef(x.r.out.itemId);
       c.innerHTML = x.known
         ? `<div class="pic">${itemIcon(RECIPE_ART[x.r.id] ?? x.r.out.itemId)}</div>${x.r.out.qty > 1 ? `<span class="yield">×${x.r.out.qty}</span>` : ''}<div class="nm">${escapeHtml(x.r.name)}</div>${ok ? '<i class="chk"></i>' : ''}`

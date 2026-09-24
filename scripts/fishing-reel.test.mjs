@@ -2,7 +2,8 @@
 /**
  * Reel minigame regression tests (pure sim, runs in Node via type stripping — no browser):
  *   - idle play never lands a fish: every behaviour × difficulty, no input for 60 s → escaped
- *   - pacing: a human-like bot lands commons in ~5–8 s and rares in ~10–15 s (and can lose them)
+ *   - pacing: a human-like bot (100 ms late, 5 % sloppy) lands commons in ~5–10 s, loses rares often
+ *   - depth: a perfect PD bot can't coast through fish with signature moves (dash / dive / thrash)
  *   - the treasure chest never shows up before 1.5 s
  *
  *   node scripts/fishing-reel.test.mjs      (also run from npm test / scripts/smoke.mjs)
@@ -67,13 +68,13 @@ export function runReelTests(log = console.log) {
   const rows = [];
   // [label, difficulty, behaviour, median band (s), max losses of 12]
   for (const [label, d, behavior, lo, hi, maxLost] of [
-    ['common', 0.2, 'smooth', 4.5, 8.5, 0],
+    ['common', 0.2, 'smooth', 4, 8.5, 0],
     ['common', 0.25, 'mixed', 4.5, 8.5, 0],
-    ['common', 0.3, 'dart', 5, 10, 1],
-    ['uncommon', 0.45, 'dart', 7, 16, 3],
-    ['rare', 0.6, 'sinker', 8, 18, 3],
-    ['rare', 0.6, 'mixed', 8, 22, 5],
-    ['v.rare', 0.78, 'sinker', 10, 30, 11],
+    ['common', 0.3, 'dart', 6, 14, 1],
+    ['uncommon', 0.45, 'dart', 9, 45, 9],
+    ['rare', 0.6, 'sinker', 10, 40, 7],
+    ['rare', 0.6, 'mixed', 12, 45, 11],
+    ['v.rare', 0.78, 'sinker', 12, 50, 12],
   ]) {
     const times = [];
     let lost = 0;
@@ -84,8 +85,24 @@ export function runReelTests(log = console.log) {
     }
     const m = times.length ? median(times) : Infinity;
     rows.push(`${label.padEnd(9)} d=${d} ${behavior.padEnd(7)} median ${m.toFixed(1)} s  (${times.length}/12 landed)`);
-    if (!(m >= lo && m <= hi)) fails.push(`pacing ${label} d=${d} ${behavior}: median ${m.toFixed(1)} s outside ${lo}-${hi} s`);
+    if (times.length && !(m >= lo && m <= hi)) fails.push(`pacing ${label} d=${d} ${behavior}: median ${m.toFixed(1)} s outside ${lo}-${hi} s`);
     if (lost > maxLost) fails.push(`pacing ${label} d=${d} ${behavior}: lost ${lost}/12 (max ${maxLost})`);
+  }
+  // Depth: a lag-free PD controller (a bot that never blinks) must NOT sail through fish with a
+  // signature move — dashes outrun the lv-0 bar, so perfect fights are earned, not automatic —
+  // but it still lands them.
+  const pd = (s) => s.fish + s.fishV * 0.15 - (s.bar + s.barH * 0.5) - s.barV * 0.18 > 0;
+  for (const [d, behavior] of [[0.3, 'dart'], [0.4, 'mixed'], [0.45, 'sinker']]) {
+    let perfect = 0;
+    let landed = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const r = fight({ d, behavior, seed: seed * 7727, auto: false, hold: pd });
+      if (r.end === 'caught') landed++;
+      if (r.end === 'caught' && r.s.perfect) perfect++;
+    }
+    rows.push(`pd-bot    d=${d} ${behavior.padEnd(7)} ${landed}/12 landed, ${perfect} perfect`);
+    if (perfect > 6) fails.push(`depth d=${d} ${behavior}: a PD bot got ${perfect}/12 perfect fights (moves too easy)`);
+    if (landed < 11) fails.push(`depth d=${d} ${behavior}: a PD bot only landed ${landed}/12`);
   }
   // The demo autopilot lands a common every time.
   for (let seed = 1; seed <= 6; seed++) {
@@ -103,7 +120,7 @@ export function runReelTests(log = console.log) {
     }
     if (seenAt >= 0 && seenAt < 1.5 - 1e-6) fails.push(`treasure appeared at ${seenAt.toFixed(2)} s (< 1.5 s)`);
   }
-  log(`reel sim: start ${REEL.start}, gain 0.16-0.09d, loss 0.15+0.1d\n  ${rows.join('\n  ')}`);
+  log(`reel sim: start ${REEL.start}, gain 0.16-0.09d, loss 0.15+0.1d, dash ${REEL.dashV}, tell ${REEL.tell} s\n  ${rows.join('\n  ')}`);
   return fails;
 }
 

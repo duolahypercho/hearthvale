@@ -155,7 +155,7 @@ let _logBark: THREE.MeshStandardMaterial | null = null;
 function logBarkMaterial(): THREE.MeshStandardMaterial {
   if (_logBark) return _logBark;
   const t = textures.bark();
-  _logBark = new THREE.MeshStandardMaterial({ map: t.map, bumpMap: t.bump, bumpScale: 2.6, roughness: 0.94, vertexColors: true, color: 0xb09a86 });
+  _logBark = new THREE.MeshStandardMaterial({ map: t.map, bumpMap: t.bump, bumpScale: 2.6, roughness: 0.94, vertexColors: true, color: 0xc4ab92 });
   _logBark.name = 'logBark';
   patchMaterial(_logBark, 'log-moss', (shader) => {
     shader.uniforms.uLogMoss = forestMoss;
@@ -167,14 +167,45 @@ function logBarkMaterial(): THREE.MeshStandardMaterial {
       /* glsl */ `
       {
         vec3 gn = normalize(vHvWorldNormal);
-        vec2 mq = vHvWorldPos.xz * 1.9 + vHvWorldPos.y * 0.7;
+        vec3 P = vHvWorldPos;
+        vec2 mq = P.xz * 1.9 + P.y * 0.7;
         float mn = hvNoise(mq) * 0.6 + hvNoise(mq * 3.1 + 4.0) * 0.4;
-        float top = smoothstep(0.38, 0.78, gn.y + (mn - 0.5) * 0.55);
+        // Moss grows in cushions along the crown of the log with bark showing between them (not a
+        // uniform green sleeve): a coarse patch mask gates the top-facing coverage.
+        float patchN = hvNoise(P.xz * 1.7 + P.y * 0.6 + 11.0) * 0.7 + hvNoise(P.xz * 4.1 + 5.0) * 0.3;
+        float cover = smoothstep(0.42, 0.8, gn.y + (mn - 0.5) * 0.55) * smoothstep(0.3, 0.48, patchN + gn.y * 0.08);
         // Moss creeps a little way down the flanks in soft tongues.
-        float drip = smoothstep(0.62, 0.8, hvNoise(vec2(vHvWorldPos.x * 2.3 + vHvWorldPos.z * 2.3, gn.y * 3.0))) * smoothstep(-0.2, 0.3, gn.y);
-        float m = clamp(max(top, drip * 0.7), 0.0, 1.0);
-        vec3 moss = uLogMoss * (0.55 + 0.6 * hvNoise(mq * 5.3)) * vec3(1.0, 1.05, 0.9);
-        diffuseColor.rgb = mix(diffuseColor.rgb, moss, m * 0.9 * (1.0 - hvSnowAmt));
+        float drip = smoothstep(0.64, 0.8, hvNoise(vec2(P.x * 2.3 + P.z * 2.3, gn.y * 3.0))) * smoothstep(-0.2, 0.3, gn.y);
+        cover = max(cover, drip * 0.45);
+        // Cushion cells + fine fuzz: the edge is a speckled fringe (tufts), never a blurred smear.
+        float cush = hvNoise(P.xz * 6.5 + P.y * 2.1);
+        float cush2 = hvNoise(P.xz * 14.0 + P.y * 4.3 + 7.0);
+        float fuzz = hvNoise(P.xz * 41.0 + P.y * 23.0 + 3.0);
+        float m = smoothstep(0.32, 0.56, cover + (fuzz - 0.5) * 0.34 + (cush2 - 0.5) * 0.18);
+        float body = 0.55 * cush + 0.3 * cush2 + 0.15 * fuzz;
+        // Velvety cushions: olive-dark in the crevices between them, a yellow-green sheen on the crowns.
+        vec3 moss = mix(uLogMoss * vec3(0.4, 0.5, 0.3), uLogMoss * vec3(1.12, 1.18, 0.7), smoothstep(0.28, 0.82, body));
+        // Sporophyte flecks catching the light.
+        moss += vec3(0.42, 0.4, 0.12) * smoothstep(0.86, 0.95, hvNoise(P.xz * 58.0 + P.y * 31.0)) * 0.3;
+        // Bark darkens where the moss holds the damp (a dark halo round every cushion).
+        diffuseColor.rgb *= 1.0 - 0.32 * smoothstep(0.1, 0.45, cover) * (1.0 - m) * (1.0 - hvSnowAmt);
+        // Lichen rosettes on the bare bark (pale grey-green coins).
+        float lich = smoothstep(0.8, 0.86, hvNoise(P.xz * 16.0 + P.y * 12.0 + 3.0)) * (1.0 - m);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.54, 0.42), lich * 0.4 * (1.0 - hvSnowAmt));
+        hvLogMoss = m * (0.5 + 0.5 * cush);
+        diffuseColor.rgb = mix(diffuseColor.rgb, moss, m * 0.92 * (1.0 - hvSnowAmt));
+      }`,
+    );
+    fs = after(fs, 'void main() {', 'float hvLogMoss = 0.0;');
+    // Moss cushions are lumpy: a soft world-space bump (the cylinder no longer reads as a green tube).
+    fs = after(
+      fs,
+      '#include <normal_fragment_maps>',
+      /* glsl */ `
+      if (hvLogMoss > 0.01) {
+        vec2 bq = vHvWorldPos.xz * 7.0 + vHvWorldPos.y * 3.0;
+        vec3 bd = vec3(hvNoise(bq) - 0.5, 0.0, hvNoise(bq + 4.7) - 0.5) + vec3(hvNoise(bq * 2.6 + 1.3) - 0.5, 0.0, hvNoise(bq * 2.6 + 9.1) - 0.5) * 0.5;
+        normal = normalize(normal + mat3(viewMatrix) * bd * 0.9 * hvLogMoss);
       }`,
     );
     shader.fragmentShader = fs;
@@ -303,7 +334,7 @@ export function buildMossyLog(rng: Rng, len: number, radius: number): THREE.Grou
     nor.setXYZ(e, nx / l, ny / l, nz / l);
   }
   // AO: dark underside / ground contact, a touch darker towards the ends.
-  b.add(bark, trunk, undefined, { aoWorld: (q, n) => (0.34 + 0.66 * THREE.MathUtils.smoothstep(q.y, 0.02, cy + radius * 0.6)) * (0.82 + 0.18 * (n.y * 0.5 + 0.5)) });
+  b.add(bark, trunk, undefined, { aoWorld: (q, n) => (0.42 + 0.58 * THREE.MathUtils.smoothstep(q.y, 0.02, cy + radius * 0.5)) * (0.82 + 0.18 * (n.y * 0.5 + 0.5)) });
 
   // Sawn end (+X): a flat fan with planar ring UVs; the bark lip is in the texture.
   {
@@ -349,13 +380,15 @@ export function buildMossyLog(rng: Rng, len: number, radius: number): THREE.Grou
     eg.setIndex(ei);
     eg.computeVertexNormals();
     b.add(endM, eg, undefined, { tint: 0xd8c4a4, aoWorld: (q) => 0.62 + 0.38 * THREE.MathUtils.smoothstep(q.y, 0.05, cy) });
+    // 3-5 chunky slabs of torn heartwood (wide, short, blunt-tipped wedges; never a comb of spikes).
     const n = 3 + rng.int(0, 2);
     for (let k = 0; k < n; k++) {
       const a = -0.6 + (k / (n - 1)) * 3.6 + (rng.next() - 0.5) * 0.4;
-      const sl = radius * (0.55 + rng.next() * 0.6);
-      const sw = radius * (0.16 + rng.next() * 0.08);
-      const sp = new THREE.CylinderGeometry(sw * 0.15, sw, sl, 5, 1);
-      sp.scale(1, 1, 0.55);
+      const sl = radius * (0.38 + rng.next() * 0.42);
+      const sw = radius * (0.3 + rng.next() * 0.14);
+      const sp = new THREE.CylinderGeometry(sw * 0.38, sw, sl, 4, 1);
+      sp.rotateY(Math.PI / 4);
+      sp.scale(1, 1, 0.5);
       sp.translate(0, sl / 2, 0);
       sp.rotateZ(Math.PI / 2 + (rng.next() - 0.5) * 0.35);
       const rr = R * (0.55 + rng.next() * 0.3);

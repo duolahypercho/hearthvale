@@ -3,31 +3,21 @@
  * meshes (in the scene only while on the viewer's map), and their DOM name tags / chat bubbles.
  *
  * Samples are stamped with the *sender's* clock (each farmer's own frame time); every RemotePlayer
- * learns its own clock offset (min receive − send delay), so samples relayed from different
- * machines interpolate independently. Tags are placed after the frame renders (game.afterRender),
- * so they always match the camera of the frame on screen — even while paused — and are nudged
- * apart when farmers bunch up. The local farmer gets a speech bubble too.
+ * runs its own playout clock (playout.ts: offset estimate + adaptive buffer + time dilation, never
+ * stepping backwards), so samples relayed from different machines interpolate independently.
+ * Tags are laid out after the frame renders (game.afterRender), so they always match the camera of
+ * the frame on screen — even while paused. The local farmer gets a speech bubble too.
  */
 import * as THREE from 'three';
 import type { Game } from '../core/game';
 import { RemoteFarmer, type RemoteAnim } from '../entities/remote-farmer';
 import { hex, type FarmerLook } from '../entities/remote-look';
-import type { EmoteId } from '../entities/remote-emotes';
+import type { EmoteBubble, EmoteId } from '../entities/remote-emotes';
+import { Playout } from './playout';
 
-/** Interpolation delay behind the freshest possible sample (the floor of the adaptive buffer). */
-export const INTERP_MS = 100;
-/** Ceiling of the adaptive jitter buffer. */
-const INTERP_MAX = 260;
+export { INTERP_MS } from './playout';
 
 export const ANIM_CODES: RemoteAnim[] = ['idle', 'walk', 'run', 'fish', 'hidden'];
-
-interface Sample {
-  t: number;
-  x: number;
-  z: number;
-  yaw: number;
-  anim: number;
-}
 
 export class RemotePlayer {
   readonly farmer: RemoteFarmer;
@@ -43,26 +33,24 @@ export class RemotePlayer {
   energy = 0;
   lastUse = 0;
   lastSeq = 0;
-  private buf: Sample[] = [];
-  /** min(receive time − source time) over a sliding window: one-way delay + clock offset. */
-  private baseDelay = Infinity;
-  private delayWindow: { at: number; d: number }[] = [];
-  /**
-   * Adaptive jitter buffer: how far behind the freshest sample we render. Starts at INTERP_MS and
-   * grows with the arrival jitter we actually see (busy machines deliver samples in bursts), so the
-   * buffer never runs dry mid-walk; it shrinks back slowly when the link calms down.
-   */
-  interp = INTERP_MS;
+  /** Playout clock + sample buffer (src/net/playout.ts). */
+  readonly play = new Playout();
+  /** Target jitter buffer (ms), for the roster / tests. */
+  get interp(): number {
+    return this.play.interp;
+  }
   readonly tag: HTMLElement;
-  private chatEl: HTMLElement;
-  private chatT = 0;
+  readonly say: SayBubble;
+  private label: HTMLElement;
   private tagShown = false;
+  private dim = false;
   private tx = -1;
   private ty = -1;
-  /** Screen anchor this frame (before declutter), px; width estimate of the name pill. */
-  sx = 0;
-  sy = 0;
-  tagW = 60;
+  /** Screen anchor this frame (before layout). */
+  readonly anchor: Anchor = { x: 0, y: 0, ppm: 60, z: 0 };
+  /** Name pill size, px (measured once per name / UI scale; 0 = stale). */
+  tagW = 0;
+  tagH = 0;
   onScreen = false;
 
   constructor(
@@ -74,23 +62,28 @@ export class RemotePlayer {
     this.farmer = new RemoteFarmer(look);
     this.tag = document.createElement('div');
     this.tag.className = 'coop-tag';
-    this.chatEl = document.createElement('div');
-    this.chatEl.className = 'coop-say';
-    this.tag.appendChild(this.chatEl);
-    const label = document.createElement('div');
-    label.className = 'coop-name';
-    this.tag.appendChild(label);
+    this.say = new SayBubble(this.tag);
+    this.label = document.createElement('div');
+    this.label.className = 'coop-name';
+    this.tag.appendChild(this.label);
     tags.appendChild(this.tag);
     this.setName(name, look);
   }
 
   setName(name: string, look: FarmerLook): void {
     this.name = name;
-    const label = this.tag.querySelector('.coop-name') as HTMLElement;
+    const label = this.label;
     label.innerHTML = `<i style="background:${hex(look.scarf)}"></i><span></span>`;
     label.querySelector('span')!.textContent = name;
     this.tag.classList.toggle('host', this.isHost);
-    this.tagW = 34 + name.length * 8.4;
+    this.tagW = 0;
+  }
+
+  /** Pill size in px (layout read, only when stale). */
+  measure(): void {
+    if (this.tagW > 0) return;
+    this.tagW = this.label.offsetWidth || 60;
+    this.tagH = this.label.offsetHeight || 24;
   }
 
   setLook(look: FarmerLook): void {
@@ -100,48 +93,17 @@ export class RemotePlayer {
   }
 
   /** A state sample stamped with the sender's clock (ms). */
-  push(t: number, x: number, z: number, yaw: number, anim: number, map: string): void {
-    const now = performance.now();
-    // A different clock (rejoin after a reload, host restart): start the buffer over.
-    const tail = this.buf[this.buf.length - 1];
-    if (tail && t < tail.t - 1000) {
-      this.buf.length = 0;
-      this.delayWindow.length = 0;
-    }
-    const d = now - t;
-    const win = this.delayWindow;
-    win.push({ at: now, d });
-    while (win.length && now - win[0]!.at > 3000) win.shift();
-    let m = Infinity;
-    for (const w of win) m = Math.min(m, w.d);
-    this.baseDelay = m;
-    // Jitter = the second-worst lateness in the window (one hiccup doesn't set the buffer).
-    let j1 = 0;
-    let j2 = 0;
-    for (const w of win) {
-      const late = w.d - m;
-      if (late > j1) {
-        j2 = j1;
-        j1 = late;
-      } else if (late > j2) j2 = late;
-    }
-    const want = Math.min(INTERP_MAX, Math.max(INTERP_MS, j2 + 40));
-    this.interp += (want - this.interp) * (want > this.interp ? 0.25 : 0.02);
+  push(t: number, x: number, z: number, yaw: number, anim: number, map: string, now = performance.now()): void {
     if (map !== this.map) {
-      this.buf.length = 0;
+      this.play.reset();
       this.map = map;
     }
-    const lastS = this.buf[this.buf.length - 1];
-    if (lastS && t <= lastS.t) return;
-    // Teleports (warps, beds) snap instead of sliding across the map.
-    if (lastS && Math.hypot(x - lastS.x, z - lastS.z) > 4) this.buf.length = 0;
-    this.buf.push({ t, x, z, yaw, anim });
-    if (this.buf.length > 40) this.buf.splice(0, this.buf.length - 40);
+    this.play.push(t, x, z, yaw, anim, now);
   }
 
   /** Place immediately (spawn / snap), no interpolation history. */
   snap(x: number, z: number, map: string): void {
-    this.buf.length = 0;
+    this.play.reset();
     this.map = map;
     this.farmer.position.set(x, this.farmer.position.y, z);
     this.last = { ...this.last, x, z, map };
@@ -149,78 +111,34 @@ export class RemotePlayer {
 
   /** Speech bubble over the head (`hold` s overrides the reading-time expiry; demo stills). */
   chat(text: string, hold?: number): void {
-    this.chatEl.textContent = text;
-    this.chatEl.classList.remove('on');
-    void this.chatEl.offsetWidth;
-    this.chatEl.classList.add('on');
-    this.chatT = hold ?? Math.min(9, 3 + text.length * 0.08);
+    this.say.set(text, hold);
   }
 
   emote(id: EmoteId, dur?: number): void {
     this.farmer.emote(id, dur);
   }
 
-  /** Interpolate to (now − baseDelay − interp) in the sender's clock; `now` = this frame's clock. */
+  /** Pose the farmer at this frame's playout time (`now` = this frame's clock). */
   sample(heightAt: (x: number, z: number) => number, now = performance.now()): void {
-    const b = this.buf;
+    const pl = this.play;
+    if (!pl.sample(now)) return;
     const f = this.farmer;
-    if (!b.length) return;
-    const rt = now - this.baseDelay - this.interp;
-    let a = b[0]!;
-    let c = b[b.length - 1]!;
-    let x: number;
-    let z: number;
-    let speed = 0;
-    if (rt <= a.t) {
-      x = a.x;
-      z = a.z;
-      c = a;
-    } else if (rt >= c.t) {
-      // Extrapolate briefly (≤ 120 ms) along the last segment, then hold.
-      const p = b.length > 1 ? b[b.length - 2]! : c;
-      const dt = Math.max(1, c.t - p.t);
-      const k = Math.min(rt - c.t, 120) / dt;
-      x = c.x + (c.x - p.x) * k;
-      z = c.z + (c.z - p.z) * k;
-      speed = rt - c.t < 150 ? (Math.hypot(c.x - p.x, c.z - p.z) / dt) * 1000 : 0;
-      a = c;
-    } else {
-      let i = 0;
-      while (i < b.length - 2 && b[i + 1]!.t < rt) i++;
-      a = b[i]!;
-      c = b[i + 1]!;
-      const k = (rt - a.t) / Math.max(1, c.t - a.t);
-      x = a.x + (c.x - a.x) * k;
-      z = a.z + (c.z - a.z) * k;
-      speed = (Math.hypot(c.x - a.x, c.z - a.z) / Math.max(1, c.t - a.t)) * 1000;
-    }
-    f.position.set(x, heightAt(x, z), z);
-    f.targetYaw = c.yaw;
-    f.speed = speed;
-    f.anim = ANIM_CODES[c.anim] ?? 'idle';
+    f.position.set(pl.x, heightAt(pl.x, pl.z), pl.z);
+    f.targetYaw = pl.yaw;
+    f.speed = pl.speed;
+    f.anim = ANIM_CODES[pl.anim] ?? 'idle';
   }
 
-  /** Project the name-tag anchor for this frame (screen px); false if off screen / hidden. */
-  project(cam: THREE.Camera, visible: boolean, dt: number, v: THREE.Vector3): boolean {
-    if (this.chatT > 0) {
-      this.chatT -= dt;
-      if (this.chatT <= 0) this.chatEl.classList.remove('on');
-    }
+  /** Project the name-tag anchor (head top) for this frame (screen px); false if off screen / hidden. */
+  project(cam: THREE.Camera, visible: boolean, v: THREE.Vector3, right: THREE.Vector3): boolean {
     let show = visible && this.farmer.anim !== 'hidden' && !this.away;
-    if (show) {
-      this.farmer.headWorld(v).project(cam);
-      show = v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
-      if (show) {
-        this.sx = ((v.x + 1) / 2) * innerWidth;
-        this.sy = ((1 - v.y) / 2) * innerHeight;
-      }
-    }
+    if (show) show = projectAnchor(this.farmer.headWorld(v), cam, right, this.anchor);
     this.onScreen = show;
     return show;
   }
 
-  /** Commit the (decluttered) tag position. */
-  apply(px: number, py: number): void {
+  /** Commit the laid-out tag (pill bottom-centre at px, py). */
+  apply(px: number, py: number, dim: boolean): void {
     const show = this.onScreen;
     if (show) {
       px = Math.round(px);
@@ -229,6 +147,10 @@ export class RemotePlayer {
         this.tx = px;
         this.ty = py;
         this.tag.style.transform = `translate(${px}px, ${py}px)`;
+      }
+      if (dim !== this.dim) {
+        this.dim = dim;
+        this.tag.classList.toggle('dim', dim);
       }
     }
     if (show !== this.tagShown) {
@@ -243,11 +165,91 @@ export class RemotePlayer {
   }
 }
 
+/** Screen anchor of a farmer this frame: head top (px), pixels per metre there, NDC depth. */
+interface Anchor {
+  x: number;
+  y: number;
+  ppm: number;
+  z: number;
+}
+
+const _r = new THREE.Vector3();
+/** Project world point `v` (clobbered) into `out`; false when off screen. */
+function projectAnchor(v: THREE.Vector3, cam: THREE.Camera, right: THREE.Vector3, out: Anchor): boolean {
+  _r.copy(v).add(right);
+  v.project(cam);
+  if (!(v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2)) return false;
+  _r.project(cam);
+  out.x = ((v.x + 1) / 2) * innerWidth;
+  out.y = ((1 - v.y) / 2) * innerHeight;
+  out.z = v.z;
+  out.ppm = Math.max(4, Math.hypot(_r.x - v.x, _r.y - v.y) * 0.5 * Math.hypot(innerWidth, innerHeight) * 0.7071);
+  return true;
+}
+
+/**
+ * A chat speech bubble (DOM) above a farmer. Measured once per message (and on a UI-scale change)
+ * so the per-frame layout never forces a reflow; laid out by RemotePlayers.placeTags and nudged
+ * sideways / up to clear other farmers' bubbles, with its tail kept pointing at its farmer.
+ */
+class SayBubble {
+  readonly el: HTMLElement;
+  t = 0;
+  w = 0;
+  h = 0;
+  private dx = 0;
+  private dy = 0;
+
+  constructor(parent: HTMLElement) {
+    this.el = document.createElement('div');
+    this.el.className = 'coop-say';
+    parent.appendChild(this.el);
+  }
+
+  set(text: string, hold?: number): void {
+    this.el.textContent = text;
+    this.el.classList.remove('on');
+    void this.el.offsetWidth;
+    this.el.classList.add('on');
+    this.w = 0;
+    this.t = hold ?? Math.min(9, 3 + text.length * 0.08);
+  }
+
+  get active(): boolean {
+    return this.t > 0;
+  }
+
+  tick(dt: number): void {
+    if (this.t <= 0) return;
+    this.t -= dt;
+    if (this.t <= 0) this.el.classList.remove('on');
+  }
+
+  /** Size in px (layout read, only when stale). */
+  measure(): void {
+    if (this.w > 0) return;
+    this.w = this.el.offsetWidth;
+    this.h = this.el.offsetHeight;
+  }
+
+  /** Offset from the default spot (centred over the pill) + tail correction. */
+  offset(dx: number, dy: number): void {
+    dx = Math.round(dx);
+    dy = Math.round(dy);
+    if (dx === this.dx && dy === this.dy) return;
+    this.dx = dx;
+    this.dy = dy;
+    this.el.style.transform = dx || dy ? `translate(${dx}px, ${dy}px)` : '';
+    const tail = Math.max(-this.w / 2 + 18, Math.min(this.w / 2 - 18, -dx));
+    this.el.style.setProperty('--tail', `${Math.round(tail)}px`);
+  }
+}
+
 /** Speech bubble over the local farmer (chat you send shows over your own head too). */
 class LocalSay {
   readonly tag: HTMLElement;
-  private el: HTMLElement;
-  private t = 0;
+  readonly say: SayBubble;
+  readonly anchor: Anchor = { x: 0, y: 0, ppm: 60, z: 0 };
   private shown = false;
   private tx = -1;
   private ty = -1;
@@ -255,39 +257,23 @@ class LocalSay {
   constructor(tags: HTMLElement) {
     this.tag = document.createElement('div');
     this.tag.className = 'coop-tag self';
-    this.el = document.createElement('div');
-    this.el.className = 'coop-say';
-    this.tag.appendChild(this.el);
+    this.say = new SayBubble(this.tag);
     tags.appendChild(this.tag);
   }
 
-  say(text: string): void {
-    this.el.textContent = text;
-    this.el.classList.remove('on');
-    void this.el.offsetWidth;
-    this.el.classList.add('on');
-    this.t = Math.min(9, 3 + text.length * 0.08);
+  /** Project our own head for this frame; false when nothing of ours needs laying out. */
+  project(game: Game, v: THREE.Vector3, right: THREE.Vector3, emoting: boolean): boolean {
+    if (!(this.say.active || emoting) || game.cinematic || !game.player.root.visible) return false;
+    const p = game.player.position;
+    return projectAnchor(v.set(p.x, p.y + 2.3, p.z), cam(game), right, this.anchor);
   }
 
-  get active(): boolean {
-    return this.t > 0;
-  }
-
-  place(game: Game, dt: number, v: THREE.Vector3, lift = 2.3): { x: number; y: number } | null {
-    if (this.t > 0) {
-      this.t -= dt;
-      if (this.t <= 0) this.el.classList.remove('on');
-    }
-    let show = this.t > 0 && !game.cinematic && game.player.root.visible;
-    let x = 0;
-    let y = 0;
+  apply(show: boolean): void {
+    show = show && this.say.active;
     if (show) {
-      const p = game.player.position;
-      v.set(p.x, p.y + lift, p.z).project(game.rc.camera);
-      show = v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
-      x = Math.round(((v.x + 1) / 2) * innerWidth);
-      y = Math.round(((1 - v.y) / 2) * innerHeight);
-      if (show && (x !== this.tx || y !== this.ty)) {
+      const x = Math.round(this.anchor.x);
+      const y = Math.round(this.anchor.y);
+      if (x !== this.tx || y !== this.ty) {
         this.tx = x;
         this.ty = y;
         this.tag.style.transform = `translate(${x}px, ${y}px)`;
@@ -297,23 +283,62 @@ class LocalSay {
       this.shown = show;
       this.tag.classList.toggle('on', show);
     }
-    return show ? { x, y } : null;
   }
 }
 
-/** Name pills this close (px) get stacked instead of overlapping. */
-const TAG_H = 25;
+function cam(game: Game): THREE.Camera {
+  return game.rc.camera;
+}
+
+/** HUD cards tags keep clear of (dimmed over them); re-read twice a second, never per frame. */
+const HUD_CARDS = '.h-clock, .hv-toolbar, .hv-energy, .coop-roster:not(.hv-hidden), .hv-np, .coop-log > *';
+
+/**
+ * Screen rectangles already claimed this frame (pills, chat and emote bubbles), in a flat pooled
+ * array — the layout allocates nothing per frame.
+ */
+class Rects {
+  private a: number[] = [];
+  n = 0;
+  clear(): void {
+    this.n = 0;
+  }
+  add(x0: number, y0: number, x1: number, y1: number): void {
+    const i = this.n++ * 4;
+    const a = this.a;
+    a[i] = x0;
+    a[i + 1] = y0;
+    a[i + 2] = x1;
+    a[i + 3] = y1;
+  }
+  /** Index of the first rect overlapping (with `pad` px), or -1. */
+  hit(x0: number, y0: number, x1: number, y1: number, pad = 3): number {
+    const a = this.a;
+    for (let i = 0; i < this.n; i++) {
+      const j = i * 4;
+      if (x0 < a[j + 2]! + pad && x1 > a[j]! - pad && y0 < a[j + 3]! + pad && y1 > a[j + 1]! - pad) return i;
+    }
+    return -1;
+  }
+  top(i: number): number {
+    return this.a[i * 4 + 1]!;
+  }
+}
+
+/** One farmer's overlay stack for this frame's layout. */
+interface Actor {
+  a: Anchor;
+  remote: RemotePlayer | null;
+  say: SayBubble;
+  bubble: EmoteBubble | null;
+}
 
 export class RemotePlayers {
   readonly list = new Map<number, RemotePlayer>();
   readonly tags: HTMLElement;
   private v = new THREE.Vector3();
   private local: LocalSay;
-  /** Is an emote bubble showing over our own farmer? (the speech bubble then sits above it) */
-  localEmoting: () => boolean = () => false;
   private lastPlace = 0;
-  private order: RemotePlayer[] = [];
-  private placed: { x: number; y: number; w: number }[] = [];
   /** Is this farmer's angling drawn by the fishing pod (RemoteAngler)? Then we skip our own rod. */
   fishingCheck: ((id: number) => boolean) | null = null;
   /** Extra visibility filter (mine floors share a map id). */
@@ -329,7 +354,7 @@ export class RemotePlayers {
 
   /** Our own chat line, as a bubble over our farmer. */
   sayLocal(text: string): void {
-    this.local.say(text);
+    this.local.say.set(text);
   }
 
   add(id: number, name: string, look: FarmerLook): RemotePlayer {
@@ -378,43 +403,190 @@ export class RemotePlayers {
   }
 
   /**
-   * After the frame renders: project every tag with this frame's camera and stack overlapping name
-   * pills (nearest farmer keeps its spot, the ones behind move up). Real-time dt, so bubbles still
-   * expire while the sim is paused.
+   * After the frame renders (and before the emote overlay pass): project every farmer with this
+   * frame's camera and lay out the overlay. Name pills sit right on the head (stacked a notch when
+   * farmers bunch up), emote bubbles beside the pill (never between pill and head), chat bubbles
+   * above the pill, nudged sideways / up to clear other bubbles with the tail still on their
+   * farmer; anything over a HUD card is dimmed. The whole layer hides while a menu, the day-end card
+   * or a cutscene is up. Real-time dt, so bubbles still expire while the sim is paused.
    */
   placeTags(_simDt: number): void {
     const now = performance.now();
     const dt = this.lastPlace ? Math.min(0.1, (now - this.lastPlace) / 1000) : 0;
     this.lastPlace = now;
-    const here = this.game.world.current?.id ?? '';
-    const cam = this.game.rc.camera;
-    const order = this.order;
-    order.length = 0;
-    for (const p of this.list.values()) {
-      const vis = p.map === here && !this.game.cinematic && (this.visibleCheck?.(p.id) ?? true) && !!p.farmer.root.parent;
-      if (p.project(cam, vis, dt, this.v)) order.push(p);
-      else p.apply(0, 0);
+    const g = this.game;
+    this.local.say.tick(dt);
+    if (!g.opts.hud) return;
+    for (const p of this.list.values()) p.say.tick(dt);
+    // Nothing floats over a modal panel (day-end card, menus, dialogue) or a cutscene.
+    const hush = !!g.hud.openPanelName || g.cinematic || !!g.renderOverride;
+    if (hush !== this.hushed) {
+      this.hushed = hush;
+      this.tags.classList.toggle('hush', hush);
     }
-    const placed = this.placed;
-    placed.length = 0;
-    const me = this.local.place(this.game, dt, this.v, this.localEmoting() ? 3.85 : 2.3);
-    if (me) placed.push({ x: me.x, y: me.y - 10, w: 120 });
-    // Lower on screen = nearer the camera: those keep their place.
-    order.sort((a, b) => b.sy - a.sy);
-    for (const p of order) {
-      let y = p.sy;
-      for (let guard = 0; guard < 6; guard++) {
-        let hit = false;
-        for (const q of placed) {
-          if (Math.abs(q.x - p.sx) < (q.w + p.tagW) / 2 + 4 && Math.abs(q.y - y) < TAG_H) {
-            y = q.y - TAG_H;
-            hit = true;
+    const myBubble = this.localBubble();
+    if (hush) {
+      for (const p of this.list.values()) this.hideBubble(p.farmer.bubble);
+      this.hideBubble(myBubble);
+      return;
+    }
+    // UI scale: tags / bubbles grow with the viewport (≈ 14 px text at 720p … 18 px at 1440p).
+    const scale = Math.min(1.3, Math.max(1, innerHeight / 900));
+    if (scale !== this.scale) {
+      this.scale = scale;
+      this.tags.style.setProperty('--coop-s', scale.toFixed(3));
+      for (const p of this.list.values()) {
+        p.tagW = 0;
+        p.say.w = 0;
+      }
+      this.local.say.w = 0;
+    }
+    if (now - this.hudAt > 500) {
+      this.hudAt = now;
+      this.readHud();
+    }
+    const here = g.world.current?.id ?? '';
+    const c = g.rc.camera;
+    const right = this.right.setFromMatrixColumn(c.matrixWorld, 0).normalize();
+    const actors = this.actors;
+    let n = 0;
+    for (const p of this.list.values()) {
+      const vis = p.map === here && (this.visibleCheck?.(p.id) ?? true) && !!p.farmer.root.parent;
+      if (p.project(c, vis, this.v, right)) {
+        p.measure();
+        if (p.say.active) p.say.measure();
+        const act = actors[n] ?? (actors[n] = { a: p.anchor, remote: p, say: p.say, bubble: null });
+        act.a = p.anchor;
+        act.remote = p;
+        act.say = p.say;
+        act.bubble = p.farmer.bubble.active ? p.farmer.bubble : null;
+        n++;
+      } else {
+        p.apply(0, 0, false);
+        this.hideBubble(p.farmer.bubble);
+      }
+    }
+    const meEmote = !!myBubble?.active;
+    const meOn = this.local.project(g, this.v, right, meEmote);
+    if (meOn) {
+      if (this.local.say.active) this.local.say.measure();
+      const act = actors[n] ?? (actors[n] = { a: this.local.anchor, remote: null, say: this.local.say, bubble: null });
+      act.a = this.local.anchor;
+      act.remote = null;
+      act.say = this.local.say;
+      act.bubble = meEmote ? myBubble : null;
+      n++;
+    } else this.hideBubble(myBubble);
+    this.local.apply(meOn);
+    // Lower on screen = nearer the camera: those keep their spot, the ones behind make room.
+    const list = this.sorted;
+    list.length = n;
+    for (let i = 0; i < n; i++) list[i] = actors[i]!;
+    list.sort(byNearest);
+    const R = this.rects;
+    R.clear();
+    const hud = this.hud;
+    const S = scale;
+    for (const act of list) {
+      const a = act.a;
+      const p = act.remote;
+      const x = a.x;
+      // Name pill: bottom-centre on the head, moved up a pill at a time past pills in front (≤ 3).
+      let y = a.y;
+      const pw = p ? p.tagW : 0;
+      const ph = p ? p.tagH : 0;
+      if (p) {
+        for (let k = 0; k < 3; k++) {
+          const i = R.hit(x - pw / 2, y - ph, x + pw / 2, y, 2);
+          if (i < 0) break;
+          y = R.top(i) - 2;
+        }
+        R.add(x - pw / 2, y - ph, x + pw / 2, y);
+        p.apply(x, y, hud.hit(x - pw / 2, y - ph, x + pw / 2, y, 0) >= 0);
+      }
+      // Emote bubble beside the pill (right, else left), its tail at the pill's end.
+      const b = act.bubble;
+      if (b) {
+        const size = Math.min(92 * S, Math.max(58 * S, 1.1 * a.ppm));
+        const gap = p ? pw / 2 + 2 : 10 * S;
+        const bottom = y - ph * 0.2;
+        let x0 = x + gap;
+        const inset = size * 0.1;
+        if (R.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom) >= 0 || hud.hit(x0, bottom - size, x0 + size, bottom, 0) >= 0) {
+          const alt = x - gap - size;
+          if (R.hit(alt + inset, bottom - size + inset, alt + size - inset, bottom) < 0 && hud.hit(alt, bottom - size, alt + size, bottom, 0) < 0) x0 = alt;
+        }
+        R.add(x0 + inset, bottom - size + inset, x0 + size - inset, bottom);
+        // Bubble origin (plane spans −0.08…0.92 of its size vertically) → world, at the head's depth.
+        const ox = x0 + size / 2;
+        const oy = bottom - size * 0.08;
+        this.v.set((ox / innerWidth) * 2 - 1, 1 - (oy / innerHeight) * 2, a.z).unproject(c);
+        b.pin.copy(this.v);
+        b.fit = size / (1.1 * a.ppm);
+        b.pinned = true;
+        b.pinHidden = hud.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom, 0) >= 0;
+      }
+      // Chat bubble: centred over the pill; else nudged sideways, else stacked up.
+      const say = act.say;
+      if (say.active && say.w > 0) {
+        const w = say.w;
+        const h = say.h;
+        const base = y - ph - 10 * S; // bubble bottom (tail below it)
+        let best = 0;
+        let bestDy = 0;
+        let found = false;
+        for (let row = 0; row < 3 && !found; row++) {
+          const dy = -row * (h * 0.55 + 6);
+          for (const f of NUDGE) {
+            const dx = f * w;
+            const x0 = x - w / 2 + dx;
+            const y1 = base + dy;
+            if (R.hit(x0, y1 - h, x0 + w, y1) < 0 && hud.hit(x0, y1 - h, x0 + w, y1, 0) < 0) {
+              best = dx;
+              bestDy = dy;
+              found = true;
+              break;
+            }
           }
         }
-        if (!hit) break;
+        const x0 = x - w / 2 + best;
+        R.add(x0, base + bestDy - h, x0 + w, base + bestDy);
+        say.offset(best, base + bestDy - y);
       }
-      placed.push({ x: p.sx, y, w: p.tagW });
-      p.apply(p.sx, y);
     }
   }
+
+  private hushed = false;
+  private scale = 0;
+  private hudAt = -1e9;
+  private right = new THREE.Vector3();
+  private actors: Actor[] = [];
+  private sorted: Actor[] = [];
+  private rects = new Rects();
+  private hud = new Rects();
+  /** Our own emote bubble (net/system.ts owns it), for the layout. */
+  localBubble: () => EmoteBubble | null = () => null;
+
+  private hideBubble(b: EmoteBubble | null): void {
+    if (!b || !b.active) return;
+    b.pinned = true;
+    b.pinHidden = true;
+  }
+
+  private readHud(): void {
+    const H = this.hud;
+    H.clear();
+    const els = this.game.opts.uiRoot.querySelectorAll<HTMLElement>(HUD_CARDS);
+    for (const e of els) {
+      const r = e.getBoundingClientRect();
+      if (r.width > 4 && r.height > 4 && e.offsetParent !== null) H.add(r.left, r.top, r.right, r.bottom);
+    }
+  }
+}
+
+/** Sideways nudges tried for a chat bubble (fractions of its width). */
+const NUDGE = [0, -0.34, 0.34, -0.62, 0.62];
+
+function byNearest(a: Actor, b: Actor): number {
+  return b.a.y - a.a.y;
 }

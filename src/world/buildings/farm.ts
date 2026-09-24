@@ -13,7 +13,7 @@ import type { GameMap } from '../map';
 import { Rng } from '../../core/rng';
 import { mergeStatic } from '../geom';
 import { buildFence } from '../props/structures';
-import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, COOP_SIZE, BARN_SIZE } from './models';
+import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, barnLeaf, coopHatch, COOP_SIZE, BARN_SIZE } from './models';
 
 export type BuildingKind = 'coop' | 'barn';
 
@@ -26,6 +26,13 @@ export const SITES = {
   doghouse: { x: 36.2, z: 16.2, rot: -0.55, tiles: [[35, 15], [36, 15], [35, 16], [36, 16]] as [number, number][] },
   bowl: { x: 34.9, z: 17.5 },
 } as const;
+
+/** Solid paddock furniture (world AABBs, padded): the log water trough on the east fence, the hay rack +
+ *  salt lick in the south-west corner. Animals' bodies are pushed out of these (systems/animals). */
+export const PASTURE_PROPS: readonly { x0: number; z0: number; x1: number; z1: number }[] = [
+  { x0: SITES.pasture.x1 - 1.4, z0: SITES.pasture.z0 + 1.55, x1: SITES.pasture.x1 - 0.6, z1: SITES.pasture.z0 + 3.65 },
+  { x0: SITES.pasture.x0 + 1.0, z0: SITES.pasture.z1 - 2.1, x1: SITES.pasture.x0 + 3.45, z1: SITES.pasture.z1 - 0.9 },
+];
 
 /** Gaps in the pasture's top fence (in front of the doors). */
 const GAPS: [number, number][] = [
@@ -43,6 +50,8 @@ export class FarmBuildings {
   private cleared = new Set<string>();
   private bowlWater: THREE.Mesh;
   private sig = '';
+  /** Animated pop doors (coop hatch slides up, barn's right leaf slides along its rail). */
+  private doors: Partial<Record<BuildingKind, { obj: THREE.Object3D; closed: THREE.Vector3; slide: THREE.Vector3; k: number; open: boolean; y: number }>> = {};
 
   constructor(private game: Game, private map: GameMap) {
     this.group.name = 'farm-buildings';
@@ -164,6 +173,45 @@ export class FarmBuildings {
     });
     for (const p of parts) this.group.remove(p);
     this.group.add(this.merged);
+    // Pop doors (outside the merge: they move).
+    for (const kind of ['coop', 'barn'] as const) {
+      const cur = this.doors[kind];
+      if (!built.has(kind)) {
+        if (cur) this.group.remove(cur.obj);
+        delete this.doors[kind];
+        continue;
+      }
+      if (cur) continue;
+      const s = SITES[kind];
+      const size = kind === 'coop' ? COOP_SIZE : BARN_SIZE;
+      let y = Infinity;
+      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) y = Math.min(y, this.h(s.x + (cx * size.W) / 2, s.z + (cz * size.D) / 2));
+      const d = kind === 'coop' ? coopHatch() : barnLeaf();
+      d.obj.userData.perfTag = 'buildings';
+      const open = this.game.services.animals?.doorOpen(kind) ?? true;
+      this.doors[kind] = { obj: d.obj, closed: d.closed, slide: d.slide, k: open ? 1 : 0, open, y: y - 0.04 };
+      this.group.add(d.obj);
+      this.placeDoor(kind);
+    }
+  }
+
+  private placeDoor(kind: BuildingKind): void {
+    const d = this.doors[kind];
+    if (!d) return;
+    const s = SITES[kind];
+    const e = d.k * d.k * (3 - 2 * d.k);
+    d.obj.position.set(s.x + d.closed.x + d.slide.x * e, d.y + d.closed.y + d.slide.y * e, s.z + d.closed.z + d.slide.z * e);
+  }
+
+  /** Pop door opened / shut (animal system): slide it over ~0.5 s (instant when `snap`). */
+  setDoor(kind: BuildingKind, open: boolean, snap = false): void {
+    const d = this.doors[kind];
+    if (!d) return;
+    d.open = open;
+    if (snap) {
+      d.k = open ? 1 : 0;
+      this.placeDoor(kind);
+    }
   }
 
   private buildPasture(rng: Rng, parts: THREE.Object3D[]): void {
@@ -234,5 +282,14 @@ export class FarmBuildings {
     this.bowlWater.visible = full;
   }
 
-  update(_dt: number, _game: Game): void {}
+  update(dt: number, _game: Game): void {
+    for (const kind of ['coop', 'barn'] as const) {
+      const d = this.doors[kind];
+      if (!d) continue;
+      const want = d.open ? 1 : 0;
+      if (d.k === want) continue;
+      d.k = want > d.k ? Math.min(1, d.k + dt * 2) : Math.max(0, d.k - dt * 2);
+      this.placeDoor(kind);
+    }
+  }
 }

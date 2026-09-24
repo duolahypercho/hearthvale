@@ -101,6 +101,49 @@ export function floorPlanks(): TexPair {
   });
 }
 
+/**
+ * Kitchen floor: glazed quarry tiles in a cream / terracotta checker, 0.3 m squares with sunken
+ * grout, per-tile tone + a soft glaze sheen and speckle. 1 texture = 1.2 m (4 × 4 tiles); UVs in metres.
+ */
+export function kitchenTile(): TexPair {
+  return cached('i:ktile', () => {
+    const S = 512;
+    const N = 4;
+    const M = 1.2;
+    const rng = new Rng('ktile');
+    const tone: number[] = [];
+    for (let i = 0; i < N * N; i++) tone.push(0.92 + rng.next() * 0.14);
+    const n = makeTileNoise(6, 6, 'ktile');
+    const cream = hex(0xf0e2c4);
+    const terra = hex(0xc4764e);
+    const grout = hex(0x8a7a66);
+    const { color, height } = pixels(S, (u, v) => {
+      const tu = u * N;
+      const tv = v * N;
+      const iu = Math.floor(tu) % N;
+      const iv = Math.floor(tv) % N;
+      const fu = tu - Math.floor(tu);
+      const fv = tv - Math.floor(tv);
+      const edge = Math.min(fu, 1 - fu, fv, 1 - fv);
+      const g = smoothstep(0.018, 0.045, edge);
+      const f = tileFbm(n, u, v, 4);
+      const base = (iu + iv) % 2 ? terra : cream;
+      let c = scale3(base, tone[iv * N + iu]! * (0.94 + f * 0.1));
+      // Glaze: brighter towards the middle of each tile, a few darker speckles
+      const dome = 1 - Math.pow(Math.max(Math.abs(fu - 0.5), Math.abs(fv - 0.5)) * 2, 4);
+      c = scale3(c, 0.93 + dome * 0.09);
+      if (f > 0.83) c = scale3(c, 0.86);
+      c = mix3(grout, c, g);
+      return { c, h: g * (0.8 + dome * 0.2) };
+    });
+    const map = toTexture(color, true);
+    const bump = toTexture(height, false);
+    map.repeat.set(1 / M, 1 / M);
+    bump.repeat.set(1 / M, 1 / M);
+    return { map, bump };
+  });
+}
+
 /** Cream wallpaper with sage stripes and tiny flower sprigs. 1 repeat ≈ 0.8 m. */
 export function wallpaper(): TexPair {
   return cached('i:wallpaper', () => {
@@ -545,6 +588,108 @@ export function windowView(): TexPair {
     ctx.fillStyle = '#f0f0e8';
     for (let x = 6; x < W; x += 30) ctx.fillRect(x, W * 0.72, 6, W * 0.2);
     ctx.fillRect(0, W * 0.77, W, 5);
+    return { map: toTexture(c, true, false) };
+  });
+}
+
+/**
+ * The same view at night: deep indigo sky with a moon disc + halo, ~30 stars, black hill and hedge
+ * silhouettes, the fence as a faint moonlit rail and two warm distant farm windows. Cross-faded with the
+ * day card by the room's window shader (never a darkened daytime painting).
+ */
+export function windowViewNight(): TexPair {
+  return cached('i:viewNight', () => {
+    const W = 256;
+    const [c, ctx] = makeCanvas(W);
+    const sky = ctx.createLinearGradient(0, 0, 0, W);
+    sky.addColorStop(0, '#0b1030');
+    sky.addColorStop(0.45, '#1b2458');
+    sky.addColorStop(0.62, '#34407a');
+    sky.addColorStop(1, '#1a1c3a');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, W);
+    const rng = new Rng('view-night');
+    // Stars (a few brighter ones with a soft cross glint).
+    for (let i = 0; i < 34; i++) {
+      const x = rng.next() * W;
+      const y = rng.next() * W * 0.5;
+      const big = rng.next() < 0.18;
+      ctx.fillStyle = `rgba(${220 + rng.next() * 35},${225 + rng.next() * 30},255,${0.55 + rng.next() * 0.45})`;
+      ctx.beginPath();
+      ctx.arc(x, y, big ? 1.8 : 0.9 + rng.next() * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      if (big) {
+        ctx.fillStyle = 'rgba(210,225,255,0.35)';
+        ctx.fillRect(x - 4, y - 0.5, 8, 1);
+        ctx.fillRect(x - 0.5, y - 4, 1, 8);
+      }
+    }
+    // Moon: halo + disc + a couple of soft maria.
+    const mx = W * 0.7;
+    const my = W * 0.22;
+    const halo = ctx.createRadialGradient(mx, my, 6, mx, my, 60);
+    halo.addColorStop(0, 'rgba(210,220,255,0.5)');
+    halo.addColorStop(0.4, 'rgba(150,170,240,0.16)');
+    halo.addColorStop(1, 'rgba(120,140,220,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, W, W);
+    ctx.fillStyle = '#f4f0dc';
+    ctx.beginPath();
+    ctx.arc(mx, my, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(190,190,170,0.45)';
+    ctx.beginPath();
+    ctx.arc(mx - 4, my - 3, 4, 0, Math.PI * 2);
+    ctx.arc(mx + 5, my + 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+    // Far hills: a moonlit blue-black ridge with a faint rim.
+    ctx.fillStyle = '#141a36';
+    ctx.beginPath();
+    ctx.moveTo(0, W * 0.62);
+    for (let x = 0; x <= W; x += 8) ctx.lineTo(x, W * 0.6 - Math.sin(x * 0.03) * 16 - Math.sin(x * 0.011) * 10);
+    ctx.lineTo(W, W);
+    ctx.lineTo(0, W);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,140,210,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += 8) ctx.lineTo(x, W * 0.6 - Math.sin(x * 0.03) * 16 - Math.sin(x * 0.011) * 10);
+    ctx.stroke();
+    // Distant farm windows (warm dots on the ridge).
+    for (const [x, y] of [[W * 0.22, W * 0.63], [W * 0.27, W * 0.635], [W * 0.84, W * 0.6]] as const) {
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 7);
+      g.addColorStop(0, 'rgba(255,200,110,0.9)');
+      g.addColorStop(1, 'rgba(255,160,60,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - 8, y - 8, 16, 16);
+      ctx.fillStyle = '#ffd890';
+      ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+    }
+    // Hedge + field silhouettes.
+    ctx.fillStyle = '#0a0d1c';
+    for (let x = -10; x < W + 20; x += 18) {
+      ctx.beginPath();
+      ctx.arc(x, W * 0.76 + Math.sin(x) * 4, 20, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#080a14';
+    ctx.fillRect(0, W * 0.8, W, W * 0.2);
+    // Fence: dark posts, a thin moonlit top rail.
+    ctx.fillStyle = '#1c2140';
+    for (let x = 6; x < W; x += 30) ctx.fillRect(x, W * 0.72, 6, W * 0.2);
+    ctx.fillRect(0, W * 0.77, W, 5);
+    ctx.fillStyle = 'rgba(140,160,220,0.45)';
+    ctx.fillRect(0, W * 0.77, W, 1.5);
+    // Fireflies over the field.
+    for (let i = 0; i < 6; i++) {
+      const x = rng.next() * W;
+      const y = W * (0.7 + rng.next() * 0.2);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 4);
+      g.addColorStop(0, 'rgba(230,255,150,0.9)');
+      g.addColorStop(1, 'rgba(200,255,120,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - 4, y - 4, 8, 8);
+    }
     return { map: toTexture(c, true, false) };
   });
 }

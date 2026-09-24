@@ -23,6 +23,10 @@ export interface WorldFxOptions {
   snowMask?: string;
   /** GLSL float expression 0..1: how much of the snow reads as trampled slush. */
   slush?: string;
+  /** Roughness multiplier at full wetness (default 0.3; foliage keeps ~0.8 so leaf masses never turn to glossy plastic). */
+  wetGloss?: number;
+  /** Albedo darkening at full wetness (default 0.4). */
+  wetDark?: number;
 }
 
 export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldFxOptions = {}): M {
@@ -33,7 +37,9 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
   const snowUp = opts.snowUp ?? 0.55;
   const mask = opts.snowMask ?? '1.0';
   const slush = opts.slush ?? '0.0';
-  const key = `wfx:${snow ? 1 : 0}${clouds ? 1 : 0}${wet ? 1 : 0}${rim ? 1 : 0}:${snowUp}:${mask}:${slush}`;
+  const wetGloss = opts.wetGloss ?? 0.3;
+  const wetDark = opts.wetDark ?? 0.4;
+  const key = `wfx:${snow ? 1 : 0}${clouds ? 1 : 0}${wet ? 1 : 0}${rim ? 1 : 0}:${snowUp}:${mask}:${slush}${wetGloss !== 0.3 ? `:g${wetGloss}` : ''}${wetDark !== 0.4 ? `:d${wetDark}` : ''}`;
   return patchMaterial(material, key, (shader) => {
     shader.uniforms.uTime = globalUniforms.uTime;
     shader.uniforms.uSnow = globalUniforms.uSnow;
@@ -78,7 +84,8 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
     let albedo = 'float hvSnowAmt = 0.0;';
     if (snow) {
       albedo += /* glsl */ `
-      {
+      // No snow (uSnow = 0 → hvS = 0 exactly): skip the three noise lookups (pillar 14).
+      if (uSnow > 0.0) {
         float hvUp = smoothstep(${snowUp.toFixed(3)}, ${(snowUp + 0.3).toFixed(3)}, normalize(vHvWorldNormal).y);
         float hvN = hvNoise(vHvWorldPos.xz * 2.3) * 0.5 + hvNoise(vHvWorldPos.xz * 9.0) * 0.5;
         float hvS = smoothstep(0.0, 0.35, uSnow * hvUp * (${mask}) - (1.0 - hvN) * 0.35 * (1.0 - uSnow));
@@ -94,11 +101,11 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
     if (wet) {
       albedo += /* glsl */ `
       // Rain soaks surfaces ~40 % darker (and glossier, below): wet bark, stone and soil read at a glance.
-      diffuseColor.rgb *= 1.0 - uWet * 0.4 * (1.0 - hvSnowAmt);`;
+      diffuseColor.rgb *= 1.0 - uWet * ${wetDark.toFixed(3)} * (1.0 - hvSnowAmt);`;
     }
     fs = after(fs, '#include <color_fragment>', albedo);
     if (wet && fs.includes('#include <roughnessmap_fragment>')) {
-      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.3, uWet);');
+      fs = after(fs, '#include <roughnessmap_fragment>', `roughnessFactor = mix(roughnessFactor, roughnessFactor * ${wetGloss.toFixed(3)}, uWet);`);
     }
     if (snow && fs.includes('#include <roughnessmap_fragment>')) {
       fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.62, hvSnowAmt);');

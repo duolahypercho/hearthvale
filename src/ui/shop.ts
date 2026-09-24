@@ -33,19 +33,19 @@ const LINES: Record<string, { hello: string[]; buy: string[]; sell: string[]; br
     hello: ['Fresh seed, straight off the morning cart. Pip checked every packet. Twice.', 'Mind the cat, dear. Pip thinks the seed sacks are his throne.', 'Rain tomorrow, my knee says. Good for the parsnips.'],
     buy: ['A fine choice! Water them in the morning, not at noon.', 'Wrapped and ready. Grow something lovely.', 'Your grandmother bought those every spring, you know.'],
     sell: ['Oh, these are lovely. I’ll put them right in the window.', 'Fair price for fair work.', 'The bakery will want these, mark my words.'],
-    broke: ['Ah — a little short, dear. Come back after market day.'],
+    broke: ['A little short, dear. After market day?', 'Oh — not quite enough, dear.'],
   },
   odessa: {
     hello: ['Mind the sparks. What are we making today?', 'Good ore sings when you strike it. Listen.', 'Bring me copper and I’ll show you what a sprinkler can be.'],
     buy: ['Forged true. It’ll outlast us both.', 'Tempered this morning. Treat it kindly.', 'That’s honest steel.'],
     sell: ['Hm. Decent grain in this. I’ll take it.', 'The forge will put that to good use.', 'Not bad for a farmer.'],
-    broke: ['Steel isn’t cheap. Come back with a heavier purse.'],
+    broke: ['Steel isn’t cheap. Heavier purse next time.', 'Short on coin. The forge can wait.'],
   },
   rowan: {
     hello: ['Measure twice, buy once. What do you need built?', 'Kit borrowed my good hammer again. Browse, I’ll be a minute.', 'Fresh-cut oak today. Smell that?'],
     buy: ['Built it myself. Every joint’s square.', 'Mind the splinters.', 'That’ll hold. Probably forever.'],
     sell: ['Good timber. I’ll find a use for it.', 'Straight grain — that’s the stuff.', 'Deal. Stack it by the door?'],
-    broke: ['Tell you what — come back when the harvest’s in.'],
+    broke: ['Bit short there. After the harvest?', 'Short on coin? It’ll keep.'],
   },
 };
 
@@ -124,6 +124,7 @@ export class ShopScreen extends Screen {
     });
   }
   private selling = false;
+  private wasShort = false;
 
   private line(kind: 'hello' | 'buy' | 'sell' | 'broke'): void {
     const set = (LINES[this.keeper] ?? LINES.marigold!)[kind];
@@ -145,6 +146,7 @@ export class ShopScreen extends Screen {
     this.tab = 'buy';
     this.qty = 1;
     this.sel = 0;
+    this.wasShort = false;
     this.root.querySelector('.u-pop')?.remove();
     const npc = NPCS[this.keeper as NpcId];
     const wrap = el('div', 'shop-wrap u-pop');
@@ -292,11 +294,15 @@ export class ShopScreen extends Screen {
       row.style.animationDelay = `${Math.min(i, 12) * 22}ms`;
       row.addEventListener('click', () => this.pick(i));
       row.addEventListener('dblclick', () => this.commit());
-      // The card docks beside the shop frame (never over the list, the picker or the Buy button).
-      const tip = (): void => tooltip.anchor(itemTooltipHtml({ id: g.id, qty: 1, quality: g.quality }, { price: g.price, priceLabel: this.tab === 'buy' ? 'each' : 'we pay' }), row, this.root.querySelector('.shop-frame') ?? row);
-      row.addEventListener('pointerenter', tip);
-      row.addEventListener('u-focus', tip);
+      // Mouse hover: the item card docks beside the shop frame (never over the list, the picker or the Buy
+      // button). Keyboard / gamepad focus *selects* the row instead — the purchase bar already shows the item,
+      // so Buy always buys what the focus ring is on.
+      row.addEventListener('pointerenter', () => tooltip.anchor(itemTooltipHtml({ id: g.id, qty: 1, quality: g.quality }, { price: g.price, priceLabel: this.tab === 'buy' ? 'each' : 'we pay' }), row, this.root.querySelector('.shop-frame') ?? row));
       row.addEventListener('pointerleave', () => tooltip.hide());
+      row.addEventListener('u-focus', () => {
+        tooltip.hide();
+        this.pick(i);
+      });
       this.list.appendChild(row);
     });
     this.buildPicker();
@@ -338,6 +344,12 @@ export class ShopScreen extends Screen {
     this.buildPicker();
   }
 
+  /** Buy tab: can't afford even one of the selected good. */
+  private short(): boolean {
+    const g = this.goods[this.sel];
+    return this.tab === 'buy' && !!g && !g.off && g.price > (this.game.services.economy?.gold() ?? 0);
+  }
+
   /** Left-column "In your pack" card for the selected good. */
   private buildHave(): void {
     const g = this.goods[this.sel];
@@ -346,8 +358,9 @@ export class ShopScreen extends Screen {
     const size = inv?.slots.length ?? 30;
     const n = g ? (inv?.count(g.id) ?? 0) : 0;
     const after = g && this.tab === 'buy' ? n + this.qty : g && this.tab === 'sell' ? Math.max(0, n - this.qty) : n;
+    const no = this.short() || !!g?.off;
     this.have.innerHTML = g
-      ? `<div class="u-slot mini">${itemIcon(g.id)}</div><div class="hv"><small>In your pack</small><b><span class="n">${n.toLocaleString()}</span>${after !== n ? `<em class="to">→ ${after.toLocaleString()}</em>` : ''}</b></div><div class="fr"><small>Free slots</small><i class="meter"><i style="width:${Math.round((free / Math.max(1, size)) * 100)}%"></i></i><b>${free}<em>/${size}</em></b></div>`
+      ? `<div class="u-slot mini">${itemIcon(g.id)}</div><div class="hv"><small>In your pack</small><b><span class="n">${n.toLocaleString()}</span>${after !== n ? `<em class="to${no ? ' no' : ''}">→ ${after.toLocaleString()}</em>` : ''}</b></div><div class="fr"><small>Free slots</small><i class="meter"><i style="width:${Math.round((free / Math.max(1, size)) * 100)}%"></i></i><b>${free}<em>/${size}</em></b></div>`
       : '';
   }
 
@@ -370,6 +383,10 @@ export class ShopScreen extends Screen {
     const total = g.price * this.qty;
     const gold = this.game.services.economy?.gold() ?? 0;
     const can = this.tab === 'sell' || (!g.off && total <= gold);
+    // Selecting something you can't afford: the keeper says so (once per change), instead of a stale "fair price".
+    const short = this.short();
+    if (short && !this.wasShort) this.line('broke');
+    this.wasShort = short;
     this.picker.innerHTML = `
       <div class="pk-item"><div class="u-slot">${itemIcon(g.id)}</div><div><b title="${escapeHtml(d?.name ?? g.id)}">${escapeHtml(d?.name ?? g.id)}</b><small>${g.price}g each</small></div></div>
       <div class="pk-qty">
@@ -464,7 +481,7 @@ export class ShopScreen extends Screen {
       this.portrait.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.05) translateY(-3px)' }, { transform: 'scale(.99)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'ease-out' });
     };
     if (!sell) {
-      flyCoins(ICONS.coin!, purse, face, n, bounce);
+      flyCoins(ICONS.coin!, purse, face, n, bounce, this.aroundBubble(purse, face));
       if (from) {
         // Resolve the landing slot at launch (the card re-renders on every inventory change).
         const slotEl = (): HTMLElement => this.have.querySelector<HTMLElement>('.u-slot') ?? this.have;
@@ -480,8 +497,20 @@ export class ShopScreen extends Screen {
       }
     } else {
       if (from) flyItemTo(itemId, from, this.portrait, 0, bounce, 48, { duration: 520, bounce: 1.04 });
-      window.setTimeout(() => this.isOpen && flyCoins(ICONS.coin!, face, purse, n, () => popBadge(this.purse, `+${(qty * price).toLocaleString()}g`, 'gold')), 260);
+      const back = this.aroundBubble(face, purse);
+      window.setTimeout(() => this.isOpen && flyCoins(ICONS.coin!, face, purse, n, () => popBadge(this.purse, `+${(qty * price).toLocaleString()}g`, 'gold'), back), 260);
     }
+  }
+
+  /** Cubic handles that carry the coins out past the keeper column's left edge, around the speech bubble. */
+  private aroundBubble(a: { x: number; y: number }, b: { x: number; y: number }): [{ x: number; y: number }, { x: number; y: number }] | undefined {
+    const col = this.root.querySelector('.shop-keeper')?.getBoundingClientRect();
+    if (!col || !col.width) return undefined;
+    const x = col.left - 84;
+    return [
+      { x, y: a.y + (a.y > b.y ? 10 : 40) },
+      { x, y: b.y + (a.y > b.y ? 40 : 10) },
+    ];
   }
 
   override key(code: string): boolean {

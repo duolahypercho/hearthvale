@@ -74,6 +74,8 @@ base.push(
   { id: 'wool', name: 'Wool', kind: 'produce', icon: 'wool', sell: 340, stack: 999, description: 'A soft, springy fleece. Smells faintly of clover.' },
   { id: 'truffle', name: 'Truffle', kind: 'produce', icon: 'truffle', sell: 625, stack: 999, description: 'A knobbly black treasure a pig snuffled up from under the oak.' },
   { id: 'hay', name: 'Hay', kind: 'resource', icon: 'hay', sell: 0, stack: 999, description: 'Sweet dried grass. Put it in a feed trough.' },
+  { id: 'milkPail', name: 'Milk Pail', kind: 'tool', icon: 'milkPail', sell: 0, stack: 1, description: 'A bright tin pail. Pet a cow or goat that’s ready and it fills with fresh milk.' },
+  { id: 'shears', name: 'Shears', kind: 'tool', icon: 'shears', sell: 0, stack: 1, description: 'Sharp spring shears. A sheep in full fleece stands very still for them.' },
 );
 
 for (const id of CROP_IDS) {

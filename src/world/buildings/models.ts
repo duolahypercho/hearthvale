@@ -161,6 +161,8 @@ export function buildCoopExterior(rng: Rng): THREE.Group {
   const px = 1.05;
   b.add('white', roundedBox(0.34, 0.36, 0.02, 0.07), mat(px, base + 0.26, fz + 0.03), { tint: 0x1c120c });
   b.add('woodPaint', roundedBox(0.44, 0.06, 0.04, 0.015), mat(px, base + 0.47, fz + 0.04), { tint: TRIM });
+  // Guide rails for the sliding pop door (the hatch itself is animated by the farm: systems/animals doors)
+  for (const sx of [-1, 1]) b.add('woodPaint', roundedBox(0.04, 0.82, 0.05, 0.012), mat(px + sx * 0.21, base + 0.4, fz + 0.06), { tint: TRIM });
   const rampLen = 0.95;
   const rh = base + 0.08;
   const ra = Math.asin(rh / rampLen);
@@ -265,12 +267,15 @@ export function buildBarnExterior(rng: Rng): THREE.Group {
   const dw = 2.2;
   const dh = 2.1;
   b.add('white', roundedBox(dw, dh, 0.04, 0.02), mat(0, base + dh / 2, fz - 0.03), { tint: 0x1e140e });
-  for (const s of [-1, 1]) {
-    const cx = s * (dw / 4 + 0.03);
+  // (Left leaf fixed; the right leaf is the pasture door and slides open along the rail: barnLeaf().)
+  {
+    const cx = -(dw / 4 + 0.03);
     b.add('wood', boxUV(roundedBox(dw / 2 - 0.02, dh, 0.08, 0.02), 1 / 1.1), mat(cx, base + dh / 2, fz + 0.03), { tint: RED });
     xBrace(b, dw / 2 - 0.12, dh - 0.1, cx, base + 0.05, fz + 0.09);
-    b.add('metal', roundedBox(0.04, 0.3, 0.05, 0.01), mat(s * 0.12, base + 1.05, fz + 0.13), { tint: 0x2e2a28 });
+    b.add('metal', roundedBox(0.04, 0.3, 0.05, 0.01), mat(-0.12, base + 1.05, fz + 0.13), { tint: 0x2e2a28 });
   }
+  // Inside the opening: a glimpse of straw + a dim interior so an open leaf reads as a way in.
+  b.add('thatch', roundedBox(dw * 0.46, 0.06, 0.5, 0.02), mat(dw / 4, base + 0.03, fz - 0.28), { tint: 0xc8a050 });
   b.add('metal', roundedBox(dw * 1.9, 0.08, 0.06, 0.02), mat(dw * 0.2, base + dh + 0.08, fz + 0.1), { tint: 0x3a3634 });
   // Front windows flanking the doors + lanterns
   for (const s of [-1, 1]) {
@@ -481,4 +486,30 @@ export function buildHayRack(rng: Rng): THREE.Group {
   b.add('woodGrain', roundedBox(0.1, 0.62, 0.1, 0.02), mat(L / 2 + 0.55, 0.31, 0.1), { tint: 0x8a5a38, aoWorld: groundAO(0.2) });
   b.add('stone', roundedBox(0.22, 0.16, 0.2, 0.05), mat(L / 2 + 0.55, 0.68, 0.1), { tint: 0xf2d8d0 });
   return b.build({ name: 'hay-rack' });
+}
+
+/** Barn pasture door (the right sliding leaf): local origin = its closed centre at the foot. */
+export function barnLeaf(): { obj: THREE.Group; closed: THREE.Vector3; slide: THREE.Vector3 } {
+  const b = new MeshBuilder();
+  const dw = 2.2;
+  const dh = 2.1;
+  b.add('wood', boxUV(roundedBox(dw / 2 - 0.02, dh, 0.08, 0.02), 1 / 1.1), mat(0, dh / 2, 0), { tint: RED });
+  xBrace(b, dw / 2 - 0.12, dh - 0.1, 0, 0.05, 0.06);
+  b.add('metal', roundedBox(0.04, 0.3, 0.05, 0.01), mat(-(dw / 4 + 0.03) + 0.12, 1.05, 0.1), { tint: 0x2e2a28 });
+  for (const sx of [-0.3, 0.3]) b.add('metal', new THREE.CylinderGeometry(0.04, 0.04, 0.05, 10).rotateX(Math.PI / 2), mat(sx, dh + 0.06, 0.06), { tint: 0x3a3634 });
+  const obj = b.build({ name: 'barn-leaf', castShadow: true, receiveShadow: true });
+  const base = 0.3;
+  const fz = BARN_SIZE.D / 2;
+  return { obj, closed: new THREE.Vector3(dw / 4 + 0.03, base, fz + 0.03), slide: new THREE.Vector3(1.08, 0, 0.16) };
+}
+
+/** Coop pop door: a little planked hatch that slides up its guide rails. */
+export function coopHatch(): { obj: THREE.Group; closed: THREE.Vector3; slide: THREE.Vector3 } {
+  const b = new MeshBuilder();
+  b.add('wood', boxUV(roundedBox(0.38, 0.4, 0.04, 0.015), 1 / 0.5), mat(0, 0.2, 0), { tint: 0xe8dcc0 });
+  xBrace(b, 0.32, 0.34, 0, 0.03, 0.03, 0xc8503a);
+  b.add('metal', new THREE.TorusGeometry(0.035, 0.008, 5, 10), mat(0, 0.36, 0.035), { tint: 0x2e2a28 });
+  const obj = b.build({ name: 'coop-hatch', castShadow: true, receiveShadow: true });
+  const base = 0.32;
+  return { obj, closed: new THREE.Vector3(1.05, base + 0.07, COOP_SIZE.D / 2 + 0.07), slide: new THREE.Vector3(0, 0.38, 0) };
 }

@@ -265,7 +265,7 @@ export class WeatherSystem implements System, WeatherApi {
     snap();
     requestAnimationFrame(snap);
     const bolt = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('bolt') : null;
-    if ((name === 'storm' || name === 'farm-storm' || name === 'coop-forest') && bolt !== '0') {
+    if ((name === 'storm' || name === 'storm-meadow' || name === 'farm-storm' || name === 'coop-forest') && bolt !== '0') {
       // Pose a strike for the (paused) beauty shot: rebuilt a frame later, once the camera has snapped.
       // Maps can name an open, well-framed strike spot (`poi.strike`).
       requestAnimationFrame(() => {
@@ -275,7 +275,7 @@ export class WeatherSystem implements System, WeatherApi {
         this.strike(spot ? { x: spot.x, z: spot.z } : undefined, true);
       });
     } else if (bolt === '1') requestAnimationFrame(() => this.strike(undefined, true));
-    if (name === 'snow-day' || name === 'farm-winter' || name === 'winter-night' || name === 'town-winter') {
+    if (name === 'snow-day' || name === 'snow-falls' || name === 'farm-winter' || name === 'winter-night' || name === 'town-winter') {
       requestAnimationFrame(() => this.stampTrail());
     }
   }
@@ -347,12 +347,11 @@ export class WeatherSystem implements System, WeatherApi {
     const was = fx.map((o) => o.visible);
     for (const o of fx) o.visible = true;
     this.rainbow.mesh.traverse((o) => (o.visible = true));
-    try {
-      // Per map: the programs depend on the map's light count.
-      g.rc.renderer.compile(g.scene, g.rc.camera);
-    } catch {
-      /* headless / lost context: compile lazily */
-    }
+    // No compile here (pillar 14): every map change is followed by RenderContext.compile(), which
+    // walks hidden objects too and compiles off-thread for the real HDR scene target. A synchronous
+    // renderer.compile() at this point built ~75 canvas-target (sRGB) programs no frame ever uses and
+    // queued them ahead of the real ones: a 4 s freeze on the first warp into a map.
+    void g;
     fx.forEach((o, i) => (o.visible = was[i]!));
   }
 
@@ -468,7 +467,7 @@ export class WeatherSystem implements System, WeatherApi {
     atmosphere.ground = tr && !(map as { covered?: boolean }).covered ? this.groundSrc(tr) : null;
     // (Rain keeps it to a thin scud over the water / hollows: a grey veil on everything reads as a
     // washed-out frame, not weather.)
-    atmosphere.mist = clear ? this.fogAmt * 0.85 : this.rainAmt * 0.09 + this.snowAmt * 0.06;
+    atmosphere.mist = clear ? this.fogAmt * 0.72 : this.rainAmt * 0.09 + this.snowAmt * 0.06;
     atmosphere.mistH = clear ? 0.95 : 1.4;
     atmosphere.base = map?.terrain ? map.terrain.opts.waterLevel + (clear ? 0.05 : 0.25) : rig.focus.y - 0.3;
     atmosphere.falloff = clear ? 0.55 : 3.0;

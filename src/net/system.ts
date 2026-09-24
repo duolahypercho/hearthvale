@@ -95,7 +95,14 @@ export interface NetStats {
   pendingIntents: number;
   queued: number;
   farmTiles: number;
+  /** Host edits applied to our farm (other farmers' work arriving; tiles that actually changed). */
   reconciles: number;
+  /** Drift: tiles where our farm disagreed with the host's with no edit in flight (should stay ~0). */
+  drift: number;
+  /** Full-farm resyncs asked for mid-day (a tile we couldn't rebuild); join / morning syncs aren't counted. */
+  needs: number;
+  /** Last drift fixes, `tile:ours→host's` (diagnostics). */
+  driftLog: string[];
   fullSyncs: number;
   corrections: number;
   refunds: number;
@@ -296,7 +303,7 @@ export class NetSystem implements System, NetApi {
   private bedWhere: 'house' | 'cabin' = 'house';
   private applyingGold = false;
   private hostBeds = new Set<number>();
-  private counters = { reconciles: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
+  private counters = { reconciles: 0, drift: 0, needs: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
 
   // host
   private sentTiles = new Map<number, string>();
@@ -418,11 +425,12 @@ export class NetSystem implements System, NetApi {
     }
     game.events.on('game:ready', () => this.autoStart());
     // Name tags / chat bubbles follow this frame's camera (placed after the render, even when paused).
-    this.remotes.localEmoting = () => !!this.myBubble?.active;
+    this.remotes.localBubble = () => this.myBubble;
     game.afterRender.push(() => {
-      // (not over the lobby's blurred still — the world isn't what's on screen then)
-      if (!this.game.renderOverride) renderEmoteOverlay(this.game.rc.renderer, this.game.rc.camera);
+      // Layout first (it pins the emote bubbles beside their name pills), then the bubble pass —
+      // not over the lobby's blurred still (the world isn't what's on screen then).
       this.remotes.placeTags(this.game.simDt);
+      if (!this.game.renderOverride) renderEmoteOverlay(this.game.rc.renderer, this.game.rc.camera);
     });
     // Last chance to hand the host our backpack before the tab goes away.
     window.addEventListener('pagehide', () => {
@@ -537,6 +545,7 @@ export class NetSystem implements System, NetApi {
       queued: t?.queued ?? 0,
       farmTiles: this._role === 'client' ? this.hostTiles.size : this.sentTiles.size,
       ...this.counters,
+      driftLog: this.driftLog.slice(),
     };
   }
 
@@ -1545,15 +1554,25 @@ export class NetSystem implements System, NetApi {
     this.pending.clear();
   }
 
-  private reconcile(i: number, s: string, have?: string): void {
-    this.counters.reconciles++;
-    if (!this.sync.reconcileTile(i, s, have)) this.requestFull();
+  private driftLog: string[] = [];
+
+  private reconcile(i: number, s: string, have?: string, drift = false): void {
+    const ok = this.sync.reconcileTile(i, s, have);
+    if (this.sync.lastChanged) {
+      if (drift) {
+        this.counters.drift++;
+        this.driftLog.push(`${i}:${this.sync.lastHave}→${s}`);
+        if (this.driftLog.length > 24) this.driftLog.shift();
+      } else this.counters.reconciles++;
+    }
+    if (!ok) this.requestFull();
   }
 
   private requestFull(): void {
     const now = performance.now();
     if (now - this.needFullAt < 4000) return;
     this.needFullAt = now;
+    this.counters.needs++;
     this.toHost(['need']);
   }
 
@@ -1568,7 +1587,7 @@ export class NetSystem implements System, NetApi {
       const have = local.get(i) ?? '';
       if (have !== want) {
         n++;
-        this.reconcile(i, want, have);
+        this.reconcile(i, want, have, true);
       }
     };
     for (const i of this.hostTiles.keys()) check(i);

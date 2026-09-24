@@ -265,7 +265,7 @@ export class ForestMap implements GameMap {
     this.poi.waterfall = [{ x: FALLS.x, z: FALLS.poolZ }];
     // Where the storm demo's posed lightning bolt lands (open bank east of the plunge pool).
     // Hero strike spots per demo (weather.ts picks an open, in-frame tile otherwise).
-    this.poi.strike = [{ x: 13.6, z: 31.4, demo: 'storm' } as { x: number; z: number }, { x: 12.2, z: 32.6, demo: 'coop-forest' } as { x: number; z: number }];
+    this.poi.strike = [{ x: 14.2, z: 23.6, demo: 'storm' } as { x: number; z: number }, { x: 13.6, z: 31.4, demo: 'storm-meadow' } as { x: number; z: number }, { x: 12.2, z: 32.6, demo: 'coop-forest' } as { x: number; z: number }];
     // Spray bow in the waterfall mist (weather: rainbows after rain); `rot` carries its radius.
     this.poi.rainbow = [{ x: FALLS.x + 0.2, y: WATER_LOW - 0.35, z: FALLS.lipZ + 3.4, rot: 2.9 }];
     // Rain drips off the canopy rims of the giants in the basin (read by the weather system).

@@ -43,9 +43,16 @@ interface Head {
   y: number;
 }
 
-function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook | null = null): string {
+/**
+ * The sheet is built in three bands so the heavy painting can be rasterised once (pillar 14): the
+ * filtered watercolour (`still`: feTurbulence / displacement / 16 px washes / multiply blends, ~5k
+ * nodes) and the paper grain (`grain`) never change, while the clouds, boat, birds, sails, heads and
+ * pin bob every frame. Inline, every animation tick re-ran those filters (≈25 ms of paint per frame).
+ * `svg` is the full live sheet (first paint); MapScreen then swaps `.m-still` / `.m-grain` for bitmaps.
+ */
+function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook | null = null): { svg: string; defs: string; still: string; grain: string } {
   const snow = season === 'winter';
-  const { defs, under, trees, paper } = valleyBase(season);
+  const { defs, under, trees, mill, paper, grain } = valleyBase(season);
   const P = PAL[season];
   // Farm field rows.
   const rows: string[] = [];
@@ -62,8 +69,7 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
         `<g class="m-npc" data-npc="${h.id}" transform="translate(${h.x.toFixed(1)} ${h.y.toFixed(1)})" style="animation-delay:${-i * 0.37}s"><ellipse cy="14" rx="9" ry="2.8" fill="#000" opacity=".22"/><circle r="12.5" fill="#fff8e6" stroke="#5a3418" stroke-width="2"/><foreignObject x="-11.5" y="-11.5" width="23" height="23"><div xmlns="http://www.w3.org/1999/xhtml" class="m-npcface">${h.svg}</div></foreignObject></g>`,
     )
     .join('');
-  return `<svg class="valley" viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg">
-  <defs>${defs}</defs>
+  const still = `
   ${under}
   <!-- farm -->
   <g>

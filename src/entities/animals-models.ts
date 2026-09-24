@@ -277,8 +277,8 @@ function cow(variant: number): AnimalModel {
   const muzzle = jersey ? 0xf0dcc0 : 0xf6c0b4;
   r.part('head', ellipsoid(0.215, 0.15, 0.15), mat(0, 0.94, 0.8), muzzle);
   r.part('head', ellipsoid(jersey ? 0.13 : 0.17, jersey ? 0.075 : 0.1, 0.07), mat(0, 0.95, 0.9), jersey ? 0x4a3830 : 0xf09a94);
-  for (const s of [-1, 1]) r.part('head', ellipsoid(0.03, 0.022, 0.012, 8, 6), mat(s * 0.07, 0.955, 0.965, 0, s * 0.3, 0), jersey ? 0x140e0c : 0x7a3a34, { flat: true });
-  r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92), 0x6a3a34, { flat: true });
+  for (const s of [-1, 1]) r.part('head', ellipsoid(0.03, 0.022, 0.012, 8, 6), mat(s * 0.07, 0.955, 0.965, 0, s * 0.3, 0), jersey ? 0x140e0c : 0x3a2418, { flat: true });
+  r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92), 0x4a2a1e, { flat: true });
   for (const s of [-1, 1]) {
     const horn = new THREE.ConeGeometry(0.04, 0.12, 10);
     r.part('head', horn, mat(s * 0.15, 1.31, 0.55, 0, 0, -s * 0.55), 0xf2e6c8, { flat: true });
@@ -350,7 +350,7 @@ function goat(variant: number): AnimalModel {
     r.part(ear, ellipsoid(0.12, 0.034, 0.055), mat(s * 0.2, 1.02, 0.41, 0, s * 0.25, s * -0.3), togg ? 0x6a4228 : base);
     r.part(ear, ellipsoid(0.085, 0.016, 0.036), mat(s * 0.205, 1.026, 0.43, 0, s * 0.25, s * -0.3), togg ? cream : 0xf4b8ae, { flat: true });
   }
-  eyes(r, 0.105, 1.06, 0.52, 0.042, 0.55, { iris: 0xe0a83a, rim: togg ? 0xf4e8d4 : undefined });
+  eyes(r, 0.105, 1.06, 0.52, 0.042, 0.55, { rim: togg ? 0xf4e8d4 : 0xe8dcc8 });
   cheeks(r, 0.12, 0.97, 0.53, 0.03);
   const { mesh, bones } = r.build(animalMaterial(), 'goat');
   return { mesh, bones, species: 'goat', gait: { biped: false, speed: 0.65, freq: 2.1, legAmp: 0.42, bob: 0.025, eatPitch: 0.9, radius: 0.25, len: 0.2, reach: 0.72, top: 1.3, sleepDrop: 0.3, fold: 0.3 } };

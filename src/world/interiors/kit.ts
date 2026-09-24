@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { MeshBuilder, roundedBox, mat, groundAO, type AOFn } from '../geom';
 import { textures } from '../../render/textures';
-import { floorPlanks, wallpaper, beadboard, barnBoards, strawFloor, wovenRug, braidedRug, quilt, photoAtlas, limewashBoards, burlap } from './textures';
+import { floorPlanks, wallpaper, beadboard, barnBoards, strawFloor, wovenRug, braidedRug, quilt, photoAtlas, limewashBoards, burlap, kitchenTile } from './textures';
 
 export type IMat =
   | 'floor'
@@ -39,7 +39,8 @@ export type IMat =
   | 'leaf'
   | 'limewash'
   | 'tin'
-  | 'burlap';
+  | 'burlap'
+  | 'tile';
 
 const cache = new Map<IMat, THREE.MeshStandardMaterial>();
 
@@ -79,6 +80,11 @@ function build(name: IMat): THREE.MeshStandardMaterial {
     case 'limewash': {
       const t = limewashBoards();
       return std({ map: t.map, bumpMap: t.bump, bumpScale: 2, roughness: 0.95 });
+    }
+    case 'tile': {
+      // Laid over the floorboards: pulled forward in depth (no z-fight) but still under the room AO card.
+      const t = kitchenTile();
+      return std({ map: t.map, bumpMap: t.bump, bumpScale: 1.6, roughness: 0.42, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     }
     case 'burlap': {
       const t = burlap();

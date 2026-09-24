@@ -39,6 +39,8 @@ export interface PenAnchors {
   board?: { at: THREE.Vector3; ry: number };
   /** Roost perches (coop): chickens sleep up here (y = bar top), ducks keep to the slot beds. */
   perches?: THREE.Vector3[];
+  /** Pop-door hatch tile (in the front knee wall): interact to open / shut the door to the pasture. */
+  hatch?: { x: number; z: number };
 }
 
 const STRAW = [0xf2dc94, 0xe0bc62, 0xf6e6aa, 0xd4a850, 0xe8cc7a];

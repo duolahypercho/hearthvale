@@ -102,6 +102,24 @@ function limb(r0: number, r1: number, a: THREE.Vector3, b: THREE.Vector3, radial
   return g;
 }
 
+/**
+ * A curved, tapering bough from a to b (quadratic arc bowing up by `lift`, `seg` limb pieces): bare
+ * winter crowns read as grown wood instead of straight sticks.
+ */
+function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THREE.Vector3, c: THREE.Vector3, e: THREE.Vector3, seg: number, radial: number, ao?: (p: THREE.Vector3) => number): void {
+  const curve = new THREE.QuadraticBezierCurve3(a, c, e);
+  let prev = a.clone();
+  for (let i = 1; i <= seg; i++) {
+    const t0 = (i - 1) / seg;
+    const t1 = i / seg;
+    const next = curve.getPoint(t1);
+    // Slight overlap so the joints never open a gap.
+    const from = prev.clone().lerp(next, -0.06);
+    b.add(m, limb(THREE.MathUtils.lerp(r0, r1, Math.pow(t0, 0.8)), THREE.MathUtils.lerp(r0, r1, Math.pow(t1, 0.8)), from, next, radial), undefined, ao ? { aoWorld: ao } : undefined);
+    prev = next;
+  }
+}
+
 interface TreeGeo {
   trunk: THREE.BufferGeometry;
   foliage: THREE.BufferGeometry | null;
@@ -159,11 +177,18 @@ function deciduous(rng: Rng, species: TreeSpecies, detail = 2): TreeGeo {
     const start = top.clone().lerp(new THREE.Vector3(0, 0, 0), rng.next() * 0.25);
     const out = crownR * (0.55 + rng.next() * 0.25);
     const end = new THREE.Vector3(center.x + Math.cos(a) * out, crownY - crownRy * 0.1 + rng.next() * crownRy * 0.5, center.z + Math.sin(a) * out);
-    b.add(bark, limb(r0 * 0.45, 0.05, start, end, lo ? 4 : 6), undefined, { aoWorld: trunkAO });
-    // twigs
-    for (let k = 0; k < (lo ? 0 : 2); k++) {
-      const tw = end.clone().add(new THREE.Vector3((rng.next() - 0.5) * 0.9, 0.3 + rng.next() * 0.5, (rng.next() - 0.5) * 0.9));
-      b.add(bark, limb(0.05, 0.015, end.clone().lerp(start, 0.25), tw, 5));
+    // Limbs arc out and up (0.65 radius falloff per level), forking into curved side twigs.
+    const ctrl = start.clone().lerp(end, 0.45).add(new THREE.Vector3(0, 0.25 + rng.next() * 0.35, 0));
+    bough(b, bark, r0 * 0.5, r0 * 0.12, start, ctrl, end, lo ? 2 : 3, lo ? 4 : 6, trunkAO);
+    const limbCurve = new THREE.QuadraticBezierCurve3(start, ctrl, end);
+    for (let k = 0; k < (lo ? 0 : 3); k++) {
+      const s0 = limbCurve.getPoint(0.45 + k * 0.2 + rng.next() * 0.08);
+      const out = s0.clone().sub(start).setY(0).normalize();
+      const side = new THREE.Vector3(-out.z, 0, out.x).multiplyScalar((rng.next() - 0.5) * 1.4);
+      const tl = 0.6 + rng.next() * 0.5;
+      const tw = s0.clone().add(out.multiplyScalar(tl * 0.6)).add(side.multiplyScalar(tl)).add(new THREE.Vector3(0, 0.35 + rng.next() * 0.45, 0));
+      const tc = s0.clone().lerp(tw, 0.5).add(new THREE.Vector3(0, 0.12, 0));
+      bough(b, bark, r0 * 0.14, 0.012, s0, tc, tw, 2, 4);
     }
     blobs.push({ c: end.clone().add(new THREE.Vector3(0, 0.2, 0)), r: crownR * (0.52 + rng.next() * 0.15) });
   }

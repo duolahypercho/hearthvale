@@ -19,7 +19,7 @@ import type { Facing } from '../../core/events';
 import type { GameMap, MapWarp } from '../map';
 import { TileGrid, TileType, TileFlag } from '../tiles';
 import { Kit, imat, interiorEmissive, floorPlane, type IMat } from './kit';
-import { shaftGradient, windowView, glowDisc, roomAO } from './textures';
+import { shaftGradient, windowView, windowViewNight, glowDisc, roomAO } from './textures';
 import { textures } from '../../render/textures';
 import { mergeStatic } from '../geom';
 import { atmosphere } from '../../render/heightfog';
@@ -131,7 +131,7 @@ export abstract class InteriorMap implements GameMap {
   protected updaters: ((dt: number, t: number, L: RoomLight) => void)[] = [];
   private shafts: THREE.Mesh[] = [];
   private shaftMat: THREE.ShaderMaterial;
-  private viewMat: THREE.MeshBasicMaterial;
+  private viewMat: THREE.ShaderMaterial;
   private dust: THREE.Points;
   private dustSeeds: Float32Array;
   private dustBeams: { win: THREE.Vector3[]; floor: THREE.Vector3[] }[] = [];
@@ -186,7 +186,23 @@ export abstract class InteriorMap implements GameMap {
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
     });
-    this.viewMat = new THREE.MeshBasicMaterial({ map: windowView().map, color: 0xffffff, toneMapped: true, fog: false });
+    // Window views: the painted day card cross-faded into a real night card (indigo sky, moon, stars,
+    // black hills, two warm far windows). The night side divides out the room's exposure so the +EV
+    // indoor night boost can never lift it back towards daylight.
+    this.viewMat = new THREE.ShaderMaterial({
+      uniforms: { uDay: { value: windowView().map }, uNightMap: { value: windowViewNight().map }, uNight: { value: 0 }, uDayK: { value: 1 }, uInvExp: { value: 1 } },
+      vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D uDay; uniform sampler2D uNightMap; uniform float uNight; uniform float uDayK; uniform float uInvExp;
+        varying vec2 vUv;
+        void main() {
+          vec3 d = texture2D(uDay, vUv).rgb * uDayK;
+          vec3 n = texture2D(uNightMap, vUv).rgb * 0.85 * uInvExp;
+          gl_FragColor = vec4(mix(d, n, smoothstep(0.0, 1.0, uNight)), 1.0);
+        }`,
+      fog: false,
+      toneMapped: false,
+    });
 
     // Dust motes (filled in finalize once shafts exist).
     const N = 180;
@@ -575,7 +591,10 @@ export abstract class InteriorMap implements GameMap {
     (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.11 * L.day * this.dayScale + 0.025 * L.night);
     shaft.uTime!.value = t;
     // Window views: bright painted day, deep blue at night.
-    this.viewMat.color.setRGB(1, 1, 1).multiplyScalar(0.25 + 1.05 * L.day).lerp(new THREE.Color(0.05, 0.07, 0.16), L.night * 0.95);
+    const vu = this.viewMat.uniforms;
+    vu.uNight!.value = L.night;
+    vu.uDayK!.value = 0.35 + 0.95 * L.day;
+    vu.uInvExp!.value = 1 / Math.max(0.5, L.exposure);
     this.updateDust(dt, t, L);
     for (const u of this.updaters) u(dt, t, L);
   }

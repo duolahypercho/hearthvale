@@ -279,12 +279,16 @@ export function renderEmoteOverlay(renderer: THREE.WebGLRenderer, camera: THREE.
   let any = false;
   for (const b of live) {
     const a = b.anchor;
-    const on = !!a.parent && a.visible && b.active;
+    const on = !!a.parent && a.visible && b.active && !(b.pinned && b.pinHidden);
     b.sprite.visible = on;
-    if (!on) continue;
+    if (!on) {
+      b.pinned = false;
+      continue;
+    }
     any = true;
-    a.localToWorld(_v.set(0, b.lift, 0));
-    b.sprite.position.copy(_v);
+    if (b.pinned) b.sprite.position.copy(b.pin);
+    else b.sprite.position.copy(a.localToWorld(_v.set(0, b.lift, 0)));
+    b.pinned = false;
     camera.getWorldQuaternion(b.sprite.quaternion);
     b.sprite.updateMatrixWorld();
   }
@@ -309,6 +313,15 @@ export class EmoteBubble {
   private dur = 2.6;
   /** Height of the bubble's base above the anchor, m. */
   lift = 2.75;
+  /**
+   * Screen-laid-out placement for this frame (net/players.ts placeTags: beside the name pill, clear of
+   * chat bubbles and HUD cards): world position of the bubble origin + a size factor. Consumed by the
+   * next renderEmoteOverlay; without one the bubble floats `lift` m over the anchor.
+   */
+  readonly pin = new THREE.Vector3();
+  pinned = false;
+  pinHidden = false;
+  fit = 1;
 
   constructor(readonly anchor: THREE.Object3D) {
     this.tex = atlasTexture().clone();
@@ -348,7 +361,7 @@ export class EmoteBubble {
       s = 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2);
     } else if (t < this.dur - 0.25) s = 1 + Math.sin(time * 5) * 0.03;
     else s = Math.max(0, (this.dur - t) / 0.25);
-    const size = 1.1 * Math.max(0.001, s);
+    const size = 1.1 * this.fit * Math.max(0.001, s);
     this.sprite.scale.set(size, size, 1);
     this.lift = 2.75 + Math.sin(time * 3) * 0.04;
     if (t >= this.dur) this.hide();

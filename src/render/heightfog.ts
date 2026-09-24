@@ -158,8 +158,11 @@ const FogShader = {
         // Where mist gathers: over open water (the stream, the pool) and in the hollows (ground lower
         // than its surroundings 4 m out). Grass lanes and raised banks stay nearly clear, so the
         // mist reads as low-lying rivers of vapour, not a veil over the whole frame.
-        float overWater = 1.0 - smoothstep(uGWater + 0.02, uGWater + 0.55, g0);
         float gw = 0.25 * (hvGround(P.xz + vec2(4.0, 0.0)) + hvGround(P.xz - vec2(4.0, 0.0)) + hvGround(P.xz + vec2(0.0, 4.0)) + hvGround(P.xz - vec2(0.0, 4.0)));
+        // Over-water weight from the neighbourhood (not just this pixel's ground): the vapour spills a
+        // few metres up the banks and thins out gradually instead of stopping at the waterline.
+        float gNear = mix(g0, min(g, gw), 0.65);
+        float overWater = 1.0 - smoothstep(uGWater + 0.05, uGWater + 1.3, gNear);
         float hollow = smoothstep(0.05, 0.7, gw - g0);
         // Banks: big slow cells (thickness) × torn ribbons (density) → dense pools, clear lanes.
         float nb = hvFbm(P.xz * 0.06 - drift * 0.06 + 17.0);
@@ -167,7 +170,7 @@ const FogShader = {
         // Fine wisps: long thin tendrils streaming downwind (gives the sheet a visible texture).
         float nw = hvNoise(vec2(P.x * 0.42 + P.z * 0.21, P.z * 0.95 - P.x * 0.12) - drift * 0.55 + nb * 1.7);
         float bank = smoothstep(0.5, 0.74, nb);
-        bank = max(bank * 0.7, max(overWater * (0.5 + 0.5 * nb), hollow * 0.5));
+        bank = max(bank * 0.7, max(overWater * (0.32 + 0.48 * nb), hollow * 0.45));
         float H = uMistH * (0.45 + 0.95 * bank);
         float optical = hvOptical(L, ro.y - g, P.y - g, H);
         // Ribbons with real gaps between them: over the pool the dark water shows through the lanes,
@@ -183,7 +186,7 @@ const FogShader = {
         float top = smoothstep(0.0, H * 1.2, P.y - g);
         vec3 fc = mix(uShade * 0.86, uLit * 0.98, 0.15 + 0.45 * tear + 0.25 * top);
         fc += uLit * sunF * 0.2;
-        c = mix(c, fc, clamp(f * (1.0 - onPlayer * 0.8), 0.0, 0.5));
+        c = mix(c, fc, clamp(f * (1.0 - onPlayer * 0.8), 0.0, 0.4));
       }
       if (uFog > 0.001) {
         // Exact integral of exp(-(y-base)/H) along the segment.

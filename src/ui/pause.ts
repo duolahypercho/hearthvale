@@ -39,6 +39,19 @@ function nextBirthday(game: Game): { name: string; season: string; day: number }
   return best;
 }
 
+/** Today card weather line by time of day: [headline, sub]. */
+function weatherCopy(w: string, hour: number): [string, string] {
+  const night = hour >= 19.5 || hour < 5;
+  const eve = hour >= 17 && !night;
+  if (w === 'rain') return ['Steady rain', night ? 'rain on the roof tonight' : 'crops water themselves'];
+  if (w === 'storm') return ['Thunderstorm', night ? 'best stay by the fire' : 'crops water themselves'];
+  if (w === 'snow') return ['Snowfall', night ? 'a hush over the valley' : 'the fields sleep under snow'];
+  if (w === 'wind') return ['Breezy', night ? 'the chimes are busy tonight' : 'leaves on the wind'];
+  if (night) return ['A clear, starry night', hour >= 24 || hour < 5 ? 'long past bedtime' : 'the crops rest till morning'];
+  if (eve) return ['Clear skies', 'golden evening light'];
+  return ['Clear skies', 'good day for the fields'];
+}
+
 export class PauseScreen extends Screen {
   constructor(game: Game, parent: HTMLElement) {
     super(game, parent, 'hv-pause', { backdrop: true });
@@ -70,10 +83,12 @@ export class PauseScreen extends Screen {
     const bd = nextBirthday(this.game);
     const gold = this.game.services.economy?.gold() ?? 0;
     const weather = c.weather;
+    const night = c.hour >= 19.5 || c.hour < 5;
+    const sky = weatherCopy(weather, c.hour);
     const { frame: f, body } = frame('Today', 'pause-today');
     body.innerHTML = `
       <div class="td-row"><span class="ic">${ICONS[c.season]}</span><div><b>${SEASON_NAME[c.season]} ${c.day}</b><small>Year ${c.year}</small></div></div>
-      <div class="td-row"><span class="ic">${ICONS[weather === 'sun' && c.hour >= 19.5 ? 'moon' : weather] ?? ICONS.sun}</span><div><b>${weather === 'sun' ? 'Clear skies' : weather === 'rain' ? 'Steady rain' : weather === 'storm' ? 'Thunderstorm' : weather === 'snow' ? 'Snowfall' : 'Breezy'}</b><small>${weather === 'rain' || weather === 'storm' ? 'crops water themselves' : 'good day for the fields'}</small></div></div>
+      <div class="td-row"><span class="ic">${ICONS[weather === 'sun' && night ? 'moon' : weather] ?? ICONS.sun}</span><div><b>${sky[0]}</b><small>${sky[1]}</small></div></div>
       <div class="td-row"><span class="ic">${ICONS.coin}</span><div><b>${gold.toLocaleString()}g</b><small>in your purse</small></div></div>
       ${bd ? `<div class="td-row"><span class="ic">${ICONS.heart}</span><div><b>${escapeHtml(bd.name)}’s birthday</b><small>${SEASON_NAME[bd.season]} ${bd.day}</small></div></div>` : ''}
       <div class="td-prog"><div class="lbl"><span>Season</span><span>${c.day} / 28</span></div><div class="track"><div class="fill" style="width:${(c.day / 28) * 100}%"></div></div></div>
@@ -111,14 +126,34 @@ export class PauseScreen extends Screen {
     return `<div class="td-quest"><div class="lbl">${ICONS.quill ?? ''}<span>Objective</span></div><b>${escapeHtml(title)}</b><small>${escapeHtml(goal)}</small>${pct >= 0 ? `<div class="track"><div class="fill" style="width:${pct}%"></div></div>` : ''}</div>`;
   }
 
-  /** The three villagers you're closest to, with their heart meters. */
+  /**
+   * The three villagers you're closest to, with their heart meters — only once someone has a heart for you.
+   * Before that the row reads "Neighbours to meet" with a nudge instead of three empty meters.
+   */
   private friends(): string {
     const rel = this.game.services.relationships;
     const ids = Object.keys(NPCS) as NpcId[];
-    const top = ids
-      .map((id) => ({ id, pts: rel?.points(id) ?? 0, h: rel?.hearts(id) ?? 0 }))
-      .sort((a, b) => b.pts - a.pts || a.id.localeCompare(b.id))
-      .slice(0, 3);
+    const all = ids.map((id) => ({ id, pts: rel?.points(id) ?? 0, h: rel?.hearts(id) ?? 0 })).sort((a, b) => b.pts - a.pts || a.id.localeCompare(b.id));
+    const close = all.filter((x) => x.h >= 1).slice(0, 3);
+    if (!close.length) {
+      // Deterministic per day, so the faces change as the days go by.
+      const d = this.game.calendar.day;
+      const pick = [0, 1, 2].map((k) => all[(d * 3 + k * 5) % all.length]!).filter((x, i, a) => a.findIndex((y) => y.id === x.id) === i);
+      const faces = pick
+        .map(({ id }) => {
+          const n = NPCS[id];
+          let face = '';
+          try {
+            face = portraitSvg(n.look, n.portraitBg, 'happy');
+          } catch {
+            /* no portrait */
+          }
+          return `<div class="td-friend meet"><span class="pf">${face}</span><div><b>${escapeHtml(n.name.split(' ')[0]!)}</b></div></div>`;
+        })
+        .join('');
+      return `<div class="td-friends meet"><div class="lbl">${ICONS.heart ?? ''}<span>Neighbours to meet</span></div><div class="row">${faces}</div><small class="nudge">Say hello in the square. A small gift goes a long way.</small></div>`;
+    }
+    const top = close;
     const row = top
       .map(({ id, h }) => {
         const n = NPCS[id];
