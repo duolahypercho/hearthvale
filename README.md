@@ -579,8 +579,11 @@ Friends on other machines open the game from the host's address; the relay defau
   farmhand→farmhand smoothness, drop/rejoin, and the adversarial cases: own save untouched by a co-op night,
   return home on leave, reload without dupes, crash of the last awake farmer, crash-tab rejoin, same-name impostor,
   kick, gold while disconnected, double spend, sowing race refund.
-- Demos: `coop-farm` (host view: three scripted farmhands hoeing, hauling the harvest and chatting, their cabins,
-  tags, roster), `coop-lobby` (creator + lobby). Debug: `services.net` (`host()`, `join(code)`, `kick(id)`,
+- Demos: `coop-farm` (host view: four farmers around one ripe strawberry bed — picking, hauling the harvest down
+  the path, calling everyone over for coffee — with cabins, tags, emote bubbles and the roster), `coop-lobby`
+  (creator + lobby). Emote bubbles are drawn in a small overlay pass after post-processing
+  (`renderEmoteOverlay`, from `game.afterRender`) so tilt-shift / bloom never smear them.
+  `MP_TIMEOUT_MIN` raises mp-test's wall-clock guard on a saturated machine (default 25). Debug: `services.net` (`host()`, `join(code)`, `kick(id)`,
   `players()`, `stats()`, `simulateDrop()`), `services.net.sync.digest()` (per-tile farm state that must match).
 
 ## The Hollowdeep (mines, ores, monsters & combat)

@@ -33,10 +33,12 @@ const gpuMode = argv.includes('--gpu') ? argv[argv.indexOf('--gpu') + 1] : 'auto
 const W = 1280;
 const H = 720;
 
+// Wall-clock guard (MP_TIMEOUT_MIN overrides; a saturated machine — other agents' shot runs — can
+// stretch page loads and screenshots several-fold without anything being wrong with the netcode).
 setTimeout(() => {
   console.error('[mp] failed: global timeout');
   process.exit(3);
-}, 15 * 60_000).unref();
+}, (Number(process.env.MP_TIMEOUT_MIN) || 25) * 60_000).unref();
 
 const t0 = Date.now();
 const log = (...a) => console.log(`[mp +${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
@@ -229,10 +231,20 @@ try {
   }, T1);
   await sleep(400);
   await b.keyboard.press('Digit2');
+  await net(b, () => {
+    window.__mpImpacts = [];
+    window.__game.game.events.on('tool:impact', (e) => window.__mpImpacts.push(`${e.tool}@${e.x},${e.z}:${e.hit}`));
+  });
   await b.keyboard.press('KeyC');
-  await sleep(1900);
-  st = await allTile(T1);
-  check('Bea waters: tile wet on all 3 clients', st.every((s) => s.startsWith('11')), st.join(' | '));
+  // Poll (a loaded machine can take a few frames longer than the swing) instead of one fixed sleep.
+  for (let i = 0; i < 30; i++) {
+    await sleep(300);
+    st = await allTile(T1);
+    if (i >= 5 && st.every((s) => s.startsWith('11'))) break;
+  }
+  const wetOk = st.every((s) => s.startsWith('11'));
+  const why = wetOk ? '' : ` · bea ${JSON.stringify(await net(b, () => ({ sel: window.__game.game.services.inventory.selected(), can: window.__game.game.services.farming.can(), at: window.__game.info().player, imp: window.__mpImpacts, st: window.__game.game.services.net.stats() })))}`;
+  check('Bea waters: tile wet on all 3 clients', wetOk, st.join(' | ') + why);
 
   // ── sow (Ash) ─────────────────────────────────────────────────────
   const seeds0 = await net(a, () => window.__game.game.services.inventory.count('parsnipSeeds'));
@@ -304,8 +316,8 @@ try {
     window.__game.game.services.net.chat('hello from Bea');
     window.__game.game.services.net.emote('heart');
   });
-  const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 5000);
-  check('chat reaches the host', gotChat);
+  const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 10000);
+  check('chat reaches the host', gotChat, gotChat ? '' : JSON.stringify(await net(b, () => window.__game.game.services.net.stats())));
 
   // ── Ash leaves → back on their own farm (own purse), then comes back ──
   await net(a, () => window.__game.game.services.net.leave());
@@ -455,7 +467,7 @@ try {
   });
   await sleep(700);
   const goldSold = (await purses())[0];
-  await a.reload({ waitUntil: 'load' });
+  await a.reload({ waitUntil: 'load', timeout: 180000 });
   await a.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: 180000 });
   await a.evaluate(() => window.__game.ready());
   await net(a, (c) => window.__game.game.services.net.join(c), code);

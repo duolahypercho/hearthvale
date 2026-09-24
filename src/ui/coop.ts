@@ -88,7 +88,6 @@ class FarmerPreview implements TurntableView {
     this.canvas.width = Math.round(this.width * pr);
     this.canvas.height = Math.round(this.height * pr);
     this.farmer = new RemoteFarmer(look);
-    this.farmer.root.remove(this.farmer.bubble.sprite);
     this.scene.add(this.farmer.root);
     const bg = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ vertexShader: STAGE_VERT, fragmentShader: STAGE_FRAG, depthWrite: false }));
     bg.frustumCulled = false;

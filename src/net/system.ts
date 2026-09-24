@@ -54,7 +54,7 @@ import { NetBridge } from './bridge';
 import { IMPACT, type ActionKind } from '../entities/farmer-actions';
 import { applyLookToPlayer } from '../entities/remote-farmer';
 import { DEFAULT_LOOK, isDefaultLook, loadProfile, saveProfile, sanitizeLook, hex, PRESET_LOOKS, type FarmerLook, type FarmerProfile } from '../entities/remote-look';
-import { EmoteBubble, EMOTES, type EmoteId } from '../entities/remote-emotes';
+import { EmoteBubble, EMOTES, renderEmoteOverlay, type EmoteId } from '../entities/remote-emotes';
 import { itemDef } from '../data/items';
 import { CROPS } from '../data/crops';
 import { CoopUi } from '../ui/coop';
@@ -418,7 +418,12 @@ export class NetSystem implements System, NetApi {
     }
     game.events.on('game:ready', () => this.autoStart());
     // Name tags / chat bubbles follow this frame's camera (placed after the render, even when paused).
-    game.afterRender.push(() => this.remotes.placeTags(this.game.simDt));
+    this.remotes.localEmoting = () => !!this.myBubble?.active;
+    game.afterRender.push(() => {
+      // (not over the lobby's blurred still — the world isn't what's on screen then)
+      if (!this.game.renderOverride) renderEmoteOverlay(this.game.rc.renderer, this.game.rc.camera);
+      this.remotes.placeTags(this.game.simDt);
+    });
     // Last chance to hand the host our backpack before the tab goes away.
     window.addEventListener('pagehide', () => {
       if (this._role !== 'client') return;
@@ -1902,8 +1907,7 @@ export class NetSystem implements System, NetApi {
   showEmote(id: number, e: EmoteId): void {
     if (id === (this.id || 1)) {
       if (!this.myBubble) {
-        this.myBubble = new EmoteBubble();
-        this.game.player.root.add(this.myBubble.sprite);
+        this.myBubble = new EmoteBubble(this.game.player.root);
       }
       this.myBubble.show(e);
     } else this.remotes.get(id)?.emote(e);

@@ -249,6 +249,6 @@ export const DEMOS: Record<string, DemoDef> = {
   'ui-coop': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
   // Multiplayer pod (src/net, src/ui/coop*): three scripted farmhands on the host's farm (no server needed) — hoeing,
   // watering, chatting — with cabins, name tags, emote bubbles and the roster; the lobby / character creator.
-  'coop-farm': { map: 'farm', x: 28.4, z: 25.8, facing: 'left', time: 9.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 39, distance: 17.5, offsetX: -2.9, offsetZ: -2.9 }, showcase: ['field', 'coop'] },
+  'coop-farm': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 9.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 40, distance: 19, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
   'coop-lobby': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
 };

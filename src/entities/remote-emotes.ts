@@ -256,38 +256,70 @@ function drawIcon(g: CanvasRenderingContext2D, id: EmoteId): void {
 const BUBBLE_GEO = new THREE.PlaneGeometry(1, 1).translate(0, 0.42, 0);
 
 /**
- * A camera-facing quad (a Mesh, not a Sprite: the AO G-buffer pass skips `noAO` meshes, but would draw
- * a sprite as a solid square and darken the ground behind it).
+ * Bubbles are drawn in their own tiny overlay pass AFTER post-processing (renderEmoteOverlay, run from
+ * game.afterRender): tilt-shift, bloom and the grade used to smear the white bubble into a pale ghost
+ * whenever it sat in the blurred top band of the screen. Drawn crisp and on top, like the name pills.
  */
+const overlay = new THREE.Scene();
+overlay.name = 'emote-overlay';
+overlay.matrixWorldAutoUpdate = false;
+const live = new Set<EmoteBubble>();
+const _v = new THREE.Vector3();
+let lastFrame = -1;
+
+/**
+ * Draw every live emote bubble over the frame the renderer just produced. Skips frames where the
+ * world was not redrawn (throttled menu backdrops), so bubbles never land on a stale / cleared canvas.
+ */
+export function renderEmoteOverlay(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+  const frame = renderer.info.render.frame;
+  const drew = frame !== lastFrame;
+  lastFrame = frame;
+  if (!drew || live.size === 0) return;
+  let any = false;
+  for (const b of live) {
+    const a = b.anchor;
+    const on = !!a.parent && a.visible && b.active;
+    b.sprite.visible = on;
+    if (!on) continue;
+    any = true;
+    a.localToWorld(_v.set(0, b.lift, 0));
+    b.sprite.position.copy(_v);
+    camera.getWorldQuaternion(b.sprite.quaternion);
+    b.sprite.updateMatrixWorld();
+  }
+  if (!any) return;
+  const auto = renderer.autoClear;
+  const target = renderer.getRenderTarget();
+  renderer.autoClear = false;
+  renderer.setRenderTarget(null);
+  renderer.clearDepth();
+  renderer.render(overlay, camera);
+  renderer.setRenderTarget(target);
+  renderer.autoClear = auto;
+  // Our own render bumped the frame counter: remember it so the next check still works.
+  lastFrame = renderer.info.render.frame;
+}
+
+/** A camera-facing quad over `anchor` (a farmer root), drawn by renderEmoteOverlay. */
 export class EmoteBubble {
   readonly sprite: THREE.Mesh;
   private tex: THREE.Texture;
   private t = -1;
   private dur = 2.6;
+  /** Height of the bubble's base above the anchor, m. */
+  lift = 2.75;
 
-  constructor() {
+  constructor(readonly anchor: THREE.Object3D) {
     this.tex = atlasTexture().clone();
     this.tex.repeat.set(0.25, 0.5);
     this.tex.needsUpdate = true;
-    // Writes depth where opaque so depth-of-field / fog passes treat the bubble at its real distance.
-    const m = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, alphaTest: 0.35, depthWrite: true, depthTest: true, fog: false });
+    const m = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, alphaTest: 0.35, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
     this.sprite = new THREE.Mesh(BUBBLE_GEO, m);
+    this.sprite.name = 'emote';
     this.sprite.visible = false;
-    this.sprite.renderOrder = 5;
-    this.sprite.castShadow = false;
-    this.sprite.receiveShadow = false;
-    this.sprite.userData.noAO = true;
+    this.sprite.frustumCulled = false;
     this.sprite.scale.setScalar(0.001);
-    // Billboard: face the camera right before drawing (after the scene's matrix update).
-    const q = new THREE.Quaternion();
-    const pq = new THREE.Quaternion();
-    this.sprite.onBeforeRender = (_r, _s, cam) => {
-      const o = this.sprite;
-      o.parent?.getWorldQuaternion(pq);
-      cam.getWorldQuaternion(q);
-      o.quaternion.copy(pq.invert().multiply(q));
-      o.updateMatrixWorld();
-    };
   }
 
   /** Pop the bubble for `dur` seconds (demo stills pass a long hold). */
@@ -296,7 +328,10 @@ export class EmoteBubble {
     const i = Math.max(0, EMOTES.indexOf(id));
     this.tex.offset.set((i % 4) * 0.25, 0.5 - Math.floor(i / 4) * 0.5);
     this.t = 0;
-    this.sprite.visible = true;
+    if (!live.has(this)) {
+      live.add(this);
+      overlay.add(this.sprite);
+    }
   }
 
   get active(): boolean {
@@ -315,14 +350,19 @@ export class EmoteBubble {
     else s = Math.max(0, (this.dur - t) / 0.25);
     const size = 1.1 * Math.max(0.001, s);
     this.sprite.scale.set(size, size, 1);
-    this.sprite.position.y = 2.75 + Math.sin(time * 3) * 0.04;
-    if (t >= this.dur) {
-      this.t = -1;
-      this.sprite.visible = false;
-    }
+    this.lift = 2.75 + Math.sin(time * 3) * 0.04;
+    if (t >= this.dur) this.hide();
+  }
+
+  private hide(): void {
+    this.t = -1;
+    this.sprite.visible = false;
+    live.delete(this);
+    this.sprite.removeFromParent();
   }
 
   dispose(): void {
+    this.hide();
     this.tex.dispose();
     (this.sprite.material as THREE.Material).dispose();
   }

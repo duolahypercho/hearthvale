@@ -147,12 +147,13 @@ export class RemotePlayer {
     this.last = { ...this.last, x, z, map };
   }
 
-  chat(text: string): void {
+  /** Speech bubble over the head (`hold` s overrides the reading-time expiry; demo stills). */
+  chat(text: string, hold?: number): void {
     this.chatEl.textContent = text;
     this.chatEl.classList.remove('on');
     void this.chatEl.offsetWidth;
     this.chatEl.classList.add('on');
-    this.chatT = Math.min(9, 3 + text.length * 0.08);
+    this.chatT = hold ?? Math.min(9, 3 + text.length * 0.08);
   }
 
   emote(id: EmoteId, dur?: number): void {
@@ -272,7 +273,7 @@ class LocalSay {
     return this.t > 0;
   }
 
-  place(game: Game, dt: number, v: THREE.Vector3): { x: number; y: number } | null {
+  place(game: Game, dt: number, v: THREE.Vector3, lift = 2.3): { x: number; y: number } | null {
     if (this.t > 0) {
       this.t -= dt;
       if (this.t <= 0) this.el.classList.remove('on');
@@ -282,7 +283,7 @@ class LocalSay {
     let y = 0;
     if (show) {
       const p = game.player.position;
-      v.set(p.x, p.y + 2.3, p.z).project(game.rc.camera);
+      v.set(p.x, p.y + lift, p.z).project(game.rc.camera);
       show = v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
       x = Math.round(((v.x + 1) / 2) * innerWidth);
       y = Math.round(((1 - v.y) / 2) * innerHeight);
@@ -308,6 +309,8 @@ export class RemotePlayers {
   readonly tags: HTMLElement;
   private v = new THREE.Vector3();
   private local: LocalSay;
+  /** Is an emote bubble showing over our own farmer? (the speech bubble then sits above it) */
+  localEmoting: () => boolean = () => false;
   private lastPlace = 0;
   private order: RemotePlayer[] = [];
   private placed: { x: number; y: number; w: number }[] = [];
@@ -394,7 +397,7 @@ export class RemotePlayers {
     }
     const placed = this.placed;
     placed.length = 0;
-    const me = this.local.place(this.game, dt, this.v);
+    const me = this.local.place(this.game, dt, this.v, this.localEmoting() ? 3.85 : 2.3);
     if (me) placed.push({ x: me.x, y: me.y - 10, w: 120 });
     // Lower on screen = nearer the camera: those keep their place.
     order.sort((a, b) => b.sy - a.sy);

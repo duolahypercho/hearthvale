@@ -286,10 +286,11 @@ function hatFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix
       break;
     }
     case 'beanie': {
-      const dome = new THREE.SphereGeometry(r * 1.12, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
-      add(dome, inHat(mat(0, r * 1.02, -0.03, -0.22, 0, 0, 1, 0.95, 1)), hc);
-      add(new THREE.TorusGeometry(r * 1.1, 0.05, 8, 28), inHat(mat(0, r * 1.02, -0.03, Math.PI / 2 - 0.22, 0, 0)), C(hc, 0.78));
-      add(lumpySphere(0.085, 1, 0.25, new Rng('pom')), inHat(mat(0, r * 2.08, -0.28)), C(hc).lerp(new THREE.Color(0xffffff), 0.55));
+      // Worn up and back on the head so the face reads from the high 3/4 camera.
+      const dome = new THREE.SphereGeometry(r * 1.08, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      add(dome, inHat(mat(0, r * 1.14, -0.05, -0.34, 0, 0, 1, 0.82, 1)), hc);
+      add(new THREE.TorusGeometry(r * 1.06, 0.045, 8, 28), inHat(mat(0, r * 1.14, -0.05, Math.PI / 2 - 0.34, 0, 0)), C(hc, 0.78));
+      add(lumpySphere(0.08, 1, 0.25, new Rng('pom')), inHat(mat(0, r * 2.0, -0.36)), C(hc).lerp(new THREE.Color(0xffffff), 0.55));
       break;
     }
     case 'flower': {
@@ -444,9 +445,7 @@ export class RemoteFarmer {
     this.blob.renderOrder = 1;
     this.root.add(this.blob);
     this.actions = new FarmerActions(this as unknown as Player);
-    this.bubble = new EmoteBubble();
-    this.bubble.sprite.position.set(0, 2.85, 0);
-    this.root.add(this.bubble.sprite);
+    this.bubble = new EmoteBubble(this.root);
   }
 
   get rig(): PlayerRig {
@@ -599,7 +598,7 @@ export class RemoteFarmer {
     p.hat.position.y = HEAD_R * 1.55 + (state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);
     this.blob.scale.setScalar(1 - bob * 1.5);
     this.bubble.update(dt, time);
-    const want = this.bubble.active ? 3.55 : 2.3;
+    const want = this.bubble.active ? 3.85 : 2.3;
     this.tagLift += (want - this.tagLift) * (1 - Math.exp(-dt * 12));
   }
 
