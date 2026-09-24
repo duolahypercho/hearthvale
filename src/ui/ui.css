@@ -4881,3 +4881,15 @@ body.u-contrast #ui-root {
   background: rgba(255, 252, 240, 0.8);
   box-shadow: inset 0 0 0 1.5px rgba(106, 138, 58, 0.3);
 }
+
+/* Pause, solo: the co-op card shows the four farm seats (you + three open) so it reads as an invitation, not a stub. */
+.pause-wrap > .coop-pause p::after {
+  content: '';
+  display: block;
+  height: 52px;
+  margin: 14px 0 2px;
+  background: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20244%2052%22%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%2226%22%20r%3D%2222%22%20fill%3D%22%23e4f4d8%22%20stroke%3D%22%235fa83c%22%20stroke-width%3D%223%22/%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%2222%22%20r%3D%228.5%22%20fill%3D%22%23f2c9a0%22%20stroke%3D%22%233b2313%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M13%2043%20C14%2034%2019%2031%2026%2031%20C33%2031%2038%2034%2039%2043%22%20fill%3D%22%234b6c9e%22%20stroke%3D%22%233b2313%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M15%2018%20C15%2011%2037%2011%2037%2018%20Z%22%20fill%3D%22%23e8c060%22%20stroke%3D%22%233b2313%22%20stroke-width%3D%222%22/%3E%3Cellipse%20cx%3D%2226%22%20cy%3D%2218%22%20rx%3D%2215%22%20ry%3D%223%22%20fill%3D%22%23e8c060%22%20stroke%3D%22%233b2313%22%20stroke-width%3D%222%22/%3E%3Ccircle%20cx%3D%2290%22%20cy%3D%2226%22%20r%3D%2221%22%20fill%3D%22%23fffaf0%22%20stroke%3D%22%23b89a78%22%20stroke-width%3D%222.4%22%20stroke-dasharray%3D%225%204%22/%3E%3Cpath%20d%3D%22M83%2026%20H97%20M90%2019%20V33%22%20stroke%3D%22%23b89a78%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22/%3E%3Ccircle%20cx%3D%22154%22%20cy%3D%2226%22%20r%3D%2221%22%20fill%3D%22%23fffaf0%22%20stroke%3D%22%23b89a78%22%20stroke-width%3D%222.4%22%20stroke-dasharray%3D%225%204%22/%3E%3Cpath%20d%3D%22M147%2026%20H161%20M154%2019%20V33%22%20stroke%3D%22%23b89a78%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22/%3E%3Ccircle%20cx%3D%22218%22%20cy%3D%2226%22%20r%3D%2221%22%20fill%3D%22%23fffaf0%22%20stroke%3D%22%23b89a78%22%20stroke-width%3D%222.4%22%20stroke-dasharray%3D%225%204%22/%3E%3Cpath%20d%3D%22M211%2026%20H225%20M218%2019%20V33%22%20stroke%3D%22%23b89a78%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22/%3E%3C/svg%3E") left center / auto 52px no-repeat;
+}
+.pause-wrap > .coop-pause p {
+  text-wrap: balance;
+}
