@@ -132,6 +132,8 @@ export const DEMOS: Record<string, DemoDef> = {
   'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 14.6, offsetZ: 0.5 }, showcase: ['animals', 'eggs'] },
   'barn-interior': { map: 'barn', x: 8.67, z: 4.3, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.4, offsetZ: 0.45 }, showcase: ['animals'] },
   'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
+  // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
+  'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals', 'coop'] },
   // Petting close-up: crouch + reach, big heart pop with mini hearts, the animal's name + heart meter.
   'animals-petting': { map: 'farm', x: 45.3, z: 40.2, facing: 'left', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: -4, pitch: 40, distance: 11, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals', 'pet-close'] },
   // &pet=dog|cat picks the pet, &hearts=0 stops the staged petting hearts (all 'animals' showcases).

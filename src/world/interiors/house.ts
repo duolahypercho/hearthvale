@@ -590,10 +590,10 @@ export class HouseInterior extends InteriorMap {
     for (const s2 of [-1, 1]) k.cyl('iron', 0.008, 0.008, 0.32, [hx + s2 * 0.12, 0.1, hz], { tint: 0x2a2624, rz: -s2 * 0.08 });
     k.add('iron', new THREE.TorusGeometry(0.09, 0.008, 5, 14, Math.PI), mat(hx, 0.47, hz), { tint: 0x2a2624 });
     this.solid(3.4, 7.3, 3.85, 7.75, 'lantern');
-    this.addLamp(new THREE.Vector3(hx, 0.55, hz - 0.25), 0xffb870, 0, 1.1, 0.05, 4.2);
-    this.glowPool(hx - 0.2, hz - 0.45, 1.5, 0xffa458, () => this.light.night * 0.12 * (1 - this.dim));
-    // Cool moonlight spilling in at the west window (a blue accent against the fire light).
-    this.addLamp(new THREE.Vector3(0.55, 1.75, 3.2), 0x93aaff, 0, 0.85, 0, 6.5);
+    // (Glow pools, not point lights: every point light is paid per pixel by every lit material in the
+    // room, and the farmhouse already carries the hearth, four lamps and the farmer's rim.)
+    this.glowPool(hx - 0.1, hz - 0.4, 2.3, 0xffa458, () => this.light.night * 0.42 * (1 - this.dim));
+    this.glowPool(hx, hz - 0.1, 0.8, 0xffc080, () => this.light.night * 0.5 * (1 - this.dim), 0.02);
     this.statics.push(k.build('front'));
     this.solid(9.7, 4.7, 10.9, 5.8, 'spinning-wheel');
     this.solid(4.6, 7.1, 5.3, 7.8, 'coat-rack');

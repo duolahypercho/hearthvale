@@ -422,7 +422,7 @@ export class AnimalSystem implements System, AnimalsApi {
           const l = this.live.find((v) => v.rec === r);
           if (l) {
             l.actor.pet();
-            this.pops.heart(l.actor.topPoint(), l.actor);
+            this.pops.heart(l.actor.topPoint(), l.actor, { name: r.name, hearts: Math.round(r.friendship / 100) / 2 });
           }
         }
         this.game.events.emit('animal:petted', { id: r.id, species: r.species, name: r.name, friendship: r.friendship });
@@ -1079,6 +1079,7 @@ export class AnimalSystem implements System, AnimalsApi {
   // ───────────────────────────────────────────── farmer poses (pet / lift)
 
   private poseT = -1;
+  private poseReentry = false;
   private poseKind: 'pet' | 'lift' = 'pet';
   private petLow = false;
   private poseDriver: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
@@ -1091,13 +1092,22 @@ export class AnimalSystem implements System, AnimalsApi {
    * driver runs whenever no pose is playing):
    *   pet   crouch + reach: bends at the waist, drops the hips, strokes the animal with the right hand
    *         (a little patting rhythm), head tipped down;
-   *   lift  "look what I found": both hands up over the hat holding the egg, a little stretch.
+   *   lift  "look what I found": faces the camera, arms flung wide, the find floating over the hat.
    */
   private playPose(kind: 'pet' | 'lift'): void {
     const pl = this.game.player;
     if (!this.poseDriver) {
       this.poseDriver = (rig, dt) => {
-        if (this.poseT < 0) return this.posePrev?.(rig, dt) ?? null;
+        if (this.poseT < 0) {
+          // Other drivers (mine / forage actions) wrap and re-wrap the hook: never recurse through a cycle.
+          if (this.poseReentry) return null;
+          this.poseReentry = true;
+          try {
+            return this.posePrev?.(rig, dt) ?? null;
+          } finally {
+            this.poseReentry = false;
+          }
+        }
         const T = this.poseKind === 'pet' ? 0.95 : 1.05;
         this.poseT = this.poseFreeze >= 0 ? Math.min(this.poseT + dt, this.poseFreeze) : this.poseT + dt;
         const t = this.poseT;
@@ -1114,12 +1124,14 @@ export class AnimalSystem implements System, AnimalsApi {
         if (this.poseKind === 'lift') {
           // Both arms thrown up and out in a V (cartoon-stretched past the big hat), the find held high.
           const hold = t > inT ? Math.sin((t - inT) * 5) * 0.03 : 0;
-          rig.armR.rotation.x = (-2.6 + hold) * e;
-          rig.armL.rotation.x = (-2.6 - hold) * e;
-          rig.armR.rotation.z = -0.12 - 0.55 * e;
-          rig.armL.rotation.z = 0.12 + 0.55 * e;
-          rig.armR.scale.y = 1 + 0.3 * e;
-          rig.armL.scale.y = 1 + 0.3 * e;
+          // A cheerful "ta-da" V: arms flung up and out to the sides (outward is +z on the right arm),
+          // stretched a touch so the chibi hands clear the big cheeks; the find floats over the hat.
+          rig.armR.rotation.x = (-2.7 + hold) * e;
+          rig.armL.rotation.x = (-2.7 - hold) * e;
+          rig.armR.rotation.z = -0.12 + 1.12 * e;
+          rig.armL.rotation.z = 0.12 - 1.12 * e;
+          rig.armR.scale.y = 1 + 0.35 * e;
+          rig.armL.scale.y = 1 + 0.35 * e;
           rig.torso.rotation.x = -0.08 * e;
           rig.head.rotation.x = -0.12 * e;
           return { sy: 1 + 0.05 * e, bob: 0.03 * e };
@@ -1173,6 +1185,8 @@ export class AnimalSystem implements System, AnimalsApi {
     }
     this.props.add(m);
     this.lifts.push({ m, star, t: 0, from: m.position.clone(), item: e.item, q: e.q, flew: false });
+    // Turn round to the camera and show it off, both hands up (the classic "look what I found" beat).
+    this.game.player.setFacing('down');
     this.playPose('lift');
     this.game.services.audio?.play('pickup');
   }

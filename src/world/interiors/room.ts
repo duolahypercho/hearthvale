@@ -169,15 +169,17 @@ export abstract class InteriorMap implements GameMap {
     this.shaftMat = new THREE.ShaderMaterial({
       uniforms: { uMap: { value: shaftGradient().map }, uColor: { value: new THREE.Color() }, uTime: { value: 0 } },
       vertexShader: /* glsl */ `
-        varying vec2 vUv; varying vec3 vW;
-        void main() { vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+        varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+        void main() { vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D uMap; uniform vec3 uColor; uniform float uTime;
-        varying vec2 vUv; varying vec3 vW;
+        varying vec2 vUv; varying vec3 vW; varying vec3 vN;
         void main() {
           float a = texture2D(uMap, vUv).r;
           float n = 0.8 + 0.2 * sin(vW.x * 3.1 + vW.y * 2.3 + uTime * 0.6) * sin(vW.z * 2.7 - uTime * 0.4);
-          gl_FragColor = vec4(uColor * a * n, 1.0);
+          // Faces seen edge-on fade out: the beam's silhouette is soft, never a hard-edged slab.
+          float facing = abs(dot(normalize(vN), normalize(cameraPosition - vW)));
+          gl_FragColor = vec4(uColor * a * n * smoothstep(0.04, 0.5, facing), 1.0);
         }`,
       transparent: true,
       depthWrite: false,
@@ -485,6 +487,7 @@ export abstract class InteriorMap implements GameMap {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.computeVertexNormals();
       const mesh = new THREE.Mesh(g, this.shaftMat);
       mesh.renderOrder = 5;
       mesh.userData.noAO = true;

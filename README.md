@@ -426,8 +426,16 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   as `animals:grant` / `buildings:grant` → farmhand `receiveGrant(items)`. Shared state: host `animals:changed` /
   `buildings:changed` → `snapshot()` → farmhand `applySnapshot()`. Herd poses (same map as the host): host
   `animals.poses()` at ~4 Hz → farmhand `animals.applyPoses()`.
-- Demos: `house-interior`, `house-night`, `coop-interior`, `coop-night`, `coop-dawn`, `barn-interior`, `barn-night`,
-  `animals-pasture`, `animals-gallery` (every species + coat), `pet-yard`, `carpenter`, `carpenter-animals`.
+- Bedtime: the bed asks "Go to bed for the night?", the farmer lies down under a folded-over quilt, lamps + fire
+  dim, Zzz, fade; in co-op a farmer waiting for the others lies tucked in. The day-end card gets an Animals row
+  (fed / produce with quality stars / hungry names / the pet's bowl) from `animals:summary` via `sleep:summary.animals`.
+- Petting: a ~64 px heart pop (ease-out-back) with mini hearts + sparkles, the animal's name + heart meter, a squash on
+  the animal and a crouch-and-reach pose on the farmer; at most 3 curious animals walk up at a time (20–40 s cooldown).
+  Eggs are picked per nest box and shown off overhead with their quality star.
+- Demos: `house-interior`, `house-night`, `house-bedtime` (prompt), `house-asleep` (tucked in), `animals-dayend`
+  (day-end card with the Animals row), `coop-interior`, `coop-eggs` (`&nest=0..5`), `coop-night`, `coop-dawn`,
+  `barn-interior`, `barn-night`, `animals-pasture`, `animals-petting` (close-up), `animals-coop` (pasture + three co-op
+  farmhands, perf), `animals-gallery` (every species + coat), `pet-yard`, `carpenter`, `carpenter-animals`.
   `&pet=dog|cat` picks the pet, `&hearts=0` stops the staged petting hearts, `&petted=1` pre-marks today's petting.
 
 ## Co-op multiplayer (1–4 farmers)
