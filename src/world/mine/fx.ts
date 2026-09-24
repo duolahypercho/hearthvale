@@ -333,8 +333,10 @@ export class MineFX {
         fragmentShader: `uniform sampler2D uMap; varying float vA; varying vec2 vUv; varying vec3 vC;
           void main(){ vec4 t = texture2D(uMap, vUv); float a = t.a * vA; if (a < 0.01) discard;
             // Glossy wet core (lighter), darker rim.
-            vec3 c = vC * mix(0.55, 1.25, t.r);
-            gl_FragColor = vec4(c, a); }`,
+            // (unlit: kept well under the lit floor's value so it sits IN the cave light instead of
+            // reading as a bright paint carpet once a few kills pile up)
+            vec3 c = vC * mix(0.32, 0.9, t.r);
+            gl_FragColor = vec4(c, a * 0.8); }`,
       });
       this.splatMesh = new THREE.InstancedMesh(sg, sm, SPLATS);
       this.splatMesh.name = 'mine-splats';

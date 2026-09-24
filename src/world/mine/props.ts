@@ -314,6 +314,17 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
           rb.add('metal', roundedBox(1.02, 0.014, 0.034, 0.005), mat(0, 0.103, sz), { tint: 0xe8e2d8 });
         }
         for (const sx of [-0.25, 0.25]) rb.add('woodDark', roundedBox(0.16, 0.06, 0.82, 0.02), mat(sx + (r.next() - 0.5) * 0.04, 0.03, 0, 0, (r.next() - 0.5) * 0.1, 0), { tint: woodTint });
+        // Seated on a raised gravel ballast bed (low lumpy mound, overlapping segment to segment)
+        // with loose chippings spilling off its shoulders: a laid track, not a decal on the floor.
+        for (const bx of [-0.36, 0, 0.36]) {
+          const bg = facetRock(r, 0.5, new THREE.Color(def.rock[0]!).lerp(new THREE.Color(def.strata[3]!), 0.5).multiplyScalar(0.6).getHex(), { detail: 1, squash: 0.7, smooth: 0.85, lumps: 0.2, crevice: 0.5 });
+          rockB.add(mineRockMaterial(), bg, mat(d.x + bx, y - 0.035, d.z + (r.next() - 0.5) * 0.04, 0, (r.next() - 0.5) * 0.2, 0, 0.62, 0.15, 0.98 + r.next() * 0.08));
+        }
+        for (let k = 0; k < 4; k++) {
+          const pz = (k < 2 ? -1 : 1) * (0.5 + r.next() * 0.14);
+          const pg = facetRock(r, 0.04 + r.next() * 0.035, def.strata[k % 2 ? 2 : 4]!, { detail: 0, squash: 0.7 });
+          rockB.add(mineRockMaterial(), pg, mat(d.x + (r.next() - 0.5) * 0.9, y + 0.005, d.z + pz, 0, r.next() * 6, 0));
+        }
         // The run never stops dead mid-floor: a timber buffer stop at one end, a rockfall at the other.
         const railAt = (x: number): boolean => L.decor.some((o) => o.kind === 'rail' && Math.abs(o.z - d.z) < 0.1 && Math.abs(o.x - x) < 0.1);
         for (const side of [-1, 1]) {

@@ -44,6 +44,17 @@ export function stoneMaterial(veins: boolean, scale = 1, frost = false): THREE.M
   if (hit) return hit;
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   m.name = veins ? 'mine-rock-ore' : 'mine-stone';
+  applyStone(m, veins, scale, frost);
+  cache.set(key, m);
+  return m;
+}
+
+/**
+ * Patch the procedural stone onto an existing material (its own flags / extra patches kept): cave
+ * boulders and entrance rocks share the breakables' surface instead of flat vertex colour.
+ */
+export function applyStone<M extends THREE.MeshStandardMaterial>(m: M, veins: boolean, scale = 1, frost = false): M {
+  const key = `${veins ? 'ore' : 'plain'}:${scale}:${frost ? 'frost' : ''}`;
   patchMaterial(m, `mine-stone:${key}`, (shader) => {
     shader.uniforms.uTime = globalUniforms.uTime;
     let vs = before(shader.vertexShader, 'void main() {', `varying vec3 vStP;\n${veins ? 'attribute vec4 aOre; varying vec4 vOre;' : ''}`);
@@ -209,6 +220,5 @@ export function stoneMaterial(veins: boolean, scale = 1, frost = false): THREE.M
     );
     shader.fragmentShader = fs;
   });
-  cache.set(key, m);
   return m;
 }

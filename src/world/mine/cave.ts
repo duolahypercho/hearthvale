@@ -21,6 +21,7 @@ import { patchMaterial, after, before } from '../../render/patch';
 import type { FloorLayout } from './gen';
 import { BIOMES } from './biomes';
 import { facetRock } from './rockgeo';
+import { applyStone } from './stone';
 
 const STEP = 0.2;
 const MARGIN = 2;
@@ -80,7 +81,9 @@ vec3 hvWallSlab(vec2 tp) {
   float craze = (1.0 - smoothstep(0.0, 0.03, edge2)) * smoothstep(0.55, 0.8, hvNoise(tp * 0.7 + 4.0)) * (1.0 - cavity);
   float bulge = smoothstep(0.0, 0.5, edge);
   float grain2 = hvNoise(tp * 6.0) * 0.6 + hvNoise(tp * 17.0) * 0.4;
-  float h = bulge * 0.17 + (st.z - 0.5) * 0.06 - craze * 0.015 + grain2 * 0.022;
+  // (the slab's own offset rides the bulge, which is 0 on the border: a per-slab step there spiked
+  // the bump derivatives in the 2x2 quads straddling it and printed dashed hairlines on the walls)
+  float h = bulge * (0.17 + (st.z - 0.5) * 0.09) - craze * 0.015 + grain2 * 0.022;
   float lit = mix(1.2, 0.74, smoothstep(-0.5, 0.5, st.w));
   float tone = (0.78 + 0.4 * st.z) * lit * (1.0 - crack * 0.8) * (1.0 - cavity * 0.3) * (1.0 - craze * 0.18);
   float weep = smoothstep(0.62, 0.85, hvNoise(vec2(tp.x * 2.4, tp.y * 0.22 + st.z * 3.0)));
@@ -369,10 +372,11 @@ ${CAVE_GLSL}`,
         float l1 = abs(hvNoise(w * 0.22) - 0.5);
         float l2 = abs(hvNoise(w * 0.5 + 31.0) - 0.5);
         float mask = smoothstep(0.5, 0.7, hvNoise(fp * 0.09 + 2.0));
-        float frac = max(1.0 - smoothstep(0.0, 0.01, l1), (1.0 - smoothstep(0.0, 0.008, l2)) * 0.6) * mask * onFloor;
-        // Fractures: faint dark hairlines with a glossy edge (roughness below), not white splines.
-        diffuseColor.rgb *= 1.0 - frac * 0.22;
-        hvCrackV = frac * 0.6;
+        float frac = max(1.0 - smoothstep(0.004, 0.02, l1), (1.0 - smoothstep(0.003, 0.014, l2)) * 0.5) * mask * onFloor;
+        // Fractures: soft dark etched lines (a groove in the frost, only a touch glossier) — a
+        // mirror-glossy edge caught the lantern as stray white splines across the floor.
+        diffuseColor.rgb *= 1.0 - frac * 0.34;
+        hvCrackV = frac * 0.2;
         // Clear-ice depth: bubbles + darker deep patches under the sheet.
         float deep = smoothstep(0.35, 0.7, hvFbm(fp * 0.35 + 21.0));
         diffuseColor.rgb *= mix(1.0, 0.72, deep * onFloor);
@@ -634,13 +638,19 @@ ${CAVE_GLSL}`,
           fs,
           '#include <emissivemap_fragment>',
           `{
-            vec2 q = vPW.xz * 0.9;
-            vec2 w = q + vec2(hvNoise(q * 0.7 + uTime * 0.05), hvNoise(q * 0.7 + 7.0 - uTime * 0.04)) * 1.6;
-            float c1 = 1.0 - smoothstep(0.0, 0.06, abs(hvNoise(w * 1.3 + uTime * 0.08) - 0.5));
-            float c2 = 1.0 - smoothstep(0.0, 0.05, abs(hvNoise(w * 2.1 - uTime * 0.06 + 3.0) - 0.5));
+            // Soft caustic web: two broad, low-contrast ridge layers multiplied together so only
+            // their crossings brighten (small dappled cells, never long white threads), faded in
+            // patches and kept away from the shore; plus deep-ice depth tint towards the middle.
+            vec2 q = vPW.xz * 1.35;
+            vec2 w = q + vec2(hvNoise(q * 0.6 + uTime * 0.05), hvNoise(q * 0.6 + 7.0 - uTime * 0.04)) * 1.1;
+            float r1 = 1.0 - smoothstep(0.0, 0.16, abs(hvNoise(w * 1.2 + uTime * 0.07) - 0.5));
+            float r2 = 1.0 - smoothstep(0.0, 0.16, abs(hvNoise(w * 1.7 - uTime * 0.06 + 3.0) - 0.5));
+            float patchy = smoothstep(0.35, 0.75, hvNoise(vPW.xz * 0.35 + 11.0));
+            float cau = (r1 * r2 * 0.8 + (r1 + r2) * 0.05) * (0.35 + 0.65 * patchy);
             float fr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0);
-            totalEmissiveRadiance += vec3(0.35, 0.75, 0.95) * (c1 * 0.22 + c2 * 0.14) + vec3(0.4, 0.6, 0.85) * fr * 0.25;
-            totalEmissiveRadiance = min(totalEmissiveRadiance, vec3(0.55));
+            totalEmissiveRadiance *= 0.7;
+            totalEmissiveRadiance += vec3(0.3, 0.68, 0.9) * cau * 0.2 + vec3(0.4, 0.6, 0.85) * fr * 0.22;
+            totalEmissiveRadiance = min(totalEmissiveRadiance, vec3(0.42));
           }`,
         );
         shader.fragmentShader = fs;
@@ -687,7 +697,9 @@ ${CAVE_GLSL}`,
       const h = sampleArr(hArr, x, z);
       const rad = foot ? 0.28 + r.next() * 0.42 : 0.35 + r.next() * 0.5;
       const band = strata[Math.floor(r.next() * 3)]!.clone().multiplyScalar((foot ? 1.0 : 0.85) * Math.min(1, def.wallValue * 1.2));
-      const g = facetRock(r, rad, band.getHex(), { chunky: true, squash: 0.62 + r.next() * 0.3, cap: capCol, capAmt, rim: 0.6, detail: rad > 0.4 ? 2 : 1, smooth: 0.45, lumps: 0.14 });
+      // Soft-cut stone (smooth normals with a hint of facet, lumpy, crevice AO, a few cleaved faces)
+      // under the shared procedural stone surface: no more flat-shaded low-poly blobs on the rims.
+      const g = facetRock(r, rad, band.getHex(), { chunky: true, squash: 0.62 + r.next() * 0.3, cap: capCol, capAmt, rim: 0.6, detail: 2, smooth: 0.72, lumps: 0.2, crevice: 0.5, cleave: r.next() < 0.45 });
       const m = new THREE.Matrix4().compose(new THREE.Vector3(x, (foot ? floorBase(x, z) : h) - rad * 0.15, z), new THREE.Quaternion().setFromEuler(new THREE.Euler((r.next() - 0.5) * 0.3, r.next() * 6, (r.next() - 0.5) * 0.3)), new THREE.Vector3(1, 1, 1));
       g.applyMatrix4(m);
       geos.push(g);
@@ -714,6 +726,7 @@ ${CAVE_GLSL}`,
     const merged = mergeGeos(geos);
     const rm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: L.biome === 'ice' ? 0.5 : 0.88, metalness: 0 });
     rm.name = 'cave-boulders';
+    applyStone(rm, false, 0.85);
     // Minimum ambient: dark basalt keeps its form in the unlit foreground (never crushed to black).
     const amb = L.biome === 'lava' ? 0.07 : 0.025;
     patchMaterial(rm, `cave-boulders-amb:${amb}`, (shader) => {

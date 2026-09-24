@@ -42,16 +42,26 @@ vec3 hvCliffTex(vec2 tp) {
   float edge2 = st2.y - st2.x;
   // Only some slab borders open into joints (a cliff, not a dry-stone wall). Anti-aliased: a joint
   // thinning below ~2 px widens + fades into the cavity shading instead of breaking into dashes.
-  float open = smoothstep(0.42, 0.66, hvNoise(floor(wq) * 0.41 + st.z * 5.0 + tp * 0.18));
-  float aa = fwidth(edge) * 2.0;
+  // (keyed on the slab's own random id, not floor(wq): the integer grid of the warped domain cut
+  // through slab interiors, and the step it put into the bump height printed dotted lines)
+  float open = smoothstep(0.42, 0.66, hvNoise(vec2(st.z * 17.0, st.z * 5.0) + tp * 0.18));
+  // Pixel footprint from the DOMAIN, not from edge itself: F2-F1 has a V-shaped crease along every
+  // slab border, so fwidth(edge) collapsed in the 2x2 quads straddling it (and only those) — the
+  // joint then printed in every other quad as a dotted hairline tracing each slab.
+  vec2 fw = fwidth(wq);
+  float aa = (fw.x + fw.y) * 2.4;
   // Joints only where they are several pixels wide: thinner ones fade out entirely (at the
   // gameplay zoom they rasterised as dotted hairlines tracing every slab border).
   float crack = (1.0 - smoothstep(0.02, 0.09 + aa, edge)) * open * smoothstep(0.05, 0.015, aa);
   float cavity = (1.0 - smoothstep(0.0, 0.3, edge)) * (0.35 + 0.65 * open);
-  float aa2 = fwidth(edge2) * 2.0;
+  float aa2 = (fw.x + fw.y) * 2.7 * 2.4;
   float craze = (1.0 - smoothstep(0.0, 0.035 + aa2, edge2)) * smoothstep(0.5, 0.75, hvNoise(tp * 0.8)) * (1.0 - cavity) * smoothstep(0.02, 0.006, aa2);
   float grit = hvNoise(tp * 5.0) * 0.55 + hvNoise(tp * 16.0) * 0.45;
-  float h = smoothstep(0.0, 0.45, edge) * 0.12 * (0.4 + 0.6 * open) + (st.z - 0.5) * 0.05 + hvNoise(tp * 5.0) * 0.02 - craze * 0.012;
+  // Height is CONTINUOUS across slab borders: every per-slab term (open, the slab's own offset)
+  // is scaled by the border ramp, which is 0 on the border itself. A per-slab step there made
+  // dFdx / dFdy of the bump spike in the 2x2 quads straddling each border, and every other quad
+  // printed a dark dot: the dashed hairlines tracing the slabs.
+  float h = smoothstep(0.0, 0.45, edge) * (0.12 * (0.4 + 0.6 * open) + (st.z - 0.5) * 0.08) + hvNoise(tp * 5.0) * 0.02 - craze * 0.012;
   float lit = mix(1.1, 0.86, smoothstep(-0.5, 0.5, st.w));
   float tone = (0.86 + 0.26 * st.z) * lit * (1.0 - crack * 0.62) * (1.0 - cavity * 0.18) * (1.0 - craze * 0.2) * (0.86 + 0.28 * grit);
   return vec3(tone, h, grit);
@@ -431,6 +441,7 @@ export class MineEntranceMap implements GameMap {
     const PAL = [0xa89272, 0x8e7a62, 0xb49e7e, 0x7c6a58, 0x9c886c, 0x86725c, 0xa0907a].map((h) => new THREE.Color(h));
     const moss = new THREE.Color(0x6a8a40);
     const c = new THREE.Color();
+    const _bc = new THREE.Color();
     const hash = (a: number): number => {
       const v = Math.sin(a * 127.1 + 311.7) * 43758.5453;
       return v - Math.floor(v);
@@ -464,18 +475,29 @@ export class MineEntranceMap implements GameMap {
         const block = hash(Math.floor(ju) * 0.71 + band * 13.3);
         // Ledge lips ramp over ~3 vertex rows (a one-row step rendered as a dashed dark stitch).
         const prof = smoothstep(0.0, 0.2, f) * (1 - smoothstep(0.82, 1.0, f)) * (0.75 + 0.25 * f);
-        let disp = 0.03 + steep * (0.05 + (0.08 + hard * 0.26) * prof + (block - 0.5) * 0.06 - joint * 0.12 + n.fbm(x * 0.35, y * 0.35 + 7, 2) * 0.12);
+        // (the per-block / joint offsets fade out at the band borders: a displacement step there
+        // crossed the vertex rows at an angle and lit up as a sawtooth crease along every ledge)
+        const inner = smoothstep(0.0, 0.14, f) * (1 - smoothstep(0.86, 1.0, f));
+        let disp = 0.03 + steep * (0.05 + (0.08 + hard * 0.26) * prof + ((block - 0.5) * 0.06 - joint * 0.12) * inner + n.fbm(x * 0.35, y * 0.35 + 7, 2) * 0.12);
         disp = Math.max(0.05, disp);
         const k = (i * rows + j) * 3;
         pos[k] = x + nrm.x * disp;
         pos[k + 1] = y + nrm.y * disp + 0.015;
         pos[k + 2] = z + nrm.z * disp;
         // Albedo: per-band tone, lighter band tops, dark under-ledge shadow + joints, moss on ledges.
-        c.copy(PAL[((band % PAL.length) + PAL.length) % PAL.length]!).multiplyScalar(0.86 + block * 0.22);
-        c.multiplyScalar((0.55 + 0.45 * smoothstep(0.0, 0.34, f)) * (1 - joint * 0.35) * (0.88 + 0.24 * smoothstep(0.6, 1.0, f)));
+        // Every term is CONTINUOUS across a band border (f 1 -> 0): the sheet's rows cross the
+        // strata at an angle, so any step between two vertex rows rasterised as a sawtooth of
+        // dark dashes tracing each ledge. The band tone cross-fades from the band below, the
+        // groove darkens symmetrically on both sides of the border, joints and moss fade out there.
+        const bandCol = (bd: number, bl: number): THREE.Color => _bc.copy(PAL[((bd % PAL.length) + PAL.length) % PAL.length]!).multiplyScalar(0.86 + bl * 0.22);
+        c.copy(bandCol(band - 1, hash(Math.floor((x + hash((band - 1) * 5.3) * 9) / (1.4 + hash((band - 1) * 3.1) * 2.2)) * 0.71 + (band - 1) * 13.3)));
+        c.lerp(bandCol(band, block), smoothstep(0.0, 0.3, f));
+        const mid = smoothstep(0.0, 0.14, f) * (1 - smoothstep(0.86, 1.0, f));
+        const groove = Math.max(1 - smoothstep(0.0, 0.34, f), smoothstep(0.84, 1.0, f));
+        c.multiplyScalar((1 - groove * 0.45) * (1 - joint * mid * 0.35) * (0.88 + 0.24 * smoothstep(0.5, 0.8, f) * (1 - smoothstep(0.84, 1.0, f))));
         const foot = smoothstep(1.4, 0.0, y - this.height(x, cz + 0.8, false));
         c.multiplyScalar(1 - foot * 0.3);
-        const ledgeTop = smoothstep(0.86, 0.98, f) * steep * (0.4 + 0.6 * smoothstep(0.1, 0.5, n.fbm(x * 0.4, y * 0.4, 2) + 0.2));
+        const ledgeTop = smoothstep(0.62, 0.8, f) * (1 - smoothstep(0.84, 0.97, f)) * steep * (0.4 + 0.6 * smoothstep(0.1, 0.5, n.fbm(x * 0.4, y * 0.4, 2) + 0.2));
         const topLip = (1 - steep) * smoothstep(3, 6, y);
         c.lerp(moss, Math.min(1, ledgeTop * 0.75 + topLip * 0.7));
         col[k] = c.r;
@@ -881,13 +903,34 @@ export class MineEntranceMap implements GameMap {
       }
     }
     // Scree + boulders at the cliff foot, stones on the shelf, ferns / bushes at edges.
+    const scree = new MeshBuilder();
     for (let x = 1; x < W - 1; x += 0.8) {
       const cz = this.cliffZ(x);
       if (Math.abs(x - MOUTH.x) < 2.6 || (x > LIFT.x - 2 && x < LIFT.x + 1.6)) continue;
       const z = cz + 0.4 + r.next() * 0.9;
-      if (r.next() < 0.55) this.nature.place(r.next() < 0.35 ? 'boulder' : 'stone', x, this.H(x, z), z, { scale: 0.7 + r.next() * 0.6 });
+      if (r.next() < 0.55) {
+        // Boulders are our own soft-cut sandstone (smooth normals with a few cleaved faces, crevice
+        // AO, moss only on the crown) under the shared procedural stone surface: the meadow kit's
+        // flat-shaded, camo-patched boulders read as low-poly props against the strata cliff.
+        if (r.next() < 0.35) {
+          const rad = 0.42 + r.next() * 0.42;
+          const g = facetRock(r, rad, [0xa89272, 0x9c886c, 0xb09a7c][Math.floor(r.next() * 3)]!, { chunky: true, squash: 0.6 + r.next() * 0.25, cap: 0x5f7f38, capAmt: 0.35, rim: 0.55, detail: 2, smooth: 0.78, lumps: 0.22, crevice: 0.55, cleave: r.next() < 0.6 });
+          scree.add(mineRockMaterial(), g, mat(x, this.H(x, z) - rad * 0.18, z, (r.next() - 0.5) * 0.25, r.next() * 6, (r.next() - 0.5) * 0.25));
+          // A smaller companion stone tucked against it (clusters, not a row of lone lumps).
+          if (r.next() < 0.6) {
+            const a = r.next() * 6.28;
+            const rr = rad * (0.35 + r.next() * 0.2);
+            const sx = x + Math.cos(a) * rad * 1.05;
+            const sz = z + Math.abs(Math.sin(a)) * rad * 0.9;
+            scree.add(mineRockMaterial(), facetRock(r, rr, 0x9c886c, { chunky: true, squash: 0.7, rim: 0.6, detail: 1, smooth: 0.7, lumps: 0.18, crevice: 0.4 }), mat(sx, this.H(sx, sz) - rr * 0.15, sz, 0, r.next() * 6, 0));
+          }
+        } else this.nature.place('stone', x, this.H(x, z), z, { scale: 0.7 + r.next() * 0.6 });
+      }
       if (r.next() < 0.5) this.nature.place('pebbles', x + 0.3, this.H(x + 0.3, z + 0.6), z + 0.6);
     }
+    const screeG = scree.build({ name: 'cliff-foot-boulders' });
+    this.root.add(screeG);
+    this.staticRoots.push(screeG);
     const g = this.grid;
     for (let z = 0; z < D; z++) {
       for (let x = 0; x < W; x++) {

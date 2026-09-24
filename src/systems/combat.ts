@@ -233,7 +233,13 @@ export class CombatSystem implements System, HealthApi {
     if (acts.active) return;
     this.sword ??= buildSword(this.tier);
     this.aim();
-    const kind = this.side ? 'backslash' : 'slash';
+    // Staged still: the stroke whose impact pose opens the chest to the camera — never the back of
+    // the farmer's head. At the impact time the forehand's torso is still unwinding from its
+    // wind-up (turned away from the lens when facing right), the backhand's is turned towards it;
+    // mirrored when facing left. Plus a three-quarter twist so the face reads under the hat brim.
+    const staged = this.still && !!this.auto;
+    const kind = staged ? (player.facing === 'left' ? 'slash' : 'backslash') : this.side ? 'backslash' : 'slash';
+    if (staged) acts.twist = player.facing === 'left' ? 0.75 : player.facing === 'right' ? -0.75 : 0;
     this.side = !this.side;
     this.trail.reset();
     mineSfx.whoosh();
@@ -333,7 +339,7 @@ export class CombatSystem implements System, HealthApi {
   killFx(m: MineMap, mo: Monster): void {
     const col = mo.kind === 'slime' ? monsterColor('slime', m.layout.biome) : mo.kind === 'imp' ? 0x2a1a16 : mo.kind === 'wisp' ? 0xcfeaff : mo.kind === 'crab' ? 0x6a5a50 : 0x4a3a52;
     const c = new THREE.Color(col).multiplyScalar(mo.kind === 'slime' ? 0.75 : 1);
-    m.fx.splat(mo.pos, c, mo.kind === 'slime' ? 0.95 : 0.7, mo.kind === 'slime' ? 7 : 4);
+    m.fx.splat(mo.pos, c, mo.kind === 'slime' ? 0.62 : 0.48, mo.kind === 'slime' ? 3.5 : 2.5);
   }
 
   // ───────────────────────────────────────────── getting hurt
@@ -545,9 +551,60 @@ export class CombatSystem implements System, HealthApi {
     m.live = true;
     // The staged farmer never walks: loot streams in from anywhere in the arena (no gel carpet).
     m.pickups.magnetR = 9;
-    this.populate(m, true);
     const p = this.game.player.position;
+    if (this.still && this.stageStill(m)) {
+      this.auto = { t: 0.3, min: 62, home: new THREE.Vector2(p.x, p.z) };
+      return;
+    }
+    this.populate(m, true);
     this.auto = { t: 0.9, min: 62, home: new THREE.Vector2(p.x, p.z) };
+  }
+
+  /**
+   * `&still=1`: a composed impact frame instead of whatever the pack happens to do. One victim
+   * just inside reach to the farmer's right (side-on crescent, the forehand slash turns the chest
+   * to the camera), the rest of the pack spread around the open side of the frame — never stacked
+   * on the victim or tucked behind the hat.
+   */
+  private stageStill(m: MineMap): boolean {
+    const p = this.game.player.position;
+    const biome = m.layout.biome;
+    for (const x of m.monsters) if (x.alive && Math.hypot(x.pos.x - p.x, x.pos.z - p.z) < 9) x.dead = true;
+    const fly = (k: MonsterKind): boolean => k === 'bat' || k === 'wisp';
+    const place = (kind: MonsterKind, spots: [number, number][]): Monster | null => {
+      for (const [ox, oz] of spots) {
+        const x = p.x + ox;
+        const z = p.z + oz;
+        if (!m.grid.isWalkable(Math.floor(x), Math.floor(z)) || !m.clearAt(x, z, 0.5, fly(kind))) continue;
+        if (m.monsters.some((o) => o.alive && Math.hypot(o.pos.x - x, o.pos.z - z) < 1.4)) continue;
+        const mo = m.addMonster(kind, x, z);
+        if (fly(kind)) mo.pos.y += 1.1;
+        mo.root.rotation.y = Math.atan2(p.x - x, p.z - z);
+        return mo;
+      }
+      return null;
+    };
+    const victimKind: MonsterKind = biome === 'ice' ? 'wisp' : biome === 'lava' ? 'imp' : 'slime';
+    const side = [1, -1].find((sx) => m.grid.isWalkable(Math.floor(p.x + sx * 1.2), Math.floor(p.z))) ?? 1;
+    const v = place(victimKind, [
+      [side * 1.15, 0.12],
+      [side * 1.05, 0.3],
+      [side * 1.2, -0.1],
+    ]);
+    if (!v) return false;
+    const o = -side;
+    place(biome === 'lava' ? 'imp' : 'slime', [[o * 2.3, 0.9], [o * 2.1, 1.5], [o * 2.6, 0.2]]);
+    place('bat', [[o * 1.6, -1.8], [o * 2.4, -1.2], [side * 2.6, -1.6]]);
+    if (biome === 'earth') {
+      const c = place('crab', [[side * 2.4, 1.9], [o * 1.0, 2.4], [side * 1.4, 2.5]]);
+      if (c instanceof Crab) c.wake();
+    }
+    // The pack watches (no one closes in before the blade lands; knockback still plays out).
+    m.playerTargetable = false;
+    setTimeout(() => {
+      if (this.mine() === m) m.playerTargetable = true;
+    }, 4000);
+    return true;
   }
 
   /** Keep a small pack of monsters around the player in the demo arena. */
@@ -565,7 +622,7 @@ export class CombatSystem implements System, HealthApi {
     const ring = [
       [1.9, -0.6],
       [-1.8, 0.4],
-      [0.5, -2.3],
+      [2.1, -1.3],
       [-0.6, 2.0],
       [2.4, 1.3],
       [-2.4, -1.4],

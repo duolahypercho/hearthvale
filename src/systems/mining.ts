@@ -304,6 +304,7 @@ export class MiningSystem implements System, MiningApi {
   private stageDemo(name: string): void {
     const game = this.game;
     this.coop.clearDemo();
+    mineActions(game.player).twist = 0;
     if (name === 'mine-entrance') {
       game.player.teleport(22.6, 14.4);
       return;
@@ -379,35 +380,56 @@ export class MiningSystem implements System, MiningApi {
 
   private stagePick(m: MineMap, still: boolean): void {
     const p = this.game.player.position;
+    const L = m.layout;
+    const open = (x: number, z: number): boolean => m.grid.isWalkable(x, z) && !m.rockAt(x, z);
     let best: { x: number; z: number; s: number } | null = null;
     for (const rk of m.rocks?.rocks ?? []) {
       if (!rk.alive) continue;
-      // Stand just NORTH of the rock, facing down: the farmer faces the camera and the pick comes
-      // down in front of them onto the rock (never a back-of-the-hat swing).
-      const sx = rk.spec.x;
-      const sz = rk.spec.z - 1;
-      if (!m.grid.isWalkable(sx, sz) || m.rockAt(sx, sz)) continue;
-      const s = Math.hypot(sx + 0.5 - p.x, sz + 0.5 - p.z) - (rk.spec.ore ? 2.5 : 0);
-      if (!best || s < best.s) best = { x: rk.spec.x, z: rk.spec.z, s };
+      // Side-on: the farmer stands just WEST of the rock facing right, so the pick's whole arc,
+      // the head biting into the stone and the chips all read in profile (a face-the-camera chop
+      // only showed the hat crown), and the torso turns three-quarters towards the lens.
+      const sx = rk.spec.x - 1;
+      const sz = rk.spec.z;
+      if (!open(sx, sz)) continue;
+      // Open floor towards the camera (nothing between the lens and the swing) and beside it.
+      if (!open(sx, sz + 1) || !m.grid.isWalkable(rk.spec.x, sz + 1) || !open(sx - 1, sz)) continue;
+      let s = -Math.hypot(sx + 0.5 - p.x, sz + 0.5 - p.z) * 0.35;
+      if (rk.spec.ore) s += 4;
+      // Keep walls out of the foreground (the lower third of the frame) and a dressed wall behind.
+      for (let dz = 1; dz <= 3; dz++) for (let dx = -2; dx <= 2; dx++) if (L.solid[(sz + dz) * FLOOR_W + sx + dx]) s -= 0.8;
+      for (let dz = 3; dz <= 6; dz++) if (L.solid[(sz - dz) * FLOOR_W + sx]) { s += 1.5; break; }
+      if (!best || s > best.s) best = { x: rk.spec.x, z: rk.spec.z, s };
     }
     if (!best) return;
-    this.game.player.teleport(best.x + 0.5, best.z - 0.42);
-    // Nothing else crowding the swing: rocks right beside the farmer / pick would hide the impact.
-    const crowd = (m.rocks?.rocks ?? []).filter((r) => r.alive && !(r.spec.x === best!.x && r.spec.z === best!.z) && Math.hypot(r.pos.x - (best!.x + 0.5), r.pos.z - (best!.z - 0.4)) < 1.4);
+    const fx = best.x + 0.5 - 0.78;
+    const fz = best.z + 0.55;
+    this.game.player.teleport(fx, fz);
+    // Nothing else crowding the swing, and nothing in front of it (towards the camera) or right
+    // behind the hat.
+    const crowd = (m.rocks?.rocks ?? []).filter((r) => {
+      if (!r.alive || (r.spec.x === best!.x && r.spec.z === best!.z)) return false;
+      const dx = r.pos.x - (fx + 0.4);
+      const dz = r.pos.z - fz;
+      return Math.hypot(dx, dz) < 1.5 || (dz > 0 && dz < 2.6 && Math.abs(dx) < 1.3) || (dz < 0 && dz > -1.8 && Math.abs(dx) < 1.0);
+    });
     m.removeRocks(crowd.map((r) => r.spec.z * FLOOR_W + r.spec.x));
+    for (const mo of [...m.monsters]) if (Math.hypot(mo.pos.x - fx, mo.pos.z - fz) < 2.4) m.removeMonster(mo);
     m.freezeAI = true;
     const tx = best.x;
     const tz = best.z;
     this.freezeOnImpact = still;
+    const acts = mineActions(this.game.player);
+    // Three-quarter turn towards the camera (the farmer faces +X; negative yaw swings the chest to +Z).
+    acts.twist = -0.8;
     // After the demo applies its own facing (same tick), turn to the rock; then chop on a loop so
     // any capture sequence catches a full swing (a still freezes the first impact, chips and all).
-    setTimeout(() => this.game.player.setFacing('down'), 0);
+    setTimeout(() => this.game.player.setFacing('right'), 0);
     const loop = (): void => {
       if (this.mine() !== m) return;
       const rk = m.rockAt(tx, tz);
       if (!rk) return;
       rk.hp = Math.max(rk.hp, 2);
-      this.game.player.setFacing('down');
+      this.game.player.setFacing('right');
       this.usePickaxe(tx, tz);
       if (!still) setTimeout(loop, 1500);
     };

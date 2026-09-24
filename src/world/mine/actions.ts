@@ -98,6 +98,11 @@ export class MineActions {
   hitStop = 0;
   /** Freeze the pose at the current time (demo stills). */
   frozen = false;
+  /**
+   * Staged stills: extra torso yaw (radians, added to every key) that turns a side-on farmer's chest
+   * and face a little towards the camera — a three-quarter view instead of a flat profile.
+   */
+  twist = 0;
   private readonly fn: NonNullable<Player['actionPose']>;
 
   constructor(private player: Player) {
@@ -222,8 +227,12 @@ export class MineActions {
     rig.armR.rotation.z = m(aR0[1], aR1[1]);
     rig.armL.rotation.x = m(aL0[0], aL1[0]);
     rig.armL.rotation.z = m(aL0[1], aL1[1]);
-    rig.torso.rotation.set(m(t0[0], t1[0]), m(t0[1], t1[1]), m(t0[2], t1[2]));
-    rig.head.rotation.x = m(k0.head ?? 0, k1.head ?? 0);
+    // (staged three-quarter stills also stand a little taller and lift the chin, so the face shows
+    // under the hat brim from the high camera instead of the crown)
+    const lean = this.twist ? 0.45 : 1;
+    rig.torso.rotation.set(m(t0[0], t1[0]) * lean, m(t0[1], t1[1]) + this.twist, m(t0[2], t1[2]));
+    rig.head.rotation.x = m(k0.head ?? 0, k1.head ?? 0) * lean - (this.twist ? 0.22 : 0);
+    if (this.twist) rig.head.rotation.y = this.twist * 0.55;
     rig.tool.position.set(0, -0.3, 0.02);
     rig.tool.rotation.set(m(tl0[0], tl1[0]), m(tl0[1], tl1[1]), m(tl0[2], tl1[2]));
     const brace = Math.max(0, rig.torso.rotation.x) * 0.5;
