@@ -30,6 +30,7 @@ import { buildRosette } from './kit';
 import { RemoteFarmer } from '../../entities/remote-farmer';
 import { coopVisitors } from '../../data/festivals';
 import { NPCS } from '../../data/npcs';
+import type { CoopRace } from './coop';
 
 export interface FestivalMapDef {
   id: string;
@@ -74,6 +75,11 @@ export interface PlayState {
   done: boolean;
   /** Free-form counters the map reports back to the HUD (skate: laps, gates, cracks, combo…). */
   stats: Record<string, number>;
+  /** Sack race: lane per racer (racer 0 = you) and who each racer is (co-op farmers race too). */
+  lanes?: number[];
+  kinds?: ('me' | 'npc' | 'farmer')[];
+  /** Co-op race shared with other farmers (null / absent = solo). */
+  coop?: CoopRace | null;
 }
 
 /** Activity trigger spot: interacting within `r` starts the host's activity. */

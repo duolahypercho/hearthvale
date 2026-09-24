@@ -216,11 +216,19 @@ export class Game {
 
   /** Frame limiter (Options → Display): 0 = every display refresh, else max frames per second. */
   frameCap = 0;
+  /**
+   * Optional render takeover for full-screen menus (co-op lobby: cached blurred world + turntable).
+   * Return true when it drew the frame itself; false to render the world as usual.
+   */
+  renderOverride: ((dt: number) => boolean) | null = null;
+  /** Called after every frame's render: screen-space overlays that must match this frame's camera. */
+  readonly afterRender: (() => void)[] = [];
 
   private loop = (now: number): void => {
     requestAnimationFrame(this.loop);
     if (this.frameCap > 0 && now - this.last < 1000 / this.frameCap - 2) return;
-    const dt = Math.min(0.1, (now - this.last) / 1000 || 0);
+    // rAF timestamps can precede the performance.now() taken when the loop started: never step backwards.
+    const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000) || 0);
     this.last = now;
     this.step(dt);
   };
@@ -247,7 +255,8 @@ export class Game {
     this.followPlayer(false);
     this.lighting.update(dt, this.calendar.hour);
     this.hud.update(dt);
-    this.rc.render(dt, this.time);
+    if (!this.renderOverride?.(dt)) this.rc.render(dt, this.time);
+    for (const f of this.afterRender) f();
     this.input.endFrame();
     this.frame++;
   }

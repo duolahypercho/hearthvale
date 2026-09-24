@@ -22,6 +22,7 @@ import { WISHES, produceRivals, PRESENTATIONS, favouredPresentation, STARFALL_GI
 import { portraitSvg } from '../../ui/portraits';
 import { itemIcon } from '../../ui/icons';
 import type { FestivalMap, PlayState } from './base';
+import type { CoopLobby, CoopRace, CoopRacer } from './coop';
 
 export interface GameEnv {
   game: Game;
@@ -35,6 +36,8 @@ export interface GameEnv {
   hard?: boolean;
   /** Co-op: today's board for this activity with your result folded in (shown when > 1 farmer). */
   board?: (r: GameResult) => BoardRow[];
+  /** Co-op start line (sack race / skate with other farmers on the grounds), else null. */
+  lobby?: CoopLobby | null;
 }
 
 /** A row of the co-op festival board (mirrors systems/festivals FestivalScore). */
@@ -59,6 +62,8 @@ export interface GameResult {
   hearts?: { id: string; delta: number }[];
   title: string;
   sub: string;
+  /** Co-op farmers who raced with you (their places as this machine saw the finish). */
+  rivals?: BoardRow[];
 }
 
 const CSS = /* css */ `
@@ -266,6 +271,20 @@ const CSS = /* css */ `
 .fg-chip.none { color: #8a7a6a; background: rgba(230, 220, 205, .7); }
 .fg-board .r .pl small { color: var(--ink-soft); }
 .fg-board .r .pl svg { width: 26px; height: 32px; display: block; margin: 0 auto; }
+.fg-lobby { left: 50%; bottom: 40px; transform: translateX(-50%); width: min(520px, calc(100vw - 32px)); }
+.fg-lobby > .in { padding: 14px 20px 14px; text-align: center; }
+.fg-lobby .k { font-family: var(--font-head); font-weight: 700; font-size: 24px; color: #5a3218; }
+.fg-lobby .who { margin: 8px auto 6px; display: grid; gap: 4px; max-width: 360px; }
+.fg-lobby .p { display: grid; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: center; padding: 4px 10px; border-radius: 9px; font-weight: 800; font-size: 17px; text-align: left; background: rgba(255, 250, 235, .7); animation: fgIn 300ms var(--ease-back) both; }
+.fg-lobby .p i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 1px 0 rgba(0,0,0,.25); }
+.fg-lobby .p span { font-size: 13px; color: #4f8a34; } .fg-lobby .p.wait { opacity: .6; } .fg-lobby .p.wait span { color: var(--ink-soft); }
+.fg-lobby .t { font-weight: 800; font-size: 14px; color: var(--ink-soft); }
+.fg-lobby .fg-go { margin-top: 10px; } .fg-lobby .esc { margin-top: 6px; font-size: 12px; font-weight: 800; color: var(--ink-soft); opacity: .8; }
+.fg-token.farmer { background: linear-gradient(180deg, #ffffff, #e8e0d0); border-width: 3px; }
+.fg-token.farmer b { color: #4a2c14; font-size: 9px; }
+.fg-skate .rivals { margin-top: 8px; display: grid; gap: 3px; text-align: left; font-weight: 800; font-size: 13px; color: #3a5a7a; }
+.fg-skate .rivals div { display: grid; grid-template-columns: 10px 1fr auto; gap: 6px; align-items: center; }
+.fg-skate .rivals i { width: 10px; height: 10px; border-radius: 50%; }
 .fg-confetti { position: absolute; width: 10px; height: 14px; border-radius: 2px; pointer-events: none; animation: fgConf 1600ms cubic-bezier(.2,.7,.4,1) forwards; }
 @keyframes fgConf { from { transform: translate(0, 0) rotate(0); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) rotate(var(--r)); opacity: 0; } }
 `;
@@ -478,6 +497,44 @@ export class FestivalOverlay {
     return true;
   }
 
+  /**
+   * Co-op start line: list who is lined up (and who could still join) until the lobby resolves.
+   * The owner can start early (Space); Escape races solo. Resolves to the shared race or null.
+   */
+  private async lineUp(env: GameEnv): Promise<CoopRace | null> {
+    const lob = env.lobby;
+    if (!lob || env.auto) return null;
+    const root = this.root!;
+    const panel = div('fg-panel fg-lobby fg-live', `<div class="in"><div class="k">${lob.owner ? 'At the start line' : 'Joining the line-up'}</div><div class="who"></div><div class="t"></div>${lob.owner ? '<div class="fg-go">Start now <kbd>Space</kbd></div>' : ''}<div class="esc">Esc · go it alone</div></div>`);
+    const who = panel.querySelector('.who') as HTMLElement;
+    const tEl = panel.querySelector('.t') as HTMLElement;
+    panel.querySelector('.fg-go')?.addEventListener('click', () => lob.startNow());
+    root.append(panel);
+    let res: CoopRace | null | undefined;
+    void lob.result.then((r) => (res = r));
+    let sig = '';
+    const ok = await this.loop(() => {
+      const rows = [{ name: 'You', color: '#7ac050', st: 'in' }, ...lob.joined().map((w) => ({ ...w, st: 'in' })), ...lob.waitingFor().map((w) => ({ ...w, st: 'wait' }))];
+      const s2 = rows.map((r) => r.name + r.st).join('|');
+      if (s2 !== sig) {
+        sig = s2;
+        who.innerHTML = rows.map((r) => `<div class="p ${r.st}"><i style="background:${r.color}"></i>${escapeHtml(r.name)}<span>${r.st === 'in' ? '✔ at the line' : '… on the grounds'}</span></div>`).join('');
+        if (rows.length > 1) this.sfx('ui:select', 0.8);
+      }
+      const left = Math.ceil(lob.left());
+      tEl.textContent = lob.owner ? `Starting in ${left}s — anyone at the fair can talk to the host to join` : `Waiting for the starter… ${left}s`;
+      if (lob.owner && this.hit('Space', 'Enter')) lob.startNow();
+      if (this.hit('Escape')) lob.cancel();
+      return res !== undefined;
+    });
+    panel.remove();
+    if (!ok) {
+      lob.cancel();
+      return null;
+    }
+    return res ?? null;
+  }
+
   private judges = new WeakMap<HTMLElement, { el: HTMLElement | null; k: number }>();
   /** Pop a judgement label (replaces the previous one on this parent; alternates its height). */
   private judge(parent: HTMLElement, text: string, cls: 'p' | 'g' | 'm', x: string, y: string): void {
@@ -498,9 +555,10 @@ export class FestivalOverlay {
 
   /** A short screen-shake of a panel (misses, stumbles). */
   private shake(el: HTMLElement): void {
+    // Restart the CSS animation without a forced reflow (was `void el.offsetWidth`): drop the
+    // class now, re-add it on the next frame.
     el.classList.remove('fg-shakeit');
-    void el.offsetWidth;
-    el.classList.add('fg-shakeit');
+    requestAnimationFrame(() => el.classList.add('fg-shakeit'));
   }
 
   private confetti(parent: HTMLElement, colors: number[], n = 46): void {
@@ -618,7 +676,7 @@ export class FestivalOverlay {
     // Encore (you've won before): the fiddler's fast reel — quicker, busier, trickier syncopation.
     const bpm = env.festival.music.tempo * (hard ? 1.18 : 1);
     const beat = 60 / bpm;
-    const notes: { t: number; dir: number; el: HTMLDivElement; state: 0 | 1 | 2 }[] = [];
+    const notes: { t: number; dir: number; el: HTMLDivElement; state: 0 | 1 | 2; off?: boolean }[] = [];
     let seed = hard ? 23 : 7;
     const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const beats: number[] = [];
@@ -739,6 +797,9 @@ export class FestivalOverlay {
           combo = 0;
         }
       }
+      // Perf: one layout read per frame (reading clientWidth after each note's style write forced a
+      // synchronous reflow per note, ~30 per frame); notes long past the ring stop being restyled.
+      const laneW = lane.clientWidth;
       for (const n of notes) {
         if (n.state === 0 && t - n.t > win) {
           n.state = 2;
@@ -746,13 +807,20 @@ export class FestivalOverlay {
           miss();
         }
         const x = RING_X + (n.t - t) * SPEED;
-        if (n.state !== 1) n.el.style.transform = `translateX(${x}px) rotate(${Math.sin((n.t - t) * 5) * 8}deg)`;
-        n.el.style.display = x > lane.clientWidth + 60 ? 'none' : '';
+        const off = x > laneW + 60 || x < -240;
+        if (n.state !== 1 && !off) n.el.style.transform = `translateX(${x}px) rotate(${Math.sin((n.t - t) * 5) * 8}deg)`;
+        if (n.off !== off) {
+          n.off = off;
+          n.el.style.display = off ? 'none' : '';
+        }
       }
       env.play.progress[0] = acc();
-      comboEl.firstChild!.textContent = String(combo);
-      scoreEl.textContent = score.toLocaleString();
-      meter.style.width = `${Math.round(harmony * 100)}%`;
+      const comboTxt = String(combo);
+      if (comboEl.firstChild!.textContent !== comboTxt) comboEl.firstChild!.textContent = comboTxt;
+      const scoreTxt = score.toLocaleString();
+      if (scoreEl.textContent !== scoreTxt) scoreEl.textContent = scoreTxt;
+      const meterW = `${Math.round(harmony * 100)}%`;
+      if (meter.style.width !== meterW) meter.style.width = meterW;
       return t > end;
     });
     env.play.live = false;
@@ -886,22 +954,48 @@ export class FestivalOverlay {
 
   private async sackRace(env: GameEnv): Promise<GameResult | null> {
     const root = this.root!;
+    // Co-op: farmers at the start line race each other (the lobby owner takes lane 0, joiners the
+    // next lanes); villagers fill the free lanes. Racer 0 is always you.
+    const race = await this.lineUp(env);
+    if (this.aborted) return null;
     const N = 5;
-    const tints = ['#e6c275', '#d8392f', '#3f6fd0', '#f2b928', '#3a8a4a'];
+    const lanesOf: number[] = [race?.myLane ?? 0];
+    const kinds: ('me' | 'npc' | 'farmer')[] = ['me'];
+    const farmer: (CoopRacer | null)[] = [null];
+    for (const r of race?.racers ?? []) {
+      if (lanesOf.length >= N) break;
+      lanesOf.push(r.lane);
+      kinds.push('farmer');
+      farmer.push(r);
+    }
+    for (let lane = 0; lanesOf.length < N && lane < N; lane++) {
+      if (lanesOf.includes(lane)) continue;
+      lanesOf.push(lane);
+      kinds.push('npc');
+      farmer.push(null);
+    }
+    env.play.lanes = lanesOf;
+    env.play.kinds = kinds;
+    env.play.coop = race;
+    const npcTints = ['#d8392f', '#3f6fd0', '#f2b928', '#3a8a4a'];
     const panel = div('fg-panel fg-race fg-live', `<div class="in"><div class="keys2"><div class="fg-key">◀</div><div class="fg-key">▶</div></div><div class="bounce"><small>Bounce</small><div class="fg-meter"><i></i></div></div><div class="fg-track"><div class="lanes"></div><div class="fg-flag"></div></div><div class="place">–</div></div>`);
     const lanes = panel.querySelector('.lanes') as HTMLElement;
     const toks: HTMLElement[] = [];
     const rowsEl: HTMLElement[] = [];
+    let npcK = 0;
     for (let i = 0; i < N; i++) {
       const l = div('');
-      const t = div(i === 0 ? 'fg-token me' : 'fg-token', i === 0 ? '<b>YOU</b>' : '');
-      if (i) t.style.background = tints[i]!;
+      const f = farmer[i];
+      const t = div(i === 0 ? 'fg-token me' : f ? 'fg-token me farmer' : 'fg-token', i === 0 ? '<b>YOU</b>' : f ? `<b>${escapeHtml(f.name.slice(0, 5).toUpperCase())}</b>` : '');
+      if (f) t.style.borderColor = f.color;
+      else if (i) t.style.background = npcTints[npcK++ % npcTints.length]!;
       l.append(t);
       rowsEl.push(l);
       toks.push(t);
     }
-    // Rows top → bottom = lanes far → near in 3D (you race the lane nearest the camera).
-    for (let i = N - 1; i >= 0; i--) lanes.append(rowsEl[i]!);
+    // Rows top → bottom = lanes far → near in 3D (lane 0 is nearest the camera).
+    const byLane = rowsEl.map((el, i) => ({ el, lane: lanesOf[i]! })).sort((a, b) => b.lane - a.lane);
+    for (const r of byLane) lanes.append(r.el);
     const [kL, kR] = [...panel.querySelectorAll('.keys2 .fg-key')] as HTMLElement[];
     kL!.addEventListener('pointerdown', () => this.keys.pressed.push('ArrowLeft'));
     kR!.addEventListener('pointerdown', () => this.keys.pressed.push('ArrowRight'));
@@ -910,8 +1004,13 @@ export class FestivalOverlay {
     root.append(panel);
     const LEN = 25.4;
     const pos = new Array(N).fill(0) as number[];
-    const fin = new Array(N).fill(-1) as number[];
-    const npc = [0, 2.62, 2.48, 2.75, 2.36].map((s, i) => ({ s, stumble: 3 + i * 1.7 }));
+    /** Finish time on the race clock (s), -1 = still hopping. */
+    const finT = new Array(N).fill(-1) as number[];
+    // Villager racers: steady hops with the odd wobble (deterministic from the race clock, so every
+    // farmer in a shared race sees the same villagers).
+    const NPC_SPEEDS = [2.62, 2.48, 2.75, 2.36];
+    const npc: { s: number; stumble: number }[] = [];
+    for (let i = 0, k = 0; i < N; i++) npc.push(kinds[i] === 'npc' ? { s: NPC_SPEEDS[k % 4]!, stumble: 3 + (k++ + 1) * 1.7 } : { s: 0, stumble: 1 });
     env.play.progress = pos.map(() => 0);
     if (!(await this.countdown(root))) return null;
     env.play.live = true;
@@ -920,15 +1019,26 @@ export class FestivalOverlay {
     let stun = 0;
     let bounce = 0.5;
     let finishedAt = -1;
-    let order = 0;
     const ok = await this.loop((dt, t) => {
-      // NPC racers: steady hops with the odd wobble.
       for (let i = 1; i < N; i++) {
-        if (fin[i]! >= 0) continue;
+        if (finT[i]! >= 0) continue;
+        if (kinds[i] === 'farmer') {
+          // Another farmer: their own machine's progress, eased toward the latest 10 Hz sample.
+          const smp = race?.sample(farmer[i]!.id);
+          if (smp) {
+            const goal = smp.p * LEN;
+            pos[i] = goal > pos[i]! ? pos[i]! + (goal - pos[i]!) * (1 - Math.exp(-12 * dt)) : goal;
+            if (smp.fin >= 0) {
+              finT[i] = smp.fin;
+              pos[i] = LEN;
+            }
+          }
+          continue;
+        }
         const n = npc[i]!;
         const wob = Math.abs(((t + i * 1.3) % n.stumble) - n.stumble / 2) < 0.22 ? 0.2 : 1;
         pos[i] = Math.min(LEN, pos[i]! + n.s * wob * dt * (0.9 + 0.1 * Math.sin(t * 7 + i)));
-        if (pos[i]! >= LEN) fin[i] = order++;
+        if (pos[i]! >= LEN) finT[i] = t;
       }
       // Player hops.
       stun = Math.max(0, stun - dt);
@@ -937,7 +1047,7 @@ export class FestivalOverlay {
         if (t - last > 0.37 + 0.04 * Math.sin(t * 3) || last < 0) press = next;
       } else if (this.hit('ArrowLeft', 'KeyA')) press = 0;
       else if (this.hit('ArrowRight', 'KeyD')) press = 1;
-      if (press >= 0 && fin[0]! < 0) {
+      if (press >= 0 && finT[0]! < 0) {
         (press ? kR : kL)!.classList.add('on');
         setTimeout(() => (press ? kR : kL)!.classList.remove('on'), 100);
         const gap = last < 0 ? 0.35 : t - last;
@@ -964,28 +1074,45 @@ export class FestivalOverlay {
           next = press ? 0 : 1;
           last = t;
           if (pos[0]! >= LEN) {
-            fin[0] = order++;
+            finT[0] = t;
             finishedAt = t;
-            env.map.playEvent('finish', fin[0]!);
+            env.map.playEvent('finish', rankOf(0));
           }
         }
       }
+      race?.report(t, pos[0]! / LEN, finT[0]!);
       env.play.hop = last < 0 ? 1 : Math.min(1, (t - last) / 0.3);
-      kL!.classList.toggle('next', next === 0 && fin[0]! < 0);
-      kR!.classList.toggle('next', next === 1 && fin[0]! < 0);
+      kL!.classList.toggle('next', next === 0 && finT[0]! < 0);
+      kR!.classList.toggle('next', next === 1 && finT[0]! < 0);
       meter.style.width = `${Math.round(bounce * 100)}%`;
-      const rank = 1 + pos.filter((p, i) => i > 0 && (fin[i]! >= 0 ? fin[i]! < (fin[0]! < 0 ? 99 : fin[0]!) : p > pos[0]!)).length;
-      placeEl.textContent = ['1st', '2nd', '3rd', '4th', '5th'][rank - 1]!;
+      placeEl.textContent = ['1st', '2nd', '3rd', '4th', '5th'][rankOf(0)]!;
       for (let i = 0; i < N; i++) {
         env.play.progress[i] = pos[i]! / LEN;
         toks[i]!.style.left = `${(pos[i]! / LEN) * 100}%`;
       }
-      return (finishedAt >= 0 && t - finishedAt > 1.4) || fin.every((f) => f >= 0) || t > 40;
+      // Finished: hold 1.4 s for the others (a farmer a few hops behind still gets placed).
+      return (finishedAt >= 0 && t - finishedAt > 1.4) || finT.every((f) => f >= 0) || t > 40;
     });
+    /** 0-based place of racer i: finishers by time (ties to the farther lane), then by distance. */
+    function rankOf(i: number): number {
+      let r = 0;
+      for (let j = 0; j < N; j++) {
+        if (j === i) continue;
+        const fi = finT[i]!;
+        const fj = finT[j]!;
+        if (fj >= 0 && (fi < 0 || fj < fi || (fj === fi && j < i))) r++;
+        else if (fj < 0 && fi < 0 && pos[j]! > pos[i]!) r++;
+      }
+      return r;
+    }
     env.play.live = false;
     if (!ok) return null;
-    const place = fin[0]! >= 0 ? fin[0]! : 4;
+    const place = finT[0]! >= 0 ? rankOf(0) : 4;
     panel.remove();
+    const rival = farmer.find((f, i) => f && finT[i]! >= 0 && finT[i]! < finT[0]!) ?? null;
+    const beat = farmer.filter((f, i) => f && (finT[i]! < 0 || finT[i]! > finT[0]!)).map((f) => f!.name);
+    const coopLine = rival ? ` ${rival.name} out-hopped you — rematch next fall!` : beat.length ? ` You beat ${beat.join(' and ')} to the tape!` : '';
+    const rivals: BoardRow[] = farmer.flatMap((f, i) => (f ? [{ player: f.key, name: f.name, color: f.color, place: finT[i]! >= 0 ? Math.min(3, rankOf(i)) : 3, score: finT[i]! >= 0 ? Math.round(1000 - rankOf(i) * 200) : 0 }] : []));
     if (place >= 3) {
       return {
         place,
@@ -994,7 +1121,8 @@ export class FestivalOverlay {
         gold: 0,
         hearts: this.sympathy('wren'),
         title: ['', '', '', 'Fourth — Valiant!', 'Last, but Bouncy'][place]!,
-        sub: ['', '', '', 'No ribbon, but a round of applause and a cup of cider.', 'Kit says you “hopped with feeling”. The sack says otherwise.'][place]!,
+        sub: ['', '', '', 'No ribbon, but a round of applause and a cup of cider.', 'Kit says you “hopped with feeling”. The sack says otherwise.'][place]! + coopLine,
+        rivals,
       };
     }
     return {
@@ -1003,7 +1131,8 @@ export class FestivalOverlay {
       gold: PRIZES.sackrace[place]!,
       hearts: [{ id: 'wren', delta: place === 0 ? 60 : 30 }],
       title: ['Sack Race Champion!', 'Second Place!', 'Third Place!'][place]!,
-      sub: ['Wren is demanding a rematch. Loudly.', 'Odessa won by a sack-length. She is insufferable about it.', 'A bronze-worthy bounce!'][place]!,
+      sub: (race ? ['The whole Commons is chanting your name.', 'So close! A sack-length in it.', 'A bronze-worthy bounce!'] : ['Wren is demanding a rematch. Loudly.', 'Odessa won by a sack-length. She is insufferable about it.', 'A bronze-worthy bounce!'])[place]! + coopLine,
+      rivals,
     };
   }
 
@@ -1261,12 +1390,35 @@ export class FestivalOverlay {
     const cEl = q('.c');
     const comboEl = q('.combo span');
     const ctimer = q('.ctimer i');
+    // Co-op: a shared heat — everyone at the line starts together; their runs show as rows here
+    // (their skaters are on the ice through the net layer's own farmer sync).
+    panel.style.visibility = 'hidden';
+    const race = await this.lineUp(env);
+    if (this.aborted) return null;
+    panel.style.visibility = '';
+    env.play.coop = race;
+    const rivals = race?.racers.length ? div('rivals') : null;
+    if (rivals) q('.in').append(rivals);
     if (!(await this.countdown(root))) return null;
     env.play.live = true;
     if (env.auto) env.play.stats.auto = 1;
     const st = env.play.stats;
     let last = { stars: 0, gates: 0, cracks: 0, lap: 1 };
-    const ok = await this.loop(() => {
+    let doneAt = -1;
+    const ok = await this.loop((_dt, t) => {
+      if (race) {
+        if (env.play.done && doneAt < 0) doneAt = t;
+        race.report(t, env.play.progress[0] ?? 0, doneAt, [st.stars ?? 0, st.lap ?? 1, st.gates ?? 0]);
+        if (rivals && Math.floor(t * 4) !== Math.floor((t - _dt) * 4)) {
+          rivals.innerHTML = race.racers
+            .map((r) => {
+              const smp = race.sample(r.id);
+              const txt = !smp ? 'lacing up…' : smp.fin >= 0 ? `done · ★${smp.x[0] ?? 0}` : `lap ${smp.x[1] ?? 1} · ★${smp.x[0] ?? 0}`;
+              return `<div><i style="background:${r.color}"></i>${escapeHtml(r.name)}<b>${txt}</b></div>`;
+            })
+            .join('');
+        }
+      }
       if (!env.auto) {
         env.play.steer = (this.keys.down.has('ArrowDown') || this.keys.down.has('KeyS') ? 1 : 0) - (this.keys.down.has('ArrowUp') || this.keys.down.has('KeyW') ? 1 : 0);
         env.play.boost = this.keys.down.has('Space') || this.keys.down.has('KeyX');

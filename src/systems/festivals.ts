@@ -33,6 +33,7 @@ import { HarvestFair } from '../world/festivals/fall';
 import { StarfallSquare } from '../world/festivals/winter';
 import { FestivalOverlay } from '../world/festivals/games';
 import type { FestivalMap } from '../world/festivals/base';
+import { FestivalCoop, type CoopRow } from '../world/festivals/coop';
 
 export interface FestivalApi {
   /** Festival scheduled for today (any hour), if any. */
@@ -50,7 +51,9 @@ export interface FestivalApi {
   record(activity: ActivityId, entry: FestivalScore): void;
   /** Festival-day state for a joining co-op client. */
   snapshot(): FestivalSnapshot;
-  applySnapshot(s: FestivalSnapshot): void;
+  applySnapshot(s: FestivalSnapshot): boolean;
+  /** Co-op wiring diagnostics (tests): messages in / out over the net extension channel. */
+  coopStats(): { msgsIn: number; msgsOut: number; progIn: number; progUsed: number; role: string };
 }
 
 /** One farmer's result in a festival mini-game (co-op board row). */
@@ -123,10 +126,41 @@ export class FestivalSystem implements System {
   private boards = new Map<string, FestivalScore[]>();
   /** The festival map the player is on (so its prize ribbon comes off when they leave). */
   private grounds: FestivalMap | null = null;
+  /** Co-op relay (scores, boards, start-line lobbies, live race progress). */
+  private coop!: FestivalCoop;
 
   init(game: Game): void {
     this.game = game;
     this.overlay = new FestivalOverlay(game);
+    this.coop = new FestivalCoop(game, {
+      // Host: a farmhand's result joins the board, and everyone gets the new board.
+      onScore: (a, row) => {
+        this.record(a, row);
+        this.coop.broadcastBoard(a, this.board(a));
+        this.boardToast(a, row);
+      },
+      // Farmhand: the host's board replaces ours (our own row comes back as 'local').
+      onBoard: (a, rows) => {
+        const before = new Set(this.board(a).map((r) => r.player));
+        this.boards.set(this.dayKey(a), rows.map((r) => ({ ...r })));
+        for (const r of rows) if (r.player !== 'local' && !before.has(r.player)) this.boardToast(a, r);
+      },
+      snapshot: () => {
+        const snap = this.snapshot();
+        const me = this.coop.myId();
+        const w = this.coop.who(me);
+        for (const k of Object.keys(snap.boards) as ActivityId[]) snap.boards[k] = snap.boards[k]!.map((r) => (r.player === 'local' ? { ...r, player: `p${me}`, name: w.name, color: w.color } : r));
+        return snap;
+      },
+      applySnapshot: (s) => this.applySnapshot(s as FestivalSnapshot),
+      grounds: () => this.map()?.id ?? null,
+    });
+    // Another farmer is at a start line: say how to join.
+    game.events.on('festival:lobby', ({ act, name, left }) => {
+      const def = ACTIVITIES[act as ActivityId];
+      if (!def || !this.map() || this.overlay.running) return;
+      game.hud.banner(`${name} is at the ${def.name} start line!`, `Talk to ${shortName(NPCS[def.host as NpcId]?.name ?? 'the host')} within ${left}s to race them`);
+    });
     for (const [id, Ctor] of Object.entries(MAPS)) {
       if (!Ctor) continue;
       game.world.registerMap(id, (g) => new Ctor(g).build());
@@ -141,6 +175,7 @@ export class FestivalSystem implements System {
       record: (a, e) => this.record(a, e),
       snapshot: () => this.snapshot(),
       applySnapshot: (snap) => this.applySnapshot(snap),
+      coopStats: () => ({ ...this.coop.stats, role: this.coop.role() }),
     });
     // `openUI('festival:<activity>')` — critics / demos stage a mini-game directly.
     game.hud.registerPanel('festival', {
@@ -224,10 +259,22 @@ export class FestivalSystem implements System {
     return { day, done: [...this.done].filter((k) => k.startsWith(day + ':')), boards };
   }
 
-  private applySnapshot(snap: FestivalSnapshot): void {
-    if (!snap || snap.day !== this.calKey()) return;
-    for (const k of snap.done) this.done.add(k);
-    for (const [a, list] of Object.entries(snap.boards) as [ActivityId, FestivalScore[]][]) for (const e of list ?? []) if (e.player !== 'local') this.record(a, e);
+  /**
+   * A joining farmhand adopts the festival day's boards. Activities are per farmer (everyone gets
+   * their own go at the dance, the race…), so the host's `done` list only marks which activities
+   * already have a board; a farmhand's own completions stay theirs.
+   */
+  private applySnapshot(snap: FestivalSnapshot): boolean {
+    if (!snap || snap.day !== this.calKey()) return false;
+    for (const [a, list] of Object.entries(snap.boards) as [ActivityId, FestivalScore[]][]) for (const e of list ?? []) if (e.player !== 'local' || !this.done.has(this.dayKey(a))) this.record(a, e);
+    return true;
+  }
+
+  /** "Ash placed 2nd in the Sack Race" (a co-op farmer's result arrives). */
+  private boardToast(a: ActivityId, r: CoopRow): void {
+    if (r.player === 'local' || !this.map()) return;
+    const ord = ['1st', '2nd', '3rd'][r.place];
+    this.game.events.emit('ui:toast', { text: `<b>${r.name.replace(/[<>&]/g, '')}</b> ${ord ? `took <b>${ord}</b> in` : 'finished'} the ${ACTIVITIES[a].name}`, kind: 'info' });
   }
 
   /**
@@ -383,6 +430,8 @@ export class FestivalSystem implements System {
     if (hudOpen !== 'festival') game.hud.open('festival:__run');
     game.player.controllable = false;
     const play = map.beginPlay(a, partner);
+    // Co-op: other farmers on the grounds can join a race at the start line.
+    const lobby = auto ? null : this.coop.lineUp(a);
     let result: Awaited<ReturnType<FestivalOverlay['run']>> = null;
     try {
       result = await this.overlay.run({
@@ -393,10 +442,15 @@ export class FestivalSystem implements System {
         festival: fest,
         auto,
         hard: a === 'dance' && this.wins.has('dance'),
+        lobby,
         // The result card ranks every farmer who played today (co-op); your row is folded in live.
         board: (r) => {
           const you: FestivalScore = { player: 'local', name: 'You', score: r.score, place: r.noRibbon ? 3 : r.place };
-          const rows = [...this.board(a).filter((e) => e.player !== 'local'), ...this.demoPeers(auto, a), you];
+          const known = this.board(a).filter((e) => e.player !== 'local');
+          // Farmers who just raced you are on the card straight away (their own result reaches the
+          // board a moment later through the host).
+          const live = (r.rivals ?? []).filter((x) => !known.some((k) => k.player === x.player));
+          const rows = [...known, ...live, ...this.demoPeers(auto, a), you];
           return rows.sort((x, y) => Math.min(x.place, 3) - Math.min(y.place, 3) || y.score - x.score);
         },
       });
@@ -418,6 +472,7 @@ export class FestivalSystem implements System {
       const me: FestivalScore = { player: 'local', name: 'You', score: result.score, place: result.noRibbon ? 3 : result.place };
       this.record(a, me);
       game.events.emit('festival:score', { id: fest.id, game: a, player: me.player, name: me.name, score: me.score, place: me.place });
+      this.coop.shareScore(a, me.score, me.place, this.board(a));
     }
     if (result.gold) game.events.emit('ui:toast', { text: `<b>+${result.gold}g</b> ${def.name} ${result.noRibbon ? 'consolation' : 'prize'}`, kind: 'gold' });
     const thanks: Partial<Record<ActivityId, string[]>> = {

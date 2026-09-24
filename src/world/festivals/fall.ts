@@ -66,6 +66,8 @@ export class HarvestFair extends FestivalMap {
   /** Race clock (advances with the render clock, frozen while a demo shot is staged). */
   private raceClock = 0;
   private sack: THREE.Mesh | null = null;
+  /** Sacks pulled onto co-op farmers' avatars for a shared race. */
+  private remoteSacks = new Map<number, THREE.Object3D>();
 
   constructor(game: Game) {
     super(game, {
@@ -571,16 +573,23 @@ export class HarvestFair extends FestivalMap {
       let hopping: boolean;
       let done: boolean;
       if (play) {
-        // Racing the player: NPC racer k runs lane k + 1 at exactly the HUD's progress (x = start +
-        // p × length), racer 4 sits this one out and cheers behind the start rope.
-        if (k === 4) {
-          crowd.place(rc.i, LANE.x0 - 0.4, LANE.z - ROPE - 0.8, 0.4);
+        // Racing the player: villager racer k runs the k-th villager lane at exactly the HUD's
+        // progress (x = start + p × length). Lanes taken by co-op farmers (their own avatars, driven
+        // by the net layer) leave spare villagers cheering behind the start rope.
+        const kinds = play.kinds ?? ['me', 'npc', 'npc', 'npc', 'npc'];
+        const lanes = play.lanes ?? [0, 1, 2, 3, 4];
+        let ri = -1;
+        for (let i = 0, n = 0; i < kinds.length; i++) if (kinds[i] === 'npc' && n++ === k) ri = i;
+        if (ri < 0) {
+          crowd.place(rc.i, LANE.x0 - 0.4 - (4 - k) * 0.75, LANE.z - ROPE - 0.8, 0.4);
           crowd.setAnim(rc.i, 'cheer');
+          m.lean = 0;
+          m.squash = 1;
           return;
         }
-        const pr = play.progress[k + 1] ?? 0;
+        const pr = play.progress[ri] ?? 0;
         x = LANE.x0 + 1.3 + pr * span;
-        lane = k + 1;
+        lane = lanes[ri] ?? k + 1;
         done = pr >= 1;
         hopping = play.live && !done;
         // Wobbling racers (the HUD slows them) tumble: a squash + a sideways roll.
@@ -611,7 +620,25 @@ export class HarvestFair extends FestivalMap {
     if (play) {
       const pr = play.progress[0] ?? 0;
       const px = LANE.x0 + 1.3 + pr * span;
-      this.movePlayer(px, laneZ(0));
+      this.movePlayer(px, laneZ(play.lanes?.[0] ?? 0));
+      // Burlap squash & stretch: stretched in the air, squashed flat on landing.
+      if (this.sack) {
+        const h = play.hop;
+        const air = h < 1 ? Math.sin(h * Math.PI) : 0;
+        const land = h < 1 && h > 0.8 ? Math.sin(((h - 0.8) / 0.2) * Math.PI) : 0;
+        const sy = this.stumbleT > 0 ? 0.82 : 1 + air * 0.15 - land * 0.2;
+        this.sack.scale.set(1 / Math.sqrt(sy), sy, 1 / Math.sqrt(sy));
+      }
+      // Co-op racers: their farmers (net avatars) climb into sacks too.
+      for (const r of play.coop?.racers ?? []) {
+        const av = play.coop!.avatar(r.id);
+        if (!av || this.remoteSacks.has(r.id) || !this.sack) continue;
+        const s2 = this.sack.clone();
+        s2.scale.set(1, 1, 1);
+        s2.position.set(0, 0.3, 0);
+        av.add(s2);
+        this.remoteSacks.set(r.id, s2);
+      }
       // The camera tracks the pack: centred between you and the leader, pulling back as they spread.
       let lead = pr;
       for (let k = 1; k < 5; k++) lead = Math.max(lead, play.progress[k] ?? 0);
@@ -750,6 +777,8 @@ export class HarvestFair extends FestivalMap {
       this.sack.removeFromParent();
       this.sack.visible = false;
     }
+    for (const s of this.remoteSacks.values()) s.removeFromParent();
+    this.remoteSacks.clear();
   }
 
   protected override playerPose(rig: PlayerRig, play: PlayState, _dt: number): ActionPose | null {
