@@ -71,65 +71,152 @@ export function buildShelf(S: BeachShape, seed: number, groundAt: (x: number, z:
   const nx = Math.round((x1 - x0) / step) + 1;
   const nz = Math.round((z1 - z0) / step) + 1;
   const n = new Noise2D(seed);
-  const pos = new Float32Array(nx * nz * 3);
-  const col = new Float32Array(nx * nz * 3);
-  const uv = new Float32Array(nx * nz * 2);
+  /** Slab surface height at (x, z) (with seams + pitting). */
+  const heightOf = (x: number, z: number): number => {
+    const wr = S.westRock(x, z);
+    const pd = poolD(x, z);
+    const cr = Math.abs(n.fbm(x * 0.55, z * 0.55, 2));
+    const seam = ss(0.07, 0.0, cr);
+    const pit = n.fbm(x * 3.1 + 11, z * 3.1, 2);
+    const topK = ss(0.06, -0.06, wr) * ss(1.0, 1.35, pd);
+    // Sits 5 cm proud of the (coarser) terrain so the ground never pokes through; past the rim the
+    // slab dives under the sand, so the visible edge is the smooth contour, never grid steps.
+    const dive = ss(0.1, 0.22, wr);
+    const gm = groundMax(S, groundAt, x, z);
+    const base = dive < 0.999 ? gm : S.height(x, z);
+    let y = base + (SHELF_PROUD + 0.03) * (1 - dive) - 0.14 * dive + (pit * 0.02 - seam * 0.025) * topK;
+    if (dive < 0.999) y = poolWall(S, x, z, y, pd, gm);
+    return y;
+  };
+  const P: number[] = [];
+  const C: number[] = [];
+  const U: number[] = [];
+  const Nn: number[] = [];
+  /** Append one vertex (y given: T-junction edges take the coarse neighbour's interpolated height). */
+  const vert = (x: number, z: number, y: number): number => {
+    const wr = S.westRock(x, z);
+    const pd = poolD(x, z);
+    const cr = Math.abs(n.fbm(x * 0.55, z * 0.55, 2));
+    const seam = ss(0.07, 0.0, cr);
+    const pit = n.fbm(x * 3.1 + 11, z * 3.1, 2);
+    const topK = ss(0.06, -0.06, wr) * ss(1.0, 1.35, pd);
+    P.push(x, y, z);
+    // Vertex AO: seams / pits darker, the rim foot (meeting the sand) darker.
+    const foot = ss(-0.02, 0.09, wr);
+    const a = (1 - seam * 0.35 * topK) * (0.9 + pit * 0.12) * (1 - foot * 0.35);
+    C.push(a, a, a);
+    // uv.x = 1 - moss: weed only on the low, spray-fed parts; uv.y = wet lip around the pools.
+    const low = ss(0.72, 0.45, y);
+    U.push(1 - Math.min(1, low * 0.6 + ss(1.3, 1.0, pd) * 0.25), ss(1.3, 0.95, pd) * 0.75);
+    // Normals from the height function itself (one smooth field across coarse + refined cells).
+    const e = 0.12;
+    const hx = heightOf(x + e, z) - heightOf(x - e, z);
+    const hz = heightOf(x, z + e) - heightOf(x, z - e);
+    const l = Math.hypot(hx, 2 * e, hz);
+    Nn.push(-hx / l, (2 * e) / l, -hz / l);
+    return P.length / 3 - 1;
+  };
+  const H = new Float32Array(nx * nz);
   const inside = new Uint8Array(nx * nz);
+  const gid = new Int32Array(nx * nz).fill(-1);
   for (let j = 0; j < nz; j++) {
     for (let i = 0; i < nx; i++) {
       const k = j * nx + i;
       const x = x0 + i * step;
       const z = z0 + j * step;
-      const wr = S.westRock(x, z);
-      const pd = poolD(x, z);
       // Pools are NOT cut out of the grid (a 0.2 m grid cut reads as a saw-tooth rim): the slab
       // itself curves down into each bowl and slips under the still water, so the visible pool edge
-      // is the smooth, per-pixel waterline. Only the deep centre (under the terrain floor) is skipped.
-      inside[k] = wr < 0.24 && pd > 0.5 ? 1 : 0;
-      // Slab seams (worn cracks) + pitting pressed into the stone.
-      const cr = Math.abs(n.fbm(x * 0.55, z * 0.55, 2));
-      const seam = ss(0.07, 0.0, cr);
-      const pit = n.fbm(x * 3.1 + 11, z * 3.1, 2);
-      const topK = ss(0.06, -0.06, wr) * ss(1.0, 1.35, pd);
-      // Sits 5 cm proud of the (coarser) terrain so the ground never pokes through; past the rim the
-      // slab dives under the sand, so the visible edge is the smooth contour, never grid steps.
-      const dive = ss(0.1, 0.22, wr);
-      const gm = groundMax(S, groundAt, x, z);
-      const base = dive < 0.999 ? gm : S.height(x, z);
-      let y = base + (SHELF_PROUD + 0.03) * (1 - dive) - 0.14 * dive + (pit * 0.02 - seam * 0.025) * topK;
-      if (dive < 0.999) y = poolWall(S, x, z, y, pd, gm);
-      pos[k * 3] = x;
-      pos[k * 3 + 1] = y;
-      pos[k * 3 + 2] = z;
-      // Vertex AO: seams / pits darker, the rim foot (meeting the sand) darker.
-      const foot = ss(-0.02, 0.09, wr);
-      const a = (1 - seam * 0.35 * topK) * (0.9 + pit * 0.12) * (1 - foot * 0.35);
-      col[k * 3] = a;
-      col[k * 3 + 1] = a;
-      col[k * 3 + 2] = a;
-      // uv.x = 1 - moss: weed only on the low, spray-fed parts; uv.y = wet lip around the pools.
-      const low = ss(0.72, 0.45, y);
-      uv[k * 2] = 1 - Math.min(1, low * 0.6 + ss(1.3, 1.0, pd) * 0.25);
-      uv[k * 2 + 1] = ss(1.3, 0.95, pd) * 0.75;
+      // is the waterline. Only the deep centre (under the terrain floor) is skipped.
+      inside[k] = S.westRock(x, z) < 0.24 && poolD(x, z) > 0.5 ? 1 : 0;
+      H[k] = heightOf(x, z);
     }
   }
+  const cellKept = (i: number, j: number): boolean => {
+    if (i < 0 || j < 0 || i >= nx - 1 || j >= nz - 1) return false;
+    const a = j * nx + i;
+    return inside[a]! + inside[a + 1]! + inside[a + nx]! + inside[a + nx + 1]! >= 3;
+  };
+  // Cells the pool waterline crosses are refined 5×5 (4 cm): the still water meets the stone wall
+  // along a smooth curve instead of the 0.2 m grid's polygon.
+  const W = TIDE_POOL_Y;
+  const refine = (i: number, j: number): boolean => {
+    if (!cellKept(i, j)) return false;
+    const a = j * nx + i;
+    const hs = [H[a]!, H[a + 1]!, H[a + nx]!, H[a + nx + 1]!];
+    const x = x0 + (i + 0.5) * step;
+    const z = z0 + (j + 0.5) * step;
+    return poolD(x, z) < 1.45 && Math.min(...hs) < W + 0.06 && Math.max(...hs) > W - 0.06;
+  };
+  const fine = new Uint8Array((nx - 1) * (nz - 1));
+  for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) fine[j * (nx - 1) + i] = refine(i, j) ? 1 : 0;
+  const isFine = (i: number, j: number): boolean => i >= 0 && j >= 0 && i < nx - 1 && j < nz - 1 && fine[j * (nx - 1) + i] === 1;
+  const gv = (i: number, j: number): number => {
+    const k = j * nx + i;
+    if (gid[k]! < 0) gid[k] = vert(x0 + i * step, z0 + j * step, H[k]!);
+    return gid[k]!;
+  };
   const idx: number[] = [];
+  const R = 5;
   for (let j = 0; j < nz - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
-      const a = j * nx + i;
-      const b = a + 1;
-      const c = a + nx;
-      const d = c + 1;
-      if (inside[a]! + inside[b]! + inside[c]! + inside[d]! < 3) continue;
-      idx.push(a, c, b, b, c, d);
+      if (!cellKept(i, j)) continue;
+      if (!isFine(i, j)) {
+        const a = gv(i, j);
+        const b = gv(i + 1, j);
+        const c = gv(i, j + 1);
+        const d = gv(i + 1, j + 1);
+        idx.push(a, c, b, b, c, d);
+        continue;
+      }
+      // Refined cell: shared corners from the coarse grid; edges facing a coarse neighbour follow
+      // that neighbour's straight edge (no T-junction cracks).
+      const h00 = H[j * nx + i]!;
+      const h10 = H[j * nx + i + 1]!;
+      const h01 = H[(j + 1) * nx + i]!;
+      const h11 = H[(j + 1) * nx + i + 1]!;
+      const coarseW = !isFine(i - 1, j);
+      const coarseE = !isFine(i + 1, j);
+      const coarseN = !isFine(i, j - 1);
+      const coarseS = !isFine(i, j + 1);
+      const ids: number[] = [];
+      for (let v = 0; v <= R; v++) {
+        for (let u = 0; u <= R; u++) {
+          if ((u === 0 || u === R) && (v === 0 || v === R)) {
+            ids.push(gv(i + u / R, j + v / R));
+            continue;
+          }
+          const fu = u / R;
+          const fv = v / R;
+          const x = x0 + (i + fu) * step;
+          const z = z0 + (j + fv) * step;
+          let y: number;
+          if (u === 0 && coarseW) y = h00 + (h01 - h00) * fv;
+          else if (u === R && coarseE) y = h10 + (h11 - h10) * fv;
+          else if (v === 0 && coarseN) y = h00 + (h10 - h00) * fu;
+          else if (v === R && coarseS) y = h01 + (h11 - h01) * fu;
+          else y = heightOf(x, z);
+          ids.push(vert(x, z, y));
+        }
+      }
+      for (let v = 0; v < R; v++) {
+        for (let u = 0; u < R; u++) {
+          const a = ids[v * (R + 1) + u]!;
+          const b = ids[v * (R + 1) + u + 1]!;
+          const c = ids[(v + 1) * (R + 1) + u]!;
+          const d = ids[(v + 1) * (R + 1) + u + 1]!;
+          idx.push(a, c, b, b, c, d);
+        }
+      }
     }
   }
+  // Refined cells duplicate their edge vertices with a neighbouring refined cell: identical
+  // positions + normals (same functions), so no seam.
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(Nn, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
   g.setIndex(idx);
-  g.computeVertexNormals();
   g.computeBoundingSphere();
   const m = new THREE.Mesh(g, beachRockMaterial('shelf'));
   m.name = 'tide-shelf';

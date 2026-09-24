@@ -33,7 +33,7 @@ const BEACH_SUNSET_CAM = { yaw: 100, pitch: 24, distance: 21, offsetX: -3, offse
 /** Night: from the dunes looking out to sea — the shack's lit window, the lamp-lit pier, the moon's glitter road. */
 const BEACH_NIGHT_CAM = { yaw: 196, pitch: 34, distance: 28, offsetX: 4, offsetZ: 4 };
 /** Fishing from the pier walkway (cast west over the surf, the beach + groyne + dory in frame). */
-const FISH_CAM = { yaw: -14, pitch: 42, distance: 19, offsetX: -3.2, offsetZ: -3.4 };
+const FISH_CAM = { yaw: -14, pitch: 42, distance: 19, offsetX: -3.4, offsetZ: -2.0 };
 const FISH_CATCH_CAM = { yaw: -10, pitch: 31, distance: 12, offsetX: -0.6, offsetZ: -1.4 };
 /** Mine floors: steep, close diorama framing so the lantern pool fills the frame. */
 const MINE_CAM = { yaw: 0, pitch: 42, distance: 17.5, offsetZ: -0.9 };

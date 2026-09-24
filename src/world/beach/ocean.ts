@@ -258,14 +258,21 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // Breakers: crest lines travelling shoreward (towards shallower water), two or three at a time
         // over the shelf. wv: 0.9 → 1 = the steepening face (shore side), 0 → 0.35 = the foam it leaves.
         float ph = hvSwashPhase(p, t);
-        float wv = fract(ph + depth * 1.15 + hvNoise(p * 0.08) * 0.3);
+        float wvRaw = ph + depth * 1.15 + hvNoise(p * 0.08) * 0.3;
+        float wv = fract(wvRaw);
+        // Phase gradient per metre: where the bed is flat the phase barely changes across the water,
+        // and a crest would light a whole lobed sheet at once (a white flash) instead of a moving line.
+        // There the crest fades out and its lip is held to a fixed width in metres.
+        float wGrad = fwidth(wvRaw) / max(fwidth(p.x) + fwidth(p.y), 1e-4) * 1.4;
+        float crestOk = smoothstep(0.025, 0.07, wGrad);
         // Signed distance to the break point (wv = 1 ≡ 0), in (-0.5, 0.5]: < 0 the face coming in,
         // > 0 the water it leaves. Every term below is continuous across the wrap (no hard sheet edge).
         float wd = wv > 0.5 ? wv - 1.0 : wv;
         // The leading edge wanders along the crest (scrolling noise), so no crest reads as a ruled line.
         wd += (hvNoise(vec2(p.x * 0.45 + t * 0.07, p.y * 0.3)) - 0.5) * 0.05;
-        float face = smoothstep(-0.12, -0.015, wd) * (1.0 - smoothstep(-0.015, 0.015, wd));
-        float trail = smoothstep(-0.01, 0.03, wd) * (1.0 - smoothstep(0.03, 0.26, wd));
+        float face = smoothstep(-0.12, -0.015, wd) * (1.0 - smoothstep(-0.015, 0.015, wd)) * crestOk;
+        float trail = smoothstep(-0.01, 0.03, wd) * (1.0 - smoothstep(0.03, 0.26, wd)) * mix(0.35, 1.0, crestOk);
+        float wdm = wd / max(wGrad, 1e-3); // metres to the break point
         float crest = face + trail * 0.6;
         float breakZone = smoothstep(1.7, 0.95, depth) * smoothstep(0.03, 0.22, depth) * (1.0 - uPool);
         float swellZone = smoothstep(0.9, 2.2, depth) * (1.0 - smoothstep(4.0, 7.0, depth)) * (1.0 - uPool);
@@ -368,6 +375,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         float gaps = smoothstep(0.28, 0.62, hvNoise(vec2(p.x * 0.22, p.y * 0.05) + vec2(t * 0.03, 0.0)) + face * 0.2);
         // The lip: a bright, broken line only on the crest's leading edge; behind it lace, never a milky sheet.
         float lip = smoothstep(-0.05, -0.012, wd) * (1.0 - smoothstep(-0.012, 0.012, wd));
+        lip = min(lip, smoothstep(-0.7, -0.18, wdm) * (1.0 - smoothstep(-0.18, 0.18, wdm))) * crestOk;
         float band = (lip * 0.95 + face * 0.25) * breakZone * gaps + min(trail * lace * breakZone * gaps * (0.3 + 0.7 * lacePatch), 0.32);
         // Swash front: a thin bright edge, then lace behind it (on the flat, gently shelving parts of
         // the beach a wide solid band would read as a white ribbon).
@@ -541,7 +549,13 @@ export function createOcean(opts: OceanOptions): THREE.Group {
  * Still rock-pool water (same look as the shallows: clear, caustic-lit, sky reflections — no swash,
  * surf or whitecaps) over the given rect, clipped to the pools.
  */
-export function createPoolWater(terrain: Terrain, level: number, rect: { x0: number; z0: number; x1: number; z1: number }, inside: (x: number, z: number) => boolean): THREE.Mesh {
+export function createPoolWater(
+  terrain: Terrain,
+  level: number,
+  rect: { x0: number; z0: number; x1: number; z1: number },
+  inside: (x: number, z: number) => boolean,
+  bedAt?: (x: number, z: number) => number,
+): THREE.Mesh {
   const w = rect.x1 - rect.x0;
   const d = rect.z1 - rect.z0;
   const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / 0.25), Math.ceil(d / 0.25));
@@ -558,7 +572,25 @@ export function createPoolWater(terrain: Terrain, level: number, rect: { x0: num
   }
   geo.setIndex(keep);
   geo.computeBoundingSphere();
-  const m = new THREE.Mesh(geo, oceanMaterial(terrain, level, false, true));
+  const mat = oceanMaterial(terrain, level, false, true);
+  if (bedAt) {
+    // The pools' own bed (the stone bowl) baked at 6 cm: the terrain's 0.5 m height texture would
+    // cut the waterline into straight polygon facets round each pool.
+    const res = 0.06;
+    const W = Math.ceil(w / res);
+    const H = Math.ceil(d / res);
+    const data = new Uint16Array(W * H);
+    for (let j = 0; j < H; j++) {
+      for (let i = 0; i < W; i++) data[j * W + i] = THREE.DataUtils.toHalfFloat(bedAt(rect.x0 + ((i + 0.5) / W) * w, rect.z0 + ((j + 0.5) / H) * d));
+    }
+    const tex = new THREE.DataTexture(data, W, H, THREE.RedFormat, THREE.HalfFloatType);
+    tex.magFilter = tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    mat.uniforms.uHeight!.value = tex;
+    (mat.uniforms.uHOrigin!.value as THREE.Vector2).set(rect.x0, rect.z0);
+    (mat.uniforms.uHSize!.value as THREE.Vector2).set(w, d);
+  }
+  const m = new THREE.Mesh(geo, mat);
   m.name = 'tide-pool-water';
   m.renderOrder = 2;
   m.userData.noAO = true;

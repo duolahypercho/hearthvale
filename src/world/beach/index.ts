@@ -371,7 +371,12 @@ export class BeachMap implements GameMap {
     // Water over each bowl out past the waterline: the slab's rolled shoulder (above the water) hides
     // the sheet's grid edge, so the visible pool edge is the smooth, per-pixel waterline.
     const S = this.shape;
-    const w = createPoolWater(this.terrain, TIDE_POOL_Y, { x0: 2, z0: 39, x1: 19, z1: 53 }, (x, z) => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.28));
+    const w = createPoolWater(this.terrain, TIDE_POOL_Y, { x0: 2, z0: 39, x1: 19, z1: 53 }, (x, z) => TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.28), (x, z) => {
+      // The stone bowl round each pool; its sandy floor (the slab is cut away there) in the centre.
+      const pd = TIDE_POOLS.reduce((m, [px, pz, pr]) => Math.min(m, Math.hypot(x - px, (z - pz) * 1.15) / pr), 9);
+      if (pd > 1.45) return TIDE_POOL_Y + 0.5;
+      return pd < 0.52 ? this.terrain.heightAt(x, z) : shelfTopAt(S, this.groundAt, x, z);
+    });
     this.root.add(w);
     this.root.add(buildShelf(S, this.rng.fork('shelf').seed, (x, z) => this.terrain.heightAt(x, z)));
     const algae = buildAlgaeTufts(S, this.rng.fork('algae'), (x, z) => Math.max(S.height(x, z) + 0.05, shelfTopAt(S, this.groundAt, x, z) + 0.02));

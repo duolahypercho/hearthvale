@@ -216,8 +216,11 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
           diffuseColor.rgb *= 1.0 + rimP * 0.15;
           float pitWater = pit * step(ph, 0.06);
           // Puddles in the dips (glossy, dark, sky-reflecting through the roughness below).
-          float pud = smoothstep(0.64, 0.7, brNoise(q * 0.45 + 13.0) * 0.8 + brNoise(q * 2.0) * 0.2) * smoothstep(0.85, 0.97, N.y);
-          diffuseColor.rgb *= 1.0 - pud * 0.35;
+          float pudN = brNoise(q * 0.45 + 13.0) * 0.8 + brNoise(q * 2.0) * 0.2;
+          float pud = smoothstep(0.7, 0.74, pudN) * smoothstep(0.85, 0.97, N.y);
+          // (Darkened wet stone with a cool sky cast — a flat grey-blue fill reads as paint.)
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.62 + vec3(0.04, 0.06, 0.08), pud);
+          diffuseColor.rgb += vec3(0.06, 0.07, 0.07) * smoothstep(0.018, 0.0, abs(pudN - 0.712)) * smoothstep(0.85, 0.97, N.y);
           hvBRWet = max(hvBRWet, max(pud * 0.95, pitWater));
           // Pink coralline crust + mussel clumps on the wet lips (pools / sea rim).
           float lipZ = max(vBRK.y * 1.6, wet * 0.8);

@@ -13,7 +13,7 @@ import type { Rng } from '../../core/rng';
 import { MeshBuilder, roundedBox, bevelCylinder, mat, prep } from '../geom';
 import { catenary } from '../props/festival';
 import { rockGeometry } from '../props/rocks';
-import { lantern, type BuiltProp } from '../props/structures';
+import { type BuiltProp } from '../props/structures';
 import { PIER, PIER_FISH_GAP } from './layout';
 import { textures } from '../../render/textures';
 import { applyWorldFx } from '../../render/worldfx';
@@ -142,6 +142,20 @@ const NAIL = new THREE.CircleGeometry(0.013, 6).rotateX(-Math.PI / 2);
 const pilingAO = (p: THREE.Vector3): number => (p.y < 0.35 ? 0.42 + 0.2 * THREE.MathUtils.smoothstep(p.y, -1.5, 0.35) : 0.7 + 0.3 * THREE.MathUtils.smoothstep(p.y, 0.35, 1.2));
 
 // ───────────────────────────────────────────── pier
+
+/**
+ * Beach lantern: the shared lantern shape, but glazed with 'glass' (dark, sky-reflecting panes by
+ * day that warm up at dusk) — cream 'lampGlow' panes read as lamps left burning at noon.
+ */
+function lantern(b: MeshBuilder, x: number, y: number, z: number, s = 1): void {
+  b.add('metal', roundedBox(0.2 * s, 0.05 * s, 0.2 * s, 0.015), mat(x, y + 0.14 * s, z));
+  b.add('metal', new THREE.ConeGeometry(0.15 * s, 0.1 * s, 4), mat(x, y + 0.21 * s, z, 0, Math.PI / 4, 0));
+  b.add('glass', roundedBox(0.13 * s, 0.2 * s, 0.13 * s, 0.02), mat(x, y + 0.02 * s, z));
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+    b.add('metal', new THREE.BoxGeometry(0.02 * s, 0.24 * s, 0.02 * s), mat(x + dx * 0.075 * s, y + 0.02 * s, z + dz * 0.075 * s));
+  }
+  b.add('metal', roundedBox(0.18 * s, 0.035 * s, 0.18 * s, 0.01), mat(x, y - 0.1 * s, z));
+}
 
 /**
  * The pier in world coordinates (deck top at PIER.deckY). `groundAt` gives the sea floor / sand
