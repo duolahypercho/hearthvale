@@ -246,9 +246,11 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         float amp = (0.22 + 0.1 * uWindStrength) * mix(0.35, 1.0, detail) * smoothstep(0.0, 0.25, depth);
         // Wind slicks: long glassy streaks down-wind where the ripples lie flat (they mirror the sky,
         // so open water reads as more than one flat blue).
-        float slick = smoothstep(0.52, 0.78, hvNoise(vec2(p.x * 0.035 + p.y * 0.012, p.y * 0.22 - p.x * 0.05) + vec2(t * 0.006, t * 0.02)));
-        slick *= smoothstep(1.2, 2.5, depth) * (1.0 - uPool);
-        amp *= 1.0 - 0.85 * slick;
+        // Soft-edged, and faded out at grazing angles: there the Fresnel jump between glassy and rippled
+        // water turns a slick's edge into a hard pale sheet.
+        float slick = smoothstep(0.46, 0.84, hvNoise(vec2(p.x * 0.035 + p.y * 0.012, p.y * 0.22 - p.x * 0.05) + vec2(t * 0.006, t * 0.02)));
+        slick *= smoothstep(1.2, 2.5, depth) * (1.0 - uPool) * smoothstep(0.3, 0.65, V.y);
+        amp *= 1.0 - 0.7 * slick;
         float hx = wh(p + vec2(e, 0.0), t) - wh(p - vec2(e, 0.0), t);
         float hz = wh(p + vec2(0.0, e), t) - wh(p - vec2(0.0, e), t);
         vec3 n = normalize(vec3(-hx / (2.0 * e) * amp, 1.0, -hz / (2.0 * e) * amp));
@@ -257,13 +259,20 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // over the shelf. wv: 0.9 → 1 = the steepening face (shore side), 0 → 0.35 = the foam it leaves.
         float ph = hvSwashPhase(p, t);
         float wv = fract(ph + depth * 1.15 + hvNoise(p * 0.08) * 0.3);
-        float face = smoothstep(0.86, 0.995, wv) * (1.0 - smoothstep(0.995, 1.0, wv));
-        float trail = 1.0 - smoothstep(0.0, 0.32, wv);
+        // Signed distance to the break point (wv = 1 ≡ 0), in (-0.5, 0.5]: < 0 the face coming in,
+        // > 0 the water it leaves. Every term below is continuous across the wrap (no hard sheet edge).
+        float wd = wv > 0.5 ? wv - 1.0 : wv;
+        // The leading edge wanders along the crest (scrolling noise), so no crest reads as a ruled line.
+        wd += (hvNoise(vec2(p.x * 0.45 + t * 0.07, p.y * 0.3)) - 0.5) * 0.05;
+        float face = smoothstep(-0.12, -0.015, wd) * (1.0 - smoothstep(-0.015, 0.015, wd));
+        float trail = smoothstep(-0.01, 0.03, wd) * (1.0 - smoothstep(0.03, 0.26, wd));
         float crest = face + trail * 0.6;
         float breakZone = smoothstep(1.7, 0.95, depth) * smoothstep(0.03, 0.22, depth) * (1.0 - uPool);
         float swellZone = smoothstep(0.9, 2.2, depth) * (1.0 - smoothstep(4.0, 7.0, depth)) * (1.0 - uPool);
         // Crest tilts the normal back towards the sea (+Z) = catches the light like a wave face.
-        n = normalize(n + vec3(0.0, 0.0, 0.45) * face * (breakZone + swellZone * 0.5) * detail);
+        // (Out on the swell only a gentle tilt: a strong one flips the Fresnel and the whole crest
+        // reads as a pale cellophane sheet over the deep water.)
+        n = normalize(n + vec3(0.0, 0.0, 0.45) * face * (breakZone + swellZone * 0.22) * detail);
         if (uRain > 0.01) {
           vec2 rp = ripples(p, t) * 0.8 * uRain * detail;
           n = normalize(n + vec3(rp.x, 0.0, rp.y));
@@ -301,7 +310,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         float diff = 0.6 + 0.4 * max(dot(n, L), 0.0);
         vec3 lit = col * (uSunColor * diff * 0.75 * cloud + uSkyColor * 0.5 + uHorizonColor * 0.12);
         // Sub-surface glow in thin crests, back-lit by the sun.
-        float sss = pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 3.0) * crest * (breakZone + swellZone * 0.5);
+        float sss = pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 3.0) * crest * (breakZone + swellZone * 0.3);
         lit += vec3(0.1, 0.55, 0.5) * uSunColor * sss * 0.9;
         // Shallow caustic shimmer on the surface.
         float caus = pow(hvNoise(p * 2.6 + vec2(t * 0.35, t * 0.2)) * hvNoise(p * 3.1 - vec2(t * 0.28, t * 0.17)), 1.4);
@@ -335,8 +344,16 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         c += uSunColor * spec * cloud * (1.0 - uNight);
         // Moon glitter path at night (the same twinkles, cool and dim).
         if (uNight > 0.01) {
-          float moonR = pow(sunR, 90.0);
-          c += vec3(0.72, 0.82, 1.0) * min((twinkle * 1.6 + smoothstep(0.44, 0.58, sparkle) * 0.6) * moonR * 2.6 + pow(sunR, 600.0) * 2.0, 1.6) * uNight * detail;
+          // The moon hangs low ahead of the camera (a little right of centre), so every night framing
+          // gets its silver glitter road running up the sea towards the horizon.
+          vec3 camF = -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
+          vec2 cf = normalize(camF.xz + vec2(1e-4, 0.0));
+          vec2 mf = vec2(cf.x * 0.93 - cf.y * 0.36, cf.x * 0.36 + cf.y * 0.93);
+          vec3 M = normalize(vec3(mf.x, 0.3, mf.y));
+          float mR = max(dot(R, M), 0.0);
+          float moonR = pow(mR, 60.0);
+          float road = pow(mR, 22.0);
+          c += vec3(0.72, 0.82, 1.0) * min((twinkle * 1.6 + smoothstep(0.44, 0.58, sparkle) * 0.6) * moonR * 2.2 + road * 0.045 + pow(mR, 500.0) * 1.6, 1.5) * uNight * detail;
         }
 
         // Foam: breaker bands, the swash front, lace in the shallows (only in drifting patches).
@@ -345,8 +362,12 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         float lacePatch = smoothstep(0.42, 0.74, hvNoise(p * 0.11 + vec2(t * 0.012, -t * 0.008)));
         // Gaps along each crest so the lines break up like real surf.
         float gaps = smoothstep(0.28, 0.62, hvNoise(vec2(p.x * 0.22, p.y * 0.05) + vec2(t * 0.03, 0.0)) + face * 0.2);
-        float band = face * 0.95 * breakZone * gaps + min(trail * lace * breakZone * gaps * (0.35 + 0.65 * lacePatch), 0.5);
-        float front = smoothstep(0.07, 0.0, depth) * (0.72 + 0.28 * lace2);
+        // The lip: a bright, broken line only on the crest's leading edge; behind it lace, never a milky sheet.
+        float lip = smoothstep(-0.05, -0.012, wd) * (1.0 - smoothstep(-0.012, 0.012, wd));
+        float band = (lip * 0.95 + face * 0.25) * breakZone * gaps + min(trail * lace * breakZone * gaps * (0.3 + 0.7 * lacePatch), 0.32);
+        // Swash front: a thin bright edge, then lace behind it (on the flat, gently shelving parts of
+        // the beach a wide solid band would read as a white ribbon).
+        float front = smoothstep(0.035, 0.0, depth) * (0.72 + 0.28 * lace2) + smoothstep(0.09, 0.035, depth) * smoothstep(0.0, 0.035, depth) * lace2 * 0.55;
         float nearFront = smoothstep(0.28, 0.05, depth);
         float wash = smoothstep(0.35, 0.04, depth) * lace * smoothstep(0.35, 0.8, fract(ph)) * lacePatch * (1.0 - uPool);
         // Rock pools: a thin, still meniscus at the rim instead of surf.
@@ -406,6 +427,13 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         vec3 foamCol = vec3(0.96, 0.98, 0.97) * (uSunColor * 0.62 * cloud + uSkyColor * 0.55 + uHorizonColor * 0.1);
         foamCol = mix(foamCol, vec3(dot(foamCol, vec3(0.3, 0.55, 0.15))) * vec3(0.8, 0.88, 1.0) * 0.7, uNight * 0.8);
         c = mix(c, foamCol, clamp(foam, 0.0, 1.0));
+        // Night: faint bioluminescence in the surf (the swash front, the breaking lip, stirred lace),
+        // so the shoreline still reads as a line of cold light against the moonlit sand.
+        if (uNight > 0.01) {
+          float stir = 0.45 + 0.55 * smoothstep(0.3, 0.75, hvNoise(p * 1.4 + vec2(t * 0.25, -t * 0.18)));
+          float bio = (front * 0.9 + band * 0.6 + wash * 0.5) * stir * (1.0 - uPool);
+          c += vec3(0.18, 0.8, 1.0) * bio * 0.3 * uNight * detail;
+        }
         // Pool meniscus: a bright hairline where the still water meets the rock.
         c = mix(c, mix(sky, vec3(1.0), 0.5) * 1.1, meniscus * 0.75);
 
@@ -431,6 +459,9 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
 
         float alpha = mix(0.34, 0.95, smoothstep(0.0, 1.4, depth));
         alpha = mix(alpha, (0.3 + 0.3 * smoothstep(0.02, 0.3, depth)) * smoothstep(0.0, 0.09, depth), uPool);
+        // At night the shallows turn to a dark sheet (the moonlit sand under them would otherwise
+        // read as the same value as the dry beach and the waterline would vanish).
+        alpha = mix(alpha, max(alpha, 0.8 * smoothstep(0.0, 0.14, depth)), uNight * (1.0 - uPool));
         alpha = max(alpha, fres * 0.75);
         alpha = max(alpha, foam);
         alpha = max(alpha, meniscus * 0.8);

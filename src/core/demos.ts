@@ -30,8 +30,8 @@ const FOREST_FALLS_CAM = { yaw: 2, pitch: 48, distance: 23, offsetX: -4.2, offse
 const BEACH_CAM = { yaw: -8, pitch: 46, distance: 36, offsetX: 1, offsetZ: 6.5 };
 /** Sunset: looking west along the shore from the pier — glitter path left, the beach + groyne right. */
 const BEACH_SUNSET_CAM = { yaw: 100, pitch: 24, distance: 21, offsetX: -3, offsetZ: -2 };
-/** Night: from the dunes looking out to sea — the lamp-lit pier, the moon's glitter path, the lighthouse. */
-const BEACH_NIGHT_CAM = { yaw: 176, pitch: 32, distance: 27, offsetX: -2.5, offsetZ: 6 };
+/** Night: from the dunes looking out to sea — the shack's lit window, the lamp-lit pier, the moon's glitter road. */
+const BEACH_NIGHT_CAM = { yaw: 196, pitch: 34, distance: 28, offsetX: 4, offsetZ: 4 };
 /** Fishing from the pier walkway (cast west over the surf, the beach + groyne + dory in frame). */
 const FISH_CAM = { yaw: -14, pitch: 42, distance: 19, offsetX: -3.2, offsetZ: -3.4 };
 const FISH_CATCH_CAM = { yaw: -10, pitch: 31, distance: 12, offsetX: -0.6, offsetZ: -1.4 };
@@ -85,7 +85,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Driftsand Beach + fishing (world/beach, systems/fishing). Fishing demos take URL params:
   // &fish=<fishId> (species on the line / in hand), &phase=cast|flight|wait|bite|reel|catch (override the phase).
   'beach-sunset': { map: 'beach', x: 48.9, z: 49.6, facing: 'left', time: 19.3, season: 'summer', weather: 'sun', camera: BEACH_SUNSET_CAM, showcase: ['beach', 'fishing-wait'] },
-  'beach-day': { map: 'beach', x: 51, z: 37.5, facing: 'down', time: 11.2, season: 'summer', weather: 'sun', camera: { yaw: -16, pitch: 48, distance: 42, offsetX: 5, offsetZ: 4 }, showcase: ['beach'] },
+  'beach-day': { map: 'beach', x: 51, z: 37.5, facing: 'down', time: 11.2, season: 'summer', weather: 'sun', camera: { yaw: -16, pitch: 50, distance: 46, offsetX: 9, offsetZ: 2.5 }, showcase: ['beach'] },
   'beach-night': { map: 'beach', x: 50, z: 38.5, facing: 'down', time: 22.4, season: 'summer', weather: 'sun', camera: BEACH_NIGHT_CAM, showcase: ['beach'] },
   'fishing-cast': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-cast'] },
   'fishing-wait': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-wait'] },

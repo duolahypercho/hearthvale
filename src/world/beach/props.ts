@@ -14,7 +14,7 @@ import { MeshBuilder, roundedBox, bevelCylinder, mat, prep } from '../geom';
 import { catenary } from '../props/festival';
 import { rockGeometry } from '../props/rocks';
 import { lantern, type BuiltProp } from '../props/structures';
-import { PIER } from './layout';
+import { PIER, PIER_FISH_GAP } from './layout';
 import { textures } from '../../render/textures';
 import { applyWorldFx } from '../../render/worldfx';
 import { patchMaterial } from '../../render/patch';
@@ -85,11 +85,54 @@ function beam(r0: number, r1: number, a: THREE.Vector3, b: THREE.Vector3, radial
   return g;
 }
 
-function rope(b: MeshBuilder, a: THREE.Vector3, c: THREE.Vector3, sag: number, r = 0.022, tint = 0xc8a86a): void {
+function rope(b: MeshBuilder, a: THREE.Vector3, c: THREE.Vector3, sag: number, r = 0.022, tint = 0xc8a86a, material: THREE.Material | 'cloth' = 'cloth'): void {
   const pts: THREE.Vector3[] = [];
   for (let i = 0; i <= 12; i++) pts.push(catenary(a, c, sag, i / 12));
   const curve = new THREE.CatmullRomCurve3(pts);
-  b.add('cloth', new THREE.TubeGeometry(curve, 14, r, 5, false), undefined, { tint });
+  b.add(material, new THREE.TubeGeometry(curve, 14, r, 5, false), undefined, { tint });
+}
+
+/**
+ * Pier rail rope: the shared cloth look, but it steps aside for farmers. Inside a capsule round each
+ * farmer on the deck (`setRailAvoid`, up to 4, x / feet y / z / radius) the rope is dithered out, so a
+ * farmer leaning on the rail — or fishing over it — is never sliced through the hips by it.
+ */
+const railAvoid = [new THREE.Vector4(1e5, 0, 1e5, 0), new THREE.Vector4(1e5, 0, 1e5, 0), new THREE.Vector4(1e5, 0, 1e5, 0), new THREE.Vector4(1e5, 0, 1e5, 0)];
+let railMat: THREE.MeshStandardMaterial | null = null;
+export function railRopeMaterial(): THREE.MeshStandardMaterial {
+  if (railMat) return railMat;
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
+  m.name = 'railRope';
+  applyWorldFx(m);
+  patchMaterial(m, 'rail-avoid', (shader) => {
+    shader.uniforms.uRailAvoid = { value: railAvoid };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform vec4 uRailAvoid[4];\nvoid main() {')
+      .replace(
+        'void main() {',
+        /* glsl */ `void main() {
+        for (int i = 0; i < 4; i++) {
+          vec4 a = uRailAvoid[i];
+          float dh = length(vHvWorldPos.xz - a.xz);
+          float dy = vHvWorldPos.y - a.y;
+          // Soft, dithered edge (screen-door) so the cut never reads as a hard stump.
+          float k = smoothstep(a.w, a.w * 0.72, dh) * step(-0.1, dy) * step(dy, 1.9);
+          float dith = fract(dot(floor(gl_FragCoord.xy), vec2(0.5, 0.25)) + 0.125);
+          if (k > dith) discard;
+        }`,
+      );
+  });
+  railMat = m;
+  return m;
+}
+
+/** Farmers the pier rail rope makes way for this frame (world feet positions; radius in m). */
+export function setRailAvoid(pts: { x: number; y: number; z: number }[], radius = 0.62): void {
+  for (let i = 0; i < 4; i++) {
+    const p = pts[i];
+    if (p) railAvoid[i]!.set(p.x, p.y, p.z, radius);
+    else railAvoid[i]!.set(1e5, 0, 1e5, 0);
+  }
 }
 
 /** Barnacles + weed darken pilings from just above the water down. */
@@ -165,18 +208,25 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
       posts[k]!.push(new THREE.Vector3(cx + sx, deck + 0.85, z));
     }
   }
-  // Cross bracing under the walkway (every other span).
+  // Bracing under the walkway: every brace runs piling-to-piling (ends on the pile centrelines, so
+  // they emerge from the timber) and stays above the swell — nothing hangs in the water where the
+  // sea's depth tint can't reach it. Side trusses zig-zag span to span; a sway brace crosses under
+  // the deck at every other bent.
+  const braceLow = (x: number, z: number): number => Math.max(0.46, groundAt(x, z) + 0.28);
   let flip = false;
   for (let z = PIER.z0 + 0.3; z + span <= H.z0 + 0.01; z += span) {
     flip = !flip;
-    if (!flip) continue;
     for (const sx of [-hw - 0.02, hw + 0.02]) {
-      const g0 = Math.max(groundAt(cx + sx, z), -1.2);
-      const a = new THREE.Vector3(cx + sx, deck - 0.3, z);
-      const c = new THREE.Vector3(cx + sx, Math.max(g0 + 0.2, -0.9), z + span);
-      b.add('woodDark', beam(0.06, 0.06, a, c, 5), undefined, { aoWorld: pilingAO, tint: 0x9a8472 });
+      const za = flip ? z : z + span;
+      const zb = flip ? z + span : z;
+      const lo = braceLow(cx + sx, zb);
+      if (lo > deck - 0.6) continue;
+      b.add('woodDark', beam(0.055, 0.055, new THREE.Vector3(cx + sx, deck - 0.27, za), new THREE.Vector3(cx + sx, lo, zb), 5), undefined, { aoWorld: pilingAO, tint: 0xa89078 });
     }
-    b.add('woodDark', beam(0.06, 0.06, new THREE.Vector3(cx - hw, deck - 0.35, z + span * 0.5), new THREE.Vector3(cx + hw, Math.max(groundAt(cx, z) + 0.3, -0.6), z + span * 0.5), 5), undefined, { aoWorld: pilingAO, tint: 0x9a8472 });
+    if (flip) {
+      const lo = braceLow(cx + hw, z);
+      if (lo < deck - 0.6) b.add('woodDark', beam(0.05, 0.05, new THREE.Vector3(cx - hw - 0.02, deck - 0.27, z), new THREE.Vector3(cx + hw + 0.02, lo, z), 5), undefined, { aoWorld: pilingAO, tint: 0xa89078 });
+    }
   }
   // Head pilings + posts around the T.
   const headPosts: THREE.Vector3[] = [];
@@ -187,10 +237,27 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
     piling(x, z, 0.95);
     headPosts.push(new THREE.Vector3(x, deck + 0.85, z));
   }
-  // Rope rails.
-  for (const side of posts) for (let i = 0; i < side.length - 1; i++) rope(b, side[i]!, side[i + 1]!, 0.18);
+  // Rope rails (their own material: the rope makes way for farmers standing at it, see railRopeMaterial).
+  const railM = railRopeMaterial();
+  for (const [k, side] of posts.entries()) {
+    for (let i = 0; i < side.length - 1; i++) {
+      const a = side[i]!;
+      const c = side[i + 1]!;
+      // The walkway fishing spot (west side, z ≈ 50.6-53.2): the rail is unhooked and hung back on its
+      // posts, a toe board along the deck edge — an open gap to cast from.
+      if (k === 0 && a.z < PIER_FISH_GAP.z1 && c.z > PIER_FISH_GAP.z0) {
+        for (const [p, dir] of [[a, 1], [c, -1]] as const) {
+          rope(b, p.clone().setY(p.y - 0.05), new THREE.Vector3(p.x - 0.03, p.y - 0.42, p.z + dir * 0.2), 0.08, 0.022, 0xc8a86a, railM);
+          b.add('metal', new THREE.TorusGeometry(0.035, 0.01, 4, 8), mat(p.x - 0.1, p.y - 0.46, p.z + dir * 0.2, 0, Math.PI / 2, 0), { tint: 0xb08a3a });
+        }
+        b.add('woodDark', roundedBox(0.07, 0.1, c.z - a.z - 0.3, 0.02), mat(a.x + 0.06, deck + 0.05, (a.z + c.z) / 2), { tint: 0xb89878 });
+        continue;
+      }
+      rope(b, a, c, 0.18, 0.022, 0xc8a86a, railM);
+    }
+  }
   // Head rail: west edge → south → east edge, leaving the walkway joints open.
-  for (let i = 0; i < headPosts.length - 1; i++) rope(b, headPosts[i]!, headPosts[i + 1]!, 0.16);
+  for (let i = 0; i < headPosts.length - 1; i++) rope(b, headPosts[i]!, headPosts[i + 1]!, 0.16, 0.022, 0xc8a86a, railM);
   // Bollards + a coiled rope.
   for (const [x, z] of [[H.x0 + 0.5, H.z1 - 0.45], [H.x1 - 0.5, H.z1 - 0.45], [cx - hw + 0.3, PIER.z0 + 8]] as const) {
     b.add('metal', bevelCylinder(0.1, 0.13, 0.28, 0.03, 10), mat(x, deck, z), { tint: 0x3a3a3e });
@@ -352,6 +419,46 @@ function signMaterial(): THREE.MeshStandardMaterial {
 }
 
 let netTex: THREE.CanvasTexture | null = null;
+let dryNet: THREE.MeshStandardMaterial | null = null;
+/**
+ * Coarse net for nets draped on the sand (racks, pots): thick twine (≈ half the texel area), so the
+ * mip-averaged alpha stays above the cut-off and the net still reads as a net from the gameplay camera.
+ */
+export function dryingNetMaterial(): THREE.MeshStandardMaterial {
+  if (!dryNet) {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const g = c.getContext('2d')!;
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = 9;
+    for (let i = -128; i <= 256; i += 32) {
+      g.beginPath();
+      g.moveTo(i, 0);
+      g.lineTo(i + 128, 128);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(i + 128, 0);
+      g.lineTo(i, 128);
+      g.stroke();
+    }
+    // Knots where the twine crosses.
+    g.fillStyle = '#ffffff';
+    for (let y = 0; y <= 128; y += 32) for (let x = 0; x <= 128; x += 32) for (const o of [0, 16]) {
+      g.beginPath();
+      g.arc(x + o, y + o, 6, 0, Math.PI * 2);
+      g.fill();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(9, 6);
+    dryNet = new THREE.MeshStandardMaterial({ color: 0xcfc3a0, alphaMap: tex, alphaTest: 0.35, side: THREE.DoubleSide, roughness: 0.95 });
+    dryNet.name = 'dryingNet';
+    applyWorldFx(dryNet);
+  }
+  return dryNet;
+}
+
 function netMaterial(): THREE.MeshStandardMaterial {
   if (!netTex) {
     const c = document.createElement('canvas');

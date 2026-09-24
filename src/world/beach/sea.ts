@@ -39,31 +39,47 @@ function floatGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-function weedRaft(rng: Rng): THREE.BufferGeometry {
-  // A flat, ragged clump of kelp fronds (a few crossed ribbons) + a stick.
+/** Vertex-colour a geometry (flat colour, or per-vertex via fn) and return it non-indexed. */
+function painted(g: THREE.BufferGeometry, col: (x: number, y: number, z: number) => THREE.Color): THREE.BufferGeometry {
+  const n = g.index ? g.toNonIndexed() : g;
+  const pos = n.attributes.position as THREE.BufferAttribute;
+  const c = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const k = col(pos.getX(i), pos.getY(i), pos.getZ(i));
+    c[i * 3] = k.r;
+    c[i * 3 + 1] = k.g;
+    c[i * 3 + 2] = k.b;
+  }
+  n.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  if (!n.attributes.normal) n.computeVertexNormals();
+  n.deleteAttribute('uv');
+  return n;
+}
+
+/** Kelp fronds (flat crossed ribbons lit from above either way). */
+function fronds(rng: Rng, count: number, len: number, tint: [number, number]): THREE.BufferGeometry {
   const P: number[] = [];
   const C: number[] = [];
-  const a = new THREE.Color(0x8a8a3a);
-  const b = new THREE.Color(0xc0a050);
-  for (let i = 0; i < 4; i++) {
+  const a = new THREE.Color(tint[0]);
+  const b = new THREE.Color(tint[1]);
+  for (let i = 0; i < count; i++) {
     const ang = rng.next() * Math.PI;
-    const len = 0.35 + rng.next() * 0.35;
-    const w = 0.06 + rng.next() * 0.04;
+    const L = len * (0.6 + rng.next() * 0.6);
+    const w = 0.05 + rng.next() * 0.035;
     const dx = Math.cos(ang);
     const dz = Math.sin(ang);
     const sx = -dz * w;
     const sz = dx * w;
-    const ox = (rng.next() - 0.5) * 0.3;
-    const oz = (rng.next() - 0.5) * 0.3;
+    const ox = (rng.next() - 0.5) * 0.18;
+    const oz = (rng.next() - 0.5) * 0.18;
     const c = a.clone().lerp(b, rng.next());
     const y = 0.01 + i * 0.002;
     const v = [
-      [ox - dx * len * 0.5 + sx, y, oz - dz * len * 0.5 + sz],
-      [ox - dx * len * 0.5 - sx, y, oz - dz * len * 0.5 - sz],
-      [ox + dx * len * 0.5 + sx * 0.3, y, oz + dz * len * 0.5 + sz * 0.3],
-      [ox + dx * len * 0.5 - sx * 0.3, y, oz + dz * len * 0.5 - sz * 0.3],
+      [ox - dx * L * 0.5 + sx, y, oz - dz * L * 0.5 + sz],
+      [ox - dx * L * 0.5 - sx, y, oz - dz * L * 0.5 - sz],
+      [ox + dx * L * 0.5 + sx * 0.3, y, oz + dz * L * 0.5 + sz * 0.3],
+      [ox + dx * L * 0.5 - sx * 0.3, y, oz + dz * L * 0.5 - sz * 0.3],
     ];
-    // Both windings (lit from above either way: no black flipped back faces).
     for (const k of [0, 1, 2, 1, 3, 2, 0, 2, 1, 1, 2, 3]) {
       P.push(v[k]![0]!, v[k]![1]!, v[k]![2]!);
       C.push(c.r, c.g, c.b);
@@ -72,33 +88,52 @@ function weedRaft(rng: Rng): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
-  g.computeVertexNormals();
-  const n = g.attributes.normal as THREE.BufferAttribute;
-  for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
-  // Stick.
-  const st = new THREE.CylinderGeometry(0.045, 0.06, 1.1, 6).rotateZ(Math.PI / 2).rotateY(0.6).translate(0.05, 0.04, 0.05);
-  const sc = new Float32Array(st.attributes.position!.count * 3);
-  for (let i = 0; i < sc.length; i += 3) {
-    sc[i] = 0.62;
-    sc[i + 1] = 0.55;
-    sc[i + 2] = 0.46;
+  const nn = new Float32Array(P.length);
+  for (let i = 1; i < nn.length; i += 3) nn[i] = 1;
+  g.setAttribute('normal', new THREE.BufferAttribute(nn, 3));
+  return g;
+}
+
+/**
+ * Four kinds of flotsam (each its own instanced mesh; per instance a size / yaw / drift of its own):
+ *   0 a weathered plank with a darker, waterlogged end
+ *   1 a bleached forked branch, a small dark weed wisp caught in the fork
+ *   2 a green glass bottle with its cork, floating neck-up at a tilt
+ *   3 a loose raft of kelp fronds (no stick)
+ */
+function flotsamGeometry(kind: number, rng: Rng): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  if (kind === 0) {
+    const L = 0.95;
+    const plank = new THREE.BoxGeometry(L, 0.05, 0.15, 6, 1, 1);
+    parts.push(painted(plank, (x, y) => new THREE.Color(0x9a8a74).lerp(new THREE.Color(0x5e4e3e), THREE.MathUtils.smoothstep(x, 0.1, L / 2)).multiplyScalar(y > 0 ? 1 : 0.7)));
+    // A rusty nail stub near one end.
+    parts.push(painted(new THREE.CylinderGeometry(0.008, 0.008, 0.06, 4).translate(-0.36, 0.04, 0.02), () => new THREE.Color(0x6a3a22)));
+  } else if (kind === 1) {
+    const branch = new THREE.CylinderGeometry(0.025, 0.045, 1.0, 6, 3).rotateZ(Math.PI / 2);
+    const bleached = (x: number, y: number) => new THREE.Color(0xb8ab98).multiplyScalar((y > 0 ? 1 : 0.72) * (0.9 + 0.1 * Math.sin(x * 9)));
+    parts.push(painted(branch, bleached));
+    parts.push(painted(new THREE.CylinderGeometry(0.018, 0.028, 0.42, 5).rotateZ(Math.PI / 2).rotateY(0.7).translate(0.2, 0.0, 0.12), bleached));
+    const w = fronds(rng, 2, 0.28, [0x3e4a22, 0x5a5a2a]);
+    w.translate(0.05, 0.0, 0.06);
+    parts.push(w);
+  } else if (kind === 2) {
+    const body = new THREE.CylinderGeometry(0.055, 0.055, 0.2, 9).translate(0, 0.1, 0);
+    const shoulder = new THREE.CylinderGeometry(0.022, 0.055, 0.06, 9).translate(0, 0.23, 0);
+    const neck = new THREE.CylinderGeometry(0.02, 0.022, 0.07, 7).translate(0, 0.295, 0);
+    const glass = (_x: number, y: number) => new THREE.Color(0x3f8a5e).lerp(new THREE.Color(0x9ad8b0), THREE.MathUtils.smoothstep(y, 0.05, 0.3));
+    for (const g of [body, shoulder, neck]) parts.push(painted(g, glass));
+    parts.push(painted(new THREE.CylinderGeometry(0.018, 0.016, 0.03, 6).translate(0, 0.34, 0), () => new THREE.Color(0xa87a4a)));
+    // Lying tilted on the water, neck out of it.
+    for (const g of parts) g.rotateZ(1.25).translate(0.1, 0.02, 0);
+  } else {
+    parts.push(fronds(rng, 5, 0.5, [0x55602a, 0x8a7a3a]));
   }
-  st.setAttribute('color', new THREE.BufferAttribute(sc, 3));
-  const sn = st.toNonIndexed();
-  const out = new THREE.BufferGeometry();
-  const pa = new Float32Array(g.attributes.position!.count * 3 + sn.attributes.position!.count * 3);
-  pa.set(g.attributes.position!.array as Float32Array, 0);
-  pa.set(sn.attributes.position!.array as Float32Array, g.attributes.position!.count * 3);
-  const na = new Float32Array(pa.length);
-  na.set(g.attributes.normal!.array as Float32Array, 0);
-  na.set(sn.attributes.normal!.array as Float32Array, g.attributes.normal!.count * 3);
-  const ca = new Float32Array(pa.length);
-  ca.set(g.attributes.color!.array as Float32Array, 0);
-  ca.set(sn.attributes.color!.array as Float32Array, g.attributes.color!.count * 3);
-  out.setAttribute('position', new THREE.BufferAttribute(pa, 3));
-  out.setAttribute('normal', new THREE.BufferAttribute(na, 3));
-  out.setAttribute('color', new THREE.BufferAttribute(ca, 3));
-  return out;
+  return mergeGeometries(parts.map((g) => {
+    if (!g.attributes.normal) g.computeVertexNormals();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') g.deleteAttribute(k);
+    return g.index ? g.toNonIndexed() : g;
+  }))!;
 }
 
 /** Soft fish silhouette (body ellipse + forked tail), drawn as a dark translucent shadow. */
@@ -136,6 +171,10 @@ interface Drifter {
   a: number;
   sp: number;
   rot: number;
+  kind: number;
+  slot: number;
+  scale: number;
+  tilt: number;
 }
 
 export class SeaProps {
@@ -145,7 +184,7 @@ export class SeaProps {
   private boatYaw: number;
   private floats: THREE.InstancedMesh;
   private floatPts: THREE.Vector3[] = [];
-  private flotsam: THREE.InstancedMesh;
+  private flotsam: THREE.InstancedMesh[] = [];
   private drifters: Drifter[] = [];
   private school: THREE.InstancedMesh;
   private schoolT = 0;
@@ -206,16 +245,26 @@ export class SeaProps {
     rope.name = 'buoy-rope';
     rope.renderOrder = 3;
     this.group.add(rope);
-    // Flotsam rafts.
+    // Flotsam: four kinds, each drifter its own size / yaw / slow orbit on the current.
     // Transparent (opacity 1) so it draws after the sea surface: floating, not seen through the water.
     const wm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, transparent: true });
     wm.name = 'flotsam';
-    this.flotsam = new THREE.InstancedMesh(weedRaft(rng.fork('raft')), wm, flotsamAt.length);
-    this.flotsam.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.flotsam.frustumCulled = false;
-    this.flotsam.renderOrder = 3;
-    this.group.add(this.flotsam);
-    for (const [x, z] of flotsamAt) this.drifters.push({ cx: x, cz: z, r: 0.6 + rng.next() * 1.4, a: rng.next() * 6.28, sp: (0.03 + rng.next() * 0.04) * (rng.next() < 0.5 ? 1 : -1), rot: rng.next() * 6.28 });
+    const counts = [0, 0, 0, 0];
+    flotsamAt.forEach(([x, z], i) => {
+      const kind = i % 4;
+      this.drifters.push({ cx: x, cz: z, r: 0.35 + rng.next() * 0.7, a: rng.next() * 6.28, sp: (0.03 + rng.next() * 0.04) * (rng.next() < 0.5 ? 1 : -1), rot: rng.next() * 6.28, kind, slot: counts[kind]!++, scale: 0.7 + rng.next() * 0.6, tilt: (rng.next() - 0.5) * 0.2 });
+    });
+    const fr = rng.fork('flotsam');
+    for (let k = 0; k < 4; k++) {
+      if (!counts[k]) continue;
+      const im = new THREE.InstancedMesh(flotsamGeometry(k, fr), wm, counts[k]!);
+      im.name = `flotsam-${k}`;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      im.frustumCulled = false;
+      im.renderOrder = 3;
+      this.flotsam[k] = im;
+      this.group.add(im);
+    }
     // Fish school shadows.
     const sg = new THREE.PlaneGeometry(1.1, 0.55);
     sg.rotateX(-Math.PI / 2);
@@ -253,17 +302,17 @@ export class SeaProps {
     this.floats.setMatrixAt(n, _m);
     this.floats.instanceMatrix.needsUpdate = true;
     // Flotsam.
-    this.drifters.forEach((d, i) => {
+    for (const [i, d] of this.drifters.entries()) {
       d.a += d.sp * dt;
       d.rot += d.sp * dt * 1.7;
-      _p.set(d.cx + Math.cos(d.a) * d.r, L + 0.055 + Math.sin(t * 1.4 + i) * 0.02, d.cz + Math.sin(d.a) * d.r);
-      _e.set(Math.sin(t * 1.2 + i) * 0.05, d.rot, 0);
+      _p.set(d.cx + Math.cos(d.a) * d.r, L + 0.05 + Math.sin(t * 1.4 + i) * 0.02, d.cz + Math.sin(d.a) * d.r);
+      _e.set(Math.sin(t * 1.2 + i) * 0.05 + d.tilt, d.rot, Math.cos(t * 0.9 + i) * 0.04);
       _q.setFromEuler(_e);
-      _s.set(1, 1, 1);
+      _s.setScalar(d.scale);
       _m.compose(_p, _q, _s);
-      this.flotsam.setMatrixAt(i, _m);
-    });
-    this.flotsam.instanceMatrix.needsUpdate = true;
+      this.flotsam[d.kind]?.setMatrixAt(d.slot, _m);
+    }
+    for (const im of this.flotsam) if (im) im.instanceMatrix.needsUpdate = true;
     // Fish school: a loose lissajous loop around a slowly wandering centre.
     this.schoolT += dt;
     const S = this.schoolAt;

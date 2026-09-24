@@ -18,6 +18,8 @@ export const BEACH_EXTENT = { minX: -26, minZ: -18, maxX: 106, maxZ: 104 };
 export const SEA_LEVEL = 0;
 
 export const PIER = { x: 50, z0: 29.5, z1: 63, w: 3.1, deckY: 1.28, head: { x0: 45.5, x1: 54.5, z0: 58.5, z1: 63.4 } };
+/** The open gap in the pier's west rail (walkway fishing spot): z range between two rail posts. */
+export const PIER_FISH_GAP = { x: PIER.x - PIER.w / 2, z0: 50.6, z1: 53.2 };
 export const SHACK = { x: 59.9, z: 30.4, w: 5.4, d: 4.2, rot: -Math.PI / 2, scale: 1.22 };
 export const LIGHTHOUSE = { x: 75.5, z: 44.5 };
 export const CAMPFIRE = { x: 31.5, z: 33.6 };
@@ -58,6 +60,24 @@ export const GROYNE: [number, number][] = [
   [33.1, 46.8],
   [32.2, 50.6],
 ];
+/** Trodden sandy track from the beach up the headland to the lighthouse door (x/z polyline). */
+export const LIGHTHOUSE_PATH: [number, number][] = [
+  [65.6, 35.4],
+  [69.4, 37.0],
+  [72.2, 39.6],
+  [73.9, 42.8],
+  [75.0, 45.9],
+  [76.0, 46.2],
+];
+/** Mid-scale set dressing on the open sand (world/beach/clusters.ts). */
+export const BEACH_CLUSTERS = {
+  nets: [{ x: 38.0, z: 34.5, rot: 0.22 }],
+  pots: [{ x: 43.7, z: 33.8, rot: -0.35 }],
+  islands: [
+    { x: 26.8, z: 35.6, rx: 1.7, rz: 1.15 },
+    { x: 55.4, z: 34.6, rx: 1.3, rz: 0.95 },
+  ],
+};
 /** Tide-pool shelf: rock slab thickness above the old ground (m) — its rim reads as a real ledge. */
 export const SHELF_LIFT = 0.26;
 export const BEACH_WARPS = [{ x0: 0, z0: 16, x1: 0, z1: 23, to: 'town', x: 97.4, z: 26, facing: 'left' as const }];

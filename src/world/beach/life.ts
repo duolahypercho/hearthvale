@@ -202,6 +202,7 @@ interface Crab {
   t: number;
   burrow: number;
   hidden: number;
+  size: number;
 }
 
 export class BeachLife {
@@ -296,7 +297,13 @@ export class BeachLife {
     this.crabShadow.renderOrder = 1;
     this.crabShadow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.group.add(this.crabShadow);
-    for (const p of crabSpots) this.crabs.push({ pos: p.clone(), home: p.clone(), yaw: rng.next() * 6.28, vx: 0, vz: 0, t: rng.next() * 3, burrow: 0, hidden: 0 });
+    // Each crab starts mid-scuttle somewhere off its home spot, facing its own way, its own size.
+    for (const p of crabSpots) {
+      const pos = p.clone();
+      pos.x += (rng.next() - 0.5) * 1.2;
+      pos.z += (rng.next() - 0.5) * 0.8;
+      this.crabs.push({ pos, home: p.clone(), yaw: rng.next() * 6.28, vx: 0, vz: 0, t: rng.next() * 3, burrow: 0, hidden: 0, size: 1.7 + rng.next() * 0.65 });
+    }
     this.group.add(this.fx.object);
     const beachFish = FISH.filter((f) => f.maps.includes('beach') && f.look.tail !== 'eel' && !f.look.flat);
     const mesh = buildFishMesh(rng.pick(beachFish));
@@ -438,7 +445,7 @@ export class BeachLife {
       const sink = c.hidden > 0 ? 0.4 : (c.burrow > 0 && c.burrow < 1 ? c.burrow : c.burrow >= 1 ? 1 : 0) * 0.2;
       this.e.set(Math.sin(t * 30 + i) * 0.08 * moving, c.yaw, Math.sin(t * 23 + i) * 0.05 * moving, 'YXZ');
       this.q.setFromEuler(this.e);
-      this.s.setScalar(c.hidden > 0 ? 0.0001 : 2.05);
+      this.s.setScalar(c.hidden > 0 ? 0.0001 : c.size);
       const cy = Math.max(y, this.seaLevel - 0.1);
       this.m.compose(this.v1.set(c.pos.x, cy - sink * 1.8 + Math.abs(Math.sin(t * 28 + i)) * 0.02 * moving, c.pos.z), this.q, this.s);
       this.crabMesh.setMatrixAt(i, this.m);

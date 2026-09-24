@@ -175,6 +175,21 @@ export class FishingSfx {
     this.tone(2093, 0.9, 'sine', 0.08, undefined, 0.45);
   }
 
+  /** A big one: a low thump + drum roll, then a brassy rising fanfare an octave down. */
+  trophy(): void {
+    this.tone(98, 0.5, 'sine', 0.3, 55);
+    this.burst(0.45, 180, 90, 0.22, 0.8);
+    for (let i = 0; i < 6; i++) this.burst(0.07, 260, 200, 0.07 + i * 0.012, 1.4, 0.05 + i * 0.05);
+    const notes = [261.63, 329.63, 392.0, 523.25];
+    notes.forEach((f, i) => {
+      this.tone(f, 0.34, 'sawtooth', 0.045, undefined, 0.38 + i * 0.11);
+      this.tone(f, 0.4, 'triangle', 0.13, undefined, 0.38 + i * 0.11);
+    });
+    this.tone(523.25, 1.1, 'triangle', 0.12, undefined, 0.84);
+    this.tone(659.25, 1.1, 'triangle', 0.08, undefined, 0.84);
+    this.tone(783.99, 1.1, 'sine', 0.07, undefined, 0.84);
+  }
+
   escape(): void {
     this.tone(440, 0.35, 'triangle', 0.18, 180);
     this.tone(330, 0.4, 'sine', 0.1, 140, 0.12);

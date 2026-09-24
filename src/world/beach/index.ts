@@ -40,6 +40,8 @@ import {
   BEACH_WARPS,
   BEACH_SPAWN,
   GROYNE,
+  BEACH_CLUSTERS,
+  LIGHTHOUSE_PATH,
   BeachShape,
 } from './layout';
 import { addBeachRock, beachRockMaterial } from './rocks';
@@ -62,10 +64,12 @@ import {
   addBeachSign,
   addSandcastle,
   addParasolVignette,
+  setRailAvoid,
   type DriftKind,
   type Lighthouse,
 } from './props';
 import { BeachFlora } from './flora';
+import { addNetRack, addPotStack, addDuneIsland } from './clusters';
 import { BeachLife } from './life';
 import { ShellField, buildTidePoolLife } from './shells';
 
@@ -112,6 +116,7 @@ export class BeachMap implements GameMap {
   private sea: SeaProps;
   /** Where the farmer stands to use the shack's Bait & Tackle honesty box. */
   private counter = new THREE.Vector3();
+  private railAvoid: THREE.Vector3[] = [];
 
   constructor(private game: Game) {
     this.root.name = 'map:beach';
@@ -185,12 +190,16 @@ export class BeachMap implements GameMap {
     // Wildlife: gulls perch on the pier lamps + a driftwood log, crabs work the wet sand.
     const perches = props.lamps.map((l) => new THREE.Vector3(l.x + (l.x > PIER.x ? 0.2 : -0.2), PIER.deckY + 2.02, l.z));
     perches.push(new THREE.Vector3(36.2, this.terrain.heightAt(36.2, 36.6) + 0.34, 36.6));
+    // Crabs: Poisson-disk scattered (≥ 2.5 m apart) over a deep band of wet + damp sand, never lined up.
     const crabs: THREE.Vector3[] = [];
     const cr = this.rng.fork('crabs');
-    for (let i = 0; i < 12; i++) {
-      const x = 18 + cr.next() * 46;
-      if (Math.abs(x - PIER.x) < 3) continue;
-      const z = S.shoreZ(x) - 0.8 - cr.next() * 2.2;
+    for (let tries = 0; tries < 400 && crabs.length < 12; tries++) {
+      const x = 18 + cr.next() * 50;
+      const band = cr.next();
+      const z = S.shoreZ(x) - 0.5 - band * band * 6.5;
+      if (Math.abs(x - PIER.x) < 2.6 || S.westRock(x, z) < 0.4 || S.eastHead(x, z) < 0.35 || S.groyneDist(x, z).d < 1.8) continue;
+      if (Math.hypot(x - ROWBOAT.x, z - ROWBOAT.z) < 2 || Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < 3) continue;
+      if (crabs.some((c) => Math.hypot(c.x - x, c.z - z) < 2.5)) continue;
       crabs.push(new THREE.Vector3(x, this.terrain.heightAt(x, z), z));
     }
     this.life = new BeachLife(this.rng.fork('life'), (x, z) => this.terrain.heightAt(x, z), SEA_LEVEL, perches, crabs);
@@ -207,12 +216,16 @@ export class BeachMap implements GameMap {
       ],
       { x: 40.4, z: 54.6, rot: 0.32 },
       { x: 41.2, z: 51.4, r: 3.0 },
+      // Kept out of the walkway cast corridor (x 37-48, z 50-55): at most one in the fishing frame.
       [
-        [38.6, 52.6],
-        [45.2, 51.2],
-        [35.8, 56.4],
-        [44.8, 60.6],
-        [58.5, 53.5],
+        [42.6, 57.9],
+        [58.6, 53.2],
+        [36.2, 45.6],
+        [29.5, 55.0],
+        [43.4, 61.8],
+        [61.5, 58.4],
+        [25.8, 50.2],
+        [56.2, 47.0],
       ],
     );
     this.root.add(this.sea.group);
@@ -247,16 +260,33 @@ export class BeachMap implements GameMap {
   private paintGround(): void {
     const S = this.shape;
     const t = this.terrain;
-    t.paint('sand', (x, z) => S.sandMask(x, z, S.height(x, z)));
+    // (+ the trodden track up the headland to the lighthouse door, ragged-edged.)
+    t.paint('sand', (x, z) => Math.max(S.sandMask(x, z, S.height(x, z)), smoothstep(1.05, 0.45, this.pathDist(x, z) + S.n2fbm(x * 0.9, z * 0.9) * 0.3) * 0.9));
     // Rock shelf + headland flanks read as bare rock (path channel = the sand shader's rock tint).
     // (The west shelf is its own stone mesh now: the rock splat stays well inside it, so the coarse
     // splat never shows a stepped edge on the sand.)
-    t.paint('path', (x, z) => Math.max(smoothstep(-0.02, -0.25, S.westRock(x, z)), smoothstep(0.25, -0.1, S.eastHead(x, z)) * smoothstep(3.2, 1.2, S.height(x, z))));
+    // (+ the sea stack off the headland: rock all the way down, never a sand cone.)
+    t.paint('path', (x, z) => Math.max(smoothstep(-0.02, -0.25, S.westRock(x, z)), smoothstep(0.25, -0.1, S.eastHead(x, z)) * smoothstep(3.2, 1.2, S.height(x, z)), smoothstep(3.1, 2.3, Math.hypot(x - 69.5, z - 56.5))));
     t.commitSplat();
     const B = { x0: -20, z0: -16, x1: 100, z1: 60 };
     // Bluff top: clover in the hollows, dry straw along the dune edge.
     t.paintCover('clover', (x, z) => (1 - S.sandMask(x, z, S.height(x, z))) * smoothstep(0.1, 0.6, S.n2fbm(x * 0.14, z * 0.14) * 0.5 + 0.5) * 0.7, B);
-    t.paintCover('dry', (x, z) => smoothstep(8, 13, z) * smoothstep(15, 12, z) * 0.8 + smoothstep(0.55, 0.75, S.n2fbm(x * 0.2 + 9, z * 0.2) * 0.5 + 0.5) * 0.4, B);
+    // (+ a wind-burnt, straw-coloured rim round the headland top, in ragged drifts.)
+    t.paintCover('dry', (x, z) => smoothstep(8, 13, z) * smoothstep(15, 12, z) * 0.8 + smoothstep(0.55, 0.75, S.n2fbm(x * 0.2 + 9, z * 0.2) * 0.5 + 0.5) * 0.4 + smoothstep(-0.32, -0.06, S.eastHead(x, z)) * smoothstep(0.1, -0.05, S.eastHead(x, z)) * smoothstep(0.35, 0.65, S.n2fbm(x * 0.3 + 2, z * 0.3) * 0.5 + 0.5) * 0.7, B);
+  }
+
+  /** Distance to the lighthouse track (m). */
+  private pathDist(x: number, z: number): number {
+    let best = 99;
+    for (let i = 0; i < LIGHTHOUSE_PATH.length - 1; i++) {
+      const [ax, az] = LIGHTHOUSE_PATH[i]!;
+      const [bx, bz] = LIGHTHOUSE_PATH[i + 1]!;
+      const dx = bx - ax;
+      const dz = bz - az;
+      const t = THREE.MathUtils.clamp(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz), 0, 1);
+      best = Math.min(best, Math.hypot(x - ax - dx * t, z - az - dz * t));
+    }
+    return best;
   }
 
   private onPierDeck(x: number, z: number): boolean {
@@ -327,8 +357,11 @@ export class BeachMap implements GameMap {
     const sand = S.sandMask(x, z, h);
     if (sand > 0.55) return 0;
     if (S.westRock(x, z) < 0.2) return 0;
+    if (this.pathDist(x, z) < 0.9) return 0;
     const clump = smoothstep(-0.2, 0.5, S.n2fbm(x * 0.13 + 4, z * 0.13));
-    return (1.5 + clump * 3.4) * (1 - sand * 1.6);
+    // The headland top: a thick, wind-combed sward (not a mown lawn).
+    const head = smoothstep(0.0, -0.25, S.eastHead(x, z));
+    return (1.5 + clump * 3.4) * (1 - sand * 1.6) * (1 + head * 1.6);
   }
 
   private buildTidePools(): void {
@@ -468,6 +501,24 @@ export class BeachMap implements GameMap {
       for (let k = -len / 2 + 0.4; k <= len / 2 - 0.4; k += 0.6) this.grid.setObject(Math.floor(x + c * k), Math.floor(z - s * k), { kind: 'prop', id: 'driftwood', solid: true });
     }
     addWrackLine(b, r.fork('wrack'), this.wrackLine(), hAt);
+    // A second, sparser tide line down on the wet band (shells, kelp scraps the last tide left).
+    addWrackLine(b, r.fork('wrack-low'), this.wrackLine(0.2, 0.45), hAt);
+    // Mid-scale clusters on the open sand: a net drying on its rack, a stack of lobster pots, and two
+    // fenced dune-grass islands (marram planted in placeFlora).
+    for (const c of BEACH_CLUSTERS.nets) {
+      addNetRack(b, r.fork(`net${c.x}`), c.x, c.z, c.rot, hAt);
+      this.blockRect(c.x - 1.6, c.z - 0.7, c.x + 1.6, c.z + 0.7, 'net-rack');
+      T.stampCover('ao', c.x, c.z, 1.8, 0.3, 0.5);
+    }
+    for (const c of BEACH_CLUSTERS.pots) {
+      addPotStack(b, r.fork(`pots${c.x}`), c.x, c.z, c.rot, hAt);
+      this.block(c.x, c.z, 0.9, 'lobster-pots');
+      T.stampCover('ao', c.x, c.z, 1.1, 0.4, 0.5);
+    }
+    for (const c of BEACH_CLUSTERS.islands) {
+      addDuneIsland(b, r.fork(`isle${c.x}`), c.x, c.z, c.rx, c.rz, hAt);
+      this.block(c.x, c.z, Math.min(c.rx, c.rz) * 0.8, 'dune-island');
+    }
     for (const f of SAND_FENCE) addSandFence(b, r, f, hAt);
     addBoardwalk(b, r, BOARDWALK, hAt);
     // Rocks (smooth, sea-worn; wet band + barnacles below the tide line): the west shelf rim, the
@@ -546,17 +597,17 @@ export class BeachMap implements GameMap {
     return { lamps: pier.lamps, flame, chimney, lighthouse: lh };
   }
 
-  /** Samples along the high-tide mark (where the beach is ~0.47 m above the sea) with a clumping weight. */
-  private wrackLine(): { x: number; z: number; w: number }[] {
+  /** Samples along a tide mark (default the high-tide mark, ~0.47 m above the sea) with a clumping weight. */
+  private wrackLine(above = 0.47, weight = 1): { x: number; z: number; w: number }[] {
     const S = this.shape;
     const out: { x: number; z: number; w: number }[] = [];
     for (let x = 3; x < 76; x += 0.4) {
       if (Math.abs(x - PIER.x) < 2.3) continue;
       let z = S.shoreZ(x) - 9;
-      while (z < S.shoreZ(x) && this.terrain.heightAt(x, z) > SEA_LEVEL + 0.47) z += 0.1;
+      while (z < S.shoreZ(x) && this.terrain.heightAt(x, z) > SEA_LEVEL + above) z += 0.1;
       if (S.westRock(x, z) < 0.35 || S.eastHead(x, z) < 0.35 || S.groyneDist(x, z).d < 1.6) continue;
       if (Math.hypot(x - ROWBOAT.x, z - ROWBOAT.z) < 2.2 || Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < 2.5) continue;
-      const w = 0.25 + 0.75 * smoothstep(-0.25, 0.45, S.n2fbm(x * 0.13, 7.3));
+      const w = (0.25 + 0.75 * smoothstep(-0.25, 0.45, S.n2fbm(x * 0.13 + above * 9, 7.3))) * weight;
       out.push({ x, z, w });
     }
     return out;
@@ -622,6 +673,37 @@ export class BeachMap implements GameMap {
       else if (k < 0.7) F.addSedge(x, hAt(x, z), z, 0.8 + r.next() * 0.4);
       else if (k < 0.85) F.addPea(x, hAt(x, z), z, 0.9 + r.next() * 0.5);
       else F.addHolly(x, hAt(x, z), z, 0.8 + r.next() * 0.4);
+    }
+    // Marram + sedge crowding the fenced dune islands (thick in the middle, thinning to the fence).
+    for (const c of BEACH_CLUSTERS.islands) {
+      for (let i = 0; i < 26; i++) {
+        const a = r.next() * Math.PI * 2;
+        const k = Math.sqrt(r.next()) * 0.85;
+        const x = c.x + Math.cos(a) * c.rx * k;
+        const z = c.z + Math.sin(a) * c.rz * k;
+        if (r.next() < 0.7) F.addMarram(x, hAt(x, z), z, 0.8 + (1 - k) * 0.6 + r.next() * 0.3);
+        else if (r.next() < 0.6) F.addSedge(x, hAt(x, z), z, 0.8 + r.next() * 0.4);
+        else F.addPea(x, hAt(x, z), z, 0.9 + r.next() * 0.4);
+      }
+      this.terrain.stampCover('ao', c.x, c.z, Math.max(c.rx, c.rz) * 1.1, 0.35, 0.6);
+    }
+    // The headland: cushions of sea thrift along the rim, wind-combed sedge + marram, beach pea in
+    // the lee of the tower — never on the track or against the lighthouse plinth.
+    for (let i = 0; i < 1500; i++) {
+      const x = 67 + r.next() * 20;
+      const z = 31 + r.next() * 23;
+      const eh = S.eastHead(x, z);
+      const h = hAt(x, z);
+      if (eh > -0.04 || h < 2.2 || this.terrain.slopeAt(x, z) < 0.8) continue;
+      if (Math.hypot(x - LIGHTHOUSE.x, z - LIGHTHOUSE.z) < 3.1 || this.pathDist(x, z) < 1.1) continue;
+      const clump = smoothstep(-0.1, 0.45, S.n2fbm(x * 0.35 + 21, z * 0.35));
+      if (r.next() > 0.14 + clump * 0.6) continue;
+      const rim = smoothstep(-0.35, -0.08, eh);
+      const k = r.next();
+      if (k < 0.2 + rim * 0.45) F.addThrift(x, h, z, 0.9 + r.next() * 0.7);
+      else if (k < 0.62) F.addSedge(x, h, z, 0.8 + r.next() * 0.5);
+      else if (k < 0.88) F.addMarram(x, h, z, 0.6 + r.next() * 0.4);
+      else F.addPea(x, h, z, 0.9 + r.next() * 0.5);
     }
     // Wind-bent pines along the bluff and on the headland; they lean inland (away from the sea).
     const pines: [number, number, number][] = [
@@ -716,6 +798,15 @@ export class BeachMap implements GameMap {
     this.sea.setNight(night);
     this.smoke.update(dt, night, h);
     this.pools.update();
+    // Farmers at the pier rail: the rope makes way (local farmer + any remote / demo farmers here).
+    {
+      const av = this.railAvoid;
+      av.length = 0;
+      const near = (p: THREE.Vector3): boolean => Math.abs(p.x - PIER.x) < 6 && p.z > PIER.z0 - 1 && p.y > PIER.deckY - 0.6;
+      if (near(game.player.position)) av.push(game.player.position);
+      for (const o of game.scene.children) if (av.length < 4 && o.name === 'remote-farmer' && o.visible && near(o.position)) av.push(o.position);
+      setRailAvoid(av);
+    }
     // Campfire: lit from late afternoon until late night, out in the rain.
     const hr = game.calendar.hour;
     const lit = (hr >= 17 || hr < 1.5) && globalUniforms.uRain.value < 0.3;

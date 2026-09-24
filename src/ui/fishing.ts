@@ -467,16 +467,7 @@ export class FishingOverlay {
   showCard(c: CatchCard, at?: { x: number; y: number }): void {
     this.hideCard(true);
     const card = el('div', 'hvf-card');
-    if (at) {
-      const W = 470;
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const right = at.x + 110 + W < w - 16;
-      const x = right ? at.x + 110 : Math.max(16, at.x - 110 - W);
-      card.classList.add('beside', right ? 'r' : 'l');
-      card.style.left = `${x}px`;
-      card.style.top = `${Math.round(Math.min(h - 330, Math.max(90, at.y - 90)))}px`;
-    }
+    if (at) this.placeCard(card, at, true);
     const q = c.quality > 0 ? `<span class="chip q${c.quality}">${STAR(c.quality)}${['', 'Silver', 'Gold', 'Iridium'][c.quality]}</span>` : '';
     card.innerHTML = `<div class="frame">
       ${c.isNew ? '<div class="ribbon">NEW!</div>' : ''}${c.isRecord && !c.isNew ? '<div class="ribbon record">RECORD!</div>' : ''}
@@ -492,6 +483,22 @@ export class FishingOverlay {
     this.root.appendChild(card);
     this.card = card;
     this.cardTimer = 4.5;
+  }
+
+  private placeCard(card: HTMLElement, at: { x: number; y: number }, first = false): void {
+    const W = 470;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const right = first ? at.x + 110 + W < w - 16 : card.classList.contains('r');
+    const x = right ? Math.min(at.x + 110, w - 16 - W) : Math.max(16, at.x - 110 - W);
+    if (first) card.classList.add('beside', right ? 'r' : 'l');
+    card.style.left = `${Math.round(x)}px`;
+    card.style.top = `${Math.round(Math.min(h - 330, Math.max(90, at.y - 90)))}px`;
+  }
+
+  /** Keep a docked catch card beside the farmer while the camera settles (e.g. a trophy push-in). */
+  moveCard(at: { x: number; y: number }): void {
+    if (this.card?.classList.contains('beside')) this.placeCard(this.card, at);
   }
 
   hideCard(instant = false): void {

@@ -33,6 +33,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
       float hvBWet = 0.0;
       float hvBCaus = 0.0;
       float hvBDepth = 0.0;
+      float hvBMoon = 0.0;
       vec2 hvBRip = vec2(0.0);
       ${SWASH_GLSL}
       ${VORONOI_GLSL}
@@ -97,6 +98,8 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         // Darker tide mark along the top of the damp band.
         s *= 1.0 - 0.1 * smoothstep(0.06, 0.0, abs(bh - dampTop * 0.9)) * onSand;
         hvBWet = max(soaked * 0.7, damp * 0.12) * onSand;
+        // Moonlit sand (night): the dry beach keeps a pale, cool value well above the sea's.
+        hvBMoon = sandM * smoothstep(-0.04, 0.12, bh) * smoothstep(2.4, 1.4, bh) * (1.0 - soaked * 0.45) * (1.0 - rockM);
         // Foam lace stranded by the receding wave.
         float recede = step(0.22, ph) * smoothstep(0.95, 0.35, ph);
         float lace = hvLace(p * 1.1, t * 0.2) * smoothstep(0.4, 0.7, hvNoise(p * 0.13 + 1.3));
@@ -187,6 +190,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         float dayK = 1.0 - uBNight;
         totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.45) * hvBWet * frb * 0.22 * mix(0.45, 1.0, smoothstep(0.08, 0.4, uBSunDir.y)) * mix(0.25, 1.0, dayK);
         hvBCaus *= dayK;
+        totalEmissiveRadiance += diffuseColor.rgb * vec3(0.58, 0.62, 0.8) * hvBMoon * uBNight * 0.34;
         totalEmissiveRadiance += uBSun * hvBCaus * diffuseColor.rgb * 1.25;
       }`,
     );

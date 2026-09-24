@@ -33,6 +33,20 @@ function mergeColored(parts: [THREE.BufferGeometry, number, THREE.Matrix4][]): T
   return mergeGeometries(list)!;
 }
 
+/**
+ * Held-fish length (m, the mesh is unit length): a per-species base from its median size, times the
+ * rolled length over that median (0.7-1.8x) — a 105 cm grouper is a lot more fish than a 41 cm
+ * flounder, and a record-size catch visibly out-sizes a typical one of its kind.
+ */
+export function heldFishScale(def: FishDef, lengthCm: number): number {
+  const med = (def.size[0] + def.size[1]) / 2;
+  const base = THREE.MathUtils.clamp(0.36 + med / 130, 0.45, 1.3);
+  return base * THREE.MathUtils.clamp(lengthCm / med, 0.7, 1.8);
+}
+
+/** A held fish this long (m) or more is a trophy: hoisted overhead in both hands. */
+export const TROPHY_SCALE = 1.1;
+
 const ROD_LEN = 2.15;
 const ROD_SEG = 14;
 const ROD_SIDES = 7;
@@ -467,19 +481,31 @@ export class FishingGear {
     }
   }
 
-  /** Verlet rope between the rod tip and the bobber; lays on the water surface. */
+  /**
+   * Verlet rope between the rod tip and the bobber; lays on the water surface. Distance constraints
+   * + a bending constraint (node i ↔ i+2, stiffness 0.3) keep it a smooth catenary; the water is a
+   * floor with friction (a node that touches it loses its sideways drift), so a slack line settles
+   * into a lazy curve instead of piling up in a zig-zag by the float.
+   */
   updateLine(dt: number, end: THREE.Vector3, camera: THREE.Camera): void {
     const n = LINE_N;
     const pts = this.pts;
     const straight = this.tip.distanceTo(end);
-    const rest = (straight / (n - 1)) * (1 + this.slack * 0.1);
+    // Only a touch of spare line (more piles up on the water as scribble).
+    const rest = (straight / (n - 1)) * (1 + this.slack * 0.035);
     const g = -9.8 * dt * dt;
+    const floor = this.waterY + 0.006;
+    // The last few nodes rise smoothly to the float's eye (no V-kink where the line leaves the water).
+    const rise = Math.max(0, end.y - floor);
+    const floorAt = (i: number): number => (i >= n - 6 ? floor + rise * ((i - (n - 6)) / 5) ** 2.2 : floor);
     for (let i = 1; i < n - 1; i++) {
       const p = pts[i]!;
       const q = this.prev[i]!;
-      const vx = (p.x - q.x) * 0.96;
+      const onWater = p.y <= floor + 0.002;
+      const damp = onWater ? 0.6 : 0.96;
+      const vx = (p.x - q.x) * damp;
       const vy = (p.y - q.y) * 0.96;
-      const vz = (p.z - q.z) * 0.96;
+      const vz = (p.z - q.z) * damp;
       q.copy(p);
       p.x += vx;
       p.y += vy + g * (0.35 + this.slack * 0.65);
@@ -500,20 +526,30 @@ export class FishingGear {
         a.addScaledVector(_a, (diff * wa) / k);
         b.addScaledVector(_a, (-diff * wb) / k);
       }
+      // Bending: pull each node towards the midpoint of its neighbours (no kinks, no zig-zags).
+      if (it % 2 === 0) {
+        for (let i = 1; i < n - 1; i++) {
+          _b.addVectors(pts[i - 1]!, pts[i + 1]!).multiplyScalar(0.5);
+          pts[i]!.lerp(_b, 0.3);
+        }
+      }
       // Float on the water.
-      for (let i = 1; i < n - 1; i++) if (pts[i]!.y < this.waterY + 0.005) pts[i]!.y = this.waterY + 0.005;
+      for (let i = 1; i < n - 1; i++) {
+        const f = floorAt(i);
+        if (pts[i]!.y < f) pts[i]!.y = f;
+      }
       pts[n - 1]!.copy(end);
     }
-    // Taut line: ease the nodes towards a shallow catenary between tip and float so the rod's shake
-    // never leaves kinks / zig-zags in it.
+    // Ease the nodes towards a clean catenary between tip and float so the rod's shake never leaves
+    // kinks in it (the part that reaches the water lies along the surface, straight to the float).
     if (this.ease > 0) {
-      const sag = straight * (0.03 + this.slack * 0.12);
+      const sag = straight * (0.03 + this.slack * 0.1);
       const k = this.ease;
       for (let i = 1; i < n - 1; i++) {
         const t = i / (n - 1);
         _a.lerpVectors(pts[0]!, pts[n - 1]!, t);
         _a.y -= sag * 4 * t * (1 - t);
-        if (_a.y < this.waterY + 0.005) _a.y = this.waterY + 0.005;
+        if (_a.y < floorAt(i)) _a.y = floorAt(i);
         pts[i]!.lerp(_a, k);
       }
     }
@@ -613,10 +649,7 @@ export class FishingGear {
       mesh = buildFishMesh(def);
       this.meshCache.set(def.id, mesh);
     }
-    // Visual size: readable at gameplay zoom, loosely following the real length.
-    // (Capped so the hands still show at the head and tail when it's held up.)
-    const s = THREE.MathUtils.clamp(0.42 + lengthCm / 150, 0.55, 1.0);
-    mesh.group.scale.setScalar(s);
+    mesh.group.scale.setScalar(heldFishScale(def, lengthCm));
     this.heldRoot.add(mesh.group);
     this.held = { def, mesh };
   }

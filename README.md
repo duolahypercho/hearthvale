@@ -288,7 +288,15 @@ domain-warped foam lace, sparse whitecaps that sit on the crests, foam collars a
 horizon haze, a far plane that continues the near grid's depth) and the still tide-pool water. `sand.ts` shades
 the ground (wind ripples, a wet band, caustic filaments, the wrack-line tint, the rock shelf, pool floors).
 `props.ts` builds the pier, the shack, the lighthouse, the rowboat, four driftwood silhouettes, the kelp and shell
-wrack line, and the boat, campfire and sign vignettes. `shells.ts` handles the tide-line forageables (with contact
+wrack line, and the boat, campfire and sign vignettes. The pier's rail rope has its own material (`railRopeMaterial`)
+that dithers itself out in a capsule round every farmer on the deck (local + remote, `setRailAvoid`), the west rail is
+unhooked at the walkway fishing spot (`PIER_FISH_GAP`, toe board + ropes hung back on their posts), and the bracing runs
+pile-to-pile above the swell. `clusters.ts` dresses the open sand (net drying rack, lobster-pot stack, fenced dune-grass
+islands, `BEACH_CLUSTERS`); a second, sparser tide line of shells and kelp runs along the wet band; crabs are
+Poisson-scattered (≥ 2.5 m); the headland has a sandy track to the lighthouse door, thrift cushions and a wind-burnt
+rim. Flotsam comes in four kinds (plank, bleached branch, bottle, kelp raft), each sized and turned its own way, kept
+out of the walkway cast corridor. At night the dry sand keeps a moonlit value, the shallows darken, the surf edge
+glows faintly (bioluminescence) and the moon's glitter road runs up the sea ahead of the camera. `shells.ts` handles the tide-line forageables (with contact
 blots and star glints) and the tide-pool anemones. `life.ts` has the gulls, crabs and leaping fish.
 
 Fishing (`systems/fishing.ts`, visuals in `world/beach/tackle.ts` + `fishmesh.ts`, UI in `ui/fishing*.ts`, data in
@@ -306,12 +314,17 @@ Fishing (`systems/fishing.ts`, visuals in `world/beach/tackle.ts` + `fishmesh.ts
   after 20 catches: the Cork Bobber makes the bar taller and the Glimmer Lure makes treasure more likely. **Rod tiers**
   are Bamboo, Fiberglass and Iridium. Buy all of these at the shack's Bait & Tackle honesty box (interact at the
   porch, or `openUI('tackle')`).
+- Catch: the held fish is sized from the rolled length (species base × length / median, 0.7-1.8×); a fish ≥ 1.1 m
+  held is a trophy (arms wide, a camera push-in, a drum-roll fanfare). The collection record is written the moment the
+  fish lands (the card's NEW / RECORD badge comes from that write). The line is a verlet rope with a bending constraint
+  and a water floor with friction. Casting right at the pier rail steps the farmer 0.42 m inboard first.
 - Service: `game.services.fishing` → `state()`, `available()`, `cast(power)`, `level()`, `xp()`, `rodTier()`,
   `upgradeRod(t)`, `records()`. Events: `fishing:cast|bite|hook|catch|escape|level`.
 
 Demos: `beach-day`, `beach-sunset` (a line in the water at dusk), `beach-night`, `beach-tidepools`, `beach-tackle` (the honesty box),
 `fishing-cast`, `fishing-flight` (the cast arc in the air), `fishing-wait`, `fishing-bite`, `fishing-reel`, `fishing-catch`,
-`fishing-pond`, `fishing-river`. Fishing demos take `&fish=<fishId>` and `&phase=cast|flight|wait|bite|reel|catch`.
+`fishing-pond`, `fishing-river`. Fishing demos take `&fish=<fishId>` and `&phase=cast|flight|wait|bite|reel|catch`;
+`fishing-catch` also takes `&size=<0..1>` (where in the species' size range the catch lands, default 0.78).
 `openUI('fishing')` starts a practice fight on the spot.
 
 ## Farming
