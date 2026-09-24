@@ -99,7 +99,7 @@ function grassMaterial(): THREE.MeshStandardMaterial {
     vs = before(
       vs,
       'void main() {',
-      `attribute float aH;\nattribute float aRank;\nvarying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform float uSnow;\nuniform vec3 uGrassFocus;`,
+      `attribute float aH;\nattribute float aRank;\nvarying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nvarying vec4 vGN1;\nvarying vec3 vGN2;\nvarying float vGCloud;\nuniform float uSnow;\nuniform float uCloudShadow;\nuniform vec3 uGrassFocus;`,
     );
     vs = after(
       vs,
@@ -112,29 +112,41 @@ function grassMaterial(): THREE.MeshStandardMaterial {
         keep *= 1.0 - smoothstep(${(GRASS_LOD.mid - 5).toFixed(1)}, ${GRASS_LOD.mid.toFixed(1)}, gd);
         float lodS = clamp((keep - aRank) * 12.0, 0.0, 1.0);
         transformed *= vec3(mix(0.6, 1.0, lodS), lodS, mix(0.6, 1.0, lodS));
+      }
+      {
+        // Per-blade colour fields (functions of the blade origin only): once per vertex instead of
+        // 27 value-noise evaluations per fragment (pillar 14). Same values on every vertex → exact.
+        vec2 gp = vGOrigin.xz;
+        vec2 gq = mat2(0.8, 0.6, -0.6, 0.8) * gp;
+        vGN1 = vec4(hvFbm(gp * 0.055), hvFbm(gp * 0.09 + 5.0), hvFbm(gp * 0.11 + 20.0), hvFbm(gq * 0.27 + 61.0) * 0.75 + hvNoise(gq * 0.9 + 13.0) * 0.25);
+        vGN2 = vec3(hvFbm(gp * 0.095 + 41.0), hvFbm(gp * 0.11 + 83.0), hvGustWave(gp, uTime, uWindDir, uWindStrength));
       }`,
     );
-    vs = after(vs, '#include <project_vertex>', '{ mat4 gm2 = modelMatrix;\n#ifdef USE_INSTANCING\n gm2 = modelMatrix * instanceMatrix;\n#endif\n vGWorld = (gm2 * vec4(transformed,1.0)).xyz; }');
+    vs = after(vs, '#include <project_vertex>', '{ mat4 gm2 = modelMatrix;\n#ifdef USE_INSTANCING\n gm2 = modelMatrix * instanceMatrix;\n#endif\n vGWorld = (gm2 * vec4(transformed,1.0)).xyz; }\nvGCloud = hvCloudShadow(vGWorld.xz, uTime, uCloudShadow);');
     shader.vertexShader = vs;
     let fs = shader.fragmentShader;
     fs = before(
       fs,
       'void main() {',
-      `varying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nuniform sampler2D uGrassCover;\nuniform vec4 uGrassCoverRect;\nuniform vec3 uGrassA;\nuniform vec3 uGrassB;\nuniform vec3 uGrassTip;\nuniform vec3 uGrassDry;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;\nuniform float uCloudShadow;\nuniform float uTime;\nuniform float uDryAmt;\nuniform vec4 uSeasonW;\nuniform float uRim;\nuniform float uSnow;\nuniform float uWindStrength;\nuniform vec2 uWindDir;\n${NOISE_GLSL}\n${GUST_GLSL}`,
+      `varying float vGH;\nvarying vec3 vGOrigin;\nvarying vec3 vGWorld;\nvarying vec4 vGN1;\nvarying vec3 vGN2;\nvarying float vGCloud;\nuniform sampler2D uGrassCover;\nuniform vec4 uGrassCoverRect;\nuniform vec3 uGrassA;\nuniform vec3 uGrassB;\nuniform vec3 uGrassTip;\nuniform vec3 uGrassDry;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;\nuniform float uCloudShadow;\nuniform float uTime;\nuniform float uDryAmt;\nuniform vec4 uSeasonW;\nuniform float uRim;\nuniform float uSnow;\nuniform float uWindStrength;\nuniform vec2 uWindDir;\n${NOISE_GLSL}\n${GUST_GLSL}`,
     );
     fs = replace(
       fs,
       '#include <map_fragment>',
       /* glsl */ `
       vec2 gp = vGOrigin.xz;
-      float gmix = smoothstep(0.3, 0.72, hvFbm(gp * 0.055));
+      float gmix = smoothstep(0.3, 0.72, vGN1.x);
       vec3 gbase = mix(uGrassA, uGrassB, gmix);
       float gDryLo = 0.62 - 0.14 * uSeasonW.z;
-      gbase = mix(gbase, uGrassDry, smoothstep(gDryLo, gDryLo + 0.22, hvFbm(gp * 0.09 + 5.0)) * uDryAmt);
-      float glush = smoothstep(0.35, 0.78, hvFbm(gp * 0.11 + 20.0));
+      gbase = mix(gbase, uGrassDry, smoothstep(gDryLo, gDryLo + 0.22, vGN1.y) * uDryAmt);
+      float glush = smoothstep(0.35, 0.78, vGN1.z);
       gbase = mix(gbase, uGrassA * vec3(0.7, 0.86, 0.74), glush * 0.55) * 0.9;
-      gbase = hvMeadowVar(gbase, gp);
-      gbase = hvMottle(gbase, gp);
+      // = hvMeadowVar(gbase, gp) + hvMottle(gbase, gp), fields from the vertex shader.
+      gbase = hvHueShift(gbase, (vGN2.x - 0.5) * 0.28) * (1.0 + (vGN2.y - 0.5) * 0.24);
+      {
+        float gTone = smoothstep(0.52, 0.64, vGN1.w) - smoothstep(0.42, 0.3, vGN1.w);
+        gbase = gTone > 0.0 ? mix(gbase, hvHueShift(gbase, -0.12) * 1.12, gTone) : mix(gbase, hvHueShift(gbase, 0.1) * 0.88, -gTone);
+      }
       {
         vec4 gcv = texture2D(uGrassCover, (gp - uGrassCoverRect.xy) / uGrassCoverRect.zw);
         gbase = mix(gbase, gbase * vec3(0.8, 0.95, 0.8), gcv.r * 0.7);
@@ -159,9 +171,9 @@ function grassMaterial(): THREE.MeshStandardMaterial {
       {
         vec3 V = normalize(cameraPosition - vGWorld);
         float back = pow(max(dot(-V, normalize(uSunDir)), 0.0), 2.0) * 1.1 + 0.1;
-        totalEmissiveRadiance += gcol * uSunColor * gh * gh * (back * 0.35 + uRim * 0.5) * hvCloudShadow(vGWorld.xz, uTime, uCloudShadow);
+        totalEmissiveRadiance += gcol * uSunColor * gh * gh * (back * 0.35 + uRim * 0.5) * vGCloud;
         // Gust fronts: a silvery band of bent blades rolling across the meadow on windy days.
-        float gw = hvGustWave(vGOrigin.xz, uTime, uWindDir, uWindStrength);
+        float gw = vGN2.z;
         totalEmissiveRadiance += mix(gcol, vec3(0.9, 0.95, 0.8), 0.35) * gw * gh * (uSunColor * 0.45 + 0.08) * (1.0 - uSnow);
       }`,
     );

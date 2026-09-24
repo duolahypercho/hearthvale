@@ -6,9 +6,11 @@ import * as THREE from 'three';
 import type { Quality } from '../core/events';
 import { PostPipeline, QUALITY_PRESETS, type QualityPreset } from './post';
 import './batching';
+import './chunks';
 import { LightBudget } from './lightbudget';
 import { QualityGovernor } from './governor';
 import { ShaderGate } from './shadergate';
+import { runBakes } from './bake';
 import { setMaxAnisotropy } from './textures';
 import { globalUniforms } from './uniforms';
 
@@ -180,6 +182,7 @@ export class RenderContext {
     if (this.compiling > 0) return;
     if (this.backdropHz > 0 && this.lastRenderAt >= 0 && now - this.lastRenderAt < 1000 / this.backdropHz - 1) return;
     this.lastRenderAt = now;
+    runBakes(this.renderer);
     this.lights.update(this.scene, this.camera, this.rig.focus, dt);
     this.shaderGate.flush();
     // Tilt-shift: keep a band around the player sharp, gentle (≤4 px) blur above / below.
@@ -354,6 +357,7 @@ export class RenderContext {
 
   /** Pre-compile all materials in the scene. */
   async compile(): Promise<void> {
+    runBakes(this.renderer);
     // Settle the light budget first: programs are keyed by the light count.
     this.camera.updateMatrixWorld();
     const gate = this.shaderGate.enabled;
