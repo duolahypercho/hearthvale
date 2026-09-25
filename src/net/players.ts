@@ -261,11 +261,16 @@ class LocalSay {
     tags.appendChild(this.tag);
   }
 
+  /** Our head is on screen this frame (its face is kept clear of other farmers' bubbles). */
+  seen = false;
+
   /** Project our own head for this frame; false when nothing of ours needs laying out. */
   project(game: Game, v: THREE.Vector3, right: THREE.Vector3, emoting: boolean): boolean {
-    if (!(this.say.active || emoting) || game.cinematic || !game.player.root.visible) return false;
+    this.seen = false;
+    if (game.cinematic || !game.player.root.visible) return false;
     const p = game.player.position;
-    return projectAnchor(v.set(p.x, p.y + 2.3, p.z), cam(game), right, this.anchor);
+    this.seen = projectAnchor(v.set(p.x, p.y + 2.3, p.z), cam(game), right, this.anchor);
+    return this.seen && (this.say.active || emoting);
   }
 
   apply(show: boolean): void {
@@ -290,7 +295,7 @@ function cam(game: Game): THREE.Camera {
   return game.rc.camera;
 }
 
-/** HUD cards tags keep clear of (dimmed over them); re-read twice a second, never per frame. */
+/** HUD cards tags keep clear of (dimmed over them); re-read when the HUD changes (+ every 2.5 s), never per frame. */
 const HUD_CARDS = '.h-clock, .hv-toolbar, .hv-energy, .coop-roster:not(.hv-hidden), .hv-np, .coop-log > *';
 
 /**
@@ -331,6 +336,8 @@ interface Actor {
   remote: RemotePlayer | null;
   say: SayBubble;
   bubble: EmoteBubble | null;
+  /** Laid-out pill bottom (px) this frame. */
+  y: number;
 }
 
 export class RemotePlayers {
@@ -350,6 +357,10 @@ export class RemotePlayers {
     if (!game.opts.hud) this.tags.style.display = 'none';
     game.opts.uiRoot.appendChild(this.tags);
     this.local = new LocalSay(this.tags);
+    // HUD card rects are re-read (a forced layout) only when the HUD may have moved, plus a slow poll.
+    const dirty = (): void => void (this.hudDirty = true);
+    addEventListener('resize', dirty);
+    for (const n of ['ui:open', 'net:chat', 'net:roster', 'net:beds', 'net:status'] as const) game.events.on(n, dirty);
   }
 
   /** Our own chat line, as a bubble over our farmer. */
@@ -441,8 +452,9 @@ export class RemotePlayers {
       }
       this.local.say.w = 0;
     }
-    if (now - this.hudAt > 500) {
+    if ((this.hudDirty && now - this.hudAt > 150) || now - this.hudAt > 2500) {
       this.hudAt = now;
+      this.hudDirty = false;
       this.readHud();
     }
     const here = g.world.current?.id ?? '';
@@ -455,7 +467,7 @@ export class RemotePlayers {
       if (p.project(c, vis, this.v, right)) {
         p.measure();
         if (p.say.active) p.say.measure();
-        const act = actors[n] ?? (actors[n] = { a: p.anchor, remote: p, say: p.say, bubble: null });
+        const act = actors[n] ?? (actors[n] = { a: p.anchor, remote: p, say: p.say, bubble: null, y: 0 });
         act.a = p.anchor;
         act.remote = p;
         act.say = p.say;
@@ -470,7 +482,7 @@ export class RemotePlayers {
     const meOn = this.local.project(g, this.v, right, meEmote);
     if (meOn) {
       if (this.local.say.active) this.local.say.measure();
-      const act = actors[n] ?? (actors[n] = { a: this.local.anchor, remote: null, say: this.local.say, bubble: null });
+      const act = actors[n] ?? (actors[n] = { a: this.local.anchor, remote: null, say: this.local.say, bubble: null, y: 0 });
       act.a = this.local.anchor;
       act.remote = null;
       act.say = this.local.say;
@@ -485,17 +497,21 @@ export class RemotePlayers {
     list.sort(byNearest);
     const R = this.rects;
     R.clear();
+    // Faces first: no pill, emote or chat bubble may sit on any farmer's face (ours included).
+    for (const act of list) faceRect(R, act.a);
+    if (this.local.seen && !meOn) faceRect(R, this.local.anchor);
     const hud = this.hud;
     const S = scale;
+    // Pass 1, name pills: they say who is who, so they claim their spot on the head before any bubble
+    // (a pill only climbs past another farmer's pill or face, never past a speech bubble).
     for (const act of list) {
       const a = act.a;
       const p = act.remote;
       const x = a.x;
-      // Name pill: bottom-centre on the head, moved up a pill at a time past pills in front (≤ 3).
       let y = a.y;
-      const pw = p ? p.tagW : 0;
-      const ph = p ? p.tagH : 0;
       if (p) {
+        const pw = p.tagW;
+        const ph = p.tagH;
         for (let k = 0; k < 3; k++) {
           const i = R.hit(x - pw / 2, y - ph, x + pw / 2, y, 2);
           if (i < 0) break;
@@ -504,54 +520,66 @@ export class RemotePlayers {
         R.add(x - pw / 2, y - ph, x + pw / 2, y);
         p.apply(x, y, hud.hit(x - pw / 2, y - ph, x + pw / 2, y, 0) >= 0);
       }
-      // Emote bubble beside the pill (right, else left), its tail at the pill's end.
-      const b = act.bubble;
-      if (b) {
-        const size = Math.min(92 * S, Math.max(58 * S, 1.1 * a.ppm));
-        const gap = p ? pw / 2 + 2 : 10 * S;
-        const bottom = y - ph * 0.2;
-        let x0 = x + gap;
-        const inset = size * 0.1;
-        if (R.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom) >= 0 || hud.hit(x0, bottom - size, x0 + size, bottom, 0) >= 0) {
-          const alt = x - gap - size;
-          if (R.hit(alt + inset, bottom - size + inset, alt + size - inset, bottom) < 0 && hud.hit(alt, bottom - size, alt + size, bottom, 0) < 0) x0 = alt;
+      act.y = y;
+    }
+    // Pass 2, emote bubbles (beside the pill); pass 3, chat bubbles (above it, nudged clear).
+    for (let pass = 2; pass <= 3; pass++) {
+      for (const act of list) {
+        const a = act.a;
+        const p = act.remote;
+        const x = a.x;
+        const y = act.y;
+        const pw = p ? p.tagW : 0;
+        const ph = p ? p.tagH : 0;
+        // Emote bubble beside the pill (right, else left), its tail at the pill's end.
+        const b = pass === 2 ? act.bubble : null;
+        if (b) {
+          const size = Math.min(92 * S, Math.max(58 * S, 1.1 * a.ppm));
+          const gap = p ? pw / 2 + 2 : 10 * S;
+          const bottom = y - ph * 0.2;
+          let x0 = x + gap;
+          const inset = size * 0.1;
+          if (R.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom) >= 0 || hud.hit(x0, bottom - size, x0 + size, bottom, 0) >= 0) {
+            const alt = x - gap - size;
+            if (R.hit(alt + inset, bottom - size + inset, alt + size - inset, bottom) < 0 && hud.hit(alt, bottom - size, alt + size, bottom, 0) < 0) x0 = alt;
+          }
+          R.add(x0 + inset, bottom - size + inset, x0 + size - inset, bottom);
+          // Bubble origin (plane spans −0.08…0.92 of its size vertically) → world, at the head's depth.
+          const ox = x0 + size / 2;
+          const oy = bottom - size * 0.08;
+          this.v.set((ox / innerWidth) * 2 - 1, 1 - (oy / innerHeight) * 2, a.z).unproject(c);
+          b.pin.copy(this.v);
+          b.fit = size / (1.1 * a.ppm);
+          b.pinned = true;
+          b.pinHidden = hud.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom, 0) >= 0;
         }
-        R.add(x0 + inset, bottom - size + inset, x0 + size - inset, bottom);
-        // Bubble origin (plane spans −0.08…0.92 of its size vertically) → world, at the head's depth.
-        const ox = x0 + size / 2;
-        const oy = bottom - size * 0.08;
-        this.v.set((ox / innerWidth) * 2 - 1, 1 - (oy / innerHeight) * 2, a.z).unproject(c);
-        b.pin.copy(this.v);
-        b.fit = size / (1.1 * a.ppm);
-        b.pinned = true;
-        b.pinHidden = hud.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom, 0) >= 0;
-      }
-      // Chat bubble: centred over the pill; else nudged sideways, else stacked up.
-      const say = act.say;
-      if (say.active && say.w > 0) {
-        const w = say.w;
-        const h = say.h;
-        const base = y - ph - 10 * S; // bubble bottom (tail below it)
-        let best = 0;
-        let bestDy = 0;
-        let found = false;
-        for (let row = 0; row < 3 && !found; row++) {
-          const dy = -row * (h * 0.55 + 6);
-          for (const f of NUDGE) {
-            const dx = f * w;
-            const x0 = x - w / 2 + dx;
-            const y1 = base + dy;
-            if (R.hit(x0, y1 - h, x0 + w, y1) < 0 && hud.hit(x0, y1 - h, x0 + w, y1, 0) < 0) {
-              best = dx;
-              bestDy = dy;
-              found = true;
-              break;
+        // Chat bubble: centred over the pill; else nudged sideways, else stacked up.
+        const say = act.say;
+        if (pass === 3 && say.active && say.w > 0) {
+          const w = say.w;
+          const h = say.h;
+          const base = y - ph - 10 * S; // bubble bottom (tail below it)
+          let best = 0;
+          let bestDy = 0;
+          let found = false;
+          for (let row = 0; row < 3 && !found; row++) {
+            const dy = -row * (h * 0.55 + 6);
+            for (const f of NUDGE) {
+              const dx = f * w;
+              const x0 = x - w / 2 + dx;
+              const y1 = base + dy;
+              if (R.hit(x0, y1 - h, x0 + w, y1) < 0 && hud.hit(x0, y1 - h, x0 + w, y1, 0) < 0) {
+                best = dx;
+                bestDy = dy;
+                found = true;
+                break;
+              }
             }
           }
+          const x0 = x - w / 2 + best;
+          R.add(x0, base + bestDy - h, x0 + w, base + bestDy);
+          say.offset(best, base + bestDy - y);
         }
-        const x0 = x - w / 2 + best;
-        R.add(x0, base + bestDy - h, x0 + w, base + bestDy);
-        say.offset(best, base + bestDy - y);
       }
     }
   }
@@ -559,6 +587,7 @@ export class RemotePlayers {
   private hushed = false;
   private scale = 0;
   private hudAt = -1e9;
+  private hudDirty = true;
   private right = new THREE.Vector3();
   private actors: Actor[] = [];
   private sorted: Actor[] = [];
@@ -582,6 +611,12 @@ export class RemotePlayers {
       if (r.width > 4 && r.height > 4 && e.offsetParent !== null) H.add(r.left, r.top, r.right, r.bottom);
     }
   }
+}
+
+/** Claim a farmer's face (the chibi head below the tag anchor) in the layout. */
+function faceRect(R: Rects, a: Anchor): void {
+  const hw = a.ppm * 0.46;
+  R.add(a.x - hw, a.y + 4, a.x + hw, a.y + a.ppm * 0.78);
 }
 
 /** Sideways nudges tried for a chat bubble (fractions of its width). */

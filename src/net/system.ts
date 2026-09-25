@@ -146,6 +146,18 @@ export interface NetApi {
    * host ('host'); it arrives there as the `net:ext` event. No-op in solo play.
    */
   sendExt(to: number | '*' | 'host', data: unknown[]): void;
+  /** The last night's "Farm today" tally (every farmer's harvest / watering / tilling / sowing), or null. */
+  dayTally(): DayTally[] | null;
+}
+
+/** One farmer's work over the day that just ended (day-end card). */
+export interface DayTally {
+  id: number;
+  name: string;
+  look: FarmerLook;
+  isMe: boolean;
+  /** [harvested, watered, tilled, sown] */
+  n: number[];
 }
 
 declare module '../core/game' {
@@ -299,11 +311,26 @@ export class NetSystem implements System, NetApi {
   private frameCount = 0;
   private ready = false;
   private asleep = false;
+  /**
+   * Farmhand: between the host's 'sleep' order and our own end-of-day. The host's morning farm can
+   * land before our (slower) fade finishes; applying it and then running our own overnight growth on
+   * top would double-grow and dry the farm. It is held (`heldFull`) and applied after our roll.
+   */
+  private rolling = false;
+  private rollingAt = 0;
+  private heldFull: FullState | null = null;
   private asleepAt = 0;
   private bedWhere: 'house' | 'cabin' = 'house';
   private applyingGold = false;
   private hostBeds = new Set<number>();
   private counters = { reconciles: 0, drift: 0, needs: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
+  /** Our own work today: [harvested, watered, tilled, sown] (farmhands report it to the host). */
+  private today = [0, 0, 0, 0];
+  private todayDirty = false;
+  private todaySentAt = 0;
+  /** Host: each farmhand's reported tally for today. */
+  private tallies = new Map<number, number[]>();
+  private lastTally: DayTally[] | null = null;
 
   // host
   private sentTiles = new Map<number, string>();
@@ -323,6 +350,12 @@ export class NetSystem implements System, NetApi {
   private stSeq = 0;
   private pending = new Map<number, Pending>();
   private pendingTiles = new Map<number, number>();
+  /**
+   * Farmhand: tiles another farmer's swing is about to land on (a 'did' replay is scheduled at its
+   * impact frame). The host's delta for them usually arrives first — it is held back and checked
+   * after the replay, so the change plays with its FX at impact instead of popping in early.
+   */
+  private replayTiles = new Map<number, number>();
   private hostTiles = new Map<number, string>();
   private goldPending: GoldPending[] = [];
   private giveOk = false;
@@ -423,6 +456,14 @@ export class NetSystem implements System, NetApi {
     for (const n of ['soil:tilled', 'soil:watered', 'crop:planted', 'crop:harvested', 'crop:withered', 'crop:giant', 'tool:impact', 'crow:eat', 'player:interact'] as EventName[]) {
       game.events.on(n, () => (this.farmDirty = true));
     }
+    // "Farm today": count our own farm work (not other farmers' work replayed on our farm).
+    (['crop:harvested', 'soil:watered', 'soil:tilled', 'crop:planted'] as EventName[]).forEach((n, i) =>
+      game.events.on(n, () => {
+        if (this._role === 'solo' || this.sync.inRemote || this.demo.active) return;
+        this.today[i]!++;
+        this.todayDirty = true;
+      }),
+    );
     game.events.on('game:ready', () => this.autoStart());
     // Name tags / chat bubbles follow this frame's camera (placed after the render, even when paused).
     this.remotes.localBubble = () => this.myBubble;
@@ -463,6 +504,9 @@ export class NetSystem implements System, NetApi {
   sleeping(): boolean {
     return this.asleep;
   }
+  dayTally(): DayTally[] | null {
+    return this.demo.active ? this.demo.tally() : this.lastTally;
+  }
   bedSince(): number {
     return this.asleep ? this.asleepAt : 0;
   }
@@ -471,6 +515,13 @@ export class NetSystem implements System, NetApi {
   }
   private myName(): string {
     return this.sessionName ?? this.prof.name;
+  }
+
+  /** Staged demos (net/demo.ts): the host's display name while a solo farm plays co-op; null restores. */
+  demoName(n: string | null): void {
+    if (this._role !== 'solo') return;
+    this.sessionName = n && this.prof.name === 'Farmer' ? n : null;
+    this.emitRoster();
   }
 
   setProfile(p: FarmerProfile): void {
@@ -683,6 +734,9 @@ export class NetSystem implements System, NetApi {
     this.refreshCabins();
     this.pending.clear();
     this.pendingTiles.clear();
+    this.replayTiles.clear();
+    this.rolling = false;
+    this.heldFull = null;
     this.hostTiles.clear();
     this.sentTiles.clear();
     this.goldPending = [];
@@ -788,8 +842,10 @@ export class NetSystem implements System, NetApi {
     pl.controllable = false;
     if (where === 'cabin') pl.root.visible = false;
     this.game.events.emit('net:beds', { ready: [...this.readyIds()], total: 1 + this.remotes.list.size, sleeping: true });
-    if (this._role === 'client') this.toHost(['bed', 1]);
-    else {
+    if (this._role === 'client') {
+      this.sendToday();
+      this.toHost(['bed', 1]);
+    } else {
       this.hostBeds.add(this.id);
       this.checkBeds();
     }
@@ -811,8 +867,7 @@ export class NetSystem implements System, NetApi {
     if (this._role !== 'host') return;
     this.chatSystem(`<b>${esc(this.myName())}</b> called it a night for everyone`, 'info');
     this.hostBeds.clear();
-    this.toAll(['sleep']);
-    this.sleepNow();
+    this.hostSleep();
   }
 
   private wakeUp(): void {
@@ -1105,6 +1160,10 @@ export class NetSystem implements System, NetApi {
         this.toOthers(from, ['emo', from, e]);
         return;
       }
+      case 'day': {
+        this.tallies.set(from, d.slice(1, 5).map((v) => Math.max(0, Math.min(9999, Math.round(Number(v) || 0)))));
+        return;
+      }
       case 'bed': {
         p.ready = d[1] === 1;
         if (p.ready) this.hostBeds.add(from);
@@ -1233,8 +1292,38 @@ export class NetSystem implements System, NetApi {
     const everyone = [this.id, ...[...this.remotes.list.values()].filter((p) => !p.away).map((p) => p.id)];
     if (!everyone.every((i) => this.hostBeds.has(i))) return;
     this.hostBeds.clear();
-    this.toAll(['sleep']);
+    this.hostSleep();
+  }
+
+  /** Host: end the day for everyone, handing out the day's "Farm today" tally with the order. */
+  private hostSleep(): void {
+    const rows: number[][] = [[this.id, ...this.today]];
+    for (const p of this.remotes.list.values()) if (!p.away) rows.push([p.id, ...(this.tallies.get(p.id) ?? [0, 0, 0, 0])]);
+    this.toAll(['sleep', rows]);
+    this.setTally(rows);
     this.sleepNow();
+  }
+
+  private setTally(rows: unknown): void {
+    if (!Array.isArray(rows)) return;
+    const out: DayTally[] = [];
+    for (const r of rows as unknown[]) {
+      if (!Array.isArray(r)) continue;
+      const id = Number(r[0]);
+      const n = r.slice(1, 5).map((v) => Math.max(0, Math.min(9999, Math.round(Number(v) || 0))));
+      const isMe = id === this.id;
+      const p = this.remotes.get(id);
+      if (!isMe && !p) continue;
+      out.push({ id, name: isMe ? this.myName() : p!.name, look: isMe ? this.prof.look : p!.look, isMe, n });
+    }
+    this.lastTally = out.length > 1 ? out : null;
+  }
+
+  /** Farmhand: report today's work to the host (throttled; also right before bed). */
+  private sendToday(): void {
+    this.todayDirty = false;
+    this.todaySentAt = performance.now();
+    this.toHost(['day', ...this.today]);
   }
 
   private sendFull(to: number | '*'): void {
@@ -1349,9 +1438,22 @@ export class NetSystem implements System, NetApi {
           p.farmer.setFacingYaw(yawOf(facing));
           p.farmer.act(act.kind, act.tool);
         }
+        const tiles = this._role === 'client' ? this.affected(itemId, x, z, facing) : [];
+        for (const i of tiles) this.replayTiles.set(i, (this.replayTiles.get(i) ?? 0) + 1);
         this.later(IMPACT[act.kind] * 1000, () => {
           if (itemId === '@act') this.sync.applyHarvest(x, z);
           else this.sync.applyUse(itemId, x, z, facing);
+          // Now settle those tiles on the host's word (normally a no-op: the replay matched it).
+          for (const i of tiles) {
+            const n = (this.replayTiles.get(i) ?? 1) - 1;
+            if (n > 0) {
+              this.replayTiles.set(i, n);
+              continue;
+            }
+            this.replayTiles.delete(i);
+            if (!this.pendingTiles.has(i) && this.hostTiles.has(i)) this.reconcile(i, this.hostTiles.get(i)!);
+            else if (!this.pendingTiles.has(i)) this.reconcile(i, '');
+          }
         });
         return;
       }
@@ -1387,12 +1489,13 @@ export class NetSystem implements System, NetApi {
         for (const [i, s] of d[1] as [number, string][]) {
           if (s) this.hostTiles.set(i, s);
           else this.hostTiles.delete(i);
-          if (!this.pendingTiles.has(i)) this.reconcile(i, s);
+          if (!this.pendingTiles.has(i) && !this.replayTiles.has(i) && !this.rolling) this.reconcile(i, s);
         }
         return;
       }
       case 'full': {
-        this.applyFull(d[1] as FullState);
+        if (this.rolling && performance.now() - this.rollingAt < 20000) this.heldFull = d[1] as FullState;
+        else this.applyFull(d[1] as FullState);
         return;
       }
       case 'cal':
@@ -1455,6 +1558,7 @@ export class NetSystem implements System, NetApi {
         return;
       }
       case 'sleep':
+        this.setTally(d[1]);
         this.sleepNow();
         return;
       case 'pong': {
@@ -1551,6 +1655,7 @@ export class NetSystem implements System, NetApi {
     this.sync.applyFull(f);
     this.hostTiles = new Map(f.digest);
     this.pendingTiles.clear();
+    this.replayTiles.clear();
     this.pending.clear();
   }
 
@@ -1578,11 +1683,11 @@ export class NetSystem implements System, NetApi {
 
   /** Farmhand: compare our farm to the host's mirror and fix drift (never touching predicted tiles). */
   private driftCheck(): void {
-    if (!this.welcomed) return;
+    if (!this.welcomed || this.rolling) return;
     const local = this.sync.digest();
     let n = 0;
     const check = (i: number): void => {
-      if (n > 60 || this.pendingTiles.has(i)) return;
+      if (n > 60 || this.pendingTiles.has(i) || this.replayTiles.has(i)) return;
       const want = this.hostTiles.get(i) ?? '';
       const have = local.get(i) ?? '';
       if (have !== want) {
@@ -1618,6 +1723,7 @@ export class NetSystem implements System, NetApi {
       this.tPing = 0;
       this.toHost(['ping', performance.now()]);
     }
+    if (this.todayDirty && this.frameAt - this.todaySentAt > 2000) this.sendToday();
     this.tDrift += ms;
     if (this.tDrift >= 2500) {
       this.tDrift = 0;
@@ -1837,6 +1943,9 @@ export class NetSystem implements System, NetApi {
   }
 
   private onDayStart(): void {
+    this.today.fill(0);
+    this.todayDirty = false;
+    this.tallies.clear();
     if (this._role === 'solo') return;
     for (const p of this.remotes.list.values()) p.ready = false;
     this.hostBeds.clear();
@@ -1860,10 +1969,24 @@ export class NetSystem implements System, NetApi {
     this.asleepAt = 0;
     g.player.root.visible = true;
     g.events.emit('net:beds', { ready: [], total: 1 + this.remotes.list.size, sleeping: false });
+    if (this._role === 'client') {
+      this.rolling = true;
+      this.rollingAt = performance.now();
+      this.heldFull = null;
+    }
+    // Our day has rolled: now the host's morning (if it already came) is the truth.
+    const rolled = (): void => {
+      if (!this.rolling) return;
+      this.rolling = false;
+      const f = this.heldFull;
+      this.heldFull = null;
+      if (f) this.applyFull(f);
+    };
     const endDay = (): void => {
       // Crops only grow while the farming system sees the farm: end the day with it in view.
       const r = this.sync.withFarm(() => sl?.sleep());
       if (r === null) sl?.sleep();
+      rolled();
     };
     if (where === 'house' && g.world.current?.id === 'house' && sl) {
       const orig = sl.sleep.bind(sl);
@@ -1871,8 +1994,12 @@ export class NetSystem implements System, NetApi {
         sl.sleep = orig;
         const r = this.sync.withFarm(() => orig());
         if (r === null) orig();
+        rolled();
       };
-      void sl.goToBed().finally(() => (sl.sleep = orig));
+      void sl.goToBed().finally(() => {
+        sl.sleep = orig;
+        rolled();
+      });
       return;
     }
     // Cabin (or anywhere else): fade, end the day, wake on the cabin porch.
@@ -1976,7 +2103,7 @@ export class NetSystem implements System, NetApi {
     this.frameTimes[this.frameIdx] = dt * 1000;
     this.frameIdx = (this.frameIdx + 1) % this.frameTimes.length;
     this.frameCount++;
-    const now = performance.now();
+    const now = frameClock();
     this.frameAt = now;
     this.frameNo++;
     if (this.timers.length) {
@@ -2054,4 +2181,17 @@ interface Welcome {
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+}
+
+/**
+ * This frame's clock (ms, performance.now() domain): the animation-frame timestamp — the vsync time
+ * every rAF callback of the frame shares and the one the player's movement was integrated to — not
+ * performance.now() taken part-way through a busy frame. Stamping our state and sampling remote
+ * farmers on it keeps their motion even when CPU time before the net update varies frame to frame.
+ * Falls back to performance.now() outside a rendered frame (tests stepping by hand, hidden tab).
+ */
+function frameClock(): number {
+  const now = performance.now();
+  const t = typeof document !== 'undefined' ? Number(document.timeline?.currentTime) : NaN;
+  return Number.isFinite(t) && t <= now && now - t < 250 ? t : now;
 }

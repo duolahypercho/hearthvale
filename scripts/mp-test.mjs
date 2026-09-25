@@ -371,7 +371,9 @@ try {
     r.__orig = orig;
     r.push = (t, x, z, ...rest) => { window.__raw.push([performance.now(), t, x]); return orig(t, x, z, ...rest); };
     window.__samp = [];
-    const tick = () => { window.__samp.push([performance.now(), r.farmer.position.x, r.farmer.position.z]); window.__raf = requestAnimationFrame(tick); };
+    // Stamped with the animation-frame time (the vsync the frame is shown on; the game samples remote
+    // farmers on the same clock), not whenever this callback runs inside a busy frame.
+    const tick = (ts) => { window.__samp.push([ts ?? Number(document.timeline.currentTime), r.farmer.position.x, r.farmer.position.z]); window.__raf = requestAnimationFrame(tick); };
     tick();
   }, aIdNow);
   await a.keyboard.down('KeyD');

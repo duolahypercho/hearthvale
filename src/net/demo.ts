@@ -12,6 +12,7 @@ import { IMPACT } from '../entities/farmer-actions';
 import { PRESET_LOOKS, hex } from '../entities/remote-look';
 import { DEBRIS } from './farmsync';
 import type { RemotePlayer } from './players';
+import type { DayTally } from './system';
 import type { EmoteId } from '../entities/remote-emotes';
 
 interface Bot {
@@ -32,6 +33,8 @@ const yawOf = (f: Facing): number => (f === 'down' ? 0 : f === 'up' ? Math.PI : 
 
 export class CoopDemo {
   active = false;
+  /** coop-bedtime: the farmhands are in their cabins (no scripts run). */
+  private asleep = false;
   private bots: Bot[] = [];
 
   constructor(
@@ -47,7 +50,9 @@ export class CoopDemo {
     if (this.net.role() !== 'solo') return;
     this.clear();
     this.active = true;
-    void name;
+    this.asleep = false;
+    // The staged host is Marigold (as in the coop-lobby demo), unless you've named your farmer.
+    this.net.demoName('Marigold');
     const names = ['Juniper', 'Pip', 'Rowan'];
     const mk = (i: number, x: number, z: number, facing: Facing, script: Bot['script']): Bot => {
       const p = this.net.remotes.add(i + 2, names[i]!, PRESET_LOOKS[i]!);
@@ -100,29 +105,19 @@ export class CoopDemo {
           }
         }
       }),
-      // Pip: an armful of parsnips, strolling down the path toward the shipping bin (and back).
-      mk(1, 31.2, 20.6, 'down', (b, dt) => {
+      // Pip: strolling down the path toward the camera, then stopping at the bed's corner to look over
+      // the harvest (one way, so every still catches his face, never his back).
+      mk(1, 31.2, 22.4, 'down', (b, dt) => {
         b.t += dt;
         if (b.step === 0) {
-          // down the path toward the camera…
           b.facing = 'down';
           b.z += dt * 1.7;
           b.p.farmer.speed = 1.7;
-          if (b.z >= 26.2) {
+          if (b.z >= 25.6) {
             b.step = 1;
             b.t = 0;
           }
-        } else if (b.step === 1) {
-          // …a breather at the bottom…
-          b.facing = 'down';
-          if (b.t > 4) b.step = 2;
-        } else {
-          // …and a quick trot back up.
-          b.facing = 'up';
-          b.z -= dt * 4;
-          b.p.farmer.speed = 4;
-          if (b.z <= 20.6) b.step = 0;
-        }
+        } else b.facing = 'down';
       }),
       // Rowan: at the bed's west end, facing everyone, calling them over for coffee.
       mk(2, BED.x0 - 0.85, BED.z0 + 0.7, 'down', (b) => {
@@ -138,12 +133,27 @@ export class CoopDemo {
       const p = this.net.remotes.get(id);
       if (p) this.game.events.emit('net:chat', { id, name: p.name, text, color: hex(p.look.scarf) });
     };
-    line(3, 'Cauliflowers are watered!');
-    line(2, 'Strawberries are ripe! Grab a basket');
+    if (name === 'coop-bedtime') {
+      line(2, 'Night, all! Bin run at six?');
+      line(3, 'Left you a coffee on the porch');
+      line(4, 'zzz');
+    } else {
+      line(3, 'Cauliflowers are watered!');
+      line(2, 'Strawberries are ripe! Grab a basket');
+    }
     this.bots[0]!.p.chat('Race you to the bin after this row', 1e6);
     // Held emotes so stills always catch them.
     this.emote(this.bots[1]!, 'music', true);
     this.emote(this.bots[2]!, 'heart', true);
+    if (name === 'coop-bedtime') {
+      // Everyone else has turned in: the farmhands are asleep in their cabins, you're the one still up.
+      for (const b of this.bots) {
+        b.p.ready = true;
+        b.p.map = 'cabin';
+      }
+      this.asleep = true;
+      this.game.events.emit('net:beds', { ready: [2, 3, 4], total: 4, sleeping: false });
+    }
     this.net.emitRoster();
   }
 
@@ -180,6 +190,20 @@ export class CoopDemo {
     });
   }
 
+  /** Staged "Farm today" tally for the day-end card (coop-dayend demo). */
+  tally(): DayTally[] {
+    const me = this.net.profile();
+    const shown = this.net.players().find((p) => p.isMe)?.name;
+    const rows: DayTally[] = [{ id: 1, name: shown || me.name || 'Farmer', look: me.look, isMe: true, n: [18, 24, 6, 12] }];
+    const work = [
+      [26, 8, 0, 6],
+      [4, 31, 12, 18],
+      [9, 14, 3, 0],
+    ];
+    this.bots.forEach((b, i) => rows.push({ id: b.p.id, name: b.p.name, look: b.p.look, isMe: false, n: work[i]! }));
+    return rows;
+  }
+
   private emote(b: Bot, e: EmoteId, hold = false): void {
     b.p.emote(e, hold ? 1e6 : undefined);
   }
@@ -189,11 +213,12 @@ export class CoopDemo {
     this.active = false;
     for (const b of this.bots) this.net.remotes.remove(b.p.id);
     this.bots = [];
+    this.net.demoName(null);
     this.net.refreshCabins();
   }
 
   update(dt: number, _time: number): void {
-    if (!this.active) return;
+    if (!this.active || this.asleep) return;
     for (const b of this.bots) {
       if (b.acting > 0) b.acting -= dt;
       b.p.farmer.speed = 0;
