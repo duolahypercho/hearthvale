@@ -25,6 +25,7 @@ import { mergeStatic } from '../geom';
 import { BatchPool, InstancedSet } from '../props/instanced';
 import { FountainFX } from './fountain';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
+import { buildNoticeOverlay } from './notices';
 import { buildSnowmen, buildSweptPaths } from './winter';
 import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
@@ -548,6 +549,15 @@ export class TownMap implements GameMap {
           break;
       }
       this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid);
+      if (p.kind === 'noticeBoard') {
+        // The notes on the board, painted (a separate quad: the board itself merges into the batches).
+        const o = buildNoticeOverlay();
+        const holder = new THREE.Group();
+        holder.position.set(p.x, this.terrain.heightAt(p.x, p.z) - 0.03, p.z);
+        holder.rotation.y = p.rot ?? 0;
+        holder.add(o);
+        this.root.add(holder);
+      }
       if (p.kind !== 'hedge') this.terrain.stampCover('ao', p.x, p.z, p.kind === 'fountain' ? 2.8 : p.kind === 'marketStall' ? 1.6 : 0.6, 0.6);
     }
     this.grid.forEach((x, z) => {

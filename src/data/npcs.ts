@@ -132,7 +132,7 @@ export interface HeartEvent {
   camera: { x: number; z: number; yaw?: number; pitch?: number; distance?: number };
   script: CutStep[];
   /** Extra actors spawned for the scene (e.g. Pip the shop cat): at [x, z], height above ground. */
-  props?: { kind: 'cat'; at: [number, number]; y?: number; rot?: number; pose?: 'sit' | 'curl'; scale?: number }[];
+  props?: { kind: 'cat' | 'candle'; at: [number, number]; y?: number; rot?: number; pose?: 'sit' | 'curl'; scale?: number; /** A line containing this word frames the prop with the speaker. */ word?: string }[];
 }
 
 export interface GiftTastes {
@@ -184,11 +184,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [19, 'bench_sw', 'sit'],
       [21, 'door:general_store', 'inside'],
     ],
-    rainSchedule: [
-      [6, 'door:general_store', 'inside'],
-      [12, 'store_counter', 'idle'],
-      [13, 'door:general_store', 'inside'],
-    ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:general_store', 'inside'], [9.5, 'store_front', 'idle'], [11, 'door:general_store', 'inside'], [12, 'store_counter', 'idle'], [13, 'notice', 'read'], [14.5, 'door:general_store', 'inside'], [16, 'store_front', 'idle'], [17.5, 'door:general_store', 'inside']],
     gifts: { love: ['strawberry', 'sunflower', 'teaLeaves'], like: ['parsnip', 'potato', 'cauliflower'], dislike: ['stone', 'fiber'] },
     giftLines: {
       love: '[blush] Oh! Oh, you shouldn’t have. No, I mean it, you really shouldn’t — now I have to find a vase worthy of it!',
@@ -226,6 +223,13 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'I might sell it to Glimmerco.', reply: '[angry] …I’m going to pretend the wind said that.', delta: -10 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[sad] Rosalind — your gran — used to sit on that bench with me every market day. Some mornings I still save her the good chair.',
+        ],
       },
     ],
     events: [
@@ -306,11 +310,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [18, 'inn_front', 'chat'],
       [21.5, 'door:bakery', 'inside'],
     ],
-    rainSchedule: [
-      [6, 'door:bakery', 'inside'],
-      [18, 'inn_front', 'chat'],
-      [21, 'door:bakery', 'inside'],
-    ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:bakery', 'inside'], [10, 'bakery_front', 'idle'], [11.5, 'door:bakery', 'inside'], [14, 'cafe', 'sit'], [15.5, 'door:bakery', 'inside'], [18, 'inn_front', 'chat'], [21, 'door:bakery', 'inside']],
     gifts: { love: ['pumpkin', 'corn', 'wheat'], like: ['tomato', 'potato', 'strawberry'], dislike: ['fiber', 'stone'] },
     giftLines: {
       love: '[laugh] HO! Now THAT is a proper gift. I can smell the pie already. I can smell three pies.',
@@ -336,6 +337,14 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'Cut it off, please.', reply: '[surprised] …I’ll pray for you.', delta: 0 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[sad] Burnt a whole tray of honey buns this morning. Not the buns’ fault. Mine. Some days the oven knows you’re somewhere else.',
+          '[angry] Someone’s been feeding my sourdough starter SUGAR. Sugar! Whoever it was owes Gerald an apology.',
+        ],
       },
     ],
     events: [
@@ -410,12 +419,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [20, 'fountain_s', 'sit'],
       [22.5, 'door:cottage_west', 'inside'],
     ],
-    rainSchedule: [
-      [6, 'door:cottage_west', 'inside'],
-      [10, 'inn_front', 'idle'],
-      [11, 'door:inn', 'inside'],
-      [18, 'door:cottage_west', 'inside'],
-    ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:cottage_west', 'inside'], [9, 'fountain_w', 'idle'], [10, 'inn_front', 'idle'], [11, 'door:inn', 'inside'], [13, 'bridge_mid', 'lean'], [15, 'fountain_s', 'idle'], [16.5, 'door:cottage_west', 'inside']],
     gifts: { love: ['cauliflower', 'sunflower', 'amethyst'], like: ['strawberry', 'kale', 'pondPerch'], dislike: ['wood', 'stone'] },
     giftLines: {
       love: '[surprised] Is this for me? Look at the COLOUR of it. Hold still — no, the gift, hold the gift still, I need to sketch it!',
@@ -442,6 +447,14 @@ export const NPCS: Record<NpcId, NpcDef> = {
           ],
         },
       },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[sad] Mum wrote. She asked if I’ve “got it out of my system yet.” The painting, she means. Like it’s a cold.',
+          '[angry] The Glimmerco van parked right in front of my view. For an HOUR. I painted it as a big grey slug. Out of spite.',
+        ],
+      },
     ],
     events: [
       {
@@ -451,7 +464,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [8, 18],
         dry: true,
         demoTime: 16.8,
-        cast: { wren: ['easel_river', 'right'], player: [[57.6, 23.8], 'right'] },
+        cast: { wren: ['easel_river', 'right'], player: [[60.6, 22.9], 'up'] },
         camera: { x: 60.2, z: 23.2, yaw: -10, pitch: 40, distance: 15 },
         script: [
           { act: 'wren', activity: 'paint' },
@@ -518,6 +531,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [19.5, 'inn_front', 'chat'],
       [22, 'door:forge', 'inside'],
     ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'forge_anvil', 'hammer'], [12, 'inn_tables', 'sit'], [13, 'forge_anvil', 'hammer'], [18, 'inn_front', 'chat'], [22, 'door:forge', 'inside']],
     gifts: { love: ['copperOre', 'ironOre', 'goldOre', 'pumpkin'], like: ['stone', 'coal', 'corn'], dislike: ['sunflower', 'strawberry'] },
     giftLines: {
       love: '[surprised] …Huh. That’s actually good. That’s really good. You’ve got an eye. Don’t let it go to your head.',
@@ -543,6 +558,15 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'Teach me sometime?', reply: '[surprised] …Maybe. If you show up at six. Not five past. Six.', delta: 20 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[laugh] Ha! You should’ve seen Rowan’s face when the bellows sneezed soot all over him. Best thing that’s happened all week.',
+          '[sad] My old master’s hammer cracked today. Forty years it rang on that anvil and I couldn’t mend it. Some things you can’t.',
+          '[worried] Coal’s running low and the pass might snow in early. If the forge goes cold, half this town’s hinges go with it.',
+        ],
       },
     ],
     events: [
@@ -617,6 +641,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [19, 'inn_tables', 'read'],
       [21.5, 'door:clinic', 'inside'],
     ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:clinic', 'inside'], [8.5, 'fountain_e', 'chat'], [10, 'door:clinic', 'inside'], [12, 'bench_se', 'read'], [13, 'door:clinic', 'inside'], [13.75, 'store_front', 'idle'], [14.75, 'door:clinic', 'inside'], [17, 'fountain_e', 'idle'], [18.5, 'inn_tables', 'read'], [21.5, 'door:clinic', 'inside']],
     gifts: { love: ['kale', 'teaLeaves', 'frostPike'], like: ['cauliflower', 'potato', 'parsnip'], dislike: ['pumpkin', 'corn'] },
     giftLines: {
       love: '[surprised] Oh! This is… extraordinarily kind. And rich in iron. I shall eat it slowly and with gratitude.',
@@ -641,6 +667,15 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'I stay up past midnight a lot.', reply: '[worried] Past two and you’ll collapse in a field. I’ve seen it. Please don’t make me see it again.', delta: 15 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[laugh] Kit came in claiming a frog bit him. The frog, I’m told, is fine. I laughed. Don’t tell Kit I laughed.',
+          '[sad] I couldn’t save everyone, back in the city. It’s why I came here. Small town, small hurts. Mostly.',
+          '[angry] Three people this week with blisters from Glimmerco boots. Three! Cheap soles and cheaper promises.',
+        ],
       },
     ],
     events: [
@@ -713,6 +748,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [17, 'inn_front', 'chat'],
       [18, 'door:inn', 'inside'],
     ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:inn', 'inside'], [8, 'inn_front', 'idle'], [9.5, 'fountain_s', 'chat'], [11, 'market_flowers', 'chat'], [12.5, 'door:inn', 'inside'], [15, 'inn_front', 'idle'], [16, 'door:inn', 'inside']],
     gifts: { love: ['tomato', 'strawberry', 'lanternEel'], like: ['corn', 'potato', 'pondPerch', 'mossCarp'], dislike: ['fiber', 'wood'] },
     giftLines: {
       love: '[laugh] Oh, you absolute darling! That’s going on tonight’s menu, with your name on the chalkboard. In big letters.',
@@ -738,6 +775,15 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'Thin, with lots of bread.', reply: '[thinking] Hm. A dunker. I can respect a dunker.', delta: 10 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[sad] The inn’s too quiet on storm nights. Dad would’ve had everyone singing by now. I never learned all the words.',
+          '[angry] Somebody left the terrace gate open and the wind’s had half my good napkins into the river!',
+          '[surprised] You walked all the way here in THIS? Get in, get in — I’ll put the kettle on before you catch your death.',
+        ],
       },
     ],
     events: [
@@ -772,8 +818,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hearts: 4,
         title: 'A Candle in the Window',
         hours: [21, 26],
-        cast: { june: [[80.6, 29.8], 'up'], player: [[78.6, 27.2], 'right'] },
-        camera: { x: 79.6, z: 29.2, yaw: 174, pitch: 46, distance: 14 },
+        cast: { june: [[81.8, 30.4], 'up'], player: [[79.4, 28.4], 'right'] },
+        camera: { x: 80.6, z: 29.6, yaw: 168, pitch: 42, distance: 12 },
+        props: [{ kind: 'candle', at: [82.9, 31.7], y: 1.02, word: 'candle' }],
         script: [
           { say: 'june', text: 'Oh — still up? I was just setting out Dad’s candle.', mood: 'surprised' },
           { say: 'june', text: 'He said a town is only as warm as its last lit window. I’ve never missed a night. Not one.', mood: 'thinking' },
@@ -811,12 +858,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [18.5, 'hall_lantern', 'idle'],
       [20, 'door:keeper_cottage', 'inside'],
     ],
-    rainSchedule: [
-      [6, 'door:keeper_cottage', 'inside'],
-      [15, 'inn_front', 'idle'],
-      [15.5, 'door:inn', 'inside'],
-      [19, 'door:keeper_cottage', 'inside'],
-    ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:keeper_cottage', 'inside'], [9, 'hall_lantern', 'idle'], [10.5, 'door:keeper_cottage', 'inside'], [12.5, 'fountain_w', 'idle'], [14.25, 'hall_steps', 'idle'], [15, 'inn_front', 'idle'], [15.5, 'door:inn', 'inside'], [19, 'door:keeper_cottage', 'inside']],
     gifts: { love: ['parsnip', 'teaLeaves', 'mossCarp'], like: ['potato', 'kale', 'wood'], dislike: ['tomato'] },
     giftLines: {
       love: '[laugh] Heh heh! Now that’s a gift. Rosalind used to bring me these. You’ve got her knack.',
@@ -841,6 +884,14 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'Towns are just buildings.', reply: '[sad] Maybe for you. Give it a winter. Then tell me again.', delta: 5 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[angry] Glimmerco lamps! Bulbs that never flicker. A light that never flickers is a light nobody tends, and a light nobody tends is nobody’s.',
+          '[blush] Oh, go on. Rosalind said I had a lamplighter’s hands. Steady. …I’ll thank you not to tell anyone I went pink.',
+        ],
       },
     ],
     events: [
@@ -914,11 +965,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [16, 'hall_steps', 'sit'],
       [18, 'door:birch_house', 'inside'],
     ],
-    rainSchedule: [
-      [6, 'door:birch_house', 'inside'],
-      [10, 'plaza_play', 'play'],
-      [11.5, 'door:birch_house', 'inside'],
-    ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:birch_house', 'inside'], [9, 'plaza_play', 'play'], [11.5, 'door:birch_house', 'inside'], [13, 'fountain_w', 'play'], [15, 'plaza_play', 'play'], [16.5, 'door:birch_house', 'inside']],
     gifts: { love: ['strawberry', 'lanternEel', 'amethyst', 'frog'], like: ['corn', 'pondPerch', 'stone'], dislike: ['kale', 'cauliflower'] },
     giftLines: {
       love: '[laugh] WHOA. For ME? This is going in the treasure box. The SECRET treasure box. Forget I said that.',
@@ -943,6 +991,14 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'Sea monsters. They’re mysterious.', reply: '[surprised] …Whoa. I never thought of it like that. Okay, TIE.', delta: 15 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[sad] Rowan says I’m too little to help with the swing. I’m not little. I’m medium. I’m MEDIUM.',
+          '[worried] Have you seen a frog about this big? Brown? Answers to Sir Hopsalot? He was in my pocket and now he isn’t.',
+        ],
       },
     ],
     events: [
@@ -1017,6 +1073,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [18.5, 'inn_tables', 'sit'],
       [23, 'door:birch_house', 'inside'],
     ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:birch_house', 'inside'], [8, 'lumber_yard', 'saw'], [12, 'inn_tables', 'sit'], [13, 'inn_front', 'lean'], [15, 'lumber_yard', 'saw'], [18.5, 'inn_tables', 'sit'], [23, 'door:birch_house', 'inside']],
     gifts: { love: ['wood', 'corn', 'pumpkin'], like: ['potato', 'mossCarp', 'tomato'], dislike: ['sunflower'] },
     giftLines: {
       love: '[laugh] Aw, now that’s a good one. Straight grain and everything. You know the way to a carpenter’s heart.',
@@ -1041,6 +1099,14 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'Fine! I built them myself.', reply: '[laugh] Ha, then I’ll be seeing you soon. They always say that.', delta: 10 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[angry] Somebody “borrowed” my good plane and brought it back with a nick in the blade. You don’t do that to a plane.',
+          '[surprised] Oh! Didn’t hear you come up. I was counting boards. Lost count. Now I have to start again. Thanks.',
+        ],
       },
     ],
     events: [
@@ -1115,11 +1181,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [17.5, 'bench_sw', 'sit'],
       [19.5, 'door:cottage_east', 'inside'],
     ],
-    rainSchedule: [
-      [6, 'door:cottage_east', 'inside'],
-      [12, 'garden_east', 'idle'],
-      [13, 'door:cottage_east', 'inside'],
-    ],
+    // Rainy days: umbrellas up — errands, the inn awning, puddles on the square.
+    rainSchedule: [[6, 'door:cottage_east', 'inside'], [9, 'garden_east', 'idle'], [10.5, 'market_flowers', 'idle'], [12, 'fountain_e', 'chat'], [13, 'planters_hall', 'idle'], [14.5, 'door:cottage_east', 'inside'], [15.5, 'market_flowers', 'idle'], [16.5, 'door:cottage_east', 'inside']],
     gifts: { love: ['sunflower', 'cauliflower', 'strawberry'], like: ['parsnip', 'kale', 'fiber'], dislike: ['stone', 'lanternEel'] },
     giftLines: {
       love: '[blush] Oh my stars. You grew this? Look at the leaves on it. You’ve got green hands, dear. Not thumbs. Hands.',
@@ -1145,6 +1208,14 @@ export const NPCS: Record<NpcId, NpcDef> = {
             { text: 'Roses. They take real care.', reply: '[blush] A gardener’s answer. You’ll have scratched hands and a full heart.', delta: 15 },
           ],
         },
+      },
+      // Storm days: the moods the rest of the year rarely shows.
+      {
+        weather: ['storm'],
+        lines: [
+          '[sad] The old rose by the hall didn’t wake up this spring. Forty years it bloomed. I’ll plant a cutting, but it won’t be the same rose.',
+          '[angry] Aphids. On my sweet peas. I have declared war, dear, and I intend to be merciless about it.',
+        ],
       },
     ],
     events: [

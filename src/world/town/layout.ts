@@ -158,7 +158,7 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'crates', x: 50.9, z: 29.9, rot: -0.4, solid: [[50, 29]] },
   // Road lamps (the east road + bridge + lanes).
   { kind: 'lampLit', x: 46.4, z: 23.2, rot: Math.PI, solid: [[46, 23]] },
-  { kind: 'lamp', x: 58.8, z: 23.3, rot: Math.PI, solid: [[58, 23]] },
+  { kind: 'lamp', x: 57.4, z: 23.9, rot: Math.PI, solid: [[57, 23]] },
   { kind: 'lamp', x: 69.8, z: 27.3, rot: 0, solid: [[69, 27]] },
   { kind: 'lampLit', x: 76.0, z: 27.1, rot: 0, solid: [[76, 27]] },
   { kind: 'lamp', x: 88.6, z: 23.4, rot: Math.PI, solid: [[88, 23]] },
@@ -169,7 +169,8 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'bench', x: 57.6, z: 33.6, rot: -Math.PI / 2 - 0.2, solid: [[57, 33]] },
   { kind: 'dock', x: 62.6, z: 36.6, rot: Math.PI },
   { kind: 'rowboat', x: 62.9, z: 39.6, rot: 0.5 },
-  { kind: 'easel', x: 60.1, z: 22.3, rot: -Math.PI / 2 + 0.2, solid: [[60, 22]] },
+  // Turned to the south-west: the painter works from its left, so her face and the canvas share a view.
+  { kind: 'easel', x: 60.25, z: 20.95, rot: -Math.PI / 2 + 0.75, solid: [[60, 20]] },
   { kind: 'easel', x: 26.5, z: 23.2, rot: -1.83 },
   // Forge yard.
   { kind: 'barrel', x: 81.6, z: 18.8, solid: [[81, 18]] },
@@ -274,6 +275,19 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'planter', x: 43.2, z: 35.8, colors: [0xffffff, 0xc77dff, 0xff8fab], solid: [[43, 35]] },
   { kind: 'flowerPot', x: 38.9, z: 36.1, colors: [0xff7aa2] },
   { kind: 'sandwichBoard', x: 35.4, z: 36.6, rot: -0.3, colors: [0x2f4a3e] },
+  // Meadow Lane allotment (south lawn): fenced raised beds, a wheelbarrow, hives and pots, so the
+  // south view has a lived-in foreground instead of bare lawn under tree blobs.
+  { kind: 'vegBed', x: 27.4, z: 54.6, rot: 0, solid: [[26, 54], [27, 54], [28, 54]] },
+  { kind: 'vegBed', x: 27.4, z: 56.6, rot: 0, solid: [[26, 56], [27, 56], [28, 56]] },
+  { kind: 'fence', x: 27.4, z: 55.6, pts: [[-2.3, -1.6], [-2.3, 2.2], [2.3, 2.2], [2.3, 0.6]], solid: [[25, 57], [29, 57]] },
+  { kind: 'wheelbarrow', x: 31.2, z: 54.4, rot: 0.9, solid: [[31, 54]] },
+  { kind: 'beehive', x: 37.8, z: 55.2, rot: -0.3, solid: [[37, 55]] },
+  { kind: 'beehive', x: 38.9, z: 55.9, rot: 0.2, solid: [[38, 55]] },
+  { kind: 'planter', x: 35.2, z: 54.2, colors: [0xffd166, 0xff8fab, 0xffffff], solid: [[35, 54]] },
+  { kind: 'flowerPot', x: 33.6, z: 53.9, colors: [0xc77dff] },
+  { kind: 'flowerPot', x: 24.1, z: 53.6, colors: [0xff7aa2] },
+  { kind: 'sacks', x: 30.2, z: 56.4, rot: 0.4 },
+  { kind: 'crates', x: 41.6, z: 54.2, rot: -0.3, solid: [[41, 54]] },
 ];
 
 /** Extra trees: [species, x, z, scale]. */
@@ -290,11 +304,10 @@ export const EXTRA_TREES: ['oak' | 'maple' | 'pine' | 'blossom', number, number,
   ['pine', 94.6, 44.4, 1.0],
   ['maple', 69.8, 12.6, 0.95],
   ['oak', 90.8, 54.6, 1.0],
-  // Meadow Lane orchard.
-  ['blossom', 19.5, 56.0, 0.85],
-  ['oak', 27.5, 56.6, 0.95],
-  ['blossom', 36.8, 56.2, 0.9],
-  ['maple', 44.5, 56.8, 0.95],
+  // Meadow Lane orchard: two old trees at the lawn's corners (the middle is the allotment now, so
+  // the south view isn't a wall of canopy).
+  ['blossom', 15.8, 58.6, 0.85],
+  ['maple', 48.2, 59.4, 0.95],
 ];
 
 /** Square trees moved out of heart-event sight lines: [fromX, fromZ, toX, toZ]. */
@@ -321,7 +334,7 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   plaza_play: [36.4, 32.4, 'down'],
   market_produce: [50.4, 23.1, 'up'],
   market_flowers: [55.6, 23.2, 'up'],
-  easel_river: [59.3, 22.5, 'right'],
+  easel_river: [59.6, 21.6, 2.32],
   easel_plaza: [25.4, 22.9, 1.3],
   bridge_mid: [64.4, 26.25, 'down'],
   river_dock: [61.3, 36.6, 'right'],

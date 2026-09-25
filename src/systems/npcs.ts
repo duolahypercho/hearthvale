@@ -23,9 +23,10 @@ import type { Game } from '../core/game';
 import type { Facing } from '../core/events';
 import { NPCS, NPC_IDS, pickGroup, heartEvent, type NpcId, type NpcLook, type NpcDef, type Activity, type Ask, type HeartEvent, type CutStep, type Place, type Who, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
-import { Villager, buildCat, MOOD_GESTURE, ReactionFx } from '../entities/villager';
-import { SPOTS, NEW_BUILDINGS } from '../world/town/layout';
-import { BUILDINGS } from '../data/town-layout';
+import { Villager, buildCat, buildCandle, MOOD_GESTURE, ReactionFx } from '../entities/villager';
+import { SPOTS, NEW_BUILDINGS, EXTRA_PROPS, FESTOON_POLES, BRIDGES } from '../world/town/layout';
+import { BUILDINGS, TOWN_PROPS } from '../data/town-layout';
+import type { Festoons } from '../world/town/festoons';
 import { itemIconUrl } from '../ui/icons';
 import { findPath, type Waypoint } from '../world/town/pathfind';
 import { SocialPanel, PortraitSheetPanel } from '../ui/dialogue';
@@ -58,6 +59,8 @@ export interface NpcApi {
    * Trees in the way are listed too (they are hidden at run time). Empty `fails` = all clear.
    */
   auditEvents(id?: string): { beats: number; fails: string[]; trees: number };
+  /** Closest pair of visible villagers (m) — nobody may stand inside anybody. */
+  minGap(): { d: number; a: string; b: string };
 }
 
 declare module '../core/game' {
@@ -152,7 +155,40 @@ interface Agent {
   staged?: boolean;
   /** Seconds until this villager may wave at a passing farmer again. */
   greetT?: number;
+  /** Quarter-hour index until which the villager is out on an errand (a walk to another spot). */
+  errandUntil?: number;
 }
+
+/**
+ * Small props a standing villager must keep clear of (radius, m): A-boards, chalk boards, barrels,
+ * pots, lamp posts, crates… Spot slots and event marks are pushed out by radius + 0.45 (an actor capsule).
+ */
+const CLEAR_R: Record<string, number> = {
+  sandwichBoard: 0.42, chalkBoard: 0.5, barrel: 0.42, flowerPot: 0.28, lanternPost: 0.26, lamp: 0.26, lampLit: 0.26,
+  crateStack: 0.6, crates: 0.6, sacks: 0.45, signpost: 0.28, mailbox: 0.28, wheelbarrow: 0.7, bicycle: 0.7, flowerCart: 0.9, well: 1.0,
+};
+const PROP_CLEAR: { x: number; z: number; r: number }[] = [
+  ...TOWN_PROPS.filter((p) => CLEAR_R[p.kind]).map((p) => ({ x: p.x, z: p.z, r: CLEAR_R[p.kind]! })),
+  ...EXTRA_PROPS.filter((p) => CLEAR_R[p.kind]).map((p) => ({ x: p.x, z: p.z, r: CLEAR_R[p.kind]! })),
+];
+/** Thin vertical occluders (lamp posts, festoon poles): a lens whose sight line grazes one is rejected. */
+const POSTS: { x: number; z: number }[] = [
+  ...TOWN_PROPS.filter((p) => p.kind === 'lanternPost').map((p) => ({ x: p.x, z: p.z })),
+  ...EXTRA_PROPS.filter((p) => p.kind === 'lamp' || p.kind === 'lampLit' || p.kind === 'signpost').map((p) => ({ x: p.x, z: p.z })),
+  ...FESTOON_POLES.map(([x, z]) => ({ x, z })),
+  // Stone-bridge end pillars (parapet posts at each corner).
+  ...BRIDGES.filter((b) => b.kind === 'stone').flatMap((b) => [-1, 1].flatMap((sx) => [-1, 1].map((sz) => ({ x: b.x + (sx * b.len) / 2, z: b.z + (sz * b.width) / 2 })))),
+];
+/** Errand destinations: the everyday walks between shops, the board, the square and the river. */
+const ERRANDS = ['notice', 'fountain_e', 'fountain_w', 'fountain_s', 'market_produce', 'bakery_front', 'store_front', 'planters_hall', 'bridge_mid', 'river_walk', 'inn_front', 'garden_east'];
+/** A small deterministic hash (co-op clients roll the same errands from the shared calendar). */
+function hash3(a: number, b: number, c: number): number {
+  let h = (a * 374761393 + b * 668265263 + c * 2147483647) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+/** Portrait mood a held emote implies (staged demo faces agree with their bubbles). */
+const EMOTE_MOOD: Partial<Record<Emote, string>> = { heart: 'happy', music: 'happy', exclaim: 'surprised', idea: 'happy', question: 'thinking', sweat: 'worried', anger: 'angry', sad: 'sad' };
 
 export class NpcSystem implements System {
   readonly name = 'npcs';
@@ -177,7 +213,7 @@ export class NpcSystem implements System {
   /** Who the director frames: a heart event's cast, or the farmer + the villager being talked to. */
   private camMode: 'event' | 'talk' | null = null;
   /** Current shot: wide (establishing / walks / narration), two-shot, or a close-up on the speaker. */
-  private shot: { kind: 'wide' | 'two' | 'close'; speaker: NpcId | null; anchor: { x: number; z: number; yaw?: number; pitch?: number; distance?: number } | null } = { kind: 'wide', speaker: null, anchor: null };
+  private shot: { kind: 'wide' | 'two' | 'close'; speaker: NpcId | null; anchor: { x: number; z: number; yaw?: number; pitch?: number; distance?: number } | null; prop?: THREE.Object3D } = { kind: 'wide', speaker: null, anchor: null };
   private baseYaw = 0;
   private camCur = { yaw: 0, pitch: 45, dist: 15, target: new THREE.Vector3(), set: false };
   private camPick: { key: string; t: number; dy: number; dp: number; k: number } = { key: '', t: 0, dy: 0, dp: 0, k: 1 };
@@ -220,17 +256,20 @@ export class NpcSystem implements System {
       stageEvent: (id, step) => this.stageEvent(id, step),
       seenEvents: () => [...this.seen],
       auditEvents: (id) => this.auditEvents(id),
+      minGap: () => this.minGap(),
     });
     game.hud.registerPanel('social', new SocialPanel(game, game.hud.root));
     game.hud.registerPanel('portraits', new PortraitSheetPanel(game, game.hud.root));
     game.events.on('player:interact', ({ x, z }) => this.tryTalk(x, z));
     game.events.on('ui:close', ({ name }) => {
       if (name !== 'dialogue') return;
+      this.closedAt = this.clock;
       // The clock stands still while you read.
       if (!this.eventRunning) game.calendar.frozen = game.paused;
       if (this.talking) {
         this.talking.v.talkTo = null;
         this.talking.v.speaking = false;
+        this.talking.v.setMood('neutral');
         this.talking = null;
       }
       if (this.camMode === 'talk') this.releaseCam();
@@ -246,6 +285,8 @@ export class NpcSystem implements System {
     game.events.on('npc:line', ({ id, mood }) => {
       const a = this.agents.get(id as NpcId);
       const g = MOOD_GESTURE[mood];
+      // The 3D face wears the same mood as the portrait (brows, eyes, mouth, tear, blush).
+      a?.v.setMood(mood);
       if (a && g) a.v.gesture(g, mood === 'sad' || mood === 'thinking' ? 3.2 : 2.4);
     });
     game.events.on('npc:gift', ({ npcId, itemId, reaction }) => this.giftJuice(npcId as NpcId, itemId, reaction));
@@ -280,18 +321,10 @@ export class NpcSystem implements System {
     // One press = one conversation: the player's fixed-step loop can re-emit 'interact' on every
     // substep of a frame; once the box is open (or input is off) further presses are ignored.
     if (!this.active || this.eventRunning || this.talking || this.game.hud.openPanelName || !this.game.input.enabled) return;
+    // The press that closed a conversation must not open the next one.
+    if (this.clock - this.closedAt < 0.35) return;
+    const best = this.reachable(x, z);
     const p = this.game.player.position;
-    let best: Agent | null = null;
-    let bd = 1.45;
-    for (const a of this.agents.values()) {
-      if (a.inside || a.vis < 0.5) continue;
-      const v = a.v;
-      const d = Math.min(Math.hypot(v.position.x - (x + 0.5), v.position.z - (z + 0.5)), Math.hypot(v.position.x - p.x, v.position.z - p.z) - 0.4);
-      if (d < bd) {
-        bd = d;
-        best = a;
-      }
-    }
     if (!best) return;
     this.talking = best;
     best.v.talkTo = p;
@@ -301,6 +334,29 @@ export class NpcSystem implements System {
     this.game.events.emit('ui:open', { name: gift ? `dialogue:${best.def.id}/gift/${sel.id}` : `dialogue:${best.def.id}` });
     this.game.events.emit('npc:talk', { id: best.def.id });
     this.startTalkCam();
+  }
+
+  /**
+   * The villager a talk press would reach: within 1.85 m of the farmer (or 1.45 m of the tile they
+   * face), nearest first — the same test drives the "Talk / Give" prompt, so the prompt never lies.
+   */
+  private reachable(x?: number, z?: number): Agent | null {
+    const p = this.game.player.position;
+    let best: Agent | null = null;
+    let bd = Infinity;
+    for (const a of this.agents.values()) {
+      if (a.inside || a.vis < 0.5 || a.scripted) continue;
+      const v = a.v;
+      const dp = Math.hypot(v.position.x - p.x, v.position.z - p.z);
+      const dt = x === undefined || z === undefined ? Infinity : Math.hypot(v.position.x - (x + 0.5), v.position.z - (z + 0.5));
+      const ok = dp < 1.85 || dt < 1.45;
+      const d = Math.min(dp, dt + 0.2);
+      if (ok && d < bd) {
+        bd = d;
+        best = a;
+      }
+    }
+    return best;
   }
 
   /** Conversations lean in: a gentle two-shot of the farmer and the villager, above the dialogue box. */
@@ -374,7 +430,70 @@ export class NpcSystem implements System {
 
   private place(p: Place): { x: number; z: number; yaw: number } | null {
     if (typeof p === 'string') return this.spot(p);
-    return { x: p[0], z: p[1], yaw: 0 };
+    const c = NpcSystem.clearOf(p[0], p[1]);
+    return { x: c.x, z: c.z, yaw: 0 };
+  }
+
+  /** Push a standing point out of any small prop's footprint (A-boards, barrels, lamp posts…). */
+  static clearOf(x: number, z: number, pad = 0.45): { x: number; z: number } {
+    for (let it = 0; it < 3; it++) {
+      let moved = false;
+      for (const c of PROP_CLEAR) {
+        const dx = x - c.x;
+        const dz = z - c.z;
+        const d = Math.hypot(dx, dz);
+        const need = c.r + pad;
+        if (d >= need) continue;
+        const k = d > 1e-3 ? need / d : 1;
+        x = c.x + (d > 1e-3 ? dx : 0) * k;
+        z = c.z + (d > 1e-3 ? dz : need);
+        moved = true;
+      }
+      if (!moved) break;
+    }
+    return { x, z };
+  }
+
+  /** spot#slot → villager. Two villagers sent to one spot stand side by side (or face to face), never inside each other. */
+  private claims = new Map<string, NpcId>();
+  private closedAt = -1;
+  private claimOf = new Map<NpcId, string>();
+
+  private releaseClaim(a: Agent): void {
+    const k = this.claimOf.get(a.def.id);
+    if (k) this.claims.delete(k);
+    this.claimOf.delete(a.def.id);
+  }
+
+  /**
+   * Resolve a schedule spot to a free sub-slot: the spot itself, then ±0.95 m to its sides (±0.62 m
+   * along a bench), then two a step behind — walkable, clear of props and claimed until the villager
+   * moves on.
+   */
+  private claimSpot(a: Agent, spotName: string, act: Activity): { x: number; z: number; yaw: number } | null {
+    this.releaseClaim(a);
+    const s = this.spot(spotName);
+    if (!s) return null;
+    if (act === 'inside') return s;
+    const map = this.game.world.current;
+    const fx = Math.sin(s.yaw);
+    const fz = Math.cos(s.yaw);
+    const lat = act === 'sit' ? 0.62 : 0.95;
+    const offs: [number, number][] = [[0, 0], [lat, 0], [-lat, 0], [0.55, -0.95], [-0.55, -0.95], [1.9, 0.1], [-1.9, 0.1]];
+    for (let i = 0; i < offs.length; i++) {
+      const key = `${spotName}#${i}`;
+      if (this.claims.has(key)) continue;
+      let x = s.x + fz * offs[i]![0] + fx * offs[i]![1];
+      let z = s.z - fx * offs[i]![0] + fz * offs[i]![1];
+      if (act !== 'sit' && act !== 'paint' && act !== 'hammer' && act !== 'knead' && act !== 'saw') ({ x, z } = NpcSystem.clearOf(x, z));
+      if (i > 0 && act !== 'sit' && map && !map.grid.isWalkable(Math.floor(x), Math.floor(z))) continue;
+      this.claims.set(key, a.def.id);
+      this.claimOf.set(a.def.id, key);
+      // Side slots of a chat spot turn a little in towards the middle (a loose conversation ring).
+      const yaw = act === 'chat' && i > 0 ? s.yaw + (offs[i]![0] > 0 ? 0.5 : -0.5) : s.yaw;
+      return { x, z, yaw };
+    }
+    return s;
   }
 
   private stepFor(a: Agent, hour: number): [number, string, Activity?] {
@@ -390,12 +509,16 @@ export class NpcSystem implements System {
     const map = this.game.world.current;
     if (!map) return;
     const hour = this.game.calendar.hour;
+    this.claims.clear();
+    this.claimOf.clear();
     for (const a of this.agents.values()) {
       a.staged = false;
+      a.errandUntil = undefined;
+      a.v.setMood('neutral');
       if (a.scripted) continue;
       const [, spotName, act] = this.stepFor(a, hour);
       a.stepKey = `${spotName}|${act ?? 'idle'}`;
-      const s = this.spot(spotName) ?? this.spot('fountain_s')!;
+      const s = this.claimSpot(a, spotName, act ?? 'idle') ?? this.spot('fountain_s')!;
       a.path = [];
       a.onArrive = null;
       a.v.stop();
@@ -429,7 +552,7 @@ export class NpcSystem implements System {
 
   private goTo(a: Agent, spotName: string, act: Activity): void {
     const map = this.game.world.current;
-    const s = this.spot(spotName);
+    const s = this.claimSpot(a, spotName, act);
     if (!map || !s) return;
     const wasInside = a.inside;
     if (wasInside) {
@@ -514,6 +637,7 @@ export class NpcSystem implements System {
         a.stepKey = '';
         a.staged = true;
         if (act === 'chat') a.v.speaking = !!emote;
+        a.v.setMood((emote && EMOTE_MOOD[emote]) || (act === 'chat' ? 'happy' : 'neutral'));
         if (emote) {
           a.v.emote(emote, 600);
           a.emoteT = 600;
@@ -621,7 +745,13 @@ export class NpcSystem implements System {
     if (w === 'player') {
       const f: Facing = Math.abs(Math.sin(yaw)) > Math.abs(Math.cos(yaw)) ? (Math.sin(yaw) > 0 ? 'right' : 'left') : Math.cos(yaw) > 0 ? 'down' : 'up';
       this.game.player.setFacing(f);
-    } else this.agents.get(w)?.v.faceYaw(yaw);
+    } else {
+      const a = this.agents.get(w);
+      a?.v.faceYaw(yaw);
+      // Turning to talk to someone puts the work down (head up, hands free); the painter keeps her
+      // easel so the canvas stays in the shot.
+      if (a && !(to in FACING_YAW) && (a.activity === 'saw' || a.activity === 'hammer' || a.activity === 'knead' || a.activity === 'sweep' || a.activity === 'water' || a.activity === 'fish' || a.activity === 'read')) this.setActivity(a, 'idle');
+    }
   }
 
   private wait(sec: number): Promise<void> {
@@ -656,6 +786,15 @@ export class NpcSystem implements System {
     }
     this.clearEventProps();
     for (const pr of ev.props ?? []) {
+      if (pr.kind === 'candle') {
+        const c = buildCandle();
+        c.position.set(pr.at[0], map.heightAt(pr.at[0], pr.at[1]) + (pr.y ?? 0), pr.at[1]);
+        c.scale.setScalar(pr.scale ?? 1);
+        c.userData.perfTag = 'npcs';
+        map.root.add(c);
+        this.eventProps.push(c);
+        continue;
+      }
       if (pr.kind !== 'cat') continue;
       // Pip is the town cat: the one napping on the plaza bench steps off stage meanwhile.
       const nap = map.poi?.cat?.[0];
@@ -683,9 +822,11 @@ export class NpcSystem implements System {
     this.hiddenCats = [];
     for (const o of this.eventProps) {
       o.removeFromParent();
-      const m = o as THREE.Mesh;
-      m.geometry?.dispose();
-      (m.material as THREE.Material | undefined)?.dispose();
+      o.traverse((c) => {
+        const m = c as THREE.Mesh;
+        m.geometry?.dispose();
+        (m.material as THREE.Material | undefined)?.dispose();
+      });
     }
     this.eventProps = [];
   }
@@ -745,8 +886,9 @@ export class NpcSystem implements System {
     this.camCur.dist = g.dist;
     this.camCur.target.copy(g.target);
     this.applyCam();
-    this.festoonGuard();
     this.game.rc.rig.snap();
+    this.game.rc.camera.updateMatrixWorld(true);
+    this.festoonGuard(false, true);
     this.game.rc.camera.updateMatrixWorld(true);
   }
 
@@ -913,6 +1055,12 @@ export class NpcSystem implements System {
         cz = (cz * W + o.position.z * 0.8) / (W + 0.8);
       }
     }
+    if (s.prop && kind !== 'wide') {
+      // Insert: the speaker and the thing they talk about share the frame (prop weighted like an actor).
+      cx = (cx * W + s.prop.position.x * 1.4) / (W + 1.4);
+      cz = (cz * W + s.prop.position.z * 1.4) / (W + 1.4);
+      spread = Math.max(spread, Math.hypot(s.prop.position.x - lead.x, s.prop.position.z - lead.z) + 0.6);
+    }
     if (ots) kind = 'two';
     else if (kind !== 'wide' && other && Math.hypot(other.x - lead.x, other.z - lead.z) > 0.5) {
       // Camera offset (sin y, cos y) perpendicular to the pair: y = atan2(-dz, dx) or + 180°.
@@ -928,7 +1076,7 @@ export class NpcSystem implements System {
     let dist: number;
     if (kind === 'wide') {
       pitch = 40;
-      dist = Math.max(12.5, spread * 1.5 + 9);
+      dist = Math.max(10.8, spread * 1.4 + 8.2);
       if (s.anchor) {
         cx = s.anchor.x;
         cz = s.anchor.z;
@@ -939,7 +1087,7 @@ export class NpcSystem implements System {
     } else if (kind === 'two') {
       // Conversations lean in close (the villager's face and outfit read at thumbnail size).
       pitch = this.camMode === 'talk' ? 34 : 33;
-      dist = this.camMode === 'talk' ? 9.2 : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
+      dist = this.camMode === 'talk' ? 8.3 : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
     } else {
       // Close-up: lower for short actors (children) so the lens meets the face, not the crown.
       pitch = lead.head < 1.6 ? 22 : 28;
@@ -976,12 +1124,36 @@ export class NpcSystem implements System {
         // Test the lens where it will really sit: the look point is lifted towards it (see below).
         const cp = Math.min(62, pitch + c[1]);
         const cd = dist * c[2];
-        const upK = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' || kind === 'two' ? 0.28 : 0.16;
+        const upK = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
         const lf = (cd * Math.tan(upK * Math.tan(THREE.MathUtils.degToRad(this.game.rc.camera.fov) / 2))) / Math.sin(THREE.MathUtils.degToRad(cp));
         const cyr = THREE.MathUtils.degToRad(cy);
         const pos = this.camPosFor(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf), cy, cp, cd);
         let h = this.buildingHits(pos, acts) * 10;
         for (const b of by) for (const a of acts) if (segD(pos, new THREE.Vector3(a.x, a.y + a.head * 0.6, a.z), b) < 0.55) h += 3;
+        // Lamp posts / festoon poles standing in front of a face or body.
+        for (const a of acts)
+          for (const po of POSTS) {
+            if (Math.hypot(po.x - a.x, po.z - a.z) > 7) continue;
+            for (const hy of [a.head * 0.85, a.head * 0.45]) {
+              const ex = a.x;
+              const ez = a.z;
+              // Closest approach of the lens→actor ray (in plan) to the post, below the post top (3.3 m).
+              const dx = ex - pos.x;
+              const dz = ez - pos.z;
+              const L2 = dx * dx + dz * dz || 1;
+              const t = THREE.MathUtils.clamp(((po.x - pos.x) * dx + (po.z - pos.z) * dz) / L2, 0, 1);
+              if (t > 0.97) continue;
+              const px = pos.x + dx * t - po.x;
+              const pz = pos.z + dz * t - po.z;
+              const yAt = pos.y + (a.y + hy - pos.y) * t - map.heightAt(po.x, po.z);
+              if (px * px + pz * pz < 0.3 * 0.3 && yAt < 3.4) h += a.id === s.speaker ? 7 : 3;
+            }
+          }
+        // Walk beats: the walker's body must not hide behind the farmer (or anyone).
+        if (kind === 'wide' && s.speaker) {
+          const w = acts.find((a) => a.id === s.speaker);
+          if (w) for (const o of acts) if (o !== w && segD(pos, new THREE.Vector3(w.x, w.y + w.head * 0.55, w.z), new THREE.Vector3(o.x, o.y + o.head * 0.55, o.z)) < 0.6) h += 8;
+        }
         if (fy !== null && kind !== 'wide') {
           const cr = THREE.MathUtils.degToRad(cy);
           const off = Math.abs(Math.atan2(Math.sin(fy - cr), Math.cos(fy - cr)));
@@ -1002,7 +1174,7 @@ export class NpcSystem implements System {
     dist *= this.camPick.k;
     // Lift the look point towards the lens so the actors sit ~26 % above centre (clear of the box).
     const fov = THREE.MathUtils.degToRad(this.game.rc.camera.fov);
-    const up = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' || kind === 'two' ? 0.28 : 0.16;
+    const up = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
     const lift = (dist * Math.tan(up * Math.tan(fov / 2))) / Math.sin(THREE.MathUtils.degToRad(pitch));
     const yr = THREE.MathUtils.degToRad(yaw);
     const gy = map.heightAt(cx, cz);
@@ -1048,15 +1220,57 @@ export class NpcSystem implements System {
   }
 
   /**
-   * Daytime heart events take the unlit festoon strings down: close lenses sit under them and a
-   * black cord keeps cutting across faces. Lit strings (dusk / night) stay up — they are the mood.
+   * Festoon strings vs close lenses (conversations + heart events): any span whose cord passes within
+   * 0.4 m of a sight line from the lens to an actor's face / chest, or that hangs within 4 m of the
+   * lens (near bulbs would bloom across the frame), is taken down for the shot. Daytime heart events
+   * drop every unlit string; lit ones elsewhere stay up — they are the mood.
    */
-  private festoonGuard(restore = false): void {
+  private festoonGuard(restore = false, force = false): void {
     const map = this.game.world.current;
-    const f = map?.root.getObjectByName('festoons');
+    const f = map?.root.getObjectByName('festoons')?.userData.festoons as Festoons | undefined;
     if (!f) return;
-    f.visible = restore || this.camMode !== 'event' || this.game.lighting.night > 0.3;
+    if (restore || !this.camMode) {
+      f.setHidden([]);
+      return;
+    }
+    if (!force && ++this.festFrame % 3) return;
+    const hide: number[] = [];
+    const cam = this.game.rc.camera.position;
+    const acts = this.camActors();
+    const dayEvent = this.camMode === 'event' && this.game.lighting.night < 0.3;
+    const eyes: THREE.Vector3[] = [];
+    for (const a of acts) for (const k of [0.3, 0.5, 0.75]) eyes.push(new THREE.Vector3(a.x, a.y + a.head * (1 - k * 0.5) - 0.1, a.z));
+    // Bystanders in the frame keep their faces clear too (a cord across a background face reads as a glitch).
+    for (const o of this.agents.values())
+      if (!o.inside && o.v.root.visible && !acts.some((a) => a.id === o.def.id) && o.v.position.distanceTo(this.lookPoint) < 9)
+        eyes.push(new THREE.Vector3(o.v.position.x, o.v.position.y + o.v.headTop * 0.8, o.v.position.z));
+    const p = new THREE.Vector3();
+    const seg = new THREE.Vector3();
+    const w = new THREE.Vector3();
+    for (let i = 0; i < f.spans.length; i++) {
+      if (dayEvent) {
+        hide.push(i);
+        continue;
+      }
+      let bad = false;
+      for (let t = 0; t <= 1.0001 && !bad; t += 1 / 16) {
+        f.point(i, t, p);
+        if (p.distanceTo(cam) < 4) bad = true;
+        for (const e of eyes) {
+          // Distance from the cord point to the lens→face segment.
+          seg.subVectors(e, cam);
+          const u = THREE.MathUtils.clamp(w.subVectors(p, cam).dot(seg) / seg.lengthSq(), 0, 1);
+          if (u < 0.98 && w.copy(cam).addScaledVector(seg, u).distanceTo(p) < 0.4 + u * 0.1) {
+            bad = true;
+            break;
+          }
+        }
+      }
+      if (bad) hide.push(i);
+    }
+    f.setHidden(hide);
   }
+  private festFrame = 0;
 
   // ── trees in the sight lines (same approach as the story cutscenes)
 
@@ -1174,7 +1388,11 @@ export class NpcSystem implements System {
       this.lineNo++;
       const intimate = s.mood === 'sad' || s.mood === 'blush' || s.mood === 'worried';
       const close = intimate || (next !== undefined && 'choice' in next) || this.lineNo % 3 === 0;
-      this.shot = { kind: close ? 'close' : 'two', speaker: s.say, anchor: null };
+      // A line about a thing in the scene (the candle, the canvas, the cat) frames that thing with the speaker.
+      const txt = s.text.toLowerCase();
+      const pr = (ev.props ?? []).findIndex((p) => p.word && txt.includes(p.word));
+      const prop = pr >= 0 ? this.eventProps[pr] : undefined;
+      this.shot = { kind: prop ? 'two' : close ? 'close' : 'two', speaker: s.say, anchor: null, prop };
     } else if ('choice' in s) this.shot = { kind: 'two', speaker: s.choice, anchor: null };
     else if ('narrate' in s) this.shot = { kind: 'wide', speaker: null, anchor: null };
     else if ('walk' in s) this.shot = { kind: 'wide', speaker: s.walk === 'player' ? null : s.walk, anchor: null };
@@ -1240,6 +1458,12 @@ export class NpcSystem implements System {
     let mark = step ?? ev.script.findIndex((s) => 'choice' in s);
     if (mark < 0) mark = ev.script.findIndex((s) => 'say' in s);
     mark = Math.max(0, Math.min(ev.script.length - 1, mark));
+    // A still of a silent beat (a turn, an emote, a wait) reads as a broken scene: stage the next line.
+    const talky = (st: CutStep): boolean => 'say' in st || 'choice' in st || 'narrate' in st;
+    if (!talky(ev.script[mark]!)) {
+      const nx = ev.script.findIndex((st, i) => i > mark && talky(st));
+      if (nx >= 0) mark = nx;
+    }
     for (let i = 0; i < mark; i++) {
       this.applyInstant(ev.script[i]!);
       if ('say' in ev.script[i]!) this.lineNo++;
@@ -1546,13 +1770,38 @@ export class NpcSystem implements System {
     const q = Math.floor(hour * 4);
     if (q !== this.lastQuarter && !this.staged && !this.eventRunning) {
       this.lastQuarter = q;
+      const day = (game.calendar as unknown as { day: number }).day ?? 1;
+      let idx = 0;
       for (const a of this.agents.values()) {
+        idx++;
         if (a.scripted || a === this.talking) continue;
         const [, spotName, act] = this.stepFor(a, hour);
         const key = `${spotName}|${act ?? 'idle'}`;
+        if (a.errandUntil !== undefined && q < a.errandUntil) continue;
+        if (a.errandUntil !== undefined) {
+          a.errandUntil = undefined;
+          a.stepKey = '';
+        }
         if (key !== a.stepKey) {
           a.stepKey = key;
           this.goTo(a, spotName, act ?? 'idle');
+        } else if (!a.inside && act !== 'inside' && act !== 'fish' && act !== 'sit' && hash3(day, q, idx) < 0.2) {
+          // Street life: now and then a villager pops over to the board, the bakery, the fountain…
+          // (a walk of 8–26 m), lingers a quarter hour, then heads back to their schedule spot.
+          const here = a.v.position;
+          const opts = ERRANDS.filter((n) => {
+            const t = SPOTS[n];
+            if (!t || n === spotName) return false;
+            const d = Math.hypot(t[0] - here.x, t[1] - here.z);
+            return d > 8 && d < 26;
+          });
+          if (opts.length) {
+            const pick = opts[Math.floor(hash3(idx, q, day + 7) * opts.length)]!;
+            a.errandUntil = q + 2;
+            a.stepKey = `errand:${pick}`;
+            const wet = game.calendar.weather === 'rain' || game.calendar.weather === 'storm';
+            this.goTo(a, pick, pick === 'notice' ? 'read' : wet ? 'idle' : hash3(q, idx, day) < 0.5 ? 'chat' : 'idle');
+          }
         }
       }
     }
@@ -1561,7 +1810,18 @@ export class NpcSystem implements System {
     this.updateKeyLight(dt, game);
     this.fx.update(dt);
     const winter = game.calendar.season === 'winter';
-    for (const a of this.agents.values()) a.v.setWinter(winter);
+    const wet = game.calendar.weather === 'rain' || game.calendar.weather === 'storm';
+    for (const a of this.agents.values()) {
+      a.v.setWinter(winter);
+      a.v.rain = wet && !a.inside;
+    }
+    // A missed press: the farmer's interact is polled on fixed steps, so a frame without one drops
+    // it — catch it here too (tryTalk ignores a second call once a conversation is open).
+    if (game.input.pressed('interact') && !this.talking && !this.eventRunning) {
+      const t = (game.player as unknown as { facingTile?: () => { x: number; z: number } }).facingTile?.();
+      const pp = game.player.position;
+      this.tryTalk(t?.x ?? Math.floor(pp.x), t?.z ?? Math.floor(pp.z));
+    }
     const simulate = !game.paused || this.eventRunning;
     const h = (x: number, z: number): number => map.heightAt(x, z);
     const pl = game.player.position;
@@ -1584,6 +1844,8 @@ export class NpcSystem implements System {
       if (!a.scripted && !a.inside && !v.hasTarget && !a.path.length && v !== this.talking?.v) this.ambient(a, dt, simulate, pl);
       v.update(dt, h, simulate);
     }
+    this.separate(dt);
+    this.updatePrompt(dt, game);
     this.updateBlobs();
     this.updateEasels(map.root);
     if (!this.eventRunning && !game.paused) {
@@ -1742,6 +2004,9 @@ export class NpcSystem implements System {
         if (a.chatT <= 0) {
           a.chatT = 1.8 + Math.random() * 2.4;
           v.speaking = !v.speaking && !partner.v.speaking;
+          // Faces live with the gossip: a grin, a laugh, a raised brow, a knowing look.
+          const r = Math.random();
+          v.setMood(v.speaking ? (r < 0.35 ? 'happy' : r < 0.55 ? 'laugh' : r < 0.7 ? 'surprised' : 'neutral') : r < 0.3 ? 'thinking' : r < 0.6 ? 'happy' : 'neutral');
           if (a.emoteT <= 0 && Math.random() < 0.4) {
             a.emoteT = 6 + Math.random() * 8;
             v.emote(EMOTES_CHAT[Math.floor(Math.random() * EMOTES_CHAT.length)]!);
@@ -1759,6 +2024,142 @@ export class NpcSystem implements System {
       const e: Emote | null = a.activity === 'paint' ? 'idea' : a.activity === 'sit' && late ? 'zzz' : a.activity === 'read' ? 'dots' : a.activity === 'water' || a.activity === 'knead' ? 'music' : a.activity === 'fish' ? 'question' : null;
       if (e && Math.random() < 0.6) v.emote(e);
     }
+  }
+
+  /** Idle villagers who drift closer than 0.72 m (errands, chats, shared benches) ease apart. */
+  private separate(dt: number): void {
+    const list = [...this.agents.values()].filter((a) => !a.inside && a.v.root.visible && !a.scripted && !a.staged && !a.v.isMoving && a !== this.talking);
+    const k = Math.min(1, dt * 4);
+    for (let i = 0; i < list.length; i++)
+      for (let j = i + 1; j < list.length; j++) {
+        const A = list[i]!.v.position;
+        const Bp = list[j]!.v.position;
+        let dx = Bp.x - A.x;
+        let dz = Bp.z - A.z;
+        let d = Math.hypot(dx, dz);
+        if (d >= 0.72) continue;
+        if (d < 1e-3) {
+          dx = 1;
+          dz = 0;
+          d = 1e-3;
+        }
+        const push = ((0.72 - d) / 2) * k;
+        A.x -= (dx / d) * push;
+        A.z -= (dz / d) * push;
+        Bp.x += (dx / d) * push;
+        Bp.z += (dz / d) * push;
+      }
+  }
+
+  /** Closest pair distance among visible, unscripted villagers (tests: nobody stands inside anybody). */
+  minGap(): { d: number; a: string; b: string } {
+    let best = { d: Infinity, a: '', b: '' };
+    const list = [...this.agents.values()].filter((a) => !a.inside && a.v.root.visible);
+    for (let i = 0; i < list.length; i++)
+      for (let j = i + 1; j < list.length; j++) {
+        const d = Math.hypot(list[i]!.v.position.x - list[j]!.v.position.x, list[i]!.v.position.z - list[j]!.v.position.z);
+        if (d < best.d) best = { d, a: list[i]!.def.id, b: list[j]!.def.id };
+      }
+    return best;
+  }
+
+  // ── "Talk / Give" prompt over the villager in reach (like a speech cursor)
+
+  private prompt: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
+  private promptTex: { talk: THREE.CanvasTexture; gift: THREE.CanvasTexture } | null = null;
+  private promptFor: Agent | null = null;
+  private promptT = 0;
+
+  private promptTexture(gift: boolean): THREE.CanvasTexture {
+    const S = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d')!;
+    g.shadowColor = 'rgba(50,25,8,0.4)';
+    g.shadowBlur = 8;
+    g.shadowOffsetY = 3;
+    g.fillStyle = '#fff8e8';
+    g.strokeStyle = '#7a4a2a';
+    g.lineWidth = 6;
+    g.beginPath();
+    g.ellipse(64, 54, 50, 38, 0, 0, Math.PI * 2);
+    g.fill();
+    g.shadowColor = 'transparent';
+    g.stroke();
+    g.fillStyle = '#fff8e8';
+    g.beginPath();
+    g.moveTo(44, 84);
+    g.lineTo(34, 112);
+    g.lineTo(64, 88);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#fff8e8';
+    g.fillRect(40, 78, 26, 10);
+    if (gift) {
+      // A wrapped present with a ribbon bow.
+      g.fillStyle = '#e8574a';
+      g.fillRect(42, 46, 44, 30);
+      g.fillStyle = '#c8412f';
+      g.fillRect(38, 38, 52, 12);
+      g.fillStyle = '#ffd166';
+      g.fillRect(60, 38, 8, 38);
+      g.beginPath();
+      g.ellipse(56, 34, 10, 6, -0.5, 0, Math.PI * 2);
+      g.ellipse(72, 34, 10, 6, 0.5, 0, Math.PI * 2);
+      g.fill();
+    } else {
+      g.fillStyle = '#7a4a2a';
+      for (let i = 0; i < 3; i++) {
+        g.beginPath();
+        g.arc(40 + i * 24, 56, 8, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
+  private updatePrompt(dt: number, game: Game): void {
+    const free = !this.eventRunning && !this.talking && !this.staged && !game.hud.openPanelName && game.input.enabled && game.player.controllable && !game.cinematic;
+    const a = free ? this.reachable() : null;
+    if (!this.prompt) {
+      this.promptTex = { talk: this.promptTexture(false), gift: this.promptTexture(true) };
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: this.promptTex.talk, transparent: true, depthWrite: false, depthTest: false, toneMapped: false }));
+      m.name = 'npc-talk-prompt';
+      m.renderOrder = 21;
+      m.frustumCulled = false;
+      m.userData.noAO = true;
+      m.userData.perfTag = 'npcs';
+      m.onBeforeRender = (_r, _s, cam) => {
+        m.quaternion.copy(cam.quaternion);
+        m.updateMatrixWorld();
+      };
+      this.prompt = m;
+    }
+    const m = this.prompt;
+    if (a !== this.promptFor) {
+      this.promptFor = a;
+      this.promptT = 0;
+      if (a) a.v.root.add(m);
+      else m.removeFromParent();
+    }
+    if (!a) return;
+    this.promptT += dt;
+    const sel = game.services.inventory?.selected();
+    const kind = sel ? itemDef(sel.id)?.kind : undefined;
+    const gift = !!(sel && kind && kind !== 'tool' && kind !== 'seed' && kind !== 'placeable');
+    const tex = gift ? this.promptTex!.gift : this.promptTex!.talk;
+    if (m.material.map !== tex) {
+      m.material.map = tex;
+      m.material.needsUpdate = true;
+    }
+    const pop = Math.min(1, this.promptT / 0.18);
+    const s = 0.46 * (pop < 1 ? pop * (1 + 0.3 * Math.sin(pop * Math.PI)) : 1 + Math.sin(this.promptT * 4) * 0.04);
+    m.scale.set(s, s, 1);
+    // Beside the head (clear of any emote bubble above it).
+    m.position.set(0.5, a.v.headTop + 0.18 + Math.sin(this.promptT * 3) * 0.03, 0);
   }
 
   save(): unknown {

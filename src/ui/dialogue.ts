@@ -51,7 +51,8 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 { bottom: 24px; width: min(1140px, calc(100vw - 40px)); gap: 14px; align-items: flex-end; }
 /* The parchment fills the whole text box; text is anchored top-left so the reading position never moves. */
 /* The text box keeps a compact height (3 lines) and sits level with the bottom of the taller portrait card. */
-.hv-dialogue.dlg2 .dlg-box { min-height: 244px; display: flex; flex-direction: column; }
+.hv-dialogue.dlg2 .dlg-box { min-height: 206px; display: flex; flex-direction: column; margin-bottom: 4px; }
+.hv-dialogue.dlg2 .dlg-box:has(.dlg-choices) .dlg-next { display: none !important; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; padding: 40px 48px 30px; overflow: hidden;
   box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.35), inset 0 0 0 2px rgba(150, 100, 50, 0.25), inset 0 0 38px rgba(150, 90, 30, 0.2); }
 /* Ink flourishes in the parchment corners + a pressed rule under the text. */
@@ -68,15 +69,15 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2.narr .dlg-side { display: none; }
 .hv-dialogue.dlg2.narr .dlg-speaker { display: none; }
 .hv-dialogue.dlg2.narr .dlg-text { font-style: italic; font-weight: 700; color: #6a4a2a; text-align: center; }
-.hv-dialogue.dlg2 .dlg-side { width: 276px; }
+.hv-dialogue.dlg2 .dlg-side { width: 336px; }
 .hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 10px 10px 10px; gap: 2px; align-content: start; overflow: hidden; }
-.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 252px; height: 252px; margin: 2px 0 0; }
+.hv-dialogue.dlg2 .dlg-portrait { position: relative; width: 312px; height: 312px; margin: 2px 0 0; }
 /* Painted-on-canvas finish: a static brush-grain layer (soft light) and a varnish vignette over the art. */
 .hv-dialogue.dlg2 .dlg-portrait::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit;
-  background: var(--dlg-grain, none) 0 0 / 252px 252px; mix-blend-mode: soft-light; opacity: 0.42;
+  background: var(--dlg-grain, none) 0 0 / 312px 312px; mix-blend-mode: soft-light; opacity: 0.42;
   box-shadow: inset 0 0 24px rgba(70, 36, 12, 0.38), inset 0 0 3px rgba(70, 36, 12, 0.5); }
-.hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: -18px; font-size: 23px; padding: 0 18px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
-.hv-dialogue.dlg2 .dlg-role { max-width: 250px; font-size: 12.5px; line-height: 15px; margin-top: 2px; }
+.hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: 8px; font-size: 24px; padding: 0 20px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
+.hv-dialogue.dlg2 .dlg-role { max-width: 310px; font-size: 13.5px; line-height: 16px; margin-top: 3px; }
 .hv-dialogue.dlg2.cine { bottom: calc(7.5vh + 16px); transition: bottom 400ms var(--ease-out); }
 .hv-hud.hv-heartcine .h-clock, .hv-hud.hv-heartcine .hv-toolbar, .hv-hud.hv-heartcine .hv-energy, .hv-hud.hv-heartcine .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }
@@ -88,8 +89,8 @@ const CSS = /* css */ `
 @keyframes dlgNod { to { translate: 0 1.6px; } }
 @keyframes dlgSwap { from { opacity: 0; transform: scale(1.06) translateY(4px); } }
 @keyframes dlgOut { to { opacity: 0; } }
-.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; margin-top: 4px; }
-.hv-dialogue.dlg2 .dlg-hearts svg { width: 18px; height: 16px; display: block; overflow: visible; }
+.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 22px); gap: 3px; margin-top: 5px; }
+.hv-dialogue.dlg2 .dlg-hearts svg { width: 22px; height: 20px; display: block; overflow: visible; }
 /* The heart that just filled pops (ease-out-back) and flashes. */
 .hv-dialogue.dlg2 .dlg-hearts svg.pop { animation: dlgPop 620ms var(--ease-back) both; filter: drop-shadow(0 0 4px rgba(255, 120, 100, 0.9)); }
 @keyframes dlgPop { 0% { transform: scale(0.3); } 45% { transform: scale(1.75) translateY(-4px); } 100% { transform: scale(1); } }
@@ -359,7 +360,14 @@ export class DialoguePanel implements Panel {
         steps.push({ kind: 'line', text: p.text, mood: p.mood });
       }
       const moodOverride = mode && mode !== 'ask' ? (mode as Mood) : null;
-      if (moodOverride && steps[0]?.kind === 'line') steps[0].mood = moodOverride;
+      if (moodOverride) {
+        // Staging a mood (`&mood=sad`): say one of this villager's own lines written in that mood, so
+        // the words and the face agree; only a villager with no such line gets the mood forced on.
+        const pool = [...def.dialogue.flatMap((g) => [...g.lines, ...(g.ask ? g.ask.options.map((o) => (o.mood ? `[${o.mood}] ${o.reply}` : o.reply)) : [])]), ...Object.values(def.giftLines)];
+        const hit = pool.map((l) => parseLine(l)).find((pl) => pl.mood === moodOverride && pl.text.length > 12);
+        if (hit) steps.splice(0, steps.length, { kind: 'line', text: hit.text, mood: hit.mood });
+        else if (steps[0]?.kind === 'line') steps[0].mood = moodOverride;
+      }
       const ask = conv?.ask;
       if (ask) {
         const q = parseLine(ask.q, ask.mood ?? 'thinking');
@@ -629,6 +637,7 @@ export class DialoguePanel implements Panel {
 
   private choice_(id: NpcId, q: string, options: string[], mood: Mood): Promise<number> {
     this.setPortrait(id, mood);
+    this.game.events.emit('npc:line', { id, mood });
     window.clearTimeout(this.timer);
     this.setSpeaking(false);
     this.line = q;

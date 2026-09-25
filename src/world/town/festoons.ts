@@ -26,8 +26,12 @@ export interface FestoonSpan {
 }
 
 /** Warm "Edison" whites with the odd amber; winter: red, green, gold, blue, white. */
-const WARM = [0xfff1c8, 0xffe0a0, 0xffd08a, 0xfff6de, 0xffc070];
+const WARM = [0xffd9a2, 0xffc27a, 0xffb86a, 0xffe0b4, 0xffa956];
 const WINTER = [0xff4a3a, 0x4adf6a, 0xffc93a, 0x4a9aff, 0xfff1d8];
+
+const MAX_SPANS = 40;
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
 
 function catenary(a: THREE.Vector3, b: THREE.Vector3, sag: number, t: number, out: THREE.Vector3): THREE.Vector3 {
   out.copy(a).lerp(b, t);
@@ -44,11 +48,22 @@ export class Festoons {
   private season: Season = 'spring';
   /** 0..1 how brightly the strings glow. */
   lit = 0;
+  /** Resolved spans (world space) — the camera director tests its sight lines against them. */
+  readonly spans: FestoonSpan[];
+  /** Per-span visibility (1 = hidden): close lenses take the strings that cross a face down. */
+  private hide = new Float32Array(MAX_SPANS);
+  private hideU = { value: this.hide };
+  private cordMat: THREE.MeshStandardMaterial;
 
   constructor(spans: FestoonSpan[], rng: Rng) {
     this.group.name = 'festoons';
     this.group.userData.perfTag = 'festoons';
-    const cords = new MeshBuilder();
+    this.group.userData.festoons = this;
+    this.spans = spans.slice(0, MAX_SPANS);
+    spans = this.spans;
+    const cords: THREE.BufferGeometry[] = [];
+    const cordSpan: number[] = [];
+    const bulbSpan: number[] = [];
     const bulbs: THREE.BufferGeometry[] = [];
     const p = new THREE.Vector3();
     const q = new THREE.Vector3();
@@ -63,7 +78,8 @@ export class Festoons {
     const cap = new THREE.CylinderGeometry(0.024, 0.028, 0.05, 6);
     cap.deleteAttribute('uv');
     let k = 0;
-    for (const s of spans) {
+    for (let si = 0; si < spans.length; si++) {
+      const s = spans[si]!;
       A.set(...s.a);
       B.set(...s.b);
       const L = A.distanceTo(B);
@@ -74,8 +90,11 @@ export class Festoons {
         const d = q.clone().sub(p);
         const len = d.length();
         const g = new THREE.CylinderGeometry(0.008, 0.008, len, 4, 1, true);
+        g.deleteAttribute('uv');
         g.rotateZ(Math.PI / 2);
-        cords.add('white', g, mat((p.x + q.x) / 2, (p.y + q.y) / 2, (p.z + q.z) / 2, 0, -Math.atan2(d.z, d.x), Math.atan2(d.y, Math.hypot(d.x, d.z))), { tint: 0x3a3029 });
+        g.applyMatrix4(mat((p.x + q.x) / 2, (p.y + q.y) / 2, (p.z + q.z) / 2, 0, -Math.atan2(d.z, d.x), Math.atan2(d.y, Math.hypot(d.x, d.z))));
+        cords.push(g);
+        for (let v = 0; v < g.attributes.position!.count; v++) cordSpan.push(si);
       }
       // Bulbs hang from the cord on short drops, skipping the very ends.
       const n = Math.max(2, Math.round(L / 0.62));
@@ -100,14 +119,21 @@ export class Festoons {
               winter.push(xc.r, xc.g, xc.b);
             }
             phases.push(dark ? -1 : ph);
+            bulbSpan.push(si);
           }
           bulbs.push(geo);
         }
         k++;
       }
     }
-    const cordMesh = cords.build({ castShadow: false, receiveShadow: false, name: 'festoon-cords' });
-    cordMesh.traverse((o) => (o.userData.noAO = true));
+    const cordGeo = mergeSimple(cords);
+    cordGeo.setAttribute('aSpan', new THREE.BufferAttribute(new Float32Array(cordSpan), 1));
+    this.cordMat = new THREE.MeshStandardMaterial({ name: 'festoonCord', color: 0x3a3029, roughness: 0.8 });
+    this.hideSpans(this.cordMat, 'festoon-cord');
+    const cordMesh = new THREE.Mesh(cordGeo, this.cordMat);
+    cordMesh.name = 'festoon-cords';
+    cordMesh.castShadow = cordMesh.receiveShadow = false;
+    cordMesh.userData.noAO = true;
     this.group.add(cordMesh);
 
     this.bulbGeo = mergeSimple(bulbs);
@@ -115,11 +141,14 @@ export class Festoons {
     this.winter = new Float32Array(winter);
     this.bulbGeo.setAttribute('color', new THREE.BufferAttribute(this.warm.slice(), 3));
     this.bulbGeo.setAttribute('aPhase', new THREE.BufferAttribute(new Float32Array(phases), 1));
+    this.bulbGeo.setAttribute('aSpan', new THREE.BufferAttribute(new Float32Array(bulbSpan), 1));
     this.bulbMat = new THREE.MeshStandardMaterial({ name: 'festoonBulb', vertexColors: true, roughness: 0.25, metalness: 0, emissive: 0xffffff, emissiveIntensity: 0 });
     patchMaterial(this.bulbMat, 'festoon', (shader) => {
       shader.uniforms.uTime = globalUniforms.uTime;
-      shader.vertexShader = before(shader.vertexShader, 'void main() {', 'attribute float aPhase;\nvarying float vPhase;');
+      shader.uniforms.uHide = this.hideU;
+      shader.vertexShader = before(shader.vertexShader, 'void main() {', `attribute float aPhase;\nvarying float vPhase;\nattribute float aSpan;\nuniform float uHide[${MAX_SPANS}];`);
       shader.vertexShader = after(shader.vertexShader, 'void main() {', 'vPhase = aPhase;');
+      shader.vertexShader = after(shader.vertexShader, '#include <project_vertex>', 'if (uHide[int(aSpan + 0.5)] > 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
       shader.fragmentShader = before(shader.fragmentShader, 'void main() {', 'uniform float uTime;\nvarying float vPhase;');
       // Glow in the bulb's own colour; sockets (phase < 0) stay dark. A slow, gentle shimmer.
       shader.fragmentShader = after(
@@ -134,6 +163,27 @@ export class Festoons {
     bulbMesh.receiveShadow = false;
     bulbMesh.userData.noAO = true;
     this.group.add(bulbMesh);
+  }
+
+  /** Collapse the vertices of hidden spans (one uniform array, no extra draw calls). */
+  private hideSpans(m: THREE.Material, key: string): void {
+    patchMaterial(m, key, (shader) => {
+      shader.uniforms.uHide = this.hideU;
+      shader.vertexShader = before(shader.vertexShader, 'void main() {', `attribute float aSpan;\nuniform float uHide[${MAX_SPANS}];`);
+      shader.vertexShader = after(shader.vertexShader, '#include <project_vertex>', 'if (uHide[int(aSpan + 0.5)] > 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
+    });
+  }
+
+  /** Hide / show individual spans (index into `spans`); an empty list shows them all. */
+  setHidden(hidden: readonly number[]): void {
+    this.hide.fill(0);
+    for (const i of hidden) if (i >= 0 && i < MAX_SPANS) this.hide[i] = 1;
+  }
+
+  /** Point on span i at t (0..1), world space. */
+  point(i: number, t: number, out: THREE.Vector3): THREE.Vector3 {
+    const s = this.spans[i]!;
+    return catenary(_a.set(...s.a), _b.set(...s.b), s.sag, t, out);
   }
 
   setSeason(season: Season): void {
