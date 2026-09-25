@@ -187,14 +187,14 @@ export class HarvestFair extends FestivalMap {
     this.plantTrees(r);
     this.plantNature(r);
     this.buildCrowd(r);
-    this.leaves = new PetalStorm({ count: 620, box: new THREE.Vector3(46, 10, 34), colors: [0xd8573e, 0xe8864a, 0xf2b928, 0xc8452a, 0xb86a2a], drift: 1.1, fall: 0.55, kind: 'leaf' });
+    this.leaves = new PetalStorm({ count: 380, box: new THREE.Vector3(46, 10, 34), colors: [0xd8573e, 0xe8864a, 0xf2b928, 0xc8452a, 0xb86a2a], drift: 1.1, fall: 0.55, kind: 'leaf' });
     this.leaves.mesh.userData.perfTag = 'festival';
     this.root.add(this.leaves.mesh);
     this.fx.push({ update: (_dt, game) => this.leaves.update(game.rc.rig.focus) });
     // Leaf litter under the trees and drifted against props.
     const items: { x: number; y: number; z: number; rot: number; color: number }[] = [];
     const lr = this.rng.fork('litter');
-    for (let i = 0; i < 2600; i++) {
+    for (let i = 0; i < 1600; i++) {
       const x = 2 + lr.next() * 60;
       const z = 6 + lr.next() * 38;
       if (this.laneValue(x, z) > 0.3 || this.inMaze(x, z)) continue;
@@ -606,6 +606,19 @@ export class HarvestFair extends FestivalMap {
     for (const [x, z, yaw] of [[26.6, 19.8, 0.9], [27.4, 20.6, 0.5], [44.2, 19.6, -0.9], [43.4, 20.5, -0.4], [26.0, 17.4, 1.4]] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.25 }), pick(['clap', 'idle', 'talk', 'cheer'] as const), x, z, yaw, {});
     }
+    // The band's audience: a bench on the lawn east of the stage (a couple listening, a child
+    // dancing to the fiddle, a grown-up clapping along), so the stage plays to somebody.
+    {
+      const bx = 41.2;
+      const bz = 12.4;
+      const th = -1.15;
+      this.addProp(buildBench(), bx, bz, th, { solidR: 0.7 });
+      const ax = Math.cos(th);
+      const az = -Math.sin(th);
+      for (const s of [-0.38, 0.38]) person(randomLook(r, { palette: P.tops }), 'sit', bx + ax * s, bz + az * s, th, { lift: 0.2, props: s < 0 ? ['mug'] : [] });
+      person(randomLook(r, { palette: P.tops, child: true }), 'cheer', bx - 1.3, bz + 1.0, th - 0.2, { props: ['balloon'] });
+      person(randomLook(r, { palette: P.tops }), 'clap', bx + 0.4, bz + 1.5, th + 0.3, {});
+    }
     for (const [x, z, yaw, anim] of [[15.6, 35.2, Math.PI, 'talk'], [22.4, 35.6, Math.PI - 0.3, 'idle'], [28.0, 34.8, -0.4, 'cheer'], [38.2, 38.2, Math.PI, 'sit'], [36.2, 35.0, 0, 'sit'], [52.0, 27.6, Math.PI + 0.6, 'wave'], [19.2, 16.0, 0, 'toast'], [25.5, 10.7, 0.1, 'talk'], [26.9, 13.6, Math.PI + 0.7, 'talk'], [24.2, 13.9, 2.5, 'idle']] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.2 }), anim, x, z, yaw, { lift: anim === 'sit' ? 0.2 : 0, props: anim === 'toast' ? ['mug'] : [] });
     }
@@ -752,7 +765,7 @@ export class HarvestFair extends FestivalMap {
   override stage(): void {
     super.stage();
     // Catch the sack race mid-lane, the field strung out between the leader and the stragglers.
-    this.raceT0 = this.raceClock - 9;
+    this.raceT0 = this.raceClock - 10.5;
   }
 
   // ───────────────────────────────────────────── Sack Race + Produce Judging mini-games

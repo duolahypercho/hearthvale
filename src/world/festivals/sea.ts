@@ -159,7 +159,7 @@ export class NightSea {
             float lobe = pow(rm, 70.0);
             float spark = smoothstep(0.62, 0.9, hvNoise(p * vec2(1.6, 4.0) + vec2(t * 0.5, -t * 0.8))) * smoothstep(0.4, 0.8, hvNoise(p * 0.7 - t * 0.2));
             vec3 moon = vec3(0.75, 0.82, 1.0);
-            col += moon * (lobe * spark * 1.1 + pow(rm, 900.0) * 1.2 + lobe * 0.04) * uNight;
+            col += moon * (lobe * spark * 0.55 + pow(rm, 900.0) * 0.9 + lobe * 0.03) * uNight;
             // Sun glint by day.
             vec3 L = normalize(uSunDir);
             col += uSunColor * pow(max(dot(R, L), 0.0), 220.0) * 2.0 * (1.0 - uNight);
@@ -379,8 +379,12 @@ export class FrozenRiver {
           // Clear-coat reflection: sky gradient + the aurora's green-violet bands + stars.
           vec3 R = reflect(-V, n);
           vec3 sky = mix(uHorizonColor * 1.1, uSkyColor, smoothstep(0.0, 0.6, R.y));
-          float band = hvNoise(vec2(p.x * 0.08 + uTime * 0.02, p.y * 0.02)) * hvNoise(vec2(p.x * 0.5 - uTime * 0.05, 1.3));
-          vec3 aur = mix(vec3(0.1, 0.9, 0.5), vec3(0.6, 0.25, 0.8), hvNoise(p * 0.05 + 4.0)) * pow(band, 1.6) * 0.85 * uAurora * smoothstep(0.4, 0.9, uNight);
+          // Broad drifting curtains (shaped, not a product of two noises that averages out to a
+          // faint wash) with fine vertical rays inside them, like the curtains overhead.
+          float b1 = hvNoise(vec2(p.x * 0.07 + uTime * 0.02, p.y * 0.018 + 2.0));
+          float b2 = hvNoise(vec2(p.x * 1.1 - uTime * 0.05, 1.3));
+          float band = smoothstep(0.38, 0.72, b1) * (0.4 + 0.6 * b2);
+          vec3 aur = mix(vec3(0.12, 0.95, 0.55), vec3(0.62, 0.28, 0.85), smoothstep(0.35, 0.7, hvNoise(p * 0.05 + 4.0))) * band * 0.62 * uAurora * smoothstep(0.4, 0.9, uNight);
           vec2 sc2 = floor(p * 5.0);
           vec2 so = fract(p * 5.0) - 0.5 - (hvHash22(sc2 + 5.0) - 0.5) * 0.6;
           float star = step(0.985, hvHash12(sc2)) * (1.0 - smoothstep(0.02, 0.07, length(so))) * (0.5 + 0.5 * sin(uTime * 2.0 + hvHash12(sc2 + 1.0) * 30.0)) * uNight;

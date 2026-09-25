@@ -261,7 +261,12 @@ export class Fireworks {
     // where it was 0.22 s ago, fading out) — the crisp comet trails of a real shell, with gravity droop.
     const TR = 3;
     const LT = 5;
-    for (let i = 0; i < S; i++) this.shells.push({ period: 4.3 + ((i * 7) % 5) * 0.55 + i * 0.13, offset: i * 1.37 });
+    // One shared period with evenly staggered launches (a shell every P/S s, ±8 % jitter): some shell
+    // is always in its crisp opening phase, so any frame of the show — a still included — holds a
+    // readable starburst instead of only late, falling glitter. Positions / types / colours still
+    // vary per cycle (hashed in the shader).
+    const P = 5.2;
+    for (let i = 0; i < S; i++) this.shells.push({ period: P, offset: ((i + (hash12(i * 3.1, 1.7) - 0.5) * 0.16) * P) / S });
     const build = (trs: number[]): THREE.BufferGeometry => {
       const n = S * M * trs.length;
       const dir = new Float32Array(n * 3);
@@ -310,7 +315,7 @@ export class Fireworks {
         depthWrite: false,
         blending: THREE.AdditiveBlending,
         fog: false,
-        defines: { NSHELL: S, MIRROR: mirror ? 1 : 0, LINES: lines ? 1 : 0, LT: LT.toFixed(1) },
+        defines: { NSHELL: S, MIRROR: mirror ? 1 : 0, HASMIRROR: o.mirrorY !== undefined ? 1 : 0, LINES: lines ? 1 : 0, LT: LT.toFixed(1) },
         uniforms: { ...this.uniforms, uMirrorY: { value: o.mirrorY ?? 0 } },
         vertexShader: /* glsl */ `
           attribute vec3 aDir; attribute vec4 aInfo;
@@ -432,7 +437,9 @@ export class Fireworks {
                 if (type < 2 && f > 0.55) base = mix(base, vec3(1.0, 0.78, 0.3), 0.55);
                 // Head HDR ≤ ~1.3 (tails ≤ 0.75): with the soft-dot falloff nothing clears ~1.6 before bloom.
                 col = mix(hot, base, smoothstep(0.0, 0.06, f)) * (tr > 0.5 ? 0.75 - tr * 0.05 : 1.3);
-                size = (0.34 - tr * 0.036) * (1.0 - f * 0.35) * (type == 3 ? 1.4 : 1.0);
+                // Round star heads; the two ember points behind each head stay small (a big glow
+                // point trailing a head read as a teardrop / rain drop).
+                size = (tr > 0.5 ? 0.13 - tr * 0.02 : 0.34) * (1.0 - f * 0.35) * (type == 3 ? 1.4 : 1.0);
                 // A small shell-coloured flash core (not a white puff).
                 #if LINES == 1
                 // Streak: bright at the star, fading to nothing at its 0.22 s-old tail.
@@ -448,10 +455,15 @@ export class Fireworks {
               }
             }
             #if MIRROR == 1
+              // A soft, dim reflection (points only): a second full-strength shell on the water
+              // doubled the sparks and read as coloured rain.
               p.y = 2.0 * uMirrorY - p.y;
               p.x += sin(p.y * 2.3 + uTime * 3.0) * 0.12;
-              a *= 0.4 * step(p.y, uMirrorY);
-              size *= 1.45;
+              a *= 0.22 * step(p.y, uMirrorY);
+              size *= 1.3;
+            #elif HASMIRROR == 1
+              // Stars that sink to the sea go out (never drawn "under" the water).
+              a *= smoothstep(uMirrorY + 0.05, uMirrorY + 0.6, p.y);
             #endif
             vCol = col * uIntensity;
             vA = a;
@@ -480,7 +492,7 @@ export class Fireworks {
       return pts;
     };
     this.group.add(make(false, false), make(false, true));
-    if (o.mirrorY !== undefined) this.group.add(make(true, false), make(true, true));
+    if (o.mirrorY !== undefined) this.group.add(make(true, false));
     this.group.name = 'fireworks';
   }
 

@@ -452,7 +452,7 @@ export class SummerLanterns extends FestivalMap {
     this.root.add(sky.group);
     // Shells burst low over the bay, inside the high diorama camera's frame (the sky is never in
     // shot), and read twice: once in the air and again as coloured reflections on the water.
-    this.fireworks = new Fireworks({ area: new THREE.Vector4(32, 9.5, 26, 4), heights: new THREE.Vector2(3.8, 5.8), groundY: 0.2, shells: 10, sparks: 110, mirrorY: 0, spread: 0.8, size: 1.15 });
+    this.fireworks = new Fireworks({ area: new THREE.Vector4(28.5, 9.0, 14, 4), heights: new THREE.Vector2(4.4, 6.4), groundY: 0.2, shells: 8, sparks: 150, mirrorY: 0, spread: 1.0, size: 1.2 });
     this.fireworks.group.userData.perfTag = 'fireworks';
     this.root.add(this.fireworks.group);
     this.flashLight = new THREE.PointLight(0xffffff, 0, 60, 1.2);
@@ -477,7 +477,7 @@ export class SummerLanterns extends FestivalMap {
     const night = game.lighting.night;
     this.flashLight.color.copy(this.flashCol.r + this.flashCol.g + this.flashCol.b > 0 ? this.flashCol : this.flashLight.color);
     this.flashLight.intensity = Math.min(f, 2.5) * 16 * night;
-    this.sea.flash.value.copy(this.flashCol).multiplyScalar(Math.min(f, 2) * 0.08 * night);
+    this.sea.flash.value.copy(this.flashCol).multiplyScalar(Math.min(f, 2) * 0.12 * night);
     this.fireworks.intensity.value = 0.25 + night * 0.75;
     // Lighthouse beam sweeps the bay.
     this.beam.rotation.y = t * 0.55;

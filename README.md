@@ -509,6 +509,10 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
   Lantern Release: five throws on a quickening swell, a radiant-streak bonus, and each of your lanterns joins the
   flotilla colour-coded by how well it was let go (gold radiant … dull sputter). Produce Judging runs as a
   lower-third ribbon while the judges walk plinth to plinth in 3D and the rosettes are staked beside the winners.
+- Fireworks (tide night): shells launch on one shared period, evenly staggered, so every frame of the show holds a
+  crisp opening starburst (radial comet streaks) rather than only late falling glitter; stars go out at the waterline
+  and the bay carries a dim, points-only reflection. Starfall's aurora also lies on the frozen river as drifting
+  green / violet curtains with fine rays (the high camera sees the ice far more than the sky).
 - Crowds: townsfolk get 12+ hue families a season, ~40 % seasonal hats (the rest bare hair / headbands / earmuffs /
   bows), elders + children, ±10 % height / ±8 % width, bags; the staged crowd is relaxed so nobody stands inside
   anybody else (`FestivalMap.separateCrowd`).
