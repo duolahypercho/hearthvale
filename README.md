@@ -170,7 +170,7 @@ Demos: `farm-morning`, `farm-noon`, `farm-evening`, `farm-night`, `farm-fall`, `
 `farm-field`, `winter-night` (+ DESIGN names `town-evening`, `beach-sunset`, `forest-rain`, `mine`, `festival`, which
 stage on the farm until those maps exist).
 UI screens: `ui-title`, `ui-hud` (toasts), `ui-inventory`, `ui-shop`, `ui-shop-smith`, `ui-shop-carpenter`, `ui-crafting`,
-`ui-placement` (in-world ghost), `ui-dayend`, `ui-dayend-quiet` (nothing shipped), `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac),
+`ui-placement` (in-world ghost), `ui-dayend`, `ui-dayend-quiet` (nothing shipped), `ui-sleep` (the real night: stocked bin → bed → payout → ledger over the dusk grab of the farm; shoot with `--wait 5500`), `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac),
 `ui-newgame` (New Journal creator; `ui=newgame:demo` pre-filled), `ui-hud-low` (both tubes low + red heartbeat vignette; any demo takes
 `&energy=0.1&health=0.2`), `ui-coop` (co-op lobby from the title) — or
 `?demo=<any>&ui=<screen>[:arg]` (e.g. `ui=shop:odessa`, `ui=saves:save`).

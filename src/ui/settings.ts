@@ -264,7 +264,7 @@ export class SettingsScreen extends Screen {
       void p?.catch(() => {}).finally(() => fs.classList.toggle('on', !!document.fullscreenElement));
       fs.classList.toggle('on', on);
     });
-    const capRow = el('div', 'set-caprow', `<span class="lb">Frame rate<small>Auto keeps it steady</small></span>`);
+    const capRow = el('div', 'set-caprow', `<span class="lb">Frame rate<small>auto = steady</small></span>`);
     const capSeg = el('div', 'set-seg mini cap4');
     for (const [v, label] of [
       [0, 'Auto'],

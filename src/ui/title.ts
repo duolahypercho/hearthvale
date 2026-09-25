@@ -22,12 +22,16 @@ const LOGO = `<svg viewBox="0 0 900 300" class="ts-word" aria-label="Hearthvale"
   <linearGradient id="tlFill2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff6de"/><stop offset=".5" stop-color="#ffe2b8"/><stop offset=".56" stop-color="#ffc49a"/><stop offset="1" stop-color="#f0906a"/></linearGradient>
   <radialGradient id="tlGlow" cx="50%" cy="55%" r="60%"><stop offset="0" stop-color="#fff6c8"/><stop offset=".45" stop-color="#ffc85a"/><stop offset="1" stop-color="#e07a2a"/></radialGradient>
   <path id="tlArc" d="M40 212 Q450 120 860 212"/>
+  <linearGradient id="tlGloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".85"/><stop offset=".36" stop-color="#fff" stop-opacity=".18"/><stop offset=".4" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  <pattern id="tlGrain" width="120" height="22" patternUnits="userSpaceOnUse" patternTransform="rotate(-4)"><path d="M0 6 C20 3 40 9 60 6 S100 3 120 6 M0 15 C25 18 45 12 70 15 S105 18 120 15" fill="none" stroke="#b86a24" stroke-width="1.6" stroke-opacity=".32"/><path d="M34 11 c6 -2 10 0 12 2" fill="none" stroke="#9a5418" stroke-width="1.2" stroke-opacity=".28"/></pattern>
   <filter id="tlShadow" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#2a1004" flood-opacity=".55"/></filter>
 </defs>
 <g filter="url(#tlShadow)">
   <text class="w0"><textPath href="#tlArc" startOffset="50%" text-anchor="middle">Hearthvale</textPath></text>
   <text class="w1"><textPath href="#tlArc" startOffset="50%" text-anchor="middle">Hearthvale</textPath></text>
   <text class="w2"><textPath href="#tlArc" startOffset="50%" text-anchor="middle">Hearth<tspan fill="url(#tlFill2)">vale</tspan></textPath></text>
+  <text class="w3"><textPath href="#tlArc" startOffset="50%" text-anchor="middle">Hearthvale</textPath></text>
+  <text class="w4"><textPath href="#tlArc" startOffset="50%" text-anchor="middle">Hearthvale</textPath></text>
 </g>
 <g class="sprig" transform="translate(58 122) rotate(-30) scale(.9)"><path d="M0 0 C20 -10 40 -12 64 -6" stroke="#5a3418" stroke-width="5" fill="none" stroke-linecap="round"/>${[8, 24, 40, 54]
   .map((x, i) => `<path d="M${x} ${-3 - i} c-4 -14 6 -22 14 -22 c0 10 -6 18 -14 22Z" fill="${i % 2 ? '#6fb04a' : '#8fd05a'}" stroke="#2f5a1a" stroke-width="2.4"/>`)

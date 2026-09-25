@@ -2764,7 +2764,7 @@ svg.valley {
   border-radius: 16px;
   background: radial-gradient(90% 80% at 50% 30%, rgba(255, 252, 238, 0.9), rgba(250, 236, 204, 0.55));
   box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.2);
-  animation: uPop 520ms var(--ease-back) 900ms both;
+  animation: uPop 520ms var(--ease-back) 380ms both;
 }
 .qv-art svg {
   width: 250px;
@@ -3054,6 +3054,29 @@ svg.valley {
 .de-foot .u-btn {
   font-size: 22px;
 }
+/* r15: the lone zzZ gets company — a quiet key hint so the footer's left half isn't an orphaned doodle. */
+.de-foot .de-keys {
+  flex: 1;
+  margin-left: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #9a7a58;
+}
+.de-foot .de-keys kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 7px 2px;
+  margin-right: 4px;
+  border-radius: 6px;
+  font: 800 12.5px var(--font-body);
+  color: #5a3414;
+  background: linear-gradient(180deg, #fffaf0, #eedcb8);
+  box-shadow: 0 2px 0 #b89a70, inset 0 0 0 1.5px rgba(122, 80, 40, 0.35);
+}
+.de-foot .de-keys em {
+  font-style: normal;
+  opacity: 0.8;
+}
 .u-coinfly.rain {
   animation-duration: 1s;
 }
@@ -3242,6 +3265,15 @@ svg.valley {
   fill: url(#tlFill);
   stroke: #6a2c12;
   stroke-width: 5px;
+}
+/* r15: hand-carved feel — faint wood grain running through the letters, then a candy gloss across their tops. */
+.ts-word .w3 {
+  fill: url(#tlGrain);
+  stroke: none;
+}
+.ts-word .w4 {
+  fill: url(#tlGloss);
+  stroke: none;
 }
 .ts-word .lamp {
   transform-origin: 0 -60px;
@@ -4995,6 +5027,77 @@ body.u-contrast #ui-root {
 .hv-dayend .de-bg:has(~ .de-photo) {
   background: #0a0c22;
 }
+/* r15: the ledger closes with a bin total over a double rule, and the carter's "Paid" rubber stamp thumps
+   down beside it as the earnings roll — the parchment under a short list reads as an accounts page, not a gap. */
+.de-tot {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 14px;
+  margin: 10px 4px 0;
+  padding: 8px 12px 0 0;
+  font-weight: 800;
+  color: #8a6440;
+}
+.de-tot span {
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.de-tot b {
+  min-width: 96px;
+  text-align: right;
+  font-family: var(--font-head);
+  font-size: 24px;
+  color: #3f7a26;
+  border-top: 2px solid rgba(90, 52, 20, 0.55);
+  box-shadow: 0 -5px 0 -3px rgba(90, 52, 20, 0.55);
+  padding-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.de-stamp {
+  position: absolute;
+  left: 18px;
+  top: 2px;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 54px;
+  border: 3px double rgba(186, 58, 36, 0.8);
+  border-radius: 10px;
+  font: 700 22px/1 var(--font-head);
+  font-style: normal;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(186, 58, 36, 0.85);
+  rotate: -9deg;
+  opacity: 0;
+  mix-blend-mode: multiply;
+  -webkit-mask-image: repeating-radial-gradient(circle at 30% 40%, #000 0 2px, rgba(0, 0, 0, 0.78) 2px 3px);
+  mask-image: repeating-radial-gradient(circle at 30% 40%, #000 0 2px, rgba(0, 0, 0, 0.78) 2px 3px);
+}
+.de-stamp small {
+  font: 800 10px/1 var(--font-body);
+  letter-spacing: 0.6px;
+}
+.de-tot.go .de-stamp {
+  animation: deStamp 420ms cubic-bezier(0.3, 1.6, 0.5, 1) 380ms both;
+}
+@keyframes deStamp {
+  from {
+    opacity: 0;
+    scale: 1.9;
+  }
+  60% {
+    opacity: 1;
+    scale: 0.94;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
 /* Ledger box hugs its lines (min six rows of ruling), instead of a fixed tall box with empty ruled rows. */
 .de-rows.fit {
   height: auto;
@@ -5047,6 +5150,14 @@ body.u-contrast #ui-root {
   box-shadow: inset 0 0 0 1.5px rgba(160, 120, 70, 0.22);
   font: 600 13.5px/2 var(--font-body);
   color: var(--ink-soft);
+}
+/* r15: the perks read at arm's length and the two farmers fill the middle of the card (no dead band). */
+.pause-wrap > .coop-pause > .u-paper::after {
+  font: 700 15px/2.15 var(--font-body);
+  color: #6a4424;
+  background-position: center calc(100% - 22px);
+  background-size: 262px auto;
+  padding-bottom: 170px;
 }
 
 /* Title (r10, blind-judge note): a soft pool of shade under the plank row so the busy lower diorama never

@@ -53,6 +53,25 @@ export class DemoKit {
         if (en !== null && e) e.set(Number(en) <= 1 ? Math.round(Number(en) * e.max()) : Number(en));
         if (hp !== null && h) h.set(Number(hp) <= 1 ? Math.round(Number(hp) * h.max()) : Number(hp));
       }, 120);
+      // `ui-sleep`: the real end of a day — a stocked shipping bin, then bed (sleep service → day:end payout →
+      // shipping:summary → the day-end ledger over the dusk grab of this farm).
+      if (name === 'ui-sleep') {
+        setTimeout(() => {
+          const ship = this.game.systems.find((sy) => sy.name === 'shipping') as { load?(d: unknown): void } | undefined;
+          ship?.load?.({
+            bin: [
+              { itemId: 'parsnip', qty: 12, quality: 1 },
+              { itemId: 'cauliflower', qty: 3, quality: 2 },
+              { itemId: 'potato', qty: 6 },
+              { itemId: 'kale', qty: 4 },
+              { itemId: 'pondPerch', qty: 1 },
+              { itemId: 'wood', qty: 30 },
+              { itemId: 'cockle', qty: 2 },
+            ].filter((b) => itemDef(b.itemId)),
+          });
+        }, 600);
+        setTimeout(() => void (this.game.services as { sleep?: { goToBed?(): Promise<void> } }).sleep?.goToBed?.(), 1800);
+      }
       // `ui-placement`: hold the first placeable on the toolbar so the in-world ghost + reach tint shows.
       if (name === 'ui-placement')
         setTimeout(() => {

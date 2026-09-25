@@ -817,20 +817,46 @@ const truffle: Painter = (p) => {
 };
 
 const hay: Painter = (p) => {
-  p.ellipse(32, 58, 26, 3.6, '#000', false, 0.16);
-  // 3/4 bale: front face, top face, end face
-  p.shape('M6 30 L40 30 L40 56 L6 56 Z', p.lin(['#f4d47a', '#e0b04a', '#b8862a'], 0, 0, 0, 1));
-  p.shape('M40 30 L58 20 L58 46 L40 56 Z', p.lin(['#d8a842', '#b08028'], 0, 0, 1, 0));
-  p.shape('M6 30 L24 20 L58 20 L40 30 Z', p.lin(['#fff0b8', '#f0cc6a'], 0, 0, 0, 1));
-  // straw texture
-  for (let i = 0; i < 8; i++) p.line(`M${9 + i * 4} ${34 + (i % 3) * 2} v${14 - (i % 2) * 4}`, '#a87a24', 1, 0.55);
-  for (let i = 0; i < 6; i++) p.line(`M${14 + i * 6.5} ${23 + (i % 2) * 2} l6 -1.2`, '#c8942e', 1, 0.6);
-  for (let i = 0; i < 4; i++) p.line(`M${44 + i * 4} ${30 - i * 2} v14`, '#8a6418', 1, 0.5);
-  // twine
-  p.line('M16 30 L16 56 M30 30 L30 56 M16 30 L34 20 M30 30 L48 20', '#b83a2a', 2.2);
-  // loose straws
-  p.line('M6 36 L1 33 M6 48 L2 50 M58 28 L63 25 M40 56 L43 61 M22 20 L20 15 M50 20 L53 15', '#e8c060', 1.7);
-  p.glint(20, 25, 5, 1.4, -28, 0.7);
+  // r15: a plump, bulging straw bale (soft wavy edges, layered straw strokes, thin jute twine) — the old
+  // hard-edged box with bold red bands read as a striped crate at card size.
+  p.ellipse(32, 57, 27, 4, '#000', false, 0.18);
+  const front = 'M7 31 C6 29 8 27.5 10 28 C18 27 30 27.2 40 28.4 C42 28.6 43 30 42.6 32 C43.4 40 43.4 48 42.6 54 C42.4 56 41 57 39 56.8 C29 57.6 18 57.6 10 56.6 C8 56.4 6.6 55 6.8 53 C6 45 6 38 7 31 Z';
+  const side = 'M42.6 32 C42.4 30 41.6 28.8 40 28.4 L54 19.6 C56 18.6 58 19.4 58.2 21.4 C59 29 59 37 58.2 44 C58 45.6 57.2 46.6 56 47.2 L42.6 54 C43.4 48 43.4 40 42.6 32 Z';
+  const top = 'M10 28 C8 27.5 7.6 26.2 9 25.2 L23 17.4 C24 16.8 25 16.6 26.4 16.6 C36 16.4 46 16.6 54 17.4 C56 17.6 56.4 19 54 19.6 L40 28.4 C30 27.2 18 27 10 28 Z';
+  p.shape(front, p.lin(['#f7dc86', '#e6b650', '#b8862a'], 0.2, 0, 0.5, 1));
+  p.shape(side, p.lin(['#dcae48', '#b48428', '#8e641a'], 0, 0, 1, 0.4));
+  p.shape(top, p.lin(['#fff4c4', '#f6d474', '#e4b04c'], 0, 0, 0.4, 1));
+  // straw: layered horizontal strokes on the front, short diagonal ones on top, vertical cut ends on the side
+  const strands: [string, string, number][] = [];
+  for (let r = 0; r < 7; r++) {
+    const y = 32.5 + r * 3.4;
+    const x0 = 9 + ((r * 7) % 5);
+    const len = 14 + ((r * 5) % 9);
+    strands.push([`M${x0} ${y} q${len / 2} ${r % 2 ? -1.4 : 1.2} ${len} 0`, r % 3 === 0 ? '#fff0b0' : '#a87a24', r % 3 === 0 ? 0.8 : 0.5]);
+    const x1 = x0 + len + 3;
+    if (x1 < 38) strands.push([`M${x1} ${y + 1.4} q${(40 - x1) / 2} ${r % 2 ? 1 : -1} ${40 - x1} 0`, '#c8942e', 0.55]);
+  }
+  for (const [d, c, o] of strands) p.line(d, c, 1.1, o);
+  for (let i = 0; i < 7; i++) p.line(`M${14 + i * 5.4} ${25.6 - (i % 2) * 1.6} l${4 + (i % 3)} -${2 + (i % 2)}`, i % 2 ? '#fffbe0' : '#c8942e', 1.1, 0.75);
+  for (let i = 0; i < 6; i++) {
+    const x = 45 + i * 2.2;
+    p.circle(x, 29 + (i % 3) * 5 - i * 1.2, 0.9, '#7a5414', false, 0.55);
+    p.circle(x + 1, 38 + ((i + 1) % 3) * 4 - i * 1.2, 0.9, '#7a5414', false, 0.5);
+  }
+  // jute twine: two thin bands wrapping front + top
+  for (const x of [18, 31]) {
+    p.line(`M${x} 28.2 C${x - 0.6} 38 ${x - 0.6} 48 ${x} 57.2`, '#5a2a12', 3.2, 0.9);
+    p.line(`M${x} 28.2 C${x - 0.6} 38 ${x - 0.6} 48 ${x} 57.2`, '#c46a3a', 1.6);
+    p.line(`M${x} 28 L${x + 14} 19.4`, '#5a2a12', 3, 0.85);
+    p.line(`M${x} 28 L${x + 14} 19.4`, '#d4804a', 1.4);
+  }
+  // stray straws: little tufts (2–3 bent strands) on the upper edges and corners, no hard ink — a fuzzy
+  // silhouette rather than pins stuck in a block
+  const tufts = 'M7.4 34 q-3 -1 -5.4 -3.4 M7.2 35.4 q-3.4 0.4 -5.6 -0.6 M7 46 q-3 1.4 -5 1 M24.6 17 q-1.6 -2.6 -1.4 -5.4 M26.4 16.8 q0.2 -2.6 1.8 -4.6 M43 16.8 q1.4 -2.4 4 -3.8 M45 17 q2.4 -1 5 -0.6 M58.4 24 q2.6 -2.2 4.8 -2.4 M58.6 26 q3 -0.4 4.6 0.8 M58.4 37 q2.8 0.6 4.4 2.2';
+  p.line(tufts, '#7a5414', 2.4, 0.35);
+  p.line(tufts, '#f4d27a', 1.2);
+  p.glint(22, 21.6, 7, 1.6, -26, 0.7);
+  p.fill('M9 31 C9 38 9 46 9.4 52 C8.4 46 8.2 38 9 31 Z', '#fff', 0.5);
 };
 
 const frostShard: Painter = (p, color = '#9fd8ff') => {
@@ -1251,16 +1277,23 @@ const TSW = 2.8;
 // hoe: green-painted flat blade at 90° to the handle · axe: wide red wedge with a bright steel bevel ·
 // pickaxe: dark-iron double point across the top · scythe: long silver crescent.
 const hoe: Painter = (p) => {
-  handle(p, 12, 60, 42, 14, 9);
-  // Steel neck + ferrule.
-  p.shape('M38 18 L44 8 L50 11 L45 21 Z', p.lin(['#9aa2ac', '#5a616a'], 0, 0, 1, 1), TSW);
-  p.shape('M36 17 L44 21 L41 26 L33 22 Z', p.lin(['#e6c46a', '#a67c22'], 0, 0, 1, 1), TSW);
-  // Flat blade hanging square off the neck (painted green, a bright ground steel edge along the bottom).
-  p.shape('M45 3 L61 10 C62.6 10.7 63.3 12.4 62.8 14 L55.4 38.6 C54.8 40.4 53 41.2 51.3 40.5 L35.5 33.4 Z', p.lin(['#b6ea78', '#56a63e', '#2c6424'], 0.1, 0, 0.9, 1), TSW);
-  p.fill('M47 6.4 L59.4 11.8 L58.2 16 L45.8 10.6 Z', '#eaffcc', 0.75);
-  p.line('M50 14 L56.5 16.8 M48.5 19 L55 21.8', '#2c6424', 1.4, 0.55);
-  p.shape('M35.5 33.4 L51.3 40.5 C53 41.2 54.8 40.4 55.4 38.6 L56.4 35.2 L38.4 27.6 Z', p.lin(STEEL, 0, 0, 1, 1), 2);
-  p.line('M38.6 32.4 L53.6 39', '#ffffff', 1.4, 0.95);
+  // r15: a real draw-hoe silhouette — a steel gooseneck curls off the top of the haft and a wide, short blade
+  // hangs square below it (wider than tall, like a "7"), so it no longer reads as a flag on a pole.
+  handle(p, 10, 61, 36, 17, 9);
+  // Brass ferrule.
+  p.shape('M31.5 16.5 L38.6 13 L42 19.4 L35 23 Z', p.lin(['#f0d27a', '#a67c22'], 0, 0, 1, 1), TSW);
+  // Short gooseneck shank.
+  const neck = 'M38.6 15.4 C41 9.6 46.6 8 50.2 10.6 C52 12 52.6 14.2 52.2 16.4';
+  p.raw(`<path d="${neck}" fill="none" stroke="${OL}" stroke-width="${5 + TSW * 2}" stroke-linecap="round"/>`);
+  p.raw(`<path d="${neck}" fill="none" stroke="${p.lin(['#dfe6ee', '#8a949f', '#565e68'], 0, 0, 1, 1)}" stroke-width="5" stroke-linecap="round"/>`);
+  p.line('M40.6 13 C42.8 9.8 46.6 9 49 10.6', '#ffffff', 1.3, 0.8);
+  // Flared blade: a narrow socket at the neck widening to a long straight cutting edge (green back, steel edge).
+  const blade = 'M46.6 15.6 L57.6 15.6 C59 15.6 59.8 16.8 60.2 18 L63.2 29.4 C63.6 31 62.6 32.4 61 32.4 L38.4 32.4 C36.8 32.4 35.8 31 36.4 29.4 L43.8 17.6 C44.4 16.4 45.4 15.6 46.6 15.6 Z';
+  p.shape(blade, p.lin(['#b6ea78', '#56a63e', '#2c6424'], 0.1, 0, 0.9, 1), TSW);
+  p.fill('M46.4 17.8 L57.8 17.8 L58.6 20.4 L45 20.4 Z', '#eaffcc', 0.7);
+  p.line('M44 24.6 L59.6 24.6', '#2c6424', 1.3, 0.5);
+  p.shape('M37.4 27.8 L62.6 27.8 L63.2 29.4 C63.6 31 62.6 32.4 61 32.4 L38.4 32.4 C36.8 32.4 35.8 31 36.4 29.4 Z', p.lin(STEEL, 0, 0, 1, 1), 2);
+  p.line('M39 30.4 L61 30.4', '#ffffff', 1.3, 0.95);
 };
 
 const axe: Painter = (p) => {

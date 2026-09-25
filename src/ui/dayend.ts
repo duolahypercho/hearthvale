@@ -61,6 +61,17 @@ export class DayEndScreen extends Screen {
     game.events.on('game:ready', () => (this.worldReady = true));
     // Once per in-game hour after 5pm on the farm (one extra frame render, ~every 40 s of play): keep the
     // latest evening view of *this* farm for tonight's summary. Nothing in the menus or while faded to black.
+    // `ui-sleep` stages bed at dusk straight from the URL: take this evening's frame once the farm is on screen.
+    game.events.on('demo:stage', ({ name }) => {
+      if (name !== 'ui-sleep') return;
+      let tries = 0;
+      const take = (): void => {
+        const cv = this.grab();
+        if (cv) this.dusk = { cv, day: game.calendar.day, hour: Math.floor(game.calendar.hour) };
+        else if (++tries < 12) window.setTimeout(take, 400);
+      };
+      window.setTimeout(take, 900);
+    });
     game.events.on('time:hour', ({ hour }) => {
       if (hour < 17 || game.world.current?.id !== 'farm' || game.hud.openPanelName) return;
       const cv = this.grab();
@@ -103,7 +114,15 @@ export class DayEndScreen extends Screen {
       }
       const mean = sum / Math.max(1, n);
       const sd = Math.sqrt(Math.max(0, sq / Math.max(1, n) - mean * mean));
-      return mean < 10 || sd < 9 ? null : cv;
+      if (mean < 10 || sd < 9) return null;
+      // A frame that is mostly one flat colour with a few specks (fog/sky with only the farmer drawn — the
+      // world mid-swap at the overnight rollover) passes the sd test on the specks alone: reject it too.
+      let flat = 0;
+      for (let i = 0; i < px.length; i += 4 * 97) {
+        const l = px[i]! * 0.3 + px[i + 1]! * 0.59 + px[i + 2]! * 0.11;
+        if (Math.abs(l - mean) < 14) flat++;
+      }
+      return flat / Math.max(1, n) > 0.8 ? null : cv;
     } catch {
       return null;
     }
@@ -117,6 +136,10 @@ export class DayEndScreen extends Screen {
 
   /** Tonight's backdrop frame: the world right now if we're outdoors (passed out, staged demo), else the dusk grab. */
   private backdrop(s: Summary): { cv: HTMLCanvasElement; day: boolean } | null {
+    // A real night's summary arrives after the calendar rolled over (world mid-swap, clock at 6am): this
+    // evening's grab of the farm is the truthful picture; the live frame is only for the staged sample.
+    const recent = this.dusk && (this.game.calendar.day - this.dusk.day + 28) % 28 <= 1 ? this.dusk : null;
+    if (!s.sample && recent) return { cv: recent.cv, day: recent.hour < 18 };
     if (this.outdoors(s)) {
       const cv = this.grab();
       if (cv) {
@@ -314,6 +337,7 @@ export class DayEndScreen extends Screen {
         <div class="de-ledger">
           <div class="de-h">Shipped today</div>
           <div class="de-rows fit${k > 9 ? ' dense' : ''}"${animalsCard ? ' style="height:250px"' : ''}>${rows.join('')}</div>
+          <div class="de-tot"><i class="de-stamp">Paid<small>${SEASON_NAME[endedSeason]} ${s.day}</small></i><span>Bin total</span><b>${total.toLocaleString()}g</b></div>
           ${animalsCard}
         </div>
         <div class="de-side">
@@ -328,7 +352,7 @@ export class DayEndScreen extends Screen {
       <div class="u-ribbon"><span>${title}</span></div>
       <div class="de-head"><span>${SEASON_NAME[endedSeason]} ${s.day}, Year ${c.year}</span><span class="saving">${ICONS.save}<em>Saving…</em></span></div>
       ${body}
-      <div class="de-foot"><span class="zz">z<i>z</i><b>z</b></span><button class="u-btn green is-default" data-nav>${ICONS.sun}<span>Good morning</span></button></div>`;
+      <div class="de-foot"><span class="zz">z<i>z</i><b>z</b></span><span class="de-keys kb-hint"><kbd>Enter</kbd> wake up · <em>autosaved overnight</em></span><button class="u-btn green is-default" data-nav>${ICONS.sun}<span>Good morning</span></button></div>`;
     card.classList.toggle('quiet', quiet);
     this.root.append(bg, sky, land, flies, card);
     card.querySelector('button')!.addEventListener('click', () => this.requestClose());
@@ -380,6 +404,8 @@ export class DayEndScreen extends Screen {
         // The ledger has ticked in: glide back to its first line (the bottom fade says there's more).
         if (box.scrollTop > 0) this.timers.push(window.setTimeout(() => box.scrollTo({ top: 0, behavior: 'smooth' }), 900));
         replay(card.querySelector('.de-earn'), 'go');
+        // The carter's rubber stamp thumps onto the ledger as the earnings roll.
+        card.querySelector('.de-tot')?.classList.add('go');
         if (total > 0) {
           sfx(this.game, 'coin');
           this.coinShower(card.querySelector('.de-earn') as HTMLElement);
