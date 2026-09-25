@@ -45,7 +45,9 @@ const ALMANAC: Record<string, string[]> = {
   fall: ['Pumpkins like room. Give them a little more than you think.', 'Stack wood now; winter comes quicker than you’d like.', 'The forest drops its best gifts after a wind.'],
   winter: ['Snow is a blanket, not an ending. Plan the spring beds.', 'The mines are warm in winter. Mind the slimes.', 'Visit folk. A kind word keeps longer than jam.'],
 };
-const GROUP_ICON: Record<string, string> = { Farming: 'sprout', Foraging: 'bag', Fishing: 'map', Mining: 'hammer', Other: 'coin' };
+/** Fair-ribbon rosette for the day's best line (a sun here read as tomorrow's weather). */
+const ROSETTE = `<svg viewBox="0 0 40 44" xmlns="http://www.w3.org/2000/svg"><path d="M13 22 L7 41 L13.5 37.5 L16.5 43 L21 25 Z" fill="#3f7fc4" stroke="#1d3f66" stroke-width="1.4" stroke-linejoin="round"/><path d="M27 22 L33 41 L26.5 37.5 L23.5 43 L19 25 Z" fill="#3474b8" stroke="#1d3f66" stroke-width="1.4" stroke-linejoin="round"/><path d="M20 2 L23.2 5.4 L27.8 4.4 L28.8 9 L33.2 10.8 L31.8 15.3 L34.6 19 L31.2 22.2 L31.6 26.9 L27 27.5 L24.6 31.6 L20 29.8 L15.4 31.6 L13 27.5 L8.4 26.9 L8.8 22.2 L5.4 19 L8.2 15.3 L6.8 10.8 L11.2 9 L12.2 4.4 L16.8 5.4 Z" fill="#f2b632" stroke="#8a5a0a" stroke-width="1.4" stroke-linejoin="round"/><circle cx="20" cy="17" r="8.6" fill="#ffe28a" stroke="#b07a14" stroke-width="1.3"/><path d="M20 11.4 L21.7 15 L25.6 15.4 L22.7 18 L23.5 21.9 L20 19.9 L16.5 21.9 L17.3 18 L14.4 15.4 L18.3 15 Z" fill="#fff6d0" stroke="#b07a14" stroke-width="1" stroke-linejoin="round"/><ellipse cx="15.5" cy="12" rx="3" ry="1.4" fill="#fff" opacity=".6" transform="rotate(-35 15.5 12)"/></svg>`;
+const GROUP_ICON: Record<string, string> = { Farming: 'sprout', Foraging: 'basket', Fishing: 'fish', Mining: 'pick', Other: 'coin' };
 
 export class DayEndScreen extends Screen {
   private lastItems: { day: number; items: Line[] } | null = null;
@@ -275,7 +277,7 @@ export class DayEndScreen extends Screen {
     const best = [...items].sort((a, b) => b.value - a.value)[0];
     const count = items.reduce((a, b) => a + b.qty, 0);
     const star = best
-      ? `<div class="de-star"><div class="de-h">Pick of the day</div><div class="st"><div class="u-slot">${itemIcon(best.itemId)}</div><div class="tx"><b>${escapeHtml(itemDef(best.itemId)?.name ?? best.itemId)}</b><small>×${best.qty} · ${best.value.toLocaleString()}g</small></div><span class="medal">${ICONS.sun}</span></div><div class="de-count"><span><b class="cn" data-v="0">0</b> items shipped</span><span><b class="kn" data-v="0">0</b> kinds</span></div></div>`
+      ? `<div class="de-star"><div class="de-h">Pick of the day</div><div class="st"><div class="u-slot">${itemIcon(best.itemId)}</div><div class="tx"><b>${escapeHtml(itemDef(best.itemId)?.name ?? best.itemId)}</b><small>×${best.qty} · ${best.value.toLocaleString()}g</small></div><span class="medal">${ROSETTE}</span></div><div class="de-count"><span><b class="cn" data-v="0">0</b> items shipped</span><span><b class="kn" data-v="0">0</b> kinds</span></div></div>`
       : '';
     const title = s.passedOut ? 'You passed out…' : `Day ${s.day} complete`;
     const quiet = !items.length;

@@ -5241,6 +5241,28 @@ body.u-contrast #ui-root {
   font-size: 20px;
   letter-spacing: 0.3px;
 }
-#ui-root .coop-pause .u-btn:not(.small) {
+#ui-root .pause-wrap > .coop-pause > .u-paper > .u-btn {
   font-size: 18px;
+  padding-top: 8px;
+  padding-bottom: 10px;
+}
+
+/* Pick of the day: a fair rosette pinned to the card, swaying on its pin (not a spinning sun). */
+.de-star .medal {
+  width: 38px;
+  height: 42px;
+  right: 12px;
+  transform-origin: 50% 20%;
+  animation: deRosette 3.2s ease-in-out infinite alternate;
+}
+@keyframes deRosette {
+  from {
+    rotate: -7deg;
+  }
+  to {
+    rotate: 6deg;
+  }
+}
+body.u-calm .de-star .medal {
+  animation: none;
 }
