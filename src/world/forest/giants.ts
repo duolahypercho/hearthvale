@@ -22,7 +22,7 @@ import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
 import { InstancedSet, BatchPool, type InstancedPart } from '../props/instanced';
 import type { GiantKind } from './layout';
-import { CardBuilder, leafClusterTexture, needleSprayTexture, applyBillboard, applyCardMap, applyPaintedLight, applySeeThrough } from './foliage';
+import { CardBuilder, leafClusterTexture, needleSprayTexture, applyBillboard, applyCardMap, applyCardShadowLift, applyPaintedLight, applySeeThrough } from './foliage';
 
 const WIND_TRUNK = { mode: 'attribute' as const, amplitude: 0.1, flutter: 0 };
 const WIND_LEAF = { mode: 'attribute' as const, amplitude: 0.16, flutter: 0.45 };
@@ -108,7 +108,7 @@ export function giantBarkMaterial(): THREE.MeshStandardMaterial {
         vec3 hvUpV = normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0));
         float hvLump = hvNoise(vHvWorldPos.xz * 6.0 + vHvWorldPos.y * 2.0);
         normal = normalize(mix(normal, nonPerturbedNormal, hvSnowAmt));
-        normal = normalize(mix(normal, hvUpV, hvSnowAmt * (0.45 + 0.25 * hvLump)));
+        normal = normalize(mix(normal, hvUpV, hvSnowAmt * (0.2 + 0.2 * hvLump)));
       }`,
     );
     fs = after(
@@ -370,6 +370,8 @@ function canopyMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
   if (kind === 'fir') applyLeafClumps(m, { freq: [1.3, 1.8, 1.3], bend: 0.35, seam: 0.28, cut: 1, needles: true });
   canopyLook(m, kind);
   applyPaintedLight(m);
+  // The shell sits inside its own cards' shadow volume: a short lift stops the woven acne on it.
+  applyCardShadowLift(m, 0.45);
   applySeeThrough(m, 5.5, 3);
   leafMats.set(kind, m);
   return m;
@@ -392,6 +394,7 @@ function cardMaterial(kind: GiantKind): THREE.MeshStandardMaterial {
   applyWorldFx(m, { snowUp: kind === 'fir' ? 0.05 : 0.55, wetGloss: 0.85, wetDark: 0.22 });
   applyWind(m, WIND_CARD);
   applyBillboard(m);
+  applyCardShadowLift(m, kind === 'fir' ? 0.6 : 0.9);
   applyCardMap(m, kind === 'elder');
   canopyLook(m, `card-${kind}`);
   applyPaintedLight(m);

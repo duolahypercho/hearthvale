@@ -923,13 +923,30 @@ export class ForestMap implements GameMap {
     const hummocks = [0, 1].map((v) => new InstancedSet(`winterhummock-${v}`, buildSnowHummock(r.fork(`h${v}`)), this.pool));
     const tracks = [0, 1].map((v) => new InstancedSet(`winterhare-${v}`, buildHareTracks(r.fork(`hr${v}`)), this.pool));
     const snowY = (x: number, z: number) => this.terrain.heightAt(x, z) + this.terrain.driftAt(x, z) * 0.2;
+    // The open bank east of the footbridge trail (the right half of the snow-day view) gets a dressed
+    // corner of its own: two berry thickets, a buried stone and a fallen bough.
+    const ok = (x: number, z: number) => this.freeTile(x, z) && this.shape.pathValue(x, z) <= 0.05 && !this.staged(x, z);
+    for (const [x, z, s] of [[43.3, 35.3, 1.25], [44.1, 35.9, 0.85], [45.9, 36.9, 1.1], [42.4, 32.2, 0.9]] as const) if (ok(x, z)) put(berries[0], x, z, s);
+    if (ok(44.6, 33.4)) hummocks[0].add(new THREE.Matrix4().compose(new THREE.Vector3(44.6, snowY(44.6, 33.4) - 0.04, 33.4), new THREE.Quaternion(), new THREE.Vector3(1.3, 1.1, 1.3)));
+    if (ok(41.9, 37.6)) branches[0].add(new THREE.Matrix4().compose(new THREE.Vector3(41.9, snowY(41.9, 37.6) - 0.025, 37.6), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.7), new THREE.Vector3(1.15, 1.15, 1.15)));
     for (let i = 0; i < 1500; i++) {
       const x = 2 + r.next() * 60;
       const z = 8 + r.next() * 52;
       if (!this.freeTile(x, z) || this.shape.pathValue(x, z) > 0.05 || this.staged(x, z)) continue;
       const u = r.next();
-      if (u < 0.08) put(r.pick(berries), x, z, 0.8 + r.next() * 0.6);
-      else if (u < 0.36) put(r.pick(twigs), x, z, 0.8 + r.next() * 0.5);
+      // Evergreen berry bushes in small clumps of 1-3: the dark masses that give a snowfield its
+      // value structure (a white sheet with lone tufts read as empty).
+      if (u < 0.1) {
+        const n = 1 + Math.floor(r.next() * 2.6);
+        for (let k = 0; k < n; k++) {
+          const a = r.next() * 6.28;
+          const d = k === 0 ? 0 : 0.9 + r.next() * 0.5;
+          const bx = x + Math.cos(a) * d;
+          const bz = z + Math.sin(a) * d;
+          if (k > 0 && (!this.freeTile(bx, bz) || this.shape.pathValue(bx, bz) > 0.05 || this.staged(bx, bz))) continue;
+          put(r.pick(berries), bx, bz, (k === 0 ? 0.95 : 0.7) + r.next() * 0.55);
+        }
+      } else if (u < 0.36) put(r.pick(twigs), x, z, 0.8 + r.next() * 0.5);
       else if (u < 0.5) {
         const s = 0.85 + r.next() * 0.4;
         r.pick(branches).add(new THREE.Matrix4().compose(new THREE.Vector3(x, snowY(x, z) - 0.025, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6.28), new THREE.Vector3(s, s, s)));

@@ -185,6 +185,8 @@ function logBarkMaterial(): THREE.MeshStandardMaterial {
         float body = 0.55 * cush + 0.3 * cush2 + 0.15 * fuzz;
         // Velvety cushions: olive-dark in the crevices between them, a yellow-green sheen on the crowns.
         vec3 moss = mix(uLogMoss * vec3(0.4, 0.5, 0.3), uLogMoss * vec3(1.12, 1.18, 0.7), smoothstep(0.28, 0.82, body));
+        // Soaked moss goes deep olive (the dry sheen read as a glowing lime tube under the rain grade).
+        moss = mix(moss, moss * vec3(0.56, 0.6, 0.5), uWet);
         // Sporophyte flecks catching the light.
         moss += vec3(0.42, 0.4, 0.12) * smoothstep(0.86, 0.95, hvNoise(P.xz * 58.0 + P.y * 31.0)) * 0.3;
         // Bark darkens where the moss holds the damp (a dark halo round every cushion).
@@ -211,7 +213,9 @@ function logBarkMaterial(): THREE.MeshStandardMaterial {
     shader.fragmentShader = fs;
   });
   // Wet bark darkens less than the default (the log is already dark: at 40 % it went coal-black in storms).
-  applyWorldFx(_logBark, { snowUp: 0.45, wetDark: 0.24 });
+  // Velvety moss never turns glossy: at the default 0.3 gloss the soaked crown mirrored the pale
+  // overcast and glowed lime against the rain grade.
+  applyWorldFx(_logBark, { snowUp: 0.45, wetDark: 0.3, wetGloss: 0.7 });
   return _logBark;
 }
 

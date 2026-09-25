@@ -430,6 +430,32 @@ export function applyBillboard<M extends THREE.Material>(m: M): M {
 }
 
 /**
+ * Billboard cards face the lens in the colour pass but the SUN in the shadow pass, so every card
+ * crosses its own caster and self-shadows in a fine woven moire (a "canvas" hatch over near crowns).
+ * Receiving cards look their shadow up `lift` m towards the sun: their own caster (and the clump's
+ * shell they sit on) drops out, while shade from other clumps / limbs above stays.
+ */
+export function applyCardShadowLift<M extends THREE.Material>(m: M, lift = 0.8): M {
+  return patchMaterial(m, `hv-card-shadow-lift:${lift}`, (shader) => {
+    shader.uniforms.uSunDir = globalUniforms.uSunDir;
+    let vs = shader.vertexShader;
+    if (!vs.includes('uniform vec3 uSunDir;')) vs = before(vs, 'void main() {', 'uniform vec3 uSunDir;');
+    vs = vs.replace(
+      '#include <shadowmap_vertex>',
+      `#ifdef USE_SHADOWMAP
+        vec4 hvWpSave = worldPosition;
+        worldPosition.xyz += normalize(uSunDir) * ${lift.toFixed(3)};
+      #endif
+      #include <shadowmap_vertex>
+      #ifdef USE_SHADOWMAP
+        worldPosition = hvWpSave;
+      #endif`,
+    );
+    shader.vertexShader = vs;
+  });
+}
+
+/**
  * Card texture read: value (R) multiplies the tint, coverage (A) drives alphaTest, and — when
  * `blossom` — spring blossoms (G) bloom pink-white on a share of the cards (per-card hash).
  */
