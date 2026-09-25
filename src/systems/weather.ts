@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import type { Season, Weather } from '../core/time';
+import type { Player, PlayerRig, ActionPose } from '../entities/player';
 import { RainStreaks, RainSplashes, SnowFlakes, RAIN_NEAR, RAIN_FAR, type HeightSource } from '../render/precipitation';
 import { LightningBolt, FogBank, Rainbow, StrikeScorch } from '../render/skyfx';
 import { BurstFX } from '../render/particles';
@@ -113,7 +114,9 @@ export class WeatherSystem implements System, WeatherApi {
   private strikeT = -1;
   private hold = false;
   private boltSeed = 7;
-  private thunder: { at: number; intensity: number; distance: number } | null = null;
+  /** Pending thunder, one per strike (a double strike rolls two claps; ones within 0.3 s merge). */
+  private thunder: { at: number; intensity: number; distance: number }[] = [];
+  private startle: Startle | null = null;
   private fogOverride: number | null = null;
   private rainbowOverride: number | null = null;
   /** Game hour until which a post-shower rainbow may show (same day). */
@@ -125,6 +128,9 @@ export class WeatherSystem implements System, WeatherApi {
   private printN = 0;
   private stride = 0.42;
   private clock = 0;
+  /** Weather-local clock for the falling particles: holds still for a 40 ms hitch on a close strike. */
+  private wt = 0;
+  private hitch = 0;
   /** 1 while it rains, then dries over ~2 game hours (keeps puddles / drips / dark wet ground). */
   private damp = 0;
   /** Current lightning flash level (0..1), lights up the rain. */
@@ -183,7 +189,40 @@ export class WeatherSystem implements System, WeatherApi {
     const dist = Math.hypot(x - g.player.position.x, z - g.player.position.z);
     g.events.emit('weather:lightning', { x, z });
     // Sound travels ~343 m/s; the diorama compresses distances, so keep the gap readable (0.5-2.5 s).
-    this.thunder = { at: this.clock + 0.5 + Math.min(2, dist / 14), intensity: THREE.MathUtils.clamp(1.2 - dist / 40, 0.35, 1), distance: dist };
+    const due = this.clock + 0.5 + Math.min(2, dist / 14);
+    const intensity = THREE.MathUtils.clamp(1.2 - dist / 40, 0.35, 1);
+    const near = this.thunder.find((t) => Math.abs(t.at - due) < 0.3);
+    if (near) {
+      near.at = Math.min(near.at, due);
+      near.intensity = Math.min(1, Math.max(near.intensity, intensity) + 0.1);
+      near.distance = Math.min(near.distance, dist);
+    } else this.thunder.push({ at: due, intensity, distance: dist });
+    // A close strike (< 10 m) jolts every farmer who saw it: a startle hop, a short jolt of the lens
+    // and a 40 ms hitch in the world (a posed demo strike stays still).
+    if (!hold && !g.paused) {
+      if (dist < 10) {
+        (this.startle ??= new Startle(g.player)).start();
+        g.rc.rig.addShake(0.35);
+        this.hitch = 0.04;
+      }
+      for (const r of this.remoteFarmers()) {
+        if (Math.hypot(r.x - x, r.z - z) < 10) r.emote?.('wow', 0.9);
+      }
+    }
+  }
+
+  /** Other farmers standing on this map (co-op avatars; the demo bots use the same list). */
+  private remoteFarmers(): { x: number; z: number; emote?(e: 'wow', dur?: number): void }[] {
+    const net = this.game.services.net as { remotes?: { list?: Map<number, { map: string; away?: boolean; farmer: { position: THREE.Vector3 }; emote?(e: 'wow', dur?: number): void }> } } | undefined;
+    const list = net?.remotes?.list;
+    const mapId = this.game.world.current?.id;
+    if (!list || !mapId) return [];
+    const out: { x: number; z: number; emote?(e: 'wow', dur?: number): void }[] = [];
+    for (const r of list.values()) {
+      if (r.away || r.map !== mapId) continue;
+      out.push({ x: r.farmer.position.x, z: r.farmer.position.z, emote: r.emote?.bind(r) });
+    }
+    return out;
   }
 
   /**
@@ -201,13 +240,15 @@ export class WeatherSystem implements System, WeatherApi {
     const hit = new THREE.Vector3();
     const open = (map as { openSky?(x: number, z: number): boolean }).openSky;
     let fallback: { x: number; z: number } | null = null;
+    const farmers = this.remoteFarmers();
     for (let i = 0; i < 40; i++) {
       const u = hash01(this.boltSeed * 3.1 + i * 17.7) * 1.5 - 0.75;
       const v = hash01(this.boltSeed * 1.7 + i * 9.3) * 0.75 - 0.05;
       ray.setFromCamera(new THREE.Vector2(u, v), cam);
       if (!ray.ray.intersectPlane(plane, hit)) continue;
+      // Never on top of a farmer: 6 m clear of everyone on the map (co-op avatars included).
       const d = Math.hypot(hit.x - p.x, hit.z - p.z);
-      if (d < 3) continue;
+      if (d < 6 || farmers.some((f) => Math.hypot(hit.x - f.x, hit.z - f.z) < 6)) continue;
       const tx = Math.floor(hit.x);
       const tz = Math.floor(hit.z);
       if (!map.grid.inBounds(tx, tz)) continue;
@@ -374,7 +415,7 @@ export class WeatherSystem implements System, WeatherApi {
       this.leafAmt = this.leafTarget();
       this.dripAmt = this.rainAmt;
     }
-    if (w !== 'storm') this.thunder = null;
+    if (w !== 'storm') this.thunder.length = 0;
   }
 
   // ───────────────────────────────────────────── targets
@@ -432,7 +473,9 @@ export class WeatherSystem implements System, WeatherApi {
     // Volume follows the camera focus, lifted a bit so drops fill the view above the ground.
     const rig = game.rc.rig;
     this.center.copy(rig.focus).add(rig.lookOffset);
-    const t = game.time;
+    if (this.hitch > 0) this.hitch -= dt;
+    else this.wt += dt;
+    const t = this.wt;
     const cam = game.rc.camera;
     const hPx = Math.max(1, game.rc.renderer.domElement.height);
     // World units per drawn pixel per metre of distance: streaks stay 1-1.5 px hairlines.
@@ -566,9 +609,10 @@ export class WeatherSystem implements System, WeatherApi {
     this.bolt.setResolution(buf.x, buf.y);
     game.lighting.setFlash(f * (0.6 + 0.4 * this.rainAmt));
     this.flashNow = f;
-    if (this.thunder && this.clock >= this.thunder.at) {
-      const th = this.thunder;
-      this.thunder = null;
+    for (let i = this.thunder.length - 1; i >= 0; i--) {
+      const th = this.thunder[i]!;
+      if (this.clock < th.at) continue;
+      this.thunder.splice(i, 1);
       game.events.emit('weather:thunder', { intensity: th.intensity, distance: th.distance });
       if (!game.paused) {
         game.rc.rig.addShake(0.25 * th.intensity);
@@ -576,5 +620,47 @@ export class WeatherSystem implements System, WeatherApi {
         game.events.emit('cutscene:cue', { cue: 'sfx', arg: 'thunder', instant: false });
       }
     }
+  }
+}
+
+/**
+ * Startle when lightning lands close: a 0.25 s flinch (shoulders up, arms thrown out, a little hop
+ * back). Wraps `player.actionPose` like the other action drivers and only answers while it plays.
+ */
+class Startle {
+  private t = -1;
+  private prev: Player['actionPose'] = null;
+  private readonly fn: NonNullable<Player['actionPose']>;
+
+  constructor(private player: Player) {
+    this.fn = (rig, dt) => (this.t >= 0 ? this.pose(rig, dt) : (this.prev?.(rig, dt) ?? null));
+  }
+
+  start(): void {
+    // Tool swings / plucks own the pose while they play: never cut into one.
+    if (this.player.busy && this.t < 0) return;
+    if (this.player.actionPose !== this.fn) {
+      this.prev = this.player.actionPose;
+      this.player.actionPose = this.fn;
+    }
+    this.t = 0;
+  }
+
+  private pose(rig: PlayerRig, dt: number): ActionPose | null {
+    this.t += dt;
+    const D = 0.42;
+    if (this.t >= D) {
+      this.t = -1;
+      return this.prev?.(rig, dt) ?? null;
+    }
+    // Snap in over 60 ms, hold, ease out.
+    const k = this.t < 0.06 ? this.t / 0.06 : 1 - THREE.MathUtils.smoothstep(this.t, 0.25, D);
+    rig.armR.rotation.x = -1.1 * k;
+    rig.armR.rotation.z = -0.12 - 0.75 * k;
+    rig.armL.rotation.x = -1.1 * k;
+    rig.armL.rotation.z = 0.12 + 0.75 * k;
+    rig.torso.rotation.x = -0.22 * k;
+    rig.head.rotation.x = -0.18 * k;
+    return { sy: 1 + 0.07 * k, bob: 0.06 * k * (this.t < 0.2 ? 1 : 0.5) };
   }
 }

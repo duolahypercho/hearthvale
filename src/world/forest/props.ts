@@ -547,6 +547,119 @@ export function buildWinterTwigs(r: Rng): InstancedPart[] {
   return out;
 }
 
+let _wtrack: THREE.MeshStandardMaterial | null = null;
+/** Hare tracks pressed into the snow: a cool blue shade, no snow blend (they ARE the snow). */
+export function winterTrackMaterial(): THREE.MeshStandardMaterial {
+  if (_wtrack) return _wtrack;
+  _wtrack = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  _wtrack.name = 'winterTrack';
+  return _wtrack;
+}
+
+/**
+ * A fallen branch lying on the snow: a gently bent, tapered limb with two or three side twigs,
+ * half sunk, its upper side capped with snow (worldfx on the twig material).
+ */
+export function buildFallenBranch(r: Rng): InstancedPart[] {
+  const b = new MeshBuilder();
+  const m = winterTwigMaterial();
+  const len = 1.1 + r.next() * 0.8;
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= 5; i++) {
+    const t = i / 5;
+    pts.push(new THREE.Vector3((t - 0.5) * len, 0.03 + Math.sin(t * Math.PI) * 0.04, Math.sin(t * 2.6 + r.next() * 0.4) * 0.12));
+  }
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const tube = new THREE.TubeGeometry(curve, 10, 1, 5, false);
+  // Taper the tube along its length (0.055 → 0.012 m).
+  const tp = tube.attributes.position as THREE.BufferAttribute;
+  const c = new THREE.Vector3();
+  for (let i = 0; i < tp.count; i++) {
+    const seg = Math.floor(i / 6);
+    const t = Math.min(1, seg / 10);
+    curve.getPoint(t, c);
+    const rad = THREE.MathUtils.lerp(0.055, 0.012, t);
+    tp.setXYZ(i, c.x + (tp.getX(i) - c.x) * rad, c.y + (tp.getY(i) - c.y) * rad, c.z + (tp.getZ(i) - c.z) * rad);
+  }
+  tube.computeVertexNormals();
+  const bark = new THREE.Color(0x5a4636).multiplyScalar(0.85 + r.next() * 0.3);
+  b.add(m, tube, undefined, { tint: bark });
+  const kids = 2 + r.int(0, 1);
+  for (let k = 0; k < kids; k++) {
+    const t = 0.3 + k * 0.25 + r.next() * 0.1;
+    const p = curve.getPoint(t);
+    const kl = 0.25 + r.next() * 0.3;
+    const g = new THREE.CylinderGeometry(0.006, 0.02, kl, 4);
+    g.translate(0, kl / 2, 0);
+    const side = r.next() < 0.5 ? -1 : 1;
+    b.add(m, g, mat(p.x, p.y, p.z, side * (0.9 + r.next() * 0.5), 0, (r.next() - 0.5) * 0.8), { tint: bark.clone().multiplyScalar(1.1) });
+  }
+  const out: InstancedPart[] = [];
+  for (const [mm, geo] of b.geometries()) out.push({ geometry: geo, material: mm as THREE.Material, castShadow: true });
+  return out;
+}
+
+/**
+ * A snow hummock: a buried stone / stump under a soft, lumpy cushion of snow (a drift cluster
+ * that breaks up the flat white field and throws a soft blue shadow).
+ */
+export function buildSnowHummock(r: Rng): InstancedPart[] {
+  const b = new MeshBuilder();
+  const m = winterTwigMaterial();
+  const n = 2 + r.int(0, 2);
+  for (let i = 0; i < n; i++) {
+    const rad = i === 0 ? 0.42 + r.next() * 0.2 : 0.2 + r.next() * 0.16;
+    const a = r.next() * 6.28;
+    const d = i === 0 ? 0 : 0.35 + r.next() * 0.2;
+    const g = lumpySphere(rad, 2, 0.12, r, 1.6);
+    g.scale(1.25, 0.42, 1);
+    b.add(m, g, mat(Math.cos(a) * d, rad * 0.05, Math.sin(a) * d, 0, r.next() * 6.28, 0), { tint: 0xf2f6ff, aoWorld: (q) => 0.78 + 0.22 * THREE.MathUtils.smoothstep(q.y, 0, rad * 0.35) });
+  }
+  // A dark stone lip peeking out on the lee side.
+  const st = lumpySphere(0.16, 1, 0.2, r, 2);
+  st.scale(1.2, 0.5, 1);
+  b.add(m, st, mat(0.28, 0.04, 0.2), { tint: 0x5a5f66 });
+  const out: InstancedPart[] = [];
+  for (const [mm, geo] of b.geometries()) out.push({ geometry: geo, material: mm as THREE.Material, castShadow: true });
+  return out;
+}
+
+/**
+ * A hare's hopping trail (~3 m): sets of four prints — two long hind feet side by side ahead of
+ * two small fore feet one behind the other — every ~0.7 m along a lazy S.
+ */
+export function buildHareTracks(r: Rng): InstancedPart[] {
+  const b = new MeshBuilder();
+  const m = winterTrackMaterial();
+  const shade = new THREE.Color(0x8ea4c8);
+  const print = (x: number, z: number, sx: number, sz: number, rot: number) => {
+    const g = new THREE.CircleGeometry(1, 10).rotateX(-Math.PI / 2);
+    g.scale(sx, 1, sz);
+    b.add(m, g, mat(x, 0.012, z, 0, rot, 0), { tint: shade.clone().multiplyScalar(0.92 + r.next() * 0.12) });
+  };
+  let z = -1.6;
+  let x = 0;
+  let head = 0;
+  for (let k = 0; k < 5; k++) {
+    head += (r.next() - 0.5) * 0.5;
+    const fx = Math.sin(head);
+    const fz = Math.cos(head);
+    const px = -fz;
+    const pz = fx;
+    // Fore feet (behind), one after the other.
+    print(x + px * 0.02, z, 0.028, 0.04, head);
+    print(x - px * 0.02 + fx * 0.09, z + fz * 0.09, 0.028, 0.04, head);
+    // Hind feet (ahead), side by side, long.
+    print(x + fx * 0.26 + px * 0.07, z + fz * 0.26 + pz * 0.07, 0.035, 0.085, head);
+    print(x + fx * 0.26 - px * 0.07, z + fz * 0.26 - pz * 0.07, 0.035, 0.085, head);
+    x += fx * 0.72;
+    z += fz * 0.72;
+  }
+  const out: InstancedPart[] = [];
+  for (const [mm, geo] of b.geometries()) out.push({ geometry: geo, material: mm as THREE.Material, castShadow: false });
+  return out;
+}
+
 // ───────────────────────────────────────────── Ember Shrine
 
 export interface ShrineBuild {
@@ -816,6 +929,17 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
     for (let k = 0; k < 4; k++) {
       const a = da - dw * 0.8 + (k / 3) * dw * 1.6;
       b.add('metal', roundedBox(0.34, 0.07, 0.03, 0.01, 1), mat(Math.cos(a) * (R - 0.05), y, Math.sin(a) * (R - 0.05), 0, -a + Math.PI / 2, 0), { tint: 0x2e2a28 });
+    }
+  }
+  // Door surround: a stone reveal behind the planks (the arch shoulders and the slivers between the
+  // coursing and the door read as stone, never as a hole into the dark interior) and a dressed jamb
+  // stone standing either side.
+  b.add(stone, boxUV(roundedBox(dw * 2 * R + 0.5, 2.2, 0.3, 0.05, 1), 1.3), mat(Math.cos(da) * (R - 0.3), 1.1, Math.sin(da) * (R - 0.3), 0, -da + Math.PI / 2, 0), { tint: 0x9a917e });
+  for (const sgn of [-1, 1]) {
+    const a = da + sgn * (dw + 0.05);
+    for (let k = 0; k < 4; k++) {
+      const h = 0.52;
+      b.add(stone, boxUV(roundedBox(0.3, h * 0.94, 0.66, 0.05, 1), 1.3), mat(Math.cos(a) * (R + 0.02), k * h + h / 2, Math.sin(a) * (R + 0.02), 0, -a + Math.PI / 2, 0), { tint: new THREE.Color(0xc8bea8).multiplyScalar(0.86 + rng.next() * 0.16) });
     }
   }
   b.add('metal', new THREE.TorusGeometry(0.09, 0.018, 6, 12), mat(Math.cos(da + 0.1) * (R - 0.02), 1.05, Math.sin(da + 0.1) * (R - 0.02), 0, -da, 0), { tint: 0x4a403a });

@@ -445,6 +445,13 @@ export function applyCardMap<M extends THREE.Material>(m: M, blossom = false): M
       vec4 hvCard = texture2D(map, vMapUv);
       diffuseColor.rgb *= 0.35 + hvCard.r * 0.95;
       diffuseColor.a *= hvCard.a;
+      {
+        // Autumn crowns are never one stamped colour: soft patches drift russet / amber / straw
+        // (about ±0.04 hue) so neighbouring crowns and clumps read as different leaves.
+        float hvJ = hvNoise(vHvWorldPos.xz * 0.55 + vHvWorldPos.y * 0.37 + 17.0);
+        vec3 hvJc = mix(vec3(1.14, 0.86, 0.78), vec3(0.94, 1.08, 0.9), smoothstep(0.2, 0.8, hvJ));
+        diffuseColor.rgb *= mix(vec3(1.0), hvJc, uSeasonW.z * 0.8);
+      }
       ${
         blossom
           ? `{

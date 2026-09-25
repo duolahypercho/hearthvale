@@ -383,8 +383,11 @@ export class DayNight {
     const g = this.rc.post.grade.uniforms;
     (g.uLift!.value as THREE.Vector3).set(L(a.lift[0], b.lift[0], t), L(a.lift[1], b.lift[1], t), L(a.lift[2], b.lift[2], t));
     (g.uGain!.value as THREE.Vector3).set(L(a.gain[0], b.gain[0], t), L(a.gain[1], b.gain[1], t), L(a.gain[2], b.gain[2], t));
-    g.uSaturation!.value = L(a.sat, b.sat, t) * (1 - oc * 0.18) * (1 - stormK * 0.22);
-    g.uContrast!.value = L(a.contrast, b.contrast, t) * (1 - oc * 0.04) * (1 + stormK * 0.03);
+    // Plain rain keeps its local contrast (path / grass / canopy stay separate values, not one
+    // murky green): a milder desaturation and a touch MORE contrast than a dry day.
+    const rainOnly = THREE.MathUtils.smoothstep(oc, 0.6, 0.9) * (1 - stormK);
+    g.uSaturation!.value = L(a.sat, b.sat, t) * (1 - oc * 0.18 + rainOnly * 0.07) * (1 - stormK * 0.22);
+    g.uContrast!.value = L(a.contrast, b.contrast, t) * (1 - oc * 0.04 + rainOnly * 0.1) * (1 + stormK * 0.05);
     if (stormK > 0.001) {
       (g.uLift!.value as THREE.Vector3).lerp(_stormLift, stormK);
       (g.uGain!.value as THREE.Vector3).lerp(_stormGain, stormK);

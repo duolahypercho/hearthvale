@@ -16,6 +16,7 @@ import { InstancedSet, type BatchPool, type InstancedPart } from '../props/insta
 import { ITEMS, type ItemDef } from '../../data/items';
 import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
+import { registerForestIcons } from './icons';
 
 export interface ForageDef {
   id: string;
@@ -41,10 +42,11 @@ export const FOREST_FORAGE: ForageDef[] = [
   { id: 'crystalCone', name: 'Crystal Cone', season: 'winter', sell: 110, color: 0xbfe0f0, blurb: 'A fir cone glazed in clear ice. It chimes when tapped.' },
 ];
 
-// Register item defs (kind 'forage': the UI paints a keyword / kind icon for them).
+// Register item defs (kind 'forage') and their hand-drawn icons (world/forest/icons.ts).
 for (const f of FOREST_FORAGE) {
   if (!ITEMS[f.id]) ITEMS[f.id] = { id: f.id, name: f.name, kind: 'forage', icon: f.id, sell: f.sell, stack: 999, color: f.color, description: f.blurb } as ItemDef;
 }
+registerForestIcons();
 
 let _mat: THREE.MeshStandardMaterial | null = null;
 function forageMaterial(): THREE.MeshStandardMaterial {
@@ -212,7 +214,8 @@ const _q = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
-const SCALE = 1.35;
+/** Finds read from across the clearing (~1.4x the old 1.35: a hazelnut was a 20 px blob). */
+const SCALE = 1.9;
 
 // ───────────────────────────────────────────── glints
 
@@ -295,7 +298,7 @@ class ForageGlints {
     for (const it of items) {
       if (n >= this.max) break;
       this.pos[n * 3] = it.pos.x;
-      this.pos[n * 3 + 1] = it.pos.y + 0.16;
+      this.pos[n * 3 + 1] = it.pos.y + 0.24;
       this.pos[n * 3 + 2] = it.pos.z;
       this.ph[n] = it.phase;
       const c = new THREE.Color(it.def.color);
@@ -311,6 +314,64 @@ class ForageGlints {
 
   setPx(px: number): void {
     (this.points.material as THREE.ShaderMaterial).uniforms.uPx!.value = px;
+  }
+}
+
+// ───────────────────────────────────────────── contact shadows
+
+/**
+ * A soft, slightly squashed dark blob under every find (one draw): it sits the find on the ground
+ * and separates it from grass of the same value.
+ */
+class ForageShadows {
+  readonly points: THREE.Points;
+  private pos = new Float32Array(32 * 3);
+  private geo = new THREE.BufferGeometry();
+
+  constructor() {
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setDrawRange(0, 0);
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: { uPx: { value: 1080 } },
+      vertexShader: /* glsl */ `
+        uniform float uPx;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          gl_Position.z -= 0.001 * gl_Position.w;
+          gl_PointSize = clamp(uPx * 0.95 / -mv.z, 8.0, 80.0);
+        }`,
+      fragmentShader: /* glsl */ `
+        void main() {
+          vec2 p = gl_PointCoord * 2.0 - 1.0;
+          p.y *= 1.55;
+          float a = exp(-dot(p, p) * 3.2) * 0.42;
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(0.06, 0.05, 0.02, a);
+        }`,
+    });
+    this.points = new THREE.Points(this.geo, mat);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = 2;
+    this.points.name = 'forage-shadows';
+    this.points.userData.perfTag = 'fx';
+    this.points.userData.noAO = true;
+  }
+
+  set(items: Iterable<ForageItem>, pxHeight: number): void {
+    let n = 0;
+    for (const it of items) {
+      if (n >= 32) break;
+      this.pos[n * 3] = it.pos.x;
+      this.pos[n * 3 + 1] = it.pos.y + 0.03;
+      this.pos[n * 3 + 2] = it.pos.z;
+      n++;
+    }
+    this.geo.setDrawRange(0, n);
+    (this.geo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (this.points.material as THREE.ShaderMaterial).uniforms.uPx!.value = pxHeight;
   }
 }
 
@@ -413,6 +474,7 @@ export class ForageField {
   readonly items = new Map<number, ForageItem>();
   readonly group = new THREE.Group();
   private glints = new ForageGlints();
+  private shadows = new ForageShadows();
   private burst = new LeafBurst();
   private pops: Pop[] = [];
   private dirty = true;
@@ -423,7 +485,7 @@ export class ForageField {
     private rng: Rng,
   ) {
     this.group.name = 'forage-fx';
-    this.group.add(this.glints.points, this.burst.mesh);
+    this.group.add(this.shadows.points, this.glints.points, this.burst.mesh);
   }
 
   private setFor(id: string): InstancedSet {
@@ -488,11 +550,12 @@ export class ForageField {
   }
 
   private rest(it: ForageItem, t: number): THREE.Matrix4 {
-    // A slow breathing bob + sway (never perfectly still, but planted).
-    const b = Math.sin(t * 1.9 + it.phase * 6.28);
-    const s = SCALE * (1 + b * 0.035);
-    _q.setFromAxisAngle(UP, it.rot + Math.sin(t * 0.8 + it.phase * 9) * 0.08);
-    return _m.compose(_v.set(it.pos.x, it.pos.y - 0.01 + Math.max(0, b) * 0.012, it.pos.z), _q, _s.set(s, s * (1 + b * 0.05), s));
+    // A 0.5 Hz breathing bob + sway: the find swells and lifts a hair on every beat (alive and
+    // "pick me", like a forage twinkle), but stays planted on its contact shadow.
+    const b = Math.sin(t * Math.PI + it.phase * 6.28);
+    const s = SCALE * (1 + b * 0.05);
+    _q.setFromAxisAngle(UP, it.rot + Math.sin(t * 0.8 + it.phase * 9) * 0.1);
+    return _m.compose(_v.set(it.pos.x, it.pos.y - 0.01 + Math.max(0, b) * 0.035, it.pos.z), _q, _s.set(s, s * (1 + b * 0.07), s));
   }
 
   /** Remove a find from the field (its visual stays until `pluck` / `drop`). */
@@ -568,6 +631,7 @@ export class ForageField {
     if (this.dirty || pxHeight !== this.px) {
       this.px = pxHeight;
       this.glints.set(this.items.values(), pxHeight);
+      this.shadows.set(this.items.values(), pxHeight);
       this.dirty = false;
     }
     this.burst.update(dt);

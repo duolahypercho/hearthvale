@@ -52,7 +52,7 @@ import {
   type GiantKind,
 } from './layout';
 import { GiantGrove, ShrubField, giantBarkMaterial } from './giants';
-import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
+import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, buildFallenBranch, buildSnowHummock, buildHareTracks, winterTrackMaterial, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
 import { buildWaterfall, buildChurn, buildMist, buildFlow } from './stream';
 import { ForageField, forageKey, type ForageSpot, type ForageItem } from './forage';
 import { PluckAction } from './pluck';
@@ -137,7 +137,9 @@ export class ForestMap implements GameMap {
     const high = createWater(this.terrain, { x0: 2, z0: -22, x1: 24, z1: FALLS.lipZ + 0.15 }, WATER_HIGH);
     // Drop plane triangles hanging over the cliffs (the shader only hides water *under* ground).
     this.clipWater(low, WATER_LOW, 99);
-    this.clipWater(high, WATER_HIGH, 1.4);
+    // The spring pool only lives in the upper channel: a dip on the plateau rim or the top of the cliff
+    // face that happens to sit under the pool level must not grow a stray sliver of water.
+    this.clipWater(high, WATER_HIGH, 1.4, (x, z) => (S.upper.nearest(x, z, 2.4)?.d ?? 9) < 2.1 && S.plateauMask(x, z) > 0.9);
     low.userData.perfTag = high.userData.perfTag = 'water';
     this.root.add(low, high);
     this.buildRunningWater();
@@ -499,7 +501,7 @@ export class ForestMap implements GameMap {
   // ───────────────────────────────────────────── water
 
   /** Drop triangles far above the ground (> 0.9 m) or hanging over a drop deeper than `maxDepth`. */
-  private clipWater(mesh: THREE.Mesh, level: number, maxDepth: number): void {
+  private clipWater(mesh: THREE.Mesh, level: number, maxDepth: number, where?: (x: number, z: number) => boolean): void {
     const g = mesh.geometry;
     const pos = g.attributes.position as THREE.BufferAttribute;
     const idx = g.index!;
@@ -513,7 +515,9 @@ export class ForestMap implements GameMap {
       const a = idx.getX(t);
       const b = idx.getX(t + 1);
       const c = idx.getX(t + 2);
-      if (ok(a) && ok(b) && ok(c) && (wet(a) || wet(b) || wet(c))) keep.push(a, b, c);
+      if (!(ok(a) && ok(b) && ok(c) && (wet(a) || wet(b) || wet(c)))) continue;
+      if (where && !where((pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3, (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3)) continue;
+      keep.push(a, b, c);
     }
     g.setIndex(keep);
     g.computeBoundingSphere();
@@ -907,13 +911,28 @@ export class ForestMap implements GameMap {
     const twigs = [0, 1, 2].map((v) => new InstancedSet(`wintertwig-${v}`, buildWinterTwigs(r.fork(`t${v}`)), this.pool));
     const put = (set: InstancedSet, x: number, z: number, s: number) =>
       set.add(new THREE.Matrix4().compose(new THREE.Vector3(x, this.terrain.heightAt(x, z) - 0.02, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6.28), new THREE.Vector3(s, s * (0.85 + r.next() * 0.3), s)));
-    for (let i = 0; i < 900; i++) {
+    // Fallen branches, snow hummocks (buried stones / stumps) and hare trails: about one feature per
+    // 4 m² of open snow, so a winter clearing is never a flat empty white field.
+    const branches = [0, 1, 2].map((v) => new InstancedSet(`winterbranch-${v}`, buildFallenBranch(r.fork(`fb${v}`)), this.pool));
+    const hummocks = [0, 1].map((v) => new InstancedSet(`winterhummock-${v}`, buildSnowHummock(r.fork(`h${v}`)), this.pool));
+    const tracks = [0, 1].map((v) => new InstancedSet(`winterhare-${v}`, buildHareTracks(r.fork(`hr${v}`)), this.pool));
+    const snowY = (x: number, z: number) => this.terrain.heightAt(x, z) + this.terrain.driftAt(x, z) * 0.2;
+    for (let i = 0; i < 1500; i++) {
       const x = 2 + r.next() * 60;
       const z = 8 + r.next() * 52;
       if (!this.freeTile(x, z) || this.shape.pathValue(x, z) > 0.05 || this.staged(x, z)) continue;
       const u = r.next();
-      if (u < 0.1) put(r.pick(berries), x, z, 0.8 + r.next() * 0.6);
-      else if (u < 0.45) put(r.pick(twigs), x, z, 0.8 + r.next() * 0.5);
+      if (u < 0.08) put(r.pick(berries), x, z, 0.8 + r.next() * 0.6);
+      else if (u < 0.36) put(r.pick(twigs), x, z, 0.8 + r.next() * 0.5);
+      else if (u < 0.5) {
+        const s = 0.85 + r.next() * 0.4;
+        r.pick(branches).add(new THREE.Matrix4().compose(new THREE.Vector3(x, snowY(x, z) - 0.025, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6.28), new THREE.Vector3(s, s, s)));
+      } else if (u < 0.6) {
+        const s = 0.8 + r.next() * 0.6;
+        r.pick(hummocks).add(new THREE.Matrix4().compose(new THREE.Vector3(x, snowY(x, z) - 0.04, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6.28), new THREE.Vector3(s, s * (0.8 + r.next() * 0.4), s)));
+      } else if (u < 0.625) {
+        r.pick(tracks).add(new THREE.Matrix4().compose(new THREE.Vector3(x, snowY(x, z), z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6.28), new THREE.Vector3(1, 1, 1)));
+      }
     }
   }
 
@@ -1065,7 +1084,11 @@ export class ForestMap implements GameMap {
       const el = this.game.rc.renderer.domElement.getBoundingClientRect();
       const inv = this.game.services.inventory;
       const slot = inv ? inv.slots.findIndex((s) => s?.id === it.def.id) : -1;
-      flyItemToToolbar(this.game.opts.uiRoot, it.def.id, { x: el.left + (v.x * 0.5 + 0.5) * el.width, y: el.top + (-v.y * 0.5 + 0.5) * el.height }, slot, 0, { duration: 520, bounce: 1.2 });
+      // Past the ten toolbar slots the find lands on the bar itself (it squash-bumps), never on a
+      // hidden backpack row the farmer cannot see.
+      const bar = this.game.opts.uiRoot.querySelectorAll('.hv-toolbar .u-slot').length || 10;
+      const visible = Math.min(10, bar);
+      flyItemToToolbar(this.game.opts.uiRoot, it.def.id, { x: el.left + (v.x * 0.5 + 0.5) * el.width, y: el.top + (-v.y * 0.5 + 0.5) * el.height }, slot < visible ? slot : -1, 0, { duration: 520, bounce: 1.2 });
     } catch {
       /* HUD not mounted (tests) */
     }
@@ -1153,7 +1176,7 @@ export class ForestMap implements GameMap {
     // Mushrooms are an autumn-to-summer thing: none poke through the winter snow; winterberries and
     // dead stalks only show up under it.
     for (const m of [...this.pool.meshesFor(fungusMaterial()), ...this.pool.meshesFor(glowcapMaterial())]) m.visible = season !== 'winter';
-    for (const m of [...this.pool.meshesFor(winterLeafMaterial()), ...this.pool.meshesFor(winterBerryMaterial()), ...this.pool.meshesFor(winterTwigMaterial())]) m.visible = season === 'winter';
+    for (const m of [...this.pool.meshesFor(winterLeafMaterial()), ...this.pool.meshesFor(winterBerryMaterial()), ...this.pool.meshesFor(winterTwigMaterial()), ...this.pool.meshesFor(winterTrackMaterial())]) m.visible = season === 'winter';
   }
 
   setWeather(weather: Weather): void {

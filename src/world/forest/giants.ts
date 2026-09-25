@@ -116,27 +116,41 @@ export function giantTwigMaterial(): THREE.MeshStandardMaterial {
 }
 
 /**
- * Recursive, tapered, curved branching (3 levels, radius x0.65 and length x0.72 per level): each
- * branch is a short bezier bough bending up and out, children fork off its outer half.
+ * Recursive, tapered, curved branching (4 levels, each child 0.62-0.72x its parent's radius and
+ * length): every branch is a bezier bough in 2-3 bent segments that reaches up and out and then
+ * sags under its own weight towards the tip; children fork off its outer half, starting as thick as
+ * the parent is at the fork, and the finest twigs taper to ~1 cm (a fan of whips, not chopsticks).
  */
+const TWIG_LEVELS = 4;
 function branchTree(b: MeshBuilder, m: THREE.Material, rng: Rng, from: THREE.Vector3, dir: THREE.Vector3, len: number, r: number, level: number): void {
   const d = dir.clone().normalize();
   const end = from.clone().addScaledVector(d, len);
-  // Branches arc upward towards the light, then droop a touch at the tips.
-  const ctrl = from.clone().lerp(end, 0.5).add(new THREE.Vector3((rng.next() - 0.5) * len * 0.35, len * (0.12 + rng.next() * 0.18), (rng.next() - 0.5) * len * 0.35));
-  // Lean geometry: the whole winter crown of an elder is ~3k triangles.
-  bough(b, m, r, r * (level === 2 ? 0.3 : 0.55), from, ctrl, end, 6 - level, level === 2 ? 2 : 3, 1);
-  if (level >= 2) return;
+  // Gravity droop grows with the level (fine whips hang, the scaffold limbs still reach up).
+  end.y -= len * (0.04 + level * 0.07);
+  const lift = level < 2 ? 0.12 + rng.next() * 0.16 : 0.02 + rng.next() * 0.06;
+  const ctrl = from.clone().lerp(end, 0.45).add(new THREE.Vector3((rng.next() - 0.5) * len * 0.3, len * lift, (rng.next() - 0.5) * len * 0.3));
+  const last = level >= TWIG_LEVELS - 1;
+  const rEnd = last ? 0.01 : r * 0.55;
+  // Lean geometry: radial sides 5 -> 3 with depth, 3 bends on the scaffold, 2 on the whips.
+  bough(b, m, r, rEnd, from, ctrl, end, Math.max(3, 5 - level), level < 2 ? 3 : 2, 1);
+  if (last) return;
   const curve = new THREE.QuadraticBezierCurve3(from, ctrl, end);
-  const kids = level === 0 ? 3 : 2 + rng.int(0, 1);
+  const kids = level === 0 ? 3 : level === 1 ? 2 + rng.int(0, 1) : 1 + rng.int(0, 1);
   for (let k = 0; k < kids; k++) {
-    const t = 0.45 + (k / kids) * 0.5 + rng.next() * 0.08;
-    const p = curve.getPoint(Math.min(0.98, t));
-    const tan = curve.getTangent(Math.min(0.98, t));
+    const t = Math.min(0.97, 0.45 + ((k + 0.5) / kids) * 0.5 + (rng.next() - 0.5) * 0.08);
+    const p = curve.getPoint(t);
+    const tan = curve.getTangent(t);
     const a = rng.next() * Math.PI * 2;
-    const side = new THREE.Vector3(Math.cos(a), 0.25 + rng.next() * 0.5, Math.sin(a));
-    const nd = tan.clone().multiplyScalar(0.55).add(side.multiplyScalar(0.6)).normalize();
-    branchTree(b, m, rng, p, nd, len * (0.62 + rng.next() * 0.2), r * 0.65, level + 1);
+    const side = new THREE.Vector3(Math.cos(a), 0.3 + rng.next() * 0.45, Math.sin(a));
+    const nd = tan.clone().multiplyScalar(0.6).add(side.multiplyScalar(0.55)).normalize();
+    const rAt = THREE.MathUtils.lerp(r, rEnd, t);
+    const kr = Math.min(rAt * 0.95, r * (0.62 + rng.next() * 0.1));
+    branchTree(b, m, rng, p, nd, len * (0.62 + rng.next() * 0.1), kr, level + 1);
+  }
+  // Past its last fork the branch carries on as a thin leader whip.
+  if (level >= 1) {
+    const tip = curve.getPoint(0.97);
+    branchTree(b, m, rng, tip, curve.getTangent(0.97).add(new THREE.Vector3(0, 0.25, 0)), len * 0.5, rEnd * 0.9, TWIG_LEVELS - 1);
   }
 }
 
@@ -280,6 +294,13 @@ function canopyLook(m: THREE.MeshStandardMaterial, key: string): void {
         // Autumn canopies keep a few green / russet patches.
         float ah = hvNoise(fp.xz * 0.45 + 9.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.8, 1.0, 0.66), smoothstep(0.68, 0.92, ah) * 0.4 * uSeasonW.z);
+        ${key.endsWith('fir') ? `{
+          // Conifers in the fall grade: the blue-teal needles drift to a warm olive (hue ~0.22, less
+          // saturated) so they sit inside the amber palette instead of punching a cold hole in it.
+          float fl = dot(diffuseColor.rgb, vec3(0.3, 0.55, 0.15));
+          vec3 olive = fl * vec3(1.02, 1.0, 0.56);
+          diffuseColor.rgb = mix(diffuseColor.rgb, olive, 0.62 * uSeasonW.z);
+        }` : ''}
       }`,
     );
     fs = after(

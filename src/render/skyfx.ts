@@ -179,22 +179,37 @@ export class LightningBolt {
     };
     const main = channel(top, ground, 6, 0.62);
     emit(main, 16, 13, 1);
-    // 2-4 forks peeling off the upper two thirds, each with a twig or two.
+    // Every fork / twig heads DOWN, within 35° of vertical (a near-horizontal branch reads as a laser
+    // across the ground), and never reaches lower than a third of the way above the strike point.
+    const MAX_TAN = Math.tan(THREE.MathUtils.degToRad(35));
+    const downDir = (h: THREE.Vector3): THREE.Vector3 => {
+      const hl = Math.hypot(h.x, h.z);
+      const k = hl > MAX_TAN ? MAX_TAN / hl : 1;
+      return new THREE.Vector3(h.x * k, -1, h.z * k).normalize();
+    };
+    const hTop = top.y - ground.y;
+    const clampEnd = (from: THREE.Vector3, d: THREE.Vector3, len: number, floorFrac: number): THREE.Vector3 => {
+      const floorY = ground.y + hTop * floorFrac;
+      const maxLen = Math.max(0.5, (from.y - floorY) / Math.max(0.2, -d.y));
+      return from.clone().add(d.multiplyScalar(Math.min(len, maxLen)));
+    };
+    // 2-4 forks peeling off the top 55 % of the channel (above 45 % of its height), each with a twig or two.
     const forks = 2 + Math.floor(rnd() * 3);
     for (let k = 0; k < forks; k++) {
-      const fi = Math.floor((0.1 + rnd() * 0.55) * (main.length - 2));
+      const fi = Math.floor((0.06 + rnd() * 0.42) * (main.length - 2));
       const from = main[fi]!;
-      const dir = main[fi + 1]!.clone().sub(from).normalize();
-      const len = 6 + rnd() * 9;
-      const side = new THREE.Vector3(rnd() - 0.5, 0, (rnd() - 0.5) * 0.5).normalize();
-      const end = from.clone().add(dir.clone().multiplyScalar(0.5).add(side.multiplyScalar(0.9)).add(new THREE.Vector3(0, -0.8, 0)).normalize().multiplyScalar(len));
-      const fp = channel(from, end, 4, 0.6);
+      const len = 5 + rnd() * 7;
+      const ang = rnd() * Math.PI * 2;
+      const spread = 0.35 + rnd() * 0.45;
+      const d = downDir(new THREE.Vector3(Math.cos(ang) * spread, 0, Math.sin(ang) * spread * 0.4));
+      const end = clampEnd(from, d, len, 0.34);
+      const fp = channel(from, end, 4, 0.45);
       emit(fp, 11, 6, 0.6);
       for (let j = 0; j < 2; j++) {
         const si = 1 + Math.floor(rnd() * (fp.length - 3));
         const sf = fp[si]!;
-        const se = sf.clone().add(new THREE.Vector3((rnd() - 0.5) * 2, -0.7 - rnd(), (rnd() - 0.5) * 1).normalize().multiplyScalar(1.5 + rnd() * 2.5));
-        emit(channel(sf, se, 3, 0.6), 7, 4, 0.4);
+        const td = downDir(new THREE.Vector3((rnd() - 0.5) * 1.4, 0, (rnd() - 0.5) * 0.5));
+        emit(channel(sf, clampEnd(sf, td, 1.5 + rnd() * 2.5, 0.28), 3, 0.45), 7, 4, 0.4);
       }
     }
 
