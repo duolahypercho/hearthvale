@@ -481,6 +481,8 @@ export class Hud {
       this.game.events.emit('ui:close', { name: prev });
     }
     this.root.classList.toggle('h-crisp', CRISP_CLOCK.has(name));
+    this.root.classList.remove('h-clock-tuck');
+    if (CRISP_CLOCK.has(name)) this.tuckClockSoon();
     // Full-screen night ledger: the HUD steps aside before the card fades in (no clock/gold under the moon).
     this.root.classList.toggle('h-away', name === 'dayend');
     if (name === 'none') {
@@ -509,6 +511,35 @@ export class Hud {
         replay(r, 'tab-in');
       }
     }
+  }
+
+  /**
+   * On small / short viewports the UI-zoom floor makes a menu frame reach under the crisp clock plate, which would
+   * cover the frame's close button. When they meet, the clock steps aside for as long as that menu is open (the
+   * backpack / shop / workbench carry their own purse + date).
+   */
+  private tuckTimers: number[] = [];
+  private tuckBound = false;
+  private tuckClockSoon(): void {
+    this.tuckTimers.forEach((t) => clearTimeout(t));
+    this.tuckTimers = [0, 120, 320, 700, 1500].map((ms) => window.setTimeout(() => this.tuckClock(), ms));
+    if (!this.tuckBound) {
+      this.tuckBound = true;
+      window.addEventListener('resize', () => {
+        if (this.root.classList.contains('h-crisp')) this.tuckClockSoon();
+      });
+    }
+  }
+  private tuckClock(): void {
+    if (!this.root.classList.contains('h-crisp')) return;
+    const clock = this.root.querySelector<HTMLElement>(':scope > .h-clock');
+    const close = [...document.querySelectorAll<HTMLElement>('.hv-screens .u-close')].find((b) => b.offsetParent !== null);
+    if (!clock || !close) return;
+    const a = clock.getBoundingClientRect();
+    const b = close.getBoundingClientRect();
+    const frame = close.closest('.u-frame')?.getBoundingClientRect();
+    const hit = (r: DOMRect | undefined): boolean => !!r && r.width > 0 && r.left < a.right + 8 && r.right > a.left - 8 && r.top < a.bottom + 8 && r.bottom > a.top - 8;
+    this.root.classList.toggle('h-clock-tuck', hit(b) || hit(frame));
   }
 
   private setMenuPause(on: boolean): void {

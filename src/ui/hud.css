@@ -1573,3 +1573,11 @@ body:has(.u-tip.on) .hv-np {
   padding: 4px 12px 4px 8px;
   border-radius: 14px;
 }
+
+/* Menu frame reaches under the clock (small viewports): the plate steps aside so the close button stays reachable. */
+.hv-hud.h-crisp.h-clock-tuck > .h-clock {
+  z-index: auto;
+  opacity: 0;
+  translate: 0 -18px;
+  pointer-events: none;
+}

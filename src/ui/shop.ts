@@ -117,7 +117,14 @@ export class ShopScreen extends Screen {
       if (!v || v.dataset.v === String(gold)) return;
       rollTo(v, gold, 650);
       replay(this.purse, 'bump');
-      if (this.tab === 'buy') this.buildPicker();
+      if (this.tab === 'buy') {
+        // Row prices go red / back to ink the moment the purse can (or can no longer) cover them.
+        this.list?.querySelectorAll('.shop-row').forEach((r, k) => {
+          const g = this.goods[k];
+          if (g) r.classList.toggle('cant', g.price > gold);
+        });
+        this.buildPicker();
+      }
     });
     game.events.on('inventory:change', () => {
       if (this.isOpen && this.tab === 'sell' && !this.selling) this.build();

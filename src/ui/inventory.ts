@@ -8,7 +8,7 @@
  */
 import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
-import { ICONS, itemIcon, itemCategory, qualityStar } from './icons';
+import { ICONS, itemIcon, itemCategory, qualityStar, QUALITY_MULT } from './icons';
 import { CROPS, daysToRipe, type CropId } from '../data/crops';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
 import { slotInner, unitPrice, starRow, type StackView } from './itemtip';
@@ -206,11 +206,20 @@ export class InventoryScreen extends Screen {
           ? `<div class="idt-val tool">${ICONS.hammer}<b>Tool</b><small>not for sale</small></div>`
           : '';
     const stars = q ? `<span class="idt-q">${starRow(q)}</span>` : '';
+    // Quality ladder for things that grow / are caught / are found: what this item fetches at each star, with the
+    // held quality lit — the one place the game teaches that care in the field pays at the bin.
+    const graded = (d?.kind === 'produce' || d?.kind === 'fish' || d?.kind === 'forage') && (d?.sell ?? 0) > 0;
+    if (graded && !meta) {
+      const base = d!.sell;
+      meta = `<div class="idt-ladder">${[0, 1, 2, 3]
+        .map((k) => `<span class="lq${k === q ? ' on' : ''}${k < q ? ' past' : ''}">${k ? qualityStar(k) : '<i class="dot"></i>'}<b>${Math.floor(base * (QUALITY_MULT[k] ?? 1)).toLocaleString()}g</b></span>`)
+        .join('<i class="arr"></i>')}</div>`;
+    }
     this.detail.innerHTML = `
       <div class="u-slot idt-pic">${itemIcon(s.id)}${qualityStar(q)}</div>
       <div class="idt-txt">
         <div class="idt-name">${carrying ? '<span class="idt-carry">Carrying</span>' : ''}<b>${escapeHtml(d?.name ?? s.id)}</b>${stars}<span class="t-cat" style="background:${cat.color}">${cat.label}</span></div>
-        <p>${escapeHtml(desc)}</p>${meta ? `<div class="idt-meta">${meta}</div>` : ''}
+        <p>${escapeHtml(desc)}</p>${meta.startsWith('<div') ? meta : meta ? `<div class="idt-meta">${meta}</div>` : ''}
       </div>${val}`;
     replay(this.detail, 'swap');
   }
