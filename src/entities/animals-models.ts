@@ -151,8 +151,9 @@ function chicken(variant: number): AnimalModel {
 function duck(variant: number): AnimalModel {
   const r = new RigBuilder();
   const mallard = variant === 1;
-  const body = mallard ? 0xb4aca0 : 0xece7dc;
-  const back = mallard ? 0x8a7a66 : 0xece6d8;
+  // (white duck a touch off-white: pure white bloomed into a glowing blob in full sun)
+  const body = mallard ? 0xb4aca0 : 0xe2dccf;
+  const back = mallard ? 0x8a7a66 : 0xded6c6;
   const chest = mallard ? 0x8a4a30 : body;
   const head = mallard ? 0x2a7a4c : body;
   const bill = mallard ? 0xe8c848 : 0xf5a030;
@@ -276,7 +277,7 @@ function cow(variant: number): AnimalModel {
   r.part('body', new THREE.TorusGeometry(0.205, 0.03, 8, 22), mat(0, 0.86, 0.43, Math.PI / 2 - 0.55, 0, 0), 0x8e3526);
   r.part('body', new THREE.CylinderGeometry(0.045, 0.07, 0.1, 14), mat(0, 0.69, 0.56), 0xe8b840, { flat: true });
   r.part('body', new THREE.SphereGeometry(0.02, 8, 6), mat(0, 0.635, 0.56), 0x5a4020, { flat: true });
-  legs(r, d, base, 0x3e302a, jersey ? band(0x6a4228, 0.22) : spots);
+  legs(r, d, base, 0x3e302a, jersey ? band(0x86583a, 0.17) : spots);
   // Tail with a tuft
   r.part('tail', limb(0.022, 0.018, 0.97, 0.5, 6), mat(0, 0, -0.63), base);
   r.part('tail', ellipsoid(0.045, 0.085, 0.045, 10, 8), mat(0, 0.47, -0.63), jersey ? 0x3a2418 : 0x26221f);
@@ -286,8 +287,9 @@ function cow(variant: number): AnimalModel {
   const faceShade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.22 * THREE.MathUtils.smoothstep(Math.abs(p.x), 0.02, 0.2) * THREE.MathUtils.smoothstep(p.y, 0.98, 1.12)) : undefined;
   r.part('head', ellipsoid(0.27, 0.25, 0.26), mat(0, 1.07, 0.6), base, { patch: headPatch, paint: faceShade });
   // Muzzle: jersey's pale "mealy" ring around a dark nose; holstein pink
-  const muzzle = jersey ? 0xf0dcc0 : 0xf6c0b4;
-  r.part('head', ellipsoid(0.215, 0.15, 0.15), mat(0, 0.94, 0.8), muzzle);
+  // (jersey's mealy ring kept close to the coat's value: a bright ring read as a mask from behind)
+  const muzzle = jersey ? 0xdcbc98 : 0xf6c0b4;
+  r.part('head', ellipsoid(jersey ? 0.195 : 0.215, 0.15, 0.15), mat(0, 0.94, 0.8), muzzle);
   r.part('head', ellipsoid(jersey ? 0.13 : 0.17, jersey ? 0.075 : 0.1, 0.07), mat(0, 0.95, 0.9), jersey ? 0x4a3830 : 0xf09a94);
   for (const s of [-1, 1]) r.part('head', ellipsoid(0.03, 0.022, 0.012, 8, 6), mat(s * 0.07, 0.955, 0.965, 0, s * 0.3, 0), jersey ? 0x140e0c : 0x3a2418, { flat: true });
   r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92), 0x4a2a1e, { flat: true });
@@ -334,7 +336,9 @@ function goat(variant: number): AnimalModel {
   r.part('body', new THREE.SphereGeometry(0.014, 8, 6), mat(0, 0.698, 0.4), 0x5a4020, { flat: true });
   legs(r, d, base, 0x3a2e28, socks);
   // Perky flag tail
-  r.part('tail', ellipsoid(0.035, 0.08, 0.03, 8, 6), mat(0, 0.83, -0.37, -0.6, 0, 0), togg ? 0x6a4228 : base);
+  // (coat-coloured with a pale underside: a dark disc here read as a hole from the high camera)
+  r.part('tail', ellipsoid(0.04, 0.09, 0.034, 10, 8), mat(0, 0.85, -0.38, -0.85, 0, 0), base);
+  r.part('tail', ellipsoid(0.026, 0.06, 0.02, 8, 6), mat(0, 0.838, -0.365, -0.85, 0, 0), togg ? cream : 0xf6f0e6);
   // Head: domed skull, long tapering muzzle angled down, beard, floppy-flat ears, swept horns
   r.part('head', ellipsoid(0.145, 0.15, 0.16), mat(0, 1.04, 0.43), base);
   r.part('head', ellipsoid(0.09, 0.09, 0.14), mat(0, 0.96, 0.58, 0.35, 0, 0), togg ? cream : base);

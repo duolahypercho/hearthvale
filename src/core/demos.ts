@@ -136,7 +136,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Audio pod: the farm at golden morning with a "now playing" banner. URL: &theme=<spring|spring-2|spring-3|summer|
   // summer-2|summer-3|fall|fall-2|fall-3|winter|winter-2|winter-3|night|night-spring|night-fall|night-winter|town|beach|
   // mine|mine-ice|mine-lava|rain|inn|forest|festival|festival-blossom|festival-tide|festival-harvest|festival-starfall|
-  // title|none> or a playlist (farm:spring, night:fall ...), &card=1 pins the now-playing card (notes float out of it
+  // title|none> or a playlist (farm:spring, night:fall ...), the now-playing card is pinned (&card=0 hides it; notes float out of it
   // in time with the tune once sound runs — press any key), &sfx=<name> repeats an SFX every 2.5 s, &audio=1 starts the
   // AudioContext without a click where autoplay allows. audio-summer / audio-fall / audio-winter stage the other seasons.
   audio: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
@@ -146,12 +146,12 @@ export const DEMOS: Record<string, DemoDef> = {
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.2, offsetZ: -0.35 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 7.3, z: 5.1, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 8.0, z: 6.35, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior'] },
   // Bedtime: the "Go to bed for the night?" prompt beside the quilted bed / tucked in under the quilt, room dimmed, Zzz.
   'house-bedtime': { map: 'house', x: 9.6, z: 2.9, facing: 'right', time: 21.8, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-ask'] },
   'animals-dayend': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'animals', 'dayend'] },
   'house-asleep': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-lie'] },
-  'coop-interior': { map: 'coop', x: 3.3, z: 4.55, facing: 'down', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals'] },
+  'coop-interior': { map: 'coop', x: 4.75, z: 4.2, facing: 'left', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals'] },
   // Morning egg round: the farmer lifts a gold-star egg overhead from the nesting boxes (&nest=0..5).
   'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals', 'eggs'] },
   'barn-interior': { map: 'barn', x: 8.67, z: 5.05, facing: 'down', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 17.2, offsetZ: 0.1 }, showcase: ['animals'] },

@@ -1729,7 +1729,7 @@ export class AnimalSystem implements System, AnimalsApi {
       const spots: Record<string, [number, number, number][]> = {
         cow: showcase.includes('pet-close') ? [[48.2, 38.7, -0.5], [50.4, 41.6, 0.6]] : [[44.7, 39.3, -0.5], [48.5, 41.5, 0.6]],
         sheep: [[46.9, 38.1, 1.2], [48.9, 38.3, -0.9]],
-        goat: [[41.1, 42.35, Math.atan2(-0.8, -0.85)]],
+        goat: [[41.35, 42.55, Math.atan2(-0.8, -0.85)]],
         pig: [[46.2, 42.5, -0.55]],
         chicken: [[40.1, 38.4, 2.4], [39.5, 39.2, -1.0], [38.1, 38.7, 0.5], [41.3, 37.5, 1.9]],
         duck: [[43.2, 41.9, 1.4], [44.4, 42.3, -2.5]],
@@ -1798,10 +1798,12 @@ export class AnimalSystem implements System, AnimalsApi {
       }
       const pet = this.live.find((l) => !l.rec);
       if (pet && name === 'animals-pasture') {
-        // Sits in its own clearing between the cow and the ducks (never on / behind a big animal).
-        pet.actor.area = { x0: 42.6, z0: 40.1, x1: 43.2, z1: 40.7 };
+        // Sits in its own clearing up-field of the goat (its name card pops right where the pet used
+        // to sit and hid it), between the hens and the cow, face to the camera.
+        pet.actor.area = { x0: 42.45, z0: 39.35, x1: 42.75, z1: 39.65 };
         pet.actor.blockers = PASTURE_PROPS;
-        pet.actor.place(42.9, 40.4, 0.4);
+        pet.actor.curious = false;
+        pet.actor.place(42.6, 39.5, 0.25);
       } else if (pet) {
         // Yard shot: sitting by the bowl, looking up at the farmer.
         pet.actor.area = { x0: SITES.bowl.x - 1.2, z0: SITES.bowl.z + 0.2, x1: SITES.bowl.x - 0.2, z1: SITES.bowl.z + 1.0 };
