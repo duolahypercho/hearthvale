@@ -35,7 +35,7 @@ const D = 34;
 const CLIFF_TEX = /* glsl */ `
 vec3 hvCliffTex(vec2 tp) {
   vec2 wq = tp * vec2(0.3, 0.72);
-  wq += (vec2(hvFbm(tp * 0.3 + 3.0), hvFbm(tp * 0.3 + 9.0)) - 0.5) * 1.3;
+  wq += (vec2(hvFbm(tp * 0.3 + 3.0), hvFbm(tp * 0.3 + 9.0)) - 0.5) * 0.55;
   vec4 st = hvMineStone(wq);
   float edge = st.y - st.x;
   vec4 st2 = hvMineStone(wq * 2.7 + 4.1);
@@ -438,6 +438,8 @@ export class MineEntranceMap implements GameMap {
     const n = this.noise;
     const pos = new Float32Array(cols * rows * 3);
     const col = new Float32Array(cols * rows * 3);
+    /** Continuous strata coordinate per vertex (band index + fraction): crisp lips drawn per pixel. */
+    const bandA = new Float32Array(cols * rows);
     const PAL = [0xa89272, 0x8e7a62, 0xb49e7e, 0x7c6a58, 0x9c886c, 0x86725c, 0xa0907a].map((h) => new THREE.Color(h));
     const moss = new THREE.Color(0x6a8a40);
     const c = new THREE.Color();
@@ -462,7 +464,8 @@ export class MineEntranceMap implements GameMap {
         const gz = (this.height(x, z + e, false) - this.height(x, z - e, false)) / (2 * e);
         const nrm = new THREE.Vector3(-gx, 1, -gz).normalize();
         const steep = smoothstep(0.8, 2.6, Math.hypot(gx, gz));
-        const v = (y + n.fbm(x * 0.09 + 3, 1.5, 2) * 1.4) / bandH;
+        // Gently dipping, only lightly warped beds (a heavy warp melted the strata into clay blobs).
+        const v = (y + x * 0.035 + n.fbm(x * 0.09 + 3, 1.5, 2) * 0.55) / bandH;
         const band = Math.floor(v);
         const f = v - band;
         const hard = hash(band * 1.7 + 0.3);
@@ -478,7 +481,7 @@ export class MineEntranceMap implements GameMap {
         // (the per-block / joint offsets fade out at the band borders: a displacement step there
         // crossed the vertex rows at an angle and lit up as a sawtooth crease along every ledge)
         const inner = smoothstep(0.0, 0.14, f) * (1 - smoothstep(0.86, 1.0, f));
-        let disp = 0.03 + steep * (0.05 + (0.08 + hard * 0.26) * prof + ((block - 0.5) * 0.06 - joint * 0.12) * inner + n.fbm(x * 0.35, y * 0.35 + 7, 2) * 0.12);
+        let disp = 0.03 + steep * (0.05 + (0.1 + hard * 0.34) * prof + ((block - 0.5) * 0.06 - joint * 0.12) * inner + n.fbm(x * 0.35, y * 0.35 + 7, 2) * 0.12);
         disp = Math.max(0.05, disp);
         const k = (i * rows + j) * 3;
         pos[k] = x + nrm.x * disp;
@@ -499,10 +502,11 @@ export class MineEntranceMap implements GameMap {
         c.multiplyScalar(1 - foot * 0.3);
         const ledgeTop = smoothstep(0.62, 0.8, f) * (1 - smoothstep(0.84, 0.97, f)) * steep * (0.4 + 0.6 * smoothstep(0.1, 0.5, n.fbm(x * 0.4, y * 0.4, 2) + 0.2));
         const topLip = (1 - steep) * smoothstep(3, 6, y);
-        c.lerp(moss, Math.min(1, ledgeTop * 0.75 + topLip * 0.7));
+        c.lerp(moss, Math.min(1, ledgeTop * 0.35 + topLip * 0.8));
         col[k] = c.r;
         col[k + 1] = c.g;
         col[k + 2] = c.b;
+        bandA[i * rows + j] = v;
       }
     }
     const idx: number[] = [];
@@ -520,6 +524,7 @@ export class MineEntranceMap implements GameMap {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setAttribute('aBand', new THREE.BufferAttribute(bandA, 1));
     g.setIndex(idx);
     g.computeVertexNormals();
     const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
@@ -530,10 +535,10 @@ export class MineEntranceMap implements GameMap {
     m.polygonOffsetFactor = -2;
     m.polygonOffsetUnits = -4;
     patchMaterial(m, 'entrance-cliff-r3', (shader) => {
-      let vs = before(shader.vertexShader, 'void main() {', 'varying vec3 vCfW; varying vec3 vCfN;');
-      vs = after(vs, '#include <project_vertex>', 'vCfW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCfN = normalize(mat3(modelMatrix) * objectNormal);');
+      let vs = before(shader.vertexShader, 'void main() {', 'varying vec3 vCfW; varying vec3 vCfN; attribute float aBand; varying float vBand;');
+      vs = after(vs, '#include <project_vertex>', 'vCfW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCfN = normalize(mat3(modelMatrix) * objectNormal); vBand = aBand;');
       shader.vertexShader = vs;
-      let fs = before(shader.fragmentShader, 'void main() {', `varying vec3 vCfW; varying vec3 vCfN;\n${NOISE_GLSL}\n${CAVE_GLSL}\n${CLIFF_TEX}`);
+      let fs = before(shader.fragmentShader, 'void main() {', `varying vec3 vCfW; varying vec3 vCfN; varying float vBand;\n${NOISE_GLSL}\n${CAVE_GLSL}\n${CLIFF_TEX}`);
       fs = after(
         fs,
         '#include <color_fragment>',
@@ -557,9 +562,34 @@ export class MineEntranceMap implements GameMap {
           float streak = smoothstep(0.62, 0.82, hvNoise(vec2(vCfW.x * 2.2, vCfW.y * 0.25 + 3.0)));
           diffuseColor.rgb *= 1.0 - streak * 0.12;
           // Moss on the up-facing ledges and slab tops.
-          float up = smoothstep(0.35, 0.75, normalize(vCfN).y);
+          // Moss / turf only on genuinely flat ledge tops: clean bright caps, never smears down the face.
+          float up = smoothstep(0.68, 0.9, normalize(vCfN).y);
           float mossN = smoothstep(0.35, 0.6, hvFbm(vCfW.xz * 0.9 + 2.0) + grit * 0.25);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.3, 0.1) * (0.8 + 0.4 * grit), up * mossN * 0.85);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.26, 0.42, 0.12) * (0.85 + 0.3 * grit), up * mossN * 0.9);
+          // Faces shade by aspect: sun-facing verticals warm and bright, overhang undersides cool and
+          // dark, so each ledge reads as a crisp lit top over a shadowed riser.
+          float under = smoothstep(-0.05, -0.45, normalize(vCfN).y);
+          diffuseColor.rgb *= 1.0 - under * 0.45;
+          // Bedding planes at pixel resolution (the vertex rows are too coarse to carry them): a
+          // dark recessed groove at every bed border with a sunlit worn lip just above it, wobbling
+          // a little along the face. Anti-aliased on the band coordinate's own footprint and faded
+          // where beds get denser than a few pixels, on steep faces only.
+          {
+            float bw = vBand + (hvNoise(vCfW.xz * 1.7 + vCfW.y * 0.3) - 0.5) * 0.12;
+            float fb = fract(bw);
+            float aw = fwidth(vBand) * 1.5;
+            float bid = floor(bw);
+            float bh = fract(sin(bid * 91.7 + 3.1) * 43758.5453);
+            // Soft recessed groove (a shadowed bedding joint, not an inked contour line), strength
+            // varying per bed; each bed shades from a darker foot up to a sunlit top lip.
+            float groove = max(1.0 - smoothstep(0.0, 0.1 + aw, fb), smoothstep(0.9 - aw, 1.0, fb) * 0.6);
+            float lip = smoothstep(0.7 - aw, 0.8, fb) * (1.0 - smoothstep(0.84, 0.9 + aw, fb));
+            float face = (1.0 - smoothstep(0.55, 0.8, normalize(vCfN).y)) * (1.0 - smoothstep(0.12, 0.3, aw));
+            float broken = smoothstep(0.25, 0.6, hvNoise(vec2(vCfW.x * 0.35, bid * 3.1)));
+            float gk = (0.25 + 0.55 * bh) * (0.35 + 0.65 * broken);
+            float bedShade = mix(0.86, 1.06, smoothstep(0.05, 0.8, fb));
+            diffuseColor.rgb *= mix(1.0, (1.0 - groove * gk) * (1.0 + lip * 0.16 * broken) * bedShade, face);
+          }
         `,
       );
       fs = after(

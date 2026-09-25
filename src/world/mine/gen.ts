@@ -434,6 +434,26 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     }
   }
 
+  if (biome === 'ice') {
+    // An old survey line of lantern posts along the grotto walls: warm amber pools against the
+    // blue ice (the band needs a warm counter-colour beyond the farmer's own lantern). Own rng
+    // stream, so the rest of the floor's layout is unchanged.
+    const lr = rng.fork('ice-lanterns');
+    const posts: { x: number; z: number }[] = [];
+    const start = lr.int(0, Math.max(0, edges.length - 1));
+    for (let n = 0; n < edges.length && posts.length < 3; n++) {
+      const e = edges[(start + n * 7) % edges.length]!;
+      if (taken[idx(e.x, e.z)] || pool[idx(e.x, e.z)] || !spaced(posts, e.x, e.z, 7) || !spaced(crystalPts, e.x, e.z, 2.5)) continue;
+      if (Math.hypot(e.x - spawn.x, e.z - spawn.z) < 3) continue;
+      posts.push(e);
+      const rot = e.dir === 0 ? 0 : e.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+      const ox = e.dir === 1 ? -0.3 : e.dir === 2 ? 0.3 : 0;
+      const oz = e.dir === 0 ? -0.3 : 0;
+      addDecor('lanternPost', e.x + 0.5 + ox, e.z + 0.5 + oz, rot, 1, true);
+      lightSources.push({ x: e.x + 0.5 + ox * 0.2, y: 1.7, z: e.z + 0.5 + oz * 0.2 + 0.35, color: 0xffa050, intensity: 10, distance: 7.5, flicker: 1, w: 1.5 });
+    }
+  }
+
   // Crates / barrels (+ a pick stand) near the arrival: somebody worked here once.
   if (biome !== 'lava' || rng.next() < 0.5) {
     const around: [number, number][] = [

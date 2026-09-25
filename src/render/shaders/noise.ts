@@ -57,6 +57,8 @@ vec3 hvMottle(vec3 c, vec2 wp, out float tone) {
 vec3 hvMottle(vec3 c, vec2 wp) { float t; return hvMottle(c, wp, t); }
 // Soft moving cloud shadows, 1 = lit, lower = shadowed.
 float hvCloudShadow(vec2 wp, float t, float strength) {
+  // Night / interiors / mines run with strength 0: skip the 4-octave fbm (uniform branch).
+  if (strength < 0.001) return 1.0;
   vec2 q = wp * 0.028 + vec2(t * 0.012, t * 0.006);
   float n = hvFbm(q);
   float c = smoothstep(0.52, 0.72, n);

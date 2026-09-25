@@ -229,13 +229,14 @@ export class SettingsScreen extends Screen {
     const gfx = el('section', 'set-sec', `<h3>${ICONS.sun}<span>Graphics</span></h3>`);
     const seg = el('div', 'set-seg');
     const QUALITIES: [Quality, string, string, number][] = [
-      ['low', 'Low', 'fastest', 4],
-      ['medium', 'Medium', 'light', 3],
-      ['high', 'High', 'recommended', 2],
-      ['ultra', 'Ultra', 'showcase', 1],
+      ['low', 'Low', 'fastest', 1],
+      ['medium', 'Medium', 'light', 2],
+      ['high', 'High', 'recommended', 3],
+      ['ultra', 'Ultra', 'showcase', 4],
     ];
-    for (const [q, label, note, speed] of QUALITIES) {
-      const b = el('button', `seg${this.game.rc.quality === q ? ' on' : ''}`, `<b>${label}</b><small>${note}</small><i class="spd" title="relative speed">${'<em></em>'.repeat(speed)}${'<em class="off"></em>'.repeat(4 - speed)}</i>`);
+    // Pips climb with scene detail (what "quality" promises); the fps line under the row speaks for speed.
+    for (const [q, label, note, detail] of QUALITIES) {
+      const b = el('button', `seg${this.game.rc.quality === q ? ' on' : ''}`, `<b>${label}</b><small>${note}</small><i class="spd" title="scene detail">${'<em></em>'.repeat(detail)}${'<em class="off"></em>'.repeat(4 - detail)}</i>`);
       b.dataset.nav = '';
       b.addEventListener('click', () => {
         if (this.game.rc.quality === q) return;

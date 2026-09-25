@@ -19,7 +19,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Facing } from '../core/events';
 import type { NpcDef, NpcLook, Activity, Emote, WalkStyle } from '../data/npcs';
 import { NPCS } from '../data/npcs';
-import { roundedBox, lumpySphere, bevelCylinder } from '../world/geom';
+import { roundedBox, lumpySphere, bevelCylinder, smoothNormals } from '../world/geom';
 import { applyWorldFx } from '../render/worldfx';
 import { patchMaterial, after } from '../render/patch';
 import { Rng } from '../core/rng';
@@ -108,11 +108,65 @@ function M(x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx
 const shadeHex = (h: number, k: number): number => new THREE.Color(h).multiplyScalar(k).getHex();
 const mixHex = (a: number, b: number, t: number): number => new THREE.Color(a).lerp(new THREE.Color(b), t).getHex();
 
+/**
+ * A sculpted hair shell instead of a smooth dome: `grooves` locks run from the crown down to the
+ * hem (a gentle twist, a wobble so they're not machine-even), the hem breaks into lock tips
+ * (`scallop` rad of extra length on each ridge) and a per-vertex tone darkens the grooves and lifts
+ * the ridges — reads as combed, clumped hair (chibi figurine style), not a plastic helmet.
+ * Seam at the back; azimuth 0 = the face.
+ */
+function hairShell(r: number, thetaStart: number, thetaLen: number, grooves: number, depth: number, scallop: number, seed = 0, twist = 0.9): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(r, Math.max(24, grooves * 4), 14, 0, Math.PI * 2, thetaStart, thetaLen);
+  g.rotateY(-Math.PI / 2);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const shade = new Float32Array(pos.count);
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const th = Math.acos(THREE.MathUtils.clamp(v.y / r, -1, 1));
+    const az = Math.atan2(v.x, v.z);
+    const t = thetaLen > 0 ? THREE.MathUtils.clamp((th - thetaStart) / thetaLen, 0, 1) : 0;
+    const crown = THREE.MathUtils.smoothstep(th, 0.04, 0.5);
+    const ph = az * grooves + Math.sin(az * 3 + seed) * 0.55 + Math.sin(az * 5 - seed * 1.7) * 0.25 + t * twist;
+    const ridge = 0.5 + 0.5 * Math.cos(ph);
+    const rr = r * (1 + depth * crown * (ridge * ridge - 0.35));
+    const th2 = th + scallop * THREE.MathUtils.smoothstep(t, 0.55, 1) * Math.pow(ridge, 1.6);
+    v.set(rr * Math.sin(th2) * Math.sin(az), rr * Math.cos(th2), rr * Math.sin(th2) * Math.cos(az));
+    pos.setXYZ(i, v.x, v.y, v.z);
+    // An anisotropic sheen ring across the crown, broken up by the locks (brightest on the ridges).
+    const sheen = Math.exp(-(((th - 0.7) / 0.1) ** 2)) * Math.abs(Math.cos(az * 0.5)) ** 0.6;
+    shade[i] = 0.8 + 0.3 * (crown * ridge + (1 - crown) * 0.7) - 0.06 * t + sheen * ridge * 0.28;
+  }
+  g.computeVertexNormals();
+  g.setAttribute('shade', new THREE.BufferAttribute(shade, 1));
+  return g;
+}
+
+/** Radial pleats / gathers around Y (a baker's toque band, a knotted scarf's folds). */
+function pleat(g: THREE.BufferGeometry, n: number, depth: number): THREE.BufferGeometry {
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const shade = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const c = Math.cos(Math.atan2(x, z) * n);
+    const k = 1 + depth * c;
+    pos.setXYZ(i, x * k, pos.getY(i), z * k);
+    shade[i] = 0.9 + 0.1 * c;
+  }
+  if (g.index) g.computeVertexNormals();
+  else smoothNormals(g);
+  g.setAttribute('shade', new THREE.BufferAttribute(shade, 1));
+  return g;
+}
+
 /** Collects parts weighted to single bones and merges them into one skinned geometry. */
 class RigBuilder {
   private parts: THREE.BufferGeometry[] = [];
   add(bone: number, geo: THREE.BufferGeometry, m: THREE.Matrix4 | undefined, color: number, ao = 1): void {
     let g = geo.index ? geo.clone() : geo.clone();
+    // Optional per-vertex tone (hair locks: darker grooves, lit ridges) multiplies the part colour.
+    const tone = g.attributes.shade as THREE.BufferAttribute | undefined;
     for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
     if (!g.attributes.normal) g.computeVertexNormals();
     if (!g.index) {
@@ -133,7 +187,7 @@ class RigBuilder {
     for (let i = 0; i < n; i++) {
       const y = pos.getY(i);
       // Contact darkening towards the feet.
-      const a = ao * (0.8 + 0.2 * THREE.MathUtils.smoothstep(y, 0.0, 0.35));
+      const a = ao * (0.8 + 0.2 * THREE.MathUtils.smoothstep(y, 0.0, 0.35)) * (tone ? tone.getX(i) : 1);
       col[i * 3] = c.r * a;
       col[i * 3 + 1] = c.g * a;
       col[i * 3 + 2] = c.b * a;
@@ -372,6 +426,7 @@ export class Villager {
    * the farmer towards it, so the face reads three-quarter instead of in profile.
    */
   talkCheat: number | null = null;
+  private headCheat = 0;
   /** Mouth flaps while true (dialogue typewriter). */
   speaking = false;
   /** Raining on this villager (outdoors): the umbrella goes up whenever a hand is free. */
@@ -764,17 +819,25 @@ export class Villager {
     const hatted = L.hat === 'beanie' || L.hat === 'bandana' || L.hat === 'flatcap';
     if (style !== 'bald' && style !== 'cap') {
       // Under a flat cap only the hair below the band shows (a full dome would poke out over the crown).
-      const top = L.hat === 'flatcap' ? Math.PI * 0.3 : 0;
-      const cap = new THREE.SphereGeometry(R * 1.07, 18, 10, 0, Math.PI * 2, top, Math.PI * 0.55 - top);
+      const top = L.hat === 'flatcap' || L.hat === 'bandana' ? Math.PI * 0.3 : 0;
+      // [grooves, depth, hem scallop, twist] per style: sculpted locks, not a smooth dome.
+      const SHELL: Partial<Record<string, [number, number, number, number]>> = {
+        bun: [12, 0.06, 0.08, 0.4],
+        short: [13, 0.075, 0.15, 1.1],
+        bob: [12, 0.06, 0.1, 0.6],
+        curly: [10, 0.05, 0.06, 0.6],
+        ponytail: [12, 0.06, 0.1, 0.4],
+        long: [12, 0.06, 0.1, 0.5],
+        spiky: [9, 0.11, 0.24, 1.4],
+        braids: [15, 0.05, 0.04, 0.2],
+        slick: [16, 0.04, 0.06, 2.2],
+      };
+      const [gv, dp, sc, tw] = SHELL[style] ?? [12, 0.06, 0.1, 0.8];
+      const cap = hairShell(R * 1.07, top, Math.PI * 0.55 - top, gv, top > 0 ? dp * 0.4 : dp, top > 0 ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw);
       rb.add(B.head, cap, H(0, R * 0.98, -0.02, -0.25, 0, 0), hair);
       // A glossy sheen band across the crown (reads as combed, not a plastic dome) and a darker
       // underlayer at the nape.
-      if (!hatted && L.hat !== 'sunhat') {
-        const band = new THREE.SphereGeometry(R * 1.078, 20, 2, -Math.PI * 0.62, Math.PI * 1.24, Math.PI * 0.2, Math.PI * 0.06);
-        rb.add(B.head, band, H(0, R * 0.98, -0.02, -0.25, 0, 0), shadeHex(hair, 1.16));
-        const band2 = new THREE.SphereGeometry(R * 1.076, 20, 2, -Math.PI * 0.5, Math.PI, Math.PI * 0.27, Math.PI * 0.035);
-        rb.add(B.head, band2, H(0, R * 0.98, -0.02, -0.25, 0, 0), shadeHex(hair, 1.08));
-      }
+      // (the sheen band is painted into the shell's tone, across the ridges)
       // Fringe: tapered locks along the hairline break the straight cap edge over the forehead
       // (short in the middle so the brows and eyes stay clear, longer at the temples).
       const fringe = !hatted && (style === 'bun' || style === 'spiky' || style === 'short' || style === 'ponytail' || style === 'long' || style === 'braids');
@@ -822,9 +885,10 @@ export class Villager {
         break;
       case 'cap': {
         // Baker's toque.
-        rb.add(B.head, new THREE.CylinderGeometry(R * 1.02, R * 1.02, 0.12, 20, 1, true), H(0, R * 1.55, -0.02, -0.12, 0, 0), 0xe8e0d0);
-        const puff = lumpySphere(R * 1.05, 1, 0.12, rng, 1.6);
-        puff.scale(1.1, 0.55, 1.1);
+        // A pleated band (starched folds all the way round) under a gathered, billowing crown.
+        rb.add(B.head, pleat(new THREE.CylinderGeometry(R * 1.02, R * 1.04, 0.16, 48, 1, true), 16, 0.035), H(0, R * 1.55, -0.02, -0.12, 0, 0), 0xe8e0d0);
+        const puff = pleat(lumpySphere(R * 1.05, 2, 0.1, rng, 1.6), 7, 0.07);
+        puff.scale(1.12, 0.62, 1.12);
         rb.add(B.head, puff, H(0, R * 1.78, -0.05, -0.15, 0, 0), 0xece6da);
         rb.add(B.head, new THREE.SphereGeometry(R * 1.02, 20, 8, 0, Math.PI * 2, Math.PI * 0.3, Math.PI * 0.25), H(0, R * 0.96, -0.02, -0.25, 0, 0), hair);
         for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.1, 1, 0.12, rng), H(sx * R * 0.9, R * 0.95, R * 0.1, 0, 0, 0, 0.6, 1, 0.9), hair);
@@ -868,24 +932,47 @@ export class Villager {
         for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.12, 1, 0.12, rng), H(sx * R * 0.9, R * 0.95, -R * 0.1, 0, 0, 0, 0.6, 0.9, 1.1), hair);
         rb.add(B.head, lumpySphere(0.16, 1, 0.1, rng), H(0, R * 0.85, -R * 0.85, 0, 0, 0, 1.6, 0.8, 0.6), hair);
         break;
-      case 'spiky':
-        for (let i = 0; i < 11; i++) {
-          const a = -1.4 + (i / 10) * 2.8;
-          const tilt = 0.5 + rng.next() * 0.4;
-          const cone = new THREE.ConeGeometry(0.075, 0.2 + rng.next() * 0.08, 6);
-          rb.add(B.head, cone, H(Math.sin(a) * R * 0.75, R * 1.5 - Math.abs(a) * 0.05, Math.cos(a) * R * 0.45 - 0.06, tilt * Math.cos(a) * 0.9, 0, -Math.sin(a) * 0.9), i % 3 ? hair : hi);
-        }
-        for (let i = 0; i < 4; i++) {
-          const cone = new THREE.ConeGeometry(0.07, 0.18, 6);
-          rb.add(B.hairBack, cone, H(-0.15 + i * 0.1, R * 1.3, -R * 0.85, -1.1, 0, 0), hair);
-        }
+      case 'spiky': {
+        // Tousled tufts growing out of the shell (base buried, tip out along the surface normal,
+        // flopping a little forwards / down): a scruffy kid's mop with a readable spiky silhouette.
+        const c = new THREE.Vector3(0, R * 0.98, -0.02);
+        const up = new THREE.Vector3(0, 1, 0);
+        const q = new THREE.Quaternion();
+        const tufts: [number, number, number][] = [[0, 0.12, 0.2], [0.55, 0.2, 0.19], [-0.55, 0.2, 0.19], [1.1, 0.3, 0.17], [-1.1, 0.3, 0.17], [1.7, 0.36, 0.16], [-1.7, 0.36, 0.16], [2.4, 0.3, 0.17], [-2.4, 0.3, 0.17], [3.1, 0.22, 0.18], [0.25, 0.3, 0.16], [-0.3, 0.32, 0.15], [0.9, 0.08, 0.14], [-0.9, 0.08, 0.14], [2.0, 0.12, 0.15], [-2.0, 0.12, 0.15]];
+        tufts.forEach(([az, pol, len], i) => {
+          const th = pol * Math.PI;
+          const dir = new THREE.Vector3(Math.sin(th) * Math.sin(az), Math.cos(th), Math.sin(th) * Math.cos(az));
+          // Swept down along the scalp (towards the hem), tips lifting off: locks, not a chestnut burr.
+          const down = new THREE.Vector3(Math.cos(th) * Math.sin(az), -Math.sin(th), Math.cos(th) * Math.cos(az));
+          const flop = dir.clone().multiplyScalar(0.55).addScaledVector(down, 0.85).normalize();
+          q.setFromUnitVectors(up, flop);
+          const pos = c.clone().addScaledVector(dir, R * 1.0).addScaledVector(flop, len * 0.3);
+          const cone = new THREE.ConeGeometry(0.085, len * 1.35, 7);
+          cone.scale(1, 1, 0.55);
+          rb.add(B.head, cone, H().multiply(new THREE.Matrix4().compose(pos, q, new THREE.Vector3(1, 1, 1))), i % 3 === 0 ? hi : hair);
+        });
         break;
+      }
       case 'braids':
+        // Two plaits from behind the ears, over the shoulders and down the front of the chest (as in
+        // the portrait): woven beads along a curve, a cloth tie at each end.
         for (const sx of [-1, 1]) {
-          for (let i = 0; i < 6; i++) {
-            rb.add(B.hairBack, lumpySphere(0.07 - i * 0.004, 1, 0.12, rng), H(sx * R * 0.55, R * 1.05 - i * 0.11, -R * 0.8 - (i < 2 ? 0 : 0.04)), i % 2 ? hair : hi);
+          const curve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(sx * R * 0.9, R * 0.72, -R * 0.28),
+            new THREE.Vector3(sx * R * 0.84, R * 0.22, 0),
+            new THREE.Vector3(sx * R * 0.66, -R * 0.3, R * 0.58),
+            new THREE.Vector3(sx * R * 0.6, -R * 0.82, R * 0.7),
+          ]);
+          const n = 9;
+          for (let i = 0; i < n; i++) {
+            const p = curve.getPoint(i / (n - 1));
+            const bead = lumpySphere(0.062 - i * 0.0025, 1, 0.1, rng);
+            bead.scale(1, 0.8, 0.85);
+            rb.add(B.head, bead, H(p.x + (i % 2 ? 0.012 : -0.012) * sx, p.y, p.z, 0, 0, (i % 2 ? 0.5 : -0.5) * sx), i % 2 ? hair : hi);
           }
-          rb.add(B.hairBack, new THREE.SphereGeometry(0.035, 6, 5), H(sx * R * 0.55, R * 1.05 - 6 * 0.11, -R * 0.84), L.hatColor ?? 0xc8412f);
+          const e = curve.getPoint(1);
+          rb.add(B.head, new THREE.SphereGeometry(0.034, 8, 6), H(e.x, e.y - 0.05, e.z + 0.01, 0, 0, 0, 1, 0.8, 1), L.hatColor ?? 0xc8412f);
+          rb.add(B.head, new THREE.ConeGeometry(0.03, 0.08, 6), H(e.x, e.y - 0.11, e.z + 0.01, Math.PI, 0, 0), shadeHex(hair, 1.1));
         }
         break;
       case 'slick': {
@@ -911,24 +998,24 @@ export class Villager {
         // A tweed newsboy cap: a soft crown pulled forward over the brim, eight panel seams meeting
         // at a covered button, a band round the head and a stiff curved peak.
         const crown = new THREE.SphereGeometry(R * 1.1, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.42);
-        rb.add(B.head, crown, H(0, R * 1.1, 0.03, -0.2, 0, 0, 1.06, 0.62, 1.14), c);
+        rb.add(B.head, crown, H(0, R * 1.1, 0.03, -0.2, 0, 0, 1.06, 0.8, 1.14), c);
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2;
           const seam = new THREE.TorusGeometry(R * 1.1, 0.006, 3, 14, Math.PI * 0.4);
           seam.rotateZ(Math.PI * 0.1);
           seam.rotateY(Math.PI / 2 + a);
-          rb.add(B.head, seam, H(0, R * 1.1, 0.03, -0.2, 0, 0, 1.065, 0.625, 1.145), shadeHex(c, 0.72));
+          rb.add(B.head, seam, H(0, R * 1.1, 0.03, -0.2, 0, 0, 1.065, 0.805, 1.145), shadeHex(c, 0.72));
         }
         rb.add(B.head, bevelCylinder(R * 1.06, R * 1.07, 0.07, 0.02, 24), H(0, R * 1.2, 0.0, -0.2, 0, 0), shadeHex(c, 0.78));
         const brim = new THREE.CylinderGeometry(R * 0.78, R * 0.78, 0.035, 18, 1, false, -Math.PI / 2, Math.PI);
         rb.add(B.head, brim, H(0, R * 1.26, R * 0.66, 0.26, 0, 0, 1.05, 1, 0.62), shadeHex(c, 0.66));
         rb.add(B.head, new THREE.TorusGeometry(R * 0.78, 0.008, 3, 16, Math.PI), H(0, R * 1.27, R * 0.66, Math.PI / 2 + 0.26, 0, 0, 1.05, 0.62, 1), shadeHex(c, 0.55));
-        rb.add(B.head, new THREE.SphereGeometry(0.034, 8, 6), H(0, R * 1.66, 0.05, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
+        rb.add(B.head, new THREE.SphereGeometry(0.034, 8, 6), H(0, R * 1.97, -0.1, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
         // Flecks of tweed.
         for (let i = 0; i < 14; i++) {
           const a = rng.next() * Math.PI * 2;
           const up = 0.25 + rng.next() * 0.5;
-          rb.add(B.head, new THREE.SphereGeometry(0.012, 4, 3), H(Math.sin(a) * Math.sin(up) * R * 1.16, R * 1.12 + Math.cos(up) * R * 0.66, Math.cos(a) * Math.sin(up) * R * 1.24 + 0.03), i % 2 ? shadeHex(c, 1.35) : shadeHex(c, 0.6));
+          rb.add(B.head, new THREE.SphereGeometry(0.012, 4, 3), H(Math.sin(a) * Math.sin(up) * R * 1.16, R * 1.12 + Math.cos(up) * R * 0.86, Math.cos(a) * Math.sin(up) * R * 1.24 + 0.03), i % 2 ? shadeHex(c, 1.35) : shadeHex(c, 0.6));
         }
         break;
       }
@@ -957,30 +1044,36 @@ export class Villager {
         break;
       }
       case 'bandana': {
-        const dome = new THREE.SphereGeometry(R * 1.1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.46);
-        rb.add(B.head, dome, H(0, R * 1.0, -0.02, -0.3, 0, 0, 1.02, 1.05, 1.02), c);
-        rb.add(B.hairBack, roundedBox(0.1, 0.1, 0.06, 0.04), H(0, R * 1.1, -R * 1.02), shadeHex(c, 0.9));
-        for (const sx of [-1, 1]) rb.add(B.hairBack, roundedBox(0.07, 0.2, 0.03, 0.02), H(sx * 0.05, R * 0.9, -R * 1.04, 0.2, 0, sx * 0.4), shadeHex(c, 0.85));
-        // Polka dots all over the scarf (as in the portrait), a knot at the nape, a folded hem band.
-        const N = 30;
+        // A knotted headscarf hugging the crown: tilted back so the hairline and temples show (not a
+        // helmet), flat printed polka dots (as in the portrait), a rolled hem, a knot and two tails.
+        const tilt = -0.4;
+        const rr = R * 1.085;
+        const polar = Math.PI * 0.44;
+        const T = (): THREE.Matrix4 => H(0, R * 0.98, -0.03, tilt, 0, 0);
+        // Soft cloth folds gathered towards the knot (a sculpted shell, not a smooth dome).
+        const dome = hairShell(rr, 0, polar, 7, 0.035, 0, 1.3, 0.2);
+        dome.scale(1.02, 0.94, 1.02);
+        rb.add(B.head, dome, T(), c);
+        const hem = new THREE.TorusGeometry(rr * Math.sin(polar) * 1.025, 0.022, 6, 32);
+        hem.rotateX(Math.PI / 2);
+        hem.translate(0, rr * Math.cos(polar) * 0.94, 0);
+        rb.add(B.head, hem, T(), shadeHex(c, 0.8));
+        const N = 26;
+        const dots: THREE.BufferGeometry[] = [];
         for (let i = 0; i < N; i++) {
-          // Fibonacci spiral over the dome cap (evenly spread, no rows).
           const a = (i * 2.399963) % (Math.PI * 2);
-          const up = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(1.25)));
-          const r = R * 1.1 * 1.004;
-          const lx = Math.sin(a) * Math.sin(up) * r;
-          const ly = Math.cos(up) * r;
-          const lz = Math.cos(a) * Math.sin(up) * r;
-          // dome space → head space (dome tilted back 0.3 rad, centred at R*1.0 up)
-          const cy = Math.cos(-0.3);
-          const sy = Math.sin(-0.3);
-          const y = ly * cy - lz * sy;
-          const z = ly * sy + lz * cy;
-          if (y < -0.02) continue;
-          rb.add(B.head, new THREE.SphereGeometry(0.023, 8, 6), H(lx * 1.02, R * 1.0 + y * 1.05, z * 1.02 - 0.02), 0xf6ecd8);
+          const th = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(polar - 0.12)));
+          const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.05, Math.cos(th) * rr * 0.97, Math.cos(a) * Math.sin(th) * rr * 1.05);
+          const d = new THREE.CircleGeometry(0.021 + (i % 3) * 0.003, 10);
+          d.lookAt(new THREE.Vector3(q.x / 1.08, q.y, q.z / 1.08));
+          q.multiplyScalar(1.006);
+          d.translate(q.x, q.y, q.z);
+          dots.push(d);
         }
-        rb.add(B.head, new THREE.TorusGeometry(R * 1.1, 0.02, 5, 26), H(0, R * 1.0, -0.02, Math.PI / 2 - 0.3, 0, 0, 1.03, 1.03, 1), shadeHex(c, 0.78));
-        rb.add(B.hairBack, lumpySphere(0.065, 1, 0.15, rng, 2), H(0, R * 1.12, -R * 1.08), shadeHex(c, 0.92));
+        for (const d of dots) rb.add(B.head, d, T(), 0xf6ecd8);
+        // The knot at the nape and two tails fluttering down over the braids.
+        rb.add(B.hairBack, lumpySphere(0.06, 1, 0.18, rng, 2), H(0, R * 0.86, -R * 1.1), shadeHex(c, 0.92));
+        for (const sx of [-1, 1]) rb.add(B.hairBack, roundedBox(0.075, 0.2, 0.026, 0.02), H(sx * 0.05, R * 0.62, -R * 1.12, 0.18, 0, sx * 0.35), shadeHex(c, 0.86));
         break;
       }
     }
@@ -1106,7 +1199,9 @@ export class Villager {
       if (this.talkCheat !== null) {
         const d = Math.atan2(Math.sin(this.talkCheat - this.targetYaw), Math.cos(this.talkCheat - this.targetYaw));
         this.targetYaw += THREE.MathUtils.clamp(d, -0.5, 0.5);
-      }
+        // The head turns the rest of the way towards the lens (a stage cheat: the face reads).
+        this.headCheat += (THREE.MathUtils.clamp(d - THREE.MathUtils.clamp(d, -0.5, 0.5), -0.45, 0.45) - this.headCheat) * (1 - Math.exp(-6 * dt));
+      } else this.headCheat *= 1 - Math.min(1, dt * 6);
       this.talkT += dt;
     } else this.talkT = 0;
     let dy = this.targetYaw - this.yaw;
@@ -1186,6 +1281,7 @@ export class Villager {
       aL.rotation.z = -0.12 - br * 0.02;
       aR.rotation.z = 0.12 + br * 0.02;
       if (this.talkTo) {
+        head.rotation.y = this.headCheat;
         head.rotation.x += Math.sin(this.talkT * 6) * 0.06;
         head.rotation.z = Math.sin(this.talkT * 2.3) * 0.05;
         aR.rotation.x = -0.7 + Math.sin(this.talkT * 3.1) * 0.25;
@@ -1294,6 +1390,49 @@ export class Villager {
       this.emoteSprite.material.opacity = fade;
       if (this.emoteT <= 0) this.emoteSprite.visible = false;
     }
+    // Speech bark: a short line in a parchment bubble (pops in, bobs, fades); it replaces the emote.
+    if (this.barkSprite && this.barkSprite.visible) {
+      this.barkT -= dt;
+      const age = this.barkDur - this.barkT;
+      const pop = age < 0.3 ? THREE.MathUtils.smoothstep(age, 0, 0.2) * (1 + 0.18 * Math.sin((age / 0.3) * Math.PI)) : 1;
+      const fade = THREE.MathUtils.clamp(this.barkT / 0.35, 0, 1);
+      const h = 0.66 * pop;
+      this.barkSprite.scale.set(h * this.barkAspect, h, 1);
+      this.barkSprite.position.set(0, this.headTop + 0.5 + Math.sin(age * 2.2) * 0.025, 0);
+      this.barkSprite.material.opacity = fade;
+      if (this.emoteSprite) this.emoteSprite.visible = false;
+      if (this.barkT <= 0) this.barkSprite.visible = false;
+    }
+  }
+
+  private barkSprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
+  private barkT = 0;
+  private barkDur = 3.4;
+  private barkAspect = 3;
+  /** Say a short line out loud (street chatter): a speech bubble over the head for `dur` s. */
+  bark(text: string, dur = 3.4): void {
+    const { tex, aspect } = barkTexture(text);
+    if (!this.barkSprite) {
+      this.barkSprite = billboard(tex, 21);
+      this.barkSprite.name = 'npc-bark';
+      this.barkSprite.userData.perfTag = 'npcs';
+      this.root.add(this.barkSprite);
+    }
+    this.barkSprite.material.map = tex;
+    this.barkSprite.material.needsUpdate = true;
+    this.barkSprite.visible = true;
+    this.barkAspect = aspect;
+    this.barkT = this.barkDur = dur;
+  }
+
+  /** Drop any speech bark at once (a conversation / scene takes the stage). */
+  hush(): void {
+    if (this.barkSprite) this.barkSprite.visible = false;
+    this.barkT = 0;
+  }
+
+  get barking(): boolean {
+    return !!this.barkSprite?.visible;
   }
 
   /** Facial expression the villager wears (follows the dialogue line's [mood] tag; 'neutral' = resting face). */
@@ -1470,8 +1609,9 @@ export class Villager {
         break;
       }
       case 'lookdown':
-        head.rotation.x += 0.42 * w;
-        spine.rotation.x += 0.14 * w;
+        // (a small nod down: the diorama lens sits above, a deep bow would show only the crown)
+        head.rotation.x += 0.2 * w;
+        spine.rotation.x += 0.1 * w;
         set(aL, 0.05, 0, -0.04);
         set(aR, 0.05, 0, 0.04);
         set(fL, -0.25);
@@ -1842,6 +1982,65 @@ function billboard(tex: THREE.Texture, renderOrder: number): THREE.Mesh<THREE.Pl
   return m;
 }
 
+/** Speech-bark bubbles: one canvas texture per line (a handful per villager), cached. */
+const BARK_TEX = new Map<string, { tex: THREE.CanvasTexture; aspect: number }>();
+function barkTexture(text: string): { tex: THREE.CanvasTexture; aspect: number } {
+  const hit = BARK_TEX.get(text);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  const g = c.getContext('2d')!;
+  const font = '800 38px Nunito, "Trebuchet MS", sans-serif';
+  g.font = font;
+  const tw = Math.ceil(g.measureText(text).width);
+  const W = tw + 70;
+  const BH = 86;
+  c.width = W;
+  c.height = BH + 30;
+  g.font = font;
+  const r = 34;
+  const path = (): void => {
+    g.beginPath();
+    g.moveTo(8 + r, 8);
+    g.arcTo(W - 8, 8, W - 8, BH, r);
+    g.arcTo(W - 8, BH, 8, BH, r);
+    // the tail, down-left of centre, pointing at the speaker's head
+    g.lineTo(W / 2 + 4, BH);
+    g.lineTo(W / 2 - 14, BH + 24);
+    g.lineTo(W / 2 - 22, BH);
+    g.arcTo(8, BH, 8, 8, r);
+    g.arcTo(8, 8, W - 8, 8, r);
+    g.closePath();
+  };
+  g.shadowColor = 'rgba(60,30,10,0.35)';
+  g.shadowBlur = 8;
+  g.shadowOffsetY = 3;
+  g.fillStyle = '#fff6e2';
+  path();
+  g.fill();
+  g.shadowColor = 'transparent';
+  g.lineWidth = 5;
+  g.strokeStyle = '#8a5a34';
+  path();
+  g.stroke();
+  // A soft inner highlight along the top edge (parchment, not plastic).
+  g.strokeStyle = 'rgba(255,255,255,0.7)';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(8 + r, 14);
+  g.lineTo(W - 8 - r, 14);
+  g.stroke();
+  g.fillStyle = '#4a2c18';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, W / 2, BH / 2 + 5);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const out = { tex, aspect: c.width / c.height };
+  BARK_TEX.set(text, out);
+  return out;
+}
+
 /** Shared canvas textures for the reaction particles. */
 const FX_TEX = new Map<string, THREE.Texture>();
 function fxTexture(kind: 'heart' | 'puff' | 'drop' | 'spark'): THREE.Texture {
@@ -1992,4 +2191,89 @@ export class ReactionFx {
       }
     }
   }
+}
+
+/**
+ * Wren's river painting on a low field stand (heart event prop): a hand-painted canvas texture —
+ * swirling blue-green water that is more feeling than river, a stone bridge arc, a lemon sun —
+ * facing +z, ~1 m tall.
+ */
+export function buildPainting(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'npc-painting';
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 208;
+  const x = c.getContext('2d')!;
+  const sky = x.createLinearGradient(0, 0, 0, 110);
+  sky.addColorStop(0, '#f6d7a8');
+  sky.addColorStop(1, '#bfe0e8');
+  x.fillStyle = sky;
+  x.fillRect(0, 0, 256, 208);
+  // Sun + far hills.
+  x.fillStyle = '#ffd35a';
+  x.beginPath();
+  x.arc(196, 40, 20, 0, Math.PI * 2);
+  x.fill();
+  x.fillStyle = '#8fbf6a';
+  x.beginPath();
+  x.moveTo(0, 96);
+  x.quadraticCurveTo(60, 60, 130, 90);
+  x.quadraticCurveTo(190, 70, 256, 92);
+  x.lineTo(256, 208);
+  x.lineTo(0, 208);
+  x.fill();
+  // The river: bold swirls in five blues and greens (it will not sit still).
+  const cols = ['#2f6f9a', '#3f8fb8', '#5ab0c8', '#7ad0c0', '#e8f4f0', '#2a5a7a'];
+  let s = 7;
+  const rnd = (): number => ((s = (s * 16807) % 2147483647) / 2147483647);
+  x.lineCap = 'round';
+  for (let i = 0; i < 70; i++) {
+    const cx = rnd() * 256;
+    const cy = 112 + rnd() * 96;
+    const r = 6 + rnd() * 18;
+    x.strokeStyle = cols[i % cols.length]!;
+    x.lineWidth = 3 + rnd() * 5;
+    x.beginPath();
+    x.arc(cx, cy, r, rnd() * 6, rnd() * 6 + 3.5);
+    x.stroke();
+  }
+  // The bridge.
+  x.strokeStyle = '#a89078';
+  x.lineWidth = 12;
+  x.beginPath();
+  x.arc(128, 150, 70, Math.PI * 1.1, Math.PI * 1.9);
+  x.stroke();
+  x.strokeStyle = '#6a5040';
+  x.lineWidth = 3;
+  x.beginPath();
+  x.arc(128, 150, 62, Math.PI * 1.12, Math.PI * 1.88);
+  x.stroke();
+  // Signature dab.
+  x.fillStyle = '#c8412f';
+  x.fillRect(222, 190, 18, 6);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const wood = new THREE.MeshStandardMaterial({ color: 0xa87a50, roughness: 0.8 });
+  const art = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.585), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }));
+  art.position.set(0, 0.78, 0.035);
+  art.rotation.x = -0.14;
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.625, 0.03), new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.9 }));
+  back.position.set(0, 0.78, 0.015);
+  back.rotation.x = -0.14;
+  g.add(art, back);
+  for (const [px, rz, rx, h] of [[-0.3, -0.1, -0.14, 1.12], [0.3, 0.1, -0.14, 1.12], [0, 0, 0.4, 1.05]] as const) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, h, 0.04), wood);
+    leg.position.set(px, h / 2 - 0.02, rx > 0 ? -0.2 : 0);
+    leg.rotation.set(rx, 0, rz);
+    g.add(leg);
+  }
+  const ledge = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.04, 0.09), wood);
+  ledge.position.set(0, 0.47, 0.06);
+  g.add(ledge);
+  g.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
+  });
+  return g;
 }

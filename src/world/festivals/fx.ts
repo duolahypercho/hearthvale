@@ -257,32 +257,40 @@ export class Fireworks {
     const M = o.sparks ?? 110;
     // Each spark draws a short comet tail (TR points lagging behind it) so bursts read as crisp
     // streaking stars, not soft bokeh dots.
-    const TR = 5;
+    // Points: a star head + 2 glow points just behind it. Lines: one velocity streak per star (head →
+    // where it was 0.22 s ago, fading out) — the crisp comet trails of a real shell, with gravity droop.
+    const TR = 3;
+    const LT = 5;
     for (let i = 0; i < S; i++) this.shells.push({ period: 4.3 + ((i * 7) % 5) * 0.55 + i * 0.13, offset: i * 1.37 });
-    const n = S * M * TR;
-    const pos = new Float32Array(n * 3);
-    const dir = new Float32Array(n * 3);
-    const info = new Float32Array(n * 4);
-    let k = 0;
-    const v = new THREE.Vector3();
-    for (let s = 0; s < S; s++) {
-      for (let j = 0; j < M; j++) {
-        // Even-ish sphere distribution (fibonacci) with jitter.
-        const y = 1 - (2 * (j + 0.5)) / M;
-        const r = Math.sqrt(1 - y * y);
-        const a = j * 2.39996 + Math.random() * 0.2;
-        v.set(Math.cos(a) * r, y, Math.sin(a) * r).normalize();
-        for (let t = 0; t < TR; t++) {
-          dir.set([v.x, v.y, v.z], k * 3);
-          info.set([s, j, t, Math.random()], k * 4);
-          k++;
+    const build = (trs: number[]): THREE.BufferGeometry => {
+      const n = S * M * trs.length;
+      const dir = new Float32Array(n * 3);
+      const info = new Float32Array(n * 4);
+      let k = 0;
+      const v = new THREE.Vector3();
+      for (let s = 0; s < S; s++) {
+        for (let j = 0; j < M; j++) {
+          // Even-ish sphere distribution (fibonacci) with jitter.
+          const y = 1 - (2 * (j + 0.5)) / M;
+          const r = Math.sqrt(1 - y * y);
+          const a = j * 2.39996 + hash12(s * 17.3 + j, 3.7) * 0.2;
+          v.set(Math.cos(a) * r, y, Math.sin(a) * r).normalize();
+          const rnd = hash12(s * 5.1 + j * 0.37, 11.3);
+          for (const t of trs) {
+            dir.set([v.x, v.y, v.z], k * 3);
+            info.set([s, j, t, rnd], k * 4);
+            k++;
+          }
         }
       }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('aDir', new THREE.BufferAttribute(dir, 3));
-    g.setAttribute('aInfo', new THREE.BufferAttribute(info, 4));
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+      geo.setAttribute('aDir', new THREE.BufferAttribute(dir, 3));
+      geo.setAttribute('aInfo', new THREE.BufferAttribute(info, 4));
+      return geo;
+    };
+    const g = build(Array.from({ length: TR }, (_, t) => t));
+    const gl = build([0, LT]);
     const shellData = this.shells.flatMap((sh) => [sh.period, sh.offset]);
     this.uniforms = {
       uTime: globalUniforms.uTime,
@@ -296,13 +304,13 @@ export class Fireworks {
       uSpread: { value: o.spread ?? 1 },
       uSize: { value: o.size ?? 1 },
     };
-    const make = (mirror: boolean): THREE.Points => {
+    const make = (mirror: boolean, lines: boolean): THREE.Points | THREE.LineSegments => {
       const m = new THREE.ShaderMaterial({
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
         fog: false,
-        defines: { NSHELL: S, MIRROR: mirror ? 1 : 0 },
+        defines: { NSHELL: S, MIRROR: mirror ? 1 : 0, LINES: lines ? 1 : 0, LT: LT.toFixed(1) },
         uniforms: { ...this.uniforms, uMirrorY: { value: o.mirrorY ?? 0 } },
         vertexShader: /* glsl */ `
           attribute vec3 aDir; attribute vec4 aInfo;
@@ -341,20 +349,45 @@ export class Fireworks {
             vec3 col = vec3(1.0);
             if (lt < ${FW_LAUNCH.toFixed(2)}) {
               // Rocket comet + spark trail: a handful of vertices.
-              if (j < 10.0 && tr < 0.5) {
-                float lag = j * 0.035;
+              // A continuous streak (28 closely-lagged points taper off behind the head), not a
+              // dotted chain of white beads.
+              #if LINES == 1
+              if (j < 0.5) {
+                float lag = tr * 0.03;
                 float u = clamp((lt - lag) / ${FW_LAUNCH.toFixed(2)}, 0.0, 1.0);
                 float e = 1.0 - (1.0 - u) * (1.0 - u);
                 p = mix(start, burst, e);
                 p.x += sin(u * 18.0 + aInfo.x) * 0.08 * (1.0 - u);
-                p.y -= j * 0.02;
-                a = (1.0 - j / 10.0) * step(lag, lt);
-                size = j < 0.5 ? 0.42 : 0.22 * (1.0 - j / 12.0);
-                col = mix(vec3(1.0, 0.8, 0.5), vec3(1.0, 0.5, 0.2), j / 10.0) * 1.6;
+                a = (1.0 - tr / LT) * 0.9;
+                col = vec3(1.0, 0.62, 0.3) * 1.3;
               }
+              #else
+              // (The streak line draws the trail; points only add a hot head + a short ember glow.)
+              if (j < 6.0 && tr < 0.5) {
+                float lag = j * 0.012;
+                float u = clamp((lt - lag) / ${FW_LAUNCH.toFixed(2)}, 0.0, 1.0);
+                float e = 1.0 - (1.0 - u) * (1.0 - u);
+                p = mix(start, burst, e);
+                p.x += sin(u * 18.0 + aInfo.x) * 0.08 * (1.0 - u);
+                p.y -= j * 0.012;
+                float fj = j / 6.0;
+                a = (1.0 - fj) * (1.0 - fj) * step(lag, lt) * (j < 0.5 ? 1.0 : 0.55);
+                size = j < 0.5 ? 0.26 : 0.12 * (1.0 - fj * 0.6);
+                col = mix(vec3(1.0, 0.78, 0.45), vec3(1.0, 0.42, 0.14), fj) * (j < 0.5 ? 1.2 : 0.9);
+              }
+              #endif
             } else {
-              float tb = lt - ${FW_LAUNCH.toFixed(2)} - tr * 0.028;
+              #if LINES == 1
+              float tb = lt - ${FW_LAUNCH.toFixed(2)} - tr * 0.045;
+              #else
+              float tb = lt - ${FW_LAUNCH.toFixed(2)} - tr * 0.03;
+              #endif
               float life = type == 2 ? ${(FW_LIFE * 1.3).toFixed(2)} : ${FW_LIFE.toFixed(2)};
+              #if LINES == 1
+              // Both ends of a streak must stay on the shell (a clamped, faded end, never off to -1000).
+              float tbRaw = tb;
+              tb = clamp(tb, 0.001, life - 0.001);
+              #endif
               if (tb > 0.0 && tb < life) {
                 vec3 d = aDir;
                 float v0 = 8.5;
@@ -374,29 +407,50 @@ export class Fireworks {
                 v0 *= (0.85 + rnd * 0.3) * uSpread; gEff *= uSpread;
                 float drag = (1.0 - exp(-k * tb)) / k;
                 p = burst + d * v0 * drag;
-                p.y -= gEff * (tb - drag) / k * 1.4;
+                // Gravity droop (gentle: at diorama scale a shell only ~5 m up must not rain sparks
+                // all the way down onto the sea).
+                p.y -= gEff * (tb - drag) / k * 0.95;
                 float f = tb / life;
-                a = pow(1.0 - f, 1.4) * (1.0 - tr * 0.17);
+                // Tails taper (0.3 s of comet behind every star), and every star fades in over the
+                // first ~0.1 s — at tb = 0 the whole shell sits on one point, and 110 additive stars
+                // stacked there used to blow out into a white disc.
+                a = pow(1.0 - f, 1.4) * (1.0 - tr * 0.12) * smoothstep(0.0, 0.1, tb);
+                // Energy conservation: a young shell packs 770 additive points into a ball ~1 m across;
+                // fade stars by the shell's area (full once it has opened past ~3 m) so the opening
+                // instant reads as a coloured bloom, never a blown-out white disc.
+                float rr = v0 * drag;
+                a *= clamp(rr * rr / 9.0, 0.03, 1.0);
                 if (dot(d, d) < 0.01) a = 0.0;
                 // Crackle / twinkle at the end.
                 float tw = hvHash12(vec2(j + aInfo.x * 131.0, floor(uTime * 22.0)));
                 a *= f > 0.55 ? step(0.45, tw) * 1.4 : 1.0;
-                vec3 hot = vec3(1.0, 0.95, 0.85);
+                vec3 hot = mix(c1, vec3(1.0, 0.95, 0.85), 0.45);
                 // Hot white only for the first instant, then saturated colour (additive overlap would
                 // otherwise sum a dense shell to white).
                 // Two-colour shells (alternate stars) + a gold crackle / glitter tail on peonies and rings.
                 vec3 base = mix(c1, c2, step(0.5, fract(j * 0.37)));
                 if (type < 2 && f > 0.55) base = mix(base, vec3(1.0, 0.78, 0.3), 0.55);
-                col = mix(hot, base, smoothstep(0.0, 0.03, f)) * (tr > 0.5 ? 0.8 : 1.6);
-                size = (0.36 - tr * 0.045) * (1.0 - f * 0.35) * (type == 3 ? 1.4 : 1.0);
-                // A small coloured flash core (not a white puff).
-                if (tb < 0.08 && j < 1.5) { size = 0.35 * (1.0 - tb / 0.08); a = 1.0; col = c1 * 1.2; }
+                // Head HDR ≤ ~1.3 (tails ≤ 0.75): with the soft-dot falloff nothing clears ~1.6 before bloom.
+                col = mix(hot, base, smoothstep(0.0, 0.06, f)) * (tr > 0.5 ? 0.75 - tr * 0.05 : 1.3);
+                size = (0.34 - tr * 0.036) * (1.0 - f * 0.35) * (type == 3 ? 1.4 : 1.0);
+                // A small shell-coloured flash core (not a white puff).
+                #if LINES == 1
+                // Streak: bright at the star, fading to nothing at its 0.22 s-old tail.
+                a *= (1.0 - tr / LT) * step(0.0, tbRaw) * 1.25;
+                // Streaks belong to the fast opening only: once the stars slow and fall they are
+                // glitter points (long vertical tails on falling stars read as rain on the water).
+                a *= 1.0 - smoothstep(0.28, 0.5, f);
+                col = base * 1.25;
+                #else
+                size *= 0.8;
+                if (tb < 0.1 && j < 1.5) { size = 0.3 * (1.0 - tb / 0.1); a = 0.8; col = c1 * 1.1; }
+                #endif
               }
             }
             #if MIRROR == 1
               p.y = 2.0 * uMirrorY - p.y;
               p.x += sin(p.y * 2.3 + uTime * 3.0) * 0.12;
-              a *= 0.6 * step(p.y, uMirrorY);
+              a *= 0.4 * step(p.y, uMirrorY);
               size *= 1.45;
             #endif
             vCol = col * uIntensity;
@@ -409,20 +463,24 @@ export class Fireworks {
           uniform sampler2D uMap;
           varying vec3 vCol; varying float vA;
           void main() {
+            #if LINES == 1
+            float m = 1.0;
+            #else
             float m = texture2D(uMap, gl_PointCoord).a;
+            #endif
             if (vA * m < 0.003) discard;
             gl_FragColor = vec4(vCol * m * vA, 1.0);
           }`,
       });
-      const pts = new THREE.Points(g, m);
+      const pts = lines ? new THREE.LineSegments(gl, m) : new THREE.Points(g, m);
       pts.frustumCulled = false;
       pts.renderOrder = mirror ? 3 : 8;
       pts.userData.noAO = true;
-      pts.name = mirror ? 'fireworks-reflection' : 'fireworks';
+      pts.name = (mirror ? 'fireworks-reflection' : 'fireworks') + (lines ? '-streaks' : '');
       return pts;
     };
-    this.group.add(make(false));
-    if (o.mirrorY !== undefined) this.group.add(make(true));
+    this.group.add(make(false, false), make(false, true));
+    if (o.mirrorY !== undefined) this.group.add(make(true, false), make(true, true));
     this.group.name = 'fireworks';
   }
 
@@ -1222,5 +1280,69 @@ export class Bonfire {
   private embersScale: THREE.IUniform;
   setViewportHeight(h: number): void {
     this.embersScale.value = h * 1.3;
+  }
+}
+
+/**
+ * The aurora's light on the ground: a terrain-draped additive sheet over the square whose slow
+ * green / violet bands drift with the curtains, strongest toward the northern treeline and only
+ * after dark — so the aurora reads from the high diorama camera even though it never sees sky.
+ * One draw, ~2.6k tris, no lights.
+ */
+export class AuroraGlow {
+  readonly mesh: THREE.Mesh;
+  readonly strength = { value: 1 };
+  constructor(heightAt: (x: number, z: number) => number, b: { x0: number; z0: number; x1: number; z1: number }, step = 1) {
+    const nx = Math.max(2, Math.round((b.x1 - b.x0) / step));
+    const nz = Math.max(2, Math.round((b.z1 - b.z0) / step));
+    const g = new THREE.PlaneGeometry(b.x1 - b.x0, b.z1 - b.z0, nx, nz);
+    g.rotateX(-Math.PI / 2);
+    g.translate((b.x0 + b.x1) / 2, 0, (b.z0 + b.z1) / 2);
+    const p = g.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) p.setY(i, heightAt(p.getX(i), p.getZ(i)) + 0.05);
+    const m = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+      uniforms: { uTime: globalUniforms.uTime, uNight: globalUniforms.uNight, uStrength: this.strength, uB: { value: new THREE.Vector4(b.x0, b.z0, b.x1, b.z1) } },
+      vertexShader: /* glsl */ `
+        varying vec3 vW;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vW = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uTime; uniform float uNight; uniform float uStrength; uniform vec4 uB;
+        varying vec3 vW;
+        ${NOISE_GLSL}
+        void main() {
+          float k = smoothstep(0.45, 0.95, uNight) * uStrength;
+          if (k < 0.01) discard;
+          vec2 p = vW.xz;
+          // Long ribbons running east–west, drifting and folding slowly (the curtains' light).
+          float fold = hvNoise(vec2(p.x * 0.045 + uTime * 0.018, 3.1)) * 6.0;
+          float band = hvNoise(vec2(p.x * 0.06 - uTime * 0.025, p.y * 0.16 + fold));
+          band = smoothstep(0.35, 0.85, band);
+          float shimmer = 0.75 + 0.25 * sin(p.x * 0.7 + uTime * 1.3 + fold * 2.0);
+          vec3 green = vec3(0.12, 0.95, 0.55);
+          vec3 violet = vec3(0.62, 0.28, 0.95);
+          vec3 col = mix(green, violet, smoothstep(0.45, 0.85, hvNoise(p * 0.035 + vec2(uTime * 0.01, 7.0))));
+          // Stronger toward the north treeline (under the curtains), soft at the sheet's edges.
+          float north = mix(1.0, 0.35, smoothstep(uB.y, uB.w, p.y));
+          float edge = smoothstep(0.0, 4.0, p.x - uB.x) * smoothstep(0.0, 4.0, uB.z - p.x) * smoothstep(0.0, 3.0, p.y - uB.y) * smoothstep(0.0, 3.0, uB.w - p.y);
+          gl_FragColor = vec4(col * band * shimmer * north * edge * k * 0.42, 1.0);
+        }`,
+    });
+    m.name = 'aurora-glow';
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.name = 'aurora-glow';
+    this.mesh.renderOrder = 2;
+    this.mesh.frustumCulled = false;
+    this.mesh.userData.noAO = true;
   }
 }

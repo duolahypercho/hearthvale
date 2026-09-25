@@ -44,6 +44,19 @@ export class BoardPanel extends Screen {
     game.events.on('inventory:change', () => {
       if (this.isOpen) this.renderNotes();
     });
+    // The board is shared state: a delivery by anyone (the host, another farmhand, a debug call)
+    // re-pins the notes live. A note that just completed gets its "Thank you!" stamp thumped on.
+    const live = (id?: string): void => {
+      if (!this.isOpen || !this.notes) return;
+      const before = new Map([...this.notes.querySelectorAll<HTMLElement>('.bd-note')].map((n) => [n.dataset.id ?? '', n.className]));
+      this.renderNotes();
+      this.notes.querySelectorAll<HTMLElement>('.bd-note').forEach((n) => {
+        const was = before.get(n.dataset.id ?? '');
+        if ((id && n.dataset.id === id) || (was !== undefined && was !== n.className)) replay(n, 'stamp');
+      });
+    };
+    game.events.on('quest:complete', ({ id }) => live(id));
+    for (const ev of ['quest:posted', 'quest:accepted', 'quest:expired', 'quest:sync'] as const) game.events.on(ev, () => live());
   }
 
   protected render(): void {
@@ -68,6 +81,7 @@ export class BoardPanel extends Screen {
     posts.forEach((p, i) => {
       const have = this.game.services.inventory?.count(p.itemId) ?? 0;
       const n = el('div', `bd-note ${p.state}`);
+      n.dataset.id = p.id;
       n.style.setProperty('--rot', `${[-3, 2.5, -1.5, 3][i % 4]}deg`);
       n.style.setProperty('--paper', css(p.paper));
       const btn =

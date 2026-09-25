@@ -100,7 +100,14 @@ export class FestivalCoop {
   private saidHi = '';
   private hiTries = 0;
   private gotSnap = false;
-  stats = { msgsIn: 0, msgsOut: 0, progIn: 0, progUsed: 0 };
+  stats = { msgsIn: 0, msgsOut: 0, progIn: 0, progUsed: 0, invites: 0, trace: [] as string[] };
+  /** Progress that arrived before this machine's race object existed (fe.go / fe.pr reordering). */
+  private early = new Map<string, Map<number, CoopSample>>();
+
+  private note(s: string): void {
+    this.stats.trace.push(`${Math.round(performance.now())} ${s}`);
+    if (this.stats.trace.length > 24) this.stats.trace.shift();
+  }
 
   constructor(
     private game: Game,
@@ -126,7 +133,7 @@ export class FestivalCoop {
         // Keep asking until the host answers (a hello that races our own roster entry on the host
         // is dropped there as a non-member).
         const ask = (): void => {
-          if (this.gotSnap || this.role() !== 'client' || this.hiTries++ > 10) return;
+          if (this.gotSnap || this.role() !== 'client' || this.hiTries++ > 40) return;
           this.send('host', ['fe.hi']);
           setTimeout(ask, 1500);
         };
@@ -212,7 +219,10 @@ export class FestivalCoop {
     if (!RACE_ACTS.has(act) || this.role() === 'solo') return null;
     const inv = this.invites.get(act);
     const now = performance.now();
-    if (inv && inv.until > now && this.others().includes(inv.owner)) {
+    // (Any lobby member will do — the roster's map field can lag a teleport by a tick or two, and
+    // opening a rival lobby instead would leave two farmers waiting at two different lines.)
+    if (inv && inv.until > now && (this.others().includes(inv.owner) || !!this.net()?.players().some((p) => p.id === inv.owner && !p.isMe))) {
+      this.note(`join ${inv.race}`);
       // Join the open lobby.
       this.send(inv.owner, ['fe.join', act, inv.race]);
       let cancel = (): void => {};
@@ -247,6 +257,7 @@ export class FestivalCoop {
     const race = `${this.myId()}:${++this.raceN}`;
     const until = now + LOBBY_MS;
     this.send('*', ['fe.lob', act, race, LOBBY_MS]);
+    this.note(`lobby ${race} (others ${others.join(',')})`);
     let resolveFn: (r: CoopRace | null) => void = () => {};
     const result = new Promise<CoopRace | null>((res) => (resolveFn = res));
     const lob = { act, race, joined: [] as number[], go: resolveFn, until, done: false, timer: 0 };
@@ -258,6 +269,7 @@ export class FestivalCoop {
       clearInterval(lob.timer);
       // Everyone who joined gets a lane (owner lane 0, then join order); the rest see the lobby close.
       const lanes: [number, number][] = [[this.myId(), 0], ...lob.joined.map((id, k) => [id, k + 1] as [number, number])];
+      this.note(`go ${race} joined ${lob.joined.join(',') || '-'}`);
       this.send('*', ['fe.go', act, race, lob.joined.length ? lanes : []]);
       resolveFn(lob.joined.length ? this.makeRace(act, race, lanes) : null);
     };
@@ -285,8 +297,10 @@ export class FestivalCoop {
     const me = this.myId();
     const myLane = lanes.find(([p]) => p === me)?.[1] ?? 0;
     const racers = lanes.filter(([p]) => p !== me).map(([p, lane]) => ({ id: p, key: `p${p}`, lane, ...this.who(p) }));
-    const buf = new Map<number, CoopSample>();
+    const buf = this.early.get(id) ?? new Map<number, CoopSample>();
+    this.early.delete(id);
     this.samples.set(id, buf);
+    this.note(`race ${id} lane ${myLane} vs ${racers.map((r) => `${r.id}@${r.lane}`).join(',') || '-'}`);
     // Keep only a couple of races' samples around.
     for (const k of [...this.samples.keys()]) if (this.samples.size > 3 && k !== id) this.samples.delete(k);
     return {
@@ -342,6 +356,8 @@ export class FestivalCoop {
         const [, act, race, ms] = d as [string, ActivityId, string, number];
         const w = this.who(from);
         this.invites.set(act, { owner: from, race, until: performance.now() + Math.min(LOBBY_MS, Number(ms) || 0), name: w.name });
+        this.stats.invites++;
+        this.note(`invite ${race} from ${from}`);
         // Both at the line at once: the lower net id keeps the lobby, the other joins it.
         const mine = this.mine;
         if (mine && mine.act === act && !mine.done && from < this.myId() && !mine.joined.length) {
@@ -352,13 +368,23 @@ export class FestivalCoop {
           void r?.result.then((x) => mine.go(x));
           return;
         }
+        // The other way round (their id is higher): tell them about our line so *they* fold into it —
+        // our first announcement may have reached them before they walked up to the start line.
+        if (mine && mine.act === act && !mine.done && from > this.myId()) this.send(from, ['fe.lob', act, mine.race, Math.max(1500, mine.until - performance.now())]);
         this.game.events.emit('festival:lobby', { act, name: w.name, left: Math.round((Number(ms) || 0) / 1000) });
         return;
       }
       case 'fe.join': {
         const [, act, race] = d as [string, ActivityId, string];
         const mine = this.mine;
-        if (mine && mine.act === act && mine.race === race && !mine.done && !mine.joined.includes(from)) mine.joined.push(from);
+        if (mine && mine.act === act && mine.race === race && !mine.done && !mine.joined.includes(from)) {
+          mine.joined.push(from);
+          this.note(`joined ${race} by ${from}`);
+        } else {
+          // Too late — the gun went: release them straight away rather than leaving them at the line.
+          this.note(`late join ${race} by ${from}`);
+          this.send(from, ['fe.go', act, race, []]);
+        }
         return;
       }
       case 'fe.go': {
@@ -376,9 +402,15 @@ export class FestivalCoop {
       case 'fe.pr': {
         const [, race, t, p, fin, ...x] = d as [string, string, number, number, number, ...number[]];
         this.stats.progIn++;
-        const buf = this.samples.get(race);
-        if (!buf) return;
-        this.stats.progUsed++;
+        let buf = this.samples.get(race);
+        if (!buf) {
+          // The race hasn't started on this machine yet (its fe.go is still in flight): keep it.
+          buf = this.early.get(race) ?? new Map<number, CoopSample>();
+          if (!this.early.has(race)) {
+            this.early.set(race, buf);
+            for (const k of [...this.early.keys()]) if (this.early.size > 3 && k !== race) this.early.delete(k);
+          }
+        } else this.stats.progUsed++;
         const prev = buf.get(from);
         if (prev && prev.fin >= 0 && Number(fin) < 0) return;
         buf.set(from, { t: Number(t), p: Number(p), fin: Number(fin), x: x.map(Number), at: performance.now() });

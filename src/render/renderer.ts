@@ -14,6 +14,45 @@ import { runBakes } from './bake';
 import { setMaxAnisotropy } from './textures';
 import { globalUniforms } from './uniforms';
 
+const zeroPerf = (e: { calls: number; triangles: number }): void => {
+  e.calls = 0;
+  e.triangles = 0;
+};
+
+/**
+ * Program twins (pillar 14). three keeps ONE current program per material and re-derives it
+ * (getParameters + cache-key string, ~1 KB of garbage and a few µs) every time the same material
+ * is drawn by a different kind of object: a BatchedMesh then a plain Mesh (nature batches share
+ * woodPaint / bark / rock with the merged farm props), and above all the AO pass's single
+ * MeshNormalMaterial override flipping between batched and plain casters on every draw. That was
+ * ~120 KB of garbage per frame (GC hitches on p99). Draws by batched / instanced / skinned objects
+ * go through a per-material twin instead: a prototype child of the material (every property, the
+ * version, uniforms and patches read through to the original), with its own renderer state, so
+ * each keeps its own stable program. The program itself is shared through three's program cache
+ * (same cache key) — no extra compiles. ShaderMaterials are left alone (three writes
+ * uniformsNeedUpdate onto the drawn material).
+ */
+const twins = new WeakMap<THREE.Material, THREE.Material[]>();
+function programTwin(m: THREE.Material, o: THREE.Object3D): THREE.Material {
+  const b = o as THREE.Object3D & { isBatchedMesh?: boolean; isInstancedMesh?: boolean; isSkinnedMesh?: boolean };
+  const kind = b.isBatchedMesh ? 0 : b.isInstancedMesh ? 1 : b.isSkinnedMesh ? 2 : -1;
+  if (kind < 0 || !m || (m as THREE.ShaderMaterial).isShaderMaterial) return m;
+  let list = twins.get(m);
+  if (!list) twins.set(m, (list = []));
+  let t = list[kind];
+  if (!t) {
+    const twin = Object.create(m) as THREE.Material;
+    // Own listener table: three hangs its dispose hook on the drawn material.
+    (twin as unknown as { _listeners: object })._listeners = {};
+    m.addEventListener('dispose', () => {
+      twin.dispatchEvent({ type: 'dispose' });
+      twins.delete(m);
+    });
+    list[kind] = t = twin;
+  }
+  return t;
+}
+
 export class CameraRig {
   readonly target = new THREE.Vector3();
   private smoothTarget = new THREE.Vector3();
@@ -87,7 +126,8 @@ export class RenderContext {
   private height = 1;
   /** Per-tag draw calls / triangles of the last frame (all passes), see perfBreakdown(). */
   private perfAcc = new Map<string, { calls: number; triangles: number }>();
-  private perfLast: Record<string, { calls: number; triangles: number }> = {};
+  /** Last frame's totals per tag (entries reused frame to frame: no per-frame allocation). */
+  private perfLastM = new Map<string, { calls: number; triangles: number }>();
   /** Debug: split the per-system breakdown by pass (shadow / ao / main). */
   perfPasses = false;
   /** Forward point-light budget (render/lightbudget.ts), sized by the quality preset. */
@@ -193,7 +233,7 @@ export class RenderContext {
     // Accumulate stats over all passes of the frame (shadow, AO, main, post).
     this.renderer.info.autoReset = false;
     this.renderer.info.reset();
-    this.perfAcc.clear();
+    this.perfAcc.forEach(zeroPerf);
     this.lights.beginRender();
     try {
       this.post.render(time);
@@ -201,10 +241,15 @@ export class RenderContext {
       this.lights.endRender();
     }
     this.pinPrograms();
-    const out: Record<string, { calls: number; triangles: number }> = {};
-    for (const [k, v] of [...this.perfAcc.entries()].sort((a, b) => b[1].triangles - a[1].triangles)) out[k] = { ...v };
-    this.perfLast = out;
+    this.perfAcc.forEach(this.copyPerf);
   }
+
+  private copyPerf = (v: { calls: number; triangles: number }, k: string): void => {
+    let d = this.perfLastM.get(k);
+    if (!d) this.perfLastM.set(k, (d = { calls: 0, triangles: 0 }));
+    d.calls = v.calls;
+    d.triangles = v.triangles;
+  };
 
   /**
    * Attribute every draw (shadow, AO, main, post) to a tag so teams can see their cost:
@@ -236,16 +281,17 @@ export class RenderContext {
       if (o.parent) o.userData.__perfTag = tag;
       return tag;
     };
-    r.renderBufferDirect = (...a: unknown[]) => {
+    // Fixed arity (no rest array / spread per draw: pillar 14, zero per-frame allocation).
+    r.renderBufferDirect = (cam: unknown, scene: unknown, geo: unknown, material: unknown, object: unknown, group: unknown) => {
       const c0 = info.calls;
       const t0 = info.triangles;
-      orig(...a);
-      const obj = a[4] as THREE.Object3D;
+      const obj = object as THREE.Object3D;
+      orig(cam, scene, geo, programTwin(material as THREE.Material, obj), obj, group);
       let tag = obj.parent ? tagOf(obj) : 'post';
       if (this.perfPasses) {
-        const cam = a[0] as THREE.Camera & { isOrthographicCamera?: boolean };
-        const mat = a[3] as THREE.Material;
-        tag += cam.isOrthographicCamera ? '/shadow' : mat.type === 'MeshNormalMaterial' ? '/ao' : '/main';
+        const c = cam as THREE.Camera & { isOrthographicCamera?: boolean };
+        const mat = material as THREE.Material;
+        tag += c.isOrthographicCamera ? '/shadow' : mat.type === 'MeshNormalMaterial' ? '/ao' : '/main';
       }
       let e = this.perfAcc.get(tag);
       if (!e) this.perfAcc.set(tag, (e = { calls: 0, triangles: 0 }));
@@ -256,7 +302,9 @@ export class RenderContext {
 
   /** Draw calls / triangles per system tag for the last rendered frame, heaviest first. */
   perfBreakdown(): Record<string, { calls: number; triangles: number }> {
-    return this.perfLast;
+    const out: Record<string, { calls: number; triangles: number }> = {};
+    for (const [k, v] of [...this.perfLastM.entries()].sort((a, b) => b[1].triangles - a[1].triangles)) if (v.calls > 0) out[k] = { ...v };
+    return out;
   }
 
   /**
@@ -350,6 +398,38 @@ export class RenderContext {
     this.pinnedPrograms = progs.length;
   }
 
+  /**
+   * Every program three has created has finished linking (KHR_parallel_shader_compile). A program
+   * still linking when it is first drawn blocks the main thread on the link (getProgramInfoLog in
+   * onFirstUse: the 1-2 s beach-sunset stall, r3), so ready() waits for this (bounded).
+   */
+  programsLinked(): boolean {
+    const progs = this.renderer.info.programs as unknown as ({ isReady?: () => boolean }[] | null);
+    if (!progs) return true;
+    for (const p of progs) if (p.isReady && !p.isReady()) return false;
+    return true;
+  }
+
+  /**
+   * First use of every program, now (pillar 14). three's onFirstUse (info logs + uniform / attribute
+   * reflection) is a synchronous GPU-process round trip, and on ANGLE/Metal that is where a program
+   * that was compiled but never drawn (hidden fishing ripples / foam / reticle, compiled with the
+   * whole scene) really gets finished: 1.4-2.8 s for ONE such program on a busy machine, even 12 s
+   * after it reported COMPLETION_STATUS (the beach-sunset / coop-fishing stall, r3-r4). Paying it
+   * behind the load / warp fade instead of on the program's first draw mid-play. Returns ms spent.
+   */
+  warmPrograms(): number {
+    const progs = this.renderer.info.programs as unknown as ({ getUniforms?: () => unknown; __hvWarm?: boolean }[] | null);
+    if (!progs) return 0;
+    const t = performance.now();
+    for (const p of progs) {
+      if (p.__hvWarm) continue;
+      p.__hvWarm = true;
+      p.getUniforms?.();
+    }
+    return performance.now() - t;
+  }
+
   /** The render target scene passes draw into (linear HDR, no tone mapping). */
   private sceneTarget(): THREE.WebGLRenderTarget | null {
     return this.post.composer.readBuffer ?? null;
@@ -383,6 +463,7 @@ export class RenderContext {
       if (job) await Promise.race([job, new Promise((res) => setTimeout(res, 4000))]);
       this.warmShadowPass();
       this.pinPrograms();
+      this.warmPrograms();
     } finally {
       this.compiling--;
       this.shaderGate.settle();

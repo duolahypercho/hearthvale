@@ -224,6 +224,22 @@ function huskMaterial(): THREE.MeshStandardMaterial {
   return huskMat;
 }
 
+let huskDepth: THREE.MeshDepthMaterial | null = null;
+/** Shadow-pass twin of the husk material: without the same season scale the (invisible) husks still
+ *  cast twiggy shadows onto summer beds. */
+function huskDepthMaterial(): THREE.MeshDepthMaterial {
+  if (!huskDepth) {
+    huskDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
+    huskDepth.name = 'husk-depth';
+    patchMaterial(huskDepth, 'husk-winter-depth', (shader) => {
+      shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
+      shader.vertexShader = before(shader.vertexShader, 'void main() {', 'uniform vec4 uSeasonW;');
+      shader.vertexShader = after(shader.vertexShader, '#include <begin_vertex>', 'transformed *= smoothstep(0.5, 0.9, uSeasonW.w);');
+    });
+  }
+  return huskDepth;
+}
+
 // ─────────────────────────────────────────── small instanced parts
 
 function paintGeo(g: THREE.BufferGeometry, fn: (p: THREE.Vector3) => THREE.Color): THREE.BufferGeometry {
@@ -711,7 +727,7 @@ export class SoilBeds {
     let husk = prev?.husk;
     const h = (x * 73856093) ^ (z * 19349663);
     if (!prev && Math.abs(h >> 9) % 100 < 45) {
-      if (!this.huskSets.length) for (let v = 0; v < 3; v++) this.huskSets.push(new InstancedSet(`husk-${v}`, [{ geometry: huskGeometry(v), material: huskMaterial(), castShadow: true }], this.pool));
+      if (!this.huskSets.length) for (let v = 0; v < 3; v++) this.huskSets.push(new InstancedSet(`husk-${v}`, [{ geometry: huskGeometry(v), material: huskMaterial(), depthMaterial: huskDepthMaterial(), castShadow: true }], this.pool));
       const hs = this.huskSets[Math.abs(h >> 13) % 3]!;
       const hm = new THREE.Matrix4().compose(new THREE.Vector3(x + 0.5, y + BASE, z + 0.5), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (Math.abs(h >> 5) % 628) / 100), new THREE.Vector3(1, 1, 1));
       husk = { set: hs, id: hs.add(hm) };

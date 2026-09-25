@@ -94,11 +94,14 @@ function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry 
       case 'ribbon':
         w = (1 - t * 0.85) * Math.min(1, t * 8);
         break;
+      // Heart / palmate blades are wide at the petiole: the two basal lobes sweep back past the
+      // stalk (see `notch` below), so the outline is a rounded heart, never a rhombus.
       case 'heart':
-        w = Math.sin(Math.PI * Math.pow(t, 0.55)) * (1 - t * 0.2);
+        w = Math.pow(Math.sin(Math.PI * (0.2 + 0.8 * t)), 0.62) * (1 - t * 0.12);
         break;
       case 'lobed':
-        w = Math.sin(Math.PI * Math.pow(t, 0.6)) * (0.8 + 0.25 * Math.cos(t * Math.PI * 5));
+        // Three to five rounded lobes (pumpkin / melon / grape): deep sinuses between them.
+        w = Math.pow(Math.sin(Math.PI * (0.18 + 0.82 * t)), 0.55) * (0.74 + 0.3 * Math.pow(Math.abs(Math.cos(t * Math.PI * 2.4 + 0.2)), 0.6));
         break;
       default:
         w = Math.pow(Math.sin(Math.PI * t), 0.8);
@@ -144,15 +147,19 @@ function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry 
   const uv: number[] = [];
   const tip = hashN(len, width, o.c0.r, o.c1.g, segs) < 0.2 ? LEAF_UV_TIP : LEAF_UV;
   const US = [-1, -0.5, 0, 0.5, 1];
+  const shp = o.shape ?? 'oval';
+  const notch = shp === 'heart' ? 0.26 : shp === 'lobed' ? 0.3 : 0;
   for (const row of rows) {
     const w = row.r.x;
+    // Basal lobes: the margins near the stalk swing back behind the petiole (heart sinus).
+    const back = notch * len * Math.pow(1 - row.t, 2.2);
     for (const u of US) {
       const k = Math.abs(u);
       const side = u < 0 ? row.l : row.r;
       // Interpolate the margin (with its ruffle) from the midrib, then add the cup.
       const x = row.m.x + (side.x - row.m.x) * k;
       const y = row.m.y + (side.y - row.m.y) * k + cup * w * u * u;
-      const z = row.m.z + (side.z - row.m.z) * k;
+      const z = row.m.z + (side.z - row.m.z) * k - back * Math.pow(k, 0.8);
       pos.push(x, y, z);
       const c = colAt(row.t, k > 0.25);
       if (k > 0.25 && k < 0.75) c.lerp(colAt(row.t, false), 0.2);
@@ -274,8 +281,12 @@ interface FruitOpts {
 
 /** Shaded sphere-ish fruit: base colour with a darker underside, ribs / stripes / seeds. */
 function fruit(r: number, base: THREE.Color, opts: FruitOpts = {}): THREE.BufferGeometry {
-  const seg = opts.seg ?? 10;
+  // Striped melons are built pole-to-pole along X: the stripes then follow the sphere's own
+  // meridians (4 columns per stripe), so they read as clean rind bands instead of the petal /
+  // chevron facets a Y-pole sphere cut them into (small melons looked like artichokes).
+  const seg = opts.stripes ? Math.max(opts.seg ?? 10, opts.stripes * 4) : (opts.seg ?? 10);
   const g = new THREE.SphereGeometry(r, seg, opts.rows ?? Math.max(5, Math.round(seg * 0.7)));
+  if (opts.stripes) g.rotateZ(Math.PI / 2);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const p = new THREE.Vector3();
   const lobeOf = (x: number, z: number): number => Math.abs(Math.sin((Math.atan2(z, x) * (opts.ribs ?? 1)) / 2));
@@ -314,9 +325,14 @@ function fruit(r: number, base: THREE.Color, opts: FruitOpts = {}): THREE.Buffer
       // Jagged watermelon stripes running end to end (around the X axis).
       const L = opts.long ?? 1;
       const a = Math.atan2(q.z, q.y);
-      const jag = Math.sin((q.x / (r * L)) * 9 + a * 3) * 0.35 + Math.sin((q.x / (r * L)) * 23) * 0.15;
+      // A lazy wobble along the length (the rind's irregular band edges), sampled finely enough by
+      // the rows that it never zig-zags.
+      const xn = q.x / (r * L);
+      const jag = Math.sin(xn * 4.2 + a * 2) * 0.22 + Math.sin(xn * 9.5 + a) * 0.08;
       const st = 0.5 + 0.5 * Math.cos(a * opts.stripes + jag);
-      c.lerp(opts.stripeColor, THREE.MathUtils.smoothstep(st, 0.45, 0.62) * 0.9);
+      c.lerp(opts.stripeColor, THREE.MathUtils.smoothstep(st, 0.42, 0.6) * 0.92);
+      // Bands fade into a mottled blossom / stem end (stripes don't pinch into a star at the poles).
+      c.lerp(base.clone().multiplyScalar(0.8), THREE.MathUtils.smoothstep(Math.abs(xn), 0.82, 1.0) * 0.45);
       // Pale ground spot where it rests on the soil.
       c.lerp(new THREE.Color(0xd8d890), THREE.MathUtils.smoothstep(-n.y, 0.7, 0.95) * 0.6);
     }
@@ -487,15 +503,37 @@ const WOOD = { post: C(0x9a7048), light: C(0xc49a68), twine: C(0xd8c088) };
 
 // ═════════════════════════════════════════════ stage builders
 
-/** Stage 0: freshly sown — a little seed mound with a couple of seeds showing. */
+/** Stage 0: freshly sown — a dibbled planting hole: a crumbly rim of turned earth around a dark, moist
+ *  pocket with the seeds showing. (A smooth hemisphere read as a chocolate button lying on the bed.) */
 function seeded(add: Adder, r: Rng): void {
-  const mound = new THREE.SphereGeometry(0.12, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2);
-  mound.scale(1, 0.28, 1);
-  add(colored(mound, (p) => C(0x5a3a24).multiplyScalar(0.8 + p.y * 3)));
+  // Moist pocket: a shallow dark cone (points down), level with the bed surface.
+  const pocket = new THREE.CircleGeometry(0.058, 9);
+  pocket.rotateX(-Math.PI / 2);
+  const pp = pocket.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pp.count; i++) {
+    const d = Math.hypot(pp.getX(i), pp.getZ(i));
+    pp.setY(i, 0.012 - (0.058 - d) * 0.35);
+  }
+  pocket.computeVertexNormals();
+  add(colored(pocket, (p) => C(0x2c1a10).lerp(C(0x4a2e1c), Math.min(1, Math.hypot(p.x, p.z) / 0.058))), undefined, 'skin');
+  // Crumbly rim: a ring of small, lumpy clods in varied soil tones (lighter where they dried).
+  const n = 7 + Math.floor(r.next() * 3);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + (r.next() - 0.5) * 0.5;
+    const rad = 0.068 + r.next() * 0.02;
+    const k = 0.016 + r.next() * 0.014;
+    const clod = new THREE.IcosahedronGeometry(k, 0);
+    clod.scale(1 + r.next() * 0.5, 0.55 + r.next() * 0.3, 1 + r.next() * 0.4);
+    const tone = C(0x5c3b25).lerp(C(0x8a6444), r.next() * 0.7);
+    add(colored(clod, (p) => tone.clone().multiplyScalar(0.8 + (p.y / k) * 0.3)), mat(Math.cos(a) * rad, k * 0.25, Math.sin(a) * rad, r.next() * 3, r.next() * 3, 0), 'skin');
+  }
+  // The seeds, half-sunk in the pocket.
   for (let i = 0; i < 3; i++) {
-    const s = new THREE.SphereGeometry(0.018, 6, 4);
-    s.scale(1, 0.6, 1.3);
-    add(colored(s, () => C(0xe0c890)), mat((r.next() - 0.5) * 0.12, 0.03, (r.next() - 0.5) * 0.12, 0, r.next() * 3, 0));
+    const sd = new THREE.SphereGeometry(0.014, 6, 4);
+    sd.scale(1, 0.6, 1.4);
+    const a = r.next() * Math.PI * 2;
+    const rr = r.next() * 0.03;
+    add(colored(sd, (p) => C(0xe8d4a0).multiplyScalar(0.85 + p.y * 12)), mat(Math.cos(a) * rr, 0.004, Math.sin(a) * rr, 0, r.next() * 3, 0), 'skin');
   }
 }
 

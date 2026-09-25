@@ -121,12 +121,15 @@ interface PartOpts {
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _c = new THREE.Color();
+const _h = new THREE.Vector3();
 
 export class RigBuilder {
   private names = new Map<string, number>();
   private abs: THREE.Vector3[] = [];
   private parents: number[] = [];
   private geos: THREE.BufferGeometry[] = [];
+  private geoBone: number[] = [];
+  private chibiOpts: { bodyZ: number; head: number } | null = null;
 
   constructor() {
     this.bone('root', null, [0, 0, 0]);
@@ -196,10 +199,51 @@ export class RigBuilder {
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
     g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
     this.geos.push(g);
+    this.geoBone.push(bi);
     return this;
   }
 
+  /**
+   * Chibi proportions, applied at build: the trunk (everything not on the head) is compressed along
+   * the body axis by `bodyZ`, and the head group (head / eyes / ears) grows by `head` about the neck
+   * pivot, which rides along with the shortened body. One place, so every part and bone stays in step.
+   */
+  chibi(bodyZ: number, head: number): this {
+    this.chibiOpts = { bodyZ, head };
+    return this;
+  }
+
+  /** Where a model-space point ends up after chibi() (for gait numbers: reach, heart height). */
+  chibiPoint(p: THREE.Vector3, onHead: boolean): THREE.Vector3 {
+    const o = this.chibiOpts;
+    if (!o) return p;
+    if (!onHead) return p.set(p.x, p.y, p.z * o.bodyZ);
+    const H = this.abs[this.idx('head')]!;
+    return p.sub(H).multiplyScalar(o.head).add(_h.set(H.x, H.y, H.z * o.bodyZ));
+  }
+
+  private applyChibi(): void {
+    const o = this.chibiOpts;
+    if (!o || !this.names.has('head')) return;
+    const hi = this.idx('head');
+    const group = new Set<number>([hi]);
+    for (const nm of ['eyes', 'earL', 'earR']) if (this.names.has(nm)) group.add(this.idx(nm));
+    const H = this.abs[hi]!.clone();
+    const trunk = new THREE.Matrix4().makeScale(1, 1, o.bodyZ);
+    const head = new THREE.Matrix4()
+      .makeTranslation(H.x, H.y, H.z * o.bodyZ)
+      .multiply(new THREE.Matrix4().makeScale(o.head, o.head, o.head))
+      .multiply(new THREE.Matrix4().makeTranslation(-H.x, -H.y, -H.z));
+    this.geos.forEach((g, i) => g.applyMatrix4(group.has(this.geoBone[i]!) ? head : trunk));
+    this.abs.forEach((a, i) => {
+      if (group.has(i) && i !== hi) a.applyMatrix4(head);
+      else a.z *= o.bodyZ;
+    });
+    this.chibiOpts = null;
+  }
+
   build(material: THREE.Material, name: string): { mesh: THREE.SkinnedMesh; bones: Record<string, THREE.Bone> } {
+    this.applyChibi();
     const geo = mergeGeometries(this.geos)!;
     for (const g of this.geos) g.dispose();
     geo.computeBoundingBox();

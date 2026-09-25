@@ -496,6 +496,17 @@ function showcaseSpot(m: MineMap, open: boolean): { x: number; z: number } {
           const d = Math.hypot(dx, dz);
           if (L.lava[i] || L.pool[i]) s += d < 1.6 ? -3 : L.lava[i] ? 1.3 : 0.5;
         }
+      // Ice: a warm survey lantern in frame (amber pool against the blue, not just the farmer's own).
+      if (L.biome === 'ice') {
+        let warm = 0;
+        for (const d of L.decor) {
+          if (d.kind !== 'lanternPost') continue;
+          const dx = d.x - cx;
+          const dz = d.z - cz;
+          if (Math.abs(dx) < 8 && dz > -6 && dz < 2.5 && Math.hypot(dx, dz) > 2.2) warm = Math.max(warm, 1);
+        }
+        s += warm * 3;
+      }
       let openN = 0;
       for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (m.grid.isWalkable(x + dx, z + dz)) openN++;
       s += openN * (open ? 0.6 : 0.2);

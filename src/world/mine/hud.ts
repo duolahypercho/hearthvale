@@ -48,7 +48,7 @@ const CSS = /* css */ `
 .hv-dmg.loot { color:#fff4dc; font-size:22px; -webkit-text-stroke:3px #2a1a0c; text-shadow: 0 2px 0 rgba(20,10,4,.7); }
 .hv-dmg.info { color:#ffe9c4; font-size:22px; -webkit-text-stroke:4px #3a2410; }
 
-.hv-hurt { position:absolute; inset:0; pointer-events:none; opacity:0; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 48%, rgba(200,20,20,.55) 100%); transition: opacity .35s ease-out; }
+.hv-hurt { position:absolute; inset:0; pointer-events:none; opacity:0; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 58%, rgba(190,24,20,.42) 100%); transition: opacity .35s ease-out; }
 .hv-hurt.on { opacity:1; transition: none; }
 .hv-blackout { position:absolute; inset:0; pointer-events:none; background:#000; opacity:0; transition: opacity .9s ease-in; display:grid; place-items:center; }
 .hv-blackout.on { opacity:1; }
@@ -203,6 +203,9 @@ interface Num {
   kind: string;
   text: string;
   qty: number;
+  /** Screen-space de-overlap push (px, eased): numbers never print over each other. */
+  ny: number;
+  nx: number;
 }
 
 export interface PopOpts {
@@ -274,18 +277,25 @@ export class DamageNumbers {
       kind,
       text: key,
       qty,
+      ny: 0,
+      nx: 0,
     });
     if (this.list.length > 40) this.list.shift()!.el.remove();
   }
 
+  /** Placed boxes of this frame's de-overlap pass (reused). */
+  private boxes: { x0: number; x1: number; y0: number; y1: number }[] = [];
+
   update(dt: number, camera: THREE.Camera, w: number, h: number): void {
-    for (let i = this.list.length - 1; i >= 0; i--) {
+    this.boxes.length = 0;
+    const ease = 1 - Math.exp(-dt * 16);
+    for (let i = 0; i < this.list.length; i++) {
       const n = this.list[i]!;
       if (!this.hold || n.age < n.life * 0.32) n.age += dt;
       const t = n.age / n.life;
       if (t >= 1) {
         n.el.remove();
-        this.list.splice(i, 1);
+        this.list.splice(i--, 1);
         continue;
       }
       this.v.copy(n.follow ?? n.pos).add(n.off).project(camera);
@@ -297,7 +307,38 @@ export class DamageNumbers {
       const rise = n.kind === 'loot' || n.kind === 'info' ? t * 60 : (1 - Math.pow(1 - Math.min(1, t * 1.4), 3)) * 40;
       const shake = n.kind === 'crit' && age < 0.3 ? Math.sin(age * 90) * 5 * (1 - age / 0.3) : 0;
       const op = t > 0.72 ? 1 - (t - 0.72) / 0.28 : 1;
-      n.el.style.transform = `translate(-50%, -50%) translate(${x + n.dx * t + shake}px, ${y - rise}px) scale(${pop})`;
+      let px = x + n.dx * t;
+      let py = y - rise;
+      // De-overlap (older numbers keep their place; a newer one slides up / aside until it is clear
+      // of every number already placed this frame), eased so a crowd of hits fans out smoothly
+      // instead of printing '12' over '9'.
+      if (n.kind !== 'loot' && n.kind !== 'info') {
+        const cw = n.kind === 'crit' ? 30 : n.kind === 'player' ? 20 : 24;
+        const hw = (n.el.textContent?.length ?? 2) * cw * 0.5 + 8;
+        const hh = n.kind === 'crit' ? 27 : n.kind === 'player' ? 18 : 21;
+        let tx = 0;
+        let ty = 0;
+        for (let pass = 0; pass < 6; pass++) {
+          const cx = px + tx;
+          const cy = py + ty;
+          const hit = this.boxes.find((b) => cx + hw > b.x0 && cx - hw < b.x1 && cy + hh > b.y0 && cy - hh < b.y1);
+          if (!hit) break;
+          // Up by the overlap, with a small sideways step away from the box's centre.
+          ty -= cy + hh - hit.y0 + 2;
+          tx += cx >= (hit.x0 + hit.x1) / 2 ? 10 : -10;
+        }
+        if (n.age <= dt * 1.5) {
+          n.nx = tx;
+          n.ny = ty;
+        } else {
+          n.nx += (tx - n.nx) * ease;
+          n.ny += (ty - n.ny) * ease;
+        }
+        px += n.nx;
+        py += n.ny;
+        if (op > 0.25) this.boxes.push({ x0: px - hw, x1: px + hw, y0: py - hh, y1: py + hh });
+      }
+      n.el.style.transform = `translate(-50%, -50%) translate(${px + shake}px, ${py}px) scale(${pop})`;
       n.el.style.opacity = String(op);
     }
   }

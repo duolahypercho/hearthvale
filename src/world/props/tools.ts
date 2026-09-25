@@ -38,6 +38,18 @@ function metal(tier: number): THREE.MeshStandardMaterial {
   return m;
 }
 
+/** Starter watering can enamel (matches the toolbar icon). */
+const CAN_PAINT = 0x3f93bd;
+let enamelMat: THREE.MeshStandardMaterial | null = null;
+function enamel(): THREE.MeshStandardMaterial {
+  if (!enamelMat) {
+    enamelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.46, metalness: 0.05 });
+    enamelMat.name = 'tool-enamel';
+    applyWorldFx(enamelMat, { snow: false });
+  }
+  return enamelMat;
+}
+
 const HANDLE = 0xa8743f;
 /** Blade body colour per tier (the tint is the honed-edge colour). */
 const HEAD_BODY = [0x70767e, 0xc0703c, 0xb4bec8, 0xe8b43a];
@@ -187,18 +199,23 @@ export function buildTool(id: string, tier: number): THREE.Group {
       break;
     }
     case 'wateringCan': {
+      // The starter can is painted enamel (the toolbar icon's sky blue) over zinc bands and rose;
+      // upgraded cans show their metal. Enamel is non-metallic, so it never reads as chrome.
+      const P = tier === 0 ? enamel() : M;
+      const paint = tier === 0 ? CAN_PAINT : tint;
+      const band = tier === 0 ? 0x8d969e : edge;
       const body = new THREE.CylinderGeometry(0.13, 0.15, 0.24, 18, 2);
-      b.add(M, body, mat(0, -0.23, -0.02), { tint });
-      b.add(M, new THREE.TorusGeometry(0.14, 0.016, 6, 20), mat(0, -0.11, -0.02, Math.PI / 2, 0, 0), { tint: edge });
-      b.add(M, new THREE.TorusGeometry(0.15, 0.016, 6, 20), mat(0, -0.35, -0.02, Math.PI / 2, 0, 0), { tint: edge });
-      b.add(M, new THREE.CylinderGeometry(0.1, 0.13, 0.04, 16), mat(0, -0.095, -0.02), { tint });
+      b.add(P, body, mat(0, -0.23, -0.02), { tint: paint });
+      b.add(M, new THREE.TorusGeometry(0.14, 0.016, 6, 20), mat(0, -0.11, -0.02, Math.PI / 2, 0, 0), { tint: band });
+      b.add(M, new THREE.TorusGeometry(0.15, 0.016, 6, 20), mat(0, -0.35, -0.02, Math.PI / 2, 0, 0), { tint: band });
+      b.add(P, new THREE.CylinderGeometry(0.1, 0.13, 0.04, 16), mat(0, -0.095, -0.02), { tint: paint });
       // Top handle arc (the grip, at the origin)
       const arc = new THREE.TorusGeometry(0.1, 0.018, 6, 14, Math.PI);
-      b.add(M, arc, mat(0, -0.09, -0.02, 0, Math.PI / 2, 0), { tint });
+      b.add(P, arc, mat(0, -0.09, -0.02, 0, Math.PI / 2, 0), { tint: paint });
       // Spout + rose
       const spout = new THREE.CylinderGeometry(0.018, 0.03, 0.34, 8);
-      b.add(M, spout, mat(0, -0.2, 0.2, 1.0, 0, 0), { tint });
-      b.add(M, new THREE.CylinderGeometry(0.045, 0.025, 0.04, 10), mat(0, -0.06, 0.33, 1.0, 0, 0), { tint: edge });
+      b.add(P, spout, mat(0, -0.2, 0.2, 1.0, 0, 0), { tint: paint });
+      b.add(M, new THREE.CylinderGeometry(0.045, 0.025, 0.04, 10), mat(0, -0.06, 0.33, 1.0, 0, 0), { tint: band });
       break;
     }
     case 'seeds': {

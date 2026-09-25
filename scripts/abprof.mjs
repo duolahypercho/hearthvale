@@ -24,7 +24,8 @@ const ctx = await browser.newContext({ viewport: { width: +a.w, height: +a.h }, 
 for (const demo of a.demos.split(',')) {
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log('[pageerror]', demo, String(e).slice(0, 200)));
-  await page.goto(`${base}?demo=${demo}&quality=${a.quality}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${base}?demo=${demo}&quality=${a.quality}`, { waitUntil: 'domcontentloaded', timeout: 240000 });
+  page.setDefaultTimeout(240000);
   await page.evaluate(() => window.__game.ready());
   if (a.eval) await page.evaluate(a.eval);
   await page.waitForTimeout(+a.warmup);
@@ -55,7 +56,11 @@ for (const demo of a.demos.split(',')) {
     for (const [k, v] of Object.entries(g.perf().bySystem ?? {})) void k, void v;
     rc.scene.traverse((o) => { if (o.parent && (o.parent.isScene || o.parent.name.startsWith('map:')) && o.name && !o.userData.perfTag && o.visible) (tagged[o.name] ??= []).push(o); });
     for (const [t, objs] of Object.entries(tagged)) C['sys:' + t] = [() => objs.forEach((o) => (o.visible = false)), () => objs.forEach((o) => (o.visible = true))];
-    const names = only === 'sys' ? ['base', ...Object.keys(C).filter((k) => k.startsWith('sys:'))] : only ? only.split(',') : Object.keys(C).filter((k) => !k.startsWith('sys:'));
+    // mat:<name> hides every visible mesh drawn with a material of that name (`--only mats` lists them all).
+    const byMat = {};
+    rc.scene.traverse((o) => { if (!o.isMesh && !o.isPoints && !o.isLine) return; if (!o.visible) return; for (const m of [].concat(o.material || [])) if (m) (byMat[(m.name || m.type)] ??= new Set()).add(o); });
+    for (const [t, set] of Object.entries(byMat)) { const objs = [...set]; C['mat:' + t] = [() => objs.forEach((o) => (o.visible = false)), () => objs.forEach((o) => (o.visible = true))]; }
+    const names = only === 'mats' ? ['base', ...Object.keys(C).filter((k) => k.startsWith('mat:'))] : only === 'sys' ? ['base', ...Object.keys(C).filter((k) => k.startsWith('sys:'))] : only ? only.split(',') : Object.keys(C).filter((k) => !k.startsWith("sys:") && !k.startsWith("mat:"));
     const acc = Object.fromEntries(names.map((n) => [n, []]));
     const frame = () => new Promise((r) => requestAnimationFrame(r));
     // Cost metric: Game.step + gl.finish() (CPU submit + GPU completion, serialised), immune to the

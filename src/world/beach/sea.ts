@@ -1,7 +1,7 @@
 /**
  * Life on the open water off Driftsand (so the sea around the pier is never an empty blue sheet):
  *   moored boat   a red dory riding the swell off the pier (bob, pitch, roll), with a mooring buoy
- *   buoy line     a rope of red / white floats marking the swim area, each bobbing on its own phase
+ *   buoy line     a rope of yellow / white floats marking the swim area, each bobbing on its own phase
  *   flotsam       drifting weed rafts and sticks turning slowly on the current
  *   fish school   5 dark, soft fish shadows cruising just under the surface (a slow wandering loop)
  * All instanced / merged: 6 draw calls in the main pass, a few hundred triangles each.
@@ -26,7 +26,8 @@ function floatGeometry(): THREE.BufferGeometry {
   g.scale(1, 0.78, 1);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
-  const red = new THREE.Color(0xe0442e);
+  // Sunflower-yellow swim-lane floats (the player's float is the only red thing on the water).
+  const red = new THREE.Color(0xf0b432);
   const white = new THREE.Color(0xf4f0e6);
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i);

@@ -204,8 +204,13 @@ export class Game {
     requestAnimationFrame(this.loop);
     // Resolve ready after a few rendered frames so shadows/AO/particles settle.
     const target = this.frame + 8;
+    // ...and once every program has finished linking (bounded: 6 s), so no first draw inside a
+    // measured / captured window blocks on a link (pillar 14).
+    const linkDeadline = performance.now() + 6000;
     const check = (): void => {
-      if (this.frame >= target) {
+      if (this.frame >= target && (this.rc.programsLinked() || performance.now() > linkDeadline)) {
+        // Programs built during the settle frames (gated objects) get their first use here too.
+        this.rc.warmPrograms();
         this.readyResolve();
         this.events.emit('game:ready', {});
       } else requestAnimationFrame(check);

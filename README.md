@@ -497,13 +497,18 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
 
 - Mini-games (`world/festivals/games.ts`): Ribbon Dance, Lantern Release, Sack Race, Produce Judging, Gift Exchange,
   Starlight Skate. `openUI('festival:<activity>')` starts one on its map; while paused (demos) it plays itself
-  (attract mode plays skilfully, ~85–90 % accuracy). Real stakes: a gold trophy (1st) / blue / red rosettes, and
-  below the ribbon line a wilted flower — no prize money, no friendship (unless the partner already loves you). A win
+  (attract mode plays skilfully, ~85–90 % accuracy). Real stakes (`PRIZES` in `data/festivals.ts`): a gold trophy
+  (1st) / blue (2nd) / red (3rd) rosette, each with prize gold (e.g. sack race 500 / 300 / 150 g) and hearts with the
+  activity's host or partner; below the ribbon line a wilted flower — no prize money, no friendship (unless the partner
+  already loves you). A win
   gets a slow title slam + rays + confetti storm, the whole nearby crowd cheering in 3D and the rosette pinned to your
   chest for the rest of the day. Produce Judging draws three rivals per year (stronger each year), stages your entry
   on a draped plinth (judges gather round it) and adds a presentation pick (the judges favour one touch a year).
   Sack Race: five 1.05 m lanes whose 3D positions are the HUD's progress, dust on every landing, tumbles on wobbles,
   finishers fan out past the tape, the camera tracks the pack. Gift Exchange unwraps the present in 3D in your hands.
+  Lantern Release: five throws on a quickening swell, a radiant-streak bonus, and each of your lanterns joins the
+  flotilla colour-coded by how well it was let go (gold radiant … dull sputter). Produce Judging runs as a
+  lower-third ribbon while the judges walk plinth to plinth in 3D and the rosettes are staked beside the winners.
 - Crowds: townsfolk get 12+ hue families a season, ~40 % seasonal hats (the rest bare hair / headbands / earmuffs /
   bows), elders + children, ±10 % height / ±8 % width, bags; the staged crowd is relaxed so nobody stands inside
   anybody else (`FestivalMap.separateCrowd`).

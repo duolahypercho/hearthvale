@@ -101,10 +101,13 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         // Moonlit sand (night): the dry beach keeps a pale, cool value well above the sea's.
         hvBMoon = sandM * smoothstep(-0.04, 0.12, bh) * smoothstep(2.4, 1.4, bh) * (1.0 - soaked * 0.45) * (1.0 - rockM);
         // Foam lace stranded by the receding wave.
+        // (Only in the thin band the sheet just left: the lace is the priciest term, pillar 14.)
         float recede = step(0.22, ph) * smoothstep(0.95, 0.35, ph);
-        float lace = hvLace(p * 1.1, t * 0.2) * smoothstep(0.4, 0.7, hvNoise(p * 0.13 + 1.3));
-        float stranded = lace * smoothstep(0.012, 0.0, bh - sheet - 0.035) * smoothstep(-0.03, 0.0, bh - sheet) * recede;
-        s = mix(s, vec3(0.93, 0.95, 0.94) * 0.9, stranded * 0.55 * smoothstep(0.35, 0.6, hvNoise(p * 0.9 + 4.0)) * onSand);
+        float strandK = smoothstep(0.012, 0.0, bh - sheet - 0.035) * smoothstep(-0.03, 0.0, bh - sheet) * recede * onSand;
+        if (strandK > 0.0) {
+          float lace = hvLace(p * 1.1, t * 0.2) * smoothstep(0.4, 0.7, hvNoise(p * 0.13 + 1.3));
+          s = mix(s, vec3(0.93, 0.95, 0.94) * 0.9, lace * strandK * 0.55 * smoothstep(0.35, 0.6, hvNoise(p * 0.9 + 4.0)));
+        }
         // Seabed: cooler, darker with depth; caustics (applied as light below).
         float depth = max(0.0, -bh);
         hvBDepth = depth;
@@ -162,9 +165,18 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           s = mix(s, mix(vec3(0.86, 0.82, 0.72), vec3(0.62, 0.58, 0.5), petal), dollar * bedK * 0.9);
         }
         s = mix(s, vec3(0.05, 0.16, 0.2), smoothstep(0.8, 3.5, depth));
-        float caus = hvCaustic(p * 1.05, t);
-        float patchC = smoothstep(0.2, 0.65, hvNoise(p * 0.16 + vec2(t * 0.02, 0.0)));
-        hvBCaus = caus * patchC * smoothstep(0.08, 0.45, uBSunDir.y) * smoothstep(0.03, 0.2, depth) * (1.0 - smoothstep(0.45, 1.5, depth)) * sandM;
+        // Caustics only where they can show: sunlit (not night) sea bed 3 cm - 1.5 m deep, or a pool
+        // floor (evaluated lazily in the shelf block). Elsewhere they are exactly 0 (pillar 14).
+        // (causDay only gates: the fade itself is the dayK below.)
+        float causSun = smoothstep(0.08, 0.45, uBSunDir.y);
+        bool causDay = uBNight < 0.999;
+        float caus = -1.0;
+        float causBed = causSun * smoothstep(0.03, 0.2, depth) * (1.0 - smoothstep(0.45, 1.5, depth)) * sandM;
+        if (causBed > 0.0 && causDay) {
+          caus = hvCaustic(p * 1.05, t);
+          float patchC = smoothstep(0.2, 0.65, hvNoise(p * 0.16 + vec2(t * 0.02, 0.0)));
+          hvBCaus = caus * patchC * causBed;
+        }
         ground = mix(ground, s, sandM);
         // Rock shelf (painted path channel): cracked grey-brown stone, weed + barnacles low down,
         // dark and glossy where the spray keeps it wet.
@@ -186,7 +198,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           for (int i = 0; i < 4; i++) {
             vec3 tp = uBPools[i];
             float dd = length((p - tp.xy) * vec2(1.0, 1.15)) / tp.z;
-            ring = max(ring, smoothstep(1.5 + 0.2 * hvNoise(p * 2.0 + float(i)), 1.02, dd));
+            if (dd < 1.7) ring = max(ring, smoothstep(1.5 + 0.2 * hvNoise(p * 2.0 + float(i)), 1.02, dd));
             ddMin = min(ddMin, dd);
           }
           float inPool = smoothstep(1.02, 0.8, ddMin);
@@ -194,19 +206,24 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           rock *= 0.92 + 0.08 * smoothstep(0.3, 0.7, rn);
           // Lichen on the dry tops (mustard / orange rosettes).
           // Lichen: small crusty rosettes on the dry tops (speckled, never big blotches).
-          float lichen = smoothstep(0.62, 0.8, hvNoise(p * 1.6 + 3.3)) * smoothstep(0.75, 1.05, bh) * (1.0 - ring);
-          lichen *= smoothstep(0.55, 0.75, hvNoise(p * 9.0 + 1.0));
-          rock = mix(rock, mix(vec3(0.5, 0.42, 0.2), vec3(0.58, 0.34, 0.16), hvNoise(p * 3.0)), lichen * 0.28);
+          float lichen = bh > 0.75 ? smoothstep(0.62, 0.8, hvNoise(p * 1.6 + 3.3)) * smoothstep(0.75, 1.05, bh) * (1.0 - ring) : 0.0;
+          if (lichen > 0.0) {
+            lichen *= smoothstep(0.55, 0.75, hvNoise(p * 9.0 + 1.0));
+            rock = mix(rock, mix(vec3(0.5, 0.42, 0.2), vec3(0.58, 0.34, 0.16), hvNoise(p * 3.0)), lichen * 0.28);
+          }
           // Weed + algae low down near the waterline.
           // (No painted halo round the pools: the rims get real weed tufts, see shelf.ts.)
-          float weed = smoothstep(0.62, 0.3, bh) * smoothstep(0.32, 0.62, hvNoise(p * 1.9 + 5.0) + hvNoise(p * 7.0) * 0.25);
-          rock = mix(rock, mix(vec3(0.12, 0.2, 0.08), vec3(0.24, 0.3, 0.1), hvNoise(p * 5.0)), weed * 0.85);
+          float weed = 0.0;
+          if (bh < 0.62) {
+            weed = smoothstep(0.62, 0.3, bh) * smoothstep(0.32, 0.62, hvNoise(p * 1.9 + 5.0) + hvNoise(p * 7.0) * 0.25);
+            rock = mix(rock, mix(vec3(0.12, 0.2, 0.08), vec3(0.24, 0.3, 0.1), hvNoise(p * 5.0)), weed * 0.85);
+          }
           // Barnacles: round pale dots clustered in the splash zone.
           vec2 bq = p * 9.0;
           vec2 bc = floor(bq);
           vec2 bo = hvHash22(bc) - 0.5;
           float bd = length(fract(bq) - 0.5 - bo * 0.5);
-          float barnZone = smoothstep(1.0, 0.5, bh) * smoothstep(0.35, 0.55, hvNoise(p * 1.1 + 7.0)) * (1.0 - weed);
+          float barnZone = bh < 1.0 ? smoothstep(1.0, 0.5, bh) * smoothstep(0.35, 0.55, hvNoise(p * 1.1 + 7.0)) * (1.0 - weed) : 0.0;
           float barn = smoothstep(0.2, 0.13, bd) * step(hvHash12(bc + 4.4), 0.28) * barnZone;
           rock = mix(rock, vec3(0.5, 0.47, 0.4), barn * 0.6);
           rock *= 1.0 - smoothstep(0.24, 0.2, bd) * (1.0 - smoothstep(0.2, 0.13, bd)) * barnZone * 0.3;
@@ -222,7 +239,10 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
             rock = mix(rock, floorC, inPool);
           }
           ground = mix(ground, rock, pathM);
-          hvBCaus = max(hvBCaus, caus * inPool * 0.8 * smoothstep(0.08, 0.45, uBSunDir.y));
+          if (inPool * causSun > 0.0 && causDay) {
+            if (caus < 0.0) caus = hvCaustic(p * 1.05, t);
+            hvBCaus = max(hvBCaus, caus * inPool * 0.8 * causSun);
+          }
           hvBWet = max(hvBWet * (1.0 - pathM), pathM * max(smoothstep(0.7, 0.35, bh) * 0.3, ring * 0.3));
         }
       }

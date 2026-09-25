@@ -42,12 +42,15 @@ export function beachRockGeometry(rng: Rng, radius: number, o: BeachRockOpts = {
   const lumpy = o.lumpy ?? 0.26;
   // One or two cleavage planes: broad, slightly rounded flat faces so it reads as broken stone,
   // not a smooth blob.
+  // Three to five broad cleavage planes (spread round the stone) cut it into a chunky, faceted block
+  // with softly chipped edges: broken coastal stone, never a smooth clay blob.
   const planes: { n: THREE.Vector3; d: number }[] = [];
-  const np = 1 + (rng.next() < 0.6 ? 1 : 0);
+  const np = 3 + rng.int(0, 2);
+  const a0 = rng.next() * Math.PI * 2;
   for (let i = 0; i < np; i++) {
-    const a = rng.next() * Math.PI * 2;
-    const el = i === 0 ? 0.25 + rng.next() * 0.5 : -0.1 + rng.next() * 0.5;
-    planes.push({ n: new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el)), d: 0.58 + rng.next() * 0.16 });
+    const a = a0 + (i / np) * Math.PI * 2 + (rng.next() - 0.5) * 0.9;
+    const el = i === 0 ? 0.55 + rng.next() * 0.4 : -0.15 + rng.next() * 0.55;
+    planes.push({ n: new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el)), d: 0.5 + rng.next() * 0.2 });
   }
   const pos = g.attributes.position as THREE.BufferAttribute;
   const v = new THREE.Vector3();
@@ -62,7 +65,7 @@ export function beachRockGeometry(rng: Rng, radius: number, o: BeachRockOpts = {
     v.multiplyScalar(d);
     for (const pl of planes) {
       const k = v.dot(pl.n) - pl.d;
-      if (k > 0) v.addScaledVector(pl.n, -k * 0.92);
+      if (k > 0) v.addScaledVector(pl.n, -k * 0.97);
     }
     v.x *= elong;
     v.y *= squash;
@@ -72,13 +75,42 @@ export function beachRockGeometry(rng: Rng, radius: number, o: BeachRockOpts = {
     pos.setXYZ(i, v.x * radius, (v.y + squash * 0.25 - 0.06) * radius, v.z * radius);
   }
   g.computeVertexNormals();
-  // Vertex AO: dark contact rim at the base, darker hollows (low displacement), lighter bulges.
+  // Curvature from the mesh Laplacian (neighbour mean minus the vertex, along its normal): chipped
+  // convex edges catch light, creases and cavities go dark (baked into the vertex AO below).
+  const idx = g.index!;
+  const nsum = new Float32Array(pos.count * 3);
+  const ncnt = new Uint16Array(pos.count);
+  for (let f = 0; f < idx.count; f += 3) {
+    const tri = [idx.getX(f), idx.getX(f + 1), idx.getX(f + 2)];
+    for (let e = 0; e < 3; e++) {
+      const i0 = tri[e]!;
+      for (const j of [tri[(e + 1) % 3]!, tri[(e + 2) % 3]!]) {
+        nsum[i0 * 3] += pos.getX(j);
+        nsum[i0 * 3 + 1] += pos.getY(j);
+        nsum[i0 * 3 + 2] += pos.getZ(j);
+        ncnt[i0]++;
+      }
+    }
+  }
+  const nrm = g.attributes.normal as THREE.BufferAttribute;
+  const curv = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const c = ncnt[i] || 1;
+    const lx = nsum[i * 3]! / c - pos.getX(i);
+    const ly = nsum[i * 3 + 1]! / c - pos.getY(i);
+    const lz = nsum[i * 3 + 2]! / c - pos.getZ(i);
+    // > 0: convex (neighbours sit below the tangent plane) → edge; < 0: concave → cavity.
+    curv[i] = -(lx * nrm.getX(i) + ly * nrm.getY(i) + lz * nrm.getZ(i)) / radius;
+  }
+  // Vertex AO: dark contact rim at the base, darker hollows (low displacement), lighter bulges,
+  // bright chipped edges and dark cavities.
   const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i) / radius;
     const base = THREE.MathUtils.smoothstep(y, -0.05, 0.28);
     const hollow = THREE.MathUtils.clamp(0.82 + disp[i]! * 0.9, 0.6, 1.08);
-    const k = (0.55 + 0.45 * base) * hollow;
+    const edge = THREE.MathUtils.clamp(curv[i]! * 9, -0.45, 0.3);
+    const k = (0.55 + 0.45 * base) * hollow * (1 + edge);
     col[i * 3] = k;
     col[i * 3 + 1] = k;
     col[i * 3 + 2] = k;
@@ -170,8 +202,18 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
         float wet = max(1.0 - smoothstep(edge - 0.08, edge + 0.05, y), vBRK.y);
         hvBRWet = wet;
         // Weed / moss on up-facing faces: green-olive above the tide, dark kelp-green in the wet.
-        float up = smoothstep(0.55, 0.85, N.y);
+        float up = smoothstep(0.6, 0.88, N.y);
+        #ifdef BR_SHELF
         float breakup = smoothstep(0.38, 0.62, n1 * 0.65 + n2 * 0.35);
+        #else
+        // Boulders: lichen / moss only as small ragged rosettes on the up-facing tops (~20 % cover),
+        // clustered where a broad noise allows it, plus a thin green fringe in the hollows by the tide.
+        vec2 rq = (vBRW.xz + vBRW.y * 0.3) * 3.2;
+        vec2 rc = floor(rq);
+        vec2 rf = fract(rq) - 0.5 - (vec2(brHash(rc + 1.7), brHash(rc + 8.3)) - 0.5) * 0.5;
+        float rr = mix(0.16, 0.36, brHash(rc + 4.4)) * (0.7 + 0.6 * n2);
+        float breakup = smoothstep(rr, rr * 0.6, length(rf)) * step(brHash(rc + 13.1), 0.42) * smoothstep(0.35, 0.6, n1);
+        #endif
         float moss = up * breakup * vBRK.x;
         vec3 mossDry = mix(vec3(0.33, 0.4, 0.14), vec3(0.45, 0.47, 0.2), n2);
         mossDry = mix(mossDry, vec3(0.5, 0.42, 0.18), uBRMoss.z * 0.6);
@@ -190,6 +232,13 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
         #ifdef BR_SHELF
         {
           vec2 q = vBRW.xz;
+          // A touch darker and warmer than the boulders (sandstone, not concrete).
+          diffuseColor.rgb *= vec3(0.94, 0.89, 0.82);
+          // Bedding-plane striations on the ledge risers (steep faces): thin dark / light laminae.
+          float riserF = 1.0 - smoothstep(0.55, 0.85, N.y);
+          float bed = sin(vBRW.y * 58.0 + brNoise(q * 1.3) * 3.0);
+          diffuseColor.rgb *= 1.0 - riserF * (0.16 * smoothstep(0.3, 0.9, bed) - 0.06 * smoothstep(-0.2, -0.9, bed));
+          diffuseColor.rgb *= 1.0 - riserF * 0.12;
           vec2 wq = q + vec2(brNoise(q * 0.3), brNoise(q * 0.3 + 7.0)) * 2.4;
           // Sedimentary bedding: broad warm / cool bands sweeping across the slab + fine laminae.
           float u = dot(wq, vec2(0.8, 0.6));
@@ -210,8 +259,10 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
           vec2 pf = fract(pq) - 0.5 - (vec2(brHash(pc), brHash(pc + 1.3)) - 0.5) * 0.5;
           float pr = mix(0.1, 0.22, brHash(pc + 9.1));
           float pd = length(pf * vec2(1.0, 1.2));
-          float pit = smoothstep(pr, pr * 0.75, pd) * step(ph, 0.16) * (1.0 - moss) * smoothstep(0.6, 0.85, N.y);
-          float rimP = smoothstep(pr * 1.35, pr, pd) * (1.0 - smoothstep(pr, pr * 0.8, pd)) * step(ph, 0.16) * smoothstep(0.0, -pr, pf.y) * smoothstep(0.6, 0.85, N.y);
+          // (Clustered where a broad noise allows it, not a uniform polka-dot field.)
+          float pitZone = smoothstep(0.55, 0.72, brNoise(q * 0.35 + 17.0));
+          float pit = smoothstep(pr, pr * 0.75, pd) * step(ph, 0.2) * pitZone * (1.0 - moss) * smoothstep(0.6, 0.85, N.y);
+          float rimP = smoothstep(pr * 1.35, pr, pd) * (1.0 - smoothstep(pr, pr * 0.8, pd)) * step(ph, 0.2) * pitZone * smoothstep(0.0, -pr, pf.y) * smoothstep(0.6, 0.85, N.y);
           diffuseColor.rgb *= 1.0 - pit * 0.38;
           diffuseColor.rgb *= 1.0 + rimP * 0.15;
           float pitWater = pit * step(ph, 0.06);
@@ -233,6 +284,12 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
           diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.66, 0.46, 0.2), vec3(0.78, 0.6, 0.3), brNoise(q * 14.0)) * (0.8 + 0.25 * brNoise(q * 30.0)), ros * 0.55);
           // Pink coralline crust + mussel clumps on the wet lips (pools / sea rim).
           float lipZ = max(vBRK.y * 1.6, wet * 0.8);
+          // Zonation round every pool: a dark wet band at the waterline and a ragged ring of green
+          // weed (≈ 10-20 cm) just above it, then the pale dry stone.
+          float ringN = brNoise(q * 4.0 + 31.0);
+          float weedRing = smoothstep(0.28, 0.46, vBRK.y + (ringN - 0.5) * 0.12) * (1.0 - smoothstep(0.62, 0.72, vBRK.y));
+          diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.1, 0.19, 0.06), vec3(0.24, 0.32, 0.1), ringN) * (0.8 + 0.3 * brNoise(q * 12.0)), weedRing * 0.85);
+          diffuseColor.rgb *= 1.0 - smoothstep(0.6, 0.72, vBRK.y) * 0.3;
           float cor = smoothstep(0.45, 0.7, brNoise(q * 3.3 + 2.0)) * smoothstep(0.2, 0.6, lipZ);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.6, 0.4, 0.42) * (0.8 + 0.3 * brNoise(q * 11.0)), cor * 0.4 * smoothstep(0.45, 0.8, N.y));
           vec2 mq = q * vec2(6.0, 7.5);

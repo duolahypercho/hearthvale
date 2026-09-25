@@ -301,6 +301,7 @@ function buildClipboardProp(): THREE.Group {
   clip.position.y = 0.14;
   g.add(board, paper, clip);
   g.rotation.x = -0.5;
+  g.name = 'cs-clipboard';
   g.traverse((o) => (o.userData.noAO = true));
   return g;
 }
@@ -402,6 +403,8 @@ export class CutsceneSystem implements System, CutsceneApi {
    */
   private safe = { lift: 0, dist: 1 };
   private safeSnap = true;
+  /** Extra pitch (deg) the lens has craned up to see over a roof (eased). */
+  private crane = 0;
   private boxed = false;
   private speakerId: string | null = null;
   private frameDt = 0;
@@ -533,6 +536,7 @@ export class CutsceneSystem implements System, CutsceneApi {
     this.boxed = false;
     this.safe = { lift: 0, dist: 1 };
     this.safeSnap = true;
+    this.crane = 0;
     this.actors.set('player', { id: 'player', villager: null, headY: 2.15, path: [], speed: 2.2, onArrive: null, prop: null, holdsLantern: false });
     aoOptIn(g.player.root, true);
     g.events.emit('cutscene:start', { scene: name });
@@ -858,8 +862,19 @@ export class CutsceneSystem implements System, CutsceneApi {
       v.root.add(p);
     } else if (prop === 'clipboard') {
       p = buildClipboardProp();
-      p.position.set(-0.12 * S, 0.62 * S, 0.3 * S);
-      v.root.add(p);
+      // In the right hand (parented to the forearm bone at the hand socket, so it swings and
+      // gestures with the arm) — a board floating in front of the waist read as a proxy.
+      const fore = v.root.getObjectByName('foreR');
+      if (fore) {
+        const k = 1 / Math.max(0.5, v.root.getWorldScale(new THREE.Vector3()).y || 1);
+        p.scale.setScalar(k);
+        p.position.set(-0.05, -0.27 * k, 0.1);
+        p.rotation.set(-0.25, -0.35, 0.1);
+        fore.add(p);
+      } else {
+        p.position.set(-0.12 * S, 0.62 * S, 0.3 * S);
+        v.root.add(p);
+      }
     } else if (prop === 'paperLantern') {
       p = buildPaperLanternProp(hue);
       p.position.set(0.3 * def.look.build * S * 0.82, 0.12 * S, 0.02);
@@ -1070,9 +1085,28 @@ export class CutsceneSystem implements System, CutsceneApi {
     rig.target.set(n.x, gy + (n.y ?? 0.8) - 0.8, n.z);
     rig.lookOffset.set(0, 0, 0);
     rig.yaw = n.yaw;
-    rig.pitch = n.pitch;
-    // Spring arm: a building between the look target and the lens pulls the camera in front of it.
-    const wall = this.buildingHit(rig.target, n.yaw, n.pitch, n.dist);
+    // Crane before spring arm: a roof between the look target and the lens first lifts the lens
+    // (up to 24° more pitch, eased) so it keeps the authored distance and sees over the eaves; only
+    // if no lift clears it does the arm pull the camera in front of the wall (a cramped close-up
+    // where the chibi rigs fill the frame was the old default).
+    let want = 0;
+    const hit0 = this.buildingHit(rig.target, n.yaw, n.pitch, n.dist);
+    if (hit0 !== null && hit0 < n.dist * 0.85) {
+      want = 24;
+      for (const up of [4, 8, 12, 16, 20]) {
+        const w = this.buildingHit(rig.target, n.yaw, Math.min(70, n.pitch + up), n.dist);
+        if (w === null || w >= n.dist * 0.85) {
+          want = up;
+          break;
+        }
+      }
+    }
+    const ck = this.safeSnap || this.fast ? 1 : 1 - Math.exp(-this.frameDt / 0.35);
+    this.crane += (want - this.crane) * ck;
+    const pitch = Math.min(70, n.pitch + this.crane);
+    rig.pitch = pitch;
+    // Spring arm: a building still between the look target and the lens pulls the camera in front of it.
+    const wall = this.buildingHit(rig.target, n.yaw, pitch, n.dist);
     rig.distance = wall !== null ? Math.max(2.5, wall - 0.7) : n.dist;
     g.rc.focusPoint.set(n.x, gy + (n.y ?? 0.8), n.z);
     rig.snap();

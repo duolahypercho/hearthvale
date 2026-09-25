@@ -225,10 +225,29 @@ export class MapScreen extends Screen {
       g.setAttribute('data-nav', '');
       g.setAttribute('data-noclick', '1');
       const html = `<div class="t-in"><div class="t-name">${escapeHtml(p.name)}</div><span class="t-cat" style="background:${p.id === here ? '#d9623e' : '#6a8a3a'}">${p.id === here ? 'You are here' : 'Location'}</span><div class="t-desc">${escapeHtml(p.blurb)}</div></div>`;
-      // Docked beside the whole place (disc + name flag), on the side with more room — never over its own label.
+      // Docked beside the whole place (disc + name flag) — never over its own label — on whichever side
+      // covers the fewest other place names.
       const tip = (): void => {
         const r = g.getBoundingClientRect();
-        tooltip.beside(html, g, r.left + r.width / 2 > innerWidth / 2 ? 'left' : 'right', 24);
+        const pref: 'left' | 'right' = r.left + r.width / 2 > innerWidth / 2 ? 'left' : 'right';
+        const others = [...body.querySelectorAll<SVGGElement>('.m-loc')].filter((o) => o !== g).map((o) => o.getBoundingClientRect());
+        const hits = (): number => {
+          const t = document.querySelector('.u-tip')?.getBoundingClientRect();
+          if (!t) return 0;
+          return others.filter((o) => o.right > t.left && o.left < t.right && o.bottom > t.top && o.top < t.bottom).length;
+        };
+        // Beside (preferred side, then the other), then above; first one that covers no other name wins.
+        const alt: 'left' | 'right' = pref === 'left' ? 'right' : 'left';
+        const tries: (() => void)[] = [() => tooltip.beside(html, g, pref, 24), () => tooltip.beside(html, g, alt, 24), () => tooltip.over(html, g, g, 18)];
+        let best = 0;
+        let bestHits = Infinity;
+        for (let k = 0; k < tries.length; k++) {
+          tries[k]!();
+          const h = hits();
+          if (!h) return;
+          if (h < bestHits) [best, bestHits] = [k, h];
+        }
+        tries[best]!();
       };
       g.addEventListener('pointerenter', tip);
       g.addEventListener('pointerleave', () => tooltip.hide());

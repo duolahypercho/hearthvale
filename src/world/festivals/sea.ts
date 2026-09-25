@@ -380,10 +380,13 @@ export class FrozenRiver {
           vec3 R = reflect(-V, n);
           vec3 sky = mix(uHorizonColor * 1.1, uSkyColor, smoothstep(0.0, 0.6, R.y));
           float band = hvNoise(vec2(p.x * 0.08 + uTime * 0.02, p.y * 0.02)) * hvNoise(vec2(p.x * 0.5 - uTime * 0.05, 1.3));
-          vec3 aur = mix(vec3(0.1, 0.9, 0.5), vec3(0.6, 0.25, 0.8), hvNoise(p * 0.05 + 4.0)) * pow(band, 2.0) * 0.45 * uAurora * smoothstep(0.4, 0.9, uNight);
+          vec3 aur = mix(vec3(0.1, 0.9, 0.5), vec3(0.6, 0.25, 0.8), hvNoise(p * 0.05 + 4.0)) * pow(band, 1.6) * 0.85 * uAurora * smoothstep(0.4, 0.9, uNight);
           vec2 sc2 = floor(p * 5.0);
           vec2 so = fract(p * 5.0) - 0.5 - (hvHash22(sc2 + 5.0) - 0.5) * 0.6;
           float star = step(0.985, hvHash12(sc2)) * (1.0 - smoothstep(0.02, 0.07, length(so))) * (0.5 + 0.5 * sin(uTime * 2.0 + hvHash12(sc2 + 1.0) * 30.0)) * uNight;
+          // (The aurora also lies on the ice as soft moving green / violet sheen — the high camera sees
+          // the river far more than it sees sky.)
+          lit += aur * (0.4 + fres * 0.6) * (1.0 - smoothstep(0.0, 0.12, 0.12 - depth) * 0.5);
           lit = mix(lit, sky * 0.9 + aur, clamp(fres * 0.9 + 0.18, 0.0, 1.0) * 0.7) + star * vec3(0.7, 0.8, 1.0) * 0.4 * (1.0 - smoothstep(0.02, 0.2, 1.0 - dk));
           // Glassy glints: cool-white sparkles (lamp-lit ones warm only in their own glint).
           vec2 gc = floor(p * 2.2);

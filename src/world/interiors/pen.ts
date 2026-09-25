@@ -165,11 +165,28 @@ export function wheelbarrow(k: Kit, rng: Rng, x: number, z: number, ry: number):
     k.add('wood', new THREE.CylinderGeometry(0.022, 0.022, 1.3, 7).rotateX(Math.PI / 2), m(sd * 0.25, 0.36, -0.2, -0.22), { tint: 0x8a5a3a });
     k.add('wood', new THREE.CylinderGeometry(0.02, 0.02, 0.36, 6), m(sd * 0.22, 0.17, -0.42), { tint: 0x8a5a3a });
   }
-  k.add('wood', new THREE.CylinderGeometry(0.17, 0.17, 0.06, 16).rotateZ(Math.PI / 2), m(0, 0.17, 0.62), { tint: 0x7a5236 });
-  k.add('iron', new THREE.TorusGeometry(0.17, 0.014, 5, 18).rotateY(Math.PI / 2), m(0, 0.17, 0.62), { tint: 0x3a3634 });
+  spokedWheel(k, 0.17, m(0, 0.17, 0.62).multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2)), 6);
   // Heap of hay
   k.add('straw', lumpySphere(0.34, 2, 0.28, rng), m(0, 0.56, 0.02, 0, 0), { tint: 0xfff0c8 });
   strawTufts(k, rng, x, 0.72, z, 18, 0.3, () => 0);
+}
+
+/**
+ * An open spoked cart wheel (felloe + iron tyre + turned hub + spokes) in its local XY plane (axle
+ * along z), placed by `base`. Open, so it reads as a wheel from the high camera, not a black disc.
+ */
+export function spokedWheel(k: Kit, r: number, base: THREE.Matrix4, spokes = 8, tint = 0xa87a52): void {
+  const at = (local: THREE.Matrix4) => base.clone().multiply(local);
+  const id = new THREE.Matrix4();
+  k.add('wood', new THREE.TorusGeometry(r - r * 0.07, r * 0.085, 6, 24), id.clone().premultiply(base), { tint });
+  k.add('iron', new THREE.TorusGeometry(r, r * 0.04, 5, 26), id.clone().premultiply(base), { tint: 0x4a4644 });
+  k.add('wood', new THREE.CylinderGeometry(r * 0.16, r * 0.2, r * 0.32, 10).rotateX(Math.PI / 2), at(id), { tint: 0x8a5a3a });
+  k.add('iron', new THREE.CylinderGeometry(r * 0.07, r * 0.07, r * 0.42, 8).rotateX(Math.PI / 2), at(id), { tint: 0x3a3634 });
+  for (let i = 0; i < spokes; i++) {
+    const g = new THREE.CylinderGeometry(r * 0.035, r * 0.05, r * 0.86, 5);
+    g.translate(0, r * 0.47, 0);
+    k.add('wood', g, at(new THREE.Matrix4().makeRotationZ((i / spokes) * Math.PI * 2)), { tint: 0x9a6c46 });
+  }
 }
 
 /** Slatted wooden crate (optionally lying on another: y). */

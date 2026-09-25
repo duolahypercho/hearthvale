@@ -914,10 +914,53 @@
   box-shadow: inset 0 0 0 2px rgba(150, 100, 50, 0.28), 0 3px 0 rgba(120, 80, 40, 0.18);
   transition: transform 160ms var(--ease-back), box-shadow 160ms;
 }
-.jb-sack svg {
+.jb-sack > .js-wrap {
   grid-row: 1 / span 2;
   width: 56px;
   height: 58px;
+}
+.js-wrap {
+  position: relative;
+  display: block;
+}
+.js-wrap > .js-sack {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* Paper luggage tag on the sack's ribbon: what goes in it. */
+.js-tag {
+  position: absolute;
+  right: -6%;
+  bottom: 4%;
+  width: 46%;
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  padding: 7%;
+  background: linear-gradient(160deg, #fffaf0, #f0dcb4);
+  border: 2px solid #9a7446;
+  border-radius: 22% 22% 22% 22% / 18% 18% 26% 26%;
+  box-shadow: 0 2px 0 rgba(90, 50, 20, 0.35), 0 4px 8px rgba(60, 30, 10, 0.25);
+  transform: rotate(var(--tag-rot, 6deg));
+  transform-origin: 20% 0;
+}
+.js-tag::before {
+  content: '';
+  position: absolute;
+  left: 18%;
+  top: -34%;
+  width: 2px;
+  height: 40%;
+  background: #7a5a3a;
+  transform: rotate(-28deg);
+  border-radius: 1px;
+}
+.js-tag > img,
+.js-tag > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
 }
 .jb-sack .nm {
   font-family: var(--font-head);

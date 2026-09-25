@@ -673,14 +673,14 @@ export class Terrain {
         float hvPudW = max(fwidth(pudN), 1e-4);
         float hvPudEdge = (1.0 - smoothstep(0.0, hvPudW * 1.6, abs(pudN - 0.629))) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
         // Muddy, darker rim soaking out around every puddle.
-        float hvPudRim = smoothstep(0.53, 0.63, pudN) * (1.0 - hvPuddle) * flatG * hvWetK * (1.0 - rockM) * pathM;
+        float hvPudRim = smoothstep(0.5, 0.628, pudN) * (1.0 - hvPuddle) * flatG * hvWetK * (1.0 - rockM) * pathM;
         // Soaked dirt: darker and a little richer everywhere on the path (on top of worldfx's wet
         // darkening), never lighter.
         float hvWetPath = hvWetK * pathM * (1.0 - rockM);
         vec3 hvWetG = ground * mix(1.0, 0.8, hvWetPath);
         float hvLum = dot(hvWetG, vec3(0.333));
         ground = mix(vec3(hvLum), hvWetG, 1.0 + 0.18 * hvWetPath);
-        ground *= mix(1.0, 0.68, hvPudRim);
+        ground *= mix(1.0, 0.6, hvPudRim * hvPudRim * (3.0 - 2.0 * hvPudRim));
         // Standing water: the dirt under it goes near-black (the mirror term carries the colour).
         ground *= mix(1.0, 0.16, hvPuddle);
         ground = mix(ground, ground * vec3(0.8, 0.92, 1.12), hvPuddle);
@@ -714,17 +714,20 @@ export class Terrain {
           vec2 rs = vec2(dot(rq, vd) * 0.55, dot(rq, vec2(-vd.y, vd.x)));
           // Dark crowns / trunks over most of it, torn sky gaps between them (reads as water, not a
           // grey sheet: a still puddle is mostly a dark mirror with a few bright openings).
-          float trees = smoothstep(0.4, 0.58, hvFbm(rs * 0.16 + 3.0));
-          float gapHi = smoothstep(0.55, 0.8, hvNoise(rs * 0.09 + 9.0));
-          vec3 skyR = mix(uHorizonT, uSkyT, 0.45) * (1.05 + 0.45 * gapHi) * vec3(0.92, 1.0, 1.12);
-          vec3 crownR = mix(uHorizonT, uSkyT, 0.5) * vec3(0.07, 0.09, 0.085);
+          // (Sky-dominant: a mostly-dark mirror read as tar spills on the forest paths.)
+          float trees = smoothstep(0.5, 0.66, hvFbm(rs * 0.16 + 3.0)) * 0.85;
+          float gapHi = smoothstep(0.5, 0.8, hvNoise(rs * 0.09 + 9.0));
+          vec3 skyR = mix(uHorizonT, uSkyT, 0.45) * (1.2 + 0.55 * gapHi) * vec3(0.9, 1.0, 1.14);
+          vec3 crownR = mix(uHorizonT, uSkyT, 0.5) * vec3(0.2, 0.26, 0.24);
           vec3 refl = mix(skyR, crownR, trees);
           // Ripple rings catch the light.
           float rr = length(hvRipples(vTWorld.xz, uTimeT)) * uRain;
-          totalEmissiveRadiance += (refl * fr * 0.5 + mix(uHorizonT, uSkyT, 0.3) * rr * 0.22) * hvPuddle;
+          totalEmissiveRadiance += (refl * fr * 0.62 + mix(uHorizonT, uSkyT, 0.3) * rr * 0.3) * hvPuddle;
         }
         // Bright meniscus at the waterline (1-2 px), a touch stronger where the sky is reflected.
-        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.3) * hvPudEdge * 0.1;`,
+        // (kept faint: a strong one outlined every puddle like a paper cut-out; the dark soaked halo
+        // around it does the separating.)
+        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.3) * hvPudEdge * 0.03;`,
       );
       fs = after(
         fs,

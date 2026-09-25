@@ -1,0 +1,37 @@
+import { chromium } from 'playwright';
+import { createServer } from 'vite';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+const root = '/Users/ziwenxu/Desktop/Code/hearthvale';
+const demo = process.argv[2] || 'coop-farm';
+const vite = await createServer({ root, logLevel: 'error', cacheDir: resolve(tmpdir(), 'hv-cost-' + process.pid), server: { port: 0, host: '127.0.0.1', hmr: false, watch: null } });
+await vite.listen();
+const port = vite.httpServer.address().port;
+const browser = await chromium.launch({ headless: true, args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] });
+const page = await (await browser.newContext({ viewport: { width: 1920, height: 1080 } })).newPage();
+await page.goto(`http://127.0.0.1:${port}/?demo=${demo}`, { timeout: 400000 });
+await page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: 400000 });
+await page.evaluate(() => window.__game.ready());
+await page.evaluate(() => window.__game.game.paused = false);
+await new Promise((r) => setTimeout(r, 2500));
+const out = await page.evaluate(async () => {
+  const g = window.__game.game;
+  const net = g.services.net;
+  const acc = {};
+  const wrap = (obj, fn, key) => {
+    const o = obj[fn].bind(obj);
+    obj[fn] = (...a) => { const t = performance.now(); const r = o(...a); acc[key] = (acc[key] || 0) + performance.now() - t; return r; };
+  };
+  wrap(net, 'update', 'net.update');
+  wrap(net.remotes, 'placeTags', 'placeTags');
+  wrap(net.remotes, 'update', 'remotes.update');
+  const f0 = g.frame; const t0 = performance.now();
+  await new Promise((r) => setTimeout(r, 5000));
+  const frames = g.frame - f0;
+  const res = { frames, fps: +(frames / ((performance.now() - t0) / 1000)).toFixed(1) };
+  for (const k in acc) res[k] = +(acc[k] / frames).toFixed(3) + ' ms/frame';
+  res.perf = window.__game.info().perf.drawCalls;
+  return res;
+});
+console.log(JSON.stringify(out, null, 1));
+await browser.close(); await vite.close();

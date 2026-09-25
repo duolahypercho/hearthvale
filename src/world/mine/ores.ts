@@ -209,6 +209,9 @@ export interface MineRock {
   /** 0..1 white hit flash (instance colour on the body). */
   flash: number;
   alive: boolean;
+  /** Per-rock non-uniform silhouette scale (x, y, z) and body tone. */
+  shape: THREE.Vector3;
+  tint: THREE.Color;
 }
 
 export class RockField {
@@ -259,9 +262,18 @@ export class RockField {
       const pos = new THREE.Vector3(x, heightAt(x, z) - 0.03, z);
       const rot = r.next() * Math.PI * 2;
       const scale = (0.75 + r.next() * 0.5) * (s.ore ? 1.25 : 1);
-      const base = new THREE.Matrix4().compose(pos, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rot, 0)), new THREE.Vector3(scale, scale, scale));
-      const id = set.add(base, WHITE);
-      const rock: MineRock = { spec: s, set, id, hp: s.hp, base, pos, rot, scale, wobble: 0, flash: 0, alive: true };
+      // Silhouette + value variety (drawn after the placement draws, so layouts are unchanged):
+      // plain stones become low slabs, tall knuckles or squat lumps; every rock gets its own
+      // tone, so a field of them stops reading as one potato stamped 90 times.
+      const kind = s.ore ? 3 : Math.floor(r.next() * 3);
+      const j = (): number => 0.92 + r.next() * 0.16;
+      const shape = kind === 0 ? new THREE.Vector3(1.22 * j(), 0.7 * j(), 1.05 * j()) : kind === 1 ? new THREE.Vector3(0.84 * j(), 1.24 * j(), 0.9 * j()) : new THREE.Vector3(j(), j(), j());
+      const v = s.ore ? 1.02 + r.next() * 0.1 : 0.8 + r.next() * 0.3;
+      const w = (r.next() - 0.5) * 0.08;
+      const tint = new THREE.Color(v * (1 + w), v, v * (1 - w));
+      const base = new THREE.Matrix4().compose(pos, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rot, 0)), shape.clone().multiplyScalar(scale));
+      const id = set.add(base, tint);
+      const rock: MineRock = { spec: s, set, id, hp: s.hp, base, pos, rot, scale, wobble: 0, flash: 0, alive: true, shape, tint };
       this.rocks.push(rock);
       this.byTile.set(s.z * L.w + s.x, rock);
     }
@@ -333,13 +345,13 @@ export class RockField {
       const sxz = 1 + k * 0.08;
       if (r.flash > 0) {
         r.flash = Math.max(0, r.flash - dt / 0.09);
-        this.fc.setScalar(1 + r.flash * r.flash * 3.2);
+        this.fc.copy(r.tint).multiplyScalar(1 + r.flash * r.flash * 3.2);
         r.set.setColor(r.id, this.fc);
       }
       this.m.compose(
         r.pos,
         new THREE.Quaternion().setFromEuler(new THREE.Euler(k * 0.12, r.rot, -k * 0.1)),
-        new THREE.Vector3(r.scale * sxz, r.scale * sy, r.scale * sxz),
+        new THREE.Vector3(r.scale * sxz * r.shape.x, r.scale * sy * r.shape.y, r.scale * sxz * r.shape.z),
       );
       r.set.setMatrix(r.id, r.wobble > 0 ? this.m : r.base);
       if (r.wobble <= 0) this.wobbling.delete(r);

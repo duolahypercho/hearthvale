@@ -23,7 +23,7 @@ import { buildSnowman, buildBench } from '../props/farmkit';
 import { FestivalMap, type PlayState } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildStarTree, buildIceSculpture, buildBridge, buildCocoaStand, buildBonfire } from './kit';
-import { Aurora, Snowfall, GlowPoints, Bonfire } from './fx';
+import { Aurora, AuroraGlow, Snowfall, GlowPoints, Bonfire } from './fx';
 import { FrozenRiver } from './sea';
 import { randomLook, shoulderLift, type CrowdSpec } from './crowd';
 import { MeshBuilder, bevelCylinder, mat, lumpySphere, roundedBox } from '../geom';
@@ -236,6 +236,7 @@ export class StarfallSquare extends FestivalMap {
       for (let i = 1; i < 10; i++) this.glowPt(A.x + ((B.x - A.x) * i) / 10, A.y - Math.sin((i / 10) * Math.PI) * 0.35 - 0.05, A.z + 0.02, [0xffd27a, 0xff7a6a, 0x7ad0ff, 0x9aff9a][i % 4]!, 0.28, 0.6);
       // Warm window spill on the snow.
       this.pools.add(x, z + spec.d / 2 + 1.2, this.H(x, z), 2.4);
+      this.addProp(buildHouseWinterDress(r, spec), x, z, 0, {});
     }
     // A hedge + the cocoa stand in the gap north-centre, facing the tree.
     this.addProp(buildHedge(r, 3.6), 32, 9.6, 0, { solidRect: [3.6, 0.8] });
@@ -479,6 +480,10 @@ export class StarfallSquare extends FestivalMap {
     );
     this.aurora.group.userData.perfTag = 'sky';
     this.root.add(this.aurora.group);
+    // ... and its light: drifting green / violet bands washed over the snowy square after dark.
+    const glow = new AuroraGlow((x, z) => this.H(x, z), { x0: 4, z0: 4, x1: 60, z1: 31 });
+    glow.mesh.userData.perfTag = 'sky';
+    this.root.add(glow.mesh);
     this.snow = new Snowfall(1600, new THREE.Vector3(40, 14, 32));
     this.snow.points.userData.perfTag = 'festival';
     this.root.add(this.snow.points);
@@ -1087,4 +1092,80 @@ class SkateTrail {
     this.pos.needsUpdate = true;
     this.col.needsUpdate = true;
   }
+}
+
+/**
+ * Starfall dressing for a townhouse (matches townkit's gable maths): a fat rounded snow bolster
+ * overhanging both eaves and the gable verges, a fringe of icicles along the front eave, a holly
+ * wreath on the door and soft drifts banked against the front wall.
+ */
+function buildHouseWinterDress(r: { next(): number }, s: { w: number; d: number; wallH: number; doorX?: number }): THREE.Group {
+  const b = new MeshBuilder();
+  const over = 0.45;
+  const top = 0.35 + s.wallH;
+  const rise = Math.max(1.4, s.d * 0.42);
+  const slope = Math.atan2(rise, s.d / 2);
+  const run = s.d / 2 + over;
+  const eaveY = top + rise - Math.tan(slope) * run;
+  const L = s.w + 2 * over + 0.08;
+  const SNOW = 0xf6f8fc;
+  for (const sz of [-1, 1]) {
+    // Bolster: a squashed cylinder that rolls over the eave edge (reads as a thick snow lip).
+    const lip = new THREE.CapsuleGeometry(0.14, L - 0.28, 3, 10);
+    lip.rotateZ(Math.PI / 2);
+    lip.scale(1, 0.8, 1);
+    b.add('plaster', lip, mat(0, eaveY + 0.05, sz * (run + 0.02)), { tint: SNOW });
+    // Snow slab over the roof plane (slightly proud of the tiles, soft rounded edges).
+    const len = run / Math.cos(slope);
+    const slab = roundedBox(L - 0.1, 0.16, len - 0.05, 0.07, 2);
+    const cy = top + rise - Math.tan(slope) * (run / 2) + 0.16;
+    b.add('plaster', slab, mat(0, cy, sz * (run / 2 - 0.03), sz * slope, 0, 0), { tint: SNOW });
+  }
+  // A fat snow roll along the ridge: the roof reads as a gable from the high camera, not a slab.
+  const ridge = new THREE.CapsuleGeometry(0.2, L - 0.3, 3, 10);
+  ridge.rotateZ(Math.PI / 2);
+  ridge.scale(1, 0.7, 1.15);
+  b.add('plaster', ridge, mat(0, top + rise + 0.22, 0), { tint: SNOW });
+  // Verge rolls down the gable edges.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const len = run / Math.cos(slope);
+      const roll = new THREE.CapsuleGeometry(0.09, len - 0.1, 2, 8);
+      roll.rotateX(Math.PI / 2);
+      b.add('plaster', roll, mat(sx * (L / 2 - 0.02), top + rise - Math.tan(slope) * (run / 2) + 0.2, sz * (run / 2), sz * slope, 0, 0), { tint: SNOW });
+    }
+  }
+  // Icicles along the front eave: clustered, longer near the middle and under the drip line.
+  const ice = new THREE.MeshStandardMaterial({ color: 0xdff2ff, roughness: 0.12, metalness: 0, emissive: 0x6a9ac8, emissiveIntensity: 0.35 });
+  ice.name = 'icicle';
+  for (let x = -L / 2 + 0.18; x < L / 2 - 0.12; x += 0.13 + r.next() * 0.14) {
+    const mid = 1 - Math.abs(x) / (L / 2);
+    const h = 0.08 + r.next() * (0.18 + mid * 0.32);
+    const rad = 0.025 + r.next() * 0.02;
+    const cone = new THREE.ConeGeometry(rad, h, 5);
+    cone.rotateX(Math.PI);
+    b.add(ice, cone, mat(x, eaveY - 0.04 - h / 2, run + 0.06));
+  }
+  // Holly wreath on the door + a red bow.
+  const dx = (s.doorX ?? 0) * (s.w / 2 - 1.0);
+  const wr = new THREE.TorusGeometry(0.2, 0.075, 6, 16);
+  b.add('cloth', wr, mat(dx, 0.35 + 1.28, s.d / 2 + 0.16), { tint: 0x2f6a3a });
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 + 0.3;
+    b.add('cloth', new THREE.IcosahedronGeometry(0.035, 0), mat(dx + Math.cos(a) * 0.2, 0.35 + 1.28 + Math.sin(a) * 0.2, s.d / 2 + 0.23), { tint: 0xd8303a });
+  }
+  for (const sx of [-1, 1]) b.add('cloth', new THREE.ConeGeometry(0.06, 0.12, 4), mat(dx + sx * 0.06, 0.35 + 1.08, s.d / 2 + 0.24, 0, 0, sx * Math.PI / 2), { tint: 0xc8202a });
+  // Drifts banked against the front wall and the corners.
+  for (let k = 0; k < 5; k++) {
+    const x = -s.w / 2 + 0.4 + (k / 4) * (s.w - 0.8) + (r.next() - 0.5) * 0.3;
+    if (Math.abs(x - dx) < 0.7) continue;
+    const d = new THREE.SphereGeometry(0.5 + r.next() * 0.25, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+    d.scale(1.4, 0.45 + r.next() * 0.2, 0.8);
+    b.add('plaster', d, mat(x, 0.02, s.d / 2 + 0.3), { tint: SNOW });
+  }
+  const g = b.build({ name: 'house-winter-dress' });
+  g.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) o.userData.noAO = true;
+  });
+  return g;
 }

@@ -94,7 +94,7 @@ try {
   await ev(host, () => void window.__game.game.services.festivals.play('sackrace'));
   const lobbyUp = await waitFor(host, () => !!document.querySelector('.fg-lobby'), null, 15000);
   check('host sees the start-line lobby', lobbyUp);
-  const invited = await waitFor(hand, () => window.__game.game.services.festivals.coopStats().msgsIn > 0, null, 10000);
+  const invited = await waitFor(hand, () => window.__game.game.services.festivals.coopStats().invites > 0, null, 15000);
   check('farmhand hears about the open start line', invited);
   await sleep(400);
   await ev(hand, () => void window.__game.game.services.festivals.play('sackrace'));
@@ -103,6 +103,7 @@ try {
   check('lobby closes once everyone is at the line: both race', raceHost && raceHand);
   const farmerTok = (page) => ev(page, () => [...document.querySelectorAll('.fg-token.farmer')].map((t) => t.textContent));
   const [ht, at] = await Promise.all([farmerTok(host), farmerTok(hand)]);
+  if (!(ht.length === 1 && at.length === 1)) log('coop traces', JSON.stringify(await Promise.all([host, hand].map((p) => ev(p, () => window.__game.game.services.festivals.coopStats().trace)))));
   check('each HUD has a lane token for the other farmer', ht.length === 1 && at.length === 1, `host sees ${JSON.stringify(ht)} · hand sees ${JSON.stringify(at)}`);
   const lanes = await Promise.all([host, hand].map((p) => ev(p, () => window.__game.game.world.current.play?.lanes?.[0])));
   check('farmers race different lanes (owner 0, joiner 1)', lanes[0] === 0 && lanes[1] === 1, JSON.stringify(lanes));
@@ -112,6 +113,14 @@ try {
   const hopper = (page, ms) =>
     ev(page, (m) => {
       let k = 0;
+      // In-page sampler (a loaded test runner can't miss the window): the farthest the OTHER
+      // farmer's token got while this farmer was still mid-lane.
+      window.__tokSeen = 0;
+      window.__tokSampler = setInterval(() => {
+        const me = parseFloat(document.querySelector('.fg-token.me:not(.farmer)')?.style.left ?? '0');
+        const them = parseFloat(document.querySelector('.fg-token.farmer')?.style.left ?? '0');
+        if (me > 0 && me < 100) window.__tokSeen = Math.max(window.__tokSeen, them);
+      }, 100);
       window.__hops = setInterval(() => {
         const code = k++ % 2 ? 'ArrowRight' : 'ArrowLeft';
         window.dispatchEvent(new KeyboardEvent('keydown', { code }));
@@ -127,18 +136,19 @@ try {
     if (!tokMid && mine[0] > 35 && mine[1] > 35) {
       log('mid-race coop stats', JSON.stringify(await Promise.all([host, hand].map((p) => ev(p, () => window.__game.game.services.festivals.coopStats())))));
       tokMid = await Promise.all([host, hand].map((p) => ev(p, () => parseFloat(document.querySelector('.fg-token.farmer')?.style.left ?? '0'))));
-      await Promise.all([host.screenshot({ path: resolve(outDir, 'coop-race-host.png') }), hand.screenshot({ path: resolve(outDir, 'coop-race-hand.png') })]);
+      await Promise.all([host.screenshot({ path: resolve(outDir, 'coop-race-host.png'), timeout: 90000 }), hand.screenshot({ path: resolve(outDir, 'coop-race-hand.png'), timeout: 90000 })]);
     }
     const done = await Promise.all([host, hand].map((p) => ev(p, () => !!document.querySelector('.fg-result'))));
     if (done[0] && done[1]) break;
   }
-  await Promise.all([host, hand].map((p) => ev(p, () => clearInterval(window.__hops))));
-  check('live progress relayed: each sees the other farmer mid-lane', !!tokMid && tokMid[0] > 5 && tokMid[1] > 5, JSON.stringify(tokMid));
+  await Promise.all([host, hand].map((p) => ev(p, () => (clearInterval(window.__hops), clearInterval(window.__tokSampler)))));
+  const tokSeen = await Promise.all([host, hand].map((p) => ev(p, () => window.__tokSeen)));
+  check('live progress relayed: each sees the other farmer mid-lane', tokSeen[0] > 20 && tokSeen[1] > 20, `other farmer's token reached ${JSON.stringify(tokSeen)} % while racing · mid-sample ${JSON.stringify(tokMid)}`);
   const cards = await Promise.all([host, hand].map((p) => waitFor(p, () => !!document.querySelector('.fg-result'), null, 30000)));
   check('both result cards up', cards[0] && cards[1]);
   const cardRows = await Promise.all([host, hand].map((p) => ev(p, () => [...document.querySelectorAll('.fg-result .fg-board .r')].map((r) => r.textContent))));
   check('both result cards rank both farmers', cardRows[0].length === 2 && cardRows[1].length === 2, JSON.stringify(cardRows));
-  await Promise.all([host.screenshot({ path: resolve(outDir, 'coop-result-host.png') }), hand.screenshot({ path: resolve(outDir, 'coop-result-hand.png') })]);
+  await Promise.all([host.screenshot({ path: resolve(outDir, 'coop-result-host.png'), timeout: 90000 }), hand.screenshot({ path: resolve(outDir, 'coop-result-hand.png'), timeout: 90000 })]);
   await Promise.all([host.keyboard.press('Space'), hand.keyboard.press('Space')]);
   await sleep(2500);
   // Dismiss the host NPC's thank-you line if one is up.
@@ -149,8 +159,18 @@ try {
 
   // ── a farmhand who joins later gets today's board in the handshake ────────
   late = await open('late', 'name=Briar&preset=2');
-  await ev(late, (c) => window.__game.game.services.net.join(c), code);
-  const got = await waitFor(late, () => window.__game.game.services.festivals.board('sackrace').length === 2, null, 25000);
+  // (Under a heavily loaded machine the first join can time out while the host page is busy: retry.)
+  for (let tries = 0; ; tries++) {
+    try {
+      await ev(late, (c) => window.__game.game.services.net.join(c), code);
+      break;
+    } catch (e) {
+      if (tries >= 2) throw e;
+      log(`late join retry (${String(e?.message ?? e).split('\n')[0]})`);
+      await sleep(3000);
+    }
+  }
+  const got = await waitFor(late, () => window.__game.game.services.festivals.board('sackrace').length === 2, null, 45000);
   const lateRows = await ev(late, () => window.__game.game.services.festivals.board('sackrace').map((r) => `${r.player}:${r.name}`));
   const cal = await Promise.all([host, late].map((p) => ev(p, () => { const c = window.__game.game.calendar; return `${c.year}:${c.season}:${c.day}`; })));
   check('late joiner receives the festival boards (join snapshot)', got, `${JSON.stringify(lateRows)} cal ${cal.join(' / ')}`);

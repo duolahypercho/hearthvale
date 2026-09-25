@@ -16,8 +16,15 @@
 import * as THREE from 'three';
 
 const MAX_HOLD_MS = 2500;
+/**
+ * A held object whose program is still linking in the GPU process is kept out of the frame past
+ * MAX_HOLD_MS (up to this cap): releasing it early makes its first draw block on the link
+ * (getProgramInfoLog in onFirstUse), a 1-2 s freeze on a contended GPU (beach-sunset r3).
+ */
+const MAX_LINK_HOLD_MS = 9000;
 
-type Props = { get(m: THREE.Material): { currentProgram?: unknown } };
+type Program = { isReady?: () => boolean };
+type Props = { get(m: THREE.Material): { currentProgram?: Program } };
 
 export class ShaderGate {
   enabled = true;
@@ -40,11 +47,25 @@ export class ShaderGate {
   private compiled(m: THREE.Material): boolean {
     if (this.known.has(m)) return true;
     const p = (this.renderer as unknown as { properties: Props }).properties.get(m);
-    if (p.currentProgram !== undefined) {
+    // compile()/compileAsync() set currentProgram as soon as the link *starts*: a program that is
+    // still linking (KHR_parallel_shader_compile) is not ready to draw without a main-thread stall.
+    if (p.currentProgram !== undefined && (p.currentProgram.isReady?.() ?? true)) {
       this.known.add(m);
       return true;
     }
     return false;
+  }
+
+  /** Every material of `o` has a linked program (or no program yet: nothing to wait for). */
+  private linked(o: THREE.Object3D): boolean {
+    const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    if (!mat) return true;
+    const props = (this.renderer as unknown as { properties: Props }).properties;
+    for (const m of Array.isArray(mat) ? mat : [mat]) {
+      const prog = m ? props.get(m).currentProgram : undefined;
+      if (prog && prog.isReady && !prog.isReady()) return false;
+    }
+    return true;
   }
 
   /** Visit one visible drawable (called from the frame's scene walk). */
@@ -97,7 +118,10 @@ export class ShaderGate {
     }
     if (this.held.size) {
       const now = performance.now();
-      for (const [o, h] of this.held) if (now - h.at > MAX_HOLD_MS) this.release(o);
+      for (const [o, h] of this.held) {
+        const age = now - h.at;
+        if (age > MAX_LINK_HOLD_MS || (age > MAX_HOLD_MS && this.linked(o))) this.release(o);
+      }
     }
   }
 

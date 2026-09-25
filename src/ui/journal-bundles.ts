@@ -18,6 +18,16 @@ import { loadStoryFonts } from './journal-cutscene';
 
 const css = (h: number): string => `#${h.toString(16).padStart(6, '0')}`;
 
+/**
+ * A little paper luggage tag tied to each sack's ribbon, showing what goes in it (the bundle's first
+ * item; a coin for the Treasury) — the tabs read at a glance instead of four look-alike sacks.
+ */
+function sackTag(d: BundleDef): string {
+  const it = d.items[0];
+  const ic = !it ? COIN : iconOf(it.itemId, { name: it.name, color: it.color });
+  return `<span class="js-tag" style="--tag-rot:${(d.id.length % 3) * 5 - 4}deg">${ic}</span>`;
+}
+
 export class BundlePanel extends Screen {
   private room = 'seed';
   private sel = 0;
@@ -126,7 +136,7 @@ export class BundlePanel extends Screen {
       const { have, need } = bundleProgress(b.def, b.given, b.paid);
       const t = el('button', `jb-sack${i === this.sel ? ' on' : ''}${b.done ? ' done' : ''}`);
       t.dataset.nav = '';
-      t.innerHTML = `${sackSvg(b.def.color, b.done, need ? have / need : 0)}<span class="nm">${escapeHtml(b.def.name)}</span><span class="pr">${b.done ? 'Complete' : b.def.gold ? `${b.paid.toLocaleString()} / ${b.def.gold.toLocaleString()}g` : `${have} / ${need}`}</span>`;
+      t.innerHTML = `<span class="js-wrap">${sackSvg(b.def.color, b.done, need ? have / need : 0)}${sackTag(b.def)}</span><span class="nm">${escapeHtml(b.def.name)}</span><span class="pr">${b.done ? 'Complete' : b.def.gold ? `${b.paid.toLocaleString()} / ${b.def.gold.toLocaleString()}g` : `${have} / ${need}`}</span>`;
       t.addEventListener('click', () => {
         if (this.sel !== i) sfx(this.game, 'tab');
         this.sel = i;
@@ -182,7 +192,7 @@ export class BundlePanel extends Screen {
     ].join('');
     this.card.innerHTML = `
       <div class="jb-cardhead"><div class="jb-ht"><h3>${escapeHtml(d.name)}</h3><div class="note">${escapeHtml(d.note)}</div>${chips ? `<div class="jb-chips">${chips}</div>` : ''}</div>
-        <div class="jb-bigsack" aria-hidden="true">${sackSvg(d.color, b.done, this.fillOf(b))}</div></div>
+        <div class="jb-bigsack" aria-hidden="true"><span class="js-wrap">${sackSvg(d.color, b.done, this.fillOf(b))}${sackTag(d)}</span></div></div>
       <div class="jb-slots${d.items.length > 3 ? ' two' : ''}">${slots}${gold}</div>
       <div class="jb-cardfoot">
         <div class="jb-prog${b.done ? ' done' : ''}" style="--f:${frac.toFixed(3)}"><div class="bar"><i></i></div><span>${progLabel}</span></div>

@@ -845,7 +845,7 @@ export type DriftKind = 'log' | 'fork' | 'stump' | 'plank';
 
 /**
  * Bleached driftwood (world coords). Four silhouettes so a beach never reads as one clone:
- *   log    long, fat trunk with a flared root plate of radiating roots
+ *   log    long, slim bleached trunk with a flared butt and a lacy fan of thin roots
  *   fork   a bent branch that splits into a Y, with a couple of stubs
  *   stump  a short, thick chunk with broken root stubs
  *   plank  sea-worn boat planks (grey-bleached, rusty nail heads), one propped on the other
@@ -854,10 +854,12 @@ export type DriftKind = 'log' | 'fork' | 'stump' | 'plank';
 export function addDriftwood(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, len: number, rot: number, r = 0.16, kind?: DriftKind): void {
   const k: DriftKind = kind ?? rng.pick(['log', 'fork', 'stump', 'plank'] as DriftKind[]);
   const m = mat(x, y, z, 0, rot, 0);
-  const tint = new THREE.Color(0xd8cebc).multiplyScalar(0.8 + rng.next() * 0.25).lerp(new THREE.Color(0xb8aa94), rng.next() * 0.4);
+  // Sun-bleached silver-cream (woodPaint = bump grain on a pale base): never the brown of fresh timber,
+  // so a log at golden hour reads as driftwood, not as a beached animal.
+  const tint = new THREE.Color(0xe2d8c6).multiplyScalar(0.86 + rng.next() * 0.14).lerp(new THREE.Color(0xb9b2a4), rng.next() * 0.35);
   const ao = (p: THREE.Vector3): number => 0.5 + 0.5 * THREE.MathUtils.smoothstep(p.y - y, 0, r * 1.3);
   const tube = (pts: THREE.Vector3[], r0: number, r1: number, segs: number, radial = 7): void => {
-    b.add('woodGrain', taperTube(new THREE.CatmullRomCurve3(pts), segs, r0, r1, radial).applyMatrix4(m), undefined, { tint, aoWorld: ao });
+    b.add('woodPaint', taperTube(new THREE.CatmullRomCurve3(pts), segs, r0, r1, radial).applyMatrix4(m), undefined, { tint, aoWorld: ao });
   };
   // A random twist around the trunk so stubs / roots never sit at the same clock position.
   const roll = rng.next() * Math.PI * 2;
@@ -896,16 +898,21 @@ export function addDriftwood(b: MeshBuilder, rng: Rng, x: number, y: number, z: 
     pts.push(new THREE.Vector3(t * len - len / 2, r * 0.7 + Math.sin(t * Math.PI) * 0.06 * len * (rng.next() * 0.6), (rng.next() - 0.5) * 0.25 * len * t * (1 - t) * 2));
   }
   const curve = new THREE.CatmullRomCurve3(pts);
-  b.add('woodGrain', taperTube(curve, 16, r * (k === 'log' ? 1.15 : 1), r * (k === 'log' ? 0.55 : 0.4), 8).applyMatrix4(m), undefined, { tint, aoWorld: ao });
+  b.add('woodPaint', taperTube(curve, 16, r * (k === 'log' ? 1.0 : 0.95), r * (k === 'log' ? 0.42 : 0.4), 8).applyMatrix4(m), undefined, { tint, aoWorld: ao });
   if (k === 'log') {
-    // Root plate: a ring of thick, radiating roots at the butt end.
-    const cnt = 6 + rng.int(0, 3);
+    // Root flare: the butt swells, then many thin, wiry roots fan out low and flat over the sand
+    // (a lacy fan, never a few thick "limbs").
+    const base = new THREE.Vector3(-len / 2, r * 0.7, 0);
+    tube([base.clone().add(new THREE.Vector3(0.35, 0, 0)), base, base.clone().add(new THREE.Vector3(-0.1, 0, 0))], r * 1.0, r * 1.35, 3, 9);
+    const cnt = 9 + rng.int(0, 4);
     for (let i = 0; i < cnt; i++) {
-      const a = (i / cnt) * Math.PI * 2 + rng.next() * 0.4;
+      const a = (i / cnt) * Math.PI * 2 + rng.next() * 0.3;
       const [cy, cz] = around(a, 1);
-      const reach = 0.35 + rng.next() * 0.35;
-      const base = new THREE.Vector3(-len / 2, r * 0.7, 0);
-      tube([base, base.clone().add(new THREE.Vector3(-0.12, cy * reach * 0.55, cz * reach * 0.55)), new THREE.Vector3(-len / 2 - 0.2 - rng.next() * 0.15, Math.max(0.04, r * 0.7 + cy * reach), cz * reach * 1.1)], r * 0.5, r * 0.08, 5, 5);
+      const reach = 0.3 + rng.next() * 0.45;
+      const up = Math.max(-0.4, Math.min(0.55, cy));
+      const tip = new THREE.Vector3(-len / 2 - 0.12 - reach * 0.55, Math.max(0.03, r * 0.7 + up * reach * 0.7), cz * reach * 1.2);
+      const mid = base.clone().lerp(tip, 0.5).add(new THREE.Vector3(-0.04, 0.04, 0));
+      tube([base.clone().add(new THREE.Vector3(-0.08, up * r * 0.8, cz * r * 0.8)), mid, tip], r * 0.26, r * 0.04, 5, 4);
     }
   } else {
     // Fork: the thin end splits in two, plus a stub.

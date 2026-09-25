@@ -78,6 +78,8 @@ const CSS = /* css */ `
 .fg-plaque::before, .fg-plaque::after { content: ''; position: absolute; top: 50%; width: 18px; height: 18px; border-radius: 50%; transform: translateY(-50%);
   background: radial-gradient(circle at 35% 35%, #ffe9a8, #c89030 60%, #7a5018); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .fg-plaque::before { left: 9px; } .fg-plaque::after { right: 9px; }
+/* The result card (trophy / slam) owns the top of the screen: the plaque steps aside. */
+.fg-root:has(.fg-result) .fg-plaque { animation: none; opacity: 0; transform: translate(-50%, -24px); transition: opacity 220ms ease, transform 260ms ease; }
 .fg-howto { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); max-width: 640px; text-align: center; font-weight: 800; font-size: 17px; color: #fff8e8;
   padding: 7px 18px; border-radius: 999px; background: rgba(40, 22, 10, .55); backdrop-filter: blur(4px); text-shadow: 0 1px 2px rgba(0,0,0,.5); animation: fgFade 5s ease both; }
 @keyframes fgShakeX { 0%,100% { translate: 0 0; } 20% { translate: -4px 1px; } 40% { translate: 4px -1px; } 60% { translate: -3px 0; } 80% { translate: 2px 1px; } }
@@ -149,7 +151,11 @@ const CSS = /* css */ `
 .fg-lant .lamp svg { width: 100%; height: 100%; filter: drop-shadow(0 0 14px rgba(255, 180, 90, .95)); }
 .fg-lant .stars { position: absolute; inset: 0; background-image: radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 20%, #fff, transparent), radial-gradient(1.5px 1.5px at 40% 70%, #cfe, transparent), radial-gradient(1px 1px at 85% 60%, #fff, transparent); opacity: .6; }
 .fg-lant .water { position: absolute; left: 0; right: 0; bottom: 0; height: 46px; background: linear-gradient(180deg, rgba(80, 220, 240, .5), rgba(20, 60, 120, .9)); box-shadow: 0 -4px 16px rgba(90, 230, 240, .5); }
-.fg-slots { position: absolute; right: 50px; top: calc(50% + 236px); display: flex; gap: 8px; width: 178px; justify-content: center; }
+.fg-slots { position: absolute; right: 40px; top: calc(50% + 236px); display: flex; gap: 6px; width: 198px; justify-content: center; }
+.fg-slots i { width: 32px !important; }
+.fg-slots i.q3 { background: radial-gradient(circle at 50% 40%, #ffffff, #ffe27a 50%, #f0a020) !important; box-shadow: 0 0 20px rgba(255, 220, 110, 1), inset 0 0 0 2px #fff8e0 !important; }
+.fg-slots i.q1 { background: radial-gradient(circle at 50% 40%, #ffe0e8, #e89aa8 60%, #b86a7a) !important; box-shadow: 0 0 8px rgba(240, 150, 170, .7), inset 0 0 0 2px rgba(255,255,255,.5) !important; }
+.fg-streak { position: absolute; right: 40px; top: calc(50% + 286px); width: 198px; text-align: center; font-family: var(--font-head); font-weight: 700; font-size: 16px; color: #ffe9a8; text-shadow: 0 2px 0 rgba(60, 30, 10, .8); letter-spacing: 1px; }
 .fg-slots i { width: 34px; height: 42px; border-radius: 10px 10px 14px 14px; background: rgba(40, 22, 10, .45); box-shadow: inset 0 0 0 2px rgba(255, 230, 200, .35); }
 .fg-slots i.on { background: radial-gradient(circle at 50% 40%, #fff2c0, #ffb050 55%, #d8703a); box-shadow: 0 0 16px rgba(255, 170, 80, .95), inset 0 0 0 2px #fff3d0; animation: fgBounce 420ms var(--ease-back) both; }
 .fg-slots i.dim { background: radial-gradient(circle at 50% 40%, #e8d8c0, #b89878); box-shadow: inset 0 0 0 2px rgba(255,255,255,.4); }
@@ -168,7 +174,8 @@ const CSS = /* css */ `
 .fg-card .meta { font-size: 13px; font-weight: 800; color: var(--ink-soft); margin-top: 2px; }
 .fg-card.sel { transform: translateY(-5px) scale(1.04); background: #fff6dc; border-color: #c8573e; box-shadow: 0 6px 0 rgba(120,60,20,.25), 0 0 0 4px rgba(255, 200, 120, .45); }
 .fg-card .star { color: #e8a820; letter-spacing: -1px; }
-.fg-wish { font-family: var(--font-hand); font-size: 30px !important; line-height: 30px !important; font-weight: 700 !important; }
+.fg-wish { font-family: var(--font-hand); font-size: 27px !important; line-height: 28px !important; font-weight: 700 !important; text-wrap: balance; }
+.fg-choose .fg-card:has(.fg-wish) { min-height: 176px; display: flex; flex-direction: column; justify-content: center; }
 /* ── race ── */
 .fg-race { left: 50%; bottom: 30px; transform: translateX(-50%); width: min(900px, calc(100vw - 32px)); }
 .fg-race > .in { height: 150px; }
@@ -188,11 +195,19 @@ const CSS = /* css */ `
 .fg-race .bounce .fg-meter i { background: linear-gradient(90deg, #6aa83c, #b8e07a); box-shadow: 0 0 10px rgba(160, 230, 110, .8); }
 .fg-race .place { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-family: var(--font-head); font-weight: 700; font-size: 30px; color: #c8573e; width: 50px; text-align: center; }
 /* ── judging ── */
-.fg-show { left: 50%; top: 47%; transform: translate(-50%, -50%); width: min(980px, calc(100vw - 32px)); }
-.fg-show > .in { padding: 18px 20px 20px; }
-.fg-show h3 { margin: 0 0 12px; text-align: center; font-family: var(--font-head); font-size: 28px; color: #5a3218; }
-.fg-entries { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-.fg-entry { position: relative; perspective: 800px; height: 230px; }
+.fg-show { left: 50%; top: auto; bottom: 18px; transform: translateX(-50%); width: min(920px, calc(100vw - 32px)); }
+.fg-show > .in { padding: 8px 14px 12px; }
+.fg-show h3 { margin: 0 0 6px; text-align: center; font-family: var(--font-head); font-size: 22px; color: #5a3218; }
+.fg-entries { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.fg-entry { position: relative; perspective: 800px; height: 112px; }
+.fg-show .fg-entry .face { padding: 8px 8px 6px 70px; text-align: left; display: flex; flex-direction: column; justify-content: center; }
+.fg-show .fg-entry .back { padding: 0; }
+.fg-show .fg-entry .front .u-ic, .fg-show .fg-entry .blob { position: absolute; left: 10px; top: 50%; margin: 0; transform: translateY(-50%); width: 52px; height: 52px; }
+.fg-show .fg-entry .blob { height: 44px; }
+.fg-show .fg-entry .nm { font-size: 15px; line-height: 17px; }
+.fg-show .fg-entry .pts { font-size: 26px; margin-top: 0; line-height: 28px; }
+.fg-show .fg-entry .back span { font-size: 38px; }
+.fg-show .fg-entry .rib { top: -30px; right: -6px; width: 46px; height: 64px; }
 .fg-entry .face { position: absolute; inset: 0; border-radius: 16px; padding: 14px 10px; text-align: center; backface-visibility: hidden; transition: transform 600ms var(--ease-back);
   background: linear-gradient(180deg, #fffaf0, #f6e6c4); border: 2px solid rgba(120, 70, 30, .35); box-shadow: 0 4px 0 rgba(120, 70, 30, .2); }
 .fg-entry .back { transform: rotateY(180deg); background: repeating-linear-gradient(45deg, #c8573e 0 12px, #b8482e 12px 24px); border-color: #7a2e1e; display: grid; place-items: center; }
@@ -582,6 +597,8 @@ export class FestivalOverlay {
     const root = this.root!;
     const panel = div('fg-panel fg-choose fg-live', `<div class="in"><h3>${title}</h3><p class="sub">${sub}</p><div class="fg-grid"></div></div>`);
     const grid = panel.querySelector('.fg-grid') as HTMLElement;
+    // Few cards (≤ 4): one row of exactly that many equal columns (no empty auto-fill slot).
+    if (cards.length <= 4) grid.style.gridTemplateColumns = `repeat(${cards.length}, minmax(0, 1fr))`;
     const els = cards.map((html, i) => {
       const c = div('fg-card', html);
       c.style.animationDelay = `${i * 40}ms`;
@@ -633,14 +650,18 @@ export class FestivalOverlay {
         : r.place === 0
           ? `<div class="trophy">${TROPHY_SVG}</div><div class="tier" style="background:#d89a1a">1st place</div>`
           : `<div class="ros">${rosetteSvg(r.place)}</div><div class="tier" style="background:${r.place === 1 ? '#3f6fd0' : '#c8452f'}">${r.place === 1 ? '2nd' : '3rd'} place</div>`;
-    const rows = !r.reaction && env.board ? env.board(r) : [];
     const ORD = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
-    const board =
+    const boardHtml = (rows: BoardRow[], anim: boolean): string =>
       rows.length > 1
         ? `<div class="fg-board"><div class="h">Farmers today</div>${rows
-            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="animation-delay:${200 + i * 90}ms"><span class="pl">${e.place < 3 && i < 3 ? miniRosette(i) : '<small>—</small>'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${ORD[i] ?? ''} · ${escapeHtml(e.name)}</span><span class="sc">${e.score.toLocaleString()}</span></div>`)
+            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="${anim ? `animation-delay:${200 + i * 90}ms` : 'animation:none'}"><span class="pl">${e.place < 3 && i < 3 ? miniRosette(i) : '<small>—</small>'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${ORD[i] ?? ''} · ${escapeHtml(e.name)}</span><span class="sc">${e.score > 0 ? e.score.toLocaleString() : '…'}</span></div>`)
             .join('')}</div>`
         : '';
+    const boardRows = (): BoardRow[] => (!r.reaction && env.board ? env.board(r) : []);
+    const rowsSig = (rows: BoardRow[]): string => rows.map((e) => `${e.player}:${e.score}:${e.place}`).join('|');
+    let rows = boardRows();
+    let sig = rowsSig(rows);
+    const board = boardHtml(rows, true);
     const card = div(`fg-panel fg-result fg-live${r.noRibbon ? ' lose' : ''}`, `<div class="in">${art}<h2>${r.title}</h2><div class="sub">${r.sub}</div><div class="fg-chips">${chips.join('')}</div>${board}<div class="fg-go">Continue <kbd>Space</kbd></div></div>`);
     const big = r.reaction ? r.reaction === 'love' : win && r.place === 0;
     if (win && r.place === 0) {
@@ -655,7 +676,25 @@ export class FestivalOverlay {
     this.sfx(r.noRibbon || r.reaction === 'dislike' ? 'plop' : big ? 'catch:perfect' : 'catch', 1);
     let go = false;
     card.querySelector('.fg-go')!.addEventListener('click', () => (go = true));
-    await this.loop((_dt, t) => (hold ? false : env.auto ? t > 4.2 : go || (t > 0.5 && this.hit('Space', 'Enter', 'KeyX', 'KeyF', 'Escape'))));
+    let poll = 0;
+    await this.loop((dt, t) => {
+      // Co-op: another farmer's own result reaches the board through the host a moment after the
+      // card goes up — fold it in live, so every farmer ends up looking at the same standings.
+      if ((poll += dt) > 0.4 && env.board && !r.reaction) {
+        poll = 0;
+        const next = boardRows();
+        const s2 = rowsSig(next);
+        if (s2 !== sig) {
+          sig = s2;
+          rows = next;
+          const old = card.querySelector('.fg-board');
+          const tmp = div('', boardHtml(rows, false));
+          if (old && tmp.firstElementChild) old.replaceWith(tmp.firstElementChild);
+          else if (tmp.firstElementChild) card.querySelector('.fg-go')?.before(tmp.firstElementChild);
+        }
+      }
+      return hold ? false : env.auto ? t > 4.2 : go || (t > 0.5 && this.hit('Space', 'Enter', 'KeyX', 'KeyF', 'Escape'));
+    });
     card.remove();
     root.querySelectorAll('.fg-rays, .fg-sting').forEach((e) => e.remove());
   }
@@ -862,9 +901,11 @@ export class FestivalOverlay {
     if (w === null) return null;
     env.map.playEvent('wish', w);
     const panel = div('fg-panel fg-lant fg-live', `<div class="in"><div class="stars"></div><div class="band"></div><div class="water"></div><div class="lamp">${LANTERN_SVG}</div></div>`);
-    const slots = div('fg-slots', '<i></i><i></i><i></i>');
-    const hint = div('fg-hint', 'Hold <b>Space</b> to lift · let go inside the glowing swell');
-    root.append(panel, slots, hint);
+    const THROWS = 5;
+    const slots = div('fg-slots', '<i></i>'.repeat(THROWS));
+    const streakEl = div('fg-streak', '');
+    const hint = div('fg-hint', 'Hold <b>Space</b> to lift · let go inside the glowing swell · the tide quickens');
+    root.append(panel, slots, streakEl, hint);
     const inner = panel.querySelector('.in') as HTMLElement;
     const band = panel.querySelector('.band') as HTMLElement;
     const lamp = panel.querySelector('.lamp') as HTMLElement;
@@ -876,18 +917,21 @@ export class FestivalOverlay {
     const BAND = 64;
     let total = 0;
     let best = 0;
-    for (let k = 0; k < 3; k++) {
+    let streak = 0;
+    let radiant = 0;
+    for (let k = 0; k < THROWS; k++) {
       let v = 0;
       let autoIn = -1;
       let wasHeld = false;
       let released = -1;
       const phase = Math.random() * 6;
-      const speed = 0.9 + k * 0.35;
+      // The swell quickens lantern by lantern (and the last two wander wider).
+      const speed = 0.85 + k * 0.32;
       let bandY = 0;
       env.play.live = true;
       const ok = await this.loop((dt, t) => {
         // The swell drifts between 30 % and 80 % of the meter.
-        bandY = 0.55 + 0.25 * Math.sin(t * speed + phase) * Math.cos(t * speed * 0.37 + phase * 2);
+        bandY = 0.55 + (k >= 3 ? 0.3 : 0.25) * Math.sin(t * speed + phase) * Math.cos(t * speed * 0.37 + phase * 2);
         let h = held || this.keys.down.has('Space') || this.keys.down.has('KeyX');
         if (env.auto) {
           // Attract mode: lift, hover with the swell for a beat, then let go.
@@ -908,12 +952,17 @@ export class FestivalOverlay {
       if (!ok) return null;
       const d = Math.abs(released - bandY) * (H - 46);
       const q = d < 12 ? 3 : d < BAND / 2 ? 2 : d < BAND ? 1 : 0;
-      const pts = [15, 45, 75, 100][q]!;
+      // A perfect release inside the bright core of the swell chains a streak bonus (+15 per link).
+      streak = q === 3 ? streak + 1 : 0;
+      if (q === 3) radiant++;
+      const bonus = streak >= 2 ? (streak - 1) * 15 : 0;
+      const pts = [15, 45, 75, 100][q]! + bonus;
       total += pts;
       best = Math.max(best, q);
       const sl = slots.children[k] as HTMLElement;
-      sl.classList.add(q >= 2 ? 'on' : 'dim');
-      this.judge(inner, ['Sputter…', 'Wobbly', 'Aloft!', 'Radiant!'][q]!, q >= 2 ? 'p' : q === 1 ? 'g' : 'm', '50%', `${H - 46 - released * (H - 106) - 60}px`);
+      sl.classList.add(q >= 2 ? 'on' : 'dim', `q${q}`);
+      streakEl.textContent = streak >= 2 ? `Radiant ×${streak}  +${bonus}` : '';
+      this.judge(inner, bonus ? `Radiant ×${streak}!` : ['Sputter…', 'Wobbly', 'Aloft!', 'Radiant!'][q]!, q >= 2 ? 'p' : q === 1 ? 'g' : 'm', '50%', `${H - 46 - released * (H - 106) - 60}px`);
       this.sfx(q >= 2 ? 'lantern' : 'plop', q >= 2 ? 1 : 0.7);
       env.map.playEvent('release', q);
       lamp.style.transition = 'transform 900ms ease-in, opacity 900ms';
@@ -927,8 +976,10 @@ export class FestivalOverlay {
     window.removeEventListener('pointerup', release);
     panel.remove();
     slots.remove();
+    streakEl.remove();
     hint.remove();
-    if (total < 110) {
+    // Out of 500 (+ streak bonuses): ribbon ≥ 185, 2nd ≥ 285, 1st ≥ 415.
+    if (total < 185) {
       return {
         place: 3,
         noRibbon: true,
@@ -936,17 +987,17 @@ export class FestivalOverlay {
         gold: 0,
         hearts: this.sympathy('marigold'),
         title: 'The Sea Said “Maybe”',
-        sub: `“${wishes[w]}” — two of them sputtered on the sand. Marigold relit one for you, very gently.`,
+        sub: `“${wishes[w]}” — most of them sputtered on the sand. Marigold relit one for you, very gently.`,
       };
     }
-    const place = total >= 250 ? 0 : total >= 170 ? 1 : 2;
+    const place = total >= 415 ? 0 : total >= 285 ? 1 : 2;
     return {
       place,
       score: total,
       gold: PRIZES.lanterns[place]!,
       hearts: [{ id: 'marigold', delta: [60, 40, 20][place]! }],
-      title: ['The Sea Says Yes!', 'Three Lanterns Aloft', 'Lanterns on the Tide'][place]!,
-      sub: `“${wishes[w]}” — ${['every lantern caught the swell and sailed for the horizon', 'your wishes are bobbing out past the pier', 'they wobbled, but they’re floating. Wishes are stubborn like that'][place]}`,
+      title: ['The Sea Says Yes!', 'Five Lanterns Aloft', 'Lanterns on the Tide'][place]!,
+      sub: `“${wishes[w]}” — ${['every lantern caught the swell and sailed for the horizon', 'your wishes are bobbing out past the pier', 'they wobbled, but they’re floating. Wishes are stubborn like that'][place]}${radiant >= 3 ? ` (${radiant} radiant — the gold ones lead the flotilla)` : ''}`,
     };
   }
 
@@ -1091,7 +1142,9 @@ export class FestivalOverlay {
         toks[i]!.style.left = `${(pos[i]! / LEN) * 100}%`;
       }
       // Finished: hold 1.4 s for the others (a farmer a few hops behind still gets placed).
-      return (finishedAt >= 0 && t - finishedAt > 1.4) || finT.every((f) => f >= 0) || t > 40;
+      // Co-op: wait (up to 8 s) for every other farmer to cross, so both machines rank the same finish.
+      const farmersOut = farmer.some((f, i) => f && finT[i]! < 0);
+      return (finishedAt >= 0 && t - finishedAt > (farmersOut ? 8 : 1.4)) || finT.every((f) => f >= 0) || t > 48;
     });
     /** 0-based place of racer i: finishers by time (ties to the farther lane), then by distance. */
     function rankOf(i: number): number {
@@ -1200,7 +1253,8 @@ export class FestivalOverlay {
     env.map.playEvent('enter');
     const entries = [...rivals.map((r) => ({ ...r, me: false, icon: '' })), { name: mine.name, by: 'You', score: mine.score, tint: '', me: true, icon: mine.id }];
     // Shuffle the table, but keep yours third.
-    const table = [entries[1]!, entries[0]!, entries[3]!, entries[2]!];
+    const SLOTS = [1, 0, 3, 2];
+    const table = SLOTS.map((k) => entries[k]!);
     const panel = div('fg-panel fg-show fg-live', `<div class="in"><h3>The judges confer…</h3><div class="fg-entries"></div></div>`);
     const row = panel.querySelector('.fg-entries') as HTMLElement;
     const cards = table.map((e) => {
@@ -1213,9 +1267,11 @@ export class FestivalOverlay {
     root.append(panel);
     for (let i = 0; i < cards.length; i++) {
       if (!(await this.wait(i ? 650 : 400))) return null;
+      // The judges walk over to that entry in 3D before its card turns.
+      env.map.playEvent('judge', SLOTS[i]!);
+      if (!(await this.wait(900))) return null;
       cards[i]!.classList.add('open');
       this.sfx('ui:tab', 1.2);
-      env.map.playEvent('judge', i);
     }
     if (!(await this.wait(500))) return null;
     // Scores roll up.
@@ -1233,6 +1289,7 @@ export class FestivalOverlay {
       if (!(await this.wait(560))) return null;
       const c = cards[ranked[p]!.i]!;
       c.append(div('rib', rosetteSvg(p)));
+      env.map.playEvent('rosette', SLOTS[ranked[p]!.i]! + 4 * p);
       this.sfx(p === 0 ? 'bundle' : 'ui:select', 1);
     }
     const place = ranked.findIndex((r) => r.e.me);

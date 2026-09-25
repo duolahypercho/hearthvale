@@ -165,6 +165,7 @@ const _hr = new THREE.Vector3();
 const _hl = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _bodyFwd = new THREE.Vector3();
+const _hatW = new THREE.Vector3();
 const _hand = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _toCam = new THREE.Vector3();
@@ -185,6 +186,7 @@ interface RigView {
   armL: THREE.Group;
   armR: THREE.Group;
   tool?: THREE.Object3D;
+  hat?: THREE.Object3D;
   swingT?: number;
   state?: string;
   yaw?: number;
@@ -1508,14 +1510,15 @@ export class FishingSystem implements System, FishingApi {
         alz = 0.95;
         torsoX = 0.1;
       } else if (holdOverhead) {
-        // Presenting the catch: arms forward and spread to grip the head and the tail.
-        const lift = Math.sin(t * 3) * 0.05;
-        const spread = THREE.MathUtils.clamp(0.62 + (heldScale - 0.8) * 0.4, 0.6, 0.85);
-        ar = -1.35 + lift;
-        al = -1.35 + lift;
+        // Presenting the catch: both arms thrown straight up, the fish hoisted over the hat
+        // (the classic "you got it!" pose — the face stays clear, nothing in front of the body).
+        const lift = Math.sin(t * 3) * 0.06;
+        const spread = THREE.MathUtils.clamp(0.28 + (heldScale - 0.8) * 0.25, 0.25, 0.45);
+        ar = -2.95 + lift;
+        al = -2.95 + lift;
         arz = -spread;
         alz = spread;
-        torsoX = -0.14;
+        torsoX = 0.08;
       } else if (st === 'caught') {
         ar = -1.6;
         al = -1.4;
@@ -1549,7 +1552,12 @@ export class FishingSystem implements System, FishingApi {
       this.holdPt.addVectors(_hr, _hl).multiplyScalar(0.5);
       _bodyFwd.set(Math.sin(r.yaw ?? 0), 0, Math.cos(r.yaw ?? 0));
       if (trophy) this.holdPt.addScaledVector(_bodyFwd, 0.34).y += 0.14;
-      else this.holdPt.addScaledVector(_bodyFwd, 0.28).y += 0.15;
+      else if (holdOverhead) {
+        // Over the hat: the hands reach up to the fish's belly, the fish floats clear of the brim.
+        (r.hat ?? r.head).getWorldPosition(_hatW);
+        if (!r.hat) _hatW.y += 0.5;
+        this.holdPt.set(_hatW.x, _hatW.y + 0.3 + heldScale * 0.2, _hatW.z).addScaledVector(_bodyFwd, 0.06);
+      } else this.holdPt.addScaledVector(_bodyFwd, 0.28).y += 0.15;
     }
     // Rod pose.
     const hand = _hand.set(0, -0.34, 0.04);
@@ -1652,7 +1660,7 @@ export class FishingSystem implements System, FishingApi {
         this.gear.heldRoot.scale.setScalar(pop);
         this.gear.heldRoot.position.copy(this.holdPt);
         this.gear.heldRoot.position.y += bobY * 0.3;
-        this.gear.setGlory(_w.copy(this.holdPt).setY(this.holdPt.y + 0.5), game.rc.camera, Math.min(1, this.heldT * 3) * 0.55, t, 3.0 + (this.result.lengthCm / 100) * 0.9);
+        this.gear.setGlory(_w.copy(this.holdPt).setY(this.holdPt.y + (this.trophy() ? 0.5 : 0.05)), game.rc.camera, Math.min(1, this.heldT * 3) * 0.5, t, 2.4 + (this.result.lengthCm / 100) * 0.8);
         // Side-on to the camera, head to the left, a little wiggle.
         this.gear.heldRoot.rotation.set(0, -THREE.MathUtils.degToRad(game.rc.rig.yaw), Math.sin(t * 5) * 0.07 + 0.08);
         if (Math.random() < dt * 4) {

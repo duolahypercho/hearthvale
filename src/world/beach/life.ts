@@ -49,14 +49,16 @@ function merge(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
 function gullBody(): THREE.BufferGeometry {
   const body = new THREE.SphereGeometry(0.16, 12, 8);
   body.scale(1.9, 0.95, 1.0);
-  paint(body, 0xf6f6f2);
-  const back = new THREE.SphereGeometry(0.15, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.45);
-  back.scale(1.7, 0.7, 0.9);
-  back.translate(-0.03, 0.035, 0);
+  // Off-white (never pure white: a gull seen from above at noon must not bloom into a light bulb).
+  paint(body, 0xdcdcd4);
+  // Grey mantle over the whole back, so from the high camera a gull reads grey-backed, white-bellied.
+  const back = new THREE.SphereGeometry(0.163, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  back.scale(1.86, 0.9, 0.97);
+  back.translate(-0.02, 0.012, 0);
   paint(back, 0xa8b2bc);
   const head = new THREE.SphereGeometry(0.1, 10, 8);
   head.translate(0.28, 0.1, 0);
-  paint(head, 0xfafaf6);
+  paint(head, 0xe2e2da);
   const beak = new THREE.ConeGeometry(0.03, 0.14, 6);
   beak.rotateZ(-Math.PI / 2);
   beak.translate(0.42, 0.085, 0);
@@ -98,7 +100,7 @@ function gullWing(): THREE.BufferGeometry {
   const col = new Float32Array(pos.count * 3);
   const grey = new THREE.Color(0xb0bac4);
   const black = new THREE.Color(0x22242a);
-  const white = new THREE.Color(0xf4f4f0);
+  const white = new THREE.Color(0xdcdcd6);
   for (let i = 0; i < pos.count; i++) {
     const z = Math.abs(pos.getZ(i));
     const c = z > 0.56 ? black : z > 0.52 ? white : grey;
@@ -116,12 +118,12 @@ function crabGeo(): THREE.BufferGeometry {
   const shell = new THREE.SphereGeometry(0.11, 14, 8);
   shell.scale(1.0, 0.45, 1.25);
   shell.translate(0, 0.07, 0);
-  // Carapace: bright top, dark red rim (reads as an outline from above).
+  // Carapace: sand-crab tan top, dark umber rim (reads as an outline from above).
   {
     const pos = shell.attributes.position as THREE.BufferAttribute;
     const col = new Float32Array(pos.count * 3);
-    const top = new THREE.Color(0xf06a3e);
-    const rim = new THREE.Color(0x7a1e14);
+    const top = new THREE.Color(0xb87a4c);
+    const rim = new THREE.Color(0x4a3020);
     for (let i = 0; i < pos.count; i++) {
       const k = THREE.MathUtils.smoothstep(pos.getY(i), 0.055, 0.105);
       rim.clone().lerp(top, k).toArray(col, i * 3);
@@ -132,31 +134,31 @@ function crabGeo(): THREE.BufferGeometry {
   // Two pale spots on the back.
   for (const sz of [-0.035, 0.035]) {
     const d = new THREE.SphereGeometry(0.018, 6, 4).scale(1, 0.4, 1).translate(-0.01, 0.118, sz);
-    parts.push(paint(d, 0xffc8a0));
+    parts.push(paint(d, 0xe8cfa4));
   }
   const belly = new THREE.SphereGeometry(0.1, 10, 6);
   belly.scale(0.95, 0.3, 1.15);
   belly.translate(0, 0.045, 0);
-  parts.push(paint(belly, 0xf2c8a0));
+  parts.push(paint(belly, 0xe6d2b0));
   for (const s of [-1, 1]) {
     // Claws (front = +X).
     const arm = new THREE.CylinderGeometry(0.018, 0.02, 0.12, 5);
     arm.rotateZ(Math.PI / 2 - 0.4);
     arm.rotateY(s * 0.6);
     arm.translate(0.1, 0.08, s * 0.09);
-    parts.push(paint(arm, 0xd8503a));
+    parts.push(paint(arm, 0xa8683e));
     const claw = new THREE.SphereGeometry(0.045, 8, 6);
     claw.scale(1.4, 0.8, 0.9);
     claw.translate(0.17, 0.1, s * 0.13);
-    parts.push(paint(claw, 0xe8603e));
+    parts.push(paint(claw, 0xc8784a));
     const pin = new THREE.ConeGeometry(0.018, 0.07, 5);
     pin.rotateZ(-Math.PI / 2);
     pin.translate(0.24, 0.1, s * 0.12);
-    parts.push(paint(pin, 0xf07a52));
+    parts.push(paint(pin, 0x3c2a1c));
     // Eye stalks.
     const st = new THREE.CylinderGeometry(0.008, 0.008, 0.06, 4);
     st.translate(0.08, 0.12, s * 0.035);
-    parts.push(paint(st, 0xd8503a));
+    parts.push(paint(st, 0xa8683e));
     const eye = new THREE.SphereGeometry(0.016, 6, 4);
     eye.translate(0.08, 0.155, s * 0.035);
     parts.push(paint(eye, 0x121418));
@@ -166,11 +168,11 @@ function crabGeo(): THREE.BufferGeometry {
       const l1 = new THREE.CylinderGeometry(0.01, 0.012, 0.12, 4);
       l1.rotateX(s * 1.0);
       l1.translate(x, 0.08, s * 0.17);
-      parts.push(paint(l1, 0x9a2e1e));
+      parts.push(paint(l1, 0x7a5636));
       const l2 = new THREE.CylinderGeometry(0.008, 0.01, 0.1, 4);
       l2.rotateX(-s * 0.35);
       l2.translate(x, 0.03, s * 0.24);
-      parts.push(paint(l2, 0x9a2e1e));
+      parts.push(paint(l2, 0x7a5636));
     }
   }
   return merge(parts);
@@ -244,7 +246,7 @@ export class BeachLife {
     this.group.name = 'beach-life';
     this.group.userData.perfTag = 'critters';
     this.group.userData.noAO = true;
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 });
     mat.name = 'gull';
     applyWorldFx(mat, { snowUp: 0 });
     const wingMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
@@ -302,7 +304,7 @@ export class BeachLife {
       const pos = p.clone();
       pos.x += (rng.next() - 0.5) * 1.2;
       pos.z += (rng.next() - 0.5) * 0.8;
-      this.crabs.push({ pos, home: p.clone(), yaw: rng.next() * 6.28, vx: 0, vz: 0, t: rng.next() * 3, burrow: 0, hidden: 0, size: 1.7 + rng.next() * 0.65 });
+      this.crabs.push({ pos, home: p.clone(), yaw: rng.next() * 6.28, vx: 0, vz: 0, t: rng.next() * 3, burrow: 0, hidden: 0, size: 1.05 + rng.next() * 0.4 });
     }
     this.group.add(this.fx.object);
     const beachFish = FISH.filter((f) => f.maps.includes('beach') && f.look.tail !== 'eel' && !f.look.flat);

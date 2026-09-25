@@ -101,6 +101,8 @@ export class FishingGear {
   private lineGeo: THREE.BufferGeometry;
   private pts: THREE.Vector3[] = [];
   private prev: THREE.Vector3[] = [];
+  /** Smoothed copy of the rope used for the ribbon (render only). */
+  private renderPts: THREE.Vector3[] = Array.from({ length: LINE_N }, () => new THREE.Vector3());
   readonly bobber: THREE.Group;
   /** The float's fluorescent antenna tip (faint emissive pulse; brighter while a fish bites). */
   private tipMat: THREE.MeshStandardMaterial;
@@ -199,7 +201,7 @@ export class FishingGear {
     const lidx: number[] = [];
     for (let i = 0; i < LINE_N - 1; i++) lidx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
     this.lineGeo.setIndex(lidx);
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0xfaf6ec, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, fog: true });
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xd8d2c4, transparent: true, opacity: 0.78, side: THREE.DoubleSide, depthWrite: false, fog: true });
     lineMat.name = 'fishingLine';
     this.line = new THREE.Mesh(this.lineGeo, lineMat);
     this.line.frustumCulled = false;
@@ -370,7 +372,7 @@ export class FishingGear {
       const w = i % 2 ? 7 : 13;
       const len = i % 2 ? 100 : 126;
       const lg = gg.createLinearGradient(0, 0, 0, -len);
-      lg.addColorStop(0, 'rgba(255,244,200,0.75)');
+      lg.addColorStop(0, 'rgba(255,236,190,0.5)');
       lg.addColorStop(1, 'rgba(255,214,140,0)');
       gg.fillStyle = lg;
       gg.beginPath();
@@ -382,14 +384,16 @@ export class FishingGear {
       gg.fill();
     }
     const rg2 = gg.createRadialGradient(0, 0, 0, 0, 0, 120);
-    rg2.addColorStop(0, 'rgba(255,250,225,0.9)');
-    rg2.addColorStop(0.3, 'rgba(255,226,150,0.35)');
+    rg2.addColorStop(0, 'rgba(255,244,215,0.6)');
+    rg2.addColorStop(0.3, 'rgba(255,220,150,0.25)');
     rg2.addColorStop(1, 'rgba(255,200,110,0)');
     gg.fillStyle = rg2;
     gg.fillRect(-128, -128, 256, 256);
     const gtex = new THREE.CanvasTexture(gc);
     gtex.colorSpace = THREE.SRGBColorSpace;
-    this.gloryMat = new THREE.MeshBasicMaterial({ map: gtex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: false, toneMapped: false });
+    // Tone-mapped and kept under the bloom threshold: a soft warm glow, never a white blowout that
+    // bleeds (bloom) across the farmer's face or washes the posts behind into ghosts.
+    this.gloryMat = new THREE.MeshBasicMaterial({ map: gtex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: false, toneMapped: true });
     this.glory = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.gloryMat);
     this.glory.castShadow = false;
     this.glory.receiveShadow = false;
@@ -574,18 +578,30 @@ export class FishingGear {
         pts[i]!.lerp(_a, k);
       }
     }
-    // Ribbon facing the camera.
+    // Render copy, smoothed (a few Laplacian passes): where the hanging line touches down on the
+    // water it bends round in a soft curve instead of a hard corner. The sim nodes stay untouched.
+    const rp = this.renderPts;
+    for (let i = 0; i < n; i++) rp[i]!.copy(pts[i]!);
+    const lo = this.waterY + 0.004;
+    for (let it = 0; it < 5; it++) {
+      for (let i = 1; i < n - 1; i++) {
+        _b.addVectors(rp[i - 1]!, rp[i + 1]!).multiplyScalar(0.5);
+        rp[i]!.lerp(_b, 0.5);
+        if (rp[i]!.y < lo) rp[i]!.y = lo;
+      }
+    }
+    // Ribbon facing the camera: thin (≈ 1.5-2 px at 1080p), warm grey, never bright enough to bloom.
     const pos = this.lineGeo.attributes.position as THREE.BufferAttribute;
     const camPos = camera.position;
-    const w = 0.012;
+    const w = 0.0085;
     for (let i = 0; i < n; i++) {
-      const a = pts[Math.max(0, i - 1)]!;
-      const b = pts[Math.min(n - 1, i + 1)]!;
+      const a = rp[Math.max(0, i - 1)]!;
+      const b = rp[Math.min(n - 1, i + 1)]!;
       _a.subVectors(b, a).normalize();
-      _b.subVectors(camPos, pts[i]!).normalize();
-      _c.crossVectors(_a, _b).normalize().multiplyScalar(w * (1 + camPos.distanceTo(pts[i]!) * 0.02));
-      pos.setXYZ(i * 2, pts[i]!.x + _c.x, pts[i]!.y + _c.y, pts[i]!.z + _c.z);
-      pos.setXYZ(i * 2 + 1, pts[i]!.x - _c.x, pts[i]!.y - _c.y, pts[i]!.z - _c.z);
+      _b.subVectors(camPos, rp[i]!).normalize();
+      _c.crossVectors(_a, _b).normalize().multiplyScalar(w * (1 + camPos.distanceTo(rp[i]!) * 0.02));
+      pos.setXYZ(i * 2, rp[i]!.x + _c.x, rp[i]!.y + _c.y, rp[i]!.z + _c.z);
+      pos.setXYZ(i * 2 + 1, rp[i]!.x - _c.x, rp[i]!.y - _c.y, rp[i]!.z - _c.z);
     }
     pos.needsUpdate = true;
     this.line.visible = this.lineVisible;
@@ -653,7 +669,12 @@ export class FishingGear {
     this.glory.visible = !!pos && alpha > 0.01;
     if (!pos || !this.glory.visible) return;
     _a.copy(pos).sub(camera.position).normalize();
-    this.glory.position.copy(pos).addScaledVector(_a, 1.6);
+    // Well behind the farmer (so the body, hat and the near rail always occlude it), scaled up by the
+    // same ratio so it keeps its apparent size round the fish.
+    const d0 = pos.distanceTo(camera.position);
+    const push = 2.6;
+    this.glory.position.copy(pos).addScaledVector(_a, push);
+    size *= (d0 + push) / Math.max(1, d0);
     this.glory.scale.setScalar(size * (0.96 + 0.04 * Math.sin(t * 3)));
     this.glory.quaternion.copy(camera.quaternion);
     this.glory.rotateZ(t * 0.35);

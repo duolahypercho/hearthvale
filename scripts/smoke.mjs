@@ -154,6 +154,14 @@ try {
     out.townMap = info().map;
     out.npcs = g.game.services.npcs?.positions().length ?? 0;
     out.townPerf = info().perf;
+    // Town pod: no two villagers may stand inside each other at the busy hours (spot sub-slots).
+    out.npcGaps = [];
+    for (const h of [9, 12, 15, 18]) {
+      g.setTime(h);
+      g.step(20, 1 / 30);
+      const mg = g.game.services.npcs?.minGap?.();
+      if (mg) out.npcGaps.push({ h, d: mg.d, a: mg.a, b: mg.b });
+    }
     await g.teleport('farm', 31.5, 20);
     out.warps = (g.game.world.current.warps ?? []).map((w) => w.to);
     out.audio = !!g.game.services.audio;
@@ -287,6 +295,7 @@ try {
   check('panels registered (shop, dialogue, fishing, crafting, map, title)', r.panels.length === 0, r.panels.join(','));
   check('farm overgrowth debris ≥ 350', r.debris >= 350, `${r.debris}`);
   check('town map loads with villagers', r.townMap === 'town' && r.npcs >= 3, `${r.townMap}, ${r.npcs} npcs`);
+  check('villagers never overlap (≥ 0.6 m at 9/12/15/18 h)', r.npcGaps.every((x) => x.d >= 0.6), r.npcGaps.map((x) => `${x.h}h ${x.d.toFixed(2)} ${x.a}/${x.b}`).join(', '));
   check('render budget (town)', r.townPerf.ok, `${r.townPerf.drawCalls} calls, ${(r.townPerf.triangles / 1e6).toFixed(2)}M tris`);
   check('farm → town warp', r.warps.includes('town'));
   check('audio service', r.audio);

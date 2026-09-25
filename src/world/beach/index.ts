@@ -192,16 +192,16 @@ export class BeachMap implements GameMap {
     // Wildlife: gulls perch on the pier lamps + a driftwood log, crabs work the wet sand.
     const perches = props.lamps.map((l) => new THREE.Vector3(l.x + (l.x > PIER.x ? 0.2 : -0.2), PIER.deckY + 2.02, l.z));
     perches.push(new THREE.Vector3(36.2, this.terrain.heightAt(36.2, 36.6) + 0.34, 36.6));
-    // Crabs: Poisson-disk scattered (≥ 2.5 m apart) over a deep band of wet + damp sand, never lined up.
+    // Crabs: a handful (≤ 5), Poisson-disk scattered (≥ 6 m apart) over a deep band of wet + damp sand, never lined up.
     const crabs: THREE.Vector3[] = [];
     const cr = this.rng.fork('crabs');
-    for (let tries = 0; tries < 400 && crabs.length < 12; tries++) {
+    for (let tries = 0; tries < 400 && crabs.length < 5; tries++) {
       const x = 18 + cr.next() * 50;
       const band = cr.next();
       const z = S.shoreZ(x) - 0.5 - band * band * 6.5;
       if (Math.abs(x - PIER.x) < 2.6 || S.westRock(x, z) < 0.4 || S.eastHead(x, z) < 0.35 || S.groyneDist(x, z).d < 1.8) continue;
       if (Math.hypot(x - ROWBOAT.x, z - ROWBOAT.z) < 2 || Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < 3) continue;
-      if (crabs.some((c) => Math.hypot(c.x - x, c.z - z) < 2.5)) continue;
+      if (crabs.some((c) => Math.hypot(c.x - x, c.z - z) < 6)) continue;
       crabs.push(new THREE.Vector3(x, this.terrain.heightAt(x, z), z));
     }
     this.life = new BeachLife(this.rng.fork('life'), (x, z) => this.terrain.heightAt(x, z), SEA_LEVEL, perches, crabs);
@@ -216,7 +216,8 @@ export class BeachMap implements GameMap {
         [37.8, 48.9],
         [34.2, 48.4],
       ],
-      { x: 40.4, z: 54.6, rot: 0.32 },
+      // Moored well south of the walkway cast corridor (x 37-48, z 50-55), clear of the fishing frames.
+      { x: 38.2, z: 60.4, rot: 0.32 },
       { x: 41.2, z: 51.4, r: 3.0 },
       // Kept out of the walkway cast corridor (x 37-48, z 50-55): at most one in the fishing frame.
       [
@@ -496,13 +497,13 @@ export class BeachMap implements GameMap {
       const z = CAMPFIRE.z + dz;
       addDriftwood(b, r, x, hAt(x, z) - 0.05, z, len, rot, 0.2, 'fork');
     }
-    // Driftwood: four silhouettes, sizes 0.6-1.4x, never the same one twice in a row.
+    // Driftwood: long slim bleached logs, forks and planks, never the same one twice in a row.
     const drift: [number, number, number, number, DriftKind][] = [
-      [36, 36.8, 0.3, 3.8, 'log'], [45.4, 39.6, -0.5, 1.6, 'plank'], [24.6, 38.8, 0.9, 2.2, 'fork'], [63.2, 37.4, 2.6, 3.4, 'log'], [16.5, 34.4, -0.2, 1.0, 'stump'],
-      [68.8, 34.2, 0.6, 1.5, 'plank'], [28.8, 30.2, 2.1, 1.4, 'fork'], [55.6, 38.8, 1.2, 0.9, 'stump'], [20.4, 32.2, -1.1, 2.6, 'fork'],
+      [36, 36.8, 0.3, 4.2, 'log'], [45.4, 39.6, -0.5, 1.6, 'plank'], [24.6, 38.8, 0.9, 2.4, 'fork'], [63.2, 37.4, 2.6, 3.8, 'log'], [16.5, 34.4, -0.2, 1.8, 'fork'],
+      [68.8, 34.2, 0.6, 1.5, 'plank'], [28.8, 30.2, 2.1, 1.6, 'fork'], [55.6, 38.8, 1.2, 2.4, 'log'], [20.4, 32.2, -1.1, 2.8, 'fork'],
     ];
     for (const [x, z, rot, len, kind] of drift) {
-      addDriftwood(b, r, x, hAt(x, z) - 0.04, z, len, rot, 0.12 + len * 0.025, kind);
+      addDriftwood(b, r, x, hAt(x, z) - 0.04, z, len, rot, 0.09 + len * 0.02, kind);
       T.stampCover('ao', x, z, len * 0.45, 0.4, 0.5);
       const c = Math.cos(rot);
       const s = Math.sin(rot);

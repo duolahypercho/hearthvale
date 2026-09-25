@@ -18,7 +18,7 @@ import { InteriorMap } from './room';
 import { Kit } from './kit';
 import { mat, roundedBox, lumpySphere } from '../geom';
 import type { PenAnchors, PenSlot } from './pen';
-import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, wheelbarrow, crate, strawDrift } from './pen';
+import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, wheelbarrow, crate, strawDrift, spokedWheel } from './pen';
 
 export const BARN_EXIT = { x: 46.5, z: 35.9 };
 
@@ -348,9 +348,7 @@ export class BarnInterior extends InteriorMap {
     for (const sd of [-1, 1]) {
       k.box('wood', [1.34, 0.22, 0.04], [cx, 0.46, cz + sd * 0.4], { tint: 0xb88058, r: 0.01 });
       for (let i = 0; i < 4; i++) k.box('wood', [0.04, 0.3, 0.04], [cx - 0.6 + i * 0.4, 0.44, cz + sd * 0.41], { tint: 0x8a5a3a });
-      k.add('wood', new THREE.CylinderGeometry(0.34, 0.34, 0.06, 18).rotateX(Math.PI / 2), mat(cx - 0.1, 0.34, cz + sd * 0.5), { tint: 0x7a5236 });
-      k.add('iron', new THREE.TorusGeometry(0.34, 0.018, 5, 22), mat(cx - 0.1, 0.34, cz + sd * 0.5), { tint: 0x3a3634 });
-      for (let i = 0; i < 6; i++) k.add('wood', new THREE.CylinderGeometry(0.014, 0.014, 0.64, 5), mat(cx - 0.1, 0.34, cz + sd * 0.5, 0, 0, (i / 6) * Math.PI), { tint: 0x8a6040 });
+      spokedWheel(k, 0.34, mat(cx - 0.1, 0.34, cz + sd * 0.5, 0, 0, sd * 0.2));
       k.add('wood', new THREE.CylinderGeometry(0.025, 0.025, 1.1, 7).rotateZ(Math.PI / 2), mat(cx + 1.15, 0.24, cz + sd * 0.3, 0, 0, -0.35), { tint: 0x8a5a3a });
     }
     k.add('straw', lumpySphere(0.5, 2, 0.26, rng), mat(cx, 0.62, cz, 0, 0.4, 0, 1.25, 0.62, 0.8), { tint: 0xfff0c8 });
@@ -450,7 +448,6 @@ export class BarnInterior extends InteriorMap {
     feedSack(k, gx + 0.8, gz + 0.35, -0.3, 0xe8d4b4, true);
     k.cyl('tin', 0.09, 0.07, 0.16, [gx + 0.3, 0.78, gz - 0.05], { rz: 1.4, tint: 0xc8d0d4 });
     // A cartwheel leaning on the right wall
-    k.add('wood', new THREE.TorusGeometry(0.42, 0.04, 6, 20), mat(12.88, 0.44, 7.6, 0, Math.PI / 2, 0.08), { tint: 0x7a5236 });
-    for (let i = 0; i < 6; i++) k.add('wood', new THREE.CylinderGeometry(0.018, 0.018, 0.8, 5), mat(12.88, 0.44, 7.6, (i / 6) * Math.PI, 0, 0), { tint: 0x8a6040 });
+    spokedWheel(k, 0.42, mat(12.86, 0.44, 7.6, 0, Math.PI / 2, 0).multiply(new THREE.Matrix4().makeRotationX(0.1)), 10, 0x9a6c46);
   }
 }

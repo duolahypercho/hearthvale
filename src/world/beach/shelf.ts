@@ -25,11 +25,40 @@ import { TIDE_POOLS, TIDE_POOL_Y, type BeachShape } from './layout';
 /** How far the slab's top stands proud of the ground under it (BeachMap.heightAt adds it for feet). */
 export const SHELF_PROUD = 0.05;
 
+/**
+ * Pool outline scale at angle `a` round pool `i` (≥ 1: the stone grows into the round bowl): a few
+ * low harmonics per pool, so every pool is an irregular, lobed rock basin — never a punched circle.
+ */
+export function poolLobe(i: number, a: number): number {
+  const p = i * 1.7 + 0.4;
+  const w = 0.5 + 0.28 * Math.sin(2 * a + p * 2.3) + 0.16 * Math.sin(3 * a + p * 4.1) + 0.08 * Math.sin(5 * a + p * 1.3);
+  return 1 + 0.34 * Math.min(1, Math.max(0, w));
+}
+
 const poolD = (x: number, z: number): number => {
   let d = 9;
-  for (const [px, pz, pr] of TIDE_POOLS) d = Math.min(d, Math.hypot(x - px, (z - pz) * 1.15) / pr);
+  TIDE_POOLS.forEach(([px, pz, pr], i) => {
+    const dz = (z - pz) * 1.15;
+    const dx = x - px;
+    d = Math.min(d, (Math.hypot(dx, dz) / pr) * poolLobe(i, Math.atan2(dz, dx)));
+  });
   return d;
 };
+
+/**
+ * Stepped ledges: the slab breaks into 3-4 wave-cut terraces (≈ 17 cm risers with a steep, short
+ * face), rising inland, so the shelf reads as bedded rock rather than one poured slab.
+ */
+const ledgeN = new Noise2D(91733);
+function ledgeAt(S: BeachShape, x: number, z: number): number {
+  const wr = S.westRock(x, z);
+  const inland = Math.min(1, Math.max(0, -wr / 0.7));
+  const v = ledgeN.fbm(x * 0.12 + 5, z * 0.15 - 2, 2) * 0.55 + 0.5 + inland * 0.9;
+  const lv = Math.max(0, v * 2.4);
+  const base = Math.floor(lv);
+  const riser = ss(0.84, 0.97, lv - base);
+  return (base + riser) * 0.17 * ss(0.05, -0.12, wr);
+}
 
 /**
  * Bowl the slab down into a tide pool: a rounded rim (convex shoulder) that rolls over from the top
@@ -55,7 +84,7 @@ export function shelfTopAt(S: BeachShape, groundAt: (x: number, z: number) => nu
   const dive = ss(0.1, 0.22, wr);
   const gm = groundMax(S, groundAt, x, z);
   const base = dive < 0.999 ? gm : S.height(x, z);
-  return poolWall(S, x, z, base + (SHELF_PROUD + 0.03) * (1 - dive) - 0.14 * dive, poolD(x, z), gm);
+  return poolWall(S, x, z, base + (SHELF_PROUD + 0.03) * (1 - dive) - 0.14 * dive + ledgeAt(S, x, z) * (1 - dive), poolD(x, z), gm);
 }
 
 /**
@@ -84,7 +113,7 @@ export function buildShelf(S: BeachShape, seed: number, groundAt: (x: number, z:
     const dive = ss(0.1, 0.22, wr);
     const gm = groundMax(S, groundAt, x, z);
     const base = dive < 0.999 ? gm : S.height(x, z);
-    let y = base + (SHELF_PROUD + 0.03) * (1 - dive) - 0.14 * dive + (pit * 0.02 - seam * 0.025) * topK;
+    let y = base + (SHELF_PROUD + 0.03) * (1 - dive) - 0.14 * dive + (pit * 0.02 - seam * 0.025) * topK + ledgeAt(S, x, z) * (1 - dive);
     if (dive < 0.999) y = poolWall(S, x, z, y, pd, gm);
     return y;
   };
@@ -103,7 +132,11 @@ export function buildShelf(S: BeachShape, seed: number, groundAt: (x: number, z:
     P.push(x, y, z);
     // Vertex AO: seams / pits darker, the rim foot (meeting the sand) darker.
     const foot = ss(-0.02, 0.09, wr);
-    const a = (1 - seam * 0.35 * topK) * (0.9 + pit * 0.12) * (1 - foot * 0.35);
+    // Ledge risers: the step face and its foot sit in shade (AO), the lip above catches light.
+    const lg = ledgeAt(S, x + 0.15, z) - ledgeAt(S, x - 0.15, z);
+    const lz = ledgeAt(S, x, z + 0.15) - ledgeAt(S, x, z - 0.15);
+    const riser = Math.min(1, Math.hypot(lg, lz) * 5);
+    const a = (1 - seam * 0.35 * topK) * (0.9 + pit * 0.12) * (1 - foot * 0.35) * (1 - riser * 0.32);
     C.push(a, a, a);
     // uv.x = 1 - moss: weed only on the low, spray-fed parts; uv.y = wet lip around the pools.
     const low = ss(0.72, 0.45, y);
@@ -279,12 +312,13 @@ export function buildAlgaeTufts(S: BeachShape, rng: Rng, heightAt: (x: number, z
     }
   };
   // Pool lips: clumps hanging inwards over the water (in gaps between the anemone colonies).
-  for (const [px, pz, pr] of TIDE_POOLS) {
+  for (const [pi, [px, pz, pr]] of TIDE_POOLS.entries()) {
     const k = Math.round(pr * 5);
     for (let i = 0; i < k; i++) {
       const a = (i / k) * Math.PI * 2 + rng.next() * 0.6;
-      const x = px + Math.cos(a) * pr * 0.97;
-      const z = pz + (Math.sin(a) * pr * 0.97) / 1.15;
+      const rr = (pr * 0.99) / poolLobe(pi, a);
+      const x = px + Math.cos(a) * rr;
+      const z = pz + (Math.sin(a) * rr) / 1.15;
       if (heightAt(x, z) < TIDE_POOL_Y) continue;
       tuft(x, z, -Math.cos(a), -Math.sin(a), 0.55 + rng.next() * 0.3);
     }

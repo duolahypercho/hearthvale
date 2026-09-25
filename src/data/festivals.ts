@@ -216,7 +216,7 @@ export const ACTIVITIES: Record<ActivityId, ActivityDef> = {
     festival: 'tide',
     name: 'The Lantern Release',
     host: 'marigold',
-    ask: "[happy] Your lantern's ready, dear — three wishes' worth. Let each one go when the tide swells under it, and the sea will carry it all the way out.",
+    ask: "[happy] Your lanterns are ready, dear — five wishes' worth, and the tide quickens with each one. Let each one go when the tide swells under it, and the sea will carry it all the way out.",
     yes: 'Light my lanterns.',
     no: 'Not yet.',
     howto: 'Hold the lantern steady and release it when the swell rises into the glowing band.',
@@ -272,18 +272,18 @@ export function activitiesFor(id: FestivalId): ActivityDef[] {
 export const WISHES = ['A kind harvest', 'Good weather for the valley', 'The Lantern Hall shining again', 'Friends who stay', 'Something wonderful, unspecified'];
 
 /** Rival entries at the produce judging: name, entrant, weight (lb), look. */
-export const PRODUCE_RIVALS: { name: string; by: string; score: number; tint: string }[] = [
+export const PRODUCE_RIVALS: { name: string; by: string; score: number; tint: string; crop?: 'beet' }[] = [
   { name: 'Duchess (giant pumpkin)', by: 'Bram', score: 84, tint: '#f07a1e' },
   { name: 'The Pale Moon (white pumpkin)', by: 'Hazel', score: 77, tint: '#eadcb8' },
   { name: 'Lumpy Lou (green squash)', by: 'Kit', score: 55, tint: '#8a9a4a' },
   { name: 'Old Faithful (marrow)', by: 'Tobias', score: 70, tint: '#7a9a3a' },
-  { name: 'Sir Beetsworth (beet)', by: 'June', score: 66, tint: '#9a2a4a' },
+  { name: 'Sir Beetsworth (beet)', by: 'June', score: 66, tint: '#9a2a4a', crop: 'beet' },
   { name: 'The Sunset (striped gourd)', by: 'Odessa', score: 74, tint: '#e8a040' },
   { name: 'Big Wendell (turnip)', by: 'Wren', score: 61, tint: '#e8d8e8' },
 ];
 
 /** This year's three rivals at the produce table: drawn per year, a little better every year. */
-export function produceRivals(year: number): { name: string; by: string; score: number; tint: string }[] {
+export function produceRivals(year: number): (typeof PRODUCE_RIVALS)[number][] {
   let seed = 97 + year * 7919;
   const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const pool = PRODUCE_RIVALS.slice();
@@ -332,9 +332,10 @@ export const MIN_ENTRY_VALUE = 40;
 
 /**
  * Par score per mini-game (a flawless run) — co-op peers' staged results are drawn against it.
- * dance: 43 notes all Bloom with the full combo bonus; sackrace: 1000 − 200 × place.
+ * dance: 43 notes all Bloom with the full combo bonus; lanterns: 5 radiant releases (500) + the
+ * radiant-streak bonus (15 + 30 + 45 + 60); sackrace: 1000 − 200 × place.
  */
-export const ACTIVITY_PAR: Record<ActivityId, number> = { dance: 7700, lanterns: 300, sackrace: 1000, pumpkin: 99, giftswap: 0, skate: 100 };
+export const ACTIVITY_PAR: Record<ActivityId, number> = { dance: 7700, lanterns: 650, sackrace: 1000, pumpkin: 99, giftswap: 0, skate: 100 };
 
 /**
  * Visiting co-op farmers used to stage the festival board + 3D visitors in demos (`&coop=1`).

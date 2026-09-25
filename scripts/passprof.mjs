@@ -24,7 +24,8 @@ const ctx = await browser.newContext({ viewport: { width: +a.w, height: +a.h }, 
 for (const demo of a.demos.split(',')) {
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log('[pageerror]', demo, String(e).slice(0, 200)));
-  await page.goto(`${base}?demo=${demo}&quality=${a.quality}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${base}?demo=${demo}&quality=${a.quality}`, { waitUntil: 'domcontentloaded', timeout: 240000 });
+  page.setDefaultTimeout(240000);
   await page.evaluate(() => window.__game.ready());
   if (a.eval) await page.evaluate(a.eval);
   await page.waitForTimeout(+a.warmup);

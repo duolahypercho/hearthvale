@@ -325,8 +325,12 @@ export class StorySystem implements System, StoryApi {
     const panel = this.game.hud.openPanelName;
     // Blocked → queued, never dropped (a beat's flag is already 'pending'). A room celebration also
     // waits for the bundle altar to close itself; any other beat closes whatever panel is open.
-    if (cs.playing || this.staging || this.game.paused || (panel && scene.startsWith('room-'))) {
+    // A room celebration only ever comes from a real hand-in, so a demo's staging (which otherwise holds
+    // beats back while the save is faked) never strands it; it still waits for the altar to close.
+    const room = scene.startsWith('room-');
+    if (cs.playing || (this.staging && !room) || this.game.paused || (panel && room)) {
       if (!this.pendingScenes.includes(scene)) this.pendingScenes.push(scene);
+      this.flushSoon(400);
       return;
     }
     if (panel) this.game.events.emit('ui:open', { name: 'none' });
@@ -334,15 +338,29 @@ export class StorySystem implements System, StoryApi {
     void cs.play(scene);
   }
 
-  private flushSoon(ms: number): void {
+  /**
+   * Play the next held beat once the way is clear. A blocked attempt re-arms itself (every 250 ms)
+   * instead of giving up: a room celebration used to stay stranded in the queue when the altar's
+   * close landed a frame before the menu pause lifted — the payoff beat never reached the player.
+   */
+  private flushSoon(ms: number, tries = 0): void {
     if (!this.pendingScenes.length) return;
     window.clearTimeout(this.flushTimer);
     this.flushTimer = window.setTimeout(() => {
       const cs = this.game.services.cutscene;
-      if (!cs || cs.playing || this.staging || this.game.paused) return;
-      if (this.game.hud.openPanelName && this.pendingScenes[0]?.startsWith('room-')) return;
+      if (!cs) return;
+      const panel = this.game.hud.openPanelName;
+      // A room celebration waits out any panel; other beats only the altar / letters / dialogue.
+      const room = !!this.pendingScenes[0]?.startsWith('room-');
+      const blocked = cs.playing || (this.staging && !room) || this.game.paused || (!!panel && (room || panel === 'dialogue'));
+      if (blocked) {
+        // Keep trying while the player is busy (up to ~2 min of an open menu), then wait for the next clear event.
+        if (tries < 480) this.flushSoon(250, tries + 1);
+        return;
+      }
       const next = this.pendingScenes.shift();
       if (next) this.play(next);
+      if (this.pendingScenes.length) this.flushSoon(900);
     }, ms);
   }
 

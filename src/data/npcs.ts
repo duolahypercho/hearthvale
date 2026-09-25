@@ -132,7 +132,7 @@ export interface HeartEvent {
   camera: { x: number; z: number; yaw?: number; pitch?: number; distance?: number };
   script: CutStep[];
   /** Extra actors spawned for the scene (e.g. Pip the shop cat): at [x, z], height above ground. */
-  props?: { kind: 'cat' | 'candle'; at: [number, number]; y?: number; rot?: number; pose?: 'sit' | 'curl'; scale?: number; /** A line containing this word frames the prop with the speaker. */ word?: string }[];
+  props?: { kind: 'cat' | 'candle' | 'painting'; at: [number, number]; y?: number; rot?: number; pose?: 'sit' | 'curl'; scale?: number; /** A line containing this word frames the prop with the speaker. */ word?: string }[];
 }
 
 export interface GiftTastes {
@@ -160,6 +160,8 @@ export interface NpcDef {
   /** Ordered line groups; the first whose conditions match is used. */
   dialogue: DialogueGroup[];
   events: HeartEvent[];
+  /** Short street-chatter lines popped over the head while chatting (≤ 30 chars). */
+  barks?: string[];
 }
 
 const W = (speed: number, stride: number, bounce: number, sway: number, hunch: number, arms: number, skip = false): WalkStyle => ({ speed, stride, bounce, sway, hunch, arms, skip });
@@ -232,6 +234,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Fresh eggs by noon!', 'Pip, off the scales!', 'Mind the step, dear.', 'Tea’s on at four.'],
     events: [
       {
         id: 'marigold-2',
@@ -347,6 +351,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Buns out of the oven!', 'Flour’s in my beard again.', 'Rye or plain today?', 'Smell that? Cinnamon.'],
     events: [
       {
         id: 'bram-2',
@@ -456,6 +462,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Hold still, light!', 'That blue’s all wrong.', 'Ooh — look at those clouds.', 'Has anyone seen my pencil?'],
     events: [
       {
         id: 'wren-2',
@@ -466,6 +474,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         demoTime: 16.8,
         cast: { wren: ['easel_river', 'right'], player: [[60.6, 22.9], 'up'] },
         camera: { x: 60.2, z: 23.2, yaw: -10, pitch: 40, distance: 15 },
+        // Yesterday's attempt, propped on a field stand facing the path: the painting she asks about.
+        props: [{ kind: 'painting', at: [58.7, 22.85], rot: 0.35, scale: 1.3, word: 'look like a river' }],
         script: [
           { act: 'wren', activity: 'paint' },
           { wait: 1.0 },
@@ -569,6 +579,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Hot iron, mind your fingers.', 'Hinges don’t mend themselves.', 'Fine day for sparks.', 'Bring me a horseshoe?'],
     events: [
       {
         id: 'odessa-2',
@@ -678,6 +690,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Drink more water, all of you.', 'Walk, don’t run, Kit!', 'Hm. That cough again?', 'Lovely morning for a stroll.'],
     events: [
       {
         id: 'linus-2',
@@ -786,6 +800,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Stew’s on tonight!', 'Rowan owes me a chair.', 'Cider’s cold, come in!', 'Who left mud on my step?'],
     events: [
       {
         id: 'june-2',
@@ -894,6 +910,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Lamps won’t light themselves.', 'Back in my day…', 'Heh. Good morning, young one.', 'My knees say rain.'],
     events: [
       {
         id: 'tobias-2',
@@ -1001,6 +1019,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Bet you can’t catch me!', 'I found a frog!', 'Hopscotch champion!', 'Is it lunch yet?'],
     events: [
       {
         id: 'kit-2',
@@ -1109,6 +1129,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['Measure twice, cut once.', 'Kit! Put that down!', 'Who needs a shelf?', 'Sawdust in my coffee again.'],
     events: [
       {
         id: 'rowan-2',
@@ -1218,6 +1240,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         ],
       },
     ],
+    // Street chatter (speech bubbles while chatting in town).
+    barks: ['The roses are early!', 'Mind my tulips, dear.', 'A little rain, then sun.', 'Bees are busy today.'],
     events: [
       {
         id: 'hazel-2',

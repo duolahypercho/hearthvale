@@ -89,9 +89,13 @@ function monsterMat(color: number, opts: { rough?: number; clearcoat?: boolean |
         float fr = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.5);
         totalEmissiveRadiance += mix(diffuseColor.rgb, uRimC, uRimT) * fr * uRimK;
         // Hit flash: a hot rim + a lifted body that keeps the creature's own hue (never a white blob).
+        // Pale bodies (stone crabs, frost wisps) already sit near white under the lantern: their flash
+        // leans on the rim, so bloom never melts a lit crab into a white ghost with finger-like legs.
         float frF = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 1.5);
-        totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + vec3(0.35)) * uFlash + vec3(1.0, 0.95, 0.85) * frF * uFlash * 1.2;
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.6 + 0.4, uFlash * 0.4);
+        float fLum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+        float fK = uFlash * mix(1.0, 0.3, smoothstep(0.25, 0.7, fLum));
+        totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + vec3(0.3)) * fK + vec3(1.0, 0.9, 0.7) * frF * uFlash * mix(1.1, 0.6, smoothstep(0.25, 0.7, fLum));
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.6 + 0.4, fK * 0.4);
       }`,
     );
     shader.fragmentShader = fs;

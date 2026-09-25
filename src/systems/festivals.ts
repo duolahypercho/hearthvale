@@ -53,7 +53,7 @@ export interface FestivalApi {
   snapshot(): FestivalSnapshot;
   applySnapshot(s: FestivalSnapshot): boolean;
   /** Co-op wiring diagnostics (tests): messages in / out over the net extension channel. */
-  coopStats(): { msgsIn: number; msgsOut: number; progIn: number; progUsed: number; role: string };
+  coopStats(): { msgsIn: number; msgsOut: number; progIn: number; progUsed: number; invites: number; trace: string[]; role: string };
 }
 
 /** One farmer's result in a festival mini-game (co-op board row). */
@@ -175,7 +175,7 @@ export class FestivalSystem implements System {
       record: (a, e) => this.record(a, e),
       snapshot: () => this.snapshot(),
       applySnapshot: (snap) => this.applySnapshot(snap),
-      coopStats: () => ({ ...this.coop.stats, role: this.coop.role() }),
+      coopStats: () => ({ ...this.coop.stats, trace: [...this.coop.stats.trace], role: this.coop.role() }),
     });
     // `openUI('festival:<activity>')` — critics / demos stage a mini-game directly.
     game.hud.registerPanel('festival', {

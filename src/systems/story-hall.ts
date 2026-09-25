@@ -245,6 +245,143 @@ function rugTexture(accent: number, seed: string): THREE.CanvasTexture {
   return t;
 }
 
+/**
+ * The nave runner: a long wool runner (u across, v along) — a madder-red field between cream and
+ * gold border stripes, a repeating row of lantern medallions down its length, tasselled ends.
+ */
+function runnerTexture(): THREE.CanvasTexture {
+  const W = 256;
+  const H = 1536;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const r = new Rng('nave-runner');
+  g.fillStyle = '#5a1e1a';
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = '#e8d4a8';
+  g.fillRect(10, 26, W - 20, H - 52);
+  g.fillStyle = '#b8862e';
+  g.fillRect(18, 34, W - 36, H - 68);
+  g.fillStyle = '#8e2a22';
+  g.fillRect(28, 44, W - 56, H - 88);
+  // Running border: little cream diamonds down both long edges.
+  g.fillStyle = '#f0dcae';
+  for (let y = 60; y < H - 60; y += 18) {
+    for (const x of [36, W - 36]) {
+      g.beginPath();
+      g.moveTo(x, y - 5);
+      g.lineTo(x + 4, y);
+      g.lineTo(x, y + 5);
+      g.lineTo(x - 4, y);
+      g.fill();
+    }
+  }
+  // Medallions: a lantern glyph in a gold lozenge, one per ~1.4 m.
+  for (let y = 150; y < H - 100; y += 205) {
+    g.fillStyle = '#5a1a16';
+    g.beginPath();
+    g.moveTo(W / 2, y - 70);
+    g.lineTo(W / 2 + 62, y);
+    g.lineTo(W / 2, y + 70);
+    g.lineTo(W / 2 - 62, y);
+    g.fill();
+    g.fillStyle = '#c8963a';
+    g.beginPath();
+    g.moveTo(W / 2, y - 56);
+    g.lineTo(W / 2 + 48, y);
+    g.lineTo(W / 2, y + 56);
+    g.lineTo(W / 2 - 48, y);
+    g.fill();
+    g.fillStyle = '#6a221c';
+    g.beginPath();
+    g.roundRect(W / 2 - 14, y - 22, 28, 40, 6);
+    g.fill();
+    g.fillStyle = '#f2c46a';
+    g.beginPath();
+    g.roundRect(W / 2 - 8, y - 15, 16, 26, 4);
+    g.fill();
+    g.fillStyle = '#6a221c';
+    g.fillRect(W / 2 - 18, y - 27, 36, 6);
+    g.fillRect(W / 2 - 3, y - 36, 6, 10);
+    // Small corner sprigs between medallions.
+    g.fillStyle = '#d8b46a';
+    for (const [dx, dy] of [[-70, 100], [70, 100]] as const) {
+      g.beginPath();
+      g.ellipse(W / 2 + dx * 0.55, y + dy, 7, 12, dx > 0 ? 0.5 : -0.5, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  // Tassels at both ends.
+  g.strokeStyle = '#e8d4a8';
+  g.lineWidth = 3;
+  for (let x = 14; x < W - 10; x += 8) {
+    g.beginPath();
+    g.moveTo(x, 26);
+    g.lineTo(x + (r.next() - 0.5) * 4, 4);
+    g.moveTo(x, H - 26);
+    g.lineTo(x + (r.next() - 0.5) * 4, H - 4);
+    g.stroke();
+  }
+  // Weave and a worn path down the middle (two centuries of boots).
+  for (let y = 0; y < H; y += 3) {
+    g.fillStyle = `rgba(0,0,0,${0.035 + r.next() * 0.03})`;
+    g.fillRect(8, y, W - 16, 1);
+  }
+  for (let x = 8; x < W - 8; x += 3) {
+    g.fillStyle = `rgba(255,240,210,${0.025 + r.next() * 0.025})`;
+    g.fillRect(x, 26, 1, H - 52);
+  }
+  const wear = g.createLinearGradient(0, 0, W, 0);
+  wear.addColorStop(0, 'rgba(30,10,6,0.18)');
+  wear.addColorStop(0.5, 'rgba(255,230,190,0.1)');
+  wear.addColorStop(1, 'rgba(30,10,6,0.18)');
+  g.fillStyle = wear;
+  g.fillRect(8, 26, W - 16, H - 52);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
+/** Night lawn round the Hall: dark moss-greens with clover blotches and fine blades (tiles). */
+function lawnTexture(): THREE.CanvasTexture {
+  const S = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const r = new Rng('hall-lawn');
+  g.fillStyle = '#34502e';
+  g.fillRect(0, 0, S, S);
+  for (let k = 0; k < 140; k++) {
+    const x = r.next() * S;
+    const y = r.next() * S;
+    const rad = 14 + r.next() * 46;
+    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    const col = ['58,86,48', '44,66,40', '66,92,52', '40,58,36'][k % 4];
+    grd.addColorStop(0, `rgba(${col},0.55)`);
+    grd.addColorStop(1, `rgba(${col},0)`);
+    g.fillStyle = grd;
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) g.fillRect(x - rad + ox, y - rad + oy, rad * 2, rad * 2);
+  }
+  for (let k = 0; k < 5200; k++) {
+    const x = r.next() * S;
+    const y = r.next() * S;
+    const l = 3 + r.next() * 6;
+    g.strokeStyle = r.next() < 0.5 ? `rgba(120,160,90,${0.18 + r.next() * 0.2})` : `rgba(20,34,18,${0.2 + r.next() * 0.2})`;
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + (r.next() - 0.5) * 3, y - l);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return t;
+}
+
 /** Soft additive glow points (glowmoths, dust motes). */
 class GlowPoints {
   readonly points: THREE.Points;
@@ -524,6 +661,8 @@ export class HallMap implements GameMap {
   private dressDirty = true;
   /** The nave's derelict dressing (split boards, weeds, the fallen banner, leaf drifts at the door). */
   private naveDark = new THREE.Group();
+  /** The nave's restored dressing (runner laid, posies on the pews, bay trees, candle stands). */
+  private naveLit = new THREE.Group();
   private water: THREE.MeshStandardMaterial | null = null;
   private caustic: THREE.CanvasTexture | null = null;
   /** Every furniture footprint (x0, z0, x1, z1): baked as soft contact shadows into the floor. */
@@ -641,7 +780,9 @@ export class HallMap implements GameMap {
     this.buildShell(b);
     this.buildGreatLantern(b);
     for (const def of ROOMS) this.buildRoom(b, def);
+    this.buildPews(b);
     this.buildNaveDark();
+    this.buildNaveLit();
     this.bakeContact();
     const shell = b.build({ name: 'hall-shell' });
     shell.userData.perfTag = 'hall';
@@ -689,8 +830,102 @@ export class HallMap implements GameMap {
     for (let k = 0; k < 26; k++) b.add(m.leaf, lumpySphere(0.08 + r.next() * 0.05, 0, 0.3, r), mat(13.6 + r.next() * 0.6 + (k % 2) * 2.4, 0.03, 20.2 + r.next() * 0.9, 0, 0, 0, 1, 0.3, 1), { tint: [0x4a7a30, 0x5a8a36, 0x3f6a2a][k % 3]! });
     b.add(m.web, new THREE.CircleGeometry(0.9, 10, 0, Math.PI / 2), mat(12.25, 2.9, 3.2, 0, Math.PI / 4, Math.PI));
     b.add(m.web, new THREE.CircleGeometry(0.9, 10, 0, Math.PI / 2), mat(17.75, 2.9, 3.2, 0, -Math.PI / 4 - Math.PI / 2, Math.PI));
+    // Hero clutter the restoration clears away: a dust sheet over the front-left pews, the runner
+    // rolled up and dumped along the right-hand pews, a toppled iron lantern stand with its cage
+    // cracked open, a cobwebbed stack of crates by the dais, a broom left mid-sweep, a wheelbarrow.
+    const sheet = drapedSheet(r, 0.78, 1.0, 1.55);
+    b.add(m.cloth, sheet, mat(12.64, 0, 15.0, 0, 0.03, 0), { tint: 0xc8c0b0, aoWorld: GAO });
+    b.add(m.cloth, bevelCylinder(0.2, 0.2, 2.6, 0.04, 14), mat(16.62, 0.2, 9.15, Math.PI / 2, 0, 0.02), { tint: 0x7a2e24, aoWorld: GAO });
+    b.add(m.cloth, new THREE.CircleGeometry(0.2, 14), mat(16.62, 0.2, 10.46), { tint: 0xb8862e });
+    b.add(m.cloth, new THREE.RingGeometry(0.06, 0.19, 14, 1), mat(16.62, 0.2, 10.465), { tint: 0x5a1e1a });
+    // Toppled stand (pole, foot ring, burst cage, glass shards).
+    b.add(m.metal, new THREE.CylinderGeometry(0.035, 0.045, 2.1, 6), mat(13.35, 0.08, 7.9, 0, 0.5, Math.PI / 2), { tint: 0x2e2a28 });
+    b.add(m.metal, new THREE.TorusGeometry(0.22, 0.03, 5, 14), mat(12.5, 0.2, 8.45, 0.3, 0.5, Math.PI / 2 - 0.1), { tint: 0x2e2a28 });
+    for (let k = 0; k < 5; k++) b.add(m.metal, new THREE.CylinderGeometry(0.014, 0.014, 0.42, 4), mat(14.15 + Math.cos(k * 1.3) * 0.14, 0.14, 7.4 + Math.sin(k * 1.3) * 0.14, 0.2 * k, k, Math.PI / 2 - 0.3 * k), { tint: 0x3a3430 });
+    for (let k = 0; k < 9; k++) b.add(m.glass, new THREE.CircleGeometry(0.035 + r.next() * 0.04, 3), mat(14.3 + (r.next() - 0.5) * 0.9, 0.012, 7.5 + (r.next() - 0.5) * 0.7, -Math.PI / 2, 0, r.next() * 6));
+    // Crates by the dais, the top one askew, draped in web.
+    const crateBox = (x: number, y: number, z: number, ry: number, s: number): void => {
+      b.add(m.woodGrain, boxUV(roundedBox(0.62 * s, 0.5 * s, 0.56 * s, 0.03), 0.9), mat(x, y + 0.25 * s, z, 0, ry, 0), { tint: 0x8a6440, aoWorld: GAO });
+      for (const dy of [0.1, 0.4]) b.add(m.woodGrain, new THREE.BoxGeometry(0.64 * s, 0.05 * s, 0.58 * s), mat(x, y + dy * s, z, 0, ry, 0), { tint: 0x5e4028 });
+    };
+    crateBox(17.35, 0, 3.75, 0.2, 1);
+    crateBox(17.45, 0, 4.4, -0.15, 0.85);
+    crateBox(17.35, 0.5, 3.95, 0.5, 0.8);
+    crateBox(12.6, 0, 3.8, -0.3, 0.9);
+    b.add(m.web, new THREE.PlaneGeometry(0.9, 0.8), mat(17.2, 0.75, 4.1, 0, -0.9, 0.2));
+    // Broom mid-sweep with its little heap of leaves; a wheelbarrow of rubble at the doors.
+    b.add(m.woodGrain, new THREE.CylinderGeometry(0.02, 0.02, 1.35, 6), mat(15.9, 0.06, 16.3, 0, 0.9, Math.PI / 2 - 0.04), { tint: 0x9a7048 });
+    b.add(m.cloth, new THREE.ConeGeometry(0.16, 0.36, 8).rotateZ(Math.PI / 2).scale(1, 0.4, 1), mat(15.35, 0.07, 16.85, 0, 0.9, 0), { tint: 0xc8a860 });
+    for (let k = 0; k < 40; k++) {
+      const leaf = new THREE.CircleGeometry(0.06 + r.next() * 0.04, 5).rotateX(-Math.PI / 2);
+      b.add(m.leaf, leaf, mat(15.0 + (r.next() - 0.5) * 0.7, 0.02 + k * 0.0015, 17.3 + (r.next() - 0.5) * 0.5, (r.next() - 0.5) * 0.6, r.next() * 6, (r.next() - 0.5) * 0.6), { tint: [0x9a5a24, 0xb8702c, 0x7a5a2a, 0xa8402a][k % 4]! });
+    }
     this.naveDark.add(b.build({ name: 'hall-nave-dark' }));
     this.sources.add(this.naveDark);
+  }
+
+  /**
+   * Four short oak pews down the nave (in the gaps between the room arches), backs to the doors,
+   * ends carved round. They stay in both states — the dark state throws a dust sheet over one.
+   */
+  private buildPews(b: B): void {
+    const m = hallMats();
+    const pew = (x0: number, z: number, len: number): void => {
+      const x = x0 + len / 2;
+      // Seat, back rail, two round-topped ends, a kneeler.
+      box(b, 'woodGrain', len, 0.07, 0.42, x, 0.42, z, 0x7a4a2a, 0, 0.02);
+      box(b, 'woodGrain', len, 0.5, 0.06, x, 0.5, z + 0.24, 0x6a4024, 0, 0.02);
+      box(b, 'woodGrain', len + 0.04, 0.06, 0.1, x, 1.0, z + 0.24, 0x8a5a36, 0, 0.02);
+      for (const ex of [x0 + 0.03, x0 + len - 0.03]) {
+        box(b, 'woodGrain', 0.07, 0.86, 0.56, ex, 0, z + 0.04, 0x5e3a22, 0, 0.02);
+        b.add(m.woodGrain, new THREE.CylinderGeometry(0.28, 0.28, 0.07, 12, 1, false, 0, Math.PI).rotateZ(Math.PI / 2), mat(ex, 0.86, z + 0.04), { tint: 0x5e3a22 });
+      }
+      box(b, 'woodGrain', len - 0.1, 0.08, 0.14, x, 0.1, z - 0.22, 0x5e3a22, 0, 0.02);
+      this.blockRect(x0 + 0.02, z - 0.28, x0 + len - 0.02, z + 0.3);
+    };
+    // Aisle stays four tiles wide (13–16): pews are one tile deep either side, at z 8–10 and 14–16.
+    for (const z of [8.6, 9.6, 14.6, 15.6]) {
+      pew(12.24, z, 0.7);
+      pew(17.06, z, 0.7);
+    }
+  }
+
+  /**
+   * The nave restored (four or more rooms lit): the runner is laid again from the doors to the dais,
+   * posies of spring flowers tied to the pew ends, a pair of potted bay trees and brass candle stands
+   * flanking the dais steps.
+   */
+  private buildNaveLit(): void {
+    const b = new MeshBuilder();
+    const m = hallMats();
+    const r = new Rng('nave-lit');
+    const runnerMat = new THREE.MeshStandardMaterial({ map: runnerTexture(), roughness: 1 });
+    runnerMat.name = 'hall-runner';
+    const runner = new THREE.PlaneGeometry(1.7, 11.8).rotateX(-Math.PI / 2);
+    b.add(runnerMat, runner, mat(15, 0.018, 14.25));
+    for (const px of [12.95, 17.05]) {
+      for (const pz of [8.6, 14.6]) {
+        // A posy on each aisle-end: ribbon, three blooms, leaves.
+        const ex = px < 15 ? 12.97 : 17.09;
+        b.add(m.cloth, new THREE.BoxGeometry(0.02, 0.12, 0.05), mat(ex + (px < 15 ? 0.04 : -0.04), 0.78, pz + 0.04), { tint: 0xe8c860 });
+        for (let k = 0; k < 4; k++) b.add(m.leaf, new THREE.IcosahedronGeometry(0.06, 0), mat(ex + (px < 15 ? 0.06 : -0.06), 0.84 + (k % 2) * 0.05, pz - 0.04 + k * 0.035), { tint: [0xf2a0b8, 0xfff0d0, 0xf6c850, 0x6a9a44][k]! });
+      }
+    }
+    // Bay trees in glazed pots and brass candle stands either side of the dais steps.
+    for (const [x, z] of [[12.65, 3.9], [17.35, 3.9]] as const) {
+      b.add(m.cloth, bevelCylinder(0.26, 0.2, 0.44, 0.04, 12), mat(x, 0.22, z), { tint: 0x3a6a7a, aoWorld: GAO });
+      b.add(m.woodGrain, new THREE.CylinderGeometry(0.03, 0.04, 0.9, 6), mat(x, 0.85, z), { tint: 0x5a3a22 });
+      b.add(m.leaf, lumpySphere(0.42, 1, 0.1, r, 2.2), mat(x, 1.45, z, 0, r.next() * 3, 0, 1, 1.05, 1), { tint: 0x4a7a3a });
+    }
+    for (const x of [13.4, 16.6]) {
+      b.add(m.metal, bevelCylinder(0.14, 0.18, 0.06, 0.02, 10), mat(x, 0.03, 8.1), { tint: 0xc8a050 });
+      b.add(m.metal, new THREE.CylinderGeometry(0.025, 0.03, 1.1, 6), mat(x, 0.6, 8.1), { tint: 0xc8a050 });
+      b.add(m.metal, bevelCylinder(0.09, 0.06, 0.05, 0.015, 10), mat(x, 1.17, 8.1), { tint: 0xc8a050 });
+      b.add(m.candle, new THREE.CylinderGeometry(0.035, 0.035, 0.2, 8), mat(x, 1.3, 8.1), { tint: 0xfff2dc });
+    }
+    this.naveLit.add(b.build({ name: 'hall-nave-lit' }));
+    this.naveLit.visible = false;
+    this.sources.add(this.naveLit);
   }
 
   /** Soft contact shadows under every piece of furniture, painted into both floor canvases. */
@@ -927,12 +1162,90 @@ export class HallMap implements GameMap {
     for (const sx of [0.6, 29.4]) {
       for (let z = 3.5; z < 22; z += 1.6) bb.add(hallMats().leaf, lumpySphere(0.55, 1, 0.14, gr, 2), mat(sx, 0.05, z, 0, gr.next() * 3, 0, 0.9, 1.1, 1.1), { tint: [0x3f6a34, 0x4a7a3a, 0x36602e][Math.floor(gr.next() * 3)]! });
     }
+    this.buildGrounds(bb, gr);
     const base = bb.build({ name: 'hall-base' });
     base.traverse((o) => {
       o.receiveShadow = true;
       o.castShadow = false;
     });
     this.root.add(base);
+  }
+
+  /**
+   * The Hall's grounds at night, so the cut-away sits in the valley rather than floating in a navy
+   * void: a moonlit lawn out to the fog, a ring of dark oaks and yews behind and beside the building
+   * (they fill the frame's top corners over the back wall), a clipped yew hedge and an iron railing
+   * along the back, the cobbled walk from the doors with two warm lamp posts, and a few far cottages
+   * with lit windows between the trunks. All merged into the base (no new draw calls but the lawn).
+   */
+  private buildGrounds(bb: B, gr: Rng): void {
+    const m = hallMats();
+    const lawnTex = lawnTexture();
+    lawnTex.repeat.set(26, 21);
+    const lawnMat = new THREE.MeshStandardMaterial({ map: lawnTex, roughness: 1, metalness: 0 });
+    lawnMat.name = 'hall-lawn';
+    const lawn = new THREE.Mesh(new THREE.PlaneGeometry(150, 124), lawnMat);
+    lawn.rotation.x = -Math.PI / 2;
+    // Just under the garden slab's top edge: the soil cross-section sinks into the lawn.
+    lawn.position.set(15, -0.25, 12);
+    lawn.receiveShadow = true;
+    lawn.userData.noAO = true;
+    this.root.add(lawn);
+    const LEAF = [0x1f3a2a, 0x24422e, 0x1a3326, 0x2a4a30];
+    const tree = (x: number, z: number, s: number, yew = false): void => {
+      const tint = LEAF[Math.floor(gr.next() * LEAF.length)]!;
+      bb.add(m.woodGrain, bevelCylinder(0.16 * s, 0.26 * s, 2.4 * s, 0.03, 8), mat(x, 1.0 * s, z, (gr.next() - 0.5) * 0.08, 0, (gr.next() - 0.5) * 0.08), { tint: 0x3a2a20 });
+      if (yew) {
+        // A clipped yew cone: three stacked lumps.
+        for (let k = 0; k < 3; k++) bb.add(m.leaf, lumpySphere((1.25 - k * 0.32) * s, 1, 0.12, gr, 1.8), mat(x, (1.3 + k * 1.05) * s, z, 0, gr.next() * 3, 0, 1, 1.05, 1), { tint: new THREE.Color(tint).multiplyScalar(0.9 + k * 0.08).getHex() });
+        return;
+      }
+      const n = 4 + Math.floor(gr.next() * 2);
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2 + gr.next();
+        const rr = k === 0 ? 0 : 0.9 * s;
+        const rad = (k === 0 ? 1.55 : 1.05 + gr.next() * 0.35) * s;
+        const col = new THREE.Color(tint).multiplyScalar(k === 0 ? 1.08 : 0.86 + gr.next() * 0.16).getHex();
+        bb.add(m.leaf, lumpySphere(rad, 1, 0.16, gr, 1.5), mat(x + Math.cos(a) * rr, (3.2 + (k === 0 ? 0.6 : gr.next() * 0.5)) * s, z + Math.sin(a) * rr, 0, gr.next() * 3, 0, 1, 0.85, 1), { tint: col });
+      }
+    };
+    // Behind the back wall (the frame's top edge) and down both flanks; nothing south of the walls
+    // between the lens and the Hall.
+    for (let x = -7; x <= 37; x += 3.1 + gr.next() * 1.4) {
+      const z = -2.4 - gr.next() * 2.2 - (x > 6 && x < 24 ? 2.2 : 0);
+      tree(x, z, 0.95 + gr.next() * 0.35, x > 9 && x < 21 && gr.next() < 0.5);
+    }
+    for (let x = -4; x <= 34; x += 4.2 + gr.next() * 2) tree(x + gr.next(), -8.2 - gr.next() * 2.5, 1.1 + gr.next() * 0.3);
+    for (const sx of [-1, 1]) {
+      for (let z = -1; z <= 26; z += 3.0 + gr.next() * 1.6) {
+        const x = sx < 0 ? -3.4 - gr.next() * 2.6 : 33.4 + gr.next() * 2.6;
+        tree(x, z, 0.9 + gr.next() * 0.35, gr.next() < 0.3);
+        if (gr.next() < 0.6) tree(x + sx * (3.2 + gr.next() * 2), z + 1.4, 1.05 + gr.next() * 0.3);
+      }
+    }
+    // Clipped yew hedge + an iron railing along the back of the garden slab.
+    for (let x = -1.5; x < 31.5; x += 0.95) bb.add(m.leaf, lumpySphere(0.62, 1, 0.1, gr, 2), mat(x, 0.25, -0.9 + (gr.next() - 0.5) * 0.12, 0, gr.next() * 3, 0, 1, 1.05, 0.8), { tint: [0x2a4a30, 0x305234, 0x24422c][Math.floor(gr.next() * 3)]! });
+    for (const sx of [-2.2, 32.2]) for (let z = 0; z < 22; z += 0.95) bb.add(m.leaf, lumpySphere(0.6, 1, 0.1, gr, 2), mat(sx, 0.2, z, 0, gr.next() * 3, 0, 0.8, 1, 1), { tint: [0x2a4a30, 0x305234, 0x24422c][Math.floor(gr.next() * 3)]! });
+    // The cobbled walk from the doors down to the square, and two lamp posts at its head.
+    for (let z = 23.4; z < 40; z += 0.62) {
+      for (let k = 0; k < 5; k++) {
+        const x = 13.4 + k * 0.72 + (gr.next() - 0.5) * 0.12 + ((z * 1.6) % 1 > 0.5 ? 0.3 : 0);
+        bb.add(m.stone, bevelCylinder(0.28, 0.3, 0.08, 0.025, 7), mat(x, -0.22, z + (gr.next() - 0.5) * 0.1, 0, gr.next() * 3, 0, 1, 1, 0.9), { tint: [0x8a8478, 0x7a7468, 0x948c7e][Math.floor(gr.next() * 3)]! });
+      }
+    }
+    for (const lx of [12.4, 17.6]) {
+      bb.add(m.stone, bevelCylinder(0.22, 0.26, 0.3, 0.04, 10), mat(lx, -0.05, 23.9), { tint: 0x7a7468 });
+      bb.add(m.metal, new THREE.CylinderGeometry(0.05, 0.07, 2.5, 8), mat(lx, 1.3, 23.9), { tint: 0x2a2826 });
+      bb.add(m.metal, new THREE.ConeGeometry(0.26, 0.2, 6), mat(lx, 2.92, 23.9), { tint: 0x2a2826 });
+      bb.add(m.candle, new THREE.CylinderGeometry(0.17, 0.13, 0.36, 6), mat(lx, 2.66, 23.9), { tint: 0xffe2b0 });
+    }
+    // Far cottages between the trunks: dark gables with warm windows (the valley is still awake).
+    for (const [cx, cz, ry] of [[-9.5, -12.5, 0.3], [4.5, -15.5, -0.1], [27.5, -14.8, 0.15], [39.5, -9.5, -0.35]] as const) {
+      bb.add(m.plaster, roundedBox(4.2, 2.4, 3.2, 0.1), mat(cx, 1.0, cz, 0, ry, 0), { tint: 0x6a6258 });
+      const roof = new THREE.CylinderGeometry(0.01, 2.9, 1.8, 4, 1).rotateY(Math.PI / 4).scale(1.05, 1, 0.78);
+      bb.add(m.wood, roof, mat(cx, 3.1, cz, 0, ry, 0), { tint: 0x4a2e26 });
+      for (const wx of [-0.9, 0.9]) bb.add(m.candle, new THREE.PlaneGeometry(0.55, 0.62), mat(cx, 1.3, cz, 0, ry, 0).multiply(mat(wx, 0, 1.62)), { tint: 0xffc070 });
+    }
   }
 
   private buildShell(b: B): void {
@@ -944,6 +1257,17 @@ export class HallMap implements GameMap {
     const STONE = 0xb8ad9c;
     const H = 5.2;
     const SIDE_H = 4.4;
+    /**
+     * Stone coping on every cut-away wall top: a pale, bevelled limestone lid with a dark drip groove
+     * under its lip, so the section the camera looks down on reads as a finished, built edge (a
+     * light frame round the diorama) rather than a flat maroon slab.
+     */
+    const coping = (sx: number, sz: number, x: number, y: number, z: number, along: 'x' | 'z'): void => {
+      b.add(hallMats().stone, roundedBox(sx, 0.09, sz, 0.035), mat(x, y + 0.045, z), { tint: 0xd9ccb4 });
+      const gx = along === 'x' ? sx : sx + 0.02;
+      const gz = along === 'z' ? sz : sz + 0.02;
+      box(b, 'woodGrain', gx - 0.04, 0.035, gz - 0.04, x, y - 0.03, z, 0x3a2416);
+    };
     // Back wall with three tall arched windows + rose window.
     const wins = [7, 23];
     const wall = (x0: number, x1: number, z: number, h: number, t = 0.4): void => {
@@ -953,6 +1277,7 @@ export class HallMap implements GameMap {
       box(b, 'plaster', w, h - 1.4, t, (x0 + x1) / 2, 1.4, z, PLASTER, 0, 0.02);
       box(b, 'woodGrain', w, 0.12, t + 0.14, (x0 + x1) / 2, 1.38, z, TRIM);
       box(b, 'woodGrain', w + 0.1, 0.26, t + 0.2, (x0 + x1) / 2, h - 0.02, z, CAP);
+      coping(w + 0.16, t + 0.3, (x0 + x1) / 2, h + 0.24, z, 'x');
     };
     // Back wall pieces around the two side windows; the centre section rises higher for the rose window.
     const bz = 2.8;
@@ -965,6 +1290,7 @@ export class HallMap implements GameMap {
       box(b, 'plaster', 1.7, 0.5, 0.4, wx, 1.4, bz, PLASTER);
       box(b, 'plaster', 1.7, 0.75, 0.4, wx, 4.45, bz, PLASTER);
       box(b, 'woodGrain', 1.8, 0.26, 0.6, wx, H - 0.02, bz, CAP);
+      coping(1.86, 0.7, wx, H + 0.24, bz, 'x');
       this.windowAt(b, wx, 1.9, bz + 0.21, 1.6, 2.3);
     }
     // Rose window (6 petals = 6 rooms) over the dais.
@@ -989,6 +1315,7 @@ export class HallMap implements GameMap {
         box(b, 'plaster', 0.4, SIDE_H - 1.4, w, sx, 1.4, (z0 + z1) / 2, PLASTER, 0, 0.02);
         box(b, 'woodGrain', 0.54, 0.12, w, sx, 1.38, (z0 + z1) / 2, TRIM);
         box(b, 'woodGrain', 0.6, 0.26, w, sx, SIDE_H - 0.02, (z0 + z1) / 2, CAP);
+        coping(0.7, w + 0.16, sx, SIDE_H + 0.24, (z0 + z1) / 2, 'z');
       };
       seg(2.6, 21.3);
     }
@@ -1080,12 +1407,20 @@ export class HallMap implements GameMap {
     box(b, 'plaster', 0.3, h - 1.25, w, x, 1.25, (z0 + z1) / 2, 0xf0e2c6, 0, 0.02);
     box(b, 'woodGrain', 0.46, 0.1, w, x, 1.24, (z0 + z1) / 2, 0x5e3a22);
     box(b, 'woodGrain', 0.5, 0.2, w, x, h - 0.05, (z0 + z1) / 2, 0xa87448);
+    this.copeZ(b, x, z0, z1, h + 0.15);
+  }
+
+  /** Pale limestone coping along a cut-away divider top (runs along z): the section edge reads built. */
+  private copeZ(b: B, x: number, z0: number, z1: number, y: number): void {
+    b.add(hallMats().stone, roundedBox(0.62, 0.08, z1 - z0 + 0.04, 0.03), mat(x, y + 0.04, (z0 + z1) / 2), { tint: 0xd9ccb4 });
+    box(b, 'woodGrain', 0.52, 0.03, z1 - z0, x, y - 0.03, (z0 + z1) / 2, 0x3a2416);
   }
 
   private archAt(b: B, x: number, z: number, h: number): void {
     // Lintel above the opening and a round timber arch.
     box(b, 'plaster', 0.3, h - 2.45, 3.0, x, 2.45, z, 0xf0e2c6, 0, 0.02);
     box(b, 'woodGrain', 0.5, 0.2, 3.0, x, h - 0.05, z, 0xa87448);
+    this.copeZ(b, x, z - 1.5, z + 1.5, h + 0.15);
     const arch = new THREE.TorusGeometry(1.5, 0.1, 6, 20, Math.PI);
     arch.rotateY(Math.PI / 2);
     b.add(hallMats().woodGrain, arch, mat(x, 1.25, z, 0, 0, 0, 1, 0.8, 1), { tint: 0x6a4226 });
@@ -2252,6 +2587,7 @@ export class HallMap implements GameMap {
     };
     for (const v of this.rooms.values()) for (const g of [v.dark, v.lit, v.sterile, v.sacks]) take(g);
     take(this.naveDark);
+    take(this.naveLit);
     const out = new THREE.Group();
     out.name = 'hall-dressing';
     out.userData.perfTag = 'hall-dressing';
@@ -2288,6 +2624,7 @@ export class HallMap implements GameMap {
     if (v.frame.def.id === 'hearth') this.hearthFire.active = on && !v.glimmer;
     // The nave clears once most of the Hall is lit again.
     this.naveDark.visible = this.litCount < 4;
+    this.naveLit.visible = !this.naveDark.visible && this.glimmerCount < 3;
   }
 
   /** How many rooms burn EverGlow white (drives the cold interior grade). */

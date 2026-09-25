@@ -48,7 +48,7 @@ let crowMat: THREE.MeshStandardMaterial | null = null;
  */
 function material(): THREE.MeshStandardMaterial {
   if (!crowMat) {
-    crowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.38, metalness: 0.08 });
+    crowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.04 });
     crowMat.name = 'crow';
     applyWorldFx(crowMat, { snow: false });
     patchMaterial(crowMat, 'crow-sheen', (shader) => {
@@ -61,7 +61,7 @@ function material(): THREE.MeshStandardMaterial {
           float rim = pow(1.0 - ndv, 2.4);
           // Oil-slick sheen: blue at the rim shading to violet, stronger on the darkest feathers.
           float ink = 1.0 - smoothstep(0.05, 0.3, dot(diffuseColor.rgb, vec3(0.33)));
-          totalEmissiveRadiance += mix(vec3(0.16, 0.24, 0.5), vec3(0.3, 0.2, 0.46), ndv) * rim * (0.35 + 0.4 * ink) + diffuseColor.rgb * rim * 0.5;
+          totalEmissiveRadiance += mix(vec3(0.12, 0.17, 0.34), vec3(0.2, 0.14, 0.3), ndv) * rim * (0.25 + 0.3 * ink) + diffuseColor.rgb * rim * 0.4;
         }`,
       );
     });
@@ -78,8 +78,12 @@ function part(fn: (b: MeshBuilder) => void, name: string): THREE.Mesh {
   return m;
 }
 
-const INK = 0x16171f;
-const SHEEN = 0x2c3456;
+// Slate blue-black rather than pure ink: the form (breast, folded wing, crown) keeps reading
+// against dark soil and leaf shadow instead of collapsing into a black blob.
+const INK = 0x1c202c;
+const SHEEN = 0x2e3650;
+const BREAST = 0x262b38;
+const WING = 0x252c42;
 
 export class CrowFlock {
   readonly group = new THREE.Group();
@@ -103,31 +107,38 @@ export class CrowFlock {
     root.add(body);
     body.add(
       part((b) => {
-        const torso = lumpySphere(0.1, 1, 0.08, r);
-        b.add(M, torso, mat(0, 0.14, 0, 0, 0, 0, 0.85, 0.8, 1.35), { tint: INK });
-        b.add(M, new THREE.SphereGeometry(0.07, 8, 6), mat(0, 0.12, 0.06, 0, 0, 0, 1, 0.9, 1.1), { tint: SHEEN });
-        // Tail fan
-        const tail = new THREE.ConeGeometry(0.06, 0.18, 4);
-        b.add(M, tail, mat(0, 0.17, -0.18, -Math.PI / 2 - 0.35, 0, 0, 1, 1, 0.3), { tint: INK });
-        // Legs
-        for (const s of [-1, 1]) b.add(M, new THREE.CylinderGeometry(0.008, 0.008, 0.08, 4), mat(s * 0.035, 0.04, 0.02), { tint: 0x3a3228 });
+        // A long teardrop body (breast forward, tapering into the tail), not a ball.
+        const torso = lumpySphere(0.1, 1, 0.05, r);
+        b.add(M, torso, mat(0, 0.15, -0.01, -0.18, 0, 0, 0.78, 0.74, 1.5), { tint: INK });
+        // Breast / throat: a slightly lighter, duller patch catching the key light.
+        b.add(M, new THREE.SphereGeometry(0.068, 10, 8), mat(0, 0.14, 0.07, 0, 0, 0, 0.95, 0.95, 1.05), { tint: BREAST });
+        // Tail: a flat, square-ended wedge angled down behind the body (the crow's tell-tale tail).
+        const tail = new THREE.BoxGeometry(0.075, 0.016, 0.17, 1, 1, 2);
+        const tp = tail.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < tp.count; i++) if (tp.getZ(i) < 0) tp.setX(i, tp.getX(i) * 1.45);
+        tail.computeVertexNormals();
+        b.add(M, tail, mat(0, 0.15, -0.21, -0.25, 0, 0), { tint: INK });
+        // Legs + toes
+        for (const s of [-1, 1]) {
+          b.add(M, new THREE.CylinderGeometry(0.009, 0.008, 0.09, 4), mat(s * 0.035, 0.045, 0.02), { tint: 0x2c2a2a });
+          b.add(M, new THREE.CylinderGeometry(0.006, 0.004, 0.06, 4), mat(s * 0.035, 0.004, 0.045, Math.PI / 2, 0, 0), { tint: 0x2c2a2a });
+        }
       }, 'crow-body'),
     );
     const head = new THREE.Group();
     head.position.set(0, 0.22, 0.1);
     head.add(
       part((b) => {
-        b.add(M, new THREE.SphereGeometry(0.065, 10, 8), mat(0, 0.02, 0.02), { tint: INK });
-        const beak = new THREE.ConeGeometry(0.024, 0.1, 6);
-        b.add(M, beak, mat(0, 0.005, 0.115, Math.PI / 2, 0, 0), { tint: 0x8a8174 });
+        b.add(M, new THREE.SphereGeometry(0.062, 12, 9), mat(0, 0.02, 0.02, 0, 0, 0, 0.92, 0.95, 1.08), { tint: INK });
+        // Heavy crow bill: a deep upper mandible over a thinner lower one, dark horn grey.
+        const bill = new THREE.ConeGeometry(0.027, 0.11, 7);
+        b.add(M, bill, mat(0, 0.014, 0.11, Math.PI / 2 + 0.08, 0, 0, 1, 1, 0.8), { tint: 0x3b3a40 });
+        b.add(M, new THREE.ConeGeometry(0.018, 0.085, 6), mat(0, -0.004, 0.1, Math.PI / 2 - 0.12, 0, 0, 1, 1, 0.7), { tint: 0x2b2a30 });
         for (const s of [-1, 1]) {
-          // Glossy dark eye ringed in grey, with a hard white glint (reads at gameplay zoom).
-          b.add(M, new THREE.SphereGeometry(0.019, 8, 6), mat(s * 0.043, 0.036, 0.055), { tint: 0x55586a });
-          b.add(M, new THREE.SphereGeometry(0.014, 8, 6), mat(s * 0.049, 0.037, 0.06), { tint: 0x0a0a0e });
-          b.add(M, new THREE.SphereGeometry(0.0055, 6, 4), mat(s * 0.058, 0.044, 0.068), { tint: 0xffffff });
+          // Dark eye with a hard white glint (reads at gameplay zoom).
+          b.add(M, new THREE.SphereGeometry(0.014, 8, 6), mat(s * 0.047, 0.036, 0.05), { tint: 0x07070a });
+          b.add(M, new THREE.SphereGeometry(0.005, 6, 4), mat(s * 0.056, 0.043, 0.058), { tint: 0xffffff });
         }
-        // A glossy blue-violet sheen over the crown (readable form instead of a black blob).
-        b.add(M, new THREE.SphereGeometry(0.05, 8, 6), mat(0, 0.05, -0.005, 0, 0, 0, 1.05, 0.7, 1.05), { tint: 0x3a4468 });
       }, 'crow-head'),
     );
     body.add(head);
@@ -171,9 +182,21 @@ export class CrowFlock {
     // primaries crossing in a point over the tail.
     const folded = part((b) => {
       for (const s of [-1, 1]) {
-        b.add(M, new THREE.SphereGeometry(0.06, 10, 8), mat(s * 0.062, 0.165, -0.035, 0.22, s * 0.12, 0, 0.5, 0.62, 1.75), { tint: 0x262c46 });
-        const prim = new THREE.ConeGeometry(0.03, 0.17, 6);
-        b.add(M, prim, mat(s * 0.022, 0.19, -0.2, -Math.PI / 2 - 0.12, 0, s * 0.18, 1, 1, 0.45), { tint: INK });
+        // Closed wing: a long flattened blade along the flank, its primaries meeting in one point
+        // over the tail (no splayed fingers on the ground).
+        const w = new THREE.SphereGeometry(0.07, 12, 8);
+        const wp = w.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < wp.count; i++) {
+          const z = wp.getZ(i);
+          if (z < 0) {
+            const k = -z / 0.07;
+            wp.setX(i, wp.getX(i) * (1 - 0.75 * k));
+            wp.setY(i, wp.getY(i) * (1 - 0.6 * k));
+            wp.setZ(i, z * 2.1);
+          }
+        }
+        w.computeVertexNormals();
+        b.add(M, w, mat(s * 0.058, 0.175, -0.04, 0.04, s * 0.06, s * 0.1, 0.42, 0.62, 1.25), { tint: WING });
       }
     }, 'crow-folded');
     folded.visible = false;
@@ -192,8 +215,8 @@ export class CrowFlock {
     const a = this.rng.next() * Math.PI - Math.PI;
     // Lands on the soil at the tile's edge (never in the middle of the plant), facing the crop.
     const side = opts.side ?? this.rng.next() * Math.PI * 2;
-    const lx = x + Math.cos(side) * 0.4;
-    const lz = z + Math.sin(side) * 0.4;
+    const lx = x + Math.cos(side) * 0.52;
+    const lz = z + Math.sin(side) * 0.52;
     const gy = this.ground(lx, lz);
     const from = new THREE.Vector3(x + Math.cos(a) * 12, gy + 7 + this.rng.next() * 2, z + Math.sin(a) * 8 - 6);
     const crow: Crow = {
@@ -350,7 +373,8 @@ export class CrowFlock {
         c.wingL.scale.set(fold, 1, 1);
         c.wingR.scale.set(fold, 1, 1);
         // Only a real flick opens the flight wings; otherwise the closed-wing volumes show.
-        this.showWings(c, flick > 0.35);
+        this.showWings(c, false);
+        c.folded.scale.set(1 + flick * 0.35, 1 + flick * 0.2, 1);
         if ((c.pecks >= 6 && !c.stay) || near(root.position, 2.6)) {
           c.state = 'out';
           c.t = 0;

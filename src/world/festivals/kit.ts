@@ -26,8 +26,10 @@ import { CardBuilder, applyBillboard, applyCardMap, applyPaintedLight } from '..
 export const PASTELS = [0xf7a8c0, 0xfde2a0, 0xb8e0f0, 0xd4b8f0, 0xc0e8b0, 0xffffff, 0xffc4a8];
 
 function flowerHead(b: MeshBuilder, x: number, y: number, z: number, color: number, s = 1, rng?: Rng): void {
-  const g = new THREE.IcosahedronGeometry(0.07 * s, 0);
-  g.scale(1, 0.75, 1);
+  // An octahedron (8 tris, not 20): a bloom is a 3–4 px dot at diorama distance; thousands of them
+  // stud the floats, arches and planters, so this is the single biggest triangle saving in spring.
+  const g = new THREE.OctahedronGeometry(0.075 * s, 0);
+  g.scale(1, 0.7, 1);
   b.add('boxFlower', g, mat(x, y, z, rng ? rng.next() : 0, rng ? rng.next() * 3 : 0, 0), { tint: color });
 }
 
@@ -422,7 +424,8 @@ export function buildCherryTrees(rng: Rng, trees: { x: number; y: number; z: num
       }
       for (const [cp, cr] of puffs) {
         puffList.push({ c: cp.clone(), r: cr, tint: pinks[Math.floor(rng.next() * pinks.length)]!, crown: fork.clone().add(P(0, 1.1 * s, 0)) });
-        const g = lumpySphere(cr * 0.86, cr > 0.5 * s ? 2 : 1, 0.3, rng, 2.6);
+        // (The blossom cards dress the silhouette: the shell under them only needs one subdivision.)
+        const g = lumpySphere(cr * 0.86, 1, 0.3, rng, 2.6);
         g.scale(1.08, 0.74, 1.08);
         sphericalNormals(g, new THREE.Vector3(), 0.8);
         // Shells a shade deeper than the cards: gaps between the floret clusters read as depth.
@@ -450,7 +453,7 @@ export function buildCherryTrees(rng: Rng, trees: { x: number; y: number; z: num
       const cp = fork.clone().add(P(Math.cos(a) * rr, (i === 0 ? 1.55 : 1.05 + rng.next() * 0.3) * s, Math.sin(a) * rr));
       const cr = (i === 0 ? 0.95 : 0.72 + rng.next() * 0.12) * s;
       puffList.push({ c: cp.clone(), r: cr, tint: pinks[Math.floor(rng.next() * pinks.length)]!, crown: fork.clone().add(P(0, 1.1 * s, 0)) });
-      const g = lumpySphere(cr * 0.88, 2, 0.3, rng, 2.4);
+      const g = lumpySphere(cr * 0.88, i === 0 ? 2 : 1, 0.3, rng, 2.4);
       g.scale(1.12, 0.72, 1.12);
       sphericalNormals(g, new THREE.Vector3(), 0.8);
       const tint = new THREE.Color(pinks[Math.floor(rng.next() * pinks.length)]!).multiplyScalar(0.78).getHex();
@@ -1161,7 +1164,7 @@ export function pumpkinGeometry(r: number, ribs = 12, squash = 0.72): THREE.Buff
   return g;
 }
 
-export function buildGiantPumpkin(rng: Rng, r: number, tint: number, plinth = true): { group: THREE.Group; top: number } {
+export function buildGiantPumpkin(rng: Rng, r: number, tint: number, plinth = true, body = true): { group: THREE.Group; top: number } {
   const b = new MeshBuilder();
   let base = 0;
   if (plinth) {
@@ -1169,6 +1172,8 @@ export function buildGiantPumpkin(rng: Rng, r: number, tint: number, plinth = tr
     b.add('thatch', roundedBox(r * 2.2, 0.08, r * 2.2, 0.04), mat(0, 0.32, 0), { tint: 0xe8c878 });
     base = 0.36;
   }
+  // `body` false: just the straw pallet (another crop — or your entry — goes on top).
+  if (!body) return { group: b.build({ name: 'produce-pallet' }), top: base };
   const g = pumpkinGeometry(r, 12, 0.74);
   b.add('white', g, mat(0, base + r * 0.72, 0), { tint, aoWorld: (p) => 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y, base, base + r * 0.7) });
   const stem = new THREE.CylinderGeometry(r * 0.07, r * 0.12, r * 0.35, 7);
@@ -1249,6 +1254,22 @@ function bannerMaterial(text: string, bg: string, fg: string, w = 1024, h = 192)
   m.name = `banner:${text}`;
   applyWorldFx(m);
   return m;
+}
+
+/** A little hand-lettered name card on a stake (the produce table's entry cards). */
+export function buildEntryCard(text: string, bg = '#b8402f'): THREE.Group {
+  const b = new MeshBuilder();
+  b.add('woodGrain', roundedBox(0.04, 0.5, 0.04, 0.01, 1), mat(0, 0.25, -0.02, -0.12, 0, 0), { tint: 0x7a5a3a });
+  b.add('woodGrain', roundedBox(0.92, 0.36, 0.04, 0.015, 1), mat(0, 0.52, 0.02, -0.35, 0, 0), { tint: 0x8a6a4a });
+  const g = b.build({ name: 'entry-card' });
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.3), bannerMaterial(text, bg, '#fff4dc', 640, 224));
+  // (Vertex-coloured material: give the plane white vertex colours.)
+  card.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(4 * 3).fill(1), 3));
+  card.position.set(0, 0.52, 0.045);
+  card.rotation.x = -0.35;
+  card.userData.noAO = true;
+  g.add(card);
+  return g;
 }
 
 /** Show stage for the pumpkin judging: plank platform, steps, bunting'd backdrop with a banner. */

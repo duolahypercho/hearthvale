@@ -563,6 +563,7 @@ attribute vec3 aPivot;
 attribute float aMember;
 attribute float aGlow;
 varying float vCrowdGlow;
+varying float vCrowdRim;
 mat3 crX(float a){ float c = cos(a), s = sin(a); return mat3(1.0,0.0,0.0, 0.0,c,s, 0.0,-s,c); }
 mat3 crY(float a){ float c = cos(a), s = sin(a); return mat3(c,0.0,-s, 0.0,1.0,0.0, s,0.0,c); }
 mat3 crZ(float a){ float c = cos(a), s = sin(a); return mat3(c,s,0.0, -s,c,0.0, 0.0,0.0,1.0); }
@@ -660,6 +661,9 @@ void crowdPose(inout vec3 p, inout vec3 n) {
     armLx = -0.55 + sin(t * 1.1) * 0.05; armRx = -0.75 + sin(t * 1.7) * 0.12; armLs = 0.05; armRs = -0.05; torX = -0.06;
     hdY = look; squash = 1.0 + br * 0.015; hdX = sin(t * 0.7) * 0.04;
   }
+  // Faces to the camera (it looks north, down −z): anyone turned roughly toward it tips the head
+  // back a little, so hat brims and fringes come off the eyes and the face reads from above.
+  if (anim < 10.5 || anim > 12.5) hdX -= 0.2 * clamp(cos(A.w + spin) * 1.5, 0.0, 1.0);
   // Juice row: extra squash (spring hops), lean.
   squash *= C.x;
   roll += C.y;
@@ -707,6 +711,7 @@ void crowdPose(inout vec3 p, inout vec3 n) {
   p = A.xyz + q * B.w;
   n = normalize(m);
   vCrowdGlow = aGlow;
+  vCrowdRim = C.w;
 }
 `;
 
@@ -727,8 +732,16 @@ function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, dep
     shader.vertexShader = vs;
     if (!depth) {
       let fs = shader.fragmentShader;
-      fs = before(fs, 'void main() {', 'varying float vCrowdGlow;\nuniform float uLamps;');
+      fs = before(fs, 'void main() {', 'varying float vCrowdGlow;\nvarying float vCrowdRim;\nuniform float uLamps;');
+      // Named villagers carry a soft warm rim (a painted key-light outline) so the town's own people
+      // pop out of the townsfolk crowd at diorama distance.
       fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * vCrowdGlow * (0.6 + uLamps * 3.2);');
+      // (Proportional to the lit colour, so it reads the same at noon and under lamplight.)
+      fs = before(
+        fs,
+        '#include <opaque_fragment>',
+        'if (vCrowdRim > 0.01) { float crRim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0); outgoingLight += (outgoingLight * 0.9 + vec3(0.02, 0.018, 0.012)) * crRim * vCrowdRim; }',
+      );
       shader.fragmentShader = fs;
     }
   });
@@ -748,6 +761,8 @@ export interface CrowdMember {
   squash: number;
   lean: number;
   flare: number;
+  /** Rim-light strength (named villagers stand out of the townsfolk crowd). */
+  rim: number;
 }
 
 /**
@@ -774,7 +789,7 @@ export class Crowd {
       g.setAttribute('aMember', new THREE.BufferAttribute(new Float32Array(n).fill(i), 1));
       geos.push(g);
       const scale = 1.22 * s.look.scale;
-      this.members.push({ spec: s, x: s.x, y: heightAt(s.x, s.z) + (s.lift ?? 0), z: s.z, yaw: s.yaw, anim: Anim[s.anim], phase: s.phase ?? (i * 0.137) % 1, speed: s.speed ?? 1, scale, squash: 1, lean: 0, flare: 0 });
+      this.members.push({ spec: s, x: s.x, y: heightAt(s.x, s.z) + (s.lift ?? 0), z: s.z, yaw: s.yaw, anim: Anim[s.anim], phase: s.phase ?? (i * 0.137) % 1, speed: s.speed ?? 1, scale, squash: 1, lean: 0, flare: 0, rim: s.id ? 1 : 0 });
     });
     const geo = specs.length ? mergeGeometries(geos)! : new THREE.BufferGeometry();
     for (const g of geos) g.dispose();
@@ -832,7 +847,7 @@ export class Crowd {
       d[o] = m.squash;
       d[o + 1] = m.lean;
       d[o + 2] = m.flare;
-      d[o + 3] = 0;
+      d[o + 3] = m.rim;
     }
     this.tex.needsUpdate = true;
   }

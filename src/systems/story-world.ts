@@ -1266,22 +1266,143 @@ function paperLanternGeo(): THREE.BufferGeometry {
   return g;
 }
 
+/**
+ * Sky-lantern paper: eight glued panels (a darker seam and a bamboo rib between each), lit from the
+ * burner in the mouth, so the paper glows near-white at the bottom, amber through the middle and a
+ * deep ember-red at the closed crown; long paper fibres and a faint scorch ring at the mouth.
+ */
+function skyPaperTexture(): THREE.CanvasTexture {
+  const W = 256;
+  const H = 256;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const r = new Rng('sky-paper');
+  // v = 0 at the mouth (canvas bottom), 1 at the crown (top).
+  const grd = g.createLinearGradient(0, H, 0, 0);
+  grd.addColorStop(0, '#fff6d8');
+  grd.addColorStop(0.18, '#ffe0a0');
+  grd.addColorStop(0.5, '#ffb060');
+  grd.addColorStop(0.82, '#e87038');
+  grd.addColorStop(1, '#a8402a');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, W, H);
+  // Fibres.
+  for (let k = 0; k < 420; k++) {
+    g.strokeStyle = `rgba(${r.next() < 0.5 ? '255,250,230' : '160,70,30'},${0.05 + r.next() * 0.07})`;
+    g.lineWidth = 0.6 + r.next();
+    const x = r.next() * W;
+    const y = r.next() * H;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + (r.next() - 0.5) * 6, y + 6 + r.next() * 18);
+    g.stroke();
+  }
+  // Panel seams (eight around), each a dark glue line with a lit edge.
+  const P = W / 8;
+  for (let k = 0; k < 8; k++) {
+    const x = k * P;
+    const sg = g.createLinearGradient(x - 5, 0, x + 5, 0);
+    sg.addColorStop(0, 'rgba(120,40,16,0)');
+    sg.addColorStop(0.5, 'rgba(110,36,14,0.55)');
+    sg.addColorStop(1, 'rgba(120,40,16,0)');
+    g.fillStyle = sg;
+    g.fillRect(x - 5, 0, 10, H);
+    g.fillRect(x - 5 + W, 0, 10, H);
+    // Soft shading across each panel (the paper bellies out between ribs).
+    const pg = g.createLinearGradient(x, 0, x + P, 0);
+    pg.addColorStop(0, 'rgba(90,30,10,0.14)');
+    pg.addColorStop(0.5, 'rgba(255,240,200,0.08)');
+    pg.addColorStop(1, 'rgba(90,30,10,0.14)');
+    g.fillStyle = pg;
+    g.fillRect(x, 0, P, H);
+  }
+  // A cross band a third of the way up (the paper was joined there) and the scorched mouth hoop.
+  g.fillStyle = 'rgba(140,50,20,0.28)';
+  g.fillRect(0, H * 0.6, W, 3);
+  g.fillStyle = 'rgba(70,24,10,0.85)';
+  g.fillRect(0, H - 7, W, 7);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  return t;
+}
+
+/** Sky-lantern bag: straight-sided, a little wider at the crown, domed top, open mouth (0.62 m tall). */
+function skyLanternGeo(): THREE.BufferGeometry {
+  const pts = [
+    new THREE.Vector2(0.15, -0.3),
+    new THREE.Vector2(0.165, -0.22),
+    new THREE.Vector2(0.19, -0.05),
+    new THREE.Vector2(0.21, 0.14),
+    new THREE.Vector2(0.21, 0.22),
+    new THREE.Vector2(0.19, 0.28),
+    new THREE.Vector2(0.12, 0.315),
+    new THREE.Vector2(0.001, 0.325),
+  ];
+  const g = new THREE.LatheGeometry(pts, 16);
+  // Lathe v runs along the profile points: remap to height so the texture gradient follows y.
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) uv.setY(i, THREE.MathUtils.clamp((pos.getY(i) + 0.3) / 0.625, 0, 1));
+  // The burner: a small hot disc across the mouth with its wire cross.
+  const burner = new THREE.CircleGeometry(0.06, 10).rotateX(Math.PI / 2).translate(0, -0.27, 0);
+  const buv = burner.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < buv.count; i++) buv.setXY(i, 0.5, 0.01);
+  const merged = mergeGeometries([g.toNonIndexed(), burner.toNonIndexed()])!;
+  return merged;
+}
+
+/** Soft round halo (additive) — the glow each lantern throws into the night air. */
+function haloTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,220,160,0.9)');
+  grd.addColorStop(0.25, 'rgba(255,170,90,0.35)');
+  grd.addColorStop(0.6, 'rgba(255,120,50,0.08)');
+  grd.addColorStop(1, 'rgba(255,100,40,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 class SkyLanterns {
   readonly mesh: THREE.InstancedMesh;
+  /** One additive halo per lantern (a single Points draw), trailing the bag's mouth. */
+  readonly halos: THREE.Points;
+  private haloPos: Float32Array;
   private n = 130;
   private data: { x: number; y: number; z: number; v: number; ph: number; s: number; t0: number; drift: number }[] = [];
   private tmp = new THREE.Object3D();
   active = false;
   private t = 0;
   constructor() {
-    const m = nearFade(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false }), 3, 7);
+    // Fades out well before the lens: a bag drifting past the camera read as a blurry egg.
+    const m = nearFade(new THREE.MeshBasicMaterial({ map: skyPaperTexture(), toneMapped: false, fog: false, side: THREE.DoubleSide }), 6, 12);
+    m.color.setScalar(1.6);
     m.name = 'sky-lantern';
-    this.mesh = new THREE.InstancedMesh(paperLanternGeo(), m, this.n);
+    this.mesh = new THREE.InstancedMesh(skyLanternGeo(), m, this.n);
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
     this.mesh.userData.noAO = true;
     this.mesh.castShadow = false;
     this.mesh.name = 'sky-lanterns';
+    this.haloPos = new Float32Array(this.n * 3);
+    const hg = new THREE.BufferGeometry();
+    hg.setAttribute('position', new THREE.BufferAttribute(this.haloPos, 3));
+    hg.setDrawRange(0, 0);
+    const hm = new THREE.PointsMaterial({ map: haloTexture(), size: 2.4, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false });
+    hm.name = 'sky-lantern-halo';
+    this.halos = new THREE.Points(hg, hm);
+    this.halos.frustumCulled = false;
+    this.halos.userData.noAO = true;
+    this.halos.name = 'sky-lantern-halos';
+    this.mesh.add(this.halos);
     const r = new Rng('sky-lanterns');
     for (let i = 0; i < this.n; i++) {
       // Released from the crowd round the steps first, then from all over the square.
@@ -1290,19 +1411,23 @@ class SkyLanterns {
       const rad = early ? 3.6 + r.next() * 1.6 : 3 + r.next() * 14;
       const cx = early ? 32 : PLAZA.x;
       const cz = early ? 14.9 : PLAZA.z - 3;
-      this.data.push({ x: cx + Math.sin(a) * rad, y: 1.4 + r.next() * 0.4, z: cz + Math.abs(Math.cos(a)) * rad * (early ? 1 : 0.7), v: 0.5 + r.next() * 0.5, ph: r.next() * 10, s: 0.7 + r.next() * 0.6, t0: early ? r.next() * 1.8 : 1.2 + r.next() * 5, drift: (r.next() - 0.5) * 0.3 });
-      this.mesh.setColorAt(i, new THREE.Color().setHSL(0.04 + r.next() * 0.07, 0.9, 0.5 + r.next() * 0.2));
+      this.data.push({ x: cx + Math.sin(a) * rad, y: 1.4 + r.next() * 0.4, z: cz + Math.abs(Math.cos(a)) * rad * (early ? 1 : 0.7), v: 0.5 + r.next() * 0.5, ph: r.next() * 10, s: 0.75 + r.next() * 0.5, t0: early ? r.next() * 1.8 : 1.2 + r.next() * 5, drift: (r.next() - 0.5) * 0.3 });
+      // Paper tints: mostly warm cream-amber, a few rose and saffron (instance colour x paper map).
+      const hue = r.next() < 0.75 ? 0.08 + r.next() * 0.03 : r.next() < 0.5 ? 0.98 : 0.13;
+      this.mesh.setColorAt(i, new THREE.Color().setHSL(hue, 0.55, 0.62 + r.next() * 0.12));
     }
   }
   start(prewarm = 0): void {
     this.active = true;
     this.t = prewarm;
     this.mesh.count = this.n;
+    this.halos.geometry.setDrawRange(0, this.n);
     this.update(0);
   }
   stop(): void {
     this.active = false;
     this.mesh.count = 0;
+    this.halos.geometry.setDrawRange(0, 0);
   }
   /** Jump the flight forward (a scene cut: the lanterns have been climbing meanwhile). */
   advance(t: number): void {
@@ -1319,13 +1444,20 @@ class SkyLanterns {
       const climb = t < 1.2 ? t * t * 0.42 : 0.6 + (t - 1.2) * d.v;
       const y = d.y + climb;
       this.tmp.position.set(d.x + Math.sin(t * 0.45 + d.ph) * 0.35 + t * d.drift, y, d.z + Math.cos(t * 0.33 + d.ph) * 0.3 - t * 0.12);
-      this.tmp.rotation.set(Math.sin(t * 0.9 + d.ph) * 0.1, t * 0.15 + d.ph, Math.cos(t * 0.7 + d.ph) * 0.1);
+      this.tmp.rotation.set(Math.sin(t * 0.9 + d.ph) * 0.08, t * 0.15 + d.ph, Math.cos(t * 0.7 + d.ph) * 0.08);
       const s = t > 0 ? d.s * Math.min(1, t * 3) : 0;
-      this.tmp.scale.setScalar(s * (y > 30 ? Math.max(0, 1 - (y - 30) / 10) : 1));
+      const k = s * (y > 30 ? Math.max(0, 1 - (y - 30) / 10) : 1);
+      this.tmp.scale.setScalar(k);
       this.tmp.updateMatrix();
       this.mesh.setMatrixAt(i, this.tmp.matrix);
+      // Halo sits just above the burner; hidden (sent far below) until the lantern leaves the hands.
+      const hide = k < 0.05;
+      this.haloPos[i * 3] = this.tmp.position.x;
+      this.haloPos[i * 3 + 1] = hide ? -999 : y - 0.12 * k;
+      this.haloPos[i * 3 + 2] = this.tmp.position.z;
     });
     this.mesh.instanceMatrix.needsUpdate = true;
+    (this.halos.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }
 }
 

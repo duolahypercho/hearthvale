@@ -588,7 +588,7 @@ export class FarmingSystem implements System, FarmingApi {
   // ═════════════════════════════════════════════ tile ops (logic applies immediately)
 
   /** Till a tile. `force` clears debris / cover (showcase staging). */
-  till(x: number, z: number, force = false, animate = false): boolean {
+  till(x: number, z: number, force = false, animate = false, defer = false): boolean {
     const g = this.grid();
     if (!g || !g.inBounds(x, z)) return false;
     if (!g.hasFlag(x, z, TileFlag.Tillable) || g.hasFlag(x, z, TileFlag.Tilled) || g.hasFlag(x, z, TileFlag.Blocked)) return false;
@@ -599,11 +599,18 @@ export class FarmingSystem implements System, FarmingApi {
       g.removeObject(x, z);
     }
     g.setFlag(x, z, TileFlag.Tilled);
+    // `defer`: the logic flips now, but the lawn stays unbroken until the blade bites
+    // (`breakGround` on the impact frame) — no bare patch appearing during the wind-up.
+    if (!defer) this.breakGround(x, z, animate);
+    this.game.events.emit('soil:tilled', { x, z });
+    return true;
+  }
+
+  /** Visual half of a till: tufts gone, splat painted, the soil pad (and its neighbours' edges) rebuilt. */
+  private breakGround(x: number, z: number, animate = false): void {
     this.map?.clearGroundCover?.(x, z);
     this.paint(x, z);
     this.refreshAround(x, z, animate);
-    this.game.events.emit('soil:tilled', { x, z });
-    return true;
   }
 
   untill(x: number, z: number): void {
@@ -1070,17 +1077,17 @@ export class FarmingSystem implements System, FarmingApi {
     switch (itemId) {
       case 'hoe': {
         const giant = this.giantAt(x, z);
-        const ok = !giant && this.till(x, z, false, false);
+        const ok = !giant && this.till(x, z, false, false, true);
         if (ok) {
-          // Logic done; the soil pad heaves up on the impact frame.
-          this.soil?.clear(x, z, true);
+          // Logic done; the lawn breaks and the soil pad heaves up on the impact frame.
           this.spend(2);
         } else this.spend(1); // a missed swing still tires the arms
         const tilledBefore = !ok && this.isTilled(x, z);
         this.startAction('chop', 'hoe', x, z, () => {
           const c = this.center(x, z, 0.05);
           if (ok) {
-            this.refreshSoil(x, z, true);
+            if (this.isTilled(x, z)) this.breakGround(x, z, true);
+            this.commit();
             this.fx.hoeImpact(c, dx, dz, SOIL_COLOR, 1);
             // Torn sod: blades of grass flicked up with the clods — they flutter off and are gone
             // within ~0.6 s (nothing green is left lying on the fresh soil).
@@ -1971,8 +1978,11 @@ export class FarmingSystem implements System, FarmingApi {
         const edge = x === X0 - 1 || x === X1 + 1 || z === Z0 - 1 || z === Z1 + 1;
         if (inner && z >= Z0 && z <= Z1) {
           this.stagePath(x, z, 0.9);
-          // Trodden walkways are bare: tall lawn tufts standing in them read as random clutter.
+          // Trodden walkways are bare: tall lawn tufts standing in them read as random clutter,
+          // and a mossy stone / weed left on the cross path swallowed the hero farmer's boots.
           this.map?.clearGroundCover?.(x, z);
+          const o = g.getObject(x, z);
+          if (o && (o.kind === 'stone' || o.kind === 'weed' || o.kind === 'twig' || o.kind === 'boulder' || o.kind === 'branch' || o.kind === 'stump' || o.kind === 'log')) g.removeObject(x, z);
         }
         else if (edge || inner) this.stagePath(x, z, 0.5);
       }
@@ -2017,8 +2027,12 @@ export class FarmingSystem implements System, FarmingApi {
     this.clearRect(X0, Z0, X1, Z1);
     const g = this.grid();
     if (!g) return;
-    // The farmer stands on the north edge facing the camera; the top row is half-hoed toward him,
-    // with a watered strip, seedlings and freshly sown furrows behind.
+    // The farmer works west along the bed's north row (fresh, bare furrows behind the blade; the
+    // lawn still unbroken ahead of it). Towards the camera the bed tells the season's story row by
+    // row: a watered strip of just-sown seed, first sprouts, then leafy young crops.
+    const season = this.game.calendar.season;
+    const pick = cropsFor(season === 'winter' ? 'spring' : season).filter((id) => !CROPS[id].trellis && !CROPS[id].regrow);
+    const ids: CropId[] = pick.length ? pick : ['parsnip', 'potato', 'cauliflower', 'kale'];
     for (let z = Z0; z <= Z1; z++) {
       for (let x = X0; x <= X1; x++) {
         if (z === Z0 && x >= 26) {
@@ -2027,10 +2041,17 @@ export class FarmingSystem implements System, FarmingApi {
         }
         this.till(x, z, true);
         const h = (x * 97 + z * 31) >>> 0;
-        if (z <= Z0 + 1) this.water(x, z);
-        if (z === Z0) this.plant(x % 2 ? 'parsnip' : 'potato', x, z, this.daysAt(x % 2 ? 'parsnip' : 'potato', 2 + (x % 2)), h);
-        if (z === Z0 + 1 && x <= 27) this.plant(x % 3 ? 'cauliflower' : 'kale', x, z, this.daysAt(x % 3 ? 'cauliflower' : 'kale', 1 + (x % 3)), h);
-        if (z === Z0 + 2 && x <= 26) this.plant('parsnip', x, z, 0, h);
+        const row = z - Z0;
+        if (row >= 1 && (row < 3 || (x + z) % 3 !== 0)) this.water(x, z);
+        if (row === 1) this.plant(ids[x % ids.length]!, x, z, 0, h);
+        if (row === 2) {
+          const id = ids[(x + 1) % ids.length]!;
+          this.plant(id, x, z, this.daysAt(id, 1 + (h % 2)), h);
+        }
+        if (row === 3) {
+          const id = ids[(x + 2) % ids.length]!;
+          this.plant(id, x, z, this.daysAt(id, 3 + (h % 2)), h);
+        }
       }
     }
     this.commit();
@@ -2199,7 +2220,12 @@ export class FarmingSystem implements System, FarmingApi {
     if (!g) return;
     const freeze = pose ?? (what === 'wateringCan' ? 0.74 : what === 'harvest' ? 0.72 : what === 'scythe' ? 0.26 : IMPACT.chop + 0.07);
     if (what === 'hoe' || what === 'charge') {
-      if (this.isTilled(t.x, t.z)) this.untill(t.x, t.z);
+      if (this.isTilled(t.x, t.z)) {
+        this.untill(t.x, t.z);
+        // A looped swing restores the lawn: last swing's resting clods / cracks go with the soil
+        // (they sat on unbroken grass through the next wind-up otherwise).
+        this.fx.clear();
+      }
       g.removeObject(t.x, t.z);
     }
     if (what === 'wateringCan' && !g.hasFlag(t.x, t.z, TileFlag.WaterSource)) {

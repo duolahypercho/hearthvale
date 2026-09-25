@@ -197,7 +197,8 @@ export function buildInn(rng: Rng): BuiltProp {
   const l = new THREE.PointLight(0xffb45e, 0, 8, 1.8);
   l.position.set(0, 2.3, fz + 1.9);
   bp.group.add(l);
-  bp.lights.push({ light: l, max: 9 });
+  // (kept soft: a hotter porch lamp blew the door + wall out into a bloom glare behind close shots)
+  bp.lights.push({ light: l, max: 4.5 });
   bp.anchors.door = new THREE.Vector3(0, 0, fz + 2.2);
   return bp;
 }

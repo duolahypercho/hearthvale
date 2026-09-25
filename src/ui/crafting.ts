@@ -77,9 +77,10 @@ export class CraftingScreen extends Screen {
       // Keyboard / gamepad focus drives the selection (the detail column follows, like a click).
       c.addEventListener('u-focus', () => this.select(i));
       // Hover preview for the other recipes only (the selected one is already spelled out in the detail
-      // column), docked to the card's left so it never covers the ingredient counts.
+      // column), docked outside the workbench's left edge (level with the card) so it never covers a recipe
+      // or the ingredient counts; on narrow screens it falls back to the card's left.
       c.addEventListener('pointerenter', () => {
-        if (x.known && i !== this.sel) tooltip.beside(itemTooltipHtml({ id: x.r.out.itemId, qty: x.r.out.qty }), c, 'left');
+        if (x.known && i !== this.sel) tooltip.beside(itemTooltipHtml({ id: x.r.out.itemId, qty: x.r.out.qty }), c, 'left', 16, this.root.querySelector('.u-frame') ?? undefined);
       });
       c.addEventListener('pointerleave', () => tooltip.hide());
       this.cards.appendChild(c);

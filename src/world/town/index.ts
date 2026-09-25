@@ -700,7 +700,9 @@ export class TownMap implements GameMap {
         this.root.add(g);
         continue;
       }
-      this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid, { lights, y });
+      // Street boards stand on their own tile: villagers path round them instead of through them.
+      const solid = p.solid ?? (p.kind === 'sandwichBoard' || p.kind === 'chalkBoard' ? ([[Math.floor(p.x), Math.floor(p.z)]] as [number, number][]) : undefined);
+      this.addProp(g, p.x, p.z, p.rot ?? 0, solid, { lights, y });
       if (!['hedge', 'dock', 'rowboat', 'laundry', 'fence', 'flowerRing'].includes(p.kind)) this.terrain.stampCover('ao', p.x, p.z, p.kind === 'stall' ? 1.6 : p.kind === 'well' ? 1.2 : 0.6, 0.6);
     }
     // The dock is walkable: a short jetty over the water.

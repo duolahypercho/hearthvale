@@ -452,7 +452,7 @@ export class SummerLanterns extends FestivalMap {
     this.root.add(sky.group);
     // Shells burst low over the bay, inside the high diorama camera's frame (the sky is never in
     // shot), and read twice: once in the air and again as coloured reflections on the water.
-    this.fireworks = new Fireworks({ area: new THREE.Vector4(32, 9.5, 26, 4), heights: new THREE.Vector2(3.8, 5.8), groundY: 0.2, shells: 7, sparks: 120, mirrorY: 0, spread: 0.7, size: 1.15 });
+    this.fireworks = new Fireworks({ area: new THREE.Vector4(32, 9.5, 26, 4), heights: new THREE.Vector2(3.8, 5.8), groundY: 0.2, shells: 10, sparks: 110, mirrorY: 0, spread: 0.8, size: 1.15 });
     this.fireworks.group.userData.perfTag = 'fireworks';
     this.root.add(this.fireworks.group);
     this.flashLight = new THREE.PointLight(0xffffff, 0, 60, 1.2);
@@ -542,9 +542,11 @@ export class SummerLanterns extends FestivalMap {
     const petals = new THREE.ConeGeometry(0.34, 0.14, 8, 1, true);
     const petalMat = new THREE.MeshStandardMaterial({ color: 0xf6c8d8, emissive: 0xff7a9a, emissiveIntensity: 0.35, roughness: 0.7, side: THREE.DoubleSide });
     const meshes: THREE.Group[] = [];
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 6; k++) {
       const g = new THREE.Group();
-      const b = new THREE.Mesh(body, paper);
+      // Own paper per lantern: it takes the colour of its release (gold radiant … dim sputter).
+      const b = new THREE.Mesh(body, paper.clone());
+      b.name = 'paper';
       b.position.y = 0.2;
       const c = new THREE.Mesh(cap, wood);
       c.position.y = 0.38;
@@ -574,7 +576,13 @@ export class SummerLanterns extends FestivalMap {
     this.wish ??= this.buildWishLanterns();
     this.wish.held = 0;
     this.wish.sailing = [];
-    this.wish.meshes.forEach((m) => (m.visible = false));
+    this.wish.meshes.forEach((m) => {
+      m.visible = false;
+      const pm = (m.getObjectByName('paper') as THREE.Mesh | undefined)?.material as THREE.MeshStandardMaterial | undefined;
+      pm?.color.setHex(0xffc070);
+      pm?.emissive.setHex(0xff9a40);
+      if (pm) pm.emissiveIntensity = 1.6;
+    });
     this.placePlayer(ARCH.x, ARCH.z + 1.1, 'up');
     this.frame({ pitch: 30, distance: 16, yaw: 0, ox: 0, oz: -3.5 });
   }
@@ -591,7 +599,15 @@ export class SummerLanterns extends FestivalMap {
     if (kind === 'release') {
       const k = w.held;
       w.sailing.push({ k, t0: this.game.time, x: p.x, z: p.z, q: value });
-      w.held = Math.min(3, k + 1);
+      w.held = Math.min(5, k + 1);
+      // Colour-coded by accuracy: radiant = white-gold, aloft = warm amber, wobbly = rose, sputter = dull.
+      const paperM = (w.meshes[k]?.getObjectByName('paper') as THREE.Mesh | undefined)?.material as THREE.MeshStandardMaterial | undefined;
+      if (paperM) {
+        const [c, e, ei] = ([[0xa89078, 0x7a4a2a, 0.35], [0xf0a8b8, 0xff6a8a, 1.0], [0xffc070, 0xff9a40, 1.6], [0xfff0b0, 0xffd060, 2.6]] as const)[Math.max(0, Math.min(3, value))]!;
+        paperM.color.setHex(c);
+        paperM.emissive.setHex(e);
+        paperM.emissiveIntensity = ei;
+      }
       const cols = value >= 2 ? [0xffd27a, 0xfff0c0, 0x7ae8f0] : [0xffb050, 0xc8a080];
       for (const c of cols) this.burst(p.x, p.y + 1.5, p.z - 0.5, { color: c, count: value >= 2 ? 18 : 8, speed: 1.6, size: 0.1, gravity: -0.3, life: 1.6, up: 1, spread: 0.5 });
       // The waterline crowd cheers a good release.
@@ -606,7 +622,7 @@ export class SummerLanterns extends FestivalMap {
 
   protected override onEndPlay(): void {
     // Released lanterns keep sailing; the held one goes away.
-    if (this.wish) this.wish.held = 3;
+    if (this.wish) this.wish.held = 5;
   }
 
   protected override playerPose(rig: PlayerRig, play: PlayState): ActionPose | null {
@@ -628,7 +644,7 @@ export class SummerLanterns extends FestivalMap {
     const play = this.play;
     const p = game.player.position;
     // In-hand lantern.
-    const holding = play?.id === 'lanterns' && w.held < 3;
+    const holding = play?.id === 'lanterns' && w.held < 5;
     w.meshes.forEach((m, k) => {
       const s = w.sailing.find((q) => q.k === k);
       if (holding && k === w.held && !s) {
@@ -648,14 +664,14 @@ export class SummerLanterns extends FestivalMap {
       const a = game.time - s.t0;
       const u = Math.min(1, a / 1.6);
       const out = a < 1.6 ? u * 2.2 : 2.2 + (a - 1.6) * (0.35 + s.q * 0.12);
-      const x = s.x + Math.sin(a * 0.3 + k) * 0.8 * Math.min(1, out / 6) + (k - 1) * 0.5 * u;
+      const x = s.x + Math.sin(a * 0.3 + k) * 0.8 * Math.min(1, out / 6) + (k - 2) * 0.45 * u;
       const z = s.z - 0.4 - out;
       const hy = s.z - out < this.shoreZ(x) ? 0.02 + Math.sin(game.time * 1.4 + k) * 0.03 : this.H(x, z) + 0.02;
       const y = a < 1.6 ? THREE.MathUtils.lerp(p.y + 1.6, hy, u * u) + Math.sin(u * Math.PI) * 0.5 : hy;
       m.visible = true;
       m.position.set(x, y, z);
       m.rotation.set(Math.sin(game.time * 1.1 + k) * 0.06, a * 0.2, Math.sin(game.time * 1.3 + k) * 0.06);
-      w.glow.set(k, x, y + 0.2, z, (s.q >= 2 ? 1.6 : 1.0) * (1 + 0.1 * Math.sin(game.time * 3 + k)));
+      w.glow.set(k, x, y + 0.2, z, [0.45, 0.9, 1.5, 2.1][Math.max(0, Math.min(3, s.q))]! * (1 + 0.1 * Math.sin(game.time * 3 + k)));
       if (out > 40) {
         m.visible = false;
         w.glow.set(k, 0, -50, 0, 0);

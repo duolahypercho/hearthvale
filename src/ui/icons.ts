@@ -1707,6 +1707,23 @@ export function itemSvg(id: string): string {
   return s;
 }
 
+/**
+ * Where an item's art comes from (icon audit / almanac QA): 'override' (registered by a pod), 'legacy', 'seed',
+ * 'hand:<painter>' (drawn for this id or its icon key), 'keyword:<painter>' (shared by name match) or 'generic:<kind>'.
+ */
+export function iconSource(id: string): string {
+  const def = itemDef(id);
+  if (!HAND_FIRST.has(id) && (OVERRIDES.has(id) || (def?.icon && OVERRIDES.has(def.icon)))) return 'override';
+  if (def?.icon && !HUD_KEYS.has(def.icon) ? ICONS[def.icon] : !HUD_KEYS.has(id) ? ICONS[id] : undefined) return 'legacy';
+  if (def?.kind === 'seed' || /Seeds?$/.test(id)) return 'seed';
+  if (HAND_PAINTERS[id]) return `hand:${id}`;
+  if (def?.icon && HAND_PAINTERS[def.icon]) return `hand:${def.icon}`;
+  if (def?.kind === 'fish') return 'fish';
+  const hay = `${id} ${def?.icon ?? ''} ${def?.name ?? ''}`;
+  for (const [re, k] of KEYWORDS) if (re.test(hay)) return `keyword:${k}`;
+  return `generic:${def?.kind ?? '?'}`;
+}
+
 export function itemIconUrl(id: string): string {
   let u = urlCache.get(id);
   if (!u) {

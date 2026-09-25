@@ -222,6 +222,7 @@ export abstract class FestivalMap implements GameMap {
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.ambience.group);
     if (this.crowdSpecs.length) {
+      this.turnToCamera();
       this.separateCrowd();
       this.crowd = new Crowd(this.crowdSpecs, (x, z) => this.terrain.heightAt(x, z), `${this.id}-crowd`);
       this.crowdSpecs.forEach((s, i) => {
@@ -242,6 +243,12 @@ export abstract class FestivalMap implements GameMap {
     this.bursts.object.userData.noAO = true;
     this.root.add(this.bursts.object);
     this.terrain.commitCover();
+    // Blooms studding floats / arches / planters are 3–4 px dots at diorama distance: their shadows
+    // are invisible, but thousands of them doubled the shadow pass (~70k triangles on spring).
+    this.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && !Array.isArray(m.material) && (m.material as THREE.Material).name === 'boxFlower') m.castShadow = false;
+    });
     if (new URLSearchParams(location.search).has('coop')) this.stageVisitors();
     return this;
   }
@@ -265,6 +272,134 @@ export abstract class FestivalMap implements GameMap {
   }
 
   // ───────────────────────────────────────────── helpers
+
+  /**
+   * Townsfolk who stand with their backs to the (north-looking) camera read as coloured blobs:
+   * about a third of them turn three-quarters round — chatting with a neighbour, glancing back —
+   * so the crowd shows faces. Scripted / seated / lifted members and named villagers stay put.
+   */
+  protected turnToCamera(frac = 0.38): void {
+    const free = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'talk', 'sway', 'toast', 'wave', 'lantern']);
+    this.crowdSpecs.forEach((s, i) => {
+      if (s.id || s.lift || s.pinned || !free.has(s.anim)) return;
+      const c = Math.cos(s.yaw);
+      if (c > -0.25) return;
+      const h = Math.abs(Math.sin(i * 12.9898 + s.x * 78.233) * 43758.5453) % 1;
+      if (h > frac) return;
+      const side = Math.sin(s.yaw) >= 0 ? 1 : -1;
+      s.yaw = side * (0.95 + h * 0.6);
+      if (s.anim === 'idle' || s.anim === 'sway') s.anim = h < frac * 0.5 ? 'talk' : 'clap';
+    });
+  }
+
+  /**
+   * Floating name + heart pips over the named villagers nearest the player (≤ 4 within ~9 m), so
+   * the town's own people stand out of the crowd. A DOM layer (crisp at any resolution, outside the
+   * post chain, no draw calls), projected every frame; hidden during mini-games, menus and cutscenes.
+   */
+  private pipLayer: HTMLElement | null = null;
+  private pips: { el: HTMLElement; id: string; a: number; hearts: number }[] = [];
+  private readonly pipV = new THREE.Vector3();
+
+  private updatePips(dt: number, game: Game): void {
+    const c = this.crowd;
+    if (!c || !this.named.size || !game.opts.hud) return;
+    if (!this.pipLayer) {
+      if (!document.getElementById('fest-pip-css')) {
+        const st = document.createElement('style');
+        st.id = 'fest-pip-css';
+        st.textContent = `.fest-pips{position:absolute;inset:0;pointer-events:none;z-index:4;overflow:hidden}
+.fest-pip{position:absolute;left:0;top:0;display:flex;align-items:center;gap:6px;padding:3px 9px 3px 11px;border-radius:999px;background:rgba(255,246,224,.95);box-shadow:0 0 0 2px rgba(92,52,22,.9),0 3px 0 rgba(60,30,10,.35);font:700 15px/18px var(--font-head,Fredoka,Nunito,sans-serif);color:#4a2a12;white-space:nowrap;will-change:transform,opacity;transform-origin:50% 100%}
+.fest-pip::after{content:'';position:absolute;left:50%;bottom:-6px;margin-left:-5px;border:5px solid transparent;border-top-color:rgba(92,52,22,.9);border-bottom:0}
+.fest-pip i{width:14px;height:13px;display:block;background:linear-gradient(0deg,#e0443a var(--h,0%),#d8c4b0 var(--h,0%));-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 13'%3E%3Cpath d='M7 13C2 9 0 6.5 0 4a3.5 3.5 0 0 1 7-1 3.5 3.5 0 0 1 7 1c0 2.5-2 5-7 9z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 13'%3E%3Cpath d='M7 13C2 9 0 6.5 0 4a3.5 3.5 0 0 1 7-1 3.5 3.5 0 0 1 7 1c0 2.5-2 5-7 9z'/%3E%3C/svg%3E") center/contain no-repeat}`;
+        document.head.append(st);
+      }
+      this.pipLayer = document.createElement('div');
+      this.pipLayer.className = 'fest-pips';
+      game.hud.root.append(this.pipLayer);
+      const off = game.events.on('map:change', ({ map }) => {
+        if (this.pipLayer) this.pipLayer.style.display = map === this.id ? '' : 'none';
+      });
+      void off;
+    }
+    const layer = this.pipLayer;
+    layer.style.display = '';
+    const hush = !!this.play || !!game.hud.openPanelName || !!(game as { cinematic?: unknown }).cinematic;
+    const p = game.player.position;
+    const near: { id: string; i: number; d: number }[] = [];
+    if (!hush) {
+      for (const [id, i] of this.named) {
+        const m = c.members[i]!;
+        const d = Math.hypot(m.x - p.x, m.z - p.z);
+        if (d < 9) near.push({ id, i, d });
+      }
+      near.sort((a, b) => a.d - b.d);
+    }
+    const want = near.slice(0, 4);
+    while (this.pips.length < 4) {
+      const el = document.createElement('div');
+      el.className = 'fest-pip';
+      el.style.opacity = '0';
+      el.innerHTML = '<span></span><i></i>';
+      layer.append(el);
+      this.pips.push({ el, id: '', a: 0, hearts: -1 });
+    }
+    const cam = game.rc.camera;
+    const W = layer.clientWidth || innerWidth;
+    const H = layer.clientHeight || innerHeight;
+    const k = Math.min(1.3, Math.max(0.9, H / 900));
+    const placed: { el: HTMLElement; x: number; y: number; w: number; a: number }[] = [];
+    for (const pip of this.pips) {
+      if (!want.some((x) => x.id === pip.id) && pip.a <= 0.01) {
+        const free = want.find((x) => !this.pips.some((q) => q.id === x.id));
+        if (free) {
+          pip.id = free.id;
+          pip.a = 0;
+          const npc = NPCS[free.id as keyof typeof NPCS];
+          (pip.el.firstElementChild as HTMLElement).textContent = npc?.name.split(/\s+/)[0] ?? free.id;
+          pip.hearts = -1;
+        }
+      }
+      const cur = want.find((x) => x.id === pip.id);
+      const goal = cur ? Math.min(1, (9 - cur.d) / 2) : 0;
+      pip.a += (goal - pip.a) * (1 - Math.exp(-8 * dt));
+      const idx = this.named.get(pip.id);
+      const m = idx !== undefined ? c.members[idx] : undefined;
+      if (!m || pip.a < 0.02) {
+        if (pip.el.style.opacity !== '0') pip.el.style.opacity = '0';
+        continue;
+      }
+      const hearts = Math.max(0, Math.min(10, Math.round(game.services.relationships?.hearts(pip.id) ?? 0)));
+      if (hearts !== pip.hearts) {
+        pip.hearts = hearts;
+        (pip.el.lastElementChild as HTMLElement).style.setProperty('--h', `${Math.max(12, hearts * 10)}%`);
+      }
+      this.pipV.set(m.x, m.y + (m.spec.lift ?? 0) + 2.0 * m.scale + 0.25, m.z).project(cam);
+      if (this.pipV.z > 1) {
+        pip.el.style.opacity = '0';
+        continue;
+      }
+      placed.push({ el: pip.el, x: ((this.pipV.x + 1) / 2) * W, y: ((1 - this.pipV.y) / 2) * H, w: (pip.el.offsetWidth || 80) * k, a: pip.a });
+    }
+    // Declutter: villagers standing close together stack their tags instead of overlapping them
+    // (nearest the camera — lowest on screen — keeps its spot, the others step up).
+    placed.sort((a, b) => b.y - a.y);
+    const rowH = 30 * k;
+    for (let i = 0; i < placed.length; i++) {
+      const p = placed[i]!;
+      for (let guard = 0; guard < 4; guard++) {
+        let hit = false;
+        for (let j = 0; j < i && !hit; j++) {
+          const q = placed[j]!;
+          hit = Math.abs(q.x - p.x) < (q.w + p.w) / 2 + 4 && Math.abs(q.y - p.y) < rowH;
+        }
+        if (!hit) break;
+        p.y -= rowH;
+      }
+      p.el.style.opacity = p.a.toFixed(3);
+      p.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${k.toFixed(3)})`;
+    }
+  }
 
   /**
    * Relax the staged crowd so nobody stands inside anybody else: standing members closer than
@@ -444,6 +579,7 @@ export abstract class FestivalMap implements GameMap {
       v.f.update(dt, game.time);
     }
     if (this.play) this.play.t += dt;
+    this.updatePips(dt, game);
     if (this.winCheer.length && this.showT > this.cheerUntil) {
       const c = this.crowd;
       if (c) {

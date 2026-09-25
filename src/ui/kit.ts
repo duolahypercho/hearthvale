@@ -282,7 +282,7 @@ class Tooltip {
    * Show beside `target` on one side (vertically centred on it, clamped to the window); flips to the other side
    * when there is no room. Used where the card must never reach into a neighbouring column (crafting detail).
    */
-  beside(html: string, target: Element, side: 'left' | 'right' = 'left', gap = 12): void {
+  beside(html: string, target: Element, side: 'left' | 'right' = 'left', gap = 12, xFrom?: Element): void {
     const n = this.ensure();
     n.classList.remove('over');
     if (n.innerHTML !== html) n.innerHTML = html;
@@ -293,6 +293,15 @@ class Tooltip {
     const r = target.getBoundingClientRect();
     const w = n.offsetWidth * z;
     const hh = n.offsetHeight * z;
+    // `xFrom`: dock outside that box instead (e.g. the whole panel), when there is room; else beside the target.
+    const xr = xFrom?.getBoundingClientRect();
+    const out = xr && (side === 'left' ? xr.left - gap - w >= 8 : xr.right + gap + w <= innerWidth - 8);
+    if (xr && out) {
+      const tx0 = side === 'left' ? xr.left - gap - w : xr.right + gap;
+      const ty0 = Math.max(8, Math.min(innerHeight - hh - 8, r.top + r.height / 2 - hh / 2));
+      n.style.transform = `translate(${tx0 / z}px, ${ty0 / z}px)`;
+      return;
+    }
     let tx = side === 'left' ? r.left - gap - w : r.right + gap;
     if (side === 'left' && tx < 8) tx = r.right + gap;
     else if (side === 'right' && tx + w > innerWidth - 8) tx = r.left - gap - w;

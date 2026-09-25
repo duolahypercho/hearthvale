@@ -69,6 +69,9 @@ type P2 = [number, number];
  * Over-the-shoulder two-shot: the lens sits behind the listener, `off` degrees off the listener →
  * speaker line (on the given side), looking at a point 55 % of the way to the speaker.
  */
+/** Two-shot pull-back factor (see `ots`). */
+const OTS_PULL = 1.2;
+
 export function ots(listener: P2, speaker: P2, o: { side?: 1 | -1; off?: number; dist?: number; pitch?: number; y?: number } = {}): CamKey {
   // Defaults: the diorama two-shot — high enough (28°) and far enough (11.5 m) that the chunky rigs
   // read as whole figures on a set, 40° off the line so the speaker's face is three-quarter to the lens.
@@ -77,7 +80,9 @@ export function ots(listener: P2, speaker: P2, o: { side?: 1 | -1; off?: number;
   // Camera offset = the speaker→listener direction rotated by ±off.
   const back = Math.atan2(-dx, -dz);
   const yaw = ((back + ((o.side ?? 1) * (o.off ?? 40) * Math.PI) / 180) * 180) / Math.PI;
-  return { x: listener[0] + dx * 0.55, z: listener[1] + dz * 0.55, y: o.y ?? 1.0, yaw, pitch: o.pitch ?? 28, dist: o.dist ?? 11.5 };
+  // Authored distances are stretched 20 %: at the 35° lens a 11.5 m two-shot still let the chibi heads
+  // fill the frame; this keeps both figures whole in the lower two thirds with the set around them.
+  return { x: listener[0] + dx * 0.55, z: listener[1] + dz * 0.55, y: o.y ?? 1.0, yaw, pitch: (o.pitch ?? 28) + 2, dist: (o.dist ?? 11.5) * OTS_PULL };
 }
 
 // ─────────────────────────────────────────────── places
@@ -114,7 +119,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'cue', cue: 'coach:place', arg: 'offstage' },
     { do: 'backdrop', kind: 'coach' },
     { do: 'fade', to: 'clear', dur: 1.6 },
-    { do: 'caption', text: 'The evening coach', sub: 'Somewhere past the city, in the rain', dur: 3, low: true },
+    { do: 'caption', text: 'The evening coach', sub: 'The last hills before the valley, the rain easing', dur: 3, low: true },
     { do: 'mark', id: 'letter' },
     { do: 'letter', id: 'gran-intro' },
     { do: 'fade', to: 'black', dur: 1.2 },
@@ -133,7 +138,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'mark', id: 'establish' },
     // Two-shot, near side-on: the farmer three-quarter from behind on the left, Hollis three-quarter to
     // the lens on the right, clear air between them.
-    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 30, dist: 12, pitch: 30, y: 1.0 }), dur: 2.8, ease: 'inOut', wait: false },
+    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 30, dist: 11, pitch: 34, y: 1.0 }), dur: 2.8, ease: 'inOut', wait: false },
     { do: 'player', visible: true },
     { do: 'walk', id: 'player', path: [[STOP.x - 1, STOP.z + 1.4], ARR_P], facing: 'right' },
     { do: 'emote', id: 'hollis', emote: 'exclaim' },
@@ -630,10 +635,12 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
   // Look between the lantern and the faces; the lens sits out front on the lantern's side (yaw ±48°):
   // lantern on one third, three faces turned to it on the other.
   const look = { x: L[0] + s * 1.35, z: L[1] + 0.75, y: 1.15 };
-  const wide: CamKey = { ...look, yaw: -s * 44, pitch: 33, dist: 9 };
-  const push: CamKey = { ...look, x: look.x - s * 0.1, yaw: -s * 50, pitch: 30, dist: 5.6 };
-  // Reaction: from just outside the lantern (behind it, off its shoulder), the faces lit.
-  const react: CamKey = { x: L[0] + s * 1.9, z: L[1] + 0.9, y: 1.3, yaw: -s * 72, pitch: 20, dist: 6.2 };
+  // Lenses sit far enough back (>= 10 m at the 35° lens) that the chibi rigs stay in the lower two thirds of the frame
+  // with the room around them: at 5–6 m their heads filled the frame edge to edge.
+  const wide: CamKey = { ...look, yaw: -s * 44, pitch: 36, dist: 13 };
+  const push: CamKey = { ...look, x: look.x - s * 0.1, yaw: -s * 50, pitch: 33, dist: 10.5 };
+  // Reaction: from beyond the lantern (off its shoulder, high enough to see over it), the faces lit.
+  const react: CamKey = { x: L[0] + s * 1.9, z: L[1] + 0.9, y: 1.2, yaw: -s * 70, pitch: 30, dist: 11 };
   return [
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
@@ -657,7 +664,7 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
     { do: 'cam', to: react, dur: 0 },
     { do: 'emote', id: b, emote: 'heart', wait: false },
     { do: 'emote', id: 'player', emote: 'sparkle', wait: false },
-    { do: 'cam', to: { ...react, dist: 5.4, yaw: react.yaw + s * 6 }, dur: 2.6, ease: 'out', wait: false },
+    { do: 'cam', to: { ...react, dist: 10, yaw: react.yaw + s * 6 }, dur: 2.6, ease: 'out', wait: false },
     { do: 'mark', id: 'react' },
     { do: 'wait', t: 2.2 },
     { do: 'fade', to: 'black', dur: 0.9 },
