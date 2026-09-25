@@ -24,14 +24,27 @@ vec3 hvCliffStrata(vec3 p, vec3 n, float along) {
   float w1 = hvNoise(vec2(along * 0.09, p.y * 0.05)) - 0.5;
   float w2 = hvNoise(vec2(along * 0.33 + 3.7, p.y * 0.12 + 1.3)) - 0.5;
   float s = p.y + w1 * 1.0 + w2 * 0.32 + along * 0.03;
-  // Coarse 1.6 m beds, each split at a random height: sub-beds 0.5-1.1 m thick.
-  float bedH = 1.6;
-  float bi = floor(s / bedH);
-  float bf = fract(s / bedH);
-  float split = 0.3 + 0.4 * hvHash12(vec2(bi, 5.3));
-  float upper = step(split, bf);
-  float f = upper > 0.5 ? (bf - split) / (1.0 - split) : bf / split;
-  float layer = bi * 2.0 + upper;
+  // Faulted blocks: the face is cut into 1.6-3 m columns and each column slumps / rises by up to
+  // ±0.45 m, so bed lines step at the joints instead of running as unbroken stripes (no lasagna).
+  float colA = along * 0.42 + (hvNoise(vec2(along * 0.21, p.y * 0.3 + 2.0)) - 0.5) * 0.6;
+  float colC = floor(colA);
+  float slump = (hvHash12(vec2(colC, 1.9)) - 0.5) * 0.9 * step(0.35, hvHash12(vec2(colC, 7.3)));
+  // ...and every third one sags on its outer edge (a tilted, settled block).
+  slump += (fract(colA) - 0.5) * 0.5 * step(0.66, hvHash12(vec2(colC, 4.4)));
+  s += slump;
+  // Coarse 1.6 m beds, each split into 2-3 sub-beds at random heights: from ~0.3 m shale partings
+  // to 1.3 m massive sandstone (no two neighbouring bands the same thickness).
+  float bi0 = floor(s / 1.6);
+  float bf0 = fract(s / 1.6);
+  float a1 = 0.18 + 0.5 * hvHash12(vec2(bi0, 5.3));
+  float a2 = a1 + 0.18 + 0.4 * hvHash12(vec2(bi0, 6.1));
+  float three = step(0.45, hvHash12(vec2(bi0, 2.1))) * step(a2, 0.88);
+  float sub;
+  float f;
+  if (bf0 < a1) { sub = 0.0; f = bf0 / a1; }
+  else if (three > 0.5 && bf0 < a2) { sub = 1.0; f = (bf0 - a1) / (a2 - a1); }
+  else { float lo = three > 0.5 ? a2 : a1; sub = 1.0 + three; f = (bf0 - lo) / (1.0 - lo); }
+  float layer = bi0 * 3.0 + sub;
   float lr = hvHash12(vec2(layer, 3.7));
   vec3 c = mix(vec3(0.15, 0.13, 0.105), vec3(0.27, 0.23, 0.18), lr);
   c = mix(c, vec3(0.15, 0.16, 0.175), step(0.7, hvHash12(vec2(layer, 9.1))) * 0.75);
@@ -44,6 +57,9 @@ vec3 hvCliffStrata(vec3 p, vec3 n, float along) {
   c *= 0.86 + 0.24 * hvHash12(vec2(jcell, layer));
   c *= 1.0 - smoothstep(0.5, 0.36, jd) * 0.08 * sign(fract(ja) - 0.5);
   c *= 1.0 - smoothstep(0.035, 0.0, 0.5 - jd) * 0.55 * jon;
+  // The fault seams between slumped columns: a deep vertical crack through every bed.
+  float cd = min(fract(colA), 1.0 - fract(colA));
+  c *= 1.0 - smoothstep(0.045, 0.0, cd) * 0.62;
   // Each bed: a lit, weathered lip on top and a deep undercut shadow at its base.
   c *= 0.78 + 0.36 * smoothstep(0.05, 0.92, f);
   c *= 1.0 - smoothstep(0.16, 0.0, f) * 0.5;
@@ -56,7 +72,10 @@ vec3 hvCliffStrata(vec3 p, vec3 n, float along) {
   // Moss cushions on the ledge tops + ivy / moss tongues dripping down from them.
   float mn = hvFbm(vec2(along * 0.6, p.y * 0.8) + 11.0);
   float moss = smoothstep(0.66, 0.95, f + (mn - 0.5) * 0.45) * smoothstep(0.3, 0.62, mn);
-  float tongue = smoothstep(0.62, 0.86, hvNoise(vec2(along * 2.6, layer * 1.9))) * smoothstep(0.2 + 0.5 * hvNoise(vec2(along * 4.1, layer)), 0.95, f);
+  float tongue = smoothstep(0.58, 0.84, hvNoise(vec2(along * 2.6, layer * 1.9))) * smoothstep(0.05 + 0.6 * hvNoise(vec2(along * 4.1, layer)), 0.95, f);
+  // Long moss drips spilling from a ledge down across the bed below (vertical: breaks the bands).
+  float drip = smoothstep(0.7, 0.9, hvNoise(vec2(along * 1.7 + 5.0, 0.0))) * smoothstep(0.035, 0.0, abs(fract(along * 1.7) - 0.5) - 0.12 * hvNoise(vec2(along * 3.0, p.y * 1.1))) * smoothstep(0.2, 0.85, hvNoise(vec2(along * 0.9, p.y * 0.45 + 3.0)));
+  tongue = max(tongue, drip * 0.85);
   float m = clamp(max(moss, tongue * 0.9), 0.0, 1.0);
   c = mix(c, uMossC * (0.55 + 0.55 * mn), m * 0.8);
   // Winter: snow on every ledge top and in the joints.
@@ -176,8 +195,9 @@ export function buildCliffWall(terrain: Terrain, rng: Rng, span: CliffSpan): { m
           const zz = THREE.MathUtils.lerp(p.zTop - 0.12, p.zBot + 0.35, Math.pow(v, 1.15));
           // Bulges: a broad belly, lumpy rock masses, crisp little overhang lips at bed boundaries.
           const lump = (n1.fbm(p.x * 0.32, y * 0.42, 2) * 0.5) * 0.5 + (n2.get(p.x * 1.1, y * 1.25)) * 0.14;
-          const lipPh = y * 0.72 + n2.get(p.x * 0.18, 3.1) * 0.6;
-          const lip = Math.pow(1 - (lipPh - Math.floor(lipPh)), 3) * 0.2;
+          // Lips wander in height and strength along the face (never one continuous shelf line).
+          const lipPh = y * 0.72 + n2.get(p.x * 0.3, 3.1) * 1.3;
+          const lip = Math.pow(1 - (lipPh - Math.floor(lipPh)), 3) * 0.2 * THREE.MathUtils.clamp(0.35 + n1.get(p.x * 0.25, 9.3 + Math.floor(lipPh) * 1.7) * 1.4, 0, 1.4);
           const belly = Math.sin(Math.PI * v) * 0.22;
           const push = (0.16 + belly + lump + lip) * endK * (j === NV + 1 ? 0.3 : 1);
           x = p.x + ox * push;

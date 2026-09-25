@@ -66,7 +66,7 @@ export const GIANTS: [GiantKind, number, number, number][] = [
   ['elder', 27.2, 16.8, 0.92],
   ['elder', 41.2, 26.8, 1.08],
   ['elder', 25.4, 38.8, 1.0],
-  ['fir', 46.2, 34.4, 0.78],
+  ['fir', 48.8, 35.0, 0.68], // (east of the trail: at 46.2 it roofed a quarter of the forest-rain frame)
   ['elder', 30.8, 46.8, 0.96],
   ['fir', 23.4, 48.6, 1.0],
   ['elder', 49.6, 51.4, 1.02],

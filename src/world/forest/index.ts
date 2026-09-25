@@ -950,7 +950,8 @@ export class ForestMap implements GameMap {
       [POOL.x + 2.6, POOL.z + 1.4, 0.7],
       [POOL.x - 2.8, POOL.z - 0.6, 0.5],
       [POOL.x + 0.2, POOL.z + 3.6, 0.4],
-      [POOL.x + 7.6, POOL.z + 3.4, 0.6],
+      // (not over the mossy log east of the pool: a log standing in a beam read as a translucent ghost)
+      [POOL.x - 1.4, POOL.z + 6.2, 0.55],
       [GLADE.x - 1.5, GLADE.z + 1, 0.8],
       [GLADE.x + 2.5, GLADE.z - 1.5, 0.55],
       [GLADE.x - 3.8, GLADE.z - 2.2, 0.4],

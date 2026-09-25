@@ -210,7 +210,8 @@ function logBarkMaterial(): THREE.MeshStandardMaterial {
     );
     shader.fragmentShader = fs;
   });
-  applyWorldFx(_logBark, { snowUp: 0.45 });
+  // Wet bark darkens less than the default (the log is already dark: at 40 % it went coal-black in storms).
+  applyWorldFx(_logBark, { snowUp: 0.45, wetDark: 0.24 });
   return _logBark;
 }
 

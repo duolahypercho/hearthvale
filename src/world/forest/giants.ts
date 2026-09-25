@@ -38,7 +38,7 @@ const ELDER_PALETTE: Record<Season, number[]> = {
 const FIR_PALETTE: Record<Season, number[]> = {
   spring: [0x5c9c5a, 0x549458],
   summer: [0x4a8a52, 0x44844e],
-  fall: [0x528452, 0x4a7c4e],
+  fall: [0x7a8440, 0x6e7a3c],
   winter: [0x4a7a64, 0x44725e],
 };
 const MOSS: Record<Season, number> = { spring: 0x6f9e2c, summer: 0x5a8f28, fall: 0x8a8a2c, winter: 0x5f6f3a };
@@ -91,7 +91,41 @@ export function giantBarkMaterial(): THREE.MeshStandardMaterial {
     );
     shader.fragmentShader = fs;
   });
-  applyWorldFx(barkMat, { snowUp: 0.62 });
+  // Snow on bark: a lower up-threshold with a noisy, clumpy mask (>1 spreads it over the shoulders of
+  // the roots, <1 leaves bare bark showing through), so a root wears a lumpy pillow, not a thin
+  // bright stripe along its crest.
+  applyWorldFx(barkMat, { snowUp: 0.42, snowMask: '(0.45 + 1.2 * hvNoise(vHvWorldPos.xz * 2.7 + vHvWorldPos.y * 1.9))' });
+  // Snow on the root tubes and buttresses is a soft pillow, not bark: the fissure bump map (stretched
+  // along each root's UVs) must not run through it (it read as brushed chrome), and the cap is lit
+  // like a mound (normals eased towards the sky), with a cool shaded lip where it overhangs the bark.
+  patchMaterial(barkMat, 'giant-snowcap', (shader) => {
+    let fs = shader.fragmentShader;
+    fs = after(
+      fs,
+      '#include <normal_fragment_maps>',
+      /* glsl */ `
+      if (hvSnowAmt > 0.01) {
+        vec3 hvUpV = normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0));
+        float hvLump = hvNoise(vHvWorldPos.xz * 6.0 + vHvWorldPos.y * 2.0);
+        normal = normalize(mix(normal, nonPerturbedNormal, hvSnowAmt));
+        normal = normalize(mix(normal, hvUpV, hvSnowAmt * (0.45 + 0.25 * hvLump)));
+      }`,
+    );
+    fs = after(
+      fs,
+      '#include <lights_fragment_end>',
+      /* glsl */ `
+      if (uSnow > 0.0) {
+        // The rim of the cap: a thin blue shade just under the snow line (the overhang's shadow).
+        float hvLip = smoothstep(0.0, 0.25, hvSnowAmt) * (1.0 - smoothstep(0.35, 0.8, hvSnowAmt));
+        reflectedLight.directDiffuse *= 1.0 - 0.18 * hvLip;
+        // Snow is matte: no sun streak running along a root's crest (it read as polished metal).
+        reflectedLight.directSpecular *= 1.0 - 0.85 * hvSnowAmt;
+        reflectedLight.indirectDiffuse *= mix(vec3(1.0), vec3(0.78, 0.84, 1.0), hvLip);
+      }`,
+    );
+    shader.fragmentShader = fs;
+  });
   applyWind(barkMat, WIND_TRUNK);
   // Trunks stay solid (a dithered trunk reads as a screen door): only the crown boughs above ~6 m
   // part around the farmer (in winter they are all that is left of the canopy over the path).
@@ -474,8 +508,37 @@ function roots(b: MeshBuilder, m: THREE.Material, rng: Rng, r0: number, n: numbe
     const bend = a + (rng.next() - 0.5) * 0.5;
     const e = new THREE.Vector3(Math.cos(bend) * (r0 + len), -0.55, Math.sin(bend) * (r0 + len));
     const c = new THREE.Vector3(Math.cos(a) * (r0 + len * 0.35), 0.45, Math.sin(a) * (r0 + len * 0.35));
-    bough(b, m, thick * (0.8 + rng.next() * 0.4), 0.07, s, c, e, 9, 5);
+    rootTube(b, m, thick * (0.8 + rng.next() * 0.4), 0.07, s, c, e);
   }
+}
+
+/**
+ * One continuous tapered tube along a quadratic bezier (a root). Unlike `bough` (overlapping
+ * cylinder segments) there are no joints, so winter snow lies along it as one soft ridge instead
+ * of a row of stepped, chrome-like plates.
+ */
+function rootTube(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THREE.Vector3, ctrl: THREE.Vector3, e: THREE.Vector3, tubular = 12, radial = 9): void {
+  const curve = new THREE.QuadraticBezierCurve3(a, ctrl, e);
+  const len = curve.getLength();
+  const g = new THREE.TubeGeometry(curve, tubular, 1, radial, false);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  const c = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  for (let i = 0; i <= tubular; i++) {
+    const t = i / tubular;
+    curve.getPointAt(t, c);
+    // Swells a little where it leaves the trunk, then tapers smoothly to the tip.
+    const r = THREE.MathUtils.lerp(r0 * 1.12, r1, Math.pow(t, 0.8));
+    for (let j = 0; j <= radial; j++) {
+      const k = i * (radial + 1) + j;
+      v.fromBufferAttribute(pos, k).sub(c).multiplyScalar(r).add(c);
+      pos.setXYZ(k, v.x, v.y, v.z);
+      uv.setXY(k, (j / radial) * 1.4, t * len * 0.5);
+    }
+  }
+  g.computeVertexNormals();
+  b.add(m, g);
 }
 
 interface GiantGeo {
