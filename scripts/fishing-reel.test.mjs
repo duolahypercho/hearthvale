@@ -2,7 +2,8 @@
 /**
  * Reel minigame regression tests (pure sim, runs in Node via type stripping — no browser):
  *   - idle play never lands a fish: every behaviour × difficulty, no input for 60 s → escaped
- *   - pacing: a human-like bot (100 ms late, 5 % sloppy) lands commons in ~5–10 s, loses rares often
+ *   - pacing: a human-like bot (100 ms late, 5 % sloppy) lands commons in ~5–10 s and
+ *     most rares (fishing is forgiving: slow drain, roomy bar, long grace)
  *   - depth: a perfect PD bot can't coast through fish with signature moves (dash / dive / thrash)
  *   - the treasure chest never shows up before 1.5 s
  *
@@ -21,7 +22,7 @@ function mulberry32(a) {
 }
 
 const BEHAVIORS = ['mixed', 'smooth', 'dart', 'sinker', 'floater'];
-const barFor = (d) => 0.27 - d * 0.04;
+const barFor = (d) => 0.32 - d * 0.04;
 
 /** Run a fight at 60 fps; returns { end, t }. */
 function fight({ d, behavior, seed, auto, hold = () => false, maxT = 60 }) {
@@ -71,10 +72,10 @@ export function runReelTests(log = console.log) {
     ['common', 0.2, 'smooth', 4, 8.5, 0],
     ['common', 0.25, 'mixed', 4.5, 8.5, 0],
     ['common', 0.3, 'dart', 6, 14, 1],
-    ['uncommon', 0.45, 'dart', 9, 45, 9],
-    ['rare', 0.6, 'sinker', 10, 40, 7],
-    ['rare', 0.6, 'mixed', 12, 45, 11],
-    ['v.rare', 0.78, 'sinker', 12, 50, 12],
+    ['uncommon', 0.45, 'dart', 8, 45, 2],
+    ['rare', 0.6, 'sinker', 9, 40, 3],
+    ['rare', 0.6, 'mixed', 11, 45, 3],
+    ['v.rare', 0.78, 'sinker', 12, 50, 5],
   ]) {
     const times = [];
     let lost = 0;
@@ -120,7 +121,7 @@ export function runReelTests(log = console.log) {
     }
     if (seenAt >= 0 && seenAt < 1.5 - 1e-6) fails.push(`treasure appeared at ${seenAt.toFixed(2)} s (< 1.5 s)`);
   }
-  log(`reel sim: start ${REEL.start}, gain 0.16-0.09d, loss 0.15+0.1d, dash ${REEL.dashV}, tell ${REEL.tell} s\n  ${rows.join('\n  ')}`);
+  log(`reel sim: start ${REEL.start}, gain 0.15-0.08d, loss 0.09+0.07d, dash ${REEL.dashV}, tell ${REEL.tell} s\n  ${rows.join('\n  ')}`);
   return fails;
 }
 

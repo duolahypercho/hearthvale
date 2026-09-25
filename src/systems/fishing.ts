@@ -506,14 +506,14 @@ export class FishingSystem implements System, FishingApi {
       }
     }
     if (slot < 0) {
-      inv.add('rod', 1);
+      if (inv.add('rod', 1)) this.game.events.emit('item:overflow', { itemId: 'rod', qty: 1 });
       return;
     }
     const moved = slots[slot];
     if (moved) {
       const free = slots.findIndex((s, i) => i >= 10 && !s);
       if (free < 0) {
-        inv.add('rod', 1);
+        if (inv.add('rod', 1)) this.game.events.emit('item:overflow', { itemId: 'rod', qty: 1 });
         return;
       }
       slots[free] = moved;
@@ -760,7 +760,7 @@ export class FishingSystem implements System, FishingApi {
   private bite(): void {
     if (!this.hooked) return;
     this.setState('bite');
-    this.biteWindow = 1.05 - this.hooked.difficulty * 0.25;
+    this.biteWindow = 1.45 - this.hooked.difficulty * 0.25;
     this.gear.splash(this.bob, true);
     this.splashT = 0.32;
     this.sfx.bite();
@@ -780,7 +780,7 @@ export class FishingSystem implements System, FishingApi {
     const lv = this.level();
     // Treasure: the roll decided it (host-authoritative in co-op); practice / demo fights roll here.
     const treasureOdds = this.roll ? (this.roll.treasure ? 1 : 0) : this.firstChest() ? 1 : 0.14 + lv * 0.01 + (lure ? 0.25 : 0) + Math.min(this.streak, 5) * 0.02;
-    const barH = 0.27 - def.difficulty * 0.04 + lv * 0.012 + ROD_TIERS[this.tier]!.bar + (cork ? 0.035 : 0);
+    const barH = 0.32 - def.difficulty * 0.04 + lv * 0.012 + ROD_TIERS[this.tier]!.bar + (cork ? 0.035 : 0);
     this.mg = { def, ...newReel({ difficulty: def.difficulty, behavior: def.behavior, barH, treasureOdds, rand: Math.random, auto: this.demo !== null }) };
     this.ui.openReel(def, { level: lv, bait: this.baited, cork, lure, tier: this.tier });
     this.game.events.emit('fishing:hook', { fishId: def.id });

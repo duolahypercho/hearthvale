@@ -50,6 +50,7 @@ import { StorySystem } from '../systems/story';
 import { LanternHallSystem } from '../systems/story-hall';
 import { StoryWorldSystem } from '../systems/story-world';
 import { NetSystem } from '../net/system';
+import { DropsSystem } from '../systems/drops';
 import { ForestCoopSystem } from '../world/forest/coop';
 
 // ── System registry: one line per system ───────────────────────────
@@ -59,6 +60,7 @@ const SYSTEMS: (() => System)[] = [
   () => new SeasonSystem(),
   () => new WeatherSystem(),
   () => new InventorySystem(),
+  () => new DropsSystem(),
   () => new FarmingSystem(),
   () => new ShippingSystem(),
   () => new CritterSystem(),

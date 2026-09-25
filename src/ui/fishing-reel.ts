@@ -3,14 +3,14 @@
  *
  *   catch bar   hold to lift (gravity, soft top bounce, floor bounce)
  *   fish AI     per behaviour (mixed / smooth / dart / sinker / floater), scaled by difficulty
- *   progress    starts at 0.30; fills while the fish is inside the bar (slower for harder fish),
+ *   progress    starts at 0.35; fills while the fish is inside the bar (slower for harder fish),
  *               drains outside it; ≥ 1 = caught, ≤ 0 = escaped
  *   slack line  a bar left resting on the floor (no input) goes slack after a beat and earns
  *               nothing — idle play can never land a fish, however low the fish swims
  *   treasure    shows up 1.5–3 s into the fight; hold it inside the bar to collect it (a real
  *               risk / reward choice: the fish keeps running while you chase the chest)
  *   signatures  every species telegraphs its moves (a 0.28 s shiver = `tell`), then:
- *                 dart     0.10–0.16 s burst dashes at 2.5 track/s — faster than the bar's 2.0 cap,
+ *                 dart     0.10–0.16 s burst dashes at 2.2 track/s — faster than the bar's 2.0 cap,
  *                          so a lv-0 bar only keeps up if you read the shiver and move first
  *                 sinker   heavy dives towards the floor (0.28 s at 1.5 track/s)
  *                 floater  sudden bolts for the surface
@@ -62,20 +62,20 @@ export const REEL = {
   vmax: 2.0,
   topBounce: 0.35,
   floorBounce: 0.42,
-  start: 0.3,
+  start: 0.35,
   /** Seconds idle on the floor before the line goes slack. */
   slackAfter: 0.45,
-  gain: (d: number): number => 0.16 - 0.09 * d,
-  loss: (d: number): number => 0.15 + 0.1 * d,
+  gain: (d: number): number => 0.15 - 0.08 * d,
+  loss: (d: number): number => 0.09 + 0.07 * d,
   /** Shiver before a signature move (s). */
   tell: 0.34,
   /** Dash velocity cap (track / s) — above the bar's vmax on purpose. */
-  dashV: 2.5,
+  dashV: 2.2,
   thrash: 0.4,
   /** Total seconds outside the bar a fight may spend and still be Perfect. */
   perfectSlip: 0.25,
   /** Extra progress bleed per second while the fish thrashes. */
-  thrashLoss: 0.07,
+  thrashLoss: 0.035,
 };
 
 /** Seconds between signature moves for a behaviour at difficulty d (Infinity = none). */
@@ -113,7 +113,7 @@ export function newReel(o: { difficulty: number; behavior: ReelBehavior; barH: n
     t: 0,
     auto: !!o.auto,
     insideT: 0,
-    grace: o.grace ?? 0.6,
+    grace: o.grace ?? 1.2,
     restT: 0,
     low: REEL.start,
     moveCd: 1.1 + moveGap(o.behavior, o.difficulty, r) * 0.5,

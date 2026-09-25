@@ -12,6 +12,7 @@ merging) or `game.services` (typed APIs published with `game.provide(...)`). Imp
 | `season`     | applies the calendar season to lighting + map (blend on `season:change`, snap on `season:apply`) |
 | `weather`    | lighting/map weather, rain streaks + splashes, snowfall, storm lightning                        |
 | `inventory`  | 30-slot backpack (first 10 = toolbar), `item:use` from `player:use`, `item:give`; service `inventory` |
+| `drops`      | backpack-full overflow: `item:overflow` drops the rest at the farmer's feet; it floats back in once there is room (saved per map) |
 | `farming`    | till / water / plant / grow / harvest, sprinklers, seasonal die-off, soil + crop visuals, demo field |
 | `shipping`   | shipping bin deposits, overnight payout + `shipping:summary`                                     |
 | `critters`   | butterflies, songbirds, farm cat, chickens placed from the map's `poi` anchors                    |

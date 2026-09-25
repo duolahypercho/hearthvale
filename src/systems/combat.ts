@@ -197,7 +197,7 @@ export class CombatSystem implements System, HealthApi {
       if (free >= 0) inv.setSlot(free, { id: 'sword', qty: 1 });
       return;
     }
-    inv.add('sword', 1);
+    if (inv.add('sword', 1)) this.game.events.emit('item:overflow', { itemId: 'sword', qty: 1 });
     this.game.events.emit('ui:toast', { text: `Found a <b>${itemDef('sword')?.name ?? 'sword'}</b> by the mine mouth`, icon: 'sword', kind: 'good' });
   }
 

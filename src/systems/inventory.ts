@@ -84,7 +84,9 @@ export class InventorySystem implements System, InventoryApi {
         console.warn(`[inventory] unknown item "${itemId}"`);
         return;
       }
-      this.add(itemId, qty, quality);
+      const left = this.add(itemId, qty, quality);
+      // A full backpack never eats items: the rest lands on the ground (DropsSystem).
+      if (left > 0) game.events.emit('item:overflow', { itemId, qty: left, quality });
     });
     game.events.on('toolbar:select', () => this.changed());
     this.changed();

@@ -396,7 +396,7 @@ export class InventoryScreen extends Screen {
     if (at >= 0) inv.setSlot(at, stack);
     else if (at === -1) {
       const left = inv.add(stack.id, stack.qty, stack.quality);
-      if (left > 0) console.warn(`[ui] backpack full; ${left}× ${stack.id} lost`);
+      if (left > 0) this.game.events.emit('item:overflow', { itemId: stack.id, qty: left, quality: stack.quality });
     }
     this.renderHeld();
   }
