@@ -27,9 +27,9 @@ import type { Game } from '../core/game';
 import { TileFlag, TileType } from '../world/tiles';
 import { AudioEngine } from '../audio/engine';
 import type { EnvState, AmbSeason, AmbWeather } from '../audio/ambience';
-import { chooseTheme, songFor } from '../audio/select';
+import { chooseTheme, songFor, STORM_OUTDOOR_LEVEL } from '../audio/select';
 import { PiecePrefetch } from '../audio/prefetch';
-import { MusicDirector } from '../audio/music';
+import { MusicDirector, MUSIC_LOOKAHEAD, MUSIC_STATS } from '../audio/music';
 import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
 import { voiceFor, type Surface } from '../audio/sfx';
 import { tuneHook } from '../audio/composer';
@@ -68,6 +68,16 @@ export interface AudioState {
   compose: { hits: number; misses: number; syncMs: number };
   /** Mallet / string note buffers: rendered by the worker vs on this thread (+ ms), cache size. */
   notes: { worker: number; main: number; mainMs: number; cacheMb: number; byInst: Record<string, number> };
+  /** AudioContext state ('running' | 'suspended' | 'interrupted' | 'closed' | 'none'). */
+  ctxState: string;
+  /** Music-bus RMS (dBFS) at the moment of the call — the score alone, without ambience / SFX. */
+  musicDb: number;
+  /**
+   * Score continuity: look-ahead (s), notes played slightly late / skipped as stale, music update
+   * failures and director resets, keep-alive resume attempts (a suspended / interrupted context while
+   * visible), master restores after a hidden-tab fade.
+   */
+  sched: { lookahead: number; late: number; skipped: number; errors: number; recoveries: number; resumes: number; restores: number };
 }
 
 export interface AudioApi {
@@ -152,7 +162,17 @@ export class AudioSystem implements System {
   private place: { gain: number; pan: number } | null = null;
   /** `?demo=audio&coop=1`: a phantom co-op partner circles the player so positional audio can be judged. */
   private demoCoop: { a: number; stride: number; next: number; k: number } | null = null;
-  private tickFailed = false;
+  /** Music failures already reported, and when the last report went out (rate-limited console warns). */
+  private errsReported = 0;
+  private errWarnAt = -1e9;
+  private tickErrors = 0;
+  /** The master was faded to 0 for a hidden tab: restored on the first running + visible check. */
+  private hiddenFade = false;
+  /** Last resume attempt (wall ms) for a context that is suspended / interrupted while we're visible. */
+  private resumeTryAt = 0;
+  private resumes = 0;
+  private restores = 0;
+  private musicAnalyser: AnalyserNode | null = null;
   private mineFloor = 0;
   private lastWall = 0;
   private lastCtxTime = -1;
@@ -191,7 +211,10 @@ export class AudioSystem implements System {
     // Watchdog: keep the score moving even if the game loop stalls (long loads, a throttled tab).
     // It also re-decides the wanted theme, so a scene change staged while frames are starved (a heavy
     // map build on a loaded machine) still hands the music over instead of waiting for the loop.
+    // It also keeps the context alive: a context the OS / browser suspended or interrupted (Safari's
+    // 'interrupted' after a call or an audio-route change) is resumed, and the master restored.
     window.setInterval(() => {
+      this.keepAlive();
       if (performance.now() - this.lastWall <= 400) return;
       if (this.engine && this.ctx?.state === 'running') {
         try {
@@ -200,7 +223,7 @@ export class AudioSystem implements System {
           /* the world may be mid-rebuild: try again next tick */
         }
       }
-      this.tickAudio(0.6);
+      this.tickAudio(true);
     }, 250);
 
     const self = this;
@@ -267,9 +290,36 @@ export class AudioSystem implements System {
           cacheMb: Math.round((this.engine?.graph.bufferMb ?? 0) * 10) / 10,
           byInst: { ...RENDER_STATS.byInst },
         },
+        ctxState: this.ctx ? String(this.ctx.state) : 'none',
+        musicDb: Math.round(this.musicMeter() * 10) / 10,
+        sched: {
+          lookahead: MUSIC_LOOKAHEAD,
+          late: MUSIC_STATS.late,
+          skipped: MUSIC_STATS.skipped,
+          errors: this.engine?.musicErrors ?? 0,
+          recoveries: this.engine?.musicRecoveries ?? 0,
+          resumes: this.resumes,
+          restores: this.restores,
+        },
       }),
     });
     this.subscribe(game);
+  }
+
+  /** RMS (dBFS) of the music bus alone (after the music volume, before the mix). */
+  private musicMeter(): number {
+    const e = this.engine;
+    if (!e || !this.ctx) return -Infinity;
+    if (!this.musicAnalyser) {
+      this.musicAnalyser = this.ctx.createAnalyser();
+      this.musicAnalyser.fftSize = 2048;
+      e.graph.musicVol.connect(this.musicAnalyser);
+    }
+    const buf = new Float32Array(this.musicAnalyser.fftSize);
+    this.musicAnalyser.getFloatTimeDomainData(buf);
+    let ss = 0;
+    for (const v of buf) ss += v * v;
+    return 10 * Math.log10(ss / buf.length + 1e-12);
   }
 
   private meter(): number {
@@ -291,7 +341,8 @@ export class AudioSystem implements System {
 
   private start(): void {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume();
+      // Any gesture revives a context that is not running: 'suspended' and Safari's 'interrupted'.
+      if (!document.hidden) this.tryResume();
       return;
     }
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -306,7 +357,54 @@ export class AudioSystem implements System {
     this.engine.music.onMelody = (at, midi) => this.card.note(midi, at - ctx.currentTime);
     this.engine.music.reseed(this.daySeed());
     this.applyVolumes();
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    // Every transition into 'running' (a resume from anywhere: gesture, visibility, the keep-alive,
+    // the browser itself after an interruption) restores the gains and resets the clock watchdog.
+    ctx.addEventListener('statechange', () => {
+      if (ctx.state === 'running') this.onRunning();
+      else if (!document.hidden) this.resumeTryAt = 0; // interrupted while visible: retry soon
+    });
+    if (this.ctx.state !== 'running') this.tryResume();
+  }
+
+  /** Resume a context that is not running (suspended / interrupted); failures are retried by keepAlive. */
+  private tryResume(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    this.resumeTryAt = performance.now();
+    ctx.resume().then(
+      () => {
+        if (ctx.state === 'running') this.onRunning();
+      },
+      () => {
+        /* not allowed yet (no gesture) or still interrupted: keepAlive / the next gesture retries */
+      },
+    );
+  }
+
+  /** The context is running again: restore the master (a hide fade must never stick) and the watchdog. */
+  private onRunning(): void {
+    this.lastCtxTime = -1;
+    this.ctxStuckSince = performance.now();
+    if (document.hidden) return;
+    if (this.hiddenFade) this.restores++;
+    this.hiddenFade = false;
+    this.applyVolumes();
+  }
+
+  /**
+   * Called every 250 ms: a visible page whose context is not running gets a resume attempt every
+   * 2 s (Safari 'interrupted', an OS audio-route change, a resume that failed); a running, visible
+   * context whose master is still faded from a hide gets its gains back.
+   */
+  private keepAlive(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.engine || document.hidden) return;
+    if (ctx.state !== 'running') {
+      if (performance.now() - this.resumeTryAt > 2000) {
+        this.resumes++;
+        this.tryResume();
+      }
+    } else if (this.hiddenFade) this.onRunning();
   }
 
   private onVisibility(): void {
@@ -314,10 +412,14 @@ export class AudioSystem implements System {
     if (!ctx || !this.engine) return;
     const out = this.engine.graph.out.gain;
     if (document.hidden) {
+      this.hiddenFade = true;
       out.setTargetAtTime(0, ctx.currentTime, 0.08);
-      setTimeout(() => document.hidden && void ctx.suspend(), 400);
+      setTimeout(() => document.hidden && ctx.state === 'running' && void ctx.suspend().catch(() => {}), 400);
+    } else if (ctx.state === 'running') {
+      // Shown again before the suspend landed (or it never did): just bring the gains back.
+      this.onRunning();
     } else {
-      void ctx.resume().then(() => this.applyVolumes());
+      this.tryResume();
     }
   }
 
@@ -691,13 +793,17 @@ export class AudioSystem implements System {
     if (this.env.night > 0.5 && !e.music.desired?.startsWith('night')) level *= 0.8;
     if (this.speaking) level *= 0.78;
     if (this.env.indoor) level *= 0.9;
+    // A storm keeps the rain tune outdoors too, just under the thunder (same selection indoors and
+    // out, so a doorway only changes the level — see select.ts).
+    else if (this.env.weather === 'storm') level *= STORM_OUTDOOR_LEVEL;
     e.music.setLevel(level);
     const muffle = paused ? 0.55 : this.sleeping ? 0.8 : 0;
     if (Math.abs(muffle - this.muffle) > 0.01) {
       this.muffle = muffle;
       e.graph.setMusicMuffle(muffle);
     }
-    this.tickAudio(0.3);
+    if (this.hiddenFade && !document.hidden) this.onRunning();
+    this.tickAudio(false);
     const playing = e.music.playing;
     if (playing !== this.lastTheme) {
       this.lastTheme = playing;
@@ -781,28 +887,48 @@ export class AudioSystem implements System {
     this.lastMap = map;
   }
 
-  /** Advance the engine (from the frame loop, or from the watchdog when the loop stalls). */
-  private tickAudio(lookahead: number): void {
+  /**
+   * Advance the engine (from the frame loop, or from the watchdog when the loop stalls). The score
+   * is scheduled MUSIC_LOOKAHEAD ahead (the watchdog, which only runs when frames are starved, a
+   * little further), so a main-thread stall shorter than that never drops a note.
+   */
+  private tickAudio(fromWatchdog: boolean): void {
     const ctx = this.ctx;
     const e = this.engine;
     if (!ctx || !e || ctx.state !== 'running' || !this.env) return;
-    if (lookahead > 0.5) this.lastWall = performance.now();
-    // Clock watchdog: a running context whose clock has not moved for 1.5 s gets a kick.
     const wall = performance.now();
+    if (fromWatchdog) this.lastWall = wall;
+    // Clock watchdog: only a clock frozen for a long time (6 s, visible, 'running') gets a
+    // suspend / resume kick — output-device switches (Bluetooth) legitimately pause it for a second
+    // or three and kicking those only adds a gap. After a kick, wait as long again before the next.
     if (ctx.currentTime !== this.lastCtxTime) {
       this.lastCtxTime = ctx.currentTime;
       this.ctxStuckSince = wall;
-    } else if (wall - this.ctxStuckSince > 1500 && !document.hidden) {
+    } else if (wall - this.ctxStuckSince > 6000 && !document.hidden) {
       this.stalls++;
       this.ctxStuckSince = wall;
-      void ctx.suspend().then(() => ctx.resume());
+      void ctx
+        .suspend()
+        .then(() => ctx.resume())
+        .catch(() => this.tryResume());
     }
     try {
-      e.tick(this.env, lookahead);
+      e.tick(this.env, fromWatchdog ? MUSIC_LOOKAHEAD + 0.5 : MUSIC_LOOKAHEAD);
     } catch (err) {
-      // Audio must never take the game loop down with it: report once, keep playing what we can.
-      if (!this.tickFailed) console.warn('[audio] tick failed', err);
-      this.tickFailed = true;
+      // Audio must never take the game loop down with it (music failures are caught in the engine;
+      // this is ambience / SFX): keep playing what we can and report below.
+      this.tickErrors++;
+      if (wall - this.errWarnAt > 10000) {
+        this.errWarnAt = wall;
+        console.warn(`[audio] tick failed (${this.tickErrors}×)`, err);
+      }
+    }
+    // Music update failures: surfaced (at most one warning per 10 s, with counts), and the engine
+    // resets the director after three in a row, so the score recovers instead of going quiet.
+    if (e.musicErrors > this.errsReported && wall - this.errWarnAt > 10000) {
+      this.errWarnAt = wall;
+      console.warn(`[audio] music update failed ${e.musicErrors - this.errsReported}× (${e.musicErrors} total, director reset ${e.musicRecoveries}×)`, e.lastMusicError);
+      this.errsReported = e.musicErrors;
     }
   }
 

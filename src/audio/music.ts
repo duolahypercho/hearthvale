@@ -9,7 +9,12 @@
  *     share — so the overlap is consonant and there is no dead air;
  *   - a mood drift in the same place (hour, weather) first waits for the current phrase to end,
  *     then makes the same bridged crossfade (a slower 2.5 s fade);
- *   - after a song ends there is a stretch of ambience only before the next, like a hand-composed OST.
+ *   - after a song ends there is a short breath of ambience (5–15 s, `ThemeDef.rest`) before the next;
+ *     a change of place or mood during that breath starts the new song at once (no inherited rest).
+ *
+ * Scheduling runs well ahead of the clock (the game passes MUSIC_LOOKAHEAD, 1.5 s), so a main-thread
+ * stall shorter than that costs nothing. A note that is due but slightly late is still played (at
+ * once); only notes more than MUSIC_SCHED.staleAfter behind the clock are skipped (MUSIC_STATS counts both).
  *
  * Every decision is logged to a small trace (`trace`) that the game exposes in __game.info().audio.
  */
@@ -28,6 +33,18 @@ export interface KeyBridge {
   key: number;
   mode: ModeName;
 }
+
+/** How far ahead the real-time game schedules the score (s): covers main-thread stalls up to this long. */
+export const MUSIC_LOOKAHEAD = 1.5;
+/**
+ * `staleAfter`: a due note later than this (s) is stale — skipped instead of piled up (a tab that was
+ * frozen). Mutable only so the continuity harness can replay the old 50 ms rule as a baseline.
+ */
+export const MUSIC_SCHED = { staleAfter: 0.25 };
+/** Worker wait cap at song start (s): after this the song is composed on the frame rather than kept silent. */
+const WORKER_WAIT = 1.5;
+/** Scheduling diagnostics (all players): notes played slightly late, notes skipped as stale. */
+export const MUSIC_STATS = { late: 0, skipped: 0 };
 
 /** Polyphony priority per track: melody and bass always play; texture thins first. */
 const PRIO: Record<TrackName, number> = { melody: 3, bass: 3, counter: 2, accomp: 2, double: 1, accomp2: 1, pad: 1, perc: 1 };
@@ -228,7 +245,11 @@ export class MusicPlayer {
   pump(until: number): boolean {
     while (this.pre.length && this.pre[0]!.t < until) {
       const e = this.pre.shift()!;
-      if (e.t >= this.stopAt || e.t < this.g.ctx.currentTime - 0.05) continue;
+      if (e.t >= this.stopAt) continue;
+      if (e.t < this.g.ctx.currentTime - MUSIC_SCHED.staleAfter) {
+        MUSIC_STATS.skipped++;
+        continue;
+      }
       const at = Math.max(e.t, this.g.ctx.currentTime);
       if (!this.g.voiceStart(at, e.dur + (TAIL[e.inst] ?? 0.4), 2)) continue;
       INSTRUMENTS[e.inst](this.g, this.input(e.track, e.inst), at, e.midi, e.dur, e.vel);
@@ -253,8 +274,14 @@ export class MusicPlayer {
       this.idx++;
       if (t >= this.stopAt) continue;
       if (this.solo && ev.track !== this.solo && !(this.solo === 'melody' && ev.track === 'double')) continue;
-      if (t < this.g.ctx.currentTime - 0.05) continue; // late (tab was hidden): skip rather than pile up
-      const at = Math.max(t, this.g.ctx.currentTime);
+      // Slightly late (a long frame): play it now. Stale (the tab was frozen): skip rather than pile up.
+      const now = this.g.ctx.currentTime;
+      if (t < now - MUSIC_SCHED.staleAfter) {
+        MUSIC_STATS.skipped++;
+        continue;
+      }
+      if (t < now - 0.005) MUSIC_STATS.late++;
+      const at = Math.max(t, now);
       if (!this.g.voiceStart(at, ev.dur + (TAIL[ev.inst] ?? 0.4), PRIO[ev.track])) continue;
       this.notes++;
       INSTRUMENTS[ev.inst](this.g, this.input(ev.track, ev.inst), at, ev.midi, ev.dur, Math.max(0.05, Math.min(1.2, ev.vel)), ev.o);
@@ -373,6 +400,10 @@ export class MusicDirector {
 
   /** When the director started waiting on the worker for a song that is due (null = not waiting). */
   private waitSince: number | null = null;
+  /** The selection seen by the last update (a change during a rest starts the new song at once). */
+  private lastWant: string | null | undefined = undefined;
+  /** The player whose successor has already been requested from the worker. */
+  private nextAsked: MusicPlayer | null = null;
 
   /** Arrangement seed for the k-th play of song `id` on a day (also used to prefetch before audio starts). */
   static seedFor(daySeed: number, id: string, k = 0): number {
@@ -460,6 +491,15 @@ export class MusicDirector {
       this.old.push(cur);
       this.current = null;
     }
+    // A new selection never inherits the previous song's rest: entering town (or night falling)
+    // during the breath after a farm song starts the town song now (a pending crossfade still holds).
+    if (want !== this.lastWant) {
+      if (this.lastWant !== undefined && !this.current && this.restUntil > now && this.handoffStart <= now) {
+        this.kick();
+        this.log(`${want ?? 'silence'} wanted: rest cut`, want);
+      }
+      this.lastWant = want;
+    }
     if (this.current?.finished) {
       const [a, b] = this.current.theme.rest;
       this.old.push(this.current);
@@ -474,14 +514,15 @@ export class MusicDirector {
       if (!th) {
         this.log(`unknown theme ${id}`, want);
       } else {
-        // Compose the next song in the worker while the old one fades / the score rests. At start
-        // time never compose on the frame: stay silent until the worker delivers (a hung worker
-        // falls back after 5 s; offline renders have no worker and compose directly).
+        // Compose the next song in the worker while the old one fades / the score rests (and, for
+        // the same selection, while the previous song is still playing — see below). At start time
+        // prefer the worker's piece, but never hold the score silent for more than WORKER_WAIT: a
+        // slow or hung worker falls back to composing here (offline renders have no worker at all).
         const seed = this.nextSeed(id);
         this.pieces.request(th, seed);
         if (now >= this.restUntil && this.pieces.hasWorker && !this.pieces.settled(th, seed)) {
           this.waitSince ??= now;
-          if (now - this.waitSince < 5) {
+          if (now - this.waitSince < WORKER_WAIT) {
             this.old = this.old.filter((p) => p.pump(now + lookahead) && !p.finished);
             return;
           }
@@ -500,8 +541,38 @@ export class MusicDirector {
         }
       }
     }
-    this.current?.pump(now + lookahead);
+    const cur = this.current;
+    cur?.pump(now + lookahead);
+    // The song after this one (same selection) is composed while this one's last half-minute plays,
+    // so the next start never waits on the worker.
+    if (cur && cur !== this.nextAsked && !cur.stopping && cur.theme.rest[1] > 0 && cur.endTime - now < 30) {
+      this.nextAsked = cur;
+      const nid = PLAYLISTS[cur.group] ? songFor(cur.group, this.baseSeed, this.counts.get(cur.group) ?? 0) : cur.theme.id;
+      const nth = THEMES[nid];
+      if (nth) this.pieces.request(nth, this.nextSeed(nid));
+    }
     this.old = this.old.filter((p) => p.pump(now + lookahead) && !p.finished);
+  }
+
+  /**
+   * Drop every player and start clean (the adapter calls this when update keeps throwing): a quick
+   * fade on whatever is sounding, no rest, no pending handoff — the next update starts the wanted song.
+   */
+  recover(): void {
+    for (const p of [this.current, ...this.old]) {
+      if (!p) continue;
+      try {
+        p.stop(0.3);
+      } catch {
+        /* a broken player may not even fade: it is dropped anyway */
+      }
+    }
+    this.current = null;
+    this.old = [];
+    this.bridge = null;
+    this.waitSince = null;
+    this.restUntil = this.handoffStart = 0;
+    this.log('recover: players dropped after repeated update failures', this.forced ?? this.desired);
   }
 
   setLevel(v: number): void {

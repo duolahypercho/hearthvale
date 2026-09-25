@@ -6,10 +6,13 @@
  *   forced (debug / scene)  whatever was forced
  *   festival grounds        that festival's arrangement ('festival-<id>' or the Lantern Jig)
  *   the mine                'mine' / 'mine-ice' / 'mine-lava' by floor band
- *   01:00 – 06:20           nothing — crickets, wind and the house creaking carry the night
- *   storm outdoors          nothing — the thunder is the score
+ *   01:00 – 06:06           nothing — crickets, wind and the house creaking carry the night
+ *                           (the morning song starts just after the wake-up chime)
  *   the inn / bakery        'inn' (its own tune, rain or shine, until late)
- *   rain                    'rain' (lo-fi window-weather piece, indoors too)
+ *   rain / storm            'rain' (lo-fi window-weather piece, indoors too). A storm keeps it
+ *                           outdoors as well, only quieter (STORM_OUTDOOR_LEVEL, applied by the
+ *                           adapter as a level, not a new selection) so the thunder still leads and
+ *                           stepping through a door never stops / restarts the score
  *   20:00 onward            'night:<season>' (the season's lullabies)
  *   town 17:30 – 20:00      'inn' (evening in the square)
  *   town / Lantern Hall /
@@ -35,6 +38,9 @@ export interface MusicContext {
   mineFloor?: number;
 }
 
+/** Music level outdoors in a storm (× the normal level): the rain tune under the thunder. */
+export const STORM_OUTDOOR_LEVEL = 0.55;
+
 export function mineThemeFor(floor: number | undefined): string {
   if (!floor || floor < 1) return 'mine';
   const band = Math.floor((floor - 1) / 10) % 3;
@@ -47,11 +53,9 @@ export function chooseTheme(c: MusicContext): string | null {
   if (c.festival) return c.festival;
   if (c.map.startsWith('fest-')) return 'festival';
   if (c.map === 'mine') return mineThemeFor(c.mineFloor);
-  if (c.hour >= 25 || c.hour < 6.33) return null;
+  if (c.hour >= 25 || c.hour < 6.1) return null;
   if ((c.map === 'inn' || c.map === 'bakery') && c.hour < 24) return 'inn';
-  const wet = c.weather === 'rain' || c.weather === 'storm';
-  if (c.weather === 'storm' && !c.indoor) return null;
-  if (wet) return 'rain';
+  if (c.weather === 'rain' || c.weather === 'storm') return 'rain';
   if (c.hour >= 20) return `night:${seasonOf(c.season)}`;
   // Early evening in the square: the inn's tune spills out across the plaza.
   if (c.map === 'town' && c.hour >= 17.5) return 'inn';

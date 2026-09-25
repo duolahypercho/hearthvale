@@ -232,6 +232,16 @@ adapts it to game events.
   (`src/audio/compose.worker.ts` via `prefetch.ts`): the opening song is requested as the save loads (before
   the first click), forced demo / cutscene themes on request, the next song while the old fades — and in real
   time a song is never composed on the main thread (`__game.info().audio.compose`: worker hits vs misses).
+- **Continuity** (the score must never "drop out"): between songs there is only a 5–15 s breath (`rest`
+  in the theme defs), and a new place / mood during it starts the new song at once; a storm keeps the rain
+  tune outdoors too (quieter, `STORM_OUTDOOR_LEVEL`) so doorways never stop / restart it. Music is scheduled
+  1.5 s ahead (`MUSIC_LOOKAHEAD`), so a main-thread stall shorter than that drops nothing; a slightly late
+  note is played, only a > 250 ms stale one skipped. The adapter resumes a suspended / Safari-'interrupted'
+  context (every gesture, `statechange`, a 2 s keep-alive), always restores the master after a hidden-tab
+  fade, only kicks a clock frozen for 6 s, and a throwing music update is warned (rate-limited) and resets
+  the director after three in a row. `__game.info().audio.sched` / `.musicDb` / `.ctxState` show it live;
+  `node scripts/audio-continuity.mjs [--live [--minutes N]]` traces a 10-min session (farm → town → beach,
+  a storm day with doorways, a hidden tab, 500 ms stalls) and fails under 90 % audible or on a dropped note.
 - **In game**: a "now playing" card (`src/audio/nowplaying.ts`) engraves the first two bars of the new
   tune on a staff, and little notes float out of it into the scene in time with the melody while it is up;
   the morning chime quotes the tune about to play, the first day of a season its hook.

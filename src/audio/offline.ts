@@ -5,7 +5,8 @@
  */
 import { AudioGraph } from './graph';
 import { loadDucker } from './ducker';
-import { MusicDirector, scheduleTheme } from './music';
+import { MusicDirector, scheduleTheme, MUSIC_LOOKAHEAD, MUSIC_SCHED, MUSIC_STATS } from './music';
+import { chooseTheme, STORM_OUTDOOR_LEVEL } from './select';
 import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
 import { THEMES } from './themes';
@@ -190,6 +191,160 @@ export async function renderTransition(from: string, to: string, at = 14, second
   const buf = await ctx.startRendering();
   for (const tr of dir.trace) markers.push({ name: tr.note, t: tr.t });
   return { name: `transition-${from}-${to}${handoff === 'move' ? '-move' : ''}`, sampleRate: sr, data: encode(buf), frames: buf.length, markers };
+}
+
+/** One change in a scripted play session (state carries forward; see renderSession). */
+export interface SessionEvent {
+  t: number;
+  map?: string;
+  indoor?: boolean;
+  weather?: string;
+  season?: string;
+  /** Set the clock (it then runs at the game's 10 game-minutes per 7 s). */
+  hour?: number;
+  /** Freeze the "main thread" for this long: the director is not updated (the audio clock runs on). */
+  stallMs?: number;
+  label?: string;
+}
+
+export interface SessionResult {
+  seconds: number;
+  step: number;
+  /** Selection changes: [t, wanted group]. */
+  wants: [number, string | null][];
+  /** Per step: '1' = a song is current (not resting / stopped), '0' = none. */
+  playing: string;
+  /** Music RMS per 100 ms block (dBFS, the score alone: nothing else is rendered). */
+  rmsDb: number[];
+  /** Every director decision (the live trace keeps only the last 16). */
+  trace: { t: number; note: string }[];
+  /** Per injected stall: notes played late / skipped as stale from its start until 3 s after it. */
+  stalls: { t: number; ms: number; late: number; skipped: number }[];
+  labels: { t: number; label: string }[];
+  lookahead: number;
+  staleAfter: number;
+}
+
+/**
+ * The continuity trace: a scripted play session (places, doorways, weather, clock, injected
+ * main-thread stalls) driven through the real selector (select.ts) and MusicDirector, ticked every
+ * `step` seconds through OfflineAudioContext suspend points exactly as the adapter does (a change of
+ * map = 'move' handoff, same map = 'drift'; indoor / storm levels). Only the score is rendered, so
+ * the RMS envelope says when music is actually audible. `lookahead` / `staleAfter` default to the
+ * game's; the harness can pass the old values (0.3 s / 0.05 s) to replay the pre-fix behaviour.
+ */
+export async function renderSession(
+  events: SessionEvent[],
+  seconds: number,
+  opts: { lookahead?: number; staleAfter?: number; sr?: number; step?: number; seed?: number; daySeed?: number } = {},
+): Promise<SessionResult> {
+  const sr = opts.sr ?? 16000;
+  const step = opts.step ?? 0.1;
+  const lookahead = opts.lookahead ?? MUSIC_LOOKAHEAD;
+  const staleBefore = MUSIC_SCHED.staleAfter;
+  MUSIC_SCHED.staleAfter = opts.staleAfter ?? staleBefore;
+  const { ctx, g } = await offlineGraph(seconds, sr);
+  const dir = new MusicDirector(g, opts.seed ?? 3);
+  dir.reseed(opts.daySeed ?? 1001);
+  const evs = [...events].sort((a, b) => a.t - b.t);
+  const st = { map: 'farm', indoor: false, weather: 'sun', season: 'spring', hour: 9, hourAt: 0 };
+  let ei = 0;
+  let lastMap = '';
+  let stallUntil = -1;
+  const wants: [number, string | null][] = [];
+  const trace: { t: number; note: string }[] = [];
+  const labels: { t: number; label: string }[] = [];
+  const stalls: { t: number; ms: number; late: number; skipped: number; l0: number; s0: number; until: number }[] = [];
+  const seen = new WeakSet<object>();
+  const playing: string[] = [];
+  const tick = (tt: number): void => {
+    while (ei < evs.length && evs[ei]!.t <= tt + 1e-6) {
+      const e = evs[ei++]!;
+      if (e.map !== undefined) st.map = e.map;
+      if (e.indoor !== undefined) st.indoor = e.indoor;
+      if (e.weather !== undefined) st.weather = e.weather;
+      if (e.season !== undefined) st.season = e.season;
+      if (e.hour !== undefined) {
+        st.hour = e.hour;
+        st.hourAt = tt;
+      }
+      if (e.label) labels.push({ t: tt, label: e.label });
+      if (e.stallMs) {
+        stallUntil = tt + e.stallMs / 1000;
+        stalls.push({ t: tt, ms: e.stallMs, late: 0, skipped: 0, l0: MUSIC_STATS.late, s0: MUSIC_STATS.skipped, until: stallUntil + 3 });
+      }
+    }
+    for (const s of stalls) {
+      if (s.until >= 0 && tt >= s.until) {
+        s.late = MUSIC_STATS.late - s.l0;
+        s.skipped = MUSIC_STATS.skipped - s.s0;
+        s.until = -1;
+      }
+    }
+    if (tt < stallUntil) {
+      playing.push(dir.playing ? '1' : '0');
+      return;
+    }
+    const hour = st.hour + ((tt - st.hourAt) * (10 / 7)) / 60;
+    const want = chooseTheme({ map: st.map, hour, season: st.season, weather: st.weather, indoor: st.indoor, title: false, festival: null, forced: null });
+    if (want !== dir.desired) {
+      dir.handoff = st.map === lastMap ? 'drift' : 'move';
+      dir.desired = want;
+      wants.push([Math.round(tt * 100) / 100, want]);
+    }
+    lastMap = st.map;
+    dir.setLevel(st.indoor ? 0.9 : st.weather === 'storm' ? STORM_OUTDOOR_LEVEL : 1);
+    dir.update(lookahead);
+    // The live trace is capped at 16: copy each new decision as it appears.
+    for (const x of dir.trace) {
+      if (seen.has(x)) continue;
+      seen.add(x);
+      trace.push({ t: x.t, note: x.note });
+    }
+    playing.push(dir.playing ? '1' : '0');
+  };
+  const n = Math.floor((seconds - step) / step);
+  for (let i = 1; i <= n; i++) {
+    const tt = Math.round(i * step * 1000) / 1000;
+    void ctx.suspend(tt).then(() => {
+      tick(tt);
+      void ctx.resume();
+    });
+  }
+  tick(0);
+  let buf: AudioBuffer;
+  try {
+    buf = await ctx.startRendering();
+  } finally {
+    MUSIC_SCHED.staleAfter = staleBefore;
+  }
+  for (const s of stalls) {
+    if (s.until >= 0) {
+      s.late = MUSIC_STATS.late - s.l0;
+      s.skipped = MUSIC_STATS.skipped - s.s0;
+    }
+  }
+  const L = buf.getChannelData(0);
+  const R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+  const blk = Math.round(sr * 0.1);
+  const rmsDb: number[] = [];
+  for (let i = 0; i + blk <= L.length; i += blk) {
+    let e = 0;
+    for (let j = i; j < i + blk; j++) e += L[j]! * L[j]! + R[j]! * R[j]!;
+    rmsDb.push(Math.round(10 * Math.log10(e / (blk * 2) + 1e-12) * 10) / 10);
+  }
+  return {
+    seconds,
+    step,
+    wants,
+    playing: playing.join(''),
+    rmsDb,
+    trace,
+    stalls: stalls.map(({ t, ms, late, skipped }) => ({ t, ms, late, skipped })),
+    labels,
+    lookahead,
+    staleAfter: opts.staleAfter ?? staleBefore,
+  };
 }
 
 /**
