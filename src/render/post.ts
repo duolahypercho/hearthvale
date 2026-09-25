@@ -15,6 +15,7 @@ import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import type { Quality } from '../core/events';
 import { HeightFogPass } from './heightfog';
+import { StaticShadowCache } from './shadowcache';
 
 export interface QualityPreset {
   pixelRatioCap: number;
@@ -38,7 +39,9 @@ export interface QualityPreset {
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
   low: { pixelRatioCap: 1, shadowMapSize: 1024, shadowRadius: 2, ao: false, aoSamples: 8, bloom: false, tiltShift: false, smaa: true, grassDensity: 0.35, grain: 0, aoScale: 0.5, pointLights: 4 },
   medium: { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowRadius: 3, ao: false, aoSamples: 8, bloom: true, tiltShift: true, smaa: true, grassDensity: 0.65, grain: 0, aoScale: 0.5, pointLights: 6 },
-  high: { pixelRatioCap: 1.5, shadowMapSize: 4096, shadowRadius: 3, ao: true, aoSamples: 12, bloom: true, tiltShift: true, smaa: true, grassDensity: 1, grain: 0.016, aoScale: 0.5, pointLights: 8 },
+  // pixelRatioCap 1.25 / 2048 shadows (was 1.5 / 4096): ~30 % fewer pixels on Retina and a quarter of
+  // the shadow fill for no visible loss after SMAA + tilt-shift (A/B shots, pillar 14); ultra keeps the rest.
+  high: { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowRadius: 3, ao: true, aoSamples: 12, bloom: true, tiltShift: true, smaa: true, grassDensity: 1, grain: 0.016, aoScale: 0.5, pointLights: 8 },
   ultra: { pixelRatioCap: 2, shadowMapSize: 4096, shadowRadius: 4, ao: true, aoSamples: 16, bloom: true, tiltShift: true, smaa: true, grassDensity: 1.3, grain: 0.018, aoScale: 1, pointLights: 12 },
 };
 
@@ -166,9 +169,13 @@ export class PostPipeline {
   private smaa: SMAAPass | null = null;
   private tiltH: ShaderPass | null = null;
   private size = new THREE.Vector2();
+  /** Still casters baked into a cached shadow map; only moving ones re-render each frame (render/shadowcache.ts). */
+  readonly shadowCache: StaticShadowCache;
   /** Adaptive-quality switches (render/governor.ts): passes can be dropped without recompiles. */
   aoEnabled = true;
   bloomEnabled = true;
+  /** Governor multiplier on the preset's aoScale (1 = preset; <1 = cheaper AO targets when GPU-bound). */
+  private aoScaleK = 1;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -177,6 +184,7 @@ export class PostPipeline {
     public preset: QualityPreset,
   ) {
     renderer.getDrawingBufferSize(this.size);
+    this.shadowCache = new StaticShadowCache(renderer);
     // Depth texture: the atmosphere pass (height fog + light shafts) reads the scene depth.
     const rt = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(this.size.x, this.size.y) });
     this.composer = new EffectComposer(renderer, rt);
@@ -220,7 +228,6 @@ export class PostPipeline {
       // Half-res G-buffer / AO / denoise (≈¼ the fill of the extra scene pass and the AO kernel);
       // the blend samples the AO bilinearly at full res. Blend straight onto the read buffer
       // (multiply) instead of copy + blend into the write buffer: one full-screen pass fewer.
-      const aoScale = preset.aoScale;
       const gp = this.gtao as unknown as {
         setSize: (w: number, h: number) => void;
         render: (r: THREE.WebGLRenderer, wb: THREE.WebGLRenderTarget, rb: THREE.WebGLRenderTarget, dt?: number, mask?: boolean) => void;
@@ -240,7 +247,10 @@ export class PostPipeline {
         needsSwap: boolean;
       };
       const baseSetSize = gp.setSize.bind(this.gtao);
-      gp.setSize = (w: number, h: number) => baseSetSize(Math.max(1, Math.round(w * aoScale)), Math.max(1, Math.round(h * aoScale)));
+      gp.setSize = (w: number, h: number) => {
+        const k = preset.aoScale * this.aoScaleK;
+        baseSetSize(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+      };
       const baseRender = gp.render.bind(this.gtao);
       gp.needsSwap = false;
       gp.render = (r, wb, rb, dt, mask) => {
@@ -320,6 +330,16 @@ export class PostPipeline {
   }
 
   /** Adaptive quality: drop / restore GTAO and bloom without touching any shader. */
+  /**
+   * Adaptive quality: GTAO G-buffer / AO / denoise targets at `k` × the preset's aoScale (render-target
+   * resize only, no recompile). The scene targets keep their size, so only the AO targets reallocate.
+   */
+  setAOScale(k: number): void {
+    if (k === this.aoScaleK) return;
+    this.aoScaleK = k;
+    if (this.gtao) this.gtao.setSize(this.size.x, this.size.y);
+  }
+
   setAOEnabled(on: boolean): void {
     this.aoEnabled = on;
     if (this.gtao) this.gtao.enabled = on;
@@ -345,6 +365,7 @@ export class PostPipeline {
   }
 
   dispose(): void {
+    this.shadowCache.dispose();
     this.composer.dispose();
   }
 }

@@ -3920,6 +3920,15 @@ svg.valley {
 .set-seg.mini .seg b {
   font-size: 15px;
 }
+/* Frame rate: Auto · 60 · 120 · Uncapped */
+.set-seg.mini.cap4 {
+  grid-template-columns: 1.1fr 0.9fr 1fr 1.6fr;
+  width: 252px;
+}
+.set-seg.mini.cap4 .seg b {
+  font-size: 14px;
+  white-space: nowrap;
+}
 .set-fpsline {
   display: flex;
   align-items: center;

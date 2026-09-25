@@ -27,7 +27,7 @@ export interface Settings {
   uiScale: number;
   /** Shorter, calmer UI animations. */
   calm: boolean;
-  /** Frame limit: 0 = display refresh (vsync), else 30 / 60. */
+  /** Frame-rate cap: 0 = Auto (steady rate the display + scene can hold), -1 = Uncapped, else 60 / 120 (legacy 30). */
   fpsCap: number;
   /** Frame counter chip under the clock. */
   showFps: boolean;
@@ -135,7 +135,7 @@ function apply(game: Game): void {
   document.body.classList.toggle('u-calm', settings.calm);
   document.body.classList.toggle('u-no-hints', !settings.hints);
   document.body.classList.toggle('u-contrast', settings.contrast);
-  (game as { frameCap?: number }).frameCap = settings.fpsCap || 0;
+  game.frameCap = settings.fpsCap || 0;
   applyUiScale();
 }
 
@@ -263,12 +263,13 @@ export class SettingsScreen extends Screen {
       void p?.catch(() => {}).finally(() => fs.classList.toggle('on', !!document.fullscreenElement));
       fs.classList.toggle('on', on);
     });
-    const capRow = el('div', 'set-caprow', `<span class="lb">Frame limit<small>lower saves battery</small></span>`);
-    const capSeg = el('div', 'set-seg mini');
+    const capRow = el('div', 'set-caprow', `<span class="lb">Frame rate<small>Auto keeps it steady</small></span>`);
+    const capSeg = el('div', 'set-seg mini cap4');
     for (const [v, label] of [
-      [30, '30'],
+      [0, 'Auto'],
       [60, '60'],
-      [0, 'Vsync'],
+      [120, '120'],
+      [-1, 'Uncapped'],
     ] as [number, string][]) {
       const b = el('button', `seg${(settings.fpsCap || 0) === v ? ' on' : ''}`, `<b>${label}</b>`);
       b.dataset.nav = '';

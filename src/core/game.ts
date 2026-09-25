@@ -14,6 +14,7 @@ import { Input } from './input';
 import { SaveManager } from './save';
 import type { System } from './system';
 import { RenderContext } from '../render/renderer';
+import type { QualityGovernor } from '../render/governor';
 import { DayNight } from '../render/lighting';
 import { World } from '../world/map';
 import { FarmMap } from '../world/farm';
@@ -216,8 +217,16 @@ export class Game {
     return this.readyPromise;
   }
 
-  /** Frame limiter (Options → Display): 0 = every display refresh, else max frames per second. */
-  frameCap = 0;
+  /**
+   * Frame-rate cap (Options → Display): 0 = Auto (a steady rate the display and scene can hold),
+   * -1 = Uncapped (every display refresh), else max frames per second. Paced by render/governor.ts.
+   */
+  get frameCap(): number {
+    return this.rc.governor.cap;
+  }
+  set frameCap(v: number) {
+    this.rc.governor.cap = v;
+  }
   /**
    * Optional render takeover for full-screen menus (co-op lobby: cached blurred world + turntable).
    * Return true when it drew the frame itself; false to render the world as usual.
@@ -228,7 +237,7 @@ export class Game {
 
   private loop = (now: number): void => {
     requestAnimationFrame(this.loop);
-    if (this.frameCap > 0 && now - this.last < 1000 / this.frameCap - 2) return;
+    if (!this.rc.governor.pace(now)) return;
     // rAF timestamps can precede the performance.now() taken when the loop started: never step backwards.
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000) || 0);
     this.last = now;
@@ -281,7 +290,7 @@ export class Game {
     ok: boolean;
     bySystem: Record<string, { calls: number; triangles: number }>;
     lights: { total: number; active: number };
-    adaptive: { enabled: boolean; level: number; shed: string[] };
+    adaptive: QualityGovernor['state'];
   } {
     const r = this.rc.renderer.info.render;
     const budget = { drawCalls: 300, triangles: 1_500_000 };

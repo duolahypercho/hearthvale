@@ -54,6 +54,10 @@ const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1,
 
 /** Distance (world units) from the view centre back towards the sun that shadow casters are gathered. */
 const SHADOW_REACH = 25;
+/** Shadow direction step (rad, ≈0.034°): ~10 steps per real second at the clock's pace. */
+const SHADOW_STEP_RAD = 0.0006;
+/** Shadow frustum centre step (m), rounded to whole texels. */
+const SHADOW_SNAP_M = 1;
 
 // Storm grade: a clear cold teal-blue (lifted slate shadows, pulled-down warm highlights).
 const _stormLift = new THREE.Vector3(0.03, 0.048, 0.078);
@@ -98,6 +102,12 @@ export class DayNight {
   private flash = 0;
   private first = true;
   private sunDir = new THREE.Vector3();
+  /**
+   * Shadow-casting direction: sunDir stepped in SHADOW_STEP_RAD increments (≈ 0.1 s of real time;
+   * a ≤ 2 px nudge of the longest golden-hour shadow), so the static shadow cache
+   * (render/shadowcache.ts) stays valid between steps instead of re-rendering every frame.
+   */
+  private shadowDir = new THREE.Vector3();
   // Image-based lighting: a tiny gradient-sky scene prefiltered with PMREM, refreshed
   // whenever the (quantized) time of day / weather changes.
   private pmrem: THREE.PMREMGenerator;
@@ -315,6 +325,7 @@ export class DayNight {
 
     // Sun / moon
     this.lightDirection(hour, this.sunDir);
+    if (this.shadowDir.lengthSq() === 0 || this.shadowDir.angleTo(this.sunDir) > SHADOW_STEP_RAD) this.shadowDir.copy(this.sunDir);
     globalUniforms.uSunDir.value.copy(this.sunDir);
     lerpHex(a.sun, b.sun, t, this.sun.color).multiply(this.seasonTint);
     const grey = new THREE.Color(0.75, 0.78, 0.82);
@@ -427,7 +438,7 @@ export class DayNight {
     const cam = this.sun.shadow.camera;
     const camera = this.rc.camera;
     camera.updateMatrixWorld();
-    const lightRot = new THREE.Matrix4().lookAt(this.sunDir, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0));
+    const lightRot = new THREE.Matrix4().lookAt(this.shadowDir, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0));
     const inv = lightRot.clone().invert();
     const groundY = rig.focus.y;
     const origin = camera.position;
@@ -451,7 +462,8 @@ export class DayNight {
         maxY = Math.max(maxY, p.y);
       }
     }
-    const margin = 2.5;
+    // + half the centre snap below, so the stepped box still covers the view.
+    const margin = 2.5 + SHADOW_SNAP_M * 0.5;
     const q = 2;
     const halfW = Math.ceil(((maxX - minX) / 2 + margin) / q) * q;
     const halfH = Math.ceil(((maxY - minY) / 2 + margin) / q) * q;
@@ -462,17 +474,21 @@ export class DayNight {
     cam.updateProjectionMatrix();
     const center = new THREE.Vector3((minX + maxX) / 2, (minY + maxY) / 2, 0);
     // Light-space z of the focus point (the box centre sits on the view's ground).
-    center.z = rig.focus.clone().applyMatrix4(inv).z;
+    center.z = Math.round(rig.focus.clone().applyMatrix4(inv).z / SHADOW_SNAP_M) * SHADOW_SNAP_M;
+    // Snap the centre to a whole number of texels (no shimmer) ~SHADOW_SNAP_M apart: the frustum only
+    // moves every metre or so of walking, so the static shadow cache survives between steps.
     const texelX = (halfW * 2) / this.sun.shadow.mapSize.x;
     const texelY = (halfH * 2) / this.sun.shadow.mapSize.y;
-    center.x = Math.round(center.x / texelX) * texelX;
-    center.y = Math.round(center.y / texelY) * texelY;
+    const snapX = texelX * Math.max(1, Math.round(SHADOW_SNAP_M / texelX));
+    const snapY = texelY * Math.max(1, Math.round(SHADOW_SNAP_M / texelY));
+    center.x = Math.round(center.x / snapX) * snapX;
+    center.y = Math.round(center.y / snapY) * snapY;
     center.applyMatrix4(lightRot);
     this.sun.target.position.copy(center);
     // Only casters within ~45 m up-light of the view can land a shadow in it (a 12 m tree at a
     // 9° golden-hour sun throws ~75 m, but it's clipped by the cliffs/forest long before that).
     // A short light column keeps the plateau forest out of the shadow pass.
-    this.sun.position.copy(center).addScaledVector(this.sunDir, SHADOW_REACH);
+    this.sun.position.copy(center).addScaledVector(this.shadowDir, SHADOW_REACH);
     this.sun.target.updateMatrixWorld();
     this.bounce.position.copy(center).add(new THREE.Vector3(-this.sunDir.x, 0.4, -this.sunDir.z).multiplyScalar(30));
     this.bounce.target.position.copy(center);

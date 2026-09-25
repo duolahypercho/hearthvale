@@ -6,6 +6,7 @@
  *   npm run perf -- --demos farm-morning,town-day  # a subset (comma list)
  *   npm run perf -- --filter '^(farm|town)-'       # regex over demo names
  *   npm run perf -- --warmup 3000 --record 8000 --w 2560 --h 1440 --quality high
+ *   npm run perf -- --w 1512 --h 982 --dpr 2           # Retina laptop (the preset's pixelRatioCap applies)
  *   npm run perf -- --headed                       # headed, window parked off-screen (see "Timing mode")
  *   npm run perf -- --no-history                   # don't append to shots/perf/history.jsonl
  *   npm run perf -- --eval "<js>"                   # run JS after ready (A/B experiments; tag with --label)
@@ -53,7 +54,7 @@ import { execSync } from 'node:child_process';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 function parseArgs(argv) {
-  const out = { w: 2560, h: 1440, quality: 'high', warmup: 3000, record: 8000, timeout: 240000, demos: '', filter: '', headed: false, history: true, strict: false, out: 'shots/perf/latest.json', label: '' };
+  const out = { w: 2560, h: 1440, dpr: 1, quality: 'high', warmup: 3000, record: 8000, timeout: 240000, demos: '', filter: '', headed: false, history: true, strict: false, out: 'shots/perf/latest.json', label: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) continue;
@@ -61,7 +62,7 @@ function parseArgs(argv) {
     if (key === 'no-history') { out.history = false; continue; }
     if (key === 'headed' || key === 'strict' || key === 'resume') { out[key] = true; continue; }
     const val = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : 'true';
-    out[key] = ['w', 'h', 'warmup', 'record', 'timeout'].includes(key) ? Number(val) : val;
+    out[key] = ['w', 'h', 'dpr', 'warmup', 'record', 'timeout'].includes(key) ? Number(val) : val;
   }
   return out;
 }
@@ -369,6 +370,7 @@ async function measureDemo(ctx, base, name) {
       p95Ms: r2(pct(r.deltas, 95)),
       p99Ms: r2(pct(r.deltas, 99)),
       maxMs: r2(Math.max(0, ...r.deltas)),
+      over20Pct: r1((100 * r.deltas.filter((x) => x > 20).length) / Math.max(1, r.deltas.length)),
       hitches25: r.deltas.filter((x) => x > 25).length,
       hitches50: r.deltas.filter((x) => x > 50).length,
       cpuAvgMs: r2(mean(r.cpu)),
@@ -476,7 +478,7 @@ async function main() {
     const launch = async () => {
       if (browser) await browser.close().catch(() => {});
       browser = await chromium.launch({ headless: !args.headed, args: launchArgs, channel: 'chromium' }).catch(() => chromium.launch({ headless: !args.headed, args: launchArgs }));
-      ctx = await browser.newContext({ viewport: { width: args.w, height: args.h }, deviceScaleFactor: 1 });
+      ctx = await browser.newContext({ viewport: { width: args.w, height: args.h }, deviceScaleFactor: args.dpr });
     };
     await launch();
 
