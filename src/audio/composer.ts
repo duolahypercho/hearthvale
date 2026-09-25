@@ -112,6 +112,13 @@ export interface ThemeDef {
      * root placed in `range`, beats] — rests every 4th bar so it breathes.
      */
     ostinato?: { inst: InstrumentName; range: [number, number]; pattern: [number, number][]; vel: number };
+    /**
+     * A written tune for the floor (same notation as `Tune`): A over `prog.A`, B over `prog.B`, then A
+     * home with `Aend` as its last bars. The piece becomes A · B · A (24 bars) instead of `bars` of
+     * drifting motif; the random bell drips only fill the tune's long rests. `bInst` hands B to
+     * another voice (folded by octaves into `bRange`).
+     */
+    tune?: { octave?: number; A: string[]; B?: string[]; Aend?: string[]; bInst?: InstrumentName; bRange?: [number, number] };
   };
   mix: Partial<Record<TrackName, TrackMix>>;
   /** Seconds of silence (ambience only) after each piece, [min, max]. [0,0] loops seamlessly. */
@@ -557,10 +564,10 @@ export class Composer {
   }
 
   /** Parse one bar of tune notation into notes with metric velocities. */
-  parseBar(src: string, strict: boolean): MNote[] {
+  parseBar(src: string, strict: boolean, octave?: number): MNote[] {
     const th = this.th;
     const scale = MODES[th.mode];
-    const base = th.key + 12 * (th.melody?.tune?.octave ?? 0);
+    const base = th.key + 12 * (octave ?? th.melody?.tune?.octave ?? 0);
     const notes: MNote[] = [];
     let step = 0;
     for (const tok of src.trim().split(/\s+/).filter(Boolean)) {
@@ -1227,6 +1234,7 @@ export class Composer {
   private composeAmbient(): Piece {
     const th = this.th;
     const a = th.ambient!;
+    if (a.tune) return this.composeAmbientTune();
     const r = this.rng;
     const ev: NoteEvent[] = [];
     const barDur = this.S * this.stepSec;
@@ -1290,6 +1298,140 @@ export class Composer {
     ev.sort((x, y) => x.t - y.t);
     return { theme: th.id, seed: this.seed, events: ev, duration: t, bars: a.bars, barInfo };
   }
+
+  /**
+   * A mine floor with a written tune: A · B · A over the theme's own progressions. The tune rings
+   * (bells / celesta sustain ~1.7× their written length), phrase-arched velocities, a drone that
+   * re-strikes every two bars, a pad that holds each pair of bars, the tuned-drip ostinato in the
+   * A sections (resting every 4th bar), and soft high drips only where the tune leaves 4+ eighths
+   * of air — so the floor has a hook you can hum, and still sounds like a cave.
+   */
+  private composeAmbientTune(): Piece {
+    const th = this.th;
+    const a = th.ambient!;
+    const tune = a.tune!;
+    const r = this.rng;
+    const ev: NoteEvent[] = [];
+    const eighth = this.stepSec;
+    const barDur = this.S * eighth;
+    const beat = 60 / th.bpm;
+    const barInfo: BarInfo[] = [];
+    const secs: { sec: 'A' | 'B'; prog: string[]; bars: string[]; final: boolean }[] = [];
+    const aBars = tune.A;
+    const bBars = tune.B ?? tune.A;
+    const endA = [...aBars];
+    if (tune.Aend) for (let k = 0; k < tune.Aend.length; k++) endA[endA.length - tune.Aend.length + k] = tune.Aend[k]!;
+    const progA = th.prog.A;
+    const progB = th.prog.B.length >= bBars.length ? th.prog.B : th.prog.A;
+    secs.push({ sec: 'A', prog: progA, bars: aBars, final: false });
+    secs.push({ sec: 'B', prog: progB, bars: bBars, final: false });
+    secs.push({ sec: 'A', prog: th.prog.Aend ? [...progA.slice(0, progA.length - th.prog.Aend.length), ...th.prog.Aend] : progA, bars: endA, final: true });
+    let padV: number[] | null = null;
+    let t = 0.3;
+    let gi = 0;
+    for (const s of secs) {
+      const inst = s.sec === 'B' && tune.bInst ? tune.bInst : a.inst;
+      const range = s.sec === 'B' && tune.bRange ? tune.bRange : a.range;
+      // Octave fold for a handed-over B: move the whole phrase so its mean sits mid-range.
+      let shift = 0;
+      if (s.sec === 'B' && tune.bInst) {
+        const all = s.bars.flatMap((src) => this.parseBar(src, false, tune.octave ?? 1).map((n) => n.midi));
+        const mean = all.reduce((x, y) => x + y, 0) / Math.max(1, all.length);
+        shift = 12 * Math.round(((range[0] + range[1]) / 2 - mean) / 12);
+      }
+      for (let i = 0; i < s.bars.length; i++, gi++) {
+        const sym = s.prog[i % s.prog.length]!.split(/\s+/)[0]!;
+        const chord = this.chord(sym);
+        const pcs = chordPcs(chord, this.keyPc);
+        const scale = chordScale(chord, this.keyPc, th.mode);
+        barInfo.push({ t, chords: chord.symbol, section: i === 0 ? s.sec : '', i, shift: 0 });
+        // Phrase arch over 4 bars, B a touch fuller, the last A settles.
+        const pos = (i % 4) / 4;
+        const arch = 0.88 + 0.2 * Math.sin(Math.PI * (pos + 0.12));
+        const secGain = s.sec === 'B' ? 1.06 : s.final ? 0.97 : 0.92;
+        // The tune.
+        const notes = this.parseBar(s.bars[i]!, true, tune.octave ?? 1);
+        let lastEnd = 0;
+        let gapStart = 0;
+        let gap = 0;
+        for (const n of notes) {
+          if (n.step - lastEnd > gap) {
+            gap = n.step - lastEnd;
+            gapStart = lastEnd;
+          }
+          lastEnd = n.step + n.steps;
+          let midi = n.midi + shift;
+          while (midi > range[1] + 2) midi -= 12;
+          while (midi < range[0] - 2) midi += 12;
+          const longNote = n.steps >= 4;
+          // Passing tones (short, off the chord) are damped at their written length so the
+          // phrygian b2 sings past the drone instead of ringing into it.
+          const passing = n.steps <= 2 && !pcs.includes(((midi % 12) + 12) % 12);
+          ev.push({
+            t: t + n.step * eighth + this.jit(0.012),
+            track: 'melody',
+            inst,
+            midi,
+            dur: n.steps * eighth * (passing ? 0.95 : longNote ? 1.5 : 1.8),
+            vel: Math.min(0.92, n.vel * 0.9 * arch * secGain),
+          });
+        }
+        if (this.S - lastEnd > gap) {
+          gap = this.S - lastEnd;
+          gapStart = lastEnd;
+        }
+        // Drips in the air the tune leaves: one or two soft high notes, a chord tone an octave up, on
+        // the double track (its Haas pair scatters them across the cave, apart from the tune).
+        if (gap >= 4 && r.chance(a.noteChance)) {
+          let p = nearestIn(Math.min(a.range[1], (notes[0]?.midi ?? a.range[0]) + 12), pcs);
+          if (p > a.range[1]) p -= 12;
+          let tt = t + (gapStart + 1 + r.int(0, Math.max(0, gap - 3))) * eighth;
+          const n2 = r.chance(0.4) ? 2 : 1;
+          for (let k = 0; k < n2; k++) {
+            ev.push({ t: tt, track: 'double', inst: a.inst, midi: p, dur: 2, vel: 0.36 + r.range(0, 0.1) });
+            tt += eighth * r.pick([1, 1.5]);
+            p = nearestIn(p + r.pick([-5, -3, 3, 4]), pcs);
+            if (p > a.range[1]) p -= 12;
+          }
+        }
+        // Drone + pad: struck on a chord change or every two bars, held exactly until the next strike
+        // (a drone left ringing under the next chord is the mud the old floors had).
+        const symAt = (k: number): string => s.prog[k % s.prog.length]!.split(/\s+/)[0]!;
+        const strikes = (k: number): boolean => k === 0 || k % 2 === 0 || symAt(k) !== symAt(k - 1);
+        if (strikes(i)) {
+          let hold = 1;
+          while (i + hold < s.bars.length && !strikes(i + hold)) hold++;
+          if (th.bass) ev.push({ t, track: 'bass', inst: th.bass.inst, midi: placeIn(pcs[0]!, th.bass.range[0], th.bass.range[1], th.bass.range[0] + 3), dur: barDur * hold - 0.12, vel: th.bass.vel * (s.sec === 'B' ? 0.92 : 1) });
+          if (th.pad) {
+            padV = voiceChord(chord, this.keyPc, th.pad.voices, th.pad.range[0], th.pad.range[1], padV);
+            padV.forEach((p, k) => ev.push({ t: t + 0.15 + k * 0.28, track: 'pad', inst: th.pad!.inst, midi: p, dur: barDur * hold - 0.15 - k * 0.28 - 0.15, vel: th.pad!.vel * (s.sec === 'B' ? 1.1 : 1) }));
+          }
+        }
+        // Tuned-drip ostinato: A sections (not the first bar), resting every 4th bar; B keeps only its downbeat.
+        if (a.ostinato && i % 4 !== 3 && gi > 0) {
+          const o = a.ostinato;
+          let tt = t + this.jit(0.01);
+          const root = placeIn(pcs[0]!, o.range[0], o.range[1], (o.range[0] + o.range[1]) / 2 - 3);
+          const pat = s.sec === 'B' ? o.pattern.slice(0, 2) : o.pattern;
+          pat.forEach(([step, beats], k) => {
+            let p = scaleStep(root, step, scale);
+            if (p > o.range[1]) p -= 12;
+            if (p < o.range[0]) p += 12;
+            ev.push({ t: tt, track: 'accomp', inst: o.inst, midi: p, dur: beats * beat * 0.9, vel: o.vel * (s.sec === 'B' ? 0.8 : 1) * (k === 0 ? 1.1 : 0.82 + r.range(0, 0.12)) });
+            tt += beats * beat + this.jit(0.012);
+          });
+        }
+        // The counter voice answers at the end of a phrase (bars 2 and 4 of each 4), when B isn't its own.
+        if (th.counter && !(s.sec === 'B' && tune.bInst === th.counter.inst) && i % 2 === 1 && r.chance(0.55)) {
+          const p = placeIn(pcs[r.chance(0.6) ? 0 : 1]!, th.counter.range[0], th.counter.range[1], (th.counter.range[0] + th.counter.range[1]) / 2);
+          ev.push({ t: t + barDur * 0.5 + this.jit(0.02), track: 'counter', inst: th.counter.inst, midi: p, dur: barDur * 1.3, vel: 0.45 });
+        }
+        t += barDur;
+      }
+    }
+    ev.sort((x, y) => x.t - y.t);
+    return { theme: th.id, seed: this.seed, events: ev, duration: t, bars: gi, barInfo };
+  }
 }
 
 /**
@@ -1297,12 +1439,14 @@ export class Composer {
  * and length in beats, plus the raw step grid (eighths; triplet eighths in 6/8) and bar index.
  */
 export function tuneHook(th: ThemeDef, bars = 2): { midi: number; beats: number; t: number; step: number; steps: number; bar: number }[] {
-  if (!th.melody?.tune) return [];
+  const tune = th.melody?.tune ?? th.ambient?.tune;
+  if (!tune) return [];
+  const oct = th.melody?.tune ? undefined : (th.ambient?.tune?.octave ?? 1);
   const c = new Composer(th, 1);
   const S = th.meter === '4/4' ? 8 : 6;
   const beat = th.meter === '6/8' ? 1 / 3 : 0.5;
   const out: { midi: number; beats: number; t: number; step: number; steps: number; bar: number }[] = [];
-  for (let i = 0; i < bars; i++) for (const n of c.parseBar(th.melody.tune.A[i] ?? '', false)) out.push({ midi: n.midi, beats: n.steps * beat, t: (i * S + n.step) * beat, step: i * S + n.step, steps: n.steps, bar: i });
+  for (let i = 0; i < bars; i++) for (const n of c.parseBar(tune.A[i] ?? '', false, oct)) out.push({ midi: n.midi, beats: n.steps * beat, t: (i * S + n.step) * beat, step: i * S + n.step, steps: n.steps, bar: i });
   return out;
 }
 

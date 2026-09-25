@@ -320,12 +320,25 @@ export const THEMES: Record<string, ThemeDef> = {
     key: 57, // A
     mode: 'phrygian',
     form: ['A'],
-    prog: { A: ['i', 'i', 'bII', 'i', 'iv', 'iv', 'bII', 'v'], B: ['i'] },
-    ambient: { inst: 'glass', range: [69, 88], noteChance: 0.5, bars: 16, motif: [0, 1, -1, -3], ostinato: { inst: 'kalimba', range: [67, 84], pattern: [[0, 1], [4, 0.5], [2, 0.5], [3, 1], [1, 1]], vel: 0.5 } },
+    // A: the phrygian half-step sigh (A Bb C … E) over i–bII; B opens into F major (bVI) and climbs.
+    prog: { A: ['i', 'i', 'bII', 'i', 'iv', 'iv', 'bII', 'v'], B: ['bVI', 'bVI', 'iv', 'i', 'bVI', 'bII', 'iv', 'v'], Aend: ['bII', 'i'] },
+    ambient: {
+      inst: 'glass', range: [69, 88], noteChance: 0.45, bars: 16, motif: [0, 1, -1, -3],
+      ostinato: { inst: 'kalimba', range: [67, 84], pattern: [[0, 1], [4, 0.5], [2, 0.5], [3, 1], [1, 1]], vel: 0.5 },
+      tune: {
+        octave: 1,
+        // "r A C D | E… | D C Bb. | A… | r D E F | A' G F | E. D Bb. | G E |"
+        A: ['r:2 1:2 3:2 4:2', '5:6 r:2', '4:2 3:2 2:4', '1:6 r:2', 'r:2 4:2 5:2 6:2', "1':4 7:2 6:2", '5:3 4:1 2:4', '7:4 5:4'],
+        // "C' A… | F E F | A… | E C | C' Bb A | D' C' Bb | A F D | E… |"
+        B: ["r:2 3':2 1':4", '6:4 5:2 6:2', "1':6 r:2", '5:4 3:4', "3':3 2':1 1':4", "4':3 3':1 2':4", "1':2 6:2 4:4", '5:6 r:2'],
+        Aend: ['4:2 3:2 2:4', '1:8'],
+      },
+    },
     counter: { inst: 'cello', range: [45, 60], on: 'always' },
     bass: { inst: 'drone', pattern: 'pedal', range: [33, 45], vel: 0.6 },
     pad: { inst: 'pad', range: [52, 67], voices: 3, vel: 0.35, on: 'always' },
     mix: {
+      double: { gain: 0.5, pan: 0, send: 0.85 },
       accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
       melody: { gain: 0.62, pan: 0.2, send: 0.7 },
       counter: { gain: 0.38, pan: -0.3, send: 0.6 },
@@ -348,12 +361,27 @@ export const THEMES: Record<string, ThemeDef> = {
     key: 64, // E
     mode: 'lydian',
     form: ['A'],
-    prog: { A: ['I', 'II', 'Imaj7', 'II', 'vi', 'II', 'IVmaj7', 'II'], B: ['I'] },
-    ambient: { inst: 'celesta', range: [76, 93], noteChance: 0.6, bars: 16, motif: [0, 2, 1, -2], ostinato: { inst: 'musicBox', range: [74, 91], pattern: [[0, 0.5], [2, 0.5], [4, 1], [3, 0.5], [1, 0.5], [2, 1]], vel: 0.5 } },
+    // A: the lydian I–II shimmer with the raised 4th (A#) sung out; B turns to the relative minor and
+    // hands the tune to the bells.
+    prog: { A: ['I', 'II', 'Imaj7', 'II', 'vi', 'II', 'IVmaj7', 'II'], B: ['vi', 'iii', 'II', 'Imaj7', 'vi', 'iii', 'IVmaj7', 'II'], Aend: ['II', 'Iadd9'] },
+    ambient: {
+      inst: 'celesta', range: [76, 93], noteChance: 0.5, bars: 16, motif: [0, 2, 1, -2],
+      ostinato: { inst: 'musicBox', range: [74, 91], pattern: [[0, 0.5], [2, 0.5], [4, 1], [3, 0.5], [1, 0.5], [2, 1]], vel: 0.5 },
+      tune: {
+        octave: 1,
+        // "G# A# B… | C#. B A#… | B C# D#… | E F#… | G#'. F#' E' D# | C#… | E' D# C# B | C# A# |"
+        A: ['3:2 4:2 5:4', '6:3 5:1 4:4', '5:2 6:2 7:4', "1':2 2':4 r:2", "3':3 2':1 1':2 7:2", '6:6 r:2', "1':2 7:2 6:2 5:2", '6:4 4:4'],
+        // bells: "C#… B C# | B… C# | C#. B A#… | G#… | G# A# B C# | D#… C# | C# D# E' | F#'… |"
+        B: ['6:4 5:2 6:2', '5:6 6:2', '6:3 5:1 4:4', '3:6 r:2', '3:2 4:2 5:2 6:2', '7:6 6:2', "6:4 7:2 1':2", "2':8"],
+        Aend: ['6:2 4:2 2:4', '1:6 r:2'],
+        bInst: 'bell', bRange: [64, 81],
+      },
+    },
     counter: { inst: 'bell', range: [64, 79], on: 'always' },
     bass: { inst: 'drone', pattern: 'pedal', range: [40, 52], vel: 0.45 },
     pad: { inst: 'pad', range: [60, 76], voices: 3, vel: 0.32, on: 'always' },
     mix: {
+      double: { gain: 0.5, pan: 0, send: 0.85 },
       accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
       melody: { gain: 0.6, pan: 0.25, send: 0.75 },
       counter: { gain: 0.34, pan: -0.3, send: 0.7 },
@@ -376,13 +404,28 @@ export const THEMES: Record<string, ThemeDef> = {
     key: 52, // E
     mode: 'phrygian',
     form: ['A'],
-    prog: { A: ['i', 'bII', 'i', 'bII', 'iv', 'bII', 'i', 'viidim'], B: ['i'] },
-    ambient: { inst: 'bell', range: [64, 81], noteChance: 0.5, bars: 16, motif: [0, -1, 1, -2], ostinato: { inst: 'marimba', range: [66, 83], pattern: [[0, 1.5], [1, 0.5], [0, 1], [-2, 1]], vel: 0.55 } },
+    // A: a slow lament on the half step (E F … F), a tritone (A–D#) hanging over the diminished
+    // turnaround; B is the cello's: iv–bVI–bII, then a real dominant (V) to fall home on.
+    prog: { A: ['i', 'bII', 'i', 'bII', 'iv', 'bII', 'i', 'viidim'], B: ['iv', 'iv', 'bVI', 'bII', 'iv', 'bVI', 'bII', 'V'], Aend: ['bII', 'i'] },
+    ambient: {
+      inst: 'bell', range: [64, 81], noteChance: 0.45, bars: 16, motif: [0, -1, 1, -2],
+      ostinato: { inst: 'marimba', range: [66, 83], pattern: [[0, 1.5], [1, 0.5], [0, 1], [-2, 1]], vel: 0.55 },
+      tune: {
+        octave: 1,
+        // "B. A G E | F… | B A G… | F A C | B C E' | D C A | A G E | A D# |"
+        A: ['5:3 4:1 3:2 1:2', '2:6 r:2', '5:3 4:1 3:4', '2:2 4:2 6:4', "5:2 6:2 1':4", '7:3 6:1 4:4', '4:2 3:2 1:4', '4:4 #7:4'],
+        // cello: "E D C | B… | C G E | A F | E D C | D E C | C A | D# B |"
+        B: ["1':4 7:2 6:2", '5:6 r:2', '6:3 3:1 1:4', '4:4 2:4', "1':2 7:2 6:4", "7:2 1':2 6:4", '6:4 4:4', '#7:4 5:4'],
+        Aend: ['2:2 4:2 3:4', '1:8'],
+        bInst: 'cello', bRange: [52, 70],
+      },
+    },
     // Cello groans a fifth higher than round 1 (40–55 put its fundamental in the 80–190 Hz mud).
     counter: { inst: 'cello', range: [45, 60], on: 'always' },
     bass: { inst: 'drone', pattern: 'pedal', range: [35, 47], vel: 0.45 },
     pad: { inst: 'pad', range: [52, 67], voices: 3, vel: 0.34, on: 'always' },
     mix: {
+      double: { gain: 0.5, pan: 0, send: 0.85 },
       accomp: { gain: 0.6, pan: 0.45, send: 0.6 },
       melody: { gain: 0.62, pan: 0.2, send: 0.7 },
       counter: { gain: 0.4, pan: -0.35, send: 0.6 },

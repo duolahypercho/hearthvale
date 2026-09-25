@@ -107,7 +107,8 @@ export function critiquePiece(id: string, seed = 1): Critique {
   const others = ev.filter((e) => HARMONY_TRACKS.has(e.track));
   const flags: string[] = [];
   const minutes = p.duration / 60;
-  const ambient = !!th.ambient;
+  // Floors with a written tune are judged like songs (cadences, leaps, clashes); drifting ones aren't.
+  const ambient = !!th.ambient && !th.ambient.tune;
 
   // ── melody shape
   let steps = 0;
