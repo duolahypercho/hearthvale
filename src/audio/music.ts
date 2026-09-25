@@ -368,6 +368,7 @@ export class MusicDirector {
   constructor(private g: AudioGraph, seed = 1, pieces?: PiecePrefetch) {
     this.rng = new Rand(seed);
     this.pieces = pieces ?? new PiecePrefetch(!g.offline);
+    if (!g.offline) this.pieces.attach(g);
   }
 
   /** When the director started waiting on the worker for a song that is due (null = not waiting). */

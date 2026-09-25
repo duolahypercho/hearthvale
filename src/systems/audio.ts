@@ -35,6 +35,7 @@ import { voiceFor, type Surface } from '../audio/sfx';
 import { tuneHook } from '../audio/composer';
 import type { DirectorTrace } from '../audio/music';
 import { NowPlaying } from '../audio/nowplaying';
+import { RENDER_STATS } from '../audio/instruments';
 
 export interface AudioState {
   running: boolean;
@@ -65,6 +66,8 @@ export interface AudioState {
   levelDb: number;
   /** Songs composed in the worker (hits) vs on the main thread (misses, with their total ms). */
   compose: { hits: number; misses: number; syncMs: number };
+  /** Mallet / string note buffers: rendered by the worker vs on this thread (+ ms), cache size. */
+  notes: { worker: number; main: number; mainMs: number; cacheMb: number; byInst: Record<string, number> };
 }
 
 export interface AudioApi {
@@ -159,6 +162,8 @@ export class AudioSystem implements System {
   private card = new NowPlaying();
   private pinCard = false;
   private cardShown: string | null = null;
+  /** Pinned card with no running context: the tune's opening notes, fed to the card at tempo. */
+  private silentHook: { notes: ReturnType<typeof tuneHook>; i: number; t: number } | null = null;
   /** Song composer worker, created at boot so the first song is ready before the first click. */
   private prefetch: PiecePrefetch | null = null;
   /** Last craft:learned (ms) — a recipe learned with a toast gets the jingle, a silent refresh doesn't. */
@@ -254,6 +259,13 @@ export class AudioSystem implements System {
           hits: this.engine?.music.pieces.hits ?? 0,
           misses: this.engine?.music.pieces.misses ?? 0,
           syncMs: Math.round(this.engine?.music.pieces.syncMs ?? 0),
+        },
+        notes: {
+          worker: this.engine?.graph.provided ?? 0,
+          main: RENDER_STATS.count,
+          mainMs: Math.round(RENDER_STATS.ms),
+          cacheMb: Math.round((this.engine?.graph.bufferMb ?? 0) * 10) / 10,
+          byInst: { ...RENDER_STATS.byInst },
         },
       }),
     });
@@ -645,6 +657,21 @@ export class AudioSystem implements System {
       if (w && w !== this.cardShown && THEMES[w]) {
         this.cardShown = w;
         this.card.show(THEMES[w]!, true);
+        this.silentHook = { notes: tuneHook(THEMES[w]!, 4), i: 0, t: 0.6 };
+      }
+      // No sound yet (a headless screenshot never clicks): the card still breathes — the tune's first
+      // bars float out of it at the song's tempo, exactly as they would while it plays.
+      const h = this.silentHook;
+      if (h && h.notes.length && (!this.ctx || this.ctx.state !== 'running')) {
+        h.t -= dt;
+        if (h.t <= 0) {
+          const n = h.notes[h.i % h.notes.length]!;
+          const next = h.notes[(h.i + 1) % h.notes.length]!;
+          const bpm = THEMES[this.cardShown!]?.bpm ?? 96;
+          this.card.note(n.midi, 0);
+          h.i++;
+          h.t = Math.max(0.2, ((next.t > n.t ? next.t - n.t : n.beats + 1) * 60) / bpm);
+        }
       }
     }
     const ctx = this.ctx;

@@ -601,7 +601,7 @@ async function live() {
     a.say('player:2', 'Hello there, neighbour!', p.x - 4, p.z);
     await sleep(1500);
     a.music(null);
-    return { near, mid, far, floor, compose: a.state().compose };
+    return { near, mid, far, floor, compose: a.state().compose, notes: a.state().notes };
   });
   const posOk = pos.near > pos.mid + 4 && pos.far < pos.floor + 3;
   if (!posOk) fails++;
@@ -609,6 +609,15 @@ async function live() {
   const c = pos.compose;
   console.log(`songs composed in the worker: ${c.hits}, on the main thread: ${c.misses} (${c.syncMs} ms total)${c.hits === 0 ? '  FAIL' : ''}`);
   if (c.hits === 0) fails++;
+  const nb = pos.notes;
+  if (nb) {
+    // Mallet / string notes: the worker renders each song's pitches ahead of time; the frame only pays
+    // for a pitch the worker hasn't delivered yet (a song's first bar at boot, an SFX's bell).
+    const bad = nb.worker === 0;
+    const by = Object.entries(nb.byInst ?? {}).sort((x, y) => y[1] - x[1]).map(([k, n]) => `${k} ${n}`).join(', ');
+    console.log(`note buffers from the worker: ${nb.worker}, on the main thread: ${nb.main} (${nb.mainMs} ms total${by ? `: ${by}` : ''}), cache ${nb.cacheMb} MB${bad ? '  FAIL' : ''}`);
+    if (bad) fails++;
+  }
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   console.log(fails || errors.length ? `\n${fails} live check(s) failed` : '\nall live checks passed');
   await browser.close();

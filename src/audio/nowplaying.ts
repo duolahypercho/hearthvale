@@ -13,6 +13,7 @@ const CSS = `
   opacity:0;transform:translateX(-24px) scale(.96);transform-origin:left center;
   transition:opacity .26s ease-out,transform .32s cubic-bezier(.34,1.56,.64,1)}
 .hv-np.on{opacity:1;transform:none}
+.hv-np.pinned.on{animation:none}
 .hv-np.off{opacity:0;transform:translateX(-12px);transition:opacity .6s ease-in,transform .6s ease-in}
 .hv-np-card{position:relative;display:flex;gap:12px;align-items:center;padding:9px 16px 9px 10px;border-radius:16px;
   background:var(--u-paper,none) 0 0/256px,radial-gradient(120% 110% at 30% 15%,#fff8e6,#f3dfb4 70%,#e9cf9a);
@@ -215,6 +216,7 @@ export class NowPlaying {
     window.clearTimeout(this.timer);
     this.shownAt = performance.now();
     this.pinned = pin;
+    el.classList.toggle('pinned', pin);
     if (!pin) {
       this.timer = window.setTimeout(() => {
         el.classList.remove('on');

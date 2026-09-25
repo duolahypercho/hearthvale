@@ -21,7 +21,13 @@
  * ensembles, generated instrument-body impulse responses, and a polyphony budget.
  */
 import { attachDucker } from './ducker';
-import { Rand, makeImpulse, makeNoise, pluckBuffer, softClipCurve, bodyImpulse, type PluckOptions, type BodyKind } from './dsp';
+import { Rand, makeImpulse, makeNoise, pluckBuffer, softClipCurve, bodyImpulse, toBuffer, type PluckOptions, type BodyKind } from './dsp';
+
+/**
+ * Note-buffer cache cap in samples (24 M ≈ 96 MB of float32: the playing song's notes plus the next
+ * one's, prefetched). Evicted notes are re-rendered by the worker when a song needs them again.
+ */
+const BUFFER_CAP_SAMPLES = 24_000_000;
 
 /** The game's default volume settings (systems/audio.ts): the graph starts here. */
 export const DEFAULT_VOLUMES = { master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7 };
@@ -71,8 +77,15 @@ export class AudioGraph {
   /** Shared randomness (noise start offsets, detunes). SFX swap in their own stream while they build. */
   rng: Rand;
   private buffers = new Map<string, AudioBuffer>();
+  /** Samples held by `buffers` (LRU-capped at BUFFER_CAP_SAMPLES; a playing source keeps its own). */
+  private bufferSamples = 0;
+  /** Note buffers handed over ready-made by the compose worker (compose.worker.ts via prefetch.ts). */
+  provided = 0;
+  /** Called with each note key the LRU drops (the worker forgets it sent it, and renders it again when due). */
+  onEvict: ((key: string) => void) | null = null;
   private lfos = new Map<number, OscillatorNode>();
   private drifts: GainNode[] = [];
+  private vibs: GainNode[] = [];
   private bodies = new Map<BodyKind, AudioBuffer>();
   private duckUntil = 0;
   private duckDepth = 1;
@@ -198,11 +211,44 @@ export class AudioGraph {
   /** Generic pre-rendered note cache. */
   buffer(key: string, make: () => AudioBuffer): AudioBuffer {
     let b = this.buffers.get(key);
-    if (!b) {
-      b = make();
+    if (b) {
+      // Most recently used goes to the back of the eviction queue.
+      this.buffers.delete(key);
       this.buffers.set(key, b);
+      return b;
     }
+    b = make();
+    this.store(key, b);
     return b;
+  }
+
+  /** Has a buffer been cached under `key` (the worker skips rendering those). */
+  hasBuffer(key: string): boolean {
+    return this.buffers.has(key);
+  }
+
+  /** A worker-rendered note: cache it unless the frame already built one. */
+  provide(key: string, data: Float32Array, sr: number): void {
+    if (this.buffers.has(key)) return;
+    this.provided++;
+    this.store(key, toBuffer(this.ctx, data, sr));
+  }
+
+  /** Cached buffer memory in MB (diagnostics). */
+  get bufferMb(): number {
+    return (this.bufferSamples * 4) / 1048576;
+  }
+
+  private store(key: string, b: AudioBuffer): void {
+    this.buffers.set(key, b);
+    this.bufferSamples += b.length * b.numberOfChannels;
+    // A long session visits every song: keep the note cache bounded (~96 MB), oldest out first.
+    while (this.bufferSamples > BUFFER_CAP_SAMPLES && this.buffers.size > 1) {
+      const [k, old] = this.buffers.entries().next().value!;
+      this.buffers.delete(k);
+      this.bufferSamples -= old.length * old.numberOfChannels;
+      this.onEvict?.(k);
+    }
   }
 
   /** A free-running sine LFO shared by every voice that wants this rate (vibrato, tremolo). */
@@ -239,6 +285,34 @@ export class AudioGraph {
       }
     }
     return this.drifts[((k % 3) + 3) % 3]!;
+  }
+
+  /**
+   * Section vibrato in cents, shared: five "players", each with their own rate (4.8–6.1 Hz) and
+   * depth (±7–11 cents) that itself breathes slowly, so a string section's desks never vibrate in
+   * lockstep — the summed shimmer (not a chorus pedal's periodic sweep) is what reads as an ensemble.
+   */
+  sectionVib(k: number): GainNode {
+    if (!this.vibs.length) {
+      const rates = [4.83, 5.17, 5.52, 5.79, 6.08];
+      rates.forEach((rate, i) => {
+        const o = this.ctx.createOscillator();
+        o.frequency.value = rate;
+        const d = this.ctx.createGain();
+        d.gain.value = 7 + i;
+        // The player's vibrato widens and narrows over ~8–14 s.
+        const w = this.ctx.createOscillator();
+        w.frequency.value = 0.071 + i * 0.013;
+        const wd = this.ctx.createGain();
+        wd.gain.value = 3;
+        w.connect(wd).connect(d.gain);
+        o.connect(d);
+        o.start(0);
+        w.start(0);
+        this.vibs.push(d);
+      });
+    }
+    return this.vibs[((k % 5) + 5) % 5]!;
   }
 
   /** Generated instrument-body impulse response (violin / cello / guitar box). */

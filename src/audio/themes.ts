@@ -439,7 +439,7 @@ export const THEMES: Record<string, ThemeDef> = {
     gain: 1.12,
   },
 
-  /** Night — an electric-piano lullaby with a celesta tune under the crickets. */
+  /** Night — a felt-piano lullaby (rolling broken chords) with a celesta tune under the crickets. */
   night: {
     id: 'night',
     title: 'Lamplight',
@@ -470,7 +470,7 @@ export const THEMES: Record<string, ThemeDef> = {
         Aend: ['4:3 3:1 2:2 7,:2', '1:8'],
       },
     },
-    accomp: { inst: 'epiano', pattern: 'epComp', range: [53, 70], voices: 4, vel: 0.5 },
+    accomp: { inst: 'piano', pattern: 'arpUp', range: [49, 70], voices: 4, vel: 0.5 },
     bass: { inst: 'softBass', pattern: 'root', range: [37, 49], vel: 0.5 },
     pad: { inst: 'pad', range: [56, 72], voices: 3, vel: 0.32, on: 'always' },
     mix: {
@@ -483,7 +483,7 @@ export const THEMES: Record<string, ThemeDef> = {
     gain: 0.9,
   },
 
-  /** Rainy day — lo-fi electric piano sighs, clarinet counter-line, brushed soft kit. */
+  /** Rainy day — a felt-piano tune sighing over lo-fi electric-piano comping, clarinet counter-line, brushed soft kit. */
   rain: {
     id: 'rain',
     title: 'Window Weather',
@@ -503,7 +503,7 @@ export const THEMES: Record<string, ThemeDef> = {
       Aend: ['ii7 V7', 'Imaj7'],
     },
     melody: {
-      inst: 'epiano', range: [68, 88], density: 0.35, ornament: 0, cInst: 'vibes',
+      inst: 'piano', range: [68, 88], density: 0.35, ornament: 0, cInst: 'vibes',
       tune: {
         octave: 1,
         // ". G Bb. G F Eb | . Eb G. F Eb C | . Eb G. Bb D C | Bb Ab F... |" — every phrase starts on the
@@ -659,10 +659,12 @@ export const THEMES: Record<string, ThemeDef> = {
     bass: { inst: 'upright', pattern: 'jig', range: [38, 52], vel: 0.85 },
     perc: { pattern: 'jig', on: 'always', vel: 0.6 },
     mix: {
-      melody: { gain: 0.72, pan: 0.1, send: 0.22 },
-      double: { gain: 0.3, pan: -0.25, send: 0.25 },
+      // A wider stage than a pub session in mono (correlation read 0.82): the whistle stands off
+      // left of the fiddle, the guitar well right of the accordion, a touch more room on the tune.
+      melody: { gain: 0.72, pan: 0.12, send: 0.26 },
+      double: { gain: 0.3, pan: -0.42, send: 0.28 },
       accomp: { gain: 0.5, pan: -0.3, send: 0.2 },
-      accomp2: { gain: 0.42, pan: 0.35, send: 0.18 },
+      accomp2: { gain: 0.42, pan: 0.52, send: 0.2 },
       bass: { gain: 0.7, pan: 0, send: 0.05 },
       perc: { gain: 0.5, pan: 0.05, send: 0.12 },
     },

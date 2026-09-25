@@ -107,7 +107,7 @@ const TRIM: Record<string, number> = {
   // were louder than tools). Gameplay verbs peak around -18…-22 dBFS in game, UI -24…-28, ambience
   // events at or below -30: watering +14.6 dB (plus a soil-splash transient), scythe +9.4 dB, menu
   // open / close -5 / -4 dB, hover +10 dB, select (talking to a villager) +8 dB.
-  water: 7, 'ui:open': 0.9, 'ui:close': 0.63, 'ui:hover': 16, 'ui:select': 4, 'ui:drop': 2.6, 'ui:trash': 1.8,
+  water: 7, 'ui:open': 0.9, 'ui:close': 1.2, 'ui:hover': 16, 'ui:select': 4, 'ui:drop': 2.6, 'ui:trash': 1.8,
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
   'ui:click': 1.8,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.

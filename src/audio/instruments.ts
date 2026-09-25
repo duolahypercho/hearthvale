@@ -15,7 +15,7 @@
  * Levels are normalised so a velocity-1 note of any instrument peaks around -6 dBFS before track trims.
  */
 import type { AudioGraph } from './graph';
-import { Rand, clamp, harmonicWave, modalBuffer, mtof, type ModalSpec, type BodyKind } from './dsp';
+import { Rand, clamp, harmonicWave, modalData, pluckData, toBuffer, mtof, type ModalSpec, type BodyKind, type PluckOptions } from './dsp';
 
 export interface NoteOpts {
   /** Previous pitch for a legato glide (portamento). */
@@ -178,7 +178,9 @@ type Mallet = { key: string; spec: (m: number, f: number) => ModalSpec; level: n
 function mallet(def: Mallet): InstrumentFn {
   return (g, dest, t, m, _dur, v, o) => {
     const f = mtof(m);
-    const buf = g.buffer(`${def.key}:${m}`, () => modalBuffer(g.ctx, f, sparkle(def, def.spec(m, f), f), new Rand(m * 7919 + def.key.length)));
+    // Two strikes per pitch (round robin, picked at random): a repeated note is never the same sample.
+    const k = g.rng.next() < 0.5 ? 0 : 1;
+    const buf = g.buffer(noteKey(def.key, m, k), () => renderRecipe(malletRecipe(def, m, k), g.ctx.sampleRate, g.ctx));
     const src = g.ctx.createBufferSource();
     src.buffer = buf;
     if (o?.detune) src.detune.value = o.detune;
@@ -188,6 +190,60 @@ function mallet(def: Mallet): InstrumentFn {
     src.start(t);
     src.stop(t + buf.duration);
   };
+}
+
+// ─────────────────────────────────────────────── note recipes (cached buffers, worker-renderable)
+
+/**
+ * A cached note buffer's recipe — pure data, so the compose worker can render a song's notes ahead
+ * of time (src/audio/compose.worker.ts) and the frame never pays the 5–40 ms a modal / string render costs.
+ * Variant 1 is a second strike of the same pitch (another spot on the bar, another pluck): partial
+ * balance, decays and the strike noise shift a little, so repeated notes never machine-gun.
+ */
+export type NoteRecipe =
+  | { key: string; kind: 'modal'; freq: number; spec: ModalSpec; seed: number }
+  | { key: string; kind: 'pluck'; freq: number; opts: PluckOptions; seed: number };
+
+export const noteKey = (base: string, m: number, k: number): string => (k ? `${base}:${m}~${k}` : `${base}:${m}`);
+
+export function renderRecipe(r: NoteRecipe, sr: number): Float32Array<ArrayBuffer>;
+export function renderRecipe(r: NoteRecipe, sr: number, ctx: BaseAudioContext): AudioBuffer;
+export function renderRecipe(r: NoteRecipe, sr: number, ctx?: BaseAudioContext): Float32Array<ArrayBuffer> | AudioBuffer {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const d = r.kind === 'modal' ? modalData(sr, r.freq, r.spec, new Rand(r.seed)) : pluckData(sr, r.freq, r.opts, new Rand(r.seed));
+  if (!ctx) return d;
+  RENDER_STATS.count++;
+  RENDER_STATS.ms += typeof performance !== 'undefined' ? performance.now() - t0 : 0;
+  const inst = r.key.split(':')[0]!;
+  RENDER_STATS.byInst[inst] = (RENDER_STATS.byInst[inst] ?? 0) + 1;
+  return toBuffer(ctx, d, sr);
+}
+
+/** Note buffers rendered on this thread (diagnostics: in real time these should come from the worker). */
+export const RENDER_STATS = { count: 0, ms: 0, byInst: {} as Record<string, number> };
+
+function malletRecipe(def: Mallet, m: number, k: number): NoteRecipe {
+  const f = mtof(m);
+  let spec = sparkle(def, def.spec(m, f), f);
+  const seed = m * 7919 + def.key.length + k * 104729;
+  if (k) {
+    const r = new Rand(seed ^ 0x5bd1e995);
+    // Another strike position: the upper modes trade level (±25 %), decays breathe ±6 %, and the
+    // mallet lands a touch harder or softer (strike noise ±20 %).
+    spec = {
+      ...spec,
+      partials: spec.partials.map((p, i) => (i === 0 ? p : { ...p, amp: p.amp * r.range(0.75, 1.25), tau: p.tau * r.range(0.94, 1.06) })),
+      click: spec.click ? { ...spec.click, amp: spec.click.amp * r.range(0.8, 1.2) } : undefined,
+    };
+  }
+  return { key: noteKey(def.key, m, k), kind: 'modal', freq: f, spec, seed };
+}
+
+function pluckRecipe(fl: PluckFlavour, m: number, k: number): NoteRecipe {
+  const f = mtof(m);
+  // Variant 1: a fresh excitation, plucked a little nearer / further from the bridge.
+  const position = k ? clamp(fl.position + ((m * 37) % 7 < 3 ? -0.025 : 0.025), 0.05, 0.45) : fl.position;
+  return { key: noteKey(fl.key, m, k), kind: 'pluck', freq: f, opts: { brightness: fl.brightness, position, decay: fl.decay(m), seconds: fl.seconds, body: fl.body }, seed: ((f * 1000) | 0) + k * 7777 };
 }
 
 /**
@@ -401,6 +457,54 @@ const RIDE: Mallet = {
     seconds: 2.2,
   }),
 };
+/**
+ * Felt piano (an upright with the practice felt down — the soft, close, woolly piano of cozy scores).
+ * Physically-shaped modes: stretched partials (string stiffness B rises up the keyboard), a hammer
+ * striking at 1/8 of the string (the comb notch at the 8th partial), a felt low-pass on the spectrum,
+ * upper partials dying faster, three unison strings beating a fraction of a hertz apart, a two-stage
+ * decay (prompt sound + long aftersound on the low partials), the felt thump and a soundboard body.
+ */
+const PIANO: Mallet = {
+  key: 'pno',
+  level: 0.95,
+  bright: 9,
+  spec: (m, f) => {
+    const r = new Rand(m * 131 + 7);
+    const B = clamp(0.00018 * Math.pow(2, (m - 48) / 13), 0.00006, 0.003);
+    const tau1 = clamp(3.3 - (m - 48) * 0.055, 0.5, 3.5);
+    const felt = 2300 + (m - 60) * 28;
+    const n = Math.max(3, Math.min(16, Math.floor(6500 / f)));
+    const partials: ModalSpec['partials'] = [];
+    let norm = 0;
+    const amps: number[] = [];
+    for (let k = 1; k <= n; k++) {
+      const a = (Math.pow(k, -1.35) * (0.3 + 0.7 * Math.abs(Math.sin((Math.PI * k) / 8)))) * Math.exp(-(k * f) / felt);
+      amps.push(a);
+      norm = Math.max(norm, a);
+    }
+    for (let k = 1; k <= n; k++) {
+      const ratio = k * Math.sqrt(1 + B * k * k);
+      const amp = (0.52 * amps[k - 1]!) / norm;
+      const tau = tau1 / (1 + 0.3 * (k - 1) + (k * f) / 5000);
+      // Unison strings: a slow beat (0.2–1.1 Hz, wider higher up), different on every partial.
+      const beat: [number, number] = [r.range(0.2, 0.7) * Math.sqrt(k), r.range(0.55, 0.85)];
+      if (k <= 3) {
+        // Prompt sound (vertical string motion into the bridge) + aftersound (the horizontal mode).
+        partials.push({ r: ratio, amp: amp * 0.62, tau: tau * 0.28, beat, atk: 0.003 });
+        partials.push({ r: ratio * 1.0002, amp: amp * 0.3, tau: tau * 1.25, atk: 0.006 });
+      } else partials.push({ r: ratio, amp, tau, beat, atk: 0.002 });
+    }
+    return {
+      partials,
+      // The felt hammer: a soft woolly thump, darker for bass notes.
+      click: { amp: 0.045, tau: 0.009, lp: clamp(700 + f * 1.6, 800, 2600) },
+      // Soundboard + case.
+      body: [[96, 2.5, 0.16], [205, 3, 0.18], [440, 3, 0.12], [930, 2.5, 0.07], [2150, 2, 0.05]],
+      seconds: Math.min(3.8, tau1 * 2.4 + 0.3),
+    };
+  },
+};
+
 const rideMallet = mallet(RIDE);
 export const ride: InstrumentFn = (g, dest, t, _m, dur, v) => rideMallet(g, dest, t, 102, dur, v * 0.9);
 
@@ -419,6 +523,30 @@ export const vibes: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   damp.gain.setTargetAtTime(0, t + dur + 0.25, 0.18);
   damp.connect(dest);
   vibesStrike(g, damp, t, m, dur, v, o);
+};
+
+/**
+ * Felt piano: one sampled strike per pitch (its partials already beat and bloom, so no round robin —
+ * it halves the cache), dampers fall a moment after the written end (half-pedalled legato), with a
+ * faint key-release knock on long notes.
+ */
+export const piano: InstrumentFn = (g, dest, t, m, dur, v, o) => {
+  const f = mtof(m);
+  const buf = g.buffer(noteKey(PIANO.key, m, 0), () => renderRecipe(malletRecipe(PIANO, m, 0), g.ctx.sampleRate, g.ctx));
+  const src = g.ctx.createBufferSource();
+  src.buffer = buf;
+  if (o?.detune) src.detune.value = o.detune;
+  // Velocity moves the colour a lot (felt hammers harden with force): pp is dark, mf opens up.
+  const lp = filter(g, 'lowpass', Math.min(16000, f * PIANO.bright * (0.35 + 1.25 * v * v) + 900), 0.45);
+  const a = gain(g, v * PIANO.level);
+  const off = t + Math.max(dur, 0.3) + 0.06;
+  const stop = Math.min(t + buf.duration, off + 0.7);
+  a.gain.setValueAtTime(v * PIANO.level, off);
+  a.gain.setTargetAtTime(0, off, 0.11);
+  src.connect(lp).connect(a).connect(dest);
+  src.start(t);
+  src.stop(stop);
+  if (dur > 0.8 && off < t + buf.duration) noiseHit(g, dest, off, { f: 380, q: 1.2, amp: 0.012 * v, tau: 0.012 });
 };
 
 export const marimba: InstrumentFn = (g, dest, t, m, dur, v, o) => {
@@ -469,7 +597,8 @@ const PLUCKS: Record<string, PluckFlavour> = {
 function plucked(flavour: PluckFlavour): InstrumentFn {
   return (g, dest, t, m, dur, v, o) => {
     const f = mtof(m);
-    const buf = g.pluck(`${flavour.key}:${m}`, f, { brightness: flavour.brightness, position: flavour.position, decay: flavour.decay(m), seconds: flavour.seconds, body: flavour.body });
+    const k = g.rng.next() < 0.5 ? 0 : 1;
+    const buf = g.buffer(noteKey(flavour.key, m, k), () => renderRecipe(pluckRecipe(flavour, m, k), g.ctx.sampleRate, g.ctx));
     const src = g.ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = Math.pow(2, ((o?.detune ?? 0) + g.rng.gauss(1.5)) / 1200);
@@ -719,18 +848,32 @@ function bowed(opts: { name: string; voices: number[]; level: number; attack: nu
 export const cello = bowed({ name: 'bowed', voices: [-5, 0, 5], level: 0.36, attack: 0.2, release: 0.14, vibRate: 5.2, vibDepth: 0.0038, vibDelay: 0.26, tilt: 7, noise: 0.018, noiseF: 1700, lo: 300 });
 export const fiddle = bowed({ name: 'bowed', voices: [-3, 3], level: 0.3, attack: 0.05, release: 0.05, vibRate: 6.1, vibDepth: 0.005, vibDelay: 0.14, tilt: 9, noise: 0.022, noiseF: 2800, lo: 600 });
 
+/**
+ * Accordion in musette registration: three free reeds per key — one in tune, one ~12 cents sharp,
+ * one ~10 flat — so every chord carries the instrument's wet, beating shimmer (≈5–7 Hz at the
+ * melody's pitches, no LFO needed). The reed chamber's resonance lifts ~1.3 kHz; the bellows push a
+ * little on the attack and the reeds speak ~15 ms late in the bass (bigger reeds are slower).
+ */
 export const accordion: InstrumentFn = (g, dest, t, m, dur, v) => {
   const f = mtof(m);
   const a = gain(g);
-  const stop = sustainEnv(a.gain, t, dur, v * 0.2, 0.03, 0.9, 0.05);
-  const lp = filter(g, 'lowpass', 2800 + 1600 * v, 0.6);
-  lp.connect(a).connect(dest);
-  for (const det of [-7, 7]) {
+  const speak = 0.018 + clamp((64 - m) * 0.0012, 0, 0.018);
+  const stop = sustainEnv(a.gain, t, dur, v * 0.17, speak, 0.86, 0.045);
+  // Bellows push: a slight swell on held chords.
+  if (dur > 0.6) a.gain.setTargetAtTime(v * 0.17 * 0.94, t + speak + 0.05, dur * 0.4);
+  const lp = filter(g, 'lowpass', 2600 + 1900 * v, 0.6);
+  const chamber = filter(g, 'peaking', 1300, 1.1, 3.5);
+  lp.connect(chamber).connect(a).connect(dest);
+  for (const [det, lvl] of [[0, 1], [12 + g.rng.gauss(1.5), 0.8], [-10 + g.rng.gauss(1.5), 0.7]] as const) {
     const osc = g.ctx.createOscillator();
     osc.setPeriodicWave(wave(g.ctx, 'reed', REED));
     osc.frequency.setValueAtTime(f, t);
     osc.detune.value = det;
-    osc.connect(lp);
+    if (lvl === 1) osc.connect(lp);
+    else {
+      const rg = gain(g, lvl);
+      osc.connect(rg).connect(lp);
+    }
     osc.start(t);
     osc.stop(stop);
   }
@@ -738,7 +881,8 @@ export const accordion: InstrumentFn = (g, dest, t, m, dur, v) => {
 
 /**
  * Ensemble strings (the pad): five bowed voices per note spread across the stereo field with slow
- * shared detune drift, a swelling lowpass, into the track's formant-EQ insert.
+ * shared detune drift and five independent players' vibratos (graph.sectionVib), a swelling
+ * lowpass, into the track's formant-EQ insert.
  */
 export const pad: InstrumentFn = (g, dest, t, m, dur, v) => {
   const f = mtof(m);
@@ -763,6 +907,9 @@ export const pad: InstrumentFn = (g, dest, t, m, dur, v) => {
     osc.detune.value = det + g.rng.gauss(2);
     g.drift(i).connect(osc.detune);
     links.push([g.drift(i), osc.detune]);
+    // Each desk has its own vibrato (rate, depth): the section shimmers instead of phasing.
+    g.sectionVib(i + m).connect(osc.detune);
+    links.push([g.sectionVib(i + m), osc.detune]);
     osc.connect(i % 2 ? L : R);
     osc.start(t);
     osc.stop(stop);
@@ -882,7 +1029,7 @@ export const triangleDing: InstrumentFn = (g, dest, t, _m, _d, v) => {
 };
 
 export const INSTRUMENTS = {
-  kalimba, marimba, musicBox, bell, celesta, steelPan, glock, vibes, epiano,
+  kalimba, marimba, musicBox, bell, celesta, steelPan, glock, vibes, epiano, piano,
   guitar, harp, ukulele, pizz, upright,
   flute, whistle, ocarina, clarinet, oboe, cello, fiddle, accordion, pad, softBass, drone, glass,
   shaker, woodblock, bodhran, tambourine, softKick, brush, conga, triangleDing, ride,
@@ -890,12 +1037,54 @@ export const INSTRUMENTS = {
 
 export type InstrumentName = keyof typeof INSTRUMENTS;
 
+/** Recipes for the instruments that play cached buffers (both round-robin variants). */
+const RECIPES: Partial<Record<InstrumentName, (m: number, k: number) => NoteRecipe>> = {
+  kalimba: (m, k) => malletRecipe(KALIMBA, m, k),
+  marimba: (m, k) => malletRecipe(MARIMBA, m, k),
+  musicBox: (m, k) => malletRecipe(MUSIC_BOX, m, k),
+  celesta: (m, k) => malletRecipe(CELESTA, m, k),
+  bell: (m, k) => malletRecipe(BELL, m, k),
+  steelPan: (m, k) => malletRecipe(STEEL_PAN, m, k),
+  glock: (m, k) => malletRecipe(GLOCK, m, k),
+  vibes: (m, k) => malletRecipe(VIBES, m, k),
+  ride: (_m, k) => malletRecipe(RIDE, 102, k),
+  piano: (m) => malletRecipe(PIANO, m, 0),
+  guitar: (m, k) => pluckRecipe(PLUCKS.guitar!, m, k),
+  harp: (m, k) => pluckRecipe(PLUCKS.harp!, m, k),
+  ukulele: (m, k) => pluckRecipe(PLUCKS.ukulele!, m, k),
+  pizz: (m, k) => pluckRecipe(PLUCKS.pizz!, m, k),
+  upright: (m, k) => pluckRecipe(PLUCKS.bass!, m, k),
+};
+
+/** The cached buffers a note of `inst` at `midi` will ask for (empty for synthesised voices). */
+export function noteRecipes(inst: InstrumentName, midi: number): NoteRecipe[] {
+  const r = RECIPES[inst];
+  if (!r) return [];
+  // The piano keeps one strike per pitch (see piano()).
+  return inst === 'piano' ? [r(midi, 0)] : [r(midi, 0), r(midi, 1)];
+}
+
+/**
+ * The mallet notes the SFX chimes will ask for while a song in `key` plays (sfx.ts `kn`: the key's
+ * major pentatonic from C5 up, degrees 0–9) on the chime voices most cues use. The compose worker
+ * renders these after a song's own notes, so a reward jingle's first strike never renders on a frame.
+ */
+export function sfxPalette(key: number): { inst: InstrumentName; midi: number }[] {
+  const pent = [0, 2, 4, 7, 9];
+  const out: { inst: InstrumentName; midi: number }[] = [];
+  for (let deg = 0; deg < 10; deg++) {
+    const midi = (key % 12) + 72 + Math.floor(deg / 5) * 12 + pent[deg % 5]!;
+    out.push({ inst: 'celesta', midi }, { inst: 'bell', midi }, { inst: 'kalimba', midi });
+  }
+  return out;
+}
+
 /** Which instruments sustain (get legato glides, no strums). */
 export const SUSTAINED: ReadonlySet<InstrumentName> = new Set(['flute', 'whistle', 'ocarina', 'clarinet', 'oboe', 'cello', 'fiddle', 'accordion', 'pad', 'softBass', 'drone']);
 
 /** Seconds a note keeps sounding after its written end (voice budget). */
 export const TAIL: Partial<Record<InstrumentName, number>> = {
-  kalimba: 1.5, marimba: 1, ride: 1.2, musicBox: 2, celesta: 1.8, bell: 3, steelPan: 1.5, glock: 2, vibes: 3, harp: 2, guitar: 1, glass: 6, drone: 3, pad: 1.5, epiano: 0.9,
+  kalimba: 1.5, marimba: 1, ride: 1.2, musicBox: 2, celesta: 1.8, bell: 3, steelPan: 1.5, glock: 2, vibes: 3, harp: 2, guitar: 1, glass: 6, drone: 3, pad: 1.5, epiano: 0.9, piano: 0.8,
 };
 
 function bodyInsert(kind: BodyKind, wet: number, dry: number): (g: AudioGraph, out: AudioNode) => AudioNode {

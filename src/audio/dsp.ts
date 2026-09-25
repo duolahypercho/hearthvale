@@ -297,13 +297,23 @@ export interface ModalSpec {
 /**
  * Render a struck / plucked note as a sum of decaying (possibly inharmonic) partials with a strike
  * click, optional tine buzz and body resonances. Rendered once per pitch and cached, so a mallet
- * note costs one buffer source at play time. A render costs a few ms, once per pitch.
+ * note costs one buffer source at play time. A render costs 5–40 ms, once per pitch — in real time
+ * it runs in the compose worker (compose.worker.ts); `modalData` is the pure, context-free part.
  */
 export function modalBuffer(ctx: BaseAudioContext, freq: number, spec: ModalSpec, rng: Rand): AudioBuffer {
-  const sr = ctx.sampleRate;
+  return toBuffer(ctx, modalData(ctx.sampleRate, freq, spec, rng), ctx.sampleRate);
+}
+
+/** Mono samples → AudioBuffer (cheap: one copy). `sr` may differ from the context's (it resamples). */
+export function toBuffer(ctx: BaseAudioContext, d: Float32Array, sr: number): AudioBuffer {
+  const buf = ctx.createBuffer(1, d.length, sr);
+  buf.copyToChannel(d as Float32Array<ArrayBuffer>, 0);
+  return buf;
+}
+
+export function modalData(sr: number, freq: number, spec: ModalSpec, rng: Rand): Float32Array<ArrayBuffer> {
   const len = Math.max(64, Math.floor(sr * spec.seconds));
-  const buf = ctx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
+  const d = new Float32Array(len);
   const gl = spec.glide ? Math.pow(2, spec.glide / 1200) - 1 : 0;
   const glT = Math.max(0.001, spec.glideTime ?? 0.03);
   for (const p of spec.partials) {
@@ -317,6 +327,23 @@ export function modalBuffer(ctx: BaseAudioContext, freq: number, spec: ModalSpec
       const atkN = Math.max(1, Math.floor((p.atk ?? 0.0015) * sr));
       const n = Math.min(len, Math.floor(p.tau * 8 * sr) + atkN);
       const glN = gl ? Math.floor(glT * 4 * sr) : 0;
+      if (!gl) {
+        // Fixed pitch: a two-multiply sine recurrence instead of Math.sin per sample (≈5× faster,
+        // which matters for long, many-partial notes like the piano's).
+        const w = (2 * Math.PI * f) / sr;
+        const c2 = 2 * Math.cos(w);
+        let s1 = Math.sin(2 * Math.PI * ph);
+        let s0 = Math.sin(2 * Math.PI * ph - w);
+        for (let i = 0; i < n; i++) {
+          const a = i < atkN ? i / atkN : 1;
+          d[i] = d[i]! + s1 * amp * env * a;
+          if (i >= atkN) env *= dec;
+          const s2 = c2 * s1 - s0;
+          s0 = s1;
+          s1 = s2;
+        }
+        continue;
+      }
       for (let i = 0; i < n; i++) {
         const fi = gl && i < glN ? f * (1 + gl * Math.exp(-i / (glT * sr))) : f;
         ph += fi / sr;
@@ -368,7 +395,7 @@ export function modalBuffer(ctx: BaseAudioContext, freq: number, spec: ModalSpec
   // Short fade at the end of the buffer.
   const f = Math.min(len, Math.floor(sr * 0.06));
   for (let i = 0; i < f; i++) d[len - 1 - i] = d[len - 1 - i]! * (i / f);
-  return buf;
+  return d;
 }
 
 export type BodyKind = 'violin' | 'cello' | 'guitar';
@@ -404,10 +431,13 @@ export function bodyImpulse(ctx: BaseAudioContext, kind: BodyKind, rng: Rand): A
 }
 
 export function pluckBuffer(ctx: BaseAudioContext, freq: number, o: PluckOptions, rng: Rand): AudioBuffer {
-  const sr = ctx.sampleRate;
+  return toBuffer(ctx, pluckData(ctx.sampleRate, freq, o, rng), ctx.sampleRate);
+}
+
+/** Karplus-Strong string, context-free (the compose worker renders these ahead of time). */
+export function pluckData(sr: number, freq: number, o: PluckOptions, rng: Rand): Float32Array<ArrayBuffer> {
   const len = Math.floor(sr * o.seconds);
-  const buf = ctx.createBuffer(1, len, sr);
-  const out = buf.getChannelData(0);
+  const out = new Float32Array(len);
   // Loop filter: y = (1-s)*x[n] + s*x[n-1] has phase delay s samples at low freq.
   const s = 0.5 - 0.35 * o.brightness; // smoothing (brighter = less smoothing)
   const period = sr / freq;
@@ -461,7 +491,7 @@ export function pluckBuffer(ctx: BaseAudioContext, freq: number, o: PluckOptions
   // Tiny fade-out at the end of the buffer.
   const f = Math.min(len, Math.floor(sr * 0.02));
   for (let i = 0; i < f; i++) out[len - 1 - i] = out[len - 1 - i]! * (i / f);
-  return buf;
+  return out;
 }
 
 /** Periodic wave from harmonic amplitudes (index 0 = fundamental). */
