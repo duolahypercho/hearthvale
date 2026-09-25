@@ -4902,3 +4902,152 @@ body.u-contrast #ui-root {
   text-decoration: line-through;
   text-decoration-thickness: 2px;
 }
+/* Map: the "+N" villager badge at the end of the square's arc. */
+.m-npc[data-npc='+'] .m-npcface {
+  display: grid;
+  place-items: center;
+  font: 800 11px/1 'Fredoka', sans-serif;
+  color: #5a3418;
+}
+/* Backpack detail card: "Carrying" tag while a stack is lifted. */
+.idt-name .idt-carry {
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: #e8a03a;
+  color: #fff8e6;
+  font: 700 11px/1.5 var(--font-head);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: inset 0 -2px 0 rgba(90, 40, 0, 0.3);
+}
+
+/* ═══ UI r9: day end over tonight's farm ═════════════════════════════
+   The backdrop is a soft frame of the real 3D farm (grabbed off the renderer, pre-blurred), drifting in a
+   slow Ken Burns push, graded to moonlight: cool multiply, a moon glow top-right, warm window light kept,
+   deep vignette. `.d2n` (a daytime frame, e.g. the staged demo) gets a stronger day-for-night grade. */
+.de-photo .ph {
+  position: absolute;
+  inset: -3%;
+  overflow: hidden;
+}
+.de-photo .ph canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  filter: saturate(1) brightness(1.18) contrast(1.04);
+  animation: dePush 38s ease-in-out infinite alternate;
+  transform-origin: 46% 54%;
+}
+@keyframes dePush {
+  from {
+    transform: scale(1.04);
+  }
+  to {
+    transform: scale(1.13) translate(-1.2%, 0.8%);
+  }
+}
+.de-photo .de-grade {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(80% 70% at 50% 48%, transparent 45%, rgba(4, 6, 24, 0.62) 100%),
+    linear-gradient(180deg, rgba(20, 26, 70, 0.32), rgba(40, 30, 80, 0.06) 50%, rgba(10, 8, 30, 0.42));
+}
+.de-photo .de-grade::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #8a96d8;
+  mix-blend-mode: multiply;
+  opacity: 0.3;
+}
+.de-photo.d2n .de-grade::before {
+  background: #5462b0;
+  opacity: 0.8;
+}
+.de-photo.d2n .ph canvas {
+  filter: saturate(0.6) brightness(0.9) contrast(1.1);
+}
+.de-photo .de-moon {
+  position: absolute;
+  right: 6%;
+  top: -12%;
+  width: 46vh;
+  height: 46vh;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(220, 225, 255, 0.34), rgba(160, 170, 240, 0.12) 38%, transparent 68%);
+  mix-blend-mode: screen;
+}
+.de-sky.photo .stars,
+.de-sky.photo .shoot {
+  display: none;
+}
+.hv-dayend .de-bg:has(~ .de-photo) {
+  background: #0a0c22;
+}
+/* Ledger box hugs its lines (min six rows of ruling), instead of a fixed tall box with empty ruled rows. */
+.de-rows.fit {
+  height: auto;
+  min-height: 236px;
+  max-height: 372px;
+}
+/* Rest: bar and number fill together as the card lands. */
+.de-rest .bar i {
+  animation: deFill 1300ms 500ms var(--ease-out) both;
+}
+.de-rest .rl b {
+  white-space: nowrap;
+}
+.de-rest .rl b .ev {
+  display: inline;
+  font-variant-numeric: tabular-nums;
+}
+.de-photo.late {
+  animation: uFade 900ms ease both;
+}
+
+/* ═══ UI r10: pause triptych balance ══════════════════════════════════
+   The Co-op card hangs level with Today and runs its full height (no dead block under it): the seats up
+   top, a short "how farming together works" list in the middle, the invite button docked at the foot. */
+.pause-wrap > .coop-pause {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+.pause-wrap > .coop-pause > .u-paper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.pause-wrap > .coop-pause > .u-paper > .u-btn {
+  order: 3;
+  margin-top: auto;
+  align-self: stretch;
+  justify-content: center;
+}
+.pause-wrap > .coop-pause > .u-paper::after {
+  order: 2;
+  content: '\2767  Shared fields, gold & bin\A \2767  Your own pack and energy\A \2767  All sleep to end the day';
+  white-space: pre-line;
+  flex: 1;
+  margin: 6px 0 16px;
+  padding: 12px 14px 138px;
+  border-radius: 12px;
+  background: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20240%20120%22%3E%20%3Cellipse%20cx%3D%22120%22%20cy%3D%22108%22%20rx%3D%22112%22%20ry%3D%2210%22%20fill%3D%22%23e3d2a8%22%2F%3E%20%3Cg%20stroke%3D%22%238a6440%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M14%2080%20H226%20M14%2094%20H226%22%2F%3E%3C%2Fg%3E%20%3Cg%20fill%3D%22%23c89a64%22%20stroke%3D%22%236a4428%22%20stroke-width%3D%222%22%3E%3Crect%20x%3D%2214%22%20y%3D%2270%22%20width%3D%228%22%20height%3D%2238%22%20rx%3D%222%22%2F%3E%3Crect%20x%3D%2258%22%20y%3D%2270%22%20width%3D%228%22%20height%3D%2238%22%20rx%3D%222%22%2F%3E%3Crect%20x%3D%22174%22%20y%3D%2270%22%20width%3D%228%22%20height%3D%2238%22%20rx%3D%222%22%2F%3E%3Crect%20x%3D%22218%22%20y%3D%2270%22%20width%3D%228%22%20height%3D%2238%22%20rx%3D%222%22%2F%3E%3C%2Fg%3E%20%3Cg%3E%3Cpath%20d%3D%22M34%20104%20q-5%20-8%200%20-14%20q5%206%200%2014%22%20fill%3D%22%236ab04a%22%20stroke%3D%22%232f5a1c%22%20stroke-width%3D%221.4%22%2F%3E%3Cpath%20d%3D%22M46%20104%20q-5%20-8%200%20-14%20q5%206%200%2014%22%20fill%3D%22%236ab04a%22%20stroke%3D%22%232f5a1c%22%20stroke-width%3D%221.4%22%2F%3E%3Cpath%20d%3D%22M194%20104%20q-5%20-8%200%20-14%20q5%206%200%2014%22%20fill%3D%22%236ab04a%22%20stroke%3D%22%232f5a1c%22%20stroke-width%3D%221.4%22%2F%3E%3Cpath%20d%3D%22M206%20104%20q-5%20-8%200%20-14%20q5%206%200%2014%22%20fill%3D%22%236ab04a%22%20stroke%3D%22%232f5a1c%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fg%3E%20%3Cg%20stroke%3D%22%233b2313%22%20stroke-width%3D%222.2%22%20stroke-linejoin%3D%22round%22%3E%20%3Cpath%20d%3D%22M70%20108%20C71%2088%2078%2080%2088%2080%20C98%2080%20105%2088%20106%20108%20Z%22%20fill%3D%22%234b6c9e%22%2F%3E%20%3Cpath%20d%3D%22M80%2082%20L88%2096%20L96%2082%22%20fill%3D%22none%22%20stroke%3D%22%23e8c060%22%2F%3E%20%3Ccircle%20cx%3D%2288%22%20cy%3D%2266%22%20r%3D%2212%22%20fill%3D%22%23f2c9a0%22%2F%3E%20%3Cpath%20d%3D%22M72%2060%20C73%2049%20103%2049%20104%2060%20Z%22%20fill%3D%22%23e8c060%22%2F%3E%20%3Cellipse%20cx%3D%2288%22%20cy%3D%2260%22%20rx%3D%2221%22%20ry%3D%224%22%20fill%3D%22%23e8c060%22%2F%3E%20%3Cpath%20d%3D%22M104%2090%20C112%2084%20114%2076%20116%2070%22%20fill%3D%22none%22%20stroke%3D%22%23f2c9a0%22%20stroke-width%3D%226%22%20stroke-linecap%3D%22round%22%2F%3E%20%3Cpath%20d%3D%22M134%20108%20C135%2088%20142%2080%20152%2080%20C162%2080%20169%2088%20170%20108%20Z%22%20fill%3D%22%23c8573e%22%2F%3E%20%3Ccircle%20cx%3D%22152%22%20cy%3D%2266%22%20r%3D%2212%22%20fill%3D%22%23e0a878%22%2F%3E%20%3Cpath%20d%3D%22M140%2062%20C140%2050%20164%2050%20164%2062%20Z%22%20fill%3D%22%235f8a5c%22%2F%3E%20%3Cpath%20d%3D%22M162%2061%20H172%22%20stroke%3D%22%235f8a5c%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%2F%3E%20%3Cpath%20d%3D%22M136%2090%20C128%2084%20126%2076%20124%2070%22%20fill%3D%22none%22%20stroke%3D%22%23e0a878%22%20stroke-width%3D%226%22%20stroke-linecap%3D%22round%22%2F%3E%20%3C%2Fg%3E%20%3Cg%20fill%3D%22%233b2313%22%3E%3Ccircle%20cx%3D%2284%22%20cy%3D%2267%22%20r%3D%221.6%22%2F%3E%3Ccircle%20cx%3D%2292%22%20cy%3D%2267%22%20r%3D%221.6%22%2F%3E%3Ccircle%20cx%3D%22148%22%20cy%3D%2267%22%20r%3D%221.6%22%2F%3E%3Ccircle%20cx%3D%22156%22%20cy%3D%2267%22%20r%3D%221.6%22%2F%3E%3C%2Fg%3E%20%3Cpath%20d%3D%22M120%2044%20C112%2036%20106%2030%20110%2024%20C113%2019%20119%2021%20120%2026%20C121%2021%20127%2019%20130%2024%20C134%2030%20128%2036%20120%2044%20Z%22%20fill%3D%22%23e85a4a%22%20stroke%3D%22%237a2418%22%20stroke-width%3D%222%22%2F%3E%20%3Cg%20fill%3D%22%23f0b43a%22%3E%3Ccircle%20cx%3D%22100%22%20cy%3D%2230%22%20r%3D%222%22%2F%3E%3Ccircle%20cx%3D%22142%22%20cy%3D%2228%22%20r%3D%222.4%22%2F%3E%3Ccircle%20cx%3D%22132%22%20cy%3D%2214%22%20r%3D%221.6%22%2F%3E%3C%2Fg%3E%20%3C%2Fsvg%3E") center bottom 10px / 208px auto no-repeat, rgba(255, 250, 236, 0.75);
+  box-shadow: inset 0 0 0 1.5px rgba(160, 120, 70, 0.22);
+  font: 600 13.5px/2 var(--font-body);
+  color: var(--ink-soft);
+}
+
+/* Title (r10, blind-judge note): a soft pool of shade under the plank row so the busy lower diorama never
+   competes with the menu — a blurred dark ellipse, not a box, so the scene still reads through it. */
+.ts-menu::before {
+  content: '';
+  position: absolute;
+  inset: -54px -120px -46px;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 56%, rgba(24, 11, 3, 0.7), rgba(24, 11, 3, 0.4) 55%, transparent 100%);
+}

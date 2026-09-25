@@ -50,7 +50,7 @@ interface Head {
  * pin bob every frame. Inline, every animation tick re-ran those filters (≈25 ms of paint per frame).
  * `svg` is the full live sheet (first paint); MapScreen then swaps `.m-still` / `.m-grain` for bitmaps.
  */
-function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook | null = null): { svg: string; defs: string; still: string; grain: string } {
+function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook | null = null, subtitle: string = season): { svg: string; defs: string; still: string; grain: string } {
   const snow = season === 'winter';
   const { defs, under, trees, mill, paper, grain } = valleyBase(season);
   const P = PAL[season];
@@ -93,9 +93,12 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
   <g><path d="M690 524 L760 520" stroke="#8a5a36" stroke-width="7" stroke-linecap="round"/><g stroke="#5a3418" stroke-width="3">${[700, 720, 740, 758].map((x) => `<path d="M${x} 522 V540"/>`).join('')}</g>
   <path d="M600 548 l6 -10 l6 10 Z" fill="#f07a3a" stroke="#8a3a10" stroke-width="1.5"/><circle cx="572" cy="532" r="3.2" fill="#f2b8a0" stroke="#8a5a4a"/>
   <g transform="translate(470 528)"><path d="M-8 0 Q0 -14 8 0 Z" fill="#e85a4a" stroke="#6a2a1a" stroke-width="1.2"/><path d="M0 0 V6" stroke="#6a4a2a" stroke-width="1.5"/></g></g>
+`;
+  const live = `
+  ${mill}
   <!-- compass + cartouche -->
   <g transform="translate(930 580)"><circle r="34" fill="#fbf0d6" stroke="#6a4428" stroke-width="3"/><circle r="26" fill="none" stroke="#6a4428" stroke-width="1" stroke-dasharray="2 4"/><path d="M0 -30 L7 0 L0 30 L-7 0 Z" fill="#c8573e" stroke="#5a2414" stroke-width="1.5"/><path d="M-30 0 L0 -6 L30 0 L0 6 Z" fill="#e8d0a0" stroke="#6a4428" stroke-width="1.2"/><text y="-38" class="m-rose">N</text></g>
-  <g transform="translate(110 590)"><path d="M-92 -26 H92 C100 -26 100 26 92 26 H-92 C-100 26 -100 -26 -92 -26 Z" fill="#fbf0d6" stroke="#6a4428" stroke-width="2.5"/><path d="M-84 -19 H84 C90 -19 90 19 84 19 H-84 C-90 19 -90 -19 -84 -19 Z" fill="none" stroke="#b8946a" stroke-width="1"/><text y="-2" class="m-title">Hearthvale</text><text y="17" class="m-sub">${season}</text></g>
+  <g transform="translate(110 590)"><path d="M-92 -26 H92 C100 -26 100 26 92 26 H-92 C-100 26 -100 -26 -92 -26 Z" fill="#fbf0d6" stroke="#6a4428" stroke-width="2.5"/><path d="M-84 -19 H84 C90 -19 90 19 84 19 H-84 C-90 19 -90 -19 -84 -19 Z" fill="none" stroke="#b8946a" stroke-width="1"/><text y="-2" class="m-title">Hearthvale</text><text y="17" class="m-sub">${escapeHtml(subtitle)}</text></g>
   <g class="m-boat"><path d="M812 604 C826 612 850 612 862 604 L856 614 H818 Z" fill="#a8683a" stroke="#4a2810" stroke-width="2"/><path d="M836 603 V574 L856 600 Z" fill="#fff8e8" stroke="#4a2810" stroke-width="1.8"/><path d="M834 603 V580 L820 600 Z" fill="#e8744e" stroke="#4a2810" stroke-width="1.6"/></g>
   <g class="m-birds" fill="none" stroke="#4a3a2e" stroke-width="2" stroke-linecap="round"><path class="b1" d="M760 96 q6 -6 12 0 q6 -6 12 0"/><path class="b2" d="M790 80 q5 -5 10 0 q5 -5 10 0"/><path class="b1" d="M812 104 q4 -4 8 0 q4 -4 8 0"/></g>
   ${[
@@ -111,37 +114,84 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
   ${villagers}
   ${labels}
   ${pinAt ? `<g class="m-pin" transform="translate(${pinAt.x} ${pinAt.y - 18})"><ellipse cy="26" rx="12" ry="4" fill="#000" opacity=".25"/><g class="bob"><path d="M0 22 C-16 4 -18 -18 0 -20 C18 -18 16 4 0 22 Z" fill="#e8574a" stroke="#6a1e10" stroke-width="3"/><foreignObject x="-14" y="-18" width="28" height="28"><div xmlns="http://www.w3.org/1999/xhtml" class="m-face">${farmerAvatar(['#fff4d8', '#f0d8a0'], look)}</div></foreignObject></g></g>` : ''}
-  ${paper}
-</svg>`;
+  ${paper}`;
+  const svg = `<svg class="valley" viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg"><defs>${defs}</defs><g class="m-still">${still}</g>${live}<g class="m-grain" pointer-events="none">${grain}</g></svg>`;
+  return { svg, defs, still, grain };
 }
 
-/** Villagers out and about right now (by schedule), as little portrait heads around the square. */
-function villagerHeads(game: Game): Head[] {
+/**
+ * Villagers out and about right now (by schedule), as little portrait heads fanned in an even arc around
+ * the square (never stacked on each other, and clear of the square's name flag below it). More than
+ * eight out at once collapses the rest into a "+N" badge at the end of the arc.
+ */
+const HEAD_MAX = 8;
+function villagerHeads(game: Game): { heads: Head[]; extra: string[] } {
   const h = game.calendar.hour;
   const rain = game.calendar.weather === 'rain' || game.calendar.weather === 'storm';
-  const out: Head[] = [];
-  let i = 0;
+  const out: { id: NpcId; svg: string; key: number }[] = [];
   for (const id of Object.keys(NPCS) as NpcId[]) {
     const n = NPCS[id];
     const sched = (rain && n.rainSchedule) || n.schedule;
     let spot = sched[0]?.[1] ?? '';
     for (const [hr, sp] of sched) if (h >= hr) spot = sp;
     if (!spot || spot.startsWith('door:') || h < (sched[0]?.[0] ?? 6) || h >= 24) continue;
-    // Spread around the square by a stable hash of the spot, so villagers at one spot huddle together.
+    // Order around the arc by a stable hash of the spot, so villagers at one spot sit side by side.
     let hash = 0;
     for (const ch of spot) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-    const a = ((hash % 360) * Math.PI) / 180 + i * 0.35;
-    const rad = 44 + (hash % 3) * 9;
     let svg = '';
     try {
       svg = portraitSvg(n.look, n.portraitBg, 'happy');
     } catch {
       continue;
     }
-    out.push({ id, svg, x: 566 + Math.cos(a) * rad, y: 300 + Math.sin(a) * rad * 0.8 });
-    i++;
+    out.push({ id, svg, key: (hash % 997) * 100 + out.length });
   }
-  return out;
+  out.sort((a, b) => a.key - b.key);
+  const shown = out.length > HEAD_MAX ? out.slice(0, HEAD_MAX - 1) : out;
+  const extra = out.length > HEAD_MAX ? out.slice(HEAD_MAX - 1).map((x) => x.id) : [];
+  const slots = shown.length + (extra.length ? 1 : 0);
+  // Arc over the top of the square: from lower-left (150°) round to lower-right (390°); the name flag
+  // hangs below the square (≈ 60°–120°) so that wedge stays clear. Spacing ≥ 30° keeps 25 px heads apart.
+  const span = Math.min(240, Math.max(0, slots - 1) * 34);
+  const a0 = 270 - span / 2;
+  const heads: Head[] = shown.map((x, i) => {
+    const a = ((a0 + (slots > 1 ? (span * i) / (slots - 1) : 0)) * Math.PI) / 180;
+    return { id: x.id, svg: x.svg, x: 566 + Math.cos(a) * 66, y: 300 + Math.sin(a) * 60 };
+  });
+  if (extra.length) {
+    const a = ((a0 + span) * Math.PI) / 180;
+    heads.push({ id: '+', svg: `+${extra.length}`, x: 566 + Math.cos(a) * 66, y: 300 + Math.sin(a) * 60 });
+  }
+  return { heads, extra };
+}
+
+/**
+ * Rasterise an SVG fragment (with the sheet's defs) to a bitmap URL at `px` wide. Filters are painted once
+ * here instead of on every animation tick of the live sheet.
+ */
+async function rasterise(defs: string, inner: string, px: number): Promise<string | null> {
+  const w = Math.round(px);
+  const hgt = Math.round((px * 640) / 1000);
+  const src = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" width="${w}" height="${hgt}"><defs>${defs}</defs>${inner}</svg>`;
+  const url = URL.createObjectURL(new Blob([src], { type: 'image/svg+xml' }));
+  try {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    await img.decode();
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = hgt;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+    g.drawImage(img, 0, 0, w, hgt);
+    const blob = await new Promise<Blob | null>((res) => cv.toBlob(res, 'image/png'));
+    return blob ? URL.createObjectURL(blob) : null;
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export class MapScreen extends Screen {
@@ -157,10 +207,10 @@ export class MapScreen extends Screen {
     const { frame: f, body } = frame('Hearthvale Valley', 'map-frame');
     f.appendChild(closeButton(() => this.requestClose()));
     wrap.append(menuTabs(this.game, 'map'), f);
-    const heads = villagerHeads(this.game);
-    body.innerHTML = valleySvg(c.season as Season, here, heads, this.game.services.net?.profile().look ?? null);
-    const sub = body.querySelector('.m-sub');
-    if (sub) sub.textContent = `${c.season} · year ${c.year}`;
+    const { heads, extra } = villagerHeads(this.game);
+    const sheet = valleySvg(c.season as Season, here, heads, this.game.services.net?.profile().look ?? null, `${c.season} · year ${c.year}`);
+    body.innerHTML = sheet.svg;
+    this.bake(body, sheet);
     const place = PLACES.find((p) => p.id === here);
     body.appendChild(
       el(
@@ -175,17 +225,51 @@ export class MapScreen extends Screen {
       g.setAttribute('data-nav', '');
       g.setAttribute('data-noclick', '1');
       const html = `<div class="t-in"><div class="t-name">${escapeHtml(p.name)}</div><span class="t-cat" style="background:${p.id === here ? '#d9623e' : '#6a8a3a'}">${p.id === here ? 'You are here' : 'Location'}</span><div class="t-desc">${escapeHtml(p.blurb)}</div></div>`;
-      g.addEventListener('pointerenter', (ev) => tooltip.show(html, ev));
+      // Docked beside the whole place (disc + name flag), on the side with more room — never over its own label.
+      const tip = (): void => {
+        const r = g.getBoundingClientRect();
+        tooltip.beside(html, g, r.left + r.width / 2 > innerWidth / 2 ? 'left' : 'right', 24);
+      };
+      g.addEventListener('pointerenter', tip);
       g.addEventListener('pointerleave', () => tooltip.hide());
-      g.addEventListener('u-focus', () => tooltip.anchor(html, g));
+      g.addEventListener('u-focus', tip);
     });
     body.querySelectorAll<SVGGElement>('.m-npc').forEach((g) => {
-      const n = NPCS[g.dataset.npc as NpcId];
-      if (!n) return;
-      const html = `<div class="t-in"><div class="t-name">${escapeHtml(n.name)}</div><span class="t-cat" style="background:#6a8a3a">Villager</span><div class="t-desc">${escapeHtml(n.role)}</div></div>`;
-      g.addEventListener('pointerenter', (ev) => tooltip.show(html, ev));
+      const ids = g.dataset.npc === '+' ? (extra as NpcId[]) : [g.dataset.npc as NpcId];
+      const ns = ids.map((id) => NPCS[id]).filter(Boolean);
+      if (!ns.length) return;
+      const html =
+        ns.length === 1
+          ? `<div class="t-in"><div class="t-name">${escapeHtml(ns[0]!.name)}</div><span class="t-cat" style="background:#6a8a3a">Villager</span><div class="t-desc">${escapeHtml(ns[0]!.role)}</div></div>`
+          : `<div class="t-in"><div class="t-name">Also in the square</div><span class="t-cat" style="background:#6a8a3a">Villagers</span><div class="t-desc">${ns.map((n) => escapeHtml(n.name)).join(', ')}</div></div>`;
+      g.addEventListener('pointerenter', () => {
+        const r = g.getBoundingClientRect();
+        tooltip.beside(html, g, r.left > innerWidth / 2 ? 'left' : 'right', 14);
+      });
       g.addEventListener('pointerleave', () => tooltip.hide());
     });
+  }
+
+  private baked: string[] = [];
+
+  /** Swap the static watercolour and the paper grain for bitmaps once they are painted (pillar 14). */
+  private bake(body: HTMLElement, sheet: { defs: string; still: string; grain: string }): void {
+    for (const u of this.baked) URL.revokeObjectURL(u);
+    this.baked = [];
+    const svg = body.querySelector<SVGSVGElement>('svg.valley');
+    if (!svg) return;
+    const px = Math.min(2600, Math.max(1000, (svg.getBoundingClientRect().width || 1400) * Math.min(2, devicePixelRatio || 1)));
+    const swap = (cls: string, url: string | null): void => {
+      const g = svg.querySelector(`.${cls}`);
+      if (!url || !g || !svg.isConnected) {
+        if (url) URL.revokeObjectURL(url);
+        return;
+      }
+      this.baked.push(url);
+      g.innerHTML = `<image href="${url}" x="0" y="0" width="1000" height="640" preserveAspectRatio="none" pointer-events="none"/>`;
+    };
+    void rasterise(sheet.defs, sheet.still, px).then((u) => swap('m-still', u));
+    void rasterise(sheet.defs, sheet.grain, Math.min(px, 1600)).then((u) => swap('m-grain', u));
   }
 
   protected override initialFocus(): HTMLElement | null {

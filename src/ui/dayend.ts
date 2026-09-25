@@ -51,9 +51,81 @@ export class DayEndScreen extends Screen {
   private lastItems: { day: number; items: Line[] } | null = null;
   private timers: number[] = [];
 
+  private worldReady = false;
+  /** The farm at dusk, grabbed from the live renderer (evening, on the farm): the day-end backdrop. */
+  private dusk: { cv: HTMLCanvasElement; day: number; hour: number } | null = null;
+
   constructor(game: Game, parent: HTMLElement) {
     super(game, parent, 'hv-dayend', {});
     game.events.on('shipping:summary', ({ items }) => (this.lastItems = { day: game.calendar.day, items }));
+    game.events.on('game:ready', () => (this.worldReady = true));
+    // Once per in-game hour after 5pm on the farm (one extra frame render, ~every 40 s of play): keep the
+    // latest evening view of *this* farm for tonight's summary. Nothing in the menus or while faded to black.
+    game.events.on('time:hour', ({ hour }) => {
+      if (hour < 17 || game.world.current?.id !== 'farm' || game.hud.openPanelName) return;
+      const cv = this.grab();
+      if (cv) this.dusk = { cv, day: game.calendar.day, hour };
+    });
+  }
+
+  /**
+   * Render one frame and copy it (pre-blurred, 640×360) off the WebGL canvas; null for a black frame. The DOM
+   * sleep fade sits above the canvas, so a frame grabbed while faded is still the world.
+   */
+  private grab(): HTMLCanvasElement | null {
+    if (!this.worldReady) return null;
+    try {
+      const rc = this.game.rc as unknown as { backdropHz?: number };
+      const hz = rc.backdropHz;
+      if (hz !== undefined) rc.backdropHz = 0;
+      this.game.rc.render(0, this.game.time);
+      if (hz !== undefined) rc.backdropHz = hz;
+      const src = this.game.rc.renderer.domElement;
+      const cv = document.createElement('canvas');
+      cv.width = 640;
+      cv.height = 360;
+      const g = cv.getContext('2d', { willReadFrequently: true });
+      if (!g) return null;
+      const k = Math.min(src.width / 16, src.height / 9);
+      g.filter = 'blur(2.5px) saturate(0.9)';
+      g.drawImage(src, (src.width - k * 16) / 2, (src.height - k * 9) / 2, k * 16, k * 9, -8, -5, 656, 370);
+      g.filter = 'none';
+      // Reject black frames (mid-fade, shader compile) and flat ones (the clear colour before the world loads).
+      const px = g.getImageData(0, 0, 640, 360).data;
+      let sum = 0;
+      let sq = 0;
+      let n = 0;
+      for (let i = 0; i < px.length; i += 4 * 97) {
+        const l = px[i]! * 0.3 + px[i + 1]! * 0.59 + px[i + 2]! * 0.11;
+        sum += l;
+        sq += l * l;
+        n++;
+      }
+      const mean = sum / Math.max(1, n);
+      const sd = Math.sqrt(Math.max(0, sq / Math.max(1, n) - mean * mean));
+      return mean < 10 || sd < 9 ? null : cv;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Outdoors right now (passed out in a field, or the staged demo): the live world is tonight's backdrop. */
+  private outdoors(s: Summary): boolean {
+    const here = this.game.world.current?.id ?? '';
+    return here === 'farm' || (s.passedOut && !!here && here !== 'house' && !here.startsWith('mine'));
+  }
+
+  /** Tonight's backdrop frame: the world right now if we're outdoors (passed out, staged demo), else the dusk grab. */
+  private backdrop(s: Summary): { cv: HTMLCanvasElement; day: boolean } | null {
+    if (this.outdoors(s)) {
+      const cv = this.grab();
+      if (cv) {
+        const h = this.game.calendar.hour;
+        return { cv, day: h >= 5.5 && h < 18.5 };
+      }
+    }
+    if (this.dusk && this.game.calendar.day - this.dusk.day <= 1) return { cv: this.dusk.cv, day: this.dusk.hour < 18 };
+    return null;
   }
 
   private sample(): { s: Summary; items: Line[] } {
@@ -105,7 +177,34 @@ export class DayEndScreen extends Screen {
       'de-flies',
       Array.from({ length: 22 }, (_, i) => `<b style="left:${(i * 61 + 7) % 100}%;top:${66 + ((i * 29) % 30)}%;animation-delay:${-(i * 0.9)}s;animation-duration:${6 + (i % 5)}s;scale:${0.6 + (i % 4) * 0.2}"></b>`).join(''),
     );
-    const layers = [...land.querySelectorAll<SVGGElement>('.de-l')].map((g) => ({ g, d: Number(g.dataset.depth ?? 0) }));
+    // The living-diorama backdrop: tonight's farm itself (a soft, moonlit, slowly drifting frame of the real 3D
+    // world) — the painted valley stands in only when there's no frame of this farm to show.
+    let layers: { g: HTMLElement | SVGGElement; d: number }[] = [];
+    const usePhoto = (shot: { cv: HTMLCanvasElement; day: boolean }, late = false): void => {
+      land.className = `de-land de-photo${shot.day ? ' d2n' : ''}${late ? ' late' : ''}`;
+      land.innerHTML = '<div class="de-l ph" data-depth="16"></div><div class="de-grade"></div><div class="de-moon"></div>';
+      land.querySelector('.ph')!.appendChild(shot.cv);
+      sky.classList.add('photo');
+      layers = [...land.querySelectorAll<HTMLElement>('.de-l')].map((g) => ({ g, d: Number(g.dataset.depth ?? 0) }));
+    };
+    const shot = this.backdrop(s);
+    if (shot) usePhoto(shot);
+    else if (this.outdoors(s)) {
+      // The world isn't on screen yet (staged straight from the URL): keep trying for a few seconds, then
+      // cross-fade from the painted valley to the real farm.
+      let tries = 0;
+      const again = (): void => {
+        if (!land.isConnected && tries > 0) return;
+        const cv = this.grab();
+        if (cv) {
+          const h = this.game.calendar.hour;
+          return usePhoto({ cv, day: h >= 5.5 && h < 18.5 }, true);
+        }
+        if (++tries < 24) this.timers.push(window.setTimeout(again, 500));
+      };
+      this.timers.push(window.setTimeout(again, 400));
+    }
+    if (!layers.length) layers = [...land.querySelectorAll<SVGGElement>('.de-l')].map((g) => ({ g, d: Number(g.dataset.depth ?? 0) }));
     let raf = 0;
     this.root.onpointermove = (e) => {
       const px = e.clientX / innerWidth - 0.5;
@@ -204,7 +303,7 @@ export class DayEndScreen extends Screen {
           <div class="de-quiet"><div class="qv-art">${quietVignetteSvg()}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>
           <div class="de-side">
             ${penCard}
-            <div class="de-rest"><div class="de-h">Rest</div><div class="bar"><i style="--e:${(eNow / eMax).toFixed(3)}"></i></div><div class="rl"><span>${ICONS.bolt ?? ''}Energy</span><b>${eNow} / ${eMax}</b></div><small>${s.passedOut ? 'You slept where you fell — half your energy returns.' : 'A full night’s sleep. You wake refreshed.'}</small></div>
+            <div class="de-rest"><div class="de-h">Rest</div><div class="bar"><i style="--e:${(eNow / eMax).toFixed(3)}"></i></div><div class="rl"><span>${ICONS.bolt ?? ''}Energy</span><b><span class="ev" data-v="0">0</span> / ${eMax}</b></div><small>${s.passedOut ? 'You slept where you fell — half your energy returns.' : 'A full night’s sleep. You wake refreshed.'}</small></div>
             ${tmrCard}
             <div class="de-purse"><span>Purse</span><b>${ICONS.coin}<span class="pv">${gold.toLocaleString()}</span>g</b></div>
             ${choresCard}
@@ -214,7 +313,7 @@ export class DayEndScreen extends Screen {
       : `<div class="de-body">
         <div class="de-ledger">
           <div class="de-h">Shipped today</div>
-          <div class="de-rows${k > 9 ? ' dense' : ''}"${animalsCard ? ' style="height:250px"' : ''}>${rows.join('')}</div>
+          <div class="de-rows fit${k > 9 ? ' dense' : ''}"${animalsCard ? ' style="height:250px"' : ''}>${rows.join('')}</div>
           ${animalsCard}
         </div>
         <div class="de-side">
@@ -246,8 +345,10 @@ export class DayEndScreen extends Screen {
     box.addEventListener('scroll', syncFade, { passive: true });
     requestAnimationFrame(syncFade);
     const lines = [...card.querySelectorAll<HTMLElement>('.de-grp, .de-row')];
+    // The ledger starts ticking as the card lands (no blank left column while the right one fills).
+    const t0 = 420;
     lines.forEach((r, i) => {
-      r.style.animationDelay = `${800 + i * rowT}ms`;
+      r.style.animationDelay = `${t0 + i * rowT}ms`;
       this.timers.push(
         window.setTimeout(() => {
           sfx(this.game, 'tick');
@@ -257,11 +358,14 @@ export class DayEndScreen extends Screen {
           const want = r.offsetTop + r.offsetHeight - box.clientHeight + 10;
           const top = lines.find((l) => l.offsetTop >= want - 10);
           if (top) box.scrollTop = top.offsetTop - 10;
-        }, 800 + i * rowT),
+        }, t0 + i * rowT),
       );
     });
-    // The card springs up at ~0.35 s; rows tick in after it lands.
-    const tEarn = 900 + n * rowT;
+    // Rest: the energy number fills in step with its bar (same delay and length as the CSS fill).
+    const ev = card.querySelector<HTMLElement>('.de-rest .ev');
+    if (ev) this.timers.push(window.setTimeout(() => rollTo(ev, eNow, 1300, (v) => String(v)), 500));
+    // The card springs up at ~0.35 s; rows tick in as it lands.
+    const tEarn = t0 + 150 + n * rowT;
     (card.querySelector('.de-star') as HTMLElement | null)?.style.setProperty('--d', `${tEarn + 250}ms`);
     this.timers.push(
       window.setTimeout(() => {

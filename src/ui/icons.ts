@@ -612,9 +612,35 @@ const geode: Painter = (p, color = '#9ab4d8') => {
 };
 
 const coal: Painter = (p) => {
-  pebble(p, 'M8 44 C6 32 16 24 26 26 C30 18 44 16 52 24 C60 30 60 44 52 50 C44 58 20 58 8 44 Z', '#4a4440');
-  p.glint(30, 28, 4, 1.6, -20, 0.5).glint(46, 30, 3, 1.3, -40, 0.45).glint(20, 38, 2, 1, -10, 0.4);
-  p.line('M26 30 L32 40 L28 50 M40 28 L44 42', '#1c1816', 1.2, 0.8);
+  // Mined coal: an angular, faceted lump with a blue-black anthracite sheen (hard-cut planes, not a pebble).
+  shadow(p, 22, 56);
+  p.shape('M6 42 L12 26 L26 16 L42 14 L56 24 L60 40 L50 54 L22 56 Z', p.lin(['#5a5a66', '#2c2a30', '#141216'], 0.2, 0, 0.8, 1), 2.6);
+  p.fill('M12 26 L26 16 L30 30 L16 38 Z', '#6a6e80', 0.9);
+  p.fill('M26 16 L42 14 L44 28 L30 30 Z', '#8a90a6', 0.85);
+  p.fill('M42 14 L56 24 L48 34 L44 28 Z', '#4a4c5a', 0.9);
+  p.fill('M30 30 L44 28 L48 34 L40 46 L26 44 Z', '#36363e', 0.95);
+  p.fill('M6 42 L16 38 L26 44 L22 56 Z', '#1c1a20', 0.9);
+  p.line('M16 38 L30 30 L44 28 L48 34 M30 30 L26 44 L40 46 L48 34 L56 24 M26 44 L22 56 M40 46 L50 54 M26 16 L30 30', '#0a0a0c', 1.1, 0.7);
+  p.glint(33, 20, 4.5, 1.3, -8, 0.7).glint(19, 29, 2.6, 1, -35, 0.55);
+  sparkle(p, 50, 12, 0.6);
+};
+
+const charcoal: Painter = (p) => {
+  // Kiln charcoal: two square-cut briquettes, soft velvet black with ember-orange glowing edges and a wisp of smoke.
+  shadow(p, 24, 57);
+  const brick = (x: number, y: number, rot: number): void => {
+    p.raw(`<g transform="rotate(${rot} ${x + 13} ${y + 10})">`);
+    p.shape(`M${x} ${y + 4} C${x} ${y + 1} ${x + 2} ${y} ${x + 5} ${y} H${x + 21} C${x + 24} ${y} ${x + 26} ${y + 1} ${x + 26} ${y + 4} V${y + 17} C${x + 26} ${y + 20} ${x + 24} ${y + 21} ${x + 21} ${y + 21} H${x + 5} C${x + 2} ${y + 21} ${x} ${y + 20} ${x} ${y + 17} Z`, p.lin(['#4a4246', '#262024', '#141014'], 0.2, 0, 0.8, 1), 2.4);
+    p.fill(`M${x + 3} ${y + 3} H${x + 23} V${y + 7} H${x + 3} Z`, '#5e5458', 0.8);
+    p.line(`M${x + 1.5} ${y + 18.5} H${x + 24.5} M${x + 24.8} ${y + 4} V${y + 18}`, '#ff8a2a', 2.2, 0.95);
+    p.line(`M${x + 3} ${y + 18.6} H${x + 16}`, '#ffd06a', 1.1, 0.95);
+    p.line(`M${x + 9} ${y + 4} V${y + 16} M${x + 17} ${y + 4} V${y + 16}`, '#0c080a', 1, 0.55);
+    p.raw('</g>');
+  };
+  brick(6, 32, -6);
+  brick(30, 24, 8);
+  p.ellipse(40, 50, 12, 3, '#ff7a1a', false, 0.25);
+  p.line('M24 24 C20 18 26 14 22 8 M30 18 C28 13 32 10 30 5', '#b8aebc', 2, 0.55);
 };
 
 const jar: Painter = (p, color = '#f0a830') => {
@@ -822,11 +848,59 @@ const frostShard: Painter = (p, color = '#9fd8ff') => {
 };
 
 const slimeGel: Painter = (p, color = '#7ed957') => {
-  p.ellipse(32, 56, 22, 4, '#1a3a10', false, 0.18);
-  p.shape('M8 48 C6 34 16 14 32 10 C48 14 58 34 56 48 C55 55 46 58 32 58 C18 58 9 55 8 48 Z', p.rad([tone(color, 1.55), color, tone(color, 0.5)], 0.38, 0.3, 0.85));
-  p.fill('M12 50 C18 54 46 54 52 50 C50 56 42 57 32 57 C22 57 14 56 12 50 Z', tone(color, 0.55), 0.6);
-  p.circle(40, 38, 4, tone(color, 1.35), false, 0.8).circle(24, 44, 2.6, tone(color, 1.35), false, 0.8).circle(30, 30, 1.8, tone(color, 1.4), false, 0.8);
-  p.glint(22, 24, 6, 3, -35, 0.85).glint(44, 22, 2, 1.2, 30, 0.7);
+  // A wobbling jelly dollop: off-centre peak, a fat drip hanging off the left lip, trapped bubbles, a wet
+  // double highlight and two little wobble marks, so it reads as goo rather than a green ball.
+  p.ellipse(34, 56, 21, 3.6, '#1a3a10', false, 0.18);
+  p.shape('M12 46 C10 34 18 20 28 15 C31 13.4 32 9 35 7 C37 11 37.6 14 42 16.6 C52 22 58 34 56 45 C55 52 48 56 36 56 C28 56 22 55.6 20 54 C19 58 19.6 61 17.4 62.4 C15 63.6 12.6 62 12.8 59 C13 56 15 54 14 51.4 C13 49.8 12.2 48 12 46 Z', p.rad([tone(color, 1.6), color, tone(color, 0.48)], 0.42, 0.3, 0.9));
+  p.fill('M16 49 C22 53.4 46 54 53 48 C51 53.6 44 55 35 55 C27 55 20 54 16 49 Z', tone(color, 0.55), 0.55);
+  p.circle(42, 38, 4.4, tone(color, 1.35), false, 0.75).circle(27, 43, 3, tone(color, 1.35), false, 0.75).circle(35, 28, 2, tone(color, 1.45), false, 0.85);
+  p.circle(43.2, 36.6, 1.4, '#fff', false, 0.85).circle(27.9, 42, 1, '#fff', false, 0.85);
+  p.raw('<path d="M18.4 38 C19.4 29 24 23 30 20" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" opacity=".88"/><path d="M16.8 44.6 C16.6 43 16.7 42 17 41" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".7"/>');
+  p.glint(15.6, 60, 1.3, 0.8, -20, 0.9);
+  p.glint(48, 26, 2.2, 1.2, 35, 0.75);
+  p.line('M59.6 30 C61.6 34 61.6 39 59.8 43 M5.6 30 C4 34 4 38 5.2 41', tone(color, 0.5), 1.8, 0.8);
+};
+
+const duskWing: Painter = (p) => {
+  // A bat's wing membrane, spread: three finger bones fan from the wrist knuckle, the dusky skin between
+  // them scallops in, back-lit so it glows violet at the thin trailing edge; a hooked thumb claw on top.
+  p.ellipse(33, 57, 22, 3.4, '#000', false, 0.16);
+  p.raw('<g transform="translate(0 7)">');
+  const skin = 'M8 20 C20 12 36 10 56 14 C58 22 57 30 54 36 C49 32 44 33 42 39 C38 34 32 35 30 42 C26 37 20 38 17 44 C14 36 11 28 8 20 Z';
+  p.shape(skin, p.lin(['#b49ad0', '#6a4e86', '#3a2850'], 0.2, 1, 0.7, 0), 2.6);
+  // Back-light: thin membrane glows along the trailing scallops.
+  p.fill('M54 36 C49 32 44 33 42 39 C38 34 32 35 30 42 C26 37 20 38 17 44 C18 40 22 35 28 36 C32 32 38 30 42 34 C45 29 50 29 54 32 Z', '#e0c4ff', 0.45);
+  // Finger bones from the wrist (8, 20).
+  p.line('M9 20 C22 18 40 15 55 14 M9 20 C22 24 38 30 42 38 M9 20 C18 26 26 34 29.5 41 M9 20 C13 28 16 36 17 43', '#2a1a38', 2.4, 0.9);
+  p.line('M10 19 C22 17 40 14 54 13', '#d8c4ee', 1.1, 0.7);
+  // Fine veins in the skin.
+  p.line('M24 17 C27 22 30 26 34 28 M36 15 C38 20 40 24 44 26 M20 26 C22 30 23 34 24 38', '#2a1a38', 0.9, 0.45);
+  // Wrist knuckle + thumb claw.
+  p.circle(9, 20, 3.4, '#8a6aa8');
+  p.shape('M8 17 C6 12 8 7 12 5 C11 9 11 12 12 16 Z', '#e8dcc8', 1.8);
+  p.glint(30, 17, 5, 1.4, -8, 0.6);
+  p.raw('</g>');
+};
+
+const crabCarapace: Painter = (p) => {
+  // A rock crab's shell: a domed, knobbly back plate the colour of river stone, orange rim and leg stubs
+  // peeking out underneath so it reads as a crab (not just a rock); two little stalk-eye sockets up front.
+  p.ellipse(32, 56, 24, 3.6, '#000', false, 0.18);
+  const legs = 'M12 44 L4 48 L6 52 M12 38 L3 36 L2 41 M52 44 L60 48 L58 52 M52 38 L61 36 L62 41';
+  p.line(legs, '#6a2a10', 5, 1).line(legs, '#e0763a', 3, 1);
+  // Underside rim (orange crab shell showing under the stony top).
+  p.shape('M8 42 C8 50 20 54 32 54 C44 54 56 50 56 42 C50 46 42 48 32 48 C22 48 14 46 8 42 Z', p.lin(['#f09a5a', '#c8582a'], 0, 0, 0, 1), 2.2);
+  // Stony dome.
+  p.shape('M8 42 C6 30 14 16 32 14 C50 16 58 30 56 42 C50 47 42 48 32 48 C22 48 14 47 8 42 Z', p.rad(['#e6d4b8', '#b0926c', '#6e5438'], 0.4, 0.28, 0.85), 2.6);
+  // Plates + knobs.
+  p.line('M20 20 C22 30 22 38 20 46 M44 20 C42 30 42 38 44 46 M20 32 C28 30 36 30 44 32', '#5a4028', 1.3, 0.55);
+  for (const [x, y, r] of [[30, 22, 2.6], [37, 25, 2], [26, 36, 2.2], [36, 38, 2.8], [48, 34, 1.8], [15, 34, 1.8]] as const) {
+    p.circle(x, y, r, '#c8ae88', false, 0.95).circle(x - r * 0.3, y - r * 0.35, r * 0.45, '#f4e6cc', false, 0.8);
+  }
+  // Moss speck + eye sockets.
+  p.ellipse(44, 24, 4, 2, '#7a9a4a', false, 0.8, -20);
+  p.circle(26, 15.5, 2.2, '#3a2a1a', false).circle(38, 15.5, 2.2, '#3a2a1a', false);
+  p.glint(24, 22, 5, 2, -30, 0.55);
 };
 
 // ── Distinct gems, ores, eggs (each its own silhouette, not a recolour) ─────
@@ -900,15 +974,50 @@ const amethyst: Painter = (p) => {
 };
 
 const ruby: Painter = (p) => {
-  shadow(p, 18, 56);
-  // Oval cabochon in a thin gold bezel.
-  p.ellipse(32, 36, 23, 18, p.lin(['#fff2b0', '#e0a830', '#8a5a0a'], 0, 0, 0, 1), true);
-  p.ellipse(32, 35, 19, 14.5, p.rad(['#ff9aa8', '#ff2a48', '#8a0a22', '#4a0414'], 0.4, 0.3, 0.85), true);
-  p.fill('M16 38 C18 46 26 50 32 50 C40 50 47 46 49 38 C46 44 40 47 32 47 C24 47 18 44 16 38 Z', '#4a0414', 0.45);
-  p.ellipse(38, 41, 7, 3, '#ff7a8a', false, 0.5, -15);
-  p.raw('<path d="M18 30 C20 24 26 21 32 21" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" opacity=".85"/>');
-  p.glint(24, 26, 2, 1.2, -30, 0.95);
-  sparkle(p, 52, 16, 0.9);
+  // Cushion cut: rounded-square girdle, a flat table, eight crown facets in three tones and a hot specular.
+  shadow(p, 20, 57);
+  const G = 'M14 14 C20 9 44 9 50 14 C55 20 55 44 50 50 C44 55 20 55 14 50 C9 44 9 20 14 14 Z';
+  p.shape(G, '#b80e2c', 2.8);
+  const T = [
+    [23, 22],
+    [41, 22],
+    [41, 42],
+    [23, 42],
+  ];
+  const O = [
+    [14, 14],
+    [32, 10.5],
+    [50, 14],
+    [53.5, 32],
+    [50, 50],
+    [32, 53.5],
+    [14, 50],
+    [10.5, 32],
+  ];
+  // Crown facets: eight girdle triangles + four star facets, lit from the top-left (three tones and between).
+  const F: [number[], number[], number[], string][] = [
+    [O[0]!, O[1]!, T[0]!, '#ff8a9c'],
+    [O[1]!, O[2]!, T[1]!, '#ff5a70'],
+    [O[2]!, O[3]!, T[1]!, '#e8203e'],
+    [O[3]!, O[4]!, T[2]!, '#9a0a24'],
+    [O[4]!, O[5]!, T[2]!, '#6a0216'],
+    [O[5]!, O[6]!, T[3]!, '#8a0620'],
+    [O[6]!, O[7]!, T[3]!, '#c8143a'],
+    [O[7]!, O[0]!, T[0]!, '#ff6a80'],
+    [O[1]!, T[0]!, T[1]!, '#ffb0bc'],
+    [O[3]!, T[1]!, T[2]!, '#c0102e'],
+    [O[5]!, T[2]!, T[3]!, '#7a0418'],
+    [O[7]!, T[3]!, T[0]!, '#ff4a64'],
+  ];
+  for (const [a, b, c, col] of F) p.fill(`M${a[0]} ${a[1]} L${b[0]} ${b[1]} L${c[0]} ${c[1]} Z`, col, 1);
+  p.fill('M23 22 H41 V42 H23 Z', p.rad(['#ffb0bc', '#ff3a58', '#c0102e'], 0.35, 0.3, 0.9));
+  p.line('M23 22 H41 V42 H23 Z M14 14 L23 22 M50 14 L41 22 M50 50 L41 42 M14 50 L23 42 M32 10.5 L23 22 M32 10.5 L41 22 M53.5 32 L41 22 M53.5 32 L41 42 M32 53.5 L41 42 M32 53.5 L23 42 M10.5 32 L23 42 M10.5 32 L23 22', '#5a0010', 0.9, 0.55);
+  p.raw(`<path d="${G}" fill="none" stroke="#3b0a10" stroke-width="2.8" stroke-linejoin="round"/>`);
+  p.fill('M25 24 H33 L27 32 H25 Z', '#fff', 0.7);
+  p.glint(20, 17, 4, 1.4, -35, 0.9);
+  p.fill('M44 44 L48 46 L46 48 Z', '#ffd0d8', 0.8);
+  sparkle(p, 50, 10, 0.9);
+  sparkle(p, 36, 36, 0.45);
 };
 
 const topaz: Painter = (p) => {
@@ -1138,31 +1247,45 @@ const goldSprinkler: Painter = (p) => {
 
 const TSW = 2.8;
 
+// r9: each tool head has its own colour mass and silhouette, so the four read apart at 44 px —
+// hoe: green-painted flat blade at 90° to the handle · axe: wide red wedge with a bright steel bevel ·
+// pickaxe: dark-iron double point across the top · scythe: long silver crescent.
 const hoe: Painter = (p) => {
-  handle(p, 10, 58, 40, 16, 9);
-  p.shape('M34 18 L40 8 L50 10 L46 20 Z', p.lin(['#8a8f96', '#5a5f66'], 0, 0, 1, 1), TSW);
-  p.shape('M44 8 C50 6 58 8 60 12 L58 30 C57 33 53 33 52 30 L50 16 C48 14 46 14 44 14 Z', p.lin(STEEL, 0, 0, 1, 1), TSW);
-  p.fill('M47 9.5 C51 8.5 56 9.5 58 12 L57 18 C55 15 51 13 47 13 Z', '#fff', 0.75);
-  p.line('M52.5 30 L57.5 30', '#4a525c', 1.4, 0.8);
-  p.circle(41, 12.5, 2.3, '#c9a24a');
+  handle(p, 12, 60, 42, 14, 9);
+  // Steel neck + ferrule.
+  p.shape('M38 18 L44 8 L50 11 L45 21 Z', p.lin(['#9aa2ac', '#5a616a'], 0, 0, 1, 1), TSW);
+  p.shape('M36 17 L44 21 L41 26 L33 22 Z', p.lin(['#e6c46a', '#a67c22'], 0, 0, 1, 1), TSW);
+  // Flat blade hanging square off the neck (painted green, a bright ground steel edge along the bottom).
+  p.shape('M45 3 L61 10 C62.6 10.7 63.3 12.4 62.8 14 L55.4 38.6 C54.8 40.4 53 41.2 51.3 40.5 L35.5 33.4 Z', p.lin(['#b6ea78', '#56a63e', '#2c6424'], 0.1, 0, 0.9, 1), TSW);
+  p.fill('M47 6.4 L59.4 11.8 L58.2 16 L45.8 10.6 Z', '#eaffcc', 0.75);
+  p.line('M50 14 L56.5 16.8 M48.5 19 L55 21.8', '#2c6424', 1.4, 0.55);
+  p.shape('M35.5 33.4 L51.3 40.5 C53 41.2 54.8 40.4 55.4 38.6 L56.4 35.2 L38.4 27.6 Z', p.lin(STEEL, 0, 0, 1, 1), 2);
+  p.line('M38.6 32.4 L53.6 39', '#ffffff', 1.4, 0.95);
 };
 
 const axe: Painter = (p) => {
-  handle(p, 12, 58, 40, 12, 9);
-  p.shape('M30 8 C36 2 50 2 56 8 C62 16 62 30 54 36 C50 28 42 22 32 22 Z', p.lin(STEEL, 0.2, 0, 0.8, 1), TSW);
-  p.fill('M36 8 C41 5 49 5 53 9 C56 13 57 18 56 24 C51 16 44 12 37 12 Z', '#fff', 0.6);
-  p.line('M54 10 C59 17 59 26 54 33', '#fff', 2, 0.95);
-  p.shape('M28 10 L42 16 L38 26 L24 20 Z', p.lin(['#6a7078', '#40454c'], 0, 0, 1, 1), TSW);
-  p.circle(33, 18, 1.8, '#c9a24a', false);
+  handle(p, 10, 60, 38, 12, 9);
+  // Poll (back of the head).
+  p.shape('M26 10 L34 6 L38 16 L30 20 Z', p.lin(['#7a8088', '#40454c'], 0, 0, 1, 1), TSW);
+  // Wide wedge: red-painted cheek flaring to a curved steel bit.
+  p.shape('M34 6 L48 2 C56 0 62 8 62 18 C62 28 57 36 50 36 L40 24 Z', p.lin(['#ff8a6a', '#d8412e', '#8a1a12'], 0.1, 0, 0.9, 1), TSW);
+  p.fill('M37 7 L47 4 C51 3.4 54 5 55 8 L42 14 Z', '#ffd0b8', 0.6);
+  // Bright steel bevel along the bit.
+  p.shape('M52 3.4 C58 5 62 11 62 18 C62 27 57.6 35 50.4 36 L47.6 31.6 C53 30 56.2 24 56 17.4 C55.8 11.6 53.8 7.4 50.2 5 Z', p.lin(STEEL, 0.2, 0, 0.8, 1), 2);
+  p.line('M55.4 7 C59.4 11 60.4 19 58.4 26', '#ffffff', 1.8, 0.95);
+  p.circle(36, 13, 2, '#e6c46a', false);
 };
 
 const pickaxe: Painter = (p) => {
-  handle(p, 14, 58, 38, 18, 9);
-  p.shape('M3 26 C12 8 44 2 62 14 L58 22 C44 13 22 14 9 30 Z', p.lin(STEEL, 0.3, 0, 0.6, 1), TSW);
-  p.fill('M8 22 C18 11 40 7 56 14 L55 16 C40 10 22 13 10 25 Z', '#fff', 0.75);
-  p.shape('M31 9 L44 10 L42 22 L30 21 Z', p.lin(['#8a5a2c', '#5a3818'], 0, 0, 1, 1), TSW);
-  p.circle(37, 15.5, 2.2, '#c9a24a', false);
-  p.line('M5 27 L9 30 M61 15 L58 21', '#4a525c', 1.6, 0.9);
+  handle(p, 22, 61, 32, 20, 9);
+  // Dark-iron double point: a swept bar over the top, two sharp tips curving down.
+  p.shape('M2 34 C8 20 20 12 32 12 C44 12 56 20 62 34 L57.5 35.5 C52 26 43 21 32 21 C21 21 12 26 6.5 35.5 Z', p.lin(['#c8d0da', '#737c8a', '#3a404c'], 0.3, 0, 0.6, 1), TSW);
+  p.fill('M8 29 C14 20 23 15.5 32 15.5 C41 15.5 50 20 56 29 C49 21.6 41 18.4 32 18.4 C23 18.4 15 21.6 8 29 Z', '#ffffff', 0.55);
+  // Bright honed tips.
+  p.fill('M2 34 L6.5 35.5 L8 31 L4 29.4 Z', '#f4f8ff', 0.95).fill('M62 34 L57.5 35.5 L56 31 L60 29.4 Z', '#f4f8ff', 0.95);
+  // Collar where the head meets the haft.
+  p.shape('M26 11 H38 L37 23 H27 Z', p.lin(['#e6c46a', '#a67c22', '#6a4a10'], 0, 0, 1, 1), TSW);
+  p.line('M28 15 H36', '#fff4c8', 1.2, 0.8);
 };
 
 const scythe: Painter = (p) => {
@@ -1327,6 +1450,8 @@ const HAND_PAINTERS: Record<string, Painter> = {
   hay: hayTuft,
   frostShard,
   slimeGel,
+  duskWing,
+  crabCarapace,
   hoe,
   wateringCan,
   axe,
@@ -1379,6 +1504,7 @@ const HAND_PAINTERS: Record<string, Painter> = {
   gem,
   geode,
   coal,
+  charcoal,
   egg,
   jar,
   bottle,
@@ -1557,12 +1683,15 @@ export function registerItemIcon(key: string, svg: string | (() => string)): voi
   urlCache.clear();
 }
 
+const HAND_FIRST = new Set(['slimeGel', 'duskWing', 'crabCarapace']);
+
 /** Raw SVG markup for an item. */
 export function itemSvg(id: string): string {
   let s = svgCache.get(id);
   if (s) return s;
   const def = itemDef(id);
-  const ov = OVERRIDES.get(id) ?? (def?.icon ? OVERRIDES.get(def.icon) : undefined);
+  // A few mine drops were first registered by the mine pod as stand-in art; the UI's hand-painted versions supersede them.
+  const ov = HAND_FIRST.has(id) ? undefined : (OVERRIDES.get(id) ?? (def?.icon ? OVERRIDES.get(def.icon) : undefined));
   // Items whose art was dropped straight into ICONS by another team (legacy path).
   const legacy = def?.icon && !HUD_KEYS.has(def.icon) ? ICONS[def.icon] : !HUD_KEYS.has(id) ? ICONS[id] : undefined;
   if (ov) s = typeof ov === 'string' ? ov : ov();

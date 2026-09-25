@@ -387,6 +387,8 @@ export class ShopScreen extends Screen {
     const short = this.short();
     if (short && !this.wasShort) this.line('broke');
     this.wasShort = short;
+    // Keep keyboard / pad focus on the Buy button across re-renders (A, A, A buys again and again).
+    const goHadFocus = !!this.nav.current?.classList.contains('pk-go');
     this.picker.innerHTML = `
       <div class="pk-item"><div class="u-slot">${itemIcon(g.id)}</div><div><b title="${escapeHtml(d?.name ?? g.id)}">${escapeHtml(d?.name ?? g.id)}</b><small>${g.price}g each</small></div></div>
       <div class="pk-qty">
@@ -405,13 +407,17 @@ export class ShopScreen extends Screen {
         this.qty = q === 'max' ? max : Math.max(1, Math.min(max, q === '5' ? (this.qty === 1 ? 5 : this.qty + 5) : this.qty + Number(q)));
         sfx(this.game, 'tick');
         const focus = q;
+        // ←→ on a goods row press these too: the focus stays on the row then.
+        const had = this.nav.current === b;
         this.buildPicker();
         const again = this.picker.querySelector<HTMLElement>(`[data-q="${focus}"]`);
-        if (again) this.nav.set(again, document.body.classList.contains('u-kbd'));
+        if (again && had) this.nav.set(again, document.body.classList.contains('u-kbd'));
         replay(this.picker.querySelector('.pk-n span'), 'bump');
       }),
     );
-    this.picker.querySelector('.pk-go')!.addEventListener('click', () => this.commit());
+    const goBtn = this.picker.querySelector<HTMLElement>('.pk-go')!;
+    goBtn.addEventListener('click', () => this.commit());
+    if (goHadFocus) this.nav.set(goBtn, false);
   }
 
   private commit(): void {
@@ -513,7 +519,69 @@ export class ShopScreen extends Screen {
     ];
   }
 
+  protected override initialFocus(): HTMLElement | null {
+    return this.list?.querySelectorAll<HTMLElement>('.shop-row')[this.sel] ?? null;
+  }
+
+  /**
+   * Keyboard / gamepad flow: ↑↓ walk the goods (focus = selection, so the purchase bar always shows what Buy will
+   * buy), ←→ on a row change the quantity, Enter / A on a row hops to the Buy button (A again buys), ↑ from the
+   * purchase bar returns to the selected row. Past the first row ↑ reaches the Buy / Sell tabs.
+   */
+  private navKey(code: string): boolean {
+    const nav = this.nav;
+    const rows = [...this.list.querySelectorAll<HTMLElement>('.shop-row')];
+    if (!rows.length) return false;
+    const cur = nav.current;
+    const at = cur ? rows.indexOf(cur) : -1;
+    const up = code === 'ArrowUp' || code === 'KeyW';
+    const down = code === 'ArrowDown' || code === 'KeyS';
+    const left = code === 'ArrowLeft' || code === 'KeyA';
+    const right = code === 'ArrowRight' || code === 'KeyD';
+    const go = this.picker.querySelector<HTMLElement>('.pk-go');
+    if (at < 0) {
+      // Focus on the purchase bar: ↑ goes back to the list. Nothing focused yet: land on the selected row.
+      if (!cur || !nav.items().includes(cur)) {
+        if (up || down) {
+          nav.set(rows[this.sel] ?? rows[0]!);
+          return true;
+        }
+        return false;
+      }
+      if (up && this.picker.contains(cur)) {
+        nav.set(rows[this.sel] ?? rows[0]!);
+        return true;
+      }
+      if (down && cur.closest('.shop-tabs, .shop-tab')) {
+        nav.set(rows[this.sel] ?? rows[0]!);
+        return true;
+      }
+      return false;
+    }
+    if (up || down) {
+      const next = at + (down ? 1 : -1);
+      if (next >= rows.length) {
+        if (go) nav.set(go);
+      } else if (next < 0) {
+        const tab = this.root.querySelector<HTMLElement>('.shop-tab.on') ?? this.root.querySelector<HTMLElement>('.shop-tab');
+        if (tab) nav.set(tab);
+      } else nav.set(rows[next]!);
+      sfx(this.game, 'hover');
+      return true;
+    }
+    if (left || right) {
+      this.picker.querySelector<HTMLElement>(`[data-q="${left ? '-1' : '1'}"]`)?.click();
+      return true;
+    }
+    if ((code === 'Enter' || code === 'Space') && go) {
+      nav.set(go);
+      return true;
+    }
+    return false;
+  }
+
   override key(code: string): boolean {
+    if (this.navKey(code)) return true;
     if (code === 'Minus' || code === 'Equal') {
       const b = this.picker.querySelector<HTMLElement>(`[data-q="${code === 'Minus' ? '-1' : '1'}"]`);
       b?.click();

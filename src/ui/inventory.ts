@@ -93,7 +93,11 @@ export class InventoryScreen extends Screen {
     }
     this.detail = el('div', 'inv-detail');
     this.detailKey = '';
-    this.grid.addEventListener('pointerleave', () => this.showDetail(null));
+    this.grid.addEventListener('pointerleave', () => {
+      if (document.body.classList.contains('u-kbd')) return;
+      this.focusIdx = null;
+      this.showDetail(null);
+    });
     const foot = el('div', 'inv-foot');
     const sort = el('button', 'u-btn small', `${ICONS.sort}<span>Sort</span>`);
     sort.dataset.nav = '';
@@ -142,7 +146,8 @@ export class InventoryScreen extends Screen {
     const cal = this.game.calendar;
     const gold = this.game.services.economy?.gold() ?? 0;
     const en = this.game.services.energy;
-    const worth = slots.reduce((a, s) => a + (s ? unitPrice(s) * s.qty : 0), 0);
+    // The carried stack still belongs to the pack: count it, so the value doesn't dip mid-drag.
+    const worth = slots.reduce((a, s) => a + (s ? unitPrice(s) * s.qty : 0), 0) + (this.held ? unitPrice(this.held.stack) * this.held.stack.qty : 0);
     this.card.innerHTML = `
       <div class="av">${farmerAvatar(undefined, this.game.services.net?.profile().look ?? null)}</div>
       <div class="col"><div class="who"><span class="nm">${escapeHtml(journal.name)}</span><span class="farm">${escapeHtml(journal.farm)}</span></div>
@@ -153,23 +158,31 @@ export class InventoryScreen extends Screen {
         <div><span>${ICONS.bag}</span><b>${worth.toLocaleString()}g</b><small>pack value</small></div>
       </div></div>`;
     this.renderHeld();
-    this.showDetail(null);
+    this.showDetail(this.focusIdx);
   }
+
+  /** Slot under the pointer / keyboard focus (null = none: the card shows the selected toolbar item). */
+  private focusIdx: number | null = null;
 
   /**
    * Item card under the grid: big icon, name, quality, category, what it's for and what it's worth.
-   * `null` = the selected toolbar item (so the card is never empty while the backpack is open).
+   * `null` = the selected toolbar item (so the card is never empty while the backpack is open). While a stack
+   * is carried the card always describes the carried stack (tagged "Carrying"), wherever the focus is.
    */
   private showDetail(i: number | null): void {
     if (!this.detail) return;
     const slots = this.inv?.slots ?? [];
     const idx = i ?? this.game.toolbarSlot;
-    const s = (this.held && i === null ? this.held.stack : slots[idx]) as StackView | null | undefined;
-    const key = s ? `${idx}|${s.id}|${s.qty}|${s.quality ?? 0}|${this.held ? 1 : 0}` : `empty|${idx}`;
+    const carrying = !!this.held;
+    const s = (this.held ? this.held.stack : slots[idx]) as StackView | null | undefined;
+    const key = s ? `${idx}|${s.id}|${s.qty}|${s.quality ?? 0}|${carrying ? 1 : 0}` : `empty|${idx}|${i === null ? 0 : 1}`;
     if (key === this.detailKey) return;
     this.detailKey = key;
     if (!s) {
-      this.detail.innerHTML = `<div class="idt-empty">${ICONS.bag}<span>Hover an item to inspect it · drag to rearrange</span></div>`;
+      this.detail.innerHTML =
+        i === null
+          ? `<div class="idt-empty">${ICONS.bag}<span>Hover an item to inspect it · drag to rearrange</span></div>`
+          : `<div class="idt-empty">${ICONS.bag}<span>Empty ${idx < 10 ? `toolbar slot ${(idx + 1) % 10}` : 'slot'} · drop something here</span></div>`;
       return;
     }
     const d = itemDef(s.id);
@@ -196,20 +209,23 @@ export class InventoryScreen extends Screen {
     this.detail.innerHTML = `
       <div class="u-slot idt-pic">${itemIcon(s.id)}${qualityStar(q)}</div>
       <div class="idt-txt">
-        <div class="idt-name"><b>${escapeHtml(d?.name ?? s.id)}</b>${stars}<span class="t-cat" style="background:${cat.color}">${cat.label}</span></div>
+        <div class="idt-name">${carrying ? '<span class="idt-carry">Carrying</span>' : ''}<b>${escapeHtml(d?.name ?? s.id)}</b>${stars}<span class="t-cat" style="background:${cat.color}">${cat.label}</span></div>
         <p>${escapeHtml(desc)}</p>${meta ? `<div class="idt-meta">${meta}</div>` : ''}
       </div>${val}`;
     replay(this.detail, 'swap');
   }
 
   private hover(i: number, anchor = false): void {
+    this.focusIdx = i;
     if (this.held) {
+      this.showDetail(i);
       tooltip.hide();
       if (anchor) this.placeHeldOver(this.cells[i]!);
       return;
     }
     const s = this.inv?.slots[i] as StackView | null;
-    this.showDetail(s ? i : null);
+    // Keyboard / pad focus: the card follows the focused slot even when it's empty (no stale card).
+    this.showDetail(s || anchor ? i : null);
     if (!s) {
       tooltip.hide();
       return;
@@ -354,8 +370,22 @@ export class InventoryScreen extends Screen {
     if (!this.held || !inv) return;
     const { stack, from } = this.held;
     this.held = null;
-    if (!inv.slots[from]) inv.setSlot(from, stack);
+    // Stowed silently (it never left the pack): origin slot, else merged / first free slot. `inv.add` would
+    // raise an "item gained" pickup toast as if it were new, so it is only the last resort.
+    let at = -1;
+    if (!inv.slots[from]) at = from;
     else {
+      const q = stack.quality ?? 0;
+      at = inv.slots.findIndex((x) => !!x && x.id === stack.id && (x.quality ?? 0) === q && x.qty + stack.qty <= inv.stackMax(stack.id));
+      if (at >= 0) {
+        const x = inv.slots[at]!;
+        inv.setSlot(at, { ...x, qty: x.qty + stack.qty });
+        at = -2;
+      } else at = inv.slots.findIndex((x, k) => !x && k >= 10);
+      if (at === -1) at = inv.slots.findIndex((x) => !x);
+    }
+    if (at >= 0) inv.setSlot(at, stack);
+    else if (at === -1) {
       const left = inv.add(stack.id, stack.qty, stack.quality);
       if (left > 0) console.warn(`[ui] backpack full; ${left}× ${stack.id} lost`);
     }

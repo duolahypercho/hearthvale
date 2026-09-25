@@ -1498,3 +1498,78 @@ body:has(.hv-screens > .hv-screen:not(.hv-hidden)) .hv-np {
   width: 40px;
   height: 40px;
 }
+
+/* UI r9 (critic r3): the "Now playing" card is a compact pill (note disc · title · subtitle, ≈ 250×52),
+   fades on its own after ~3 s, and steps aside while a toast or a tooltip is showing. */
+body .hv-np-card {
+  gap: 9px;
+  padding: 5px 16px 5px 5px;
+  border-width: 2.5px;
+  border-radius: 30px;
+}
+body .hv-np-disc {
+  width: 40px;
+  height: 40px;
+}
+body .hv-np-disc svg {
+  width: 22px;
+  height: 22px;
+}
+body .hv-np-staff {
+  display: none;
+}
+body .hv-np-kick {
+  font-size: 9px;
+}
+body .hv-np-title {
+  max-width: 190px;
+  overflow: hidden;
+  font-size: 16px;
+  text-overflow: ellipsis;
+}
+body .hv-np-sub {
+  max-width: 190px;
+  overflow: hidden;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+body .hv-np.on {
+  animation: hvNpAway 0.5s ease-in 3s forwards;
+}
+@keyframes hvNpAway {
+  to {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+body:has(.h-toasts > .h-toast:not(.out)) .hv-np,
+body:has(.u-tip.on) .hv-np {
+  opacity: 0 !important;
+  transition: opacity 0.2s;
+}
+
+/* UI r9: date line spells the season ("Mon · Spring 1"); the gold register hugs its digits. */
+.h-plate {
+  width: 238px;
+}
+.h-date .d {
+  font-size: 19px;
+  letter-spacing: -0.01em;
+}
+.h-date .d .wd {
+  color: #9a5a2a;
+}
+.h-date .d .dot {
+  margin: 0 5px;
+  font-style: normal;
+  color: #b8946a;
+}
+.h-gold {
+  width: fit-content;
+  min-width: 118px;
+  margin-left: auto;
+  justify-content: center;
+  padding: 4px 12px 4px 8px;
+  border-radius: 14px;
+}

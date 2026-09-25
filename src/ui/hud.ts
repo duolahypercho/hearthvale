@@ -694,7 +694,7 @@ export class Hud {
       const tm = Math.floor((c.hour * 60) / 10) * 10;
       clock = `${Math.floor(tm / 60) % 24}:${String(tm % 60).padStart(2, '0')} `;
     }
-    const date = `${WEEKDAY[(c.day - 1) % 7]}. ${c.day}`;
+    const date = `${WEEKDAY[(c.day - 1) % 7]} · ${SEASON_NAME[c.season]} ${c.day}`;
     const key = clock + date;
     if (key !== this.lastClock) {
       const [hm, ampm] = clock.split(' ');
@@ -702,7 +702,8 @@ export class Hud {
       this.timeEl.classList.toggle('late', c.hour >= 24);
       if (this.lastClock) replay(this.timeEl, 'tick');
       this.lastClock = key;
-      this.dateEl.textContent = date;
+      // "Mon · Spring 1": the season reads in words, not only from the little badge.
+      this.dateEl.innerHTML = `<span class="wd">${WEEKDAY[(c.day - 1) % 7]}</span><i class="dot">·</i>${SEASON_NAME[c.season]} ${c.day}`;
       this.dateEl.title = `${SEASON_NAME[c.season]} ${c.day}, Year ${c.year}`;
       this.refreshBadges(false);
     }

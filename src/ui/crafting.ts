@@ -17,7 +17,7 @@ import { menuTabs } from './menutabs';
 import { flyItemTo } from './item-fly';
 
 /** Recipes pictured by something other than their output (the Hay Bale recipe makes loose hay). */
-const RECIPE_ART: Record<string, string> = { hay: 'hayBale' };
+const RECIPE_ART: Record<string, string> = { hay: 'hayBale', coal: 'charcoal' };
 
 export class CraftingScreen extends Screen {
   private sel = 0;
