@@ -10,6 +10,7 @@
  *   npm run perf -- --no-history                   # don't append to shots/perf/history.jsonl
  *   npm run perf -- --eval "<js>"                   # run JS after ready (A/B experiments; tag with --label)
  *   npm run perf -- --profile 15                   # + top-15 self-time JS functions per demo (CDP sampling profiler)
+ *   npm run perf -- --ready-budget 200000         # ms allowed for page load + __game.ready() (default 150000)
  *   npm run perf -- --resume                       # skip demos already in shots/perf/partial.json (after a killed run)
  *
  * Per demo: fresh page on `?demo=<name>&quality=<q>`, await __game.ready(), warm up `--warmup` ms,
@@ -313,7 +314,9 @@ async function measureDemo(ctx, base, name) {
   let abortRun = null;
   const aborted = new Promise((_, reject) => { abortRun = reject; });
   aborted.catch(() => {});
-  const budgetMs = Math.max(60000, 75000 + args.warmup + args.record);
+  // Load (vite transform + scene build + one-shot bakes) can take 50-80 s when other agents saturate the
+  // machine (barn-interior / mine-lava hit the old 75 s allowance twice in a row) - give it 150 s (--ready-budget ms).
+  const budgetMs = Math.max(60000, (Number(args['ready-budget']) || 150000) + args.warmup + args.record);
   const budget = setTimeout(() => abortRun(new Error(`timed out after ${Math.round(budgetMs / 1000)} s`)), budgetMs);
   page.on('pageerror', (e) => {
     const msg = String(e?.message || e);
