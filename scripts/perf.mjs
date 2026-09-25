@@ -19,7 +19,8 @@
  *   - CPU ms of Game.step() per frame (JS sim + scene traversal + GL command submission),
  *   - JS heap allocation rate (MB/s) and GC count (heap drops) — per-frame allocation churn,
  *   - CDP Performance metrics per frame: layouts, style recalcs, script / layout ms — DOM/UI thrash,
- *   - __game.info().perf: draw calls / triangles (all passes) + the heaviest systems,
+ *   - draw calls / triangles (all passes) every frame: steady median (vs history) + peak (a static
+ *     shadow-cache refresh frame; checked against the 300 / 1.5M budget), + the heaviest systems,
  *   - scene census: meshes, shadow casters, transparent draws, lights, active post passes, programs.
  * Prints a table (avg fps / p95 / p99 ms / draw calls / tris), writes shots/perf/latest.json
  * and appends a compact line to shots/perf/history.jsonl, then flags:
@@ -160,10 +161,11 @@ const RECORD_FN = async (ms) => {
       deltas.push(now - last);
       cpu.push(stepMs);
       if (performance.memory) heap.push(performance.memory.usedJSHeapSize);
-      if (deltas.length % 60 === 0) {
-        const p = g.perf();
-        perfSamples.push({ drawCalls: p.drawCalls, triangles: p.triangles });
-      }
+      // Every frame (renderer.info holds the last whole frame: autoReset is off, reset per render).
+      // Since the static shadow cache (render/shadowcache.ts) a frame that refreshes the cache draws
+      // every caster again, so draw calls vary per frame: report the steady median and the peak.
+      const ri = rc.renderer.info.render;
+      perfSamples.push({ drawCalls: ri.calls, triangles: ri.triangles });
       last = now;
       if (now - t0 >= ms) done();
       else requestAnimationFrame(tick);
@@ -394,8 +396,12 @@ async function measureDemo(ctx, base, name) {
       threadCpuMsPerFrame: r2((1000 * d('ThreadTime')) / frames),
       onCpuRatio: r2(d('ThreadTime') / Math.max(1e-6, sumMs / 1000)),
       profile,
-      drawCalls: dcs.length ? Math.max(...dcs) : r.perf.drawCalls,
-      triangles: tris.length ? Math.max(...tris) : r.perf.triangles,
+      // Steady-state (median frame) — the content signal compared against history. Peak = a frame
+      // that re-renders the static shadow cache (every caster again); checked against the budget.
+      drawCalls: dcs.length ? Math.round(median(dcs)) : r.perf.drawCalls,
+      triangles: tris.length ? Math.round(median(tris)) : r.perf.triangles,
+      drawCallsPeak: dcs.length ? Math.max(...dcs) : r.perf.drawCalls,
+      trianglesPeak: tris.length ? Math.max(...tris) : r.perf.triangles,
       bySystem,
       census: r.census,
       passes: r.passes,
@@ -574,7 +580,7 @@ async function main() {
         writeFileSync(partialPath, JSON.stringify({ w: args.w, h: args.h, quality: args.quality, label: args.label || undefined, results }, null, 1));
       } catch { /* ignore */ }
       if (res.error) console.log(`[perf] ${i + 1}/${demos.length} ${name}: ERROR ${res.error}`);
-      else console.log(`[perf] ${i + 1}/${demos.length} ${name}: ${res.avgFps} fps  p95 ${res.p95Ms}  p99 ${res.p99Ms} ms  gpu ${res.gpuAvgMs ?? '-'} ms  cpu ${res.cpuAvgMs} ms (on-cpu ${Math.round(res.onCpuRatio * 100)}%)  alloc ${res.allocMBs} MB/s  ${res.drawCalls} dc  ${(res.triangles / 1e6).toFixed(2)}M tris`);
+      else console.log(`[perf] ${i + 1}/${demos.length} ${name}: ${res.avgFps} fps  p95 ${res.p95Ms}  p99 ${res.p99Ms} ms  gpu ${res.gpuAvgMs ?? '-'} ms  cpu ${res.cpuAvgMs} ms (on-cpu ${Math.round(res.onCpuRatio * 100)}%)  alloc ${res.allocMBs} MB/s  ${res.drawCalls} dc (peak ${res.drawCallsPeak})  ${(res.triangles / 1e6).toFixed(2)}M tris`);
     }
     const envEnd = envLoad();
 
@@ -590,6 +596,9 @@ async function main() {
       const why = [];
       if (r.avgFps < 60) why.push(`avg ${r.avgFps} fps < 60`);
       if (r.p99Ms > 25) why.push(`p99 ${r.p99Ms} ms > 25`);
+      // Render budget (DESIGN pillar 14) on the peak frame, shadow-cache refreshes included.
+      if ((r.drawCallsPeak ?? r.drawCalls) > 300) why.push(`peak ${r.drawCallsPeak} draw calls > 300`);
+      if ((r.trianglesPeak ?? r.triangles) > 1_500_000) why.push(`peak ${(r.trianglesPeak / 1e6).toFixed(2)}M tris > 1.5M`);
       if (why.length) fails.push({ demo: r.demo, why: why.join(', ') });
       const b = baselineFor(history, r.demo, cfg);
       r.baseline = b;
@@ -655,7 +664,7 @@ async function main() {
       for (const r of results) {
         compact[r.demo] = r.error
           ? { error: r.error }
-          : { avgFps: r.avgFps, p95Ms: r.p95Ms, p99Ms: r.p99Ms, cpuAvgMs: r.cpuAvgMs, gpuAvgMs: r.gpuAvgMs, onCpu: r.onCpuRatio, drawCalls: r.drawCalls, triangles: r.triangles, allocMBs: r.allocMBs };
+          : { avgFps: r.avgFps, p95Ms: r.p95Ms, p99Ms: r.p99Ms, cpuAvgMs: r.cpuAvgMs, gpuAvgMs: r.gpuAvgMs, onCpu: r.onCpuRatio, drawCalls: r.drawCalls, triangles: r.triangles, drawCallsPeak: r.drawCallsPeak, trianglesPeak: r.trianglesPeak, allocMBs: r.allocMBs };
       }
       mkdirSync(dirname(histPath), { recursive: true });
       appendFileSync(histPath, JSON.stringify({ ts: run.ts, rev: run.rev, label: run.label, gpu, mode, w: run.w, h: run.h, quality: run.quality, env: envStart, results: compact }) + '\n');
