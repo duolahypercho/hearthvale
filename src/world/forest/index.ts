@@ -52,7 +52,7 @@ import {
   type GiantKind,
 } from './layout';
 import { GiantGrove, ShrubField, giantBarkMaterial } from './giants';
-import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, buildFallenBranch, buildSnowHummock, buildHareTracks, winterTrackMaterial, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
+import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildBridgeIcicles, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, buildFallenBranch, buildSnowHummock, buildHareTracks, winterTrackMaterial, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
 import { buildWaterfall, buildChurn, buildMist, buildFlow } from './stream';
 import { ForageField, forageKey, type ForageSpot, type ForageItem } from './forage';
 import { PluckAction } from './pluck';
@@ -640,6 +640,12 @@ export class ForestMap implements GameMap {
     bridge.rotation.y = BRIDGE.rot;
     this.root.add(bridge);
     this.staticRoots.push(bridge);
+    // Winter: icicles fringe the stringers and handrails (toggled in setSeason).
+    this.bridgeIce = buildBridgeIcicles(r.fork('bridge-ice'), BRIDGE.len);
+    this.bridgeIce.position.copy(bridge.position);
+    this.bridgeIce.rotation.y = BRIDGE.rot;
+    this.bridgeIce.visible = false;
+    this.root.add(this.bridgeIce);
     // Bridge deck is walkable: override water tiles under it.
     const bc = Math.cos(BRIDGE.rot);
     const bs = Math.sin(BRIDGE.rot);
@@ -1115,6 +1121,7 @@ export class ForestMap implements GameMap {
   }
 
   private fogBoost = 0;
+  private bridgeIce: THREE.Object3D | null = null;
   /** Morning-fog boost for the light shafts (set by the weather system through `setAtmosphere`). */
   /** Demo stills: show the arrival plate and hold it. */
   showArrivalCard(pin = true): void {
@@ -1173,6 +1180,7 @@ export class ForestMap implements GameMap {
     this.nature.setSeason(season);
     this.ambience.setSeason(season);
     this.litter.mesh.visible = season === 'fall';
+    if (this.bridgeIce) this.bridgeIce.visible = season === 'winter';
     setIvySeason(season);
     // Mushrooms are an autumn-to-summer thing: none poke through the winter snow; winterberries and
     // dead stalks only show up under it.

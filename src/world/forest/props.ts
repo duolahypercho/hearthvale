@@ -885,7 +885,9 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
     const off = (c % 2) * 0.5;
     for (let i = 0; i < n; i++) {
       const a = ((i + off) / n) * Math.PI * 2;
-      if (c < 5 && angDist(a, door.a) < door.w + 0.12) continue;
+      // No course stone may overlap the door opening (half-overlapping blocks left a ragged, dark
+      // notch beside the door that read as a hole in the mesh); dressed jambs fill the rest.
+      if (c < 5 && angDist(a, door.a) - Math.PI / n < door.w + 0.12 + 0.01) continue;
       if (c >= win.c0 && c <= win.c1 && angDist(a, win.a) < win.w + 0.1) continue;
       if ((c === 9 || c === 10) && angDist(a, 5.2) < 0.2) continue;
       const w = (2 * Math.PI * R) / n + 0.02;
@@ -936,11 +938,33 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
   // coursing and the door read as stone, never as a hole into the dark interior) and a dressed jamb
   // stone standing either side.
   b.add(stone, boxUV(roundedBox(dw * 2 * R + 0.5, 2.2, 0.3, 0.05, 1), 1.3), mat(Math.cos(da) * (R - 0.3), 1.1, Math.sin(da) * (R - 0.3), 0, -da + Math.PI / 2, 0), { tint: 0x9a917e });
+  // Dressed jambs, one per course and side, spanning exactly from the door edge to the first course
+  // stone (so the reveal never shows between them), alternately deep and shallow like quoins.
   for (const sgn of [-1, 1]) {
-    const a = da + sgn * (dw + 0.05);
-    for (let k = 0; k < 4; k++) {
-      const h = 0.52;
-      b.add(stone, boxUV(roundedBox(0.3, h * 0.94, 0.66, 0.05, 1), 1.3), mat(Math.cos(a) * (R + 0.02), k * h + h / 2, Math.sin(a) * (R + 0.02), 0, -a + Math.PI / 2, 0), { tint: new THREE.Color(0xc8bea8).multiplyScalar(0.86 + rng.next() * 0.16) });
+    for (let c = 0; c < 5; c++) {
+      const off = (c % 2) * 0.5;
+      let edge = Math.PI;
+      for (let i = 0; i < 16; i++) {
+        const a = ((i + off) / 16) * Math.PI * 2;
+        const d = Math.atan2(Math.sin(a - da), Math.cos(a - da)) * sgn;
+        if (d > 0 && d - Math.PI / 16 >= dw + 0.01) edge = Math.min(edge, d - Math.PI / 16);
+      }
+      const a0 = dw - 0.02;
+      const a1 = Math.max(edge + 0.015, a0 + 0.13);
+      const a = da + sgn * (a0 + a1) / 2;
+      const wd = (a1 - a0) * R;
+      b.add(stone, boxUV(roundedBox(wd, ch * 0.94, c % 2 ? 0.6 : 0.7, 0.05, 1), 1.3), mat(Math.cos(a) * (R + 0.02), c * ch + ch / 2, Math.sin(a) * (R + 0.02), 0, -a + Math.PI / 2, 0), { tint: new THREE.Color(0xc8bea8).multiplyScalar(0.88 + rng.next() * 0.14) });
+    }
+  }
+  // Voussoir arch over the planks: seven wedge stones on a flattened half-round springing at 1.7 m.
+  {
+    const span = dw * R;
+    for (let k = 0; k < 7; k++) {
+      const t = ((k + 0.5) / 7) * Math.PI;
+      const lx = Math.cos(t) * (span + 0.08);
+      const ly = 1.72 + Math.sin(t) * 0.42;
+      const aa = da - lx / R;
+      b.add(stone, boxUV(roundedBox(0.3, 0.26, 0.64, 0.05, 1), 1.3), mat(Math.cos(aa) * (R + 0.03), ly + 0.1, Math.sin(aa) * (R + 0.03), 0, -aa + Math.PI / 2, 0).multiply(mat(0, 0, 0, 0, 0, t - Math.PI / 2)), { tint: new THREE.Color(0xd0c6b0).multiplyScalar(0.86 + rng.next() * 0.14) });
     }
   }
   b.add('metal', new THREE.TorusGeometry(0.09, 0.018, 6, 12), mat(Math.cos(da + 0.1) * (R - 0.02), 1.05, Math.sin(da + 0.1) * (R - 0.02), 0, -da, 0), { tint: 0x4a403a });
@@ -1016,6 +1040,47 @@ export function buildFootbridge(rng: Rng, len: number): THREE.Group {
   // Stone abutments.
   for (const e of [-1, 1]) b.add('stone', boxUV(roundedBox(0.7, 0.5, 1.7, 0.1), 1), mat(e * (len / 2 - 0.1), 0.1, 0), { tint: 0xa8a090 });
   return b.build({ name: 'footbridge' });
+}
+
+let _icicle: THREE.MeshStandardMaterial | null = null;
+/** Glassy pale-blue ice (icicles): low roughness, a faint cold glow so they read against snow. */
+export function icicleMaterial(): THREE.MeshStandardMaterial {
+  if (_icicle) return _icicle;
+  _icicle = new THREE.MeshStandardMaterial({ color: 0x8fc2e2, roughness: 0.08, metalness: 0, emissive: 0x3a6a8e, emissiveIntensity: 0.3 });
+  _icicle.name = 'icicle';
+  return _icicle;
+}
+
+/**
+ * Winter only: icicles along the footbridge (under both stringers and the handrails, longest at
+ * mid-span where the melt drips off the arch) plus a frozen drip at every post foot. Same local
+ * frame as `buildFootbridge` (deck along +X, arch `sin(t·π)·0.55`).
+ */
+export function buildBridgeIcicles(rng: Rng, len: number): THREE.Group {
+  const b = new MeshBuilder();
+  const ice = icicleMaterial();
+  const arch = (t: number) => Math.sin(t * Math.PI) * 0.55;
+  const hang = (x: number, y: number, z: number, l: number, r: number) => {
+    const g = new THREE.ConeGeometry(r, l, 5, 2, false);
+    g.rotateX(Math.PI);
+    b.add(ice, g, mat(x, y - l / 2, z, (rng.next() - 0.5) * 0.08, rng.next() * 6, (rng.next() - 0.5) * 0.08));
+  };
+  for (const side of [-1, 1]) {
+    // Under the stringers: a ragged fringe, clustered (ice forms where the drips run), gaps between.
+    for (let t = 0.08; t < 0.93; t += 0.022 + rng.next() * 0.03) {
+      if (rng.next() < 0.3) continue;
+      const mid = Math.sin(t * Math.PI);
+      const l = (0.1 + rng.next() * 0.32) * (0.55 + mid * 0.9);
+      hang((t - 0.5) * len, 0.16 + arch(t), side * (0.62 + (rng.next() - 0.5) * 0.08), l, 0.018 + l * 0.1);
+    }
+    // Under the handrail: sparser, shorter.
+    for (let t = 0.08; t < 0.93; t += 0.05 + rng.next() * 0.06) {
+      if (rng.next() < 0.45) continue;
+      const l = 0.06 + rng.next() * 0.16;
+      hang((t - 0.5) * len, 1.18 + arch(t), side * 0.66, l, 0.014 + l * 0.1);
+    }
+  }
+  return b.build({ name: 'bridge-icicles' });
 }
 
 // ───────────────────────────────────────────── waterfall dressing

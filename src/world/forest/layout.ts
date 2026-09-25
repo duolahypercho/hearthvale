@@ -66,7 +66,7 @@ export const GIANTS: [GiantKind, number, number, number][] = [
   ['elder', 27.2, 16.8, 0.92],
   ['elder', 41.2, 26.8, 1.08],
   ['elder', 25.4, 38.8, 1.0],
-  ['fir', 48.8, 35.0, 0.68], // (east of the trail: at 46.2 it roofed a quarter of the forest-rain frame)
+  ['fir', 50.6, 35.4, 0.68], // (east of the trail: at 46.2 it roofed a quarter of the forest-rain frame, at 48.8 a fifth)
   ['elder', 30.8, 46.8, 0.96],
   ['fir', 23.4, 48.6, 1.0],
   ['elder', 49.6, 51.4, 1.02],
@@ -91,6 +91,7 @@ export const STAGE_SPOTS: [number, number, number][] = [
   [18.8, 35.8, 1.4], // storm meadow
   [22.5, 25.0, 1.1], // storm at the falls (path by the pool)
   [35.6, 34.4, 2.0], // snow-day stream bank (berry bushes kept out of the hat)
+  [36.5, 33.2, 1.4], // snow-day farmer (on the snow bank, off the ice)
   [41.2, 35.4, 1.3], // fog-morning bridge bank
   [24.2, 24.8, 1.2], // rainbow pool spur
   [50.6, 23.8, 1.2], // glade

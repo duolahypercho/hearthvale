@@ -116,7 +116,7 @@ export const DEMOS: Record<string, DemoDef> = {
   storm: { map: 'forest', x: 22.5, z: 25.0, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: FOREST_FALLS_CAM },
   'storm-meadow': { map: 'forest', x: 18.8, z: 35.8, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: { yaw: -4, pitch: 47, distance: 26, offsetX: -2.6, offsetZ: -3.6 } },
   // Winter on the frozen stream: stepping stones, the snow-capped footbridge, boot prints.
-  'snow-day': { map: 'forest', x: 35.6, z: 34.4, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: { yaw: 20, pitch: 48, distance: 21, offsetX: 0.4, offsetZ: 0.8 } },
+  'snow-day': { map: 'forest', x: 36.5, z: 33.2, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: { yaw: 20, pitch: 48, distance: 21, offsetX: -0.5, offsetZ: 2.0 } },
   // Winter at the falls: frozen curtain + icicles over the cracked plunge-pool ice, snow-laden ledges.
   'snow-falls': { map: 'forest', x: 21.0, z: 23.4, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: FOREST_FALLS_CAM },
   // Dawn mist drifting over the plunge pool below the falls, the low sun raking through the crowns.

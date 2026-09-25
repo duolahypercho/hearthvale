@@ -332,8 +332,10 @@ function canopyLook(m: THREE.MeshStandardMaterial, key: string): void {
           // Conifers in the fall grade: the blue-teal needles drift to a warm olive (hue ~0.22, less
           // saturated) so they sit inside the amber palette instead of punching a cold hole in it.
           float fl = dot(diffuseColor.rgb, vec3(0.3, 0.55, 0.15));
-          vec3 olive = fl * vec3(1.02, 1.0, 0.56);
-          diffuseColor.rgb = mix(diffuseColor.rgb, olive, 0.62 * uSeasonW.z);
+          // (lifted a touch: in the glade's afternoon shade a plain olive still read as a cold,
+          // blue-black hole at the top of the forest-fall frame)
+          vec3 olive = fl * vec3(1.16, 1.02, 0.5) * 1.14;
+          diffuseColor.rgb = mix(diffuseColor.rgb, olive, 0.74 * uSeasonW.z);
         }` : ''}
       }`,
     );
@@ -506,9 +508,11 @@ function roots(b: MeshBuilder, m: THREE.Material, rng: Rng, r0: number, n: numbe
     const len = reach * (0.7 + rng.next() * 0.5);
     const s = new THREE.Vector3(Math.cos(a) * r0 * 0.55, 0.95 + rng.next() * 0.4, Math.sin(a) * r0 * 0.55);
     const bend = a + (rng.next() - 0.5) * 0.5;
-    const e = new THREE.Vector3(Math.cos(bend) * (r0 + len), -0.55, Math.sin(bend) * (r0 + len));
-    const c = new THREE.Vector3(Math.cos(a) * (r0 + len * 0.35), 0.45, Math.sin(a) * (r0 + len * 0.35));
-    rootTube(b, m, thick * (0.8 + rng.next() * 0.4), 0.07, s, c, e);
+    // A knee, not a spike: the root arches out almost its full reach at near-full girth, then dives
+    // steeply into the soil (seen from the game camera a long straight taper read as a sharp fin).
+    const e = new THREE.Vector3(Math.cos(bend) * (r0 + len * 0.9), -1.05, Math.sin(bend) * (r0 + len * 0.9));
+    const c = new THREE.Vector3(Math.cos(a) * (r0 + len * 0.62), 0.5, Math.sin(a) * (r0 + len * 0.62));
+    rootTube(b, m, thick * (0.8 + rng.next() * 0.35), thick * 0.22, s, c, e, 14, 12);
   }
 }
 
@@ -529,7 +533,7 @@ function rootTube(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: 
     const t = i / tubular;
     curve.getPointAt(t, c);
     // Swells a little where it leaves the trunk, then tapers smoothly to the tip.
-    const r = THREE.MathUtils.lerp(r0 * 1.12, r1, Math.pow(t, 0.8));
+    const r = THREE.MathUtils.lerp(r0 * 1.15, r1, Math.pow(t, 1.25));
     for (let j = 0; j <= radial; j++) {
       const k = i * (radial + 1) + j;
       v.fromBufferAttribute(pos, k).sub(c).multiplyScalar(r).add(c);
