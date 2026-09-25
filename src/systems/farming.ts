@@ -1778,7 +1778,7 @@ export class FarmingSystem implements System, FarmingApi {
       const t = this.tiles.get(key(x, z));
       if (!t?.crop || t.crop.dead) return;
       // Profile views (east / west of the plant) with one pecking from the near side.
-      this.crows.spawn(x + 0.5, z + 0.5, this.crowMeal(t), 0, { landed: true, stay: true, eatAt, onPeck: this.crowPeck(t), scale: 1.1, side: [Math.PI, 0.35, 0, Math.PI * 0.72][i]! });
+      this.crows.spawn(x + 0.5, z + 0.5, this.crowMeal(t), 0, { landed: true, stay: true, eatAt, onPeck: this.crowPeck(t), scale: 0.95, side: [Math.PI, 0.35, 0, Math.PI * 0.72][i]! });
       this.later(0.4 + i * 0.3, () => this.game.events.emit('crow:arrive', { x, z }));
     });
     // The scuffle so far: feathers and torn leaf scraps already lying around the raid.

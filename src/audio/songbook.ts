@@ -319,6 +319,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
 
   /** Winter II — celesta over rolled harp chords, glockenspiel frost on the repeat, a hand-bell bridge. */
   'winter-2': {
+    // Already open (L/R correlation 0.56 as arranged): only a little side lift.
+    width: 0.1,
     id: 'winter-2',
     title: 'Frostglass',
     blurb: 'Winter on the farm',
@@ -366,6 +368,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
 
   /** Winter III — a hearthside 6/8: soft low flute over a music-box figure, cello, a clarinet bridge. */
   'winter-3': {
+    // Measured L/R correlation was already low (reverb-wide): no extra side lift.
     id: 'winter-3',
     title: 'Hearthside',
     blurb: 'Winter on the farm',
@@ -457,6 +460,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
 
   /** Fall nights — a dorian clarinet waltz in its low register, harp, flute bridge. */
   'night-fall': {
+    // Already open (L/R correlation 0.55 as arranged): only a little side lift.
+    width: 0.1,
     id: 'night-fall',
     title: 'Owl Hour',
     blurb: 'Night in the valley',

@@ -703,7 +703,9 @@ export class Terrain {
         /* glsl */ `
         if (hvPuddle > 0.01) {
           vec3 Vp = normalize(cameraPosition - vTWorld);
-          float fr = 0.5 + 0.5 * pow(1.0 - max(Vp.y, 0.0), 2.0);
+          // Near top-down the mirror is weak (Fresnel): the dark soaked mud shows through and only the
+          // sky openings flash, so a puddle never reads as a flat pale paper cut-out.
+          float fr = 0.3 + 0.55 * pow(1.0 - max(Vp.y, 0.0), 2.0);
           // Mirror of the sky with the dark masses of trees / eaves reflected in it (a cheap
           // screen-free "probe": low-frequency blotches offset along the view direction).
           // The reflected ray climbs away from the lens: it sees the far side of the puddle's sky, so
@@ -715,9 +717,10 @@ export class Terrain {
           // Dark crowns / trunks over most of it, torn sky gaps between them (reads as water, not a
           // grey sheet: a still puddle is mostly a dark mirror with a few bright openings).
           // (Sky-dominant: a mostly-dark mirror read as tar spills on the forest paths.)
-          float trees = smoothstep(0.5, 0.66, hvFbm(rs * 0.16 + 3.0)) * 0.85;
-          float gapHi = smoothstep(0.5, 0.8, hvNoise(rs * 0.09 + 9.0));
-          vec3 skyR = mix(uHorizonT, uSkyT, 0.45) * (1.2 + 0.55 * gapHi) * vec3(0.9, 1.0, 1.14);
+          // (Metre-scale blotches so every puddle carries both crowns and a sky opening.)
+          float trees = smoothstep(0.46, 0.64, hvFbm(rs * 0.34 + 3.0)) * 0.85;
+          float gapHi = smoothstep(0.5, 0.8, hvNoise(rs * 0.22 + 9.0));
+          vec3 skyR = mix(uHorizonT, uSkyT, 0.45) * (0.9 + 0.75 * gapHi) * vec3(0.9, 1.0, 1.14);
           vec3 crownR = mix(uHorizonT, uSkyT, 0.5) * vec3(0.2, 0.26, 0.24);
           vec3 refl = mix(skyR, crownR, trees);
           // Ripple rings catch the light.

@@ -22,8 +22,8 @@ import { buildBunting } from '../props/festival';
 import { buildSnowman, buildBench } from '../props/farmkit';
 import { FestivalMap, type PlayState } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
-import { buildStarTree, buildIceSculpture, buildBridge, buildCocoaStand, buildBonfire } from './kit';
-import { Aurora, AuroraGlow, Snowfall, GlowPoints, Bonfire } from './fx';
+import { buildStarTree, buildIceSculpture, buildBridge, buildCocoaStand, buildBonfire, taperTube } from './kit';
+import { AuroraGlow, Snowfall, GlowPoints, Bonfire, NightSky } from './fx';
 import { FrozenRiver } from './sea';
 import { randomLook, shoulderLift, type CrowdSpec } from './crowd';
 import { MeshBuilder, bevelCylinder, mat, lumpySphere, roundedBox } from '../geom';
@@ -32,6 +32,8 @@ import { Rng } from '../../core/rng';
 
 /** Per-frame scratch (no allocations in tick). */
 const _dust = new THREE.Vector3();
+const _crackM = new THREE.Matrix4();
+const _crackS = new THREE.Vector3();
 
 const TREE = { x: 32, z: 19.5 };
 const PLAZA_R = 7.6;
@@ -53,15 +55,18 @@ const SKATE = { x0: 34.6, x1: 49.5 };
 
 export class StarfallSquare extends FestivalMap {
   private river!: FrozenRiver;
-  private aurora!: Aurora;
+  private sky!: NightSky;
+  private auroraGlow!: AuroraGlow;
   private snow!: Snowfall;
   private stardust!: Snowfall;
-  private skaters: { i: number; cx: number; rx: number; rz: number; sp: number; a0: number; side: number }[] = [];
+  private skaters: { i: number; cx: number; rx: number; rz: number; sp: number; a0: number; side: number; oz: number }[] = [];
   private starLight!: THREE.PointLight;
   /** Starlight Skate: the player's run (laps of the east reach) + the course on the ice. */
   private run: { x: number; off: number; vx: number; dir: 1 | -1; leg: number; dist: number; stun: number; spray: number; turn: number; items: SkItem[]; combo: number; comboT: number; best: number; gates: number; stars: number; cracks: number; trailT: number } | null = null;
   private skateKit: SkateKit | null = null;
   private roamLight!: THREE.PointLight;
+  /** Cool night fill (a hemisphere light, not a point light): lifts faces out of the navy corners. */
+  private nightFill = new THREE.HemisphereLight(0xb8c8f0, 0x6a5a80, 0);
   private roamHome = new THREE.Vector3();
   private recipient: { i: number; x: number; z: number; yaw: number; anim: number } | null = null;
   /** Gift Exchange: the present someone wrapped for you, unwrapped in your hands. */
@@ -81,6 +86,7 @@ export class StarfallSquare extends FestivalMap {
     this.activitySpots.push({ id: 'giftswap', x: TREE.x, z: TREE.z + 5.6, r: 2.6 }, { id: 'skate', x: 36.2, z: 29.4, r: 2.2 });
     this.visitorSpots.push({ x: 28.2, z: 27.9, yaw: 2.7 }, { x: 36.0, z: 27.2, yaw: -2.6 });
     this.confettiColors = [0xd8312a, 0xf2d27a, 0x2f6a4a, 0xffffff, 0x5ab8e0];
+    this.focusPoints.push({ x: TREE.x, z: TREE.z, r: 12 });
   }
 
   // ───────────────────────────────────────────── shape
@@ -201,10 +207,11 @@ export class StarfallSquare extends FestivalMap {
     this.addProp(t.group, TREE.x, TREE.z, 0.2, { solidR: 3.0, ao: 4.2 });
     const y = this.H(TREE.x, TREE.z) - 0.03;
     const rot = new THREE.Matrix4().makeRotationY(0.2);
-    const warm = [0xffd27a, 0xfff0c0, 0xffb060];
+    // Starlight on the Fir: warm-white comet heads and paper stars, ice-blue sparks down the tails.
+    const warm = [0xfff0c0, 0xffd27a, 0xcfe8ff];
     t.lights.forEach((p, i) => {
       const q = p.clone().applyMatrix4(rot);
-      this.glowPt(TREE.x + q.x, y + q.y, TREE.z + q.z, i % 5 === 0 ? 0xff7a6a : warm[i % 3]!, 0.36, 0.55);
+      this.glowPt(TREE.x + q.x, y + q.y, TREE.z + q.z, i % 5 === 0 ? 0xd8c8ff : warm[i % 3]!, 0.36, 0.55);
     });
     // Specular sparkle on a few baubles (small, so they stay saturated glass, not lamps).
     for (const b of t.baubles) {
@@ -243,6 +250,7 @@ export class StarfallSquare extends FestivalMap {
   }
 
   private buildRiver(r: Rng): void {
+    this.root.add(this.nightFill);
     this.river = new FrozenRiver(this.terrain, ICE_Y, { x0: -20, z0: 24, x1: 84, z1: 44 });
     // Boot prints (weather system) skip ground under the water level: tell it the frozen channel is
     // "water" so skating leaves blade scratches, not snow footprints. The terrain shader's water
@@ -434,9 +442,16 @@ export class StarfallSquare extends FestivalMap {
       const a0 = r.next() * 6.28;
       for (let m = 0; m <= pair; m++) {
         const i = person(randomLook(r, { palette: P.tops, child: (k2 + m) % 3 === 2 }), 'skate', cx, this.riverZ(cx), 0, { props: ['skates'], lift: ICE_Y - this.H(cx, this.riverZ(cx)), phase: pair ? 0.2 : r.next() });
-        this.skaters.push({ i, cx, rx, rz, sp, a0, side: pair ? (m ? 0.42 : -0.42) : 0 });
+        this.skaters.push({ i, cx, rx, rz, sp, a0, side: pair ? (m ? 0.42 : -0.42) : 0, oz: 0 });
       }
     });
+    // Along the east reach, skaters glide out and back in the strips by each bank (clear of the
+    // Starlight Skate course down the middle), so the race is never run on an empty river.
+    for (const [cx, rx, sp, oz, a0] of [[41.5, 5.6, 0.2, 2.05, 0.4], [42.5, 5.2, -0.24, 2.0, 3.3], [41, 5.4, 0.23, -2.05, 1.9], [43, 4.8, -0.19, -2.0, 4.8]] as const) {
+      const z0 = this.riverZ(cx) + oz;
+      const i = person(randomLook(r, { palette: P.tops, child: cx > 42.8 }), 'skate', cx, z0, 0, { props: ['skates'], lift: ICE_Y - this.H(cx, z0), phase: r.next() });
+      this.skaters.push({ i, cx, rx, rz: 0.14, sp, a0, side: 0, oz });
+    }
     // Warming their hands at the fire; stall customers; a kid dragging a sled up the slope.
     for (const [x, z, anim, props] of [[23.0, 26.6, 'idle', []], [25.6, 26.4, 'toast', ['mug']], [15.8, 22.9, 'talk', []], [48.8, 22.4, 'idle', ['mug']], [50.8, 22.6, 'talk', []]] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.25 }), anim, x, z, x < 30 && z > 24 ? toFire(x, z) : face(x, z, x < 30 ? 14.6 : 49.8, x < 30 ? 21.6 : 21.0), { props: [...props] });
@@ -466,24 +481,16 @@ export class StarfallSquare extends FestivalMap {
     // rooftops: a luminous veil rising out of the northern treeline (houses occlude its hem).
     // Folded curtains low over the northern treeline, west and east of the Great Fir (its column is
     // masked out so the star keeps a clean silhouette) + a fainter far curtain behind.
-    this.aurora = new Aurora(
-      [
-        // Five folded curtains at staggered depths: two hero veils either side of the Great Fir
-        // hanging low over the treeline (their hems among the treetops), two behind, one far wash.
-        { path: [[-8, 3], [2, 6.5], [10, 3], [17, 7], [24, 4.5]], base: 3.2, height: 9, strength: 1 },
-        { path: [[40, 4.5], [46, 7.5], [54, 3.5], [62, 7], [72, 2.5]], base: 3.2, height: 9, strength: 1 },
-        { path: [[-14, -2], [-2, 1], [10, -3], [22, 0.5]], base: 5.0, height: 10, strength: 0.7 },
-        { path: [[42, 0], [54, -3], [66, 1], [80, -2]], base: 5.0, height: 10, strength: 0.7 },
-        { path: [[-12, -9], [8, -5], [30, -11], [52, -5], [76, -9]], base: 7.5, height: 11, strength: 0.45 },
-      ],
-      { x: TREE.x, halfWidth: 6.0 },
-    );
-    this.aurora.group.userData.perfTag = 'sky';
-    this.root.add(this.aurora.group);
+    // The northern sky: a camera-centred dome (horizon matched to the fog) with the aurora hung in it
+    // as travelling curtains — green hem rolling up to violet, fine rays, stars dimmed behind — rising
+    // from 18:30 as the dusk goes out.
+    this.sky = new NightSky({ zenith: 0x070b24, zenithDusk: 0x2a3060, glow: 0x5a3a6a, moon: new THREE.Vector3(0.62, 0.34, -0.7), aurora: 0, stars: 1.1 });
+    this.root.add(this.sky.mesh);
     // ... and its light: drifting green / violet bands washed over the snowy square after dark.
     const glow = new AuroraGlow((x, z) => this.H(x, z), { x0: 4, z0: 4, x1: 60, z1: 31 });
     glow.mesh.userData.perfTag = 'sky';
     this.root.add(glow.mesh);
+    this.auroraGlow = glow;
     this.snow = new Snowfall(1600, new THREE.Vector3(40, 14, 32));
     this.snow.points.userData.perfTag = 'festival';
     this.root.add(this.snow.points);
@@ -563,20 +570,52 @@ export class StarfallSquare extends FestivalMap {
 
   /** Instanced lantern-gate posts, crack decals, beacon glows and the blade trail. */
   private buildSkateKit(): SkateKit {
+    // A lantern gate: two lamp posts on snow-packed feet, bridged by a fir-garland arch with red bows
+    // and a paper star at the crown (one instance per gate; the skater threads under the arch).
     const b = new MeshBuilder();
-    b.add('woodPaint', bevelCylinder(0.035, 0.045, 1.05, 0.01, 6), mat(0, 0, 0), { tint: 0x2f6a4a });
-    b.add('woodPaint', bevelCylinder(0.09, 0.1, 0.05, 0.01, 8), mat(0, 0, 0), { tint: 0xe8e0d4 });
-    const lan = lumpySphere(0.1, 1, 0.03, new Rng('gate-lantern'), 2);
-    lan.scale(1, 1.25, 1);
-    b.add('paperLantern', lan, mat(0, 1.14, 0), { tint: 0xffd070 });
-    b.add('cloth', new THREE.ConeGeometry(0.08, 0.14, 3), mat(0, 1.02, 0.02, Math.PI, 0, 0), { tint: 0xc8302a });
+    const gr = new Rng('gate-arch');
+    for (const sz of [-GATE_HALF, GATE_HALF]) {
+      b.add('woodPaint', bevelCylinder(0.045, 0.055, 1.42, 0.012, 7), mat(0, 0, sz), { tint: 0x2f5a44 });
+      b.add('woodPaint', bevelCylinder(0.12, 0.14, 0.07, 0.015, 9), mat(0, 0, sz), { tint: 0xe8e0d4 });
+      const heap = lumpySphere(0.2, 1, 0.05, gr, 1);
+      heap.scale(1, 0.38, 1);
+      b.add('white', heap, mat(0, 0.02, sz), { tint: 0xf2f6fc });
+      const lan = lumpySphere(0.11, 1, 0.03, gr, 2);
+      lan.scale(1, 1.25, 1);
+      b.add('paperLantern', lan, mat(0, 1.55, sz), { tint: 0xffd070 });
+      b.add('woodPaint', bevelCylinder(0.07, 0.07, 0.035, 0.008, 8), mat(0, 1.42, sz), { tint: 0x3a2a1e });
+      b.add('woodPaint', bevelCylinder(0.06, 0.06, 0.03, 0.008, 8), mat(0, 1.69, sz), { tint: 0x3a2a1e });
+    }
+    const arch = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 1.36, -GATE_HALF), new THREE.Vector3(0, 2.55, 0), new THREE.Vector3(0, 1.36, GATE_HALF));
+    b.add('cloth', taperTube(arch, 18, 0.05, 0.05, 6), mat(0, 0, 0), { tint: 0x2c5a34 });
+    for (let i = 0; i <= 12; i++) {
+      const pt = arch.getPoint(i / 12);
+      const tuft = lumpySphere(0.085, 0, 0.25, gr, 3);
+      b.add('cloth', tuft, mat(pt.x + (gr.next() - 0.5) * 0.04, pt.y + (gr.next() - 0.3) * 0.04, pt.z, gr.next(), gr.next(), gr.next()), { tint: i % 2 ? 0x356a3c : 0x2a5530 });
+      if (i % 3 === 1) b.add('white', lumpySphere(0.035, 0, 0.1, gr, 2), mat(pt.x + 0.06, pt.y - 0.04, pt.z), { tint: 0xd8312a });
+    }
+    for (const u of [0.22, 0.78]) {
+      const pt = arch.getPoint(u);
+      for (const sx of [-1, 1]) b.add('cloth', new THREE.ConeGeometry(0.06, 0.13, 4), mat(0.07, pt.y, pt.z + sx * 0.06, 0, 0, (sx * Math.PI) / 2), { tint: 0xc8302a });
+    }
+    const crown = arch.getPoint(0.5);
+    const star = new THREE.Shape();
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2 + Math.PI / 2;
+      const rr = k % 2 ? 0.075 : 0.17;
+      if (k === 0) star.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      else star.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    const starGeo = new THREE.ExtrudeGeometry(star, { depth: 0.04, bevelEnabled: false });
+    starGeo.translate(0, 0, -0.02);
+    b.add('paperLantern', starGeo, mat(crown.x, crown.y + 0.2, crown.z, 0, Math.PI / 2, 0), { tint: 0xfff0b0 });
     const postGeo = [...b.geometries().entries()];
     const group = new THREE.Group();
     group.name = 'skate-kit';
     group.userData.perfTag = 'festival';
     // One instanced mesh per material part of the post.
     const posts: THREE.InstancedMesh[] = postGeo.map(([m, g]) => {
-      const im = new THREE.InstancedMesh(g, typeof m === 'string' ? materials.get(m) : m, 16);
+      const im = new THREE.InstancedMesh(g, typeof m === 'string' ? materials.get(m) : m, 8);
       im.count = 0;
       im.castShadow = true;
       im.frustumCulled = false;
@@ -667,7 +706,8 @@ export class StarfallSquare extends FestivalMap {
       if (it.leg !== run.leg) continue;
       const z = this.riverZ(it.x) + it.off;
       if (it.kind === 'gate') {
-        for (const s of [-1, 1]) M.makeTranslation(it.x, ICE_Y, z + s * 0.6), kit.posts.setMatrixAt(pi++, M);
+        M.makeTranslation(it.x, ICE_Y, z);
+        kit.posts.setMatrixAt(pi++, M);
       } else if (it.kind === 'crack') {
         M.makeRotationY((it.x * 7.3) % 3).setPosition(it.x, ICE_Y + 0.004, z);
         kit.cracks.setMatrixAt(ci++, M);
@@ -899,6 +939,18 @@ export class StarfallSquare extends FestivalMap {
         }
         run.best = Math.max(run.best, run.combo);
       }
+      // Thin ice warns as you close in: the hairline fracture decal spreads out ahead of the blades.
+      {
+        let ci = 0;
+        for (const it of run.items) {
+          if (it.leg !== run.leg || it.kind !== 'crack') continue;
+          const ahead = (it.x - run.x) * run.dir;
+          const grow = it.done ? 1 : 0.55 + 0.45 * THREE.MathUtils.smoothstep(7, 1.2, Math.max(0, ahead));
+          _crackM.makeRotationY((it.x * 7.3) % 3).scale(_crackS.set(grow, 1, grow)).setPosition(it.x, ICE_Y + 0.004, this.riverZ(it.x) + it.off);
+          kit.cracks.setMatrixAt(ci++, _crackM);
+        }
+        kit.cracks.instanceMatrix.needsUpdate = true;
+      }
       run.comboT = Math.max(0, run.comboT - dt / 3.2);
       if (run.comboT <= 0) run.combo = 0;
       // Turn at the end of the reach (a hockey-stop spray), next leg.
@@ -945,7 +997,10 @@ export class StarfallSquare extends FestivalMap {
       if (it.leg !== run.leg || it.kind === 'crack' || gi >= SK_GLOWS - 1) continue;
       const iz = this.riverZ(it.x) + it.off;
       if (it.kind === 'star') kit.glow.set(gi++, it.x, ICE_Y + 0.55 + Math.sin(game.time * 2 + it.x) * 0.08, iz, it.done ? 0 : 1.2);
-      else for (const s of [-1, 1]) if (gi < SK_GLOWS) kit.glow.set(gi++, it.x, ICE_Y + 1.14, iz + s * 0.6, it.hit ? 1.0 : 0.55);
+      else {
+        for (const s of [-1, 1]) if (gi < SK_GLOWS) kit.glow.set(gi++, it.x, ICE_Y + 1.56, iz + s * GATE_HALF, it.hit ? 1.0 : 0.6);
+        if (gi < SK_GLOWS) kit.glow.set(gi++, it.x, ICE_Y + 2.15, iz, it.hit ? 1.3 : 0.5);
+      }
     }
     for (; gi < SK_GLOWS; gi++) kit.glow.set(gi, 0, -50, 0, 0);
   }
@@ -955,6 +1010,15 @@ export class StarfallSquare extends FestivalMap {
   }
 
   protected override tick(dt: number, game: Game): void {
+    this.nightFill.intensity = 0.42 * game.lighting.night;
+    // Aurora: in from 18:30, full by ~19:40 (sky curtains, their light on the snow and the ice).
+    const hr = game.calendar.hour;
+    const auN = hr >= 12 ? THREE.MathUtils.smoothstep(hr, 18.3, 19.7) : 1 - THREE.MathUtils.smoothstep(hr, 4.5, 6.2);
+    this.sky.aurora.value = auN;
+    this.sky.update(game.rc.camera, game.rc.scene.fog as THREE.Fog | null);
+    const nightK = THREE.MathUtils.smoothstep(game.lighting.night, 0.45, 0.95);
+    this.auroraGlow.strength.value = nightK > 0.02 ? Math.min(3, auN / nightK) * 0.9 : 0;
+    this.river.aurora.value = auN;
     this.updateSkate(dt, game);
     this.updatePresent(game);
     const t = game.time;
@@ -968,7 +1032,7 @@ export class StarfallSquare extends FestivalMap {
       const a = s.a0 + t * s.sp;
       const x0 = s.cx + Math.cos(a) * s.rx;
       const zc = this.riverZ(x0);
-      const z0 = zc + Math.sin(a) * s.rz;
+      const z0 = zc + s.oz + Math.sin(a) * s.rz;
       const dx = -Math.sin(a) * s.rx * Math.sign(s.sp);
       const dz = Math.cos(a) * s.rz * Math.sign(s.sp) + (this.riverZ(x0 + 0.1) - zc) * 10 * dx;
       const l = Math.hypot(dx, dz) || 1;
@@ -1005,7 +1069,9 @@ function roundedBoxGeo(w: number, h: number, d: number): THREE.BufferGeometry {
 }
 
 const LAPS = 4;
-const SK_GLOWS = 14;
+/** Half the lantern gate's span across the ice. */
+const GATE_HALF = 0.66;
+const SK_GLOWS = 20;
 
 interface SkItem {
   kind: 'gate' | 'star' | 'crack';
@@ -1030,7 +1096,7 @@ class SkateTrail {
   private pts: { x: number; z: number; t: number; dir: number }[] = [];
   private pos: THREE.BufferAttribute;
   private col: THREE.BufferAttribute;
-  private static N = 120;
+  private static N = 260;
   constructor(private y: number) {
     const N = SkateTrail.N;
     const g = new THREE.BufferGeometry();
@@ -1049,7 +1115,8 @@ class SkateTrail {
       }
     }
     g.setIndex(idx);
-    const m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
+    // Double-sided: the strip's winding faces down when skating east (it was culled — no trail at all).
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, side: THREE.DoubleSide });
     this.mesh = new THREE.Mesh(g, m);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 3;
@@ -1078,13 +1145,14 @@ class SkateTrail {
       const l = Math.hypot(dx, dz) || 1;
       dx /= l;
       dz /= l;
-      const a = Math.max(0, 1 - (t - p.t) / 5) * 0.55;
+      // Carved grooves linger (~13 s) and stay bright enough to read from the diorama camera.
+      const a = Math.max(0, 1 - (t - p.t) / 13) * 0.85;
       let k = 0;
-      for (const blade of [-0.11, 0.11]) {
-        for (const w of [-0.012, 0.012]) {
+      for (const blade of [-0.12, 0.12]) {
+        for (const w of [-0.034, 0.034]) {
           const o = blade + w;
           this.pos.setXYZ(i * 4 + k, p.x - dz * o, this.y, p.z + dx * o);
-          this.col.setXYZW(i * 4 + k, 0.88, 0.94, 1.0, a);
+          this.col.setXYZW(i * 4 + k, 0.93, 0.97, 1.0, a);
           k++;
         }
       }
@@ -1120,6 +1188,25 @@ function buildHouseWinterDress(r: { next(): number }, s: { w: number; d: number;
     const slab = roundedBox(L - 0.1, 0.16, len - 0.05, 0.07, 2);
     const cy = top + rise - Math.tan(slope) * (run / 2) + 0.16;
     b.add('plaster', slab, mat(0, cy, sz * (run / 2 - 0.03), sz * slope, 0, 0), { tint: SNOW });
+  }
+  // Wind-sculpted pillows on each roof plane + a sagging, lumpy overhang at the eaves (a roof of
+  // heaped snow, not a flat white slab), in two whites so the lumps model under the moon.
+  for (const sz of [-1, 1]) {
+    const n = Math.round(L * 1.6);
+    for (let i = 0; i < n; i++) {
+      const u = (i + 0.5) / n + (r.next() - 0.5) * 0.08;
+      const dist = run * (0.22 + r.next() * 0.55);
+      const x = -L / 2 + 0.35 + u * (L - 0.7);
+      const y = top + rise - Math.tan(slope) * dist + 0.24;
+      const lump = new THREE.SphereGeometry(1, 10, 6);
+      lump.scale(0.45 + r.next() * 0.4, 0.1 + r.next() * 0.06, 0.3 + r.next() * 0.25);
+      b.add('plaster', lump, mat(x, y, sz * dist, sz * slope, (r.next() - 0.5) * 0.4, 0), { tint: r.next() < 0.4 ? 0xe4ecf8 : SNOW });
+    }
+    for (let x = -L / 2 + 0.2; x < L / 2 - 0.1; x += 0.32 + r.next() * 0.3) {
+      const sag = new THREE.SphereGeometry(1, 9, 6);
+      sag.scale(0.26 + r.next() * 0.14, 0.13 + r.next() * 0.07, 0.17);
+      b.add('plaster', sag, mat(x, eaveY - 0.04 - r.next() * 0.05, sz * (run + 0.1)), { tint: SNOW });
+    }
   }
   // A fat snow roll along the ridge: the roof reads as a gable from the high camera, not a slab.
   const ridge = new THREE.CapsuleGeometry(0.2, L - 0.3, 3, 10);

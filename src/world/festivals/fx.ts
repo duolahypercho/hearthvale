@@ -419,7 +419,10 @@ export class Fireworks {
                 // Tails taper (0.3 s of comet behind every star), and every star fades in over the
                 // first ~0.1 s — at tb = 0 the whole shell sits on one point, and 110 additive stars
                 // stacked there used to blow out into a white disc.
-                a = pow(1.0 - f, 1.4) * (1.0 - tr * 0.12) * smoothstep(0.0, 0.1, tb);
+                a = pow(1.0 - f, 2.0) * (1.0 - tr * 0.12) * smoothstep(0.0, 0.1, tb);
+                // Falling glitter is a bare twinkle: no ember points trailing the heads (they read as
+                // teardrops / rain once the stars slow and droop).
+                if (tr > 0.5) a *= 1.0 - smoothstep(0.3, 0.5, f);
                 // Energy conservation: a young shell packs 770 additive points into a ball ~1 m across;
                 // fade stars by the shell's area (full once it has opened past ~3 m) so the opening
                 // instant reads as a coloured bloom, never a blown-out white disc.
@@ -429,14 +432,14 @@ export class Fireworks {
                 // Crackle / twinkle at the end.
                 float tw = hvHash12(vec2(j + aInfo.x * 131.0, floor(uTime * 22.0)));
                 a *= f > 0.55 ? step(0.45, tw) * 1.4 : 1.0;
-                vec3 hot = mix(c1, vec3(1.0, 0.95, 0.85), 0.45);
+                vec3 hot = vec3(1.0, 0.96, 0.88) * 1.35;
                 // Hot white only for the first instant, then saturated colour (additive overlap would
                 // otherwise sum a dense shell to white).
                 // Two-colour shells (alternate stars) + a gold crackle / glitter tail on peonies and rings.
                 vec3 base = mix(c1, c2, step(0.5, fract(j * 0.37)));
                 if (type < 2 && f > 0.55) base = mix(base, vec3(1.0, 0.78, 0.3), 0.55);
                 // Head HDR ≤ ~1.3 (tails ≤ 0.75): with the soft-dot falloff nothing clears ~1.6 before bloom.
-                col = mix(hot, base, smoothstep(0.0, 0.06, f)) * (tr > 0.5 ? 0.75 - tr * 0.05 : 1.3);
+                col = mix(hot, base, smoothstep(0.02, 0.16, f)) * (tr > 0.5 ? 0.75 - tr * 0.05 : 1.3);
                 // Round star heads; the two ember points behind each head stay small (a big glow
                 // point trailing a head read as a teardrop / rain drop).
                 size = (tr > 0.5 ? 0.13 - tr * 0.02 : 0.34) * (1.0 - f * 0.35) * (type == 3 ? 1.4 : 1.0);
@@ -446,7 +449,7 @@ export class Fireworks {
                 a *= (1.0 - tr / LT) * step(0.0, tbRaw) * 1.25;
                 // Streaks belong to the fast opening only: once the stars slow and fall they are
                 // glitter points (long vertical tails on falling stars read as rain on the water).
-                a *= 1.0 - smoothstep(0.28, 0.5, f);
+                a *= 1.0 - smoothstep(0.12, 0.3, f);
                 col = base * 1.25;
                 #else
                 size *= 0.8;
@@ -1356,5 +1359,153 @@ export class AuroraGlow {
     this.mesh.renderOrder = 2;
     this.mesh.frustumCulled = false;
     this.mesh.userData.noAO = true;
+  }
+}
+
+// ───────────────────────────────────────────── night sky dome
+
+export interface NightSkyOptions {
+  /** Zenith colour (deep night). */
+  zenith: number;
+  /** Colour of the glow band just above the horizon (afterglow / town light). */
+  glow: number;
+  /** Direction to the moon (world), or null for none. */
+  moon?: THREE.Vector3 | null;
+  /** Aurora curtains strength (0 = none). Drive `aurora.value` per frame. */
+  aurora?: number;
+  /** Star density multiplier. */
+  stars?: number;
+  /** Zenith colour at dusk (blended toward `zenith` as night falls); default = zenith. */
+  zenithDusk?: number;
+}
+
+/**
+ * A camera-centred sky dome for the night festivals: horizon matched to the scene fog (terrain fades
+ * seamlessly into it), a coloured afterglow band, a zenith gradient, twinkling stars, an optional
+ * haloed moon and optional aurora curtains — ribbons hung above the horizon with a bright
+ * green hem shading up to violet, fine vertical rays, pleats that travel along the curtain and
+ * stars dimmed behind them. One draw call, only visible where the diorama camera sees sky.
+ */
+export class NightSky {
+  readonly mesh: THREE.Mesh;
+  readonly aurora = { value: 0 };
+  readonly strength = { value: 1 };
+  private horizon = { value: new THREE.Color() };
+  constructor(o: NightSkyOptions) {
+    const g = new THREE.SphereGeometry(300, 48, 24);
+    this.aurora.value = o.aurora ?? 0;
+    const m = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uTime: globalUniforms.uTime,
+        uNight: globalUniforms.uNight,
+        uHorizon: this.horizon,
+        uZenith: { value: new THREE.Color(o.zenith) },
+        uZenithDusk: { value: new THREE.Color(o.zenithDusk ?? o.zenith) },
+        uGlow: { value: new THREE.Color(o.glow) },
+        uMoon: { value: (o.moon ?? new THREE.Vector3(0, -1, 0)).clone().normalize() },
+        uHasMoon: { value: o.moon ? 1 : 0 },
+        uAurora: this.aurora,
+        uStars: { value: o.stars ?? 1 },
+        uStrength: this.strength,
+      },
+      vertexShader: /* glsl */ `
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize(position);
+          vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_Position = p.xyww;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uTime; uniform float uNight; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec3 uZenithDusk; uniform vec3 uGlow;
+        uniform vec3 uMoon; uniform float uHasMoon; uniform float uAurora; uniform float uStars; uniform float uStrength;
+        varying vec3 vDir;
+        ${NOISE_GLSL}
+        float curtain(float a, float e, float k, float t, out float vv) {
+          // Travelling pleat: the curtain line snakes sideways, the fold rolling along it.
+          float aa = a + 0.07 * sin(a * 4.0 - t * 0.35 + k * 2.1) + 0.03 * sin(a * 11.0 + t * 0.6 + k);
+          // Hems hang low (1–5° up) so the curtains rise straight out of the treeline — the diorama
+          // camera only ever sees a thin band of sky.
+          float hem = 0.018 + k * 0.022 + 0.02 * sin(aa * 2.2 + k * 1.7 + t * 0.05) + 0.012 * hvNoise(vec2(aa * 7.0 - t * 0.08, k * 3.0));
+          float H = 0.22 + 0.06 * hvNoise(vec2(aa * 3.0 + k * 5.0, t * 0.02));
+          float v = (e - hem) / H;
+          vv = v;
+          if (v < -0.08 || v > 1.0) return 0.0;
+          float fold = hvNoise(vec2(aa * 10.0 - t * 0.12 + k * 7.0, 0.3));
+          fold = 0.15 + 0.85 * smoothstep(0.25, 0.8, fold);
+          float rays = 0.4 + 0.6 * pow(hvNoise(vec2(aa * 140.0 + t * 0.25 + k * 31.0, k + v * 0.5)), 1.5);
+          float lower = smoothstep(-0.08, 0.02, v);
+          float body = lower * (pow(1.0 - v, 1.6) * 0.7 + 1.6 * exp(-max(v, 0.0) * 9.0));
+          float ends = smoothstep(-1.35, -0.85, a) * (1.0 - smoothstep(0.85, 1.35, a));
+          return body * fold * rays * ends;
+        }
+        void main() {
+          vec3 d = normalize(vDir);
+          float e = d.y;
+          float up = smoothstep(-0.02, 0.5, e);
+          vec3 zen = mix(uZenithDusk, uZenith, smoothstep(0.2, 0.85, uNight));
+          vec3 col = mix(uHorizon, zen, pow(up, 0.7));
+          // Afterglow band hugging the horizon.
+          col += uGlow * exp(-max(e, 0.0) * 14.0) * smoothstep(-0.03, 0.01, e) * 0.9;
+          // Stars (spherical cells), fading into the haze near the horizon.
+          float az = atan(d.x, -d.z);
+          vec2 sp = vec2(az * 60.0, e * 95.0);
+          vec2 cell = floor(sp);
+          vec2 f = fract(sp) - 0.5;
+          float h = hvHash12(cell);
+          vec2 off = (hvHash22(cell + 3.1) - 0.5) * 0.6;
+          float r = length(f - off);
+          float bright = step(1.0 - 0.14 * uStars, h) * (0.35 + 0.65 * hvHash12(cell + 7.7));
+          float tw = 0.65 + 0.35 * sin(uTime * (1.5 + h * 3.0) + h * 40.0);
+          float star = bright * tw * smoothstep(0.22, 0.02, r) * smoothstep(0.03, 0.2, e) * smoothstep(0.25, 0.8, uNight);
+          vec3 starCol = mix(vec3(0.75, 0.85, 1.0), vec3(1.0, 0.9, 0.75), hvHash12(cell + 1.3));
+          // Aurora curtains (three, nested).
+          float t = uTime;
+          float au = 0.0; vec3 acol = vec3(0.0);
+          if (uAurora > 0.001 && d.z < 0.35) {
+            for (int i = 0; i < 3; i++) {
+              float k = float(i);
+              float vv;
+              float c = curtain(az + k * 0.35 - 0.3, e, k, t, vv);
+              vec3 green = vec3(0.18, 1.0, 0.5);
+              vec3 teal = vec3(0.12, 0.8, 0.78);
+              vec3 violet = vec3(0.6, 0.25, 0.95);
+              vec3 cc = mix(green, teal, smoothstep(0.1, 0.45, vv));
+              cc = mix(cc, violet, smoothstep(0.4, 0.95, vv));
+              acol += cc * c * (1.0 - k * 0.22);
+              au += c;
+            }
+            acol *= uAurora * 0.55;
+            au *= uAurora;
+          }
+          star *= 1.0 - clamp(au * 0.9, 0.0, 0.85);
+          col += starCol * star * 1.1;
+          col += acol;
+          // Moon: crisp disc + wide soft halo.
+          if (uHasMoon > 0.5) {
+            float md = dot(d, uMoon);
+            float disc = smoothstep(0.99984, 0.99991, md);
+            float spots = 0.85 + 0.15 * hvNoise(d.xy * 900.0);
+            col = mix(col, vec3(1.0, 0.96, 0.86) * 0.95 * spots, disc);
+            col += vec3(0.5, 0.58, 0.8) * (pow(max(md, 0.0), 900.0) * 0.16 + pow(max(md, 0.0), 5000.0) * 0.3);
+          }
+          gl_FragColor = vec4(col * uStrength, 1.0);
+        }`,
+    });
+    m.name = 'night-sky';
+    this.mesh = new THREE.Mesh(g, m);
+    this.mesh.name = 'night-sky';
+    this.mesh.renderOrder = -1000;
+    this.mesh.frustumCulled = false;
+    this.mesh.userData.noAO = true;
+    this.mesh.userData.perfTag = 'sky';
+  }
+
+  /** Follow the camera and match the horizon to the scene fog. Call every frame. */
+  update(cam: THREE.Camera, fog: THREE.Fog | THREE.FogExp2 | null): void {
+    this.mesh.position.copy(cam.position);
+    if (fog) this.horizon.value.copy(fog.color);
   }
 }

@@ -104,6 +104,15 @@ export function giantBarkMaterial(): THREE.MeshStandardMaterial {
       fs,
       '#include <normal_fragment_maps>',
       /* glsl */ `
+      // Near the ground the snow buries the roots whole (sides too): a root knee leaving the winter
+      // drift is a white hump, not a dark claw with a white cap along its crest.
+      if (uSnow > 0.0) {
+        float hvBury = uSnow * smoothstep(0.95, 0.4, vGLocalY + (hvNoise(vHvWorldPos.xz * 3.1) - 0.5) * 0.4);
+        if (hvBury > hvSnowAmt) {
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.85, 0.93) * 0.78, (hvBury - hvSnowAmt) / max(1.0 - hvSnowAmt, 0.001));
+          hvSnowAmt = hvBury;
+        }
+      }
       if (hvSnowAmt > 0.01) {
         vec3 hvUpV = normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0));
         float hvLump = hvNoise(vHvWorldPos.xz * 6.0 + vHvWorldPos.y * 2.0);

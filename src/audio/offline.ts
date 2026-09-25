@@ -354,11 +354,11 @@ export async function renderSession(
  * graph) and `bed` (music + ambience, no effects) — so the harness can measure each effect against
  * the music actually sounding under it (full − sfx = the ducked bed) and how far the sidechain dipped.
  */
-export const GAMEPLAY_SCRIPT: { name: string; t: number; verb?: boolean }[] = [
+export const GAMEPLAY_SCRIPT: { name: string; t: number; verb?: boolean; aux?: boolean; gain?: number }[] = [
   ...Array.from({ length: 8 }, (_, i) => ({ name: 'step:grass', t: 9 + i * 0.32 })),
-  { name: 'hoe', t: 12, verb: true },
-  { name: 'hoe', t: 12.7, verb: true },
-  { name: 'hoe', t: 13.4, verb: true },
+  // Each hoe stroke is voiced as in the game: the tool's wind-up whoosh ('tool:swing', farming.ts)
+  // ~0.22 s before the blade lands ('tool:impact'). Swings are played but not measured (aux).
+  ...[12, 12.7, 13.4].flatMap((t) => [{ name: 'swing', t: t - 0.22, aux: true, gain: 0.8 }, { name: 'hoe', t, verb: true }]),
   { name: 'water', t: 14.4, verb: true },
   { name: 'harvest', t: 15.8, verb: true },
   { name: 'coin', t: 16.8 },
@@ -374,10 +374,10 @@ export async function renderGameplay(part: 'full' | 'sfx' | 'bed', seconds = 20,
     if (part !== 'bed') {
       const sfx = new Sfx(g, 5);
       sfx.key = THEMES[theme]!.key;
-      for (const e of GAMEPLAY_SCRIPT) sfx.play(e.name, { at: e.t });
+      for (const e of GAMEPLAY_SCRIPT) sfx.play(e.name, { at: e.t, gain: e.gain });
     }
   });
-  return { name: `gameplay-${part}`, sampleRate: sr, data: encode(buf), frames: buf.length, markers: GAMEPLAY_SCRIPT.map((e) => ({ name: e.verb ? `${e.name}*` : e.name, t: e.t })) };
+  return { name: `gameplay-${part}`, sampleRate: sr, data: encode(buf), frames: buf.length, markers: GAMEPLAY_SCRIPT.filter((e) => !e.aux).map((e) => ({ name: e.verb ? `${e.name}*` : e.name, t: e.t })) };
 }
 
 export function listThemes(): string[] {

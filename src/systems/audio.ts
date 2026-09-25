@@ -202,8 +202,9 @@ export class AudioSystem implements System {
     const sfx = params.get('sfx');
     if (sfx) this.demoSfx = { name: sfx, next: 0 };
     if (params.get('coop') === '1' && params.get('demo') === 'audio') this.demoCoop = { a: 0, stride: 0, next: 2, k: 0 };
-    // &card=1 keeps the now-playing card on screen (screenshots); &card=0 never shows it.
-    this.pinCard = params.get('card') === '1';
+    // &card=1 keeps the now-playing card on screen (screenshots); &card=0 never shows it. The audio
+    // demos pin it by default so a still frame shows the score (title, engraved hook, notes in time).
+    this.pinCard = params.get('card') === '1' || (/^(audio|music)/.test(params.get('demo') ?? '') && params.get('card') !== '0');
     if (params.get('card') === '0') this.card.disabled = true;
     // Compose the opening song off the main thread while the save / demo loads.
     this.prefetch = new PiecePrefetch(true);

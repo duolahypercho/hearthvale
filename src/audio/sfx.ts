@@ -107,7 +107,9 @@ const TRIM: Record<string, number> = {
   // were louder than tools). Gameplay verbs peak around -18…-22 dBFS in game, UI -24…-28, ambience
   // events at or below -30: watering +14.6 dB (plus a soil-splash transient), scythe +9.4 dB, menu
   // open / close -5 / -4 dB, hover +10 dB, select (talking to a villager) +8 dB.
-  water: 7, 'ui:open': 0.9, 'ui:close': 1.2, 'ui:hover': 16, 'ui:select': 4, 'ui:drop': 2.6, 'ui:trash': 1.8,
+  water: 7, 'ui:open': 1.25, 'ui:close': 1.2, 'ui:hover': 16, 'ui:select': 5.6, 'ui:drop': 2.6, 'ui:trash': 1.8,
+  // (Round 7: menu open / talk-select +2.8 dB — the live probe had them at the ambience floor + 3 dB, a
+  // chorus of birds away from inaudible; still ~6 dB under the quietest farming verb.)
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
   'ui:click': 1.8,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
@@ -534,6 +536,11 @@ export class Sfx {
         this.tone(d, t + 0.01, { type: 'triangle', f0: 620, f1: 380, glide: 0.15, amp: 0.06, tau: 0.07, lp: 2200 });
         break;
       case 'harvest':
+        // The pluck: roots let go of the soil (a gritty snap of 2–6 kHz grains + a small click), the
+        // leaves brush past (a short airy rustle) — the bright onset laptops can play — then the pop
+        // and two kalimba notes from the current key.
+        this.crunch(d, t, 0.11, { n: 6, span: 0.045, lo: 2000, hi: 6000, click: 0.35, clickF: 1600 + r.next() * 400 });
+        this.noise(d, t + 0.012, { type: 'highpass', f: 3200, amp: 0.05, attack: 0.008, tau: 0.05 });
         this.tone(d, t, { f0: 280, f1: 950, glide: 0.06, amp: 0.32, tau: 0.045 });
         this.noise(d, t, { f: 1200, q: 1, amp: 0.16, tau: 0.025, buf: this.g.pink });
         this.chime(d, t + 0.07, this.kn(3), 0.3, 'kalimba');
@@ -596,8 +603,12 @@ export class Sfx {
         this.g.duckMusic(t, 0.55, 0.8, 0.9);
         break;
       case 'hoe:dull':
+        // Steel glancing off hard ground: the dull thud, plus the part a laptop plays — a gritty
+        // scrape of grains and a short, damped clink of the blade.
         this.noise(d, t, { type: 'lowpass', f: 480, amp: 0.2, attack: 0.003, tau: 0.035, buf: this.g.pink });
         this.tone(d, t, { f0: 110, f1: 70, glide: 0.05, amp: 0.16, tau: 0.03 });
+        this.crunch(d, t + 0.002, 0.09, { n: 4, span: 0.03, lo: 1800, hi: 4200, click: 0.5, clickF: 1300 + r.next() * 300 });
+        this.tone(d, t + 0.003, { f0: 2350 + r.next() * 200, amp: 0.018, attack: 0.001, tau: 0.035 });
         break;
       case 'ui:tab':
         this.noise(d, t, { f: 1800, q: 1.4, amp: 0.06, attack: 0.012, tau: 0.02, buf: this.g.pink });
@@ -613,6 +624,8 @@ export class Sfx {
         this.noise(d, t, { f: 2200, q: 2, amp: 0.05, tau: 0.004, buf: this.g.pink });
         break;
       case 'ui:trash':
+        // Crumpled into the bin: a papery crackle, then the soft drop.
+        this.crunch(d, t, 0.05, { n: 6, span: 0.07, lo: 2200, hi: 6000, click: 0 });
         this.noise(d, t, { f: 2600, f1: 600, q: 1, amp: 0.1, attack: 0.02, tau: 0.06, buf: this.g.pink });
         this.tone(d, t + 0.08, { f0: 240, f1: 120, glide: 0.08, amp: 0.14, tau: 0.04 });
         break;
@@ -648,8 +661,11 @@ export class Sfx {
         this.chime(d, t + 0.08, this.kn(3), 0.11);
         break;
       case 'ui:error':
-        this.tone(d, t, { type: 'triangle', f0: 220, amp: 0.13, tau: 0.05, lp: 1200 });
-        this.tone(d, t + 0.1, { type: 'triangle', f0: 196, amp: 0.13, tau: 0.06, lp: 1200 });
+        // A soft wooden "nuh-uh": two falling notes a tone apart, pitched up where laptop speakers
+        // actually play (was 220 / 196 Hz), with a small knock on each.
+        this.tone(d, t, { type: 'triangle', f0: 330, amp: 0.12, tau: 0.05, lp: 1800 });
+        this.tone(d, t + 0.1, { type: 'triangle', f0: 294, amp: 0.12, tau: 0.06, lp: 1800 });
+        for (const k of [0, 0.1]) this.noise(d, t + k, { f: 1250, q: 2.5, amp: 0.04, attack: 0.001, tau: 0.01 });
         break;
       case 'ui:select':
         this.tone(d, t, { f0: mtof(this.kn(r.int(0, 4))), amp: 0.05, tau: 0.02 });
@@ -717,6 +733,8 @@ export class Sfx {
         for (let i = 0; i < 3; i++) {
           this.tone(d, t + i * 0.2, { f0: 190 - i * 10, amp: 0.25, tau: 0.04 });
           this.noise(d, t + i * 0.2, { f: 800, q: 2, amp: 0.15, tau: 0.02, buf: this.g.pink });
+          // Boot on the rung: a hollow wooden knock in the 1.5 kHz band.
+          this.noise(d, t + i * 0.2 + 0.004, { f: 1500 + i * 120, q: 3, amp: 0.07, attack: 0.001, tau: 0.012 });
         }
         break;
       case 'door':

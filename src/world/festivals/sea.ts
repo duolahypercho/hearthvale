@@ -358,24 +358,48 @@ export class FrozenRiver {
           vec3 n = normalize(vec3((r1 - r2) * 0.22, 1.0, (r1 - r3) * 0.22));
           float fres = 0.05 + 0.95 * pow(1.0 - max(dot(n, V), 0.0), 4.0);
           // Cool blue-grey body: clear black ice over the deep channel, milky grey-blue in the shallows.
-          float dk = smoothstep(0.0, 0.5, depth);
-          vec3 clear = vec3(0.36, 0.47, 0.56);
-          vec3 deep = vec3(0.07, 0.13, 0.2);
-          vec3 col = mix(clear, deep, dk);
+          // Milky white-blue shelf ice along the banks, a band of dark clear ice down mid-channel
+          // (the black ice you see the frozen river through), with a cold teal glow between.
+          float dk = smoothstep(0.03, 0.3, depth);
+          vec3 clear = vec3(0.5, 0.6, 0.7);
+          vec3 mid = vec3(0.16, 0.3, 0.38);
+          vec3 deep = vec3(0.03, 0.065, 0.11);
+          vec3 col = mix(clear, mid, smoothstep(0.0, 0.5, dk));
+          col = mix(col, deep, smoothstep(0.45, 1.0, dk));
+          // Suspended frost clouds + streaky white veils frozen into the body.
+          float veil = smoothstep(0.5, 0.8, hvFbm(vec2(p.x * 0.18, p.y * 0.55) + 11.0));
+          col = mix(col, vec3(0.62, 0.72, 0.8), veil * 0.28 * (1.0 - dk * 0.5));
           // Frozen bubbles + cloudy white inclusions.
           vec2 bc = floor(p * 3.0);
           vec2 bf = fract(p * 3.0) - 0.5 - (hvHash22(bc) - 0.5) * 0.6;
-          float bub = (1.0 - smoothstep(0.02, 0.07, length(bf))) * step(0.82, hvHash12(bc + 3.1));
-          col += bub * vec3(0.3, 0.35, 0.4);
+          float bub = (1.0 - smoothstep(0.02, 0.07, length(bf))) * step(0.78, hvHash12(bc + 3.1));
+          // Strings of tiny trapped bubbles (a second, finer layer) in the clear band.
+          vec2 bc2 = floor(p * vec2(9.0, 5.0));
+          vec2 bf2 = fract(p * vec2(9.0, 5.0)) - 0.5 - (hvHash22(bc2 + 9.0) - 0.5) * 0.5;
+          float bub2 = (1.0 - smoothstep(0.02, 0.06, length(bf2 * vec2(1.0, 1.8)))) * step(0.9, hvHash12(bc2 + 1.7)) * dk;
+          col += bub * vec3(0.34, 0.4, 0.46) + bub2 * vec3(0.4, 0.48, 0.55);
           col = mix(col, vec3(0.55, 0.62, 0.7), smoothstep(0.55, 0.85, hvFbm(p * 0.35 + 4.0)) * 0.35);
           // Skate scratches (criss-crossing arcs) + crack lines.
           float sc = scratch(p, 0.35, 5.0) + scratch(p + 7.0, -0.5, 6.0) + scratch(p * 1.3 + 3.0, 1.2, 4.0) * 0.6;
+          // Carved skate arcs: sweeping curves left by the looping skaters (partial circles).
+          for (int k = 0; k < 2; k++) {
+            float cell = k == 0 ? 5.5 : 3.7;
+            vec2 q = p + float(k) * vec2(2.3, 1.1);
+            vec2 c = floor(q / cell);
+            vec2 hh = hvHash22(c + float(k) * 17.0);
+            vec2 ctr = (c + 0.5 + (hh - 0.5) * 0.3) * cell;
+            float R = cell * (0.22 + 0.16 * hvHash12(c + 5.0 + float(k)));
+            float dd = abs(length(q - ctr) - R);
+            float an = atan(q.y - ctr.y, q.x - ctr.x) / 6.2831 + hh.x;
+            float gap = smoothstep(0.02, 0.08, fract(an)) * (1.0 - smoothstep(0.55, 0.65, fract(an)));
+            sc += (1.0 - smoothstep(0.008, 0.028, dd)) * gap * step(0.25, hh.y) * 0.9;
+          }
           float cr = (1.0 - smoothstep(0.0, 0.03, abs(hvFbm(p * 0.35 + 2.0) - 0.5))) * 0.6;
           // Light: sky + moon on the ice body (the albedo multiplies every light; nothing warm is added).
           vec3 L = normalize(uSunDir);
           float ndl = max(dot(n, L), 0.0);
           vec3 lit = col * (uSkyColor * 0.95 + uSunColor * ndl * 0.3 + vec3(0.07, 0.085, 0.11)) * (0.85 + uLamps * 0.35);
-          lit += vec3(0.85, 0.92, 1.0) * (sc * 0.3 + cr * 0.16) * (uSkyColor * 1.2 + uSunColor * 0.3 + 0.02);
+          lit += vec3(0.85, 0.92, 1.0) * (sc * 0.5 + cr * 0.22) * (uSkyColor * 1.3 + uSunColor * 0.35 + 0.05 + uLamps * 0.06);
           // Clear-coat reflection: sky gradient + the aurora's green-violet bands + stars.
           vec3 R = reflect(-V, n);
           vec3 sky = mix(uHorizonColor * 1.1, uSkyColor, smoothstep(0.0, 0.6, R.y));
@@ -384,14 +408,15 @@ export class FrozenRiver {
           float b1 = hvNoise(vec2(p.x * 0.07 + uTime * 0.02, p.y * 0.018 + 2.0));
           float b2 = hvNoise(vec2(p.x * 1.1 - uTime * 0.05, 1.3));
           float band = smoothstep(0.38, 0.72, b1) * (0.4 + 0.6 * b2);
-          vec3 aur = mix(vec3(0.12, 0.95, 0.55), vec3(0.62, 0.28, 0.85), smoothstep(0.35, 0.7, hvNoise(p * 0.05 + 4.0))) * band * 0.62 * uAurora * smoothstep(0.4, 0.9, uNight);
+          vec3 aur = mix(vec3(0.12, 0.95, 0.55), vec3(0.62, 0.28, 0.85), smoothstep(0.35, 0.7, hvNoise(p * 0.05 + 4.0))) * band * 0.42 * uAurora * smoothstep(0.4, 0.9, uNight);
           vec2 sc2 = floor(p * 5.0);
           vec2 so = fract(p * 5.0) - 0.5 - (hvHash22(sc2 + 5.0) - 0.5) * 0.6;
           float star = step(0.985, hvHash12(sc2)) * (1.0 - smoothstep(0.02, 0.07, length(so))) * (0.5 + 0.5 * sin(uTime * 2.0 + hvHash12(sc2 + 1.0) * 30.0)) * uNight;
           // (The aurora also lies on the ice as soft moving green / violet sheen — the high camera sees
           // the river far more than it sees sky.)
-          lit += aur * (0.4 + fres * 0.6) * (1.0 - smoothstep(0.0, 0.12, 0.12 - depth) * 0.5);
-          lit = mix(lit, sky * 0.9 + aur, clamp(fres * 0.9 + 0.18, 0.0, 1.0) * 0.7) + star * vec3(0.7, 0.8, 1.0) * 0.4 * (1.0 - smoothstep(0.02, 0.2, 1.0 - dk));
+          lit += aur * (0.15 + fres * 0.6) * dk;
+          // Fresnel sky sheen: strong at grazing angles only, so the clear band stays dark and deep.
+          lit = mix(lit, sky * 0.85 + aur, clamp(fres * 0.95 + 0.05, 0.0, 1.0) * 0.72) + star * vec3(0.7, 0.8, 1.0) * 0.4 * (1.0 - smoothstep(0.02, 0.2, 1.0 - dk));
           // Glassy glints: cool-white sparkles (lamp-lit ones warm only in their own glint).
           vec2 gc = floor(p * 2.2);
           vec2 gf = fract(p * 2.2) - 0.5 - (hvHash22(gc + 2.1) - 0.5) * 0.6;

@@ -18,7 +18,7 @@
  *
  * Every decision is logged to a small trace (`trace`) that the game exposes in __game.info().audio.
  */
-import type { AudioGraph } from './graph';
+import { DEFAULT_WIDTH, type AudioGraph } from './graph';
 import { Composer, type Piece, type ThemeDef, type TrackName } from './composer';
 import { INSERTS, INSTRUMENTS, TAIL, type InstrumentName } from './instruments';
 import { THEMES } from './themes';
@@ -131,6 +131,8 @@ export class MusicPlayer {
     }
     this.out.connect(dry);
     this.wet.connect(shelf(g.hall));
+    // Stage width follows the song in (the mines and misty nights are wide already; the day tunes open up).
+    g.setWidth(theme.width ?? DEFAULT_WIDTH, Math.max(ctx.currentTime, startAt), Math.max(1, fadeIn));
     this.piece = pieces ? pieces.take(theme, seed) : new Composer(theme, seed).compose();
     // Seamless loops chain the next piece on the downbeat: have it composed in the background by then.
     if (theme.rest[1] === 0) pieces?.request(theme, seed + 1);

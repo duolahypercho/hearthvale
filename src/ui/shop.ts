@@ -137,12 +137,17 @@ export class ShopScreen extends Screen {
     const set = (LINES[this.keeper] ?? LINES.marigold!)[kind];
     const text = set[Math.floor(Math.random() * set.length)]!;
     const node = this.bubble.querySelector('p')!;
-    node.textContent = '';
+    // The whole line is laid out from the first frame (untyped tail kept invisible), so the bubble can centre it
+    // without the text hopping up a half-line when it wraps mid-typing.
+    const paint = (i: number): void => {
+      node.innerHTML = `<span>${escapeHtml(text.slice(0, i))}</span><span class="ghost">${escapeHtml(text.slice(i))}</span>`;
+    };
+    paint(0);
     clearInterval(this.typeT);
     let i = 0;
     this.typeT = window.setInterval(() => {
       i += 2;
-      node.textContent = text.slice(0, i);
+      paint(Math.min(i, text.length));
       if (i >= text.length) clearInterval(this.typeT);
     }, 22);
     replay(this.portrait, kind === 'broke' ? 'sad' : 'nod');

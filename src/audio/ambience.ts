@@ -107,9 +107,11 @@ export class Ambience {
     bed('leaves', g.pinkSt, [bf('lowpass', 2800, 0.5), bf('highpass', 350, 0.5), tilt], 0.9);
     // Rain hiss lives up at 4–6 kHz; the droplet layers (makeRain) carry the individual drops.
     bed('rain', g.pinkSt, [bf('bandpass', 5000, 0.55), bf('highshelf', 7000, 0.7)]);
-    bed('rainLow', g.brownSt, [bf('lowpass', 380, 0.5)]);
+    // (High-passes on the brown / pink low beds: the sub-60 Hz rumble was 27–29 % of the beach and
+    // indoor-rain energy — inaudible on laptops, woolly on headphones, and it ate the limiter's headroom. The low-pass stays first: it is the bed's automated `filter`.)
+    bed('rainLow', g.brownSt, [bf('lowpass', 380, 0.5), bf('highpass', 55, 0.7)]);
     bed('fountain', g.pinkSt, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800)]);
-    const surf = bed('surf', g.pinkSt, [bf('lowpass', 500, 0.6)]);
+    const surf = bed('surf', g.pinkSt, [bf('lowpass', 500, 0.6), bf('highpass', 45, 0.7)]);
     this.surfPan = ctx.createStereoPanner();
     surf.gain.disconnect();
     surf.gain.connect(this.surfPan).connect(this.out);
@@ -134,7 +136,7 @@ export class Ambience {
     bed('howl', g.pinkSt, [bf('bandpass', 620, 9)]);
     bed('snowHush', g.pinkSt, [bf('highpass', 2500, 0.5), bf('lowpass', 6000)]);
     // Interior room tone: a faint low hum of a quiet wooden house.
-    bed('room', g.brownSt, [bf('lowpass', 240, 0.6)], 0.8);
+    bed('room', g.brownSt, [bf('lowpass', 240, 0.6), bf('highpass', 50, 0.7)], 0.8);
     // Fireplace: a soft roar under the crackles.
     bed('fire', g.pinkSt, [bf('lowpass', 520, 0.7)], 0.7);
     // Cicadas: a 4–7 kHz noise band pulsed at ~40 Hz (the tymbal buzz), in choruses that swell in and

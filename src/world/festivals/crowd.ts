@@ -480,9 +480,10 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 1.06, 0.05, 4, 14), hm(0, R * 1.15, -0.02, Math.PI / 2 - 0.2), shade(c, 0.8));
     b.add(Bone.Head, HP, lump(0.09, rng, 0, 0.2), hm(0, R * 2.2, -R * 0.25), 0xf4efe6);
   } else if (hat === 'sunhat') {
-    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.9, R * 1.95, 0.03, 16), hm(0, R * 1.5, -0.02, -0.14), hatC);
-    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.85, R * 1.0, 0.26, 12), hm(0, R * 1.68, -0.04, -0.14), hatC);
-    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.07, 12, 1, true), hm(0, R * 1.58, -0.04, -0.14), o === 'spring' ? 0xf06a8a : 0xa8587a);
+    // Brim capped (a wide disc hid the whole head from the diorama camera) and tipped back off the face.
+    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.45, R * 1.5, 0.03, 16), hm(0, R * 1.5, -0.04, -0.26), hatC);
+    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.85, R * 1.0, 0.26, 12), hm(0, R * 1.68, -0.06, -0.26), hatC);
+    b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.07, 12, 1, true), hm(0, R * 1.58, -0.06, -0.26), o === 'spring' ? 0xf06a8a : 0xa8587a);
   } else if (hat === 'bandana') {
     const bn = new THREE.SphereGeometry(R * 1.1, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.46);
     b.add(Bone.Head, HP, bn, hm(0, R * 1.02, -0.02, -0.28), hatC);
@@ -713,6 +714,17 @@ void crowdPose(inout vec3 p, inout vec3 n) {
   vCrowdGlow = aGlow;
   vCrowdRim = C.w;
 }
+// Main pass only: a villager whose feet fall off the bottom of the frame (a giant cropped head in
+// the foreground) or who stands right under the lens folds away to their anchor.
+void crowdCull(inout vec3 p) {
+  vec4 A = texelFetch(uCrowd, ivec2(int(aMember), 0), 0);
+  vec4 wa = modelMatrix * vec4(A.xyz, 1.0);
+  vec4 cf = projectionMatrix * viewMatrix * wa;
+  float feet = cf.y / max(cf.w, 0.001);
+  float nearD = distance(cameraPosition, wa.xyz + vec3(0.0, 1.0, 0.0));
+  float keep = smoothstep(-1.1, -0.96, feet) * smoothstep(2.6, 3.6, nearD);
+  p = mix(A.xyz, p, keep);
+}
 `;
 
 function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, depth: boolean): void {
@@ -727,7 +739,7 @@ function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, dep
       vs = after(vs, '#include <begin_vertex>', 'vec3 crN = vec3(0.0, 1.0, 0.0); crowdPose(transformed, crN);');
     } else {
       vs = after(vs, '#include <beginnormal_vertex>', 'vec3 crP = position; crowdPose(crP, objectNormal);');
-      vs = after(vs, '#include <begin_vertex>', 'transformed = crP;');
+      vs = after(vs, '#include <begin_vertex>', 'transformed = crP; crowdCull(transformed);');
     }
     shader.vertexShader = vs;
     if (!depth) {
@@ -735,7 +747,7 @@ function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, dep
       fs = before(fs, 'void main() {', 'varying float vCrowdGlow;\nvarying float vCrowdRim;\nuniform float uLamps;');
       // Named villagers carry a soft warm rim (a painted key-light outline) so the town's own people
       // pop out of the townsfolk crowd at diorama distance.
-      fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * vCrowdGlow * (0.6 + uLamps * 3.2);');
+      fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += min(diffuseColor.rgb * diffuseColor.rgb * vCrowdGlow * (0.45 + uLamps * 1.3), vec3(0.8, 0.62, 0.42));');
       // (Proportional to the lit colour, so it reads the same at noon and under lamplight.)
       fs = before(
         fs,

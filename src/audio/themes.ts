@@ -312,6 +312,8 @@ export const THEMES: Record<string, ThemeDef> = {
   /** The mine (earth floors) — a drone with glass bells that keep returning to one small figure, over
    * a tuned-drip kalimba ostinato (the mine's hook, in the 400–1000 Hz range small speakers carry). */
   mine: {
+    // Cave reverb already spreads the mine tunes (L/R correlation ~0.4): no extra side lift.
+    width: 0,
     id: 'mine',
     title: 'Under Stone',
     blurb: 'The mines',
@@ -353,6 +355,7 @@ export const THEMES: Record<string, ThemeDef> = {
 
   /** Deeper: the frozen floors — celesta and bell figures over a thin, high string haze. */
   'mine-ice': {
+    width: 0,
     id: 'mine-ice',
     title: 'Glass Caverns',
     blurb: 'The frozen floors',
@@ -396,6 +399,7 @@ export const THEMES: Record<string, ThemeDef> = {
 
   /** Deepest: the ember floors — low cello groans, tritone bells and a heavier drone. */
   'mine-lava': {
+    width: 0,
     id: 'mine-lava',
     title: 'Ember Deep',
     blurb: 'The ember floors',
@@ -748,7 +752,10 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
         melody: { ...base.melody!, inst: 'harp', range: [67, 91], density: 0.85, ornament: 0.2, double: { inst: 'whistle', interval: 12, on: 'repeat' } },
         accomp: { inst: 'kalimba', pattern: 'oompah', range: [60, 76], voices: 3, vel: 0.55 },
         accomp2: { inst: 'guitar', pattern: 'oompah', range: [50, 64], voices: 4, vel: 0.45, on: 'repeat' },
-        mix: { ...base.mix, melody: { gain: 0.9, pan: 0.1, send: 0.3 }, double: { gain: 0.26, pan: -0.25, send: 0.3 } },
+        // The whistle an octave over the harp put 29 % of the energy in 2–5 kHz (HARSH): it sits back
+        // in a little more room, and one wide dip at 3.3 kHz takes the edge off the pair.
+        mix: { ...base.mix, melody: { gain: 0.9, pan: 0.1, send: 0.3 }, double: { gain: 0.2, pan: -0.3, send: 0.4 } },
+        eq: { ...base.eq, cut: { f: 3300, db: -3.5, q: 0.8 } },
         gain: 0.9,
       };
     case 'bell':

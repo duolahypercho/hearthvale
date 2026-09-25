@@ -84,6 +84,7 @@ export class SpringParade extends FestivalMap {
     this.activitySpots.push({ id: 'dance', x: GREEN.x, z: GREEN.z, r: POLE_R + 2.2 });
     this.visitorSpots.push({ x: 29.4, z: 37.2, yaw: 2.9 }, { x: 35.2, z: 37.0, yaw: -2.8 });
     this.confettiColors = [0xf06a8a, 0xffd166, 0x7ec8ff, 0xc77dff, 0xffffff];
+    this.focusPoints.push({ x: GREEN.x, z: GREEN.z, r: 11 });
   }
 
   // ───────────────────────────────────────────── shape

@@ -92,6 +92,7 @@ export class HarvestFair extends FestivalMap {
     this.activitySpots.push({ id: 'sackrace', x: LANE.x0 + 1.2, z: LANE.z, r: 2.6 }, { id: 'pumpkin', x: 35.4, z: 18.4, r: 2.4 });
     this.visitorSpots.push({ x: 28.6, z: 29.0, yaw: 2.6 }, { x: 34.2, z: 21.2, yaw: -0.3 });
     this.confettiColors = [0xd8573e, 0xf2b928, 0x6a8a3a, 0xe8864a, 0xffffff];
+    this.focusPoints.push({ x: STAGE.x, z: STAGE.z, r: 11 });
   }
 
   // ───────────────────────────────────────────── shape

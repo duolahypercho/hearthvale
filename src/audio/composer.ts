@@ -132,6 +132,8 @@ export interface ThemeDef {
    * and overtones of near-pure mallet / music-box timbres without touching their instruments.
    */
   sheen?: number;
+  /** Stage width (graph.setWidth): side lift of the score, default DEFAULT_WIDTH; 0 = as arranged, < 0 narrows. */
+  width?: number;
 }
 
 export interface NoteEvent {

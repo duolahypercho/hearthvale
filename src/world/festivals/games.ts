@@ -143,14 +143,21 @@ const CSS = /* css */ `
 @media (pointer: coarse) { .fg-keys { display: flex; } }
 /* ── lanterns ── */
 .fg-lant { right: 64px; top: 50%; transform: translateY(-50%); width: 150px; }
-.fg-lant > .in { height: 420px; background: linear-gradient(180deg, #16244a, #0e1a3a 55%, #0a1430); }
-.fg-lant .band { position: absolute; left: 10px; right: 10px; height: 64px; border-radius: 14px; background: radial-gradient(60% 60% at 50% 50%, rgba(120, 255, 240, .75), rgba(60, 200, 230, .25) 70%, transparent);
-  box-shadow: 0 0 26px rgba(90, 230, 240, .6); border: 2px solid rgba(180, 255, 250, .7); }
-.fg-lant .band::after { content: ''; position: absolute; left: 12px; right: 12px; top: 50%; height: 2px; background: rgba(230, 255, 255, .9); border-radius: 2px; }
-.fg-lant .lamp { position: absolute; left: 50%; width: 58px; height: 70px; margin-left: -29px; will-change: transform; }
+.fg-lant > .in { height: 420px; overflow: visible; background:
+  radial-gradient(34px 34px at 74% 13%, rgba(255, 248, 220, .95) 0 40%, rgba(255, 236, 190, .25) 60%, transparent 100%),
+  repeating-linear-gradient(180deg, transparent 0 22px, rgba(120, 190, 255, .05) 22px 24px),
+  linear-gradient(180deg, #1c2a5a 0%, #1a2654 38%, #1a3a68 70%, #16507a 100%); }
+.fg-lant > .in::before { content: ''; position: absolute; inset: 0; border-radius: 14px; background: radial-gradient(90% 40% at 50% 100%, rgba(90, 230, 240, .28), transparent 70%); pointer-events: none; }
+/* The swell: a painted glowing wave ribbon (crest line + inner foam line), not a box. */
+.fg-lant .band { position: absolute; left: -6px; right: -6px; height: 64px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 130 64' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23d8fff8' stop-opacity='.95'/%3E%3Cstop offset='.45' stop-color='%2376f0e6' stop-opacity='.8'/%3E%3Cstop offset='1' stop-color='%23208aa8' stop-opacity='.35'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M0 20 C16 8 30 8 44 18 S74 30 88 18 S116 6 130 16 L130 46 C114 56 100 56 86 48 S56 36 42 46 S14 58 0 48 Z' fill='url(%23g)'/%3E%3Cpath d='M0 20 C16 8 30 8 44 18 S74 30 88 18 S116 6 130 16' fill='none' stroke='%23f4fffc' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M10 34 C24 28 34 30 46 35 S72 40 86 33 S110 28 122 32' fill='none' stroke='%23e6fffb' stroke-opacity='.55' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  filter: drop-shadow(0 0 10px rgba(110, 250, 240, .75)) drop-shadow(0 0 22px rgba(60, 200, 230, .45)); animation: fgSwell 2.4s ease-in-out infinite alternate; }
+.fg-lant .band::after { content: ''; position: absolute; left: 22px; right: 22px; top: 50%; height: 3px; margin-top: -1px; background: radial-gradient(closest-side, #fffef0, rgba(255, 250, 220, 0)); border-radius: 2px; }
+@keyframes fgSwell { from { background-position: 0 0; transform: scaleX(1) skewX(-2deg); } to { transform: scaleX(1.04) skewX(2deg); } }
+.fg-lant .lamp { position: absolute; left: 50%; width: 58px; height: 70px; margin-left: -29px; will-change: transform; z-index: 2; }
 .fg-lant .lamp svg { width: 100%; height: 100%; filter: drop-shadow(0 0 14px rgba(255, 180, 90, .95)); }
-.fg-lant .stars { position: absolute; inset: 0; background-image: radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 20%, #fff, transparent), radial-gradient(1.5px 1.5px at 40% 70%, #cfe, transparent), radial-gradient(1px 1px at 85% 60%, #fff, transparent); opacity: .6; }
-.fg-lant .water { position: absolute; left: 0; right: 0; bottom: 0; height: 46px; background: linear-gradient(180deg, rgba(80, 220, 240, .5), rgba(20, 60, 120, .9)); box-shadow: 0 -4px 16px rgba(90, 230, 240, .5); }
+.fg-lant .stars { position: absolute; inset: 0; border-radius: 14px; background-image: radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 22%, #fff, transparent), radial-gradient(1.5px 1.5px at 40% 8%, #cfe, transparent), radial-gradient(1px 1px at 85% 40%, #fff, transparent), radial-gradient(1px 1px at 12% 52%, #fff, transparent), radial-gradient(1.2px 1.2px at 58% 46%, #eef, transparent), radial-gradient(1px 1px at 30% 16%, #fff, transparent); opacity: .7; }
+.fg-lant .water { position: absolute; left: 0; right: 0; bottom: 0; height: 60px; border-radius: 0 0 14px 14px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 136 60' preserveAspectRatio='none'%3E%3Cpath d='M0 14 C12 4 22 4 34 12 S58 22 70 12 S94 2 106 10 S126 18 136 10 L136 60 L0 60 Z' fill='%23155a86'/%3E%3Cpath d='M0 14 C12 4 22 4 34 12 S58 22 70 12 S94 2 106 10 S126 18 136 10' fill='none' stroke='%237ff0ec' stroke-width='3'/%3E%3Cpath d='M0 30 C14 24 26 26 38 30 S62 36 76 30 S100 24 114 29 S130 33 136 30' fill='none' stroke='%2358c8e0' stroke-opacity='.5' stroke-width='2'/%3E%3C/svg%3E") center top / 100% 100% no-repeat; box-shadow: 0 -6px 18px rgba(90, 230, 240, .35); }
+.fg-lant .fg-judge { font-size: 28px; }
 .fg-slots { position: absolute; right: 40px; top: calc(50% + 236px); display: flex; gap: 6px; width: 198px; justify-content: center; }
 .fg-slots i { width: 32px !important; }
 .fg-slots i.q3 { background: radial-gradient(circle at 50% 40%, #ffffff, #ffe27a 50%, #f0a020) !important; box-shadow: 0 0 20px rgba(255, 220, 110, 1), inset 0 0 0 2px #fff8e0 !important; }

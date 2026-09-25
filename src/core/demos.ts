@@ -107,14 +107,14 @@ export const DEMOS: Record<string, DemoDef> = {
   'forest-rain': { map: 'forest', x: 38.5, z: 32.3, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
   // Low three-quarter view from the south: the ivy tower stands up as a silhouette and the flanking
   // crowns frame the glade from the sides instead of roofing over it (canopy < 40 % of the frame).
-  'forest-fall': { map: 'forest', x: 50.6, z: 23.8, facing: 'left', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -8, pitch: 38, distance: 24, offsetX: 1.5, offsetZ: -6.5 } },
+  'forest-fall': { map: 'forest', x: 50.6, z: 23.8, facing: 'left', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -8, pitch: 40, distance: 26, offsetX: 3.2, offsetZ: -7.2 } },
   // The Ember Glade up close: tower (roof, door, lit window, ivy), menhir ring and the ember altar.
   'forest-glade': { map: 'forest', x: 50.2, z: 22.6, facing: 'up', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: -12, pitch: 48, distance: 25, offsetX: 3.2, offsetZ: -5.4 } },
   'forest-night': { map: 'forest', x: 50.6, z: 23.8, facing: 'up', time: 22.2, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 48, distance: 28, offsetX: 1.8, offsetZ: -6.2 } },
   // Storm at the falls: rain sheets over the churning plunge pool, flooded path puddles, a bolt on
   // the west bank (&bolt=0 off). 'storm-meadow' is the open west meadow with the stream behind.
   storm: { map: 'forest', x: 22.5, z: 25.0, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: FOREST_FALLS_CAM },
-  'storm-meadow': { map: 'forest', x: 18.8, z: 35.8, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: { yaw: -4, pitch: 47, distance: 26, offsetX: -2.6, offsetZ: -3.6 } },
+  'storm-meadow': { map: 'forest', x: 18.8, z: 35.8, facing: 'up', time: 15.5, season: 'summer', weather: 'storm', camera: { yaw: -4, pitch: 47, distance: 26, offsetX: -4.4, offsetZ: -3.6 } },
   // Winter on the frozen stream: stepping stones, the snow-capped footbridge, boot prints.
   'snow-day': { map: 'forest', x: 36.5, z: 33.2, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: { yaw: 20, pitch: 48, distance: 21, offsetX: -0.5, offsetZ: 2.0 } },
   // Winter at the falls: frozen curtain + icicles over the cracked plunge-pool ice, snow-laden ledges.
@@ -184,11 +184,12 @@ export const DEMOS: Record<string, DemoDef> = {
   'mine-chest': { map: 'mine', x: 10, z: 10, facing: 'up', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 15.5, offsetZ: -0.6 }, showcase: [] },
   // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
   'fest-spring': { map: 'fest-spring', x: 25.2, z: 27.9, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 31, offsetX: 6.6, offsetZ: -2.1 }, showcase: ['festival-show'] },
-  'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 32, offsetX: -3.2, offsetZ: -7.5 }, showcase: ['festival-show'] },
+  'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 11, distance: 26, offsetX: -1, offsetZ: -11 }, showcase: ['festival-show'] },
   'fest-fall': { map: 'fest-fall', x: 32.6, z: 22.4, facing: 'up', time: 14.3, season: 'fall', weather: 'sun', camera: { yaw: 20, pitch: 40, distance: 32, offsetX: 2, offsetZ: -6 }, showcase: ['festival-show'] },
-  // Starfall opens at dusk (rose-lit snow, the first lamps); `fest-winter-night` = full dark, aurora + lamplight on the ice.
-  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 18.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 31, distance: 43, offsetX: -0.4, offsetZ: -7.6 }, showcase: ['festival-show'] },
-  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 42, offsetX: -0.4, offsetZ: -7.8 }, showcase: ['festival-show'] },
+  // Starfall at the turn of dusk into night: the last afterglow over the treeline with the aurora rising
+  // (it comes in from 18:30), lamps lit; `fest-winter-night` = full dark, aurora + lamplight on the ice.
+  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 19.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 16, distance: 45, offsetX: -0.4, offsetZ: -10.5 }, showcase: ['festival-show'] },
+  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 17, distance: 44, offsetX: -0.4, offsetZ: -10.5 }, showcase: ['festival-show'] },
   // Festival mini-games (they play themselves while the demo is paused): Ribbon Dance, Lantern Release, Sack Race,
   // Produce Judging, Gift Exchange, Starlight Skate. Same as `?demo=fest-<season>&ui=festival:<activity>`.
   'fest-spring-dance': { map: 'fest-spring', x: 31.2, z: 37.2, facing: 'up', time: 12.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 38, distance: 19.5, offsetX: 0.4, offsetZ: -4.4 }, showcase: ['festival-show'], ui: 'festival:dance' },

@@ -102,6 +102,8 @@ export abstract class FestivalMap implements GameMap {
   readonly warps: MapWarp[];
   readonly poi: Record<string, { x: number; y?: number; z: number; rot?: number }[]> = {};
   crowd: Crowd | null = null;
+  /** Scales the weather system's wind-blown leaf gusts over this map (0 = none). */
+  leafGusts = 1;
   /** Named villagers' crowd indices (for talking / mini-games). */
   readonly named = new Map<string, number>();
   protected rng: Rng;
@@ -222,6 +224,7 @@ export abstract class FestivalMap implements GameMap {
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.ambience.group);
     if (this.crowdSpecs.length) {
+      this.faceTheShow();
       this.turnToCamera();
       this.separateCrowd();
       this.crowd = new Crowd(this.crowdSpecs, (x, z) => this.terrain.heightAt(x, z), `${this.id}-crowd`);
@@ -278,6 +281,39 @@ export abstract class FestivalMap implements GameMap {
    * about a third of them turn three-quarters round — chatting with a neighbour, glancing back —
    * so the crowd shows faces. Scripted / seated / lifted members and named villagers stay put.
    */
+  /** Where the onlookers' attention goes (maypole, stage, Wish Arch, the Great Fir); set per festival. */
+  protected focusPoints: { x: number; z: number; r: number }[] = [];
+
+  /**
+   * Stage the crowd like a theatre: free onlookers (idle / clapping / cheering / swaying / waving)
+   * within reach of a focus point turn to it, then everybody free — named villagers included — is
+   * cheated 20–35° toward the (south) camera, so a watching crowd shows three-quarter faces rather
+   * than a wall of backs.
+   */
+  protected faceTheShow(bias = 0.5): void {
+    const watch = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'sway', 'wave']);
+    const free = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'talk', 'sway', 'toast', 'wave', 'lantern']);
+    this.crowdSpecs.forEach((s, i) => {
+      if (s.lift || s.pinned || !free.has(s.anim)) return;
+      const h = Math.abs(Math.sin(i * 7.137 + s.z * 31.7) * 43758.5453) % 1;
+      let yaw = s.yaw;
+      if (!s.id && watch.has(s.anim)) {
+        let bd = Infinity;
+        for (const f of this.focusPoints) {
+          const d = Math.hypot(f.x - s.x, f.z - s.z);
+          if (d > 1.2 && d < f.r && d < bd) {
+            bd = d;
+            yaw = Math.atan2(f.x - s.x, f.z - s.z);
+          }
+        }
+      }
+      yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+      const turn = Math.min(Math.abs(yaw), bias * (0.7 + 0.6 * h));
+      const sign = Math.abs(yaw) > 3.05 ? (h < 0.5 ? -1 : 1) : Math.sign(yaw);
+      s.yaw = yaw - sign * turn;
+    });
+  }
+
   protected turnToCamera(frac = 0.38): void {
     const free = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'talk', 'sway', 'toast', 'wave', 'lantern']);
     this.crowdSpecs.forEach((s, i) => {
@@ -374,7 +410,7 @@ export abstract class FestivalMap implements GameMap {
         pip.hearts = hearts;
         (pip.el.lastElementChild as HTMLElement).style.setProperty('--h', `${Math.max(12, hearts * 10)}%`);
       }
-      this.pipV.set(m.x, m.y + (m.spec.lift ?? 0) + 2.0 * m.scale + 0.25, m.z).project(cam);
+      this.pipV.set(m.x, m.y + (m.spec.lift ?? 0) + (2.0 + (m.spec.look.hat || m.spec.hatTint !== undefined ? 0.3 : 0)) * m.scale + 0.3, m.z).project(cam);
       if (this.pipV.z > 1) {
         pip.el.style.opacity = '0';
         continue;
@@ -407,11 +443,12 @@ export abstract class FestivalMap implements GameMap {
    * anyone seated / lifted / on a scripted path (skaters, racers, maypole dancers) stays put, and a
    * push never lands someone on a blocked tile.
    */
-  protected separateCrowd(minD = 0.66): void {
+  protected separateCrowd(minD = 0.8): void {
     const S = this.crowdSpecs;
     const pinned = new Set<string>(['skate', 'sack', 'ribbonR', 'ribbonL', 'perch', 'sit']);
     const w = S.map((s) => (s.lift || s.pinned || pinned.has(s.anim) ? 0 : s.id ? 0.35 : 1));
-    const r = S.map((s) => minD * 0.5 * Math.max(0.75, s.look.scale) * (0.9 + 0.1 * s.look.build));
+    // Radius covers hat brims / hair buns as well as the body (a sun hat reaches ~0.5 m).
+    const r = S.map((s) => minD * 0.5 * Math.max(0.75, s.look.scale) * (0.9 + 0.1 * s.look.build) * (s.look.hat === 'sunhat' ? 1.25 : s.hatTint !== undefined || s.look.hat ? 1.1 : 1));
     for (let it = 0; it < 16; it++) {
       let moved = false;
       for (let i = 0; i < S.length; i++) {
@@ -645,6 +682,37 @@ export abstract class FestivalMap implements GameMap {
     this.camRelease = 0;
   }
 
+  /**
+   * Close-up mini-game framings: villagers standing in the lens wedge between the camera and the
+   * player step aside (sideways, out of frame) so nobody's back fills the frame.
+   */
+  protected clearSightline(tx: number, tz: number, yawDeg: number, dist: number, halfW = 1.2): void {
+    const c = this.crowd;
+    if (!c) return;
+    const y = THREE.MathUtils.degToRad(yawDeg);
+    const cx = tx + Math.sin(y) * dist;
+    const cz = tz + Math.cos(y) * dist;
+    const L = Math.hypot(tx - cx, tz - cz) || 1;
+    const ux = (tx - cx) / L;
+    const uz = (tz - cz) / L;
+    for (const m of c.members) {
+      if (m.spec.lift) continue;
+      const px = m.x - cx;
+      const pz = m.z - cz;
+      const along = px * ux + pz * uz;
+      if (along < -1 || along > L - 0.9) continue;
+      const side = -px * uz + pz * ux;
+      // A wedge, not a tube: near the lens anyone inside ~half the frame width is a giant blocker.
+      const hw = Math.max(halfW, along * 0.55);
+      if (Math.abs(side) >= hw) continue;
+      const push = (hw + 0.15 - Math.abs(side)) * (side >= 0 ? 1 : -1);
+      m.x += -uz * push;
+      m.z += ux * push;
+      m.y = this.heightAt(m.x, m.z);
+    }
+    c.commit();
+  }
+
   /** Update the live mini-game framing (camera look offset + distance) without saving it again. */
   protected reframe(ox: number, oz: number, distance?: number): void {
     const g = this.camGoal;
@@ -804,7 +872,8 @@ function nameTag(name: string, color: string): THREE.Sprite {
   tex.colorSpace = THREE.SRGBColorSpace;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true, fog: false, toneMapped: false }));
   sp.scale.set(1.25, 0.31, 1);
-  sp.position.y = 2.55;
+  // Above the tallest hat crown (a tag on the brim read as part of the hat).
+  sp.position.y = 2.95;
   sp.renderOrder = 10;
   sp.userData.noAO = true;
   return sp;

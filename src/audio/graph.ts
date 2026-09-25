@@ -42,6 +42,9 @@ export interface GraphOptions {
   worklet?: boolean;
 }
 
+/** Default side lift for the score (L += w·S, R −= w·S above 300 Hz). 0 = as arranged, < 0 narrows. */
+export const DEFAULT_WIDTH = 0.22;
+
 export class AudioGraph {
   readonly ctx: BaseAudioContext;
   readonly out: GainNode;
@@ -99,6 +102,9 @@ export class AudioGraph {
   peakVoices = 0;
   /** Which follower drives the sidechain: 'worklet', 'native' or null (not attached yet). */
   ducker: 'worklet' | 'native' | null = null;
+  /** Side-signal lift of the score (see the stage-width block in the constructor). */
+  private widthL!: GainNode;
+  private widthR!: GainNode;
 
   constructor(ctx: BaseAudioContext, seed = 1234, dest?: AudioNode, opts: GraphOptions = {}) {
     this.ctx = ctx;
@@ -161,6 +167,25 @@ export class AudioGraph {
     glue.release.value = 0.3;
     const glueMakeup = g(1);
     this.musicBus.connect(this.duck).connect(this.sideDuck).connect(this.musicTone).connect(mud).connect(presence).connect(air).connect(glue).connect(glueMakeup).connect(this.musicVol).connect(this.mix);
+    // Stage width: a mid/side lift of the score's side signal above 300 Hz (+1.7 dB), added in
+    // parallel (L += w·S, R −= w·S) so the bass stays centred and the mono fold-down is untouched.
+    // The ensemble read close to mono (L/R correlation ~0.7); this opens it to ~0.6. Songs that are
+    // already wide (the cave-reverbed mines, the misty nights) set their own `width` (setWidth).
+    const split = ctx.createChannelSplitter(2);
+    const side = g(1);
+    side.channelCount = 1;
+    side.channelCountMode = 'explicit';
+    const sideHp = bq('highpass', 300, 0.6);
+    const wL = (this.widthL = g(DEFAULT_WIDTH));
+    const wR = (this.widthR = g(-DEFAULT_WIDTH));
+    const merge = ctx.createChannelMerger(2);
+    glueMakeup.connect(split);
+    split.connect(g(0.5), 0).connect(side);
+    split.connect(g(-0.5), 1).connect(side);
+    side.connect(sideHp);
+    sideHp.connect(wL).connect(merge, 0, 0);
+    sideHp.connect(wR).connect(merge, 0, 1);
+    merge.connect(this.musicVol);
     this.ambBus.connect(this.ambRest).connect(this.mix);
     this.sfxBus.connect(this.mix);
     this.uiBus.connect(this.mix);
@@ -358,6 +383,13 @@ export class AudioGraph {
   /** Lift the ambience a little while the score rests (0..1). */
   setAmbienceLift(amount: number, at = this.ctx.currentTime): void {
     this.ambRest.gain.setTargetAtTime(1 + 0.41 * amount, at, 1.5); // +3 dB
+  }
+
+  /** Glide the score's stage width to `w` (a new song's `width`) over `over` seconds from `at`. */
+  setWidth(w: number, at = this.ctx.currentTime, over = 2): void {
+    const tau = Math.max(0.05, over / 3);
+    this.widthL.gain.setTargetAtTime(w, at, tau);
+    this.widthR.gain.setTargetAtTime(-w, at, tau);
   }
 
   /**

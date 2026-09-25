@@ -5266,3 +5266,29 @@ body.u-contrast #ui-root {
 body.u-calm .de-star .medal {
   animation: none;
 }
+#ui-root .shop-tab {
+  font-size: 18px;
+}
+#ui-root .shop-more {
+  font-size: 14px;
+}
+#ui-root .pk-qty .u-btn.small {
+  font-size: 17px;
+}
+#ui-root .craft-go,
+#ui-root .de-foot .u-btn.green {
+  font-size: 21px;
+}
+
+/* Shop keeper's bubble: line centred in the bubble (full layout from frame 0, the typed tail fades in place). */
+.shop-bubble {
+  display: flex;
+  align-items: center;
+}
+.shop-bubble p {
+  font-size: 16.5px;
+  line-height: 1.42;
+}
+.shop-bubble p .ghost {
+  opacity: 0;
+}

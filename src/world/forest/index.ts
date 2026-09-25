@@ -957,6 +957,72 @@ export class ForestMap implements GameMap {
         r.pick(tracks).add(new THREE.Matrix4().compose(new THREE.Vector3(x, snowY(x, z), z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6.28), new THREE.Vector3(1, 1, 1)));
       }
     }
+    this.buildSnowCollars(snowY);
+  }
+
+  /**
+   * Winter drift collars: snow banks up against every giant's foot in a soft lumpy mound, burying
+   * the root tips so only the arching knees break the surface as rounded humps (seen from the game
+   * camera, fully exposed snow-capped roots read as a ring of white-topped fins). One merged mesh
+   * that follows the terrain + drift height, with a cool contact shade where it meets the bark.
+   */
+  private buildSnowCollars(snowY: (x: number, z: number) => number): void {
+    const RAD = 32;
+    const RINGS = 9;
+    const pos: number[] = [];
+    const col: number[] = [];
+    const idx: number[] = [];
+    for (const h of this.giants.handles) {
+      // Only the walkable map: the rim forest beyond it is seen through fog / from far above.
+      if (h.x < -3 || h.x > FOREST_SIZE.w + 3 || h.z < -3 || h.z > FOREST_SIZE.d + 3) continue;
+      const elder = h.kind === 'elder';
+      const s = h.scale;
+      const R = (elder ? 3.4 : 2.1) * s;
+      const rIn = (elder ? 0.72 : 0.42) * s;
+      const peak = (elder ? 1.35 : 0.66) * s;
+      const sd = h.seed * 97;
+      const base = pos.length / 3;
+      for (let i = 0; i <= RINGS; i++) {
+        const t = i / RINGS;
+        for (let j = 0; j < RAD; j++) {
+          const a = (j / RAD) * Math.PI * 2;
+          const Rj = R * (0.84 + 0.14 * Math.sin(a * 3 + sd) + 0.08 * Math.sin(a * 5 + sd * 1.7));
+          const rr = THREE.MathUtils.lerp(rIn, Rj, t);
+          const x = h.x + Math.cos(a) * rr;
+          const z = h.z + Math.sin(a) * rr;
+          // Rounded shoulder near the trunk easing out to nothing at the rim (slightly sunk there so
+          // the edge melts into the ground snow instead of drawing a line).
+          const lump = 0.8 + 0.22 * Math.sin(a * 3 + sd * 2.3) + 0.08 * Math.sin(a * 5 + sd);
+          // Never banked up out of the (frozen) stream or the pool: it thins away over the water.
+          const sd2 = this.shape.stream.nearest(x, z, 4)?.d ?? 9;
+          const dry = THREE.MathUtils.smoothstep(sd2, 1.3, 2.6) * THREE.MathUtils.smoothstep(Math.hypot(x - POOL.x, z - POOL.z), POOL.r + 0.4, POOL.r + 1.8);
+          const hgt = peak * (1 - THREE.MathUtils.smoothstep(t, 0, 1)) * Math.pow(1 - t, 0.3) * lump * dry;
+          pos.push(x, snowY(x, z) + hgt - 0.035, z);
+          const shade = THREE.MathUtils.smoothstep(t, 0, 0.3);
+          col.push(0.8 + 0.2 * shade, 0.85 + 0.15 * shade, 0.97 + 0.03 * shade);
+        }
+      }
+      for (let i = 0; i < RINGS; i++)
+        for (let j = 0; j < RAD; j++) {
+          const a = base + i * RAD + j;
+          const b = base + i * RAD + ((j + 1) % RAD);
+          const c = a + RAD;
+          const d = b + RAD;
+          idx.push(a, b, c, b, d, c);
+        }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(g, winterTwigMaterial());
+    m.name = 'snow-collars';
+    m.receiveShadow = true;
+    m.userData.perfTag = 'nature';
+    m.visible = false;
+    this.snowCollars = m;
+    this.root.add(m);
   }
 
   // ───────────────────────────────────────────── light shafts
@@ -1139,6 +1205,7 @@ export class ForestMap implements GameMap {
 
   private fogBoost = 0;
   private bridgeIce: THREE.Object3D | null = null;
+  private snowCollars: THREE.Mesh | null = null;
   /** Morning-fog boost for the light shafts (set by the weather system through `setAtmosphere`). */
   /** Demo stills: show the arrival plate and hold it. */
   showArrivalCard(pin = true): void {
@@ -1198,6 +1265,7 @@ export class ForestMap implements GameMap {
     this.ambience.setSeason(season);
     this.litter.mesh.visible = season === 'fall';
     if (this.bridgeIce) this.bridgeIce.visible = season === 'winter';
+    if (this.snowCollars) this.snowCollars.visible = season === 'winter';
     setIvySeason(season);
     // Mushrooms are an autumn-to-summer thing: none poke through the winter snow; winterberries and
     // dead stalks only show up under it.

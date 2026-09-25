@@ -65,7 +65,7 @@ export const GIANTS: [GiantKind, number, number, number][] = [
   // Central clearing frame.
   ['elder', 27.2, 16.8, 0.92],
   ['elder', 41.2, 26.8, 1.08],
-  ['elder', 25.4, 38.8, 1.0],
+  ['elder', 24.1, 39.3, 1.0], // (at 25.4 its bank-side roots speared into the snow-day frame edge)
   ['fir', 50.6, 35.4, 0.68], // (east of the trail: at 46.2 it roofed a quarter of the forest-rain frame, at 48.8 a fifth)
   ['elder', 30.8, 46.8, 0.96],
   ['fir', 23.4, 48.6, 1.0],

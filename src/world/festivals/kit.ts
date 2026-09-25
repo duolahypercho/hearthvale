@@ -1639,64 +1639,105 @@ export function buildStarTree(rng: Rng, H = 11): { group: THREE.Group; lights: T
   };
   const lights: THREE.Vector3[] = [];
   const baubles: { p: THREE.Vector3; c: number }[] = [];
-  // Garlands: a gold bead string + a red velvet ribbon, spiralling up on the canopy surface.
-  const garland = (phase: number, turns: number, y0: number, y1: number, kind: 'beads' | 'ribbon'): void => {
+  // Comet-tail garlands (the Starfall motif): five strings of glass beads streaming down from the
+  // crown star in long descending swoops, fat bright "comet heads" near the top tapering to fine
+  // ice-blue sparks at their tails — the falling stars the festival is named for.
+  const comet = (phase: number, turns: number, y0: number, y1: number): void => {
     const pts: THREE.Vector3[] = [];
-    const N = 260;
+    const N = 180;
     for (let i = 0; i <= N; i++) {
       const u = i / N;
-      const yy = y0 + u * (y1 - y0);
-      const a = u * turns * Math.PI * 2 + phase;
-      const r = envAt(yy) * 1.02 + 0.04;
-      // Swags: the string dips between the boughs it rests on.
-      const dip = Math.abs(Math.sin(u * turns * 14)) * 0.12;
+      const yy = y0 + (y1 - y0) * Math.pow(u, 0.85);
+      const a = phase - u * turns * Math.PI * 2;
+      const r = envAt(yy) * 1.03 + 0.05;
+      const dip = Math.abs(Math.sin(u * turns * 11)) * 0.1;
       pts.push(new THREE.Vector3(Math.cos(a) * r, yy - dip, Math.sin(a) * r));
     }
     const curve = new THREE.CatmullRomCurve3(pts);
-    if (kind === 'beads') {
-      b.add(M.bauble, new THREE.TubeGeometry(curve, 420, 0.025, 4, false), undefined, { tint: 0xd8a830 });
-      const L = curve.getLength();
-      const nb = Math.floor(L / 0.28);
-      for (let i = 0; i < nb; i++) {
-        const q = curve.getPointAt(i / nb);
-        b.add(M.bauble, new THREE.IcosahedronGeometry(0.065, 1), mat(q.x, q.y, q.z), { tint: i % 5 === 0 ? 0xfff0c0 : 0xf2c040 });
-        if (i % 3 === 0) lights.push(q.clone().multiplyScalar(1.03).setY(q.y));
-      }
-    } else {
-      b.add('cloth', new THREE.TubeGeometry(curve, 360, 0.075, 5, false), undefined, { tint: 0xb8222a });
+    b.add(M.bauble, new THREE.TubeGeometry(curve, 220, 0.016, 4, false), undefined, { tint: 0xe8eef8 });
+    const L = curve.getLength();
+    const nb = Math.floor(L / 0.19);
+    for (let i = 0; i < nb; i++) {
+      const u = i / nb;
+      const q = curve.getPointAt(u);
+      const rad = THREE.MathUtils.lerp(0.105, 0.03, Math.pow(u, 0.7));
+      const tint = new THREE.Color(0xfff2c8).lerp(new THREE.Color(0x9ad8ff), THREE.MathUtils.smoothstep(u, 0.1, 0.75)).getHex();
+      b.add(M.bauble, new THREE.IcosahedronGeometry(rad, 1), mat(q.x, q.y, q.z), { tint });
+      if (i % 3 === 0 && u < 0.8) lights.push(q.clone().multiplyScalar(1.03).setY(q.y));
     }
   };
-  garland(0, 3.6, base + 0.7, H - 1.8, 'beads');
-  garland(Math.PI, 3.2, base + 0.9, H - 2.6, 'ribbon');
-  // Baubles: hung at the bough tips (the outer rim of each tier), saturated red / gold / teal.
-  const colors = [0xd41e2a, 0xf2b010, 0x1a9a9a, 0xd41e2a, 0xf2b010, 0x2a5ad8, 0xb82a8a];
+  for (let k = 0; k < 5; k++) comet((k / 5) * Math.PI * 2 + 0.3, 0.95 + (k % 2) * 0.2, H - 1.9, base + 1.0 + (k % 3) * 0.9);
+  // Falling-star glass ornaments at the bough tips: a glass star-head with a tapering comet tail
+  // flaring up and back (ice, pearl, gold, lilac, teal) — no generic round baubles.
+  const colors = [0xbfe8ff, 0xf2d27a, 0xd8c8ff, 0xfff4e0, 0x7ad0e8, 0xf2d27a, 0xbfe8ff];
+  const up = new THREE.Vector3(0, 1, 0);
   for (const [ti, tr] of tierList.entries()) {
-    const k = Math.round(4 + tr.R * 3.4);
+    const k = Math.round(3 + tr.R * 2.6);
     for (let i = 0; i < k; i++) {
       const a = (i / k) * Math.PI * 2 + ti * 0.9 + rng.next() * 0.3;
       const r = tr.R * (0.9 + rng.next() * 0.08);
       const p = new THREE.Vector3(Math.cos(a) * r, tr.y + tr.th * 0.08 - rng.next() * 0.1, Math.sin(a) * r);
       const c = colors[(i + ti) % colors.length]!;
-      const rad = 0.13 + rng.next() * 0.05 + (ti < 3 ? 0.03 : 0);
-      b.add(M.bauble, new THREE.SphereGeometry(rad, 12, 9), mat(p.x, p.y, p.z), { tint: c });
-      b.add('metal', new THREE.CylinderGeometry(0.035, 0.035, 0.05, 6), mat(p.x, p.y + rad + 0.02, p.z), { tint: 0xd8b060 });
+      const rad = 0.11 + rng.next() * 0.04 + (ti < 3 ? 0.03 : 0);
+      b.add(M.bauble, new THREE.IcosahedronGeometry(rad, 2), mat(p.x, p.y, p.z), { tint: c });
+      // The tail: a slim glass cone streaming up-and-out behind the head.
+      const tail = new THREE.ConeGeometry(rad * 0.72, rad * 3.4, 8, 1, false);
+      tail.translate(0, rad * 1.7, 0);
+      const dir = new THREE.Vector3(Math.cos(a) * 0.55, 1, Math.sin(a) * 0.55).normalize();
+      const q = new THREE.Quaternion().setFromUnitVectors(up, dir);
+      b.add(M.bauble, tail, new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)), { tint: new THREE.Color(c).lerp(new THREE.Color(0xffffff), 0.35).getHex() });
       baubles.push({ p, c });
     }
   }
-  // Star: a gold 5-point star (emissive face, darker metal bevel keeps the silhouette under bloom).
-  const star = new THREE.Shape();
+  // Hanging paper stars (they glow at night): little five-point stars on threads from the boughs.
+  const paperStar = new THREE.Shape();
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
-    const r = i % 2 ? 0.3 : 0.74;
+    const r = i % 2 ? 0.07 : 0.17;
+    if (i === 0) paperStar.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    else paperStar.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  const psGeo = new THREE.ExtrudeGeometry(paperStar, { depth: 0.05, bevelEnabled: false });
+  psGeo.translate(0, 0, -0.025);
+  for (const [ti, tr] of tierList.entries()) {
+    if (ti === 0 || ti > 6) continue;
+    const k = 3 + (ti % 2);
+    for (let i = 0; i < k; i++) {
+      const a = (i / k) * Math.PI * 2 + ti * 1.7 + 0.5;
+      const r = tr.R * 0.97;
+      const top = new THREE.Vector3(Math.cos(a) * r, tr.y + tr.th * 0.05, Math.sin(a) * r);
+      const drop = 0.32 + (i % 2) * 0.12;
+      b.add('metal', new THREE.CylinderGeometry(0.006, 0.006, drop, 3), mat(top.x, top.y - drop / 2, top.z), { tint: 0xe8e0c8 });
+      const sp = new THREE.Vector3(top.x, top.y - drop - 0.12, top.z);
+      b.add('paperLantern', psGeo, mat(sp.x, sp.y, sp.z, 0, -a + Math.PI / 2, (i % 3) * 0.2 - 0.2), { tint: i % 3 === 0 ? 0xffe0a0 : i % 3 === 1 ? 0xfff4e0 : 0xffc8d8 });
+      lights.push(sp.clone());
+    }
+  }
+  // Crown: an eight-point Starfall star (long vertical points, short diagonals) inside a thin halo
+  // ring, with a comet tail of three tapering glass streamers sweeping down one side.
+  const star = new THREE.Shape();
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2 + Math.PI / 2;
+    const long = i % 4 === 0;
+    const r = i % 2 ? 0.2 : long ? (i === 0 || i === 8 ? 0.95 : 0.72) : 0.46;
     if (i === 0) star.moveTo(Math.cos(a) * r, Math.sin(a) * r);
     else star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
   }
   star.closePath();
-  const sg = new THREE.ExtrudeGeometry(star, { depth: 0.14, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.06, bevelSegments: 2 });
-  sg.translate(0, 0, -0.07);
-  const starY = H + 0.2;
+  const sg = new THREE.ExtrudeGeometry(star, { depth: 0.12, bevelEnabled: true, bevelSize: 0.04, bevelThickness: 0.05, bevelSegments: 2 });
+  sg.translate(0, 0, -0.06);
+  const starY = H + 0.35;
   b.add(M.star, sg, mat(0, starY, 0), { tint: 0xffffff });
-  b.add('metal', bevelCylinder(0.05, 0.08, 0.7, 0.02, 8), mat(0, starY - 0.95, 0), { tint: 0xc8a040 });
+  b.add('metal', new THREE.TorusGeometry(0.62, 0.028, 5, 40), mat(0, starY, 0), { tint: 0xe8c860 });
+  for (let k = 0; k < 3; k++) {
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const u = i / 12;
+      pts.push(new THREE.Vector3(0.3 + u * 1.4 + k * 0.1, starY - 0.2 - u * (1.5 + k * 0.35) - Math.sin(u * 3) * 0.1, 0.12 - u * 0.4 + k * 0.1));
+    }
+    b.add(M.bauble, taperTube(new THREE.CatmullRomCurve3(pts), 16, 0.07 - k * 0.012, 0.008, 6), undefined, { tint: [0xfff2c8, 0xcfeaff, 0xe8dcff][k]! });
+  }
+  b.add('metal', bevelCylinder(0.05, 0.08, 0.7, 0.02, 8), mat(0, starY - 1.1, 0), { tint: 0xc8a040 });
   // Gifts ring at the base.
   giftPile(b, rng, 0, 0, 2.4, 22);
   return { group: b.build({ name: 'star-tree' }), lights, baubles, star: new THREE.Vector3(0, starY, 0) };

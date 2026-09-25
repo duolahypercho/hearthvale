@@ -211,7 +211,7 @@ class Bodies {
     this.mesh.visible = false;
   }
 
-  spawn(p: THREE.Vector3, v: THREE.Vector3, o: { color: number | THREE.Color; size: number; life?: number; gravity?: number; drag?: number; bounce?: number; flutter?: number; flat?: number; spin?: number }): void {
+  spawn(p: THREE.Vector3, v: THREE.Vector3, o: { color: number | THREE.Color; size: number; life?: number; gravity?: number; drag?: number; bounce?: number; flutter?: number; flat?: number; spin?: number; narrow?: number }): void {
     const i = this.next;
     this.next = (this.next + 1) % this.n;
     const b = this.bodies[i]!;
@@ -221,7 +221,7 @@ class Bodies {
     const sp = o.spin ?? 12;
     b.spin.set(rnd(-sp, sp), rnd(-sp, sp), rnd(-sp, sp));
     const s = o.size * rnd(0.7, 1.3);
-    b.scale.set(s, s * (o.flat ?? rnd(0.6, 1)), s * rnd(0.8, 1.2));
+    b.scale.set(s * (o.narrow ?? 1), s * (o.flat ?? rnd(0.6, 1)), s * rnd(0.8, 1.2));
     b.age = 0;
     b.life = (o.life ?? 1.6) * rnd(0.8, 1.25);
     b.gravity = o.gravity ?? 9.5;
@@ -1404,9 +1404,12 @@ export class FarmFX {
     this.leaves.spawn(p, v, { color, size, life: 0.5, gravity: 5, drag: 1.6, bounce: 0, flutter: 0.8, flat: 1, spin: 14 });
   }
 
-  /** A black feather: see-saws down and lies on the ground for `life` seconds. */
+  /**
+   * A crow feather: a slim slate-blue quill (not a black chip — square dark flecks on dark soil
+   * read as holes in the ground) that see-saws down and lies on the ground for `life` seconds.
+   */
   feather(p: THREE.Vector3, v: THREE.Vector3, life = 3): void {
-    this.leaves.spawn(p, v, { color: 0x23252f, size: rnd(0.07, 0.095), life, gravity: 1.4, drag: 3.2, bounce: 0, flutter: 1.6, flat: 0.5, spin: 4 });
+    this.leaves.spawn(p, v, { color: _c.setHSL(0.63, 0.14, rnd(0.15, 0.21)), size: rnd(0.065, 0.085), life, gravity: 1.4, drag: 3.2, bounce: 0, flutter: 1.6, flat: 0.3, spin: 4, narrow: 0.3 });
   }
 
   /** Soft drifting spray mist (sprinklers, heavy pours). */
