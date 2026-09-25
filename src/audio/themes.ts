@@ -576,11 +576,11 @@ export const THEMES: Record<string, ThemeDef> = {
     sheen: 3,
   },
 
-  /** Deepwood Forest — a dorian whistle tune in a lilting 6/8 over harp. */
+  /** Cindergrove — a dorian whistle tune in a lilting 6/8 over harp. */
   forest: {
     id: 'forest',
     title: 'Mossway',
-    blurb: 'Deepwood Forest',
+    blurb: 'Cindergrove',
     bpm: 76,
     meter: '6/8',
     key: 64, // E
