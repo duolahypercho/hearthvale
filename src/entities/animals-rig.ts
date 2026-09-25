@@ -65,6 +65,17 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
             float pv = hvNoise3(vRest * vPatchA.xyz, vPatchA.w) + vPatchB.z * sin(vRest.z * 9.0 + vRest.x * 4.0) + vPatchB.w * (vRest.y - vPatchC.w);
             float pw = fwidth(pv) * 0.9 + 0.002;
             diffuseColor.rgb = mix(diffuseColor.rgb, vPatchC.rgb, smoothstep(vPatchB.y - pw, vPatchB.y + pw, pv));
+          }
+          {
+            // Fur grain: fine streaks combed along the body (rest-pose z), faded out before they can
+            // shimmer (fwidth); skipped on catchlights (near-white) and eyes / hooves (near-black).
+            vec3 fp = vRest * vec3(64.0, 58.0, 13.0);
+            float fa = 1.0 - smoothstep(0.35, 1.3, length(fwidth(fp)));
+            float fv = hvNoise3(fp, 3.0) * 0.6 + hvNoise3(fp * 2.1 + 5.0, 1.0) * 0.4;
+            float mx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
+            float mn = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
+            float coat = (1.0 - step(0.965, mn)) * smoothstep(0.06, 0.16, mx);
+            diffuseColor.rgb *= 1.0 + fv * 0.085 * fa * coat;
           }`,
         )
         .replace(

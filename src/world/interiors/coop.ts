@@ -4,7 +4,7 @@
  *   back-left    two tiers of straw-lined nesting boxes (eggs appear here each morning) + a ramp
  *   back-right   the roost: a ladder of perches over a straw pile (where the birds sleep)
  *   middle       a dust bath, a standing grain feeder in a halo of spilled grain, a stoneware water crock
- *                on its wet ring, a birch perch log + stump, a tipped feed sack spilling corn, feathers
+ *                on its wet ring, a little bale climbing frame + stump, a tipped feed sack spilling corn, feathers
  *   front-left   long feed trough fed by a hopper (interact with hay to fill it)
  *   front-right  feed sacks, an egg basket on a crate, a pail of wildflowers, the pop-door hatch in the
  *                knee wall (interact: open / shut the door to the pasture)
@@ -20,7 +20,7 @@ import { InteriorMap } from './room';
 import { Kit } from './kit';
 import { mat, lumpySphere, roundedBox } from '../geom';
 import type { PenAnchors } from './pen';
-import { hayPile, strawTufts, lanternHook, feedSack, strawDrift } from './pen';
+import { hayPile, strawTufts, lanternHook, feedSack, strawDrift, hayBale } from './pen';
 
 export const COOP_EXIT = { x: 39.5, z: 35.4 };
 /** Roost ladder: bar i sits at y = Y0 + i·DY, z = Z0 − i·DZ (x 4.7 … 7.2). */
@@ -62,6 +62,7 @@ export class CoopInterior extends InteriorMap {
     });
     this.camera = { yaw: 0, pitch: 48, distance: 12.6, offsetX: 0, offsetZ: 0.4 };
     this.dayScale = 1.3;
+    this.sunPoolK = 0.4;
     this.exposureBoost = 0.28;
     const rng = new Rng('coop-interior');
     const trough = { x0: 0.55, x1: 3.55, z: 5.35 };
@@ -70,7 +71,7 @@ export class CoopInterior extends InteriorMap {
     const slots = Array.from({ length: 6 }, (_, i) => {
       const x = 0.85 + i * 0.5;
       return {
-        feed: new THREE.Vector3(x, 0, trough.z - 0.15),
+        feed: new THREE.Vector3(x, 0, trough.z - 0.3),
         feedHeading: 0,
         bed: new THREE.Vector3(beds[i]![0], 0, beds[i]![1]),
         hay: new THREE.Vector3(x, 0.24, trough.z),
@@ -206,25 +207,12 @@ export class CoopInterior extends InteriorMap {
     k.add('ceramic', crock, mat(wx, 0.04, wz), { tint: 0xd8cbb4 });
     k.add('ceramic', new THREE.TorusGeometry(0.2, 0.012, 5, 22), mat(wx, 0.2, wz, Math.PI / 2, 0, 0), { tint: 0x4a6a8a });
     k.cyl('ceramic', 0.28, 0.28, 0.012, [wx, 0.05, wz], { tint: 0x7ab0d0, seg: 22 });
-    // Perch log across the floor (a barky birch log: sawn ends with growth rings, a stub, moss) + stump
-    const lcx = 2.35;
-    const lcz = 3.85;
-    const lry = 0.3;
-    const lg = new THREE.CylinderGeometry(0.16, 0.18, 1.45, 14, 4);
-    lg.rotateZ(Math.PI / 2);
-    k.add('wood', lg, mat(lcx, 0.16, lcz, 0, lry, 0), { tint: 0x9a7650 });
-    for (let i = 0; i < 4; i++) {
-      const t = -0.5 + i * 0.33;
-      k.add('wood', new THREE.TorusGeometry(0.172 + (i % 2) * 0.01, 0.015, 5, 14), mat(lcx + Math.cos(lry) * t, 0.16, lcz - Math.sin(lry) * t, 0, lry + Math.PI / 2, 0), { tint: 0x5e4430 });
-    }
-    for (const s of [-1, 1]) {
-      const ex = lcx + s * 0.73 * Math.cos(lry);
-      const ez = lcz - s * 0.73 * Math.sin(lry);
-      k.add('wood', new THREE.CircleGeometry(s < 0 ? 0.178 : 0.158, 14).rotateY(Math.PI / 2), mat(ex, 0.16, ez, 0, lry + (s < 0 ? Math.PI : 0), 0), { tint: 0xf0d6a4 });
-      for (const r of [0.06, 0.11]) k.add('wood', new THREE.RingGeometry(r, r + 0.012, 14).rotateY(Math.PI / 2), mat(ex + s * 0.003 * Math.cos(lry), 0.16, ez - s * 0.003 * Math.sin(lry), 0, lry + (s < 0 ? Math.PI : 0), 0), { tint: 0xc09060 });
-    }
-    k.cyl('wood', 0.045, 0.06, 0.22, [lcx + 0.22, 0.28, lcz - 0.05], { rz: -0.7, rx: -0.3, tint: 0x6a4a34 });
-    k.add('leaf', lumpySphere(0.09, 1, 0.3, rng), mat(lcx - 0.28, 0.31, lcz + 0.06, 0, 0, 0, 1.6, 0.45, 1), { tint: 0x7a9a4a });
+    // A little bale "climbing frame" (the hens hop up it): a bale on the floor, a smaller one stacked
+    // half-off it, loose straw kicked round the foot and a scatter of grain on the top.
+    hayBale(k, 2.3, 0, 3.88, 0.28, 0.86);
+    hayBale(k, 2.12, 0.36, 3.92, 0.12, 0.66);
+    strawTufts(k, rng, 2.3, 0.02, 3.9, 16, 0.75);
+    for (let i = 0; i < 14; i++) k.sphere('ceramic', 0.012, [2.0 + rng.next() * 0.35, 0.645, 3.82 + rng.next() * 0.2], rng.next() < 0.35 ? 0xc89a40 : 0xe8c050);
     k.cyl('wood', 0.19, 0.22, 0.34, [3.55, 0, 3.35], { tint: 0x96683f });
     k.cyl('wood', 0.18, 0.18, 0.01, [3.55, 0.34, 3.35], { tint: 0xd8b080 });
     k.add('ceramic', new THREE.SphereGeometry(0.045, 12, 8), mat(3.6, 0.38, 3.33, 0, 0, 0, 1, 1.25, 1), { tint: 0xd99a62 });
@@ -303,7 +291,7 @@ export class CoopInterior extends InteriorMap {
     this.solid(7.0, 4.5, 7.95, 5.6, 'sacks');
     this.solid(5.9, 5.2, 6.95, 5.8, 'basket');
     this.solid(4.05, 2.65, 4.65, 3.25, 'feeder');
-    this.solid(1.75, 3.65, 2.95, 4.05, 'perch-log');
+    this.solid(1.85, 3.6, 2.75, 4.15, 'bales');
     this.solid(3.35, 3.15, 3.75, 3.55, 'stump');
     this.solid(6.2, 4.35, 6.9, 4.75, 'spilled-sack');
     this.solid(0.1, 1.1, 0.6, 1.6, 'basket');

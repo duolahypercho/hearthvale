@@ -144,6 +144,8 @@ export abstract class InteriorMap implements GameMap {
   protected exposureBoost = 0;
   /** Moonlight through the windows at night (the cool accent against the lamp light). */
   protected moonScale = 1;
+  /** Soft additive sun patch where each window shaft lands (0 = off; straw floors swallow the real one). */
+  protected sunPoolK = 0;
   protected finalized = false;
   /** Bedtime dimming 0..1 (sleep system): lamps, fire and exposure ease down before the fade. */
   dim = 0;
@@ -218,7 +220,7 @@ export abstract class InteriorMap implements GameMap {
     this.dust.userData.noAO = true;
     this.dust.name = 'dust';
 
-    this.rim = new THREE.PointLight(0xa8bcff, 0, 3.4, 2);
+    this.rim = new THREE.PointLight(0xffcf9a, 0, 2.6, 2);
     this.rim.castShadow = false;
     this.root.add(this.rim);
 
@@ -453,6 +455,32 @@ export abstract class InteriorMap implements GameMap {
     this.updaters.push(() => m.color.copy(c0).multiplyScalar(strength()));
   }
 
+  /**
+   * A window-shaped pool of warm sun on the floor where a shaft lands: the shaft's floor quad, grown
+   * 35 % about its centre, textured with the soft glow disc (so the edges feather out), additive,
+   * tinted with the sun colour and faded by daylight.
+   */
+  private sunPool(floor: THREE.Vector3[]): void {
+    const c = new THREE.Vector3();
+    for (const f of floor) c.add(f);
+    c.multiplyScalar(1 / floor.length);
+    const q = floor.map((f) => f.clone().sub(c).multiplyScalar(1.35).add(c));
+    const pos: number[] = [];
+    const uv = [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1];
+    for (const i of [0, 1, 2, 0, 2, 3]) pos.push(q[i]!.x, 0.014, q[i]!.z);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    const m = new THREE.MeshBasicMaterial({ map: glowDisc().map, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.userData.noAO = true;
+    mesh.userData.dynamic = true;
+    mesh.renderOrder = 2;
+    mesh.name = 'sun-pool';
+    this.root.add(mesh);
+    this.updaters.push((_dt, _t, L) => m.color.copy(L.sunColor).multiplyScalar(this.sunPoolK * L.day));
+  }
+
   /** Call once after furnishing: merges statics, builds light shafts + dust for the windows. */
   protected finalize(): void {
     const merged = mergeStatic(this.statics, `${this.id}-static`);
@@ -512,6 +540,7 @@ export abstract class InteriorMap implements GameMap {
       this.root.add(mesh);
       this.shafts.push(mesh);
       this.dustBeams.push({ win: corners, floor });
+      if (this.sunPoolK > 0) this.sunPool(floor);
     }
   }
 
@@ -575,9 +604,11 @@ export abstract class InteriorMap implements GameMap {
     L.bloom *= 1 - this.dim * 0.4;
     const t = game.time;
     const pp = game.player.position;
-    // Behind the farmer at head height (a true rim): from above it blew the straw hat out to white.
-    this.rim.position.set(pp.x - 0.45, pp.y + 1.25, pp.z - 1.15);
-    this.rim.intensity = L.night * 0.85;
+    // Night: a soft warm bounce fill in front of the farmer at chest height (the lamplight coming back
+    // off the floorboards), so the face reads instead of a silhouette against the hearth. Low and in
+    // front, so it never blows the straw hat out from above.
+    this.rim.position.set(pp.x + 0.3, pp.y + 0.8, pp.z + 1.0);
+    this.rim.intensity = L.night * 0.95;
     this.groundMat.color.setScalar(0.55 + 0.45 * L.day);
     const lampK = Math.max(L.night, 1 - L.day * 1.05);
     for (const l of this.lamps) {

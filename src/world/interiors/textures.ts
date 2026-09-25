@@ -438,6 +438,69 @@ export function wovenRug(): TexPair {
   });
 }
 
+/** Hit-and-miss rag runner: cross stripes of torn-cloth bands (denim, sage, oatmeal, faded rose) with a
+ *  cream warp fringe at both short ends. V runs along the runner's length. */
+export function ragRunner(): TexPair {
+  return cached('i:runner', () => {
+    const W = 256;
+    const H = 512;
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const ctx = c.getContext('2d')!;
+    const rng = new Rng('runner');
+    const pal = ['#4f6a86', '#7d93a8', '#e6d8b8', '#8fa37a', '#c98a7a', '#d9c9a0', '#3e5670', '#b7a888'];
+    ctx.fillStyle = '#e6d8b8';
+    ctx.fillRect(0, 0, W, H);
+    const F = 26;
+    let y = F;
+    while (y < H - F) {
+      const h = 6 + Math.floor(rng.next() * 16);
+      const col = pal[Math.floor(rng.next() * pal.length)]!;
+      ctx.fillStyle = col;
+      ctx.fillRect(10, y, W - 20, Math.min(h, H - F - y));
+      // Torn-cloth flecks: short lighter/darker dashes along the weft
+      for (let i = 0; i < 18; i++) {
+        ctx.fillStyle = rng.next() < 0.5 ? 'rgba(255,248,230,0.18)' : 'rgba(40,30,20,0.16)';
+        ctx.fillRect(10 + rng.next() * (W - 30), y + rng.next() * h, 6 + rng.next() * 18, 1.5);
+      }
+      y += h;
+    }
+    // Wide feature bands near each end
+    for (const yy of [F + 30, H - F - 48]) {
+      ctx.fillStyle = '#34495e';
+      ctx.fillRect(10, yy, W - 20, 18);
+      ctx.fillStyle = '#e6d8b8';
+      ctx.fillRect(10, yy + 6, W - 20, 5);
+    }
+    // Selvedge edges
+    ctx.fillStyle = 'rgba(40,30,20,0.25)';
+    ctx.fillRect(10, F, 3, H - F * 2);
+    ctx.fillRect(W - 13, F, 3, H - F * 2);
+    // Weave: fine rows
+    for (let yy = F; yy < H - F; yy += 3) {
+      ctx.fillStyle = `rgba(0,0,0,${0.05 + rng.next() * 0.05})`;
+      ctx.fillRect(10, yy, W - 20, 1);
+    }
+    // Fringe
+    ctx.clearRect(0, 0, W, F);
+    ctx.clearRect(0, H - F, W, F);
+    ctx.strokeStyle = '#efe4c8';
+    ctx.lineWidth = 2.2;
+    for (let x = 16; x < W - 12; x += 6) {
+      for (const [y0, dir] of [[F, -1], [H - F, 1]] as const) {
+        ctx.beginPath();
+        ctx.moveTo(x, y0);
+        ctx.lineTo(x + (rng.next() - 0.5) * 4, y0 + dir * (14 + rng.next() * 9));
+        ctx.stroke();
+      }
+    }
+    ctx.clearRect(0, F, 10, H - F * 2);
+    ctx.clearRect(W - 10, F, 10, H - F * 2);
+    return { map: toTexture(c, true, false) };
+  });
+}
+
 /** Braided oval rug: concentric multi-coloured braid rings (UV centre = rug centre). */
 export function braidedRug(): TexPair {
   return cached('i:braid', () => {

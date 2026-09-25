@@ -506,7 +506,7 @@ export class HouseInterior extends InteriorMap {
   private front(rng: Rng): void {
     const k = new Kit();
     // Woven runner inside the door + a second runner leading up to the hearth rug
-    k.add('rug', floorPlane(1.4, 2.0), mat(6.5, 0.008, 6.95));
+    k.add('runner', floorPlane(1.05, 2.1), mat(6.5, 0.008, 6.9, 0, 0.05, 0));
     // Living corner: a loveseat facing the hearth (its back to the door), a side table with a little
     // glass lamp, a basket of kindling-dry magazines — closes the hearth circle instead of a lone runner.
     this.loveseat(k, rng, 6.5, 4.3);
@@ -630,8 +630,38 @@ export class HouseInterior extends InteriorMap {
     // (kept inside the knee wall: an additive floor card past it glowed over the void under the diorama)
     this.glowPool(hx + 0.1, hz - 0.95, 1.45, 0xffa458, () => this.light.night * 0.42 * (1 - this.dim));
     this.glowPool(hx, hz - 0.1, 0.8, 0xffc080, () => this.light.night * 0.5 * (1 - this.dim), 0.02);
+    // Gran's blanket trunk in the open floor between the hearth circle and the spinning wheel:
+    // painted sea-green with a domed lid, brass corners + hasp, leather straps, a folded quilt on top
+    // and a ball of wool rolled off towards the rug (the cat's work).
+    {
+      const tx = 9.3;
+      const tz = 5.45;
+      const ry = -0.22;
+      const P = (lx: number, ly: number, lz: number, rx = 0, rry = 0, rz = 0) => mat(tx + lx * Math.cos(ry) + lz * Math.sin(ry), ly, tz - lx * Math.sin(ry) + lz * Math.cos(ry), rx, ry + rry, rz);
+      k.add('paint', roundedBox(0.96, 0.4, 0.52, 0.03), P(0, 0.2, 0), { tint: 0x5a8a82 });
+      const lid = new THREE.CylinderGeometry(0.26, 0.26, 0.96, 18, 1, false, 0, Math.PI);
+      lid.rotateZ(Math.PI / 2);
+      lid.scale(1, 0.42, 1);
+      k.add('paint', lid, P(0, 0.4, 0), { tint: 0x4e7c74 });
+      for (const sx of [-0.3, 0.3]) {
+        k.add('wood', roundedBox(0.07, 0.43, 0.545, 0.01), P(sx, 0.2, 0), { tint: 0x6a4028 });
+        k.add('wood', new THREE.TorusGeometry(0.262, 0.018, 4, 16, Math.PI).scale(1, 0.42, 1), P(sx, 0.4, 0, 0, Math.PI / 2, 0), { tint: 0x6a4028 });
+      }
+      for (const sx of [-0.47, 0.47]) for (const sz of [-0.25, 0.25]) k.add('brass', roundedBox(0.06, 0.4, 0.06, 0.01), P(sx, 0.2, sz));
+      k.add('brass', roundedBox(0.08, 0.1, 0.02, 0.008), P(0, 0.34, 0.265));
+      // Folded quilt (a thick stack, slightly askew)
+      k.add('quilt', roundedBox(0.58, 0.11, 0.4, 0.04), P(-0.08, 0.56, 0.02, 0, 0.12, 0));
+      k.add('fabric', roundedBox(0.5, 0.05, 0.34, 0.02), P(-0.1, 0.64, 0.04, 0, 0.2, 0), { tint: 0xe8dcc0 });
+      // Runaway ball of wool + its trailing strand
+      const bx = tx - 0.85;
+      const bz = tz + 0.35;
+      k.add('fabric', lumpySphere(0.07, 1, 0.12, rng), mat(bx, 0.07, bz), { tint: 0xc0504a });
+      const strand = new THREE.CatmullRomCurve3([new THREE.Vector3(bx + 0.06, 0.01, bz - 0.02), new THREE.Vector3(bx + 0.3, 0.008, bz - 0.12), new THREE.Vector3(bx + 0.45, 0.008, bz + 0.02), new THREE.Vector3(tx - 0.52, 0.01, tz + 0.12)]);
+      k.add('fabric', new THREE.TubeGeometry(strand, 16, 0.006, 4, false), mat(0, 0, 0), { tint: 0xc0504a });
+    }
     this.statics.push(k.build('front'));
     this.solid(10.65, 4.2, 11.75, 5.25, 'spinning-wheel');
+    this.solid(8.75, 5.1, 9.85, 5.8, 'blanket-trunk');
     this.solid(10.3, 4.1, 10.7, 4.5, 'wool-basket');
     this.solid(4.6, 7.1, 5.3, 7.8, 'coat-rack');
     this.solid(11.9, 6.9, 12.8, 7.7, 'plant');

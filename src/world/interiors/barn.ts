@@ -89,6 +89,7 @@ export class BarnInterior extends InteriorMap {
     // A lower 42° pitch: the stall row reads face-on (chins over the mangers), less bare floor.
     this.camera = { yaw: 0, pitch: 42, distance: 17.2, offsetX: 0, offsetZ: 0.1 };
     this.dayScale = 1.2;
+    this.sunPoolK = 0.25;
     this.exposureBoost = 0.2;
     const rng = new Rng('barn-interior');
     const slots: PenSlot[] = Array.from({ length: 6 }, (_, i) => {

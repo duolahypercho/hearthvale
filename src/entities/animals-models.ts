@@ -233,12 +233,14 @@ function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofT
   }
 }
 
-/** Shoulder + haunch masses over a capsule body: gives quadrupeds a chest, a rump and a belly. */
-function bodyMasses(r: RigBuilder, d: QuadDims, tint: THREE.ColorRepresentation, patch?: CoatPatch, k = 1, paint?: (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => void): void {
-  const R = d.bodyR;
-  r.part('body', ellipsoid(R * 0.98, R * 1.02, R * 0.9), mat(0, d.bodyY + R * 0.06, d.frontZ + R * 0.1), tint, { patch, paint });
-  r.part('body', ellipsoid(R * 1.02, R * 1.0 * k, R * 0.95), mat(0, d.bodyY + R * 0.08, d.backZ - R * 0.05), tint, { patch, paint });
-  r.part('body', ellipsoid(R * 0.92, R * 0.8, (d.frontZ - d.backZ) * 0.75), mat(0, d.bodyY - R * 0.22, (d.frontZ + d.backZ) / 2), tint, { patch, paint });
+/**
+ * One smooth sculpted barrel along +Z (a lathe through `[z, radius]` stations, back → front): chest,
+ * waist tuck and rump in a single surface — no overlapping-capsule seams catching the light.
+ */
+function barrel(profile: [number, number][], seg = 22): THREE.BufferGeometry {
+  const g = new THREE.LatheGeometry(profile.map(([z, rr]) => new THREE.Vector2(rr, z)), seg);
+  g.rotateX(Math.PI / 2);
+  return g;
 }
 
 function cow(variant: number): AnimalModel {
@@ -255,13 +257,15 @@ function cow(variant: number): AnimalModel {
   r.bone('earL', 'head', [-0.23, 1.12, 0.55]);
   r.bone('earR', 'head', [0.23, 1.12, 0.55]);
   r.bone('tail', 'body', [0, 0.96, -0.6]);
-  r.part('body', capsuleZ(d.bodyR, d.bodyLen, 10, 20), mat(0, d.bodyY, -0.04, 0, 0, 0, 1, 0.95, 1), base, { patch: spots, paint: shade });
-  bodyMasses(r, d, base, spots, 1.02, shade);
+  // One sculpted barrel: square rump, a slight waist, deep brisket (no capsule seams).
+  const cowBody = barrel([[-0.66, 0], [-0.648, 0.14], [-0.61, 0.26], [-0.53, 0.34], [-0.41, 0.372], [-0.26, 0.362], [-0.1, 0.352], [0.05, 0.356], [0.2, 0.372], [0.33, 0.366], [0.45, 0.318], [0.53, 0.23], [0.572, 0.12], [0.584, 0]], 24);
+  r.part('body', cowBody, mat(0, d.bodyY + 0.01, 0, 0, 0, 0, 1, 0.97, 1), base, { patch: spots, paint: shade });
+  r.part('body', ellipsoid(d.bodyR * 0.9, d.bodyR * 0.72, 0.4), mat(0, d.bodyY - d.bodyR * 0.26, -0.02), base, { patch: spots, paint: shade });
   // Udder + teats
   r.part('body', ellipsoid(0.14, 0.085, 0.15), mat(0, 0.44, -0.24), 0xf4b0aa);
   for (const [x, z] of [[-0.05, -0.2], [0.05, -0.2], [-0.05, -0.29], [0.05, -0.29]] as const) r.part('body', limb(0.018, 0.015, 0.4, 0.34, 6), mat(x, 0, z), 0xe8908c, { flat: true });
   // Leather collar + brass bell
-  r.part('body', new THREE.TorusGeometry(0.235, 0.032, 8, 22), mat(0, 0.9, 0.42, Math.PI / 2 - 0.55, 0, 0), 0xc03a2c);
+  r.part('body', new THREE.TorusGeometry(0.205, 0.03, 8, 22), mat(0, 0.86, 0.43, Math.PI / 2 - 0.55, 0, 0), 0x8e3526);
   r.part('body', new THREE.CylinderGeometry(0.045, 0.07, 0.1, 14), mat(0, 0.69, 0.56), 0xe8b840, { flat: true });
   r.part('body', new THREE.SphereGeometry(0.02, 8, 6), mat(0, 0.635, 0.56), 0x5a4020, { flat: true });
   legs(r, d, base, 0x3e302a, jersey ? band(0x6a4228, 0.22) : spots);
@@ -290,7 +294,7 @@ function cow(variant: number): AnimalModel {
   // Forelock tuft
   for (let i = 0; i < 3; i++) r.part('head', ellipsoid(0.05, 0.04, 0.05, 8, 6), mat(-0.04 + i * 0.04, 1.3, 0.6 + (i % 2) * 0.03), jersey ? 0x9a6238 : base);
   eyes(r, 0.125, 1.1, 0.79, 0.05, 0.36, { rim: 0xf6efe4 });
-  cheeks(r, 0.18, 1.0, 0.76, 0.04);
+  cheeks(r, 0.2, 0.98, 0.74, 0.036, 0xf2b0a6);
   const { mesh, bones } = r.build(animalMaterial(), 'cow');
   return { mesh, bones, species: 'cow', gait: { biped: false, speed: 0.55, freq: 1.55, legAmp: 0.38, bob: 0.02, eatPitch: 0.95, radius: 0.36, len: 0.42, reach: 0.98, top: 1.55, sleepDrop: 0.36, fold: 0.3 } };
 }
@@ -310,14 +314,12 @@ function goat(variant: number): AnimalModel {
   r.bone('earR', 'head', [0.12, 1.04, 0.42]);
   r.bone('tail', 'body', [0, 0.78, -0.36]);
   // Barrel: deep chest tapering to a tucked flank and a neat rump
-  r.part('body', capsuleZ(d.bodyR, d.bodyLen, 10, 18), mat(0, d.bodyY, -0.02, 0, 0, 0, 1, 1.05, 1), base);
-  r.part('body', ellipsoid(d.bodyR * 1.05, d.bodyR * 1.18, d.bodyR * 0.95), mat(0, d.bodyY + 0.02, d.frontZ + 0.02), base);
-  r.part('body', ellipsoid(d.bodyR * 0.95, d.bodyR * 0.98, d.bodyR * 0.9), mat(0, d.bodyY + 0.04, d.backZ - 0.03), base);
-  r.part('body', ellipsoid(d.bodyR * 0.8, d.bodyR * 0.62, 0.22), mat(0, d.bodyY - 0.08, 0.0), base);
+  const goatBody = barrel([[-0.43, 0], [-0.415, 0.08], [-0.37, 0.155], [-0.29, 0.2], [-0.17, 0.208], [-0.04, 0.2], [0.09, 0.205], [0.2, 0.222], [0.3, 0.215], [0.37, 0.17], [0.415, 0.09], [0.43, 0]]);
+  r.part('body', goatBody, mat(0, d.bodyY + 0.01, 0, 0, 0, 0, 1, 1.1, 1), base);
   // Neck rising from the chest
   r.part('body', ellipsoid(0.1, 0.19, 0.11), mat(0, 0.83, 0.3, 0.45, 0, 0), base);
   // Red leather collar + brass bell
-  r.part('body', new THREE.TorusGeometry(0.1, 0.022, 7, 18), mat(0, 0.85, 0.33, Math.PI / 2 - 0.45, 0, 0), 0xc83a2e);
+  r.part('body', new THREE.TorusGeometry(0.092, 0.017, 7, 18), mat(0, 0.8, 0.33, Math.PI / 2 - 0.3, 0, 0), 0x8e3526);
   r.part('body', new THREE.CylinderGeometry(0.03, 0.05, 0.07, 12), mat(0, 0.735, 0.4), 0xe8b840, { flat: true });
   r.part('body', new THREE.SphereGeometry(0.014, 8, 6), mat(0, 0.698, 0.4), 0x5a4020, { flat: true });
   legs(r, d, base, 0x3a2e28, socks);
@@ -326,7 +328,7 @@ function goat(variant: number): AnimalModel {
   // Head: domed skull, long tapering muzzle angled down, beard, floppy-flat ears, swept horns
   r.part('head', ellipsoid(0.145, 0.15, 0.16), mat(0, 1.04, 0.43), base);
   r.part('head', ellipsoid(0.09, 0.09, 0.14), mat(0, 0.96, 0.58, 0.35, 0, 0), togg ? cream : base);
-  r.part('head', ellipsoid(0.075, 0.06, 0.05), mat(0, 0.92, 0.69), togg ? 0xd8b8a0 : 0xf2c4b8);
+  r.part('head', ellipsoid(0.056, 0.042, 0.04), mat(0, 0.925, 0.69), togg ? 0x7a5a4c : 0xd8aaa2);
   for (const s of [-1, 1]) r.part('head', ellipsoid(0.016, 0.011, 0.008, 6, 5), mat(s * 0.028, 0.93, 0.738, 0, s * 0.3, 0), 0x4a2e2a, { flat: true });
   r.part('head', ellipsoid(0.03, 0.006, 0.01, 6, 4), mat(0, 0.885, 0.715), 0x6a4040, { flat: true });
   if (togg) for (const s of [-1, 1]) r.part('head', ellipsoid(0.028, 0.1, 0.02, 8, 6), mat(s * 0.06, 1.02, 0.555, 0.45, s * 0.35, 0), cream);
@@ -347,8 +349,8 @@ function goat(variant: number): AnimalModel {
     horn.computeVertexNormals();
     r.part('head', horn, mat(s * 0.06, 1.15, 0.44), 0xd8c8a4, { patch: band(0x9a8a70, 1.3, false) });
     const ear = s < 0 ? 'earL' : 'earR';
-    r.part(ear, ellipsoid(0.12, 0.034, 0.055), mat(s * 0.2, 1.02, 0.41, 0, s * 0.25, s * -0.3), togg ? 0x6a4228 : base);
-    r.part(ear, ellipsoid(0.085, 0.016, 0.036), mat(s * 0.205, 1.026, 0.43, 0, s * 0.25, s * -0.3), togg ? cream : 0xf4b8ae, { flat: true });
+    r.part(ear, ellipsoid(0.12, 0.034, 0.055), mat(s * 0.19, 0.99, 0.39, 0, s * 0.35, s * -0.62), togg ? 0x6a4228 : base);
+    r.part(ear, ellipsoid(0.085, 0.016, 0.036), mat(s * 0.195, 0.994, 0.41, 0, s * 0.35, s * -0.62), togg ? cream : 0xe0b0a8, { flat: true });
   }
   eyes(r, 0.105, 1.06, 0.52, 0.042, 0.55, { rim: togg ? 0xf4e8d4 : 0xe8dcc8 });
   cheeks(r, 0.12, 0.97, 0.53, 0.03);
@@ -426,7 +428,9 @@ function pig(variant: number): AnimalModel {
   r.bone('earL', 'head', [-0.12, 0.74, 0.4]);
   r.bone('earR', 'head', [0.12, 0.74, 0.4]);
   r.bone('tail', 'body', [0, 0.52, -0.46]);
-  r.part('body', capsuleZ(d.bodyR, d.bodyLen, 10, 18), mat(0, d.bodyY, -0.03, 0, 0, 0, 1, 0.94, 1), base, { patch: spots });
+  // Pear-shaped: a big round ham, a gently dipped back and deep shoulders under the head.
+  const pigBody = barrel([[-0.5, 0], [-0.485, 0.11], [-0.44, 0.215], [-0.35, 0.285], [-0.22, 0.308], [-0.07, 0.3], [0.07, 0.29], [0.19, 0.282], [0.29, 0.25], [0.36, 0.17], [0.39, 0.07], [0.395, 0]], 24);
+  r.part('body', pigBody, mat(0, d.bodyY, 0, 0, 0, 0, 1, 0.95, 1), base, { patch: spots });
   legs(r, d, base, 0x7a4a44, spots);
   r.part('tail', new THREE.TorusGeometry(0.04, 0.013, 6, 14, 5.4), mat(0, 0.54, -0.47, 0, Math.PI / 2, 0), base);
   r.part('head', ellipsoid(0.22, 0.21, 0.2), mat(0, 0.58, 0.42), base, { patch: spots });

@@ -28,6 +28,7 @@
  *               &pet=dog|cat picks the pet).
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { AnimalActor, AnimalPops, type Species } from '../entities/animals';
@@ -1894,12 +1895,47 @@ function eggMat(item: string): THREE.MeshStandardMaterial {
 
 let _tru: THREE.BufferGeometry | null = null;
 let _truM: THREE.MeshStandardMaterial | null = null;
+/** A truffle the pig rooted up: a warty dark-cocoa tuber sitting on its little mound of fresh-turned
+ *  earth with a few crumbs kicked out — reads as "dug up here", not a stray rock. One mesh. */
 function truffleGeo(): THREE.BufferGeometry {
-  if (!_tru) _tru = lumpySphere(0.09, 2, 0.4, new Rng('truffle'));
+  if (_tru) return _tru;
+  const rng = new Rng('truffle');
+  const parts: THREE.BufferGeometry[] = [];
+  const paint = (g: THREE.BufferGeometry, hex: number, jitter: number): THREE.BufferGeometry => {
+    const n = g.index ? g.toNonIndexed() : g;
+    for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal') n.deleteAttribute(k);
+    const pos = n.attributes.position as THREE.BufferAttribute;
+    const col = new Float32Array(pos.count * 3);
+    const c = new THREE.Color(hex);
+    for (let i = 0; i < pos.count; i++) {
+      const v = 1 + (Math.sin(pos.getX(i) * 91 + pos.getZ(i) * 57) * 0.5 + Math.sin(pos.getY(i) * 133) * 0.5) * jitter;
+      col[i * 3] = c.r * v;
+      col[i * 3 + 1] = c.g * v;
+      col[i * 3 + 2] = c.b * v;
+    }
+    n.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return n;
+  };
+  const mound = lumpySphere(0.21, 1, 0.35, rng);
+  mound.scale(1, 0.24, 0.85);
+  mound.translate(0, -0.035, 0);
+  parts.push(paint(mound, 0x6e4c32, 0.12));
+  for (let i = 0; i < 5; i++) {
+    const a = i * 1.37 + rng.next();
+    const cr = lumpySphere(0.025 + rng.next() * 0.02, 0, 0.3, rng);
+    cr.translate(Math.cos(a) * (0.24 + rng.next() * 0.08), -0.035, Math.sin(a) * (0.2 + rng.next() * 0.08));
+    parts.push(paint(cr, 0x5e3e28, 0.1));
+  }
+  const tub = lumpySphere(0.085, 2, 0.45, rng);
+  tub.scale(1.05, 0.85, 0.95);
+  tub.translate(0.02, 0.03, 0);
+  parts.push(paint(tub, 0x4a3024, 0.22));
+  _tru = mergeGeometries(parts)!;
+  _tru.computeVertexNormals();
   return _tru;
 }
 function truffleMat(): THREE.MeshStandardMaterial {
-  if (!_truM) _truM = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 0.75 });
+  if (!_truM) _truM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
   return _truM;
 }
 

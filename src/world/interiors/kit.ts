@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { MeshBuilder, roundedBox, mat, groundAO, type AOFn } from '../geom';
 import { textures } from '../../render/textures';
-import { floorPlanks, wallpaper, beadboard, barnBoards, strawFloor, wovenRug, braidedRug, quilt, photoAtlas, limewashBoards, burlap, kitchenTile } from './textures';
+import { floorPlanks, wallpaper, beadboard, barnBoards, strawFloor, wovenRug, ragRunner, braidedRug, quilt, photoAtlas, limewashBoards, burlap, kitchenTile } from './textures';
 
 export type IMat =
   | 'floor'
@@ -24,6 +24,7 @@ export type IMat =
   | 'paint'
   | 'fabric'
   | 'rug'
+  | 'runner'
   | 'braid'
   | 'quilt'
   | 'stone'
@@ -97,6 +98,8 @@ function build(name: IMat): THREE.MeshStandardMaterial {
       return std({ roughness: 0.98, side: THREE.DoubleSide });
     case 'rug':
       return std({ map: wovenRug().map, roughness: 1 });
+    case 'runner':
+      return std({ map: ragRunner().map, roughness: 1, alphaTest: 0.5 });
     case 'braid': {
       const t = braidedRug();
       return std({ map: t.map, bumpMap: t.bump, bumpScale: 3, roughness: 1, alphaTest: 0.5 });
