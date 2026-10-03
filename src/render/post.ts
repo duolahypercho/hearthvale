@@ -204,6 +204,8 @@ export class PostPipeline {
   private ldrB: THREE.WebGLRenderTarget;
   private hdrRead: THREE.WebGLRenderTarget | null = null;
   private hdrWrite: THREE.WebGLRenderTarget | null = null;
+  /** Walk the scene graph's matrices once per frame, not once per scene render (A/B switch). */
+  oneMatrixWalk = true;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -480,9 +482,20 @@ export class PostPipeline {
     f.ao = 0;
     f.aoTex = null;
     f.bloomTex = null;
+    // One scene-graph matrix walk per frame (pillar 14, perf r8c): the RenderPass and the GTAO
+    // G-buffer pass each call renderer.render(scene), and each re-walked all ~1.2k objects
+    // (~0.4 ms CPU per walk in town). Nothing moves between the two; billboards that turn in
+    // onBeforeRender update their own matrices.
+    const scene = this.scene;
+    const autoWalk = this.oneMatrixWalk && scene.matrixWorldAutoUpdate;
+    if (autoWalk) {
+      scene.updateMatrixWorld();
+      scene.matrixWorldAutoUpdate = false;
+    }
     try {
       this.composer.render();
     } finally {
+      if (autoWalk) scene.matrixWorldAutoUpdate = true;
       if (this.hdrRead) {
         const c = this.composer as unknown as { readBuffer: THREE.WebGLRenderTarget; writeBuffer: THREE.WebGLRenderTarget };
         c.readBuffer = this.hdrRead;
