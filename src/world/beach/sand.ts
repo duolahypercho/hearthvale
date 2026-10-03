@@ -25,6 +25,8 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
       fs,
       'void main() {',
       /* glsl */ `
+      // Where sandM = 1 the block below repaints the whole ground: the terrain skips its layers there.
+      #define HV_SAND_OWNS_GROUND
       uniform float uBSea;
       uniform vec3 uBSun;
       uniform vec3 uBSunDir;
@@ -55,31 +57,43 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         bool causDay = uBNight < 0.999;
         float caus = -1.0;
         if (sandM > 0.0) {
-        // Base tones: pale dune sand high up, warm beach sand lower down.
-        vec3 sDry = sand * vec3(0.88, 0.82, 0.7);
-        vec3 sBeach = sand * vec3(0.86, 0.76, 0.61);
-        vec3 s = mix(sBeach, sDry, smoothstep(0.8, 2.4, bh));
-        // Broad warm / cool drifts (wind-sorted sand) + fine grain.
-        float drift = hvNoise(p * 0.07 + 3.0);
-        s *= mix(vec3(0.9, 0.9, 0.94), vec3(1.04, 1.0, 0.92), drift);
-        s *= 0.92 + 0.14 * hvNoise(p * 0.35) + 0.05 * (tn2 - 0.5);
         // Wind ripples on the dunes / dry beach; wave ripples low down and under water.
         vec2 rd = normalize(vec2(0.35, 1.0));
         float warpR = hvNoise(p * 0.4) * 5.0 + hvNoise(p * 1.3) * 1.2;
         float ripF = bh > 0.35 ? 7.5 : 11.0;
-        float rip = sin(dot(p, rd) * ripF + warpR);
+        float ripArg = dot(p, rd) * ripF + warpR;
+        float rip = sin(ripArg);
         float ripAmt = (smoothstep(0.3, 1.2, bh) * 0.9 + smoothstep(0.1, -0.2, bh) * 0.7) * onSand;
-        hvBRip = rd * cos(dot(p, rd) * ripF + warpR) * ripAmt * 0.22;
+        hvBRip = rd * cos(ripArg) * ripAmt * 0.22;
+        hvBDepth = depth;
+        vec3 s;
+        // Every term below is only paid where it can reach the frame (pillar 14, perf r8: identical
+        // output). Deep sea bed: the depth fade ends in a flat colour (smoothstep(0.8, 3.5) = 1), so
+        // the sand / bed detail under it is never seen; only the ripple normal + wetness remain.
+        if (depth >= 3.5) {
+          s = vec3(0.05, 0.16, 0.2);
+          hvBWet = 0.7 * onSand;
+        } else {
+        // Base tones: pale dune sand high up, warm beach sand lower down.
+        vec3 sDry = sand * vec3(0.88, 0.82, 0.7);
+        vec3 sBeach = sand * vec3(0.86, 0.76, 0.61);
+        s = mix(sBeach, sDry, smoothstep(0.8, 2.4, bh));
+        // Broad warm / cool drifts (wind-sorted sand) + fine grain.
+        float drift = hvNoise(p * 0.07 + 3.0);
+        s *= mix(vec3(0.9, 0.9, 0.94), vec3(1.04, 1.0, 0.92), drift);
+        s *= 0.92 + 0.14 * hvNoise(p * 0.35) + 0.05 * (tn2 - 0.5);
         s *= 1.0 + (rip * 0.07 + smoothstep(0.7, 1.0, rip) * 0.05) * ripAmt;
-        // Shell flecks + tiny pebbles.
+        // Shell flecks + tiny pebbles (12 % of the cells, dry sand only).
         vec2 fc = floor(p * 5.0);
-        vec2 fo = hvHash22(fc) - 0.5;
-        float fleck = smoothstep(0.06, 0.02, length(fract(p * 5.0) - 0.5 - fo * 0.6)) * step(hvHash12(fc + 3.1), 0.12);
-        s = mix(s, mix(vec3(0.95, 0.9, 0.82), vec3(0.45, 0.4, 0.36), step(0.55, hvHash12(fc + 7.7))), fleck * 0.7 * step(0.05, bh));
+        if (bh >= 0.05 && hvHash12(fc + 3.1) <= 0.12) {
+          vec2 fo = hvHash22(fc) - 0.5;
+          float fleck = smoothstep(0.06, 0.02, length(fract(p * 5.0) - 0.5 - fo * 0.6));
+          s = mix(s, mix(vec3(0.95, 0.9, 0.82), vec3(0.45, 0.4, 0.36), step(0.55, hvHash12(fc + 7.7))), fleck * 0.7);
+        }
         // Wrack line: dark kelp bits + bleached twigs at the high-tide mark.
         float wrackBand = smoothstep(0.34, 0.41, bh) * smoothstep(0.58, 0.47, bh);
         // Discrete bits (kelp scraps, bleached twigs) in drifts along the band, not smears.
-        {
+        if (wrackBand > 0.0) {
           vec2 kq = p * vec2(2.2, 3.4);
           vec2 kc = floor(kq);
           vec2 kf = fract(kq) - 0.5 - (hvHash22(kc) - 0.5) * 0.5;
@@ -93,30 +107,37 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           // A faint damp stain under the drift.
           s *= 1.0 - 0.06 * wrackBand * kd;
         }
+        // Swash phase (one noise): only the strand band (bh < sheet top 0.105 + 0.047) and the
+        // swaying sea grass under water use it.
+        float swPh = bh < 0.16 ? hvSwashPhase(p, t) : 0.0;
         // Wet sand below the swash line (+ darkening where the sheet just left).
-        float sheet = hvSwash(p, t);
-        float ph = fract(hvSwashPhase(p, t));
-        // Damp band reaches well up the beach (ragged top edge), soaked sand right at the swash.
-        float dampTop = 0.42 + (hvNoise(p * vec2(0.5, 0.2)) - 0.5) * 0.16;
-        float damp = smoothstep(dampTop, 0.02, bh);
+        // Damp band reaches well up the beach (ragged top edge, <= 0.5), soaked sand right at the swash.
         float soaked = smoothstep(0.14, 0.0, bh);
-        vec3 wetS = sand * vec3(0.4, 0.35, 0.28);
-        s = mix(s, mix(s * vec3(0.62, 0.6, 0.6), wetS, soaked), damp);
-        // Darker tide mark along the top of the damp band.
-        s *= 1.0 - 0.1 * smoothstep(0.06, 0.0, abs(bh - dampTop * 0.9)) * onSand;
+        float damp = 0.0;
+        if (bh < 0.52) {
+          float dampTop = 0.42 + (hvNoise(p * vec2(0.5, 0.2)) - 0.5) * 0.16;
+          damp = smoothstep(dampTop, 0.02, bh);
+          vec3 wetS = sand * vec3(0.4, 0.35, 0.28);
+          s = mix(s, mix(s * vec3(0.62, 0.6, 0.6), wetS, soaked), damp);
+          // Darker tide mark along the top of the damp band.
+          s *= 1.0 - 0.1 * smoothstep(0.06, 0.0, abs(bh - dampTop * 0.9)) * onSand;
+        }
         hvBWet = max(soaked * 0.7, damp * 0.12) * onSand;
         // Moonlit sand (night): the dry beach keeps a pale, cool value well above the sea's.
         hvBMoon = sandM * smoothstep(-0.04, 0.12, bh) * smoothstep(2.4, 1.4, bh) * (1.0 - soaked * 0.45) * (1.0 - rockM);
         // Foam lace stranded by the receding wave.
         // (Only in the thin band the sheet just left: the lace is the priciest term, pillar 14.)
-        float recede = step(0.22, ph) * smoothstep(0.95, 0.35, ph);
-        float strandK = smoothstep(0.012, 0.0, bh - sheet - 0.035) * smoothstep(-0.03, 0.0, bh - sheet) * recede * onSand;
-        if (strandK > 0.0) {
-          float lace = hvLace(p * 1.1, t * 0.2) * smoothstep(0.4, 0.7, hvNoise(p * 0.13 + 1.3));
-          s = mix(s, vec3(0.93, 0.95, 0.94) * 0.9, lace * strandK * 0.55 * smoothstep(0.35, 0.6, hvNoise(p * 0.9 + 4.0)));
+        if (bh < 0.16) {
+          float ph = fract(swPh);
+          float sheet = smoothstep(0.0, 0.22, ph) * (1.0 - smoothstep(0.22, 0.95, ph)) * 0.13 - 0.025;
+          float recede = step(0.22, ph) * smoothstep(0.95, 0.35, ph);
+          float strandK = smoothstep(0.012, 0.0, bh - sheet - 0.035) * smoothstep(-0.03, 0.0, bh - sheet) * recede * onSand;
+          if (strandK > 0.0) {
+            float lace = hvLace(p * 1.1, t * 0.2) * smoothstep(0.4, 0.7, hvNoise(p * 0.13 + 1.3));
+            s = mix(s, vec3(0.93, 0.95, 0.94) * 0.9, lace * strandK * 0.55 * smoothstep(0.35, 0.6, hvNoise(p * 0.9 + 4.0)));
+          }
         }
         // Seabed: cooler, darker with depth; caustics (applied as light below).
-        hvBDepth = depth;
         vec3 bed = sand * vec3(0.6, 0.72, 0.68) * (0.88 + 0.12 * rip);
         s = mix(s, bed, smoothstep(0.0, 0.3, depth));
         // Life on the sea bed, seen through the clear shallows (so the water off the pier is never a
@@ -124,51 +145,63 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         // their lee, scattered pebbles and shell bits, the odd starfish / sand dollar.
         if (depth > 0.03 && onSand > 0.01) {
           float bedK = smoothstep(0.03, 0.2, depth) * onSand;
-          // Meadows: ragged, domain-warped patches (0.3 → 2.5 m deep), never in the swash.
-          vec2 mw = p + vec2(hvNoise(p * 0.21 + 3.1), hvNoise(p * 0.21 + 8.7)) * 4.0;
-          float mfield = hvNoise(mw * 0.12) * 0.75 + hvNoise(p * 0.7 + 1.9) * 0.25;
-          float meadow = smoothstep(0.54, 0.62, mfield) * smoothstep(0.22, 0.5, depth) * (1.0 - smoothstep(2.2, 3.2, depth));
-          // Blades: long streaks leaning with the surge (they sway back and forth with the swash phase).
-          float surge = sin(6.2832 * hvSwashPhase(p, t)) * 0.6;
-          vec2 bq = vec2(p.x * 9.0 + p.y * 2.2 + surge * 1.5, p.y * 1.1 - p.x * 0.25);
-          float blades = hvNoise(bq) * 0.65 + hvNoise(bq * vec2(2.1, 1.7) + 4.0) * 0.35;
-          vec3 grassC = mix(vec3(0.06, 0.15, 0.08), vec3(0.2, 0.34, 0.13), smoothstep(0.3, 0.8, blades));
-          grassC = mix(grassC, vec3(0.3, 0.33, 0.12), smoothstep(0.75, 0.95, blades) * 0.6);
-          // Denser, darker cores; thin, sandy fringes.
-          float core = smoothstep(0.6, 0.72, mfield);
-          s = mix(s, grassC * mix(1.1, 0.8, core), meadow * mix(0.55, 0.95, core) * bedK);
-          // A darker sand halo just outside each meadow (organic silt).
-          float halo = smoothstep(0.46, 0.54, mfield) * (1.0 - meadow);
-          s *= 1.0 - 0.14 * halo * bedK * smoothstep(0.2, 0.5, depth);
-          // Pebbles + shell grit: small ovals with a soft contact shadow, in drifts.
+          // Meadows: ragged, domain-warped patches (0.3 → 2.5 m deep), never in the swash; the silt
+          // halo starts at 0.2 m, so shallower bed skips the field.
+          float meadow = 0.0;
+          if (depth > 0.2) {
+            vec2 mw = p + vec2(hvNoise(p * 0.21 + 3.1), hvNoise(p * 0.21 + 8.7)) * 4.0;
+            float mfield = hvNoise(mw * 0.12) * 0.75 + hvNoise(p * 0.7 + 1.9) * 0.25;
+            meadow = smoothstep(0.54, 0.62, mfield) * smoothstep(0.22, 0.5, depth) * (1.0 - smoothstep(2.2, 3.2, depth));
+            if (meadow > 0.0) {
+              // Blades: long streaks leaning with the surge (they sway back and forth with the swash phase).
+              float surge = sin(6.2832 * swPh) * 0.6;
+              vec2 bq = vec2(p.x * 9.0 + p.y * 2.2 + surge * 1.5, p.y * 1.1 - p.x * 0.25);
+              float blades = hvNoise(bq) * 0.65 + hvNoise(bq * vec2(2.1, 1.7) + 4.0) * 0.35;
+              vec3 grassC = mix(vec3(0.06, 0.15, 0.08), vec3(0.2, 0.34, 0.13), smoothstep(0.3, 0.8, blades));
+              grassC = mix(grassC, vec3(0.3, 0.33, 0.12), smoothstep(0.75, 0.95, blades) * 0.6);
+              // Denser, darker cores; thin, sandy fringes.
+              float core = smoothstep(0.6, 0.72, mfield);
+              s = mix(s, grassC * mix(1.1, 0.8, core), meadow * mix(0.55, 0.95, core) * bedK);
+            }
+            // A darker sand halo just outside each meadow (organic silt).
+            float halo = smoothstep(0.46, 0.54, mfield) * (1.0 - meadow);
+            s *= 1.0 - 0.14 * halo * bedK * smoothstep(0.2, 0.5, depth);
+          }
+          // Pebbles + shell grit: small ovals with a soft contact shadow, in drifts (<= 23 % of cells).
           vec2 pq = p * 2.6;
           vec2 pc = floor(pq);
-          vec2 pf = fract(pq) - 0.5 - (hvHash22(pc) - 0.5) * 0.55;
           float ph2 = hvHash12(pc + 5.3);
-          float pdrift = smoothstep(0.35, 0.65, hvNoise(p * 0.3 + 12.0));
-          float pr = mix(0.07, 0.16, hvHash12(pc + 2.9));
-          float pd = length(pf * vec2(1.0, 1.35));
-          float peb = smoothstep(pr, pr * 0.7, pd) * step(ph2, 0.2 * pdrift + 0.03) * (1.0 - meadow);
-          float pshadow = smoothstep(pr * 1.5, pr, length(pf - vec2(0.03, -0.03))) * step(ph2, 0.2 * pdrift + 0.03) * (1.0 - meadow);
-          vec3 pebC = ph2 < 0.07 ? vec3(0.82, 0.78, 0.7) : mix(vec3(0.3, 0.3, 0.28), vec3(0.5, 0.46, 0.4), hvHash12(pc + 9.1));
-          s *= 1.0 - 0.3 * pshadow * bedK;
-          s = mix(s, pebC * (0.85 + 0.25 * smoothstep(0.0, -pr, pf.y)), peb * 0.9 * bedK);
-          // Starfish + sand dollars: rare, one per ~3 m cell at most.
+          if (ph2 <= 0.23 && meadow < 1.0) {
+            float pdrift = smoothstep(0.35, 0.65, hvNoise(p * 0.3 + 12.0));
+            if (ph2 <= 0.2 * pdrift + 0.03) {
+              vec2 pf = fract(pq) - 0.5 - (hvHash22(pc) - 0.5) * 0.55;
+              float pr = mix(0.07, 0.16, hvHash12(pc + 2.9));
+              float pd = length(pf * vec2(1.0, 1.35));
+              float peb = smoothstep(pr, pr * 0.7, pd) * (1.0 - meadow);
+              float pshadow = smoothstep(pr * 1.5, pr, length(pf - vec2(0.03, -0.03))) * (1.0 - meadow);
+              vec3 pebC = ph2 < 0.07 ? vec3(0.82, 0.78, 0.7) : mix(vec3(0.3, 0.3, 0.28), vec3(0.5, 0.46, 0.4), hvHash12(pc + 9.1));
+              s *= 1.0 - 0.3 * pshadow * bedK;
+              s = mix(s, pebC * (0.85 + 0.25 * smoothstep(0.0, -pr, pf.y)), peb * 0.9 * bedK);
+            }
+          }
+          // Starfish + sand dollars: rare, one per ~3 m cell at most (24 % of the cells).
           vec2 sq = p * 0.42;
           vec2 sc = floor(sq);
           float sh = hvHash12(sc + 17.3);
-          vec2 sf = (fract(sq) - 0.5 - (hvHash22(sc + 4.4) - 0.5) * 0.6) / 0.42;
-          float sa = atan(sf.y, sf.x) + sh * 30.0;
-          float sr = length(sf);
-          float armR = 0.16 * (0.55 + 0.45 * pow(abs(cos(sa * 2.5)), 1.6));
-          float star = smoothstep(armR + 0.015, armR - 0.01, sr) * step(sh, 0.16) * smoothstep(0.08, 0.2, depth) * (1.0 - smoothstep(1.3, 1.8, depth)) * (1.0 - meadow);
-          vec3 starC = sh < 0.06 ? vec3(0.85, 0.36, 0.16) : sh < 0.11 ? vec3(0.7, 0.3, 0.45) : vec3(0.9, 0.55, 0.2);
-          starC *= 0.85 + 0.3 * smoothstep(0.12, 0.0, sr);
-          float dollar = smoothstep(0.1, 0.085, sr) * step(0.16, sh) * step(sh, 0.24) * smoothstep(0.08, 0.2, depth) * (1.0 - smoothstep(1.2, 1.6, depth)) * (1.0 - meadow);
-          float petal = smoothstep(0.012, 0.0, abs(sr - 0.045)) * smoothstep(0.3, 0.9, abs(cos(atan(sf.y, sf.x) * 2.5)));
-          s *= 1.0 - 0.35 * smoothstep(armR + 0.06, armR, sr) * step(sh, 0.16) * bedK * (1.0 - meadow);
-          s = mix(s, starC, star * bedK);
-          s = mix(s, mix(vec3(0.86, 0.82, 0.72), vec3(0.62, 0.58, 0.5), petal), dollar * bedK * 0.9);
+          if (sh <= 0.24 && meadow < 1.0) {
+            vec2 sf = (fract(sq) - 0.5 - (hvHash22(sc + 4.4) - 0.5) * 0.6) / 0.42;
+            float sa = atan(sf.y, sf.x) + sh * 30.0;
+            float sr = length(sf);
+            float armR = 0.16 * (0.55 + 0.45 * pow(abs(cos(sa * 2.5)), 1.6));
+            float star = smoothstep(armR + 0.015, armR - 0.01, sr) * step(sh, 0.16) * smoothstep(0.08, 0.2, depth) * (1.0 - smoothstep(1.3, 1.8, depth)) * (1.0 - meadow);
+            vec3 starC = sh < 0.06 ? vec3(0.85, 0.36, 0.16) : sh < 0.11 ? vec3(0.7, 0.3, 0.45) : vec3(0.9, 0.55, 0.2);
+            starC *= 0.85 + 0.3 * smoothstep(0.12, 0.0, sr);
+            float dollar = smoothstep(0.1, 0.085, sr) * step(0.16, sh) * step(sh, 0.24) * smoothstep(0.08, 0.2, depth) * (1.0 - smoothstep(1.2, 1.6, depth)) * (1.0 - meadow);
+            float petal = smoothstep(0.012, 0.0, abs(sr - 0.045)) * smoothstep(0.3, 0.9, abs(cos(atan(sf.y, sf.x) * 2.5)));
+            s *= 1.0 - 0.35 * smoothstep(armR + 0.06, armR, sr) * step(sh, 0.16) * bedK * (1.0 - meadow);
+            s = mix(s, starC, star * bedK);
+            s = mix(s, mix(vec3(0.86, 0.82, 0.72), vec3(0.62, 0.58, 0.5), petal), dollar * bedK * 0.9);
+          }
         }
         s = mix(s, vec3(0.05, 0.16, 0.2), smoothstep(0.8, 3.5, depth));
         // Caustics only where they can show: sunlit (not night) sea bed 3 cm - 1.5 m deep, or a pool
@@ -180,6 +213,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           float patchC = smoothstep(0.2, 0.65, hvNoise(p * 0.16 + vec2(t * 0.02, 0.0)));
           hvBCaus = caus * patchC * causBed;
         }
+        }
         ground = mix(ground, s, sandM);
         }
         // Rock shelf (painted path channel): cracked grey-brown stone, weed + barnacles low down,
@@ -188,7 +222,8 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           // Large tonal slabs (warped, irregular) with darker seams, not a paving pattern.
           vec2 wq = p * 0.42 + vec2(hvNoise(p * 0.3), hvNoise(p * 0.3 + 5.0)) * 1.4;
           vec2 rv = hvVor(wq);
-          float seam = smoothstep(0.09, 0.0, rv.y - rv.x) * smoothstep(0.3, 0.6, hvNoise(p * 0.9 + 2.0));
+          float seamE = rv.y - rv.x;
+          float seam = seamE < 0.09 ? smoothstep(0.09, 0.0, seamE) * smoothstep(0.3, 0.6, hvNoise(p * 0.9 + 2.0)) : 0.0;
           float slab = hvHash12(floor(wq + 0.5)) * 0.5 + hvNoise(p * 0.8) * 0.5;
           float rn = hvNoise(p * 2.3) * 0.5 + hvNoise(p * 6.0) * 0.3 + hvNoise(p * 15.0) * 0.2;
           vec3 rock = mix(vec3(0.1, 0.085, 0.07), vec3(0.25, 0.2, 0.155), slab * 0.6 + rn * 0.4);
@@ -223,14 +258,16 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
             rock = mix(rock, mix(vec3(0.12, 0.2, 0.08), vec3(0.24, 0.3, 0.1), hvNoise(p * 5.0)), weed * 0.85);
           }
           // Barnacles: round pale dots clustered in the splash zone.
-          vec2 bq = p * 9.0;
-          vec2 bc = floor(bq);
-          vec2 bo = hvHash22(bc) - 0.5;
-          float bd = length(fract(bq) - 0.5 - bo * 0.5);
           float barnZone = bh < 1.0 ? smoothstep(1.0, 0.5, bh) * smoothstep(0.35, 0.55, hvNoise(p * 1.1 + 7.0)) * (1.0 - weed) : 0.0;
-          float barn = smoothstep(0.2, 0.13, bd) * step(hvHash12(bc + 4.4), 0.28) * barnZone;
-          rock = mix(rock, vec3(0.5, 0.47, 0.4), barn * 0.6);
-          rock *= 1.0 - smoothstep(0.24, 0.2, bd) * (1.0 - smoothstep(0.2, 0.13, bd)) * barnZone * 0.3;
+          if (barnZone > 0.0) {
+            vec2 bq = p * 9.0;
+            vec2 bc = floor(bq);
+            vec2 bo = hvHash22(bc) - 0.5;
+            float bd = length(fract(bq) - 0.5 - bo * 0.5);
+            float barn = smoothstep(0.2, 0.13, bd) * step(hvHash12(bc + 4.4), 0.28) * barnZone;
+            rock = mix(rock, vec3(0.5, 0.47, 0.4), barn * 0.6);
+            rock *= 1.0 - smoothstep(0.24, 0.2, bd) * (1.0 - smoothstep(0.2, 0.13, bd)) * barnZone * 0.3;
+          }
           // Dark and wet where the spray reaches.
           rock *= mix(0.6, 1.0, smoothstep(0.3, 0.95, bh)) * (1.0 - ring * 0.3);
           if (inPool > 0.001) {

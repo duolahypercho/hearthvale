@@ -576,14 +576,44 @@ export class Terrain {
         vec4 spW = texture2D(uSplat, suv + warp / uSplatSize);
         vec4 spR = texture2D(uSplat, suv);
 
+        // Layer masks first, so each colour layer is only built where it can reach the frame
+        // (pillar 14, perf r8: identical output; taps inside a branch use textureGrad with the
+        // derivatives taken here, in uniform control flow, so mip selection is unchanged).
+        vec3 hvDx = dFdx(wp);
+        vec3 hvDy = dFdy(wp);
+        vec4 cov = texture2D(uCover, suv + warp * 0.35 / uSplatSize);
+        // Path (packed dirt) with trampled rim.
+        float pv = spW.r + (tn1 - 0.5) * 0.32 + (tn2 - 0.5) * 0.12;
+        float pathM = smoothstep(0.46, 0.54, pv);
+        float rim = smoothstep(0.26, 0.46, pv) * (1.0 - pathM);
+        // Sand
+        float sandM = smoothstep(0.4, 0.6, spW.a + (tn1 - 0.5) * 0.3);
+        vec3 sand = texture2D(uSandTex, wp.xz * 0.3).rgb;
+        // Tilled + wet soil (crisp tile squares).
+        float tillM = smoothstep(0.44, 0.56, spR.g + (tn2 - 0.5) * 0.06);
+        float tillRim = smoothstep(0.2, 0.45, spR.g) * (1.0 - tillM);
+        float wetM = smoothstep(0.4, 0.6, spR.b);
+        float slope = 1.0 - wn.y;
+        float rockM = smoothstep(0.26, 0.42, slope + (tn1 - 0.5) * 0.14);
+        // Pond bed: wet sand at the shore, dark mud below.
+        float depthB = uWaterLevel - wp.y;
+        float shore = smoothstep(-0.25, 0.02, depthB);
+        #ifdef HV_SAND_OWNS_GROUND
+        // The beach shader repaints the whole ground colour where sandM = 1 (sand.ts).
+        bool hvGroundLive = sandM < 1.0;
+        #else
+        bool hvGroundLive = true;
+        #endif
+        vec3 ground = vec3(0.0);
+        if (hvGroundLive) {
         // Grass: seasonal two-tone + dry patches + detail strokes.
         float gmix = smoothstep(0.3, 0.72, hvNA.r);
         vec3 grass = mix(uGrassA, uGrassB, gmix);
         float dryLo = 0.62 - 0.14 * uSeasonW.z;
         grass = mix(grass, uGrassDry, smoothstep(dryLo, dryLo + 0.22, hvNA.g) * uDryAmt);
         grass = mix(grass, uGrassTip, smoothstep(0.55, 0.95, hvNoise(wp.xz * 0.35)) * 0.18);
-        float gd = texture2D(uGrassTex, wp.xz * 0.23).r;
-        float gd2 = texture2D(uGrassTex, wp.xz * 0.071 + 0.37).r;
+        float gd = textureGrad(uGrassTex, wp.xz * 0.23, hvDx.xz * 0.23, hvDy.xz * 0.23).r;
+        float gd2 = textureGrad(uGrassTex, wp.xz * 0.071 + 0.37, hvDx.xz * 0.071, hvDy.xz * 0.071).r;
         float lush = smoothstep(0.35, 0.78, hvNA.b);
         grass = mix(grass, uGrassA * vec3(0.7, 0.86, 0.74), lush * 0.55);
         grass *= (0.62 + gd * 0.55 + gd2 * 0.25) * 0.86;
@@ -595,7 +625,6 @@ export class Terrain {
         }
 
         // Ground cover: clover carpets, moss, dry / trampled straw (+ baked contact AO, below).
-        vec4 cov = texture2D(uCover, suv + warp * 0.35 / uSplatSize);
         {
           // Each layer's noise is only paid where its cover weight is > 0 (most of a map has none of
           // them): identical output, 5 noise taps fewer on bare ground (pillar 14, perf r5).
@@ -625,50 +654,41 @@ export class Terrain {
           }
         }
 
-        // Path (packed dirt) with trampled rim.
-        float pv = spW.r + (tn1 - 0.5) * 0.32 + (tn2 - 0.5) * 0.12;
-        float pathM = smoothstep(0.46, 0.54, pv);
-        float rim = smoothstep(0.26, 0.46, pv) * (1.0 - pathM);
-        vec3 dirt = texture2D(uDirtTex, wp.xz * uPathScale).rgb;
-        dirt *= 0.92 + 0.12 * smoothstep(0.5, 0.9, pv);
-        grass = mix(grass, grass * vec3(0.78, 0.8, 0.62) + dirt * 0.12, rim * 0.8);
+        // Path dirt: only the path and its trampled rim (pv > 0.26) see it.
+        vec3 dirt = vec3(0.0);
+        if (pv > 0.26) {
+          dirt = textureGrad(uDirtTex, wp.xz * uPathScale, hvDx.xz * uPathScale, hvDy.xz * uPathScale).rgb;
+          dirt *= 0.92 + 0.12 * smoothstep(0.5, 0.9, pv);
+          grass = mix(grass, grass * vec3(0.78, 0.8, 0.62) + dirt * 0.12, rim * 0.8);
+        }
 
-        // Sand
-        float sandM = smoothstep(0.4, 0.6, spW.a + (tn1 - 0.5) * 0.3);
-        vec3 sand = texture2D(uSandTex, wp.xz * 0.3).rgb;
-
-        // Tilled + wet soil (crisp tile squares).
-        float tillM = smoothstep(0.44, 0.56, spR.g + (tn2 - 0.5) * 0.06);
-        float tillRim = smoothstep(0.2, 0.45, spR.g) * (1.0 - tillM);
-        float wetM = smoothstep(0.4, 0.6, spR.b);
-        vec3 soil = mix(texture2D(uSoilTex, wp.xz).rgb, texture2D(uWetSoilTex, wp.xz).rgb, wetM);
-
-        vec3 ground = grass;
+        ground = grass;
         ground = mix(ground, sand, sandM);
         ground = mix(ground, dirt, pathM);
         ground = mix(ground, ground * 0.72, tillRim * 0.8);
-        ground = mix(ground, soil, tillM);
+        if (tillM > 0.0) {
+          vec3 soil = mix(textureGrad(uSoilTex, wp.xz, hvDx.xz, hvDy.xz).rgb, textureGrad(uWetSoilTex, wp.xz, hvDx.xz, hvDy.xz).rgb, wetM);
+          ground = mix(ground, soil, tillM);
+        }
 
         // Cliffs: triplanar strata on steep slopes.
-        float slope = 1.0 - wn.y;
-        float rockM = smoothstep(0.26, 0.42, slope + (tn1 - 0.5) * 0.14);
-        vec3 bw = pow(abs(wn), vec3(4.0));
-        bw /= (bw.x + bw.y + bw.z);
-        vec3 rx = texture2D(uCliffTex, vec2(wp.z * 0.23, wp.y * 0.3)).rgb;
-        vec3 rz = texture2D(uCliffTex, vec2(wp.x * 0.23, wp.y * 0.3)).rgb;
-        vec3 ry = texture2D(uCliffTex, wp.xz * 0.2).rgb;
-        vec3 rock = rx * bw.x + ry * bw.y + rz * bw.z;
-        // Grass creeping over rock tops.
-        rock = mix(rock, grass * 0.85, smoothstep(0.35, 0.2, slope) * 0.6);
-        ground = mix(ground, rock, rockM);
+        if (rockM > 0.0) {
+          vec3 bw = pow(abs(wn), vec3(4.0));
+          bw /= (bw.x + bw.y + bw.z);
+          vec3 rx = textureGrad(uCliffTex, vec2(wp.z * 0.23, wp.y * 0.3), vec2(hvDx.z * 0.23, hvDx.y * 0.3), vec2(hvDy.z * 0.23, hvDy.y * 0.3)).rgb;
+          vec3 rz = textureGrad(uCliffTex, vec2(wp.x * 0.23, wp.y * 0.3), vec2(hvDx.x * 0.23, hvDx.y * 0.3), vec2(hvDy.x * 0.23, hvDy.y * 0.3)).rgb;
+          vec3 ry = textureGrad(uCliffTex, wp.xz * 0.2, hvDx.xz * 0.2, hvDy.xz * 0.2).rgb;
+          vec3 rock = rx * bw.x + ry * bw.y + rz * bw.z;
+          // Grass creeping over rock tops.
+          rock = mix(rock, grass * 0.85, smoothstep(0.35, 0.2, slope) * 0.6);
+          ground = mix(ground, rock, rockM);
+        }
 
-        // Pond bed: wet sand at the shore, dark mud below.
-        float depthB = uWaterLevel - wp.y;
-        float shore = smoothstep(-0.25, 0.02, depthB);
         // Muddy, mossy bank rather than a bright beach liner.
         vec3 wetSand = mix(sand * vec3(0.5, 0.47, 0.4), grass * 0.55, 0.35);
         ground = mix(ground, wetSand, shore * (1.0 - rockM * 0.5));
         ground = mix(ground, vec3(0.16, 0.15, 0.1) + sand * 0.12, smoothstep(0.1, 0.7, depthB));
+        }
 
         // Puddles: noise-masked on flat ground (paths and soil most likely) while it's wet.
         float flatG = smoothstep(0.965, 0.995, wn.y);
@@ -752,7 +772,7 @@ export class Terrain {
       shader.fragmentShader = fs;
     });
     // Worldfx after the terrain patch so the snow can read the path mask (trampled slush).
-    applyWorldFx(m, { snowUp: 0.7, snowMask: '(1.0 - hvTPath * 0.3)', slush: '(hvTPath * 0.8)' });
+    applyWorldFx(m, { snowUp: 0.7, snowMask: '(1.0 - hvTPath * 0.3)', slush: '(hvTPath * 0.8)', cloudsPerVertex: true });
     return m;
   }
 }

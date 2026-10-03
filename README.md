@@ -20,6 +20,11 @@ sh scripts/perf-shot.sh "?demo=town-evening" shots/t.png   # shot + per-system p
 npm run perf         # pillar 14: every demo at 2560x1440 high, 3 s warmup + 8 s → avg fps / p95 / p99 / draws / tris,
                      #   shots/perf/latest.json + history.jsonl, FAIL (<60 fps or p99>25 ms) / REGR flags
                      #   (--demos a,b · --filter re · --profile 15 · --eval "<js>" A/B · --strict · see scripts/perf.mjs)
+node scripts/matbench.mjs --demos beach-sunset --eval "$(cat v.js)"   # shader A/B: renders only the named meshes
+                     #   (default terrain chunks; --names "terrain-chunk|water", --names . --sys for per-system main-pass
+                     #   cost), configs interleaved, 1-px readback per sample: resolves ±0.2 ms on a shared GPU
+node scripts/abshot.mjs --url "?demo=snow-day" --eval "$(cat v.js)" --out shots/ab/snow   # same frozen frame per
+                     #   config + pixel diff vs base (prove a perf change is invisible)
 ```
 
 Controls: **WASD / arrows** move (Shift runs) · **left click / C / Space** use tool ·
@@ -160,7 +165,10 @@ important in view, cross-faded, constant count so no recompiles (`lightbudget.ts
 compiled yet are held back a frame or two and compiled off-thread (`shadergate.ts`), compiled programs are never
 evicted, map warps compile behind the fade; GTAO runs at half res; pausing menus refresh the world at 20 Hz; the
 adaptive governor (`governor.ts`) sheds GTAO → bloom → shadow res → render scale when the 1 s average runs over
-16.7 ms and restores them with back-off (off under automation; `?adaptive=1|0` to force).
+16.7 ms and restores them with back-off (off under automation; `?adaptive=1|0` to force); a step that bought
+< 4 % (AO / shadow res on a fill-bound frame) is followed by the next one after a single short window, so a fill-bound
+scene reaches render scale 0.85 in ~12 s instead of ~17 s. Shader rule: pay for a layer only where its weight is > 0
+(`if (w > 0.0)` around noise / taps; taps inside such a branch use `textureGrad` with derivatives taken outside it).
 
 URL: `?demo=farm-morning`, `?map=farm&x=30&z=20&time=18.5&season=fall&weather=rain&day=3&gold=900&facing=up&pause=1`,
 `&ui=inventory`, `&quality=low|medium|high|ultra`, `&hud=0` (hide HUD), `&cam=yaw,pitch,dist[,offX,offZ]`, `&seed=abc`,

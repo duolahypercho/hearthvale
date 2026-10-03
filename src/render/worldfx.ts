@@ -27,6 +27,12 @@ export interface WorldFxOptions {
   wetGloss?: number;
   /** Albedo darkening at full wetness (default 0.4). */
   wetDark?: number;
+  /**
+   * Evaluate the cloud-shadow fbm per vertex (interpolated, sharpened per fragment) instead of per
+   * fragment: only for dense meshes (the 0.5 m terrain grid), where the 9-36 m cloud field is linear
+   * between vertices to well under 1/255 — 4 noise taps fewer per pixel (perf r8).
+   */
+  cloudsPerVertex?: boolean;
 }
 
 export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldFxOptions = {}): M {
@@ -39,7 +45,8 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
   const slush = opts.slush ?? '0.0';
   const wetGloss = opts.wetGloss ?? 0.3;
   const wetDark = opts.wetDark ?? 0.4;
-  const key = `wfx:${snow ? 1 : 0}${clouds ? 1 : 0}${wet ? 1 : 0}${rim ? 1 : 0}:${snowUp}:${mask}:${slush}${wetGloss !== 0.3 ? `:g${wetGloss}` : ''}${wetDark !== 0.4 ? `:d${wetDark}` : ''}`;
+  const cloudV = clouds && (opts.cloudsPerVertex ?? false);
+  const key = `wfx:${snow ? 1 : 0}${clouds ? 1 : 0}${wet ? 1 : 0}${rim ? 1 : 0}:${snowUp}:${mask}:${slush}${wetGloss !== 0.3 ? `:g${wetGloss}` : ''}${wetDark !== 0.4 ? `:d${wetDark}` : ''}${cloudV ? ':cv' : ''}`;
   return patchMaterial(material, key, (shader) => {
     shader.uniforms.uTime = globalUniforms.uTime;
     shader.uniforms.uSnow = globalUniforms.uSnow;
@@ -69,9 +76,24 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
         }`,
       );
     }
+    if (cloudV) {
+      // Pre-sharpening cloud field per vertex (hvCloudShadow without the smoothstep).
+      const vdecl2 = ['uTime', 'uCloudShadow'].filter((u) => !vs.includes(`uniform float ${u};`)).map((u) => `uniform float ${u};`).join('\n');
+      vs = before(vs, 'void main() {', `varying float vHvCloudN;\n${vdecl2}\n${NOISE_GLSL}`);
+      vs = after(
+        vs,
+        '#include <project_vertex>',
+        /* glsl */ `
+        {
+          vec2 hvCw = (modelMatrix * vec4(transformed, 1.0)).xz;
+          vHvCloudN = uCloudShadow < 0.001 ? 0.0 : hvFbm(hvCw * 0.028 + vec2(uTime * 0.012, uTime * 0.006));
+        }`,
+      );
+    }
     shader.vertexShader = vs;
 
     let fs = shader.fragmentShader;
+    if (cloudV) fs = before(fs, 'void main() {', 'varying float vHvCloudN;');
     if (!fs.includes('varying vec3 vHvWorldPos;')) {
       fs = before(fs, 'void main() {', 'varying vec3 vHvWorldPos;\nvarying vec3 vHvWorldNormal;');
     }
@@ -90,12 +112,15 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
         float hvN = hvNoise(vHvWorldPos.xz * 2.3) * 0.5 + hvNoise(vHvWorldPos.xz * 9.0) * 0.5;
         float hvS = smoothstep(0.0, 0.35, uSnow * hvUp * (${mask}) - (1.0 - hvN) * 0.35 * (1.0 - uSnow));
         hvSnowAmt = hvS;
-        float hvDrift = hvNoise(vHvWorldPos.xz * 0.9 + 3.0);
-        // Albedo capped at ~0.82 so lamp-lit snow never clips into a bloom blob at night.
-        // Albedo held well below white so sunlit snow keeps its form and shadows can go properly blue.
-        vec3 hvSnowCol = vec3(0.8, 0.85, 0.93) * 0.78 * (0.93 + 0.07 * hvN) * (0.95 + 0.08 * hvDrift);
-        hvSnowCol = mix(hvSnowCol, vec3(0.62, 0.58, 0.52) * (0.9 + 0.2 * hvN), clamp(${slush}, 0.0, 1.0));
-        diffuseColor.rgb = mix(diffuseColor.rgb, hvSnowCol, hvS);
+        // Bare patches (hvS = 0) skip the drift noise + snow colour (identical output, perf r8).
+        if (hvS > 0.0) {
+          float hvDrift = hvNoise(vHvWorldPos.xz * 0.9 + 3.0);
+          // Albedo capped at ~0.82 so lamp-lit snow never clips into a bloom blob at night.
+          // Albedo held well below white so sunlit snow keeps its form and shadows can go properly blue.
+          vec3 hvSnowCol = vec3(0.8, 0.85, 0.93) * 0.78 * (0.93 + 0.07 * hvN) * (0.95 + 0.08 * hvDrift);
+          hvSnowCol = mix(hvSnowCol, vec3(0.62, 0.58, 0.52) * (0.9 + 0.2 * hvN), clamp(${slush}, 0.0, 1.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, hvSnowCol, hvS);
+        }
       }`;
     }
     if (wet) {
@@ -121,9 +146,13 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
           vec3 hd = vec3(hvNoise(hq) - 0.5, 0.0, hvNoise(hq + 7.3) - 0.5) + vec3(hvNoise(hq * 3.7) - 0.5, 0.0, hvNoise(hq * 3.7 + 2.1) - 0.5) * 0.4;
           // Sastrugi: wind-carved ridges running across the prevailing wind, wandering and fading in
           // and out in patches (only on open, up-facing snow).
-          float hvRidgeK = smoothstep(0.35, 0.7, hvNoise(vHvWorldPos.xz * 0.12 + 5.0)) * smoothstep(0.85, 0.97, normalize(vHvWorldNormal).y);
-          float hvRidge = cos(dot(vHvWorldPos.xz, vec2(0.8, 0.6)) * 2.6 + hvNoise(vHvWorldPos.xz * 0.35) * 7.0);
-          hd += vec3(0.8, 0.0, 0.6) * hvRidge * 0.32 * hvRidgeK;
+          // (Slope test first: walls / trunks / steep banks skip both ridge noises.)
+          float hvRidgeK = smoothstep(0.85, 0.97, normalize(vHvWorldNormal).y);
+          if (hvRidgeK > 0.0) hvRidgeK *= smoothstep(0.35, 0.7, hvNoise(vHvWorldPos.xz * 0.12 + 5.0));
+          if (hvRidgeK > 0.0) {
+            float hvRidge = cos(dot(vHvWorldPos.xz, vec2(0.8, 0.6)) * 2.6 + hvNoise(vHvWorldPos.xz * 0.35) * 7.0);
+            hd += vec3(0.8, 0.0, 0.6) * hvRidge * 0.32 * hvRidgeK;
+          }
           normal = normalize(normal + mat3(viewMatrix) * hd * 0.55 * hvSnowAmt);
         }`,
       );
@@ -133,7 +162,7 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
       if (clouds) {
         light += /* glsl */ `
         {
-          float hvC = hvCloudShadow(vHvWorldPos.xz, uTime, uCloudShadow);
+          float hvC = ${cloudV ? 'uCloudShadow < 0.001 ? 1.0 : 1.0 - smoothstep(0.52, 0.72, vHvCloudN) * uCloudShadow' : 'hvCloudShadow(vHvWorldPos.xz, uTime, uCloudShadow)'};
           reflectedLight.directDiffuse *= hvC;
           reflectedLight.directSpecular *= hvC;
         }`;

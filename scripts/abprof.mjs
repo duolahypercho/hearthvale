@@ -4,6 +4,7 @@
  * (base, no-AO, no-bloom, no-fog, cached shadows, ...) in short slices, several rounds, so machine
  * load drift hits every config equally; reports the median frame ms per config and its delta to base.
  *   node scripts/abprof.mjs --demos farm-morning [--rounds 5 --slice 1200] [--only base,ao,bloom]
+ *   --eval "$(cat variants.js)" may define window.__abConfigs = { name: [apply, revert] } (shader A/B on one page)
  */
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
@@ -59,6 +60,8 @@ for (const demo of a.demos.split(',')) {
     const top = (o) => { let n = o; while (n.parent && !n.parent.isScene && !n.parent.name.startsWith('map:')) n = n.parent; return n; };
     for (const [k, v] of Object.entries(g.perf().bySystem ?? {})) void k, void v;
     rc.scene.traverse((o) => { if (o.parent && (o.parent.isScene || o.parent.name.startsWith('map:')) && o.name && !o.userData.perfTag && o.visible) (tagged[o.name] ??= []).push(o); });
+    // Extra configs from --eval: window.__abConfigs = { name: [apply, revert] } (e.g. shader variants).
+    Object.assign(C, window.__abConfigs || {});
     for (const [t, objs] of Object.entries(tagged)) C['sys:' + t] = [() => objs.forEach((o) => (o.visible = false)), () => objs.forEach((o) => (o.visible = true))];
     // mat:<name> hides every visible mesh drawn with a material of that name (`--only mats` lists them all).
     const byMat = {};
