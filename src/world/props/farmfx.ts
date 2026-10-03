@@ -665,12 +665,13 @@ function decalTexture(kind: 'wet' | 'crack'): THREE.CanvasTexture {
 const STREAM_N = 22;
 /** Jets out of the rose: a fat main stream + two thinner side jets that fan apart as they fall. */
 const JETS: { w0: number; w1: number; spread: number; lag: number; a: number }[] = [
-  { w0: 0.095, w1: 0.034, spread: 0, lag: 0, a: 0.96 },
-  { w0: 0.042, w1: 0.016, spread: 0.13, lag: 0.02, a: 0.8 },
-  { w0: 0.042, w1: 0.016, spread: -0.13, lag: 0.035, a: 0.8 },
-  // The rose's outer holes: two hair-fine jets that fan wide and break up first.
-  { w0: 0.022, w1: 0.009, spread: 0.26, lag: 0.05, a: 0.6 },
-  { w0: 0.022, w1: 0.009, spread: -0.24, lag: 0.065, a: 0.6 },
+  // A generous pour (a trickle reads as a leak): fat glassy main stream + fuller side jets.
+  { w0: 0.13, w1: 0.05, spread: 0, lag: 0, a: 0.97 },
+  { w0: 0.06, w1: 0.024, spread: 0.15, lag: 0.02, a: 0.85 },
+  { w0: 0.06, w1: 0.024, spread: -0.15, lag: 0.035, a: 0.85 },
+  // The rose's outer holes: two fine jets that fan wide and break up first.
+  { w0: 0.032, w1: 0.012, spread: 0.3, lag: 0.05, a: 0.65 },
+  { w0: 0.032, w1: 0.012, spread: -0.28, lag: 0.065, a: 0.65 },
 ];
 
 const STREAM_VS = /* glsl */ `

@@ -395,7 +395,7 @@ crazed with hairline cracks, wet soil dark, cool and glossy; `crops.ts` 18 crops
 cauliflower cupped by ribbed leaves), crow-eaten stubs, produce crates; `farmfx.ts` clods / torn-sod blades / can
 stream (tapered camera-facing ribbon + 2 side jets, droplets, splash crowns with ripple rings) / dusty slam stamps /
 dust walls / harvest pop + 3D quality star / swing smear / sprinkler mist / scarecrow radius; `tilecursor.ts`
-corner-bracket cursor, `tools.ts` tiered tool meshes, `crows.ts`), poses in `entities/farmer-actions.ts`.
+corner-bracket cursor (solid on the worked tile, a faint smaller bracket on a hovered tile out of reach), `tools.ts` tiered tool meshes, `crows.ts`), poses in `entities/farmer-actions.ts`.
 Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTile` margin, farm `clearGroundCover`).
 
 - **Mechanics**: seeded rolls (`game.rng.fork('farming')`); farming XP + level 0–10 (`farming.level()`, `farming:xp`,

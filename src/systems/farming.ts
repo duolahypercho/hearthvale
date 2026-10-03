@@ -326,7 +326,8 @@ export class FarmingSystem implements System, FarmingApi {
   private hitP = new THREE.Vector3();
 
   /** Seconds since the farmer last moved / aimed / acted (an idle farmer's cursor won't nag). */
-  private idleT = 0;
+  /** (Starts "long idle": a freshly spawned / staged farmer who hasn't moved shows no red ✕.) */
+  private idleT = 99;
 
   private trackAim(dt = 0): void {
     const inp = this.game.input;
@@ -2058,6 +2059,7 @@ export class FarmingSystem implements System, FarmingApi {
   }
 
   private onDemo(name: string, showcase: string[]): void {
+    this.idleT = 99;
     this.sprayAlways = false;
     const slowP = Number(new URLSearchParams(location.search).get('slow'));
     this.slow = slowP > 0 && slowP <= 1 ? slowP : 1;
@@ -2549,8 +2551,14 @@ export class FarmingSystem implements System, FarmingApi {
         // An idle farmer facing a path / a wall isn't making a mistake: the red ✕ only answers
         // intent (recent movement, aiming, a swing), never nags a still frame.
         if (st === 'blocked' && this.idleT > 2.5) st = null;
-        if (st) {
-          this.cursor.set([{ x: f.x, z: f.z, y: this.cursorY(f.x, f.z), state: st }]);
+        const out: { x: number; z: number; y: number; state: CursorState }[] = [];
+        if (st) out.push({ x: f.x, z: f.z, y: this.cursorY(f.x, f.z), state: st });
+        // Point-and-click readability: a mouse pointing beyond reach still gets a faint bracket
+        // on the hovered tile (the solid one stays on the tile the tool will actually work).
+        const hv = this.mouseAim ? this.pointerTile() : null;
+        if (hv && (hv.x !== f.x || hv.z !== f.z) && (hv.x !== Math.floor(pl.position.x) || hv.z !== Math.floor(pl.position.z)) && this.grid()?.inBounds(hv.x, hv.z)) out.push({ x: hv.x, z: hv.z, y: this.cursorY(hv.x, hv.z), state: 'hover' });
+        if (out.length) {
+          this.cursor.set(out);
           visible = true;
         }
       }

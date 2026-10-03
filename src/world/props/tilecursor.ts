@@ -86,15 +86,17 @@ function crossTexture(): THREE.CanvasTexture {
   return t;
 }
 
-export type CursorState = 'valid' | 'blocked' | 'charge' | 'neutral';
+/** `hover`: the tile under the mouse when it's out of reach (a faint, smaller bracket — "you're pointing here"). */
+export type CursorState = 'valid' | 'blocked' | 'charge' | 'neutral' | 'hover';
 
 const COLORS: Record<CursorState, THREE.Color> = {
   valid: new THREE.Color(0xfff1c8),
   blocked: new THREE.Color(0xe8705e),
   charge: new THREE.Color(0xffcf3a),
   neutral: new THREE.Color(0xdfe6ee),
+  hover: new THREE.Color(0xf4ead2),
 };
-const ALPHA: Record<CursorState, number> = { valid: 1, blocked: 0.8, charge: 1, neutral: 0.55 };
+const ALPHA: Record<CursorState, number> = { valid: 1, blocked: 0.8, charge: 1, neutral: 0.55, hover: 0.32 };
 
 export class TileCursor {
   readonly mesh: THREE.InstancedMesh;
@@ -150,7 +152,7 @@ export class TileCursor {
       const tl = this.tiles[i]!;
       // Brackets breathe inward a touch; charged tiles pulse faster.
       const b = tl.state === 'charge' ? Math.sin(this.t * 12 + i) * 0.03 : Math.sin(this.t * 5) * 0.022;
-      const s = (0.9 + 0.1 * this.shown) * (1.02 + b);
+      const s = (0.9 + 0.1 * this.shown) * (1.02 + b) * (tl.state === 'hover' ? 0.78 : 1);
       this.m.makeScale(s, 1, s).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
       this.mesh.setMatrixAt(i, this.m);
       this.mesh.setColorAt(i, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * ALPHA[tl.state]));

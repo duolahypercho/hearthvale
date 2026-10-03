@@ -148,9 +148,12 @@ function soilMaterial(): THREE.MeshStandardMaterial {
         fs,
         'void main() {',
         /* glsl */ `
-        if (vSoilEdge < 0.45) {
-          float crumb = hvNoise(vHvWorldPos.xz * 26.0) * 0.65 + hvNoise(vHvWorldPos.xz * 7.0 + 3.0) * 0.35;
-          if (crumb > vSoilEdge * 2.1 + 0.08) discard;
+        if (vSoilEdge < 0.62) {
+          // The outline wanders (low-frequency reach) so a bed never reads as a ruled rectangle /
+          // a rug laid on the turf: in places the skirt spills far, elsewhere the sod bites right in.
+          float reach = hvNoise(vHvWorldPos.xz * 2.3 + 17.0) * 0.7 + hvNoise(vHvWorldPos.xz * 5.2 + 1.0) * 0.3;
+          float crumb = hvNoise(vHvWorldPos.xz * 26.0) * 0.55 + hvNoise(vHvWorldPos.xz * 9.0 + 3.0) * 0.45;
+          if (crumb > vSoilEdge * 2.1 + 0.08 - (0.62 - reach) * 1.1) discard;
         }`,
       );
       fs = after(
@@ -171,9 +174,10 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           vec3 base = diffuseColor.rgb;
           // Dry: pale, warm, a little dusty, the ridge crests sun-bleached, a fine crazing of hairline
           // cracks between lighter crusted plates.
-          vec3 dry = base * vec3(2.02, 1.94, 1.78);
+          // (Ochre-leaning: a desaturated red-brown reads mauve / pink under the warm grade.)
+          vec3 dry = base * vec3(2.0, 1.93, 1.6);
           float dl = dot(dry, vec3(0.3, 0.59, 0.11));
-          dry = mix(vec3(dl), dry, 0.62);
+          dry = mix(vec3(dl) * vec3(1.03, 0.99, 0.9), dry, 0.66);
           float crest = smoothstep(0.05, 0.066, vSoilH);
           dry *= 1.0 + crest * 0.1;
           float cw = min(abs(na - 0.5), abs(nb - 0.5) * 1.3);
@@ -187,8 +191,10 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           // Freshly turned earth: darker and moist for a moment after the hoe bites.
           c = mix(c, base * vec3(0.95, 0.86, 0.8), vSoilFresh * (1.0 - hvSoilWet) * 0.85);
           // The fringe dries out into pale, dusty dirt as it spills over the turf.
-          float fr = 1.0 - smoothstep(0.35, 1.0, vSoilEdge);
-          c = mix(c, vec3(0.5, 0.4, 0.29) * (0.85 + 0.3 * hvNoise(wq * 17.0)), fr * 0.55 * (1.0 - hvSoilWet * 0.6));
+          // Patchy, not a uniform band: earthy ochre crumbs with an olive cast where it meets the sod.
+          float fr = (1.0 - smoothstep(0.35, 1.0, vSoilEdge)) * (0.55 + 0.6 * hvNoise(wq * 3.1 + 7.0));
+          vec3 dust = mix(vec3(0.43, 0.34, 0.22), vec3(0.36, 0.36, 0.2), smoothstep(0.55, 0.2, vSoilEdge) * 0.6);
+          c = mix(c, dust * (0.85 + 0.3 * hvNoise(wq * 17.0)), clamp(fr, 0.0, 1.0) * 0.5 * (1.0 - hvSoilWet * 0.6));
           diffuseColor.rgb = c;
         }`,
       );

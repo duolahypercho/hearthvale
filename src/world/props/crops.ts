@@ -744,7 +744,7 @@ const BUILDERS: Record<CropId, Builder> = {
       const m = mat(0, 0, 0, 0, a, 0);
       add(stalk(stemL, 0.006, 0.005, GREEN.mid, GREEN.mid, 0.05, 3), m);
       for (const la of [-0.7, 0, 0.7]) {
-        add(leafGeo(0.065 + k * 0.013, 0.06, { shape: 'round', lift: 0.25, bend: 0.2, serrate: 0.3, c0: GREEN.dark, c1: GREEN.mid, segs: 3 }), m.clone().multiply(mat(0, stemL, 0.04, 0, la, 0)));
+        add(leafGeo(0.065 + k * 0.013, 0.06, { shape: 'round', lift: 0.25, bend: 0.2, serrate: 0.3, cup: 0.4, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }), m.clone().multiply(mat(0, stemL, 0.04, 0, la, 0)));
       }
     }
     if (k >= 2) {
@@ -857,27 +857,45 @@ const BUILDERS: Record<CropId, Builder> = {
     }
   },
   blueberry(add, r, k) {
-    // A rounded shrub of small oval leaves on woody stems, dotted with dusty-blue clusters.
-    const R = 0.12 + k * 0.06;
-    const nl = 14 + k * 10;
+    // A compact rounded shrub: short woody canes under a dense dome of small cupped oval leaves
+    // (glossy deep green with a blue cast, a few reddening in late summer), each blade pointing out
+    // of the dome so the canopy shades itself; berry clusters sit on the dome's sunlit face.
+    // (Shell sized to the leaves so the dome closes: no see-through to the canes from above.)
+    const R = 0.1 + k * 0.045;
+    const bark0 = C(0x5e4230);
+    const bark1 = C(0x8a6248);
     for (let i = 0; i < 3 + k; i++) {
-      const a = (i / (3 + k)) * Math.PI * 2 + r.next();
-      add(stalk(R * 1.6, 0.012, 0.006, C(0x7a5a3a), C(0x8a6a44), Math.cos(a) * 0.05, 4), mat(0, 0, 0, 0, a, 0.2));
+      const a = (i / (3 + k)) * Math.PI * 2 + r.next() * 0.6;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const reach = R * (0.35 + r.next() * 0.25);
+      add(tube([new THREE.Vector3(ca * 0.01, 0, sa * 0.01), new THREE.Vector3(ca * reach * 0.4, R * 0.5, sa * reach * 0.4), new THREE.Vector3(ca * reach, R * 1.05, sa * reach)], 0.012 + k * 0.002, 0.005, bark0, bark1, 5, 4), mat());
     }
+    const deep = C(0x24522e);
+    const mid = C(0x4e8c4a);
+    const blue = C(0x4a7e6a);
+    const nl = 20 + k * 15;
     for (let i = 0; i < nl; i++) {
       const t = (i + 0.5) / nl;
-      const el = Math.acos(1 - t * 1.3);
-      const az = i * 2.39996;
-      const p = new THREE.Vector3(Math.sin(el) * Math.cos(az) * R, R * 0.9 + Math.cos(el) * R * 0.85, Math.sin(el) * Math.sin(az) * R);
-      add(leafGeo(0.12, 0.075, { shape: 'oval', lift: 0.4, bend: 0.3, fold: 0.2, c0: C(0x2f6a3a), c1: C(0x6aa65e), segs: 3 }), mat(p.x, p.y, p.z, 0, az + Math.PI / 2 + (r.next() - 0.5), 0));
+      const el = Math.acos(1 - t * 1.35);
+      const az = i * 2.39996 + (r.next() - 0.5) * 0.3;
+      const rr = R * (0.88 + r.next() * 0.22);
+      const p = new THREE.Vector3(Math.sin(el) * Math.cos(az) * rr, R * 0.95 + Math.cos(el) * rr * 0.8, Math.sin(el) * Math.sin(az) * rr);
+      const tint = r.next();
+      const c0 = deep.clone().lerp(blue, tint * 0.4);
+      const c1 = mid.clone().lerp(blue, tint * 0.25);
+      if (k === 3 && r.next() < 0.07) c1.lerp(C(0xb4523c), 0.6);
+      const L = 0.09 + r.next() * 0.045;
+      // Outward yaw (+Z → the dome normal's azimuth), steeper on the crown, drooping on the flanks.
+      add(leafGeo(L, L * 0.66, { shape: 'round', lift: 0.2 + (1 - el / 1.6) * 0.5 + r.next() * 0.2, bend: 0.4, fold: 0.3, cup: 0.45, rib: C(0x96bc9c), c0, c1, segs: 4 }), mat(p.x, p.y, p.z, 0, Math.atan2(Math.cos(az), Math.sin(az)) + (r.next() - 0.5) * 0.7, 0));
     }
     if (k >= 2) {
       for (let i = 0; i < (k === 3 ? 9 : 5); i++) {
         const a = r.next() * Math.PI * 2;
-        const e = 0.4 + r.next() * 0.9;
-        const m = mat(Math.sin(e) * Math.cos(a) * R * 1.05, R * 0.85 + Math.cos(e) * R * 0.8, Math.sin(e) * Math.sin(a) * R * 1.05);
+        const e = 0.45 + r.next() * 0.75;
+        const m = mat(Math.sin(e) * Math.cos(a) * R * 1.1, R * 0.95 + Math.cos(e) * R * 0.85, Math.sin(e) * Math.sin(a) * R * 1.1);
         if (k === 2) bunch(add, r, 4, 0.016, 0.04, r.next() < 0.5 ? C(0xa8c880) : C(0xc8a0b8), m);
-        else bunch(add, r, 6, 0.022, 0.05, C(0x3a4ab0), m, 0.5);
+        else bunch(add, r, 7, 0.023, 0.055, C(0x3a4ab0), m, 0.5);
       }
     }
   },
