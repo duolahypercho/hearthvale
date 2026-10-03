@@ -58,6 +58,13 @@ export interface Critique {
   parallels: { count: number; perMin: number; examples: string[] };
   cadences: string[];
   texture: { peakPoly: number; meanPoly: number; notesPerSec: Record<string, number> };
+  /**
+   * Register: `crowdPct` = share of tune notes with an accompaniment note (accomp / accomp2)
+   * sounding at or above the tune minus a whole tone (the tune is buried in its comping);
+   * `tenorGap` = mean empty span (semitones) between the bass and the next voice up while both
+   * sound (a hollow middle).
+   */
+  register: { crowdPct: number; crowdBy: string; tenorGap: number };
   flags: string[];
 }
 
@@ -273,6 +280,36 @@ export function critiquePiece(id: string, seed = 1): Critique {
   for (const e of ev) nps[e.track] = (nps[e.track] ?? 0) + 1;
   for (const k of Object.keys(nps)) nps[k] = Math.round((nps[k]! / p.duration) * 10) / 10;
 
+  // ── register: the tune vs its comping; the bass vs the next voice up
+  const comp = ev.filter((e) => e.track === 'accomp' || e.track === 'accomp2');
+  let crowded = 0;
+  const crowdBy: Record<string, number> = {};
+  for (const m of mel) {
+    const hit = comp.find((c) => c.t <= m.t + 0.05 && heardEnd(c) > m.t + 0.02 && c.midi >= m.midi - 2);
+    if (hit) {
+      crowded++;
+      crowdBy[hit.track] = (crowdBy[hit.track] ?? 0) + 1;
+    }
+  }
+  const crowdPct = mel.length ? Math.round((crowded / mel.length) * 100) : 0;
+  const crowdWorst = Object.entries(crowdBy).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+  let gapSum = 0;
+  let gapN = 0;
+  const voiced = ev.filter((e) => e.track !== 'perc');
+  // (Register fill counts a plucked note's ring — up to 1.2 s — not just its attack.)
+  const ringEnd = (e: NoteEvent): number => e.t + (DECAYING.has(e.inst) ? Math.min(e.dur, 1.2) : e.dur);
+  for (let t = 0.5; t < p.duration; t += 0.25) {
+    const sounding = voiced.filter((e) => e.t <= t && ringEnd(e) > t);
+    const bassN = sounding.filter((e) => e.track === 'bass');
+    if (!bassN.length) continue;
+    const top = Math.max(...bassN.map((e) => e.midi));
+    const above = sounding.filter((e) => e.track !== 'bass' && e.midi > top).map((e) => e.midi);
+    if (!above.length) continue;
+    gapSum += Math.min(...above) - top;
+    gapN++;
+  }
+  const tenorGap = gapN ? Math.round((gapSum / gapN) * 10) / 10 : 0;
+
   const strongPct = strong ? Math.round((strongCt / strong) * 100) : 100;
   const unrecPct = leaps ? unrec / leaps : 0;
   if (!ambient) {
@@ -286,6 +323,8 @@ export function critiquePiece(id: string, seed = 1): Critique {
     if (steps / moves < 0.3) flags.push('ANGULAR');
     if (parallels / minutes > 4) flags.push('PARALLELS');
     if (finalDeg && finalDeg !== '1') flags.push(`NO-TONIC-CADENCE(${finalDeg})`);
+    if (crowdPct > 50) flags.push(`MASKED-TUNE(${crowdWorst})`);
+    if (tenorGap > 22) flags.push('HOLLOW-MIDDLE');
   }
   const distinct = new Set(spans.map((s) => s.sym)).size;
   return {
@@ -319,6 +358,7 @@ export function critiquePiece(id: string, seed = 1): Critique {
     parallels: { count: parallels, perMin: Math.round((parallels / minutes) * 10) / 10, examples: pex },
     cadences,
     texture: { peakPoly: peak, meanPoly: Math.round((area / Math.max(1e-6, lastT)) * 10) / 10, notesPerSec: nps },
+    register: { crowdPct, crowdBy: crowdWorst, tenorGap },
     flags,
   };
 }

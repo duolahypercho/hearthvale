@@ -153,7 +153,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     },
     counter: { inst: 'cello', range: [45, 60], on: 'late', style: 'moving' },
     accomp: { inst: 'guitar', pattern: 'waltz', range: [52, 69], voices: 4, vel: 0.66 },
-    accomp2: { inst: 'marimba', pattern: 'waltzArp', range: [64, 81], voices: 3, vel: 0.36, on: 'repeat' },
+    // (Round 4: under the fiddle — at 64–81 the arpeggio sat on top of the tune.)
+    accomp2: { inst: 'marimba', pattern: 'waltzArp', range: [52, 66], voices: 3, vel: 0.38, on: 'repeat' },
     bass: { inst: 'upright', pattern: 'waltz', range: [36, 50], vel: 0.8 },
     perc: { pattern: 'shaker', on: 'late', vel: 0.4 },
     mix: {
@@ -252,7 +253,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
         C: ['3:3 4:1 5:2 7:2', "7:3 1':1 2':4", "3':3 2':1 1':2 6:2", '5:8', "6:3 7:1 1':2 3':2", "2':3 1':1 7:4", '6:3 5:1 4:4', '1:4 #7,:4'],
       },
     },
-    accomp: { inst: 'harp', pattern: 'arp8', range: [48, 67], voices: 4, vel: 0.6 },
+    // (Round 4: the harp capped at C4 so its arpeggio stays under the cello's tune.)
+    accomp: { inst: 'harp', pattern: 'arp8', range: [45, 60], voices: 4, vel: 0.6 },
     accomp2: { inst: 'pizz', pattern: 'pizzOff', range: [55, 69], voices: 3, vel: 0.4, on: 'late' },
     bass: { inst: 'softBass', pattern: 'rootFifth', range: [33, 47], vel: 0.6 },
     pad: { inst: 'pad', range: [52, 67], voices: 3, vel: 0.36, on: 'B' },
@@ -351,6 +353,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     },
     counter: { inst: 'flute', range: [65, 79], on: 'late' },
     accomp: { inst: 'harp', pattern: 'harpRoll', range: [53, 72], voices: 4, vel: 0.6 },
+    // Round 4: a soft held tenor under the harp rolls (the low bass and the celesta were two
+    // octaves apart).
+    accomp2: { inst: 'pad', pattern: 'block', range: [48, 62], voices: 3, vel: 0.27 },
     bass: { inst: 'softBass', pattern: 'root', range: [34, 46], vel: 0.5 },
     perc: { pattern: 'sleigh', on: 'late', vel: 0.35 },
     mix: {
@@ -358,6 +363,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       double: { gain: 0.15, pan: -0.26, send: 0.55 },
       counter: { gain: 0.4, pan: -0.32, send: 0.5 },
       accomp: { gain: 0.66, pan: -0.2, send: 0.42 },
+      accomp2: { gain: 0.18, pan: 0.2, send: 0.5 },
       bass: { gain: 0.4, pan: 0, send: 0.1 },
       perc: { gain: 0.36, pan: 0.3, send: 0.3 },
     },
@@ -401,7 +407,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       },
     },
     counter: { inst: 'cello', range: [45, 60], on: 'repeat', style: 'moving' },
-    accomp: { inst: 'musicBox', pattern: 'musicBox', range: [69, 86], voices: 3, vel: 0.42 },
+    // (Round 4: the music box moved under the flute — at 69–86 it twinkled on top of the tune.)
+    accomp: { inst: 'musicBox', pattern: 'musicBox', range: [58, 74], voices: 3, vel: 0.42 },
     bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.5 },
     mix: {
       melody: { gain: 0.8, pan: 0.06, send: 0.44 },

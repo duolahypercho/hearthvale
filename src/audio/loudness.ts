@@ -20,10 +20,10 @@ export const TARGET_OFFSET: Record<string, number> = {
 export const MEASURED_LUFS: Record<string, number> = {
   'beach': -23,
   'fall': -21.4,
-  'fall-2': -18.7,
+  'fall-2': -18.9,
   'fall-3': -23.6,
-  'festival': -19,
-  'festival-blossom': -23.5,
+  'festival': -18.8,
+  'festival-blossom': -22.2,
   'festival-harvest': -21.2,
   'festival-starfall': -24.7,
   'festival-tide': -19.7,
@@ -43,7 +43,7 @@ export const MEASURED_LUFS: Record<string, number> = {
   'spring': -23.3,
   'spring-2': -23.3,
   'spring-3': -21.7,
-  'summer': -21.2,
+  'summer': -21.4,
   'summer-2': -19.3,
   'summer-3': -24.3,
   'title': -21.8,
@@ -51,9 +51,9 @@ export const MEASURED_LUFS: Record<string, number> = {
   'town-2': -29.4,
   'town-3': -25.1,
   'town-winter': -20.8,
-  'winter': -20.2,
-  'winter-2': -22.8,
-  'winter-3': -22.1,
+  'winter': -19.9,
+  'winter-2': -22.5,
+  'winter-3': -22.2,
 };
 // @generated-end
 

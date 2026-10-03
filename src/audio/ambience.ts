@@ -9,6 +9,7 @@ import type { AudioGraph } from './graph';
 import { Rand, clamp, makeRain, mtof } from './dsp';
 import { noiseHit } from './instruments';
 import { BirdBank, chimeBuffer, phrase, type Species } from './birds';
+import { Crowd } from './crowd';
 
 export type AmbSeason = 'spring' | 'summer' | 'fall' | 'winter';
 export type AmbWeather = 'sun' | 'rain' | 'storm' | 'snow' | 'wind';
@@ -62,6 +63,8 @@ export class Ambience {
   private wxTarget = 0;
   /** Cicada chorus envelope bookkeeping. */
   private cicadaOn = false;
+  /** Town / festival crowd life (talkers, laughter, applause, footsteps, the shop bell). */
+  readonly crowd: Crowd;
   private chimeBufs = new Map<number, AudioBuffer>();
   lightningAt = -1;
   /** Until this time the game drives thunder from its own lightning strikes (no random rolls). */
@@ -77,6 +80,7 @@ export class Ambience {
     this.send = g.ctx.createGain();
     this.send.gain.value = 0.35;
     this.send.connect(g.space);
+    this.crowd = new Crowd(g, this.out, this.send, seed + 23);
     const ctx = g.ctx;
     const bed = (name: string, buf: AudioBuffer, chain: AudioNode[], rate = 1): Bed => {
       const src = ctx.createBufferSource();
@@ -112,7 +116,10 @@ export class Ambience {
     // (High-passes on the brown / pink low beds: the sub-60 Hz rumble was 27–29 % of the beach and
     // indoor-rain energy — inaudible on laptops, woolly on headphones, and it ate the limiter's headroom. The low-pass stays first: it is the bed's automated `filter`.)
     bed('rainLow', g.brownSt, [bf('lowpass', 380, 0.5), bf('highpass', 55, 0.7)]);
-    bed('fountain', g.pinkSt, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800)]);
+    // (A −4 dB shelf over 3 kHz: the jet's splash, not a hiss.)
+    const fshelf = bf('highshelf', 3000, 0.7);
+    fshelf.gain.value = -4;
+    bed('fountain', g.pinkSt, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800), fshelf]);
     const surf = bed('surf', g.pinkSt, [bf('lowpass', 500, 0.6), bf('highpass', 45, 0.7)]);
     this.surfPan = ctx.createStereoPanner();
     surf.gain.disconnect();
@@ -227,12 +234,14 @@ export class Ambience {
     // music-free hours sit near -30 LUFS instead of -38 (near silence on laptop speakers).
     const nightLift = outdoors ? 1 + 1.5 * s.night : 1;
     this.nightLift = nightLift;
-    const wind = outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * nightLift : mine ? 0.015 : 0;
+    // In the square the people carry the sense of place: the wind / leaf wash sits 6 dB lower.
+    const townBed = s.map === 'town' || s.map.startsWith('fest') ? 0.5 : 1;
+    const wind = (outdoors ? townBed : 1) * (outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * nightLift : mine ? 0.015 : 0);
     this.setBed('wind', wind, now, 0.8);
     const wf = this.beds.wind!.filter!;
     wf.frequency.setTargetAtTime((260 + 520 * this.gust) * (1 + 0.15 * this.wx), now, 1.2);
     const hasLeaves = s.season !== 'winter' && outdoors && !beach;
-    this.setBed('leaves', hasLeaves ? (0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1)) * nightLift : 0, now, 0.6);
+    this.setBed('leaves', townBed * (hasLeaves ? (0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1)) * nightLift : 0), now, 0.6);
     // Rain: ±4 dB and ±30 % of the hiss band with the weather swell (showers come and go).
     this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0) * swellDb(5), now, 1.5);
     this.beds.rain!.filter!.frequency.setTargetAtTime(5000 * (1 + 0.3 * this.wx), now, 1.5);
@@ -250,7 +259,9 @@ export class Ambience {
         this.drops.heavy.gain.setTargetAtTime((storm ? 0.55 * (1 + 0.3 * q) : Math.max(0, q - 0.15) * 0.45) * lv, now, 1.5);
       }
     }
-    this.setBed('fountain', outdoors ? 0.14 * s.fountain : 0, now, 0.6);
+    // (Round 4: −5 dB — the fountain's broadband wash had been the town's loudest layer; the
+    // crowd now carries the square.)
+    this.setBed('fountain', outdoors ? 0.078 * s.fountain : 0, now, 0.6);
     this.setBed('cave', mine ? 0.1 : 0, now, 2);
     this.setBed('caveAir', mine ? 0.07 : 0, now, 2);
     const cold = s.season === 'winter' && outdoors;
@@ -333,8 +344,7 @@ export class Ambience {
     // Town life: distant chatter by day (busier at festivals), the smithy's anvil, a cart.
     const festive = s.map.startsWith('fest');
     const bustle = town && !raining && ((h >= 8 && h < 19.5) || festive);
-    t = due('walla', festive ? 0.25 : 0.9, festive ? 1.2 : 3.2, bustle);
-    if (t !== null) this.walla(t, festive ? 1 : 0.6);
+    this.crowd.tick(now, until, { active: bustle, festive, density: festive ? (s.night > 0.5 ? 0.7 : 1) : h < 10 || h > 17.5 ? 0.4 : 0.8 });
     t = due('anvil', 12, 30, town && !festive && h >= 9 && h < 17 && !raining);
     if (t !== null) this.anvil(t);
     // Mine life.
@@ -613,46 +623,6 @@ export class Ambience {
     if (r.chance(0.08)) noiseHit(this.g, d, t, { type: 'lowpass', f: 700, amp: 0.05, attack: 0.004, tau: 0.03, buf: this.g.pink }); // a log settles
   }
 
-  /** Distant crowd murmur: a few overlapping formant syllables, far away and lowpassed. */
-  private walla(t: number, level: number): void {
-    const ctx = this.g.ctx;
-    const r = this.rng;
-    const d = this.dest(r.range(-0.9, 0.9), 0.7 + r.next() * 0.3);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 1400;
-    lp.connect(d);
-    const base = r.pick([120, 150, 190, 230, 280]);
-    const syl = r.int(3, 7);
-    let tt = t;
-    const F = [[730, 1090], [530, 1840], [300, 2200], [570, 840], [440, 1020]];
-    for (let i = 0; i < syl; i++) {
-      const dur = r.range(0.08, 0.16);
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      const f0 = base * Math.pow(2, r.range(-3, 4) / 12);
-      o.frequency.setValueAtTime(f0, tt);
-      o.frequency.linearRampToValueAtTime(f0 * r.range(0.9, 1.08), tt + dur);
-      const [f1, f2] = r.pick(F);
-      const a = ctx.createGain();
-      a.gain.setValueAtTime(0, tt);
-      a.gain.linearRampToValueAtTime(0.012 * level, tt + 0.02);
-      a.gain.linearRampToValueAtTime(0, tt + dur);
-      for (const [ff, q] of [[f1!, 5], [f2!, 8]] as const) {
-        const bp = ctx.createBiquadFilter();
-        bp.type = 'bandpass';
-        bp.frequency.value = ff;
-        bp.Q.value = q;
-        o.connect(bp).connect(a);
-      }
-      a.connect(lp);
-      o.start(tt);
-      o.stop(tt + dur + 0.02);
-      tt += dur + r.range(0.01, 0.06) + (r.chance(0.2) ? 0.2 : 0);
-    }
-    // Now and then somebody laughs.
-    if (r.chance(0.12)) for (let i = 0; i < 4; i++) this.chirp(lp, tt + 0.1 + i * 0.13, base * 2.1, base * 1.8, 0.08, 0.008 * level);
-  }
 
   /** The smithy: two or three ringing hammer strikes on the anvil, far across the square. */
   private anvil(t: number): void {

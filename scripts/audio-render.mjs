@@ -95,7 +95,7 @@ const args = parseArgs(process.argv.slice(2));
  */
 function printCritique(crits, verbose) {
   console.log(`\nCOMPOSITION (symbolic, seed ${args.seed})`);
-  console.log(`${'theme'.padEnd(18)} ${'len'.padStart(5)} bars  range  step% leap% rep% unrec  strongCT%  chords  rubs(clash/b9/appog)  par/min  poly  cadences                 flags`);
+  console.log(`${'theme'.padEnd(18)} ${'len'.padStart(5)} bars  range  step% leap% rep% unrec  strongCT%  chords  rubs(clash/b9/appog)  par/min  poly  crowd% gap  cadences                 flags`);
   const fails = [];
   for (const c of crits) {
     const m = c.melody, h = c.harmony;
@@ -113,13 +113,15 @@ function printCritique(crits, verbose) {
       `${h.clashes}/${h.b9}/${h.appoggiaturas}`.padStart(20),
       String(c.parallels.perMin).padStart(8),
       `${c.texture.peakPoly}/${c.texture.meanPoly}`.padStart(8),
+      String(c.register?.crowdPct ?? '-').padStart(6),
+      String(c.register?.tenorGap ?? '-').padStart(4),
       c.cadences.join(' ').padEnd(30).slice(0, 30),
       c.flags.join(' ') || 'ok',
     ].join(' '));
     if (verbose || c.flags.length) for (const r of h.worst) console.log(`    ${r.kind.padEnd(12)} ${r.t.toFixed(1)}s bar ${r.bar} (${r.section}) ${r.melody} vs ${r.against}`);
     if (verbose) for (const x of c.parallels.examples) console.log(`    parallel     ${x}`);
     if (verbose || c.flags.includes('LEAPY')) for (const x of c.melody.leapExamples ?? []) console.log(`    leap         ${x}`);
-    if (c.flags.some((f) => /B9-BASS|NO-TONIC|CLASHY/.test(f))) fails.push(`${c.theme}[${c.flags.join(',')}]`);
+    if (c.flags.some((f) => /B9-BASS|NO-TONIC|CLASHY|MASKED-TUNE|HOLLOW-MIDDLE/.test(f))) fails.push(`${c.theme}[${c.flags.join(',')}]`);
   }
   console.log('');
   return fails;

@@ -98,7 +98,8 @@ export const THEMES: Record<string, ThemeDef> = {
     },
     counter: { inst: 'ocarina', range: [62, 74], on: 'late' },
     accomp: { inst: 'guitar', pattern: 'fingerpick', range: [50, 67], voices: 4, vel: 0.7 },
-    accomp2: { inst: 'marimba', pattern: 'ostinato332', range: [62, 79], voices: 3, vel: 0.36, on: 'repeat' },
+    // (Round 4: the 3-3-2 ostinato moved under the tune — at 62–79 it buried the marimba melody.)
+    accomp2: { inst: 'marimba', pattern: 'ostinato332', range: [50, 64], voices: 3, vel: 0.4, on: 'repeat' },
     bass: { inst: 'upright', pattern: 'tresillo', range: [36, 50], vel: 0.82 },
     perc: { pattern: 'shaker', on: 'always', vel: 0.6 },
     mix: {
@@ -192,6 +193,9 @@ export const THEMES: Record<string, ThemeDef> = {
     },
     counter: { inst: 'bell', range: [64, 76], on: 'late' },
     accomp: { inst: 'celesta', pattern: 'musicBox', range: [64, 81], voices: 3, vel: 0.42 },
+    // Round 4: a soft held tenor (three close voices, D3–E4 region, ~8 dB under the tune) fills the octave
+    // and a half between the bass and the celesta, so the A section glows instead of floating.
+    accomp2: { inst: 'pad', pattern: 'block', range: [50, 64], voices: 3, vel: 0.3 },
     perc: { pattern: 'sleigh', on: 'always', vel: 0.4 },
     bass: { inst: 'softBass', pattern: 'root', range: [40, 52], vel: 0.55 },
     // Strings only in the contrast sections, and ~4 dB lower: the music box has to sparkle, not sit in a wall.
@@ -201,6 +205,7 @@ export const THEMES: Record<string, ThemeDef> = {
       double: { gain: 0.17, pan: -0.25, send: 0.55 },
       counter: { gain: 0.42, pan: -0.35, send: 0.55 },
       accomp: { gain: 0.52, pan: -0.22, send: 0.45 },
+      accomp2: { gain: 0.2, pan: 0.18, send: 0.5 },
       bass: { gain: 0.36, pan: 0, send: 0.1 },
       pad: { gain: 0.19, pan: 0, send: 0.55 },
       perc: { gain: 0.4, pan: 0.3, send: 0.35 },
@@ -661,7 +666,9 @@ export const THEMES: Record<string, ThemeDef> = {
         pickup: '1:1 2:1',
       },
     },
-    accomp: { inst: 'accordion', pattern: 'oompah', range: [57, 71], voices: 3, vel: 0.6 },
+    // Round 4: the accordion holds its chords (bellows swells, re-struck mid-bar) while the guitar
+    // keeps the oompah — the middle of the band was empty between the off-beat stabs.
+    accomp: { inst: 'accordion', pattern: 'block', range: [55, 69], voices: 3, vel: 0.5 },
     accomp2: { inst: 'guitar', pattern: 'oompah', range: [50, 64], voices: 4, vel: 0.5, on: 'repeat' },
     bass: { inst: 'upright', pattern: 'jig', range: [38, 52], vel: 0.85 },
     perc: { pattern: 'jig', on: 'always', vel: 0.6 },
@@ -770,9 +777,12 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
           outro: ['II', 'I'],
         },
         melody: {
-          inst: 'harp', range: [62, 91], density: 0.85, ornament: 0.18, cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'repeat' },
+          // Round 4: a sustained lead — the tin whistle sings A over the plucked band (harp takes B,
+          // the flute the slow C), and the comping moved under it.
+          // (Up an octave: the tin whistle's own D5–D7 compass, a festival lead that rings over the band.)
+          inst: 'whistle', range: [74, 98], density: 0.85, ornament: 0.18, bInst: 'harp', cInst: 'flute', double: { inst: 'glock', interval: 0, on: 'repeat' },
           tune: {
-            octave: 0,
+            octave: 1,
             // "G B D. D E D. | G'. F# E D... | C# D E. C#. A. | D.. E F#. - |" — up the triad, the
             // lydian C# leaning on the II chord, a skip down home.
             A: ['1:1 3:1 5:2 5:1 6:1 5:2', "1':2 7:1 6:1 5:4", '4:1 5:1 6:2 4:2 2:2', '5:3 6:1 7:2 r:2', '1:1 3:1 5:2 5:1 6:1 5:2', "1':2 3':1 2':1 1':2 5:2", '6:1 4:1 2:2 5:1 6:1 7:2', '1:2 5,:1 1:1 r:2 5,:1 7,:1'],
@@ -785,8 +795,8 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
           },
         },
         counter: { inst: 'ocarina', range: [62, 76], on: 'late' },
-        accomp: { inst: 'ukulele', pattern: 'pizzOff', range: [60, 74], voices: 3, vel: 0.5 },
-        accomp2: { inst: 'marimba', pattern: 'arp8', range: [62, 79], voices: 3, vel: 0.3, on: 'repeat' },
+        accomp: { inst: 'ukulele', pattern: 'pizzOff', range: [55, 67], voices: 3, vel: 0.5 },
+        accomp2: { inst: 'marimba', pattern: 'arp8', range: [50, 64], voices: 3, vel: 0.32, on: 'B' },
         bass: { inst: 'upright', pattern: 'rootFifth', range: [38, 52], vel: 0.82 },
         perc: { pattern: 'polka', on: 'always', vel: 0.6 },
         mix: {

@@ -192,6 +192,10 @@ interface Bar {
   pos: number;
   /** Index of the section in th.form. */
   si: number;
+  /** Rubato shape applied by perform(): a phrase-end breath, the final cadence, the outro. */
+  rit: 'phrase' | 'final' | 'outro' | 'outroLast' | null;
+  /** 0..1 position inside the outro (it broadens as it goes). */
+  outroPos?: number;
 }
 interface MNote {
   step: number;
@@ -294,16 +298,17 @@ export class Composer {
         const syms = entry.split(/\s+/).filter(Boolean);
         const spans: Span[] = syms.map((s, k) => ({ chord: this.chord(s), s0: Math.round((k * this.S) / syms.length), s1: Math.round(((k + 1) * this.S) / syms.length) }));
         const last = i === prog.length - 1;
-        // Rubato: phrase ends breathe, the final cadence and outro broaden.
-        let scale = 1;
-        if (sec !== 'intro' && sec !== 'outro' && i % 4 === 3) scale = 1.025;
-        if (si === lastA && last) scale = 1.05;
-        if (sec === 'outro') scale = last ? 1.25 : 1.1;
-        const dur = this.S * this.stepSec * scale;
+        // Rubato is a continuous tempo curve applied after composition (perform()): bars are laid out
+        // in score time here and tagged with the shape they get.
+        let rit: Bar['rit'] = null;
+        if (sec !== 'intro' && sec !== 'outro' && i % 4 === 3) rit = 'phrase';
+        if (si === lastA && last) rit = 'final';
+        if (sec === 'outro') rit = last ? 'outroLast' : 'outro';
+        const dur = this.S * this.stepSec;
         const brk = !!breaks && last && sec === 'A' && next === 'B';
         const preFinal = last && si === lastA - 1 && lastA > 1;
         const fill = !brk && (sec === 'A' || sec === 'B' || sec === 'C') && (i % 4 === 3 || preFinal);
-        bars.push({ section: sec, occ: o, i, len: prog.length, spans, t0: t, dur, brk, fill, preFinal, shift: 0, pos: i / Math.max(1, prog.length - 1), si });
+        bars.push({ section: sec, occ: o, i, len: prog.length, spans, t0: t, dur, brk, fill, preFinal, shift: 0, pos: i / Math.max(1, prog.length - 1), si, rit, outroPos: sec === 'outro' ? i / Math.max(1, prog.length - 1) : undefined });
         t += dur;
       });
     });
@@ -460,6 +465,7 @@ export class Composer {
     });
 
     this.shapeDynamics(ev, bars);
+    this.perform(ev, bars);
     ev.sort((a, b) => a.t - b.t);
     const lastBar = bars[bars.length - 1]!;
     const barInfo = bars.map((b) => ({ t: b.t0, chords: b.spans.map((sp) => sp.chord.symbol).join(' '), section: b.i === 0 ? b.section : '', i: b.i, shift: b.shift }));
@@ -506,8 +512,90 @@ export class Composer {
     return b.section === 'A' && b.occ === this.th.form.filter((s) => s === 'A').length - 1 && b.occ > 0;
   }
 
+  /** Per-note micro-timing (independent): kept small — the ensemble's feel comes from perform(). */
   private jit(sigma: number): number {
-    return this.rng.gauss(sigma);
+    return this.rng.gauss(sigma * 0.55);
+  }
+
+  /**
+   * The performance: score time → played time, the way an ensemble actually moves together.
+   *
+   *  - Tempo drift: a slow, mean-reverting random walk (±1.5 %), smoothly interpolated across each
+   *    bar — the band breathes, it doesn't sit on a click.
+   *  - Phrase breaths: across the last two beats of every 4th bar the tempo eases back along a
+   *    smooth curve (up to ~13 % at the barline, ≈ 2.5 % of the bar), then returns a tempo on the
+   *    downbeat. The final cadence broadens across its whole bar; the outro slows progressively
+   *    into a long last bar.
+   *  - Roles: on lyrical themes the bass sits a touch ahead and the tune lays back behind the beat;
+   *    on dance themes everyone stays tight.
+   *  - Correlated micro-timing: each track pushes and drags with an AR(1) process (σ ≈ 4 ms,
+   *    ρ = 0.75) instead of white jitter, so consecutive notes lean the same way like a player's
+   *    hands do.
+   */
+  private perform(ev: NoteEvent[], bars: Bar[]): void {
+    if (!bars.length) return;
+    const th = this.th;
+    const r = this.rng;
+    const S = this.S;
+    const smooth = (x: number): number => {
+      const c = Math.max(0, Math.min(1, x));
+      return c * c * (3 - 2 * c);
+    };
+    // Where the last-two-beats breath starts (step index): 4/4 → beat 3, 3/4 → beat 2, 6/8 → 2nd dotted beat.
+    const ritFrom = th.meter === '4/4' ? 4 : th.meter === '3/4' ? 2 : 3;
+    const drift: number[] = [0];
+    for (let i = 1; i <= bars.length; i++) drift.push(Math.max(-0.015, Math.min(0.015, drift[i - 1]! * 0.8 + r.gauss(0.007))));
+    // Knots: score time τ and played time T at every step of every bar.
+    const tau: number[] = [];
+    const T: number[] = [];
+    const t00 = bars[0]!.t0;
+    let acc = t00;
+    tau.push(t00);
+    T.push(t00);
+    bars.forEach((b, bi) => {
+      const dt = b.dur / S;
+      for (let j = 0; j < S; j++) {
+        const x = (j + 0.5) / S;
+        let f = 1 + drift[bi]! + (drift[bi + 1]! - drift[bi]!) * smooth(x);
+        if (b.rit === 'phrase' && j >= ritFrom) f += 0.13 * Math.pow((j + 0.5 - ritFrom) / (S - ritFrom), 2);
+        else if (b.rit === 'final') f += 0.15 * x * x;
+        else if (b.rit === 'outro') f += 0.06 + 0.08 * (b.outroPos ?? 0);
+        else if (b.rit === 'outroLast') f += 0.12 + 0.45 * x * x;
+        acc += dt * f;
+        tau.push(b.t0 + (j + 1) * dt);
+        T.push(acc);
+      }
+    });
+    const n = tau.length - 1;
+    const W = (t: number): number => {
+      if (t <= t00) return t;
+      const k = Math.min(n - 1, Math.floor(((t - t00) / (tau[n]! - t00)) * n));
+      const a = tau[k]!;
+      const b = tau[k + 1]!;
+      return T[k]! + ((t - a) / (b - a)) * (T[k + 1]! - T[k]!);
+    };
+    const lyrical = !!th.melody?.legato || th.bpm < 96;
+    const role: Partial<Record<TrackName, number>> = lyrical ? { melody: 0.012, double: 0.012, counter: 0.006, bass: -0.006, pad: 0.008 } : { melody: 0.003, double: 0.003, bass: -0.004 };
+    const ar: Partial<Record<TrackName, number>> = {};
+    const order = ev.map((_, i) => i).sort((a, b) => ev[a]!.t - ev[b]!.t);
+    for (const i of order) {
+      const e = ev[i]!;
+      const t1 = W(e.t);
+      const d1 = W(e.t + e.dur) - t1;
+      let off = role[e.track] ?? 0;
+      if (e.track !== 'perc') {
+        const o = Math.max(-0.015, Math.min(0.015, (ar[e.track] ?? 0) * 0.75 + r.gauss(0.0027)));
+        ar[e.track] = o;
+        off += o;
+      }
+      e.t = Math.max(0, t1 + off);
+      e.dur = d1;
+    }
+    for (const b of bars) {
+      const t0 = W(b.t0);
+      b.dur = W(b.t0 + b.dur) - t0;
+      b.t0 = t0;
+    }
   }
 
   // ───────────────────────────────────────────── melody
