@@ -262,8 +262,11 @@ export class CoopInterior extends InteriorMap {
       k.add('fabric', new THREE.TorusGeometry(0.03, 0.01, 4, 8), mat(0.12, 1.94, z, Math.PI / 2, 0, 0), { tint: 0xb8452e });
     }
     // Grit bowl + a spare egg basket by the nests
-    k.cyl('tin', 0.16, 0.12, 0.07, [1.1, 0, 2.95], { tint: 0xc8d0d4, seg: 18 });
-    for (let i = 0; i < 26; i++) k.sphere('ceramic', 0.013, [1.1 + (rng.next() - 0.5) * 0.2, 0.072, 2.95 + (rng.next() - 0.5) * 0.2], rng.next() < 0.5 ? 0x9a948c : 0xc8c0b4);
+    // (a terracotta crock with a rolled lip: the flat tin pan read as a dropped grey plate from above)
+    k.cyl('ceramic', 0.17, 0.13, 0.1, [1.1, 0, 2.95], { tint: 0xb4643c, seg: 20 });
+    k.add('ceramic', new THREE.TorusGeometry(0.165, 0.018, 6, 22), mat(1.1, 0.1, 2.95, Math.PI / 2, 0, 0), { tint: 0xc87448 });
+    k.cyl('ceramic', 0.15, 0.15, 0.012, [1.1, 0.085, 2.95], { tint: 0x8a8278, seg: 20 });
+    for (let i = 0; i < 22; i++) k.sphere('ceramic', 0.014, [1.1 + (rng.next() - 0.5) * 0.2, 0.1, 2.95 + (rng.next() - 0.5) * 0.2], rng.next() < 0.5 ? 0x9a948c : 0xd8d0c4);
     k.cyl('thatch', 0.19, 0.14, 0.15, [0.35, 0, 1.35], { tint: 0xc8a068 });
     k.add('thatch', new THREE.TorusGeometry(0.15, 0.015, 5, 16, Math.PI), mat(0.35, 0.15, 1.35, 0, Math.PI / 2, 0), { tint: 0xb08850 });
     for (let i = 0; i < 3; i++) k.sphere('ceramic', 0.045, [0.3 + (i % 2) * 0.1, 0.15, 1.3 + i * 0.05], i === 1 ? 0xd99a62 : 0xf4ecde, [1, 1.25, 1]);

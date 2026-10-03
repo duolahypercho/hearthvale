@@ -145,7 +145,7 @@ function chicken(variant: number): AnimalModel {
   eyes(r, 0.078, 0.56, 0.22, 0.031, 0.72);
   cheeks(r, 0.095, 0.505, 0.2, 0.022, 0xff7a70);
   const { mesh, bones } = r.build(animalMaterial(), 'chicken');
-  return { mesh, bones, species: 'chicken', gait: { biped: true, speed: 0.55, freq: 3.2, legAmp: 0.55, bob: 0.025, eatPitch: 0.9, radius: 0.19, len: 0.05, reach: 0.3, top: 0.74, sleepDrop: 0.1, fold: 0.25 } };
+  return { mesh, bones, species: 'chicken', gait: { biped: true, speed: 0.55, freq: 3.2, legAmp: 0.55, bob: 0.025, eatPitch: 0.7, radius: 0.19, len: 0.05, reach: 0.3, top: 0.74, sleepDrop: 0.1, fold: 0.25 } };
 }
 
 function duck(variant: number): AnimalModel {

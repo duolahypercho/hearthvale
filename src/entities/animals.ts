@@ -600,7 +600,7 @@ export class AnimalActor {
       const nib = g.biped ? Math.max(0, Math.sin(t * 9 + this.seed)) ** 6 * 0.5 : Math.sin(t * 7 + this.seed) * 0.06;
       head.rotation.x += (g.eatPitch + nib) * E;
       // Ducks dabble with a level body (a steep tip read as a toppled bird from the high camera).
-      if (g.biped) body.rotation.x += (this.species === 'duck' ? 0.14 : 0.35) * E;
+      if (g.biped) body.rotation.x += (this.species === 'duck' ? 0.14 : 0.24) * E;
       else body.rotation.x += 0.06 * E;
     }
 
