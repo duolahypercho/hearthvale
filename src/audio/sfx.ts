@@ -82,7 +82,7 @@ export const SFX_NAMES = [
   'sword', 'sword:hit', 'slime', 'slime:hit', 'slime:die', 'hurt',
   'harvest', 'pickup', 'coin', 'purchase', 'ship', 'craft',
   'charge', 'refill', 'place', 'giant', 'hoe:dull',
-  'ui:click', 'ui:hover', 'ui:open', 'ui:close', 'ui:error', 'ui:select', 'ui:tab', 'ui:toggle', 'ui:tick', 'ui:trash', 'ui:drop', 'ui:sell',
+  'ui:click', 'ui:hover', 'ui:open', 'ui:close', 'ui:error', 'ui:select', 'ui:tab', 'ui:slot', 'ui:toggle', 'ui:tick', 'ui:trash', 'ui:drop', 'ui:sell',
   'blip', 'gift:love', 'gift:like', 'gift:neutral', 'gift:dislike', 'heart',
   'cast', 'plop', 'bite', 'catch', 'catch:perfect', 'escape', 'splash', 'reel',
   'ladder', 'door', 'warp', 'exhausted', 'eat', 'bundle', 'lantern', 'hall', 'morning', 'sleep', 'thunder', 'crow',
@@ -112,6 +112,8 @@ const TRIM: Record<string, number> = {
   // chorus of birds away from inaudible; still ~6 dB under the quietest farming verb.)
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
   'ui:click': 1.8,
+  // Toolbar detent: level with ui:tab on the reel (it measured 5.5 dB under it).
+  'ui:slot': 1.9,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
   rockbreak: 1.6, hoe: 5,
   // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
@@ -272,14 +274,19 @@ export class Sfx {
         // Blades crushed underfoot: a few crisp 2–4 kHz grains (what reads over birdsong and a score).
         for (let i = 0; i < 3; i++) this.noise(d, t + 0.006 + i * 0.012 + this.rng.next() * 0.006, { f: (2100 + this.rng.next() * 1800) * k, q: 2, amp: 0.07, tau: 0.007 });
         this.noise(d, t + 0.01, { type: 'highpass', f: 4200, amp: 0.035, attack: 0.01, tau: 0.02 });
-        this.tone(d, t, { f0: 95, amp: 0.1, tau: 0.025 });
+        this.tone(d, t, { f0: 95, amp: 0.07, tau: 0.022 });
+        // Heel-to-toe roll: the forefoot comes down 45–75 ms later and brushes the blades again —
+        // a softer, airier swish (a real step is two contacts, not one click).
+        this.roll(d, t, k, 0.6);
         break;
       case 'dirt':
       case 'tilled':
         // Soft heel thud + a gritty crunch of small grains.
-        this.noise(d, t, { f: (surface === 'tilled' ? 650 : 950) * k, q: 1, amp: 0.24, attack: 0.004, tau: 0.03, buf: this.g.pink });
-        for (let i = 0; i < 4; i++) this.noise(d, t + 0.008 + i * 0.011 + this.rng.next() * 0.006, { f: (2000 + this.rng.next() * 1600) * k, q: 2.5, amp: 0.07 * (1 - i * 0.18), tau: 0.008 });
+        // (Grit +3.5 dB, heel −1.5 dB: the step's centroid sat at ~370 Hz — a laptop heard a dull pat.)
+        this.noise(d, t, { f: (surface === 'tilled' ? 650 : 950) * k, q: 1, amp: 0.2, attack: 0.004, tau: 0.03, buf: this.g.pink });
+        for (let i = 0; i < 5; i++) this.noise(d, t + 0.006 + i * 0.01 + this.rng.next() * 0.006, { f: (1900 + this.rng.next() * 2200) * k, q: 2.5, amp: 0.105 * (1 - i * 0.15), tau: 0.008 });
         this.tone(d, t, { f0: 80, amp: 0.06, tau: 0.03 });
+        this.roll(d, t, k, surface === 'tilled' ? 0.35 : 0.5, 0.7);
         break;
       case 'wood':
         // Hollow plank knock: a smaller low body, the board's mid modes and a heel click on top.
@@ -307,6 +314,7 @@ export class Sfx {
         // Compressed-snow squeak: a burst of tiny tuned crunches.
         for (let i = 0; i < 7; i++) this.noise(d, t + i * 0.011 + this.rng.next() * 0.006, { f: (1500 + this.rng.next() * 1300) * k, q: 3.5, amp: 0.16 * (1 - i * 0.11), tau: 0.009 });
         this.noise(d, t, { type: 'lowpass', f: 800, amp: 0.18, attack: 0.01, tau: 0.04, buf: this.g.pink });
+        this.roll(d, t, k, 0.8, 0.75);
         break;
       case 'water':
         this.splashSmall(d, t, 0.6);
@@ -347,6 +355,18 @@ export class Sfx {
 
   private crumbs(d: AudioNode, t: number, n: number, amp: number, span = 0.15): void {
     for (let i = 0; i < n; i++) this.noise(d, t + this.rng.next() * span, { f: 2200 + this.rng.next() * 2600, q: 2.5, amp: amp * (0.5 + this.rng.next() * 0.5), tau: 0.008 });
+  }
+
+  /**
+   * The toe half of a footstep: 45–75 ms after the heel, two or three small grains in the 2.4–5 kHz
+   * band plus a soft pink brush, `amp` relative to the heel; `tone` < 1 darkens it (soil, snow).
+   */
+  private roll(d: AudioNode, t: number, k: number, amp: number, tone = 1): void {
+    const r = this.rng;
+    const tt = t + 0.045 + r.next() * 0.03;
+    this.noise(d, tt, { f: 1900 * k * tone, q: 0.9, amp: 0.09 * amp, attack: 0.006, tau: 0.022, buf: this.g.pink });
+    const n = r.chance(0.5) ? 2 : 3;
+    for (let i = 0; i < n; i++) this.noise(d, tt + 0.004 + i * 0.01 + r.next() * 0.005, { f: (2400 + r.next() * 2600) * k * tone, q: 2.2, amp: 0.06 * amp, tau: 0.006 });
   }
 
   private splashSmall(d: AudioNode, t: number, amp: number): void {
@@ -605,10 +625,13 @@ export class Sfx {
       case 'hoe:dull':
         // Steel glancing off hard ground: the dull thud, plus the part a laptop plays — a gritty
         // scrape of grains and a short, damped clink of the blade.
-        this.noise(d, t, { type: 'lowpass', f: 480, amp: 0.2, attack: 0.003, tau: 0.035, buf: this.g.pink });
-        this.tone(d, t, { f0: 110, f1: 70, glide: 0.05, amp: 0.16, tau: 0.03 });
-        this.crunch(d, t + 0.002, 0.09, { n: 4, span: 0.03, lo: 1800, hi: 4200, click: 0.5, clickF: 1300 + r.next() * 300 });
-        this.tone(d, t + 0.003, { f0: 2350 + r.next() * 200, amp: 0.018, attack: 0.001, tau: 0.035 });
+        // (Round 8: the thud still carried the cue — centroid 150 Hz, 33 LUFS — so the thud is
+        // lighter and the scrape / clink are what you hear: a refusal you can read on a laptop.)
+        this.noise(d, t, { type: 'lowpass', f: 520, amp: 0.14, attack: 0.003, tau: 0.03, buf: this.g.pink });
+        this.tone(d, t, { f0: 120, f1: 80, glide: 0.05, amp: 0.1, tau: 0.025 });
+        this.crunch(d, t + 0.002, 0.2, { n: 5, span: 0.035, lo: 1700, hi: 4500, click: 0.6, clickF: 1300 + r.next() * 300 });
+        this.tone(d, t + 0.003, { f0: 2350 + r.next() * 200, amp: 0.05, attack: 0.001, tau: 0.04 });
+        this.tone(d, t + 0.003, { f0: 3710 + r.next() * 200, amp: 0.02, attack: 0.001, tau: 0.025 });
         break;
       case 'ui:tab':
         this.noise(d, t, { f: 1800, q: 1.4, amp: 0.06, attack: 0.012, tau: 0.02, buf: this.g.pink });
@@ -618,6 +641,15 @@ export class Sfx {
         this.tone(d, t, { f0: 900, amp: 0.1, tau: 0.01 });
         this.tone(d, t + 0.045, { f0: 1350, amp: 0.08, tau: 0.012 });
         break;
+      case 'ui:slot': {
+        // Toolbar selection: a soft wooden detent, and a tiny kalimba note that climbs the key's
+        // pentatonic with the slot (1 low … 0 high), so scrolling the bar plays a little scale.
+        const slot = clamp(Math.round(o?.level ?? 0), 0, 9);
+        this.tone(d, t, { f0: 1250 + slot * 40, amp: 0.07, tau: 0.006 });
+        this.noise(d, t, { f: 2600, q: 2, amp: 0.035, tau: 0.004, buf: this.g.pink });
+        this.chime(d, t + 0.004, this.kn(slot), 0.045, 'kalimba');
+        break;
+      }
       case 'ui:tick':
         // A small wooden tick (clock, counters).
         this.tone(d, t, { f0: 1500, amp: 0.12, tau: 0.008 });

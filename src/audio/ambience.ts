@@ -477,37 +477,44 @@ export class Ambience {
     for (const c of this.crickets) {
       if (c.next < now - 1) c.next = now;
       while (c.next < until) {
-        const d = this.dest(c.pan, 0.5);
-        const pulses = r.int(3, 4);
-        const k = r.int(0, 11);
-        for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, c.next + i * 0.022, 0.028, c.f);
+        // The chorus breathes: each cricket swells and fades on its own slow cycle (two slow sines
+        // per cricket, 9–31 s), and every ~40 s the whole field falls silent for a couple of seconds —
+        // something moved in the grass — then starts again one by one. (The night bed was a flat
+        // wall, LRA ~2 LU; a real field ebbs.)
+        const tt = c.next;
+        const sw = 0.55 + 0.45 * Math.sin(2 * Math.PI * (tt / (17 + c.f * 9) + c.pan)) * Math.sin(2 * Math.PI * (tt / 31 + c.f));
+        const lull = Math.sin(2 * Math.PI * (tt / 41)) > 0.94 - 0.03 * (c.pan + 1);
+        if (!lull && r.next() < 0.6 + 0.4 * sw) {
+          const d = this.dest(c.pan, 0.5);
+          const pulses = r.int(3, 4);
+          const k = r.int(0, 11);
+          for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, tt + i * 0.022, 0.028 * (0.45 + 0.75 * sw), c.f);
+        }
         c.next += c.period * r.range(0.9, 1.1);
       }
     }
   }
 
+  /**
+   * A frog by the water: one or two "rib-bit" calls from the pre-rendered bank (pulsed, formant-
+   * voiced syllables — not an oscillator), and now and then a neighbour answers from across the
+   * pond, a touch lower and further away.
+   */
   private frog(t: number): void {
-    const ctx = this.g.ctx;
-    const d = this.dest(this.rng.range(-0.8, 0.8), 0.4);
-    const f = this.rng.range(180, 260);
-    for (let i = 0; i < 2; i++) {
-      const tt = t + i * 0.1;
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.setValueAtTime(f, tt);
-      o.frequency.linearRampToValueAtTime(f * 1.3, tt + 0.06);
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.value = 850;
-      bp.Q.value = 4;
-      const a = ctx.createGain();
-      a.gain.setValueAtTime(0, tt);
-      a.gain.linearRampToValueAtTime(0.06, tt + 0.01);
-      a.gain.linearRampToValueAtTime(0, tt + 0.07);
-      o.connect(bp).connect(a).connect(d);
-      o.start(tt);
-      o.stop(tt + 0.08);
-    }
+    const r = this.rng;
+    const call = (tt: number, pan: number, dist: number, rate: number, amp: number): void => {
+      const d = this.dest(pan, dist);
+      const k = 2 * r.int(0, 7);
+      const n = r.chance(0.35) ? 2 : 1;
+      for (let i = 0; i < n; i++) {
+        const t0 = tt + i * r.range(0.32, 0.42);
+        this.bank.play(d, 'frog', k, t0, amp, rate);
+        this.bank.play(d, 'frog', k + 1, t0 + r.range(0.13, 0.17), amp * 0.85, rate);
+      }
+    };
+    const pan = r.range(-0.8, 0.8);
+    call(t, pan, 0.4, r.range(0.95, 1.05), 0.05);
+    if (r.chance(0.4)) call(t + r.range(0.5, 0.9), -pan * 0.8, 0.65, r.range(0.86, 0.94), 0.04);
   }
 
   private owl(t: number): void {

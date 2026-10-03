@@ -402,11 +402,13 @@ const LIVE_SCENES = [
   { demo: 'beach-day', expect: 'beach' },
   { demo: 'mine', expect: 'mine' },
   { demo: 'winter-night', expect: /^night(-winter)?$/ },
+  // Summer nights rotate the new 'Firefly Meadow' (night-summer) with Lamplight.
+  { demo: 'audio-night', expect: /^night(-summer)?$/ },
   { demo: 'town-rain', expect: 'rain' },
   { demo: 'fest-spring', expect: /^festival/ },
   { demo: 'title', expect: 'title' },
 ];
-const LIVE_SFX = ['step:grass', 'water', 'hoe', 'scythe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'ui:close', 'ui:hover', 'ui:select', 'splash', 'sword', 'slime', 'heart', 'levelup', 'chest', 'join', 'chat', 'emote:heart'];
+const LIVE_SFX = ['step:grass', 'water', 'hoe', 'scythe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'ui:close', 'ui:hover', 'ui:select', 'ui:slot', 'splash', 'sword', 'slime', 'heart', 'levelup', 'chest', 'join', 'chat', 'emote:heart'];
 /** Level hierarchy: the farming verbs must sit above the menu sounds, and all of them above the ambience. */
 const VERBS = ['step:grass', 'water', 'hoe', 'scythe'];
 const MENU = ['ui:open', 'ui:close'];

@@ -145,6 +145,8 @@ export class AudioSystem implements System {
   private env: EnvState | null = null;
   private lastTick = 0;
   private muffle = -1;
+  /** Last toolbar slot voiced (re-selecting the same slot is silent). */
+  private lastSlot = -1;
   private speaking = false;
   private sleeping = false;
   /** AudioContext time of the last lightning strike voiced from a weather:thunder event. */
@@ -199,6 +201,8 @@ export class AudioSystem implements System {
     if (params.get('audio') === '1') queueMicrotask(() => this.start());
     const theme = params.get('theme');
     if (theme) this.forced = theme;
+    // The summer-night demo always stages its own lullaby (the playlist would rotate it by day).
+    else if (params.get('demo') === 'audio-night') this.forced = 'night-summer';
     const sfx = params.get('sfx');
     if (sfx) this.demoSfx = { name: sfx, next: 0 };
     if (params.get('coop') === '1' && params.get('demo') === 'audio') this.demoCoop = { a: 0, stride: 0, next: 2, k: 0 };
@@ -475,6 +479,12 @@ export class AudioSystem implements System {
       if (!n) return;
       // open/close are also voiced from ui:open / ui:close — don't double them.
       this.sfx(n, undefined, n === 'ui:hover' ? 0.045 : 0.05);
+    });
+    // Toolbar: a soft detent per slot (scrolling the bar plays a little rising scale).
+    ev.on('toolbar:select', ({ slot }) => {
+      if (slot === this.lastSlot) return;
+      this.lastSlot = slot;
+      this.sfx('ui:slot', { level: slot }, 0.03);
     });
     ev.on('ui:open', ({ name }) => {
       if (name === 'none' || name.startsWith('title') || name.startsWith('dialogue')) return;

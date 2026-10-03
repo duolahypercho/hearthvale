@@ -134,15 +134,17 @@ export const DEMOS: Record<string, DemoDef> = {
   'farm-storm': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 15, season: 'summer', weather: 'storm', camera: HOME_CAM },
   'farm-wind': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'wind', camera: HOME_CAM },
   // Audio pod: the farm at golden morning with a "now playing" banner. URL: &theme=<spring|spring-2|spring-3|summer|
-  // summer-2|summer-3|fall|fall-2|fall-3|winter|winter-2|winter-3|night|night-spring|night-fall|night-winter|town|beach|
+  // summer-2|summer-3|fall|fall-2|fall-3|winter|winter-2|winter-3|night|night-spring|night-summer|night-fall|night-winter|town|beach|
   // mine|mine-ice|mine-lava|rain|inn|forest|festival|festival-blossom|festival-tide|festival-harvest|festival-starfall|
   // title|none> or a playlist (farm:spring, night:fall ...), the now-playing card is pinned (&card=0 hides it; notes float out of it
   // in time with the tune once sound runs — press any key), &sfx=<name> repeats an SFX every 2.5 s, &audio=1 starts the
-  // AudioContext without a click where autoplay allows. audio-summer / audio-fall / audio-winter stage the other seasons.
+  // AudioContext without a click where autoplay allows. audio-summer / audio-fall / audio-winter stage the other seasons, audio-night a summer night.
   audio: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'audio-summer': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 13.5, season: 'summer', weather: 'sun', camera: HOME_CAM },
   'audio-fall': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 15.5, season: 'fall', weather: 'sun', camera: HOME_CAM },
   'audio-winter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: HOME_CAM },
+  // Audio pod: a summer night on the farm — the lullaby 'Firefly Meadow' (night-summer) under the crickets.
+  'audio-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.2, season: 'summer', weather: 'sun', camera: HOME_CAM },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.2, offsetZ: -0.35 }, showcase: ['interior'] },

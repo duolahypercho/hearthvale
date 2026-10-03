@@ -628,7 +628,10 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   const a = gain(g);
   a.gain.setValueAtTime(0, t);
   a.gain.linearRampToValueAtTime(v * 0.26, t + 0.012);
-  a.gain.setTargetAtTime(v * 0.12, t + 0.012, 0.25);
+  // A plucked string never plateaus: the body blooms, then dies away the whole note long (a held
+  // sine "brick" under every bass note was the most synthetic thing in the low end).
+  a.gain.setTargetAtTime(v * 0.14, t + 0.012, 0.12);
+  a.gain.setTargetAtTime(0, t + 0.2, 0.55);
   a.gain.setTargetAtTime(0, t + Math.min(dur, 1.2), 0.07);
   sine(g, f, t, stop).connect(a);
   const o2 = gain(g, 0.35);

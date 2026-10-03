@@ -16,7 +16,7 @@
  */
 import { Rand } from './dsp';
 
-export type Species = 'robin' | 'finch' | 'warbler' | 'thrush' | 'wren' | 'chickadee' | 'dove' | 'owl' | 'gull' | 'cricket' | 'drip';
+export type Species = 'robin' | 'finch' | 'warbler' | 'thrush' | 'wren' | 'chickadee' | 'dove' | 'owl' | 'gull' | 'cricket' | 'drip' | 'frog';
 
 interface Syl {
   dur: number;
@@ -167,6 +167,13 @@ function template(sp: Species, r: Rand, i: number): Syl {
       const f = r.range(4300, 5100);
       return { ...base, dur: 0.014, f0: f, f1: f * 0.99, h2: 0.2, h3: 0.05, fmRate: 200, fmDepth: 0.004, attack: 0.002, wet: 0.4, formant: 1, q: 4 };
     }
+    case 'frog': {
+      // A small pond frog's "rib-bit": a buzzy low carrier (rich 2nd/3rd harmonics) chopped by fast
+      // vocal-sac pulses (AM 45–75 Hz = the rasp), rising a little through the call, voiced through a
+      // throat formant ~1.2–1.8 kHz. Even entries are the "rib", odd the shorter, higher "bit".
+      const f = r.range(380, 520) * (i % 2 ? 1.12 : 1);
+      return { ...base, dur: i % 2 ? r.range(0.07, 0.1) : r.range(0.11, 0.16), f0: f, f1: f * r.range(1.08, 1.18), h2: r.range(0.7, 0.9), h3: r.range(0.45, 0.65), fmRate: r.range(20, 35), fmDepth: 0.02, trill: r.range(45, 75), attack: 0.008, formant: r.range(3, 3.6), q: 1.8, wet: 0.7, breath: 0.08 };
+    }
     case 'drip': {
       // A drop into a puddle: a bubble that glides slightly down and is gone in < 80 ms.
       const f = r.range(1400, 3600);
@@ -175,7 +182,7 @@ function template(sp: Species, r: Rand, i: number): Syl {
   }
 }
 
-const BANK_SIZE: Partial<Record<Species, number>> = { chickadee: 12, owl: 12, dove: 16, cricket: 12, drip: 24 };
+const BANK_SIZE: Partial<Record<Species, number>> = { chickadee: 12, owl: 12, dove: 16, cricket: 12, drip: 24, frog: 16 };
 
 export class BirdBank {
   private banks = new Map<Species, AudioBuffer[]>();

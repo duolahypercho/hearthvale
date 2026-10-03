@@ -399,7 +399,9 @@ export const THEMES: Record<string, ThemeDef> = {
 
   /** Deepest: the ember floors — low cello groans, tritone bells and a heavier drone. */
   'mine-lava': {
-    width: 0,
+    // The cave reverb over its low cello left L/R correlation at 0.24 (a mono laptop speaker loses the
+    // tail): narrow the sides a little above 300 Hz.
+    width: -0.1,
     id: 'mine-lava',
     title: 'Ember Deep',
     blurb: 'The ember floors',

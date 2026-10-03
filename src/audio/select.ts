@@ -76,7 +76,7 @@ export const PLAYLISTS: Record<string, readonly string[]> = {
   'farm:fall': ['fall', 'fall-2', 'fall-3'],
   'farm:winter': ['winter', 'winter-2', 'winter-3'],
   'night:spring': ['night-spring', 'night'],
-  'night:summer': ['night', 'night-spring'],
+  'night:summer': ['night-summer', 'night'],
   'night:fall': ['night-fall', 'night'],
   'night:winter': ['night-winter', 'night'],
 };

@@ -210,8 +210,8 @@ adapts it to game events.
   3/4); summer — Long Light (marimba + nylon guitar), Porch Swing (fiddle waltz), Lemonade Afternoon (bossa
   nylon-guitar lead); fall — Amber Waltz (clarinet, cello bridge), Cider & Candle (cello hymn, 4/4), Woodsmoke
   (oboe, 6/8); winter — Hush of Snow (music box), Frostglass (celesta + harp rolls, bell bridge), Hearthside
-  (low flute over a music-box figure, 6/8). Nights (`night:<season>`): Lamplight, Dew at Dusk, Owl Hour,
-  Snowlight Lullaby. Plus town (ocarina + pizzicato), beach (steel pan + ukulele), forest (dorian whistle + harp,
+  (low flute over a music-box figure, 6/8). Nights (`night:<season>`): Lamplight, Dew at Dusk, Firefly Meadow
+  (summer: vibraphone over fingerpicked nylon guitar, a lydian II, flute bridge), Owl Hour, Snowlight Lullaby. Plus town (ocarina + pizzicato), beach (steel pan + ukulele), forest (dorian whistle + harp,
   6/8), inn (swing vibraphone over Rhodes comp, also the town square 17:30–20:00), rain lo-fi, mine / mine-ice /
   mine-lava (by floor band), festival jig + four festival arrangements, title.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
@@ -265,7 +265,7 @@ adapts it to game events.
   a band-pass formant, trills), and two birds of a species counter-sing from either side. Cicadas come in
   pulsed 4–7 kHz choruses that swell every 10–25 s; rain and wind move with a 0.05–0.2 Hz weather swell
   (±4 dB, ±30 % cutoff, drop density); puddle drips are < 80 ms bubbles; wind chimes are inharmonic tubes.
-- Hear it: `?demo=audio&theme=<id>` (also `audio-summer` / `audio-fall` / `audio-winter`; `theme` takes a song id or a
+- Hear it: `?demo=audio&theme=<id>` (also `audio-summer` / `audio-fall` / `audio-winter`, `audio-night` = a summer night; `theme` takes a song id or a
   playlist like `farm:fall`; `&theme=none` for ambience only, `&sfx=<name>` repeats an SFX every 2.5 s,
   `&audio=1` starts the context without a click where autoplay allows, `&card=1` pins the now-playing card,
   `&card=0` hides it). Any demo plays its own music after a click.

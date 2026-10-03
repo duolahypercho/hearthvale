@@ -458,6 +458,58 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     gain: 0.9,
   },
 
+  /**
+   * Summer nights — a meadow serenade: soft vibraphone over fingerpicked nylon guitar, a lydian lift (the
+   * major II, B natural over G) where the fireflies come out, a flute bridge that slips through
+   * the borrowed bVI–bVII on its way home. Lazy swung eighths; the upright plucks root and fifth.
+   */
+  'night-summer': {
+    id: 'night-summer',
+    title: 'Firefly Meadow',
+    blurb: 'Night in the valley',
+    bpm: 68,
+    meter: '4/4',
+    key: 65, // F
+    mode: 'major',
+    swing: 0.56,
+    breaks: false,
+    form: NIGHT_FORM,
+    prog: {
+      intro: ['Imaj7', 'IVmaj7'],
+      A: ['Imaj7', 'II', 'IVmaj7', 'iii7', 'vi7', 'ii7', 'IVmaj7', 'V7sus4'],
+      Aend: ['ii7 V7', 'Imaj7'],
+      B: ['vi7', 'IVmaj7', 'Imaj7', 'iii7', 'vi7', 'II', 'IVmaj7', 'V7sus4'],
+      C: ['bVImaj7', 'bVIImaj7', 'Imaj7', 'vi7', 'IVmaj7', 'iv6', 'Imaj7', 'V7sus4'],
+      outro: ['IVmaj7', 'Imaj7'],
+    },
+    melody: {
+      // An octave over the guitar's picking (the tune sat inside the accompaniment's register).
+      inst: 'vibes', range: [72, 96], density: 0.3, ornament: 0.12, cInst: 'flute',
+      tune: {
+        octave: 1,
+        // "C F A C'… | D'. B G… | A Bb D'. A | C'…… | F' E' D' C' | Bb. A G D | F A D'… | C'… |" —
+        // it climbs out of the tonic chord, leans on the lydian B, and sighs back down by step.
+        A: ['r:1 5,:1 1:1 3:1 5:4', '6:3 #4:1 2:4', '3:2 4:2 6:3 3:1', '5:6 r:2', "1':3 7:1 6:2 5:2", '4:3 3:1 2:2 6,:2', '1:2 3:2 6:4', '5:4 r:4'],
+        Aend: ['2:2 4:2 7,:2 2:2', '1:8'],
+        B: ["3:2 6:2 1':4", "1':3 6:1 4:4", '5:3 6:1 7:4', '7:3 5:1 3:4', "6:2 1':2 3':4", "2':3 6:1 #4:4", "1':2 6:2 4:2 3:2", '4:4 5:4'],
+        C: ["1':3 5:1 b3:4", "2':3 6:1 4:4", '3:2 5:2 7:4', '6:6 r:2', "6:3 1':1 3':4", "2':3 1':1 b6:4", '5:4 3:4', '2:4 4:4'],
+      },
+    },
+    accomp: { inst: 'guitar', pattern: 'fingerpick', range: [48, 67], voices: 4, vel: 0.46 },
+    // Two plucks a bar (root, then fifth): at 68 bpm one pluck left half of every bar without a floor.
+    bass: { inst: 'upright', pattern: 'rootFifth', range: [36, 48], vel: 0.6 },
+    pad: { inst: 'pad', range: [57, 72], voices: 3, vel: 0.26, on: 'B' },
+    mix: {
+      melody: { gain: 0.74, pan: 0.14, send: 0.46 },
+      accomp: { gain: 0.6, pan: -0.22, send: 0.36 },
+      bass: { gain: 0.5, pan: 0, send: 0.08 },
+      pad: { gain: 0.24, pan: 0, send: 0.55 },
+    },
+    rest: [6, 14],
+    gain: 0.9,
+    sheen: 1.5,
+  },
+
   /** Fall nights — a dorian clarinet waltz in its low register, harp, flute bridge. */
   'night-fall': {
     // Already open (L/R correlation 0.55 as arranged): only a little side lift.
