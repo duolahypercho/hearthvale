@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { Quality } from '../core/events';
 import { PostPipeline, QUALITY_PRESETS, type QualityPreset } from './post';
-import './batching';
+import { shadowCullStats } from './batching';
 import './chunks';
 import { LightBudget } from './lightbudget';
 import { QualityGovernor } from './governor';
@@ -153,6 +153,8 @@ export class RenderContext {
   readonly shaderGate: ShaderGate;
   /** True while compile() runs: frames are skipped (the canvas keeps its last image) instead of compiling synchronously. */
   private compiling = 0;
+  /** Shadow caster cull volume switch + counter (render/batching.ts; A/B via `enabled`). */
+  readonly shadowCull = shadowCullStats;
   /** Governor-driven render-resolution scale (1 = preset pixel ratio). */
   resScale = 1;
   /**

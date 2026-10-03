@@ -27,6 +27,8 @@ interface Slot {
   /** camera.projection × camera.viewInverse × mesh.matrixWorld of the last cull. */
   key: Float64Array;
   ver: number;
+  /** Shadow caster cull-volume version this list was culled with (-1 = none). */
+  cv: number;
 }
 
 interface CacheState {
@@ -63,6 +65,45 @@ const _m = new THREE.Matrix4();
 const _frustum = new THREE.Frustum();
 const _sphere = new THREE.Sphere();
 
+/**
+ * Shadow caster cull volume (pillar 14). The sun's ortho box is the light-space bounding rectangle of the
+ * view's receivers, so its corners hold casters whose shadow can never reach the view (forest-fall:
+ * 342k shadow triangles a frame vs 153k in the main pass — wind-swayed trees are re-drawn every frame).
+ * render/lighting.ts hands over the light-space convex hull of the view's receivers as world planes
+ * parallel to the light (the silhouette planes of a directional light's caster volume): a batched
+ * instance wholly outside one of them (already widened by a margin) skips the shadow pass. The planes are
+ * only re-committed after the view drifts past a fraction of the margin, so a still or slowly moving
+ * camera does not re-cull (and the static shadow cache, keyed on the snapped sun box, stays whole).
+ */
+const MAX_CV = 16;
+const _cv = { camera: null as THREE.Camera | null, planes: Array.from({ length: MAX_CV }, () => new THREE.Plane()), n: 0, ver: 0 };
+export const shadowCullStats = { enabled: true, culled: 0, planes: 0, ver: 0 };
+
+/** `planes` (inward normals, margin included) bound the casters that matter for `shadowCam`; null clears. */
+export function setShadowCullPlanes(shadowCam: THREE.Camera | null, planes: readonly THREE.Plane[], n: number, drift: number): void {
+  if (!shadowCam || !shadowCullStats.enabled || n <= 0 || n > MAX_CV) {
+    if (_cv.camera) {
+      _cv.camera = null;
+      _cv.n = 0;
+      _cv.ver++;
+    }
+    return;
+  }
+  let moved = n !== _cv.n || shadowCam !== _cv.camera;
+  for (let i = 0; i < n && !moved; i++) {
+    const a = planes[i]!;
+    const b = _cv.planes[i]!;
+    if (Math.abs(a.constant - b.constant) > drift || 1 - a.normal.dot(b.normal) > 4e-5) moved = true;
+  }
+  if (!moved) return;
+  for (let i = 0; i < n; i++) _cv.planes[i]!.copy(planes[i]!);
+  _cv.n = n;
+  _cv.camera = shadowCam;
+  _cv.ver++;
+  shadowCullStats.planes = n;
+  shadowCullStats.ver = _cv.ver;
+}
+
 /** Runtime switch (A/B perf experiments). */
 export function setBatchCache(on: boolean): void {
   enabled = on;
@@ -88,7 +129,7 @@ function newSlot(mesh: Internal, st: CacheState): Slot {
   const baseUsed = [...st.slots.values()].some((s) => s.tex === st.base);
   const tex = !baseUsed ? st.base : new THREE.DataTexture(new Uint32Array(img.width * img.height), img.width, img.height, THREE.RedIntegerFormat, THREE.UnsignedIntType);
   void mesh;
-  return { tex, starts: new Int32Array(cap), counts: new Int32Array(cap), count: 0, bpe: 0, key: new Float64Array(16).fill(NaN), ver: -1 };
+  return { tex, starts: new Int32Array(cap), counts: new Int32Array(cap), count: 0, bpe: 0, key: new Float64Array(16).fill(NaN), ver: -1, cv: -1 };
 }
 
 function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene: THREE.Scene | null, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material): void {
@@ -130,6 +171,12 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
   const bpe = index === null ? 1 : index.array.BYTES_PER_ELEMENT;
 
   let same = slot.ver === st.ver && slot.bpe === bpe;
+  const vol = cull && camera === _cv.camera && _cv.n > 0;
+  const cvVer = cull && camera === _cv.camera ? _cv.ver : -1;
+  if (cull && slot.cv !== cvVer) {
+    same = false;
+    slot.cv = cvVer;
+  }
   if (cull) {
     _m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(this.matrixWorld);
     const e = _m.elements;
@@ -154,6 +201,8 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
     const counts = slot.counts;
     let n = 0;
     let changed = false;
+    const w = this.matrixWorld.elements;
+    const ws = vol ? this.matrixWorld.getMaxScaleOnAxis() : 1;
     for (let i = 0, l = info.length; i < l; i++) {
       const inst = info[i]!;
       if (!inst.visible || !inst.active) continue;
@@ -173,6 +222,26 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
         const s2 = Math.max(m0 * m0 + m1 * m1 + m2 * m2, m4 * m4 + m5 * m5 + m6 * m6, m8 * m8 + m9 * m9 + m10 * m10);
         _sphere.radius = bs.radius * Math.sqrt(s2);
         if (!_frustum.intersectsSphere(_sphere)) continue;
+        if (vol) {
+          // The cull planes are in world space; the sphere is in the batch's local space.
+          let out = false;
+          const c = _sphere.center;
+          const x = w[0]! * c.x + w[4]! * c.y + w[8]! * c.z + w[12]!;
+          const y = w[1]! * c.x + w[5]! * c.y + w[9]! * c.z + w[13]!;
+          const z = w[2]! * c.x + w[6]! * c.y + w[10]! * c.z + w[14]!;
+          const rw = _sphere.radius * ws;
+          for (let j = 0; j < _cv.n; j++) {
+            const pl = _cv.planes[j]!;
+            if (pl.normal.x * x + pl.normal.y * y + pl.normal.z * z + pl.constant < -rw) {
+              out = true;
+              break;
+            }
+          }
+          if (out) {
+            shadowCullStats.culled++;
+            continue;
+          }
+        }
       }
       const g = geos[gi]!;
       const s = g.start * bpe;

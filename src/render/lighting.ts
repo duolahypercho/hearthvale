@@ -8,6 +8,7 @@ import type { Season, Weather } from '../core/time';
 import type { RenderContext } from './renderer';
 import { globalUniforms } from './uniforms';
 import { nightGlow, interiorGlow } from './materials';
+import { setShadowCullPlanes } from './batching';
 
 interface Key {
   h: number;
@@ -58,6 +59,12 @@ const SHADOW_REACH = 25;
 const SHADOW_STEP_RAD = 0.0006;
 /** Shadow frustum centre step (m), rounded to whole texels. */
 const SHADOW_SNAP_M = 1;
+const CULL_NX = [-1, 1, 1, -1, 0, 0];
+const CULL_NY = [-1, -1, 1, 1, 1, -1];
+const _cp = new THREE.Vector3();
+const _cd = new THREE.Vector3();
+const _cn = new THREE.Vector3();
+const _hull: number[] = [];
 
 // Storm grade: a clear cold teal-blue (lifted slate shadows, pulled-down warm highlights).
 const _stormLift = new THREE.Vector3(0.03, 0.048, 0.078);
@@ -108,6 +115,9 @@ export class DayNight {
    * (render/shadowcache.ts) stays valid between steps instead of re-rendering every frame.
    */
   private shadowDir = new THREE.Vector3();
+  private cullPts: number[] = [];
+  private cullHull: number[] = [];
+  private cullPlanes = Array.from({ length: 16 }, () => new THREE.Plane());
   // Image-based lighting: a tiny gradient-sky scene prefiltered with PMREM, refreshed
   // whenever the (quantized) time of day / weather changes.
   private pmrem: THREE.PMREMGenerator;
@@ -490,9 +500,76 @@ export class DayNight {
     // A short light column keeps the plateau forest out of the shadow pass.
     this.sun.position.copy(center).addScaledVector(this.shadowDir, SHADOW_REACH);
     this.sun.target.updateMatrixWorld();
+    this.shadowCullPlanes(cam, camera, inv, lightRot, groundY);
     this.bounce.position.copy(center).add(new THREE.Vector3(-this.sunDir.x, 0.4, -this.sunDir.z).multiplyScalar(30));
     this.bounce.target.position.copy(center);
     this.bounce.target.updateMatrixWorld();
     this.sky.position.copy(this.rc.camera.position);
   }
+
+  /**
+   * Shadow caster culling (render/batching.ts): the light-space convex hull of every receiver the view can
+   * show — its ground footprint from 3 m below to 5 m above the focus, and everything between that and the
+   * lens — widened by a margin, as world planes parallel to the light. Casters outside it can only shadow
+   * what is off screen. The margin covers the sun box's centre snap and the re-commit drift.
+   */
+  private shadowCullPlanes(shadowCam: THREE.Camera, camera: THREE.PerspectiveCamera, inv: THREE.Matrix4, lightRot: THREE.Matrix4, groundY: number): void {
+    if (!this.sun.castShadow) {
+      setShadowCullPlanes(null, this.cullPlanes, 0, 0);
+      return;
+    }
+    const rig = this.rc.rig;
+    const origin = camera.position;
+    const pts = this.cullPts;
+    pts.length = 0;
+    const p = _cp;
+    const dir = _cd;
+    p.copy(origin).applyMatrix4(inv);
+    pts.push(p.x, p.y);
+    for (let k = 0; k < 6; k++) {
+      dir.set(CULL_NX[k]!, CULL_NY[k]!, 0.5).unproject(camera).sub(origin).normalize();
+      for (let j = 0; j < 2; j++) {
+        const gy = groundY + (j === 0 ? 5 : -3);
+        const t = dir.y < -0.05 ? Math.min((gy - origin.y) / dir.y, rig.distance * 3) : rig.distance * 3;
+        p.copy(origin).addScaledVector(dir, Math.max(0, t)).applyMatrix4(inv);
+        pts.push(p.x, p.y);
+      }
+    }
+    // Monotone-chain convex hull (counter-clockwise) of the light-space points.
+    const n = pts.length / 2;
+    const idx = this.cullHull;
+    idx.length = 0;
+    for (let i = 0; i < n; i++) idx.push(i);
+    idx.sort((a, b) => pts[a * 2]! - pts[b * 2]! || pts[a * 2 + 1]! - pts[b * 2 + 1]!);
+    const hull: number[] = _hull;
+    hull.length = 0;
+    const cross = (o: number, a: number, b: number): number => (pts[a * 2]! - pts[o * 2]!) * (pts[b * 2 + 1]! - pts[o * 2 + 1]!) - (pts[a * 2 + 1]! - pts[o * 2 + 1]!) * (pts[b * 2]! - pts[o * 2]!);
+    for (const i of idx) {
+      while (hull.length >= 2 && cross(hull[hull.length - 2]!, hull[hull.length - 1]!, i) <= 0) hull.pop();
+      hull.push(i);
+    }
+    const lower = hull.length + 1;
+    for (let k = idx.length - 2; k >= 0; k--) {
+      const i = idx[k]!;
+      while (hull.length >= lower && cross(hull[hull.length - 2]!, hull[hull.length - 1]!, i) <= 0) hull.pop();
+      hull.push(i);
+    }
+    hull.pop();
+    const margin = 3 + SHADOW_SNAP_M * 2;
+    let m = 0;
+    for (let e = 0; e < hull.length && m < this.cullPlanes.length; e++) {
+      const a = hull[e]!;
+      const b = hull[(e + 1) % hull.length]!;
+      const dx = pts[b * 2]! - pts[a * 2]!;
+      const dy = pts[b * 2 + 1]! - pts[a * 2 + 1]!;
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-4) continue;
+      // CCW: the interior is on the left of a→b.
+      const nrm = _cn.set(-dy / len, dx / len, 0).transformDirection(lightRot);
+      const at = _cp.set(pts[a * 2]!, pts[a * 2 + 1]!, 0).applyMatrix4(lightRot);
+      this.cullPlanes[m++]!.set(nrm, -nrm.dot(at) + margin);
+    }
+    setShadowCullPlanes(shadowCam, this.cullPlanes, m, margin * 0.25);
+  }
+
 }
