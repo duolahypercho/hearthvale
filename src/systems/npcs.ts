@@ -118,7 +118,7 @@ const STAGES: Record<string, Mark[]> = {
     ['rowan', 26.6, 22.0, 48, 'chat', 'exclaim'],
     ['wren', 24.8, 23.3, 75, 'paint'],
     ['bram', 41.9, 20.8, -15, 'knead'],
-    ['odessa', 43.2, 22.7, -58, 'chat', 'idea'],
+    ['odessa', 42.8, 22.8, -58, 'chat'],
     ['kit', 37.4, 27.6, -30, 'play'],
     ['june', 27.0, 26.3, 42, 'chat', 'heart'],
     ['linus', 29.1, 27.2, -48, 'chat'],
@@ -151,7 +151,7 @@ const STAGES: Record<string, Mark[]> = {
     ['tobias', 28.3, 22.8, -52, 'chat'],
     ['rowan', 26.6, 22.0, 48, 'chat', 'exclaim'],
     ['bram', 41.9, 20.8, -15, 'knead'],
-    ['odessa', 43.2, 22.7, -58, 'chat', 'idea'],
+    ['odessa', 42.8, 22.8, -58, 'chat'],
     ['kit', 37.4, 27.6, -30, 'play'],
     ['june', 27.0, 26.3, 42, 'chat', 'heart'],
     ['linus', 29.1, 27.2, -48, 'chat'],
@@ -1273,7 +1273,7 @@ export class NpcSystem implements System {
         // Test the lens where it will really sit: the look point is lifted towards it (see below).
         const cp = Math.min(62, pitch + c[1]);
         const cd = dist * c[2];
-        const upK = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
+        const upK = ots ? 0.19 : kind === 'close' ? 0.2 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
         const lf = (cd * Math.tan(upK * Math.tan(THREE.MathUtils.degToRad(this.game.rc.camera.fov) / 2))) / Math.sin(THREE.MathUtils.degToRad(cp));
         const cyr = THREE.MathUtils.degToRad(cy);
         const pos = this.camPosFor(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf), cy, cp, cd, _cp);
@@ -1355,7 +1355,7 @@ export class NpcSystem implements System {
     dist *= this.camPick.k;
     // Lift the look point towards the lens so the actors sit ~26 % above centre (clear of the box).
     const fov = THREE.MathUtils.degToRad(this.game.rc.camera.fov);
-    const up = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
+    const up = ots ? 0.19 : kind === 'close' ? 0.2 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
     const lift = (dist * Math.tan(up * Math.tan(fov / 2))) / Math.sin(THREE.MathUtils.degToRad(pitch));
     const yr = THREE.MathUtils.degToRad(yaw);
     const gy = map.heightAt(cx, cz);
