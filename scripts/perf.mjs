@@ -29,7 +29,12 @@
  *         p99 +25 % (and ≥ 3 ms), or draw calls / triangles +20 % (content growth, noise-free).
  *   REGR? a timing drop measured while the machine was saturated (load > 1.5× cores, main
  *         thread on-CPU < 35 %, or the empty-canvas calibration < 75 % of its history median = the
- *         GPU is shared with another process) — reported, not trusted; re-run `--demos <name>` quiet.
+ *         GPU is shared with another process, or another browser's GPU process — desktop Chrome
+ *         included — sat at ≥ 50 % CPU during the demo: `foreignGpuPct`) — reported, not trusted;
+ *         re-run `--demos <name>` quiet.
+ *   Tail diagnosis per demo: `refreshPct` (shadow-cache refresh frames), `hitchOnRefreshPct` (share
+ *   of > 25 ms frames that are refresh frames) and `slowCpuMs` (Game.step CPU on those frames): a
+ *   low hitchOnRefreshPct with slowCpuMs ≈ cpuAvgMs and on-CPU < 35 % = the GPU was time-sliced.
  *
  * Timing mode: HEADLESS by default — Playwright's full Chromium (channel 'chromium' = new headless,
  * same compositor as desktop Chrome, not chrome-headless-shell) with ANGLE/Metal on the real GPU and
@@ -102,7 +107,30 @@ function envLoad() {
       if (/scripts\/(shot|shots|smoke|perf)\.mjs/.test(line)) shots++;
     }
   } catch { /* ignore */ }
-  return { gpuProcesses: chromium, harnessProcesses: shots, loadavg: loadavg().map(r2), cpus: cpus().length };
+  return { gpuProcesses: chromium, harnessProcesses: shots, foreignGpu: foreignGpu(), loadavg: loadavg().map(r2), cpus: cpus().length };
+}
+
+/**
+ * Busy GPU processes of OTHER browsers / Electron apps (desktop Chrome, another agent's headed browser,
+ * …): any `--type=gpu-process` not parented by this script's own browser, at ≥ 25 % CPU. The
+ * Chromium-only count above misses desktop Chrome, and an empty-canvas calibration barely touches the
+ * GPU, so a WebGL page in another Chrome at 100 % GPU-process CPU went undetected (r6b: barn-interior
+ * flagged REGR at 173 → 138 fps while desktop Chrome's GPU process ran at 106 %). Returns the summed
+ * CPU % and the top offenders.
+ */
+function foreignGpu() {
+  try {
+    const rows = execSync('ps -Ao pid=,ppid=,pcpu=,command=', { encoding: 'utf8' }).split('\n').map((l) => {
+      const m = l.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/);
+      return m ? { pid: +m[1], ppid: +m[2], pcpu: +m[3], cmd: m[4] } : null;
+    }).filter(Boolean);
+    const ownBrowsers = new Set(rows.filter((r) => r.ppid === process.pid).map((r) => r.pid));
+    const busy = rows.filter((r) => /--type=gpu-process/.test(r.cmd) && !ownBrowsers.has(r.ppid) && r.pcpu >= 25);
+    const app = (cmd) => (cmd.match(/\/([^/]+)\.app\//) || [, 'gpu'])[1];
+    return { pct: Math.round(busy.reduce((s, r) => s + r.pcpu, 0)), top: busy.sort((a, b) => b.pcpu - a.pcpu).slice(0, 3).map((r) => `${app(r.cmd)}:${Math.round(r.pcpu)}%`) };
+  } catch {
+    return { pct: 0, top: [] };
+  }
 }
 
 function gitRev() {
@@ -376,6 +404,19 @@ async function measureDemo(ctx, base, name) {
       over20Pct: r1((100 * r.deltas.filter((x) => x > 20).length) / Math.max(1, r.deltas.length)),
       hitches25: r.deltas.filter((x) => x > 25).length,
       hitches50: r.deltas.filter((x) => x > 50).length,
+      // Shadow-cache refresh frames (draw calls well above the steady median) and how many of the
+      // > 25 ms frames coincide with one (± 1 sample: the rAF callback order vs Game's render varies).
+      // High hitchOnRefreshPct = the p99 is the cache refresh, not contention or a CPU spike.
+      ...(() => {
+        const m = median(dcs);
+        const isRef = (i) => (dcs[i] ?? 0) > m + 10;
+        const slow = r.deltas.map((x, i) => (x > 25 ? i : -1)).filter((i) => i >= 0);
+        return {
+          refreshPct: r1((100 * dcs.filter((x) => x > m + 10).length) / Math.max(1, dcs.length)),
+          hitchOnRefreshPct: slow.length ? r1((100 * slow.filter((i) => isRef(i) || isRef(i - 1) || isRef(i + 1)).length) / slow.length) : null,
+          slowCpuMs: slow.length ? r2(mean(slow.map((i) => r.cpu[i] ?? 0))) : null,
+        };
+      })(),
       cpuAvgMs: r2(mean(r.cpu)),
       cpuP95Ms: r2(pct(r.cpu, 95)),
       // GPU ms per frame (timer query around Game.step: shadow + AO + main + post). ≈ frame time → GPU-bound.
@@ -545,7 +586,7 @@ async function main() {
     }
     const mode = args.headed ? 'headed (window off-screen)' : 'headless (new headless)';
     console.log(`[perf] ${gpu} · ${mode} · ${args.w}x${args.h} quality=${args.quality} · warmup ${args.warmup} ms, record ${args.record} ms · ${demos.length} demos`);
-    console.log(`[perf] concurrent load: ${envStart.gpuProcesses} other Chromium GPU processes, ${envStart.harnessProcesses} harness scripts, loadavg ${envStart.loadavg.join(' ')} · empty-canvas calibration ${calib.fps} fps (p99 ${calib.p99Ms} ms)`);
+    console.log(`[perf] concurrent load: ${envStart.gpuProcesses} other Chromium GPU processes, foreign busy GPU ${envStart.foreignGpu.pct}% CPU ${envStart.foreignGpu.top.join(' ')}, ${envStart.harnessProcesses} harness scripts, loadavg ${envStart.loadavg.join(' ')} · empty-canvas calibration ${calib.fps} fps (p99 ${calib.p99Ms} ms)`);
 
     // Checkpoint after every demo (shots/perf/partial.json); `--resume` skips demos already measured there
     // with the same resolution / quality (after a crashed or killed run).
@@ -575,6 +616,8 @@ async function main() {
           await launch().catch(() => {});
         }
       }
+      // ps %CPU is a decaying average over the last few seconds — sampled right after the record window.
+      if (!res.error) res.foreignGpuPct = foreignGpu().pct;
       results.push(res);
       try {
         mkdirSync(dirname(partialPath), { recursive: true });
@@ -615,7 +658,8 @@ async function main() {
       // A third signal: the GPU itself is shared (another project's Chromium pinned at 100 % GPU
       // keeps load and on-CPU looking normal) — the empty-canvas calibration falls well below its
       // history median.
-      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35 || gpuShared;
+      // Fourth: another browser's GPU process is busy (≥ 50 % CPU summed) during this demo.
+      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35 || gpuShared || (r.foreignGpuPct ?? 0) >= 50;
       const tw = [];
       if (r.avgFps < b.avgFps * 0.9 && b.avgFps - r.avgFps >= 3) tw.push(`avg ${b.avgFps}→${r.avgFps} fps`);
       if (r.p99Ms > b.p99Ms * 1.25 && r.p99Ms - b.p99Ms >= 3) tw.push(`p99 ${b.p99Ms}→${r.p99Ms} ms`);
@@ -623,7 +667,7 @@ async function main() {
       if (r.triangles > b.triangles * 1.2 && r.triangles - b.triangles >= 50000) rw.push(`tris ${(b.triangles / 1e6).toFixed(2)}M→${(r.triangles / 1e6).toFixed(2)}M`);
       if (!contended) rw.push(...tw);
       if (rw.length) regressions.push({ demo: r.demo, why: rw.join(', ') });
-      else if (tw.length) suspect.push({ demo: r.demo, why: `${tw.join(', ')} (contended: load ${r.loadavg1}, on-CPU ${Math.round(r.onCpuRatio * 100)} %)` });
+      else if (tw.length) suspect.push({ demo: r.demo, why: `${tw.join(', ')} (contended: load ${r.loadavg1}, on-CPU ${Math.round(r.onCpuRatio * 100)} %, foreign GPU ${r.foreignGpuPct ?? 0} %)` });
     }
 
     // Table.
@@ -672,7 +716,7 @@ async function main() {
       for (const r of results) {
         compact[r.demo] = r.error
           ? { error: r.error }
-          : { avgFps: r.avgFps, p95Ms: r.p95Ms, p99Ms: r.p99Ms, cpuAvgMs: r.cpuAvgMs, gpuAvgMs: r.gpuAvgMs, onCpu: r.onCpuRatio, drawCalls: r.drawCalls, triangles: r.triangles, drawCallsPeak: r.drawCallsPeak, trianglesPeak: r.trianglesPeak, allocMBs: r.allocMBs };
+          : { avgFps: r.avgFps, p95Ms: r.p95Ms, p99Ms: r.p99Ms, cpuAvgMs: r.cpuAvgMs, gpuAvgMs: r.gpuAvgMs, onCpu: r.onCpuRatio, drawCalls: r.drawCalls, triangles: r.triangles, drawCallsPeak: r.drawCallsPeak, trianglesPeak: r.trianglesPeak, allocMBs: r.allocMBs, foreignGpu: r.foreignGpuPct };
       }
       mkdirSync(dirname(histPath), { recursive: true });
       appendFileSync(histPath, JSON.stringify({ ts: run.ts, rev: run.rev, label: run.label, gpu, mode, w: run.w, h: run.h, quality: run.quality, env: envStart, results: compact }) + '\n');
