@@ -478,7 +478,7 @@ export class Ambience {
       if (c.next < now - 1) c.next = now;
       while (c.next < until) {
         // The chorus breathes: each cricket swells and fades on its own slow cycle (two slow sines
-        // per cricket, 9–31 s), and every ~40 s the whole field falls silent for a couple of seconds —
+        // per cricket, 9–31 s), and every ~40 s the whole field falls silent for a few seconds —
         // something moved in the grass — then starts again one by one. (The night bed was a flat
         // wall, LRA ~2 LU; a real field ebbs.)
         const tt = c.next;
@@ -513,8 +513,9 @@ export class Ambience {
       }
     };
     const pan = r.range(-0.8, 0.8);
-    call(t, pan, 0.4, r.range(0.95, 1.05), 0.05);
-    if (r.chance(0.4)) call(t + r.range(0.5, 0.9), -pan * 0.8, 0.65, r.range(0.86, 0.94), 0.04);
+    // (+8 dB after the first render: at 0.05 the calls sank under the dusk wind bed.)
+    call(t, pan, 0.4, r.range(0.95, 1.05), 0.125);
+    if (r.chance(0.4)) call(t + r.range(0.5, 0.9), -pan * 0.8, 0.65, r.range(0.86, 0.94), 0.1);
   }
 
   private owl(t: number): void {
