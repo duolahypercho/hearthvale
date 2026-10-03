@@ -70,12 +70,15 @@ for (const demo of a.demos.split(',')) {
     const names = only === 'mats' ? ['base', ...Object.keys(C).filter((k) => k.startsWith('mat:'))] : only === 'sys' ? ['base', ...Object.keys(C).filter((k) => k.startsWith('sys:'))] : only ? only.split(',') : Object.keys(C).filter((k) => !k.startsWith("sys:") && !k.startsWith("mat:"));
     const acc = Object.fromEntries(names.map((n) => [n, []]));
     const frame = () => new Promise((r) => requestAnimationFrame(r));
-    // Cost metric: Game.step + gl.finish() (CPU submit + GPU completion, serialised), immune to the
+    // Cost metric: Game.step + a 1-px readback (CPU submit + GPU completion, serialised), immune to the
     // bimodal 16/33 ms frame pacing that makes wall-clock deltas non-additive.
     const gl = rc.renderer.getContext();
     const origStep = g.step;
     let stepMs = 0;
-    g.step = function (dt) { const t = performance.now(); origStep.call(this, dt); gl.finish(); stepMs = performance.now() - t; };
+    // gl.finish() alone can return before the GPU is done under ANGLE/Metal (perf r8: a terrain-only
+    // pass "took" 0.05 ms): a 1-px readback of the drawn frame is a real fence.
+    const px = new Uint8Array(4);
+    g.step = function (dt) { const t = performance.now(); origStep.call(this, dt); rc.renderer.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); stepMs = performance.now() - t; };
     const fin = Object.fromEntries(names.map((n) => [n, []]));
     for (let k = 0; k < rounds; k++) {
       for (const n of names) {
@@ -91,12 +94,15 @@ for (const demo of a.demos.split(',')) {
     const med = (v) => { const s = [...v].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
     const mean = (v) => v.reduce((s, x) => s + x, 0) / v.length;
     const out = {};
-    for (const n of names) out[n] = { med: +med(acc[n]).toFixed(2), mean: +mean(acc[n]).toFixed(2), fin: +med(fin[n]).toFixed(2) };
+    const p20 = (v) => { const s = [...v].sort((x, y) => x - y); return s[Math.floor(s.length * 0.2)]; };
+    for (const n of names) out[n] = { med: +med(acc[n]).toFixed(2), mean: +mean(acc[n]).toFixed(2), fin: +med(fin[n]).toFixed(2), lo: +p20(fin[n]).toFixed(2) };
     const p = g.perf();
     return { res: out, draws: p.drawCalls, tris: p.triangles };
   }, { rounds: +a.rounds, slice: +a.slice, only: a.only });
   const b = res.res.base.fin;
-  const line = Object.entries(res.res).map(([k, v]) => `${k} ${v.fin}${k === 'base' ? '' : ` (${(v.fin - b >= 0 ? '+' : '')}${(v.fin - b).toFixed(1)})`}`).join(' · ') + ` | wall base ${res.res.base.mean}`;
+  const bl = res.res.base.lo;
+  // med = median step+GPU ms; lo = its 20th percentile (time slicing by other GPU clients only adds time).
+  const line = Object.entries(res.res).map(([k, v]) => `${k} ${v.fin}/${v.lo}${k === 'base' ? '' : ` (${(v.fin - b >= 0 ? '+' : '')}${(v.fin - b).toFixed(1)}/${(v.lo - bl >= 0 ? '+' : '')}${(v.lo - bl).toFixed(1)})`}`).join(' · ') + ` | med/p20 ms · wall base ${res.res.base.mean}`;
   console.log(`${demo} [load ${loadavg()[0].toFixed(0)}] ${res.draws}dc ${(res.tris / 1e6).toFixed(2)}M: ${line}`);
   await page.close();
 }

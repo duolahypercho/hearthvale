@@ -65,6 +65,9 @@ const CH: Record<SplatChannel, number> = { path: 0, tilled: 1, wet: 2, sand: 3 }
 export type CoverChannel = 'clover' | 'moss' | 'dry' | 'ao';
 const CCH: Record<CoverChannel, number> = { clover: 0, moss: 1, dry: 2, ao: 3 };
 
+/** Between the default opaques (0) and owner-ordered overlays (>= 1). */
+export const TERRAIN_RENDER_ORDER = 0.5;
+
 export class Terrain {
   /** Terrain chunks (split for frustum / shadow culling); all share one material. */
   readonly mesh: THREE.Group;
@@ -127,6 +130,11 @@ export class Terrain {
       m.receiveShadow = true;
       m.castShadow = false;
       m.name = 'terrain-chunk';
+      // Drawn after the other default-order opaques (three sorts opaques by renderOrder, then material
+      // id: the terrain's early id put it first, so every pixel later covered by rocks, buildings,
+      // grass or props paid the full terrain shader). Pixel-identical; beach-tidepools frame -3 ms
+      // (perf r8). Opaque decals on it write depth with polygonOffset, so they are order-independent.
+      m.renderOrder = TERRAIN_RENDER_ORDER;
       this.mesh.add(m);
     }
     this.mesh.add(this.buildShadowProxy());

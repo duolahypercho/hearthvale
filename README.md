@@ -169,6 +169,9 @@ adaptive governor (`governor.ts`) sheds GTAO → bloom → shadow res → render
 < 4 % (AO / shadow res on a fill-bound frame) is followed by the next one after a single short window, so a fill-bound
 scene reaches render scale 0.85 in ~12 s instead of ~17 s. Shader rule: pay for a layer only where its weight is > 0
 (`if (w > 0.0)` around noise / taps; taps inside such a branch use `textureGrad` with derivatives taken outside it).
+Terrain chunks draw after the other default-order opaques (`renderOrder` 0.5): rocks, buildings, grass and props
+that cover the ground hide its shader instead of overdrawing it; an opaque decal on the ground must write depth
+(polygonOffset) or take `renderOrder >= 1`.
 
 URL: `?demo=farm-morning`, `?map=farm&x=30&z=20&time=18.5&season=fall&weather=rain&day=3&gold=900&facing=up&pause=1`,
 `&ui=inventory`, `&quality=low|medium|high|ultra`, `&hud=0` (hide HUD), `&cam=yaw,pitch,dist[,offX,offZ]`, `&seed=abc`,

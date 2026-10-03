@@ -149,8 +149,10 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       uniform float uPool;
       uniform float uTime;
       uniform vec4 uNear;
+      uniform float uCloudShadow;
       varying vec3 vW;
       varying float vLift;
+      varying float vCloudN;
       ${NOISE_GLSL}
       ${SWASH_GLSL}
       float groundAt(vec2 xz) {
@@ -172,6 +174,9 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         }
         wp.y += lift;
         vLift = lift;
+        // Cloud-shadow field per vertex on the 0.25 m near sheet (the 9-36 m field is linear between
+        // vertices): 4 noise taps fewer per sea pixel (perf r8). Far sheet + pools keep it per pixel.
+        vCloudN = uFar > 0.5 || uPool > 0.5 || uCloudShadow < 0.001 ? 0.0 : hvFbm(wp.xz * 0.028 + vec2(uTime * 0.012, uTime * 0.006));
         vW = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
@@ -197,6 +202,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       uniform float uLamps;
       varying vec3 vW;
       varying float vLift;
+      varying float vCloudN;
       ${NOISE_GLSL}
       ${SWASH_GLSL}
       ${VORONOI_GLSL}
@@ -326,7 +332,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         }
         // Night: a deep, desaturated ink-blue (hsl ~225°, 45 %, 18 %), not a saturated royal blue.
         col = mix(col, mix(vec3(0.1, 0.13, 0.26), vec3(0.08, 0.2, 0.24), 1.0 - smoothstep(0.3, 1.4, depth)) * 0.9, uNight * 0.85);
-        float cloud = hvCloudShadow(p, t, uCloudShadow);
+        float cloud = uFar > 0.5 || uPool > 0.5 ? hvCloudShadow(p, t, uCloudShadow) : uCloudShadow < 0.001 ? 1.0 : 1.0 - smoothstep(0.52, 0.72, vCloudN) * uCloudShadow;
         float diff = 0.6 + 0.4 * max(dot(n, L), 0.0);
         vec3 light = uSunColor * diff * 0.75 * cloud + uSkyColor * 0.5 + uHorizonColor * 0.12;
         // Golden hour: the whole sea takes the evening's colour, not just its reflections. The body
