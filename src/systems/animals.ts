@@ -508,7 +508,12 @@ export class AnimalSystem implements System, AnimalsApi {
         // Never more than a trough's worth, and never more than the farmhand's mirrored backpack holds
         // (a modified client asking for 9999 hay gets nothing back it didn't put in).
         let n = THREE.MathUtils.clamp(Math.floor(Number(it.hay) || 0), 0, hay.length);
-        if (peer != null) n = Math.min(n, Math.max(0, this.peerCount(peer, 'hay', n)));
+        if (peer != null) {
+          const have = this.peerCount(peer, 'hay', -1);
+          // Mirror known: never more than they carried. Unknown peer: at most one more than fits (a lost
+          // race refunds at most one bale).
+          n = have >= 0 ? Math.min(n, have) : Math.min(n, hay.filter((h) => !h).length + 1);
+        }
         for (let i = 0; i < hay.length && n > 0; i++) if (!hay[i]) (hay[i] = true), n--;
         if (n > 0) {
           // Someone else filled it first: hand the spare hay back.
@@ -1720,7 +1725,7 @@ export class AnimalSystem implements System, AnimalsApi {
       const f = this.game.player.facing;
       const [fx, fz] = f === 'down' ? [0, 1] : f === 'up' ? [0, -1] : f === 'left' ? [-1, 0] : [1, 0];
       // (a little to the side too, so its heart doesn't sit on the farmer's face)
-      const [sxo, szo] = fx === 0 ? [0.95, fz * 0.4] : [fx * 0.95, 0.4];
+      const [sxo, szo] = fx === 0 ? [0.95, fz * 0.4] : [fx * 1.15, 0.6];
       if (free) {
         const a = free.actor;
         const d = Math.hypot(sxo, szo);
