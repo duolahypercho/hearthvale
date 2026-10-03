@@ -21,7 +21,7 @@
  * ensembles, generated instrument-body impulse responses, and a polyphony budget.
  */
 import { attachDucker } from './ducker';
-import { Rand, makeImpulse, makeNoise, pluckBuffer, softClipCurve, bodyImpulse, toBuffer, type PluckOptions, type BodyKind } from './dsp';
+import { Rand, makeImpulse, makeNoise, pluckBuffer, softClipCurve, bodyImpulse, toBuffer, packNote, type PluckOptions, type BodyKind } from './dsp';
 
 /**
  * Note-buffer cache cap in samples (14.7 M ≈ 56 MB of float32; pluck tails trimmed at -62 dB). Eviction is by class, oldest first: other songs' notes, then the next
@@ -32,6 +32,22 @@ import { Rand, makeImpulse, makeNoise, pluckBuffer, softClipCurve, bodyImpulse, 
  * at 56 MB ~50, ~260 ms over the whole session.)
  */
 const BUFFER_CAP_SAMPLES = 14_700_000;
+/**
+ * Round 4: the cache is two-tier. Hot notes are AudioBuffers (float32, ready to play) up to
+ * HOT_CAP samples (~18 MB); older ones are demoted to a cold tier of 16-bit samples (+ a per-note
+ * scale, ~90 dB under each note's peak) up to COLD_CAP (~18 MB) and promoted back with a cheap
+ * conversion (~0.1 ms) when played — never a synthesis. Worker-rendered notes arrive already as
+ * 16-bit and go straight to the cold tier. Same note capacity as the old 56 MB float cache, 36 MB.
+ */
+const HOT_CAP = 4_500_000;
+const COLD_CAP = BUFFER_CAP_SAMPLES - HOT_CAP + 0;
+/** A demoted / worker-delivered note: 16-bit samples, linear scale back to float, sample rate. */
+interface ColdNote {
+  d: Int16Array;
+  scale: number;
+  sr: number;
+}
+
 
 /** A granted voice: [start, end) plus where its written note ends (after that it is a releasing tail). */
 export interface VoiceSpan {
@@ -41,6 +57,8 @@ export interface VoiceSpan {
   w: number;
   /** Fade this voice out at `at` (set by the caller when it can be stolen). */
   kill?: (at: number) => void;
+  /** Priority it was granted at (0..3). */
+  p?: number;
 }
 
 /** The game's default volume settings (systems/audio.ts): the graph starts here. */
@@ -93,9 +111,18 @@ export class AudioGraph {
   readonly brownSt: AudioBuffer;
   /** Shared randomness (noise start offsets, detunes). SFX swap in their own stream while they build. */
   rng: Rand;
+  /** Hot tier: ready AudioBuffers, LRU order (a playing source keeps its own reference). */
   private buffers = new Map<string, AudioBuffer>();
-  /** Samples held by `buffers` (LRU-capped at BUFFER_CAP_SAMPLES; a playing source keeps its own). */
+  /** Samples held by `buffers` (capped at HOT_CAP; overflow is demoted to the cold tier). */
   private bufferSamples = 0;
+  /** Cold tier: 16-bit notes, LRU order (capped at COLD_CAP; overflow is evicted by class). */
+  private cold = new Map<string, ColdNote>();
+  private coldSamples = 0;
+  /** Diagnostics: cold → hot promotions and hot → cold demotions. */
+  promoted = 0;
+  demoted = 0;
+  /** Note keys of the next song's opening (pinned like the playing song's, one class below). */
+  private nextPins: Set<string>[] = [];
   /** Note buffers handed over ready-made by the compose worker (compose.worker.ts via prefetch.ts). */
   provided = 0;
   /** Notes the worker delivered in the last few seconds (the next song's opening): kept like pinned ones. */
@@ -267,6 +294,18 @@ export class AudioGraph {
       this.buffers.set(key, b);
       return b;
     }
+    const c = this.cold.get(key);
+    if (c) {
+      // Promote: 16-bit → float (a copy, not a synthesis).
+      this.cold.delete(key);
+      this.coldSamples -= c.d.length;
+      const f = new Float32Array(c.d.length);
+      for (let i = 0; i < f.length; i++) f[i] = c.d[i]! * c.scale;
+      b = toBuffer(this.ctx, f, c.sr);
+      this.promoted++;
+      this.store(key, b);
+      return b;
+    }
     b = make();
     // Diagnostics: the last notes rendered on this thread, '!' = the LRU had dropped it earlier.
     if (!this.offline) {
@@ -282,30 +321,45 @@ export class AudioGraph {
    * dropped this one): then the cached one plays rather than rendering on the frame.
    */
   variant(base: (k: number) => string, k: number): number {
-    if (this.buffers.has(base(k))) return k;
-    return this.buffers.has(base(1 - k)) ? 1 - k : k;
+    if (this.hasBuffer(base(k))) return k;
+    return this.hasBuffer(base(1 - k)) ? 1 - k : k;
   }
 
-  /** Has a buffer been cached under `key` (the worker skips rendering those). */
+  /** Has a note been cached under `key`, in either tier (the worker skips rendering those). */
   hasBuffer(key: string): boolean {
-    return this.buffers.has(key);
+    return this.buffers.has(key) || this.cold.has(key);
   }
 
-  /** A worker-rendered note: cache it unless the frame already built one. */
-  provide(key: string, data: Float32Array, sr: number): void {
-    if (this.buffers.has(key)) return;
+  /** A worker-rendered note (16-bit + scale, or float): cache it unless the frame already built one. */
+  provide(key: string, data: Float32Array | Int16Array, sr: number, scale = 1): void {
+    if (this.hasBuffer(key)) return;
     this.provided++;
     if (!this.offline) {
       const now = this.ctx.currentTime;
       if (this.fresh.size > 3000) for (const [k, until] of this.fresh) if (until <= now) this.fresh.delete(k);
       this.fresh.set(key, now + 10);
     }
-    this.store(key, toBuffer(this.ctx, data, sr));
+    if (data instanceof Int16Array) this.storeCold(key, { d: data, scale, sr });
+    else this.store(key, toBuffer(this.ctx, data, sr));
   }
 
-  /** Cached buffer memory in MB (diagnostics). */
+  /** Cached note memory in MB, both tiers (diagnostics). */
   get bufferMb(): number {
-    return (this.bufferSamples * 4) / 1048576;
+    return (this.bufferSamples * 4 + this.coldSamples * 2) / 1048576;
+  }
+
+  /** Note-cache tiers for telemetry. */
+  get cacheTiers(): { hotMb: number; coldMb: number; hot: number; cold: number; promoted: number; demoted: number } {
+    return { hotMb: Math.round(((this.bufferSamples * 4) / 1048576) * 10) / 10, coldMb: Math.round(((this.coldSamples * 2) / 1048576) * 10) / 10, hot: this.buffers.size, cold: this.cold.size, promoted: this.promoted, demoted: this.demoted };
+  }
+
+  /**
+   * The next song's opening notes (its first bars): kept like the playing song's, one class
+   * below it, so a long-predicted song never arrives to find its downbeat evicted. Newest first,
+   * at most two upcoming songs.
+   */
+  pinNext(keys: Set<string>): void {
+    this.nextPins = [keys, ...this.nextPins].slice(0, 2);
   }
 
   /**
@@ -318,9 +372,10 @@ export class AudioGraph {
     this.pins = [keys];
   }
 
-  /** Eviction class: 0 = anything else, 1 = freshly delivered by the worker, 2 = the playing song's. */
+  /** Eviction class: 0 = anything else, 1 = freshly delivered / the next song's opening, 2 = the playing song's. */
   private keep(k: string): number {
     for (const p of this.pins) if (p.has(k)) return 2;
+    for (const p of this.nextPins) if (p.has(k)) return 1;
     const f = this.fresh.get(k);
     if (f === undefined) return 0;
     if (f > this.ctx.currentTime) return 1;
@@ -331,16 +386,35 @@ export class AudioGraph {
   private store(key: string, b: AudioBuffer): void {
     this.buffers.set(key, b);
     this.bufferSamples += b.length * b.numberOfChannels;
-    // A long session visits every song: keep the note cache bounded (~32 MB), oldest unpinned out first.
-    if (this.bufferSamples <= BUFFER_CAP_SAMPLES) return;
-    // Oldest first within each class: other songs' notes, then the next song's prefetched notes,
-    // and only as a last resort the playing song's own.
+    // Offline renders keep everything hot (no eviction: the render never revisits a song).
+    if (this.offline || this.bufferSamples <= HOT_CAP) return;
+    // Hot tier full: demote the oldest notes to 16-bit, other songs' first, the playing song's last.
     for (const pass of [0, 1, 2]) {
       for (const [k, old] of this.buffers) {
-        if (this.bufferSamples <= BUFFER_CAP_SAMPLES || this.buffers.size <= 1) return;
+        if (this.bufferSamples <= HOT_CAP || this.buffers.size <= 1) return;
         if (k === key || this.keep(k) > pass) continue;
         this.buffers.delete(k);
         this.bufferSamples -= old.length * old.numberOfChannels;
+        const { d, scale } = packNote(old.getChannelData(0));
+        this.demoted++;
+        this.storeCold(k, { d, scale, sr: old.sampleRate });
+      }
+    }
+  }
+
+  private storeCold(key: string, c: ColdNote): void {
+    this.cold.set(key, c);
+    this.coldSamples += c.d.length;
+    if (this.coldSamples <= COLD_CAP) return;
+    // A long session visits every song: keep the note cache bounded. Oldest first within each
+    // class: other songs' notes, then the next song's opening / fresh deliveries, and only as a last
+    // resort the playing song's own.
+    for (const pass of [0, 1, 2]) {
+      for (const [k, old] of this.cold) {
+        if (this.coldSamples <= COLD_CAP || this.cold.size <= 1) return;
+        if (k === key || this.keep(k) > pass) continue;
+        this.cold.delete(k);
+        this.coldSamples -= old.d.length;
         if (this.evicted.size < 5000) this.evicted.add(k);
         this.onEvict?.(k);
       }
@@ -502,6 +576,16 @@ export class AudioGraph {
     return best;
   }
 
+  /** The oldest stealable voice sounding at `t` granted below `prio` (lowest priority first). */
+  private lowerAt(t: number, prio: number): VoiceSpan | null {
+    let best: VoiceSpan | null = null;
+    for (const s of this.spans) {
+      if (!s.kill || s.s > t || s.e <= t || (s.p ?? 2) >= prio) continue;
+      if (!best || (s.p ?? 2) < (best.p ?? 2) || ((s.p ?? 2) === (best.p ?? 2) && s.s < best.s)) best = s;
+    }
+    return best;
+  }
+
   /**
    * Ask for a voice from `t` for `dur` seconds. `prio` 0..3 (3 = must play: melody, bass, SFX):
    * low-priority parts are refused first as the budget fills. Returns false when refused. The
@@ -520,33 +604,58 @@ export class AudioGraph {
    * to make this voice stealable later) or null when refused.
    */
   claimVoice(t: number, dur: number, written: number, prio = 2): VoiceSpan | null {
-    const span: VoiceSpan = { s: t, e: t + dur, w: t + Math.min(written, dur) };
+    const span: VoiceSpan = { s: t, e: t + dur, w: t + Math.min(written, dur), p: prio };
     if (this.maxVoices > 10000) return span;
-    let n = this.countAt(t);
-    if (n >= this.maxVoices && prio >= 3) {
+    // Texture thins first: low-priority parts are refused from 75 % load at their onset (unless an
+    // old ringing tail gives way for them).
+    const n0 = this.countAt(t);
+    if (prio < 2 && n0 / this.maxVoices >= 0.75 && n0 < this.maxVoices) {
       const tail = this.tailAt(t);
-      if (tail) {
-        tail.kill!(t);
-        tail.e = t + 0.03;
-        this.stolen++;
-        n--;
-      }
-    }
-    const load = n / this.maxVoices;
-    if (prio < 3 && ((load >= 1 && prio < 3) || (load >= 0.75 && prio < 2))) {
-      // A texture note can still play if an old ringing tail gives way for it.
-      const tail = load < 1.1 ? this.tailAt(t) : null;
       if (!tail) {
         this.dropped++;
         return null;
       }
-      tail.kill!(t);
-      tail.e = t + 0.03;
-      this.stolen++;
-      n--;
+      this.steal(tail, t);
     }
-    this.spans.push(span);
-    if (n + 1 > this.peakVoices) this.peakVoices = n + 1;
-    return span;
+    // Round 4: the cap is hard over the voice's whole life, SFX included (a note scheduled 1.5 s ahead
+    // and an SFX fired now must not add up past it later). At the busiest point of [t, e) a must-play
+    // note steals a ringing tail, else the oldest lower-priority voice; a texture note only a tail.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const [n, at] = this.peakIn(span.s, span.e);
+      if (n < this.maxVoices) {
+        this.spans.push(span);
+        if (n + 1 > this.peakVoices) this.peakVoices = n + 1;
+        return span;
+      }
+      const victim = this.tailAt(at) ?? (prio >= 3 ? this.lowerAt(at, prio) : null);
+      if (!victim || (prio < 3 && n >= this.maxVoices * 1.1)) break;
+      this.steal(victim, at);
+    }
+    this.dropped++;
+    return null;
+  }
+
+  /** Fade a granted voice out from `at` (counted as gone at once: its 10 ms fade is inaudible). */
+  private steal(v: VoiceSpan, at: number): void {
+    v.kill!(Math.max(at, v.s));
+    v.e = Math.max(v.s, at);
+    this.stolen++;
+  }
+
+  /** Most voices sounding at once over [s, e), and when (checked at s and at every onset inside). */
+  private peakIn(s: number, e: number): [number, number] {
+    let best = this.countAt(s);
+    let at = s;
+    const over = this.spans.filter((x) => x.s < e && x.e > s);
+    for (const x of over) {
+      if (x.s <= s) continue;
+      let n = 0;
+      for (const y of over) if (y.s <= x.s && y.e > x.s) n++;
+      if (n > best) {
+        best = n;
+        at = x.s;
+      }
+    }
+    return [best, at];
   }
 }

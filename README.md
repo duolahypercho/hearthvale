@@ -243,11 +243,14 @@ adapts it to game events.
   with a per-note scoop or finger slide, delayed vibrato, bow-change rosin bursts and a fixed violin / cello
   body filter bank (~280 / 450 / 1000 / 2800 Hz) so the vibrato sweeps the harmonics through the resonances;
   the clarinet gets a bore-formant insert; plucks and the kalimba carry a 90–180 Hz air-cavity thump; the pad
-  is a five-voice drifting string ensemble with formant EQ. Shared LFOs, a 56 MB note cache evicting other songs' notes before
-  the playing song's (pluck tails trimmed at -62 dB; a returning song's dropped notes are
-  re-rendered by the worker before they are due; a note whose strike was evicted plays its other round-robin strike rather than render on
-  the frame) and a 72-voice polyphony budget keep the per-note cost low: melody, bass and SFX steal the oldest
-  ringing tail (30 ms fade) instead of being dropped, texture thins first. Every note a song, its key bridge and
+  is a five-voice drifting string ensemble with formant EQ. Shared LFOs, a two-tier note cache (~18 MB of ready
+  float buffers + ~18 MB of 16-bit notes the worker delivers and older notes are demoted to, promoted back by a
+  copy when played; other songs' notes go before the next song's opening and the playing song's, which are
+  pinned; pluck tails trimmed at -62 dB; a returning song's dropped notes are re-rendered by the worker
+  before they are due, a held-back note is asked of it urgently, and a texture note / key-bridge roll / SFX
+  chime still missing at the last moment is left out or played by a light stand-in rather than synthesized on
+  the frame) and a hard 72-voice polyphony cap (SFX included) keep the per-note cost low: melody, bass and SFX
+  steal the oldest ringing tail, else the oldest lower-priority voice, instead of being dropped; texture thins first. Every note a song, its key bridge and
   the SFX chimes in its key will need is rendered in the compose worker before it is due.
 - **Transitions** (`src/audio/music.ts`): crossfades with a key bridge — a change of place fades the old song
   over 1.3 s while the new one opens on a bar of its tonic chord built only from tones both keys share; a mood
@@ -269,6 +272,14 @@ adapts it to game events.
 - **In game**: a "now playing" card (`src/audio/nowplaying.ts`) engraves the first two bars of the new
   tune on a staff, and little notes float out of it into the scene in time with the melody while it is up;
   the morning chime quotes the tune about to play, the first day of a season its hook.
+- **Performance** (`composer.ts` `perform()`): bars are composed in score time and then played through a
+  continuous tempo map — a ±1.5 % mean-reverting drift, a smooth ritardando over the last two beats of every
+  phrase (a tempo on the downbeat), a broadening final cadence and outro — with the bass a touch ahead and the
+  tune laid back on lyrical themes, and AR(1)-correlated micro-timing per part instead of white jitter.
+- **Crowds** (`src/audio/crowd.ts`): the square and festivals are made of people, not a noise wash — 4 (town)
+  to 8 (festival) persistent formant "talkers" at their own pitch, pace and distance speaking sim-speak phrases
+  (pitch arch, declination, stressed syllables, rising questions, turn-taking), laughter, festival applause,
+  distant footsteps on cobbles and the shop door's bell; the wind / leaf wash sits 6 dB lower in town.
 - **Ambience**: every bed is decorrelated stereo noise (L/R correlation ~0.3); rain is a 4–6 kHz hiss plus
   two looping droplet textures (45 / 110 drops/s, 2–8 kHz pings and the odd puddle plink, spread across the
   field); surf swells travel from one side to the other.
@@ -320,7 +331,15 @@ adapts it to game events.
   default volumes and its 72-voice budget. The **gameplay** render (`gameplay.wav`, also alone with
   `--gameplay`) plays the spring theme + farm morning under a scripted 10 s of farming (8 steps, hoe ×3,
   watering, harvest, coin, menu) and reports each effect's loudness over the music under it (400 ms and
-  1–4 kHz at the onset) and the sidechain dip; `--sfx hoe,axe` renders just those effects. Every job is
+  1–4 kHz at the onset; footsteps' onset median must reach -2 dB) and the sidechain dip; `--sfx hoe,axe`
+  renders just those effects (`--sfx voices` adds the villager voices). The reel asserts the SFX hierarchy:
+  hover ≥ 4 LU under click, select ≈ click, open / close over click, the error cue level with open, the core
+  UI set inside 8.5 LU, villager voices within 3 LU, a sword hit ≥ 2 LU over the swing. The composition
+  critic (`--compose`) also flags `MASKED-TUNE` (the comping at or above the tune for > 50 % of its notes)
+  and `HOLLOW-MIDDLE` (> 22 semitones between the bass and the next voice). `--coop` runs two real clients over
+  the relay: the farmhand must voice and meter the host's hoe stroke, and both must play the same festival
+  arrangement. `__game.info().perf.frame` reports fps, mean / p95 frame time and the audio system's
+  main-thread ms per second; `info().audio.notes.tiers` the cache tiers. Every job is
   isolated (a crash relaunches the browser, `report.json` is written after each job).
   `node scripts/audio-lab.mjs` keeps one browser + dev server alive and renders on request
   (`curl 'localhost:5199/gameplay'`, `/reel?names=…`, `/theme?id=…[&solo=melody]`, `/amb?p=…`,

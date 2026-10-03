@@ -121,6 +121,21 @@ export interface AudioApi {
   state(): AudioState;
   /** Output level right now (dBFS RMS over ~46 ms) — for tests: is the game actually making sound? */
   meter(): number;
+  /**
+   * Frame telemetry over the last ~5 s (measured from the frame deltas the audio system sees every
+   * frame): fps, mean / p95 frame time, and the main-thread milliseconds per second the audio system
+   * itself costs (scheduling, SFX graphs, any fallback note renders).
+   */
+  perf(): AudioPerf;
+}
+
+export interface AudioPerf {
+  fps: number;
+  frameAvgMs: number;
+  frameP95Ms: number;
+  audioMsPerSec: number;
+  /** Note buffers rendered on the main thread so far (should stay 0 in real time). */
+  mainRenders: number;
 }
 
 declare module '../core/game' {
@@ -283,6 +298,7 @@ export class AudioSystem implements System {
         return id ? THEMES[id]?.title ?? id : null;
       },
       meter: () => this.meter(),
+      perf: () => this.perf(),
       state: () => ({
         running: !!this.ctx && this.ctx.state === 'running',
         theme: this.engine?.music.playing ?? null,
@@ -310,10 +326,12 @@ export class AudioSystem implements System {
           main: RENDER_STATS.count,
           mainMs: Math.round(RENDER_STATS.ms),
           cacheMb: Math.round((this.engine?.graph.bufferMb ?? 0) * 10) / 10,
+          tiers: this.engine?.graph.cacheTiers ?? null,
           byInst: { ...RENDER_STATS.byInst },
           recentMain: [...(this.engine?.graph.missLog ?? [])],
         },
         ctxState: this.ctx ? String(this.ctx.state) : 'none',
+        sfxLog: [...this.sfxLog],
         musicDb: Math.round(this.musicMeter() * 10) / 10,
         sched: {
           lookahead: MUSIC_LOOKAHEAD,
@@ -763,7 +781,13 @@ export class AudioSystem implements System {
       this.lastSfx.set(name, now);
     }
     e.sfx.play(name, o);
+    // Diagnostics (co-op audio check): the last few effects voiced here, with their placed gain.
+    this.sfxLog.push({ name, gain: Math.round((o?.gain ?? 1) * 1000) / 1000, pan: Math.round((o?.pan ?? 0) * 100) / 100, at: Math.round(now * 1000) / 1000 });
+    if (this.sfxLog.length > 24) this.sfxLog.shift();
   }
+
+  /** Recent SFX voiced on this client (see state().sfxLog). */
+  private sfxLog: { name: string; gain: number; pan: number; at: number }[] = [];
 
   // ───────────────────────────────────────────── per frame
 
@@ -789,7 +813,35 @@ export class AudioSystem implements System {
     });
   }
 
+  /** Frame deltas (ms) and the audio system's own main-thread cost per frame (ms), ring buffers. */
+  private frameMs: number[] = [];
+  private costMs: number[] = [];
+
   update(dt: number, game: Game): void {
+    const t0 = performance.now();
+    try {
+      this.updateInner(dt, game);
+    } finally {
+      this.frameMs.push(dt * 1000);
+      this.costMs.push(performance.now() - t0);
+      if (this.frameMs.length > 300) {
+        this.frameMs.shift();
+        this.costMs.shift();
+      }
+    }
+  }
+
+  perf(): AudioPerf {
+    const f = this.frameMs;
+    if (!f.length) return { fps: 0, frameAvgMs: 0, frameP95Ms: 0, audioMsPerSec: 0, mainRenders: RENDER_STATS.count };
+    const total = f.reduce((a, b) => a + b, 0);
+    const sorted = [...f].sort((a, b) => a - b);
+    const cost = this.costMs.reduce((a, b) => a + b, 0);
+    const r = (x: number): number => Math.round(x * 100) / 100;
+    return { fps: r((f.length * 1000) / Math.max(1, total)), frameAvgMs: r(total / f.length), frameP95Ms: r(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!), audioMsPerSec: r((cost * 1000) / Math.max(1, total)), mainRenders: RENDER_STATS.count };
+  }
+
+  private updateInner(dt: number, game: Game): void {
     this.footsteps(dt, game);
     // The phantom farmhand walks (and is seen) whether or not the sound has started yet.
     if (this.demoCoop) this.coopDemo(dt, !!this.ctx && this.ctx.state === 'running');

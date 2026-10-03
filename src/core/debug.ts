@@ -105,7 +105,8 @@ export function installDebugApi(game: Game): DebugApi {
       for (let i = 0; i < frames; i++) game.step(dt);
     },
     info: () => ({
-      perf: game.perf(),
+      // `frame`: fps, mean / p95 frame time and the audio system's main-thread ms per second.
+      perf: { ...game.perf(), frame: game.services.audio?.perf() },
       map: game.world.current?.id,
       player: { x: game.player.position.x, z: game.player.position.z, facing: game.player.facing },
       calendar: game.calendar.serialize(),

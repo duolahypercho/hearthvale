@@ -11,10 +11,14 @@
 import { Composer, type Piece, type ThemeDef } from './composer';
 import type { AudioGraph } from './graph';
 import { noteKeys, sfxPalette } from './instruments';
+import { chordPcs, parseChord } from './theory';
+import type { WorkerNote } from './compose.worker';
 
 export class PiecePrefetch {
   private worker: Worker | null = null;
   private ready = new Map<string, Piece>();
+  /** Theme of each requested piece (its key bridge's notes are pinned with its opening). */
+  private themeOf = new Map<string, ThemeDef>();
   private pending = new Set<string>();
   /** Diagnostics: pieces served from the worker vs composed on the main thread. */
   hits = 0;
@@ -23,7 +27,7 @@ export class PiecePrefetch {
   syncMs = 0;
   private graph: AudioGraph | null = null;
   /** Notes rendered before the AudioContext existed (the opening song is requested at save load). */
-  private early: { key: string; data: Float32Array; sr: number }[] = [];
+  private early: WorkerNote[] = [];
   /** Note render rate: the context's once attached; before that a guess (a mismatch only resamples). */
   private sr = 48000;
 
@@ -31,10 +35,10 @@ export class PiecePrefetch {
     if (!useWorker || typeof Worker === 'undefined') return;
     try {
       this.worker = new Worker(new URL('./compose.worker.ts', import.meta.url), { type: 'module' });
-      this.worker.onmessage = (e: MessageEvent<{ key: string; piece?: Piece } | { notes: { key: string; data: Float32Array; sr: number }[] }>) => {
+      this.worker.onmessage = (e: MessageEvent<{ key: string; piece?: Piece } | { notes: WorkerNote[] }>) => {
         if ('notes' in e.data) {
           for (const n of e.data.notes) {
-            if (this.graph) this.graph.provide(n.key, n.data, n.sr);
+            if (this.graph) this.graph.provide(n.key, n.data, n.sr, n.scale);
             else if (this.early.length < 1500) this.early.push(n);
             // Kept no room for it: the worker must send it again once the song asks (never the frame).
             else this.worker?.postMessage({ evict: [n.key], sr: this.sr });
@@ -42,7 +46,12 @@ export class PiecePrefetch {
           return;
         }
         this.pending.delete(e.data.key);
-        if (e.data.piece) this.ready.set(e.data.key, e.data.piece);
+        if (e.data.piece) {
+          this.ready.set(e.data.key, e.data.piece);
+          // Its opening bars are pinned in the note cache until it plays (a song predicted a whole
+          // song ahead must not find its downbeat evicted by the time it starts).
+          this.graph?.pinNext(PiecePrefetch.openingKeys(e.data.piece, this.themeOf.get(e.data.key)));
+        }
         // Keep the cache small: only the next few songs (and forced demo / cutscene themes) matter.
         while (this.ready.size > 6) this.ready.delete(this.ready.keys().next().value!);
       };
@@ -72,7 +81,7 @@ export class PiecePrefetch {
       }
       evicted.push(key);
     };
-    for (const n of this.early) g.provide(n.key, n.data, n.sr);
+    for (const n of this.early) g.provide(n.key, n.data, n.sr, n.scale);
     this.early = [];
   }
 
@@ -101,6 +110,47 @@ export class PiecePrefetch {
     if (want.length) this.worker.postMessage({ ensure: want, sr: this.sr });
   }
 
+  private urgentAt = new Map<string, number>();
+  /**
+   * The scheduler is holding a note back because its buffer hasn't landed: ask the worker for it
+   * ahead of everything else (at most every 1.5 s per pitch), so the frame's last-moment fallback
+   * render never has to run.
+   */
+  urgent(inst: Piece['events'][number]['inst'], midi: number): void {
+    if (!this.worker) return;
+    const id = `${inst}:${midi}`;
+    const now = performance.now();
+    if (now - (this.urgentAt.get(id) ?? -1e9) < 1500) return;
+    if (this.urgentAt.size > 400) this.urgentAt.clear();
+    this.urgentAt.set(id, now);
+    this.worker.postMessage({ ensure: [[inst, midi]], sr: this.sr });
+  }
+
+  /** Note keys of a piece's opening: the intro and its first four bars of tune (≥ 12 s). */
+  static openingKeys(piece: Piece, theme?: ThemeDef): Set<string> {
+    const bars = piece.barInfo ?? [];
+    let firstA = bars.findIndex((b) => b.section === 'A');
+    if (firstA < 0) firstA = 0;
+    const until = Math.max(12, bars[firstA + 4]?.t ?? piece.duration);
+    const keys = new Set<string>();
+    const seen = new Set<string>();
+    for (const ev of piece.events) {
+      if (ev.t > until) continue;
+      const id = `${ev.inst}${ev.midi}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (const k of noteKeys(ev.inst, ev.midi)) keys.add(k);
+    }
+    // The key bridge (music.ts buildBridge) rolls the tonic triad on the accompaniment instrument
+    // over 67–84 before the first bar: those notes play the instant the song starts.
+    if (theme) {
+      const roll = theme.accomp?.inst ?? 'harp';
+      const pcs = chordPcs(parseChord(theme.mode === 'major' || theme.mode === 'lydian' || theme.mode === 'mixolydian' ? 'I' : 'i'), theme.key % 12);
+      for (let m = 67; m <= 84; m++) if (pcs.includes(m % 12)) for (const k of noteKeys(roll, m)) keys.add(k);
+    }
+    return keys;
+  }
+
   /** True while a worker is available (real time); without one songs are composed directly. */
   get hasWorker(): boolean {
     return this.worker !== null;
@@ -115,6 +165,8 @@ export class PiecePrefetch {
     const k = PiecePrefetch.key(theme, seed);
     if (!this.worker || this.ready.has(k) || this.pending.has(k)) return;
     this.pending.add(k);
+    this.themeOf.set(k, theme);
+    if (this.themeOf.size > 12) this.themeOf.delete(this.themeOf.keys().next().value!);
     this.worker.postMessage({ key: k, theme, seed, sr: this.sr });
   }
 

@@ -179,6 +179,13 @@ export class MusicPlayer {
     const roll = th.accomp?.inst ?? 'harp';
     voicing.forEach((m, k) => {
       this.pre.push({ t: at + k * 0.012, inst: 'pad', midi: m, dur: len + 0.6, vel: 0.46, track: 'pad' });
+      // A roll note the LRU dropped is left out (the pad carries the chord) rather than synthesized
+      // on the frame; the worker is asked for it.
+      const keys = noteKeys(roll, m + 12);
+      if (!this.g.offline && this.pieces?.hasWorker && keys.length && !keys.some((key) => this.g.hasBuffer(key))) {
+        this.pieces.urgent(roll, m + 12);
+        return;
+      }
       this.pre.push({ t: at + 0.05 + k * 0.11, inst: roll, midi: m + 12, dur: len, vel: 0.34 - k * 0.04, track: 'accomp' });
     });
     this.pre.sort((x, y) => x.t - y.t);
@@ -295,11 +302,22 @@ export class MusicPlayer {
       // A cached note the worker hasn't delivered yet (a song coming back after the LRU dropped its
       // notes, or the first bars at boot): hold the schedule back while there is time — the worker's
       // copy usually lands within a few frames — and only render on the frame in the last 150 ms.
-      if (!this.g.offline && this.pieces?.hasWorker && t - this.g.ctx.currentTime > 0.15) {
+      let missing = false;
+      if (!this.g.offline && this.pieces?.hasWorker) {
         const keys = noteKeys(ev.inst, ev.midi);
-        if (keys.length && !keys.some((k) => this.g.hasBuffer(k))) return true;
+        missing = keys.length > 0 && !keys.some((k) => this.g.hasBuffer(k));
+        if (missing && t - this.g.ctx.currentTime > 0.15) {
+          this.pieces.urgent(ev.inst, ev.midi);
+          return true;
+        }
       }
       this.idx++;
+      // Still not here at the last moment: a texture note is left out rather than synthesized on the
+      // frame (the tune and the bass still play — rendered here if they must be).
+      if (missing && (PRIO[ev.track] ?? 2) < 3) {
+        MUSIC_STATS.skipped++;
+        continue;
+      }
       if (t >= this.stopAt) continue;
       if (this.solo && ev.track !== this.solo && !(this.solo === 'melody' && ev.track === 'double')) continue;
       // Slightly late (a long frame): play it now. Stale (the tab was frozen): skip rather than pile up.

@@ -14,6 +14,8 @@
  *   node scripts/audio-render.mjs --stems --only spring,town   # per-track (solo) loudness / spectrum → mix balance
  *   node scripts/audio-render.mjs --live              # boot the real game: theme per scene + audible output + SFX,
  *                                                     # 20 beach⇄mine handoffs, node creation rate
+ *   node scripts/audio-render.mjs --coop              # two real clients (host + farmhand) over the relay: the farmhand
+ *                                                     # hears the host's hoe (SFX log + meter peak), both play the same festival theme
  *   node scripts/audio-render.mjs --out shots/audio-r2   # write WAVs / PNGs / report.json elsewhere
  *   node scripts/audio-render.mjs --no-trans          # skip the offline director handoff renders (transition-*.wav)
  *   node scripts/audio-render.mjs --gameplay          # only the gameplay check: farming SFX over the spring theme
@@ -643,13 +645,13 @@ async function live() {
     const mid = await peak(() => a.playAt('hoe', p.x + 12, p.z));
     // Far = inaudible: compare its window with an identical window where nothing is fired (the
     // ambience's own bird calls can peak in either, so each is the quieter of two tries).
-    const far = Math.min(await peak(() => a.playAt('hoe', p.x + 40, p.z)), await peak(() => a.playAt('hoe', p.x + 40, p.z)));
+    const far = Math.min(await peak(() => a.playAt("hoe", p.x + 40, p.z)), await peak(() => a.playAt("hoe", p.x + 40, p.z)), await peak(() => a.playAt("hoe", p.x + 40, p.z)));
     const floor = Math.min(await peak(() => {}), await peak(() => {}));
     await peak(() => a.stepAt(p.x + 3, p.z, { run: true }));
     a.say('player:2', 'Hello there, neighbour!', p.x - 4, p.z);
     await sleep(1500);
     a.music(null);
-    return { near, mid, far, floor, compose: a.state().compose, notes: a.state().notes };
+    return { near, mid, far, floor, compose: a.state().compose, notes: a.state().notes, frame: window.__game.info().perf.frame };
   });
   const posOk = pos.near > pos.mid + 4 && pos.far < pos.floor + 3;
   if (!posOk) fails++;
@@ -665,8 +667,11 @@ async function live() {
     const by = Object.entries(nb.byInst ?? {}).sort((x, y) => y[1] - x[1]).map(([k, n]) => `${k} ${n}`).join(', ');
     console.log(`note buffers from the worker: ${nb.worker}, on the main thread: ${nb.main} (${nb.mainMs} ms total${by ? `: ${by}` : ''}), cache ${nb.cacheMb} MB${bad ? '  FAIL' : ''}`);
     if (nb.recentMain?.length) console.log(`  last notes rendered on the main thread ('!' = LRU had dropped it): ${nb.recentMain.join(' ')}`);
+    if (nb.tiers) console.log(`  note cache tiers: hot ${nb.tiers.hotMb} MB (${nb.tiers.hot} notes), cold 16-bit ${nb.tiers.coldMb} MB (${nb.tiers.cold}); ${nb.tiers.promoted} promoted, ${nb.tiers.demoted} demoted`);
     if (bad) fails++;
   }
+  const fr = pos.frame;
+  if (fr) console.log(`frame (info().perf.frame, last ~5 s): ${fr.fps} fps, mean ${fr.frameAvgMs} ms, p95 ${fr.frameP95Ms} ms; audio system ${fr.audioMsPerSec} ms of main thread per second`);
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   console.log(fails || errors.length ? `\n${fails} live check(s) failed` : '\nall live checks passed');
   await browser.close();
@@ -674,7 +679,141 @@ async function live() {
   if (fails || errors.length) process.exitCode = 1;
 }
 
-(process.argv.includes('--live') ? live() : main()).catch((e) => {
+// ─────────────────────────────────────────────────────────── co-op (two real clients)
+
+/**
+ * `--coop`: relay + Vite + two real game clients (host Hazel, farmhand Ash) in one GPU Chromium,
+ * both with audio running. Checks that a farmhand HEARS the host: (1) the host hoes two tiles from
+ * the farmhand → the farmhand's client voices the replayed `hoe` (its SFX log) and its output meter
+ * peaks over the window before (music silenced on the farmhand, ambience on); (2) both walk onto the
+ * Blossom Parade grounds → both clients play the same festival arrangement.
+ */
+async function coop() {
+  const { spawn } = await import('node:child_process');
+  const relay = spawn(process.execPath, [resolve(root, 'server/index.mjs'), '--port', '0'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const relayPort = await new Promise((res, rej) => {
+    let buf = '';
+    relay.stdout.on('data', (d) => {
+      buf += String(d);
+      const m = /listening on ws:\/\/[^:]+:(\d+)/.exec(buf);
+      if (m) res(Number(m[1]));
+    });
+    relay.on('exit', (c) => rej(new Error(`relay exited (${c})`)));
+  });
+  const ws = `ws://127.0.0.1:${relayPort}/ws`;
+  const server = await createServer({ root, logLevel: 'error', clearScreen: false, cacheDir: resolve(tmpdir(), `hearthvale-vite-acoop-${process.pid}`), server: { port: 0, host: '127.0.0.1', hmr: false, watch: null } });
+  await server.listen();
+  const base = `http://127.0.0.1:${server.httpServer.address().port}`;
+  const flags = ['--autoplay-policy=no-user-gesture-required', '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'];
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true, channel: 'chromium', args: flags });
+  } catch {
+    browser = await chromium.launch({ headless: true, args: flags });
+  }
+  const errors = [];
+  const open = async (label, q) => {
+    const ctx = await browser.newContext({ viewport: { width: 800, height: 450 } });
+    const page = await ctx.newPage();
+    page.setDefaultTimeout(240000);
+    page.on('pageerror', (e) => errors.push(`${label}: ${e}`));
+    await page.goto(`${base}/?notitle=1&audio=1&quality=low&card=0&${q}&server=${encodeURIComponent(ws)}`, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.__game?.ready === 'function');
+    await page.evaluate(() => window.__game.ready());
+    await page.mouse.click(400, 225);
+    await page.waitForFunction(() => window.__game.game.services.audio?.state().running, null, { timeout: 30000 }).catch(() => {});
+    return page;
+  };
+  let fails = 0;
+  const check = (name, ok, detail) => {
+    if (!ok) fails++;
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}  (${detail})`);
+  };
+  try {
+    const host = await open('host', 'map=farm&x=30.5&z=22.5&time=9&name=Hazel');
+    const hand = await open('hand', 'name=Ash');
+    const code = await host.evaluate(() => window.__game.game.services.net.host());
+    await hand.evaluate((c) => window.__game.game.services.net.join(c), code);
+    await hand.waitForFunction(() => window.__game.game.services.net.players().length === 2, null, { timeout: 30000 });
+    // A free tillable tile near the house (host's grid).
+    const T = await host.evaluate(() => {
+      const g = window.__game.game.services.net.sync.grid();
+      for (let z = 24; z < 34; z++)
+        for (let x = 34; x < 50; x++) if (g.hasFlag(x, z, 2) && !g.hasFlag(x, z, 4) && !g.getObject(x, z) && !g.hasFlag(x, z, 1) && g.isWalkable(x, z + 1)) return { x, z };
+      return null;
+    });
+    if (!T) throw new Error('no free tile');
+    await host.evaluate((t) => {
+      window.__game.teleport('farm', t.x + 0.5, t.z + 1.5);
+      window.__game.facing('up');
+    }, T);
+    await hand.evaluate((t) => {
+      window.__game.teleport('farm', t.x + 2.5, t.z + 1.5);
+      window.__game.game.services.audio.music('none');
+    }, T);
+    await new Promise((r) => setTimeout(r, 4000));
+    // Meter the farmhand 1.2 s before and 1.4 s after the host's stroke.
+    const meterWin = (ms) => hand.evaluate(async (ms) => {
+      const a = window.__game.game.services.audio;
+      const out = [];
+      const t0 = performance.now();
+      while (performance.now() - t0 < ms) {
+        out.push(a.meter());
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      return out;
+    }, ms);
+    const before = await meterWin(1200);
+    const logLen = await hand.evaluate(() => window.__game.game.services.audio.state().sfxLog.length);
+    const after = hand.evaluate(async (ms) => {
+      const a = window.__game.game.services.audio;
+      const out = [];
+      const t0 = performance.now();
+      while (performance.now() - t0 < ms) {
+        out.push(a.meter());
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      return out;
+    }, 1600);
+    await host.keyboard.press('Digit1');
+    await host.keyboard.press('KeyC');
+    const aft = await after;
+    const log = await hand.evaluate(() => window.__game.game.services.audio.state().sfxLog);
+    const fresh = log.slice(Math.max(0, logLen - (log.length >= 24 ? 24 : 0)));
+    const hoe = log.find((x) => x.name === 'hoe' || x.name === 'hoe:dull');
+    const med = [...before].sort((x, y) => x - y)[before.length >> 1];
+    const peak = Math.max(...aft);
+    check('farmhand voices the host\'s hoe stroke (replayed tool:impact)', !!hoe, hoe ? `${hoe.name} gain ${hoe.gain} pan ${hoe.pan}` : `farmhand log: ${fresh.map((x) => x.name).join(',') || 'empty'}`);
+    check('farmhand output peaks over its ambience floor', peak > med + 6, `peak ${fmt(peak)} vs median ${fmt(med)} dBFS before`);
+    // Festival: both clients walk onto the Blossom Parade grounds.
+    for (const p of [host, hand]) await p.evaluate(() => { window.__game.game.services.audio.music(null); return window.__game.demo('fest-spring'); });
+    const themes = await Promise.all([host, hand].map((p) => p.evaluate(async () => {
+      const a = window.__game.game.services.audio;
+      const t0 = performance.now();
+      let st = a.state();
+      while (performance.now() - t0 < 20000) {
+        st = a.state();
+        if (st.theme && st.theme === st.wanted && /^festival/.test(st.theme)) break;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return { theme: st.theme, map: window.__game.info().map };
+    })));
+    check('host and farmhand play the same festival arrangement', !!themes[0].theme && themes[0].theme === themes[1].theme && /^festival/.test(themes[0].theme), themes.map((x) => `${x.map}:${x.theme}`).join(' / '));
+    const fr = await Promise.all([host, hand].map((p) => p.evaluate(() => window.__game.info().perf.frame)));
+    console.log(`frame: host ${fr[0]?.fps} fps (p95 ${fr[0]?.frameP95Ms} ms, audio ${fr[0]?.audioMsPerSec} ms/s) · farmhand ${fr[1]?.fps} fps (p95 ${fr[1]?.frameP95Ms} ms, audio ${fr[1]?.audioMsPerSec} ms/s)`);
+  } catch (e) {
+    fails++;
+    console.log(`FAIL co-op audio run: ${e?.message ?? e}`);
+  }
+  if (errors.length) console.log(`page errors:\n  ${errors.slice(0, 8).join('\n  ')}`);
+  console.log(fails ? `\n${fails} co-op audio check(s) failed` : '\nall co-op audio checks passed');
+  await browser.close();
+  await server.close();
+  relay.kill();
+  if (fails) process.exitCode = 1;
+}
+
+(process.argv.includes('--coop') ? coop() : process.argv.includes('--live') ? live() : main()).catch((e) => {
   console.error(e);
   process.exit(2);
 });

@@ -309,6 +309,20 @@ export function modalBuffer(ctx: BaseAudioContext, freq: number, spec: ModalSpec
 }
 
 /** Mono samples → AudioBuffer (cheap: one copy). `sr` may differ from the context's (it resamples). */
+/** Float → 16-bit with a per-note scale (worker and graph). */
+export function packNote(f: Float32Array): { d: Int16Array<ArrayBuffer>; scale: number } {
+  let peak = 0;
+  for (let i = 0; i < f.length; i++) {
+    const a = Math.abs(f[i]!);
+    if (a > peak) peak = a;
+  }
+  const scale = peak > 0 ? peak / 32767 : 1;
+  const inv = 1 / scale;
+  const d = new Int16Array(f.length);
+  for (let i = 0; i < f.length; i++) d[i] = Math.round(f[i]! * inv);
+  return { d, scale };
+}
+
 export function toBuffer(ctx: BaseAudioContext, d: Float32Array, sr: number): AudioBuffer {
   const buf = ctx.createBuffer(1, d.length, sr);
   buf.copyToChannel(d as Float32Array<ArrayBuffer>, 0);

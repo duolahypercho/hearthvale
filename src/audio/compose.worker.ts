@@ -10,6 +10,7 @@
  */
 import { Composer, type Piece, type ThemeDef } from './composer';
 import { noteRecipes, recipeRate, renderRecipe, sfxPalette } from './instruments';
+import { packNote } from './dsp';
 import { chordPcs, parseChord } from './theory';
 
 interface Req {
@@ -20,7 +21,9 @@ interface Req {
   sr?: number;
 }
 
-type Out = { key: string; piece?: Piece; error?: string } | { notes: { key: string; data: Float32Array; sr: number }[] };
+/** Notes go out as 16-bit + scale (half the transfer; the main thread's cold cache tier keeps them so). */
+export type WorkerNote = { key: string; data: Int16Array; scale: number; sr: number };
+type Out = { key: string; piece?: Piece; error?: string } | { notes: WorkerNote[] };
 
 /** The main thread's LRU dropped these notes: render them again when a song needs them. */
 interface Evict {
@@ -50,7 +53,7 @@ interface Tail {
 const tails: Tail[] = [];
 let pumping = false;
 
-let batch: { key: string; data: Float32Array; sr: number }[] = [];
+let batch: WorkerNote[] = [];
 let bytes = 0;
 function flush(): void {
   if (!batch.length) return;
@@ -63,8 +66,8 @@ function render(inst: Piece['events'][number]['inst'], midi: number, sr: number)
     const k = `${r.key}@${sr}`;
     if (sent.has(k)) continue;
     sent.add(k);
-    const data = renderRecipe(r, sr);
-    batch.push({ key: r.key, data, sr: recipeRate(r, sr) });
+    const { d: data, scale } = packNote(renderRecipe(r, sr));
+    batch.push({ key: r.key, data, scale, sr: recipeRate(r, sr) });
     bytes += data.byteLength;
     if (bytes > 2_000_000 || batch.length >= 8) flush();
   }
@@ -104,7 +107,8 @@ scope.onmessage = (e) => {
     const head = ensure.slice(0, 12);
     for (const [inst, midi] of head) render(inst, midi, rate);
     flush();
-    tails.unshift({ sr: rate, todo: ensure.slice(12).map(([inst, midi]) => ({ inst, midi })) });
+    // (An urgent single-note request from the scheduler has no tail: don't push a song's queue out.)
+    if (ensure.length > 12) tails.unshift({ sr: rate, todo: ensure.slice(12).map(([inst, midi]) => ({ inst, midi })) });
     while (tails.length > 3) tails.pop();
     if (!pumping) {
       pumping = true;

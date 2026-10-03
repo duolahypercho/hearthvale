@@ -6,7 +6,7 @@
  */
 import type { AudioGraph } from './graph';
 import { Rand, clamp, hashString, mtof } from './dsp';
-import { INSTRUMENTS, noiseHit } from './instruments';
+import { INSTRUMENTS, noiseHit, noteKeys, type InstrumentName } from './instruments';
 
 export type Surface = 'grass' | 'dirt' | 'wood' | 'stone' | 'sand' | 'snow' | 'tilled' | 'water';
 
@@ -274,7 +274,23 @@ export class Sfx {
     return (this.key % 12) + 72 + oct * 12 + o * 12 + pent[d]!;
   }
 
+  /** Real time: a chime's cached note is missing (the worker is asked; see engine.ts). */
+  onMissing: ((inst: InstrumentName, midi: number) => void) | null = null;
+
   private chime(d: AudioNode, t: number, midi: number, amp: number, inst: 'celesta' | 'bell' | 'kalimba' | 'marimba' | 'musicBox' | 'harp' = 'celesta'): void {
+    // Never synthesize a note buffer on the frame: if the LRU dropped this pitch, a light additive
+    // stand-in (fundamental + the bar's 2.76 / 5.4 partials) plays and the worker renders the real one.
+    if (this.onMissing && !this.g.offline) {
+      const keys = noteKeys(inst, midi);
+      if (keys.length && !keys.some((k) => this.g.hasBuffer(k))) {
+        this.onMissing(inst, midi);
+        const f = mtof(midi);
+        this.tone(d, t, { f0: f, amp: amp * 0.42, attack: 0.002, tau: 0.22 });
+        this.tone(d, t, { f0: f * 2.76, amp: amp * 0.12, attack: 0.001, tau: 0.08 });
+        this.tone(d, t, { f0: f * 5.4, amp: amp * 0.05, attack: 0.001, tau: 0.03 });
+        return;
+      }
+    }
     INSTRUMENTS[inst](this.g, d, t, midi, 0.6, amp);
   }
 
