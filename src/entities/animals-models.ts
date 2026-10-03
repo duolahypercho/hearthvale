@@ -282,7 +282,9 @@ function cow(variant: number): AnimalModel {
   r.part('tail', limb(0.022, 0.018, 0.97, 0.5, 6), mat(0, 0, -0.63), base);
   r.part('tail', ellipsoid(0.045, 0.085, 0.045, 10, 8), mat(0, 0.47, -0.63), jersey ? 0x3a2418 : 0x26221f);
   // Big chibi head (holstein: a black patch over the left eye + ear), rounded pink muzzle with nostrils
-  const headPatch: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [4.2, 3.6, 3.0], seed: 1.7, edge: 0.3 };
+  // (a ragged crown cap, held up off the eye line by a height ramp: an eye inside a black patch lost its
+  // lens and only the white catchlights showed — they read as teeth from the high camera)
+  const headPatch: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [4.2, 3.6, 3.0], seed: 1.7, edge: 0.3, yK: 9, y0: 1.24 };
   // Jersey: the face darkens softly around the eyes (a gradient, not a patch)
   const faceShade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.22 * THREE.MathUtils.smoothstep(Math.abs(p.x), 0.02, 0.2) * THREE.MathUtils.smoothstep(p.y, 0.98, 1.12)) : undefined;
   r.part('head', ellipsoid(0.27, 0.25, 0.26), mat(0, 1.07, 0.6), base, { patch: headPatch, paint: faceShade });

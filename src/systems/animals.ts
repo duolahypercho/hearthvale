@@ -1769,6 +1769,8 @@ export class AnimalSystem implements System, AnimalsApi {
         if (s) {
           l.actor.place(s[0], s[1], s[2]);
           l.actor.settle();
+          // Birds potter about their own patch (a wandering hen ended up stacked behind another one).
+          if (k === 'chicken' || k === 'duck') l.actor.area = { x0: s[0] - 0.3, z0: s[1] - 0.3, x1: s[0] + 0.3, z1: s[1] + 0.3 };
           // The farmer's petting partner holds its spot.
           if (k === 'goat' && !showcase.includes('pet-close')) {
             l.actor.area = { x0: s[0] - 0.05, z0: s[1] - 0.05, x1: s[0] + 0.05, z1: s[1] + 0.05 };

@@ -154,7 +154,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'coop-interior': { map: 'coop', x: 4.75, z: 4.2, facing: 'left', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals'] },
   // Morning egg round: the farmer lifts a gold-star egg overhead from the nesting boxes (&nest=0..5).
   'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals', 'eggs'] },
-  'barn-interior': { map: 'barn', x: 8.67, z: 5.05, facing: 'down', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 17.2, offsetZ: 0.1 }, showcase: ['animals'] },
+  'barn-interior': { map: 'barn', x: 6.6, z: 6.55, facing: 'down', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 17.2, offsetX: 2.07, offsetZ: -1.4 }, showcase: ['animals'] },
   'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
   // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
   'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals', 'coop'] },

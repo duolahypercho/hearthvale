@@ -75,7 +75,8 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
             float mx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
             float mn = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
             float coat = (1.0 - step(0.965, mn)) * smoothstep(0.06, 0.16, mx);
-            diffuseColor.rgb *= 1.0 + fv * 0.085 * fa * coat;
+            // (pale coats get a whisper of it: at full strength it read as grime specks on white cows / fleece)
+            diffuseColor.rgb *= 1.0 + fv * mix(0.075, 0.028, smoothstep(0.55, 0.85, mx)) * fa * coat;
           }`,
         )
         .replace(
