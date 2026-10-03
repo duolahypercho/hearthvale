@@ -411,7 +411,7 @@ export function printGameplay(rows) {
  * deliberate TARGET_OFFSETs removed) differ by more than 2 LU fail the calibration.
  */
 export const OPENING_SECONDS = 30;
-export async function calibrate(themes, call, { root, seconds: secs = OPENING_SECONDS + 2, seed = 1, sr = 22050, log = console.log }) {
+export async function calibrate(themes, call, { root, seconds: secs = OPENING_SECONDS + 2, seed = 1, sr = 44100, log = console.log }) {
   const path = `${root}/src/audio/loudness.ts`;
   const src = readFileSync(path, 'utf8');
   const cur = {};

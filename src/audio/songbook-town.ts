@@ -152,7 +152,7 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
     perc: { pattern: 'light', on: 'repeat', vel: 0.5 },
     mix: {
       melody: { gain: 0.72, pan: 0.08, send: 0.3 },
-      double: { gain: 0.16, pan: -0.3, send: 0.4 },
+      double: { gain: 0.11, pan: -0.3, send: 0.4 },
       counter: { gain: 0.42, pan: 0.34, send: 0.32 },
       accomp: { gain: 0.62, pan: -0.3, send: 0.24 },
       bass: { gain: 0.68, pan: 0, send: 0.05 },
@@ -160,7 +160,8 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
     },
     rest: [5, 10],
     gain: 0.9,
-    sheen: 3,
+    // The musette's reed chamber and the glock put 26 % in 2–5 kHz: a wide dip at 3 kHz, no sheen.
+    eq: { cut: { f: 3000, db: -4, q: 0.8 } },
   },
 
   /**

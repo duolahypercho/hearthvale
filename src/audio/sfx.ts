@@ -104,7 +104,7 @@ const TRIM: Record<string, number> = {
   swing: 3.6, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 5, scythe: 16, weed: 5,
   // Round 9 hierarchy: a splash / plop is a water event, louder than a footstep (splash ≈ -20 LUFS
   // momentary on the reel), the door ≈ -24, thunder a +10 dB event over the storm bed.
-  splash: 3.3, plop: 1.8, door: 1.9, thunder: 1.6, 'hoe:dull': 1.7,
+  splash: 3.3, plop: 1.8, door: 2.7, thunder: 1.6, 'hoe:dull': 1.7,
   'ui:toggle': 2.4, giant: 0.45, reel: 1.4, crow: 1.2,
   // Round 4 hierarchy (in-game probe: watering and walking were lost under birdsong while menus
   // were louder than tools). Gameplay verbs peak around -18…-22 dBFS in game, UI -24…-28, ambience
@@ -114,7 +114,7 @@ const TRIM: Record<string, number> = {
   // (Round 7: menu open / talk-select +2.8 dB — the live probe had them at the ambience floor + 3 dB, a
   // chorus of birds away from inaudible; still ~6 dB under the quietest farming verb.)
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
-  'ui:click': 1.8,
+  'ui:click': 3.4,
   // Toolbar detent: level with ui:tab on the reel (it measured 5.5 dB under it).
   // (Round 9: +6 dB — the live probe had it 2 dB over the ambience floor.)
   'ui:slot': 5.6,

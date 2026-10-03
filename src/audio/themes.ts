@@ -718,11 +718,14 @@ export const THEMES: Record<string, ThemeDef> = {
       double: { gain: 0.22, pan: 0.3, send: 0.5 },
       counter: { gain: 0.52, pan: -0.32, send: 0.4 },
       accomp: { gain: 0.74, pan: 0.3, send: 0.38 },
-      bass: { gain: 0.6, pan: 0, send: 0.08 },
+      // (Round 9: the louder low end left the main theme DULL — the harp roll and cello carry
+      // their own bottom, so the soft bass steps back and a sheen lifts the flute and celesta.)
+      bass: { gain: 0.42, pan: 0, send: 0.08 },
       pad: { gain: 0.36, pan: 0, send: 0.55 },
     },
     rest: [0, 0],
     gain: 0.82,
+    sheen: 3.5,
   },
 };
 

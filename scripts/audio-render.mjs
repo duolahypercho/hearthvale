@@ -194,7 +194,7 @@ async function main() {
   }
   const themes = (await sess.page.evaluate(() => window.__audioOffline.listThemes())).filter((t) => !args.only || args.only.includes(t));
   if (args.calibrate) {
-    await calibrate(themes, call, { root, seconds: process.argv.includes('--seconds') ? args.seconds : OPENING_SECONDS + 2, seed: args.seed, sr: 22050 });
+    await calibrate(themes, call, { root, seconds: process.argv.includes('--seconds') ? args.seconds : OPENING_SECONDS + 2, seed: args.seed, sr: 44100 });
     await closeAll();
     return;
   }
@@ -390,7 +390,8 @@ function sfxBalance(res, inter, report) {
   for (const x of ms) {
     const fl = [];
     if (x.truePeakDb > -1) fl.push('HOT');
-    if (x.momentaryMax > median + 9) fl.push('TOO-LOUD-vs-set');
+    // Thunder is a deliberate +10 dB weather event (it also ducks the score), not a level slip.
+    if (x.momentaryMax > median + 9 && !/thunder/.test(x.name)) fl.push('TOO-LOUD-vs-set');
     if (x.momentaryMax < median - 14 && !/hover|select|reel|step/.test(x.name)) fl.push('TOO-QUIET-vs-set');
     // (ui:hover is a deliberate 3–5 kHz tick: exempt)
     if ((x.presence > 0.35 || x.air > 0.3) && x.name !== 'ui:hover') fl.push('HARSH');

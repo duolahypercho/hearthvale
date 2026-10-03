@@ -178,7 +178,7 @@ export class AudioSystem implements System {
   /** Placement applied to SFX while an event at a world position is being voiced (see placed()). */
   private place: { gain: number; pan: number } | null = null;
   /** `?demo=audio&coop=1`: a phantom co-op partner circles the player so positional audio can be judged. */
-  private demoCoop: { a: number; stride: number; next: number; k: number; farmer: RemoteFarmer | null } | null = null;
+  private demoCoop: { a: number; stride: number; next: number; k: number; t: number; farmer: RemoteFarmer | null } | null = null;
   /** Co-op: the other farmers' stride / fishing state (see remoteVoices). */
   private remoteVoice = new Map<number, RemoteVoice>();
   /** Music failures already reported, and when the last report went out (rate-limited console warns). */
@@ -222,7 +222,7 @@ export class AudioSystem implements System {
     else if (params.get('demo') === 'audio-night') this.forced = 'night-summer';
     const sfx = params.get('sfx');
     if (sfx) this.demoSfx = { name: sfx, next: 0 };
-    if ((params.get('coop') === '1' && params.get('demo') === 'audio') || params.get('demo') === 'audio-coop') this.demoCoop = { a: 0, stride: 0, next: 2, k: 0, farmer: null };
+    if ((params.get('coop') === '1' && params.get('demo') === 'audio') || params.get('demo') === 'audio-coop') this.demoCoop = { a: 0, stride: 0, next: 2, k: 0, t: 0, farmer: null };
     // &card=1 keeps the now-playing card on screen (screenshots); &card=0 never shows it. The audio
     // demos pin it by default so a still frame shows the score (title, engraved hook, notes in time).
     this.pinCard = params.get('card') === '1' || (/^(audio|music)/.test(params.get('demo') ?? '') && params.get('card') !== '0');
@@ -790,6 +790,8 @@ export class AudioSystem implements System {
 
   update(dt: number, game: Game): void {
     this.footsteps(dt, game);
+    // The phantom farmhand walks (and is seen) whether or not the sound has started yet.
+    if (this.demoCoop) this.coopDemo(dt, !!this.ctx && this.ctx.state === 'running');
     if (this.pinCard) {
       // Pinned card (screenshots): show the wanted theme even before the context can start.
       const w = this.resolved(this.wanted());
@@ -860,7 +862,6 @@ export class AudioSystem implements System {
       this.demoSfx.next = ctx.currentTime + 2.5;
       this.sfx(this.demoSfx.name);
     }
-    if (this.demoCoop) this.coopDemo(dt, ctx.currentTime);
     this.remoteVoices(dt);
   }
 
@@ -868,10 +869,12 @@ export class AudioSystem implements System {
    * Phantom partner: a visible farmhand walks a slow ellipse around the player (steps pan L↔R with
    * him), hoes, emotes, chats and waters — so a critic can see where each positional sound comes from.
    */
-  private coopDemo(dt: number, now: number): void {
+  private coopDemo(dt: number, audible: boolean): void {
     const c = this.demoCoop!;
     const api = this.game.services.audio;
     if (!api) return;
+    c.t += dt;
+    const now = c.t;
     const p = this.game.player.position;
     const prev = { x: p.x + Math.cos(c.a) * 7, z: p.z + Math.sin(c.a) * 4 };
     // He stops to work every few seconds (the tool beat), then walks on.
@@ -895,20 +898,21 @@ export class AudioSystem implements System {
     f.update(dt, now);
     const before = Math.floor(c.stride / Math.PI);
     c.stride += Math.hypot(vx, vz) * 2.6;
-    if (Math.floor(c.stride / Math.PI) !== before) api.stepAt(x, z);
+    if (audible && Math.floor(c.stride / Math.PI) !== before) api.stepAt(x, z);
     if (now < c.next) return;
     c.next = now + 3;
     const beat = c.k++ % 4;
     if (beat === 0) {
       f.act('chop', 'hoe');
-      window.setTimeout(() => api.playAt('hoe', x, z), 330);
+      if (audible) window.setTimeout(() => api.playAt('hoe', x, z), 330);
     } else if (beat === 1) {
       f.emote('heart');
-      api.playAt('emote:heart', x, z);
-    } else if (beat === 2) api.say('player:2', 'Morning! The turnips look great today', x, z);
-    else {
+      if (audible) api.playAt('emote:heart', x, z);
+    } else if (beat === 2) {
+      if (audible) api.say('player:2', 'Morning! The turnips look great today', x, z);
+    } else {
       f.act('pour', 'wateringCan');
-      api.playAt('water', x, z);
+      if (audible) api.playAt('water', x, z);
     }
   }
 
