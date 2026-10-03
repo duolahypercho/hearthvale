@@ -48,6 +48,10 @@ for (const demo of a.demos.split(',')) {
       tilt: [() => toggle(byName('ShaderPass').slice(0, 1), false), () => toggle(byName('ShaderPass').slice(0, 1), true)],
       res70: [() => { rc.resScale = 0.7; rc.resize(); }, () => { rc.resScale = 1; rc.resize(); }],
       allpost: [() => toggle(passes.slice(1), false), () => toggle(passes.slice(1), true)],
+      // r7 post-chain savings, reverted for the slice: separate AO / bloom blends, half-float LDR passes.
+      nofuse: [() => { post.fused = false; }, () => { post.fused = true; }],
+      noldr: [() => { post.ldr = false; }, () => { post.ldr = true; }],
+      oldpost: [() => { post.fused = false; post.ldr = false; }, () => { post.fused = true; post.ldr = true; }],
     };
     // sys:<tag> hides every object carrying userData.perfTag === tag (or top-level name) for the slice.
     const tagged = {};

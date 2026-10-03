@@ -312,7 +312,8 @@ export class RenderContext {
       const obj = object as THREE.Object3D;
       orig(cam, scene, geo, programTwin(material as THREE.Material, obj, geo as THREE.BufferGeometry), obj, group);
       let tag = obj.parent ? tagOf(obj) : 'post';
-      if (this.perfPasses) {
+      // Full-screen post quads (parentless, orthographic camera) are not shadow draws.
+      if (this.perfPasses && obj.parent) {
         const c = cam as THREE.Camera & { isOrthographicCamera?: boolean };
         const mat = material as THREE.Material;
         tag += c.isOrthographicCamera ? '/shadow' : mat.type === 'MeshNormalMaterial' ? '/ao' : '/main';

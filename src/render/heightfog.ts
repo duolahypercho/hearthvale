@@ -264,6 +264,7 @@ const FogShader = {
 
 const _tint = new THREE.Color(1.05, 0.97, 0.8);
 const _warmWhite = new THREE.Color(1.0, 0.96, 0.86);
+const _shaftW = new THREE.Color();
 
 export class HeightFogPass extends Pass {
   private quad: FullScreenQuad;
@@ -326,7 +327,7 @@ export class HeightFogPass extends Pass {
     // Beams stay a warm white even at a low orange sun (a deep-orange beam over a dark crown reads as
     // a brown smear, not light).
     const sl = Math.max(0.05, sun.r * 0.3 + sun.g * 0.5 + sun.b * 0.2);
-    (u.uShaftCol!.value as THREE.Color).copy(sun).multiply(_tint).lerp(_warmWhite.clone().multiplyScalar(sl), 0.55).multiplyScalar(1 - night);
+    (u.uShaftCol!.value as THREE.Color).copy(sun).multiply(_tint).lerp(_shaftW.copy(_warmWhite).multiplyScalar(sl), 0.55).multiplyScalar(1 - night);
   }
 
   override render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget): void {

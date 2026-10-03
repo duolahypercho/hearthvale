@@ -770,7 +770,10 @@ function segSeg(p1x: number, p1z: number, q1x: number, q1z: number, p2x: number,
 // ───────────────────────────────────────────── feedback sprites
 
 interface Pop {
-  sprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  /** Transform proxy: a real mesh for name tags, otherwise one instance of its kind's batch. */
+  sprite: THREE.Object3D;
+  /** Opacity sink: the tag's own material, or the instance's opacity slot. */
+  mat: { opacity: number };
   t: number;
   life: number;
   from: THREE.Vector3;
@@ -906,12 +909,30 @@ export class AnimalPops {
   private dropMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0xffffff, transparent: true, depthWrite: false, fog: false });
   private fluffMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0xfff8ec, transparent: true, depthWrite: false, fog: false });
   private quad = new THREE.PlaneGeometry(1, 1);
+  /**
+   * One instanced quad batch per pop kind (pillar 14): a petting burst used to be ~11 meshes with
+   * a cloned material each (11 draws + 11 material allocations); now every live pop of a kind is
+   * one instance of its batch (per-instance opacity), so all pops cost ≤ 6 draws. Name tags keep
+   * their own mesh (each has its own canvas texture).
+   */
+  private batches = new Map<Pop['kind'], PopBatch>();
 
   constructor() {
     this.group.name = 'animal-pops';
     this.group.userData.noAO = true;
     this.group.userData.indoors = true;
     this.group.renderOrder = 20;
+    const add = (kind: Pop['kind'], m: THREE.MeshBasicMaterial, order: number): void => {
+      const b = new PopBatch(m, order);
+      this.batches.set(kind, b);
+      this.group.add(b.mesh);
+    };
+    add('mini', this.heartMat, 20);
+    add('note', this.sparkMat, 20);
+    add('z', this.zMat, 20);
+    add('drop', this.dropMat, 20);
+    add('fluff', this.fluffMat, 20);
+    add('heart', this.heartMat, 22);
   }
 
   /** The farmer (tags sit on the side of the animal away from them, the heart is nudged off them). */
@@ -925,14 +946,14 @@ export class AnimalPops {
    * animal's head as it moves.
    */
   heart(at: THREE.Vector3, actor?: AnimalActor, tag?: { name: string; hearts: number }): void {
-    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.35, 0) : at.clone().setY(at.y + 0.35), this.heartMat.clone(), 1.55);
+    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.35, 0) : at.clone().setY(at.y + 0.35), null, 1.55);
     h.actor = actor;
     h.px = 72 / 1080;
     const n = 3 + Math.floor(Math.random() * 3);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.8;
       const off = new THREE.Vector3(Math.cos(a) * 0.12, 0.28, Math.sin(a) * 0.12);
-      const p = this.spawn('mini', actor ? off : at.clone().add(off), this.heartMat.clone(), 0.75 + Math.random() * 0.3);
+      const p = this.spawn('mini', actor ? off : at.clone().add(off), null, 0.75 + Math.random() * 0.3);
       p.actor = actor;
       p.px = (22 + Math.random() * 8) / 1080;
       p.vel = new THREE.Vector3(Math.cos(a) * 1.1, 1.0 + Math.random() * 0.5, Math.sin(a) * 0.7);
@@ -940,7 +961,7 @@ export class AnimalPops {
     for (let i = 0; i < 5; i++) {
       const a = Math.random() * Math.PI * 2;
       const off = new THREE.Vector3(Math.cos(a) * 0.1, 0.2 + Math.random() * 0.15, Math.sin(a) * 0.1);
-      const p = this.spawn('note', actor ? off : at.clone().add(off), this.sparkMat.clone(), 0.5 + Math.random() * 0.35);
+      const p = this.spawn('note', actor ? off : at.clone().add(off), null, 0.5 + Math.random() * 0.35);
       p.actor = actor;
       p.vel = new THREE.Vector3(Math.cos(a) * 0.7, 0.8 + Math.random() * 0.5, Math.sin(a) * 0.7);
       p.sprite.scale.setScalar(0.1 + Math.random() * 0.06);
@@ -964,7 +985,7 @@ export class AnimalPops {
     const n = kind === 'milk' ? 14 : 12;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
-      const p = this.spawn(kind === 'milk' ? 'drop' : 'fluff', at.clone(), (kind === 'milk' ? this.dropMat : this.fluffMat).clone(), kind === 'milk' ? 0.45 + Math.random() * 0.35 : 0.9 + Math.random() * 0.5);
+      const p = this.spawn(kind === 'milk' ? 'drop' : 'fluff', at.clone(), null, kind === 'milk' ? 0.45 + Math.random() * 0.35 : 0.9 + Math.random() * 0.5);
       p.delay = (i / n) * (kind === 'milk' ? 0.55 : 0.4);
       p.vel = kind === 'milk' ? new THREE.Vector3(Math.cos(a) * 0.25, -0.2 - Math.random() * 0.6, Math.sin(a) * 0.25) : new THREE.Vector3(Math.cos(a) * 0.9, 0.5 + Math.random() * 0.7, Math.sin(a) * 0.9);
       p.sprite.visible = false;
@@ -981,26 +1002,41 @@ export class AnimalPops {
 
   /** Drop every live pop (map changes / demo staging). */
   clear(): void {
-    for (const p of this.pops) {
-      this.group.remove(p.sprite);
-      p.sprite.material.dispose();
-    }
+    for (const p of this.pops) this.drop(p);
     this.pops.length = 0;
+    for (const b of this.batches.values()) b.flush(0);
+  }
+
+  /** Release a pop (a tag's mesh + material; batched pops just stop being written). */
+  private drop(p: Pop): void {
+    if (p.kind !== 'tag') return;
+    this.group.remove(p.sprite);
+    (p.mat as THREE.Material).dispose();
   }
 
   z(at: THREE.Vector3): void {
-    this.spawn('z', at, this.zMat.clone(), 2.4);
+    this.spawn('z', at, null, 2.4);
   }
 
-  private spawn(kind: Pop['kind'], at: THREE.Vector3, m: THREE.MeshBasicMaterial, life: number): Pop {
-    const sprite = new THREE.Mesh(this.quad, m);
-    sprite.userData.noAO = true;
-    sprite.castShadow = false;
+  private spawn(kind: Pop['kind'], at: THREE.Vector3, m: THREE.MeshBasicMaterial | null, life: number): Pop {
+    let sprite: THREE.Object3D;
+    let mat: { opacity: number };
+    if (m) {
+      const mesh = new THREE.Mesh(this.quad, m);
+      mesh.userData.noAO = true;
+      mesh.castShadow = false;
+      mesh.renderOrder = 21;
+      this.group.add(mesh);
+      sprite = mesh;
+      mat = m;
+    } else {
+      // Batched: a bare transform the batch reads back each frame (never added to the scene).
+      sprite = new THREE.Object3D();
+      mat = { opacity: kind === 'z' ? 0.85 : 1 };
+    }
     sprite.position.copy(at);
-    sprite.renderOrder = kind === 'tag' ? 21 : kind === 'heart' ? 22 : 20;
     sprite.scale.setScalar(0.01);
-    this.group.add(sprite);
-    const p: Pop = { sprite, t: 0, life, from: at.clone(), kind };
+    const p: Pop = { sprite, mat, t: 0, life, from: at.clone(), kind };
     this.pops.push(p);
     return p;
   }
@@ -1016,11 +1052,10 @@ export class AnimalPops {
       // Anchored pops ride on the animal's head.
       const base = p.actor ? p.actor.topPoint(_top) : null;
       const k = p.t / p.life;
-      const m = p.sprite.material;
+      const m = p.mat;
       if (camera) p.sprite.quaternion.copy(camera.quaternion);
       if (k >= 1) {
-        this.group.remove(p.sprite);
-        m.dispose();
+        this.drop(p);
         this.pops.splice(i, 1);
         continue;
       }
@@ -1104,5 +1139,70 @@ export class AnimalPops {
         } else m.opacity = (1 - k) * Math.min(1, k * 8);
       }
     }
+    // Write every live batched pop into its kind's instance batch.
+    for (const b of this.batches.values()) b.n = 0;
+    for (let i = 0; i < this.pops.length; i++) {
+      const p = this.pops[i]!;
+      if (p.kind === 'tag' || !p.sprite.visible) continue;
+      this.batches.get(p.kind)!.write(p.sprite, p.mat.opacity);
+    }
+    for (const b of this.batches.values()) b.flush(b.n);
+  }
+}
+
+const POP_CAP = 64;
+const _popM = new THREE.Matrix4();
+
+/** Camera-facing quads of one pop kind as one instanced draw with per-instance opacity. */
+class PopBatch {
+  readonly mesh: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private opacity: THREE.InstancedBufferAttribute;
+  n = 0;
+
+  constructor(src: THREE.MeshBasicMaterial, order: number) {
+    const geo = new THREE.PlaneGeometry(1, 1);
+    this.opacity = new THREE.InstancedBufferAttribute(new Float32Array(POP_CAP).fill(1), 1);
+    this.opacity.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aPopOpacity', this.opacity);
+    const m = src.clone();
+    m.opacity = 1;
+    m.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aPopOpacity;\nvarying float vPopOpacity;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPopOpacity = aPopOpacity;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vPopOpacity;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vPopOpacity;');
+    };
+    m.customProgramCacheKey = () => 'animal-pop-batch';
+    this.mesh = new THREE.InstancedMesh(geo, m, POP_CAP);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.count = 0;
+    this.mesh.visible = false;
+    this.mesh.frustumCulled = false;
+    this.mesh.castShadow = false;
+    this.mesh.renderOrder = order;
+    this.mesh.userData.noAO = true;
+  }
+
+  write(o: THREE.Object3D, opacity: number): void {
+    if (this.n >= POP_CAP) return;
+    _popM.compose(o.position, o.quaternion, o.scale);
+    this.mesh.setMatrixAt(this.n, _popM);
+    this.opacity.setX(this.n, opacity);
+    this.n++;
+  }
+
+  flush(n: number): void {
+    this.n = n;
+    this.mesh.count = n;
+    this.mesh.visible = n > 0;
+    if (n === 0) return;
+    this.mesh.instanceMatrix.clearUpdateRanges();
+    this.mesh.instanceMatrix.addUpdateRange(0, n * 16);
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.opacity.clearUpdateRanges();
+    this.opacity.addUpdateRange(0, n);
+    this.opacity.needsUpdate = true;
   }
 }
