@@ -1206,6 +1206,21 @@ export class NetSystem implements System, NetApi {
     }
   }
 
+  /**
+   * Host: how many of `itemId` farmhand `id` carries, from their last personal save (null = not a known
+   * farmhand). Other pods' host-side intent checks use it (animals: hay refunds, milk pail / shears).
+   */
+  peerItemCount(id: number, itemId: string): number | null {
+    if (this._role !== 'host') return null;
+    const pid = this.pidOf.get(id);
+    const ps = pid ? this.psaves.get(pid) : undefined;
+    const slots = (ps?.data.inventory as { slots?: ({ id: string; qty: number } | null)[] } | undefined)?.slots;
+    if (!Array.isArray(slots)) return null;
+    let n = 0;
+    for (const s of slots) if (s && s.id === itemId) n += Math.max(0, s.qty | 0);
+    return n;
+  }
+
   /** Host mirror of a farmhand's consumables (seeds, fertilizer, sprinklers). */
   private setStock(id: number, data: Record<string, unknown>, counts?: Record<string, number>): void {
     const m = new Map<string, number>();

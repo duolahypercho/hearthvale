@@ -11,9 +11,9 @@ import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import type { GameMap } from '../map';
 import { Rng } from '../../core/rng';
-import { mergeStatic } from '../geom';
+import { mergeStatic, MeshBuilder, mat, lumpySphere } from '../geom';
 import { buildFence } from '../props/structures';
-import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, barnLeaf, coopHatch, COOP_SIZE, BARN_SIZE } from './models';
+import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, barnLeaf, coopHatch, COOP_SIZE, BARN_SIZE, BARN_SILO } from './models';
 
 export type BuildingKind = 'coop' | 'barn';
 
@@ -27,12 +27,39 @@ export const SITES = {
   bowl: { x: 34.9, z: 17.5 },
 } as const;
 
-/** Solid paddock furniture (world AABBs, padded): the log water trough on the east fence, the hay rack +
- *  salt lick in the south-west corner. Animals' bodies are pushed out of these (systems/animals). */
+/** Solid paddock furniture (world AABBs, padded): the plank water trough on the east fence, the hay
+ *  manger + bale stack + salt lick in the south-west corner. Animals' bodies are pushed out of these. */
 export const PASTURE_PROPS: readonly { x0: number; z0: number; x1: number; z1: number }[] = [
-  { x0: SITES.pasture.x1 - 1.4, z0: SITES.pasture.z0 + 1.55, x1: SITES.pasture.x1 - 0.6, z1: SITES.pasture.z0 + 3.65 },
-  { x0: SITES.pasture.x0 + 1.0, z0: SITES.pasture.z1 - 2.1, x1: SITES.pasture.x0 + 3.45, z1: SITES.pasture.z1 - 0.9 },
+  { x0: SITES.pasture.x1 - 1.45, z0: SITES.pasture.z0 + 1.5, x1: SITES.pasture.x1 - 0.55, z1: SITES.pasture.z0 + 3.95 },
+  { x0: SITES.pasture.x0 + 0.15, z0: SITES.pasture.z1 - 2.45, x1: SITES.pasture.x0 + 3.3, z1: SITES.pasture.z1 - 0.85 },
 ];
+
+/** Yard features inside the paddock the herd uses (world coords): the duck pond and the pig's wallow. */
+export const YARD = {
+  pond: { x: 44.3, z: 41.9, rx: 1.25, rz: 0.82 },
+  wallow: { x: 48.7, z: 41.75, rx: 0.85, rz: 0.6 },
+  trough: { x: SITES.pasture.x1 - 1.0, z: SITES.pasture.z0 + 2.6 },
+  rack: { x: SITES.pasture.x0 + 1.9, z: SITES.pasture.z1 - 1.5 },
+} as const;
+
+/** Cheap smooth value-ish noise in [0, 1] (sum of skewed sines) for ragged worn-ground edges. */
+function wobble(x: number, z: number): number {
+  return 0.5 + 0.25 * Math.sin(x * 2.3 + Math.sin(z * 1.7) * 1.6) * Math.sin(z * 2.9 + Math.sin(x * 1.3) * 1.4) + 0.25 * Math.sin(x * 5.1 - z * 4.3 + Math.sin(x * 3.7));
+}
+
+/** Distance from p to the polyline. */
+function polyDist(x: number, z: number, pts: readonly (readonly [number, number])[]): number {
+  let best = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, az] = pts[i]!;
+    const [bx, bz] = pts[i + 1]!;
+    const ux = bx - ax;
+    const uz = bz - az;
+    const k = THREE.MathUtils.clamp(((x - ax) * ux + (z - az) * uz) / (ux * ux + uz * uz), 0, 1);
+    best = Math.min(best, Math.hypot(x - ax - ux * k, z - az - uz * k));
+  }
+  return best;
+}
 
 /** Gaps in the pasture's top fence (in front of the doors). */
 const GAPS: [number, number][] = [
@@ -138,6 +165,18 @@ export class FarmBuildings {
       if (built.has(kind)) {
         this.clearRect(r.x0 - 1, r.z0 - 1, r.x1 + 1, r.z1 + 2, true);
         for (let z = r.z0; z <= r.z1; z++) for (let x = r.x0; x <= r.x1; x++) this.solid(x, z);
+        if (kind === 'barn') {
+          // The lean-to (west wall) and the silo (east) stand on their own tiles.
+          const sx = Math.floor(s.x + BARN_SIZE.W / 2 + BARN_SILO.dx);
+          const sz = Math.floor(s.z + BARN_SILO.dz);
+          this.clearRect(sx - 1, sz - 1, sx + 1, sz + 1, true);
+          for (const [tx, tz] of [[sx - 1, sz - 1], [sx, sz - 1], [sx - 1, sz], [sx, sz]] as const) this.solid(tx, tz);
+          const lx = Math.floor(s.x - BARN_SIZE.W / 2 - 0.7);
+          for (let z = r.z0; z <= r.z1 - 1; z++) {
+            this.clearTile(lx, z, true);
+            this.solid(lx, z);
+          }
+        }
         // A flat pad: the building sits at the lowest corner height (plinth hides the rest).
         let y = Infinity;
         for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) y = Math.min(y, this.h(s.x + (cx * size.W) / 2, s.z + (cz * size.D) / 2));
@@ -224,6 +263,13 @@ export class FarmBuildings {
         const o = this.map.grid.getObject(x, z);
         if (o && (LONG_DEBRIS.has(o.kind) || LONG_DEBRIS.has(o.id))) this.map.grid.removeObject(x, z);
       }
+    // Bushes / rocks just south of the paddock sat between the camera and the herd: cleared for a
+    // grassy strip along the bottom fence.
+    for (let z = Math.floor(p.z1) + 1; z <= Math.floor(p.z1) + 4; z++)
+      for (let x = Math.floor(p.x0) - 1; x <= Math.floor(p.x1) + 1; x++) {
+        const o = this.map.grid.getObject(x, z);
+        if (o && (DEBRIS.has(o.kind) || DEBRIS.has(o.id))) this.map.grid.removeObject(x, z);
+      }
     // The field oak in the middle of the paddock is felled for grazing (and so the barn reads).
     for (let z = Math.floor(p.z0); z <= Math.floor(p.z1); z++)
       for (let x = Math.floor(p.x0); x <= Math.floor(p.x1); x++) if (this.map.grid.getObject(x, z)?.kind === 'tree') this.map.grid.removeObject(x, z);
@@ -270,8 +316,180 @@ export class FarmBuildings {
       // Grazed, trampled meadow inside; a worn track through each gate.
       t.paintCover('dry', (fx, fz) => (fx > p.x0 && fx < p.x1 && fz > p.z0 && fz < p.z1 ? 0.25 + 0.2 * Math.sin(fx * 0.9 + Math.sin(fz * 1.3) * 2) : 0), { x0: p.x0, z0: p.z0, x1: p.x1, z1: p.z1 });
       for (const [g0, g1] of GAPS) t.stampCover('dry', (g0 + g1) / 2, p.z0 + 0.3, 1.4, 0.8, 0.8);
+      this.yardWear(rng, parts);
+      t.commitSplat();
       t.commitCover();
     }
+  }
+
+  /** How worn the paddock is at a point (0 = meadow, 1 = bare packed earth): the gates, the herd's track
+   *  from the barn gate to the trough, the hens' track from the coop gate, the trough and manger aprons,
+   *  the pond rim and the wallow. Ragged edges from a wobble field. */
+  private wear(x: number, z: number): number {
+    const p = SITES.pasture;
+    const blob = (cx: number, cz: number, rx: number, rz: number): number => 1 - THREE.MathUtils.smoothstep(Math.hypot((x - cx) / rx, (z - cz) / rz), 0.45, 1.0);
+    const track = (pts: readonly (readonly [number, number])[], w: number): number => 1 - THREE.MathUtils.smoothstep(polyDist(x, z, pts) / w, 0.35, 1.0);
+    const { trough, rack, pond, wallow } = YARD;
+    let v = Math.max(
+      blob(39.5, p.z0 + 0.45, 1.25, 0.95),
+      blob(46.5, p.z0 + 0.5, 1.6, 1.05),
+      track([[46.5, p.z0 + 0.6], [47.9, 37.5], [49.1, 38.2], [trough.x - 0.6, trough.z]], 0.62),
+      track([[39.5, p.z0 + 0.6], [39.3, 38.2], [38.9, 39.9], [rack.x + 0.3, rack.z - 0.9]], 0.5),
+      track([[46.2, 37.2], [45.6, 39.4], [pond.x + 0.4, pond.z - 0.9]], 0.42) * 0.85,
+      blob(trough.x - 0.55, trough.z, 1.15, 1.75),
+      blob(rack.x - 0.3, rack.z + 0.05, 2.0, 1.15),
+      blob(wallow.x, wallow.z, wallow.rx + 0.75, wallow.rz + 0.6),
+      blob(pond.x, pond.z, pond.rx + 0.55, pond.rz + 0.5) * 0.9,
+    );
+    v *= 0.62 + 0.62 * wobble(x, z);
+    return THREE.MathUtils.clamp(v, 0, 1);
+  }
+
+  /** Worn earth where the animals live: dirt splat + straw cover, grass cleared off the bare tiles, mud
+   *  puddles at the trough, a wallow for the pig, a little duck pond, hoof prints and spilled straw. */
+  private yardWear(rng: Rng, parts: THREE.Object3D[]): void {
+    const t = this.map.terrain;
+    if (!t) return;
+    const p = SITES.pasture;
+    const box = { x0: p.x0 - 0.6, z0: p.z0 - 0.8, x1: p.x1 + 0.6, z1: p.z1 + 0.6 };
+    t.paint('path', (x, z) => (x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1 ? 0 : this.wear(x, z) * 0.95));
+    t.paintCover('dry', (x, z) => {
+      const w = this.wear(x, z);
+      return w > 0.15 && w < 0.75 ? 0.55 * (1 - Math.abs(w - 0.45) / 0.3) : 0;
+    }, box);
+    t.paintCover('ao', (x, z) => this.wear(x, z) * 0.18, box);
+    // Grass off the bare earth (tile resolution: the core of each worn patch).
+    for (let z = Math.floor(p.z0); z <= Math.floor(p.z1); z++)
+      for (let x = Math.floor(p.x0); x <= Math.floor(p.x1); x++) {
+        let w = 0;
+        for (const [ox, oz] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]] as const) w += this.wear(x + ox, z + oz) / 4;
+        if (w > 0.5) this.map.clearGroundCover?.(x, z);
+      }
+    const b = new MeshBuilder();
+    const y = (x: number, z: number): number => this.h(x, z);
+    // Mud: glossy, irregular puddle discs (the still-water material tinted to wet earth).
+    const puddle = (cx: number, cz: number, rx: number, rz: number, tint: number, lift = 0.022, n = 22): void => {
+      const shape = new THREE.Shape();
+      for (let i = 0; i <= n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const r = 0.82 + 0.22 * wobble(cx * 3 + Math.cos(a) * 2.2, cz * 3 + Math.sin(a) * 2.2);
+        const px = Math.cos(a) * rx * r;
+        const pz = Math.sin(a) * rz * r;
+        if (i === 0) shape.moveTo(px, pz);
+        else shape.lineTo(px, pz);
+      }
+      const g = new THREE.ShapeGeometry(shape, 1).rotateX(-Math.PI / 2);
+      b.add('stillWater', g, mat(cx, y(cx, cz) + lift, cz), { tint });
+    };
+    const { trough, wallow, pond, rack } = YARD;
+    const MUD = 0xf0905c;
+    const MUD_DARK = 0xd87a4c;
+    puddle(trough.x - 0.75, trough.z + 0.35, 0.55, 0.85, MUD);
+    puddle(trough.x - 0.95, trough.z - 0.9, 0.32, 0.28, MUD_DARK, 0.024);
+    // The wallow: a wide mud bath with a glossier wet centre.
+    puddle(wallow.x, wallow.z, wallow.rx, wallow.rz, MUD_DARK);
+    puddle(wallow.x + 0.1, wallow.z - 0.05, wallow.rx * 0.55, wallow.rz * 0.5, 0xc8a080, 0.028);
+    // Duck pond: muddy rim, then clear water, lily pads, reeds and a ring of stones.
+    puddle(pond.x, pond.z, pond.rx + 0.18, pond.rz + 0.16, MUD, 0.02, 28);
+    puddle(pond.x, pond.z, pond.rx, pond.rz, 0xd8f4f2, 0.034, 28);
+    puddle(pond.x - 0.15, pond.z + 0.05, pond.rx * 0.62, pond.rz * 0.55, 0xa8d8e4, 0.036, 20);
+    for (let i = 0; i < 4; i++) {
+      const a = 0.6 + i * 1.3 + rng.next() * 0.4;
+      const r = 0.45 + rng.next() * 0.3;
+      const pad = new THREE.CircleGeometry(0.11 + rng.next() * 0.05, 12, 0.4, Math.PI * 2 - 0.5).rotateX(-Math.PI / 2);
+      const lx = pond.x + Math.cos(a) * pond.rx * r;
+      const lz = pond.z + Math.sin(a) * pond.rz * r;
+      b.add('white', pad, mat(lx, y(lx, lz) + 0.045, lz, 0, rng.next() * 6, 0), { tint: i % 2 ? 0x5a8a3a : 0x6e9a44 });
+      if (i === 1) b.add('white', new THREE.SphereGeometry(0.04, 8, 6), mat(lx + 0.03, y(lx, lz) + 0.07, lz, 0, 0, 0, 1, 0.6, 1), { tint: 0xf4c8d8 });
+    }
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2 + rng.next() * 0.3;
+      // Leave the front (camera side) open; stones round the back and sides.
+      if (Math.sin(a) > 0.55 && i % 3) continue;
+      const sx = pond.x + Math.cos(a) * (pond.rx + 0.12);
+      const sz = pond.z + Math.sin(a) * (pond.rz + 0.1);
+      const r = 0.08 + rng.next() * 0.08;
+      b.add('stone', lumpySphere(r, 1, 0.25, rng), mat(sx, y(sx, sz) + r * 0.25, sz, 0, rng.next() * 3, 0, 1.2, 0.6, 1), { tint: rng.next() < 0.5 ? 0xb8b2a6 : 0x9c9888 });
+    }
+    // Reeds + cattails at the back-left of the pond
+    for (let i = 0; i < 14; i++) {
+      const a = Math.PI * (1.05 + rng.next() * 0.55);
+      const rx = pond.x + Math.cos(a) * (pond.rx - 0.05 + rng.next() * 0.2);
+      const rz = pond.z + Math.sin(a) * (pond.rz - 0.05 + rng.next() * 0.15);
+      const hgt = 0.45 + rng.next() * 0.4;
+      const lean = (rng.next() - 0.5) * 0.3;
+      b.add('white', new THREE.CylinderGeometry(0.008, 0.014, hgt, 4), mat(rx, y(rx, rz) + hgt / 2, rz, lean, 0, lean * 0.6), { tint: 0x6a8a3a });
+      if (i % 3 === 0) b.add('white', new THREE.CapsuleGeometry(0.022, 0.1, 2, 6), mat(rx + Math.sin(lean * 0.6) * -hgt * 0.5, y(rx, rz) + hgt + 0.02, rz + Math.sin(lean) * hgt * 0.5), { tint: 0x6a4228 });
+    }
+    // Hoof prints along the herd's track and around the trough; little three-toed hen prints by the coop gate.
+    const print = (x: number, z: number, rot: number, s = 1): void => {
+      for (const side of [-1, 1]) {
+        const g = new THREE.CircleGeometry(0.045 * s, 7).rotateX(-Math.PI / 2);
+        const ox = Math.cos(rot) * 0.035 * side * s;
+        const oz = -Math.sin(rot) * 0.035 * side * s;
+        b.add('white', g, mat(x + ox, y(x, z) + 0.018, z + oz, 0, rot, 0, 0.7, 1, 1.25), { tint: 0x5a4430 });
+      }
+    };
+    const hoofPath: [number, number][] = [[46.6, 36.9], [47.4, 37.3], [48.1, 37.7], [48.8, 38.1], [49.3, 38.5], [46.0, 37.8], [45.8, 38.6], [45.5, 39.5], [44.9, 40.4]];
+    for (const [hx, hz] of hoofPath) {
+      for (let k = 0; k < 2; k++) {
+        const jx = hx + (rng.next() - 0.5) * 0.5;
+        const jz = hz + (rng.next() - 0.5) * 0.4;
+        if (this.wear(jx, jz) > 0.35) print(jx, jz, rng.next() * Math.PI * 2, 0.9 + rng.next() * 0.3);
+      }
+    }
+    for (let i = 0; i < 12; i++) {
+      const jx = trough.x - 0.6 + (rng.next() - 0.5) * 1.6;
+      const jz = trough.z + (rng.next() - 0.5) * 2.6;
+      if (this.wear(jx, jz) > 0.4) print(jx, jz, rng.next() * Math.PI * 2, 1.05);
+    }
+    for (let i = 0; i < 9; i++) {
+      const jx = 39.4 + (rng.next() - 0.5) * 1.6;
+      const jz = p.z0 + 0.8 + rng.next() * 1.6;
+      const rot = rng.next() * Math.PI * 2;
+      for (const d of [-0.5, 0, 0.5]) b.add('white', new THREE.BoxGeometry(0.008, 0.002, 0.06), mat(jx, y(jx, jz) + 0.016, jz, 0, rot + d, 0), { tint: 0x6a5238 });
+    }
+    // Scratch feed + a few feathers where the hens are fed (coop gate apron)
+    for (let i = 0; i < 46; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = Math.sqrt(rng.next()) * 0.9;
+      const gx = 40.4 + Math.cos(a) * r * 1.2;
+      const gz = 38.1 + Math.sin(a) * r * 0.8;
+      b.add('white', new THREE.SphereGeometry(0.014, 4, 3), mat(gx, y(gx, gz) + 0.012, gz, 0, 0, 0, 1, 0.6, 1.3), { tint: i % 4 ? 0xe8c058 : 0xc88a3a });
+    }
+    for (let i = 0; i < 4; i++) {
+      const fx = 39.6 + rng.next() * 1.8;
+      const fz = 37.4 + rng.next() * 1.4;
+      b.add('white', new THREE.PlaneGeometry(0.035, 0.11).rotateX(-Math.PI / 2), mat(fx, y(fx, fz) + 0.02, fz, 0, rng.next() * 6, 0.15), { tint: i % 2 ? 0xfaf6ee : 0xc87a48 });
+    }
+    // Spilled straw: a fan round the manger, wisps along the track and kicked out of the barn gate
+    const wisp = (cx: number, cz: number, rx: number, rz: number, n: number): void => {
+      for (let i = 0; i < n; i++) {
+        const a = rng.next() * Math.PI * 2;
+        const r = Math.sqrt(rng.next());
+        const wx = cx + Math.cos(a) * rx * r;
+        const wz = cz + Math.sin(a) * rz * r;
+        const g = new THREE.CylinderGeometry(0.009, 0.007, 0.18 + rng.next() * 0.12, 3);
+        b.add('thatch', g, mat(wx, y(wx, wz) + 0.02, wz, Math.PI / 2 - 0.06, rng.next() * 6, 0), { tint: rng.next() < 0.5 ? 0xf0d488 : 0xd8b860 });
+      }
+    };
+    wisp(rack.x + 0.1, rack.z + 0.7, 1.6, 0.55, 40);
+    wisp(46.5, p.z0 + 0.6, 1.0, 0.6, 24);
+    wisp(trough.x - 0.9, trough.z - 1.2, 0.5, 0.4, 8);
+    // A few kicked-up clods and pebbles at the edges of the bare ground
+    for (let i = 0; i < 22; i++) {
+      const cx = p.x0 + 0.8 + rng.next() * (p.x1 - p.x0 - 1.6);
+      const cz = p.z0 + 0.5 + rng.next() * (p.z1 - p.z0 - 1.0);
+      const w = this.wear(cx, cz);
+      if (w < 0.25 || w > 0.8) continue;
+      const r = 0.03 + rng.next() * 0.04;
+      b.add('stone', lumpySphere(r, 0, 0.3, rng), mat(cx, y(cx, cz) + r * 0.3, cz, 0, rng.next() * 3, 0, 1, 0.6, 1), { tint: rng.next() < 0.5 ? 0x9a8670 : 0xb0a490 });
+    }
+    const g = b.build({ name: 'yard-wear', castShadow: false });
+    g.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.userData.noAO = true;
+    });
+    parts.push(g);
   }
 
   isBoard(x: number, z: number): boolean {

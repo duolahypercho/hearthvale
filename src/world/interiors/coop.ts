@@ -20,7 +20,7 @@ import { InteriorMap } from './room';
 import { Kit } from './kit';
 import { mat, lumpySphere, roundedBox } from '../geom';
 import type { PenAnchors } from './pen';
-import { hayPile, strawTufts, lanternHook, feedSack, strawDrift, hayBale } from './pen';
+import { hayPile, strawTufts, lanternHook, feedSack, strawDrift, hayBale, bucket } from './pen';
 
 export const COOP_EXIT = { x: 39.5, z: 35.4 };
 /** Roost ladder: bar i sits at y = Y0 + i·DY, z = Z0 − i·DZ (x 4.7 … 7.2). */
@@ -51,6 +51,8 @@ export class CoopInterior extends InteriorMap {
       style: 'barn',
       wallMat: 'limewash',
       wallTint: 0xffffff,
+      // Blue-grey limewash below the girt: a cool band under the warm straw + timber.
+      wainscotTint: 0x96acba,
       timberLight: 1.7,
       floorTint: 0xd4c6ae,
       windows: [
@@ -64,6 +66,8 @@ export class CoopInterior extends InteriorMap {
     this.dayScale = 1.3;
     this.sunPoolK = 0.4;
     this.exposureBoost = 0.28;
+    this.coolFill = 0.45;
+    this.shaftK = 1.25;
     const rng = new Rng('coop-interior');
     const trough = { x0: 0.55, x1: 3.55, z: 5.35 };
     // Beds on the straw under the roost (ducks); chickens flutter up onto the perches.
@@ -183,39 +187,41 @@ export class CoopInterior extends InteriorMap {
     const fx = 4.35;
     const fz = 2.95;
     k.box('wood', [0.62, 0.1, 0.62], [fx, 0, fz], { tint: 0x9a6a44, r: 0.02 });
-    k.cyl('tin', 0.3, 0.26, 0.07, [fx, 0.1, fz], { tint: 0xc0c8cc, seg: 24 });
-    k.cyl('ceramic', 0.27, 0.27, 0.012, [fx, 0.16, fz], { tint: 0xe0b040, seg: 24 });
+    k.cyl('tin', 0.36, 0.28, 0.08, [fx, 0.1, fz], { tint: 0xc0c8cc, seg: 24 });
+    k.add('tin', new THREE.TorusGeometry(0.36, 0.022, 6, 28), mat(fx, 0.18, fz, Math.PI / 2, 0, 0), { tint: 0xdce2e4 });
+    k.cyl('ceramic', 0.33, 0.33, 0.012, [fx, 0.165, fz], { tint: 0xe0b040, seg: 24 });
     k.cyl('tin', 0.13, 0.16, 0.44, [fx, 0.16, fz], { tint: 0xd8dee2, seg: 20 });
     for (const y of [0.3, 0.52]) k.add('tin', new THREE.TorusGeometry(0.155, 0.01, 5, 20), mat(fx, y, fz, Math.PI / 2, 0, 0), { tint: 0xa8b0b4 });
     k.add('tin', new THREE.ConeGeometry(0.17, 0.14, 20), mat(fx, 0.67, fz), { tint: 0xc8d0d4 });
-    k.add('iron', new THREE.TorusGeometry(0.05, 0.01, 5, 12, Math.PI), mat(fx, 0.74, fz), { tint: 0x3a3634 });
+    k.sphere('tin', 0.03, [fx, 0.75, fz], 0xa8b0b4);
     for (let i = 0; i < 90; i++) {
       const a = rng.next() * Math.PI * 2;
       const r = 0.36 + Math.sqrt(rng.next()) * 0.62;
       k.sphere('ceramic', 0.012, [fx + Math.cos(a) * r, 0.012, fz + Math.sin(a) * r * 0.8], rng.next() < 0.3 ? 0xc89a40 : 0xe8c050);
     }
     // Stoneware water crock on its dark wet ring (splashes round it)
-    const wx = 5.55;
-    const wz = 3.75;
+    const wx = 6.85;
+    const wz = 3.5;
     k.add('fabric', new THREE.CircleGeometry(0.42, 22).rotateX(-Math.PI / 2).scale(1.15, 1, 0.9), mat(wx, 0.011, wz), { tint: 0x8a6a48 });
     for (let i = 0; i < 5; i++) {
       const a = 0.6 + i * 1.3;
       k.add('fabric', new THREE.CircleGeometry(0.07 + (i % 2) * 0.05, 12).rotateX(-Math.PI / 2), mat(wx + Math.cos(a) * 0.55, 0.012, wz + Math.sin(a) * 0.45), { tint: 0x94744e });
     }
-    k.cyl('ceramic', 0.3, 0.3, 0.05, [wx, 0, wz], { tint: 0x8a7a68, seg: 22 });
-    const crock = new THREE.LatheGeometry([[0, 0], [0.16, 0], [0.2, 0.05], [0.22, 0.18], [0.18, 0.34], [0.12, 0.4], [0.13, 0.44], [0, 0.44]].map(([a, b]) => new THREE.Vector2(a!, b!)), 22);
-    k.add('ceramic', crock, mat(wx, 0.04, wz), { tint: 0xd8cbb4 });
-    k.add('ceramic', new THREE.TorusGeometry(0.2, 0.012, 5, 22), mat(wx, 0.2, wz, Math.PI / 2, 0, 0), { tint: 0x4a6a8a });
-    k.cyl('ceramic', 0.28, 0.28, 0.012, [wx, 0.05, wz], { tint: 0x7ab0d0, seg: 22 });
+    // Blue enamel poultry fount: a wide drinking pan (water ring showing) under a domed reservoir with a
+    // white rim stripe and a ring handle (a cool accent in the honey straw).
+    k.cyl('ceramic', 0.32, 0.3, 0.07, [wx, 0, wz], { tint: 0x5a86c0, seg: 24 });
+    k.add('ceramic', new THREE.TorusGeometry(0.32, 0.02, 6, 26), mat(wx, 0.07, wz, Math.PI / 2, 0, 0), { tint: 0xf4f2ea });
+    k.cyl('ceramic', 0.3, 0.3, 0.01, [wx, 0.065, wz], { tint: 0x8ac4e0, seg: 24 });
+    const fount = new THREE.LatheGeometry([[0, 0], [0.17, 0], [0.18, 0.2], [0.16, 0.27], [0.1, 0.32], [0, 0.34]].map(([a, b]) => new THREE.Vector2(a!, b!)), 22);
+    k.add('ceramic', fount, mat(wx, 0.06, wz), { tint: 0x4e7ab8 });
+    k.add('ceramic', new THREE.TorusGeometry(0.18, 0.012, 5, 22), mat(wx, 0.2, wz, Math.PI / 2, 0, 0), { tint: 0xf4f2ea });
+    k.add('iron', new THREE.TorusGeometry(0.05, 0.01, 5, 12), mat(wx, 0.42, wz), { tint: 0x3a3634 });
     // A little bale "climbing frame" (the hens hop up it): a bale on the floor, a smaller one stacked
     // half-off it, loose straw kicked round the foot and a scatter of grain on the top.
     hayBale(k, 2.3, 0, 3.88, 0.28, 0.86);
     hayBale(k, 2.12, 0.36, 3.92, 0.12, 0.66);
     strawTufts(k, rng, 2.3, 0.02, 3.9, 16, 0.75);
     for (let i = 0; i < 14; i++) k.sphere('ceramic', 0.012, [2.0 + rng.next() * 0.35, 0.645, 3.82 + rng.next() * 0.2], rng.next() < 0.35 ? 0xc89a40 : 0xe8c050);
-    k.cyl('wood', 0.19, 0.22, 0.34, [3.55, 0, 3.35], { tint: 0x96683f });
-    k.cyl('wood', 0.18, 0.18, 0.01, [3.55, 0.34, 3.35], { tint: 0xd8b080 });
-    k.add('ceramic', new THREE.SphereGeometry(0.045, 12, 8), mat(3.6, 0.38, 3.33, 0, 0, 0, 1, 1.25, 1), { tint: 0xd99a62 });
     // A tipped-over feed sack spilling a fan of corn towards the feeder
     const sx = 6.55;
     const sz = 4.55;
@@ -234,8 +240,9 @@ export class CoopInterior extends InteriorMap {
     }
 
     // ── Front-right: sacks, egg basket on a crate, wildflowers, broom
-    feedSack(k, 7.35, 5.3, 0.2, 0xfff0d8);
+    feedSack(k, 7.35, 5.3, 0.2, 0xb8cca8);
     feedSack(k, 7.6, 4.8, -0.4, 0xe8d4b4, true);
+    bucket(k, 3.95, 5.45, 0x6a9ad0);
     k.box('wood', [0.5, 0.36, 0.4], [6.15, 0, 5.45], { tint: 0xb08858, ao: 0.25 });
     k.cyl('thatch', 0.2, 0.15, 0.16, [6.15, 0.36, 5.45], { tint: 0xc8a068 });
     k.add('thatch', new THREE.TorusGeometry(0.16, 0.015, 5, 16, Math.PI), mat(6.15, 0.52, 5.45), { tint: 0xb08850 });
@@ -270,6 +277,26 @@ export class CoopInterior extends InteriorMap {
     k.cyl('thatch', 0.19, 0.14, 0.15, [0.35, 0, 1.35], { tint: 0xc8a068 });
     k.add('thatch', new THREE.TorusGeometry(0.15, 0.015, 5, 16, Math.PI), mat(0.35, 0.15, 1.35, 0, Math.PI / 2, 0), { tint: 0xb08850 });
     for (let i = 0; i < 3; i++) k.sphere('ceramic', 0.045, [0.3 + (i % 2) * 0.1, 0.15, 1.3 + i * 0.05], i === 1 ? 0xd99a62 : 0xf4ecde, [1, 1.25, 1]);
+    // Straw value: trodden, darker paths (door → trough, door → feeder) and clean bright bedding under
+    // the nest boxes + roost, so the floor isn't one flat honey tone.
+    const patch = (x: number, z: number, rx: number, rz: number, tint: number, y = 0.006): void => {
+      for (let i = 0; i < 4; i++) {
+        const a = rng.next() * Math.PI * 2;
+        const r = 0.15 * rng.next();
+        // World-aligned UVs (the floor's own 0.5/m straw mapping): only the tone changes, not the weave.
+        const g = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2).scale(rx * (0.75 + 0.25 * rng.next()), 1, rz * (0.75 + 0.25 * rng.next()));
+        g.rotateY(rng.next()).translate(x + Math.cos(a) * r, y + i * 0.001, z + Math.sin(a) * r);
+        const pos = g.attributes.position as THREE.BufferAttribute;
+        const uv = g.attributes.uv as THREE.BufferAttribute;
+        for (let v = 0; v < uv.count; v++) uv.setXY(v, pos.getX(v) * 0.5, (D - pos.getZ(v)) * 0.5);
+        k.add('straw', g, undefined, { tint });
+      }
+      strawTufts(k, rng, x, y + 0.01, z, 10, Math.max(rx, rz) * 1.1);
+    };
+    patch(4.4, 5.05, 0.7, 0.5, 0xb09a7c);
+    patch(3.0, 4.75, 0.85, 0.32, 0xb49e80);
+    patch(1.4, 1.05, 1.1, 0.36, 0xfff2d4, 0.008);
+    patch(6.0, 1.95, 1.25, 0.48, 0xfff0d0, 0.008);
     // Straw scatter + drifts break up the bedding
     strawTufts(k, rng, 4, 0.02, 3.2, 44, 3.3);
     for (const [x, z, w, d] of [[1.55, 3.05, 1.1, 0.7], [6.35, 3.3, 1.3, 0.8], [3.05, 4.75, 0.9, 0.45], [6.95, 1.15, 0.8, 0.5], [4.9, 4.55, 0.9, 0.5]] as const) strawDrift(k, rng, x, z, w, d);
@@ -290,12 +317,11 @@ export class CoopInterior extends InteriorMap {
     this.solid(0.2, 0, 2.6, 0.7, 'nests');
     this.solid(0.4, 5.1, 3.6, 5.6, 'trough');
     this.solid(0, 4.05, 0.6, 4.65, 'hopper');
-    this.solid(5.3, 3.5, 5.8, 4.0, 'crock');
+    this.solid(6.5, 3.15, 7.2, 3.85, 'waterer');
     this.solid(7.0, 4.5, 7.95, 5.6, 'sacks');
     this.solid(5.9, 5.2, 6.95, 5.8, 'basket');
     this.solid(4.05, 2.65, 4.65, 3.25, 'feeder');
     this.solid(1.85, 3.6, 2.75, 4.15, 'bales');
-    this.solid(3.35, 3.15, 3.75, 3.55, 'stump');
     this.solid(6.2, 4.35, 6.9, 4.75, 'spilled-sack');
     this.solid(0.1, 1.1, 0.6, 1.6, 'basket');
 
@@ -316,10 +342,12 @@ export class CoopInterior extends InteriorMap {
   /** The pop door: a planked hatch in the knee wall, slid up (open: the flock can go out to graze). */
   private popDoor(): void {
     const hk = new Kit();
-    hk.box('wood', [0.4, 0.38, 0.04], [0, 0, 0], { tint: 0xe8dcc0, r: 0.012 });
-    hk.box('paint', [0.46, 0.05, 0.02], [0, 0.17, 0.028], { tint: 0xc8503a, rz: 0.72, r: 0.008 });
-    hk.box('paint', [0.46, 0.05, 0.02], [0, 0.17, 0.028], { tint: 0xc8503a, rz: -0.72, r: 0.008 });
-    hk.add('iron', new THREE.TorusGeometry(0.03, 0.007, 5, 10), mat(0, 0.33, 0.03), { tint: 0x2e2a28 });
+    // A planked sliding hatch: two battens, a wooden turn-button bolt and the lifting rope's ring.
+    for (let i = 0; i < 3; i++) hk.box('wood', [0.128, 0.38, 0.04], [-0.133 + i * 0.133, 0, 0], { tint: [0xb89a78, 0xc4a684, 0xae9070][i]!, r: 0.012 });
+    for (const y of [0.06, 0.28]) hk.box('wood', [0.4, 0.05, 0.02], [0, y, 0.028], { tint: 0x8a6a4a, r: 0.008 });
+    hk.box('wood', [0.05, 0.12, 0.025], [0.24, 0.13, 0.03], { tint: 0x6a4a32, rz: 0.3, r: 0.008 });
+    hk.add('iron', new THREE.TorusGeometry(0.03, 0.007, 5, 10), mat(0, 0.36, 0.03), { tint: 0x2e2a28 });
+    hk.cyl('fabric', 0.006, 0.006, 0.5, [0, 0.38, 0.03], { tint: 0xc8a878 });
     const g = hk.build('pop-door');
     g.position.set(HATCH_X + 0.5, 0.02, D + 0.27);
     g.userData.dynamic = true;

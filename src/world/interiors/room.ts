@@ -57,6 +57,8 @@ export interface RoomSpec {
   /** Floor tint (e.g. darker packed straw so fresh hay piles read). */
   floorTint?: number;
   wainscotTint?: number;
+  /** Barn style: material of the lower wall band (with wainscotTint; default limewash). */
+  lowerMat?: IMat;
 }
 
 /** Everything the lighting hook needs this frame. */
@@ -146,6 +148,12 @@ export abstract class InteriorMap implements GameMap {
   protected moonScale = 1;
   /** Soft additive sun patch where each window shaft lands (0 = off; straw floors swallow the real one). */
   protected sunPoolK = 0;
+  /** Cool daylight bounce through the windows (0..1): blue-sky ambient against the warm wood + lamps. */
+  protected coolFill = 0;
+  /** Window shaft strength multiplier. */
+  protected shaftK = 1;
+  /** Moonlight shaft strength at night (the cool beam over the bed / floor). */
+  protected moonShaft = 0.025;
   protected finalized = false;
   /** Bedtime dimming 0..1 (sleep system): lamps, fire and exposure ease down before the fade. */
   dim = 0;
@@ -367,6 +375,8 @@ export abstract class InteriorMap implements GameMap {
       const tl = this.spec.timberLight ?? 1;
       const tt = (c: number) => _c.setHex(c).multiplyScalar(tl).getHex();
       piece('wood', start + T, end, 0, 0.2, 0.06, inner, tt(0x5a3e2a), 1);
+      // Optional whitewashed / limewashed lower boards up to the girt (a cool band under the warm wood).
+      if (this.spec.wainscotTint != null) piece(this.spec.lowerMat ?? 'limewash', start + T, end, 0.2, 1.3, 0.03, inner + 0.005, this.spec.wainscotTint, 1.1);
       piece('wood', start + T, end, 1.3, 1.46, 0.1, inner + 0.03, tt(0x6a4a30), 1);
       piece('wood', start + T, end, H - 0.3, H - 0.1, 0.12, inner + 0.03, tt(0x5a3e2a), 1);
       const n = Math.max(2, Math.round(len / 3));
@@ -567,6 +577,7 @@ export abstract class InteriorMap implements GameMap {
     // Ambient: warm wood bounce by day; at night a cool moonlight fill through the windows so the
     // floor never crushes to black (the lamps then paint warm pools over it).
     L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x6f86c9), night);
+    if (this.coolFill > 0) L.hemiSky.lerp(new THREE.Color(0xb4c8ee), this.coolFill * day * (1 - overcast * 0.5));
     L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x3a2a24), night);
     L.hemiI = THREE.MathUtils.lerp((0.55 + day * 0.55) * (1 - overcast * 0.2) * (0.7 + 0.3 * this.dayScale), 0.46, night);
     L.envI = 0.12 + day * 0.14 + night * 0.06;
@@ -575,7 +586,7 @@ export abstract class InteriorMap implements GameMap {
     L.bg.setHex(0x1c140e).lerp(new THREE.Color(0x0a0a12), night);
     // Night lift keeps the corners readable (the lamps stay the key, the shadows stay blue-brown).
     L.lift = [0.025 + night * 0.028, 0.018 + night * 0.02, 0.012 + night * 0.05];
-    L.gain = [1.06 + warm * 0.04, 1.0, 0.93 - warm * 0.03 + night * 0.06];
+    L.gain = [1.06 + warm * 0.04 - this.coolFill * day * 0.02, 1.0, 0.93 - warm * 0.03 + night * 0.06 + this.coolFill * day * 0.05];
     L.sat = 1.1 - night * 0.05;
     L.contrast = 1.06 + night * 0.04;
     L.vignette = 0.52 + night * 0.12;
@@ -619,7 +630,7 @@ export abstract class InteriorMap implements GameMap {
     for (const e of interiorEmissive) e.material.emissiveIntensity = THREE.MathUtils.lerp(e.day, e.night, THREE.MathUtils.clamp(lampK, 0, 1));
     // Shafts: warm by day, faint blue by moonlight.
     const shaft = this.shaftMat.uniforms;
-    (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.11 * L.day * this.dayScale + 0.025 * L.night);
+    (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.11 * L.day * this.dayScale * this.shaftK + this.moonShaft * L.night);
     shaft.uTime!.value = t;
     // Window views: bright painted day, deep blue at night.
     const vu = this.viewMat.uniforms;

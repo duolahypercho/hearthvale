@@ -40,8 +40,9 @@ import { isInterior } from '../world/interiors/lighting';
 import type { PenAnchors } from '../world/interiors/pen';
 import { imat } from '../world/interiors/kit';
 import { lumpySphere, prep } from '../world/geom';
-import { SITES, PASTURE_PROPS } from '../world/buildings/farm';
+import { SITES, PASTURE_PROPS, YARD } from '../world/buildings/farm';
 import { Rng } from '../core/rng';
+import { textures } from '../render/textures';
 
 export interface AnimalRec {
   id: number;
@@ -431,6 +432,29 @@ export class AnimalSystem implements System, AnimalsApi {
     if (items?.length) this.game.services.audio?.play('pickup');
   }
 
+  private peerT = new Map<string, number>();
+
+  /** Per-peer intent rate limit (pet / feed / eggs: 4 per second; anything else 8). */
+  private peerGate(peer: string, kind: string): boolean {
+    const now = performance.now();
+    const key = `${peer}:${kind}`;
+    const gap = kind === 'door' || kind === 'buy' ? 120 : 240;
+    if (now - (this.peerT.get(key) ?? -1e9) < gap) return false;
+    this.peerT.set(key, now);
+    return true;
+  }
+
+  /**
+   * How many of `itemId` a farmhand carries, from the net layer's mirror of their backpack (last
+   * personal save). A peer the net layer doesn't know (no session): `unknown` (0 = deny tools; the hay
+   * refund path passes the request itself, still capped at one trough).
+   */
+  private peerCount(peer: string, itemId: string, unknown = 0): number {
+    const net = this.game.services.net as unknown as { peerItemCount?: (id: number, item: string) => number | null } | undefined;
+    const n = net?.peerItemCount?.(Number(peer), itemId);
+    return typeof n === 'number' ? n : unknown;
+  }
+
   /** The authoritative effect of an intent. `peer` null = this machine's farmer. */
   private apply(peer: string | null, it: AnimalIntent): void {
     const out: AnimalGrant[] = [];
@@ -439,6 +463,8 @@ export class AnimalSystem implements System, AnimalsApi {
       if (peer == null) this.give(itemId, quality, qty);
       else out.push({ itemId, qty, quality });
     };
+    // Farmhand intents are untrusted (DESIGN §13): rate-limit them per peer and kind.
+    if (peer != null && !this.peerGate(peer, it.kind)) return;
     switch (it.kind) {
       case 'pet': {
         if (it.id === 0) {
@@ -451,7 +477,9 @@ export class AnimalSystem implements System, AnimalsApi {
         }
         const r = this.st.animals.find((a) => a.id === it.id);
         if (!r) break;
-        if (r.ready && it.tool) {
+        // Milk / wool only for a farmer who really carries the pail / shears (host mirror of their backpack).
+        const tool = r.species === 'sheep' ? 'shears' : 'milkPail';
+        if (r.ready && it.tool && LIVESTOCK[r.species].byHand && (peer == null || this.peerCount(peer, tool) > 0)) {
           r.ready = false;
           grant(produceFor(r.species, r.variant), this.quality(r), r.id, r.species);
           const l = this.live.find((v) => v.rec === r);
@@ -466,8 +494,9 @@ export class AnimalSystem implements System, AnimalsApi {
         if (peer != null) {
           const l = this.live.find((v) => v.rec === r);
           if (l) {
-            l.actor.pet(this.game.player.position);
-            this.pops.heart(l.actor.topPoint(), l.actor, { name: r.name, hearts: Math.round(r.friendship / 100) / 2 });
+            const from = this.peerFarmer(peer);
+            l.actor.pet(from ?? this.game.player.position);
+            this.pops.heart(l.actor.topPoint(), l.actor, this.tagFor(l.actor, { name: r.name, hearts: Math.round(r.friendship / 100) / 2 }));
           }
         }
         this.game.events.emit('animal:petted', { id: r.id, species: r.species, name: r.name, friendship: r.friendship });
@@ -476,7 +505,10 @@ export class AnimalSystem implements System, AnimalsApi {
       case 'feed': {
         const hay = this.st.hay[it.home];
         if (!hay) break;
-        let n = Math.max(0, it.hay | 0);
+        // Never more than a trough's worth, and never more than the farmhand's mirrored backpack holds
+        // (a modified client asking for 9999 hay gets nothing back it didn't put in).
+        let n = THREE.MathUtils.clamp(Math.floor(Number(it.hay) || 0), 0, hay.length);
+        if (peer != null) n = Math.min(n, Math.max(0, this.peerCount(peer, 'hay', n)));
         for (let i = 0; i < hay.length && n > 0; i++) if (!hay[i]) (hay[i] = true), n--;
         if (n > 0) {
           // Someone else filled it first: hand the spare hay back.
@@ -1062,7 +1094,7 @@ export class AnimalSystem implements System, AnimalsApi {
       if (inv && inv.count(tool) > 0 && near) {
         this.harvestPose(l, rec.species === 'sheep' ? 'shear' : 'milk');
         this.dispatch({ kind: 'pet', id: rec.id, tool: true });
-        this.pops.heart(a.topPoint(), a, { name: rec.name, hearts: Math.round(Math.min(1000, rec.friendship + (rec.petted ? 0 : 15)) / 100) / 2 });
+        this.pops.heart(a.topPoint(), a, this.tagFor(a, { name: rec.name, hearts: Math.round(Math.min(1000, rec.friendship + (rec.petted ? 0 : 15)) / 100) / 2 }));
         this.voice(a.species, 1.05);
         return;
       }
@@ -1074,7 +1106,7 @@ export class AnimalSystem implements System, AnimalsApi {
     a.pet(pp);
     const fr = rec ? rec.friendship + (rec.petted ? 0 : 15) : this.st.pet.friendship;
     const name = rec ? rec.name : this.st.pet.name;
-    this.pops.heart(a.topPoint(), a, { name, hearts: Math.round(Math.min(1000, fr) / 100) / 2 });
+    this.pops.heart(a.topPoint(), a, this.tagFor(a, { name, hearts: Math.round(Math.min(1000, fr) / 100) / 2 }));
     // The farmer crouches and reaches out (only when actually beside the animal).
     if (near) {
       this.settleForPet(a);
@@ -1087,6 +1119,12 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   private hintedTool = new Set<number>();
+
+  /** The floating name card for a heart pop — skipped for a barn stall animal (its stall plaque already
+   *  carries the name + hearts; two labels per animal was noise). */
+  private tagFor(a: AnimalActor, t: { name: string; hearts: number }): { name: string; hearts: number } | undefined {
+    return a.stalled && this.pen()?.kind === 'barn' ? undefined : t;
+  }
 
   /**
    * Petting distance: the animal eases round to face the farmer with its muzzle ~0.5 m from them (at
@@ -1247,6 +1285,7 @@ export class AnimalSystem implements System, AnimalsApi {
         if (near) this.petActor(near, true);
       }
     }
+    if (this.hands.length) this.updateFarmhands(dt);
     this.pops.update(dt, game.rc.camera);
     this.updateLifts(dt);
     this.updateHarvest(dt);
@@ -1261,6 +1300,13 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   private _farmers: THREE.Vector3[] = [];
+
+  /** A farmhand's farmer position on this map (host side), if the net layer shows them here. */
+  private peerFarmer(peer: string): THREE.Vector3 | null {
+    const net = this.game.services.net as unknown as { remotes?: { list?: Map<number, { map: string; farmer: { root: THREE.Object3D } }> } } | undefined;
+    const p = net?.remotes?.list?.get(Number(peer));
+    return p && p.map === this.mapId && p.farmer?.root ? p.farmer.root.position : null;
+  }
 
   /** Co-op farmers standing on this map (animals keep a personal-space ring round each). */
   private remoteFarmers(): THREE.Vector3[] {
@@ -1600,6 +1646,7 @@ export class AnimalSystem implements System, AnimalsApi {
     this.demoPet = null;
     this.poseFreeze = -1;
     this.poseT = -1;
+    if (!showcase.includes('coop')) this.hands = [];
     if (!showcase.includes('animals')) return;
     const params = new URLSearchParams(location.search);
     const st = AnimalSystem.fresh();
@@ -1626,8 +1673,8 @@ export class AnimalSystem implements System, AnimalsApi {
     ];
     st.hay.coop = [true, true, true, false, false, false];
     // (Only two of the barn munching: the rest stand chin-up over their mangers, faces to camera.)
-    st.hay.barn = [false, false, false, true, false, true];
-    if (name === 'animals-pasture') st.truffles = [{ x: 49.5, z: 41.5, q: 2 }, { x: 43.5, z: 42.5, q: 1 }];
+    st.hay.barn = [true, false, false, false, true, false];
+    if (name === 'animals-pasture') st.truffles = [{ x: 47.5, z: 42.6, q: 2 }, { x: 49.8, z: 40.4, q: 1 }];
     // Interior showcases keep the pop doors shut so the flock is home.
     if (this.pen()) st.doors = { coop: false, barn: false };
     this.syncDoors();
@@ -1648,7 +1695,13 @@ export class AnimalSystem implements System, AnimalsApi {
         if (!l.rec || !l.actor.feedSpot) continue;
         const a = l.actor;
         a.hungry = !!st.hay.barn[l.slot];
-        a.place(a.feedSpot!.x + (Math.random() - 0.5) * 0.2, a.feedSpot!.z - (a.hungry ? 0 : 0.15), (Math.random() - 0.5) * 0.3);
+        // Square to the manger (a turned cow put her head in the wall), chin up unless munching.
+        const fx = a.feedSpot!.x + 0.12;
+        const fz = a.feedSpot!.z - (a.hungry ? 0 : 0.12);
+        a.calm = !a.hungry;
+        a.curious = false;
+        a.area = { x0: fx - 0.04, z0: fz - 0.04, x1: fx + 0.04, z1: fz + 0.04 };
+        a.place(fx, fz, 0);
         a.settle();
       }
     } else if (pen) {
@@ -1701,6 +1754,18 @@ export class AnimalSystem implements System, AnimalsApi {
           roost.actor.place(bar.x, bar.z, 0.3);
           roost.actor.settle();
         }
+        // Anyone left over potters at the waterer / feeder (never drifting into the petting shot).
+        const spare: [number, number, number][] = [[6.3, 3.85, 2.1], [4.85, 3.35, -2.2], [6.9, 2.75, 3.0]];
+        let si = 0;
+        for (const l of this.live) {
+          if (!l.rec || l === free || l === bath || l === roost || l.actor.hungry) continue;
+          const sp = spare[si++];
+          if (!sp) break;
+          l.actor.curious = false;
+          l.actor.area = { x0: sp[0] - 0.1, z0: sp[1] - 0.1, x1: sp[0] + 0.1, z1: sp[1] + 0.1 };
+          l.actor.place(sp[0], sp[1], sp[2]);
+          l.actor.settle();
+        }
       }
       if (showcase.includes('eggs')) {
         // Morning round: a gold-star egg lifted overhead from the lower-left nest box, held for the shot.
@@ -1726,13 +1791,18 @@ export class AnimalSystem implements System, AnimalsApi {
       // Hand-placed pasture composition (world coords) so the framing reads.
       // (Every spot keeps a body length clear of its neighbours and of the trough / hay rack; the goat
       // stands front-right of the farmer so the petting reads with the farmer turned 3/4 to camera.)
+      // Grouped like a herd that lives here: a cow drinking at the trough and one grazing the middle,
+      // the sheep together on the worn track by the barn gate, the pig in its wallow, the ducks on the
+      // pond, the hens scratching the feed by the coop gate. Every spot keeps a body length off the fence.
+      const { pond, wallow, trough } = YARD;
+      const close = showcase.includes('pet-close');
       const spots: Record<string, [number, number, number][]> = {
-        cow: showcase.includes('pet-close') ? [[48.2, 38.7, -0.5], [50.4, 41.6, 0.6]] : [[44.7, 39.3, -0.5], [48.5, 41.5, 0.6]],
-        sheep: [[46.9, 38.1, 1.2], [48.9, 38.3, -0.9]],
+        cow: close ? [[trough.x - 1.25, trough.z + 0.2, Math.PI / 2], [47.4, 37.9, 1.9]] : [[trough.x - 1.25, trough.z + 0.25, Math.PI / 2], [46.3, 39.6, -0.45]],
+        sheep: close ? [[44.6, 40.6, 0], [48.7, 37.5, 2.3]] : [[47.55, 37.65, 0.5], [48.4, 37.25, -0.4]],
         goat: [[41.35, 42.55, Math.atan2(-0.8, -0.85)]],
-        pig: [[46.2, 42.5, -0.55]],
-        chicken: [[40.1, 38.4, 2.4], [39.5, 39.2, -1.0], [38.1, 38.7, 0.5], [41.3, 37.5, 1.9]],
-        duck: [[43.2, 41.9, 1.4], [44.4, 42.3, -2.5]],
+        pig: [[wallow.x - 0.05, wallow.z - 0.05, 0.35]],
+        chicken: [[40.0, 38.5, 2.4], [40.95, 37.75, -1.1], [41.55, 38.75, 0.4], [39.2, 37.7, 1.9]],
+        duck: [[pond.x - 0.35, pond.z - 0.05, 1.3], [pond.x + 0.65, pond.z + 0.2, -2.2]],
       };
       if (gallery) {
         const row: Record<string, [number, number, number][]> = {
@@ -1817,6 +1887,73 @@ export class AnimalSystem implements System, AnimalsApi {
     this.holdHay();
   }
 
+  // ───────────────────────────────────────────── co-op demo farmhands
+
+  private hands: { peer: string; farmer: DemoFarmhand; role: 'pet' | 'hay' | 'milk'; t: number }[] = [];
+
+  /**
+   * Co-op showcase (`?demo=animals-coop`, staged by net/demo): scripted farmhands working the herd as
+   * real peers would — the petting one sends `pet` intents through the host path every couple of
+   * seconds (the host sees the hop + heart on its screen), one carries a square bale to the manger,
+   * one holds up a brimming milk pail.
+   */
+  stageFarmhands(list: { peer: number; farmer: DemoFarmhand; role: 'pet' | 'hay' | 'milk' }[]): void {
+    for (const h of this.hands) h.farmer.rig.armR.remove(...h.farmer.rig.armR.children.filter((c) => c.name === 'demo-prop'));
+    this.hands = [];
+    for (const { peer, farmer, role } of list) {
+      const prop = role === 'milk' ? demoPail() : role === 'hay' ? demoBale() : null;
+      if (prop) {
+        prop.name = 'demo-prop';
+        if (role === 'milk') farmer.rig.armR.add(prop);
+        else farmer.rig.torso.add(prop);
+      }
+      const prev = farmer.actionPose;
+      farmer.actionPose = (rig, dt) => {
+        const ap = prev?.(rig, dt) ?? null;
+        if (ap) return ap;
+        if (role === 'milk') {
+          // "Look — fresh milk!": right arm up, pail held high, a little proud bounce.
+          // (raised out to the side: straight up, the pail vanished under the hat brim from above)
+          rig.armR.rotation.set(PAIL_ARM.x, 0, PAIL_ARM.z);
+          rig.armL.rotation.z = 0.35;
+          return { sy: 1.02, bob: 0.01 };
+        }
+        if (role === 'hay') {
+          // Hugging a bale against the chest
+          rig.armR.rotation.x = -1.15;
+          rig.armL.rotation.x = -1.15;
+          rig.armR.rotation.z = -0.35;
+          rig.armL.rotation.z = 0.35;
+          rig.torso.rotation.x = -0.06;
+          return { sy: 0.98 };
+        }
+        return null;
+      };
+      this.hands.push({ peer: String(peer), farmer, role, t: role === 'pet' ? 0.4 : 0 });
+    }
+  }
+
+  private updateFarmhands(dt: number): void {
+    for (const h of this.hands) {
+      if (h.role !== 'pet') continue;
+      h.t -= dt;
+      if (h.t > 0) continue;
+      h.t = 1.5;
+      const fp = h.farmer.position;
+      let best: Live | null = null;
+      let bd = 2.2;
+      for (const l of this.live) {
+        if (!l.rec) continue;
+        const d = Math.hypot(l.actor.pos.x - fp.x, l.actor.pos.z - fp.z);
+        if (d < bd) (bd = d), (best = l);
+      }
+      if (!best?.rec) continue;
+      h.farmer.targetYaw = Math.atan2(best.actor.pos.x - fp.x, best.actor.pos.z - fp.z);
+      h.farmer.act('pull', null);
+      this.applyIntent(h.peer, { kind: 'pet', id: best.rec.id });
+    }
+  }
+
   /** Demos: hay in hand (a toolbar slot), so no tile cursor sits under the shot and feeding is one click. */
   private holdHay(): void {
     const inv = this.game.services.inventory;
@@ -1856,6 +1993,55 @@ export class AnimalSystem implements System, AnimalsApi {
 // ───────────────────────────────────────────── small shared props
 
 let _hay: THREE.BufferGeometry | null = null;
+/** The bits of a remote farmer the co-op demo drives (structural: net/RemoteFarmer). */
+interface DemoFarmhand {
+  position: THREE.Vector3;
+  targetYaw: number;
+  rig: PlayerRig;
+  actionPose: ((rig: PlayerRig, dt: number) => ActionPose | null) | null;
+  act(kind: 'pull', tool: null): void;
+}
+
+/** The milk-pail arm: up and out to the side. */
+const PAIL_ARM = { x: -2.6, z: 1.0 };
+
+/** A brimming tin milk pail hung in a farmer's right hand (stays upright with the arm raised). */
+function demoPail(): THREE.Object3D {
+  const g = new THREE.Group();
+  const tin = new THREE.MeshStandardMaterial({ color: 0xd4dadc, roughness: 0.35, metalness: 0.6 });
+  const pail = new THREE.Mesh(new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(0.11, 0), new THREE.Vector2(0.14, 0.22), new THREE.Vector2(0.13, 0.22), new THREE.Vector2(0.1, 0.012), new THREE.Vector2(0, 0.012)], 16), tin);
+  const milk = new THREE.Mesh(new THREE.CircleGeometry(0.13, 16).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xfffaf0, roughness: 0.4 }));
+  milk.position.y = 0.2;
+  const bail = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.008, 4, 14, Math.PI), new THREE.MeshStandardMaterial({ color: 0x3a3634, roughness: 0.5 }));
+  bail.position.y = 0.22;
+  pail.add(milk, bail);
+  // Pail origin at the bail top, hanging under the hand; counter-rotated against the raised arm.
+  pail.position.set(0, -0.33, 0);
+  g.add(pail);
+  g.position.set(0, -0.3, 0.02);
+  g.quaternion.setFromEuler(new THREE.Euler(PAIL_ARM.x, 0, PAIL_ARM.z)).invert();
+  g.scale.setScalar(1.3);
+  g.traverse((o) => (o.userData.noAO = true));
+  return g;
+}
+
+/** A square bale (twine bands) held against a farmer's chest. */
+function demoBale(): THREE.Object3D {
+  const g = new THREE.Group();
+  const straw = new THREE.MeshStandardMaterial({ map: textures.thatch().map, color: 0xf0d088, roughness: 0.95 });
+  const b = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.26, 0.3), straw);
+  const twine = new THREE.MeshStandardMaterial({ color: 0x9a7448, roughness: 0.9 });
+  for (const x of [-0.12, 0.12]) {
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.27, 0.31), twine);
+    t.position.x = x;
+    b.add(t);
+  }
+  b.position.set(0, -0.08, 0.3);
+  g.add(b);
+  g.traverse((o) => (o.userData.noAO = true));
+  return g;
+}
+
 function hayGeo(): THREE.BufferGeometry {
   if (!_hay) {
     const g = prep(lumpySphere(0.2, 2, 0.35, new Rng('hay-portion')), 0xfff0c0);

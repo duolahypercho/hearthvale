@@ -64,6 +64,10 @@ export class CoopDemo {
       p.farmer.yaw = yawOf(facing);
       return b;
     };
+    if (name === 'animals-coop') {
+      this.stageAnimals(mk);
+      return;
+    }
     const sync = this.net.sync;
     const farming = sync.farming();
     const grid = sync.grid();
@@ -154,6 +158,34 @@ export class CoopDemo {
       this.asleep = true;
       this.game.events.emit('net:beds', { ready: [2, 3, 4], total: 4, sleeping: false });
     }
+    this.net.emitRoster();
+  }
+
+  /**
+   * `animals-coop`: the three farmhands in the paddock working the herd (pillar 13 on screen): Juniper
+   * pets the cow at the trough (real `pet` intents through the host path — the heart pops here), Pip
+   * hugs a fresh bale over to the manger, Rowan holds up a brimming milk pail. Chat is about the animals.
+   */
+  private stageAnimals(mk: (i: number, x: number, z: number, facing: Facing, script: Bot['script']) => Bot): void {
+    const idle: Bot['script'] = () => {};
+    this.bots = [mk(0, 49.1, 40.05, 'up', idle), mk(1, 37.75, 40.55, 'down', idle), mk(2, 47.15, 40.75, 'down', idle)];
+    this.net.refreshCabins(new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf], [2, PRESET_LOOKS[2]!.scarf]]));
+    const line = (id: number, text: string): void => {
+      const p = this.net.remotes.get(id);
+      if (p) this.game.events.emit('net:chat', { id, name: p.name, text, color: hex(p.look.scarf) });
+    };
+    line(3, 'Topped up the hay rack, the goats are thrilled');
+    line(2, 'The ducks found the new pond!');
+    this.bots[0]!.p.chat('Who’s a good cow? Maple is!', 1e6);
+    this.bots[2]!.p.chat('First milk of the season!', 1e6);
+    this.emote(this.bots[1]!, 'heart', true);
+    // The animal system drives the work (it owns the herd + the host-side intent path); deferred a tick
+    // so its own demo staging (herd placement) has run.
+    const roles = ['pet', 'hay', 'milk'] as const;
+    queueMicrotask(() => {
+      const animals = this.game.services.animals as unknown as { stageFarmhands?: (l: unknown[]) => void } | undefined;
+      animals?.stageFarmhands?.(this.bots.map((b, i) => ({ peer: b.p.id, farmer: b.p.farmer, role: roles[i] })));
+    });
     this.net.emitRoster();
   }
 

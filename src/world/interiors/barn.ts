@@ -77,6 +77,8 @@ export class BarnInterior extends InteriorMap {
       floor: 'straw',
       style: 'barn',
       wallTint: 0xf0bca0,
+      // Whitewashed lower boards (cool, chalky) under the warm red: the eye gets a rest.
+      wainscotTint: 0xd6dcd8,
       timberLight: 1.3,
       floorTint: 0xd0c0a8,
       windows: [
@@ -91,6 +93,8 @@ export class BarnInterior extends InteriorMap {
     this.dayScale = 1.2;
     this.sunPoolK = 0.25;
     this.exposureBoost = 0.2;
+    this.coolFill = 0.4;
+    this.shaftK = 1.3;
     const rng = new Rng('barn-interior');
     const slots: PenSlot[] = Array.from({ length: 6 }, (_, i) => {
       const x0 = i * SW;
@@ -263,12 +267,13 @@ export class BarnInterior extends InteriorMap {
   private halfDoor(k: Kit, x0: number, x1: number, i: number): void {
     const w = x1 - x0;
     const cx = (x0 + x1) / 2;
-    const tint = i % 2 ? 0xb88058 : 0xc08a62;
+    // Sage-painted doors (worn back to wood on the ledges): a cool rhythm along the stall row.
+    const tint = i % 2 ? 0x86a486 : 0x90ac8c;
     const n = 4;
-    for (let b = 0; b < n; b++) k.box('wood', [w / n - 0.012, 1.02, 0.05], [x0 + (b + 0.5) * (w / n), 0.06, SF], { tint: b % 2 ? tint : 0xb88460, uv: 1.2, r: 0.012 });
-    for (const y of [0.18, 0.9]) k.box('wood', [w - 0.02, 0.1, 0.04], [cx, y, SF + 0.04], { tint: 0x9a6440 });
+    for (let b = 0; b < n; b++) k.box('paint', [w / n - 0.012, 1.02, 0.05], [x0 + (b + 0.5) * (w / n), 0.06, SF], { tint: b % 2 ? tint : 0x8aa88a, r: 0.012 });
+    for (const y of [0.18, 0.9]) k.box('wood', [w - 0.02, 0.1, 0.04], [cx, y, SF + 0.04], { tint: 0x8a6a4a });
     const len = Math.hypot(w - 0.12, 0.72);
-    k.box('wood', [len, 0.09, 0.035], [cx, 0.54 - 0.045, SF + 0.045], { rz: Math.atan2(0.72, w - 0.12) * (i % 2 ? 1 : -1), tint: 0x9a6440 });
+    k.box('wood', [len, 0.09, 0.035], [cx, 0.54 - 0.045, SF + 0.045], { rz: Math.atan2(0.72, w - 0.12) * (i % 2 ? 1 : -1), tint: 0x8a6a4a });
     for (const y of [0.22, 0.94]) k.box('iron', [0.3, 0.035, 0.012], [x1 - 0.15, y, SF + 0.07], { tint: 0x2a2624, r: 0.006 });
     k.box('iron', [0.08, 0.05, 0.03], [x0 + 0.06, 0.66, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
     // Plaque board (the animal's name is painted on by the animal system)
@@ -319,7 +324,11 @@ export class BarnInterior extends InteriorMap {
       k.cyl('wood', 0.02, 0.025, 0.36, [0.55 + Math.cos(a) * 0.1, 0, 3.6 + Math.sin(a) * 0.1], { rx: Math.sin(a) * 0.15, rz: -Math.cos(a) * 0.15, tint: 0x8a5a3a });
     }
     bucket(k, 1.0, 3.45, 0xb8c0c4, true);
-    bucket(k, 1.35, 3.75, 0xa8b0b4);
+    bucket(k, 1.35, 3.75, 0x6a9ad0);
+    // A slate on the wall over the milking corner: the day's yields chalked up
+    k.box('wood', [0.04, 0.5, 0.66], [0.05, 1.5, 3.35], { tint: POST });
+    k.box('paint', [0.03, 0.42, 0.58], [0.075, 1.54, 3.35], { tint: 0x3a4448 });
+    for (let i = 0; i < 4; i++) k.box('paint', [0.032, 0.018, 0.3 - (i % 2) * 0.1], [0.09, 1.68 - i * 0.08, 3.28], { tint: 0xe8ecea });
   }
 
   /** Board walk, the right-wall water corner, front clutter along the knee wall. */
@@ -362,7 +371,7 @@ export class BarnInterior extends InteriorMap {
     // Right wall: stone water trough, pails, shears + halter pegs, grain barrel, crates
     k.box('stone', [0.55, 0.5, 1.5], [12.62, 0, 4.9], { tint: 0xb8b0a4, uv: 1.4, ao: 0.3, r: 0.05 });
     k.box('ceramic', [0.42, 0.02, 1.36], [12.62, 0.44, 4.9], { tint: 0x6aa0c0 });
-    bucket(k, 12.2, 5.95, 0xa8b0b4);
+    bucket(k, 12.2, 5.95, 0x6a9ad0);
     k.box('wood', [0.05, 0.08, 1.2], [12.97, 1.7, 5.4], { tint: POST });
     k.add('iron', roundedBox(0.02, 0.28, 0.06, 0.01), mat(12.93, 1.5, 5.05, 0.25, 0, 0), { tint: 0xa8b0b4 });
     k.add('iron', roundedBox(0.02, 0.28, 0.06, 0.01), mat(12.93, 1.5, 5.12, -0.25, 0, 0), { tint: 0xa8b0b4 });
@@ -378,8 +387,8 @@ export class BarnInterior extends InteriorMap {
     hayBale(k, 1.9, 0, 8.4, -0.06);
     hayBale(k, 1.4, 0.42, 8.42, 0.1);
     wheelbarrow(k, rng, 3.9, 7.85, -0.5);
-    feedSack(k, 5.1, 8.35, 0.3, 0xfff0d8);
-    feedSack(k, 4.8, 8.6, -0.5, 0xe8d4b4, true);
+    feedSack(k, 5.1, 8.35, 0.3, 0xb4caa4);
+    feedSack(k, 4.8, 8.6, -0.5, 0xa8c098, true);
     milkCan(k, 7.4, 8.3);
     milkCan(k, 7.72, 8.55, 0.4);
     crate(k, 10.0, 8.45, 0.08, 0x9a6a44);
