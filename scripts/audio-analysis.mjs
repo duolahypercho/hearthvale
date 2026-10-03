@@ -391,10 +391,10 @@ export function printGameplay(rows) {
   const steps = rows.filter((r) => /^step:/.test(r.name));
   const verbs = rows.filter((r) => r.verb);
   // Footsteps are foley, not verbs: they may sit under the score in loudness, but their onset must
-  // reach the score's own 1–4 kHz energy (median within 3 dB) or they vanish.
+  // reach the score's own 1–4 kHz energy (median within 2 dB) or they vanish.
   const stepBand = steps.map((r) => r.band).sort((a, b) => a - b)[steps.length >> 1];
-  if (steps.length && stepBand < -3) fails.push(`steps(1-4kHz median ${fmt(stepBand)} dB)`);
-  console.log(`  footsteps: median ${fmt(steps.map((r) => r.ratio).sort((a, b) => a - b)[steps.length >> 1])} dB over the bed, 1–4 kHz onset median ${fmt(stepBand)} dB (need ≥ -3); farming verbs (*): min ${fmt(Math.min(...verbs.map((r) => r.ratio)))} dB (need ≥ +4)${fails.length ? `  FAIL: ${fails.join(', ')}` : '  ok'}`);
+  if (steps.length && stepBand < -2) fails.push(`steps(1-4kHz median ${fmt(stepBand)} dB)`);
+  console.log(`  footsteps: median ${fmt(steps.map((r) => r.ratio).sort((a, b) => a - b)[steps.length >> 1])} dB over the bed, 1–4 kHz onset median ${fmt(stepBand)} dB (need ≥ -2); farming verbs (*): min ${fmt(Math.min(...verbs.map((r) => r.ratio)))} dB (need ≥ +4)${fails.length ? `  FAIL: ${fails.join(', ')}` : '  ok'}`);
   return fails;
 }
 

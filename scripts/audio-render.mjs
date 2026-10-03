@@ -324,9 +324,10 @@ async function main() {
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   if (report.failedJobs.length) console.log(`FAILED JOBS: ${report.failedJobs.map((j) => j.name).join(' ')}`);
   if (bad.length) console.log(`HARD FAILS: ${bad.map((b) => `${b.name}[${b.flags.join(',')}]`).join(' ')}`);
+  if (report.sfxHierarchyFails?.length) console.log(`SFX HIERARCHY FAILS: ${report.sfxHierarchyFails.join('; ')}`);
   if (compFails.length) console.log(`COMPOSITION FAILS: ${compFails.join(' ')}`);
   await closeAll();
-  if (errors.length || bad.length || compFails.length || report.failedJobs.length) process.exitCode = 1;
+  if (errors.length || bad.length || compFails.length || report.failedJobs.length || report.sfxHierarchyFails?.length) process.exitCode = 1;
 }
 
 /** The deliberate per-theme loudness offsets (src/audio/loudness.ts TARGET_OFFSET). */
@@ -399,7 +400,30 @@ function sfxBalance(res, inter, report) {
     console.log(`  ${x.name.padEnd(16)} ${fmt(x.peakDb).padStart(6)} ${fmt(x.truePeakDb).padStart(6)} ${fmt(x.momentaryMax).padStart(6)} ${fmt(x.centroidHz, 0).padStart(6)}  ${fl.join(' ') || 'ok'}`);
     report.sfx.push({ ...x, flags: fl });
   }
-  console.log(`  median momentary max: ${fmt(median)} LUFS\n`);
+  console.log(`  median momentary max: ${fmt(median)} LUFS`);
+  // Hierarchy assertions (round 4): a constant hover tick sits well under a click, click ≈ select,
+  // open / close above click, the error cue at least as loud as open, the core UI set within 8 LU;
+  // dialogue voices within ±1.5 LU of each other; a connecting sword hit lands over the swing.
+  const M = Object.fromEntries(ms.map((x) => [x.name, x.momentaryMax]));
+  const checks = [];
+  const has = (...n) => n.every((k) => Number.isFinite(M[k]));
+  if (has('ui:hover', 'ui:click')) checks.push([`ui:hover ${fmt(M['ui:hover'] - M['ui:click'])} LU vs click (need ≤ -4)`, M['ui:hover'] - M['ui:click'] <= -4]);
+  if (has('ui:select', 'ui:click')) checks.push([`ui:select ${fmt(M['ui:select'] - M['ui:click'])} LU vs click (need ±2)`, Math.abs(M['ui:select'] - M['ui:click']) <= 2]);
+  if (has('ui:open', 'ui:click')) checks.push([`ui:open ${fmt(M['ui:open'] - M['ui:click'])} LU vs click (need > 0)`, M['ui:open'] > M['ui:click']]);
+  if (has('ui:close', 'ui:click')) checks.push([`ui:close ${fmt(M['ui:close'] - M['ui:click'])} LU vs click (need > 0)`, M['ui:close'] > M['ui:click']]);
+  if (has('ui:error', 'ui:open')) checks.push([`ui:error ${fmt(M['ui:error'] - M['ui:open'])} LU vs open (need ≥ -0.5)`, M['ui:error'] >= M['ui:open'] - 0.5]);
+  const uiSet = ['ui:click', 'ui:hover', 'ui:open', 'ui:close', 'ui:error', 'ui:select', 'ui:tab', 'ui:slot', 'ui:toggle', 'ui:tick'].map((k) => M[k]).filter(Number.isFinite);
+  if (uiSet.length > 2) checks.push([`UI spread ${fmt(Math.max(...uiSet) - Math.min(...uiSet))} LU (need ≤ 8.5)`, Math.max(...uiSet) - Math.min(...uiSet) <= 8.5]);
+  const vs = ms.filter((x) => x.name.startsWith('voice:') && Number.isFinite(x.momentaryMax));
+  if (vs.length > 1) {
+    const lo = vs.reduce((a, b) => (b.momentaryMax < a.momentaryMax ? b : a)), hi = vs.reduce((a, b) => (b.momentaryMax > a.momentaryMax ? b : a));
+    checks.push([`voice spread ${fmt(hi.momentaryMax - lo.momentaryMax)} LU (${lo.name.slice(6)} … ${hi.name.slice(6)}, need ≤ 3)`, hi.momentaryMax - lo.momentaryMax <= 3]);
+  }
+  if (has('sword:hit', 'sword')) checks.push([`sword:hit ${fmt(M['sword:hit'] - M.sword)} LU vs sword (need ≥ +2)`, M['sword:hit'] - M.sword >= 2]);
+  for (const [msg, ok] of checks) console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${msg}`);
+  report.sfxChecks = checks.map(([msg, ok]) => ({ msg, ok }));
+  report.sfxHierarchyFails = checks.filter(([, ok]) => !ok).map(([m]) => m);
+  console.log('');
 }
 /** Impacts that must carry mid/high crunch (laptop speakers roll off below ~200 Hz). */
 const IMPACTS = /^(hoe|axe|pickaxe|rockbreak|sword:hit|door|treefall|hurt|place|step:wood)$/;

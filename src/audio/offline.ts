@@ -163,12 +163,13 @@ export async function renderSfxReel(sr = 44100, only: string[] | null = null): P
   let t = 0.3;
   const long: Record<string, number> = { treefall: 3.2, hall: 5, lantern: 3.5, catch: 2.4, 'catch:perfect': 2.6, water: 2, cast: 2.2, sleep: 2.4, thunder: 3 };
   for (const n of only ?? SFX_NAMES) {
-    if (n === 'reel' || n === 'blip') continue;
+    if (n === 'reel' || n === 'blip' || n.startsWith('voice')) continue;
     markers.push({ name: n, t });
     t += long[n] ?? 1.3;
   }
-  if (!only) {
-    for (const v of Object.keys(VOICES)) {
+  // `--sfx voices` (or voice:<id>) puts the dialogue voices on a partial reel.
+  if (!only || only.some((n) => n.startsWith('voice'))) {
+    for (const v of Object.keys(VOICES).filter((v) => !only || only.includes('voices') || only.includes(`voice:${v}`))) {
       markers.push({ name: `voice:${v}`, t });
       t += 2.6;
     }
