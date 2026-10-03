@@ -11,9 +11,12 @@ import * as THREE from 'three';
 import { textures } from '../render/textures';
 import { globalUniforms } from '../render/uniforms';
 import { NOISE_GLSL } from '../render/shaders/noise';
-import { applyWorldFx } from '../render/worldfx';
+import { applyWorldFx, snowCoverGlsl, SNOW_NOISE_GLSL } from '../render/worldfx';
 import { patchMaterial, after, before, replace } from '../render/patch';
 import { bakeInto, bakeTarget, queueBake } from '../render/bake';
+
+/** worldfx snow threshold on the ground (normal.y); shared with the full-cover ground skip. */
+const TERRAIN_SNOW_UP = 0.7;
 
 export const SPLAT_RES = 2;
 /** Ground-cover texels per world unit (clover / moss / dry-trampled / contact AO). */
@@ -612,6 +615,19 @@ export class Terrain {
         #else
         bool hvGroundLive = true;
         #endif
+        #ifndef HV_NO_SNOW_SKIP
+        // Full snow cover (worldfx hvS = 1) repaints the whole ground colour: its layers are skipped
+        // there, and worldfx reuses this cover instead of recomputing it (pillar 14, perf r8c: same
+        // expression on the same inputs, identical output; winter flats are almost all hvS = 1).
+        #define HV_SNOW_PRE
+        float hvSnowPreN = 0.0;
+        float hvSnowPreS = 0.0;
+        if (uSnow > 0.0) {
+          hvSnowPreN = ${SNOW_NOISE_GLSL};
+          hvSnowPreS = ${snowCoverGlsl(TERRAIN_SNOW_UP, '(1.0 - pathM * 0.3)', 'hvSnowPreN')};
+          if (hvSnowPreS >= 1.0) hvGroundLive = false;
+        }
+        #endif
         vec3 ground = vec3(0.0);
         if (hvGroundLive) {
         // Grass: seasonal two-tone + dry patches + detail strokes.
@@ -780,7 +796,7 @@ export class Terrain {
       shader.fragmentShader = fs;
     });
     // Worldfx after the terrain patch so the snow can read the path mask (trampled slush).
-    applyWorldFx(m, { snowUp: 0.7, snowMask: '(1.0 - hvTPath * 0.3)', slush: '(hvTPath * 0.8)', cloudsPerVertex: true });
+    applyWorldFx(m, { snowUp: TERRAIN_SNOW_UP, snowMask: '(1.0 - hvTPath * 0.3)', slush: '(hvTPath * 0.8)', cloudsPerVertex: true });
     return m;
   }
 }

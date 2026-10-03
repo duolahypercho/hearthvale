@@ -35,6 +35,18 @@ export interface WorldFxOptions {
   cloudsPerVertex?: boolean;
 }
 
+/** Snow-cover noise (fragment, main scope, after the worldfx varyings): 0..1. */
+export const SNOW_NOISE_GLSL = '(hvNoise(vHvWorldPos.xz * 2.3) * 0.5 + hvNoise(vHvWorldPos.xz * 9.0) * 0.5)';
+
+/**
+ * Snow cover 0..1 exactly as applyWorldFx evaluates it (`n` = the SNOW_NOISE_GLSL value). A material
+ * that needs the cover before color_fragment may compute it, `#define HV_SNOW_PRE` and store it in
+ * `hvSnowPreN` / `hvSnowPreS` (main scope): worldfx then reuses it instead of recomputing.
+ */
+export function snowCoverGlsl(snowUp: number, mask: string, n: string): string {
+  return `smoothstep(0.0, 0.35, uSnow * smoothstep(${snowUp.toFixed(3)}, ${(snowUp + 0.3).toFixed(3)}, normalize(vHvWorldNormal).y) * (${mask}) - (1.0 - ${n}) * 0.35 * (1.0 - uSnow))`;
+}
+
 export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldFxOptions = {}): M {
   const snow = opts.snow ?? true;
   const clouds = opts.clouds ?? true;
@@ -108,9 +120,14 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
       albedo += /* glsl */ `
       // No snow (uSnow = 0 → hvS = 0 exactly): skip the three noise lookups (pillar 14).
       if (uSnow > 0.0) {
-        float hvUp = smoothstep(${snowUp.toFixed(3)}, ${(snowUp + 0.3).toFixed(3)}, normalize(vHvWorldNormal).y);
-        float hvN = hvNoise(vHvWorldPos.xz * 2.3) * 0.5 + hvNoise(vHvWorldPos.xz * 9.0) * 0.5;
-        float hvS = smoothstep(0.0, 0.35, uSnow * hvUp * (${mask}) - (1.0 - hvN) * 0.35 * (1.0 - uSnow));
+        #ifdef HV_SNOW_PRE
+        // The material already evaluated this cover (terrain: to skip ground layers under full snow).
+        float hvN = hvSnowPreN;
+        float hvS = hvSnowPreS;
+        #else
+        float hvN = ${SNOW_NOISE_GLSL};
+        float hvS = ${snowCoverGlsl(snowUp, mask, 'hvN')};
+        #endif
         hvSnowAmt = hvS;
         // Bare patches (hvS = 0) skip the drift noise + snow colour (identical output, perf r8).
         if (hvS > 0.0) {
