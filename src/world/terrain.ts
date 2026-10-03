@@ -597,24 +597,32 @@ export class Terrain {
         // Ground cover: clover carpets, moss, dry / trampled straw (+ baked contact AO, below).
         vec4 cov = texture2D(uCover, suv + warp * 0.35 / uSplatSize);
         {
+          // Each layer's noise is only paid where its cover weight is > 0 (most of a map has none of
+          // them): identical output, 5 noise taps fewer on bare ground (pillar 14, perf r5).
           float cl = smoothstep(0.15, 0.75, cov.r + (tn2 - 0.5) * 0.3);
           vec2 cq = mat2(0.866, 0.5, -0.5, 0.866) * wp.xz;
-          float leafN = hvNoise(cq * 6.3) * 0.6 + hvNoise(cq * 13.1 + 5.0) * 0.4;
-          vec3 clover = uGrassA * vec3(0.82, 1.02, 0.86) * (0.8 + 0.28 * leafN);
-          vec2 fc = floor(wp.xz * 3.1);
-          vec2 fo = hvHash22(fc) - 0.5;
-          float fdot = smoothstep(0.075, 0.035, length(fract(wp.xz * 3.1) - 0.5 - fo * 0.6)) * step(hvHash12(fc + 9.0), 0.2);
-          clover = mix(clover, vec3(0.93, 0.92, 0.86), fdot * (1.0 - uSeasonW.w) * (1.0 - uSeasonW.z * 0.6));
-          grass = mix(grass, clover, cl * 0.75);
+          if (cl > 0.0) {
+            float leafN = hvNoise(cq * 6.3) * 0.6 + hvNoise(cq * 13.1 + 5.0) * 0.4;
+            vec3 clover = uGrassA * vec3(0.82, 1.02, 0.86) * (0.8 + 0.28 * leafN);
+            vec2 fc = floor(wp.xz * 3.1);
+            vec2 fo = hvHash22(fc) - 0.5;
+            float fdot = smoothstep(0.075, 0.035, length(fract(wp.xz * 3.1) - 0.5 - fo * 0.6)) * step(hvHash12(fc + 9.0), 0.2);
+            clover = mix(clover, vec3(0.93, 0.92, 0.86), fdot * (1.0 - uSeasonW.w) * (1.0 - uSeasonW.z * 0.6));
+            grass = mix(grass, clover, cl * 0.75);
+          }
           float mo = smoothstep(0.15, 0.7, cov.g + (tn1 - 0.5) * 0.25);
-          vec3 moss = mix(vec3(0.05, 0.11, 0.016), vec3(0.1, 0.18, 0.028), hvNoise(cq * 5.7)) * (0.88 + 0.24 * hvNoise(cq * 17.0));
-          moss = mix(moss, moss * vec3(1.25, 1.0, 0.6), uSeasonW.z);
-          grass = mix(grass, moss, mo * 0.6);
+          if (mo > 0.0) {
+            vec3 moss = mix(vec3(0.05, 0.11, 0.016), vec3(0.1, 0.18, 0.028), hvNoise(cq * 5.7)) * (0.88 + 0.24 * hvNoise(cq * 17.0));
+            moss = mix(moss, moss * vec3(1.25, 1.0, 0.6), uSeasonW.z);
+            grass = mix(grass, moss, mo * 0.6);
+          }
           float dr = smoothstep(0.12, 0.7, cov.b + (tn2 - 0.5) * 0.3);
-          float streak = hvNoise(vec2(wp.x * 7.0 + wp.z * 2.0, wp.z * 1.3));
-          // Trampled / dry: an olive-straw cast over the grass (keeps the blade texture), not bare sand.
-          vec3 straw = mix(grass * vec3(1.2, 1.08, 0.62), uGrassDry * vec3(1.1, 1.0, 0.7), 0.45) * (0.85 + 0.3 * streak);
-          grass = mix(grass, straw, dr * 0.6);
+          if (dr > 0.0) {
+            float streak = hvNoise(vec2(wp.x * 7.0 + wp.z * 2.0, wp.z * 1.3));
+            // Trampled / dry: an olive-straw cast over the grass (keeps the blade texture), not bare sand.
+            vec3 straw = mix(grass * vec3(1.2, 1.08, 0.62), uGrassDry * vec3(1.1, 1.0, 0.7), 0.45) * (0.85 + 0.3 * streak);
+            grass = mix(grass, straw, dr * 0.6);
+          }
         }
 
         // Path (packed dirt) with trampled rim.

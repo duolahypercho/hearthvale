@@ -524,7 +524,9 @@ function roots(b: MeshBuilder, m: THREE.Material, rng: Rng, r0: number, n: numbe
     // steeply into the soil (seen from the game camera a long straight taper read as a sharp fin).
     const e = new THREE.Vector3(Math.cos(bend) * (r0 + len * 0.9), -1.05, Math.sin(bend) * (r0 + len * 0.9));
     const c = new THREE.Vector3(Math.cos(a) * (r0 + len * 0.62), 0.5, Math.sin(a) * (r0 + len * 0.62));
-    rootTube(b, m, thick * (0.8 + rng.next() * 0.35), thick * 0.22, s, c, e, 14, 12);
+    // 11 x 10 (was 14 x 12): the knee arch stays smooth with welded normals, -35 % root triangles
+    // (forest-fall peaked 445 tris under the 1.5 M budget, perf r4; roots draw in main + shadow + AO).
+    rootTube(b, m, thick * (0.8 + rng.next() * 0.35), thick * 0.22, s, c, e, 11, 10);
   }
 }
 

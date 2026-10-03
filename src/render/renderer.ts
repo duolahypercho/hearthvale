@@ -453,10 +453,22 @@ export class RenderContext {
       const prev = this.renderer.getRenderTarget();
       this.renderer.setRenderTarget(this.sceneTarget());
       let job: Promise<unknown> | null = null;
+      // three compiles only the visible tree, so whatever the map shows later (a room's restored
+      // dressing, festival / weather fx, a leaping fish) built its program on first show: the gate
+      // held it out of the frame, then its first draw blocked on onFirstUse (bundle-complete r4,
+      // 0.2-0.9 s). Show every hidden object for the (synchronous) program build, behind the fade.
+      const hidden: THREE.Object3D[] = [];
+      this.scene.traverse((o) => {
+        if (!o.visible) {
+          o.visible = true;
+          hidden.push(o);
+        }
+      });
       try {
         if (r.compileAsync) job = r.compileAsync(this.scene, this.camera);
         else this.renderer.compile(this.scene, this.camera);
       } finally {
+        for (const o of hidden) o.visible = false;
         this.renderer.setRenderTarget(prev);
       }
       // Never hold frames longer than a few seconds, whatever the driver does.

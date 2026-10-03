@@ -44,6 +44,16 @@ interface Head {
 }
 
 /**
+ * A portrait as an SVG <image> sprite (data URL), clipped to a circle. Not a <foreignObject>: HTML inside
+ * the bobbing heads / pin forced a layout of the whole map DOM on every animation tick (ui-map perf r4,
+ * ~1.1 layouts per frame on a 2.2k-node DOM); an image only repaints (pillar 14).
+ */
+function faceSprite(svg: string, x: number, y: number, size: number): string {
+  const src = svg.includes('xmlns=') ? svg : svg.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+  return `<image href="data:image/svg+xml;charset=utf-8,${encodeURIComponent(src)}" x="${x}" y="${y}" width="${size}" height="${size}" clip-path="url(#mFaceClip)" preserveAspectRatio="xMidYMid slice"/>`;
+}
+
+/**
  * The sheet is built in three bands so the heavy painting can be rasterised once (pillar 14): the
  * filtered watercolour (`still`: feTurbulence / displacement / 16 px washes / multiply blends, ~5k
  * nodes) and the paper grain (`grain`) never change, while the clouds, boat, birds, sails, heads and
@@ -66,7 +76,7 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
   const villagers = heads
     .map(
       (h, i) =>
-        `<g class="m-npc" data-npc="${h.id}" transform="translate(${h.x.toFixed(1)} ${h.y.toFixed(1)})" style="animation-delay:${-i * 0.37}s"><ellipse cy="14" rx="9" ry="2.8" fill="#000" opacity=".22"/><circle r="12.5" fill="#fff8e6" stroke="#5a3418" stroke-width="2"/><foreignObject x="-11.5" y="-11.5" width="23" height="23"><div xmlns="http://www.w3.org/1999/xhtml" class="m-npcface">${h.svg}</div></foreignObject></g>`,
+        `<g class="m-npc" data-npc="${h.id}" transform="translate(${h.x.toFixed(1)} ${h.y.toFixed(1)})" style="animation-delay:${-i * 0.37}s"><ellipse cy="14" rx="9" ry="2.8" fill="#000" opacity=".22"/><circle r="12.5" fill="#fff8e6" stroke="#5a3418" stroke-width="2"/>${h.id === '+' ? `<text y="4" text-anchor="middle" class="m-plus">${escapeHtml(h.svg)}</text>` : faceSprite(h.svg, -11.5, -11.5, 23)}</g>`,
     )
     .join('');
   const still = `
@@ -113,9 +123,9 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
     .join('')}
   ${villagers}
   ${labels}
-  ${pinAt ? `<g class="m-pin" transform="translate(${pinAt.x} ${pinAt.y - 18})"><ellipse cy="26" rx="12" ry="4" fill="#000" opacity=".25"/><g class="bob"><path d="M0 22 C-16 4 -18 -18 0 -20 C18 -18 16 4 0 22 Z" fill="#e8574a" stroke="#6a1e10" stroke-width="3"/><foreignObject x="-14" y="-18" width="28" height="28"><div xmlns="http://www.w3.org/1999/xhtml" class="m-face">${farmerAvatar(['#fff4d8', '#f0d8a0'], look)}</div></foreignObject></g></g>` : ''}
+  ${pinAt ? `<g class="m-pin" transform="translate(${pinAt.x} ${pinAt.y - 18})"><ellipse cy="26" rx="12" ry="4" fill="#000" opacity=".25"/><g class="bob"><path d="M0 22 C-16 4 -18 -18 0 -20 C18 -18 16 4 0 22 Z" fill="#e8574a" stroke="#6a1e10" stroke-width="3"/>${faceSprite(farmerAvatar(['#fff4d8', '#f0d8a0'], look), -14, -18, 28)}</g></g>` : ''}
   ${paper}`;
-  const svg = `<svg class="valley" viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg"><defs>${defs}</defs><g class="m-still">${still}</g>${live}<g class="m-grain" pointer-events="none">${grain}</g></svg>`;
+  const svg = `<svg class="valley" viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg"><defs>${defs}<clipPath id="mFaceClip" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath></defs><g class="m-still">${still}</g>${live}<g class="m-grain" pointer-events="none">${grain}</g></svg>`;
   return { svg, defs, still, grain };
 }
 

@@ -48,6 +48,13 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         float t = uTimeT;
         vec2 p = wp.xz;
         float onSand = sandM * (1.0 - rockM);
+        // Everything up to the rock shelf block only reaches the frame through sandM (ground mix, wet,
+        // moon, ripples and bed caustics are all scaled by it): off the sand it is skipped (pillar 14).
+        float depth = max(0.0, -bh);
+        float causSun = smoothstep(0.08, 0.45, uBSunDir.y);
+        bool causDay = uBNight < 0.999;
+        float caus = -1.0;
+        if (sandM > 0.0) {
         // Base tones: pale dune sand high up, warm beach sand lower down.
         vec3 sDry = sand * vec3(0.88, 0.82, 0.7);
         vec3 sBeach = sand * vec3(0.86, 0.76, 0.61);
@@ -109,7 +116,6 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           s = mix(s, vec3(0.93, 0.95, 0.94) * 0.9, lace * strandK * 0.55 * smoothstep(0.35, 0.6, hvNoise(p * 0.9 + 4.0)));
         }
         // Seabed: cooler, darker with depth; caustics (applied as light below).
-        float depth = max(0.0, -bh);
         hvBDepth = depth;
         vec3 bed = sand * vec3(0.6, 0.72, 0.68) * (0.88 + 0.12 * rip);
         s = mix(s, bed, smoothstep(0.0, 0.3, depth));
@@ -168,9 +174,6 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         // Caustics only where they can show: sunlit (not night) sea bed 3 cm - 1.5 m deep, or a pool
         // floor (evaluated lazily in the shelf block). Elsewhere they are exactly 0 (pillar 14).
         // (causDay only gates: the fade itself is the dayK below.)
-        float causSun = smoothstep(0.08, 0.45, uBSunDir.y);
-        bool causDay = uBNight < 0.999;
-        float caus = -1.0;
         float causBed = causSun * smoothstep(0.03, 0.2, depth) * (1.0 - smoothstep(0.45, 1.5, depth)) * sandM;
         if (causBed > 0.0 && causDay) {
           caus = hvCaustic(p * 1.05, t);
@@ -178,6 +181,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           hvBCaus = caus * patchC * causBed;
         }
         ground = mix(ground, s, sandM);
+        }
         // Rock shelf (painted path channel): cracked grey-brown stone, weed + barnacles low down,
         // dark and glossy where the spray keeps it wet.
         if (pathM > 0.001) {

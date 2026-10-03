@@ -1468,6 +1468,22 @@ export class CutsceneSystem implements System, CutsceneApi {
     if (pv.targetYaw !== undefined) pv.targetYaw = Math.atan2(dx, dz);
   }
 
+  /**
+   * Program warm-up (pillar 14): a hidden stand-in villager rides along in every map, so the map
+   * load's RenderContext.compile() (which now builds hidden objects too) has the actor programs ready
+   * before a scene spawns its cast. Without it a map with no villagers (the Hall) compiled 'villager'
+   * mid-celebration (bundle-complete r4: 0.2-0.9 s frames).
+   */
+  onMapChange(_id: string, game: Game): void {
+    const map = game.world.current;
+    if (!map || map.root.getObjectByName('cutscene-warm')) return;
+    const v = new Villager(NPCS.marigold);
+    v.root.name = 'cutscene-warm';
+    v.root.visible = false;
+    aoOptIn(v.root, true);
+    map.root.add(v.root);
+  }
+
   update(dt: number): void {
     this.clock += dt;
     this.frameDt = dt;

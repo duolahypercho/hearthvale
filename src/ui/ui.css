@@ -1576,12 +1576,6 @@ svg.valley {
     transform: translateY(-7px);
   }
 }
-.m-face {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  overflow: hidden;
-}
 .m-npc {
   cursor: help;
   animation: mNpc 2.6s ease-in-out infinite alternate;
@@ -1594,17 +1588,6 @@ svg.valley {
 .m-npc:hover circle {
   stroke: #e8674a;
   stroke-width: 3;
-}
-.m-npcface {
-  width: 23px;
-  height: 23px;
-  border-radius: 50%;
-  overflow: hidden;
-}
-.m-npcface svg {
-  width: 100%;
-  height: 100%;
-  display: block;
 }
 .m-mill {
   animation: mMill 9s linear infinite;
@@ -4944,11 +4927,9 @@ body.u-contrast #ui-root {
   text-decoration-thickness: 2px;
 }
 /* Map: the "+N" villager badge at the end of the square's arc. */
-.m-npc[data-npc='+'] .m-npcface {
-  display: grid;
-  place-items: center;
+.m-npc[data-npc='+'] .m-plus {
   font: 800 11px/1 'Fredoka', sans-serif;
-  color: #5a3418;
+  fill: #5a3418;
 }
 /* Backpack detail card: "Carrying" tag while a stack is lifted. */
 .idt-name .idt-carry {

@@ -727,12 +727,15 @@ export function createHorizonClouds(): THREE.Mesh {
       void main() {
         vec3 d = normalize(vDir);
         float el = d.y;
+        float band = smoothstep(0.0, 0.03, el) * (1.0 - smoothstep(0.12, 0.34, el));
+        // Outside the band (below the horizon / high sky: most of the cylinder's pixels) dens is 0:
+        // discard before the two fbm (8 noise taps) instead of after them (pillar 14, beach r5).
+        if (band <= 0.0) discard;
         float az = atan(d.z, d.x);
         vec2 q = vec2(az * 9.0 + uTime * 0.004, el * 42.0);
         // Long stratus streaks + a few puffy heads.
         float streak = hvFbm(vec2(q.x * 0.55, q.y * 1.6)) ;
         float puff = hvFbm(vec2(q.x * 1.4, q.y * 1.1) + 11.0);
-        float band = smoothstep(0.0, 0.03, el) * (1.0 - smoothstep(0.12, 0.34, el));
         float dens = smoothstep(0.5, 0.78, streak * 0.7 + puff * 0.45 + (0.18 - el) * 0.9) * band;
         dens *= 0.55 + 0.45 * smoothstep(0.3, 0.7, hvNoise(vec2(az * 2.0, 3.0)));
         if (dens < 0.01) discard;

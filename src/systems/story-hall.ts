@@ -787,6 +787,12 @@ export class HallMap implements GameMap {
     const shell = b.build({ name: 'hall-shell' });
     shell.userData.perfTag = 'hall';
     this.root.add(shell);
+    // The unmerged dressing sources ride in the map, hidden (never drawn: the merged hall-dressing is),
+    // so the load's RenderContext.compile() builds the restored rooms' programs behind the fade
+    // instead of on the celebration's dressing swap (bundle-complete r4, pillar 14).
+    this.sources.visible = false;
+    this.sources.name = 'hall-dressing-sources';
+    this.root.add(this.sources);
   }
 
   /** The nave while the Hall is dark: its runner is split to the soil in a trail of holes up to the dais. */
