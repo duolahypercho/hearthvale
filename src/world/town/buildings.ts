@@ -937,16 +937,15 @@ export function buildPicnic(rng: Rng, cloth = 0xd8573e): THREE.Group {
 /** A clump of tall meadow flowers (cosmos / foxglove spikes / daisies) to break up bare lawn. */
 export function buildWildflowers(rng: Rng, colors: number[] = [0xff8fab, 0xffffff, 0xc77dff, 0xffd166]): THREE.Group {
   const b = new MeshBuilder();
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 12; i++) {
     const a = rng.next() * Math.PI * 2;
-    const r = Math.sqrt(rng.next()) * 0.7;
+    const r = Math.sqrt(rng.next()) * 0.65;
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r * 0.8;
     const h = 0.35 + rng.next() * 0.45 * (1 - r * 0.6);
     const lean = (rng.next() - 0.5) * 0.3;
     b.add('boxFlower', roundedBox(0.018, h, 0.018, 0.006, 1), mat(x, h / 2, z, lean, 0, (rng.next() - 0.5) * 0.3), { tint: 0x4f8a3a });
-    const leaf = lumpySphere(0.07, 0, 0.3, rng);
-    b.add('boxFlower', leaf, mat(x, 0.08, z, 0, 0, 0, 1.4, 0.6, 1.4), { tint: i % 2 ? 0x5a9a42 : 0x4a8a3a });
+    if (i % 2 === 0) b.add('boxFlower', new THREE.IcosahedronGeometry(0.07, 0), mat(x, 0.08, z, 0, 0, 0, 1.4, 0.6, 1.4), { tint: i % 4 ? 0x5a9a42 : 0x4a8a3a });
     const c = colors[i % colors.length]!;
     if (i % 4 === 3) {
       // foxglove spike: stacked bells

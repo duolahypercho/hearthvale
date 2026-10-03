@@ -830,14 +830,14 @@ export class Villager {
         long: [12, 0.06, 0.1, 0.5],
         spiky: [9, 0.11, 0.24, 1.4],
         braids: [15, 0.05, 0.04, 0.2],
-        slick: [16, 0.04, 0.06, 2.2],
+        slick: [16, 0.022, 0.04, 2.2],
       };
       const [gv, dp, sc, tw] = SHELL[style] ?? [12, 0.06, 0.1, 0.8];
       // Under a headscarf the hair follows the scarf's tilt and sits just inside it (no dark patches
       // poking through the cloth over the crown).
       const scarf = L.hat === 'bandana';
       const cap = hairShell(R * (scarf ? 1.035 : 1.07), top, Math.PI * 0.55 - top, gv, top > 0 ? dp * 0.4 : dp, scarf ? 0.02 : top > 0 ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw);
-      rb.add(B.head, cap, H(0, R * 0.98, -0.02, scarf ? -0.5 : -0.25, 0, 0), hair);
+      rb.add(B.head, cap, scarf ? H(0, R * 0.98, -0.03, -0.5, 0, 0, 0.97, 0.76, 0.98) : H(0, R * 0.98, -0.02, -0.25, 0, 0), hair);
       // A glossy sheen band across the crown (reads as combed, not a plastic dome) and a darker
       // underlayer at the nape.
       // (the sheen band is painted into the shell's tone, across the ridges)
@@ -850,7 +850,7 @@ export class Villager {
         locks.forEach(([a, tip, len], i) => {
           // A soft teardrop lock (round at the root, tapering to a curled tip), flattened against the
           // brow so neighbouring locks overlap into a scalloped fringe rather than a row of spikes.
-          const cone = new THREE.SphereGeometry(1, 12, 10);
+          const cone = new THREE.SphereGeometry(1, 9, 7);
           const pa = cone.attributes.position as THREE.BufferAttribute;
           for (let v = 0; v < pa.count; v++) {
             const y = pa.getY(v);
@@ -881,7 +881,7 @@ export class Villager {
         for (let i = 0; i < 13; i++) {
           const a = Math.PI * 0.3 + (i / 12) * Math.PI * 1.4;
           const len = 0.24 + (i % 2) * 0.05 + (i % 3) * 0.015;
-          const lock = new THREE.SphereGeometry(1, 12, 10);
+          const lock = new THREE.SphereGeometry(1, 9, 7);
           const pa = lock.attributes.position as THREE.BufferAttribute;
           for (let v = 0; v < pa.count; v++) {
             const y = pa.getY(v);
@@ -1079,7 +1079,7 @@ export class Villager {
           const a = (i * 2.399963) % (Math.PI * 2);
           const th = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(polar - 0.12)));
           const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.03, Math.cos(th) * rr * 0.83, Math.cos(a) * Math.sin(th) * rr * 1.06);
-          const d = new THREE.CircleGeometry(0.021 + (i % 3) * 0.003, 10);
+          const d = new THREE.CircleGeometry(0.027 + (i % 3) * 0.004, 10);
           d.lookAt(new THREE.Vector3(q.x / 1.08, q.y, q.z / 1.08));
           q.multiplyScalar(1.006);
           d.translate(q.x, q.y, q.z);

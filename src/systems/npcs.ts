@@ -128,7 +128,7 @@ const STAGES: Record<string, Mark[]> = {
     ['kit', 31.3, 14.1, 20, 'sit'],
     ['marigold', 26.0, 22.0, 44, 'chat', 'heart'],
     ['hazel', 27.9, 22.8, -58, 'chat'],
-    ['wren', 29.4, 28.7, 25, 'idle', 'idea'],
+    ['wren', 23.7, 25.9, -70, 'chat', 'music'],
     ['bram', 44.0, 23.0, 52, 'chat', 'music'],
     ['june', 45.9, 22.2, -30, 'chat'],
     ['odessa', 36.0, 24.8, 50, 'chat'],
@@ -517,7 +517,7 @@ export class NpcSystem implements System {
   }
 
   /**
-   * Resolve a schedule spot to a free sub-slot: the spot itself, then ±0.95 m to its sides (±0.62 m
+   * Resolve a schedule spot to a free sub-slot: the spot itself, then ±1.2 m to its sides (±0.62 m
    * along a bench), then two a step behind — walkable, clear of props and claimed until the villager
    * moves on.
    */
@@ -529,8 +529,9 @@ export class NpcSystem implements System {
     const map = this.game.world.current;
     const fx = Math.sin(s.yaw);
     const fz = Math.cos(s.yaw);
-    const lat = act === 'sit' ? 0.62 : 0.95;
-    const offs: [number, number][] = [[0, 0], [lat, 0], [-lat, 0], [0.55, -0.95], [-0.55, -0.95], [1.9, 0.1], [-1.9, 0.1]];
+    // (chibi heads are ~0.75 m wide: side slots 1.2 m apart so two heads never touch on screen)
+    const lat = act === 'sit' ? 0.62 : 1.2;
+    const offs: [number, number][] = [[0, 0], [lat, 0], [-lat, 0], [0.65, -1.1], [-0.65, -1.1], [2.3, 0.1], [-2.3, 0.1]];
     for (let i = 0; i < offs.length; i++) {
       const key = `${spotName}#${i}`;
       if (this.claims.has(key)) continue;
@@ -2112,17 +2113,19 @@ export class NpcSystem implements System {
       // Hung in front of the villager's face (camera side), clear of the farmer's hat brim.
       const a = this.talking.v.position;
       const p = game.player.position;
-      this.keyPos.set(a.x * 0.8 + p.x * 0.2 + cx * 1.5, 0, a.z * 0.8 + p.z * 0.2 + cz * 1.5);
+      this.keyPos.set(a.x * 0.8 + p.x * 0.2 + cx * 2.4, 0, a.z * 0.8 + p.z * 0.2 + cz * 2.4);
     }
     const map = game.world.current;
     if (map && want) {
-      this.keyLight.position.set(this.keyPos.x, map.heightAt(this.keyPos.x, this.keyPos.z) + 2.5, this.keyPos.z);
+      this.keyLight.position.set(this.keyPos.x, map.heightAt(this.keyPos.x, this.keyPos.z) + 3.1, this.keyPos.z);
       // Aimed at the faces: the talker (conversations) or the look point (events), head height.
       const a = this.camMode === 'event' ? this.lookPoint : this.talking ? this.talking.v.position : this.lookPoint;
       this.keyLight.target.position.set(a.x, map.heightAt(a.x, a.z) + 1.2, a.z);
       this.keyLight.target.updateMatrixWorld();
     }
-    const target = want * night * 15;
+    // A soft fill that lifts faces out of the night, not a flash: white hair / beards / pale caps
+    // blew out to paper-white at 15.
+    const target = want * night * 5.5;
     this.keyLight.intensity += (target - this.keyLight.intensity) * (1 - Math.exp(-4 * dt));
     if (this.keyLight.intensity < 0.01 && !want) this.keyLight.intensity = 0;
   }
@@ -2254,13 +2257,13 @@ export class NpcSystem implements System {
         let dx = Bp.x - A.x;
         let dz = Bp.z - A.z;
         let d = Math.hypot(dx, dz);
-        if (d >= 0.72) continue;
+        if (d >= 0.9) continue;
         if (d < 1e-3) {
           dx = 1;
           dz = 0;
           d = 1e-3;
         }
-        const push = ((0.72 - d) / 2) * k;
+        const push = ((0.9 - d) / 2) * k;
         A.x -= (dx / d) * push;
         A.z -= (dz / d) * push;
         Bp.x += (dx / d) * push;

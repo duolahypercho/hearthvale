@@ -202,6 +202,8 @@ export class TownMap implements GameMap {
       cover: this.terrain,
     });
     this.root.add(this.grass.group);
+    // Picnic blankets lie on mown grass (no blades poking up through the gingham).
+    for (const p of EXTRA_PROPS) if (p.kind === 'picnic') for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) this.grass.clearTile(Math.floor(p.x) + dx, Math.floor(p.z) + dz, 0.05);
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.ambience.group);
     game.events.on('demo:stage', ({ showcase }) => this.setFestival(showcase.includes('festival')));

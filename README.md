@@ -329,6 +329,12 @@ west plaza bench; winter adds shovelled cobble lanes with snow banks along their
 and snowmen (`world/town/winter.ts`).
 Layout data lives in `world/town/layout.ts` (buildings, streets, props, trees, festoons, snowmen, named `SPOTS`).
 Static props are merged per 12 m cell and fed to one `BatchPool`: one multi-draw per material, per-cell culling.
+Meadow Lane breaks the shared house template (`buildings.ts` silhouette kit: `dormer`, `porchRoof`, `roseTrellis`):
+the clinic has a portico, two dormers and climbing roses, the Pennywhistle cottage a veranda and a dormer, the
+schoolhouse a lean-to woodshed; the south lawn has a picnic and meadow flower clumps (`picnic`, `wildflowers` props).
+Tree canopies whose centre projects into the bottom ~22 % of the frame are hidden while they're there
+(`npcs.lensCull`, outside conversations and events), so foreground blobs never fill the lower third of the view.
+Schedule spots resolve to sub-slots 1.2 m apart (chibi heads never touch) and idle villagers keep 0.9 m apart.
 
 Ten villagers (`src/data/npcs.ts`): look (height, build, face, 11 hair styles, hats, outfits, accessories), walk
 style, schedule + rainy schedule over named spots (A* on the tile grid, `world/town/pathfind.ts`; seven of them work the
