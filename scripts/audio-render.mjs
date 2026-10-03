@@ -45,7 +45,7 @@ import { dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { plotRender } from './audio-plot.mjs';
-import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS } from './audio-analysis.mjs';
+import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower } from './audio-analysis.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // --out <dir> renders somewhere other than shots/audio (e.g. a critic's own folder).
@@ -380,7 +380,7 @@ function transitionCheck(res, inter, fl) {
 
 /** Per-effect analysis of the SFX reel. */
 function sfxBalance(res, inter, report) {
-  console.log(`\n  SFX balance (per effect: peak dBFS, true peak, momentary max LUFS, centroid)`);
+  console.log(`\n  SFX balance (per effect: peak dBFS, true peak, momentary max LUFS, 100 ms max LUFS, centroid)`);
   const sr = res.sampleRate;
   const ms = [];
   for (let i = 0; i < res.markers.length; i++) {
@@ -388,7 +388,11 @@ function sfxBalance(res, inter, report) {
     const end = res.markers[i + 1]?.t ?? m.t + 2;
     const seg = inter.subarray(Math.floor(m.t * sr) * 2, Math.floor(end * sr) * 2);
     const sa = analyze(new Float32Array(seg), sr);
-    ms.push({ name: m.name, peakDb: sa.peakDb, truePeakDb: sa.truePeakDb, momentaryMax: sa.lufsMomentaryMax, centroidHz: sa.centroidHz, presence: sa.bands.presence, air: sa.bands.air });
+    // Short-window loudness (max K-weighted 100 ms, ≈ the ear's integration time): a 15 ms click
+    // reads ~8 dB under its perceived level in a 400 ms momentary window, so UI cues are ranked here.
+    let short = -Infinity;
+    for (let t = m.t - 0.01; t < Math.min(end, m.t + 1.2); t += 0.01) short = Math.max(short, -0.691 + db(kPower(inter, sr, t, t + 0.1)));
+    ms.push({ name: m.name, peakDb: sa.peakDb, truePeakDb: sa.truePeakDb, momentaryMax: sa.lufsMomentaryMax, short, centroidHz: sa.centroidHz, presence: sa.bands.presence, air: sa.bands.air });
   }
   const sorted = ms.map((x) => x.momentaryMax).filter(Number.isFinite).sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
@@ -401,14 +405,15 @@ function sfxBalance(res, inter, report) {
     // (ui:hover is a deliberate 3–5 kHz tick: exempt)
     if ((x.presence > 0.35 || x.air > 0.3) && x.name !== 'ui:hover') fl.push('HARSH');
     if (IMPACTS.test(x.name) && x.centroidHz < 500) fl.push('THUD(no crunch)');
-    console.log(`  ${x.name.padEnd(16)} ${fmt(x.peakDb).padStart(6)} ${fmt(x.truePeakDb).padStart(6)} ${fmt(x.momentaryMax).padStart(6)} ${fmt(x.centroidHz, 0).padStart(6)}  ${fl.join(' ') || 'ok'}`);
+    console.log(`  ${x.name.padEnd(16)} ${fmt(x.peakDb).padStart(6)} ${fmt(x.truePeakDb).padStart(6)} ${fmt(x.momentaryMax).padStart(6)} ${fmt(x.short).padStart(6)} ${fmt(x.centroidHz, 0).padStart(6)}  ${fl.join(' ') || 'ok'}`);
     report.sfx.push({ ...x, flags: fl });
   }
   console.log(`  median momentary max: ${fmt(median)} LUFS`);
   // Hierarchy assertions (round 4): a constant hover tick sits well under a click, click ≈ select,
   // open / close above click, the error cue at least as loud as open, the core UI set within 8 LU;
   // dialogue voices within ±1.5 LU of each other; a connecting sword hit lands over the swing.
-  const M = Object.fromEntries(ms.map((x) => [x.name, x.momentaryMax]));
+  // UI cues and the sword pair are ranked on 100 ms loudness (short sounds), voices on momentary.
+  const M = Object.fromEntries(ms.map((x) => [x.name, x.short]));
   const checks = [];
   const has = (...n) => n.every((k) => Number.isFinite(M[k]));
   if (has('ui:hover', 'ui:click')) checks.push([`ui:hover ${fmt(M['ui:hover'] - M['ui:click'])} LU vs click (need ≤ -4)`, M['ui:hover'] - M['ui:click'] <= -4]);

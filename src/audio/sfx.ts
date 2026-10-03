@@ -116,22 +116,22 @@ const TRIM: Record<string, number> = {
   // events at or below -30: watering +14.6 dB (plus a soil-splash transient), scythe +9.4 dB, menu
   // open / close -5 / -4 dB, hover +10 dB, select (talking to a villager) +8 dB.
   water: 7, 'ui:drop': 2.6, 'ui:trash': 1.8,
-  // Round 4 UI hierarchy (reel momentary max): hover ≈ click − 5.5 (it fires constantly), click ≈
-  // select ≈ slot ≈ tab, open / close ~2 LU over click, the error cue level with open (a cue you
-  // can't miss); the whole set inside 8 LU.
-  'ui:open': 1.1, 'ui:close': 1.39, 'ui:hover': 15.2, 'ui:select': 14.7, 'ui:tab': 2.8, 'ui:toggle': 6.3, 'ui:error': 2.1,
+  // Round 4 UI hierarchy (reel, 100 ms loudness — the ear's integration time for short cues):
+  // hover ≈ click − 6 (it fires constantly), click ≈ select ≈ slot ≈ tab, open / close over click,
+  // the error cue at least as loud as open (a cue you can't miss); the whole set inside 8 LU.
+  'ui:open': 1.1, 'ui:close': 1.39, 'ui:hover': 10.9, 'ui:select': 11, 'ui:tab': 2.8, 'ui:toggle': 5.3, 'ui:error': 1.85,
   // (Round 7: menu open / talk-select +2.8 dB — the live probe had them at the ambience floor + 3 dB, a
   // chorus of birds away from inaudible; still ~6 dB under the quietest farming verb.)
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
-  'ui:click': 6.5,
+  'ui:click': 4.9,
   // Toolbar detent: level with ui:tab on the reel (it measured 5.5 dB under it).
   // (Round 9: +6 dB — the live probe had it 2 dB over the ambience floor.)
   'ui:slot': 5.6,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
-  rockbreak: 1.6, hoe: 5,
+  rockbreak: 1.6, hoe: 5.8,
   // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
   // momentary on the reel), rewards / stingers pulled ~2 dB under them so they stay under median + 9.
-  axe: 2.2, pickaxe: 2.6, 'sword:hit': 1.8, hurt: 2, 'ui:tick': 5.2,
+  axe: 2.2, pickaxe: 2.6, 'sword:hit': 2, hurt: 2, 'ui:tick': 5.2,
   // Round 3 additions, levelled from the reel (median momentary max ≈ -21 LUFS): level-up / chest sit
   // with the rewards (~-15), emotes and chat around the small foley (~-20 … -26).
   levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 6, chat: 2,
