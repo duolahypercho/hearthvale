@@ -413,6 +413,63 @@ export class NpcSystem implements System {
     for (const a of this.agents.values()) a.v.hush();
     this.takeCam('talk');
     this.shot = { kind: 'two', speaker: this.talking.def.id, anchor: null };
+    this.clearStage();
+  }
+
+  /**
+   * "Excuse me": villagers standing on the lens side of a conversation (or right on top of the
+   * pair) stroll a few steps aside, so nobody's big chibi head fills the foreground of the two-shot.
+   */
+  private clearStage(): void {
+    const t = this.talking;
+    const map = this.game.world.current;
+    if (!t || !map) return;
+    const p = this.game.player.position;
+    const mx = (p.x + t.v.position.x) / 2;
+    const mz = (p.z + t.v.position.z) / 2;
+    const yaw = THREE.MathUtils.degToRad(this.game.rc.rig.yaw);
+    const cx = Math.sin(yaw);
+    const cz = Math.cos(yaw);
+    for (const b of this.agents.values()) {
+      if (b === t || b.inside || b.scripted || b.staged || !b.v.root.visible || this.heldBy.has(b.def.id)) continue;
+      const dx = b.v.position.x - mx;
+      const dz = b.v.position.z - mz;
+      const d = Math.hypot(dx, dz);
+      const front = dx * cx + dz * cz; // + = between the pair and the lens
+      const near = Math.min(Math.hypot(b.v.position.x - p.x, b.v.position.z - p.z), Math.hypot(b.v.position.x - t.v.position.x, b.v.position.z - t.v.position.z));
+      if (!(near < 1.5 || (front > -0.3 && d < 4.2))) continue;
+      // Step round behind the pair (background life, never in front of the lens), on whichever side
+      // they already lean towards; failing that, well out to the side.
+      const side = dx * cz - dz * cx >= 0 ? 1 : -1;
+      let best: { x: number; z: number } | null = null;
+      const cands: [number, number][] = [[2.6, 1.6], [3.4, 2.2], [2.2, 2.6], [1.2, 4.6], [0, 5.4]];
+      for (const [back, lat] of cands) {
+        for (const sg of [side, -side]) {
+          const x = mx - cx * back + cz * lat * sg;
+          const z = mz - cz * back - cx * lat * sg;
+          if (map.grid.isWalkable(Math.floor(x), Math.floor(z))) {
+            best = NpcSystem.clearOf(x, z);
+            break;
+          }
+        }
+        if (best) break;
+      }
+      if (!best) continue;
+      this.releaseClaim(b);
+      this.setActivity(b, 'idle');
+      b.path = [];
+      b.goal = null;
+      b.onArrive = null;
+      b.anchor = { x: best.x, z: best.z };
+      // Round the pair, not through them: out to the side at their own depth first.
+      const bs = (best.x - mx) * cz - (best.z - mz) * cx >= 0 ? 1 : -1;
+      const fd = Math.max(0, front);
+      const w1 = { x: mx + cx * fd + cz * 2.4 * bs, z: mz + cz * fd - cx * 2.4 * bs };
+      const yawTo = Math.atan2(mx - best.x, mz - best.z);
+      b.path = map.grid.isWalkable(Math.floor(w1.x), Math.floor(w1.z)) && d < 3.5 ? [w1, { x: best.x, z: best.z }] : [{ x: best.x, z: best.z }];
+      b.goal = { x: best.x, z: best.z, yaw: yawTo };
+      this.nextWaypoint(b);
+    }
   }
 
   // ───────────────────────────────────────────── gifts
@@ -2376,7 +2433,7 @@ export class NpcSystem implements System {
       m.material.needsUpdate = true;
     }
     const pop = Math.min(1, this.promptT / 0.18);
-    const s = 0.46 * (pop < 1 ? pop * (1 + 0.3 * Math.sin(pop * Math.PI)) : 1 + Math.sin(this.promptT * 4) * 0.04);
+    const s = 0.6 * (pop < 1 ? pop * (1 + 0.3 * Math.sin(pop * Math.PI)) : 1 + Math.sin(this.promptT * 4) * 0.04);
     m.scale.set(s, s, 1);
     // Beside the head (clear of any emote bubble above it).
     m.position.set(0.5, a.v.headTop + 0.18 + Math.sin(this.promptT * 3) * 0.03, 0);
