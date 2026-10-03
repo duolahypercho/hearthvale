@@ -638,6 +638,7 @@ async function live() {
     const bad = nb.worker === 0;
     const by = Object.entries(nb.byInst ?? {}).sort((x, y) => y[1] - x[1]).map(([k, n]) => `${k} ${n}`).join(', ');
     console.log(`note buffers from the worker: ${nb.worker}, on the main thread: ${nb.main} (${nb.mainMs} ms total${by ? `: ${by}` : ''}), cache ${nb.cacheMb} MB${bad ? '  FAIL' : ''}`);
+    if (nb.recentMain?.length) console.log(`  last notes rendered on the main thread ('!' = LRU had dropped it): ${nb.recentMain.join(' ')}`);
     if (bad) fails++;
   }
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);

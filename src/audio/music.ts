@@ -20,7 +20,7 @@
  */
 import { DEFAULT_WIDTH, type AudioGraph } from './graph';
 import { Composer, type Piece, type ThemeDef, type TrackName } from './composer';
-import { INSERTS, INSTRUMENTS, TAIL, type InstrumentName } from './instruments';
+import { INSERTS, INSTRUMENTS, TAIL, noteKeys, sfxPalette, type InstrumentName } from './instruments';
 import { THEMES } from './themes';
 import { Rand, hashString } from './dsp';
 import { PiecePrefetch } from './prefetch';
@@ -134,11 +134,29 @@ export class MusicPlayer {
     // Stage width follows the song in (the mines and misty nights are wide already; the day tunes open up).
     g.setWidth(theme.width ?? DEFAULT_WIDTH, Math.max(ctx.currentTime, startAt), Math.max(1, fadeIn));
     this.piece = pieces ? pieces.take(theme, seed) : new Composer(theme, seed).compose();
+    this.pinNotes();
     // Seamless loops chain the next piece on the downbeat: have it composed in the background by then.
     if (theme.rest[1] === 0) pieces?.request(theme, seed + 1);
     this.pieceStart = startAt;
     if (bridge) this.pieceStart += this.buildBridge(bridge, startAt);
     this.endTime = this.pieceStart + this.piece.duration;
+  }
+
+  /** Pin this piece's cached notes in the graph's LRU (real time only; offline renders never evict). */
+  private pinNotes(): void {
+    if (this.g.offline) return;
+    const keys = new Set<string>();
+    const seen = new Set<string>();
+    for (const ev of this.piece.events) {
+      const id = `${ev.inst}${ev.midi}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (const k of noteKeys(ev.inst, ev.midi)) keys.add(k);
+    }
+    // ...and the chimes the SFX strike in this song's key.
+    for (const p of sfxPalette(this.theme.key)) for (const k of noteKeys(p.inst, p.midi)) keys.add(k);
+    this.g.pin(keys);
+    this.pieces?.ensure(this.piece, this.g, this.theme.key);
   }
 
   /**
@@ -264,6 +282,7 @@ export class MusicPlayer {
           this.pieceStart += this.piece.duration;
           this.seed++;
           this.piece = this.pieces ? this.pieces.take(this.theme, this.seed) : new Composer(this.theme, this.seed).compose();
+          this.pinNotes();
           this.pieces?.request(this.theme, this.seed + 1);
           this.idx = 0;
           this.endTime = this.pieceStart + this.piece.duration;
@@ -273,6 +292,13 @@ export class MusicPlayer {
       }
       const t = this.pieceStart + ev.t;
       if (t >= until) return true;
+      // A cached note the worker hasn't delivered yet (a song coming back after the LRU dropped its
+      // notes, or the first bars at boot): hold the schedule back while there is time — the worker's
+      // copy usually lands within a few frames — and only render on the frame in the last 150 ms.
+      if (!this.g.offline && this.pieces?.hasWorker && t - this.g.ctx.currentTime > 0.15) {
+        const keys = noteKeys(ev.inst, ev.midi);
+        if (keys.length && !keys.some((k) => this.g.hasBuffer(k))) return true;
+      }
       this.idx++;
       if (t >= this.stopAt) continue;
       if (this.solo && ev.track !== this.solo && !(this.solo === 'melody' && ev.track === 'double')) continue;

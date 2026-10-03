@@ -82,7 +82,7 @@ export interface AudioState {
   /** Songs composed in the worker (hits) vs on the main thread (misses, with their total ms). */
   compose: { hits: number; misses: number; syncMs: number };
   /** Mallet / string note buffers: rendered by the worker vs on this thread (+ ms), cache size. */
-  notes: { worker: number; main: number; mainMs: number; cacheMb: number; byInst: Record<string, number> };
+  notes: { worker: number; main: number; mainMs: number; cacheMb: number; byInst: Record<string, number>; recentMain?: string[] };
   /** AudioContext state ('running' | 'suspended' | 'interrupted' | 'closed' | 'none'). */
   ctxState: string;
   /** Music-bus RMS (dBFS) at the moment of the call — the score alone, without ambience / SFX. */
@@ -311,6 +311,7 @@ export class AudioSystem implements System {
           mainMs: Math.round(RENDER_STATS.ms),
           cacheMb: Math.round((this.engine?.graph.bufferMb ?? 0) * 10) / 10,
           byInst: { ...RENDER_STATS.byInst },
+          recentMain: [...(this.engine?.graph.missLog ?? [])],
         },
         ctxState: this.ctx ? String(this.ctx.state) : 'none',
         musicDb: Math.round(this.musicMeter() * 10) / 10,

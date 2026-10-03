@@ -10,6 +10,7 @@
  */
 import { Composer, type Piece, type ThemeDef } from './composer';
 import type { AudioGraph } from './graph';
+import { noteKeys, sfxPalette } from './instruments';
 
 export class PiecePrefetch {
   private worker: Worker | null = null;
@@ -36,7 +37,7 @@ export class PiecePrefetch {
             if (this.graph) this.graph.provide(n.key, n.data, n.sr);
             else if (this.early.length < 1500) this.early.push(n);
             // Kept no room for it: the worker must send it again once the song asks (never the frame).
-            else this.worker?.postMessage({ evict: [n.key], sr: n.sr });
+            else this.worker?.postMessage({ evict: [n.key], sr: this.sr });
           }
           return;
         }
@@ -73,6 +74,31 @@ export class PiecePrefetch {
     };
     for (const n of this.early) g.provide(n.key, n.data, n.sr);
     this.early = [];
+  }
+
+  /**
+   * A song starts: any of its notes the graph's cache no longer holds (the LRU dropped them while
+   * other songs played) are asked of the worker again, in order of first use — so a song coming
+   * back later in the session never renders its notes on the frame.
+   */
+  ensure(piece: Piece, g: AudioGraph, key: number): void {
+    if (!this.worker || g !== this.graph) return;
+    const want: [Piece['events'][number]['inst'], number][] = [];
+    const seen = new Set<string>();
+    const events = [...piece.events].sort((x, y) => x.t - y.t);
+    for (const ev of events) {
+      const id = `${ev.inst}:${ev.midi}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const keys = noteKeys(ev.inst, ev.midi);
+      if (keys.length && keys.some((k) => !g.hasBuffer(k))) want.push([ev.inst, ev.midi]);
+    }
+    // ...and the chimes the SFX strike in the song's key.
+    for (const p of sfxPalette(key)) {
+      const keys = noteKeys(p.inst, p.midi);
+      if (keys.some((k) => !g.hasBuffer(k))) want.push([p.inst, p.midi]);
+    }
+    if (want.length) this.worker.postMessage({ ensure: want, sr: this.sr });
   }
 
   /** True while a worker is available (real time); without one songs are composed directly. */

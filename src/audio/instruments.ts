@@ -207,17 +207,27 @@ export type NoteRecipe =
 
 export const noteKey = (base: string, m: number, k: number): string => (k ? `${base}:${m}~${k}` : `${base}:${m}`);
 
+/**
+ * The rate a recipe is rendered at (the context's). Kept as a hook: half-rate storage was tried for
+ * the plucks and darkened them audibly (Karplus-Strong's loop filter works per sample) — summer and
+ * town fell to DULL — so every note renders at the full rate.
+ */
+export function recipeRate(_r: NoteRecipe, sr: number): number {
+  return sr;
+}
+
 export function renderRecipe(r: NoteRecipe, sr: number): Float32Array<ArrayBuffer>;
 export function renderRecipe(r: NoteRecipe, sr: number, ctx: BaseAudioContext): AudioBuffer;
 export function renderRecipe(r: NoteRecipe, sr: number, ctx?: BaseAudioContext): Float32Array<ArrayBuffer> | AudioBuffer {
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
-  const d = r.kind === 'modal' ? modalData(sr, r.freq, r.spec, new Rand(r.seed)) : r.kind === 'bowed' ? bowedData(sr, r.freq, r.opts, new Rand(r.seed)) : pluckData(sr, r.freq, r.opts, new Rand(r.seed));
+  const rate = recipeRate(r, sr);
+  const d = r.kind === 'modal' ? modalData(rate, r.freq, r.spec, new Rand(r.seed)) : r.kind === 'bowed' ? bowedData(rate, r.freq, r.opts, new Rand(r.seed)) : pluckData(rate, r.freq, r.opts, new Rand(r.seed));
   if (!ctx) return d;
   RENDER_STATS.count++;
   RENDER_STATS.ms += typeof performance !== 'undefined' ? performance.now() - t0 : 0;
   const inst = r.key.split(':')[0]!;
   RENDER_STATS.byInst[inst] = (RENDER_STATS.byInst[inst] ?? 0) + 1;
-  return toBuffer(ctx, d, sr);
+  return toBuffer(ctx, d, rate);
 }
 
 /** Note buffers rendered on this thread (diagnostics: in real time these should come from the worker). */
@@ -1119,6 +1129,20 @@ const RECIPES: Partial<Record<InstrumentName, (m: number, k: number) => NoteReci
   cello: (m) => bowRecipe(CELLO_DEF, m),
 };
 
+const KEY_BASE = new Map<InstrumentName, string | null>();
+/** Cache keys a note of `inst` at `midi` uses (both strikes) — cheap: no recipe is built. */
+export function noteKeys(inst: InstrumentName, midi: number): string[] {
+  let base = KEY_BASE.get(inst);
+  if (base === undefined) {
+    const r = RECIPES[inst];
+    base = r ? r(60, 0).key.split(':')[0]! : null;
+    KEY_BASE.set(inst, base);
+  }
+  if (!base) return [];
+  if (inst === 'ride') midi = 102;
+  return inst === 'piano' || inst === 'fiddle' || inst === 'cello' ? [noteKey(base, midi, 0)] : [noteKey(base, midi, 0), noteKey(base, midi, 1)];
+}
+
 /** The cached buffers a note of `inst` at `midi` will ask for (empty for synthesised voices). */
 export function noteRecipes(inst: InstrumentName, midi: number): NoteRecipe[] {
   const r = RECIPES[inst];
@@ -1136,7 +1160,8 @@ export function sfxPalette(key: number): { inst: InstrumentName; midi: number }[
   const pent = [0, 2, 4, 7, 9];
   const out: { inst: InstrumentName; midi: number }[] = [];
   const at = (deg: number): number => (key % 12) + 72 + Math.floor(deg / 5) * 12 + pent[((deg % 5) + 5) % 5]!;
-  for (let deg = 0; deg < 10; deg++) {
+  // (Degrees 0–12: the catch / level-up flourishes climb past the second octave.)
+  for (let deg = 0; deg <= 12; deg++) {
     const midi = at(deg);
     out.push({ inst: 'celesta', midi }, { inst: 'bell', midi }, { inst: 'kalimba', midi });
   }

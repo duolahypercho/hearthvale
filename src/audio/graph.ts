@@ -24,12 +24,14 @@ import { attachDucker } from './ducker';
 import { Rand, makeImpulse, makeNoise, pluckBuffer, softClipCurve, bodyImpulse, toBuffer, type PluckOptions, type BodyKind } from './dsp';
 
 /**
- * Note-buffer cache cap in samples (8.4 M ≈ 32 MB of float32: the playing song's notes plus the next
- * one's, prefetched — plucked tails are trimmed at -62 dB, so a song's working set is ~10–20 MB).
- * Evicted notes are re-rendered by the worker when a song needs them again; until then a note whose
- * strike was evicted plays its other round-robin strike (see `variant`), never a render on the frame.
+ * Note-buffer cache cap in samples (14.7 M ≈ 56 MB of float32; pluck tails trimmed at -62 dB). Eviction is by class, oldest first: other songs' notes, then the next
+ * song's freshly prefetched ones, the playing song's last (`pin`). A note whose strike was evicted
+ * plays its other round-robin strike (see `variant`); a returning song's dropped notes are asked of
+ * the worker again (PiecePrefetch.ensure) and the scheduler holds them back until they land. (At
+ * 32 MB the live probe's 12-scene / 20-handoff stress thrashed: ~210 notes re-rendered on the frame;
+ * at 56 MB ~50, ~260 ms over the whole session.)
  */
-const BUFFER_CAP_SAMPLES = 8_400_000;
+const BUFFER_CAP_SAMPLES = 14_700_000;
 
 /** A granted voice: [start, end) plus where its written note ends (after that it is a releasing tail). */
 export interface VoiceSpan {
@@ -96,6 +98,13 @@ export class AudioGraph {
   private bufferSamples = 0;
   /** Note buffers handed over ready-made by the compose worker (compose.worker.ts via prefetch.ts). */
   provided = 0;
+  /** Notes the worker delivered in the last few seconds (the next song's opening): kept like pinned ones. */
+  private fresh = new Map<string, number>();
+  /** Diagnostics: recent cache misses (rendered on this thread) and every key the LRU has dropped. */
+  readonly missLog: string[] = [];
+  private evicted = new Set<string>();
+  /** Note keys of the songs playing now (newest first, at most two): the LRU evicts other notes first. */
+  private pins: Set<string>[] = [];
   /** Called with each note key the LRU drops (the worker forgets it sent it, and renders it again when due). */
   onEvict: ((key: string) => void) | null = null;
   private lfos = new Map<number, OscillatorNode>();
@@ -259,6 +268,11 @@ export class AudioGraph {
       return b;
     }
     b = make();
+    // Diagnostics: the last notes rendered on this thread, '!' = the LRU had dropped it earlier.
+    if (!this.offline) {
+      this.missLog.push(`${this.evicted.has(key) ? '!' : ''}${key}`);
+      if (this.missLog.length > 40) this.missLog.shift();
+    }
     this.store(key, b);
     return b;
   }
@@ -281,6 +295,11 @@ export class AudioGraph {
   provide(key: string, data: Float32Array, sr: number): void {
     if (this.buffers.has(key)) return;
     this.provided++;
+    if (!this.offline) {
+      const now = this.ctx.currentTime;
+      if (this.fresh.size > 3000) for (const [k, until] of this.fresh) if (until <= now) this.fresh.delete(k);
+      this.fresh.set(key, now + 10);
+    }
     this.store(key, toBuffer(this.ctx, data, sr));
   }
 
@@ -289,15 +308,42 @@ export class AudioGraph {
     return (this.bufferSamples * 4) / 1048576;
   }
 
+  /**
+   * A song starts: its notes are pinned — the LRU drops notes of songs no longer playing before any of
+   * these (the next song's prefetched notes would otherwise push the playing song's out, and those
+   * would then have to be rendered on the frame). Only the newest song is pinned; notes the worker
+   * delivered in the last 10 s (the next song's opening, a returning song's re-render) are kept too.
+   */
+  pin(keys: Set<string>): void {
+    this.pins = [keys];
+  }
+
+  /** Eviction class: 0 = anything else, 1 = freshly delivered by the worker, 2 = the playing song's. */
+  private keep(k: string): number {
+    for (const p of this.pins) if (p.has(k)) return 2;
+    const f = this.fresh.get(k);
+    if (f === undefined) return 0;
+    if (f > this.ctx.currentTime) return 1;
+    this.fresh.delete(k);
+    return 0;
+  }
+
   private store(key: string, b: AudioBuffer): void {
     this.buffers.set(key, b);
     this.bufferSamples += b.length * b.numberOfChannels;
-    // A long session visits every song: keep the note cache bounded (~96 MB), oldest out first.
-    while (this.bufferSamples > BUFFER_CAP_SAMPLES && this.buffers.size > 1) {
-      const [k, old] = this.buffers.entries().next().value!;
-      this.buffers.delete(k);
-      this.bufferSamples -= old.length * old.numberOfChannels;
-      this.onEvict?.(k);
+    // A long session visits every song: keep the note cache bounded (~32 MB), oldest unpinned out first.
+    if (this.bufferSamples <= BUFFER_CAP_SAMPLES) return;
+    // Oldest first within each class: other songs' notes, then the next song's prefetched notes,
+    // and only as a last resort the playing song's own.
+    for (const pass of [0, 1, 2]) {
+      for (const [k, old] of this.buffers) {
+        if (this.bufferSamples <= BUFFER_CAP_SAMPLES || this.buffers.size <= 1) return;
+        if (k === key || this.keep(k) > pass) continue;
+        this.buffers.delete(k);
+        this.bufferSamples -= old.length * old.numberOfChannels;
+        if (this.evicted.size < 5000) this.evicted.add(k);
+        this.onEvict?.(k);
+      }
     }
   }
 
@@ -488,8 +534,8 @@ export class AudioGraph {
     }
     const load = n / this.maxVoices;
     if (prio < 3 && ((load >= 1 && prio < 3) || (load >= 0.75 && prio < 2))) {
-      // A texture note can still play if an old tail gives way for it.
-      const tail = load < 1.1 && prio >= 2 ? this.tailAt(t) : null;
+      // A texture note can still play if an old ringing tail gives way for it.
+      const tail = load < 1.1 ? this.tailAt(t) : null;
       if (!tail) {
         this.dropped++;
         return null;

@@ -235,8 +235,9 @@ adapts it to game events.
   with a per-note scoop or finger slide, delayed vibrato, bow-change rosin bursts and a fixed violin / cello
   body filter bank (~280 / 450 / 1000 / 2800 Hz) so the vibrato sweeps the harmonics through the resonances;
   the clarinet gets a bore-formant insert; plucks and the kalimba carry a 90–180 Hz air-cavity thump; the pad
-  is a five-voice drifting string ensemble with formant EQ. Shared LFOs, a 32 MB LRU note cache (plucked tails
-  trimmed at -62 dB; a note whose strike was evicted plays its other round-robin strike rather than render on
+  is a five-voice drifting string ensemble with formant EQ. Shared LFOs, a 56 MB note cache evicting other songs' notes before
+  the playing song's (pluck tails trimmed at -62 dB; a returning song's dropped notes are
+  re-rendered by the worker before they are due; a note whose strike was evicted plays its other round-robin strike rather than render on
   the frame) and a 72-voice polyphony budget keep the per-note cost low: melody, bass and SFX steal the oldest
   ringing tail (30 ms fade) instead of being dropped, texture thins first. Every note a song, its key bridge and
   the SFX chimes in its key will need is rendered in the compose worker before it is due.
