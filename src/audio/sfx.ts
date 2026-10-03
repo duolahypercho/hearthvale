@@ -101,7 +101,10 @@ export type SfxName = (typeof SFX_NAMES)[number];
 const TRIM: Record<string, number> = {
   harvest: 0.62, coin: 0.6, craft: 0.6, 'gift:love': 0.4, 'gift:like': 0.6, heart: 0.6, catch: 0.42, 'catch:perfect': 0.42,
   lantern: 0.48, hall: 0.34, treefall: 1.1, purchase: 0.75, ship: 0.8, bite: 0.6, bundle: 0.75, sleep: 0.8, morning: 0.8,
-  swing: 3.6, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 2.4, scythe: 16, weed: 5, splash: 2.4,
+  swing: 3.6, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 5, scythe: 16, weed: 5,
+  // Round 9 hierarchy: a splash / plop is a water event, louder than a footstep (splash ≈ -20 LUFS
+  // momentary on the reel), the door ≈ -24, thunder a +10 dB event over the storm bed.
+  splash: 3.3, plop: 1.8, door: 1.9, thunder: 1.6, 'hoe:dull': 1.7,
   'ui:toggle': 2.4, giant: 0.45, reel: 1.4, crow: 1.2,
   // Round 4 hierarchy (in-game probe: watering and walking were lost under birdsong while menus
   // were louder than tools). Gameplay verbs peak around -18…-22 dBFS in game, UI -24…-28, ambience
@@ -113,7 +116,8 @@ const TRIM: Record<string, number> = {
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
   'ui:click': 1.8,
   // Toolbar detent: level with ui:tab on the reel (it measured 5.5 dB under it).
-  'ui:slot': 1.9,
+  // (Round 9: +6 dB — the live probe had it 2 dB over the ambience floor.)
+  'ui:slot': 5.6,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
   rockbreak: 1.6, hoe: 5,
   // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
@@ -263,7 +267,8 @@ export class Sfx {
     // Per-surface trims level the set (reel analysis: wood knocked ~12 dB over dirt / stone).
     // +6.5 dB over round 3 (steps were buried under the dawn chorus), sand / snow / shallow water
     // brought up to the set.
-    const trim = surface === 'wood' ? 0.4 : surface === 'grass' ? 1.05 : surface === 'sand' ? 1.5 : surface === 'snow' || surface === 'water' ? 1.8 : 1;
+    // Round 9: surfaces levelled to within ±2 dB on the reel (snow and sand had run 8 dB over wood).
+    const trim = surface === 'wood' ? 0.74 : surface === 'grass' ? 0.95 : surface === 'sand' ? 1.28 : surface === 'snow' ? 1.6 : surface === 'water' ? 1.8 : surface === 'stone' ? 1.45 : 1.38;
     const { d, t } = this.bus({ ...o, pan: (o?.pan ?? 0) + this.stepSide * 0.06, gain: (o?.gain ?? 1) * trim * this.v(1.45 * 2.1) }, false, false);
     const k = 0.9 + this.rng.next() * 0.2;
     // Sole scuff: a short 2–4 kHz grain on every surface — the part that cuts through birdsong.
@@ -272,9 +277,11 @@ export class Sfx {
       case 'grass':
         this.noise(d, t, { f: 1300 * k, q: 0.7, amp: 0.2, attack: 0.008, tau: 0.03, buf: this.g.pink });
         // Blades crushed underfoot: a few crisp 2–4 kHz grains (what reads over birdsong and a score).
-        for (let i = 0; i < 3; i++) this.noise(d, t + 0.006 + i * 0.012 + this.rng.next() * 0.006, { f: (2100 + this.rng.next() * 1800) * k, q: 2, amp: 0.07, tau: 0.007 });
-        this.noise(d, t + 0.01, { type: 'highpass', f: 4200, amp: 0.035, attack: 0.01, tau: 0.02 });
+        for (let i = 0; i < 3; i++) this.noise(d, t + 0.006 + i * 0.012 + this.rng.next() * 0.006, { f: (2100 + this.rng.next() * 1800) * k, q: 2, amp: 0.055, tau: 0.007 });
+        this.noise(d, t + 0.01, { type: 'highpass', f: 4200, amp: 0.018, attack: 0.01, tau: 0.02 });
         this.tone(d, t, { f0: 95, amp: 0.07, tau: 0.022 });
+        // Low-mid crunch (300–800 Hz): the stems give underfoot — the body the hiss alone lacked.
+        this.noise(d, t + 0.003, { f: 520 * k, q: 1.1, amp: 0.2, attack: 0.004, tau: 0.035, buf: this.g.pink });
         // Heel-to-toe roll: the forefoot comes down 45–75 ms later and brushes the blades again —
         // a softer, airier swish (a real step is two contacts, not one click).
         this.roll(d, t, k, 0.6);
@@ -296,6 +303,8 @@ export class Sfx {
         this.noise(d, t, { f: 750 * k, q: 3, amp: 0.2, tau: 0.02 });
         this.noise(d, t + 0.003, { f: 1900 * k, q: 2, amp: 0.34, tau: 0.018 });
         this.noise(d, t + 0.001, { f: 3300 * k, q: 2, amp: 0.18, tau: 0.009 });
+        // Sole scuffing the grain (1–2 kHz) as the foot rolls off.
+        this.noise(d, t + 0.05 + this.rng.next() * 0.02, { f: 1400 * k, q: 1.2, amp: 0.07, attack: 0.008, tau: 0.03, buf: this.g.pink });
         if (this.rng.chance(0.06)) this.creak(d, t + 0.05, 0.4);
         break;
       case 'stone':
@@ -305,10 +314,14 @@ export class Sfx {
         this.noise(d, t, { type: 'lowpass', f: 520, amp: 0.16, tau: 0.02, buf: this.g.pink });
         this.noise(d, t + 0.03, { f: 1600 * k, q: 1, amp: 0.035, attack: 0.01, tau: 0.03, buf: this.g.pink });
         this.tone(d, t, { f0: 140 * k, amp: 0.05, tau: 0.02 });
+        // Grit scuff (1–2 kHz) as the sole slides off the cobble.
+        this.noise(d, t + 0.045 + this.rng.next() * 0.02, { f: 1500 * k, q: 1.3, amp: 0.08, attack: 0.006, tau: 0.025, buf: this.g.pink });
         break;
       case 'sand':
-        this.noise(d, t, { f: 1700 * k, q: 0.5, amp: 0.3, attack: 0.025, tau: 0.05, buf: this.g.pink });
-        this.noise(d, t + 0.02, { type: 'highpass', f: 5200, amp: 0.02, attack: 0.02, tau: 0.03 });
+        // Sand gives: a soft 400–700 Hz compression thump under the hiss of grains.
+        this.noise(d, t, { f: 560 * k, q: 0.9, amp: 0.26, attack: 0.015, tau: 0.05, buf: this.g.pink });
+        this.noise(d, t + 0.005, { f: 1700 * k, q: 0.5, amp: 0.2, attack: 0.025, tau: 0.05, buf: this.g.pink });
+        this.noise(d, t + 0.02, { type: 'highpass', f: 5200, amp: 0.012, attack: 0.02, tau: 0.03 });
         break;
       case 'snow':
         // Compressed-snow squeak: a burst of tiny tuned crunches.
@@ -517,11 +530,14 @@ export class Sfx {
         this.crumbs(d, t + 0.03, 3, 0.03, 0.06);
         break;
       case 'sword': {
-        // Weighty swing: a 180–250 Hz body under a whoosh kept below 2.2 kHz, a faint blade ring.
-        this.whoosh(d, t, 420, 1500, 0.15, 0.2);
-        this.tone(d, t + 0.03, { f0: 250, f1: 180, glide: 0.1, amp: 0.14, attack: 0.03, tau: 0.05, lp: 600 });
-        this.noise(d, t + 0.02, { type: 'lowpass', f: 2200, amp: 0.05, attack: 0.04, tau: 0.04, buf: this.g.pink });
-        this.tone(d, t + 0.04, { f0: 2640, amp: 0.004, tau: 0.08 });
+        // A blade cutting air: band-passed noise swept 600 Hz → 3 kHz as the edge comes toward you and
+        // falling back (~2 kHz → 1 kHz) as it passes — a Doppler-ish "vwoosh", not a thud — a whisper of
+        // body under it and a faint ring of the steel.
+        this.noise(d, t, { f: 600, f1: 3000, q: 2.2, amp: 0.26, attack: 0.07, tau: 0.03, buf: this.g.pink });
+        this.noise(d, t + 0.085, { f: 2400, f1: 1000, q: 2, amp: 0.2, attack: 0.008, tau: 0.045, buf: this.g.pink });
+        this.noise(d, t + 0.05, { f: 5200, q: 1.2, amp: 0.035, attack: 0.03, tau: 0.03 });
+        this.tone(d, t + 0.05, { f0: 220, f1: 160, glide: 0.08, amp: 0.05, attack: 0.03, tau: 0.04, lp: 600 });
+        this.tone(d, t + 0.06, { f0: 2640, amp: 0.006, tau: 0.09 });
         break;
       }
       case 'sword:hit':
@@ -629,9 +645,11 @@ export class Sfx {
         // lighter and the scrape / clink are what you hear: a refusal you can read on a laptop.)
         this.noise(d, t, { type: 'lowpass', f: 520, amp: 0.14, attack: 0.003, tau: 0.03, buf: this.g.pink });
         this.tone(d, t, { f0: 120, f1: 80, glide: 0.05, amp: 0.1, tau: 0.025 });
-        this.crunch(d, t + 0.002, 0.2, { n: 5, span: 0.035, lo: 1700, hi: 4500, click: 0.6, clickF: 1300 + r.next() * 300 });
-        this.tone(d, t + 0.003, { f0: 2350 + r.next() * 200, amp: 0.05, attack: 0.001, tau: 0.04 });
-        this.tone(d, t + 0.003, { f0: 3710 + r.next() * 200, amp: 0.02, attack: 0.001, tau: 0.025 });
+        // (Round 9: the scrape / clink lowered ~4 dB in 2–5 kHz — the reel flagged it HARSH.)
+        this.crunch(d, t + 0.002, 0.13, { n: 5, span: 0.035, lo: 1700, hi: 4500, click: 0.6, clickF: 1300 + r.next() * 300 });
+        this.tone(d, t + 0.003, { f0: 2350 + r.next() * 200, amp: 0.032, attack: 0.001, tau: 0.04 });
+        this.tone(d, t + 0.003, { f0: 3710 + r.next() * 200, amp: 0.012, attack: 0.001, tau: 0.025 });
+        this.noise(d, t + 0.004, { f: 700, q: 1, amp: 0.1, attack: 0.002, tau: 0.03, buf: this.g.pink });
         break;
       case 'ui:tab':
         this.noise(d, t, { f: 1800, q: 1.4, amp: 0.06, attack: 0.012, tau: 0.02, buf: this.g.pink });
@@ -738,6 +756,9 @@ export class Sfx {
         break;
       case 'splash':
         this.noise(d, t, { f: 1400, f1: 500, q: 0.7, amp: 0.35, attack: 0.01, tau: 0.12, buf: this.g.pink });
+        // Spray: the droplets thrown up fizz at 2–6 kHz and patter back for ~250 ms.
+        this.noise(d, t + 0.01, { f: 3800, q: 0.7, amp: 0.12, attack: 0.008, tau: 0.08 });
+        this.crumbs(d, t + 0.08, 10, 0.08, 0.25);
         this.splashSmall(d, t + 0.05, 1);
         break;
       case 'reel':
@@ -821,9 +842,19 @@ export class Sfx {
       case 'sleep':
         [5, 3, 2, 0].forEach((k, i) => this.chime(d, t + i * 0.32, this.kn(k), 0.22, 'musicBox'));
         break;
-      case 'thunder':
-        this.noise(d, t, { type: 'lowpass', f: 300, amp: 0.6, attack: 0.1, tau: 0.9, buf: this.g.brown });
+      case 'thunder': {
+        // A +10 dB event: the 2–5 kHz crack and its crackles, then a 40–120 Hz roll that ducks the score.
+        this.noise(d, t, { f: 3200, q: 0.8, amp: 0.5, attack: 0.003, tau: 0.05 });
+        this.noise(d, t + 0.01, { type: 'highpass', f: 1500, amp: 0.26, attack: 0.004, tau: 0.09 });
+        for (let i = 0; i < 9; i++) this.noise(d, t + 0.03 + r.next() * 0.3, { f: 1800 + r.next() * 3000, q: 1.6, amp: 0.1 + r.next() * 0.15, attack: 0.002, tau: 0.015 + r.next() * 0.03 });
+        let tt = t + 0.06;
+        for (let i = 0; i < 5; i++) {
+          this.noise(d, tt, { type: 'lowpass', f: 150, q: 0.8, amp: 1.1 - i * 0.12, attack: 0.12 + r.next() * 0.2, tau: 0.6 + r.next() * 0.6, buf: this.g.brown });
+          tt += 0.35 + r.next() * 0.7;
+        }
+        this.g.duckMusic(t, 0.4, 2.2, 2.2);
         break;
+      }
       case 'crow': {
         // A crow drops onto the field: two hoarse caws.
         const ctx = this.g.ctx;
@@ -993,8 +1024,11 @@ export class Sfx {
    * pitch contour per word; questions rise at the end, exclamations get an accent. Deterministic
    * per word text so the same line always "sounds" the same.
    */
-  murmur(voice: Voice, word: string, o?: SfxOpts): number {
+  murmur(voice: Voice, word: string, o?: SfxOpts, line?: { index: number; last: boolean }): number {
     const b = this.bus(o, true);
+    // Sentence intonation: a gentle declination over the line (a semitone every ~4 words, at most
+    // two), and the line's last word settles lower still — unless it asks a question.
+    const decl = line ? -Math.min(2, line.index * 0.25) + (line.last && !/[?]$/.test(word) ? -1 : 0) : 0;
     const w = word.toLowerCase().replace(/[^a-z?!.]/g, '');
     const h = hashString(w || 'hm');
     const vowels = (w.match(/[aeiouy]+/g) ?? ['a']).length;
@@ -1007,7 +1041,8 @@ export class Sfx {
       const vIdx = (h >>> (i * 3)) % 5;
       // Word contour: gentle arch, final syllable falls unless it's a question.
       const arch = i === 0 ? 0 : i === n - 1 ? (question ? 4 : -2) : 1;
-      const semis = (((h >>> (i * 4 + 5)) % (voice.spread * 2 + 1)) - voice.spread) * 0.6 + arch;
+      // A one-syllable question still lifts on its only syllable.
+      const semis = (((h >>> (i * 4 + 5)) % (voice.spread * 2 + 1)) - voice.spread) * 0.6 + arch + decl + (question && n === 1 ? 2 : 0);
       this.syllable(voice, b, tt, vIdx, semis, question && i === n - 1 ? 1 : 0, sylDur * (i === n - 1 ? 1.25 : 1), excl && i === 0 ? 1.25 : 1);
       tt += sylDur * (i === n - 1 ? 1.25 : 1) + 0.012;
     }

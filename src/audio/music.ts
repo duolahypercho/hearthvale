@@ -284,9 +284,19 @@ export class MusicPlayer {
       }
       if (t < now - 0.005) MUSIC_STATS.late++;
       const at = Math.max(t, now);
-      if (!this.g.voiceStart(at, ev.dur + (TAIL[ev.inst] ?? 0.4), PRIO[ev.track])) continue;
+      const tail = TAIL[ev.inst] ?? 0.4;
+      const span = this.g.claimVoice(at, ev.dur + tail, ev.dur, PRIO[ev.track]);
+      if (!span) continue;
       this.notes++;
-      INSTRUMENTS[ev.inst](this.g, this.input(ev.track, ev.inst), at, ev.midi, ev.dur, Math.max(0.05, Math.min(1.2, ev.vel)), ev.o);
+      let dest = this.input(ev.track, ev.inst);
+      // Long-ringing notes (bells, harp, mallets) get their own fader so the budget can steal the tail.
+      if (tail >= 0.8) {
+        const vg = this.g.ctx.createGain();
+        vg.connect(dest);
+        dest = vg;
+        span.kill = (k) => vg.gain.setTargetAtTime(0, k, 0.01);
+      }
+      INSTRUMENTS[ev.inst](this.g, dest, at, ev.midi, ev.dur, Math.max(0.05, Math.min(1.2, ev.vel)), ev.o);
       if (ev.track === 'melody' && ev.dur > 0.08) this.onMelody?.(at, ev.midi, ev.dur);
     }
   }

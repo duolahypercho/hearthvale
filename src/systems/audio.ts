@@ -36,6 +36,21 @@ import { tuneHook } from '../audio/composer';
 import type { DirectorTrace } from '../audio/music';
 import { NowPlaying } from '../audio/nowplaying';
 import { RENDER_STATS } from '../audio/instruments';
+import { RemoteFarmer } from '../entities/remote-farmer';
+import { PRESET_LOOKS } from '../entities/remote-look';
+
+/** What the audio needs of another farmer (duck-typed off the net layer's RemotePlayers). */
+interface RemoteLike {
+  map: string;
+  away: boolean;
+  farmer: { anim: string; speed: number; position: { x: number; z: number }; root: { parent: unknown } };
+}
+/** Per remote farmer: stride phase (footfalls every π) and the last angler state seen. */
+interface RemoteVoice {
+  phase: number;
+  fish: string;
+  reelT: number;
+}
 
 export interface AudioState {
   running: boolean;
@@ -163,7 +178,9 @@ export class AudioSystem implements System {
   /** Placement applied to SFX while an event at a world position is being voiced (see placed()). */
   private place: { gain: number; pan: number } | null = null;
   /** `?demo=audio&coop=1`: a phantom co-op partner circles the player so positional audio can be judged. */
-  private demoCoop: { a: number; stride: number; next: number; k: number } | null = null;
+  private demoCoop: { a: number; stride: number; next: number; k: number; farmer: RemoteFarmer | null } | null = null;
+  /** Co-op: the other farmers' stride / fishing state (see remoteVoices). */
+  private remoteVoice = new Map<number, RemoteVoice>();
   /** Music failures already reported, and when the last report went out (rate-limited console warns). */
   private errsReported = 0;
   private errWarnAt = -1e9;
@@ -205,7 +222,7 @@ export class AudioSystem implements System {
     else if (params.get('demo') === 'audio-night') this.forced = 'night-summer';
     const sfx = params.get('sfx');
     if (sfx) this.demoSfx = { name: sfx, next: 0 };
-    if (params.get('coop') === '1' && params.get('demo') === 'audio') this.demoCoop = { a: 0, stride: 0, next: 2, k: 0 };
+    if ((params.get('coop') === '1' && params.get('demo') === 'audio') || params.get('demo') === 'audio-coop') this.demoCoop = { a: 0, stride: 0, next: 2, k: 0, farmer: null };
     // &card=1 keeps the now-playing card on screen (screenshots); &card=0 never shows it. The audio
     // demos pin it by default so a still frame shows the score (title, engraved hook, notes in time).
     this.pinCard = params.get('card') === '1' || (/^(audio|music)/.test(params.get('demo') ?? '') && params.get('card') !== '0');
@@ -501,12 +518,21 @@ export class AudioSystem implements System {
       if (kind === 'good' && performance.now() - this.learnedAt < 30) this.sfx('learn', undefined, 0.3);
     });
 
-    // Dialogue: a murmur per typed word in the speaker's voice.
+    // Dialogue: the speaker's voice murmurs each word as it is typed — the real word, so its
+    // syllable count, vowels, a question's rise and an exclamation's accent follow the text. Words
+    // queue behind each other (a fast typewriter never stacks two syllables), up to ~0.3 s behind
+    // the text; past that a mid-line word is skipped, but the line's last word always speaks.
     let wordIdx = 0;
-    ev.on('ui:blip', ({ id }) => {
+    let speakFree = 0;
+    ev.on('ui:blip', ({ id, word, index, last }) => {
       if (!this.engine) return;
       const v = voiceFor(id);
-      this.engine.sfx.murmur(v, `${id}${wordIdx++ % 7}${'aeiou'[wordIdx % 5]}`, { gain: 0.85 });
+      const now = this.engine.ctx.currentTime;
+      const at = Math.max(now, speakFree);
+      if (at - now > 0.3 && !last) return;
+      const w = word ?? `${id}${wordIdx++ % 7}${'aeiou'[wordIdx % 5]}`;
+      const dur = this.engine.sfx.murmur(v, w, { gain: 0.85, at }, index !== undefined ? { index, last: !!last } : undefined);
+      speakFree = at + dur * 0.9;
     });
     ev.on('dialogue:speaking', ({ on }) => {
       this.speaking = on;
@@ -835,28 +861,107 @@ export class AudioSystem implements System {
       this.sfx(this.demoSfx.name);
     }
     if (this.demoCoop) this.coopDemo(dt, ctx.currentTime);
+    this.remoteVoices(dt);
   }
 
-  /** Phantom partner: walks a slow ellipse around the player (steps pan L↔R), hoes, emotes, chats. */
+  /**
+   * Phantom partner: a visible farmhand walks a slow ellipse around the player (steps pan L↔R with
+   * him), hoes, emotes, chats and waters — so a critic can see where each positional sound comes from.
+   */
   private coopDemo(dt: number, now: number): void {
     const c = this.demoCoop!;
     const api = this.game.services.audio;
     if (!api) return;
     const p = this.game.player.position;
     const prev = { x: p.x + Math.cos(c.a) * 7, z: p.z + Math.sin(c.a) * 4 };
-    c.a += dt * 0.22;
+    // He stops to work every few seconds (the tool beat), then walks on.
+    const working = now < c.next - 2.2;
+    if (!working) c.a += dt * 0.22;
     const x = p.x + Math.cos(c.a) * 7;
     const z = p.z + Math.sin(c.a) * 4;
+    if (!c.farmer) {
+      c.farmer = new RemoteFarmer(PRESET_LOOKS[1] ?? PRESET_LOOKS[0]);
+      this.game.scene.add(c.farmer.root);
+    }
+    const f = c.farmer;
+    const map = this.game.world.current;
+    f.position.set(x, map ? map.heightAt(x, z) : p.y, z);
+    const vx = x - prev.x;
+    const vz = z - prev.z;
+    const sp = dt > 0 ? Math.hypot(vx, vz) / dt : 0;
+    if (sp > 0.05) f.targetYaw = Math.atan2(vx, vz);
+    f.speed = sp;
+    f.anim = sp > 0.05 ? 'walk' : 'idle';
+    f.update(dt, now);
     const before = Math.floor(c.stride / Math.PI);
-    c.stride += Math.hypot(x - prev.x, z - prev.z) * 2.6;
+    c.stride += Math.hypot(vx, vz) * 2.6;
     if (Math.floor(c.stride / Math.PI) !== before) api.stepAt(x, z);
     if (now < c.next) return;
     c.next = now + 3;
     const beat = c.k++ % 4;
-    if (beat === 0) api.playAt('hoe', x, z);
-    else if (beat === 1) api.playAt('emote:heart', x, z);
-    else if (beat === 2) api.say('player:2', 'Morning! The turnips look great today', x, z);
-    else api.playAt('water', x, z);
+    if (beat === 0) {
+      f.act('chop', 'hoe');
+      window.setTimeout(() => api.playAt('hoe', x, z), 330);
+    } else if (beat === 1) {
+      f.emote('heart');
+      api.playAt('emote:heart', x, z);
+    } else if (beat === 2) api.say('player:2', 'Morning! The turnips look great today', x, z);
+    else {
+      f.act('pour', 'wateringCan');
+      api.playAt('water', x, z);
+    }
+  }
+
+  /**
+   * Co-op: the other farmers on this map are heard where they are — a footfall on every stride of
+   * their interpolated walk (the same π-per-footfall gait as their animation, on the tile's own
+   * surface), and their fishing from their angler's state (cast whoosh + plop, the bite, the reel's
+   * ratchet while they crank, the catch or the one that got away). Their farm-tool hits already
+   * arrive as replayed tool:impact events; mine swings are voiced by the mine's co-op layer.
+   */
+  private remoteVoices(dt: number): void {
+    const remotes = (this.game.services.net as unknown as { remotes?: { list: Map<number, RemoteLike> } } | undefined)?.remotes?.list;
+    if (!remotes || !remotes.size) {
+      if (this.remoteVoice.size) this.remoteVoice.clear();
+      return;
+    }
+    const api = this.game.services.audio;
+    if (!api) return;
+    const here = this.game.world.current?.id ?? '';
+    const anglers = (this.game.services.fishing as unknown as { remotes?: Map<number, { st: string }> } | undefined)?.remotes;
+    for (const [id, p] of remotes) {
+      const f = p.farmer;
+      if (p.away || p.map !== here || !f.root.parent) {
+        this.remoteVoice.delete(id);
+        continue;
+      }
+      let v = this.remoteVoice.get(id);
+      if (!v) this.remoteVoice.set(id, (v = { phase: 0, fish: 'idle', reelT: 0 }));
+      const x = f.position.x;
+      const z = f.position.z;
+      if ((f.anim === 'walk' || f.anim === 'run') && f.speed > 0.2) {
+        const run = f.anim === 'run';
+        const before = Math.floor(v.phase / Math.PI);
+        v.phase += dt * f.speed * (run ? 2.3 : 2.6);
+        if (Math.floor(v.phase / Math.PI) !== before) api.stepAt(x, z, { run });
+      }
+      const st = anglers?.get(id)?.st ?? 'idle';
+      if (st !== v.fish) {
+        if (st === 'casting') api.playAt('cast', x, z);
+        else if (st === 'bite') api.playAt('bite', x, z, { gain: 0.8 });
+        else if (st === 'caught') api.playAt('catch', x, z, { gain: 0.7 });
+        else if (st === 'escaped') api.playAt('escape', x, z, { gain: 0.7 });
+        v.fish = st;
+        v.reelT = 0;
+      }
+      if (st === 'reeling') {
+        v.reelT += dt;
+        while (v.reelT > 0.075) {
+          v.reelT -= 0.075;
+          api.playAt('reel', x, z, { gain: 0.6 });
+        }
+      }
+    }
   }
 
   /** The concrete song a selection (theme or playlist) resolves to right now. */

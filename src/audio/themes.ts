@@ -8,6 +8,7 @@
  */
 import type { ThemeDef } from './composer';
 import { SONGBOOK } from './songbook';
+import { SONGBOOK_TOWN, winterTown } from './songbook-town';
 
 /** Song form: the tune twice, its answer, the tune, a bridge (C) in a new harmonic area, the tune home. */
 const FORM_SONG: ThemeDef['form'] = ['intro', 'A', 'A', 'B', 'A', 'C', 'A', 'outro'];
@@ -727,6 +728,9 @@ export const THEMES: Record<string, ThemeDef> = {
 
 // The season's other songs and the seasonal lullabies (rotated by the playlists in select.ts).
 Object.assign(THEMES, SONGBOOK);
+// More rainy-day and town songs (the 'rain:<season>' / 'town:<season>' playlists in select.ts).
+Object.assign(THEMES, SONGBOOK_TOWN);
+THEMES['town-winter'] = winterTown(THEMES.town!);
 
 /** Mood hints the festival system broadcasts (`festival:music`). */
 export interface FestivalHint {
@@ -748,17 +752,53 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
   const bpm = Math.max(60, Math.min(140, h.tempo || base.bpm));
   switch (h.timbre) {
     case 'pluck':
+      // The Blossom Parade has its own tune (not the jig): a lydian polka — two bars of 2/4 in each
+      // 4/4 bar, harp and ukulele off-beats, the raised fourth (C#) as the hook that makes the
+      // valley's spring sound like ribbons in the wind.
       return {
-        ...base, id, title: 'Ribbon Parade', blurb: 'The Blossom Parade', bpm, key: 67, mode: 'lydian',
-        prog: { intro: ['I', 'II'], A: ['I', 'I', 'II', 'V', 'I', 'I', 'II V', 'I'], B: ['vi', 'II', 'I', 'V', 'vi', 'II', 'II V', 'I'], C: ['II7', 'V', 'iii', 'vi', 'II', 'V', 'I', 'V'], outro: ['II', 'I'] },
-        melody: { ...base.melody!, inst: 'harp', range: [67, 91], density: 0.85, ornament: 0.2, double: { inst: 'whistle', interval: 12, on: 'repeat' } },
-        accomp: { inst: 'kalimba', pattern: 'oompah', range: [60, 76], voices: 3, vel: 0.55 },
-        accomp2: { inst: 'guitar', pattern: 'oompah', range: [50, 64], voices: 4, vel: 0.45, on: 'repeat' },
-        // The whistle an octave over the harp put 29 % of the energy in 2–5 kHz (HARSH): it sits back
-        // in a little more room, and one wide dip at 3.3 kHz takes the edge off the pair.
-        mix: { ...base.mix, melody: { gain: 0.9, pan: 0.1, send: 0.3 }, double: { gain: 0.2, pan: -0.3, send: 0.4 } },
-        eq: { ...base.eq, cut: { f: 3300, db: -3.5, q: 0.8 } },
-        gain: 0.9,
+        ...base, id, title: 'Ribbon Parade', blurb: 'The Blossom Parade', bpm: Math.max(108, Math.min(bpm, 118)), key: 67, mode: 'lydian', meter: '4/4', swing: 0.52,
+        form: ['intro', 'A', 'A', 'B', 'A', 'C', 'B', 'A', 'outro'],
+        lift: 0,
+        prog: {
+          intro: ['I', 'II'],
+          A: ['I', 'I', 'II', 'V', 'I', 'I', 'II V', 'I'],
+          B: ['vi', 'II', 'I', 'V', 'vi', 'II', 'II V', 'I'],
+          C: ['II7', 'V', 'iii', 'vi', 'II', 'V', 'I', 'V'],
+          outro: ['II', 'I'],
+        },
+        melody: {
+          inst: 'harp', range: [62, 91], density: 0.85, ornament: 0.18, cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'repeat' },
+          tune: {
+            octave: 0,
+            // "G B D. D E D. | G'. F# E D... | C# D E. C#. A. | D.. E F#. - |" — up the triad, the
+            // lydian C# leaning on the II chord, a skip down home.
+            A: ['1:1 3:1 5:2 5:1 6:1 5:2', "1':2 7:1 6:1 5:4", '4:1 5:1 6:2 4:2 2:2', '5:3 6:1 7:2 r:2', '1:1 3:1 5:2 5:1 6:1 5:2', "1':2 3':1 2':1 1':2 5:2", '6:1 4:1 2:2 5:1 6:1 7:2', '1:2 5,:1 1:1 r:2 5,:1 7,:1'],
+            // B: out to E minor, a three-note sigh (E F# G) answered a step higher each time.
+            B: ["6:1 7:1 1':2 7:1 6:1 3:2", "4:1 5:1 6:2 1':1 7:1 6:2", "5:1 6:1 7:1 1':1 3':2 1':2", "2':3 1':1 7:2 r:2", "6:1 7:1 1':2 7:1 6:1 3:2", "4:1 6:1 2':2 1':1 7:1 6:2", '6:1 4:1 2:2 5:1 6:1 7:2', "1':2 5:1 3:1 1:2 r:2"],
+            // C: the flute sings it slow over A7 → D — long notes, the parade passing the hall.
+            C: ["2':4 1':2 4:2", "5:4 7:2 2':2", "3':4 2':2 7:2", '6:6 r:2', "4:2 6:2 2':3 1':1", "7:2 2':2 5':3 4':1", "3':4 2':2 1':2", "2':4 7:1 6:1 5:2"],
+            Aend: ['6:1 4:1 2:2 5:1 6:1 7:2', '1:4 5,:2 1:2'],
+            pickup: '5,:1 7,:1',
+          },
+        },
+        counter: { inst: 'ocarina', range: [62, 76], on: 'late' },
+        accomp: { inst: 'ukulele', pattern: 'pizzOff', range: [60, 74], voices: 3, vel: 0.5 },
+        accomp2: { inst: 'marimba', pattern: 'arp8', range: [62, 79], voices: 3, vel: 0.3, on: 'repeat' },
+        bass: { inst: 'upright', pattern: 'rootFifth', range: [38, 52], vel: 0.82 },
+        perc: { pattern: 'polka', on: 'always', vel: 0.6 },
+        mix: {
+          melody: { gain: 0.86, pan: 0.08, send: 0.3 },
+          double: { gain: 0.12, pan: -0.3, send: 0.4 },
+          counter: { gain: 0.42, pan: -0.35, send: 0.32 },
+          accomp: { gain: 0.62, pan: -0.32, send: 0.22 },
+          accomp2: { gain: 0.36, pan: 0.42, send: 0.28 },
+          bass: { gain: 0.7, pan: 0, send: 0.05 },
+          perc: { gain: 0.38, pan: 0.1, send: 0.14 },
+        },
+        eq: undefined,
+        rest: [0, 0],
+        gain: 1,
+        sheen: 3,
       };
     case 'bell':
       if (h.mode === 'mixolydian') {
@@ -817,18 +857,46 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
         sheen: 4,
       };
     case 'fiddle':
+      // The Harvest Fair's own tune: a real reel in D dorian (4/4, running quavers), not the jig with
+      // a new B strain. The hook is the "D E F D A D F A" figure; the B strain climbs to the top F and
+      // rattles down through C major; C is a singing strain in long notes over a slower harmony.
       return {
-        ...base, id, title: 'Harvest Reel', blurb: 'The Harvest Fair', bpm: Math.max(bpm, 118), key: 62, mode: 'dorian',
-        // Faster than the jig, so one more B strain keeps the set past 90 s.
-        form: ['intro', 'A', 'A', 'B', 'B', 'C', 'C', 'A', 'A', 'B', 'B', 'A', 'outro'],
-        prog: { intro: ['i', 'bVII'], A: ['i', 'i', 'IV', 'v', 'i', 'i', 'IV v', 'i'], B: ['bVII', 'bVII', 'i', 'i', 'bVII', 'bVII', 'IV v', 'i'], C: ['IV', 'v', 'bIII', 'IV', 'ii', 'v', 'i', 'v'], outro: ['bVII', 'i'] },
+        ...base, id, title: 'Harvest Reel', blurb: 'The Harvest Fair', bpm: Math.max(124, Math.min(bpm + 4, 136)), key: 62, mode: 'dorian', meter: '4/4', swing: 0.54,
+        form: ['intro', 'A', 'A', 'B', 'B', 'C', 'A', 'A', 'B', 'B', 'A', 'outro'],
+        lift: 0,
+        prog: {
+          intro: ['i', 'bVII'],
+          A: ['i', 'bVII', 'i', 'IV', 'i', 'bVII', 'IV v', 'i'],
+          B: ['bIII', 'bVII', 'IV', 'i', 'bIII', 'bVII', 'IV v', 'i'],
+          C: ['bVII', 'IV', 'bIII', 'bVII', 'IV', 'i', 'ii', 'v'],
+          outro: ['bVII', 'i'],
+        },
         melody: {
-          ...base.melody!,
+          inst: 'fiddle', range: [64, 91], density: 1, ornament: 0.3, cInst: 'accordion', double: { inst: 'whistle', interval: 12, on: 'late' },
           tune: {
-            ...base.melody!.tune!,
-            B: ['4:1 7,:1 2:1 4:2 2:1', "7:1 1':1 7:1 4:2 2:1", '5:1 3:1 1:1 5,:2 1:1', "3:1 5:1 1':1 5:1 3:1 2:1", '4:1 7,:1 2:1 4:2 2:1', "7:1 1':1 7:1 4:2 2:1", '4:1 6:1 4:1 5:1 7,:1 2:1', '1:3 r:3'],
+            octave: 1,
+            A: ['1:1 2:1 3:1 1:1 5:1 1:1 3:1 5:1', '7,:1 1:1 2:1 7,:1 4:1 7,:1 2:1 4:1', "1:1 2:1 3:1 5:1 1':1 5:1 3:1 5:1", "6:1 5:1 4:1 6:1 1':2 6:1 4:1", '1:1 2:1 3:1 1:1 5:1 1:1 3:1 5:1', "4:1 5:1 7:1 5:1 2':1 1':1 7:1 5:1", "6:1 1':1 6:1 4:1 5:1 7:1 2':1 7:1", '1:3 5,:1 1:2 r:2'],
+            B: ["3':1 1':1 7:1 1':1 3':1 1':1 5:1 1':1", "2':1 7:1 4:1 7:1 2':1 7:1 4:1 7:1", "1':1 6:1 4:1 6:1 1':1 2':1 1':1 6:1", '5:1 6:1 5:1 3:1 1:2 3:1 5:1', "3':1 1':1 7:1 1':1 3':1 1':1 5:1 1':1", "2':1 1':1 7:1 6:1 7:1 2':1 4':1 2':1", "1':1 6:1 4:1 6:1 7:1 5:1 2:1 5:1", '1:1 3:1 5:1 3:1 1:2 r:2'],
+            C: ["2':3 1':1 7:2 4:2", "6:3 5:1 4:2 1':2", "3':3 2':1 7:2 5:2", '4:4 2:2 7,:2', "6:3 1':1 6:2 4:2", '5:4 3:2 1:2', '2:2 4:2 6:3 4:1', '5:4 2:1 1:1 7,:2'],
+            pickup: '5,:1 7,:1',
           },
         },
+        counter: { inst: 'cello', range: [45, 62], on: 'late', style: 'moving' },
+        accomp: { inst: 'guitar', pattern: 'chop', range: [50, 66], voices: 4, vel: 0.52 },
+        accomp2: { inst: 'accordion', pattern: 'block', range: [57, 71], voices: 3, vel: 0.3, on: 'B' },
+        bass: { inst: 'upright', pattern: 'rootFifth', range: [38, 52], vel: 0.85 },
+        perc: { pattern: 'reel', on: 'always', vel: 0.6 },
+        mix: {
+          melody: { gain: 0.74, pan: 0.1, send: 0.24 },
+          double: { gain: 0.24, pan: -0.42, send: 0.28 },
+          counter: { gain: 0.44, pan: -0.3, send: 0.3 },
+          accomp: { gain: 0.6, pan: -0.32, send: 0.2 },
+          accomp2: { gain: 0.34, pan: 0.45, send: 0.22 },
+          bass: { gain: 0.72, pan: 0, send: 0.05 },
+          perc: { gain: 0.5, pan: 0.05, send: 0.12 },
+        },
+        rest: [0, 0],
+        gain: 1.2,
       };
     default:
       return { ...base, id, bpm };

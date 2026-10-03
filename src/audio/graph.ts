@@ -24,10 +24,22 @@ import { attachDucker } from './ducker';
 import { Rand, makeImpulse, makeNoise, pluckBuffer, softClipCurve, bodyImpulse, toBuffer, type PluckOptions, type BodyKind } from './dsp';
 
 /**
- * Note-buffer cache cap in samples (24 M ≈ 96 MB of float32: the playing song's notes plus the next
- * one's, prefetched). Evicted notes are re-rendered by the worker when a song needs them again.
+ * Note-buffer cache cap in samples (8.4 M ≈ 32 MB of float32: the playing song's notes plus the next
+ * one's, prefetched — plucked tails are trimmed at -62 dB, so a song's working set is ~10–20 MB).
+ * Evicted notes are re-rendered by the worker when a song needs them again; until then a note whose
+ * strike was evicted plays its other round-robin strike (see `variant`), never a render on the frame.
  */
-const BUFFER_CAP_SAMPLES = 24_000_000;
+const BUFFER_CAP_SAMPLES = 8_400_000;
+
+/** A granted voice: [start, end) plus where its written note ends (after that it is a releasing tail). */
+export interface VoiceSpan {
+  s: number;
+  e: number;
+  /** End of the written note: from here on the voice is only a ringing tail (first to be stolen). */
+  w: number;
+  /** Fade this voice out at `at` (set by the caller when it can be stolen). */
+  kill?: (at: number) => void;
+}
 
 /** The game's default volume settings (systems/audio.ts): the graph starts here. */
 export const DEFAULT_VOLUMES = { master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7 };
@@ -92,12 +104,14 @@ export class AudioGraph {
   private bodies = new Map<BodyKind, AudioBuffer>();
   private duckUntil = 0;
   private duckDepth = 1;
-  /** Polyphony budget: [start, end] of every voice that may still sound (sorted by start). */
-  private spans: [number, number][] = [];
+  /** Polyphony budget: every voice that may still sound. */
+  private spans: VoiceSpan[] = [];
   readonly maxVoices: number;
   readonly offline: boolean;
   /** Notes dropped by the budget (diagnostics). */
   dropped = 0;
+  /** Ringing tails faded out early to make room for a melody / bass / SFX note (diagnostics). */
+  stolen = 0;
   /** Highest simultaneous voice count the budget has granted (diagnostics). */
   peakVoices = 0;
   /** Which follower drives the sidechain: 'worklet', 'native' or null (not attached yet). */
@@ -154,7 +168,9 @@ export class AudioGraph {
     this.uiBus = g(V.sfx * BUS_TRIM.ui);
     this.musicTone = bq('lowpass', 20000, 0.5);
     // Music EQ: clear the 250 Hz mud, open the top (the synthesised ensemble reads dull without it).
-    const mud = bq('peaking', 280, 0.9, -3);
+    const mud = bq('peaking', 300, 1, -2.5);
+    // Warmth: a gentle low shelf under the score (the day themes had 1–2 % of their power below 250 Hz).
+    const warm = bq('lowshelf', 140, 0.7, 3.5);
     const presence = bq('peaking', 3200, 0.7, 2);
     const air = bq('highshelf', 7000, 0.7, 3);
     // Glue on the score only: 2:1 above -14 dBFS, so it only rounds off phrase climaxes (the score
@@ -166,7 +182,7 @@ export class AudioGraph {
     glue.attack.value = 0.03;
     glue.release.value = 0.3;
     const glueMakeup = g(1);
-    this.musicBus.connect(this.duck).connect(this.sideDuck).connect(this.musicTone).connect(mud).connect(presence).connect(air).connect(glue).connect(glueMakeup).connect(this.musicVol).connect(this.mix);
+    this.musicBus.connect(this.duck).connect(this.sideDuck).connect(this.musicTone).connect(warm).connect(mud).connect(presence).connect(air).connect(glue).connect(glueMakeup).connect(this.musicVol).connect(this.mix);
     // Stage width: a mid/side lift of the score's side signal above 300 Hz (+1.7 dB), added in
     // parallel (L += w·S, R −= w·S) so the bass stays centred and the mono fold-down is untouched.
     // The ensemble read close to mono (L/R correlation ~0.7); this opens it to ~0.6. Songs that are
@@ -245,6 +261,15 @@ export class AudioGraph {
     b = make();
     this.store(key, b);
     return b;
+  }
+
+  /**
+   * Round-robin strike `k` of a two-strike note, unless only the other strike is cached (the LRU
+   * dropped this one): then the cached one plays rather than rendering on the frame.
+   */
+  variant(base: (k: number) => string, k: number): number {
+    if (this.buffers.has(base(k))) return k;
+    return this.buffers.has(base(1 - k)) ? 1 - k : k;
   }
 
   /** Has a buffer been cached under `key` (the worker skips rendering those). */
@@ -418,10 +443,17 @@ export class AudioGraph {
     // Real time: anything that ended is gone for good. Offline the whole score is scheduled at
     // t = 0, so spans are only forgotten once they end well before the note being asked about.
     const horizon = this.offline ? Math.max(now, t - 30) : now;
-    if (this.spans.length > 64) this.spans = this.spans.filter((s) => s[1] > horizon);
+    if (this.spans.length > 64) this.spans = this.spans.filter((s) => s.e > horizon);
     let n = 0;
-    for (const s of this.spans) if (s[0] <= t && s[1] > t) n++;
+    for (const s of this.spans) if (s.s <= t && s.e > t) n++;
     return n;
+  }
+
+  /** The oldest stealable voice that is only a ringing tail at `t`. */
+  private tailAt(t: number): VoiceSpan | null {
+    let best: VoiceSpan | null = null;
+    for (const s of this.spans) if (s.kill && s.s <= t && s.e > t && s.w <= t && (!best || s.w < best.w)) best = s;
+    return best;
   }
 
   /**
@@ -431,15 +463,44 @@ export class AudioGraph {
    * voices that will have ended by then).
    */
   voiceStart(t: number, dur: number, prio = 2): boolean {
-    if (this.maxVoices > 10000) return true;
-    const n = this.countAt(t);
-    const load = n / this.maxVoices;
-    if (load >= 1.25 || (load >= 1 && prio < 3) || (load >= 0.75 && prio < 2)) {
-      this.dropped++;
-      return false;
+    return this.claimVoice(t, dur, dur, prio) !== null;
+  }
+
+  /**
+   * Claim a voice from `t`: `written` is the note's own length, `dur` that plus its ringing tail.
+   * Over budget, a must-play note (prio ≥ 3: melody, bass, SFX) first steals the oldest voice that is
+   * only a releasing tail (it fades out over ~30 ms) and is never refused; texture parts are refused
+   * as the budget fills (prio < 2 from 75 %, prio 2 from 100 %). Returns the span (set `kill` on it
+   * to make this voice stealable later) or null when refused.
+   */
+  claimVoice(t: number, dur: number, written: number, prio = 2): VoiceSpan | null {
+    const span: VoiceSpan = { s: t, e: t + dur, w: t + Math.min(written, dur) };
+    if (this.maxVoices > 10000) return span;
+    let n = this.countAt(t);
+    if (n >= this.maxVoices && prio >= 3) {
+      const tail = this.tailAt(t);
+      if (tail) {
+        tail.kill!(t);
+        tail.e = t + 0.03;
+        this.stolen++;
+        n--;
+      }
     }
-    this.spans.push([t, t + dur]);
+    const load = n / this.maxVoices;
+    if (prio < 3 && ((load >= 1 && prio < 3) || (load >= 0.75 && prio < 2))) {
+      // A texture note can still play if an old tail gives way for it.
+      const tail = load < 1.1 && prio >= 2 ? this.tailAt(t) : null;
+      if (!tail) {
+        this.dropped++;
+        return null;
+      }
+      tail.kill!(t);
+      tail.e = t + 0.03;
+      this.stolen++;
+      n--;
+    }
+    this.spans.push(span);
     if (n + 1 > this.peakVoices) this.peakVoices = n + 1;
-    return true;
+    return span;
   }
 }

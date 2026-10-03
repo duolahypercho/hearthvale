@@ -34,7 +34,9 @@ export class PiecePrefetch {
         if ('notes' in e.data) {
           for (const n of e.data.notes) {
             if (this.graph) this.graph.provide(n.key, n.data, n.sr);
-            else if (this.early.length < 400) this.early.push(n);
+            else if (this.early.length < 1500) this.early.push(n);
+            // Kept no room for it: the worker must send it again once the song asks (never the frame).
+            else this.worker?.postMessage({ evict: [n.key], sr: n.sr });
           }
           return;
         }

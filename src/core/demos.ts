@@ -145,6 +145,13 @@ export const DEMOS: Record<string, DemoDef> = {
   'audio-winter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Audio pod: a summer night on the farm — the lullaby 'Firefly Meadow' (night-summer) under the crickets.
   'audio-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.2, season: 'summer', weather: 'sun', camera: HOME_CAM },
+  // Audio pod r9: a winter morning in the square (town:winter → 'Market Morning (Frost)' / "Lamplighter's Waltz"),
+  // the square's evening (town:eve), a summer shower on the farm (rain:summer → 'Gutter Song' / 'Window Weather'),
+  // and a visible phantom farmhand whose steps, hoe, chat and watering pan around you (= audio&coop=1).
+  'audio-town': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
+  'audio-eve': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 18.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
+  'audio-rain': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 14, season: 'summer', weather: 'rain', camera: HOME_CAM },
+  'audio-coop': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.2, offsetZ: -0.35 }, showcase: ['interior'] },

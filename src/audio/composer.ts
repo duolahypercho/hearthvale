@@ -26,9 +26,9 @@ export type Meter = '4/4' | '3/4' | '6/8';
 export type TrackName = 'melody' | 'double' | 'counter' | 'accomp' | 'accomp2' | 'bass' | 'pad' | 'perc';
 export type Section = 'intro' | 'A' | 'B' | 'C' | 'outro';
 export type When = 'always' | 'repeat' | 'B' | 'late';
-export type AccompPattern = 'arp8' | 'arpUp' | 'fingerpick' | 'strum' | 'waltz' | 'waltzArp' | 'block' | 'oompah' | 'ostinato332' | 'musicBox' | 'pizzOff' | 'epComp' | 'harpRoll';
+export type AccompPattern = 'arp8' | 'arpUp' | 'fingerpick' | 'strum' | 'waltz' | 'waltzArp' | 'block' | 'oompah' | 'ostinato332' | 'musicBox' | 'pizzOff' | 'epComp' | 'harpRoll' | 'chop';
 export type BassPattern = 'root' | 'rootFifth' | 'walk' | 'waltz' | 'jig' | 'tresillo' | 'pedal';
-export type PercPattern = 'shaker' | 'island' | 'jig' | 'town' | 'lofi' | 'light' | 'jazz' | 'sleigh';
+export type PercPattern = 'shaker' | 'island' | 'jig' | 'town' | 'lofi' | 'light' | 'jazz' | 'sleigh' | 'reel' | 'polka';
 
 export interface TrackMix {
   gain: number;
@@ -239,6 +239,9 @@ const SHAPES: Partial<Record<AccompPattern, number[][]>> = {
   ostinato332: [[0, 2, 1, 2, 3, 2, 1, 2], [0, 2, 3, 1, 2, 3, 0, 2], [0, 3, 1, 3, 2, 3, 1, 3]],
 };
 
+/** Comping register over an 8-bar phrase (semitones added to the voicing window): rise, settle home. */
+const COMP_LIFT = [0, 1, 3, 5, 4, 5, 2, 0];
+
 export class Composer {
   /** Day seed: accompaniment figuration + humanisation. */
   private rng: Rand;
@@ -250,6 +253,8 @@ export class Composer {
   private chordCache = new Map<string, Chord>();
   /** Last bass note and the melody note sounding against it (outer-voice counterpoint). */
   private bassPrev: { b: number; m: number | null } | null = null;
+  /** The comping rhythm variant of the last bars and how many bars in a row it has run. */
+  private compRun = { k: -1, n: 0 };
   /** The melody of the bar being arranged (the bass reads it to avoid doubling the tune). */
   private barMel: MNote[] | undefined;
 
@@ -421,11 +426,16 @@ export class Composer {
         const nextChord = b.spans[si + 1]?.chord ?? nextBar?.spans[0]!.chord ?? null;
         const lastSpan = si === b.spans.length - 1;
         if (th.accomp && (th.accomp.on === undefined || isIntro || isOutro || this.active(th.accomp.on, b))) {
-          accV = voiceChord(sp.chord, this.keyPc, th.accomp.voices, th.accomp.range[0], th.accomp.range[1], accV);
+          // The comping hand travels over the phrase: the voicing window rises a few semitones toward
+          // the phrase's middle and settles back for the cadence, so the chords climb through their
+          // inversions instead of sitting on one static three-note shape for eight bars.
+          const lift = COMP_LIFT[b.i % 8]!;
+          accV = voiceChord(sp.chord, this.keyPc, th.accomp.voices, th.accomp.range[0] + lift, th.accomp.range[1] + lift, accV);
           this.accomp(ev, 'accomp', th.accomp, b, sp, accV, lastBar, lastSpan ? fillKind : null, nextChord);
         }
         if (th.accomp2 && !isIntro && (th.accomp2.on === undefined || this.active(th.accomp2.on, b))) {
-          acc2V = voiceChord(sp.chord, this.keyPc, th.accomp2.voices, th.accomp2.range[0], th.accomp2.range[1], acc2V);
+          const lift2 = COMP_LIFT[(b.i + 4) % 8]!;
+          acc2V = voiceChord(sp.chord, this.keyPc, th.accomp2.voices, th.accomp2.range[0] + lift2, th.accomp2.range[1] + lift2, acc2V);
           this.accomp(ev, 'accomp2', th.accomp2, b, sp, acc2V, lastBar, lastSpan ? fillKind : null, nextChord);
         }
         // An 'always' pad sits out the first A (the tune enters alone) and thins to two voices in
@@ -779,7 +789,21 @@ export class Composer {
       const t = this.at(b, this.S - 1);
       nv.forEach((p, k) => ev.push({ t: t + k * 0.01 + this.jit(0.003), track, inst, midi: p, dur: stepDur * 1.3, vel: cfg.vel * crescendo * (0.88 - k * 0.04) }));
     }
-    const variant = (n: number): number => (b.i % 4 === 0 ? 0 : r.int(0, n - 1));
+    // Rhythm variant per bar: the phrase opens on the plain figure, its last bar pushes (the busiest
+    // variant, leaning into the next phrase), the bars between pick freely — never the same variant
+    // three bars running.
+    const variant = (n: number): number => {
+      if (b.i % 4 === 0) return 0;
+      if (b.i % 4 === 3 && n > 2) return n - 1;
+      let k = r.int(0, n - 1);
+      if (this.compRun.k === k && this.compRun.n >= 2) k = (k + 1 + r.int(0, n - 2)) % n;
+      this.compRun = this.compRun.k === k ? { k, n: this.compRun.n + 1 } : { k, n: 1 };
+      return k;
+    };
+    // Ghost notes: a whisper of the top voice on an empty off-beat (the player's hand keeping time).
+    const ghost = (steps: number[], used: number[], p = 0.35): void => {
+      for (const st of steps) if (st < len && !used.includes(st) && r.chance(p)) push(s0 + st, v[v.length - 1]!, 0.6, 0.32, 0.008);
+    };
     switch (cfg.pattern) {
       case 'arp8':
       case 'arpUp':
@@ -818,45 +842,89 @@ export class Composer {
         break;
       }
       case 'strum': {
-        // Island strum: D . D U . U D U (variant: D . D U D U . U)
+        // Island strum: D . D U . U D U / D . D U D U . U / a sparse D . . U . U D . / the push bar
+        // D U . U D U D U (busiest, into the next phrase).
         const pats: [number, boolean, number][][] = [
           [[0, false, 1], [2, false, 0.8], [3, true, 0.7], [5, true, 0.72], [6, false, 0.8], [7, true, 0.66]],
           [[0, false, 1], [2, false, 0.78], [3, true, 0.7], [4, false, 0.74], [5, true, 0.7], [7, true, 0.68]],
+          [[0, false, 1], [3, true, 0.68], [5, true, 0.7], [6, false, 0.78]],
+          [[0, false, 1], [1, true, 0.62], [3, true, 0.7], [4, false, 0.78], [5, true, 0.66], [6, false, 0.8], [7, true, 0.72]],
         ];
-        for (const [s, up, vv] of pats[variant(2)]!) if (s < len) strum(s0 + s, v, vv, up, up ? 0.01 : 0.016, up ? 1 : 2);
+        for (const [s, up, vv] of pats[variant(4)]!) if (s < len) strum(s0 + s, up ? v.slice(1) : v, vv, up, up ? 0.01 : 0.016, up ? 1 : 2);
         break;
       }
       case 'waltz': {
-        for (const s of [2, 4]) if (s < len) strum(s0 + s, v, s === 2 ? 0.85 : 0.72, false, 0.008, 1.6);
+        // Oom-pah-pah, with a ghosted "and" of 2, a low pickup on 1, or a hemiola-ish 2-and-3 push.
+        const va = variant(4);
+        const hits = va === 0 ? [2, 4] : va === 1 ? [2, 3, 4] : va === 2 ? [0, 2, 4] : [2, 3, 5];
+        for (const s of hits) {
+          if (s >= len) continue;
+          if (s === 0) push(s0, v[0]!, 1.6, 0.6, 0.004);
+          else strum(s0 + s, s % 2 ? v.slice(1) : v, s === 2 ? 0.85 : s % 2 ? 0.5 : 0.72, false, 0.008, s % 2 ? 0.9 : 1.6);
+        }
         break;
       }
       case 'block': {
-        v.forEach((p, k) => ev.push({ t: this.at(b, s0) + k * 0.018 + this.jit(0.004), track, inst, midi: p, dur: Math.min(len, cut - s0) * stepDur * 0.98, vel: cfg.vel * crescendo * (0.9 - k * 0.03) }));
+        // Held chords; some bars re-strike the upper voices on beat 3 (or push them on the "and" of 4).
+        const va = variant(3);
+        const held = va === 0 ? Math.min(len, cut - s0) : Math.min(len, cut - s0, va === 1 ? 4 : 7);
+        v.forEach((p, k) => ev.push({ t: this.at(b, s0) + k * 0.018 + this.jit(0.004), track, inst, midi: p, dur: held * stepDur * 0.98, vel: cfg.vel * crescendo * (0.9 - k * 0.03) }));
+        if (va === 1 && len >= 8) v.slice(1).forEach((p, k) => push(s0 + 4, p, 4, 0.7 - k * 0.03, 0.006));
         break;
       }
       case 'epComp': {
-        // Lazy comping: a chord on 1, then one of a few syncopated re-hits.
-        const va = variant(3);
+        // Lazy comping: a chord on 1, then one of a few syncopated re-hits (charleston, the "and"
+        // of 2, a late push into the next bar), with a ghosted shell now and then.
+        const va = variant(4);
         v.forEach((p, k) => ev.push({ t: this.at(b, s0) + k * 0.022, track, inst, midi: p, dur: len * stepDur * (va === 0 ? 0.62 : 0.4), vel: cfg.vel * crescendo * (0.85 - k * 0.04) }));
-        const re = va === 0 ? len - 3 : va === 1 ? 3 : 5;
-        if (len >= 6 && s0 + re < cut) v.slice(1).forEach((p, k) => ev.push({ t: this.at(b, s0 + re) + k * 0.018, track, inst, midi: p, dur: stepDur * 2.4, vel: cfg.vel * 0.55 }));
+        const re = va === 0 ? len - 3 : va === 1 ? 3 : va === 2 ? 5 : len - 1;
+        if (len >= 6 && s0 + re < cut) v.slice(1).forEach((p, k) => ev.push({ t: this.at(b, s0 + re) + k * 0.018, track, inst, midi: p, dur: stepDur * (va === 3 ? 1.4 : 2.4), vel: cfg.vel * (va === 3 ? 0.62 : 0.55) }));
+        if (len >= 8) ghost([2, 6], [0, re], 0.3);
         break;
       }
       case 'oompah': {
-        // 6/8 boom-chuck: chords on the last eighth of each dotted-quarter beat (variant: two per beat).
-        const hits = variant(2) === 0 ? [2, 5] : [1, 2, 4, 5];
-        for (const s of hits) if (s < len) strum(s0 + s, v, s === 2 || s === 5 ? 0.8 : 0.6, false, 0.006, 0.9);
+        // 6/8 boom-chuck: chords on the last eighth of each dotted-quarter beat; variants double the
+        // chucks, drop a low "boom" on 1, or lean on the second beat's pickup.
+        const va = variant(4);
+        const hits = va === 0 ? [2, 5] : va === 1 ? [1, 2, 4, 5] : va === 2 ? [0, 2, 5] : [2, 4, 5];
+        for (const s of hits) {
+          if (s >= len) continue;
+          if (s === 0) push(s0, v[0]!, 1, 0.7, 0.004);
+          else strum(s0 + s, s === 1 || s === 4 ? v.slice(1) : v, s === 2 || s === 5 ? 0.8 : 0.58, false, 0.006, 0.9);
+        }
+        if (len >= 6) ghost([1, 4], hits, 0.25);
+        break;
+      }
+      case 'chop': {
+        // Reel guitar (4/4): a full strum on 1 and 3, a short damped chop on 2 and 4; variants push the
+        // "and" of 4 into the next bar, ghost the "and" of 2, or double-chop beat 4.
+        const va = variant(4);
+        for (const st of [0, 2, 4, 6]) {
+          if (st >= len) continue;
+          const back = st === 2 || st === 6;
+          strum(s0 + st, back ? v.slice(1) : v, back ? 0.72 : st === 0 ? 0.95 : 0.85, back, back ? 0.008 : 0.014, back ? 0.55 : 1.6);
+        }
+        if (va === 1 && len >= 8) strum(s0 + 7, v.slice(1), 0.62, true, 0.008, 0.9);
+        if (va === 2 && len >= 4) strum(s0 + 3, v.slice(2), 0.4, true, 0.006, 0.45);
+        if (va === 3 && len >= 8) {
+          strum(s0 + 5, v.slice(1), 0.5, true, 0.006, 0.45);
+          strum(s0 + 7, v.slice(1), 0.66, true, 0.008, 0.9);
+        }
         break;
       }
       case 'pizzOff': {
-        // Off-beat pizzicato chords; the variant adds a low stab on 1 and a skip before beat 4.
-        const va = variant(3);
-        const hits = va === 0 ? [1, 3, 5, 7] : va === 1 ? [0, 3, 5, 6, 7] : [1, 2, 5, 7];
+        // Off-beat pizzicato chords in four rhythms (straight off-beats, a low stab on 1 with a skip
+        // before beat 4, a charleston, and the busy push bar); upper-structure and shell voicings
+        // alternate, and ghosted single plucks fill some of the gaps.
+        const va = variant(4);
+        const hits = va === 0 ? [1, 3, 5, 7] : va === 1 ? [0, 3, 5, 6, 7] : va === 2 ? [1, 3, 4, 7] : [1, 2, 3, 5, 6, 7];
+        const upper = b.i % 2 === 1;
         for (const s of hits) {
           if (s >= len) continue;
-          const notes = s === 0 ? v.slice(0, 2) : v.slice(0, 3);
+          const notes = s === 0 ? v.slice(0, 2) : upper && v.length > 3 ? v.slice(1, 4) : v.slice(0, 3);
           strum(s0 + s, notes, s === 0 ? 0.95 : s === 3 || s === 7 ? 0.85 : 0.72, false, 0.006, 0.8);
         }
+        if (len >= 8) ghost([2, 4, 6], hits, 0.3);
         break;
       }
     }
@@ -1194,6 +1262,39 @@ export class Composer {
           const pitches = [83, 79, 76, 79, 83, 86, 83, 79];
           let k = 0;
           for (let s = groove; s < S; s += bigFill ? 1 : 0.5) hit(s, 'woodblock', 0.45 + 0.05 * k, pitches[k++ % pitches.length]);
+        }
+        break;
+      case 'reel':
+        // Reel bodhrán (4/4): the big stroke on 1, a lighter one on 3, the tipper's off-beat chatter,
+        // tambourine on the backbeats, triangle at the head of each 8-bar strain.
+        g(0, 'bodhran', 1);
+        g(4, 'bodhran', 0.82);
+        g(2, 'bodhran', 0.42);
+        g(6, 'bodhran', 0.48);
+        for (const st of [1, 3, 5, 7]) if (r.chance(0.55)) g(st, 'bodhran', 0.22 + r.next() * 0.1);
+        g(2, 'tambourine', 0.55);
+        g(6, 'tambourine', 0.6);
+        if (b.i % 8 === 0) g(0, 'triangleDing', 0.55);
+        if (fill) {
+          for (let s = groove; s < S; s += 0.5) hit(s, 'bodhran', 0.4 + 0.5 * ((s - groove) / (S - groove)));
+          hit(S - 1, 'tambourine', 0.85);
+        }
+        break;
+      case 'polka':
+        // Polka (two bars of 2/4 per 4/4 bar): a soft kick on the "oom", tambourine on the "pah",
+        // a woodblock tick before each downbeat, triangle at phrase heads.
+        g(0, 'softKick', 0.62);
+        g(4, 'softKick', 0.52);
+        g(2, 'tambourine', 0.55);
+        g(6, 'tambourine', 0.6);
+        g(3, 'woodblock', 0.3, 81);
+        g(7, 'woodblock', 0.36, 84);
+        if (b.i % 4 === 0) g(0, 'triangleDing', 0.42);
+        if (fill) {
+          const pitches = [79, 81, 84, 86, 88, 86, 84, 88];
+          let k = 0;
+          for (let s = groove; s < S; s += 0.5) hit(s, 'woodblock', 0.4 + 0.05 * k, pitches[k++ % pitches.length]);
+          hit(S - 1, 'tambourine', 0.75);
         }
         break;
       case 'sleigh':

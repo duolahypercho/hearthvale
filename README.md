@@ -211,9 +211,17 @@ adapts it to game events.
   nylon-guitar lead); fall — Amber Waltz (clarinet, cello bridge), Cider & Candle (cello hymn, 4/4), Woodsmoke
   (oboe, 6/8); winter — Hush of Snow (music box), Frostglass (celesta + harp rolls, bell bridge), Hearthside
   (low flute over a music-box figure, 6/8). Nights (`night:<season>`): Lamplight, Dew at Dusk, Firefly Meadow
-  (summer: vibraphone over fingerpicked nylon guitar, a lydian II, flute bridge), Owl Hour, Snowlight Lullaby. Plus town (ocarina + pizzicato), beach (steel pan + ukulele), forest (dorian whistle + harp,
-  6/8), inn (swing vibraphone over Rhodes comp, also the town square 17:30–20:00), rain lo-fi, mine / mine-ice /
-  mine-lava (by floor band), festival jig + four festival arrangements, title.
+  (summer: vibraphone over fingerpicked nylon guitar, a lydian II, flute bridge), Owl Hour, Snowlight Lullaby. Town (`town:<season>`, `src/audio/songbook-town.ts`): Market Morning (ocarina + pizzicato), Bunting & Bread
+  (tin whistle over ukulele strums, spring / summer), Lamplighter's Waltz (accordion musette, fall / winter) and
+  Market Morning (Frost) (celesta, sleigh bells, winter); the square's evening (`town:eve`, 17:30–20:00) rotates
+  the inn's tune with the waltz. Rainy days (`rain:<season>`, indoors too): Window Weather (lo-fi piano), Gutter
+  Song (vibraphone over fingerpicked nylon guitar, spring / summer showers), Grey Lantern (felt-piano waltz with a
+  cello, fall / winter). Plus beach (steel pan + ukulele), forest (dorian whistle + harp, 6/8), inn (swing
+  vibraphone over Rhodes comp), mine / mine-ice / mine-lava (by floor band), title, and the festivals — each with
+  its own tune: the Lantern Jig (generic festival, 6/8 fiddle), Ribbon Parade (Blossom Parade: a lydian polka,
+  harp + ukulele off-beats), Harvest Reel (Harvest Fair: a D-dorian reel in 4/4 with its own hook, guitar chop,
+  bodhrán), Lanterns on the Tide, Starfall Carol. Comping varies per bar (3–4 rhythm variants per pattern, the
+  phrase's last bar pushes, ghost notes) and the voicing window climbs through inversions over each phrase.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);
@@ -221,10 +229,17 @@ adapts it to game events.
   crossfade a soft and a bright spectrum by velocity, register and the note's own swell (the clarinet's even
   harmonics only arrive when it is pushed), with a random-walk pitch drift of a few cents, vibrato that deepens
   on held notes, a messa di voce on long notes and breath as noise through a resonant band tracking the pitch;
-  bowed strings are detuned Helmholtz
-  oscillators with bow noise and velocity-following tilt through generated body IRs; the pad is a
-  five-voice drifting string ensemble with formant EQ. Shared LFOs, a buffer cache and a polyphony budget
-  (72 voices, texture tracks dropped first) keep the per-note cost low.
+  the solo fiddle and cello are physically modelled — a digital-waveguide string driven by a stick-slip bow
+  (friction curve, slight arm wander, so the Helmholtz motion, the scratchy onset and the rosin jitter come out
+  of the physics), pitch-corrected and pre-rendered per pitch with a phase-aligned sustain loop, then played
+  with a per-note scoop or finger slide, delayed vibrato, bow-change rosin bursts and a fixed violin / cello
+  body filter bank (~280 / 450 / 1000 / 2800 Hz) so the vibrato sweeps the harmonics through the resonances;
+  the clarinet gets a bore-formant insert; plucks and the kalimba carry a 90–180 Hz air-cavity thump; the pad
+  is a five-voice drifting string ensemble with formant EQ. Shared LFOs, a 32 MB LRU note cache (plucked tails
+  trimmed at -62 dB; a note whose strike was evicted plays its other round-robin strike rather than render on
+  the frame) and a 72-voice polyphony budget keep the per-note cost low: melody, bass and SFX steal the oldest
+  ringing tail (30 ms fade) instead of being dropped, texture thins first. Every note a song, its key bridge and
+  the SFX chimes in its key will need is rendered in the compose worker before it is due.
 - **Transitions** (`src/audio/music.ts`): crossfades with a key bridge — a change of place fades the old song
   over 1.3 s while the new one opens on a bar of its tonic chord built only from tones both keys share; a mood
   change in the same place waits for the phrase to end first (2.5 s fade). No dead air, no clashing keys.
@@ -248,15 +263,17 @@ adapts it to game events.
 - **Ambience**: every bed is decorrelated stereo noise (L/R correlation ~0.3); rain is a 4–6 kHz hiss plus
   two looping droplet textures (45 / 110 drops/s, 2–8 kHz pings and the odd puddle plink, spread across the
   field); surf swells travel from one side to the other.
-- **Mix** (`src/audio/graph.ts`): every song is loudness-normalised to -21 LUFS integrated at the default
-  volume settings (mine -22, nights -21.8; table in `src/audio/loudness.ts`, regenerated by
-  `node scripts/audio-render.mjs --calibrate`). The glue compressor (2:1 above -14 dBFS) sits on the music
+- **Mix** (`src/audio/graph.ts`): every song's *opening* (its first 30 s — what a player hears on entering
+  a place) is loudness-normalised to -21 LUFS integrated at the default volume settings (mine -22, nights
+  -21.8; table in `src/audio/loudness.ts`, regenerated by `node scripts/audio-render.mjs --calibrate`, which
+  fails if two openings land more than 2 LU apart; the theme render prints the same OPENING LOUDNESS check). The glue compressor (2:1 above -14 dBFS) sits on the music
   bus only, so SFX never pump the score; instead world SFX (not footsteps, reel ticks or menu cues) key a
   real sidechain — an AudioWorklet RMS follower (`src/audio/ducker.ts`, 30 ms attack / 250 ms release,
   ≤ 3 dB) on the music chain. Farming verbs clear the score by ≥ +4 LU in the gameplay render; impacts
   (hoe, axe, pickaxe, rock break, sword hit, door, tree fall, hurt) carry a granular 1.5–5 kHz crunch + an
   800–2000 Hz click so they read on laptop speakers, and repeat with ±2.5 st / ±2 dB variation. The music
-  bus cuts 280 Hz, lifts 3.2 kHz / 7 kHz; accompaniment and counter-line sit at ±0.5–0.7, doubles are a
+  bus has a +3.5 dB low shelf at 140 Hz (day themes carry 10–20 % of their power in 60–250 Hz; the render
+  flags `THIN` under 6 %), cuts 300 Hz, lifts 3.2 kHz / 7 kHz; accompaniment and counter-line sit at ±0.5–0.7, doubles are a
   15 ms Haas pair, the melody gets early reflections. Phrases breathe: a ±3.5 dB arch over every 4 bars on
   top of a section contour, and velocity opens the winds' and strings' tone ~2.5×; wind melodies slur
   (portamento) through stepwise lines.
@@ -265,7 +282,9 @@ adapts it to game events.
   a band-pass formant, trills), and two birds of a species counter-sing from either side. Cicadas come in
   pulsed 4–7 kHz choruses that swell every 10–25 s; rain and wind move with a 0.05–0.2 Hz weather swell
   (±4 dB, ±30 % cutoff, drop density); puddle drips are < 80 ms bubbles; wind chimes are inharmonic tubes.
-- Hear it: `?demo=audio&theme=<id>` (also `audio-summer` / `audio-fall` / `audio-winter`, `audio-night` = a summer night; `theme` takes a song id or a
+- Hear it: `?demo=audio&theme=<id>` (also `audio-summer` / `audio-fall` / `audio-winter`, `audio-night` = a summer night,
+  `audio-town` = the square on a winter morning, `audio-eve` = the square's evening, `audio-rain` = a summer
+  shower on the farm, `audio-coop` = the phantom farmhand; festivals: `fest-spring` (Ribbon Parade), `fest-fall` (Harvest Reel); `theme` takes a song id or a
   playlist like `farm:fall`; `&theme=none` for ambience only, `&sfx=<name>` repeats an SFX every 2.5 s,
   `&audio=1` starts the context without a click where autoplay allows, `&card=1` pins the now-playing card,
   `&card=0` hides it). Any demo plays its own music after a click.
@@ -276,8 +295,12 @@ adapts it to game events.
   remote farmer's footfall on the tile's surface, `audio.say(id, text, x?, z?)` speaks a chat line in
   sim-speak with a stable voice per id; SFX `join` / `leave` / `chat` and `emote:<kind>` exist for the net
   layer. `tool:impact` and `crop:harvested` are already placed at their tile, so a partner's replayed
-  intents pan and fade by themselves. Hear it with `?demo=audio&coop=1` (a phantom partner circles you,
-  stepping, hoeing, emoting and chatting).
+  intents pan and fade by themselves. Real remote farmhands are voiced by the adapter itself
+  (`remoteVoices`): a footfall on every stride of their interpolated walk, and their fishing from their angler's
+  state (cast, bite, the reel's ratchet, catch / escape) at their position. Hear it with `?demo=audio-coop`
+  (= `?demo=audio&coop=1`: a visible phantom farmhand circles you, stepping, hoeing, emoting, chatting and
+  watering). Dialogue speaks each typed word as it appears (the real word: its syllables, vowels, a question's
+  rise, an exclamation's accent, a falling line end; words queue so a fast typewriter never stacks them).
 - Judge it without speakers: `node scripts/audio-render.mjs` renders every theme (30 s), theme+ambience mixes,
   ambience presets, the SFX reel and three live-director handoffs (`transition-*.wav`, checked for overlap)
   through the real mixer with `OfflineAudioContext` into `shots/audio/*.wav` (+ piano-roll/spectrogram PNGs)
@@ -291,7 +314,8 @@ adapts it to game events.
   1–4 kHz at the onset) and the sidechain dip; `--sfx hoe,axe` renders just those effects. Every job is
   isolated (a crash relaunches the browser, `report.json` is written after each job).
   `node scripts/audio-lab.mjs` keeps one browser + dev server alive and renders on request
-  (`curl 'localhost:5199/gameplay'`, `/reel?names=…`, `/theme?id=…`, `/amb?p=…`, `/calibrate`) for fast iteration.
+  (`curl 'localhost:5199/gameplay'`, `/reel?names=…`, `/theme?id=…[&solo=melody]`, `/amb?p=…`,
+  `/notes?inst=fiddle&seq=69:4,74:1,76:1~,78:2` to audition one instrument, `/calibrate`) for fast iteration.
 
 ## Town & villagers
 

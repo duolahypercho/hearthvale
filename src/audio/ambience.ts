@@ -45,6 +45,8 @@ export class Ambience {
   private gust = 0.4;
   private gustTarget = 0.4;
   private surfPhase = 0;
+  /** Outdoor night lift on the night beds and critters (1 by day, 2 at full night). */
+  private nightLift = 1;
   /** Surf swells travel across the stereo field (this panner is automated per wave). */
   private surfPan: StereoPannerNode;
   /** Droplet layers (light / heavy), built on the first rain. */
@@ -220,12 +222,17 @@ export class Ambience {
     }
     this.wx += (this.wxTarget - this.wx) * 0.03;
     const swellDb = (d: number): number => Math.pow(10, (d * this.wx) / 20);
-    const wind = outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) : mine ? 0.015 : 0;
+    // Night lift: after 01:00 the score rests until morning and the beds carry the night alone; the
+    // night air (wind in the trees, the leaves, the critters) comes up ~6 dB with the dark so the
+    // music-free hours sit near -30 LUFS instead of -38 (near silence on laptop speakers).
+    const nightLift = outdoors ? 1 + 1.5 * s.night : 1;
+    this.nightLift = nightLift;
+    const wind = outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * nightLift : mine ? 0.015 : 0;
     this.setBed('wind', wind, now, 0.8);
     const wf = this.beds.wind!.filter!;
     wf.frequency.setTargetAtTime((260 + 520 * this.gust) * (1 + 0.15 * this.wx), now, 1.2);
     const hasLeaves = s.season !== 'winter' && outdoors && !beach;
-    this.setBed('leaves', hasLeaves ? 0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1) : 0, now, 0.6);
+    this.setBed('leaves', hasLeaves ? (0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1)) * nightLift : 0, now, 0.6);
     // Rain: ±4 dB and ±30 % of the hiss band with the weather swell (showers come and go).
     this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0) * swellDb(5), now, 1.5);
     this.beds.rain!.filter!.frequency.setTargetAtTime(5000 * (1 + 0.3 * this.wx), now, 1.5);
@@ -261,8 +268,10 @@ export class Ambience {
     if (beach) {
       if ((this.next.wave ?? 0) <= now + ahead) {
         const t = Math.max(now, this.next.wave ?? now);
-        this.wave(t, 1);
-        this.next.wave = t + 6.5 + r.next() * 4;
+        // Sets of waves: mostly mid-size, now and then a big one; the period wanders 6–14 s.
+        const size = r.chance(0.18) ? r.range(1.2, 1.45) : r.range(0.7, 1.05);
+        this.wave(t, size);
+        this.next.wave = t + 6 + r.next() * 8 * (0.6 + 0.4 * size);
       }
     } else this.setBed('surf', 0, now, 2);
     const stream = outdoors && s.map === 'forest';
@@ -299,7 +308,7 @@ export class Ambience {
     if (t !== null) this.gull(t);
     // Night.
     const crittersNight = outdoors && s.night > 0.55 && !raining && s.season !== 'winter';
-    if (crittersNight) this.cricketChorus(now, until, s.season === 'fall' ? 2 : 4);
+    if (crittersNight) this.cricketChorus(now, until, s.season === 'fall' ? 3 : 6);
     t = due('frog', 1.5, 5, crittersNight && (s.season === 'spring' || s.season === 'summer') && s.water > 0.15);
     if (t !== null) this.frog(t);
     t = due('owl', 25, 60, outdoors && s.night > 0.7 && !storm);
@@ -488,7 +497,7 @@ export class Ambience {
           const d = this.dest(c.pan, 0.5);
           const pulses = r.int(3, 4);
           const k = r.int(0, 11);
-          for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, tt + i * 0.022, 0.028 * (0.45 + 0.75 * sw), c.f);
+          for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, tt + i * 0.022, 0.028 * this.nightLift * (0.45 + 0.75 * sw), c.f);
         }
         c.next += c.period * r.range(0.9, 1.1);
       }
@@ -514,8 +523,8 @@ export class Ambience {
     };
     const pan = r.range(-0.8, 0.8);
     // (+8 dB after the first render: at 0.05 the calls sank under the dusk wind bed.)
-    call(t, pan, 0.4, r.range(0.95, 1.05), 0.125);
-    if (r.chance(0.4)) call(t + r.range(0.5, 0.9), -pan * 0.8, 0.65, r.range(0.86, 0.94), 0.1);
+    call(t, pan, 0.4, r.range(0.95, 1.05), 0.125 * this.nightLift);
+    if (r.chance(0.4)) call(t + r.range(0.5, 0.9), -pan * 0.8, 0.65, r.range(0.86, 0.94), 0.1 * this.nightLift);
   }
 
   private owl(t: number): void {
@@ -532,17 +541,30 @@ export class Ambience {
 
   thunder(t: number, dist: number): void {
     const g = this.g;
-    const d = this.dest(this.rng.range(-0.7, 0.7), dist * 0.5);
-    if (dist < 0.4) noiseHit(g, d, t, { type: 'highpass', f: 1200, amp: 0.25 * (1 - dist), attack: 0.004, tau: 0.06 });
-    // Rolling rumble: several overlapping low swells.
-    const n = 4 + Math.floor(this.rng.next() * 4);
-    let tt = t + 0.05 + dist * 0.6;
-    for (let i = 0; i < n; i++) {
-      noiseHit(g, d, tt, { type: 'lowpass', f: 200 + (1 - dist) * 250, q: 0.7, amp: (0.6 - i * 0.05) * (1 - dist * 0.5), attack: 0.15 + this.rng.next() * 0.3, tau: 0.6 + this.rng.next() * 0.8, buf: g.brown });
-      tt += 0.4 + this.rng.next() * 0.9;
+    const r = this.rng;
+    const d = this.dest(r.range(-0.7, 0.7), dist * 0.5);
+    // The crack (near strikes): a 2–5 kHz tearing burst and a scatter of crackles over ~300 ms —
+    // the part a laptop speaker carries — then the low roll. A storm's thunder should stand ~10 dB
+    // over the rain bed, not ~3 dB.
+    const near = 1 - dist;
+    if (dist < 0.6) {
+      noiseHit(g, d, t, { f: 3200, q: 0.8, amp: 0.55 * near, attack: 0.003, tau: 0.05 });
+      noiseHit(g, d, t + 0.01, { type: 'highpass', f: 1500, amp: 0.3 * near, attack: 0.004, tau: 0.09 });
+      const n = 6 + Math.floor(r.next() * 6);
+      for (let i = 0; i < n; i++) noiseHit(g, d, t + 0.03 + r.next() * 0.3, { f: 1800 + r.next() * 3000, q: 1.6, amp: (0.12 + r.next() * 0.18) * near, attack: 0.002, tau: 0.015 + r.next() * 0.03 });
     }
-    // Near strikes push the score right down; distant rolls only make a little room.
-    g.duckMusic(t, 0.55 + 0.3 * dist, 1 + 1.5 * (1 - dist), 2);
+    // Rolling rumble: overlapping 40–120 Hz swells (with a little 200–400 Hz growl on near strikes),
+    // arriving later and softer the further away the bolt fell.
+    const n = 4 + Math.floor(r.next() * 4);
+    let tt = t + 0.06 + dist * 0.6;
+    for (let i = 0; i < n; i++) {
+      const a = (1.4 - i * 0.12) * (1 - dist * 0.55);
+      noiseHit(g, d, tt, { type: 'lowpass', f: 120 + near * 60, q: 0.8, amp: a, attack: 0.12 + r.next() * 0.25, tau: 0.6 + r.next() * 0.8, buf: g.brown });
+      noiseHit(g, d, tt + 0.02, { f: 260 + near * 140, q: 0.9, amp: a * 0.28, attack: 0.1, tau: 0.35 + r.next() * 0.4, buf: g.brown });
+      tt += 0.35 + r.next() * 0.8;
+    }
+    // The roll ducks the score (a near strike pulls it ~9 dB for a couple of seconds).
+    g.duckMusic(t, 0.36 + 0.4 * dist, 1 + 1.8 * near, 2.2);
     this.lightningAt = t;
   }
 
@@ -731,8 +753,20 @@ export class Ambience {
     fp.setTargetAtTime(420, t, 0.9);
     fp.setTargetAtTime(1900, t + 2.2, 0.2);
     fp.setTargetAtTime(700, t + 3.0, 1.0);
-    // Foam hiss as the wave recedes, fizzing out on the far side.
-    noiseHit(this.g, this.dest(0.45 * dir, 0.2), t + 2.6, { type: 'bandpass', f: 4200, q: 0.4, amp: 0.05 * size, attack: 0.3, tau: 0.9, buf: this.g.pinkSt });
+    // The break: white water crashing (1.5–8 kHz) as the lip lands...
+    const r = this.rng;
+    const brk = t + 2.15 + r.next() * 0.2;
+    noiseHit(this.g, this.dest(0.1 * dir, 0.25), brk, { type: 'highpass', f: 1500, amp: 0.2 * size, attack: 0.06, tau: 0.35, buf: this.g.pinkSt });
+    // ...then the foam: a 2–8 kHz fizz that spreads up the beach and dies away over 2–3 s.
+    noiseHit(this.g, this.dest(0.45 * dir, 0.2), brk + 0.25, { type: 'bandpass', f: 4800, q: 0.35, amp: 0.26 * size, attack: 0.35, tau: 0.9, buf: this.g.pinkSt });
+    noiseHit(this.g, this.dest(-0.2 * dir, 0.3), brk + 0.4, { type: 'highpass', f: 6500, amp: 0.07 * size, attack: 0.5, tau: 0.8 });
+    // Backwash: the water drains back through the shingle — a rattle of pebbles thinning out.
+    const n = Math.round(26 * size);
+    for (let i = 0; i < n; i++) {
+      const u = Math.pow(r.next(), 1.6);
+      const tt = brk + 1.1 + u * 2.2;
+      noiseHit(this.g, this.dest(r.range(-0.8, 0.8), 0.35), tt, { f: 1800 + r.next() * 3600, q: 3, amp: (0.04 + r.next() * 0.04) * size * (1 - u * 0.6), attack: 0.001, tau: 0.006 + r.next() * 0.008 });
+    }
     this.surfPhase++;
   }
 }

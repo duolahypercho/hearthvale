@@ -20,7 +20,8 @@
  *                                                     # (each effect vs the music under it; verbs must clear it by +4 dB)
  *   node scripts/audio-render.mjs --no-gameplay       # skip it in a full run
  *   node scripts/audio-render.mjs --sfx hoe,axe,rockbreak   # just these effects (reel analysis: level, centroid)
- *   node scripts/audio-render.mjs --calibrate         # measure every theme (60 s) → src/audio/loudness.ts normalisation
+ *   node scripts/audio-render.mjs --calibrate         # measure every theme's opening (first 30 s) → src/audio/loudness.ts
+ *                                                     # normalisation; fails if two openings land > 2 LU apart
  *   node scripts/audio-render.mjs --no-live-budget    # render without the game's 72-voice polyphony budget
  *   Renders use the game's default volume settings and (by default) its live voice budget, so the
  *   numbers are what a player hears. Each job is isolated: a crash relaunches the browser and retries,
@@ -42,7 +43,7 @@ import { dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { plotRender } from './audio-plot.mjs';
-import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate } from './audio-analysis.mjs';
+import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS } from './audio-analysis.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // --out <dir> renders somewhere other than shots/audio (e.g. a critic's own folder).
@@ -193,7 +194,7 @@ async function main() {
   }
   const themes = (await sess.page.evaluate(() => window.__audioOffline.listThemes())).filter((t) => !args.only || args.only.includes(t));
   if (args.calibrate) {
-    await calibrate(themes, call, { root, seconds: process.argv.includes('--seconds') ? args.seconds : 60, seed: args.seed, sr: 22050 });
+    await calibrate(themes, call, { root, seconds: process.argv.includes('--seconds') ? args.seconds : OPENING_SECONDS + 2, seed: args.seed, sr: 22050 });
     await closeAll();
     return;
   }
@@ -308,8 +309,17 @@ async function main() {
     }
     writeReport();
   }
+  // Opening loudness: every theme's first 30 s within 2 LU of every other (offsets removed).
+  const themeRows = report.renders.filter((r) => r.kind === 'theme').map((r) => ({ name: r.name.replace(/^theme-/, ''), lufs: r.lufsIntegrated }));
+  if (themeRows.length > 1 && args.seconds <= OPENING_SECONDS + 5) {
+    const offs = loudnessOffsets();
+    const o = openingSpread(themeRows, offs);
+    report.openingSpread = o;
+    console.log(`\nOPENING LOUDNESS (first ${args.seconds}s, offsets removed): spread ${fmt(o.spread)} LU — quietest ${o.lo[0]} ${fmt(o.lo[1])}, loudest ${o.hi[0]} ${fmt(o.hi[1])}  ${o.ok ? 'ok' : 'FAIL (> 2 LU)'}`);
+    if (!o.ok) report.renders.push({ name: 'opening-spread', kind: 'check', flags: ['OPENING-SPREAD'] });
+  }
   writeReport();
-  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|DEAD-AIR|SLOW-HANDOFF|SFX-MASKED/.test(f)));
+  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|THIN|DEAD-AIR|SLOW-HANDOFF|SFX-MASKED|OPENING-SPREAD/.test(f)));
   console.log(`\nwrote ${report.renders.length} WAVs + report.json to ${outRel}/`);
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   if (report.failedJobs.length) console.log(`FAILED JOBS: ${report.failedJobs.map((j) => j.name).join(' ')}`);
@@ -317,6 +327,15 @@ async function main() {
   if (compFails.length) console.log(`COMPOSITION FAILS: ${compFails.join(' ')}`);
   await closeAll();
   if (errors.length || bad.length || compFails.length || report.failedJobs.length) process.exitCode = 1;
+}
+
+/** The deliberate per-theme loudness offsets (src/audio/loudness.ts TARGET_OFFSET). */
+function loudnessOffsets() {
+  const src = readFileSync(resolve(root, 'src/audio/loudness.ts'), 'utf8');
+  const offs = {};
+  const block = /TARGET_OFFSET[^{]*\{([^}]*)\}/.exec(src)?.[1] ?? '';
+  for (const m of block.matchAll(/'?([\w-]+)'?: (-?[\d.]+)/g)) offs[m[1]] = Number(m[2]);
+  return offs;
 }
 
 /** Director handoff check (see renderTransition). */
@@ -398,13 +417,13 @@ const LIVE_SCENES = [
   { demo: 'audio', season: 'summer', expect: /^summer(-\d)?$/ },
   { demo: 'audio', season: 'fall', expect: /^fall(-\d)?$/ },
   { demo: 'audio', season: 'winter', weather: 'sun', expect: /^winter(-\d)?$/ },
-  { demo: 'town-day', expect: 'town' },
+  { demo: 'town-day', expect: /^town(-[a-z0-9]+)?$/ },
   { demo: 'beach-day', expect: 'beach' },
   { demo: 'mine', expect: 'mine' },
   { demo: 'winter-night', expect: /^night(-winter)?$/ },
   // Summer nights rotate the new 'Firefly Meadow' (night-summer) with Lamplight.
   { demo: 'audio-night', expect: /^night(-summer)?$/ },
-  { demo: 'town-rain', expect: 'rain' },
+  { demo: 'town-rain', expect: /^rain(-\d)?$/ },
   { demo: 'fest-spring', expect: /^festival/ },
   { demo: 'title', expect: 'title' },
 ];

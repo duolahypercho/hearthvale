@@ -11,6 +11,7 @@ import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
 import { THEMES } from './themes';
 import { Composer, type TrackName } from './composer';
+import { INSERTS, INSTRUMENTS, type InstrumentName } from './instruments';
 export { critiquePiece, critiqueAll } from './critique';
 
 export interface Rendered {
@@ -21,6 +22,8 @@ export interface Rendered {
   frames: number;
   markers?: { name: string; t: number }[];
   notes?: number;
+  /** Theme renders: note-cache size and voice-budget diagnostics. */
+  stats?: { noteMb: number; peakVoices: number; dropped: number; stolen: number };
 }
 
 function encode(buf: AudioBuffer): string {
@@ -105,13 +108,46 @@ function tickAmbience(g: AudioGraph, env: EnvState, seconds: number): void {
 
 export async function renderTheme(id: string, seconds = 30, sr = 44100, seed = 1, withAmbience = false, solo: TrackName | null = null): Promise<Rendered> {
   let notes = 0;
+  let graph: AudioGraph | null = null;
   const buf = await render(seconds, sr, (g) => {
+    graph = g;
     scheduleTheme(g, id, seconds, seed, solo);
     notes = new Composer(THEMES[id]!, seed).compose().events.filter((e) => e.t < seconds).length;
     const env = MIX_ENV[id] ?? MIX_ENV[id.split('-')[0]!] ?? MIX_ENV.spring!;
     if (withAmbience) tickAmbience(g, { ...env, key: THEMES[id]!.key }, seconds);
   });
-  return { name: solo ? `stem-${id}-${solo}` : withAmbience ? `mix-${id}` : `theme-${id}`, sampleRate: sr, data: encode(buf), frames: buf.length, notes };
+  const gs = graph as AudioGraph | null;
+  const stats = gs ? { noteMb: Math.round(gs.bufferMb * 10) / 10, peakVoices: gs.peakVoices, dropped: gs.dropped, stolen: gs.stolen } : undefined;
+  return { name: solo ? `stem-${id}-${solo}` : withAmbience ? `mix-${id}` : `theme-${id}`, sampleRate: sr, data: encode(buf), frames: buf.length, notes, stats };
+}
+
+/**
+ * Audition one instrument: `seq` is "midi:beats[:vel][~]" items played back to back at `bpm`
+ * (a trailing ~ slurs into the next note), through the instrument's track insert and the music bus.
+ */
+export async function renderNotes(inst: InstrumentName, seq: string, bpm = 90, sr = 44100): Promise<Rendered> {
+  const items = seq.split(',').map((x) => {
+    const slur = x.endsWith('~');
+    const [m, b, v] = x.replace('~', '').split(':').map(Number);
+    return { m: m!, beats: b ?? 1, vel: v ?? 0.8, slur };
+  });
+  const beat = 60 / bpm;
+  const seconds = items.reduce((a, x) => a + x.beats * beat, 0) + 2;
+  const buf = await render(seconds, sr, (g) => {
+    const tr = g.ctx.createGain();
+    tr.gain.value = 0.7;
+    tr.connect(g.musicBus);
+    const inp = INSERTS[inst]?.(g, tr) ?? tr;
+    let t = 0.3;
+    let prev: number | undefined;
+    for (const x of items) {
+      const dur = x.beats * beat * (x.slur ? 1.02 : 0.92);
+      INSTRUMENTS[inst](g, inp, t, x.m, dur, x.vel, prev !== undefined ? { art: 'legato', from: prev } : undefined);
+      prev = x.slur ? x.m : undefined;
+      t += x.beats * beat;
+    }
+  });
+  return { name: `notes-${inst}`, sampleRate: sr, data: encode(buf), frames: buf.length };
 }
 
 export async function renderAmbience(preset: string, seconds = 30, sr = 44100): Promise<Rendered> {

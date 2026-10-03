@@ -272,6 +272,9 @@ export function flags(a, kind, name = '') {
   const top = a.bands.presence + a.bands.air;
   if (DAY_THEME.test(name) && top < 0.09) f.push(`DULL(${(top * 100).toFixed(0)}%)`);
   else if (DAY_THEME.test(name) && top < 0.12) f.push(`mellow(${(top * 100).toFixed(0)}%)`);
+  // The other end: a day theme with under 6 % of its power in 60–250 Hz has no bottom (a boxy,
+  // laptop-voiced mix). Target 10–20 % (the warm acoustic-ensemble norm).
+  if (DAY_THEME.test(name) && a.bands.bass < 0.06) f.push(`THIN(${(a.bands.bass * 100).toFixed(0)}%)`);
   if (a.clippedSamples > 0) f.push(`CLIP(${a.clippedSamples})`);
   if (a.truePeakDb > -0.5) f.push('TRUEPEAK');
   if (kind !== 'sfx' && a.lufsIntegrated > -12) f.push('TOO-LOUD');
@@ -401,7 +404,14 @@ export function printGameplay(rows) {
  * integrated loudness (22.05 kHz renders: loudness is unaffected, rendering is twice as fast) and rewrite the MEASURED_LUFS table in src/audio/loudness.ts with the level
  * each theme has *without* its current trim (so the table converges in one or two passes).
  */
-export async function calibrate(themes, call, { root, seconds: secs = 60, seed = 1, sr = 22050, log = console.log }) {
+/**
+ * Loudness calibration. Players hear a song's opening, so each theme is measured over its first
+ * OPENING_SECONDS (integrated, gated) — not a minute in, where a quiet intro has long been averaged
+ * away. After writing the table the spread is checked: two themes whose openings (with their
+ * deliberate TARGET_OFFSETs removed) differ by more than 2 LU fail the calibration.
+ */
+export const OPENING_SECONDS = 30;
+export async function calibrate(themes, call, { root, seconds: secs = OPENING_SECONDS + 2, seed = 1, sr = 22050, log = console.log }) {
   const path = `${root}/src/audio/loudness.ts`;
   const src = readFileSync(path, 'utf8');
   const cur = {};
@@ -414,9 +424,10 @@ export async function calibrate(themes, call, { root, seconds: secs = 60, seed =
   log(`calibrating ${themes.length} themes (${secs} s each) → ${target} LUFS`);
   const out = { ...cur };
   for (const t of themes) {
-    const res = await call('renderTheme', [t, secs, sr, seed, false]);
+    const res = await call('renderTheme', [t, Math.max(secs, OPENING_SECONDS), sr, seed, false]);
     const bytes = Buffer.from(res.data, 'base64');
-    const a = analyze(new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4), res.sampleRate);
+    const all = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
+    const a = analyze(all.subarray(0, Math.min(all.length, Math.floor(OPENING_SECONDS * res.sampleRate) * 2)), res.sampleRate);
     const tgt = target + (offs[t] ?? 0);
     // Applied trim was (tgt − cur); the untrimmed level is what we measured minus it.
     const applied = cur[t] !== undefined ? tgt - cur[t] : 0;
@@ -428,5 +439,27 @@ export async function calibrate(themes, call, { root, seconds: secs = 60, seed =
   const next = src.replace(/\/\/ @generated-begin[\s\S]*\/\/ @generated-end/, `// @generated-begin (scripts/audio-render.mjs --calibrate)\nexport const MEASURED_LUFS: Record<string, number> = {\n${body}\n};\n// @generated-end`);
   writeFileSync(path, next);
   log(`wrote ${Object.keys(out).length} entries to src/audio/loudness.ts`);
+  // Clamped trims (±14 dB) are the only way a calibrated opening can miss its target.
+  const resid = themes.map((t) => {
+    const tgt = target + (offs[t] ?? 0);
+    const trim = Math.max(-14, Math.min(14, tgt - out[t]));
+    return [t, out[t] + trim - (offs[t] ?? 0)];
+  });
+  const lv = resid.map((r) => r[1]);
+  const spread = Math.max(...lv) - Math.min(...lv);
+  log(`opening-loudness spread after calibration: ${fmt(spread)} LU ${spread > 2 ? 'FAIL (> 2 LU)' : 'ok'}`);
+  if (spread > 2) throw new Error(`calibration spread ${spread.toFixed(1)} LU > 2 LU`);
+}
+
+/**
+ * Opening-loudness check over rendered themes (first OPENING_SECONDS each): the deliberate offsets
+ * are removed, then any two themes more than 2 LU apart fail (a player walking from one map to the
+ * next would hear the jump).
+ */
+export function openingSpread(rows, offsets = {}) {
+  const lv = rows.map((r) => [r.name, r.lufs - (offsets[r.name] ?? 0)]).sort((x, y) => x[1] - y[1]);
+  if (lv.length < 2) return { spread: 0, lo: lv[0], hi: lv[0], ok: true };
+  const spread = lv[lv.length - 1][1] - lv[0][1];
+  return { spread, lo: lv[0], hi: lv[lv.length - 1], ok: spread <= 2 };
 }
 

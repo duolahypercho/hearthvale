@@ -42,8 +42,12 @@ declare module '../core/events' {
     'dialogue:speaking': { id: string; on: boolean };
     /** Pop an emote bubble over a villager. */
     'npc:emote': { id: string; emote: Emote };
-    /** Typewriter word blip (audio can voice it). */
-    'ui:blip': { id: string };
+    /**
+     * Typewriter word blip (audio voices it): emitted as each word starts to appear, with the word
+     * itself (punctuation included, so questions rise and exclamations accent), its index in the
+     * line and whether it is the line's last word.
+     */
+    'ui:blip': { id: string; word?: string; index?: number; last?: boolean };
   }
 }
 
@@ -603,7 +607,13 @@ export class DialoguePanel implements Panel {
     const ch = this.line[this.shown]!;
     this.shown++;
     this.paintText();
-    if (ch === ' ' && this.npc) this.game.events.emit('ui:blip', { id: this.npc });
+    // Voice each word as its first letter appears (the last word of the line too).
+    if (this.npc && ch !== ' ' && (this.shown === 1 || this.line[this.shown - 2] === ' ')) {
+      const word = /^\S+/.exec(this.line.slice(this.shown - 1))?.[0] ?? ch;
+      const index = this.line.slice(0, this.shown - 1).split(/\s+/).filter(Boolean).length;
+      const last = !/\S/.test(this.line.slice(this.shown - 1 + word.length));
+      this.game.events.emit('ui:blip', { id: this.npc, word, index, last });
+    }
     const delay = /[.!?]/.test(ch) && this.line[this.shown] === ' ' ? 190 : /[,—…]/.test(ch) ? 90 : 17;
     this.timer = window.setTimeout(this.tick, delay);
   };

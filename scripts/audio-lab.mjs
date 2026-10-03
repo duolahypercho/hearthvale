@@ -84,12 +84,19 @@ async function handle(url) {
     }
   } else if (url.pathname === '/theme' || url.pathname === '/amb') {
     const res = url.pathname === '/theme'
-      ? await call('renderTheme', [q.get('id'), Number(q.get('secs') ?? 30), 44100, Number(q.get('seed') ?? 1), q.get('mix') === '1'])
+      ? await call('renderTheme', [q.get('id'), Number(q.get('secs') ?? 30), 44100, Number(q.get('seed') ?? 1), q.get('mix') === '1', q.get('solo') || null])
       : await call('renderAmbience', [q.get('p'), Number(q.get('secs') ?? 30), 44100]);
+    const inter = decode(res);
+    writeWav(resolve(outDir, `${res.name}${q.get('solo') ? `-${q.get('solo')}` : ''}.wav`), inter, res.sampleRate);
+    log(HEADER);
+    log(row(res.name, analyze(inter, res.sampleRate), url.pathname === '/amb' ? 'amb' : 'theme'));
+    if (res.stats) log(`  ${JSON.stringify(res.stats)}`);
+  } else if (url.pathname === '/notes') {
+    const res = await call('renderNotes', [q.get('inst'), q.get('seq'), Number(q.get('bpm') ?? 90)]);
     const inter = decode(res);
     writeWav(resolve(outDir, `${res.name}.wav`), inter, res.sampleRate);
     log(HEADER);
-    log(row(res.name, analyze(inter, res.sampleRate), url.pathname === '/amb' ? 'amb' : 'theme'));
+    log(row(res.name, analyze(inter, res.sampleRate), 'theme'));
   } else if (url.pathname === '/gameplay') {
     const full = await call('renderGameplay', ['full']);
     const sfx = await call('renderGameplay', ['sfx']);
@@ -105,7 +112,7 @@ async function handle(url) {
     }
   } else if (url.pathname === '/calibrate') {
     const ids = q.get('ids')?.split(',') ?? (await page.evaluate(() => window.__audioOffline.listThemes()));
-    await calibrate(ids, call, { root, seconds: Number(q.get('secs') ?? 60), log });
+    await calibrate(ids, call, { root, seconds: Number(q.get('secs') ?? 32), log });
   } else if (url.pathname === '/eval') {
     // Arbitrary expression against the offline module (returns JSON).
     const r = await page.evaluate(async (src) => JSON.stringify(await new Function('m', `return (async () => (${src}))()`)(window.__audioOffline)), q.get('js'));

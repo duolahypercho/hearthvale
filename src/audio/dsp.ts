@@ -226,6 +226,8 @@ export interface PluckOptions {
   seconds: number;
   /** Body resonances mixed onto the string: [Hz, Q, gain]. */
   body?: readonly (readonly [number, number, number])[];
+  /** Air-cavity "thump" under the string: a damped sine [Hz, tau s, amp re the 0.9 peak]. */
+  thump?: readonly [number, number, number];
 }
 
 /** One biquad bandpass (constant 0 dB peak) for offline JS rendering. */
@@ -291,6 +293,8 @@ export interface ModalSpec {
   /** Metallic buzz (tine rattle): noise gated by the waveform, amplitude + tau. */
   buzz?: { amp: number; tau: number };
   body?: readonly (readonly [number, number, number])[];
+  /** Air-cavity thump [Hz, tau s, amp] (see addThump). */
+  thump?: readonly [number, number, number];
   seconds: number;
 }
 
@@ -392,6 +396,7 @@ export function modalData(sr: number, freq: number, spec: ModalSpec, rng: Rand):
     }
   }
   if (spec.body?.length) applyBody(d, sr, spec.body);
+  if (spec.thump) addThump(d, sr, spec.thump[0], spec.thump[1], spec.thump[2]);
   // Short fade at the end of the buffer.
   const f = Math.min(len, Math.floor(sr * 0.06));
   for (let i = 0; i < f; i++) d[len - 1 - i] = d[len - 1 - i]! * (i / f);
@@ -488,9 +493,211 @@ export function pluckData(sr: number, freq: number, o: PluckOptions, rng: Rand):
   }
   const norm = 0.9 / peak;
   for (let n = 0; n < len; n++) out[n] = out[n]! * norm;
+  if (o.thump) addThump(out, sr, o.thump[0], o.thump[1], o.thump[2]);
+  // The note cache holds every pitch a song plays: drop the inaudible tail (below -62 dB re the
+  // peak), so a high harp note costs ~1 s of samples instead of the instrument's 4 s budget.
+  const keep = audibleLength(out, sr, 0.9 * 8e-4);
+  const res = keep < len ? out.slice(0, keep) : out;
   // Tiny fade-out at the end of the buffer.
-  const f = Math.min(len, Math.floor(sr * 0.02));
-  for (let i = 0; i < f; i++) out[len - 1 - i] = out[len - 1 - i]! * (i / f);
+  const f = Math.min(res.length, Math.floor(sr * 0.02));
+  for (let i = 0; i < f; i++) res[res.length - 1 - i] = res[res.length - 1 - i]! * (i / f);
+  return res;
+}
+
+/** Samples up to the last one above `floor` (+ 50 ms), at least 0.15 s. */
+export function audibleLength(d: Float32Array, sr: number, floor: number): number {
+  let last = 0;
+  for (let i = d.length - 1; i >= 0; i--) {
+    if (Math.abs(d[i]!) > floor) {
+      last = i;
+      break;
+    }
+  }
+  return Math.min(d.length, Math.max(Math.floor(sr * 0.15), last + Math.floor(sr * 0.05)));
+}
+
+/**
+ * Body "thump": the instrument's air cavity answering the pluck / strike — a damped sine at the
+ * Helmholtz resonance (90–180 Hz) with a 3 ms onset. This is the warm bottom a real guitar, harp
+ * or kalimba box gives every note, which a string or tine alone (fundamental above 250 Hz) lacks.
+ * Rescales the buffer if the sum would exceed 0.95.
+ */
+export function addThump(d: Float32Array, sr: number, hz: number, tau: number, amp: number): void {
+  const n = Math.min(d.length, Math.floor(tau * 7 * sr));
+  const w = (2 * Math.PI * hz) / sr;
+  const dec = Math.exp(-1 / (tau * sr));
+  const atk = Math.floor(0.003 * sr);
+  let env = amp;
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    const a = i < atk ? i / atk : 1;
+    d[i] = d[i]! + Math.sin(w * i) * env * a;
+    if (i >= atk) env *= dec;
+  }
+  for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]!));
+  if (peak > 0.95) {
+    const k = 0.95 / peak;
+    for (let i = 0; i < d.length; i++) d[i] = d[i]! * k;
+  }
+}
+
+/** Bowed-string render options (see bowedData). */
+export interface BowOptions {
+  /** Bow pressure 0..1: higher = grittier, brighter Helmholtz corner. */
+  pressure: number;
+  /** Bow speed 0..1 (sets the bow velocity, i.e. the dynamic the note is rendered at). */
+  force: number;
+  /** Bow contact point as a fraction of the string from the bridge (0.06–0.2; nearer = brighter). */
+  position: number;
+  /** Bow attack (s): how long the bow takes to reach full speed. */
+  attack: number;
+  /** String loss filter pole (0.5–0.8; higher = darker, faster-decaying upper partials). */
+  pole: number;
+  seconds: number;
+}
+
+/** The sustain loop every bowed buffer carries (s): playback loops [start, end) for long notes. */
+export const BOW_LOOP: readonly [number, number] = [0.6, 1.45];
+/** Loop end for a pitch: BOW_LOOP[0] + a whole number of periods, at most BOW_LOOP[1]. */
+export function bowLoopEnd(freq: number): number {
+  const span = BOW_LOOP[1] - BOW_LOOP[0];
+  return BOW_LOOP[0] + Math.floor(span * freq) / freq;
+}
+
+/**
+ * A bowed string, physically modelled: a digital waveguide (bridge and nut delay lines with a
+ * lossy bridge reflection) driven by a stick-slip bow — the friction curve lets the string stick
+ * to the hair and slip back once per period, which is what builds the Helmholtz sawtooth and its
+ * scratchy, slightly irregular onset (after J. O. Smith / STK "Bowed"). The bow speed and pressure
+ * wander a little (a real arm is never steady), so the sustain carries the faint noise and jitter
+ * of rosin instead of a periodic oscillator's stillness. The pitch is measured in the sustain and
+ * the buffer resampled onto the exact target frequency, then the sustain region (BOW_LOOP) is
+ * crossfaded into a seamless loop so a note of any length can be played from one buffer. The body
+ * (violin / cello formants) is NOT baked in: it is a fixed filter bank on the track (INSERTS), so
+ * vibrato sweeps the harmonics through fixed resonances — the shimmer that makes a string sound real.
+ */
+export function bowedData(sr: number, freq: number, o: BowOptions, rng: Rand): Float32Array<ArrayBuffer> {
+  const len = Math.floor(sr * o.seconds);
+  const raw = new Float32Array(len + 64);
+  const total = sr / freq;
+  const base = Math.max(8, total - 3);
+  const beta = clamp(o.position, 0.04, 0.3);
+  const bridgeLen = base * beta;
+  const neckLen = base * (1 - beta);
+  const N = Math.ceil(base) + 4;
+  const bridge = new Float32Array(N);
+  const neck = new Float32Array(N);
+  let wb = 0, wn = 0;
+  const read = (buf: Float32Array, w: number, d: number): number => {
+    let p = w - d;
+    while (p < 0) p += N;
+    const i = Math.floor(p);
+    const fr = p - i;
+    return buf[i % N]! * (1 - fr) + buf[(i + 1) % N]! * fr;
+  };
+  const pole = clamp(o.pole, 0.3, 0.9);
+  let filt = 0;
+  const slope0 = 5 - 4 * clamp(o.pressure, 0, 1);
+  const maxVel = 0.03 + 0.2 * clamp(o.force, 0, 1);
+  const atkN = Math.max(1, Math.floor(o.attack * sr));
+  // Slow arm wander (two smoothed random walks) + fast hair noise.
+  let wanderV = 0, wanderP = 0, nz = 0;
+  for (let n = 0; n < raw.length; n++) {
+    const env = n < atkN ? Math.pow(n / atkN, 0.8) : 0.92 + 0.08 * Math.exp(-(n - atkN) / (0.08 * sr));
+    if ((n & 255) === 0) {
+      // (Kept inside the Helmholtz regime: wider wander tips the string into double slip, which
+      // sounds an octave up.)
+      wanderV = clamp(wanderV * 0.96 + rng.gauss(0.006), -0.04, 0.04);
+      wanderP = clamp(wanderP * 0.97 + rng.gauss(0.015), -0.12, 0.12);
+    }
+    nz += 0.3 * (rng.next() * 2 - 1 - nz);
+    const bowVel = maxVel * env * (1 + wanderV + nz * 0.02);
+    const slope = slope0 * (1 + wanderP);
+    const bOut = read(bridge, wb, bridgeLen);
+    const nOut = read(neck, wn, neckLen);
+    // Lossy bridge reflection (one-pole lowpass, gain 0.95), inverting.
+    filt = (1 - pole) * 0.95 * bOut + pole * filt;
+    const bridgeRefl = -filt;
+    const nutRefl = -nOut;
+    const strVel = bridgeRefl + nutRefl;
+    const dv = bowVel - strVel;
+    // Friction curve: sticks (≈1) near zero slip velocity, lets go as the slip grows.
+    let k = Math.abs((dv + 0.001) * slope) + 0.75;
+    k = 1 / (k * k * k * k);
+    k = k < 0.01 ? 0.01 : k > 0.98 ? 0.98 : k;
+    const nv = dv * k;
+    wb = (wb + 1) % N;
+    wn = (wn + 1) % N;
+    neck[wn] = bridgeRefl + nv;
+    bridge[wb] = nutRefl + nv;
+    raw[n] = bOut;
+  }
+  // DC block.
+  let x1 = 0, y1 = 0;
+  for (let n = 0; n < raw.length; n++) {
+    const y = raw[n]! - x1 + 0.997 * y1;
+    x1 = raw[n]!;
+    raw[n] = y1 = y;
+  }
+  // Measure the sounding period in the sustain (normalised autocorrelation around the nominal
+  // period, parabolic peak), then resample so the buffer plays exactly at `freq`.
+  const a0 = Math.floor(0.45 * sr);
+  const W = Math.min(Math.floor(0.08 * sr), raw.length - a0 - Math.ceil(total * 1.2) - 2);
+  let bestLag = total;
+  if (W > 64) {
+    const corr = (lag: number): number => {
+      let s = 0, e1 = 0, e2 = 0;
+      for (let i = 0; i < W; i++) {
+        const x = raw[a0 + i]!, y = raw[a0 + i + lag]!;
+        s += x * y;
+        e1 += x * x;
+        e2 += y * y;
+      }
+      return s / Math.sqrt(e1 * e2 + 1e-12);
+    };
+    const lo = Math.max(2, Math.floor(total * 0.94)), hi = Math.ceil(total * 1.06);
+    let bi = lo, bv = -2;
+    const cs: number[] = [];
+    for (let l = lo; l <= hi; l++) {
+      const c = corr(l);
+      cs.push(c);
+      if (c > bv) {
+        bv = c;
+        bi = l;
+      }
+    }
+    const j = bi - lo;
+    if (j > 0 && j < cs.length - 1) {
+      const c0 = cs[j - 1]!, c1 = cs[j]!, c2 = cs[j + 1]!;
+      const den = c0 - 2 * c1 + c2;
+      bestLag = bi + (den !== 0 ? (0.5 * (c0 - c2)) / den : 0);
+    } else bestLag = bi;
+  }
+  const step = bestLag / total; // > 1: rendered flat → read faster
+  const out = new Float32Array(len);
+  for (let n = 0; n < len; n++) {
+    const p = n * step;
+    const i = Math.floor(p);
+    if (i + 1 >= raw.length) break;
+    const fr = p - i;
+    out[n] = raw[i]! * (1 - fr) + raw[i + 1]! * fr;
+  }
+  let peak = 1e-6;
+  for (let n = Math.floor(0.2 * sr); n < len; n++) peak = Math.max(peak, Math.abs(out[n]!));
+  const norm = 0.6 / peak;
+  for (let n = 0; n < len; n++) out[n] = clamp(out[n]! * norm, -0.98, 0.98);
+  // Seamless sustain loop: the loop's last 120 ms crossfade into what precedes its start, so
+  // jumping back from loop end to loop start continues the waveform.
+  // The loop is a whole number of periods long (the playback loop end is snapped the same way,
+  // see bowLoopEnd), so the two sides of the crossfade are in phase and a linear fade is seamless.
+  const ls = Math.round(BOW_LOOP[0] * sr);
+  const le = Math.min(len, Math.round(bowLoopEnd(freq) * sr));
+  const X = Math.min(Math.floor(0.12 * sr), ls);
+  for (let i = 0; i < X; i++) {
+    const w = i / X;
+    const a = le - X + i;
+    out[a] = out[a]! * (1 - w) + out[ls - X + i]! * w;
+  }
   return out;
 }
 

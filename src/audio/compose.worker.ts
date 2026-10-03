@@ -10,6 +10,7 @@
  */
 import { Composer, type Piece, type ThemeDef } from './composer';
 import { noteRecipes, renderRecipe, sfxPalette } from './instruments';
+import { chordPcs, parseChord } from './theory';
 
 interface Req {
   key: string;
@@ -75,6 +76,12 @@ scope.onmessage = (e) => {
   // the song's first downbeat never waits on a synthesis on the frame; the rest stream in behind it,
   // in time order, far ahead of the scheduler (a note renders in ~5 ms, the song plays for minutes).
   const events = [...piece.events].sort((x, y) => x.t - y.t);
+  // The key bridge (music.ts buildBridge) rolls the new tonic on the song's accompaniment
+  // instrument (or the harp) an octave over 55–72 before the first bar: render those first.
+  const roll = theme.accomp?.inst ?? 'harp';
+  const tonic = parseChord(theme.mode === 'major' || theme.mode === 'lydian' || theme.mode === 'mixolydian' ? 'I' : 'i');
+  const pcs = chordPcs(tonic, theme.key % 12);
+  if (events.length) for (let m = 67; m <= 84; m++) if (pcs.includes(m % 12)) render({ ...events[0]!, inst: roll, midi: m });
   let i = 0;
   for (; i < events.length && events[i]!.t < HEAD_SECONDS; i++) render(events[i]!);
   flush();
