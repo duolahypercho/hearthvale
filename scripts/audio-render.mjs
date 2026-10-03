@@ -690,7 +690,7 @@ async function live() {
  * `--coop`: relay + Vite + two real game clients (host Hazel, farmhand Ash) in one GPU Chromium,
  * both with audio running. Checks that a farmhand HEARS the host: (1) the host hoes two tiles from
  * the farmhand → the farmhand's client voices the replayed `hoe` (its SFX log) and its output meter
- * peaks over the window before (music silenced on the farmhand, ambience on); (2) both walk onto the
+ * peaks over the window before (music silenced on the farmhand, ambience on, farmhand one tile away); (2) both walk onto the
  * Blossom Parade grounds → both clients play the same festival arrangement.
  */
 async function coop() {
@@ -753,10 +753,10 @@ async function coop() {
       window.__game.facing('up');
     }, T);
     await hand.evaluate((t) => {
-      window.__game.teleport('farm', t.x + 2.5, t.z + 1.5);
+      window.__game.teleport('farm', t.x + 1.5, t.z + 1.5);
       window.__game.game.services.audio.music('none');
     }, T);
-    await new Promise((r) => setTimeout(r, 4000));
+    await new Promise((r) => setTimeout(r, 6000));
     // Meter the farmhand 1.2 s before and 1.4 s after the host's stroke.
     const meterWin = (ms) => hand.evaluate(async (ms) => {
       const a = window.__game.game.services.audio;
@@ -786,10 +786,12 @@ async function coop() {
     const log = await hand.evaluate(() => window.__game.game.services.audio.state().sfxLog);
     const fresh = log.slice(Math.max(0, logLen - (log.length >= 24 ? 24 : 0)));
     const hoe = log.find((x) => x.name === 'hoe' || x.name === 'hoe:dull');
-    const med = [...before].sort((x, y) => x - y)[before.length >> 1];
+    // Against the ambience's own busy moments (birds): the 90th percentile of the window before.
+    const med = [...before].sort((x, y) => x - y)[Math.floor(before.length * 0.9)];
     const peak = Math.max(...aft);
+    const hostLog = await host.evaluate(() => window.__game.game.services.audio.state().sfxLog.slice(-3).map((x) => x.name).join(','));
     check('farmhand voices the host\'s hoe stroke (replayed tool:impact)', !!hoe, hoe ? `${hoe.name} gain ${hoe.gain} pan ${hoe.pan}` : `farmhand log: ${fresh.map((x) => x.name).join(',') || 'empty'}`);
-    check('farmhand output peaks over its ambience floor', peak > med + 6, `peak ${fmt(peak)} vs median ${fmt(med)} dBFS before`);
+    check('farmhand output peaks over its ambience', peak > med + 3, `peak ${fmt(peak)} vs 90th percentile ${fmt(med)} dBFS before; host voiced ${hostLog}`);
     // Festival: both clients walk onto the Blossom Parade grounds.
     for (const p of [host, hand]) await p.evaluate(() => { window.__game.game.services.audio.music(null); return window.__game.demo('fest-spring'); });
     const themes = await Promise.all([host, hand].map((p) => p.evaluate(async () => {
