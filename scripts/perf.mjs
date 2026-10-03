@@ -27,8 +27,9 @@
  *   FAIL  avg < 60 fps or p99 > 25 ms (the pillar-14 bar),
  *   REGR  vs the median of the last 3 comparable history runs: avg fps −10 % (and ≥ 3 fps),
  *         p99 +25 % (and ≥ 3 ms), or draw calls / triangles +20 % (content growth, noise-free).
- *   REGR? a timing drop measured while the machine was saturated (load > 1.5× cores or main
- *         thread on-CPU < 35 %) — reported, not trusted; re-run `--demos <name>` on a quiet machine.
+ *   REGR? a timing drop measured while the machine was saturated (load > 1.5× cores, main
+ *         thread on-CPU < 35 %, or the empty-canvas calibration < 75 % of its history median = the
+ *         GPU is shared with another process) — reported, not trusted; re-run `--demos <name>` quiet.
  *
  * Timing mode: HEADLESS by default — Playwright's full Chromium (channel 'chromium' = new headless,
  * same compositor as desktop Chrome, not chrome-headless-shell) with ANGLE/Metal on the real GPU and
@@ -591,6 +592,10 @@ async function main() {
     const fails = [];
     const regressions = [];
     const suspect = [];
+    const calibHist = history.map((h) => h.env?.calibration?.fps).filter((x) => x > 0).slice(-8);
+    const calibRef = calibHist.length >= 2 ? median(calibHist) : 0;
+    const gpuShared = calibRef > 0 && (envStart.calibration?.fps ?? calibRef) < calibRef * 0.75;
+    if (gpuShared) console.log(`[perf] GPU shared: calibration ${envStart.calibration.fps} fps < 75 % of its history median ${calibRef} — timing drops are reported as REGR?, not REGR`);
     for (const r of results) {
       if (r.error) { fails.push({ demo: r.demo, why: `error: ${r.error}` }); continue; }
       const why = [];
@@ -607,7 +612,10 @@ async function main() {
       // Timing is only trusted when the machine was not saturated during this demo (1-min load average
       // below 1.5× cores and the main thread was on-CPU ≥ 35 % of the time); otherwise a timing drop is
       // reported as 'suspect' (REGR?) and does not fail --strict. Content growth is always trusted.
-      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35;
+      // A third signal: the GPU itself is shared (another project's Chromium pinned at 100 % GPU
+      // keeps load and on-CPU looking normal) — the empty-canvas calibration falls well below its
+      // history median.
+      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35 || gpuShared;
       const tw = [];
       if (r.avgFps < b.avgFps * 0.9 && b.avgFps - r.avgFps >= 3) tw.push(`avg ${b.avgFps}→${r.avgFps} fps`);
       if (r.p99Ms > b.p99Ms * 1.25 && r.p99Ms - b.p99Ms >= 3) tw.push(`p99 ${b.p99Ms}→${r.p99Ms} ms`);
