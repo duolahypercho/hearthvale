@@ -128,7 +128,9 @@ export type ExtraPropKind =
   | 'wheelbarrow'
   | 'flowerCart'
   | 'bicycle'
-  | 'flowerRing';
+  | 'flowerRing'
+  | 'picnic'
+  | 'wildflowers';
 
 export interface ExtraProp {
   kind: ExtraPropKind;
@@ -288,6 +290,18 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'flowerPot', x: 24.1, z: 53.6, colors: [0xff7aa2] },
   { kind: 'sacks', x: 30.2, z: 56.4, rot: 0.4 },
   { kind: 'crates', x: 41.6, z: 54.2, rot: -0.3, solid: [[41, 54]] },
+  // Round 3: a picnic + meadow clumps on the open south lawn, roses by the lane, stepping life
+  // into the bare green between the allotment and the orchard trees.
+  { kind: 'picnic', x: 33.2, z: 55.7, rot: 0.35, colors: [0xd8573e] },
+  { kind: 'wildflowers', x: 22.2, z: 55.8, colors: [0xff8fab, 0xffffff, 0xc77dff] },
+  { kind: 'wildflowers', x: 43.6, z: 57.0, colors: [0xffd166, 0xffffff, 0xff7aa2] },
+  { kind: 'wildflowers', x: 19.0, z: 52.9, colors: [0xc77dff, 0xffffff] },
+  { kind: 'wildflowers', x: 38.6, z: 52.9, colors: [0xff8fab, 0xffd166] },
+  { kind: 'wildflowers', x: 46.2, z: 53.4, colors: [0xffffff, 0xc77dff, 0xff8fab] },
+  { kind: 'flowerPot', x: 29.6, z: 53.4, colors: [0xffd166] },
+  { kind: 'wildflowers', x: 25.0, z: 37.6, colors: [0xff8fab, 0xffffff] },
+  { kind: 'wildflowers', x: 41.6, z: 39.0, colors: [0xc77dff, 0xffd166] },
+  { kind: 'picnic', x: 58.4, z: 41.2, rot: -0.5, colors: [0x3f7fb0] },
 ];
 
 /** Extra trees: [species, x, z, scale]. */
@@ -348,6 +362,7 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   school_yard: [19.4, 48.4, 'down'],
   school_bench: [10.9, 49.5, Math.PI / 2 - 0.2],
   veg_garden: [49.6, 46.6, 'right'],
+  allotment: [30.1, 55.5, 'left'],
 };
 
 /** Town camera bounds (look-target clamp). */

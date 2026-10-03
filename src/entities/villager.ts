@@ -824,7 +824,7 @@ export class Villager {
       const SHELL: Partial<Record<string, [number, number, number, number]>> = {
         bun: [12, 0.06, 0.08, 0.4],
         short: [13, 0.075, 0.15, 1.1],
-        bob: [12, 0.06, 0.1, 0.6],
+        bob: [11, 0.07, 0.2, 0.7],
         curly: [10, 0.05, 0.06, 0.6],
         ponytail: [12, 0.06, 0.1, 0.4],
         long: [12, 0.06, 0.1, 0.5],
@@ -833,14 +833,17 @@ export class Villager {
         slick: [16, 0.04, 0.06, 2.2],
       };
       const [gv, dp, sc, tw] = SHELL[style] ?? [12, 0.06, 0.1, 0.8];
-      const cap = hairShell(R * 1.07, top, Math.PI * 0.55 - top, gv, top > 0 ? dp * 0.4 : dp, top > 0 ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw);
-      rb.add(B.head, cap, H(0, R * 0.98, -0.02, -0.25, 0, 0), hair);
+      // Under a headscarf the hair follows the scarf's tilt and sits just inside it (no dark patches
+      // poking through the cloth over the crown).
+      const scarf = L.hat === 'bandana';
+      const cap = hairShell(R * (scarf ? 1.035 : 1.07), top, Math.PI * 0.55 - top, gv, top > 0 ? dp * 0.4 : dp, scarf ? 0.02 : top > 0 ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw);
+      rb.add(B.head, cap, H(0, R * 0.98, -0.02, scarf ? -0.5 : -0.25, 0, 0), hair);
       // A glossy sheen band across the crown (reads as combed, not a plastic dome) and a darker
       // underlayer at the nape.
       // (the sheen band is painted into the shell's tone, across the ridges)
       // Fringe: tapered locks along the hairline break the straight cap edge over the forehead
       // (short in the middle so the brows and eyes stay clear, longer at the temples).
-      const fringe = !hatted && (style === 'bun' || style === 'spiky' || style === 'short' || style === 'ponytail' || style === 'long' || style === 'braids');
+      const fringe = !hatted && (style === 'bun' || style === 'spiky' || style === 'short' || style === 'ponytail' || style === 'long' || style === 'braids' || style === 'bob');
       if (fringe) {
         // [angle round the head, tip height (head space), length]
         const locks: [number, number, number][] = [[0, R * 1.1, 0.11], [0.62, R * 1.0, 0.13], [-0.62, R * 1.0, 0.13], [0.88, R * 0.9, 0.15], [-0.88, R * 0.9, 0.15], [1.12, R * 0.82, 0.17], [-1.12, R * 0.82, 0.17], [0.34, R * 1.18, 0.07], [-0.34, R * 1.18, 0.07]];
@@ -873,15 +876,26 @@ export class Villager {
         rb.add(B.hairBack, new THREE.TorusGeometry(0.1, 0.02, 5, 12), H(0, R * 1.72, -R * 0.3, 1.2, 0, 0), shadeHex(L.top, 0.9));
         break;
       case 'bob':
-        for (let i = 0; i < 9; i++) {
-          const a = Math.PI * 0.35 + (i / 8) * Math.PI * 1.3;
-          rb.add(B.head, lumpySphere(0.15, 1, 0.15, rng), H(Math.sin(a) * R * 0.92, R * 0.62 + (i % 2) * 0.04, Math.cos(a) * R * 0.88), i % 3 ? hair : hi);
+        // A chin-length bob: tapered locks hanging round the sides and back (flat against the head,
+        // tips flicking out a little), alternating lengths so the hem reads choppy, not a lumpy ring.
+        for (let i = 0; i < 13; i++) {
+          const a = Math.PI * 0.3 + (i / 12) * Math.PI * 1.4;
+          const len = 0.24 + (i % 2) * 0.05 + (i % 3) * 0.015;
+          const lock = new THREE.SphereGeometry(1, 12, 10);
+          const pa = lock.attributes.position as THREE.BufferAttribute;
+          for (let v = 0; v < pa.count; v++) {
+            const y = pa.getY(v);
+            const k = y < 0 ? 1 + y * 0.6 : 1;
+            // taper to the tip and curl it outwards (+z = away from the head after rotateY)
+            pa.setXYZ(v, pa.getX(v) * k, y, pa.getZ(v) * k + (y < 0 ? y * y * 0.5 : 0));
+          }
+          lock.computeVertexNormals();
+          lock.scale(0.1 + (i % 3) * 0.012, len * 0.55, 0.06);
+          lock.rotateY(a);
+          const r = R * 0.98;
+          rb.add(B.head, lock, H(Math.sin(a) * r, R * 0.78 - len * 0.18, Math.cos(a) * r - 0.02), i % 3 === 1 ? hi : hair);
         }
-        for (const [a, len] of [[-0.45, 1.3], [0.1, 1.15], [0.55, 1.0]] as const) {
-          const lock = lumpySphere(0.15, 1, 0.08, rng, 1.2);
-          lock.scale(len, 0.5, 0.6);
-          rb.add(B.head, lock, H(Math.sin(a) * R * 0.72, R * 1.36, Math.cos(a) * R * 0.72, 0.6, a, 0), hi);
-        }
+        // (the fringe is the shared teardrop locks above: a choppy edge, not three lumps)
         break;
       case 'cap': {
         // Baker's toque.
@@ -1046,24 +1060,25 @@ export class Villager {
       case 'bandana': {
         // A knotted headscarf hugging the crown: tilted back so the hairline and temples show (not a
         // helmet), flat printed polka dots (as in the portrait), a rolled hem, a knot and two tails.
-        const tilt = -0.4;
-        const rr = R * 1.085;
+        const tilt = -0.5;
+        const rr = R * 1.075;
         const polar = Math.PI * 0.44;
         const T = (): THREE.Matrix4 => H(0, R * 0.98, -0.03, tilt, 0, 0);
         // Soft cloth folds gathered towards the knot (a sculpted shell, not a smooth dome).
         const dome = hairShell(rr, 0, polar, 7, 0.035, 0, 1.3, 0.2);
-        dome.scale(1.02, 0.94, 1.02);
+        // Hugging the skull (a low crown, not a helmet dome).
+        dome.scale(1.0, 0.8, 1.03);
         rb.add(B.head, dome, T(), c);
-        const hem = new THREE.TorusGeometry(rr * Math.sin(polar) * 1.025, 0.022, 6, 32);
+        const hem = new THREE.TorusGeometry(rr * Math.sin(polar) * 1.03, 0.016, 6, 32);
         hem.rotateX(Math.PI / 2);
-        hem.translate(0, rr * Math.cos(polar) * 0.94, 0);
+        hem.translate(0, rr * Math.cos(polar) * 0.8, 0);
         rb.add(B.head, hem, T(), shadeHex(c, 0.8));
         const N = 26;
         const dots: THREE.BufferGeometry[] = [];
         for (let i = 0; i < N; i++) {
           const a = (i * 2.399963) % (Math.PI * 2);
           const th = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(polar - 0.12)));
-          const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.05, Math.cos(th) * rr * 0.97, Math.cos(a) * Math.sin(th) * rr * 1.05);
+          const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.03, Math.cos(th) * rr * 0.83, Math.cos(a) * Math.sin(th) * rr * 1.06);
           const d = new THREE.CircleGeometry(0.021 + (i % 3) * 0.003, 10);
           d.lookAt(new THREE.Vector3(q.x / 1.08, q.y, q.z / 1.08));
           q.multiplyScalar(1.006);

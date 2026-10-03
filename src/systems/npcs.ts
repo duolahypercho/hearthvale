@@ -120,6 +120,18 @@ const STAGES: Record<string, Mark[]> = {
     ['rowan', 37.9, 24.0, -34, 'chat', 'exclaim'],
     ['linus', 21.8, 24.6, 60, 'read'],
   ],
+  // Meadow Lane mid-morning: the doctor sweeps his porch and chats with Marigold, Hazel waters the
+  // allotment, Rowan mends its fence, Kit plays by the schoolyard swing, June + Bram by the picnic.
+  'town-south': [
+    ['linus', 33.6, 50.2, 30, 'chat'],
+    ['marigold', 35.0, 50.9, -55, 'chat', 'heart'],
+    ['hazel', 30.1, 55.5, -55, 'water', 'music'],
+    ['rowan', 24.4, 55.2, 70, 'hammer'],
+    ['kit', 21.6, 48.6, 20, 'play'],
+    ['june', 34.6, 55.0, 40, 'chat', 'idea'],
+    ['bram', 35.9, 55.7, -50, 'chat'],
+    ['wren', 17.6, 51.6, 35, 'read'],
+  ],
   'town-winter': [
     ['marigold', 20.6, 21.3, 25, 'sweep'],
     ['hazel', 32.9, 21.35, -10, 'idle', 'music'],
@@ -183,6 +195,8 @@ const POSTS: { x: number; z: number }[] = [
   // Stone-bridge end pillars (parapet posts at each corner).
   ...BRIDGES.filter((b) => b.kind === 'stone').flatMap((b) => [-1, 1].flatMap((sx) => [-1, 1].map((sz) => ({ x: b.x + (sx * b.len) / 2, z: b.z + (sz * b.width) / 2 })))),
 ];
+/** Free-standing lamp posts + festoon poles (no bridge pillars): kept out of the middle of event frames. */
+const LAMP_POSTS = POSTS.filter((p) => !BRIDGES.some((b) => b.kind === 'stone' && Math.abs(p.x - b.x) <= b.len / 2 + 0.01 && Math.abs(p.z - b.z) <= b.width / 2 + 0.01));
 /** Errand destinations: the everyday walks between shops, the board, the square and the river. */
 const ERRANDS = ['notice', 'fountain_e', 'fountain_w', 'fountain_s', 'market_produce', 'bakery_front', 'store_front', 'planters_hall', 'bridge_mid', 'river_walk', 'inn_front', 'garden_east'];
 /** A small deterministic hash (co-op clients roll the same errands from the shared calendar). */
@@ -416,6 +430,7 @@ export class NpcSystem implements System {
   // ───────────────────────────────────────────── map + placement
 
   onMapChange(mapId: string, game: Game): void {
+    this.lensRestore();
     const map = game.world.current;
     this.active = mapId === 'town' && !!map;
     for (const a of this.agents.values()) a.v.root.removeFromParent();
@@ -707,6 +722,9 @@ export class NpcSystem implements System {
         a.v.setYaw(0);
         this.setActivity(a, 'idle');
         a.anchor = { x, z };
+        // Hold the line-up pose (no glancing round at the farmer standing beside the row).
+        a.staged = true;
+        a.stepKey = '';
       });
       return;
     }
@@ -781,12 +799,12 @@ export class NpcSystem implements System {
       const a = this.whoPos(w);
       const b = this.whoPos(to as Who);
       yaw = Math.atan2(b.x - a.x, b.z - a.z);
-      // Stage cheat: in a heart event, a villager turning to another actor opens up ~25° towards the
+      // Stage cheat: in a heart event, a villager turning to another actor opens up ~35° towards the
       // lens so the two-shot reads as two three-quarter faces, not two profiles.
       if (this.camMode === 'event' && w !== 'player') {
         const toCam = THREE.MathUtils.degToRad(this.baseYaw);
         const d = Math.atan2(Math.sin(toCam - yaw), Math.cos(toCam - yaw));
-        yaw += THREE.MathUtils.clamp(d, -0.44, 0.44);
+        yaw += THREE.MathUtils.clamp(d, -0.6, 0.6);
       }
     }
     if (w === 'player') {
@@ -1204,6 +1222,26 @@ export class NpcSystem implements System {
               if (px * px + pz * pz < 0.3 * 0.3 && yAt < 3.4) h += a.id === s.speaker ? 7 : 3;
             }
           }
+        // A post planted in the middle of the frame between the lens and the actors (a lamp post
+        // splitting a two-shot) reads as clutter even when it misses every face: keep the centre clear.
+        if (this.camMode === 'event') {
+          const fx = probe.x - pos.x;
+          const fz = probe.z - pos.z;
+          const fl = Math.hypot(fx, fz) || 1;
+          // (lamp posts and festoon poles only, one penalty at most: a soft preference, never
+          // enough to swing the lens round behind a speaker)
+          for (const po of LAMP_POSTS) {
+            const px = po.x - pos.x;
+            const pz = po.z - pos.z;
+            const along = (px * fx + pz * fz) / fl;
+            if (along < 1.2 || along > fl * 0.92) continue;
+            const side = Math.abs(px * fz - pz * fx) / fl;
+            if (side / along < 0.2) {
+              h += 1.5;
+              break;
+            }
+          }
+        }
         // Walk beats: the walker's body must not hide behind the farmer (or anyone).
         if (kind === 'wide' && s.speaker) {
           const w = acts.find((a) => a.id === s.speaker);
@@ -1425,6 +1463,56 @@ export class NpcSystem implements System {
       }
     }
     this.occluded = [];
+  }
+
+  // ── Foreground canopies: on the high diorama lens a tree planted just below the frame's bottom
+  // edge fills a third of the screen with a blurred blob (and hides the farmer walking south). Its
+  // instance is hidden while its canopy projects into the bottom band of the frame, restored after.
+  private lensHidden: { mesh: THREE.BatchedMesh; id: number }[] = [];
+  private lensFrame = 0;
+  private lensCull(): void {
+    if (++this.lensFrame % 8) return;
+    const cam = this.game.rc.camera;
+    cam.updateMatrixWorld();
+    const want: { mesh: THREE.BatchedMesh; id: number }[] = [];
+    const v = _q;
+    for (const g of this.balls()) {
+      v.copy(g.c).project(cam);
+      if (v.z > 1 || v.z < -1 || Math.abs(v.x) > 1.25) continue;
+      // Canopy centre in the bottom ~22 % of the frame (or below it, with the crown reaching in).
+      if (v.y < -0.56 && v.y > -2.2) want.push(...g.parts);
+    }
+    const key = (o: { mesh: THREE.BatchedMesh; id: number }): string => `${o.mesh.uuid}:${o.id}`;
+    const wantK = new Set(want.map(key));
+    for (const o of this.lensHidden)
+      if (!wantK.has(key(o)))
+        try {
+          o.mesh.setVisibleAt(o.id, true);
+        } catch {
+          /* gone */
+        }
+    const had = new Set(this.lensHidden.map(key));
+    this.lensHidden = this.lensHidden.filter((o) => wantK.has(key(o)));
+    for (const o of want) {
+      if (had.has(key(o))) continue;
+      try {
+        if (!o.mesh.getVisibleAt(o.id)) continue;
+        o.mesh.setVisibleAt(o.id, false);
+        this.lensHidden.push(o);
+      } catch {
+        /* gone */
+      }
+    }
+  }
+
+  private lensRestore(): void {
+    for (const o of this.lensHidden)
+      try {
+        o.mesh.setVisibleAt(o.id, true);
+      } catch {
+        /* gone */
+      }
+    this.lensHidden = [];
   }
 
   /** Every other frame: trees between the lens and an actor's head / chest are hidden for the scene. */
@@ -1826,6 +1914,8 @@ export class NpcSystem implements System {
       this.restage = null;
       this.stage(name);
     }
+    if (!this.camMode) this.lensCull();
+    else if (this.lensHidden.length) this.lensRestore();
     const hour = game.calendar.hour;
     const following = this.netRole() === 'client' && this.clock - this.followAt < 2;
     this.netSend(dt);

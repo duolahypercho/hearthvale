@@ -86,6 +86,8 @@ import {
   buildVegBed,
   buildBicycle,
   buildFlowerRing,
+  buildPicnic,
+  buildWildflowers,
   coalMaterial,
   deckY,
 } from './buildings';
@@ -106,7 +108,7 @@ const CELL = 12;
 const cellOf = (x: number, z: number): string => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
 
 /** Knee-high street clutter: grounded by the contact-AO stamp, so it skips the shadow pass. */
-const SMALL_CLUTTER = new Set<string>(['flowerPot', 'mailbox', 'sandwichBoard', 'chalkBoard', 'produce', 'sacks', 'bicycle', 'wheelbarrow']);
+const SMALL_CLUTTER = new Set<string>(['picnic', 'wildflowers', 'flowerPot', 'mailbox', 'sandwichBoard', 'chalkBoard', 'produce', 'sacks', 'bicycle', 'wheelbarrow']);
 
 export class TownMap implements GameMap {
   readonly id = 'town';
@@ -679,6 +681,12 @@ export class TownMap implements GameMap {
           g = buildFlowerRing(r, r0, r1, (a0 * Math.PI) / 180, (a1 * Math.PI) / 180);
           break;
         }
+        case 'picnic':
+          g = buildPicnic(r, p.colors?.[0]);
+          break;
+        case 'wildflowers':
+          g = buildWildflowers(r, p.colors);
+          break;
         case 'fence': {
           const y0 = this.terrain.heightAt(p.x, p.z) - 0.03;
           g = buildFence([p.pts ?? []], (lx, lz) => this.terrain.heightAt(lx + p.x, lz + p.z) - y0, r);

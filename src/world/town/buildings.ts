@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
 import { MeshBuilder, roundedBox, bevelCylinder, boxUV, mat, lumpySphere, sphericalNormals } from '../geom';
-import { lantern, type BuiltProp } from '../props/structures';
+import { lantern, windowUnit, type BuiltProp } from '../props/structures';
 import { buildTownHouse } from '../props/townkit';
 import { applyWorldFx } from '../../render/worldfx';
 
@@ -47,6 +47,81 @@ function hangingSign(b: MeshBuilder, x: number, y: number, z: number, board: num
   b.add('woodDark', roundedBox(0.07, 0.62, 0.66, 0.05), mat(x, y, z), { tint: 0x7a5234 });
   b.add('woodPaint', roundedBox(0.08, 0.54, 0.58, 0.04), mat(x, y, z), { tint: board });
   for (const side of [-1, 1]) icon(b, x + side * 0.045, y, z, side);
+}
+
+// ───────────────────────────────────────────── Silhouette kit (dormers, porches, lean-tos)
+// buildTownHouse makes one box + gable; these break the template so no two houses share a profile.
+
+/**
+ * A gabled dormer on the front roof slope of a buildTownHouse shell (W × D, wall height wallH):
+ * cheek walls in `wall` tint, a little tiled roof, a mullioned window with a lit card at dusk.
+ */
+function dormer(b: MeshBuilder, rng: Rng, x: number, D: number, wallH: number, wallTint: number, roofTint: number, w = 1.15): void {
+  const top = 0.35 + wallH;
+  const rise = Math.max(1.4, D * 0.42);
+  const tanS = rise / (D / 2);
+  const roofY = (z: number): number => top + rise - tanS * z + 0.1;
+  const zf = D / 2 - 0.5;
+  const y0 = roofY(zf) - 0.08;
+  const h = Math.min(1.0, top + rise - 0.25 - y0);
+  const y1 = y0 + h;
+  const zb = Math.max(0.15, (top + rise + 0.1 - y1) / tanS);
+  const depth = zf - zb + 0.1;
+  b.add('plaster', boxUV(roundedBox(w, h, depth, 0.04), 1 / 1.8), mat(x, y0 + h / 2, zb + depth / 2 - 0.05), { tint: wallTint });
+  // Roof: two tiled slabs pitched ~38°, ridge running back into the main roof.
+  const a = 0.66;
+  const half = w / 2 + 0.16;
+  const slab = half / Math.cos(a);
+  const ry = y1 + Math.tan(a) * (w / 2);
+  for (const sx of [-1, 1]) {
+    const g = boxUV(roundedBox(slab, 0.1, depth + 0.3, 0.04), 1 / 1.7);
+    b.add('roofTile', g, mat(x + sx * (half / 2 - 0.02), ry - Math.tan(a) * (half / 2) + 0.06, zb + depth / 2 + 0.05, 0, 0, -sx * a), { tint: roofTint });
+  }
+  const ridge = new THREE.CylinderGeometry(0.07, 0.07, depth + 0.32, 8);
+  ridge.rotateX(Math.PI / 2);
+  b.add('roofTile', ridge, mat(x, ry + 0.1, zb + depth / 2 + 0.05), { tint: new THREE.Color(roofTint).multiplyScalar(0.85).getHex() });
+  // Gable triangle over the window + barge board.
+  const tri = new THREE.Shape();
+  tri.moveTo(-w / 2, 0);
+  tri.lineTo(w / 2, 0);
+  tri.lineTo(0, ry - y1);
+  tri.closePath();
+  const tg = new THREE.ExtrudeGeometry(tri, { depth: 0.08, bevelEnabled: false });
+  b.add('plaster', tg, mat(x, y1 - 0.01, zf + 0.0), { tint: wallTint });
+  const wb = new MeshBuilder();
+  windowUnit(wb, w * 0.56, h * 0.58, false, false, rng);
+  b.addBuilder(wb, mat(x, y0 + h * 0.5, zf + 0.07));
+}
+
+/** A lean-to porch roof on posts across the front (+Z) of a house: depth `dz`, eave at `y`. */
+function porchRoof(b: MeshBuilder, x: number, fz: number, width: number, dz: number, y: number, roofTint: number, postTint = 0xf2ecde): void {
+  const slope = 0.32;
+  const len = dz / Math.cos(slope) + 0.2;
+  b.add('roofTile', boxUV(roundedBox(width + 0.3, 0.1, len, 0.04), 1 / 1.7), mat(x, y + Math.tan(slope) * dz * 0.5 + 0.05, fz + dz / 2, slope, 0, 0), { tint: roofTint });
+  b.add('woodPaint', roundedBox(width + 0.34, 0.12, 0.08, 0.03), mat(x, y - 0.02, fz + dz + 0.06), { tint: postTint });
+  for (const sx of [-1, 1]) {
+    const px = x + sx * (width / 2 - 0.05);
+    b.add('woodPaint', roundedBox(0.13, y, 0.13, 0.03), mat(px, y / 2, fz + dz - 0.05), { tint: postTint, aoWorld: groundAO(0.4) });
+    b.add('woodPaint', roundedBox(0.36, 0.08, 0.08, 0.02), mat(px - sx * 0.14, y - 0.18, fz + dz - 0.05, 0, 0, sx * 0.7), { tint: postTint });
+    b.add('stone', roundedBox(0.22, 0.12, 0.22, 0.03), mat(px, 0.06, fz + dz - 0.05), { tint: 0xc9c0b0 });
+  }
+  // Deck boards.
+  b.add('woodGrain', boxUV(roundedBox(width, 0.12, dz, 0.03), 1), mat(x, 0.08, fz + dz / 2), { tint: 0xb89068, aoWorld: groundAO(0.2) });
+}
+
+/** A climbing rose on a trellis against a wall (+Z face at fz). */
+function roseTrellis(b: MeshBuilder, rng: Rng, x: number, fz: number, h = 2.1): void {
+  for (const k of [-0.3, 0, 0.3]) b.add('woodPaint', roundedBox(0.035, h, 0.035, 0.01), mat(x + k, h / 2, fz + 0.06), { tint: 0xf2ecde });
+  for (let i = 1; i < 5; i++) b.add('woodPaint', roundedBox(0.7, 0.035, 0.035, 0.01), mat(x, (i * h) / 5, fz + 0.07), { tint: 0xf2ecde });
+  for (let i = 0; i < 14; i++) {
+    const t = rng.next();
+    const g = lumpySphere(0.1 + rng.next() * 0.05, 1, 0.3, rng);
+    sphericalNormals(g, new THREE.Vector3(), 0.5);
+    const lx = x + (rng.next() - 0.5) * (0.5 + t * 0.4);
+    const ly = 0.2 + t * h;
+    b.add('boxFlower', g, mat(lx, ly, fz + 0.14), { tint: i % 3 ? 0x4f8a3a : 0x63a046 });
+    if (i % 2 === 0) b.add('boxFlower', new THREE.IcosahedronGeometry(0.055, 0), mat(lx + 0.04, ly + 0.05, fz + 0.24), { tint: [0xe8506a, 0xff8fab, 0xf6e2e8][i % 3]! });
+  }
 }
 
 // ───────────────────────────────────────────── Flint & Ember forge
@@ -206,20 +281,25 @@ export function buildInn(rng: Rng): BuiltProp {
 // ───────────────────────────────────────────── Willowmere Clinic
 
 export function buildClinic(rng: Rng): BuiltProp {
-  const bp = buildTownHouse(rng, { w: 7.2, d: 5.0, wallH: 3.1, wall: 'plaster', wallTint: 0xf4f4ec, roofTint: 0x4a8a7e, doorTint: 0x3a7a8a, shutterTint: 0x4a8a7e, awning: [0x4a9a8a, 0xf4f4ec], chimney: false, doorX: 0, sign: 'none' });
+  const bp = buildTownHouse(rng, { w: 7.2, d: 5.0, wallH: 3.1, wall: 'plaster', wallTint: 0xf4f4ec, roofTint: 0x4a8a7e, doorTint: 0x3a7a8a, shutterTint: 0x4a8a7e, chimney: true, flowerBoxes: false, doorX: 0, sign: 'none' });
   const b = new MeshBuilder();
   const fz = 2.5;
+  // A pedimented entry porch on white columns + two dormers + climbing roses: a doctor's house,
+  // not another shop front.
+  porchRoof(b, 0, fz, 1.9, 1.15, 2.55, 0x4a8a7e);
+  for (const dx of [-2.2, 2.2]) dormer(b, rng, dx, 5.0, 3.1, 0xf4f4ec, 0x4a8a7e);
+  for (const sx of [-1, 1]) roseTrellis(b, rng, sx * 1.55, fz, 2.3);
   // Round teal sign above the door: a white leaf cradled by a heart (the clinic's emblem).
-  b.add('woodPaint', bevelCylinder(0.46, 0.46, 0.08, 0.03, 24).rotateX(Math.PI / 2), mat(0, 3.02, fz + 0.1), { tint: 0x2f7a74 });
-  b.add('woodPaint', new THREE.TorusGeometry(0.46, 0.04, 6, 28), mat(0, 3.02, fz + 0.15), { tint: 0xf2e2b8 });
+  b.add('woodPaint', bevelCylinder(0.46, 0.46, 0.08, 0.03, 24).rotateX(Math.PI / 2), mat(0, 3.32, fz + 0.1), { tint: 0x2f7a74 });
+  b.add('woodPaint', new THREE.TorusGeometry(0.46, 0.04, 6, 28), mat(0, 3.32, fz + 0.15), { tint: 0xf2e2b8 });
   const heart = new THREE.Shape();
   heart.moveTo(0, -0.22);
   heart.bezierCurveTo(-0.3, 0.02, -0.18, 0.26, 0, 0.1);
   heart.bezierCurveTo(0.18, 0.26, 0.3, 0.02, 0, -0.22);
-  b.add('white', new THREE.ExtrudeGeometry(heart, { depth: 0.03, bevelEnabled: false }), mat(0, 3.02, fz + 0.15), { tint: 0xfaf6ee });
+  b.add('white', new THREE.ExtrudeGeometry(heart, { depth: 0.03, bevelEnabled: false }), mat(0, 3.32, fz + 0.15), { tint: 0xfaf6ee });
   const leaf = new THREE.SphereGeometry(0.09, 10, 6);
   leaf.scale(0.5, 1.2, 0.3);
-  b.add('white', leaf, mat(0.02, 3.06, fz + 0.2, 0, 0, -0.5), { tint: 0x5aa86a });
+  b.add('white', leaf, mat(0.02, 3.36, fz + 0.2, 0, 0, -0.5), { tint: 0x5aa86a });
   // Herb planters under the windows.
   for (const sx of [-1, 1]) {
     b.add('woodPaint', boxUV(roundedBox(1.3, 0.42, 0.45, 0.04), 1), mat(sx * 2.4, 0.21, fz + 0.45), { tint: 0x4a8a7e, aoWorld: groundAO(0.3) });
@@ -454,7 +534,9 @@ export function buildStall(rng: Rng, stripes: [number, number], goods: 'produce'
     const blooms = [0xff8fab, 0xffd166, 0xffffff, 0xc77dff, 0xf25f5c, 0x7ec8ff];
     for (let c = 0; c < 5; c++) {
       const cx = -1.0 + c * 0.5;
-      b.add('metal', bevelCylinder(0.17, 0.13, 0.3, 0.02, 10), mat(cx, top, 0.05), { tint: 0x8aa0a8 });
+      // Galvanised florist's buckets (painted 'white' kit, not the dark metal shader: they read black in shade).
+      b.add('white', bevelCylinder(0.17, 0.13, 0.3, 0.02, 12), mat(cx, top, 0.05), { tint: [0xb8c4c8, 0xc8704a, 0xa8b8bc, 0xe8d8b8, 0xb0bcc0][c]! });
+      b.add('white', new THREE.TorusGeometry(0.168, 0.012, 4, 16), mat(cx, top + 0.29, 0.05, Math.PI / 2, 0, 0), { tint: 0x8a989c });
       for (let k = 0; k < 7; k++) {
         const a = rng.next() * Math.PI * 2;
         const r = rng.next() * 0.1;
@@ -676,6 +758,24 @@ export function buildSchoolhouse(rng: Rng): BuiltProp {
     b.add('metal', bevelCylinder(0.09, 0.08, 0.16, 0.015, 10), mat(-2.0 + i * 0.36, 0.48, fz + 0.36), { tint: [0x9ab0c0, 0xc8a050, 0x8ab08a][i]! });
     b.add('metal', new THREE.TorusGeometry(0.07, 0.008, 4, 10, Math.PI), mat(-2.0 + i * 0.36, 0.64, fz + 0.36), { tint: 0x5a5a5a });
   }
+  // A lean-to woodshed on the west gable: split logs stacked under a slate skillion.
+  {
+    const sx0 = -W / 2 - 0.05;
+    const sw = 1.3;
+    const cxs = sx0 - sw / 2;
+    b.add('woodGrain', boxUV(roundedBox(sw, 0.1, D * 0.7, 0.03), 1), mat(cxs, 0.05, -0.2), { tint: 0x8a6a4a });
+    const sl = 0.42;
+    b.add('roofTile', boxUV(roundedBox(sw / Math.cos(sl) + 0.3, 0.09, D * 0.78, 0.03), 1 / 1.7), mat(cxs - 0.05, 2.05 + Math.tan(sl) * sw * 0.5 - 0.3, -0.2, 0, 0, sl), { tint: 0x5a6470 });
+    for (const sz of [-1, 1]) b.add('woodDark', roundedBox(0.1, 1.85, 0.1, 0.02), mat(sx0 - sw + 0.08, 0.92, -0.2 + sz * D * 0.33), { tint: 0x6a4a32 });
+    // Two stacks of split logs, end grain to the lane (axis along z).
+    for (const zc of [-0.75, 0.45])
+      for (let row = 0; row < 5; row++)
+        for (let i = 0; i < 5 - (row === 4 ? 1 : 0); i++) {
+          const log = new THREE.CylinderGeometry(0.1, 0.11, 0.9, 7);
+          log.rotateX(Math.PI / 2);
+          b.add('woodGrain', log, mat(cxs + (i - 2) * 0.22 + (row % 2) * 0.11, 0.21 + row * 0.19, zc + (rng.next() - 0.5) * 0.08, 0, 0, rng.next() * 3), { tint: (i + row) % 3 ? 0xb88a5a : 0x9a6a3e });
+        }
+  }
   attach(bp, b, 'school-extras');
   bp.anchors.bell = new THREE.Vector3(cx, cy + 0.9, 0);
   return bp;
@@ -696,6 +796,10 @@ export function buildSouthCottage(rng: Rng): BuiltProp {
   const bp = buildTownHouse(rng, { w: 5.4, d: 4.4, wallH: 2.7, wall: 'plaster', wallTint: 0xdce8d0, roofTint: 0xb8674a, doorTint: 0xe0a83a, shutterTint: 0x5a7a8a, chimney: true, flowerBoxes: true, doorX: -1 });
   const b = new MeshBuilder();
   const fz = 2.2;
+  // A deep veranda over the chairs and a single dormer: a farmhouse profile, not the shop box.
+  porchRoof(b, 1.45, fz, 2.5, 1.25, 2.35, 0xb8674a, 0xf2ecde);
+  dormer(b, rng, 1.2, 4.4, 2.7, 0xdce8d0, 0xb8674a, 1.05);
+  roseTrellis(b, rng, -2.4, fz, 2.0);
   // Porch chairs + side table with a teapot.
   for (const sx of [0.9, 2.0]) {
     b.add('woodPaint', roundedBox(0.5, 0.06, 0.46, 0.02), mat(sx, 0.46, fz + 0.5), { tint: 0xf2ecde });
@@ -789,4 +893,68 @@ export function buildFlowerRing(rng: Rng, r0: number, r1: number, a0: number, a1
     b.add('white', new THREE.SphereGeometry(0.05, 5, 4), mat(x + (rng.next() - 0.5) * 0.08, 0.31, z + (rng.next() - 0.5) * 0.08), { tint: cols[i % cols.length]! });
   }
   return b.build({ name: 'flower-ring' });
+}
+
+
+/** A picnic on the lawn: a gingham blanket (rumpled), a wicker basket with a loaf, a jug and two cups. */
+export function buildPicnic(rng: Rng, cloth = 0xd8573e): THREE.Group {
+  const b = new MeshBuilder();
+  // Blanket: a subdivided plane with soft rumples, checks painted per cell.
+  const N = 6;
+  const S = 1.9 / N;
+  for (let i = 0; i < N; i++)
+    for (let j = 0; j < N; j++) {
+      const g = new THREE.PlaneGeometry(S + 0.004, S + 0.004, 2, 2);
+      g.rotateX(-Math.PI / 2);
+      const pa = g.attributes.position as THREE.BufferAttribute;
+      for (let v = 0; v < pa.count; v++) {
+        const wx = pa.getX(v) + (i - N / 2 + 0.5) * S;
+        const wz = pa.getZ(v) + (j - N / 2 + 0.5) * S;
+        pa.setY(v, 0.075 + 0.018 * Math.sin(wx * 4.1 + 1.3) * Math.sin(wz * 3.3) + (Math.abs(wx) > 0.88 || Math.abs(wz) > 0.88 ? -0.02 : 0));
+      }
+      g.computeVertexNormals();
+      const c = (i + j) % 2 === 0 ? cloth : i % 2 && j % 2 ? 0xf6efe2 : new THREE.Color(cloth).lerp(new THREE.Color(0xf6efe2), 0.55).getHex();
+      b.add('cloth', g, mat((i - N / 2 + 0.5) * S, 0, (j - N / 2 + 0.5) * S), { tint: c });
+    }
+  // Basket: woven body, lid half open, a handle arch, a baguette poking out.
+  b.add('woodGrain', boxUV(roundedBox(0.46, 0.26, 0.32, 0.06), 3), mat(0.42, 0.16, -0.38, 0, 0.3, 0), { tint: 0xc89a5a });
+  b.add('woodGrain', roundedBox(0.48, 0.04, 0.17, 0.02), mat(0.42, 0.31, -0.46, -0.5, 0.3, 0), { tint: 0xb88a4a });
+  b.add('woodGrain', new THREE.TorusGeometry(0.17, 0.018, 5, 14, Math.PI), mat(0.42, 0.29, -0.38, 0, 0.3, 0), { tint: 0xa87a3a });
+  const loaf = new THREE.CapsuleGeometry(0.05, 0.36, 4, 8);
+  b.add('white', loaf, mat(0.36, 0.36, -0.32, 0.2, 0.3, 1.1), { tint: 0xd89048 });
+  // Jug + cups + a plate of strawberries.
+  b.add('white', new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(0.08, 0.01), new THREE.Vector2(0.1, 0.1), new THREE.Vector2(0.06, 0.2), new THREE.Vector2(0.07, 0.24)], 12), mat(-0.35, 0.03, -0.3), { tint: 0x5a8ab0 });
+  for (const [x, z] of [[-0.1, 0.25], [0.12, 0.38]] as const) b.add('white', bevelCylinder(0.045, 0.038, 0.09, 0.01, 10), mat(x, 0.03, z), { tint: 0xf6efe2 });
+  b.add('white', bevelCylinder(0.17, 0.15, 0.03, 0.01, 16), mat(-0.32, 0.03, 0.22), { tint: 0xf6efe2 });
+  for (let i = 0; i < 7; i++) {
+    const a = rng.next() * Math.PI * 2;
+    const r = rng.next() * 0.09;
+    b.add('white', new THREE.SphereGeometry(0.03, 6, 5), mat(-0.32 + Math.cos(a) * r, 0.08, 0.22 + Math.sin(a) * r, 0, 0, 0, 1, 1.2, 1), { tint: 0xe03a3a });
+  }
+  return b.build({ name: 'picnic' });
+}
+
+/** A clump of tall meadow flowers (cosmos / foxglove spikes / daisies) to break up bare lawn. */
+export function buildWildflowers(rng: Rng, colors: number[] = [0xff8fab, 0xffffff, 0xc77dff, 0xffd166]): THREE.Group {
+  const b = new MeshBuilder();
+  for (let i = 0; i < 16; i++) {
+    const a = rng.next() * Math.PI * 2;
+    const r = Math.sqrt(rng.next()) * 0.7;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r * 0.8;
+    const h = 0.35 + rng.next() * 0.45 * (1 - r * 0.6);
+    const lean = (rng.next() - 0.5) * 0.3;
+    b.add('boxFlower', roundedBox(0.018, h, 0.018, 0.006, 1), mat(x, h / 2, z, lean, 0, (rng.next() - 0.5) * 0.3), { tint: 0x4f8a3a });
+    const leaf = lumpySphere(0.07, 0, 0.3, rng);
+    b.add('boxFlower', leaf, mat(x, 0.08, z, 0, 0, 0, 1.4, 0.6, 1.4), { tint: i % 2 ? 0x5a9a42 : 0x4a8a3a });
+    const c = colors[i % colors.length]!;
+    if (i % 4 === 3) {
+      // foxglove spike: stacked bells
+      for (let k = 0; k < 4; k++) b.add('boxFlower', new THREE.SphereGeometry(0.035 - k * 0.005, 6, 5), mat(x + Math.sin(lean) * h * 0.3, h * 0.72 + k * 0.07, z, 0, 0, 0, 1, 1.3, 1), { tint: c });
+    } else {
+      b.add('boxFlower', new THREE.CylinderGeometry(0.06, 0.05, 0.02, 8), mat(x + Math.sin(lean) * h * 0.5, h, z, 0.3, 0, 0), { tint: c });
+      b.add('boxFlower', new THREE.SphereGeometry(0.022, 6, 4), mat(x + Math.sin(lean) * h * 0.5, h + 0.015, z), { tint: 0xf2b830 });
+    }
+  }
+  return b.build({ name: 'wildflowers' });
 }
