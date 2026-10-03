@@ -33,10 +33,22 @@ const zeroPerf = (e: { calls: number; triangles: number }): void => {
  * uniformsNeedUpdate onto the drawn material).
  */
 const twins = new WeakMap<THREE.Material, THREE.Material[]>();
-function programTwin(m: THREE.Material, o: THREE.Object3D): THREE.Material {
-  const b = o as THREE.Object3D & { isBatchedMesh?: boolean; isInstancedMesh?: boolean; isSkinnedMesh?: boolean };
-  const kind = b.isBatchedMesh ? 0 : b.isInstancedMesh ? 1 : b.isSkinnedMesh ? 2 : -1;
-  if (kind < 0 || !m || (m as THREE.ShaderMaterial).isShaderMaterial) return m;
+/**
+ * Program-relevant object kind: batched / instanced / skinned, plus the per-object state three folds into
+ * the program choice for a shared material — instance colours (an InstancedMesh with instanceColor next to
+ * one without flipped the AO pass's normal override 4× a frame, town r5) and morph targets. 0 = plain.
+ */
+function twinKind(o: THREE.Object3D, geo: THREE.BufferGeometry | undefined): number {
+  const b = o as THREE.Object3D & { isBatchedMesh?: boolean; isInstancedMesh?: boolean; isSkinnedMesh?: boolean; instanceColor?: unknown; _colorsTexture?: unknown };
+  let k = b.isBatchedMesh ? 1 : b.isInstancedMesh ? 2 : b.isSkinnedMesh ? 3 : 0;
+  if ((b.isInstancedMesh && b.instanceColor) || (b.isBatchedMesh && b._colorsTexture)) k |= 4;
+  const ma = geo?.morphAttributes;
+  if (ma && (ma.position || ma.normal || ma.color)) k |= 8;
+  return k;
+}
+function programTwin(m: THREE.Material, o: THREE.Object3D, geo?: THREE.BufferGeometry): THREE.Material {
+  const kind = twinKind(o, geo);
+  if (kind === 0 || !m || (m as THREE.ShaderMaterial).isShaderMaterial) return m;
   let list = twins.get(m);
   if (!list) twins.set(m, (list = []));
   let t = list[kind];
@@ -68,6 +80,9 @@ export class CameraRig {
   /** Clamp region for the target (map bounds). */
   bounds: THREE.Box2 | null = null;
   private shake = 0;
+  /** Scratch vectors for apply() (pillar 14: no per-frame allocation). */
+  private tmpT = new THREE.Vector3();
+  private tmpO = new THREE.Vector3();
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -87,14 +102,14 @@ export class CameraRig {
   }
 
   private apply(dt: number): void {
-    const t = this.smoothTarget.clone().add(this.lookOffset);
+    const t = this.tmpT.copy(this.smoothTarget).add(this.lookOffset);
     if (this.bounds) {
       t.x = THREE.MathUtils.clamp(t.x, this.bounds.min.x, this.bounds.max.x);
       t.z = THREE.MathUtils.clamp(t.z, this.bounds.min.y, this.bounds.max.y);
     }
     const p = THREE.MathUtils.degToRad(this.pitch);
     const y = THREE.MathUtils.degToRad(this.yaw);
-    const off = new THREE.Vector3(Math.sin(y) * Math.cos(p), Math.sin(p), Math.cos(y) * Math.cos(p)).multiplyScalar(this.distance);
+    const off = this.tmpO.set(Math.sin(y) * Math.cos(p), Math.sin(p), Math.cos(y) * Math.cos(p)).multiplyScalar(this.distance);
     this.camera.position.copy(t).add(off);
     if (this.shake > 0) {
       const s = this.shake * this.shake * 0.25;
@@ -143,6 +158,9 @@ export class RenderContext {
   /**
    * Behind full-screen menus (blurred backdrop, sim paused) the world only needs to refresh at a
    * few Hz: >0 caps world renders to this rate; the canvas keeps its last frame in between.
+   * <0 holds the last frame outright (a paused world under the blur: no 1440p world frame + full-screen
+   * backdrop-filter recompute landing as one long frame every few rAFs — the ui-map p99, r5). A resize,
+   * a quality change or a gated object still compiling forces a refresh.
    */
   backdropHz = 0;
   private lastRenderAt = -1;
@@ -192,6 +210,8 @@ export class RenderContext {
 
   resize(): void {
     this.measure();
+    // setSize clears the canvas: a held menu backdrop must re-render once.
+    this.lastRenderAt = -1;
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(this.width, this.height);
     this.camera.aspect = this.width / this.height;
@@ -220,7 +240,9 @@ export class RenderContext {
     if (this.lastFrameAt >= 0) this.governor.sample(now - this.lastFrameAt);
     this.lastFrameAt = now;
     if (this.compiling > 0) return;
-    if (this.backdropHz > 0 && this.lastRenderAt >= 0 && now - this.lastRenderAt < 1000 / this.backdropHz - 1) return;
+    if (this.backdropHz !== 0 && this.lastRenderAt >= 0) {
+      if (this.backdropHz < 0 ? !this.shaderGate.busy : now - this.lastRenderAt < 1000 / this.backdropHz - 1) return;
+    }
     this.lastRenderAt = now;
     runBakes(this.renderer);
     this.lights.update(this.scene, this.camera, this.rig.focus, dt);
@@ -286,7 +308,7 @@ export class RenderContext {
       const c0 = info.calls;
       const t0 = info.triangles;
       const obj = object as THREE.Object3D;
-      orig(cam, scene, geo, programTwin(material as THREE.Material, obj), obj, group);
+      orig(cam, scene, geo, programTwin(material as THREE.Material, obj, geo as THREE.BufferGeometry), obj, group);
       let tag = obj.parent ? tagOf(obj) : 'post';
       if (this.perfPasses) {
         const c = cam as THREE.Camera & { isOrthographicCamera?: boolean };

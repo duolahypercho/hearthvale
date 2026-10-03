@@ -129,6 +129,8 @@ export class Game {
   toolbarSlot = 0;
   frame = 0;
   private acc = 0;
+  /** Seconds the current pausing menu has been open (backdrop refresh policy in step()). */
+  private menuOpenT = 0;
   private last = 0;
   private readyResolve!: () => void;
   readonly readyPromise: Promise<void>;
@@ -274,8 +276,11 @@ export class Game {
     this.lighting.update(dt, this.calendar.hour);
     this.hud.update(dt);
     // Pausing menus (inventory, map, options, shop, day end…) sit on a blurred backdrop over a
-    // frozen sim: refresh the world behind them at 20 Hz instead of every frame (pillar 14).
-    this.rc.backdropHz = this.hud.root.classList.contains('h-menu-open') ? 20 : 0;
+    // frozen sim: refresh the world behind them at 20 Hz while the panel opens, then hold that frame
+    // (a live world keeps going in co-op: 5 Hz). Pillar 14 — the ui-map p99 (r5).
+    const menu = this.hud.root.classList.contains('h-menu-open');
+    this.menuOpenT = menu ? this.menuOpenT + dt : 0;
+    this.rc.backdropHz = !menu ? 0 : this.menuOpenT < 0.4 ? 20 : this.paused ? -1 : 5;
     if (!this.renderOverride?.(dt)) this.rc.render(dt, this.time);
     for (const f of this.afterRender) f();
     this.input.endFrame();

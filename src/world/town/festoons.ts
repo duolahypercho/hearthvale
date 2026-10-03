@@ -183,7 +183,8 @@ export class Festoons {
   /** Point on span i at t (0..1), world space. */
   point(i: number, t: number, out: THREE.Vector3): THREE.Vector3 {
     const s = this.spans[i]!;
-    return catenary(_a.set(...s.a), _b.set(...s.b), s.sag, t, out);
+    // fromArray, not set(...spread): the dialogue lens guard calls this ~17× per span every few frames (pillar 14).
+    return catenary(_a.fromArray(s.a), _b.fromArray(s.b), s.sag, t, out);
   }
 
   setSeason(season: Season): void {

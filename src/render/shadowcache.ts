@@ -192,22 +192,26 @@ export class StaticShadowCache {
 
   /** Split this frame's shadow casters into moving (drawn every frame) and still (baked). */
   private classify(scene: THREE.Object3D, camera: THREE.Camera): void {
+    // Indexed writes + a final length (no `length = 0` + push: that dropped and re-grew the backing
+    // stores every frame, ~6 KB of garbage; pillar 14).
     const dyn = this.dyn;
     const still = this.still;
-    dyn.length = 0;
-    still.length = 0;
+    let nd = 0;
+    let ns = 0;
     this.needRefresh = false;
     this.lastCause = undefined;
     let bakedSeen = 0;
     const frame = this.frame;
     const stack = this.stack;
-    stack.length = 0;
-    stack.push(scene);
-    while (stack.length) {
-      const o = stack.pop() as Caster;
+    let sp = 0;
+    let hi = 1;
+    stack[sp++] = scene;
+    while (sp > 0) {
+      const o = stack[--sp] as Caster;
       if (!o.visible) continue;
       const ch = o.children;
-      for (let i = 0; i < ch.length; i++) stack.push(ch[i]!);
+      for (let i = 0; i < ch.length; i++) stack[sp++] = ch[i]!;
+      if (sp > hi) hi = sp;
       if (!o.castShadow || !(o.isMesh || o.isLine || o.isPoints) || !o.layers.test(camera.layers)) continue;
       const e = o.matrixWorld.elements;
       const ver = versionOf(o);
@@ -232,15 +236,19 @@ export class StaticShadowCache {
       const baked = this.baked.has(o);
       if (baked) bakedSeen++;
       if (moving) {
-        dyn.push(o);
+        dyn[nd++] = o;
         // Baked at a stale transform.
         if (baked) (this.needRefresh = true), (this.lastCause ??= o);
       } else {
-        still.push(o);
+        still[ns++] = o;
         // Settled but not in the cache yet.
         if (!baked) (this.needRefresh = true), (this.lastCause ??= o);
       }
     }
+    dyn.length = nd;
+    still.length = ns;
+    // Stale slots past this walk's high-water mark (an old map's objects must not stay reachable).
+    if (stack.length > hi) stack.length = hi;
     // A baked caster vanished (hidden, removed, castShadow off).
     if (bakedSeen !== this.baked.size) (this.needRefresh = true), (this.lastCause ??= null);
   }

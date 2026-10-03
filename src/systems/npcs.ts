@@ -82,6 +82,21 @@ const _ab = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _hp = new THREE.Vector3();
 const _q2 = new THREE.Vector3();
+// Lens-sweep scratch (pillar 14: the 42-angle camera search allocated ~30-74 KB a frame, GC on p99, r5).
+const _cp = new THREE.Vector3();
+const _sa = new THREE.Vector3();
+const _sb = new THREE.Vector3();
+const _seen: { id: Who; x: number; y: number; z: number; head: number }[] = [];
+const _seenProp = { id: 'player' as Who, x: 0, y: 0, z: 0, head: 1.3 };
+const _fgP = new THREE.Vector3();
+const _fgSeg = new THREE.Vector3();
+const _fgW = new THREE.Vector3();
+/** Candidate lens offsets [yaw delta, pitch delta, distance scale], best-last fallback order. */
+const CAM_CANDS: readonly (readonly [number, number, number])[] = (() => {
+  const c: [number, number, number][] = [];
+  for (const k of [1, 0.75]) for (const dp of [0, 10, 20]) for (const dy of [0, 15, -15, 30, -30, 45, -45]) c.push([dy, dp, k]);
+  return c;
+})();
 const FACING_YAW: Record<Facing, number> = { down: 0, up: Math.PI, left: -Math.PI / 2, right: Math.PI / 2 };
 const PLAZA_C = { x: 32, z: 25, r: 3.55 };
 const EMOTES_CHAT: Emote[] = ['music', 'exclaim', 'question', 'heart', 'dots', 'idea'];
@@ -126,11 +141,9 @@ const STAGES: Record<string, Mark[]> = {
     ['linus', 33.6, 50.2, 30, 'chat'],
     ['marigold', 35.0, 50.9, -55, 'chat', 'heart'],
     ['hazel', 30.1, 55.5, -55, 'water', 'music'],
-    ['rowan', 24.4, 55.2, 70, 'hammer'],
     ['kit', 21.6, 48.6, 20, 'play'],
     ['june', 34.6, 55.0, 40, 'chat', 'idea'],
     ['bram', 35.9, 55.7, -50, 'chat'],
-    ['wren', 17.6, 51.6, 35, 'read'],
   ],
   'town-winter': [
     ['marigold', 20.6, 21.3, 25, 'sweep'],
@@ -1003,8 +1016,13 @@ export class NpcSystem implements System {
     const map = this.game.world.current;
     if (!map) return 0;
     let hits = 0;
-    for (const a of acts) {
-      for (const hy of [a.head - 0.3, a.head * 0.5]) {
+    const blk = NpcSystem.BLOCKERS;
+    // Indexed loops, no tuple destructuring: run ~10k sight-line steps per lens sweep, and each for-of /
+    // [a, b] = r iterator step allocated (pillar 14).
+    for (let ai = 0; ai < acts.length; ai++) {
+      const a = acts[ai]!;
+      for (let k = 0; k < 2; k++) {
+        const hy = k === 0 ? a.head - 0.3 : a.head * 0.5;
         const ax = a.x;
         const ay = a.y + hy;
         const az = a.z;
@@ -1021,9 +1039,10 @@ export class NpcSystem implements System {
             hit = true;
             break;
           }
-          for (const b of NpcSystem.BLOCKERS) {
-            const [x0, z0, x1, z1] = b.r;
-            if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+          for (let bi = 0; bi < blk.length; bi++) {
+            const b = blk[bi]!;
+            const r = b.r;
+            if (x < r[0] || x > r[2] || z < r[1] || z > r[3]) continue;
             if (y - map.heightAt(x, z) < b.h) {
               hit = true;
               break;
@@ -1051,7 +1070,9 @@ export class NpcSystem implements System {
       for (const o of acts) {
         if (o === lead) continue;
         // Head (with a hat brim for the farmer), then the shoulders.
-        for (const [oy, r] of [[o.head - (o.id === 'player' ? 0.38 : 0.34), o.id === 'player' ? 0.5 : 0.4], [o.head * 0.55, 0.3]] as const) {
+        for (let k = 0; k < 2; k++) {
+          const oy = k === 0 ? o.head - (o.id === 'player' ? 0.38 : 0.34) : o.head * 0.55;
+          const r = k === 0 ? (o.id === 'player' ? 0.5 : 0.4) : 0.3;
           _hp.set(o.x, o.y + oy, o.z);
           if (pos.distanceTo(_hp) > dl - 0.2) continue;
           _q.subVectors(_ab, pos);
@@ -1170,8 +1191,7 @@ export class NpcSystem implements System {
     const key = `${kind}|${s.speaker}|${Math.round(cx)}|${Math.round(cz)}|${Math.round(yaw / 5)}`;
     if (key !== this.camPick.key || this.clock - this.camPick.t > 0.5) {
       const probe = new THREE.Vector3(cx, map.heightAt(cx, cz) + 0.9, cz);
-      const cands: [number, number, number][] = [];
-      for (const k of [1, 0.75]) for (const dp of [0, 10, 20]) for (const dy of [0, 15, -15, 30, -30, 45, -45]) cands.push([dy, dp, k]);
+      const cands = CAM_CANDS;
       let best = cands[cands.length - 1]!;
       let bestHits = 99;
       // Score: blocked sight lines dominate; then a speaker turned from the lens (three-quarter is
@@ -1198,16 +1218,26 @@ export class NpcSystem implements System {
         const upK = ots ? 0.3 : kind === 'close' ? 0.2 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
         const lf = (cd * Math.tan(upK * Math.tan(THREE.MathUtils.degToRad(this.game.rc.camera.fov) / 2))) / Math.sin(THREE.MathUtils.degToRad(cp));
         const cyr = THREE.MathUtils.degToRad(cy);
-        const pos = this.camPosFor(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf), cy, cp, cd);
+        const pos = this.camPosFor(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf), cy, cp, cd, _cp);
         let h = this.buildingHits(pos, acts) * 10;
-        for (const b of by) for (const a of acts) if (segD(pos, new THREE.Vector3(a.x, a.y + a.head * 0.6, a.z), b) < 0.55) h += 3;
+        for (const b of by) for (const a of acts) if (segD(pos, _sa.set(a.x, a.y + a.head * 0.6, a.z), b) < 0.55) h += 3;
         // Lamp posts / festoon poles standing in front of a face or body.
         // (the prop a line is about counts as an actor: nothing may stand in front of it either)
-        const seen = s.prop && kind !== 'wide' ? [...acts, { id: 'player' as Who, x: s.prop.position.x, y: s.prop.position.y, z: s.prop.position.z, head: 1.3 }] : acts;
+        let seen = acts;
+        if (s.prop && kind !== 'wide') {
+          _seen.length = 0;
+          for (const a of acts) _seen.push(a);
+          _seenProp.x = s.prop.position.x;
+          _seenProp.y = s.prop.position.y;
+          _seenProp.z = s.prop.position.z;
+          _seen.push(_seenProp);
+          seen = _seen;
+        }
         for (const a of seen)
           for (const po of POSTS) {
             if (Math.hypot(po.x - a.x, po.z - a.z) > 7) continue;
-            for (const hy of [a.head * 0.85, a.head * 0.45]) {
+            for (let k = 0; k < 2; k++) {
+              const hy = k === 0 ? a.head * 0.85 : a.head * 0.45;
               const ex = a.x;
               const ez = a.z;
               // Closest approach of the lens→actor ray (in plan) to the post, below the post top (3.3 m).
@@ -1245,7 +1275,7 @@ export class NpcSystem implements System {
         // Walk beats: the walker's body must not hide behind the farmer (or anyone).
         if (kind === 'wide' && s.speaker) {
           const w = acts.find((a) => a.id === s.speaker);
-          if (w) for (const o of acts) if (o !== w && segD(pos, new THREE.Vector3(w.x, w.y + w.head * 0.55, w.z), new THREE.Vector3(o.x, o.y + o.head * 0.55, o.z)) < 0.6) h += 8;
+          if (w) for (const o of acts) if (o !== w && segD(pos, _sa.set(w.x, w.y + w.head * 0.55, w.z), _sb.set(o.x, o.y + o.head * 0.55, o.z)) < 0.6) h += 8;
         }
         if (fy !== null && kind !== 'wide') {
           const cr = THREE.MathUtils.degToRad(cy);
@@ -1327,19 +1357,26 @@ export class NpcSystem implements System {
       return;
     }
     if (!force && ++this.festFrame % 3) return;
-    const hide: number[] = [];
+    // Pooled scratch (pillar 14: this ran every third frame of every dialogue, ~10 KB a frame of garbage).
+    const hide = this.fgHide;
+    hide.length = 0;
     const cam = this.game.rc.camera.position;
     const acts = this.camActors();
     const dayEvent = this.camMode === 'event' && this.game.lighting.night < 0.3;
-    const eyes: THREE.Vector3[] = [];
-    for (const a of acts) for (const k of [0.3, 0.5, 0.75]) eyes.push(new THREE.Vector3(a.x, a.y + a.head * (1 - k * 0.5) - 0.1, a.z));
+    const pool = this.fgEyes;
+    let ne = 0;
+    const eye = (x: number, y: number, z: number): void => {
+      if (ne === pool.length) pool.push(new THREE.Vector3());
+      pool[ne++]!.set(x, y, z);
+    };
+    for (const a of acts) for (let k = 0; k < 3; k++) eye(a.x, a.y + a.head * (1 - (k === 0 ? 0.3 : k === 1 ? 0.5 : 0.75) * 0.5) - 0.1, a.z);
     // Bystanders in the frame keep their faces clear too (a cord across a background face reads as a glitch).
     for (const o of this.agents.values())
       if (!o.inside && o.v.root.visible && !acts.some((a) => a.id === o.def.id) && o.v.position.distanceTo(this.lookPoint) < 9)
-        eyes.push(new THREE.Vector3(o.v.position.x, o.v.position.y + o.v.headTop * 0.8, o.v.position.z));
-    const p = new THREE.Vector3();
-    const seg = new THREE.Vector3();
-    const w = new THREE.Vector3();
+        eye(o.v.position.x, o.v.position.y + o.v.headTop * 0.8, o.v.position.z);
+    const p = _fgP;
+    const seg = _fgSeg;
+    const w = _fgW;
     for (let i = 0; i < f.spans.length; i++) {
       if (dayEvent) {
         hide.push(i);
@@ -1349,7 +1386,8 @@ export class NpcSystem implements System {
       for (let t = 0; t <= 1.0001 && !bad; t += 1 / 16) {
         f.point(i, t, p);
         if (p.distanceTo(cam) < 4) bad = true;
-        for (const e of eyes) {
+        for (let ei = 0; ei < ne; ei++) {
+          const e = pool[ei]!;
           // Distance from the cord point to the lens→face segment.
           seg.subVectors(e, cam);
           const u = THREE.MathUtils.clamp(w.subVectors(p, cam).dot(seg) / seg.lengthSq(), 0, 1);
@@ -1364,6 +1402,8 @@ export class NpcSystem implements System {
     f.setHidden(hide);
   }
   private festFrame = 0;
+  private fgHide: number[] = [];
+  private fgEyes: THREE.Vector3[] = [];
 
   // ── trees in the sight lines (same approach as the story cutscenes)
 

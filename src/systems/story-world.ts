@@ -1389,6 +1389,9 @@ class SkyLanterns {
     this.mesh = new THREE.InstancedMesh(skyLanternGeo(), m, this.n);
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
+    // Hidden while idle: an empty transparent double-sided draw still costs three two program
+    // re-derivations a frame (it flips the material's side + needsUpdate per pass; pillar 14).
+    this.mesh.visible = false;
     this.mesh.userData.noAO = true;
     this.mesh.castShadow = false;
     this.mesh.name = 'sky-lanterns';
@@ -1421,12 +1424,14 @@ class SkyLanterns {
     this.active = true;
     this.t = prewarm;
     this.mesh.count = this.n;
+    this.mesh.visible = true;
     this.halos.geometry.setDrawRange(0, this.n);
     this.update(0);
   }
   stop(): void {
     this.active = false;
     this.mesh.count = 0;
+    this.mesh.visible = false;
     this.halos.geometry.setDrawRange(0, 0);
   }
   /** Jump the flight forward (a scene cut: the lanterns have been climbing meanwhile). */
