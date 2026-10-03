@@ -5,7 +5,9 @@
  * the set of buildings changes (rare), so the whole compound costs a handful of draw calls.
  *
  * Placing a building clears its footprint (debris, grass, ground cover), paints a trampled dirt
- * apron at the door and marks the footprint tiles solid.
+ * apron at the door and marks the footprint tiles solid. The paddock wears where the herd lives
+ * (`yardWear`): packed-earth tracks gate → trough / manger, mud at the trough, the pig's wallow, a duck
+ * pond (YARD), hoof + hen prints, scratch feed and spilled straw, grass cleared off the bare tiles.
  */
 import * as THREE from 'three';
 import type { Game } from '../../core/game';
@@ -170,6 +172,9 @@ export class FarmBuildings {
           const sx = Math.floor(s.x + BARN_SIZE.W / 2 + BARN_SILO.dx);
           const sz = Math.floor(s.z + BARN_SILO.dz);
           this.clearRect(sx - 1, sz - 1, sx + 1, sz + 1, true);
+          // A tree crowding the silo hid it from the yard: felled (as the paddock oak is).
+          for (let tz = sz - 3; tz <= sz + 2; tz++)
+            for (let tx = sx - 1; tx <= sx + 3; tx++) if (this.map.grid.getObject(tx, tz)?.kind === 'tree') this.map.grid.removeObject(tx, tz);
           for (const [tx, tz] of [[sx - 1, sz - 1], [sx, sz - 1], [sx - 1, sz], [sx, sz]] as const) this.solid(tx, tz);
           const lx = Math.floor(s.x - BARN_SIZE.W / 2 - 0.7);
           for (let z = r.z0; z <= r.z1 - 1; z++) {
@@ -411,9 +416,9 @@ export class FarmBuildings {
       const r = 0.08 + rng.next() * 0.08;
       b.add('stone', lumpySphere(r, 1, 0.25, rng), mat(sx, y(sx, sz) + r * 0.25, sz, 0, rng.next() * 3, 0, 1.2, 0.6, 1), { tint: rng.next() < 0.5 ? 0xb8b2a6 : 0x9c9888 });
     }
-    // Reeds + cattails at the back-left of the pond
+    // Reeds + cattails along the west rim (the north rim is where animals come to drink)
     for (let i = 0; i < 14; i++) {
-      const a = Math.PI * (1.05 + rng.next() * 0.55);
+      const a = Math.PI * (0.82 + rng.next() * 0.36);
       const rx = pond.x + Math.cos(a) * (pond.rx - 0.05 + rng.next() * 0.2);
       const rz = pond.z + Math.sin(a) * (pond.rz - 0.05 + rng.next() * 0.15);
       const hgt = 0.45 + rng.next() * 0.4;

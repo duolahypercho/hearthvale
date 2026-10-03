@@ -1,9 +1,13 @@
 /**
  * Outdoor farm buildings (hero props, merged per material by MeshBuilder):
- *   coop            red board-and-batten henhouse on a stone plinth, dutch door, pop-hole + ramp,
- *                   side nest box, flower box, rooster weathervane
- *   barn            classic gambrel barn: big sliding X-brace doors, hay-loft door + hoist beam,
- *                   white fascia trim, louvred cupola with a cow weathervane
+ *   coop            limewashed board henhouse with oak trim on a fieldstone plinth, mossy terracotta
+ *                   pantile roof, sage Dutch door, shuttered window + flower box, pop hole with a roped
+ *                   hatch + cleated ramp, tiled nest-box bump-out, firewood stack, rooster weathervane
+ *   barn            weathered red gambrel barn on fieldstone: big sliding X-brace doors, hay hood
+ *                   projecting over the loft door (hoist beam, block + rope), shingle courses, flower
+ *                   boxes, louvred cupola + cow weathervane, a west lean-to (bales, cart wheel, fork)
+ *                   and an east fieldstone silo with a verdigris dome, ladder and feed chute
+ *   pasture         plank water trough + enamel bucket, slatted hay manger with square bales
  *   construction    staked + strung footprint, lumber stack, stone pile, sawhorse, plan sign
  *   carpenter board a little roofed notice board with pinned blueprints (opens the build menu)
  *   doghouse        painted kennel with a name plate + a food / water bowl

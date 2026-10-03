@@ -580,8 +580,8 @@ export class HouseInterior extends InteriorMap {
       const r = 0.06 + (i % 3) * 0.012;
       const lx = wbx - 0.22 + (i % 4) * 0.15;
       const ly = 0.42 + Math.floor(i / 4) * 0.1;
-      k.cyl('wood', r, r, 0.62, [lx, ly, wbz], { rx: Math.PI / 2, tint: 0x7a5434, seg: 7 });
-      k.cyl('wood', r * 0.9, r * 0.9, 0.005, [lx, ly + 0.0, wbz + 0.312], { rx: Math.PI / 2, tint: 0xe8c890, seg: 7 });
+      k.cyl('wood', r, r, 0.62, [lx, ly, wbz], { rx: Math.PI / 2, tint: 0xa07a52, seg: 7 });
+      k.cyl('wood', r * 0.9, r * 0.9, 0.005, [lx, ly + 0.0, wbz + 0.312], { rx: Math.PI / 2, tint: 0xf4dca8, seg: 7 });
     }
     for (let i = 0; i < 5; i++) k.cyl('wood', 0.012, 0.012, 0.5, [wbx + 0.42, 0.25, wbz - 0.1 + i * 0.05], { rz: 0.25, tint: 0xc09a6a });
     this.solid(3.75, 5.95, 4.6, 6.5, 'woodbox');
