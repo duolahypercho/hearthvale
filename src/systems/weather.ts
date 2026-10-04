@@ -609,6 +609,11 @@ export class WeatherSystem implements System, WeatherApi {
     this.bolt.setResolution(buf.x, buf.y);
     game.lighting.setFlash(f * (0.6 + 0.4 * this.rainAmt));
     this.flashNow = f;
+    // Local strike light (fog pass): a posed still keeps the afterglow pool around the impact.
+    const wmap = game.world.current;
+    const local = this.strikeT >= 0 && this.lastStrike && wmap ? (this.hold && game.paused ? 0.55 : Math.min(1, f * 1.3)) : 0;
+    if (local > 0 && this.lastStrike && wmap) atmosphere.strike.set(this.lastStrike.x, wmap.heightAt(this.lastStrike.x, this.lastStrike.z), this.lastStrike.z, local);
+    else atmosphere.strike.w = 0;
     for (let i = this.thunder.length - 1; i >= 0; i--) {
       const th = this.thunder[i]!;
       if (this.clock < th.at) continue;

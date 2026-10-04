@@ -44,6 +44,8 @@ export const atmosphere = {
   mist: 0,
   mistH: 0.9,
   ground: null as { tex: THREE.Texture; origin: THREE.Vector2; size: THREE.Vector2; water: number } | null,
+  /** Lightning strike point (xyz, world) + local flash 0..1 (w): the stroke lights its surroundings. */
+  strike: new THREE.Vector4(0, 0, 0, 0),
 };
 
 const FogShader = {
@@ -65,6 +67,7 @@ const FogShader = {
     uShaftK: { value: 0 },
     uShaftLen: { value: 14 },
     uShaftCol: { value: new THREE.Color(1, 0.95, 0.8) },
+    uStrike: { value: new THREE.Vector4() },
     uTime: globalUniforms.uTime,
     uWindDir: globalUniforms.uWindDir,
     uSunDir: globalUniforms.uSunDir,
@@ -97,6 +100,7 @@ const FogShader = {
     uniform float uShaftK;
     uniform float uShaftLen;
     uniform vec3 uShaftCol;
+    uniform vec4 uStrike;
     uniform float uTime;
     uniform vec2 uWindDir;
     uniform vec3 uSunDir;
@@ -273,6 +277,16 @@ const FogShader = {
         float lum = dot(add, vec3(0.3, 0.5, 0.2));
         c += add * min(1.0, (0.12 + 0.14 * misty) / max(lum, 1e-4));
       }
+      if (uStrike.w > 0.001 && d < 0.99999) {
+        // Local lightning flash: everything within ~10 m of the strike is thrown into cold white
+        // light (the rest of the storm stays dark: a pool of light, not a uniform exposure bump).
+        vec3 dv = P - uStrike.xyz;
+        dv.y *= 0.6;
+        float lk = uStrike.w * exp(-dot(dv, dv) / 70.0);
+        // (bright surfaces gain less: water and wet stone catch the light without bleaching to milk)
+        float ll = dot(c, vec3(0.3, 0.55, 0.15));
+        c += c * vec3(1.1, 1.25, 1.6) * lk * (1.0 - 0.75 * smoothstep(0.25, 0.7, ll)) + vec3(0.02, 0.025, 0.04) * lk;
+      }
       gl_FragColor = vec4(c, col.a);
     }`,
 };
@@ -310,7 +324,7 @@ export class HeightFogPass extends Pass {
   sync(): void {
     const a = atmosphere;
     const mist = a.ground ? a.mist : 0;
-    this.enabled = a.fog > 0.002 || mist > 0.002 || (a.shafts > 0.002 && a.shaftList.length > 0);
+    this.enabled = a.fog > 0.002 || mist > 0.002 || a.strike.w > 0.002 || (a.shafts > 0.002 && a.shaftList.length > 0);
     if (!this.enabled) return;
     const u = this.mat.uniforms;
     u.uFog!.value = a.fog;
@@ -344,6 +358,7 @@ export class HeightFogPass extends Pass {
     u.uShaftCount!.value = n;
     u.uShaftK!.value = a.shafts;
     u.uShaftLen!.value = a.shaftLen;
+    (u.uStrike!.value as THREE.Vector4).copy(a.strike);
     // Colours follow the day: lit mist takes the sun, shade the sky.
     const sun = globalUniforms.uSunColor.value;
     const sky = globalUniforms.uSkyColor.value;
