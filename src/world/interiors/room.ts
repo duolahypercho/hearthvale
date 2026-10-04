@@ -274,7 +274,9 @@ export abstract class InteriorMap implements GameMap {
     for (const [a, b] of [[-T, gap0], [gap1, W + T]] as const) {
       const w = b - a;
       k.box(frontMat, [w, kneeH, T], [(a + b) / 2, 0, D + T / 2], { tint: frontTint, uv: 1 });
-      k.box(straw ? 'plank' : 'floor', [w + 0.06, 0.08, T + 0.1], [(a + b) / 2, kneeH, D + T / 2], { tint: straw ? 0xf4dcb4 : 0xfff0dc, r: 0.03, uv: straw ? 1.2 : 1 });
+      // (a limewashed coop gets a whitewashed cap: the bright section line of a painted diorama)
+      const lime = this.spec.wallMat === 'limewash';
+      k.box(lime ? 'limewash' : straw ? 'plank' : 'floor', [w + 0.06, 0.08, T + 0.1], [(a + b) / 2, kneeH, D + T / 2], { tint: lime ? 0xf2ead8 : straw ? 0xf4dcb4 : 0xfff0dc, r: 0.03, uv: straw ? 1.2 : 1 });
       k.box('paint', [w + 0.07, 0.035, 0.035], [(a + b) / 2, kneeH + 0.06, D + T + 0.035], { tint: style === 'house' ? 0xf6e8cc : 0xf0dcb8, r: 0.012 });
     }
     // Threshold (worn oak, lit like the floor) + a fieldstone doorstep outside it
