@@ -383,6 +383,16 @@
   font: 600 12px var(--font-body);
   color: var(--ink-soft);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the name / role column yields to the ping + Kick column (r4: "cabin 1" ran under the Kick chip) */
+.coop-slot > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.coop-slot .side {
+  margin-left: 4px;
 }
 .coop-slot.me {
   box-shadow: inset 0 0 0 2px #d9623e, 0 2px 0 rgba(160, 60, 30, 0.2);
@@ -1276,20 +1286,51 @@
   background: #fffaf0;
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--c) 45%, transparent), 0 2px 0 rgba(138, 100, 64, 0.2);
 }
-.coop-today .ct-f.best::after {
-  content: '★';
+.coop-today .ct-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.coop-today .ct-hd .de-h {
+  margin-bottom: 0;
+}
+.coop-today .ct-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 700 12px var(--font-body);
+  color: #8a6a48;
+  white-space: nowrap;
+}
+.coop-today .ct-key i {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-style: normal;
+}
+.coop-today .ct-key i svg,
+.coop-today .ct-key i img {
+  width: 15px;
+  height: 15px;
+}
+.coop-today .ct-key b {
+  color: #c0a080;
+}
+/* The day's busiest farmer: a small gold ribbon that says so (r4: an unexplained star). */
+.coop-today .ct-best {
   position: absolute;
-  right: -5px;
-  top: -8px;
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font: 700 12px/1 var(--font-head);
+  right: -6px;
+  bottom: -9px;
+  padding: 1px 7px 2px;
+  border-radius: 9px;
+  font: 700 11px/1.2 var(--font-head);
+  font-style: normal;
   color: #fff8e0;
-  background: #e0a030;
-  box-shadow: 0 0 0 2px #8a5a0a;
+  background: linear-gradient(180deg, #f0b440, #d8962a);
+  box-shadow: 0 0 0 2px #8a5a0a, 0 2px 0 rgba(80, 40, 0, 0.3);
+  white-space: nowrap;
 }
 .coop-today .ct-tx {
   min-width: 0;

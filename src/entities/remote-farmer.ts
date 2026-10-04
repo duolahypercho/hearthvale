@@ -182,10 +182,11 @@ function partsFor(look: FarmerLook): Record<keyof FarmerBones, MeshBuilder> {
   } else {
     // Long work apron over shirt + trousers: bib, skirt to the knees, neck strap, big pocket.
     add('torso', new THREE.CylinderGeometry(0.212, 0.205, 0.2, 14), mat(0, 0.02, 0, 0, 0, 0, 1.05, 1, 0.92), 0x6a5442);
-    add('torso', roundedBox(0.27, 0.24, 0.04, 0.02), mat(0, 0.2, 0.17, 0.12, 0, 0), denim);
+    // Bib laid against the chest (r4: a 27 cm flat board tilted forward floated off the round torso).
+    add('torso', roundedBox(0.22, 0.23, 0.05, 0.022), mat(0, 0.2, 0.152, -0.06, 0, 0), denim);
     add('torso', roundedBox(0.36, 0.36, 0.04, 0.03), mat(0, -0.1, 0.205, -0.08, 0, 0), denim);
     add('torso', roundedBox(0.2, 0.1, 0.02, 0.015), mat(0, -0.06, 0.232, -0.08, 0, 0), C(denim).lerp(new THREE.Color(0xffffff), 0.25));
-    add('torso', new THREE.TorusGeometry(0.11, 0.014, 5, 14, Math.PI), mat(0, 0.3, 0.12, -0.5, 0, 0), denim);
+    add('torso', new THREE.TorusGeometry(0.1, 0.014, 5, 14, Math.PI), mat(0, 0.31, 0.11, -0.5, 0, 0), denim);
     add('torso', new THREE.TorusGeometry(0.215, 0.012, 5, 18), mat(0, 0.08, 0, Math.PI / 2, 0, 0, 1.05, 1, 0.95), C(denim, 0.8));
   }
   if (acc === 'scarf') {
@@ -642,8 +643,8 @@ export class RemoteFarmer {
           this.spawnAcc -= 1;
           const p = CAN_SPOUT.clone().applyMatrix4(tool.matrixWorld);
           const v = fwd.clone().multiplyScalar(1.1 + Math.random() * 0.35);
-          v.x += (Math.random() - 0.5) * 0.25;
-          v.z += (Math.random() - 0.5) * 0.25;
+          v.x += (Math.random() - 0.5) * 0.12;
+          v.z += (Math.random() - 0.5) * 0.12;
           v.y = 0.25 + Math.random() * 0.3;
           this.drops.push({ p, v, t: 0 });
         }
@@ -663,8 +664,13 @@ export class RemoteFarmer {
       }
     }
     for (const d of this.drops) {
-      const sc = 1 - d.t * 0.5;
-      _dm.makeScale(sc, sc * (1 + Math.min(2.2, Math.abs(d.v.y) * 0.35)), sc).setPosition(d.p);
+      // Each drop is stretched along its own velocity so neighbouring drops overlap into one
+      // continuous rope of water (r4: round beads read as a dotted line), thinning as it falls.
+      const sc = 1 - d.t * 0.45;
+      const sp = d.v.length();
+      _dq.setFromUnitVectors(_up, _dv.copy(d.v).divideScalar(Math.max(1e-3, sp)));
+      _ds.set(sc * 0.82, sc * (1.6 + Math.min(3.4, sp * 0.95)), sc * 0.82);
+      _dm.compose(d.p, _dq, _ds);
       mesh.setMatrixAt(n++, _dm);
     }
     mesh.count = n;
@@ -867,6 +873,10 @@ const DROP_GEO = new THREE.SphereGeometry(0.046, 6, 4);
 const DROP_MAT = new THREE.MeshStandardMaterial({ color: 0xa8dcff, roughness: 0.15, transparent: true, opacity: 0.85, emissive: 0x2a5a80, emissiveIntensity: 0.25 });
 const _fw = new THREE.Vector3();
 const _dm = new THREE.Matrix4();
+const _dq = new THREE.Quaternion();
+const _ds = new THREE.Vector3();
+const _dv = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 
 let rodProto: THREE.Object3D | null = null;
 function buildRod(): THREE.Object3D {

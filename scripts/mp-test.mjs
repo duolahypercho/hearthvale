@@ -661,7 +661,7 @@ try {
   console.log(`• fps host ${fpsHost.toFixed(1)} (3 headless pages share one GPU; see npm run perf for the real gate)`);
   const st2 = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.net.stats())));
   for (const [i, s2] of st2.entries()) log(`${['ash', 'bea'][i]} farm sync: ${s2.reconciles} host edits, ${s2.mispredicts} mispredicts, ${s2.drift} drift, ${s2.needs} mid-day resyncs, ${s2.fullSyncs} full syncs`, `drift [${s2.driftLog.join(' ')}] mispredict [${(s2.mispredictLog ?? []).join(' ')}]`);
-  check('steady-state farm drift ≈ 0 (prediction agrees with the host)', st2.every((s2) => s2.drift <= 2 && s2.needs <= 1), st2.map((s2, i) => `${['ash', 'bea'][i]} drift ${s2.drift}, resyncs ${s2.needs}`).join(' · '));
+  check('steady-state farm drift = 0 (prediction agrees with the host)', st2.every((s2) => s2.drift === 0 && s2.needs <= 1), st2.map((s2, i) => `${['ash', 'bea'][i]} drift ${s2.drift}, resyncs ${s2.needs}`).join(' · '));
   // Every swing / seed / harvest a farmhand predicted or replayed already matched the host when the
   // host's word arrived (a mismatch is a visible pop of soil or crop). The sowing race above loses one
   // tile on purpose (its refund), so allow a couple.

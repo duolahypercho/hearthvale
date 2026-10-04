@@ -22,6 +22,7 @@ import { IMPACT } from '../entities/farmer-actions';
 import { farmerMaterial } from '../entities/remote-farmer';
 import { MeshBuilder, mat, bevelCylinder, lumpySphere } from '../world/geom';
 import { Rng } from '../core/rng';
+import { hex } from '../entities/remote-look';
 import type { RemotePlayer } from './players';
 import type { EmoteId } from '../entities/remote-emotes';
 
@@ -29,16 +30,25 @@ export const LOOP = 26;
 /** The ripe strawberry bed (tiles inclusive). */
 const BED_Z0 = 25;
 export const BED = { x0: 22, z0: BED_Z0, x1: 27, z1: 26 };
-/** Where the basket sits on the ground (south-west corner of the bed). */
-const BASKET_AT = { x: 21.95, z: 27.5 };
+/** Where the basket sits on the ground: off the bed's west end, level with its rows (r4: at the
+ * bed's front corner it pulled Rowan down to the lens, big and face-down). */
+const BASKET_AT = { x: 21.45, z: 25.95 };
 /** The shipping bin's front (farm layout: bin at tiles 37-38, 16). */
 const BIN_FRONT = { x: 37.5, z: 17.45 };
 /** Age (s) inside which a seeked action is replayed for real (anim + FX); older ones apply quietly. */
 const LIVE_AGE = 1.2;
-/** The lane behind the bed (Juniper + Pip work the back row from here, facing the camera). */
-const LANE_Z = BED_Z0 - 0.62;
+/**
+ * The grass lane between the kale row (tile 23) and the berry bed (tiles 25-26): Juniper + Pip stand
+ * on its south edge, toes at the bed's back edge (clear of the kale leaves behind them), facing the
+ * camera, so every pick / pour reaches the berry row right in front of them (< 1 tile).
+ */
+export const LANE_Z = BED_Z0 - 0.3;
 /** Where the host stands (front-east corner of the bed, turned to it); the camera is re-aimed. */
-export const HOST_SPOT = { x: 28.6, z: 26.5 };
+export const HOST_SPOT = { x: 28.55, z: 26.55 };
+/** The host's yaw: three-quarters between the bed (west) and the camera, so the face reads under the hat. */
+export const HOST_YAW = -Math.PI / 2 + 0.72;
+/** The berry tile right in front of the host (the faced tile from HOST_SPOT). */
+const HOST_TILE = { x: 27, z: 26 };
 
 const yawOf = (f: Facing): number => (f === 'down' ? 0 : f === 'up' ? Math.PI : f === 'left' ? -Math.PI / 2 : Math.PI / 2);
 
@@ -124,6 +134,7 @@ function buildBasket(): { root: THREE.Group; mound: THREE.Mesh } {
 
 export class FarmChoreo {
   private actors: Actor[] = [];
+  private hostEvents: Ev[] = [];
   private clock = 0;
   private basket = buildBasket();
   /** 0..1 how full the basket is. */
@@ -144,6 +155,9 @@ export class FarmChoreo {
   ) {
     const [jun, pip, row] = bots as [RemotePlayer, RemotePlayer, RemotePlayer];
     this.actors = [this.juniper(jun), this.pip(pip), this.rowan(row)];
+    // The host isn't a mannequin either: picks the corner berry twice a loop (between Juniper's
+    // picks and Pip's pours, so the beats never stack).
+    for (const t of [4.1, 17.4]) this.hostEvents.push({ t, run: (age) => this.hostPick(age) });
     this.game.world.current?.root.add(this.basket.root);
     this.placeBasket();
   }
@@ -218,18 +232,26 @@ export class FarmChoreo {
     const keys: Key[] = [{ t: 0, x: home.x, z: home.z, f: 'right' }];
     const events: Ev[] = [];
     const act: Actor = { p, keys, events, actYaw: null, actUntil: 0 };
+    // Along the bed's front edge (one strip from the berries, so he stays the others' size in frame
+    // rather than looming at the lens), round the host's back, then up the path to the bin.
     const out: [number, number][] = [
-      [21.7, 28.5],
-      [30.9, 28.5],
+      [21.6, 27.75],
+      [29.5, 27.75],
+      [30.3, 24.6],
       [32.3, 21.2],
       [BIN_FRONT.x, BIN_FRONT.z],
     ];
     events.push({ t: 0.35, run: (age) => this.lift(act, age) });
     const arrive = route(keys, 1.0, out, 2.5, 'up');
-    keys.push({ t: arrive + 1.0, x: BIN_FRONT.x, z: BIN_FRONT.z, f: 'up' });
+    // Tips the basket into the bin, then turns round to the camera with a grin (his front-facing beat)
+    // before the jog back.
+    keys.push({ t: arrive + 0.75, x: BIN_FRONT.x, z: BIN_FRONT.z, f: 'up' });
+    keys.push({ t: arrive + 0.8, x: BIN_FRONT.x, z: BIN_FRONT.z + 0.05, f: 'down' });
+    keys.push({ t: arrive + 1.9, x: BIN_FRONT.x, z: BIN_FRONT.z + 0.05, f: 'down' });
     events.push({ t: arrive + 0.2, run: (age) => this.ship(act, age) });
-    events.push({ t: arrive + 0.6, run: (age) => this.emote(p, 'happy', age) });
-    const back = route(keys, arrive + 1.0, [...out.slice(0, 3).reverse(), [home.x, home.z]], 4.4, 'down');
+    events.push({ t: arrive + 0.9, run: (age) => this.emote(p, 'happy', age) });
+    events.push({ t: arrive + 1.0, run: (age) => this.say(p, 'Six baskets shipped!', age) });
+    const back = route(keys, arrive + 1.9, [...out.slice(0, 4).reverse(), [home.x, home.z]], 4.4, 'down');
     events.push({ t: back + 0.1, run: () => this.setDown() });
     events.push({ t: back + 0.35, run: (age) => this.waveFor(p, age) });
     events.push({ t: back + 0.45, run: (age) => this.say(p, 'Coffee’s on at my cabin, come on over!', age) });
@@ -333,9 +355,37 @@ export class FarmChoreo {
     this.placeBasket();
   }
 
+  /**
+   * A line said aloud: the bubble over the farmer AND the chat log (the same `net:chat` path real
+   * chat takes), so the log always matches what the bubbles say. A seek re-logs the lines whose log
+   * chip would still be up (8 s), oldest first.
+   */
   private say(p: RemotePlayer, text: string, age: number): void {
     const dur = Math.min(8, 4 + text.length * 0.05);
     if (age < dur - 0.3) p.chat(text, dur - age);
+    if (age < 7.5) this.game.events.emit('net:chat', { id: p.id, name: p.name, text, color: hex(p.look.scarf) });
+  }
+
+  // ─────────────────────────────── the host (the local farmer)
+
+  /** Turn the host three-quarters to the camera (still facing the bed tile for tool targeting). */
+  hostPose(): void {
+    const pl = this.game.player;
+    if (pl.facing !== 'left') pl.setFacing('left');
+    (pl as unknown as { targetYaw: number }).targetYaw = HOST_YAW;
+  }
+
+  /** The host picks the berry right in front of them (their own pull + the item flying to the bar). */
+  private hostPick(age: number): void {
+    const farming = this.game.services.farming;
+    if (!farming || !this.live(age)) return;
+    const { x, z } = HOST_TILE;
+    if (farming.cropAt(x, z)?.ripe) this.game.events.emit('player:interact', { x, z });
+    // Back to the three-quarter stance once the pull has played, and the berry fruits again.
+    this.net.later(1100, () => this.actors.length && this.hostPose());
+    this.net.later(3600, () => {
+      if (this.actors.length && !farming.cropAt(x, z)?.ripe) this.net.sync.remote({ quiet: true }, () => farming.plantBlock('strawberry', x, z, 1, 1, true));
+    });
   }
 
   private emote(p: RemotePlayer, id: EmoteId, age: number): void {
@@ -451,8 +501,8 @@ export class FarmChoreo {
     const wrap = c1 >= LOOP;
     if (wrap) c1 -= LOOP;
     const map = this.game.world.current;
-    for (const a of this.actors) {
-      for (const e of a.events) {
+    for (const a of [...this.actors.map((q) => q.events), this.hostEvents]) {
+      for (const e of a) {
         const hit = wrap ? e.t >= c0 || e.t < c1 : e.t >= c0 && e.t < c1;
         if (!hit) continue;
         this.clock = e.t;

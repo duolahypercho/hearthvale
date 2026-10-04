@@ -366,6 +366,7 @@ export class NetSystem implements System, NetApi {
    */
   private replayTiles = new Map<number, number>();
   private hostTiles = new Map<number, string>();
+  private sleepSlots = new Set<number>();
   private goldPending: GoldPending[] = [];
   private giveOk = false;
   private predictUntil = 0;
@@ -529,6 +530,12 @@ export class NetSystem implements System, NetApi {
   }
 
   /** Staged demos (net/demo.ts): the host's display name while a solo farm plays co-op; null restores. */
+  /** coop-farm stills: jump the scripted work loop to `t` s (debug: `services.net.demoSeek(12)`). */
+  demoSeek(t: number): void {
+    this.ui.clearLog();
+    this.demo.seek(t);
+  }
+
   demoName(n: string | null): void {
     if (this._role !== 'solo') return;
     this.sessionName = n && this.prof.name === 'Farmer' ? n : null;
@@ -2174,9 +2181,25 @@ export class NetSystem implements System, NetApi {
     }
     if (extra) for (const [k, v] of extra) slots.set(k, v);
     const farm = this.sync.farmMap();
+    const g = this.sync.grid();
+    const claimed: number[] = [];
     for (const s of slots.keys()) {
       const site = CABIN_SITES[s];
-      if (site) this.sync.claimFootprint(site.x0, site.z0, site.x0 + 2, site.z0 + 2);
+      if (!site) continue;
+      this.sync.claimFootprint(site.x0, site.z0, site.x0 + 2, site.z0 + 2);
+      if (g) for (let z = site.z0; z <= site.z0 + 2; z++) for (let x = site.x0; x <= site.x0 + 2; x++) if (g.inBounds(x, z)) claimed.push(g.idx(x, z));
+    }
+    // Every machine clears a cabin's footprint itself (quietly), so the debris that stood there must not
+    // read as drift: the host flushes the cleared tiles at once (not on the 2 s heartbeat), and a farmhand
+    // takes the cleared state into its mirror of the host's farm (r4: a stone on a fresh cabin site was
+    // caught by the drift check + a mid-day resync before the host's heartbeat delta arrived).
+    if (claimed.length) {
+      if (this._role === 'host') this.farmDirty = true;
+      else if (this._role === 'client')
+        for (const [i, st] of this.sync.tiles(claimed)) {
+          if (st) this.hostTiles.set(i, st);
+          else this.hostTiles.delete(i);
+        }
     }
     this.cabins.set(farm, slots);
   }
@@ -2251,6 +2274,15 @@ export class NetSystem implements System, NetApi {
     }
     this.demo.update(dt, game.time);
     this.remotes.update(dt, game.time, !this.demo.active, now);
+    // Zzz over the cabins of farmhands who've turned in (incl. our own cabin while we wait in it).
+    const sleeping = this.sleepSlots;
+    sleeping.clear();
+    if (this._role !== 'solo' || this.demo.active) {
+      for (const p of this.remotes.list.values()) if (p.ready && p.cabin >= 0 && (p.map === 'cabin' || p.farmer.anim === 'hidden')) sleeping.add(p.cabin);
+      const mine = this.cabinOf.get(this.id);
+      if (this.asleep && this.bedWhere === 'cabin' && mine !== undefined && mine >= 0) sleeping.add(mine);
+    }
+    this.cabins.sleepers(game.world.current?.id === 'farm' ? (game.world.current ?? null) : null, sleeping, dt, game.time);
     this.myBubble?.update(dt, game.time);
     this.ui.update(dt);
   }

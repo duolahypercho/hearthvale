@@ -145,8 +145,9 @@ class FarmerPreview implements TurntableView {
     tile.add(shadow);
     this.scene.add(tile);
     // Framed like a portrait: boots to hat fill ~85 % of the stage height.
-    this.camera.position.set(0, 1.42, 4.3);
-    this.camera.lookAt(0, 1.0, 0);
+    // (r4: the hat crown kissed the top edge; pulled back + down so every hat has headroom.)
+    this.camera.position.set(0, 1.5, 4.95);
+    this.camera.lookAt(0, 1.08, 0);
     this.canvas.addEventListener('pointerdown', (e) => {
       this.drag = e.clientX;
       this.canvas.setPointerCapture(e.pointerId);
@@ -308,6 +309,7 @@ class CoopScreen extends Screen {
     input.spellcheck = false;
     input.addEventListener('input', () => {
       this.name = input.value;
+      this.refreshMeCard();
     });
     input.addEventListener('change', () => this.saveProfile());
     input.addEventListener('keydown', (e) => e.stopPropagation());
@@ -336,6 +338,7 @@ class CoopScreen extends Screen {
 
   private commitLook(body: HTMLElement): void {
     this.preview?.setLook(this.look);
+    this.refreshMeCard();
     // Refresh the selection states without rebuilding the preview.
     body.querySelectorAll('.coop-opts').forEach((n) => n.remove());
     this.renderMakerOptions(body);
@@ -343,8 +346,53 @@ class CoopScreen extends Screen {
   }
 
   private makerTab: MakerTab = 'look';
+  /** Tallest tab's options height (px), so switching tabs never re-centres the panels. */
+  private optsMinH = 0;
+
+  /** Your own lobby card follows the creator live (avatar + name), without replaying the slot animations. */
+  private refreshMeCard(): void {
+    const s = this.root.querySelector<HTMLElement>('.coop-session .coop-slot.me');
+    if (!s) return;
+    const av = s.firstElementChild;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = avatar(this.look, 42);
+    if (av && tmp.firstElementChild) av.replaceWith(tmp.firstElementChild);
+    const b = s.querySelector('b');
+    if (b?.firstChild?.nodeType === Node.TEXT_NODE) b.firstChild.textContent = this.name.trim() || 'Farmer';
+  }
+
+  /** Measure every tab once and pin the options box to the tallest. */
+  private pinOptsHeight(body: HTMLElement, opts: HTMLElement): void {
+    if (this.optsMinH) {
+      opts.style.minHeight = `${this.optsMinH}px`;
+      return;
+    }
+    const cur = this.makerTab;
+    let h = 0;
+    for (const t of MAKER_TABS) {
+      this.makerTab = t.id;
+      const probe = this.buildMakerOptions(body);
+      probe.style.position = 'absolute';
+      probe.style.visibility = 'hidden';
+      probe.style.width = `${opts.offsetWidth}px`;
+      body.appendChild(probe);
+      h = Math.max(h, probe.offsetHeight);
+      probe.remove();
+    }
+    this.makerTab = cur;
+    if (h > 0) {
+      this.optsMinH = h;
+      opts.style.minHeight = `${h}px`;
+    }
+  }
 
   private renderMakerOptions(body: HTMLElement): void {
+    const opts = this.buildMakerOptions(body);
+    body.appendChild(opts);
+    this.pinOptsHeight(body, opts);
+  }
+
+  private buildMakerOptions(body: HTMLElement): HTMLElement {
     const opts = el('div', 'coop-opts');
     const tabs = el('div', 'coop-tabs');
     for (const t of MAKER_TABS) {
@@ -396,7 +444,7 @@ class CoopScreen extends Screen {
       swatch('shirt', 'Shirt', PALETTE.shirt);
       swatch('scarf', extra(L, 'accessory') === 'scarf' ? 'Scarf' : 'Kerchief', PALETTE.scarf);
     }
-    body.appendChild(opts);
+    return opts;
   }
 
   private saveProfile(): void {
@@ -891,6 +939,12 @@ export class CoopUi {
     if (!this.game.hud.openPanelName) this.game.input.enabled = true;
   }
 
+  /** Empty the chat log (a demo still re-staged on the same page). */
+  clearLog(): void {
+    for (const l of this.lines) l.node.remove();
+    this.lines = [];
+  }
+
   private addLine(m: { id: number; name: string; text: string; color: string; system?: boolean }): void {
     const n = el('div', `ln${m.system ? ' sys' : ''}`);
     if (m.system) n.innerHTML = m.text;
@@ -993,10 +1047,12 @@ export class CoopUi {
     const total = (n: number[]): number => n.reduce((a, b) => a + b, 0);
     const best = rows.reduce((a, b) => (total(b.n) > total(a.n) ? b : a));
     const box = el('div', 'coop-today');
-    box.innerHTML = `<div class="de-h">Farm today</div><div class="ct-row">${rows
+    // Header + a one-line legend for the four tallies, and the ribbon says what it's for.
+    const legend = kinds.map(([ic, w]) => `<i>${ic}${w[0]!.toUpperCase()}${w.slice(1)}</i>`).join('<b>·</b>');
+    box.innerHTML = `<div class="ct-hd"><div class="de-h">Farm today</div><div class="ct-key">${legend}</div></div><div class="ct-row">${rows
       .map(
         (r) =>
-          `<div class="ct-f${r.isMe ? ' me' : ''}${r === best && total(r.n) > 0 ? ' best' : ''}" style="--c:${hex(r.look.scarf)}">${avatar(r.look, 34)}<div class="ct-tx"><b>${escapeHtml(r.name)}${r.isMe ? ' <em>you</em>' : ''}</b><span>${r.n
+          `<div class="ct-f${r.isMe ? ' me' : ''}${r === best && total(r.n) > 0 ? ' best' : ''}" style="--c:${hex(r.look.scarf)}"${r === best && total(r.n) > 0 ? ' title="Busiest farmer today (most jobs done)"' : ''}>${r === best && total(r.n) > 0 ? '<em class="ct-best">★ Busiest</em>' : ''}${avatar(r.look, 34)}<div class="ct-tx"><b>${escapeHtml(r.name)}${r.isMe ? ' <em>you</em>' : ''}</b><span>${r.n
             .map((v, i) => `<i class="${v > 0 ? '' : 'z'}" title="${kinds[i]![1]}">${kinds[i]![0]}${v}</i>`)
             .join('')}</span></div></div>`,
       )
@@ -1043,6 +1099,11 @@ export class CoopUi {
   }
 
   update(dt: number): void {
+    // The roster plate + chat step out under any open panel, incl. the day-end card (the hud opens
+    // that one straight from `sleep:summary`, with no `ui:open` event).
+    const open = this.game.hud.openPanelName;
+    const menu = !!open && open !== 'dialogue';
+    if (menu !== this.hud.classList.contains('menu')) this.hud.classList.toggle('menu', menu);
     for (const l of this.lines) {
       l.t -= dt;
       l.node.classList.toggle('old', l.t < 0 && !this.chatBox.classList.contains('typing'));

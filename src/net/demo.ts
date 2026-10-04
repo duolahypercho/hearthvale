@@ -14,7 +14,7 @@ import { DEBRIS } from './farmsync';
 import type { RemotePlayer } from './players';
 import type { DayTally } from './system';
 import type { EmoteId } from '../entities/remote-emotes';
-import { FarmChoreo, BED, HOST_SPOT } from './demo-farm';
+import { FarmChoreo, BED, HOST_SPOT, LANE_Z } from './demo-farm';
 
 interface Bot {
   p: RemotePlayer;
@@ -84,7 +84,7 @@ export class CoopDemo {
       });
     }
     const idle: Bot['script'] = () => {};
-    this.bots = [mk(0, BED.x0 + 0.5, BED.z0 - 0.62, 'down', idle), mk(1, BED.x1 + 0.5, BED.z0 - 0.62, 'down', idle), mk(2, 21.23, 27.2, 'right', idle)];
+    this.bots = [mk(0, BED.x0 + 0.5, LANE_Z, 'down', idle), mk(1, BED.x1 + 0.5, LANE_Z, 'down', idle), mk(2, 20.73, 25.65, 'right', idle)];
     this.net.refreshCabins(new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf], [2, PRESET_LOOKS[2]!.scarf]]));
     // Earlier in the morning (chat log only — the bubbles above heads are what's being said now).
     const line = (id: number, text: string): void => {
@@ -98,8 +98,10 @@ export class CoopDemo {
       this.emote(this.bots[1]!, 'music', true);
       this.emote(this.bots[2]!, 'heart', true);
     } else {
-      line(3, 'Cauliflowers are watered!');
+      // (Earlier in the morning; the choreography's own lines join the log as they're said and every
+      // chip fades after 8 s, so the log never contradicts the bubbles.)
       line(2, 'Strawberries are ripe! Grab a basket');
+      line(3, 'Can’s full, I’ll water the berries');
       // The 26 s work loop; &t=<sec> seeks it (stills mid-action). Starts a beat in by default so a
       // still taken right after load catches the haul, the picking and the watering at once.
       this.choreo = new FarmChoreo(this.game, this.net, this.bots.map((b) => b.p));
@@ -114,6 +116,7 @@ export class CoopDemo {
         rig.lookOffset.z -= HOST_SPOT.z - pl.position.z;
         pl.teleport(HOST_SPOT.x, HOST_SPOT.z);
         pl.setFacing('left');
+        this.choreo?.hostPose();
         this.game.followPlayer(true);
       });
       const t = Number(new URLSearchParams(location.search).get('t'));
@@ -179,6 +182,18 @@ export class CoopDemo {
     ];
     this.bots.forEach((b, i) => rows.push({ id: b.p.id, name: b.p.name, look: b.p.look, isMe: false, n: work[i]! }));
     return rows;
+  }
+
+  /** Restart the coop-farm loop at `t` s (stills from a live page; same as `&t=`). */
+  seek(t: number): void {
+    if (!this.choreo) return;
+    this.choreo.dispose();
+    for (const b of this.bots) b.p.chat('', 0);
+    // The whole bed ripe again (the disposed loop's re-fruit timers never fire).
+    this.net.sync.remote({ quiet: true }, () => this.game.services.farming?.plantBlock('strawberry', BED.x0, BED.z0, BED.x1 - BED.x0 + 1, BED.z1 - BED.z0 + 1, true));
+    this.choreo = new FarmChoreo(this.game, this.net, this.bots.map((b) => b.p));
+    this.choreo.seek(t);
+    this.choreo.hostPose();
   }
 
   private emote(b: Bot, e: EmoteId, hold = false): void {

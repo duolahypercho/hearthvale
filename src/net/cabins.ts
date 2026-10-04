@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 import { MeshBuilder, roundedBox, bevelCylinder, mat, groundAO } from '../world/geom';
 import type { GameMap } from '../world/map';
+import { EmoteBubble } from '../entities/remote-emotes';
+import { globalUniforms } from '../render/uniforms';
 
 /** Footprint top-left tile of each cabin slot (3×3 tiles, door on the south side). */
 export const CABIN_SITES: { x0: number; z0: number }[] = [
@@ -76,28 +78,45 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
       b.add(W_, rb(0.06, h, 0.04, 0.012), at(u * W, top + h / 2, sz * (D * 0.5 + 0.03)), { tint: 0x8a5a34 });
     }
   }
-  // Roof: rows of painted shingle boards on each side (overlapping, alternating tone), deep overhang.
+  // Roof: each side is ONE pitched plane laid on the gable line — a continuous deck board, then
+  // shingle courses lying flush on that same plane (eave course first, each higher course a hair
+  // proud so its butt edge throws a thin shadow line), a fascia board along the eave, barge boards
+  // up both gables and a ridge cap. Everything shares the side's transform, so nothing splays.
   const pitch = Math.atan2(gh, W / 2);
-  const slabW = Math.hypot(W / 2, gh) + 0.5;
-  const rows = 5;
-  const rowW = slabW / rows;
+  const cosP = Math.cos(pitch);
+  const sinP = Math.sin(pitch);
+  const rake = Math.hypot(W / 2, gh);
+  const over = 0.42; // eave overhang along the slope
+  const t0 = -0.06; // a touch past the ridge so the two decks meet under the cap
+  const t1 = rake + over;
+  const deckT = 0.09;
+  const roofD = D + 0.86;
+  const courses = 5;
+  const courseW = (t1 - t0) / courses;
+  /** A point on the side-`sx` roof plane: `t` m down the slope from the apex, `n` m off the gable line. */
+  const onRoof = (sx: number, t: number, n: number, zz: number, extraRot = 0, w = 1, h = 1, d = 1): THREE.Matrix4 =>
+    new THREE.Matrix4().compose(
+      new THREE.Vector3(cx + sx * (t * cosP + n * sinP), y + top + gh - t * sinP + n * cosP, cz + zz),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -sx * (pitch + extraRot))),
+      new THREE.Vector3(w, h, d),
+    );
   for (const sx of [-1, 1]) {
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -sx * pitch));
-    for (let r = 0; r < rows; r++) {
-      // Row r runs from the eave (r = 0) up to the ridge; each row overlaps the one below it.
-      const u = (r + 0.5) / rows - 0.5;
-      const lx = -u * slabW * Math.cos(pitch);
-      const ly = u * slabW * Math.sin(pitch);
-      const m = new THREE.Matrix4().compose(
-        new THREE.Vector3(cx + sx * (W / 4 + 0.16 - lx), y + top + gh / 2 + 0.12 + ly + (rows - r) * 0.012, cz),
-        q,
-        new THREE.Vector3(1, 1, 1),
-      );
-      const tone = r % 2 ? 0xc8664a : 0xd77a58;
-      b.add(W_, rb(rowW * 1.18, 0.1, D + 0.9 + (r === 0 ? 0.06 : 0), 0.035), m, { tint: tone });
+    // Deck (dark underlayer: it only shows at the eave and gable edges)
+    b.add(W_, rb(t1 - t0, deckT, roofD, 0.03), onRoof(sx, (t0 + t1) / 2, deckT / 2 + 0.02, 0), { tint: 0x7a3a28 });
+    for (let r = 0; r < courses; r++) {
+      // r = 0 at the eave; each course overlaps the one below by ~18% and sits 8 mm prouder.
+      const tc = t1 - (r + 0.5) * courseW;
+      const n = deckT + 0.02 + 0.03 + r * 0.008;
+      const tone = r % 2 ? 0xc4604a : 0xd27456;
+      b.add(W_, rb(courseW * 1.18, 0.06, roofD - 0.04, 0.025), onRoof(sx, tc, n, 0), { tint: tone });
     }
+    // Fascia along the eave (a pale painted board standing square to the slope)
+    b.add(W_, rb(0.06, 0.2, roofD + 0.04, 0.02), onRoof(sx, t1 + 0.01, deckT / 2 + 0.02, 0), { tint: 0xe8d8b8 });
+    // Barge boards up each gable end, just proud of the deck edge
+    for (const sz of [-1, 1]) b.add(W_, rb(t1 - t0 + 0.04, 0.2, 0.06, 0.02), onRoof(sx, (t0 + t1) / 2, deckT / 2 + 0.02, sz * (roofD / 2 + 0.02)), { tint: 0xe8d8b8 });
   }
-  b.add(W_, log(0.1, D + 1.0, 0.02, 10), at(0, top + gh + 0.2, 0, Math.PI / 2, 0, 0), { tint: 0x7a4e30 });
+  // Ridge cap: a rounded log saddled over both decks
+  b.add(W_, log(0.11, roofD + 0.1, 0.02, 10), at(0, top + gh + deckT + 0.1, 0, Math.PI / 2, 0, 0), { tint: 0x8e4a32 });
   // Chimney (stone) with a cap
   b.add(W_, rb(0.44, 1.25, 0.44, 0.07), at(-W * 0.26, top + gh * 0.55, -D * 0.18), { tint: 0xa49e94 });
   b.add(W_, rb(0.54, 0.1, 0.54, 0.03), at(-W * 0.26, top + gh * 0.55 + 0.64, -D * 0.18), { tint: 0x7e786e });
@@ -143,6 +162,41 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
 export class Cabins {
   private group: THREE.Group | null = null;
   private key = '';
+  /** A sleepy bubble drifting over the roof of every cabin whose farmhand has turned in (slot → bubble). */
+  private zzz = new Map<number, { anchor: THREE.Object3D; bubble: EmoteBubble; on: boolean }>();
+  private lamps: THREE.PointLight[] = [];
+
+  /**
+   * Show the "asleep" bubble over each cabin in `sleeping` (slots), fade the rest. The bubble rides an
+   * anchor just under the ridge (EmoteBubble lifts it above), so from the high camera it reads as
+   * "someone's asleep in there" — the bedtime overlay names who; the farm shows where.
+   */
+  sleepers(map: GameMap | null, sleeping: Set<number>, dt: number, time: number): void {
+    const glow = globalUniforms.uLamps.value as number;
+    for (const l of this.lamps) l.intensity = 6 * glow;
+    for (const slot of sleeping) {
+      const s = CABIN_SITES[slot];
+      if (!s || !map || this.zzz.get(slot)?.on) continue;
+      let z = this.zzz.get(slot);
+      if (!z) {
+        const anchor = new THREE.Object3D();
+        anchor.name = 'cabin-zzz';
+        z = { anchor, bubble: new EmoteBubble(anchor), on: false };
+        this.zzz.set(slot, z);
+      }
+      z.anchor.position.set(s.x0 + 1.5 + 0.55, map.heightAt(s.x0 + 1.5, s.z0 + 1.5) + 0.75, s.z0 + 1.5);
+      if (z.anchor.parent !== map.root) map.root.add(z.anchor);
+      z.bubble.show('sleepy', 1e6);
+      z.on = true;
+    }
+    for (const [slot, z] of this.zzz) {
+      if (z.on && !sleeping.has(slot)) {
+        z.on = false;
+        z.bubble.show('sleepy', 0.3);
+      }
+      z.bubble.update(dt, time);
+    }
+  }
 
   /** Rebuild the cabins for `slots` (slot index → accent colour) on the farm map. */
   set(map: GameMap | null, slots: Map<number, number>): void {
@@ -166,6 +220,19 @@ export class Cabins {
       buildCabin(b, cx, y, cz, accent, slot);
     }
     this.group = b.build({ castShadow: true, receiveShadow: true, name: 'cabins' });
+    // A real porch light per cabin (a warm pool on the doorstep + whoever stands there). Point lights
+    // go through the renderer's light budget (constant count, nearest-the-view win), so this adds no
+    // shader cost; intensity follows the lamps' dusk curve (uLamps) in sleepers().
+    this.lamps = [];
+    for (const slot of slots.keys()) {
+      const s = CABIN_SITES[slot];
+      if (!s) continue;
+      const l = new THREE.PointLight(0xffb060, 0, 6.5, 1.3);
+      l.position.set(s.x0 + 1.5 + 0.62, map.heightAt(s.x0 + 1.5, s.z0 + 1.5) + 1.45, s.z0 + 1.5 + 2.5 * 0.5 + 1.0);
+      l.castShadow = false;
+      this.group.add(l);
+      this.lamps.push(l);
+    }
     this.group.userData.perfTag = 'cabins';
     // Only the body and roof cast shadows (the glow cards are tiny).
     this.group.traverse((o) => {
