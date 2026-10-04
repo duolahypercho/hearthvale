@@ -930,8 +930,11 @@
   translate: -50% -50%;
   padding: 2px 8px 3px;
   border-radius: 999px;
-  background: rgba(46, 24, 10, 0.72);
-  box-shadow: 0 0 0 1.5px rgba(255, 230, 180, 0.45);
+  /* Parchment chip (the dark pill read as another farmer's name tag over the field). */
+  background: #fff3d6;
+  color: #6b3f1d;
+  text-shadow: none;
+  box-shadow: 0 0 0 1.5px #c99a5b, 0 2px 4px rgba(40, 20, 5, 0.35);
 }
 .coop-wheel .wedge kbd {
   right: auto;
