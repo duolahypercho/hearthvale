@@ -148,6 +148,24 @@ export class MiningSystem implements System, MiningApi {
     game.followPlayer(true);
     this.cur = n;
     this.best = Math.max(this.best, n);
+    if (n > 0) this.readyTool();
+  }
+
+  /**
+   * Arriving on a mine floor with a farm tool in hand: switch to the pickaxe, or to the sword when
+   * a monster is already within 5 tiles.
+   */
+  private readyTool(): void {
+    const game = this.game;
+    const slots = game.services.inventory?.slots;
+    const m = this.mine();
+    if (!slots || !m) return;
+    const held = slots[game.toolbarSlot]?.id ?? '';
+    if (held === 'pickaxe' || held === 'sword') return;
+    const p = game.player.position;
+    const foe = m.monsters.some((mo) => mo.alive && Math.hypot(mo.pos.x - p.x, mo.pos.z - p.z) < 5);
+    const hasSword = slots.slice(0, 10).some((st) => st?.id === 'sword');
+    syncToolbar(game, foe && hasSword ? 'sword' : 'pickaxe');
   }
 
   async goto(n: number, via: 'ladder' | 'elevator' | 'debug' | 'entrance' = 'debug'): Promise<void> {
@@ -285,7 +303,9 @@ export class MiningSystem implements System, MiningApi {
       this.plaqueKey = key;
       if (id === 'mine') {
         const m = this.mine()!;
-        this.plaque.set(m.floor, BIOMES[m.layout.biome].name, m.layout.biome);
+        // Repeat tiers (floor 31+ revisits the bands, tougher): the plaque says so.
+        const tier = m.layout.tier;
+        this.plaque.set(m.floor, tier > 0 ? `${BIOMES[m.layout.biome].name} · ${'★'.repeat(Math.min(3, tier + 1))}` : BIOMES[m.layout.biome].name, m.layout.biome);
       } else this.plaque.set(0, 'Mountain shelf', 'entrance');
     }
     // Keep the mine-action pose driver installed over whatever the farm installs.
@@ -312,7 +332,13 @@ export class MiningSystem implements System, MiningApi {
       return;
     }
     if (!(name in DEMO_FLOORS) || game.world.current?.id !== 'mine') return;
+    // Staged mine frames hold a mining tool, never the hoe (after the staging below settles).
     const q = new URLSearchParams(location.search);
+    setTimeout(() => {
+      this.readyTool();
+      // Beauty frames face the lens (equipping must never leave the farmer showing their back).
+      if (q.get('pick') !== '1' && (name === 'mine-floor' || name === 'mine-ice' || name === 'mine-lava' || name === 'mine')) game.player.setFacing('down');
+    }, 60);
     const n = Number(q.get('floor')) || DEMO_FLOORS[name]!;
     const m = this.mine()!;
     m.setFloor(n);

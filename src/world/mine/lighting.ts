@@ -59,7 +59,9 @@ export class CaveLighting {
     this.group.add(this.fill);
     this.bounce = new THREE.PointLight(0xffc890, 0, 15, 1.1);
     this.group.add(this.bounce);
-    this.rim = new THREE.PointLight(0x9ab8ff, 0, 3.2, 2);
+    // (short reach: at 3.2 m it washed the cliff face right behind a farmer standing at a wall
+    // — the arrival ladder — in a pale blue ghost strip)
+    this.rim = new THREE.PointLight(0x9ab8ff, 0, 2.1, 2);
     this.group.add(this.rim);
     for (let i = 0; i < ACCENTS; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 7, 1.6);
@@ -108,7 +110,20 @@ export class CaveLighting {
       this.apply();
     };
     scene.onBeforeRender = this.hook;
+    // The farmer's invisible head shadow-proxy printed a hard, near-black rounded rectangle on the
+    // floor under the overhead lantern key (floor 37, r4): underground it casts nothing (the body,
+    // tool and contact blob still ground the farmer). Restored on the way out.
+    this.proxies.length = 0;
+    this.game.player.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.castShadow && (m.material as THREE.Material).name === 'player-shadow-proxy') {
+        m.castShadow = false;
+        this.proxies.push(m);
+      }
+    });
   }
+
+  private proxies: THREE.Mesh[] = [];
 
   deactivate(): void {
     if (!this.active) return;
@@ -119,6 +134,8 @@ export class CaveLighting {
     dn.sun.shadow.autoUpdate = true;
     if (scene.onBeforeRender === this.hook) scene.onBeforeRender = this.prevHook ?? (() => {});
     this.hook = null;
+    for (const m of this.proxies) m.castShadow = true;
+    this.proxies.length = 0;
   }
 
   /** Per-frame practicals (lantern follows the player, flicker). */
@@ -136,7 +153,7 @@ export class CaveLighting {
     this.fill.intensity = def.lantern[1] * CAVE_TUNE.fill * flick * this.lanternScale;
     this.bounce.position.set(player.x, player.y + 5.5, player.z + 0.5);
     this.bounce.intensity = def.lantern[1] * CAVE_TUNE.bounce * this.lanternScale;
-    this.rim.position.set(player.x - 0.3, player.y + 1.9, player.z - 1.1);
+    this.rim.position.set(player.x - 0.3, player.y + 1.75, player.z - 0.75);
     this.rim.intensity = (def.id === 'lava' ? 5.5 : 4) * this.lanternScale;
     for (const a of this.accents) {
       const s = a.spec;

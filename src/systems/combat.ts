@@ -320,20 +320,19 @@ export class CombatSystem implements System, HealthApi {
   }
 
   /**
-   * Damage number AT the hit point: on the monster's body, on the side the blade came from
-   * (between the monster centre and the swing origin), popped 1.4 → 1 and rising ~40 px.
+   * Damage number on the victim's head (tracking it through the knockback), popped 1.4 → 1 and
+   * kicked up ~40 px.
    */
   popHit(mo: Monster, damage: number, crit: boolean, from: THREE.Vector3, i = 0): void {
     const at = new THREE.Vector3();
     mo.headPos(at);
-    at.y -= mo.kind === 'bat' || mo.kind === 'wisp' ? 0.25 : 0.45;
-    // On the far side of the monster from the swing (never over the farmer's own hat).
+    // Just over the victim's head (it rides the knockback with it), a touch to the far side.
+    at.y += mo.kind === 'bat' || mo.kind === 'wisp' ? 0.1 : 0.0;
     const dx = mo.pos.x - from.x;
     const dz = mo.pos.z - from.z;
     const d = Math.hypot(dx, dz) || 1;
-    at.x += (dx / d) * mo.radius * 0.6;
-    at.z += (dz / d) * mo.radius * 0.3;
-    this.numbers.pop(at, String(damage), crit ? 'crit' : 'dmg', { dy: -i * 30, dx: (i % 2 ? 1 : -1) * i * 12 });
+    at.x += (dx / d) * mo.radius * 0.35;
+    this.numbers.pop(at, String(damage), crit ? 'crit' : 'dmg', { dy: -i * 30, dx: (i % 2 ? 1 : -1) * i * 12, track: mo.pos });
   }
 
   /** Kill: a radial goo / scorch splat decal where it died (fades over ~6 s). */

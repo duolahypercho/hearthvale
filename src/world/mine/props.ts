@@ -106,8 +106,13 @@ function shaftMaterial(color: THREE.Color): THREE.ShaderMaterial {
         float edge = smoothstep(0.0, 0.35, vUv.x) * smoothstep(1.0, 0.65, vUv.x);
         float fall = smoothstep(0.0, 0.25, vUv.y) * smoothstep(1.0, 0.55, vUv.y);
         float streak = 0.6 + 0.4 * n(vec2(vUv.x * 7.0, vUv.y * 1.5 - uTime * 0.12));
-        float motes = step(0.985, h(floor(vec2(vUv.x * 40.0, vUv.y * 60.0 + uTime * 3.0)))) * 1.5;
-        float a = edge * fall * (streak + motes) * 0.22;
+        // Dust in the beam: round, dim specks drifting slowly down (square cells in metres, never
+        // stretched into rain streaks).
+        vec2 mc = vec2(vUv.x * 1.9, vUv.y * 7.5 + uTime * 0.18) * 11.0;
+        vec2 mi = floor(mc);
+        float md = length(fract(mc) - 0.5 - (vec2(h(mi + 3.1), h(mi + 7.7)) - 0.5) * 0.5);
+        float motes = step(0.93, h(mi)) * smoothstep(0.2, 0.06, md) * 0.9;
+        float a = edge * fall * (streak * 0.55 + motes) * 0.16;
         gl_FragColor = vec4(uColor * a, a);
       }`,
   });
@@ -146,7 +151,7 @@ function fgFade(src: THREE.Material): THREE.Material {
     patchMaterial(c, `orig:${src.customProgramCacheKey()}`, (sh, r) => ob(sh, r));
   }
   // Foreground lift + farmer / monster see-through (world/mine/occlude.ts).
-  occlusionPatch(c);
+  occlusionPatch(c, true, true);
   fgCache.set(src, c);
   return c;
 }
@@ -197,7 +202,15 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
 
   // ── ladder up + daylight shaft ──────────────────────────────────
   const lx = L.ladderUp.x + 0.5;
-  const lz = L.ladderUp.z + 1.02;
+  // Foot set against the actual rock face (the shell wanders ±0.4 m around the tile edge): a
+  // ladder standing proud of the wall read as a flat cut-out floating in front of it.
+  let lz = L.ladderUp.z + 1.02;
+  for (let zz = L.ladderUp.z + 1.6; zz > L.ladderUp.z + 0.4; zz -= 0.05) {
+    if (surfaceAt(lx, zz) - heightAt(lx, zz + 0.6) > 0.25) {
+      lz = zz + 0.16;
+      break;
+    }
+  }
   const ly = heightAt(lx, lz + 0.3);
   {
     const lb = new MeshBuilder();

@@ -309,6 +309,16 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
       const a = j * nx + i;
       index.push(a, a + 2 * nx, a + 2 * nx + 2, a, a + 2 * nx + 2, a + 2);
       coarse[a] = coarse[a + 1] = coarse[a + nx] = coarse[a + nx + 1] = 1;
+      // Weld the T-junctions: the coarse quad's edge midpoints are shared with the fine cells
+      // next door; pull them onto the coarse edge, or the bumpy fine cells open slivers of
+      // cracks along the seam (lit triangles poking out of the dark foreground rock).
+      const mid = (m: number, p: number, q: number): void => {
+        pos[m * 3 + 1] = (pos[p * 3 + 1]! + pos[q * 3 + 1]!) * 0.5;
+      };
+      mid(a + 1, a, a + 2);
+      mid(a + nx, a, a + 2 * nx);
+      mid(a + nx + 2, a + 2, a + 2 * nx + 2);
+      mid(a + 2 * nx + 1, a + 2 * nx, a + 2 * nx + 2);
     }
   }
   for (let j = 0; j < nz - 1; j++) {
@@ -411,16 +421,29 @@ ${CAVE_GLSL}`,
         // CINDER: cooled crust PLATES (irregular Voronoi slabs, each its own basalt tone, a little
         // ash dusting their tops), dark recessed cracks between them that glow hot only near
         // the melt, and grey ash drifted into the low patches.
-        vec2 pw = fp * 0.95 + vec2(hvNoise(fp * 0.6), hvNoise(fp * 0.6 + 5.0)) * 0.7;
+        // Plate size wanders across the hall (big slabs ↔ broken rubble), so it never reads as one
+        // repeating turtle-shell paving tile.
+        float pscale = mix(0.75, 1.55, smoothstep(0.3, 0.7, hvFbm(fp * 0.09 + 31.0)));
+        vec2 pw = fp * pscale + vec2(hvNoise(fp * 0.6), hvNoise(fp * 0.6 + 5.0)) * 0.95;
         vec4 pl = hvMineStone(pw);
         float edge = pl.y - pl.x;
-        float crackP = 1.0 - smoothstep(0.02, 0.09, edge);
-        float plateTone = 0.72 + 0.4 * pl.z;
+        float crackP = (1.0 - smoothstep(0.02, 0.09, edge)) * (0.55 + 0.45 * smoothstep(0.3, 0.6, hvNoise(fp * 0.8 + pl.z * 9.0)));
+        // Second, finer fracture scale crazing the big plates (low contrast).
+        float crack2 = 0.0;
+        if (onFloor > 0.01) {
+          vec4 pl2 = hvMineStone(fp * 2.9 + 7.0);
+          crack2 = (1.0 - smoothstep(0.0, 0.05, pl2.y - pl2.x)) * smoothstep(0.45, 0.7, hvNoise(fp * 0.5 + 3.0));
+        }
+        // Random cell darkening + scorch patches + drifted ash.
+        float plateTone = (0.7 + 0.42 * pl.z) * (hvHash12(vec2(pl.z * 91.0, 7.0)) < 0.22 ? 0.58 : 1.0);
+        float scorch = smoothstep(0.55, 0.78, hvFbm(fp * 0.16 + 47.0));
         float ash = smoothstep(0.55, 0.75, hvFbm(fp * 0.2 + 13.0));
         vec3 basalt = diffuseColor.rgb * plateTone * (0.9 + 0.2 * smoothstep(0.0, 0.3, edge));
-        basalt = mix(basalt, vec3(0.36, 0.33, 0.31) * (0.85 + 0.3 * grit), ash * 0.55);
+        basalt *= 1.0 - scorch * 0.45;
+        basalt = mix(basalt, vec3(0.36, 0.33, 0.31) * (0.85 + 0.3 * grit), ash * 0.6);
         diffuseColor.rgb = mix(diffuseColor.rgb, basalt, onFloor);
         diffuseColor.rgb *= 1.0 - crackP * onFloor * 0.72 * (1.0 - ash * 0.6);
+        diffuseColor.rgb *= 1.0 - crack2 * onFloor * 0.28 * (1.0 - ash);
         vec2 w = fp + vec2(hvNoise(fp * 0.7), hvNoise(fp * 0.7 + 5.0)) * 0.9;
         float fl = abs(hvNoise(w * 0.8) - 0.5);
         float fis = (1.0 - smoothstep(0.0, 0.03, fl)) * onFloor * (1.0 - ash);
@@ -523,7 +546,7 @@ ${CAVE_GLSL}`,
   group.name = 'cave';
   group.userData.perfTag = 'mine-cave';
   occlusionPatch(shell);
-  OCC.uFgLift.value.setHex(L.biome === 'ice' ? 0x0c1826 : L.biome === 'lava' ? 0x1e0e08 : 0x1c130c).convertSRGBToLinear().multiplyScalar(1.6);
+  OCC.uFgLift.value.setHex(L.biome === 'ice' ? 0x0c1826 : L.biome === 'lava' ? 0x2a1208 : 0x1c130c).convertSRGBToLinear().multiplyScalar(L.biome === 'lava' ? 2.4 : 1.6);
   const mesh = new THREE.Mesh(geo, shell);
   mesh.name = 'cave-shell';
   mesh.receiveShadow = true;
@@ -572,14 +595,14 @@ ${CAVE_GLSL}`,
         void main() {
           vec4 wp = modelMatrix * vec4(position, 1.0);
           float n = hvCrust(wp.xz, uTime);
-          wp.y += smoothstep(0.6, 0.68, n) * 0.045 + hvNoise(wp.xz * 3.0) * 0.012;
+          wp.y += smoothstep(0.53, 0.61, n) * 0.045 + hvNoise(wp.xz * 3.0) * 0.012;
           vW = wp.xyz;
           vec4 mvPosition = viewMatrix * wp;
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
         }`,
       fragmentShader: /* glsl */ `
-        uniform float uTime;
+        uniform float uTime; uniform sampler2D uLavaMask; uniform vec2 uLavaSize;
         varying vec3 vW;
         #include <fog_pars_fragment>
         ${NOISE_GLSL}
@@ -589,7 +612,8 @@ ${CAVE_GLSL}`,
           vec2 p = vW.xz;
           float t = uTime;
           float n = hvCrust(p, t);
-          float crust = smoothstep(0.6, 0.65, n);
+          // Dark cooled plates drift on more of the surface (a skin with glowing rifts, not a sheet).
+          float crust = smoothstep(0.53, 0.58, n);
           // Crust relief lighting from finite differences (lantern from above-front).
           float e = 0.06;
           float nx = hvCrust(p + vec2(e, 0.0), t) - n;
@@ -600,8 +624,16 @@ ${CAVE_GLSL}`,
           // Melt: deep red in the slow middle, orange as it thins, yellow-white only where hottest.
           float hot = 1.0 - smoothstep(0.3, 0.52, n);
           float swirl = hvNoise(p * 1.7 - vec2(t * 0.12, t * 0.07));
-          vec3 molten = mix(vec3(0.42, 0.05, 0.008), vec3(0.95, 0.3, 0.03), smoothstep(0.2, 0.75, hot * 0.7 + swirl * 0.45));
-          molten = mix(molten, vec3(1.35, 0.78, 0.24), smoothstep(0.78, 1.0, hot) * pulse * 0.8);
+          // (kept below the bloom knee: a peak of ~0.85 after tonemapping, never a flat white-orange
+          // sheet; depth comes from the dark-red slow middle vs. the orange thinning edges)
+          vec3 molten = mix(vec3(0.26, 0.03, 0.005), vec3(0.64, 0.17, 0.02), smoothstep(0.2, 0.75, hot * 0.7 + swirl * 0.45));
+          molten = mix(molten, vec3(0.98, 0.5, 0.12), smoothstep(0.8, 1.0, hot) * pulse * 0.7);
+          // Flow banding: dark-red ropes dragged along the current (pahoehoe skin), so open melt has
+          // texture and depth instead of a flat orange fill.
+          vec2 fq = p - vec2(0.05, 0.028) * t;
+          float rope = abs(hvNoise(vec2(fq.x * 1.1 + swirl * 1.6, fq.y * 3.2 + hvNoise(fq * 0.7) * 2.5)) - 0.5);
+          molten *= 0.55 + 0.6 * smoothstep(0.02, 0.22, rope);
+          molten *= 0.8 + 0.35 * hvNoise(fq * 0.9 + 13.0);
           // Crust rafts: near-black basalt (linear!), a faint sheen on the relief.
           float grain = hvNoise(p * 7.0) * 0.6 + hvNoise(p * 19.0) * 0.4;
           vec3 crustC = mix(vec3(0.018, 0.011, 0.01), vec3(0.055, 0.032, 0.026), grain) * lit;
@@ -611,17 +643,28 @@ ${CAVE_GLSL}`,
           crustC *= 0.75 + 0.5 * smoothstep(0.0, 0.3, plate);
           crustC += vec3(0.9, 0.18, 0.01) * (1.0 - smoothstep(0.0, 0.07, plate)) * 0.75 * pulse;
           // The crust edge cools gradually: dull red rim before the seam.
-          float edgeHeat = 1.0 - smoothstep(0.6, 0.72, n);
+          float edgeHeat = 1.0 - smoothstep(0.53, 0.68, n);
           crustC += vec3(0.25, 0.03, 0.0) * edgeHeat * crust;
           vec3 col = mix(molten, crustC, crust);
-          // Bright glowing seam where crust meets melt.
-          float seam = 1.0 - smoothstep(0.0, 0.03, abs(n - 0.61));
-          col += vec3(1.3, 0.55, 0.08) * seam * pulse;
+          // Glowing seam where crust meets melt.
+          float seam = 1.0 - smoothstep(0.0, 0.025, abs(n - 0.545));
+          col += vec3(0.95, 0.38, 0.05) * seam * pulse;
+          // Bank: the melt darkens and cools against the basalt rim (depth at the shore).
+          float bank = smoothstep(0.25, 0.75, texture2D(uLavaMask, vW.xz / uLavaSize).r);
+          col *= mix(0.35, 1.0, bank);
+          col = min(col, vec3(1.05, 0.62, 0.2));
           gl_FragColor = vec4(col, 1.0);
           #include <fog_fragment>
         }`,
     });
     m.uniforms.uTime = lavaUniforms.uTime;
+    const lavaMask = new THREE.DataTexture(new Uint8Array(Array.from(L.lava, (v) => v * 255)), W, D, THREE.RedFormat);
+    lavaMask.magFilter = THREE.LinearFilter;
+    lavaMask.minFilter = THREE.LinearFilter;
+    lavaMask.needsUpdate = true;
+    disposables.push(lavaMask);
+    m.uniforms.uLavaMask = { value: lavaMask };
+    m.uniforms.uLavaSize = { value: new THREE.Vector2(W, D) };
     const lm = new THREE.Mesh(g, m);
     lm.name = 'lava';
     lm.userData.noAO = true;
@@ -664,12 +707,14 @@ ${CAVE_GLSL}`,
     const g = new THREE.PlaneGeometry(pb.max.x - pb.min.x, pb.max.y - pb.min.y, 1, 1).rotateX(-Math.PI / 2);
     g.translate((pb.min.x + pb.max.x) / 2, -0.015, (pb.min.y + pb.max.y) / 2);
     const ice = L.biome === 'ice';
+    // Earth: a shallow, muddy-clear puddle over the damp floor (catches the lantern; a near-black
+    // opaque sheet read as a hole in the floor).
     const m = new THREE.MeshStandardMaterial({
-      color: ice ? 0x2a5a78 : 0x121a22,
-      roughness: ice ? 0.14 : 0.06,
-      metalness: ice ? 0.25 : 0.3,
+      color: ice ? 0x2a5a78 : 0x4a3c2a,
+      roughness: ice ? 0.14 : 0.08,
+      metalness: ice ? 0.25 : 0.0,
       transparent: true,
-      opacity: ice ? 0.88 : 0.82,
+      opacity: ice ? 0.88 : 0.5,
       emissive: ice ? 0x123e5a : 0x000000,
       emissiveIntensity: ice ? 0.4 : 0,
       depthWrite: false,
@@ -705,6 +750,37 @@ ${CAVE_GLSL}`,
         shader.fragmentShader = fs;
       });
     }
+    // Only the pools themselves: the sheet spans the bbox of every pool, and wherever the floor's
+    // own noise dipped under its plane a hard-edged dark rectangle printed on dry floor (floor 37).
+    const poolMask = new THREE.DataTexture(new Uint8Array(Array.from(L.pool, (v) => v * 255)), W, D, THREE.RedFormat);
+    poolMask.magFilter = THREE.LinearFilter;
+    poolMask.minFilter = THREE.LinearFilter;
+    poolMask.needsUpdate = true;
+    disposables.push(poolMask);
+    patchMaterial(m, 'mine-pool-mask', (shader) => {
+      shader.uniforms.uPoolMask = { value: poolMask };
+      shader.uniforms.uPoolSize = { value: new THREE.Vector2(W, D) };
+      let vs = before(shader.vertexShader, 'void main() {', 'varying vec2 vPoolXZ;');
+      vs = after(vs, '#include <project_vertex>', 'vPoolXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      shader.vertexShader = vs;
+      let fs = before(
+        shader.fragmentShader,
+        'void main() {',
+        `uniform sampler2D uPoolMask; uniform vec2 uPoolSize; varying vec2 vPoolXZ;
+        float hvPoolH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float hvPoolN(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hvPoolH(i), hvPoolH(i + vec2(1.0, 0.0)), f.x), mix(hvPoolH(i + vec2(0.0, 1.0)), hvPoolH(i + vec2(1.0, 1.0)), f.x), f.y); }`,
+      );
+      fs = after(fs, '#include <alphamap_fragment>', `{
+        vec2 pw = vPoolXZ + (vec2(hvPoolN(vPoolXZ * 0.9), hvPoolN(vPoolXZ * 0.9 + 7.3)) - 0.5) * 0.9;
+        float pmk = texture2D(uPoolMask, pw / uPoolSize).r;
+        diffuseColor.a *= smoothstep(0.24, 0.5, pmk);
+        // Shallow at the shore: thinner, lighter water towards the edge.
+        diffuseColor.a *= mix(0.55, 1.0, smoothstep(0.3, 0.75, pmk));
+        if (diffuseColor.a < 0.01) discard;
+      }`);
+      shader.fragmentShader = fs;
+    });
     const pm = new THREE.Mesh(g, m);
     pm.name = ice ? 'frozen-pool' : 'puddle';
     pm.receiveShadow = true;
@@ -781,7 +857,7 @@ ${CAVE_GLSL}`,
     patchMaterial(rm, `cave-boulders-amb:${amb}`, (shader) => {
       shader.fragmentShader = after(shader.fragmentShader, '#include <emissivemap_fragment>', `totalEmissiveRadiance += diffuseColor.rgb * ${amb.toFixed(3)};`);
     });
-    occlusionPatch(rm);
+    occlusionPatch(rm, true, true);
     const bm = new THREE.Mesh(merged, rm);
     bm.name = 'cave-boulders';
     bm.castShadow = true;

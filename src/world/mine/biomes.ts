@@ -183,7 +183,7 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     sat: 0.98,
     contrast: 1.1,
     vignette: 0.74,
-    bloom: [0.42, 0.9],
+    bloom: [0.36, 0.92],
     floorRough: 0.8,
     ores: [
       [null, 52],

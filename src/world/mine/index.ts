@@ -536,7 +536,9 @@ export class MineMap implements GameMap {
     this.game.events.emit('mine:rock', { x: tx, z: tz, ore, floor: this.floor });
     this.hooks?.rock?.(tz * FLOOR_W + tx, 0, true, drops, this.strikerId);
     // Ladder down?
-    if (!this.ladderDown) {
+    const lr = this.layout.ladderRock;
+    if (!this.ladderDown && lr && lr.x === tx && lr.z === tz) this.revealLadder(tx, tz, true);
+    else if (!this.ladderDown) {
       const total = this.layout.rocks.length;
       const left = this.rocks.remaining;
       const done = 1 - left / Math.max(1, total);

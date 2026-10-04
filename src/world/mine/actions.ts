@@ -446,6 +446,8 @@ const ARC_SPAN = THREE.MathUtils.degToRad(135);
 /** Crescent radii (m): outer (blade-tip path) and the core band thickness at the middle. */
 const ARC_OUT = 1.62;
 const ARC_CORE = 0.42;
+/** Impact hold of the crescent (s): long enough to read as a shape, not a one-frame flicker. */
+const HOLD = 0.125;
 
 /**
  * The big readable shape of a sword hit: a thick 135° crescent around the farmer in the facing
@@ -458,9 +460,11 @@ export class SlashArc {
   readonly mesh: THREE.Mesh;
   private u: { uHead: { value: number }; uFade: { value: number }; uDir: { value: number }; uCrit: { value: number }; uScroll: { value: number }; uHit: { value: number } };
   private t = -1;
-  private hold = 0.035;
+  private hold = HOLD;
   private sweep = 0.06;
-  private fade = 0.09;
+  private fade = 0.15;
+  /** Afterimages: dimmer copies lagging behind the sweep that catch up through the hold. */
+  private ghosts: THREE.Mesh[] = [];
 
   constructor() {
     const pos: number[] = [];
@@ -493,17 +497,17 @@ export class SlashArc {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
     this.u = { uHead: { value: 0 }, uFade: { value: 0 }, uDir: { value: 1 }, uCrit: { value: 0 }, uScroll: { value: 0 }, uHit: { value: 0 } };
-    const m = new THREE.ShaderMaterial({
+    const mat = (ghost: number): THREE.ShaderMaterial => new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       depthTest: false,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       toneMapped: false,
-      uniforms: this.u,
+      uniforms: { ...this.u, uGhost: { value: ghost } },
       vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: /* glsl */ `
-        uniform float uHead; uniform float uFade; uniform float uDir; uniform float uCrit; uniform float uScroll; uniform float uHit;
+        uniform float uHead; uniform float uFade; uniform float uDir; uniform float uCrit; uniform float uScroll; uniform float uHit; uniform float uGhost;
         varying vec2 vUv;
         void main(){
           float s = uDir > 0.0 ? vUv.x : 1.0 - vUv.x;
@@ -514,16 +518,29 @@ export class SlashArc {
           float v = vUv.y;
           float core = smoothstep(0.5, 0.62, v);
           float edge = smoothstep(0.84, 0.97, v) * (1.0 - smoothstep(0.985, 1.0, v));
-          float wash = smoothstep(0.0, 0.5, v) * (1.0 - core) * 0.28;
-          float streak = 0.8 + 0.2 * sin((s * 3.0 - uScroll * 6.0) * 6.2832 + v * 7.0);
-          vec3 warm = mix(vec3(1.0, 0.62, 0.26), vec3(1.0, 0.8, 0.2), uCrit);
-          vec3 hot = mix(vec3(1.0, 0.97, 0.9), vec3(1.0, 0.92, 0.6), uCrit);
-          vec3 col = warm * (wash + core * 0.55 * streak) + hot * edge * (1.5 + head * 1.2 + uHit * 0.8);
+          float wash = smoothstep(0.0, 0.5, v) * (1.0 - core) * 0.42;
+          float streak = 0.78 + 0.22 * sin((s * 3.0 - uScroll * 6.0) * 6.2832 + v * 7.0);
+          vec3 warm = mix(vec3(1.0, 0.55, 0.18), vec3(1.0, 0.78, 0.16), uCrit);
+          vec3 hot = mix(vec3(1.0, 0.96, 0.86), vec3(1.0, 0.92, 0.6), uCrit);
+          // Warm-white blade edge → gold core band → amber wash fading to nothing towards the farmer.
+          vec3 band = mix(warm, hot, smoothstep(0.55, 0.95, v));
+          vec3 col = warm * wash + band * core * 0.85 * streak + hot * edge * (1.25 + head * 0.8 + uHit * 0.5);
           col *= tail * uFade * smoothstep(0.0, 0.07, s) * smoothstep(0.0, 0.06, uHead + 0.015 - s);
+          // Afterimages: dimmer, warmer, no hot edge flare.
+          col = mix(col, warm * (core + edge) * 0.9 * tail * uFade * smoothstep(0.0, 0.1, s), step(0.001, uGhost)) * (uGhost > 0.0 ? uGhost : 1.0);
           gl_FragColor = vec4(col, 1.0);
         }`,
     });
-    this.mesh = new THREE.Mesh(g, m);
+    this.mesh = new THREE.Mesh(g, mat(0));
+    for (const k of [0.5, 0.26]) {
+      const gm = new THREE.Mesh(g, mat(k));
+      gm.frustumCulled = false;
+      gm.renderOrder = 59;
+      gm.userData.noAO = true;
+      gm.scale.setScalar(1 - (1 - k) * 0.1);
+      this.mesh.add(gm);
+      this.ghosts.push(gm);
+    }
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 60;
     this.mesh.userData.noAO = true;
@@ -576,6 +593,9 @@ export class SlashArc {
     this.t += dt;
     const t = this.t;
     this.u.uScroll.value = t;
+    // Afterimages trail the sweep by ~14° / ~28° and catch up over the hold.
+    const lagK = t < this.sweep ? 1 : Math.max(0, 1 - (t - this.sweep) / Math.min(0.2, this.hold + this.fade));
+    this.ghosts.forEach((gm, i) => (gm.rotation.y = -this.u.uDir.value * (i + 1) * 0.25 * lagK));
     if (t < this.sweep) {
       const k = t / this.sweep;
       this.u.uHead.value = Math.max(this.u.uHead.value, 1 - (1 - k) * (1 - k));
@@ -589,7 +609,7 @@ export class SlashArc {
       this.u.uFade.value = (1 - k) * (1 - k);
     } else {
       this.t = -1;
-      this.hold = 0.035;
+      this.hold = HOLD;
       this.mesh.visible = false;
     }
   }

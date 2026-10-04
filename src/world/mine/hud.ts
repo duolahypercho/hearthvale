@@ -230,9 +230,14 @@ interface Num {
   /** Screen-space de-overlap push (px, eased): numbers never print over each other. */
   ny: number;
   nx: number;
+  /** Rides a moving body (a knocked-back monster): pos = track + trackOff every frame. */
+  track: THREE.Vector3 | null;
+  trackOff: THREE.Vector3;
 }
 
 export interface PopOpts {
+  /** Ride this live position (the victim): the number stays on its head as it is knocked away. */
+  track?: THREE.Vector3;
   /** Track `at` (a live vector) every frame instead of copying it. */
   follow?: boolean;
   /** World offset added to the anchor. */
@@ -323,6 +328,8 @@ export class DamageNumbers {
       qty,
       ny: 0,
       nx: 0,
+      track: opts.track ?? null,
+      trackOff: opts.track ? at.clone().sub(opts.track) : new THREE.Vector3(),
     });
     if (this.list.length > 40) this.list.shift()!.el.remove();
   }
@@ -337,6 +344,7 @@ export class DamageNumbers {
       const n = this.list[i]!;
       if (!this.hold || n.age < n.life * 0.32) n.age += dt;
       const t = n.age / n.life;
+      if (n.track) n.pos.copy(n.track).add(n.trackOff);
       if (t >= 1) {
         n.el.remove();
         this.list.splice(i--, 1);

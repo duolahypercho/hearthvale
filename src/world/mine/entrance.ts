@@ -578,8 +578,21 @@ export class MineEntranceMap implements GameMap {
           // dark recessed groove at every bed border with a sunlit worn lip just above it, wobbling
           // a little along the face. Anti-aliased on the band coordinate's own footprint and faded
           // where beds get denser than a few pixels, on steep faces only.
+          // Fault scars: three slanted breaks across the face where the beds step out of line
+          // (the strata jump up / down across each), a dark open crack with moss weeping from it.
+          float cfFault = 0.0;
+          float cfCrack = 0.0;
           {
-            float bw = vBand + (hvNoise(vCfW.xz * 1.7 + vCfW.y * 0.3) - 0.5) * 0.12;
+            float fx = vCfW.x + vCfW.y * 0.3;
+            for (int k = 0; k < 3; k++) {
+              float fk = k == 0 ? 10.0 : (k == 1 ? 16.2 : 34.0);
+              float d = fx - fk - sin(vCfW.y * 1.4 + float(k) * 2.1) * 0.18 - (hvNoise(vec2(vCfW.y * 2.3, float(k) * 5.0)) - 0.5) * 0.25;
+              cfFault += step(0.0, d) * (k == 1 ? 0.5 : -0.45);
+              cfCrack = max(cfCrack, 1.0 - smoothstep(0.05, 0.2 + fwidth(fx), abs(d)));
+            }
+          }
+          {
+            float bw = vBand + cfFault + (hvNoise(vCfW.xz * 1.7 + vCfW.y * 0.3) - 0.5) * 0.12;
             float fb = fract(bw);
             float aw = fwidth(vBand) * 1.5;
             float bid = floor(bw);
@@ -606,6 +619,9 @@ export class MineEntranceMap implements GameMap {
             vec3 bedC = diffuseColor.rgb * (1.0 - groove * gk) * (1.0 + lip * 0.2 * broken) * bedShade * blockTone * (1.0 - crev * 0.55);
             bedC = mix(bedC, mossC * (0.8 + 0.3 * bk), mossy * 0.7);
             diffuseColor.rgb = mix(diffuseColor.rgb, bedC, face);
+            // The fault crack itself + a moss / weep stain trailing down from it.
+            diffuseColor.rgb *= 1.0 - cfCrack * 0.72 * face;
+            diffuseColor.rgb = mix(diffuseColor.rgb, mossC * 0.9, cfCrack * smoothstep(0.45, 0.7, hvNoise(vec2(vCfW.x * 3.0, vCfW.y * 0.8))) * 0.55 * face);
           }
         `,
       );
@@ -679,6 +695,16 @@ export class MineEntranceMap implements GameMap {
       for (let x = 25.9; x <= 31.0; x += 0.5) b.add('woodDark', roundedBox(0.17, 0.07, 0.9, 0.02), mat(x, this.H(x, z) + 0.02, z, 0, Math.sin(x * 7.1) * 0.06, 0), { tint: 0x9a7a5a });
       for (const sz of [-0.3, 0.3]) b.add('white', new THREE.CylinderGeometry(0.045, 0.045, 5.3, 6).rotateZ(Math.PI / 2), mat(28.45, this.H(28.45, z + sz) + 0.1, z + sz), { tint: 0x9a948e });
       b.add('woodDark', roundedBox(0.25, 0.5, 0.9, 0.05), mat(31.3, this.H(31.3, z) + 0.3, z), { tint: 0xc05a3a });
+      // West end: a proper buffer stop too (the track used to just end in the grass): two
+      // raked timbers, a red-painted beam, a sleeper bed under it.
+      {
+        const x = 25.55;
+        const y = this.H(x, z);
+        b.add('woodDark', roundedBox(0.3, 0.12, 1.15, 0.03), mat(x + 0.05, y + 0.05, z), { tint: 0x8a6a4a });
+        b.add('woodDark', roundedBox(0.28, 0.48, 1.0, 0.05), mat(x, y + 0.36, z), { tint: 0xc05a3a });
+        for (const sz of [-0.32, 0.32]) b.add('woodGrain', roundedBox(0.12, 0.85, 0.12, 0.02), mat(x + 0.32, y + 0.3, z + sz, 0, 0, 0.75), { tint: 0x8a6a48 });
+        b.add('metal', roundedBox(0.06, 0.3, 0.75, 0.01), mat(x + 0.15, y + 0.4, z), { tint: 0x3e3a36 });
+      }
       this.add(b.build({ name: 'yard-rails' }), 0, 0, 0, [], 0);
       const cart = buildCart(r.fork('cart2'));
       this.add(cart, 28.6, z, 0, [[28, 17]]);
@@ -813,7 +839,10 @@ export class MineEntranceMap implements GameMap {
     // Tapered 4-post headframe with cross bracing.
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        b.add('woodGrain', boxUV(roundedBox(0.22, H, 0.22, 0.04), 1.4), mat(sx * 0.95, H / 2, sz * 0.8, sz * -0.06, 0, sx * -0.06), { tint: wood, aoWorld: (p) => 0.55 + 0.45 * smoothstep(0, 1, p.y) });
+        // (stout 30 cm legs on dressed-stone footings: the old 22 cm legs read spindly)
+        b.add('woodGrain', boxUV(roundedBox(0.3, H, 0.3, 0.05), 1.4), mat(sx * 0.95, H / 2, sz * 0.8, sz * -0.06, 0, sx * -0.06), { tint: wood, aoWorld: (p) => 0.55 + 0.45 * smoothstep(0, 1, p.y) });
+        b.add(mineRockMaterial(), boxUV(roundedBox(0.55, 0.32, 0.55, 0.08), 1), mat(sx * 1.0, 0.12, sz * 0.86), { tint: 0x9a8c7a });
+        b.add('metal', roundedBox(0.34, 0.08, 0.34, 0.01), mat(sx * 0.99, 0.62, sz * 0.84), { tint: 0x4a4440 });
       }
       for (let k = 0; k < 3; k++) {
         const y = 1.2 + k * 1.5;
@@ -821,7 +850,17 @@ export class MineEntranceMap implements GameMap {
         b.add('woodGrain', roundedBox(1.9 - k * 0.15, 0.12, 0.12, 0.02), mat(0, y, sx * (0.78 - k * 0.07)), { tint: 0x98704a });
       }
     }
+    // X-bracing on the back face too (only the sides were braced), the front left open for the cage.
+    for (let k = 0; k < 2; k++) {
+      const y = 2.9 + k * 1.55;
+      for (const d of [-1, 1]) b.add('woodGrain', roundedBox(0.11, 2.15, 0.11, 0.02), mat(0, y, -0.78 + k * 0.05, 0, 0, d * 0.78), { tint: 0x8e6844 });
+    }
     b.add('woodGrain', roundedBox(2.3, 0.22, 2.0, 0.04), mat(0, H, 0), { tint: 0x98704a });
+    // Sheave bearers: an A-frame on each side carries the wheel's axle (it sat perched on posts).
+    for (const sz of [-1, 1]) {
+      for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.16, 1.25, 0.16, 0.03), mat(sx * 0.38, H + 0.5, sz * 0.32, 0, 0, sx * -0.42), { tint: wood });
+      b.add('woodGrain', roundedBox(0.95, 0.12, 0.14, 0.02), mat(0, H + 0.3, sz * 0.32), { tint: 0x8e6844 });
+    }
     // Pulley wheel (spoked) + axle + cable into the shaft.
     const wheel = new THREE.TorusGeometry(0.78, 0.07, 8, 28);
     b.add('metal', wheel, mat(0, H + 0.85, 0), { tint: 0x5a5048 });
@@ -980,6 +1019,13 @@ export class MineEntranceMap implements GameMap {
         const sp = onPlateau || r.next() < 0.75 ? 'pine' : 'maple';
         this.trees.add(sp, jx, this.H(jx, jz) - 0.1, jz, 0.8 + r.next() * 0.5, undefined, onPlateau && jz < this.cliffZ(jx) - 5 ? 1 : 0);
       }
+    }
+    // Shrubs and ferns hanging over the cliff crest: the strata get a living top edge.
+    for (let x = 0.5; x < W - 0.5; x += 1.15) {
+      if (r.next() < 0.3) continue;
+      const jx = x + (r.next() - 0.5) * 0.6;
+      const jz = this.cliffZ(jx) - 1.45 - r.next() * 0.8;
+      this.nature.place(r.next() < 0.55 ? 'bush' : 'fern', jx, this.H(jx, jz) - 0.05, jz, { scale: 0.9 + r.next() * 0.7 });
     }
     // Scree + boulders at the cliff foot, stones on the shelf, ferns / bushes at edges.
     const scree = new MeshBuilder();

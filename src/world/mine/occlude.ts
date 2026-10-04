@@ -21,32 +21,44 @@ export const OCC = {
   uOcc: { value: Array.from({ length: OCC_MAX }, () => new THREE.Vector4(-1e4, -1e4, 0, 0)) },
   /** Feet height (world y) per target: geometry below feet + 0.35 m is never cut. */
   uOccY: { value: new Array<number>(OCC_MAX).fill(0) },
+  /** Feet z (world) per target: only geometry SOUTH of the target (between it and the lens) is cut,
+   * never the top of the wall behind it (that printed a ghost strip over the arrival ladder). */
+  uOccZ: { value: new Array<number>(OCC_MAX).fill(0) },
   uOccN: { value: 0 },
   /** Frame buffer height (px) for the foreground band. */
   uOccH: { value: 0 },
   /** Dim tint the foreground band lifts towards (linear). */
   uFgLift: { value: new THREE.Color(0.03, 0.02, 0.014) },
+  /** Camera projection x view (fragment shaders have no projectionMatrix). */
+  uOccPV: { value: new THREE.Matrix4() },
 };
 
 const GLSL_PARS = /* glsl */ `
 uniform vec4 uOcc[${OCC_MAX}];
 uniform float uOccY[${OCC_MAX}];
+uniform float uOccZ[${OCC_MAX}];
 uniform int uOccN;
 uniform float uOccH;
 uniform vec3 uFgLift;
+uniform mat4 uOccPV;
 `;
 
 /**
  * Patch a lit (Standard / Physical) material with the cutaway + foreground lift.
  * @param cut  false = only the foreground lift (e.g. the floor-only meshes).
  */
-export function occlusionPatch<M extends THREE.Material>(m: M, cut = true): M {
-  patchMaterial(m, `mine-occ:${cut ? 1 : 0}`, (shader) => {
+export function occlusionPatch<M extends THREE.Material>(m: M, cut = true, fgCut = false): M {
+  // One occlusion patch per material: a clone re-patched with other options replaces it.
+  const list = (m as M & { __hvPatches?: { key: string }[] }).__hvPatches;
+  if (list) for (let i = list.length - 1; i >= 0; i--) if (list[i]!.key.startsWith('mine-occ:')) list.splice(i, 1);
+  patchMaterial(m, `mine-occ:${cut ? 1 : 0}:${fgCut ? 1 : 0}`, (shader) => {
     shader.uniforms.uOcc = OCC.uOcc;
     shader.uniforms.uOccY = OCC.uOccY;
+    shader.uniforms.uOccZ = OCC.uOccZ;
     shader.uniforms.uOccN = OCC.uOccN;
     shader.uniforms.uOccH = OCC.uOccH;
     shader.uniforms.uFgLift = OCC.uFgLift;
+    shader.uniforms.uOccPV = OCC.uOccPV;
     let fs = before(shader.fragmentShader, 'void main() {', GLSL_PARS);
     fs = after(
       fs,
@@ -63,7 +75,7 @@ export function occlusionPatch<M extends THREE.Material>(m: M, cut = true): M {
           vec4 o = uOcc[i];
           vec2 d = (gl_FragCoord.xy - o.xy) / vec2(o.z * 0.72, o.z);
           float r = length(d);
-          if (r < 1.0 && -occV.z < o.w - 0.55 && occW.y > uOccY[i] + 0.35) {
+          if (r < 1.0 && -occV.z < o.w - 0.55 && occW.y > uOccY[i] + 0.35 && occW.z > uOccZ[i] - 0.15) {
             if (r < 0.9) discard;
             hvOccRim = max(hvOccRim, 1.0 - abs(r - 0.95) / 0.05);
           }
@@ -71,13 +83,45 @@ export function occlusionPatch<M extends THREE.Material>(m: M, cut = true): M {
       }`
         : 'float hvOccRim = 0.0;',
     );
+    // Free-standing props / rim boulders standing in the bottom band of the frame (between the lens
+    // and the floor, under the toolbar) are removed down to their footprint, like a diorama's open
+    // front, with a dim lip along the cut (no screen-door dither, no hollow stubs).
+    fs = after(
+      fs,
+      'void main() {',
+      fgCut
+        ? `float hvFgRim = 0.0;
+      {
+        vec3 fgV = -vViewPosition;
+        vec3 fgW = (vec4(fgV - viewMatrix[3].xyz, 0.0) * viewMatrix).xyz;
+        // Band from where the fragment's FOOT lands on screen (its ground point), so a tall
+        // column standing in the foreground is cut as a whole, not only its lower fragments.
+        vec4 fgG = uOccPV * vec4(fgW.x, uOccY[0], fgW.z, 1.0);
+        float fgGY = (fgG.y / max(fgG.w, 1e-3) * 0.5 + 0.5) * uOccH;
+        // (near-binary: an object is either whole or gone down to its footprint — a half-height
+        // stub showed its hollow, back-face-culled inside as black slivers)
+        float fgBand = 1.0 - smoothstep(uOccH * 0.17, uOccH * 0.21, fgGY);
+        float cutH = mix(60.0, 0.07, fgBand);
+        float hh = fgW.y - uOccY[0];
+        if (uOccN > 0 && fgBand > 0.01) {
+          if (hh > cutH) discard;
+          hvFgRim = (1.0 - smoothstep(0.0, 0.05, cutH - hh)) * smoothstep(0.0, 0.2, fgBand);
+        }
+      }`
+        : 'float hvFgRim = 0.0;',
+    );
     fs = after(
       fs,
       '#include <dithering_fragment>',
       `{
-        float fgk = 1.0 - smoothstep(uOccH * 0.03, uOccH * 0.22, gl_FragCoord.y);
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * 0.7 + uFgLift, fgk);
+        // Foreground lift: rock in the bottom band keeps its FORM (a soft fake key from above-front
+        // over its own albedo + the biome tint) instead of crushing into a flat black mass.
+        float fgk = 1.0 - smoothstep(uOccH * 0.03, uOccH * 0.3, gl_FragCoord.y);
+        float fgN = clamp(dot(normal, normalize(vec3(0.25, 0.85, 0.45))), 0.0, 1.0);
+        vec3 fgForm = diffuseColor.rgb * (0.12 + 0.35 * fgN * fgN) + uFgLift * (1.6 + 3.0 * fgN);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, max(gl_FragColor.rgb * 0.9, fgForm), fgk);
         gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.9, 0.6, 0.3), clamp(hvOccRim, 0.0, 1.0) * 0.55);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, uFgLift * 4.0 + diffuseColor.rgb * 0.25, clamp(hvFgRim, 0.0, 1.0) * 0.8);
       }`,
     );
     shader.fragmentShader = fs;
@@ -94,6 +138,7 @@ const _w = new THREE.Vector3();
  */
 export function updateOcclusion(cam: THREE.Camera, targets: { pos: THREE.Vector3; h: number }[], w: number, h: number): void {
   OCC.uOccH.value = h;
+  OCC.uOccPV.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
   let n = 0;
   const viewZ = (p: THREE.Vector3): number => -_w.copy(p).applyMatrix4(cam.matrixWorldInverse).z;
   for (const t of targets) {
@@ -114,6 +159,7 @@ export function updateOcclusion(cam: THREE.Camera, targets: { pos: THREE.Vector3
     const r = Math.max(24, (top - sy) * 1.05);
     OCC.uOcc.value[n]!.set(sx, sy, r, depth);
     OCC.uOccY.value[n] = t.pos.y;
+    OCC.uOccZ.value[n] = t.pos.z;
     n++;
   }
   OCC.uOccN.value = n;

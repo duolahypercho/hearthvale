@@ -274,7 +274,12 @@ class Headless {
     this.remaining--;
     const at = new THREE.Vector3(spec.x + 0.5, 0, spec.z + 0.5);
     const drops = rollRockLoot(() => this.rng.next(), spec.ore, spec.big, this.L.biome).map((id) => this.drop(id, at, 1.4));
-    if (!this.st.ladder) {
+    const lr = this.L.ladderRock;
+    if (!this.st.ladder && lr && lr.x === spec.x && lr.z === spec.z) {
+      // The ladder was hiding under this rock (same rule as the live map).
+      this.st.ladder = { x: spec.x, z: spec.z };
+      this.onLadder?.(spec.x, spec.z);
+    } else if (!this.st.ladder) {
       const total = this.L.rocks.length;
       const done = 1 - this.remaining / Math.max(1, total);
       const p = 0.035 + done * done * 0.3 + (this.monsters.every((m) => !m.alive) ? 0.08 : 0);

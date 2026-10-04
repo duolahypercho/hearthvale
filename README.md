@@ -775,21 +775,29 @@ Frostvein Grotto, Cinder Depths (`biomes.ts`), repeating with a tier (tougher mo
   light behind the farmer, 5 accent lights, per-biome grade), `props.ts` (timber frames with lanterns on every back
   wall, iron-bracket wall lanterns, one additive halo sheet for all lamps, carts on rails, crystals, spikes, basalt,
   vents). `occlude.ts`: farmers (local + co-op) and the nearest monsters get a screen-space cutaway through any cave
-  geometry in front of them (warm rim on the cut), and the bottom band of the frame lifts to a dim tint (no black holes).
+  geometry in front of them (warm rim on the cut); rock in the bottom band of the frame keeps its form under a soft
+  fake key (no black mass), and free-standing props / rim boulders whose FOOT lands in the bottom ~19 % of the frame are
+  removed down to their footprint (diorama open front). The farmer's head shadow-proxy casts nothing underground.
   Underground the HUD clock dial becomes a lantern niche and the weather badge hides (`hud.ts: setUnderground`).
-- **Rocks & ore** (`gen.ts`, `ores.ts`, `stone.ts`): rocks gather in 3–5 wall-hugging seams (≤ 3 tiles deep, open
-  lanes through the hall, a few loose stones); one batched draw per material. Metal ores are 6–8 raised, faceted
+- **Rocks & ore** (`gen.ts`, `ores.ts`, `stone.ts`): 3–5 wall-hugging ore seams plus a noise-clustered rock FIELD
+  filling ~31 % of the open floor, with 3–4 winding lanes kept clear from the arrival (and to the lift / chest), a
+  clearing at the arrival and ≥ 3 ore rocks within 6 tiles of it; on ~85 % of floors the ladder down hides under one
+  plain rock out in the field (`layout.ladderRock`, revealed on its tile; the old random reveal still applies);
+  one batched draw per material. Metal ores are 6–8 raised, faceted
   NUGGETS in saturated colours (copper salmon-orange, iron pale blue-white, gold yellow) with a self-glow rim and slow
   star glints on a darker, desaturated host rock; gems break out as emissive crystal clusters; coal as glossy chunks;
   every ore rock sits on a faint ore-coloured light pool. Hits flash the rock, squash it, knock ore-coloured nuggets and
   glints loose; breaks burst 20+ chunks and pop loot (≥ 1 stone per rock) that bobs over a tinted glow ring and flies
   to the nearest farmer within 2.5 tiles after 0.5 s (`pickups.ts`, instanced: one draw per loot kind). Ore by depth:
   22–28 % of rocks on floors 1–5 (gems ≤ 1 %), ≈ 26–48 % deeper, iron from 5, gold from 21, diamonds from 25.
-- **Combat**: slimes (spring jiggle), bats, rock crabs, frost wisps (chill), cinder imps (fireballs). The sword
-  (`actions.ts`: short polished blade, alternating slashes) draws a thick additive crescent over everything, hits
-  knock monsters back 1.65 tiles (eased 0.18 s) with a squash + hot-rim flash, damage numbers pop 1.4→1 at the hit
-  point (rapid hits on one target merge into one ticking number, neighbours fan out sideways; crits gold + shake; the
+- **Combat**: slimes (spring jiggle), bats (pale rim + eye-glow halo), rock crabs, frost wisps (chill), cinder imps
+  (fireballs); tier 2+ floors escalate them (darker bodies, a crystal crust on slimes, red eye glints, ★ on the floor
+  plaque). The sword (`actions.ts`: short polished blade, alternating slashes) draws a warm-white → gold crescent with two
+  lagging afterimages, held 125 ms on impact; hits knock monsters back 1.65 tiles (eased 0.18 s) with a 2-frame full-white
+  flash and a 1.3 / 0.7 squash, damage numbers pop 1.4→1 on the victim's head and ride its knockback (rapid hits on one target merge into one ticking number, neighbours fan out sideways; crits gold + shake; the
   farmer's own hurt number is big red with a white outline), kills freeze the arena 60 ms, kick the camera and leave a goo splat.
+  Goo splats have a dark meniscus rim and a wet gloss. Arriving on a floor with a farm tool in hand switches to the
+  pickaxe (the sword if a monster is within 5 tiles).
   Health tube, i-frames, passing out → carried to the entrance lean-to (+2 h, some gold / loot lost).
 - **Co-op** (`coop.ts`, wired through `net/bridge.ts`): the host is authoritative for every occupied floor — seed
   sync, a ledger of broken / damaged rocks, the ladder and loot, 10 Hz monster snapshots interpolated 120 ms behind on

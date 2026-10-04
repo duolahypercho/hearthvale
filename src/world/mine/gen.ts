@@ -87,6 +87,8 @@ export interface FloorLayout {
   /** Milestone treasure chest (floors 10, 20, 30, …): reforges the sword. */
   chest: { x: number; z: number } | null;
   rocks: RockSpec[];
+  /** The rock the ladder down hides under (breaking it reveals the ladder on its tile), or null. */
+  ladderRock: { x: number; z: number } | null;
   monsters: { kind: MonsterKind; x: number; z: number }[];
   crystals: CrystalSpec[];
   decor: DecorSpec[];
@@ -669,6 +671,116 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     for (let i = rocks.length - 1; i >= 0; i--) if (!at.has(idx(rocks[i]!.x, rocks[i]!.z))) rocks.splice(i, 1);
   }
 
+  // ── rock FIELD: the hall itself is a field of rocks you dig through ─────────────────────
+  // (own rng stream). ~30 % of the open floor fills with noise-clustered rocks; 3–4 winding
+  // lanes from the arrival (and to the lift / chest) stay clear so every part of the cave is
+  // reachable without a pick, and the arrival keeps a small clearing.
+  const fr = rng.fork('rock-field');
+  const fnoise = new Noise2D(fr.int(0, 1e9));
+  const lane = new Uint8Array(W * D);
+  {
+    // Lanes: BFS parents from the spawn, then walk back from a few far, spread-out targets.
+    const sx = Math.floor(spawn.x);
+    const sz = Math.floor(spawn.z);
+    const par = new Int32Array(W * D).fill(-1);
+    const seen = new Uint8Array(W * D);
+    const q: number[] = [idx(sx, sz)];
+    seen[idx(sx, sz)] = 1;
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h]!;
+      const x = i % W;
+      const z = (i / W) | 0;
+      const dirs = N4.slice();
+      fr.shuffle(dirs);
+      for (const [dx, dz] of dirs) {
+        const nx2 = x + dx;
+        const nz2 = z + dz;
+        if (!isFloor(nx2, nz2)) continue;
+        const j = idx(nx2, nz2);
+        if (seen[j]) continue;
+        seen[j] = 1;
+        par[j] = i;
+        q.push(j);
+      }
+    }
+    const far = q.slice().sort((a, b) => (dist[b] ?? 0) - (dist[a] ?? 0));
+    const goals: number[] = [];
+    for (const i of far) {
+      if (goals.length >= 4) break;
+      if ((dist[i] ?? 0) < 6) break;
+      const x = i % W;
+      const z = (i / W) | 0;
+      if (goals.every((g) => Math.hypot((g % W) - x, ((g / W) | 0) - z) > 9)) goals.push(i);
+    }
+    if (elevator) goals.push(idx(elevator.x, elevator.z + 1));
+    if (chest) goals.push(idx(chest.x - 1, chest.z));
+    for (const g of goals) {
+      let i = g;
+      let guard = 0;
+      while (i >= 0 && guard++ < W * D) {
+        lane[i] = 1;
+        // Lanes are ~1.5 tiles wide: a neighbour joins on alternating stretches.
+        if (fr.next() < 0.45) {
+          const x = i % W;
+          const z = (i / W) | 0;
+          const [dx, dz] = N4[fr.int(0, 3)]!;
+          if (isFloor(x + dx, z + dz)) lane[idx(x + dx, z + dz)] = 1;
+        }
+        i = par[i]!;
+      }
+    }
+  }
+  {
+    const target = Math.round(Math.min(300, floorN * 0.31));
+    const cand: { x: number; z: number; v: number }[] = [];
+    for (let z = 2; z < D - 2; z++)
+      for (let x = 2; x < W - 2; x++) {
+        const i = idx(x, z);
+        if (!isFloor(x, z) || taken[i] || reserved[i] || pool[i] || lane[i]) continue;
+        if ((dist[i] ?? -1) < 0) continue;
+        if (Math.hypot(x + 0.5 - spawn.x, z + 0.5 - spawn.z) < 2.6) continue;
+        if (Math.abs(x - ladderUp.x) <= 1 && z >= ladderUp.z && z - ladderUp.z <= 3) continue;
+        if (elevator && Math.hypot(x - elevator.x, z - elevator.z) < 2.2) continue;
+        if (chest && Math.hypot(x - chest.x, z - chest.z) < 2.2) continue;
+        // Not on the molten shore (the lip wanders a tile out).
+        let nearLava = false;
+        for (const [dx, dz] of N8) if (inb(x + dx, z + dz) && lava[idx(x + dx, z + dz)]) nearLava = true;
+        if (nearLava) continue;
+        const v = fnoise.fbm(x * 0.21 + 40, z * 0.21, 2) + fr.next() * 0.42;
+        cand.push({ x, z, v });
+      }
+    cand.sort((a, b) => b.v - a.v);
+    for (const c of cand) {
+      if (rocks.length >= target) break;
+      place(c.x, c.z, roll(c.x, c.z));
+    }
+  }
+  // Something worth swinging at right away: ≥ 3 ore rocks within 6 tiles of the arrival.
+  {
+    const oreIds = oreTable.filter(([o, w]) => o !== null && w > 0) as [OreId, number][];
+    const near = rocks
+      .filter((r) => Math.hypot(r.x + 0.5 - spawn.x, r.z + 0.5 - spawn.z) < 6)
+      .sort((a, b) => Math.hypot(a.x - spawn.x, a.z - spawn.z) - Math.hypot(b.x - spawn.x, b.z - spawn.z));
+    let have = near.filter((r) => r.ore).length;
+    for (const r of near) {
+      if (have >= 3 || !oreIds.length) break;
+      if (r.ore || r.big) continue;
+      const ore = fr.weighted(oreIds);
+      r.ore = ore;
+      const oreHp = ({ copperOre: 1, ironOre: 2, goldOre: 3, coal: 1 } as Record<string, number>)[ore] ?? 2;
+      r.hp = 1 + oreHp + tier + (biome === 'lava' ? 1 : 0);
+      have++;
+    }
+  }
+  // The ladder down hides under one rock on most floors (dig to find the way on): a plain rock
+  // out in the field, well away from the arrival.
+  let ladderRock: { x: number; z: number } | null = null;
+  if (fr.next() < 0.85) {
+    const pool2 = rocks.filter((r) => !r.ore && !r.big && (dist[idx(r.x, r.z)] ?? -1) >= 8);
+    const pick = pool2.length ? pool2[fr.int(0, pool2.length - 1)]! : null;
+    if (pick) ladderRock = { x: pick.x, z: pick.z };
+  }
+
   // ── monsters ───────────────────────────────────────────────────
   const monsters: { kind: MonsterKind; x: number; z: number }[] = [];
   const count = Math.min(12, 3 + Math.floor(((floor - 1) % 10) * 0.5) + tier * 2 + (floor >= 3 ? 1 : 0));
@@ -699,7 +811,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     lights.push({ x: l.x, y: l.y, z: l.z, color: l.color, intensity: l.intensity, distance: l.distance, flicker: l.flicker });
   }
 
-  return { floor, biome, tier, w: W, d: D, solid, lava, pool, ladderUp, spawn, elevator, chest, rocks, monsters, crystals, decor, lights, dist };
+  return { floor, biome, tier, w: W, d: D, solid, lava, pool, ladderUp, spawn, elevator, chest, rocks, ladderRock, monsters, crystals, decor, lights, dist };
 }
 
 /**

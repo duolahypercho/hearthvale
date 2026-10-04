@@ -194,7 +194,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Mines (systems/mining + systems/combat, world/mine): the mountain entrance and one floor per biome band.
   // The floor demos pick a showcase spot on the seeded floor; &floor=N stages any floor (biome follows).
   mine: { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
-  'mine-entrance': { map: 'mine-entrance', x: 22.6, z: 14.4, facing: 'down', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 25, offsetX: 0.4, offsetZ: -4.2 }, showcase: [] },
+  'mine-entrance': { map: 'mine-entrance', x: 22.6, z: 14.4, facing: 'down', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 26.5, offsetX: -0.9, offsetZ: -4.0 }, showcase: [] },
   'mine-floor': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
   'mine-ice': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
   'mine-lava': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
