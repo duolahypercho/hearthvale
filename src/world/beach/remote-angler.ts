@@ -188,7 +188,8 @@ export class RemoteAngler {
         this.held = fishId;
         this.caughtNote = def.name;
       }
-      const hold = _hold.copy(feet).addScaledVector(_UP, 1.18).addScaledVector(fwd, 0.58);
+      // Over the hat (same as the local catch pose: the hat sits ≈ 1.9 m up, the fish floats above it).
+      const hold = _hold.copy(feet).addScaledVector(_UP, 2.62).addScaledVector(fwd, 0.08);
       if (arc < 1) {
         g.heldRoot.position.lerpVectors(bob, hold, arc);
         g.heldRoot.position.y += Math.sin(arc * Math.PI) * 1.2;
@@ -199,7 +200,7 @@ export class RemoteAngler {
         g.heldRoot.position.y += Math.sin(t * 3) * 0.02;
         // Side-on to whoever the farmer faces (same convention as the local catch pose).
         g.heldRoot.rotation.set(0, -yaw, Math.sin(t * 5) * 0.07 + 0.08);
-        g.setGlory(_a.copy(hold).setY(hold.y + 0.4), camera, Math.min(1, this.stT * 2) * 0.4, t, 2.2);
+        g.setGlory(_a.copy(hold).setY(hold.y + 0.05), camera, Math.min(1, this.stT * 2) * 0.4, t, 2.2);
       }
     } else if (this.held) {
       g.hold(null);
@@ -262,12 +263,13 @@ export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D
     alz = -0.45 + Math.cos(t * (st === 'reeling' ? 16 : 5)) * 0.15;
     tx = -0.12;
   } else if (st === 'caught' && arc > 0.6) {
-    const lift = Math.sin(t * 3) * 0.05;
-    ar = -1.35 + lift;
-    al = -1.35 + lift;
-    arz = -0.7;
-    alz = 0.7;
-    tx = -0.14;
+    // "Ta-da": arms flung up and out in a V (clear of the big head), the fish over the hat.
+    const lift = Math.sin(t * 3) * 0.06;
+    ar = -0.25;
+    al = -0.25;
+    arz = 2.3 + lift;
+    alz = -2.3 - lift;
+    tx = 0.08;
   }
   rig.armR.rotation.set(ar, 0, arz);
   rig.armL.rotation.set(al, 0, alz);

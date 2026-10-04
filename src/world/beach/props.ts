@@ -1274,7 +1274,8 @@ export function addParasolVignette(b: MeshBuilder, rng: Rng, x: number, z: numbe
   const pos = cone.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
   const A = new THREE.Color(0xe8584a);
-  const B = new THREE.Color(0xf6eedc);
+  // (Warm sand-cream, not paper white: a white canopy in noon sun blooms into a blob.)
+  const B = new THREE.Color(0xe4d6bc);
   for (let i = 0; i < pos.count; i += 3) {
     const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
     const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;

@@ -440,6 +440,13 @@ rim. Flotsam comes in four kinds (plank, bleached branch, bottle, kelp raft), ea
 out of the walkway cast corridor. At night the dry sand keeps a moonlit value, the shallows darken, the surf edge
 glows faintly (bioluminescence) and the moon's glitter road runs up the sea ahead of the camera. `shells.ts` handles the tide-line forageables (with contact
 blots and star glints) and the tide-pool anemones. `life.ts` has the gulls, crabs and leaping fish.
+Beach stone (`rocks.ts`) is faceted: a low-poly noisy icosphere cut by 3-5 cleavage planes, split faces with normals
+leant 72 % towards the face normal (chipped planes, soft roll at the edges), curvature AO, lichen only as sparse
+rosettes on up-facing tops. The tide-pool shelf (`shelf.ts`) steps down in 21 cm wave-cut terraces, each bed tinted
+its own warm / cool sandstone with a sunlit lip and a shaded riser; patchy weed round the pool lips (no collar ring),
+small spray puddles, real barnacle + limpet colonies along the wet sea rim (`buildShelfCrust`) and rubble groups
+(a broken block + cobbles) on the ledges. The headland sward varies straw-warm / blue-green with darker tussocks, the
+thrift clusters along its rim.
 
 Fishing (`systems/fishing.ts`, visuals in `world/beach/tackle.ts` + `fishmesh.ts`, UI in `ui/fishing*.ts`, data in
 `data/fish.ts`) works on any map with water: the farm pond, the town river and the sea.
@@ -457,7 +464,9 @@ Fishing (`systems/fishing.ts`, visuals in `world/beach/tackle.ts` + `fishmesh.ts
   are Bamboo, Fiberglass and Iridium. Buy all of these at the shack's Bait & Tackle honesty box (interact at the
   porch, or `openUI('tackle')`).
 - Catch: the held fish is sized from the rolled length (species base × length / median, 0.7-1.8×); a fish ≥ 1.1 m
-  held is a trophy (arms wide, a camera push-in, a drum-roll fanfare). The collection record is written the moment the
+  held is a trophy (a wider "ta-da" V, a camera push-in, a drum-roll fanfare). Every catch is shown over the hat with
+  both arms flung up in a V (the chibi's short arms straight up vanish inside the head); for the celebration the
+  farmer joins the GTAO G-buffer (otherwise the deck's groove AO behind prints through the face). The collection record is written the moment the
   fish lands (the card's NEW / RECORD badge comes from that write). The line is a verlet rope with a bending constraint
   and a water floor with friction. Casting right at the pier rail steps the farmer 0.42 m inboard first.
 - Service: `game.services.fishing` → `state()`, `available()`, `cast(power)`, `level()`, `xp()`, `rodTier()`,

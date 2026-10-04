@@ -329,6 +329,16 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         }
         ground = mix(ground, s, sandM);
         }
+        // Bluff / headland sward: broad straw-warm vs cool blue-green drifts and darker tussock
+        // clumps (±8 % hue, ±12 % value), a touch less saturated — never one flat mown lawn.
+        if (sandM < 0.999 && bh > 1.2) {
+          float gh = hvNoise(p * 0.16 + 31.0);
+          float gc = hvNoise(p * 0.85 + 7.0) * 0.7 + hvNoise(p * 3.1) * 0.3;
+          vec3 gt = mix(vec3(1.08, 1.02, 0.78), vec3(0.86, 0.97, 1.02), smoothstep(0.25, 0.75, gh));
+          vec3 g2 = ground * gt * (0.84 + 0.26 * gc);
+          g2 = mix(g2, vec3(dot(g2, vec3(0.3, 0.59, 0.11))), 0.14);
+          ground = mix(ground, g2, (1.0 - sandM) * smoothstep(1.2, 1.8, bh));
+        }
         // Rock shelf (painted path channel): cracked grey-brown stone, weed + barnacles low down,
         // dark and glossy where the spray keeps it wet.
         if (pathM > 0.001) {

@@ -34,7 +34,7 @@ const BEACH_SUNSET_CAM = { yaw: 100, pitch: 24, distance: 21, offsetX: -3, offse
 const BEACH_NIGHT_CAM = { yaw: 196, pitch: 34, distance: 28, offsetX: 4, offsetZ: 4 };
 /** Fishing from the pier walkway (cast west over the surf, the beach + groyne + dory in frame). */
 const FISH_CAM = { yaw: -14, pitch: 42, distance: 19, offsetX: -3.4, offsetZ: -2.0 };
-const FISH_CATCH_CAM = { yaw: -10, pitch: 31, distance: 12, offsetX: -0.6, offsetZ: -1.4 };
+const FISH_CATCH_CAM = { yaw: -10, pitch: 30, distance: 12.5, offsetX: 0.3, offsetZ: -1.6 };
 /** Mine floors: steep, close diorama framing so the lantern pool fills the frame. */
 const MINE_CAM = { yaw: 0, pitch: 42, distance: 17.5, offsetZ: -0.9 };
 /** Festival: same framing as TOWN_CAM, but the player stands in the ring east of the maypole. */
@@ -91,7 +91,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Driftsand Beach + fishing (world/beach, systems/fishing). Fishing demos take URL params:
   // &fish=<fishId> (species on the line / in hand), &phase=cast|flight|wait|bite|reel|catch (override the phase).
   'beach-sunset': { map: 'beach', x: 48.9, z: 49.6, facing: 'left', time: 19.3, season: 'summer', weather: 'sun', camera: BEACH_SUNSET_CAM, showcase: ['beach', 'fishing-wait'] },
-  'beach-day': { map: 'beach', x: 51, z: 37.5, facing: 'down', time: 11.2, season: 'summer', weather: 'sun', camera: { yaw: -16, pitch: 50, distance: 46, offsetX: 9, offsetZ: 2.5 }, showcase: ['beach'] },
+  'beach-day': { map: 'beach', x: 51, z: 37.5, facing: 'down', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: -14, pitch: 44, distance: 37, offsetX: 7, offsetZ: 5.5 }, showcase: ['beach'] },
   'beach-night': { map: 'beach', x: 50, z: 38.5, facing: 'down', time: 22.4, season: 'summer', weather: 'sun', camera: BEACH_NIGHT_CAM, showcase: ['beach'] },
   'fishing-cast': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-cast'] },
   'fishing-wait': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-wait'] },

@@ -45,7 +45,7 @@ import {
   BeachShape,
 } from './layout';
 import { addBeachRock, beachRockMaterial } from './rocks';
-import { buildShelf, buildAlgaeTufts, shelfTopAt } from './shelf';
+import { buildShelf, buildAlgaeTufts, buildShelfCrust, shelfTopAt } from './shelf';
 import { SeaProps, LampPools } from './sea';
 import { createOcean, createHorizonClouds, setOceanPilings, setOceanLamps, createPoolWater } from './ocean';
 import { applyBeachSand } from './sand';
@@ -383,6 +383,9 @@ export class BeachMap implements GameMap {
     const algae = buildAlgaeTufts(S, this.rng.fork('algae'), (x, z) => Math.max(S.height(x, z) + 0.05, shelfTopAt(S, this.groundAt, x, z) + 0.02));
     algae.userData.noAO = true;
     this.root.add(algae);
+    const crust = buildShelfCrust(S, this.rng.fork('crust'), (x, z) => Math.max(S.height(x, z) + 0.03, shelfTopAt(S, this.groundAt, x, z)));
+    crust.userData.noAO = true;
+    this.root.add(crust);
     const life = buildTidePoolLife(this.rng.fork('tidepool'), TIDE_POOLS, (x, z) => this.terrain.heightAt(x, z));
     life.userData.noAO = true;
     this.root.add(life);
@@ -560,6 +563,31 @@ export class BeachMap implements GameMap {
       const rad = 0.3 + rr.next() * 0.4;
       addBeachRock(b, rr, x, hAt(x, z) - rad * 0.12, z, rad, { squash: 0.5 + rr.next() * 0.25 });
     }
+    // Rubble groups (a broken-off block + its cobbles) on the shelf ledges: chunky faceted stone that
+    // breaks the slab's smooth expanse into readable, composed beats.
+    for (let i = 0, groups = 0; i < 60 && groups < 7; i++) {
+      const x = -2 + rr.next() * 21;
+      const z = 38.5 + rr.next() * 14;
+      if (this.shape.westRock(x, z) > -0.15) continue;
+      if (TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.6)) continue;
+      if (Math.hypot(x - 12, z - 40) < 2.5) continue; // the demo spot / the way onto the shelf
+      groups++;
+      // (Seated on the slab's own top — its ledges stand up to ~0.6 m proud of the terrain.)
+      const sTop = (px: number, pz: number): number => Math.max(hAt(px, pz), shelfTopAt(this.shape, this.groundAt, px, pz));
+      const big = 0.55 + rr.next() * 0.35;
+      addBeachRock(b, rr, x, sTop(x, z) - big * 0.15, z, big, { squash: 0.55 + rr.next() * 0.2, elong: 1.1 + rr.next() * 0.4, tint: 0xe2c6a2 });
+      this.block(x, z, big * 0.75, 'rock');
+      const n = 2 + Math.floor(rr.next() * 3);
+      for (let k = 0; k < n; k++) {
+        const a = rr.next() * Math.PI * 2;
+        const d = big * (1.0 + rr.next() * 0.7);
+        const cx = x + Math.cos(a) * d;
+        const cz = z + Math.sin(a) * d;
+        if (TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(cx - px, (cz - pz) * 1.15) < pr * 1.4)) continue;
+        const rad = 0.14 + rr.next() * 0.2;
+        addBeachRock(b, rr, cx, sTop(cx, cz) - rad * 0.2, cz, rad, { squash: 0.5 + rr.next() * 0.25, tint: 0xe2c6a2 });
+      }
+    }
     for (const [x, z, rad] of [[69.5, 56.5, 1.6], [67.4, 57.8, 0.9], [71.4, 55.2, 1.1]] as const) rock(x, z, rad, 0.85, 0.25);
     // The groyne: boulders piled two abreast along the ridge, smaller + lower out into the surf.
     {
@@ -709,7 +737,7 @@ export class BeachMap implements GameMap {
       if (r.next() > 0.14 + clump * 0.6) continue;
       const rim = smoothstep(-0.35, -0.08, eh);
       const k = r.next();
-      if (k < 0.2 + rim * 0.45) F.addThrift(x, h, z, 0.9 + r.next() * 0.7);
+      if (k < 0.06 + rim * 0.55) F.addThrift(x, h, z, 0.9 + r.next() * 0.7);
       else if (k < 0.62) F.addSedge(x, h, z, 0.8 + r.next() * 0.5);
       else if (k < 0.88) F.addMarram(x, h, z, 0.6 + r.next() * 0.4);
       else F.addPea(x, h, z, 0.9 + r.next() * 0.5);

@@ -229,6 +229,8 @@ export class FishingSystem implements System, FishingApi {
   private holdPt = new THREE.Vector3();
   /** Body yaw before the farmer turned to show the catch to the camera (restored after). */
   private preCatchYaw: number | null = null;
+  /** The farmer joined the AO G-buffer for the catch close-up (see the pose update). */
+  private catchAO = false;
   /** Rail step still to apply (world XZ, eased in while charging). */
   private nudge = new THREE.Vector3();
   /** Aim (unit, XZ): mouse direction, held movement keys (8 ways) or the facing. */
@@ -1469,6 +1471,14 @@ export class FishingSystem implements System, FishingApi {
     const fwd = _fwd.copy(this.aim);
     const reelingNow = st === 'reeling' || st === 'bite';
     const holdOverhead = st === 'caught' && this.catchArc > 0.6;
+    // The farmer normally skips the GTAO G-buffer (player.ts, perf); in the catch close-up that lets
+    // the deck's plank-groove AO behind print straight through the face as dark bands. Opt the
+    // farmer back in for the celebration only.
+    const wantAO = st === 'caught';
+    if (wantAO !== this.catchAO) {
+      this.catchAO = wantAO;
+      game.player.root.userData.noAO = !wantAO;
+    }
     const heldScale = this.gear.heldRoot.children.length ? this.gear.heldRoot.children[0]!.scale.x : 1;
     const trophy = holdOverhead && heldScale >= TROPHY_SCALE;
     // Arms (after the player's own animation this frame; rotations: -x raises the arm forward/up).
@@ -1502,22 +1512,24 @@ export class FishingSystem implements System, FishingApi {
         alz = -0.45 + Math.cos(t * (this.mg?.holding ? 16 : 5)) * 0.15;
         torsoX = -0.12;
       } else if (trophy) {
-        // A trophy: heaved up at arm's length, hands wide at head and tail, leaning back under the weight.
-        const heave = Math.sin(t * 2.2) * 0.05;
-        ar = -1.55 + heave;
-        al = -1.55 + heave;
-        arz = -0.95;
-        alz = 0.95;
-        torsoX = 0.1;
+        // A trophy: a big "ta-da!" — both arms flung up and out in a wide V (a chibi's short arms
+        // straight up vanish inside the head), the fish floating over the hat, leaning back.
+        const heave = Math.sin(t * 2.2) * 0.06;
+        ar = -0.3;
+        al = -0.3;
+        arz = 2.15 + heave;
+        alz = -2.15 - heave;
+        torsoX = 0.12;
       } else if (holdOverhead) {
         // Presenting the catch: both arms thrown straight up, the fish hoisted over the hat
         // (the classic "you got it!" pose — the face stays clear, nothing in front of the body).
+        // (Arms up and out in a V, clear of the big head; a bigger fish spreads them wider.)
         const lift = Math.sin(t * 3) * 0.06;
-        const spread = THREE.MathUtils.clamp(0.28 + (heldScale - 0.8) * 0.25, 0.25, 0.45);
-        ar = -2.95 + lift;
-        al = -2.95 + lift;
-        arz = -spread;
-        alz = spread;
+        const spread = THREE.MathUtils.clamp(2.45 - (heldScale - 0.8) * 0.4, 2.2, 2.45);
+        ar = -0.25;
+        al = -0.25;
+        arz = spread + lift;
+        alz = -spread - lift;
         torsoX = 0.08;
       } else if (st === 'caught') {
         ar = -1.6;
@@ -1551,12 +1563,11 @@ export class FishingSystem implements System, FishingApi {
       r.armL.localToWorld(_hl);
       this.holdPt.addVectors(_hr, _hl).multiplyScalar(0.5);
       _bodyFwd.set(Math.sin(r.yaw ?? 0), 0, Math.cos(r.yaw ?? 0));
-      if (trophy) this.holdPt.addScaledVector(_bodyFwd, 0.34).y += 0.14;
-      else if (holdOverhead) {
+      if (holdOverhead) {
         // Over the hat: the hands reach up to the fish's belly, the fish floats clear of the brim.
         (r.hat ?? r.head).getWorldPosition(_hatW);
         if (!r.hat) _hatW.y += 0.5;
-        this.holdPt.set(_hatW.x, _hatW.y + 0.3 + heldScale * 0.2, _hatW.z).addScaledVector(_bodyFwd, 0.06);
+        this.holdPt.set(_hatW.x, _hatW.y + 0.5 + heldScale * (trophy ? 0.28 : 0.22), _hatW.z).addScaledVector(_bodyFwd, trophy ? 0.1 : 0.06);
       } else this.holdPt.addScaledVector(_bodyFwd, 0.28).y += 0.15;
     }
     // Rod pose.
@@ -1660,7 +1671,7 @@ export class FishingSystem implements System, FishingApi {
         this.gear.heldRoot.scale.setScalar(pop);
         this.gear.heldRoot.position.copy(this.holdPt);
         this.gear.heldRoot.position.y += bobY * 0.3;
-        this.gear.setGlory(_w.copy(this.holdPt).setY(this.holdPt.y + (this.trophy() ? 0.5 : 0.05)), game.rc.camera, Math.min(1, this.heldT * 3) * 0.5, t, 2.4 + (this.result.lengthCm / 100) * 0.8);
+        this.gear.setGlory(_w.copy(this.holdPt).setY(this.holdPt.y + 0.05), game.rc.camera, Math.min(1, this.heldT * 3) * 0.5, t, 2.4 + (this.result.lengthCm / 100) * 0.8);
         // Side-on to the camera, head to the left, a little wiggle.
         this.gear.heldRoot.rotation.set(0, -THREE.MathUtils.degToRad(game.rc.rig.yaw), Math.sin(t * 5) * 0.07 + 0.08);
         if (Math.random() < dt * 4) {

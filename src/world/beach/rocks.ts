@@ -27,11 +27,15 @@ export interface BeachRockOpts {
   squash?: number;
   detail?: number;
   lumpy?: number;
+  /** 0 = smooth normals, 1 = hard facets (default 0.72). */
+  facet?: number;
+  /** Colour multiplier (e.g. warm sandstone rubble on the tide-pool shelf). */
+  tint?: number;
 }
 
 /** Smooth sea-worn boulder of `radius`, origin at the ground-contact centre (base at y ≈ 0). */
 export function beachRockGeometry(rng: Rng, radius: number, o: BeachRockOpts = {}): THREE.BufferGeometry {
-  let g: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, o.detail ?? (radius > 1.1 ? 3 : 2));
+  let g: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, o.detail ?? (radius > 1.1 ? 2 : 1));
   g.deleteAttribute('normal');
   g.deleteAttribute('uv');
   g = mergeVertices(g);
@@ -117,7 +121,34 @@ export function beachRockGeometry(rng: Rng, radius: number, o: BeachRockOpts = {
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.count * 2), 2));
-  return g;
+  // Faceted, chipped stone: split the faces and lean every normal most of the way to its face's
+  // own normal (flat-ish planes with a soft roll at the edges) — reads as broken rock, not clay.
+  const flat = o.facet ?? 0.72;
+  if (flat <= 0) return g;
+  const ng = g.toNonIndexed();
+  const p2 = ng.attributes.position as THREE.BufferAttribute;
+  const nA = ng.attributes.normal as THREE.BufferAttribute;
+  const c2 = ng.attributes.color as THREE.BufferAttribute;
+  const va = new THREE.Vector3();
+  const vb = new THREE.Vector3();
+  const vc = new THREE.Vector3();
+  const fnm = new THREE.Vector3();
+  const sn = new THREE.Vector3();
+  for (let f = 0; f < p2.count; f += 3) {
+    va.fromBufferAttribute(p2, f);
+    vb.fromBufferAttribute(p2, f + 1);
+    vc.fromBufferAttribute(p2, f + 2);
+    fnm.subVectors(vc, vb).cross(va.clone().sub(vb)).normalize();
+    // Facet shade: faces turned up / to the sun-side read a touch lighter, steep undercuts darker.
+    const shade = 0.94 + fnm.y * 0.08;
+    for (let k = 0; k < 3; k++) {
+      sn.fromBufferAttribute(nA, f + k).lerp(fnm, flat).normalize();
+      nA.setXYZ(f + k, sn.x, sn.y, sn.z);
+      c2.setXYZ(f + k, c2.getX(f + k) * shade, c2.getY(f + k) * shade, c2.getZ(f + k) * shade);
+    }
+  }
+  g.dispose();
+  return ng;
 }
 
 const rockMats: Partial<Record<'rock' | 'shelf', THREE.MeshStandardMaterial>> = {};
@@ -235,9 +266,11 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
           // A touch darker and warmer than the boulders (sandstone, not concrete).
           diffuseColor.rgb *= vec3(0.94, 0.89, 0.82);
           // Bedding-plane striations on the ledge risers (steep faces): thin dark / light laminae.
-          float riserF = 1.0 - smoothstep(0.55, 0.85, N.y);
-          float bed = sin(vBRW.y * 58.0 + brNoise(q * 1.3) * 3.0);
-          diffuseColor.rgb *= 1.0 - riserF * (0.16 * smoothstep(0.3, 0.9, bed) - 0.06 * smoothstep(-0.2, -0.9, bed));
+          // (Never on the pool walls: concentric laminae round a bowl read as contour lines.)
+          float riserF = (1.0 - smoothstep(0.55, 0.85, N.y)) * (1.0 - smoothstep(0.0, 0.12, vBRK.y));
+          float bed = sin(vBRW.y * 40.0 + brNoise(q * 1.3) * 3.0);
+          riserF *= smoothstep(0.3, 0.6, brNoise(q * 0.8 + vBRW.y * 2.0));
+          diffuseColor.rgb *= 1.0 - riserF * (0.12 * smoothstep(0.3, 0.9, bed) - 0.05 * smoothstep(-0.2, -0.9, bed));
           diffuseColor.rgb *= 1.0 - riserF * 0.12;
           vec2 wq = q + vec2(brNoise(q * 0.3), brNoise(q * 0.3 + 7.0)) * 2.4;
           // Sedimentary bedding: broad warm / cool bands sweeping across the slab + fine laminae.
@@ -267,11 +300,12 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
           diffuseColor.rgb *= 1.0 + rimP * 0.15;
           float pitWater = pit * step(ph, 0.06);
           // Puddles in the dips (glossy, dark, sky-reflecting through the roughness below).
-          float pudN = brNoise(q * 0.45 + 13.0) * 0.8 + brNoise(q * 2.0) * 0.2;
-          float pud = smoothstep(0.7, 0.74, pudN) * smoothstep(0.85, 0.97, N.y);
+          // (Small, scattered: a puddle metres wide reads as a painted grey decal, not spray water.)
+          float pudN = brNoise(q * 1.3 + 13.0) * 0.8 + brNoise(q * 4.0) * 0.2;
+          float pud = smoothstep(0.8, 0.83, pudN) * smoothstep(0.6, 0.75, brNoise(q * 0.3 + 2.0)) * smoothstep(0.85, 0.97, N.y);
           // (Darkened wet stone with a cool sky cast — a flat grey-blue fill reads as paint.)
           diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.62 + vec3(0.04, 0.06, 0.08), pud);
-          diffuseColor.rgb += vec3(0.06, 0.07, 0.07) * smoothstep(0.018, 0.0, abs(pudN - 0.712)) * smoothstep(0.85, 0.97, N.y);
+          diffuseColor.rgb += vec3(0.06, 0.07, 0.07) * smoothstep(0.018, 0.0, abs(pudN - 0.812)) * smoothstep(0.6, 0.75, brNoise(q * 0.3 + 2.0)) * smoothstep(0.85, 0.97, N.y);
           hvBRWet = max(hvBRWet, max(pud * 0.95, pitWater));
           // Lichen rosettes on the dry, sunlit tops (the spray zone's zonation): sparse clusters of
           // muted orange with ragged edges, never in the wet / puddles.
@@ -280,14 +314,19 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
           vec2 lc = floor(lq);
           vec2 lf = fract(lq) - 0.5 - (vec2(brHash(lc + 4.2), brHash(lc + 6.6)) - 0.5) * 0.45;
           float lr = mix(0.14, 0.3, brHash(lc + 2.9)) * (0.75 + 0.5 * brNoise(q * 9.0));
-          float ros = smoothstep(lr, lr * 0.55, length(lf)) * step(brHash(lc + 12.3), 0.3) * smoothstep(0.5, 0.7, brNoise(q * 0.45 + 41.0)) * dryTop;
-          diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.66, 0.46, 0.2), vec3(0.78, 0.6, 0.3), brNoise(q * 14.0)) * (0.8 + 0.25 * brNoise(q * 30.0)), ros * 0.55);
+          // Ragged edge: the radius wobbles with angle-ish noise, and the inside is broken (crustose
+          // lichen is never a solid disc).
+          float lrr = lr * 0.7 * (0.7 + 0.6 * brNoise(lf * 9.0 + lc));
+          float ros = smoothstep(lrr, lrr * 0.5, length(lf)) * step(brHash(lc + 12.3), 0.14) * smoothstep(0.55, 0.72, brNoise(q * 0.45 + 41.0)) * dryTop;
+          ros *= 0.55 + 0.45 * smoothstep(0.35, 0.6, brNoise(q * 22.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.62, 0.4, 0.16), vec3(0.72, 0.52, 0.22), brNoise(q * 14.0)) * (0.75 + 0.25 * brNoise(q * 30.0)), ros * 0.45);
           // Pink coralline crust + mussel clumps on the wet lips (pools / sea rim).
           float lipZ = max(vBRK.y * 1.6, wet * 0.8);
           // Zonation round every pool: a dark wet band at the waterline and a ragged ring of green
           // weed (≈ 10-20 cm) just above it, then the pale dry stone.
           float ringN = brNoise(q * 4.0 + 31.0);
-          float weedRing = smoothstep(0.28, 0.46, vBRK.y + (ringN - 0.5) * 0.12) * (1.0 - smoothstep(0.62, 0.72, vBRK.y));
+          // (Patchy, never a continuous collar: weed grows in clumps where the wash keeps it wet.)
+          float weedRing = smoothstep(0.32, 0.46, vBRK.y + (ringN - 0.5) * 0.2) * (1.0 - smoothstep(0.58, 0.7, vBRK.y)) * smoothstep(0.38, 0.62, brNoise(q * 1.6 + 9.0));
           diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.1, 0.19, 0.06), vec3(0.24, 0.32, 0.1), ringN) * (0.8 + 0.3 * brNoise(q * 12.0)), weedRing * 0.85);
           diffuseColor.rgb *= 1.0 - smoothstep(0.6, 0.72, vBRK.y) * 0.3;
           float cor = smoothstep(0.45, 0.7, brNoise(q * 3.3 + 2.0)) * smoothstep(0.2, 0.6, lipZ);
@@ -317,5 +356,5 @@ export function addBeachRock(b: MeshBuilder, rng: Rng, x: number, y: number, z: 
   // A little random tilt (rocks never all sit level).
   const e = new THREE.Euler((rng.next() - 0.5) * 0.4, rotY, (rng.next() - 0.5) * 0.4, 'YXZ');
   const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(e), new THREE.Vector3(1, 1, 1));
-  b.add(beachRockMaterial(), g, m, { tint: new THREE.Color(1, 1, 1).multiplyScalar(0.9 + rng.next() * 0.2) });
+  b.add(beachRockMaterial(), g, m, { tint: new THREE.Color(o.tint ?? 0xffffff).multiplyScalar(0.9 + rng.next() * 0.2) });
 }
