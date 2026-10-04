@@ -537,10 +537,22 @@ export class RemotePlayers {
           const size = Math.min(92 * S, Math.max(58 * S, 1.1 * a.ppm));
           const gap = p ? pw / 2 + 2 : 10 * S;
           const bottom = y - ph * 0.2;
-          let x0 = x + gap;
+          // Open side first: away from the nearest other farmer (a bubble on the side facing a
+          // neighbour reads as the neighbour's).
+          let side = 1;
+          let near = a.ppm * 4;
+          for (const o of list) {
+            if (o === act) continue;
+            const d = Math.hypot(o.a.x - x, (o.a.y - a.y) * 1.5);
+            if (d < near) {
+              near = d;
+              side = o.a.x >= x ? -1 : 1;
+            }
+          }
+          let x0 = side > 0 ? x + gap : x - gap - size;
           const inset = size * 0.1;
           if (R.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom) >= 0 || hud.hit(x0, bottom - size, x0 + size, bottom, 0) >= 0) {
-            const alt = x - gap - size;
+            const alt = side > 0 ? x - gap - size : x + gap;
             if (R.hit(alt + inset, bottom - size + inset, alt + size - inset, bottom) < 0 && hud.hit(alt, bottom - size, alt + size, bottom, 0) < 0) x0 = alt;
           }
           R.add(x0 + inset, bottom - size + inset, x0 + size - inset, bottom);

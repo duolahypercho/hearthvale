@@ -101,8 +101,15 @@ export interface NetStats {
   drift: number;
   /** Full-farm resyncs asked for mid-day (a tile we couldn't rebuild); join / morning syncs aren't counted. */
   needs: number;
+  /**
+   * Mispredictions: tiles our own prediction (a swing / seed / harvest we played instantly) or a
+   * replayed `did` got wrong and the host's word had to overwrite (visible pops; should stay ~0).
+   */
+  mispredicts: number;
   /** Last drift fixes, `tile:ours→host's` (diagnostics). */
   driftLog: string[];
+  /** Last mispredictions, `tile:ours→host's` (diagnostics). */
+  mispredictLog: string[];
   fullSyncs: number;
   corrections: number;
   refunds: number;
@@ -323,7 +330,7 @@ export class NetSystem implements System, NetApi {
   private bedWhere: 'house' | 'cabin' = 'house';
   private applyingGold = false;
   private hostBeds = new Set<number>();
-  private counters = { reconciles: 0, drift: 0, needs: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
+  private counters = { reconciles: 0, mispredicts: 0, drift: 0, needs: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
   /** Our own work today: [harvested, watered, tilled, sown] (farmhands report it to the host). */
   private today = [0, 0, 0, 0];
   private todayDirty = false;
@@ -597,6 +604,7 @@ export class NetSystem implements System, NetApi {
       farmTiles: this._role === 'client' ? this.hostTiles.size : this.sentTiles.size,
       ...this.counters,
       driftLog: this.driftLog.slice(),
+      mispredictLog: this.mispredictLog.slice(),
     };
   }
 
@@ -1256,7 +1264,11 @@ export class NetSystem implements System, NetApi {
       const give = (id: string, qty: number, quality: number): void => this.to(p.id, ['give', id, qty, quality]);
       const changed = itemId === '@act' ? this.sync.applyHarvest(x, z, give) : this.sync.applyUse(itemId, x, z, facing, give);
       if (changed && stock && isConsumable(itemId)) stock.set(itemId, Math.max(0, (stock.get(itemId) ?? 0) - 1));
-      this.farmDirty = true;
+      // The delta goes out at the impact frame, not on the next 5 Hz tick: the other farmhands settle
+      // their replay of this swing at the same impact time, and a delta still in the host's queue then
+      // would revert their (correct) replay for a frame or two — a visible soil / crop pop.
+      if (changed) this.sendFarmDelta();
+      else this.farmDirty = true;
       this.to(p.id, ['ack', seq, changed ? 1 : 2, this.sync.tiles(tiles)]);
     });
   }
@@ -1349,6 +1361,17 @@ export class NetSystem implements System, NetApi {
     else this.to(to, msg);
   }
 
+  /** Host: broadcast the tiles that changed since the last delta. */
+  private sendFarmDelta(others = this.remotes.list.size > 0): void {
+    this.farmDirty = false;
+    const dg = this.sync.digest();
+    const changes: [number, string][] = [];
+    for (const [i, s] of dg) if (this.sentTiles.get(i) !== s) changes.push([i, s]);
+    for (const i of this.sentTiles.keys()) if (!dg.has(i)) changes.push([i, '']);
+    this.sentTiles = dg;
+    if (changes.length && others) this.toAll(['farm', changes]);
+  }
+
   /** Host: periodic sends (interval ticker). */
   private hostTick(ms: number): void {
     const g = this.game;
@@ -1369,13 +1392,7 @@ export class NetSystem implements System, NetApi {
       this.tDrift += FARM_MS;
       if (this.farmDirty || this.tDrift >= 2000) {
         this.tDrift = 0;
-        this.farmDirty = false;
-        const dg = this.sync.digest();
-        const changes: [number, string][] = [];
-        for (const [i, s] of dg) if (this.sentTiles.get(i) !== s) changes.push([i, s]);
-        for (const i of this.sentTiles.keys()) if (!dg.has(i)) changes.push([i, '']);
-        this.sentTiles = dg;
-        if (changes.length && others) this.toAll(['farm', changes]);
+        this.sendFarmDelta(others);
       }
     }
     this.tCal += ms;
@@ -1455,20 +1472,12 @@ export class NetSystem implements System, NetApi {
         }
         const tiles = this._role === 'client' ? this.affected(itemId, x, z, facing) : [];
         for (const i of tiles) this.replayTiles.set(i, (this.replayTiles.get(i) ?? 0) + 1);
+        const heard = performance.now();
         this.later(IMPACT[act.kind] * 1000, () => {
           if (itemId === '@act') this.sync.applyHarvest(x, z);
           else this.sync.applyUse(itemId, x, z, facing);
           // Now settle those tiles on the host's word (normally a no-op: the replay matched it).
-          for (const i of tiles) {
-            const n = (this.replayTiles.get(i) ?? 1) - 1;
-            if (n > 0) {
-              this.replayTiles.set(i, n);
-              continue;
-            }
-            this.replayTiles.delete(i);
-            if (!this.pendingTiles.has(i) && this.hostTiles.has(i)) this.reconcile(i, this.hostTiles.get(i)!);
-            else if (!this.pendingTiles.has(i)) this.reconcile(i, '');
-          }
+          for (const i of tiles) this.settleReplay(i, heard, 0);
         });
         return;
       }
@@ -1484,11 +1493,13 @@ export class NetSystem implements System, NetApi {
           g.events.emit('item:give', { itemId: pd.spent, qty: 1 });
           this.giveOk = false;
         }
+        const at = performance.now();
         for (const [i, s] of tiles) {
           this.hostTiles.set(i, s);
+          this.hostTileAt.set(i, at);
           if ((this.pendingTiles.get(i) ?? 0) <= seq) {
             this.pendingTiles.delete(i);
-            this.reconcile(i, s);
+            this.reconcile(i, s, undefined, 'mispredict');
           }
         }
         return;
@@ -1501,9 +1512,11 @@ export class NetSystem implements System, NetApi {
         return;
       }
       case 'farm': {
+        const at = performance.now();
         for (const [i, s] of d[1] as [number, string][]) {
           if (s) this.hostTiles.set(i, s);
           else this.hostTiles.delete(i);
+          this.hostTileAt.set(i, at);
           if (!this.pendingTiles.has(i) && !this.replayTiles.has(i) && !this.rolling) this.reconcile(i, s);
         }
         return;
@@ -1669,21 +1682,61 @@ export class NetSystem implements System, NetApi {
     this.counters.fullSyncs++;
     this.sync.applyFull(f);
     this.hostTiles = new Map(f.digest);
+    this.fullAt = performance.now();
+    this.awaitMorning = 0;
     this.pendingTiles.clear();
     this.replayTiles.clear();
     this.pending.clear();
   }
 
   private driftLog: string[] = [];
+  private mispredictLog: string[] = [];
+  /** Farmhand: when the host last told us each tile's state (farm delta / ack / full). */
+  private hostTileAt = new Map<number, number>();
+  private fullAt = 0;
+  /** Farmhand: our day rolled before the host's morning farm arrived (drift checks wait for it). */
+  private awaitMorning = 0;
 
-  private reconcile(i: number, s: string, have?: string, drift = false): void {
+  /**
+   * Farmhand: a replayed swing has landed on tile `i` (its 'did' arrived at `heard`). Settle it on the
+   * host's state — but if the host hasn't spoken about the tile since the swing started and our
+   * replay disagrees, its delta for this very swing is still on the wire (the host applies at the
+   * same impact frame we do): wait for it (≤ ~0.45 s) instead of reverting a correct replay.
+   */
+  private settleReplay(i: number, heard: number, tries: number): void {
+    const n = (this.replayTiles.get(i) ?? 1) - 1;
+    if (n > 0 && tries === 0) {
+      this.replayTiles.set(i, n);
+      return;
+    }
+    if (this.pendingTiles.has(i)) {
+      this.replayTiles.delete(i);
+      return;
+    }
+    const want = this.hostTiles.get(i) ?? '';
+    if (tries < 3 && Math.max(this.hostTileAt.get(i) ?? 0, this.fullAt) < heard && (this.sync.tiles([i])[0]?.[1] ?? '') !== want) {
+      this.later(150, () => this.settleReplay(i, heard, tries + 1));
+      return;
+    }
+    this.replayTiles.delete(i);
+    this.reconcile(i, want, undefined, 'mispredict');
+  }
+
+  /**
+   * Settle tile `i` on the host's state `s`. `kind` says why it's being looked at, for the counters:
+   * 'edit' = host news (another farmer's work), 'mispredict' = our prediction / replay of an action
+   * just landed and had better already match, 'drift' = the periodic check with nothing in flight.
+   */
+  private reconcile(i: number, s: string, have?: string, kind: 'edit' | 'mispredict' | 'drift' = 'edit'): void {
     const ok = this.sync.reconcileTile(i, s, have);
     if (this.sync.lastChanged) {
-      if (drift) {
-        this.counters.drift++;
-        this.driftLog.push(`${i}:${this.sync.lastHave}→${s}`);
-        if (this.driftLog.length > 24) this.driftLog.shift();
-      } else this.counters.reconciles++;
+      if (kind === 'edit') this.counters.reconciles++;
+      else {
+        const log = kind === 'drift' ? this.driftLog : this.mispredictLog;
+        this.counters[kind === 'drift' ? 'drift' : 'mispredicts']++;
+        log.push(`${i}:${this.sync.lastHave}→${s}`);
+        if (log.length > 24) log.shift();
+      }
     }
     if (!ok) this.requestFull();
   }
@@ -1699,6 +1752,7 @@ export class NetSystem implements System, NetApi {
   /** Farmhand: compare our farm to the host's mirror and fix drift (never touching predicted tiles). */
   private driftCheck(): void {
     if (!this.welcomed || this.rolling) return;
+    if (this.awaitMorning && performance.now() - this.awaitMorning < 8000) return;
     const local = this.sync.digest();
     let n = 0;
     const check = (i: number): void => {
@@ -1707,7 +1761,7 @@ export class NetSystem implements System, NetApi {
       const have = local.get(i) ?? '';
       if (have !== want) {
         n++;
-        this.reconcile(i, want, have, true);
+        this.reconcile(i, want, have, 'drift');
       }
     };
     for (const i of this.hostTiles.keys()) check(i);
@@ -1996,6 +2050,9 @@ export class NetSystem implements System, NetApi {
       const f = this.heldFull;
       this.heldFull = null;
       if (f) this.applyFull(f);
+      // Our night ran first: until the host's morning farm lands, our overnight rolls (weeds, crows)
+      // are expected to differ from the host's — that's not drift to "fix" tile by tile.
+      else this.awaitMorning = performance.now();
     };
     const endDay = (): void => {
       // Crops only grow while the farming system sees the farm: end the day with it in view.

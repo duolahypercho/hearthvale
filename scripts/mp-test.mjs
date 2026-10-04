@@ -583,8 +583,12 @@ try {
   results.push({ name: 'fps (host, 3 headless browsers sharing one GPU)', ok: true, detail: `${fpsHost.toFixed(1)} fps avg` });
   console.log(`• fps host ${fpsHost.toFixed(1)} (3 headless pages share one GPU; see npm run perf for the real gate)`);
   const st2 = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.net.stats())));
-  for (const [i, s2] of st2.entries()) log(`${['ash', 'bea'][i]} farm sync: ${s2.reconciles} host edits, ${s2.drift} drift, ${s2.needs} mid-day resyncs, ${s2.fullSyncs} full syncs`, s2.driftLog.join(' '));
+  for (const [i, s2] of st2.entries()) log(`${['ash', 'bea'][i]} farm sync: ${s2.reconciles} host edits, ${s2.mispredicts} mispredicts, ${s2.drift} drift, ${s2.needs} mid-day resyncs, ${s2.fullSyncs} full syncs`, `drift [${s2.driftLog.join(' ')}] mispredict [${(s2.mispredictLog ?? []).join(' ')}]`);
   check('steady-state farm drift ≈ 0 (prediction agrees with the host)', st2.every((s2) => s2.drift <= 2 && s2.needs <= 1), st2.map((s2, i) => `${['ash', 'bea'][i]} drift ${s2.drift}, resyncs ${s2.needs}`).join(' · '));
+  // Every swing / seed / harvest a farmhand predicted or replayed already matched the host when the
+  // host's word arrived (a mismatch is a visible pop of soil or crop). The sowing race above loses one
+  // tile on purpose (its refund), so allow a couple.
+  check('predictions + replays match the host (≤ 3 visible pops per farmhand)', st2.every((s2) => (s2.mispredicts ?? 0) <= 3), st2.map((s2, i) => `${['ash', 'bea'][i]} ${s2.mispredicts} [${(s2.mispredictLog ?? []).slice(-6).join(' ')}]`).join(' · '));
   const relayStats = await relay.health();
   log('relay', JSON.stringify(relayStats));
   writeFileSync(resolve(outDir, 'mp-results.json'), JSON.stringify({ at: new Date().toISOString(), results, stats, frameMs: fps, relay: relayStats, errors }, null, 2));

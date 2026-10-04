@@ -376,7 +376,9 @@ try {
 
   // ── sync traffic + frame time ──
   const st = await Promise.all([ash, bea, cole].map((p) => ev(p, () => window.__game.game.services.net.stats())));
-  log('sync', st.map((s, i) => `${['ash', 'bea', 'cole'][i]}: ${s.reconciles} host edits, ${s.drift} drift, ${s.needs} resyncs, ${s.fullSyncs} full (${s.driftLog.join(' ')})`).join(' | '));
+  log('sync', st.map((s, i) => `${['ash', 'bea', 'cole'][i]}: ${s.reconciles} host edits, ${s.mispredicts} mispredicts, ${s.drift} drift, ${s.needs} resyncs, ${s.fullSyncs} full (drift ${s.driftLog.join(' ')} · mispredict ${(s.mispredictLog ?? []).join(' ')})`).join(' | '));
+  // The harvest race loses three predictions on purpose (one winner); anything more is a pop.
+  check('farm sync: predictions + replays match the host (≤ 4 pops per farmhand)', st.every((s) => (s.mispredicts ?? 0) <= 4), st.map((s, i) => `${['ash', 'bea', 'cole'][i]} ${s.mispredicts}`).join(' · '));
   check('farm sync: drift ≈ 0, ≤ 1 mid-day resync per farmhand', st.every((s) => s.drift <= 2 && s.needs <= 1), st.map((s, i) => `${['ash', 'bea', 'cole'][i]} drift ${s.drift} resyncs ${s.needs} edits ${s.reconciles}`).join(' · '));
   const fm = await Promise.all(all().map((p) => ev(p, () => window.__game.game.services.net.stats().frameMs)));
   log('frame ms avg/p95/p99', fm.map((f, i) => `${names[i]} ${f.avg}/${f.p95}/${f.p99}`).join('  '));

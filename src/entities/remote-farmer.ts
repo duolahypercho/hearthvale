@@ -198,11 +198,11 @@ function hairFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matri
     ];
     for (const [a, rad, len, roll] of locks) lock(rad * scale, Math.sin(a) * r * 0.72, r * 1.34, Math.cos(a) * r * 0.72, 0.55, a, roll, len, 0.55, 0.62);
   };
-  const sides = (len: number): void => {
+  const sides = (len: number, z = r * 0.28): void => {
     for (const sx of [-1, 1]) {
       const side = lumpySphere(0.1, 1, 0.12, rng);
       side.scale(0.55, 1.1 * len, 0.8);
-      add(side, mat(sx * r * 0.94, r * (0.95 - (len - 1) * 0.35), r * 0.28, 0, 0, sx * 0.15));
+      add(side, mat(sx * r * 0.94, r * (0.95 - (len - 1) * 0.35), z, 0, 0, sx * 0.15));
     }
   };
   const backTufts = (): void => {
@@ -251,7 +251,9 @@ function hairFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matri
     }
     case 'long': {
       fringe(1);
-      sides(1.9);
+      // Long locks fall behind the ears (tucked back): from the high camera they framed the cheeks
+      // like a hood and hid half the face.
+      sides(1.9, r * 0.02);
       // A curtain down the back to the shoulder blades.
       const back = new THREE.CapsuleGeometry(0.2, 0.34, 6, 14);
       add(back, mat(0, r * 0.35, -r * 0.62, 0.12, 0, 0, 1.45, 1, 0.62));
@@ -286,11 +288,25 @@ function hatFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix
       break;
     }
     case 'beanie': {
-      // Worn up and back on the head so the face reads from the high 3/4 camera.
-      const dome = new THREE.SphereGeometry(r * 1.08, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
-      add(dome, inHat(mat(0, r * 1.14, -0.05, -0.34, 0, 0, 1, 0.82, 1)), hc);
-      add(new THREE.TorusGeometry(r * 1.06, 0.045, 8, 28), inHat(mat(0, r * 1.14, -0.05, Math.PI / 2 - 0.34, 0, 0)), C(hc, 0.78));
-      add(lumpySphere(0.08, 1, 0.25, new Rng('pom')), inHat(mat(0, r * 2.0, -0.36)), C(hc).lerp(new THREE.Color(0xffffff), 0.55));
+      // A knitted cap worn high and pushed well back (a woodworker's beanie): from the high 3/4
+      // camera the brow and eyes stay clear instead of reading as a mushroom cap over the face.
+      // Folded, ribbed cuff + a slouched crown + a pom-pom over the back of the head.
+      const tip = -0.5;
+      const cy = r * 1.3;
+      const cz = -0.09;
+      const dome = new THREE.SphereGeometry(r * 1.0, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      add(dome, inHat(mat(0, cy, cz, tip, 0, 0, 1, 1.12, 1)), hc);
+      add(new THREE.CylinderGeometry(r * 1.04, r * 1.07, 0.12, 28), inHat(mat(0, cy + 0.02, cz, tip, 0, 0)), C(hc, 0.86));
+      const ribs = 18;
+      const ribM = new THREE.Matrix4();
+      const tilt = new THREE.Matrix4().makeRotationX(tip);
+      for (let i = 0; i < ribs; i++) {
+        const a = (i / ribs) * Math.PI * 2;
+        ribM.makeRotationY(a).setPosition(Math.sin(a) * r * 1.065, 0, Math.cos(a) * r * 1.065);
+        const m = new THREE.Matrix4().makeTranslation(0, cy + 0.02, cz).multiply(tilt).multiply(ribM);
+        add(roundedBox(0.03, 0.115, 0.016, 0.006), inHat(m), C(hc, 0.78));
+      }
+      add(lumpySphere(0.085, 1, 0.24, new Rng('pom')), inHat(mat(0, cy + r * 0.95, cz - r * 0.62)), C(hc).lerp(new THREE.Color(0xffffff), 0.5));
       break;
     }
     case 'flower': {
@@ -426,6 +442,8 @@ export class RemoteFarmer {
   private lookYaw = 0;
   private lookTarget = 0;
   private lookT = 3;
+  /** World yaw the idle head looks toward (null = the random look-around). */
+  gaze: number | null = null;
   private rod: THREE.Object3D | null = null;
   readonly bubble: EmoteBubble;
 
@@ -545,7 +563,12 @@ export class RemoteFarmer {
       L.z = shift * 0.03;
       R.z = shift * 0.03;
       this.lookT -= dt;
-      if (this.lookT <= 0) {
+      if (this.gaze !== null) {
+        // Eyes on a fixed world heading (the creator's camera): the head turns up to ~40° toward it.
+        const g = Math.atan2(Math.sin(this.gaze - this.yaw), Math.cos(this.gaze - this.yaw));
+        this.lookTarget = Math.max(-0.7, Math.min(0.7, g));
+        this.lookT = 1;
+      } else if (this.lookT <= 0) {
         this.lookTarget = this.lookTarget !== 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * (0.45 + Math.random() * 0.35);
         this.lookT = this.lookTarget !== 0 ? 1.2 + Math.random() : 3 + Math.random() * 3;
       }

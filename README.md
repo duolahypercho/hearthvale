@@ -654,7 +654,11 @@ Friends on other machines open the game from the host's address; the relay defau
   absurd gains. Changes made while disconnected are queued + resent after the rejoin, so purses always converge.
 - **Prediction + reconciliation**: a farmhand's own swings, seeds and harvests play instantly; the host's `ack`
   (applied / refused / no-op) carries the touched tiles, a lost race refunds the predicted seed, a 2.5 s drift check
-  fixes anything else, predicted loot yields to the host's `give`. Movement is predicted; the host's `fix` is
+  fixes anything else, predicted loot yields to the host's `give`. Another farmer's swing is replayed at its impact
+  frame; the host flushes that swing's tile delta at the same frame, and a replay the host hasn't confirmed yet waits
+  (≤ 0.45 s) for it instead of being reverted. `stats()` splits `reconciles` (host edits = other farmers' work),
+  `mispredicts` (our prediction / replay was wrong — a visible pop; `mispredictLog`) and `drift` (`driftLog`; paused
+  between our own night and the host's morning farm, whose weeds / crows legitimately differ until it lands). Movement is predicted; the host's `fix` is
   reconciled against the position history and bled in over ~150 ms. Remote farmers use an adaptive jitter buffer
   (100 ms floor, grows with measured arrival jitter up to 260 ms) with brief extrapolation.
 - **Saves**: a farmhand never writes the host's farm into its own slots (`SaveManager.guard`: "saving" stores the
@@ -670,7 +674,10 @@ Friends on other machines open the game from the host's address; the relay defau
   the same FarmerActions tool poses as the local farmer; 6 hair styles, 5 hats, skin / hair / shirt / overalls /
   kerchief / hat colours (`entities/remote-look.ts`). Emote bubbles are 3D sprites (`remote-emotes.ts`). Name tags /
   chat bubbles are DOM, placed after each render (`game.afterRender`, so they match the frame's camera even while
-  paused) and stacked when farmers bunch up; your own chat shows over your own head too.
+  paused) and stacked when farmers bunch up; emote bubbles sit beside the pill on the side away from the nearest
+  other farmer (so they never read as the neighbour's); your own chat shows over your own head too. The whole layer
+  hides under menus, the day-end card and cutscenes. The creator turntable's farmer keeps glancing at the camera
+  (`RemoteFarmer.gaze`).
 - **UI** (`ui/coop.ts`): Title → Co-op screen (character creator with a live turntable, Host / Join by code,
   lobby with invite-code tiles, 4 slots, ping bars, Kick), roster plate (top-left), chat (**T**), emote wheel (hold
   **G**, 1–8), join/leave toasts, bedtime overlay ("waiting for 2 farmers"; the host gets **Sleep anyway** after
