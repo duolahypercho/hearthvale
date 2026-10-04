@@ -16,7 +16,8 @@ import { patchMaterial, after, before, replace } from '../render/patch';
 import { bakeInto, bakeTarget, queueBake } from '../render/bake';
 
 /** worldfx snow threshold on the ground (normal.y); shared with the full-cover ground skip. */
-const TERRAIN_SNOW_UP = 0.7;
+// Winter snow lies on banks up to ~55 deg (at 0.7 the stream / pool banks stayed bare sand: a tan halo round the ice).
+const TERRAIN_SNOW_UP = 0.55;
 
 export const SPLAT_RES = 2;
 /** Ground-cover texels per world unit (clover / moss / dry-trampled / contact AO). */

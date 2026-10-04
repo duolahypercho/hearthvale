@@ -141,6 +141,9 @@ const FogShader = {
       // Near the farmer (the focus of every frame) beams stay subtle: a log or a bush standing in a
       // shaft must never turn into a translucent ghost.
       float nearFocus = 1.0 - smoothstep(1.2, 3.0, length(P.xz - uPlayer.xz));
+      // Mist noise, reused by the height-fog banks below when both run (fog mornings, rain).
+      float hvNb = -1.0;
+      float hvNr = 0.0;
       if (uMist > 0.001) {
         // Ground under the surface point: the lowest of five taps (on a cliff face or a trunk the
         // foot of it is found, so walls are misted at their base only, not all the way up).
@@ -169,6 +172,8 @@ const FogShader = {
         float nr = hvNoise(vec2(P.x * 0.13 + P.z * 0.06, P.z * 0.3 - P.x * 0.04) - drift * 0.2);
         // Fine wisps: long thin tendrils streaming downwind (gives the sheet a visible texture).
         float nw = hvNoise(vec2(P.x * 0.42 + P.z * 0.21, P.z * 0.95 - P.x * 0.12) - drift * 0.55 + nb * 1.7);
+        hvNb = nb;
+        hvNr = nr;
         float bank = smoothstep(0.5, 0.74, nb);
         bank = max(bank * 0.7, max(overWater * (0.32 + 0.48 * nb), hollow * 0.45));
         float H = uMistH * (0.45 + 0.95 * bank);
@@ -200,9 +205,17 @@ const FogShader = {
         optical = abs(optical);
         // Drifting banks: density at the surface point (the mist lies on the ground).
         vec2 drift = uWindDir * uTime * 0.35;
-        float n = hvFbm(P.xz * 0.075 - drift * 0.075) * 0.7 + hvNoise(P.xz * 0.23 + vec2(uTime * 0.03, -uTime * 0.02)) * 0.3;
-        // Wispy sheets: a second, finer stretched layer tears the banks into drifting ribbons.
-        float sheet = hvNoise(vec2(P.x * 0.16 + P.z * 0.05, P.z * 0.42) - drift * 0.16);
+        float n;
+        float sheet;
+        if (hvNb >= 0.0) {
+          // The mist already sampled the bank field at this point: reuse it (6 noise taps saved).
+          n = hvNb;
+          sheet = hvNr;
+        } else {
+          n = hvFbm(P.xz * 0.075 - drift * 0.075) * 0.7 + hvNoise(P.xz * 0.23 + vec2(uTime * 0.03, -uTime * 0.02)) * 0.3;
+          // Wispy sheets: a second, finer stretched layer tears the banks into drifting ribbons.
+          sheet = hvNoise(vec2(P.x * 0.16 + P.z * 0.05, P.z * 0.42) - drift * 0.16);
+        }
         // Separate pockets: banks with clear lanes between them (squared: thin mist stays thin).
         float bank = smoothstep(0.46, 0.78, n) * (0.35 + 0.65 * smoothstep(0.3, 0.7, sheet));
         float dens = uDensity * uFog * (0.02 + 3.4 * bank * bank);
