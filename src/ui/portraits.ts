@@ -589,6 +589,11 @@ function modelPortraitSvg(url: string, look: NpcLook, bg: [number, number], mood
     <filter id="${id}grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="4"/><feColorMatrix type="saturate" values="0"/></filter>
   </defs>`);
   p.push(backdrop(id, bg, look.backdrop));
+  // Winter: the place outside is under snow (a cool, bright wash and falling flakes behind the bust).
+  if (portraitSeason === 'winter') {
+    p.push(`<rect width="200" height="200" fill="#dfe8f6" opacity="0.42" style="mix-blend-mode:screen"/><rect y="120" width="200" height="80" fill="#f4f7fb" opacity="0.35"/>`);
+    p.push(`<g fill="#fff" opacity="0.85">${Array.from({ length: 22 }, (_, i) => `<circle cx="${(i * 37 + 13) % 200}" cy="${(i * 53 + 7) % 190}" r="${1.2 + (i % 3) * 0.8}"/>`).join('')}</g>`);
+  }
   const pz = POSE[mood] ?? POSE.neutral;
   p.push(`<rect width="200" height="200" fill="${pz.tint}" opacity="${pz.tintA}" style="mix-blend-mode:${mood === 'sad' || mood === 'worried' ? 'multiply' : 'soft-light'}"/>`);
   if (mood === 'sad') p.push(`<rect width="200" height="200" fill="url(#${id}cool)"/>`);
