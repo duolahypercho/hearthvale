@@ -327,6 +327,9 @@ try {
   // Chat is acked + re-sent (net 'cack'): give a loaded machine (appRtt of seconds) a longer window.
   const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 25000);
   check('chat reaches the host', gotChat, gotChat ? '' : JSON.stringify(await net(b, () => window.__game.game.services.net.stats())));
+  // The farmhand's own line shows "sending…" until the host's ack ('cack') lands, then settles.
+  const acked = await waitFor(b, () => !document.querySelector('.coop-log .ln.pending'), null, 25000);
+  check("farmhand's chat line is acked by the host (no 'sending…' left)", acked);
 
   // ── town (town pod): a farmhand's gift is host-authoritative and everyone sees it land; heart
   // events are mirrored to farmhands in town as spectators ──────────

@@ -5769,3 +5769,12 @@ body.u-calm .de-star .medal {
 .pv-legend i.ring {
   background: #f0c060;
 }
+/* the real-farm crop never spills over its legend: the box is capped, the drawing letterboxes inside it */
+.craft-detail .cd-prev svg.grid.iso.real {
+  height: 246px;
+  max-height: 100%;
+}
+.craft-detail .cd-prev .pv-stage {
+  overflow: hidden;
+  padding-top: 4px;
+}
