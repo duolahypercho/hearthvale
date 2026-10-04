@@ -209,8 +209,11 @@ export const DEMOS: Record<string, DemoDef> = {
   'fest-fall': { map: 'fest-fall', x: 32.6, z: 22.4, facing: 'up', time: 14.3, season: 'fall', weather: 'sun', camera: { yaw: 20, pitch: 40, distance: 32, offsetX: 2, offsetZ: -6 }, showcase: ['festival-show'] },
   // Starfall at the turn of dusk into night: the last afterglow over the treeline with the aurora rising
   // (it comes in from 18:30), lamps lit; `fest-winter-night` = full dark, aurora + lamplight on the ice.
-  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 19.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 16, distance: 45, offsetX: -0.4, offsetZ: -10.5 }, showcase: ['festival-show'] },
-  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 17, distance: 44, offsetX: -0.4, offsetZ: -10.5 }, showcase: ['festival-show'] },
+  // Both are a low postcard from the south bank (welcome choir, river, square, the Great Fir's star
+  // against the aurora sky).
+  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.3, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 10, distance: 40, offsetX: 0, offsetZ: -7 }, showcase: ['festival-show'] },
+  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 21.2, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 10, distance: 40, offsetX: 0, offsetZ: -7 }, showcase: ['festival-show'] },
+  'fest-winter-dusk': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 19.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 10, distance: 40, offsetX: 0, offsetZ: -7 }, showcase: ['festival-show'] },
   // Festival mini-games (they play themselves while the demo is paused): Ribbon Dance, Lantern Release, Sack Race,
   // Produce Judging, Gift Exchange, Starlight Skate. Same as `?demo=fest-<season>&ui=festival:<activity>`.
   'fest-spring-dance': { map: 'fest-spring', x: 31.2, z: 37.2, facing: 'up', time: 12.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 38, distance: 19.5, offsetX: 0.4, offsetZ: -4.4 }, showcase: ['festival-show'], ui: 'festival:dance' },

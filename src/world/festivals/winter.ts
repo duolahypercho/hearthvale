@@ -17,7 +17,7 @@ import { OUTFIT_PALETTES } from '../../data/festivals';
 import { TileType } from '../tiles';
 import { textures } from '../../render/textures';
 import { buildTownHouse, buildHedge, buildMarketStall } from '../props/townkit';
-import { buildLanternPost } from '../props/structures';
+import { buildLanternPost, buildFence } from '../props/structures';
 import { buildBunting } from '../props/festival';
 import { buildSnowman, buildBench } from '../props/farmkit';
 import { FestivalMap, type PlayState } from './base';
@@ -130,7 +130,10 @@ export class StarfallSquare extends FestivalMap {
   protected height(x: number, z: number): number {
     const d = this.rimDist(x, z);
     const n = this.noise;
-    const hills = (smoothstep(-0.5, 5, d) * 1.6 + smoothstep(4, 20, d) * (2.8 + n.fbm(x * 0.04 + 5, z * 0.04, 3) * 3)) * (1 - this.exitMask(x, z));
+    // The south rim stays a low snowy swell where the postcard camera looks over it (high hills there
+    // rose into the lens as dark wedges in the bottom corners of the low Starfall framing).
+    const lens = smoothstep(40, 46, z) * smoothstep(30, 18, Math.abs(x - 32));
+    const hills = (smoothstep(-0.5, 5, d) * 1.6 + smoothstep(4, 20, d) * (2.8 + n.fbm(x * 0.04 + 5, z * 0.04, 3) * 3) * (1 - lens * 0.85)) * (1 - this.exitMask(x, z)) * (1 - lens * 0.55);
     const rise = smoothstep(16, 10, z) * 0.35;
     const rd = this.riverDist(x, z) + n.fbm(x * 0.3, z * 0.3, 2) * 0.3;
     const channel = -smoothstep(3.0, 1.9, rd) * 0.75;
@@ -332,6 +335,28 @@ export class StarfallSquare extends FestivalMap {
     }
     this.addProp(buildSnowman(r), 15.6, 27.6, 0.4, { solidR: 0.5 });
     this.addProp(buildSnowman(r), 49.4, 27.2, -0.5, { solidR: 0.5 });
+    // The south bank (the lens side of the river): the welcome choir's lamps, a half-built snowman,
+    // a sled waiting at the top of the bank, so the foreground of the low Starfall framing is lived in.
+    for (const x of [23.4, 40.8]) {
+      const z = this.riverZ(x) + 5.6;
+      this.addProp(buildLanternPost(), x, z, x < 32 ? 0 : Math.PI, { solidR: 0.35, lights: 'glow' });
+      this.pools.add(x, z + 0.6, this.H(x, z), 2.6);
+    }
+    this.addProp(buildSnowman(r), 42.2, this.riverZ(42.2) + 9.2, -0.6, { solidR: 0.5 });
+    this.addProp(buildSled(0x2f6a8a), 24.6, this.riverZ(24.6) + 9.4, 0.5, { y: this.H(24.6, this.riverZ(24.6) + 9.4), solidR: 0.45 });
+    // Foreground of the low postcard: a snowy split-rail fence along the top of the south bank (open
+    // at the bridge lane, lamps at the gap) and two young firs framing the lower corners.
+    const fz = (x: number): number => this.riverZ(x) + 11.6 + Math.sin(x * 0.4) * 0.25;
+    const runW: [number, number][] = [];
+    const runE: [number, number][] = [];
+    for (let x = 12; x <= 28.6; x += 2.2) runW.push([x, fz(x)]);
+    for (let x = 35.4; x <= 52; x += 2.2) runE.push([x, fz(x)]);
+    this.addProp(buildFence([runW, runE], (x, z) => this.H(x, z), r), 0, 0, 0, { y: 0 });
+    for (const x of [29.4, 34.6]) {
+      this.addProp(buildLanternPost(), x, fz(x) + 0.3, x < 32 ? 0 : Math.PI, { solidR: 0.35, lights: 'glow' });
+      this.pools.add(x, fz(x) + 0.8, this.H(x, fz(x)), 2.4);
+    }
+
     this.addProp(buildBench(), 25.4, 27.2, Math.PI + 0.5, { solidR: 0.6 });
     this.addProp(buildBench(), 38.6, 27.2, Math.PI - 0.5, { solidR: 0.6 });
   }
@@ -473,6 +498,21 @@ export class StarfallSquare extends FestivalMap {
     for (const [x, z, yaw, anim] of [[29.6, 29.0, 0.3, 'wave'], [35.4, 28.8, -0.2, 'cheer'], [17.8, 29.4, 0.5, 'clap'], [47.0, 29.2, -0.4, 'wave']] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.3 }), anim, x, z, yaw, {});
     }
+    // The welcome choir on the south bank by the bridge: two ranks singing to the arrivals (faces to
+    // the lens), a lantern-pole bearer at each end, songbooks up; a kid with a sled, snowman builders.
+    const bz = this.riverZ(BRIDGE_X);
+    // Down the bank on the snowfield (nearer the lens: faces and songbooks read at postcard distance).
+    for (const [dx, dz, anim, props] of [
+      [-2.6, 7.6, 'carol', ['songbook']], [-3.6, 8.3, 'carol', ['songbook']], [-4.9, 7.9, 'lantern', ['lanternPole']], [-3.0, 9.1, 'carol', ['songbook']], [-4.3, 9.4, 'carol', ['songbook']],
+      [2.6, 7.6, 'carol', ['songbook']], [3.6, 8.3, 'carol', ['songbook']], [4.9, 7.9, 'lantern', ['lanternPole']], [3.0, 9.1, 'carol', ['songbook']], [4.3, 9.4, 'clap', []],
+    ] as const) {
+      const x = BRIDGE_X + dx;
+      const z = bz + dz;
+      person(randomLook(r, { palette: P.tops, child: dz > 6 && r.next() < 0.5 }), anim, x, z, face(x, z, BRIDGE_X, bz + 14), { props: [...props], accent: pick(P.accents) });
+    }
+    person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 25.6, this.riverZ(25.6) + 9.0, 0.6, {});
+    person(randomLook(r, { palette: P.tops, child: true }), 'clap', 41.0, this.riverZ(41.0) + 9.9, -0.3, {});
+    person(randomLook(r, { palette: P.tops }), 'talk', 43.4, this.riverZ(43.4) + 9.0, -0.9, { props: ['mug'] });
     this.crowdSpecs = specs;
   }
 
@@ -508,20 +548,44 @@ export class StarfallSquare extends FestivalMap {
     if (play.id === 'giftswap') {
       const gx = TREE.x;
       const gz = TREE.z + 5.6;
-      this.placePlayer(gx, gz + 0.4, 'up');
+      // You and the recipient face each other under the Fir, side by side to the lens (both faces,
+      // the present between you); the cards sit on the right, the pair left of centre.
+      this.placePlayer(gx - 0.55, gz + 0.4, 'right');
       const i = play.partner ? this.named.get(play.partner) : undefined;
       const c = this.crowd;
       if (c && i !== undefined) {
         const m = c.members[i]!;
         this.recipient = { i, x: m.x, z: m.z, yaw: m.yaw, anim: m.anim };
-        c.place(i, gx, gz - 1.0, 0, 0);
+        c.place(i, gx + 0.75, gz + 0.35, -1.05, 0);
         c.setAnim(i, 'talk');
         c.commit();
       }
-      this.frame({ pitch: 34, distance: 15, yaw: 0, ox: 0, oz: -2.4 });
+      // Give the pair a little stage: the rest of the gift circle steps back to ~2 m around them.
+      if (c) {
+        const mx = gx + 0.1;
+        const mz = gz + 0.4;
+        for (let k = 0; k < c.members.length; k++) {
+          const m = c.members[k]!;
+          if (k === i || m.spec.lift) continue;
+          const dx = m.x - mx;
+          const dz = m.z - mz;
+          const d = Math.hypot(dx, dz);
+          if (d > 2.1 || d < 1e-3) continue;
+          m.x = mx + (dx / d) * 2.1;
+          m.z = mz + (dz / d) * 2.1;
+          m.y = this.heightAt(m.x, m.z);
+        }
+        c.commit();
+      }
+      // A higher three-quarter from the south (over the bridge lamps): the pair, the present between
+      // them, the gift circle round them and the Great Fir's lit skirt behind.
+      this.clearSightline(gx + 0.1, gz + 0.4, -10, 9.5, 2.2);
+      this.frame({ pitch: 30, distance: 11, yaw: -10, ox: 1.5, oz: -1.9 });
     } else if (play.id === 'skate') {
       this.startRun(play);
-      this.frame({ pitch: 48, distance: 18.5, yaw: 0, ox: 0.6, oz: -3.0 });
+      // A three-quarter from down-river (south-east): the lantern-gate arches read as arches, not edge-on
+      // sticks, and the skater carves across the frame toward them.
+      this.frame({ pitch: 32, distance: 15.5, yaw: 34, ox: 0.4, oz: -1.6 });
     }
   }
 
@@ -575,7 +639,9 @@ export class StarfallSquare extends FestivalMap {
     const b = new MeshBuilder();
     const gr = new Rng('gate-arch');
     for (const sz of [-GATE_HALF, GATE_HALF]) {
-      b.add('woodPaint', bevelCylinder(0.045, 0.055, 1.42, 0.012, 7), mat(0, 0, sz), { tint: 0x2f5a44 });
+      b.add('woodPaint', bevelCylinder(0.07, 0.085, 1.42, 0.015, 8), mat(0, 0, sz), { tint: 0x8a2a24 });
+      // Candy-wrapped: white spiral bands up the red post.
+      for (let k = 0; k < 5; k++) b.add('white', bevelCylinder(0.078, 0.078, 0.07, 0.01, 8), mat(0, 0.18 + k * 0.25, sz, 0.18, 0, 0.18), { tint: 0xf4f0ea });
       b.add('woodPaint', bevelCylinder(0.12, 0.14, 0.07, 0.015, 9), mat(0, 0, sz), { tint: 0xe8e0d4 });
       const heap = lumpySphere(0.2, 1, 0.05, gr, 1);
       heap.scale(1, 0.38, 1);
@@ -587,16 +653,19 @@ export class StarfallSquare extends FestivalMap {
       b.add('woodPaint', bevelCylinder(0.06, 0.06, 0.03, 0.008, 8), mat(0, 1.69, sz), { tint: 0x3a2a1e });
     }
     const arch = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 1.36, -GATE_HALF), new THREE.Vector3(0, 2.55, 0), new THREE.Vector3(0, 1.36, GATE_HALF));
-    b.add('cloth', taperTube(arch, 18, 0.05, 0.05, 6), mat(0, 0, 0), { tint: 0x2c5a34 });
+    b.add('woodPaint', taperTube(arch, 18, 0.07, 0.07, 6), mat(0, 0, 0), { tint: 0x3a6a40 });
     for (let i = 0; i <= 12; i++) {
       const pt = arch.getPoint(i / 12);
-      const tuft = lumpySphere(0.085, 0, 0.25, gr, 3);
-      b.add('cloth', tuft, mat(pt.x + (gr.next() - 0.5) * 0.04, pt.y + (gr.next() - 0.3) * 0.04, pt.z, gr.next(), gr.next(), gr.next()), { tint: i % 2 ? 0x356a3c : 0x2a5530 });
-      if (i % 3 === 1) b.add('white', lumpySphere(0.035, 0, 0.1, gr, 2), mat(pt.x + 0.06, pt.y - 0.04, pt.z), { tint: 0xd8312a });
+      const tuft = lumpySphere(0.125, 0, 0.25, gr, 3);
+      b.add('woodPaint', tuft, mat(pt.x + (gr.next() - 0.5) * 0.04, pt.y + (gr.next() - 0.3) * 0.04, pt.z, gr.next(), gr.next(), gr.next()), { tint: i % 2 ? 0x4f8a52 : 0x3d7444 });
+      // Snow settled on the garland's crown + a string of warm paper bulbs along it (lit arch).
+      if (i > 2 && i < 10) b.add('white', lumpySphere(0.06, 0, 0.2, gr, 2).scale(1, 0.45, 1.3), mat(pt.x, pt.y + 0.07, pt.z), { tint: 0xf4f8fc });
+      b.add('paperLantern', lumpySphere(0.034, 0, 0.05, gr, 2), mat(pt.x + 0.08, pt.y - 0.07, pt.z), { tint: [0xffd070, 0xff8a6a, 0xfff0c0][i % 3]! });
+      if (i % 3 === 1) b.add('white', lumpySphere(0.045, 0, 0.1, gr, 2), mat(pt.x + 0.06, pt.y - 0.04, pt.z), { tint: 0xd8312a });
     }
     for (const u of [0.22, 0.78]) {
       const pt = arch.getPoint(u);
-      for (const sx of [-1, 1]) b.add('cloth', new THREE.ConeGeometry(0.06, 0.13, 4), mat(0.07, pt.y, pt.z + sx * 0.06, 0, 0, (sx * Math.PI) / 2), { tint: 0xc8302a });
+      for (const sx of [-1, 1]) b.add('woodPaint', new THREE.ConeGeometry(0.06, 0.13, 4), mat(0.07, pt.y, pt.z + sx * 0.06, 0, 0, (sx * Math.PI) / 2), { tint: 0xc8302a });
     }
     const crown = arch.getPoint(0.5);
     const star = new THREE.Shape();
@@ -732,7 +801,7 @@ export class StarfallSquare extends FestivalMap {
       if (kind === 'given') {
         // Heart burst sized by the reaction tier (love / like / neutral).
         const col = value >= 3 ? 0xff5a7a : value === 2 ? 0xffa0b8 : 0xfff0e0;
-        this.burst(rp.x, rp.y + 1.7, rp.z, { color: col, count: value * 12, speed: 1.5, size: value >= 3 ? 0.18 : 0.13, gravity: -0.4, life: 1.9, up: 0.9, spread: 0.4 });
+        this.burst(rp.x, rp.y + 2.3, rp.z, { color: col, count: value * 12, speed: 1.5, size: value >= 3 ? 0.18 : 0.13, gravity: -0.4, life: 1.9, up: 0.9, spread: 0.7 });
         if (r) {
           this.crowd?.setAnim(r.i, value >= 3 ? 'cheer' : value === 2 ? 'wave' : 'talk');
           this.crowd?.commit();
@@ -872,11 +941,18 @@ export class StarfallSquare extends FestivalMap {
       return { bob: Math.abs(push) * 0.03 - 0.04, sy: 0.96 };
     }
     if (play.id === 'giftswap') {
+      // Turned three-quarters between the recipient (east) and the lens, so both faces read; once
+      // your own present arrives you turn to show it to the camera.
+      rig.body.rotation.y = this.present?.g.visible ? 0.35 : 0.8;
+      rig.tool.visible = false;
       // Holding the present out with both hands.
       const b = Math.sin(play.t * 3) * 0.05;
       rig.armL.rotation.set(-1.2 + b, 0, 0.25);
       rig.armR.rotation.set(-1.2 + b, 0, -0.25);
-      return null;
+      // Chin up a touch so the beanie never hides the face from the three-quarter camera.
+      rig.head.rotation.set(-0.22, 0, 0);
+      // (A pose object, not null: null hands the rig back to the walk pose, which turns you away.)
+      return {};
     }
     return null;
   }
@@ -1014,9 +1090,10 @@ export class StarfallSquare extends FestivalMap {
     // Aurora: in from 18:30, full by ~19:40 (sky curtains, their light on the snow and the ice).
     const hr = game.calendar.hour;
     const auN = hr >= 12 ? THREE.MathUtils.smoothstep(hr, 18.3, 19.7) : 1 - THREE.MathUtils.smoothstep(hr, 4.5, 6.2);
-    this.sky.aurora.value = auN;
-    this.sky.update(game.rc.camera, game.rc.scene.fog as THREE.Fog | null);
     const nightK = THREE.MathUtils.smoothstep(game.lighting.night, 0.45, 0.95);
+    // The curtains build with the dark: a faint green first light over the afterglow, full after dusk.
+    this.sky.aurora.value = auN * (0.45 + 0.55 * nightK);
+    this.sky.update(game.rc.camera, game.rc.scene.fog as THREE.Fog | null);
     this.auroraGlow.strength.value = nightK > 0.02 ? Math.min(3, auN / nightK) * 0.9 : 0;
     this.river.aurora.value = auN;
     this.updateSkate(dt, game);
@@ -1145,14 +1222,17 @@ class SkateTrail {
       const l = Math.hypot(dx, dz) || 1;
       dx /= l;
       dz /= l;
-      // Carved grooves linger (~13 s) and stay bright enough to read from the diorama camera.
-      const a = Math.max(0, 1 - (t - p.t) / 13) * 0.85;
+      // Carved grooves: hairline frosted scratches (not painted road lines) that linger ~13 s, a
+      // little broken up along their length (the blade bites, then skims), fading in at the skater.
+      const age = t - p.t;
+      const grain = 0.7 + 0.3 * Math.sin(p.x * 23.0 + p.z * 17.0) * Math.sin(p.x * 7.1 - p.z * 5.3);
+      const a = Math.max(0, 1 - age / 13) * Math.min(1, age * 3 + 0.3) * 0.5 * grain;
       let k = 0;
-      for (const blade of [-0.12, 0.12]) {
-        for (const w of [-0.034, 0.034]) {
+      for (const blade of [-0.11, 0.11]) {
+        for (const w of [-0.013, 0.013]) {
           const o = blade + w;
           this.pos.setXYZ(i * 4 + k, p.x - dz * o, this.y, p.z + dx * o);
-          this.col.setXYZW(i * 4 + k, 0.93, 0.97, 1.0, a);
+          this.col.setXYZW(i * 4 + k, 0.86, 0.94, 1.0, a);
           k++;
         }
       }

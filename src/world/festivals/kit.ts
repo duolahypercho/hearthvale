@@ -716,31 +716,151 @@ export function buildBlossomPole(rng: Rng, H = 5.2): { group: THREE.Group; crown
   return { group: b.build({ name: 'blossom-pole' }), crown: new THREE.Vector3(0, top - 0.3, 0) };
 }
 
+const LEAF_TONES = [0x3f7f30, 0x4f9038, 0x5fa042, 0x36702a, 0x6aa84a];
+
+/** A five-petal bloom of cupped petal cards (+ a gold eye) facing `n`. */
+function cardBloom(b: MeshBuilder, rng: Rng, p: THREE.Vector3, n: THREE.Vector3, color: number, s = 1): void {
+  const nn = n.clone().normalize();
+  const t = Math.abs(nn.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const u = new THREE.Vector3().crossVectors(nn, t).normalize();
+  const v = new THREE.Vector3().crossVectors(nn, u).normalize();
+  const geo = petalCard(0.075 * s, 0.1 * s, 0.5);
+  const a0 = rng.next() * Math.PI * 2;
+  const d = new THREE.Vector3();
+  for (let k = 0; k < 5; k++) {
+    const a = a0 + (k / 5) * Math.PI * 2;
+    d.copy(u).multiplyScalar(Math.cos(a)).addScaledVector(v, Math.sin(a));
+    b.add('boxFlower', geo.clone(), cardAt(p, d, nn, 0.45), { tint: color });
+  }
+  const eye = new THREE.OctahedronGeometry(0.028 * s, 0);
+  b.add('boxFlower', eye, mat(p.x + nn.x * 0.02, p.y + nn.y * 0.02, p.z + nn.z * 0.02), { tint: 0xf2c040 });
+}
+
+/**
+ * A woven flower garland along `curve`: a dark evergreen rope core wrapped in overlapping leaf cards
+ * (spiralling, tips trailing), studded with five-petal blooms in clusters and a few trailing ivy
+ * strands — a continuous rope, not a string of green beads.
+ */
+function wovenGarland(b: MeshBuilder, rng: Rng, curve: THREE.Curve<THREE.Vector3>, r: number, colors: readonly number[], o: { drops?: number; bloom?: number } = {}): void {
+  const len = curve.getLength();
+  const segs = Math.max(8, Math.round(len * 6));
+  b.add('boxFlower', taperTube(curve, segs, r * 0.8, r * 0.8, 7), new THREE.Matrix4(), { tint: 0x2f5a24 });
+  const frames = curve.computeFrenetFrames(segs * 4, false);
+  const leaf = petalCard(0.14, 0.22, 0.35);
+  const P = new THREE.Vector3();
+  const T = new THREE.Vector3();
+  const N = new THREE.Vector3();
+  const nLeaves = Math.round(len * 58);
+  for (let i = 0; i < nLeaves; i++) {
+    const u = (i + rng.next() * 0.5) / nLeaves;
+    const fi = Math.min(frames.normals.length - 1, Math.round(u * segs * 4));
+    curve.getPointAt(u, P);
+    curve.getTangentAt(u, T);
+    const a = i * 2.39996 + rng.next() * 0.4;
+    N.copy(frames.normals[fi]!).multiplyScalar(Math.cos(a)).addScaledVector(frames.binormals[fi]!, Math.sin(a)).normalize();
+    // Tips trail along the rope + droop a little (gravity).
+    const tip = T.clone().multiplyScalar(0.8).addScaledVector(N, 0.25).add(new THREE.Vector3(0, -0.35, 0)).normalize();
+    b.add('boxFlower', leaf.clone(), cardAt(P.clone().addScaledVector(N, r * 0.75), tip, N, 0.35, (rng.next() - 0.5) * 0.6), { tint: LEAF_TONES[Math.floor(rng.next() * LEAF_TONES.length)]! });
+  }
+  // Bloom clusters (3–5 flowers) every ~0.4 m, on the outward / camera-facing side.
+  const nCl = Math.round(len / 0.4 * (o.bloom ?? 1));
+  for (let c = 0; c < nCl; c++) {
+    const u = (c + 0.5 + (rng.next() - 0.5) * 0.4) / nCl;
+    const fi = Math.min(frames.normals.length - 1, Math.round(u * segs * 4));
+    curve.getPointAt(u, P);
+    const col = colors[c % colors.length]!;
+    const k = 3 + Math.floor(rng.next() * 3);
+    for (let j = 0; j < k; j++) {
+      const a = (rng.next() - 0.5) * 2.6 + (j % 2 ? Math.PI : 0) * 0.35;
+      N.copy(frames.normals[fi]!).multiplyScalar(Math.cos(a)).addScaledVector(frames.binormals[fi]!, Math.sin(a)).normalize();
+      N.y = Math.max(N.y, -0.2);
+      N.z += 0.35;
+      N.normalize();
+      cardBloom(b, rng, P.clone().addScaledVector(N, r * 1.15 + 0.02), N, j === 0 ? col : colors[(c + j) % colors.length]!, 1.1 + rng.next() * 0.6);
+    }
+  }
+  // Trailing ivy strands.
+  const drops = o.drops ?? Math.round(len / 1.2);
+  for (let d = 0; d < drops; d++) {
+    const u = (d + 0.5) / drops;
+    curve.getPointAt(u, P);
+    const L = 0.3 + rng.next() * 0.45;
+    for (let s = 0; s < 6; s++) {
+      const y = P.y - r - (s / 6) * L;
+      const q = new THREE.Vector3(P.x + Math.sin(s * 1.9) * 0.04, y, P.z + 0.06);
+      b.add('boxFlower', leaf.clone().scale(0.7, 0.7, 0.7), cardAt(q, new THREE.Vector3(Math.sin(s * 2.3) * 0.6, -1, 0.1), new THREE.Vector3(0, 0, 1), 0.2), { tint: LEAF_TONES[(d + s) % LEAF_TONES.length]! });
+    }
+  }
+}
+
 /** Flower arch (arbor) spanning `span` metres, posts at ±span/2 on X. */
 export function buildFlowerArch(rng: Rng, span: number, colors: readonly number[] = [0xf7a8c0, 0xffffff, 0xfde2a0, 0xd4b8f0]): THREE.Group {
   const b = new MeshBuilder();
-  const H = 3.4;
+  const H = 3.2;
+  const rise = span * 0.3;
   for (const sx of [-1, 1]) {
-    b.add('woodPaint', roundedBox(0.16, H, 0.16, 0.04), mat(sx * span / 2, H / 2, 0), { tint: 0xf4efe6, aoWorld: groundAO(0.5) });
-    b.add('stone', bevelCylinder(0.22, 0.26, 0.2, 0.04, 8), mat(sx * span / 2, 0, 0), { tint: 0xd0c8ba });
-    // Vines up the posts.
-    for (let i = 0; i < 9; i++) bloomMound(b, rng, sx * span / 2 + Math.sin(i * 1.7) * 0.1, 0.3 + i * 0.34, Math.cos(i * 1.7) * 0.1, 0.16, colors, 0.5);
+    const x = (sx * span) / 2;
+    // Turned white posts on stone feet, a lattice panel between twin uprights.
+    for (const dz of [-0.22, 0.22]) {
+      b.add('woodPaint', roundedBox(0.12, H, 0.12, 0.035), mat(x, H / 2, dz), { tint: 0xf4efe6, aoWorld: groundAO(0.5) });
+      b.add('stone', bevelCylinder(0.13, 0.16, 0.16, 0.03, 8), mat(x, 0.02, dz), { tint: 0xd0c8ba });
+    }
+    for (let k = 0; k < 7; k++) {
+      const y = 0.35 + k * 0.4;
+      b.add('woodPaint', roundedBox(0.04, 0.04, 0.44, 0.01), mat(x, y, 0), { tint: 0xece4d8 });
+    }
+    // Climbing vine spiralling up each side (woven, blooming).
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      pts.push(new THREE.Vector3(x + Math.sin(t * 9) * 0.12, 0.15 + t * (H - 0.1), Math.cos(t * 9) * 0.28));
+    }
+    wovenGarland(b, rng, new THREE.CatmullRomCurve3(pts), 0.08, colors, { drops: 0, bloom: 0.8 });
   }
-  // Semi-circular arch of blooms.
-  const n = Math.round(span * 7);
-  for (let i = 0; i <= n; i++) {
-    const a = (i / n) * Math.PI;
-    const x = Math.cos(a) * span / 2;
-    const y = H + Math.sin(a) * span * 0.28;
-    bloomMound(b, rng, x, y, 0, 0.26, colors, 0.7);
+  // The arch: a woven garland over a white bent-wood hoop.
+  const hoop: THREE.Vector3[] = [];
+  for (let i = 0; i <= 16; i++) {
+    const a = (i / 16) * Math.PI;
+    hoop.push(new THREE.Vector3((Math.cos(a) * span) / 2, H + Math.sin(a) * rise, 0));
   }
+  const hc = new THREE.CatmullRomCurve3(hoop);
+  b.add('woodPaint', taperTube(hc, 40, 0.06, 0.06, 6), new THREE.Matrix4(), { tint: 0xf4efe6 });
+  wovenGarland(b, rng, hc, 0.2, colors, { drops: 7, bloom: 1.6 });
+  // A painted keystone sign of blossom at the crown.
+  bloomMound(b, rng, 0, H + rise + 0.05, 0.12, 0.3, colors, 1.4);
   // Hanging ribbons.
   for (let i = 1; i < 6; i++) {
     const x = -span / 2 + (i / 6) * span;
-    const y = H + Math.sin((i / 6) * Math.PI) * span * 0.28 - 0.3;
-    b.add('cloth', roundedBox(0.06, 0.9, 0.01, 0.005, 1), mat(x, y - 0.45, 0.06, 0, 0, (rng.next() - 0.5) * 0.2), { tint: FESTIVAL_COLORS[i % FESTIVAL_COLORS.length]! });
+    const y = H + Math.sin((i / 6) * Math.PI) * rise - 0.3;
+    b.add('cloth', roundedBox(0.06, 0.9, 0.01, 0.005, 1), mat(x, y - 0.45, 0.12, 0, 0, (rng.next() - 0.5) * 0.2), { tint: FESTIVAL_COLORS[i % FESTIVAL_COLORS.length]! });
   }
   return b.build({ name: 'flower-arch' });
+}
+
+/**
+ * Flowering box hedge for the parade kerb: a clipped, slightly irregular leafy pillow clad in
+ * overlapping leaf cards (not a chain of green balls), crowned with clusters of blooms, on a low
+ * stone kerb.
+ */
+export function buildBloomHedge(rng: Rng, length: number, colors: readonly number[] = [0xf7a8c0, 0xffffff, 0xfde2a0, 0xd4b8f0]): THREE.Group {
+  const b = new MeshBuilder();
+  b.add('stone', boxUV(roundedBox(length + 0.2, 0.18, 0.95, 0.05), 1.2), mat(0, 0.09, 0), { tint: 0xd6cdbd, aoWorld: groundAO(0.2) });
+  const c = new THREE.Vector3(0, 0.62, 0);
+  const rad = new THREE.Vector3(length / 2, 0.46, 0.4);
+  shingleEllipsoid(b, rng, c, rad, { w: 0.24, h: 0.3, cup: 0.4 }, (th) => LEAF_TONES[Math.floor(rng.next() * 3) + (th > 1.4 ? 2 : 0)]!, () => true, Math.PI * 0.62);
+  // Blooms on the top + the front face.
+  const n = Math.round(length * 9);
+  const p = new THREE.Vector3();
+  const nn = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    const th = 0.15 + rng.next() * 1.1;
+    const ph = rng.next() < 0.75 ? 0.2 + rng.next() * (Math.PI - 0.4) : -(0.2 + rng.next() * (Math.PI - 0.4));
+    const st = Math.sin(th);
+    p.set(rad.x * st * Math.cos(ph), rad.y * Math.cos(th), rad.z * st * Math.sin(ph)).add(c);
+    nn.set((st * Math.cos(ph)) / rad.x, Math.cos(th) / rad.y, (st * Math.sin(ph)) / rad.z).normalize();
+    cardBloom(b, rng, p.addScaledVector(nn, 0.06), nn, colors[i % colors.length]!, 1.2 + rng.next() * 0.5);
+  }
+  return b.build({ name: 'bloom-hedge' });
 }
 
 /** Octagonal bandstand: stone plinth, white posts, fretwork rail, domed roof + finial. */

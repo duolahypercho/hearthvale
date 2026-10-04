@@ -168,18 +168,22 @@ export class NightSea {
             vec3 warm = vec3(1.0, 0.55, 0.2);
             float glint = smoothstep(0.55, 0.85, h0 + hvNoise(p * 3.1 + t * 0.4) * 0.35);
             float wakeRings = 0.0;
+            float poolSum = 0.0;
             for (int i = 0; i < ${SEA_POOLS}; i++) {
               vec4 q = uPools[i];
               if (q.w <= 0.0) continue;
               vec2 dq = p - q.xy;
               float dd2 = dot(dq, dq);
               float fall = exp(-dd2 / (q.z * q.z));
-              col += warm * q.w * fall * (0.12 + 0.55 * fres + glint * 0.9) * (0.3 + uLamps * 0.7);
+              poolSum += q.w * fall;
               if (q.z <= 1.7) {
                 float dd = sqrt(dd2);
                 wakeRings += exp(-pow((dd - 0.9 - 0.12 * sin(t * 1.3 + q.x)) / 0.14, 2.0)) * 0.45 + exp(-dd2 * 0.9) * 0.05;
               }
             }
+            // Overlapping pools saturate (a cluster of lanterns must not flood a low grazing view of the
+            // shallows with a beige sheet): broken rippled glints, the water itself stays dark.
+            col += warm * (1.0 - exp(-poolSum * 1.2)) * 0.6 * (0.08 + 0.2 * fres + glint * 0.6) * (0.3 + uLamps * 0.7);
             // Fireworks wash.
             col += uFlash * (0.2 + fres * 0.9) * (0.4 + 0.6 * h0);
             // ── bioluminescent surf (only evaluated in the last 2.6 m of depth: open water skips the
@@ -238,7 +242,9 @@ export class NightSea {
             col += bio * uGlow * smoothstep(0.35, 0.85, uNight) * (1.0 - uFar);
             // Pale foam by day.
             col = mix(col, vec3(0.82, 0.86, 0.86), clamp(crest + wake * 0.5 + edge, 0.0, 1.0) * 0.5 * (1.0 - uNight));
-            float alpha = mix(0.55, 0.97, smoothstep(0.0, 0.9, dSea)) * mix(1.0, smoothstep(0.0, 0.05, depth) * 0.75, sheetZone);
+            // By night the shallows go inky fast (the lamp-lit sand bed must not read through a
+            // metre of water as a beige floor — only the swash sheet stays see-through).
+            float alpha = mix(mix(0.55, 0.8, uNight), 0.97, smoothstep(0.0, mix(0.9, 0.45, uNight), dSea)) * mix(1.0, smoothstep(0.0, 0.05, depth) * 0.75, sheetZone);
             alpha = max(alpha, clamp(bright * 0.6, 0.0, 1.0) * (1.0 - uFar));
             gl_FragColor = vec4(col, alpha);
             #include <fog_fragment>

@@ -228,6 +228,8 @@ export abstract class FestivalMap implements GameMap {
       this.turnToCamera();
       this.separateCrowd();
       this.crowd = new Crowd(this.crowdSpecs, (x, z) => this.terrain.heightAt(x, z), `${this.id}-crowd`);
+      // Anyone the camera crowds up against in a close framing shrinks away (no giant cropped heads).
+      this.crowd.nearCam = this.game.rc.camera.position;
       this.crowdSpecs.forEach((s, i) => {
         if (s.id) this.named.set(s.id, i);
         if (!s.lift) this.terrain.stampCover('ao', s.x, s.z, 0.45, 0.35);
@@ -637,6 +639,8 @@ export abstract class FestivalMap implements GameMap {
       if (this.camRelease > 0 && (this.camRelease -= dt) <= 0) this.camGoal = null;
     }
     this.tick(dt, game);
+    // Close mini-game framings: keep the near-lens fade live while the camera eases in.
+    if (this.play && this.crowd) this.crowd.commit();
   }
 
   // ───────────────────────────────────────────── mini-games

@@ -16,16 +16,16 @@ import { NPCS, NPC_IDS, type NpcLook } from '../../data/npcs';
 import { OUTFIT_PALETTES } from '../../data/festivals';
 import { TileType } from '../tiles';
 import { textures } from '../../render/textures';
-import { buildTownHouse, buildMarketStall, buildFlowerCart, buildPlanter, buildHedge } from '../props/townkit';
+import { buildTownHouse, buildMarketStall, buildFlowerCart, buildPlanter } from '../props/townkit';
 import { buildLanternPost } from '../props/structures';
 import { buildBench } from '../props/farmkit';
 import { buildBunting, FESTIVAL_COLORS } from '../props/festival';
 import { FestivalMap, type PlayState } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
-import { buildFlowerFloat, buildFlowerArch, buildBandstand, buildBlossomPole, buildCherryTrees, buildBanquetTable } from './kit';
+import { buildFlowerFloat, buildFlowerArch, buildBloomHedge, buildBandstand, buildBlossomPole, buildCherryTrees, buildBanquetTable } from './kit';
 import { PetalStorm, GroundScatter, PetalFall, Ribbons } from './fx';
 import { patchMaterial, after, before } from '../../render/patch';
-import { randomLook, shoulderLift, type CrowdSpec } from './crowd';
+import { randomLook, shoulderLift, type CrowdSpec, type HeldProp as HeldPropName } from './crowd';
 import { Rng } from '../../core/rng';
 
 /** Per-frame scratch (no allocations in tick). */
@@ -45,7 +45,7 @@ const RIBBON_COLORS = [0xf06a8a, 0xffd166, 0x7ec8ff, 0xc77dff, 0x8fce6a, 0xfffff
 export class SpringParade extends FestivalMap {
   private curve!: THREE.CatmullRomCurve3;
   private avenueSamples: { x: number; z: number }[] = [];
-  private floats: { group: THREE.Group; s: number; rider?: number; riderLocal?: THREE.Vector3; riderYawOff: number }[] = [];
+  private floats: { group: THREE.Group; s: number; rider?: number; riderLocal?: THREE.Vector3; riderYawOff: number; walkers?: { i: number; ahead: number; side: number }[] }[] = [];
   private dancers: { i: number; dir: 1 | -1; a: number }[] = [];
   private ribbons!: Ribbons;
   private plait!: THREE.Mesh;
@@ -248,7 +248,7 @@ export class SpringParade extends FestivalMap {
       this.blockCircle(x, best.z + 3.1, 0.4);
     }
     // Hedges + planters along the south kerb.
-    for (const x of [12.5, 22.5, 41.5, 51.5]) this.addProp(buildHedge(r, 3.2), x, 25.2, 0, { solidRect: [3.2, 0.8] });
+    for (const x of [12.5, 22.5, 41.5, 51.5]) this.addProp(buildBloomHedge(r, 3.2), x, 25.2, 0, { solidRect: [3.2, 0.8] });
   }
 
   private buildGreen(r: Rng): void {
@@ -490,6 +490,24 @@ export class SpringParade extends FestivalMap {
       const kid = person(randomLook(r, { child: true, palette: P.tops }), k === 2 ? 'cheer' : 'wave', 0, 0, 0, { props: k === 1 ? ['flag'] : k === 3 ? ['balloon'] : [] });
       this.floats[k]!.rider = kid;
     }
+    // The procession: every float is led down the lane by its walkers — flower girls scattering
+    // petals ahead of it, a fiddler + flautist before the Queen, a flag bearer at the tail — so the
+    // parade reads as moving even in a still.
+    const walkerSets: [HeldPropName[], CrowdSpec['anim'], number, number, boolean][][] = [
+      [[['fiddle'], 'fiddle', 2.9, -0.55, false], [['flute'], 'toast', 2.9, 0.55, false], [['bouquet'], 'walk', 4.4, 0, true]],
+      [[['bouquet'], 'walk', 2.7, -0.5, true], [['flag'], 'walk', 2.7, 0.5, true]],
+      [[['balloon'], 'walk', 2.6, 0.45, true], [['bouquet'], 'wave', 2.8, -0.5, false]],
+      [[['flag'], 'walk', 2.7, 0, false], [[], 'cheer', -2.6, 0.5, true]],
+    ];
+    walkerSets.forEach((set, k) => {
+      const f = this.floats[k];
+      if (!f) return;
+      f.walkers = set.map(([props, anim, ahead, side, child]) => ({
+        i: person(randomLook(r, { child, palette: P.tops }), anim, 0, 0, 0, { props, speed: 1.05 }),
+        ahead,
+        side,
+      }));
+    });
     this.crowdSpecs = specs;
   }
 
@@ -515,6 +533,22 @@ export class SpringParade extends FestivalMap {
         m.z = w.z;
         m.y = w.y;
         m.yaw = yaw + f.riderYawOff;
+      }
+      if (crowd && f.walkers) {
+        // Walkers keep pace a few metres ahead (or behind) of their float, side-stepping a touch.
+        const nx = -tan.z;
+        const nz = tan.x;
+        for (const w of f.walkers) {
+          const sway = Math.sin(t * 2.2 + w.i) * 0.08;
+          const wx = p.x + tan.x * w.ahead + nx * (w.side + sway);
+          const wz = p.z + tan.z * w.ahead + nz * (w.side + sway);
+          const m = crowd.members[w.i]!;
+          m.x = wx;
+          m.z = wz;
+          m.y = this.H(wx, wz) + Math.abs(Math.sin(t * 5 + w.i)) * 0.04;
+          // Face along the route, cheated a little toward the crowd / camera (+Z).
+          m.yaw = Math.atan2(tan.x, tan.z) - 0.35;
+        }
       }
     }
   }

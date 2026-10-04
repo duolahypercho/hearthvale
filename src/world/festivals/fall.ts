@@ -16,9 +16,10 @@ import type { Game } from '../../core/game';
 import { smoothstep } from '../../core/noise';
 import type { Rng } from '../../core/rng';
 import { NPCS, NPC_IDS, type NpcLook } from '../../data/npcs';
-import { OUTFIT_PALETTES, produceRivals } from '../../data/festivals';
+import { OUTFIT_PALETTES, produceRivals, entryNickname } from '../../data/festivals';
+import { itemDef } from '../../data/items';
 import { TileType } from '../tiles';
-import { MeshBuilder, bevelCylinder, mat, groundAO } from '../geom';
+import { MeshBuilder, bevelCylinder, roundedBox, mat, groundAO } from '../geom';
 import { textures } from '../../render/textures';
 import { applyWorldFx } from '../../render/worldfx';
 import { buildMarketStall, buildTownHouse } from '../props/townkit';
@@ -221,7 +222,11 @@ export class HarvestFair extends FestivalMap {
       const rv = rivals[k];
       const rad = rv ? 0.66 + THREE.MathUtils.clamp((rv.score - 55) / 40, 0, 1) * 0.44 : rad0;
       this.tableR[k] = k < 3 ? rad : rad0;
-      const tint = rv ? new THREE.Color(rv.tint).getHex() : 0xc8a070;
+      // Pale giants (a white turnip) are held under ~0.78 albedo so the noon sun never blooms them out.
+      const tc = new THREE.Color(rv ? rv.tint : 0xc8a070);
+      const tmax = Math.max(tc.r, tc.g, tc.b);
+      if (tmax > 0.78) tc.multiplyScalar(0.78 / tmax);
+      const tint = tc.getHex();
       const p = buildGiantPumpkin(r, k < 3 ? rad : rad0, tint, true, k < 3 && !rv?.crop);
       this.addProp(p.group, x, z, (x * 7) % 1, { solidR: this.tableR[k]! + 0.5, ao: this.tableR[k]! * 1.6 });
       if (rv?.crop) {
@@ -230,7 +235,8 @@ export class HarvestFair extends FestivalMap {
         geo.computeBoundingBox();
         const bb = geo.boundingBox!;
         const sc = (rad * 1.9) / Math.max(0.05, bb.max.y - bb.min.y);
-        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 }));
+        // Held under white (a pale giant turnip blew out into a glowing blob under the noon sun).
+        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xc4beb4, roughness: 0.7 }));
         m.scale.setScalar(sc);
         m.position.set(x, this.H(x, z) + 0.36 - bb.min.y * sc, z);
         m.rotation.y = 0.5;
@@ -297,11 +303,12 @@ export class HarvestFair extends FestivalMap {
     hW[0]![1] = false;
     const spots: [number, number, number, number, number][] = [];
     const stalk = (x: number, z: number): void => {
-      const jx = x + (r.next() - 0.5) * 0.22;
-      const jz = z + (r.next() - 0.5) * 0.22;
-      spots.push([jx, this.H(jx, jz) - 0.04, jz, r.next() * 6.28, 0.85 + r.next() * 0.3]);
-      this.terrain.stampCover('ao', jx, jz, 0.35, 0.25);
-      this.terrain.stampCover('dry', jx, jz, 0.5, 0.5);
+      // Tight jitter + even heights: the stalks stand as clipped walls, not a random scatter.
+      const jx = x + (r.next() - 0.5) * 0.1;
+      const jz = z + (r.next() - 0.5) * 0.1;
+      spots.push([jx, this.H(jx, jz) - 0.04, jz, r.next() * 6.28, 0.95 + r.next() * 0.12]);
+      // Dark shaded soil under the walls (the trodden straw corridors are stamped pale below).
+      this.terrain.stampCover('ao', jx, jz, 0.45, 0.5);
     };
     const run = (ax: number, az: number, bx: number, bz: number): void => {
       const len = Math.hypot(bx - ax, bz - az);
@@ -315,6 +322,18 @@ export class HarvestFair extends FestivalMap {
     };
     for (let rw = 0; rw <= rows; rw++) for (let c = 0; c < cols; c++) if (hW[rw]![c]) run(x0 + c * cell, z0 + rw * cell, x0 + (c + 1) * cell, z0 + rw * cell);
     for (let rw = 0; rw < rows; rw++) for (let c = 0; c <= cols; c++) if (vW[rw]![c]) run(x0 + c * cell, z0 + rw * cell, x0 + c * cell, z0 + (rw + 1) * cell);
+    // Trodden straw corridors: every cell + every open passage between cells, so the paths read as
+    // pale lanes between the dark corn walls from the diorama camera.
+    for (let rw = 0; rw < rows; rw++) {
+      for (let c = 0; c < cols; c++) {
+        const cx0 = x0 + (c + 0.5) * cell;
+        const cz0 = z0 + (rw + 0.5) * cell;
+        this.terrain.stampCover('dry', cx0, cz0, 0.85, 1);
+        if (rw > 0 && !hW[rw]![c]) this.terrain.stampCover('dry', cx0, z0 + rw * cell, 0.75, 1);
+        if (c > 0 && !vW[rw]![c]) this.terrain.stampCover('dry', x0 + c * cell, cz0, 0.75, 1);
+      }
+    }
+    for (const [c, rw] of [[mid, rows], [1, 0]] as const) this.terrain.stampCover('dry', x0 + (c + 0.5) * cell, z0 + rw * cell, 0.8, 1);
     const corn = buildCornField(r, spots);
     corn.userData.perfTag = 'corn';
     this.root.add(corn);
@@ -767,6 +786,9 @@ export class HarvestFair extends FestivalMap {
     super.stage();
     // Catch the sack race mid-lane, the field strung out between the leader and the stragglers.
     this.raceT0 = this.raceClock - 10.5;
+    // The showcase is judging morning: your entry (a prize pumpkin under its show name) already
+    // stands on the draped stand beside the rivals' giants.
+    if (!this.play && !this.entry?.children.some((c) => c.name === 'entry-crop')) this.showEntry('pumpkin', true);
   }
 
   // ───────────────────────────────────────────── Sack Race + Produce Judging mini-games
@@ -859,10 +881,31 @@ export class HarvestFair extends FestivalMap {
   /** Your entry set on a little draped plinth (a giant, prize-sized version of the crop). */
   private ensureEntryStand(): THREE.Group {
     if (!this.entry) {
+      // A square show stand under a deep-green baize drape: flat top, four skirts falling in soft
+      // folds to a scalloped hem with a gold fringe, a gold-braid band at the table edge — a
+      // judging stand, not a tiered cake.
       const b = new MeshBuilder();
-      b.add('woodGrain', bevelCylinder(0.42, 0.46, 0.5, 0.03, 12), mat(0, 0, 0), { tint: 0x9a6a3a });
-      b.add('cloth', bevelCylinder(0.47, 0.5, 0.2, 0.02, 14), mat(0, 0.34, 0), { tint: 0xd8473a });
-      b.add('cloth', bevelCylinder(0.5, 0.5, 0.04, 0.01, 14), mat(0, 0.52, 0), { tint: 0xe8c878 });
+      const W = 0.92;
+      const H = 0.5;
+      b.add('woodGrain', roundedBox(W - 0.08, H - 0.04, W - 0.08, 0.03), mat(0, (H - 0.04) / 2, 0), { tint: 0x7a5232 });
+      b.add('cloth', roundedBox(W + 0.04, 0.05, W + 0.04, 0.02), mat(0, H, 0), { tint: 0x2f5a3c });
+      for (let side = 0; side < 4; side++) {
+        const rot = (side * Math.PI) / 2;
+        const folds = 7;
+        for (let f = 0; f < folds; f++) {
+          const u = (f + 0.5) / folds - 0.5;
+          const bulge = 0.025 * Math.sin(f * 2.1 + side);
+          const panel = roundedBox(W / folds + 0.03, H - 0.03, 0.03, 0.012, 1);
+          const local = new THREE.Vector3(u * (W + 0.04), (H - 0.03) / 2 + 0.012, (W + 0.04) / 2 + 0.012 + bulge);
+          local.applyAxisAngle(new THREE.Vector3(0, 1, 0), rot);
+          b.add('cloth', panel, mat(local.x, local.y, local.z, -0.03, rot, 0), { tint: f % 2 ? 0x2f5a3c : 0x2a5235 });
+          // Scalloped hem + gold fringe.
+          const hem = new THREE.Vector3(u * (W + 0.04), 0.03, (W + 0.04) / 2 + 0.03 + bulge).applyAxisAngle(new THREE.Vector3(0, 1, 0), rot);
+          b.add('cloth', new THREE.SphereGeometry(0.05, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.3, 0.6, 0.35), mat(hem.x, hem.y, hem.z, Math.PI, rot, 0), { tint: 0xe2b24a });
+        }
+        const band = new THREE.Vector3(0, H - 0.05, (W + 0.04) / 2 + 0.03).applyAxisAngle(new THREE.Vector3(0, 1, 0), rot);
+        b.add('cloth', roundedBox(W + 0.08, 0.045, 0.02, 0.008), mat(band.x, band.y, band.z, 0, rot, 0), { tint: 0xe8c060 });
+      }
       const g = b.build({ name: 'entry-plinth' });
       g.userData.perfTag = 'festival';
       this.entry = g;
@@ -870,25 +913,48 @@ export class HarvestFair extends FestivalMap {
       // On your pallet (its straw top is 0.36 m up).
       g.position.set(this.entryAt.x, this.H(this.entryAt.x, this.entryAt.z) + 0.36, this.entryAt.z);
       // Its name card, staked at the front of the pallet: the empty stand reads as waiting for you.
-      const card = buildEntryCard('Your entry');
-      const cx = this.entryAt.x + 0.1;
-      const cz = this.entryAt.z + this.tableR[3]! * 1.2 + 0.15;
-      card.position.set(cx, this.H(cx, cz), cz);
-      card.userData.perfTag = 'festival';
-      this.root.add(card);
+      this.setEntryCard('Your entry');
     }
     return this.entry;
+  }
+
+  private entryCard: THREE.Group | null = null;
+  /** The name card staked at the front of your pallet ("Your entry" → your entry's show name). */
+  private setEntryCard(text: string): void {
+    if (this.entryCard) {
+      this.entryCard.removeFromParent();
+      this.entryCard.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) {
+          m.geometry.dispose();
+          for (const mm of Array.isArray(m.material) ? m.material : [m.material]) {
+            (mm as THREE.MeshStandardMaterial).map?.dispose();
+            mm.dispose();
+          }
+        }
+      });
+    }
+    const card = buildEntryCard(text, '#2f5a3c');
+    const cx = this.entryAt.x + 0.1;
+    const cz = this.entryAt.z + this.tableR[3]! * 1.2 + 0.15;
+    card.position.set(cx, this.H(cx, cz), cz);
+    card.userData.perfTag = 'festival';
+    this.root.add(card);
+    this.entryCard = card;
   }
 
   private clearEntry(): void {
     this.entry?.children.filter((c) => c.name === 'entry-crop').forEach((c) => c.removeFromParent());
   }
 
-  private showEntry(id: string): void {
+  private showEntry(id: string, quiet = false): void {
     const g = this.ensureEntryStand();
     this.clearEntry();
     const crop = id in CROPS ? produceGeometry(id as CropId) : null;
-    const mesh = new THREE.Mesh(crop ?? new THREE.IcosahedronGeometry(0.16, 1), new THREE.MeshStandardMaterial({ vertexColors: !!crop, color: crop ? 0xffffff : 0x9a9a9a, roughness: 0.55 }));
+    // Pale produce (turnips, cauliflower) is held a step under white so it never blooms out.
+    const mesh = new THREE.Mesh(crop ?? new THREE.IcosahedronGeometry(0.16, 1), new THREE.MeshStandardMaterial({ vertexColors: !!crop, color: crop ? 0xe6e2da : 0x9a9a9a, roughness: 0.62 }));
+    const def = itemDef(id);
+    if (def) this.setEntryCard(entryNickname(id, this.game.calendar.year, def.name).replace(/ \(.*\)$/, ''));
     mesh.name = 'entry-crop';
     // Prize-sized: whatever you enter stands ~1 m tall on the stand, like the rivals' giants.
     crop?.computeBoundingBox();
@@ -901,7 +967,7 @@ export class HarvestFair extends FestivalMap {
     g.add(mesh);
     g.visible = true;
     const p = g.position;
-    for (const c of [0xf2b928, 0xffffff]) this.burst(p.x, p.y + 1.2, p.z, { color: c, count: 14, speed: 1.6, size: 0.1, gravity: 1.2, life: 1.3, up: 1, spread: 0.4 });
+    if (!quiet) for (const c of [0xf2b928, 0xffffff]) this.burst(p.x, p.y + 1.2, p.z, { color: c, count: 14, speed: 1.6, size: 0.1, gravity: 1.2, life: 1.3, up: 1, spread: 0.4 });
   }
 
   private cheerAll(big: boolean): void {

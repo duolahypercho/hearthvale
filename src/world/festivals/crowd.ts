@@ -838,13 +838,33 @@ export class Crowd {
     if (speed !== undefined) m.speed = speed;
   }
 
+  /**
+   * Near-lens fade: members whose head comes within `nearFade[1]` m of `nearCam` shrink away (gone by
+   * `nearFade[0]`), so a close mini-game framing is never filled by a giant cropped head or back.
+   */
+  nearCam: THREE.Vector3 | null = null;
+  nearFade: [number, number] = [3.2, 5.2];
+
   /** Upload member state (runs every frame on animated maps: no allocations). */
   commit(): void {
     const W = this.tex.image.width;
     const d = this.data;
     const ms = this.members;
+    const cam = this.nearCam;
+    const [f0, f1] = this.nearFade;
     for (let i = 0; i < ms.length; i++) {
       const m = ms[i]!;
+      let sc = m.scale;
+      if (cam) {
+        const dx = m.x - cam.x;
+        const dy = m.y + 1.1 - cam.y;
+        const dz = m.z - cam.z;
+        const dd = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dd < f1) {
+          const k = Math.max(0, (dd - f0) / (f1 - f0));
+          sc *= k * k * (3 - 2 * k);
+        }
+      }
       let o = i * 4;
       d[o] = m.x;
       d[o + 1] = m.y;
@@ -854,7 +874,7 @@ export class Crowd {
       d[o] = m.anim;
       d[o + 1] = m.phase;
       d[o + 2] = m.speed;
-      d[o + 3] = m.scale;
+      d[o + 3] = sc;
       o = (2 * W + i) * 4;
       d[o] = m.squash;
       d[o + 1] = m.lean;

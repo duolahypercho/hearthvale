@@ -305,6 +305,15 @@ export function favouredPresentation(year: number): number {
   return (year * 5 + 1) % PRESENTATIONS.length;
 }
 
+/** Show names the farmer gives a prize entry (the rivals are "Big Wendell", "Duchess"…). */
+const ENTRY_NICKNAMES = ['Old Faithful', 'Sunny Jim', 'Lady Marmalade', 'The Contender', 'Little Duke', 'Sweet Clementine', 'Grandma’s Pride', 'Captain Plump'];
+/** "Sunny Jim (pumpkin)" — deterministic per crop + year, so the card, the plinth and co-op agree. */
+export function entryNickname(id: string, year: number, cropName: string): string {
+  let h = year * 31;
+  for (let i = 0; i < id.length; i++) h = (h * 33 + id.charCodeAt(i)) >>> 0;
+  return `${ENTRY_NICKNAMES[h % ENTRY_NICKNAMES.length]!} (${cropName.toLowerCase()})`;
+}
+
 /** Presents villagers might wrap for the player at Starfall (festival keepsakes weighted in). */
 export const STARFALL_GIFTS = ['starfallOpal', 'starfallOpal', 'gingerbreadVillager', 'winterRoseTea', 'ruby', 'aquamarine', 'emberOpal', 'truffle'];
 

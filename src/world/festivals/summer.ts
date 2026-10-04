@@ -11,6 +11,7 @@
  *   south  dune grass, the boardwalk with lantern poles + strung lights, food stalls
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Game } from '../../core/game';
 import { smoothstep } from '../../core/noise';
 import type { Rng } from '../../core/rng';
@@ -36,8 +37,13 @@ const PIER = { x: 41.5, z0: 21.2, len: 17.5, deckY: 0.78, w: 2.4 };
 const ARCH = { x: 31.5, z: 19.6 };
 const FIRE = { x: 21.5, z: 27.2 };
 const LIGHTHOUSE = { x: 4.2, z: 8.6 };
-/** The player's heading during the Lantern Release (out to sea, a touch east). */
-const WISH_YAW = 2.95;
+/**
+ * Facing for the Lantern Release: out over the bay to the north-east, turned ~50° toward the low
+ * side-on camera on the eastern sand, so the face, both arms and the lantern all read.
+ */
+const WISH_YAW = 2.2;
+/** The release camera: low on the sand to the east, looking west along the waterline to the headland. */
+const WISH_CAM = { yaw: 70, pitch: 12, distance: 8.4 };
 
 export class SummerLanterns extends FestivalMap {
   private sea!: NightSea;
@@ -55,7 +61,7 @@ export class SummerLanterns extends FestivalMap {
   private releasers: { i: number; seed: number }[] = [];
   private flashCol = new THREE.Color();
   /** Lantern Release mini-game: the lantern in your hands + the ones you let go. */
-  private wish: { meshes: THREE.Group[]; glow: GlowPoints; held: number; sailing: { k: number; t0: number; x: number; z: number; q: number }[] } | null = null;
+  private wish: { meshes: THREE.Group[]; glow: GlowPoints; held: number; sailing: { k: number; t0: number; x: number; z: number; q: number; reach: number }[] } | null = null;
 
   constructor(game: Game) {
     super(game, {
@@ -492,8 +498,20 @@ export class SummerLanterns extends FestivalMap {
     this.nightSky.update(game.rc.camera, game.rc.scene.fog as THREE.Fog | null);
     const f = this.fireworks.flash(t, this.flashCol);
     const night = game.lighting.night;
-    this.flashLight.color.copy(this.flashCol.r + this.flashCol.g + this.flashCol.b > 0 ? this.flashCol : this.flashLight.color);
-    this.flashLight.intensity = Math.min(f, 2.5) * 16 * night;
+    // During the Lantern Release the same light becomes the paper lantern in your hands: a warm,
+    // short-range glow up onto your face and arms (no extra light in the budget).
+    const held = this.play?.id === 'lanterns' && this.wish && this.wish.held < 5 ? this.wish.meshes[this.wish.held] : undefined;
+    if (held?.visible) {
+      this.flashLight.position.set(held.position.x, held.position.y + 0.32, held.position.z);
+      this.flashLight.color.setHex(0xffa050);
+      this.flashLight.distance = 3.2;
+      this.flashLight.intensity = 3.2 * (0.9 + 0.1 * Math.sin(t * 9.0) * Math.sin(t * 5.3));
+    } else {
+      this.flashLight.position.set(33, 12, -2);
+      this.flashLight.distance = 60;
+      this.flashLight.color.copy(this.flashCol.r + this.flashCol.g + this.flashCol.b > 0 ? this.flashCol : this.flashLight.color);
+      this.flashLight.intensity = Math.min(f, 2.5) * 16 * night;
+    }
     this.sea.flash.value.copy(this.flashCol).multiplyScalar(Math.min(f, 2) * 0.12 * night);
     this.fireworks.intensity.value = 0.25 + night * 0.75;
     // Lighthouse beam sweeps the bay.
@@ -551,28 +569,44 @@ export class SummerLanterns extends FestivalMap {
   // ───────────────────────────────────────────── Lantern Release mini-game
 
   private buildWishLanterns(): NonNullable<SummerLanterns['wish']> {
+    // A floating paper lantern (toro): a square washi box in a dark wooden frame on a little raft
+    // tray, a lotus collar of separate petals at its foot — it must read as a lantern, not a hat.
     const paper = new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xff9a40, emissiveIntensity: 1.15, roughness: 0.8, transparent: true, opacity: 0.96 });
-    const wood = new THREE.MeshStandardMaterial({ color: 0x6a3a1a, roughness: 0.9 });
-    const body = new THREE.CylinderGeometry(0.17, 0.2, 0.3, 10, 1, true);
-    const cap = new THREE.CylinderGeometry(0.06, 0.18, 0.06, 10);
-    const base = new THREE.CylinderGeometry(0.21, 0.19, 0.05, 10);
-    const petals = new THREE.ConeGeometry(0.34, 0.14, 8, 1, true);
-    const petalMat = new THREE.MeshStandardMaterial({ color: 0xf6c8d8, emissive: 0xff7a9a, emissiveIntensity: 0.35, roughness: 0.7, side: THREE.DoubleSide });
+    const wood = new THREE.MeshStandardMaterial({ color: 0x5a3018, roughness: 0.85 });
+    const body = new THREE.BoxGeometry(0.26, 0.3, 0.26);
+    const post = new THREE.BoxGeometry(0.035, 0.34, 0.035);
+    const rim = new THREE.BoxGeometry(0.3, 0.03, 0.3);
+    const roof = new THREE.ConeGeometry(0.22, 0.09, 4, 1);
+    roof.rotateY(Math.PI / 4);
+    const tray = new THREE.BoxGeometry(0.36, 0.05, 0.36);
+    const petal = new THREE.SphereGeometry(0.075, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+    petal.scale(0.7, 0.55, 1.25);
+    const petalMat = new THREE.MeshStandardMaterial({ color: 0xf6c8d8, emissive: 0xff7a9a, emissiveIntensity: 0.3, roughness: 0.7 });
+    // Frame + petals merged once (3 draws a lantern: paper, wood, petals).
+    const at = (g: THREE.BufferGeometry, x: number, y: number, z: number, ry = 0, rx = 0): THREE.BufferGeometry => {
+      const c = g.clone();
+      c.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, ry, 0, 'YXZ')).setPosition(x, y, z));
+      return c;
+    };
+    const woodParts: THREE.BufferGeometry[] = [];
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) woodParts.push(at(post, sx * 0.13, 0.23, sz * 0.13));
+    for (const y of [0.075, 0.39]) woodParts.push(at(rim, 0, y, 0));
+    woodParts.push(at(roof, 0, 0.45, 0), at(tray, 0, 0.035, 0));
+    const woodGeo = mergeGeometries(woodParts.map((g) => g.toNonIndexed()))!;
+    const petalParts: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      petalParts.push(at(petal, Math.sin(a) * 0.2, 0.05, Math.cos(a) * 0.2, a, -0.5));
+    }
+    const petalGeo = mergeGeometries(petalParts.map((g) => g.toNonIndexed()))!;
     const meshes: THREE.Group[] = [];
     for (let k = 0; k < 6; k++) {
       const g = new THREE.Group();
       // Own paper per lantern: it takes the colour of its release (gold radiant … dim sputter).
       const b = new THREE.Mesh(body, paper.clone());
       b.name = 'paper';
-      b.position.y = 0.2;
-      const c = new THREE.Mesh(cap, wood);
-      c.position.y = 0.38;
-      const bs = new THREE.Mesh(base, wood);
-      bs.position.y = 0.04;
-      const lotus = new THREE.Mesh(petals, petalMat);
-      lotus.rotation.x = Math.PI;
-      lotus.position.y = 0.08;
-      g.add(b, c, bs, lotus);
+      b.position.y = 0.23;
+      g.add(b, new THREE.Mesh(woodGeo, wood), new THREE.Mesh(petalGeo, petalMat));
       g.visible = false;
       g.userData.perfTag = 'lanterns';
       this.root.add(g);
@@ -598,14 +632,17 @@ export class SummerLanterns extends FestivalMap {
       const pm = (m.getObjectByName('paper') as THREE.Mesh | undefined)?.material as THREE.MeshStandardMaterial | undefined;
       pm?.color.setHex(0xffc070);
       pm?.emissive.setHex(0xff9a40);
-      if (pm) pm.emissiveIntensity = 1.15;
+      if (pm) pm.emissiveIntensity = 0.9;
     });
-    this.placePlayer(ARCH.x, ARCH.z + 1.1, 'up');
-    // A low reverse three-quarter from out over the shallows, through the Wish Arch: the player's
-    // face, raised arms and the lantern read, the lantern-lit crowd on the beach behind, and the
-    // released lantern sails out past the lens.
-    this.frame({ pitch: 8, distance: 7.2, yaw: -158, ox: 0.75, oz: -2.2 });
-    this.clearSightline(ARCH.x + 0.75, ARCH.z - 1.1, -158, 7.2 * Math.cos(THREE.MathUtils.degToRad(8)));
+    // Down through the Wish Arch to the water's edge (the gap in the waterline releasers), so every
+    // lantern you let go settles straight onto the tide.
+    const wz = this.shoreZ(ARCH.x) + 0.7;
+    this.placePlayer(ARCH.x, wz, 'up');
+    // A low three-quarter from the eastern sand, looking west along the waterline: you on the left
+    // third (face, arms and the lantern cradled out in front), the dark bay on the right running out
+    // to the headland + lighthouse under the fireworks sky, every lantern you let go gliding out on it.
+    this.frame({ pitch: WISH_CAM.pitch, distance: WISH_CAM.distance, yaw: WISH_CAM.yaw, ox: -0.5, oz: -1.9 });
+    this.clearSightline(ARCH.x - 0.5, wz - 1.9, WISH_CAM.yaw, WISH_CAM.distance * Math.cos(THREE.MathUtils.degToRad(WISH_CAM.pitch)), 1.6);
   }
 
   protected override onPlayEvent(play: PlayState, kind: string, value: number): void {
@@ -619,7 +656,9 @@ export class SummerLanterns extends FestivalMap {
     }
     if (kind === 'release') {
       const k = w.held;
-      w.sailing.push({ k, t0: this.game.time, x: p.x, z: p.z, q: value });
+      // Glides from your hands down onto the water (at least 2.2 m out, always past the waterline).
+      const reach = Math.max(2.2, p.z - 0.4 - this.shoreZ(p.x) + 0.9);
+      w.sailing.push({ k, t0: this.game.time, x: p.x, z: p.z, q: value, reach });
       w.held = Math.min(5, k + 1);
       // Colour-coded by accuracy: radiant = white-gold, aloft = warm amber, wobbly = rose, sputter = dull.
       const paperM = (w.meshes[k]?.getObjectByName('paper') as THREE.Mesh | undefined)?.material as THREE.MeshStandardMaterial | undefined;
@@ -653,9 +692,10 @@ export class SummerLanterns extends FestivalMap {
     const v = play.progress[0] ?? 0;
     // Cradle the lantern at the chest, then lift it up over your head.
     // Both hands up by the left shoulder, then overhead with the lantern.
-    const up = -1.9 - v * 0.95;
-    rig.armL.rotation.set(up, 0, 0.55 - v * 0.35);
-    rig.armR.rotation.set(up + 0.25, 0, 0.35 - v * 0.2);
+    // Cradled out in front at the chest, offered up toward the sea as the swell builds.
+    const up = -1.2 - v * 0.45;
+    rig.armL.rotation.set(up, 0, 0.32 - v * 0.15);
+    rig.armR.rotation.set(up, 0, -0.32 + v * 0.15);
     rig.torso.rotation.set(-0.06 - v * 0.08, 0, 0);
     // Eyes on the lantern, but the chin stays down enough that the hat brim clears the face.
     rig.head.rotation.set(-0.08 - v * 0.12, 0, 0);
@@ -674,13 +714,16 @@ export class SummerLanterns extends FestivalMap {
       if (holding && k === w.held && !s) {
         const v = play.progress[0] ?? 0;
         m.visible = true;
-        // Held up beside the head (shoulder height, off to the left so it never hides the face), then
-        // lifted high overhead toward the release.
-        const fd = 0.2;
-        const side = 0.44 * (1 - v * 0.7);
-        m.position.set(p.x + Math.sin(WISH_YAW) * fd + Math.cos(WISH_YAW) * side, p.y + 1.28 + v * 1.1, p.z + Math.cos(WISH_YAW) * fd - Math.sin(WISH_YAW) * side);
+        // Cradled in both hands out in front of the chest (below the face, clear of the hat brim),
+        // then swung up past the shoulder (never across the face) to high overhead for the release.
+        // It stays cradled at the chest (the face always reads), lifting a hand's breadth and
+        // pushing out toward the water as the swell builds; its glow brightens with the lift.
+        const fd = 0.46 + v * 0.18;
+        m.scale.setScalar(1.15);
+        m.position.set(p.x + Math.sin(WISH_YAW) * fd, p.y + 0.7 + v * 0.34, p.z + Math.cos(WISH_YAW) * fd);
         m.rotation.set(0, 0, Math.sin(game.time * 3) * 0.05);
-        w.glow.set(k, m.position.x, m.position.y + 0.2, m.position.z, 0.75 + v * 0.3);
+        // A soft warm halo (not a bloom blow-out that swallows the hands and face).
+        w.glow.set(k, m.position.x, m.position.y + 0.22, m.position.z, 0.42 + v * 0.22);
         return;
       }
       if (!s) {
@@ -691,7 +734,8 @@ export class SummerLanterns extends FestivalMap {
       // Sailing: arc down to the water, then drift out on the tide.
       const a = game.time - s.t0;
       const u = Math.min(1, a / 1.6);
-      const out = a < 1.6 ? u * 2.2 : 2.2 + (a - 1.6) * (0.35 + s.q * 0.12);
+      m.scale.setScalar(1.25);
+      const out = a < 1.6 ? u * s.reach : s.reach + (a - 1.6) * (0.35 + s.q * 0.12);
       const x = s.x + Math.sin(a * 0.3 + k) * 0.8 * Math.min(1, out / 6) + (k - 2) * 0.45 * u;
       const z = s.z - 0.4 - out;
       const hy = s.z - out < this.shoreZ(x) ? 0.02 + Math.sin(game.time * 1.4 + k) * 0.03 : this.H(x, z) + 0.02;

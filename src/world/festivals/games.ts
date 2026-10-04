@@ -18,7 +18,7 @@ import type { Game } from '../../core/game';
 import { NPCS, type NpcId, type Mood } from '../../data/npcs';
 import { itemDef } from '../../data/items';
 import { CROPS } from '../../data/crops';
-import { WISHES, produceRivals, PRESENTATIONS, favouredPresentation, STARFALL_GIFTS, PRIZES, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
+import { WISHES, produceRivals, PRESENTATIONS, favouredPresentation, entryNickname, STARFALL_GIFTS, PRIZES, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
 import { portraitSvg } from '../../ui/portraits';
 import { itemIcon } from '../../ui/icons';
 import type { FestivalMap, PlayState } from './base';
@@ -239,6 +239,10 @@ const CSS = /* css */ `
 .fg-draw .rl { font-weight: 800; color: var(--ink-soft); font-size: 14px; }
 .fg-draw .line { margin-top: 10px; font-size: 18px; font-weight: 700; color: #4a2c14; line-height: 24px; }
 .fg-draw.spin .pp { animation: fgShake 160ms linear infinite; }
+/* Gift Exchange cards sit to the side so the 3D moment (the recipient's reaction, the unwrap in your hands) stays in view. */
+.fg-draw.side { left: auto; right: 56px; top: 50%; transform: translateY(-50%); width: 320px; }
+.fg-draw.side .pp { width: 150px; height: 150px; }
+.fg-draw.side .line { font-size: 16px; line-height: 21px; }
 .fg-box { width: 180px; height: 180px; margin: 6px auto 8px; position: relative; cursor: pointer; }
 .fg-box svg { width: 100%; height: 100%; overflow: visible; }
 .fg-box.shake { animation: fgShake 520ms ease-in-out infinite; }
@@ -1248,6 +1252,7 @@ export class FestivalOverlay {
       const k = await this.pick(env, 'Choose your entry', `Judged on value, quality and presentation. Entries under ${MIN_ENTRY_VALUE}g rarely place — this year's favourite, ${topBy.name.split(' (')[0]}, scores ${top}.`, list.map((c) => `${itemIcon(c.id)}<div class="nm">${c.name}</div><div class="meta">${stars(c.q)}</div>`), 0);
       if (k === null) return null;
       mine = { ...list[k]! };
+      mine.name = entryNickname(mine.id, this.game.calendar.year, mine.name);
       // Presentation: the judges favour one touch each year (the hint is the tell).
       const fav = favouredPresentation(this.game.calendar.year);
       const pk = await this.pick(env, 'Present it', PRESENTATIONS[fav]!.hint, [...PRESENTATIONS.map((p) => `<div class="ic">${PRESENT_SVG[p.id]}</div><div class="nm">${p.name}</div>`), `<div class="ic">${PRESENT_SVG.plain}</div><div class="nm">Just as it is</div>`], fav);
@@ -1332,7 +1337,7 @@ export class FestivalOverlay {
     const ids = Object.keys(NPCS) as NpcId[];
     const target = (env.play.partner as NpcId) ?? ids[Math.floor(Math.random() * ids.length)]!;
     // 1) Draw a name.
-    const draw = div('fg-panel fg-draw spin fg-live', `<div class="in"><div class="rl">You drew…</div><div class="pp"></div><div class="nm">?</div><div class="rl">&nbsp;</div></div>`);
+    const draw = div('fg-panel fg-draw side spin fg-live', `<div class="in"><div class="rl">You drew…</div><div class="pp"></div><div class="nm">?</div><div class="rl">&nbsp;</div></div>`);
     root.append(draw);
     const pp = draw.querySelector('.pp') as HTMLElement;
     const nm = draw.querySelector('.nm') as HTMLElement;
@@ -1394,7 +1399,7 @@ export class FestivalOverlay {
     }
     const mood: Mood = reaction === 'love' ? 'laugh' : reaction === 'like' ? 'happy' : reaction === 'dislike' ? 'worried' : 'happy';
     const line = giftId ? stripTags(tn.giftLines[reaction]) : 'A hand-drawn card! With a little star on it. I’ll keep this forever.';
-    const react = div('fg-panel fg-draw fg-live', `<div class="in"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, mood)}</div><div class="nm">${shortName(tn.name)}</div><div class="line">“${line}”</div></div>`);
+    const react = div('fg-panel fg-draw side fg-live', `<div class="in"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, mood)}</div><div class="nm">${shortName(tn.name)}</div><div class="line">“${line}”</div></div>`);
     root.append(react);
     this.sfx(`gift:${reaction}`, 1);
     env.map.playEvent('given', reaction === 'love' ? 3 : reaction === 'like' ? 2 : 1);
@@ -1414,8 +1419,7 @@ export class FestivalOverlay {
     env.map.playEvent('unwrap');
     this.sfx('catch:perfect', 0.9);
     if (!(await this.wait(1300))) return null;
-    const box = div('fg-panel fg-draw fg-live', `<div class="in"><div class="rl">From ${shortName(NPCS[giver].name)}, with love</div><div class="fg-box"><div class="rays"></div><div class="gift">${itemIcon(got)}</div></div><div class="nm">${itemDef(got)?.name ?? got}</div></div>`);
-    box.style.top = '34%';
+    const box = div('fg-panel fg-draw side fg-live', `<div class="in"><div class="rl">From ${shortName(NPCS[giver].name)}, with love</div><div class="fg-box"><div class="rays"></div><div class="gift">${itemIcon(got)}</div></div><div class="nm">${itemDef(got)?.name ?? got}</div></div>`);
     root.append(box);
     this.confetti(root, env.festival.colors, 40);
     if (!env.auto) inv?.add(got, 1);
