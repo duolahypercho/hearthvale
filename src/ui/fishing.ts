@@ -50,6 +50,9 @@ export interface CatchCard {
   leveled?: boolean;
   /** Perfect-catch streak. */
   streak?: number;
+  /** Time-of-day light on the scene (CSS colour + 0..1 strength): the illustration takes the same
+   *  golden-hour cast as the 3D fish held up beside it, so they read as one fish. */
+  grade?: { color: string; k: number };
 }
 
 export interface ReelGear {
@@ -385,17 +388,25 @@ export class FishingOverlay {
     // Treasure chest.
     if (v.treasure && !v.treasure.got) {
       const cy = toY(v.treasure.pos);
-      const cx = tx + tw * 0.5;
-      drawChest(g, cx, cy, 1 + Math.sin(this.t * 6) * 0.04);
+      // When the fish swims over the chest, the chest steps aside, shrinks and drops behind it as a
+      // dashed ghost (the two icons never sit on top of each other).
+      const near = Math.max(0, Math.min(1, (44 - Math.abs(toY(v.fish) - cy)) / 24));
+      const cx = tx + tw * 0.5 + near * tw * 0.22;
+      g.save();
+      g.globalAlpha = 1 - near * 0.5;
+      drawChest(g, cx, cy, (1 + Math.sin(this.t * 6) * 0.04) * (1 - near * 0.25));
       g.lineWidth = 3;
       g.strokeStyle = 'rgba(0,0,0,0.35)';
+      if (near > 0.05) g.setLineDash([4, 4]);
       g.beginPath();
       g.arc(cx, cy, 17, 0, Math.PI * 2);
       g.stroke();
+      g.setLineDash([]);
       g.strokeStyle = '#ffd84a';
       g.beginPath();
       g.arc(cx, cy, 17, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * v.treasure.prog);
       g.stroke();
+      g.restore();
     }
     // Fish sprite.
     const fy = toY(v.fish);
@@ -502,7 +513,7 @@ export class FishingOverlay {
     const q = c.quality > 0 ? `<span class="chip q${c.quality}">${STAR(c.quality)}${['', 'Silver', 'Gold', 'Iridium'][c.quality]}</span>` : '';
     card.innerHTML = `<div class="frame">
       ${c.isNew ? '<div class="ribbon">NEW!</div>' : ''}${c.isRecord && !c.isNew ? '<div class="ribbon record">RECORD!</div>' : ''}
-      <div class="art">${fishSvg(c.def, { size: 160, detail: true, tilt: -6 })}</div>
+      <div class="art">${fishSvg(c.def, { size: 160, detail: true, tilt: -6 })}${c.grade && c.grade.k > 0.02 ? `<i class="grade" style="background:${c.grade.color};opacity:${c.grade.k.toFixed(2)}"></i>` : ''}</div>
       <div class="info">
         <div class="kicker">You caught</div>
         <div class="name">${c.def.name}</div>

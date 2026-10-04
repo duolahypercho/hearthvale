@@ -91,7 +91,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Driftsand Beach + fishing (world/beach, systems/fishing). Fishing demos take URL params:
   // &fish=<fishId> (species on the line / in hand), &phase=cast|flight|wait|bite|reel|catch (override the phase).
   'beach-sunset': { map: 'beach', x: 48.9, z: 49.6, facing: 'left', time: 19.3, season: 'summer', weather: 'sun', camera: BEACH_SUNSET_CAM, showcase: ['beach', 'fishing-wait'] },
-  'beach-day': { map: 'beach', x: 51, z: 37.5, facing: 'down', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: -14, pitch: 44, distance: 37, offsetX: 7, offsetZ: 5.5 }, showcase: ['beach'] },
+  'beach-day': { map: 'beach', x: 57.2, z: 35.2, facing: 'down', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 44, distance: 31, offsetX: 8.6, offsetZ: 2.4 }, showcase: ['beach'] },
   'beach-night': { map: 'beach', x: 50, z: 38.5, facing: 'down', time: 22.4, season: 'summer', weather: 'sun', camera: BEACH_NIGHT_CAM, showcase: ['beach'] },
   'fishing-cast': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-cast'] },
   'fishing-wait': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-wait'] },

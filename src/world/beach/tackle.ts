@@ -95,6 +95,7 @@ export class FishingGear {
   private rodLine: THREE.Mesh;
   private rodTier = -1;
   private foam: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; size: number }[] = [];
+  private crowns: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; size: number }[] = [];
   private grip: THREE.Group;
   private reelHandle: THREE.Mesh;
   private line: THREE.Mesh;
@@ -126,6 +127,8 @@ export class FishingGear {
   ease = 0;
   lineVisible = false;
   waterY = 0;
+  /** Taut-line hum: sideways vibration amplitude (m) of the line's middle (0 = still). */
+  vibrate = 0;
 
   constructor() {
     this.group.name = 'fishing-gear';
@@ -322,9 +325,14 @@ export class FishingGear {
             vec2 q = vUv - 0.5;
             float r = length(q) * 2.0;
             float breakup = n(q * 9.0 + uSeed) * 0.6 + n(q * 21.0 - uSeed) * 0.4;
-            float disc = smoothstep(1.0, 0.55, r + breakup * 0.35) * smoothstep(uAge * 0.9 - 0.2, uAge * 0.9 + 0.1, breakup + (1.0 - r) * 0.2);
-            float a = disc * (1.0 - uAge) * 0.95;
-            vec3 c = vec3(0.97, 0.99, 1.0) * (0.75 + uSun * 0.25) + uSky * 0.08;
+            // A ring of broken lace pushed out by the crown (hollow middle: the water there is churned
+            // clear), fizzing apart as it ages; a tiny bright core only for the first couple of frames.
+            float rr = 0.35 + uAge * 0.45;
+            float ring = smoothstep(0.32, 0.0, abs(r - rr + (breakup - 0.5) * 0.25));
+            float lace = smoothstep(0.42 + uAge * 0.4, 0.62 + uAge * 0.3, breakup);
+            float core = smoothstep(0.45, 0.0, r) * smoothstep(0.1, 0.0, uAge);
+            float a = (ring * lace * 0.62 + ring * 0.12 + core * 0.85) * (1.0 - uAge) * smoothstep(1.0, 0.85, r);
+            vec3 c = vec3(0.97, 0.99, 1.0) * (0.72 + uSun * 0.25) + uSky * 0.1;
             gl_FragColor = vec4(c, a);
           }`,
       });
@@ -332,6 +340,38 @@ export class FishingGear {
       m.visible = false;
       m.renderOrder = 4;
       this.foam.push({ mesh: m, mat, age: 1, size: 1 });
+      this.group.add(m);
+    }
+
+    // Crown sheets (splash): an open, flaring cylinder of thin water, ragged at the rim, translucent.
+    const crownGeo = new THREE.CylinderGeometry(1, 0.55, 1, 20, 1, true).translate(0, 0.5, 0);
+    for (let i = 0; i < 3; i++) {
+      const mat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        uniforms: { uAge: { value: 1 }, uSeed: { value: 0 }, uSky: globalUniforms.uSkyColor, uSun: globalUniforms.uSunColor },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: /* glsl */ `
+          varying vec2 vUv; uniform float uAge; uniform float uSeed; uniform vec3 uSky; uniform vec3 uSun;
+          float h(float x){ return fract(sin(x * 127.1 + uSeed) * 43758.5453); }
+          float n(float x){ float i = floor(x); float f = fract(x); f = f*f*(3.0-2.0*f); return mix(h(i), h(i + 1.0), f); }
+          void main(){
+            // Ragged rim: spikes where the sheet tears into droplets.
+            // (Broad tears, a soft body: a few big spikes read as a crown, many thin ones as a coil.)
+            float rim = 0.5 + 0.5 * (n(vUv.x * 9.0) * 0.75 + n(vUv.x * 19.0) * 0.25);
+            float body = smoothstep(rim, rim - 0.3, vUv.y);
+            float thin = smoothstep(0.0, 0.5, vUv.y) * 0.7 + 0.15;
+            float a = body * thin * pow(1.0 - uAge, 1.6) * (0.6 + 0.4 * n(vUv.x * 6.0 + 3.0));
+            vec3 c = mix(uSky, vec3(1.0), 0.7) * (0.8 + uSun * 0.2);
+            gl_FragColor = vec4(c, a * 0.42);
+          }`,
+      });
+      const m = new THREE.Mesh(crownGeo, mat);
+      m.visible = false;
+      m.renderOrder = 5;
+      m.frustumCulled = false;
+      this.crowns.push({ mesh: m, mat, age: 1, size: 1 });
       this.group.add(m);
     }
 
@@ -590,6 +630,17 @@ export class FishingGear {
         if (rp[i]!.y < lo) rp[i]!.y = lo;
       }
     }
+    // A taut line hums: a fast standing-wave quiver across its span (hidden in the slack case).
+    if (this.vibrate > 0) {
+      const ph = performance.now() * 0.001;
+      _d.subVectors(rp[n - 1]!, rp[0]!).normalize();
+      _e.crossVectors(_d, _up).normalize();
+      for (let i = 1; i < n - 1; i++) {
+        const k = i / (n - 1);
+        const amp = this.vibrate * Math.sin(k * Math.PI) * (Math.sin(ph * 71 + k * 3) * 0.7 + Math.sin(ph * 113 - k * 7) * 0.3);
+        rp[i]!.addScaledVector(_e, amp).y += amp * 0.6;
+      }
+    }
     // Ribbon facing the camera: thin (≈ 1.5-2 px at 1080p), warm grey, never bright enough to bloom.
     const pos = this.lineGeo.attributes.position as THREE.BufferAttribute;
     const camPos = camera.position;
@@ -616,18 +667,44 @@ export class FishingGear {
     r.mesh.visible = true;
   }
 
+  /**
+   * A splash: a crown of droplets thrown up and out on a ring (gravity brings them back down), a short-
+   * lived translucent crown sheet, a thin spout of spray on a big one, then a ring of broken foam and
+   * expanding ripples. Nothing opaque sits on the water for more than a couple of frames.
+   */
   splash(p: THREE.Vector3, big = false): void {
     const at = _e.set(p.x, this.waterY + 0.02, p.z);
-    this.fx.emit(at, { color: 0xeaf6fa, count: big ? 30 : 14, speed: big ? 2.3 : 1.3, size: big ? 0.11 : 0.07, gravity: 9, life: big ? 0.9 : 0.6, up: big ? 1.9 : 1.4, spread: big ? 0.35 : 0.15 });
-    this.fx.emit(at, { color: 0x9fd8e8, count: big ? 16 : 6, speed: big ? 1.6 : 0.9, size: big ? 0.08 : 0.05, gravity: 8, life: 0.7, up: 1.2, spread: 0.3 });
+    const n = big ? 22 : 12;
+    const r0 = big ? 0.13 : 0.08;
+    const ph = Math.random() * 6.28;
+    for (let i = 0; i < n; i++) {
+      const a = ph + (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      _d.set(at.x + dx * r0, at.y + 0.03, at.z + dz * r0);
+      this.fx.emitDir(_d, dx * 0.55, dz * 0.55, { color: i % 3 ? 0xe8f6fb : 0xffffff, count: 1, speed: (big ? 2.1 : 1.45) * (0.8 + Math.random() * 0.45), size: big ? 0.05 : 0.038, gravity: 9.8, life: big ? 0.62 : 0.48 });
+    }
+    // A finer mist of droplets inside the crown.
+    this.fx.emit(at, { color: 0xd8eef6, count: big ? 10 : 5, speed: big ? 1.3 : 0.8, size: 0.03, gravity: 9.8, life: 0.45, up: 1.5, spread: r0 });
     if (big) {
-      // Droplet crown (outward ring) + a tall spray column straight up.
-      this.fx.emit(at, { color: 0xffffff, count: 18, speed: 1.9, size: 0.1, gravity: 9.5, life: 0.75, up: 0.9, spread: 0.45 });
-      this.fx.emit(at, { color: 0xf4fbff, count: 16, speed: 1.0, size: 0.13, gravity: 7, life: 0.9, up: 2.6, spread: 0.12 });
-      this.foamDisc(p, 1.5);
-    } else this.foamDisc(p, 0.7);
+      // The spout: a few heavier drops straight up from the middle (the fish's tail kick).
+      this.fx.emit(at, { color: 0xf4fbff, count: 7, speed: 1.15, size: 0.06, gravity: 9.8, life: 0.75, up: 2.3, spread: 0.05 });
+    }
+    this.crown(p, big ? 1 : 0.62);
+    this.foamDisc(p, big ? 1.25 : 0.6);
     this.ripple(p, big ? 2.4 : 1.2, big ? 1.6 : 1.2);
     if (big) this.ripple(p, 1.3, 1.0);
+  }
+
+  /** The splash's crown sheet: a thin translucent lip that rises, flares out and collapses in ~0.35 s. */
+  private crown(p: THREE.Vector3, size: number): void {
+    const c = this.crowns.reduce((best, x) => (x.age > best.age ? x : best), this.crowns[0]!);
+    c.age = 0;
+    c.size = size;
+    c.mesh.position.set(p.x, this.waterY, p.z);
+    c.mesh.rotation.y = Math.random() * 6.28;
+    c.mat.uniforms.uSeed!.value = Math.random() * 40;
+    c.mesh.visible = true;
   }
 
   /** A patch of white foam on the water that breaks up and fades (splash aftermath). */
@@ -681,6 +758,21 @@ export class FishingGear {
     this.gloryMat.opacity = alpha;
   }
 
+  /**
+   * Turn the held fish squarely to the camera: flank facing the eye, head screen-left, back up (a true
+   * billboard, so the steep play camera never sees it edge-on as a sliver), plus a `roll` wiggle.
+   */
+  faceHeld(camera: THREE.Camera, roll: number): void {
+    camera.updateMatrixWorld();
+    const X = _a.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const Z = _b.copy(camera.position).sub(this.heldRoot.position).normalize();
+    const Y = _c.crossVectors(Z, X).normalize();
+    X.crossVectors(Y, Z).normalize();
+    _m.makeBasis(X, Y, Z);
+    this.heldRoot.quaternion.setFromRotationMatrix(_m);
+    this.heldRoot.rotateZ(roll);
+  }
+
   /** Show a fish held above the head (null to hide). */
   hold(def: FishDef | null, lengthCm = 40): void {
     if (this.held) this.heldRoot.remove(this.held.mesh.group);
@@ -718,6 +810,20 @@ export class FishingGear {
       const s = f.size * (0.7 + Math.sqrt(f.age) * 0.6);
       f.mesh.scale.set(s, 1, s);
       f.mat.uniforms.uAge!.value = f.age;
+    }
+    for (const c of this.crowns) {
+      if (!c.mesh.visible) continue;
+      c.age += dt / 0.36;
+      if (c.age >= 1) {
+        c.mesh.visible = false;
+        continue;
+      }
+      // Rises fast, flares out, then slumps back into the water.
+      const k = c.age;
+      const r = c.size * (0.1 + 0.26 * Math.sqrt(k));
+      const ht = c.size * 0.42 * Math.sin(Math.min(1, k * 1.25) * Math.PI) + 0.01;
+      c.mesh.scale.set(r, ht, r);
+      c.mat.uniforms.uAge!.value = k;
     }
     this.fx.update(dt, h);
     // Faint pulse (never a bloom spike: 0.2–0.4, up to ~1 on a bite flash).

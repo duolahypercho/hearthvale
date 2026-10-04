@@ -201,7 +201,9 @@ export class BeachShape {
   /** 0 on the grassy bluff / headland tops .. 1 on sand. */
   sandMask(x: number, z: number, h: number): number {
     const bluff = smoothstep(11.5, 14.5, z + this.n.fbm(x * 0.1, z * 0.1, 2) * 2.5);
-    const head = smoothstep(-0.05, 0.25, this.eastHead(x, z)) + smoothstep(2.2, 1.5, h) * 0.0;
+    // (A wide, ragged fringe where the sward thins out into sand — tongues of sand creeping up between
+    // grass tussocks — not a hard saturated edge.)
+    const head = smoothstep(-0.16, 0.3, this.eastHead(x, z) + this.n.fbm(x * 0.55, z * 0.55, 2) * 0.16);
     return Math.min(bluff, Math.max(head, smoothstep(2.4, 1.6, h)));
   }
 }

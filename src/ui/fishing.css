@@ -340,6 +340,13 @@
   filter: drop-shadow(0 5px 3px rgba(0, 30, 50, 0.35));
   animation: hvf-swim 1.6s ease-in-out infinite alternate;
 }
+/* Golden-hour cast over the illustration (multiply, like the scene light on the 3D fish). */
+.hvf-card .art .grade {
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
 .hvf-card .info {
   flex: 1;
   min-width: 0;

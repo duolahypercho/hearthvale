@@ -44,7 +44,7 @@ import {
   LIGHTHOUSE_PATH,
   BeachShape,
 } from './layout';
-import { addBeachRock, beachRockMaterial } from './rocks';
+import { addBeachRock, beachRockMaterial, beachRockGeometry } from './rocks';
 import { buildShelf, buildAlgaeTufts, buildShelfCrust, shelfTopAt } from './shelf';
 import { SeaProps, LampPools } from './sea';
 import { createOcean, createHorizonClouds, setOceanPilings, setOceanLamps, createPoolWater } from './ocean';
@@ -412,7 +412,8 @@ export class BeachMap implements GameMap {
 
     // Pier.
     const pier = buildPier(r.fork('pier'), hAt);
-    setOceanPilings(this.ocean, pier.pilings);
+    // Foam collars: the pier's legs + every boulder standing in the surf (added with the rocks below).
+    const collars = pier.pilings.slice();
     setOceanLamps(this.ocean, pier.lamps);
     this.root.add(pier.static);
     this.staticRoots.push(pier.static);
@@ -536,7 +537,11 @@ export class BeachMap implements GameMap {
     // Rocks (smooth, sea-worn; wet band + barnacles below the tide line): the west shelf rim, the
     // headland toe, a few awash in the surf.
     const rr = r.fork('rocks');
-    const rock = (x: number, z: number, rad: number, squash: number, sink = 0.12): void => addBeachRock(b, rr, x, hAt(x, z) - rad * sink, z, rad, { squash });
+    const rock = (x: number, z: number, rad: number, squash: number, sink = 0.12): void => {
+      addBeachRock(b, rr, x, hAt(x, z) - rad * sink, z, rad, { squash });
+      // Awash: the sea wraps it in a foam collar (footprint ≈ its waterline girth).
+      if (hAt(x, z) < SEA_LEVEL + 0.2) collars.push({ x, z, r: rad * 0.8 });
+    };
     for (let i = 0; i < 26; i++) {
       const a = (i / 26) * Math.PI * 2 + rr.next() * 0.2;
       const x = 8 + Math.cos(a) * 11 * (0.95 + rr.next() * 0.15);
@@ -553,6 +558,36 @@ export class BeachMap implements GameMap {
       const rad = 0.8 + rr.next() * 1.3;
       rock(x, z, rad, 0.6 + rr.next() * 0.35, 0.2);
       this.block(x, z, rad * 0.8, 'rock');
+    }
+    // Headland flank strata: the bare slope below the sward is stepped into stacked sandstone ledges
+    // (long flat slabs laid along three contours, each tier its own bed colour), so the cliff has
+    // real vertical relief — layered rock with lit lips and shadowed risers, not a painted decal.
+    {
+      const sr = r.fork('strata');
+      const TIERS: [number, number][] = [[0.8, 0xd6c3a8], [1.6, 0xf0d4a6], [2.4, 0xcdbfae], [3.1, 0xead0a6]];
+      for (const [hy, tint] of TIERS) {
+        for (let a = Math.PI * 0.52; a < Math.PI * 1.62; a += 0.11 + sr.next() * 0.05) {
+          const dx = Math.cos(a);
+          const dz = Math.sin(a);
+          // March out from the knoll's centre to where the slope drops through this tier's height.
+          let k = 0.3;
+          while (k < 1.6 && hAt(77 + dx * 9 * k, 42 + dz * 11 * k) > hy) k += 0.02;
+          if (k >= 1.6 || k <= 0.32) continue;
+          const x = 77 + dx * 9 * k + (sr.next() - 0.5) * 0.3;
+          const z = 42 + dz * 11 * k + (sr.next() - 0.5) * 0.3;
+          if (this.pathDist(x, z) < 1.7 || hAt(x, z) < SEA_LEVEL + 0.15) continue;
+          if (sr.next() < 0.18) continue; // gaps: the ledges break, they're not a fence
+          // Tangent to the contour (the slab's long axis), sunk into the slope behind it.
+          const tx = -9 * dz;
+          const tz = 11 * dx;
+          // Level beds (no random tilt: bedding planes are flat), chunky, sunk deep into the slope.
+          const rad = 0.75 + sr.next() * 0.35;
+          const geo = beachRockGeometry(sr, rad, { squash: 0.5 + sr.next() * 0.1, elong: 1.7 + sr.next() * 0.4, facet: 0.85, lumpy: 0.18 });
+          const yaw = Math.atan2(-tz, tx) + (sr.next() - 0.5) * 0.2;
+          const mtx = new THREE.Matrix4().compose(new THREE.Vector3(x, hy - rad * 0.42, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
+          b.add(beachRockMaterial(), geo, mtx, { tint: new THREE.Color(tint).multiplyScalar(0.95 + sr.next() * 0.1) });
+        }
+      }
     }
     // Shelf clutter: a few loose boulders + cobbles on the shelf (never inside a pool), for relief.
     for (let i = 0; i < 26; i++) {
@@ -627,6 +662,7 @@ export class BeachMap implements GameMap {
       this.block(x, z, rad * 0.7, 'rock');
     }
     void beachRockMaterial;
+    setOceanPilings(this.ocean, collars);
     const small = b.build({ name: 'beach-bits' });
     this.root.add(small);
     this.staticRoots.push(small);
@@ -837,7 +873,7 @@ export class BeachMap implements GameMap {
     this.ambience.update(dt, t, focus, night, h);
     this.fx.update(dt, h);
     const hr0 = game.calendar.hour;
-    this.life.update(dt, t, game.player.position, h, game.rc.camera, hr0);
+    this.life.update(dt, t, game.player.position, h, game.rc.camera, hr0, game.services.fishing?.busyAnglers() ?? []);
     this.sea.update(dt, t);
     this.sea.setNight(night);
     this.smoke.update(dt, night, h);

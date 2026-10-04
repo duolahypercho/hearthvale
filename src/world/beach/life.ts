@@ -178,6 +178,9 @@ function crabGeo(): THREE.BufferGeometry {
   return merge(parts);
 }
 
+/** Gulls keep this far (m) from a busy angler's head and their line of sight to the camera. */
+const KEEP_R = 2.6;
+
 interface Gull {
   perch: THREE.Vector3 | null;
   cx: number;
@@ -320,7 +323,7 @@ export class BeachLife {
    * 12 % of the view height fades out instead of photobombing the shot. `hour`: gulls roost after
    * 20:00 (gone till dawn) and all but two crabs stay in their burrows at night.
    */
-  update(dt: number, t: number, player: THREE.Vector3, viewportH: number, cam?: THREE.PerspectiveCamera, hour = 12): void {
+  update(dt: number, t: number, player: THREE.Vector3, viewportH: number, cam?: THREE.PerspectiveCamera, hour = 12, keepOut: readonly THREE.Vector3[] = []): void {
     const night = hour >= 20 || hour < 5.5;
     const tanHalf = cam ? Math.tan(THREE.MathUtils.degToRad(cam.fov * 0.5)) : 1;
     // Gulls.
@@ -358,6 +361,26 @@ export class BeachLife {
         if (g.lookT <= 0) {
           g.look = (this.rng.next() - 0.5) * 1.6;
           g.lookT = 1 + this.rng.next() * 3;
+        }
+      }
+      // Keep clear of any farmer fighting / showing off a fish: never within KEEP_R of the farmer's
+      // head-and-held-fish column, nor of the line of sight from it up to the camera (a gull wheeling
+      // through the hero's face ruins the catch). Pushed sideways, smoothly, perched birds included.
+      if (keepOut.length && flying) {
+        for (const f of keepOut) {
+          const a = this.v2.set(f.x, f.y + 1.6, f.z);
+          const ab = cam ? this.v3.copy(cam.position).sub(a) : this.v3.set(0, 1, 0);
+          const len = ab.length();
+          ab.divideScalar(len || 1);
+          const tq = THREE.MathUtils.clamp(this.v1.copy(g.pos).sub(a).dot(ab), -1.5, cam ? len : 2);
+          const closest = a.addScaledVector(ab, tq);
+          const off = this.v1.copy(g.pos).sub(closest);
+          const d = off.length();
+          if (d < KEEP_R) {
+            if (d < 1e-3) off.set(1, 0, 0);
+            else off.divideScalar(d);
+            g.pos.addScaledVector(off, (KEEP_R - d) * Math.min(1, dt * 10));
+          }
         }
       }
       // Flap/glide cycle.

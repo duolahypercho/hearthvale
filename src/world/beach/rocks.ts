@@ -115,9 +115,12 @@ export function beachRockGeometry(rng: Rng, radius: number, o: BeachRockOpts = {
     const hollow = THREE.MathUtils.clamp(0.82 + disp[i]! * 0.9, 0.6, 1.08);
     const edge = THREE.MathUtils.clamp(curv[i]! * 9, -0.45, 0.3);
     const k = (0.55 + 0.45 * base) * hollow * (1 + edge);
-    col[i * 3] = k;
-    col[i * 3 + 1] = k;
-    col[i * 3 + 2] = k;
+    // Wind-blown sand dusting the foot and settled in the low hollows (warm, a touch lighter), so the
+    // stone sits *in* the beach rather than on it.
+    const dust = (1 - THREE.MathUtils.smoothstep(y, 0.04, 0.3)) * 0.55 + THREE.MathUtils.clamp(-disp[i]! * 0.8, 0, 0.25);
+    col[i * 3] = k * (1 + dust * 0.32);
+    col[i * 3 + 1] = k * (1 + dust * 0.16);
+    col[i * 3 + 2] = k * (1 - dust * 0.08);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.count * 2), 2));
@@ -257,6 +260,25 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
         float band = smoothstep(edge - 0.32, edge - 0.08, y) * (1.0 - smoothstep(edge + 0.02, edge + 0.22, y));
         float barn = smoothstep(0.22, 0.12, bd) * step(brHash(bc + 7.7), 0.45) * band * (1.0 - moss * 0.7);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.72, 0.69, 0.62), barn * 0.75);
+        #ifndef BR_SHELF
+        {
+          // Crustose lichen on the dry, sunlit stone: pale grey-white rosettes and a few sulphur /
+          // orange crusts (well above the spray line), plus dark weathering streaks down the sides.
+          float dryK = smoothstep(edge + 0.25, edge + 0.6, y) * smoothstep(0.2, 0.7, N.y);
+          // (Sparse, ragged, clustered where a broad noise allows: never an even polka-dot field.)
+          vec2 lq = (vBRW.xz + vBRW.y * 0.5) * 2.6;
+          vec2 lc = floor(lq);
+          float lh = brHash(lc + 2.9);
+          float lr = mix(0.14, 0.34, brHash(lc + 6.1));
+          float ld = length((fract(lq) - 0.5 - (vec2(brHash(lc + 0.7), brHash(lc + 5.3)) - 0.5) * 0.5) * vec2(1.0, 1.4));
+          float zone = smoothstep(0.5, 0.72, brNoise(vBRW.xz * 0.6 + 13.0));
+          float spot = smoothstep(lr, lr * 0.55, ld + (n2 - 0.5) * 0.22) * step(lh, 0.3) * dryK * (1.0 - moss) * zone;
+          vec3 lichen = lh < 0.08 ? vec3(0.78, 0.56, 0.24) : lh < 0.15 ? vec3(0.7, 0.68, 0.38) : vec3(0.62, 0.62, 0.56);
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.4 + lichen * 0.6 * (0.85 + 0.2 * n1), spot * 0.55);
+          float streak = smoothstep(0.55, 0.85, brNoise(vec2((vBRW.x + vBRW.z) * 3.0, vBRW.y * 0.4))) * (1.0 - smoothstep(0.3, 0.7, N.y));
+          diffuseColor.rgb *= 1.0 - streak * 0.22 * (1.0 - wet);
+        }
+        #endif
         // Sea-dark and saturated when wet; sun-bleached on the dry tops.
         diffuseColor.rgb *= mix(1.0, 0.5, wet);
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.14, 1.1, 1.02), smoothstep(0.7, 0.95, N.y) * (1.0 - wet) * (1.0 - moss));
@@ -350,11 +372,26 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
   return m;
 }
 
+const ROCK_HUES = [
+  new THREE.Color(1.12, 1.0, 0.84),
+  new THREE.Color(1.08, 0.98, 0.86),
+  new THREE.Color(0.86, 0.93, 1.06),
+  new THREE.Color(0.92, 0.96, 1.02),
+  new THREE.Color(0.66, 0.66, 0.7),
+  new THREE.Color(1.16, 0.92, 0.78),
+  new THREE.Color(1.0, 1.0, 1.0),
+];
+
 /** A boulder in world coords (base centre at x,y,z), rotated about Y. */
 export function addBeachRock(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, radius: number, o: BeachRockOpts = {}, rotY = rng.next() * Math.PI * 2): void {
   const g = beachRockGeometry(rng, radius, o);
   // A little random tilt (rocks never all sit level).
   const e = new THREE.Euler((rng.next() - 0.5) * 0.4, rotY, (rng.next() - 0.5) * 0.4, 'YXZ');
   const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(e), new THREE.Vector3(1, 1, 1));
-  b.add(beachRockMaterial(), g, m, { tint: new THREE.Color(o.tint ?? 0xffffff).multiplyScalar(0.9 + rng.next() * 0.2) });
+  // Each stone its own mineral: warm ochre sandstone, cool blue-grey granite, a dark basalt now and
+  // then, a rusty iron-stained one (a field of boulders never reads as one flat grey).
+  // (One draw from the stream, as before: every later stone keeps its seeded place.)
+  const v = rng.next();
+  const hue = o.tint !== undefined ? new THREE.Color(o.tint) : ROCK_HUES[Math.floor(((v * 7.31) % 1) * ROCK_HUES.length)]!.clone();
+  b.add(beachRockMaterial(), g, m, { tint: hue.multiplyScalar(0.88 + v * 0.24) });
 }
