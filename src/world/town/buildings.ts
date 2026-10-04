@@ -440,6 +440,31 @@ export function buildStoneBridge(rng: Rng, br: { len: number; width: number; ris
   for (const sx of [-1, 1]) {
     b.add('soilPot', bevelCylinder(0.16, 0.12, 0.2, 0.02, 10), mat(sx * (L / 2 - 0.1), br.endY + 1.02, 0), { tint: 0xc8704a });
   }
+  // Planter boxes along the coping (geraniums + trailing ivy over the outer face) and moss in the
+  // joints: the deck and parapets read as a lived-in town bridge, not a plain cobble ramp.
+  const petals = [0xe8574a, 0xff8fab, 0xfff2f6, 0xffd166];
+  for (const s of [-1, 1])
+    for (const fx of [-0.27, 0.27]) {
+      const x = fx * L + (s > 0 ? 0.35 : -0.2);
+      const y = deckY(br, x) + 0.6;
+      const ang = Math.atan2(deckY(br, x + 0.4) - deckY(br, x - 0.4), 0.8);
+      const z = s * (W / 2 - 0.1);
+      b.add('woodPaint', roundedBox(0.95, 0.2, 0.26, 0.03), mat(x, y + 0.1, z, 0, 0, ang), { tint: 0x5f8f86 });
+      for (let i = 0; i < 6; i++) {
+        const px = x - 0.36 + i * 0.145;
+        const py = deckY(br, px) + 0.86 + (rng.next() - 0.5) * 0.04;
+        b.add('boxFlower', lumpySphere(0.1, 1, 0.25, rng), mat(px, py, z + (rng.next() - 0.5) * 0.06), { tint: 0x4f9a3a });
+        b.add('white', new THREE.SphereGeometry(0.05, 6, 5), mat(px + 0.02, py + 0.08, z + s * 0.04), { tint: petals[(i + (s > 0 ? 1 : 0)) % petals.length]! });
+      }
+      for (let i = 0; i < 7; i++) b.add('boxFlower', new THREE.IcosahedronGeometry(0.06, 0), mat(x - 0.4 + i * 0.13, y - 0.12 - rng.next() * 0.35, z + s * 0.2), { tint: i % 2 ? 0x3f7a2e : 0x4f8a34 });
+    }
+  for (let i = 0; i < 12; i++) {
+    const x = (rng.next() - 0.5) * (L - 1.2);
+    const s = rng.next() < 0.5 ? -1 : 1;
+    const m = lumpySphere(0.07 + rng.next() * 0.05, 0, 0.35, rng);
+    m.scale(1.6, 0.35, 1);
+    b.add('boxFlower', m, mat(x, deckY(br, x) + 0.6, s * (W / 2 - 0.1 + (rng.next() - 0.5) * 0.2)), { tint: rng.next() < 0.5 ? 0x5a7a34 : 0x7a8a44 });
+  }
   const g = b.build({ name: 'stone-bridge' });
   return g;
 }

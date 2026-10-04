@@ -896,7 +896,8 @@ export class NpcSystem implements System {
         const a = this.agents.get(id)!;
         this.setInside(a, false, true);
         a.v.setPosition(x, map.heightAt(x, z), z);
-        a.v.setYaw((deg * Math.PI) / 180);
+        // (a mark may turn three-quarter away, never show the back of a head: within ±75° of the lens)
+        a.v.setYaw(act === 'sit' || act === 'paint' ? (deg * Math.PI) / 180 : this.toLens(x, z, (deg * Math.PI) / 180, 75));
         this.setActivity(a, act);
         a.anchor = { x, z };
         a.stepKey = '';
@@ -1071,6 +1072,25 @@ export class NpcSystem implements System {
     const cx = Math.sin(cy);
     const cz = Math.cos(cy);
     let kept = 0;
+    const map0 = this.game.world.current!;
+    const baseCam = this.game.rc.camera.clone();
+    {
+      const ec = ev.camera;
+      const p = THREE.MathUtils.degToRad(ec.pitch ?? 40);
+      const dist = ec.distance ?? 14;
+      const tgt = new THREE.Vector3(ec.x, map0.heightAt(ec.x, ec.z) + 0.8, ec.z);
+      baseCam.position.set(tgt.x + Math.sin(cy) * Math.cos(p) * dist, tgt.y + Math.sin(p) * dist, tgt.z + Math.cos(cy) * Math.cos(p) * dist);
+      baseCam.lookAt(tgt);
+      baseCam.updateMatrixWorld(true);
+    }
+    /** Whole figure inside the establishing frame (no head cut by the top edge, nothing at the very sides). */
+    const inFrame = (x: number, z: number): boolean => {
+      const gy = map0.heightAt(x, z);
+      const head = _q.set(x, gy + 2.0, z).project(baseCam);
+      const feet = _q2.set(x, gy, z).project(baseCam);
+      // (the event's close and two-shots crop this establishing frame: keep to its middle)
+      return !(Math.abs(head.x) > 0.6 || head.y > 0.5 || feet.y < -0.3 || head.z > 1);
+    };
     const cast = [...this.agents.values()].filter((a) => a.scripted).map((a) => a.v.position);
     const pc = ev.cast.player ? this.place(ev.cast.player[0]) : null;
     if (pc) cast.push(new THREE.Vector3(pc.x, 0, pc.z));
@@ -1082,7 +1102,7 @@ export class NpcSystem implements System {
       if (d >= 13) continue;
       const front = dx * cx + dz * cz;
       const crowd = cast.some((c) => Math.hypot(c.x - a.v.position.x, c.z - a.v.position.z) < 3.2);
-      if (front > -2.5 || crowd || kept >= 4 || d < 3) this.setInside(a, true, true);
+      if (front > -2.5 || crowd || kept >= 4 || d < 3 || !inFrame(a.v.position.x, a.v.position.z)) this.setInside(a, true, true);
       else {
         kept++;
         a.staged = true;
@@ -1092,7 +1112,7 @@ export class NpcSystem implements System {
     // Too quiet a backdrop: bring a pair (and a passer-by) out to the far side of the scene — chatting,
     // three-quarter to the lens, well clear of the actors and of the lens's sight lines.
     if (kept < 3) {
-      const map = this.game.world.current!;
+      const map = map0;
       // (from indoors, or from across town — off screen either way)
       const free = [...this.agents.values()].filter((a) => !a.scripted && !a.staged && !ev.cast[a.def.id] && (a.inside || Math.hypot(a.v.position.x - ev.camera.x, a.v.position.z - ev.camera.z) > 16));
       const spots: { x: number; z: number }[] = [];
@@ -1104,6 +1124,7 @@ export class NpcSystem implements System {
           if (!map.grid.isWalkable(Math.floor(c.x), Math.floor(c.z)) || !map.grid.isWalkable(Math.floor(c.x + 1.1), Math.floor(c.z))) continue;
           if (cast.some((q) => Math.hypot(q.x - c.x, q.z - c.z) < 4) || spots.some((q) => Math.hypot(q.x - c.x, q.z - c.z) < 3)) continue;
           if (BENCHES.some((b) => Math.hypot(b.x - c.x, b.z - c.z) < 1.3)) continue;
+          if (!inFrame(c.x, c.z)) continue;
           spots.push(c);
         }
       let n = 0;
@@ -2274,11 +2295,15 @@ export class NpcSystem implements System {
    * villagers show a face or a clear three-quarter, never the back of a hat (r3: chibi heads read as
    * hat discs from the 36° town lens).
    */
-  private toLens(x: number, z: number, yaw: number): number {
-    const cam = this.game.rc.camera.position;
+  private toLens(x: number, z: number, yaw: number, limDeg = 70): number {
+    // (where the rig puts the lens — right after a demo sets it the camera itself hasn't moved yet)
+    const r = this.game.rc.rig;
+    const rp = THREE.MathUtils.degToRad(r.pitch);
+    const ry = THREE.MathUtils.degToRad(r.yaw);
+    const cam = _cp.set(r.target.x + r.lookOffset.x + Math.sin(ry) * Math.cos(rp) * r.distance, 0, r.target.z + r.lookOffset.z + Math.cos(ry) * Math.cos(rp) * r.distance);
     const toC = Math.atan2(cam.x - x, cam.z - z);
     const d = Math.atan2(Math.sin(yaw - toC), Math.cos(yaw - toC));
-    const lim = THREE.MathUtils.degToRad(70);
+    const lim = THREE.MathUtils.degToRad(limDeg);
     return toC + THREE.MathUtils.clamp(d, -lim, lim);
   }
 
@@ -2505,6 +2530,12 @@ export class NpcSystem implements System {
     for (const a of this.agents.values()) {
       const v = a.v;
       v.lensYaw = Math.atan2(camP.x - v.position.x, camP.z - v.position.z);
+      // Staged talkers / idlers keep at least a profile to the lens (the demo's lens may land after the marks).
+      if (a.staged && !a.scripted && (a.activity === 'chat' || a.activity === 'idle') && !v.isMoving) {
+        const ty = (v as unknown as { targetYaw: number }).targetYaw;
+        const want = this.toLens(v.position.x, v.position.z, ty, 75);
+        if (Math.abs(want - ty) > 0.01) v.faceYaw(want);
+      }
       // Door fades.
       if (a.vis !== a.visTarget) {
         a.vis += Math.sign(a.visTarget - a.vis) * Math.min(Math.abs(a.visTarget - a.vis), dt * 2.5);
