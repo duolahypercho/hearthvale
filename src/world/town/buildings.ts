@@ -957,3 +957,96 @@ export function buildWildflowers(rng: Rng, colors: number[] = [0xff8fab, 0xfffff
   }
   return b.build({ name: 'wildflowers' });
 }
+
+/** The roof numbers buildTownHouse uses (plinth 0.35 m, rise ≥ 1.4 m or 42 % of the depth, 0.45 m overhang). */
+function roofOf(d: number, wallH: number): { top: number; rise: number; tanS: number; ridgeY: number; slope: number } {
+  const top = 0.35 + wallH;
+  const rise = Math.max(1.4, d * 0.42);
+  const tanS = rise / (d / 2);
+  return { top, rise, tanS, ridgeY: top + rise, slope: Math.atan(tanS) };
+}
+
+/**
+ * Breaks up a town house's big roof planes (r3 critic: "huge flat unbroken planes"): a segmented
+ * capping ridge, dormers on the front slope, moss and lichen clumps, and a scatter of odd-toned
+ * slipped tiles. Local space of the house (ground centre, +Z front); merged with the town's statics.
+ */
+export function buildRoofDressing(rng: Rng, s: { w: number; d: number; wallH: number; wallTint: number; roofTint: number; roof?: 'roofTile' | 'thatch' }, dormers: number[] = []): THREE.Group {
+  const b = new MeshBuilder();
+  const { top, rise, tanS, ridgeY, slope } = roofOf(s.d, s.wallH);
+  const W = s.w + 0.9;
+  const tile = s.roof !== 'thatch';
+  const dark = new THREE.Color(s.roofTint).multiplyScalar(0.7).getHex();
+  if (tile) {
+    const cap = new THREE.CylinderGeometry(0.11, 0.11, W + 0.1, 10);
+    cap.rotateZ(Math.PI / 2);
+    b.add('roofTile', cap, mat(0, ridgeY + 0.1, 0), { tint: dark });
+    for (let x = -W / 2 + 0.25; x < W / 2 - 0.1; x += 0.46) {
+      const ring = new THREE.CylinderGeometry(0.128, 0.128, 0.07, 10);
+      ring.rotateZ(Math.PI / 2);
+      b.add('roofTile', ring, mat(x, ridgeY + 0.1, 0), { tint: new THREE.Color(dark).multiplyScalar(0.88).getHex() });
+    }
+  } else {
+    // Thatch: a fat rolled ridge with hazel spars.
+    const roll = new THREE.CylinderGeometry(0.2, 0.2, W + 0.2, 10);
+    roll.rotateZ(Math.PI / 2);
+    b.add('thatch', roll, mat(0, ridgeY + 0.12, 0), { tint: new THREE.Color(s.roofTint).multiplyScalar(0.86).getHex() });
+    for (let x = -W / 2 + 0.3; x < W / 2; x += 0.5) for (const sz of [-1, 1]) b.add('woodDark', roundedBox(0.04, 0.04, 0.42, 0.01), mat(x, ridgeY - 0.02, sz * 0.24, sz * 0.6, 0, 0), { tint: 0x8a6a3a });
+  }
+  for (const x of dormers) dormer(b, rng, x, s.d, s.wallH, s.wallTint, s.roofTint);
+  // Moss and lichen on the front slope (thicker towards the eaves and the shaded ends).
+  const roofY = (z: number): number => top + rise - tanS * z + (tile ? 0.12 : 0.22);
+  // (small, dark and clustered low on the slope / at the ends — not pale discs strewn over the tiles)
+  for (let c = 0; c < 4; c++) {
+    const cx0 = (c % 2 ? 1 : -1) * (W / 2 - 0.5 - rng.next() * 1.4);
+    const cz0 = s.d / 2 - 0.1 - rng.next() * 0.6;
+    if (dormers.some((dx) => Math.abs(dx - cx0) < 1.1)) continue;
+    for (let i = 0; i < 5; i++) {
+      const x = cx0 + (rng.next() - 0.5) * 0.9;
+      const z = Math.min(s.d / 2 + 0.3, cz0 + (rng.next() - 0.5) * 0.6);
+      const r = 0.07 + rng.next() * 0.09;
+      const clump = lumpySphere(r, 1, 0.35, rng, 2.2);
+      clump.scale(1.3, 0.2, 1);
+      b.add('white', clump, mat(x, roofY(z) - 0.02, z, slope, rng.next() * 3, 0), { tint: [0x4f6a2a, 0x5f7a30, 0x6a7a3a, 0x7a8a44][(i + c) % 4]! });
+    }
+  }
+  if (tile)
+    for (let i = 0; i < 14; i++) {
+      const x = (rng.next() - 0.5) * (W - 0.4);
+      const z = 0.4 + rng.next() * (s.d / 2);
+      const k = 0.8 + rng.next() * 0.35;
+      b.add('roofTile', roundedBox(0.34, 0.05, 0.3, 0.015), mat(x, roofY(z) - 0.035, z, slope, (rng.next() - 0.5) * 0.25, 0), { tint: new THREE.Color(s.roofTint).multiplyScalar(k).getHex() });
+    }
+  return b.build({ name: 'roof-dressing' });
+}
+
+/**
+ * Winter on a house's front eave: a rounded lip of drifted snow along the gutter and a row of
+ * icicles (r3 critic: snow roofs read as flat white slabs). Local space of the house; the town
+ * merges every house's eaves into one winter-only mesh.
+ */
+export function eaveWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: number; wallH: number }, M: THREE.Matrix4): void {
+  const { top, rise, tanS } = roofOf(s.d, s.wallH);
+  const W = s.w + 0.9;
+  const ze = s.d / 2 + 0.43;
+  const ye = top + rise - tanS * ze + 0.06;
+  const add = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: number): void => {
+    b.add('white', geo, M.clone().multiply(m), { tint });
+  };
+  const lip = new THREE.CapsuleGeometry(0.1, W - 0.2, 4, 10);
+  lip.rotateZ(Math.PI / 2);
+  lip.scale(1, 1.15, 1.25);
+  add(lip, mat(0, ye + 0.06, ze - 0.04), 0xf2f6fb);
+  for (let i = 0; i < 6; i++) {
+    const bump = lumpySphere(0.14 + rng.next() * 0.08, 1, 0.2, rng, 1.6);
+    bump.scale(1.6, 0.55, 1);
+    add(bump, mat(-W / 2 + 0.4 + rng.next() * (W - 0.8), ye + 0.1, ze - 0.12), 0xf4f7fb);
+  }
+  for (let x = -W / 2 + 0.2; x < W / 2 - 0.1; x += 0.16 + rng.next() * 0.22) {
+    if (rng.next() < 0.25) continue;
+    const len = 0.12 + Math.pow(rng.next(), 1.6) * 0.42;
+    const ic = new THREE.ConeGeometry(0.025 + rng.next() * 0.02, len, 6);
+    ic.rotateX(Math.PI);
+    add(ic, mat(x, ye - 0.02 - len / 2, ze + 0.02), 0xdcefff);
+  }
+}

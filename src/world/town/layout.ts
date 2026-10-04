@@ -211,7 +211,7 @@ export const EXTRA_PROPS: ExtraProp[] = [
   // Meadow Lane: the schoolyard (swing, bench, chalk board), lamps along the lane.
   { kind: 'swing', x: 20.6, z: 46.2, rot: -0.25 },
   { kind: 'bench', x: 10.2, z: 49.4, rot: Math.PI / 2 - 0.2, solid: [[10, 49]] },
-  { kind: 'chalkBoard', x: 17.6, z: 50.0, rot: 0.25, colors: [0x2f4a3e] },
+  { kind: 'chalkBoard', x: 17.6, z: 50.0, rot: 0.25, colors: [0x56786a] },
   { kind: 'flowerPot', x: 13.4, z: 49.3, colors: [0xff8fab] },
   { kind: 'flowerPot', x: 17.0, z: 49.3, colors: [0xffd166] },
   { kind: 'lampLit', x: 24.8, z: 48.2, rot: -Math.PI / 2, solid: [[24, 48]] },
@@ -260,7 +260,7 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'flowerPot', x: 57.2, z: 20.5, colors: [0xc77dff] },
   { kind: 'sacks', x: 49.1, z: 29.9, rot: 0.2 },
   { kind: 'produce', x: 55.9, z: 29.9, rot: 0.3 },
-  { kind: 'sandwichBoard', x: 51.8, z: 23.9, rot: -0.4, colors: [0x2f4a3e] },
+  { kind: 'sandwichBoard', x: 51.8, z: 23.9, rot: -0.4, colors: [0x56786a] },
   // Copper Kettle terrace + clinic lane.
   { kind: 'flowerPot', x: 78.4, z: 32.6, colors: [0xff8fab] },
   { kind: 'flowerPot', x: 81.6, z: 32.6, colors: [0xffd166] },
@@ -276,7 +276,7 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'cafeSet', x: 40.2, z: 34.6, rot: 0.3, solid: [[40, 34]] },
   { kind: 'planter', x: 43.2, z: 35.8, colors: [0xffffff, 0xc77dff, 0xff8fab], solid: [[43, 35]] },
   { kind: 'flowerPot', x: 38.9, z: 36.1, colors: [0xff7aa2] },
-  { kind: 'sandwichBoard', x: 35.4, z: 36.6, rot: -0.3, colors: [0x2f4a3e] },
+  { kind: 'sandwichBoard', x: 35.4, z: 36.6, rot: -0.3, colors: [0x56786a] },
   // Meadow Lane allotment (south lawn): fenced raised beds, a wheelbarrow, hives and pots, so the
   // south view has a lived-in foreground instead of bare lawn under tree blobs.
   { kind: 'vegBed', x: 27.4, z: 54.6, rot: 0, solid: [[26, 54], [27, 54], [28, 54]] },

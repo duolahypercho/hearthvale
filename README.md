@@ -356,8 +356,11 @@ forge, The Copper Kettle inn, the Birch house + lumber yard, the lamplighter's c
 south (Willowmere Clinic, the schoolhouse with its bell cupola, the Pennywhistle cottage's kitchen garden, an
 orchard). Street life: everyday festoon lights (`world/town/festoons.ts`: strings over the plaza, a zig-zag over the
 market row, the inn terrace; on from dusk, coloured holiday bulbs in winter), songbirds, the town cat asleep on the
-west plaza bench; winter adds shovelled cobble lanes with snow banks along their edges, drifts against every building
-and snowmen (`world/town/winter.ts`).
+west plaza bench; winter adds shovelled cobble lanes with snow banks along their edges, drifts against every building,
+snowmen, snow lips and icicles along the house eaves and winter goods on the produce stands (burlap lids, firewood,
+preserves, wool), and the fountain freezes over (`world/town/winter.ts`). The Hall's door wreath is dressed per season
+(blossoms in spring, daisies and sunflowers in summer, russet leaves in fall; bare holly in winter). House roofs carry
+segmented ridge caps, dormers, chimneys, moss and slipped tiles (`buildings.ts buildRoofDressing`).
 Layout data lives in `world/town/layout.ts` (buildings, streets, props, trees, festoons, snowmen, named `SPOTS`).
 Static props are merged per 12 m cell and fed to one `BatchPool`: one multi-draw per material, per-cell culling.
 Meadow Lane breaks the shared house template (`buildings.ts` silhouette kit: `dormer`, `porchRoof`, `roseTrellis`):
@@ -367,8 +370,10 @@ Tree canopies whose centre projects into the bottom ~22 % of the frame are hidde
 (`npcs.lensCull`, outside conversations and events), so foreground blobs never fill the lower third of the view.
 Schedule spots resolve to sub-slots 1.2 m apart (chibi heads never touch) and idle villagers keep 0.9 m apart.
 
-Ten villagers (`src/data/npcs.ts`): look (height, build, face, 11 hair styles, hats, outfits, accessories), walk
-style, schedule + rainy schedule over named spots (A* on the tile grid, `world/town/pathfind.ts`; seven of them work the
+Ten villagers (`src/data/npcs.ts`): look (height, build, face, 11 hair styles, hats incl. earmuffs, outfits,
+accessories) with a seasonal `wardrobe` (winter coats, scarves, knit hats, mittens, long sleeves — no sunhat in the snow;
+`seasonLook()`; a changed look rebuilds the villager's mesh in place), winter bark pools and winter schedules (fewer
+idlers: the inn, the forge, indoors), walk style, schedule + rainy schedule over named spots (A* on the tile grid, `world/town/pathfind.ts`; seven of them work the
 square between 9 and 12), activities (sweep, read, paint, water, knead, hammer, saw, fish, sit, play, chat…), gift
 tastes, birthday, dialogue groups (first meeting, birthday, season, weather, hours, hearts; `[mood]` tags swap the
 portrait) and two heart events each (scripted mini cutscenes: walks, emotes, choices with friendship deltas, extra
@@ -376,7 +381,11 @@ actors such as Pip the shop cat).
 - **Models** (`entities/villager.ts`, one skinned mesh each, frustum-culled): chibi heads (1.2×) tilted chin-up so
   faces read from the diorama camera, glossy eyes, an ink-edge + rim shader instead of an outline pass, 13 gesture
   clips (hand to chest, shrug, laugh, look down, point, wave, think, wring, surprise, stamp, nod, open arms, hug)
-  that follow each line's mood, squash and stretch, emotes as AO-safe billboards.
+  that follow each line's mood, squash and stretch, emotes as AO-safe billboards. Face moods: squinting cheek-lift
+  smile (happy) vs a small calm mouth (neutral), ^^ laugh, a 35° knitted V with a crease (angry), tented brows + tear
+  (sad), freckles. Idle facing, look-arounds and arrival yaws favour the lens (±70°); hat brims tip back. Seated actors
+  keep the bench's yaw and turn only their head (`headLook`). Night talks / events lift faces with an albedo-relative
+  lens-side fill (`VILLAGER_FILL`: deep skin tones keep their colour and read).
 - **Camera director** (`systems/npcs.ts`): heart events cut between wide, two-shot and close-up; the angle is
   scored so the speaker is three-quarter to the lens, the listener or a bystander isn't in front of their face and no
   building cuts a sight line (swing ±15–45°, raise, pull in), trees in the way are hidden (sphere-cached), and the
@@ -384,17 +393,30 @@ actors such as Pip the shop cat).
   on a roof) gets a reverse three-quarter lens in front of them instead of their back; villagers who turn to another actor
   (or to the farmer in a chat) cheat ~25° open towards the lens; unlit festoon cords come down for daytime events.
   `npcs.auditEvents(id?)` checks every talky beat of
-  all 20 events. Conversations lean in the same way through the look offset (no cinematic, so co-op farmers stay
-  visible). Friendship is per player (co-op farmhands keep their own), villagers run from the shared calendar.
+  all 20 events (incl. actors standing inside a bench / prop), `npcs.auditFaces(id?)` renders every night beat and reads
+  back the speaker's face (sRGB luma ≥ 42; the dark-crushed r3 frame measured ≈ 20), `npcs.auditTalk(hour?)` solves the live talk lens for every villager at their
+  spot (fountain / bystander-in-front clutter is scored for both talks and events). Conversations lean in the same way
+  through the look offset (no cinematic, so co-op farmers stay visible). Heart events keep up to four villagers behind
+  the scene (or bring a chatting pair out) so the town lives on in the background.
+- **Co-op** (pillar 13): the host streams villagers (`v.s`), a farmhand's talk locks the host's villager onto them
+  (`v.t`); friendship stays per player but is host-authoritative (`relationships.ts`: farmhand intents `r.talk` /
+  `r.gift` / `r.ch`, the host's ledger answers `r.set`); every gift's reaction is broadcast (`v.g`: the item arc, hearts /
+  puff, the villager turning to the giver on every client); the host's heart events play for farmhands in town as
+  spectators (`v.e` / `v.l` / `v.c`: title card, the lines, the choice locked "Waiting for the host…", the answer).
 - **Gifts**: the item arcs from the farmer's hands, the villager squashes and reacts (hug / open arms / shrug),
   hearts, sparkles or a grey puff burst over the head, and the new heart pops on the meter.
 - `systems/relationships.ts` owns points / hearts / gifts (`meet()` for demo staging), `ui/dialogue.ts` the typewriter
   box (name tab, top-left layout-stable text, choices, gift ribbons, heart meter, birthday toast), the 'social' page and
-  the 'portraits' model sheet; `ui/portraits.ts` paints the SVG portraits: nine moods, each with its own head / shoulder
-  pose, hand gesture and colour temperature (warm gold joy, cool blue sorrow, red-rimmed anger), bezier hair locks,
-  cel-shaded neck and two-tone cloth folds, per-villager backdrops.
+  the 'portraits' model sheet. **Portraits are the villagers' own 3D models** (`renderVillagerPortrait` in
+  `entities/villager.ts`: the same mesh, outfit for the season, face rig and gesture for the mood, a three-quarter bust
+  under a studio key / fill / rim light in a small dedicated WebGL context, a baked ink outline), composited by
+  `ui/portraits.ts` over the painted backdrop with the mood's colour temperature (warm gold joy, cool blue sorrow,
+  red-rimmed anger) and manga marks; cached per villager × season × mood and pre-warmed when the talk prompt pops.
+  The painted SVG bust remains the no-WebGL fallback.
 
-Demos: `town-day` (closer social frame, held emotes), `town-evening` (19:05, lamps lit), `town-winter`, `town-rain`,
+Demos: `town-day` (closer social frame, held emotes), `town-evening` (19:05, lamps lit), `town-winter` (its own
+winter blocking), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
+paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·
 `&first=1` for the first meeting), `town-night-talk`, `town-heart-event` (`&event=<npc>-<2|4>&step=N`),
 `town-portraits` (`&ui=portraits:<npc>` = all nine moods), `town-social`, `festival`.

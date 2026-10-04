@@ -19,7 +19,7 @@ export type Mood = 'neutral' | 'happy' | 'laugh' | 'sad' | 'angry' | 'surprised'
 export const MOODS: Mood[] = ['neutral', 'happy', 'laugh', 'sad', 'angry', 'surprised', 'blush', 'worried', 'thinking'];
 
 export type HairStyle = 'bun' | 'short' | 'bob' | 'cap' | 'curly' | 'ponytail' | 'long' | 'bald' | 'spiky' | 'braids' | 'slick';
-export type HatKind = 'flatcap' | 'beanie' | 'sunhat' | 'bandana';
+export type HatKind = 'flatcap' | 'beanie' | 'sunhat' | 'bandana' | 'earmuffs';
 export type Accessory = 'cane' | 'satchel' | 'earrings' | 'pencil' | 'toolbelt' | 'freckles' | 'stethoscope' | 'shawl' | 'flower' | 'wrinkles' | 'bandage';
 export type Emote = 'heart' | 'exclaim' | 'question' | 'music' | 'sweat' | 'anger' | 'idea' | 'sad' | 'zzz' | 'dots';
 
@@ -76,6 +76,10 @@ export interface NpcLook {
   acc?: Accessory[];
   /** Painted portrait backdrop (the villager's place, out of focus). */
   backdrop?: Backdrop;
+  /** Sleeves down to the wrist even under an apron / tool belt (winter knits). */
+  longSleeves?: boolean;
+  /** Knitted mittens (colour) instead of bare hands. */
+  mittens?: number;
 }
 
 export type Backdrop = 'shop' | 'bakery' | 'river' | 'forge' | 'clinic' | 'inn' | 'hall' | 'meadow' | 'workshop' | 'garden';
@@ -162,6 +166,12 @@ export interface NpcDef {
   events: HeartEvent[];
   /** Short street-chatter lines popped over the head while chatting (≤ 30 chars). */
   barks?: string[];
+  /** Winter street chatter (replaces `barks` in winter). */
+  winterBarks?: string[];
+  /** Seasonal outfit overrides merged over `look` (winter coats, scarves, knit hats — no sunhat in the snow). */
+  wardrobe?: Partial<Record<Season, Partial<NpcLook>>>;
+  /** Winter days: fewer outdoor idlers, more time by the inn fire / indoors. */
+  winterSchedule?: [number, string, Activity?][];
 }
 
 const W = (speed: number, stride: number, bounce: number, sway: number, hunch: number, arms: number, skip = false): WalkStyle => ({ speed, stride, bounce, sway, hunch, arms, skip });
@@ -236,6 +246,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Fresh eggs by noon!', 'Pip, off the scales!', 'Mind the step, dear.', 'Tea’s on at four.'],
+    winterBarks: ['Cocoa’s on the stove, dear!', 'Mind the ice on my step!', 'Pip won’t leave the hearth.', 'Wool socks, half price!'],
+    wardrobe: { winter: { apron: undefined, coat: 0x7a4a6a, scarf: 0xc8412f, hat: 'earmuffs', hatColor: 0xf2e6d0, mittens: 0xc8412f } },
+    winterSchedule: [[6, 'door:general_store', 'inside'], [8.5, 'store_front', 'sweep'], [10, 'store_counter', 'idle'], [12, 'door:general_store', 'inside'], [14, 'notice', 'read'], [15, 'store_counter', 'idle'], [17, 'door:general_store', 'inside']],
     events: [
       {
         id: 'marigold-2',
@@ -275,7 +288,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         cast: { marigold: ['bench_sw', 'up'], player: [[29.2, 29.8], 'left'] },
         camera: { x: 28.2, z: 28.6, yaw: 8, pitch: 40, distance: 14 },
         script: [
-          { act: 'marigold', activity: 'read' },
+          { act: 'marigold', activity: 'sit' },
           { wait: 0.8 },
           { face: 'marigold', to: 'player' },
           { say: 'marigold', text: 'Come, sit. I found something in the back of the till — your gran’s old tab.', mood: 'happy' },
@@ -353,6 +366,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Buns out of the oven!', 'Flour’s in my beard again.', 'Rye or plain today?', 'Smell that? Cinnamon.'],
+    winterBarks: ['Hot buns! Warm your hands!', 'Gingerbread’s nearly gone!', 'Snow in the flour bin again.', 'Spiced loaf, fresh out!'],
+    wardrobe: { winter: { longSleeves: true, top: 0xb8443a, scarf: 0x3f6f9a } },
+    winterSchedule: [[6, 'door:bakery', 'inside'], [8, 'bakery_front', 'knead'], [11, 'market_produce', 'chat'], [12.5, 'door:bakery', 'inside'], [14, 'bakery_front', 'knead'], [16.5, 'inn_front', 'chat'], [18, 'door:inn', 'inside'], [21, 'door:bakery', 'inside']],
     events: [
       {
         id: 'bram-2',
@@ -464,6 +480,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Hold still, light!', 'That blue’s all wrong.', 'Ooh — look at those clouds.', 'Has anyone seen my pencil?'],
+    winterBarks: ['Snow’s not just white. Look!', 'My ink froze. Again.', 'Everything’s blue and pink!', 'Cold fingers, warm colours.'],
+    wardrobe: { winter: { coat: 0x3f5f8a, hat: 'beanie', hatColor: 0xe8674a, mittens: 0xe8c45a } },
+    winterSchedule: [[6, 'door:cottage_west', 'inside'], [9, 'easel_plaza', 'paint'], [12, 'door:inn', 'inside'], [14, 'bridge_mid', 'lean'], [16, 'door:cottage_west', 'inside']],
     events: [
       {
         id: 'wren-2',
@@ -581,6 +600,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Hot iron, mind your fingers.', 'Hinges don’t mend themselves.', 'Fine day for sparks.', 'Bring me a horseshoe?'],
+    winterBarks: ['Warmest spot in town, this.', 'Sledge runners, mended free.', 'Ice on the anvil. Lovely.', 'Come warm your hands.'],
+    wardrobe: { winter: { longSleeves: true, top: 0x7a3a2e, scarf: 0xd8a03a } },
+    winterSchedule: [[6, 'forge_anvil', 'hammer'], [12, 'door:inn', 'inside'], [13, 'forge_anvil', 'hammer'], [18, 'inn_front', 'chat'], [20, 'door:forge', 'inside']],
     events: [
       {
         id: 'odessa-2',
@@ -693,6 +715,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Drink more water, all of you.', 'Walk, don’t run, Kit!', 'Hm. That cough again?', 'Lovely morning for a stroll.'],
+    winterBarks: ['Hats ON, everyone!', 'Mind the ice, Tobias!', 'Scarves save lives.', 'Hm. Chilblain season.'],
+    wardrobe: { winter: { coat: 0x4a5464, scarf: 0x8a2a3a, hat: 'earmuffs', hatColor: 0x8a2a3a } },
+    winterSchedule: [[6, 'door:clinic', 'inside'], [9, 'fountain_e', 'chat'], [10, 'door:clinic', 'inside'], [13, 'store_front', 'idle'], [14, 'door:clinic', 'inside'], [17, 'inn_tables', 'read'], [20, 'door:clinic', 'inside']],
     events: [
       {
         id: 'linus-2',
@@ -803,6 +828,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Stew’s on tonight!', 'Rowan owes me a chair.', 'Cider’s cold, come in!', 'Who left mud on my step?'],
+    winterBarks: ['Mulled cider, inside!', 'Shut the door, it’s snowing!', 'Soup’s on all day!', 'Stamp your boots, please!'],
+    wardrobe: { winter: { coat: 0x6a3a4a, scarf: 0xf2e2c0, hat: 'beanie', hatColor: 0x3f7a5a, mittens: 0x3f7a5a } },
+    winterSchedule: [[6, 'door:inn', 'inside'], [8, 'inn_front', 'sweep'], [9.5, 'door:inn', 'inside'], [11, 'market_flowers', 'chat'], [12.5, 'door:inn', 'inside'], [17, 'inn_front', 'idle'], [18, 'door:inn', 'inside']],
     events: [
       {
         id: 'june-2',
@@ -913,6 +941,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Lamps won’t light themselves.', 'Back in my day…', 'Heh. Good morning, young one.', 'My knees say rain.'],
+    winterBarks: ['Snow on the lantern again.', 'Coldest winter since ’61.', 'My knees say more snow.', 'Heh. Watch your step.'],
+    wardrobe: { winter: { scarf: 0xc8412f, mittens: 0x5a6a5a, coat: 0x4a3a2e } },
+    winterSchedule: [[6, 'door:keeper_cottage', 'inside'], [9, 'hall_lantern', 'idle'], [11, 'door:inn', 'inside'], [14, 'hall_steps', 'idle'], [16, 'door:keeper_cottage', 'inside']],
     events: [
       {
         id: 'tobias-2',
@@ -945,7 +976,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [10, 17],
         dry: true,
         cast: { tobias: ['bench_se', 'down'], player: [[35.2, 31.2], 'up'] },
-        camera: { x: 36.0, z: 29.8, yaw: -146, pitch: 40, distance: 13 },
+        camera: { x: 36.0, z: 29.8, yaw: 26, pitch: 38, distance: 13 },
         script: [
           { say: 'tobias', text: 'Sit, sit. This was her side. She’d bring the tea, I’d bring the complaints.', mood: 'happy' },
           { walk: 'player', to: [35.8, 29.9], face: 'tobias' },
@@ -1022,6 +1053,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Bet you can’t catch me!', 'I found a frog!', 'Hopscotch champion!', 'Is it lunch yet?'],
+    winterBarks: ['Snowball fight! You’re it!', 'I made a snow-dog!', 'My mittens are soggy.', 'Catch me if you can!'],
+    wardrobe: { winter: { coat: 0xd8573a, hat: 'beanie', hatColor: 0x3f6f9a, scarf: 0xf2c43a, mittens: 0x3f6f9a } },
+    winterSchedule: [[6, 'door:birch_house', 'inside'], [9, 'plaza_play', 'play'], [12, 'door:birch_house', 'inside'], [13.5, 'plaza_play', 'play'], [16, 'door:birch_house', 'inside']],
     events: [
       {
         id: 'kit-2',
@@ -1132,6 +1166,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Measure twice, cut once.', 'Kit! Put that down!', 'Who needs a shelf?', 'Sawdust in my coffee again.'],
+    winterBarks: ['Sledges, made to order!', 'Kit! Not at the window!', 'Firewood’s split, finally.', 'Frost in my sawdust.'],
+    wardrobe: { winter: { coat: 0x6a4a2e, scarf: 0x3f7a4a, mittens: 0x6a4a2e } },
+    winterSchedule: [[6, 'door:birch_house', 'inside'], [8, 'lumber_yard', 'saw'], [12, 'door:inn', 'inside'], [13.5, 'lumber_yard', 'saw'], [17, 'inn_tables', 'sit'], [21, 'door:birch_house', 'inside']],
     events: [
       {
         id: 'rowan-2',
@@ -1244,6 +1281,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
     ],
     // Street chatter (speech bubbles while chatting in town).
     barks: ['The roses are early!', 'Mind my tulips, dear.', 'A little rain, then sun.', 'Bees are busy today.'],
+    winterBarks: ['My bulbs are asleep, dear.', 'Snowdrops soon, you’ll see.', 'Cold hands, warm heart.', 'Wrap up, it’s bitter!'],
+    wardrobe: { winter: { hat: 'beanie', hatColor: 0xa8587a, coat: 0x5a6a4a, acc: ['shawl', 'wrinkles'], mittens: 0xa8587a } },
+    winterSchedule: [[6, 'door:cottage_east', 'inside'], [10, 'market_flowers', 'chat'], [11.5, 'door:cottage_east', 'inside'], [14, 'planters_hall', 'idle'], [15, 'door:cottage_east', 'inside']],
     events: [
       {
         id: 'hazel-2',
@@ -1298,6 +1338,26 @@ export const NPCS: Record<NpcId, NpcDef> = {
 };
 
 export const NPC_IDS = Object.keys(NPCS) as NpcId[];
+
+const LOOK_CACHE = new Map<string, NpcLook>();
+/** The villager's look for a season: `look` with the season's wardrobe merged over it (cached: stable identity). */
+export function seasonLook(def: NpcDef, season: Season): NpcLook {
+  const over = def.wardrobe?.[season];
+  if (!over) return def.look;
+  const key = `${def.id}|${season}`;
+  let l = LOOK_CACHE.get(key);
+  if (!l) LOOK_CACHE.set(key, (l = { ...def.look, ...over }));
+  return l;
+}
+
+/** Which villager wears this look (base or seasonal), or null (festival extras, the farmer). */
+export function lookOwner(look: NpcLook): { def: NpcDef; season: Season | null } | null {
+  for (const def of Object.values(NPCS)) {
+    if (def.look === look) return { def, season: null };
+    for (const s of Object.keys(def.wardrobe ?? {}) as Season[]) if (seasonLook(def, s) === look) return { def, season: s };
+  }
+  return null;
+}
 
 /** All heart events, flattened (id → [npc, event]). */
 export function heartEvent(id: string): { npc: NpcDef; ev: HeartEvent } | null {

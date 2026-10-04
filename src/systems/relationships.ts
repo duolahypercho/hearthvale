@@ -5,6 +5,16 @@
  * and heart-event rewards, birthday announcements.
  * NpcSystem stages villagers and conversations; it reads hearts / talk counts from here.
  *   in:  npc:talk, npc:choice, day:start · out: relationship:change, npc:gift, npc:birthday
+ *
+ * Co-op (DESIGN pillar 13: relationships are per player, the host is the authority). Each farmer
+ * keeps their own friendships, but a farmhand's are kept by the host: the farmhand predicts a talk /
+ * gift / choice locally (the dialogue reacts at once) and sends the intent; the host applies it to that
+ * farmhand's ledger under the same rules (one talk bonus and one gift a day, two gifts a week, taste
+ * from data, bounded choice deltas) and answers with the authoritative values, which the farmhand
+ * adopts. A farmhand's gift also surfaces on the host as `npc:gift-remote` (NpcSystem broadcasts the
+ * reaction so every client sees the hearts / puff and the villager turn to the giver).
+ *   farmhand → host  ['r.hello', ledger] on joining · ['r.talk', npc] · ['r.gift', npc, item] · ['r.ch', npc, delta]
+ *   host → farmhand  ['r.set', npc, points, talks, flags, giftsWeek] (flags: 1 talked today, 2 gifted today)
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
@@ -31,6 +41,8 @@ export interface RelationshipApi {
   adjust(npcId: string, delta: number): void;
   /** Mark as already introduced (demo staging: no first-meeting lines for an old friend). */
   meet(npcId: string): void;
+  /** Host: a farmhand's friendship points as the host keeps them (co-op authority). */
+  remotePoints(from: number, npcId: string): number;
 }
 
 declare module '../core/game' {
@@ -47,12 +59,15 @@ declare module '../core/events' {
     'npc:choice': { npcId: string; delta: number };
     /** Morning announcement: it's this villager's birthday. */
     'npc:birthday': { npcId: string };
+    /** Host only: a farmhand's gift the host accepted (from = their player id). */
+    'npc:gift-remote': { npcId: string; itemId: string; reaction: 'love' | 'like' | 'neutral' | 'dislike'; from: number };
   }
 }
 
 export const PER_HEART = 250;
 const TALK_POINTS = 20;
 const BASE: Record<GiftReaction, number> = { love: 80, like: 45, neutral: 20, dislike: -20 };
+const THREE_CLAMP = (v: number, a: number, b: number): number => Math.max(a, Math.min(b, v));
 
 interface Friend {
   points: number;
@@ -62,10 +77,25 @@ interface Friend {
   giftsWeek: number;
 }
 
+const blank = (): Friend => ({ points: 0, talks: 0, talkedToday: false, giftedToday: false, giftsWeek: 0 });
+type NetLike = { role(): 'solo' | 'host' | 'client'; sendExt(to: number | '*' | 'host', data: unknown[]): void };
+
 export class RelationshipSystem implements System, RelationshipApi {
   readonly name = 'relationships';
   private game!: Game;
   private friends: Record<string, Friend> = {};
+  /** Host: each farmhand's friendships (by player id), the authoritative copy. */
+  private remote = new Map<number, Record<string, Friend>>();
+  private helloSent = false;
+
+  private net(): NetLike | null {
+    const n = (this.game.services as { net?: Partial<NetLike> }).net;
+    return n && typeof n.role === 'function' && typeof n.sendExt === 'function' ? (n as NetLike) : null;
+  }
+
+  private role(): 'solo' | 'host' | 'client' {
+    return this.net()?.role() ?? 'solo';
+  }
 
   init(game: Game): void {
     this.game = game;
@@ -79,15 +109,28 @@ export class RelationshipSystem implements System, RelationshipApi {
         f.talkedToday = true;
         this.addPoints(id, TALK_POINTS);
       }
+      if (this.role() === 'client') this.net()!.sendExt('host', ['r.talk', NPC_IDS.indexOf(id as NpcId)]);
     });
-    game.events.on('npc:choice', ({ npcId, delta }) => this.adjust(npcId, delta));
+    game.events.on('npc:choice', ({ npcId, delta }) => {
+      this.adjust(npcId, delta);
+      if (this.role() === 'client') this.net()!.sendExt('host', ['r.ch', NPC_IDS.indexOf(npcId as NpcId), delta]);
+    });
+    game.events.on('net:ext', ({ from, data }) => this.netRecv(from, data));
+    game.events.on('net:status', ({ role, status }) => {
+      // Joined a farm: hand the host our ledger (it adopts it unless it already keeps one for us).
+      if (role === 'client' && status === 'playing' && !this.helloSent) {
+        this.helloSent = true;
+        this.net()?.sendExt('host', ['r.hello', this.friends]);
+      } else if (role !== 'client') this.helloSent = false;
+    });
     game.events.on('day:start', () => {
       const newWeek = (this.game.calendar.day - 1) % 7 === 0;
-      for (const f of Object.values(this.friends)) {
-        f.talkedToday = false;
-        f.giftedToday = false;
-        if (newWeek) f.giftsWeek = 0;
-      }
+      for (const book of [this.friends, ...this.remote.values()])
+        for (const f of Object.values(book)) {
+          f.talkedToday = false;
+          f.giftedToday = false;
+          if (newWeek) f.giftsWeek = 0;
+        }
       for (const id of NPC_IDS) if (this.isBirthday(id)) this.game.events.emit('npc:birthday', { npcId: id });
     });
   }
@@ -163,7 +206,93 @@ export class RelationshipSystem implements System, RelationshipApi {
     this.game.services.inventory?.remove(itemId, 1);
     this.addPoints(id, BASE[reaction] * mult);
     this.game.events.emit('npc:gift', { npcId: id, itemId, reaction });
+    if (this.role() === 'client') this.net()!.sendExt('host', ['r.gift', NPC_IDS.indexOf(id as NpcId), itemId]);
     return reaction;
+  }
+
+  // ───────────────────────────────────────────── co-op ledger (host-authoritative)
+
+  /** Host: a farmhand's ledger (created empty on first contact). */
+  private book(from: number): Record<string, Friend> {
+    let b = this.remote.get(from);
+    if (!b) {
+      b = {};
+      for (const id of NPC_IDS) b[id] = blank();
+      this.remote.set(from, b);
+    }
+    return b;
+  }
+
+  private sendSet(to: number, id: NpcId, f: Friend): void {
+    this.net()?.sendExt(to, ['r.set', NPC_IDS.indexOf(id), f.points, f.talks, (f.talkedToday ? 1 : 0) | (f.giftedToday ? 2 : 0), f.giftsWeek]);
+  }
+
+  private netRecv(from: number, data: unknown[]): void {
+    const kind = data[0];
+    if (typeof kind !== 'string' || !kind.startsWith('r.')) return;
+    const role = this.role();
+    if (kind === 'r.set') {
+      if (role !== 'client') return;
+      const id = NPC_IDS[Number(data[1])];
+      const f = id ? this.friends[id] : undefined;
+      const pts = Number(data[2]);
+      if (!id || !f || !Number.isFinite(pts)) return;
+      const before = f.points;
+      f.points = Math.max(0, Math.min(PER_HEART * 10, pts));
+      f.talks = Math.max(0, Number(data[3]) || 0);
+      const flags = Number(data[4]) || 0;
+      f.talkedToday = !!(flags & 1);
+      f.giftedToday = !!(flags & 2);
+      f.giftsWeek = Math.max(0, Number(data[5]) || 0);
+      if (f.points !== before) this.game.events.emit('relationship:change', { npcId: id, points: f.points, hearts: this.hearts(id), delta: f.points - before });
+      return;
+    }
+    if (role !== 'host') return;
+    if (kind === 'r.hello') {
+      const had = this.remote.has(from);
+      const b = this.book(from);
+      const src = data[1] as Record<string, Partial<Friend>> | undefined;
+      if (!had && src && typeof src === 'object')
+        for (const id of NPC_IDS) {
+          const v = src[id];
+          if (!v) continue;
+          b[id] = { points: Math.max(0, Math.min(PER_HEART * 10, Number(v.points) || 0)), talks: Math.max(0, Number(v.talks) || 0), talkedToday: !!v.talkedToday, giftedToday: !!v.giftedToday, giftsWeek: Math.max(0, Math.min(7, Number(v.giftsWeek) || 0)) };
+        }
+      for (const id of NPC_IDS) this.sendSet(from, id, b[id]!);
+      return;
+    }
+    const id = NPC_IDS[Number(data[1])];
+    if (!id) return;
+    const b = this.book(from);
+    const f = b[id]!;
+    if (kind === 'r.talk') {
+      f.talks++;
+      if (!f.talkedToday) {
+        f.talkedToday = true;
+        f.points = Math.min(PER_HEART * 10, f.points + TALK_POINTS);
+      }
+    } else if (kind === 'r.ch') {
+      // Dialogue choices are worth at most a heart-event's best answer either way.
+      const d = THREE_CLAMP(Number(data[2]) || 0, -100, 150);
+      f.points = Math.max(0, Math.min(PER_HEART * 10, f.points + d));
+    } else if (kind === 'r.gift') {
+      const itemId = String(data[2] ?? '');
+      const def = itemDef(itemId);
+      const ok = !!def && def.kind !== 'tool' && !f.giftedToday && (f.giftsWeek < 2 || this.isBirthday(id));
+      if (ok) {
+        const reaction = this.taste(id, itemId);
+        f.giftedToday = true;
+        f.giftsWeek++;
+        f.points = Math.max(0, Math.min(PER_HEART * 10, f.points + BASE[reaction] * (this.isBirthday(id) ? 8 : 1)));
+        this.game.events.emit('npc:gift-remote', { npcId: id, itemId, reaction, from });
+      }
+    } else return;
+    this.sendSet(from, id, f);
+  }
+
+  /** Host-side view of a farmhand's friendship (tests / co-op UI). */
+  remotePoints(from: number, npcId: string): number {
+    return this.remote.get(from)?.[npcId]?.points ?? 0;
   }
 
   save(): unknown {

@@ -162,6 +162,21 @@ try {
       const mg = g.game.services.npcs?.minGap?.();
       if (mg) out.npcGaps.push({ h, d: mg.d, a: mg.a, b: mg.b });
     }
+    // Town pod: the live talk lens is clear (no fountain / bystander heads in front, no buildings in
+    // the sight lines) for every villager at 10:30; the dialogue card is each villager's own 3D model.
+    out.talkCam = g.game.services.npcs?.auditTalk?.(10.5) ?? { checked: 0, fails: ['no audit'] };
+    try {
+      const P = await import('/src/ui/portraits.ts');
+      const N = await import('/src/data/npcs.ts');
+      out.portraits = N.NPC_IDS.map((id) => {
+        const d = N.NPCS[id];
+        const svg = P.portraitSvg(d.look, d.portraitBg, 'happy');
+        // (same look object → same skin / hair hexes as the 3D villager; the card embeds its render)
+        return { id, model: /<image href="data:image\/(webp|png)/.test(svg), own: N.lookOwner(d.look)?.def.id === id };
+      });
+    } catch (e) {
+      out.portraits = [{ id: 'error', model: false, own: false, err: String(e) }];
+    }
     await g.teleport('farm', 31.5, 20);
     out.warps = (g.game.world.current.warps ?? []).map((w) => w.to);
     out.audio = !!g.game.services.audio;
@@ -296,6 +311,8 @@ try {
   check('farm overgrowth debris ≥ 350', r.debris >= 350, `${r.debris}`);
   check('town map loads with villagers', r.townMap === 'town' && r.npcs >= 3, `${r.townMap}, ${r.npcs} npcs`);
   check('villagers never overlap (≥ 0.6 m at 9/12/15/18 h)', r.npcGaps.every((x) => x.d >= 0.6), r.npcGaps.map((x) => `${x.h}h ${x.d.toFixed(2)} ${x.a}/${x.b}`).join(', '));
+  check('town: live talk lens clear for all villagers at 10:30 (auditTalk)', r.talkCam.checked >= 8 && r.talkCam.fails.length === 0, `${r.talkCam.checked} checked; ${r.talkCam.fails.join(' · ')}`);
+  check('town: portraits are the villagers\' own 3D models (same look → same skin / hair)', r.portraits.length === 10 && r.portraits.every((p) => p.model && p.own), r.portraits.filter((p) => !p.model || !p.own).map((p) => p.id + (p.err ? ` ${p.err}` : '')).join(', '));
   check('render budget (town)', r.townPerf.ok, `${r.townPerf.drawCalls} calls, ${(r.townPerf.triangles / 1e6).toFixed(2)}M tris`);
   check('farm → town warp', r.warps.includes('town'));
   check('audio service', r.audio);

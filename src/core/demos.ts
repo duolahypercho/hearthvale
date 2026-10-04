@@ -66,15 +66,17 @@ export const DEMOS: Record<string, DemoDef> = {
   // Farming r11: the two-hand "hooray" lift of a big crop (melon on the hat, arms up) and a close
   // morning sprinkler turret soaking its square of the summer field (wet front spreading outward).
   'farm-lift': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'summer', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest', 'crop=melon', 'pose=0.72'] },
-  'farm-sprinkler': { map: 'farm', x: 23.5, z: 22.6, facing: 'right', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 47, distance: 10.5, offsetX: 2.4, offsetZ: -0.7 }, showcase: ['harvest', 'act=none'] },
+  'farm-sprinkler': { map: 'farm', x: 23.5, z: 24.5, facing: 'up', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: -14, pitch: 42, distance: 8.5, offsetX: 2.4, offsetZ: -2.2 }, showcase: ['harvest', 'act=none'] },
   // Town square (plaza, Lantern Hall, villagers).
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
-  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
+  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 32, distance: 25, offsetX: -2.9, offsetZ: -3.2 }, showcase: ['npcs'] },
+  // Town pod: co-op in the square, no server — Juniper chats with Bram, Pip gives Wren strawberries (host paths: talk lock, gift ledger, 'v.g').
+  'town-coop': { map: 'town', x: 32.4, z: 28.2, facing: 'up', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 21, offsetX: -0.2, offsetZ: -4.2 }, showcase: ['npcs'] },
   'town-dialogue': { map: 'town', x: 31.2, z: 30.8, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
   // Town pod: `&event=<npc>-<2|4>&step=N` picks the heart event; `&npc=<id>&mood=<mood>|&gift=<item>|&ask=1` the dialogue.
   'town-heart-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
-  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 38, distance: 29, offsetX: -2.9, offsetZ: -4.2 }, showcase: ['npcs'] },
+  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 34, distance: 26, offsetX: -2.9, offsetZ: -3.8 }, showcase: ['npcs'] },
   'town-east': { map: 'town', x: 70.6, z: 26.4, facing: 'right', time: 17.4, season: 'summer', weather: 'sun', camera: { yaw: -4, pitch: 43, distance: 32, offsetX: 3.2, offsetZ: -5.8 }, showcase: ['npcs'] },
   'town-cast': { map: 'town', x: 40.4, z: 29.6, facing: 'down', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 13, offsetX: -7.9, offsetZ: -1.2 }, showcase: ['npcs'] },
   'town-rain': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 14, season: 'fall', weather: 'rain', camera: TOWN_CAM, showcase: ['npcs'] },

@@ -1,6 +1,7 @@
 /**
  * Winter dressing for the town: snowmen the village children built (each a little different:
- * knitted hat or flowerpot hat, scarf colour, twig arms waving or drooping, a lopsided head).
+ * knitted hat or flowerpot hat, scarf colour, twig arms waving or drooping, a lopsided head), and
+ * winter goods on the produce stands (burlap lids over the fruit, firewood, preserves, wool).
  * Everything is one merged 'white' mesh (colours in vertex tints), shown only in winter.
  */
 import * as THREE from 'three';
@@ -83,9 +84,59 @@ function snowman(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, rot:
 }
 
 /** Snowmen at [x, z, rot] (terrain height via `h`). */
-export function buildSnowmen(rng: Rng, spots: [number, number, number][], h: (x: number, z: number) => number): THREE.Group {
+/**
+ * Winter goods on a produce-crate stand (same footprint as buildProduceCrates): burlap lids over the
+ * summer fruit, split firewood, jars of preserves and skeins of wool, a crust of snow on the lids.
+ */
+function winterGoods(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, rot: number): void {
+  const W = new THREE.Matrix4().makeTranslation(x, y, z).multiply(new THREE.Matrix4().makeRotationY(rot));
+  const add = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: number): void => {
+    b.add('white', geo, W.clone().multiply(m), { tint });
+  };
+  for (let c = 0; c < 3; c++) {
+    const cx = c === 1 ? 0 : (c - 1) * 0.62;
+    const cy = c === 1 ? 0.5 : 0;
+    const cz = c === 1 ? 0.05 : 0;
+    const top = cy + 0.4;
+    add(new THREE.BoxGeometry(0.6, 0.05, 0.5), mat(cx, top, cz, 0, (rng.next() - 0.5) * 0.08, 0), 0xb89a6a);
+    if (c === 0) {
+      // Split firewood, two rows.
+      for (let i = 0; i < 5; i++) {
+        const log = new THREE.CylinderGeometry(0.058, 0.062, 0.46, 7);
+        log.rotateX(Math.PI / 2);
+        add(log, mat(cx - 0.19 + (i % 3) * 0.13 + (i > 2 ? 0.065 : 0), top + 0.08 + (i > 2 ? 0.1 : 0), cz), i % 2 ? 0x8a5a3a : 0x9a6a44);
+        const end = new THREE.CircleGeometry(0.052, 7);
+        add(end, mat(cx - 0.19 + (i % 3) * 0.13 + (i > 2 ? 0.065 : 0), top + 0.08 + (i > 2 ? 0.1 : 0), cz + 0.232), 0xe0c08a);
+      }
+    } else if (c === 1) {
+      // Jars of preserves with cloth caps.
+      const jar = [0xc8412f, 0xe8a03a, 0x7a3a6a, 0xc8412f, 0x5a8a3a, 0xe8a03a];
+      for (let i = 0; i < 6; i++) {
+        const jx = cx - 0.16 + (i % 3) * 0.16;
+        const jz = cz - 0.08 + Math.floor(i / 3) * 0.17;
+        add(new THREE.CylinderGeometry(0.06, 0.06, 0.14, 10), mat(jx, top + 0.095, jz), jar[i]!);
+        add(new THREE.CylinderGeometry(0.072, 0.066, 0.03, 10), mat(jx, top + 0.175, jz), i % 2 ? 0xf2e6d0 : 0xd8573e);
+      }
+    } else {
+      // Skeins of wool.
+      const wool = [0xe8e0d0, 0x3f6f9a, 0xc8412f, 0xe8b04a, 0x5a8a4a];
+      for (let i = 0; i < 5; i++) {
+        const sk = lumpySphere(0.085, 1, 0.12, rng, 2);
+        sk.scale(1.15, 0.85, 1);
+        add(sk, mat(cx - 0.17 + (i % 3) * 0.17 + (i > 2 ? 0.085 : 0), top + 0.08 + (i > 2 ? 0.1 : 0), cz + (i > 2 ? 0 : 0.04)), wool[i]!);
+      }
+    }
+    // A crust of snow along the lid's back edge.
+    const crust = lumpySphere(0.16, 1, 0.12, rng, 1.6);
+    crust.scale(1.7, 0.28, 0.6);
+    add(crust, mat(cx, top + 0.04, cz - 0.19), SNOW);
+  }
+}
+
+export function buildSnowmen(rng: Rng, spots: [number, number, number][], h: (x: number, z: number) => number, goods: [number, number, number][] = []): THREE.Group {
   const b = new MeshBuilder();
   spots.forEach(([x, z, rot], i) => snowman(b, rng, x, h(x, z) - 0.04, z, rot, i));
+  for (const [x, z, rot] of goods) winterGoods(b, rng, x, h(x, z), z, rot);
   const g = b.build({ name: 'snowmen' });
   g.userData.perfTag = 'props';
   return g;
@@ -174,4 +225,55 @@ export function buildSweptPaths(
   mesh.userData.perfTag = 'terrain';
   mesh.userData.noAO = true;
   return mesh;
+}
+
+/**
+ * Seasonal dressing for the Lantern Hall's door wreath (the holly wreath with red berries is the
+ * winter one): spring tucks blossoms and a pastel ribbon into it, summer daisies and sunflowers,
+ * fall russet leaves, rose hips and little gourds. One small merged mesh per season; `at` = the
+ * wreath centre in world space (the doors face +Z).
+ */
+export function buildWreathDressing(rng: Rng, at: THREE.Vector3): Record<'spring' | 'summer' | 'fall', THREE.Group> {
+  const mk = (season: 'spring' | 'summer' | 'fall'): THREE.Group => {
+    const b = new MeshBuilder();
+    const add = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: number): void => {
+      b.add('white', geo, new THREE.Matrix4().makeTranslation(at.x, at.y, at.z).multiply(m), { tint });
+    };
+    const pal = season === 'spring' ? [0xff9ab8, 0xfff2f6, 0xffd166, 0xc8a0f0] : season === 'summer' ? [0xfff6e0, 0xffc83a, 0xfff6e0, 0x8ab8f0] : [0xd8642a, 0xb8401e, 0xe8a03a, 0x8a3a1e];
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2 + 0.2;
+      const r = 0.3 + (rng.next() - 0.5) * 0.04;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      const c = pal[i % pal.length]!;
+      if (season === 'fall') {
+        // Russet leaves (flattened, tilted) with a rose hip or a tiny gourd every third.
+        const leaf = lumpySphere(0.09, 0, 0.25, rng, 1.2);
+        leaf.scale(1.3, 0.8, 0.35);
+        add(leaf, mat(x, y, 0.1, 0, 0, a + 0.6), c);
+        if (i % 3 === 0) add(new THREE.SphereGeometry(0.045, 8, 6), mat(x * 0.92, y * 0.92, 0.16, 0, 0, 0, 1.15, 0.9, 1), i % 2 ? 0xe8902a : 0xc8241e);
+      } else {
+        // A five-petal blossom (or a sunflower in summer) facing out of the door.
+        const big = season === 'summer' && i % 4 === 1;
+        const pr = big ? 0.05 : 0.035;
+        for (let k = 0; k < 5; k++) {
+          const pa = (k / 5) * Math.PI * 2;
+          const pet = new THREE.SphereGeometry(pr, 6, 5);
+          pet.scale(1, 0.7, 0.45);
+          add(pet, mat(x + Math.cos(pa) * pr * 0.95, y + Math.sin(pa) * pr * 0.95, 0.12, 0, 0, pa), c);
+        }
+        add(new THREE.SphereGeometry(pr * 0.55, 6, 5), mat(x, y, 0.14), big ? 0x6a3a1e : 0xffd166);
+      }
+    }
+    // A ribbon bow over the holly's red one, in the season's colour.
+    const bow = season === 'spring' ? 0xb8a0e8 : season === 'summer' ? 0x5aa8d8 : 0xc8842a;
+    for (const sx of [-1, 1]) add(new THREE.ConeGeometry(0.1, 0.22, 5), mat(sx * 0.085, -0.28, 0.13, 0, 0, sx * 1.2), bow);
+    add(new THREE.SphereGeometry(0.055, 8, 6), mat(0, -0.28, 0.15), bow);
+    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.05, 0.2, 0.012), mat(sx * 0.05, -0.4, 0.14, 0, 0, sx * 0.25), bow);
+    const g = b.build({ name: `wreath-${season}` });
+    g.userData.perfTag = 'props';
+    g.traverse((o) => (o.castShadow = false));
+    return g;
+  };
+  return { spring: mk('spring'), summer: mk('summer'), fall: mk('fall') };
 }

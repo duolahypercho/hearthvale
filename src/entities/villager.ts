@@ -21,10 +21,13 @@ import type { NpcDef, NpcLook, Activity, Emote, WalkStyle } from '../data/npcs';
 import { NPCS } from '../data/npcs';
 import { roundedBox, lumpySphere, bevelCylinder, smoothNormals } from '../world/geom';
 import { applyWorldFx } from '../render/worldfx';
-import { patchMaterial, after } from '../render/patch';
+import { globalUniforms } from '../render/uniforms';
+import { patchMaterial, after, before } from '../render/patch';
 import { Rng } from '../core/rng';
 
 let shared: THREE.MeshStandardMaterial | null = null;
+/** Night-scene face fill strength for every villager (0 = off; NpcSystem eases it in during night talks / events). */
+export const VILLAGER_FILL = { value: 0 };
 function sharedMat(): THREE.MeshStandardMaterial {
   if (!shared) {
     shared = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
@@ -33,11 +36,21 @@ function sharedMat(): THREE.MeshStandardMaterial {
     // Ink edge + warm rim: silhouettes darken towards grazing angles (a free, pass-less outline that
     // separates the chibi bodies from the cobbles) and pick up a soft sky-lit rim on top.
     patchMaterial(shared, 'villager-ink', (shader) => {
+      shader.uniforms.uHvFill = VILLAGER_FILL;
+      shader.fragmentShader = before(shader.fragmentShader, 'void main() {', 'uniform float uHvFill;');
       shader.fragmentShader = after(
         shader.fragmentShader,
         '#include <opaque_fragment>',
         /* glsl */ `{
           float hvNdV = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
+          // Night scene face fill (a soft lens-side bounce, NpcSystem drives uHvFill during night talks /
+          // heart events): albedo-relative, so skin tones keep their colour, and darker albedo (deep skin
+          // tones, dark wool) gets more of it — faces read at night instead of crushing to black.
+          if (uHvFill > 0.001) {
+            float hvLum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+            float hvLift = uHvFill * (1.0 + 0.7 * (1.0 - smoothstep(0.03, 0.4, hvLum)));
+            gl_FragColor.rgb += diffuseColor.rgb * hvLift * (0.3 + 0.7 * hvNdV);
+          }
           float hvInk = smoothstep(0.34, 0.06, hvNdV);
           gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(0.32, 0.24, 0.22), hvInk * 0.85);
           float hvRim = smoothstep(0.62, 0.3, hvNdV) * (1.0 - hvInk) * clamp(normal.y * 0.8 + 0.35, 0.0, 1.0);
@@ -233,6 +246,8 @@ enum B {
   lidR,
   tear,
   blush,
+  /** Knitted-brow crease between the brows (anger). */
+  furrow,
 }
 
 // Emote bubbles (shared textures per icon).
@@ -429,6 +444,14 @@ export class Villager {
   private headCheat = 0;
   /** Mouth flaps while true (dialogue typewriter). */
   speaking = false;
+  /**
+   * Head-only look target (a seated villager keeps the bench's yaw and turns just the head, ±60°,
+   * towards whoever they talk to — turning the body would swing it through the backrest).
+   */
+  headLook: THREE.Vector3 | null = null;
+  /** Direction (yaw) from this villager to the camera, pushed each frame by NpcSystem (null = unknown). */
+  lensYaw: number | null = null;
+  private headLookY = 0;
   /** Raining on this villager (outdoors): the umbrella goes up whenever a hand is free. */
   rain = false;
   private umbrellaUp = 0;
@@ -505,6 +528,7 @@ export class Villager {
       [B.lidR, B.head, 0.12 * hs, headY + R * 0.95 * hs, R * 0.9 * hs],
       [B.tear, B.head, -0.13 * hs, headY + R * 0.7 * hs, R * 0.95 * hs],
       [B.blush, B.head, 0, headY + R * 0.74 * hs, R * 0.9 * hs],
+      [B.furrow, B.head, 0, headY + R * 1.08 * hs, R * 0.97 * hs],
     ];
     const world: THREE.Vector3[] = [];
     for (const [id, parent, x, y, z] of bonePos) {
@@ -636,8 +660,13 @@ export class Villager {
       const x = sx * 0.25 * bw;
       rb.add(arm, new THREE.SphereGeometry(0.085, 10, 8), M(x, shoulderY, 0), sleeve);
       rb.add(arm, new THREE.CapsuleGeometry(0.074, 0.07, 3, 8), M(x, shoulderY - 0.07, 0), sleeve);
-      rb.add(fore, new THREE.CapsuleGeometry(0.06, 0.1, 3, 8), M(x, shoulderY - 0.2, 0), L.coat !== undefined ? L.coat : acc.has('toolbelt') || L.apron !== undefined ? L.skin : L.top);
-      rb.add(fore, new THREE.SphereGeometry(0.07, 10, 8), M(x, shoulderY - 0.31, 0.01), L.skin);
+      rb.add(fore, new THREE.CapsuleGeometry(0.06, 0.1, 3, 8), M(x, shoulderY - 0.2, 0), L.coat !== undefined ? L.coat : (acc.has('toolbelt') || L.apron !== undefined) && !L.longSleeves ? L.skin : L.top);
+      if (L.mittens !== undefined) {
+        // Knitted mittens: a ribbed cuff, a chunky mitt and a thumb.
+        rb.add(fore, new THREE.CylinderGeometry(0.064, 0.064, 0.05, 10), M(x, shoulderY - 0.25, 0.005), shadeHex(L.mittens, 0.85));
+        rb.add(fore, new THREE.SphereGeometry(0.078, 10, 8), M(x, shoulderY - 0.315, 0.012, 0, 0, 0, 1, 1.12, 1), L.mittens);
+        rb.add(fore, new THREE.SphereGeometry(0.03, 6, 5), M(x - sx * 0.05, shoulderY - 0.29, 0.05), L.mittens);
+      } else rb.add(fore, new THREE.SphereGeometry(0.07, 10, 8), M(x, shoulderY - 0.31, 0.01), L.skin);
     }
 
     // ── head
@@ -651,7 +680,19 @@ export class Villager {
     const hatted = !!L.hat;
     for (const sx of [-1, 1]) {
       // Brows sit just above the eyes; under a hat they tuck in below the brim / cuff line.
-      rb.add(sx < 0 ? B.browL : B.browR, new THREE.CapsuleGeometry(0.016, 0.07, 3, 6), H(sx * 0.12, R * (hatted ? 1.15 : 1.2), R * 0.93, 0, 0, Math.PI / 2 + sx * 0.14), shadeHex(L.hair, 0.62));
+      // (chunky brows: they carry the mood from the high camera — and the portrait is this face)
+      rb.add(sx < 0 ? B.browL : B.browR, new THREE.CapsuleGeometry(0.021, 0.08, 3, 6), H(sx * 0.12, R * (hatted ? 1.15 : 1.2), R * 0.93, 0, 0, Math.PI / 2 + sx * 0.14, 1, 1, 0.7), shadeHex(L.hair, L.hair > 0xc0c0c0 ? 0.55 : 0.62));
+      // Anger crease: two short knit lines between the brows.
+      rb.add(B.furrow, new THREE.CapsuleGeometry(0.008, 0.035, 2, 4), H(sx * 0.022, R * 1.08, R * 0.975, 0, 0, sx * 0.3), mixHex(L.skin, 0x5a2a1a, 0.55));
+      if (acc.has('freckles'))
+        for (let i = 0; i < 4; i++) {
+          // On the cheek surface (the face sphere is ~4 % wider than tall), facing out along its normal.
+          const fx = sx * (0.12 + (i % 2) * 0.034 + (i > 1 ? 0.017 : 0));
+          const fy = R * (0.8 - (i > 1 ? 0.075 : 0) + (i % 2) * 0.025);
+          const dyy = fy - R * 0.92;
+          const fz = Math.sqrt(Math.max(0, R * R - (fx / faceS[0]) ** 2 - (dyy / faceS[1]) ** 2)) + 0.004;
+          rb.add(B.head, new THREE.CircleGeometry(0.0125, 7), H(fx, fy, fz, -dyy / R * 0.8, Math.asin(Math.max(-1, Math.min(1, fx / R))), 0), mixHex(L.skin, 0x7a3a1e, 0.5));
+        }
       rb.add(B.head, new THREE.CircleGeometry(0.052, 14), H(sx * 0.19, R * 0.74, R * 0.875, 0, sx * 0.55, 0), mixHex(L.skin, 0xf07a6a, 0.55));
       if (acc.has('earrings')) rb.add(B.head, new THREE.SphereGeometry(0.022, 8, 6), H(sx * R * 1.0, R * 0.68, 0.02), 0xf2c43a);
     }
@@ -916,6 +957,7 @@ export class Villager {
           const z = Math.sin(a) * Math.sin(up) * R * 1.1 - 0.02;
           const y = R * 0.95 + Math.cos(up) * R * 1.05;
           if (z > R * 0.55 && y < R * 1.35) continue;
+          if (L.hat === 'beanie' && y > R * 1.45) continue;
           rb.add(B.head, lumpySphere(0.1 + rng.next() * 0.04, 1, 0.2, rng, 2.2), H(x, y, z), i % 4 ? hair : hi);
         }
         for (let i = 0; i < 8; i++) {
@@ -954,6 +996,7 @@ export class Villager {
         const q = new THREE.Quaternion();
         const tufts: [number, number, number][] = [[0, 0.12, 0.2], [0.55, 0.2, 0.19], [-0.55, 0.2, 0.19], [1.1, 0.3, 0.17], [-1.1, 0.3, 0.17], [1.7, 0.36, 0.16], [-1.7, 0.36, 0.16], [2.4, 0.3, 0.17], [-2.4, 0.3, 0.17], [3.1, 0.22, 0.18], [0.25, 0.3, 0.16], [-0.3, 0.32, 0.15], [0.9, 0.08, 0.14], [-0.9, 0.08, 0.14], [2.0, 0.12, 0.15], [-2.0, 0.12, 0.15]];
         tufts.forEach(([az, pol, len], i) => {
+          if (L.hat === 'beanie' && pol < 0.3) return;
           const th = pol * Math.PI;
           const dir = new THREE.Vector3(Math.sin(th) * Math.sin(az), Math.cos(th), Math.sin(th) * Math.cos(az));
           // Swept down along the scalp (towards the hem), tips lifting off: locks, not a chestnut burr.
@@ -1022,8 +1065,9 @@ export class Villager {
         }
         rb.add(B.head, bevelCylinder(R * 1.06, R * 1.07, 0.07, 0.02, 24), H(0, R * 1.2, 0.0, -0.2, 0, 0), shadeHex(c, 0.78));
         const brim = new THREE.CylinderGeometry(R * 0.78, R * 0.78, 0.035, 18, 1, false, -Math.PI / 2, Math.PI);
-        rb.add(B.head, brim, H(0, R * 1.26, R * 0.66, 0.26, 0, 0, 1.05, 1, 0.62), shadeHex(c, 0.66));
-        rb.add(B.head, new THREE.TorusGeometry(R * 0.78, 0.008, 3, 16, Math.PI), H(0, R * 1.27, R * 0.66, Math.PI / 2 + 0.26, 0, 0, 1.05, 0.62, 1), shadeHex(c, 0.55));
+        // (peak tipped up ~10°: the eyes read under it from the high lens)
+        rb.add(B.head, brim, H(0, R * 1.28, R * 0.66, 0.09, 0, 0, 1.05, 1, 0.62), shadeHex(c, 0.66));
+        rb.add(B.head, new THREE.TorusGeometry(R * 0.78, 0.008, 3, 16, Math.PI), H(0, R * 1.29, R * 0.66, Math.PI / 2 + 0.09, 0, 0, 1.05, 0.62, 1), shadeHex(c, 0.55));
         rb.add(B.head, new THREE.SphereGeometry(0.034, 8, 6), H(0, R * 1.97, -0.1, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
         // Flecks of tweed.
         for (let i = 0; i < 14; i++) {
@@ -1049,12 +1093,27 @@ export class Villager {
       }
       case 'sunhat': {
         // Brim kept modest (≈1.45 head radii) so the face still reads from the high camera.
+        // Tipped back ~25° (brim front up): from the high diorama lens the face shows under it, not a disc.
+        const tip = -0.43;
         const brim = new THREE.CylinderGeometry(R * 1.42, R * 1.5, 0.03, 28);
-        rb.add(B.head, brim, H(0, R * 1.5, -0.02, -0.26, 0, 0), c);
+        rb.add(B.head, brim, H(0, R * 1.52, -0.05, tip, 0, 0), c);
         const crown = new THREE.SphereGeometry(R * 1.02, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
-        rb.add(B.head, crown, H(0, R * 1.44, -0.05, -0.26, 0, 0, 1, 0.8, 1), shadeHex(c, 1.04));
-        rb.add(B.head, new THREE.TorusGeometry(R * 1.0, 0.03, 6, 22), H(0, R * 1.54, -0.05, Math.PI / 2 - 0.26, 0, 0), L.scarf ?? 0xa8587a);
+        rb.add(B.head, crown, H(0, R * 1.46, -0.08, tip, 0, 0, 1, 0.8, 1), shadeHex(c, 1.04));
+        rb.add(B.head, new THREE.TorusGeometry(R * 1.0, 0.03, 6, 22), H(0, R * 1.56, -0.08, Math.PI / 2 + tip, 0, 0), L.scarf ?? 0xa8587a);
         for (let i = 0; i < 3; i++) rb.add(B.head, lumpySphere(0.05, 0, 0.3, rng), H(R * 0.75 + i * 0.03, R * 1.62, R * 0.4 - i * 0.05), [0xff8fab, 0xffd166, 0xffffff][i]!);
+        break;
+      }
+      case 'earmuffs': {
+        // Fluffy earmuffs: a slim band over the crown (sitting just on the hair) and two plush puffs
+        // over the ears with a darker ring where they meet the head.
+        const band = new THREE.TorusGeometry(R * 1.13, 0.024, 6, 22, Math.PI);
+        rb.add(B.head, band, H(0, R * 0.95, -0.04, 0, 0, 0, 1, 1.02, 1).multiply(new THREE.Matrix4().makeRotationX(-0.18)), shadeHex(c, 0.75));
+        for (const sx of [-1, 1]) {
+          const puff = lumpySphere(0.14, 1, 0.16, rng, 2.6);
+          puff.scale(0.62, 1, 1);
+          rb.add(B.head, puff, H(sx * R * 1.08, R * 0.9, -0.03), c);
+          rb.add(B.head, new THREE.TorusGeometry(0.1, 0.022, 6, 14), H(sx * R * 1.02, R * 0.9, -0.03, 0, Math.PI / 2, 0), shadeHex(c, 0.8));
+        }
         break;
       }
       case 'bandana': {
@@ -1254,8 +1313,9 @@ export class Villager {
 
     const act = this.moving || this.talkTo ? 'idle' : this.activity;
     const sitting = act === 'sit' && !this.moving;
-    this.sitBlend += ((sitting ? 1 : 0) - this.sitBlend) * (1 - Math.exp(-8 * dt));
-    this.actBlend += ((act !== 'idle' && act !== 'chat' && act !== 'wander' && act !== 'inside' ? 1 : 0) - this.actBlend) * (1 - Math.exp(-6 * dt));
+    // (dt = 0: a staging / audit settle — the pose snaps to its target)
+    this.sitBlend += ((sitting ? 1 : 0) - this.sitBlend) * (dt === 0 ? 1 : 1 - Math.exp(-8 * dt));
+    this.actBlend += ((act !== 'idle' && act !== 'chat' && act !== 'wander' && act !== 'inside' ? 1 : 0) - this.actBlend) * (dt === 0 ? 1 : 1 - Math.exp(-6 * dt));
 
     let bob = 0;
     let sy = 1;
@@ -1305,7 +1365,13 @@ export class Villager {
       } else {
         this.lookT -= dt;
         if (this.lookT <= 0) {
-          this.lookTarget = this.lookTarget !== 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.4);
+          if (this.lensYaw !== null && this.lookTarget === 0) {
+            // Glances favour the lens side (a face, not the back of a hat, from the diorama camera).
+            let d = this.lensYaw - this.yaw;
+            d = Math.atan2(Math.sin(d), Math.cos(d));
+            const toward = THREE.MathUtils.clamp(d, -0.75, 0.75);
+            this.lookTarget = Math.abs(toward) < 0.25 ? (Math.random() < 0.5 ? -1 : 1) * (0.2 + Math.random() * 0.2) : toward * (0.65 + Math.random() * 0.35);
+          } else this.lookTarget = this.lookTarget !== 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.4);
           this.lookT = this.lookTarget !== 0 ? 1.2 + Math.random() : 3 + Math.random() * 4;
         }
         this.look += (this.lookTarget - this.look) * (1 - Math.exp(-dt * 4));
@@ -1316,6 +1382,19 @@ export class Villager {
           aL.rotation.x = -0.3;
           fL.rotation.x = -0.35;
         }
+      }
+    }
+    // Seated head turn towards a speaker (body stays square to the bench).
+    {
+      let want = 0;
+      if (this.headLook && this.sitBlend > 0.5) {
+        const d = Math.atan2(this.headLook.x - this.position.x, this.headLook.z - this.position.z) - this.yaw;
+        want = THREE.MathUtils.clamp(Math.atan2(Math.sin(d), Math.cos(d)), -1.05, 1.05);
+      }
+      this.headLookY += (want - this.headLookY) * (1 - Math.exp(-6 * dt));
+      if (Math.abs(this.headLookY) > 0.002) {
+        head.rotation.y = this.headLookY + head.rotation.y * 0.3;
+        spine.rotation.y += this.headLookY * 0.25;
       }
     }
     // Sitting: fold the legs, lower the hips onto the seat.
@@ -1359,7 +1438,8 @@ export class Villager {
       }
     }
     // Chin up towards the high camera so faces read.
-    head.rotation.x -= FACE_UP;
+    // (hats: a little more — the brim must not hide the eyes from the 36° lens)
+    head.rotation.x -= FACE_UP + (this.def.look.hat && this.def.look.hat !== 'earmuffs' && this.def.look.hat !== 'bandana' ? 0.07 : 0);
     // Secondary motion: hair / braids lag behind head + body motion.
     const drive = (this.moving ? Math.sin(this.phase) * 0.12 : 0) - dy * 0.6;
     this.hairVel += (drive - this.hairSwing) * 40 * dt;
@@ -1411,9 +1491,10 @@ export class Villager {
       const age = this.barkDur - this.barkT;
       const pop = age < 0.3 ? THREE.MathUtils.smoothstep(age, 0, 0.2) * (1 + 0.18 * Math.sin((age / 0.3) * Math.PI)) : 1;
       const fade = THREE.MathUtils.clamp(this.barkT / 0.35, 0, 1);
-      const h = 0.66 * pop;
+      // (≈ 19 px text at 1080p from the 27 m town lens: r3 critic found 14 px barks too small)
+      const h = 0.88 * pop;
       this.barkSprite.scale.set(h * this.barkAspect, h, 1);
-      this.barkSprite.position.set(0, this.headTop + 0.5 + Math.sin(age * 2.2) * 0.025, 0);
+      this.barkSprite.position.set(this.barkSide * h * this.barkAspect * 0.32, this.headTop + 0.6 + Math.sin(age * 2.2) * 0.025, 0);
       this.barkSprite.material.opacity = fade;
       if (this.emoteSprite) this.emoteSprite.visible = false;
       if (this.barkT <= 0) this.barkSprite.visible = false;
@@ -1424,8 +1505,11 @@ export class Villager {
   private barkT = 0;
   private barkDur = 3.4;
   private barkAspect = 3;
+  /** Bubble shifted to the open side (-1 left, 0 centred, 1 right) when a neighbour stands close. */
+  private barkSide = 0;
   /** Say a short line out loud (street chatter): a speech bubble over the head for `dur` s. */
-  bark(text: string, dur = 3.4): void {
+  bark(text: string, dur = 3.4, side = 0): void {
+    this.barkSide = side;
     const { tex, aspect } = barkTexture(text);
     if (!this.barkSprite) {
       this.barkSprite = billboard(tex, 21);
@@ -1476,76 +1560,85 @@ export class Villager {
     const w = THREE.MathUtils.smoothstep(this.moodT, 0, 0.12);
     const m = this.mood;
     // brow: [inner tilt (rad, + = inner end down), lift (m)], eye scale y, mouth [sx, sy, flip]
+    // Resting face: a small, calm mouth (a contented "neutral", clearly apart from the open happy smile).
     let tilt = 0;
     let lift = 0;
     let eyeY = 1;
     let eyeX = 1;
-    let mx = 1;
-    let my = 1;
+    let mx = 0.72;
+    let my = 0.55;
     let flip = false;
     let closed = false;
     let tear = false;
     let blush = false;
+    let furrow = false;
     let browAsym = 0;
+    let smirk = 0;
     switch (m) {
       case 'happy':
-        eyeY = 0.86;
-        mx = 1.25;
-        my = 1.35;
-        lift = 0.012;
+        // Cheeks lift into the eyes (a squinting smile), brows up, an open grin.
+        eyeY = 0.66;
+        mx = 1.4;
+        my = 1.9;
+        lift = 0.018;
+        tilt = -0.1;
         break;
       case 'laugh':
         closed = true;
-        mx = 1.3;
-        my = 2.6;
-        lift = 0.02;
-        tilt = -0.12;
+        mx = 1.45;
+        my = 3.1;
+        lift = 0.026;
+        tilt = -0.16;
         break;
       case 'sad':
-        tilt = -0.42;
-        lift = 0.008;
-        eyeY = 0.78;
-        mx = 0.85;
+        tilt = -0.55;
+        lift = 0.012;
+        eyeY = 0.72;
+        mx = 0.8;
         my = 0.9;
         flip = true;
         tear = true;
         break;
       case 'worried':
-        tilt = -0.36;
-        lift = 0.012;
-        eyeY = 0.95;
-        mx = 0.7;
-        my = 0.8;
+        tilt = -0.46;
+        lift = 0.016;
+        eyeY = 1.02;
+        mx = 0.75;
+        my = 0.85;
         flip = true;
         break;
       case 'angry':
-        tilt = 0.5;
-        lift = -0.018;
-        eyeY = 0.72;
-        mx = 1.05;
-        my = 0.55;
+        // Brows knit hard into a V (≈35°) and drop onto narrowed eyes; a crease between them.
+        tilt = 0.62;
+        lift = -0.03;
+        eyeY = 0.56;
+        eyeX = 1.05;
+        mx = 1.2;
+        my = 0.75;
         flip = true;
+        furrow = true;
         break;
       case 'surprised':
-        lift = 0.04;
-        eyeY = 1.22;
-        eyeX = 1.12;
+        lift = 0.05;
+        eyeY = 1.3;
+        eyeX = 1.15;
         mx = 0.62;
-        my = 2.9;
+        my = 3.3;
         break;
       case 'blush':
         blush = true;
-        eyeY = 0.8;
-        mx = 0.8;
-        my = 1.1;
-        tilt = -0.15;
+        eyeY = 0.74;
+        mx = 0.85;
+        my = 1.05;
+        tilt = -0.2;
         break;
       case 'thinking':
-        // One brow up, eyes narrowed, the smile pressed into a small flat "hmm".
-        browAsym = 0.035;
-        eyeY = 0.82;
-        mx = 0.6;
-        my = 0.28;
+        // One brow up, eyes narrowed, the mouth pressed into a lopsided "hmm".
+        browAsym = 0.045;
+        eyeY = 0.74;
+        mx = 0.62;
+        my = 0.3;
+        smirk = 0.32;
         break;
     }
     const L = (a: number, b: number): number => a + (b - a) * w;
@@ -1568,6 +1661,7 @@ export class Villager {
     bn[B.tear]!.scale.setScalar(tear ? Math.max(0.0001, w * (1 + Math.sin(this.t * 2.2) * 0.06)) : 0.0001);
     bn[B.tear]!.position.y -= tear ? ((this.t * 0.02) % 0.03) : 0;
     bn[B.blush]!.scale.setScalar(blush ? Math.max(0.0001, w) : 0.0001);
+    bn[B.furrow]!.scale.setScalar(furrow ? Math.max(0.0001, w) : 0.0001);
     const mouth = bn[B.mouth]!;
     let sx = L(1, mx);
     let sy = L(1, my);
@@ -1578,6 +1672,42 @@ export class Villager {
     }
     mouth.scale.set(sx, sy, 1);
     if (flip) mouth.rotation.z = Math.PI * w;
+    else if (smirk) mouth.rotation.z = smirk * w;
+  }
+
+  /**
+   * Portrait pose (ui/portraits renders this very model for the dialogue card, so face and portrait
+   * are one character): the mood's face and gesture at their peak, no blink / glance / talk flap.
+   */
+  posePortrait(mood: string, yaw: number): void {
+    this.look = this.lookTarget = 0;
+    this.lookT = 1e9;
+    this.nextBlink = 1e9;
+    this.blinkT = 0;
+    this.speaking = false;
+    this.talkTo = null;
+    this.talkCheat = null;
+    this.rain = false;
+    this.target = null;
+    this.squashT = -1;
+    this.setActivity('idle');
+    this.mood = '';
+    this.setMood(mood);
+    const g = MOOD_GESTURE[mood];
+    this.gest = null;
+    if (g && g !== 'nod') this.gesture(g, 1e9);
+    this.t = 0.6;
+    this.setPosition(0, 0, 0);
+    this.setYaw(yaw);
+    for (let i = 0; i < 14; i++) this.update(1 / 24, () => 0, false);
+    this.root.updateMatrixWorld(true);
+  }
+
+  /** World centre of the head sphere (portrait framing) and its world radius. */
+  headCenter(out: THREE.Vector3): { center: THREE.Vector3; radius: number } {
+    const hs = 1.15 * HEAD_BOOST * (this.def.look.head ?? 1);
+    this.bones[B.head]!.localToWorld(out.set(0, 0.32 * 0.92 * hs, 0));
+    return { center: out, radius: 0.32 * hs * this.scaleS };
   }
 
   /** Gesture poses, blended by w over whatever the base pose is this frame. */
@@ -2291,4 +2421,102 @@ export function buildPainting(): THREE.Group {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
   });
   return g;
+}
+
+// ───────────────────────────────────────────── portraits (the dialogue card is this model)
+
+/** Per-mood three-quarter turn of the bust (towards the dialogue text on the card's left). */
+const PORTRAIT_TURN: Record<string, number> = { neutral: -0.38, happy: -0.32, laugh: -0.26, sad: -0.52, angry: -0.12, surprised: -0.08, blush: -0.62, worried: -0.4, thinking: -0.58 };
+
+let portraitRig: { r: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.PerspectiveCamera; models: Map<string, Villager>; size: number } | null = null;
+let portraitFailed = false;
+
+/**
+ * Render a villager's bust in a mood with the real 3D model (same mesh, colours, hair, hat, face rig)
+ * under a soft three-point studio light, on a transparent background, with a warm ink outline baked
+ * round the silhouette. A small dedicated WebGL context (the game renderer's state, passes and perf
+ * counters stay untouched); ~3-6 ms per render after the first compile. Null when WebGL is missing.
+ */
+export function renderVillagerPortrait(def: NpcDef, look: NpcLook, mood: string, size = 560): HTMLCanvasElement | null {
+  if (portraitFailed || typeof document === 'undefined') return null;
+  try {
+    if (!portraitRig || portraitRig.size !== size) {
+      portraitRig?.r.dispose();
+      const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'low-power' });
+      r.setPixelRatio(1);
+      r.setSize(size, size, false);
+      r.outputColorSpace = THREE.SRGBColorSpace;
+      r.toneMapping = THREE.ACESFilmicToneMapping;
+      r.toneMappingExposure = 1.08;
+      r.setClearColor(0x000000, 0);
+      const scene = new THREE.Scene();
+      // Studio light: warm key high on the left (the face's lit side), cool fill low right, a warm
+      // rim from behind for the hair / shoulder edge, and a sky / ground bounce.
+      scene.add(new THREE.HemisphereLight(0xfff2e2, 0x7a5a48, 1.05));
+      const key = new THREE.DirectionalLight(0xffeed4, 3.0);
+      key.position.set(-1.7, 2.3, 2.6);
+      const fill = new THREE.DirectionalLight(0xcad8ff, 0.75);
+      fill.position.set(2.4, 0.4, 2.0);
+      const rim = new THREE.DirectionalLight(0xffe0b0, 2.4);
+      rim.position.set(2.0, 2.2, -2.4);
+      const rim2 = new THREE.DirectionalLight(0xd8e4ff, 1.1);
+      rim2.position.set(-2.4, 1.2, -2.0);
+      scene.add(key, fill, rim, rim2);
+      const cam = new THREE.PerspectiveCamera(18, 1, 0.1, 40);
+      portraitRig = { r, scene, cam, models: new Map(), size };
+    }
+    const rig = portraitRig;
+    const key = `${def.id}|${JSON.stringify(look)}`;
+    let v = rig.models.get(key);
+    if (!v) {
+      v = new Villager(look === def.look ? def : { ...def, look }, { blob: false });
+      rig.models.set(key, v);
+    }
+    for (const m of rig.models.values()) m.root.removeFromParent();
+    rig.scene.add(v.root);
+    v.posePortrait(mood, PORTRAIT_TURN[mood] ?? -0.35);
+    const { center, radius } = v.headCenter(new THREE.Vector3());
+    // Framing: head in the upper middle, shoulders cut by the bottom edge (a bust).
+    // (room above for buns, toques, pom-poms and sunhat crowns)
+    const tall = look.hairStyle === 'bun' || look.hairStyle === 'cap' || look.hat === 'beanie' || look.hat === 'sunhat' ? 1 : 0;
+    const view = radius * (3.0 + tall * 0.32);
+    const dist = view / 2 / Math.tan(THREE.MathUtils.degToRad(rig.cam.fov / 2));
+    const look0 = new THREE.Vector3(center.x, center.y - radius * (0.16 - tall * 0.16), center.z);
+    rig.cam.position.set(look0.x + Math.sin(-0.06) * dist, look0.y + dist * 0.14, look0.z + dist);
+    rig.cam.lookAt(look0);
+    rig.cam.updateMatrixWorld();
+    // World FX off for the studio (cloud shadows / rain gloss / golden-hour rim are the town's).
+    const U = globalUniforms;
+    const saved = [U.uCloudShadow.value, U.uWet.value, U.uRim.value, VILLAGER_FILL.value] as const;
+    U.uCloudShadow.value = 0;
+    U.uWet.value = 0;
+    U.uRim.value = 0;
+    VILLAGER_FILL.value = 0;
+    rig.r.render(rig.scene, rig.cam);
+    [U.uCloudShadow.value, U.uWet.value, U.uRim.value, VILLAGER_FILL.value] = saved;
+    v.root.removeFromParent();
+    // Bake: warm ink outline (the silhouette dilated in 12 directions) under the render.
+    const out = document.createElement('canvas');
+    out.width = out.height = size;
+    const g = out.getContext('2d');
+    if (!g) return null;
+    const sil = document.createElement('canvas');
+    sil.width = sil.height = size;
+    const sg = sil.getContext('2d')!;
+    sg.drawImage(rig.r.domElement, 0, 0);
+    sg.globalCompositeOperation = 'source-in';
+    sg.fillStyle = '#3a1c10';
+    sg.fillRect(0, 0, size, size);
+    const ow = Math.max(2, Math.round(size / 150));
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      g.drawImage(sil, Math.cos(a) * ow, Math.sin(a) * ow);
+    }
+    g.drawImage(rig.r.domElement, 0, 0);
+    return out;
+  } catch (e) {
+    portraitFailed = true;
+    console.warn('[portraits] 3D portrait renderer unavailable', e);
+    return null;
+  }
 }

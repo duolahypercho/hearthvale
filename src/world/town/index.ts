@@ -26,7 +26,7 @@ import { BatchPool, InstancedSet } from '../props/instanced';
 import { FountainFX } from './fountain';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
-import { buildSnowmen, buildSweptPaths } from './winter';
+import { buildSnowmen, buildSweptPaths, buildWreathDressing } from './winter';
 import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
 import { textures } from '../../render/textures';
@@ -90,10 +90,13 @@ import {
   buildWildflowers,
   coalMaterial,
   deckY,
+  buildRoofDressing,
+  eaveWinter,
 } from './buildings';
+import { MeshBuilder } from '../geom';
 
 const HOUSES: Record<Exclude<TownBuilding['kind'], 'hall'>, HouseSpec> = {
-  store: { w: 7, d: 5, wallH: 3.3, wall: 'plaster', wallTint: 0xfbeed8, roofTint: 0x5fa89a, doorTint: 0x3f7890, shutterTint: 0x5d9484, awning: [0xd8573e, 0xf6ecd8], sign: 'store', chimney: false, doorX: -1 },
+  store: { w: 7, d: 5, wallH: 3.3, wall: 'plaster', wallTint: 0xfbeed8, roofTint: 0x5fa89a, doorTint: 0x3f7890, shutterTint: 0x5d9484, awning: [0xd8573e, 0xf6ecd8], sign: 'store', chimney: true, doorX: -1 },
   bakery: { w: 6.6, d: 5, wallH: 3.2, wall: 'stone', wallTint: 0xf0d2b8, roofTint: 0xd0724e, doorTint: 0x8a4a2a, awning: [0xe8b64a, 0xfbf2dc], sign: 'bakery', chimney: true, flowerBoxes: true, doorX: 1 },
   cottageA: { w: 5.4, d: 4.2, wallH: 2.6, wall: 'wood', wallTint: 0xf6e2c4, roofTint: 0xd8b068, roof: 'thatch', doorTint: 0x4f7fb0, shutterTint: 0x4f7fb0, chimney: true, flowerBoxes: true },
   cottageB: { w: 5.4, d: 4.2, wallH: 2.6, wall: 'plaster', wallTint: 0xe8f0e0, roofTint: 0xa87aa8, doorTint: 0x5a8a4a, shutterTint: 0x6a9a5a, chimney: true, flowerBoxes: true },
@@ -434,16 +437,49 @@ export class TownMap implements GameMap {
     }
   }
 
+  /** Winter-only eaves (snow lips + icicles) over every town house, one merged mesh. */
+  private eaves: THREE.Group | null = null;
+  /** The Hall's door wreath dressed for spring / summer / fall (bare holly = winter). */
+  private wreaths: Record<'spring' | 'summer' | 'fall', THREE.Group> | null = null;
+
   private buildBuildings(): void {
     const r = this.rng.fork('buildings');
+    const rd = this.rng.fork('roofs');
+    const winter = new MeshBuilder();
     for (const b of BUILDINGS) {
       const bp = b.kind === 'hall' ? buildLanternHall(r) : buildTownHouse(r, HOUSES[b.kind]);
       bp.group.name = b.id;
       this.addProp(bp, b.x, b.z, b.rot ?? 0, undefined, { lights: b.kind === 'hall' || b.kind === 'store' || b.kind === 'bakery' ? 'full' : 'pool' });
+      if (b.kind !== 'hall') {
+        // Ridge caps, dormers, moss and slipped tiles break up the big roof planes.
+        const spec = HOUSES[b.kind];
+        const dormers = b.kind === 'store' ? [1.7] : b.kind === 'bakery' ? [-1.5] : [];
+        this.addProp(buildRoofDressing(rd, spec, dormers), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+        eaveWinter(winter, rd, spec, bp.group.matrixWorld.clone());
+      }
       const [x0, z0, x1, z1] = b.block;
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) this.grid.setFlag(x, z, TileFlag.Blocked);
       this.terrain.stampCover('ao', b.x, b.z + 0.3, (x1 - x0 + 1) * 0.62, 0.55, (z1 - z0 + 1) / (x1 - x0 + 1));
       this.addDoorAndSmoke(bp, b.id, b.kind === 'store' ? 0 : b.kind === 'bakery' ? 6 : 3.5);
+    }
+    this.eaves = winter.build({ name: 'eaves-winter' });
+    this.eaves.userData.perfTag = 'props';
+    this.eaves.traverse((o) => {
+      // (thin icicles: no shadow-pass cost)
+      o.castShadow = false;
+    });
+    this.eaves.visible = false;
+    this.root.add(this.eaves);
+    // The hall's wreath centre: townkit puts it on the doors at (0, plinth 0.6 + 1.75, D/2 + 0.36).
+    const hall = BUILDINGS.find((b) => b.kind === 'hall');
+    if (hall) {
+      const at = new THREE.Vector3(0, 0.6 + 1.75, 3.2 + 0.36).applyAxisAngle(new THREE.Vector3(0, 1, 0), hall.rot ?? 0);
+      at.add(new THREE.Vector3(hall.x, this.terrain.heightAt(hall.x, hall.z) - 0.03, hall.z));
+      this.wreaths = buildWreathDressing(this.rng.fork('wreath'), at);
+      for (const g of Object.values(this.wreaths)) {
+        g.visible = false;
+        this.root.add(g);
+      }
     }
   }
 
@@ -736,7 +772,8 @@ export class TownMap implements GameMap {
     this.festoons = new Festoons(spans, this.rng.fork('festoons'));
     this.root.add(this.festoons.group);
     // Winter: snowmen on the plaza lawns and in the schoolyard (hidden the rest of the year).
-    this.snowmen = buildSnowmen(this.rng.fork('snowmen'), SNOWMEN, (x, z) => this.terrain.heightAt(x, z));
+    const goods = EXTRA_PROPS.filter((p) => p.kind === 'produce').map((p) => [p.x, p.z, p.rot ?? 0] as [number, number, number]);
+    this.snowmen = buildSnowmen(this.rng.fork('snowmen'), SNOWMEN, (x, z) => this.terrain.heightAt(x, z), goods);
     this.snowmen.visible = false;
     this.root.add(this.snowmen);
   }
@@ -993,6 +1030,7 @@ export class TownMap implements GameMap {
   }
 
   setSeason(season: Season): void {
+    if (this.wreaths) for (const [k, g] of Object.entries(this.wreaths)) g.visible = k === season;
     // The basin freezes over in winter: no running water.
     if (this.fountainFx) this.fountainFx.group.visible = season !== 'winter';
     this.trees.setSeason(season);
@@ -1003,6 +1041,7 @@ export class TownMap implements GameMap {
       const on = season === 'winter';
       this.snowmen.visible = on;
       if (this.swept) this.swept.visible = on;
+      if (this.eaves) this.eaves.visible = on;
       for (const [x, z] of SNOWMEN) this.grid.setObject(Math.floor(x), Math.floor(z), on ? { kind: 'prop', id: 'snowman', solid: true } : null);
     }
   }

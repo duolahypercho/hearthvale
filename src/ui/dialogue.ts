@@ -21,7 +21,8 @@ import { itemDef } from '../data/items';
 export interface DialogueBoxApi {
   say(id: NpcId, text: string, mood?: Mood): Promise<void>;
   narrate(text: string): Promise<void>;
-  choose(id: NpcId, q: string | undefined, options: string[], mood?: Mood): Promise<number>;
+  /** `locked`: a co-op spectator's view of someone else's choice (options shown, not pickable, with this note). */
+  choose(id: NpcId, q: string | undefined, options: string[], mood?: Mood, locked?: string): Promise<number>;
   /** Hide the box (scripted mode). */
   end(): void;
   /** Letterbox bars + optional title card. */
@@ -55,16 +56,18 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 { bottom: 24px; width: min(1140px, calc(100vw - 40px)); gap: 14px; align-items: flex-end; }
 /* The parchment fills the whole text box; text is anchored top-left so the reading position never moves. */
 /* The text box keeps a compact height (3 lines) and sits level with the bottom of the taller portrait card. */
-.hv-dialogue.dlg2 .dlg-box { min-height: 206px; display: flex; flex-direction: column; margin-bottom: 4px; }
+.hv-dialogue.dlg2 .dlg-box { min-height: 0; display: flex; flex-direction: column; margin-bottom: 4px; }
 .hv-dialogue.dlg2 .dlg-box:has(.dlg-choices) .dlg-next { display: none !important; }
-.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; padding: 40px 48px 30px; overflow: hidden;
+.hv-dialogue.dlg2 .dlg-box:has(.dlg-choices) .dlg-text { min-height: 0; }
+.hv-dialogue.dlg2 .dlg-box:has(.dlg-choices) .dlg-text:empty { display: none; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; padding: 34px 48px 26px; overflow: hidden;
   box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.35), inset 0 0 0 2px rgba(150, 100, 50, 0.25), inset 0 0 38px rgba(150, 90, 30, 0.2); }
 /* Ink flourishes in the parchment corners + a pressed rule under the text. */
 .hv-dialogue.dlg2 .dlg-box .hv-inner::before, .hv-dialogue.dlg2 .dlg-box .hv-inner::after { content: ''; position: absolute; width: 58px; height: 58px; pointer-events: none; opacity: 0.5;
   background: var(--dlg-flourish) center / contain no-repeat; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner::before { left: 8px; top: 8px; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner::after { right: 8px; bottom: 8px; transform: rotate(180deg); }
-.hv-dialogue.dlg2 .dlg-text { min-height: 0; font-size: 30px; line-height: 42px; letter-spacing: 0.1px; position: relative; z-index: 1; }
+.hv-dialogue.dlg2 .dlg-text { min-height: 84px; font-size: 30px; line-height: 42px; letter-spacing: 0.1px; position: relative; z-index: 1; }
 .hv-dialogue.dlg2 .dlg-text .rest { visibility: hidden; }
 .hv-dialogue.dlg2 .dlg-next { right: 26px; bottom: 16px; z-index: 2; }
 .hv-dialogue.dlg2 .dlg-speaker { position: absolute; top: -17px; left: 34px; z-index: 3; line-height: 26px; pointer-events: none; font-family: var(--font-head); font-weight: 700; font-size: 21px; color: #fff; padding: 3px 18px 5px; border-radius: 10px;
@@ -82,7 +85,7 @@ const CSS = /* css */ `
   box-shadow: inset 0 0 24px rgba(70, 36, 12, 0.38), inset 0 0 3px rgba(70, 36, 12, 0.5); }
 .hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: 8px; font-size: 24px; padding: 0 20px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
 .hv-dialogue.dlg2 .dlg-role { max-width: 310px; font-size: 13.5px; line-height: 16px; margin-top: 3px; }
-.hv-dialogue.dlg2.cine { bottom: calc(7.5vh + 16px); transition: bottom 400ms var(--ease-out); }
+.hv-dialogue.dlg2.cine { bottom: calc(4.6vh + 14px); transition: bottom 400ms var(--ease-out); }
 .hv-hud.hv-heartcine .h-clock, .hv-hud.hv-heartcine .hv-toolbar, .hv-hud.hv-heartcine .hv-energy, .hv-hud.hv-heartcine .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }
 .hv-dialogue.dlg2 .dlg-portrait .layer svg { animation: dlgBreathe 3.2s ease-in-out infinite; transform-origin: 50% 90%; }
@@ -119,15 +122,23 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 .dlg-choice.sel { background: #fff6dc; border-color: #c8573e; transform: translateX(6px); box-shadow: 0 3px 0 rgba(120,60,20,.25); }
 .hv-dialogue.dlg2 .dlg-choice.sel::before { content: ''; position: absolute; }
 .hv-dialogue.dlg2 .dlg-q { font-size: 23px; line-height: 32px; }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice { pointer-events: none; opacity: 0.62; }
+.hv-dialogue.dlg2 .dlg-wait { font-family: var(--font-body); font-weight: 800; font-size: 17px; color: #8a5a34; text-align: center; animation: dlgWait 1.4s ease-in-out infinite alternate; }
+@keyframes dlgWait { from { opacity: 0.45; } to { opacity: 1; } }
 .dlg-letterbox { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
 .dlg-letterbox::before, .dlg-letterbox::after { content: ''; position: absolute; left: 0; right: 0; height: 0; background: #120a06; transition: height 520ms var(--ease-out); }
 .dlg-letterbox::before { top: 0; }
 .dlg-letterbox::after { bottom: 0; }
-.dlg-letterbox.on::before, .dlg-letterbox.on::after { height: 7.5vh; }
-.dlg-title { position: absolute; left: 50%; top: 3.75vh; transform: translate(-50%, -50%); text-align: center; pointer-events: none; opacity: 0; transition: opacity 700ms, translate 700ms var(--ease-out); translate: 0 -6px; z-index: 6; white-space: nowrap;
+.dlg-letterbox.on::before, .dlg-letterbox.on::after { height: 4.6vh; }
+/* (thin bars: the scene keeps the frame; the title floats over a soft dark band instead of a slab) */
+.dlg-letterbox.on::before { box-shadow: 0 0 0 0 transparent; background: linear-gradient(180deg, #120a06 0%, #120a06 70%, rgba(18,10,6,0.85) 100%); }
+.dlg-letterbox::before { height: 0; }
+.dlg-title::before { content: ''; position: absolute; left: -60px; right: -60px; top: -14px; bottom: -14px; z-index: -1; border-radius: 999px;
+  background: radial-gradient(closest-side, rgba(18,10,6,0.62), rgba(18,10,6,0)); }
+.dlg-title { position: absolute; left: 50%; top: 4.6vh; transform: translate(-50%, -50%); text-align: center; pointer-events: none; opacity: 0; transition: opacity 700ms, translate 700ms var(--ease-out); translate: 0 -6px; z-index: 6; white-space: nowrap;
   display: flex; align-items: center; gap: 16px; }
 .dlg-title.on { opacity: 1; translate: 0 0; }
-.dlg-title.dim { opacity: 0.55; }
+.dlg-title.dim { opacity: 0.88; }
 .dlg-title .t { font-family: var(--font-head); font-weight: 700; font-size: clamp(22px, 3.3vh, 36px); color: #fff4dc; text-shadow: 0 2px 0 #5a2a10, 0 0 18px rgba(255, 190, 110, .35); letter-spacing: 0.6px; }
 .dlg-title .s { font-family: var(--font-body); font-weight: 800; font-size: clamp(12px, 1.6vh, 17px); color: #f6c89a; display: flex; gap: 7px; align-items: center; justify-content: center; padding: 3px 12px 4px; border-radius: 999px; border: 1.5px solid rgba(246, 200, 154, .45); }
 .dlg-title .s svg { width: 16px; height: 14px; }
@@ -332,7 +343,7 @@ export class DialoguePanel implements Panel {
     game.provide('dialogueBox', {
       say: (id, text, mood) => this.scriptedSay(id, text, mood ?? 'neutral'),
       narrate: (text) => this.scriptedNarrate(text),
-      choose: (id, q, options, mood) => this.scriptedChoose(id, q, options, mood ?? 'thinking'),
+      choose: (id, q, options, mood, locked) => this.scriptedChoose(id, q, options, mood ?? 'thinking', locked),
       end: () => this.endScripted(),
       cinema: (on, title, sub) => this.cinema(on, title, sub),
       finishLine: () => this.finishLine(),
@@ -442,10 +453,10 @@ export class DialoguePanel implements Panel {
     return this.line_(null, text, 'neutral');
   }
 
-  private scriptedChoose(id: NpcId, q: string | undefined, options: string[], mood: Mood): Promise<number> {
+  private scriptedChoose(id: NpcId, q: string | undefined, options: string[], mood: Mood, locked?: string): Promise<number> {
     this.scripted = true;
     this.show(id, true);
-    return this.choice_(id, q ?? '', options, mood);
+    return this.choice_(id, q ?? '', options, mood, locked);
   }
 
   private endScripted(): void {
@@ -569,7 +580,8 @@ export class DialoguePanel implements Panel {
       this.titleCard.classList.remove('dim');
       this.titleCard.classList.add('on');
       window.clearTimeout(this.titleTimer);
-      this.titleTimer = window.setTimeout(() => this.titleCard.classList.add('dim'), 4200);
+      // Full brightness while it is read (≥ 2.5 s after the fade-in), then a gentle dim — never grey.
+      this.titleTimer = window.setTimeout(() => this.titleCard.classList.add('dim'), 5200);
     } else if (!on) this.titleCard.classList.remove('on', 'dim');
   }
 
@@ -645,7 +657,7 @@ export class DialoguePanel implements Panel {
     w?.();
   }
 
-  private choice_(id: NpcId, q: string, options: string[], mood: Mood): Promise<number> {
+  private choice_(id: NpcId, q: string, options: string[], mood: Mood, locked?: string): Promise<number> {
     this.setPortrait(id, mood);
     this.game.events.emit('npc:line', { id, mood });
     window.clearTimeout(this.timer);
@@ -671,6 +683,16 @@ export class DialoguePanel implements Panel {
       box.appendChild(b);
     });
     this.text.after(box);
+    if (locked) {
+      // Spectating (co-op): the options are the host's to pick; a soft pulsing note says so.
+      box.classList.add('locked');
+      const note = document.createElement('div');
+      note.className = 'dlg-wait';
+      note.textContent = locked;
+      box.appendChild(note);
+      this.choiceCount = 0;
+      return new Promise(() => undefined);
+    }
     this.choiceCount = options.length;
     this.selectChoice(0);
     return new Promise((r) => (this.choiceWaiter = r));

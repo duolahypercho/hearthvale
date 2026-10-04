@@ -10,9 +10,50 @@
  * Nine moods: neutral, happy, laugh, sad, angry, surprised, blush, worried, thinking — each drives
  * lids, gaze, brows, mouth, blush and little manga marks (tear, sweat drop, anger vein, sparkles).
  */
-import type { NpcLook, Mood, Backdrop } from '../data/npcs';
+import { lookOwner, seasonLook, type NpcLook, type Mood, type Backdrop } from '../data/npcs';
+import type { Season } from '../core/time';
+import { renderVillagerPortrait } from '../entities/villager';
 
 export type { Mood };
+
+/**
+ * The cast's portraits are their own 3D models (entities/villager.ts renderVillagerPortrait: the
+ * same mesh, colours, hair, hat, face rig and mood pose), composited here over the painted backdrop
+ * with the mood's colour temperature and manga marks — so the card and the villager in the street
+ * are unmistakably one character (r3 critic: the painted bust had other hair, skin and freckles).
+ * The painted SVG bust below stays the fallback (no WebGL) and draws festival extras.
+ */
+let portraitSeason: Season = 'spring';
+/** The season whose wardrobe the portraits wear (NpcSystem pushes it). */
+export function setPortraitSeason(s: Season): void {
+  portraitSeason = s;
+}
+const P3D = new Map<string, string | null>();
+/** Painted-mode switch for A/B shots and tests (`__game` eval): false = the SVG bust. */
+export const portraitOpts = { model3d: true };
+
+/** Data URL of the 3D bust for this look + mood (cached), or null (not a villager / no WebGL). */
+export function portrait3dUrl(look: NpcLook, mood: Mood): string | null {
+  if (!portraitOpts.model3d) return null;
+  const own = lookOwner(look);
+  if (!own) return null;
+  const L = own.season === null ? seasonLook(own.def, portraitSeason) : look;
+  const key = `${own.def.id}|${own.season ?? portraitSeason}|${mood}`;
+  if (P3D.has(key)) return P3D.get(key)!;
+  const c = renderVillagerPortrait(own.def, L, mood);
+  let url: string | null = null;
+  if (c) {
+    url = c.toDataURL('image/webp', 0.9);
+    if (!url.startsWith('data:image/webp')) url = c.toDataURL('image/png');
+  }
+  P3D.set(key, url);
+  return url;
+}
+
+/** Warm the cache (idle time, e.g. when the talk prompt pops over a villager). */
+export function prewarmPortraits(look: NpcLook, moods: Mood[]): void {
+  for (const m of moods) portrait3dUrl(look, m);
+}
 
 const css = (h: number): string => `#${h.toString(16).padStart(6, '0')}`;
 function shade(h: number, k: number): string {
@@ -522,6 +563,62 @@ function clothing(id: string, L: NpcLook, sw: number): string {
 
 /** Portrait SVG for a look + mood. */
 export function portraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'happy'): string {
+  const url = portrait3dUrl(look, mood);
+  if (url) return modelPortraitSvg(url, look, bg, mood);
+  return paintedPortraitSvg(look, bg, mood);
+}
+
+/**
+ * The 3D bust over the painted place: backdrop + the mood's light (warm joy, cool sorrow, a hot red
+ * edge for anger, rays for surprise / laughter), a soft contact shadow, the render, then manga marks
+ * round the head (tear, sweat drop, anger vein, sparkles, thought bubbles) and the canvas grain.
+ * The head sits at ≈ (100, 90) with a radius of ≈ 64 (see renderVillagerPortrait's framing).
+ */
+function modelPortraitSvg(url: string, look: NpcLook, bg: [number, number], mood: Mood): string {
+  const id = `p${uid++}`;
+  const p: string[] = [];
+  p.push(`<defs>
+    <radialGradient id="${id}bg" cx="42%" cy="34%" r="80%"><stop offset="0" stop-color="${shade(bg[0], 1.1)}"/><stop offset="0.6" stop-color="${css(bg[0])}"/><stop offset="1" stop-color="${css(bg[1])}"/></radialGradient>
+    <radialGradient id="${id}vig" cx="50%" cy="46%" r="72%"><stop offset="0.62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#2a1408" stop-opacity="0.34"/></radialGradient>
+    <linearGradient id="${id}shaft" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff8e0" stop-opacity="0"/><stop offset="0.5" stop-color="#fff8e0" stop-opacity="0.32"/><stop offset="1" stop-color="#fff8e0" stop-opacity="0"/></linearGradient>
+    <linearGradient id="${id}cool" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a3a7a" stop-opacity="0.05"/><stop offset="1" stop-color="#2a3a7a" stop-opacity="0.35"/></linearGradient>
+    <radialGradient id="${id}hot" cx="50%" cy="46%" r="70%"><stop offset="0.55" stop-color="#ff3a1a" stop-opacity="0"/><stop offset="1" stop-color="#c81a0a" stop-opacity="0.5"/></radialGradient>
+    <radialGradient id="${id}halo" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#fff8e6" stop-opacity="0.55"/><stop offset="1" stop-color="#fff8e6" stop-opacity="0"/></radialGradient>
+    <filter id="${id}dof" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="2.6"/></filter>
+    <filter id="${id}soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5"/></filter>
+    <filter id="${id}grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="4"/><feColorMatrix type="saturate" values="0"/></filter>
+  </defs>`);
+  p.push(backdrop(id, bg, look.backdrop));
+  const pz = POSE[mood] ?? POSE.neutral;
+  p.push(`<rect width="200" height="200" fill="${pz.tint}" opacity="${pz.tintA}" style="mix-blend-mode:${mood === 'sad' || mood === 'worried' ? 'multiply' : 'soft-light'}"/>`);
+  if (mood === 'sad') p.push(`<rect width="200" height="200" fill="url(#${id}cool)"/>`);
+  if (mood === 'angry') p.push(`<rect width="200" height="200" fill="url(#${id}hot)"/>`);
+  if (mood === 'surprised' || mood === 'laugh')
+    p.push(`<g opacity="${mood === 'surprised' ? 0.45 : 0.3}" stroke="#fffbe8" stroke-width="4" stroke-linecap="round">${Array.from({ length: 14 }, (_, i) => {
+      const a = (i / 14) * Math.PI * 2 + 0.2;
+      return `<path d="M${100 + Math.cos(a) * 74} ${80 + Math.sin(a) * 74} L ${100 + Math.cos(a) * 104} ${80 + Math.sin(a) * 104}"/>`;
+    }).join('')}</g>`);
+  // A soft light pool behind the head lifts the silhouette off the busy backdrop.
+  p.push(`<ellipse cx="96" cy="84" rx="80" ry="74" fill="url(#${id}halo)"/>`);
+  p.push(`<ellipse cx="104" cy="206" rx="78" ry="22" fill="#2a1408" opacity="0.3" filter="url(#${id}soft)"/>`);
+  p.push(`<image href="${url}" x="0" y="0" width="200" height="200" preserveAspectRatio="xMidYMid meet"/>`);
+  // Manga marks round the head (head centre ≈ 100,76, radius ≈ 56; the face turns to the left).
+  const hx = 100;
+  const top = 22;
+  const R = 64;
+  if (mood === 'worried') p.push(`<path d="M${hx + R - 4} ${top + 26} q -7 10 0 15 q 7 -5 0 -15 Z" fill="#9ad4f4" stroke="#4a8ac0" stroke-width="1.4"/>`);
+  if (mood === 'angry') p.push(`<g stroke="#d8342a" stroke-width="3.2" fill="none" stroke-linecap="round"><path d="M${hx + R - 14} ${top + 6} q 5 5 10 0 M${hx + R - 9} ${top + 1} q 5 5 0 10 M${hx + R + 1} ${top + 6} q -5 5 -10 0"/></g>`);
+  if (mood === 'surprised') p.push(`<g stroke="#5a3a2a" stroke-width="2.6" stroke-linecap="round"><path d="M${hx - R - 4} ${top + 10} l -9 -7 M${hx - R + 2} ${top} l -5 -10 M${hx + R + 4} ${top + 10} l 9 -7 M${hx + R - 2} ${top} l 5 -10"/></g>`);
+  if (mood === 'blush' || mood === 'laugh' || mood === 'happy') p.push(`<g fill="#fff6c0" stroke="#e8b84a" stroke-width="0.9"><path d="M${hx + R + 8} ${top + 8} l 2.4 6 l 6 2.4 l -6 2.4 l -2.4 6 l -2.4 -6 l -6 -2.4 l 6 -2.4 Z"/>${mood === 'happy' ? '' : `<path d="M${hx - R - 8} ${top + 34} l 1.6 4 l 4 1.6 l -4 1.6 l -1.6 4 l -1.6 -4 l -4 -1.6 l 4 -1.6 Z"/>`}</g>`);
+  if (mood === 'blush') p.push(`<g fill="#ff8fab" stroke="#c8506a" stroke-width="1"><path d="M${hx + R + 2} ${top + 40} c -4 -5 -10 -1 -6 4 l 6 6 l 6 -6 c 4 -5 -2 -9 -6 -4 Z"/></g>`);
+  if (mood === 'thinking') p.push(`<g fill="#fffaf0" stroke="#7a5a3a" stroke-width="1.5"><circle cx="${hx + R + 6}" cy="${top + 8}" r="3.2"/><circle cx="${hx + R + 15}" cy="${top - 3}" r="4.8"/><circle cx="${hx + R + 26}" cy="${top - 18}" r="7.5"/></g>`);
+  if (mood === 'sad') p.push(`<g stroke="#4a6ab0" stroke-width="2" stroke-linecap="round" opacity="0.55"><path d="M${hx - R - 6} ${top + 20} v 12 M${hx - R - 14} ${top + 30} v 12 M${hx + R + 8} ${top + 24} v 12"/></g>`);
+  p.push(`<rect width="200" height="200" filter="url(#${id}grain)" opacity="0.09" style="mix-blend-mode:overlay"/>`);
+  return `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">${p.join('')}</svg>`;
+}
+
+/** The painted SVG bust (fallback without WebGL; festival extras). */
+export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'happy'): string {
   const id = `p${uid++}`;
   const L = look;
   const m0 = MOOD[mood] ?? MOOD.happy;
