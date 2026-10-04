@@ -5661,7 +5661,7 @@ body.u-calm .de-star .medal {
 /* ═══ r4 pause: the co-op card's perk list carries the whole middle (no void above the farmers), the
    neighbour nudge is one full-width tight line under the faces. ═══ */
 .pause-wrap > .coop-pause > .u-paper::after {
-  content: '\2767  Shared fields, gold & bin\A \2767  Your own pack and energy\A \2767  All sleep to end the day\A \2767  T to chat \00B7  hold G to emote\A \2767  The host\2019s journal keeps the farm';
+  content: '\2767  Shared fields, gold & bin\A \2767  Your own pack and energy\A \2767  All sleep to end the day\A \2767  T to chat \00B7  hold G to emote\A \2767  Saved in the host\2019s journal';
   line-height: 1.95;
   padding-bottom: 160px;
 }
@@ -5732,4 +5732,40 @@ body.u-calm .de-star .medal {
   inset: 0;
   pointer-events: none;
   background: radial-gradient(ellipse 75% 70% at 50% 48%, rgba(255, 214, 150, 0.1), transparent 60%, rgba(20, 8, 2, 0.32) 100%);
+}
+.craft-detail .cd-prev .pv-stage {
+  place-items: center;
+}
+.pv-legend {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 2px 0 2px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #6a4a2a;
+}
+.pv-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pv-legend i {
+  width: 12px;
+  height: 8px;
+  transform: skewX(-30deg);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.8), 0 0 0 1px rgba(60, 30, 10, 0.35);
+}
+.pv-legend i.ok {
+  background: #7ed86a;
+}
+.pv-legend i.no {
+  background: #e65a4a;
+}
+.pv-legend i.wet {
+  background: #4aa0e8;
+}
+.pv-legend i.ring {
+  background: #f0c060;
 }

@@ -161,7 +161,7 @@ export class CraftingScreen extends Screen {
             ? (() => {
                 const sm = sampleWorld(this.game);
                 const where = sm ? (sm.ok ? 'In front of you · free tile' : 'In front of you · blocked, step aside') : previewNote(r.out.itemId);
-                return `<div class="cd-prev"><div class="cd-h">Placement<em class="${sm && !sm.ok ? 'no' : 'ok'}">${sm ? (sm.ok ? 'fits' : 'blocked') : ''}</em></div><div class="pv-stage">${previewSvg(r.out.itemId, sm)}</div><small>${where}</small><small class="sub">${previewNote(r.out.itemId)}</small></div>`;
+                return `<div class="cd-prev"><div class="cd-h">Placement<em class="${sm && !sm.ok ? 'no' : 'ok'}">${sm ? (sm.ok ? 'fits' : 'blocked') : ''}</em></div><div class="pv-stage">${previewSvg(r.out.itemId, sm)}</div><div class="pv-legend"><span><i class="ok"></i>free tile</span>${SPRINKLERS[r.out.itemId] ? '<span><i class="wet"></i>watered</span>' : r.out.itemId === 'scarecrow' ? '<span><i class="ring"></i>crow-safe</span>' : ''}<span><i class="no"></i>blocked</span></div><small>${where}</small><small class="sub">${previewNote(r.out.itemId)}</small></div>`;
               })()
             : `<div class="cd-prev bag"><div class="cd-h">Goes to</div><div class="pv-stage"><div class="bagpic">${ICONS.bag ?? ''}<div class="in">${known ? itemIcon(r.out.itemId) : ''}</div></div></div><small>Into your backpack</small></div>`
         }

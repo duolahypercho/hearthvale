@@ -151,7 +151,7 @@ export class PauseScreen extends Screen {
           return `<div class="td-friend meet"><span class="pf">${face}</span><div><b>${escapeHtml(shortName(n.name))}</b></div></div>`;
         })
         .join('');
-      return `<div class="td-friends meet"><div class="lbl">${ICONS.heart ?? ''}<span>Neighbours to meet</span></div><div class="row">${faces}</div><small class="nudge">Say hello in the square — a small gift goes a long way.</small></div>`;
+      return `<div class="td-friends meet"><div class="lbl">${ICONS.heart ?? ''}<span>Neighbours to meet</span></div><div class="row">${faces}</div><small class="nudge">Say hello — a small gift goes a long way.</small></div>`;
     }
     const top = close;
     const row = top
