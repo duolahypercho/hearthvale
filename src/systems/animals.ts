@@ -41,6 +41,7 @@ import type { PenAnchors } from '../world/interiors/pen';
 import { imat } from '../world/interiors/kit';
 import { lumpySphere, prep } from '../world/geom';
 import { SITES, PASTURE_PROPS, YARD } from '../world/buildings/farm';
+import { pondUniforms, MAX_DUCKS } from '../world/buildings/pond';
 import { Rng } from '../core/rng';
 import { textures } from '../render/textures';
 
@@ -174,6 +175,8 @@ export interface AnimalSummary {
   pet?: { name: string; species: 'dog' | 'cat'; bowl: boolean };
   /** The morning's to-do list (end-of-day card "Tomorrow's chores"): icon item id + short line. */
   chores?: { icon: string; text: string }[];
+  /** Eggs still sitting in the nests from earlier days (not part of tonight's `produce`). */
+  leftover?: number;
 }
 
 const CAP = 6;
@@ -205,6 +208,8 @@ export class AnimalSystem implements System, AnimalsApi {
   private demoHeartT = 0;
   /** Demo: the animal the staged petting hearts go to (null = whoever is nearest the farmer). */
   private demoPet: Live | null = null;
+  /** Demo staging: animals dozing through the day (a hen napping in the sunbeam). */
+  private nappers = new Set<Live>();
   private checkT = 0;
   private rng = new Rng('animals');
   /** Morning notes (hungry animals...), shown once the farmer is up again. */
@@ -495,8 +500,11 @@ export class AnimalSystem implements System, AnimalsApi {
           const l = this.live.find((v) => v.rec === r);
           if (l) {
             const from = this.peerFarmer(peer);
-            l.actor.pet(from ?? this.game.player.position);
-            this.pops.heart(l.actor.topPoint(), l.actor, this.tagFor(l.actor, { name: r.name, hearts: Math.round(r.friendship / 100) / 2 }));
+            // (The staged co-op showcase keeps Maple drinking, head clear of Juniper's name tag.)
+            l.actor.pet(this.hands.length ? undefined : (from ?? this.game.player.position));
+            // (Heart only: the name card is the petting farmer's own read-out; on the host's screen a
+            // farmhand's pet stacked a second label next to their chat bubble.)
+            this.pops.heart(l.actor.topPoint(), l.actor);
           }
         }
         this.game.events.emit('animal:petted', { id: r.id, species: r.species, name: r.name, friendship: r.friendship });
@@ -676,7 +684,8 @@ export class AnimalSystem implements System, AnimalsApi {
         animals: report,
         produce,
         pet: { name: pet.name, species: pet.species, bowl },
-        chores: this.chores(),
+        chores: this.chores([...made.values()].reduce((a, b) => a + b, 0)),
+        leftover: Math.max(0, eggs.length - [...made.values()].reduce((a, b) => a + b, 0)),
       });
       this.morning = [];
       if (hungry.length === 1) this.morning.push({ text: `<b>${hungry[0]!.name}</b> looks hungry — fill the ${LIVESTOCK[hungry[0]!.species].home === 'barn' ? 'manger' : 'trough'} with hay`, icon: 'hay', kind: 'bad' });
@@ -693,7 +702,7 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   /** What's waiting for the farmer this morning (after the overnight roll-over). */
-  private chores(): { icon: string; text: string }[] {
+  private chores(fresh = this.st.eggs.length): { icon: string; text: string }[] {
     const out: { icon: string; text: string }[] = [];
     const st = this.st;
     const plural = (n: number, a: string, b = `${a}s`): string => `${n} ${n === 1 ? a : b}`;
@@ -701,7 +710,9 @@ export class AnimalSystem implements System, AnimalsApi {
     const wool = st.animals.filter((a) => a.ready && a.species === 'sheep');
     if (milk.length) out.push({ icon: produceFor(milk[0]!.species, milk[0]!.variant), text: `Milk ${milk.length === 1 ? milk[0]!.name : plural(milk.length, 'animal')}` });
     if (wool.length) out.push({ icon: 'wool', text: `Shear ${wool.length === 1 ? wool[0]!.name : plural(wool.length, 'sheep', 'sheep')}` });
-    if (st.eggs.length) out.push({ icon: st.eggs[0]!.item, text: `Collect ${plural(st.eggs.length, 'egg')} from the nests` });
+    // Tonight's lay apart from the eggs already waiting (the card's produce count is only tonight's).
+    const left = Math.max(0, st.eggs.length - fresh);
+    if (st.eggs.length) out.push({ icon: st.eggs[0]!.item, text: fresh && left ? `Collect ${plural(st.eggs.length, 'egg')} (${fresh} new)` : fresh ? `Collect ${plural(st.eggs.length, 'fresh egg')} from the nests` : `Collect ${plural(st.eggs.length, 'egg')} still in the nests` });
     if (st.truffles.length) out.push({ icon: 'truffle', text: `Dig up ${plural(st.truffles.length, 'truffle')} in the pasture` });
     for (const home of ['coop', 'barn'] as const) {
       const n = this.count(home);
@@ -711,7 +722,8 @@ export class AnimalSystem implements System, AnimalsApi {
     for (const home of ['coop', 'barn'] as const) {
       if (this.count(home) && !st.doors[home] && this.grazing()) out.push({ icon: 'hay', text: `Open the ${home} door — fine day for grazing` });
     }
-    if (!st.pet.bowl) out.push({ icon: 'wateringCan', text: `Fill ${st.pet.name}’s water bowl` });
+    // (The bowl is emptied overnight, so it's a top-up, not a forgotten chore.)
+    if (!st.pet.bowl) out.push({ icon: 'wateringCan', text: `Refill ${st.pet.name}’s water bowl` });
     if (st.animals.length) out.push({ icon: 'heart', text: `Say good morning to ${plural(st.animals.length, 'animal')}` });
     return out.slice(0, 5);
   }
@@ -771,6 +783,7 @@ export class AnimalSystem implements System, AnimalsApi {
   /** Rebuild the actors for the current map from the roster. */
   private respawn(): void {
     this.clearActors();
+    this.nappers.clear();
     this.refreshProps();
     const map = this.game.world.current;
     if (!map) return;
@@ -1143,7 +1156,8 @@ export class AnimalSystem implements System, AnimalsApi {
     const d = Math.hypot(dx, dz) || 1;
     dx /= d;
     dz /= d;
-    const want = a.gait.reach * a.scale + 0.6;
+    // Small birds stand a little further out: the crouching farmer's hat brim otherwise covers them.
+    const want = a.gait.reach * a.scale + (a.gait.top * a.scale < 0.9 ? 0.78 : 0.66);
     const tx = pp.x + dx * want;
     const tz = pp.z + dz * want;
     if (!a.walkable(tx, tz)) return;
@@ -1216,7 +1230,7 @@ export class AnimalSystem implements System, AnimalsApi {
       const hay = this.st.hay[pen.kind];
       for (const l of this.live) {
         if (!l.rec) continue;
-        l.actor.sleeping = night;
+        l.actor.sleeping = night || this.nappers.has(l);
         l.actor.hungry = !l.rec.fed && !!hay[l.slot];
       }
     } else if (this.mapId === 'farm') {
@@ -1287,11 +1301,13 @@ export class AnimalSystem implements System, AnimalsApi {
         this.demoHeartT = 1.15;
         const pp = game.player.position;
         const near = this.demoPet && this.live.includes(this.demoPet) ? this.demoPet : [...this.live].sort((a, b) => a.actor.pos.distanceTo(pp) - b.actor.pos.distanceTo(pp))[0];
-        if (near) this.petActor(near, true);
+        // Only an animal within arm's reach (a heart over a stall with nobody near read as a stray particle).
+        if (near && Math.hypot(near.actor.pos.x - pp.x, near.actor.pos.z - pp.z) < 2.2) this.petActor(near, true);
       }
     }
     if (this.hands.length) this.updateFarmhands(dt);
     this.pops.update(dt, game.rc.camera);
+    this.updatePond();
     this.updateLifts(dt);
     this.updateHarvest(dt);
     this.fadeHat(dt, game);
@@ -1302,6 +1318,25 @@ export class AnimalSystem implements System, AnimalsApi {
       this.dirtyT = 0.2;
       this.game.events.emit('animals:changed', { rev: ++this.rev });
     }
+  }
+
+  /** Ducks swimming on the paddock pond: their wake rings + contact shadow in the pond shader. */
+  private updatePond(): void {
+    const ducks = pondUniforms.uDucks.value;
+    let n = 0;
+    if (this.mapId === 'farm') {
+      const { pond } = YARD;
+      for (const l of this.live) {
+        if (n >= MAX_DUCKS) break;
+        const a = l.actor;
+        const q = ((a.pos.x - pond.x) / pond.rx) ** 2 + ((a.pos.z - pond.z) / pond.rz) ** 2;
+        if (q > 1.05) continue;
+        // Swimmers leave stronger wakes; anything wading at the edge only a faint ring.
+        const k = (l.rec?.species === 'duck' ? 1 : 0.4) * THREE.MathUtils.clamp((1.05 - q) * 3, 0, 1);
+        ducks[n++]!.set(a.pos.x, a.pos.z, k, l.rec ? l.rec.id * 1.7 : 0);
+      }
+    }
+    for (let i = n; i < MAX_DUCKS; i++) ducks[i]!.z = 0;
   }
 
   private _farmers: THREE.Vector3[] = [];
@@ -1649,6 +1684,7 @@ export class AnimalSystem implements System, AnimalsApi {
   private stageDemo(name: string, showcase: string[]): void {
     this.demoHearts = 0;
     this.demoPet = null;
+    this.nappers.clear();
     this.poseFreeze = -1;
     this.poseT = -1;
     if (!showcase.includes('coop')) this.hands = [];
@@ -1677,8 +1713,9 @@ export class AnimalSystem implements System, AnimalsApi {
       { nest: 4, item: 'egg', q: 0 },
     ];
     st.hay.coop = [true, true, true, false, false, false];
-    // (Only two of the barn munching: the rest stand chin-up over their mangers, faces to camera.)
-    st.hay.barn = [true, false, false, false, true, false];
+    // (Only Hazel munching: the rest stand chin-up over their mangers, faces to camera — the pig's
+    // head down in the manger read as a pink back-end from above.)
+    st.hay.barn = [false, true, false, false, false, false];
     if (name === 'animals-pasture') st.truffles = [{ x: 47.5, z: 42.6, q: 2 }, { x: 49.8, z: 40.4, q: 1 }];
     // Interior showcases keep the pop doors shut so the flock is home.
     if (this.pen()) st.doors = { coop: false, barn: false };
@@ -1724,12 +1761,13 @@ export class AnimalSystem implements System, AnimalsApi {
       const free = this.live.find((l) => l.rec && !st.hay[pen.kind][l.slot] && l.rec.species === 'chicken') ?? this.live.find((l) => l.rec && !st.hay[pen.kind][l.slot]);
       const f = this.game.player.facing;
       const [fx, fz] = f === 'down' ? [0, 1] : f === 'up' ? [0, -1] : f === 'left' ? [-1, 0] : [1, 0];
-      // (a little to the side too, so its heart doesn't sit on the farmer's face)
-      const [sxo, szo] = fx === 0 ? [0.95, fz * 0.4] : [fx * 1.15, 0.6];
+      // (beside the farmer, only a touch towards the camera: in front, the crouching farmer's hat brim
+      // covered the hen and its heart floated beside a hat)
+      const [sxo, szo] = fx === 0 ? [0.95, fz * 0.4] : [fx * 1.2, 0.28];
       if (free) {
         const a = free.actor;
         const d = Math.hypot(sxo, szo);
-        const want = a.gait.reach * a.scale + 0.62;
+        const want = a.gait.reach * a.scale + 0.78;
         const x = pp.x + (sxo / d) * want;
         const z = pp.z + (szo / d) * want;
         a.area = { x0: x - 0.05, z0: z - 0.05, x1: x + 0.05, z1: z + 0.05 };
@@ -1759,11 +1797,24 @@ export class AnimalSystem implements System, AnimalsApi {
           roost.actor.place(bar.x, bar.z, 0.3);
           roost.actor.settle();
         }
+        // One dozes in the sun-warmed straw nest under the back window.
+        const nap = this.live.find((l) => l.rec && l !== free && l !== bath && l !== roost && !l.actor.hungry);
+        if (nap) {
+          nap.actor.sleeping = true;
+          // (its own bed is under the roost: a sleeper walks home to its bed spot)
+          nap.actor.bedSpot = new THREE.Vector3(3.85, 0, 1.73);
+          nap.actor.calm = true;
+          nap.actor.curious = false;
+          nap.actor.area = { x0: 3.82, z0: 1.7, x1: 3.88, z1: 1.76 };
+          nap.actor.place(3.85, 1.73, 0.6);
+          nap.actor.settle();
+          this.nappers.add(nap);
+        }
         // Anyone left over potters at the waterer / feeder (never drifting into the petting shot).
         const spare: [number, number, number][] = [[6.3, 3.85, 2.1], [4.85, 3.35, -2.2], [6.9, 2.75, 3.0]];
         let si = 0;
         for (const l of this.live) {
-          if (!l.rec || l === free || l === bath || l === roost || l.actor.hungry) continue;
+          if (!l.rec || l === free || l === bath || l === roost || l === nap || l.actor.hungry) continue;
           const sp = spare[si++];
           if (!sp) break;
           l.actor.curious = false;
@@ -1804,8 +1855,10 @@ export class AnimalSystem implements System, AnimalsApi {
       const spots: Record<string, [number, number, number][]> = {
         cow: close ? [[trough.x - 1.25, trough.z + 0.2, Math.PI / 2], [47.4, 37.9, 1.9]] : [[trough.x - 1.25, trough.z + 0.25, Math.PI / 2], [46.3, 39.6, -0.45]],
         sheep: close ? [[44.6, 40.6, 0], [48.7, 37.5, 2.3]] : [[47.55, 37.65, 0.5], [48.4, 37.25, -0.4]],
-        goat: [[41.35, 42.55, Math.atan2(-0.8, -0.85)]],
-        pig: [[wallow.x - 0.05, wallow.z - 0.05, 0.35]],
+        // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the
+        // farmer the crouch put the hat brim over the goat's head.
+        goat: [[41.5, 41.78, Math.atan2(-1.2, -0.28)]],
+        pig: [[wallow.x - 0.05, wallow.z - 0.05, -0.45]],
         chicken: [[40.0, 38.5, 2.4], [40.95, 37.75, -1.1], [41.55, 38.75, 0.4], [39.2, 37.7, 1.9]],
         duck: [[pond.x - 0.35, pond.z - 0.05, 1.3], [pond.x + 0.65, pond.z + 0.2, -2.2]],
       };
@@ -1846,6 +1899,11 @@ export class AnimalSystem implements System, AnimalsApi {
           l.actor.settle();
           // Birds potter about their own patch (a wandering hen ended up stacked behind another one).
           if (k === 'chicken' || k === 'duck') l.actor.area = { x0: s[0] - 0.3, z0: s[1] - 0.3, x1: s[0] + 0.3, z1: s[1] + 0.3 };
+          // The pig keeps to its wallow, snout to the camera (it wandered off and showed its rump).
+          if (k === 'pig') {
+            l.actor.area = { x0: s[0] - 0.08, z0: s[1] - 0.08, x1: s[0] + 0.08, z1: s[1] + 0.08 };
+            l.actor.calm = true;
+          }
           // The farmer's petting partner holds its spot.
           if (k === 'goat' && !showcase.includes('pet-close')) {
             l.actor.area = { x0: s[0] - 0.05, z0: s[1] - 0.05, x1: s[0] + 0.05, z1: s[1] + 0.05 };
@@ -1877,10 +1935,11 @@ export class AnimalSystem implements System, AnimalsApi {
       if (pet && name === 'animals-pasture') {
         // Sits in its own clearing up-field of the goat (its name card pops right where the pet used
         // to sit and hid it), between the hens and the cow, face to the camera.
-        pet.actor.area = { x0: 42.45, z0: 39.35, x1: 42.75, z1: 39.65 };
+        // (up-field of the goat's heart + name card, which used to cover it)
+        pet.actor.area = { x0: 43.1, z0: 38.75, x1: 43.4, z1: 39.05 };
         pet.actor.blockers = PASTURE_PROPS;
         pet.actor.curious = false;
-        pet.actor.place(42.6, 39.5, 0.25);
+        pet.actor.place(43.25, 38.9, 0.25);
       } else if (pet) {
         // Yard shot: sitting by the bowl, looking up at the farmer.
         pet.actor.area = { x0: SITES.bowl.x - 1.2, z0: SITES.bowl.z + 0.2, x1: SITES.bowl.x - 0.2, z1: SITES.bowl.z + 1.0 };

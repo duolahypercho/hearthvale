@@ -15,6 +15,7 @@ import type { GameMap } from '../map';
 import { Rng } from '../../core/rng';
 import { mergeStatic, MeshBuilder, mat, lumpySphere } from '../geom';
 import { buildFence } from '../props/structures';
+import { PondBuilder } from './pond';
 import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, barnLeaf, coopHatch, COOP_SIZE, BARN_SIZE, BARN_SILO } from './models';
 
 export type BuildingKind = 'coop' | 'barn';
@@ -76,6 +77,8 @@ const LONG_DEBRIS = new Set(['log', 'branch', 'stump']);
 export class FarmBuildings {
   private group = new THREE.Group();
   private merged: THREE.Group | null = null;
+  /** The paddock's shaded water + mud (pond, wallow, trough aprons): one mesh, own shader. */
+  private pools: THREE.Mesh | null = null;
   private cleared = new Set<string>();
   private bowlWater: THREE.Mesh;
   private sig = '';
@@ -152,6 +155,11 @@ export class FarmBuildings {
       this.group.remove(this.merged);
       this.merged.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       this.merged = null;
+    }
+    if (this.pools) {
+      this.group.remove(this.pools);
+      this.pools.geometry.dispose();
+      this.pools = null;
     }
     const rng = new Rng('farm-buildings');
     const parts: THREE.Object3D[] = [];
@@ -372,32 +380,19 @@ export class FarmBuildings {
       }
     const b = new MeshBuilder();
     const y = (x: number, z: number): number => this.h(x, z);
-    // Mud: glossy, irregular puddle discs (the still-water material tinted to wet earth).
-    const puddle = (cx: number, cz: number, rx: number, rz: number, tint: number, lift = 0.022, n = 22): void => {
-      const shape = new THREE.Shape();
-      for (let i = 0; i <= n; i++) {
-        const a = (i / n) * Math.PI * 2;
-        const r = 0.82 + 0.22 * wobble(cx * 3 + Math.cos(a) * 2.2, cz * 3 + Math.sin(a) * 2.2);
-        const px = Math.cos(a) * rx * r;
-        const pz = Math.sin(a) * rz * r;
-        if (i === 0) shape.moveTo(px, pz);
-        else shape.lineTo(px, pz);
-      }
-      const g = new THREE.ShapeGeometry(shape, 1).rotateX(-Math.PI / 2);
-      b.add('stillWater', g, mat(cx, y(cx, cz) + lift, cz), { tint });
-    };
     const { trough, wallow, pond, rack } = YARD;
-    const MUD = 0xf0905c;
-    const MUD_DARK = 0xd87a4c;
-    puddle(trough.x - 0.75, trough.z + 0.35, 0.55, 0.85, MUD);
-    puddle(trough.x - 0.95, trough.z - 0.9, 0.32, 0.28, MUD_DARK, 0.024);
-    // The wallow: a wide mud bath with a glossier wet centre.
-    puddle(wallow.x, wallow.z, wallow.rx, wallow.rz, MUD_DARK);
-    puddle(wallow.x + 0.1, wallow.z - 0.05, wallow.rx * 0.55, wallow.rz * 0.5, 0xc8a080, 0.028);
-    // Duck pond: muddy rim, then clear water, lily pads, reeds and a ring of stones.
-    puddle(pond.x, pond.z, pond.rx + 0.18, pond.rz + 0.16, MUD, 0.02, 28);
-    puddle(pond.x, pond.z, pond.rx, pond.rz, 0xd8f4f2, 0.034, 28);
-    puddle(pond.x - 0.15, pond.z + 0.05, pond.rx * 0.62, pond.rz * 0.55, 0xa8d8e4, 0.036, 20);
+    // Water + mud get their own shader (pond.ts): depth-tinted water with foam, reflections and duck
+    // wakes; glossy wet mud with a crusted rim, hoof dimples and the odd bubble. One draw for all.
+    const pools = new PondBuilder(y);
+    pools.mud(trough.x - 0.75, trough.z + 0.35, 0.62, 0.95);
+    pools.mud(trough.x - 0.95, trough.z - 0.9, 0.36, 0.32, 0.024);
+    pools.mud(wallow.x, wallow.z, wallow.rx * 1.1, wallow.rz * 1.1);
+    // Duck pond: a wet muddy bank under clear water, lily pads, reeds and a ring of stones.
+    pools.mud(pond.x, pond.z, pond.rx + 0.3, pond.rz + 0.26, 0.02);
+    pools.water(pond.x, pond.z, pond.rx, pond.rz);
+    this.pools = pools.build();
+    this.pools.userData.perfTag = 'buildings';
+    this.group.add(this.pools);
     for (let i = 0; i < 4; i++) {
       const a = 0.6 + i * 1.3 + rng.next() * 0.4;
       const r = 0.45 + rng.next() * 0.3;

@@ -893,6 +893,7 @@ const _top = new THREE.Vector3();
 const _cp2 = new THREE.Vector3();
 const _right = new THREE.Vector3(1, 0, 0);
 const _toCam = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
 const easeOutBack = (x: number): number => {
   const c1 = 1.9;
   return 1 + (c1 + 1) * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
@@ -1044,8 +1045,12 @@ export class AnimalPops {
   update(dt: number, camera?: THREE.Camera): void {
     const cam = camera as THREE.PerspectiveCamera | undefined;
     const tanF = cam?.isPerspectiveCamera ? Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) : 0.32;
-    // World height of the whole view at distance d = 2·d·tan(fov/2): a sprite sized `px` of it stays constant on screen.
-    const screenK = (p: THREE.Vector3): number => (cam ? 2 * p.distanceTo(cam.position) * tanF : 20);
+    // World height of the whole view at view depth d = 2·d·tan(fov/2): a sprite sized `px` of it stays
+    // constant on screen. (View depth, not distance: by distance a tag near the screen edge grew ~1.3x.)
+    if (cam) _fwd.set(0, 0, -1).applyQuaternion(cam.quaternion);
+    const screenK = (p: THREE.Vector3): number => (cam ? 2 * Math.max(0.5, _toCam.copy(p).sub(cam.position).dot(_fwd)) * tanF : 20);
+    // One size step for every tag in the frame (from the farmer's depth), not per animal.
+    const refK = this.farmer && cam ? screenK(this.farmer) : 0;
     for (let i = this.pops.length - 1; i >= 0; i--) {
       const p = this.pops[i]!;
       p.t += dt;
@@ -1091,7 +1096,7 @@ export class AnimalPops {
         const pop = p.t < 0.16 ? easeOutBack(p.t / 0.16) : 1;
         const sk = screenK(o);
         // Constant on screen, a touch larger from far cameras (≥ 18 px text at 1080p everywhere).
-        const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(1 + (sk - 7) * 0.04, 1, 1.4) * pop;
+        const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(1 + ((refK || sk) - 7) * 0.04, 1, 1.4) * pop;
         const heart = (72 / 1080) * sk * 1.18;
         const w = h * (p.aspect ?? 3);
         if (camera) _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -1101,6 +1106,13 @@ export class AnimalPops {
           dir = fx > 0.05 ? -1 : 1;
         }
         if (p.side == null) p.side = dir;
+        // Safe area: a card that would cross the screen edge flips to the animal's other side.
+        if (cam && p.t < 0.05) {
+          const off = heart * 0.95 + w * 0.5;
+          const ndc = _cp2.set(o.x + _right.x * off * p.side, o.y, o.z + _right.z * off * p.side).project(cam);
+          const half = w / (sk * cam.aspect);
+          if (Math.abs(ndc.x) + half > 0.9 && Math.sign(ndc.x) === p.side) p.side = -p.side;
+        }
         const side = p.side * (heart * 0.95 + w * 0.5);
         p.sprite.position.set(o.x + _right.x * side, o.y + 0.35 + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);
         p.sprite.scale.set(w, h, 1);

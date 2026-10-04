@@ -168,7 +168,9 @@ export class CoopDemo {
    */
   private stageAnimals(mk: (i: number, x: number, z: number, facing: Facing, script: Bot['script']) => Bot): void {
     const idle: Bot['script'] = () => {};
-    this.bots = [mk(0, 49.1, 40.05, 'up', idle), mk(1, 37.75, 40.55, 'down', idle), mk(2, 47.15, 40.75, 'down', idle)];
+    // (Juniper pets Maple from the far side of her shoulder, facing the camera: from the near side she hid
+    // the cow and her chat bubble piled onto Rowan's.)
+    this.bots = [mk(0, 49.1, 38.1, 'down', idle), mk(1, 37.75, 40.55, 'down', idle), mk(2, 47.15, 40.75, 'down', idle)];
     this.net.refreshCabins(new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf], [2, PRESET_LOOKS[2]!.scarf]]));
     const line = (id: number, text: string): void => {
       const p = this.net.remotes.get(id);

@@ -56,6 +56,8 @@ export interface RoomSpec {
   timberLight?: number;
   /** Floor tint (e.g. darker packed straw so fresh hay piles read). */
   floorTint?: number;
+  /** Height of the cut-away front knee wall (default skirting height 0.3; the coop's pop door needs 0.42). */
+  kneeH?: number;
   wainscotTint?: number;
   /** Barn style: material of the lower wall band (with wainscotTint; default limewash). */
   lowerMat?: IMat;
@@ -244,7 +246,7 @@ export abstract class InteriorMap implements GameMap {
     // Floor + slab (its cut edge shows under the knee wall at the front).
     k.add(this.spec.floor, floorPlane(W, D + 0.02, this.spec.floor === 'straw' ? 0.5 : 1), new THREE.Matrix4().makeTranslation(W / 2, 0, D / 2), { tint: this.spec.floorTint ?? 0xffffff });
     k.box('stone', [W + 2 * T + 0.1, 0.5, D + 2 * T + 0.1], [W / 2, -0.52, D / 2], { tint: 0xa8947e, uv: 1.2 });
-    k.box('wood', [W + 2 * T + 0.14, 0.1, 0.12], [W / 2, -0.07, D + T + 0.04], { tint: 0x8a5a38, r: 0.03, uv: 1.5 });
+    k.box('wood', [W + 2 * T + 0.14, 0.1, 0.12], [W / 2, -0.07, D + T + 0.04], { tint: 0xa87048, r: 0.03, uv: 1.5 });
 
     const wallMat: IMat = this.spec.wallMat ?? (style === 'house' ? 'wallpaper' : 'barn');
     const wallTint = this.spec.wallTint ?? (style === 'house' ? 0xffffff : 0xd8c8b0);
@@ -260,19 +262,24 @@ export abstract class InteriorMap implements GameMap {
     k.box('wood', [T + 0.12, 0.12, D + 2 * T + 0.12], [-T / 2, H, D / 2], { tint: cap, r: 0.04, uv: 1.5 });
     k.box('wood', [T + 0.12, 0.12, D + 2 * T + 0.12], [W + T / 2, H, D / 2], { tint: cap, r: 0.04, uv: 1.5 });
 
-    // Knee wall at the front with the door gap.
-    const kneeH = 0.42;
+    // Knee wall at the front with the door gap: skirting height, capped with a plank of the room's own
+    // floor (the cut section reads as the floor turning the corner, lit and warm, not a dark slab) and a
+    // pale nosing on its outer edge (the section outline).
+    const kneeH = this.spec.kneeH ?? 0.3;
     const gap0 = this.spec.doorX - 0.1;
     const gap1 = this.spec.doorX + 1.1;
     const frontTint = style === 'house' ? 0xe8dcc4 : 0xb89a78;
     const frontMat: IMat = style === 'house' ? 'bead' : 'barn';
+    const straw = this.spec.floor === 'straw';
     for (const [a, b] of [[-T, gap0], [gap1, W + T]] as const) {
       const w = b - a;
       k.box(frontMat, [w, kneeH, T], [(a + b) / 2, 0, D + T / 2], { tint: frontTint, uv: 1 });
-      k.box('wood', [w + 0.06, 0.1, T + 0.12], [(a + b) / 2, kneeH, D + T / 2], { tint: cap, r: 0.04, uv: 1.5 });
+      k.box(straw ? 'plank' : 'floor', [w + 0.06, 0.08, T + 0.1], [(a + b) / 2, kneeH, D + T / 2], { tint: straw ? 0xf4dcb4 : 0xfff0dc, r: 0.03, uv: straw ? 1.2 : 1 });
+      k.box('paint', [w + 0.07, 0.035, 0.035], [(a + b) / 2, kneeH + 0.06, D + T + 0.035], { tint: style === 'house' ? 0xf6e8cc : 0xf0dcb8, r: 0.012 });
     }
-    // Threshold + mat
-    k.box('wood', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: 0x7a5236 });
+    // Threshold (worn oak, lit like the floor) + a fieldstone doorstep outside it
+    k.box(this.spec.floor === 'straw' ? 'plank' : 'floor', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: this.spec.floor === 'straw' ? 0xd8bc98 : 0xe8d0b0, uv: 1 });
+    k.box('stone', [gap1 - gap0 + 0.16, 0.14, 0.3], [(gap0 + gap1) / 2, -0.16, D + T + 0.17], { tint: 0xc8b8a0, r: 0.04, uv: 0.8 });
     this.statics.push(k.build('shell'));
 
     // Contact AO card: the floor darkens softly into every wall and corner (multiplied over the floor).
@@ -312,7 +319,7 @@ export abstract class InteriorMap implements GameMap {
     const ceil = new THREE.Mesh(new THREE.BoxGeometry(W + 4, 0.3, D + 4), caster);
     ceil.position.set(W / 2, H + 0.25, D / 2);
     const front = new THREE.Mesh(new THREE.BoxGeometry(W + 4, H, 0.3), caster);
-    front.position.set(W / 2, kneeH + H / 2, D + T + 0.3);
+    front.position.set(W / 2, (this.spec.kneeH ?? 0.3) + H / 2, D + T + 0.3);
     for (const m of [ceil, front]) {
       m.castShadow = true;
       m.receiveShadow = false;

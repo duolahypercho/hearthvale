@@ -587,8 +587,6 @@ export class HouseInterior extends InteriorMap {
     this.solid(3.75, 5.95, 4.6, 6.5, 'woodbox');
     // Big potted plant (front right) + a watering can by it
     this.pottedPlant(k, rng, 12.3, 7.3, 0, 1.2);
-    k.cyl('brass', 0.1, 0.12, 0.2, [11.6, 0, 7.5], { tint: 0x8ab0a0 });
-    k.add('brass', new THREE.CylinderGeometry(0.015, 0.02, 0.26, 6), mat(11.45, 0.2, 7.5, 0, 0, 0.9), { tint: 0x8ab0a0 });
     // Grandmother's writing desk under the east window: the letter, ink, a quill, spectacles
     const dx = 12.45;
     const dz = 5.7;
@@ -614,7 +612,7 @@ export class HouseInterior extends InteriorMap {
     k.cyl('thatch', 0.2, 0.16, 0.18, [10.5, 0, 4.3], { tint: 0xc8a068 });
     for (const [i, c] of [[0, 0xf4efe4], [1, 0xe8dcc8], [2, 0xd8b0a0]] as const) k.add('fabric', lumpySphere(0.075, 1, 0.25, rng), mat(10.45 + i * 0.07, 0.22, 4.27 + (i % 2) * 0.06), { tint: c });
     // Entry bench (front right): a settle with a plaid cushion, a basket of apples + a farm-gloves pair,
-    // a tin milk can and an umbrella leaning at its end — the farmer's drop zone by the door.
+    // a tin milk can at its end — the farmer’s drop zone by the door.
     const bx = 8.75;
     const bz = 7.45;
     k.box('wood', [1.45, 0.07, 0.42], [bx, 0.44, bz], { tint: OAK, r: 0.025, uv: 1.4 });
@@ -633,9 +631,6 @@ export class HouseInterior extends InteriorMap {
     k.cyl('tin', 0.1, 0.12, 0.34, [bx - 0.95, 0, bz - 0.02], { tint: 0xc8d0d4, seg: 18 });
     k.cyl('tin', 0.07, 0.1, 0.08, [bx - 0.95, 0.34, bz - 0.02], { tint: 0xc8d0d4, seg: 18 });
     k.cyl('tin', 0.075, 0.075, 0.04, [bx - 0.95, 0.42, bz - 0.02], { tint: 0xb0b8bc, seg: 18 });
-    k.add('fabric', new THREE.ConeGeometry(0.07, 0.72, 8), mat(bx + 0.88, 0.4, bz + 0.05, 0, 0, -0.2), { tint: 0x2f6a8a });
-    k.cyl('wood', 0.008, 0.008, 0.2, [bx + 0.96, 0.72, bz + 0.05], { rz: -0.2, tint: WALNUT });
-    k.add('wood', new THREE.TorusGeometry(0.045, 0.01, 5, 10, Math.PI), mat(bx + 1.0, 0.92, bz + 0.05, 0, 0, -0.2), { tint: WALNUT });
     this.solid(7.9, 7.1, 9.8, 7.9, 'bench');
     // Seed chest (front left): a painted blanket-box of seed packets, a crate of seed potatoes, sacks
     const cx = 2.35;
@@ -671,7 +666,7 @@ export class HouseInterior extends InteriorMap {
     this.glowPool(hx, hz - 0.1, 0.8, 0xffc080, () => this.light.night * 0.5 * (1 - this.dim), 0.02);
     // Gran's blanket trunk in the open floor between the hearth circle and the spinning wheel:
     // painted sea-green with a domed lid, brass corners + hasp, leather straps, a folded quilt on top
-    // and a ball of wool rolled off towards the rug (the cat's work).
+    // (no loose clutter on the open floor).
     {
       const tx = 9.3;
       const tz = 5.45;
@@ -691,12 +686,6 @@ export class HouseInterior extends InteriorMap {
       // Folded quilt (a thick stack, slightly askew)
       k.add('quilt', roundedBox(0.58, 0.11, 0.4, 0.04), P(-0.08, 0.56, 0.02, 0, 0.12, 0));
       k.add('fabric', roundedBox(0.5, 0.05, 0.34, 0.02), P(-0.1, 0.64, 0.04, 0, 0.2, 0), { tint: 0xe8dcc0 });
-      // Runaway ball of wool + its trailing strand
-      const bx = tx - 0.85;
-      const bz = tz + 0.35;
-      k.add('fabric', lumpySphere(0.07, 1, 0.12, rng), mat(bx, 0.07, bz), { tint: 0xc0504a });
-      const strand = new THREE.CatmullRomCurve3([new THREE.Vector3(bx + 0.06, 0.01, bz - 0.02), new THREE.Vector3(bx + 0.3, 0.008, bz - 0.12), new THREE.Vector3(bx + 0.45, 0.008, bz + 0.02), new THREE.Vector3(tx - 0.52, 0.01, tz + 0.12)]);
-      k.add('fabric', new THREE.TubeGeometry(strand, 16, 0.006, 4, false), mat(0, 0, 0), { tint: 0xc0504a });
     }
     this.statics.push(k.build('front'));
     this.solid(10.65, 4.2, 11.75, 5.25, 'spinning-wheel');
@@ -748,9 +737,24 @@ export class HouseInterior extends InteriorMap {
     const posts = [1.3, 3.2];
     for (const pz of posts) {
       k.cyl('wood', 0.055, 0.065, 2.28, [x, 0, pz], { tint: 0x7a4e32, seg: 12 });
-      k.sphere('wood', 0.075, [x, 2.34, pz], 0x7a4e32);
       k.cyl('wood', 0.08, 0.08, 0.08, [x, 0, pz], { tint: 0x5a3820, seg: 12 });
+      // Corbel brackets where each post meets the header
+      for (const sd of [-1, 1]) k.box('wood', [0.08, 0.14, 0.2], [x, 2.14, pz + sd * 0.1], { tint: 0x6a4028, r: 0.02 });
     }
+    // The posts carry a timber header from the back wall to a short half wall on the room side, so the
+    // nook reads as framed into the house (two free-standing posts read as floating set dressing).
+    const stub0 = posts[1]! + 0.05;
+    const stub1 = stub0 + 0.72;
+    k.box('wood', [0.17, 0.17, stub1 + 0.08], [x, 2.28, (stub1 - 0.08) / 2], { tint: 0x6a4028, r: 0.02, uv: 1.4 });
+    k.box('bead', [0.16, 1.05, stub1 - stub0], [x, 0, (stub0 + stub1) / 2], { tint: 0x98b0a8, uv: 1 });
+    k.box('paint', [0.2, 0.06, stub1 - stub0 + 0.08], [x, 1.05, (stub0 + stub1) / 2], { tint: 0xf2e8d2, r: 0.015 });
+    k.box('paint', [0.13, 0.12, stub1 - stub0], [x, 0, (stub0 + stub1) / 2], { tint: 0x6a4a34 });
+    k.cyl('wood', 0.06, 0.07, 2.28, [x, 0, stub1], { tint: 0x7a4e32, seg: 12 });
+    // On the half wall: a little jug of meadow flowers and a stack of two books
+    k.cyl('ceramic', 0.055, 0.045, 0.14, [x, 1.11, stub0 + 0.42], { tint: 0x5a7ea0, seg: 14 });
+    for (let i = 0; i < 5; i++) k.sphere('fabric', 0.03, [x + Math.cos(i * 1.3) * 0.05, 1.29 + (i % 2) * 0.03, stub0 + 0.42 + Math.sin(i * 1.3) * 0.05], [0xf4f0e4, 0xe8a0b0, 0xf4d060, 0xc8a0e0, 0xf4f0e4][i]!);
+    k.box('paint', [0.13, 0.04, 0.2], [x, 1.11, stub0 + 0.15], { tint: 0x8a3a3a, r: 0.008 });
+    k.box('paint', [0.12, 0.035, 0.18], [x, 1.15, stub0 + 0.16], { tint: 0x3a5a7a, r: 0.008, ry: 0.15 });
     const rod = new THREE.CylinderGeometry(0.022, 0.022, posts[1]! - posts[0]! + 0.1, 8);
     rod.rotateX(Math.PI / 2);
     k.add('brass', rod, mat(x, 2.2, (posts[0]! + posts[1]!) / 2));
@@ -776,6 +780,7 @@ export class HouseInterior extends InteriorMap {
     }
     this.statics.push(k.build('bed-nook'));
     this.solid(9.25, 0, 9.35, 1.25, 'partition');
+    this.solid(9.2, 3.25, 9.4, 4.0, 'partition-stub');
   }
 
   /** A low two-seat sofa (sage velvet), back to the door: cushions, rolled arms, a knitted throw. */

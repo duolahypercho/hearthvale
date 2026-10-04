@@ -55,6 +55,7 @@ export class CoopInterior extends InteriorMap {
       wainscotTint: 0x96acba,
       timberLight: 1.7,
       floorTint: 0xd4c6ae,
+      kneeH: 0.42,
       windows: [
         { wall: 'back', at: 3.75, w: 0.85, y0: 1.2, y1: 2.0 },
         { wall: 'right', at: 2.6, w: 0.8, y0: 1.2, y1: 1.9 },
@@ -99,6 +100,7 @@ export class CoopInterior extends InteriorMap {
     };
     this.furnish(rng, trough);
     this.popDoor();
+    this.driftFeathers();
     this.finalize();
   }
 
@@ -308,6 +310,87 @@ export class CoopInterior extends InteriorMap {
       for (let e = 0; e < 3; e++) k.sphere('ceramic', 0.035, [W - 0.2, 1.44, 0.74 + i * 0.42 + e * 0.11], e % 2 ? 0xd99a62 : 0xfbf5ea, [1, 1.25, 1]);
     }
     k.box('fabric', [0.18, 0.02, 0.9], [W - 0.2, 1.32, 1.1], { tint: 0xd86a5a });
+    // ── Dressing (r6): the coop used to read cheaper than the barn + house.
+    // Chalked slate name tags on every nest box lip (a scribbled name + a tally of eggs)
+    for (let row = 0; row < 2; row++)
+      for (let i = 0; i < 3; i++) {
+        const cx = nx0 + nw * (i + 0.5);
+        const y = 0.44 + row * 0.66 + 0.015;
+        k.box('paint', [0.36, 0.085, 0.012], [cx, y, 0.645], { tint: 0x2e3a34, r: 0.004 });
+        k.box('paint', [0.2 + ((i + row) % 3) * 0.04, 0.012, 0.004], [cx - 0.04, y + 0.045, 0.652], { tint: 0xe8e4d8 });
+        for (let t = 0; t < 1 + ((i * 2 + row) % 4); t++) k.box('paint', [0.008, 0.03, 0.004], [cx + 0.1 + t * 0.018, y + 0.028, 0.652], { tint: 0xe8e4d8 });
+      }
+    // A prize rosette pinned to the end of the nest plaque ("best layer", county show)
+    {
+      const rx = nx0 + nw * 3 - 0.02;
+      const ry = 1.86;
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        k.add('fabric', new THREE.CircleGeometry(0.045, 6).scale(0.55, 1, 1), mat(rx + Math.cos(a) * 0.075, ry + Math.sin(a) * 0.075, 0.07, 0, 0, a - Math.PI / 2), { tint: i % 2 ? 0x2a5aa8 : 0x3a6ec0 });
+      }
+      k.add('fabric', new THREE.CircleGeometry(0.06, 16), mat(rx, ry, 0.075), { tint: 0xf2c84a });
+      k.add('fabric', new THREE.CircleGeometry(0.035, 12), mat(rx, ry, 0.078), { tint: 0xfff4d8 });
+      for (const sx of [-1, 1]) k.box('fabric', [0.05, 0.2, 0.005], [rx + sx * 0.03, ry - 0.3, 0.068], { tint: 0x2a5aa8, rz: sx * 0.18 });
+    }
+    // Feed calendar on the back wall right of the window: a paper sheet with a ruled grid, ticks, a nail
+    {
+      const cx = 4.62;
+      const cy = 1.5;
+      k.box('paint', [0.36, 0.46, 0.012], [cx, cy, 0.03], { tint: 0xf6eedc, r: 0.004, rz: 0.03 });
+      k.box('paint', [0.36, 0.1, 0.014], [cx, cy + 0.36, 0.031], { tint: 0xc0503c, r: 0.004, rz: 0.03 });
+      for (let r = 0; r < 4; r++)
+        for (let c = 0; c < 5; c++) {
+          const done = r * 5 + c < 9;
+          k.box('paint', [0.045, 0.045, 0.004], [cx - 0.12 + c * 0.06 - r * 0.002, cy + 0.06 + r * 0.07 - c * 0.002, 0.04], { tint: done ? 0x8a3a2a : 0xd8ccb4 });
+        }
+      k.sphere('iron', 0.012, [cx, cy + 0.47, 0.04], 0x3a3634);
+    }
+    // Hanging tube feeder on a wall bracket below the calendar (galvanised tube, a red feeding tray)
+    {
+      const fx2 = 4.62;
+      const fz2 = 0.42;
+      k.box('iron', [0.04, 0.04, 0.42], [fx2, 1.22, 0.21], { tint: 0x2a2624 });
+      k.box('iron', [0.03, 0.22, 0.03], [fx2, 1.02, 0.03], { tint: 0x2a2624, rx: 0.5 });
+      k.cyl('iron', 0.004, 0.004, 0.3, [fx2, 0.92, fz2], { tint: 0x3a3634 });
+      k.cyl('tin', 0.085, 0.085, 0.4, [fx2, 0.5, fz2], { tint: 0xd8dee2, seg: 16 });
+      k.add('tin', new THREE.ConeGeometry(0.1, 0.07, 16), mat(fx2, 0.935, fz2), { tint: 0xc8d0d4 });
+      k.cyl('ceramic', 0.17, 0.14, 0.06, [fx2, 0.44, fz2], { tint: 0xc04a3a, seg: 20 });
+      k.add('ceramic', new THREE.TorusGeometry(0.17, 0.014, 5, 20), mat(fx2, 0.5, fz2, Math.PI / 2, 0, 0), { tint: 0xd85a48 });
+      k.cyl('ceramic', 0.15, 0.15, 0.01, [fx2, 0.49, fz2], { tint: 0xe8c050, seg: 18 });
+      for (let i = 0; i < 26; i++) {
+        const a = rng.next() * Math.PI * 2;
+        const r = 0.2 + Math.sqrt(rng.next()) * 0.35;
+        k.sphere('ceramic', 0.011, [fx2 + Math.cos(a) * r, 0.012, fz2 + 0.15 + Math.sin(a) * r * 0.6], rng.next() < 0.35 ? 0xc89a40 : 0xe8c050);
+      }
+    }
+    // Straw caught on the perch rungs + a few downy feathers stuck to them
+    for (let i = 1; i < 4; i++) {
+      const y = ROOST_Y0 + i * ROOST_DY;
+      const z = ROOST_Z0 - i * ROOST_DZ;
+      for (let j = 0; j < 3; j++) {
+        const x = rx0 + 0.35 + j * 0.85 + rng.next() * 0.3;
+        strawTufts(k, rng, x, y + 0.01, z, 3, 0.07);
+      }
+      const f = new THREE.CircleGeometry(0.045, 8).scale(0.42, 1.5, 1);
+      k.add('fabric', f, mat(rx0 + 0.6 + i * 0.5, y - 0.05, z + 0.035, 0, 0, 0.4 * i), { tint: 0xf8f4ea });
+    }
+    // A sun-warmed straw nest on the floor in the window's light (where a hen naps through the morning)
+    {
+      const nx = 3.85;
+      const nz = 1.72;
+      k.add('thatch', new THREE.TorusGeometry(0.27, 0.1, 7, 18).rotateX(Math.PI / 2).scale(1, 0.55, 0.85), mat(nx, 0.05, nz), { tint: 0xf0d080 });
+      k.add('straw', new THREE.CircleGeometry(0.3, 16).rotateX(-Math.PI / 2).scale(1, 1, 0.85), mat(nx, 0.03, nz), { tint: 0xfff0c8 });
+      strawTufts(k, rng, nx, 0.06, nz, 22, 0.4);
+    }
+    // An open sack of layers' mash by the hopper with its tin scoop and a little spill
+    feedSack(k, 1.0, 4.22, 0.5, 0xd8c8a4, true);
+    k.cyl('tin', 0.06, 0.055, 0.1, [1.3, 0.01, 4.46], { tint: 0xc8d0d4, seg: 12, rz: 1.35 });
+    k.cyl('wood', 0.015, 0.015, 0.14, [1.41, 0.05, 4.46], { tint: 0x8a6040, rz: 1.35 });
+    for (let i = 0; i < 30; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = Math.sqrt(rng.next()) * 0.32;
+      k.sphere('ceramic', 0.012, [1.3 + Math.cos(a) * r, 0.012, 4.5 + Math.sin(a) * r * 0.6], rng.next() < 0.35 ? 0xc89a40 : 0xe8c050);
+    }
     // Pop-door frame in the knee wall (the hatch itself slides: popDoor())
     const hx = HATCH_X + 0.5;
     k.box('paint', [0.52, 0.06, 0.3], [hx, 0.4, D + 0.11], { tint: 0xf2e6c8, r: 0.015 });
@@ -324,6 +407,8 @@ export class CoopInterior extends InteriorMap {
     this.solid(1.85, 3.6, 2.75, 4.15, 'bales');
     this.solid(6.2, 4.35, 6.9, 4.75, 'spilled-sack');
     this.solid(0.1, 1.1, 0.6, 1.6, 'basket');
+    this.solid(0.75, 4.0, 1.25, 4.45, 'mash-sack');
+    this.solid(4.4, 0.15, 4.85, 0.65, 'hanging-feeder');
 
     // Lanterns on iron brackets (left wall, back wall over the roost) + practical lights
     const lk = new Kit();
@@ -337,6 +422,47 @@ export class CoopInterior extends InteriorMap {
     this.addLamp(new THREE.Vector3(5.95, 1.85, 0.85), 0xffb870, 0.0, 3.6, 0.04, 5);
     this.glowPool(1.3, 3.3, 2.3, 0xffb060, () => 0.05 + this.light.night * 0.16);
     void roundedBox;
+  }
+
+  /**
+   * A few downy feathers drifting down through the back window's sunbeam (one instanced draw): each
+   * sinks slowly along the shaft, rocking side to side and turning, then starts again at the top.
+   */
+  private driftFeathers(): void {
+    const N = 7;
+    const g = new THREE.PlaneGeometry(0.05, 0.12);
+    const m = new THREE.MeshStandardMaterial({ color: 0xfffaf0, emissive: 0xfff2d8, emissiveIntensity: 0.35, roughness: 0.9, side: THREE.DoubleSide });
+    const mesh = new THREE.InstancedMesh(g, m, N);
+    mesh.name = 'coop-feathers';
+    mesh.userData.noAO = true;
+    mesh.userData.dynamic = true;
+    mesh.castShadow = false;
+    mesh.frustumCulled = false;
+    this.root.add(mesh);
+    const L = new THREE.Vector3(0.4, -0.62, 0.68).normalize();
+    const top = new THREE.Vector3(3.75, 1.75, 0.15);
+    const fs = Array.from({ length: N }, (_, i) => ({ k: i / N, off: (i * 0.37) % 0.3 - 0.15, ph: i * 1.9, sp: 0.045 + (i % 3) * 0.012 }));
+    const o = new THREE.Object3D();
+    const day = (): number => Math.max(0, 1 - this.light.night * 1.4);
+    this.updaters.push((dt, t) => {
+      mesh.visible = day() > 0.05;
+      if (!mesh.visible) return;
+      fs.forEach((f, i) => {
+        f.k += dt * f.sp;
+        if (f.k > 1) f.k -= 1;
+        const d = f.k * 2.6;
+        o.position.copy(top).addScaledVector(L, d);
+        o.position.x += Math.sin(t * 0.9 + f.ph) * 0.18 + f.off;
+        o.position.z += Math.cos(t * 0.7 + f.ph) * 0.08 - f.off * 0.5;
+        o.position.y = Math.max(0.05, o.position.y);
+        o.rotation.set(Math.sin(t * 1.6 + f.ph) * 0.9, t * 0.8 + f.ph, Math.cos(t * 1.3 + f.ph) * 0.7);
+        // fade in at the window, out near the floor
+        o.scale.setScalar(Math.min(1, f.k * 6, (1 - f.k) * 5) + 0.001);
+        o.updateMatrix();
+        mesh.setMatrixAt(i, o.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+    });
   }
 
   /** The pop door: a planked hatch in the knee wall, slid up (open: the flock can go out to graze). */

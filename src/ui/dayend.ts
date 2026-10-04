@@ -31,6 +31,8 @@ interface Summary {
     produce: { item: string; q: number }[];
     pet?: { name: string; species: string; bowl: boolean };
     chores?: { icon: string; text: string }[];
+    /** Eggs still in the nests from earlier days (apart from tonight's produce). */
+    leftover?: number;
   };
 }
 
@@ -304,7 +306,7 @@ export class DayEndScreen extends Screen {
           const pet = an.pet ? `<small style="display:block;margin-top:3px;color:#8a6440;font-weight:700">${escapeHtml(an.pet.name)}’s bowl was ${an.pet.bowl ? 'full' : 'empty'}${an.pet.bowl ? ' ♥' : ''}</small>` : '';
           return `<div class="de-animals" style="margin-top:12px;padding:10px 12px;border-radius:14px;background:rgba(255,252,240,.72);box-shadow:inset 0 0 0 2px rgba(138,100,64,.2)">
             <div class="de-h" style="margin-bottom:4px">Animals</div>
-            <div style="display:flex;gap:14px;align-items:baseline;font-weight:800;color:#8a6440"><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.produce.length}</b> produce</span>${gold ? `<span><b style="font-family:var(--font-head);font-size:21px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.petted}</b> petted</span></div>
+            <div style="display:flex;gap:${an.leftover ? 7 : 14}px;align-items:baseline;font-weight:800;color:#8a6440;white-space:nowrap"><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.produce.length}</b> ${an.leftover ? 'new' : 'produce'}</span>${an.leftover ? `<span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.leftover}</b> in nests</span>` : ''}${gold ? `<span><b style="font-family:var(--font-head);font-size:21px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.petted}</b> petted</span></div>
             ${icons ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${icons}</div>` : ''}
             ${hungry}${pet}
           </div>`;
@@ -325,7 +327,7 @@ export class DayEndScreen extends Screen {
       : '';
     const body = quiet
       ? `<div class="de-body quiet">
-          <div class="de-quiet"><div class="qv-art">${quietVignetteSvg()}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>
+          <div class="de-quiet"><div class="qv-art">${quietVignetteSvg(s.animals?.pet?.species)}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>
           <div class="de-side">
             ${penCard}
             <div class="de-rest"><div class="de-h">Rest</div><div class="bar"><i style="--e:${(eNow / eMax).toFixed(3)}"></i></div><div class="rl"><span>${ICONS.bolt ?? ''}Energy</span><b><span class="ev" data-v="0">0</span> / ${eMax}</b></div><small>${s.passedOut ? 'You slept where you fell — half your energy returns.' : 'A full night’s sleep. You wake refreshed.'}</small></div>
