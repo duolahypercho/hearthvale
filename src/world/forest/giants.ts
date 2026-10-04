@@ -343,8 +343,9 @@ function canopyLook(m: THREE.MeshStandardMaterial, key: string): void {
           float fl = dot(diffuseColor.rgb, vec3(0.3, 0.55, 0.15));
           // (lifted a touch: in the glade's afternoon shade a plain olive still read as a cold,
           // blue-black hole at the top of the forest-fall frame)
-          vec3 olive = fl * vec3(1.16, 1.02, 0.5) * 1.14;
-          diffuseColor.rgb = mix(diffuseColor.rgb, olive, 0.74 * uSeasonW.z);
+          // (a deep warm evergreen, not khaki: at full strength the firs read as dead, dusty trees)
+          vec3 olive = fl * vec3(0.92, 1.14, 0.5) * 1.1;
+          diffuseColor.rgb = mix(diffuseColor.rgb, olive, 0.6 * uSeasonW.z);
         }` : ''}
       }`,
     );
