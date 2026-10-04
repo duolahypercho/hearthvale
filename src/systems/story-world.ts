@@ -348,15 +348,24 @@ function buildCoach(): Coach {
     group.add(cone);
   }
   // Lamp halos: soft warm discs round the carriage lamps and headlamps (they carry the dusk frame).
-  const haloMat = new THREE.SpriteMaterial({ map: textures.softDot().map, color: 0xffc070, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+  // (Camera-facing quads rather than Sprites: the AO G-buffer pass skips noAO meshes but drew sprites
+  // as opaque squares, which printed a dark box round every lamp.)
+  const haloMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0xffc070, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
   haloMat.name = 'coach-halo';
+  const haloGeo = new THREE.PlaneGeometry(1, 1);
+  const _q = new THREE.Quaternion();
   for (const [x, y, z, sc] of [[1.32, 1.62, -(1.9 / 2 + 0.1), 0.85], [1.32, 1.62, 1.9 / 2 + 0.1, 0.85], [2.36, 1.2, -0.66, 1.0], [2.36, 1.2, 0.66, 1.0]] as const) {
-    const h = new THREE.Sprite(haloMat);
+    const h = new THREE.Mesh(haloGeo, haloMat);
     h.position.set(x, y, z);
     h.scale.setScalar(sc);
     h.userData.noAO = true;
     h.renderOrder = 6;
     h.name = 'coach-halo';
+    h.onBeforeRender = (_r, _s, cam) => {
+      h.parent!.getWorldQuaternion(_q);
+      h.quaternion.copy(_q.invert().multiply(cam.quaternion));
+      h.updateMatrixWorld();
+    };
     group.add(h);
   }
   // Wheels: one tinted geometry, four instances (they spin).
@@ -1862,6 +1871,8 @@ export class StoryWorldSystem implements System {
   readonly name = 'story-world';
   private game!: Game;
   private coach: Coach | null = null;
+  /** Restoration props whose shadow casting the finale switched off (back on at `festival:closeOff`). */
+  private shadowOff: THREE.Object3D[] = [];
   private coachMove: { from: number; to: number; t: number; dur: number; leave: boolean } | null = null;
   /** Road dust kicked up behind the coach's rear wheels while it moves (parked below ground otherwise). */
   private dust: SmokeEmitter | null = null;
@@ -2171,6 +2182,14 @@ export class StoryWorldSystem implements System {
           const [x, z] = q.split(',').map(Number) as [number, number];
           return new THREE.Vector3(x, H(x, z) + 1.42, z + 0.3);
         });
+        // The finale's wide crane is the busiest frame in the game: by lantern-light the little
+        // restoration props (arch, lane posts, baskets) drop out of the moon's shadow pass (−10 draws).
+        this.game.world.current?.root.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh && o.castShadow && /^restore-/.test(o.name)) {
+            o.castShadow = false;
+            this.shadowOff.push(o);
+          }
+        });
         if (this.closeAt.length) {
           const c = this.closeAt.reduce((a, b) => a.add(b), new THREE.Vector3()).multiplyScalar(1 / this.closeAt.length);
           this.closeLight.position.set(c.x, c.y + 0.1, c.z + 1.3);
@@ -2179,6 +2198,8 @@ export class StoryWorldSystem implements System {
         break;
       }
       case 'festival:closeOff':
+        for (const o of this.shadowOff) o.castShadow = true;
+        this.shadowOff = [];
         this.closeAt = [];
         this.closeLight.removeFromParent();
         break;

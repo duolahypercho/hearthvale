@@ -122,8 +122,10 @@ export class BundlePanel extends Screen {
       <div class="jb-ledger"><small>The room's bundles</small>${(st?.bundles ?? [])
         .map((b) => {
           const r = b.def.reward;
-          const what = r.itemId ? `${r.qty ?? 1} × ${itemDef(r.itemId)?.name ?? r.itemId}` : r.gold ? `${r.gold.toLocaleString()}g` : (r.label ?? '');
-          return `<div class="row${b.done ? ' done' : ''}"><i style="--c:${css(b.def.color)}"></i><span class="nm">${escapeHtml(b.def.name)}</span><span class="rw">${b.done ? CHECK : escapeHtml(r.perk ? '✦ perk' : what)}</span></div>`;
+          // Item rewards as "10 ×" + the item's own icon (a name like "Quality Fertilizer" never fits the ledger).
+          const what = r.itemId ? `${r.qty ?? 1} ×${iconOf(r.itemId)}` : escapeHtml(r.gold ? `${r.gold.toLocaleString()}g` : (r.label ?? ''));
+          const tip = r.itemId ? ` title="${escapeHtml(`${r.qty ?? 1} × ${itemDef(r.itemId)?.name ?? r.itemId}`)}"` : '';
+          return `<div class="row${b.done ? ' done' : ''}"><i style="--c:${css(b.def.color)}"></i><span class="nm">${escapeHtml(b.def.name)}</span><span class="rw"${tip}>${b.done ? CHECK : r.perk ? '✦ perk' : what}</span></div>`;
         })
         .join('')}</div>
       <div class="jb-hall"><small>The Hall · ${this.q?.lanternsLit() ?? 0} of ${ROOMS.length} lanterns</small><div class="row">${ROOMS.map((r) => `<i class="${r.id === this.room ? 'me' : ''}" title="${escapeHtml(r.name)}">${cageSvg(r.id, this.q?.room(r.id)?.glimmer ? 0xdff4ff : r.color, this.q?.room(r.id)?.done ? 1 : 0, 'jl-mini')}</i>`).join('')}</div></div>`;

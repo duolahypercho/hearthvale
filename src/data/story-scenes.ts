@@ -97,6 +97,12 @@ const STORE = { x: 21.2, z: 21.3 };
 /** Intro blocking at the coach stop: the farmer by the coach door, Hollis up the lane. */
 const ARR_P: P2 = [STOP.x - 0.2, STOP.z + 1.6];
 const ARR_H: P2 = [STOP.x + 1.95, STOP.z + 1.15];
+/**
+ * The arrival two-shot: a low frontal from the south verge — the farmer (left, coach and its lamps
+ * behind) and Hollis with his lantern (right), both three-quarter to the lens, the lane rising to the
+ * square between them.
+ */
+const ARR_CAM: CamKey = { x: STOP.x + 0.75, z: STOP.z + 1.3, y: 1.15, yaw: -6, pitch: 17, dist: 8.8 };
 /** The coach's door (its fold-down step) when parked at the stop (story-world COACH_PARK + the door offset). */
 const COACH_DOOR: P2 = [STOP.x - 2.2 + 0.8, STOP.z - 0.7 + 1.2];
 /** The farmhouse porch. */
@@ -141,13 +147,15 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'mark', id: 'establish' },
     // Two-shot, near side-on: the farmer three-quarter from behind on the left, Hollis three-quarter to
     // the lens on the right, clear air between them.
-    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 46, dist: 7.4, pitch: 20, y: 1.3 }), dur: 2.8, ease: 'inOut', wait: false },
+    { do: 'cam', to: ARR_CAM, dur: 2.8, ease: 'inOut', wait: false },
     { do: 'player', visible: true },
     // Down the coach's fold-down step and out onto the verge.
     { do: 'walk', id: 'player', path: [[COACH_DOOR[0], COACH_DOOR[1] + 0.55], [COACH_DOOR[0] + 0.5, COACH_DOOR[1] + 1.1], ARR_P], facing: 'right' },
     { do: 'emote', id: 'hollis', emote: 'exclaim' },
     { do: 'walk', id: 'hollis', path: [ARR_H], speed: 1.3 },
-    { do: 'face', id: 'hollis', toward: 'player' },
+    // Stage-cheat both towards the lens: they face each other, turned three-quarter to the audience.
+    { do: 'face', id: 'hollis', at: [ARR_P[0] + 0.2, ARR_P[1] + 2.4] },
+    { do: 'face', id: 'player', at: [ARR_H[0], ARR_H[1] + 2.0] },
     { do: 'mark', id: 'arrival' },
     { do: 'say', who: 'hollis', text: 'There you are! The evening coach — right on time. Well. Forty minutes late, which for the evening coach is right on time.' },
     { do: 'say', who: 'hollis', text: "Hollis Pennyroyal. Mayor of Hearthvale. Also treasurer, and the fellow who winds the clock. It's a small town." },
@@ -586,14 +594,14 @@ function finaleScene(glimmer: boolean): Cmd[] {
     { do: 'crowd', ids: glimmer ? ['bram'] : ['bram', 'odessa'], x: 32, z: 24.9, radius: 4.2, a0: -118, a1: -92, face: { x: 32, z: 14 }, prop: 'paperLantern' },
     { do: 'crowd', ids: glimmer ? ['tobias'] : ['tobias', 'sterling'], x: 32, z: 24.9, radius: 4.2, a0: 92, a1: 118, face: { x: 32, z: 14 }, prop: 'paperLantern' },
     { do: 'cue', cue: 'festival:close', arg: [END_P, END_H, END_M, END_K, END_J].map((q) => q.join(',')).join(';') },
-    { do: 'cam', to: { x: 32, z: 21, y: 1.0, yaw: 14, pitch: 58, dist: 40 }, dur: 0 },
+    { do: 'cam', to: { x: 32, z: 21.4, y: 1.0, yaw: 14, pitch: 58, dist: 36 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 0.8 },
     { do: 'cue', cue: 'festival:valley', t: 0.4 },
     { do: 'mark', id: 'crane' },
     {
       do: 'rail',
       keys: [
-        { x: 32, z: 21, y: 1.0, yaw: 14, pitch: 58, dist: 40 },
+        { x: 32, z: 21.4, y: 1.0, yaw: 14, pitch: 58, dist: 36 },
         { x: 32, z: 24, y: 1.0, yaw: 8, pitch: 40, dist: 30 },
         { x: 32, z: 27.5, y: 2.0, yaw: 4, pitch: 14, dist: 17 },
         { x: 32.1, z: 27.8, y: 2.8, yaw: 4, pitch: 3, dist: 11.5 },
@@ -668,7 +676,7 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
     { do: 'cam', to: wide, dur: 1.4, ease: 'inOut', wait: false },
     { do: 'walk', id: 'player', path: [at(2.1, -1.05), PL], speed: 2.2, wait: false },
     { do: 'walk', id: a, path: [A], speed: 1.6, wait: false },
-    { do: 'walk', id: b, path: [at(2.0, -1.55), at(0.6, -1.6), B], speed: 1.9 },
+    { do: 'walk', id: b, path: [at(2.6, -2.3), at(0.8, -2.1), B], speed: 1.9 },
     { do: 'face', id: 'player', at: L },
     { do: 'face', id: a, at: L },
     { do: 'face', id: b, at: L },
@@ -707,6 +715,9 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
     { do: 'wait', t: 2.6 },
     { do: 'fade', to: 'black', dur: 0.6 },
     { do: 'map', map: 'hall', x: PL[0], z: PL[1] + 0.6, facing: 'up' },
+    // Back in on the gameplay framing (the lens was still parked at the town pose: the fade opened on
+    // the Hall's empty lawn for a beat before the follow camera swung home).
+    { do: 'cam', to: { x: PL[0], z: PL[1] + 0.6, y: 0.8, yaw: 0, pitch: 50, dist: 24 }, dur: 0 },
     { do: 'player', visible: true },
     { do: 'letterbox', on: false },
     { do: 'hud', on: true },

@@ -247,6 +247,8 @@ function emoteTexture(e: Emote): THREE.Texture {
 interface Actor {
   id: string;
   villager: Villager | null;
+  /** Stage-cheated by `face { at }`: keeps that angle while speaking (no auto turn to the farmer). */
+  held?: boolean;
   /** Head height for emotes (world units above the feet). */
   headY: number;
   path: THREE.Vector3[];
@@ -744,7 +746,7 @@ export class CutsceneSystem implements System, CutsceneApi {
       case 'say': {
         const who = this.speaker(c.who, c.mood);
         this.speakerId = c.who;
-        const listener = this.actors.get(c.who)?.villager;
+        const listener = this.actors.get(c.who)?.held ? null : this.actors.get(c.who)?.villager;
         const pl = g.player.position;
         if (listener) listener.talkTo = pl;
         this.lineNo++;
@@ -919,6 +921,7 @@ export class CutsceneSystem implements System, CutsceneApi {
     a.path = path.map(([x, z]) => new THREE.Vector3(x, 0, z));
     a.arrive = facing;
     a.speed = speed ?? (a.villager ? 1.5 : 2.4);
+    a.held = false;
     if (a.villager) a.villager.talkTo = null;
     if (this.fast) {
       this.finishWalk(a);
@@ -971,6 +974,7 @@ export class CutsceneSystem implements System, CutsceneApi {
       yaw = Math.atan2(at[0] - p.x, at[1] - p.z);
       exact = true;
     }
+    a.held = !!at;
     if (a.villager) a.villager.setYaw(yaw);
     else {
       this.game.player.setFacing(facing ?? this.yawToFacing(yaw));
