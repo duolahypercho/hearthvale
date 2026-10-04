@@ -92,6 +92,28 @@
   height: 260%;
   background: radial-gradient(closest-side, rgba(12, 6, 3, 0.55), rgba(12, 6, 3, 0.25) 60%, rgba(12, 6, 3, 0));
 }
+/* Letterboxed scenes: a low caption is a film subtitle set inside the bottom bar, so it never sits on
+   the faces and lanterns the shot is framing (the bar is 8.5vh; title + sub fit in it). */
+.hv-cinema-layer.boxed .cin-caption.low {
+  top: calc(100% - 4.25vh);
+  width: min(1500px, 94vw);
+}
+.hv-cinema-layer.boxed .cin-caption.low .cap-scrim {
+  display: none;
+}
+.hv-cinema-layer.boxed .cin-caption.low .cap-text {
+  font-size: clamp(20px, 1.85vw, 32px);
+  line-height: 1.05;
+  text-shadow: 0 0 24px rgba(255, 170, 80, 0.28);
+}
+.hv-cinema-layer.boxed .cin-caption.low .cap-sub {
+  margin-top: 3px;
+  font-size: clamp(12px, 0.9vw, 15px);
+  color: rgba(255, 228, 190, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .cin-caption .cap-orn {
   font-size: 22px;
   color: #f5c542;

@@ -6,6 +6,7 @@ import { itemDef } from '../data/items';
 import { CROPS } from '../data/crops';
 import { fishDef } from '../data/fish';
 import { itemIcon } from './icons';
+import { BUNDLES } from '../data/bundles';
 
 const css = (h: number): string => `#${h.toString(16).padStart(6, '0')}`;
 function shade(h: number, k: number): string {
@@ -48,7 +49,22 @@ export function lanternSvg(color: number, glow: number, cls = 'jl-lantern'): str
 }
 
 /** Cloth bundle sack tied with a ribbon; plump + gold ribbon when complete. */
-export function sackSvg(color: number, done: boolean, fill = 0): string {
+/** Which container a bundle is drawn as — a cloth sack, a woven basket, a slatted crate or a stoneware
+ * crock — so the four tabs of a room read apart at a glance, not as four tinted gourds. */
+export type SackKind = 0 | 1 | 2 | 3;
+export function sackKindOf(bundleId: string): SackKind {
+  const def = BUNDLES.find((b) => b.id === bundleId);
+  if (!def) return 0;
+  const n = def.name.toLowerCase();
+  if (/basket|woodland|forage|flower|blossom/.test(n)) return 1;
+  if (/cellar|crate|woodpile|tool|build/.test(n)) return 2;
+  if (/jar|crock|pantry|kitchen|preserve|cook|brew/.test(n)) return 3;
+  // Otherwise by place in the room, so neighbouring tabs differ.
+  return (BUNDLES.filter((b) => b.room === def.room).indexOf(def) % 4) as SackKind;
+}
+
+export function sackSvg(color: number, done: boolean, fill = 0, kind: SackKind = 0): string {
+  if (kind) return containerSvg(color, done, kind);
   const id = `js${uid++}`;
   const c = css(color);
   const slump = done ? 0 : 1 - fill;
@@ -65,6 +81,44 @@ export function sackSvg(color: number, done: boolean, fill = 0): string {
   ${done ? `<path d="M50 48 l-14 10 l4 -12 z M50 48 l14 10 l-4 -12 z" fill="#e8b84a" stroke="#a87a1a" stroke-width="1.5"/><circle cx="50" cy="48" r="5" fill="#f5d06a" stroke="#a87a1a" stroke-width="1.5"/>` : ''}
   <path d="M30 64 q6 -4 10 2 M58 74 q6 -5 12 0" stroke="rgba(255,255,255,.25)" stroke-width="2" fill="none" stroke-linecap="round"/>
 </svg>`;
+}
+
+function containerSvg(color: number, done: boolean, kind: 1 | 2 | 3): string {
+  const id = `js${uid++}`;
+  const c = css(color);
+  const ink = shade(color, 0.42);
+  const grad = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${shade(color, 1.25)}"/><stop offset=".55" stop-color="${c}"/><stop offset="1" stop-color="${shade(color, 0.66)}"/></linearGradient></defs>`;
+  const shadow = `<ellipse cx="50" cy="97" rx="34" ry="5" fill="rgba(60,30,10,.25)"/>`;
+  const ribbon = done
+    ? `<path d="M50 60 l-14 10 l4 -12 z M50 60 l14 10 l-4 -12 z" fill="#e8b84a" stroke="#a87a1a" stroke-width="1.5"/><circle cx="50" cy="60" r="5" fill="#f5d06a" stroke="#a87a1a" stroke-width="1.5"/>`
+    : '';
+  let body = '';
+  if (kind === 1) {
+    // Woven basket: flared tub, wicker courses, a bent-willow handle.
+    body = `<path d="M30 52 C30 22 70 22 70 52" fill="none" stroke="${shade(0xb07a3a, 0.8)}" stroke-width="6" stroke-linecap="round"/>
+  <path d="M30 52 C30 22 70 22 70 52" fill="none" stroke="#d8a860" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M14 50 L86 50 L78 92 C70 97 30 97 22 92 Z" fill="url(#${id})" stroke="${ink}" stroke-width="2.5" stroke-linejoin="round"/>
+  ${[60, 70, 80].map((y) => `<path d="M${15 + (y - 50) * 0.2} ${y} Q50 ${y + 4} ${85 - (y - 50) * 0.2} ${y}" fill="none" stroke="${shade(color, 0.6)}" stroke-width="2"/>`).join('')}
+  ${[28, 39, 50, 61, 72].map((x) => `<path d="M${x} 52 L${x + (x - 50) * -0.12} 93" stroke="${shade(color, 0.72)}" stroke-width="1.6"/>`).join('')}
+  <rect x="11" y="45" width="78" height="9" rx="4.5" fill="${shade(color, 1.12)}" stroke="${ink}" stroke-width="2.2"/>`;
+  } else if (kind === 2) {
+    // Slatted crate: three boards, corner posts, a stencilled tag.
+    body = `<rect x="14" y="38" width="72" height="56" rx="6" fill="url(#${id})" stroke="${ink}" stroke-width="2.5"/>
+  ${[56, 75].map((y) => `<path d="M16 ${y} H84" stroke="${ink}" stroke-width="2" opacity=".7"/>`).join('')}
+  <rect x="14" y="38" width="10" height="56" rx="4" fill="${shade(color, 0.8)}" stroke="${ink}" stroke-width="2"/>
+  <rect x="76" y="38" width="10" height="56" rx="4" fill="${shade(color, 0.8)}" stroke="${ink}" stroke-width="2"/>
+  <path d="M26 42 L74 90" stroke="${shade(color, 0.7)}" stroke-width="5" stroke-linecap="round"/>
+  <path d="M30 41 q8 -9 16 -3 q6 -8 14 -1 q8 -5 12 3" fill="${shade(color, 1.3)}" stroke="${ink}" stroke-width="2"/>`;
+  } else {
+    // Stoneware crock: glazed belly, cloth cap tied with twine.
+    body = `<path d="M30 40 C14 50 14 86 30 93 C42 98 58 98 70 93 C86 86 86 50 70 40 Z" fill="url(#${id})" stroke="${ink}" stroke-width="2.5"/>
+  <path d="M24 66 C40 72 60 72 76 66" fill="none" stroke="${shade(color, 1.35)}" stroke-width="3" opacity=".6"/>
+  <path d="M27 40 C24 30 76 30 73 40 C66 46 34 46 27 40 Z" fill="#efe2c4" stroke="#a8906a" stroke-width="2.2"/>
+  <path d="M30 38 C26 46 22 50 25 54 M70 38 C74 46 78 50 75 54" fill="none" stroke="#efe2c4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M29 41 C40 45 60 45 71 41" fill="none" stroke="#9a6a38" stroke-width="2.6"/>
+  <path d="M36 74 q6 -4 10 2" stroke="rgba(255,255,255,.3)" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  }
+  return `<svg class="js-sack k${kind}${done ? ' done' : ''}" viewBox="0 0 100 104" aria-hidden="true">${grad}${shadow}${body}${ribbon}</svg>`;
 }
 
 export const PIN = (color = '#d8473a'): string =>

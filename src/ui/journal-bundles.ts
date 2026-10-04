@@ -12,7 +12,7 @@ import type { Game } from '../core/game';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
 import { ROOMS, roomDef, bundleProgress, slotsNeeded, QUALITY_NAME, type BundleDef } from '../data/bundles';
 import { itemDef } from '../data/items';
-import { lanternSvg, sackSvg, iconOf, itemName, whereFrom, CHECK, COIN } from './journal-art';
+import { lanternSvg, sackSvg, sackKindOf, iconOf, itemName, whereFrom, CHECK, COIN } from './journal-art';
 import { itemIcon } from './icons';
 import { loadStoryFonts } from './journal-cutscene';
 
@@ -136,7 +136,7 @@ export class BundlePanel extends Screen {
       const { have, need } = bundleProgress(b.def, b.given, b.paid);
       const t = el('button', `jb-sack${i === this.sel ? ' on' : ''}${b.done ? ' done' : ''}`);
       t.dataset.nav = '';
-      t.innerHTML = `<span class="js-wrap">${sackSvg(b.def.color, b.done, need ? have / need : 0)}${sackTag(b.def)}</span><span class="nm">${escapeHtml(b.def.name)}</span><span class="pr">${b.done ? 'Complete' : b.def.gold ? `${b.paid.toLocaleString()} / ${b.def.gold.toLocaleString()}g` : `${have} / ${need}`}</span>`;
+      t.innerHTML = `<span class="js-wrap">${sackSvg(b.def.color, b.done, need ? have / need : 0, sackKindOf(b.def.id))}${sackTag(b.def)}</span><span class="nm">${escapeHtml(b.def.name)}</span><span class="pr">${b.done ? 'Complete' : b.def.gold ? `${b.paid.toLocaleString()} / ${b.def.gold.toLocaleString()}g` : `${have} / ${need}`}</span>`;
       t.addEventListener('click', () => {
         if (this.sel !== i) sfx(this.game, 'tab');
         this.sel = i;
@@ -185,14 +185,14 @@ export class BundlePanel extends Screen {
     const frac = b.done ? 1 : need ? have / need : 0;
     // Progress in slots, the unit the player reads on the card ("any 4 of 6" → "2 of 4 slots filled").
     const filled = Math.min(pick, d.items.filter((it) => (b.given[it.itemId] ?? 0) >= it.qty).length);
-    const progLabel = b.done ? 'Complete' : d.gold && !d.items.length ? `${Math.round(frac * 100)}%` : `${filled} of ${pick} slot${pick === 1 ? '' : 's'} filled`;
+    const progLabel = b.done ? 'Complete' : d.gold && !d.items.length ? `${Math.round(frac * 100)}%` : `${filled} of ${pick} slot${pick === 1 ? '' : 's'} filled${have > 0 && frac < 1 ? ` · ${Math.round(frac * 100)}% gathered` : ''}`;
     const chips = [
       pick < d.items.length ? `<span class="jb-chip">Any ${pick} of ${d.items.length}</span>` : '',
       d.quality ? `<span class="jb-chip q${d.quality}">★ ${qn} or better</span>` : '',
     ].join('');
     this.card.innerHTML = `
       <div class="jb-cardhead"><div class="jb-ht"><h3>${escapeHtml(d.name)}</h3><div class="note">${escapeHtml(d.note)}</div>${chips ? `<div class="jb-chips">${chips}</div>` : ''}</div>
-        <div class="jb-bigsack" aria-hidden="true"><span class="js-wrap">${sackSvg(d.color, b.done, this.fillOf(b))}${sackTag(d)}</span></div></div>
+        <div class="jb-bigsack" aria-hidden="true"><span class="js-wrap">${sackSvg(d.color, b.done, this.fillOf(b), sackKindOf(d.id))}${sackTag(d)}</span></div></div>
       <div class="jb-slots${d.items.length > 3 ? ' two' : ''}">${slots}${gold}</div>
       <div class="jb-cardfoot">
         <div class="jb-prog${b.done ? ' done' : ''}" style="--f:${frac.toFixed(3)}"><div class="bar"><i></i></div><span>${progLabel}</span></div>

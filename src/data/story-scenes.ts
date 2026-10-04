@@ -640,7 +640,9 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
   const wide: CamKey = { ...look, yaw: -s * 44, pitch: 36, dist: 13 };
   const push: CamKey = { ...look, x: look.x - s * 0.1, yaw: -s * 50, pitch: 33, dist: 10.5 };
   // Reaction: from beyond the lantern (off its shoulder, high enough to see over it), the faces lit.
-  const react: CamKey = { x: L[0] + s * 1.9, z: L[1] + 0.9, y: 1.2, yaw: -s * 70, pitch: 30, dist: 11 };
+  // Pitched up to 41° so the lens clears the room's cut-away divider (at 30° its cap filled the lower
+  // left quarter of the frame as a dark out-of-focus slab).
+  const react: CamKey = { x: L[0] + s * 1.9, z: L[1] + 0.9, y: 1.2, yaw: -s * 70, pitch: 41, dist: 11 };
   return [
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
@@ -694,8 +696,9 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
 export const RESTORE_SHOTS: Record<string, { x: number; z: number; y?: number; yaw: number; pitch: number; dist: number }> = {
   seed: { x: 32, z: 14.6, y: 2.75, yaw: 14, pitch: 18, dist: 16 },
   sun: { x: 40.5, z: 27.5, yaw: -18, pitch: 34, dist: 15 },
-  // High over the rooftops, looking down the lane the lanterns now line.
-  harvest: { x: 12.5, z: 26.2, yaw: -6, pitch: 50, dist: 19 },
+  // Up the lane from the farm end: the new lanterns lead in pairs towards the square (a straight
+  // top-down read as a map, with a tree crown blotting out the top of the frame).
+  harvest: { x: 16, z: 26.4, yaw: -84, pitch: 34, dist: 18 },
   // Up on the roofline, so the smoking chimney is in shot.
   hearth: { x: 34, z: 9.6, y: 4.4, yaw: -10, pitch: 13, dist: 21 },
   // Close on one plaza lamp and its basket (the other three read in the background).

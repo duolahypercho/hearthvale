@@ -2260,3 +2260,87 @@
   letter-spacing: 0.04em;
   color: #9a6a3a;
 }
+
+/* ── Journal r3: the Hall's six lanterns along the foot of the quests page ── */
+.jn-hallstrip {
+  all: unset;
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px 2px;
+  border-top: 2px dashed rgba(140, 95, 45, 0.35);
+  cursor: pointer;
+  border-radius: 10px;
+  transition: background 160ms;
+}
+.jn-hallstrip:hover,
+.jn-hallstrip:focus-visible {
+  background: rgba(255, 220, 150, 0.28);
+}
+.jn-hallstrip .hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.jn-hallstrip .hd b {
+  font-family: var(--hand);
+  font-size: 24px;
+  font-weight: 700;
+  color: #6a3c18;
+}
+.jn-hallstrip .hd em {
+  font-style: normal;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9a6a38;
+}
+.jn-hallstrip .row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.jn-hallstrip .cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+.jn-hallstrip .cell::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 46px;
+  height: 46px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--rc) 55%, transparent), transparent);
+  opacity: 0;
+}
+.jn-hallstrip .cell.lit::before {
+  opacity: 0.75;
+}
+.jn-hallstrip .jl-strip {
+  width: 28px;
+  height: 40px;
+  position: relative;
+  filter: drop-shadow(0 2px 2px rgba(80, 40, 10, 0.25));
+}
+.jn-hallstrip .cell:not(.lit) .jl-strip {
+  opacity: 0.62;
+  filter: grayscale(0.55) drop-shadow(0 2px 2px rgba(80, 40, 10, 0.2));
+}
+.jn-hallstrip .cell small {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #7a5430;
+  white-space: nowrap;
+}
+.jn-hallstrip .cell:not(.lit) small {
+  color: #a88a64;
+}

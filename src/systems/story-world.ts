@@ -32,6 +32,7 @@ import { buildLanternPole, buildBunting, buildBrazier } from '../world/props/fes
 import { buildHarvestPile, buildHayBale } from '../world/props/farmkit';
 import { BurstFX, SmokeEmitter, FireFX } from '../render/particles';
 import { Rng } from '../core/rng';
+import { textures } from '../render/textures';
 import { ROOMS, type RoomId } from '../data/bundles';
 
 const STOP = { x: 9.6, z: 26.2 };
@@ -1473,6 +1474,13 @@ class SkyLanterns {
  */
 class ValleyLights {
   readonly mesh: THREE.InstancedMesh;
+  /** Warm pools of light on the snow under every lit lantern (one additive instanced draw): the lane
+   * reads as a chain of hearth-glow, not blue snow with dots over it. */
+  readonly pools: THREE.InstancedMesh;
+  private poolAt: { at: THREE.Vector3; rad: number }[] = [];
+  private m4 = new THREE.Matrix4();
+  private q0 = new THREE.Quaternion();
+  private s3 = new THREE.Vector3();
   private pts: THREE.Vector3[] = [];
   private t = -1;
   private lit: number[] = [];
@@ -1523,6 +1531,41 @@ class ValleyLights {
       o.updateMatrix();
       this.mesh.setMatrixAt(i, o.matrix);
     });
+    const pg = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const pm = new THREE.MeshBasicMaterial({
+      map: textures.softDot().map,
+      // Alpha-blended toward lamp-light, not added: added orange over moonlit snow only turns it
+      // lavender-white, a blend pulls the blue out and leaves warm peach under every lantern.
+      color: new THREE.Color(1.0, 0.5, 0.16),
+      opacity: 0.72,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      fog: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    pm.name = 'valley-pools';
+    this.pools = new THREE.InstancedMesh(pg, pm, this.pts.length);
+    this.pools.name = 'valley-pools';
+    this.pools.frustumCulled = false;
+    this.pools.castShadow = false;
+    this.pools.renderOrder = 3;
+    this.pools.userData.noAO = true;
+    const q = new THREE.Quaternion();
+    const one = new THREE.Vector3();
+    const at = new THREE.Vector3();
+    const m4 = new THREE.Matrix4();
+    const rad0 = 0.001;
+    this.pts.forEach((p, i) => {
+      // Centred under the lantern head (0.38 m out along the crook's local +x).
+      this.mesh.getMatrixAt(i, m4);
+      at.set(0.38, 0, 0).applyMatrix4(m4);
+      this.poolAt.push({ at: at.clone().setY(p.y + 0.05), rad: 5.8 + r.next() * 1.4 });
+      m4.compose(at.setY(p.y + 0.05), q, one.set(rad0, 1, rad0));
+      this.pools.setMatrixAt(i, m4);
+    });
     this.lit = this.pts.map(() => 0);
     this.reset();
   }
@@ -1541,9 +1584,17 @@ class ValleyLights {
       const u = this.lit[i]!;
       const flash = u > 0 && u < 1 ? Math.sin(u * Math.PI) * 0.9 : 0;
       const k = 0.16 + u * 0.84 + flash;
-      this.mesh.setColorAt(i, this.col.setRGB(k, k * (0.92 - flash * 0.1), k * (0.8 - flash * 0.2)));
+      this.mesh.setColorAt(i, this.col.setRGB(k, k * (0.8 - flash * 0.08), k * (0.52 - flash * 0.12)));
+      // The pool blooms out from the lantern as it catches (a touch past full on the flash).
+      const pa = this.poolAt[i];
+      if (pa) {
+        const k2 = Math.max(0.001, pa.rad * (Math.sqrt(u) + flash * 0.12));
+        this.pools.setMatrixAt(i, this.m4.compose(pa.at, this.q0, this.s3.set(k2, 1, k2)));
+      }
     });
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.pools.instanceMatrix.needsUpdate = true;
+    this.pools.visible = this.lit.some((u) => u > 0);
   }
   update(dt: number): void {
     if (this.t < 0) return;
@@ -1783,6 +1834,7 @@ export class StoryWorldSystem implements System {
     this.valley = new ValleyLights(H);
     this.valley.onIgnite = (p) => this.burst.emit(p, { color: 0xffc070, count: 6, speed: 1.2, size: 0.12, gravity: 0.6, life: 0.9, up: 1.2, spread: 0.3 });
     fin.group.add(this.valley.mesh);
+    fin.group.add(this.valley.pools);
     fin.group.visible = false;
     root.add(fin.group);
     this.finale = { group: fin.group, fire, light };

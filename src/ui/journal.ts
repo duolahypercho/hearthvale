@@ -13,7 +13,7 @@ import type { Game } from '../core/game';
 import { Screen, el, closeButton, sfx, replay, escapeHtml } from './kit';
 import { ROOMS, roomDef, slotsNeeded, QUALITY_NAME } from '../data/bundles';
 import { LETTERS } from '../data/story';
-import { lanternSvg, sackSvg, iconOf, itemName, valleySvg, SEAL_MINI, ENVELOPE, CHECK, COIN, PIN } from './journal-art';
+import { lanternSvg, sackSvg, sackKindOf, iconOf, itemName, valleySvg, SEAL_MINI, ENVELOPE, CHECK, COIN, PIN } from './journal-art';
 import { loadStoryFonts } from './journal-cutscene';
 
 type Tab = 'quests' | 'hall' | 'letters';
@@ -129,7 +129,8 @@ export class JournalPanel extends Screen {
             : `<div class="jn-empty">No requests taken. Check the notice board in the square.</div>`;
         })();
     this.leftPage.innerHTML = `<h2 class="jn-h">The story so far</h2><div class="jn-list">${storyRows}</div>
-      <h2 class="jn-h small">Help Wanted</h2><div class="jn-list">${postRows}</div>`;
+      <h2 class="jn-h small">Help Wanted</h2><div class="jn-list">${postRows}</div>${this.hallStrip()}`;
+    this.leftPage.querySelector('.jn-hallstrip')?.addEventListener('click', () => this.setTab('hall'));
     this.leftPage.querySelectorAll<HTMLElement>('.jn-row').forEach((r) =>
       r.addEventListener('click', () => {
         this.sel.quests = r.dataset.id!;
@@ -178,6 +179,21 @@ export class JournalPanel extends Screen {
     return valleySvg(rooms, q?.rooms().some((r) => r.glimmer) ?? false);
   }
 
+  /** The quests page's foot: the six room lanterns in a row (lit, glowing with progress, or dark), a
+   * one-glance answer to "how far along is the Hall?" — click it for the Lantern Hall tab. */
+  private hallStrip(): string {
+    const q = this.game.services.quests;
+    const lit = q?.lanternsLit() ?? 0;
+    const cells = ROOMS.map((r) => {
+      const st = q?.room(r.id);
+      const n = st?.bundles.filter((b) => b.done).length ?? 0;
+      const m = Math.max(1, st?.bundles.length ?? 1);
+      const glow = st?.done ? 1 : (n / m) * 0.35;
+      return `<span class="cell${st?.done ? ' lit' : ''}" style="--rc:${css(r.color)}">${lanternSvg(st?.glimmer ? 0xdff4ff : r.color, glow, 'jl-strip')}<small>${escapeHtml(r.name.replace('The ', '').replace(' Room', ''))}</small></span>`;
+    }).join('');
+    return `<button class="jn-hallstrip" data-nav><span class="hd"><b>The Lantern Hall</b><em>${lit} of 6 burning</em></span><span class="row">${cells}</span></button>`;
+  }
+
   // ───────────────────────────── hall
 
   private renderHall(): void {
@@ -223,7 +239,7 @@ export class JournalPanel extends Screen {
         const gold = bs.def.gold ? `<span class="jn-it ${bs.paid >= bs.def.gold ? 'ok' : ''}">${COIN}<b>${bs.def.gold.toLocaleString()}g</b></span>` : '';
         const pick = slotsNeeded(bs.def) < bs.def.items.length ? ` · any ${slotsNeeded(bs.def)} of ${bs.def.items.length}` : '';
         const qual = bs.def.quality ? ` · ★ ${QUALITY_NAME[bs.def.quality]}` : '';
-        return `<div class="jn-bundle ${bs.done ? 'done' : ''}"><div class="sk">${sackSvg(bs.def.color, bs.done, 0.5)}</div><div class="bd"><b>${escapeHtml(bs.def.name)}<small class="jn-pick">${pick}${qual}</small></b><div class="its">${items}${gold}</div></div></div>`;
+        return `<div class="jn-bundle ${bs.done ? 'done' : ''}"><div class="sk">${sackSvg(bs.def.color, bs.done, 0.5, sackKindOf(bs.def.id))}</div><div class="bd"><b>${escapeHtml(bs.def.name)}<small class="jn-pick">${pick}${qual}</small></b><div class="its">${items}${gold}</div></div></div>`;
       })
       .join('');
     this.rightPage.innerHTML = `<div class="jn-kicker" style="color:${css(r.color)}">${escapeHtml(r.lantern)}</div>
