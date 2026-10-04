@@ -412,13 +412,24 @@ actors such as Pip the shop cat).
   under a studio key / fill / rim light in a small dedicated WebGL context, a baked ink outline), composited by
   `ui/portraits.ts` over the painted backdrop with the mood's colour temperature (warm gold joy, cool blue sorrow,
   red-rimmed anger) and manga marks; cached per villager × season × mood and pre-warmed when the talk prompt pops.
-  The painted SVG bust remains the no-WebGL fallback.
+  The painted SVG bust remains the no-WebGL fallback. **r5 painted pass** (`PORTRAIT_PAINT`): the bust renders into a
+  lit target plus an id target (flat albedo + the RigBuilder `part` id: skin / hair / eyes / cloth / hat), then a painter
+  shader turns it into an illustration — Kuwahara brush patches, coloured ink on every material boundary, cel bands
+  relative to albedo, radial hair strands with a jagged shine ring on the lit side, warm skin / cool cloth shadows, a
+  painted rim and canvas tooth. Each villager has their own eye cut (`eyeShape`: round / wide / almond / narrow /
+  sleepy / beady, `lashes`) and brows (`brow` thickness, `browArch`); full beards have a mouth hollow and combed strands.
+  Farmers dress for winter like the villagers (`dressFarmerWinter`: beanie, coat, scarf, mittens; farmhands get a
+  beanie + scarf look and the coat overlay). Heart events can carry hero props (`ledger` held on a lap, Kit's `map`,
+  forge `sparks` with a glow light); the event lens scores lamp posts behind a head (tangents), keeps the listener out
+  of the near foreground and backs off until every framed head fits the letterbox (`auditEvents()`: 78/78 beats).
 
-Demos: `town-day` (closer social frame, held emotes), `town-evening` (19:05, lamps lit), `town-winter` (its own
+Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
+(the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit), `town-winter` (its own
 winter blocking), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
 paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·
-`&first=1` for the first meeting), `town-night-talk`, `town-heart-event` (`&event=<npc>-<2|4>&step=N`),
+`&first=1` for the first meeting; bystanders vary per villager and hour, busy with their own things),
+`town-night-talk`, `town-heart-event` (`&event=<npc>-<2|4>&step=N`),
 `town-portraits` (`&ui=portraits:<npc>` = all nine moods), `town-social`, `festival`.
 
 ## Driftsand Beach & fishing

@@ -54,7 +54,7 @@ function foliageMaterial(species: TreeSpecies): THREE.MeshStandardMaterial {
   applyWorldFx(m, { snowUp: species === 'pine' ? 0.45 : 0.6 });
   applyWind(m, WIND_LEAF);
   // Leafy clump breakup + sun-side translucency (uses worldfx varyings).
-  patchMaterial(m, 'foliage', (shader) => {
+  patchMaterial(m, species === 'blossom' ? 'foliage-blossom' : 'foliage', (shader) => {
     shader.uniforms.uSunDir = globalUniforms.uSunDir;
     shader.uniforms.uSunColor = globalUniforms.uSunColor;
     let fs = shader.fragmentShader;
@@ -68,7 +68,19 @@ function foliageMaterial(species: TreeSpecies): THREE.MeshStandardMaterial {
         float clump = hvNoise(fp.xz + fp.y * 0.7) * 0.6 + hvNoise(fp.zy * 1.9 + 3.0) * 0.4;
         diffuseColor.rgb *= 0.8 + 0.34 * smoothstep(0.2, 0.8, clump);
         float top = smoothstep(0.2, 0.95, normalize(vHvWorldNormal).y);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.1, 1.08, 0.86), top * 0.5);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.1, 1.08, 0.86), top * 0.5);${
+          species === 'blossom'
+            ? /* glsl */ `
+        // Blossom (town r5: "pink cotton-candy blobs"): petal clusters — pale florets over deeper rose
+        // gaps, a cooler mauve underside, so the canopy reads as flowers, not a smooth puff.
+        float clus = hvNoise(vHvWorldPos.xz * 3.1 + vHvWorldPos.y * 2.7) * 0.65 + hvNoise(vHvWorldPos.zy * 5.3 + 1.7) * 0.35;
+        float pet = hvNoise(vHvWorldPos.xz * 12.0 + vHvWorldPos.y * 9.0);
+        float flo = smoothstep(0.42, 0.7, clus) * (0.65 + 0.35 * smoothstep(0.3, 0.7, pet));
+        diffuseColor.rgb *= mix(vec3(0.74, 0.44, 0.6), vec3(1.1, 1.06, 1.06), clamp(flo + top * 0.25, 0.0, 1.0));
+        float under = smoothstep(0.1, -0.6, normalize(vHvWorldNormal).y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.62, 0.5, 0.66), under * 0.7);`
+            : ''
+        }
       }`,
     );
     fs = after(

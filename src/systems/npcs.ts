@@ -23,7 +23,7 @@ import type { Game } from '../core/game';
 import type { Facing } from '../core/events';
 import { NPCS, NPC_IDS, pickGroup, heartEvent, seasonLook, type NpcId, type NpcLook, type NpcDef, type Activity, type Ask, type HeartEvent, type CutStep, type Place, type Who, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
-import { Villager, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL } from '../entities/villager';
+import { Villager, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL, dressFarmerWinter, buildLedger, buildKidMap, buildSparks } from '../entities/villager';
 import { SPOTS, NEW_BUILDINGS, EXTRA_PROPS, FESTOON_POLES, BRIDGES } from '../world/town/layout';
 import { BUILDINGS, TOWN_PROPS } from '../data/town-layout';
 import type { Festoons } from '../world/town/festoons';
@@ -116,6 +116,7 @@ const CAM_CANDS: readonly (readonly [number, number, number])[] = (() => {
   return c;
 })();
 const FACING_YAW: Record<Facing, number> = { down: 0, up: Math.PI, left: -Math.PI / 2, right: Math.PI / 2 };
+const _propW = new THREE.Vector3();
 const PLAZA_C = { x: 32, z: 25, r: 3.55 };
 const EMOTES_CHAT: Emote[] = ['music', 'exclaim', 'question', 'heart', 'dots', 'idea'];
 /** Co-op wire order of activities (villager snapshots carry the index). */
@@ -138,17 +139,20 @@ const NET_SNAP = 0.25;
  */
 type Mark = [NpcId, number, number, number, Activity, Emote?];
 const STAGES: Record<string, Mark[]> = {
+  // r5: spread over the whole square, not a ring round the fountain — the store step, the Hall steps
+  // and planters, the notice board, the bakery stall, a bench, the east cobbles — each busy with
+  // their own thing, a pair or two chatting turned to each other.
   'town-day': [
     ['marigold', 20.6, 21.3, 25, 'sweep'],
-    ['hazel', 32.9, 21.35, -10, 'water', 'music'],
-    ['tobias', 28.3, 22.8, -52, 'chat'],
-    ['rowan', 26.6, 22.0, 48, 'chat', 'exclaim'],
+    ['hazel', 29.9, 18.6, -150, 'water', 'music'],
+    ['kit', 34.6, 18.4, 30, 'play'],
+    ['tobias', 36.3, 19.2, -40, 'idle'],
     ['wren', 24.8, 23.3, 75, 'paint'],
+    ['rowan', 26.9, 21.2, 160, 'read'],
     ['bram', 41.9, 20.8, -15, 'knead'],
-    ['odessa', 42.8, 22.8, -58, 'chat'],
-    ['kit', 37.4, 27.6, -30, 'play'],
-    ['june', 27.0, 26.3, 42, 'chat', 'heart'],
-    ['linus', 29.1, 27.2, -48, 'chat'],
+    ['odessa', 40.9, 24.7, -60, 'chat'],
+    ['june', 39.6, 25.4, 70, 'chat', 'heart'],
+    ['linus', 36.9, 27.3, -30, 'read'],
   ],
   'town-evening': [
     ['tobias', 33.3, 14.4, 180, 'idle'],
@@ -161,6 +165,20 @@ const STAGES: Record<string, Mark[]> = {
     ['odessa', 36.0, 24.8, 50, 'chat'],
     ['rowan', 37.9, 24.0, -34, 'chat', 'exclaim'],
     ['linus', 21.8, 24.6, 60, 'read'],
+  ],
+  // r5 hero: the river crossing — the market row, the painter at her easel on the west bank, two old
+  // friends leaning on the stone bridge, a kid on the bank, the inn terrace and the forge yard beyond.
+  'town-river': [
+    ['wren', 59.6, 21.6, 133, 'paint'],
+    ['tobias', 63.0, 24.6, 70, 'chat', 'music'],
+    ['linus', 64.3, 25.1, -100, 'chat'],
+    ['kit', 60.3, 29.4, 40, 'play', 'exclaim'],
+    ['marigold', 55.8, 22.7, 20, 'chat'],
+    ['hazel', 54.5, 23.3, 80, 'chat', 'heart'],
+    ['bram', 50.4, 22.5, -10, 'idle'],
+    ['june', 77.6, 30.6, -30, 'sweep'],
+    ['rowan', 73.8, 18.8, 200, 'saw'],
+    ['odessa', 84.6, 19.5, 180, 'hammer'],
   ],
   // Meadow Lane mid-morning: the doctor sweeps his porch and chats with Marigold, Hazel waters the
   // allotment, Rowan mends its fence, Kit plays by the schoolyard swing, June + Bram by the picnic.
@@ -299,6 +317,7 @@ export class NpcSystem implements System {
   private treeCache: { map: string; meshes: THREE.BatchedMesh[] } | null = null;
   private occFrame = 0;
   private eventProps: THREE.Object3D[] = [];
+  private fitCam = new THREE.PerspectiveCamera(35, 16 / 9, 0.1, 200);
   private fx = new ReactionFx();
   /** Warm key light on the actors during night-time conversations and heart events (always in the map, 0 by day). */
   /** A soft spot from camera side aimed at the actors' faces (a point light lit the wall behind them into a blown-out glare). */
@@ -881,9 +900,84 @@ export class NpcSystem implements System {
       return;
     }
     if (name === 'town-social' || name === 'town-dialogue' || name === 'town-night-talk') this.seedFriendship(name !== 'town-social' && params.get('first') === '1' ? ((params.get('npc') as NpcId | null) ?? 'marigold') : null);
-    // A daytime conversation happens in the living square: the rest of the town keeps its day blocking.
-    if (name === 'town-dialogue' && this.game.calendar.hour < 17) this.applyMarks(STAGES['town-day']!, (params.get('npc') as NpcId | null) ?? 'marigold');
+    // A daytime conversation happens in the living square: the rest of the town goes about its day —
+    // a different handful out per conversation and hour, busy with their own things (r4 critic: the same
+    // frozen 'audience' ring staring into the lens behind every talk).
+    if (name === 'town-dialogue' && this.game.calendar.hour < 17) this.stageBackdrop((params.get('npc') as NpcId | null) ?? 'marigold');
     this.stageRest(name, params);
+  }
+
+  /**
+   * Background life behind a conversation: who is out depends on the talker and the hour; each does
+   * their own thing (sweeping the store step, watering, painting, kneading at the stall, reading, a kid
+   * at play) or chats in a pair turned to each other — no held emotes, nobody posing for the lens.
+   */
+  private stageBackdrop(talker: NpcId): void {
+    const map = this.game.world.current!;
+    // [x, z, activity, yaw (deg; null = towards the partner)] per villager's own business.
+    const SOLO: Partial<Record<NpcId, [number, number, Activity, number][]>> = {
+      marigold: [[20.6, 21.3, 'sweep', 60], [22.4, 22.2, 'sweep', -120]],
+      hazel: [[32.9, 21.35, 'water', 170], [37.2, 21.4, 'water', -150]],
+      wren: [[24.8, 23.3, 'paint', 75], [43.6, 26.2, 'paint', -100]],
+      bram: [[41.9, 20.8, 'knead', -15]],
+      kit: [[37.4, 27.4, 'play', 140], [25.6, 26.6, 'play', -60]],
+      linus: [[35.4, 20.9, 'read', 150], [28.6, 21.2, 'read', -160]],
+      tobias: [[29.8, 21.4, 'lean', 120]],
+    };
+    const PAIRS: [number, number, number, number][] = [
+      [26.9, 25.6, 28.2, 26.4],
+      [39.0, 23.4, 40.3, 24.2],
+      [43.2, 21.6, 44.4, 22.5],
+      [23.4, 24.6, 24.8, 25.2],
+    ];
+    const hour = this.game.calendar.hour;
+    const ti = NPC_IDS.indexOf(talker);
+    const seed = ti * 7 + Math.floor(hour * 2);
+    const order = NPC_IDS.filter((id) => id !== talker).sort((a, b) => hash3(seed, NPC_IDS.indexOf(a), 3) - hash3(seed, NPC_IDS.indexOf(b), 3));
+    const out = order.slice(0, 6);
+    const used: { x: number; z: number }[] = [];
+    // (nobody looming at the talk lens: background business stays a few strides off the pair)
+    const pl = this.game.player.position;
+    const free = (x: number, z: number): boolean => Math.hypot(x - pl.x, z - pl.z) > 6.2 && used.every((u) => Math.hypot(u.x - x, u.z - z) > 1.6);
+    const put = (id: NpcId, x: number, z: number, act: Activity, yaw: number, speak = false): void => {
+      const a = this.agents.get(id)!;
+      this.setInside(a, false, true);
+      a.v.setPosition(x, map.heightAt(x, z), z);
+      a.v.setYaw(yaw);
+      this.setActivity(a, act);
+      a.anchor = { x, z };
+      a.stepKey = '';
+      a.staged = true;
+      a.v.speaking = speak;
+      a.v.setMood(act === 'chat' ? (speak ? 'happy' : 'neutral') : 'neutral');
+      used.push({ x, z });
+    };
+    const chatters: NpcId[] = [];
+    for (const id of out) {
+      const opts = SOLO[id];
+      const pick = opts?.[(seed + NPC_IDS.indexOf(id)) % opts.length];
+      if (pick && free(pick[0], pick[1]) && hash3(seed, NPC_IDS.indexOf(id), 9) < 0.75) put(id, pick[0], pick[1], pick[2], (pick[3] * Math.PI) / 180);
+      else chatters.push(id);
+    }
+    let pi = seed % PAIRS.length;
+    while (chatters.length >= 2) {
+      const [ax, az, bx, bz] = PAIRS[pi % PAIRS.length]!;
+      pi++;
+      if (!free(ax, az) || !free(bx, bz)) {
+        if (pi > seed % PAIRS.length + PAIRS.length) break;
+        continue;
+      }
+      const a = chatters.shift()!;
+      const b = chatters.shift()!;
+      // Turned to each other (a touch open to the square), one of them mid-sentence.
+      put(a, ax, az, 'chat', Math.atan2(bx - ax, bz - az) + 0.25, true);
+      put(b, bx, bz, 'chat', Math.atan2(ax - bx, az - bz) - 0.25);
+    }
+    for (const id of chatters) {
+      const a = this.agents.get(id)!;
+      this.setInside(a, true, true);
+    }
+    for (const id of order.slice(6)) this.setInside(this.agents.get(id)!, true, true);
   }
 
   /** Demo blocking: put each marked villager on their spot, holding yaw, activity and emote. */
@@ -1153,6 +1247,31 @@ export class NpcSystem implements System {
     }
     this.clearEventProps();
     for (const pr of ev.props ?? []) {
+      if (pr.kind === 'ledger' || pr.kind === 'map' || pr.kind === 'sparks') {
+        const c = pr.kind === 'ledger' ? buildLedger() : pr.kind === 'map' ? buildKidMap() : buildSparks();
+        c.userData.kind = pr.kind;
+        c.userData.perfTag = 'npcs';
+        const holder = pr.hold ? this.agents.get(pr.hold[0]) : undefined;
+        const near = pr.near ? this.agents.get(pr.near[0]) : undefined;
+        if (holder) {
+          holder.v.holdProp(c, pr.hold![1]);
+        } else {
+          let x = pr.at[0];
+          let z = pr.at[1];
+          if (near) {
+            const yaw = (near.v as unknown as { yaw: number }).yaw;
+            const side = pr.near![2] ?? 0;
+            x = near.v.position.x + Math.sin(yaw) * pr.near![1] + Math.cos(yaw) * side;
+            z = near.v.position.z + Math.cos(yaw) * pr.near![1] - Math.sin(yaw) * side;
+          }
+          c.rotation.y = pr.rot ?? 0;
+          c.position.set(x, map.heightAt(x, z) + (pr.y ?? 0), z);
+          c.scale.setScalar(pr.scale ?? 1);
+          map.root.add(c);
+        }
+        this.eventProps.push(c);
+        continue;
+      }
       if (pr.kind === 'candle' || pr.kind === 'painting') {
         const c = pr.kind === 'candle' ? buildCandle() : buildPainting();
         c.userData.kind = pr.kind;
@@ -1466,15 +1585,17 @@ export class NpcSystem implements System {
     // Scene props (Pip on the roof) pull the wide frame towards them.
     if (kind === 'wide' && this.eventProps.length && !s.anchor) {
       for (const o of this.eventProps) {
-        cx = (cx * W + o.position.x * 0.8) / (W + 0.8);
-        cz = (cz * W + o.position.z * 0.8) / (W + 0.8);
+        const op = o.getWorldPosition(_propW);
+        cx = (cx * W + op.x * 0.8) / (W + 0.8);
+        cz = (cz * W + op.z * 0.8) / (W + 0.8);
       }
     }
     if (s.prop && kind !== 'wide') {
       // Insert: the speaker and the thing they talk about share the frame (prop weighted like an actor).
-      cx = (cx * W + s.prop.position.x * 1.4) / (W + 1.4);
-      cz = (cz * W + s.prop.position.z * 1.4) / (W + 1.4);
-      spread = Math.max(spread, Math.hypot(s.prop.position.x - lead.x, s.prop.position.z - lead.z) + 0.6);
+      const pp = s.prop.getWorldPosition(_propW);
+      cx = (cx * W + pp.x * 1.4) / (W + 1.4);
+      cz = (cz * W + pp.z * 1.4) / (W + 1.4);
+      spread = Math.max(spread, Math.hypot(pp.x - lead.x, pp.z - lead.z) + 0.6);
     }
     if (ots) kind = 'two';
     else if (kind !== 'wide' && other && Math.hypot(other.x - lead.x, other.z - lead.z) > 0.5) {
@@ -1551,9 +1672,10 @@ export class NpcSystem implements System {
         if (s.prop && kind !== 'wide') {
           _seen.length = 0;
           for (const a of acts) _seen.push(a);
-          _seenProp.x = s.prop.position.x;
-          _seenProp.y = s.prop.position.y;
-          _seenProp.z = s.prop.position.z;
+          const sp = s.prop.getWorldPosition(_propW);
+          _seenProp.x = sp.x;
+          _seenProp.y = sp.y;
+          _seenProp.z = sp.z;
           _seen.push(_seenProp);
           seen = _seen;
         }
@@ -1568,7 +1690,16 @@ export class NpcSystem implements System {
               const dx = ex - pos.x;
               const dz = ez - pos.z;
               const L2 = dx * dx + dz * dz || 1;
-              const t = THREE.MathUtils.clamp(((po.x - pos.x) * dx + (po.z - pos.z) * dz) / L2, 0, 1);
+              const tr = ((po.x - pos.x) * dx + (po.z - pos.z) * dz) / L2;
+              if (tr > 1.03 && tr < 2.6 && k === 0) {
+                // Tangent: a post standing right BEHIND a head (r4 critic: a lamp post growing out of
+                // Marigold's bun) — the extended lens→head ray passes the post below its lamp.
+                const qx = pos.x + dx * tr - po.x;
+                const qz = pos.z + dz * tr - po.z;
+                const yb = pos.y + (a.y + hy - pos.y) * tr - map.heightAt(po.x, po.z);
+                if (qx * qx + qz * qz < 0.42 * 0.42 && yb > -0.2 && yb < 3.6) h += a.id === s.speaker ? 6 : 2.5;
+              }
+              const t = THREE.MathUtils.clamp(tr, 0, 1);
               if (t > 0.97) continue;
               const px = pos.x + dx * t - po.x;
               const pz = pos.z + dz * t - po.z;
@@ -1596,6 +1727,17 @@ export class NpcSystem implements System {
             }
           }
         }
+        // The listener (often the farmer) looming in the near foreground — a hat brim filling a quarter of
+        // the frame — reads as an accident, not an over-the-shoulder: prefer a side-on two-shot.
+        if (this.camMode === 'event' && kind !== 'wide' && !ots && s.speaker) {
+          const sp = acts.find((a) => a.id === s.speaker);
+          if (sp)
+            for (const o of acts) {
+              if (o === sp) continue;
+              const r = Math.hypot(o.x - pos.x, o.z - pos.z) / (Math.hypot(sp.x - pos.x, sp.z - pos.z) || 1);
+              if (r < 0.8) h += (0.8 - r) * 12;
+            }
+        }
         // Walk beats: the walker's body must not hide behind the farmer (or anyone).
         if (kind === 'wide' && s.speaker) {
           const w = acts.find((a) => a.id === s.speaker);
@@ -1622,10 +1764,31 @@ export class NpcSystem implements System {
     // Lift the look point towards the lens so the actors sit ~26 % above centre (clear of the box).
     const fov = THREE.MathUtils.degToRad(this.game.rc.camera.fov);
     const up = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
-    const lift = (dist * Math.tan(up * Math.tan(fov / 2))) / Math.sin(THREE.MathUtils.degToRad(pitch));
     const yr = THREE.MathUtils.degToRad(yaw);
     const gy = map.heightAt(cx, cz);
-    const target = new THREE.Vector3(cx + Math.sin(yr) * lift, gy + lead.head * (kind === 'close' || ots ? 0.58 : 0.42), cz + Math.cos(yr) * lift);
+    const target = new THREE.Vector3();
+    // Fit: a tall listener beside a seated / short speaker must not lose the top of the head into the
+    // letterbox (r4: linus-2 "framed badly") — back the lens off until every framed head sits inside.
+    const tc = this.fitCam;
+    tc.fov = this.game.rc.camera.fov;
+    tc.aspect = this.game.rc.camera.aspect;
+    tc.updateProjectionMatrix();
+    for (let it = 0; it < 6; it++) {
+      const lift = (dist * Math.tan(up * Math.tan(fov / 2))) / Math.sin(THREE.MathUtils.degToRad(pitch));
+      target.set(cx + Math.sin(yr) * lift, gy + lead.head * (kind === 'close' || ots ? 0.58 : 0.42), cz + Math.cos(yr) * lift);
+      if (this.camMode !== 'event' || kind === 'wide') break;
+      this.camPosFor(target, yaw, pitch, dist, tc.position);
+      tc.lookAt(target);
+      tc.updateMatrixWorld(true);
+      let bad = false;
+      for (const a of acts) {
+        if ((kind === 'close' || ots) && a.id !== s.speaker) continue;
+        const hp = _q2.set(a.x, a.y + a.head - 0.1, a.z).project(tc);
+        if (hp.y > 0.72 || Math.abs(hp.x) > 0.88) bad = true;
+      }
+      if (!bad) break;
+      dist *= 1.1;
+    }
     const focus = new THREE.Vector3(cx, gy + 1.0, cz);
     this.goalKind = { kind, ots };
     return { yaw, pitch, dist, target, focus };
@@ -2436,8 +2599,50 @@ export class NpcSystem implements System {
     if (pv.targetYaw !== undefined) pv.targetYaw = Math.atan2(dx, dz);
   }
 
+  // ───────────────────────────────────────────── the farmers' winter wardrobe (local + remote)
+
+  private wardrobeT = 0;
+  private playerWinter = false;
+  private remoteLooks = new WeakMap<object, unknown>();
+
+  /**
+   * Farmers dress for the season like the villagers do (r4 critic: the farmer kept the straw boater
+   * and short sleeves in the snow): the local rig gets the knit beanie, coat, scarf and mittens; a
+   * remote farmhand's look swaps its hat for a beanie + scarf and gets the same coat overlay.
+   */
+  private dressFarmers(dt: number): void {
+    this.wardrobeT -= dt;
+    if (this.wardrobeT > 0) return;
+    this.wardrobeT = 0.5;
+    const on = this.game.calendar.season === 'winter';
+    if (on !== this.playerWinter) {
+      this.playerWinter = on;
+      dressFarmerWinter(this.game.player.rig, on);
+    }
+    const net = this.game.services.net as unknown as { remotes?: { list?: Map<number, { farmer?: { look: Record<string, unknown>; setLook(l: unknown): void; rig: Parameters<typeof dressFarmerWinter>[0] } }> } } | undefined;
+    const list = net?.remotes?.list;
+    if (!list) return;
+    for (const p of list.values()) {
+      const f = p.farmer;
+      if (!f) continue;
+      const orig = this.remoteLooks.get(f) as Record<string, unknown> | undefined;
+      if (on && (!orig || f.look.hat !== 'beanie')) {
+        const base = orig && f.look.hat === 'beanie' ? orig : f.look;
+        this.remoteLooks.set(f, base);
+        f.setLook({ ...base, hat: 'beanie', accessory: 'scarf' });
+        dressFarmerWinter(f.rig, true, { hat: false, knit: (base.scarf as number) ?? 0xc8443a, coat: 0x5a4a3e });
+      } else if (!on && orig) {
+        this.remoteLooks.delete(f);
+        f.setLook(orig);
+        dressFarmerWinter(f.rig, false, { hat: false });
+      }
+    }
+  }
+
   update(dt: number, game: Game): void {
     this.clock += dt;
+    this.dressFarmers(dt);
+    for (const o of this.eventProps) (o.userData.tick as ((dt: number) => void) | undefined)?.(dt);
     if (this.waits.length) {
       const due = this.waits.filter((w) => w.t <= this.clock);
       if (due.length) {
@@ -3010,10 +3215,12 @@ export class NpcSystem implements System {
     const net = this.coopNet();
     const map = this.game.world.current;
     if (!net?.remotes?.add || net.role() !== 'solo' || !map) return;
-    // Two pairs either side of the fountain, three-quarter to the lens.
+    // Two pairs either side of the fountain, three-quarter to the lens. The farmhands stand on the far
+    // (north) side of their villager, facing back towards the lens: faces read, and each name tag floats
+    // above its own farmer instead of over a villager's head (r4 critic).
     const pairs: [NpcId, number, number, number, number, 'talk' | 'gift', string][] = [
-      ['bram', 37.9, 22.3, 36.8, 23.5, 'talk', 'Juniper'],
-      ['wren', 27.4, 22.4, 26.1, 23.6, 'gift', 'Pip'],
+      ['bram', 38.3, 24.0, 37.2, 22.7, 'talk', 'Juniper'],
+      ['wren', 24.9, 24.4, 24.0, 22.9, 'gift', 'Pip'],
     ];
     pairs.forEach(([npc, vx, vz, bx, bz, job, name], i) => {
       const a = this.agents.get(npc)!;

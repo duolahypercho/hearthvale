@@ -255,6 +255,11 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'flowerPot', x: 39.7, z: 27.9, colors: [0xff8fab] },
   { kind: 'barrel', x: 40.1, z: 26.7, solid: [[40, 26]] },
   { kind: 'laundry', x: 47.6, z: 28.4, rot: 0.08 },
+  // r5: the bare cobble south of the fountain — a flower cart on the east side, a crate + sack drop
+  // on the west (deliveries for the store).
+  { kind: 'flowerCart', x: 39.8, z: 30.7, rot: -0.35, solid: [[39, 30], [40, 30]] },
+  { kind: 'crates', x: 23.9, z: 29.7, rot: 0.5, solid: [[23, 29]] },
+  { kind: 'sacks', x: 24.9, z: 30.5, rot: -0.3 },
   // Market row odds and ends.
   { kind: 'flowerPot', x: 54.2, z: 20.4, colors: [0xffd166] },
   { kind: 'flowerPot', x: 57.2, z: 20.5, colors: [0xc77dff] },
