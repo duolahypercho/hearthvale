@@ -5527,3 +5527,156 @@ body.u-calm .de-star .medal {
 .ts-motes b {
   will-change: transform, opacity;
 }
+
+/* ═══ r4 day-end ledger: 36 px icons (32 px in a dense list) so the painted icons are enjoyed, quality star
+   pinned to the slot's corner like the backpack. ═══ */
+.de-row .u-slot.mini,
+.de-rows.dense .de-row .u-slot.mini {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 9px;
+}
+.de-row .u-slot.mini img,
+.de-rows.dense .de-row .u-slot.mini img {
+  width: 36px;
+  height: 36px;
+}
+.de-rows.dense .de-row .u-slot.mini {
+  width: 36px;
+  height: 36px;
+}
+.de-rows.dense .de-row .u-slot.mini img {
+  width: 32px;
+  height: 32px;
+}
+.de-row .u-slot.mini .u-star,
+.de-star .u-slot .u-star {
+  position: absolute;
+  left: -3px;
+  bottom: -3px;
+  width: 17px;
+  height: 17px;
+  filter: drop-shadow(0 1px 0 rgba(40, 20, 4, 0.45));
+}
+.de-star .u-slot {
+  position: relative;
+}
+.de-star .u-slot .u-star {
+  width: 22px;
+  height: 22px;
+}
+
+/* ═══ r4 Shop: a wider counter — two-column goods grid (12 rows on show, not 5), a bigger keeper portrait
+   whose expression changes on a sale / a big buy / an empty purse. ═══ */
+.hv-shop .shop-right {
+  width: 820px;
+}
+.hv-shop .shop-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: min-content;
+  align-content: start;
+  column-gap: 10px;
+  row-gap: 6px;
+  height: 438px;
+}
+.hv-shop .shop-shelf,
+.hv-shop .shop-empty {
+  grid-column: 1 / -1;
+}
+.hv-shop .shop-row {
+  min-width: 0;
+}
+.hv-shop .shop-row .nm {
+  min-width: 0;
+}
+.hv-shop .shop-row .nm b,
+.hv-shop .shop-row .nm small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hv-shop .shop-keeper {
+  width: 280px;
+}
+.hv-shop .shop-portrait {
+  width: 262px;
+  height: 262px;
+}
+
+/* ═══ r4 crafting: the placement card is a crop of the real farm in front of you (9×9 tiles), filling the card,
+   with a fits / blocked tag; blocked target pulses red. ═══ */
+.craft-detail .cd-prev svg.grid.iso.real,
+.craft-detail .cd-prev svg.grid.iso {
+  width: 100%;
+  max-width: 300px;
+}
+.pv-frame.bad {
+  animation: pvFrameBad 0.9s ease-in-out infinite alternate;
+}
+@keyframes pvFrameBad {
+  to {
+    fill: rgba(255, 90, 70, 0.62);
+    stroke: #fff0ea;
+  }
+}
+.craft-detail .cd-prev .cd-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+}
+.craft-detail .cd-prev .cd-h em {
+  margin-left: auto;
+  padding: 1px 9px 2px;
+  border-radius: 9px;
+  font-style: normal;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: #5fa83c;
+  box-shadow: 0 2px 0 #2f6a1e;
+}
+.craft-detail .cd-prev .cd-h em:empty {
+  display: none;
+}
+.craft-detail .cd-prev .cd-h em.no {
+  background: #c8483a;
+  box-shadow: 0 2px 0 #7a2018;
+}
+.craft-detail .cd-prev small.sub {
+  margin-top: 4px;
+  background: none;
+  box-shadow: none;
+  font-size: 11.5px;
+  color: #8a6a44;
+}
+.craft-detail .cd-prev svg.grid.iso.real,
+.craft-detail .cd-prev svg.grid.iso {
+  max-width: 100%;
+}
+
+/* ═══ r4 pause: the co-op card's perk list carries the whole middle (no void above the farmers), the
+   neighbour nudge is one full-width tight line under the faces. ═══ */
+.pause-wrap > .coop-pause > .u-paper::after {
+  content: '\2767  Shared fields, gold & bin\A \2767  Your own pack and energy\A \2767  All sleep to end the day\A \2767  T to chat \00B7  hold G to emote\A \2767  The host\2019s journal keeps the farm';
+  line-height: 1.95;
+  padding-bottom: 160px;
+}
+.td-friends.meet .nudge {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.3;
+  font-weight: 800;
+  text-align: center;
+  color: #8a6440;
+  letter-spacing: -0.1px;
+}
+.craft-detail .cd-prev svg.grid.iso.real {
+  width: 100%;
+  max-width: none;
+}

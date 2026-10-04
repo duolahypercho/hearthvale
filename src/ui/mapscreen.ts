@@ -101,6 +101,32 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
     <g transform="translate(566 268)"><rect x="-16" y="-12" width="32" height="20" fill="#e8d8c0" stroke="#3b2313" stroke-width="1.8"/><path d="M-20 -10 L0 -30 L20 -10 Z" fill="#6a7a9a" stroke="#3b2313" stroke-width="1.8"/><rect x="-3" y="-38" width="6" height="10" fill="#6a7a9a" stroke="#3b2313" stroke-width="1.4"/><circle cy="-2" r="4.5" fill="#ffd66a" stroke="#3b2313" stroke-width="1.2"/></g>
   </g>
   ${trees}
+  <!-- r4: the unexplored Wildwood — an ink-hatched fog bank with a ragged edge, one teaser landmark (a ruined
+       watchtower with a lit window) and a "here be wild things" cartouche. Rasterised with the still layer. -->
+  <g pointer-events="none">
+    <defs>
+      <linearGradient id="mFogG" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#efe0ba" stop-opacity="0"/><stop offset=".18" stop-color="#efe0ba" stop-opacity=".78"/><stop offset="1" stop-color="#e9d9b0" stop-opacity=".9"/></linearGradient>
+      <pattern id="mHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(-38)"><path d="M0 4 H8" stroke="#7a5a3a" stroke-width="1.1"/></pattern>
+    </defs>
+    <path d="M790 22 C768 92 800 150 776 214 C760 270 800 318 778 380 C766 430 794 470 784 506 L1000 506 L1000 22 Z" fill="url(#mFogG)"/>
+    <path d="M806 40 C790 100 818 150 798 214 C784 270 820 318 800 380 C790 428 812 466 806 492 L996 492 L996 40 Z" fill="url(#mHatch)" opacity=".2"/>
+    <path d="M790 22 C768 92 800 150 776 214 C760 270 800 318 778 380 C766 430 794 470 784 506" fill="none" stroke="#7a5a3a" stroke-width="1.6" stroke-dasharray="2 5" opacity=".55"/>
+    <g transform="translate(884 236)" opacity=".92">
+      <ellipse cx="0" cy="40" rx="34" ry="7" fill="#3a2a1a" opacity=".18"/>
+      <path d="M-16 40 L-13 -14 L-18 -18 L-18 -30 L-11 -30 L-11 -24 L-4 -24 L-4 -32 L4 -32 L4 -24 L10 -26 L10 -36 L18 -36 L16 -16 L13 -12 L16 40 Z" fill="#c8bca4" stroke="#5a4630" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M-13 0 H13 M-14 16 H14 M-12 -14 H12" stroke="#8a7a62" stroke-width="1.2"/>
+      <path d="M-3 22 C-3 16 3 16 3 22 V40 H-3 Z" fill="#4a3424"/>
+      <path d="M-3 -8 C-3 -12 3 -12 3 -8 V-2 H-3 Z" fill="#ffcf6a" stroke="#5a4630" stroke-width="1"/>
+      <path d="M6 -26 C14 -32 22 -24 18 -18 M-16 30 C-24 26 -26 34 -20 38" stroke="#5a8a3a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <circle cx="26" cy="-34" r="9" fill="#fbf0d6" stroke="#5a3418" stroke-width="1.8"/><text x="26" y="-29.5" text-anchor="middle" font-size="13" font-weight="800" fill="#b8483c" font-family="Fredoka, sans-serif">?</text>
+    </g>
+    <g transform="translate(884 316)">
+      <path d="M-64 -16 H64 C72 -16 74 -10 70 -6 C76 -2 76 8 70 12 C74 16 72 22 64 22 H-64 C-72 22 -74 16 -70 12 C-76 8 -76 -2 -70 -6 C-74 -10 -72 -16 -64 -16 Z" fill="#fbf0d6" stroke="#6a4428" stroke-width="2"/>
+      <path d="M-58 -10 H58 M-58 16 H58" stroke="#b8946a" stroke-width="1" stroke-dasharray="3 3"/>
+      <text y="2" text-anchor="middle" font-size="14" font-style="italic" font-weight="700" fill="#5a3a1a" font-family="Caveat, cursive">here be wild things</text>
+      <text y="14" text-anchor="middle" font-size="8.5" letter-spacing="1.4" font-weight="800" fill="#8a6a44" font-family="Nunito, sans-serif">THE OLD WATCHTOWER</text>
+    </g>
+  </g>
   <!-- beach props -->
   <g><path d="M690 524 L760 520" stroke="#8a5a36" stroke-width="7" stroke-linecap="round"/><g stroke="#5a3418" stroke-width="3">${[700, 720, 740, 758].map((x) => `<path d="M${x} 522 V540"/>`).join('')}</g>
   <path d="M600 548 l6 -10 l6 10 Z" fill="#f07a3a" stroke="#8a3a10" stroke-width="1.5"/><circle cx="572" cy="532" r="3.2" fill="#f2b8a0" stroke="#8a5a4a"/>
@@ -123,7 +149,7 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
         `<g class="m-cloud" style="animation-delay:${off}s;animation-duration:${90 + k! * 24}s"><g transform="translate(0 ${y}) scale(${sc})"><g transform="translate(10 26)" fill="#3a4a2a" opacity=".1"><ellipse cx="0" cy="0" rx="38" ry="12"/><ellipse cx="30" cy="4" rx="28" ry="10"/></g><g fill="#ffffff" opacity=".62"><ellipse cx="0" cy="0" rx="36" ry="14"/><ellipse cx="24" cy="-8" rx="24" ry="14"/><ellipse cx="46" cy="2" rx="26" ry="11"/><ellipse cx="-22" cy="4" rx="20" ry="9"/></g></g></g>`,
     )
     .join('')}
-  <g class="m-ink" pointer-events="none" fill="#5a3a1a" stroke="#f1e2bc" stroke-width="3" paint-order="stroke" stroke-linejoin="round" font-style="italic" font-weight="700" text-anchor="middle"><text x="872" y="58" font-size="15">the Wildwood</text><text x="872" y="74" font-size="11.5" letter-spacing="1.5">· unexplored ·</text></g>
+  <g class="m-ink" pointer-events="none" fill="#5a3a1a" stroke="#f1e2bc" stroke-width="3" paint-order="stroke" stroke-linejoin="round" font-style="italic" font-weight="700" text-anchor="middle"><text x="872" y="58" font-size="15">the Wildwood</text><text x="872" y="74" font-size="11.5" letter-spacing="1.5">· unexplored ·</text><text x="382" y="340" font-size="12.5">the Commons</text><text x="382" y="352" font-size="9" letter-spacing="1.2">neighbours' plots</text><text x="692" y="362" font-size="11.5">Lavender Rows</text></g>
   ${villagers}
   ${labels}
   ${pinAt ? `<g class="m-pin" transform="translate(${pinAt.x} ${pinAt.y - 18})"><ellipse cy="26" rx="12" ry="4" fill="#000" opacity=".25"/><g class="bob"><path d="M0 22 C-16 4 -18 -18 0 -20 C18 -18 16 4 0 22 Z" fill="#e8574a" stroke="#6a1e10" stroke-width="3"/>${faceSprite(farmerAvatar(['#fff4d8', '#f0d8a0'], look), -14, -18, 28)}</g></g>` : ''}
@@ -137,7 +163,7 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
  * the square (never stacked on each other, and clear of the square's name flag below it). More than
  * eight out at once collapses the rest into a "+N" badge at the end of the arc.
  */
-const HEAD_MAX = 8;
+const HEAD_MAX = 5;
 function villagerHeads(game: Game): { heads: Head[]; extra: string[] } {
   const h = game.calendar.hour;
   const rain = game.calendar.weather === 'rain' || game.calendar.weather === 'storm';
@@ -165,15 +191,15 @@ function villagerHeads(game: Game): { heads: Head[]; extra: string[] } {
   const slots = shown.length + (extra.length ? 1 : 0);
   // Arc over the top of the square: from lower-left (150°) round to lower-right (390°); the name flag
   // hangs below the square (≈ 60°–120°) so that wedge stays clear. Spacing ≥ 30° keeps 25 px heads apart.
-  const span = Math.min(240, Math.max(0, slots - 1) * 34);
+  const span = Math.min(240, Math.max(0, slots - 1) * 44);
   const a0 = 270 - span / 2;
   const heads: Head[] = shown.map((x, i) => {
     const a = ((a0 + (slots > 1 ? (span * i) / (slots - 1) : 0)) * Math.PI) / 180;
-    return { id: x.id, svg: x.svg, x: 566 + Math.cos(a) * 66, y: 300 + Math.sin(a) * 60 };
+    return { id: x.id, svg: x.svg, x: 566 + Math.cos(a) * 78, y: 296 + Math.sin(a) * 70 };
   });
   if (extra.length) {
     const a = ((a0 + span) * Math.PI) / 180;
-    heads.push({ id: '+', svg: `+${extra.length}`, x: 566 + Math.cos(a) * 66, y: 300 + Math.sin(a) * 60 });
+    heads.push({ id: '+', svg: `+${extra.length}`, x: 566 + Math.cos(a) * 78, y: 296 + Math.sin(a) * 70 });
   }
   return { heads, extra };
 }

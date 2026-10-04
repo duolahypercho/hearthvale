@@ -13,7 +13,7 @@ const priceOf = (itemId: string, qty: number, quality = 0): number => Math.floor
 declare module '../core/events' {
   interface GameEvents {
     'shipping:add': { itemId: string; qty: number; value: number };
-    'shipping:summary': { items: { itemId: string; qty: number; value: number }[]; total: number };
+    'shipping:summary': { items: { itemId: string; qty: number; value: number; quality?: number }[]; total: number };
   }
 }
 
@@ -41,7 +41,7 @@ export class ShippingSystem implements System {
 
   private payout(): void {
     if (!this.bin.length) return;
-    const items = this.bin.map((b) => ({ itemId: b.itemId, qty: b.qty, value: priceOf(b.itemId, b.qty, b.quality) }));
+    const items = this.bin.map((b) => ({ itemId: b.itemId, qty: b.qty, value: priceOf(b.itemId, b.qty, b.quality), ...(b.quality ? { quality: b.quality } : {}) }));
     const total = items.reduce((a, b) => a + b.value, 0);
     this.bin = [];
     this.game.services.economy?.add(total, 'shipping');

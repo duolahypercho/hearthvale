@@ -36,7 +36,7 @@ interface Summary {
   };
 }
 
-type Line = { itemId: string; qty: number; value: number };
+type Line = { itemId: string; qty: number; value: number; quality?: number };
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
 const WEEKDAY = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -96,15 +96,29 @@ export class DayEndScreen extends Screen {
       this.game.rc.render(0, this.game.time);
       if (hz !== undefined) rc.backdropHz = hz;
       const src = this.game.rc.renderer.domElement;
-      const cv = document.createElement('canvas');
-      cv.width = 640;
-      cv.height = 360;
+      // r4: progressive dual-filter blur (Kawase-style) instead of one big blur on a hard 4x downsample —
+      // halve twice with high-quality smoothing, dip to 320x180 and come back up, so the moonlit frame is
+      // soft bokeh rather than aliased mosaic blocks. (The film grain is a full-resolution CSS layer on top.)
+      const pass = (w: number, h: number, from: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, filter = 'none', read = false): HTMLCanvasElement => {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const x = c.getContext('2d', read ? { willReadFrequently: true } : undefined)!;
+        x.imageSmoothingEnabled = true;
+        x.imageSmoothingQuality = 'high';
+        x.filter = filter;
+        x.drawImage(from, sx, sy, sw, sh, 0, 0, w, h);
+        return c;
+      };
+      const k = Math.min(src.width / 16, src.height / 9);
+      const ox = (src.width - k * 16) / 2 + k * 0.2;
+      const oy = (src.height - k * 9) / 2 + k * 0.12;
+      const half = pass(1280, 720, src, ox, oy, k * 15.6, k * 8.76);
+      const quarter = pass(640, 360, half, 0, 0, 1280, 720, 'blur(1px)');
+      const eighth = pass(320, 180, quarter, 0, 0, 640, 360, 'blur(1px)');
+      const cv = pass(640, 360, eighth, 0, 0, 320, 180, 'blur(1.4px) saturate(0.9)', true);
       const g = cv.getContext('2d', { willReadFrequently: true });
       if (!g) return null;
-      const k = Math.min(src.width / 16, src.height / 9);
-      g.filter = 'blur(2.5px) saturate(0.9)';
-      g.drawImage(src, (src.width - k * 16) / 2, (src.height - k * 9) / 2, k * 16, k * 9, -8, -5, 656, 370);
-      g.filter = 'none';
       // Reject black frames (mid-fade, shader compile) and flat ones (the clear colour before the world loads).
       const px = g.getImageData(0, 0, 640, 360).data;
       let sum = 0;
@@ -167,7 +181,15 @@ export class DayEndScreen extends Screen {
       ['wood', 40],
       ['fiber', 12],
     ];
-    const items = want.filter(([id]) => itemDef(id)).map(([id, qty]) => ({ itemId: id, qty, value: (itemDef(id)?.sell ?? 0) * qty }));
+    // A staged evening's bin: a few quality pulls (silver strawberries, gold cauliflower) so the stars show.
+    const q: Record<string, number> = { strawberry: 1, cauliflower: 2, pondPerch: 1 };
+    const items = want
+      .filter(([id]) => itemDef(id))
+      .map(([id, qty]) => {
+        const ql = q[id] ?? 0;
+        const value = Math.floor((itemDef(id)?.sell ?? 0) * (ql === 1 ? 1.25 : ql === 2 ? 1.5 : ql === 3 ? 2 : 1)) * qty;
+        return ql ? { itemId: id, qty, value, quality: ql } : { itemId: id, qty, value };
+      });
     const total = items.reduce((a, b) => a + b.value, 0);
     return { s: { passedOut: false, shipped: total, penalty: 0, day: this.game.calendar.day, sample: true }, items };
   }
@@ -260,7 +282,7 @@ export class DayEndScreen extends Screen {
       rows.push(`<div class="de-grp" style="--i:${k++}"><span>${ICONS[GROUP_ICON[g]!] ?? ''}${g}</span><b>${sub.toLocaleString()}g</b></div>`);
       for (const it of list.sort((a, b) => b.value - a.value)) {
         const d = itemDef(it.itemId);
-        rows.push(`<div class="de-row" style="--i:${k++}"><div class="u-slot mini">${itemIcon(it.itemId)}</div><span class="nm">${escapeHtml(d?.name ?? it.itemId)}</span><span class="q">×${it.qty}</span><b>${it.value.toLocaleString()}g</b></div>`);
+        rows.push(`<div class="de-row" style="--i:${k++}"><div class="u-slot mini">${itemIcon(it.itemId)}${qualityStar(it.quality ?? 0)}</div><span class="nm">${escapeHtml(d?.name ?? it.itemId)}</span><span class="q">×${it.qty}</span><b>${it.value.toLocaleString()}g</b></div>`);
       }
     }
     // A real summary arrives after the calendar rolled over; the staged sample shows the day after today.
@@ -276,10 +298,15 @@ export class DayEndScreen extends Screen {
     const w = c.weather;
     const forecast = w === 'sun' ? 'Sunny and mild' : w === 'rain' ? 'Rain all day — no watering needed' : w === 'storm' ? 'Thunderstorms. Stay near home' : w === 'snow' ? 'Snow on the fields' : 'A breezy day';
     // Pick of the day: the most valuable line in the bin, plus the day's tally.
-    const best = [...items].sort((a, b) => b.value - a.value)[0];
+    // Ties (two lines worth the same) go to the dearer item each, then the higher quality — and say why.
+    const unit = (l: Line): number => l.value / Math.max(1, l.qty);
+    const ranked = [...items].sort((a, b) => b.value - a.value || unit(b) - unit(a) || (b.quality ?? 0) - (a.quality ?? 0));
+    const best = ranked[0];
+    const tied = !!best && !!ranked[1] && ranked[1].value === best.value;
+    const why = !best ? '' : tied ? ' · best per item' : ranked[1] ? ' · top earner' : '';
     const count = items.reduce((a, b) => a + b.qty, 0);
     const star = best
-      ? `<div class="de-star"><div class="de-h">Pick of the day</div><div class="st"><div class="u-slot">${itemIcon(best.itemId)}</div><div class="tx"><b>${escapeHtml(itemDef(best.itemId)?.name ?? best.itemId)}</b><small>×${best.qty} · ${best.value.toLocaleString()}g</small></div><span class="medal">${ROSETTE}</span></div><div class="de-count"><span><b class="cn" data-v="0">0</b> items shipped</span><span><b class="kn" data-v="0">0</b> kinds</span></div></div>`
+      ? `<div class="de-star"><div class="de-h">Pick of the day</div><div class="st"><div class="u-slot">${itemIcon(best.itemId)}${qualityStar(best.quality ?? 0)}</div><div class="tx"><b>${escapeHtml(itemDef(best.itemId)?.name ?? best.itemId)}</b><small>×${best.qty} · ${best.value.toLocaleString()}g${why}</small></div><span class="medal">${ROSETTE}</span></div><div class="de-count"><span><b class="cn" data-v="0">0</b> items shipped</span><span><b class="kn" data-v="0">0</b> kinds</span></div></div>`
       : '';
     const title = s.passedOut ? 'You passed out…' : `Day ${s.day} complete`;
     const quiet = !items.length;

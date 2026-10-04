@@ -158,7 +158,11 @@ export class CraftingScreen extends Screen {
         </div>
         ${
           r.placeable
-            ? `<div class="cd-prev"><div class="cd-h">Placement</div><div class="pv-stage">${previewSvg(r.out.itemId)}</div><small>${previewNote(r.out.itemId)}</small></div>`
+            ? (() => {
+                const sm = sampleWorld(this.game);
+                const where = sm ? (sm.ok ? 'In front of you · free tile' : 'In front of you · blocked, step aside') : previewNote(r.out.itemId);
+                return `<div class="cd-prev"><div class="cd-h">Placement<em class="${sm && !sm.ok ? 'no' : 'ok'}">${sm ? (sm.ok ? 'fits' : 'blocked') : ''}</em></div><div class="pv-stage">${previewSvg(r.out.itemId, sm)}</div><small>${where}</small><small class="sub">${previewNote(r.out.itemId)}</small></div>`;
+              })()
             : `<div class="cd-prev bag"><div class="cd-h">Goes to</div><div class="pv-stage"><div class="bagpic">${ICONS.bag ?? ''}<div class="in">${known ? itemIcon(r.out.itemId) : ''}</div></div></div><small>Into your backpack</small></div>`
         }
       </div>
@@ -258,30 +262,65 @@ export class CraftingScreen extends Screen {
   }
 }
 
-// ── Placement preview: a tiny isometric diorama slab — the item on its tile, with its reach ──
+// ── Placement preview: a top-down-ish iso crop of the real farm in front of the farmer (r4) — the actual
+// tiles (grass, tilled / watered soil, path, water, sand, floor) and what stands on them (crops, weeds, stones,
+// trees, fences, buildings), the ghost item on the tile you'd place it on, tinted green (free) or red (blocked),
+// with its reach. Off the farm / no world: the same slab, painted as an open meadow.
 
-const N = 7;
 const TW = 30;
-const TH = 15;
-const X0 = 105;
-const Y0 = 40;
+const TH = 23;
+const Y0 = 42;
 const DEPTH = 11;
+
+/** One sampled tile: ground type + flags + what stands on it. */
+interface PvTile {
+  t: number;
+  f: number;
+  obj?: { kind: string; id: string };
+}
+export interface PvSample {
+  n: number;
+  tiles: PvTile[];
+  /** Can the item go on the centre tile? */
+  ok: boolean;
+  real: boolean;
+}
+
+/** Sample an n×n window of the current map around the tile the farmer faces. */
+export function sampleWorld(game: Game, n = 7): PvSample | null {
+  const map = game.world.current;
+  const grid = map?.grid;
+  const pl = game.player as unknown as { facingTile?: () => { x: number; z: number } };
+  if (!grid || !pl.facingTile) return null;
+  const t = pl.facingTile();
+  const c = Math.floor(n / 2);
+  const tiles: PvTile[] = [];
+  for (let z = 0; z < n; z++)
+    for (let x = 0; x < n; x++) {
+      const gx = t.x + x - c;
+      const gz = t.z + z - c;
+      if (!grid.inBounds(gx, gz)) {
+        tiles.push({ t: 5, f: 1 });
+        continue;
+      }
+      const ty = grid.getType(gx, gz);
+      let f = 0;
+      for (const bit of [1, 2, 4, 8, 16, 32]) if (grid.hasFlag(gx, gz, bit)) f |= bit;
+      const o = grid.getObject(gx, gz);
+      tiles.push(o ? { t: ty, f, obj: { kind: String(o.kind), id: o.id } } : { t: ty, f });
+    }
+  const ok = grid.inBounds(t.x, t.z) && !grid.getObject(t.x, t.z) && grid.isWalkable(t.x, t.z) && !grid.hasFlag(t.x, t.z, 1 << 5);
+  return { n, tiles, ok, real: true };
+}
+
+function meadow(n: number): PvSample {
+  return { n, tiles: Array.from({ length: n * n }, () => ({ t: 1, f: 2 })), ok: true, real: false };
+}
 
 function h2(x: number, z: number): number {
   let h = (x * 374761393 + z * 668265263) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-/** Top vertex of tile (x, z) in the iso view. */
-function iso(x: number, z: number): [number, number] {
-  return [X0 + ((x - z) * TW) / 2, Y0 + ((x + z) * TH) / 2];
-}
-
-function diamond(x: number, z: number, inset = 0): string {
-  const [sx, sy] = iso(x, z);
-  const i = inset;
-  return `M${sx} ${sy + i} L${sx + TW / 2 - i * 2} ${sy + TH / 2} L${sx} ${sy + TH - i} L${sx - TW / 2 + i * 2} ${sy + TH / 2} Z`;
 }
 
 function mix(a: string, b: string, k: number): string {
@@ -290,12 +329,19 @@ function mix(a: string, b: string, k: number): string {
   return `#${pa.map((v, i) => Math.round(v + (pb[i]! - v) * k).toString(16).padStart(2, '0')).join('')}`;
 }
 
-function previewSvg(itemId: string): string {
+function previewSvg(itemId: string, sample?: PvSample | null): string {
+  const S = sample ?? meadow(7);
+  const N = S.n;
+  const X0 = (N * TW) / 2;
+  const iso = (x: number, z: number): [number, number] => [X0 + ((x - z) * TW) / 2, Y0 + ((x + z) * TH) / 2];
+  const diamond = (x: number, z: number, i = 0): string => {
+    const [sx, sy] = iso(x, z);
+    return `M${sx} ${sy + i} L${sx + TW / 2 - i * 2} ${sy + TH / 2} L${sx} ${sy + TH - i} L${sx - TW / 2 + i * 2} ${sy + TH / 2} Z`;
+  };
   const c = Math.floor(N / 2);
   const isSprinkler = !!SPRINKLERS[itemId];
   const wet = new Set<string>();
   if (isSprinkler) for (const [dx, dz] of sprinklerOffsets(itemId)) wet.add(`${c + dx},${c + dz}`);
-  const reach = isSprinkler ? Math.max(1, ...sprinklerOffsets(itemId).map(([dx, dz]) => Math.max(Math.abs(dx), Math.abs(dz)))) + 1 : 0;
   const paved = new Set(itemId === 'stonePath' ? [-1, 0, 1].flatMap((dx) => [-1, 0, 1].map((dz) => `${c + dx},${c + dz}`)) : []);
   const fence = itemId === 'woodFence' ? [-2, -1, 0, 1, 2].map((dx) => [c + dx, c] as [number, number]) : [];
   const out: string[] = [];
@@ -306,29 +352,54 @@ function previewSvg(itemId: string): string {
   out.push(`<path d="M${lx} ${ly} L${bx} ${by} L${bx} ${by + DEPTH} L${lx} ${ly + DEPTH} Z" fill="#7a4e2c"/>`);
   out.push(`<path d="M${bx} ${by} L${rx} ${ry} L${rx} ${ry + DEPTH} L${bx} ${by + DEPTH} Z" fill="#5e3a1e"/>`);
   out.push(`<path d="M${lx} ${ly + 5} L${bx} ${by + 5} L${bx} ${by + 7} L${lx} ${ly + 7} Z" fill="#4a2c14" opacity=".25"/>`);
-  out.push(`<path d="M${lx} ${ly} L${bx} ${by} L${rx} ${ry} L${bx} ${by + 3.5} Z" fill="#5a9a3a"/>`);
-  // Tiles.
+  const props: [number, string][] = [];
   for (let z = 0; z < N; z++)
     for (let x = 0; x < N; x++) {
       const k = `${x},${z}`;
-      const j = h2(x, z);
-      const soil = isSprinkler && Math.abs(x - c) <= reach && Math.abs(z - c) <= reach;
+      const T = S.tiles[z * N + x]!;
+      const j = h2(x + 17, z + 31);
+      const tilled = (T.f & 4) !== 0;
+      const watered = (T.f & 8) !== 0;
       let fill: string;
       if (paved.has(k)) fill = mix('#b8b2a6', '#9a9488', j);
-      else if (soil) fill = wet.has(k) ? mix('#6a4428', '#5a3a22', j) : mix('#a8764a', '#9a6a40', j);
+      else if (tilled) fill = watered ? mix('#5e3c22', '#4e3220', j) : mix('#a8764a', '#9a6a40', j);
+      else if (T.t === 4) fill = mix('#4a9ad0', '#3a86c0', j);
+      else if (T.t === 3 || T.t === 8) fill = mix('#c8b48c', '#b8a47c', j);
+      else if (T.t === 7) fill = mix('#ecd8a0', '#e0c88c', j);
+      else if (T.t === 6) fill = mix('#c08a52', '#a87442', j);
+      else if (T.t === 2) fill = mix('#a87e52', '#9a7048', j);
+      else if (T.t === 5 || T.t === 0) fill = mix('#7a7466', '#6a6458', j);
       else fill = mix((x + z) % 2 ? '#8fcb5a' : '#86c252', '#9ad466', j * 0.5);
       out.push(`<path d="${diamond(x, z)}" fill="${fill}" stroke="rgba(40,60,20,.18)" stroke-width=".6"/>`);
       const [sx, sy] = iso(x, z);
       const cy = sy + TH / 2;
       if (paved.has(k)) {
         out.push(`<path d="${diamond(x, z, 2.2)}" fill="${mix('#d8d2c4', '#c4bcae', j)}"/><path d="M${sx - 5} ${cy} L${sx + 1} ${cy + 2} L${sx + 6} ${cy - 1}" stroke="#8a8478" stroke-width=".9" fill="none"/>`);
-      } else if (soil) {
+      } else if (tilled) {
         out.push(`<path d="M${sx - 8} ${cy + 1} L${sx - 1} ${cy - 2.5} M${sx - 2} ${cy + 4} L${sx + 6} ${cy + 0.5}" stroke="rgba(40,20,6,.35)" stroke-width="1.1" stroke-linecap="round"/>`);
-        if (wet.has(k)) out.push(`<path class="pv-wet" d="${diamond(x, z, 1)}" fill="#4aa0e8" style="animation-delay:${(-j * 2).toFixed(2)}s"/><path d="M${sx} ${cy - 5} c2.4 3.4 2.4 5.4 0 6 c-2.4 -.6 -2.4 -2.6 0 -6Z" fill="#bfeaff" stroke="#24608a" stroke-width=".8"/>`);
-      } else if (j > 0.72) {
-        out.push(`<path d="M${sx - 3} ${cy + 2} l-1 -4 M${sx - 1} ${cy + 2} l0 -5 M${sx + 1} ${cy + 2} l1.5 -4" stroke="#4f8a30" stroke-width="1" stroke-linecap="round"/>`);
-      } else if (j < 0.08) {
-        out.push(`<circle cx="${sx + 3}" cy="${cy}" r="1.6" fill="${j < 0.04 ? '#fff4d0' : '#ffb3cf'}"/>`);
+      } else if (T.t === 4) {
+        out.push(`<path d="M${sx - 6} ${cy} q3 -2 6 0 t6 0" stroke="#bfe6ff" stroke-width=".9" fill="none" opacity=".8"/>`);
+      } else if (T.t === 1 && !T.obj) {
+        if (j > 0.74) out.push(`<path d="M${sx - 3} ${cy + 2} l-1 -4 M${sx - 1} ${cy + 2} l0 -5 M${sx + 1} ${cy + 2} l1.5 -4" stroke="#4f8a30" stroke-width="1" stroke-linecap="round"/>`);
+        else if (j < 0.07) out.push(`<circle cx="${sx + 3}" cy="${cy}" r="1.6" fill="${j < 0.035 ? '#fff4d0' : '#ffb3cf'}"/>`);
+      }
+      if (wet.has(k)) out.push(`<path class="pv-wet" d="${diamond(x, z, 1)}" fill="#4aa0e8" style="animation-delay:${(-j * 2).toFixed(2)}s"/><path d="M${sx} ${cy - 5} c2.4 3.4 2.4 5.4 0 6 c-2.4 -.6 -2.4 -2.6 0 -6Z" fill="#bfeaff" stroke="#24608a" stroke-width=".8"/>`);
+      // What stands on the tile (drawn back-to-front with the item below).
+      const o = T.obj;
+      if (o) {
+        const d = x + z;
+        let g = '';
+        if (o.kind === 'crop') g = `<path d="M${sx} ${cy + 1} c-4 -3 -6 -7 -5 -10 c3 1 5 4 5 10 c0 -6 2 -9 5 -10 c1 3 -1 7 -5 10Z" fill="#5fae45" stroke="#2f6b2a" stroke-width=".9"/>`;
+        else if (o.kind === 'weed') g = `<path d="M${sx - 4} ${cy + 1} l-1 -6 M${sx} ${cy + 1} l0 -7 M${sx + 4} ${cy + 1} l1.5 -6" stroke="#3f7a2a" stroke-width="1.6" stroke-linecap="round"/>`;
+        else if (o.kind === 'stone' || o.kind === 'boulder') g = `<ellipse cx="${sx}" cy="${cy - 2}" rx="${o.kind === 'boulder' ? 9 : 6}" ry="${o.kind === 'boulder' ? 6 : 4}" fill="#a8a296" stroke="#5e584e" stroke-width="1"/><ellipse cx="${sx - 2}" cy="${cy - 4}" rx="2.4" ry="1.2" fill="#fff" opacity=".5"/>`;
+        else if (o.kind === 'twig' || o.kind === 'stump') g = `<ellipse cx="${sx}" cy="${cy - 1}" rx="6" ry="3.4" fill="#9a6a3a" stroke="#4a2c14" stroke-width="1"/><ellipse cx="${sx}" cy="${cy - 2}" rx="3.6" ry="1.8" fill="#e2b57a"/>`;
+        else if (o.kind === 'tree' || o.kind === 'bush') {
+          const r = o.kind === 'tree' ? 12 : 7;
+          g = `<rect x="${sx - 1.6}" y="${cy - r}" width="3.2" height="${r}" fill="#6a4020"/><circle cx="${sx}" cy="${cy - r - r * 0.4}" r="${r}" fill="${mix('#3f7a2e', '#5a9a3a', j)}" stroke="#24461a" stroke-width="1"/><circle cx="${sx - r * 0.35}" cy="${cy - r - r * 0.7}" r="${r * 0.35}" fill="#8cc860" opacity=".5"/>`;
+        } else if (o.kind === 'fence') g = `<path d="M${sx - 7} ${cy - 1} V${cy - 9} M${sx + 7} ${cy - 1} V${cy - 9} M${sx - 8} ${cy - 6} H${sx + 8}" stroke="#7a4a22" stroke-width="2.2" stroke-linecap="round"/>`;
+        else if (o.kind === 'building') g = `<path d="${diamond(x, z, 0.5)}" fill="#8a5a32" opacity=".9"/><path d="M${sx - 12} ${cy} V${cy - 10} L${sx} ${cy - 18} L${sx + 12} ${cy - 10} V${cy}" fill="#c08a52" stroke="#4a2810" stroke-width="1"/>`;
+        else g = `<rect x="${sx - 5}" y="${cy - 9}" width="10" height="9" rx="1.5" fill="#c08a52" stroke="#4a2810" stroke-width="1"/>`;
+        props.push([d, g]);
       }
     }
   // Reach overlays.
@@ -337,20 +408,25 @@ function previewSvg(itemId: string): string {
     const r = 3.3 * Math.SQRT2;
     out.push(`<ellipse class="pv-ring" cx="${sx}" cy="${sy + TH / 2}" rx="${(r * TW) / 2}" ry="${(r * TH) / 2}" fill="rgba(255,220,120,0.16)" stroke="#f0b040" stroke-width="1.6" stroke-dasharray="5 4"/>`);
   }
-  // Target tile frame.
-  out.push(`<path class="pv-frame" d="${diamond(c, c, 0.5)}" fill="rgba(255,255,255,.28)" stroke="#fff" stroke-width="1.6"/>`);
-  // Items, back to front.
+  // Target tile: green (free) / red with an X (blocked).
+  const [tx, ty] = iso(c, c);
+  out.push(
+    S.ok
+      ? `<path class="pv-frame" d="${diamond(c, c, 0.5)}" fill="rgba(120,230,110,.38)" stroke="#e8ffd8" stroke-width="1.8"/>`
+      : `<path class="pv-frame bad" d="${diamond(c, c, 0.5)}" fill="rgba(230,70,60,.45)" stroke="#ffd8d0" stroke-width="1.8"/><path d="M${tx - 5} ${ty + TH / 2 - 3} l10 6 M${tx + 5} ${ty + TH / 2 - 3} l-10 6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>`,
+  );
+  // Items + props, back to front.
   const placed: [number, number, boolean][] = fence.length ? fence.map(([x, z]) => [x, z, x !== c] as [number, number, boolean]) : paved.size ? [] : [[c, c, false]];
-  placed.sort((a, b) => a[0] + a[1] - (b[0] + b[1]));
   const url = itemIconUrl(itemId);
   for (const [x, z, ghost] of placed) {
     const [sx, sy] = iso(x, z);
     const cy = sy + TH / 2;
-    const w = fence.length ? 34 : 56;
-    out.push(`<ellipse cx="${sx}" cy="${cy + 1}" rx="${w * 0.34}" ry="${w * 0.12}" fill="#1e3010" opacity=".3"/>`);
-    out.push(`<g class="${ghost ? '' : 'pv-item'}"><image href="${url}" x="${sx - w / 2}" y="${cy - w * 0.9}" width="${w}" height="${w}" opacity="${ghost ? 0.62 : 1}"/></g>`);
+    const w = fence.length ? 40 : 62;
+    props.push([x + z + 0.5, `<ellipse cx="${sx}" cy="${cy + 1}" rx="${w * 0.34}" ry="${w * 0.12}" fill="#1e3010" opacity=".3"/><g class="${ghost ? '' : 'pv-item'}"><image href="${url}" x="${sx - w / 2}" y="${cy - w * 0.9}" width="${w}" height="${w}" opacity="${ghost || !S.ok ? 0.6 : 0.92}"/></g>`]);
   }
-  return `<svg class="grid iso" viewBox="0 0 210 ${Y0 + N * TH + DEPTH + 6}">${out.join('')}</svg>`;
+  props.sort((a, b) => a[0] - b[0]);
+  for (const [, g] of props) out.push(g);
+  return `<svg class="grid iso${S.real ? ' real' : ''}" viewBox="0 0 ${N * TW} ${Y0 + N * TH + DEPTH + 6}">${out.join('')}</svg>`;
 }
 
 /** Three "Uses" chips for the detail pane: [HUD glyph, headline, detail]. */

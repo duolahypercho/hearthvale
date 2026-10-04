@@ -8,7 +8,7 @@ import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
 import { CROPS, CROP_IDS, daysToRipe, TIER_NAMES } from '../data/crops';
 import { NPCS, type NpcId } from '../data/npcs';
-import { portraitSvg } from './portraits';
+import { portraitSvg, type Mood } from './portraits';
 import { ICONS, itemIcon, itemCategory, qualityStar, QUALITY_NAME } from './icons';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, rollTo, escapeHtml, shortName } from './kit';
 import { itemTooltipHtml, unitPrice, type StackView } from './itemtip';
@@ -84,11 +84,11 @@ function shopName(id: string): string {
   return escapeHtml(at >= 0 ? n.role.slice(at + 4) : `${shortName(n.name)}’s Workshop`);
 }
 
-function portraitFor(id: string): string {
+function portraitFor(id: string, mood: Mood = 'happy'): string {
   const n = NPCS[id as NpcId];
   if (!n) return '';
   try {
-    return portraitSvg(n.look, n.portraitBg, 'happy');
+    return portraitSvg(n.look, n.portraitBg, mood);
   } catch {
     return '';
   }
@@ -136,7 +136,23 @@ export class ShopScreen extends Screen {
   private selling = false;
   private wasShort = false;
 
-  private line(kind: 'hello' | 'buy' | 'sell' | 'broke', say?: string): void {
+  private mood: Mood = 'happy';
+  private moodT = 0;
+  /** Swap the keeper's expression (cached per mood), easing back to a smile after a beat. */
+  private setMood(m: Mood, hold = 2600): void {
+    clearTimeout(this.moodT);
+    if (m !== this.mood) {
+      const svg = portraitFor(this.keeper, m);
+      if (svg) {
+        this.portrait.innerHTML = svg;
+        this.mood = m;
+      }
+    }
+    if (m !== 'happy') this.moodT = window.setTimeout(() => this.isOpen && this.setMood('happy'), hold);
+  }
+
+  private line(kind: 'hello' | 'buy' | 'sell' | 'broke', say?: string, mood?: Mood): void {
+    this.setMood(mood ?? (kind === 'broke' ? 'worried' : kind === 'sell' ? 'laugh' : 'happy'));
     const set = (LINES[this.keeper] ?? LINES.marigold!)[kind];
     const text = say ?? set[Math.floor(Math.random() * set.length)]!;
     const node = this.bubble.querySelector('p')!;
@@ -169,6 +185,7 @@ export class ShopScreen extends Screen {
     f.appendChild(closeButton(() => this.requestClose()));
 
     const left = el('div', 'shop-keeper');
+    this.mood = 'happy';
     this.portrait = el('div', 'shop-portrait', portraitFor(this.keeper));
     const plate = el('div', 'shop-name', `<b>${escapeHtml((npc ? shortName(npc.name) : 'Shopkeeper'))}</b><small>${escapeHtml(npc?.role ?? '')}</small>`);
     this.bubble = el('div', 'shop-bubble', '<p></p>');
@@ -520,7 +537,8 @@ export class ShopScreen extends Screen {
       this.game.events.emit('item:give', { itemId: g.id, qty: this.qty });
       sfx(this.game, 'buy');
       this.payoff(g.id, this.qty, from, false);
-      this.line('buy');
+      // A big spend gets a delighted, wide-eyed keeper; an everyday one a warm laugh.
+      this.line('buy', undefined, total >= 400 ? 'surprised' : 'laugh');
     } else {
       const inv = this.game.services.inventory;
       if (!inv || !g.slots?.length) return;
