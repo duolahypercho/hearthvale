@@ -18,7 +18,7 @@ import { MeshBuilder, roundedBox, mat, lumpySphere, sphericalNormals } from '../
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { applyWorldFx } from '../render/worldfx';
 import { patchMaterial } from '../render/patch';
-import { buildTool } from '../world/props/tools';
+import { buildTool, CAN_SPOUT } from '../world/props/tools';
 import { Rng } from '../core/rng';
 import { DEFAULT_LOOK, extra, type FarmerLook } from './remote-look';
 import { EmoteBubble, type EmoteId } from './remote-emotes';
@@ -346,6 +346,16 @@ function hairFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matri
     case 'spiky': {
       fringe(0.85);
       // Swept-back spikes (an anime cowlick crest), tips lighter than roots; none over the brow.
+      // Under a hat only short spikes flare out below the brim (a crest would poke through it).
+      if (look.hat !== 'none' && look.hat !== 'flower') {
+        for (let i = 0; i < 6; i++) {
+          const a = Math.PI * 0.4 + (i / 5) * Math.PI * 1.2;
+          const cone = new THREE.ConeGeometry(0.07, 0.2, 6);
+          add(cone, mat(Math.sin(a) * r * 0.86, r * 1.12, Math.cos(a) * r * 0.84 - 0.03, Math.cos(a) * 1.25, 0, -Math.sin(a) * 1.25), i % 2 ? 1 : 0.86);
+        }
+        backTufts();
+        break;
+      }
       for (let i = 0; i < 7; i++) {
         const a = Math.PI * 0.35 + (i / 6) * Math.PI * 1.3;
         const tilt = 0.7 + (i % 2) * 0.18;
@@ -598,6 +608,68 @@ export class RemoteFarmer {
   act(kind: ActionKind, toolId: string | null, tier = TOOL_TIER_DEFAULT, side = 1): void {
     this.actions.side = side;
     this.actions.start(kind, { tool: toolId ? buildTool(toolId, tier) : null });
+    if (kind === 'pour') this.pourT = 0;
+  }
+
+  // ── watering stream: another farmer's pour shows its arc of water (the farming FX only draws the
+  // local farmer's stream). One instanced draw per farmer, only while pouring. ──
+  private pourT = -1;
+  private drops: { p: THREE.Vector3; v: THREE.Vector3; t: number }[] = [];
+  private dropMesh: THREE.InstancedMesh | null = null;
+  private spawnAcc = 0;
+
+  private updateStream(dt: number): void {
+    const live = this.pourT >= 0;
+    if (!live && !this.drops.length) return;
+    if (!this.dropMesh) {
+      this.dropMesh = new THREE.InstancedMesh(DROP_GEO, DROP_MAT, 56);
+      this.dropMesh.frustumCulled = false;
+      this.dropMesh.name = 'pour-stream';
+      this.dropMesh.userData.noAO = true;
+    }
+    const mesh = this.dropMesh;
+    const parent = this.root.parent;
+    if (parent && mesh.parent !== parent) parent.add(mesh);
+    if (live) {
+      this.pourT += dt;
+      // The rose tips at ~0.3 s and pours until ~0.8 s of the pour keys.
+      if (this.pourT > 0.28 && this.pourT < 0.82 && this.root.visible) {
+        this.spawnAcc += dt * 90;
+        const tool = this.rigParts.tool;
+        tool.updateWorldMatrix(true, false);
+        const fwd = _fw.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+        while (this.spawnAcc >= 1 && this.drops.length < 56) {
+          this.spawnAcc -= 1;
+          const p = CAN_SPOUT.clone().applyMatrix4(tool.matrixWorld);
+          const v = fwd.clone().multiplyScalar(1.1 + Math.random() * 0.35);
+          v.x += (Math.random() - 0.5) * 0.25;
+          v.z += (Math.random() - 0.5) * 0.25;
+          v.y = 0.25 + Math.random() * 0.3;
+          this.drops.push({ p, v, t: 0 });
+        }
+      }
+      if (this.pourT > 1) this.pourT = -1;
+    }
+    const ground = this.position.y + 0.04;
+    let n = 0;
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const d = this.drops[i]!;
+      d.t += dt;
+      d.v.y -= 9.8 * dt;
+      d.p.addScaledVector(d.v, dt);
+      if (d.p.y < ground || d.t > 0.9) {
+        this.drops.splice(i, 1);
+        continue;
+      }
+    }
+    for (const d of this.drops) {
+      const sc = 1 - d.t * 0.5;
+      _dm.makeScale(sc, sc * (1 + Math.min(2.2, Math.abs(d.v.y) * 0.35)), sc).setPosition(d.p);
+      mesh.setMatrixAt(n++, _dm);
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.visible = n > 0 && !!parent;
   }
 
   get acting(): boolean {
@@ -777,9 +849,12 @@ export class RemoteFarmer {
     p.hat.position.y = HEAD_R * 1.55 + (state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);
     this.blob.scale.setScalar(1 - bob * 1.5);
     this.bubble.update(dt, time);
+    this.updateStream(dt);
   }
 
   dispose(): void {
+    this.dropMesh?.removeFromParent();
+    this.dropMesh?.dispose();
     this.root.removeFromParent();
     this.mesh.geometry.dispose();
     (this.blob.material as THREE.Material).dispose();
@@ -788,6 +863,10 @@ export class RemoteFarmer {
 }
 
 const BLOB_GEO = new THREE.CircleGeometry(0.42, 24);
+const DROP_GEO = new THREE.SphereGeometry(0.046, 6, 4);
+const DROP_MAT = new THREE.MeshStandardMaterial({ color: 0xa8dcff, roughness: 0.15, transparent: true, opacity: 0.85, emissive: 0x2a5a80, emissiveIntensity: 0.25 });
+const _fw = new THREE.Vector3();
+const _dm = new THREE.Matrix4();
 
 let rodProto: THREE.Object3D | null = null;
 function buildRod(): THREE.Object3D {
