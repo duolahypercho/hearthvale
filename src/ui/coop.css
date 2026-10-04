@@ -1409,3 +1409,33 @@
 .coop-watch .eye {
   display: grid;
 }
+
+/* r4: a farmhand's line waits on the host's ack — dimmed with a breathing "sending…" tag, then settles. */
+.coop-log .ln.pending > span {
+  opacity: 0.62;
+}
+.coop-log .ln .snd {
+  margin-left: 6px;
+  font-style: italic;
+  font-size: 0.82em;
+  font-weight: 700;
+  color: #ffe2a8;
+  animation: coopSending 1s ease-in-out infinite alternate;
+}
+@keyframes coopSending {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.coop-log .ln.acked {
+  animation: coopAcked 360ms var(--ease-back, ease-out);
+}
+@keyframes coopAcked {
+  40% {
+    translate: 3px 0;
+    filter: brightness(1.25);
+  }
+}

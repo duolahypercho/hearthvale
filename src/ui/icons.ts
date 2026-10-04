@@ -164,12 +164,25 @@ function pebble(p: Pen, d: string, base = '#b3aea4'): void {
   p.shape(d, p.rad([tone(base, 1.25), base, tone(base, 0.62)], 0.35, 0.3, 0.85));
 }
 const stone: Painter = (p) => {
-  pebble(p, 'M8 46 C6 36 14 28 24 28 C32 28 38 34 38 42 C38 52 30 56 20 56 C13 56 9 52 8 46 Z', '#a9a49a');
-  pebble(p, 'M28 34 C27 22 36 14 46 15 C56 16 60 26 58 36 C56 46 46 50 38 48 C32 46 29 41 28 34 Z', '#bdb6a8');
-  p.glint(41, 22, 5, 2.4, -20, 0.6);
-  p.glint(17, 35, 3.6, 1.8, -25, 0.5);
-  p.fill('M44 44 C48 44 52 42 55 38 C54 44 49 48 44 48 Z', '#6d8a3a', 0.55);
-  p.line('M36 26 L40 30 L38 34', '#6e695f', 1.1, 0.7);
+  // r4: two field stones with knapped facets, mineral speckle, a hairline crack and a moss tuft (not grey blobs).
+  shadow(p, 32, 57);
+  pebble(p, 'M8 46 C6 36 14 28 24 28 C32 28 38 34 38 42 C38 52 30 56 20 56 C13 56 9 52 8 46 Z', '#a39d92');
+  p.fill('M10 40 C12 33 18 29 24 29 L22 38 Z', '#d8d2c6', 0.55);
+  p.fill('M22 38 L37 40 C37 48 33 53 27 55 Z', '#6e685e', 0.4);
+  pebble(p, 'M28 34 C27 22 36 14 46 15 C56 16 60 26 58 36 C56 46 46 50 38 48 C32 46 29 41 28 34 Z', '#bab3a5');
+  p.fill('M30 30 C31 22 38 16 46 16 L44 28 Z', '#e8e2d6', 0.6);
+  p.fill('M44 28 L57 30 C56 40 50 46 42 48 Z', '#7a7468', 0.38);
+  p.line('M44 28 L46 16.5 M44 28 L30 30 M44 28 L57 30 M44 28 L41 47.5', '#8a8478', 0.9, 0.55);
+  for (const [x, y, r, c] of [
+    [36, 24, 0.9, '#6a645a'], [50, 22, 0.7, '#6a645a'], [52, 38, 1, '#5e584e'], [38, 40, 0.7, '#f4f0e6'], [47, 33, 0.6, '#f4f0e6'],
+    [15, 38, 0.8, '#6a645a'], [26, 47, 0.9, '#5e584e'], [18, 50, 0.6, '#f4f0e6'], [31, 36, 0.7, '#6a645a'],
+  ] as const)
+    p.circle(x, y, r, c, false, 0.85);
+  p.line('M50 19 L47 25 L49 29', '#5a5448', 1.1, 0.75);
+  p.glint(40, 21, 5, 2.2, -20, 0.65);
+  p.glint(16, 34, 3.4, 1.6, -25, 0.5);
+  p.fill('M44 44 C48 44 52 42 55 38 C54 44 49 48 44 48 Z', '#6d8a3a', 0.6);
+  p.fill('M46 45.5 C48 45 50 44 52 42.5 C51 45 49 46.5 46 47 Z', '#a8c860', 0.6);
 };
 
 const fiber: Painter = (p) => {
@@ -798,22 +811,28 @@ const wool: Painter = (p) => {
 };
 
 const truffle: Painter = (p) => {
+  // r4: a knobbly warty tuber, dusted with forest soil, one cut face showing the marbled flesh, a sprig of moss.
   p.ellipse(32, 56, 19, 3.6, '#000', false, 0.2);
-  p.shape('M14 36 C10 24 20 12 32 13 C46 12 56 24 51 38 C48 50 40 55 31 55 C21 55 16 48 14 36 Z', p.rad(['#8a6a56', '#4a3228', '#1e140f'], 0.38, 0.32, 0.8));
-  for (const [x, y, r] of [
-    [22, 27, 2.6],
-    [30, 21, 2.1],
-    [40, 25, 2.7],
-    [26, 37, 2.3],
-    [36, 35, 2.9],
-    [45, 39, 2.1],
-    [31, 46, 2.2],
-    [20, 44, 1.8],
-  ])
-    p.circle(x!, y!, r!, '#6a4c3c', false, 0.95).circle(x! - r! * 0.3, y! - r! * 0.3, r! * 0.4, '#a0806a', false, 0.7);
-  p.glint(25, 21, 4.6, 2.2, -25, 0.35);
-  rope(p, 'M44 13 C46 9 50 9 52 11', '#5a8a3a', 1.6);
-  leaf(p, 'M50 12 C54 6 60 6 62 9 C58 13 54 14 50 12 Z', 'M51 12 C55 10 58 9 61 9');
+  const lump = 'M14 36 C9 28 15 16 24 15 C27 11 35 11 38 14 C46 12 55 20 53 30 C57 37 52 47 46 50 C42 56 33 57 28 54 C20 55 13 48 14 36 Z';
+  p.shape(lump, p.rad(['#7a5a46', '#3e2a20', '#1a110c'], 0.36, 0.3, 0.8));
+  // warts: tiny pyramids with a lit tip
+  for (let i = 0; i < 26; i++) {
+    const x = 18 + ((i * 37) % 32);
+    const y = 19 + ((i * 23) % 31);
+    if (Math.hypot(x - 33, y - 34) > 18) continue;
+    p.fill(`M${x - 1.6} ${y + 1} L${x} ${y - 1.6} L${x + 1.6} ${y + 1} Z`, '#21160f', 0.9);
+    p.circle(x - 0.2, y - 0.7, 0.55, '#a8846a', false, 0.85);
+  }
+  // soil dust across the lower half
+  p.fill('M15 40 C20 47 30 52 44 50 C40 55 32 57 27 54 C20 55 14 49 15 40 Z', '#8a6a44', 0.5);
+  for (const [x, y] of [[20, 46], [25, 50], [33, 52], [40, 50], [18, 41], [29, 48]] as const) p.circle(x, y, 0.9, '#b8945e', false, 0.8);
+  // cut face: cream marbling
+  p.shape('M38 22 C44 20 50 24 50 30 C50 36 45 39 40 37 C36 34 35 26 38 22 Z', p.rad(['#7a5a48', '#4e3428', '#2e1e16'], 0.5, 0.5, 0.7), 1.6);
+  for (const d of ['M39 25 C42 27 41 31 45 32', 'M43 23 C44 26 47 26 48 29', 'M40 33 C42 31 45 35 48 33'])
+    p.line(d, '#e8d6b8', 0.9, 0.85);
+  p.glint(24, 21, 4.6, 2.2, -25, 0.3);
+  p.shape('M22 15 C21 11 24 8 27 9 C27 12 25 14 22 15 Z', p.lin(['#a6de6a', '#4f8a3a']), 1.4);
+  p.shape('M25 14 C27 10 31 9 33 11 C31 13 28 14 25 14 Z', p.lin(['#8fd05a', '#3f7a2a']), 1.4);
 };
 
 const hay: Painter = (p) => {
@@ -1289,9 +1308,12 @@ const hoe: Painter = (p) => {
   p.line('M40.6 13 C42.8 9.8 46.6 9 49 10.6', '#ffffff', 1.3, 0.8);
   // Flared blade: a narrow socket at the neck widening to a long straight cutting edge (green back, steel edge).
   const blade = 'M46.6 15.6 L57.6 15.6 C59 15.6 59.8 16.8 60.2 18 L63.2 29.4 C63.6 31 62.6 32.4 61 32.4 L38.4 32.4 C36.8 32.4 35.8 31 36.4 29.4 L43.8 17.6 C44.4 16.4 45.4 15.6 46.6 15.6 Z';
-  p.shape(blade, p.lin(['#b6ea78', '#56a63e', '#2c6424'], 0.1, 0, 0.9, 1), TSW);
-  p.fill('M46.4 17.8 L57.8 17.8 L58.6 20.4 L45 20.4 Z', '#eaffcc', 0.7);
-  p.line('M44 24.6 L59.6 24.6', '#2c6424', 1.3, 0.5);
+  // r4: forged steel all the way (a green back read as a leaf): dark blued back, bright ground edge, rim light.
+  p.shape(blade, p.lin(['#c9d2dc', '#7d8894', '#46505c'], 0.1, 0, 0.9, 1), TSW);
+  p.fill('M46.4 17.8 L57.8 17.8 L58.6 20.4 L45 20.4 Z', '#ffffff', 0.75);
+  p.line('M44.6 22.6 L52 22.6', '#ffffff', 0.9, 0.45);
+  p.line('M44 24.6 L59.6 24.6', '#2e353e', 1.3, 0.45);
+  p.circle(48.6, 19.2, 1.1, '#3a424c', false, 0.8);
   p.shape('M37.4 27.8 L62.6 27.8 L63.2 29.4 C63.6 31 62.6 32.4 61 32.4 L38.4 32.4 C36.8 32.4 35.8 31 36.4 29.4 Z', p.lin(STEEL, 0, 0, 1, 1), 2);
   p.line('M39 30.4 L61 30.4', '#ffffff', 1.3, 0.95);
 };
@@ -1457,7 +1479,32 @@ const gingerbreadVillager: Painter = (p) => {
   p.glint(26, 9, 3, 1.4, -25, 0.55);
 };
 
+
+const bait: Painter = (p) => {
+  // r4: a dented tin of wrigglers — pink worms curling over the rim, a dab of chopped clam, a printed label.
+  shadow(p, 32, 58);
+  p.shape('M10 30 H54 L51 54 C51 57 46 59 32 59 C18 59 13 57 13 54 Z', p.lin(['#e8eef2', '#a8b4bc', '#66727c'], 0, 0, 1, 0.3), 2.4);
+  p.fill('M14 34 H20 L18.6 56 C16 55.5 14.6 55 14.4 54 Z', '#fff', 0.45);
+  p.shape('M15 38 H49 L47.8 49 H16.2 Z', p.lin(['#f6e2a8', '#e8b85a']), 1.6);
+  p.line('M20 43.5 H34', '#a84a3a', 1.6, 0.9);
+  p.circle(41, 43.5, 2.6, '#d24a4a', false).circle(41, 43.5, 1, '#ffe8c0', false);
+  p.ellipse(32, 30, 22, 5, p.lin(['#c8d2da', '#7a8690']), true);
+  p.ellipse(32, 30.5, 18.5, 3.4, '#3a2a1e', false, 0.95);
+  p.ellipse(28, 30.2, 7, 2, '#5a3e2a', false, 0.8);
+  const worm = (d: string): void => {
+    p.raw(`<path d="${d}" fill="none" stroke="${OL}" stroke-width="7.4" stroke-linecap="round"/>`);
+    p.raw(`<path d="${d}" fill="none" stroke="${p.lin(['#ffb4c0', '#e8707e', '#b84a5a'], 0, 0, 0, 1)}" stroke-width="5" stroke-linecap="round"/>`);
+    p.raw(`<path d="${d}" fill="none" stroke="#ffe0e6" stroke-width="1.3" stroke-linecap="round" opacity=".75" stroke-dasharray="1.6 3.2"/>`);
+  };
+  worm('M20 31 C18 22 26 16 30 21 C33 25 28 29 31 31');
+  worm('M38 31 C40 24 47 20 51 14 C53 11 57 12 56 16');
+  p.circle(56.2, 15.2, 0.9, '#3b2313', false);
+  p.shape('M34 29 C34 26 37 25 39 27 C40 29 38 31 36 31 Z', p.rad(['#fff4e4', '#f0c8a8', '#c88a6a']), 1.4);
+  p.glint(18, 37, 1.6, 6, 0, 0.5);
+};
+
 const HAND_PAINTERS: Record<string, Painter> = {
+  bait,
   starfallOpal,
   fertilizer,
   qualityFertilizer,
@@ -1657,48 +1704,97 @@ const PACKET_BAND: Record<string, string> = {
   yam: '#c8603a',
 };
 
+/** Seed silhouette per crop (the glyph spilled in front of the packet): what you'd actually tip into your palm. */
+type SeedShape = 'flat' | 'round' | 'kernel' | 'striped' | 'kidney' | 'chunk' | 'tiny';
+const SEED_SHAPE: Record<string, SeedShape> = {
+  parsnip: 'flat',
+  potato: 'chunk',
+  cauliflower: 'round',
+  kale: 'round',
+  strawberry: 'tiny',
+  greenBean: 'kidney',
+  tomato: 'flat',
+  corn: 'kernel',
+  sunflower: 'striped',
+  blueberry: 'tiny',
+  melon: 'flat',
+  hotPepper: 'flat',
+  hops: 'round',
+  pumpkin: 'flat',
+  eggplant: 'flat',
+  grape: 'kidney',
+  beet: 'chunk',
+  yam: 'chunk',
+};
+const SEED_TINT: Partial<Record<SeedShape, string>> = { round: '#7a5232', tiny: '#d8b060', kernel: '#f0c840', striped: '#3a3430', kidney: '#e8dcc0', chunk: '#b88a52' };
+
+function seedGlyph(p: Pen, shape: SeedShape, x: number, y: number, rot: number, crop: string): void {
+  const c = shape === 'flat' ? (crop === 'pumpkin' || crop === 'melon' ? '#f4ecd2' : '#e6cf96') : (SEED_TINT[shape] ?? '#c8a064');
+  const g = p.rad([tone(c, 1.35), c, tone(c, 0.62)], 0.35, 0.3, 0.8);
+  p.raw(`<g transform="rotate(${rot} ${x} ${y})">`);
+  if (shape === 'round') p.circle(x, y, 2.6, g).glint(x - 0.8, y - 0.9, 0.9, 0.6, 0, 0.8);
+  else if (shape === 'tiny') p.circle(x, y, 1.8, g);
+  else if (shape === 'kernel') p.shape(`M${x - 2.6} ${y - 2.4} H${x + 2.6} L${x + 1.6} ${y + 3} C${x + 1} ${y + 3.8} ${x - 1} ${y + 3.8} ${x - 1.6} ${y + 3} Z`, g, 1.6);
+  else if (shape === 'striped') {
+    p.shape(`M${x} ${y - 4.2} C${x + 2.6} ${y - 2} ${x + 2.6} ${y + 2.4} ${x} ${y + 4.2} C${x - 2.6} ${y + 2.4} ${x - 2.6} ${y - 2} ${x} ${y - 4.2} Z`, g, 1.6);
+    p.line(`M${x - 1} ${y - 2.6} V${y + 2.8} M${x + 1} ${y - 2.6} V${y + 2.8}`, '#f2ead8', 0.8, 0.95);
+  } else if (shape === 'kidney') p.shape(`M${x - 3.6} ${y} C${x - 3.6} ${y - 2.8} ${x + 3.6} ${y - 2.8} ${x + 3.6} ${y} C${x + 3.6} ${y + 2.6} ${x + 1} ${y + 2.4} ${x} ${y + 1.2} C${x - 1} ${y + 2.4} ${x - 3.6} ${y + 2.6} ${x - 3.6} ${y} Z`, g, 1.6);
+  else if (shape === 'chunk') {
+    p.shape(`M${x - 3.6} ${y - 1} L${x - 1.4} ${y - 3.2} L${x + 3} ${y - 2.4} L${x + 3.6} ${y + 1.6} L${x} ${y + 3.2} L${x - 3.2} ${y + 2.2} Z`, g, 1.6);
+    p.circle(x + 0.8, y - 0.4, 0.8, tone(c, 0.55), false);
+  } else {
+    p.ellipse(x, y, 3.8, 2.3, g, true);
+    p.line(`M${x - 2.4} ${y} H${x + 2.4}`, tone(c, 0.65), 0.7, 0.8);
+  }
+  p.raw('</g>');
+}
+
+/**
+ * Seed packet (r4): a fully crop-coloured printed envelope (each crop its own packet colour, never shared kraft)
+ * with the produce painted big and forward — the dominant ~55 % of the icon, as on a real printed seed packet —
+ * and the crop's own seed shape (flat, round, kernel, striped, kidney, chunk, tiny) spilled in front.
+ */
 function seedPacket(id: string, def: ItemDef | undefined): string {
   const p = new Pen('s');
   const crop = def?.crop ? String(def.crop) : id.replace(/Seeds?$/i, '');
   const inner = HAND_PAINTERS[crop];
   const cc = def?.color !== undefined ? hex(def.color) : '#8fc86a';
-  // Every crop gets its own packet colour (pale crops like parsnip / cauliflower would all read as kraft).
   const [r, g, b] = parse(cc);
   const pale = (r + g + b) / 3 > 200;
   const band = PACKET_BAND[crop] ?? (pale ? hsl(hash(crop)) : cc);
-  const paper = mixc('#ecd49e', band, 0.38);
-  p.raw('<g transform="rotate(-9 26 34)">');
-  p.shape('M6 12 H44 L46 56 C46 59 44 60 41 60 H9 C6 60 4 59 4 56 Z', p.lin([tone(paper, 1.18), paper, tone(paper, 0.68)], 0, 0.5, 1, 0.5));
+  const paper = mixc('#f4e2b4', band, 0.82);
+  // Envelope, tilted back-left.
+  p.raw('<g transform="rotate(-10 24 32)">');
+  p.shape('M5 10 H41 L43 54 C43 57 41 58.5 38 58.5 H8 C5 58.5 3 57 3 54 Z', p.lin([tone(paper, 1.25), paper, tone(paper, 0.62)], 0, 0.2, 1, 0.8), 2.2);
   // crimped top
-  let crimp = 'M5 7';
-  for (let x = 5; x < 45; x += 5) crimp += ` L${x + 2.5} 12 L${x + 5} 7`;
-  p.shape(`${crimp} L45 16 H5 Z`, p.lin([tone(paper, 1.35), tone(paper, 0.92)], 0, 0, 0, 1), 1.8);
-  // label + colour band + tiny seed motif
-  p.shape('M9 20 H41 V44 H9 Z', p.lin(['#fffdf4', '#f2e6cc']), 1.5);
-  p.fill('M9 20 H41 V24.5 H9 Z', band);
-  for (const [x, y, rot] of [
-    [14, 30, -30],
-    [18.5, 34, 20],
-    [13.5, 38, 60],
-  ] as const)
-    p.ellipse(x, y, 2.1, 1.3, tone(band, 0.8), false, 0.85, rot);
-  p.fill('M9 48 H45 V56 C45 58 43 59 41 59 H9 C7 59 6 58 6 56 V48 Z', tone(band, 0.82), 0.9);
-  p.line('M11 52 H22', '#fff', 1.4, 0.65);
-  p.fill('M8 16 H11 V57 H8 Z', '#fff', 0.35);
+  let crimp = 'M4 6';
+  for (let x = 4; x < 42; x += 4.5) crimp += ` L${x + 2.25} 10.5 L${x + 4.5} 6`;
+  p.shape(`${crimp} L42.5 14 H4 Z`, p.lin([tone(band, 0.95), tone(band, 0.62)], 0, 0, 0, 1), 1.8);
+  // printed cream sun-burst window behind the produce + a title rule
+  p.raw(`<circle cx="25" cy="34" r="15" fill="${p.rad(['#fffaea', '#f6e6c0', tone(paper, 1.15)], 0.5, 0.45, 0.6)}"/>`);
+  for (let i = 0; i < 10; i++) {
+    const a0 = (i / 10) * Math.PI * 2;
+    p.fill(`M25 34 L${25 + Math.cos(a0) * 15} ${34 + Math.sin(a0) * 15} L${25 + Math.cos(a0 + 0.24) * 15} ${34 + Math.sin(a0 + 0.24) * 15} Z`, '#fff', 0.28);
+  }
+  p.fill('M7 16.5 H39 V19 H7 Z', '#fffaea', 0.85);
+  p.line('M10 17.8 H24', tone(band, 0.55), 1.1, 0.8);
+  p.fill('M5 12 H8.5 V56 H5 Z', '#fff', 0.3);
   p.raw('</g>');
-  // the crop, big and in front
-  p.ellipse(45, 59, 15, 3, '#2a1a08', false, 0.22);
+  // the produce: big, centred-forward, overlapping the packet's right edge
+  p.ellipse(39, 60, 17, 3, '#2a1a08', false, 0.22);
   if (inner) {
     const sub = new Pen('i');
     inner(sub, def?.color !== undefined ? hex(def.color) : undefined);
     const body = sub.svg().replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
-    // Big and forward: the crop is the packet's silhouette at toolbar size.
-    p.raw(`<g transform="translate(19 19) scale(0.7)">${body}</g>`);
+    p.raw(`<g transform="translate(13 12) scale(0.8)">${body}</g>`);
   } else {
-    p.circle(44, 42, 11, p.rad([tone(band, 1.4), band, tone(band, 0.6)]));
+    p.circle(40, 40, 14, p.rad([tone(band, 1.4), band, tone(band, 0.6)]));
   }
-  // spilled seeds
-  p.ellipse(8, 60, 2.2, 1.5, '#c8a064', true, 1, -20).ellipse(14, 61.5, 1.8, 1.2, '#b88e54', true, 1, 30);
+  // the crop's own seeds, spilled in front
+  const shape = SEED_SHAPE[crop] ?? 'flat';
+  seedGlyph(p, shape, 7, 57.5, -20, crop);
+  seedGlyph(p, shape, 14.5, 60, 25, crop);
+  seedGlyph(p, shape, 10, 51.5, 60, crop);
   return p.svg();
 }
 
@@ -1716,7 +1812,7 @@ export function registerItemIcon(key: string, svg: string | (() => string)): voi
   urlCache.clear();
 }
 
-const HAND_FIRST = new Set(['slimeGel', 'duskWing', 'crabCarapace']);
+const HAND_FIRST = new Set(['slimeGel', 'duskWing', 'crabCarapace', 'bait']);
 
 /** Raw SVG markup for an item. */
 export function itemSvg(id: string): string {

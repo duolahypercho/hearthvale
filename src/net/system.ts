@@ -179,7 +179,9 @@ declare module '../core/events' {
   interface GameEvents {
     'net:status': { role: Role; status: string; code: string | null };
     'net:roster': { players: PlayerView[] };
-    'net:chat': { id: number; name: string; text: string; color: string; system?: boolean };
+    'net:chat': { id: number; name: string; text: string; color: string; system?: boolean; seq?: number; pending?: boolean };
+    /** The host confirmed a farmhand's chat line `seq` (the log stops showing it as "sending…"). */
+    'net:chatack': { seq: number };
     'net:emote': { id: number; emote: EmoteId };
     'net:beds': { ready: number[]; total: number; sleeping: boolean };
     'net:error': { text: string };
@@ -835,10 +837,30 @@ export class NetSystem implements System, NetApi {
   chat(text: string): void {
     const s = text.trim().slice(0, 140);
     if (!s) return;
+    if (this._role === 'client') {
+      // Farmhand chat is acked by the host ('cack'): the log shows "sending…" until then, and an unacked
+      // line is re-sent (the host de-dupes by seq) — a slow or blipping link is visible, never silent.
+      const seq = ++this.chatSeq;
+      this.showChat(this.id || 1, s, true, seq);
+      this.chatPending.set(seq, s);
+      this.toHost(['chat', s, seq]);
+      const resend = (left: number): void => {
+        setTimeout(() => {
+          if (!this.chatPending.has(seq) || this._role !== 'client') return;
+          this.toHost(['chat', s, seq]);
+          if (left > 1) resend(left - 1);
+        }, 6000);
+      };
+      resend(3);
+      return;
+    }
     this.showChat(this.id || 1, s);
-    if (this._role === 'client') this.toHost(['chat', s]);
-    else if (this._role === 'host') this.toAll(['chat', this.id, s]);
+    if (this._role === 'host') this.toAll(['chat', this.id, s]);
   }
+  private chatSeq = 0;
+  private chatPending = new Map<number, string>();
+  /** Host: the last chat seqs seen per farmhand (re-sent lines are acked again, never shown twice). */
+  private chatSeen = new Map<number, number[]>();
 
   typing(on: boolean): void {
     this.showTyping(this.id || 1, on);
@@ -1180,6 +1202,15 @@ export class NetSystem implements System, NetApi {
       case 'chat': {
         const text = String(d[1] ?? '').slice(0, 140);
         if (!text) return;
+        const seq = Number(d[2]) || 0;
+        if (seq) {
+          this.to(from, ['cack', seq]);
+          const seen = this.chatSeen.get(from) ?? [];
+          if (seen.includes(seq)) return;
+          seen.push(seq);
+          if (seen.length > 32) seen.shift();
+          this.chatSeen.set(from, seen);
+        }
         this.showChat(from, text);
         this.toOthers(from, ['chat', from, text]);
         return;
@@ -1595,6 +1626,11 @@ export class NetSystem implements System, NetApi {
           this.correction.z += z / 100 - pos.z;
         }
         this.counters.corrections++;
+        return;
+      }
+      case 'cack': {
+        const seq = Number(d[1]);
+        if (this.chatPending.delete(seq)) this.game.events.emit('net:chatack', { seq });
         return;
       }
       case 'chat': {
@@ -2142,14 +2178,14 @@ export class NetSystem implements System, NetApi {
   }
 
   /** Speech bubble over the farmer + a line in the chat log (`log: false` = bubble only, demos). */
-  showChat(id: number, text: string, log = true): void {
+  showChat(id: number, text: string, log = true, seq?: number): void {
     const isMe = id === (this.id || 1);
     const p = this.remotes.get(id);
     const name = isMe ? this.myName() : (p?.name ?? '?');
     const look = isMe ? this.prof.look : (p?.look ?? DEFAULT_LOOK);
     if (isMe) this.remotes.sayLocal(text);
     else p?.chat(text);
-    if (log) this.game.events.emit('net:chat', { id, name, text, color: hex(look.scarf) });
+    if (log) this.game.events.emit('net:chat', seq ? { id, name, text, color: hex(look.scarf), seq, pending: true } : { id, name, text, color: hex(look.scarf) });
   }
 
   private chatSystem(html: string, kind: 'good' | 'bad' | 'info'): void {

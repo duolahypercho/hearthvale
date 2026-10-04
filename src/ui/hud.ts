@@ -307,6 +307,14 @@ export class Hud {
     this.select(0, false);
   }
 
+  private valTimers = new Map<HTMLElement, number>();
+  /** Show the tube's "value / max" chip for a moment after it changes (always on hover). */
+  private flashVal(bar: HTMLElement): void {
+    bar.classList.add('show-val');
+    clearTimeout(this.valTimers.get(bar));
+    this.valTimers.set(bar, window.setTimeout(() => bar.classList.remove('show-val'), 2200));
+  }
+
   private buildBars(): void {
     const box = el('div', 'hv-energy h-in');
     box.style.animationDelay = '200ms';
@@ -751,12 +759,15 @@ export class Hud {
     const en = this.game.services.energy;
     const e = en ? en.value() / en.max() : 1;
     if (e !== this.energyShown) {
-      if (this.energyShown >= 0) replay(this.energyBar, 'bump');
+      const firstE = this.energyShown < 0;
+      if (!firstE) replay(this.energyBar, 'bump');
       this.energyShown = e;
       const fill = this.energyBar.querySelector('.fill') as HTMLElement;
       fill.style.height = `${Math.max(0, e * 100)}%`;
-      const hue = e > 0.5 ? 100 - (1 - (e - 0.5) * 2) * 50 : 50 * (e / 0.5);
-      fill.style.background = `linear-gradient(90deg, hsl(${hue} 80% 44%), hsl(${hue + 8} 92% 62%) 45%, hsl(${hue} 78% 44%))`;
+      // r4: warm leaf green (#6fbf3a-ish) → harvest amber → brick red; never neon against the wood + parchment.
+      const hue = e > 0.5 ? 96 - (1 - (e - 0.5) * 2) * 56 : 8 + 32 * (e / 0.5);
+      fill.style.background = `linear-gradient(90deg, hsl(${hue} 52% 36%), hsl(${hue + 6} 56% 52%) 38%, hsl(${hue + 10} 62% 62%) 50%, hsl(${hue} 52% 40%))`;
+      if (!firstE) this.flashVal(this.energyBar);
       this.energyBar.classList.toggle('low', e < 0.2);
       (this.energyBar.querySelector('.val') as HTMLElement).textContent = en ? `${en.value()} / ${en.max()}` : '';
     }
@@ -766,11 +777,14 @@ export class Hud {
     // Both tubes always show; a full heart outside the mine rests shorter and dimmer so energy leads.
     this.healthBar.classList.toggle('rest', hv >= 1 && mapId !== 'mine');
     if (hv !== this.healthShown) {
-      if (this.healthShown >= 0) replay(this.healthBar, 'bump');
+      if (this.healthShown >= 0) {
+        replay(this.healthBar, 'bump');
+        this.flashVal(this.healthBar);
+      }
       this.healthShown = hv;
       const fill = this.healthBar.querySelector('.fill') as HTMLElement;
       fill.style.height = `${hv * 100}%`;
-      fill.style.background = 'linear-gradient(90deg, #b8202a, #ff6a5a 45%, #b8202a)';
+      fill.style.background = 'linear-gradient(90deg, #9a2a2a, #d8584a 38%, #f08a72 50%, #a8302c)';
       this.healthBar.classList.toggle('low', hv < 0.25);
       (this.healthBar.querySelector('.val') as HTMLElement).textContent = hp ? `${Math.round(hp.value())} / ${hp.max()}` : '';
     }

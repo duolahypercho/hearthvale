@@ -764,6 +764,15 @@ export class CoopUi {
     game.events.on('net:roster', ({ players }) => this.renderRoster(players));
     game.events.on('net:status', () => this.renderRoster(net.players()));
     game.events.on('net:chat', (m) => this.addLine(m));
+    game.events.on('net:chatack', ({ seq }) => {
+      const n = this.chatLog.querySelector<HTMLElement>(`.ln.pending[data-seq="${seq}"]`);
+      if (!n) return;
+      n.classList.remove('pending');
+      n.querySelector('.snd')?.remove();
+      replay(n, 'acked');
+      const l = this.lines.find((x) => x.node === n);
+      if (l) l.t = 8;
+    });
     game.events.on('net:beds', (b) => this.renderSleep(b));
     // Staged stills for critics: coop-emote (wheel open, a wedge picked) / coop-chat (typing a line),
     // or any coop demo with &coopui=wheel|chat (&emote=<id> picks the wedge).
@@ -945,16 +954,19 @@ export class CoopUi {
     this.lines = [];
   }
 
-  private addLine(m: { id: number; name: string; text: string; color: string; system?: boolean }): void {
-    const n = el('div', `ln${m.system ? ' sys' : ''}`);
+  private addLine(m: { id: number; name: string; text: string; color: string; system?: boolean; seq?: number; pending?: boolean }): void {
+    const n = el('div', `ln${m.system ? ' sys' : ''}${m.pending ? ' pending' : ''}`);
+    if (m.pending && m.seq) n.dataset.seq = String(m.seq);
     if (m.system) n.innerHTML = m.text;
     else {
       n.innerHTML = `<b style="color:${m.color}"></b><span></span>`;
       n.querySelector('b')!.textContent = m.name;
       n.querySelector('span')!.textContent = m.text;
     }
+    if (m.pending) n.insertAdjacentHTML('beforeend', '<i class="snd" aria-label="sending">sending…</i>');
     this.chatLog.appendChild(n);
-    this.lines.push({ node: n, t: 8 });
+    // An unconfirmed line stays up (no fade) until the host's ack lands.
+    this.lines.push({ node: n, t: m.pending ? 1e9 : 8 });
     while (this.lines.length > 7) this.lines.shift()!.node.remove();
   }
 

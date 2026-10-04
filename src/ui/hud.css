@@ -1581,3 +1581,51 @@ body:has(.u-tip.on) .hv-np {
   translate: 0 -18px;
   pointer-events: none;
 }
+
+/* ═══ r4: tubes sit on a soft parchment back-plate (no longer floating over world clutter), share one height
+   (a full heart never reads half-empty), warm leaf-green energy, value chip on change / hover. ═══ */
+.hv-energy {
+  padding: 26px 12px 10px;
+}
+.hv-energy::before {
+  content: '';
+  position: absolute;
+  inset: 4px -2px -6px;
+  z-index: -1;
+  border-radius: 22px 22px 18px 18px;
+  background: radial-gradient(120% 90% at 50% 40%, rgba(255, 246, 222, 0.82), rgba(240, 220, 176, 0.7) 70%, rgba(220, 192, 140, 0.5));
+  box-shadow: 0 0 0 2px rgba(122, 78, 36, 0.35), 0 8px 22px rgba(30, 14, 4, 0.35);
+  pointer-events: none;
+}
+.h-bar.health,
+.h-bar.health.rest {
+  height: 196px;
+}
+.h-bar.health.rest {
+  opacity: 0.92;
+  filter: saturate(0.9);
+}
+.h-bar .fill {
+  position: relative;
+}
+.h-bar .fill::after {
+  /* inner highlight band: a glass-tube sheen across the liquid's top */
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 3px;
+  height: 7px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(255, 255, 240, 0.55), rgba(255, 255, 240, 0));
+}
+.h-bar .val {
+  font-size: 17px;
+  background: linear-gradient(180deg, #5a3418, #3e2210);
+  box-shadow: 0 0 0 2px #2a1406, 0 3px 6px rgba(20, 8, 2, 0.4);
+}
+/* the energy chip steps past the health tube (stacked above the health chip, both left of the pair) */
+.h-bar.energy .val {
+  right: calc(100% + 64px);
+  bottom: 46px;
+}

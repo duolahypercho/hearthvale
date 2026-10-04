@@ -13,8 +13,10 @@ import { journal } from './profile';
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
 
-const LOGO_HANG = `<svg viewBox="0 0 900 300" class="ts-hang" aria-hidden="true"><defs><radialGradient id="tlGlow2" cx="50%" cy="55%" r="60%"><stop offset="0" stop-color="#fff6c8"/><stop offset=".45" stop-color="#ffc85a"/><stop offset="1" stop-color="#e07a2a"/></radialGradient></defs><g class="hang" transform="translate(944 84)"><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#3b1a08" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#7a4a22" stroke-width="4.5" fill="none" stroke-linecap="round"/><path d="M-46 -8 C-60 -14 -64 -30 -54 -36" stroke="#7a4a22" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M0 -60 C6 -40 3 -20 0 0" stroke="#5a3418" stroke-width="3" fill="none"/><g class="lamp"><circle cx="0" cy="20" r="46" fill="#ffcf6a" opacity=".25"/><path d="M-14 0 H14 L10 -7 H-10 Z" fill="#5a3a22"/><rect x="-13" y="0" width="26" height="36" rx="6" fill="url(#tlGlow2)" stroke="#4a2e1a" stroke-width="3"/><path d="M0 0 V36 M-13 18 H13" stroke="#5a3a22" stroke-width="1.8" opacity=".6"/><path d="M-16 36 H16 L11 44 H-11 Z" fill="#5a3a22"/></g></g>
-</svg>`;
+// The bracket is static; only the lantern swings, on its own small HTML layer (.ts-lamp) so the swing is a
+// compositor-only transform — an animated SVG child would re-run SVG layout + repaint every frame (pillar 14).
+const LOGO_HANG = `<svg viewBox="0 0 900 300" class="ts-hang" aria-hidden="true"><g transform="translate(944 84)"><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#3b1a08" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M-42 40 C-54 0 -40 -62 0 -62 C12 -62 18 -52 12 -46" stroke="#7a4a22" stroke-width="4.5" fill="none" stroke-linecap="round"/><path d="M-46 -8 C-60 -14 -64 -30 -54 -36" stroke="#7a4a22" stroke-width="3.5" fill="none" stroke-linecap="round"/></g>
+</svg><div class="ts-lamp" aria-hidden="true"><svg viewBox="-48 -62 96 130"><defs><radialGradient id="tlGlow2" cx="50%" cy="55%" r="60%"><stop offset="0" stop-color="#fff6c8"/><stop offset=".45" stop-color="#ffc85a"/><stop offset="1" stop-color="#e07a2a"/></radialGradient><radialGradient id="tlHalo" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffd27a" stop-opacity=".55"/><stop offset=".55" stop-color="#ffb84a" stop-opacity=".22"/><stop offset="1" stop-color="#ff9a2a" stop-opacity="0"/></radialGradient></defs><circle cx="0" cy="20" r="46" fill="url(#tlHalo)"/><path d="M0 -60 C6 -40 3 -20 0 0" stroke="#5a3418" stroke-width="3" fill="none"/><path d="M-14 0 H14 L10 -7 H-10 Z" fill="#5a3a22"/><rect x="-13" y="0" width="26" height="36" rx="6" fill="url(#tlGlow2)" stroke="#4a2e1a" stroke-width="3"/><path d="M0 0 V36 M-13 18 H13" stroke="#5a3a22" stroke-width="1.8" opacity=".6"/><path d="M-16 36 H16 L11 44 H-11 Z" fill="#5a3a22"/></svg></div>`;
 
 const LOGO = `<svg viewBox="0 0 900 300" class="ts-word" aria-label="Hearthvale">
 <defs>
@@ -43,6 +45,7 @@ export class TitlePanel extends Screen {
   private orbit = 0;
   private active = false;
   private raf = 0;
+  private savedRes = -1;
 
   constructor(game: Game, parent: HTMLElement) {
     super(game, parent, 'hv-title-screen', {});
@@ -93,8 +96,8 @@ export class TitlePanel extends Screen {
   protected render(): void {
     this.root.querySelectorAll(':scope > :not(.u-backdrop)').forEach((n) => n.remove());
     const latest = this.latestSave();
-    const petals = Array.from({ length: 26 }, (_, i) => `<i style="--x:${(i * 47) % 100}%;--d:${8 + (i % 5) * 1.9}s;--dl:${-(i * 1.3) % 9}s;--s:${0.55 + (i % 4) * 0.2}"></i>`).join('');
-    const motes = Array.from({ length: 30 }, (_, i) => `<b style="left:${(i * 37) % 100}%;top:${20 + ((i * 53) % 70)}%;animation-delay:${-(i * 0.7)}s;animation-duration:${7 + (i % 6)}s"></b>`).join('');
+    const petals = Array.from({ length: 16 }, (_, i) => `<i style="--x:${(i * 61 + 7) % 100}%;--d:${8 + (i % 5) * 1.9}s;--dl:${-(i * 1.3) % 9}s;--s:${0.55 + (i % 4) * 0.2}"></i>`).join('');
+    const motes = Array.from({ length: 18 }, (_, i) => `<b style="left:${(i * 37) % 100}%;top:${20 + ((i * 53) % 70)}%;animation-delay:${-(i * 0.7)}s;animation-duration:${7 + (i % 6)}s"></b>`).join('');
     this.root.innerHTML = `
       <div class="ts-rays"></div>
       <div class="ts-vignette"></div>
@@ -128,7 +131,9 @@ export class TitlePanel extends Screen {
     // First launch: no journal yet, so Continue / Load would only be dead planks. Leave them out and let the
     // live buttons centre themselves (they appear as soon as a journal exists).
     items.filter((it) => it[4]).forEach(([a, label, icon, sub, enabled], i) => {
-      const b = el('button', `ts-btn${a === 'new' ? ' main is-default' : ''}${enabled ? '' : ' off'}`, `<span class="ic">${ICONS[icon] ?? ''}</span><span class="tx"><b>${label}</b><small>${sub}</small></span>`);
+      // The hero (green) plank is the default action: Continue once a journal exists, else New Game.
+      const hero = latest ? a === 'continue' : a === 'new';
+      const b = el('button', `ts-btn${hero ? ' main is-default' : ''}${enabled ? '' : ' off'}`, `<span class="ic">${ICONS[icon] ?? ''}</span><span class="tx"><b>${label}</b><small>${sub}</small></span>`);
       b.dataset.nav = '';
       b.dataset.a = a;
       b.style.animationDelay = `${300 + i * 90}ms`;
@@ -227,6 +232,14 @@ export class TitlePanel extends Screen {
     rig.pitch = 36;
     rig.distance = 30;
     this.game.followPlayer(true);
+    // Pillar 14: the diorama sits under a vignette, light shafts and petals and drifts slowly — render it at
+    // 0.8x and let the compositor upscale (crisp DOM logo / menu on top). Restored on close.
+    const rc = this.game.rc;
+    if (this.savedRes < 0) this.savedRes = rc.resScale;
+    if (rc.resScale > 0.8) {
+      rc.resScale = 0.8;
+      rc.resize();
+    }
     super.open(arg);
     cancelAnimationFrame(this.raf);
     const loop = (): void => {
@@ -248,6 +261,12 @@ export class TitlePanel extends Screen {
   protected override onClose(): void {
     this.active = false;
     cancelAnimationFrame(this.raf);
+    const rc = this.game.rc;
+    if (this.savedRes >= 0 && rc.resScale === 0.8 && this.savedRes !== 0.8) {
+      rc.resScale = this.savedRes;
+      rc.resize();
+    }
+    this.savedRes = -1;
     this.game.hud.root.classList.remove('hv-title-mode');
     this.game.player.controllable = true;
   }

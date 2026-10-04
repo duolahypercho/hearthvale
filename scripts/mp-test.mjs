@@ -324,7 +324,8 @@ try {
     window.__game.game.services.net.chat('hello from Bea');
     window.__game.game.services.net.emote('heart');
   });
-  const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 10000);
+  // Chat is acked + re-sent (net 'cack'): give a loaded machine (appRtt of seconds) a longer window.
+  const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 25000);
   check('chat reaches the host', gotChat, gotChat ? '' : JSON.stringify(await net(b, () => window.__game.game.services.net.stats())));
 
   // ── town (town pod): a farmhand's gift is host-authoritative and everyone sees it land; heart
