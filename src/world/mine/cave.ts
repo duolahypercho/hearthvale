@@ -390,7 +390,7 @@ ${CAVE_GLSL}`,
         // Packed snow (pale, matte) vs. clear blue ice (deep, glossy): two clear values.
         hvSnow = smoothstep(0.47, 0.6, drift + (hvNoise(fp * 1.1) - 0.5) * 0.12) * onFloor;
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.78, 0.9, 1.12), (1.0 - hvSnow) * onFloor);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.72, 0.8, 0.9) * (0.92 + 0.12 * grit), hvSnow * 0.85);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.57, 0.67) * (0.92 + 0.12 * grit), hvSnow * 0.8);
         vec2 w = fp + vec2(hvNoise(fp * 0.3), hvNoise(fp * 0.3 + 9.0)) * 2.4;
         float l1 = abs(hvNoise(w * 0.22) - 0.5);
         float l2 = abs(hvNoise(w * 0.5 + 31.0) - 0.5);
