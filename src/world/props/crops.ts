@@ -67,6 +67,16 @@ function hashN(...v: number[]): number {
 const LEAF_UV = 5;
 const LEAF_UV_TIP = 6;
 
+/**
+ * Re-mark a leafGeo blade as a PETAL (uv.y 2..2.49): no painted veins, no fall hue shift and no
+ * browned tips — a ripe sunflower keeps its golden ray in fall (only the withered plant loses it).
+ */
+function asPetal(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const uv = g.attributes.uv as THREE.BufferAttribute | undefined;
+  if (uv) for (let i = 0; i < uv.count; i++) uv.setY(i, 2 + (uv.getY(i) % 1));
+  return g;
+}
+
 /** A leaf growing along +Z from the origin (midrib + two halves, vertex coloured, smooth normals). */
 function leafGeo(len: number, width: number, o: LeafOpts): THREE.BufferGeometry {
   const segs = o.segs ?? 5;
@@ -479,7 +489,7 @@ function bunch(add: Adder, r: Rng, n: number, br: number, len: number, color: TH
 /** Five-petal star flower facing up (+Y) at the origin. */
 function flower(add: Adder, r: number, petal: THREE.Color, heart: THREE.Color, m: THREE.Matrix4, petals = 5): void {
   for (let i = 0; i < petals; i++) {
-    const p = leafGeo(r, r * 0.8, { shape: 'round', lift: 0.25, bend: 0.05, fold: 0.05, c0: petal.clone().multiplyScalar(0.92), c1: petal, segs: 2 });
+    const p = asPetal(leafGeo(r, r * 0.8, { shape: 'round', lift: 0.25, bend: 0.05, fold: 0.05, c0: petal.clone().multiplyScalar(0.92), c1: petal, segs: 2 }));
     add(p, m.clone().multiply(mat(0, 0, 0, 0, (i / petals) * Math.PI * 2, 0)));
   }
   add(fruit(r * 0.28, heart, { seg: 5 }), m.clone().multiply(mat(0, r * 0.12, 0)));
@@ -849,7 +859,7 @@ const BUILDERS: Record<CropId, Builder> = {
       const np = 16;
       for (let ring = 0; ring < 2; ring++) {
         for (let i = 0; i < np; i++) {
-          const pl = leafGeo(0.1 - ring * 0.015, 0.042, { shape: 'lance', lift: 0.05, bend: -0.1 + ring * 0.25, fold: 0.15, c0: C(0xe8a010), c1: C(0xffd84a), segs: 3 });
+          const pl = asPetal(leafGeo(0.1 - ring * 0.015, 0.042, { shape: 'lance', lift: 0.05, bend: -0.1 + ring * 0.25, fold: 0.15, c0: C(0xe8a010), c1: C(0xffd84a), segs: 3 }));
           pl.rotateX(-Math.PI / 2);
           add(pl, face.clone().multiply(mat(0, 0, 0.01 - ring * 0.01, 0, 0, ((i + ring * 0.5) / np) * Math.PI * 2)).multiply(mat(0, 0.085, 0, Math.PI / 2, 0, 0)));
         }
@@ -909,12 +919,20 @@ const BUILDERS: Record<CropId, Builder> = {
       add(fruit(0.07, C(0x7aa848), { sy: 0.85, long: 1.12, stripes: 7, stripeColor: C(0x2f5a24), seg: 12, rows: 8 }), mat(0.06, 0.05, 0.1, 0, r.next() * 3, 0), 'skin');
     }
     if (k === 3) {
-      // One big oblong striped melon off a vine, each variant sized / turned / tipped differently.
-      const s = 0.85 + r.next() * 0.3;
-      const R = 0.15 * s;
-      const at = vines[0]![2]!;
-      add(fruit(R, C(0x9cc85e), { sy: 0.86, long: 1.15, stripes: 8, stripeColor: C(0x28521f), seg: 14, rows: 9, shade: 0.55 }), mat(at.x * 0.6, R * 0.8, at.z * 0.6, (r.next() - 0.5) * 0.28, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.28), 'skin');
-      add(tube([new THREE.Vector3(at.x * 0.6, R * 1.6, at.z * 0.6), new THREE.Vector3(at.x * 0.7, R * 1.75, at.z * 0.7 + 0.02), new THREE.Vector3(at.x * 0.85, 0.05, at.z * 0.85)], 0.008, 0.006, C(0x7a8a3a), C(0x5f7a34), 6, 4));
+      // Big striped melons off the vines — every variant its own form: round "sugar baby" to long
+      // oblong, pale to deep rind, fine or bold stripes, and sometimes a smaller second fruit.
+      const form = r.next();
+      const fruitAt = (vi: number, s: number): void => {
+        const R = 0.15 * s;
+        const at = vines[vi % vines.length]![2]!;
+        const long = 1.0 + form * 0.45;
+        const rind = C(0xb4d888).lerp(C(0x6e9c44), (form * 0.6 + r.next() * 0.4));
+        const stripes = 6 + Math.floor(r.next() * 5);
+        add(fruit(R, rind, { sy: 0.9 - form * 0.08, long, stripes, stripeColor: C(0x24501c).lerp(C(0x3a6a2a), r.next() * 0.5), seg: 14, rows: 9, shade: 0.55 }), mat(at.x * 0.6, R * 0.8, at.z * 0.6, (r.next() - 0.5) * 0.3, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.3), 'skin');
+        add(tube([new THREE.Vector3(at.x * 0.6, R * 1.6, at.z * 0.6), new THREE.Vector3(at.x * 0.7, R * 1.75, at.z * 0.7 + 0.02), new THREE.Vector3(at.x * 0.85, 0.05, at.z * 0.85)], 0.008, 0.006, C(0x7a8a3a), C(0x5f7a34), 6, 4));
+      };
+      fruitAt(0, 0.85 + r.next() * 0.32);
+      if (r.next() < 0.4) fruitAt(1, 0.55 + r.next() * 0.15);
     }
   },
   hotPepper(add, r, k) {
@@ -955,14 +973,21 @@ const BUILDERS: Record<CropId, Builder> = {
       add(fruit(0.09, C(0x8fb048), { sy: 0.75, ribs: 9, crease: true, seg: 14, rows: 8 }), mat(0.05, 0.06, 0.1), 'skin');
     }
     if (k === 3) {
-      const s = 0.85 + r.next() * 0.3;
-      const R = 0.2 * s;
-      const px = 0.05 + (r.next() - 0.5) * 0.06;
-      const pz = 0.08 + (r.next() - 0.5) * 0.06;
-      const tilt = mat(px, R * 0.66, pz, (r.next() - 0.5) * 0.28, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.28);
-      add(fruit(R, C(0xe8741e).lerp(C(0xf0a040), r.next() * 0.3), { sy: 0.72, ribs: 10, crease: true, seg: 20, rows: 9, shade: 0.5 }), tilt, 'skin');
-      // A woody, curled stem.
-      add(tube([new THREE.Vector3(0, R * 0.62, 0), new THREE.Vector3(0.01, R * 0.62 + 0.05, 0.005), new THREE.Vector3(0.04, R * 0.62 + 0.07, 0.02), new THREE.Vector3(0.06, R * 0.62 + 0.055, 0.04)], 0.016, 0.009, C(0x6a6a34), C(0x9a8a4a), 6, 5), tilt, 'skin');
+      // Every variant its own pumpkin: squat field pumpkin ↔ tall jack, deep orange ↔ pale
+      // buttery, 8–12 ribs, sometimes a little one beside it.
+      const form = r.next();
+      const one = (s: number, px: number, pz: number): void => {
+        const R = 0.2 * s;
+        const sy = 0.6 + form * 0.3;
+        const tilt = mat(px, R * (sy - 0.06), pz, (r.next() - 0.5) * 0.3, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.3);
+        const skin = C(0xd8601a).lerp(C(0xf2a850), r.next() * 0.55);
+        add(fruit(R, skin, { sy, ribs: 8 + Math.floor(r.next() * 5), crease: true, seg: 20, rows: 9, shade: 0.5 }), tilt, 'skin');
+        // A woody, curled stem.
+        const top = R * (sy - 0.1);
+        add(tube([new THREE.Vector3(0, top, 0), new THREE.Vector3(0.01, top + 0.05, 0.005), new THREE.Vector3(0.04, top + 0.07, 0.02), new THREE.Vector3(0.06, top + 0.055, 0.04)], 0.016, 0.009, C(0x6a6a34), C(0x9a8a4a), 6, 5), tilt, 'skin');
+      };
+      one(0.85 + r.next() * 0.32, 0.05 + (r.next() - 0.5) * 0.06, 0.08 + (r.next() - 0.5) * 0.06);
+      if (r.next() < 0.35) one(0.5 + r.next() * 0.12, -0.16 + (r.next() - 0.5) * 0.05, -0.1 + (r.next() - 0.5) * 0.05);
     }
   },
   eggplant(add, r, k) {
@@ -1671,10 +1696,10 @@ function fallShift(m: THREE.Material, key: string, tips = true): void {
         mat3 toY = mat3(0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312);
         mat3 toR = mat3(1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703);
         vec3 yiq = toY * cc;
-        float ch = cos(0.30); // ~+17° in YIQ ≈ −12…−15° HSV hue (green → yellow-olive)
-        float sh = sin(0.30);
-        yiq.yz = vec2(yiq.y * ch - yiq.z * sh, yiq.y * sh + yiq.z * ch) * 0.76;
-        vec3 shifted = max(toR * yiq, 0.0) * vec3(1.1, 0.98, 0.8);
+        float ch = cos(0.44); // ~+25° in YIQ ≈ −18…−22° HSV hue (green → ochre-olive)
+        float sh = sin(0.44);
+        yiq.yz = vec2(yiq.y * ch - yiq.z * sh, yiq.y * sh + yiq.z * ch) * 0.7;
+        vec3 shifted = max(toR * yiq, 0.0) * vec3(1.15, 0.98, 0.74);
         vec3 outc = mix(cc, shifted, fall);
         ${tips ? `// Browned, papery tips on the marked leaves.
         float tip = step(5.5, vLeafUv.y) * smoothstep(0.5, 0.9, vLeafUv.x);
@@ -1886,7 +1911,8 @@ export class CropVisuals {
 
   add(id: CropId, stage: number, x: number, y: number, z: number, seed: number): CropHandle {
     // Fruiting stages get a third variant (fruit size / turn / tilt differ per variant).
-    const set = this.setFor(id, stage, seed % (stage >= 4 ? 3 : 2));
+    // Gourds get four (their fruit dominates the bed: no wallpaper of identical melons).
+    const set = this.setFor(id, stage, seed % (stage >= 4 ? (id === 'melon' || id === 'pumpkin' ? 4 : 3) : 2));
     const pl = PLACE[id] ?? {};
     const trel = !!CROPS[id].trellis;
     // No two plants alike: ±18 % size (±6 % on trellises, which must fill their frame), a little

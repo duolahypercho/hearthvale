@@ -850,9 +850,11 @@ export class SoilBeds {
         const c1 = 2.4;
         const e = 1 + (c1 + 1) * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
         const scale = 0.55 + 0.45 * e;
-        const fresh = 1 - smooth(0.25, 1.6, a.t);
+        // Freshly turned earth stays dark and moist for a beat, then settles to the bed's tone
+        // over ~2 s (so a charged strip reads as "just worked" against the older beds).
+        const fresh = 1 - smooth(0.6, 2.6, a.t);
         this.writeHeave(a.x, a.z, scale / 2, fresh, 0.5);
-        if (a.t >= 1.6) {
+        if (a.t >= 2.6) {
           this.writeHeave(a.x, a.z, 0.5, 0, 0.5);
           this.anims.delete(i);
         }

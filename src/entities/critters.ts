@@ -76,7 +76,9 @@ export class Butterfly {
     const dist = d.length();
     if (this.rest > 0) {
       this.rest -= dt;
-      this.wings.scale.x = 0.55 + Math.sin(t * 3 + this.phase) * 0.3;
+      // Resting: wings folded up together (a thin sliver from the high camera — flat open wings with
+      // their eye-spots read as "88" glyphs on the soil), opening now and then for a slow bask.
+      this.wings.scale.x = 0.1 + Math.pow(Math.max(0, Math.sin(t * 0.9 + this.phase)), 6) * 0.55;
       if (this.rest <= 0) this.pickTarget();
     } else {
       if (dist < 0.3) {

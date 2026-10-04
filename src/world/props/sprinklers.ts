@@ -1,8 +1,8 @@
 /**
  * Placeable sprinklers (three tiers) with a separately rotating spray head.
  *   basic   steel dish, brass riser, 4-jet cross head
- *   brass   all brass, 8 jets, little dome cap
- *   gold    gold + teal enamel ring, 8 long jets and a finial
+ *   brass   all brass, 3-jet turret, little dome cap
+ *   gold    gold + teal enamel ring, 4 long jets and a finial
  * Origin = ground centre. `head` spins while spraying; `nozzle` is the jet height.
  */
 import * as THREE from 'three';
@@ -28,8 +28,8 @@ export interface SprinklerModel {
 
 const TIERS = [
   { dish: 0xc8ced6, riser: 0xe0b050, head: 0xf2c860, jets: 4, ring: 0x9aa2ac },
-  { dish: 0xd8a860, riser: 0xe8b860, head: 0xf5cf70, jets: 8, ring: 0xb07a3a },
-  { dish: 0xf2c24a, riser: 0xf5d070, head: 0xffe08a, jets: 8, ring: 0x3aa8a0 },
+  { dish: 0xd8a860, riser: 0xe8b860, head: 0xf5cf70, jets: 3, ring: 0xb07a3a },
+  { dish: 0xf2c24a, riser: 0xf5d070, head: 0xffe08a, jets: 4, ring: 0x3aa8a0 },
 ];
 
 export function buildSprinklerModel(tier: number): SprinklerModel {

@@ -63,6 +63,10 @@ export const DEMOS: Record<string, DemoDef> = {
   'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest'] },
   'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 32, distance: 9.6, offsetX: -0.7, offsetZ: -1.6 }, showcase: ['tools', 'tool:charge'] },
   'farm-wither': { map: 'farm', x: 19.4, z: 24.5, facing: 'down', time: 16.2, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 19.5, offsetX: 2.9, offsetZ: 0.3 }, showcase: ['wither'] },
+  // Farming r11: the two-hand "hooray" lift of a big crop (melon on the hat, arms up) and a close
+  // morning sprinkler turret soaking its square of the summer field (wet front spreading outward).
+  'farm-lift': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'summer', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest', 'crop=melon', 'pose=0.72'] },
+  'farm-sprinkler': { map: 'farm', x: 23.5, z: 24.5, facing: 'up', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: -14, pitch: 42, distance: 8.5, offsetX: 2.4, offsetZ: -2.2 }, showcase: ['harvest', 'act=none'] },
   // Town square (plaza, Lantern Hall, villagers).
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).

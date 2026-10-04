@@ -453,7 +453,7 @@ export class NetSystem implements System, NetApi {
       // Co-op never stops the shared clock for a menu (the host's time is everyone's time).
       if (paused && this._role !== 'solo' && game.hud.openPanelName) queueMicrotask(() => this.game.setPaused(false));
     });
-    for (const n of ['soil:tilled', 'soil:watered', 'crop:planted', 'crop:harvested', 'crop:withered', 'crop:giant', 'tool:impact', 'crow:eat', 'player:interact'] as EventName[]) {
+    for (const n of ['soil:tilled', 'soil:watered', 'crop:planted', 'crop:harvested', 'crop:withered', 'crop:giant', 'crop:stage', 'soil:fertilized', 'tool:impact', 'crow:eat', 'player:interact'] as EventName[]) {
       game.events.on(n, () => (this.farmDirty = true));
     }
     // "Farm today": count our own farm work (not other farmers' work replayed on our farm).

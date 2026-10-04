@@ -75,6 +75,11 @@ declare module '../core/events' {
     'crop:harvested': { cropId: CropId; x: number; z: number; qty: number; quality: number };
     'crop:withered': { cropId: CropId; x: number; z: number };
     'crop:giant': { cropId: CropId; x: number; z: number };
+    /**
+     * A crop's visible state changed outside a tool action (overnight growth, grow(), speed-gro,
+     * withering): co-op hosts re-broadcast the tile digest right away (no SFX — fires in bulk).
+     */
+    'crop:stage': { cropId: CropId; x: number; z: number; stage: number };
     /** A crow lands on the field (caw). */
     'crow:arrive': { x: number; z: number };
     /** A crow ate a crop. */
@@ -163,6 +168,8 @@ interface Sprinkler {
   spin: number;
   /** Seconds of test spray left (after placing). */
   test: number;
+  /** Radius (tiles) the spray's wet front has reached since it switched on. */
+  wetR: number;
 }
 
 interface FarmTile {
@@ -206,6 +213,7 @@ interface CropAnim {
 const key = (x: number, z: number): string => `${x},${z}`;
 const TOOLS: FarmTool[] = ['hoe', 'wateringCan', 'axe', 'pickaxe', 'scythe'];
 const SOIL_COLOR = 0x6e4a30;
+const _up = new THREE.Vector3();
 /** Cosmetic randomness (particles, wobble directions): seeded so demos and tests replay exactly. */
 const fxRng = new Rng('farming-fx');
 const rnd = (a: number, b: number): number => a + fxRng.next() * (b - a);
@@ -278,6 +286,8 @@ export class FarmingSystem implements System, FarmingApi {
   private autoLoop: { tool: string; t: number } | null = null;
   /** Tile the running action targets (the cursor stays locked on it through the swing). */
   private actTile: { x: number; z: number } | null = null;
+  /** Every tile the running action works (a charged slam's whole footprint) + its cursor state. */
+  private actTiles: { tiles: [number, number][]; state: CursorState } | null = null;
   /** A demo staged crops outside the starter field (reset before the next demo). */
   private bigStaged = false;
   /** Gameplay rolls (quality, yields, giants, crows, weeds): seeded per save. */
@@ -651,6 +661,18 @@ export class FarmingSystem implements System, FarmingApi {
     return true;
   }
 
+  /**
+   * Sprinkler soak: water a tile without the watering event (no splash SFX / "farm today" credit
+   * per tile — the sprinkler already announces itself), flooding it outward from the head.
+   */
+  private soak(x: number, z: number, from: { x: number; z: number }): void {
+    const g = this.grid();
+    if (!g || !g.hasFlag(x, z, TileFlag.Tilled) || g.hasFlag(x, z, TileFlag.Watered)) return;
+    g.setFlag(x, z, TileFlag.Watered);
+    this.soil?.setWet(x, z, true, true, from);
+    this.paint(x, z);
+  }
+
   plant(id: CropId, x: number, z: number, days = 0, seed?: number): boolean {
     const g = this.grid();
     if (!g || !g.hasFlag(x, z, TileFlag.Tilled)) return false;
@@ -670,13 +692,16 @@ export class FarmingSystem implements System, FarmingApi {
     if (c.dead) {
       if (c.handle) this.crops.remove(c.handle);
       c.handle = c.eaten ? this.crops.addEaten(t.x + 0.5, y, t.z + 0.5, c.seed, !!CROPS[c.id].trellis, CROPS[c.id].leaf) : this.crops.addWithered(t.x + 0.5, y, t.z + 0.5, c.seed, !!CROPS[c.id].trellis, c.id);
+      if (c.stage !== -2) this.game.events.emit('crop:stage', { cropId: c.id, x: t.x, z: t.z, stage: -2 });
       c.stage = -2;
       return;
     }
     const stage = stageForDays(CROPS[c.id], c.days);
     if (stage === c.stage && c.handle) return;
+    const grew = !!c.handle;
     if (c.handle) this.crops.remove(c.handle);
     c.stage = stage;
+    if (grew) this.game.events.emit('crop:stage', { cropId: c.id, x: t.x, z: t.z, stage });
     c.handle = this.crops.add(c.id, stage, t.x + 0.5, y, t.z + 0.5, c.seed);
     if (anim) this.animate(c.handle, anim);
   }
@@ -855,12 +880,31 @@ export class FarmingSystem implements System, FarmingApi {
   private holdPos(): THREE.Vector3 {
     const r = this.game.player.rig;
     r.armR.updateWorldMatrix(true, false);
-    const hand = r.armR.localToWorld(new THREE.Vector3(0, -0.33, 0.03));
-    // Nudge it a little toward the camera so the hat brim / head never covers it.
+    // The palm socket: just inside the fist (the produce's lower end sits IN the grip, see `lift`).
+    const hand = r.armR.localToWorld(new THREE.Vector3(0, -0.34, 0.035));
+    // A hair toward the camera so the hat brim never covers it (not so far it floats off the hand).
     const cam = this.game.rc.camera.position;
     const d = new THREE.Vector3(cam.x - hand.x, 0, cam.z - hand.z);
-    if (d.lengthSq() > 1e-6) hand.addScaledVector(d.normalize(), 0.06);
+    if (d.lengthSq() > 1e-6) hand.addScaledVector(d.normalize(), 0.02);
     return hand;
+  }
+
+  /**
+   * Two-hand overhead grip (big produce): hoisted over the crown of the hat between the raised
+   * palms — high enough that, from the 3/4 camera, it reads above the head, never over the face.
+   */
+  private liftPos(): THREE.Vector3 {
+    const r = this.game.player.rig;
+    r.armR.updateWorldMatrix(true, false);
+    r.armL.updateWorldMatrix(true, false);
+    const a = r.armR.localToWorld(new THREE.Vector3(0, -0.33, 0.02));
+    const b = r.armL.localToWorld(new THREE.Vector3(0, -0.33, 0.02));
+    const hands = a.add(b).multiplyScalar(0.5);
+    const hat = r.hat ?? r.head;
+    hat.updateWorldMatrix(true, false);
+    const crown = hat.localToWorld(_up.set(0, r.hat ? 0.3 : 0.5, 0));
+    // Over the hat (x/z), at whichever is higher: the palms or just above the crown.
+    return crown.setY(Math.max(hands.y - 0.05, crown.y + 0.02));
   }
 
   private harvestFx(x: number, z: number, id: CropId, qty: number, quality: number, style: 'pull' | 'cut' | 'remote'): void {
@@ -883,16 +927,22 @@ export class FarmingSystem implements System, FarmingApi {
     const chest = (): THREE.Vector3 => pl.position.clone().add(new THREE.Vector3(0, 1.1, 0.2));
     const n = Math.min(3, qty);
     if (!geo.boundingSphere) geo.computeBoundingSphere();
-    // The hero item is shown at a readable size whatever it is (a berry bunch or a melon).
-    const heroS = THREE.MathUtils.clamp(0.7 / (geo.boundingSphere?.radius ?? 0.15), 2.05, 2.5);
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    // The hero item is shown at a readable size whatever it is (a berry bunch), and big produce at
+    // (a touch over) its size in the field — a held pumpkin never shrinks below the ones in the bed.
+    const big = !!def.giant;
+    const rad = geo.boundingSphere?.radius ?? 0.15;
+    const heroS = big ? THREE.MathUtils.clamp(0.42 / rad, 2.4, 3.6) : THREE.MathUtils.clamp(0.7 / rad, 2.05, 2.5);
+    const bottom = geo.boundingBox ? -geo.boundingBox.min.y : rad;
     for (let i = 0; i < n; i++) {
       const hero = i === 0 && style === 'pull';
       const off = new THREE.Vector3((i - (n - 1) / 2) * 0.22, i * 0.05, 0);
       this.fx.pop(geo, p.clone().add(new THREE.Vector3(0, 0.1, 0)), {
-        // Caught in the raised hands and held up over the head (Stardew-style "look what I grew").
-        to: hero ? () => this.holdPos() : () => chest().add(off),
+        // Caught in the raised hand(s) and held up (Stardew-style "look what I grew"): small produce
+        // sits down IN the fist (its lower third gripped), big produce rests on both palms overhead.
+        to: hero ? (big ? () => this.liftPos() : () => this.holdPos()) : () => chest().add(off),
         pivot: () => pl.position.clone().setY(pl.position.y + 1.3),
-        lift: hero ? undefined : 0,
+        lift: hero ? bottom * heroS * (big ? 0.95 : 0.55) : 0,
         flight: hero ? 0.2 : 0.26 + i * 0.06,
         hold: hero ? 0.42 : 0.06,
         star: i === 0 && quality > 0 ? QUALITY_COLORS[quality as CropQuality] : null,
@@ -932,7 +982,7 @@ export class FarmingSystem implements System, FarmingApi {
     model.root.position.set(x + 0.5, this.tileY(x, z) + (this.isTilled(x, z) ? SOIL_LIFT + SOIL_HEIGHT * 0.6 : 0), z + 0.5);
     model.root.userData.perfTag = 'sprinkler';
     this.map.root.add(model.root);
-    const sp: Sprinkler = { id, model, spin: rnd(0, 6), test: test ? 2.2 : 0 };
+    const sp: Sprinkler = { id, model, spin: rnd(0, 6), test: test ? 2.2 : 0, wetR: 0 };
     t.sprinkler = sp;
     g.setObject(x, z, { kind: 'sprinkler', id, solid: true, onRemove: () => model.root.removeFromParent() });
     this.map.clearGroundCover?.(x, z);
@@ -1003,15 +1053,16 @@ export class FarmingSystem implements System, FarmingApi {
       if (f !== this.game.player.facing) this.game.player.setFacing(f);
     }
     this.actTile = { x, z };
+    this.actTiles = { tiles: [[x, z]], state: 'neutral' };
     // Swings wind up over the camera-side shoulder; the harvest show-off always uses the right hand.
-    acts.side = kind === 'pull' ? 1 : this.cameraSide();
+    acts.side = kind === 'pull' || kind === 'lift' ? 1 : this.cameraSide();
     const tier = toolId && (TOOLS as string[]).includes(toolId) ? this.tiers[toolId as FarmTool] : 0;
     this.game.events.emit('tool:swing', { tool: toolId ?? kind, tier, charge: 0 });
     acts.start(kind, {
       tool: toolId ? this.tool(toolId) : null,
       onImpact: () => {
         onImpact();
-        this.cursorHold = 0.4;
+        this.cursor.pulse();
         this.doneTile = { x, z };
         if (kind === 'chop' || kind === 'slam' || kind === 'sweep') this.hitStop = kind === 'slam' ? 0.09 : 0.05;
       },
@@ -1508,13 +1559,15 @@ export class FarmingSystem implements System, FarmingApi {
     if (!this.actions || !this.near(fx0, fz0)) return doImpact();
     const gold = [0xffc890, 0xfff2d8, 0xffe27a][Math.min(2, level - 1)] ?? 0xfff6e0;
     this.actTile = { x: fx0, z: fz0 };
+    // The whole struck footprint stays bracketed (gold) through the slam and flares on impact.
+    this.actTiles = { tiles, state: 'charge' };
     this.actions.side = this.cameraSide();
     this.actions.start('slam', {
       tool: this.tool(tool),
       onImpact: () => {
         doImpact();
         this.hitStop = 0.1;
-        this.cursorHold = 0.5;
+        this.cursor.pulse();
       },
       onUpdate: this.withTrail('slam', tool, undefined, gold, 1.25),
     });
@@ -1527,8 +1580,10 @@ export class FarmingSystem implements System, FarmingApi {
     const c = t?.crop;
     if (!c || c.dead || c.stage < RIPE_STAGE) return;
     if (this.actions && this.near(x, z) && !this.actions.active) {
-      this.harvest(x, z, 'pull', IMPACT.pull);
-      this.startAction('pull', null, x, z, () => {
+      // Big produce is heaved overhead with both hands; the rest is shown off in one raised hand.
+      const kind: ActionKind = CROPS[c.id].giant ? 'lift' : 'pull';
+      this.harvest(x, z, 'pull', IMPACT[kind]);
+      this.startAction(kind, null, x, z, () => {
         this.game.events.emit('tool:impact', { tool: 'hand', x, z, hit: 'crop', strength: 1 });
       });
     } else this.harvest(x, z, 'pull');
@@ -1579,7 +1634,8 @@ export class FarmingSystem implements System, FarmingApi {
       const before = t.crop.stage;
       t.crop.days += days;
       this.refreshCrop(t, 'grow');
-      void before;
+      // Same stage, more days: still a digest change for co-op (refreshCrop only emits on a new stage).
+      if (t.crop.stage === before && days) this.game.events.emit('crop:stage', { cropId: t.crop.id, x: t.x, z: t.z, stage: before });
     }
   }
 
@@ -1969,7 +2025,9 @@ export class FarmingSystem implements System, FarmingApi {
     if (plan.giant) this.checkGiants(1, true);
     // Mostly watered (dark, glossy) — but the front rows are this morning's still-dry beds (pale,
     // warm, crazed), so the frame shows the contrast and warmer soil tones.
-    for (let z = Z0; z <= Z1; z++) for (let x = X0; x <= X1; x++) if (this.isTilled(x, z) && z < Z1 - 1 && ((x * 13 + z * 7) % 11 !== 0 || z > Z0 + 3)) this.water(x, z);
+    // The tall back bed is left to the sprinklers: their 5×5 squares soak dark outward from each
+    // head as the spray lands (FarmingSystem.updateSprinklers), framed by dry ochre soil between.
+    for (let z = Z0; z <= Z1; z++) for (let x = X0; x <= X1; x++) if (this.isTilled(x, z) && z < Z1 - 1 && z > Z0 + 3) this.water(x, z);
     // Packed-dirt paths through and around the beds, so the crops read against bare earth rather
     // than green lawn; a couple of produce crates and a basket at the path ends.
     for (let z = Z0 - 1; z <= Z1 + 1; z++) {
@@ -2072,6 +2130,12 @@ export class FarmingSystem implements System, FarmingApi {
     this.autoLoop = null;
     const season = this.game.calendar.season;
     const params = new URLSearchParams(location.search);
+    // Demo-table params: showcase tokens `key=value` act as URL params the URL doesn't override
+    // (e.g. farm-lift = ['tools', 'tool:harvest', 'crop=melon']).
+    for (const tk of showcase) {
+      const m = /^(\w+)=(.*)$/.exec(tk);
+      if (m && !params.has(m[1]!)) params.set(m[1]!, m[2]!);
+    }
     // A previous big staging (hero field / gallery / wither) must not leak into the next demo
     // (the smoke test cycles every demo; leftover fields blew the render budget).
     if (this.bigStaged && this.map) {
@@ -2415,64 +2479,79 @@ export class FarmingSystem implements System, FarmingApi {
       if (!sp) continue;
       if (sp.test > 0) sp.test -= dt;
       const on = (spraying || sp.test > 0) && dry;
-      if (!on) continue;
+      if (!on) {
+        sp.wetR = 0;
+        continue;
+      }
       const s = SPRINKLERS[sp.id] ?? SPRINKLERS.sprinkler!;
       const spinRate = s.tier >= 2 ? 2.6 : 3.4;
       sp.spin += dt * spinRate;
       sp.model.head.rotation.y = sp.spin;
-      // 8–12 rotating droplet trails per head: each trail throws a steady ballistic stream to its
-      // own reach, so the spinning head draws coherent arcing spirals (not confetti), plus a soft
-      // mist drifting over the watered ring.
-      const trails = Math.max(8, Math.min(12, sp.model.jets * 2 + s.tier * 2));
+      // A turret of 3–4 rotating jets: each throws a fanning rope of droplet beads (GPU, see
+      // FarmFX.sprayArc) that curls behind the spinning head, plus loose drops and a mist puff
+      // where the water lands. The covered tiles darken outward from the head as the spray reaches
+      // them (the same flood the watering can uses).
+      const jets = s.cross ? 4 : s.tier >= 2 ? 4 : 3;
       const reach = s.reach + (s.cross ? 0.35 : 0.5);
       const base = sp.model.root.position;
-      // Loose beads breaking off the jets (the jets themselves are GPU arcs, below).
-      const rate = dt * 9;
+      const rate = dt * 16;
       const pp = game.player.position;
       const px = pp.x - base.x;
       const pz = pp.z - base.z;
-      for (let j = 0; j < trails; j++) {
-        const a = sp.spin + (j / trails) * Math.PI * 2;
-        let d0 = reach * (0.5 + 0.5 * ((j * 0.618034 + 0.2) % 1));
-        {
-          const ox = base.x + Math.cos(a) * 0.1;
-          const oz = base.z + Math.sin(a) * 0.1;
-          const oy = base.y + sp.model.nozzle;
-          // A farmer standing in the spray catches the jet: it breaks on their legs (short arc +
-          // splash) instead of passing through them or striping across their face.
-          const along = px * Math.cos(a) + pz * Math.sin(a);
-          const perp = Math.abs(-px * Math.sin(a) + pz * Math.cos(a));
-          let hit = false;
-          if (along > 0.25 && along < d0 + 0.3 && perp < 0.3) {
-            d0 = Math.max(0.3, along - 0.18);
-            hit = true;
-          }
-          const ex = base.x + Math.cos(a) * d0;
-          const ez = base.z + Math.sin(a) * d0;
-          p.set(ox, oy, oz);
-          const T = 0.36 + d0 * 0.1;
-          const land = this.surfaceY(ex, ez) + (hit ? 0.28 : 0);
-          this.fx.sprayArc(p, a, d0 - 0.1, T, land - oy, j * 0.731 + sp.model.root.position.x * 0.37, 0.5, spinRate * T * 0.6);
-          if (hit && fxRng.next() < dt * 6) this.fx.crown(new THREE.Vector3(ex, land, ez), 0.6, 4);
+      const oy = base.y + sp.model.nozzle;
+      for (let j = 0; j < jets; j++) {
+        const a = sp.spin + (j / jets) * Math.PI * 2;
+        let d0 = reach;
+        // A farmer standing in the spray catches the jet: it breaks on their legs (short arc +
+        // splash) instead of passing through them.
+        const along = px * Math.cos(a) + pz * Math.sin(a);
+        const perp = Math.abs(-px * Math.sin(a) + pz * Math.cos(a));
+        let hit = false;
+        if (along > 0.25 && along < d0 + 0.3 && perp < 0.3) {
+          d0 = Math.max(0.3, along - 0.18);
+          hit = true;
+        }
+        const ex = base.x + Math.cos(a) * d0;
+        const ez = base.z + Math.sin(a) * d0;
+        p.set(base.x + Math.cos(a) * 0.1, oy, base.z + Math.sin(a) * 0.1);
+        const T = 0.5 + d0 * 0.12;
+        const land = this.surfaceY(ex, ez) + (hit ? 0.28 : 0);
+        this.fx.sprayArc(p, a, d0 - 0.1, T, land - oy, j * 0.731 + base.x * 0.37 + base.z * 0.11, 0.95, spinRate * T);
+        if (hit && fxRng.next() < dt * 6) this.fx.crown(new THREE.Vector3(ex, land, ez), 0.6, 4);
+        // Landing: a soft mist puff + the odd splash crown somewhere along the fan (the water
+        // that left ~T seconds ago, i.e. where the jet pointed spinRate·T radians back).
+        if (fxRng.next() < dt * 5) {
+          const la = a - spinRate * T * 0.9;
+          const ld = d0 * rnd(0.45, 1.0);
+          const lx = base.x + Math.cos(la) * ld;
+          const lz = base.z + Math.sin(la) * ld;
+          const ly = this.surfaceY(lx, lz);
+          this.fx.mist(new THREE.Vector3(lx, ly + 0.1, lz), rnd(0.35, 0.55), 0.13);
+          if (fxRng.next() < 0.5) this.fx.crown(new THREE.Vector3(lx, ly, lz), 0.5, 4);
         }
         let acc = rate + fxRng.next();
         while (acc >= 1) {
           acc -= 1;
-          const d = d0 * rnd(0.94, 1.04);
-          const T = 0.36 + d * 0.1;
-          const aa = a + rnd(-0.025, 0.025);
-          p.set(base.x + Math.cos(aa) * 0.1, base.y + sp.model.nozzle, base.z + Math.sin(aa) * 0.1);
+          const d = d0 * rnd(0.5, 1.04);
+          const Tb = 0.5 + d * 0.12;
+          const aa = a + rnd(-0.06, 0.06);
+          p.set(base.x + Math.cos(aa) * 0.1, oy, base.z + Math.sin(aa) * 0.1);
           const gy = this.surfaceY(base.x + Math.cos(aa) * d, base.z + Math.sin(aa) * d);
-          const vy = (gy - p.y) / T + 4.9 * T;
-          this.fx.drop(p, dv.set((Math.cos(aa) * d) / T, vy, (Math.sin(aa) * d) / T), rnd(0.015, 0.022), fxRng.next() < 0.06);
+          const vy = (gy - p.y) / Tb + 4.9 * Tb;
+          this.fx.drop(p, dv.set((Math.cos(aa) * d) / Tb, vy, (Math.sin(aa) * d) / Tb), rnd(0.014, 0.02), fxRng.next() < 0.1);
         }
       }
-      if (fxRng.next() < dt * 7) {
-        const a = rnd(0, Math.PI * 2);
-        const d = rnd(0.35, 1) * reach;
-        const mx = base.x + Math.cos(a) * d;
-        const mz = base.z + Math.sin(a) * d;
-        this.fx.mist(new THREE.Vector3(mx, this.surfaceY(mx, mz) + 0.12, mz), 0.55, 0.1);
+      // The wet front spreads outward from the head (tiles/s), soaking each covered tile once.
+      if (sp.wetR < s.reach * 1.5 + 0.5) {
+        const r0 = sp.wetR;
+        sp.wetR += dt * 1.6;
+        const g = this.grid();
+        // (Its own tile too: a pale dry square under the head read as a hole in the wet patch.)
+        for (const [dx, dz] of [[0, 0] as [number, number], ...sprinklerOffsets(sp.id)]) {
+          const r = Math.hypot(dx, dz);
+          if ((r <= r0 && r0 > 0) || r > sp.wetR) continue;
+          if (g && !g.hasFlag(t.x + dx, t.z + dz, TileFlag.Watered)) this.soak(t.x + dx, t.z + dz, base);
+        }
       }
     }
     if (spraying !== this.wasSpraying) {
@@ -2538,10 +2617,11 @@ export class FarmingSystem implements System, FarmingApi {
         this.cursor.set(this.chargeTiles(lv).map(([x, z]) => ({ x, z, y: this.cursorY(x, z), state: 'charge' as CursorState })));
         visible = true;
       } else if (acts?.active) {
-        // Mid-action: a neutral lock on the worked tile — hidden for a beat after the impact so the
-        // soil change reads.
-        if (this.actTile && this.cursorHold <= 0) {
-          this.cursor.set([{ x: this.actTile.x, z: this.actTile.z, y: this.cursorY(this.actTile.x, this.actTile.z), state: 'neutral' }]);
+        // Mid-action: a dimmed lock on the worked tile(s) all through the swing — it flares on the
+        // impact frame (TileCursor.pulse), so the player never loses track of what was hit.
+        const at = this.actTiles ?? (this.actTile ? { tiles: [[this.actTile.x, this.actTile.z]] as [number, number][], state: 'neutral' as CursorState } : null);
+        if (at) {
+          this.cursor.set(at.tiles.map(([x, z]) => ({ x, z, y: this.cursorY(x, z), state: at.state })));
           visible = true;
         }
       } else if (this.cursorHold <= 0) {
@@ -2563,7 +2643,7 @@ export class FarmingSystem implements System, FarmingApi {
         }
       }
     }
-    if (this.fxScale === 0 && (this.showcase !== 'tools' || this.stillTool !== 'hoe')) visible = false;
+    if (this.fxScale === 0 && (this.showcase !== 'tools' || (this.stillTool !== 'hoe' && this.stillTool !== 'charge'))) visible = false;
     // Beauty stills (hero fields, gallery, crows) don't need a targeting cursor on screen.
     if (this.showcase === 'harvest' || this.showcase === 'giant' || this.showcase === 'gallery' || this.showcase === 'crows') visible = false;
     this.cursor.update(dt, visible);

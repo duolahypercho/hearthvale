@@ -52,7 +52,7 @@ function enamel(): THREE.MeshStandardMaterial {
 
 const HANDLE = 0xa8743f;
 /** Blade body colour per tier (the tint is the honed-edge colour). */
-const HEAD_BODY = [0x70767e, 0xc0703c, 0xb4bec8, 0xe8b43a];
+const HEAD_BODY = [0x70767e, 0xc0703c, 0x8fa8c8, 0xe8b43a];
 
 /** Tapered tube along a curve (vertex colour white; tinted by the builder). */
 function neckTube(pts: THREE.Vector3[], r0: number, r1: number): THREE.BufferGeometry {
@@ -122,12 +122,22 @@ function hoeBlade(body: THREE.Color, edge: THREE.Color): THREE.BufferGeometry {
 const GRIP = 0x6a4128;
 const cache = new Map<string, THREE.Group>();
 
-function handle(b: MeshBuilder, len: number, from = -0.28): void {
+/** Handle bands per tier (none / copper / blued-iron enamel / gold): the upgrade reads on the haft too. */
+const BAND = [0, 0xd4804a, 0x4f7fc2, 0xf2c24a];
+
+function handle(b: MeshBuilder, len: number, from = -0.28, tier = 0): void {
   const h = new THREE.CylinderGeometry(0.024, 0.029, len, 8);
   b.add(wood(), h, mat(0, from + len / 2, 0), { tint: HANDLE });
   // Leather wrap at the grip + end knob
   b.add(wood(), new THREE.CylinderGeometry(0.033, 0.033, 0.14, 8), mat(0, 0, 0), { tint: GRIP });
   b.add(wood(), new THREE.SphereGeometry(0.036, 8, 6), mat(0, from, 0), { tint: GRIP });
+  if (tier > 0) {
+    // Upgraded tools: a pair of bright metal bands above the grip and a ferrule cap on the knob.
+    const M = metal(tier);
+    const c = BAND[tier] ?? BAND[1]!;
+    for (const y of [0.1, 0.16]) b.add(M, new THREE.CylinderGeometry(0.031, 0.031, 0.028, 10), mat(0, y, 0), { tint: c });
+    b.add(M, new THREE.SphereGeometry(0.039, 8, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat(0, from, 0), { tint: c });
+  }
 }
 
 export function buildTool(id: string, tier: number): THREE.Group {
@@ -140,7 +150,7 @@ export function buildTool(id: string, tier: number): THREE.Group {
   const edge = new THREE.Color(tint).lerp(new THREE.Color(0xffffff), 0.45).getHex();
   switch (id) {
     case 'hoe': {
-      handle(b, 1.0);
+      handle(b, 1.0, -0.28, tier);
       const body = new THREE.Color(HEAD_BODY[tier] ?? tint);
       // Socket: a tapered ferrule clamping the handle, with a rolled collar.
       b.add(M, new THREE.CylinderGeometry(0.029, 0.036, 0.11, 12), mat(0, 0.675, 0), { tint: body.clone().multiplyScalar(0.8).getHex() });
@@ -153,7 +163,7 @@ export function buildTool(id: string, tier: number): THREE.Group {
       break;
     }
     case 'axe': {
-      handle(b, 0.9);
+      handle(b, 0.9, -0.28, tier);
       const head = new THREE.Shape();
       head.moveTo(-0.03, -0.05);
       head.lineTo(0.1, -0.1);
@@ -170,7 +180,7 @@ export function buildTool(id: string, tier: number): THREE.Group {
       break;
     }
     case 'pickaxe': {
-      handle(b, 0.92);
+      handle(b, 0.92, -0.28, tier);
       // Two curved picks tapering to points (cones bent down at the tips).
       for (const s of [1, -1]) {
         const cone = new THREE.ConeGeometry(0.03, 0.28, 7, 4);
@@ -186,7 +196,7 @@ export function buildTool(id: string, tier: number): THREE.Group {
       break;
     }
     case 'scythe': {
-      handle(b, 1.15, -0.35);
+      handle(b, 1.15, -0.35, tier);
       b.add(wood(), new THREE.CylinderGeometry(0.02, 0.02, 0.16, 6), mat(0.06, 0.1, 0, 0, 0, Math.PI / 2), { tint: HANDLE });
       const blade = new THREE.Shape();
       blade.moveTo(0, 0);
@@ -227,7 +237,7 @@ export function buildTool(id: string, tier: number): THREE.Group {
       break;
     }
     default:
-      handle(b, 0.9);
+      handle(b, 0.9, -0.28, tier);
   }
   const g = b.build({ name: `tool:${key}`, castShadow: true, receiveShadow: true });
   cache.set(key, g);

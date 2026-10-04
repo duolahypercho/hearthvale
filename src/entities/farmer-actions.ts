@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import type { Player, PlayerRig, ActionPose } from './player';
 
-export type ActionKind = 'chop' | 'sweep' | 'pour' | 'sow' | 'pull' | 'place' | 'slam' | 'refill' | 'shrug';
+export type ActionKind = 'chop' | 'sweep' | 'pour' | 'sow' | 'pull' | 'lift' | 'place' | 'slam' | 'refill' | 'shrug';
 
 interface Key {
   t: number;
@@ -23,6 +23,12 @@ interface Key {
   bob?: number;
   /** Held tool rotation (arm space). */
   tool?: [number, number, number];
+  /**
+   * Held tool rotation in the TORSO frame (Euler XYZ; handle +Y, working edge +Z, farmer facing +Z,
+   * +X = the wind-up side). Independent of the arm angles, so a wind-up can place the blade exactly
+   * (e.g. up and out beside the hat, never hidden behind it). Interpolates with `tool` keys by slerp.
+   */
+  toolT?: [number, number, number];
   /** Tool rotation relative to "upright in the torso frame" (watering can). */
   level?: number;
   /** Slide the hands down the handle (m): the tool head reaches further out (overhead wind-ups). */
@@ -31,10 +37,12 @@ interface Key {
   reach?: number;
 }
 
-type Pose = Required<Pick<Key, 'aR' | 'aL' | 'torso' | 'head' | 'sy' | 'bob' | 'grip' | 'reach'>> & { tool: [number, number, number] | null; level: number | null };
+type Pose = Required<Pick<Key, 'aR' | 'aL' | 'torso' | 'head' | 'sy' | 'bob' | 'grip' | 'reach'>> & { tool: [number, number, number] | null; level: number | null; toolT?: [number, number, number] | null; toolQ?: THREE.Quaternion | null };
 
 const REST: Pose = { aR: [0, -0.12], aL: [0, 0.12], torso: [0, 0, 0], head: 0, sy: 1, bob: 0, grip: 0, reach: 1, tool: null, level: null };
 const TOOL_REST: [number, number, number] = [Math.PI / 2, 0, 0];
+/** The straw hat's resting tilt (player rig: worn pushed back). */
+const HAT_TILT = -0.52;
 
 /** Keyframes per action (seconds). Impact times are in IMPACT. */
 const TRACKS: Record<ActionKind, Key[]> = {
@@ -48,7 +56,9 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.07, ease: 'out', aR: [-0.7, -0.1], aL: [-0.6, 0.1], torso: [0.14, 0.03, 0], head: 0.05, sy: 0.92, tool: [Math.PI / 2 - 0.1, 0, 0] },
     // Feet planted: the torso twists ≤ ~20° toward the wind-up side (eased, no overshoot on the
     // twist) so the body never reads as spinning to face the camera and snapping back.
-    { t: 0.21, ease: 'out', aR: [-2.45, -0.62], aL: [-2.1, -0.28], torso: [-0.18, -0.2, -0.08], head: -0.08, sy: 1.07, grip: 0.3, tool: [2.55, 0, 0.75] },
+    // Top of the wind-up: hands up beside the hat on the wind-up side, the handle raked up and OUT
+    // (torso-space `toolT`), so the blade stands clear of the big head's silhouette.
+    { t: 0.21, ease: 'out', aR: [-2.85, -0.7], aL: [-2.6, -0.42], torso: [-0.2, -0.2, -0.12], head: -0.06, sy: 1.08, grip: 0.24, toolT: [-0.35, 0, 0.62] },
     { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.36, -0.06, 0], head: -0.26, sy: 0.88, bob: -0.025, tool: [Math.PI / 2 - 0.2, 0, 0] },
     { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.38, 0.04, 0], head: -0.24, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
     { t: 0.66, ease: 'inout' },
@@ -68,12 +78,14 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.56, ease: 'inout' },
   ],
   // The can comes up and out in front (the rose held high), then tips: a long, readable arc.
+  // Arms reach well out in front (a touch of stretch) so the rose sits clear of the toes; the can
+  // tips forward only, its yaw locked to the facing (see apply), the stream arcing out to the tile.
   pour: [
     { t: 0 },
-    { t: 0.2, ease: 'back', aR: [-1.45, -0.25], aL: [-1.15, 0.25], torso: [0.06, 0, 0], sy: 0.98, level: 0 },
-    { t: 0.32, ease: 'inout', aR: [-1.5, -0.25], aL: [-1.2, 0.25], torso: [0.1, 0, 0], sy: 0.99, level: 0.95 },
-    { t: 0.72, ease: 'linear', aR: [-1.56, -0.2], aL: [-1.24, 0.25], torso: [0.12, 0, 0], sy: 0.99, level: 1.05 },
-    { t: 0.84, ease: 'inout', aR: [-1.4, -0.25], aL: [-1.1, 0.25], torso: [0.08, 0, 0], sy: 1.0, level: 0 },
+    { t: 0.2, ease: 'back', aR: [-1.62, -0.12], aL: [-1.3, 0.3], torso: [0.08, 0, 0], sy: 0.98, level: 0 },
+    { t: 0.32, ease: 'inout', aR: [-1.66, -0.12], aL: [-1.32, 0.3], torso: [0.12, 0, 0], sy: 0.99, level: 0.72 },
+    { t: 0.72, ease: 'linear', aR: [-1.7, -0.1], aL: [-1.36, 0.3], torso: [0.14, 0, 0], sy: 0.99, level: 0.8 },
+    { t: 0.84, ease: 'inout', aR: [-1.5, -0.14], aL: [-1.2, 0.28], torso: [0.08, 0, 0], sy: 1.0, level: 0 },
     { t: 1.05, ease: 'inout' },
   ],
   refill: [
@@ -104,17 +116,32 @@ const TRACKS: Record<ActionKind, Key[]> = {
   // Yank it out (crouch → spring up), then the show-off: the right arm thrown up and out
   // (stretched a touch, cartoon reach) holding the produce up beside the head, the left fist
   // swinging out for balance.
+  // The grab is a squat (body squashed + dropped), not a deep bow: the torso tips only ~17° and the
+  // head tilts BACK (face up) so the big hat never covers the farmer from the high camera.
   pull: [
     { t: 0 },
-    { t: 0.13, ease: 'out', aR: [-0.75, -0.1], aL: [-0.75, 0.1], torso: [0.52, 0, 0], head: 0.2, sy: 0.87 },
+    { t: 0.13, ease: 'out', aR: [-0.95, -0.1], aL: [-0.95, 0.1], torso: [0.3, 0, 0], head: -0.22, sy: 0.82, bob: -0.07 },
     { t: 0.26, ease: 'back', aR: [0.12, 2.45], aL: [-0.3, -0.62], torso: [-0.1, 0, -0.1], head: -0.1, sy: 1.08, bob: 0.05, reach: 1.5 },
     { t: 0.36, ease: 'out', aR: [0.1, 2.38], aL: [-0.26, -0.55], torso: [-0.06, 0, -0.08], head: -0.12, sy: 0.97, bob: 0.0, reach: 1.46 },
-    { t: 0.78, ease: 'linear', aR: [0.08, 2.34], aL: [-0.24, -0.52], torso: [-0.04, 0, -0.07], head: -0.1, sy: 1.0, reach: 1.44 },
-    { t: 1.0, ease: 'inout' },
+    // Held up until the produce has zipped off to the backpack (pop leaves at ~0.82 s).
+    { t: 0.92, ease: 'linear', aR: [0.08, 2.34], aL: [-0.24, -0.52], torso: [-0.04, 0, -0.07], head: -0.1, sy: 1.0, reach: 1.44 },
+    { t: 1.12, ease: 'inout' },
+  ],
+  // Big produce (melon, pumpkin, cauliflower): squat, heave it up, then hold it overhead with
+  // BOTH hands — the classic "look what I grew" — knees giving a little under the weight.
+  lift: [
+    { t: 0 },
+    { t: 0.14, ease: 'out', aR: [-1.0, -0.3], aL: [-1.0, 0.3], torso: [0.3, 0, 0], head: -0.22, sy: 0.8, bob: -0.08 },
+    // Arms stretch (cartoon reach) up and out in a V past the big head (both visible beside the hat),
+    // the prize sits ABOVE the hat between the palms — never in front of the face.
+    { t: 0.3, ease: 'back', aR: [-2.92, 0.42], aL: [-2.92, -0.42], torso: [-0.08, 0, 0], head: -0.16, sy: 1.1, bob: 0.06, reach: 2.2 },
+    { t: 0.42, ease: 'out', aR: [-2.9, 0.4], aL: [-2.9, -0.4], torso: [-0.05, 0, 0], head: -0.14, sy: 0.94, bob: -0.02, reach: 2.1 },
+    { t: 0.94, ease: 'linear', aR: [-2.88, 0.4], aL: [-2.88, -0.4], torso: [-0.04, 0, 0], head: -0.12, sy: 0.98, reach: 2.1 },
+    { t: 1.16, ease: 'inout' },
   ],
 };
 
-export const IMPACT: Record<ActionKind, number> = { chop: 0.27, slam: 0.22, sweep: 0.2, pour: 0.3, refill: 0.24, sow: 0.19, place: 0.2, pull: 0.2, shrug: 0.36 };
+export const IMPACT: Record<ActionKind, number> = { chop: 0.27, slam: 0.22, sweep: 0.2, pour: 0.3, refill: 0.24, sow: 0.19, place: 0.2, pull: 0.2, lift: 0.22, shrug: 0.36 };
 
 function ease(k: Key['ease'], t: number): number {
   switch (k) {
@@ -145,11 +172,19 @@ function resolve(k: Key, prev: Pose): Pose {
     reach: k.reach ?? 1,
     tool: k.tool ?? (prev.tool && k.level === undefined ? null : null),
     level: k.level ?? null,
+    toolT: k.toolT ?? null,
   };
 }
 
 const lerp = THREE.MathUtils.lerp;
 const GRIP_V = new THREE.Vector3();
+const _qArm = new THREE.Quaternion();
+const _qTip = new THREE.Quaternion();
+const _eArm = new THREE.Euler();
+const _X = new THREE.Vector3(1, 0, 0);
+const _q0 = new THREE.Quaternion();
+const _q1 = new THREE.Quaternion();
+const _qOut = new THREE.Quaternion();
 
 export interface ActionOpts {
   tool?: THREE.Object3D | null;
@@ -321,12 +356,22 @@ export class FarmerActions {
     rig.armR.scale.set(1, reach, 1);
     rig.armL.scale.set(1, reach, 1);
     // The big straw hat shrinks a little while working so the swing and the target tile stay visible.
-    if (rig.hat) rig.hat.scale.setScalar(this.hatK);
+    if (rig.hat) {
+      rig.hat.scale.setScalar(this.hatK);
+      // Bending forward tips the hat back on the head (brim up), so the crown never fills the frame.
+      rig.hat.rotation.x = HAT_TILT - Math.max(0, p.torso[0]) * 0.9 * w;
+    }
     const tool = rig.tool;
     tool.position.set(0, -0.3, 0.02);
     if (p.level !== null) {
-      // Keep the can upright in the torso frame (undo the arm pitch), then tip it forward.
-      tool.rotation.set(-R.x + p.level * 0.95, 0, -R.z * 0.5);
+      // The can's orientation is set in the torso frame (undo the arm's pitch AND roll exactly), so
+      // it only ever tips forward about the farmer's own left-right axis: the rose stays pointed
+      // along the facing direction for the whole pour (never swings round to face the camera).
+      _qArm.setFromEuler(_eArm.set(R.x, R.y, R.z, R.order)).invert();
+      _qTip.setFromAxisAngle(_X, p.level * 0.95);
+      tool.quaternion.copy(_qArm).multiply(_qTip);
+    } else if (p.toolQ) {
+      tool.quaternion.copy(p.toolQ);
     } else if (p.tool) {
       tool.rotation.set(p.tool[0], p.tool[1] * sd, p.tool[2] * sd);
     } else {
@@ -354,6 +399,13 @@ export class FarmerActions {
     const mix = (x: number, y: number): number => x + (y - x) * e;
     const tool0 = p0.tool ?? (p0.level === null ? TOOL_REST : null);
     const tool1 = p1.tool ?? (p1.level === null ? TOOL_REST : null);
+    let toolQ: THREE.Quaternion | null = null;
+    if ((p0.toolT || p1.toolT) && p0.level === null && p1.level === null) {
+      // Torso-space key on either end: blend the two arm-space orientations by slerp.
+      const q0 = this.toolQuat(p0, tool0 ?? TOOL_REST, _q0);
+      const q1 = this.toolQuat(p1, tool1 ?? TOOL_REST, _q1);
+      toolQ = _qOut.slerpQuaternions(q0, q1, e);
+    }
     let level: number | null = null;
     if (p0.level !== null || p1.level !== null) level = mix(p0.level ?? 0, p1.level ?? 0);
     return {
@@ -367,7 +419,19 @@ export class FarmerActions {
       reach: mix(p0.reach, p1.reach),
       tool: tool0 && tool1 ? [mix(tool0[0], tool1[0]), mix(tool0[1], tool1[1]), mix(tool0[2], tool1[2])] : null,
       level,
+      toolQ,
     };
+  }
+
+  /** A key's held-tool orientation in arm space (side-mirrored), from `toolT` or `tool`. */
+  private toolQuat(p: Pose, tool: [number, number, number], out: THREE.Quaternion): THREE.Quaternion {
+    const sd = this.side;
+    if (!p.toolT) return out.setFromEuler(_eArm.set(tool[0], tool[1] * sd, tool[2] * sd));
+    const rz = sd > 0 ? p.aR[1] : REST.aR[1] - (p.aR[1] - REST.aR[1]);
+    _qArm.setFromEuler(_eArm.set(p.aR[0], 0, rz)).invert();
+    // Mirror the torso-space rotation across the body's YZ plane for a left-side wind-up.
+    _qTip.setFromEuler(_eArm.set(p.toolT[0], p.toolT[1] * sd, p.toolT[2] * sd));
+    return out.copy(_qArm).multiply(_qTip);
   }
 
   private pose(rig: PlayerRig, dt: number): ActionPose | null {
@@ -376,6 +440,7 @@ export class FarmerActions {
     const want = this.cur || this.charging ? 0.85 : 1;
     this.hatK += (want - this.hatK) * (1 - Math.exp(-dt * 14));
     if (!this.cur && !this.charging && rig.hat) rig.hat.scale.setScalar(this.hatK);
+    if (!this.cur && !this.charging && rig.hat && rig.hat.rotation.x !== HAT_TILT) rig.hat.rotation.x = HAT_TILT;
     if (!this.cur && !this.charging && rig.armR.scale.y !== 1) {
       rig.armR.scale.set(1, 1, 1);
       rig.armL.scale.set(1, 1, 1);

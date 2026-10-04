@@ -881,69 +881,68 @@ interface Ring {
 
 // ───────────────────────────────────────────── sprinkler jets
 
-const ARC_SEG = 20;
+const ARC_BEADS = 72;
 const ARC_VS = /* glsl */ `
 attribute vec4 aO;
 attribute vec4 aP;
 attribute vec2 aA;
+uniform float uTime;
 varying vec2 vUv;
 varying float vA;
-varying float vPh;
+varying float vS;
 #include <fog_pars_vertex>
+float h11(float n) { return fract(sin(n * 127.1) * 43758.5453); }
 void main() {
-  float s = position.x;
-  // The head spins while the water flies: the drop at flight fraction s left the nozzle s·T ago,
-  // when the jet pointed aA.y·s radians further back — so each jet traces a trailing spiral
-  // (a pinwheel of water), not a static wire parabola.
-  float ang = aO.w - aA.y * s;
+  // One instance = one rotating jet; each quad is one droplet bead streaming along it.
+  float i = position.x;
+  float ph = aP.w;
+  float h1 = h11(i * 1.37 + ph * 7.1);
+  float h2 = h11(i * 2.91 + ph * 3.3 + 11.0);
+  float h3 = h11(i * 5.17 + ph * 1.9 + 23.0);
+  float h4 = h11(i * 0.73 + ph * 9.7 + 41.0);
+  // The jet fans along its length: beads land anywhere from ~a third of the reach to the rim,
+  // most of them out at the edge (a sprinkler throws its water far).
+  // Over half the beads ride the jet's main rope (a coherent arc of water out to the rim);
+  // the rest shed off it and rain onto the inner tiles.
+  bool rope = h2 < 0.55;
+  float rj = rope ? mix(0.93, 1.03, h4) : mix(0.3, 0.95, h2);
+  float T = aP.y * mix(0.62, 1.0, rj);
+  // Flight fraction: beads flow out of the nozzle continuously.
+  float s = fract(uTime / T + h1);
+  // The head turned while this bead flew: it left when the jet pointed lag·s radians further back.
+  float ang = aO.w - aA.y * s * (T / aP.y) + (h3 - 0.5) * (rope ? 0.035 : 0.22) * (0.3 + s);
   vec3 dir = vec3(cos(ang), 0.0, sin(ang));
-  vec3 dirP = vec3(-sin(ang), 0.0, cos(ang));
-  float g = 4.9 * aP.y * aP.y;
-  vec3 p = aO.xyz + dir * aP.x * s + vec3(0.0, aP.z * s + g * s * (1.0 - s), 0.0);
-  vec3 tan = dir * aP.x - dirP * (aP.x * s * aA.y) + vec3(0.0, aP.z + g * (1.0 - 2.0 * s), 0.0);
+  float R = aP.x * rj;
+  float g = 4.9 * T * T;
+  vec3 p = aO.xyz + dir * R * s + vec3(0.0, aP.z * s + g * s * (1.0 - s), 0.0);
+  vec3 tan = normalize(dir * R + vec3(0.0, aP.z + g * (1.0 - 2.0 * s), 0.0));
   vec3 toCam = normalize(cameraPosition - p);
   vec3 side = cross(tan, toCam);
   side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
-  // A tight jet at the nozzle that fans into a wide, soft veil of spray as it falls.
-  float w = mix(0.018, 0.085, s);
-  p += side * position.y * w;
+  // Small tight beads at the nozzle, fatter drops as the stream breaks up; stretched along flight.
+  float r = mix(0.016, 0.03, s) * mix(0.7, 1.3, h4) * (rope ? 1.15 : 0.85);
+  p += side * position.y * r + tan * position.z * r * 2.1;
   vec4 mvPosition = viewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mvPosition;
-  vUv = vec2(s, position.y);
-  vA = aA.x;
-  vPh = aP.w;
+  vUv = position.yz;
+  vS = s;
+  vA = aA.x * smoothstep(0.0, 0.05, s) * (1.0 - smoothstep(0.86, 1.0, s));
   #include <fog_vertex>
 }`;
 const ARC_FS = /* glsl */ `
-uniform float uTime;
 uniform vec3 uBody;
 uniform vec3 uCore;
 varying vec2 vUv;
 varying float vA;
-varying float vPh;
+varying float vS;
 #include <fog_pars_fragment>
-float h21(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
-float vn(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
-}
 void main() {
-  float s = vUv.x;
-  float x = abs(vUv.y);
-  // Water rushing out along the arc: a glassy solid jet near the nozzle that breaks into beads.
-  float n = vn(vec2(s * 16.0 - uTime * 11.0 + vPh * 13.0, vPh * 5.0 + vUv.y * 0.8));
-  float n2 = vn(vec2(s * 37.0 - uTime * 17.0 + vPh * 3.0, vUv.y * 2.0 + 9.0));
-  float bead = smoothstep(0.38, 0.62, n * 0.7 + n2 * 0.3);
-  float brk = smoothstep(0.06, 0.45, s);
-  float body = mix(1.0, bead, brk);
-  float edge = 1.0 - smoothstep(0.35 - brk * 0.15, 1.0, x + (n2 - 0.5) * 0.3 * brk);
-  // The veil widens as it falls, so it thins out too (same water over a wider ribbon).
-  float a = edge * body * vA * mix(1.0, 0.42, s) * smoothstep(0.0, 0.05, s) * (1.0 - smoothstep(0.8, 1.0, s));
-  if (a < 0.01) discard;
-  float core = (1.0 - smoothstep(0.0, 0.55, x)) * (1.0 - 0.6 * s);
-  vec3 c = mix(uBody, uCore, core * (0.35 + 0.45 * n));
-  c += vec3(0.16) * smoothstep(0.72, 0.95, n2) * (1.0 - x);
+  float d = length(vUv);
+  float a = (1.0 - smoothstep(0.4, 1.0, d)) * vA * (0.55 + 0.35 * (1.0 - smoothstep(0.0, 0.6, d)));
+  if (a < 0.02) discard;
+  // Glassy drop: sky-blue body, bright highlight up-front (stays under the bloom threshold).
+  float hl = 1.0 - smoothstep(0.0, 0.45, length(vUv - vec2(-0.2, 0.3)));
+  vec3 c = mix(uBody, uCore, hl * 0.9);
   gl_FragColor = vec4(c, a);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -951,9 +950,10 @@ void main() {
 }`;
 
 /**
- * Sprinkler jets: every rotating nozzle trail is one GPU-evaluated ballistic ribbon (camera-facing,
- * glassy, beading up toward its landing point), so a spinning head reads as coherent arcs of water
- * rather than scattered droplets. Queued per frame with `add`, drawn in one instanced call.
+ * Sprinkler jets: each rotating nozzle is one instance of ARC_BEADS droplet beads streaming along
+ * a ballistic arc (GPU-evaluated, no per-frame CPU work per bead). Beads leave the nozzle at the
+ * head's angle of that moment, so a spinning turret throws curling ropes of droplets that fan out
+ * and rain onto the whole covered square. Queued per frame with `add`, one instanced draw call.
  */
 class SprayArcs {
   readonly mesh: THREE.Mesh;
@@ -968,9 +968,10 @@ class SprayArcs {
     const g = new THREE.InstancedBufferGeometry();
     const pos: number[] = [];
     const idx: number[] = [];
-    for (let i = 0; i <= ARC_SEG; i++) {
-      pos.push(i / ARC_SEG, -1, 0, i / ARC_SEG, 1, 0);
-      if (i < ARC_SEG) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+    for (let i = 0; i < ARC_BEADS; i++) {
+      pos.push(i, -1, -1, i, 1, -1, i, 1, 1, i, -1, 1);
+      const k = i * 4;
+      idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
     }
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setIndex(idx);
@@ -983,7 +984,7 @@ class SprayArcs {
     g.instanceCount = 0;
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x86bde6) }, uCore: { value: new THREE.Color(0xe4f3ff) } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x7fb8e6) }, uCore: { value: new THREE.Color(0xf2faff) } }]),
       vertexShader: ARC_VS,
       fragmentShader: ARC_FS,
       transparent: true,
@@ -1073,6 +1074,8 @@ interface Pop {
   /** Half extents of the item's box: across (max of x / z) and up (y). The star hugs this corner. */
   hw: number;
   hh: number;
+  /** Where it was held when it left for the backpack. */
+  leave?: THREE.Vector3;
 }
 
 // ───────────────────────────────────────────── swing smear
@@ -1875,11 +1878,13 @@ export class FarmFX {
       } else {
         if (!p.done) {
           p.done = true;
+          p.leave = m.position.clone();
           // The icon takes over in screen space from here.
           p.opts.onDone?.(m.position.clone());
         }
         const t = Math.min(1, (p.age - flight - hold) / 0.14);
-        m.position.copy(to).add(_v.set(0, 0.12 * t, 0));
+        // Leaves from where it was held (it no longer follows the hand as the arm comes down).
+        m.position.copy(p.leave ?? to).add(_v.set(0, 0.12 * t, 0));
         m.scale.setScalar(Math.max(0.001, S * (1 - t * t) * (1 + 0.15 * Math.sin(t * Math.PI))));
         if (t >= 1) {
           m.removeFromParent();
@@ -1907,11 +1912,12 @@ export class FarmFX {
         // bean pod keeps the star close instead of flinging it half a metre away).
         const cy = m.position.y - p.bottom * S + p.hh * S;
         st.position.copy(m.position).setY(cy).addScaledVector(this.viewRight, side * (Math.min(p.hw * S * 0.55, 0.16) + 0.09)).addScaledVector(this.viewUp, Math.min(p.hh * S * 0.6, 0.24) + 0.05);
-        // Spin in (a full turn that settles), then a slow wobble facing the camera.
+        // Spin in (a full turn IN the screen plane that settles), then a gentle rock — always
+        // billboarded: the star never turns edge-on into a sliver (its yaw rocks ≤ ±0.3 rad).
         const spinIn = ts > 0 ? Math.max(0, 1 - ts / 0.24) : 1;
         st.quaternion.copy(this.viewQuat);
-        st.rotateY(spinIn * spinIn * Math.PI * 2 + Math.sin(p.age * 3) * 0.18);
-        st.rotateZ(Math.sin(p.age * 2.2) * 0.1);
+        st.rotateY(Math.sin(p.age * 3) * 0.3);
+        st.rotateZ(spinIn * spinIn * Math.PI * 2 + Math.sin(p.age * 2.2) * 0.12);
         // Twinkles: tiny additive glints popping around the star.
         if (sc > 0.5 && out > 0.5 && dt > 0 && fxr.next() < dt * 14) {
           const a = rnd(0, Math.PI * 2);

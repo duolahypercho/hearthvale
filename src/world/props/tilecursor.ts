@@ -107,6 +107,8 @@ export class TileCursor {
   private m = new THREE.Matrix4();
   private c = new THREE.Color();
   private shown = 0;
+  /** Impact pulse (1 → 0 over ~0.35 s): the bracket punches out and flares on the hit frame. */
+  private pulseT = 0;
 
   constructor(max = 25) {
     const g = new THREE.PlaneGeometry(1, 1);
@@ -139,8 +141,15 @@ export class TileCursor {
     this.tiles = tiles.slice(0, this.mesh.instanceMatrix.count);
   }
 
+  /** Flash the brackets on the impact frame (the player sees exactly which tiles were hit). */
+  pulse(): void {
+    this.pulseT = 1;
+  }
+
   update(dt: number, visible: boolean): void {
     this.t += dt;
+    this.pulseT = Math.max(0, this.pulseT - dt / 0.35);
+    const pk = this.pulseT * this.pulseT;
     const target = visible ? 1 : 0;
     this.shown += (target - this.shown) * (1 - Math.exp(-dt * (visible ? 14 : 22)));
     const n = this.shown > 0.02 ? this.tiles.length : 0;
@@ -152,10 +161,10 @@ export class TileCursor {
       const tl = this.tiles[i]!;
       // Brackets breathe inward a touch; charged tiles pulse faster.
       const b = tl.state === 'charge' ? Math.sin(this.t * 12 + i) * 0.03 : Math.sin(this.t * 5) * 0.022;
-      const s = (0.9 + 0.1 * this.shown) * (1.02 + b) * (tl.state === 'hover' ? 0.78 : 1);
+      const s = (0.9 + 0.1 * this.shown) * (1.02 + b + pk * 0.14) * (tl.state === 'hover' ? 0.78 : 1);
       this.m.makeScale(s, 1, s).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
       this.mesh.setMatrixAt(i, this.m);
-      this.mesh.setColorAt(i, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * ALPHA[tl.state]));
+      this.mesh.setColorAt(i, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * Math.min(1, ALPHA[tl.state] + pk * 0.6)));
       if (tl.state === 'blocked' && nx < 4) {
         const k = 0.34 * (0.85 + 0.15 * this.shown);
         this.m.makeScale(k, 1, k).setPosition(tl.x + 0.5, tl.y + 0.002, tl.z + 0.5);
