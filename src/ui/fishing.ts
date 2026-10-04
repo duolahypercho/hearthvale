@@ -12,6 +12,7 @@
 import './fishing.css';
 import type { FishDef } from '../data/fish';
 import { fishSvg } from './fishing-art';
+import { fishPortraitUrl } from './fishing-portrait';
 import { itemIcon } from './icons';
 
 export interface ReelView {
@@ -25,7 +26,7 @@ export interface ReelView {
   holding: boolean;
   inside: boolean;
   perfect: boolean;
-  /** Bar bounce squash (0..1), set by the sim when the bar hits the bottom. */
+  /** Bar bounce squash (0..1 off the floor, 0..-1 off the ceiling), set by the sim. */
   bounce: number;
   /** The bar lies idle on the floor: the line is slack and earns nothing. */
   slack?: boolean;
@@ -218,7 +219,8 @@ export class FishingOverlay {
     this.reelHead.innerHTML = `Reel it in! <span style="color:#d0582a;letter-spacing:-1px">${'●'.repeat(stars)}<span style="opacity:.25">${'●'.repeat(5 - stars)}</span></span>`;
     const tags: string[] = [];
     if (gear) {
-      tags.push(`<span class="lv">Lv ${gear.level}</span>`);
+      // Levels read 1-based (the sim's level 0 is "Lv 1": a "Lv 0" tag read as an error).
+      tags.push(`<span class="lv">Lv ${gear.level + 1}</span>`);
       if (gear.bait) tags.push(`<span class="gear" title="Bait">${itemIcon('bait')}</span>`);
       if (gear.cork) tags.push(`<span class="gear" title="Cork Bobber">${itemIcon('corkBobber')}</span>`);
       if (gear.lure) tags.push(`<span class="gear" title="Glimmer Lure">${itemIcon('treasureLure')}</span>`);
@@ -345,7 +347,10 @@ export class FishingOverlay {
     const toY = (u: number): number => ty + th - 12 - u * (th - 24);
     const barTop = toY(v.bar + v.barH);
     const barBot = toY(v.bar);
-    const squash = v.bounce * 5;
+    // Squash on a floor / ceiling knock: the bar flattens against what it hit and bulges sideways.
+    const sq = Math.abs(v.bounce) * 9;
+    const top = v.bounce < 0;
+    const squash = sq;
     const inside = v.inside && !v.slack;
     g.save();
     g.shadowColor = inside ? 'rgba(160,255,140,0.9)' : 'rgba(0,0,0,0)';
@@ -360,17 +365,29 @@ export class FishingOverlay {
       bg.addColorStop(0.5, 'rgba(170,230,150,0.66)');
       bg.addColorStop(1, 'rgba(120,190,110,0.6)');
     }
-    rr(g, tx + 4 - squash * 0.4, barTop + squash, tw - 8 + squash * 0.8, barBot - barTop - squash, 9);
+    const bTop = top ? barTop : barTop + squash;
+    const bH = barBot - barTop - squash;
+    rr(g, tx + 4 - squash * 0.4, bTop, tw - 8 + squash * 0.8, bH, 9);
     g.fillStyle = bg;
     g.fill();
     g.restore();
     g.lineWidth = 2.5;
     g.strokeStyle = inside ? '#eaffd8' : 'rgba(230,255,220,0.7)';
-    rr(g, tx + 4 - squash * 0.4, barTop + squash, tw - 8 + squash * 0.8, barBot - barTop - squash, 9);
+    rr(g, tx + 4 - squash * 0.4, bTop, tw - 8 + squash * 0.8, bH, 9);
     g.stroke();
     g.fillStyle = 'rgba(255,255,255,0.35)';
-    rr(g, tx + 9, barTop + 5 + squash, 6, Math.max(4, barBot - barTop - 10 - squash), 3);
+    rr(g, tx + 9, bTop + 5, 6, Math.max(4, bH - 10), 3);
     g.fill();
+    if (sq > 0.5) {
+      // A puff of bubbles off the knock.
+      g.fillStyle = `rgba(255,255,255,${Math.min(0.7, sq * 0.08)})`;
+      const ky = top ? bTop - 3 : bTop + bH + 3;
+      for (let i = 0; i < 5; i++) {
+        g.beginPath();
+        g.arc(tx + 12 + i * 14 + Math.sin(this.t * 20 + i) * 2, ky + (top ? -1 : 1) * (2 + (i % 2) * 3), 1.6 + (i % 3), 0, Math.PI * 2);
+        g.fill();
+      }
+    }
     if (v.slack) {
       // Slack line: the idle bar greys out and earns nothing until you reel again.
       rr(g, tx + 4, barTop, tw - 8, barBot - barTop, 9);
@@ -474,16 +491,44 @@ export class FishingOverlay {
     const hue = p < 0.5 ? 8 + p * 2 * 42 : 50 + (p - 0.5) * 2 * 62;
     const fh = (th - 8) * p;
     if (fh > 1) {
-      const pg = g.createLinearGradient(px, 0, px + pw, 0);
-      pg.addColorStop(0, `hsl(${hue} 70% 42%)`);
-      pg.addColorStop(0.45, `hsl(${hue} 85% 58%)`);
-      pg.addColorStop(1, `hsl(${hue} 70% 40%)`);
-      rr(g, px + 4, ty + th - 4 - fh, pw - 8, fh, 7);
+      // The fill runs red at the bottom → gold → green at the top of the tube (so a still shows how
+      // far the fight has come), its head glowing in the current hue; near full it pulses.
+      const yTop = ty + th - 4 - fh;
+      const yBot = ty + th - 4;
+      const full = (th - 8);
+      const pg = g.createLinearGradient(0, yBot, 0, yBot - full);
+      pg.addColorStop(0, 'hsl(6 78% 46%)');
+      pg.addColorStop(0.45, 'hsl(44 92% 54%)');
+      pg.addColorStop(0.75, 'hsl(84 72% 50%)');
+      pg.addColorStop(1, 'hsl(118 64% 46%)');
+      rr(g, px + 4, yTop, pw - 8, fh, 7);
       g.fillStyle = pg;
+      g.fill();
+      // Cylinder shading across the tube.
+      const cg = g.createLinearGradient(px + 4, 0, px + pw - 4, 0);
+      cg.addColorStop(0, 'rgba(0,0,0,0.22)');
+      cg.addColorStop(0.45, 'rgba(255,255,255,0.12)');
+      cg.addColorStop(1, 'rgba(0,0,0,0.28)');
+      g.fillStyle = cg;
       g.fill();
       g.fillStyle = 'rgba(255,255,255,0.45)';
       rr(g, px + 6, ty + th - fh, 3, Math.max(0, fh - 8), 2);
       g.fill();
+      // Meniscus glow at the fill's head (and a pulse past 80 %).
+      const pulse = p > 0.8 ? 0.5 + 0.5 * Math.sin(this.t * 12) : 0;
+      g.save();
+      g.shadowColor = `hsl(${hue} 95% 62%)`;
+      g.shadowBlur = 8 + pulse * 10;
+      g.fillStyle = `hsla(${hue} 95% ${70 + pulse * 15}% / ${0.75 + pulse * 0.25})`;
+      rr(g, px + 4, yTop, pw - 8, Math.min(6, fh), 3);
+      g.fill();
+      g.restore();
+      if (!v.inside && !v.slack && p > 0.02) {
+        // Slipping: the head of the fill flickers red as it drains.
+        g.fillStyle = `rgba(255,70,40,${0.35 + 0.3 * Math.sin(this.t * 30)})`;
+        rr(g, px + 4, yTop, pw - 8, Math.min(14, fh), 4);
+        g.fill();
+      }
     }
     g.strokeStyle = 'rgba(255,255,255,0.12)';
     g.lineWidth = 1;
@@ -500,6 +545,8 @@ export class FishingOverlay {
     g.stroke();
 
     this.reel.classList.toggle('shake', (!v.inside && v.progress < 0.35) || (v.thrash ?? 0) > 0);
+    // Any slip (the fish out of the bar, progress draining) jitters the panel a little.
+    this.reel.classList.toggle('slip', !v.inside && !v.slack && v.progress >= 0.35 && (v.thrash ?? 0) === 0);
     this.reel.classList.toggle('tense', v.progress > 0.75);
     this.reelPerfect.classList.toggle('lost', !v.perfect);
   }
@@ -513,14 +560,14 @@ export class FishingOverlay {
     const q = c.quality > 0 ? `<span class="chip q${c.quality}">${STAR(c.quality)}${['', 'Silver', 'Gold', 'Iridium'][c.quality]}</span>` : '';
     card.innerHTML = `<div class="frame">
       ${c.isNew ? '<div class="ribbon">NEW!</div>' : ''}${c.isRecord && !c.isNew ? '<div class="ribbon record">RECORD!</div>' : ''}
-      <div class="art">${fishSvg(c.def, { size: 160, detail: true, tilt: -6 })}${c.grade && c.grade.k > 0.02 ? `<i class="grade" style="background:${c.grade.color};opacity:${c.grade.k.toFixed(2)}"></i>` : ''}</div>
+      <div class="art">${((u) => (u ? `<img class="fish3d" alt="" src="${u}">` : fishSvg(c.def, { size: 160, detail: true, tilt: -6 })))(fishPortraitUrl(c.def))}${c.grade && c.grade.k > 0.02 ? `<i class="grade" style="background:${c.grade.color};opacity:${c.grade.k.toFixed(2)}"></i>` : ''}</div>
       <div class="info">
         <div class="kicker">You caught</div>
         <div class="name">${c.def.name}</div>
         <div class="stats"><span class="chip">${RULER}${c.lengthCm.toFixed(1)} cm</span>${q}<span class="chip gold">${COIN}${c.price}g</span></div>
         <div class="blurb">${c.def.blurb}</div>
         ${c.treasure ? `<div class="treasure">✦ Treasure: ${c.treasure}</div>` : ''}
-        ${c.xp !== undefined ? `<div class="xp"><span class="lv${c.leveled ? ' up' : ''}">Fishing Lv ${c.level ?? 0}${c.leveled ? ' ▲' : ''}</span><span class="bar"><i style="width:${Math.round((c.levelFrac ?? 0) * 100)}%"></i></span><span class="gain">+${c.xp} XP</span>${(c.streak ?? 0) > 1 ? `<span class="streak">Perfect ×${c.streak}</span>` : ''}</div>` : ''}
+        ${c.xp !== undefined ? `<div class="xp"><span class="lv${c.leveled ? ' up' : ''}">Fishing Lv ${(c.level ?? 0) + 1}${c.leveled ? ' ▲' : ''}</span><span class="bar"><i style="width:${Math.round((c.levelFrac ?? 0) * 100)}%"></i></span><span class="gain">+${c.xp} XP</span>${(c.streak ?? 0) > 1 ? `<span class="streak">Perfect ×${c.streak}</span>` : ''}</div>` : ''}
       </div></div>`;
     this.root.appendChild(card);
     this.card = card;

@@ -91,7 +91,10 @@ export const DEMOS: Record<string, DemoDef> = {
   // Driftsand Beach + fishing (world/beach, systems/fishing). Fishing demos take URL params:
   // &fish=<fishId> (species on the line / in hand), &phase=cast|flight|wait|bite|reel|catch (override the phase).
   'beach-sunset': { map: 'beach', x: 48.9, z: 49.6, facing: 'left', time: 19.3, season: 'summer', weather: 'sun', camera: BEACH_SUNSET_CAM, showcase: ['beach', 'fishing-wait'] },
-  'beach-day': { map: 'beach', x: 57.2, z: 35.2, facing: 'down', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 50, distance: 36, offsetX: 7.2, offsetZ: 4.2 }, showcase: ['beach'] },
+  // Looking out to sea over the beach: dune grass + sand in front, the wet band + surf, turquoise
+  // shallows into deep blue, the pier and the horizon beyond (r5: the old top-down framing read as
+  // "lighthouse on a lawn").
+  'beach-day': { map: 'beach', x: 44.4, z: 35.6, facing: 'up', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: 210, pitch: 22, distance: 30, offsetX: 3.6, offsetZ: 7.6 }, showcase: ['beach'] },
   'beach-night': { map: 'beach', x: 50, z: 38.5, facing: 'down', time: 22.4, season: 'summer', weather: 'sun', camera: BEACH_NIGHT_CAM, showcase: ['beach'] },
   'fishing-cast': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-cast'] },
   'fishing-wait': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-wait'] },
@@ -99,6 +102,8 @@ export const DEMOS: Record<string, DemoDef> = {
   'fishing-reel': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-reel'] },
   'fishing-pond': { map: 'farm', x: 19.2, z: 40.1, facing: 'left', time: 17.6, season: 'summer', weather: 'sun', camera: { yaw: -18, pitch: 50, distance: 14, offsetX: -2.6, offsetZ: -1.2 }, showcase: ['fishing-reel'] },
   'fishing-river': { map: 'town', x: 61.6, z: 31.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 8, pitch: 42, distance: 15, offsetX: 2.2, offsetZ: -0.4 }, showcase: ['fishing-wait'] },
+  // Real-play check: the default walk camera at dusk, eased into the fishing view (&phase=… works).
+  'fishing-play': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 19.5, season: 'summer', weather: 'sun', showcase: ['fishing-reel', 'fishing-play'] },
   'fishing-catch': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 18.2, season: 'summer', weather: 'sun', camera: FISH_CATCH_CAM, showcase: ['fishing-catch'] },
   'fishing-flight': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.9, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-flight'] },
   'beach-tidepools': { map: 'beach', x: 12, z: 40, facing: 'down', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 20, offsetX: 0, offsetZ: 4 }, showcase: ['beach'] },

@@ -189,8 +189,9 @@ export class BeachMap implements GameMap {
     this.root.add(this.grass.group);
     mark(`grass (${this.grass.instanceCount})`);
 
-    // Wildlife: gulls perch on the pier lamps + a driftwood log, crabs work the wet sand.
-    const perches = props.lamps.map((l) => new THREE.Vector3(l.x + (l.x > PIER.x ? 0.2 : -0.2), PIER.deckY + 2.02, l.z));
+    // Wildlife: one gull on the pier-root lamp (a story beat, clear of the fishing lane) + one on a
+    // driftwood log; crabs work the wet sand.
+    const perches = props.lamps.slice(0, 1).map((l) => new THREE.Vector3(l.x + (l.x > PIER.x ? 0.2 : -0.2), PIER.deckY + 2.02, l.z));
     perches.push(new THREE.Vector3(36.2, this.terrain.heightAt(36.2, 36.6) + 0.34, 36.6));
     // Crabs: a handful (≤ 5), Poisson-disk scattered (≥ 6 m apart) over a deep band of wet + damp sand, never lined up.
     const crabs: THREE.Vector3[] = [];
@@ -210,11 +211,13 @@ export class BeachMap implements GameMap {
     this.sea = new SeaProps(
       this.rng.fork('sea'),
       SEA_LEVEL,
+      // Swim area west of the groyne (r5: it used to run from the pier straight through the cast
+      // lane, splitting every fishing frame and competing with the red float).
       [
-        [PIER.x - PIER.w / 2 - 0.3, 47.2],
-        [43.2, 48.2],
-        [37.8, 48.9],
-        [34.2, 48.4],
+        [31.4, 51.6],
+        [27.0, 52.8],
+        [22.6, 52.6],
+        [19.8, 51.2],
       ],
       // Moored well south of the walkway cast corridor (x 37-48, z 50-55), clear of the fishing frames.
       { x: 38.2, z: 60.4, rot: 0.32 },

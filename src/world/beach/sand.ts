@@ -166,10 +166,15 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         // Wind ripples on the dunes / dry beach; wave ripples low down and under water.
         vec2 rd = normalize(vec2(0.35, 1.0));
         float warpR = HVB_N04 * 5.0 + hvNoise(p * 1.3) * 1.2;
+        // Under water the wave ripples were a regular zebra of stripes (critic r4, sunset): a second,
+        // coarser domain warp bends and bunches them (spacing varies ±40 %), and they fade in patches.
+        float bedK = smoothstep(0.1, -0.3, bh);
+        if (bedK > 0.0) warpR += bedK * (hvNoise(p * 0.21 + 4.0) * 7.0 + hvNoise(p * 0.63 + 1.7) * 2.2);
         float ripF = bh > 0.35 ? 7.5 : 11.0;
         float ripArg = dot(p, rd) * ripF + warpR;
         float rip = sin(ripArg);
         float ripAmt = (smoothstep(0.3, 1.2, bh) * 0.9 + smoothstep(0.1, -0.2, bh) * 0.7) * onSand;
+        if (bedK > 0.0) ripAmt *= mix(1.0, 0.3 + 0.7 * smoothstep(0.32, 0.68, hvNoise(p * 0.17 + 2.0)), bedK);
         hvBRip = rd * cos(ripArg) * ripAmt * 0.22;
         hvBDepth = depth;
         vec3 s;

@@ -26,8 +26,8 @@ function floatGeometry(): THREE.BufferGeometry {
   g.scale(1, 0.78, 1);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
-  // Sunflower-yellow swim-lane floats (the player's float is the only red thing on the water).
-  const red = new THREE.Color(0xf0b432);
+  // Chalk-white / sea-blue swim-lane floats (the player's float is the only warm thing on the water).
+  const red = new THREE.Color(0x4f86b8);
   const white = new THREE.Color(0xf4f0e6);
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i);

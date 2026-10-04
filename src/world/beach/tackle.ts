@@ -39,13 +39,16 @@ function mergeColored(parts: [THREE.BufferGeometry, number, THREE.Matrix4][]): T
  * flounder, and a record-size catch visibly out-sizes a typical one of its kind.
  */
 export function heldFishScale(def: FishDef, lengthCm: number): number {
-  const med = (def.size[0] + def.size[1]) / 2;
-  const base = THREE.MathUtils.clamp(0.36 + med / 130, 0.45, 1.3);
-  return base * THREE.MathUtils.clamp(lengthCm / med, 0.7, 1.8);
+  // The held mesh is the fish's real length (the card's cm) at the farmers' scale (a farmer stands
+  // 2.3 m to the hat: × 1.3 of a person), lightly exaggerated for small fish so a 20 cm sardine still
+  // reads in the fist: 20 cm → 0.52 m, 50 → 0.83, 100 → 1.34, 150 → 1.85.
+  void def;
+  const m = lengthCm / 100;
+  return THREE.MathUtils.clamp((0.24 + m * 0.79) * 1.3, 0.52, 1.9);
 }
 
-/** A held fish this long (m) or more is a trophy: hoisted overhead in both hands. */
-export const TROPHY_SCALE = 1.1;
+/** A held fish this long (m) or more is a trophy (a bigger hop, a wider sunburst). */
+export const TROPHY_SCALE = 1.25;
 
 const ROD_LEN = 2.15;
 const ROD_SEG = 14;
@@ -129,6 +132,8 @@ export class FishingGear {
   waterY = 0;
   /** Taut-line hum: sideways vibration amplitude (m) of the line's middle (0 = still). */
   vibrate = 0;
+  /** Bite / hook twang (1 → 0): the line snaps tight and wobbles for a beat. */
+  twang = 0;
 
   constructor() {
     this.group.name = 'fishing-gear';
@@ -200,11 +205,26 @@ export class FishingGear {
 
     // Line ribbon.
     this.lineGeo = new THREE.BufferGeometry();
-    this.lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LINE_N * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    // Two ribbons in one mesh: a dark under-stroke shifted ≈ 1 px down-screen, then the pale line on
+    // top (≈ 2 px): a two-tone line that reads on dusk water, bright shallows and sand alike (critic
+    // r4). (A dark core inside a 2 px ribbon aliased into a dotted line.)
+    this.lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LINE_N * 4 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    const lcol = new Float32Array(LINE_N * 4 * 3);
+    const pale = new THREE.Color(0xf2ecdc);
+    const core = new THREE.Color(0x3a2c20);
+    for (let i = 0; i < LINE_N; i++) for (let j = 0; j < 4; j++) (j < 2 ? core : pale).toArray(lcol, (i * 4 + j) * 3);
+    this.lineGeo.setAttribute('color', new THREE.BufferAttribute(lcol, 3));
     const lidx: number[] = [];
-    for (let i = 0; i < LINE_N - 1; i++) lidx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+    // Dark ribbon first, the pale one drawn over it.
+    for (const j of [0, 2]) {
+      for (let i = 0; i < LINE_N - 1; i++) {
+        const a = i * 4 + j;
+        const b = a + 4;
+        lidx.push(a, a + 1, b, a + 1, b + 1, b);
+      }
+    }
     this.lineGeo.setIndex(lidx);
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0xd8d2c4, transparent: true, opacity: 0.78, side: THREE.DoubleSide, depthWrite: false, fog: true });
+    const lineMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, fog: true });
     lineMat.name = 'fishingLine';
     this.line = new THREE.Mesh(this.lineGeo, lineMat);
     this.line.frustumCulled = false;
@@ -609,11 +629,18 @@ export class FishingGear {
     // kinks in it (the part that reaches the water lies along the surface, straight to the float).
     if (this.ease > 0) {
       const sag = straight * (0.03 + this.slack * 0.1);
+      // A slack line also bows sideways in the breeze, so the curve reads from the steep play
+      // camera (a vertical sag alone is invisible from above).
+      _d.subVectors(pts[n - 1]!, pts[0]!).setY(0);
+      _e.set(-_d.z, 0, _d.x);
+      if (_e.lengthSq() > 1e-6) _e.normalize();
+      const bow = straight * this.slack * 0.075;
       const k = this.ease;
       for (let i = 1; i < n - 1; i++) {
         const t = i / (n - 1);
         _a.lerpVectors(pts[0]!, pts[n - 1]!, t);
         _a.y -= sag * 4 * t * (1 - t);
+        _a.addScaledVector(_e, bow * 4 * t * (1 - t) * (1 - t * 0.4));
         if (_a.y < floorAt(i)) _a.y = floorAt(i);
         pts[i]!.lerp(_a, k);
       }
@@ -631,6 +658,11 @@ export class FishingGear {
       }
     }
     // A taut line hums: a fast standing-wave quiver across its span (hidden in the slack case).
+    const vib0 = this.vibrate;
+    if (this.twang > 0) {
+      this.vibrate += this.twang * 0.05;
+      this.twang = Math.max(0, this.twang - dt * 3.2);
+    }
     if (this.vibrate > 0) {
       const ph = performance.now() * 0.001;
       _d.subVectors(rp[n - 1]!, rp[0]!).normalize();
@@ -641,18 +673,28 @@ export class FishingGear {
         rp[i]!.addScaledVector(_e, amp).y += amp * 0.6;
       }
     }
-    // Ribbon facing the camera: thin (≈ 1.5-2 px at 1080p), warm grey, never bright enough to bloom.
+    this.vibrate = vib0;
+    // Ribbon facing the camera: ≈ 2 px at 720p, ≈ 3 px at 1080p (dark core, pale halo), never bright
+    // enough to bloom.
     const pos = this.lineGeo.attributes.position as THREE.BufferAttribute;
     const camPos = camera.position;
-    const w = 0.0085;
+    const w = 0.0062;
+    _d.setFromMatrixColumn(camera.matrixWorld, 1);
     for (let i = 0; i < n; i++) {
       const a = rp[Math.max(0, i - 1)]!;
       const b = rp[Math.min(n - 1, i + 1)]!;
       _a.subVectors(b, a).normalize();
       _b.subVectors(camPos, rp[i]!).normalize();
-      _c.crossVectors(_a, _b).normalize().multiplyScalar(w * (1 + camPos.distanceTo(rp[i]!) * 0.02));
-      pos.setXYZ(i * 2, rp[i]!.x + _c.x, rp[i]!.y + _c.y, rp[i]!.z + _c.z);
-      pos.setXYZ(i * 2 + 1, rp[i]!.x - _c.x, rp[i]!.y - _c.y, rp[i]!.z - _c.z);
+      _c.crossVectors(_a, _b).normalize().multiplyScalar(w * (1 + camPos.distanceTo(rp[i]!) * 0.06));
+      const P = rp[i]!;
+      const sh = _c.length() * 1.15;
+      const sx = P.x - _d.x * sh;
+      const sy = P.y - _d.y * sh;
+      const sz = P.z - _d.z * sh;
+      pos.setXYZ(i * 4, sx + _c.x, sy + _c.y, sz + _c.z);
+      pos.setXYZ(i * 4 + 1, sx - _c.x, sy - _c.y, sz - _c.z);
+      pos.setXYZ(i * 4 + 2, P.x + _c.x, P.y + _c.y, P.z + _c.z);
+      pos.setXYZ(i * 4 + 3, P.x - _c.x, P.y - _c.y, P.z - _c.z);
     }
     pos.needsUpdate = true;
     this.line.visible = this.lineVisible;
@@ -773,6 +815,24 @@ export class FishingGear {
     this.heldRoot.rotateZ(roll);
   }
 
+  /**
+   * Hang the held fish from a fist by the tail (the wrist of the tail fin in the hand, head down,
+   * flank squarely to the camera), swinging by `sway` (rad). Writes the fish's middle to `out`.
+   */
+  hangHeld(fist: THREE.Vector3, camera: THREE.Camera, sway: number, out: THREE.Vector3): THREE.Vector3 {
+    const r = this.heldRoot;
+    r.position.copy(fist);
+    this.faceHeld(camera, Math.PI / 2 + sway);
+    // Peduncle (mesh x = +0.3, head at -0.5) sits in the fist; a touch towards the lens so the body
+    // hangs in front of the farmer's side, never through it.
+    const s = r.scale.x * (this.held?.mesh.group.scale.x ?? 1);
+    _a.set(0.3 * s, 0, 0).applyQuaternion(r.quaternion);
+    _b.copy(camera.position).sub(fist).normalize();
+    // (Just behind the fist, so the hand reads as gripping the tail wrist, not hidden by the fin.)
+    r.position.sub(_a).addScaledVector(_b, -0.05);
+    return out.copy(r.position);
+  }
+
   /** Show a fish held above the head (null to hide). */
   hold(def: FishDef | null, lengthCm = 40): void {
     if (this.held) this.heldRoot.remove(this.held.mesh.group);
@@ -829,6 +889,7 @@ export class FishingGear {
     // Faint pulse (never a bloom spike: 0.2–0.4, up to ~1 on a bite flash).
     this.tipFlash = Math.max(0, this.tipFlash - dt * 1.5);
     this.tipMat.emissiveIntensity = 0.3 + Math.sin(t * 3.2) * 0.1 + this.tipFlash * 0.6;
-    if (this.held) this.held.mesh.flex(t, 0.8 + 0.4 * Math.sin(t * 3));
+    // (Held by the tail: a wriggle, not a curl — a curled fish loses the length the card states.)
+    if (this.held) this.held.mesh.flex(t, 0.3 + 0.2 * Math.sin(t * 3));
   }
 }

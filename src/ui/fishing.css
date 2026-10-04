@@ -271,6 +271,18 @@
 .hvf-reel.shake .frame {
   animation: hvf-shake 0.09s linear infinite;
 }
+.hvf-reel.slip .frame {
+  animation: hvf-slip 0.12s linear infinite;
+}
+@keyframes hvf-slip {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 1.5px -1px;
+  }
+}
 .hvf-reel.out {
   animation: hvf-out 0.22s ease-in forwards;
 }
@@ -338,6 +350,14 @@
   width: 160px;
   height: auto;
   filter: drop-shadow(0 5px 3px rgba(0, 30, 50, 0.35));
+  animation: hvf-swim 1.6s ease-in-out infinite alternate;
+}
+/* The species rendered from its own 3D mesh (ui/fishing-portrait.ts): the fish in the farmer's fist. */
+.hvf-card .art img.fish3d {
+  position: relative;
+  width: 166px;
+  height: auto;
+  filter: drop-shadow(0 6px 4px rgba(0, 30, 50, 0.32));
   animation: hvf-swim 1.6s ease-in-out infinite alternate;
 }
 /* Golden-hour cast over the illustration (multiply, like the scene light on the 3D fish). */

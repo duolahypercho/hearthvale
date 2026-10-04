@@ -214,9 +214,11 @@ export function stepReel(s: ReelState, dt: number, holdInput: boolean, rand: Ran
     }
     if (s.bar > 1 - s.barH) {
       s.bar = 1 - s.barH;
+      // Ceiling knock: negative bounce (the UI squashes the bar against the top).
+      if (s.barV > 0.4) s.bounce = -Math.min(1, s.barV * 0.5);
       if (s.barV > 0) s.barV = -s.barV * REEL.topBounce;
     }
-    s.bounce = Math.max(0, s.bounce - h * 5);
+    s.bounce = s.bounce > 0 ? Math.max(0, s.bounce - h * 5) : Math.min(0, s.bounce + h * 5);
     // Slack: the bar lying idle on the floor stops earning (an AFK rod can't land anything).
     if (!hold && s.bar <= 0.002 && Math.abs(s.barV) < 0.35) s.restT += h;
     else s.restT = 0;

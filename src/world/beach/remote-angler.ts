@@ -49,6 +49,11 @@ export class RemoteAngler {
   st: NetState = 'idle';
   private stT = 0;
   private held = '';
+  /** The farmer's gripping fist (world), written by the pose hook; `fistOk` while it is fresh. */
+  readonly fist = new THREE.Vector3();
+  fistOk = false;
+  /** Catch arc (0 → 1 as the fish flies to the hands) from the latest snapshot. */
+  arc = 0;
   /** Screen anchor for the bite "!" (null when not biting / not visible). */
   readonly bang = { on: false, x: 0, y: 0 };
   /** Set once when a catch is shown (for a "X caught a Y" note). */
@@ -136,6 +141,7 @@ export class RemoteAngler {
     const bob = _bob.set(L(6), L(7), L(8));
     const power = L(1);
     const arc = L(10);
+    this.arc = arc;
     const tension = L(11);
     if (st === 'idle') {
       this.hideAll(camera);
@@ -206,22 +212,27 @@ export class RemoteAngler {
         this.caughtNote = def.name;
         this.noteAt.copy(feet).addScaledVector(_UP, 3.9);
       }
-      // Seen from far away the fish is scaled up (same rule as the local catch pose) so it reads.
-      const boost = THREE.MathUtils.clamp(camera.position.distanceTo(_a.copy(feet).setY(feet.y + 2.4)) / 11.5, 1, 1.9);
+      // Seen from far away the fish is scaled up a little (same rule as the local catch pose).
+      const boost = THREE.MathUtils.clamp(camera.position.distanceTo(_a.copy(feet).setY(feet.y + 2.4)) / 15, 1, 1.35);
       // Over the hat (same as the local catch pose: the hat sits ≈ 1.9 m up, the fish floats above it).
       // (Held clear above the farmer's floating name tag, ≈ 2.75 m: the tag never sits on the fish.)
       const hold = _hold.copy(feet).addScaledVector(_UP, 3.3 + (boost - 1) * 0.35).addScaledVector(fwd, 0.08 - (boost - 1) * 0.3);
+      // Hanging from the farmer's fist when the pose hook reports it (else over the hat, as before).
+      if (this.fistOk) hold.copy(this.fist).y -= 0.4;
       if (arc < 1) {
         g.heldRoot.position.lerpVectors(bob, hold, arc);
         g.heldRoot.position.y += Math.sin(arc * Math.PI) * 1.2;
         g.heldRoot.rotation.set(0, t * 6, Math.sin(t * 20) * 0.4);
         g.setGlory(null, camera, 0, t);
       } else {
-        g.heldRoot.position.copy(hold);
-        g.heldRoot.position.y += Math.sin(t * 3) * 0.02;
         g.heldRoot.scale.setScalar(boost);
-        // Flank squarely to this machine's camera (same billboard as the local catch pose).
-        g.faceHeld(camera, Math.sin(t * 5) * 0.07 + 0.08);
+        if (this.fistOk) g.hangHeld(this.fist, camera, Math.sin(t * 2.6) * 0.1, hold);
+        else {
+          g.heldRoot.position.copy(hold);
+          g.heldRoot.position.y += Math.sin(t * 3) * 0.02;
+          // Flank squarely to this machine's camera (same billboard as the local catch pose).
+          g.faceHeld(camera, Math.sin(t * 5) * 0.07 + 0.08);
+        }
         g.setGlory(_a.copy(hold).setY(hold.y + 0.05), camera, Math.min(1, this.stT * 2) * 0.4, t, 2.2 * boost);
       }
     } else if (this.held) {
@@ -241,7 +252,10 @@ export class RemoteAngler {
     if (st === 'waiting' && prev === 'casting') {
       g.waterY = s[7];
       g.splash(_b, false);
-    } else if (st === 'bite') g.splash(_b, true);
+    } else if (st === 'bite') {
+      g.splash(_b, true);
+      g.twang = 1;
+    }
     else if (st === 'caught') g.splash(_b, true);
     else if (st === 'reeling' && prev !== 'bite') g.splash(_b, false);
     if (st === 'casting' || st === 'charging') g.resetLine(_b);
@@ -266,7 +280,7 @@ export class RemoteAngler {
 }
 
 /** Arm / torso pose for a farmer rig that is fishing in state `st` (remote farmers, the co-op demo). */
-export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D; torso: THREE.Object3D }, st: NetState, t: number, power = 0, arc = 0): void {
+export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D; torso: THREE.Object3D }, st: NetState, t: number, power = 0, arc = 0, fist?: THREE.Vector3): boolean {
   let ar = -0.95;
   let al = -0.8;
   let arz = 0.3;
@@ -286,16 +300,23 @@ export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D
     alz = -0.45 + Math.cos(t * (st === 'reeling' ? 16 : 5)) * 0.15;
     tx = -0.12;
   } else if (st === 'caught' && arc > 0.6) {
-    // "Ta-da": arms flung up and out in a V (clear of the big head), the fish over the hat.
-    const lift = Math.sin(t * 3) * 0.06;
-    ar = -0.25;
-    al = -0.25;
-    arz = 2.3 + lift;
-    alz = -2.3 - lift;
+    // Same as the local catch pose: the right fist punched up beside the head, the fish hanging from
+    // it by the tail; the left arm up in a cheer.
+    const lift = Math.sin(t * 3) * 0.05;
+    ar = -0.32;
+    arz = 2.62 + lift;
+    al = -0.25 + Math.sin(t * 7) * 0.08;
+    alz = -2.35 - lift;
     tx = 0.08;
   }
   rig.armR.rotation.set(ar, 0, arz);
   rig.armL.rotation.set(al, 0, alz);
+  rig.armR.scale.y = st === 'caught' && arc > 0.6 ? 1.28 : 1;
   rig.torso.rotation.x = tx;
   rig.torso.rotation.y = ty;
+  if (!fist || !(st === 'caught' && arc > 0.6)) return false;
+  // The gripping fist in world space (the caller's farmer root must be up to date).
+  rig.armR.updateWorldMatrix(true, false);
+  rig.armR.localToWorld(fist.set(0, -0.31, 0.03));
+  return true;
 }
