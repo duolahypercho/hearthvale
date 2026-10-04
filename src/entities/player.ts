@@ -65,14 +65,14 @@ function sharedMat(): THREE.MeshStandardMaterial {
     applyWorldFx(shared, { snow: false, clouds: true, wet: true });
     // The chibi's bumpy hair / big round head hit the shadow-terminator problem: the head's own
     // shadow crawled up over sun-facing hair as jagged dark smudges. Sample the shadow map from
-    // further out along the normal (12× the sun's normal bias) for the player only.
+    // further out along the normal (8× the sun's normal bias) for the player only.
     patchMaterial(shared, 'player-shadow-bias', (shader) => {
       shader.vertexShader = shader.vertexShader.replace(
         '#include <shadowmap_vertex>',
         THREE.ShaderChunk.shadowmap_vertex
-          .replace(/shadowWorldNormal \* directionalLightShadows\[ i \]\.shadowNormalBias/g, 'shadowWorldNormal * directionalLightShadows[ i ].shadowNormalBias * 12.0')
+          .replace(/shadowWorldNormal \* directionalLightShadows\[ i \]\.shadowNormalBias/g, 'shadowWorldNormal * directionalLightShadows[ i ].shadowNormalBias * 8.0')
           // Cascaded sun lights apply the normal offset in the fragment shader: scale the normal.
-          .replace('vSunShadowWorldNormal = shadowWorldNormal;', 'vSunShadowWorldNormal = shadowWorldNormal * 12.0;'),
+          .replace('vSunShadowWorldNormal = shadowWorldNormal;', 'vSunShadowWorldNormal = shadowWorldNormal * 8.0;'),
       );
     });
   }
@@ -341,6 +341,9 @@ export class Player {
     headProxy.castShadow = true;
     headProxy.receiveShadow = false;
     this.head.add(headProxy);
+    // The arms don't cast either: a raised arm (harvest show-off, wind-ups) threw a dark blotch
+    // across the hair. (Held tools keep their shadows — they carry the swing on the ground.)
+    for (const arm of [this.armL, this.armR]) for (const c of arm.children) if (c !== this.tool) c.traverse((o) => ((o as THREE.Mesh).isMesh ? (o.castShadow = false) : undefined));
   }
 
   get rig(): PlayerRig {
@@ -444,12 +447,12 @@ export class Player {
       }
     }
 
-    if (canMove && input.pressed('use')) {
+    if (canMove && input.takeFixed('use')) {
       const t = this.targetTile();
       this.swing();
       this.game.events.emit('player:use', { x: t.x, z: t.z, slot: this.game.toolbarSlot, itemId: null });
     }
-    if (canMove && input.pressed('interact')) {
+    if (canMove && input.takeFixed('interact')) {
       const t = this.targetTile();
       this.game.events.emit('player:interact', { x: t.x, z: t.z });
     }

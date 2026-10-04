@@ -859,7 +859,7 @@ const BUILDERS: Record<CropId, Builder> = {
       const np = 16;
       for (let ring = 0; ring < 2; ring++) {
         for (let i = 0; i < np; i++) {
-          const pl = asPetal(leafGeo(0.1 - ring * 0.015, 0.042, { shape: 'lance', lift: 0.05, bend: -0.1 + ring * 0.25, fold: 0.15, c0: C(0xe8a010), c1: C(0xffd84a), segs: 3 }));
+          const pl = asPetal(leafGeo(0.12 - ring * 0.02, 0.046, { shape: 'lance', lift: 0.05, bend: -0.1 + ring * 0.25, fold: 0.15, c0: C(0xe8a010), c1: C(0xffd84a), segs: 3 }));
           pl.rotateX(-Math.PI / 2);
           add(pl, face.clone().multiply(mat(0, 0, 0.01 - ring * 0.01, 0, 0, ((i + ring * 0.5) / np) * Math.PI * 2)).multiply(mat(0, 0.085, 0, Math.PI / 2, 0, 0)));
         }

@@ -1693,7 +1693,8 @@ export class FarmFX {
    */
   pop(geo: THREE.BufferGeometry, from: THREE.Vector3, opts: PopOpts): void {
     const mesh = new THREE.Mesh(geo, this.popMat);
-    mesh.castShadow = true;
+    // No cast shadow: held up beside the head it dropped a dark blotch across the farmer's hair.
+    mesh.castShadow = false;
     mesh.position.copy(from);
     mesh.scale.setScalar(0.01);
     let star: THREE.Mesh | null = null;

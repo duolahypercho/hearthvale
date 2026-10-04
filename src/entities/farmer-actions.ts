@@ -63,9 +63,11 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.38, 0.04, 0], head: -0.24, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
     { t: 0.66, ease: 'inout' },
   ],
+  // Released from the charge hold: it starts up beside the hat (same as the charge pose, no pop
+  // back to rest), rises a touch higher, then comes down hard.
   slam: [
-    { t: 0 },
-    { t: 0.15, ease: 'out', aR: [-2.7, -0.55], aL: [-2.4, -0.25], torso: [-0.22, -0.12, -0.06], head: -0.2, sy: 1.1, grip: 0.34, tool: [2.6, 0, 0.7] },
+    { t: 0, aR: [-2.85, -0.72], aL: [-2.6, -0.42], torso: [-0.2, -0.32, -0.12], head: -0.12, sy: 0.93, grip: 0.24, toolT: [-0.35, 0, 0.62] },
+    { t: 0.15, ease: 'out', aR: [-2.95, -0.7], aL: [-2.7, -0.5], torso: [-0.24, -0.2, -0.1], head: -0.16, sy: 1.1, grip: 0.32, toolT: [-0.25, 0, 0.55] },
     { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.48, 0, 0], head: -0.14, sy: 0.86, bob: -0.04, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.36, ease: 'out', aR: [-0.18, -0.05], aL: [-0.12, 0.05], torso: [0.5, 0, 0], head: -0.1, sy: 0.92, bob: -0.03, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.75, ease: 'inout' },
@@ -451,7 +453,12 @@ export class FarmerActions {
       // Raise the tool overhead, then hold with a building tremble.
       const up = 1 - Math.pow(1 - Math.min(1, c.t / 0.2), 3);
       const tremble = Math.sin(c.t * 55) * 0.03 * Math.min(1, c.t);
-      const p: Pose = { ...REST, aR: [-2.55 * up + tremble, -0.1 - 0.5 * up], aL: [-2.2 * up, 0.1 - 0.35 * up], torso: [-0.2 * up, -0.42 * up, -0.1 * up], head: -0.15 * up, sy: 1 - 0.07 * up + Math.sin(c.t * 40) * 0.006, bob: 0, grip: 0.3 * up, tool: [Math.PI / 2 + 1.0 * up, 0, 0.7 * up], level: null };
+      // Held high beside the hat like the swing's wind-up (handle raked up and out, torso space),
+      // so the trembling, glinting blade stays in view the whole time it charges.
+      const p: Pose = { ...REST, aR: [-2.85 * up + tremble, -0.1 - 0.62 * up], aL: [-2.6 * up, 0.1 - 0.52 * up], torso: [-0.2 * up, -0.32 * up, -0.12 * up], head: -0.12 * up, sy: 1 - 0.07 * up + Math.sin(c.t * 40) * 0.006, bob: 0, grip: 0.24 * up, tool: null, level: null, toolT: [-0.35, 0, 0.62] };
+      const q0 = this.toolQuat({ ...p, toolT: null }, TOOL_REST, _q0);
+      const q1 = this.toolQuat(p, TOOL_REST, _q1);
+      p.toolQ = _qOut.slerpQuaternions(q0, q1, up);
       rig.tool.visible = true;
       return this.apply(rig, p);
     }

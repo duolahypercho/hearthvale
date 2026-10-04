@@ -1568,6 +1568,8 @@ export class FarmingSystem implements System, FarmingApi {
         doImpact();
         this.hitStop = 0.1;
         this.cursor.pulse();
+        // The struck tile reads as done (neutral), never as a red ✕ for the next idle frames.
+        this.doneTile = { x: fx0, z: fz0 };
       },
       onUpdate: this.withTrail('slam', tool, undefined, gold, 1.25),
     });
