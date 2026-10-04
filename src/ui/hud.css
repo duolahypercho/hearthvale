@@ -1629,3 +1629,12 @@ body:has(.u-tip.on) .hv-np {
   right: calc(100% + 64px);
   bottom: 46px;
 }
+/* r4: the register reads "500g" like every card and ledger (one gold format game-wide). */
+.h-gold .odo::after {
+  content: 'g';
+  margin-left: 2px;
+  font-size: 17px;
+  color: #f0c870;
+  align-self: flex-end;
+  line-height: 24px;
+}

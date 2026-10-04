@@ -5680,3 +5680,56 @@ body.u-calm .de-star .medal {
   width: 100%;
   max-width: none;
 }
+
+/* ═══ r4 legibility (1080p thumbnail test): micro-labels up a size and two shades darker; "Tool · not for
+   sale" is a flat dashed tag (never mistaken for a button); warmer, lightly vignetted menu backdrop. ═══ */
+.inv-card .stats small {
+  font-size: 11.5px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #7a5432;
+}
+.inv-label small {
+  font-size: 13px;
+  font-weight: 800;
+  color: #8a6440;
+  font-style: italic;
+}
+.inv-hint {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #8a6440;
+}
+.inv-hint b {
+  color: #4a2a12;
+}
+.t-toolrow .t-up {
+  font-size: 13px;
+  color: #a4581e;
+}
+.idt-val.tool {
+  background: rgba(255, 252, 240, 0.6);
+  box-shadow: none;
+  outline: 2px dashed rgba(138, 100, 64, 0.5);
+  outline-offset: -2px;
+  cursor: default;
+}
+.idt-val.tool svg {
+  opacity: 0.6;
+  filter: grayscale(1);
+}
+.idt-val.tool b {
+  color: #6a4a2a;
+  font-size: 16px;
+}
+.idt-val.tool small {
+  color: #8a6440;
+  font-size: 12px;
+}
+.u-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 75% 70% at 50% 48%, rgba(255, 214, 150, 0.1), transparent 60%, rgba(20, 8, 2, 0.32) 100%);
+}

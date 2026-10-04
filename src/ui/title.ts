@@ -76,6 +76,8 @@ export class TitlePanel extends Screen {
   }
 
   private latestSave(): { slot: string; label: string } | null {
+    // `?demo=ui-title-continue` (critics): stage the returning-player title without touching real saves.
+    if (/[?&]demo=ui-title-continue\b/.test(location.search)) return { slot: 'demo', label: 'Summer 12 · 4,210g' };
     let best: { slot: string; at: string; label: string } | null = null;
     for (const s of ['auto', 'slot1', 'slot2', 'slot3']) {
       try {
