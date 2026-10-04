@@ -17,9 +17,10 @@ import { FarmerActions, type ActionKind } from './farmer-actions';
 import { MeshBuilder, roundedBox, mat, lumpySphere, sphericalNormals } from '../world/geom';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { applyWorldFx } from '../render/worldfx';
+import { patchMaterial } from '../render/patch';
 import { buildTool } from '../world/props/tools';
 import { Rng } from '../core/rng';
-import { DEFAULT_LOOK, type FarmerLook } from './remote-look';
+import { DEFAULT_LOOK, extra, type FarmerLook } from './remote-look';
 import { EmoteBubble, type EmoteId } from './remote-emotes';
 
 const HEAD_R = 0.32;
@@ -92,6 +93,19 @@ export function farmerMaterial(): THREE.MeshStandardMaterial {
     sharedMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72 });
     sharedMat.name = 'farmer-skinned';
     applyWorldFx(sharedMat, { snow: false, clouds: true, wet: true });
+    // Face fill: surfaces turned toward the camera get a share of the ambient term again (a soft
+    // "camera light"), so a face under a hat brim or in its own head shadow never reads as a dark
+    // hole from the high 3/4 camera; scales with the ambient, so night stays night. Plus a faint rim.
+    patchMaterial(sharedMat, 'farmer-face-fill', (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        `{
+          float hvNdv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
+          outgoingLight += reflectedLight.indirectDiffuse * (0.55 * hvNdv * hvNdv) + reflectedLight.indirectDiffuse * 0.35 * pow(1.0 - hvNdv, 3.0);
+        }
+        #include <opaque_fragment>`,
+      );
+    });
   }
   return sharedMat;
 }
@@ -118,29 +132,71 @@ function partsFor(look: FarmerLook): Record<keyof FarmerBones, MeshBuilder> {
   const blush = C(skin).lerp(new THREE.Color(0xf07a70), 0.55).getHex();
   const boot = 0x6a4128;
 
+  const cut = extra(look, 'outfit');
+  const acc = extra(look, 'accessory');
+  // Leg wear by cut: denim legs (overalls), tights under a pinafore, trousers under a vest / apron.
+  const legCol = cut === 'overalls' ? denim : cut === 'pinafore' ? C(shirt).lerp(new THREE.Color(0xf4ece0), 0.5).getHex() : cut === 'vest' ? C(denim, 0.62).getHex() : 0x6a5442;
+
   // Legs
   for (const [bone, sx] of [['legL', -1], ['legR', 1]] as const) {
-    add(bone, new THREE.CapsuleGeometry(0.095, 0.22, 4, 10), mat(0, -0.19, 0), denim);
-    if (sx > 0) add(bone, roundedBox(0.09, 0.08, 0.02, 0.015), mat(0, -0.2, 0.09, 0.1, 0, 0.1), denimLight);
-    add(bone, new THREE.CylinderGeometry(0.1, 0.1, 0.05, 12), mat(0, -0.34, 0), C(shirt, 0.88));
+    add(bone, new THREE.CapsuleGeometry(0.095, 0.22, 4, 10), mat(0, -0.19, 0), legCol);
+    if (sx > 0 && cut === 'overalls') add(bone, roundedBox(0.09, 0.08, 0.02, 0.015), mat(0, -0.2, 0.09, 0.1, 0, 0.1), denimLight);
+    add(bone, new THREE.CylinderGeometry(0.1, 0.1, 0.05, 12), mat(0, -0.34, 0), cut === 'pinafore' ? C(look.scarf, 0.9) : C(shirt, 0.88));
     add(bone, roundedBox(0.19, 0.14, 0.27, 0.06), mat(0, -0.43, 0.035), boot);
     add(bone, roundedBox(0.2, 0.04, 0.29, 0.02), mat(0, -0.49, 0.04), 0x3a2618);
   }
 
-  // Torso: shirt + overalls bib + neckerchief
+  // Torso: shirt + the outfit cut + neckerchief (or a knitted scarf)
   add('torso', new THREE.CapsuleGeometry(0.2, 0.16, 6, 14), mat(0, 0.19, 0, 0, 0, 0, 1.05, 1, 0.9), shirt);
-  add('torso', new THREE.CylinderGeometry(0.215, 0.2, 0.2, 14), mat(0, 0.02, 0, 0, 0, 0, 1.05, 1, 0.92), denim);
-  add('torso', roundedBox(0.26, 0.2, 0.08, 0.03), mat(0, 0.2, 0.16), denim);
-  for (const sx of [-1, 1]) {
-    add('torso', roundedBox(0.05, 0.26, 0.05, 0.02), mat(sx * 0.1, 0.33, 0.1, 0.35, 0, 0), denim);
-    add('torso', new THREE.SphereGeometry(0.022, 8, 6), mat(sx * 0.1, 0.28, 0.2), 0xd8bc6a);
+  if (cut === 'overalls' || cut === 'pinafore') {
+    if (cut === 'overalls') add('torso', new THREE.CylinderGeometry(0.215, 0.2, 0.2, 14), mat(0, 0.02, 0, 0, 0, 0, 1.05, 1, 0.92), denim);
+    else {
+      // A-line pinafore skirt flaring over the hips, a contrast hem band.
+      add('torso', new THREE.CylinderGeometry(0.21, 0.33, 0.34, 16), mat(0, -0.06, 0, 0, 0, 0, 1.05, 1, 0.95), denim);
+      add('torso', new THREE.CylinderGeometry(0.335, 0.34, 0.04, 16), mat(0, -0.22, 0, 0, 0, 0, 1.05, 1, 0.95), denimLight);
+    }
+    add('torso', roundedBox(0.26, 0.2, 0.08, 0.03), mat(0, 0.2, 0.16), denim);
+    for (const sx of [-1, 1]) {
+      add('torso', roundedBox(0.05, 0.26, 0.05, 0.02), mat(sx * 0.1, 0.33, 0.1, 0.35, 0, 0), denim);
+      add('torso', new THREE.SphereGeometry(0.022, 8, 6), mat(sx * 0.1, 0.28, 0.2), 0xd8bc6a);
+    }
+    add('torso', roundedBox(0.1, 0.07, 0.03, 0.01), mat(0, 0.16, 0.205), denimDark);
+    if (cut === 'overalls') {
+      for (let i = 0; i < 5; i++) add('torso', roundedBox(0.016, 0.006, 0.006, 0.002), mat(-0.04 + i * 0.02, 0.2, 0.222), 0xf2d890);
+      for (const sx2 of [-1, 1]) for (let i = 0; i < 3; i++) add('torso', roundedBox(0.006, 0.016, 0.006, 0.002), mat(sx2 * 0.052, 0.13 + i * 0.022, 0.222), 0xf2d890);
+      add('torso', roundedBox(0.08, 0.07, 0.02, 0.012), mat(-0.12, 0.02, 0.19, 0, 0.4, 0.2), C(denim).lerp(new THREE.Color(0xd89a4a), 0.7));
+    } else {
+      // A heart patch pocket.
+      add('torso', new THREE.SphereGeometry(0.035, 8, 6), mat(-0.13, -0.02, 0.27, 0, 0, 0, 1, 0.9, 0.35), look.scarf);
+    }
+  } else if (cut === 'vest') {
+    // Open waistcoat over the shirt: two front panels, a back, a belt with a brass buckle.
+    add('torso', new THREE.CylinderGeometry(0.212, 0.205, 0.2, 14), mat(0, 0.02, 0, 0, 0, 0, 1.05, 1, 0.92), C(denim, 0.62));
+    add('torso', roundedBox(0.4, 0.05, 0.36, 0.02), mat(0, 0.1, 0, 0, 0, 0, 1.05, 1, 1), 0x4a3020);
+    add('torso', roundedBox(0.07, 0.05, 0.02, 0.01), mat(0, 0.1, 0.19), 0xe0b850);
+    for (const sx of [-1, 1]) {
+      add('torso', roundedBox(0.13, 0.27, 0.05, 0.03), mat(sx * 0.1, 0.24, 0.165, 0.18, -sx * 0.2, 0), denim);
+      add('torso', new THREE.SphereGeometry(0.016, 6, 4), mat(sx * 0.055, 0.2 - 0.05 * (sx + 1), 0.205), 0xf2d890);
+    }
+    add('torso', roundedBox(0.4, 0.3, 0.06, 0.03), mat(0, 0.24, -0.15, -0.15, 0, 0), denim);
+  } else {
+    // Long work apron over shirt + trousers: bib, skirt to the knees, neck strap, big pocket.
+    add('torso', new THREE.CylinderGeometry(0.212, 0.205, 0.2, 14), mat(0, 0.02, 0, 0, 0, 0, 1.05, 1, 0.92), 0x6a5442);
+    add('torso', roundedBox(0.27, 0.24, 0.04, 0.02), mat(0, 0.2, 0.17, 0.12, 0, 0), denim);
+    add('torso', roundedBox(0.36, 0.36, 0.04, 0.03), mat(0, -0.1, 0.205, -0.08, 0, 0), denim);
+    add('torso', roundedBox(0.2, 0.1, 0.02, 0.015), mat(0, -0.06, 0.232, -0.08, 0, 0), C(denim).lerp(new THREE.Color(0xffffff), 0.25));
+    add('torso', new THREE.TorusGeometry(0.11, 0.014, 5, 14, Math.PI), mat(0, 0.3, 0.12, -0.5, 0, 0), denim);
+    add('torso', new THREE.TorusGeometry(0.215, 0.012, 5, 18), mat(0, 0.08, 0, Math.PI / 2, 0, 0, 1.05, 1, 0.95), C(denim, 0.8));
   }
-  add('torso', roundedBox(0.1, 0.07, 0.03, 0.01), mat(0, 0.16, 0.205), denimDark);
-  for (let i = 0; i < 5; i++) add('torso', roundedBox(0.016, 0.006, 0.006, 0.002), mat(-0.04 + i * 0.02, 0.2, 0.222), 0xf2d890);
-  for (const sx2 of [-1, 1]) for (let i = 0; i < 3; i++) add('torso', roundedBox(0.006, 0.016, 0.006, 0.002), mat(sx2 * 0.052, 0.13 + i * 0.022, 0.222), 0xf2d890);
-  add('torso', roundedBox(0.08, 0.07, 0.02, 0.012), mat(-0.12, 0.02, 0.19, 0, 0.4, 0.2), C(denim).lerp(new THREE.Color(0xd89a4a), 0.7));
-  add('torso', new THREE.TorusGeometry(0.13, 0.035, 8, 18), mat(0, 0.38, 0.0, Math.PI / 2 - 0.25, 0, 0), look.scarf);
-  add('torso', new THREE.ConeGeometry(0.07, 0.12, 4), mat(0, 0.3, 0.14, 0.2, Math.PI / 4, Math.PI), look.scarf);
+  if (acc === 'scarf') {
+    // A chunky knitted scarf in the accent colour, one tail down the front.
+    add('torso', new THREE.TorusGeometry(0.15, 0.06, 8, 18), mat(0, 0.39, 0.0, Math.PI / 2 - 0.2, 0, 0), look.scarf);
+    add('torso', roundedBox(0.1, 0.24, 0.06, 0.03), mat(0.08, 0.24, 0.2, 0.15, 0, 0.08), C(look.scarf, 0.9));
+    for (let i = 0; i < 3; i++) add('torso', roundedBox(0.105, 0.012, 0.065, 0.004), mat(0.08, 0.17 + i * 0.06, 0.2, 0.15, 0, 0.08), C(look.scarf, 0.75));
+  } else {
+    add('torso', new THREE.TorusGeometry(0.13, 0.035, 8, 18), mat(0, 0.38, 0.0, Math.PI / 2 - 0.25, 0, 0), look.scarf);
+    add('torso', new THREE.ConeGeometry(0.07, 0.12, 4), mat(0, 0.3, 0.14, 0.2, Math.PI / 4, Math.PI), look.scarf);
+  }
 
   // Arms
   for (const bone of ['armL', 'armR'] as const) {
@@ -154,18 +210,66 @@ function partsFor(look: FarmerLook): Record<keyof FarmerBones, MeshBuilder> {
   add('head', new THREE.SphereGeometry(r, 28, 20), mat(0, r * 0.92, 0, 0, 0, 0, 1.04, 0.96, 1), skin);
   for (const sx of [-1, 1]) add('head', new THREE.SphereGeometry(0.07, 10, 8), mat(sx * r * 0.98, r * 0.88, 0, 0, 0, 0, 0.6, 1, 1), skin);
   add('head', new THREE.SphereGeometry(0.03, 10, 8), mat(0, r * 0.8, r * 0.99), C(skin).lerp(new THREE.Color(0xffffff), 0.35));
-  hairFor(look, (g, m) => add('head', g, m, hair), rng);
+  hairFor(look, (g, m, k = 1) => add('head', g, m, k === 1 ? hair : C(hair, k)), rng);
+  const browCol = C(hair, 0.85);
+  const brows = extra(look, 'brows');
   for (const sx of [-1, 1]) {
-    add('head', new THREE.CapsuleGeometry(0.013, 0.055, 3, 6), mat(sx * 0.12, r * 1.14, r * 0.94, 0, 0, Math.PI / 2 + sx * 0.18), C(hair, 0.85));
+    if (brows === 'soft') add('head', new THREE.CapsuleGeometry(0.013, 0.055, 3, 6), mat(sx * 0.12, r * 1.14, r * 0.94, 0, 0, Math.PI / 2 + sx * 0.18), browCol);
+    else if (brows === 'bold') add('head', new THREE.CapsuleGeometry(0.021, 0.07, 3, 6), mat(sx * 0.12, r * 1.15, r * 0.94, 0, 0, Math.PI / 2 - sx * 0.12), C(hair, 0.62));
+    else add('head', new THREE.TorusGeometry(0.05, 0.012, 4, 10, Math.PI * 0.75), mat(sx * 0.12, r * 1.09, r * 0.945, 0, 0, Math.PI * 0.125), browCol);
     add('head', new THREE.CircleGeometry(0.05, 14), mat(sx * 0.19, r * 0.76, r * 0.875, 0, sx * 0.55, 0), blush);
   }
-  add('head', new THREE.TorusGeometry(0.045, 0.011, 6, 14, Math.PI), mat(0, r * 0.6, r * 0.955, 0, 0, Math.PI), dark);
+  const mouth = extra(look, 'mouth');
+  if (mouth === 'smile') add('head', new THREE.TorusGeometry(0.045, 0.011, 6, 14, Math.PI), mat(0, r * 0.6, r * 0.955, 0, 0, Math.PI), dark);
+  else if (mouth === 'grin') {
+    // An open, laughing D: dark mouth, a strip of teeth, a pink tongue.
+    add('head', new THREE.CircleGeometry(0.05, 14, Math.PI, Math.PI), mat(0, r * 0.64, r * 0.968, -0.25, 0, 0), 0x5a1f1a);
+    add('head', new THREE.CircleGeometry(0.03, 10, Math.PI * 1.2, Math.PI * 0.6), mat(0, r * 0.6, r * 0.972, -0.25, 0, 0), 0xe0707a);
+    add('head', roundedBox(0.08, 0.012, 0.004, 0.002), mat(0, r * 0.628, r * 0.974, -0.25, 0, 0), white);
+  } else if (mouth === 'cat') {
+    for (const sx of [-1, 1]) add('head', new THREE.TorusGeometry(0.024, 0.009, 5, 10, Math.PI), mat(sx * 0.024, r * 0.62, r * 0.958, 0, 0, Math.PI), dark);
+  } else add('head', new THREE.TorusGeometry(0.022, 0.01, 6, 14), mat(0, r * 0.6, r * 0.958, -0.25, 0, 0, 1, 1.25, 1), dark);
+  if (acc === 'glasses') {
+    // Round wire specs: rims in front of each eye, a bridge, arms back to the ears.
+    for (const sx of [-1, 1]) {
+      add('head', new THREE.TorusGeometry(0.07, 0.011, 5, 18), mat(sx * 0.12, r * 0.9, r * 1.03, -0.12, sx * 0.18, 0), 0x6a4a2a);
+      add('head', roundedBox(0.012, 0.012, 0.22, 0.004), mat(sx * 0.2, r * 0.95, r * 0.66, 0, sx * 0.1, 0), 0x6a4a2a);
+    }
+    add('head', new THREE.TorusGeometry(0.03, 0.009, 4, 8, Math.PI), mat(0, r * 0.92, r * 1.06, 0, 0, 0), 0x6a4a2a);
+  } else if (acc === 'flower') {
+    // A daisy tucked behind the left ear.
+    const fx = -r * 0.98;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      add('head', new THREE.SphereGeometry(0.035, 7, 5), mat(fx - 0.02, r * 1.05 + Math.sin(a) * 0.045, 0.06 + Math.cos(a) * 0.045, 0, -1.2, 0, 1, 1, 0.4), 0xfdf6ee);
+    }
+    add('head', new THREE.SphereGeometry(0.026, 8, 6), mat(fx - 0.035, r * 1.05, 0.06), 0xf2c94c);
+  }
 
   // Eyes
+  const eyes = extra(look, 'eyes');
   for (const bone of ['eyeL', 'eyeR'] as const) {
-    add(bone, new THREE.CapsuleGeometry(0.043, 0.05, 4, 12), undefined, dark);
-    add(bone, new THREE.SphereGeometry(0.018, 8, 6), mat(0.016, 0.028, 0.036), white);
-    add(bone, new THREE.SphereGeometry(0.008, 6, 4), mat(-0.014, -0.022, 0.038), white);
+    const side = bone === 'eyeL' ? -1 : 1;
+    if (eyes === 'joyful') {
+      // ^ ^ closed happy arcs.
+      add(bone, new THREE.TorusGeometry(0.036, 0.012, 5, 12, Math.PI), mat(0, -0.01, 0.03), dark);
+    } else if (eyes === 'sleepy') {
+      // Half-lidded: a flattened eye under a skin-tone lid with a lash line.
+      add(bone, new THREE.CapsuleGeometry(0.04, 0.02, 4, 12), mat(0, -0.012, 0, 0, 0, 0, 1, 0.8, 1), dark);
+      add(bone, new THREE.SphereGeometry(0.014, 6, 4), mat(0.012, -0.004, 0.038), white);
+      add(bone, new THREE.CapsuleGeometry(0.047, 0.03, 4, 12), mat(0, 0.028, 0.004, 0, 0, Math.PI / 2, 0.62, 1.05, 1), skin);
+      add(bone, new THREE.CapsuleGeometry(0.008, 0.08, 3, 6), mat(0, 0.008, 0.042, 0, 0, Math.PI / 2), dark);
+    } else if (eyes === 'bright') {
+      // Big sparkly eyes with a lash flick at the outer corner.
+      add(bone, new THREE.CapsuleGeometry(0.05, 0.058, 4, 12), undefined, dark);
+      add(bone, new THREE.SphereGeometry(0.022, 8, 6), mat(0.016, 0.032, 0.042), white);
+      add(bone, new THREE.SphereGeometry(0.011, 6, 4), mat(-0.016, -0.026, 0.045), white);
+      add(bone, new THREE.CapsuleGeometry(0.009, 0.035, 3, 6), mat(side * 0.05, 0.05, 0.02, 0, 0, side * -0.9), dark);
+    } else {
+      add(bone, new THREE.CapsuleGeometry(0.043, 0.05, 4, 12), undefined, dark);
+      add(bone, new THREE.SphereGeometry(0.018, 8, 6), mat(0.016, 0.028, 0.036), white);
+      add(bone, new THREE.SphereGeometry(0.008, 6, 4), mat(-0.014, -0.022, 0.038), white);
+    }
   }
 
   // Hat (authored in head space, converted into the tilted hat bone's space).
@@ -178,12 +282,14 @@ const HAT_REST = mat(0, HEAD_R * 1.55, -0.09, -0.52, 0, 0);
 const HAT_REST_INV = HAT_REST.clone().invert();
 const inHat = (m: THREE.Matrix4): THREE.Matrix4 => HAT_REST_INV.clone().multiply(m);
 
-function hairFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix4) => void, rng: Rng): void {
+function hairFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix4, k?: number) => void, rng: Rng): void {
   const r = HEAD_R;
   const style = look.hairStyle;
   const capScale = style === 'buzz' ? 1.03 : 1.07;
   const cap = new THREE.SphereGeometry(r * capScale, 28, 16, 0, Math.PI * 2, 0, Math.PI * (style === 'buzz' ? 0.5 : 0.55));
-  add(cap, mat(0, r * 0.98, -0.02, -0.25, 0, 0));
+  // The scalp layer sits a value step darker than the locks (roots): pale hair reads as hair with
+  // depth, not as a fuzzy white blob, and the locks pop off it.
+  add(cap, mat(0, r * 0.98, -0.02, -0.25, 0, 0), style === 'buzz' ? 1 : 0.68);
   const lock = (radius: number, x: number, y: number, z: number, rx: number, ry: number, rz: number, sx: number, sy: number, sz: number): void => {
     const g = lumpySphere(radius, 2, 0.08, rng, 1.2);
     g.scale(sx, sy, sz);
@@ -239,13 +345,14 @@ function hairFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matri
     }
     case 'spiky': {
       fringe(0.85);
-      for (let i = 0; i < 9; i++) {
-        const a = (i / 9) * Math.PI * 2 + 0.3;
-        const tilt = 0.55 + (i % 2) * 0.2;
-        const cone = new THREE.ConeGeometry(0.075, 0.26, 6);
-        add(cone, mat(Math.sin(a) * r * 0.55, r * 1.62, Math.cos(a) * r * 0.55 - 0.04, Math.cos(a) * tilt, 0, -Math.sin(a) * tilt));
+      // Swept-back spikes (an anime cowlick crest), tips lighter than roots; none over the brow.
+      for (let i = 0; i < 7; i++) {
+        const a = Math.PI * 0.35 + (i / 6) * Math.PI * 1.3;
+        const tilt = 0.7 + (i % 2) * 0.18;
+        const cone = new THREE.ConeGeometry(0.085, 0.3, 6);
+        add(cone, mat(Math.sin(a) * r * 0.6, r * 1.58, Math.cos(a) * r * 0.6 - 0.06, Math.cos(a) * tilt, 0, -Math.sin(a) * tilt), i % 2 ? 1 : 0.86);
       }
-      add(new THREE.ConeGeometry(0.08, 0.3, 6), mat(0, r * 1.95, -0.04));
+      add(new THREE.ConeGeometry(0.09, 0.32, 6), mat(0, r * 1.9, -0.1, -0.5, 0, 0), 1.08);
       backTufts();
       break;
     }
@@ -281,10 +388,12 @@ function hatFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix
     }
     case 'cap': {
       const dome = new THREE.SphereGeometry(r * 1.1, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
-      add(dome, inHat(mat(0, r * 1.02, -0.02, -0.12, 0, 0, 1, 0.8, 1)), hc);
-      add(roundedBox(0.36, 0.03, 0.22, 0.012), inHat(mat(0, r * 1.2, r * 0.98, 0.18, 0, 0)), C(hc, 0.8));
-      add(new THREE.SphereGeometry(0.03, 8, 6), inHat(mat(0, r * 1.9, -0.05)), C(hc, 0.75));
-      add(new THREE.CylinderGeometry(r * 1.1, r * 1.1, 0.04, 24, 1, true), inHat(mat(0, r * 1.04, -0.02, -0.12, 0, 0)), C(hc, 0.7));
+      // Worn pushed up and back with the bill tipped up: from the high 3/4 camera the brim used to
+      // sit over the eyes (a faceless cap); now the brow, eyes and a fringe read under it.
+      add(dome, inHat(mat(0, r * 1.1, -0.07, -0.34, 0, 0, 1, 0.8, 1)), hc);
+      add(roundedBox(0.34, 0.03, 0.2, 0.012), inHat(mat(0, r * 1.42, r * 0.86, -0.22, 0, 0)), C(hc, 0.8));
+      add(new THREE.SphereGeometry(0.03, 8, 6), inHat(mat(0, r * 1.92, -0.2)), C(hc, 0.75));
+      add(new THREE.CylinderGeometry(r * 1.1, r * 1.1, 0.04, 24, 1, true), inHat(mat(0, r * 1.12, -0.07, -0.34, 0, 0)), C(hc, 0.7));
       break;
     }
     case 'beanie': {
@@ -446,6 +555,11 @@ export class RemoteFarmer {
   gaze: number | null = null;
   private rod: THREE.Object3D | null = null;
   readonly bubble: EmoteBubble;
+  /** World yaw of a farmer that faces the camera (players.ts sets it from the camera rig per frame). */
+  static camFace = 0;
+  /** A prop carried in front of the chest with both arms (hauling a basket). */
+  private carried: THREE.Object3D | null = null;
+  private waveT = 0;
 
   constructor(look: FarmerLook = DEFAULT_LOOK) {
     this.look = look;
@@ -492,6 +606,27 @@ export class RemoteFarmer {
 
   emote(id: EmoteId, dur?: number): void {
     this.bubble.show(id, dur);
+  }
+
+  /** Carry `obj` in both arms (null puts it down; the caller owns the object). */
+  carry(obj: THREE.Object3D | null): void {
+    if (this.carried === obj) return;
+    this.carried?.removeFromParent();
+    this.carried = obj;
+    if (obj) {
+      this.rigParts.torso.add(obj);
+      obj.position.set(0, 0.06, 0.33);
+      obj.rotation.set(0, 0, 0);
+    }
+  }
+
+  get carrying(): boolean {
+    return !!this.carried;
+  }
+
+  /** A big overhead wave ("over here!") for `dur` seconds. */
+  wave(dur = 1.8): void {
+    this.waveT = dur;
   }
 
   setFacingYaw(yaw: number): void {
@@ -599,6 +734,27 @@ export class RemoteFarmer {
       p.tool.remove(this.rod);
       if (!this.busy) p.tool.visible = false;
     }
+
+    // Hauling: both forearms under the load, a slight lean back, a shorter swing.
+    if (this.carried && !this.busy) {
+      const sw = state === 'walk' ? Math.sin(this.phase) * 0.08 : 0;
+      AL.set(-1.05 + sw, 0, 0.18);
+      AR.set(-1.05 - sw, 0, -0.18);
+      p.torso.rotation.x -= 0.08;
+    }
+    if (this.waveT > 0 && !this.busy) {
+      this.waveT -= dt;
+      const k = Math.min(1, this.waveT / 0.25, (1.8 - this.waveT) / 0.2 + 0.2);
+      const w = Math.sin(this.stateTime * 13);
+      AR.x = -2.75 * k;
+      AR.z = (-0.35 + w * 0.38) * k;
+      p.head.rotation.z += 0.08 * k;
+      p.torso.rotation.z += 0.05 * k;
+    }
+    // Readability (pillar 13): a farmer turned toward the camera tips the head (and hat) ~9° up to
+    // it, so the face is never just a hat brim from the high 3/4 camera.
+    const toCam = Math.cos(this.yaw - RemoteFarmer.camFace);
+    if (toCam > 0) p.head.rotation.x -= 0.16 * toCam;
 
     const ap = this.actionPose?.(this.rig, dt) ?? null;
     if (ap) {

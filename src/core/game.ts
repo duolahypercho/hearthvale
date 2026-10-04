@@ -267,6 +267,7 @@ export class Game {
         for (const s of this.systems) s.fixedUpdate?.(FIXED_DT, this);
       }
       if (steps === 5) this.acc = 0;
+      if (steps > 0) this.input.endFixed();
       this.calendar.advance(dt);
     }
     this.player.update(dt);
@@ -283,6 +284,7 @@ export class Game {
     this.rc.backdropHz = !menu ? 0 : this.menuOpenT < 0.4 ? 20 : this.paused ? -1 : 5;
     if (!this.renderOverride?.(dt)) this.rc.render(dt, this.time);
     for (const f of this.afterRender) f();
+    if (this.paused) this.input.endFixed();
     this.input.endFrame();
     this.frame++;
   }

@@ -22,6 +22,12 @@ const EXTRAP_MS = 140;
 const SOFT_MS = 35;
 /** Fastest an extrapolation error is walked off (m/s, added to the farmer's own speed). */
 const CORRECT_MS = 2.8;
+/** Rendered speed never exceeds this multiple of the path's own speed (the rest is absorbed later). */
+const VCAP = 1.4;
+/** Floor of that cap (m/s) so a standing farmer can still settle a small error. */
+const VCAP_MIN = 1.6;
+/** Error the limiter may carry before it gives up and lets the farmer catch up (m). */
+const VCAP_SLACK = 1.2;
 /** Samples further apart than this (m) are a teleport: snap instead of sliding. */
 const TELEPORT_M = 4;
 
@@ -60,6 +66,13 @@ export class Playout {
   private ez = 0;
   private es = 0;
   private ec: Sample | null = null;
+  /** Last rendered position (speed limiter); NaN = none (snap). */
+  private ox = NaN;
+  private oz = NaN;
+  /** Path speed envelope (m/s): the cap follows a farmer that just slowed for a few frames. */
+  private vEnv = 0;
+  /** Diagnostics: frames the speed limiter clamped. */
+  limited = 0;
 
   get empty(): boolean {
     return this.buf.length === 0;
@@ -71,6 +84,7 @@ export class Playout {
     this.rt = NaN;
     this.offX = this.offZ = 0;
     this.extrap = false;
+    this.ox = this.oz = NaN;
     if (clock) {
       this.base = NaN;
       this.jitter = 0;
@@ -121,6 +135,7 @@ export class Playout {
       if (Number.isFinite(this.rt)) this.snaps++;
       this.rt = Math.min(target, newest + EXTRAP_MS);
       this.offX = this.offZ = 0;
+      this.ox = this.oz = NaN;
     } else {
       const fdt = Math.min(250, Math.max(0, now - this.rtAt));
       const err = target - this.rt;
@@ -149,8 +164,30 @@ export class Playout {
       this.offX *= k;
       this.offZ *= k;
     }
-    this.x = this.ex + this.offX;
-    this.z = this.ez + this.offZ;
+    let x = this.ex + this.offX;
+    let z = this.ez + this.offZ;
+    // Speed limiter: whatever the clock dilation, a late corner or a correction adds up to, the
+    // rendered farmer never moves faster than VCAP× its own pace this frame; the excess becomes
+    // offset that later frames walk off (also capped). A walk start can't render at 2× (mp-adv).
+    this.vEnv = Math.max(this.es, this.vEnv * Math.exp(-fdt / 0.25));
+    if (Number.isFinite(this.ox) && fdt > 0) {
+      const dx = x - this.ox;
+      const dz = z - this.oz;
+      const step = Math.hypot(dx, dz);
+      const cap = Math.max(VCAP_MIN, VCAP * this.vEnv) * fdt;
+      if (step > cap && step - cap < VCAP_SLACK + cap) {
+        const k = cap / step;
+        x = this.ox + dx * k;
+        z = this.oz + dz * k;
+        this.offX = x - this.ex;
+        this.offZ = z - this.ez;
+        this.limited++;
+      }
+    }
+    this.ox = x;
+    this.oz = z;
+    this.x = x;
+    this.z = z;
     this.speed = this.es;
     this.yaw = this.ec!.yaw;
     this.anim = this.ec!.anim;

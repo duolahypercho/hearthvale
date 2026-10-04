@@ -199,6 +199,15 @@ class SayBubble {
   h = 0;
   private dx = 0;
   private dy = 0;
+  /** Layout memory: the slot picked (offset from the centred spot, px), how long it has been blocked /
+   * how long the centre has been free (s), and the smoothed offset actually shown (NaN = snap). */
+  slot = false;
+  slotDx = 0;
+  slotDy = 0;
+  blockT = 0;
+  freeT = 0;
+  curDx = NaN;
+  curDy = NaN;
 
   constructor(parent: HTMLElement) {
     this.el = document.createElement('div');
@@ -206,13 +215,44 @@ class SayBubble {
     parent.appendChild(this.el);
   }
 
+  /** Showing the "…" typing bubble (not a line). */
+  isTyping = false;
+
+  /** "…" while the owner types in the chat box; a real line replaces it. */
+  typing(on: boolean): void {
+    if (on) {
+      if (this.active && !this.isTyping) return; // a line is still up: leave it
+      if (!this.isTyping) {
+        this.el.innerHTML = '<i></i><i></i><i></i>';
+        this.el.classList.add('typing');
+        this.el.classList.remove('on');
+        void this.el.offsetWidth;
+        this.el.classList.add('on');
+        this.w = 0;
+        this.slot = false;
+        this.curDx = this.curDy = NaN;
+      }
+      this.isTyping = true;
+      this.t = 30;
+    } else if (this.isTyping) {
+      this.isTyping = false;
+      this.t = 0;
+      this.el.classList.remove('on');
+    }
+  }
+
   set(text: string, hold?: number): void {
+    this.isTyping = false;
+    this.el.classList.remove('typing');
     this.el.textContent = text;
     this.el.classList.remove('on');
     void this.el.offsetWidth;
     this.el.classList.add('on');
     this.w = 0;
-    this.t = hold ?? Math.min(9, 3 + text.length * 0.08);
+    this.slot = false;
+    this.curDx = this.curDy = NaN;
+    // Reading time: ~6 s for a typical line (then a fade + shrink out), longer lines a little more.
+    this.t = hold ?? Math.min(8, 4 + text.length * 0.05);
   }
 
   get active(): boolean {
@@ -240,7 +280,8 @@ class SayBubble {
     this.dx = dx;
     this.dy = dy;
     this.el.style.transform = dx || dy ? `translate(${dx}px, ${dy}px)` : '';
-    const tail = Math.max(-this.w / 2 + 18, Math.min(this.w / 2 - 18, -dx));
+    // The tail points at the owner's head (x = 0), clamped inside the bubble's rounded body.
+    const tail = Math.max(-this.w / 2 + 16, Math.min(this.w / 2 - 16, -dx));
     this.el.style.setProperty('--tail', `${Math.round(tail)}px`);
   }
 }
@@ -368,6 +409,10 @@ export class RemotePlayers {
     this.local.say.set(text);
   }
 
+  typingLocal(on: boolean): void {
+    this.local.say.typing(on);
+  }
+
   add(id: number, name: string, look: FarmerLook): RemotePlayer {
     let p = this.list.get(id);
     if (p) {
@@ -398,6 +443,7 @@ export class RemotePlayers {
   /** Per frame: interpolate, animate, keep meshes in the scene only on our map (tags: placeTags). */
   update(dt: number, time: number, interpolate = true, now = performance.now()): void {
     dt = Math.max(0, dt);
+    RemoteFarmer.camFace = THREE.MathUtils.degToRad(this.game.rc.rig.yaw);
     const map = this.game.world.current;
     const here = map?.id ?? '';
     const cam = this.game.rc.camera;
@@ -549,13 +595,26 @@ export class RemotePlayers {
               side = o.a.x >= x ? -1 : 1;
             }
           }
-          let x0 = side > 0 ? x + gap : x - gap - size;
           const inset = size * 0.1;
-          if (R.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom) >= 0 || hud.hit(x0, bottom - size, x0 + size, bottom, 0) >= 0) {
-            const alt = side > 0 ? x - gap - size : x + gap;
-            if (R.hit(alt + inset, bottom - size + inset, alt + size - inset, bottom) < 0 && hud.hit(alt, bottom - size, alt + size, bottom, 0) < 0) x0 = alt;
+          const at = (sd: number): number => (sd > 0 ? x + gap : x - gap - size);
+          const blocked = (x0: number, pad: number): boolean => R.hit(x0 + inset, bottom - size + inset, x0 + size - inset, bottom, pad) >= 0 || hud.hit(x0, bottom - size, x0 + size, bottom, pad) >= 0;
+          // Hysteresis: a bubble keeps its side unless that side has been blocked by > 20 px for
+          // 300 ms (it used to swap sides between frames as neighbours walked past).
+          if (b.side !== 0) {
+            if (blocked(at(b.side), -20)) b.sideBlock += dt;
+            else b.sideBlock = 0;
+            if (b.sideBlock > 0.3 && !blocked(at(-b.side), 3)) {
+              b.side = -b.side;
+              b.sideBlock = 0;
+            }
+          } else {
+            b.side = side;
+            if (blocked(at(side), 3) && !blocked(at(-side), 3)) b.side = -side;
           }
-          R.add(x0 + inset, bottom - size + inset, x0 + size - inset, bottom);
+          const want = at(b.side) - x;
+          b.offX = Number.isFinite(b.offX) ? b.offX + (want - b.offX) * (1 - Math.exp(-dt * 12)) : want;
+          const x0 = x + b.offX;
+          R.add(at(b.side) + inset, bottom - size + inset, at(b.side) + size - inset, bottom);
           // Bubble origin (plane spans −0.08…0.92 of its size vertically) → world, at the head's depth.
           const ox = x0 + size / 2;
           const oy = bottom - size * 0.08;
@@ -571,26 +630,48 @@ export class RemotePlayers {
           const w = say.w;
           const h = say.h;
           const base = y - ph - 10 * S; // bubble bottom (tail below it)
-          let best = 0;
-          let bestDy = 0;
-          let found = false;
-          for (let row = 0; row < 3 && !found; row++) {
-            const dy = -row * (h * 0.55 + 6);
-            for (const f of NUDGE) {
-              const dx = f * w;
-              const x0 = x - w / 2 + dx;
-              const y1 = base + dy;
-              if (R.hit(x0, y1 - h, x0 + w, y1) < 0 && hud.hit(x0, y1 - h, x0 + w, y1, 0) < 0) {
-                best = dx;
-                bestDy = dy;
-                found = true;
-                break;
+          const free = (dx: number, dy: number, pad: number): boolean => {
+            const x0 = x - w / 2 + dx;
+            const y1 = base + dy;
+            return R.hit(x0, y1 - h, x0 + w, y1, pad) < 0 && hud.hit(x0, y1 - h, x0 + w, y1, pad) < 0;
+          };
+          // Hysteresis: keep the slot picked earlier unless it has overlapped something by > 20 px
+          // for 300 ms; drift back to the centred spot once that has been free for 0.6 s.
+          let pick = !say.slot;
+          if (say.slot) {
+            if (free(say.slotDx, say.slotDy, -20)) say.blockT = 0;
+            else say.blockT += dt;
+            if (say.slotDx !== 0 || say.slotDy !== 0) say.freeT = free(0, 0, 3) ? say.freeT + dt : 0;
+            if (say.blockT > 0.3 || say.freeT > 0.6) pick = true;
+          }
+          if (pick) {
+            let best = 0;
+            let bestDy = 0;
+            let found = false;
+            for (let row = 0; row < 3 && !found; row++) {
+              const dy = -row * (h * 0.55 + 6);
+              for (const f of NUDGE) {
+                if (free(f * w, dy, 3)) {
+                  best = f * w;
+                  bestDy = dy;
+                  found = true;
+                  break;
+                }
               }
             }
+            say.slot = true;
+            say.slotDx = best;
+            say.slotDy = bestDy;
+            say.blockT = say.freeT = 0;
           }
-          const x0 = x - w / 2 + best;
-          R.add(x0, base + bestDy - h, x0 + w, base + bestDy);
-          say.offset(best, base + bestDy - y);
+          const x0 = x - w / 2 + say.slotDx;
+          R.add(x0, base + say.slotDy - h, x0 + w, base + say.slotDy);
+          // Ease the shown offset toward the slot (no 100 px jumps between frames).
+          const k = 1 - Math.exp(-dt * 10);
+          const wantY = base + say.slotDy - y;
+          say.curDx = Number.isFinite(say.curDx) ? say.curDx + (say.slotDx - say.curDx) * k : say.slotDx;
+          say.curDy = Number.isFinite(say.curDy) ? say.curDy + (wantY - say.curDy) * k : wantY;
+          say.offset(say.curDx, say.curDy);
         }
       }
     }

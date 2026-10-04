@@ -14,6 +14,7 @@ import { DEBRIS } from './farmsync';
 import type { RemotePlayer } from './players';
 import type { DayTally } from './system';
 import type { EmoteId } from '../entities/remote-emotes';
+import { FarmChoreo, BED, HOST_SPOT } from './demo-farm';
 
 interface Bot {
   p: RemotePlayer;
@@ -26,9 +27,6 @@ interface Bot {
   acting: number;
 }
 
-/** The ripe strawberry bed everyone is working (just south of the planted field, tiles inclusive). */
-const BED = { x0: 22, z0: 25, x1: 27, z1: 26 };
-
 const yawOf = (f: Facing): number => (f === 'down' ? 0 : f === 'up' ? Math.PI : f === 'left' ? -Math.PI / 2 : Math.PI / 2);
 
 export class CoopDemo {
@@ -36,6 +34,8 @@ export class CoopDemo {
   /** coop-bedtime: the farmhands are in their cabins (no scripts run). */
   private asleep = false;
   private bots: Bot[] = [];
+  /** coop-farm (+ coop-emote / coop-chat): the looping work choreography. */
+  private choreo: FarmChoreo | null = null;
 
   constructor(
     private game: Game,
@@ -83,54 +83,8 @@ export class CoopDemo {
         this.game.services.farming?.plantBlock('strawberry', BED.x0, BED.z0, BED.x1 - BED.x0 + 1, BED.z1 - BED.z0 + 1, true);
       });
     }
-    this.bots = [
-      // Juniper: behind the bed, picking her way along the back row, facing the camera (the host
-      // works the east end of the same row).
-      mk(0, BED.x0 + 0.5, BED.z0 - 0.62, 'down', (b, dt) => {
-        if (b.acting > 0) return;
-        b.t += dt;
-        const col = BED.x0 + (b.step >> 1);
-        if (b.step % 2 === 0) {
-          // a quick sidestep to the next plant
-          const tx = col + 0.5;
-          b.x = Math.min(tx, b.x + dt * 2.6);
-          b.facing = 'right';
-          b.p.farmer.speed = 2.6;
-          if (b.x >= tx) {
-            b.step++;
-            b.t = 0;
-          }
-        } else {
-          b.facing = 'down';
-          if (b.t > 1.1) {
-            this.pick(b, col, BED.z0);
-            b.step = (b.step + 1) % 6;
-            if (b.step === 0) b.x = BED.x0 + 0.5;
-          }
-        }
-      }),
-      // Pip: strolling down the path toward the camera, then stopping at the bed's corner to look over
-      // the harvest (one way, so every still catches his face, never his back).
-      mk(1, 31.2, 22.4, 'down', (b, dt) => {
-        b.t += dt;
-        if (b.step === 0) {
-          b.facing = 'down';
-          b.z += dt * 1.7;
-          b.p.farmer.speed = 1.7;
-          if (b.z >= 25.6) {
-            b.step = 1;
-            b.t = 0;
-          }
-        } else b.facing = 'down';
-      }),
-      // Rowan: at the bed's west end, facing everyone, calling them over for coffee.
-      mk(2, BED.x0 - 0.85, BED.z0 + 0.7, 'down', (b) => {
-        if (b.step === 0) {
-          b.p.chat('Morning, neighbours! Coffee is on at my cabin', 1e6);
-          b.step = 1;
-        }
-      }),
-    ];
+    const idle: Bot['script'] = () => {};
+    this.bots = [mk(0, BED.x0 + 0.5, BED.z0 - 0.62, 'down', idle), mk(1, BED.x1 + 0.5, BED.z0 - 0.62, 'down', idle), mk(2, 21.23, 27.2, 'right', idle)];
     this.net.refreshCabins(new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf], [2, PRESET_LOOKS[2]!.scarf]]));
     // Earlier in the morning (chat log only — the bubbles above heads are what's being said now).
     const line = (id: number, text: string): void => {
@@ -141,14 +95,30 @@ export class CoopDemo {
       line(2, 'Night, all! Bin run at six?');
       line(3, 'Left you a coffee on the porch');
       line(4, 'zzz');
+      this.emote(this.bots[1]!, 'music', true);
+      this.emote(this.bots[2]!, 'heart', true);
     } else {
       line(3, 'Cauliflowers are watered!');
       line(2, 'Strawberries are ripe! Grab a basket');
+      // The 26 s work loop; &t=<sec> seeks it (stills mid-action). Starts a beat in by default so a
+      // still taken right after load catches the haul, the picking and the watering at once.
+      this.choreo = new FarmChoreo(this.game, this.net, this.bots.map((b) => b.p));
+      // The host steps to the bed's front-east corner (turned to it) so the lane behind the bed is
+      // free for the pickers, who face the camera; the camera is re-aimed at the same spot. Deferred:
+      // the demo sets facing + camera right after this event.
+      queueMicrotask(() => {
+        if (!this.active) return;
+        const pl = this.game.player;
+        const rig = this.game.rc.rig;
+        rig.lookOffset.x -= HOST_SPOT.x - pl.position.x;
+        rig.lookOffset.z -= HOST_SPOT.z - pl.position.z;
+        pl.teleport(HOST_SPOT.x, HOST_SPOT.z);
+        pl.setFacing('left');
+        this.game.followPlayer(true);
+      });
+      const t = Number(new URLSearchParams(location.search).get('t'));
+      this.choreo.seek(Number.isFinite(t) && t > 0 ? t : 1.6);
     }
-    this.bots[0]!.p.chat('Race you to the bin after this row', 1e6);
-    // Held emotes so stills always catch them.
-    this.emote(this.bots[1]!, 'music', true);
-    this.emote(this.bots[2]!, 'heart', true);
     if (name === 'coop-bedtime') {
       // Everyone else has turned in: the farmhands are asleep in their cabins, you're the one still up.
       for (const b of this.bots) {
@@ -197,33 +167,6 @@ export class CoopDemo {
     b.p.farmer.targetYaw = yawOf(b.facing);
   }
 
-  private act(b: Bot, itemId: string, x: number, z: number): void {
-    const a = actionFor(itemId);
-    b.p.farmer.speed = 0;
-    b.p.farmer.targetYaw = yawOf(b.facing);
-    b.p.farmer.act(a.kind, a.tool);
-    b.acting = IMPACT[a.kind] + 0.55;
-    this.net.later(IMPACT[a.kind] * 1000, () => {
-      if (this.active) this.net.sync.applyUse(itemId, x, z, b.facing);
-    });
-  }
-
-  /** Pick one ripe plant by hand; it fruits again a few seconds later so the bed stays red. */
-  private pick(b: Bot, x: number, z: number): void {
-    const a = actionFor('@act');
-    b.p.farmer.speed = 0;
-    b.p.farmer.targetYaw = yawOf(b.facing);
-    b.p.farmer.act(a.kind, a.tool);
-    b.acting = IMPACT[a.kind] + 0.7;
-    this.net.later(IMPACT[a.kind] * 1000, () => {
-      if (this.active) this.net.sync.applyHarvest(x, z);
-    });
-    this.net.later(3600, () => {
-      const f = this.game.services.farming;
-      if (this.active && f && !f.cropAt(x, z)?.ripe) this.net.sync.remote({ quiet: true }, () => f.plantBlock('strawberry', x, z, 1, 1, true));
-    });
-  }
-
   /** Staged "Farm today" tally for the day-end card (coop-dayend demo). */
   tally(): DayTally[] {
     const me = this.net.profile();
@@ -245,6 +188,8 @@ export class CoopDemo {
   clear(): void {
     if (!this.active) return;
     this.active = false;
+    this.choreo?.dispose();
+    this.choreo = null;
     for (const b of this.bots) this.net.remotes.remove(b.p.id);
     this.bots = [];
     this.net.demoName(null);
@@ -253,6 +198,10 @@ export class CoopDemo {
 
   update(dt: number, _time: number): void {
     if (!this.active || this.asleep) return;
+    if (this.choreo) {
+      this.choreo.update(dt);
+      return;
+    }
     for (const b of this.bots) {
       if (b.acting > 0) b.acting -= dt;
       b.p.farmer.speed = 0;

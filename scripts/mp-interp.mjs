@@ -5,7 +5,7 @@
  * seeded jitter, 250–400 ms spikes and a 600 ms stall (everything then arrives in one burst), and
  * renders it at an uneven ~60 fps (3 % long frames). Per frame (dt normalised) it asserts:
  *   - no backward steps (a frame moving > 1 cm against the true direction of travel),
- *   - no pops (per-frame speed ≤ 2× the walk speed),
+ *   - no pops (per-frame speed ≤ 1.5× the mover's speed),
  *   - bounded lag behind the sender.
  *
  *   node scripts/mp-interp.mjs            (also run by npm run mp-test)
@@ -69,7 +69,7 @@ export function torture(o = {}) {
     const v = Math.hypot(dx, dz) / dt;
     maxV = Math.max(maxV, v);
     if (tb > 800 && tb < dur) vs.push(v);
-    if (v > speed * 2) pops++;
+    if (v > speed * 1.5) pops++;
     // Direction of travel near where the farmer is drawn: the true path's direction at the closest
     // sender time (search around the expected lag).
     let best = Infinity, bt = 0;

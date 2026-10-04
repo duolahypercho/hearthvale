@@ -322,6 +322,11 @@ export class EmoteBubble {
   pinned = false;
   pinHidden = false;
   fit = 1;
+  /** Layout memory (players.ts): chosen side (±1, 0 = none yet), how long it has been blocked (s), and
+   * the smoothed screen x offset of the bubble's left edge from the anchor (px; NaN = snap). */
+  side = 0;
+  sideBlock = 0;
+  offX = NaN;
 
   constructor(readonly anchor: THREE.Object3D) {
     this.tex = atlasTexture().clone();
@@ -338,6 +343,10 @@ export class EmoteBubble {
   /** Pop the bubble for `dur` seconds (demo stills pass a long hold). */
   show(id: EmoteId, dur = 2.6): void {
     this.dur = dur;
+    if (this.t < 0 || this.t >= this.dur) {
+      this.side = 0;
+      this.offX = NaN;
+    }
     const i = Math.max(0, EMOTES.indexOf(id));
     this.tex.offset.set((i % 4) * 0.25, 0.5 - Math.floor(i / 4) * 0.5);
     this.t = 0;

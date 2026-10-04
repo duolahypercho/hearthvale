@@ -327,6 +327,83 @@ try {
   const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 10000);
   check('chat reaches the host', gotChat, gotChat ? '' : JSON.stringify(await net(b, () => window.__game.game.services.net.stats())));
 
+  // ── town (town pod): a farmhand's gift is host-authoritative and everyone sees it land; heart
+  // events are mirrored to farmhands in town as spectators ──────────
+  {
+    const backTo = await Promise.all([host, b].map((pg) => net(pg, () => ({ x: window.__game.game.player.position.x, z: window.__game.game.player.position.z }))));
+    await Promise.all([host, b].map((pg) => net(pg, () => window.__game.teleport('town', 32, 30.5))));
+    await waitFor(host, () => window.__game.game.world.current?.id === 'town', null, 30000);
+    await waitFor(b, () => window.__game.game.world.current?.id === 'town', null, 30000);
+    await sleep(1500);
+    // The nearest villager standing outdoors (as the host sees the town).
+    const target = await net(host, () => {
+      const ps = window.__game.game.services.npcs.positions();
+      ps.sort((p, q) => Math.hypot(p.x - 32, p.z - 30.5) - Math.hypot(q.x - 32, q.z - 30.5));
+      return ps[0] ?? null;
+    });
+    check('town: villagers stream to the farmhand', !!target, JSON.stringify(target));
+    if (target) {
+      await net(b, (t) => {
+        const g = window.__game.game;
+        g.player.teleport(t.x + 0.4, t.z + 1.3);
+        window.__game.give('parsnip', 1);
+        return g.services.relationships.gift(t.id, 'parsnip');
+      }, target);
+      const landed = await waitFor(host, (arg) => window.__game.game.services.npcs.coop().gifts.some((g) => g.id === arg.id && g.from === arg.from), { id: target.id, from: idB }, 10000);
+      // The villager turns over a few frames: wait (<= 2.5 s) for the turn to settle before sampling.
+      await waitFor(host, (arg) => {
+        const n = window.__game.game.services.npcs;
+        const c = n.coop();
+        const pos = n.positions().find((p) => p.id === arg.id);
+        const held = c.held.find((h) => h.id === arg.id);
+        const yaw = c.facing[arg.id];
+        if (!held || !pos || !Number.isFinite(yaw)) return false;
+        const want = Math.atan2(held.x - pos.x, held.z - pos.z);
+        return Math.abs(Math.atan2(Math.sin(yaw - want), Math.cos(yaw - want))) < 0.6;
+      }, { id: target.id }, 2500);
+      const seen = await net(host, (arg) => {
+        const n = window.__game.game.services.npcs;
+        const c = n.coop();
+        const pos = n.positions().find((p) => p.id === arg.id);
+        const held = c.held.find((h) => h.id === arg.id);
+        const yaw = c.facing[arg.id];
+        const want = held && pos ? Math.atan2(held.x - pos.x, held.z - pos.z) : NaN;
+        const off = Math.abs(Math.atan2(Math.sin(yaw - want), Math.cos(yaw - want)));
+        return { gifts: c.gifts.length, held: !!held, off: Number.isFinite(off) ? off : 9, pts: window.__game.game.services.relationships.remotePoints(arg.from, arg.id) };
+      }, { id: target.id, from: idB });
+      check("town: the host sees the farmhand's gift land (hearts / puff FX)", landed, JSON.stringify(seen));
+      check('town: the villager turns to the farmhand who gave it', seen.held && seen.off < 0.6, `held ${seen.held}, ${(seen.off * 57.3).toFixed(0)}° off`);
+      const synced = await waitFor(b, (arg) => window.__game.game.services.relationships.points(arg.id) === arg.pts, { id: target.id, pts: seen.pts }, 8000);
+      const bp = await net(b, (id) => window.__game.game.services.relationships.points(id), target.id);
+      check("town: friendship is host-authoritative (farmhand's points = the host's ledger)", synced && seen.pts > 0, `host ledger ${seen.pts}, farmhand ${bp}`);
+    }
+    // Heart event: the host plays it, the farmhand in town watches (title card + lines).
+    await net(host, () => {
+      window.__mpEv = 'run';
+      void window.__game.game.services.npcs.playEvent('wren-2').then(() => (window.__mpEv = 'done'));
+    });
+    const watching = await waitFor(b, () => window.__game.game.services.npcs.coop().spectating === 'wren-2', null, 15000);
+    check('town: a heart event the host plays is mirrored to the farmhand (spectator)', watching);
+    // Let the first spoken line reach the spectator before the still (r3's shot caught only the title).
+    for (let i = 0; i < 3; i++) {
+      await sleep(900);
+      await host.keyboard.press('Space');
+    }
+    await sleep(1200);
+    await snap(b, `${outDir}/town-spectator.png`);
+    // Click through the host's scene (finish + advance each line, first option on the choice).
+    for (let i = 0; i < 80 && (await net(host, () => window.__mpEv)) !== 'done'; i++) {
+      await host.keyboard.press('Space');
+      await sleep(180);
+    }
+    const ended = await waitFor(b, () => window.__game.game.services.npcs.coop().spectating === null, null, 10000);
+    check('town: the spectator view closes with the host\'s scene', ended);
+    await Promise.all([host, b].map((pg, i) => net(pg, (p) => window.__game.teleport('farm', p.x, p.z), backTo[i])));
+    await waitFor(host, () => window.__game.game.world.current?.id === 'farm', null, 30000);
+    await waitFor(b, () => window.__game.game.world.current?.id === 'farm', null, 30000);
+    await sleep(1000);
+  }
+
   // ── Ash leaves → back on their own farm (own purse), then comes back ──
   await net(a, () => window.__game.game.services.net.leave());
   await sleep(1500);

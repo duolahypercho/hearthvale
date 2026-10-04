@@ -12,7 +12,7 @@
  *                     ['act', seq, x, z]                   harvest-by-hand intent (predicted)
  *                     ['gold', seq, delta]                 purse change (host may deny a spend: ['gdeny'])
  *                     ['psave', seq, data, counts]         personal save (versioned; on every backpack change)
- *                     ['chat', text] · ['emo', id] · ['bed', 0|1] · ['look', look, name] · ['ping', t]
+ *                     ['chat', text] · ['typ', 0|1] · ['emo', id] · ['bed', 0|1] · ['look', look, name] · ['ping', t]
  *                     ['need'] · ['hello', {name, look, pid, fresh, rejoin}]
  *   host → farmhands  ['s', t, [[id, map, xcm, zcm, yawc, anim]]]   20 Hz host sample (host frame clock)
  *                     ['did', id, itemId|'@act', x, z, facing]  another farmer acted (replayed + animated)
@@ -21,7 +21,7 @@
  *                     ['farm', [[tile, state], ...]]   farm tile deltas (≤ 5 Hz, only when something changed)
  *                     ['full', {save, debris, digest}] whole farm (join, rejoin, every morning)
  *                     ['cal', day, season, year, hour, weather] 1 Hz · ['gold', total, {id: seq}]
- *                     ['roster', [...]] · ['beds', [ids]] · ['sleep'] · ['chat', id, text] · ['emo', id, emote]
+ *                     ['roster', [...]] · ['beds', [ids]] · ['sleep'] · ['chat', id, text] · ['typ', id, 0|1] · ['emo', id, emote]
  *                     ['welcome', {...}] · ['pong', t]
  *   worker ↔ worker   ['~ping', t] / ['~pong', t]  network RTT, answered in the socket worker (transport.ts)
  *
@@ -132,6 +132,8 @@ export interface NetApi {
   /** Host: remove a farmhand from the farm (frees their slot; they can't rejoin for a minute). */
   kick(id: number): void;
   chat(text: string): void;
+  /** Typing in the chat box (volatile: a "…" bubble over your head for everyone). */
+  typing(on: boolean): void;
   emote(id: EmoteId): void;
   /** Ready for bed (co-op: the day ends when everyone is). */
   goToBed(where: 'house' | 'cabin'): void;
@@ -372,6 +374,8 @@ export class NetSystem implements System, NetApi {
   private needFullAt = 0;
   private welcomed = false;
   private hostName = 'Host';
+  /** Heart event id we're watching as a spectator (farmhand), else null. */
+  private spectating: string | null = null;
   private lastPos = { x: 0, z: 0, map: '', t: 0 };
   private teleported = false;
   private planted = -1;
@@ -829,6 +833,18 @@ export class NetSystem implements System, NetApi {
     else if (this._role === 'host') this.toAll(['chat', this.id, s]);
   }
 
+  typing(on: boolean): void {
+    this.showTyping(this.id || 1, on);
+    if (this._role === 'client') this.toHost(['typ', on ? 1 : 0]);
+    else if (this._role === 'host') this.toAll(['typ', this.id, on ? 1 : 0]);
+  }
+
+  /** "…" bubble over a farmer who is typing (ours too). */
+  showTyping(id: number, on: boolean): void {
+    if (id === (this.id || 1)) this.remotes.typingLocal(on);
+    else this.remotes.get(id)?.say.typing(on);
+  }
+
   emote(id: EmoteId): void {
     if (!EMOTES.includes(id)) return;
     this.showEmote(this.id || 1, id);
@@ -1159,6 +1175,12 @@ export class NetSystem implements System, NetApi {
         if (!text) return;
         this.showChat(from, text);
         this.toOthers(from, ['chat', from, text]);
+        return;
+      }
+      case 'typ': {
+        const on = d[1] === 1;
+        this.showTyping(from, on);
+        this.toOthers(from, ['typ', from, on ? 1 : 0]);
         return;
       }
       case 'emo': {
@@ -1571,6 +1593,10 @@ export class NetSystem implements System, NetApi {
       case 'chat': {
         const [, id, text] = d as [string, number, string];
         this.showChat(id, String(text).slice(0, 140));
+        return;
+      }
+      case 'typ': {
+        this.showTyping(Number(d[1]), d[2] === 1);
         return;
       }
       case 'emo': {
@@ -2095,7 +2121,9 @@ export class NetSystem implements System, NetApi {
 
   private localAnim(): number {
     const g = this.game;
-    if (this.asleep && this.bedWhere === 'cabin') return 4;
+    // In bed (cabin or farmhouse) = off the map for everyone else: no avatar + tag left standing
+    // wherever goToBed was called (r3: the host's avatar stayed on the farm path).
+    if (this.asleep) return 4;
     const st = g.services.fishing?.state();
     if (st && st !== 'idle') return 3;
     const pos = g.player.position;
@@ -2210,6 +2238,17 @@ export class NetSystem implements System, NetApi {
       }
     }
     if (this._role !== 'solo') this.bridge.tick(dt);
+    // Spectating the host's heart event (farmhand in town): our own farmer + bubbles step out of the
+    // scene, and a "watching <host>'s scene" chip says why the controls are off.
+    if (this._role === 'client' && this.frameNo % 12 === 0) {
+      const npcs = game.services.npcs as { coop?: () => { spectating: string | null } } | undefined;
+      const sp = npcs?.coop?.().spectating ?? null;
+      if (sp !== this.spectating) {
+        this.spectating = sp;
+        if (!(this.asleep && this.bedWhere === 'cabin')) game.player.root.visible = !sp;
+        this.ui.spectating(sp ? this.hostName : null);
+      }
+    }
     this.demo.update(dt, game.time);
     this.remotes.update(dt, game.time, !this.demo.active, now);
     this.myBubble?.update(dt, game.time);

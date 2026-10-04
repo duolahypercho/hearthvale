@@ -24,11 +24,14 @@ export const cabinFront = (slot: number): { x: number; z: number } => {
   return { x: s.x0 + 1.5, z: s.z0 + 3.6 };
 };
 
-// Materials: one tinted wood-grain mesh for the whole body, roof tiles, and the two night-glow
-// materials (lit window, porch lamp) — 4 draws + 2 shadow draws for ALL cabins together.
+// Materials: ONE tinted wood-grain mesh for the whole body (logs, stone, painted shingle rows) plus
+// the night-glow window card (window + porch-lamp glass) — 2 draws + 1 shadow draw for ALL cabins
+// together, ~6k tris a cabin (pillar 14: r3 was 8 draws / 25k tris each).
 const W_ = 'woodGrain';
 /** A log centred on its own origin (bevelCylinder grows up from y = 0). */
-const log = (r: number, len: number, bevel = 0.03, radial = 9): THREE.BufferGeometry => bevelCylinder(r, r, len, bevel, radial).translate(0, -len / 2, 0);
+const log = (r: number, len: number, bevel = 0.03, radial = 7): THREE.BufferGeometry => bevelCylinder(r, r, len, bevel, radial).translate(0, -len / 2, 0);
+/** Single-segment rounded box (108 tris: at cabin scale the 2-segment bevel is invisible). */
+const rb = (w: number, h: number, d: number, r = 0.04): THREE.BufferGeometry => roundedBox(w, h, d, r, 1);
 
 function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: number, seed: number): void {
   const at = (x: number, yy: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx): THREE.Matrix4 => mat(cx + x, y + yy, cz + z, rx, ry, rz, sx, sy, sz);
@@ -40,10 +43,10 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
   const acc = new THREE.Color(accent);
   const accDark = acc.clone().multiplyScalar(0.62).getHex();
   // Fieldstone plinth
-  b.add(W_, roundedBox(W + 0.34, base + 0.1, D + 0.34, 0.1), at(0, base / 2 - 0.02, 0), { tint: 0x9c968c, ao: groundAO(0.25, 0.6) });
+  b.add(W_, rb(W + 0.34, base + 0.1, D + 0.34, 0.1), at(0, base / 2 - 0.02, 0), { tint: 0x9c968c, ao: groundAO(0.25, 0.6) });
   for (let i = 0; i < 7; i++) {
     const a = (i / 7) * Math.PI * 2 + seed;
-    b.add(W_, roundedBox(0.34, 0.16, 0.26, 0.07), at(Math.cos(a) * (W / 2 + 0.12), 0.1, Math.sin(a) * (D / 2 + 0.12), 0, a, 0), { tint: i % 2 ? 0xb0aa9e : 0x8e887e });
+    b.add(W_, rb(0.34, 0.16, 0.26, 0.07), at(Math.cos(a) * (W / 2 + 0.12), 0.1, Math.sin(a) * (D / 2 + 0.12), 0, a, 0), { tint: i % 2 ? 0xb0aa9e : 0x8e887e });
   }
   // Log walls: front/back logs along X, side logs along Z, offset half a log so the corners interlock.
   const logs = 5;
@@ -54,71 +57,87 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
     for (const sz of [-1, 1]) b.add(W_, log(lh * 0.52, W + 0.42), at(0, yy, sz * D * 0.5, 0, 0, Math.PI / 2), { tint: tone });
     for (const sx of [-1, 1]) b.add(W_, log(lh * 0.5, D + 0.42), at(sx * W * 0.5, yy + lh * 0.25, 0, Math.PI / 2, 0, 0), { tint: tone });
     // Cut log ends at the corners (paler end grain)
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add(W_, new THREE.CylinderGeometry(lh * 0.46, lh * 0.46, 0.02, 9), at(sx * (W / 2 + 0.21), yy, sz * D * 0.5, 0, 0, Math.PI / 2), { tint: 0xf0cf98 });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add(W_, new THREE.CylinderGeometry(lh * 0.46, lh * 0.46, 0.02, 7), at(sx * (W / 2 + 0.21), yy, sz * D * 0.5, 0, 0, Math.PI / 2), { tint: 0xf0cf98 });
   }
-  b.add(W_, roundedBox(W - 0.12, wallH, D - 0.12, 0.04), at(0, base + wallH / 2, 0), { tint: 0x6a4428 });
-  // Gable ends: vertical planks in a triangle
+  b.add(W_, rb(W - 0.12, wallH, D - 0.12, 0.04), at(0, base + wallH / 2, 0), { tint: 0x6a4428 });
+  // Gable ends: one board-and-batten triangle each (a prism + 3 battens: ~60 tris, not 14 planks).
   const gh = 1.05;
+  const tri = new THREE.Shape();
+  tri.moveTo(-W / 2, 0);
+  tri.lineTo(W / 2, 0);
+  tri.lineTo(0, gh + 0.04);
+  tri.closePath();
+  const gable = new THREE.ExtrudeGeometry(tri, { depth: 0.08, bevelEnabled: false, curveSegments: 1 });
+  gable.translate(0, 0, -0.04);
   for (const sz of [-1, 1]) {
-    const n = 7;
-    for (let i = 0; i < n; i++) {
-      const u = (i + 0.5) / n - 0.5;
-      const h = gh * (1 - Math.abs(u) * 2) + 0.04;
-      b.add(W_, roundedBox(W / n + 0.01, h, 0.08, 0.015), at(u * W, top + h / 2, sz * (D * 0.5 - 0.02)), { tint: i % 2 ? 0xa87244 : 0x9a663c });
+    b.add(W_, gable, at(0, top, sz * (D * 0.5 - 0.02)), { tint: 0xa06c40 });
+    for (const u of [-0.27, 0, 0.27]) {
+      const h = gh * (1 - Math.abs(u) * 2) * 0.92;
+      b.add(W_, rb(0.06, h, 0.04, 0.012), at(u * W, top + h / 2, sz * (D * 0.5 + 0.03)), { tint: 0x8a5a34 });
     }
   }
-  // Roof: two tiled slabs with a deep overhang, a ridge log
+  // Roof: rows of painted shingle boards on each side (overlapping, alternating tone), deep overhang.
   const pitch = Math.atan2(gh, W / 2);
   const slabW = Math.hypot(W / 2, gh) + 0.5;
+  const rows = 5;
+  const rowW = slabW / rows;
   for (const sx of [-1, 1]) {
-    const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(cx + sx * (W / 4 + 0.16), y + top + gh / 2 + 0.12, cz),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -sx * pitch)),
-      new THREE.Vector3(1, 1, 1),
-    );
-    b.add('roofTile', roundedBox(slabW, 0.14, D + 0.9, 0.04), m, { tint: 0xd07052 });
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -sx * pitch));
+    for (let r = 0; r < rows; r++) {
+      // Row r runs from the eave (r = 0) up to the ridge; each row overlaps the one below it.
+      const u = (r + 0.5) / rows - 0.5;
+      const lx = -u * slabW * Math.cos(pitch);
+      const ly = u * slabW * Math.sin(pitch);
+      const m = new THREE.Matrix4().compose(
+        new THREE.Vector3(cx + sx * (W / 4 + 0.16 - lx), y + top + gh / 2 + 0.12 + ly + (rows - r) * 0.012, cz),
+        q,
+        new THREE.Vector3(1, 1, 1),
+      );
+      const tone = r % 2 ? 0xc8664a : 0xd77a58;
+      b.add(W_, rb(rowW * 1.18, 0.1, D + 0.9 + (r === 0 ? 0.06 : 0), 0.035), m, { tint: tone });
+    }
   }
   b.add(W_, log(0.1, D + 1.0, 0.02, 10), at(0, top + gh + 0.2, 0, Math.PI / 2, 0, 0), { tint: 0x7a4e30 });
   // Chimney (stone) with a cap
-  b.add(W_, roundedBox(0.44, 1.25, 0.44, 0.07), at(-W * 0.26, top + gh * 0.55, -D * 0.18), { tint: 0xa49e94 });
-  b.add(W_, roundedBox(0.54, 0.1, 0.54, 0.03), at(-W * 0.26, top + gh * 0.55 + 0.64, -D * 0.18), { tint: 0x7e786e });
+  b.add(W_, rb(0.44, 1.25, 0.44, 0.07), at(-W * 0.26, top + gh * 0.55, -D * 0.18), { tint: 0xa49e94 });
+  b.add(W_, rb(0.54, 0.1, 0.54, 0.03), at(-W * 0.26, top + gh * 0.55 + 0.64, -D * 0.18), { tint: 0x7e786e });
   // Door in the owner's colour: frame, planks, braces, brass knob
   const fz = D * 0.5 + 0.2;
-  b.add(W_, roundedBox(0.9, 1.32, 0.1, 0.03), at(0, base + 0.64, fz - 0.03), { tint: 0x4e3220 });
-  b.add(W_, roundedBox(0.72, 1.18, 0.08, 0.025), at(0, base + 0.6, fz + 0.01), { tint: accent });
-  for (const dx of [-0.18, 0, 0.18]) b.add(W_, roundedBox(0.012, 1.1, 0.012, 0.004), at(dx + 0.09, base + 0.6, fz + 0.055), { tint: accDark });
-  for (const dy of [0.28, 0.92]) b.add(W_, roundedBox(0.66, 0.08, 0.03, 0.01), at(0, base + dy, fz + 0.06), { tint: accDark });
+  b.add(W_, rb(0.9, 1.32, 0.1, 0.03), at(0, base + 0.64, fz - 0.03), { tint: 0x4e3220 });
+  b.add(W_, rb(0.72, 1.18, 0.08, 0.025), at(0, base + 0.6, fz + 0.01), { tint: accent });
+  for (const dx of [-0.18, 0, 0.18]) b.add(W_, rb(0.012, 1.1, 0.012, 0.004), at(dx + 0.09, base + 0.6, fz + 0.055), { tint: accDark });
+  for (const dy of [0.28, 0.92]) b.add(W_, rb(0.66, 0.08, 0.03, 0.01), at(0, base + dy, fz + 0.06), { tint: accDark });
   b.add(W_, new THREE.SphereGeometry(0.045, 8, 6), at(0.26, base + 0.58, fz + 0.09), { tint: 0xf0c850 });
   // Heart cut-out above the door (a warm touch)
-  b.add(W_, roundedBox(0.16, 0.14, 0.02, 0.06), at(0, base + 1.08, fz + 0.06, 0, 0, Math.PI / 4), { tint: 0x3a2214 });
+  b.add(W_, rb(0.16, 0.14, 0.02, 0.06), at(0, base + 1.08, fz + 0.06, 0, 0, Math.PI / 4), { tint: 0x3a2214 });
   // Window (west of the door): lit card, muntins, shutters in the accent colour, flower box
   const wx = -0.88;
   const wy = base + 0.95;
-  b.add(W_, roundedBox(0.6, 0.56, 0.08, 0.02), at(wx, wy, fz - 0.06), { tint: 0x4e3220 });
+  b.add(W_, rb(0.6, 0.56, 0.08, 0.02), at(wx, wy, fz - 0.06), { tint: 0x4e3220 });
   b.add('windowCard', new THREE.PlaneGeometry(0.46, 0.42), at(wx, wy, fz - 0.01));
-  b.add(W_, roundedBox(0.03, 0.44, 0.03, 0.01), at(wx, wy, fz + 0.01), { tint: 0x4e3220 });
-  b.add(W_, roundedBox(0.48, 0.03, 0.03, 0.01), at(wx, wy, fz + 0.01), { tint: 0x4e3220 });
-  for (const s of [-1, 1]) b.add(W_, roundedBox(0.2, 0.56, 0.04, 0.02), at(wx + s * 0.42, wy, fz - 0.02, 0, s * 0.25, 0), { tint: acc.clone().lerp(new THREE.Color(0xffffff), 0.15).getHex() });
-  b.add(W_, roundedBox(0.66, 0.15, 0.22, 0.03), at(wx, wy - 0.36, fz + 0.06), { tint: 0x8a5a34 });
+  b.add(W_, rb(0.03, 0.44, 0.03, 0.01), at(wx, wy, fz + 0.01), { tint: 0x4e3220 });
+  b.add(W_, rb(0.48, 0.03, 0.03, 0.01), at(wx, wy, fz + 0.01), { tint: 0x4e3220 });
+  for (const s of [-1, 1]) b.add(W_, rb(0.2, 0.56, 0.04, 0.02), at(wx + s * 0.42, wy, fz - 0.02, 0, s * 0.25, 0), { tint: acc.clone().lerp(new THREE.Color(0xffffff), 0.15).getHex() });
+  b.add(W_, rb(0.66, 0.15, 0.22, 0.03), at(wx, wy - 0.36, fz + 0.06), { tint: 0x8a5a34 });
   for (let i = 0; i < 5; i++) {
     const c = [0xf06a8a, 0xffd35a, 0xf5f0ff, 0xf09a4a, 0xb87ae0][(i + seed) % 5]!;
-    b.add(W_, new THREE.SphereGeometry(0.065, 7, 5), at(wx - 0.24 + i * 0.12, wy - 0.24 + (i % 2) * 0.03, fz + 0.1), { tint: c });
+    b.add(W_, new THREE.SphereGeometry(0.065, 6, 4), at(wx - 0.24 + i * 0.12, wy - 0.24 + (i % 2) * 0.03, fz + 0.1), { tint: c });
     b.add(W_, new THREE.SphereGeometry(0.05, 5, 4), at(wx - 0.22 + i * 0.12, wy - 0.28, fz + 0.02), { tint: 0x5f9a3c });
   }
   // Porch lamp east of the door
-  b.add(W_, roundedBox(0.05, 0.28, 0.05, 0.01), at(0.62, base + 1.18, fz + 0.02), { tint: 0x3a3230 });
-  b.add(W_, roundedBox(0.17, 0.22, 0.17, 0.03), at(0.62, base + 1.02, fz + 0.12), { tint: 0x3a3230 });
-  b.add('lampGlow', new THREE.SphereGeometry(0.065, 10, 8), at(0.62, base + 1.0, fz + 0.12));
+  b.add(W_, rb(0.05, 0.28, 0.05, 0.01), at(0.62, base + 1.18, fz + 0.02), { tint: 0x3a3230 });
+  b.add(W_, rb(0.17, 0.22, 0.17, 0.03), at(0.62, base + 1.02, fz + 0.12), { tint: 0x3a3230 });
+  b.add('windowCard', new THREE.BoxGeometry(0.12, 0.15, 0.12), at(0.62, base + 1.02, fz + 0.12));
   // Doorstep + mat
-  b.add(W_, roundedBox(1.15, 0.14, 0.52, 0.04), at(0, 0.07, D * 0.5 + 0.5), { tint: 0xa77a50, ao: groundAO(0.2, 0.7) });
-  b.add(W_, roundedBox(0.74, 0.02, 0.34, 0.01), at(0, 0.15, D * 0.5 + 0.52), { tint: acc.clone().lerp(new THREE.Color(0xf4e4c4), 0.55).getHex() });
+  b.add(W_, rb(1.15, 0.14, 0.52, 0.04), at(0, 0.07, D * 0.5 + 0.5), { tint: 0xa77a50, ao: groundAO(0.2, 0.7) });
+  b.add(W_, rb(0.74, 0.02, 0.34, 0.01), at(0, 0.15, D * 0.5 + 0.52), { tint: acc.clone().lerp(new THREE.Color(0xf4e4c4), 0.55).getHex() });
   // Firewood stack along the east wall + a little barrel
   for (let i = 0; i < 6; i++) {
     const r = i < 3 ? 0 : i < 5 ? 1 : 2;
     const k = i < 3 ? i : i < 5 ? i - 3 : 0;
     b.add(W_, log(0.1, 0.62, 0.02, 8), at(W / 2 + 0.34, 0.11 + r * 0.19, -0.35 + k * 0.21 + r * 0.1, 0, 0, Math.PI / 2), { tint: 0xb88a5a });
   }
-  b.add(W_, bevelCylinder(0.22, 0.2, 0.5, 0.04, 12), at(-W / 2 - 0.3, 0, D * 0.3), { tint: 0x8a5a34 });
+  b.add(W_, bevelCylinder(0.22, 0.2, 0.5, 0.04, 9), at(-W / 2 - 0.3, 0, D * 0.3), { tint: 0x8a5a34 });
 }
 
 export class Cabins {
