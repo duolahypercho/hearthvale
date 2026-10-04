@@ -189,7 +189,7 @@ export class RemoteAngler {
         this.caughtNote = def.name;
       }
       // Over the hat (same as the local catch pose: the hat sits ≈ 1.9 m up, the fish floats above it).
-      const hold = _hold.copy(feet).addScaledVector(_UP, 2.62).addScaledVector(fwd, 0.08);
+      const hold = _hold.copy(feet).addScaledVector(_UP, 2.72).addScaledVector(fwd, 0.08);
       if (arc < 1) {
         g.heldRoot.position.lerpVectors(bob, hold, arc);
         g.heldRoot.position.y += Math.sin(arc * Math.PI) * 1.2;

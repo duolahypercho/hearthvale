@@ -1567,7 +1567,7 @@ export class FishingSystem implements System, FishingApi {
         // Over the hat: the hands reach up to the fish's belly, the fish floats clear of the brim.
         (r.hat ?? r.head).getWorldPosition(_hatW);
         if (!r.hat) _hatW.y += 0.5;
-        this.holdPt.set(_hatW.x, _hatW.y + 0.5 + heldScale * (trophy ? 0.28 : 0.22), _hatW.z).addScaledVector(_bodyFwd, trophy ? 0.1 : 0.06);
+        this.holdPt.set(_hatW.x, _hatW.y + 0.66 + heldScale * (trophy ? 0.16 : 0.2), _hatW.z).addScaledVector(_bodyFwd, trophy ? 0.1 : 0.06);
       } else this.holdPt.addScaledVector(_bodyFwd, 0.28).y += 0.15;
     }
     // Rod pose.
