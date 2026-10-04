@@ -1389,7 +1389,9 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
   }
 
   if (id === 'pumpkin') {
-    add(fruit(1.15, C(0xe8741e), { sy: 0.66, ribs: 12, crease: true, seg: 40, rows: 18, shade: 0.5 }), mat(0, 0.66, 0), 'skin');
+    // Settled INTO the bed (sunk a hand's width, a dark underside where it sits on the soil): a
+    // giant must weigh something, not hover on its leaves.
+    add(fruit(1.15, C(0xe8741e), { sy: 0.66, ribs: 12, crease: true, seg: 40, rows: 18, shade: 0.3 }), mat(0, 0.58, 0), 'skin');
     // A thick woody stem that curls over, and a dried tendril.
     add(tube([new THREE.Vector3(0, 1.18, 0), new THREE.Vector3(0.02, 1.36, 0.01), new THREE.Vector3(0.12, 1.46, 0.06), new THREE.Vector3(0.24, 1.42, 0.12), new THREE.Vector3(0.28, 1.34, 0.15)], 0.085, 0.045, C(0x6a6a34), C(0x9a8a4a), 12, 8), undefined, 'skin');
     add(tube([new THREE.Vector3(0.26, 1.36, 0.14), new THREE.Vector3(0.42, 1.44, 0.2), new THREE.Vector3(0.52, 1.36, 0.36), new THREE.Vector3(0.46, 1.28, 0.48), new THREE.Vector3(0.38, 1.32, 0.46)], 0.018, 0.007, GREEN.mid, C(0xa8b060), 14, 4));
@@ -1404,8 +1406,8 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
       add(leafGeo(0.38, 0.45, { shape: 'heart', lift: 0.25, bend: 0.3, fold: 0.22, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 5 }), mat(Math.cos(a + 0.1) * 1.4, 0.06, Math.sin(a + 0.1) * 1.4, 0, a + 1.2, 0));
     }
   } else if (id === 'melon') {
-    add(fruit(1.0, C(0x9cc85e), { sy: 0.74, long: 1.15, stripes: 11, stripeColor: C(0x28521f), seg: 40, rows: 20, shade: 0.5 }), mat(0, 0.74, 0, 0, 0.3, 0.04), 'skin');
-    add(tube([new THREE.Vector3(0, 1.45, 0), new THREE.Vector3(0.05, 1.58, 0.02), new THREE.Vector3(0.16, 1.62, 0.08), new THREE.Vector3(0.24, 1.55, 0.12)], 0.05, 0.03, C(0x6a7a3a), C(0x8a8a4a), 10, 7), undefined, 'skin');
+    add(fruit(1.0, C(0x8fbf52), { sy: 0.74, long: 1.15, stripes: 11, stripeColor: C(0x234a1b), seg: 40, rows: 20, shade: 0.3 }), mat(0, 0.66, 0, 0, 0.3, 0.04), 'skin');
+    add(tube([new THREE.Vector3(0, 1.37, 0), new THREE.Vector3(0.05, 1.5, 0.02), new THREE.Vector3(0.16, 1.54, 0.08), new THREE.Vector3(0.24, 1.47, 0.12)], 0.05, 0.03, C(0x6a7a3a), C(0x8a8a4a), 10, 7), undefined, 'skin');
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + r.next();
       add(leafGeo(0.6, 0.7, { shape: 'lobed', lift: 0.15, bend: 0.3, fold: 0.2, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 6 }), mat(Math.cos(a) * 1.0, 0.04, Math.sin(a) * 1.0, 0, a + Math.PI / 2, 0));
