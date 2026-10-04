@@ -501,7 +501,7 @@ export class CutsceneSystem implements System, CutsceneApi {
     // Hold on the frame: the next line of dialogue (if any) is shown complete.
     const rest = mark >= 0 ? cmds.slice(mark + 1) : [];
     // ...unless the action carries on first (a blocking walk / camera move): an establishing frame has no text.
-    const stop = rest.findIndex((c) => (c.do === 'walk' || c.do === 'cam' || c.do === 'rail') && c.wait !== false);
+    const stop = rest.findIndex((c) => (c.do === 'walk' || c.do === 'cam' || c.do === 'rail' || c.do === 'fade') && c.wait !== false);
     const ni = rest.findIndex((c, i) => (stop < 0 || i < stop) && (c.do === 'say' || c.do === 'choice' || c.do === 'caption' || c.do === 'letter'));
     const next = ni >= 0 ? rest[ni] : undefined;
     if (next?.do === 'choice') {
@@ -657,9 +657,11 @@ export class CutsceneSystem implements System, CutsceneApi {
   private async exec(c: Cmd, hold: boolean): Promise<string | void> {
     const g = this.game;
     switch (c.do) {
-      case 'fade':
-        await this.overlay.fade(c.to === 'black', this.fast ? 0 : (c.dur ?? 0.8));
+      case 'fade': {
+        const f = this.overlay.fade(c.to === 'black', this.fast ? 0 : (c.dur ?? 0.8));
+        if (c.wait !== false) await f;
         return;
+      }
       case 'letterbox':
         this.overlay.letterbox(c.on, this.fast);
         this.boxed = c.on;
@@ -785,7 +787,8 @@ export class CutsceneSystem implements System, CutsceneApi {
           return;
         }
         if (this.fast) return;
-        await this.overlay.caption(c.text, c.sub, c.dur ?? 3, false, c.low);
+        if (c.wait === false) void this.overlay.caption(c.text, c.sub, c.dur ?? 3, false, c.low);
+        else await this.overlay.caption(c.text, c.sub, c.dur ?? 3, false, c.low);
         return;
       case 'letter': {
         if (hold) {

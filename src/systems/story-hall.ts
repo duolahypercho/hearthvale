@@ -437,22 +437,90 @@ class GlowPoints {
   }
 }
 
-/** Moonbeam / sunbeam through a window: an additive, softly-edged volumetric card. */
-function beamMaterial(): THREE.ShaderMaterial {
+/**
+ * Moonlight through a real opening: the light volume is swept from the window rectangle along one
+ * shared moon direction (`MOON`: metres travelled in x / z per metre of drop) down to the floor —
+ * four soft-edged sheets (top / bottom / both sides), so on screen it reads as a slanted wedge that
+ * starts at the glass and widens into its pool, never a column through the open roof.
+ */
+const MOON = { dx: 0.5, dz: 1.05 };
+interface Shaft {
+  /** Window centre x, sill y0, head y1, glass plane z, width. `round` = the rose window (disc mask). */
+  x: number;
+  y0: number;
+  y1: number;
+  z: number;
+  w: number;
+  round?: boolean;
+}
+function shaftVolume(s: Shaft): THREE.BufferGeometry {
+  const xl = s.x - s.w / 2;
+  const xr = s.x + s.w / 2;
+  const foot = (x: number, y: number): [number, number, number] => [x + MOON.dx * y, 0.03, s.z + MOON.dz * y];
+  const P = (x: number, y: number): [number, number, number] => [x, y, s.z];
+  const pos: number[] = [];
+  const uv: number[] = [];
+  // A sheet from window edge a→b down to the floor; u runs across the sheet, v along the ray.
+  const sheet = (a: [number, number, number], b: [number, number, number], fa: [number, number, number], fb: [number, number, number]): void => {
+    const q = [a, b, fb, a, fb, fa];
+    const quv = [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1];
+    for (const v of q) pos.push(...v);
+    uv.push(...quv);
+  };
+  sheet(P(xl, s.y1), P(xr, s.y1), foot(xl, s.y1), foot(xr, s.y1));
+  sheet(P(xl, s.y0), P(xr, s.y0), foot(xl, s.y0), foot(xr, s.y0));
+  sheet(P(xl, s.y0), P(xl, s.y1), foot(xl, s.y0), foot(xl, s.y1));
+  sheet(P(xr, s.y0), P(xr, s.y1), foot(xr, s.y0), foot(xr, s.y1));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+/** The window's pool on the floor: its panes (or the rose's six petals) printed in moonlight. */
+function shaftPool(s: Shaft): THREE.BufferGeometry {
+  const xl = s.x - s.w / 2;
+  const xr = s.x + s.w / 2;
+  const f = (x: number, y: number): number[] => [x + MOON.dx * y, 0.022, s.z + MOON.dz * y];
+  const pos = [...f(xl, s.y0), ...f(xr, s.y0), ...f(xr, s.y1), ...f(xl, s.y0), ...f(xr, s.y1), ...f(xl, s.y1)];
+  const uv = [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+function shaftMaterial(pool: boolean, round: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
-    uniforms: { uColor: { value: new THREE.Color(0x6f8fff) }, uStrength: { value: 0.5 }, uTime: { value: 0 } },
-    vertexShader: /* glsl */ `varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor; uniform float uStrength; uniform float uTime; varying vec2 vUv; varying vec3 vW;
-      float h(float x){ return fract(sin(x * 91.7) * 43758.5); }
+    uniforms: { uColor: { value: new THREE.Color(0x9ab4ff) }, uStrength: { value: 0.5 }, uTime: { value: 0 } },
+    vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: pool
+      ? /* glsl */ `
+      uniform vec3 uColor; uniform float uStrength; varying vec2 vUv;
       void main(){
-        float edge = smoothstep(0.0, 0.28, vUv.x) * smoothstep(1.0, 0.72, vUv.x);
-        float len = smoothstep(0.0, 0.18, vUv.y) * (0.35 + 0.65 * vUv.y);
-        float streak = 0.75 + 0.25 * sin(vUv.x * 23.0 + uTime * 0.3) * sin(vUv.x * 7.0 - uTime * 0.17);
+        vec2 q = vUv;
+        float a;
+        ${
+          round
+            ? `vec2 c = q * 2.0 - 1.0; float r = length(c); float ang = atan(c.y, c.x);
+               a = smoothstep(1.0, 0.82, r) * (1.0 - smoothstep(0.05, 0.0, abs(sin(ang * 3.0)) * r) * 0.85) * (1.0 - smoothstep(0.24, 0.16, r) * 0.7);`
+            : `float e = smoothstep(0.0, 0.07, q.x) * smoothstep(1.0, 0.93, q.x) * smoothstep(0.0, 0.05, q.y) * smoothstep(1.0, 0.9, q.y);
+               float mull = smoothstep(0.018, 0.032, abs(q.x - 0.5));
+               float tr = smoothstep(0.012, 0.024, abs(fract(q.y * 4.0 + 0.5) - 0.5) / 4.0);
+               a = e * mull * tr;`
+        }
+        a *= uStrength;
+        gl_FragColor = vec4(uColor * a, a);
+      }`
+      : /* glsl */ `
+      uniform vec3 uColor; uniform float uStrength; uniform float uTime; varying vec2 vUv;
+      void main(){
+        float edge = smoothstep(0.0, 0.32, vUv.x) * smoothstep(1.0, 0.68, vUv.x);
+        // Brightest just inside the glass, thinning as it spreads; a soft fade where it meets the floor.
+        float len = smoothstep(0.0, 0.08, vUv.y) * (1.0 - 0.55 * vUv.y) * smoothstep(1.0, 0.86, vUv.y);
+        float streak = 0.8 + 0.2 * sin(vUv.x * 19.0 + uTime * 0.25) * sin(vUv.x * 6.0 - uTime * 0.13);
         float a = edge * len * streak * uStrength;
         gl_FragColor = vec4(uColor * a, a);
       }`,
@@ -612,6 +680,8 @@ interface RoomVisual {
 export class HallMap implements GameMap {
   readonly id = 'hall';
   readonly title = 'The Lantern Hall';
+  /** Roofed: no petals, leaves, rain or snow drift through the interior. */
+  readonly covered = true;
   readonly grid = new TileGrid(30, 26);
   readonly root = new THREE.Group();
   readonly spawn = { x: HALL.entrance.x, z: 20.2, facing: 'up' as const };
@@ -626,9 +696,8 @@ export class HallMap implements GameMap {
   private floorGrime!: HTMLCanvasElement;
   private floorLive!: HTMLCanvasElement;
   private floorTex!: THREE.CanvasTexture;
-  private beams: THREE.Mesh[] = [];
-  private beamMat = beamMaterial();
-  private naveBeamMat = beamMaterial();
+  /** Window shafts (volume + floor print materials) and their openings (dust motes live inside them). */
+  private shafts: { def: Shaft; vol: THREE.ShaderMaterial; pool: THREE.ShaderMaterial }[] = [];
   private windowMat: THREE.MeshStandardMaterial;
   private greatCore: THREE.MeshStandardMaterial;
   private greatLight: THREE.PointLight;
@@ -667,8 +736,7 @@ export class HallMap implements GameMap {
   private caustic: THREE.CanvasTexture | null = null;
   /** Every furniture footprint (x0, z0, x1, z1): baked as soft contact shadows into the floor. */
   private footprints: [number, number, number, number][] = [];
-  /** Moonlight pooled on the nave floor (additive decals) while the Hall is dark. */
-  private moonPools: THREE.ShaderMaterial[] = [];
+  private moteLife = new Float32Array(150 * 2);
 
   constructor(private game: Game) {
     this.root.name = 'map:hall';
@@ -703,26 +771,9 @@ export class HallMap implements GameMap {
     this.ring.renderOrder = 6;
     this.ring.userData.noAO = true;
     this.root.add(this.ring);
-    // Two shafts of moonlight from the clerestory fall across the nave and pool on the runner: a lit
-    // path from the doors to the dais while the Hall is dark.
-    for (const [x, z, rz, rx] of [[14.3, 14.6, 0.1, -0.72], [15.7, 9.4, -0.08, -0.72]] as const) {
-      const beam = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 7.5), this.naveBeamMat);
-      beam.position.set(x, 2.6, z - 1.6);
-      beam.rotation.set(rx, 0, rz);
-      beam.userData.noAO = true;
-      beam.renderOrder = 5;
-      this.beams.push(beam);
-      this.root.add(beam);
-      const pm = poolMaterial(0xa8c4ff);
-      const pool = new THREE.Mesh(new THREE.CircleGeometry(3.2, 40), pm);
-      pool.rotation.x = -Math.PI / 2;
-      pool.scale.set(0.62, 1.05, 1);
-      pool.position.set(x, 0.018, z + 0.6);
-      pool.renderOrder = 2;
-      pool.userData.noAO = true;
-      this.moonPools.push(pm);
-      this.root.add(pool);
-    }
+    // Moonlight: one shaft through each back window and one through the rose window over the dais,
+    // all on the same slant, each ending in its window printed on the floor.
+    this.addShaft({ x: HALL.dais.x, y0: 3.45, y1: 5.25, z: 3.05, w: 1.8, round: true });
     for (let i = 0; i < this.motes.n; i++) this.respawnMote(i, true);
     this.redrawDust();
   }
@@ -1448,14 +1499,25 @@ export class HallMap implements GameMap {
     this.root.add(head);
     b.add(m.woodGrain, new THREE.TorusGeometry(w / 2 + 0.04, 0.07, 6, 18, Math.PI), mat(x, y + h, z), { tint: 0x5e3a22 });
     b.add(m.plaster, new THREE.RingGeometry(w / 2 + 0.08, w / 2 + 0.9, 18, 1, 0, Math.PI), mat(x, y + h, z - 0.02), { tint: 0xf0e2c6 });
-    // Moonbeam falling into the room.
-    const beam = new THREE.Mesh(new THREE.PlaneGeometry(w * 1.3, 7.5), this.beamMat);
-    beam.position.set(x + 0.2, y + h * 0.45 - 1.5, z + 2.3);
-    beam.rotation.set(-0.72, 0.08, 0);
-    beam.userData.noAO = true;
-    beam.renderOrder = 5;
-    this.beams.push(beam);
-    this.root.add(beam);
+    // Moonlight falling into the room from this opening.
+    this.addShaft({ x, y0: y, y1: y + h + w * 0.35, z: z + 0.02, w });
+  }
+
+  private addShaft(def: Shaft): void {
+    const vol = shaftMaterial(false, !!def.round);
+    const pool = shaftMaterial(true, !!def.round);
+    const vm = new THREE.Mesh(shaftVolume(def), vol);
+    const pm = new THREE.Mesh(shaftPool(def), pool);
+    vm.name = 'hall-moonshaft';
+    pm.name = 'hall-moonpool';
+    for (const m of [vm, pm]) {
+      m.userData.noAO = true;
+      m.frustumCulled = false;
+      this.root.add(m);
+    }
+    vm.renderOrder = 5;
+    pm.renderOrder = 2;
+    this.shafts.push({ def, vol, pool });
   }
 
   private buildGreatLantern(b: B): void {
@@ -2866,18 +2928,22 @@ export class HallMap implements GameMap {
   }
 
   private respawnMote(i: number, anywhere: boolean): void {
-    // Motes drift in the three window beams and the two nave shafts (where they catch the light).
-    const k = i % 5;
-    const nave = k >= 3;
-    const w = nave ? (k === 3 ? 15.0 : 14.6) : [7, 15, 23][k]!;
-    this.motes.pos[i * 3] = w + (Math.random() - 0.5) * (nave ? 1.6 : 2.2);
-    this.motes.pos[i * 3 + 1] = anywhere ? Math.random() * 4 : 3.8 + Math.random() * 0.6;
-    this.motes.pos[i * 3 + 2] = nave ? (k === 3 ? 14.6 : 9.4) + (Math.random() - 0.5) * 2.4 : 3.5 + Math.random() * 5.5;
-    this.moteVel[i * 3] = (Math.random() - 0.5) * 0.05;
-    this.moteVel[i * 3 + 1] = -0.03 - Math.random() * 0.05;
-    this.moteVel[i * 3 + 2] = (Math.random() - 0.2) * 0.06;
-    this.motes.size[i] = 0.05 + Math.random() * 0.05;
+    // A random point inside a random shaft: a point on its window, then part-way down the ray.
+    const sh = this.shafts[i % Math.max(1, this.shafts.length)]?.def;
+    if (!sh) return;
+    const y = sh.y0 + Math.random() * (sh.y1 - sh.y0);
+    const k = 0.12 + Math.random() * 0.8;
+    const x = sh.x + (Math.random() - 0.5) * sh.w * 0.8;
+    this.motes.pos[i * 3] = x + MOON.dx * y * k;
+    this.motes.pos[i * 3 + 1] = y * (1 - k);
+    this.motes.pos[i * 3 + 2] = sh.z + MOON.dz * y * k;
+    this.moteVel[i * 3] = (Math.random() - 0.5) * 0.03;
+    this.moteVel[i * 3 + 1] = (Math.random() - 0.6) * 0.03;
+    this.moteVel[i * 3 + 2] = (Math.random() - 0.5) * 0.03;
+    this.motes.size[i] = 0.03 + Math.random() * 0.035;
     this.motes.alpha[i] = 0;
+    this.moteLife[i * 2] = anywhere ? Math.random() * 6 : 0;
+    this.moteLife[i * 2 + 1] = 5 + Math.random() * 4;
   }
 
   update(dt: number, game: Game): void {
@@ -2937,31 +3003,34 @@ export class HallMap implements GameMap {
     this.hearthLight.intensity = this.hearthFire.active ? 5.5 * (0.8 + Math.sin(t * 13) * 0.1 + Math.sin(t * 29) * 0.08) : 0;
     const h = game.rc.renderer.domElement.height;
     this.hearthFire.update(dt, h);
-    // Beams: cool moonlight when dark, faint warm dust-light when restored.
+    // Shafts: cool moonlight when dark (a warm afternoon sunbeam by day), thinning as the rooms relight.
     const hour = game.calendar.hour;
     const day = hour > 7 && hour < 18.5 ? 1 : 0;
-    this.beamMat.uniforms.uTime!.value = t;
-    (this.beamMat.uniforms.uColor!.value as THREE.Color).setHex(day ? 0xffe2b0 : 0x7a98ff).lerp(new THREE.Color(0xffc890), frac * 0.6);
-    this.beamMat.uniforms.uStrength!.value = (day ? 0.45 : 1.05) * (1 - frac * 0.7);
-    this.naveBeamMat.uniforms.uTime!.value = t;
-    (this.naveBeamMat.uniforms.uColor!.value as THREE.Color).copy(this.beamMat.uniforms.uColor!.value as THREE.Color);
-    this.naveBeamMat.uniforms.uStrength!.value = (day ? 0.3 : 0.62) * Math.max(0, 1 - frac * 1.4);
-    for (const pm of this.moonPools) {
-      (pm.uniforms.uColor!.value as THREE.Color).setHex(day ? 0xffe8c0 : 0xa8c4ff);
-      pm.uniforms.uI!.value = (day ? 0.14 : 0.32) * Math.max(0, 1 - frac * 1.3);
+    const shaftCol = new THREE.Color(day ? 0xffe2b0 : 0x9cb6ff).lerp(new THREE.Color(0xffc890), frac * 0.6);
+    const fade = Math.max(0, 1 - frac * 1.25);
+    for (const sh of this.shafts) {
+      const k = sh.def.round ? 0.8 : 1;
+      sh.vol.uniforms.uTime!.value = t;
+      (sh.vol.uniforms.uColor!.value as THREE.Color).copy(shaftCol);
+      sh.vol.uniforms.uStrength!.value = (day ? 0.36 : 0.6) * k * (0.25 + 0.75 * fade);
+      (sh.pool.uniforms.uColor!.value as THREE.Color).copy(shaftCol);
+      sh.pool.uniforms.uStrength!.value = (day ? 0.32 : 0.5) * k * (0.2 + 0.8 * fade);
     }
-    this.windowMat.emissive.setHex(day ? 0xcfe4ff : 0x4a68c0);
-    this.windowMat.emissiveIntensity = day ? 1.1 : 0.9;
-    // Dust motes drift down through the beams.
+    this.windowMat.emissive.setHex(day ? 0xcfe4ff : 0x5a78c8);
+    this.windowMat.emissiveIntensity = day ? 1.1 : 1.0;
+    // Dust motes: only inside the shafts, warm specks turning slowly in the light.
     for (let i = 0; i < this.motes.n; i++) {
       const p = this.motes.pos;
-      p[i * 3]! += (this.moteVel[i * 3]! + Math.sin(t * 0.7 + i) * 0.02) * dt;
+      p[i * 3]! += (this.moteVel[i * 3]! + Math.sin(t * 0.7 + i) * 0.012) * dt;
       p[i * 3 + 1]! += this.moteVel[i * 3 + 1]! * dt;
       p[i * 3 + 2]! += this.moteVel[i * 3 + 2]! * dt;
-      this.motes.alpha[i] = Math.min(1, this.motes.alpha[i]! + dt * 0.5) * (0.55 + 0.45 * Math.sin(t * 2 + i * 1.7)) * (1 - frac * 0.5);
-      const c = day ? [1.6, 1.5, 1.25] : [1.2, 1.45, 2.3];
+      const life = (this.moteLife[i * 2]! += dt);
+      const span = this.moteLife[i * 2 + 1]!;
+      const env = Math.min(1, life / 1.5, Math.max(0, span - life) / 1.5);
+      this.motes.alpha[i] = env * (0.6 + 0.4 * Math.sin(t * 2 + i * 1.7)) * fade * 0.8;
+      const c = day ? [1.5, 1.35, 1.05] : [1.25, 1.15, 0.95];
       this.motes.col.set(c, i * 3);
-      if (p[i * 3 + 1]! < 0.2) this.respawnMote(i, false);
+      if (life > span) this.respawnMote(i, false);
     }
     this.motes.flush(h);
     // Glowmoths: orbit lit lanterns (more per lit room), swarm on ignition.
@@ -3179,6 +3248,15 @@ export class LanternHallSystem implements System {
       if (map === 'hall') this.sync();
     });
     game.events.on('player:interact', ({ x, z }) => this.interact(x, z));
+    // Every room celebration cuts out to the square: build the town behind the altar / a quiet moment
+    // in the Hall, so that cut is a 0.6 s dip through black, never a 1.7 s first-load hitch.
+    const warmTown = (): void => void game.world.prewarm('town');
+    game.events.on('ui:open', ({ name }) => {
+      if (name.startsWith('bundles')) warmTown();
+    });
+    game.events.on('map:change', ({ map }) => {
+      if (map === 'hall') window.setTimeout(() => game.world.current?.id === 'hall' && !game.services.cutscene?.playing && warmTown(), 3000);
+    });
     game.events.on('quest:room', ({ roomId }) => {
       if (this.game.services.cutscene) this.pending.add(roomId as RoomId);
       this.sync();
@@ -3289,25 +3367,27 @@ export class LanternHallSystem implements System {
     const office = new THREE.Color(0xeaf4ff);
     L.sun.color.copy(cool).lerp(warm, w).lerp(office, cold);
     L.sun.intensity = 1.25 - w * 0.55 + cold * 0.5;
-    L.hemi.color.set(0x5a6aa8).lerp(new THREE.Color(0xffd8b0), w).lerp(new THREE.Color(0xdde8f4), cold);
-    L.hemi.groundColor.set(0x2a2230).lerp(new THREE.Color(0x5a3a28), w).lerp(new THREE.Color(0x4a5460), cold);
-    // Dark: 30 % less cold fill than before, so the moon shafts and the farmer's lantern carry the frame.
-    L.hemi.intensity = 0.6 + w * 0.35 + cold * 0.35;
-    L.bounce.intensity = 0.12 + w * 0.2;
+    // Dark is a cool *mid-value* (floor boards ~30 % luminance): a beloved place gone to seed, its
+    // decay readable, not an unlit level. The shafts and the farmer's lantern add accents on top.
+    const d = 1 - w0;
+    L.hemi.color.set(0x8c9ccc).lerp(new THREE.Color(0xffd8b0), w).lerp(new THREE.Color(0xdde8f4), cold);
+    L.hemi.groundColor.set(0x4a4450).lerp(new THREE.Color(0x5a3a28), w).lerp(new THREE.Color(0x4a5460), cold);
+    L.hemi.intensity = 0.95 + d * 0.55 + cold * 0.35;
+    L.bounce.intensity = 0.12 + w * 0.2 + d * 0.1;
     L.bounce.color.set(0xffb070).lerp(new THREE.Color(0xcfe0f0), cold);
     const bg = new THREE.Color(0x0a0c16).lerp(new THREE.Color(0x160e0a), w).lerp(new THREE.Color(0x0e1418), cold);
     L.fog.color.copy(bg);
     L.fog.near = 60;
     L.fog.far = 140;
     (rc.scene.background as THREE.Color).copy(bg);
-    rc.scene.environmentIntensity = 0.18 + w * 0.12 + cold * 0.1;
+    rc.scene.environmentIntensity = 0.18 + w * 0.12 + cold * 0.1 + d * 0.14;
     rc.renderer.toneMappingExposure = 1.22 - w * 0.02 + cold * 0.06;
     const g = rc.post.grade.uniforms;
-    (g.uLift!.value as THREE.Vector3).set(0.02 + w * 0.02, 0.022 + w * 0.01 + cold * 0.01, 0.05 - w * 0.02 + cold * 0.01);
+    (g.uLift!.value as THREE.Vector3).set(0.02 + w * 0.02 + d * 0.012, 0.022 + w * 0.01 + cold * 0.01 + d * 0.016, 0.05 - w * 0.02 + cold * 0.01 + d * 0.01);
     (g.uGain!.value as THREE.Vector3).set(0.96 + w * 0.12 - cold * 0.04, 0.98 + w * 0.02 + cold * 0.02, 1.08 - w * 0.14 + cold * 0.06);
     g.uSaturation!.value = 1.02 + w * 0.1 - cold * 0.3;
     g.uContrast!.value = 1.08 - cold * 0.04;
-    g.uVignette!.value = 0.62 - w * 0.12 - cold * 0.2;
+    g.uVignette!.value = 0.5 - w * 0.0 - cold * 0.2;
     rc.post.setBloom(0.55 + w * 0.15, 0.9);
   }
 }
