@@ -832,5 +832,9 @@ delayed `weather:thunder`, scorch + steam), snow (flakes, top-facing accumulatio
 sastrugi, boot prints), wind gusts of leaves / petals, ground-hugging fog mornings with god rays, rainbows.
 `game.services.weather`: `strike(at?, hold?)`, `setFog(v|null)`, `setRainbow(v|null)`, `state()`.
 
-Demos: `forest-day`, `forest-rain`, `forest-fall`, `forest-glade`, `forest-night`, `forest-wind`, `storm`, `snow-day`,
-`fog-morning`, `rainbow`, `farm-storm`. Params: `&bolt=0|1` (posed strike), `&fog=0..1`, `&rainbow=0..1`.
+Demos: `forest-day`, `forest-rain`, `forest-fall`, `forest-glade`, `forest-night`, `forest-wind`, `forest-arrival`,
+`storm`, `storm-meadow`, `snow-day`, `snow-falls`, `fog-morning`, `fog-bridge`, `rainbow`, `farm-storm`, `coop-forest`.
+Params: `&bolt=0|1` (posed strike), `&fog=0..1`, `&rainbow=0..1`.
+
+Perf notes: the fog pass (`heightfog.ts`) only receives the light shafts inside the view frustum and skips the
+striation noise for pixels away from every beam; the height-fog banks reuse the ground mist's noise when both run.

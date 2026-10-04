@@ -775,7 +775,9 @@ function fir(rng: Rng): GiantGeo {
       const local = THREE.MathUtils.clamp((q.y - y + 0.9) / (th + 0.9), 0, 1);
       // Deep shade under each skirt, bright sunlit rims: the tiers read as stacked boughs.
       const radial = THREE.MathUtils.smoothstep(Math.hypot(q.x, q.z) / r, 0.15, 0.95);
-      return (0.26 + 0.74 * Math.pow(local, 0.8)) * (0.45 + 0.55 * radial) * (0.8 + 0.2 * f);
+      // (floor lifted: at 0.26 x 0.45 the skirt interiors went near-black and read as flat dark facets
+      // between the sprays, worst under the rain grade)
+      return (0.42 + 0.58 * Math.pow(local, 0.8)) * (0.6 + 0.4 * radial) * (0.8 + 0.2 * f);
     };
     b.add(leaf, gg, undefined, { aoWorld: tierAO });
     // Needle sprays hanging off the tier rim + a few lying on the tier top (break the skirt outline).
@@ -796,7 +798,7 @@ function fir(rng: Rng): GiantGeo {
     }
     // Sprays lying all over the tier tops: seen from the diorama camera the tiers read as layered
     // needle boughs instead of smooth dark cones.
-    const nTop = Math.round(r * 10);
+    const nTop = Math.round(r * 14);
     for (let k = 0; k < nTop; k++) {
       const ang = rng.next() * Math.PI * 2;
       const q = 0.2 + rng.next() * 0.72;
