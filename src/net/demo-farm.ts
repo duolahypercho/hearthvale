@@ -38,7 +38,7 @@ const LIVE_AGE = 1.2;
 /** The lane behind the bed (Juniper + Pip work the back row from here, facing the camera). */
 const LANE_Z = BED_Z0 - 0.62;
 /** Where the host stands (front-east corner of the bed, turned to it); the camera is re-aimed. */
-export const HOST_SPOT = { x: 28.55, z: 27.05 };
+export const HOST_SPOT = { x: 28.6, z: 26.5 };
 
 const yawOf = (f: Facing): number => (f === 'down' ? 0 : f === 'up' ? Math.PI : f === 'left' ? -Math.PI / 2 : Math.PI / 2);
 

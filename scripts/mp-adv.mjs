@@ -381,8 +381,49 @@ try {
   check('farm sync: predictions + replays match the host (≤ 4 pops per farmhand)', st.every((s) => (s.mispredicts ?? 0) <= 4), st.map((s, i) => `${['ash', 'bea', 'cole'][i]} ${s.mispredicts}`).join(' · '));
   check('farm sync: drift ≈ 0, ≤ 1 mid-day resync per farmhand', st.every((s) => s.drift <= 2 && s.needs <= 1), st.map((s, i) => `${['ash', 'bea', 'cole'][i]} drift ${s.drift} resyncs ${s.needs} edits ${s.reconciles}`).join(' · '));
   const fm = await Promise.all(all().map((p) => ev(p, () => window.__game.game.services.net.stats().frameMs)));
-  log('frame ms avg/p95/p99', fm.map((f, i) => `${names[i]} ${f.avg}/${f.p95}/${f.p99}`).join('  '));
-  writeFileSync(resolve(outDir, 'adv-results.json'), JSON.stringify({ at: new Date().toISOString(), delay: DELAY, jitter: JITTER, results, frameMs: fm, sync: st, errors }, null, 2));
+  log('frame ms avg/p95/p99 (all 4 tabs rendering on this one GPU)', fm.map((f, i) => `${names[i]} ${f.avg}/${f.p95}/${f.p99}`).join('  '));
+  // Per-client frame time (pillar 13/14: "4 players hold 60 fps"): each player has their own machine,
+  // so measure one client at a time while the other three tabs keep simulating + sending but skip
+  // drawing (their GPU work would otherwise be charged to the measured tab). Everyone is on the farm,
+  // all four farmers + cabins in the world, Ash walking a loop so remote playback runs.
+  const solo = [];
+  for (const [i, pg] of all().entries()) {
+    await Promise.all(all().map((q, j) => ev(q, (skip) => {
+      const g = window.__game.game;
+      if (skip) {
+        window.__advRO ??= g.renderOverride;
+        g.renderOverride = () => true;
+      } else if ('__advRO' in window) {
+        g.renderOverride = window.__advRO;
+        delete window.__advRO;
+      }
+    }, j !== i)));
+    await ev(ash, () => {
+      window.__advWalk = setInterval(() => {
+        const g = window.__game.game;
+        const k = (Date.now() / 1400) % 4 | 0;
+        g.input.keys.clear();
+        g.input.keys.add(['KeyD', 'KeyS', 'KeyA', 'KeyW'][k]);
+      }, 100);
+    });
+    await sleep(5200);
+    const f = await ev(pg, () => window.__game.game.services.net.stats().frameMs);
+    const draws = await ev(pg, () => window.__game.info().perf);
+    await ev(ash, () => {
+      clearInterval(window.__advWalk);
+      window.__game.game.input.keys.clear();
+    });
+    solo.push({ who: names[i], ...f, draws: draws.drawCalls, tris: draws.triangles });
+  }
+  await Promise.all(all().map((q) => ev(q, () => {
+    if ('__advRO' in window) {
+      window.__game.game.renderOverride = window.__advRO;
+      delete window.__advRO;
+    }
+  })));
+  log('per-client frame ms avg/p95/p99', solo.map((f) => `${f.who} ${f.avg}/${f.p95}/${f.p99} (${f.draws} draws, ${(f.tris / 1e6).toFixed(2)}M tris)`).join('  '));
+  check('per-client frame time: every one of the 4 clients holds 60 fps (p95 ≤ 20 ms)', solo.every((f) => f.p95 <= 20), solo.map((f) => `${f.who} avg ${f.avg} p95 ${f.p95}`).join(' · '));
+  writeFileSync(resolve(outDir, 'adv-results.json'), JSON.stringify({ at: new Date().toISOString(), delay: DELAY, jitter: JITTER, results, frameMs: fm, perClient: solo, sync: st, errors }, null, 2));
 } catch (err) {
   console.error('[adv] failed:', err?.stack || err);
   failed++;

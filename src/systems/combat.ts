@@ -472,7 +472,9 @@ export class CombatSystem implements System, HealthApi {
       const dim = !this.auto && !this.held && this.iframes > 0 && Math.floor(this.iframes * 14) % 2 === 1;
       this.blink(dim ? 0.35 : 1);
     } else if (this.blinking) this.blink(1);
-    if (!player.root.visible && !this.passing) player.root.visible = true;
+    // Only in the mines (combat's own turf): elsewhere other systems hide the farmer on purpose
+    // (a co-op farmhand asleep in a cabin, a farmhand spectating the host's heart event).
+    if (m && !player.root.visible && !this.passing) player.root.visible = true;
     if (this.push.lengthSq() > 1e-4) {
       const grid = game.world.current?.grid;
       const p = player.position;
