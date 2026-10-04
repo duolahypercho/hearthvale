@@ -188,12 +188,13 @@ function logBarkMaterial(): THREE.MeshStandardMaterial {
         // Soaked moss goes deep olive (the dry sheen read as a glowing lime tube under the rain grade).
         moss = mix(moss, moss * vec3(0.56, 0.6, 0.5), uWet);
         // Sporophyte flecks catching the light.
-        moss += vec3(0.42, 0.4, 0.12) * smoothstep(0.86, 0.95, hvNoise(P.xz * 58.0 + P.y * 31.0)) * 0.3;
+        moss += vec3(0.42, 0.4, 0.12) * smoothstep(0.86, 0.95, hvNoise(P.xz * 58.0 + P.y * 31.0)) * 0.3 * (1.0 - 0.7 * uWet);
         // Bark darkens where the moss holds the damp (a dark halo round every cushion).
-        diffuseColor.rgb *= 1.0 - 0.32 * smoothstep(0.1, 0.45, cover) * (1.0 - m) * (1.0 - hvSnowAmt);
+        diffuseColor.rgb *= 1.0 - 0.32 * (1.0 - 0.5 * uWet) * smoothstep(0.1, 0.45, cover) * (1.0 - m) * (1.0 - hvSnowAmt);
         // Lichen rosettes on the bare bark (pale grey-green coins).
         float lich = smoothstep(0.8, 0.86, hvNoise(P.xz * 16.0 + P.y * 12.0 + 3.0)) * (1.0 - m);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.54, 0.42), lich * 0.4 * (1.0 - hvSnowAmt));
+        // Soaked lichen darkens with the bark (pale coins on the near-black wet log read as white speckle in storms).
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.54, 0.42) * (1.0 - 0.45 * uWet), lich * 0.4 * (1.0 - 0.55 * uWet) * (1.0 - hvSnowAmt));
         hvLogMoss = m * (0.5 + 0.5 * cush);
         diffuseColor.rgb = mix(diffuseColor.rgb, moss, m * 0.92 * (1.0 - hvSnowAmt));
       }`,
@@ -215,7 +216,7 @@ function logBarkMaterial(): THREE.MeshStandardMaterial {
   // Wet bark darkens less than the default (the log is already dark: at 40 % it went coal-black in storms).
   // Velvety moss never turns glossy: at the default 0.3 gloss the soaked crown mirrored the pale
   // overcast and glowed lime against the rain grade.
-  applyWorldFx(_logBark, { snowUp: 0.45, wetDark: 0.3, wetGloss: 0.7 });
+  applyWorldFx(_logBark, { snowUp: 0.45, wetDark: 0.22, wetGloss: 0.85 });
   return _logBark;
 }
 

@@ -290,7 +290,7 @@ export class Footprints {
           float s = sin(aPrint.w);
           // Boot print ~0.24 x 0.45 m (reads at diorama distance), offset to its side of the stride;
           // the quad is padded so the blue shadow AO can bleed past the rim.
-          vec2 lp = vec2(position.x * 0.4, position.z * 0.7) + vec2(aMeta.y * 0.14, 0.0);
+          vec2 lp = vec2(position.x * 0.44, position.z * 0.78) + vec2(aMeta.y * 0.15, 0.0);
           vec2 r = vec2(lp.x * c + lp.y * s, -lp.x * s + lp.y * c);
           vec3 wp = vec3(aPrint.x + r.x, aPrint.y + 0.012, aPrint.z + r.y);
           vUv = uv;
@@ -331,7 +331,7 @@ export class Footprints {
           // Prints soften as fresh snow sifts in (fade over their life).
           float k = smoothstep(0.3, 0.7, uSnow) * (1.0 - smoothstep(0.35, 1.0, vAge)) * vFade;
           // Compressed snow: a soft cool shadow (~sky tint), deepest on the wall facing away from the sun.
-          vec3 dent = mix(vec3(1.0), vec3(0.68, 0.75, 0.9) * (0.9 - 0.08 * toward), inside);
+          vec3 dent = mix(vec3(1.0), vec3(0.6, 0.69, 0.88) * (0.88 - 0.1 * toward), inside);
           float halo = smoothstep(0.08, 0.0, d) * (1.0 - inside);
           vec3 ao = mix(vec3(1.0), vec3(0.9, 0.93, 0.98), halo * 0.75);
           // Crumbled, raised rim catches the sun on its sunward side.

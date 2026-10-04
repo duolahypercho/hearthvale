@@ -245,6 +245,8 @@ const FogShader = {
           // Chord length through the soft cylinder ~ width / sin(angle between ray and axis).
           float chord = min(wdt * 2.0 / max(sqrt(den), 0.15), 8.0);
           float g = exp(-dist * dist / (wdt * wdt) * 3.0);
+          // Most pixels are nowhere near most beams: skip the striation noise for them.
+          if (g * along < 0.002) continue;
           // Striations: thinner rays inside each beam (light through leaves), slowly shifting.
           vec3 q2 = ro + rd * tr2 - q;
           float stri = 0.55 + 0.45 * hvNoise(vec2(dot(q2, cross(Ls, vec3(0.0, 0.0, 1.0))) * 2.6 + float(i) * 3.7, uTime * 0.08));
@@ -265,6 +267,9 @@ const FogShader = {
 const _tint = new THREE.Color(1.05, 0.97, 0.8);
 const _warmWhite = new THREE.Color(1.0, 0.96, 0.86);
 const _shaftW = new THREE.Color();
+const _frustum = new THREE.Frustum();
+const _vp = new THREE.Matrix4();
+const _sphere = new THREE.Sphere();
 
 export class HeightFogPass extends Pass {
   private quad: FullScreenQuad;
@@ -308,15 +313,24 @@ export class HeightFogPass extends Pass {
       (u.uGSize!.value as THREE.Vector2).copy(a.ground.size);
       u.uGWater!.value = a.ground.water;
     }
-    const n = Math.min(MAX_SHAFTS, a.shaftList.length);
+    // Only the beams inside the view frustum go to the shader (the loop runs per pixel: 16 beams
+    // map-wide, ~3-6 on screen). Bounding sphere around the whole leaning beam, generous margin.
+    this.camera.updateMatrixWorld();
+    _vp.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_vp);
+    const arr = u.uShafts!.value as THREE.Vector4[];
+    let n = 0;
+    const half = a.shaftLen * 0.5;
+    for (const s of a.shaftList) {
+      if (n >= MAX_SHAFTS) break;
+      _sphere.center.set(s.x, s.y + half * 0.8, s.z);
+      _sphere.radius = half * 1.15 + s.w * 3;
+      if (!_frustum.intersectsSphere(_sphere)) continue;
+      arr[n++]!.set(s.x, s.y, s.z, s.w);
+    }
     u.uShaftCount!.value = n;
     u.uShaftK!.value = a.shafts;
     u.uShaftLen!.value = a.shaftLen;
-    const arr = u.uShafts!.value as THREE.Vector4[];
-    for (let i = 0; i < n; i++) {
-      const s = a.shaftList[i]!;
-      arr[i]!.set(s.x, s.y, s.z, s.w);
-    }
     // Colours follow the day: lit mist takes the sun, shade the sky.
     const sun = globalUniforms.uSunColor.value;
     const sky = globalUniforms.uSkyColor.value;
