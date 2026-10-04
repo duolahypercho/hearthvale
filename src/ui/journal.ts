@@ -13,7 +13,7 @@ import type { Game } from '../core/game';
 import { Screen, el, closeButton, sfx, replay, escapeHtml } from './kit';
 import { ROOMS, roomDef, slotsNeeded, QUALITY_NAME } from '../data/bundles';
 import { LETTERS } from '../data/story';
-import { lanternSvg, sackSvg, sackKindOf, iconOf, itemName, valleySvg, SEAL_MINI, ENVELOPE, CHECK, COIN, PIN } from './journal-art';
+import { lanternSvg, sackSvg, sackKindOf, iconOf, itemName, hallVignetteSvg, SEAL_MINI, ENVELOPE, CHECK, COIN, PIN } from './journal-art';
 import { loadStoryFonts } from './journal-cutscene';
 
 type Tab = 'quests' | 'hall' | 'letters';
@@ -153,7 +153,7 @@ export class JournalPanel extends Screen {
           ${q.hint && q.state === 'active' ? `<div class="jn-tip"><i>${lanternSvg(0xffb84a, 0.8, 'jl-mini')}</i><span>${escapeHtml(q.hint)}</span></div>` : ''}
           ${q.id === 'all-lanterns' || q.id === 'first-lantern' ? `<div class="jn-strip">${strip}</div>` : ''}
           ${q.id === 'glimmer' && this.glimmerNote() ? `<div class="jn-note">${escapeHtml(this.glimmerNote())}</div>` : ''}
-          <figure class="jn-plate">${this.valley()}<figcaption>Hearthvale, from Gran's hill · ${this.game.services.quests?.lanternsLit() ?? 0} of 6 lanterns</figcaption></figure>`;
+          <figure class="jn-plate">${this.valley()}<figcaption>The Lantern Hall at dusk · ${this.game.services.quests?.lanternsLit() ?? 0} of 6 lanterns</figcaption></figure>`;
     } else if (p) {
       const have = this.game.services.inventory?.count(p.itemId) ?? 0;
       this.rightPage.innerHTML = `<div class="jn-kicker">Help Wanted</div><h1 class="jn-title">${escapeHtml(p.title)}</h1><div class="jn-giver">— ${escapeHtml(p.giver)}</div>
@@ -175,8 +175,8 @@ export class JournalPanel extends Screen {
 
   private valley(): string {
     const q = this.game.services.quests;
-    const rooms = ROOMS.map((r) => ({ color: r.color, lit: !!q?.room(r.id)?.done }));
-    return valleySvg(rooms, q?.rooms().some((r) => r.glimmer) ?? false);
+    const rooms = ROOMS.map((r) => ({ id: r.id, color: r.color, lit: !!q?.room(r.id)?.done }));
+    return hallVignetteSvg(rooms, q?.rooms().some((r) => r.glimmer) ?? false);
   }
 
   /** The quests page's foot: the six room lanterns in a row (lit, glowing with progress, or dark), a

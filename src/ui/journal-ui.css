@@ -204,7 +204,7 @@
 }
 .jn-h.small {
   font-size: 30px;
-  margin-top: 20px;
+  margin-top: 10px;
 }
 .jn-sub {
   font-weight: 800;
@@ -214,8 +214,8 @@
 }
 .jn-list {
   display: grid;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 2px;
+  margin-top: 6px;
 }
 .jn-row,
 .jn-mail {
@@ -245,9 +245,12 @@
 }
 .jn-row .t {
   flex: 1;
-  font-family: var(--font-head);
-  font-weight: 600;
-  font-size: 19px;
+  /* One face for every entry (done, current, locked): the serif body, so the page reads as two
+     treatments — the hand-lettered heads and the written list. */
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 21px;
+  line-height: 1.15;
 }
 .jn-row small {
   font-size: 14px;
@@ -260,6 +263,8 @@
   opacity: 0.5;
 }
 .jn-row.done .t {
+  font-style: italic;
+  font-weight: 600;
   text-decoration: line-through;
   text-decoration-color: rgba(120, 60, 20, 0.45);
   text-decoration-thickness: 2px;
@@ -838,7 +843,7 @@
 }
 .jb-ledger .row {
   display: grid;
-  grid-template-columns: 14px 1fr auto;
+  grid-template-columns: 14px max-content minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
@@ -855,7 +860,7 @@
 }
 .jb-ledger .nm {
   font-weight: 800;
-  font-size: 14px;
+  font-size: 13.5px;
   color: #f6e6c8;
   white-space: nowrap;
   overflow: hidden;
@@ -863,7 +868,10 @@
 }
 .jb-ledger .rw {
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: rgba(246, 230, 200, 0.62);
   white-space: nowrap;
 }
@@ -968,6 +976,25 @@
   font-size: 18px;
   color: #4a2410;
   align-self: end;
+  /* Tab labels stay on one line: long names step down a size instead of wrapping. */
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+.jb-sack.long .nm {
+  font-size: 15.5px;
+  letter-spacing: -0.025em;
+}
+.jb-sack.long {
+  grid-template-columns: 50px 1fr;
+}
+.jb-sack.long > .js-wrap {
+  width: 50px;
+}
+.jb-sack {
+  min-width: 0;
 }
 .jb-sack .pr {
   font-weight: 800;

@@ -30,6 +30,8 @@ import { Rng } from '../core/rng';
 import { ROOMS, BUNDLES, type RoomDef, type RoomId } from '../data/bundles';
 import { HALL } from '../data/story-scenes';
 import { WorldHints, type HintPoint } from '../ui/journal-hint';
+import { Villager } from '../entities/villager';
+import { NPCS, type NpcId } from '../data/npcs';
 
 // ─────────────────────────────────────────────── materials (interior: no snow / rain / cloud patch)
 
@@ -1597,9 +1599,44 @@ export class HallMap implements GameMap {
     const m = hallMats();
     const BRASS = 0xd4a24a;
     const BRASS_D = 0x8a5a24;
-    shell.add(m.stone, bevelCylinder(0.62, 0.7, 0.2, 0.04, 16), mat(p.x, 0.1, p.z), { tint: 0xa8a090 });
-    shell.add(m.stone, bevelCylinder(0.34, 0.42, 0.8, 0.04, 8), mat(p.x, 0.6, p.z), { tint: 0xc0b6a4 });
-    shell.add(m.stone, bevelCylinder(0.5, 0.42, 0.14, 0.04, 8), mat(p.x, 1.06, p.z), { tint: 0xb0a898 });
+    // Each lantern stands on its own pedestal, matched to its cage.
+    switch (def.id) {
+      case 'seed': // a round sandstone column, verdigris band and a carved leaf collar
+        shell.add(m.stone, bevelCylinder(0.62, 0.7, 0.2, 0.04, 20), mat(p.x, 0.1, p.z), { tint: 0xc8b89a });
+        shell.add(m.stone, bevelCylinder(0.3, 0.36, 0.8, 0.04, 16), mat(p.x, 0.6, p.z), { tint: 0xd8c8a8 });
+        shell.add(m.metal, bevelCylinder(0.37, 0.37, 0.07, 0.02, 16), mat(p.x, 0.62, p.z), { tint: 0x5a9a86 });
+        for (let k = 0; k < 8; k++) shell.add(m.leaf, new THREE.SphereGeometry(0.12, 6, 4).scale(0.5, 0.25, 1), mat(p.x + Math.cos((k / 8) * Math.PI * 2) * 0.4, 0.98, p.z + Math.sin((k / 8) * Math.PI * 2) * 0.4, 0, -(k / 8) * Math.PI * 2, 0.4), { tint: 0x6a9a6a });
+        shell.add(m.stone, bevelCylinder(0.46, 0.38, 0.14, 0.04, 16), mat(p.x, 1.06, p.z), { tint: 0xc8b89a });
+        break;
+      case 'sun': // a gilded square pedestal with a sun-disc front
+        shell.add(m.stone, roundedBox(1.2, 0.2, 1.2, 0.05), mat(p.x, 0.1, p.z), { tint: 0xe0d0b0 });
+        shell.add(m.stone, roundedBox(0.66, 0.8, 0.66, 0.05), mat(p.x, 0.6, p.z), { tint: 0xf0e0c0 });
+        shell.add(m.metal, bevelCylinder(0.18, 0.18, 0.03, 0.01, 16).rotateX(Math.PI / 2), mat(p.x, 0.66, p.z + 0.34), { tint: 0xe8b84a });
+        shell.add(m.metal, roundedBox(0.92, 0.14, 0.92, 0.04), mat(p.x, 1.06, p.z), { tint: 0xd4a24a });
+        break;
+      case 'harvest': // a cider barrel stood on end, iron hoops
+        shell.add(m.woodGrain, bevelCylinder(0.62, 0.68, 0.18, 0.04, 16), mat(p.x, 0.09, p.z), { tint: 0x7a5232 });
+        shell.add(m.woodGrain, bevelCylinder(0.42, 0.42, 0.86, 0.05, 16), mat(p.x, 0.62, p.z), { tint: 0xa8743e });
+        for (const y of [0.32, 0.62, 0.92]) shell.add(m.metal, bevelCylinder(0.44, 0.44, 0.05, 0.01, 16), mat(p.x, y, p.z), { tint: 0x3a3430 });
+        shell.add(m.woodGrain, bevelCylinder(0.5, 0.46, 0.12, 0.03, 16), mat(p.x, 1.08, p.z), { tint: 0x8a5a36 });
+        break;
+      case 'hearth': // blue-grey hearthstone, frosted cap
+        shell.add(m.stone, bevelCylinder(0.62, 0.7, 0.2, 0.04, 6), mat(p.x, 0.1, p.z), { tint: 0x8a96a4 });
+        shell.add(m.stone, bevelCylinder(0.34, 0.42, 0.8, 0.04, 6), mat(p.x, 0.6, p.z), { tint: 0xa8b4c2 });
+        shell.add(m.stone, bevelCylinder(0.5, 0.42, 0.14, 0.04, 6), mat(p.x, 1.06, p.z), { tint: 0xe8f0f8 });
+        break;
+      case 'craft': // a workman's stack: a copper-bound crate on a timber block
+        shell.add(m.woodGrain, roundedBox(1.1, 0.24, 1.0, 0.04), mat(p.x, 0.12, p.z), { tint: 0x7a5232 });
+        shell.add(m.woodGrain, roundedBox(0.72, 0.78, 0.72, 0.04), mat(p.x, 0.62, p.z), { tint: 0xb0844e });
+        for (const y of [0.3, 0.95]) shell.add(m.metal, roundedBox(0.75, 0.05, 0.75, 0.01), mat(p.x, y, p.z), { tint: 0xc8743a });
+        shell.add(m.metal, roundedBox(0.88, 0.12, 0.88, 0.03), mat(p.x, 1.07, p.z), { tint: 0xb06a3a });
+        break;
+      default: // tide: a rope-wrapped mooring bollard
+        shell.add(m.stone, bevelCylinder(0.62, 0.7, 0.2, 0.04, 16), mat(p.x, 0.1, p.z), { tint: 0x7a8a8e });
+        shell.add(m.woodGrain, bevelCylinder(0.34, 0.38, 0.8, 0.04, 14), mat(p.x, 0.6, p.z), { tint: 0x5a4a3a });
+        for (let k = 0; k < 6; k++) shell.add(m.cloth, new THREE.TorusGeometry(0.37, 0.035, 6, 18), mat(p.x, 0.42 + k * 0.07, p.z, Math.PI / 2), { tint: 0xc8a878 });
+        shell.add(m.metal, bevelCylinder(0.48, 0.42, 0.14, 0.04, 16), mat(p.x, 1.06, p.z), { tint: 0x3a6a6a });
+    }
     shell.add(m.metal, bevelCylinder(0.32, 0.36, 0.08, 0.03, 16), mat(p.x, 1.17, p.z), { tint: BRASS_D });
     shell.add(m.metal, bevelCylinder(0.28, 0.31, 0.06, 0.02, 16), mat(p.x, 1.24, p.z), { tint: BRASS });
     shell.add(m.metal, bevelCylinder(0.05, 0.07, 0.14, 0.015, 10), mat(p.x, 1.4, p.z), { tint: BRASS_D });
@@ -2523,13 +2560,83 @@ export class HallMap implements GameMap {
     const r = new Rng(`sacks-${room}`);
     const f = v.frame;
     const tx = f.plinth.x + f.side * 1.25;
+    const z = f.plinth.z + 0.1;
+    const Y = 0.66;
+    const dull = (c: number): number => new THREE.Color(c).lerp(new THREE.Color(0x8a8070), 0.6).getHex();
+    // Each room lays its offerings out its own way (one item per bundle; given = full, colourful, upright).
+    const crate = (w: number, d: number, h: number, tint: number): void => {
+      b.add(m.woodGrain, roundedBox(w, 0.03, d, 0.01), mat(tx, Y, z), { tint });
+      for (const sz of [-1, 1]) b.add(m.woodGrain, roundedBox(w, h, 0.03, 0.01), mat(tx, Y, z + sz * (d / 2 - 0.015)), { tint });
+      for (const sx of [-1, 1]) b.add(m.woodGrain, roundedBox(0.03, h, d, 0.01), mat(tx + sx * (w / 2 - 0.015), Y, z), { tint });
+    };
+    const room_ = f.def.id;
+    if (room_ === 'seed') crate(0.98, 0.42, 0.12, 0x9a6a40);
+    if (room_ === 'tide') {
+      crate(0.98, 0.5, 0.1, 0x6a7a80);
+      for (let k = 0; k < 22; k++) b.add(m.glass, new THREE.IcosahedronGeometry(0.04 + r.next() * 0.03, 0), mat(tx + (r.next() - 0.5) * 0.86, Y + 0.05, z + (r.next() - 0.5) * 0.36, r.next(), r.next(), 0));
+      b.add(m.cloth, roundedBox(0.94, 0.03, 0.44, 0.01), mat(tx, Y + 0.02, z), { tint: 0xe8f2f6 });
+    }
+    if (room_ === 'sun') {
+      // A little two-tier jam shelf.
+      for (const yy of [0, 0.26]) b.add(m.woodGrain, roundedBox(1.0, 0.03, 0.3, 0.01), mat(tx, Y + yy, z - 0.08), { tint: 0xb07a48 });
+      for (const sx of [-0.49, 0.49]) b.add(m.woodGrain, roundedBox(0.03, 0.3, 0.3, 0.01), mat(tx + sx, Y, z - 0.08), { tint: 0x9a6a40 });
+    }
+    if (room_ === 'craft') b.add(m.metal, roundedBox(1.0, 0.04, 0.46, 0.015), mat(tx, Y, z), { tint: 0xb87a4a });
+    if (room_ === 'hearth') b.add(m.cloth, roundedBox(1.02, 0.015, 0.6, 0.005), mat(tx, Y + 0.002, z), { tint: 0xe8dcc8 });
     defs.forEach((def, i) => {
       const x = tx - 0.36 + i * (0.72 / Math.max(1, defs.length - 1));
       const full = !!done[i];
-      const s = lumpySphere(0.2, 1, 0.1, r, 2.2);
-      b.add(m.cloth, s, mat(x, 0.66 + (full ? 0.17 : 0.1), f.plinth.z + 0.1, 0, r.next() * 3, 0, 1, full ? 1.15 : 0.6, 1), { tint: full ? def.color : new THREE.Color(def.color).lerp(new THREE.Color(0x8a8070), 0.55).getHex() });
-      b.add(m.cloth, new THREE.ConeGeometry(0.09, 0.14, 7), mat(x, 0.66 + (full ? 0.44 : 0.28), f.plinth.z + 0.1), { tint: full ? def.color : 0x8a8070 });
-      b.add(m.metal, new THREE.TorusGeometry(0.07, 0.018, 5, 12), mat(x, 0.66 + (full ? 0.37 : 0.23), f.plinth.z + 0.1, Math.PI / 2), { tint: full ? 0xe8b84a : 0x7a6a50 });
+      const c = full ? def.color : dull(def.color);
+      switch (room_) {
+        case 'seed': {
+          // Seed packets standing in the crate (fallen flat while unfilled).
+          const pk = roundedBox(0.16, 0.22, 0.02, 0.008);
+          b.add(m.cloth, pk, full ? mat(x, Y + 0.02, z, -0.2, (r.next() - 0.5) * 0.3, 0) : mat(x, Y + 0.04, z, -Math.PI / 2 + 0.1, r.next(), 0), { tint: full ? 0xf2e6c8 : 0xb8b0a0 });
+          b.add(m.cloth, roundedBox(0.11, 0.09, 0.022, 0.006), full ? mat(x, Y + 0.1, z + 0.003, -0.2, 0, 0) : mat(x, Y + 0.05, z + 0.003, -Math.PI / 2 + 0.1, 0, 0), { tint: c });
+          break;
+        }
+        case 'sun': {
+          // Jam jars on the shelf: full and bright, or empty glass.
+          const yy = i % 2 ? 0.29 : 0.03;
+          b.add(full ? m.cloth : m.glass, bevelCylinder(0.075, 0.075, 0.17, 0.02, 12), mat(x, Y + yy, z - 0.08), { tint: c });
+          b.add(m.cloth, bevelCylinder(0.09, 0.085, 0.035, 0.01, 12), mat(x, Y + yy + 0.17, z - 0.08), { tint: full ? [0xd84a3a, 0xf0e0c0, 0x5a8ad8][i % 3]! : 0xa8a090 });
+          break;
+        }
+        case 'harvest': {
+          // A wicker basket per bundle, heaped when given.
+          b.add(m.woodGrain, bevelCylinder(0.13, 0.1, 0.12, 0.02, 12), mat(x, Y, z), { tint: 0xc89a5a });
+          b.add(m.woodGrain, new THREE.TorusGeometry(0.12, 0.012, 4, 14, Math.PI), mat(x, Y + 0.12, z, 0, 0, 0), { tint: 0xa87a44 });
+          if (full) for (let k = 0; k < 4; k++) b.add(m.cloth, lumpySphere(0.055, 0, 0.2, r), mat(x + (r.next() - 0.5) * 0.12, Y + 0.14 + (k > 2 ? 0.05 : 0), z + (r.next() - 0.5) * 0.1), { tint: [def.color, 0xd84a2a, 0xe8a030, 0x8a3a6a][k]! });
+          break;
+        }
+        case 'hearth': {
+          // Bundled herbs and a loaf / a candle per bundle on the cloth.
+          if (full) {
+            b.add(m.leaf, new THREE.ConeGeometry(0.06, 0.26, 6), mat(x, Y + 0.06, z, 0, 0, Math.PI / 2), { tint: [0x6a9a4a, 0x8aa45c, 0x5a7a3a][i % 3]! });
+            b.add(m.cloth, new THREE.TorusGeometry(0.035, 0.008, 4, 10), mat(x + 0.06, Y + 0.06, z, 0, Math.PI / 2, 0), { tint: c });
+            b.add(m.cloth, lumpySphere(0.07, 0, 0.15, r), mat(x, Y + 0.05, z + 0.17, 0, 0, 0, 1.3, 0.7, 1), { tint: 0xc8864a });
+          } else b.add(m.leaf, new THREE.ConeGeometry(0.04, 0.18, 5), mat(x, Y + 0.04, z, 0, 0, Math.PI / 2), { tint: 0x8a7a5a });
+          break;
+        }
+        case 'craft': {
+          // A gear on the tray per bundle, spools beside the given ones.
+          b.add(m.metal, bevelCylinder(0.1, 0.1, 0.03, 0.01, 10), mat(x, Y + 0.035, z - 0.06), { tint: full ? 0xd8a24a : 0x7a6a5a });
+          for (let k = 0; k < 8; k++) {
+            const a = (k / 8) * Math.PI * 2;
+            b.add(m.metal, roundedBox(0.04, 0.03, 0.04, 0.005), mat(x + Math.cos(a) * 0.11, Y + 0.035, z - 0.06 + Math.sin(a) * 0.11, 0, -a, 0), { tint: full ? 0xc8923a : 0x6a5a4a });
+          }
+          if (full) b.add(m.cloth, bevelCylinder(0.045, 0.045, 0.1, 0.01, 10), mat(x, Y + 0.02, z + 0.13), { tint: c });
+          break;
+        }
+        default: {
+          // Fish laid on ice (Tide): silver-blue bodies, a fin each.
+          if (full) {
+            const fish = lumpySphere(0.06, 1, 0.08, r);
+            b.add(m.cloth, fish, mat(x, Y + 0.08, z, 0, Math.PI / 2 + (r.next() - 0.5) * 0.4, 0, 2.6, 0.7, 1), { tint: [0x7aa4c8, 0xc8a46a, 0x9ac8b8, 0xd88a6a][i % 4]! });
+            b.add(m.cloth, new THREE.ConeGeometry(0.05, 0.08, 4), mat(x, Y + 0.08, z + 0.17, Math.PI / 2, 0, 0, 1, 1, 0.3), { tint: 0x5a7a9a });
+          }
+        }
+      }
     });
     const g = b.build({ name: `hall-sacks-${room}` });
     v.sacks.add(g);
@@ -3297,6 +3404,47 @@ export class LanternHallSystem implements System {
   update(dt: number): void {
     this.hints.update();
     if (this.dust?.group.parent) this.dust.update(dt);
+    this.updateGuests(dt);
+  }
+
+  /**
+   * A restored Hall is a used Hall: once three lanterns burn, a few neighbours drop in — Odessa at the
+   * Great Lantern, Linus and June chatting between the pews. They step out while a scene plays (the cast
+   * may be them) and leave when the Hall is dark again.
+   */
+  private guests: Villager[] = [];
+  private updateGuests(dt: number): void {
+    const g = this.game;
+    const h = this.hall;
+    const here = g.world.current?.id === 'hall' && !!h;
+    const lit = h ? [...h.rooms.values()].filter((v) => v.target > 0.5).length : 0;
+    const want = here && lit >= 3 && !g.services.cutscene?.playing;
+    if (!want) {
+      if (this.guests.length) {
+        for (const v of this.guests) v.root.removeFromParent();
+        this.guests = [];
+      }
+      return;
+    }
+    if (!this.guests.length) {
+      const SPOTS: [NpcId, number, number, number, number][] = [
+        ['odessa', 13.5, 7.7, 15, 5.2],
+        ['linus', 16.5, 11.5, 17.6, 12.9],
+        ['june', 17.6, 12.9, 16.5, 11.5],
+      ];
+      for (const [id, x, z, fx, fz] of SPOTS) {
+        const def = NPCS[id];
+        if (!def) continue;
+        const v = new Villager(def);
+        v.root.name = `npc:${id}`;
+        v.position.set(x, 0, z);
+        v.setYaw(Math.atan2(fx - x, fz - z));
+        if (id !== 'odessa') v.talkTo = new THREE.Vector3(fx, 0, fz);
+        h!.root.add(v.root);
+        this.guests.push(v);
+      }
+    }
+    for (const v of this.guests) v.update(dt, () => 0, true);
   }
 
   private houseDust(on: boolean): void {

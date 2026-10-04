@@ -767,7 +767,8 @@ export class CutsceneSystem implements System, CutsceneApi {
         this.skipping = false;
         // Co-op: the host decides for the shared valley; a farmhand watches the options, locked.
         const guest = g.services.story?.role() === 'guest';
-        const pick = guest && !hold ? await this.overlay.choice(who, c.text, c.options, false, 'Waiting for the host to decide…', (r) => (this.remotePick = r)) : await this.overlay.choice(who, c.text, c.options, hold);
+        const hostName = g.services.net?.players().find((p) => p.isHost && !p.isMe)?.name ?? 'Your host';
+        const pick = guest && !hold ? await this.overlay.choice(who, c.text, c.options, false, `${hostName.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`)} is choosing for the valley…`, (r) => (this.remotePick = r)) : await this.overlay.choice(who, c.text, c.options, hold);
         this.remotePick = null;
         if (pick < 0) return;
         if (sp) sp.talkTo = null;
@@ -1436,7 +1437,47 @@ export class CutsceneSystem implements System, CutsceneApi {
     }
     // Heads the safe-area guard could not keep below the letterbox this session (played scenes only).
     for (const s of this.safeLog) issues.push(`head clipped by letterbox — ${s}`);
+    issues.push(...CutsceneSystem.overlapAudit(all));
     return issues;
+  }
+
+  /**
+   * Static blocking check: replays every scene's marks (actor / walk end / crowd / map / remove) and
+   * reports any two actors standing closer than 0.85 m at a beat the audience sees (a mark, a line,
+   * an emote) — chibi rigs interpenetrate below that.
+   */
+  static overlapAudit(all: [string, Cmd[]][]): string[] {
+    const out: string[] = [];
+    for (const [id, cmds] of all) {
+      const pos = new Map<string, [number, number]>();
+      const seen = new Set<string>();
+      cmds.forEach((c, i) => {
+        if (c.do === 'map') pos.set('player', [c.x, c.z]);
+        else if (c.do === 'actor') pos.set(c.id, [c.x, c.z]);
+        else if (c.do === 'walk') pos.set(c.id, c.path[c.path.length - 1]!);
+        else if (c.do === 'remove') pos.delete(c.id);
+        else if (c.do === 'crowd')
+          c.ids.forEach((cid, k) => {
+            const t = c.ids.length > 1 ? k / (c.ids.length - 1) : 0.5;
+            const a = THREE.MathUtils.degToRad(c.a0 + (c.a1 - c.a0) * t);
+            const r = c.radius + (k % 2 ? 0.55 : 0);
+            pos.set(cid, [c.x + Math.sin(a) * r, c.z + Math.cos(a) * r]);
+          });
+        else if (c.do === 'mark' || c.do === 'say' || c.do === 'emote' || c.do === 'choice') {
+          const ps = [...pos.entries()];
+          for (let a = 0; a < ps.length; a++)
+            for (let b = a + 1; b < ps.length; b++) {
+              const d = Math.hypot(ps[a]![1][0] - ps[b]![1][0], ps[a]![1][1] - ps[b]![1][1]);
+              const key = `${ps[a]![0]}|${ps[b]![0]}`;
+              if (d < 0.85 && !seen.has(key)) {
+                seen.add(key);
+                out.push(`${id}#${i}: ${ps[a]![0]} and ${ps[b]![0]} ${d.toFixed(2)} m apart`);
+              }
+            }
+        }
+      });
+    }
+    return out;
   }
 
   // ─────────────────────────────── per frame

@@ -540,7 +540,7 @@ function finaleScene(glimmer: boolean): Cmd[] {
     { do: 'hud', on: false },
     { do: 'fade', to: 'black', dur: 0.8 },
     { do: 'letterbox', on: true },
-    { do: 'map', map: 'town', x: STEPS.x - 3.3, z: STEPS.z + 4.1, facing: 'up' },
+    { do: 'map', map: 'town', x: STEPS.x - 2.2, z: STEPS.z + 6.6, facing: 'up' },
     { do: 'time', hour: 19.9 },
     { do: 'cue', cue: glimmer ? 'festival:onGlimmer' : 'festival:on' },
     // The square's own festoons would string across the lens in every shot of the steps.
@@ -589,6 +589,7 @@ function finaleScene(glimmer: boolean): Cmd[] {
     { do: 'cam', to: { x: 32, z: 21, y: 1.0, yaw: 14, pitch: 58, dist: 40 }, dur: 0 },
     { do: 'fade', to: 'clear', dur: 0.8 },
     { do: 'cue', cue: 'festival:valley', t: 0.4 },
+    { do: 'mark', id: 'crane' },
     {
       do: 'rail',
       keys: [
