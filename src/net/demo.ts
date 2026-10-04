@@ -102,8 +102,9 @@ export class CoopDemo {
       // chip fades after 8 s, so the log never contradicts the bubbles.)
       line(2, 'Strawberries are ripe! Grab a basket');
       line(3, 'Can’s full, I’ll water the berries');
-      // The 26 s work loop; &t=<sec> seeks it (stills mid-action). Starts a beat in by default so a
-      // still taken right after load catches the haul, the picking and the watering at once.
+      // The 26 s work loop; &t=<sec> seeks it (stills mid-action). By default a still taken right after
+      // load lands in the coffee beat: Rowan back at the basket waving everyone over, Juniper calling
+      // back, Pip grinning — all four farmers facing the camera, the chat log matching the bubbles.
       this.choreo = new FarmChoreo(this.game, this.net, this.bots.map((b) => b.p));
       // The host steps to the bed's front-east corner (turned to it) so the lane behind the bed is
       // free for the pickers, who face the camera; the camera is re-aimed at the same spot. Deferred:
@@ -120,7 +121,7 @@ export class CoopDemo {
         this.game.followPlayer(true);
       });
       const t = Number(new URLSearchParams(location.search).get('t'));
-      this.choreo.seek(Number.isFinite(t) && t > 0 ? t : 1.6);
+      this.choreo.seek(Number.isFinite(t) && t > 0 ? t : 19.6);
     }
     if (name === 'coop-bedtime') {
       // Everyone else has turned in: the farmhands are asleep in their cabins, you're the one still up.
