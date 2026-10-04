@@ -771,6 +771,8 @@ Frostvein Grotto, Cinder Depths (`biomes.ts`), repeating with a tier (tougher mo
   and migrate live ⇄ headless (same monster ids, hp, loot) when the host arrives / leaves; farmers on other floors
   are hidden. `node scripts/mine-coop-test.mjs` runs the two-browser e2e (shots in `shots/mine-coop/`);
   `services.mineNet.stats()` shows floors, headless sims and message counts.
+- **Tests**: `node scripts/mine-passout.test.mjs` drains the tube through `services.health.damage()` on a floor and
+  checks the collapse (`combat:passOut`, carried to the entrance, 35 % health back).
 - **Demos**: `mine-entrance`, `mine-floor` (earth, floor 3), `mine-ice` (14), `mine-lava` (24), `mine-combat`
   (live arena + autopilot; `&still=1` freezes a landed hit, `&god=1`), `mine-coop` (two scripted farmhands fighting
   and mining beside you, name tags; no server), `mine-chest` (floor 10 reforge). Params: `&floor=N`, `&pick=1`

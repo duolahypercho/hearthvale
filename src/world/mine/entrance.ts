@@ -34,7 +34,8 @@ const D = 34;
 /** One projection of the cliff rock texture: x = albedo multiplier, y = bump height, z = grit. */
 const CLIFF_TEX = /* glsl */ `
 vec3 hvCliffTex(vec2 tp) {
-  vec2 wq = tp * vec2(0.3, 0.72);
+  // Slabs ~2.2 x 1 m (were 3.3 x 1.4: from the high camera the face read as smooth smeared clay).
+  vec2 wq = tp * vec2(0.45, 1.0);
   wq += (vec2(hvFbm(tp * 0.3 + 3.0), hvFbm(tp * 0.3 + 9.0)) - 0.5) * 0.55;
   vec4 st = hvMineStone(wq);
   float edge = st.y - st.x;
@@ -63,7 +64,10 @@ vec3 hvCliffTex(vec2 tp) {
   // printed a dark dot: the dashed hairlines tracing the slabs.
   float h = smoothstep(0.0, 0.45, edge) * (0.12 * (0.4 + 0.6 * open) + (st.z - 0.5) * 0.08) + hvNoise(tp * 5.0) * 0.02 - craze * 0.012;
   float lit = mix(1.1, 0.86, smoothstep(-0.5, 0.5, st.w));
-  float tone = (0.86 + 0.26 * st.z) * lit * (1.0 - crack * 0.62) * (1.0 - cavity * 0.18) * (1.0 - craze * 0.2) * (0.86 + 0.28 * grit);
+  // Wider slab-to-slab value spread + stronger grit, and worn pale arrises along the closed slab
+  // borders: individual blocks of rock, not one modelled sheet of clay.
+  float arris = (1.0 - smoothstep(0.04, 0.16 + aa, edge)) * (1.0 - open) * smoothstep(0.05, 0.015, aa);
+  float tone = (0.76 + 0.44 * st.z) * lit * (1.0 - crack * 0.7) * (1.0 - cavity * 0.24) * (1.0 - craze * 0.26) * (0.8 + 0.4 * grit) * (1.0 + arris * 0.14);
   return vec3(tone, h, grit);
 }
 `;
@@ -660,7 +664,7 @@ export class MineEntranceMap implements GameMap {
       const b = new MeshBuilder();
       const z = 17.4;
       for (let x = 25.9; x <= 31.0; x += 0.5) b.add('woodDark', roundedBox(0.17, 0.07, 0.9, 0.02), mat(x, this.H(x, z) + 0.02, z, 0, Math.sin(x * 7.1) * 0.06, 0), { tint: 0x9a7a5a });
-      for (const sz of [-0.3, 0.3]) b.add('metal', new THREE.CylinderGeometry(0.032, 0.032, 5.3, 5).rotateZ(Math.PI / 2), mat(28.45, this.H(28.45, z + sz) + 0.1, z + sz), { tint: 0x8a8480 });
+      for (const sz of [-0.3, 0.3]) b.add('white', new THREE.CylinderGeometry(0.045, 0.045, 5.3, 6).rotateZ(Math.PI / 2), mat(28.45, this.H(28.45, z + sz) + 0.1, z + sz), { tint: 0x9a948e });
       b.add('woodDark', roundedBox(0.25, 0.5, 0.9, 0.05), mat(31.3, this.H(31.3, z) + 0.3, z), { tint: 0xc05a3a });
       this.add(b.build({ name: 'yard-rails' }), 0, 0, 0, [], 0);
       const cart = buildCart(r.fork('cart2'));
@@ -773,8 +777,9 @@ export class MineEntranceMap implements GameMap {
         q.y = this.H(q.x, q.z) + 0.1;
         pts.push(q);
       }
-      const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), n * 4, 0.032, 5, false);
-      b.add('metal', tube, undefined, { tint: 0x8a8480 });
+      // Chunkier, brighter rails: thin dark tubes vanished against the dirt from the high camera.
+      const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), n * 4, 0.045, 6, false);
+      b.add('white', tube, undefined, { tint: 0x9a948e });
     }
     // Buffer stop.
     const end = curve.getPointAt(1);
@@ -1044,23 +1049,55 @@ function lanternKit(b: MeshBuilder, x: number, y: number, z: number, s = 1, glas
 }
 
 export function buildCart(r: Rng): THREE.Group {
+  // A riveted plank hopper on an iron chassis, heaped with ore. (It was an open 4-sided metal funnel
+  // tinted twice over the dark 'metal' base: from the high camera it read as a black slab.)
   const cb = new MeshBuilder();
-  const top = new THREE.CylinderGeometry(0.72, 0.52, 0.62, 4, 1, true);
-  top.rotateY(Math.PI / 4);
-  top.scale(1.25, 1, 0.85);
-  cb.add('metal', top, mat(0, 0.62, 0), { tint: 0x6e5a4a });
-  cb.add('metal', roundedBox(0.95, 0.06, 0.62, 0.02), mat(0, 0.32, 0), { tint: 0x4a403a });
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const w = new THREE.CylinderGeometry(0.15, 0.15, 0.07, 12);
-      w.rotateX(Math.PI / 2);
-      cb.add('metal', w, mat(sx * 0.32, 0.16, sz * 0.32), { tint: 0x3a3430 });
+  const plank = 0xc08a58;
+  const iron = 0xc8c0b4;
+  const ao = (p: THREE.Vector3): number => 0.62 + 0.38 * smoothstep(0.3, 0.9, p.y);
+  // Long sides (flared outwards), each two planks with a seam.
+  for (const sz of [-1, 1]) {
+    for (const [y, h] of [[0.52, 0.2], [0.75, 0.2]] as const) {
+      cb.add('woodGrain', boxUV(roundedBox(1.18 + (y - 0.5) * 0.3, h, 0.07, 0.025), 1.2), mat(0, y, sz * (0.36 + (y - 0.4) * 0.16), sz * 0.16, 0, 0), { tint: plank, aoWorld: ao });
     }
   }
-  for (const y of [0.45, 0.8]) cb.add('metal', roundedBox(1.28, 0.05, 0.92, 0.02), mat(0, y, 0, 0, 0, 0, y > 0.6 ? 1.02 : 0.85, 1, y > 0.6 ? 1.0 : 0.85), { tint: 0x9a8a72 });
-  for (let k = 0; k < 11; k++) {
-    const ore = [0xe07a3a, 0x8a7a6a, 0xc9ccd4, 0x6a5a4a, 0xffc83a][k % 5]!;
-    cb.add(mineRockMaterial(), facetRock(r, 0.15 + r.next() * 0.08, ore, { detail: 0, squash: 0.8 }), mat((r.next() - 0.5) * 0.75, 0.8 + r.next() * 0.15, (r.next() - 0.5) * 0.5));
+  // Short ends.
+  for (const sx of [-1, 1]) {
+    cb.add('woodGrain', boxUV(roundedBox(0.07, 0.44, 0.8, 0.025), 1.2), mat(sx * (0.58 + 0.03), 0.64, 0, 0, 0, sx * -0.14), { tint: 0xb07a4a, aoWorld: ao });
+  }
+  cb.add('woodGrain', boxUV(roundedBox(1.12, 0.06, 0.74, 0.02), 1.2), mat(0, 0.41, 0), { tint: 0x8a6440 });
+  // Iron: top rim, a mid band and corner straps (bright worn edges catch the lamps).
+  for (const sz of [-1, 1]) cb.add('metal', roundedBox(1.36, 0.06, 0.06, 0.02), mat(0, 0.87, sz * 0.43), { tint: iron });
+  for (const sx of [-1, 1]) cb.add('metal', roundedBox(0.06, 0.06, 0.92, 0.02), mat(sx * 0.66, 0.87, 0), { tint: iron });
+  for (const sz of [-1, 1]) cb.add('metal', roundedBox(1.24, 0.045, 0.05, 0.015), mat(0, 0.6, sz * 0.395, sz * 0.16, 0, 0), { tint: 0x9a928a });
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      cb.add('metal', roundedBox(0.07, 0.5, 0.07, 0.02), mat(sx * 0.6, 0.64, sz * 0.4, sz * 0.16, 0, sx * -0.14), { tint: iron });
+      // Rivets.
+      for (const y of [0.5, 0.78]) cb.add('metal', new THREE.SphereGeometry(0.022, 6, 4), mat(sx * 0.5, y, sz * (0.4 + (y - 0.4) * 0.16 + 0.04)), { tint: 0xe0d8cc });
+    }
+  }
+  // Chassis + wheels (dark iron with bright hubs and a polished tread).
+  cb.add('metal', roundedBox(1.0, 0.08, 0.5, 0.02), mat(0, 0.32, 0), { tint: 0x7a7068 });
+  for (const sx of [-1, 1]) cb.add('metal', new THREE.CylinderGeometry(0.03, 0.03, 0.74, 6).rotateX(Math.PI / 2), mat(sx * 0.34, 0.17, 0), { tint: 0x6a625a });
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const w = new THREE.CylinderGeometry(0.16, 0.16, 0.08, 14);
+      w.rotateX(Math.PI / 2);
+      cb.add('metal', w, mat(sx * 0.34, 0.17, sz * 0.34), { tint: 0x8a8078 });
+      const hub = new THREE.CylinderGeometry(0.06, 0.06, 0.1, 8);
+      hub.rotateX(Math.PI / 2);
+      cb.add('metal', hub, mat(sx * 0.34, 0.17, sz * 0.35), { tint: 0xe8d8b0 });
+    }
+  }
+  // Heap: a domed bed of broken stone fills the hopper (no black hole from above), ore on top.
+  const heap = new THREE.SphereGeometry(0.5, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  cb.add(mineRockMaterial(), heap, mat(0, 0.78, 0, 0, 0, 0, 1.18, 0.42, 0.78), { tint: 0x8a7a6a });
+  for (let k = 0; k < 13; k++) {
+    const ore = [0xe07a3a, 0x9a8a7a, 0xc9ccd4, 0x6a5a4a, 0xffc83a][k % 5]!;
+    const u = (r.next() - 0.5) * 0.85;
+    const v = (r.next() - 0.5) * 0.52;
+    cb.add(mineRockMaterial(), facetRock(r, 0.13 + r.next() * 0.08, ore, { detail: 0, squash: 0.8 }), mat(u, 0.86 + (1 - Math.hypot(u / 0.6, v / 0.4)) * 0.12 + r.next() * 0.04, v));
   }
   return cb.build({ name: 'ore-cart' });
 }

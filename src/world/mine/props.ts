@@ -153,7 +153,7 @@ function fgFade(src: THREE.Material): THREE.Material {
       '#include <dithering_fragment>',
       `{
         float fgk = 1.0 - smoothstep(uFgH * 0.04, uFgH * 0.2, gl_FragCoord.y);
-        gl_FragColor.rgb *= 1.0 - fgk * 0.6;
+        gl_FragColor.rgb *= 1.0 - fgk * 0.4;
       }`,
     );
     shader.fragmentShader = fs;

@@ -83,20 +83,24 @@ export const BIOMES: Record<Biome, BiomeDef> = {
   earth: {
     id: 'earth',
     name: 'Earthen Hollows',
-    strata: [0x5a3d2b, 0x7a5236, 0x94673f, 0x6e4a33, 0xa8794a, 0x80573a],
-    wallValue: 0.68,
-    floor: [0x9c7a56, 0x84643f, 0x4e3828],
+    // Cooler, less saturated umber than the floor: under the amber lantern the walls must not melt
+    // into the walkable dirt (Stardew separates floor / wall / object by value + temperature).
+    strata: [0x4c3a2e, 0x624a38, 0x786048, 0x58443a, 0x86684a, 0x66503e],
+    wallValue: 0.6,
+    // Sandy, desaturated dirt: the brightest surface in frame inside the lantern pool.
+    floor: [0xa48e6c, 0x8c7656, 0x4c3e30],
     // Cool grey breakables on warm dirt: the classic read (rocks never melt into the floor).
     rock: [0xa29c94, 0x938d86, 0xb0aaa0],
     crystals: [0x3fe0c8, 0xffb347, 0x6fd8ff, 0x3fe0c8],
     crystalCount: 10,
-    hemi: [0x8a7a90, 0x3a2618, 0.86],
+    // Cool violet-slate fill: shadowed walls go cool against the warm lantern pool (temperature split).
+    hemi: [0x7a82a8, 0x3a2a1e, 0.86],
     fog: 0x0e0a08,
-    lantern: [0xffb46a, 26],
+    lantern: [0xffbc78, 26],
     exposure: 1.18,
-    lift: [0.02, 0.012, 0.025],
-    gain: [1.08, 1.0, 0.92],
-    sat: 1.12,
+    lift: [0.015, 0.014, 0.03],
+    gain: [1.05, 1.0, 0.95],
+    sat: 1.08,
     contrast: 1.08,
     vignette: 0.7,
     bloom: [0.55, 0.82],
