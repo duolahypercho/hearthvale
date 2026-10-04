@@ -5273,3 +5273,205 @@ body.u-calm .de-star .medal {
 .shop-bubble p .ghost {
   opacity: 0;
 }
+
+/* ═══ UI r17: tool tiers (tooltips, backpack card) + Odessa's forge upgrades ═══════════════════════
+   Four metal pips (Basic steel / Copper / Iron / Gold) lit up to the tool's tier, what that tier does,
+   and where to get the next one. Upgrade rows carry a metal corner chip on the icon and an ore have/need
+   cell beside the fee; the purchase bar swaps the quantity stepper for the ore the smith needs. */
+.t-toolrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1.5px dashed rgba(138, 100, 64, 0.3);
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #6a4a2a;
+}
+.t-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.t-tier .pips {
+  display: inline-flex;
+  gap: 3px;
+}
+.t-tier .tp {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  background: rgba(138, 100, 64, 0.16);
+  box-shadow: inset 0 0 0 1.5px rgba(106, 74, 42, 0.35);
+}
+.t-tier .tp.on {
+  background: linear-gradient(135deg, #fff 0%, var(--tc) 38%, color-mix(in srgb, var(--tc) 62%, #3a2410) 100%);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tc) 45%, #3a2410), 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.t-tier b {
+  padding: 1px 8px;
+  border-radius: 8px;
+  font: 700 11.5px/1.5 var(--font-head);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #3a2410;
+  background: color-mix(in srgb, var(--tc) 55%, #fff6e0);
+  box-shadow: inset 0 -2px 0 rgba(58, 36, 16, 0.18);
+}
+.t-toolrow .t-pow {
+  flex: 1 1 auto;
+}
+.t-toolrow .t-up {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #b0703a;
+}
+.t-toolrow .t-up::before {
+  content: '▲ ';
+  font-size: 9px;
+}
+.u-tip .t-upto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-weight: 800;
+  color: #2f6a2a;
+}
+.u-tip .t-upto small {
+  flex-basis: 100%;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a6440;
+}
+.inv-detail .t-toolrow {
+  margin-top: 8px;
+  font-size: 13.5px;
+}
+/* Upgrade chips: a little metal ingot in the icon's corner. */
+.up-tier {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 18px;
+  height: 12px;
+  border-radius: 3px 3px 4px 4px;
+  clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.55);
+}
+.up-tier.t1 { background: #d4804a; }
+.up-tier.t2 { background: #cfd8e2; }
+.up-tier.t3 { background: #f2c24a; }
+.shop-row.up .u-slot,
+.pk-item .u-slot {
+  position: relative;
+}
+.shop-row .pr .ore {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 10px;
+  padding: 2px 8px 2px 3px;
+  border-radius: 12px;
+  background: rgba(138, 100, 64, 0.12);
+  font: 700 14px var(--font-head);
+  color: #4f7a38;
+}
+.shop-row .pr .ore img {
+  width: 24px;
+  height: 24px;
+}
+.shop-row .pr .ore em {
+  font-style: normal;
+}
+.shop-row .pr .ore.no {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.1);
+}
+.shop-picker .pk-ore {
+  grid-area: qty;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pk-ore .u-slot.mini {
+  width: 40px;
+  height: 40px;
+}
+.pk-ore .u-slot img {
+  width: 32px;
+  height: 32px;
+}
+.pk-ore b {
+  display: block;
+  font: 700 18px/1.1 var(--font-head);
+  color: #4f7a38;
+}
+.pk-ore b em {
+  font-style: normal;
+  font-size: 13px;
+  color: #a08060;
+}
+.pk-ore small {
+  font-size: 12px;
+  font-weight: 800;
+  color: #a08060;
+}
+.pk-ore.no b {
+  color: #c0392b;
+}
+/* Forge: the "In your pack" card becomes "Your Hoe": current tier pips → the tier on offer, what it does now. */
+.shop-have .hv.up {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.shop-have .hv.up small {
+  flex-basis: 100%;
+}
+.shop-have .hv.up .to {
+  font: 700 15px var(--font-head);
+  font-style: normal;
+  color: #4f9a36;
+}
+.shop-have .hv.up .to.no {
+  color: #a08060;
+}
+.shop-have:has(.hv.up) .fr {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1.5px dashed rgba(138, 100, 64, 0.25);
+  text-align: left;
+}
+.shop-have:has(.hv.up) .fr small {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  color: #6a4a2a;
+}
+/* Day end: a fine film grain over the moonlit grab, dithering the dark gradient (the upscaled 640×360 frame
+   banded into soft blocks under the cool multiply). Static tile — composited once, never re-rasterised. */
+.de-photo .de-grade::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+.shop-have .hv.up .t-tier b {
+  font: 700 12px/1.5 var(--font-head);
+  letter-spacing: 0.06em;
+}
+.shop-have .hv.up .t-tier .tp {
+  width: 11px;
+  height: 11px;
+}

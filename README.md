@@ -79,10 +79,11 @@ src/
   ui/                    hud.ts + hud.css (clock dial, toolbar, energy/health, toasts, fade, banner, screen router, focus nav,
                          gamepad) · kit.ts (Screen base, frames, tooltip, focus) · ui.css (all screens; UI zoomed to the
                          window via --uiz) · title.ts · inventory.ts (drag & drop, detail card) · shop.ts (per-keeper stock) ·
+                         shop.ts also hosts Odessa's forge "Tool upgrades" shelf (next tier of hoe / can / pick for gold + 5 ore) · toolinfo.ts (tool tiers: metal pips, what each tier does, forge ladder; shown on tooltips + the backpack card) ·
                          crafting.ts (iso placement preview, craft payoff → Backpack tab) · placement.ts (in-world ghost:
                          real colours + pulsing outline, dashed reach tiles, red ✕ where blocked) · dayend.ts + dayend-art.ts
                          (painted night valley, quiet-day vignette; `ui=dayend:quiet`) · mapscreen.ts + mapart.ts (watercolour
-                         valley: paper grain, washes, fields, Poisson woods, villager heads, season palettes) ·
+                         valley laid out like the warps — mine north of the farm, Cindergrove + falls past its south gate, road east to the square and on to the beach pier: paper grain, washes, fields, Poisson woods, villager heads, season palettes) ·
                          settings.ts (quality + live fps, fullscreen, frame limit 30/60/vsync, FPS chip, volumes, UI size, reduce
                          motion, 24h clock, key rebinding) · pause.ts (+ save slots with real world snapshots — a dark frame (overnight
                          fade) is skipped and re-grabbed once the morning is on screen — overwrite / delete confirms) · newgame.ts
@@ -180,7 +181,7 @@ URL: `?demo=farm-morning`, `?map=farm&x=30&z=20&time=18.5&season=fall&weather=ra
 Demos: `farm-morning`, `farm-noon`, `farm-evening`, `farm-night`, `farm-fall`, `farm-winter`, `farm-rain`, `farm-pond`,
 `farm-field`, `winter-night` (+ DESIGN names `town-evening`, `beach-sunset`, `forest-rain`, `mine`, `festival`, which
 stage on the farm until those maps exist).
-UI screens: `ui-title`, `ui-hud` (toasts), `ui-inventory`, `ui-shop`, `ui-shop-smith`, `ui-shop-carpenter`, `ui-crafting`,
+UI screens: `ui-title`, `ui-hud` (toasts), `ui-inventory`, `ui-shop`, `ui-shop-smith`, `ui-forge` (Odessa's tool upgrades with a purse that can pay), `ui-shop-carpenter`, `ui-crafting`,
 `ui-placement` (in-world ghost), `ui-dayend`, `ui-dayend-quiet` (nothing shipped), `ui-sleep` (the real night: stocked bin → bed → payout → ledger over the dusk grab of the farm; shoot with `--wait 5500`), `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac),
 `ui-newgame` (New Journal creator; `ui=newgame:demo` pre-filled), `ui-hud-low` (both tubes low + red heartbeat vignette; any demo takes
 `&energy=0.1&health=0.2`), `ui-coop` (co-op lobby from the title) — or

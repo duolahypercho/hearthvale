@@ -6,13 +6,14 @@
  */
 import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
-import { CROPS, CROP_IDS, daysToRipe } from '../data/crops';
+import { CROPS, CROP_IDS, daysToRipe, TIER_NAMES } from '../data/crops';
 import { NPCS, type NpcId } from '../data/npcs';
 import { portraitSvg } from './portraits';
 import { ICONS, itemIcon, itemCategory, qualityStar, QUALITY_NAME } from './icons';
-import { Screen, el, frame, closeButton, tooltip, sfx, replay, rollTo, escapeHtml } from './kit';
+import { Screen, el, frame, closeButton, tooltip, sfx, replay, rollTo, escapeHtml, shortName } from './kit';
 import { itemTooltipHtml, unitPrice, type StackView } from './itemtip';
 import { flyCoins, flyItemTo, centerOf, popBadge } from './item-fly';
+import { UPGRADABLE, UPGRADE_COST, tierPower, tierPips, type FarmTool } from './toolinfo';
 
 interface Good {
   id: string;
@@ -24,6 +25,8 @@ interface Good {
   slots?: number[];
   have?: number;
   quality?: number;
+  /** Forge upgrade (Odessa): the tool, the tier it becomes, and the ore the smith needs on top of the fee. */
+  up?: { tool: FarmTool; tier: number; ore: string; n: number };
 }
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
@@ -78,7 +81,7 @@ function shopName(id: string): string {
   const n = NPCS[id as NpcId];
   if (!n) return 'Shop';
   const at = n.role.indexOf(' at ');
-  return escapeHtml(at >= 0 ? n.role.slice(at + 4) : `${n.name.split(' ')[0]}’s Workshop`);
+  return escapeHtml(at >= 0 ? n.role.slice(at + 4) : `${shortName(n.name)}’s Workshop`);
 }
 
 function portraitFor(id: string): string {
@@ -133,9 +136,9 @@ export class ShopScreen extends Screen {
   private selling = false;
   private wasShort = false;
 
-  private line(kind: 'hello' | 'buy' | 'sell' | 'broke'): void {
+  private line(kind: 'hello' | 'buy' | 'sell' | 'broke', say?: string): void {
     const set = (LINES[this.keeper] ?? LINES.marigold!)[kind];
-    const text = set[Math.floor(Math.random() * set.length)]!;
+    const text = say ?? set[Math.floor(Math.random() * set.length)]!;
     const node = this.bubble.querySelector('p')!;
     // The whole line is laid out from the first frame (untyped tail kept invisible), so the bubble can centre it
     // without the text hopping up a half-line when it wraps mid-typing.
@@ -167,7 +170,7 @@ export class ShopScreen extends Screen {
 
     const left = el('div', 'shop-keeper');
     this.portrait = el('div', 'shop-portrait', portraitFor(this.keeper));
-    const plate = el('div', 'shop-name', `<b>${escapeHtml(npc?.name.split(' ')[0] ?? 'Shopkeeper')}</b><small>${escapeHtml(npc?.role ?? '')}</small>`);
+    const plate = el('div', 'shop-name', `<b>${escapeHtml((npc ? shortName(npc.name) : 'Shopkeeper'))}</b><small>${escapeHtml(npc?.role ?? '')}</small>`);
     this.bubble = el('div', 'shop-bubble', '<p></p>');
     this.purse = el('div', 'shop-purse', `${ICONS.coin}<span class="v"></span><small>your purse</small>`);
     // "In your pack": the selected good's count + free slots — where bought goods land (they fly in here).
@@ -228,7 +231,7 @@ export class ShopScreen extends Screen {
 
   private stock(): Good[] {
     const own = STOCK[this.keeper];
-    if (own) return own.filter(([id]) => itemDef(id)).map(([id, price, shelf, note]) => ({ id, price, shelf, note }));
+    if (own) return [...(this.keeper === 'odessa' ? this.upgrades() : []), ...own.filter(([id]) => itemDef(id)).map(([id, price, shelf, note]) => ({ id, price, shelf, note }))];
     const season = this.game.calendar.season;
     const out: Good[] = [];
     const ids = [...CROP_IDS].sort((a, b) => Number(!CROPS[a].seasons.includes(season)) - Number(!CROPS[b].seasons.includes(season)));
@@ -251,6 +254,31 @@ export class ShopScreen extends Screen {
     ];
     for (const [id, price, note] of supplies) if (itemDef(id)) out.splice(out.findIndex((g) => g.off) < 0 ? out.length : out.findIndex((g) => g.off), 0, { id, price, shelf: 'Supplies', note });
     return out;
+  }
+
+  /**
+   * Odessa's "Tool upgrades" shelf: the next tier of every farm tool whose tier changes how it works (hoe /
+   * can reach, can capacity, pick power), for gold + 5 ore of that metal. Tiers are per farmer (co-op: each
+   * farmhand upgrades their own tools; the fee comes out of the shared purse like any purchase).
+   */
+  private upgrades(): Good[] {
+    const fm = this.game.services.farming;
+    const inv = this.game.services.inventory;
+    if (!fm) return [];
+    const out: Good[] = [];
+    for (const tool of UPGRADABLE) {
+      if (inv && !inv.count(tool)) continue;
+      const tier = fm.toolTier(tool) + 1;
+      const cost = UPGRADE_COST[tier];
+      if (!cost || !itemDef(tool)) continue;
+      out.push({ id: tool, price: cost.gold, shelf: 'Tool upgrades', note: tierPower(tool, tier), up: { tool, tier, ore: cost.ore, n: cost.n } });
+    }
+    return out;
+  }
+
+  /** An upgrade's ore: have / need. */
+  private oreHave(g: Good): number {
+    return g.up ? (this.game.services.inventory?.count(g.up.ore) ?? 0) : 0;
   }
 
   /** Sell rows: one per item id + quality (stacks merged), produce first, then by value. */
@@ -295,12 +323,13 @@ export class ShopScreen extends Screen {
         this.list.appendChild(el('div', 'shop-shelf', `<span>${escapeHtml(shelf)}</span>`));
       }
       const d = itemDef(g.id);
+      const oreShort = !!g.up && this.oreHave(g) < g.up.n;
       const row = el(
         'div',
-        `shop-row${g.off ? ' off' : ''}${i === this.sel ? ' on' : ''}${this.tab === 'buy' && g.price > gold ? ' cant' : ''}`,
-        `<div class="u-slot mini">${itemIcon(g.id)}${g.quality ? qualityStar(g.quality) : ''}</div>
-         <div class="nm"><b>${escapeHtml(d?.name ?? g.id)}${g.quality ? ` <em class="q${g.quality}">${QUALITY_NAME[g.quality] ?? ''}</em>` : ''}</b><small>${g.off ? `${g.off} only` : escapeHtml(g.note)}</small></div>
-         <div class="pr">${ICONS.coin}<span>${g.price.toLocaleString()}</span></div>`,
+        `shop-row${g.off ? ' off' : ''}${g.up ? ' up' : ''}${i === this.sel ? ' on' : ''}${this.tab === 'buy' && (g.price > gold || oreShort) ? ' cant' : ''}`,
+        `<div class="u-slot mini">${itemIcon(g.id)}${g.quality ? qualityStar(g.quality) : ''}${g.up ? `<i class="up-tier t${g.up.tier}"></i>` : ''}</div>
+         <div class="nm"><b>${g.up ? `${TIER_NAMES[g.up.tier as 1 | 2 | 3]} ` : ''}${escapeHtml(d?.name ?? g.id)}${g.quality ? ` <em class="q${g.quality}">${QUALITY_NAME[g.quality] ?? ''}</em>` : ''}</b><small>${g.off ? `${g.off} only` : escapeHtml(g.note)}</small></div>
+         <div class="pr">${g.up ? `<span class="ore${oreShort ? ' no' : ''}">${itemIcon(g.up.ore)}<em>${this.oreHave(g)}/${g.up.n}</em></span>` : ''}${ICONS.coin}<span>${g.price.toLocaleString()}</span></div>`,
       );
       row.dataset.nav = '';
       row.style.animationDelay = `${Math.min(i, 12) * 22}ms`;
@@ -309,7 +338,18 @@ export class ShopScreen extends Screen {
       // Mouse hover: the item card docks beside the shop frame (never over the list, the picker or the Buy
       // button). Keyboard / gamepad focus *selects* the row instead — the purchase bar already shows the item,
       // so Buy always buys what the focus ring is on.
-      row.addEventListener('pointerenter', () => tooltip.anchor(itemTooltipHtml({ id: g.id, qty: 1, quality: g.quality }, { price: g.price, priceLabel: this.tab === 'buy' ? 'each' : 'we pay' }), row, this.root.querySelector('.shop-frame') ?? row));
+      row.addEventListener('pointerenter', () =>
+        tooltip.anchor(
+          itemTooltipHtml(
+            { id: g.id, qty: 1, quality: g.quality },
+            g.up
+              ? { price: g.price, priceLabel: 'forge fee', hint: `<div class="t-upto"><small>After the forge</small>${tierPips(g.up.tier)}<span>${escapeHtml(tierPower(g.id, g.up.tier))}</span></div>` }
+              : { price: g.price, priceLabel: this.tab === 'buy' ? 'each' : 'we pay' },
+          ),
+          row,
+          this.root.querySelector('.shop-frame') ?? row,
+        ),
+      );
       row.addEventListener('pointerleave', () => tooltip.hide());
       row.addEventListener('u-focus', () => {
         tooltip.hide();
@@ -359,7 +399,7 @@ export class ShopScreen extends Screen {
   /** Buy tab: can't afford even one of the selected good. */
   private short(): boolean {
     const g = this.goods[this.sel];
-    return this.tab === 'buy' && !!g && !g.off && g.price > (this.game.services.economy?.gold() ?? 0);
+    return this.tab === 'buy' && !!g && !g.off && (g.price > (this.game.services.economy?.gold() ?? 0) || (!!g.up && this.oreHave(g) < g.up.n));
   }
 
   /** Left-column "In your pack" card for the selected good. */
@@ -371,6 +411,11 @@ export class ShopScreen extends Screen {
     const n = g ? (inv?.count(g.id) ?? 0) : 0;
     const after = g && this.tab === 'buy' ? n + this.qty : g && this.tab === 'sell' ? Math.max(0, n - this.qty) : n;
     const no = this.short() || !!g?.off;
+    if (g?.up) {
+      const cur = this.game.services.farming?.toolTier(g.up.tool) ?? 0;
+      this.have.innerHTML = `<div class="u-slot mini">${itemIcon(g.id)}</div><div class="hv up"><small>Your ${escapeHtml(itemDef(g.id)?.name ?? g.id)}</small>${tierPips(cur)}<em class="to${no ? ' no' : ''}">→ ${TIER_NAMES[g.up.tier as 1 | 2 | 3]}</em></div><div class="fr"><small>${escapeHtml(tierPower(g.id, cur))}</small></div>`;
+      return;
+    }
     this.have.innerHTML = g
       ? `<div class="u-slot mini">${itemIcon(g.id)}</div><div class="hv"><small>In your pack</small><b><span class="n">${n.toLocaleString()}</span>${after !== n ? `<em class="to${no ? ' no' : ''}">→ ${after.toLocaleString()}</em>` : ''}</b></div><div class="fr"><small>Free slots</small><i class="meter"><i style="width:${Math.round((free / Math.max(1, size)) * 100)}%"></i></i><b>${free}<em>/${size}</em></b></div>`
       : '';
@@ -378,6 +423,7 @@ export class ShopScreen extends Screen {
 
   private maxQty(g: Good): number {
     if (this.tab === 'sell') return g.have ?? 1;
+    if (g.up) return 1;
     const gold = this.game.services.economy?.gold() ?? 0;
     return Math.max(1, Math.min(999, Math.floor(gold / Math.max(1, g.price))));
   }
@@ -397,10 +443,26 @@ export class ShopScreen extends Screen {
     const can = this.tab === 'sell' || (!g.off && total <= gold);
     // Selecting something you can't afford: the keeper says so (once per change), instead of a stale "fair price".
     const short = this.short();
-    if (short && !this.wasShort) this.line('broke');
+    if (short && !this.wasShort) {
+      const ore = g.up && this.oreHave(g) < g.up.n ? itemDef(g.up.ore)?.name ?? 'ore' : '';
+      this.line('broke', ore ? `Bring me ${g.up!.n} ${ore} and I’ll fire the forge for it.` : undefined);
+    }
     this.wasShort = short;
     // Keep keyboard / pad focus on the Buy button across re-renders (A, A, A buys again and again).
     const goHadFocus = !!this.nav.current?.classList.contains('pk-go');
+    if (g.up) {
+      const have = this.oreHave(g);
+      const oreName = itemDef(g.up.ore)?.name ?? g.up.ore;
+      this.picker.innerHTML = `
+      <div class="pk-item"><div class="u-slot">${itemIcon(g.id)}<i class="up-tier t${g.up.tier}"></i></div><div><b>${TIER_NAMES[g.up.tier as 1 | 2 | 3]} ${escapeHtml(d?.name ?? g.id)}</b><small>${escapeHtml(tierPower(g.id, g.up.tier))}</small></div></div>
+      <div class="pk-ore${have < g.up.n ? ' no' : ''}"><div class="u-slot mini">${itemIcon(g.up.ore)}</div><div><b>${have}<em>/${g.up.n}</em></b><small>${escapeHtml(oreName)}</small></div></div>
+      <div class="pk-total">${ICONS.coin}<span>${g.price.toLocaleString()}</span></div>
+      <button class="u-btn green pk-go${can && have >= g.up.n ? '' : ' disabled'}" data-nav>${ICONS.hammer} Upgrade</button>`;
+      const goBtn = this.picker.querySelector<HTMLElement>('.pk-go')!;
+      goBtn.addEventListener('click', () => this.commit());
+      if (goHadFocus) this.nav.set(goBtn, false);
+      return;
+    }
     this.picker.innerHTML = `
       <div class="pk-item"><div class="u-slot">${itemIcon(g.id)}</div><div><b title="${escapeHtml(d?.name ?? g.id)}">${escapeHtml(d?.name ?? g.id)}</b><small>${g.price}g each</small></div></div>
       <div class="pk-qty">
@@ -443,6 +505,10 @@ export class ShopScreen extends Screen {
         sfx(this.game, 'error');
         return;
       }
+      if (g.up) {
+        this.upgrade(g, go);
+        return;
+      }
       const total = g.price * this.qty;
       if (!eco.spend(total, 'shop')) {
         replay(go, 'shake');
@@ -483,12 +549,40 @@ export class ShopScreen extends Screen {
     if (this.tab === 'buy') this.buildPicker();
   }
 
+  /** Forge upgrade: fee + ore in, the tool comes back a tier up (same choreography as a purchase). */
+  private upgrade(g: Good, go: HTMLElement | null): void {
+    const eco = this.game.services.economy;
+    const inv = this.game.services.inventory;
+    const fm = this.game.services.farming;
+    const up = g.up!;
+    if (!eco || !inv || !fm || this.oreHave(g) < up.n || eco.gold() < g.price) {
+      replay(go, 'shake');
+      sfx(this.game, 'error');
+      this.wasShort = false;
+      this.buildPicker();
+      return;
+    }
+    if (!eco.spend(g.price, 'forge') || !inv.remove(up.ore, up.n)) {
+      replay(go, 'shake');
+      sfx(this.game, 'error');
+      return;
+    }
+    fm.setToolTier(up.tool, up.tier as 0 | 1 | 2 | 3);
+    const from = centerOf(this.picker.querySelector('.pk-item .u-slot'));
+    sfx(this.game, 'buy');
+    this.payoff(g.id, 1, from, false, TIER_NAMES[up.tier as 1 | 2 | 3]);
+    this.game.events.emit('ui:toast', { text: `<b>${TIER_NAMES[up.tier as 1 | 2 | 3]} ${escapeHtml(itemDef(g.id)?.name ?? g.id)}</b> · ${escapeHtml(tierPower(g.id, up.tier))}`, icon: g.id, kind: 'good' });
+    this.build();
+    // After the rebuild (which may already flag the next tier as unaffordable): the smith's word is about this job.
+    this.line('buy', `There. ${TIER_NAMES[up.tier as 1 | 2 | 3]} edge, tempered and true. Treat it kindly.`);
+  }
+
   /**
    * Purchase choreography. Buy: coins leave the purse for the shopkeeper (the payment) while the goods
    * arc from the picker into the "In your pack" card with a "+N". Sell: the goods go to the shopkeeper and
    * the coins come back into the purse. The shopkeeper gives a little bounce either way.
    */
-  private payoff(itemId: string, qty: number, from: { x: number; y: number } | null, sell: boolean): void {
+  private payoff(itemId: string, qty: number, from: { x: number; y: number } | null, sell: boolean, badge?: string): void {
     const purse = centerOf(this.purse.querySelector('svg') ?? this.purse);
     const keeper = centerOf(this.portrait);
     if (!purse || !keeper) return;
@@ -507,7 +601,7 @@ export class ShopScreen extends Screen {
           if (!this.isOpen) return;
           flyItemTo(itemId, from, slotEl(), 0, () => {
             if (!this.isOpen) return;
-            popBadge(slotEl(), `+${qty}`, 'good');
+            popBadge(slotEl(), badge ?? `+${qty}`, 'good');
             this.buildHave();
             replay(this.have, 'got');
           }, 48, { duration: 560 });

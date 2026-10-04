@@ -390,10 +390,11 @@ function usesNote(itemId: string): string {
 }
 
 function previewNote(itemId: string): string {
-  if (SPRINKLERS[itemId]) return `Waters ${sprinklerOffsets(itemId).length} tiles every morning`;
-  if (itemId === 'scarecrow') return 'Crows stay clear within 8 tiles';
-  if (itemId === 'woodFence') return 'Place in runs to pen animals';
-  if (itemId === 'stonePath') return 'Pave walkways; blocks weeds';
-  if (itemId === 'chest') return 'One tile · open with right-click';
-  return 'Place it anywhere on the farm';
+  // Reads the preview card itself (the Uses chips already say what the thing does).
+  if (SPRINKLERS[itemId]) return 'Lit tiles get watered at dawn';
+  if (itemId === 'scarecrow') return 'Lit ring = crow-free ground';
+  if (itemId === 'woodFence') return 'Posts link up with their neighbours';
+  if (itemId === 'stonePath') return 'Paves the tile it sits on';
+  if (itemId === 'chest') return 'Toolbar → click a free tile to set it down';
+  return 'Toolbar → click a free tile to place';
 }

@@ -34,6 +34,7 @@ import { DemoKit } from './demo-kit';
 import { NewGameScreen } from './newgame';
 import { itemDef } from '../data/items';
 import { loadJournal, registerJournalSave, journal } from './profile';
+import { setTierSource } from './toolinfo';
 
 export { slotHtml } from './itemtip';
 
@@ -124,6 +125,7 @@ export class Hud {
     loadSettings(game);
     loadJournal();
     registerJournalSave(game);
+    setTierSource((t) => game.services.farming?.toolTier(t) ?? 0);
     installSaveThumbs(game, () => {
       try {
         return localStorage.getItem('hearthvale.journal') ? journal.slot : null;

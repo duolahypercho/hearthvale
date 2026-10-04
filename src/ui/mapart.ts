@@ -78,11 +78,14 @@ export const LAND_D = 'M20 40 C200 10 420 30 640 20 C800 14 920 30 985 60 L985 4
 // Roads / water as beziers so the scatter can keep clear of them.
 const ROADS: Bez[] = [
   [[300, 340], [380, 330], [440, 300], [530, 300]],
-  [[600, 300], [680, 290], [740, 270], [800, 256]],
+  // East out of the square, down past the east fields to Driftsand Beach's pier (town's east gate → beach).
+  [[610, 318], [700, 336], [772, 420], [748, 516]],
   [[572, 330], [590, 400], [610, 470], [630, 530]],
   [[240, 300], [250, 240], [262, 180], [266, 132]],
 ];
 const FOOTPATH: Bez = [[300, 404], [330, 470], [420, 512], [548, 520]];
+/** The farm's south gate → Cindergrove. */
+const GATEPATH: Bez = [[246, 404], [244, 428], [232, 446], [222, 470]];
 const RIVER: Bez[] = [
   [[410, 60], [430, 120], [470, 160], [500, 200]],
   [[500, 200], [540, 250], [520, 300], [560, 360]],
@@ -91,7 +94,7 @@ const RIVER: Bez[] = [
 const STREAM: Bez = [[196, 452], [270, 486], [380, 500], [452, 470]];
 const STREAM2: Bez = [[452, 470], [500, 450], [548, 440], [588, 418]];
 
-const BLOCK: Pt[] = [...ROADS.flatMap((b) => bezPts(b)), ...bezPts(FOOTPATH), ...RIVER.flatMap((b) => bezPts(b)), ...bezPts(STREAM), ...bezPts(STREAM2)];
+const BLOCK: Pt[] = [...ROADS.flatMap((b) => bezPts(b)), ...bezPts(FOOTPATH), ...bezPts(GATEPATH), ...RIVER.flatMap((b) => bezPts(b)), ...bezPts(STREAM), ...bezPts(STREAM2)];
 
 interface Keep {
   x: number;
@@ -102,12 +105,11 @@ interface Keep {
 const KEEP: Keep[] = [
   { x: 566, y: 300, r: 66 },
   { x: 566, y: 356, r: 34 },
-  { x: 846, y: 252, r: 44 },
-  { x: 846, y: 300, r: 30 },
+  { x: 232, y: 470, r: 20 },
   { x: 262, y: 112, r: 30 },
   { x: 262, y: 64, r: 26 },
-  { x: 148, y: 448, r: 64 },
-  { x: 640, y: 530, r: 40 },
+  { x: 148, y: 448, r: 50 },
+  { x: 748, y: 536, r: 34 },
   { x: 420, y: 238, r: 30 },
 ];
 const RECTS: [number, number, number, number][] = [
@@ -116,6 +118,7 @@ const RECTS: [number, number, number, number][] = [
   [72, 214, 212, 292], // orchard
   [636, 372, 740, 480], // east fields
   [20, 540, 240, 640], // cartouche
+  [150, 490, 316, 524], // Cindergrove's flag
   [880, 520, 1000, 640], // compass
 ];
 
@@ -302,7 +305,9 @@ export function valleyBase(season: Season): {
   const land = (x: number, y: number): boolean => y > 38 && y < 505 && x > 26 && x < 980;
   const placed: Pt[] = [];
   const specs: TreeSpec[] = [];
-  // Whisperwood: dense Poisson forest in a lumpy ellipse.
+  // Cindergrove: old-growth woods past the farm's south gate, ringing the plunge pool (placed first: densest).
+  specs.push({ pts: poisson(r, 170, 10.5, [30, 400, 352, 514], (x, y) => land(x, y) && ((x - 190) / 172) ** 2 + ((y - 462) / 64) ** 2 < 1 + Math.sin(x * 0.07) * 0.1, placed), mix: [4, 5, 1], s: [0.85, 1.4] });
+  // East woods: dense Poisson forest in a lumpy ellipse.
   specs.push({ pts: poisson(r, 260, 12.5, [690, 70, 990, 470], (x, y) => land(x, y) && ((x - 850) / 160) ** 2 + ((y - 270) / 200) ** 2 < 1 + Math.sin(x * 0.05) * 0.12, placed), mix: [5, 3, 1], s: [0.8, 1.3] });
   // Northern tree line along the mountains' east shoulder.
   specs.push({ pts: poisson(r, 70, 14, [400, 34, 700, 130], (x, y) => land(x, y) && y < 104 + Math.sin(x * 0.03) * 18, placed), mix: [3, 4, 1], s: [0.7, 1.1] });
@@ -388,6 +393,8 @@ export function valleyBase(season: Season): {
   <path d="M536 262 C528 290 536 320 556 352" fill="none" stroke="#e8f8ff" stroke-width="2" stroke-linecap="round" opacity=".6"/>
   <ellipse cx="148" cy="448" rx="54" ry="30" fill="${season === 'winter' ? '#cfe6f0' : '#5aa8cc'}" stroke="#2f6a8a" stroke-width="3" filter="url(#mWc)"/>
   <ellipse cx="136" cy="440" rx="22" ry="7" fill="#dff4ff" opacity=".6"/>
+  <!-- Cindergrove falls: a mossy ledge spilling into the plunge pool -->
+  <g transform="translate(108 426)"><path d="M-22 6 C-20 -10 -6 -18 10 -16 C22 -14 28 -4 26 8 Z" fill="#8a8274" stroke="#4a3e30" stroke-width="2" filter="url(#mWc)"/><path d="M-14 -6 C-6 -12 6 -12 16 -8" stroke="#6a9a4a" stroke-width="3" fill="none" stroke-linecap="round" opacity=".8"/><path d="M-2 -9 C0 0 0 8 2 16 M4 -9 C6 0 7 8 8 16 M10 -8 C11 0 12 8 13 15" stroke="#f4fcff" stroke-width="2.6" fill="none" stroke-linecap="round"/><ellipse cx="6" cy="17" rx="12" ry="3.6" fill="#fff" opacity=".75"/></g>
   <g stroke="#4f7a38" stroke-width="1.6" stroke-linecap="round">${[
     [104, 456],
     [110, 462],
@@ -397,9 +404,9 @@ export function valleyBase(season: Season): {
     .map(([x, y]) => `<path d="M${x} ${y} l-2 -8 M${x} ${y} l1 -9 M${x} ${y} l3 -7"/>`)
     .join('')}</g>
   <!-- roads + footpath -->
-  <g fill="none" stroke="#c8a070" stroke-linecap="round" stroke-width="9" filter="url(#mWc)" opacity=".95">${ROADS.map((b) => `<path d="${bezD(b)}"/>`).join('')}<path d="${bezD(FOOTPATH)}" stroke-width="5"/></g>
+  <g fill="none" stroke="#c8a070" stroke-linecap="round" stroke-width="9" filter="url(#mWc)" opacity=".95">${ROADS.map((b) => `<path d="${bezD(b)}"/>`).join('')}<path d="${bezD(FOOTPATH)}" stroke-width="5"/><path d="${bezD(GATEPATH)}" stroke-width="5"/></g>
   <g fill="none" stroke="#fff4dc" stroke-linecap="round" stroke-width="2" stroke-dasharray="1 9" opacity=".8">${ROADS.map((b) => `<path d="${bezD(b)}"/>`).join('')}</g>
-  <path d="${bezD(FOOTPATH)}" fill="none" stroke="#8a6440" stroke-width="1.4" stroke-dasharray="3 5" opacity=".7"/>
+  <path d="${bezD(FOOTPATH)} ${bezD(GATEPATH)}" fill="none" stroke="#8a6440" stroke-width="1.4" stroke-dasharray="3 5" opacity=".7"/>
   <g stroke="#5a3418" stroke-width="2"><rect x="514" y="292" width="30" height="14" rx="3" fill="#b07a44" transform="rotate(-8 529 299)"/><rect x="592" y="408" width="30" height="12" rx="3" fill="#b07a44" transform="rotate(-60 607 414)"/></g>
   ${bridge(400, 496, 62)}
   ${dots}`;

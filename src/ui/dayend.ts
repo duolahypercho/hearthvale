@@ -11,7 +11,7 @@ import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
 import { NPCS } from '../data/npcs';
 import { ICONS, itemIcon, itemIconUrl, itemCategory, qualityStar } from './icons';
-import { Screen, el, sfx, rollTo, replay, escapeHtml } from './kit';
+import { Screen, el, sfx, rollTo, replay, escapeHtml, shortName } from './kit';
 import { nightValleySvg, quietVignetteSvg } from './dayend-art';
 
 interface Summary {
@@ -272,7 +272,7 @@ export class DayEndScreen extends Screen {
         const b = (n as { birthday?: { season: string; day: number } }).birthday;
         return b && b.season === tSeason && b.day === tDay;
       })
-      .map((n) => n.name.split(' ')[0]!);
+      .map((n) => shortName(n.name));
     const w = c.weather;
     const forecast = w === 'sun' ? 'Sunny and mild' : w === 'rain' ? 'Rain all day — no watering needed' : w === 'storm' ? 'Thunderstorms. Stay near home' : w === 'snow' ? 'Snow on the fields' : 'A breezy day';
     // Pick of the day: the most valuable line in the bin, plus the day's tally.

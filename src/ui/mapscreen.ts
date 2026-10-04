@@ -1,7 +1,7 @@
 /**
  * Map ('map'; M): a painted overview of the valley in watercolour + ink on parchment — mountains and the
- * Old Mine to the north-west, the river winding through Hearthvale square to Driftsand Beach, Whisperwood
- * to the east and Grandmother's farm with its pond to the west. Seasonal palette, hover cards for every
+ * Old Mine up the hill north of Grandmother's farm, Cindergrove's old-growth woods and falls past the farm's south
+ * gate, the road east to Hearthvale square and on to Driftsand Beach's pier (the same layout the warps walk). Seasonal palette, hover cards for every
  * place, a bobbing "you are here" pin, villager heads where their schedules put them, and a compass rose.
  * Painting lives in mapart.ts (paper, washes, fields, Poisson woods). Pure SVG (seeded scatter, SVG filters).
  */
@@ -22,14 +22,16 @@ interface Place {
   y: number;
   blurb: string;
   open: boolean;
+  /** Name flag's offset below the place (default 50; the mine's hangs above). */
+  flag?: number;
 }
 
 const PLACES: Place[] = [
   { id: 'farm', name: "Rosalind's Farm", x: 232, y: 338, blurb: 'Your farm. Overgrown, stubborn, full of promise — and the best soil in the valley.', open: true },
   { id: 'town', name: 'Hearthvale Square', x: 566, y: 300, blurb: 'Cobbled plaza, the fountain, Thimble & Pip’s, the bakery — and the dark Lantern Hall.', open: true },
-  { id: 'forest', name: 'Whisperwood', x: 846, y: 252, blurb: 'Old trees that hum when the wind is right. Mushrooms, ferns and things that watch.', open: true },
+  { id: 'forest', name: 'Cindergrove', x: 232, y: 458, blurb: 'Old-growth woods past the farm’s south gate: a waterfall, mossy fallen giants and glowcaps after dark.', open: true, flag: 44 },
   { id: 'mine', name: 'Old Mine', x: 262, y: 112, blurb: 'The miners left in a hurry. Something down there still glitters.', open: true },
-  { id: 'beach', name: 'Driftsand Beach', x: 640, y: 562, blurb: 'Tide pools, a creaky pier and whatever the sea decides to give back.', open: true },
+  { id: 'beach', name: 'Driftsand Beach', x: 748, y: 536, flag: 34, blurb: 'Tide pools, a creaky pier and whatever the sea decides to give back.', open: true },
 ];
 
 function house(x: number, y: number, roof: string, s = 1, glow = false): string {
@@ -71,7 +73,7 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
   const labels = PLACES.map(
     (p) => `<g class="m-loc${p.id === here ? ' here' : ''}" data-id="${p.id}" transform="translate(${p.x} ${p.y})">
       <circle r="46" fill="transparent"/>
-      <g class="m-flag" transform="translate(0 ${p.id === 'mine' ? -54 : 50})"><path d="M-${p.name.length * 5.4 + 14} -13 H${p.name.length * 5.4 + 14} L${p.name.length * 5.4 + 22} 0 L${p.name.length * 5.4 + 14} 13 H-${p.name.length * 5.4 + 14} L-${p.name.length * 5.4 + 22} 0 Z" fill="${p.id === here ? '#d9623e' : '#fbf0d6'}" stroke="#5a3418" stroke-width="2.2"/><text y="6">${escapeHtml(p.name)}</text></g></g>`,
+      <g class="m-flag" transform="translate(0 ${p.id === 'mine' ? -54 : (p.flag ?? 50)})"><path d="M-${p.name.length * 5.4 + 14} -13 H${p.name.length * 5.4 + 14} L${p.name.length * 5.4 + 22} 0 L${p.name.length * 5.4 + 14} 13 H-${p.name.length * 5.4 + 14} L-${p.name.length * 5.4 + 22} 0 Z" fill="${p.id === here ? '#d9623e' : '#fbf0d6'}" stroke="#5a3418" stroke-width="2.2"/><text y="6">${escapeHtml(p.name)}</text></g></g>`,
   ).join('');
   const villagers = heads
     .map(
@@ -109,7 +111,7 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
   <!-- compass + cartouche -->
   <g transform="translate(930 580)"><circle r="34" fill="#fbf0d6" stroke="#6a4428" stroke-width="3"/><circle r="26" fill="none" stroke="#6a4428" stroke-width="1" stroke-dasharray="2 4"/><path d="M0 -30 L7 0 L0 30 L-7 0 Z" fill="#c8573e" stroke="#5a2414" stroke-width="1.5"/><path d="M-30 0 L0 -6 L30 0 L0 6 Z" fill="#e8d0a0" stroke="#6a4428" stroke-width="1.2"/><text y="-38" class="m-rose">N</text></g>
   <g transform="translate(110 590)"><path d="M-92 -26 H92 C100 -26 100 26 92 26 H-92 C-100 26 -100 -26 -92 -26 Z" fill="#fbf0d6" stroke="#6a4428" stroke-width="2.5"/><path d="M-84 -19 H84 C90 -19 90 19 84 19 H-84 C-90 19 -90 -19 -84 -19 Z" fill="none" stroke="#b8946a" stroke-width="1"/><text y="-2" class="m-title">Hearthvale</text><text y="17" class="m-sub">${escapeHtml(subtitle)}</text></g>
-  <g class="m-boat"><path d="M812 604 C826 612 850 612 862 604 L856 614 H818 Z" fill="#a8683a" stroke="#4a2810" stroke-width="2"/><path d="M836 603 V574 L856 600 Z" fill="#fff8e8" stroke="#4a2810" stroke-width="1.8"/><path d="M834 603 V580 L820 600 Z" fill="#e8744e" stroke="#4a2810" stroke-width="1.6"/></g>
+  <g transform="translate(-300 -4)"><g class="m-boat"><path d="M812 604 C826 612 850 612 862 604 L856 614 H818 Z" fill="#a8683a" stroke="#4a2810" stroke-width="2"/><path d="M836 603 V574 L856 600 Z" fill="#fff8e8" stroke="#4a2810" stroke-width="1.8"/><path d="M834 603 V580 L820 600 Z" fill="#e8744e" stroke="#4a2810" stroke-width="1.6"/></g></g>
   <g class="m-birds" fill="none" stroke="#4a3a2e" stroke-width="2" stroke-linecap="round"><path class="b1" d="M760 96 q6 -6 12 0 q6 -6 12 0"/><path class="b2" d="M790 80 q5 -5 10 0 q5 -5 10 0"/><path class="b1" d="M812 104 q4 -4 8 0 q4 -4 8 0"/></g>
   ${[
     [120, 0, 1.1, -12],
@@ -121,6 +123,7 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
         `<g class="m-cloud" style="animation-delay:${off}s;animation-duration:${90 + k! * 24}s"><g transform="translate(0 ${y}) scale(${sc})"><g transform="translate(10 26)" fill="#3a4a2a" opacity=".1"><ellipse cx="0" cy="0" rx="38" ry="12"/><ellipse cx="30" cy="4" rx="28" ry="10"/></g><g fill="#ffffff" opacity=".62"><ellipse cx="0" cy="0" rx="36" ry="14"/><ellipse cx="24" cy="-8" rx="24" ry="14"/><ellipse cx="46" cy="2" rx="26" ry="11"/><ellipse cx="-22" cy="4" rx="20" ry="9"/></g></g></g>`,
     )
     .join('')}
+  <g class="m-ink" pointer-events="none" fill="#5a3a1a" stroke="#f1e2bc" stroke-width="3" paint-order="stroke" stroke-linejoin="round" font-style="italic" font-weight="700" text-anchor="middle"><text x="872" y="58" font-size="15">the Wildwood</text><text x="872" y="74" font-size="11.5" letter-spacing="1.5">· unexplored ·</text></g>
   ${villagers}
   ${labels}
   ${pinAt ? `<g class="m-pin" transform="translate(${pinAt.x} ${pinAt.y - 18})"><ellipse cy="26" rx="12" ry="4" fill="#000" opacity=".25"/><g class="bob"><path d="M0 22 C-16 4 -18 -18 0 -20 C18 -18 16 4 0 22 Z" fill="#e8574a" stroke="#6a1e10" stroke-width="3"/>${faceSprite(farmerAvatar(['#fff4d8', '#f0d8a0'], look), -14, -18, 28)}</g></g>` : ''}

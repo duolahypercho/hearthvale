@@ -128,7 +128,7 @@ const MAP_SVG = `<svg viewBox="0 0 640 400" class="valley">
   <path d="M150 200 C 170 160 120 120 120 120" stroke="#c8a070" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="2 12"/>
   <g class="loc" data-map="farm" transform="translate(110 205)"><rect x="-58" y="-40" width="116" height="80" rx="16" fill="#9cc86a" stroke="#5a8a3a" stroke-width="3"/><rect x="-40" y="-24" width="30" height="20" fill="#7a4a2a"/><path d="M-44 -24 L-25 -38 L-6 -24 Z" fill="#b8563c"/><rect x="4" y="-4" width="38" height="26" fill="#8a5a36" opacity="0.7"/><text y="58">Farm</text></g>
   <g class="loc" data-map="town" transform="translate(420 180)"><circle r="44" fill="#e8d6b4" stroke="#a8845a" stroke-width="3"/><circle r="10" fill="#8fc8e8"/><rect x="-30" y="-36" width="22" height="16" fill="#d8573e"/><rect x="10" y="-38" width="22" height="18" fill="#6a7a9a"/><text y="64">Hearthvale</text></g>
-  <g class="loc" data-map="forest" transform="translate(560 160)"><text y="4">Whisperwood</text></g>
+  <g class="loc" data-map="forest" transform="translate(560 160)"><text y="4">Cindergrove</text></g>
   <g class="loc" data-map="mine" transform="translate(96 100)"><circle r="12" fill="#3a3432"/><text y="34">Old Mine</text></g>
   <g class="loc" data-map="beach" transform="translate(470 330)"><text>Driftsand Beach</text></g>
   <g class="rose" transform="translate(590 60)"><circle r="22" fill="#fbf0d6" stroke="#8a6440" stroke-width="2"/><path d="M0 -20 L5 0 L0 20 L-5 0 Z" fill="#c8573e"/><text y="-26">N</text></g>

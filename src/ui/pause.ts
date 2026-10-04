@@ -9,7 +9,7 @@ import type { Game } from '../core/game';
 import { NPCS, type NpcId } from '../data/npcs';
 import { portraitSvg } from './portraits';
 import { ICONS } from './icons';
-import { Screen, el, frame, closeButton, sfx, replay, escapeHtml } from './kit';
+import { Screen, el, frame, closeButton, sfx, replay, escapeHtml, shortName } from './kit';
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
 const SEASONS = ['spring', 'summer', 'fall', 'winter'];
@@ -34,7 +34,7 @@ function nextBirthday(game: Game): { name: string; season: string; day: number }
     if (!b) continue;
     let d = SEASONS.indexOf(b.season) * 28 + b.day - now;
     if (d < 0) d += 112;
-    if (!best || d < best.d) best = { name: n.name.split(' ')[0]!, season: b.season, day: b.day, d };
+    if (!best || d < best.d) best = { name: shortName(n.name), season: b.season, day: b.day, d };
   }
   return best;
 }
@@ -148,7 +148,7 @@ export class PauseScreen extends Screen {
           } catch {
             /* no portrait */
           }
-          return `<div class="td-friend meet"><span class="pf">${face}</span><div><b>${escapeHtml(n.name.split(' ')[0]!)}</b></div></div>`;
+          return `<div class="td-friend meet"><span class="pf">${face}</span><div><b>${escapeHtml(shortName(n.name))}</b></div></div>`;
         })
         .join('');
       return `<div class="td-friends meet"><div class="lbl">${ICONS.heart ?? ''}<span>Neighbours to meet</span></div><div class="row">${faces}</div><small class="nudge">Say hello in the square. A small gift goes a long way.</small></div>`;
@@ -164,7 +164,7 @@ export class PauseScreen extends Screen {
           /* no portrait */
         }
         const hearts = Array.from({ length: 5 }, (_, i) => `<i class="${h >= (i + 1) * 2 ? 'on' : h >= i * 2 + 1 ? 'half' : ''}"></i>`).join('');
-        return `<div class="td-friend"><span class="pf">${face}</span><div><b>${escapeHtml(n.name.split(' ')[0]!)}</b><span class="hs">${hearts}</span></div></div>`;
+        return `<div class="td-friend"><span class="pf">${face}</span><div><b>${escapeHtml(shortName(n.name))}</b><span class="hs">${hearts}</span></div></div>`;
       })
       .join('');
     return `<div class="td-friends"><div class="lbl">${ICONS.heart ?? ''}<span>Closest friends</span></div><div class="row">${row}</div></div>`;
