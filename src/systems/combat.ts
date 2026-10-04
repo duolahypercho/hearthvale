@@ -20,7 +20,7 @@ import type { Game } from '../core/game';
 import { MineMap } from '../world/mine';
 import { Crab, monsterColor, type Monster } from '../entities/monsters';
 import { mineActions, buildSword, SwordTrail, SlashArc, SWORD_TIP, SWORD_BASE, SWORD_TIERS, SWORD_REACH as REACH, SWORD_ARC_COS as ARC_COS, SWORD_CRIT as CRIT } from '../world/mine/actions';
-import { DamageNumbers, ScreenFx } from '../world/mine/hud';
+import { DamageNumbers, ScreenFx, syncToolbar } from '../world/mine/hud';
 import { mineSfx } from '../world/mine/sfx';
 import type { MonsterKind } from '../world/mine/biomes';
 import { itemDef } from '../data/items';
@@ -231,6 +231,7 @@ export class CombatSystem implements System, HealthApi {
     const player = this.game.player;
     const acts = mineActions(player);
     if (acts.active) return;
+    syncToolbar(this.game, 'sword');
     this.sword ??= buildSword(this.tier);
     this.aim();
     // Staged still: the stroke whose impact pose opens the chest to the camera — never the back of

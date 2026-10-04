@@ -48,7 +48,7 @@ const BAT_RIM: Record<Biome, number> = { earth: 0xe0b8ff, ice: 0xffd8a8, lava: 0
 const PALETTE: Record<Biome, { slime: number; slimeCore: number; bat: number; batEye: number; crab: number; crabLeg: number }> = {
   earth: { slime: 0x7ed957, slimeCore: 0x3f9a2a, bat: 0x5a4668, batEye: 0xffd24a, crab: 0xa29c94, crabLeg: 0xd8764a },
   ice: { slime: 0x7fd8ff, slimeCore: 0x2a7ac8, bat: 0x3e4a86, batEye: 0xffd24a, crab: 0x9fb4c8, crabLeg: 0x5a8ac8 },
-  lava: { slime: 0xff7a2a, slimeCore: 0xc81e0a, bat: 0x3a2a2a, batEye: 0xff5a1a, crab: 0x4e4240, crabLeg: 0xa83a1a },
+  lava: { slime: 0xff7a2a, slimeCore: 0xc81e0a, bat: 0x5a3430, batEye: 0xff5a1a, crab: 0x4e4240, crabLeg: 0xa83a1a },
 };
 
 const STATS: Record<MonsterKind, { hp: number; dmg: number; radius: number; knock: number }> = {
@@ -647,7 +647,7 @@ export class Slime extends Monster {
       this.dead = true;
       const p = this.pos.clone().setY(this.pos.y + 0.3);
       ctx.puff(p, this.color, 22, 'goo');
-      ctx.puff(p, 0xe8e0d0, 10, 'dust');
+      ctx.puff(p, new THREE.Color(this.color).lerp(new THREE.Color(0xb0a898), 0.5).getHex(), 8, 'dust');
     }
     void dt;
   }
@@ -686,7 +686,7 @@ export class Bat extends Monster {
     const pal = PALETTE[biome];
     const r = new Rng(seed);
     this.home = new THREE.Vector2(x, z);
-    const furMat = monsterMat(pal.bat, { rough: 0.9, rim: 0.3, rimColor: BAT_RIM[biome], emissive: biome === 'lava' ? 0x301008 : 0x000000 });
+    const furMat = monsterMat(pal.bat, { rough: 0.9, rim: biome === 'lava' ? 0.6 : 0.3, rimColor: BAT_RIM[biome], emissive: biome === 'lava' ? 0x401408 : 0x000000 });
     this.mats.push(furMat);
     const bodyGeo = lumpySphere(0.2, 2, 0.12, r, 3.2);
     const bodyM = new THREE.Mesh(bodyGeo, furMat);
@@ -719,7 +719,8 @@ export class Bat extends Monster {
       fm.castShadow = true;
       mergeParts(this.body, face);
     }
-    const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(0.7).getHex(), { rough: 0.7, rim: 0.1, rimColor: BAT_RIM[biome] });
+    // Lava band: ember-lit membranes (translucent warm glow) so the bat never melts into the basalt.
+    const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(biome === 'lava' ? 1 : 0.7).getHex(), { rough: 0.7, rim: biome === 'lava' ? 0.45 : 0.1, rimColor: BAT_RIM[biome], emissive: biome === 'lava' ? 0x6a1c08 : undefined, emissiveI: biome === 'lava' ? 0.6 : undefined });
     wingMat.side = THREE.DoubleSide;
     this.mats.push(wingMat);
     const wg = wingGeometry();

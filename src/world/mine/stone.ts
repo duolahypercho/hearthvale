@@ -18,9 +18,10 @@
 import * as THREE from 'three';
 import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
+import { occlusionPatch } from './occlude';
 
 /** `aOre.w` codes. */
-export const ORE_CODE = { none: 0, copper: 1, iron: 2, gold: 3, coal: 4, gem: 5 } as const;
+export const ORE_CODE = { none: 0, copper: 1, iron: 2, gold: 3, coal: 4, gem: 5, host: 6 } as const;
 
 const NOISE = /* glsl */ `
 float hvS_h(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -45,6 +46,7 @@ export function stoneMaterial(veins: boolean, scale = 1, frost = false): THREE.M
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   m.name = veins ? 'mine-rock-ore' : 'mine-stone';
   applyStone(m, veins, scale, frost);
+  occlusionPatch(m);
   cache.set(key, m);
   return m;
 }
@@ -106,7 +108,16 @@ export function applyStone<M extends THREE.MeshStandardMaterial>(m: M, veins: bo
          veins
            ? `hvKind = vOre.w;
        hvOreC = vOre.rgb;
-       if (hvKind > 0.5) {
+       if (hvKind > 5.5) {
+         // Host rock of a metal ore: darker + desaturated (the nuggets pop off it), a scatter of
+         // tiny ore-coloured flecks hinting the seam.
+         float lum = dot(diffuseColor.rgb, vec3(0.3, 0.55, 0.15));
+         diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.45) * 0.86;
+         vec3 fc = floor(vStP * 4.0);
+         float fh = hvS_h(fc + 4.2);
+         float fd = smoothstep(0.2, 0.08, length(fract(vStP * 4.0) - 0.5 - (vec3(hvS_h(fc), hvS_h(fc + 1.7), hvS_h(fc + 3.3)) - 0.5) * 0.5));
+         diffuseColor.rgb = mix(diffuseColor.rgb, hvOreC * 0.8, step(0.82, fh) * fd * 0.8);
+       } else if (hvKind > 0.5) {
          // Seams: the thin level sets of two fbm fields (branching, wandering lines), widened into
          // pockets where a third field is high.
          vec3 q = vStP * 0.8;

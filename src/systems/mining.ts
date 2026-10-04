@@ -16,9 +16,9 @@ import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { MineMap, setPendingMineFloor, OPENED_CHESTS } from '../world/mine';
 import { MineEntranceMap, MOUTH, LIFT, ENTRANCE_SPAWN } from '../world/mine/entrance';
-import { BIOMES, ELEVATOR_EVERY, MAX_FLOOR, biomeForFloor } from '../world/mine/biomes';
+import { BIOMES, ELEVATOR_EVERY, MAX_FLOOR, ORE_STYLE, biomeForFloor } from '../world/mine/biomes';
 import { FLOOR_W, FLOOR_D } from '../world/mine/gen';
-import { FloorPlaque, ElevatorPanel, DamageNumbers } from '../world/mine/hud';
+import { FloorPlaque, ElevatorPanel, DamageNumbers, setUnderground, syncToolbar } from '../world/mine/hud';
 import { mineActions } from '../world/mine/actions';
 import { registerMineIcons } from '../world/mine/icons';
 import { MineCoop } from '../world/mine/coop';
@@ -201,6 +201,7 @@ export class MiningSystem implements System, MiningApi {
     const tier = this.game.services.farming?.toolTier('pickaxe') ?? 0;
     const player = this.game.player;
     const origin = player.position.clone();
+    syncToolbar(this.game, 'pickaxe');
     this.game.events.emit('tool:swing', { tool: 'pickaxe', tier, charge: 0 });
     acts.start('chop', this.pickaxeMesh(), {
       speed: 1 + tier * 0.08,
@@ -274,6 +275,7 @@ export class MiningSystem implements System, MiningApi {
     this.coop.update(dt, game.time);
     const id = game.world.current?.id;
     const inMine = id === 'mine' || id === 'mine-entrance';
+    setUnderground(game.opts.uiRoot, id === 'mine');
     this.plaque.show(inMine && game.opts.hud);
     if (inMine) this.plaque.dodge(dt);
     this.numbers.update(dt, game.rc.camera, window.innerWidth, window.innerHeight);
@@ -394,7 +396,7 @@ export class MiningSystem implements System, MiningApi {
       // Open floor towards the camera (nothing between the lens and the swing) and beside it.
       if (!open(sx, sz + 1) || !m.grid.isWalkable(rk.spec.x, sz + 1) || !open(sx - 1, sz)) continue;
       let s = -Math.hypot(sx + 0.5 - p.x, sz + 0.5 - p.z) * 0.35;
-      if (rk.spec.ore) s += 4;
+      if (rk.spec.ore) s += ORE_STYLE[rk.spec.ore].kind === 'metal' ? 60 : 40;
       // Keep walls out of the foreground (the lower third of the frame) and a dressed wall behind.
       for (let dz = 1; dz <= 3; dz++) for (let dx = -2; dx <= 2; dx++) if (L.solid[(sz + dz) * FLOOR_W + sx + dx]) s -= 0.8;
       for (let dz = 3; dz <= 6; dz++) if (L.solid[(sz - dz) * FLOOR_W + sx]) { s += 1.5; break; }
@@ -418,6 +420,7 @@ export class MiningSystem implements System, MiningApi {
     const tx = best.x;
     const tz = best.z;
     this.freezeOnImpact = still;
+    syncToolbar(this.game, 'pickaxe');
     const acts = mineActions(this.game.player);
     // Three-quarter turn towards the camera (the farmer faces +X; negative yaw swings the chest to +Z).
     acts.twist = -0.8;

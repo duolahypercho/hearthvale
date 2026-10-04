@@ -27,6 +27,7 @@ import { CaveLighting } from './lighting';
 import { BIOMES, ORE_STYLE, biomeForFloor, type MonsterKind } from './biomes';
 import { createMonster, monsterColor, type ArenaCtx, type Monster } from '../../entities/monsters';
 import { mineSfx } from './sfx';
+import { OCC, updateOcclusion } from './occlude';
 import './events';
 
 export interface StrikeHit {
@@ -466,6 +467,8 @@ export class MineMap implements GameMap {
   private deactivate(): void {
     if (!this.active) return;
     this.active = false;
+    OCC.uOccN.value = 0;
+    OCC.uOccH.value = 0;
     this.lighting.deactivate();
     const rig = this.game.rc.rig;
     if (this.savedCam) {
@@ -558,7 +561,12 @@ export class MineMap implements GameMap {
     // the biome's floor colour rolling out from the rock's foot.
     this.fx.sparks(pos, { color: 0xffe0a0, to: 0xff7a20, count: ore ? 12 : 8, speed: 3.4, up: 1.0, size: 0.08, gravity: 9, drag: 1.2, life: 0.38 });
     this.fx.shatter(pos, baseCol.clone().multiplyScalar(1.1), 8 + Math.floor(Math.random() * 5), 0.55, dir.clone().negate());
-    if (ore) this.fx.shatter(pos, oreColor(ore as never), 2, 0.6, dir.clone().negate());
+    if (ore) {
+      // Ore nuggets knocked loose: chunky ore-coloured bits + a few glints in the ore's colour.
+      const oc = oreColor(ore as never);
+      this.fx.shatter(pos.clone().setY(pos.y + 0.1), oc, 5, 0.75, dir.clone().negate());
+      this.fx.sparks(pos.clone().setY(pos.y + 0.15), { color: oc.clone().lerp(new THREE.Color(0xffffff), 0.4), count: 6, speed: 2.2, up: 1.3, size: 0.2, gravity: 4, drag: 2.5, life: 0.5, star: true });
+    }
     const dust = new THREE.Color(def.floor[0]).lerp(new THREE.Color(0xe8dcc8), 0.35);
     this.fx.dustRing(rock.pos.clone().setY(rock.pos.y + 0.1), dust, 12, 2.4, 0.5);
     this.fx.puff(pos, { color: dust, count: 3, speed: 0.6, up: 0.6, size: 0.55, grow: 1.4, gravity: -0.3, drag: 3, life: 0.6, alpha: 0.45 });
@@ -817,14 +825,21 @@ export class MineMap implements GameMap {
 
   private puff(p: THREE.Vector3, color: number, count: number, kind: 'dust' | 'goo' | 'spark'): void {
     if (kind === 'goo') {
-      this.fx.puff(p, { color, count, speed: 3, up: 1.4, size: 0.2, gravity: 10, drag: 0.8, life: 0.8 });
-      this.fx.sparks(p, { color: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.5), count: 10, speed: 2, up: 1, size: 0.18, gravity: 0, drag: 3, life: 0.5, star: true });
-      this.fx.puff(p, { color: 0xf0ece0, count: 6, speed: 1, up: 0.5, size: 0.9, grow: 1.4, gravity: -0.4, drag: 3, life: 0.7, alpha: 0.55 });
+      // Death pop: chunky goo blobs in the monster's own colour + a short, low smoke puff tinted
+      // by it (kept well under the bloom threshold: a puff, not a flash-bang over the farmer).
+      const mc = new THREE.Color(color);
+      this.fx.puff(p, { color: mc, count: Math.round(count * 0.8), speed: 3, up: 1.4, size: 0.26, gravity: 10, drag: 0.8, life: 0.7 });
+      this.fx.sparks(p, { color: mc.clone().lerp(new THREE.Color(0xffffff), 0.25).multiplyScalar(0.55), count: 5, speed: 2, up: 1, size: 0.14, gravity: 0, drag: 3, life: 0.35, star: true });
+      this.fx.puff(p, { color: mc.clone().lerp(new THREE.Color(0x8a8070), 0.55).multiplyScalar(0.6), count: 5, speed: 1.2, up: 0.4, size: 0.55, grow: 1.1, gravity: -0.3, drag: 3.5, life: 0.4, alpha: 0.45 });
       mineSfx.pop();
     } else if (kind === 'spark') {
       this.fx.sparks(p, { color, count, speed: 2.5, up: 1, size: 0.12, gravity: 3, drag: 2, life: 0.5 });
     } else {
-      this.fx.puff(p, { color, count, speed: 1.1, up: 0.4, size: 0.55, grow: 1.4, gravity: -0.2, drag: 3, life: 0.7, alpha: 0.45 });
+      // (dust: clamp the value so pale puffs never bloom out)
+      const dc = new THREE.Color(color);
+      const mx = Math.max(dc.r, dc.g, dc.b);
+      if (mx > 0.5) dc.multiplyScalar(0.5 / mx);
+      this.fx.puff(p, { color: dc, count, speed: 1.1, up: 0.4, size: 0.5, grow: 1.2, gravity: -0.2, drag: 3, life: 0.55, alpha: 0.42 });
     }
   }
 
@@ -1014,10 +1029,19 @@ export class MineMap implements GameMap {
     }
     const h = game.rc.renderer.domElement.height;
     FG_FADE.uFgH.value = h;
+    // See-through: farmers first (local, then co-op), then the nearest visible monsters.
+    const occT = this.occTargets;
+    occT.length = 0;
+    occT.push({ pos: player, h: 1.6 });
+    for (const r of this.remotes) occT.push({ pos: r.pos, h: 1.6 });
+    const mons = this.monsters.filter((m) => m.root.visible && m.alive !== false).sort((a, b) => a.pos.distanceToSquared(player) - b.pos.distanceToSquared(player));
+    for (const m of mons) occT.push({ pos: m.pos, h: m.kind === 'bat' || m.kind === 'wisp' ? 1.6 : 0.9 });
+    updateOcclusion(game.rc.camera, occT, game.rc.renderer.domElement.width, h);
     this.lighting.update(dt, time, player);
     this.fx.update(this.freezeFx ? 0 : dt, time, h, game.rc.rig.focus, this.lighting.fill.position);
   }
 
+  private readonly occTargets: { pos: THREE.Vector3; h: number }[] = [];
   private readonly frustum = new THREE.Frustum();
   private readonly pv = new THREE.Matrix4();
   private readonly cullSphere = new THREE.Sphere();

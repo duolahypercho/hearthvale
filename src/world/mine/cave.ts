@@ -22,6 +22,7 @@ import type { FloorLayout } from './gen';
 import { BIOMES } from './biomes';
 import { facetRock } from './rockgeo';
 import { applyStone } from './stone';
+import { occlusionPatch, OCC } from './occlude';
 
 const STEP = 0.2;
 const MARGIN = 2;
@@ -217,6 +218,10 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
   const aLava = new Float32Array(N);
   const aCrest = new Float32Array(N);
   const strata = def.strata.map((h) => new THREE.Color(h));
+  const strataAvg = strata.reduce((a, b) => a.add(b), new THREE.Color(0, 0, 0)).multiplyScalar(1 / strata.length);
+  /** Each course's colour relative to the mean (shader multiplies the mean vertex tone by it). */
+  const uStrata = { value: strata.slice(0, 6).map((c) => new THREE.Vector3(c.r / Math.max(1e-3, strataAvg.r), c.g / Math.max(1e-3, strataAvg.g), c.b / Math.max(1e-3, strataAvg.b))) };
+  while (uStrata.value.length < 6) uStrata.value.push(new THREE.Vector3(1, 1, 1));
   const fl0 = new THREE.Color(def.floor[0]);
   const fl1 = new THREE.Color(def.floor[1]);
   const fl2 = new THREE.Color(def.floor[2]);
@@ -258,21 +263,17 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
       // Basalt lip: darker, cooled rim stone.
       if (hasLava) c.multiplyScalar(1 - smoothstep(0.08, 0.3, lm) * 0.35);
 
-      // Rock albedo: sediment strata by height (+ slow warp), AO at the foot, lit rim, void above.
-      const sv = (h + noise.fbm(px * 0.3, pz * 0.3 + 9, 2) * 0.9 + noise.get(px * 0.9 + 4, pz * 0.9) * 0.25) * 1.1;
-      const bi = Math.floor(sv);
-      const bf = sv - bi;
-      const n0 = strata.length;
-      cw.copy(strata[((bi % n0) + n0) % n0]!).lerp(strata[(((bi + 1) % n0) + n0) % n0]!, smoothstep(0.55, 1.0, bf));
-      // Walls sit ~30 % below the floor in value (the walkable floor must own the frame).
-      cw.multiplyScalar((0.9 + noise.get(px * 1.3, pz * 1.3 + h * 2) * 0.18) * def.wallValue);
+      // Rock albedo: the strata's mean tone per vertex (the strata courses themselves are drawn per
+      // fragment in the shader from world height: per-vertex banding interpolated across the tall
+      // cliff triangles printed vertical streaks), AO at the foot, lit rim, void above.
+      cw.copy(strataAvg).multiplyScalar(def.wallValue);
       const rel = h - fh;
       cw.multiplyScalar(0.42 + 0.58 * smoothstep(0.0, 1.1, rel));
       // Rim light along the cliff crest.
       const crest = smoothstep(0.45, 0.8, s) * (1 - smoothstep(1.0, 1.6, s)) * smoothstep(0.6, 1.4, rel);
       aCrest[k] = crest;
       cw.multiplyScalar(1 + crest * 0.45);
-      if (L.biome === 'ice') cw.lerp(frost, crest * 0.55 + smoothstep(1.2, 2.5, rel) * 0.15);
+      if (L.biome === 'ice') cw.lerp(frost, crest * 0.32 + smoothstep(1.2, 2.5, rel) * 0.1);
       const voidK = smoothstep(0.9, 2.6, s);
       aVoid[k] = voidK;
       // Deep rock fades towards the fog, but keeps a dim silhouette (never a flat black hole).
@@ -315,7 +316,7 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
   shell.name = `cave-${L.biome}`;
   const uGlint = { value: new THREE.Color(L.biome === 'earth' ? 0xffd27a : L.biome === 'ice' ? 0xc8f4ff : 0xff8a3a).multiplyScalar(L.biome === 'ice' ? 3.2 : 2.6) };
   const uCrack = { value: L.biome === 'lava' ? 1 : L.biome === 'ice' ? 2 : 0 };
-  const uRimCol = { value: new THREE.Color(L.biome === 'earth' ? 0x6a4428 : L.biome === 'ice' ? 0x3c6a9c : 0x6a2a14).multiplyScalar(L.biome === 'lava' ? 0.45 : 0.4) };
+  const uRimCol = { value: new THREE.Color(L.biome === 'earth' ? 0x6a4428 : L.biome === 'ice' ? 0x3c6a9c : 0x6a2a14).multiplyScalar(L.biome === 'lava' ? 0.45 : L.biome === 'ice' ? 0.26 : 0.4) };
   const uFloorRough = { value: def.floorRough };
   patchMaterial(shell, `mine-cave-${L.biome}`, (shader) => {
     shader.uniforms.uTime = globalUniforms.uTime;
@@ -323,6 +324,7 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
     shader.uniforms.uCrack = uCrack;
     shader.uniforms.uFloorRough = uFloorRough;
     shader.uniforms.uRimCol = uRimCol;
+    shader.uniforms.uStrata = uStrata;
     let vs = shader.vertexShader;
     vs = before(vs, 'void main() {', 'attribute float aWall; attribute float aVoid; attribute float aLava; attribute float aCrest;\nvarying float vWall; varying float vVoid; varying float vLava; varying float vCrest; varying vec3 vCW; varying vec3 vCN;');
     vs = after(vs, '#include <project_vertex>', 'vWall = aWall; vVoid = aVoid; vLava = aLava; vCrest = aCrest; vCW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCN = normalize(mat3(modelMatrix) * objectNormal);');
@@ -331,7 +333,7 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
     fs = before(
       fs,
       'void main() {',
-      `uniform float uTime; uniform vec3 uGlint; uniform float uCrack; uniform float uFloorRough; uniform vec3 uRimCol;
+      `uniform float uTime; uniform vec3 uGlint; uniform float uCrack; uniform float uFloorRough; uniform vec3 uRimCol; uniform vec3 uStrata[6];
 varying float vWall; varying float vVoid; varying float vLava; varying float vCrest; varying vec3 vCW; varying vec3 vCN;
 ${NOISE_GLSL}
 ${CAVE_GLSL}`,
@@ -344,9 +346,12 @@ ${CAVE_GLSL}`,
       vec2 tp = abs(cwn.y) > 0.6 ? vCW.xz : (abs(cwn.x) > abs(cwn.z) ? vCW.zy : vCW.xy);
       float grit = hvNoise(tp * 4.3) * 0.45 + hvNoise(tp * 13.0) * 0.35 + hvNoise(tp * 1.4) * 0.2;
       diffuseColor.rgb *= 0.84 + 0.32 * grit;
-      float onFloor = 1.0 - smoothstep(0.15, 0.5, vWall);
+      // (height-gated too: floor-only varyings interpolate up the tall cliff triangles otherwise,
+      // and lava glow / floor paint smeared up the walls in streaks)
+      float onFloor = (1.0 - smoothstep(0.15, 0.5, vWall)) * (1.0 - smoothstep(0.14, 0.42, vCW.y));
       float onWall = smoothstep(0.3, 0.75, vWall) * (1.0 - vVoid * 0.85);
       float hvCrackV = 0.0;
+      float hvSnow = 0.0;
       vec2 fp = vCW.xz;
       if (uCrack < 0.5) {
         // EARTH: packed dirt. Trodden (lighter, smoother) lanes, darker gravel patches with dense
@@ -367,7 +372,10 @@ ${CAVE_GLSL}`,
         // ICE: smooth frosted sheet, soft blue-white drifts, sparse long fracture lines.
         float drift = hvFbm(fp * 0.12 + 5.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.86, 0.94, 1.08), smoothstep(0.45, 0.25, drift) * onFloor);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), smoothstep(0.6, 0.8, drift) * onFloor * 0.5);
+        // Packed snow (pale, matte) vs. clear blue ice (deep, glossy): two clear values.
+        hvSnow = smoothstep(0.47, 0.6, drift + (hvNoise(fp * 1.1) - 0.5) * 0.12) * onFloor;
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.78, 0.9, 1.12), (1.0 - hvSnow) * onFloor);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.72, 0.8, 0.9) * (0.92 + 0.12 * grit), hvSnow * 0.85);
         vec2 w = fp + vec2(hvNoise(fp * 0.3), hvNoise(fp * 0.3 + 9.0)) * 2.4;
         float l1 = abs(hvNoise(w * 0.22) - 0.5);
         float l2 = abs(hvNoise(w * 0.5 + 31.0) - 0.5);
@@ -382,17 +390,27 @@ ${CAVE_GLSL}`,
         diffuseColor.rgb *= mix(1.0, 0.72, deep * onFloor);
         vec2 bc = floor(fp * 6.0);
         float bh = hvHash12(bc + 2.9);
-        float bub = step(0.9, bh) * smoothstep(0.16, 0.05, length(fract(fp * 6.0) - 0.5 - (hvHash22(bc) - 0.5) * 0.5)) * onFloor;
+        float bub = step(0.965, bh) * smoothstep(0.16, 0.05, length(fract(fp * 6.0) - 0.5 - (hvHash22(bc) - 0.5) * 0.5)) * onFloor;
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.75, 0.9, 1.0), bub * 0.45);
       } else {
-        // CINDER: dark basalt floor under grey ash drifts; fissures only where the rock is hot.
-        float ash = smoothstep(0.5, 0.72, hvFbm(fp * 0.2 + 13.0));
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.38, 0.36) * (0.8 + 0.4 * grit), ash * onFloor * 0.7);
+        // CINDER: cooled crust PLATES (irregular Voronoi slabs, each its own basalt tone, a little
+        // ash dusting their tops), dark recessed cracks between them that glow hot only near
+        // the melt, and grey ash drifted into the low patches.
+        vec2 pw = fp * 0.95 + vec2(hvNoise(fp * 0.6), hvNoise(fp * 0.6 + 5.0)) * 0.7;
+        vec4 pl = hvMineStone(pw);
+        float edge = pl.y - pl.x;
+        float crackP = 1.0 - smoothstep(0.02, 0.09, edge);
+        float plateTone = 0.72 + 0.4 * pl.z;
+        float ash = smoothstep(0.55, 0.75, hvFbm(fp * 0.2 + 13.0));
+        vec3 basalt = diffuseColor.rgb * plateTone * (0.9 + 0.2 * smoothstep(0.0, 0.3, edge));
+        basalt = mix(basalt, vec3(0.36, 0.33, 0.31) * (0.85 + 0.3 * grit), ash * 0.55);
+        diffuseColor.rgb = mix(diffuseColor.rgb, basalt, onFloor);
+        diffuseColor.rgb *= 1.0 - crackP * onFloor * 0.72 * (1.0 - ash * 0.6);
         vec2 w = fp + vec2(hvNoise(fp * 0.7), hvNoise(fp * 0.7 + 5.0)) * 0.9;
         float fl = abs(hvNoise(w * 0.8) - 0.5);
         float fis = (1.0 - smoothstep(0.0, 0.03, fl)) * onFloor * (1.0 - ash);
-        diffuseColor.rgb *= 1.0 - fis * 0.55;
-        hvCrackV = fis;
+        diffuseColor.rgb *= 1.0 - fis * 0.45;
+        hvCrackV = max(fis, crackP * onFloor * (1.0 - ash) * 0.6);
       }
       // WALLS: natural fractured rock, not masonry. A domain-warped Voronoi breaks the face into
       // irregular slabs (wider than tall: bedding), only some slab borders open into dark cracks,
@@ -410,9 +428,23 @@ ${CAVE_GLSL}`,
         vec3 sa = wz > 0.02 ? hvWallSlab(vCW.xy) : vec3(1.0, 0.0, 0.0);
         vec3 sb = wx > 0.02 ? hvWallSlab(vCW.zy) : vec3(1.0, 0.0, 0.0);
         vec3 sl = sa * wz + sb * wx;
-        diffuseColor.rgb *= mix(1.0, sl.x, onWall * steep);
+        // Rock COURSES: stacked horizontal beds ~0.5 m tall (gently undulating with the plan
+        // position, never vertical), each its own stratum colour, a dark recessed joint under
+        // each bed and a lighter worn lip along its top edge that catches the lantern.
+        float cy = vCW.y * 1.9 + (hvFbm(vCW.xz * 0.22 + 4.0) - 0.5) * 1.1 + hvNoise(vCW.xz * 1.3) * 0.12;
+        float ci = floor(cy);
+        float cf = fract(cy);
+        int si = int(mod(ci + 60.0, 6.0));
+        vec3 sc = uStrata[0];
+        for (int k = 1; k < 6; k++) if (k == si) sc = uStrata[k];
+        float jit = 0.9 + 0.2 * hvHash12(vec2(ci, 3.1));
+        float joint = (1.0 - smoothstep(0.0, 0.16, cf)) * (0.55 + 0.45 * smoothstep(0.35, 0.6, hvNoise(vCW.xz * 1.7 + ci)));
+        float lip = smoothstep(0.78, 0.97, cf) * (1.0 - smoothstep(0.97, 1.0, cf));
+        float courseK = onWall * steep;
+        diffuseColor.rgb *= mix(vec3(1.0), sc * jit * (1.0 - joint * 0.42) * (1.0 + lip * 0.45), courseK);
+        diffuseColor.rgb *= mix(1.0, sl.x, onWall * steep * 0.8);
         diffuseColor.rgb *= 1.0 - sl.z * steep * onWall * 0.08;
-        hvWallH = sl.y * onWall * steep;
+        hvWallH = (sl.y * 0.75 + smoothstep(0.0, 0.14, cf) * 0.09 - lip * 0.0) * onWall * steep;
       }
       `,
     );
@@ -438,7 +470,7 @@ ${CAVE_GLSL}`,
       fs,
       '#include <roughnessmap_fragment>',
       `roughnessFactor = mix(uFloorRough * (0.85 + 0.3 * hvNoise(vCW.xz * 1.7)), 0.9, smoothstep(0.1, 0.6, vWall));
-      if (uCrack > 1.5) roughnessFactor = mix(roughnessFactor, 0.12, hvCrackV);`,
+      if (uCrack > 1.5) roughnessFactor = mix(mix(roughnessFactor, 0.12, hvCrackV), 0.85, hvSnow);`,
     );
     fs = after(
       fs,
@@ -475,6 +507,8 @@ ${CAVE_GLSL}`,
   const group = new THREE.Group();
   group.name = 'cave';
   group.userData.perfTag = 'mine-cave';
+  occlusionPatch(shell);
+  OCC.uFgLift.value.setHex(L.biome === 'ice' ? 0x0c1826 : L.biome === 'lava' ? 0x1e0e08 : 0x1c130c).convertSRGBToLinear().multiplyScalar(1.6);
   const mesh = new THREE.Mesh(geo, shell);
   mesh.name = 'cave-shell';
   mesh.receiveShadow = true;
@@ -732,6 +766,7 @@ ${CAVE_GLSL}`,
     patchMaterial(rm, `cave-boulders-amb:${amb}`, (shader) => {
       shader.fragmentShader = after(shader.fragmentShader, '#include <emissivemap_fragment>', `totalEmissiveRadiance += diffuseColor.rgb * ${amb.toFixed(3)};`);
     });
+    occlusionPatch(rm);
     const bm = new THREE.Mesh(merged, rm);
     bm.name = 'cave-boulders';
     bm.castShadow = true;

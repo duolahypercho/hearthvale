@@ -20,7 +20,7 @@ import type { LightSpec } from './gen';
 const ACCENTS = 5;
 
 /** Live-tunable light levels (exposed as window.__caveTune for look-dev). */
-export const CAVE_TUNE = { key: 1.15, fill: 0.05, bounce: 0.3, accent: 1, hemi: 0.8, exposure: 1 };
+export const CAVE_TUNE = { key: 1.15, fill: 0.035, bounce: 0.3, accent: 1, hemi: 0.8, exposure: 1 };
 (globalThis as unknown as { __caveTune: typeof CAVE_TUNE }).__caveTune = CAVE_TUNE;
 
 export class CaveLighting {
@@ -130,7 +130,9 @@ export class CaveLighting {
     this.key.position.set(player.x + 0.8, player.y + 6.2, player.z + 2.2);
     this.key.target.position.set(player.x, player.y, player.z - 0.4);
     this.key.intensity = def.lantern[1] * CAVE_TUNE.key * flick * this.lanternScale;
-    this.fill.position.set(player.x + 0.35, player.y + 1.25, player.z + 0.45);
+    // Belt-height lantern fill, off to the side: lights the swing and the floor at the feet without
+    // blowing out the face and hands at contact distance.
+    this.fill.position.set(player.x + 0.55, player.y + 0.62, player.z + 0.5);
     this.fill.intensity = def.lantern[1] * CAVE_TUNE.fill * flick * this.lanternScale;
     this.bounce.position.set(player.x, player.y + 5.5, player.z + 0.5);
     this.bounce.intensity = def.lantern[1] * CAVE_TUNE.bounce * this.lanternScale;

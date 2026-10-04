@@ -37,7 +37,8 @@ export type DecorKind =
   | 'iceSpike'
   | 'basalt'
   | 'vent'
-  | 'pickStand';
+  | 'pickStand'
+  | 'wallLantern';
 
 export interface DecorSpec {
   kind: DecorKind;
@@ -400,7 +401,8 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       const rot = e.dir === 0 ? 0 : e.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
       const ox = e.dir === 1 ? -0.3 : e.dir === 2 ? 0.3 : 0;
       const oz = e.dir === 0 ? -0.3 : 0;
-      lanternToggle = !lanternToggle;
+      // Back-wall frames always carry a lantern (they frame the hall); side posts alternate.
+      lanternToggle = e.dir === 0 ? true : !lanternToggle;
       addDecor(lanternToggle ? 'lanternPost' : 'post', e.x + 0.5 + ox, e.z + 0.5 + oz, rot, 1, true);
       if (lanternToggle) lightSources.push({ x: e.x + 0.5 + ox * 0.2 + (e.dir === 0 ? 0 : 0), y: 1.7, z: e.z + 0.5 + oz * 0.2 + 0.35, color: 0xffa04a, intensity: 9, distance: 7.5, flicker: 1, w: 1.4 });
     }
@@ -451,6 +453,26 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       const oz = e.dir === 0 ? -0.3 : 0;
       addDecor('lanternPost', e.x + 0.5 + ox, e.z + 0.5 + oz, rot, 1, true);
       lightSources.push({ x: e.x + 0.5 + ox * 0.2, y: 1.7, z: e.z + 0.5 + oz * 0.2 + 0.35, color: 0xffa050, intensity: 10, distance: 7.5, flicker: 1, w: 1.5 });
+    }
+  }
+
+  // Wall lanterns: iron brackets on the back (north) cliff faces, each a warm practical with a
+  // bloom halo, so the walls frame the hall the way a mine's lamp line does. Own rng stream.
+  if (biome !== 'ice') {
+    const wr = rng.fork('wall-lanterns');
+    const lamps: { x: number; z: number }[] = [];
+    const want = biome === 'earth' ? 4 : 3;
+    const north = edges.filter((e) => e.dir === 0);
+    const start = wr.int(0, Math.max(0, north.length - 1));
+    for (let n = 0; n < north.length && lamps.length < want; n++) {
+      const e = north[(start + n * 5) % north.length]!;
+      if (taken[idx(e.x, e.z)] || pool[idx(e.x, e.z)] || !spaced(lamps, e.x, e.z, 6.5) || !spaced(crystalPts, e.x, e.z, 2)) continue;
+      if (decor.some((d) => (d.kind === 'lanternPost' || d.kind === 'post') && Math.hypot(d.x - e.x - 0.5, d.z - e.z - 0.5) < 3.5)) continue;
+      // A full-height wall behind it (2+ solid tiles north), so the bracket has rock to bite into.
+      if (!inb(e.x, e.z - 2) || !solid[idx(e.x, e.z - 2)]) continue;
+      lamps.push(e);
+      decor.push({ kind: 'wallLantern', x: e.x + 0.5, z: e.z + 0.12, rot: 0, scale: 1, solid: false });
+      lightSources.push({ x: e.x + 0.5, y: 1.85, z: e.z + 0.55, color: biome === 'lava' ? 0xffb070 : 0xffa04a, intensity: biome === 'lava' ? 6 : 8, distance: 7, flicker: 0.8, w: 2.2 });
     }
   }
 
@@ -536,30 +558,100 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
   const rocks: RockSpec[] = [];
   const depthInBand = ((floor - 1) % 10) / 9;
   const oreTable = oreTableFor(floor, def.ores, depthInBand, tier);
-  for (let z = 2; z < D - 2; z++) {
-    for (let x = 2; x < W - 2; x++) {
-      const i = idx(x, z);
-      if (!isFloor(x, z) || taken[i] || reserved[i] || pool[i]) continue;
-      const ds = dist[i]!;
-      if (ds < 0 || ds < 3) continue;
-      if (elevator && Math.hypot(x - elevator.x, z - elevator.z) < 2) continue;
-      // Clumps (low-frequency noise) hugging the wall feet and seams; few loose singles mid-hall.
-      const cl = noise.fbm(x * 0.16 + 31, z * 0.16 - 7, 2);
-      const p = 0.07 + Math.max(0, cl) * 1.25 + wallAdj(x, z) * 0.15;
-      if (rng.next() > p) continue;
-      let ore = rng.weighted(oreTable);
-      // Ore veins cluster: a neighbour's ore is contagious.
-      const left = rocks.find((r) => (r.x === x - 1 && r.z === z) || (r.x === x && r.z === z - 1));
-      if (left?.ore && rng.next() < 0.35) ore = left.ore;
-      const big = !ore && rng.next() < 0.1;
-      const oreHp = ore ? ({ copperOre: 1, ironOre: 2, goldOre: 3, coal: 1 } as Record<string, number>)[ore] ?? 2 : 0;
-      rocks.push({ x, z, ore, big, hp: 1 + (big ? 2 : 0) + oreHp + tier + (biome === 'lava' ? 1 : biome === 'ice' ? 0 : 0), seed: rng.int(0, 1e6) });
-      taken[i] = 1;
+  // Designed room, not gravel noise: rocks gather in 3–5 SEAMS hugging the walls / pillars (a
+  // seam is a ragged clump grown out from the wall foot, ≤ 3 tiles deep), the hall middle stays
+  // an open walkable lane, plus a couple of loose stones. Ore is rolled per rock but is
+  // contagious inside a seam, so ore pockets read as a vein you mine out.
+  const wd = new Int16Array(W * D).fill(99);
+  {
+    const q: number[] = [];
+    for (let i = 0; i < W * D; i++) if (solid[i]) {
+      wd[i] = 0;
+      q.push(i);
+    }
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h]!;
+      const x = i % W;
+      const z = (i / W) | 0;
+      for (const [dx, dz] of N4) {
+        if (!inb(x + dx, z + dz)) continue;
+        const j = idx(x + dx, z + dz);
+        if (wd[j]! > wd[i]! + 1) {
+          wd[j] = wd[i]! + 1;
+          q.push(j);
+        }
+      }
     }
   }
+  const canRock = (x: number, z: number): boolean => {
+    if (x < 2 || z < 2 || x >= W - 2 || z >= D - 2) return false;
+    const i = idx(x, z);
+    if (!isFloor(x, z) || taken[i] || reserved[i] || pool[i]) return false;
+    const ds = dist[i]!;
+    if (ds < 0 || ds < 3) return false;
+    if (elevator && Math.hypot(x - elevator.x, z - elevator.z) < 2) return false;
+    return wd[i]! <= 3;
+  };
+  let floorN = 0;
+  for (let i = 0; i < W * D; i++) if (!solid[i] && !lava[i]) floorN++;
+  const rockTarget = Math.round(Math.min(72, Math.max(40, floorN * 0.11)));
+  const seamN = 3 + rng.int(0, 2);
+  const seeds: { x: number; z: number }[] = [];
+  const cands: { x: number; z: number }[] = [];
+  for (let z = 2; z < D - 2; z++) for (let x = 2; x < W - 2; x++) if (canRock(x, z) && wd[idx(x, z)] === 1 && Math.hypot(x - spawn.x, z - spawn.z) > 3.5) cands.push({ x, z });
+  rng.shuffle(cands);
+  for (const c of cands) {
+    if (seeds.length >= seamN + 1) break;
+    if (spaced(seeds, c.x, c.z, 8)) seeds.push(c);
+  }
+  const roll = (x: number, z: number): OreId | null => {
+    let ore = rng.weighted(oreTable);
+    const nb = rocks.find((r) => Math.abs(r.x - x) + Math.abs(r.z - z) === 1 && r.ore);
+    if (nb?.ore && rng.next() < 0.5) ore = nb.ore;
+    return ore;
+  };
+  const place = (x: number, z: number, ore: OreId | null): void => {
+    const big = !ore && rng.next() < 0.12;
+    const oreHp = ore ? ({ copperOre: 1, ironOre: 2, goldOre: 3, coal: 1 } as Record<string, number>)[ore] ?? 2 : 0;
+    rocks.push({ x, z, ore, big, hp: 1 + (big ? 2 : 0) + oreHp + tier + (biome === 'lava' ? 1 : 0), seed: rng.int(0, 1e6) });
+    taken[idx(x, z)] = 1;
+  };
+  const per = Math.ceil((rockTarget - 3) / Math.max(1, seeds.length));
+  for (const sd of seeds) {
+    // Grow: frontier tiles weighted towards the wall (low wd) and towards the seam's own mass.
+    const front: { x: number; z: number }[] = [sd];
+    let n = 0;
+    while (front.length && n < per * (0.75 + rng.next() * 0.5)) {
+      let bi = 0;
+      let bs = -1e9;
+      for (let k = 0; k < front.length; k++) {
+        const f = front[k]!;
+        const sc = -wd[idx(f.x, f.z)]! * 1.2 - Math.hypot(f.x - sd.x, f.z - sd.z) * 0.35 + rng.next() * 2.2;
+        if (sc > bs) {
+          bs = sc;
+          bi = k;
+        }
+      }
+      const f = front.splice(bi, 1)[0]!;
+      if (!canRock(f.x, f.z)) continue;
+      place(f.x, f.z, roll(f.x, f.z));
+      n++;
+      for (const [dx, dz] of N8) if (canRock(f.x + dx, f.z + dz) && !front.some((q) => q.x === f.x + dx && q.z === f.z + dz)) front.push({ x: f.x + dx, z: f.z + dz });
+    }
+  }
+  // A few loose stones out in the hall (never in the spawn's lane).
+  let loose = 0;
+  for (let t = 0; t < 200 && loose < 3; t++) {
+    const x = rng.int(3, W - 4);
+    const z = rng.int(3, D - 4);
+    const i = idx(x, z);
+    if (!isFloor(x, z) || taken[i] || reserved[i] || pool[i] || (dist[i] ?? -1) < 5 || wd[i]! < 3) continue;
+    if (rocks.some((r) => Math.hypot(r.x - x, r.z - z) < 3)) continue;
+    place(x, z, roll(x, z));
+    loose++;
+  }
 
-  // Blue-noise thinning: drop ~30 % of the cluster tiles, crowded interiors first, so clusters
-  // get ragged edges and gaps (ore survives a little more often: it is the reward).
+  // Ragged seam edges: drop a few crowded interior tiles (ore survives more often: the reward).
   {
     const at = new Map<number, RockSpec>();
     for (const r of rocks) at.set(idx(r.x, r.z), r);
@@ -568,7 +660,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     for (const r of order) {
       let n8 = 0;
       for (const [dx, dz] of N8) if (at.has(idx(r.x + dx, r.z + dz))) n8++;
-      const p = Math.min(0.55, 0.08 + n8 * 0.065) * (r.ore ? 0.65 : 1);
+      const p = n8 >= 6 ? 0.25 * (r.ore ? 0.5 : 1) : 0;
       if (rng.next() < p) {
         at.delete(idx(r.x, r.z));
         taken[idx(r.x, r.z)] = 0;
@@ -636,13 +728,13 @@ export function oreTableFor(floor: number, ores: [OreId | null, number][], depth
     for (const r of rows) if (f(r[0])) r[1] *= want / cur;
   };
   if (tier === 0 && floor <= 5) {
-    // First floors: sparse ore (12 → 17 % of rocks), gems ≤ 1 %.
-    setShare((o) => o !== null, 0.12 + (floor - 1) * 0.0125);
+    // First floors: 22 → 28 % of rocks carry ore, gems ≤ 1 %.
+    setShare((o) => o !== null, 0.22 + (floor - 1) * 0.015);
     setShare(isGem, 0.01, true);
   } else {
-    // Deeper: richer with depth (≈ 20 % → 40 % of rocks carry ore), gems stay rare finds.
+    // Deeper: richer with depth (≈ 26 % → 48 % of rocks carry ore), gems stay rare finds.
     const band = Math.floor((floor - 1) / 10) % 3;
-    setShare((o) => o !== null, Math.min(0.42, 0.18 + depthInBand * 0.1 + band * 0.05 + tier * 0.06));
+    setShare((o) => o !== null, Math.min(0.48, 0.26 + depthInBand * 0.1 + band * 0.04 + tier * 0.05));
     setShare(isGem, floor < 10 && tier === 0 ? 0.012 : tier > 0 ? 0.045 : 0.03, true);
   }
   if (tier > 0) {

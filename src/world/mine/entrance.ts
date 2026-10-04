@@ -590,9 +590,22 @@ export class MineEntranceMap implements GameMap {
             float lip = smoothstep(0.7 - aw, 0.8, fb) * (1.0 - smoothstep(0.84, 0.9 + aw, fb));
             float face = (1.0 - smoothstep(0.55, 0.8, normalize(vCfN).y)) * (1.0 - smoothstep(0.12, 0.3, aw));
             float broken = smoothstep(0.25, 0.6, hvNoise(vec2(vCfW.x * 0.35, bid * 3.1)));
-            float gk = (0.25 + 0.55 * bh) * (0.35 + 0.65 * broken);
-            float bedShade = mix(0.86, 1.06, smoothstep(0.05, 0.8, fb));
-            diffuseColor.rgb *= mix(1.0, (1.0 - groove * gk) * (1.0 + lip * 0.16 * broken) * bedShade, face);
+            float gk = (0.4 + 0.5 * bh) * (0.45 + 0.55 * broken);
+            float bedShade = mix(0.84, 1.08, smoothstep(0.05, 0.8, fb));
+            // Each bed splits into chunky BLOCKS (1.2–3 m) at dark vertical crevices, every block
+            // its own tone, a few blocks mossy along their crevices: masonry-like rock, not cake.
+            float jw = 1.2 + bh * 1.8;
+            float jx = (vCfW.x + vCfW.z * 0.4 + bh * 9.0 + (hvNoise(vec2(vCfW.y * 1.3, bid)) - 0.5) * 0.35) / jw;
+            float jf = fract(jx);
+            float jaw = fwidth(jx) * 1.5;
+            float crev = 1.0 - smoothstep(0.0, 0.05 + jaw, min(jf, 1.0 - jf));
+            float bk = fract(sin(floor(jx) * 12.9 + bid * 78.2) * 43758.5453);
+            float blockTone = 0.86 + 0.26 * bk;
+            vec3 mossC = vec3(0.24, 0.38, 0.11);
+            float mossy = step(0.72, bk) * smoothstep(0.3, 0.0, min(jf, 1.0 - jf) * jw) * smoothstep(0.4, 0.95, fb);
+            vec3 bedC = diffuseColor.rgb * (1.0 - groove * gk) * (1.0 + lip * 0.2 * broken) * bedShade * blockTone * (1.0 - crev * 0.55);
+            bedC = mix(bedC, mossC * (0.8 + 0.3 * bk), mossy * 0.7);
+            diffuseColor.rgb = mix(diffuseColor.rgb, bedC, face);
           }
         `,
       );
@@ -786,8 +799,9 @@ export class MineEntranceMap implements GameMap {
     b.add('woodDark', roundedBox(0.9, 0.5, 0.25, 0.05), mat(end.x + 0.3, this.H(end.x, end.z) + 0.3, end.z + 0.1, 0, Math.PI / 2 - 0.3, 0), { tint: 0xc05a3a });
     this.add(b.build({ name: 'rails' }), 0, 0, 0, [], 0);
     // Ore cart.
-    const cp = curve.getPointAt(0.62);
-    const ct = curve.getTangentAt(0.62);
+    // (well east of the arrival spot: the farmer never hides it in the demo framing)
+    const cp = curve.getPointAt(0.9);
+    const ct = curve.getTangentAt(0.9);
     const cart = buildCart(this.rng.fork('cart'));
     this.add(cart, cp.x, cp.z, Math.atan2(ct.x, ct.z) + Math.PI / 2, [[Math.floor(cp.x), Math.floor(cp.z)]]);
   }
@@ -825,6 +839,33 @@ export class MineEntranceMap implements GameMap {
     b.add('metal', new THREE.CylinderGeometry(0.025, 0.025, 0.6, 6), mat(1.25, 1.1, 0.82, 0.45, 0, 0), { tint: 0xb0a898 });
     b.add('metal', new THREE.SphereGeometry(0.07, 10, 8), mat(1.25, 1.38, 0.95), { tint: 0xc03a2a });
     b.add('metal', new THREE.SphereGeometry(0.12, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(-1.1, 2.3, 0.85, Math.PI, 0, 0), { tint: 0xd8a848 });
+    // Winding house: a small plank cabin east of the headframe, a lit window, a stovepipe, and the
+    // hoist cable running from its drum up over the pulley wheel.
+    {
+      const cx = 2.55;
+      const cz = 0.15;
+      for (let k = 0; k < 6; k++) b.add('woodGrain', boxUV(roundedBox(1.8, 0.3, 0.08, 0.02), 1.4), mat(cx, 0.16 + k * 0.29, cz + 0.72), { tint: k % 2 ? 0x9a7048 : 0x8c6644 });
+      for (let k = 0; k < 6; k++) b.add('woodGrain', boxUV(roundedBox(1.8, 0.3, 0.08, 0.02), 1.4), mat(cx, 0.16 + k * 0.29, cz - 0.72), { tint: k % 2 ? 0x9a7048 : 0x8c6644 });
+      for (const sx of [-1, 1]) b.add('woodGrain', boxUV(roundedBox(0.08, 1.75, 1.5, 0.02), 1.4), mat(cx + sx * 0.88, 0.88, cz), { tint: 0x8c6644 });
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add('woodDark', roundedBox(0.14, 1.9, 0.14, 0.03), mat(cx + sx * 0.9, 0.95, cz + sz * 0.74), { tint: 0x6a4a30 });
+      for (const sz of [-1, 1]) b.add('roofTile', boxUV(roundedBox(2.15, 0.08, 1.0, 0.02), 1.4), mat(cx, 2.12, cz + sz * 0.42, sz * 0.5, 0, 0), { tint: 0x7a4a34 });
+      b.add('woodDark', roundedBox(2.2, 0.1, 0.12, 0.02), mat(cx, 2.36, cz), { tint: 0x5a3a26 });
+      // Window with a warm glow + a plank door.
+      b.add('woodDark', roundedBox(0.56, 0.46, 0.06, 0.02), mat(cx + 0.35, 1.15, cz + 0.77), { tint: 0x5a3a26 });
+      b.add('lampGlow', roundedBox(0.44, 0.34, 0.03, 0.01), mat(cx + 0.35, 1.15, cz + 0.79), { tint: 0xffc070 });
+      b.add('woodDark', roundedBox(0.06, 0.4, 0.04, 0.01), mat(cx + 0.35, 1.15, cz + 0.81), { tint: 0x5a3a26 });
+      b.add('wood', boxUV(roundedBox(0.5, 1.2, 0.06, 0.02), 1), mat(cx - 0.42, 0.62, cz + 0.78), { tint: 0xb08458 });
+      b.add('metal', new THREE.CylinderGeometry(0.07, 0.07, 0.8, 8), mat(cx + 0.55, 2.55, cz - 0.3), { tint: 0x3a3632 });
+      // Hoist cable: cabin drum -> top of the wheel.
+      const from = new THREE.Vector3(cx - 0.9, 1.45, cz);
+      const to = new THREE.Vector3(0.15, H + 1.55, 0);
+      const mid = from.clone().lerp(to, 0.5);
+      const len = from.distanceTo(to);
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+      const e = new THREE.Euler().setFromQuaternion(q);
+      b.add('metal', new THREE.CylinderGeometry(0.022, 0.022, len, 5), mat(mid.x, mid.y, mid.z, e.x, e.y, e.z), { tint: 0x2e2a26 });
+      b.add('metal', new THREE.CylinderGeometry(0.2, 0.2, 0.5, 12), mat(cx - 1.0, 1.4, cz, Math.PI / 2, 0, 0), { tint: 0x5a5048 });
+    }
     const g = b.build({ name: 'lift' });
     const x = LIFT.x;
     const z = LIFT.z - 1.4;
@@ -832,6 +873,8 @@ export class MineEntranceMap implements GameMap {
       [Math.floor(x - 1), Math.floor(z)],
       [Math.floor(x), Math.floor(z)],
       [Math.floor(x + 0.9), Math.floor(z)],
+      [Math.floor(x + 2.0), Math.floor(z)],
+      [Math.floor(x + 3.1), Math.floor(z)],
     ]);
     const lp = buildLanternPost();
     this.addLit(lp, x - 1.9, z + 1.2, 0);

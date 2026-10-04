@@ -15,7 +15,7 @@ import { patchMaterial, after } from '../../render/patch';
 export type MineActionKind = 'chop' | 'slash' | 'backslash';
 
 /** Held-tool scale while a mine action plays. */
-export const TOOL_SWING_SCALE = 1.4;
+export const TOOL_SWING_SCALE = 1.75;
 
 interface Key {
   t: number;
@@ -147,7 +147,7 @@ export class MineActions {
 
   private hold(tool: THREE.Object3D | null): void {
     const socket = this.player.rig.tool;
-    // Mine tools swing 1.4x oversized (readability: the blade / pick head clears the hat brim).
+    // Mine tools swing 1.75x oversized (readability: the blade / pick head clears the hat brim).
     if (tool) {
       tool.userData.hvBaseScale ??= tool.scale.x;
       tool.scale.setScalar((tool.userData.hvBaseScale as number) * TOOL_SWING_SCALE);

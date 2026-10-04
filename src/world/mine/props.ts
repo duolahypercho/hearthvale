@@ -10,6 +10,7 @@ import type { Rng } from '../../core/rng';
 import { MeshBuilder, roundedBox, bevelCylinder, mat, lumpySphere, boxUV, mergeStatic } from '../geom';
 import { buildCrate, buildBarrel } from '../props/structures';
 import { globalUniforms } from '../../render/uniforms';
+import { occlusionPatch } from './occlude';
 import { patchMaterial, after, before } from '../../render/patch';
 import type { FloorLayout } from './gen';
 import { BIOMES } from './biomes';
@@ -144,20 +145,8 @@ function fgFade(src: THREE.Material): THREE.Material {
     const ob = src.onBeforeCompile.bind(src);
     patchMaterial(c, `orig:${src.customProgramCacheKey()}`, (sh, r) => ob(sh, r));
   }
-  patchMaterial(c, 'mine-fg-fade', (shader) => {
-    shader.uniforms.uFgH = FG_FADE.uFgH;
-    let fs = before(shader.fragmentShader, 'void main() {', 'uniform float uFgH;');
-    // (was a screen-door dither: in a still it printed a visible stipple mesh over the boulders)
-    fs = after(
-      fs,
-      '#include <dithering_fragment>',
-      `{
-        float fgk = 1.0 - smoothstep(uFgH * 0.04, uFgH * 0.2, gl_FragCoord.y);
-        gl_FragColor.rgb *= 1.0 - fgk * 0.4;
-      }`,
-    );
-    shader.fragmentShader = fs;
-  });
+  // Foreground lift + farmer / monster see-through (world/mine/occlude.ts).
+  occlusionPatch(c);
   fgCache.set(src, c);
   return c;
 }
@@ -285,6 +274,8 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
   }
 
   // ── decor ───────────────────────────────────────────────────────
+  /** Lantern halo centres (one camera-facing additive sheet for all of them). */
+  const halos: THREE.Vector3[] = [];
   for (const d of L.decor) {
     const y = heightAt(d.x, d.z);
     const r = rng;
@@ -299,11 +290,26 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
         pb.add('metal', roundedBox(0.23, 0.05, 0.23, 0.01), mat(0, 0.5, 0), { tint: 0x6a625a });
         pb.add('metal', roundedBox(0.23, 0.05, 0.23, 0.01), mat(0, Hh - 0.35, 0), { tint: 0x6a625a });
         if (d.kind === 'lanternPost') {
+          halos.push(new THREE.Vector3(0, 1.64, 0.52).applyAxisAngle(new THREE.Vector3(0, 1, 0), d.rot).add(new THREE.Vector3(d.x, y, d.z)));
           pb.add('woodDark', roundedBox(0.08, 0.08, 0.55, 0.02), mat(0, 1.95, 0.3), { tint: woodTint });
           pb.add('metal', new THREE.CylinderGeometry(0.008, 0.008, 0.16, 4), mat(0, 1.83, 0.52));
           lanternInto(pb, 0, 1.62, 0.52, 1.15);
         }
         place(pb.build({ name: d.kind }), d.x, d.z, d.rot);
+        break;
+      }
+      case 'wallLantern': {
+        // An iron bracket driven into the cliff, a timber backboard, the lantern hanging off the
+        // arm; its halo goes into the shared halo sheet (one additive draw).
+        const wb = new MeshBuilder();
+        wb.add('woodDark', boxUV(roundedBox(0.34, 0.9, 0.1, 0.03), 1), mat(0, 1.95, -0.32), { tint: woodTint });
+        wb.add('metal', roundedBox(0.05, 0.05, 0.62, 0.012), mat(0, 2.28, -0.06), { tint: 0x5a524c });
+        wb.add('metal', roundedBox(0.04, 0.4, 0.04, 0.01), mat(0, 2.1, -0.24, 0.75, 0, 0), { tint: 0x5a524c });
+        for (const yy of [1.62, 2.22]) wb.add('metal', new THREE.CylinderGeometry(0.03, 0.03, 0.04, 8), mat(0, yy, -0.26, Math.PI / 2, 0, 0), { tint: 0x8a8278 });
+        wb.add('metal', new THREE.CylinderGeometry(0.008, 0.008, 0.14, 4), mat(0, 2.18, 0.2));
+        lanternInto(wb, 0, 1.98, 0.2, 1.25);
+        place(wb.build({ name: 'wallLantern' }), d.x, d.z, 0);
+        halos.push(new THREE.Vector3(d.x, heightAt(d.x, d.z) + 2.0, d.z + 0.24));
         break;
       }
       case 'rail': {
@@ -508,6 +514,12 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
     disposables.push(pool.geometry, pool.material as THREE.Material);
   }
 
+  if (halos.length) {
+    const hm = haloSheet(halos, L.biome === 'lava' ? 0xffb070 : 0xffb060);
+    group.add(hm);
+    disposables.push(hm.geometry, hm.material as THREE.Material);
+  }
+
   const built: THREE.Group[] = [];
   for (const [builder, name] of [
     [b, 'mine-decor'],
@@ -546,6 +558,55 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
 }
 
 /** Local copy of the lantern kit so the mine keeps its own emissive (always lit underground). */
+/**
+ * Bloom halos for lanterns: quads facing the fixed mine camera (yaw 0, pitched ~42° down) merged
+ * into one additive mesh; a soft core + wide falloff with a gentle flicker, capped below white.
+ */
+function haloSheet(at: THREE.Vector3[], color: number): THREE.Mesh {
+  const quads: THREE.BufferGeometry[] = [];
+  const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.73, 0, 0));
+  at.forEach((p, i) => {
+    const g = new THREE.PlaneGeometry(1.5, 1.5);
+    g.applyQuaternion(tilt);
+    g.translate(p.x, p.y, p.z);
+    const ph = new Float32Array(g.attributes.position!.count).fill(i * 1.7);
+    g.setAttribute('aPh', new THREE.BufferAttribute(ph, 1));
+    quads.push(g.toNonIndexed());
+  });
+  const merged = new THREE.BufferGeometry();
+  for (const n of ['position', 'uv', 'aPh']) {
+    const size = n === 'position' ? 3 : n === 'uv' ? 2 : 1;
+    const arr = new Float32Array(quads.reduce((a, g) => a + g.attributes.position!.count, 0) * size);
+    let o = 0;
+    for (const g of quads) {
+      arr.set(g.attributes[n]!.array as Float32Array, o);
+      o += g.attributes[n]!.array.length;
+    }
+    merged.setAttribute(n, new THREE.BufferAttribute(arr, size));
+  }
+  quads.forEach((g) => g.dispose());
+  merged.computeBoundingSphere();
+  const m = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uTime: globalUniforms.uTime, uCol: { value: new THREE.Color(color) } },
+    vertexShader: `attribute float aPh; varying vec2 vUv; varying float vPh; void main(){ vUv = uv - 0.5; vPh = aPh; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float uTime; uniform vec3 uCol; varying vec2 vUv; varying float vPh;
+      void main(){
+        float d = length(vUv) * 2.0;
+        float fl = 0.88 + 0.08 * sin(uTime * 9.0 + vPh) + 0.04 * sin(uTime * 23.0 + vPh * 3.0);
+        float a = (pow(max(0.0, 1.0 - d), 3.0) * 0.55 + smoothstep(0.22, 0.0, d) * 0.35) * fl;
+        gl_FragColor = vec4(uCol * a, a);
+      }`,
+  });
+  const mesh = new THREE.Mesh(merged, m);
+  mesh.name = 'mine-lantern-halos';
+  mesh.renderOrder = 8;
+  mesh.userData.noAO = true;
+  return mesh;
+}
+
 function lanternInto(b: MeshBuilder, x: number, y: number, z: number, s = 1): void {
   b.add('metal', roundedBox(0.2 * s, 0.05 * s, 0.2 * s, 0.015), mat(x, y + 0.14 * s, z));
   b.add('metal', new THREE.ConeGeometry(0.15 * s, 0.1 * s, 4), mat(x, y + 0.21 * s, z, 0, Math.PI / 4, 0));

@@ -9,6 +9,16 @@
 import * as THREE from 'three';
 
 const CSS = /* css */ `
+/* Underground: the clock's sky dial becomes a lantern in a rock niche (no sun / hills / weather). */
+.hv-under .h-sky { background: radial-gradient(circle at 50% 52%, #ffcf7a 0, #c9772e 16%, #5a3a24 38%, #2e1e14 62%, #1a110b 100%) !important; }
+.hv-under .h-sky .orb, .hv-under .h-sky .hills, .hv-under .h-sky .stars { display:none !important; }
+.hv-under .h-sky::before { content:''; position:absolute; inset:0; border-radius:50%;
+  background: radial-gradient(3px 2px at 22% 70%, #6e5038, transparent), radial-gradient(5px 3px at 74% 78%, #5e4430, transparent),
+    radial-gradient(4px 3px at 30% 24%, #4a3424, transparent), radial-gradient(3px 2px at 70% 22%, #4a3424, transparent); }
+.hv-under .h-sky::after { content:''; position:absolute; left:50%; top:50%; width:58%; height:58%; translate:-50% -50%;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><path d='M24 12h16l-3-5h-10z' fill='%233a2414'/><circle cx='32' cy='6' r='3' fill='none' stroke='%233a2414' stroke-width='2.5'/><rect x='21' y='12' width='22' height='5' rx='2' fill='%23b07a3c' stroke='%233a2414' stroke-width='2'/><path d='M23 17h18l2 26H21z' fill='%23ffd27a' stroke='%233a2414' stroke-width='2.5'/><path d='M32 22c4 5 5 9 0 15c-5-6-4-10 0-15z' fill='%23ff8a2a'/><path d='M32 27c2 3 2 5 0 8c-2-3-2-5 0-8z' fill='%23fff3c0'/><line x1='27' y1='18' x2='26' y2='42' stroke='%233a2414' stroke-width='2'/><line x1='37' y1='18' x2='38' y2='42' stroke='%233a2414' stroke-width='2'/><rect x='19' y='43' width='26' height='6' rx='2' fill='%23b07a3c' stroke='%233a2414' stroke-width='2'/></svg>") center/contain no-repeat; filter: drop-shadow(0 0 6px rgba(255,190,90,.85)); animation: hvLanternFlick 2.6s ease-in-out infinite; }
+@keyframes hvLanternFlick { 0%,100%{ filter: drop-shadow(0 0 6px rgba(255,190,90,.85)); } 45%{ filter: drop-shadow(0 0 9px rgba(255,170,70,.95)); } 60%{ filter: drop-shadow(0 0 5px rgba(255,190,90,.7)); } }
+.hv-under .h-date .d + .h-badge { display:none; }
 .hv-mine-hp { position:absolute; right:64px; bottom:16px; width:34px; height:178px; padding:6px; box-sizing:border-box;
   border-radius:18px; background: var(--wood-grad, linear-gradient(180deg,#c98c4c,#8a5226)); border:2px solid #5e3517;
   box-shadow: 0 6px 0 rgba(60,30,10,.35), 0 10px 24px rgba(30,15,5,.35), inset 0 2px 0 #d9a066, inset 0 -3px 0 #5e3517;
@@ -42,9 +52,9 @@ const CSS = /* css */ `
 
 .hv-dmg-layer { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
 .hv-dmg { position:absolute; left:0; top:0; font-family: var(--font-head, 'Fredoka', system-ui); font-weight:700; font-size:46px; line-height:1; color:#fff;
-  -webkit-text-stroke: 6px #3a1a0a; paint-order: stroke fill; text-shadow: 0 4px 0 rgba(40,15,5,.6); will-change: transform, opacity; white-space:nowrap; }
+  -webkit-text-stroke: 6px #2a1206; paint-order: stroke fill; text-shadow: 0 4px 0 rgba(30,10,3,.75), 0 6px 10px rgba(0,0,0,.45); will-change: transform, opacity; white-space:nowrap; }
 .hv-dmg.crit { color:#ffd84a; font-size:64px; -webkit-text-stroke:7px #3a1a0a; text-shadow: 0 4px 0 rgba(40,15,5,.6), 0 0 18px rgba(255,190,40,.65); }
-.hv-dmg.player { color:#ff6a58; font-size:34px; -webkit-text-stroke:4px #2a0604; text-shadow: 0 3px 0 rgba(20,2,0,.7), 0 0 14px rgba(0,0,0,.55); }
+.hv-dmg.player { color:#ff2e2e; font-size:54px; -webkit-text-stroke:7px #fff6ee; text-shadow: 0 4px 0 rgba(60,0,0,.75), 0 0 16px rgba(0,0,0,.6); }
 .hv-dmg.loot { color:#fff4dc; font-size:22px; -webkit-text-stroke:3px #2a1a0c; text-shadow: 0 2px 0 rgba(20,10,4,.7); }
 .hv-dmg.info { color:#ffe9c4; font-size:22px; -webkit-text-stroke:4px #3a2410; }
 
@@ -154,6 +164,20 @@ export class HealthBar {
   }
 }
 
+/** Point the toolbar's selection at the tool actually in the farmer's hands (no-op if absent). */
+export function syncToolbar(game: { toolbarSlot: number; services: { inventory?: { slots: ({ id: string } | null)[] } }; events: { emit(n: 'toolbar:select', p: { slot: number }): void } }, itemId: string): void {
+  const slots = game.services.inventory?.slots;
+  if (!slots) return;
+  const k = slots.slice(0, 10).findIndex((st) => st?.id === itemId);
+  if (k >= 0 && k !== game.toolbarSlot) game.events.emit('toolbar:select', { slot: k });
+}
+
+/** Toggle the underground HUD variant (lantern dial, no weather badge) on the UI root. */
+export function setUnderground(root: HTMLElement, on: boolean): void {
+  inject();
+  if (root.classList.contains('hv-under') !== on) root.classList.toggle('hv-under', on);
+}
+
 export class FloorPlaque {
   readonly el: HTMLElement;
   constructor(parent: HTMLElement) {
@@ -249,6 +273,26 @@ export class DamageNumbers {
       opts = { ...opts, dy: (opts.dy ?? 0) - slot * 26 };
       text = `+${q} ${name}`;
       this.push(at, text, kind, opts, name, q);
+      return;
+    }
+    // Rapid hits on the same target merge into ONE ticking number (re-pops, upgrades to a crit).
+    if (!opts.follow && (kind === 'dmg' || kind === 'crit') && /^\d+$/.test(text)) {
+      const same = this.list.find((n) => (n.kind === 'dmg' || n.kind === 'crit') && !n.follow && n.age < 0.45 && n.pos.distanceToSquared(at) < 0.8 * 0.8);
+      if (same) {
+        same.qty += Number(text);
+        same.el.textContent = String(same.qty);
+        if (kind === 'crit' && same.kind !== 'crit') {
+          same.kind = 'crit';
+          same.el.className = 'hv-dmg crit';
+        }
+        same.pos.lerp(at, 0.5);
+        same.age = 0.02;
+        return;
+      }
+      // Different targets close together fan out sideways (alternating) instead of stacking.
+      const near = this.list.filter((n) => n.kind !== 'loot' && !n.follow && n.age < 0.6 && n.pos.distanceToSquared(at) < 2.2 * 2.2).length;
+      if (near) opts = { ...opts, dx: (opts.dx ?? 0) + (near % 2 ? 1 : -1) * (40 + 30 * Math.floor((near - 1) / 2)), dy: (opts.dy ?? 0) - 10 * near };
+      this.push(at, text, kind, opts, text, Number(text));
       return;
     }
     // Numbers landing on the same spot within half a second stack upwards instead of overprinting.

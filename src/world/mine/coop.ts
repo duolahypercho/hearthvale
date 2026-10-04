@@ -1100,12 +1100,15 @@ export class MineCoop implements MineNetApi {
     // Miner: west of the nearest ore rock on the other side.
     let best: { x: number; z: number; d: number } | null = null;
     for (const r of m.rocks?.rocks ?? []) {
-      if (!r.alive || !r.spec.ore) continue;
+      if (!r.alive) continue;
       const wx = r.spec.x - 0.5;
       const wz = r.spec.z + 0.5;
       if (!free(wx, wz)) continue;
-      const d = Math.hypot(wx - (spot.x - side * 2.2), wz - spot.z);
-      if (d < 5 && (!best || d < best.d)) best = { x: r.spec.x, z: r.spec.z, d };
+      // In the open beside the local farmer: on the far side from the fighter, never stacked
+      // behind / in front of the local farmer's hat in the 3/4 view.
+      if (Math.abs(wx - spot.x) < 1.7 || Math.abs(wz - spot.z) > 3.2 || Math.hypot(wx - fx, wz - fz) < 2.2) continue;
+      const d = Math.hypot(wx - (spot.x - side * 2.6), wz - spot.z) - (r.spec.ore ? 3 : 0);
+      if (d < 9 && (!best || d < best.d)) best = { x: r.spec.x, z: r.spec.z, d };
     }
     const names = ['Juniper', 'Pip'];
     const mk = (i: number, x: number, z: number, job: Bot['job'], tx: number, tz: number): void => {
