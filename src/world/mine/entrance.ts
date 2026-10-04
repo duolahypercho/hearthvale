@@ -842,8 +842,9 @@ export class MineEntranceMap implements GameMap {
     // Winding house: a small plank cabin east of the headframe, a lit window, a stovepipe, and the
     // hoist cable running from its drum up over the pulley wheel.
     {
-      const cx = 2.55;
-      const cz = 0.15;
+      // (in front of the cliff foot, on the shelf: further back it sank into the strata face)
+      const cx = 2.7;
+      const cz = 1.9;
       for (let k = 0; k < 6; k++) b.add('woodGrain', boxUV(roundedBox(1.8, 0.3, 0.08, 0.02), 1.4), mat(cx, 0.16 + k * 0.29, cz + 0.72), { tint: k % 2 ? 0x9a7048 : 0x8c6644 });
       for (let k = 0; k < 6; k++) b.add('woodGrain', boxUV(roundedBox(1.8, 0.3, 0.08, 0.02), 1.4), mat(cx, 0.16 + k * 0.29, cz - 0.72), { tint: k % 2 ? 0x9a7048 : 0x8c6644 });
       for (const sx of [-1, 1]) b.add('woodGrain', boxUV(roundedBox(0.08, 1.75, 1.5, 0.02), 1.4), mat(cx + sx * 0.88, 0.88, cz), { tint: 0x8c6644 });
@@ -873,8 +874,8 @@ export class MineEntranceMap implements GameMap {
       [Math.floor(x - 1), Math.floor(z)],
       [Math.floor(x), Math.floor(z)],
       [Math.floor(x + 0.9), Math.floor(z)],
-      [Math.floor(x + 2.0), Math.floor(z)],
-      [Math.floor(x + 3.1), Math.floor(z)],
+      [Math.floor(x + 2.0), Math.floor(z + 1.9)],
+      [Math.floor(x + 3.3), Math.floor(z + 1.9)],
     ]);
     const lp = buildLanternPost();
     this.addLit(lp, x - 1.9, z + 1.2, 0);
@@ -984,7 +985,7 @@ export class MineEntranceMap implements GameMap {
     const scree = new MeshBuilder();
     for (let x = 1; x < W - 1; x += 0.8) {
       const cz = this.cliffZ(x);
-      if (Math.abs(x - MOUTH.x) < 2.6 || (x > LIFT.x - 2 && x < LIFT.x + 1.6)) continue;
+      if (Math.abs(x - MOUTH.x) < 2.6 || (x > LIFT.x - 2 && x < LIFT.x + 4.4)) continue;
       const z = cz + 0.4 + r.next() * 0.9;
       if (r.next() < 0.55) {
         // Boulders are our own soft-cut sandstone (smooth normals with a few cleaved faces, crevice

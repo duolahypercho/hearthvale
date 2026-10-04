@@ -757,21 +757,28 @@ entrance (`entrance.ts`: strata cliff, timbered mouth with a lamp-lit drift, the
 (`gen.ts`: cellular-automata caverns from `(floor, seed)`) in three biome bands every 10 floors: Earthen Hollows,
 Frostvein Grotto, Cinder Depths (`biomes.ts`), repeating with a tier (tougher monsters, richer ore) from 31.
 
-- **Look**: `cave.ts` shell (baked strata + blended biplanar slab texture + clamped derivative bump, glowing lava
-  fissures, dark-navy frozen sheets with bubbles, a glossy frozen pool with caustics), `lighting.ts` (lantern spot
-  key + fill + bounce + a cool rim light behind the farmer, 5 accent lights, per-biome grade), `props.ts` (shoring,
-  lanterns, carts on rails with polished heads ending in a buffer stop / rockfall, crystals, spikes, basalt, vents).
-- **Rocks & ore** (`ores.ts`, `stone.ts`): one batched draw per material; a procedural stone shader (3D-noise albedo,
-  roughness, bump; no UVs) carves ore **veins** into the rock (copper with verdigris, blue-grey iron with rust, gold
-  with star glints, glossy coal), gems break out as emissive hexagonal clusters, ice rocks get a frosted fresnel skin.
-  Hits flash the rock white, squash it, throw 8–12 chips + a dust ring; breaks burst 20+ chunks and pop loot
-  (≥ 1 stone per rock) that bobs over a tinted glow ring and flies to the nearest farmer within 2.5 tiles after 0.5 s
-  (`pickups.ts`, instanced: one draw per loot kind). Ore by depth: 12–17 % of rocks on floors 1–5 (gems ≤ 1 %),
-  ≈ 20–40 % deeper, iron from 5, gold from 21, diamonds from 25 (≤ 0.5 %); repeat bands start at iron, gold ≥ 10 %.
+- **Look**: `cave.ts` shell (per-pixel rock COURSES drawn from world height — stacked beds with a dark joint and a
+  worn lit lip, no per-vertex banding streaks — blended biplanar slab texture + clamped derivative bump, glowing lava
+  fissures over cooled basalt crust plates, packed snow vs glossy blue ice floors, a glossy frozen pool with caustics;
+  deep rock merges 2x2 cells as a cheap LOD), `lighting.ts` (lantern spot key + belt-height fill + bounce + a cool rim
+  light behind the farmer, 5 accent lights, per-biome grade), `props.ts` (timber frames with lanterns on every back
+  wall, iron-bracket wall lanterns, one additive halo sheet for all lamps, carts on rails, crystals, spikes, basalt,
+  vents). `occlude.ts`: farmers (local + co-op) and the nearest monsters get a screen-space cutaway through any cave
+  geometry in front of them (warm rim on the cut), and the bottom band of the frame lifts to a dim tint (no black holes).
+  Underground the HUD clock dial becomes a lantern niche and the weather badge hides (`hud.ts: setUnderground`).
+- **Rocks & ore** (`gen.ts`, `ores.ts`, `stone.ts`): rocks gather in 3–5 wall-hugging seams (≤ 3 tiles deep, open
+  lanes through the hall, a few loose stones); one batched draw per material. Metal ores are 6–8 raised, faceted
+  NUGGETS in saturated colours (copper salmon-orange, iron pale blue-white, gold yellow) with a self-glow rim and slow
+  star glints on a darker, desaturated host rock; gems break out as emissive crystal clusters; coal as glossy chunks;
+  every ore rock sits on a faint ore-coloured light pool. Hits flash the rock, squash it, knock ore-coloured nuggets and
+  glints loose; breaks burst 20+ chunks and pop loot (≥ 1 stone per rock) that bobs over a tinted glow ring and flies
+  to the nearest farmer within 2.5 tiles after 0.5 s (`pickups.ts`, instanced: one draw per loot kind). Ore by depth:
+  22–28 % of rocks on floors 1–5 (gems ≤ 1 %), ≈ 26–48 % deeper, iron from 5, gold from 21, diamonds from 25.
 - **Combat**: slimes (spring jiggle), bats, rock crabs, frost wisps (chill), cinder imps (fireballs). The sword
   (`actions.ts`: short polished blade, alternating slashes) draws a thick additive crescent over everything, hits
   knock monsters back 1.65 tiles (eased 0.18 s) with a squash + hot-rim flash, damage numbers pop 1.4→1 at the hit
-  point (42 px, crits 56 px gold + shake), kills freeze the arena 60 ms, kick the camera and leave a goo splat.
+  point (rapid hits on one target merge into one ticking number, neighbours fan out sideways; crits gold + shake; the
+  farmer's own hurt number is big red with a white outline), kills freeze the arena 60 ms, kick the camera and leave a goo splat.
   Health tube, i-frames, passing out → carried to the entrance lean-to (+2 h, some gold / loot lost).
 - **Co-op** (`coop.ts`, wired through `net/bridge.ts`): the host is authoritative for every occupied floor — seed
   sync, a ledger of broken / damaged rocks, the ladder and loot, 10 Hz monster snapshots interpolated 120 ms behind on

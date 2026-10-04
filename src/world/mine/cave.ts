@@ -297,8 +297,23 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
   const uv = new Float32Array(N * 2);
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   const index: number[] = [];
+  // LOD: deep inside the rock mass (≥ 2.4 tiles from any floor, faded into the void) the shell is
+  // a dim, gently bumpy cap: 2x2 cells there merge into one quad (≈ -40 % triangles, every pass).
+  const deep = (i: number, j: number): boolean => sd[j * nx + i]! > 2.4;
+  const coarse = new Uint8Array(nx * nz);
+  for (let j = 0; j + 2 < nz; j += 2) {
+    for (let i = 0; i + 2 < nx; i += 2) {
+      let ok = true;
+      for (let dj = 0; dj <= 2 && ok; dj++) for (let di = 0; di <= 2 && ok; di++) if (!deep(i + di, j + dj)) ok = false;
+      if (!ok) continue;
+      const a = j * nx + i;
+      index.push(a, a + 2 * nx, a + 2 * nx + 2, a, a + 2 * nx + 2, a + 2);
+      coarse[a] = coarse[a + 1] = coarse[a + nx] = coarse[a + nx + 1] = 1;
+    }
+  }
   for (let j = 0; j < nz - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
+      if (coarse[j * nx + i]) continue;
       const a = j * nx + i;
       const b = a + 1;
       const cc = a + nx;

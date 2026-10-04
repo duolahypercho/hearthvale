@@ -173,7 +173,7 @@ function nuggetGeo(r: Rng, kind: 'metal' | 'gem' | 'coal', radius: number, big: 
       const dir = new THREE.Vector3(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el));
       const p = dir.clone().multiply(new THREE.Vector3(R * 0.86, R * 0.6, R * 0.86)).add(new THREE.Vector3(0, R * 0.17, 0));
       const hero = k === 0;
-      const rad = R * (ore === 'goldOre' ? (hero ? 0.2 : 0.1 + r.next() * 0.06) : ore === 'ironOre' ? (hero ? 0.24 : 0.14 + r.next() * 0.06) : hero ? 0.22 : 0.12 + r.next() * 0.06);
+      const rad = R * (ore === 'goldOre' ? (hero ? 0.24 : 0.12 + r.next() * 0.07) : ore === 'ironOre' ? (hero ? 0.29 : 0.17 + r.next() * 0.07) : hero ? 0.27 : 0.15 + r.next() * 0.07);
       let g = facetRock(r, rad, 0xffffff, { detail: 0, squash: ore === 'ironOre' ? 0.55 : 0.75, chunky: true, rim: 0, facet: 0.45 });
       const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().lerp(new THREE.Vector3(0, 1, 0), 0.3).normalize());
       q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6));
@@ -442,7 +442,7 @@ export class RockField {
 export function oreColor(ore: OreId): THREE.Color {
   const st = ORE_STYLE[ore];
   const c = new THREE.Color(st.color);
-  if (st.kind === 'gem') c.multiplyScalar(0.55 + st.glow * 0.45);
+  if (st.kind === 'gem') c.multiplyScalar(0.5 + st.glow * 0.32);
   return c;
 }
 
