@@ -10,11 +10,84 @@
 import * as THREE from 'three';
 import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
+import { NOISE_GLSL } from '../../render/shaders/noise';
+import { bakeInto, bakeTarget, queueBake } from '../../render/bake';
 import { SWASH_GLSL, VORONOI_GLSL } from './ocean';
 
-export function applyBeachSand(material: THREE.Material, seaLevel: number, pools: [number, number, number][] = []): void {
+/**
+ * Baked sand-noise texels per world unit (pillar 14, perf r10): the static low-frequency fields of the
+ * sand / sea-bed / shelf shading (sand drifts + grain tone, damp-band edge, ripple warp, seagrass
+ * meadow field with its domain warp, pebble drifts, shelf slab warp: 11 value-noise evaluations) are
+ * rendered once into two RGBA8 textures with the same GLSL and read with two bilinear fetches. Their
+ * finest octave is 1.4 m (the meadow's detail term), so 6 texels/m reproduces them (as the terrain's
+ * NOISE_RES bake does). `?sandbake=0` keeps the per-pixel noise (A/B).
+ */
+const SAND_NOISE_RES = 6;
+
+// Each field exactly as the shader evaluated it per pixel (p = world xz).
+const SAND_FIELDS_A = /* glsl */ `vec4(hvNoise(p * 0.07 + 3.0), hvNoise(p * 0.35), hvNoise(p * vec2(0.5, 0.2)),
+  hvNoise((p + vec2(hvNoise(p * 0.21 + 3.1), hvNoise(p * 0.21 + 8.7)) * 4.0) * 0.12) * 0.75 + hvNoise(p * 0.7 + 1.9) * 0.25)`;
+const SAND_FIELDS_B = /* glsl */ `vec4(hvNoise(p * 0.3 + 12.0), hvNoise(p * 0.4), hvNoise(p * 0.3), hvNoise(p * 0.3 + 5.0))`;
+
+export interface SandBounds {
+  minX: number;
+  minZ: number;
+  maxX: number;
+  maxZ: number;
+}
+
+const sandBakeOn = ((): boolean => {
+  try {
+    return new URLSearchParams(location.search).get('sandbake') !== '0';
+  } catch {
+    return true;
+  }
+})();
+
+function bakeSandNoise(b: SandBounds): [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget] {
+  const w = Math.max(2, Math.ceil((b.maxX - b.minX) * SAND_NOISE_RES));
+  const h = Math.max(2, Math.ceil((b.maxZ - b.minZ) * SAND_NOISE_RES));
+  const ta = bakeTarget(w, h);
+  const tb = bakeTarget(w, h);
+  queueBake((renderer) => {
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uOrigin: { value: new THREE.Vector2(b.minX, b.minZ) }, uSize: { value: new THREE.Vector2(b.maxX - b.minX, b.maxZ - b.minZ) }, uPass: { value: 0 } },
+      vertexShader: 'varying vec2 vUv;\nvoid main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv;
+        uniform vec2 uOrigin;
+        uniform vec2 uSize;
+        uniform float uPass;
+        ${NOISE_GLSL}
+        void main() {
+          vec2 p = uOrigin + vUv * uSize;
+          gl_FragColor = uPass < 0.5 ? ${SAND_FIELDS_A} : ${SAND_FIELDS_B};
+        }`,
+      depthTest: false,
+      depthWrite: false,
+    });
+    bakeInto(renderer, mat, ta);
+    mat.uniforms.uPass!.value = 1;
+    bakeInto(renderer, mat, tb);
+    mat.dispose();
+  });
+  return [ta, tb];
+}
+
+/**
+ * `bounds` = the terrain's extent: the static sand-noise fields are baked over it (without it, or
+ * with `?sandbake=0`, they are evaluated per pixel, as before).
+ */
+export function applyBeachSand(material: THREE.Material, seaLevel: number, pools: [number, number, number][] = [], bounds?: SandBounds): void {
+  const baked = bounds && sandBakeOn ? bakeSandNoise(bounds) : null;
+  if (baked) material.addEventListener('dispose', () => baked.forEach((rt) => rt.dispose()));
   patchMaterial(material, 'beach-sand', (shader) => {
     shader.uniforms.uBSea = { value: seaLevel };
+    if (baked && bounds) {
+      shader.uniforms.uBNoiseA = { value: baked[0].texture };
+      shader.uniforms.uBNoiseB = { value: baked[1].texture };
+      shader.uniforms.uBNoiseRect = { value: new THREE.Vector4(bounds.minX, bounds.minZ, bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) };
+    }
     shader.uniforms.uBSun = globalUniforms.uSunColor;
     shader.uniforms.uBSunDir = globalUniforms.uSunDir;
     shader.uniforms.uBNight = globalUniforms.uNight;
@@ -32,6 +105,33 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
       uniform vec3 uBSunDir;
       uniform float uBNight;
       uniform vec3 uBPools[4];
+      ${
+        baked
+          ? `uniform sampler2D uBNoiseA;
+      uniform sampler2D uBNoiseB;
+      uniform vec4 uBNoiseRect;
+      #ifndef HV_BSAND_INLINE
+      #define HV_BSAND_BAKED
+      #endif`
+          : ''
+      }
+      #ifdef HV_BSAND_BAKED
+      #define HVB_DRIFT hvBNA.r
+      #define HVB_N035 hvBNA.g
+      #define HVB_DAMP hvBNA.b
+      #define HVB_MFIELD hvBNA.a
+      #define HVB_PDRIFT hvBNB.r
+      #define HVB_N04 hvBNB.g
+      #define HVB_RWARP hvBNB.ba
+      #else
+      #define HVB_DRIFT hvNoise(p * 0.07 + 3.0)
+      #define HVB_N035 hvNoise(p * 0.35)
+      #define HVB_DAMP hvNoise(p * vec2(0.5, 0.2))
+      #define HVB_MFIELD (hvNoise((p + vec2(hvNoise(p * 0.21 + 3.1), hvNoise(p * 0.21 + 8.7)) * 4.0) * 0.12) * 0.75 + hvNoise(p * 0.7 + 1.9) * 0.25)
+      #define HVB_PDRIFT hvNoise(p * 0.3 + 12.0)
+      #define HVB_N04 hvNoise(p * 0.4)
+      #define HVB_RWARP vec2(hvNoise(p * 0.3), hvNoise(p * 0.3 + 5.0))
+      #endif
       float hvBWet = 0.0;
       float hvBCaus = 0.0;
       float hvBDepth = 0.0;
@@ -50,6 +150,12 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         float t = uTimeT;
         vec2 p = wp.xz;
         float onSand = sandM * (1.0 - rockM);
+        #ifdef HV_BSAND_BAKED
+        // Static noise fields (bakeSandNoise; HVB_* macros), fetched in uniform control flow.
+        vec2 hvBUv = (p - uBNoiseRect.xy) / uBNoiseRect.zw;
+        vec4 hvBNA = texture2D(uBNoiseA, hvBUv);
+        vec4 hvBNB = texture2D(uBNoiseB, hvBUv);
+        #endif
         // Everything up to the rock shelf block only reaches the frame through sandM (ground mix, wet,
         // moon, ripples and bed caustics are all scaled by it): off the sand it is skipped (pillar 14).
         float depth = max(0.0, -bh);
@@ -59,7 +165,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         if (sandM > 0.0) {
         // Wind ripples on the dunes / dry beach; wave ripples low down and under water.
         vec2 rd = normalize(vec2(0.35, 1.0));
-        float warpR = hvNoise(p * 0.4) * 5.0 + hvNoise(p * 1.3) * 1.2;
+        float warpR = HVB_N04 * 5.0 + hvNoise(p * 1.3) * 1.2;
         float ripF = bh > 0.35 ? 7.5 : 11.0;
         float ripArg = dot(p, rd) * ripF + warpR;
         float rip = sin(ripArg);
@@ -79,9 +185,9 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         vec3 sBeach = sand * vec3(0.86, 0.76, 0.61);
         s = mix(sBeach, sDry, smoothstep(0.8, 2.4, bh));
         // Broad warm / cool drifts (wind-sorted sand) + fine grain.
-        float drift = hvNoise(p * 0.07 + 3.0);
+        float drift = HVB_DRIFT;
         s *= mix(vec3(0.9, 0.9, 0.94), vec3(1.04, 1.0, 0.92), drift);
-        s *= 0.92 + 0.14 * hvNoise(p * 0.35) + 0.05 * (tn2 - 0.5);
+        s *= 0.92 + 0.14 * HVB_N035 + 0.05 * (tn2 - 0.5);
         s *= 1.0 + (rip * 0.07 + smoothstep(0.7, 1.0, rip) * 0.05) * ripAmt;
         // Shell flecks + tiny pebbles (12 % of the cells, dry sand only).
         vec2 fc = floor(p * 5.0);
@@ -115,7 +221,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         float soaked = smoothstep(0.14, 0.0, bh);
         float damp = 0.0;
         if (bh < 0.52) {
-          float dampTop = 0.42 + (hvNoise(p * vec2(0.5, 0.2)) - 0.5) * 0.16;
+          float dampTop = 0.42 + (HVB_DAMP - 0.5) * 0.16;
           damp = smoothstep(dampTop, 0.02, bh);
           vec3 wetS = sand * vec3(0.4, 0.35, 0.28);
           s = mix(s, mix(s * vec3(0.62, 0.6, 0.6), wetS, soaked), damp);
@@ -149,8 +255,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           // halo starts at 0.2 m, so shallower bed skips the field.
           float meadow = 0.0;
           if (depth > 0.2) {
-            vec2 mw = p + vec2(hvNoise(p * 0.21 + 3.1), hvNoise(p * 0.21 + 8.7)) * 4.0;
-            float mfield = hvNoise(mw * 0.12) * 0.75 + hvNoise(p * 0.7 + 1.9) * 0.25;
+            float mfield = HVB_MFIELD;
             meadow = smoothstep(0.54, 0.62, mfield) * smoothstep(0.22, 0.5, depth) * (1.0 - smoothstep(2.2, 3.2, depth));
             if (meadow > 0.0) {
               // Blades: long streaks leaning with the surge (they sway back and forth with the swash phase).
@@ -172,7 +277,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           vec2 pc = floor(pq);
           float ph2 = hvHash12(pc + 5.3);
           if (ph2 <= 0.23 && meadow < 1.0) {
-            float pdrift = smoothstep(0.35, 0.65, hvNoise(p * 0.3 + 12.0));
+            float pdrift = smoothstep(0.35, 0.65, HVB_PDRIFT);
             if (ph2 <= 0.2 * pdrift + 0.03) {
               vec2 pf = fract(pq) - 0.5 - (hvHash22(pc) - 0.5) * 0.55;
               float pr = mix(0.07, 0.16, hvHash12(pc + 2.9));
@@ -209,9 +314,17 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         // (causDay only gates: the fade itself is the dayK below.)
         float causBed = causSun * smoothstep(0.03, 0.2, depth) * (1.0 - smoothstep(0.45, 1.5, depth)) * sandM;
         if (causBed > 0.0 && causDay) {
-          caus = hvCaustic(p * 1.05, t);
+          // The drifting patch mask first: outside a patch (patchC = 0) the caustic network is never
+          // seen, so it is not evaluated there (identical output, perf r10).
           float patchC = smoothstep(0.2, 0.65, hvNoise(p * 0.16 + vec2(t * 0.02, 0.0)));
-          hvBCaus = caus * patchC * causBed;
+          #ifdef HV_BSAND_INLINE
+          if (true) {
+          #else
+          if (patchC > 0.0) {
+          #endif
+            caus = hvCaustic(p * 1.05, t);
+            hvBCaus = caus * patchC * causBed;
+          }
         }
         }
         ground = mix(ground, s, sandM);
@@ -220,7 +333,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         // dark and glossy where the spray keeps it wet.
         if (pathM > 0.001) {
           // Large tonal slabs (warped, irregular) with darker seams, not a paving pattern.
-          vec2 wq = p * 0.42 + vec2(hvNoise(p * 0.3), hvNoise(p * 0.3 + 5.0)) * 1.4;
+          vec2 wq = p * 0.42 + HVB_RWARP * 1.4;
           vec2 rv = hvVor(wq);
           float seamE = rv.y - rv.x;
           float seam = seamE < 0.09 ? smoothstep(0.09, 0.0, seamE) * smoothstep(0.3, 0.6, hvNoise(p * 0.9 + 2.0)) : 0.0;

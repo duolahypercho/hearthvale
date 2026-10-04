@@ -124,7 +124,7 @@ export class SummerLanterns extends FestivalMap {
   protected paint(): void {
     // Warm beach sand: dune ripples, a damp band + stranded foam lace in phase with the swash, shell
     // flecks (shared beach-sand shading; the path channel stays empty — it paints rock there).
-    applyBeachSand(this.terrain.material, 0);
+    applyBeachSand(this.terrain.material, 0, [], this.terrain.opts);
     this.terrain.paint('sand', (x, z) => {
       const d = z - this.shoreZ(x);
       return Math.max(smoothstep(15.5, 11, d + this.noise.fbm(x * 0.2, z * 0.2, 2) * 2.5) * (1 - smoothstep(0.6, 1.6, this.headland(x, z))), this.pathValue(x, z) * 0.85);

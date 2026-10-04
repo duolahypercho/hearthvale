@@ -129,7 +129,7 @@ export class BeachMap implements GameMap {
     const S = this.shape;
 
     this.terrain = new Terrain({ ...BEACH_EXTENT, step: 0.5, height: (x, z) => S.height(x, z), waterLevel: SEA_LEVEL });
-    applyBeachSand(this.terrain.material, SEA_LEVEL, TIDE_POOLS);
+    applyBeachSand(this.terrain.material, SEA_LEVEL, TIDE_POOLS, BEACH_EXTENT);
     this.root.add(this.terrain.mesh);
     this.paintGround();
     this.classifyTiles();
