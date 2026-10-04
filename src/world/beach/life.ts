@@ -179,7 +179,7 @@ function crabGeo(): THREE.BufferGeometry {
 }
 
 /** Gulls keep this far (m) from a busy angler's head and their line of sight to the camera. */
-const KEEP_R = 2.6;
+const KEEP_R = 3.2;
 
 interface Gull {
   perch: THREE.Vector3 | null;

@@ -204,12 +204,13 @@ export class RemoteAngler {
         g.hold(def, A[12]);
         this.held = fishId;
         this.caughtNote = def.name;
-        this.noteAt.copy(feet).addScaledVector(_UP, 3.3);
+        this.noteAt.copy(feet).addScaledVector(_UP, 3.9);
       }
       // Seen from far away the fish is scaled up (same rule as the local catch pose) so it reads.
       const boost = THREE.MathUtils.clamp(camera.position.distanceTo(_a.copy(feet).setY(feet.y + 2.4)) / 11.5, 1, 1.9);
       // Over the hat (same as the local catch pose: the hat sits ≈ 1.9 m up, the fish floats above it).
-      const hold = _hold.copy(feet).addScaledVector(_UP, 2.72 + (boost - 1) * 0.45).addScaledVector(fwd, 0.08 - (boost - 1) * 0.3);
+      // (Held clear above the farmer's floating name tag, ≈ 2.75 m: the tag never sits on the fish.)
+      const hold = _hold.copy(feet).addScaledVector(_UP, 3.3 + (boost - 1) * 0.35).addScaledVector(fwd, 0.08 - (boost - 1) * 0.3);
       if (arc < 1) {
         g.heldRoot.position.lerpVectors(bob, hold, arc);
         g.heldRoot.position.y += Math.sin(arc * Math.PI) * 1.2;
