@@ -44,7 +44,7 @@ export function heldFishScale(def: FishDef, lengthCm: number): number {
   // reads in the fist: 20 cm → 0.52 m, 50 → 0.83, 100 → 1.34, 150 → 1.85.
   void def;
   const m = lengthCm / 100;
-  return THREE.MathUtils.clamp((0.24 + m * 0.79) * 1.3, 0.52, 1.9);
+  return THREE.MathUtils.clamp((0.24 + m * 0.79) * 1.3, 0.6, 1.9);
 }
 
 /** A held fish this long (m) or more is a trophy (a bigger hop, a wider sunburst). */
@@ -435,17 +435,20 @@ export class FishingGear {
       lg.addColorStop(0, 'rgba(255,236,190,0.5)');
       lg.addColorStop(1, 'rgba(255,214,140,0)');
       gg.fillStyle = lg;
+      // Rays start clear of the centre (r6: a lit core round a small held fish bloomed it into a
+      // glowing blob; the burst now frames the catch instead of sitting on it).
       gg.beginPath();
-      gg.moveTo(-2, 0);
+      gg.moveTo(-3, -34);
       gg.lineTo(-w, -len);
       gg.lineTo(w, -len);
-      gg.lineTo(2, 0);
+      gg.lineTo(3, -34);
       gg.closePath();
       gg.fill();
     }
     const rg2 = gg.createRadialGradient(0, 0, 0, 0, 0, 120);
-    rg2.addColorStop(0, 'rgba(255,244,215,0.6)');
-    rg2.addColorStop(0.3, 'rgba(255,220,150,0.25)');
+    rg2.addColorStop(0, 'rgba(255,244,215,0)');
+    rg2.addColorStop(0.3, 'rgba(255,226,160,0.12)');
+    rg2.addColorStop(0.55, 'rgba(255,214,140,0.08)');
     rg2.addColorStop(1, 'rgba(255,200,110,0)');
     gg.fillStyle = rg2;
     gg.fillRect(-128, -128, 256, 256);
@@ -592,9 +595,13 @@ export class FishingGear {
       const vy = (p.y - q.y) * 0.96;
       const vz = (p.z - q.z) * damp;
       q.copy(p);
-      p.x += vx;
-      p.y += vy + g * (0.35 + this.slack * 0.65);
-      p.z += vz;
+      // Velocity clamp (critic r5: a whipped node overshot the flying float and drew a phantom V).
+      const vmax = 0.12;
+      const vl = Math.hypot(vx, vy, vz);
+      const vk = vl > vmax ? vmax / vl : 1;
+      p.x += vx * vk;
+      p.y += vy * vk + g * (0.35 + this.slack * 0.65);
+      p.z += vz * vk;
     }
     pts[0]!.copy(this.tip);
     pts[n - 1]!.copy(end);
@@ -642,7 +649,10 @@ export class FishingGear {
         _a.y -= sag * 4 * t * (1 - t);
         _a.addScaledVector(_e, bow * 4 * t * (1 - t) * (1 - t * 0.4));
         if (_a.y < floorAt(i)) _a.y = floorAt(i);
-        pts[i]!.lerp(_a, k);
+        pts[i]!.lerp(_a, Math.min(1, k));
+        // Paying out in flight (ease ≥ 1): the line is laid analytically along the tip→float arc
+        // with no stored momentum, so no node can lag behind or whip past the float.
+        if (k >= 1) this.prev[i]!.copy(pts[i]!);
       }
     }
     // Render copy, smoothed (a few Laplacian passes): where the hanging line touches down on the
@@ -830,6 +840,23 @@ export class FishingGear {
     _b.copy(camera.position).sub(fist).normalize();
     // (Just behind the fist, so the hand reads as gripping the tail wrist, not hidden by the fin.)
     r.position.sub(_a).addScaledVector(_b, -0.05);
+    return out.copy(r.position);
+  }
+
+  /**
+   * Present a trophy in both hands (critic r5: a big fish hung by the tail read as a blob pressed to
+   * the torso): level across the chest, in front of the body, turned three-quarter to the lens with
+   * the back tipped towards it (dorsal fin, tail fork and eye all read), plus a `spin` (rad, about
+   * the vertical) for the arrival twirl. `center` = between the two hands.
+   */
+  presentHeld(center: THREE.Vector3, camera: THREE.Camera, spin: number, wiggle: number, out: THREE.Vector3): THREE.Vector3 {
+    const r = this.heldRoot;
+    r.position.copy(center);
+    this.faceHeld(camera, wiggle);
+    r.rotateX(0.32);
+    r.rotateY(0.5 + spin);
+    _b.copy(camera.position).sub(center).setY(0).normalize();
+    r.position.addScaledVector(_b, 0.16 + r.scale.x * 0.05);
     return out.copy(r.position);
   }
 

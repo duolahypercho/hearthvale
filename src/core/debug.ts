@@ -26,7 +26,7 @@ export interface DebugApi {
   ready(): Promise<void>;
   pause(p?: boolean): void;
   quality(q: Quality): void;
-  camera(opts: { yaw?: number; pitch?: number; distance?: number; offsetX?: number; offsetZ?: number }): void;
+  camera(opts: { yaw?: number; pitch?: number; distance?: number; offsetX?: number; offsetY?: number; offsetZ?: number }): void;
   save(slot?: string): boolean;
   load(slot?: string): boolean;
   /** Advance N frames synchronously (dt each) — for deterministic tests. */
@@ -96,7 +96,7 @@ export function installDebugApi(game: Game): DebugApi {
       rig.yaw = o.yaw ?? 0;
       rig.pitch = o.pitch ?? 50;
       rig.distance = o.distance ?? 24;
-      rig.lookOffset.set(o.offsetX ?? 0, 0, o.offsetZ ?? 0);
+      rig.lookOffset.set(o.offsetX ?? 0, o.offsetY ?? 0, o.offsetZ ?? 0);
       rig.snap();
     },
     save: (slot) => game.saves.save(slot),

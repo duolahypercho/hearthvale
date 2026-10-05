@@ -268,7 +268,10 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // water turns a slick's edge into a hard pale sheet.
         float slickN = hvNoise(vec2(p.x * 0.035 + p.y * 0.012, p.y * 0.22 - p.x * 0.05) + vec2(t * 0.006, t * 0.02));
         float slick = smoothstep(0.46, 0.84, slickN);
-        slick *= smoothstep(1.2, 2.5, depth) * (1.0 - uPool) * smoothstep(0.3, 0.65, V.y);
+        slick *= smoothstep(1.2, 2.5, depth) * (1.0 - uPool) * smoothstep(0.3, 0.45, V.y);
+        // ...and gone from the steep play / fishing camera (critic r5: there the glassy strips read as
+        // long pale diagonal brush strokes across the water).
+        slick *= 1.0 - smoothstep(0.5, 0.62, V.y);
         amp *= 1.0 - 0.7 * slick;
         // Same 2e-wide difference as a central one, taken forward from p (3 taps, not 4, and the
         // whitecaps below reuse h0): the normal is the one 8 cm up-wave, identical to the eye.
@@ -291,9 +294,14 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
           swell = sin(sPh) * deepK;
           vec2 q1 = vec2(dot(p, vec2(0.96, -0.28)) * 0.75, dot(p, sd) * 1.9) + vec2(t * 0.22, t * 0.5);
           vec2 q2 = vec2(p.x * 3.1 + p.y * 1.2, p.y * 3.6 - p.x * 0.9) + vec2(-t * 0.42, t * 0.31);
-          ridge = 1.0 - abs(hvNoise(q1) * 2.0 - 1.0);
+          float rn = hvNoise(q1) * 2.0 - 1.0;
+          ridge = 1.0 - abs(rn);
           rip2 = hvNoise(q2);
-          float hd = (ridge * ridge * 0.022 + rip2 * 0.01) * deepK * (1.0 - steep * 0.88);
+          // The surface takes a rounded crest (1 - x²), not the creased one (1 - |x|): the crease's
+          // normal kink drew long hairline scratches across the water from the play camera (critic
+          // r5). The creased value still places the glint specks.
+          float ridgeS = 1.0 - rn * rn;
+          float hd = (ridgeS * ridgeS * 0.022 + rip2 * 0.01) * deepK * (1.0 - steep * 0.88);
           vec3 P = vW + vec3(0.0, hd, 0.0);
           vec3 nd = normalize(cross(dFdx(P), dFdy(P)));
           nd *= sign(nd.y + 1e-5);
@@ -376,7 +384,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // mauve-grey slab): warm-lit sea-green shallows → dark teal → indigo deep, lit by a light whose
         // hue is mostly taken out over deep water (the sky's mauve tints only the reflections).
         float dzK = smoothstep(0.6, 3.4, depth);
-        vec3 duskBody = mix(vec3(0.24, 0.52, 0.44), mix(vec3(0.03, 0.25, 0.33), vec3(0.02, 0.075, 0.2), smoothstep(1.6, 4.2, depth)), smoothstep(0.05, 1.3, depth));
+        vec3 duskBody = mix(vec3(0.3, 0.48, 0.43), mix(vec3(0.03, 0.25, 0.33), vec3(0.02, 0.075, 0.2), smoothstep(1.6, 4.2, depth)), smoothstep(0.05, 1.3, depth));
         col = mix(col, duskBody, goldH * 0.6 * (1.0 - uPool));
         vec3 duskLight = uSunColor * (0.5 + 0.32 * diff) * cloud + uHorizonColor * 0.28 + vec3(0.1, 0.14, 0.18);
         duskLight = mix(duskLight, vec3(dot(duskLight, vec3(0.3, 0.55, 0.15))), 0.5 * dzK);
@@ -420,7 +428,9 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // At golden hour even the steep near water mirrors 25-35 % of the warm sky.
         // (Capped from a steep view: the play camera at dusk must still see the water body, not a
         // mirror of the mauve sky.)
-        vec3 c = mix(lit, sky, max(fres * (1.0 - steep * dzK * 0.35), goldH * 0.3 * (1.0 - uPool * 0.5) * (1.0 - steep * 0.75)));
+        // (r6: floor raised to ≈ 0.17 straight down — the steep water under the pier stayed a pale daytime
+        // cyan against the pink open sea, a hard tonal step along the deck in beach-sunset.)
+        vec3 c = mix(lit, sky, max(fres * (1.0 - steep * dzK * 0.35), goldH * 0.3 * (1.0 - uPool * 0.5) * (1.0 - steep * 0.45)));
 
         // Glints: pinpoint > 1.0 for the bloom, denser under a low sun.
         float lowSun = 1.0 - smoothstep(0.1, 0.55, L.y);

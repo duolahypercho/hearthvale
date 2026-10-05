@@ -489,10 +489,12 @@ export class BeachMap implements GameMap {
     addBoatVignette(b, r.fork('boatv'), ROWBOAT.x, ROWBOAT.z, ROWBOAT.rot, hAt);
     addBeachSign(b, 26.2, 29.2, hAt);
     addSandcastle(b, r.fork('castle'), 45.6, 35.2, hAt);
-    addParasolVignette(b, r.fork('parasol'), 41.6, 31.4, hAt);
-    this.block(41.6, 31.4, 0.5, 'parasol');
-    this.block(40.9, 31.8, 0.4, 'cooler');
-    T.stampCover('ao', 42.1, 32.2, 1.6, 0.25);
+    // (r6: moved west beside the campfire — at 41.6 / 31.4 it sat in beach-day's foreground under the
+    // toolbar.)
+    addParasolVignette(b, r.fork('parasol'), 28.8, 31.4, hAt);
+    this.block(28.8, 31.4, 0.5, 'parasol');
+    this.block(28.1, 31.8, 0.4, 'cooler');
+    T.stampCover('ao', 29.3, 32.2, 1.6, 0.25);
     this.block(45.6, 35.2, 0.9, 'sandcastle');
     T.stampCover('ao', 45.6, 35.2, 1.2, 0.35);
     this.block(26.2, 29.2, 0.6, 'sign');
@@ -787,6 +789,11 @@ export class BeachMap implements GameMap {
       [44.5, 4.8, 1.15], [51, 1.2, 1.3], [58.5, 5.2, 1.05], [65, 2.4, 1.3], [72, 6.4, 1.1], [79, 3.2, 1.25], [86, 7, 1.2],
       [-10, 10, 1.3], [-12, 1, 1.35], [92, 2, 1.3], [80.5, 36.5, 1.0], [83, 45, 1.15], [72.8, 38.2, 0.85],
     ];
+    // (r6) A windbreak of pines on the lighthouse knoll, so the bent silhouettes read from the beach
+    // (beach-day) and not only along the bluff behind the camera.
+    for (const [x, z, s] of [[79.6, 51.2, 0.85], [83.2, 48.2, 0.95], [78.2, 54.2, 0.7], [85.2, 53.0, 0.8]] as const) {
+      if (hAt(x, z) > 2.4) pines.push([x, z, s]);
+    }
     for (const [x, z, s] of pines) {
       F.addPine(x, hAt(x, z), z, s * (0.95 + r.next() * 0.15), 0);
       this.terrain.stampCover('ao', x, z, 2.2 * s, 0.5);

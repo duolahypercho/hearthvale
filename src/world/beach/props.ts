@@ -207,9 +207,12 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
   const posts: THREE.Vector3[][] = [[], []];
   const pilings: { x: number; z: number; r: number }[] = [];
   const piling = (x: number, z: number, up: number): void => {
-    const g = groundAt(x, z) - 0.4;
+    const g0 = groundAt(x, z) - 0.4;
     const r = 0.15 + rng.next() * 0.03;
-    if (g < -0.35) pilings.push({ x, z, r });
+    if (g0 < -0.35) pilings.push({ x, z, r });
+    // The pile stops 0.7 m under the surface (critic r5: in deep water its foot showed through the
+    // translucent sea as a detached ghost slab a body-length below each post).
+    const g = Math.max(g0, -0.7);
     b.add('woodDark', new THREE.CylinderGeometry(r * 0.94, r, deck + up - g, 9, 2), mat(x, (deck + up + g) / 2, z, 0, rng.next() * 6, (rng.next() - 0.5) * 0.02), { aoWorld: pilingAO, tint: 0xb09a86 });
     // Rope wrap near the top + barnacle rings at the tide line.
     if (up > 0.2) b.add('cloth', new THREE.TorusGeometry(r + 0.01, 0.025, 5, 12), mat(x, deck + up - 0.12, z, Math.PI / 2), { tint: 0xc8a86a });

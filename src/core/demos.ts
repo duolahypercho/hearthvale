@@ -14,7 +14,7 @@ export interface DemoDef {
   time: number;
   season: Season;
   weather: Weather;
-  camera?: { yaw?: number; pitch?: number; distance?: number; offsetX?: number; offsetZ?: number };
+  camera?: { yaw?: number; pitch?: number; distance?: number; offsetX?: number; offsetY?: number; offsetZ?: number };
   ui?: string;
   /** Showcase content systems stage for the shot (e.g. 'field' = planted crop field). Default ['field']. */
   showcase?: string[];
@@ -99,8 +99,8 @@ export const DEMOS: Record<string, DemoDef> = {
   'beach-sunset': { map: 'beach', x: 48.9, z: 49.6, facing: 'left', time: 19.3, season: 'summer', weather: 'sun', camera: BEACH_SUNSET_CAM, showcase: ['beach', 'fishing-wait'] },
   // Looking out to sea over the beach: dune grass + sand in front, the wet band + surf, turquoise
   // shallows into deep blue, the pier and the horizon beyond (r5: the old top-down framing read as
-  // "lighthouse on a lawn").
-  'beach-day': { map: 'beach', x: 44.4, z: 35.6, facing: 'up', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: 210, pitch: 22, distance: 30, offsetX: 3.6, offsetZ: 7.6 }, showcase: ['beach'] },
+  // "lighthouse on a lawn"; r6: pulled back + lifted so the whole lighthouse and its wind-bent pines fit).
+  'beach-day': { map: 'beach', x: 44.4, z: 35.6, facing: 'up', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: 212, pitch: 19, distance: 40, offsetX: 5.2, offsetY: 3.5, offsetZ: 8.4 }, showcase: ['beach'] },
   'beach-night': { map: 'beach', x: 50, z: 38.5, facing: 'down', time: 22.4, season: 'summer', weather: 'sun', camera: BEACH_NIGHT_CAM, showcase: ['beach'] },
   'fishing-cast': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-cast'] },
   'fishing-wait': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-wait'] },
@@ -110,7 +110,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'fishing-river': { map: 'town', x: 61.6, z: 31.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 8, pitch: 42, distance: 15, offsetX: 2.2, offsetZ: -0.4 }, showcase: ['fishing-wait'] },
   // Real-play check: the default walk camera at dusk, eased into the fishing view (&phase=… works).
   'fishing-play': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 19.5, season: 'summer', weather: 'sun', showcase: ['fishing-reel', 'fishing-play'] },
-  'fishing-catch': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 18.2, season: 'summer', weather: 'sun', camera: FISH_CATCH_CAM, showcase: ['fishing-catch'] },
+  'fishing-catch': { map: 'beach', x: 49.6, z: 52.4, facing: 'left', time: 18.2, season: 'summer', weather: 'sun', camera: FISH_CATCH_CAM, showcase: ['fishing-catch'] },
   'fishing-flight': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.9, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-flight'] },
   'beach-tidepools': { map: 'beach', x: 12, z: 40, facing: 'down', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 20, offsetX: 0, offsetZ: 4 }, showcase: ['beach'] },
   // Co-op: a second farmer fishing beside you, rendered from snapshots (&rphase=cast|wait|bite|reel|catch,

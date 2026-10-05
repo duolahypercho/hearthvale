@@ -263,12 +263,19 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
             float mfield = HVB_MFIELD;
             meadow = smoothstep(0.54, 0.62, mfield) * smoothstep(0.22, 0.5, depth) * (1.0 - smoothstep(2.2, 3.2, depth));
             if (meadow > 0.0) {
-              // Blades: long streaks leaning with the surge (they sway back and forth with the swash phase).
-              float surge = sin(6.2832 * swPh) * 0.6;
-              vec2 bq = vec2(p.x * 9.0 + p.y * 2.2 + surge * 1.5, p.y * 1.1 - p.x * 0.25);
-              float blades = hvNoise(bq) * 0.65 + hvNoise(bq * vec2(2.1, 1.7) + 4.0) * 0.35;
-              vec3 grassC = mix(vec3(0.06, 0.15, 0.08), vec3(0.2, 0.34, 0.13), smoothstep(0.3, 0.8, blades));
-              grassC = mix(grassC, vec3(0.3, 0.33, 0.12), smoothstep(0.75, 0.95, blades) * 0.6);
+              // Tufts, not streaks (critic r5: long z-aligned blades read as a rain / motion-blur smear
+              // through the water, diagonal under the turned fishing camera): round clumps ≈ 0.4 m with
+              // short blades whose lean wanders with the patch, swaying with the surge.
+              float surge = sin(6.2832 * swPh) * 0.25;
+              // (Two fixed leans blended by a slow field: rotating world coords by a varying angle
+              // swirled into fingerprint rings.)
+              vec2 bq1 = vec2(p.x * 0.87 + p.y * 0.5, p.y * 0.87 - p.x * 0.5) * vec2(6.5, 2.4) + vec2(surge, 0.0);
+              vec2 bq2 = vec2(p.x * 0.77 - p.y * 0.64, p.y * 0.77 + p.x * 0.64) * vec2(6.5, 2.4) + vec2(surge, 3.0);
+              float lean = smoothstep(0.35, 0.65, hvNoise(p * 0.3 + 2.0));
+              float clump = hvNoise(p * 2.3 + vec2(hvNoise(p * 0.8) * 1.6, 0.0));
+              float blades = clump * 0.68 + mix(hvNoise(bq1), hvNoise(bq2), lean) * 0.32;
+              vec3 grassC = mix(vec3(0.07, 0.16, 0.09), vec3(0.17, 0.3, 0.12), smoothstep(0.3, 0.75, blades));
+              grassC = mix(grassC, vec3(0.26, 0.31, 0.12), smoothstep(0.72, 0.9, blades) * 0.45);
               // Denser, darker cores; thin, sandy fringes.
               float core = smoothstep(0.6, 0.72, mfield);
               s = mix(s, grassC * mix(1.1, 0.8, core), meadow * mix(0.55, 0.95, core) * bedK);
@@ -317,7 +324,7 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
         // Caustics only where they can show: sunlit (not night) sea bed 3 cm - 1.5 m deep, or a pool
         // floor (evaluated lazily in the shelf block). Elsewhere they are exactly 0 (pillar 14).
         // (causDay only gates: the fade itself is the dayK below.)
-        float causBed = causSun * smoothstep(0.03, 0.2, depth) * (1.0 - smoothstep(0.45, 1.5, depth)) * sandM;
+        float causBed = causSun * smoothstep(0.03, 0.2, depth) * (1.0 - smoothstep(0.3, 1.15, depth)) * mix(1.0, 0.55, smoothstep(0.15, 0.6, depth)) * sandM;
         if (causBed > 0.0 && causDay) {
           // The drifting patch mask first: outside a patch (patchC = 0) the caustic network is never
           // seen, so it is not evaluated there (identical output, perf r10).

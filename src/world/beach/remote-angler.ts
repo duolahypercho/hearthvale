@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import { fishDef } from '../../data/fish';
-import { FishingGear } from './tackle';
+import { FishingGear, heldFishScale, TROPHY_SCALE } from './tackle';
 
 /** Wire order of FishingState (index = code). */
 export const STATE_CODES = ['idle', 'charging', 'casting', 'waiting', 'bite', 'reeling', 'caught', 'escaped', 'reelin'] as const;
@@ -52,6 +52,8 @@ export class RemoteAngler {
   /** The farmer's gripping fist (world), written by the pose hook; `fistOk` while it is fresh. */
   readonly fist = new THREE.Vector3();
   fistOk = false;
+  /** The held catch is a trophy (presented in both hands across the chest, not hung by the tail). */
+  trophy = false;
   /** Catch arc (0 → 1 as the fish flies to the hands) from the latest snapshot. */
   arc = 0;
   /** Screen anchor for the bite "!" (null when not biting / not visible). */
@@ -208,6 +210,7 @@ export class RemoteAngler {
       const def = fishDef(fishId);
       if (def && this.held !== fishId) {
         g.hold(def, A[12]);
+        this.trophy = heldFishScale(def, A[12]) >= TROPHY_SCALE;
         this.held = fishId;
         this.caughtNote = def.name;
         this.noteAt.copy(feet).addScaledVector(_UP, 3.9);
@@ -226,7 +229,8 @@ export class RemoteAngler {
         g.setGlory(null, camera, 0, t);
       } else {
         g.heldRoot.scale.setScalar(boost);
-        if (this.fistOk) g.hangHeld(this.fist, camera, Math.sin(t * 2.6) * 0.1, hold);
+        if (this.fistOk && this.trophy) g.presentHeld(this.fist, camera, 0, Math.sin(t * 2.2) * 0.05, hold);
+        else if (this.fistOk) g.hangHeld(this.fist, camera, Math.sin(t * 2.6) * 0.1, hold);
         else {
           g.heldRoot.position.copy(hold);
           g.heldRoot.position.y += Math.sin(t * 3) * 0.02;
@@ -280,7 +284,7 @@ export class RemoteAngler {
 }
 
 /** Arm / torso pose for a farmer rig that is fishing in state `st` (remote farmers, the co-op demo). */
-export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D; torso: THREE.Object3D }, st: NetState, t: number, power = 0, arc = 0, fist?: THREE.Vector3): boolean {
+export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D; torso: THREE.Object3D }, st: NetState, t: number, power = 0, arc = 0, fist?: THREE.Vector3, trophy = false): boolean {
   let ar = -0.95;
   let al = -0.8;
   let arz = 0.3;
@@ -299,6 +303,14 @@ export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D
     al = -1.05 + Math.sin(t * (st === 'reeling' ? 16 : 5)) * 0.25;
     alz = -0.45 + Math.cos(t * (st === 'reeling' ? 16 : 5)) * 0.15;
     tx = -0.12;
+  } else if (st === 'caught' && arc > 0.6 && trophy) {
+    // A trophy is presented level across the chest in both hands (see FishingGear.presentHeld).
+    const lift = Math.sin(t * 3) * 0.05;
+    ar = TROPHY_ARMS.x + lift;
+    al = TROPHY_ARMS.x + lift;
+    arz = TROPHY_ARMS.z;
+    alz = -TROPHY_ARMS.z;
+    tx = 0.1;
   } else if (st === 'caught' && arc > 0.6) {
     // Same as the local catch pose: the right fist punched up beside the head, the fish hanging from
     // it by the tail; the left arm up in a cheer.
@@ -311,12 +323,21 @@ export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D
   }
   rig.armR.rotation.set(ar, 0, arz);
   rig.armL.rotation.set(al, 0, alz);
-  rig.armR.scale.y = st === 'caught' && arc > 0.6 ? 1.28 : 1;
+  rig.armR.scale.y = st === 'caught' && arc > 0.6 && !trophy ? 1.28 : 1;
   rig.torso.rotation.x = tx;
   rig.torso.rotation.y = ty;
   if (!fist || !(st === 'caught' && arc > 0.6)) return false;
-  // The gripping fist in world space (the caller's farmer root must be up to date).
+  // The gripping fist in world space (the caller's farmer root must be up to date); for a trophy the
+  // point between both hands.
   rig.armR.updateWorldMatrix(true, false);
   rig.armR.localToWorld(fist.set(0, -0.31, 0.03));
+  if (trophy) {
+    rig.armL.updateWorldMatrix(true, false);
+    const l = rig.armL.localToWorld(new THREE.Vector3(0, -0.31, 0.03));
+    fist.add(l).multiplyScalar(0.5);
+  }
   return true;
 }
+
+/** Arm pose (rotation x / outward z) for a trophy held level across the chest in both hands. */
+export const TROPHY_ARMS = { x: -1.38, z: 0.32 };

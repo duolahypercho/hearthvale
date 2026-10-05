@@ -590,6 +590,15 @@ Fishing (`systems/fishing.ts`, visuals in `world/beach/tackle.ts` + `fishmesh.ts
   and a water floor with friction. Casting right at the pier rail steps the farmer 0.42 m inboard first.
 - Service: `game.services.fishing` → `state()`, `available()`, `cast(power)`, `level()`, `xp()`, `rodTier()`,
   `upgradeRod(t)`, `records()`. Events: `fishing:cast|bite|hook|catch|escape|level`.
+- Round 6: a trophy (held length ≥ `TROPHY_SCALE`) is presented level across the chest in both hands, three-quarter
+  to the lens with the back tipped forward (`FishingGear.presentHeld`, a one-turn arrival twirl + sparkles; remote
+  farmers too via `poseAnglerArms(..., trophy)`); smaller fish still hang from the fist by the tail. The line is laid
+  analytically while the float flies (`ease ≥ 1` stores no momentum) and every verlet step is velocity-clamped (no
+  phantom V). The real-play fishing camera swings 50° off the throw's perpendicular (the angler faces the lens
+  three-quarter) and drops to 34° pitch once a fish is on; candidate yaws whose ray to the angler's head hits the map's
+  `trees` group are skipped (pond canopy). Pilings stop 0.7 m under the surface; seagrass is clumped tufts (two fixed
+  blade leans), wind slicks and creased ridge normals are gone from steep views, bed caustics fade out by 1.15 m. A
+  farmhand's catch line goes into their own name-tag speech bubble.
 
 Demos: `beach-day`, `beach-sunset` (a line in the water at dusk), `beach-night`, `beach-tidepools`, `beach-tackle` (the honesty box),
 `fishing-cast`, `fishing-flight` (the cast arc in the air), `fishing-wait`, `fishing-bite`, `fishing-reel`, `fishing-catch`,

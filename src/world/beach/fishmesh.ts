@@ -212,7 +212,7 @@ export function buildFishMesh(def: FishDef): FishMesh {
   bodyGeo.computeVertexNormals();
   const basePos = Float32Array.from(pos);
 
-  const bodyMat = new THREE.MeshStandardMaterial({ map: skin(def), roughness: 0.3, metalness: 0.12, envMapIntensity: 1.3 });
+  const bodyMat = new THREE.MeshStandardMaterial({ map: skin(def), roughness: 0.36, metalness: 0.1, envMapIntensity: 1.0 });
   bodyMat.name = 'fishSkin';
   const body = new THREE.Mesh(bodyGeo, bodyMat);
   body.castShadow = true;
