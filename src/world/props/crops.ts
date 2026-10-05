@@ -1041,6 +1041,20 @@ const BUILDERS: Record<CropId, Builder> = {
     const deep = C(0x24522e);
     const mid = C(0x4e8c4a);
     const blue = C(0x4a7e6a);
+    // Inner canopy shell (r13): a lumpy dark-green dome just inside the leaf tips closes the bush
+    // from the high camera — the open crown read as a wreath of leaves round bare soil.
+    if (k >= 1) {
+      const shell = new THREE.SphereGeometry(R * 0.86, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.62);
+      const sp = shell.attributes.position as THREE.BufferAttribute;
+      const ph = r.next() * 6;
+      for (let i = 0; i < sp.count; i++) {
+        const x = sp.getX(i), y = sp.getY(i), z = sp.getZ(i);
+        const lump = 1 + 0.12 * Math.sin(Math.atan2(z, x) * 5 + ph) * Math.min(1, Math.hypot(x, z) / R);
+        sp.setXYZ(i, x * lump, y * 0.8 * lump, z * lump);
+      }
+      shell.computeVertexNormals();
+      add(colored(shell, (p, n) => deep.clone().lerp(blue, 0.25).multiplyScalar(0.72 + 0.35 * Math.max(0, n.y) + 0.15 * (p.y / R))), mat(0, R * 0.95 - R * 0.12, 0));
+    }
     const nl = 20 + k * 15;
     for (let i = 0; i < nl; i++) {
       const t = (i + 0.5) / nl;

@@ -1134,7 +1134,7 @@ export class FarmingSystem implements System, FarmingApi {
       if (to <= from && started) return;
       if (!started) {
         started = true;
-        this.fx.trail.begin(color, strength, kind === 'sweep' ? 0.2 : 0.2, kind === 'sweep' ? 0.18 : 0.04);
+        this.fx.trail.begin(color, strength, 0.2, kind === 'sweep' ? 0.18 : 0.08, this.game.player.position.y);
       }
       // Trace the real arc between the last frame and this one at ~240 Hz.
       const n = Math.max(1, Math.ceil((to - from) * 240));
@@ -2018,7 +2018,9 @@ export class FarmingSystem implements System, FarmingApi {
     const pathRows = plan.rows.map((id, i) => (id ? -1 : Z0 + i)).filter((z) => z >= 0);
     const giantAt = { x: X0 + 1, z: Z1 - 2 };
     // The west head sits clear of the hero farmer (its jets used to stripe across him).
-    const sprinklers: [number, number][] = [[26, 22], [18, 22]];
+    // (r13: on the bed's west edge, > 3.5 tiles from either season's hero farmer: at [18, 22] the
+    // fall jets arced straight through his face.)
+    const sprinklers: [number, number][] = [[26, 22], [16, 22]];
     const propTiles: [number, number][] = [];
     for (let z = Z0; z <= Z1; z++) {
       for (let x = X0; x <= X1; x++) {
@@ -2542,8 +2544,11 @@ export class FarmingSystem implements System, FarmingApi {
     if (this.ripeGlint > 0) return;
     this.ripeGlint = 1;
     const t = this.ripeList[Math.floor(fxRng.next() * this.ripeList.length)]!;
+    // The list is rescanned every 1.5 s: a crop harvested / killed since then is skipped.
+    const c = t.crop;
+    if (!c || c.dead || c.stage < RIPE_STAGE || !c.handle) return;
     const cam = game.rc.camera.position;
-    const top = CROPS[t.crop!.id].trellis ? 1.25 : t.crop!.id === 'corn' || t.crop!.id === 'sunflower' ? 1.35 : t.crop!.id === 'tomato' ? 1.0 : 0.42;
+    const top = CROPS[c.id].trellis ? 1.25 : c.id === 'corn' || c.id === 'sunflower' ? 1.35 : c.id === 'tomato' ? 1.0 : 0.42;
     const p = new THREE.Vector3(t.x + 0.5 + rnd(-0.22, 0.22), this.cropY(t.x, t.z) + top * rnd(0.6, 1.0), t.z + 0.5 + rnd(-0.22, 0.22));
     if (p.distanceTo(cam) > 26) return;
     this.fx.sparkle(p, new THREE.Vector3(0, 0.18, 0), 0x9a8452, rnd(0.12, 0.18), rnd(0.35, 0.5));

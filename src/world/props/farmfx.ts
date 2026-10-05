@@ -1119,6 +1119,9 @@ export class SwingTrail {
   private n = new THREE.Vector3();
   private e = new THREE.Vector3();
   private minOpen = 0.18;
+  /** Ground under the swinger (NaN = no height fade). The smear fades out above ~shoulder height so
+   *  an overhead swing's crescent lives in the down-stroke, never as a pale veil across the face. */
+  private floorY = NaN;
 
   constructor() {
     const g = new THREE.BufferGeometry();
@@ -1147,8 +1150,9 @@ export class SwingTrail {
   }
 
   /** Start a fresh smear (tint + opacity scale, e.g. gold for charged slams). */
-  begin(color = 0xfff6e0, strength = 1, life = 0.16, minOpen = 0.18): void {
+  begin(color = 0xfff6e0, strength = 1, life = 0.16, minOpen = 0.18, floorY = NaN): void {
     this.count = 0;
+    this.floorY = floorY;
     this.minOpen = minOpen;
     this.tint.set(color);
     this.strength = strength;
@@ -1206,12 +1210,13 @@ export class SwingTrail {
       // Taper toward the tail (the ribbon narrows onto the outer edge as it ages); outer edge
       // bright, inner edge transparent.
       const tail = Math.pow(1 - i / TRAIL_N, 1.3);
-      const a = k * tail * this.strength * face;
       const I = this.inner[src]!;
       const O = this.outer[src]!;
-      const w = 0.35 + 0.65 * k * tail;
+      const low = Number.isNaN(this.floorY) ? 1 : 1 - THREE.MathUtils.smoothstep(O.y - this.floorY, 0.55, 1.05);
+      const a = k * tail * this.strength * face * low;
+      const w = 0.3 + 0.55 * k * tail;
       this.pos.set([O.x + (I.x - O.x) * w, O.y + (I.y - O.y) * w, O.z + (I.z - O.z) * w, O.x, O.y, O.z], i * 6);
-      this.col.set([this.tint.r, this.tint.g, this.tint.b, a * 0.2, this.tint.r, this.tint.g, this.tint.b, Math.min(1, a * 1.05)], i * 8);
+      this.col.set([this.tint.r, this.tint.g, this.tint.b, a * 0.08, this.tint.r, this.tint.g, this.tint.b, Math.min(1, a * 1.05)], i * 8);
     }
     const g = this.mesh.geometry;
     (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
