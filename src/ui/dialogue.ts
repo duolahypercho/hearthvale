@@ -29,6 +29,11 @@ export interface DialogueBoxApi {
   cinema(on: boolean, title?: string, sub?: string): void;
   /** Stage helper: complete the current line instantly (screenshots). */
   finishLine(): void;
+  /**
+   * Co-op spectator: show the host's friendship points for this villager on the heart row (the scene
+   * is the host's), labelled with the host's name; null hands the row back to the local ledger.
+   */
+  spectatorHearts?(id: NpcId, pts: number | null, who?: string): void;
 }
 
 declare module '../core/game' {
@@ -96,7 +101,8 @@ const CSS = /* css */ `
 @keyframes dlgNod { to { translate: 0 1.6px; } }
 @keyframes dlgSwap { from { opacity: 0; transform: scale(1.06) translateY(4px); } }
 @keyframes dlgOut { to { opacity: 0; } }
-.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 22px); gap: 3px; margin-top: 5px; }
+.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 22px); gap: 3px; margin-top: 5px; position: relative; }
+.hv-dialogue.dlg2 .dlg-hearts.spec::after { content: attr(data-spec); position: absolute; left: 50%; top: -17px; transform: translateX(-50%); white-space: nowrap; font: 700 11px/1 Nunito, sans-serif; color: #7a4a2a; background: #fbefd6; border: 1px solid #c89a5a; border-radius: 8px; padding: 2px 7px; }
 .hv-dialogue.dlg2 .dlg-hearts svg { width: 22px; height: 20px; display: block; overflow: visible; }
 /* The heart that just filled pops (ease-out-back) and flashes. */
 .hv-dialogue.dlg2 .dlg-hearts svg.pop { animation: dlgPop 620ms var(--ease-back) both; filter: drop-shadow(0 0 4px rgba(255, 120, 100, 0.9)); }
@@ -107,6 +113,38 @@ const CSS = /* css */ `
 @keyframes dlgHeart { 40% { transform: scale(1.35) translateY(-3px); } }
 @keyframes dlgShake { 20%,60% { transform: translateX(-4px); } 40%,80% { transform: translateX(4px); } }
 .hv-dialogue.dlg2 .dlg-side .hv-inner { position: relative; }
+/* r6: one joined frame (Stardew-style): text box and portrait card are equal height, flush, sharing one
+   wood border and bottom edge, with a riveted seam between them — one widget, not two. */
+.hv-dialogue.dlg2 { gap: 0; align-items: stretch; }
+.hv-dialogue.dlg2 .dlg-box { margin-bottom: 0; border-radius: 18px 0 0 18px; border-right-width: 0; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { border-radius: 12px 4px 4px 12px; }
+.hv-dialogue.dlg2 .dlg-side { width: 296px; border-radius: 0 18px 18px 0; border-left-width: 0; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner { border-radius: 4px 12px 12px 4px; padding: 9px 9px 8px; }
+.hv-dialogue.dlg2 .dlg-side::before { content: ''; position: absolute; left: -4px; top: 6px; bottom: 6px; width: 8px; z-index: 5; border-radius: 4px; pointer-events: none;
+  background: radial-gradient(circle at 50% 14px, #f2cf7a 0 2.5px, #8a5a24 3px, transparent 3.5px) 0 0 / 8px 50% repeat-y, linear-gradient(90deg, var(--wood-3), var(--wood-2) 45%, var(--wood-3));
+  box-shadow: 0 0 0 1px rgba(40, 20, 8, 0.35); }
+.hv-dialogue.dlg2 .dlg-side { width: 252px; }
+.hv-dialogue.dlg2 .dlg-portrait { width: 232px; height: 206px; overflow: hidden; border-radius: 8px; }
+/* (the role line lives in the social page; the card stays as short as the box needs) */
+.hv-dialogue.dlg2 .dlg-role { display: none; }
+/* The card is the portrait alone (the name rides the box's speaker tab); the heart meter sits on a
+   parchment strip over the portrait's foot — so the joined frame stays as low as the old text box and
+   never hides the actors' feet. */
+.hv-dialogue.dlg2 .dlg-name { display: none; }
+.hv-dialogue.dlg2 .dlg-hearts { position: absolute; left: 50%; bottom: 13px; transform: translateX(-50%); z-index: 4; margin: 0;
+  background: rgba(251, 241, 218, 0.94); border: 1.5px solid #c89a5a; border-radius: 10px; padding: 3px 6px; box-shadow: 0 2px 0 rgba(90, 50, 20, 0.25); }
+.hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 232px; height: 232px; margin-top: -4px; }
+.hv-dialogue.dlg2 .dlg-portrait::after { background-size: 232px 232px; }
+/* (the name plate overlaps the portrait's lower edge like a frame label: a shorter card, so the joined box isn't mostly empty) */
+.hv-dialogue.dlg2 .dlg-name { margin-top: -16px; font-size: 21px; }
+.hv-dialogue.dlg2 .dlg-role { max-width: 232px; font-size: 12.5px; line-height: 15px; }
+.hv-dialogue.dlg2 .dlg-hearts { grid-template-columns: repeat(10, 19px) !important; gap: 3px !important; }
+.hv-dialogue.dlg2 .dlg-hearts svg { width: 19px !important; height: 17px !important; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { padding-top: 30px; padding-bottom: 22px; }
+.hv-dialogue.dlg2.narr .dlg-box { border-radius: 18px; border-right-width: 2px; }
+.hv-dialogue.dlg2.narr .dlg-box .hv-inner { border-radius: 12px; }
+/* The music card waits while someone is talking (r6: 'Now playing' sat beside Hazel's line). */
+body.hv-dlg-open .hv-np { opacity: 0 !important; transition: opacity 200ms; }
 .dlg-float { position: absolute; width: 22px; height: 20px; pointer-events: none; animation: dlgFloat 1100ms ease-out forwards; }
 @keyframes dlgFloat { from { opacity: 0; transform: translateY(0) scale(0.4); } 15% { opacity: 1; transform: translateY(-8px) scale(1.1); } to { opacity: 0; transform: translateY(-70px) scale(0.8) rotate(12deg); } }
 .hv-dialogue.dlg2 .dlg-ribbon { position: absolute; top: 16px; right: 8px; max-width: 200px; z-index: 4; font-family: var(--font-head); font-weight: 700; font-size: 14px; color: #fff; padding: 3px 12px 3px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -471,6 +509,7 @@ export class DialoguePanel implements Panel {
     this.openFlag = true;
     this.el.classList.toggle('narr', id === null);
     this.game.hud.root.classList.add('hv-talking');
+    document.body.classList.add('hv-dlg-open');
     if (id && id !== this.npc) {
       const def = NPCS[id];
       this.npc = id;
@@ -499,6 +538,7 @@ export class DialoguePanel implements Panel {
     this.choiceWaiter = null;
     this.npc = null;
     this.game.hud.root.classList.remove('hv-talking');
+    document.body.classList.remove('hv-dlg-open');
     this.el.classList.add('hv-hidden');
   }
 
@@ -519,10 +559,18 @@ export class DialoguePanel implements Panel {
   }
 
   private heartPts = -1;
+  private specHearts: { id: NpcId; pts: number; who: string } | null = null;
+  spectatorHearts(id: NpcId, pts: number | null, who = 'Host'): void {
+    this.specHearts = pts === null ? null : { id, pts, who };
+    if (this.npc === id) this.renderHearts(id);
+  }
   private renderHearts(id: NpcId, prev = -1): void {
-    const pts = this.game.services.relationships?.points(id) ?? 0;
+    const spec = this.specHearts && this.specHearts.id === id ? this.specHearts : null;
+    const pts = spec ? spec.pts : (this.game.services.relationships?.points(id) ?? 0);
     this.hearts.innerHTML = Array.from({ length: 10 }, (_, i) => HEART((pts - i * PER_HEART) / PER_HEART, `${id}${i}`)).join('');
     this.hearts.title = `${Math.floor(pts / PER_HEART)} / 10 hearts`;
+    this.hearts.dataset.spec = spec ? `${spec.who}'s friendship · ${Math.floor(pts / PER_HEART)}♥` : '';
+    this.hearts.classList.toggle('spec', !!spec);
     if (prev >= 0 && pts > prev) {
       // Pop the hearts whose fill changed (the newest last, a beat later).
       const svgs = this.hearts.querySelectorAll('svg');
@@ -790,7 +838,7 @@ export class PortraitSheetPanel implements Panel {
 
   open(arg?: string): void {
     const one = arg && NPCS[arg as NpcId] ? (arg as NpcId) : null;
-    const moods: Mood[] = one ? ['neutral', 'happy', 'laugh', 'blush', 'thinking', 'surprised', 'worried', 'sad', 'angry'] : ['happy', 'laugh', 'surprised', 'sad', 'angry'];
+    const moods: Mood[] = one ? ['neutral', 'happy', 'laugh', 'blush', 'thinking', 'surprised', 'worried', 'wistful', 'sad', 'angry'] : ['happy', 'laugh', 'surprised', 'sad', 'angry'];
     const ids = one ? [one] : NPC_IDS;
     const rows = ids.map((id) => {
       const d = NPCS[id];

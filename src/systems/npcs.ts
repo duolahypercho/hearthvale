@@ -100,6 +100,14 @@ const _ab = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _hp = new THREE.Vector3();
 const _q2 = new THREE.Vector3();
+const _pr = new THREE.Vector3();
+const _fm = new THREE.Matrix4();
+const _fr = new THREE.Frustum();
+const _fs = new THREE.Sphere();
+const _ph = new THREE.Vector3();
+const _pe = new THREE.Vector3();
+const _pb = new THREE.Vector3();
+const _pt = new THREE.Vector3();
 // Lens-sweep scratch (pillar 14: the 42-angle camera search allocated ~30-74 KB a frame, GC on p99, r5).
 const _cp = new THREE.Vector3();
 const _sa = new THREE.Vector3();
@@ -372,8 +380,10 @@ export class NpcSystem implements System {
         this.talking.v.talkTo = null;
         this.talking.v.speaking = false;
         this.talking.v.setMood('neutral');
+        this.talking.v.dropIcon();
         this.talking = null;
       }
+      this.giftLoop = null;
       if (this.camMode === 'talk') this.releaseCam();
     });
     game.events.on('ui:open', ({ name }) => {
@@ -474,8 +484,13 @@ export class NpcSystem implements System {
   /** Conversations lean in: a gentle two-shot of the farmer and the villager, above the dialogue box. */
   private startTalkCam(): void {
     if (this.camMode === 'event' || !this.talking) return;
-    // Street chatter would sit right in the lens (a bubble the size of the dialogue box).
-    for (const a of this.agents.values()) a.v.hush();
+    // Street chatter would sit right in the lens (a bubble the size of the dialogue box); emote
+    // bubbles (a greeting ♪) clear too.
+    for (const a of this.agents.values()) {
+      a.v.hush();
+      a.v.emote('dots', 0.01);
+      a.emoteT = Math.max(a.emoteT, 3);
+    }
     this.takeCam('talk');
     this.shot = { kind: 'two', speaker: this.talking.def.id, anchor: null };
     this.clearStage();
@@ -554,12 +569,18 @@ export class NpcSystem implements System {
       /* no icon: skip the toss */
     }
     const land = (): void => {
-      v.squash(reaction === 'love' ? 1.3 : reaction === 'dislike' ? 0.7 : 1);
-      v.gesture(reaction === 'love' ? 'hug' : reaction === 'like' ? 'open' : reaction === 'dislike' ? 'shrug' : 'nod', 1.8);
+      v.squash(reaction === 'love' ? 1.35 : reaction === 'dislike' ? 0.7 : 1.1);
       this.fx.burst(new THREE.Vector3(v.position.x, v.position.y + v.headTop + 0.15, v.position.z), reaction);
+      // Liked gifts are held up at the chest through the reaction line (until the box closes when it is
+      // the local farmer's talk); a disliked one is shrugged at.
+      if (url && reaction !== 'dislike') v.holdIcon(url, this.talking === a ? 1e9 : 3.6);
+      else v.gesture(reaction === 'dislike' ? 'shrug' : 'nod', 1.8);
     };
-    if (url) this.fx.tossItem(url, from, to, land);
-    else land();
+    // (the arc starts a beat after the box opens, so the throw is seen)
+    void this.wait(0.22).then(() => {
+      if (url) this.fx.tossItem(url, from, to, land);
+      else land();
+    });
   }
 
   /**
@@ -1003,7 +1024,7 @@ export class NpcSystem implements System {
           a.emoteT = 600;
         }
         // Two of the talkers are caught mid-sentence (a speech bubble reads as a living town).
-        const pool = this.barksOf(a);
+        const pool = this.barkLines(a);
         if (act === 'chat' && emote && barks < 2 && pool?.length) {
           barks++;
           // Lean the bubble away from a close neighbour (no speech bubble over another face).
@@ -1038,6 +1059,21 @@ export class NpcSystem implements System {
     if (name === 'town-dialogue' || name === 'town-night-talk') {
       const id = (params.get('npc') as NpcId | null) ?? (name === 'town-night-talk' ? 'tobias' : 'marigold');
       const a = this.agents.get(id) ?? this.agents.get('marigold')!;
+      // r6: each villager is met at their own place of work (the forge for Odessa, the oven for Bram,
+      // the easel by the bridge for Wren…), not the same fountain bench every time (`&at=square` opts out).
+      const WORK: Partial<Record<NpcId, string>> = { odessa: 'forge_anvil', bram: 'bakery_front', wren: 'easel_river', linus: 'clinic_front', june: 'inn_front', rowan: 'lumber_yard', hazel: 'garden_east', marigold: 'store_front', tobias: 'hall_steps', kit: 'plaza_play' };
+      const ws = name === 'town-dialogue' && params.get('at') !== 'square' && params.get('npc') ? SPOTS[WORK[a.def.id] ?? ''] : undefined;
+      if (ws) {
+        for (const [ox, oz] of [[-1.4, 0.6], [1.4, 0.6], [-1.2, 1.2], [1.2, 1.2], [0, 1.5]] as const) {
+          const c = NpcSystem.clearOf(ws[0] + ox, ws[1] + oz);
+          if (map.grid.isWalkable(Math.floor(c.x), Math.floor(c.z))) {
+            this.game.player.teleport(c.x, c.z);
+            this.game.followPlayer(true);
+            for (const b of this.agents.values()) if (b !== a && !b.inside && Math.hypot(b.v.position.x - c.x, b.v.position.z - c.z) < 3) this.setInside(b, true, true);
+            break;
+          }
+        }
+      }
       // Face-to-face with the farmer on a diagonal (up-screen, to the right) so both read clearly.
       const p = this.game.player.position;
       // (to the left instead when a building stands close on the right: the lens needs the gap)
@@ -1065,6 +1101,8 @@ export class NpcSystem implements System {
       a.v.update(0, (qx, qz) => this.game.world.heightAt(qx, qz), false);
       a.v.setYaw((a.v as unknown as { targetYaw: number }).targetYaw);
       window.setTimeout(() => this.game.services.dialogueBox?.finishLine(), 30);
+      const gi = params.get('gift');
+      if (gi) this.giftLoop = { id: a.def.id, item: gi, reaction: (params.get('reaction') as 'love' | null) ?? 'love', t: 1.2 };
       return;
     }
     if (name === 'town-heart-event') {
@@ -1360,6 +1398,7 @@ export class NpcSystem implements System {
     }
     this.game.followPlayer(false);
     this.restoreOccluders();
+    this.fgRestore();
     this.festoonGuard(true);
   }
 
@@ -1575,12 +1614,20 @@ export class NpcSystem implements System {
         // a rose or a cat; the frame holds the speaker and what they look at, far actors drop out.
         const f = THREE.MathUtils.radToDeg(fy);
         const d = (a: number): number => Math.abs(((a - base + 540) % 360) - 180);
-        yaw = d(f + 40) < d(f - 40) ? f + 40 : f - 40;
+        // (32°: the owner's face must stay within 50° of the lens — auditEvents)
+        yaw = d(f + 32) < d(f - 32) ? f + 32 : f - 32;
         ots = true;
         cx = lead.x + Math.sin(fy) * 0.9;
         cz = lead.z + Math.cos(fy) * 0.9;
         spread = 1.2;
       }
+    }
+    // The title's subject (the bridge being painted) pulls the wide frame to include it.
+    const subj = this.camMode === 'event' ? this.evCur?.subject : undefined;
+    if (kind === 'wide' && subj && !s.anchor) {
+      cx = (cx * W + subj.at[0] * 1.6) / (W + 1.6);
+      cz = (cz * W + subj.at[1] * 1.6) / (W + 1.6);
+      for (const a of acts) spread = Math.max(spread, Math.hypot(a.x - subj.at[0], a.z - subj.at[1]) + 0.8);
     }
     // Scene props (Pip on the roof) pull the wide frame towards them.
     if (kind === 'wide' && this.eventProps.length && !s.anchor) {
@@ -1750,6 +1797,28 @@ export class NpcSystem implements System {
           h += (Math.abs(off - 0.6) / Math.PI) * 3;
           if (lh) h += this.faceBlocked(pos, lead, acts) * 8;
         }
+        if (this.camMode === 'event' || this.camMode === 'talk') {
+          // Screen space: no pole / trunk within 0.6 head-widths of a framed head.
+          const tc = this.fitCam;
+          tc.fov = this.game.rc.camera.fov;
+          tc.aspect = this.game.rc.camera.aspect;
+          tc.updateProjectionMatrix();
+          tc.position.copy(pos);
+          tc.lookAt(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf));
+          tc.updateMatrixWorld(true);
+          const framed = kind === 'close' || ots ? acts.filter((a) => a.id === s.speaker) : acts;
+          h += this.postsNearHeads(tc, framed, s.speaker) * 3.5;
+          // The event's owner must face the lens (≤ 50°) whenever they are framed.
+          const ow = this.evOwner();
+          const oa = ow && this.camMode === 'event' ? this.agents.get(ow) : null;
+          if (oa && oa.scripted && framed.some((a) => a.id === ow)) {
+            // (seated owners keep the bench's yaw: the lens has to come round to the front of the bench)
+            const oy = (oa.v as unknown as { targetYaw: number }).targetYaw;
+            const toC = Math.atan2(pos.x - oa.v.position.x, pos.z - oa.v.position.z);
+            const off = Math.abs(Math.atan2(Math.sin(oy - toC), Math.cos(oy - toC)));
+            if (off > THREE.MathUtils.degToRad(50)) h += (off - THREE.MathUtils.degToRad(50)) * 3;
+          }
+        }
         h += Math.abs(c[0]) / 180 + c[1] / 60 + (1 - c[2]) * 2;
         if (h < bestHits) {
           bestHits = h;
@@ -1781,10 +1850,20 @@ export class NpcSystem implements System {
       tc.lookAt(target);
       tc.updateMatrixWorld(true);
       let bad = false;
+      let card = false;
       for (const a of acts) {
         if ((kind === 'close' || ots) && a.id !== s.speaker) continue;
         const hp = _q2.set(a.x, a.y + a.head - 0.1, a.z).project(tc);
         if (hp.y > 0.72 || Math.abs(hp.x) > 0.88) bad = true;
+        // The portrait card (lower right, beside the box) must not cover a face: slide the frame.
+        const fp = _q2.set(a.x, a.y + a.head * 0.55, a.z).project(tc);
+        if (fp.x > 0.2 && fp.x < 0.64 && fp.y < -0.02) card = true;
+      }
+      if (card && it < 5) {
+        // Pan so the actors move left of the card (camera right = (cos y, -sin y) in plan).
+        cx += Math.cos(yr) * 0.7;
+        cz -= Math.sin(yr) * 0.7;
+        continue;
       }
       if (!bad) break;
       dist *= 1.1;
@@ -1813,7 +1892,7 @@ export class NpcSystem implements System {
       }
     }
     if (!this.camMode) return;
-    const g = this.shotGoal();
+    const g = this.specGoal && this.spectating ? this.specGoal : this.shotGoal();
     if (!g) return;
     const k = 1 - Math.exp(-2.6 * dt);
     let dy = g.yaw - this.camCur.yaw;
@@ -2032,6 +2111,201 @@ export class NpcSystem implements System {
     }
   }
 
+  /**
+   * Bystander villagers in the lens foreground during a chat / heart event (r6 critic: Rowan's giant
+   * out-of-focus head filled a third of the real talk frame). Screen-space test per non-participant:
+   * nearer the lens than ~60 % of the focus distance, or with the head in the bottom ~30 % of the
+   * frame, while on screen → stepped out of the shot (hidden) until the camera hands back.
+   */
+  /** The heart event on stage (its owner keeps a readable face; its subject opens the scene). */
+  private evCur: HeartEvent | null = null;
+  private evOwner(): NpcId | null {
+    const id = this.evCur?.id.split('-')[0];
+    return id && id in NPCS ? (id as NpcId) : null;
+  }
+
+  /**
+   * Stage cheat (r6 critic: Dr. Pell listened with his back to the lens): standing cast members open
+   * up towards the camera — the event's owner to within 50° of it, everyone else to within 72° —
+   * whether they speak or listen. Workers at a prop (painting, kneading…) and seated actors keep theirs.
+   */
+  private cheatOpen(instant = false): void {
+    if (this.camMode !== 'event') return;
+    const cam = this.game.rc.camera.position;
+    const owner = this.evOwner();
+    for (const a of this.agents.values()) {
+      // (the owner opens up in any standing work too — the anvil, the watering can — but not at the
+      // easel or the rod, where the prop direction is the pose)
+      const own = a.def.id === owner;
+      const workOk = own ? a.activity !== 'sit' && a.activity !== 'paint' && a.activity !== 'fish' : a.activity === 'idle' || a.activity === 'chat';
+      if (!a.scripted || a.inside || a.v.isMoving || !workOk) continue;
+      const v = a.v;
+      const toC = Math.atan2(cam.x - v.position.x, cam.z - v.position.z);
+      const ty = (v as unknown as { targetYaw: number }).targetYaw;
+      const d = Math.atan2(Math.sin(ty - toC), Math.cos(ty - toC));
+      const lim = THREE.MathUtils.degToRad(a.def.id === owner ? 48 : 72);
+      if (Math.abs(d) <= lim) continue;
+      const want = toC + Math.sign(d) * lim;
+      if (instant) v.setYaw(want);
+      else v.faceYaw(want);
+    }
+  }
+
+  /**
+   * Screen-space clutter: vertical props (lamp posts, festoon poles, signposts, tree trunks) within
+   * 0.6 head-widths of a framed head — "a lamp post growing out of Dr. Pell's head". Returns the
+   * weighted hit count (speaker heads count double).
+   */
+  private postsNearHeads(cam: THREE.Camera, acts: { id: Who; x: number; y: number; z: number; head: number }[], speaker: Who | null): number {
+    const map = this.game.world.current;
+    if (!map) return 0;
+    let n = 0;
+    const right = _pr.set(1, 0, 0).applyQuaternion(cam.quaternion);
+    for (const a of acts) {
+      const hr = a.id === 'player' ? 0.36 : Math.min(0.5, 0.3 + a.head * 0.04);
+      const hc = _ph.set(a.x, a.y + a.head - hr * 1.1, a.z);
+      const edge = _pe.copy(hc).addScaledVector(right, hr).project(cam);
+      hc.project(cam);
+      if (hc.z > 1 || Math.abs(hc.x) > 1 || Math.abs(hc.y) > 1) continue;
+      const rs = Math.abs(edge.x - hc.x);
+      const test = (x: number, z: number, h: number): void => {
+        if (Math.hypot(x - a.x, z - a.z) > 12) return;
+        const gy = map.heightAt(x, z);
+        const b0 = _pb.set(x, gy, z).project(cam);
+        const bx = b0.x;
+        const by = b0.y;
+        const t0 = _pt.set(x, gy + h, z).project(cam);
+        if (b0.z > 1 || t0.z > 1) return;
+        if (!(Math.min(by, t0.y) < hc.y && Math.max(by, t0.y) > hc.y - rs)) return;
+        const u = (hc.y - by) / ((t0.y - by) || 1e-4);
+        const px = bx + (t0.x - bx) * THREE.MathUtils.clamp(u, 0, 1);
+        if (Math.abs(px - hc.x) < rs * 2.2) n += a.id === speaker ? 2 : 1;
+      };
+      for (const po of POSTS) test(po.x, po.z, 3.3);
+      for (const t of this.balls()) if (Math.abs(t.c.x - a.x) < 12 && Math.abs(t.c.z - a.z) < 12) test(t.c.x, t.c.z, Math.max(0.5, t.c.y - map.heightAt(t.c.x, t.c.z) - t.r * 0.35));
+    }
+    return n;
+  }
+
+  /**
+   * Speech bubbles vs farmer name tags (r6: Juniper's chip clipped Linus's bark): a bubble whose
+   * screen box overlaps a remote farmer's tag (≈ 2.35 m over their feet) rises above it.
+   */
+  private bubbleRepel(): void {
+    const cam = this.game.rc.camera;
+    const tags: THREE.Vector3[] = [];
+    for (const o of this.game.scene.children) if (o.name === 'remote-farmer' && o.visible) tags.push(_pt.set(o.position.x, o.position.y + 2.35, o.position.z).project(cam).clone());
+    for (const a of this.agents.values()) {
+      const v = a.v;
+      if (!tags.length || !v.barking) {
+        v.barkLift = 0;
+        continue;
+      }
+      const b = _pb.set(v.position.x, v.position.y + v.headTop + 0.6, v.position.z).project(cam);
+      let lift = 0;
+      for (const t of tags) if (Math.abs(t.x - b.x) < 0.22 && t.y > b.y - 0.09 && t.y < b.y + 0.07) lift = 0.55;
+      v.barkLift = lift;
+    }
+  }
+
+  /** town-dialogue &gift= demo: the arc replays every 2.6 s while the box is open (stills catch it). */
+  private giftLoop: { id: NpcId; item: string; reaction: 'love' | 'like' | 'neutral' | 'dislike'; t: number } | null = null;
+
+  private fgHidden = new Set<Agent>();
+  private fgFrame = 0;
+  private fgBox(a: Agent): { cover: number; near: boolean } {
+    const cam = this.game.rc.camera;
+    const v = a.v;
+    const top = _q.set(v.position.x, v.position.y + v.headTop, v.position.z).project(cam);
+    const ty = top.y;
+    const tz = top.z;
+    const tx = top.x;
+    const foot = _q.set(v.position.x, v.position.y, v.position.z).project(cam);
+    if (tz > 1 || foot.z > 1) return { cover: 0, near: false };
+    const h = Math.max(0.02, ty - foot.y);
+    const w = h * 0.55;
+    const x0 = Math.max(-1, Math.min(tx, foot.x) - w / 2);
+    const x1 = Math.min(1, Math.max(tx, foot.x) + w / 2);
+    const y0 = Math.max(-1, foot.y);
+    const y1 = Math.min(1, ty);
+    const cover = x1 > x0 && y1 > y0 ? ((x1 - x0) * (y1 - y0)) / 4 : 0;
+    const dC = cam.position.distanceTo(_hp.set(v.position.x, v.position.y + v.headTop * 0.6, v.position.z));
+    const dF = cam.position.distanceTo(this.lookPoint);
+    const headY = foot.y + h * 0.8;
+    const near = cover > 0 && (dC < dF * 0.62 || headY < -0.42);
+    return { cover, near };
+  }
+  private fgCull(force = false): void {
+    if (!force && ++this.fgFrame % 4) return;
+    this.game.rc.camera.updateMatrixWorld();
+    const keep = new Set<Agent>();
+    for (const a of this.agents.values()) {
+      if (a === this.talking || a.scripted || a.inside) continue;
+      if (!a.v.root.visible && !this.fgHidden.has(a)) continue;
+      const { near } = this.fgBox(a);
+      if (near) keep.add(a);
+    }
+    for (const a of this.fgHidden)
+      if (!keep.has(a)) {
+        a.v.root.visible = a.vis > 0.01;
+        this.fgHidden.delete(a);
+      }
+    for (const a of keep) {
+      a.v.root.visible = false;
+      this.fgHidden.add(a);
+    }
+    // Tree canopies looming between the lens and the scene (r6: a blurred blossom crown filled a third
+    // of Hazel's gift frame): any crown on screen nearer than ~60 % of the focus distance goes.
+    const cam = this.game.rc.camera;
+    const dF = cam.position.distanceTo(this.lookPoint);
+    const want = new Set<string>();
+    const add: { mesh: THREE.BatchedMesh; id: number }[] = [];
+    _fm.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    _fr.setFromProjectionMatrix(_fm);
+    for (const g of this.balls()) {
+      const d = cam.position.distanceTo(g.c) - g.r;
+      if (d > dF * 0.6) continue;
+      // (any crown whose sphere reaches into the view — its centre may sit off-frame or behind the lens)
+      if (d > 0.6 && !_fr.intersectsSphere(_fs.set(g.c, g.r * 0.85))) continue;
+      for (const o of g.parts) {
+        want.add(`${o.mesh.uuid}:${o.id}`);
+        add.push(o);
+      }
+    }
+    this.fgTrees = this.fgTrees.filter((o) => {
+      if (want.has(`${o.mesh.uuid}:${o.id}`)) return true;
+      try {
+        o.mesh.setVisibleAt(o.id, true);
+      } catch {
+        /* gone */
+      }
+      return false;
+    });
+    const had = new Set(this.fgTrees.map((o) => `${o.mesh.uuid}:${o.id}`));
+    for (const o of add) {
+      if (had.has(`${o.mesh.uuid}:${o.id}`)) continue;
+      try {
+        if (!o.mesh.getVisibleAt(o.id)) continue;
+        o.mesh.setVisibleAt(o.id, false);
+        this.fgTrees.push(o);
+      } catch {
+        /* gone */
+      }
+    }
+  }
+  private fgTrees: { mesh: THREE.BatchedMesh; id: number }[] = [];
+  private fgRestore(): void {
+    for (const a of this.fgHidden) a.v.root.visible = a.vis > 0.01;
+    this.fgHidden.clear();
+    for (const o of this.fgTrees)
+      try {
+        o.mesh.setVisibleAt(o.id, true);
+      } catch {
+        /* gone */
+      }
+    this.fgTrees = [];
+  }
+
   private lensRestore(): void {
     for (const o of this.lensHidden)
       try {
@@ -2077,6 +2351,7 @@ export class NpcSystem implements System {
   }
 
   private frame(ev: HeartEvent): void {
+    this.evCur = ev;
     this.baseYaw = ev.camera.yaw ?? 0;
     for (const a of this.agents.values()) a.v.hush();
     this.takeCam('event');
@@ -2197,7 +2472,7 @@ export class NpcSystem implements System {
     this.guardView(true);
     await this.game.hud.fade(false);
     box?.cinema(true, ev.title, `${npc.name.startsWith('Dr. ') ? `Dr. ${npc.name.split(' ').pop()}` : npc.name.split(' ')[0]} · ${ev.hearts} hearts`);
-    this.eventNet(['v.e', 1, id]);
+    this.eventNet(['v.e', 1, id, this.game.services.relationships?.points(npc.id) ?? 0, this.hostName()]);
     await this.wait(1.6);
     let boxOpen = false;
     for (let i = 0; i < ev.script.length; i++) {
@@ -2291,6 +2566,7 @@ export class NpcSystem implements System {
   }
 
   private endEvent(): void {
+    this.evCur = null;
     for (const a of this.agents.values()) a.scripted = false;
     this.clearEventProps();
     this.releaseCam();
@@ -2324,6 +2600,14 @@ export class NpcSystem implements System {
         this.castEvent(ev);
         this.frame(ev);
         this.lineNo = 0;
+        // (c) The title's subject is on screen in the opening wide shot.
+        if (ev.subject) {
+          for (const a of this.agents.values()) if (a.scripted) a.v.update(0, (x, z) => this.game.world.heightAt(x, z), false);
+          this.snapCam();
+          const sj = ev.subject;
+          const sp = new THREE.Vector3(sj.at[0], this.game.world.heightAt(sj.at[0], sj.at[1]) + (sj.y ?? 0.5), sj.at[1]).project(cam);
+          if (sp.z > 1 || Math.abs(sp.x) > 0.92 || sp.y > 0.9 || sp.y < -0.92) out.fails.push(`${ev.id}: subject '${sj.label}' out of the opening wide shot (${sp.x.toFixed(2)},${sp.y.toFixed(2)})`);
+        }
         for (let i = 0; i < ev.script.length; i++) {
           const s = ev.script[i]!;
           if ('cam' in s) this.shotFor(ev, i);
@@ -2331,8 +2615,27 @@ export class NpcSystem implements System {
             this.shotFor(ev, i);
             for (const a of this.agents.values()) if (a.scripted) a.v.update(0, (x, z) => this.game.world.heightAt(x, z), false);
             this.snapCam();
+            this.cheatOpen(true);
+            for (const a of this.agents.values()) if (a.scripted) a.v.update(0, (x, z) => this.game.world.heightAt(x, z), false);
+            this.snapCam();
             out.beats++;
             const acts = this.camActors();
+            // (a) The owner's face reads (≤ 50° off the lens) whenever they are in the frame.
+            const ow = this.evOwner();
+            const oa = ow ? this.agents.get(ow) : null;
+            if (oa && oa.scripted && oa.activity !== 'sit' && oa.v.root.visible) {
+              const hp = new THREE.Vector3(oa.v.position.x, oa.v.position.y + oa.v.headTop * 0.8, oa.v.position.z).project(cam);
+              if (hp.z < 1 && Math.abs(hp.x) < 0.95 && Math.abs(hp.y) < 0.95) {
+                const fy = (oa.v as unknown as { yaw: number }).yaw;
+                const toC = Math.atan2(cam.position.x - oa.v.position.x, cam.position.z - oa.v.position.z);
+                const off = Math.abs(Math.atan2(Math.sin(fy - toC), Math.cos(fy - toC)));
+                if (off > THREE.MathUtils.degToRad(52)) out.fails.push(`${ev.id}#${i}: owner ${ow} turned ${THREE.MathUtils.radToDeg(off).toFixed(0)}° from the lens`);
+              }
+            }
+            // (b) No pole / trunk within 0.6 head-widths of a framed head (screen space).
+            const framedA = this.shot.kind === 'close' || this.goalKind.ots ? acts.filter((a) => a.id === this.shot.speaker) : acts;
+            const ph = this.postsNearHeads(cam, framedA, this.shot.speaker);
+            if (ph) out.fails.push(`${ev.id}#${i}: vertical prop beside a head (${ph})`);
             const hits = this.buildingHits(cam.position, acts);
             if (hits) out.fails.push(`${ev.id}#${i}: ${hits} sight line(s) behind a building (lens ${cam.position.x.toFixed(1)},${cam.position.y.toFixed(1)},${cam.position.z.toFixed(1)}; ${acts.map((a) => `${a.id} ${a.x.toFixed(1)},${a.z.toFixed(1)}`).join(' ')})`);
             // The speaker's face must read: turned towards the lens and not behind the listener's head / hat.
@@ -2431,6 +2734,15 @@ export class NpcSystem implements System {
       const fb = spk ? this.faceBlocked(cam.position, spk, acts) : 0;
       out.lens[id] = `${cam.position.x.toFixed(1)},${cam.position.y.toFixed(1)},${cam.position.z.toFixed(1)} yaw ${this.camCur.yaw.toFixed(0)} fg ${fg.toFixed(1)}`;
       if (fg > 0) out.fails.push(`${id}: foreground clutter ${fg.toFixed(1)} (fountain / bystander in front of the pair)`);
+      // Villagers left in the near / low foreground after the bystander cull (> 8 % of the frame fails).
+      this.fgCull(true);
+      let fgv = 0;
+      for (const o of this.agents.values()) if (o !== a && !o.inside && o.v.root.visible && !o.scripted) {
+        const b = this.fgBox(o);
+        if (b.near) fgv += b.cover;
+      }
+      if (fgv > 0.08) out.fails.push(`${id}: bystander villager covers ${(fgv * 100).toFixed(0)} % of the near foreground`);
+      out.lens[id] += ` fgv ${(fgv * 100).toFixed(0)}%`;
       if (hits) out.fails.push(`${id}: ${hits} sight line(s) behind a building`);
       if (fb) out.fails.push(`${id}: face behind the farmer (${fb}/2)`);
       a.v.talkTo = null;
@@ -2660,6 +2972,10 @@ export class NpcSystem implements System {
     }
     if (!this.camMode) this.lensCull();
     else if (this.lensHidden.length) this.lensRestore();
+    if (this.camMode && !this.specGoal) this.fgCull();
+    else if (this.fgHidden.size || this.fgTrees.length) this.fgRestore();
+    if (this.camMode === 'event') this.cheatOpen();
+    this.sendEventCam(dt);
     const hour = game.calendar.hour;
     const following = this.netRole() === 'client' && this.clock - this.followAt < 2;
     this.netSend(dt);
@@ -2711,6 +3027,13 @@ export class NpcSystem implements System {
     this.updateCam(dt);
     this.updateKeyLight(dt, game);
     this.fx.update(dt);
+    if (this.giftLoop && this.talking) {
+      this.giftLoop.t -= dt;
+      if (this.giftLoop.t <= 0) {
+        this.giftLoop.t = 2.6;
+        this.giftJuice(this.giftLoop.id, this.giftLoop.item, this.giftLoop.reaction);
+      }
+    }
     const winter = game.calendar.season === 'winter';
     const wet = game.calendar.weather === 'rain' || game.calendar.weather === 'storm';
     for (const a of this.agents.values()) {
@@ -2768,6 +3091,7 @@ export class NpcSystem implements System {
       v.update(dt, h, simulate);
     }
     this.separate(dt);
+    this.bubbleRepel();
     this.updatePrompt(dt, game);
     this.updateBlobs();
     this.updateEasels(map.root);
@@ -2857,6 +3181,8 @@ export class NpcSystem implements System {
   private farmers: THREE.Vector3[] = [];
 
   private ambient(a: Agent, dt: number, simulate: boolean, pl0: THREE.Vector3): void {
+    // No ambient emote bubbles while a conversation / scene owns the lens (r6: a ♪ over Hazel mid-talk).
+    if (this.camMode) a.emoteT = Math.max(a.emoteT, 3);
     // The nearest farmer (local or co-op) is the one a villager reacts to.
     let pl = pl0;
     let best = Infinity;
@@ -3113,7 +3439,7 @@ export class NpcSystem implements System {
 
   /** At most two bubbles at once, a few seconds apart, only near a farmer, never during a scene. */
   private barkOK(a: Agent, pl: THREE.Vector3): boolean {
-    if (this.barkCd > 0 || this.eventRunning || this.talking || this.camMode || !this.barksOf(a)?.length || a.inside) return false;
+    if (this.barkCd > 0 || this.eventRunning || this.talking || this.camMode || !this.barkLines(a).length || a.inside) return false;
     if (Math.hypot(pl.x - a.v.position.x, pl.z - a.v.position.z) > 22) return false;
     let n = 0;
     for (const b of this.agents.values()) if (b.v.barking) n++;
@@ -3125,8 +3451,35 @@ export class NpcSystem implements System {
     return (this.game.calendar.season === 'winter' && a.def.winterBarks) || a.def.barks;
   }
 
+  /**
+   * Context tags on barks (r6: "Pip, off the scales!" shouted in the middle of the square): a line
+   * may start with `{spot}` (only within 7 m of that named spot — the shop, the oven, the forge) or
+   * `{@villager}` (only with them within 6 m); untagged lines play anywhere.
+   */
+  private barkLines(a: Agent): string[] {
+    const out: string[] = [];
+    const p = a.v.position;
+    for (const raw of this.barksOf(a) ?? []) {
+      const m = /^\{(@?)([a-z_]+)\}\s*/.exec(raw);
+      if (!m) {
+        out.push(raw);
+        continue;
+      }
+      const text = raw.slice(m[0].length);
+      if (m[1]) {
+        const o = this.agents.get(m[2] as NpcId);
+        if (o && !o.inside && o.v.root.visible && Math.hypot(o.v.position.x - p.x, o.v.position.z - p.z) < 6) out.push(text);
+      } else {
+        const sp = SPOTS[m[2]!];
+        if (sp && Math.hypot(sp[0] - p.x, sp[1] - p.z) < 7) out.push(text);
+      }
+    }
+    return out;
+  }
+
   private barkAt(a: Agent, dur = 3.4): void {
-    const lines = this.barksOf(a)!;
+    const lines = this.barkLines(a);
+    if (!lines.length) return;
     a.v.bark(lines[(this.barkN++ + NPC_IDS.indexOf(a.def.id)) % lines.length]!, dur);
     this.barkCd = 3.5 + Math.random() * 4;
   }
@@ -3187,6 +3540,8 @@ export class NpcSystem implements System {
       this.gifts.push({ id, from: giver, reaction, t: this.clock });
     } else if ((kind === 'v.e' || kind === 'v.l' || kind === 'v.c') && this.netRole() === 'client') {
       this.spectate(kind, data);
+    } else if (kind === 'v.k' && this.netRole() === 'client') {
+      this.specCam(data);
     } else if (kind === 'v.t' && this.netRole() === 'host') {
       const id = NPC_IDS[Number(data[1])];
       if (!id) return;
@@ -3220,7 +3575,9 @@ export class NpcSystem implements System {
     // above its own farmer instead of over a villager's head (r4 critic).
     const pairs: [NpcId, number, number, number, number, 'talk' | 'gift', string][] = [
       ['bram', 38.3, 24.0, 37.2, 22.7, 'talk', 'Juniper'],
-      ['wren', 24.9, 24.4, 24.0, 22.9, 'gift', 'Pip'],
+      // (r6: Pip gives from the lens side, south-west, so Wren turns three-quarter towards the lens
+      // to take the strawberries instead of showing her back)
+      ['wren', 25.0, 23.6, 23.5, 25.0, 'gift', 'Pip'],
     ];
     pairs.forEach(([npc, vx, vz, bx, bz, job, name], i) => {
       const a = this.agents.get(npc)!;
@@ -3270,7 +3627,7 @@ export class NpcSystem implements System {
           a.v.speaking = true;
           a.v.setMood(b.n % 4 === 1 ? 'laugh' : 'happy');
           a.v.gesture(b.n % 4 === 1 ? 'laugh' : 'open', 2.2);
-          const pool = this.barksOf(a);
+          const pool = this.barkLines(a);
           if (pool?.length) a.v.bark(pool[(b.n >> 1) % pool.length]!, 2.4);
         } else {
           a.v.speaking = false;
@@ -3295,6 +3652,52 @@ export class NpcSystem implements System {
     if (this.netRole() === 'host') this.netApi()!.sendExt('*', data);
   }
 
+  /** The host's display name (co-op spectator labels). */
+  private hostName(): string {
+    const n = (this.game.services as unknown as { net?: { name?: () => string; myName?: string } }).net;
+    return (typeof n?.name === 'function' ? n.name() : n?.myName) ?? 'Host';
+  }
+
+  /**
+   * Co-op spectator lens (r6 critic: the farmhand got a radio play over an empty fountain): the host
+   * streams its event camera (['v.k', yaw, pitch, dist, tx, ty, tz] at 5 Hz); the farmhand's rig
+   * eases onto it through the look offset (no cinematic: the host's farmer — an actor — stays visible)
+   * and hands back to the follow cam when the scene ends.
+   */
+  private specGoal: { yaw: number; pitch: number; dist: number; target: THREE.Vector3; focus: THREE.Vector3 } | null = null;
+  private camNetT = 0;
+  private sendEventCam(dt: number): void {
+    if (this.camMode !== 'event' || !this.evCur || this.netRole() !== 'host') return;
+    this.camNetT -= dt;
+    if (this.camNetT > 0) return;
+    this.camNetT = 0.2;
+    const c = this.camCur;
+    const r = (v: number): number => Math.round(v * 100) / 100;
+    this.netApi()?.sendExt('*', ['v.k', r(c.yaw), r(c.pitch), r(c.dist), r(c.target.x), r(c.target.y), r(c.target.z)]);
+  }
+  private specCam(data: unknown[]): void {
+    if (!this.spectating || this.talking) return;
+    const n = data.slice(1, 7).map(Number);
+    if (n.length < 6 || n.some((v) => !Number.isFinite(v))) return;
+    const [yaw, pitch, dist, tx, ty, tz] = n as [number, number, number, number, number, number];
+    const first = !this.specGoal;
+    this.specGoal = { yaw, pitch, dist, target: new THREE.Vector3(tx, ty, tz), focus: new THREE.Vector3(tx, ty, tz) };
+    if (first) {
+      this.takeCam('talk');
+      this.camCur.yaw = yaw;
+      this.camCur.pitch = pitch;
+      this.camCur.dist = dist;
+      this.camCur.target.set(tx, ty, tz);
+      this.applyCam();
+      this.game.rc.rig.snap();
+    }
+  }
+  private endSpecCam(): void {
+    if (!this.specGoal) return;
+    this.specGoal = null;
+    if (this.camMode === 'talk' && !this.talking) this.releaseCam();
+  }
+
   private spectate(kind: string, data: unknown[]): void {
     const box = this.game.services.dialogueBox;
     if (!box || !this.active || this.eventRunning || this.talking) return;
@@ -3305,10 +3708,16 @@ export class NpcSystem implements System {
         this.spectating = id;
         const n = he.npc.name;
         box.cinema(true, he.ev.title, `${n.startsWith('Dr. ') ? `Dr. ${n.split(' ').pop()}` : n.split(' ')[0]} · ${he.ev.hearts} hearts`);
+        // The heart row shows the host's friendship with the scene's villager (it is their scene).
+        const pts = Number(data[3]);
+        if (Number.isFinite(pts)) box.spectatorHearts?.(he.npc.id, pts, String(data[4] ?? 'Host'));
       } else if (this.spectating) {
+        const he0 = heartEvent(this.spectating);
         this.spectating = null;
         box.end();
         box.cinema(false);
+        if (he0) box.spectatorHearts?.(he0.npc.id, null);
+        this.endSpecCam();
       }
       return;
     }

@@ -641,6 +641,68 @@ export function buildRowboat(): THREE.Group {
   return b.build({ name: 'rowboat' });
 }
 
+/**
+ * Restoration scaffold for a Lantern Hall window: two timber bays (poles, ledgers, X braces), plank
+ * decks at two lifts, a lashed ladder, a canvas tarp half-drawn over the boarded window, paint pots,
+ * a bucket of tools and a hand-lettered "Friends of the Hall" board. Built facing +Z, ~2.6 m wide.
+ */
+export function buildScaffold(rng: Rng): THREE.Group {
+  const b = new MeshBuilder();
+  const W = 2.7;
+  const H = 3.9;
+  const zf = 0.42;
+  const zb = -0.42;
+  const pole = 0xb8946a;
+  for (const x of [-W / 2, 0, W / 2])
+    for (const z of [zf, zb]) b.add('woodGrain', new THREE.CylinderGeometry(0.05, 0.055, H, 7), mat(x + (rng.next() - 0.5) * 0.04, H / 2, z), { tint: pole });
+  for (const y of [1.55, 3.0]) {
+    // Ledgers + a plank deck at each lift.
+    for (const z of [zf, zb]) b.add('woodGrain', roundedBox(W + 0.2, 0.08, 0.08, 0.02), mat(0, y, z), { tint: 0xa88050 });
+    for (let i = 0; i < 4; i++) b.add('woodGrain', roundedBox(W + 0.1, 0.05, 0.2, 0.015), mat((rng.next() - 0.5) * 0.06, y + 0.07, zb + 0.12 + i * 0.205, 0, (rng.next() - 0.5) * 0.03, 0), { tint: i % 2 ? 0xe2c28e : 0xd8b07a });
+    // Toe guard rail on the front.
+    b.add('woodGrain', roundedBox(W + 0.1, 0.06, 0.05, 0.015), mat(0, y + 0.9, zf + 0.02), { tint: 0xa88050 });
+  }
+  // X braces on the front bays.
+  for (const sx of [-1, 1]) {
+    const len = Math.hypot(W / 2, 1.45);
+    b.add('woodDark', roundedBox(0.05, len, 0.04, 0.01), mat(sx * W / 4, 0.8, zf + 0.06, 0, 0, sx * Math.atan2(W / 2, 1.45)), { tint: 0x8a6a42 });
+  }
+  // Ladder leaning on the east bay.
+  for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.05, 3.2, 0.05, 0.015), mat(W / 2 + 0.28 + sx * 0.2, 1.55, zf + 0.42, -0.2, 0, 0), { tint: 0xc8a070 });
+  for (let i = 0; i < 9; i++) b.add('woodGrain', roundedBox(0.42, 0.04, 0.04, 0.01), mat(W / 2 + 0.28, 0.2 + i * 0.34, zf + 0.42 + 0.075 - i * 0.068, -0.2, 0, 0), { tint: 0xb89060 });
+  // Tarp: a canvas sheet hung from the top rail, swagged over half the window (sags in the middle).
+  const tarp = new THREE.PlaneGeometry(1.4, 1.5, 6, 6);
+  const tp = tarp.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < tp.count; i++) {
+    const x = tp.getX(i);
+    const y = tp.getY(i);
+    tp.setZ(i, Math.sin((x + 0.7) * 6) * 0.03 + (0.75 - y) * 0.03);
+    tp.setY(i, y - Math.cos(x * 2.1) * 0.06 * (0.75 - y));
+  }
+  tarp.computeVertexNormals();
+  b.add('cloth', tarp, mat(-0.55, 2.3, zb - 0.06), { tint: 0xe8dcc0 });
+  b.add('cloth', new THREE.CylinderGeometry(0.06, 0.06, 1.45, 8).rotateZ(Math.PI / 2), mat(-0.55, 3.05, zb - 0.04), { tint: 0xd8c8a4 });
+  // Paint pots and a tool bucket on the lower deck / ground.
+  const pots = [0x2f6a5a, 0xc8a04a, 0xf2ece0];
+  pots.forEach((c, i) => {
+    b.add('metal', new THREE.CylinderGeometry(0.11, 0.1, 0.18, 10), mat(-0.9 + i * 0.32, 1.72, 0.05 + (i % 2) * 0.12), { tint: 0x9aa0a8 });
+    b.add('white', new THREE.CylinderGeometry(0.1, 0.1, 0.02, 10), mat(-0.9 + i * 0.32, 1.82, 0.05 + (i % 2) * 0.12), { tint: c });
+  });
+  b.add('metal', new THREE.CylinderGeometry(0.17, 0.14, 0.3, 10), mat(0.55, 0.15, zf + 0.35), { tint: 0x8a9098 });
+  for (let i = 0; i < 3; i++) b.add('woodGrain', new THREE.CylinderGeometry(0.018, 0.018, 0.5, 5), mat(0.5 + i * 0.05, 0.4, zf + 0.33, 0.2 - i * 0.15, 0, 0.25 - i * 0.2), { tint: 0xb89060 });
+  // "Friends of the Hall" board lashed to the front rail: a painted slate with a little lantern.
+  b.add('woodDark', roundedBox(1.1, 0.42, 0.05, 0.03), mat(-0.15, 2.35, zf + 0.08), { tint: 0x6a4a2e });
+  b.add('woodPaint', roundedBox(1.0, 0.32, 0.03, 0.02), mat(-0.15, 2.35, zf + 0.11), { tint: 0x2f5a4a });
+  b.add('metal', new THREE.CylinderGeometry(0.045, 0.06, 0.12, 6).rotateX(Math.PI / 2), mat(-0.55, 2.35, zf + 0.14), { tint: 0xe8b84a });
+  for (let i = 0; i < 3; i++) b.add('white', roundedBox(0.5 - i * 0.12, 0.03, 0.01, 0.005), mat(0.0, 2.43 - i * 0.07, zf + 0.13), { tint: 0xf2ead2 });
+  // Climbing ivy trained up the west poles (green life, not ruin).
+  for (let i = 0; i < 9; i++) {
+    const leaf = lumpySphere(0.13, 0, 0.25, rng);
+    b.add('boxFlower', leaf, mat(-W / 2 + (rng.next() - 0.5) * 0.18, 0.2 + i * 0.32, zf + 0.04, 0, 0, rng.next() * 3), { tint: i % 2 ? 0x3f7a2e : 0x5a9a3a });
+  }
+  return b.build({ name: 'scaffold' });
+}
+
 export function buildSawhorse(rng: Rng): THREE.Group {
   const b = new MeshBuilder();
   b.add('woodGrain', roundedBox(1.2, 0.1, 0.12, 0.02), mat(0, 0.7, 0), { tint: 0xb89060 });

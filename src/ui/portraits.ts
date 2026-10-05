@@ -12,7 +12,7 @@
  */
 import { lookOwner, seasonLook, type NpcLook, type Mood, type Backdrop } from '../data/npcs';
 import type { Season } from '../core/time';
-import { renderVillagerPortrait } from '../entities/villager';
+import { renderVillagerPortrait, PORTRAIT_HEAD } from '../entities/villager';
 
 export type { Mood };
 
@@ -29,6 +29,8 @@ export function setPortraitSeason(s: Season): void {
   portraitSeason = s;
 }
 const P3D = new Map<string, string | null>();
+/** Where the head sits in each rendered bust (fractions of the frame) — the manga marks follow it. */
+const P3D_HEAD = new Map<string, { x: number; y: number; r: number }>();
 /** Painted-mode switch for A/B shots and tests (`__game` eval): false = the SVG bust. */
 export const portraitOpts = { model3d: true };
 
@@ -45,6 +47,8 @@ export function portrait3dUrl(look: NpcLook, mood: Mood): string | null {
   if (c) {
     url = c.toDataURL('image/webp', 0.9);
     if (!url.startsWith('data:image/webp')) url = c.toDataURL('image/png');
+    const h = PORTRAIT_HEAD.get(c);
+    if (h) P3D_HEAD.set(url, h);
   }
   P3D.set(key, url);
   return url;
@@ -95,6 +99,7 @@ const MOOD: Record<Mood, MoodParams> = {
   blush: { open: 0.82, smile: 0.2, gazeX: -3, gazeY: 1.5, pupil: 1.05, closed: false, browIn: -3, browOut: 1, browRaiseL: 0, blush: 1.2, tilt: 4 },
   worried: { open: 0.95, smile: 0, gazeX: 1.5, gazeY: 0, pupil: 0.95, closed: false, browIn: -6, browOut: 3, browRaiseL: 0, blush: 0.35, tilt: 2 },
   thinking: { open: 0.85, smile: 0, gazeX: 3, gazeY: -3, pupil: 1, closed: false, browIn: 0, browOut: 0, browRaiseL: -6, blush: 0.4, tilt: -3 },
+  wistful: { open: 0.55, smile: 0.15, gazeX: -1.5, gazeY: 2, pupil: 1, closed: false, browIn: -4, browOut: 2, browRaiseL: 0, blush: 0.5, tilt: 3 },
 };
 
 /**
@@ -122,6 +127,7 @@ const POSE: Record<Mood, Pose> = {
   blush: { dx: 2.5, dy: 2, tilt: 7, scale: 1, shoulders: -1, hand: 'cheek', tint: '#ff8fb0', tintA: 0.26 },
   worried: { dx: -1.5, dy: 1, tilt: 3, scale: 0.99, shoulders: -3, hand: 'chest', tint: '#7a8ac8', tintA: 0.24 },
   thinking: { dx: 3, dy: -1, tilt: -7, scale: 1, shoulders: 0, hand: 'chin', tint: '#a898e0', tintA: 0.2 },
+  wistful: { dx: 1, dy: 3, tilt: 4, scale: 1, shoulders: 3, hand: 'chest', tint: '#e8a87a', tintA: 0.22 },
 };
 
 /**
@@ -129,7 +135,7 @@ const POSE: Record<Mood, Pose> = {
  * a candid three-quarter view by default, squaring up in surprise or anger, looking away when shy,
  * sad or lost in thought.
  */
-const TURN: Record<Mood, number> = { neutral: 0.42, happy: 0.36, laugh: 0.3, sad: 0.62, angry: 0.14, surprised: 0.06, blush: 0.72, worried: 0.46, thinking: 0.66 };
+const TURN: Record<Mood, number> = { neutral: 0.42, happy: 0.36, laugh: 0.3, sad: 0.62, angry: 0.14, surprised: 0.06, blush: 0.72, worried: 0.46, thinking: 0.66, wistful: 0.55 };
 /** Moods whose gaze leaves the viewer (the eyes don't swing back to meet the lens). */
 const LOOK_AWAY = new Set<Mood>(['sad', 'blush', 'thinking']);
 
@@ -608,9 +614,10 @@ function modelPortraitSvg(url: string, look: NpcLook, bg: [number, number], mood
   p.push(`<ellipse cx="104" cy="206" rx="78" ry="22" fill="#2a1408" opacity="0.3" filter="url(#${id}soft)"/>`);
   p.push(`<image href="${url}" x="0" y="0" width="200" height="200" preserveAspectRatio="xMidYMid meet"/>`);
   // Manga marks round the head (head centre ≈ 100,76, radius ≈ 56; the face turns to the left).
-  const hx = 100;
-  const top = 22;
-  const R = 64;
+  const hd = P3D_HEAD.get(url);
+  const hx = hd ? hd.x * 200 : 100;
+  const R = hd ? Math.min(84, hd.r * 200 * 1.12) : 64;
+  const top = hd ? Math.max(8, hd.y * 200 - R * 0.85) : 22;
   if (mood === 'worried') p.push(`<path d="M${hx + R - 4} ${top + 26} q -7 10 0 15 q 7 -5 0 -15 Z" fill="#9ad4f4" stroke="#4a8ac0" stroke-width="1.4"/>`);
   if (mood === 'angry') p.push(`<g stroke="#d8342a" stroke-width="3.2" fill="none" stroke-linecap="round"><path d="M${hx + R - 14} ${top + 6} q 5 5 10 0 M${hx + R - 9} ${top + 1} q 5 5 0 10 M${hx + R + 1} ${top + 6} q -5 5 -10 0"/></g>`);
   if (mood === 'surprised') p.push(`<g stroke="#5a3a2a" stroke-width="2.6" stroke-linecap="round"><path d="M${hx - R - 4} ${top + 10} l -9 -7 M${hx - R + 2} ${top} l -5 -10 M${hx + R + 4} ${top + 10} l 9 -7 M${hx + R - 2} ${top} l 5 -10"/></g>`);

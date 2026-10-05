@@ -15,12 +15,13 @@ import type { Facing } from '../core/events';
 
 export type NpcId = 'marigold' | 'bram' | 'wren' | 'odessa' | 'linus' | 'june' | 'tobias' | 'kit' | 'rowan' | 'hazel';
 
-export type Mood = 'neutral' | 'happy' | 'laugh' | 'sad' | 'angry' | 'surprised' | 'blush' | 'worried' | 'thinking';
-export const MOODS: Mood[] = ['neutral', 'happy', 'laugh', 'sad', 'angry', 'surprised', 'blush', 'worried', 'thinking'];
+/** 'wistful': a soft closed smile, lowered lids, a single tear — fond sorrow, not grief. */
+export type Mood = 'neutral' | 'happy' | 'laugh' | 'sad' | 'angry' | 'surprised' | 'blush' | 'worried' | 'thinking' | 'wistful';
+export const MOODS: Mood[] = ['neutral', 'happy', 'laugh', 'sad', 'angry', 'surprised', 'blush', 'worried', 'thinking', 'wistful'];
 
 export type HairStyle = 'bun' | 'short' | 'bob' | 'cap' | 'curly' | 'ponytail' | 'long' | 'bald' | 'spiky' | 'braids' | 'slick';
 export type HatKind = 'flatcap' | 'beanie' | 'sunhat' | 'bandana' | 'earmuffs';
-export type Accessory = 'cane' | 'satchel' | 'earrings' | 'pencil' | 'toolbelt' | 'freckles' | 'stethoscope' | 'shawl' | 'flower' | 'wrinkles' | 'bandage';
+export type Accessory = 'cane' | 'satchel' | 'earrings' | 'pencil' | 'toolbelt' | 'freckles' | 'stethoscope' | 'shawl' | 'flower' | 'wrinkles' | 'bandage' | 'rollingpin' | 'tongs' | 'docbag' | 'keys' | 'trowel' | 'lantern' | 'towel';
 export type Emote = 'heart' | 'exclaim' | 'question' | 'music' | 'sweat' | 'anger' | 'idea' | 'sad' | 'zzz' | 'dots';
 
 export type Activity = 'idle' | 'sweep' | 'read' | 'chat' | 'hammer' | 'paint' | 'water' | 'sit' | 'play' | 'fish' | 'inside' | 'wander' | 'knead' | 'saw' | 'lean';
@@ -72,6 +73,17 @@ export interface NpcLook {
   legs?: number;
   /** Head size multiplier (kids have bigger heads). */
   head?: number;
+  // ── body proportions (silhouette at 16 px: the lineup must read by shape alone) ──
+  /** Torso length multiplier (1 = chibi default; lanky adults ≈ 1.25). */
+  torso?: number;
+  /** Shoulder width multiplier (1 = default; the smith ≈ 1.35, the doctor ≈ 0.85). */
+  shoulders?: number;
+  /** Belly (0 = flat, 1 = barrel): pushes the front of the torso + hips out. */
+  belly?: number;
+  /** Extra neck length (rig m, ≈ 0.1 for a long neck). */
+  neck?: number;
+  /** Hand size multiplier (bakers and smiths ≈ 1.3). */
+  hands?: number;
   face?: 'round' | 'long' | 'square' | 'heart';
   acc?: Accessory[];
   /** Painted portrait backdrop (the villager's place, out of focus). */
@@ -146,6 +158,11 @@ export interface HeartEvent {
   cast: Partial<Record<Who, [Place, Facing]>>;
   camera: { x: number; z: number; yaw?: number; pitch?: number; distance?: number };
   script: CutStep[];
+  /**
+   * The thing the title is about (the bridge Wren paints, the Hall Tobias lit): the opening wide
+   * shot pulls it into frame and auditEvents() fails if it is not on screen there.
+   */
+  subject?: { at: [number, number]; y?: number; label: string };
   /** Extra actors spawned for the scene (e.g. Pip the shop cat): at [x, z], height above ground. */
   props?: {
     kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks';
@@ -207,7 +224,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Marigold Thimble',
     role: 'Keeps Thimble & Pip’s general store',
     birthday: { season: 'spring', day: 11 },
-    look: { eyeShape: 'almond', lashes: true, brow: 0.7, browArch: 0.35, head: 0.94, skin: 0xf0c4a0, hair: 0xb8b0b4, hairStyle: 'bun', top: 0x8f6fb0, bottom: 0x5a4a6a, apron: 0xf2e6d0, glasses: true, scale: 0.96, build: 1.18, eyes: 0x6a8a4a, skirt: true, face: 'round', acc: ['wrinkles', 'earrings'], shoes: 0x6a3a3a, backdrop: 'shop' },
+    look: { eyeShape: 'almond', lashes: true, brow: 0.7, browArch: 0.35, head: 0.94, skin: 0xf0c4a0, hair: 0xb8b0b4, hairStyle: 'bun', top: 0x8f6fb0, bottom: 0x5a4a6a, apron: 0xf2e6d0, glasses: true, scale: 0.9, build: 1.3, torso: 0.9, belly: 0.55, shoulders: 0.92, legs: 0.82, eyes: 0x6a8a4a, skirt: true, face: 'round', acc: ['wrinkles', 'earrings', 'keys'], shoes: 0x6a3a3a, backdrop: 'shop' },
     walk: W(1.35, 0.42, 0.035, 0.06, 0.04, 0.35),
     home: 'general_store',
     portraitBg: [0xf6d9a8, 0xe8a888],
@@ -269,7 +286,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       },
     ],
     // Street chatter (speech bubbles while chatting in town).
-    barks: ['Fresh eggs by noon!', 'Pip, off the scales!', 'Mind the step, dear.', 'Tea’s on at four.'],
+    barks: ['Fresh eggs by noon!', '{store_front}Pip, off the scales!', 'Mind the step, dear.', 'Tea’s on at four.'],
     winterBarks: ['Cocoa’s on the stove, dear!', 'Mind the ice on my step!', 'Pip won’t leave the hearth.', 'Wool socks, half price!'],
     wardrobe: { winter: { apron: undefined, coat: 0x7a4a6a, scarf: 0xc8412f, hat: 'earmuffs', hatColor: 0xf2e6d0, mittens: 0xc8412f } },
     winterSchedule: [[6, 'door:general_store', 'inside'], [8.5, 'store_front', 'sweep'], [10, 'store_counter', 'idle'], [12, 'door:general_store', 'inside'], [14, 'notice', 'read'], [15, 'store_counter', 'idle'], [17, 'door:general_store', 'inside']],
@@ -343,7 +360,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Bram Oakhollow',
     role: 'Baker at The Hearth Oven',
     birthday: { season: 'fall', day: 3 },
-    look: { eyeShape: 'beady', brow: 1.6, browArch: 0.1, skin: 0xd9a07a, hair: 0x5a3a24, hairStyle: 'cap', top: 0xe4d9c6, bottom: 0x6a5a48, apron: 0xd8cbb0, beard: 'full', scale: 1.08, build: 1.56, eyes: 0x5a3a24, face: 'square', legs: 0.92, shoes: 0x4a3222, backdrop: 'bakery' },
+    look: { eyeShape: 'beady', brow: 1.6, browArch: 0.1, skin: 0xd9a07a, hair: 0x5a3a24, hairStyle: 'cap', top: 0xe4d9c6, bottom: 0x6a5a48, apron: 0xd8cbb0, beard: 'full', scale: 1.08, build: 1.5, belly: 1, shoulders: 1.12, torso: 1.06, hands: 1.35, head: 0.86, eyes: 0x5a3a24, face: 'square', legs: 0.84, acc: ['rollingpin'], shoes: 0x4a3222, backdrop: 'bakery' },
     walk: W(1.4, 0.45, 0.03, 0.12, 0.0, 0.3),
     home: 'bakery',
     portraitBg: [0xf4d49a, 0xe89a5a],
@@ -393,7 +410,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       },
     ],
     // Street chatter (speech bubbles while chatting in town).
-    barks: ['Buns out of the oven!', 'Flour’s in my beard again.', 'Rye or plain today?', 'Smell that? Cinnamon.'],
+    barks: ['{bakery_front}Buns out of the oven!', 'Flour’s in my beard again.', 'Rye or plain today?', 'Smell that? Cinnamon.'],
     winterBarks: ['Hot buns! Warm your hands!', 'Gingerbread’s nearly gone!', 'Snow in the flour bin again.', 'Spiced loaf, fresh out!'],
     wardrobe: { winter: { longSleeves: true, top: 0xb8443a, scarf: 0x3f6f9a } },
     winterSchedule: [[6, 'door:bakery', 'inside'], [8, 'bakery_front', 'knead'], [11, 'market_produce', 'chat'], [12.5, 'door:bakery', 'inside'], [14, 'bakery_front', 'knead'], [16.5, 'inn_front', 'chat'], [18, 'door:inn', 'inside'], [21, 'door:bakery', 'inside']],
@@ -456,7 +473,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Wren Fairweather',
     role: 'Painter, wanderer, bad at sitting still',
     birthday: { season: 'summer', day: 22 },
-    look: { eyeShape: 'wide', lashes: true, brow: 0.75, browArch: 0.25, skin: 0xf6d2b8, hair: 0x3f8f8a, hairStyle: 'bob', top: 0xe8c45a, bottom: 0x3a4a6a, scarf: 0xe8674a, scale: 0.94, build: 0.92, eyes: 0x3a7a8a, face: 'heart', acc: ['pencil', 'freckles', 'satchel'], shoes: 0xc8573e, backdrop: 'river' },
+    look: { eyeShape: 'wide', lashes: true, brow: 0.75, browArch: 0.25, skin: 0xf6d2b8, hair: 0x3f8f8a, hairStyle: 'bob', top: 0xe8c45a, bottom: 0x3a4a6a, scarf: 0xe8674a, scale: 0.94, build: 0.84, shoulders: 0.86, torso: 1.1, legs: 1.2, head: 0.9, eyes: 0x3a7a8a, face: 'heart', acc: ['pencil', 'freckles', 'satchel'], shoes: 0xc8573e, backdrop: 'river' },
     walk: W(1.7, 0.6, 0.06, 0.05, -0.02, 0.55),
     home: 'cottage_west',
     portraitBg: [0xbfe0e8, 0x8fb8d8],
@@ -519,10 +536,12 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [8, 18],
         dry: true,
         demoTime: 16.8,
-        cast: { wren: ['easel_river', 'right'], player: [[61.1, 21.8], 'left'] },
-        camera: { x: 60.2, z: 23.2, yaw: -10, pitch: 40, distance: 15 },
+        cast: { wren: ['easel_river', 'right'], player: [[59.15, 20.3], 'right'] },
+        // From the south-east bank: the Kettle Bridge in the foreground, Wren at her easel beyond it.
+        camera: { x: 61.2, z: 23.4, yaw: 40, pitch: 40, distance: 15 },
+        subject: { at: [62.4, 25.3], y: 0.9, label: 'Kettle Bridge' },
         // Yesterday's attempt, propped on a field stand facing the path: the painting she asks about.
-        props: [{ kind: 'painting', at: [58.7, 22.85], rot: 0.35, scale: 1.3, word: 'look like a river' }],
+        props: [{ kind: 'painting', at: [58.75, 22.7], rot: 0.75, scale: 1.3, word: 'look like a river' }],
         script: [
           { act: 'wren', activity: 'paint' },
           { wait: 1.0 },
@@ -576,7 +595,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Odessa Flint',
     role: 'Blacksmith at Flint & Ember',
     birthday: { season: 'winter', day: 9 },
-    look: { eyeShape: 'almond', brow: 1.45, browArch: -0.05, skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.36, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.12, acc: ['toolbelt', 'earrings'], shoes: 0x2e2420, backdrop: 'forge' },
+    look: { eyeShape: 'almond', brow: 1.45, browArch: -0.05, skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.3, shoulders: 1.36, torso: 1.32, hands: 1.3, head: 0.78, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.4, acc: ['toolbelt', 'earrings', 'tongs'], shoes: 0x2e2420, backdrop: 'forge' },
     walk: W(1.6, 0.52, 0.025, 0.03, 0.02, 0.3),
     home: 'forge',
     portraitBg: [0xf2b48a, 0xb8563a],
@@ -627,7 +646,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       },
     ],
     // Street chatter (speech bubbles while chatting in town).
-    barks: ['Hot iron, mind your fingers.', 'Hinges don’t mend themselves.', 'Fine day for sparks.', 'Bring me a horseshoe?'],
+    barks: ['{forge_anvil}Hot iron, mind your fingers.', 'Hinges don’t mend themselves.', 'Fine day for sparks.', 'Bring me a horseshoe?'],
     winterBarks: ['Warmest spot in town, this.', 'Sledge runners, mended free.', 'Ice on the anvil. Lovely.', 'Come warm your hands.'],
     wardrobe: { winter: { longSleeves: true, top: 0x7a3a2e, scarf: 0xd8a03a } },
     winterSchedule: [[6, 'forge_anvil', 'hammer'], [12, 'door:inn', 'inside'], [13, 'forge_anvil', 'hammer'], [18, 'inn_front', 'chat'], [20, 'door:forge', 'inside']],
@@ -690,7 +709,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Dr. Linus Pell',
     role: 'Runs the Willowmere Clinic',
     birthday: { season: 'summer', day: 5 },
-    look: { eyeShape: 'narrow', brow: 0.8, browArch: 0.45, head: 0.96, skin: 0xf2d0b4, hair: 0x9a9690, hairStyle: 'slick', top: 0xd8e4ea, bottom: 0x4a5058, coat: 0xe6e8e2, bowtie: 0x2f8f8a, glasses: true, beard: 'mustache', scale: 1.1, build: 0.86, eyes: 0x4a6a8a, face: 'long', legs: 1.2, acc: ['stethoscope'], shoes: 0x2a2624, backdrop: 'clinic' },
+    look: { eyeShape: 'narrow', brow: 0.8, browArch: 0.45, head: 0.78, skin: 0xf2d0b4, hair: 0x9a9690, hairStyle: 'slick', top: 0xd8e4ea, bottom: 0x4a5058, coat: 0xe6e8e2, bowtie: 0x2f8f8a, glasses: true, beard: 'mustache', scale: 1.1, build: 0.8, shoulders: 0.84, torso: 1.34, neck: 0.13, eyes: 0x4a6a8a, face: 'long', legs: 1.52, acc: ['stethoscope', 'docbag'], shoes: 0x2a2624, backdrop: 'clinic' },
     walk: W(1.75, 0.5, 0.02, 0.02, -0.04, 0.2),
     home: 'clinic',
     portraitBg: [0xd4ece4, 0x8ec4b8],
@@ -744,7 +763,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       },
     ],
     // Street chatter (speech bubbles while chatting in town).
-    barks: ['Drink more water, all of you.', 'Walk, don’t run, Kit!', 'Hm. That cough again?', 'Lovely morning for a stroll.'],
+    barks: ['Drink more water, all of you.', '{@kit}Walk, don’t run, Kit!', 'Hm. That cough again?', 'Lovely morning for a stroll.'],
     winterBarks: ['Hats ON, everyone!', 'Mind the ice, Tobias!', 'Scarves save lives.', 'Hm. Chilblain season.'],
     wardrobe: { winter: { coat: 0x4a5464, scarf: 0x8a2a3a, hat: 'earmuffs', hatColor: 0x8a2a3a } },
     winterSchedule: [[6, 'door:clinic', 'inside'], [9, 'fountain_e', 'chat'], [10, 'door:clinic', 'inside'], [13, 'store_front', 'idle'], [14, 'door:clinic', 'inside'], [17, 'inn_tables', 'read'], [20, 'door:clinic', 'inside']],
@@ -756,10 +775,12 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [9, 17],
         // (r4 critic: Linus's mark put his back-of-head over the lens in the two-shot: the doctor now
         // stops at the bench's far arm, three-quarter to the lens, the farmer at the near one)
-        cast: { linus: [[40.2, 31.6], 'left'], tobias: ['bench_se', 'down'], player: [[35.3, 29.4], 'right'] },
-        camera: { x: 36.4, z: 28.6, yaw: -160, pitch: 40, distance: 15 },
+        // (r6: the doctor's mark moved off the plaza lantern post east of the bench — it grew out of his
+        // head — to the bench's west arm; the farmer stands back beside him)
+        cast: { linus: [[32.8, 27.2], 'right'], tobias: ['bench_se', 'down'], player: [[34.5, 30.8], 'right'] },
+        camera: { x: 36.0, z: 28.9, yaw: -160, pitch: 40, distance: 15 },
         script: [
-          { walk: 'linus', to: [37.5, 28.1], face: 'tobias' },
+          { walk: 'linus', to: [35.05, 28.95], face: 'tobias' },
           { say: 'linus', text: 'Tobias. Your check-up was at ten.', mood: 'neutral' },
           // (an exasperated look to the farmer while the old man talks his way out of it)
           { face: 'linus', to: 'player' },
@@ -808,7 +829,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'June Ashby',
     role: 'Innkeeper of The Copper Kettle',
     birthday: { season: 'spring', day: 24 },
-    look: { eyeShape: 'wide', lashes: true, brow: 0.9, browArch: 0.4, skin: 0xf4c8a8, hair: 0xc8482a, hairStyle: 'curly', top: 0xf4ead8, bottom: 0x6a3a4a, vest: 0x3f7a5a, skirt: true, scale: 1.0, build: 1.14, eyes: 0x3a8a5a, face: 'heart', acc: ['earrings', 'freckles'], shoes: 0x4a2a22, backdrop: 'inn' },
+    look: { eyeShape: 'wide', lashes: true, brow: 0.9, browArch: 0.4, skin: 0xf4c8a8, hair: 0xc8482a, hairStyle: 'curly', top: 0xf4ead8, bottom: 0x6a3a4a, vest: 0x3f7a5a, skirt: true, scale: 1.0, build: 1.16, belly: 0.25, torso: 1.1, legs: 1.08, head: 0.88, eyes: 0x3a8a5a, face: 'heart', acc: ['earrings', 'freckles', 'towel'], shoes: 0x4a2a22, backdrop: 'inn' },
     walk: W(1.5, 0.45, 0.04, 0.16, 0.0, 0.45),
     home: 'inn',
     portraitBg: [0xf6c89a, 0xc8584a],
@@ -861,7 +882,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       },
     ],
     // Street chatter (speech bubbles while chatting in town).
-    barks: ['Stew’s on tonight!', 'Rowan owes me a chair.', 'Cider’s cold, come in!', 'Who left mud on my step?'],
+    barks: ['{inn_front}Stew’s on tonight!', 'Rowan owes me a chair.', '{inn_front}Cider’s cold, come in!', '{inn_front}Who left mud on my step?'],
     winterBarks: ['Mulled cider, inside!', 'Shut the door, it’s snowing!', 'Soup’s on all day!', 'Stamp your boots, please!'],
     wardrobe: { winter: { coat: 0x6a3a4a, scarf: 0xf2e2c0, hat: 'beanie', hatColor: 0x3f7a5a, mittens: 0x3f7a5a } },
     winterSchedule: [[6, 'door:inn', 'inside'], [8, 'inn_front', 'sweep'], [9.5, 'door:inn', 'inside'], [11, 'market_flowers', 'chat'], [12.5, 'door:inn', 'inside'], [17, 'inn_front', 'idle'], [18, 'door:inn', 'inside']],
@@ -924,7 +945,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Tobias Reed',
     role: 'The last lamplighter of the Lantern Hall',
     birthday: { season: 'winter', day: 20 },
-    look: { eyeShape: 'narrow', brow: 1.7, browArch: 0.2, head: 0.93, skin: 0xe8b894, hair: 0xeae6de, hairStyle: 'short', top: 0x7a5a3e, bottom: 0x5a5046, coat: 0x6a5238, beard: 'full', hat: 'flatcap', hatColor: 0x5a6a5a, scale: 0.92, build: 1.02, eyes: 0x6a8aa8, face: 'long', legs: 0.9, acc: ['cane', 'wrinkles'], shoes: 0x3a2a1e, backdrop: 'hall' },
+    look: { eyeShape: 'narrow', brow: 1.7, browArch: 0.2, head: 0.93, skin: 0xe8b894, hair: 0xeae6de, hairStyle: 'short', top: 0x7a5a3e, bottom: 0x5a5046, coat: 0x6a5238, beard: 'full', hat: 'flatcap', hatColor: 0x5a6a5a, scale: 0.92, build: 0.96, shoulders: 0.9, torso: 0.96, belly: 0.2, eyes: 0x6a8aa8, face: 'long', legs: 0.86, acc: ['cane', 'wrinkles', 'lantern'], shoes: 0x3a2a1e, backdrop: 'hall' },
     walk: W(0.95, 0.3, 0.015, 0.05, 0.34, 0.15),
     home: 'keeper_cottage',
     portraitBg: [0xd8d0b8, 0x8a8a6a],
@@ -984,13 +1005,15 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hearts: 2,
         title: 'The Lamplighter’s Match',
         hours: [18, 21],
-        cast: { tobias: ['hall_lantern', 'up'], player: [[30.6, 16.4], 'up'] },
+        // (r6: three-quarter on to the dark lantern above the door, not square to the wall — the reverse
+        // lens on his face would sit inside the Hall)
+        cast: { tobias: [[33.5, 14.7], 'left'], player: [[30.6, 16.4], 'up'] },
         camera: { x: 32.0, z: 14.8, yaw: -4, pitch: 38, distance: 15 },
         script: [
           { wait: 0.8 },
           { say: 'tobias', text: 'Six-forty. On the dot. This was when I climbed up.', mood: 'thinking' },
           { face: 'tobias', to: 'player' },
-          { say: 'tobias', text: 'I still carry the match. Silly old thing. Fifty-one years, one box a month. This is the last one in the last box.', mood: 'sad' },
+          { say: 'tobias', text: 'I still carry the match. Silly old thing. Fifty-one years, one box a month. This is the last one in the last box.', mood: 'wistful' },
           { emote: 'tobias', icon: 'dots' },
           { say: 'tobias', text: 'I’ve been saving it. For the night it’s ready again.', mood: 'thinking' },
           {
@@ -1036,7 +1059,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Kit Birch',
     role: 'Nine and three-quarters. Future explorer',
     birthday: { season: 'summer', day: 14 },
-    look: { eyeShape: 'round', brow: 1.05, browArch: 0.15, skin: 0xf2c8a2, hair: 0xa8602e, hairStyle: 'spiky', top: 0xe8843a, bottom: 0x4a6a9a, scale: 0.7, build: 0.92, eyes: 0x5a8a3a, head: 1.18, face: 'round', acc: ['freckles', 'bandage', 'satchel'], shoes: 0xd84a3a, backdrop: 'meadow' },
+    look: { eyeShape: 'round', brow: 1.05, browArch: 0.15, skin: 0xf2c8a2, hair: 0xa8602e, hairStyle: 'spiky', top: 0xe8843a, bottom: 0x4a6a9a, scale: 0.7, build: 0.9, torso: 0.8, legs: 0.76, eyes: 0x5a8a3a, head: 1.3, face: 'round', acc: ['freckles', 'bandage', 'satchel'], shoes: 0xd84a3a, backdrop: 'meadow' },
     walk: W(2.3, 0.75, 0.09, 0.05, -0.05, 0.75, true),
     home: 'birch_house',
     portraitBg: [0xf8e0a0, 0x9ac87a],
@@ -1151,7 +1174,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Rowan Birch',
     role: 'Carpenter, fixer, Kit’s long-suffering brother',
     birthday: { season: 'fall', day: 18 },
-    look: { eyeShape: 'sleepy', brow: 1.3, browArch: 0.0, skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.0, eyes: 0x6a4a2a, face: 'long', legs: 1.14, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
+    look: { eyeShape: 'sleepy', brow: 1.3, browArch: 0.0, skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.06, shoulders: 1.26, torso: 1.3, hands: 1.2, head: 0.8, eyes: 0x6a4a2a, face: 'long', legs: 1.36, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
     walk: W(1.55, 0.55, 0.035, 0.09, 0.03, 0.4),
     home: 'birch_house',
     portraitBg: [0xd8e8c0, 0x7aa86a],
@@ -1201,7 +1224,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       },
     ],
     // Street chatter (speech bubbles while chatting in town).
-    barks: ['Measure twice, cut once.', 'Kit! Put that down!', 'Who needs a shelf?', 'Sawdust in my coffee again.'],
+    barks: ['Measure twice, cut once.', '{@kit}Kit! Put that down!', 'Who needs a shelf?', 'Sawdust in my coffee again.'],
     winterBarks: ['Sledges, made to order!', 'Kit! Not at the window!', 'Firewood’s split, finally.', 'Frost in my sawdust.'],
     wardrobe: { winter: { coat: 0x6a4a2e, scarf: 0x3f7a4a, mittens: 0x6a4a2e } },
     winterSchedule: [[6, 'door:birch_house', 'inside'], [8, 'lumber_yard', 'saw'], [12, 'door:inn', 'inside'], [13.5, 'lumber_yard', 'saw'], [17, 'inn_tables', 'sit'], [21, 'door:birch_house', 'inside']],
@@ -1264,7 +1287,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Hazel Moss',
     role: 'Retired gardener, keeper of the square’s flowers',
     birthday: { season: 'spring', day: 3 },
-    look: { eyeShape: 'almond', lashes: true, brow: 0.65, browArch: 0.3, head: 0.94, skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, hat: 'sunhat', hatColor: 0xd6a85a, skirt: true, scale: 0.9, build: 1.06, eyes: 0x7a6a9a, face: 'round', acc: ['shawl', 'wrinkles', 'flower'], shoes: 0x6a4a3a, backdrop: 'garden' },
+    look: { eyeShape: 'almond', lashes: true, brow: 0.65, browArch: 0.3, head: 0.94, skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, hat: 'sunhat', hatColor: 0xd6a85a, skirt: true, scale: 0.88, build: 1.08, belly: 0.3, torso: 0.9, legs: 0.84, shoulders: 0.9, eyes: 0x7a6a9a, face: 'round', acc: ['shawl', 'wrinkles', 'flower', 'trowel'], shoes: 0x6a4a3a, backdrop: 'garden' },
     walk: W(1.05, 0.34, 0.02, 0.07, 0.14, 0.22),
     home: 'cottage_east',
     portraitBg: [0xe8d8f0, 0xa88ab8],
@@ -1316,7 +1339,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       },
     ],
     // Street chatter (speech bubbles while chatting in town).
-    barks: ['The roses are early!', 'Mind my tulips, dear.', 'A little rain, then sun.', 'Bees are busy today.'],
+    barks: ['The roses are early!', '{garden_east}Mind my tulips, dear.', 'A little rain, then sun.', 'Bees are busy today.'],
     winterBarks: ['My bulbs are asleep, dear.', 'Snowdrops soon, you’ll see.', 'Cold hands, warm heart.', 'Wrap up, it’s bitter!'],
     wardrobe: { winter: { hat: 'beanie', hatColor: 0xa8587a, coat: 0x5a6a4a, acc: ['shawl', 'wrinkles'], mittens: 0xa8587a } },
     winterSchedule: [[6, 'door:cottage_east', 'inside'], [10, 'market_flowers', 'chat'], [11.5, 'door:cottage_east', 'inside'], [14, 'planters_hall', 'idle'], [15, 'door:cottage_east', 'inside']],
