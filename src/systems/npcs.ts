@@ -2499,7 +2499,9 @@ export class NpcSystem implements System {
         const dP = cam.position.distanceTo(_hp.set(pl.position.x, pl.position.y + 1.2, pl.position.z));
         const dS = cam.position.distanceTo(_hp.set(sp.v.position.x, sp.v.position.y + 1.2, sp.v.position.z));
         const hp = _q.set(pl.position.x, pl.position.y + 1.5, pl.position.z).project(cam);
-        tuck = dP < dS - 0.4 && hp.z < 1 && Math.abs(hp.x) < 1.25 && hp.y > -1.3 && hp.y < 1.1;
+        // (…or cut by the frame edge: r6 marigold-2's farmer was half a figure at the left edge)
+        const onScreen = hp.z < 1 && Math.abs(hp.x) < 1.25 && hp.y > -1.3 && hp.y < 1.1;
+        tuck = onScreen && (dP < dS - 0.4 || Math.abs(hp.x) > 0.74);
       }
     }
     if (tuck === this.playerTucked) return;
