@@ -284,13 +284,15 @@ export class Footprints {
         varying float vAge;
         varying vec2 vSun;
         varying float vFade;
+        varying float vSide;
         uniform vec3 uSunDir;
         void main() {
+          vSide = aMeta.y;
           float c = cos(aPrint.w);
           float s = sin(aPrint.w);
           // Boot print ~0.24 x 0.45 m (reads at diorama distance), offset to its side of the stride;
           // the quad is padded so the blue shadow AO can bleed past the rim.
-          vec2 lp = vec2(position.x * 0.44, position.z * 0.78) + vec2(aMeta.y * 0.15, 0.0);
+          vec2 lp = vec2(position.x * 0.44, position.z * 0.78) + vec2(aMeta.y * 0.12, 0.0);
           vec2 r = vec2(lp.x * c + lp.y * s, -lp.x * s + lp.y * c);
           vec3 wp = vec3(aPrint.x + r.x, aPrint.y + 0.012, aPrint.z + r.y);
           vUv = uv;
@@ -308,14 +310,25 @@ export class Footprints {
         varying float vAge;
         varying vec2 vSun;
         varying float vFade;
+        varying float vSide;
         ${NOISE_GLSL}
-        // Signed distance to a boot sole: a toe ellipse and a separate heel pad with a gap between.
+        float hvSmin(float a, float b, float k) {
+          float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+          return mix(b, a, h) - k * h * (1.0 - h);
+        }
+        // Signed distance to a boot sole: one outline — a long rounded toe box, a narrow waist
+        // (pinched on the INNER side: left and right boots are mirror images) and an oval heel —
+        // so a print reads as a boot, not as two round dots.
         float sole(vec2 p) {
-          vec2 t = (p - vec2(0.5, 0.64)) / vec2(0.3, 0.27);
-          vec2 h = (p - vec2(0.5, 0.26)) / vec2(0.24, 0.15);
-          float dt = (length(t) - 1.0) * 0.27;
-          float dh = (length(h) - 1.0) * 0.16;
-          return min(dt, dh);
+          p.x = 0.5 + (p.x - 0.5) * vSide;
+          vec2 t = (p - vec2(0.49, 0.62)) / vec2(0.2, 0.25);
+          vec2 h = (p - vec2(0.51, 0.27)) / vec2(0.16, 0.15);
+          float dt = (length(t) - 1.0) * 0.2;
+          float dh = (length(h) - 1.0) * 0.15;
+          float d = hvSmin(dt, dh, 0.09);
+          // Arch: a shallow bite out of the inner edge at the waist.
+          float arch = (length((p - vec2(0.33, 0.44)) / vec2(0.1, 0.12)) - 1.0) * 0.1;
+          return max(d, -arch);
         }
         void main() {
           if (vAge > 1.0 || vAge < 0.0) discard;
@@ -324,6 +337,8 @@ export class Footprints {
           float n = (hvNoise(uv * 9.0) - 0.5) * 0.03;
           float d = sole(uv) + n;
           float inside = smoothstep(0.012, -0.02, d);
+          // Tread bars across the sole (the boot's grip pressed into the snow).
+          float tread = smoothstep(0.35, 0.0, abs(fract(uv.y * 11.0) - 0.5)) * smoothstep(-0.015, -0.04, d);
           float rim = smoothstep(0.05, 0.01, d) * (1.0 - inside);
           // The wall facing the sun is lit, the one facing away sits in the dent's own shadow.
           vec2 dir = normalize(uv - 0.5 + 1e-4);
@@ -331,7 +346,7 @@ export class Footprints {
           // Prints soften as fresh snow sifts in (fade over their life).
           float k = smoothstep(0.3, 0.7, uSnow) * (1.0 - smoothstep(0.35, 1.0, vAge)) * vFade;
           // Compressed snow: a soft cool shadow (~sky tint), deepest on the wall facing away from the sun.
-          vec3 dent = mix(vec3(1.0), vec3(0.6, 0.69, 0.88) * (0.88 - 0.1 * toward), inside);
+          vec3 dent = mix(vec3(1.0), vec3(0.6, 0.69, 0.88) * (0.88 - 0.1 * toward) * (1.0 + 0.07 * tread), inside);
           float halo = smoothstep(0.08, 0.0, d) * (1.0 - inside);
           vec3 ao = mix(vec3(1.0), vec3(0.9, 0.93, 0.98), halo * 0.75);
           // Crumbled, raised rim catches the sun on its sunward side.
@@ -481,6 +496,9 @@ export class LeafGusts {
           float camD = length(cameraPosition - wp);
           float nearK = smoothstep(7.0, 12.0, camD);
           vec3 local = R * vec3(position.x, position.y, 0.0) * uSize * (0.75 + 0.6 * aSeed.z) * on * keep * nearK;
+          // Motion stretch along the gust (a fast leaf smears a little along its path).
+          vec3 hvWd = vec3(uWind.x, 0.0, uWind.y);
+          local += hvWd * dot(local, hvWd) * (0.35 + 0.5 * burst);
           vShade = 0.6 + 0.4 * abs((R * vec3(0.0, 0.0, 1.0)).y);
           vUv = uv;
           vPick = fract(aSeed.x * 7.0 + aSeed.z * 3.0);
@@ -545,12 +563,12 @@ export class LeafGusts {
           if (ls.x < 0.5) discard;
           vec3 c = vPick < 0.34 ? uC0 : vPick < 0.67 ? uC1 : uC2;
           // Two-tone: the underside is paler and cooler (visible as the leaf flips over in the wind).
-          if (!gl_FrontFacing) c = mix(c, c * vec3(1.1, 1.12, 0.92) + 0.06, 0.55);
+          if (!gl_FrontFacing) c = mix(c, c * vec3(1.06, 1.08, 0.94) + 0.03, 0.5 * (1.0 - uGloom));
           c *= 1.0 - ls.y * 0.22;
           // Storm / rain: soaked and dim, pulled towards a dark olive so they never glow in the grade.
-          c = mix(c, vec3(0.31, 0.48, 0.23) * 0.8, uGloom * 0.55);
+          c = mix(c, vec3(0.26, 0.4, 0.2) * 0.7, uGloom * 0.6);
           vec3 light = uSkyColor * 0.42 + uSunColor * 0.7 * vShade;
-          light *= 1.0 - uGloom * 0.35;
+          light *= 1.0 - uGloom * 0.5;
           gl_FragColor = vec4(c * light, 1.0);
           #include <fog_fragment>
         }`,
@@ -570,8 +588,8 @@ export class LeafGusts {
     (u.uC0!.value as THREE.Color).setHex(a);
     (u.uC1!.value as THREE.Color).setHex(b);
     (u.uC2!.value as THREE.Color).setHex(c);
-    // ~28-40 px at gameplay zoom: readable leaves / petals, not confetti.
-    u.uSize!.value = p === 'petals' ? 0.36 : 0.52;
+    // ~12-16 px at gameplay zoom: leaves / petals at their real size (40 px cards read as stickers).
+    u.uSize!.value = p === 'petals' ? 0.19 : 0.24;
     u.uPetals!.value = p === 'petals' ? 1 : 0;
   }
 

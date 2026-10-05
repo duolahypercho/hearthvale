@@ -720,13 +720,17 @@ export class Terrain {
         // Dry ground (uWetT <= 0.5 → hvWetK = 0) never shows a puddle: skip the fbm.
         float pudN = uWetT > 0.5 ? hvFbm(wp.xz * 0.42 + 11.0) + pathM * 0.08 : 0.0;
         float hvWetK = smoothstep(0.5, 0.95, uWetT);
-        // Islands, not sheets: only the deepest dips of the path hold water.
-        float hvPuddle = smoothstep(0.625, 0.67, pudN) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
-        // 1-2 px bright meniscus right at the waterline.
+        // Islands, not sheets: only the deepest dips of the path hold water (~15-20 % of it).
+        // Drying ground (after a shower): the puddles shrink to their deepest middles, still water.
+        float hvPudT = 0.66 + 0.06 * (1.0 - hvWetK);
+        float hvPuddle = smoothstep(hvPudT, hvPudT + 0.03, pudN) * flatG * min(1.0, hvWetK * 1.8) * (1.0 - rockM) * pathM * (1.0 - tillM);
+        // Deeper towards the middle: the shallow rim shows dark wet mud, the centre mirrors.
+        float hvPudDeep = smoothstep(0.665, 0.74, pudN);
+        // 1-2 px crisp DARK meniscus right at the waterline.
         float hvPudW = max(fwidth(pudN), 1e-4);
-        float hvPudEdge = (1.0 - smoothstep(0.0, hvPudW * 1.6, abs(pudN - 0.629))) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
+        float hvPudEdge = (1.0 - smoothstep(0.0, hvPudW * 1.4, abs(pudN - hvPudT - 0.002))) * flatG * min(1.0, hvWetK * 1.8) * (1.0 - rockM) * pathM * (1.0 - tillM);
         // Muddy, darker rim soaking out around every puddle.
-        float hvPudRim = smoothstep(0.5, 0.628, pudN) * (1.0 - hvPuddle) * flatG * hvWetK * (1.0 - rockM) * pathM;
+        float hvPudRim = smoothstep(0.55, 0.66, pudN) * (1.0 - hvPuddle) * flatG * hvWetK * (1.0 - rockM) * pathM;
         // Soaked dirt: darker and a little richer everywhere on the path (on top of worldfx's wet
         // darkening), never lighter.
         float hvWetPath = hvWetK * pathM * (1.0 - rockM);
@@ -735,8 +739,9 @@ export class Terrain {
         ground = mix(vec3(hvLum), hvWetG, 1.0 + 0.18 * hvWetPath);
         ground *= mix(1.0, 0.6, hvPudRim * hvPudRim * (3.0 - 2.0 * hvPudRim));
         // Standing water: the dirt under it goes near-black (the mirror term carries the colour).
-        ground *= mix(1.0, 0.16, hvPuddle);
+        ground *= mix(1.0, mix(0.34, 0.12, hvPudDeep), hvPuddle);
         ground = mix(ground, ground * vec3(0.8, 0.92, 1.12), hvPuddle);
+        ground *= 1.0 - 0.55 * hvPudEdge;
         float hvTPath = pathM;
 
         // Baked contact AO under props / vignettes (painted blobs), strongest in the centre.
@@ -771,20 +776,26 @@ export class Terrain {
           // grey sheet: a still puddle is mostly a dark mirror with a few bright openings).
           // (Sky-dominant: a mostly-dark mirror read as tar spills on the forest paths.)
           // (Metre-scale blotches so every puddle carries both crowns and a sky opening.)
-          float trees = smoothstep(0.46, 0.64, hvFbm(rs * 0.34 + 3.0)) * 0.85;
+          // (Soft: the post pass (render/heightfog.ts) traces the REAL scene into the puddle — farmer,
+          // trunks, bridge — and only the rays that leave the frame keep this sky probe.)
+          float trees = smoothstep(0.46, 0.64, hvFbm(rs * 0.34 + 3.0)) * 0.35;
           float gapHi = smoothstep(0.5, 0.8, hvNoise(rs * 0.22 + 9.0));
           vec3 skyR = mix(uHorizonT, uSkyT, 0.45) * (0.9 + 0.75 * gapHi) * vec3(0.9, 1.0, 1.14);
           vec3 crownR = mix(uHorizonT, uSkyT, 0.5) * vec3(0.2, 0.26, 0.24);
           vec3 refl = mix(skyR, crownR, trees);
           // Ripple rings catch the light.
           float rr = length(hvRipples(vTWorld.xz, uTimeT)) * uRain;
-          totalEmissiveRadiance += (refl * fr * 0.62 + mix(uHorizonT, uSkyT, 0.3) * rr * 0.3) * hvPuddle;
+          totalEmissiveRadiance += (refl * fr * mix(0.3, 0.62, hvPudDeep) + mix(uHorizonT, uSkyT, 0.3) * rr * 0.3) * hvPuddle;
         }
         // Bright meniscus at the waterline (1-2 px), a touch stronger where the sky is reflected.
         // (kept faint: a strong one outlined every puddle like a paper cut-out; the dark soaked halo
         // around it does the separating.)
-        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.3) * hvPudEdge * 0.03;`,
+        totalEmissiveRadiance += mix(uHorizonT, uSkyT, 0.3) * hvPudEdge * 0.01;`,
       );
+      // Tag standing water for the post pass's screen-space reflection: alpha 0.05..0.5 = puddle
+      // (deep → low). Opaque surfaces write 1 and blended water stays >= 0.75, so nothing else
+      // lands in that band; the fog pass writes alpha back to 1.
+      fs = after(fs, '#include <opaque_fragment>', 'if (hvPuddle > 0.02) gl_FragColor.a = 0.5 - 0.45 * hvPuddle * mix(0.55, 1.0, hvPudDeep);');
       fs = after(
         fs,
         '#include <normal_fragment_maps>',

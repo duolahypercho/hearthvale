@@ -136,9 +136,10 @@ export function giantBarkMaterial(): THREE.MeshStandardMaterial {
     shader.fragmentShader = fs;
   });
   applyWind(barkMat, WIND_TRUNK);
-  // Trunks stay solid (a dithered trunk reads as a screen door): only the crown boughs above ~6 m
-  // part around the farmer (in winter they are all that is left of the canopy over the path).
-  applySeeThrough(barkMat, 4, 3, 'smoothstep(6.5, 5.0, vGLocalY)');
+  // Trunks stay solid (a dithered trunk reads as a screen door): the crown boughs above ~6 m part
+  // around the farmer (in winter they are all that is left of the canopy over the path), and a bole
+  // standing between the lens and the farmer opens one crisp farmer-sized window.
+  applySeeThrough(barkMat, 4, 3, 'smoothstep(6.5, 5.0, vGLocalY)', true);
   return barkMat;
 }
 

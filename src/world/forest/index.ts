@@ -52,7 +52,7 @@ import {
   type GiantKind,
 } from './layout';
 import { GiantGrove, ShrubField, giantBarkMaterial } from './giants';
-import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildBridgeIcicles, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, buildFallenBranch, buildSnowHummock, buildHareTracks, winterTrackMaterial, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
+import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildBridgeIcicles, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, setTowerSpill, buildFallenBranch, buildSnowHummock, buildHareTracks, winterTrackMaterial, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
 import { buildWaterfall, buildChurn, buildMist, buildFlow } from './stream';
 import { ForageField, forageKey, type ForageSpot, type ForageItem } from './forage';
 import { PluckAction } from './pluck';
@@ -227,7 +227,7 @@ export class ForestMap implements GameMap {
       if (map !== this.id || prev !== 'farm') return;
       setTimeout(() => {
         const p = game.player.position;
-        if (game.world.current === this && !game.paused && Math.hypot(p.x - ENTRY.x, p.z - ENTRY.z) < 4) this.card.show(this.areaName, this.season);
+        if (game.world.current === this && !game.paused && Math.hypot(p.x - ENTRY.x, p.z - ENTRY.z) < 4) this.card.show(this.areaName, this.season, this.headScreenY());
       }, 380);
     });
     this.collectForageSpots();
@@ -830,6 +830,8 @@ export class ForestMap implements GameMap {
       }
     }
     // Lily pads in the plunge pool's calm side and along slow bends.
+    const POOL_STONES: [number, number, number][] = [[-2.5, 0.4, 0.78], [1.6, 1.4, 0.82], [-0.4, 2.9, 0.5]];
+    const pads: [number, number][] = [];
     for (let i = 0; i < 20; i++) {
       const a = r.next() * Math.PI * 2;
       const d = 1.6 + r.next() * 2.2;
@@ -837,7 +839,31 @@ export class ForestMap implements GameMap {
       const z = POOL.z + Math.sin(a) * d * 0.8 + 0.8;
       if (this.terrain.heightAt(x, z) > WATER_LOW - 0.12) continue;
       if (Math.abs(x - FALLS.x) < 1.6 && z < POOL.z) continue;
-      N.place('lilypad', x, WATER_LOW + 0.01, z, { scale: 0.8 + r.next() * 0.5 });
+      const sc = 0.8 + r.next() * 0.5;
+      // Pads keep to the calm rim: open water in the middle (reflections, the bobber), none in the
+      // falls' churn, none clipping into the pool stones, none stacked on one another.
+      if (d < 2.7) continue;
+      if (Math.abs(x - FALLS.x) < 2.8 && z < POOL.z + 0.8) continue;
+      if (POOL_STONES.some(([sx, sz, sr]) => Math.hypot(x - (POOL.x + sx), z - (POOL.z + sz)) < sr + 0.75)) continue;
+      if (pads.some(([px, pz]) => Math.hypot(x - px, z - pz) < 0.85 * sc)) continue;
+      pads.push([x, z]);
+      N.place('lilypad', x, WATER_LOW + 0.01, z, { scale: sc });
+    }
+    // A few small clusters on the calm south / east rim (forked stream: placement elsewhere is unchanged).
+    {
+      const rp = this.rng.fork('lily-rim');
+      for (let i = 0; i < 14 && pads.length < 8; i++) {
+        const a = (0.05 + rp.next() * 0.8) * Math.PI;
+        const d = POOL.r * (0.62 + rp.next() * 0.22);
+        const x = POOL.x + Math.cos(a) * d;
+        const z = POOL.z + Math.sin(a) * d * 0.85;
+        const sc = 0.65 + rp.next() * 0.55;
+        if (this.terrain.heightAt(x, z) > WATER_LOW - 0.12) continue;
+        if (POOL_STONES.some(([sx, sz, sr]) => Math.hypot(x - (POOL.x + sx), z - (POOL.z + sz)) < sr + 0.75)) continue;
+        if (pads.some(([px, pz]) => Math.hypot(x - px, z - pz) < 0.8 * sc)) continue;
+        pads.push([x, z]);
+        N.place('lilypad', x, WATER_LOW + 0.01, z, { scale: sc });
+      }
     }
     // Ferns spilling over the plateau lip beside the falls + along the whole cliff crest.
     for (let i = 0; i < 26; i++) {
@@ -1045,6 +1071,8 @@ export class ForestMap implements GameMap {
       [GLADE.x + 2.5, GLADE.z - 1.5, 0.55],
       [GLADE.x - 3.8, GLADE.z - 2.2, 0.4],
       [33.5, 24.5, 0.7],
+      // The canopy trail (forest-canopy): a second beam crossing the path under the east elder.
+      [37.6, 22.4, 0.55],
       [30.5, 34, 0.55],
       [38.4, 31.6, 0.45],
       // The footbridge reach (fog mornings are staged there).
@@ -1209,8 +1237,16 @@ export class ForestMap implements GameMap {
   /** Morning-fog boost for the light shafts (set by the weather system through `setAtmosphere`). */
   /** Demo stills: show the arrival plate and hold it. */
   showArrivalCard(pin = true): void {
-    this.card.show(this.areaName, this.season);
+    this.card.show(this.areaName, this.season, this.headScreenY());
     if (pin) setTimeout(() => this.card.pin(), 900);
+  }
+
+  /** The farmer's head on screen, 0 (top) .. 1 (bottom) — the arrival plate dodges it. */
+  private headScreenY(): number {
+    const v = this.game.player.position.clone();
+    v.y += 1.7;
+    v.project(this.game.rc.camera);
+    return 0.5 - v.y * 0.5;
   }
 
   setAtmosphere(fog: number): void {
@@ -1225,6 +1261,7 @@ export class ForestMap implements GameMap {
     const pp = game.player.position;
     const entry = THREE.MathUtils.smoothstep(pp.z, 15, 9) * THREE.MathUtils.smoothstep(Math.abs(pp.x - ENTRY.x), 7, 3);
     updateSeeThrough(game.rc.camera, pp, buf.x, buf.y, entry);
+    if (this.card.visible) this.card.place(this.headScreenY());
     const h = game.rc.renderer.domElement.height;
     const night = game.lighting.night;
     this.ambience.update(dt, game.time, game.rc.rig.focus, night, h);
@@ -1244,6 +1281,7 @@ export class ForestMap implements GameMap {
     emberMaterial().emissiveIntensity = (1.8 + night * 1.5) * breath;
     // Somebody keeps a lamp in the tower: a warm window by day, glowing after dusk (candle flicker).
     towerWindowMaterial().emissiveIntensity = (1.1 + night * 2.4) * (0.92 + 0.05 * Math.sin(t * 9.1) + 0.03 * Math.sin(t * 23.7));
+    setTowerSpill((0.8 + night * 2.2) * (0.92 + 0.05 * Math.sin(t * 9.1) + 0.03 * Math.sin(t * 23.7)));
     this.emberLight.intensity = (1.2 + night * 5) * breath;
     this.shrineGlow.intensity = globalUniforms.uLamps.value * 2.2;
     // Volumetric shafts through the canopy gaps: strong with a low sun / morning mist, off under overcast.

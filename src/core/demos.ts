@@ -115,8 +115,12 @@ export const DEMOS: Record<string, DemoDef> = {
   // Cindergrove forest + weather showcases (world/forest, systems/weather). 'fog-morning' / 'rainbow'
   // also switch on the matching atmosphere (the weather system keys off the demo name).
   'forest-day': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 10.4, season: 'summer', weather: 'sun', camera: FOREST_FALLS_CAM, showcase: ['fishing-wait'] },
+  // Old-growth under the crowns: a low lens between two giant elders (crowns roof the top of the
+  // frame), late sun raking warm shafts through the leaf gaps onto dappled pools on the trail.
+  'forest-canopy': { map: 'forest', x: 34.4, z: 28.4, facing: 'down', time: 16.0, season: 'summer', weather: 'sun', camera: { yaw: 15, pitch: 30, distance: 22 } },
   // Spring shower on the main trail: puddles on the path, wet bark, drips off the crowns.
-  'forest-rain': { map: 'forest', x: 38.5, z: 32.3, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 0.6, offsetZ: 1.3 } },
+  // (The farmer stands IN the big path puddle: his legs mirror in it — render/heightfog.ts traces it.)
+  'forest-rain': { map: 'forest', x: 37.6, z: 31.1, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.5, offsetZ: 2.5 } },
   // Low three-quarter view from the south: the ivy tower stands up as a silhouette and the flanking
   // crowns frame the glade from the sides instead of roofing over it (canopy < 40 % of the frame).
   'forest-fall': { map: 'forest', x: 53.6, z: 18.4, facing: 'left', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 28, offsetX: 0.4, offsetZ: -5.4 } },

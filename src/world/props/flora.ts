@@ -185,10 +185,15 @@ export class FloraMaterials {
           '#include <color_fragment>',
           /* glsl */ `
           if (uSeasonW.z > 0.001) {
-            float hf = hvHash12(floor(vHvOrigin.xz * 2.3) + 11.0);
+            // Turned in CLUMPS (~3 m patches share a colour, a little per-plant jitter), in muted
+            // tones: dark rust bracken, a dull straw, and plenty that stay a tired olive / moss green
+            // — a calm understory under the loud canopies, not scattered gold starbursts.
+            float hc = hvHash12(floor(vHvOrigin.xz * 0.34) + 11.0);
+            float hp = hvHash12(floor(vHvOrigin.xz * 2.3) + 5.0);
             float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
-            vec3 tgt = hf < 0.42 ? vec3(0.86, 0.36, 0.08) : vec3(0.94, 0.66, 0.14);
-            diffuseColor.rgb = mix(diffuseColor.rgb, tgt * (0.62 + 1.25 * lum), step(hf, 0.7) * 0.85 * uSeasonW.z);
+            vec3 tgt = hc < 0.32 ? vec3(0.6, 0.27, 0.1) : hc < 0.5 ? vec3(0.7, 0.55, 0.24) : vec3(0.42, 0.47, 0.2);
+            float k = (hc < 0.5 ? 0.8 : 0.55) * (0.85 + 0.3 * hp);
+            diffuseColor.rgb = mix(diffuseColor.rgb, tgt * (0.6 + 1.1 * lum), clamp(k, 0.0, 1.0) * uSeasonW.z);
           }`,
         );
         shader.fragmentShader = fs;

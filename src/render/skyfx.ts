@@ -116,11 +116,12 @@ export class LightningBolt {
           }
           float px = abs(vPx);
           // Crisp white-hot core (~2.5 px) + tight bright halo + wide soft glow.
-          float coreW = 1.2 + vK * 0.5;
-          float core = 1.0 - smoothstep(coreW, coreW + 0.9, px);
-          float halo = exp(-px * px / 12.0);
-          float glow = exp(-px * px / 90.0);
-          vec3 c = uCore * core * 3.0 + mix(uGlow, uCore, 0.3) * halo * 0.45 + uGlow * glow * 0.22;
+          // Hot core 2-4 px on the main channel (thinner on forks), a tight halo, a short glow.
+          float coreW = 0.7 + vK * 0.9;
+          float core = 1.0 - smoothstep(coreW, coreW + 0.8, px);
+          float halo = exp(-px * px / 6.0);
+          float glow = exp(-px * px / 30.0);
+          vec3 c = uCore * core * 3.2 + mix(uGlow, uCore, 0.35) * halo * 0.5 + uGlow * glow * 0.16;
           gl_FragColor = vec4(c * vK * uAlpha, 1.0);
         }`,
     });
@@ -177,10 +178,12 @@ export class LightningBolt {
         segs.push({ a: pts[i]!, b: pts[i + 1]!, w: THREE.MathUtils.lerp(w0, w1, f), k: k * (0.85 + rnd() * 0.2) });
       }
     };
-    const main = channel(top, ground, 6, 0.62);
-    emit(main, 16, 13, 1);
-    // Every fork / twig heads DOWN, within 35° of vertical (a near-horizontal branch reads as a laser
-    // across the ground), and never reaches lower than a third of the way above the strike point.
+    // ONE dominant channel: a couple of big kinks (first level) broken into finer jags, so it reads
+    // as a single jagged stroke down the screen, not a tangle of parallel strands.
+    const main = channel(top, ground, 5, 0.5);
+    emit(main, 9, 7.5, 1);
+    // Every fork heads DOWN, within 35° of vertical (a near-horizontal branch reads as a laser
+    // across the ground), and never reaches lower than ~45 % of the way above the strike point.
     const MAX_TAN = Math.tan(THREE.MathUtils.degToRad(35));
     const downDir = (h: THREE.Vector3): THREE.Vector3 => {
       const hl = Math.hypot(h.x, h.z);
@@ -193,24 +196,27 @@ export class LightningBolt {
       const maxLen = Math.max(0.5, (from.y - floorY) / Math.max(0.2, -d.y));
       return from.clone().add(d.multiplyScalar(Math.min(len, maxLen)));
     };
-    // 2-4 forks peeling off the top 55 % of the channel (above 45 % of its height), each with a twig or two.
-    const forks = 2 + Math.floor(rnd() * 3);
+    // 2-3 SHORT forks off the upper half, alternating left / right across the screen (spread along
+    // the lens's right vector, so they fan out instead of running parallel to the channel), thin and
+    // dim; at most one tiny twig each.
+    const right = new THREE.Vector3(away.z, 0, -away.x);
+    const forks = 2 + Math.floor(rnd() * 2);
+    let side = rnd() < 0.5 ? -1 : 1;
     for (let k = 0; k < forks; k++) {
-      const fi = Math.floor((0.06 + rnd() * 0.42) * (main.length - 2));
+      const fi = Math.floor((0.12 + (k / forks) * 0.36 + rnd() * 0.08) * (main.length - 2));
       const from = main[fi]!;
-      const len = 5 + rnd() * 7;
-      const ang = rnd() * Math.PI * 2;
-      const spread = 0.35 + rnd() * 0.45;
-      const d = downDir(new THREE.Vector3(Math.cos(ang) * spread, 0, Math.sin(ang) * spread * 0.4));
-      const end = clampEnd(from, d, len, 0.34);
-      const fp = channel(from, end, 4, 0.45);
-      emit(fp, 11, 6, 0.6);
-      for (let j = 0; j < 2; j++) {
-        const si = 1 + Math.floor(rnd() * (fp.length - 3));
-        const sf = fp[si]!;
-        const td = downDir(new THREE.Vector3((rnd() - 0.5) * 1.4, 0, (rnd() - 0.5) * 0.5));
-        emit(channel(sf, clampEnd(sf, td, 1.5 + rnd() * 2.5, 0.28), 3, 0.45), 7, 4, 0.4);
+      const len = 2.4 + rnd() * 2.8;
+      const spread = 0.55 + rnd() * 0.25;
+      const d = downDir(right.clone().multiplyScalar(side * spread));
+      const end = clampEnd(from, d, len, 0.45);
+      const fp = channel(from, end, 3, 0.4);
+      emit(fp, 5.5, 3.5, 0.55);
+      if (rnd() < 0.6) {
+        const sf = fp[1 + Math.floor(rnd() * (fp.length - 3))]!;
+        const td = downDir(right.clone().multiplyScalar(side * (0.8 + rnd() * 0.4)));
+        emit(channel(sf, clampEnd(sf, td, 0.8 + rnd() * 1.2, 0.4), 2, 0.4), 3.5, 2.5, 0.35);
       }
+      side = -side;
     }
 
     const pos = this.geo.attributes.position as THREE.BufferAttribute;
@@ -235,7 +241,7 @@ export class LightningBolt {
       push(s.a, s.b, -1, 1, s.w, s.k);
     }
     // Ground flash: a flat glowing disc (aW.x < 0 marks it; corners in aSide).
-    const R = 3.2;
+    const R = 1.7;
     const g = ground.clone().setY(ground.y + 0.12);
     const corner = (x: number, z: number) => g.clone().add(new THREE.Vector3(x * R, 0, z * R));
     for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]] as const) push(corner(x, z), g, x, z, -1, 1);
@@ -536,7 +542,7 @@ export class Rainbow {
   constructor() {
     // Unit half-annulus in XY (radius 0.8..1.2), feet on y = 0; the shader bands it.
     const g = new THREE.RingGeometry(0.8, 1.2, 96, 2, 0, Math.PI);
-    const uniforms = { uAmount: { value: 0 }, uTime: globalUniforms.uTime, uFeet: { value: 0 }, uSink: { value: 0 } };
+    const uniforms = { uAmount: { value: 0 }, uTime: globalUniforms.uTime, uFeet: { value: 0 }, uSink: { value: 0 }, uTop: { value: 1e4 } };
     const vs = /* glsl */ `
       varying vec2 vP;
       varying float vWy;
@@ -551,6 +557,7 @@ export class Rainbow {
       uniform float uTime;
       uniform float uFeet;
       uniform float uSink;
+      uniform float uTop;
       varying vec2 vP;
       varying float vWy;
       ${NOISE_GLSL}
@@ -577,6 +584,11 @@ export class Rainbow {
         // Feet dissolve into the haze; a slow breakup along the arc.
         float feet = smoothstep(uFeet, uFeet + 2.5, vWy);
         float brk = 0.72 + 0.28 * hvNoise(vec2(atan(vP.y, vP.x) * 5.0, uTime * 0.04));
+        // A spray bow lives only where the spray is: dense low over the plunge pool, dissolving
+        // upward and patchy with the drifting mist (never a clean semicircle laid over the cliff).
+        float mistK = 1.0 - smoothstep(uTop - 2.2, uTop, vWy);
+        mistK *= 0.45 + 0.55 * smoothstep(0.25, 0.75, hvNoise(vP * 3.0 + vec2(uTime * 0.12, -uTime * 0.05)));
+        brk *= uTop > 9000.0 ? 1.0 : mistK;
         ${reflect ? 'feet = 1.0;' : ''}
         gl_FragColor = vec4(c * feet * brk * uAmount * ${reflect ? '0.1' : '0.3'}, 1.0);
       }`;
@@ -597,7 +609,7 @@ export class Rainbow {
     this.reflMat.uniforms.uTime = globalUniforms.uTime;
     this.sky = new THREE.Mesh(g, this.mat);
     this.spray = new THREE.Mesh(g, this.mat.clone());
-    (this.spray.material as THREE.ShaderMaterial).uniforms = { uAmount: { value: 0 }, uTime: globalUniforms.uTime, uFeet: { value: 0 }, uSink: { value: 0 } };
+    (this.spray.material as THREE.ShaderMaterial).uniforms = { uAmount: { value: 0 }, uTime: globalUniforms.uTime, uFeet: { value: 0 }, uSink: { value: 0 }, uTop: { value: 1e4 } };
     this.refl = new THREE.Mesh(g, this.reflMat);
     this.mesh = new THREE.Group();
     for (const m of [this.sky, this.spray, this.refl]) {
@@ -647,6 +659,7 @@ export class Rainbow {
       this.spray.scale.setScalar(anchor.r);
       su.uAmount!.value = a * 1.1;
       su.uFeet!.value = (waterY ?? anchor.y) - 0.6;
+      su.uTop!.value = (waterY ?? anchor.y) + 3.4;
       if (waterY !== null) {
         // Mirror about the water plane (flip Y) and let the pool bed cut it: a faint wobbling copy.
         this.refl.position.set(anchor.x, 2 * waterY - anchor.y, anchor.z);

@@ -344,7 +344,7 @@ export class DayNight {
     // Lightning: a hard cold key from above for the stroke, so shadows snap (≤ +1.2 EV overall).
     if (this.flash > 0.001) {
       this.sun.color.lerp(_flashSky, Math.min(1, this.flash * 1.4));
-      this.sun.intensity += this.flash * 4.2;
+      this.sun.intensity += this.flash * 5.2;
     }
     globalUniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity / 3);
 
@@ -358,8 +358,9 @@ export class DayNight {
     this.hemi.groundColor.lerp(_stormGround, stormFill * 0.45);
     this.hemi.intensity = L(a.hemiI, b.hemiI, t) * 0.8 * (1 + oc * 0.35) * (1 + stormFill * 0.5);
     if (this.flash > 0.001) {
+      // (Mostly the hard key: a flat sky-fill jump read as a milky veil, not a flash.)
       this.hemi.color.lerp(_flashSky, Math.min(1, this.flash * 1.5));
-      this.hemi.intensity += this.flash * 2.2;
+      this.hemi.intensity += this.flash * 0.8;
     }
     this.bounce.color.copy(this.hemi.groundColor).lerp(this.sun.color, 0.5);
     this.bounce.intensity = this.sun.intensity * 0.12;
@@ -396,7 +397,7 @@ export class DayNight {
     // Exposure + grade. Storms: ~-0.5 EV, cold blue-slate shadows, 20 % desaturated; plain rain only
     // dims a little. Lightning: the return stroke pushes the frame ~+2.5 EV for its 60 ms.
     const stormK = THREE.MathUtils.smoothstep(oc, 0.92, 1.0) * (1 - this.night * 0.6);
-    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) * (1 + stormK * 0.06) * (1 + this.flash * 1.3);
+    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) * (1 + stormK * 0.06) * (1 + this.flash * 0.95);
     // Golden-hour rim: strongest with a low sun, gone at night / under overcast.
     const elev = Math.asin(THREE.MathUtils.clamp(this.sunDir.y, -1, 1));
     // …and a cool moonlit rim at night so canopies keep their silhouettes against the dark.
@@ -414,7 +415,7 @@ export class DayNight {
       (g.uGain!.value as THREE.Vector3).lerp(_stormGain, stormK);
     }
     // Lightning: the whole frame blooms blue-white for an instant.
-    if (this.flash > 0.001) (g.uLift!.value as THREE.Vector3).add(_flashLift.set(0.03, 0.035, 0.05).multiplyScalar(this.flash));
+    if (this.flash > 0.001) (g.uLift!.value as THREE.Vector3).add(_flashLift.set(0.008, 0.011, 0.02).multiplyScalar(this.flash));
     g.uVignette!.value = L(a.vignette, b.vignette, t);
     // Bloom threshold stays high day and night (only emissives / sun glints exceed it); night only
     // raises the strength a little so lit windows and lanterns glow — lamp-lit ground never blooms.
