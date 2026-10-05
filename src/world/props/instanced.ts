@@ -15,6 +15,7 @@
  * helpers in render/wind.ts, render/worldfx.ts do.
  */
 import * as THREE from 'three';
+import { setBatchDetail } from '../../render/batching';
 
 export interface InstancedPart {
   geometry: THREE.BufferGeometry;
@@ -65,6 +66,7 @@ class BatchEntry {
       this.mesh.setGeometrySize(this.maxV, this.maxI || this.maxV * 2);
     }
     id = this.mesh.addGeometry(geo);
+    setBatchDetail(this.mesh, id, geo);
     this.usedV += v;
     this.usedI += i;
     this.geoIds.set(geo, id);

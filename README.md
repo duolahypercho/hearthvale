@@ -173,6 +173,12 @@ scene reaches render scale 0.85 in ~12 s instead of ~17 s. Shader rule: pay for 
 Terrain chunks draw after the other default-order opaques (`renderOrder` 0.5): rocks, buildings, grass and props
 that cover the ground hide its shader instead of overdrawing it; an opaque decal on the ground must write depth
 (polygonOffset) or take `renderOrder >= 1`.
+The static sun-shadow cache (`shadowcache.ts`) rebuilds over 3 frames into a back buffer when the cache can wait
+(the 2 s safety timer, a caster that settled; it keeps drawing with the moving casters until baked), one
+triangle-balanced slice of the still casters per frame; a shadow-camera step, map realloc or a baked caster that
+moved / vanished still refreshes at once (`?shadowsplit=1` = old one-frame refresh). MeshBuilder parts under 7.5 cm
+(moss, petals, beads, rivets) merge after the larger parts of their material and depth-only passes (sun shadow, GTAO
+G-buffer) draw only the larger prefix (`geom.ts` DETAIL_R, `userData.shadowCount`; `?detailr=0` = off).
 
 URL: `?demo=farm-morning`, `?map=farm&x=30&z=20&time=18.5&season=fall&weather=rain&day=3&gold=900&facing=up&pause=1`,
 `&ui=inventory`, `&quality=low|medium|high|ultra`, `&hud=0` (hide HUD), `&cam=yaw,pitch,dist[,offX,offZ]`, `&seed=abc`,

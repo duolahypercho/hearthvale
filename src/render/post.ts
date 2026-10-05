@@ -17,6 +17,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import type { Quality } from '../core/events';
 import { HeightFogPass } from './heightfog';
 import { StaticShadowCache } from './shadowcache';
+import { setDetailPass } from './batching';
 
 export interface QualityPreset {
   pixelRatioCap: number;
@@ -294,7 +295,10 @@ export class PostPipeline {
         gp.needsSwap = false;
         if (gp._renderGBuffer) {
           g._overrideVisibility();
+          // Half-res AO: detail parts (moss, petals, beads under geom.ts DETAIL_R) skip the G-buffer.
+          setDetailPass(true);
           gp._renderOverride(r, gp.normalMaterial, gp.normalRenderTarget, 0x7777ff, 1.0);
+          setDetailPass(false);
           gp._restoreVisibility();
         }
         const u = gp.gtaoMaterial.uniforms;

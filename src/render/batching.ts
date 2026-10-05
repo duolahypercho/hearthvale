@@ -33,6 +33,8 @@ interface Slot {
 
 interface CacheState {
   slots: Map<THREE.Camera | null, Slot>;
+  /** Depth-only passes of a batch with detail prefixes (shadow map, AO G-buffer) cull into their own slots. */
+  dslots: Map<THREE.Camera | null, Slot>;
   ver: number;
   cap: number;
   base: THREE.DataTexture;
@@ -40,6 +42,8 @@ interface CacheState {
 
 type Internal = THREE.BatchedMesh & {
   _hvCache?: CacheState;
+  /** Per geometry id: vertex / index count of its non-detail prefix (geom.ts DETAIL_R). */
+  _hvDetail?: (number | undefined)[];
   _visibilityChanged: boolean;
   _maxInstanceCount: number;
   _indirectTexture: THREE.DataTexture;
@@ -61,6 +65,25 @@ const stockDispose = proto.dispose;
 const stockSetInstanceCount = proto.setInstanceCount;
 
 let enabled = true;
+let detailPass = false;
+/** Runtime A/B for the detail prefix in depth-only passes. */
+export const detailStats = { enabled: true };
+
+/**
+ * Depth-only pass flag (pillar 14): while set, batches draw only each geometry's non-detail prefix
+ * (geom.ts DETAIL_R: moss, petals, beads), as the shadow pass always does. Set around the GTAO G-buffer.
+ */
+export function setDetailPass(on: boolean): void {
+  detailPass = on;
+}
+
+/** Record a batch geometry's detail prefix (from MeshBuilder / mergeStatic `userData.shadowCount`). */
+export function setBatchDetail(mesh: THREE.BatchedMesh, geometryId: number, geometry: THREE.BufferGeometry): void {
+  const n = geometry.userData.shadowCount as number | undefined;
+  if (n === undefined || geometry.index) return;
+  const m = mesh as unknown as Internal;
+  (m._hvDetail ??= [])[geometryId] = n;
+}
 const _m = new THREE.Matrix4();
 const _frustum = new THREE.Frustum();
 const _sphere = new THREE.Sphere();
@@ -115,18 +138,23 @@ export function batchCacheEnabled(): boolean {
 function state(mesh: Internal): CacheState {
   let st = mesh._hvCache;
   if (!st || st.cap !== mesh._maxInstanceCount) {
-    if (st) for (const s of st.slots.values()) if (s.tex !== st.base) s.tex.dispose();
-    st = { slots: new Map(), ver: 0, cap: mesh._maxInstanceCount, base: mesh._indirectTexture };
+    if (st) disposeSlots(st);
+    st = { slots: new Map(), dslots: new Map(), ver: 0, cap: mesh._maxInstanceCount, base: mesh._indirectTexture };
     mesh._hvCache = st;
   }
   return st;
+}
+
+function disposeSlots(st: CacheState): void {
+  for (const s of st.slots.values()) if (s.tex !== st.base) s.tex.dispose();
+  for (const s of st.dslots.values()) if (s.tex !== st.base) s.tex.dispose();
 }
 
 function newSlot(mesh: Internal, st: CacheState): Slot {
   const cap = st.cap;
   const img = st.base.image as { width: number; height: number };
   // The first slot reuses the batch's own indirect texture; further cameras get their own.
-  const baseUsed = [...st.slots.values()].some((s) => s.tex === st.base);
+  const baseUsed = [...st.slots.values(), ...st.dslots.values()].some((s) => s.tex === st.base);
   const tex = !baseUsed ? st.base : new THREE.DataTexture(new Uint32Array(img.width * img.height), img.width, img.height, THREE.RedIntegerFormat, THREE.UnsignedIntType);
   void mesh;
   return { tex, starts: new Int32Array(cap), counts: new Int32Array(cap), count: 0, bpe: 0, key: new Float64Array(16).fill(NaN), ver: -1, cv: -1 };
@@ -142,7 +170,7 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
       this._multiDrawStarts = new Int32Array(this._maxInstanceCount);
       this._multiDrawCounts = new Int32Array(this._maxInstanceCount);
       this._visibilityChanged = true;
-      for (const s of st.slots.values()) if (s.tex !== st.base) s.tex.dispose();
+      disposeSlots(st);
     }
     stockBeforeRender.call(this, renderer, scene, camera, geometry, material);
     return;
@@ -153,18 +181,21 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
     this._visibilityChanged = false;
   }
   const cull = this.perObjectFrustumCulled;
+  // Shadow passes arrive via onBeforeShadow with a null scene.
+  const det = detailStats.enabled && (scene === null || detailPass) ? this._hvDetail : undefined;
+  const slots = det ? st.dslots : st.slots;
   // Without per-object culling the list is camera-independent: one shared slot.
   const slotKey = cull ? camera : null;
-  let slot = st.slots.get(slotKey);
+  let slot = slots.get(slotKey);
   if (!slot) {
     // Guard against throwaway cameras: keep at most a handful of slots.
-    if (st.slots.size >= 6) {
-      for (const [k, s] of st.slots) if (s.tex !== st.base) {
+    if (slots.size >= 6) {
+      for (const [k, s] of slots) if (s.tex !== st.base) {
         s.tex.dispose();
-        st.slots.delete(k);
+        slots.delete(k);
       }
     }
-    st.slots.set(slotKey, (slot = newSlot(this, st)));
+    slots.set(slotKey, (slot = newSlot(this, st)));
   }
 
   const index = geometry.getIndex();
@@ -244,10 +275,12 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
         }
       }
       const g = geos[gi]!;
+      const cnt = det ? (det[gi] ?? g.count) : g.count;
+      if (cnt === 0) continue;
       const s = g.start * bpe;
       if (!changed && (indirect[n] !== i || n >= slot.count)) changed = true;
       starts[n] = s;
-      counts[n] = g.count;
+      counts[n] = cnt;
       indirect[n] = i;
       n++;
     }
@@ -279,7 +312,7 @@ proto.setInstanceCount = function (this: Internal, n: number) {
   const st = this._hvCache;
   if (st) {
     this._indirectTexture = st.base;
-    for (const s of st.slots.values()) if (s.tex !== st.base) s.tex.dispose();
+    disposeSlots(st);
     this._hvCache = undefined;
   }
   const r = stockSetInstanceCount.call(this, n);
@@ -291,7 +324,7 @@ proto.dispose = function (this: Internal) {
   const st = this._hvCache;
   if (st) {
     this._indirectTexture = st.base;
-    for (const s of st.slots.values()) if (s.tex !== st.base) s.tex.dispose();
+    disposeSlots(st);
     this._hvCache = undefined;
   }
   return stockDispose.call(this);

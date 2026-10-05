@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { Quality } from '../core/events';
 import { PostPipeline, QUALITY_PRESETS, type QualityPreset } from './post';
-import { shadowCullStats } from './batching';
+import { detailStats, shadowCullStats } from './batching';
 import './chunks';
 import { LightBudget } from './lightbudget';
 import { QualityGovernor } from './governor';
@@ -155,6 +155,8 @@ export class RenderContext {
   private compiling = 0;
   /** Shadow caster cull volume switch + counter (render/batching.ts; A/B via `enabled`). */
   readonly shadowCull = shadowCullStats;
+  /** Depth-only detail prefix switch (A/B: `rc.detail.enabled = false`). */
+  readonly detail = detailStats;
   /** Governor-driven render-resolution scale (1 = preset pixel ratio). */
   resScale = 1;
   /**
