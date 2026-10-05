@@ -179,8 +179,8 @@ const STAGES: Record<string, Mark[]> = {
     ['marigold', 26.0, 22.0, 44, 'chat', 'heart'],
     ['hazel', 27.9, 22.8, -58, 'chat'],
     ['wren', 23.7, 25.9, -70, 'chat', 'music'],
-    ['bram', 44.0, 23.0, 52, 'chat', 'music'],
-    ['june', 45.9, 22.2, -30, 'chat'],
+    ['bram', 42.3, 23.3, 55, 'chat', 'music'],
+    ['june', 44.0, 23.0, -50, 'chat'],
     ['odessa', 36.0, 24.8, 50, 'chat'],
     ['rowan', 37.9, 24.0, -34, 'chat', 'exclaim'],
     ['linus', 21.8, 24.6, 60, 'read'],
@@ -497,23 +497,37 @@ export class NpcSystem implements System {
     const v = t.v.position;
     const d = Math.hypot(p.x - v.x, p.z - v.z);
     const gap = NpcSystem.TALK_GAP;
-    if (d >= gap - 0.02) return;
+    // The lens sits on the rig's yaw side: a pair standing across it (side by side on screen) frames
+    // cleanly; a pair along it stacks one head on the other (r7 real talk: Rowan over the farmer).
+    const ry = THREE.MathUtils.degToRad(this.game.rc.rig.yaw);
+    const right = { x: Math.cos(ry), z: -Math.sin(ry) };
     const base = d > 1e-3 ? Math.atan2(p.x - v.x, p.z - v.z) : 0;
+    const across = (ang: number): number => Math.abs(Math.sin(ang) * right.x + Math.cos(ang) * right.z);
+    if (d >= gap - 0.02 && across(base) > 0.5) return;
     const ok = (x: number, z: number): boolean => {
       if (!map.grid.isWalkable(Math.floor(x), Math.floor(z))) return false;
-      const c = NpcSystem.clearOf(x, z, 0.3);
+      // (clear of lamp posts / signs by a body width: the r6 farmer talked from behind a lamp post)
+      const c = NpcSystem.clearOf(x, z, 0.45);
       if (Math.hypot(c.x - x, c.z - z) > 0.05) return false;
-      for (const o of this.agents.values()) if (o !== t && !o.inside && o.v.root.visible && Math.hypot(o.v.position.x - x, o.v.position.z - z) < 0.7) return false;
+      for (const po of POSTS) if (Math.hypot(po.x - x, po.z - z) < 0.85) return false;
+      for (const o of this.agents.values()) if (o !== t && !o.inside && o.v.root.visible && Math.hypot(o.v.position.x - x, o.v.position.z - z) < 0.8) return false;
       return true;
     };
-    for (const rot of [0, 0.52, -0.52, 1.05, -1.05]) {
-      const x = v.x + Math.sin(base + rot) * gap;
-      const z = v.z + Math.cos(base + rot) * gap;
-      if (ok(x, z)) {
-        this.talkSlide = { x0: p.x, z0: p.z, x1: x, z1: z, t: 0 };
-        return;
-      }
+    let best: { x: number; z: number; s: number } | null = null;
+    for (const rot of [0, 0.52, -0.52, 1.05, -1.05, 1.57, -1.57, 2.1, -2.1]) {
+      const ang = base + rot;
+      const x = v.x + Math.sin(ang) * gap;
+      const z = v.z + Math.cos(ang) * gap;
+      if (!ok(x, z)) continue;
+      // Prefer across the lens, then the smallest step from where the farmer stands.
+      const sc = 1.4 * (1 - across(ang)) + Math.hypot(x - p.x, z - p.z) * 0.8;
+      if (!best || sc < best.s) best = { x, z, s: sc };
     }
+    if (best) {
+      this.talkSlide = { x0: p.x, z0: p.z, x1: best.x, z1: best.z, t: 0 };
+      return;
+    }
+    if (d >= gap - 0.02) return;
     // Nowhere to step back to: the villager steps back instead.
     const x = p.x - Math.sin(base) * gap;
     const z = p.z - Math.cos(base) * gap;
@@ -2456,7 +2470,15 @@ export class NpcSystem implements System {
     // (r7: Kit's big head cut by the left edge of Bram's talk — a figure clipped by the frame edge at
     // the pair's depth reads as foreground clutter too)
     const edge = (x0 < -0.84 || x1 > 0.84) && cover > 0.022 && dC < dF * 1.3;
-    const near = cover > 0 && (dC < dF * 0.62 || headY < -0.42 || (cover > 0.09 && dC < dF * 1.15) || edge);
+    // A live talk keeps a little room round the pair: a bystander within 2.2 m of either partner
+    // (stepping aside, or parked at their own business) drops out of the two-shot while that close.
+    let crowd = false;
+    if (this.camMode === 'talk' && this.talking && a !== this.talking) {
+      const tp = this.talking.v.position;
+      const pp = this.game.player.position;
+      crowd = Math.min(Math.hypot(v.position.x - tp.x, v.position.z - tp.z), Math.hypot(v.position.x - pp.x, v.position.z - pp.z)) < 2.2;
+    }
+    const near = cover > 0 && (dC < dF * 0.62 || headY < -0.42 || (cover > 0.09 && dC < dF * 1.15) || edge || crowd);
     return { cover, near };
   }
   /** Farmer tucked out of a heart event's close-up while it stands between the lens and the speaker. */

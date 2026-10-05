@@ -71,7 +71,9 @@ export const DEMOS: Record<string, DemoDef> = {
   // in two blocks either side of the scarecrow / can-stump column, the farmer out of frame.
   'farm-crops-all': { map: 'farm', x: 21.5, z: 23.4, facing: 'up', time: 10.5, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 54, distance: 18.6, offsetX: 0, offsetZ: 0.2 }, showcase: ['gallery', 'crops=all'] },
   // Town square (plaza, Lantern Hall, villagers).
-  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
+  // (r7 blind judge: villagers too small to read, the hotbar over the fountain — a closer, lower lens
+  // with the Hall's rose window still at the top and the fountain clear of the toolbar)
+  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 41, distance: 29.5, offsetX: -2.9, offsetZ: -4.5 }, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
   'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 32, distance: 25, offsetX: -2.9, offsetZ: -3.2 }, showcase: ['npcs'] },
   // Town pod: co-op in the square, no server — Juniper chats with Bram, Pip gives Wren strawberries (host paths: talk lock, gift ledger, 'v.g').
@@ -181,8 +183,8 @@ export const DEMOS: Record<string, DemoDef> = {
   'audio-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
-  'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.1, offsetZ: -0.5 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 8.0, z: 6.35, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.0, offsetZ: -0.45 }, showcase: ['interior'] },
+  'house-interior': { map: 'house', x: 6.5, z: 5.5, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.2, offsetZ: -1.4 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 8.2, z: 6.2, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.2, offsetX: -1.7, offsetZ: -2.1 }, showcase: ['interior'] },
   // Bedtime: the "Go to bed for the night?" prompt beside the quilted bed / tucked in under the quilt, room dimmed, Zzz.
   'house-bedtime': { map: 'house', x: 9.6, z: 2.9, facing: 'right', time: 21.8, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-ask'] },
   'animals-dayend': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'animals', 'dayend'] },
@@ -190,7 +192,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'coop-interior': { map: 'coop', x: 4.45, z: 4.0, facing: 'down', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 13.4, offsetX: 0.05, offsetZ: 0.1 }, showcase: ['animals'] },
   // Morning egg round: the farmer lifts a gold-star egg overhead from the nesting boxes (&nest=0..5).
   'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals', 'eggs'] },
-  'barn-interior': { map: 'barn', x: 4.85, z: 3.95, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 13.6, offsetX: 1.7, offsetZ: -0.35 }, showcase: ['animals'] },
+  'barn-interior': { map: 'barn', x: 5.35, z: 4.35, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 46, distance: 16.2, offsetX: 1.15, offsetZ: -0.95 }, showcase: ['animals'] },
   'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21.5, offsetX: 2.2, offsetZ: -3.5 }, showcase: ['animals'] },
   // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
   'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21.5, offsetX: 2.2, offsetZ: -3.5 }, showcase: ['animals', 'coop'] },

@@ -278,7 +278,7 @@ adapts it to game events.
   curve (day / soft), so a playlist sits within ±2 dB (`TONE` flag over 3 dB). **Winds**: a player's vibrato
   (±20–25 c on flute / whistle, entering 250–400 ms in), a breath puff at the onset and a 2.6 kHz formant;
   +2 dB of 1.5–3 kHz presence on the melody track; the upright bass has finger noise and replaces the sine
-  bass in the title, Dew at Dusk and Hearthside. **Ambience**: calm nights drop the wind / leaf wash ~9 dB and
+  bass under the title. **Ambience**: calm nights drop the wind / leaf wash ~9 dB and
   calm mornings ~6 dB — critters carry the space (a rustle in the grass, a distant dog, a nightjar, a
   woodpecker, the rooster at first light); rain is patter (low bed high-passed at 150 Hz and −10 dB, denser
   drops), indoors the roof ticks at 1–4 kHz and the gutter drips; every thunder cracks before it rolls; doves
@@ -505,6 +505,28 @@ actors such as Pip the shop cat).
   on the catch, and the item held up at the chest through the reaction line. *Town* — a restoration scaffold
   (tarp, paint pots, "Friends of the Hall" board, ivy) over the Hall's west window, and seeded street-edge
   dressing along Meadow Lane (wildflowers, pots, picket runs, mailboxes, barrels).
+- **Round 7** — *Faces*: `NpcLook.fp` (FaceShape) gives every villager their own head under the hair: skull
+  width / length (crown anchored), jaw block, pointed / soft chin, eye size / spacing / height, six noses
+  (button, bulb, long, hook, snub, broad), mouth width, age lines (crow's feet, bags, smile folds, forehead),
+  cheek discs, ear size, cleft — the 3D head is built from it, so the painted bust is too. Stubble is a
+  skin-tagged jaw band (r6's hair-tagged shell sat over Rowan's eyes) and the painter's hair ramp keeps the
+  hue (dark hair no longer glints grey); beards / moustaches are id 6. `npcs.auditPortraits()` renders every
+  bust in every mood and fails on hair over the eyes (> 22 %) / nose bridge (> 20 %) or painted hair colour
+  off the look; it and `auditEvents()` are in `npm test`. Every mood is cropped to the neutral pose's head
+  (curls, buns, beanies and brims fit). *Heart events* — each event carries `insert` cards: a painted close-up
+  (`ui/portraits insertArt`: the letter, the canvas, the ledger, Pip on the board, the charcoal loaf, the
+  lantern cage, the last match, Kit's map, the seed tin…) taped up beside the scene while a line about it
+  plays (spectators too); the letter events hold a letter at the chest; in a close-up the farmer steps out of
+  frame when nearer the lens than the speaker; the card-avoid pan never pushes an actor off the left edge.
+  *Live talks* — the farmer slides back to a 1.3 m gap, demo-marked bystanders step aside too, anyone clipped
+  by the frame edge at the pair's depth is culled, and dev builds self-audit the open talk
+  (`npcs.liveAudit()`). *Co-op* — a farmhand's gift waits for the host: ghost hearts breathe on the row
+  ("Gift on its way to the host…") until the host's `r.set` acks; no ack in 9 s rolls the lock back and
+  returns the item. *Box* — amber parchment, 34 px ink, the box hugs its text (≥ 3 lines) with the portrait
+  card standing taller at its end, the gift ribbon under the name plaque at 18 px. *Gifts* — a loved gift
+  hops (0.3 s, squash), pops a heart emote and a sparkle where it lands; the line waits for the arc.
+  *Town* — a "Relight the Hall" banner over the east window (no more red X of boards), festoon masts 0.4 m
+  higher, winter / day chat pairs side by side across the view, 1 m personal space, barks never repeat in a day.
 
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit), `town-winter` (its own
@@ -513,7 +535,7 @@ paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·
 `&first=1` for the first meeting; bystanders vary per villager and hour, busy with their own things),
 `town-night-talk`, `town-heart-event` (`&event=<npc>-<2|4>&step=N`),
-`town-portraits` (`&ui=portraits:<npc>` = all nine moods), `town-social`, `festival`.
+`town-portraits` (`&ui=portraits:<npc>` = all ten moods), `town-social`, `festival`.
 
 ## Driftsand Beach & fishing
 
