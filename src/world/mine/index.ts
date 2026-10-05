@@ -27,7 +27,7 @@ import { CaveLighting } from './lighting';
 import { BIOMES, ORE_STYLE, biomeForFloor, type MonsterKind } from './biomes';
 import { createMonster, monsterColor, type ArenaCtx, type Monster } from '../../entities/monsters';
 import { mineSfx } from './sfx';
-import { OCC, updateOcclusion } from './occlude';
+import { OCC, updateOcclusion, occlusionScan, occlusionClear } from './occlude';
 import './events';
 
 export interface StrikeHit {
@@ -323,6 +323,19 @@ export class MineMap implements GameMap {
     this.rocks = new RockField(L, r.fork('rocks'), (x, z) => this.cave!.heightAt(x, z));
     this.floorGroup.add(this.rocks.group);
     for (const rk of this.rocks.rocks) g.setObject(rk.spec.x, rk.spec.z, { kind: 'mineRock', id: rk.spec.ore ?? 'rock', solid: true, hp: rk.hp, data: { ore: rk.spec.ore } });
+    // Cut / solid shader twins + cell-split floor meshes (occlude.ts, pillar 14): both programs build
+    // off-thread for the scene's real target; until then everything keeps the cut variant.
+    occlusionScan(this.floorGroup, (root) => {
+      const rc = this.game.rc;
+      const r = rc.renderer;
+      const prev = r.getRenderTarget();
+      r.setRenderTarget(rc.post.composer.readBuffer ?? null);
+      try {
+        return r.compileAsync(root, rc.camera, rc.scene);
+      } finally {
+        r.setRenderTarget(prev);
+      }
+    });
 
     const band = Math.floor((n - 1) / 10) % 3;
     for (const m of L.monsters) this.addMonster(m.kind, m.x, m.z, L.tier, band);
@@ -426,6 +439,7 @@ export class MineMap implements GameMap {
   }
 
   private clearFloor(): void {
+    occlusionClear();
     for (const pr of this.projectiles ?? []) pr.mesh.removeFromParent();
     if (this.projectiles) this.projectiles.length = 0;
     for (const m of this.monsters) {

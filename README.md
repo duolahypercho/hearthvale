@@ -308,7 +308,8 @@ adapts it to game events.
   (±4 dB, ±30 % cutoff, drop density); puddle drips are < 80 ms bubbles; wind chimes are inharmonic tubes.
 - Hear it: `?demo=audio&theme=<id>` (also `audio-summer` / `audio-fall` / `audio-winter`, `audio-night` = a summer night,
   `audio-town` = the square on a winter morning, `audio-eve` = the square's evening, `audio-rain` = a summer
-  shower on the farm, `audio-coop` = the phantom farmhand; festivals: `fest-spring` (Ribbon Parade), `fest-fall` (Harvest Reel); `theme` takes a song id or a
+  shower on the farm, `audio-coop` = the phantom farmhand, `audio-brook` = the forest brook's babble, `audio-noon` = the
+  summer noon cicada chorus, `?demo=audio&ui=inventory` = the menu duck; festivals: `fest-spring` (Ribbon Parade), `fest-fall` (Harvest Reel); `theme` takes a song id or a
   playlist like `farm:fall`; `&theme=none` for ambience only, `&sfx=<name>` repeats an SFX every 2.5 s,
   `&audio=1` starts the context without a click where autoplay allows, `&card=1` pins the now-playing card,
   `&card=0` hides it). Any demo plays its own music after a click.
@@ -329,7 +330,8 @@ adapts it to game events.
   ambience presets, the SFX reel and three live-director handoffs (`transition-*.wav`, checked for overlap)
   through the real mixer with `OfflineAudioContext` into `shots/audio/*.wav` (+ piano-roll/spectrogram PNGs)
   and prints loudness (LUFS), true peak, clipping, silence, spectral centroid and band balance with flags
-  (day themes fail as `DULL` under 7 % presence + air and are reported `mellow` under 12 %; see the calibration note in the script). `--describe <theme>` dumps the melody,
+  (day themes fail as `DULL` under 10 % presence + air and are reported `mellow` under 12 %; see the calibration note in the script;
+  each `mix-*` must hold its ambience within 10 LU of the music — `AMB-BURIED` — and mix WAVs are analysed but only kept with `--keep-wav`). `--describe <theme>` dumps the melody,
   `--stems --only <ids>` solos every track, `--live` boots the game and checks theme-per-scene, audible
   output, 20 beach⇄mine handoffs, the audio-node creation rate and SFX end to end. Renders use the game's
   default volumes and its 72-voice budget. The **gameplay** render (`gameplay.wav`, also alone with
@@ -338,10 +340,13 @@ adapts it to game events.
   1–4 kHz at the onset; footsteps' onset median must reach -2 dB) and the sidechain dip; `--sfx hoe,axe`
   renders just those effects (`--sfx voices` adds the villager voices). The reel asserts the SFX hierarchy:
   hover ≥ 4 LU under click, select ≈ click, open / close over click, the error cue level with open, the core
-  UI set inside 8.5 LU, villager voices within 3 LU, a sword hit ≥ 2 LU over the swing. The composition
-  critic (`--compose`) also flags `MASKED-TUNE` (the comping at or above the tune for > 50 % of its notes)
+  UI set inside 8.5 LU, villager voices within 3 LU, a sword hit ≥ 2 LU over the swing, the tree crash ≥ 4 LU
+  over an axe chop, the rock break ≥ 3 LU over a pickaxe tap, sand / snow steps level with the firm surfaces. The composition
+  critic (`--compose`) also flags `MASKED-TUNE` (the comping at or above the tune for > 25 % of its notes; the
+  composer's `clearTune` pass re-voices comping an octave under the tune)
   and `HOLLOW-MIDDLE` (> 22 semitones between the bass and the next voice). `--coop` runs two real clients over
-  the relay: the farmhand must voice and meter the host's hoe stroke, and both must play the same festival
+  the relay: the farmhand must voice the host's hoe stroke as the host resolved it (a soil hit at full level, not a
+  dull thunk — the replay carries the host's outcome and is heard from the farmer's real position) and meter it, and both must play the same festival
   arrangement. `__game.info().perf.frame` reports fps, mean / p95 frame time and the audio system's
   main-thread ms per second; `info().audio.notes.tiers` the cache tiers. Every job is
   isolated (a crash relaunches the browser, `report.json` is written after each job).
@@ -423,6 +428,30 @@ actors such as Pip the shop cat).
   beanie + scarf look and the coat overlay). Heart events can carry hero props (`ledger` held on a lap, Kit's `map`,
   forge `sparks` with a glow light); the event lens scores lamp posts behind a head (tangents), keeps the listener out
   of the near foreground and backs off until every framed head fits the letterbox (`auditEvents()`: 78/78 beats).
+- **r6**: *Body proportions* — `NpcLook.torso / shoulders / belly / neck / hands` drive a rig-space warp
+  (`RigBuilder.warp`: the torso stretches, the shoulders square up behind a yoke, a belly pushes out, arms and
+  held props ride with the shoulder) so the cast reads by silhouette: Kit 1:1.6 heads, Bram a barrel with a
+  rolling pin, Linus lanky with a long neck and a doctor's bag, Odessa and Rowan tall and broad, Marigold and
+  Hazel short and round; signature belt / shoulder pieces (`rollingpin`, `tongs`, `docbag`, `keys`, `trowel`,
+  `lantern`, `towel`). *Portraits* — the painter posterises each material into hand-tuned ramps with
+  hue-shifted shadows, inks material edges ~4 px plus normal-break contours (jaw, nose, ears, arm over chest),
+  lights hair clumps on the key side, crops tighter, and the brows + mouth are drawn as 2D ink linework over
+  the bust in the face's own frame (`drawFaceInk`: a 45° anger V with clenched teeth, tented sorrow, an open
+  "D" grin, a round gasp, a quizzical brow; `PORTRAIT_INK`); a tenth mood, `wistful` (lowered lids, soft closed
+  smile, one tear). *Lens* — non-participant villagers in the near / low foreground of a chat or scene step
+  out of the shot (`fgCull`; `auditTalk` fails > 8 % coverage), the event's owner opens to ≤ 50° of the lens
+  (`cheatOpen`, seated owners pull the lens round to the bench front), no pole / trunk within 0.6 head-widths
+  of a framed head (screen space, scored + audited), the portrait card never covers a face (the frame pans),
+  and an event's `subject` (the Kettle Bridge in "Painting the Bridge") must be in the opening wide shot.
+  *Co-op* — farmhands spectating a heart event ride the host's lens (`v.k` at 5 Hz, eased via the look offset,
+  the host's farmer stays visible) and the heart row shows the host's friendship ("Host's friendship · 2♥").
+  *Dialogue* — box and portrait card are one joined, equal-height frame with a riveted seam; `town-dialogue`
+  meets each villager at their place of work (`&at=square` for the old plaza staging); no ambient emotes or
+  "Now playing" card during a talk; speech bubbles rise over co-op name tags; barks carry context tags
+  (`{store_front}…`, `{@kit}…`). *Gifts* — a 0.5 s eased arc a beat after the box opens, a hit-stop squash
+  on the catch, and the item held up at the chest through the reaction line. *Town* — a restoration scaffold
+  (tarp, paint pots, "Friends of the Hall" board, ivy) over the Hall's west window, and seeded street-edge
+  dressing along Meadow Lane (wildflowers, pots, picket runs, mailboxes, barrels).
 
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit), `town-winter` (its own
@@ -821,6 +850,11 @@ Frostvein Grotto, Cinder Depths (`biomes.ts`), repeating with a tier (tougher mo
   (live arena + autopilot; `&still=1` freezes a landed hit, `&god=1`), `mine-coop` (two scripted farmhands fighting
   and mining beside you, name tags; no server), `mine-chest` (floor 10 reforge). Params: `&floor=N`, `&pick=1`
   (`&still=1` freezes the pick impact), `&foe=0` (no staged monster), `&ui=elevator`.
+- **Perf (pillar 14)**: the farmer / monster cutaway's `discard` switches off hidden-surface removal on tile GPUs, so
+  every cut-patched material has a solid twin (`occlude.ts`): the shell, rim boulders, rubble and merged props are
+  sorted into 4 m cells and each frame only the cells whose bounds can reach a cutaway ellipse or the foreground band
+  draw the cut variant (a handful of draw ranges per mesh), the rest draws solid — same pixels. `&occvar=0` turns it
+  off (A/B); `OCC_STATS` (import from `world/mine/occlude.ts`) reports cells, cut cells and ranges.
 
 ## Cindergrove forest, weather & seasons
 

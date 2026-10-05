@@ -429,10 +429,13 @@ ${CAVE_GLSL}`,
         float edge = pl.y - pl.x;
         float crackP = (1.0 - smoothstep(0.02, 0.09, edge)) * (0.55 + 0.45 * smoothstep(0.3, 0.6, hvNoise(fp * 0.8 + pl.z * 9.0)));
         // Second, finer fracture scale crazing the big plates (low contrast).
+        // (mask first: the second Voronoi only runs where the crazing can show — same pixels, ~half
+        // the floor skips its 9-tap cell search; pillar 14)
         float crack2 = 0.0;
-        if (onFloor > 0.01) {
+        float crack2M = smoothstep(0.45, 0.7, hvNoise(fp * 0.5 + 3.0));
+        if (onFloor > 0.01 && crack2M > 0.0) {
           vec4 pl2 = hvMineStone(fp * 2.9 + 7.0);
-          crack2 = (1.0 - smoothstep(0.0, 0.05, pl2.y - pl2.x)) * smoothstep(0.45, 0.7, hvNoise(fp * 0.5 + 3.0));
+          crack2 = (1.0 - smoothstep(0.0, 0.05, pl2.y - pl2.x)) * crack2M;
         }
         // Random cell darkening + scorch patches + drifted ash.
         float plateTone = (0.7 + 0.42 * pl.z) * (hvHash12(vec2(pl.z * 91.0, 7.0)) < 0.22 ? 0.58 : 1.0);
@@ -549,6 +552,8 @@ ${CAVE_GLSL}`,
   OCC.uFgLift.value.setHex(L.biome === 'ice' ? 0x0c1826 : L.biome === 'lava' ? 0x2a1208 : 0x1c130c).convertSRGBToLinear().multiplyScalar(L.biome === 'lava' ? 2.4 : 1.6);
   const mesh = new THREE.Mesh(geo, shell);
   mesh.name = 'cave-shell';
+  // Cut / solid draw ranges per 4 m cell (occlude.ts: the cutaway's discard only where it can land).
+  mesh.userData.occGroup = 6;
   mesh.receiveShadow = true;
   mesh.castShadow = true;
   group.add(mesh);
@@ -860,6 +865,7 @@ ${CAVE_GLSL}`,
     occlusionPatch(rm, true, true);
     const bm = new THREE.Mesh(merged, rm);
     bm.name = 'cave-boulders';
+    bm.userData.occGroup = 5;
     bm.castShadow = true;
     bm.receiveShadow = true;
     group.add(bm);
