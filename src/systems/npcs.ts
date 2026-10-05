@@ -123,6 +123,12 @@ const CAM_CANDS: readonly (readonly [number, number, number])[] = (() => {
   for (const k of [1, 0.75]) for (const dp of [0, 10, 20]) for (const dy of [0, 15, -15, 30, -30, 45, -45]) c.push([dy, dp, k]);
   return c;
 })();
+/** The reverse angle (r6b): tried only when every usual candidate is blocked (a pair in front of a
+ *  north-facing facade — the inn terrace — can only be seen from the far side). */
+const CAM_REV: readonly (readonly [number, number, number])[] = CAM_CANDS.filter((c) => Math.abs(c[0]) <= 30).map((c) => [c[0] + 180, c[1], c[2]] as const);
+/** A/B switch for the prop-occluder term (`&propocc=0`). */
+const NO_PROP_OCC = typeof location !== 'undefined' && new URLSearchParams(location.search).get('propocc') === '0';
+const CAM_ALL = [...CAM_CANDS, ...CAM_REV];
 const FACING_YAW: Record<Facing, number> = { down: 0, up: Math.PI, left: -Math.PI / 2, right: Math.PI / 2 };
 const _propW = new THREE.Vector3();
 const PLAZA_C = { x: 32, z: 25, r: 3.55 };
@@ -1063,9 +1069,13 @@ export class NpcSystem implements System {
       // the easel by the bridge for Wren…), not the same fountain bench every time (`&at=square` opts out).
       const WORK: Partial<Record<NpcId, string>> = { odessa: 'forge_anvil', bram: 'bakery_front', wren: 'easel_river', linus: 'clinic_front', june: 'inn_front', rowan: 'lumber_yard', hazel: 'garden_east', marigold: 'store_front', tobias: 'hall_steps', kit: 'plaza_play' };
       const ws = name === 'town-dialogue' && params.get('at') !== 'square' && params.get('npc') ? SPOTS[WORK[a.def.id] ?? ''] : undefined;
+      // r6b: a workplace with its facade right behind it to the south (the inn terrace) can only be
+      // filmed from the far side: the farmer steps up from the north, so the villager faces the lens.
+      const rev = !!ws && NpcSystem.BLOCKERS.some((b) => b.h > 3 && ws[0] > b.r[0] - 1 && ws[0] < b.r[2] + 1 && b.r[1] > ws[1] && b.r[1] - ws[1] < 4.5);
+      const fz = rev ? -1 : 1;
       if (ws) {
         for (const [ox, oz] of [[-1.4, 0.6], [1.4, 0.6], [-1.2, 1.2], [1.2, 1.2], [0, 1.5]] as const) {
-          const c = NpcSystem.clearOf(ws[0] + ox, ws[1] + oz);
+          const c = NpcSystem.clearOf(ws[0] + ox, ws[1] + oz * fz);
           if (map.grid.isWalkable(Math.floor(c.x), Math.floor(c.z))) {
             this.game.player.teleport(c.x, c.z);
             this.game.followPlayer(true);
@@ -1078,9 +1088,9 @@ export class NpcSystem implements System {
       const p = this.game.player.position;
       // (to the left instead when a building stands close on the right: the lens needs the gap)
       const near = (qx: number, qz: number): number => Math.min(...NpcSystem.BLOCKERS.filter((b) => b.h > 3).map((b) => Math.hypot(Math.max(b.r[0] - qx, 0, qx - b.r[2]), Math.max(b.r[1] - qz, 0, qz - b.r[3]))));
-      const side = near(p.x + 1.4, p.z - 0.6) < 3.2 && near(p.x - 1.4, p.z - 0.6) > near(p.x + 1.4, p.z - 0.6) ? -1 : 1;
+      const side = near(p.x + 1.4, p.z - 0.6 * fz) < 3.2 && near(p.x - 1.4, p.z - 0.6 * fz) > near(p.x + 1.4, p.z - 0.6 * fz) ? -1 : 1;
       const x = p.x + 1.4 * side;
-      const z = p.z - 0.6;
+      const z = p.z - 0.6 * fz;
       this.setInside(a, false, true);
       a.v.setPosition(x, map.heightAt(x, z), z);
       a.v.setYaw(Math.atan2(p.x - x, p.z - z));
@@ -1094,12 +1104,18 @@ export class NpcSystem implements System {
       this.game.events.emit('ui:open', { name: `dialogue:${a.def.id}${extra}` });
       a.v.talkTo = p;
       this.talking = a;
+      if (rev) this.game.rc.rig.yaw = 172;
       this.startTalkCam();
       this.snapCam();
       // Settle the stage cheat before the shot (the rig yaw is final after the snap).
       a.v.talkCheat = THREE.MathUtils.degToRad(this.camCur.yaw);
-      a.v.update(0, (qx, qz) => this.game.world.heightAt(qx, qz), false);
+      // (a few settled ticks: the head's share of the cheat eases in over time, and demos are paused)
+      for (let k = 0; k < 4; k++) a.v.update(0.25, (qx, qz) => this.game.world.heightAt(qx, qz), false);
       a.v.setYaw((a.v as unknown as { targetYaw: number }).targetYaw);
+      // (demos hold the clock paused, so the per-frame bystander cull never runs: cull once now, and
+      // again once the lens has settled)
+      this.fgCull(true);
+      window.setTimeout(() => this.fgCull(true), 400);
       window.setTimeout(() => this.game.services.dialogueBox?.finishLine(), 30);
       const gi = params.get('gift');
       if (gi) this.giftLoop = { id: a.def.id, item: gi, reaction: (params.get('reaction') as 'love' | null) ?? 'love', t: 1.2 };
@@ -1503,6 +1519,84 @@ export class NpcSystem implements System {
     return hits;
   }
 
+  /** Tall static prop boxes near the lens subject, gathered once per lens solve (see TownMap.occluders). */
+  private occSub: number[] = [];
+  private propCamIn = 0;
+  private gatherOcc(x: number, z: number, r = 18): void {
+    const out = this.occSub;
+    out.length = 0;
+    const occ = (this.game.world.current as unknown as { occluders?: Float32Array } | null)?.occluders;
+    if (!occ || NO_PROP_OCC) return;
+    for (let i = 0; i < occ.length; i += 6) {
+      if (occ[i + 3]! < x - r || occ[i]! > x + r || occ[i + 5]! < z - r || occ[i + 2]! > z + r) continue;
+      out.push(occ[i]!, occ[i + 1]!, occ[i + 2]!, occ[i + 3]!, occ[i + 4]!, occ[i + 5]!);
+    }
+  }
+
+  /**
+   * Prop occlusion (r6b): 2 when the lens itself sits inside / grazes an awning, parasol, stall or
+   * wall, plus one per actor sight line (head, chest) cut by a prop box. Boxes the actor stands in
+   * (the stall they work at) don't count for that actor.
+   */
+  private propHits(cam: THREE.Vector3, acts: { x: number; y: number; z: number; head: number }[]): number {
+    const o = this.occSub;
+    let h = 0;
+    const m = 0.35;
+    this.propCamIn = 0;
+    for (let i = 0; i < o.length; i += 6)
+      if (cam.x > o[i]! - m && cam.x < o[i + 3]! + m && cam.y > o[i + 1]! - m && cam.y < o[i + 4]! + m && cam.z > o[i + 2]! - m && cam.z < o[i + 5]! + m) {
+        h += 2;
+        this.propCamIn = 1;
+        break;
+      }
+    for (let ai = 0; ai < acts.length; ai++) {
+      const a = acts[ai]!;
+      for (let k = 0; k < 2; k++) {
+        const ax = a.x;
+        const ay = a.y + (k === 0 ? a.head - 0.3 : a.head * 0.5);
+        const az = a.z;
+        const dx = cam.x - ax;
+        const dy = cam.y - ay;
+        const dz = cam.z - az;
+        const len = Math.hypot(dx, dy, dz) || 1;
+        const t0 = 0.6 / len;
+        for (let i = 0; i < o.length; i += 6) {
+          // (the actor's own stall / awning / doorway)
+          if (ax > o[i]! - 0.2 && ax < o[i + 3]! + 0.2 && az > o[i + 2]! - 0.2 && az < o[i + 5]! + 0.2 && ay > o[i + 1]! - 0.6) continue;
+          let lo = t0;
+          let hi = 1;
+          // Slab test, axis by axis.
+          let miss = false;
+          for (let ax3 = 0; ax3 < 3 && !miss; ax3++) {
+            const p0 = ax3 === 0 ? ax : ax3 === 1 ? ay : az;
+            const d = ax3 === 0 ? dx : ax3 === 1 ? dy : dz;
+            const mn = o[i + ax3]!;
+            const mx = o[i + 3 + ax3]!;
+            if (Math.abs(d) < 1e-6) {
+              if (p0 < mn || p0 > mx) miss = true;
+              continue;
+            }
+            let ta = (mn - p0) / d;
+            let tb = (mx - p0) / d;
+            if (ta > tb) {
+              const s = ta;
+              ta = tb;
+              tb = s;
+            }
+            if (ta > lo) lo = ta;
+            if (tb < hi) hi = tb;
+            if (lo > hi) miss = true;
+          }
+          if (!miss) {
+            h++;
+            break;
+          }
+        }
+      }
+    }
+    return h;
+  }
+
   /**
    * How many of the speaker's face points (eyes, mouth) are hidden behind another actor's head /
    * hat or shoulders from this lens position (0–2). Heads are spheres sized for hats and hair.
@@ -1701,16 +1795,26 @@ export class NpcSystem implements System {
         const t = THREE.MathUtils.clamp(v2.subVectors(p, a).dot(v1) / (v1.lengthSq() || 1), 0, 1);
         return v2.copy(a).addScaledVector(v1, t).distanceTo(p);
       };
-      for (const c of cands) {
+      this.gatherOcc(cx, cz);
+      for (const c of this.camMode === 'talk' ? CAM_ALL : cands) {
+        // (the reverse ring only when the usual side is blocked: a sight line or the lens in a prop)
+        if (c[0] > 90 && bestHits < 8) break;
         const cy = yaw + c[0];
         // Test the lens where it will really sit: the look point is lifted towards it (see below).
         const cp = Math.min(62, pitch + c[1]);
         const cd = dist * c[2];
-        const upK = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
+        const upK = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? 0.22 : kind === 'two' ? 0.28 : 0.16;
         const lf = (cd * Math.tan(upK * Math.tan(THREE.MathUtils.degToRad(this.game.rc.camera.fov) / 2))) / Math.sin(THREE.MathUtils.degToRad(cp));
         const cyr = THREE.MathUtils.degToRad(cy);
         const pos = this.camPosFor(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf), cy, cp, cd, _cp);
-        let h = this.buildingHits(pos, acts) * 10;
+        let h = this.buildingHits(pos, acts) * 12;
+        {
+          // (the lens inside an awning is never acceptable; a sight line grazing a prop's box is
+          // weighed lighter in events, whose marks were blocked round the buildings by hand)
+          const ph = this.propHits(pos, acts);
+          const camIn = this.propCamIn;
+          h += camIn * 20 + (ph - camIn * 2) * (this.camMode === 'talk' ? 9 : 4);
+        }
         for (const b of by) for (const a of acts) if (segD(pos, _sa.set(a.x, a.y + a.head * 0.6, a.z), b) < 0.55) h += 3;
         h += this.foreground(pos, _q2, by, probe);
         // Lamp posts / festoon poles standing in front of a face or body.
@@ -1819,7 +1923,7 @@ export class NpcSystem implements System {
             if (off > THREE.MathUtils.degToRad(50)) h += (off - THREE.MathUtils.degToRad(50)) * 3;
           }
         }
-        h += Math.abs(c[0]) / 180 + c[1] / 60 + (1 - c[2]) * 2;
+        h += c[0] > 90 ? 4 + Math.abs(c[0] - 180) / 180 + c[1] / 60 + (1 - c[2]) * 2 : Math.abs(c[0]) / 180 + c[1] / 60 + (1 - c[2]) * 2;
         if (h < bestHits) {
           bestHits = h;
           best = c;
@@ -1832,7 +1936,7 @@ export class NpcSystem implements System {
     dist *= this.camPick.k;
     // Lift the look point towards the lens so the actors sit ~26 % above centre (clear of the box).
     const fov = THREE.MathUtils.degToRad(this.game.rc.camera.fov);
-    const up = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? 0.13 : kind === 'two' ? 0.28 : 0.16;
+    const up = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? 0.22 : kind === 'two' ? 0.28 : 0.16;
     const yr = THREE.MathUtils.degToRad(yaw);
     const gy = map.heightAt(cx, cz);
     const target = new THREE.Vector3();
@@ -2232,7 +2336,9 @@ export class NpcSystem implements System {
     const dC = cam.position.distanceTo(_hp.set(v.position.x, v.position.y + v.headTop * 0.6, v.position.z));
     const dF = cam.position.distanceTo(this.lookPoint);
     const headY = foot.y + h * 0.8;
-    const near = cover > 0 && (dC < dF * 0.62 || headY < -0.42);
+    // (r6b: also a bystander at the pair's own depth looming in from the frame edge — Rowan's beanie
+    // filling the left third of Bram's talk — anything that big and that close is foreground)
+    const near = cover > 0 && (dC < dF * 0.62 || headY < -0.42 || (cover > 0.09 && dC < dF * 1.15));
     return { cover, near };
   }
   private fgCull(force = false): void {
@@ -2636,6 +2742,9 @@ export class NpcSystem implements System {
             const framedA = this.shot.kind === 'close' || this.goalKind.ots ? acts.filter((a) => a.id === this.shot.speaker) : acts;
             const ph = this.postsNearHeads(cam, framedA, this.shot.speaker);
             if (ph) out.fails.push(`${ev.id}#${i}: vertical prop beside a head (${ph})`);
+            this.gatherOcc(cam.position.x, cam.position.z, 24);
+            this.propHits(cam.position, acts);
+            if (this.propCamIn) out.fails.push(`${ev.id}#${i}: lens inside a prop`);
             const hits = this.buildingHits(cam.position, acts);
             if (hits) out.fails.push(`${ev.id}#${i}: ${hits} sight line(s) behind a building (lens ${cam.position.x.toFixed(1)},${cam.position.y.toFixed(1)},${cam.position.z.toFixed(1)}; ${acts.map((a) => `${a.id} ${a.x.toFixed(1)},${a.z.toFixed(1)}`).join(' ')})`);
             // The speaker's face must read: turned towards the lens and not behind the listener's head / hat.
@@ -2729,6 +2838,9 @@ export class NpcSystem implements System {
       const look = this.camCur.target.clone();
       const mid = new THREE.Vector3((v.x + px) / 2, map.heightAt(v.x, v.z) + 0.9, (v.z + pz) / 2);
       const fg = this.foreground(cam.position, look, by, mid);
+      this.gatherOcc(cam.position.x, cam.position.z, 24);
+      const phT = this.propHits(cam.position, acts);
+      if (phT) out.fails.push(`${id}: lens in / behind a prop (${phT})`);
       const hits = this.buildingHits(cam.position, acts);
       const spk = acts.find((x) => x.id === id);
       const fb = spk ? this.faceBlocked(cam.position, spk, acts) : 0;

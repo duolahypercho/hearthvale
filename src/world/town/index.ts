@@ -148,6 +148,8 @@ export class TownMap implements GameMap {
   private festivalLights: { light: THREE.PointLight; max: number; seed: number }[] = [];
   /** Debug: triangles per static prop root name (×2 when it casts shadows). */
   propTris: Record<string, number> = {};
+  /** World AABBs (minX, minY, minZ, maxX, maxY, maxZ)… of tall static prop meshes (lens occluders). */
+  occluders: Float32Array = new Float32Array(0);
 
   constructor(private game: Game) {
     this.root.name = 'map:town';
@@ -829,6 +831,28 @@ export class TownMap implements GameMap {
         tris[k] = (tris[k] ?? 0) + n * ((m as THREE.Mesh).castShadow ? 2 : 1);
       });
     this.propTris = tris;
+    // r6b: world boxes of everything standing taller than a knee (awnings, parasols, stalls, signs,
+    // walls) before the batches swallow them — the talk / event lens keeps itself and its sight lines
+    // out of them (r6 critic: June's talk lens sat inside the Copper Kettle's terrace awning).
+    const occ: number[] = [];
+    const bb = new THREE.Box3();
+    for (const o of this.staticRoots) {
+      o.updateMatrixWorld(true);
+      o.traverse((m) => {
+        const mesh = m as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.geometry || (mesh as THREE.InstancedMesh).isInstancedMesh) return;
+        const mn = (mesh.material as THREE.Material | undefined)?.name ?? '';
+        if (mn === 'windowCard' || mn === 'lampGlow' || mn === 'glass') return;
+        const g = mesh.geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        bb.copy(g.boundingBox!).applyMatrix4(mesh.matrixWorld);
+        const gy = this.terrain.heightAt((bb.min.x + bb.max.x) / 2, (bb.min.z + bb.max.z) / 2);
+        if (bb.max.y - gy < 0.95 || bb.max.y - bb.min.y < 0.12) return;
+        if (bb.max.x - bb.min.x > 16 || bb.max.z - bb.min.z > 16) return;
+        occ.push(bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z);
+      });
+    }
+    this.occluders = new Float32Array(occ);
     for (const o of this.staticRoots) {
       const k = cellOf(o.position.x, o.position.z);
       let list = cells.get(k);

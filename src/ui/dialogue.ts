@@ -141,6 +141,32 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 .dlg-hearts { grid-template-columns: repeat(10, 19px) !important; gap: 3px !important; }
 .hv-dialogue.dlg2 .dlg-hearts svg { width: 19px !important; height: 17px !important; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner { padding-top: 30px; padding-bottom: 22px; }
+/* r6b: Stardew proportions — the portrait is the star of the frame: a big square bust (272 px, the
+   face alone ≈ 150 px) over a carved name plaque, the heart meter on a strip across its foot. The
+   speaker tab retires (the plaque carries the name), the text box matches the card's height. */
+.hv-dialogue.dlg2 { width: min(1180px, calc(100vw - 40px)); }
+.hv-dialogue.dlg2 .dlg-side { width: 300px; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 10px 10px 8px; display: flex; flex-direction: column; align-items: center; }
+.hv-dialogue.dlg2 .dlg-portrait { width: 278px; height: 268px; border-radius: 10px; box-shadow: 0 0 0 3px #f6e2b8, 0 0 0 5px var(--wood-3), 0 3px 8px rgba(40, 20, 8, 0.45); }
+.hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 278px; height: 278px; margin-top: -6px; }
+.hv-dialogue.dlg2 .dlg-portrait::after { background-size: 278px 278px; }
+.hv-dialogue.dlg2 .dlg-hearts { bottom: 50px; }
+.hv-dialogue.dlg2 .dlg-name { display: block; position: relative; margin-top: 9px; font-family: var(--font-head); font-weight: 700; font-size: 24px; line-height: 30px; color: #5a2e14; letter-spacing: 0.5px;
+  padding: 1px 30px 3px; border-radius: 6px; background: linear-gradient(#fbf0d6, #efd9ae); border: 2px solid #a8743e; box-shadow: inset 0 -3px 0 rgba(160, 110, 50, 0.25), 0 2px 0 rgba(60, 30, 10, 0.3); }
+.hv-dialogue.dlg2 .dlg-name::before, .hv-dialogue.dlg2 .dlg-name::after { content: ''; position: absolute; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #f6d488, #8a5a24); }
+.hv-dialogue.dlg2 .dlg-name::before { left: 9px; }
+.hv-dialogue.dlg2 .dlg-name::after { right: 9px; }
+.hv-dialogue.dlg2:not(.narr) .dlg-speaker { display: none; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { padding-top: 34px; }
+.hv-dialogue.dlg2 .dlg-text { font-size: 31px; line-height: 44px; }
+@media (max-width: 1100px), (max-height: 760px) {
+  .hv-dialogue.dlg2 .dlg-side { width: 236px; }
+  .hv-dialogue.dlg2 .dlg-portrait { width: 214px; height: 206px; }
+  .hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 214px; height: 214px; }
+  .hv-dialogue.dlg2 .dlg-name { font-size: 19px; line-height: 24px; }
+  .hv-dialogue.dlg2 .dlg-hearts { bottom: 42px; }
+  .hv-dialogue.dlg2 .dlg-text { font-size: 25px; line-height: 36px; }
+}
 .hv-dialogue.dlg2.narr .dlg-box { border-radius: 18px; border-right-width: 2px; }
 .hv-dialogue.dlg2.narr .dlg-box .hv-inner { border-radius: 12px; }
 /* The music card waits while someone is talking (r6: 'Now playing' sat beside Hazel's line). */

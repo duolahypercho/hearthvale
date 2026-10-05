@@ -2913,7 +2913,7 @@ function portraitPainter(): THREE.ShaderMaterial {
           float b3 = smoothstep(1.55, 1.7, sh);
           vec3 sC; vec3 mC; vec3 lC; vec3 gC;
           if (part > 0.5 && part < 1.5) {
-            sC = alb * vec3(0.66, 0.42, 0.44); mC = alb * 0.9; lC = alb * 1.1 + vec3(0.035, 0.02, 0.0); gC = alb * 1.28;
+            sC = alb * vec3(0.8, 0.6, 0.58); mC = alb * 0.93; lC = alb * 1.1 + vec3(0.035, 0.02, 0.0); gC = alb * 1.28;
           } else if (part > 1.5 && part < 2.5) {
             sC = alb * vec3(0.36, 0.33, 0.46); mC = alb * 0.82; lC = alb * 1.12; gC = mix(alb, vec3(1.0, 0.97, 0.9), 0.3) * 1.3;
           } else {
@@ -2927,7 +2927,7 @@ function portraitPainter(): THREE.ShaderMaterial {
         float light = smoothstep(0.5, 1.0, L);
         if (part > 0.5 && part < 1.5) {
           // Skin: shadows warm towards rose (blood under the skin), lights a touch of peach.
-          col = mix(col, col * vec3(1.1, 0.8, 0.8), shadow * 0.55);
+          col = mix(col, col * vec3(1.06, 0.86, 0.84), shadow * 0.35);
           col += vec3(0.05, 0.025, 0.0) * light;
         } else if (part > 1.5 && part < 2.5) {
           // Hair: radial strand strokes from the crown, a jagged shine band on the lit side.
@@ -3075,7 +3075,7 @@ function drawFaceInk(g: CanvasRenderingContext2D, a: { eL: THREE.Vector2; eR: TH
   };
   for (const side of [-1, 1] as const) {
     let [di, dout, arch, lift] = BR[mood] ?? BR.neutral!;
-    if (mood === 'thinking' && side === 1) [di, dout, arch, lift] = [-0.12, -0.04, -0.14, -0.13];
+    if (mood === 'thinking' && side === 1) [di, dout, arch, lift] = [-0.07, -0.02, -0.1, -0.05];
     // (a touch lower than the rig's brow line: closer to the eyes they carry the expression)
     const c = (side < 0 ? a.bL : a.bR).clone().lerp(side < 0 ? a.eL : a.eR, 0.18);
     const len = 0.46 * Math.min(1.25, Math.max(0.85, Math.pow(bt, 0.35)));

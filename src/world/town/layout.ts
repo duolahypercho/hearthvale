@@ -352,7 +352,7 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   fountain_s: [32.6, 28.5, 'down'],
   bench_sw: [27.4, 28.9, Math.PI * 0.8],
   bench_se: [36.6, 28.9, -Math.PI * 0.8],
-  hall_steps: [32.0, 13.8, 'down'],
+  hall_steps: [32.0, 14.75, 'down'], // (r6b: clear of the Hall's landing slabs, z 12.7–14.15)
   hall_lantern: [33.3, 14.3, 'up'],
   planters_hall: [28.6, 15.3, 'up'],
   plaza_play: [36.4, 32.4, 'down'],
