@@ -6,7 +6,7 @@
 import { AudioGraph } from './graph';
 import { loadDucker } from './ducker';
 import { MusicDirector, scheduleTheme, MUSIC_LOOKAHEAD, MUSIC_SCHED, MUSIC_STATS } from './music';
-import { chooseTheme, MENU_LEVEL, MENU_MUFFLE, MENU_TAU, STORM_OUTDOOR_LEVEL } from './select';
+import { chooseTheme, MENU_LEVEL, MENU_MUFFLE, MENU_TAU, PLAYLISTS, STORM_OUTDOOR_LEVEL } from './select';
 import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
 import { THEMES } from './themes';
@@ -166,11 +166,13 @@ export async function renderAmbience(preset: string, seconds = 30, sr = 44100): 
 export async function renderSfxReel(sr = 44100, only: string[] | null = null): Promise<Rendered> {
   const markers: { name: string; t: number }[] = [];
   let t = 0.3;
-  const long: Record<string, number> = { treefall: 3.2, hall: 5, lantern: 3.5, catch: 2.4, 'catch:perfect': 2.6, water: 2, cast: 2.2, sleep: 2.4, thunder: 3 };
-  for (const n of only ?? SFX_NAMES) {
+  const long: Record<string, number> = { passout: 3, lift: 2, 'mine:break': 2, treefall: 3.2, hall: 5, lantern: 3.5, catch: 2.4, 'catch:perfect': 2.6, water: 2, cast: 2.2, sleep: 2.4, thunder: 3 };
+  // `name@level` plays a variant (combat blows: @1 crit, @2 killing blow, @3 critical kill).
+  const extra = ['hit:slime@2', 'hit:crab@2', 'hit:bat@2', 'hit:wisp@2', 'hit:imp@2', 'hit:slime@1', 'mine:break@1'];
+  for (const n of only ?? [...SFX_NAMES, ...extra]) {
     if (n === 'reel' || n === 'blip' || n.startsWith('voice')) continue;
     markers.push({ name: n, t });
-    t += long[n] ?? 1.3;
+    t += long[n.split('@')[0]!] ?? 1.3;
   }
   // `--sfx voices` (or voice:<id>) puts the dialogue voices on a partial reel.
   if (!only || only.some((n) => n.startsWith('voice'))) {
@@ -199,7 +201,10 @@ export async function renderSfxReel(sr = 44100, only: string[] | null = null): P
         }
       } else if (m.name === 'reel') {
         for (let tt = 0; tt < 1.5; tt += 0.06) sfx.play('reel', { at: m.t + tt, gain: 0.8 });
-      } else sfx.play(m.name, { at: m.t });
+      } else {
+        const [nm, lv] = m.name.split('@');
+        sfx.play(nm!, { at: m.t, level: lv ? Number(lv) : undefined });
+      }
     }
   });
   return { name: 'sfx-reel', sampleRate: sr, data: encode(buf), frames: buf.length, markers };
@@ -434,6 +439,23 @@ export function listThemes(): string[] {
   return Object.keys(THEMES);
 }
 
+/**
+ * Round 12 identity check: the first two chords each song SOUNDS (its intro if it has one in the
+ * form, else its A), its form and intro length, and the playlists — so the critic can flag songs in
+ * one rotation that open alike.
+ */
+export function openings(): { songs: Record<string, { pair: string; form: string; intro: number }>; playlists: Record<string, readonly string[]> } {
+  const songs: Record<string, { pair: string; form: string; intro: number }> = {};
+  for (const [id, th] of Object.entries(THEMES)) {
+    if (th.ambient) continue;
+    const hasIntro = th.form[0] === 'intro';
+    const bars = (hasIntro ? th.prog.intro ?? [th.prog.A[0]!, th.prog.A[0]!] : th.prog.A).join(' ').split(/\s+/);
+    const seq = hasIntro && bars.length < 2 ? [...bars, ...th.prog.A.join(' ').split(/\s+/)] : bars;
+    songs[id] = { pair: seq.slice(0, 2).join(' '), form: th.form.join('-'), intro: hasIntro ? (th.prog.intro?.length ?? 2) : 0 };
+  }
+  return { songs, playlists: PLAYLISTS };
+}
+
 /** Tracks a theme actually uses (for stem renders). */
 export function themeTracks(id: string): TrackName[] {
   return [...new Set(new Composer(THEMES[id]!, 1).compose().events.map((e) => e.track))].filter((t) => t !== 'double');
@@ -452,9 +474,10 @@ export function describePiece(id: string, seed = 1): { theme: string; bars: numb
 }
 
 /** Composed events + bar grid for piano-roll plots. */
-export function pieceData(id: string, seed = 1, seconds = 30): { events: { t: number; track: string; midi: number; dur: number; vel: number }[]; bars: { t: number; chords: string; section: string }[] } {
+export function pieceData(id: string, seed = 1, seconds = 30): { events: { t: number; track: string; midi: number; dur: number; vel: number }[]; bars: { t: number; chords: string; section: string }[]; bass: string | null } {
   const p = new Composer(THEMES[id]!, seed).compose();
   return {
+    bass: THEMES[id]!.bass?.pattern ?? null,
     events: p.events.filter((e) => e.t < seconds).map((e) => ({ t: e.t, track: e.track, midi: e.midi, dur: e.dur, vel: e.vel })),
     bars: (p.barInfo ?? []).filter((b) => b.t < seconds),
   };

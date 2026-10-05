@@ -44,7 +44,7 @@ declare module '../core/game' {
 }
 
 /** Demo floors (URL `&floor=N` overrides). */
-const DEMO_FLOORS: Record<string, number> = { 'mine-coop': 4, 'mine-floor': 3, 'mine-ice': 14, 'mine-lava': 24, 'mine-combat': 2, 'mine-chest': 10, mine: 1 };
+const DEMO_FLOORS: Record<string, number> = { 'audio-mine': 2, 'mine-coop': 4, 'mine-floor': 3, 'mine-ice': 14, 'mine-lava': 24, 'mine-combat': 2, 'mine-chest': 10, mine: 1 };
 
 export class MiningSystem implements System, MiningApi {
   readonly name = 'mining';

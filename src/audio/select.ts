@@ -17,8 +17,8 @@
  *   town 17:30 – 20:00      'town:eve' (the inn's tune spilling out, or the lamplighter's waltz)
  *   town / Lantern Hall /
  *   shops & clinic          'town:<season>'
- *   beach                   'beach'
- *   forest                  'forest'
+ *   beach                   'beach:day' (Salt & Sun / Low Tide)
+ *   forest                  'forest:day' (the forest song / Fern Hollow)
  *   farm / homes            'farm:<season>' (the season's three songs)
  *
  * 'farm:<season>', 'night:<season>', 'rain:<season>', 'town:<season>' and 'town:eve' are playlists (PLAYLISTS): the music director resolves them
@@ -68,8 +68,8 @@ export function chooseTheme(c: MusicContext): string | null {
   // Early evening in the square: the inn's tune spills out across the plaza.
   if (c.map === 'town' && c.hour >= 17.5) return 'town:eve';
   if (c.map === 'town' || c.map === 'hall' || c.map === 'shop' || c.map === 'clinic' || c.map === 'smithy') return `town:${seasonOf(c.season)}`;
-  if (c.map === 'beach') return 'beach';
-  if (c.map === 'forest') return 'forest';
+  if (c.map === 'beach') return 'beach:day';
+  if (c.map === 'forest') return 'forest:day';
   return `farm:${seasonOf(c.season)}`;
 }
 
@@ -96,6 +96,9 @@ export const PLAYLISTS: Record<string, readonly string[]> = {
   'town:fall': ['town', 'town-2'],
   'town:winter': ['town-winter', 'town-2'],
   'town:eve': ['inn', 'town-2'],
+  // Round 12: the beach and the forest had one song each.
+  'beach:day': ['beach', 'beach-2'],
+  'forest:day': ['forest', 'forest-2'],
 };
 
 function mix(a: number, b: number): number {

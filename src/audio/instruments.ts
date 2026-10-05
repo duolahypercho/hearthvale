@@ -644,6 +644,10 @@ export const pizz = plucked(PLUCKS.pizz!);
 const bassString = plucked(PLUCKS.bass!);
 export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   bassString(g, dest, t, m, dur, v, o);
+  // Round 12: the finger — a soft flesh-on-gut thump (600-900 Hz) and a whisper of string noise
+  // at the pluck, the detail that tells a player's hand from a synth.
+  noiseHit(g, dest, t, { f: 650 + g.rng.next() * 250, q: 1.2, amp: v * 0.045, attack: 0.002, tau: 0.018, buf: g.pink });
+  if (o?.art !== 'legato') noiseHit(g, dest, t + 0.003, { f: 2400, q: 2, amp: v * 0.008, attack: 0.002, tau: 0.03 });
   // A little sine body under the string for warmth, plus its octave so it reads on small speakers.
   const f = mtof(m);
   const stop = t + Math.min(dur, 1.2) + 0.4;
@@ -697,6 +701,10 @@ interface WindSpec {
   /** Q of the pitched breath band. */
   breathQ: number;
   chiff: number;
+  /** Round 12: breath puff at the onset (broadband, high-passed ~1.4 kHz, 70 ms) — the player's air. */
+  puff?: number;
+  /** Round 12: a 2-3 kHz formant peak (dB) — the bore's "voice", the part that speaks over comping. */
+  formant?: number;
   vibRate: number;
   vibDepth: number;
   /** Lowpass ceiling as a multiple of the fundamental. */
@@ -758,7 +766,11 @@ function windVoice(o: WindSpec): InstrumentFn {
       }
     }
     const trem = gain(g, 1);
-    vibrato(g, freqs, t, dur, f, o.vibRate, o.vibDepth, long ? 0.3 : 0.22, { node: trem, depth: 0.05 }, long ? 1.7 : 1);
+    // Round 12: a player's vibrato — it enters 250-400 ms into the note (later on longer notes), at
+    // ±20-25 cents on the flute and whistle (±7 before, which read as a polite pad), and widens a
+    // little toward the end of a held note; the rate wanders ±4 % per note.
+    const vDelay = long ? 0.3 + Math.min(0.1, dur * 0.05) : 0.25;
+    vibrato(g, freqs, t, dur, f, o.vibRate * (0.96 + g.rng.next() * 0.08), o.vibDepth, vDelay, { node: trem, depth: 0.06 }, long ? 1.3 : 1);
     // Velocity drives the tone: the ceiling opens ~2.8× from pp (0.3) to f (1.0).
     const lpF = clamp(f * o.ceil * Math.pow(2.6, (v - 0.65) * 1.6) + 600 * v, 500, 15000);
     const lp = filter(g, 'lowpass', lpF, 0.6);
@@ -777,7 +789,15 @@ function windVoice(o: WindSpec): InstrumentFn {
     }
     oscS.connect(gS).connect(lp);
     oscB.connect(gB).connect(lp);
-    lp.connect(trem).connect(a).connect(dest);
+    let voiceOut: AudioNode = a;
+    if (o.formant) {
+      const fm = filter(g, 'peaking', 2600, 1.1);
+      fm.gain.value = o.formant;
+      a.connect(fm);
+      voiceOut = fm;
+    }
+    lp.connect(trem).connect(a);
+    voiceOut.connect(dest);
     for (const osc of [oscS, oscB]) {
       osc.start(t);
       osc.stop(stop);
@@ -802,14 +822,16 @@ function windVoice(o: WindSpec): InstrumentFn {
     src.start(t, g.rng.next() * 2);
     src.stop(stop);
     if (!legato && o.chiff > 0) noiseHit(g, dest, t, { f: Math.min(f * 3, 9000), q: 1.5, amp: v * o.chiff, attack: 0.008, tau: 0.018 });
+    // The breath before the tone speaks (tongued notes; a softer one on a slur).
+    if (o.puff) noiseHit(g, dest, t - 0.012, { type: 'highpass', f: 1400, amp: v * o.puff * (legato ? 0.35 : 1), attack: 0.012, tau: 0.035, buf: g.pink });
   };
 }
 
-export const flute = windVoice({ name: 'flute', soft: FLUTE_SOFT, bright: FLUTE_BRIGHT, mid: 83, attack: 0.07, breath: 0.5, air: 0.07, breathQ: 9, chiff: 0.09, vibRate: 5.1, vibDepth: 0.0042, ceil: 6, release: 0.07, level: 0.6 });
-export const whistle = windVoice({ name: 'whistle', soft: WHISTLE_SOFT, bright: WHISTLE_BRIGHT, mid: 84, attack: 0.03, breath: 0.3, air: 0.04, breathQ: 10, chiff: 0.14, vibRate: 5.8, vibDepth: 0.0038, ceil: 7, release: 0.04, level: 0.5 });
-export const ocarina = windVoice({ name: 'ocarina', soft: OCARINA_SOFT, bright: OCARINA_BRIGHT, mid: 78, attack: 0.05, breath: 0.45, air: 0.05, breathQ: 8, chiff: 0.06, vibRate: 5.4, vibDepth: 0.0048, ceil: 4.5, release: 0.05, level: 0.6 });
-export const clarinet = windVoice({ name: 'clarinet', soft: CLARINET_SOFT, bright: CLARINET_BRIGHT, mid: 76, attack: 0.05, breath: 0.16, air: 0.02, breathQ: 12, chiff: 0.02, vibRate: 4.6, vibDepth: 0.0018, ceil: 3, release: 0.07, level: 0.52 });
-export const oboe = windVoice({ name: 'oboe', soft: OBOE_SOFT, bright: OBOE_BRIGHT, mid: 72, attack: 0.04, breath: 0.12, air: 0.02, breathQ: 12, chiff: 0.04, vibRate: 5.3, vibDepth: 0.0032, ceil: 3.2, release: 0.06, level: 0.34 });
+export const flute = windVoice({ name: 'flute', soft: FLUTE_SOFT, bright: FLUTE_BRIGHT, mid: 83, attack: 0.07, breath: 0.5, air: 0.07, breathQ: 9, chiff: 0.09, puff: 0.05, formant: 2.6, vibRate: 5.3, vibDepth: 0.012, ceil: 6, release: 0.07, level: 0.6 });
+export const whistle = windVoice({ name: 'whistle', soft: WHISTLE_SOFT, bright: WHISTLE_BRIGHT, mid: 84, attack: 0.03, breath: 0.3, air: 0.04, breathQ: 10, chiff: 0.14, puff: 0.035, formant: 2.2, vibRate: 5.8, vibDepth: 0.01, ceil: 7, release: 0.04, level: 0.5 });
+export const ocarina = windVoice({ name: 'ocarina', soft: OCARINA_SOFT, bright: OCARINA_BRIGHT, mid: 78, attack: 0.05, breath: 0.45, air: 0.05, breathQ: 8, chiff: 0.06, puff: 0.04, formant: 2, vibRate: 5.4, vibDepth: 0.011, ceil: 4.5, release: 0.05, level: 0.6 });
+export const clarinet = windVoice({ name: 'clarinet', soft: CLARINET_SOFT, bright: CLARINET_BRIGHT, mid: 76, attack: 0.05, breath: 0.16, air: 0.02, breathQ: 12, chiff: 0.02, puff: 0.015, formant: 1.5, vibRate: 4.8, vibDepth: 0.005, ceil: 3, release: 0.07, level: 0.52 });
+export const oboe = windVoice({ name: 'oboe', soft: OBOE_SOFT, bright: OBOE_BRIGHT, mid: 72, attack: 0.04, breath: 0.12, air: 0.02, breathQ: 12, chiff: 0.04, puff: 0.015, formant: 1.5, vibRate: 5.3, vibDepth: 0.009, ceil: 3.2, release: 0.06, level: 0.34 });
 
 /**
  * Bowed strings, physically modelled. Each pitch is a pre-rendered waveguide note (dsp.ts
@@ -993,13 +1015,17 @@ export const pad: InstrumentFn = (g, dest, t, m, dur, v) => {
 export const softBass: InstrumentFn = (g, dest, t, m, dur, v) => {
   const f = mtof(m);
   const a = gain(g);
-  const pk = v * 0.85;
+  // Round 12: a gentler sink (to ~62 %, was 45 %: the next note no longer slams back 7 dB over the
+  // held one) and a release that scales with the note — 0.12 s on quick notes, up to 0.38 s on the
+  // long held roots of the slow songs, where an 85 ms release opened a hole before every bar line.
+  const pk = v * 0.8;
   const end = t + Math.max(dur, 0.06);
+  const rel = Math.min(0.38, Math.max(0.12, 0.08 + dur * 0.14));
   a.gain.setValueAtTime(0, t);
-  a.gain.linearRampToValueAtTime(pk, t + 0.025);
-  a.gain.setTargetAtTime(pk * 0.45, t + 0.04, 0.45 + Math.min(1.5, dur * 0.35));
-  a.gain.setTargetAtTime(0, end, 0.085);
-  const stop = end + 0.6;
+  a.gain.linearRampToValueAtTime(pk, t + 0.03);
+  a.gain.setTargetAtTime(pk * 0.62, t + 0.05, 0.6 + Math.min(1.5, dur * 0.35));
+  a.gain.setTargetAtTime(0, end, rel);
+  const stop = end + rel * 6;
   const lp = filter(g, 'lowpass', 900, 0.5);
   lp.connect(a).connect(dest);
   sine(g, f, t, stop).connect(lp);

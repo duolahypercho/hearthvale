@@ -72,3 +72,32 @@ export function loudnessTrim(id: string): number {
   const target = TARGET_LUFS + (TARGET_OFFSET[id] ?? 0);
   return Math.max(0.2, Math.min(5, Math.pow(10, (target - m) / 20)));
 }
+
+/**
+ * Round 12 — tonal balance. Loudness alone left songs in one playlist 5-8 dB apart in their bass
+ * and top (spring-2 vs spring-3, rain vs rain-2): the rotation advanced and the EQ jumped. Every
+ * song's opening is measured in four bands (dB re 0.5-2.5 kHz) by `--calibrate`, and a low shelf
+ * (200 Hz) and a high shelf (2.5 kHz) on its bus bring the 60-200 Hz and 2.5-6 kHz ratios to the
+ * house curve of its family (day songs; the darker lullabies / rain / event cues), so a playlist sits
+ * within ±2 dB. MEASURED_TONE holds the UNcorrected ratios [low, high].
+ */
+export const TONE_HOUSE = { day: { low: -7, high: -9 }, soft: { low: -6, high: -11 } };
+/** Family of a theme for its house curve (null = left as arranged: the mines' ambient drones). */
+export function toneFamily(id: string): keyof typeof TONE_HOUSE | null {
+  if (id.startsWith('mine')) return null;
+  return /^(night|rain|event-|inn)/.test(id) ? 'soft' : 'day';
+}
+
+// @tone-begin (scripts/audio-render.mjs --calibrate)
+export const MEASURED_TONE: Record<string, [number, number]> = {};
+// @tone-end
+
+/** Shelf gains (dB) for theme `id`: low shelf at 200 Hz, high shelf at 2.5 kHz (±5 dB at most). */
+export function toneTrim(id: string): { low: number; high: number } {
+  const m = MEASURED_TONE[id];
+  const fam = toneFamily(id);
+  if (!m || !fam) return { low: 0, high: 0 };
+  const h = TONE_HOUSE[fam];
+  const c = (x: number): number => Math.round(Math.max(-5, Math.min(5, x)) * 10) / 10;
+  return { low: c(h.low - m[0]), high: c(h.high - m[1]) };
+}

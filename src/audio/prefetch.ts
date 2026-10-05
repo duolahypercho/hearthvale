@@ -20,6 +20,11 @@ export class PiecePrefetch {
   /** Theme of each requested piece (its key bridge's notes are pinned with its opening). */
   private themeOf = new Map<string, ThemeDef>();
   private pending = new Set<string>();
+  /**
+   * Pieces kept ready whatever else is composed (round 12: the scene cues and the title — a heart
+   * event's cue composed on the frame cost a 30-70 ms hitch while its camera moved).
+   */
+  private pinned = new Set<string>();
   /** Diagnostics: pieces served from the worker vs composed on the main thread. */
   hits = 0;
   misses = 0;
@@ -50,10 +55,15 @@ export class PiecePrefetch {
           this.ready.set(e.data.key, e.data.piece);
           // Its opening bars are pinned in the note cache until it plays (a song predicted a whole
           // song ahead must not find its downbeat evicted by the time it starts).
-          this.graph?.pinNext(PiecePrefetch.openingKeys(e.data.piece, this.themeOf.get(e.data.key)));
+          // (Pinned scene pieces don't take the next song's place in the note cache's pin.)
+          if (!this.pinned.has(e.data.key)) this.graph?.pinNext(PiecePrefetch.openingKeys(e.data.piece, this.themeOf.get(e.data.key)));
         }
         // Keep the cache small: only the next few songs (and forced demo / cutscene themes) matter.
-        while (this.ready.size > 6) this.ready.delete(this.ready.keys().next().value!);
+        while (this.ready.size > 6 + this.pinned.size) {
+          const drop = [...this.ready.keys()].find((k) => !this.pinned.has(k));
+          if (!drop) break;
+          this.ready.delete(drop);
+        }
       };
       this.worker.onerror = () => {
         this.worker?.terminate();
@@ -170,6 +180,21 @@ export class PiecePrefetch {
     this.worker.postMessage({ key: k, theme, seed, sr: this.sr });
   }
 
+  /** Keep (theme, seed) composed and ready until it is taken (scene cues, the title). */
+  pin(theme: ThemeDef, seed: number): void {
+    const k = PiecePrefetch.key(theme, seed);
+    if (!this.worker || this.pinned.has(k)) return;
+    // Old pins of the same theme (an earlier day's seed) give their place up.
+    for (const p of this.pinned) {
+      if (p.startsWith(`${theme.id}#`)) {
+        this.pinned.delete(p);
+        this.ready.delete(p);
+      }
+    }
+    this.pinned.add(k);
+    this.request(theme, seed);
+  }
+
   /** True when the piece for (theme, seed) is either ready or not coming (so waiting is pointless). */
   settled(theme: ThemeDef, seed: number): boolean {
     return !this.pending.has(PiecePrefetch.key(theme, seed));
@@ -181,6 +206,7 @@ export class PiecePrefetch {
     const p = this.ready.get(k);
     if (p) {
       this.ready.delete(k);
+      this.pinned.delete(k);
       this.hits++;
       return p;
     }

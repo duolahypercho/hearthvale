@@ -28,7 +28,7 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
     swing: 0.58,
     form: SHORT_FORM,
     prog: {
-      intro: ['Imaj7', 'IVmaj7'],
+      intro: ['iii7', 'vi7'],
       A: ['Imaj7', 'vi7', 'ii7', 'V7', 'Imaj7', 'vi7', 'IVmaj7', 'V7sus4 V'],
       B: ['IVmaj7', 'iii7', 'ii7', 'Imaj7', 'IVmaj7', 'iii7 vi7', 'ii7', 'V7sus4 V'],
       C: ['vi7', 'IVmaj7', 'Imaj7', 'V', 'vi7', 'IVmaj7', 'iv6', 'V7sus4 V'],
@@ -74,7 +74,7 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 64, // E
     mode: 'minor',
-    form: SHORT_FORM,
+    form: ['intro', 'A', 'B', 'C', 'A', 'outro'],
     breaks: 'breath',
     prog: {
       intro: ['i', 'bVI'],
@@ -124,10 +124,11 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 60, // C
     mode: 'major',
-    form: FORM,
+    form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
+    lift: 2,
     breaks: 'breath',
     prog: {
-      intro: ['I', 'V7'],
+      intro: ['V7'],
       A: ['I', 'I', 'IV', 'I', 'ii', 'V7', 'V7', 'I'],
       B: ['vi', 'vi', 'ii', 'V7', 'IV', 'I', 'ii V7', 'I'],
       C: ['vi', 'iii', 'IV', 'I', 'ii', 'V', 'iii vi', 'ii V7'],
@@ -177,7 +178,7 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
     key: 65, // F
     mode: 'major',
     swing: 0.56,
-    form: FORM,
+    form: ['A', 'A', 'B', 'A', 'C', 'A', 'outro'],
     prog: {
       intro: ['I', 'V'],
       A: ['I', 'IV', 'I', 'V', 'I', 'IV', 'ii V', 'I'],

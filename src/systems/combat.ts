@@ -108,7 +108,8 @@ export class CombatSystem implements System, HealthApi {
       this.auto = null;
       const m = this.mine();
       if (m) m.pickups.magnetR = 2.5;
-      if (name === 'mine-combat') this.stageCombat();
+      // (audio-mine: the audio pod's combat soundcheck, `&fight=1` stages the same auto-fight.)
+      if (name === 'mine-combat' || (name === 'audio-mine' && new URLSearchParams(location.search).get('fight') === '1')) this.stageCombat();
     });
   }
 
@@ -243,7 +244,7 @@ export class CombatSystem implements System, HealthApi {
     if (staged) acts.twist = player.facing === 'left' ? 0.75 : player.facing === 'right' ? -0.75 : 0;
     this.side = !this.side;
     this.trail.reset();
-    mineSfx.whoosh();
+    // (The swing itself is voiced by tool:swing → 'sword' in systems/audio.ts.)
     this.game.events.emit('combat:swing', { x: player.position.x, z: player.position.z });
     this.game.events.emit('tool:swing', { tool: 'sword', tier: 0, charge: 0 });
     const origin = player.position.clone();

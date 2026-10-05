@@ -23,9 +23,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '6/8',
     key: 67, // G
     mode: 'major',
-    form: FORM,
+    form: ['intro', 'A', 'B', 'C', 'A', 'outro'],
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['I', 'IV/5', 'iv/5', 'I'],
       A: ['I', 'I', 'IV', 'V', 'I', 'vi', 'ii', 'V', 'I', 'I', 'IV', 'iv', 'I', 'vi', 'ii V', 'I'],
       B: ['IV', 'V', 'iii', 'vi', 'IV', 'I', 'ii', 'V'],
       C: ['vi', 'iii', 'IV', 'I', 'vi', 'II', 'IV', 'V'],
@@ -76,9 +76,10 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 62, // D
     mode: 'major',
-    form: FORM,
+    form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
+    lift: 2,
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['V7sus4'],
       A: ['I', 'V/3', 'vi', 'iii', 'IV', 'I/3', 'ii7', 'V'],
       Aend: ['V7', 'I'],
       B: ['IV', 'I/3', 'ii7', 'V', 'iii7', 'vi', 'ii7', 'V7'],
@@ -130,9 +131,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 69, // A
     mode: 'major',
-    form: FORM,
+    form: ['intro', 'A', 'B', 'A', 'B', 'C', 'A', 'outro'],
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['V7sus4', 'V7'],
       A: ['I', 'I7', 'IV', 'iv6', 'I', 'vi7', 'ii7', 'V7'],
       Aend: ['V7', 'I'],
       B: ['IV', 'I', 'V/3', 'vi', 'IV', 'I/3', 'ii7', 'V7'],
@@ -180,7 +181,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     key: 60, // C
     mode: 'major',
     swing: 0.55,
-    form: FORM,
+    form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
     prog: {
       intro: ['Imaj7', 'vi7'],
       A: ['Imaj7', 'vi7', 'ii7', 'V7', 'iii7', 'vi7', 'ii7', 'V7'],
@@ -232,7 +233,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '4/4',
     key: 57, // A
     mode: 'minor',
-    form: FORM,
+    form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
+    lift: 1,
     prog: {
       intro: ['i', 'bVI'],
       A: ['i', 'bVI', 'bIII', 'bVII', 'iv', 'i', 'bVI', 'V'],
@@ -279,9 +281,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '6/8',
     key: 67, // G
     mode: 'minor',
-    form: FORM,
+    form: ['intro', 'A', 'B', 'A', 'B', 'outro'],
     prog: {
-      intro: ['i', 'bVII'],
+      intro: ['i', 'iv', 'i', 'bVII'],
       A: ['i', 'bVII', 'bVI', 'V', 'i', 'bVII', 'bVI', 'V', 'i', 'iv', 'bVII', 'bIII', 'bVI', 'iv', 'V', 'i'],
       B: ['bIII', 'bVII', 'iv', 'i', 'bVI', 'bIII', 'iv', 'V'],
       C: ['bVI', 'bVII', 'bIII', 'i', 'iv', 'bVII', 'bIII', 'V'],
@@ -382,9 +384,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '6/8',
     key: 65, // F
     mode: 'major',
-    form: FORM,
+    form: ['intro', 'A', 'B', 'A', 'B', 'A', 'outro'],
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['vi', 'V/3'],
       A: ['I', 'vi', 'IV', 'V', 'I', 'iii', 'IV', 'V', 'vi', 'iii', 'IV', 'I', 'IV', 'iv', 'V', 'I'],
       B: ['vi', 'iii', 'IV', 'I', 'ii', 'iii', 'IV', 'V'],
       C: ['iii', 'vi', 'ii', 'V', 'bVII', 'IV', 'ii', 'V'],
@@ -409,7 +411,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     counter: { inst: 'cello', range: [45, 60], on: 'repeat', style: 'moving' },
     // (Round 4: the music box moved under the flute — at 69–86 it twinkled on top of the tune.)
     accomp: { inst: 'musicBox', pattern: 'musicBox', range: [58, 74], voices: 3, vel: 0.42 },
-    bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.5 },
+    bass: { inst: 'upright', pattern: 'root', range: [36, 48], vel: 0.62 },
     mix: {
       melody: { gain: 0.8, pan: 0.06, send: 0.44 },
       counter: { gain: 0.44, pan: -0.3, send: 0.42 },
@@ -435,9 +437,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     breaks: false,
     form: NIGHT_FORM,
     prog: {
-      intro: ['Imaj7', 'IVmaj7'],
-      A: ['Imaj7', 'IVmaj7', 'vi7', 'iii7', 'ii7', 'V7sus4', 'Imaj7', 'IVmaj7'],
-      Aend: ['V7sus4 V7', 'Imaj7'],
+      intro: ['I', 'ii7/7'],
+      A: ['I', 'ii7/7', 'I/3', 'IVmaj7', 'vi7', 'ii7', 'V7sus4', 'V7'],
+      Aend: ['V7sus4 V7', 'I'],
       B: ['vi7', 'iii7', 'IVmaj7', 'Imaj7', 'ii7', 'bVIImaj7', 'IVmaj7', 'V7sus4'],
       C: ['IVmaj7', 'iv6', 'Imaj7', 'vi7', 'ii7', 'V/3', 'IVmaj7', 'V7sus4'],
       outro: ['IVmaj7', 'Imaj7'],
@@ -446,14 +448,17 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       inst: 'flute', range: [65, 88], density: 0.3, legato: true, ornament: 0.15, cInst: 'celesta',
       tune: {
         octave: 0,
-        A: ['5:3 3:1 1:4', "6:3 1':1 6:4", '5:3 3:1 1:2 6,:2', '7,:4 r:4', '2:3 4:1 6:4', "5:3 4:1 1':4", '7:4 5:4', '6:4 r:4'],
-        Aend: ['4:2 2:2 5:2 7,:2', '1:8'],
+        // Round 12: a singing line (mostly steps, a held note tied over each bar line resolving down —
+        // 9-8 over IV, 4-3 over V7) instead of a chord arpeggio: "C.. Bb C | Db.. C Bb | Ab C Eb.. |
+        // Eb Db C.. | C Db Eb F | F.. Eb Db | Db.. C Bb | Ab.. G.. |".
+        A: ['3:4 2:2 3:2', '4:4 3:2 2:2', '1:2 3:2 5:4', '5:2 4:2 3:4', '3:2 4:2 5:2 6:2', '6:4 5:2 4:2', '4:4 3:2 2:2', '1:4 7,:4'],
+        Aend: ['2:4 7,:4', '1:8'],
         B: ["1':3 6:1 5:4", '7:3 5:1 3:4', "4:2 6:2 1':4", '7:6 r:2', '6:3 4:1 2:4', 'b7:4 6:4', '4:3 3:1 1:4', '2:4 1:4'],
         C: ["1':4 6:4", 'b6:4 4:4', '5:4 3:4', '6,:4 r:4', '2:3 4:1 6:4', '7:3 5:1 2:4', '3:4 1:4', '4:4 2:4'],
       },
     },
     accomp: { inst: 'harp', pattern: 'arpUp', range: [51, 70], voices: 4, vel: 0.5 },
-    bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.45 },
+    bass: { inst: 'upright', pattern: 'root', range: [36, 48], vel: 0.6 },
     pad: { inst: 'pad', range: [56, 70], voices: 3, vel: 0.3, on: 'B' },
     mix: {
       melody: { gain: 0.74, pan: 0.1, send: 0.52 },
@@ -480,9 +485,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     mode: 'major',
     swing: 0.56,
     breaks: false,
-    form: NIGHT_FORM,
+    form: ['intro', 'A', 'B', 'C', 'A', 'outro'],
     prog: {
-      intro: ['Imaj7', 'IVmaj7'],
+      intro: ['ii7', 'V7sus4'],
       A: ['Imaj7', 'II', 'IVmaj7', 'iii7', 'vi7', 'ii7', 'IVmaj7', 'V7sus4'],
       Aend: ['ii7 V7', 'Imaj7'],
       B: ['vi7', 'IVmaj7', 'Imaj7', 'iii7', 'vi7', 'II', 'IVmaj7', 'V7sus4'],
@@ -529,7 +534,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     key: 62, // D
     mode: 'dorian',
     breaks: false,
-    form: NIGHT_FORM,
+    form: ['intro', 'A', 'B', 'A', 'B', 'outro'],
     prog: {
       intro: ['i', 'IV'],
       A: ['i', 'IV', 'bIII', 'bVII', 'i', 'IV', 'bVII', 'i'],
@@ -572,7 +577,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     breaks: false,
     form: NIGHT_FORM,
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['Isus4', 'I'],
       A: ['I', 'iii', 'IV', 'I', 'vi', 'ii7', 'IV', 'V7sus4 V'],
       Aend: ['V7', 'I'],
       B: ['vi', 'iii', 'IV', 'I', 'ii7', 'V', 'IV', 'V7'],

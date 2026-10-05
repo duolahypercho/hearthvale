@@ -994,7 +994,7 @@ export class MineCoop implements MineNetApi {
           m.fx.sparks(at, { color: 0xffffff, to: crit ? 0xffc040 : 0xffe8c0, count: crit ? 18 : 10, speed: crit ? 5 : 3.6, up: 0.8, size: crit ? 0.14 : 0.1, gravity: 4, drag: 3, life: 0.28, dir: k, cone: 0.4 });
           if (mo.kind === 'slime') m.fx.puff(at, { color: 0x7ed957, count: 10, speed: 2.6, up: 1.2, size: 0.16, gravity: 9, drag: 1, life: 0.6, dir: k, cone: 0.5 });
           if (killed === 1) m.fx.splat(mo.pos, new THREE.Color(mo.kind === 'slime' ? 0x5fa840 : 0x3a302c), mo.kind === 'slime' ? 0.95 : 0.7, 6);
-          mineSfx.hitFlesh(crit === 1);
+          mineSfx.hit(mo.kind, crit === 1, killed === 1, mo.pos);
         }
         this.popHits(m, shown, origin);
         if (striker === this.myId() && shown.length) {
@@ -1064,7 +1064,7 @@ export class MineCoop implements MineNetApi {
     const f = Math.abs(dir.x) > Math.abs(dir.z) ? new THREE.Vector3(Math.sign(dir.x), 0, 0) : new THREE.Vector3(0, 0, Math.sign(dir.z) || 1);
     a.fire(pos, f, Math.random() < 0.5 ? 1 : -1);
     setTimeout(() => a.impact(false, true), 80);
-    mineSfx.whoosh();
+    mineSfx.whoosh(pos);
   }
 
   private remoteAnim(id: number, what: 'pick' | 'sword', dir?: THREE.Vector3): void {

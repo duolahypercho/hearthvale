@@ -19,6 +19,9 @@
  *               seed only varies accompaniment figuration and humanisation, never the tune.
  */
 import { Rand } from './dsp';
+
+/** Bass instruments that hold their notes (ties, not gaps, between them). */
+const SUSTAINED_BASS: ReadonlySet<string> = new Set(['softBass', 'cello', 'drone', 'pad', 'accordion']);
 import type { InstrumentName, NoteOpts } from './instruments';
 import { MODES, chordPcs, chordScale, nearestIn, parseChord, scaleStep, voiceChord, type Chord, type ModeName } from './theory';
 
@@ -1082,10 +1085,27 @@ export class Composer {
     const doRun = run && cfg.pattern !== 'pedal' && !!next;
     const runLen = b.brk ? 3 : 2;
     const cut = doRun ? S - runLen : S;
+    // Articulation is absolute, not proportional (round 12: a 0.92 trim opened a 150-250 ms hole in
+    // the low end before every downbeat of the slow songs). Sustained basses tie over by 30 ms; a
+    // repeated pitch re-articulates with a fixed 50 ms lift; plucked basses leave a 40 ms gap.
+    const sustained = SUSTAINED_BASS.has(cfg.inst);
     const push = (step: number, midi: number, steps: number, vel: number): void => {
       if (step >= cut) return;
       const m = cfg.pattern === 'pedal' ? midi : this.counterpoint(sp, step, midi, lo, hi);
-      ev.push({ t: this.at(b, step) + this.jit(0.004), track: 'bass', inst: cfg.inst, midi: m, dur: Math.min(steps, cut - step) * stepDur * 0.92, vel: vel * cfg.vel * (0.95 + r.gauss(0.03)) });
+      const t = this.at(b, step) + this.jit(0.004);
+      const full = Math.min(steps, cut - step) * stepDur;
+      if (sustained) {
+        // Re-articulating the same pitch: shorten the previous note to leave a breath, not a hole.
+        for (let k = ev.length - 1; k >= 0; k--) {
+          const pe = ev[k]!;
+          if (pe.track !== 'bass') continue;
+          if (pe.midi === m && pe.t + pe.dur > t - 0.05) pe.dur = Math.max(0.08, t - pe.t - 0.05);
+          break;
+        }
+      }
+      // (Quick passing / approach notes stay detached: tied over, a leading tone rubs the downbeat.)
+      const dur = sustained ? (steps >= 2 ? full + 0.03 : full - 0.02) : Math.max(full * 0.5, full - 0.04);
+      ev.push({ t, track: 'bass', inst: cfg.inst, midi: m, dur, vel: vel * cfg.vel * (0.95 + r.gauss(0.03)) });
     };
     const s0 = sp.s0;
     if (lastBar) {

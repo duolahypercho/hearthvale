@@ -176,6 +176,8 @@ export const DEMOS: Record<string, DemoDef> = {
   'audio-brook': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: FOREST_FALLS_CAM },
   'audio-noon': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 12.5, season: 'summer', weather: 'sun', camera: HOME_CAM },
   // Audio pod: the event score in the square — `&event=<npc>-<2|4>` plays that heart event's cue, `&cue=event-tender|playful|wistful|mystery|sly|dawn` one directly.
+  // Audio pod: mine / combat sound on the main graph — `&floor=<n>` picks the floor (biome band: 1-9 earth, 10-19 ice, 20+ lava), `&fight=1` stages the auto-fight (sword, per-kind blows, kills, hurt).
+  'audio-mine': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 17, offsetZ: -0.7 }, showcase: [] },
   'audio-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).

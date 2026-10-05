@@ -46,7 +46,14 @@ import { dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { plotRender } from './audio-plot.mjs';
-import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower } from './audio-analysis.mjs';
+import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower, bassHoles, bandRatios, eventDensity } from './audio-analysis.mjs';
+
+/**
+ * The house curve (round 12): every song's opening lands within ±2 dB of it per band (the spectral
+ * calibration in src/audio/loudness.ts TONE_TRIM applies the correcting shelves). In dB re 0.5–2.5 kHz.
+ */
+const HOUSE = { low: -6, lowmid: -3, high: -9 };
+const toneDeviation = (t) => Math.max(Math.abs(t.low - HOUSE.low), Math.abs(t.high - HOUSE.high));
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // --out <dir> renders somewhere other than shots/audio (e.g. a critic's own folder).
@@ -216,6 +223,27 @@ async function main() {
   if ((args.themes || args.compose) && !args.gameplayOnly) {
     const crits = await sess.page.evaluate(([ids, seed]) => ids.map((id) => window.__audioOffline.critiquePiece(id, seed)), [themes, args.seed]);
     compFails = printCritique(crits, args.verbose);
+    // Identity (round 12): songs in one playlist must not open on the same two chords, and the
+    // Imaj7 → IVmaj7 lo-fi opening is allowed at most twice in the whole book.
+    const op = await sess.page.evaluate(() => window.__audioOffline.openings());
+    const norm = (p) => p.replace(/maj7|7|add9|6|sus[24]/g, '');
+    console.log('\nOPENINGS (first two chords heard · form · intro bars)');
+    for (const [id, o] of Object.entries(op.songs)) if (!args.only || args.only.includes(id)) console.log(`  ${id.padEnd(18)} ${o.pair.padEnd(16)} ${o.form.padEnd(34)} ${o.intro}`);
+    for (const [pl, ids] of Object.entries(op.playlists)) {
+      const seen = new Map();
+      for (const id of ids) {
+        const k = norm(op.songs[id]?.pair ?? '');
+        if (seen.has(k)) {
+          compFails.push(`SAME-OPENING(${pl}: ${seen.get(k)} / ${id} both open ${k})`);
+        } else seen.set(k, id);
+      }
+    }
+    const lofi = Object.entries(op.songs).filter(([, o]) => o.pair === 'Imaj7 IVmaj7').map(([id]) => id);
+    if (lofi.length > 2) compFails.push(`LOFI-OPENING(${lofi.join(', ')})`);
+    const forms = new Map();
+    for (const o of Object.values(op.songs)) forms.set(o.form, (forms.get(o.form) ?? 0) + 1);
+    const top = [...forms].sort((x, y) => y[1] - x[1])[0];
+    console.log(`  most shared form: ${top?.[0]} × ${top?.[1]} of ${Object.keys(op.songs).length}; Imaj7–IVmaj7 openings: ${lofi.join(', ') || 'none'}`);
     writeFileSync(resolve(outDir, 'composition.json'), JSON.stringify(crits, null, 2));
     if (args.compose) {
       await closeAll();
@@ -302,13 +330,36 @@ async function main() {
           const keep = job.kind !== 'mix' || args.keepWav;
           if (keep) writeWav(resolve(outDir, `${res.name}.wav`), inter, res.sampleRate);
           const a = analyze(inter, res.sampleRate);
+          const piece = job.fn === 'renderTheme' ? await sess.page.evaluate(([id, seed, secs]) => window.__audioOffline.pieceData(id, seed, secs), [job.a[0], args.seed, args.seconds]) : undefined;
+          let extraFlags = [];
+          if (job.kind === 'amb') {
+            // Round 12: an ambience is judged by its events and its movement, not by how loud its bed
+            // is — at least 8 foreground events per minute and a loudness range of 4 LU or more.
+            const ev = eventDensity(inter, res.sampleRate);
+            a.events = ev;
+            if (ev.perMin < 8) extraFlags.push(`AMB-STATIC(${ev.perMin} events/min)`);
+            if (a.lra < 4 && !/mine|festival|town/.test(res.name)) extraFlags.push(`AMB-FLAT(LRA ${fmt(a.lra)})`);
+            console.log(`  events: ${ev.count} (${ev.perMin}/min) at ${ev.at.slice(0, 12).join(' ')}`);
+          }
+          if (job.kind === 'theme' && piece) {
+            // Round 12 critic rules: low-end holes before downbeats (sustained bass patterns) and the
+            // song's tonal balance against the house curve (band ratios in dB re 0.5–2.5 kHz).
+            // (Section seams are exempt: a written stop-time / breath before a new strain is a rest.)
+            const holes = bassHoles(inter, res.sampleRate, piece.bars.filter((b, k) => k > 0 && b.section === piece.bars[k - 1].section).map((b) => b.t));
+            a.bassHoles = holes;
+            a.tone = bandRatios(inter, res.sampleRate, OPENING_SECONDS);
+            if (holes.count > 0 && ['root', 'pedal', 'waltz'].includes(piece.bass ?? '')) extraFlags.push(`BASS-HOLE(${holes.count}, ${holes.worstDb} dB)`);
+            const dev = toneDeviation(a.tone);
+            if (dev > 3) extraFlags.push(`TONE(${dev.toFixed(1)} dB off the house curve)`);
+          }
           if (args.plots) {
-            const piece = job.fn === 'renderTheme' ? await sess.page.evaluate(([id, seed, secs]) => window.__audioOffline.pieceData(id, seed, secs), [job.a[0], args.seed, args.seconds]) : undefined;
             plotRender(resolve(outDir, `${res.name}.png`), inter, res.sampleRate, { title: res.name, sub: `LUFS ${fmt(a.lufsIntegrated)}  dBTP ${fmt(a.truePeakDb)}  centroid ${fmt(a.centroidHz, 0)}HZ`, piece, markers: res.markers });
           }
           const kind = job.kind === 'mix' ? 'theme' : job.kind === 'trans' ? 'reel' : job.kind;
           console.log(row(res.name, a, job.kind === 'sfx' ? 'reel' : kind) + `  (${((Date.now() - t0) / 1000).toFixed(1)}s${res.notes ? `, ${res.notes} notes` : ''})`);
-          const fl = flags(a, kind, res.name);
+          const fl = [...flags(a, kind, res.name), ...extraFlags];
+          if (extraFlags.length) console.log(`  ${extraFlags.join('  ')}`);
+          if (job.kind === 'theme' && a.tone) console.log(`  tone re mid: low ${fmt(a.tone.low)} lowmid ${fmt(a.tone.lowmid)} high ${fmt(a.tone.high)} dB; bass dips before downbeats: ${a.bassHoles.count} (worst ${fmt(a.bassHoles.worstDb)} dB)`);
           if (job.kind === 'trans') transitionCheck(res, inter, fl);
           if (job.kind === 'mix') {
             // Ambience vs score (round 5): the same seed's theme render is the music alone, so the
@@ -319,8 +370,9 @@ async function main() {
               const ambLu = extra > 0 ? 10 * Math.log10(extra) : -Infinity;
               const under = th.lufsIntegrated - ambLu;
               a.ambienceUnderMusic = Number.isFinite(under) ? Math.round(under * 10) / 10 : null;
-              console.log(`  ambience ≈ ${fmt(ambLu)} LUFS, ${fmt(under)} LU under the music (need ≤ 10)  ${under <= 10 ? 'ok' : 'AMB-BURIED'}`);
-              if (!(under <= 10)) fl.push('AMB-BURIED');
+              // (Round 12: informational only — the beds were lifted to meet this and became washes; an
+              // ambience is now judged on its own render by event density and loudness range.)
+              console.log(`  ambience ≈ ${fmt(ambLu)} LUFS, ${fmt(under)} LU under the music`);
             }
           }
           report.renders.push({ name: res.name, kind: job.kind, file: keep ? `${outRel}/${res.name}.wav` : null, notes: res.notes, ...a, flags: fl });
@@ -495,7 +547,7 @@ const LIVE_SCENES = [
   { demo: 'audio', season: 'fall', expect: /^fall(-\d)?$/ },
   { demo: 'audio', season: 'winter', weather: 'sun', expect: /^winter(-\d)?$/ },
   { demo: 'town-day', expect: /^town(-[a-z0-9]+)?$/ },
-  { demo: 'beach-day', expect: 'beach' },
+  { demo: 'beach-day', expect: /^beach(-2)?$/ },
   { demo: 'mine', expect: 'mine' },
   { demo: 'winter-night', expect: /^night(-winter)?$/ },
   // Summer nights rotate the new 'Firefly Meadow' (night-summer) with Lamplight.
@@ -510,10 +562,12 @@ const LIVE_SCENES = [
   { demo: 'town-day', label: 'scene glimmer-offer', emit: [['cutscene:start', { scene: 'glimmer-offer' }]], after: [['cutscene:end', { scene: 'glimmer-offer', skipped: false }]], expect: 'event-sly' },
   { demo: 'title', expect: 'title' },
 ];
-const LIVE_SFX = ['step:grass', 'water', 'hoe', 'scythe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'ui:close', 'ui:hover', 'ui:select', 'ui:slot', 'splash', 'sword', 'slime', 'heart', 'levelup', 'chest', 'join', 'chat', 'emote:heart'];
+const LIVE_SFX = ['step:grass', 'water', 'hoe', 'scythe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'ui:close', 'ui:hover', 'ui:select', 'ui:slot', 'splash', 'sword', 'slime', 'hit:slime', 'hit:crab', 'hit:bat', 'mine:pick', 'mine:break', 'heart', 'levelup', 'chest', 'join', 'chat', 'emote:heart'];
 /** Level hierarchy: the farming verbs must sit above the menu sounds, and all of them above the ambience. */
 const VERBS = ['step:grass', 'water', 'hoe', 'scythe'];
 const MENU = ['ui:open', 'ui:close'];
+/** Combat must land at least as hard as tilling (round 12: the blows sat 9 dB under the hoe). */
+const COMBAT = ['hit:slime', 'hit:crab', 'hit:bat'];
 
 async function live() {
   const server = await createServer({
@@ -538,6 +592,19 @@ async function live() {
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => m.type() === 'error' && /audio/i.test(m.text()) && errors.push(m.text()));
   page.setDefaultTimeout(240000);
+  // Every AudioContext the page constructs (there must be exactly one: the hub's).
+  await page.addInitScript(() => {
+    const C = window.AudioContext;
+    window.__audioContexts = 0;
+    if (C) {
+      window.AudioContext = class extends C {
+        constructor(...a) {
+          super(...a);
+          window.__audioContexts++;
+        }
+      };
+    }
+  });
   await page.goto(`${base}/?notitle=1&audio=1&quality=low&card=0`, { waitUntil: 'load' });
   await page.waitForFunction(() => typeof window.__game?.ready === 'function');
   // Count audio node creation (render budget for the synth): wrap every BaseAudioContext.create*.
@@ -686,6 +753,49 @@ async function live() {
   const hierOk = verbMin > menuMax - 3 && verbMin > sfx.floor + 6;
   if (!hierOk) fails++;
   console.log(`  hierarchy: quietest farming verb ${fmt(verbMin)} vs loudest menu cue ${fmt(menuMax)} (ambience ${fmt(sfx.floor)})  ${hierOk ? 'ok' : 'FAIL'}`);
+  const combatMin = Math.min(...lvl(COMBAT));
+  const hoe = lvl(['hoe'])[0];
+  const combatOk = combatMin > hoe - 1.5;
+  if (!combatOk) fails++;
+  console.log(`  combat: quietest monster blow ${fmt(combatMin)} vs the hoe ${fmt(hoe)}  ${combatOk ? 'ok' : 'FAIL'}`);
+
+  // Mine / combat cues (world/mine/sfx.ts) are voiced on the main graph via the audio hub: one voice
+  // per kind for a 3-monster sweep, positional, no second AudioContext anywhere on the page.
+  const mine = await page.evaluate(async () => {
+    const g = window.__game;
+    const a = g.game.services.audio;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    await g.demo('audio-mine');
+    a.music('none');
+    await sleep(2500);
+    const { mineSfx } = await import('/src/world/mine/sfx.ts');
+    const p = g.game.player.position;
+    const before = a.state().sfxLog.length;
+    const t0 = a.state().sfxLog.at(-1)?.at ?? 0;
+    for (let i = 0; i < 3; i++) mineSfx.hit('slime', false, i === 2, { x: p.x + 1 + i * 0.3, z: p.z });
+    await sleep(120);
+    const log = a.state().sfxLog.filter((x) => x.at > t0);
+    const peak = async (fn) => {
+      fn();
+      let max = -Infinity;
+      for (let i = 0; i < 10; i++) {
+        await sleep(25);
+        max = Math.max(max, a.meter());
+      }
+      await sleep(700);
+      return max;
+    };
+    const nearHit = await peak(() => mineSfx.hit('crab', false, false, { x: p.x + 1, z: p.z }));
+    const farHit = await peak(() => mineSfx.hit('crab', false, false, { x: p.x + 12, z: p.z }));
+    a.music(null);
+    return { voiced: log.map((x) => x.name), grew: a.state().sfxLog.length - before, nearHit, farHit, contexts: window.__audioContexts ?? null };
+  });
+  const sweepOk = mine.voiced.filter((n) => n === 'hit:slime').length === 1;
+  const mPosOk = mine.nearHit > mine.farHit + 5;
+  if (!sweepOk || !mPosOk) fails++;
+  if (mine.contexts !== 1) fails++;
+  console.log(`  AudioContexts constructed on the page: ${mine.contexts}  ${mine.contexts === 1 ? 'ok' : 'FAIL (one graph only)'}`);
+  console.log(`  mine: 3-slime sweep voiced as [${mine.voiced.join(', ')}] ${sweepOk ? 'ok' : 'FAIL (expected one hit:slime)'}; crab blow at 1 tile ${fmt(mine.nearHit)} vs 12 tiles ${fmt(mine.farHit)}  ${mPosOk ? 'ok' : 'FAIL'}`);
   // Co-op / positional: a partner's sound must pan toward them and fade with distance; far = silent.
   const pos = await page.evaluate(async () => {
     const g = window.__game;
@@ -873,6 +983,36 @@ async function coop() {
     await host.evaluate(() => window.__game.game.services.net.sendExt('*', ['v.e', 0, 'june-2']));
     const evOff = await waitTheme(/^town/);
     check('…and the square\'s music returns when it ends', /^town[^/]*\/town/.test(evOff), `wanted/playing ${evOff}`);
+    // Mine combat (round 12): a partner's sword blow is voiced on the farmhand's main graph at the
+    // monster's position — 12 tiles away it sits at least 5 dB under the same blow 1 tile away.
+    const blow = await hand.evaluate(async () => {
+      const g = window.__game;
+      const a = g.game.services.audio;
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      a.music('none');
+      await sleep(1200);
+      const { mineSfx } = await import('/src/world/mine/sfx.ts');
+      const p = g.game.player.position;
+      const peak = async (dx) => {
+        const ps = [];
+        for (let k = 0; k < 3; k++) {
+          mineSfx.hit('slime', false, false, { x: p.x + dx, z: p.z });
+          let max = -Infinity;
+          for (let i = 0; i < 10; i++) {
+            await sleep(25);
+            max = Math.max(max, a.meter());
+          }
+          ps.push(max);
+          await sleep(600);
+        }
+        return ps.sort((x, y) => x - y)[1];
+      };
+      const near = await peak(1);
+      const far = await peak(12);
+      a.music(null);
+      return { near, far };
+    });
+    check('farmhand: a partner\'s sword blow at 12 tiles sits ≥ 5 dB under one at 1 tile', blow.near > blow.far + 5, `1 tile ${fmt(blow.near)} dBFS, 12 tiles ${fmt(blow.far)} dBFS`);
     // Festival: both clients walk onto the Blossom Parade grounds.
     for (const p of [host, hand]) await p.evaluate(() => { window.__game.game.services.audio.music(null); return window.__game.demo('fest-spring'); });
     const themes = await Promise.all([host, hand].map((p) => p.evaluate(async () => {

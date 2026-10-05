@@ -24,7 +24,7 @@ import { INSERTS, INSTRUMENTS, TAIL, noteKeys, sfxPalette, type InstrumentName }
 import { THEMES } from './themes';
 import { Rand, hashString } from './dsp';
 import { PiecePrefetch } from './prefetch';
-import { loudnessTrim } from './loudness';
+import { loudnessTrim, toneTrim } from './loudness';
 import { PLAYLISTS, songFor } from './select';
 import { MODES, chordPcs, parseChord, voiceChord, type ModeName } from './theory';
 
@@ -115,8 +115,30 @@ export class MusicPlayer {
       f.connect(dest);
       return f;
     };
+    // Tonal calibration (loudness.ts toneTrim): low / high shelves to the family's house curve.
+    const tone = toneTrim(theme.id);
+    const toned = (dest: AudioNode): AudioNode => {
+      let n = dest;
+      if (tone.high) {
+        const hs = ctx.createBiquadFilter();
+        hs.type = 'highshelf';
+        hs.frequency.value = 2500;
+        hs.gain.value = tone.high;
+        hs.connect(n);
+        n = hs;
+      }
+      if (tone.low) {
+        const ls = ctx.createBiquadFilter();
+        ls.type = 'lowshelf';
+        ls.frequency.value = 200;
+        ls.gain.value = tone.low;
+        ls.connect(n);
+        n = ls;
+      }
+      return n;
+    };
     // Per-song tone fixes (the mines: a 60 Hz high-pass under the drone, 150–250 Hz mud cut).
-    let dry: AudioNode = shelf(g.musicBus);
+    let dry: AudioNode = toned(shelf(g.musicBus));
     if (theme.eq?.cut) {
       const c = ctx.createBiquadFilter();
       c.type = 'peaking';
@@ -135,7 +157,7 @@ export class MusicPlayer {
       dry = h;
     }
     this.out.connect(dry);
-    this.wet.connect(shelf(g.hall));
+    this.wet.connect(toned(shelf(g.hall)));
     // Stage width follows the song in (the mines and misty nights are wide already; the day tunes open up).
     g.setWidth(theme.width ?? DEFAULT_WIDTH, Math.max(ctx.currentTime, startAt), Math.max(1, fadeIn));
     g.exciter.gain.setTargetAtTime(theme.air ?? DEFAULT_AIR, Math.max(ctx.currentTime, startAt), Math.max(0.3, fadeIn / 3));
@@ -224,6 +246,16 @@ export class MusicPlayer {
       air.frequency.value = 9000;
       air.gain.value = 3;
       head = head.connect(air);
+      if (name === 'melody') {
+        // Round 12: +2 dB of 1.5-3 kHz presence on the tune alone, so the lead speaks over the comping
+        // (summer's marimba tune barely separated from the fingerpicked guitar).
+        const pres = ctx.createBiquadFilter();
+        pres.type = 'peaking';
+        pres.frequency.value = 2200;
+        pres.Q.value = 0.9;
+        pres.gain.value = 2;
+        head = head.connect(pres);
+      }
     } else if (name === 'accomp' || name === 'accomp2' || name === 'pad') {
       const box = ctx.createBiquadFilter();
       box.type = 'peaking';
@@ -486,6 +518,14 @@ export class MusicDirector {
     if (!want) return null;
     if (this.current && this.current.group === want) return this.current.theme.id;
     return PLAYLISTS[want] ? songFor(want, this.baseSeed, this.counts.get(want) ?? 0) : want;
+  }
+
+  /** Keep these songs' next arrangements composed and waiting (scene cues, the title). */
+  pinScenes(ids: readonly string[]): void {
+    for (const id of ids) {
+      const th = THEMES[id];
+      if (th) this.pieces.pin(th, this.nextSeed(id));
+    }
   }
 
   /** Compose the song `want` resolves to in the background now (no-op if already requested). */

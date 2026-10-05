@@ -253,6 +253,40 @@ adapts it to game events.
   `cue: 'music'` still wins; co-op farmhands spectating the host's heart event hear the same cue (the
   host's 'v.e' net message). No now-playing card over the actors. Hear it: `?demo=audio-event&event=june-2`
   or `&cue=event-sly`; `?demo=town-heart-event&event=<id>` scores the staged event too.
+- **Round 12** (critic r5 fixes): **one audio graph** — the mine / combat cues (`world/mine/sfx.ts`) no longer
+  open a second AudioContext of oscillator beeps: they voice `sfx.ts` designs through the audio hub
+  (`src/audio/hub.ts`) at the world position they happen at (limiter, sidechain, cave reverb, voice budget,
+  volume / mute). Each blow is one voice per monster kind (`hit:slime` squelch / burst, `hit:crab` shell clank /
+  crack, `hit:bat` screech + wing flurry, `hit:wisp` static zap / glass spray, `hit:imp` ember hiss; level bit 0 =
+  crit ring, ≥ 2 = the kill), a 3-monster sweep collapses into one voice (+1.5 dB per extra target), and the
+  swing / pick strike no longer play twice; `gem`, `lift`, `sizzle`, `fireball`, `parry`, `mine:reveal`,
+  `passout` are new designs. Animal calls and the fishing kit borrow the same context and SFX bus (the fishing
+  kit's private surf bed is gone — the ambience owns the beach). Co-op partners' sword arcs and blows are
+  positional (`--coop` checks 12 tiles ≥ 5 dB under 1 tile). Demo: `?demo=audio-mine&fight=1[&floor=14]`.
+  **Bass**: articulation is absolute (sustained basses tie over by 30 ms, a repeated pitch lifts for 50 ms,
+  plucks leave 40 ms) and the soft bass releases over 0.12–0.38 s with a gentler sink — the critic's
+  `BASS-HOLE` rule (50–220 Hz falling > 10 dB in the 300 ms before a downbeat) runs on every theme render.
+  **Identity**: openings re-harmonised (melody-first spring and town-3, a mixolydian vamp into summer, a
+  borrowed iv over a tonic pedal in Clover Lane, iii7 into Gutter Song, cadential 6/4 into Starfall ...), forms
+  varied (AABA with a key lift, ABAB', through-composed ABCA, 0 / 1 / 4-bar intros), the title rebuilt round a
+  two-bar hook ('1 2 3 5.. 3 2', eighth-note motion, IV/5 pedal, bVII) that returns as a leitmotif in
+  spring's B and the town's bridge, Dew at Dusk rewritten as a stepwise line with 9-8 / 4-3 suspensions; the
+  compose critic prints every song's opening and fails `SAME-OPENING` within a playlist or more than two
+  Imaj7–IVmaj7 openings. New songs: Low Tide (beach bossa, vibes over nylon guitar) and Fern Hollow (forest:
+  an oboe waltz in B minor) in the `beach:day` / `forest:day` playlists. **Tone**: `--calibrate` also measures
+  each opening's 60–200 Hz and 2.5–6 kHz balance and `loudness.ts` `toneTrim` shelves it to the family's house
+  curve (day / soft), so a playlist sits within ±2 dB (`TONE` flag over 3 dB). **Winds**: a player's vibrato
+  (±20–25 c on flute / whistle, entering 250–400 ms in), a breath puff at the onset and a 2.6 kHz formant;
+  +2 dB of 1.5–3 kHz presence on the melody track; the upright bass has finger noise and replaces the sine
+  bass in the title, Dew at Dusk and Hearthside. **Ambience**: calm nights drop the wind / leaf wash ~9 dB and
+  calm mornings ~6 dB — critters carry the space (a rustle in the grass, a distant dog, a nightjar, a
+  woodpecker, the rooster at first light); rain is patter (low bed high-passed at 150 Hz and −10 dB, denser
+  drops), indoors the roof ticks at 1–4 kHz and the gutter drips; every thunder cracks before it rolls; doves
+  vary pitch, tempo and length; surf periods wander 5–14 s with double sets; no static cicada band on the
+  beach. Ambience presets are judged by `AMB-STATIC` (< 8 foreground events a minute) and `AMB-FLAT`
+  (LRA < 4 LU) instead of their level under the music. Villager voices +3 dB with a 2–4 kHz consonant click;
+  combat blows land at least level with the hoe (`--live` asserts it, and counts AudioContexts: exactly one).
+  The scene cues and the title are composed in the worker at load / dawn and kept ready (never on the frame).
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);

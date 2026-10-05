@@ -10,6 +10,7 @@ import type { ThemeDef } from './composer';
 import { SONGBOOK } from './songbook';
 import { SONGBOOK_TOWN, winterTown } from './songbook-town';
 import { SONGBOOK_EVENTS } from './songbook-events';
+import { SONGBOOK_PLACES } from './songbook-places';
 
 /** Song form: the tune twice, its answer, the tune, a bridge (C) in a new harmonic area, the tune home. */
 const FORM_SONG: ThemeDef['form'] = ['intro', 'A', 'A', 'B', 'A', 'C', 'A', 'outro'];
@@ -25,10 +26,11 @@ export const THEMES: Record<string, ThemeDef> = {
     key: 65, // F
     mode: 'major',
     swing: 0.53,
-    form: FORM_SONG,
+    // Round 12: melody first — no intro, the flute's pickup opens the song.
+    form: ['A', 'A', 'B', 'A', 'C', 'A', 'outro'],
     prog: {
       intro: ['Imaj7', 'IVmaj7'],
-      A: ['I', 'IVmaj7', 'vi7', 'V', 'I', 'IVmaj7', 'ii7 V', 'I'],
+      A: ['I', 'ii7', 'vi7', 'V', 'I', 'IVmaj7', 'ii7 V', 'I'],
       B: ['IV', 'V', 'iii7', 'vi', 'ii7', 'V', 'IVmaj7', 'Vsus4 V'],
       // Bridge: the relative minor, a borrowed bVII (Eb) glow, a suspended half-cadence home.
       C: ['vi', 'iii7', 'IVmaj7', 'I', 'ii7', 'iii7', 'bVII', 'V7sus4 V'],
@@ -40,7 +42,8 @@ export const THEMES: Record<string, ThemeDef> = {
         octave: 1,
         // "F.. G A C | D.. C Bb A | A C D.. C | Bb A G.. (C D) | ..." — a dotted walk up and a sigh down.
         A: ['1:3 2:1 3:2 5:2', '6:3 5:1 4:2 3:2', '3:2 5:2 6:3 5:1', "4:1 3:1 2:4 5,:1 6,:1", '1:3 2:1 3:2 5:2', "1':3 7:1 6:2 5:2", '6:2 4:2 2:2 7,:2', '1:6 r:2'],
-        B: ['6:4 5:2 4:2', '5:4 4:2 3:2', '3:4 5:2 3:2', '2:2 3:2 6,:4', "4:2 6:2 1':3 7:1", "1':2 7:2 5:4", '6:3 5:1 4:2 3:2', '2:6 r:2'],
+        // (B opens on the Hearthvale leitmotif — the title's '1 2 3 5.. 3 2' — sequenced up a step.)
+        B: ["4:1 5:1 6:1 1':3 6:1 5:1", "5:1 6:1 7:1 2':3 7:1 6:1", '3:4 5:2 3:2', '2:2 3:2 6,:4', "4:2 6:2 1':3 7:1", "1':2 7:2 5:4", '6:3 5:1 4:2 3:2', '2:6 r:2'],
         // The clarinet takes the tune down into its warm register: "D. E F A | C.. A G | Bb. A Bb D | C... |".
         C: ['6,:3 7,:1 1:2 3:2', '5:4 3:2 2:2', '4:3 3:1 4:2 6:2', '5:6 r:2', '6:3 5:1 4:2 2:2', '3:3 2:1 3:2 5:2', 'b7:4 4:2 2:2', '1:4 7,:4'],
         Aend: ['6:2 4:1 3:1 2:2 7,:2', '1:8'],
@@ -77,7 +80,7 @@ export const THEMES: Record<string, ThemeDef> = {
     swing: 0.56,
     form: FORM_SONG,
     prog: {
-      intro: ['Imaj7', 'IV'],
+      intro: ['I', 'bVII', 'I', 'bVII'],
       A: ['Imaj7', 'IV', 'Imaj7', 'IV', 'vi7', 'ii7', 'IV', 'V'],
       B: ['IV', 'V', 'iii7', 'vi7', 'ii7', 'V', 'bVII', 'V7sus4 V'],
       C: ['vi7', 'iii7', 'IVmaj7', 'Imaj7', 'ii7', 'II7', 'IV', 'V7sus4 V'],
@@ -126,9 +129,9 @@ export const THEMES: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 62, // D
     mode: 'minor',
-    form: FORM_SONG,
+    form: ['intro', 'A', 'B', 'A', 'B', 'A', 'outro'],
     prog: {
-      intro: ['i', 'bVI'],
+      intro: ['i'],
       A: ['i', 'bVI', 'bIII', 'bVII', 'iv', 'i', 'iv V', 'i'],
       B: ['bIII', 'bVII', 'iv', 'i', 'bVImaj7', 'bIII', 'iim7b5', 'V'],
       // Sixteen-bar bridge in the relative major (F), the cello singing the tune low.
@@ -173,9 +176,9 @@ export const THEMES: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 64, // E
     mode: 'major',
-    form: FORM_SONG,
+    form: ['intro', 'A', 'A', 'B', 'B', 'A', 'outro'],
     prog: {
-      intro: ['Imaj7', 'vi7'],
+      intro: ['Imaj7', 'vi7', 'ii7', 'V7sus4'],
       A: ['I', 'iii', 'vi7', 'IVmaj7', 'I', 'IV', 'iv', 'I'],
       B: ['vi', 'iii', 'IV', 'I', 'ii7', 'V', 'IV', 'V7sus4'],
       C: ['IVmaj7', 'iii7', 'vi7', 'Imaj7', 'IV', 'iv6', 'ii7', 'V7sus4'],
@@ -244,7 +247,8 @@ export const THEMES: Record<string, ThemeDef> = {
         // "B D G D B'. A G | E D B D E. D B | C E G E A. G E | F# G A G F#. |" — up the arpeggio and back.
         A: ["3:1 5:1 1':1 5:1 3':2 2':1 1':1", '6:1 5:1 3:1 5:1 6:2 5:1 3:1', "4:1 6:1 1':1 6:1 2':2 1':1 6:1", "7:1 1':1 2':1 1':1 7:2 r:2", "3:1 5:1 1':1 5:1 3':2 2':1 1':1", "1':1 2':1 3':1 2':1 1':2 6:2", '6:1 5:1 4:1 6:1 5:1 4:1 2:2', '1:2 r:1 5,:1 1:2 r:2'],
         B: ["6:2 4:1 6:1 1':2 6:2", "5:2 3:1 5:1 1':2 5:2", "4:1 6:1 1':1 2':1 1':2 6:2", '7:3 6:1 5:4', "6:2 4:1 6:1 1':2 6:2", "2':2 7:2 1':2 6:2", "4:2 6:2 1':2 6:1 4:1", "2':3 1':1 7:2 5:2"],
-        C: ["6:2 1':2 3':3 2':1", "1':2 6:2 #4:2 2:2", "4:3 6:1 1':2 6:2", "5:2 7:2 2':4", "2':3 1':1 7:2 5:2", "6:2 #1':2 3':3 2':1", "1':3 6:1 4:2 2:2", '7,:2 2:2 4:2 5:2'],
+        // (C opens on the Hearthvale leitmotif — '1 2 3 5.. 3 2' — on the relative minor, then the II7.)
+        C: ["6:1 7:1 1':1 3':3 1':1 7:1", "7:1 1':1 2':1 #4':3 2':1 1':1", "4:3 6:1 1':2 6:2", "5:2 7:2 2':4", "2':3 1':1 7:2 5:2", "6:2 #1':2 3':3 2':1", "1':3 6:1 4:2 2:2", '7,:2 2:2 4:2 5:2'],
         Aend: ['6:1 5:1 4:1 6:1 5:1 4:1 2:1 7,:1', '1:2 5,:1 7,:1 1:4'],
         pickup: '1:1 2:1',
       },
@@ -468,7 +472,7 @@ export const THEMES: Record<string, ThemeDef> = {
     breaks: false,
     form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
     prog: {
-      intro: ['Imaj7', 'IVmaj7'],
+      intro: ['Iadd9', 'bVIImaj7'],
       A: ['Imaj7', 'iii7', 'IVmaj7', 'iv6', 'Imaj7', 'vi7', 'ii7', 'V7sus4'],
       B: ['vi7', 'iii7', 'IVmaj7', 'Imaj7', 'ii7', 'iii7', 'IVmaj7', 'V7sus4'],
       C: ['IVmaj7', 'iii7', 'vi7', 'Imaj7', 'ii7', 'bVIImaj7', 'IVmaj7', 'V7sus4'],
@@ -510,7 +514,7 @@ export const THEMES: Record<string, ThemeDef> = {
     key: 63, // Eb
     mode: 'major',
     swing: 0.6,
-    form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
+    form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
     prog: {
       intro: ['vi7', 'IVmaj7'],
       A: ['vi7', 'IVmaj7', 'Imaj7', 'V7sus4', 'vi7', 'ii7', 'IVmaj7', 'V7sus4 V'],
@@ -698,16 +702,20 @@ export const THEMES: Record<string, ThemeDef> = {
     id: 'title',
     title: 'Hearthvale',
     blurb: 'Main theme',
-    bpm: 80,
+    bpm: 88,
     meter: '4/4',
     key: 62, // D
     mode: 'major',
     lift: 2,
     breaks: 'breath',
     form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
+    // Round 12: the hook. Three running eighths up to a held note and a turn back — '1 2 3 5.. 3 2' —
+    // twice, the second time reaching the 6th over a tonic pedal; it comes back in spring's B and the
+    // town's bridge as the valley's leitmotif. Harmony: a hymn-like IV/5 pedal, a mixolydian bVII.
     prog: {
-      intro: ['Imaj7', 'IVmaj7'],
-      A: ['Imaj7', 'iii7', 'vi7', 'IVmaj7', 'ii7', 'V', 'IVmaj7', 'I'],
+      intro: ['Isus2'],
+      A: ['I', 'IV/5', 'I', 'bVII', 'IV', 'I/3', 'ii7', 'V7sus4 V'],
+      Aend: ['ii7 V7', 'I'],
       B: ['IV', 'V', 'iii7', 'vi', 'IVmaj7', 'iii7', 'ii7', 'V7sus4 V'],
       outro: ['IVmaj7', 'Iadd9'],
     },
@@ -716,16 +724,17 @@ export const THEMES: Record<string, ThemeDef> = {
       double: { inst: 'celesta', interval: 12, on: 'late' },
       tune: {
         octave: 1,
-        // "A D | D'... C# B | A... F# E | F# D'... C# B | B.. A G... | G E'... D C# | C#.. B A... |" —
-        // an octave leap and a slow fall home, twice, then the climb to E.
-        A: ["5,:1 1:1 1':4 7:1 6:1", '5:4 3:2 2:2', "3:2 1':4 7:1 6:1", '6:3 5:1 4:4', "4:2 2':4 1':1 7:1", '7:3 6:1 5:4', '4:2 6:2 5:2 3:2', '2:2 1:6'],
+        // "D E F# A.. F# E | D E F# B.. G | F# G A D'.. C# B | A G E G... |
+        //  G A B D'.. B A | D' C# B A.. F# | E F# G B.. D' C# | E.. D C# A, |"
+        A: ['1:1 2:1 3:1 5:3 3:1 2:1', '1:1 2:1 3:1 6:3 4:2', "3:1 4:1 5:1 1':3 7:1 6:1", '5:1 4:1 2:2 4:4', "4:1 5:1 6:1 1':3 6:1 5:1", "1':1 7:1 6:1 5:3 3:2", "2:1 3:1 4:1 6:3 1':1 7:1", '2:3 1:1 7,:2 5,:2'],
         B: ["1':3 7:1 6:2 4:2", "2':3 1':1 7:2 5:2", '7:3 6:1 5:2 3:2', '2:2 3:2 6:4', "1':3 7:1 6:2 5:2", '5:3 6:1 7:4', "6:2 1':2 2':4", '5:8'],
-        Aend: ['4:2 6:2 5:2 2:2', '1:8'],
+        Aend: ['2:1 3:1 4:1 6:2 5:1 4:1 2:1', '1:8'],
       },
     },
-    counter: { inst: 'cello', range: [48, 64], on: 'always', style: 'moving' },
+    counter: { inst: 'cello', range: [50, 64], on: 'repeat', style: 'moving' },
     accomp: { inst: 'harp', pattern: 'harpRoll', range: [55, 74], voices: 4, vel: 0.7 },
-    bass: { inst: 'softBass', pattern: 'root', range: [38, 50], vel: 0.7 },
+    // (Round 12: a plucked upright with finger noise, not the sine-and-triangle soft bass.)
+    bass: { inst: 'upright', pattern: 'root', range: [38, 50], vel: 0.68 },
     pad: { inst: 'pad', range: [54, 71], voices: 4, vel: 0.45, on: 'B' },
     mix: {
       melody: { gain: 0.84, pan: 0.05, send: 0.4 },
@@ -734,7 +743,7 @@ export const THEMES: Record<string, ThemeDef> = {
       accomp: { gain: 0.74, pan: 0.3, send: 0.38 },
       // (Round 9: the louder low end left the main theme DULL — the harp roll and cello carry
       // their own bottom, so the soft bass steps back and a sheen lifts the flute and celesta.)
-      bass: { gain: 0.42, pan: 0, send: 0.08 },
+      bass: { gain: 0.32, pan: 0, send: 0.08 },
       pad: { gain: 0.36, pan: 0, send: 0.55 },
     },
     rest: [0, 0],
@@ -749,6 +758,8 @@ Object.assign(THEMES, SONGBOOK);
 Object.assign(THEMES, SONGBOOK_TOWN);
 // The event score: cues for heart events and story scenes (songbook-events.ts, chosen by eventCue()).
 Object.assign(THEMES, SONGBOOK_EVENTS);
+// Second beach and forest songs (the 'beach:day' / 'forest:day' playlists in select.ts).
+Object.assign(THEMES, SONGBOOK_PLACES);
 THEMES['town-winter'] = winterTown(THEMES.town!);
 
 /** Mood hints the festival system broadcasts (`festival:music`). */
@@ -856,7 +867,7 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
         ...base, id, title: 'Starfall Carol', blurb: 'The Starfall Vigil', bpm: Math.min(bpm, 96), key: 65, mode: 'major', meter: '4/4',
         form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
         lift: 0,
-        prog: { intro: ['I', 'IV'], A: ['I', 'vi', 'IV', 'V', 'I', 'vi', 'ii V', 'I'], B: ['IV', 'I', 'ii', 'V', 'IV', 'iii vi', 'ii', 'V'], C: ['vi', 'iii', 'IV', 'I', 'ii', 'V', 'iii vi', 'ii V'], outro: ['IV', 'I'] },
+        prog: { intro: ['I/5', 'V7'], A: ['I', 'vi', 'IV', 'V', 'I', 'vi', 'ii V', 'I'], B: ['IV', 'I', 'ii', 'V', 'IV', 'iii vi', 'ii', 'V'], C: ['vi', 'iii', 'IV', 'I', 'ii', 'V', 'iii vi', 'ii V'], outro: ['IV', 'I'] },
         melody: {
           inst: 'musicBox', range: [72, 93], density: 0.55, ornament: 0.15, double: { inst: 'bell', interval: -12, on: 'repeat' },
           tune: {

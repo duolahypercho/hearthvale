@@ -15,8 +15,9 @@
  *              tool impacts and harvests are placed at their tile, so a partner's actions pan and fade
  *
  * The AudioContext is created on the first user gesture (autoplay policy; `?audio=1` tries at boot).
- * Mine combat / rocks and fishing are voiced by their own pods (world/mine/sfx.ts, ui/fishing-sfx.ts),
- * so those events only duck the score here. Other modules can play any SFX by name:
+ * Mine combat / rocks (world/mine/sfx.ts) are cues voiced HERE through the audio hub (src/audio/hub.ts):
+ * the sfx.ts designs, placed at their world position, one voice per monster kind per swing. Animal
+ * calls and the fishing kit borrow the same context and SFX bus — there is no second AudioContext. Other modules can play any SFX by name:
  *   game.services.audio?.play('coin')          // see SFX_NAMES in src/audio/sfx.ts
  *   game.services.audio?.music('festival')     // force a theme (null = automatic, 'none' = silence)
  * Cutscenes: `{ do: 'cue', cue: 'music', arg: '<theme>|auto|none' }` and `{ do: 'cue', cue: 'sfx', arg: '<name>' }`.
@@ -32,6 +33,7 @@ import { PiecePrefetch } from '../audio/prefetch';
 import { MusicDirector, MUSIC_LOOKAHEAD, MUSIC_STATS } from '../audio/music';
 import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
 import { eventCue } from '../audio/songbook-events';
+import { audioHub } from '../audio/hub';
 import { heartEvent } from '../data/npcs';
 import { voiceFor, type Surface } from '../audio/sfx';
 import { tuneHook } from '../audio/composer';
@@ -259,6 +261,9 @@ export class AudioSystem implements System {
     // Compose the opening song off the main thread while the save / demo loads.
     this.prefetch = new PiecePrefetch(true);
     window.setTimeout(() => this.preload(), 0);
+    // Round 12: the scene cues and the title are composed in the worker at load and kept ready, so a
+    // heart event / cutscene / the title screen never composes on the frame (a 30-70 ms hitch).
+    window.setTimeout(() => this.pinScenes(), 1500);
     // Watchdog: keep the score moving even if the game loop stalls (long loads, a throttled tab).
     // It also re-decides the wanted theme, so a scene change staged while frames are starved (a heavy
     // map build on a loaded machine) still hands the music over instead of waiting for the loop.
@@ -409,6 +414,11 @@ export class AudioSystem implements System {
     }
     this.engine = new AudioEngine(this.ctx, 1, this.prefetch ?? undefined);
     const ctx = this.ctx;
+    // The hub: other pods' voices (mine / combat cues, animal calls, the fishing kit) use this one
+    // context and the SFX bus — limiter, ducking, volume and mute included.
+    audioHub.ctx = ctx;
+    audioHub.sfx = this.engine.graph.sfxBus;
+    audioHub.play = (name, at, o) => this.hubPlay(name, at ?? null, o);
     this.engine.music.onMelody = (at, midi) => this.card.note(midi, at - ctx.currentTime);
     this.engine.music.reseed(this.daySeed());
     this.applyVolumes();
@@ -594,7 +604,7 @@ export class AudioSystem implements System {
     });
     ev.on('farming:level', () => this.sfx('levelup', undefined, 2));
     ev.on('fishing:level', () => this.sfx('levelup', undefined, 2));
-    ev.on('mine:chest', () => this.sfx('chest', undefined, 1));
+    // (mine:chest is voiced at the chest by the mine's cue, world/mine/sfx.ts.)
     // Refusals share one gentle "nope" (rate-limited so a held button never buzzes).
     ev.on('energy:refused', () => this.sfx('ui:error', { gain: 0.5 }, 0.6));
     ev.on('gold:insufficient', () => this.sfx('ui:error', { gain: 0.6 }, 0.4));
@@ -694,6 +704,7 @@ export class AudioSystem implements System {
       this.sleeping = false;
       this.engine?.music.reseed(this.daySeed());
       this.engine?.music.kick();
+      this.pinScenes();
       // Morning stinger quotes the tune you're about to hear; a new season gets its whole hook.
       this.preload();
       const th = THEMES[this.resolved(this.wanted()) ?? ''];
@@ -795,6 +806,9 @@ export class AudioSystem implements System {
         } else this.sfx('axe:miss');
         break;
       case 'pickaxe':
+        // In the mine every rock strike / break is voiced by the mine's own cue at the rock (with its
+        // ore ring and the boulder's size): here it would play twice.
+        if (hit === 'stone' && this.game.world.current?.id === 'mine') break;
         if (hit === 'stone') {
           this.sfx('pickaxe');
           this.sfx('rockbreak', { gain: 0.9 });
@@ -812,6 +826,53 @@ export class AudioSystem implements System {
         break;
       default:
         break;
+    }
+  }
+
+  /** Mine / combat monster hits queued this task (see hubPlay): one voice per kind per swing. */
+  private hitBatch = new Map<string, { n: number; x: number; z: number; pos: boolean; level: number }>();
+  private hitFlush = false;
+  /** Context time of the last kill blow voiced (a death pop right after it is the same event). */
+  private lastDie = -1e9;
+
+  /**
+   * The hub's player (world/mine/sfx.ts and other pods): a named sfx.ts design at a world position.
+   * Monster hits from one swing arrive in one synchronous loop: they are batched per kind and voiced
+   * once on the microtask after it, at the hits' centroid, +1.5 dB per extra target.
+   */
+  private hubPlay(name: string, at: { x: number; z: number } | null, o?: { gain?: number; level?: number }): void {
+    if (!this.engine || !this.ctx || this.ctx.state !== 'running') return;
+    if (name.startsWith('hit:')) {
+      const b = this.hitBatch.get(name);
+      if (b) {
+        b.n++;
+        b.level = Math.max(b.level, o?.level ?? 0);
+        if (at) {
+          b.x += at.x;
+          b.z += at.z;
+        }
+      } else this.hitBatch.set(name, { n: 1, x: at?.x ?? 0, z: at?.z ?? 0, pos: !!at, level: o?.level ?? 0 });
+      if (!this.hitFlush) {
+        this.hitFlush = true;
+        queueMicrotask(() => this.flushHits());
+      }
+      return;
+    }
+    if (name === 'monster:pop' && this.ctx.currentTime - this.lastDie < 0.8) return;
+    const sp = at ? this.spatial(at.x, at.z) : { gain: 1, pan: 0 };
+    if (!sp) return;
+    this.sfx(name, { gain: (o?.gain ?? 1) * sp.gain, pan: sp.pan, level: o?.level }, name === 'pickup' ? 0.12 : name === 'monster:pop' ? 0.15 : 0);
+  }
+
+  private flushHits(): void {
+    this.hitFlush = false;
+    const batch = [...this.hitBatch];
+    this.hitBatch.clear();
+    for (const [name, b] of batch) {
+      const sp = b.pos ? this.spatial(b.x / b.n, b.z / b.n) : { gain: 1, pan: 0 };
+      if (!sp) continue;
+      if (b.level >= 2 && this.ctx) this.lastDie = this.ctx.currentTime;
+      this.sfx(name, { gain: sp.gain * Math.pow(10, (1.5 * (b.n - 1)) / 20), pan: sp.pan, level: b.level });
     }
   }
 
@@ -973,6 +1034,7 @@ export class AudioSystem implements System {
       if (playing) {
         const def = THEMES[playing];
         game.events.emit('audio:theme', { id: playing, title: def?.title ?? playing });
+        if (playing === 'title' || playing.startsWith('event-')) window.setTimeout(() => this.pinScenes(), 500);
         const title = panel === 'title' || panel.endsWith(':title');
         // Scene cues play under a heart event / cutscene: no "now playing" card over the actors.
         if (def && !title && !this.pinCard && !playing.startsWith('event-')) this.card.show(def);
@@ -1103,6 +1165,17 @@ export class AudioSystem implements System {
    * Ask the worker for the song the game will want next (boot, map change, new day, forced themes
    * from demos and cutscenes), so starting it never composes on the frame.
    */
+  /** Pinned scene pieces: every event cue + the title, at the seed each will play with next. */
+  private pinScenes(): void {
+    try {
+      const ids = ['title', ...Object.keys(THEMES).filter((k) => k.startsWith('event-'))];
+      if (this.engine) this.engine.music.pinScenes(ids);
+      else for (const id of ids) if (THEMES[id]) this.prefetch?.pin(THEMES[id]!, MusicDirector.seedFor(this.daySeed(), id, 0));
+    } catch {
+      /* the world may not be built yet */
+    }
+  }
+
   private preload(): void {
     try {
       const want = this.wanted();

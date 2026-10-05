@@ -586,7 +586,7 @@ export class MineMap implements GameMap {
     const dust = new THREE.Color(def.floor[0]).lerp(new THREE.Color(0xe8dcc8), 0.35);
     this.fx.dustRing(rock.pos.clone().setY(rock.pos.y + 0.1), dust, 12, 2.4, 0.5);
     this.fx.puff(pos, { color: dust, count: 3, speed: 0.6, up: 0.6, size: 0.55, grow: 1.4, gravity: -0.3, drag: 3, life: 0.6, alpha: 0.45 });
-    mineSfx.pick(!!ore);
+    mineSfx.pick(!!ore, rock.pos);
     if (!this.striker) this.game.rc.rig.addShake(0.08);
   }
 
@@ -611,7 +611,7 @@ export class MineMap implements GameMap {
     this.fx.rubble(rock.pos, baseCol.clone().multiplyScalar(0.9), big ? 6 : 4, big ? 0.55 : 0.42);
     const near = Math.hypot(rock.pos.x - this.game.player.position.x, rock.pos.z - this.game.player.position.z) < 6;
     if (near) this.game.rc.rig.addShake(big ? 0.3 : this.striker ? 0.08 : 0.18);
-    mineSfx.crumble(big);
+    mineSfx.crumble(big, rock.pos);
     const drops: DropInfo[] = [];
     if (ore) {
       const oc = oreColor(ore as never);
@@ -621,7 +621,7 @@ export class MineMap implements GameMap {
       this.fx.sparks(pos.clone().setY(pos.y + 0.25), { color: bright, count: 2, speed: 0.05, up: 0, size: 1.5, gravity: 0, drag: 0, life: 0.3, star: true });
       this.fx.sparks(pos, { color: bright, count: 16, speed: 2.4, up: 1.4, size: 0.24, gravity: 2, drag: 2.5, life: 0.9, star: true });
       this.fx.rubble(rock.pos, oc.clone().multiplyScalar(0.8), 1, 0.3);
-      if (ORE_STYLE[ore as keyof typeof ORE_STYLE]?.kind === 'gem') mineSfx.gem();
+      if (ORE_STYLE[ore as keyof typeof ORE_STYLE]?.kind === 'gem') mineSfx.gem(rock.pos);
     }
     if (!roll) return drops;
     for (const id of rollRockLoot(() => this.rng.next(), ore, big, this.layout.biome)) drops.push(this.spawnDrop(id, rock.pos, 1, 1.4));
@@ -690,7 +690,7 @@ export class MineMap implements GameMap {
     const p = g.position.clone().setY(g.position.y + 0.3);
     this.fx.sparks(p, { color: 0xffe6a0, count: 26, speed: 2, up: 1.6, size: 0.22, gravity: 1.5, drag: 2, life: 1.1, star: true });
     this.fx.puff(p, { color: 0xd8c0a0, count: 10, speed: 1.2, up: 0.4, size: 0.9, grow: 1.5, gravity: -0.3, drag: 3, life: 1, alpha: 0.4 });
-    mineSfx.reveal();
+    mineSfx.reveal(p);
     this.game.events.emit('mine:ladder', { x: tx, z: tz, floor: this.floor });
   }
 
@@ -722,21 +722,16 @@ export class MineMap implements GameMap {
       const col = monsterColor(m.kind, this.layout.biome);
       if (m.kind === 'slime') {
         this.fx.puff(at, { color: col, count: 10, speed: 2.6, up: 1.2, size: 0.16, gravity: 9, drag: 1, life: 0.6, dir: kdir, cone: 0.5 });
-        mineSfx.squish();
       } else if (m.kind === 'crab') {
         this.fx.shatter(at, new THREE.Color(col), 3, 0.7, kdir);
-        mineSfx.hitShell();
       } else if (m.kind === 'wisp') {
         this.fx.sparks(at, { color: 0xdff6ff, count: 14, speed: 3, up: 0.8, size: 0.14, gravity: 3, drag: 2, life: 0.5, dir: kdir, cone: 0.5, star: true });
-        mineSfx.zap();
       } else if (m.kind === 'imp') {
         this.fx.sparks(at, { color: 0xffb040, to: 0xff3010, count: 16, speed: 3, up: 1.2, size: 0.12, gravity: 4, drag: 2, life: 0.5, dir: kdir, cone: 0.5 });
-        mineSfx.squish();
-      } else {
-        mineSfx.screech();
       }
       this.fx.sparks(at, { color: 0xffffff, to: crit ? 0xffc040 : 0xffe8c0, count: crit ? 18 : 10, speed: crit ? 5 : 3.6, up: 0.8, size: crit ? 0.14 : 0.1, gravity: 4, drag: 3, life: 0.28, dir: kdir, cone: 0.4 });
-      mineSfx.hitFlesh(crit);
+      // One voice per kind for the whole swing (systems/audio.ts collapses simultaneous hits).
+      mineSfx.hit(m.kind, crit, killed, m.pos);
     }
     // The blade cuts fireballs out of the air.
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
@@ -769,7 +764,7 @@ export class MineMap implements GameMap {
     this.projectiles.push({ mesh: g, pos: from.clone(), vel: dir.clone().setY(0).normalize().multiplyScalar(5.2), age: 0, damage: this.puppet ? 0 : damage, owner });
     if (!this.puppet) this.hooks?.shoot?.(from, dir);
     this.fx.sparks(from, { color: 0xffc060, to: 0xff4010, count: 10, speed: 1.5, up: 1, size: 0.12, gravity: 1, drag: 2, life: 0.4 });
-    mineSfx.fireball();
+    mineSfx.fireball(from);
   }
 
   private popProjectile(i: number, parried = false): void {
@@ -783,7 +778,7 @@ export class MineMap implements GameMap {
     }
     this.fx.sparks(pr.pos, { color: parried ? 0xfff0c0 : 0xffb040, to: 0xff3010, count: parried ? 22 : 16, speed: 2.6, up: 1.2, size: 0.13, gravity: 3, drag: 2, life: 0.55, star: parried });
     this.fx.puff(pr.pos, { color: 0x4a3a38, count: 4, speed: 0.6, up: 1, size: 0.6, grow: 1.6, gravity: -0.6, drag: 2, life: 0.8, alpha: 0.4 });
-    if (parried) mineSfx.hitShell();
+    if (parried) mineSfx.hitShell(pr.pos);
   }
 
   private updateProjectiles(dt: number, player: THREE.Vector3): void {
@@ -823,7 +818,7 @@ export class MineMap implements GameMap {
     this.fx.sparks(p, { color: 0xffe6a0, count: 34, speed: 2.4, up: 2, size: 0.26, gravity: 1.2, drag: 2, life: 1.3, star: true });
     this.fx.sparks(p, { color: 0xfff6d0, count: 1, speed: 0, up: 0, size: 2.4, gravity: 0, drag: 0, life: 0.25 });
     this.lighting.flash = Math.max(this.lighting.flash, 0.4);
-    mineSfx.chest();
+    mineSfx.chest(p);
     return true;
   }
 
@@ -847,7 +842,7 @@ export class MineMap implements GameMap {
       this.fx.puff(p, { color: mc, count: Math.round(count * 0.8), speed: 3, up: 1.4, size: 0.26, gravity: 10, drag: 0.8, life: 0.7 });
       this.fx.sparks(p, { color: mc.clone().lerp(new THREE.Color(0xffffff), 0.25).multiplyScalar(0.55), count: 5, speed: 2, up: 1, size: 0.14, gravity: 0, drag: 3, life: 0.35, star: true });
       this.fx.puff(p, { color: mc.clone().lerp(new THREE.Color(0x8a8070), 0.55).multiplyScalar(0.6), count: 5, speed: 1.2, up: 0.4, size: 0.55, grow: 1.1, gravity: -0.3, drag: 3.5, life: 0.4, alpha: 0.45 });
-      mineSfx.pop();
+      mineSfx.pop(p);
     } else if (kind === 'spark') {
       this.fx.sparks(p, { color, count, speed: 2.5, up: 1, size: 0.12, gravity: 3, drag: 2, life: 0.5 });
     } else {
@@ -948,7 +943,7 @@ export class MineMap implements GameMap {
         const at = new THREE.Vector3(player.x, player.y + 0.1, player.z);
         this.fx.sparks(at, { color: 0xffc060, to: 0xff3010, count: 14, speed: 1.6, up: 2.2, size: 0.12, gravity: 1, drag: 1.5, life: 0.7 });
         this.fx.puff(at, { color: 0x6a5a58, count: 5, speed: 0.6, up: 1.4, size: 0.6, grow: 1.8, gravity: -1, drag: 2, life: 0.9, alpha: 0.4 });
-        mineSfx.sizzle();
+        mineSfx.sizzle(at);
         this.game.events.emit('combat:playerHit', { damage: 5 + this.layout.tier * 3, x: hot.x, z: hot.z, kind: 'lava' });
       }
     }
