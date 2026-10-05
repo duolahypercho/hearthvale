@@ -10,6 +10,7 @@ import './chunks';
 import { LightBudget } from './lightbudget';
 import { QualityGovernor } from './governor';
 import { ShaderGate } from './shadergate';
+import { runOverlayWarms, warmKit, WARM_FRAMES } from './warmkit';
 import { runBakes } from './bake';
 import { setMaxAnisotropy } from './textures';
 import { globalUniforms } from './uniforms';
@@ -153,6 +154,8 @@ export class RenderContext {
   readonly shaderGate: ShaderGate;
   /** True while compile() runs: frames are skipped (the canvas keeps its last image) instead of compiling synchronously. */
   private compiling = 0;
+  /** Rendered frames left before the warm kit (render/warmkit.ts) leaves the scene. */
+  private warmLeft = 0;
   /** Shadow caster cull volume switch + counter (render/batching.ts; A/B via `enabled`). */
   readonly shadowCull = shadowCullStats;
   /** Depth-only detail prefix switch (A/B: `rc.detail.enabled = false`). */
@@ -268,6 +271,7 @@ export class RenderContext {
     }
     this.pinPrograms();
     this.perfAcc.forEach(this.copyPerf);
+    if (this.warmLeft > 0 && --this.warmLeft === 0) warmKit()?.removeFromParent();
   }
 
   private copyPerf = (v: { calls: number; triangles: number }, k: string): void => {
@@ -484,6 +488,14 @@ export class RenderContext {
       // dressing, festival / weather fx, a leaping fish) built its program on first show: the gate
       // held it out of the frame, then its first draw blocked on onFirstUse (bundle-complete r4,
       // 0.2-0.9 s). Show every hidden object for the (synchronous) program build, behind the fade.
+      // On-demand objects (held tools, a farmhand's pour stream: render/warmkit.ts) join the compile
+      // and are then drawn for real, as a sub-pixel speck, for the first WARM_FRAMES frames.
+      const kit = warmKit();
+      if (kit) {
+        kit.position.copy(this.focusPoint);
+        if (kit.parent !== this.scene) this.scene.add(kit);
+        this.warmLeft = WARM_FRAMES;
+      }
       const hidden: THREE.Object3D[] = [];
       this.scene.traverse((o) => {
         if (!o.visible) {
@@ -501,6 +513,7 @@ export class RenderContext {
       // Never hold frames longer than a few seconds, whatever the driver does.
       if (job) await Promise.race([job, new Promise((res) => setTimeout(res, 4000))]);
       this.warmShadowPass();
+      runOverlayWarms(this.renderer, this.camera);
       this.pinPrograms();
       this.warmPrograms();
     } finally {

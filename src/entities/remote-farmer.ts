@@ -19,6 +19,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { applyWorldFx } from '../render/worldfx';
 import { patchMaterial } from '../render/patch';
 import { buildTool, CAN_SPOUT } from '../world/props/tools';
+import { registerWarm } from '../render/warmkit';
 import { Rng } from '../core/rng';
 import { DEFAULT_LOOK, extra, type FarmerLook } from './remote-look';
 import { EmoteBubble, type EmoteId } from './remote-emotes';
@@ -872,6 +873,13 @@ export class RemoteFarmer {
 const BLOB_GEO = new THREE.CircleGeometry(0.42, 24);
 const DROP_GEO = new THREE.SphereGeometry(0.022, 6, 4);
 const DROP_MAT = new THREE.MeshStandardMaterial({ color: 0xa8dcff, roughness: 0.15, transparent: true, opacity: 0.85, emissive: 0x2a5a80, emissiveIntensity: 0.25 });
+// A farmhand's first pour stream: drawn once behind the load (render/warmkit.ts, pillar 14).
+registerWarm(() => {
+  const m = new THREE.InstancedMesh(DROP_GEO, DROP_MAT, 1);
+  m.name = 'pour-stream-warm';
+  m.userData.noAO = true;
+  return m;
+});
 const _fw = new THREE.Vector3();
 const _dm = new THREE.Matrix4();
 const _dq = new THREE.Quaternion();

@@ -10,6 +10,7 @@
  *   npm run perf -- --headed                       # headed, window parked off-screen (see "Timing mode")
  *   npm run perf -- --no-history                   # don't append to shots/perf/history.jsonl
  *   npm run perf -- --eval "<js>"                   # run JS after ready (A/B experiments; tag with --label)
+ *   npm run perf -- --params 'warmkit=0'          # extra URL params (A/B switches; tag with --label)
  *   npm run perf -- --profile 15                   # + top-15 self-time JS functions per demo (CDP sampling profiler)
  *   npm run perf -- --ready-budget 200000         # ms allowed for page load + __game.ready() (default 150000)
  *   npm run perf -- --resume                       # skip demos already in shots/perf/partial.json (after a killed run)
@@ -362,7 +363,7 @@ async function measureDemo(ctx, base, name) {
     const cdp = await ctx.newCDPSession(page);
     await cdp.send('Performance.enable', { timeDomain: 'timeTicks' });
     const t0 = Date.now();
-    await guard(page.goto(`${base}?demo=${encodeURIComponent(name)}&quality=${args.quality}`, { waitUntil: 'domcontentloaded', timeout: args.timeout }));
+    await guard(page.goto(`${base}?demo=${encodeURIComponent(name)}&quality=${args.quality}${args.params ? `&${args.params}` : ''}`, { waitUntil: 'domcontentloaded', timeout: args.timeout }));
     await guard(page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: args.timeout }));
     await guard(page.evaluate(() => window.__game.ready()));
     const readyMs = Date.now() - t0;

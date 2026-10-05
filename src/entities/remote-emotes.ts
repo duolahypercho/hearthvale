@@ -4,6 +4,7 @@
  * overshoot, bobs, then shrinks away.
  */
 import * as THREE from 'three';
+import { registerOverlayWarm } from '../render/warmkit';
 
 export const EMOTES = ['heart', 'happy', 'laugh', 'wow', 'question', 'music', 'sleepy', 'sweat'] as const;
 export type EmoteId = (typeof EMOTES)[number];
@@ -304,6 +305,32 @@ export function renderEmoteOverlay(renderer: THREE.WebGLRenderer, camera: THREE.
   // Our own render bumped the frame counter: remember it so the next check still works.
   lastFrame = renderer.info.render.frame;
 }
+
+// First emote of the session: its program (canvas target, sRGB) + atlas upload + pipeline state used
+// to build on the first live bubble (0.6-0.8 s in coop-farm). Draw a sub-pixel twin once behind the
+// load instead (render/warmkit.ts, pillar 14).
+registerOverlayWarm((renderer, camera) => {
+  const m = new THREE.MeshBasicMaterial({ map: atlasTexture(), transparent: true, alphaTest: 0.35, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
+  const s = new THREE.Mesh(BUBBLE_GEO, m);
+  s.frustumCulled = false;
+  camera.updateMatrixWorld();
+  s.position.copy(camera.getWorldPosition(_v)).add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(5));
+  s.scale.setScalar(1e-4);
+  s.updateMatrixWorld();
+  overlay.add(s);
+  const auto = renderer.autoClear;
+  const target = renderer.getRenderTarget();
+  try {
+    renderer.autoClear = false;
+    renderer.setRenderTarget(null);
+    renderer.render(overlay, camera);
+  } finally {
+    renderer.setRenderTarget(target);
+    renderer.autoClear = auto;
+    // Not disposed: that would release the program before RenderContext pins it.
+    s.removeFromParent();
+  }
+});
 
 /** A camera-facing quad over `anchor` (a farmer root), drawn by renderEmoteOverlay. */
 export class EmoteBubble {

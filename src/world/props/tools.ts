@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { MeshBuilder, roundedBox, mat } from '../geom';
 import { applyWorldFx } from '../../render/worldfx';
 import { TIER_COLORS } from '../../data/crops';
+import { registerWarm } from '../../render/warmkit';
 
 let woodMat: THREE.MeshStandardMaterial | null = null;
 const metalMats = new Map<number, THREE.MeshStandardMaterial>();
@@ -243,6 +244,10 @@ export function buildTool(id: string, tier: number): THREE.Group {
   cache.set(key, g);
   return g.clone();
 }
+
+/** Every held tool × tier, drawn once behind the load (pillar 14: a farmhand's first pour froze 0.3-0.6 s). */
+export const TOOL_IDS = ['hoe', 'axe', 'pickaxe', 'scythe', 'wateringCan', 'seeds'] as const;
+registerWarm(() => TOOL_IDS.flatMap((id) => [0, 1, 2, 3].map((t) => buildTool(id, t))));
 
 /** World-space position of the watering can's rose (spout tip) for a can built by buildTool. */
 export const CAN_SPOUT = new THREE.Vector3(0, -0.05, 0.36);
