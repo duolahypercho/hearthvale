@@ -18,6 +18,7 @@ import { RemoteFarmer } from '../entities/remote-farmer';
 import { EMOTES, EMOTE_LABEL, emoteIconUrl, type EmoteId } from '../entities/remote-emotes';
 import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, DEMO_HOST_LOOK, hex, randomLook, extra, EYE_STYLES, BROW_STYLES, MOUTH_STYLES, OUTFIT_CUTS, ACCESSORIES, type FarmerLook, type HairStyle, type HatStyle, type EyeStyle, type BrowStyle, type MouthStyle, type OutfitCut, type Accessory } from '../entities/remote-look';
 import { resetCamera } from './pause';
+import { nameClash, farmerName } from './profile';
 import { ICONS, itemIconUrl } from './icons';
 import { LobbyRenderer, type TurntableView } from './coop-stage';
 
@@ -245,7 +246,7 @@ class CoopScreen extends Screen {
     this.err = '';
     const p = this.net.profile();
     this.look = this.demo ? { ...DEMO_HOST_LOOK } : { ...p.look };
-    this.name = this.demo ? 'Marigold' : p.name;
+    this.name = this.demo ? 'Saffron' : p.name;
     this.root.querySelector('.coop-wrap')?.remove();
     const wrap = el('div', 'coop-wrap');
     const a = frame('Your Farmer', 'coop-maker');
@@ -307,13 +308,26 @@ class CoopScreen extends Screen {
     input.maxLength = 20;
     input.value = this.name;
     input.spellcheck = false;
+    // r5: villager / shop names are taken (a farmer "Marigold" read as the shopkeeper in the roster + chat).
+    const warn = el('small', 'coop-clash');
+    const check = (): boolean => {
+      const who = nameClash(input.value);
+      warn.textContent = who ? `${who} already lives in Hearthvale — pick another name` : '';
+      nameRow.classList.toggle('clash', !!who);
+      return !who;
+    };
     input.addEventListener('input', () => {
       this.name = input.value;
+      check();
       this.refreshMeCard();
     });
-    input.addEventListener('change', () => this.saveProfile());
+    input.addEventListener('change', () => {
+      if (!check()) return;
+      this.saveProfile();
+    });
     input.addEventListener('keydown', (e) => e.stopPropagation());
-    nameRow.appendChild(input);
+    nameRow.append(input, warn);
+    check();
     body.appendChild(nameRow);
 
     this.renderMakerOptions(body);
@@ -449,7 +463,8 @@ class CoopScreen extends Screen {
 
   private saveProfile(): void {
     if (this.demo) return;
-    this.net.setProfile({ name: this.name, look: { ...this.look } });
+    // A clashing name never leaves the creator (the hint under the field says why); the look still saves.
+    this.net.setProfile({ name: nameClash(this.name) ? this.net.profile().name : this.name, look: { ...this.look } });
   }
 
   // ── session side ──
@@ -604,7 +619,7 @@ class CoopScreen extends Screen {
       }
       const s = el('div', `coop-slot${p.isMe ? ' me' : ''}${p.away ? ' away' : ''}`);
       s.style.animationDelay = `${i * 70}ms`;
-      s.innerHTML = `${avatar(p.look, 42)}<div><b>${escapeHtml(p.name)}${p.isHost ? ` ${CROWN}` : ''}</b><small>${p.isHost ? 'Host' : p.cabin >= 0 ? `Farmhand · cabin ${p.cabin + 1}` : 'Farmhand'}${p.isMe ? ' · you' : ''}${p.away ? ' · reconnecting…' : ''}</small></div><span class="side">${p.isMe && p.isHost ? '' : pingBars(p.ping)}</span>`;
+      s.innerHTML = `${avatar(p.look, 42)}<div><b>${escapeHtml(farmerName(p.name))}${p.isHost ? ` ${CROWN}` : ''}</b><small>${p.isHost ? 'Host' : p.cabin >= 0 ? `Farmhand · cabin ${p.cabin + 1}` : 'Farmhand'}${p.isMe ? ' · you' : ''}${p.away ? ' · reconnecting…' : ''}</small></div><span class="side">${p.isMe && p.isHost ? '' : pingBars(p.ping)}</span>`;
       if (hosting && !p.isMe) s.querySelector('.side')!.appendChild(this.kickButton(p));
       slots.appendChild(s);
     }
@@ -707,7 +722,7 @@ function demoPlayers(name: string, look: FarmerLook): PlayerView[] {
     { ...base, id: 1, name, look, isHost: true, isMe: true, ping: 0, cabin: -1 },
     // Same farmhands (names + looks) as the coop-farm demo (net/demo.ts).
     { ...base, id: 2, name: 'Juniper', look: PRESET_LOOKS[0]!, isHost: false, isMe: false, ping: 34, cabin: 0 },
-    { ...base, id: 3, name: 'Pip', look: PRESET_LOOKS[1]!, isHost: false, isMe: false, ping: 71, cabin: 1 },
+    { ...base, id: 3, name: 'Fennel', look: PRESET_LOOKS[1]!, isHost: false, isMe: false, ping: 71, cabin: 1 },
   ];
 }
 
@@ -959,8 +974,9 @@ export class CoopUi {
     if (m.pending && m.seq) n.dataset.seq = String(m.seq);
     if (m.system) n.innerHTML = m.text;
     else {
-      n.innerHTML = `<b style="color:${m.color}"></b><span></span>`;
-      n.querySelector('b')!.textContent = m.name;
+      // r5: a farmer's line leads with their player-colour dot (villagers never speak in this log).
+      n.innerHTML = `<i class="pdot" style="--c:${m.color}"></i><b style="color:${m.color}"></b><span></span>`;
+      n.querySelector('b')!.textContent = farmerName(m.name);
       n.querySelector('span')!.textContent = m.text;
     }
     if (m.pending) n.insertAdjacentHTML('beforeend', '<i class="snd" aria-label="sending">sending…</i>');
@@ -983,7 +999,7 @@ export class CoopUi {
     const rows = players
       .map(
         (p) =>
-          `<div class="pl${p.away ? ' away' : ''}${p.isMe ? ' me' : ''}">${avatar(p.look, 26)}<b>${escapeHtml(p.name)}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}<span class="where">${p.map && p.map !== 'farm' ? escapeHtml(p.map) : ''}</span>${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`,
+          `<div class="pl${p.away ? ' away' : ''}${p.isMe ? ' me' : ''}" style="--c:${hex(p.look.scarf)}">${avatar(p.look, 26)}<i class="pdot"></i><b>${escapeHtml(farmerName(p.name))}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}<span class="where">${p.map && p.map !== 'farm' ? escapeHtml(p.map) : ''}</span>${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`,
       )
       .join('');
     this.roster.innerHTML = `<div class="hd">${PEOPLE_ICON}<span>Co-op${code ? ` · <b>${escapeHtml(code)}</b>` : ''}</span>${warn}</div>${rows}<div class="ft"><b>T</b> chat · <b>G</b> emote</div>`;
@@ -997,7 +1013,7 @@ export class CoopUi {
     const ready = new Set(b.ready);
     const waiting = players.filter((p) => !ready.has(p.id)).length;
     this.sleepEl.innerHTML = `<div class="stars"></div><div class="card"><div class="moon"></div><h3>Sweet dreams…</h3><p>${waiting ? `Waiting for <b>${waiting}</b> ${waiting === 1 ? 'farmer' : 'farmers'} to turn in` : 'Everyone is in bed — goodnight!'}</p><div class="beds">${players
-      .map((p) => `<div class="bed${ready.has(p.id) ? ' in' : ''}">${avatar(p.look, 30)}<small>${escapeHtml(p.name)}</small>${ready.has(p.id) ? ZZZ : '<em>awake</em>'}</div>`)
+      .map((p) => `<div class="bed${ready.has(p.id) ? ' in' : ''}">${avatar(p.look, 30)}<small>${escapeHtml(farmerName(p.name))}</small>${ready.has(p.id) ? ZZZ : '<em>awake</em>'}</div>`)
       .join('')}</div></div>`;
     const row = el('div', 'coop-sleep-btns');
     const c = el('button', 'u-btn small', '<span>Get up</span>');
@@ -1033,7 +1049,7 @@ export class CoopUi {
       this.nudge.classList.remove('on');
       return;
     }
-    const names = abed.map((p) => escapeHtml(p.name));
+    const names = abed.map((p) => escapeHtml(farmerName(p.name)));
     const who = names.length === 1 ? `<b>${names[0]}</b> is` : `<b>${names.slice(0, -1).join('</b>, <b>')}</b> and <b>${names[names.length - 1]}</b> are`;
     const n = abed.length;
     this.nudge.innerHTML = `<div class="moon"></div><div class="heads">${abed.map((p) => `<span>${avatar(p.look, 30)}${ZZZ}</span>`).join('')}</div><div class="tx"><p>${who} in bed</p> <small>${n === 1 ? 'A farmer is' : `${n} farmers are`} waiting for you to turn in — the day ends when everyone sleeps</small></div>`;
@@ -1064,7 +1080,7 @@ export class CoopUi {
     box.innerHTML = `<div class="ct-hd"><div class="de-h">Farm today</div><div class="ct-key">${legend}</div></div><div class="ct-row">${rows
       .map(
         (r) =>
-          `<div class="ct-f${r.isMe ? ' me' : ''}${r === best && total(r.n) > 0 ? ' best' : ''}" style="--c:${hex(r.look.scarf)}"${r === best && total(r.n) > 0 ? ' title="Busiest farmer today (most jobs done)"' : ''}>${r === best && total(r.n) > 0 ? '<em class="ct-best">★ Busiest</em>' : ''}${avatar(r.look, 34)}<div class="ct-tx"><b>${escapeHtml(r.name)}${r.isMe ? ' <em>you</em>' : ''}</b><span>${r.n
+          `<div class="ct-f${r.isMe ? ' me' : ''}${r === best && total(r.n) > 0 ? ' best' : ''}" style="--c:${hex(r.look.scarf)}"${r === best && total(r.n) > 0 ? ' title="Busiest farmer today (most jobs done)"' : ''}>${r === best && total(r.n) > 0 ? '<em class="ct-best">★ Busiest</em>' : ''}${avatar(r.look, 34)}<div class="ct-tx"><b>${escapeHtml(farmerName(r.name))}${r.isMe ? ' <em>you</em>' : ''}</b><span>${r.n
             .map((v, i) => `<i class="${v > 0 ? '' : 'z'}" title="${kinds[i]![1]}">${kinds[i]![0]}${v}</i>`)
             .join('')}</span></div></div>`,
       )
@@ -1082,7 +1098,7 @@ export class CoopUi {
       body.innerHTML = `<p>Invite up to three friends to farm with you.</p>`;
     } else {
       body.innerHTML = `<div class="code">Code <b>${escapeHtml(this.net.code() ?? '')}</b></div>${players
-        .map((p) => `<div class="pl" data-id="${p.id}">${avatar(p.look, 28)}<b>${escapeHtml(p.name)}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}${p.away ? '<em>away</em>' : ''}${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`)
+        .map((p) => `<div class="pl" data-id="${p.id}">${avatar(p.look, 28)}<b>${escapeHtml(farmerName(p.name))}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}${p.away ? '<em>away</em>' : ''}${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`)
         .join('')}`;
       if (role === 'host') {
         for (const row of body.querySelectorAll<HTMLElement>('.pl')) {
@@ -1103,6 +1119,23 @@ export class CoopUi {
         }
       }
     }
+    // r5: the farm gate — the farmers' own avatars (the roster's busts, not stick figures) along a fence rail,
+    // with the open seats waiting as dashed outlines.
+    const myLook = players.find((p) => p.isMe)?.look ?? this.net.profile().look;
+    const seated = role === 'solo' ? [{ look: myLook, name: 'You', me: true }] : players.slice(0, 4).map((p) => ({ look: p.look, name: p.isMe ? 'You' : farmerName(p.name), me: p.isMe }));
+    const seats = Array.from({ length: 4 }, (_, i) => seated[i] ?? null);
+    const vig = el(
+      'div',
+      'coop-vig',
+      `<div class="row">${seats
+        .map((x, i) =>
+          x
+            ? `<div class="seat on${x.me ? ' me' : ''}" style="--c:${hex(x.look.scarf)}">${avatar(x.look, 58)}<small>${escapeHtml(x.name)}</small></div>`
+            : `<div class="seat open"><i>+</i><small>Seat ${i + 1}</small></div>`,
+        )
+        .join('')}</div><div class="rail"></div>`,
+    );
+    body.appendChild(vig);
     const b = el('button', 'u-btn small green', `<span>${role === 'solo' ? 'Open farm to co-op' : 'Farmers & invite'}</span>`);
     b.dataset.nav = '';
     b.addEventListener('click', () => this.game.events.emit('ui:open', { name: 'coop' }));

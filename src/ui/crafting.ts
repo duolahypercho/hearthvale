@@ -16,6 +16,22 @@ import { itemTooltipHtml } from './itemtip';
 import { menuTabs } from './menutabs';
 import { flyItemTo } from './item-fly';
 
+/** r5: recipe shelves (tabs over the card grid, so the grid scales to 30+ recipes). */
+const CATS: { id: string; label: string; icon: string }[] = [
+  { id: 'all', label: 'All', icon: 'grid' },
+  { id: 'farming', label: 'Farming', icon: 'sprout' },
+  { id: 'storage', label: 'Storage', icon: 'bag' },
+  { id: 'decor', label: 'Decor', icon: 'star' },
+  { id: 'supplies', label: 'Supplies', icon: 'basket' },
+];
+function recipeCat(r: RecipeDef): string {
+  const id = r.out.itemId;
+  if (SPRINKLERS[id] || id === 'scarecrow' || /sprinkler|scarecrow|fertil/i.test(id)) return 'farming';
+  if (/chest|crate|keg|jar/i.test(id)) return 'storage';
+  if (/fence|path|lamp|sign|flower|torch|gate/i.test(id)) return 'decor';
+  return 'supplies';
+}
+
 /** Recipes pictured by something other than their output (the Hay Bale recipe makes loose hay). */
 const RECIPE_ART: Record<string, string> = { hay: 'hayBale', coal: 'charcoal' };
 
@@ -25,6 +41,8 @@ export class CraftingScreen extends Screen {
   private cards!: HTMLElement;
   private detail!: HTMLElement;
   private list: { r: RecipeDef; known: boolean }[] = [];
+  private cat = 'all';
+  private tabsEl!: HTMLElement;
 
   constructor(game: Game, parent: HTMLElement) {
     super(game, parent, 'hv-crafting', { backdrop: true });
@@ -60,15 +78,47 @@ export class CraftingScreen extends Screen {
     wrap.append(menuTabs(this.game, 'crafting'), f);
     const left = el('div', 'craft-left');
     left.appendChild(el('div', 'craft-head', `<span>Recipes</span><small>${this.list.filter((x) => x.known).length} / ${this.list.length} known</small>`));
+    this.tabsEl = el('div', 'craft-tabs');
+    left.appendChild(this.tabsEl);
     this.cards = el('div', 'craft-cards');
     left.appendChild(this.cards);
     this.detail = el('div', 'craft-detail');
     body.append(left, this.detail);
     this.root.appendChild(wrap);
+    if (want >= 0 && this.cat !== 'all' && recipeCat(this.list[want]!.r) !== this.cat) this.cat = 'all';
+    this.buildTabs();
+    this.buildCards();
+  }
+
+  private buildTabs(): void {
+    this.tabsEl.innerHTML = '';
+    for (const c of CATS) {
+      const n = c.id === 'all' ? this.list.length : this.list.filter((x) => recipeCat(x.r) === c.id).length;
+      if (!n) continue;
+      const b = el('button', `craft-tab${c.id === this.cat ? ' on' : ''}`, `<span>${c.label}</span><em>${n}</em>`);
+      b.dataset.nav = '';
+      b.addEventListener('click', () => {
+        if (this.cat === c.id) return;
+        sfx(this.game, 'tab');
+        this.cat = c.id;
+        this.tabsEl.querySelectorAll('.craft-tab').forEach((t) => t.classList.toggle('on', t === b));
+        // Keep the selection when it's on this shelf, else pick the shelf's first recipe.
+        if (c.id !== 'all' && recipeCat(this.list[this.sel]!.r) !== c.id) this.sel = this.list.findIndex((x) => recipeCat(x.r) === c.id);
+        this.qty = 1;
+        this.buildCards();
+      });
+      this.tabsEl.appendChild(b);
+    }
+  }
+
+  private buildCards(): void {
+    this.cards.innerHTML = '';
     this.list.forEach((x, i) => {
+      if (this.cat !== 'all' && recipeCat(x.r) !== this.cat) return;
       const c = el('div', 'craft-card');
+      c.dataset.i = String(i);
       c.dataset.nav = '';
-      c.style.animationDelay = `${i * 40}ms`;
+      c.style.animationDelay = `${this.cards.children.length * 30}ms`;
       c.addEventListener('click', () => {
         tooltip.hide();
         this.select(i);
@@ -85,6 +135,14 @@ export class CraftingScreen extends Screen {
       c.addEventListener('pointerleave', () => tooltip.hide());
       this.cards.appendChild(c);
     });
+    // Blank pages fill the shelf to whole rows (≥ 4 rows on "All"): the book has room for recipes yet to learn.
+    const n = this.cards.children.length;
+    const want = Math.max(this.cat === 'all' ? 16 : 8, Math.ceil(n / 4) * 4);
+    for (let k = n; k < want; k++) {
+      const b = el('div', 'craft-blank');
+      b.style.animationDelay = `${k * 30}ms`;
+      this.cards.appendChild(b);
+    }
     this.refreshCards();
   }
 
@@ -97,20 +155,40 @@ export class CraftingScreen extends Screen {
   }
 
   protected override initialFocus(): HTMLElement | null {
-    return this.cards?.children[this.sel] as HTMLElement | null;
+    return this.cardFor(this.sel) ?? (this.cards?.firstElementChild as HTMLElement | null);
+  }
+
+  private cardFor(i: number): HTMLElement | null {
+    return this.cards?.querySelector<HTMLElement>(`.craft-card[data-i="${i}"]`) ?? null;
   }
 
   private refreshCards(): void {
-    this.list.forEach((x, i) => {
-      const c = this.cards.children[i] as HTMLElement;
+    for (const c of [...this.cards.children] as HTMLElement[]) {
+      if (!c.classList.contains('craft-card')) continue;
+      const i = Number(c.dataset.i);
+      const x = this.list[i];
+      if (!x) continue;
       const ok = x.known && this.can(x.r);
-      c.className = `craft-card${x.known ? '' : ' locked'}${ok ? ' ok' : ''}${i === this.sel ? ' on' : ''}${c === this.nav.current ? ' u-focus' : ''}`;
-      const d = itemDef(x.r.out.itemId);
+      c.className = `craft-card${x.known ? '' : ' locked'}${ok ? ' ok' : x.known ? ' short' : ''}${i === this.sel ? ' on' : ''}${c === this.nav.current ? ' u-focus' : ''}`;
+      // r5: neutral parchment cards; craftability reads from a per-ingredient progress strip (green when met)
+      // and one line under it — "makes N" in green, or the missing ingredient's count in red.
+      const segs = x.r.cost
+        .map((k) => {
+          const have = this.count(k.itemId);
+          const p = Math.min(1, have / k.qty);
+          return `<i class="${p >= 1 ? 'met' : p >= 0.5 ? 'half' : ''}" style="--p:${p.toFixed(3)}"></i>`;
+        })
+        .join('');
+      const miss = x.r.cost.map((k) => ({ k, have: this.count(k.itemId) })).filter((m) => m.have < m.k.qty).sort((a, b) => a.have / a.k.qty - b.have / b.k.qty)[0];
+      const line = ok
+        ? `<small class="mk">makes ${this.maxTimes(x.r) * x.r.out.qty}</small>`
+        : miss
+          ? `<small class="ms"><b>${miss.have}</b>/${miss.k.qty} ${escapeHtml(shortItem(miss.k.itemId))}</small>`
+          : '';
       c.innerHTML = x.known
-        ? `<div class="pic">${itemIcon(RECIPE_ART[x.r.id] ?? x.r.out.itemId)}</div>${x.r.out.qty > 1 ? `<span class="yield">×${x.r.out.qty}</span>` : ''}<div class="nm">${escapeHtml(x.r.name)}</div>${ok ? '<i class="chk"></i>' : ''}`
+        ? `<div class="pic">${itemIcon(RECIPE_ART[x.r.id] ?? x.r.out.itemId)}</div>${x.r.out.qty > 1 ? `<span class="yield">×${x.r.out.qty}</span>` : ''}<div class="nm">${escapeHtml(x.r.name)}</div><div class="prog">${segs}</div>${line}`
         : `<div class="pic"><img class="u-ic sil" src="${itemIconUrl(x.r.out.itemId)}" alt=""/></div><div class="nm">???</div><small>${escapeHtml(x.r.unlock ?? 'Undiscovered')}</small>`;
-      void d;
-    });
+    }
     this.renderDetail();
   }
 
@@ -161,7 +239,7 @@ export class CraftingScreen extends Screen {
             ? (() => {
                 const sm = sampleWorld(this.game);
                 const where = sm ? (sm.ok ? 'In front of you · free tile' : 'In front of you · blocked, step aside') : previewNote(r.out.itemId);
-                return `<div class="cd-prev"><div class="cd-h">Placement<em class="${sm && !sm.ok ? 'no' : 'ok'}">${sm ? (sm.ok ? 'fits' : 'blocked') : ''}</em></div><div class="pv-stage">${previewSvg(r.out.itemId, sm)}</div><div class="pv-legend"><span><i class="ok"></i>free tile</span>${SPRINKLERS[r.out.itemId] ? '<span><i class="wet"></i>watered</span>' : r.out.itemId === 'scarecrow' ? '<span><i class="ring"></i>crow-safe</span>' : ''}<span><i class="no"></i>blocked</span></div><small>${where}</small><small class="sub">${previewNote(r.out.itemId)}</small></div>`;
+                return `<div class="cd-prev"><div class="cd-h">Placement<em class="${sm && !sm.ok ? 'no' : 'ok'}">${sm ? (sm.ok ? 'fits' : 'blocked') : ''}</em></div><div class="pv-stage">${previewSvg(r.out.itemId, sm)}</div><div class="pv-legend"><span><i class="ok"></i>free tile</span>${SPRINKLERS[r.out.itemId] ? '<span><i class="wet"></i>watered</span>' : r.out.itemId === 'scarecrow' ? '<span><i class="ring"></i>crow-safe</span>' : ''}<span><i class="no"></i>blocked</span></div><small title="${escapeHtml(previewNote(r.out.itemId))}">${where}</small></div>`;
               })()
             : `<div class="cd-prev bag"><div class="cd-h">Goes to</div><div class="pv-stage"><div class="bagpic">${ICONS.bag ?? ''}<div class="in">${known ? itemIcon(r.out.itemId) : ''}</div></div></div><small>Into your backpack</small></div>`
         }
@@ -202,7 +280,7 @@ export class CraftingScreen extends Screen {
     this.refreshCards();
     // Payoff (after the re-render, so it lands on the live nodes): card pops, pedestal strikes and bursts,
     // a "+N" rises, and the item arcs into the Backpack tab, which bounces and shows a count badge.
-    const card = this.cards.children[this.sel] as HTMLElement | undefined;
+    const card = this.cardFor(this.sel);
     replay(card, 'made');
     const ped = this.detail.querySelector<HTMLElement>('.pedestal');
     const go2 = this.detail.querySelector<HTMLElement>('.craft-go');
@@ -269,7 +347,7 @@ export class CraftingScreen extends Screen {
 
 const TW = 30;
 const TH = 23;
-const Y0 = 42;
+const Y0 = 30;
 const DEPTH = 11;
 
 /** One sampled tile: ground type + flags + what stands on it. */
@@ -408,6 +486,10 @@ function previewSvg(itemId: string, sample?: PvSample | null): string {
     const r = 3.3 * Math.SQRT2;
     out.push(`<ellipse class="pv-ring" cx="${sx}" cy="${sy + TH / 2}" rx="${(r * TW) / 2}" ry="${(r * TH) / 2}" fill="rgba(255,220,120,0.16)" stroke="#f0b040" stroke-width="1.6" stroke-dasharray="5 4"/>`);
   }
+  // r5: the four neighbours take a soft tint (where you'd stand / what it touches), so the target tile reads.
+  if (!fence.length && !paved.size)
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][])
+      out.push(`<path d="${diamond(c + dx, c + dz, 1)}" fill="${S.ok ? 'rgba(255,240,170,.26)' : 'rgba(255,170,150,.22)'}" stroke="${S.ok ? 'rgba(255,250,220,.7)' : 'rgba(255,210,200,.6)'}" stroke-width=".8" stroke-dasharray="3 2"/>`);
   // Target tile: green (free) / red with an X (blocked).
   const [tx, ty] = iso(c, c);
   out.push(
@@ -421,12 +503,17 @@ function previewSvg(itemId: string, sample?: PvSample | null): string {
   for (const [x, z, ghost] of placed) {
     const [sx, sy] = iso(x, z);
     const cy = sy + TH / 2;
-    const w = fence.length ? 40 : 62;
-    props.push([x + z + 0.5, `<ellipse cx="${sx}" cy="${cy + 1}" rx="${w * 0.34}" ry="${w * 0.12}" fill="#1e3010" opacity=".3"/><g class="${ghost ? '' : 'pv-item'}"><image href="${url}" x="${sx - w / 2}" y="${cy - w * 0.9}" width="${w}" height="${w}" opacity="${ghost || !S.ok ? 0.6 : 0.92}"/></g>`]);
+    const w = fence.length ? 40 : 54;
+    // Cast shadow: long and soft toward the lower right (the afternoon sun of the farm), anchored to the tile.
+    props.push([x + z + 0.5, `<ellipse cx="${sx + w * 0.12}" cy="${cy + 2}" rx="${w * 0.4}" ry="${w * 0.13}" fill="#14200a" opacity=".38" transform="rotate(8 ${sx} ${cy})"/><g class="${ghost ? '' : 'pv-item'}"><image href="${url}" x="${sx - w / 2}" y="${cy - w * 0.86}" width="${w}" height="${w}" opacity="${ghost || !S.ok ? 0.6 : 0.95}"/></g>`]);
   }
   props.sort((a, b) => a[0] - b[0]);
   for (const [, g] of props) out.push(g);
-  return `<svg class="grid iso${S.real ? ' real' : ''}" viewBox="0 0 ${N * TW} ${Y0 + N * TH + DEPTH + 6}">${out.join('')}</svg>`;
+  // The target tile's pulsing outline is drawn over everything (an item or crop on it never hides the mark).
+  if (!fence.length && !paved.size) out.push(`<path class="pv-pulse${S.ok ? '' : ' bad'}" d="${diamond(c, c, 0.5)}" fill="none" stroke="${S.ok ? '#f4ffe0' : '#ffe0d8'}" stroke-width="2.2" stroke-linejoin="round"/>`);
+  // r5: cropped to the middle ~80 % (the diamond's far tips are low-information) so the plate fills its card.
+  const W = N * TW;
+  return `<svg class="grid iso${S.real ? ' real' : ''}" viewBox="${(W * 0.09).toFixed(1)} 12 ${(W * 0.82).toFixed(1)} ${Y0 + N * TH + DEPTH - 10}">${out.join('')}</svg>`;
 }
 
 /** Three "Uses" chips for the detail pane: [HUD glyph, headline, detail]. */
@@ -452,6 +539,12 @@ function facts(itemId: string): [string, string, string][] {
     ['bag', 'Stacks', `up to ${d?.stack ?? 99}`],
     ['coin', `Sells ${d?.sell ?? 0}g`, 'at the bin'],
   ];
+}
+
+/** A short ingredient label for the card's missing-count line ("Copper Ore" → "copper"). */
+function shortItem(id: string): string {
+  const n = itemDef(id)?.name ?? id;
+  return n.replace(/ (Ore|Bar)$/i, '').toLowerCase();
 }
 
 function usesNote(itemId: string): string {

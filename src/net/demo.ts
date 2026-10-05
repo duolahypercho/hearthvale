@@ -51,9 +51,9 @@ export class CoopDemo {
     this.clear();
     this.active = true;
     this.asleep = false;
-    // The staged host is Marigold (as in the coop-lobby demo), unless you've named your farmer.
-    this.net.demoName('Marigold');
-    const names = ['Juniper', 'Pip', 'Rowan'];
+    // The staged host is Saffron (as in the coop-lobby demo), unless you've named your farmer.
+    this.net.demoName('Saffron');
+    const names = ['Juniper', 'Fennel', 'Briar'];
     const mk = (i: number, x: number, z: number, facing: Facing, script: Bot['script']): Bot => {
       const p = this.net.remotes.add(i + 2, names[i]!, PRESET_LOOKS[i]!);
       p.map = 'farm';

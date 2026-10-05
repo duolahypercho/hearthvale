@@ -276,7 +276,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'ui-placement': { map: 'farm', x: 34.4, z: 26.5, facing: 'right', time: 9, season: 'spring', weather: 'sun', camera: { yaw: -5, pitch: 50, distance: 13, offsetX: 1, offsetZ: 0.4 } },
   'ui-shop-carpenter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop:rowan' },
   'ui-crafting': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'crafting' },
-  'ui-dayend': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'dayend' },
+  'ui-dayend': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 19.3, season: 'spring', weather: 'sun', camera: { yaw: -22, pitch: 36, distance: 30, offsetX: -1.2, offsetZ: -8.2 }, ui: 'dayend' },
   // The real night: a stocked shipping bin, then bed at dusk → overnight payout → the ledger over tonight's farm.
   'ui-sleep': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 20.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'ui-dayend-quiet': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'dayend:quiet' },

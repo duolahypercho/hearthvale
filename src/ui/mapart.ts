@@ -44,8 +44,9 @@ function hsl(h: number, s: number, l: number): string {
 /** Jittered fill, shade, highlight and ink for one tree. */
 function tones(hex: string, r: () => number): { c: string; dk: string; lt: string; ink: string } {
   const [h, s, l] = hexToHsl(hex);
-  const hh = h + (r() - 0.5) * 10;
-  const ll = l * (1 + (r() - 0.5) * 0.3);
+  // r5: wider hue / value jitter and a darker base, so forests read as deep masses and no two stamps match.
+  const hh = h + (r() - 0.5) * 18;
+  const ll = l * (0.84 + (r() - 0.5) * 0.42);
   return { c: hsl(hh, s, ll), dk: hsl(hh + 6, Math.min(1, s * 1.1), ll * 0.66), lt: hsl(hh - 8, s * 0.9, Math.min(0.92, ll * 1.35)), ink: hsl(hh + 10, s * 0.8, ll * 0.4) };
 }
 
@@ -181,7 +182,9 @@ function paintTrees(specs: TreeSpec[], season: Season, r: () => number): string 
   for (const sp of specs) {
     for (const [x, y] of sp.pts) {
       const k = r() * (sp.mix[0] + sp.mix[1] + sp.mix[2]);
-      const s = sp.s[0] + r() * (sp.s[1] - sp.s[0]);
+      // r5: a broader size spread (a few big old trees, more saplings) instead of one repeated stamp size.
+      const u = r();
+      const s = (sp.s[0] + Math.pow(u, 1.6) * (sp.s[1] - sp.s[0]) * 1.35) * (r() < 0.08 ? 1.3 : 1);
       const round = P.round[Math.floor(r() * P.round.length)]!;
       const svg = k < sp.mix[0] ? roundTree(x, y, s, round, r, season) : k < sp.mix[0] + sp.mix[1] ? pineTree(x, y, s, P.pine, r, season) : poplarTree(x, y, s, season === 'fall' ? '#e0a83a' : P.round[0]!, r, season);
       all.push({ y, svg });

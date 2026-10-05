@@ -15,7 +15,7 @@ import './screens.css';
 import './ui.css';
 import * as THREE from 'three';
 import type { Game } from '../core/game';
-import { ICONS, WEATHER_ICON, itemIcon } from './icons';
+import { ICONS, WEATHER_ICON, itemIcon, itemCategory } from './icons';
 import { el, installTextures, tooltip, replay, sfx, Screen, type NavDir } from './kit';
 import { slotInner, itemTooltipHtml, type StackView } from './itemtip';
 import { InventoryScreen } from './inventory';
@@ -33,6 +33,7 @@ import { PlacementGhost } from './placement';
 import { DemoKit } from './demo-kit';
 import { NewGameScreen } from './newgame';
 import { itemDef } from '../data/items';
+import { CROPS } from '../data/crops';
 import { loadJournal, registerJournalSave, journal } from './profile';
 import { setTierSource } from './toolinfo';
 
@@ -320,7 +321,7 @@ export class Hud {
     box.style.animationDelay = '200ms';
     const bar = (cls: string, icon: string, title: string): HTMLElement => {
       const b = el('div', `h-bar ${cls} interactive`);
-      b.innerHTML = `<div class="tube"><div class="fill"></div><div class="ticks"></div><div class="gloss"></div></div><div class="badge">${icon}</div><div class="val"></div>`;
+      b.innerHTML = `<div class="tube"><div class="fill"></div><div class="ticks"></div><div class="gloss"></div></div><div class="badge">${icon}</div><div class="val"></div><div class="pct"></div>`;
       b.title = title;
       return b;
     };
@@ -430,8 +431,12 @@ export class Hud {
       const st = this.stacks[slot];
       const d = st ? itemDef(st.id) : undefined;
       if (d) {
-        this.selName.textContent = d.name;
+        // r5: a parchment banner over the bar for ~1.5 s on every switch — name + one line of what it's for.
+        this.selName.innerHTML = `<span class="ic">${itemIcon(d.id)}</span><span class="tx"><b></b><small></small></span>`;
+        this.selName.querySelector('b')!.textContent = d.name;
+        this.selName.querySelector('small')!.textContent = selInfo(d.id);
         replay(this.selName, 'show');
+        this.selName.classList.toggle('hold', this.demoKit.holdToasts);
       }
     }
   }
@@ -768,8 +773,9 @@ export class Hud {
       const hue = e > 0.5 ? 96 - (1 - (e - 0.5) * 2) * 56 : 8 + 32 * (e / 0.5);
       fill.style.background = `linear-gradient(90deg, hsl(${hue} 52% 36%), hsl(${hue + 6} 56% 52%) 38%, hsl(${hue + 10} 62% 62%) 50%, hsl(${hue} 52% 40%))`;
       if (!firstE) this.flashVal(this.energyBar);
-      this.energyBar.classList.toggle('low', e < 0.2);
+      this.energyBar.classList.toggle('low', e < 0.25);
       (this.energyBar.querySelector('.val') as HTMLElement).textContent = en ? `${en.value()} / ${en.max()}` : '';
+      (this.energyBar.querySelector('.pct') as HTMLElement).textContent = `${Math.round(e * 100)}%`;
     }
     const hp = (this.game.services as Record<string, unknown>).health as { value(): number; max(): number } | undefined;
     const mapId = this.game.world.current?.id ?? 'farm';
@@ -787,8 +793,9 @@ export class Hud {
       fill.style.background = 'linear-gradient(90deg, #9a2a2a, #d8584a 38%, #f08a72 50%, #a8302c)';
       this.healthBar.classList.toggle('low', hv < 0.25);
       (this.healthBar.querySelector('.val') as HTMLElement).textContent = hp ? `${Math.round(hp.value())} / ${hp.max()}` : '';
+      (this.healthBar.querySelector('.pct') as HTMLElement).textContent = `${Math.round(hv * 100)}%`;
     }
-    this.root.classList.toggle('h-hurt', hv < 0.25 || e < 0.12);
+    this.root.classList.toggle('h-hurt', hv < 0.25 || e < 0.15);
     // FPS chip (Options → Display → Show FPS): real frames, measured here, refreshed twice a second.
     const now = performance.now();
     this.fpsN++;
@@ -810,4 +817,20 @@ export class Hud {
     this.fpsEl.classList.toggle('hv-hidden', !settings.showFps);
     this.ghost.update(this.openPanel === null && !this.root.classList.contains('hv-title-mode'));
   }
+}
+
+/** One line under the selected item's name: what a seed grows into, a tool's job, else its category + price. */
+function selInfo(id: string): string {
+  const d = itemDef(id);
+  if (!d) return '';
+  if (d.kind === 'seed' && d.crop) {
+    const c = CROPS[d.crop];
+    if (c) {
+      const days = c.stageDays.reduce((a, b) => a + b, 0);
+      return `${c.seasons.map((x) => x[0]!.toUpperCase() + x.slice(1)).join(' & ')} · ripe in ${days} days${c.regrow ? ` · regrows` : ''}`;
+    }
+  }
+  if (d.kind === 'tool') return (d.description ?? 'Tool').split(/(?<=\.)\s/)[0]!.replace(/\.$/, '');
+  const cat = itemCategory(id).label;
+  return `${cat}${d.sell ? ` · sells ${d.sell}g` : ''}`;
 }

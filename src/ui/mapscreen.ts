@@ -27,7 +27,7 @@ interface Place {
 }
 
 const PLACES: Place[] = [
-  { id: 'farm', name: "Rosalind's Farm", x: 232, y: 338, blurb: 'Your farm. Overgrown, stubborn, full of promise — and the best soil in the valley.', open: true },
+  { id: 'farm', name: "Rosalind's Farm", x: 232, y: 338, blurb: 'Your farm. Overgrown, stubborn, full of promise — and the best soil in the valley.', open: true, flag: 80 },
   { id: 'town', name: 'Hearthvale Square', x: 566, y: 300, blurb: 'Cobbled plaza, the fountain, Thimble & Pip’s, the bakery — and the dark Lantern Hall.', open: true },
   { id: 'forest', name: 'Cindergrove', x: 232, y: 458, blurb: 'Old-growth woods past the farm’s south gate: a waterfall, mossy fallen giants and glowcaps after dark.', open: true, flag: 44 },
   { id: 'mine', name: 'Old Mine', x: 262, y: 112, blurb: 'The miners left in a hurry. Something down there still glitters.', open: true },
@@ -66,9 +66,14 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
   const snow = season === 'winter';
   const { defs, under, trees, mill, paper, grain } = valleyBase(season);
   const P = PAL[season];
-  // Farm field rows.
+  // Farm field rows (r5: the home farm is drawn at ~2x — eight long tilled rows with crops, so it reads as the
+  // player's place, not a glyph the size of the windmill).
   const rows: string[] = [];
-  for (let i = 0; i < 6; i++) rows.push(`<rect x="${196 + i * 11}" y="352" width="7" height="34" rx="2" fill="${snow ? '#c8c0b8' : '#8a5a36'}" opacity=".85"/><g fill="${snow ? '#fff' : '#6ab04a'}">${[0, 1, 2].map((k) => `<circle cx="${199.5 + i * 11}" cy="${358 + k * 11}" r="2.6"/>`).join('')}</g>`);
+  for (let i = 0; i < 8; i++)
+    rows.push(
+      `<rect x="${184 + i * 10.5}" y="338" width="7.4" height="58" rx="2.4" fill="${snow ? '#c8c0b8' : i % 3 === 2 ? '#6a4226' : '#8a5a36'}" stroke="#4a2c14" stroke-width=".8"/><g fill="${snow ? '#fff' : ['#6ab04a', '#8cc85a', '#e0503a', '#6ab04a'][i % 4]}" stroke="${snow ? '#c8d0d8' : '#2f5a1c'}" stroke-width=".7">${[0, 1, 2, 3, 4].map((k) => `<circle cx="${187.7 + i * 10.5}" cy="${344 + k * 11.2}" r="${i % 4 === 2 ? 2.2 : 3}"/>`).join('')}</g>`,
+    );
+  rows.push(`<path d="M178 332 H272 M178 404 H272 M178 332 V404" stroke="#7a4a22" stroke-width="2.2" fill="none" stroke-linecap="round"/>${[178, 202, 226, 250, 272].map((x) => `<rect x="${x - 1.6}" y="${328}" width="3.2" height="8" rx="1" fill="#a8703a" stroke="#4a2810" stroke-width=".8"/><rect x="${x - 1.6}" y="${400}" width="3.2" height="8" rx="1" fill="#a8703a" stroke="#4a2810" stroke-width=".8"/>`).join('')}`);
   const pinAt = PLACES.find((p) => p.id === here);
   const labels = PLACES.map(
     (p) => `<g class="m-loc${p.id === here ? ' here' : ''}" data-id="${p.id}" transform="translate(${p.x} ${p.y})">
@@ -87,9 +92,9 @@ function valleySvg(season: Season, here: string, heads: Head[], look: FarmerLook
   <g>
     <path d="M168 300 C200 290 290 292 318 306 C330 340 326 380 312 400 C270 410 200 410 172 398 C160 370 160 330 168 300 Z" fill="${snow ? '#f4f6f8' : P.land2}" stroke="#6a4a2a" stroke-width="2" stroke-dasharray="5 4" filter="url(#mWc)"/>
     ${rows.join('')}
-    ${house(284, 330, '#c8573e', 1.5, false)}
-    <g transform="translate(300 376)"><ellipse cx="2" cy="8" rx="12" ry="3" fill="#2a1a0a" opacity=".25"/><rect x="-10" y="-8" width="20" height="16" rx="2" fill="#b86a3a" stroke="#3b2313" stroke-width="1.4"/><path d="M-12 -8 L0 -16 L12 -8 Z" fill="#8a3a2a" stroke="#3b2313" stroke-width="1.4"/></g>
-    <rect x="258" y="370" width="16" height="12" rx="2" fill="#a86a34" stroke="#3b2313" stroke-width="1.5"/>
+    ${house(304, 322, '#c8573e', 2.2, true)}
+    <g transform="translate(304 386) scale(1.6)"><ellipse cx="2" cy="8" rx="12" ry="3" fill="#2a1a0a" opacity=".25"/><rect x="-10" y="-8" width="20" height="16" rx="2" fill="#b86a3a" stroke="#3b2313" stroke-width="1.4"/><path d="M-12 -8 L0 -16 L12 -8 Z" fill="#8a3a2a" stroke="#3b2313" stroke-width="1.4"/><path d="M-4 8 V0 H4 V8" fill="#5a2a14" stroke="#3b2313" stroke-width="1"/></g>
+    <rect x="276" y="368" width="16" height="12" rx="2" fill="#a86a34" stroke="#3b2313" stroke-width="1.5"/><path d="M276 372 H292" stroke="#5a3418" stroke-width="1.2"/>
   </g>
   <!-- town -->
   <g>
@@ -208,7 +213,7 @@ function villagerHeads(game: Game): { heads: Head[]; extra: string[] } {
  * Rasterise an SVG fragment (with the sheet's defs) to a bitmap URL at `px` wide. Filters are painted once
  * here instead of on every animation tick of the live sheet.
  */
-async function rasterise(defs: string, inner: string, px: number): Promise<string | null> {
+async function rasterise(defs: string, inner: string, px: number, filter = 'none'): Promise<string | null> {
   const w = Math.round(px);
   const hgt = Math.round((px * 640) / 1000);
   const src = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" width="${w}" height="${hgt}"><defs>${defs}</defs>${inner}</svg>`;
@@ -223,6 +228,7 @@ async function rasterise(defs: string, inner: string, px: number): Promise<strin
     cv.height = hgt;
     const g = cv.getContext('2d');
     if (!g) return null;
+    g.filter = filter;
     g.drawImage(img, 0, 0, w, hgt);
     const blob = await new Promise<Blob | null>((res) => cv.toBlob(res, 'image/png'));
     return blob ? URL.createObjectURL(blob) : null;
@@ -326,7 +332,8 @@ export class MapScreen extends Screen {
       this.baked.push(url);
       g.innerHTML = `<image href="${url}" x="0" y="0" width="1000" height="640" preserveAspectRatio="none" pointer-events="none"/>`;
     };
-    void rasterise(sheet.defs, sheet.still, px).then((u) => swap('m-still', u));
+    // r5: baked with a little more saturation + value contrast (the washes read pale and flat at panel size).
+    void rasterise(sheet.defs, sheet.still, px, 'saturate(1.22) contrast(1.12) brightness(0.98)').then((u) => swap('m-still', u));
     void rasterise(sheet.defs, sheet.grain, Math.min(px, 1600)).then((u) => swap('m-grain', u));
   }
 

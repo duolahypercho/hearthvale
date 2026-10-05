@@ -1115,7 +1115,7 @@ export class MineCoop implements MineNetApi {
       const d = Math.hypot(wx - (spot.x - side * 2.6), wz - spot.z) - (r.spec.ore ? 3 : 0);
       if (d < 9 && (!best || d < best.d)) best = { x: r.spec.x, z: r.spec.z, d };
     }
-    const names = ['Juniper', 'Pip'];
+    const names = ['Juniper', 'Fennel'];
     const mk = (i: number, x: number, z: number, job: Bot['job'], tx: number, tz: number): void => {
       const p = net.remotes!.add!(900 + i, names[i]!, PRESET_LOOKS[i + 1] ?? PRESET_LOOKS[0]!);
       p.map = 'mine';

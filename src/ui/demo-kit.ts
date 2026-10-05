@@ -21,8 +21,9 @@ const STOCK: [string, number, number][] = [
   ['lanternEel', 1, 2],
   ['cockle', 4, 0],
   ['wood', 86, 0],
-  ['stone', 64, 0],
-  ['fiber', 40, 0],
+  // Not enough for everything (r5): the workbench shows a mix — sprinkler / scarecrow / brass sprinkler short.
+  ['stone', 8, 0],
+  ['fiber', 14, 0],
   ['copperOre', 14, 0],
   ['ironOre', 6, 0],
   ['quartz', 2, 0],

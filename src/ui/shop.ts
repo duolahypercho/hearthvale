@@ -192,7 +192,8 @@ export class ShopScreen extends Screen {
     this.purse = el('div', 'shop-purse', `${ICONS.coin}<span class="v"></span><small>your purse</small>`);
     // "In your pack": the selected good's count + free slots — where bought goods land (they fly in here).
     this.have = el('div', 'shop-have');
-    left.append(this.portrait, plate, this.bubble, this.have, this.purse);
+    // r5: the purse sits right under the pack card; the keeper's friendship card closes the column (no dead gap).
+    left.append(this.portrait, plate, this.bubble, this.have, this.purse, this.friendCard(npc));
 
     const right = el('div', 'shop-right');
     const tabs = el('div', 'shop-tabs');
@@ -377,7 +378,51 @@ export class ShopScreen extends Screen {
     this.buildPicker();
     this.nav.attach(this.root, this.list.querySelector<HTMLElement>('.shop-row.on'));
     this.list.scrollTop = 0;
-    requestAnimationFrame(() => this.syncRail());
+    requestAnimationFrame(() => {
+      this.fitRows();
+      this.syncRail();
+    });
+  }
+
+  /**
+   * r5: the list window ends on a whole row (never a half-cut "Summer only"): shrink it to the last row that
+   * fits, and never end on a lone shelf header.
+   */
+  private fitRows(): void {
+    const l = this.list;
+    l.style.height = '';
+    const H = l.clientHeight;
+    if (l.scrollHeight <= H + 2) return;
+    const items = [...l.querySelectorAll<HTMLElement>('.shop-row, .shop-shelf')];
+    let best = 0;
+    let lastWasShelf = false;
+    let beforeShelf = 0;
+    for (const it of items) {
+      const b = it.offsetTop + it.offsetHeight;
+      if (b > H - 6) break;
+      const shelf = it.classList.contains('shop-shelf');
+      if (shelf && !lastWasShelf) beforeShelf = best;
+      if (b > best) best = b;
+      lastWasShelf = shelf;
+    }
+    if (lastWasShelf) best = beforeShelf;
+    // (border-box list: the height carries the bottom padding)
+    if (best > 120) l.style.height = `${best + parseFloat(getComputedStyle(l).paddingBottom || '0') + 2}px`;
+  }
+
+  /** The keeper's friendship: hearts, birthday and a favourite — fills the keeper column's foot. */
+  private friendCard(npc: (typeof NPCS)[NpcId] | undefined): HTMLElement {
+    const card = el('div', 'shop-friend');
+    if (!npc) return card;
+    const h = Math.max(0, Math.min(10, this.game.services.relationships?.hearts(this.keeper) ?? 0));
+    const hearts = Array.from({ length: 5 }, (_, i) => {
+      const v = h / 2 - i;
+      return `<i class="${v >= 1 ? 'full' : v >= 0.5 ? 'half' : ''}"></i>`;
+    }).join('');
+    const SEAS: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
+    const love = npc.gifts?.love?.find((id) => itemDef(id));
+    card.innerHTML = `<div class="sf-top"><b>${escapeHtml(shortName(npc.name))}</b><span class="hearts" title="${h} / 10 hearts">${hearts}</span></div><div class="sf-rows"><span>${ICONS.cake ?? ICONS.heart ?? ''}<em>Birthday</em><b>${SEAS[npc.birthday.season] ?? ''} ${npc.birthday.day}</b></span>${love ? `<span>${itemIcon(love)}<em>Loves</em><b>${escapeHtml(itemDef(love)?.name ?? love)}</b></span>` : ''}</div>`;
+    return card;
   }
 
   private syncRail(): void {

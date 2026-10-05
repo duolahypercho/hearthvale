@@ -4,9 +4,9 @@
  *
  *   Juniper  behind the bed, facing the camera, picks her way along the back row; while the basket
  *            is on the ground each berry lobs over the bed into it (it fills up).
- *   Rowan    lifts the full basket, hauls it down the path to the shipping bin (thunk + bin sound),
+ *   Briar    lifts the full basket, hauls it down the path to the shipping bin (thunk + bin sound),
  *            jogs back with it empty, sets it down and waves everyone over for coffee.
- *   Pip      walks in and waters the front row tile by tile (the real can arc, splash and wet soil),
+ *   Fennel   walks in and waters the front row tile by tile (the real can arc, splash and wet soil),
  *            turns to the camera, "Berries are watered!".
  *
  * Chat lines and emotes are staggered across the loop and expire (bubbles fade + shrink out).
@@ -38,7 +38,7 @@ const BIN_FRONT = { x: 37.5, z: 17.45 };
 /** Age (s) inside which a seeked action is replayed for real (anim + FX); older ones apply quietly. */
 const LIVE_AGE = 1.2;
 /**
- * The grass lane between the kale row (tile 23) and the berry bed (tiles 25-26): Juniper + Pip stand
+ * The grass lane between the kale row (tile 23) and the berry bed (tiles 25-26): Juniper + Fennel stand
  * on its south edge, toes at the bed's back edge (clear of the kale leaves behind them), facing the
  * camera, so every pick / pour reaches the berry row right in front of them (< 1 tile).
  */
@@ -150,7 +150,7 @@ export class FarmChoreo {
   constructor(
     private game: Game,
     private net: NetSystem,
-    /** Juniper, Pip, Rowan (already added + placed). */
+    /** Juniper, Fennel, Briar (already added + placed). */
     bots: RemotePlayer[],
   ) {
     const [jun, pip, row] = bots as [RemotePlayer, RemotePlayer, RemotePlayer];
@@ -195,7 +195,7 @@ export class FarmChoreo {
     }
     events.push({ t: 1.2, run: (age) => this.say(p, 'Race you to the bin after this row!', age) });
     events.push({ t: 11.2, run: (age) => this.emote(p, 'laugh', age) });
-    events.push({ t: 19.8, run: (age) => this.say(p, 'Save me a mug, Rowan!', age) });
+    events.push({ t: 19.8, run: (age) => this.say(p, 'Save me a mug, Briar!', age) });
     events.push({ t: 23.6, run: (age) => this.emote(p, 'heart', age) });
     return act;
   }

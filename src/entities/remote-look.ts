@@ -76,7 +76,7 @@ export const PRESET_LOOKS: FarmerLook[] = [
   { skin: 0x8d5a3b, hair: 0x5b3622, hairStyle: 'long', shirt: 0xcfe8c4, overalls: 0x6d4c8c, scarf: 0x7cc46a, hat: 'beanie', hatColor: 0xf0a04b, eyes: 'sleepy', brows: 'soft', mouth: 'smile', outfit: 'vest', accessory: 'scarf' },
 ];
 
-/** The staged host in the lobby demo (Marigold): auburn bob, cream shirt, teal overalls, violet kerchief. */
+/** The staged host in the lobby demo (Saffron): auburn bob, cream shirt, teal overalls, violet kerchief. */
 export const DEMO_HOST_LOOK: FarmerLook = { skin: 0xecb48e, hair: 0xc0512c, hairStyle: 'bob', shirt: 0xf6f4ee, overalls: 0x3f7f7a, scarf: 0x9a6ad6, hat: 'straw', hatColor: 0xe6c275 };
 
 export function sameLook(a: FarmerLook, b: FarmerLook): boolean {

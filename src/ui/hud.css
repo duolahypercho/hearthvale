@@ -1638,3 +1638,188 @@ body:has(.u-tip.on) .hv-np {
   align-self: flex-end;
   line-height: 24px;
 }
+
+/* ═══ UI r5 (critic r4): lighter stat chrome + a warning that reads ═══════════════════════════════════════
+   Tubes ~30 % shorter and wider (a 10 % tube is still a visible pool, not a sliver); under 25 % the value chip
+   stays up, the tube's rim pulses red/amber at 1.2 Hz and a red edge vignette breathes in (0.25–0.35 alpha).
+   The selected item announces itself on a parchment banner above the toolbar (name + one line, ~1.5 s). */
+.h-bar,
+.h-bar.health,
+.h-bar.health.rest {
+  width: 50px;
+  height: 138px;
+  border-radius: 17px;
+}
+.hv-energy {
+  gap: 10px;
+  padding: 24px 10px 8px;
+}
+.h-bar .tube {
+  inset: 25px 8px 8px;
+  border-radius: 11px;
+}
+.h-bar .badge {
+  width: 40px;
+  height: 40px;
+}
+.h-bar .fill {
+  min-height: 6px;
+}
+.h-bar .gloss {
+  left: 5px;
+  width: 6px;
+}
+.h-bar.energy .val {
+  right: calc(100% + 68px);
+  bottom: 44px;
+}
+.h-bar.low .val {
+  opacity: 1;
+  translate: 0 0;
+  color: #fff2e0;
+  background: linear-gradient(180deg, #b8321e, #7a1a0e);
+  box-shadow: 0 0 0 2px #3a0a04, 0 3px 6px rgba(20, 8, 2, 0.45);
+}
+.h-bar.low {
+  animation: hRimPulse 0.833s ease-in-out infinite;
+}
+.h-bar.low.bump {
+  animation: hBump 520ms var(--ease-back), hRimPulse 0.833s ease-in-out infinite;
+}
+@keyframes hRimPulse {
+  0%,
+  100% {
+    border-color: #4a2810;
+    box-shadow: inset 0 2px 0 rgba(255, 222, 170, 0.6), inset 0 -3px 0 rgba(40, 18, 4, 0.45), 0 0 0 2px rgba(240, 160, 40, 0.75), 0 0 10px 2px rgba(240, 150, 40, 0.45);
+  }
+  50% {
+    border-color: #8a1a0c;
+    box-shadow: inset 0 2px 0 rgba(255, 222, 170, 0.6), inset 0 -3px 0 rgba(40, 18, 4, 0.45), 0 0 0 3px rgba(230, 52, 36, 0.95), 0 0 18px 5px rgba(230, 40, 30, 0.6);
+  }
+}
+.h-bar.low .fill {
+  animation: hLow 0.833s ease-in-out infinite;
+}
+/* red edge vignette: transparent centre, ~0.3 alpha band at the frame edge + a hot inner rim, heartbeat pulse */
+.hv-hud::after {
+  background:
+    radial-gradient(ellipse 78% 72% at 50% 50%, transparent 58%, rgba(196, 28, 22, 0.26) 80%, rgba(150, 8, 8, 0.48) 100%);
+  box-shadow: inset 0 0 90px 18px rgba(200, 24, 18, 0.32);
+}
+.hv-hud.h-hurt:not(.hv-title-mode):not(.h-menu-open)::after {
+  animation: hHurt 0.833s ease-in-out infinite;
+}
+@keyframes hHurt {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  16% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.8;
+  }
+  44% {
+    opacity: 0.96;
+  }
+}
+/* selected-item banner: parchment, icon + name + one line */
+.h-selname {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 16px 7px 8px;
+  border-radius: 14px;
+  color: var(--ink);
+  text-shadow: none;
+  background: var(--u-paper, none), linear-gradient(180deg, #fffaea, #f2dcae);
+  border: 3px solid #6a3c18;
+  box-shadow: 0 3px 0 #3e2210, 0 8px 16px rgba(20, 10, 4, 0.35), inset 0 2px 0 rgba(255, 255, 255, 0.7);
+}
+.h-selname::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  translate: -50% 0;
+  border: 7px solid transparent;
+  border-top: 8px solid #6a3c18;
+}
+.h-selname .ic {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: rgba(138, 100, 64, 0.14);
+}
+.h-selname .ic img,
+.h-selname .ic svg {
+  width: 30px;
+  height: 30px;
+}
+.h-selname .tx {
+  display: grid;
+  line-height: 1.1;
+}
+.h-selname b {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--ink);
+}
+.h-selname small {
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 12.5px;
+  color: #7a5432;
+}
+.h-selname.show {
+  animation: hName 1.75s var(--ease-out) forwards;
+}
+.h-selname.show.hold {
+  animation: hNameIn 320ms var(--ease-back) forwards;
+}
+@keyframes hNameIn {
+  from {
+    opacity: 0;
+    translate: -50% 8px;
+  }
+  to {
+    opacity: 1;
+    translate: -50% 0;
+  }
+}
+/* the low chip sits on the tube's foot (never ambiguous about which tube it belongs to) */
+.h-bar .pct {
+  position: absolute;
+  left: 50%;
+  bottom: -11px;
+  translate: -50% 0;
+  padding: 1px 6px 2px;
+  border-radius: 8px;
+  font: 700 13px/1.1 var(--font-head);
+  color: #fff4e4;
+  background: linear-gradient(180deg, #c8402a, #82200e);
+  box-shadow: 0 0 0 2px #3a0a04, 0 2px 4px rgba(20, 6, 2, 0.45);
+  white-space: nowrap;
+  opacity: 0;
+  scale: 0.6;
+  transition: opacity 200ms, scale 300ms var(--ease-back);
+  pointer-events: none;
+}
+.h-bar.low .pct {
+  opacity: 1;
+  scale: 1;
+}
+.h-bar.low .val {
+  opacity: 0;
+}
+.h-bar.low:hover .val {
+  opacity: 1;
+}
+.h-bar.low .fill {
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.55), 0 0 10px 2px rgba(255, 90, 50, 0.65);
+}

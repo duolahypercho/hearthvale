@@ -9,6 +9,7 @@ import type { Game } from '../core/game';
 import { NPCS, type NpcId } from '../data/npcs';
 import { portraitSvg } from './portraits';
 import { ICONS } from './icons';
+import { journal } from './profile';
 import { Screen, el, frame, closeButton, sfx, replay, escapeHtml, shortName } from './kit';
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
@@ -69,7 +70,6 @@ export class PauseScreen extends Screen {
       ['save', 'Save Game', 'save', ''],
       ['load', 'Load Game', 'door', ''],
       ['settings', 'Options', 'gear', ''],
-      ['title', 'Quit to Title', 'x', 'red'],
     ];
     for (const [id, label, icon, cls] of items) {
       const b = el('button', `u-btn ${cls}`, `${ICONS[icon] ?? ''}<span>${label}</span>`);
@@ -78,7 +78,35 @@ export class PauseScreen extends Screen {
       b.addEventListener('click', () => this.action(id));
       menu.appendChild(b);
     }
-    sign.querySelector('.board')!.appendChild(menu);
+    // r5: Quit is a quiet secondary link at the foot of the board with an inline confirm (it no longer weighs
+    // as much as Resume).
+    const quit = el('div', 'pause-quit');
+    const qb = el('button', 'pq-link', `${ICONS.door ?? ''}<span>Quit to title</span>`);
+    qb.dataset.nav = '';
+    qb.addEventListener('click', () => {
+      sfx(this.game, 'click');
+      quit.classList.add('ask');
+      quit.innerHTML = `<span class="pq-q">Leave for the title? Anything since your last save is lost.</span>`;
+      const yes = el('button', 'pq-yes', 'Quit');
+      const no = el('button', 'pq-no', 'Stay');
+      yes.dataset.nav = '';
+      no.dataset.nav = '';
+      yes.addEventListener('click', () => this.action('title'));
+      no.addEventListener('click', () => {
+        sfx(this.game, 'click');
+        quit.classList.remove('ask');
+        quit.replaceChildren(qb);
+        this.nav.set(qb, document.body.classList.contains('u-kbd'));
+      });
+      quit.append(yes, no);
+      this.nav.set(no, document.body.classList.contains('u-kbd'));
+    });
+    quit.appendChild(qb);
+    // A carved plaque fills the board's foot: whose farm this is and how long they've kept it.
+    const days = (['spring', 'summer', 'fall', 'winter'].indexOf(c.season) + (c.year - 1) * 4) * 28 + c.day;
+    const plaque = el('div', 'pause-plaque', `<b></b><small>${days === 1 ? 'first day on the farm' : `${days} days on the farm`}</small>`);
+    plaque.querySelector('b')!.textContent = journal.farm;
+    sign.querySelector('.board')!.append(menu, plaque, quit);
     // Today card.
     const bd = nextBirthday(this.game);
     const gold = this.game.services.economy?.gold() ?? 0;

@@ -98,7 +98,7 @@ export class TitlePanel extends Screen {
   protected render(): void {
     this.root.querySelectorAll(':scope > :not(.u-backdrop)').forEach((n) => n.remove());
     const latest = this.latestSave();
-    const petals = Array.from({ length: 16 }, (_, i) => `<i style="--x:${(i * 61 + 7) % 100}%;--d:${8 + (i % 5) * 1.9}s;--dl:${-(i * 1.3) % 9}s;--s:${0.55 + (i % 4) * 0.2}"></i>`).join('');
+    const petals = Array.from({ length: 16 }, (_, i) => `<i style="--x:${(i * 61 + 7) % 100}%;--d:${8 + (i % 5) * 1.9}s;--dl:${-(i * 1.3) % 9}s;--s:${0.55 + (i % 4) * 0.15}"></i>`).join('');
     const motes = Array.from({ length: 18 }, (_, i) => `<b style="left:${(i * 37) % 100}%;top:${20 + ((i * 53) % 70)}%;animation-delay:${-(i * 0.7)}s;animation-duration:${7 + (i % 6)}s"></b>`).join('');
     this.root.innerHTML = `
       <div class="ts-rays"></div>
@@ -109,10 +109,8 @@ export class TitlePanel extends Screen {
         <div class="ts-scrim"></div>
         ${LOGO}${LOGO_HANG}
         <div class="ts-ribbon"><span>a cozy valley farming tale</span></div>
+        <p class="ts-tale"><b>Grandmother Rosalind</b> left you her overgrown farm —<br/>and a letter about the lanterns of Hearthvale, dark for seven winters.</p>
       </div>
-      <div class="ts-hook"><div class="u-frame"><div class="u-paper">
-        <b>Grandmother Rosalind</b> left you her overgrown farm — and a letter about the lanterns of Hearthvale, dark for seven winters.
-      </div></div></div>
       <div class="ts-menu"></div>
       <div class="ts-foot"><span>${ICONS.play} <b>Enter</b> select</span><span><b>←→</b> choose</span><span class="v">v0.4 · made with three.js</span></div>
       <div class="ts-credits hv-hidden"><div class="u-frame"><div class="u-ribbon"><span>Credits</span></div><div class="u-paper">

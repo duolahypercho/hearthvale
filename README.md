@@ -182,8 +182,8 @@ Demos: `farm-morning`, `farm-noon`, `farm-evening`, `farm-night`, `farm-fall`, `
 `farm-field`, `winter-night` (+ DESIGN names `town-evening`, `beach-sunset`, `forest-rain`, `mine`, `festival`, which
 stage on the farm until those maps exist).
 UI screens: `ui-title`, `ui-title-continue` (a returning player: Continue is the green hero), `ui-hud` (toasts), `ui-inventory`, `ui-shop`, `ui-shop-smith`, `ui-forge` (Odessa's tool upgrades with a purse that can pay), `ui-shop-carpenter`, `ui-crafting`,
-`ui-placement` (in-world ghost), `ui-dayend`, `ui-dayend-quiet` (nothing shipped), `ui-sleep` (the real night: stocked bin → bed → payout → ledger over the dusk grab of the farm; shoot with `--wait 5500`), `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac),
-`ui-newgame` (New Journal creator; `ui=newgame:demo` pre-filled), `ui-hud-low` (both tubes low + red heartbeat vignette; any demo takes
+`ui-placement` (in-world ghost), `ui-dayend` (dusk farm behind the ledger, lines tick + hop into the crate, season-so-far strip; `ui=dayend:big` = a 20-kind bin in two columns), `ui-dayend-quiet` (nothing shipped), `ui-sleep` (the real night: stocked bin → bed → payout → ledger over the dusk grab of the farm; shoot with `--wait 5500`), `ui-map`, `ui-settings`, `ui-pause`, `ui-saves`, `ui-icons` (item almanac),
+`ui-newgame` (New Journal creator; `ui=newgame:demo` pre-filled; a villager's / the shop's name is refused), `ui-hud-low` (both tubes low: % chips, red/amber rim pulse, red edge vignette, selected-item banner held; any demo takes
 `&energy=0.1&health=0.2`), `ui-coop` (co-op lobby from the title) — or
 `?demo=<any>&ui=<screen>[:arg]` (e.g. `ui=shop:odessa`, `ui=saves:save`).
 
@@ -827,16 +827,22 @@ firs) and card shrubs; `cliffs.ts` the waterfall cliff (a sculpted wall mesh ove
 shader); `props.ts` mossy logs, mushrooms, winterberries / twigs, the Ember Shrine (menhir ring, ember altar) and
 the roofed glade tower (door, lit window, ivy); `stream.ts` the waterfall and flow; `forage.ts` seasonal
 forageables (interact to pick, `forage:picked`); `motes.ts` dust motes in the light shafts; `foliage.ts` the card
-textures, billboard / painted-light patches and the canopy see-through (trunks and logs always stay solid).
+textures, billboard / painted-light patches and the canopy see-through (logs stay solid; a giant trunk standing
+between the lens and the farmer opens one crisp farmer-sized window, sized from his projected height); `arrival.ts`
+the area plate (dodges the farmer's head, leaves on the first key / click).
 
 Weather (`systems/weather.ts`, visuals in `render/precipitation.ts`, `skyfx.ts`, `groundfx.ts`, `heightfog.ts`,
-grade in `render/lighting.ts`): rain + splashes + eave / canopy drips, island puddles with a meniscus on darker soaked
-paths (`world/terrain.ts`), storms (screen-space forked bolts, ~+2.5 EV return stroke, `weather:lightning` then a
+grade in `render/lighting.ts`): rain + splashes + eave / canopy drips, island puddles with a dark meniscus on darker
+soaked paths (`world/terrain.ts` tags standing water in the colour target's alpha, 0.05..0.5; the fog pass traces the
+reflected ray through the depth buffer, so the farmer, trunks and the bridge mirror in them; puddles shrink while the
+ground dries), storms (one screen-space bolt channel + 2-3 short forks, a hard cold key flash, `weather:lightning` then a
 delayed `weather:thunder`, scorch + steam), snow (flakes, top-facing accumulation via `render/worldfx.ts`, drifts,
 sastrugi, boot prints), wind gusts of leaves / petals, ground-hugging fog mornings with god rays, rainbows.
-`game.services.weather`: `strike(at?, hold?)`, `setFog(v|null)`, `setRainbow(v|null)`, `state()`.
+Light shafts reach the forest floor and land in dappled sun pools (fog pass, multiplied into the surface colour).
+`game.services.weather`: `strike(at?, hold?)`, `setFog(v|null)`, `setRainbow(v|null)`, `state()` (incl. `sky` for the
+HUD dial: clear / overcast / storm / snow / fog).
 
-Demos: `forest-day`, `forest-rain`, `forest-fall`, `forest-glade`, `forest-night`, `forest-wind`, `forest-arrival`,
+Demos: `forest-day`, `forest-canopy` (low lens under two elders, sun shafts + dappled pools), `forest-rain`, `forest-fall`, `forest-glade`, `forest-night`, `forest-wind`, `forest-arrival`,
 `storm`, `storm-meadow`, `snow-day`, `snow-falls`, `fog-morning`, `fog-bridge`, `rainbow`, `farm-storm`, `coop-forest`.
 Params: `&bolt=0|1` (posed strike), `&fog=0..1`, `&rainbow=0..1`.
 
