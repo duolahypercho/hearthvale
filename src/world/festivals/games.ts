@@ -1246,6 +1246,8 @@ export class FestivalOverlay {
     const top = Math.max(...rivals.map((r) => r.score));
     const topBy = rivals.find((r) => r.score === top)!;
     let mine: Entry;
+    /** Presentation picked (-1 = none offered, PRESENTATIONS.length = just as it is). */
+    let touch = -1;
     if (!list.length) mine = { id: 'stone', name: 'A Very Polished Stone', q: 0, score: 12, note: 'the judges are baffled' };
     else {
       const stars = (q: number): string => (q ? `<span class="star">${'★'.repeat(q)}</span>` : 'Regular');
@@ -1257,12 +1259,15 @@ export class FestivalOverlay {
       const fav = favouredPresentation(this.game.calendar.year);
       const pk = await this.pick(env, 'Present it', PRESENTATIONS[fav]!.hint, [...PRESENTATIONS.map((p) => `<div class="ic">${PRESENT_SVG[p.id]}</div><div class="nm">${p.name}</div>`), `<div class="ic">${PRESENT_SVG.plain}</div><div class="nm">Just as it is</div>`], fav);
       if (pk === null) return null;
+      touch = pk;
       const bonus = pk === fav ? 7 : pk < PRESENTATIONS.length ? 2 : 0;
       mine.score = Math.min(99, mine.score + bonus);
       if (pk < PRESENTATIONS.length) mine.note += ` · ${PRESENTATIONS[pk]!.name.toLowerCase()}${pk === fav ? ' (the judges swooned)' : ''}`;
     }
     env.play.partner = mine.id;
-    env.map.playEvent('enter');
+    // The 3D entry is sized by its score (the winner is visibly the finest on the table) and shows
+    // its presentation touch: value = score + 1000 × (touch + 1).
+    env.map.playEvent('enter', mine.score + 1000 * (touch + 1));
     const entries = [...rivals.map((r) => ({ ...r, me: false, icon: '' })), { name: mine.name, by: 'You', score: mine.score, tint: '', me: true, icon: mine.id }];
     // Shuffle the table, but keep yours third.
     const SLOTS = [1, 0, 3, 2];

@@ -606,16 +606,17 @@ type Hole = [number, number, number, number, 'plank' | 'tile' | 'flag', number];
 const HOLES: Hole[] = [
   [5.7, 6.4, 0.9, 0.9, 'tile', 0],
   [26.3, 7.4, 0.9, 0.6, 'tile', 0],
-  [5.4, 11.0, 1.4, 0.55, 'plank', 0],
+  [5.4, 11.0, 1.6, 0.75, 'plank', 0],
   [25.1, 12.2, 1.1, 0.8, 'flag', 0.4],
-  [6.9, 20.3, 0.52, 1.1, 'plank', 0],
+  [6.9, 20.3, 0.8, 1.3, 'plank', 0],
   [26.0, 19.9, 1.0, 0.8, 'tile', 0],
-  // The nave: split boards along the runner up to the dais.
-  [17.1, 16.6, 0.6, 1.4, 'plank', 0],
-  [12.9, 10.2, 0.6, 1.0, 'plank', 0],
-  [14.1, 13.3, 0.62, 1.7, 'plank', 0.05],
-  [16.3, 18.9, 0.9, 0.62, 'plank', 0],
-  [15.8, 8.6, 0.55, 1.1, 'plank', -0.04],
+  // The nave: whole runs of boards gone along the old runner up to the dais (Stardew-readable decay).
+  [17.0, 16.4, 0.9, 2.0, 'plank', 0],
+  [12.9, 10.2, 0.9, 1.5, 'plank', 0],
+  [14.0, 13.3, 1.2, 2.3, 'plank', 0],
+  [16.4, 19.0, 1.2, 1.0, 'plank', 0],
+  [15.9, 8.4, 0.9, 1.5, 'plank', 0],
+  [13.2, 18.3, 0.6, 1.1, 'plank', 0],
 ];
 
 /**
@@ -2926,13 +2927,51 @@ export class HallMap implements GameMap {
         const nx = Math.max(1, Math.round((hw * PX) / s));
         const nzz = Math.max(1, Math.round((hd * PX) / s));
         for (let i = 0; i < nx; i++) for (let j = 0; j < nzz; j++) if (!((i === 0 || i === nx - 1) && (j === 0 || j === nzz - 1)) || r.next() < 0.5) path.rect(-nx * s * 0.5 + i * s, -nzz * s * 0.5 + j * s, s + 0.5, s + 0.5);
+      } else if (kind === 'plank') {
+        // Whole boards gone, cut on the floor's own seams with staggered broken ends (the middle
+        // boards longest): the hole reads as missing planks, not a blot.
+        const ew = hx < 12 && hz > 9 && hz < 15;
+        const pwM = ew ? 0.36 : hx < 12 ? 0.26 : hx > 18 ? 0.3 : 0.3;
+        const origin = ew ? 9 : hx < 12 ? 2 : 12;
+        const across = ew ? hd : hw;
+        const along = ew ? hw : hd;
+        const n = Math.max(2, Math.round(across / pwM));
+        const c0 = ew ? hz : hx;
+        const start = origin + Math.round((c0 - (n * pwM) / 2 - origin) / pwM) * pwM - c0;
+        for (let i = 0; i < n; i++) {
+          const mid = 1 - Math.abs(i - (n - 1) / 2) / (n / 2 + 0.5);
+          const L = along * (0.45 + 0.55 * mid) * (0.8 + r.next() * 0.4) * PX;
+          const off = (r.next() - 0.5) * along * 0.35 * PX;
+          const a0 = (start + i * pwM) * PX;
+          // Broken ends: a short jagged tooth at each end of the strip.
+          const tooth = (r.next() - 0.5) * pwM * 0.8 * PX;
+          const w = pwM * PX;
+          const sp = new Path2D();
+          if (ew) {
+            sp.moveTo(off - L / 2, a0);
+            sp.lineTo(off + L / 2, a0);
+            sp.lineTo(off + L / 2 + tooth, a0 + w * 0.5);
+            sp.lineTo(off + L / 2, a0 + w);
+            sp.lineTo(off - L / 2, a0 + w);
+            sp.lineTo(off - L / 2 - tooth, a0 + w * 0.5);
+          } else {
+            sp.moveTo(a0, off - L / 2);
+            sp.lineTo(a0, off + L / 2);
+            sp.lineTo(a0 + w * 0.5, off + L / 2 + tooth);
+            sp.lineTo(a0 + w, off + L / 2);
+            sp.lineTo(a0 + w, off - L / 2);
+            sp.lineTo(a0 + w * 0.5, off - L / 2 - tooth);
+          }
+          sp.closePath();
+          path.addPath(sp);
+        }
       } else {
         const n = 16;
         for (let i = 0; i <= n; i++) {
           const a = (i / n) * Math.PI * 2;
-          const jag = kind === 'plank' ? 0.65 + r.next() * 0.45 : 0.8 + r.next() * 0.25;
-          const px = Math.cos(a) * hw * 0.5 * PX * (kind === 'plank' ? Math.min(1, 1.25 * jag) : jag);
-          const pz = Math.sin(a) * hd * 0.5 * PX * (kind === 'plank' ? 1 : jag);
+          const jag = 0.8 + r.next() * 0.25;
+          const px = Math.cos(a) * hw * 0.5 * PX * jag;
+          const pz = Math.sin(a) * hd * 0.5 * PX * jag;
           if (i === 0) path.moveTo(px, pz);
           else path.lineTo(px, pz);
         }
@@ -2940,18 +2979,34 @@ export class HallMap implements GameMap {
       }
       g.save();
       g.clip(path);
+      // Soil in a readable mid-brown (it was crushed under a 50 % black wash): solid earth with the dirt
+      // texture multiplied in for grain, clods and a few pebbles, darkening only under the board edges.
+      const soil = g.createRadialGradient(0, 0, 0, 0, 0, Math.max(hw, hd) * 0.6 * PX);
+      soil.addColorStop(0, '#3e2814');
+      soil.addColorStop(1, '#22150a');
+      g.fillStyle = soil;
+      g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
       if (pat) {
         pat.setTransform(new DOMMatrix().scale(0.6));
         g.fillStyle = pat;
-      } else g.fillStyle = '#6a4a30';
-      g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
-      g.fillStyle = 'rgba(24,14,6,0.5)';
-      g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
-      const sh = g.createRadialGradient(0, 0, Math.min(hw, hd) * 0.1 * PX, 0, 0, Math.max(hw, hd) * 0.62 * PX);
-      sh.addColorStop(0, 'rgba(10,6,2,0)');
-      sh.addColorStop(1, 'rgba(10,6,2,0.8)');
-      g.fillStyle = sh;
-      g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
+        g.globalAlpha = 0.18;
+        g.globalCompositeOperation = 'overlay';
+        g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
+        g.globalCompositeOperation = 'source-over';
+        g.globalAlpha = 1;
+      }
+      for (let k = 0; k < 14; k++) {
+        g.fillStyle = r.next() < 0.6 ? 'rgba(60,38,20,0.45)' : 'rgba(170,150,120,0.5)';
+        g.beginPath();
+        g.ellipse((r.next() - 0.5) * hw * PX, (r.next() - 0.5) * hd * PX, (0.02 + r.next() * 0.03) * PX, (0.015 + r.next() * 0.025) * PX, r.next() * 3, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
+      g.save();
+      g.clip(path);
+      g.strokeStyle = 'rgba(14,8,3,0.6)';
+      g.lineWidth = 0.09 * PX;
+      g.stroke(path);
       g.restore();
       g.strokeStyle = kind === 'plank' ? 'rgba(214,170,112,0.85)' : 'rgba(200,190,170,0.6)';
       g.lineWidth = kind === 'plank' ? 3 : 2;
@@ -2961,6 +3016,53 @@ export class HallMap implements GameMap {
       g.translate(2, 3);
       g.stroke(path);
       g.restore();
+    }
+    // Creeping vines out of the holes and along the wall feet: a wandering stem, paired leaves.
+    const vine = (x: number, z: number, ang: number, len: number): void => {
+      let px = X(x);
+      let pz = Z(z);
+      let a = ang;
+      const steps = Math.round(len * 6);
+      g.lineCap = 'round';
+      for (let k = 0; k < steps; k++) {
+        a += (r.next() - 0.5) * 0.7;
+        const nx = px + Math.cos(a) * 0.17 * PX;
+        const nz = pz + Math.sin(a) * 0.17 * PX;
+        g.strokeStyle = 'rgba(52,70,30,0.9)';
+        g.lineWidth = Math.max(1.5, 0.025 * PX * (1 - k / steps) + 1);
+        g.beginPath();
+        g.moveTo(px, pz);
+        g.lineTo(nx, nz);
+        g.stroke();
+        for (const sd of [-1, 1]) {
+          if (r.next() < 0.25) continue;
+          const la = a + sd * (0.9 + r.next() * 0.5);
+          const ls = (0.05 + r.next() * 0.04) * PX * (1 - (k / steps) * 0.5);
+          const lx = nx + Math.cos(la) * ls * 0.9;
+          const lz = nz + Math.sin(la) * ls * 0.9;
+          g.fillStyle = ['#4f7a2e', '#5f8c36', '#3f6828', '#6c9a40'][Math.floor(r.next() * 4)]!;
+          g.beginPath();
+          g.ellipse(lx, lz, ls, ls * 0.55, la, 0, Math.PI * 2);
+          g.fill();
+          g.fillStyle = 'rgba(200,230,150,0.25)';
+          g.beginPath();
+          g.ellipse(lx - ls * 0.2, lz - ls * 0.2, ls * 0.45, ls * 0.2, la, 0, Math.PI * 2);
+          g.fill();
+        }
+        px = nx;
+        pz = nz;
+      }
+    };
+    for (const [hx, hz, hw, hd] of HOLES) {
+      const nv = 1 + Math.floor(r.next() * 2);
+      for (let k = 0; k < nv; k++) {
+        const a = r.next() * Math.PI * 2;
+        vine(hx + Math.cos(a) * hw * 0.4, hz + Math.sin(a) * hd * 0.4, a, 0.9 + r.next() * 1.3);
+      }
+    }
+    for (let k = 0; k < 10; k++) {
+      const west = k % 2 === 0;
+      vine(west ? 2.15 : 27.85, 4 + r.next() * 16, west ? 0 : Math.PI, 0.8 + r.next() * 1.2);
     }
     return out;
   }

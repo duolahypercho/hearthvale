@@ -411,10 +411,13 @@ export class FrozenRiver {
           vec3 sky = mix(uHorizonColor * 1.1, uSkyColor, smoothstep(0.0, 0.6, R.y));
           // Broad drifting curtains (shaped, not a product of two noises that averages out to a
           // faint wash) with fine vertical rays inside them, like the curtains overhead.
-          float b1 = hvNoise(vec2(p.x * 0.07 + uTime * 0.02, p.y * 0.018 + 2.0));
-          float b2 = hvNoise(vec2(p.x * 1.1 - uTime * 0.05, 1.3));
-          float band = smoothstep(0.38, 0.72, b1) * (0.4 + 0.6 * b2);
-          vec3 aur = mix(vec3(0.12, 0.95, 0.55), vec3(0.62, 0.28, 0.85), smoothstep(0.35, 0.7, hvNoise(p * 0.05 + 4.0))) * band * 0.42 * uAurora * smoothstep(0.4, 0.9, uNight);
+          // The curtains' mirror image: columns along x stretched toward the lens (a reflection in
+          // black ice smears vertically), crisp rays inside each column.
+          float b1 = hvNoise(vec2(p.x * 0.07 + uTime * 0.02, p.y * 0.012 + 2.0));
+          float b2 = hvNoise(vec2(p.x * 1.1 - uTime * 0.05, 1.3 + p.y * 0.03));
+          float b3 = pow(hvNoise(vec2(p.x * 3.4 + uTime * 0.04, 7.1 + p.y * 0.05)), 2.0);
+          float band = smoothstep(0.32, 0.7, b1) * (0.3 + 0.55 * b2 + 0.6 * b3);
+          vec3 aur = mix(vec3(0.12, 0.95, 0.55), vec3(0.62, 0.28, 0.85), smoothstep(0.35, 0.7, hvNoise(p * 0.05 + 4.0))) * band * 0.95 * uAurora * smoothstep(0.4, 0.9, uNight);
           vec2 sc2 = floor(p * 5.0);
           vec2 so = fract(p * 5.0) - 0.5 - (hvHash22(sc2 + 5.0) - 0.5) * 0.6;
           float star = step(0.985, hvHash12(sc2)) * (1.0 - smoothstep(0.02, 0.07, length(so))) * (0.5 + 0.5 * sin(uTime * 2.0 + hvHash12(sc2 + 1.0) * 30.0)) * uNight;

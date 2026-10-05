@@ -66,7 +66,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Farming r11: the two-hand "hooray" lift of a big crop (melon on the hat, arms up) and a close
   // morning sprinkler turret soaking its square of the summer field (wet front spreading outward).
   'farm-lift': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'summer', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest', 'crop=melon', 'pose=0.72'] },
-  'farm-sprinkler': { map: 'farm', x: 23.5, z: 24.5, facing: 'up', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: -14, pitch: 42, distance: 8.5, offsetX: 2.4, offsetZ: -2.2 }, showcase: ['harvest', 'act=none'] },
+  'farm-sprinkler': { map: 'farm', x: 23.5, z: 22.6, facing: 'right', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 47, distance: 10.5, offsetX: 2.4, offsetZ: -0.7 }, showcase: ['harvest', 'act=none'] },
   // Town square (plaza, Lantern Hall, villagers).
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).

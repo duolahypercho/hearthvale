@@ -6875,7 +6875,8 @@ body.u-calm .de-star .medal {
   }
 }
 .ts-btn .tx small {
-  font-size: 17px;
+  font-size: 16.5px;
+  letter-spacing: -0.1px;
   text-shadow: 0 1.5px 0 #3a1a06, 0 0 2px #3a1a06, 0 0 8px rgba(40, 16, 2, 0.7);
 }
 .ts-foot {
@@ -6888,4 +6889,12 @@ body.u-calm .de-star .medal {
 }
 .de-rows.dense .de-row {
   min-height: 0;
+}
+#ui-root .pk-n small {
+  font-size: 12.5px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  color: #8a6440;
 }

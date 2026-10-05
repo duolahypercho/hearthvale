@@ -246,7 +246,7 @@ export class CraftingScreen extends Screen {
       </div>
       ${few ? '' : factsHtml}
       <div class="cd-go">
-        <div class="pk-qty"><button class="u-btn small" data-q="-1" data-nav>−</button><div class="pk-n"><span>${this.qty}</span><small>× ${r.out.qty}</small></div><button class="u-btn small" data-q="1" data-nav>+</button><button class="u-btn small" data-q="max" data-nav>Max</button></div>
+        <div class="pk-qty"><button class="u-btn small" data-q="-1" data-nav>−</button><div class="pk-n"><span>${this.qty}</span><small>${r.out.qty > 1 ? `makes ${r.out.qty * this.qty}` : 'qty'}</small></div><button class="u-btn small" data-q="1" data-nav>+</button><button class="u-btn small" data-q="max" data-nav>Max</button></div>
         <button class="u-btn green craft-go ${ok ? '' : 'disabled'}" data-nav>${ICONS.hammer}<span>Craft${this.qty > 1 ? ` ×${this.qty}` : ''}</span></button>
       </div>`;
     this.detail.querySelectorAll<HTMLElement>('[data-q]').forEach((b) =>

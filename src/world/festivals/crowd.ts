@@ -559,6 +559,7 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
 /** Joint angles per clip (shared by the vertex shader and the CPU hand solver below). */
 const CROWD_GLSL = /* glsl */ `
 uniform sampler2D uCrowd;
+uniform float uCrowdEdge;
 attribute float aBone;
 attribute vec3 aPivot;
 attribute float aMember;
@@ -629,8 +630,11 @@ void crowdPose(inout vec3 p, inout vec3 n) {
     armRx = -1.95; armRs = -0.62; armLx = -1.0; armLs = -0.15;
     hdZ = 0.14 + sin(t * 0.6) * 0.05; hdX = 0.05 + sin(t * 1.3) * 0.04; hdY = sin(t * 0.4) * 0.3; torZ = -0.04;
   } else if (anim < 11.5) { // sack race hop
-    float h = crPos(sin(t * 5.2));
-    bob = pow(h, 0.7) * 0.32; squash = 1.0 + (0.25 - h) * 0.22;
+    // A clear 0.36 m hop arc: stretched in the air, squashed flat for the beat after landing.
+    float sh = sin(t * 5.2);
+    float h = crPos(sh);
+    float g = crPos(-sh);
+    bob = pow(h, 0.7) * 0.36; squash = 1.0 + h * 0.1 - pow(g, 0.5) * 0.17 * (1.0 - g * 0.6);
     armLx = -0.35; armRx = -0.35; armLs = -0.3; armRs = -0.3; torX = 0.12 - h * 0.2; hdX = -0.1;
   } else if (anim < 12.5) { // fiddle
     armLx = -1.55; armLs = 0.2; armRx = -1.25; armRs = 0.35 + sin(t * 5.0) * 0.35;
@@ -723,13 +727,21 @@ void crowdCull(inout vec3 p) {
   float feet = cf.y / max(cf.w, 0.001);
   float nearD = distance(cameraPosition, wa.xyz + vec3(0.0, 1.0, 0.0));
   float keep = smoothstep(-1.1, -0.96, feet) * smoothstep(2.6, 3.6, nearD);
+  // Staged framings (demo stills, mini-games): anyone the side edges would crop folds away, so the
+  // frame is never bordered by half-bodies (fully in or fully out).
+  float side = abs(cf.x / max(cf.w, 0.001));
+  keep *= mix(1.0, smoothstep(1.04, 0.95, side) * smoothstep(-1.02, -0.9, feet), uCrowdEdge);
   p = mix(A.xyz, p, keep);
 }
 `;
 
+/** 1 = staged framing: crowd members cropped by the frame's side / bottom edges fold away (shared by every crowd). */
+export const CROWD_EDGE = { value: 0 };
+
 function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, depth: boolean): void {
   patchMaterial(m, depth ? 'crowd-depth' : 'crowd', (shader) => {
     shader.uniforms.uCrowd = tex;
+    shader.uniforms.uCrowdEdge = CROWD_EDGE;
     shader.uniforms.uTime = globalUniforms.uTime;
     shader.uniforms.uLamps = globalUniforms.uLamps;
     let vs = shader.vertexShader;

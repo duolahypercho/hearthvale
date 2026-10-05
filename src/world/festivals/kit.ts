@@ -1613,7 +1613,7 @@ export function buildCornField(rng: Rng, spots: [number, number, number, number,
 }
 
 /** Start / finish gate for the sack race: two posts + a hanging banner ribbon. */
-export function buildRaceGate(rng: Rng, span: number, text: string, bg = '#2f6a8a'): THREE.Group {
+export function buildRaceGate(rng: Rng, span: number, text: string, bg = '#2f6a8a', endSign = false): THREE.Group {
   const b = new MeshBuilder();
   const H = 2.6;
   for (const sx of [-1, 1]) {
@@ -1631,7 +1631,18 @@ export function buildRaceGate(rng: Rng, span: number, text: string, bg = '#2f6a8
     tri.rotateX(Math.PI);
     b.add('cloth', tri, mat(p.x, p.y - 0.12, 0, 0, 0, 0, 1, 1, 0.12), { tint: FESTIVAL_COLORS[(i + rng.int(0, 5)) % FESTIVAL_COLORS.length]! });
   }
-  return b.build({ name: 'race-gate' });
+  // Race gates: an end board on the near (-x) post, square to a camera looking along the gate (the
+  // banner reads edge-on from the side of a race lane).
+  if (endSign) b.add('woodGrain', roundedBox(0.06, 0.62, 1.5, 0.02), mat(-span / 2 - 0.1, H + 0.12, 0), { tint: 0x7a5232 });
+  const g = b.build({ name: 'race-gate' });
+  if (!endSign) return g;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.36, 0.5), bannerMaterial(text, bg, '#fff4d8', 640, 236));
+  sign.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(4 * 3).fill(1), 3));
+  sign.position.set(-span / 2 - 0.135, H + 0.12, 0);
+  sign.rotation.y = -Math.PI / 2;
+  sign.userData.noAO = true;
+  g.add(sign);
+  return g;
 }
 
 /** Apple-bobbing tub: barrel half, water, floating apples. */

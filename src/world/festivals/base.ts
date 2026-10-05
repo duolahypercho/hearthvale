@@ -24,7 +24,7 @@ import type { ActivityId } from '../../data/festivals';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { LightPools } from '../props/decals';
 import type { BuiltProp } from '../props/structures';
-import { Crowd, Anim, type CrowdSpec } from './crowd';
+import { Crowd, Anim, CROWD_EDGE, type CrowdSpec } from './crowd';
 import { GlowPoints, type GlowPoint } from './fx';
 import { buildRosette } from './kit';
 import { RemoteFarmer } from '../../entities/remote-farmer';
@@ -618,6 +618,8 @@ export abstract class FestivalMap implements GameMap {
       v.f.update(dt, game.time);
     }
     if (this.play) this.play.t += dt;
+    // Staged framings (paused demo stills, mini-games) never show half-cropped bodies at the edges.
+    CROWD_EDGE.value = this.play || (game.paused && this.staged) ? 1 : 0;
     this.updatePips(dt, game);
     if (this.winCheer.length && this.showT > this.cheerUntil) {
       const c = this.crowd;

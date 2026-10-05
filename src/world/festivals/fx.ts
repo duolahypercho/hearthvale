@@ -1430,14 +1430,16 @@ export class NightSky {
           // camera only ever sees a thin band of sky.
           // The hem rides clear of the treeline (5–11° up) and swings in big S-folds, so the bright
           // green ribbon edge reads as a curtain — not just rays rising out of the trees.
-          float hem = 0.062 + k * 0.024 + 0.04 * sin(aa * 3.1 + k * 1.7 + t * 0.05) + 0.02 * sin(aa * 7.3 - t * 0.11 + k) + 0.012 * hvNoise(vec2(aa * 7.0 - t * 0.08, k * 3.0));
-          float H = 0.2 + 0.06 * hvNoise(vec2(aa * 3.0 + k * 5.0, t * 0.02));
+          // (r6: hems drop to 2–8° and the veils stand taller, so even the 16° Starfall postcard sees
+          // the curtains' bright lower edge and rays standing over the fir line.)
+          float hem = 0.036 + k * 0.02 + 0.03 * sin(aa * 3.1 + k * 1.7 + t * 0.05) + 0.016 * sin(aa * 7.3 - t * 0.11 + k) + 0.01 * hvNoise(vec2(aa * 7.0 - t * 0.08, k * 3.0));
+          float H = 0.26 + 0.07 * hvNoise(vec2(aa * 3.0 + k * 5.0, t * 0.02));
           float v = (e - hem) / H;
           vv = v;
           if (v < -0.08 || v > 1.0) return 0.0;
           float fold = hvNoise(vec2(aa * 10.0 - t * 0.12 + k * 7.0, 0.3));
           fold = 0.15 + 0.85 * smoothstep(0.25, 0.8, fold);
-          float rays = 0.55 + 0.45 * pow(hvNoise(vec2(aa * 140.0 + t * 0.25 + k * 31.0, k + v * 0.5)), 1.5);
+          float rays = 0.3 + 0.7 * pow(hvNoise(vec2(aa * 140.0 + t * 0.25 + k * 31.0, k + v * 0.5)), 1.6) + 0.35 * pow(hvNoise(vec2(aa * 42.0 - t * 0.1 + k * 13.0, 0.7)), 3.0);
           float lower = smoothstep(-0.08, 0.02, v);
           // A hot, crisp hem line + a soft glow just under it, then the veil fading upward.
           float body = lower * (pow(1.0 - v, 1.8) * 0.55 + 2.2 * exp(-max(v, 0.0) * 14.0)) + 0.35 * exp(-abs(v + 0.03) * 40.0);
@@ -1480,7 +1482,7 @@ export class NightSky {
               acol += cc * c * (1.0 - k * 0.22);
               au += c;
             }
-            acol *= uAurora * 0.85;
+            acol *= uAurora * 1.9;
             au *= uAurora;
           }
           star *= 1.0 - clamp(au * 0.9, 0.0, 0.85);

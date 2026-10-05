@@ -34,10 +34,12 @@ import { CROPS, type CropId } from '../../data/crops';
 import { randomLook, shoulderLift, type CrowdSpec } from './crowd';
 
 const STAGE = { x: 35, z: 10.6 };
-const LANE = { x0: 13, x1: 41, z: 25.0 };
-/** Five racing lanes, 1.05 m apart (lane 0 = the player, nearest the camera, like the HUD's bottom row). */
+const LANE = { x0: 13, x1: 41, z: 25.4 };
+/** Five racing lanes, 1.5 m apart (lane 0 = the player, nearest the camera, like the HUD's bottom row): wide enough that a 56° race camera sees every racer clear of the next. */
 const LANES = 5;
-const LANE_W = 1.05;
+const LANE_W = 1.5;
+/** Chalked start + finish lines; the HUD's 0..1 progress maps exactly onto this run. */
+const RUN = { x0: LANE.x0 + 1.0, x1: LANE.x1 - 1.0 };
 const HALF = (LANES * LANE_W) / 2;
 /** Ropes + spectators stand clear of the lanes. */
 const ROPE = HALF + 0.4;
@@ -50,7 +52,7 @@ const PUMPKINS: [number, number, number, number][] = [
   [29.4, 16.4, 0.78, 0xe8862a],
   [33.4, 16.6, 1.08, 0xf07a1e],
   [37.6, 16.5, 0.92, 0xe8d8b0],
-  [41.4, 16.3, 0.7, 0x8a9a4a],
+  [41.4, 16.3, 0.95, 0x8a9a4a],
 ];
 
 export class HarvestFair extends FestivalMap {
@@ -76,6 +78,8 @@ export class HarvestFair extends FestivalMap {
   /** Race clock (advances with the render clock, frozen while a demo shot is staged). */
   private raceClock = 0;
   private sack: THREE.Mesh | null = null;
+  /** Metres you have hopped on past the finish tape. */
+  private pastTape = 0;
   /** Sacks pulled onto co-op farmers' avatars for a shared race. */
   private remoteSacks = new Map<number, THREE.Object3D>();
 
@@ -236,7 +240,8 @@ export class HarvestFair extends FestivalMap {
         const bb = geo.boundingBox!;
         const sc = (rad * 1.9) / Math.max(0.05, bb.max.y - bb.min.y);
         // Held under white (a pale giant turnip blew out into a glowing blob under the noon sun).
-        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xc4beb4, roughness: 0.7 }));
+        // (0x77726a: a white turnip keeps its shading — its shoulders shade, its purple crown reads.)
+        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, color: 0x77726a, roughness: 0.85, envMapIntensity: 0.5 }));
         m.scale.setScalar(sc);
         m.position.set(x, this.H(x, z) + 0.36 - bb.min.y * sc, z);
         m.rotation.y = 0.5;
@@ -351,8 +356,8 @@ export class HarvestFair extends FestivalMap {
   }
 
   private buildRace(r: Rng): void {
-    this.addProp(buildRaceGate(r, HALF * 2 + 0.7, 'Start', '#2f6a8a'), LANE.x0, LANE.z, Math.PI / 2, {});
-    this.addProp(buildRaceGate(r, HALF * 2 + 0.7, 'Finish', '#8a2a1e'), LANE.x1, LANE.z, Math.PI / 2, {});
+    this.addProp(buildRaceGate(r, HALF * 2 + 0.7, 'Start', '#2f6a8a', true), RUN.x0 - 0.4, LANE.z, Math.PI / 2, {});
+    this.addProp(buildRaceGate(r, HALF * 2 + 0.7, 'Finish', '#8a2a1e', true), RUN.x1 + 0.25, LANE.z, Math.PI / 2, {});
     for (const sz of [-1, 1]) {
       // Rope on stakes along the lane + a few bales.
       const z = LANE.z + sz * ROPE;
@@ -578,7 +583,7 @@ export class HarvestFair extends FestivalMap {
     for (let k2 = 0; k2 < 5; k2++) {
       const z = laneZ(k2);
       const i = person(randomLook(r, { palette: P.tops, child: k2 === 3 }), 'sack', LANE.x0 + 2, z, Math.PI / 2, { props: ['sack'], top: racerTints[k2], speed: 1 + k2 * 0.04 });
-      this.racers.push({ i, speed: 1.7 + k2 * 0.22 + r.next() * 0.2, off: r.next() * 3, lastX: LANE.x0 + 1.3, lastPh: 0, wob: 0 });
+      this.racers.push({ i, speed: 1.7 + k2 * 0.22 + r.next() * 0.2, off: r.next() * 3, lastX: RUN.x0, lastPh: 0, wob: 0 });
     }
     // Spectators along the lane in little knots of 2–4 (varied stances, some perched on bales),
     // turned to the race and the camera. The north bank is the grandstand; the south bank is sparse.
@@ -651,7 +656,7 @@ export class HarvestFair extends FestivalMap {
     const crowd = this.crowd;
     if (!crowd) return;
     const t = game.time;
-    const span = LANE.x1 - LANE.x0 - 2.6;
+    const span = RUN.x1 - RUN.x0;
     const race = 16;
     // Demo stills freeze the race mid-lane (hops keep animating in place); otherwise it loops.
     if (!(game.paused && this.staged)) this.raceClock += dt;
@@ -679,7 +684,7 @@ export class HarvestFair extends FestivalMap {
           return;
         }
         const pr = play.progress[ri] ?? 0;
-        x = LANE.x0 + 1.3 + pr * span;
+        x = RUN.x0 + pr * span;
         lane = lanes[ri] ?? k + 1;
         done = pr >= 1;
         hopping = play.live && !done;
@@ -688,14 +693,14 @@ export class HarvestFair extends FestivalMap {
         rc.wob = THREE.MathUtils.lerp(rc.wob, hopping && v < 1.1 ? 1 : 0, 1 - Math.exp(-10 * dt));
       } else {
         const run = Math.max(0, rt - 1.5 - rc.off * 0.3);
-        x = Math.min(LANE.x0 + 1.3 + run * rc.speed, LANE.x0 + 1.3 + span);
+        x = Math.min(RUN.x0 + run * rc.speed, RUN.x1);
         lane = k;
-        done = x >= LANE.x0 + 1.3 + span;
+        done = x >= RUN.x1;
         hopping = run > 0 && !done;
         rc.wob = 0;
       }
       // Finishers hop on past the line and fan out on a diagonal (never piled on the tape).
-      if (done) x += 0.5 + lane * 0.45;
+      if (done) x += 1.1 + lane * 0.35;
       crowd.place(rc.i, x, laneZ(lane), done ? Math.PI / 2 - 0.9 : Math.PI / 2);
       crowd.setAnim(rc.i, done ? 'cheer' : hopping ? 'sack' : 'idle');
       m.lean = rc.wob * Math.sin(t * 13 + k) * 0.38;
@@ -710,7 +715,10 @@ export class HarvestFair extends FestivalMap {
     });
     if (play) {
       const pr = play.progress[0] ?? 0;
-      const px = LANE.x0 + 1.3 + pr * span;
+      // Over the line you hop on through the tape (1.2 m) and turn back to the field.
+      if (pr >= 1) this.pastTape = Math.min(1.2, this.pastTape + dt * 1.6);
+      else this.pastTape = 0;
+      const px = RUN.x0 + pr * span + this.pastTape;
       this.movePlayer(px, laneZ(play.lanes?.[0] ?? 0));
       // Burlap squash & stretch: stretched in the air, squashed flat on landing.
       if (this.sack) {
@@ -734,18 +742,23 @@ export class HarvestFair extends FestivalMap {
       let lead = pr;
       for (let k = 1; k < 5; k++) lead = Math.max(lead, play.progress[k] ?? 0);
       const gap = (lead - pr) * span;
-      if (!this.raceOver) this.reframe(gap * 0.5 + 2.2, -2.4, 22 + Math.min(8, gap * 0.6));
+      if (!this.raceOver) this.reframe(gap * 0.5 + 2.4, LANE.z - laneZ(play.lanes?.[0] ?? 0) + 0.4, 19 + Math.min(7, gap * 0.55));
     }
     // Judges pace the pumpkin row, pausing at each entry — during the Produce Judging they gather
     // round YOUR plinth, leaning in with their clipboards.
     if (this.play?.id === 'pumpkin' && this.entry?.visible) {
       // The judges walk plinth to plinth as each card turns (and end at yours), leaning in to judge.
       const at = this.judgeAt ?? this.entryAt;
-      const front = 1.35;
+      // Stand-off marks at the pallet's front corners (never on the pallet, never square in front of
+      // the produce): the entry stays clear between the two judges.
+      const slot = PUMPKINS.findIndex((q) => Math.abs(q[0] - at.x) < 0.1 && Math.abs(q[1] - at.z) < 0.1);
+      const rad = slot >= 0 ? this.tableR[slot]! : 0.9;
       this.judges.forEach((j, k) => {
-        const sx = k % 2 ? 1 : -1;
-        const gx = at.x + sx * 1.05;
-        const gz = at.z + front;
+        // At your pallet you stand on its west corner, so both judges take the east side.
+        const mine = slot === 3;
+        const sx = mine || k % 2 ? 1 : -1;
+        const gx = at.x + sx * (rad * 1.2 + 0.55);
+        const gz = at.z + rad * 0.9 + 0.2 - (mine && k % 2 ? 1.5 : 0);
         const m = crowd.members[j.i]!;
         j.x ??= m.x;
         j.z ??= m.z;
@@ -762,6 +775,14 @@ export class HarvestFair extends FestivalMap {
         crowd.setAnim(j.i, walking ? 'walk' : 'judge');
       });
       this.entry.rotation.y = Math.sin(t * 0.8) * 0.25;
+      // A polished entry catches the light.
+      const gl = this.entryGlint;
+      if (gl && (gl.t -= dt) <= 0) {
+        gl.t = 0.35 + Math.random() * 0.4;
+        const a = Math.random() * Math.PI * 2;
+        const e = this.entry.position;
+        this.burst(e.x + Math.cos(a) * gl.r * 0.8, e.y + gl.y * (0.6 + Math.random() * 0.6), e.z + Math.abs(Math.sin(a)) * gl.r * 0.9, { color: 0xfff6d8, count: 3, speed: 0.15, size: 0.13, gravity: 0, life: 0.5, up: 0.1, spread: 0.05 });
+      }
       crowd.commit();
       return;
     }
@@ -796,7 +817,8 @@ export class HarvestFair extends FestivalMap {
   protected override onBeginPlay(play: PlayState): void {
     if (play.id === 'sackrace') {
       this.raceOver = false;
-      this.placePlayer(LANE.x0 + 1.3, laneZ(0), 'right');
+      this.pastTape = 0;
+      this.placePlayer(RUN.x0, laneZ(0), 'right');
       if (!this.sack) {
         const g = new THREE.CylinderGeometry(0.3, 0.26, 0.62, 12, 3, true);
         const pos = g.attributes.position as THREE.BufferAttribute;
@@ -815,7 +837,8 @@ export class HarvestFair extends FestivalMap {
       }
       this.sack.visible = true;
       this.game.player.rig.body.add(this.sack);
-      this.frame({ pitch: 40, distance: 22, yaw: 0, ox: 2.2, oz: -2.4 });
+      // A high 50° race camera across the lanes: every racer reads clear of the next.
+      this.frame({ pitch: 50, distance: 19.5, yaw: 0, ox: 2.4, oz: LANE.z - laneZ(0) + 0.4 });
     } else if (play.id === 'pumpkin') {
       // You stand beside your own pallet (clear of it, so the entry reads), facing the table.
       this.placePlayer(this.entryAt.x - 1.25, this.entryAt.z + 2.3, 'up');
@@ -838,17 +861,17 @@ export class HarvestFair extends FestivalMap {
       }
       else if (kind === 'finish') {
         const cols = [0xd8573e, 0xf2b928, 0x6a8a3a, 0xe8864a, 0xffffff];
-        for (let k = 0; k < 5; k++) this.burst(LANE.x1, this.H(LANE.x1, LANE.z) + 3, LANE.z - 1.6 + k * 0.8, { color: cols[k]!, count: 20, speed: 2.4, size: 0.12, gravity: 1.5, life: 2, up: 0.6, spread: 0.5 });
+        for (let k = 0; k < 5; k++) this.burst(LANE.x1, this.H(LANE.x1, LANE.z) + 3, LANE.z - 3.2 + k * 1.6, { color: cols[k]!, count: 20, speed: 2.4, size: 0.12, gravity: 1.5, life: 2, up: 0.6, spread: 0.5 });
         this.cheerAll(value === 0);
       }
       else if (kind === 'win' || kind === 'lose') {
         // Result card: frame the finish tape (winners fanning out behind it) with you in the shot.
         this.raceOver = true;
-        const fx = LANE.x1 - 1.2;
+        const fx = RUN.x1 + 0.4;
         this.reframe((fx - p.x) * 0.62, LANE.z - p.z - 1.6, 16 + Math.min(6, Math.abs(fx - p.x) * 0.25));
       }
     } else if (play.id === 'pumpkin') {
-      if (kind === 'enter') this.showEntry(play.partner ?? 'pumpkin');
+      if (kind === 'enter') this.showEntry(play.partner ?? 'pumpkin', false, value % 1000 || undefined, Math.floor(value / 1000) - 1);
       else if (kind === 'judge') {
         // value: 0..2 = a rival's pumpkin (PUMPKINS order), 3 = your entry.
         this.judgeAt = value >= 3 ? this.entryAt : { x: PUMPKINS[value]![0], z: PUMPKINS[value]![1] };
@@ -947,28 +970,86 @@ export class HarvestFair extends FestivalMap {
     this.entry?.children.filter((c) => c.name === 'entry-crop').forEach((c) => c.removeFromParent());
   }
 
-  private showEntry(id: string, quiet = false): void {
+  /** Prize radius for a judged score (the rivals' giants use the same scale). */
+  private static radFor(score: number): number {
+    return 0.66 + THREE.MathUtils.clamp((score - 55) / 40, 0, 1) * 0.44;
+  }
+
+  /**
+   * Your entry on its draped stand, sized by its judged score on the same scale as the rivals'
+   * giants (so a 99 is visibly the finest on the table), with its presentation touch: polished
+   * (a lacquer sheen + glints), a straw nest, or a ribbon bow.
+   */
+  private showEntry(id: string, quiet = false, score = 92, touch = -1): void {
     const g = this.ensureEntryStand();
     this.clearEntry();
     const crop = id in CROPS ? produceGeometry(id as CropId) : null;
-    // Pale produce (turnips, cauliflower) is held a step under white so it never blooms out.
-    const mesh = new THREE.Mesh(crop ?? new THREE.IcosahedronGeometry(0.16, 1), new THREE.MeshStandardMaterial({ vertexColors: !!crop, color: crop ? 0xe6e2da : 0x9a9a9a, roughness: 0.62 }));
+    const polish = touch === 0;
+    // Pale produce (turnips, cauliflower) is held well under white so it never blooms out.
+    const mesh = new THREE.Mesh(
+      crop ?? new THREE.IcosahedronGeometry(0.16, 1),
+      new THREE.MeshStandardMaterial({ vertexColors: !!crop, color: crop ? 0xd8d2c8 : 0x9a9a9a, roughness: polish ? 0.28 : 0.62, metalness: 0, envMapIntensity: polish ? 1.6 : 1 }),
+    );
     const def = itemDef(id);
     if (def) this.setEntryCard(entryNickname(id, this.game.calendar.year, def.name).replace(/ \(.*\)$/, ''));
     mesh.name = 'entry-crop';
-    // Prize-sized: whatever you enter stands ~1 m tall on the stand, like the rivals' giants.
     crop?.computeBoundingBox();
     const bb = crop?.boundingBox;
-    const sc = bb ? THREE.MathUtils.clamp(0.95 / Math.max(0.05, bb.max.y - bb.min.y), 2.4, 6) : 2.4;
+    // Same scale as the rivals: a giant of radius R stands ~1.5 R tall and 2 R across.
+    const R = HarvestFair.radFor(score);
+    const h0 = bb ? Math.max(0.05, bb.max.y - bb.min.y) : 0.32;
+    const w0 = bb ? Math.max(0.05, bb.max.x - bb.min.x, bb.max.z - bb.min.z) : 0.32;
+    const sc = THREE.MathUtils.clamp(Math.min((R * 1.55) / h0, (R * 2.1) / w0), 2.4, 16);
+    const wide = w0 * sc;
     mesh.scale.setScalar(sc);
     mesh.castShadow = true;
     mesh.userData.noAO = true;
-    mesh.position.y = 0.56 + (bb ? -bb.min.y * sc : 0.38);
+    // A big entry sits low on a widened, flattened baize stand (it would tower on the tall plinth).
+    const k = THREE.MathUtils.clamp((wide + 0.12) / 0.92, 1, (PUMPKINS[3]![2] * 2.2) / 0.92);
+    const sy = THREE.MathUtils.clamp(1.25 - k * 0.35, 0.45, 1);
+    for (const c of g.children) c.scale.set(k, sy, k);
+    const top = 0.5 * sy + 0.06;
+    mesh.position.y = top + (bb ? -bb.min.y * sc : 0.16 * sc);
     g.add(mesh);
+    // Presentation touch.
+    const trim = new THREE.Group();
+    trim.name = 'entry-crop';
+    if (touch === 1) {
+      // Straw nest: a ring of tufts round the base.
+      const straw = new THREE.MeshStandardMaterial({ color: 0xd8b060, roughness: 1, map: textures.thatch().map });
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(wide * 0.42, 0.11, 6, 22), straw);
+      ring.rotation.x = Math.PI / 2;
+      ring.scale.z = 0.7;
+      ring.position.y = top + 0.04;
+      trim.add(ring);
+    } else if (touch === 2) {
+      // A red ribbon bow tied at the stalk.
+      const red = new THREE.MeshStandardMaterial({ color: 0xc8302a, roughness: 0.5 });
+      const y = mesh.position.y + (bb ? bb.max.y * sc : 0.3) - 0.04;
+      for (const sx of [-1, 1]) {
+        const loop = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.035, 6, 12), red);
+        loop.position.set(sx * 0.12, y, 0.05);
+        loop.rotation.set(0, sx * 0.5, sx * 0.6);
+        trim.add(loop);
+        const tail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.012), red);
+        tail.position.set(sx * 0.06, y - 0.14, 0.08);
+        tail.rotation.z = sx * 0.4;
+        trim.add(tail);
+      }
+      trim.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), red), { position: new THREE.Vector3(0, y, 0.06) }));
+    }
+    if (trim.children.length) {
+      trim.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+      g.add(trim);
+    }
+    this.entryGlint = polish ? { y: mesh.position.y + h0 * sc * 0.6, r: wide * 0.45, t: 0 } : null;
     g.visible = true;
     const p = g.position;
     if (!quiet) for (const c of [0xf2b928, 0xffffff]) this.burst(p.x, p.y + 1.2, p.z, { color: c, count: 14, speed: 1.6, size: 0.1, gravity: 1.2, life: 1.3, up: 1, spread: 0.4 });
   }
+
+  /** A polished entry throws the odd glint (height above the stand, radius, timer). */
+  private entryGlint: { y: number; r: number; t: number } | null = null;
 
   private cheerAll(big: boolean): void {
     const c = this.crowd;
