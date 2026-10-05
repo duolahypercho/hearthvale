@@ -265,7 +265,9 @@ body.hv-dlg-open .hv-np { opacity: 0 !important; transition: opacity 200ms; }
 .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 205px; padding-top: 28px; padding-bottom: 26px; }
 .hv-dialogue.dlg2:not(.narr) .dlg-side { border-radius: 18px 18px 18px 0; border-left-width: 2px; margin-left: -2px; }
 .hv-dialogue.dlg2 .dlg-side::before { top: auto; height: 190px; bottom: 6px; }
-@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-text { font-size: 27px; line-height: 38px; } .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 170px; } .dlg-insert { width: 236px; } .dlg-insert .art svg { width: 216px; height: 162px; } }
+@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-text { font-size: 27px; line-height: 38px; } .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 170px; } .dlg-insert { width: 236px; top: 19vh; } .dlg-insert .art svg { width: 216px; height: 162px; } }
+/* (co-op: the roster sits top-left — the card drops below it) */
+body:has(.coop-roster:not(.hv-hidden)) .dlg-insert { top: max(19vh, 150px); }
 `;
 
 const HEART = (fill: number, key: string): string => {
