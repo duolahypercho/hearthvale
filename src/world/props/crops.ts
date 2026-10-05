@@ -816,7 +816,13 @@ function vine(add: Adder, r: Rng, a: number, len: number, leaf: LeafOpts, leafLe
     const side = i % 2 ? 1 : -1;
     const yaw = Math.atan2(tan.x, tan.z) + side * (0.9 + r.next() * 0.5);
     // Held up off the soil on a (hidden) stalk: the blade floats a few cm above the vine.
-    add(leafGeo(leafLen * (0.8 + r.next() * 0.4) * (1.05 - t * 0.3), leafW * (0.85 + r.next() * 0.3), leaf), mat(p.x, p.y + 0.03 + r.next() * 0.03, p.z, 0, yaw, 0).multiply(mat(0, 0, 0.02)));
+    // Every blade its own green (hue / value drift, an older yellowing one now and then) and its own
+    // tilt, so a bed of vines never reads as one copy-pasted leaf.
+    const old = r.next() < 0.12;
+    const jh = (r.next() - 0.5) * 0.035 + (old ? 0.03 : 0);
+    const jl = (r.next() - 0.5) * 0.08 + (old ? 0.05 : 0);
+    const lo: LeafOpts = { ...leaf, c0: leaf.c0.clone().offsetHSL(jh, old ? -0.05 : 0, jl), c1: leaf.c1.clone().offsetHSL(jh, old ? -0.05 : 0, jl), lift: (leaf.lift ?? 0.2) + (r.next() - 0.5) * 0.2, fold: (leaf.fold ?? 0.2) * (0.7 + r.next() * 0.6) };
+    add(leafGeo(leafLen * (0.8 + r.next() * 0.4) * (1.05 - t * 0.3), leafW * (0.85 + r.next() * 0.3), lo), mat(p.x, p.y + 0.03 + r.next() * 0.03, p.z, (r.next() - 0.5) * 0.25, yaw, (r.next() - 0.5) * 0.25).multiply(mat(0, 0, 0.02)));
   }
   for (let k = 0; k < tendrils; k++) {
     const t = 0.35 + r.next() * 0.5;
@@ -912,17 +918,31 @@ const BUILDERS: Record<CropId, Builder> = {
         add(leafGeo(0.065 + k * 0.013, 0.06, { shape: 'round', lift: 0.25, bend: 0.2, serrate: 0.3, cup: 0.4, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }), m.clone().multiply(mat(0, stemL, 0.04, 0, la, 0)));
       }
     }
-    if (k >= 2) {
-      for (let i = 0; i < 2 + k * 2; i++) {
-        const a = r.next() * Math.PI * 2;
-        const ripe = k === 3 && r.next() < 0.85;
-        if (!ripe && k === 2 && r.next() < 0.5) {
-          flower(add, 0.024, C(0xffffff), C(0xf2d040), mat(Math.cos(a) * 0.12, 0.1, Math.sin(a) * 0.12, 0.4, a, 0));
+    if (k === 2) {
+      // Flowering: white blossoms + a few hard green berries tucked at the rim.
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + r.next() * 0.6;
+        if (i % 2 === 0) {
+          flower(add, 0.026, C(0xffffff), C(0xf2d040), mat(Math.cos(a) * 0.14, 0.13, Math.sin(a) * 0.14, 0.4, a, 0));
           continue;
         }
-        const b = fruit(0.04, ripe ? C(0xd8202c) : C(0xb8d880), { sy: 1.15, taper: 0.55, spots: C(0xf0e090), seg: 7, rows: 5 });
-        add(b, mat(Math.cos(a) * 0.17, 0.045, Math.sin(a) * 0.17, Math.cos(a) * 0.3, 0, -Math.sin(a) * 0.3), 'gloss');
-        add(rosetteCap(0.03), mat(Math.cos(a) * 0.17, 0.085, Math.sin(a) * 0.17));
+        add(fruit(0.034, C(0xc8dc8a), { sy: 1.15, taper: 0.55, spots: C(0xf0e090), seg: 7, rows: 5 }), mat(Math.cos(a) * 0.19, 0.05, Math.sin(a) * 0.19, Math.cos(a) * 0.3, 0, -Math.sin(a) * 0.3), 'gloss');
+      }
+    } else if (k === 3) {
+      // Ripe: 9 fat, saturated berries draped over the rim of the rosette and a few resting on top
+      // of the leaves, so the plant reads red from the high game camera (they used to hide under
+      // the canopy as one or two red dots). A blush-white one or two for variety.
+      const n = 9;
+      for (let i = 0; i < n; i++) {
+        const top = i >= 6;
+        const a = top ? (i - 6) * 2.1 + r.next() * 0.8 : (i / 6) * Math.PI * 2 + r.next() * 0.5;
+        const rad = top ? 0.07 + r.next() * 0.04 : 0.2 + r.next() * 0.03;
+        const y = top ? 0.15 + r.next() * 0.02 : 0.06 + r.next() * 0.03;
+        const R = 0.046 + r.next() * 0.012;
+        const col = (r.next() < 0.12 ? C(0xf06a50) : C(0xd81a2a)).offsetHSL((r.next() - 0.5) * 0.02, 0, (r.next() - 0.5) * 0.06);
+        const m = mat(Math.cos(a) * rad, y, Math.sin(a) * rad, Math.cos(a) * 0.5, 0, -Math.sin(a) * 0.5);
+        add(fruit(R, col, { sy: 1.2, taper: 0.55, spots: C(0xf6e8a0), seg: 9, rows: 6 }), m, 'gloss');
+        add(rosetteCap(R * 0.75), m.clone().multiply(mat(0, R * 1.05, 0)));
       }
     }
   },
@@ -1000,8 +1020,9 @@ const BUILDERS: Record<CropId, Builder> = {
       add(leafGeo(0.14 + k * 0.03, 0.13, { shape: 'heart', lift: 0.3, bend: 0.5, fold: 0.3, serrate: 0.15, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }), mat(0, y, 0, 0, i * 2.2, 0));
     }
     const headY = h + 0.02;
-    // Heads face the camera (+Z) and nod slightly down.
-    const face = mat(0.04, headY, 0.03, -0.35, 0, 0);
+    // Heads face the camera (+Z), tipped up toward the high game lens (a face seen edge-on from
+    // ~50° above read as a drooping brown seed head).
+    const face = mat(0.04, headY, 0.03, k === 3 ? -0.62 : -0.35, 0, 0);
     if (k === 2) {
       const bud = fruit(0.06, C(0x5f8a34), { sy: 0.7, seg: 8 });
       add(bud, face);
@@ -1170,13 +1191,15 @@ const BUILDERS: Record<CropId, Builder> = {
     }
     if (k === 2) for (let i = 0; i < 3; i++) flower(add, 0.024, C(0xb888e0), C(0xf0d040), mat((r.next() - 0.5) * 0.2, h * (0.6 + r.next() * 0.3), (r.next() - 0.5) * 0.2, 0.6, 0, 0));
     if (k >= 2) {
-      const n = k === 3 ? 4 : 2;
+      // Glossy aubergines hang just outside the velvet leaves (big enough to read as eggplants).
+      const n = k === 3 ? 5 : 2;
       for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + r.next();
-        const sz = k === 3 ? 0.055 : 0.03;
-        const y = h * (0.35 + r.next() * 0.3);
-        add(fruit(sz, C(0x4a1a5e), { sy: 1.5, taper: -0.25, seg: 10, shade: 0.45 }), mat(Math.cos(a) * 0.12, y - sz * 1.2, Math.sin(a) * 0.12, 0, 0, 0.25), 'gloss');
-        add(rosetteCap(0.03, C(0x5a7a3a)), mat(Math.cos(a) * 0.12, y + sz * 0.2, Math.sin(a) * 0.12));
+        const a = (i / n) * Math.PI * 2 + r.next() * 0.6;
+        const sz = k === 3 ? 0.066 + r.next() * 0.012 : 0.032;
+        const y = h * (0.4 + r.next() * 0.35);
+        const rad = k === 3 ? 0.15 : 0.12;
+        add(fruit(sz, C(0x4a1a5e).offsetHSL((r.next() - 0.5) * 0.03, 0, (r.next() - 0.5) * 0.05), { sy: 1.6, taper: -0.25, seg: 12, shade: 0.45 }), mat(Math.cos(a) * rad, y - sz * 1.25, Math.sin(a) * rad, Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3), 'gloss');
+        add(rosetteCap(sz * 0.6, C(0x5a7a3a)), mat(Math.cos(a) * rad, y + sz * 0.25, Math.sin(a) * rad));
       }
     }
   },
@@ -1612,9 +1635,10 @@ function giantMelonBody(r: Rng): THREE.BufferGeometry {
   g.rotateZ(Math.PI / 2);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const ph = [r.next() * 6, r.next() * 6, r.next() * 6, r.next() * 6];
-  const RX = 1.1;
-  const RY = 0.8;
-  const RZ = 1.0;
+  // (r14: ~2.5 tiles long — a giant fills its 3×3 block, not "a big one".)
+  const RX = 1.24;
+  const RY = 0.84;
+  const RZ = 1.1;
   const CY = 0.56;
   const FLOOR = -0.56;
   const v = new THREE.Vector3();
@@ -1681,8 +1705,8 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
   const keys: Record<Bucket, THREE.Material> = { leaf: 'leaf' as unknown as THREE.Material, gloss: 'gloss' as unknown as THREE.Material, skin: 'skin' as unknown as THREE.Material, wood: 'wood' as unknown as THREE.Material };
   const add: Adder = (g, m, bucket = 'leaf') => void b.add(keys[bucket], g, m);
   // Raised soil berm where the giant shouldered the bed aside (static: 'wood' bucket).
-  if (id === 'melon') soilBerm(add, r, 1.1, 1.6, 0.72);
-  else soilBerm(add, r, id === 'cauliflower' ? 0.95 : 1.0);
+  if (id === 'melon') soilBerm(add, r, 1.22, 1.6, 0.72);
+  else soilBerm(add, r, id === 'cauliflower' ? 0.95 : 1.12);
   // Vines radiating from under the giant out over the berm, with leaves riding them.
   if (id !== 'cauliflower') {
     const vleaf: LeafOpts = id === 'melon' ? { shape: 'lobed', lift: 0.28, bend: 0.3, fold: 0.22, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 5 } : { shape: 'heart', lift: 0.25, bend: 0.3, fold: 0.22, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 5 };
@@ -1710,13 +1734,16 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
   if (id === 'pumpkin') {
     // Settled INTO the bed (sunk a hand's width, a dark underside where it sits on the soil): a
     // giant must weigh something, not hover on its leaves.
-    add(fruit(1.15, C(0xe8741e), { sy: 0.66, ribs: 12, crease: true, seg: 40, rows: 18, shade: 0.3 }), mat(0, 0.58, 0), 'skin');
-    // A thick woody stem that curls over, and a dried tendril.
-    add(tube([new THREE.Vector3(0, 1.18, 0), new THREE.Vector3(0.02, 1.36, 0.01), new THREE.Vector3(0.12, 1.46, 0.06), new THREE.Vector3(0.24, 1.42, 0.12), new THREE.Vector3(0.28, 1.34, 0.15)], 0.085, 0.045, C(0x6a6a34), C(0x9a8a4a), 12, 8), undefined, 'skin');
-    add(tube([new THREE.Vector3(0.26, 1.36, 0.14), new THREE.Vector3(0.42, 1.44, 0.2), new THREE.Vector3(0.52, 1.36, 0.36), new THREE.Vector3(0.46, 1.28, 0.48), new THREE.Vector3(0.38, 1.32, 0.46)], 0.018, 0.007, GREEN.mid, C(0xa8b060), 14, 4));
-    for (let i = 0; i < 7; i++) {
-      const a = (i / 7) * Math.PI * 2 + r.next();
-      add(leafGeo(0.7, 0.85, { shape: 'heart', lift: 0.12, bend: 0.25, fold: 0.2, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 6 }), mat(Math.cos(a) * 0.95, 0.05, Math.sin(a) * 0.95, 0, a + Math.PI / 2, 0));
+    // Fills its 3×3 footprint (≈ 2.7 tiles across, r7 critic: "only ~2× a normal one").
+    add(fruit(1.34, C(0xe8741e), { sy: 0.64, ribs: 12, crease: true, seg: 44, rows: 20, shade: 0.3 }), mat(0, 0.64, 0), 'skin');
+    // A thick, gnarled woody stem that curls over, and a dried tendril.
+    const sy0 = 0.2;
+    add(tube([new THREE.Vector3(0, 1.18 + sy0, 0), new THREE.Vector3(0.03, 1.38 + sy0, 0.01), new THREE.Vector3(0.14, 1.5 + sy0, 0.07), new THREE.Vector3(0.28, 1.46 + sy0, 0.14), new THREE.Vector3(0.33, 1.36 + sy0, 0.17)], 0.1, 0.05, C(0x5e5a2c), C(0x9a8a4a), 14, 8), undefined, 'skin');
+    add(tube([new THREE.Vector3(0.3, 1.38 + sy0, 0.16), new THREE.Vector3(0.48, 1.47 + sy0, 0.22), new THREE.Vector3(0.6, 1.38 + sy0, 0.4), new THREE.Vector3(0.53, 1.3 + sy0, 0.54), new THREE.Vector3(0.44, 1.34 + sy0, 0.52)], 0.02, 0.008, GREEN.mid, C(0xa8b060), 14, 4));
+    // Leaf collar round the base.
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + r.next() * 0.5;
+      add(leafGeo(0.78, 0.92, { shape: 'heart', lift: 0.14, bend: 0.25, fold: 0.2, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 6 }), mat(Math.cos(a) * 1.12, 0.05, Math.sin(a) * 1.12, 0, a + Math.PI / 2, 0));
     }
     // Satellite leaves on the vines trailing away.
     for (let i = 0; i < 4; i++) {
@@ -1726,15 +1753,15 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     }
   } else if (id === 'melon') {
     // Wet, dark soil pressed flat under the belly (fills the berm's ring: real ground contact).
-    add(contactDisc(0.88, C(0x150d08), C(0x34241a)), undefined, 'wood');
+    add(contactDisc(0.98, C(0x150d08), C(0x34241a)), undefined, 'wood');
     add(giantMelonBody(r), mat(0, 0, 0, 0, 0.3, 0), 'skin');
     // A short woody stem + curled dry tendril on the shoulder.
-    add(tube([new THREE.Vector3(-0.12, 1.36, 0.02), new THREE.Vector3(-0.1, 1.48, 0.04), new THREE.Vector3(0.0, 1.54, 0.09), new THREE.Vector3(0.09, 1.49, 0.13)], 0.055, 0.032, C(0x5e6a32), C(0x8a8a4a), 10, 7), undefined, 'skin');
-    add(tube([new THREE.Vector3(0.08, 1.5, 0.12), new THREE.Vector3(0.22, 1.56, 0.2), new THREE.Vector3(0.3, 1.48, 0.32), new THREE.Vector3(0.24, 1.42, 0.4), new THREE.Vector3(0.18, 1.46, 0.36)], 0.014, 0.006, GREEN.mid, C(0xa8b060), 14, 4));
+    add(tube([new THREE.Vector3(-0.12, 1.38, 0.02), new THREE.Vector3(-0.1, 1.52, 0.04), new THREE.Vector3(0.0, 1.58, 0.09), new THREE.Vector3(0.09, 1.53, 0.13)], 0.06, 0.034, C(0x5e6a32), C(0x8a8a4a), 10, 7), undefined, 'skin');
+    add(tube([new THREE.Vector3(0.08, 1.54, 0.12), new THREE.Vector3(0.22, 1.6, 0.2), new THREE.Vector3(0.3, 1.52, 0.32), new THREE.Vector3(0.24, 1.46, 0.4), new THREE.Vector3(0.18, 1.5, 0.36)], 0.014, 0.006, GREEN.mid, C(0xa8b060), 14, 4));
     // Big leaves pushed out past the berm (the dark heaved soil ring shows round the belly).
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + r.next() * 0.5;
-      add(leafGeo(0.6, 0.7, { shape: 'lobed', lift: 0.15, bend: 0.3, fold: 0.2, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 6 }), mat(Math.cos(a) * 1.5, 0.06, Math.sin(a) * 1.45, 0, a + Math.PI / 2, 0));
+      add(leafGeo(0.6, 0.7, { shape: 'lobed', lift: 0.15, bend: 0.3, fold: 0.2, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 6 }), mat(Math.cos(a) * 1.62, 0.06, Math.sin(a) * 1.52, 0, a + Math.PI / 2, 0));
     }
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2 + 0.7;
@@ -1830,7 +1857,8 @@ export function produceGeometry(id: CropId): THREE.BufferGeometry {
   };
   switch (id) {
     case 'parsnip': {
-      add(rootVeg(0.27, 0.068, C(0xdcb170), C(0x9a6c3c), r, 0.03));
+      // Pale cream (CROPS colour 0xf2dfa8), broad-shouldered and short: a parsnip, not a carrot.
+      add(rootVeg(0.25, 0.082, C(0xf4e6c0), C(0xc8a878), r, 0.03));
       // Leafy crown: stalks fanning out of the shoulder, serrated blades.
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2 + r.next() * 0.4;
@@ -1910,10 +1938,17 @@ export function produceGeometry(id: CropId): THREE.BufferGeometry {
     case 'hops':
       add(hopCone(0.08, C(0xc8e07a)), mat(0, 0.08, 0));
       break;
-    case 'pumpkin':
-      add(fruit(0.12, C(0xe8741e), { sy: 0.75, ribs: 10, crease: true, seg: 18, rows: 10, shade: 0.5 }));
-      add(stalk(0.06, 0.018, 0.012, C(0x6a7a3a), C(0x8a8a4a), 0.03, 5), mat(0, 0.07, 0));
+    case 'pumpkin': {
+      // The field pumpkin, not an orange ball: deep creased ribs, a squat form, a woody curled
+      // stem and a scrap of vine leaf (r7 critic: the held pumpkin read as a smooth orange).
+      const R = 0.14;
+      const sy = 0.68;
+      add(fruit(R, C(0xe06a1a), { sy, ribs: 10, crease: true, seg: 26, rows: 12, shade: 0.45 }));
+      const top = R * (sy - 0.12);
+      add(tube([new THREE.Vector3(0, top, 0), new THREE.Vector3(0.008, top + 0.045, 0.004), new THREE.Vector3(0.03, top + 0.068, 0.016), new THREE.Vector3(0.055, top + 0.058, 0.034)], 0.02, 0.011, C(0x5e5a2c), C(0x9a8a4a), 7, 6));
+      add(leafGeo(0.11, 0.12, { shape: 'heart', lift: 0.2, bend: 0.3, fold: 0.2, serrate: 0.2, cup: 0.4, c0: C(0x3f7a2e), c1: C(0x6faa44), segs: 5 }), mat(-0.01, top + 0.02, -0.01, 0, 2.4, 0));
       break;
+    }
     case 'eggplant':
       add(fruit(0.07, C(0x4a1a5e), { sy: 1.6, taper: -0.25, seg: 12, shade: 0.45 }));
       add(rosetteCap(0.05, C(0x5a7a3a)), mat(0, 0.1, 0));

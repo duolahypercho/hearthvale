@@ -104,6 +104,8 @@ declare module '../core/events' {
     'farming:level': { level: number };
     /** A tool action was refused (too tired): a weary grunt, no swing. */
     'tool:refused': { tool: string; reason: 'tired' };
+    /** A tile inside a charged swing's footprint couldn't be worked (a dull refusal tick per tile). */
+    'soil:blocked': { tool: string; x: number; z: number };
   }
 }
 
@@ -253,7 +255,7 @@ const SHOWCASE: Record<Season, CropId[]> = {
 type HarvestRow = CropId | null | 'gap' | [CropId | 'gap', CropId | 'gap'];
 const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; trellis: CropId | null; crate: CropId[] }> = {
   spring: { rows: [['greenBean', 'kale'], ['greenBean', 'kale'], 'gap', 'potato', null, 'parsnip', 'strawberry', 'cauliflower', 'strawberry'], giant: 'cauliflower', trellis: 'greenBean', crate: ['cauliflower', 'parsnip', 'strawberry', 'potato'] },
-  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], 'gap', 'tomato', null, 'blueberry', 'melon', 'melon', 'hotPepper'], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
+  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], 'gap', ['tomato', 'hotPepper'], null, 'blueberry', 'melon', 'melon', 'melon'], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
   fall: { rows: [['corn', 'grape'], ['corn', 'grape'], 'gap', 'eggplant', null, 'beet', 'pumpkin', 'pumpkin', 'yam'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
   winter: { rows: [], giant: null, trellis: null, crate: [] },
 };
@@ -1511,6 +1513,13 @@ export class FarmingSystem implements System, FarmingApi {
     return out;
   }
 
+  /** Will a charged swing of `tool` work tile (x, z)? (Blocked tiles are skipped, never a stop.) */
+  private chargeWorks(tool: FarmTool, x: number, z: number): boolean {
+    if (tool === 'wateringCan') return this.isTilled(x, z);
+    if (tool === 'hoe') return this.isTilled(x, z) || this.targetState('hoe', x, z) === 'valid';
+    return true;
+  }
+
   private updateCharge(dt: number): void {
     const tool = this.chargeTool;
     const acts = this.actions;
@@ -1562,11 +1571,12 @@ export class FarmingSystem implements System, FarmingApi {
       return;
     }
     const tilled: [number, number][] = [];
+    const blocked: [number, number][] = [];
     for (const [tx, tz] of tiles) {
       if (this.till(tx, tz, false, false)) {
         tilled.push([tx, tz]);
         this.soil?.clear(tx, tz, true);
-      }
+      } else if (!this.isTilled(tx, tz)) blocked.push([tx, tz]);
     }
     this.spend(2 + level * 2);
     const { dx, dz } = this.dirVec();
@@ -1593,6 +1603,8 @@ export class FarmingSystem implements System, FarmingApi {
       }
       this.shake(0.3 + level * 0.1);
       this.game.events.emit('tool:impact', { tool, x: fx0, z: fz0, hit: tilled.length ? 'soil' : 'none', strength: 1 + level * 0.5 });
+      // Skipped tiles (a stone, a prop, lawn edge): a dull tick each, staggered with the ripple.
+      blocked.forEach(([bx, bz], i) => this.later(0.05 + i * 0.04, () => this.game.events.emit('soil:blocked', { tool, x: bx, z: bz })));
     };
     if (!this.actions || !this.near(fx0, fz0)) return doImpact();
     const gold = [0xffc890, 0xfff2d8, 0xffe27a][Math.min(2, level - 1)] ?? 0xfff6e0;
@@ -2063,7 +2075,10 @@ export class FarmingSystem implements System, FarmingApi {
         const h = (x * 73856093 ^ z * 19349663) >>> 0;
         const roll = (h >>> 3) % 100;
         // Trellis rows are always grown in (a bare frame reads as a placeholder).
-        const stage = CROPS[id].trellis ? (roll < 70 ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
+        // Trellis rows and bushy fruiting rows (eggplant, pepper) are grown in densely: a stage-3
+        // plant there read as a bare gap in a tidy block (r7 critic: sparse fall eggplant beds).
+        const dense = CROPS[id].trellis || id === 'eggplant' || id === 'hotPepper';
+        const stage = dense ? (roll < 70 ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
         this.plant(id, x, z, this.daysAt(id, stage), h);
       }
     }
@@ -2237,7 +2252,10 @@ export class FarmingSystem implements System, FarmingApi {
       this.showcase = 'gallery';
       const all = params.get('crops') === 'all';
       const ids = params.get('crops')?.split(',').filter((c) => c in CROPS) as CropId[] | undefined;
-      const list = all ? [...CROP_IDS] : ids?.length ? ids : cropsFor(season === 'winter' ? 'spring' : season);
+      // 'all': tallest rows at the back of each block (trellises / corn / sunflowers), so a 1 m
+      // frame never hides the low row behind it from the high camera.
+      const ALL_ORDER: CropId[] = ['greenBean', 'grape', 'cauliflower', 'kale', 'parsnip', 'potato', 'beet', 'strawberry', 'yam', 'hops', 'corn', 'sunflower', 'tomato', 'eggplant', 'hotPepper', 'blueberry', 'melon', 'pumpkin'];
+      const list = all ? [...ALL_ORDER, ...CROP_IDS.filter((c) => !ALL_ORDER.includes(c))] : ids?.length ? ids : cropsFor(season === 'winter' ? 'spring' : season);
       if (all) {
         // The whole roster (every season, greenhouse-style) in two blocks of rows × 6 stages; the
         // farmer steps out of the frame so nothing hides a row.
@@ -2287,6 +2305,13 @@ export class FarmingSystem implements System, FarmingApi {
     } else if (showcase.includes('giant')) {
       this.showcase = 'giant';
       this.stageHarvest(season);
+      // A cleared furrow on the giant's east flank: the farmer stands in it, 3/4 to the lens,
+      // looking at the giant (no vines through his boots).
+      for (let z = 25; z <= 28; z++) {
+        const t = this.tiles.get(key(20, z));
+        if (t?.crop) this.removeCrop(t);
+      }
+      this.commit();
     } else if (showcase.includes('crows')) {
       // A patch just outside the scarecrow's reach (its radius ring shows) gets raided at mid-morning.
       this.showcase = 'crows';
@@ -2740,7 +2765,9 @@ export class FarmingSystem implements System, FarmingApi {
       const acts = this.actions;
       if (acts?.isCharging && this.chargeTool) {
         const lv = Math.max(1, this.chargeLevel);
-        this.cursor.set(this.chargeTiles(lv).map(([x, z]) => ({ x, z, y: this.cursorY(x, z), state: 'charge' as CursorState })));
+        // The whole footprint previews while charging; tiles the swing can't work show red.
+        const ct = this.chargeTool;
+        this.cursor.set(this.chargeTiles(lv).map(([x, z]) => ({ x, z, y: this.cursorY(x, z), state: (this.chargeWorks(ct, x, z) ? 'charge' : 'blocked') as CursorState })));
         visible = true;
       } else if (acts?.active) {
         // Mid-action: a dimmed lock on the worked tile(s) all through the swing — it flares on the
@@ -2775,7 +2802,8 @@ export class FarmingSystem implements System, FarmingApi {
     this.cursor.update(dt, visible);
     // Scarecrow in hand: show the nearest scarecrow's protection radius (a soft dashed ring).
     const sel = this.game.services.inventory?.selected()?.id ?? null;
-    this.fx.showRadius(this.map && this.game.world.current === this.map && sel === 'scarecrow' ? this.nearestScarecrow() : null, SCARECROW_RADIUS);
+    // (Also staged in farm-crows: the raided patch sits just outside the ring.)
+    this.fx.showRadius(this.map && this.game.world.current === this.map && (sel === 'scarecrow' || this.showcase === 'crows') ? this.nearestScarecrow() : null, SCARECROW_RADIUS);
   }
 
   private nearestScarecrow(): THREE.Vector3 | null {

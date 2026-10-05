@@ -561,7 +561,19 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   1.15 slot bounce). Co-op: another farmer's harvest (`harvest(x, z, 'instant')`) pops the produce in place over the tile.
 - **Events for audio**: `tool:swing` / `tool:impact` (impact frame) / `tool:charge` / `tool:refused`, `can:refill` /
   `can:empty`, `soil:tilled` / `soil:watered` / `soil:fertilized`, `crop:planted` / `crop:harvested` / `crop:withered` /
-  `crop:giant`, `crow:arrive` / `crow:eat`, `sprinkler:spray`, `harvest:collect`, `energy:exhausted` / `energy:passout`.
+  `crop:giant`, `crow:arrive` / `crow:eat`, `sprinkler:spray`, `harvest:collect`, `energy:exhausted` / `energy:passout`,
+  `soil:blocked` (one dull tick per tile a charged swing had to skip).
+- **r14 polish**: every crop shows all six stage meshes (no zero-day stage); dry tilled soil is dusty tan, wet soil
+  deep and glossy (the soak is the payoff); the can pours glassy, tapering bead ropes and lands as a low radial crown
+  + double ripple (no geyser); sprinkler beads are see-through, velocity-stretched streaks that bloom into flat crown
+  rings where they land; charging previews the whole footprint (red ✕ on tiles it will skip) and a multi-tile charge
+  draws one merged gold outline + per-tile wash instead of nine bracket sets; the target bracket is bolder with a dark
+  under-stroke and a ~10 % state-tinted wash; ripe strawberries carry 9 fat berries over the rosette, eggplants hang
+  big glossy fruit, ripe sunflowers tip their faces up to the lens; held pumpkin = ribbed field pumpkin with a woody
+  stem, held parsnip pale cream; the quality star floats beside the produce; giant pumpkin / melon fill the 3×3 block;
+  vine leaves vary in hue / tilt; `farm-giant` frames the farmer 3/4 looking at the giant, `farm-sprinkler` keeps
+  the farmer beside the bed facing the lens, `farm-crows` shows the scarecrow ring, `farm-crops-all` puts tall rows at
+  the back of each block.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

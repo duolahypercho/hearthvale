@@ -15,8 +15,9 @@ function cursorTexture(): THREE.CanvasTexture {
   const g = c.getContext('2d')!;
   const pad = 9;
   const r = 20;
-  // Barely-there inner tint (≤ 6 %) so a lone tile on bare soil still reads as "selected".
-  g.fillStyle = 'rgba(255,255,255,0.05)';
+  // A light inner wash (~10 %, tinted per state: cream valid, red blocked) so the target reads at
+  // the gameplay camera on pale path and dry soil alike (r7: thin brackets vanished there).
+  g.fillStyle = 'rgba(255,255,255,0.075)';
   g.beginPath();
   g.roundRect(pad + 6, pad + 6, S - (pad + 6) * 2, S - (pad + 6) * 2, r - 6);
   g.fill();
@@ -39,13 +40,13 @@ function cursorTexture(): THREE.CanvasTexture {
   // Soft dark under-stroke (a contact shadow for the bracket).
   for (const [x, y, sx, sy] of cs) {
     corner(x + sx * 1.5, y + sy * 1.5, sx, sy);
-    g.lineWidth = 15;
-    g.strokeStyle = 'rgba(28,16,6,0.38)';
+    g.lineWidth = 19;
+    g.strokeStyle = 'rgba(28,16,6,0.55)';
     g.stroke();
   }
   for (const [x, y, sx, sy] of cs) {
     corner(x, y, sx, sy);
-    g.lineWidth = 8;
+    g.lineWidth = 10.5;
     g.strokeStyle = 'rgba(255,255,255,1)';
     g.stroke();
   }
@@ -84,6 +85,67 @@ function crossTexture(): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+/** Soft gold wash for each tile of a charged area (the area's one outline is drawn separately). */
+function fillTexture(): THREE.CanvasTexture {
+  const S = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  // Faint and edge-to-edge (no seams: a dark grid between washed tiles read as a mat).
+  g.fillStyle = 'rgba(255,255,255,0.09)';
+  g.fillRect(0, 0, S, S);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/**
+ * One merged rounded outline around a charged footprint (r7 critic: nine overlapping bracket sets
+ * cluttered the gold 3×3 slam). A flat ring: dark under-stroke + bright core, vertex coloured.
+ */
+function areaOutline(w: number, d: number): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+  const R = 0.2;
+  const pts: [number, number][] = [];
+  const hw = w / 2 - R;
+  const hd = d / 2 - R;
+  const corners: [number, number, number][] = [[hw, hd, 0], [-hw, hd, Math.PI / 2], [-hw, -hd, Math.PI], [hw, -hd, Math.PI * 1.5]];
+  for (const [cx, cz, a0] of corners) for (let i = 0; i <= 6; i++) {
+    const a = a0 + (i / 6) * (Math.PI / 2);
+    pts.push([cx + Math.cos(a) * R, cz + Math.sin(a) * R]);
+  }
+  const band = (inner: number, outer: number, rgb: [number, number, number], alpha: number, y: number): void => {
+    const base = pos.length / 3;
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      const [x, z] = pts[i]!;
+      const [px, pz] = pts[(i - 1 + n) % n]!;
+      const [qx, qz] = pts[(i + 1) % n]!;
+      let nx = qz - pz;
+      let nz = -(qx - px);
+      const l = Math.hypot(nx, nz) || 1;
+      nx /= l;
+      nz /= l;
+      pos.push(x + nx * inner, y, z + nz * inner, x + nx * outer, y, z + nz * outer);
+      col.push(...rgb, alpha, ...rgb, alpha);
+    }
+    for (let i = 0; i < n; i++) {
+      const a = base + i * 2;
+      const b = base + ((i + 1) % n) * 2;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  };
+  band(-0.06, 0.07, [0.11, 0.06, 0.02], 0.5, 0);
+  band(-0.03, 0.035, [1, 1, 1], 1, 0.002);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+  g.setIndex(idx);
+  return g;
 }
 
 /** `hover`: the tile under the mouse when it's out of reach (a faint, smaller bracket — "you're pointing here"). */
@@ -134,7 +196,30 @@ export class TileCursor {
     this.cross.count = 0;
     for (let i = 0; i < 4; i++) this.cross.setColorAt(i, this.c.set(0xffffff));
     this.mesh.add(this.cross);
+    const fg = new THREE.PlaneGeometry(1, 1);
+    fg.rotateX(-Math.PI / 2);
+    const fm = new THREE.MeshBasicMaterial({ map: fillTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, toneMapped: false, fog: false });
+    fm.name = 'tile-cursor-fill';
+    this.fill = new THREE.InstancedMesh(fg, fm, max);
+    this.fill.name = 'tile-cursor-fill';
+    this.fill.frustumCulled = false;
+    this.fill.renderOrder = 4;
+    this.fill.count = 0;
+    for (let i = 0; i < max; i++) this.fill.setColorAt(i, this.c.set(0xffffff));
+    this.mesh.add(this.fill);
+    const om = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5, toneMapped: false, fog: false, side: THREE.DoubleSide });
+    om.name = 'tile-cursor-area';
+    this.area = new THREE.Mesh(new THREE.BufferGeometry(), om);
+    this.area.name = 'tile-cursor-area';
+    this.area.frustumCulled = false;
+    this.area.renderOrder = 5;
+    this.area.visible = false;
+    this.mesh.add(this.area);
   }
+
+  private fill: THREE.InstancedMesh;
+  private area: THREE.Mesh;
+  private areaKey = '';
 
   /** Replace the targeted tiles (world tile coords + surface height). */
   set(tiles: { x: number; y: number; z: number; state: CursorState }[]): void {
@@ -155,16 +240,58 @@ export class TileCursor {
     const n = this.shown > 0.02 ? this.tiles.length : 0;
     this.mesh.count = n;
     this.cross.count = 0;
+    this.fill.count = 0;
+    this.area.visible = false;
     if (!n) return;
+    // A charged area of several tiles: one merged outline + a gold wash per tile (blocked tiles
+    // inside it keep their red bracket + ✕), instead of a bracket set on every tile.
+    const merged = n > 1 && this.tiles.some((t) => t.state === 'charge');
+    if (merged) {
+      let x0 = Infinity;
+      let x1 = -Infinity;
+      let z0 = Infinity;
+      let z1 = -Infinity;
+      let y = -Infinity;
+      for (const t of this.tiles) {
+        x0 = Math.min(x0, t.x);
+        x1 = Math.max(x1, t.x + 1);
+        z0 = Math.min(z0, t.z);
+        z1 = Math.max(z1, t.z + 1);
+        y = Math.max(y, t.y);
+      }
+      const k = `${x0},${x1},${z0},${z1}`;
+      if (k !== this.areaKey) {
+        this.areaKey = k;
+        this.area.geometry.dispose();
+        this.area.geometry = areaOutline(x1 - x0, z1 - z0);
+      }
+      const b = 1 + Math.sin(this.t * 12) * 0.008 + pk * 0.05;
+      this.area.position.set((x0 + x1) / 2, y + 0.004, (z0 + z1) / 2);
+      this.area.scale.set(b, 1, b);
+      this.area.visible = true;
+      const om = this.area.material as THREE.MeshBasicMaterial;
+      om.color.copy(COLORS.charge).multiplyScalar(Math.min(1.25, 1 + pk * 0.6));
+      om.opacity = this.shown;
+    }
     let nx = 0;
+    let nb = 0;
+    let nf = 0;
     for (let i = 0; i < n; i++) {
       const tl = this.tiles[i]!;
+      if (merged && tl.state === 'charge') {
+        this.m.makeScale(1, 1, 1).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
+        this.fill.setMatrixAt(nf, this.m);
+        this.fill.setColorAt(nf, this.c.copy(COLORS.charge).multiplyScalar(this.shown * (0.75 + pk * 0.35)));
+        nf++;
+        continue;
+      }
       // Brackets breathe inward a touch; charged tiles pulse faster.
       const b = tl.state === 'charge' ? Math.sin(this.t * 12 + i) * 0.03 : Math.sin(this.t * 5) * 0.022;
       const s = (0.9 + 0.1 * this.shown) * (1.02 + b + pk * 0.14) * (tl.state === 'hover' ? 0.78 : 1);
       this.m.makeScale(s, 1, s).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
-      this.mesh.setMatrixAt(i, this.m);
-      this.mesh.setColorAt(i, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * Math.min(1, ALPHA[tl.state] + pk * 0.6)));
+      this.mesh.setMatrixAt(nb, this.m);
+      this.mesh.setColorAt(nb, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * Math.min(1, ALPHA[tl.state] + pk * 0.6)));
+      nb++;
       if (tl.state === 'blocked' && nx < 4) {
         const k = 0.34 * (0.85 + 0.15 * this.shown);
         this.m.makeScale(k, 1, k).setPosition(tl.x + 0.5, tl.y + 0.002, tl.z + 0.5);
@@ -172,6 +299,12 @@ export class TileCursor {
         this.cross.setColorAt(nx, this.c.copy(COLORS.blocked).multiplyScalar(this.shown));
         nx++;
       }
+    }
+    this.mesh.count = nb;
+    this.fill.count = nf;
+    if (nf) {
+      this.fill.instanceMatrix.needsUpdate = true;
+      if (this.fill.instanceColor) this.fill.instanceColor.needsUpdate = true;
     }
     this.cross.count = nx;
     if (nx) {

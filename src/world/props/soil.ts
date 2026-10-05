@@ -179,7 +179,8 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           // Dry: pale, warm, a little dusty, the ridge crests sun-bleached, a fine crazing of hairline
           // cracks between lighter crusted plates.
           // (Ochre-leaning: a desaturated red-brown reads mauve / pink under the warm grade.)
-          vec3 dry = base * vec3(1.62, 1.54, 1.28);
+          // (r14: ~+22 % value over r13 — dry beds read dusty tan so a soak is an obvious payoff.)
+          vec3 dry = base * vec3(1.98, 1.86, 1.52);
           float dl = dot(dry, vec3(0.3, 0.59, 0.11));
           dry = mix(vec3(dl) * vec3(1.03, 0.99, 0.9), dry, 0.66);
           float crest = smoothstep(0.05, 0.066, vSoilH);
@@ -189,7 +190,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           float plate = smoothstep(0.06, 0.2, cw);
           dry *= (1.0 - crack * 0.16) * (1.0 + plate * 0.05);
           // Wet: dark, cooler, saturated; the texture's crumbs still read.
-          vec3 wet = base * vec3(0.56, 0.5, 0.5);
+          vec3 wet = base * vec3(0.5, 0.44, 0.44);
           // Furrows read in any light: troughs in shade, crests catching it (a lone fresh tile shows
           // the same ploughed ridges as the beds around it, not a flat smear).
           float ridgeT = smoothstep(0.032, 0.062, vSoilH);
@@ -211,7 +212,8 @@ function soilMaterial(): THREE.MeshStandardMaterial {
             c *= 1.0 - min(1.0, seam) * 0.1 * smoothstep(0.7, 1.0, vSoilEdge);
           }
           // Freshly turned earth: darker and moist for a moment after the hoe bites.
-          c = mix(c, base * vec3(0.95, 0.86, 0.8), vSoilFresh * (1.0 - hvSoilWet) * 0.85);
+          // (Kept well above wet: a fresh furrow must not already look watered.)
+          c = mix(c, base * vec3(1.25, 1.14, 0.98), vSoilFresh * (1.0 - hvSoilWet) * 0.6);
           // The fringe dries out into pale, dusty dirt as it spills over the turf.
           // Patchy, not a uniform band: earthy ochre crumbs with an olive cast where it meets the sod.
           float fr = (1.0 - smoothstep(0.35, 1.0, vSoilEdge)) * (0.55 + 0.6 * hvNoise(wq * 3.1 + 7.0));
@@ -220,7 +222,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           diffuseColor.rgb = c;
         }`,
       );
-      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.3, max(hvSoilWet, vSoilFresh * 0.5));');
+      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.22, max(hvSoilWet, vSoilFresh * 0.3));');
       shader.fragmentShader = fs;
     });
   }

@@ -490,8 +490,9 @@ export class CrowFlock {
         c.bob += dt;
         // Between pecks: the jerky crow head-bob and a glance around.
         const idle = 1 - peck;
-        c.body.rotation.x = peck * 0.8;
-        c.head.rotation.x = peck * 0.6 + idle * (Math.sin(c.bob * 11) > 0.3 ? 0.18 : -0.06);
+        // Clamped (r7 critic: a 1.4 rad combined bend laid the neck flat along the soil).
+        c.body.rotation.x = peck * 0.5;
+        c.head.rotation.x = peck * 0.5 + idle * (Math.sin(c.bob * 11) > 0.3 ? 0.18 : -0.06);
         c.head.rotation.y = idle * Math.sin(c.bob * 1.7) * 0.6;
         c.head.position.z = 0.1 + idle * (Math.sin(c.bob * 11) > 0.3 ? 0.02 : -0.01);
         // Between pecks: a little two-footed hop with a wing flick.

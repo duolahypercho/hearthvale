@@ -666,9 +666,10 @@ function decalTexture(kind: 'wet' | 'crack'): THREE.CanvasTexture {
 const JETS: { r0: number; r1: number; spread: number; lag: number; a: number; n: number; jit: number; off?: number }[] = [
   // Three parallel bead ropes (the rose's centre holes): fat, closely spaced glassy drops that read
   // as a generous pour from the gameplay camera, every drop still its own bead.
-  { r0: 0.036, r1: 0.05, spread: 0, lag: 0, a: 0.97, n: 24, jit: 0.012 },
-  { r0: 0.028, r1: 0.04, spread: 0.07, lag: 0.015, a: 0.92, n: 18, jit: 0.016, off: 0.045 },
-  { r0: 0.028, r1: 0.04, spread: -0.07, lag: 0.025, a: 0.92, n: 18, jit: 0.016, off: -0.045 },
+  // (r14: the ropes taper as the water speeds up and thins — a tapering ribbon of beads.)
+  { r0: 0.038, r1: 0.03, spread: 0, lag: 0, a: 1.0, n: 24, jit: 0.012 },
+  { r0: 0.03, r1: 0.022, spread: 0.07, lag: 0.015, a: 0.95, n: 18, jit: 0.016, off: 0.045 },
+  { r0: 0.03, r1: 0.022, spread: -0.07, lag: 0.025, a: 0.95, n: 18, jit: 0.016, off: -0.045 },
   // Flanking jets fanning apart as they fall.
   { r0: 0.019, r1: 0.027, spread: 0.2, lag: 0.035, a: 0.85, n: 13, jit: 0.022 },
   { r0: 0.019, r1: 0.027, spread: -0.2, lag: 0.045, a: 0.85, n: 13, jit: 0.022 },
@@ -703,13 +704,16 @@ void main() {
   vec2 q = vUv;
   q.x *= 1.0 + 0.35 * smoothstep(0.2, -1.0, q.y);
   float d = length(q);
-  float a = (1.0 - smoothstep(0.55, 1.0, d)) * vA;
-  if (a < 0.02) discard;
-  float core = 1.0 - smoothstep(0.0, 0.75, d);
-  vec3 c = mix(uBody, uCore, core * 0.7);
+  float body = 1.0 - smoothstep(0.55, 1.0, d);
+  // Glass, not a blue rod: a see-through body, a denser refracting rim and a bright specular
+  // dot up-front (r7 critic: the pour read as an opaque blue rod).
+  float rim = smoothstep(0.3, 0.8, d) * body;
   float hl = 1.0 - smoothstep(0.0, 0.32, length(vUv - vec2(-0.25, 0.35)));
-  c = mix(c, vec3(1.0), hl * 0.85);
-  gl_FragColor = vec4(c, a * (0.8 + 0.2 * core));
+  float a = (body * 0.56 + rim * 0.24 + hl * 0.45) * vA;
+  if (a < 0.02) discard;
+  vec3 c = mix(uBody, uCore, clamp(rim * 0.35 + (1.0 - d) * 0.25, 0.0, 1.0));
+  c = mix(c, vec3(1.0), hl * 0.9);
+  gl_FragColor = vec4(c, min(1.0, a));
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
   #include <fog_fragment>
@@ -919,8 +923,11 @@ void main() {
   bool rope = h2 < 0.62;
   float rj = rope ? mix(0.93, 1.03, h4) : mix(0.3, 0.95, h2);
   float T = aP.y * mix(0.62, 1.0, rj);
-  // Flight fraction: beads flow out of the nozzle continuously.
-  float s = fract(uTime / T + h1);
+  // Flight fraction: beads flow out of the nozzle continuously. The last 12 % of a bead's life is
+  // its landing: it sits where it struck and blooms into a flat crown splash on the soil.
+  float sl = fract(uTime / T + h1);
+  float s = min(sl / 0.88, 1.0);
+  float land = clamp((sl - 0.88) / 0.12, 0.0, 1.0);
   // The head turned while this bead flew: it left when the jet pointed lag·s radians further back.
   float ang = aO.w - aA.y * s * (T / aP.y) + (h3 - 0.5) * (rope ? 0.035 : 0.22) * (0.3 + s);
   vec3 dir = vec3(cos(ang), 0.0, sin(ang));
@@ -931,16 +938,24 @@ void main() {
   vec3 toCam = normalize(cameraPosition - p);
   vec3 side = cross(tan, toCam);
   side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
-  // Small tight beads at the nozzle, fatter drops as the stream breaks up; stretched along flight.
-  // Rope beads: a fat glassy stream off the nozzle that breaks into smaller drops toward the rim
-  // (size falloff); shed drops stay fine.
-  float r = (rope ? mix(0.032, 0.017, s * s) : mix(0.018, 0.024, s)) * mix(0.75, 1.25, h4);
-  p += side * position.y * r + tan * position.z * r * 2.1;
+  // Tight glassy beads off the nozzle that thin and stretch into velocity-aligned streaks as they
+  // fall (motion blur); shed drops stay fine.
+  float r = (rope ? mix(0.026, 0.013, s * s) : mix(0.014, 0.018, s)) * mix(0.75, 1.25, h4);
+  float stretch = 2.4 + 2.6 * s;
+  if (land > 0.0) {
+    // Crown splash: a flat ring on the soil, expanding as it fades (only every other bead, so
+    // the landing zone sparkles rather than carpets).
+    float cr = r * (1.4 + 5.5 * land) * (h4 < 0.5 ? 1.0 : 0.0);
+    p += vec3(1.0, 0.0, 0.0) * position.y * cr + vec3(0.0, 0.0, 1.0) * position.z * cr + vec3(0.0, 0.012, 0.0);
+  } else {
+    p += side * position.y * r + tan * position.z * r * stretch;
+  }
   vec4 mvPosition = viewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mvPosition;
   vUv = position.yz;
-  vS = s;
-  vA = aA.x * smoothstep(0.0, 0.05, s) * (1.0 - smoothstep(0.86, 1.0, s));
+  vS = land;
+  // Denser near the nozzle, fading as the jet breaks up into spray; a quick fade-in at the nozzle.
+  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? 1.0 - 0.4 * s : 0.75 - 0.25 * s) * (land > 0.0 ? 0.9 * (1.0 - land) : 1.0);
   #include <fog_vertex>
 }`;
 const ARC_FS = /* glsl */ `
@@ -952,11 +967,23 @@ varying float vS;
 #include <fog_pars_fragment>
 void main() {
   float d = length(vUv);
-  float a = (1.0 - smoothstep(0.45, 1.0, d)) * vA * (0.7 + 0.3 * (1.0 - smoothstep(0.0, 0.6, d)));
+  vec3 c;
+  float a;
+  if (vS > 0.0) {
+    // Landing crown: a thin bright ring with a faint wet fill inside.
+    float ring = smoothstep(0.55, 0.78, d) * (1.0 - smoothstep(0.82, 1.0, d));
+    a = (ring * 0.85 + (1.0 - smoothstep(0.0, 0.7, d)) * 0.12) * vA;
+    c = mix(uBody, uCore, ring);
+  } else {
+    // Glassy drop: see-through body, denser refracting rim, bright highlight up-front (stays
+    // under the bloom threshold) — water, not opaque pellets.
+    float body = 1.0 - smoothstep(0.55, 1.0, d);
+    float rim = smoothstep(0.35, 0.8, d) * body;
+    float hl = 1.0 - smoothstep(0.0, 0.38, length(vUv - vec2(-0.25, 0.35)));
+    a = (body * 0.38 + rim * 0.4 + hl * 0.5) * vA;
+    c = mix(uBody, uCore, clamp(hl * 0.95 + rim * 0.25, 0.0, 1.0));
+  }
   if (a < 0.02) discard;
-  // Glassy drop: sky-blue body, bright highlight up-front (stays under the bloom threshold).
-  float hl = 1.0 - smoothstep(0.0, 0.45, length(vUv - vec2(-0.2, 0.3)));
-  vec3 c = mix(uBody, uCore, hl * 0.9);
   gl_FragColor = vec4(c, a);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -998,7 +1025,7 @@ class SprayArcs {
     g.instanceCount = 0;
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x7fb8e6) }, uCore: { value: new THREE.Color(0xf2faff) } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x5fa6e0) }, uCore: { value: new THREE.Color(0xf4fbff) } }]),
       vertexShader: ARC_VS,
       fragmentShader: ARC_FS,
       transparent: true,
@@ -1552,8 +1579,9 @@ export class FarmFX {
     const a0 = rnd(0, Math.PI * 2);
     for (let i = 0; i < n; i++) {
       const a = a0 + (i / n) * Math.PI * 2 + rnd(-0.2, 0.2);
-      const sp = rnd(0.35, 0.7) * size;
-      this.drop(p.clone().setY(p.y + 0.01), new THREE.Vector3(Math.cos(a) * sp, rnd(1.1, 1.9) * size, Math.sin(a) * sp), 0.015 * size);
+      // Low and radial (a milk-crown spreading out over the soil, not an upward geyser spurt).
+      const sp = rnd(0.6, 1.1) * size;
+      this.drop(p.clone().setY(p.y + 0.01), new THREE.Vector3(Math.cos(a) * sp, rnd(0.45, 0.85) * size, Math.sin(a) * sp), 0.013 * size);
     }
   }
 
@@ -1691,11 +1719,13 @@ export class FarmFX {
     // One soft ripple washing out over the soil (splashes land several times a second while
     // pouring, so stacked bright rings read as a target gizmo — keep each one a whisper).
     this.ring(p.clone().setY(p.y + 0.015), 0.05 * big, 0.3 * big, 0.45, 0x5a8cb4);
+    // A smaller second ripple trailing the first (water rings, not a single gizmo circle).
+    if (fxr.next() < 0.5) this.ring(p.clone().add(_v.set(rnd(-0.06, 0.06), 0.016, rnd(-0.06, 0.06))), 0.03 * big, 0.17 * big, 0.38, 0x6a9cc4);
     this.crown(p, big, 12);
-    // A few fat drops flicked high (they crown again where they land).
-    for (let i = 0; i < 3; i++) {
+    // A couple of fat drops skipped out sideways (they crown again where they land).
+    for (let i = 0; i < 2; i++) {
       const a = rnd(0, Math.PI * 2);
-      this.drop(p.clone().setY(p.y + 0.02), new THREE.Vector3(Math.cos(a) * rnd(0.5, 0.9) * big, rnd(1.8, 2.4) * big, Math.sin(a) * rnd(0.5, 0.9) * big), 0.016 * big, true);
+      this.drop(p.clone().setY(p.y + 0.02), new THREE.Vector3(Math.cos(a) * rnd(0.7, 1.1) * big, rnd(0.9, 1.3) * big, Math.sin(a) * rnd(0.7, 1.1) * big), 0.015 * big, true);
     }
     this.mist(p.clone().setY(p.y + 0.04), 0.2 * big, 0.1);
     if (fxr.next() < 0.45) this.sparkle(p.clone().add(_v.set(rnd(-0.1, 0.1), rnd(0.06, 0.16), rnd(-0.1, 0.1))), _v.set(0, rnd(0.2, 0.5), 0), 0xd8f0ff, rnd(0.07, 0.11), 0.35);
@@ -1970,9 +2000,10 @@ export class FarmFX {
         // Hugs the item's top-right corner (its box, not its bounding sphere: a long parsnip or a
         // bean pod keeps the star close instead of flinging it half a metre away).
         const cy = m.position.y - p.bottom * S + p.hh * S;
-        // Anchored ON the item's upper-outer edge (overlapping its silhouette a touch), with a small orbit.
+        // Floats just clear of the item's upper-outer corner (a badge beside it, never a sticker
+        // pasted over the fruit — r7 critic), with a small orbit.
         const orb = p.age * 2.4;
-        st.position.copy(m.position).setY(cy).addScaledVector(this.viewRight, side * (Math.min(p.hw * S * 0.62, 0.12) + 0.02 + Math.cos(orb) * 0.012)).addScaledVector(this.viewUp, Math.min(p.hh * S * 0.6, 0.15) + Math.sin(orb) * 0.012);
+        st.position.copy(m.position).setY(cy).addScaledVector(this.viewRight, side * (Math.min(p.hw * S, 0.2) + 0.075 + Math.cos(orb) * 0.012)).addScaledVector(this.viewUp, Math.min(p.hh * S * 0.75, 0.18) + 0.03 + Math.sin(orb) * 0.012);
         // Spin in (a full turn IN the screen plane that settles), then a gentle rock — always
         // billboarded: the star never turns edge-on into a sliver (its yaw rocks ≤ ±0.3 rad).
         const spinIn = ts > 0 ? Math.max(0, 1 - ts / 0.24) : 1;
