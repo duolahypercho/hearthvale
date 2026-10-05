@@ -514,7 +514,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Wren Fairweather',
     role: 'Painter, wanderer, bad at sitting still',
     birthday: { season: 'summer', day: 22 },
-    look: { fp: { w: 0.94, h: 1.03, jaw: 0, chin: 0.7, eye: 1.12, gap: 1.1, eyeY: -0.02, nose: 'snub', mouth: 0.82, lines: 0, cheeks: 0.35, ears: 0.9 }, eyeShape: 'wide', lashes: true, brow: 0.75, browArch: 0.25, skin: 0xf6d2b8, hair: 0x3f8f8a, hairStyle: 'bob', top: 0xe8c45a, bottom: 0x3a4a6a, scarf: 0xe8674a, scale: 0.94, build: 0.84, shoulders: 0.86, torso: 1.1, legs: 1.2, head: 0.9, eyes: 0x3a7a8a, face: 'heart', acc: ['pencil', 'freckles', 'satchel'], shoes: 0xc8573e, backdrop: 'river' },
+    look: { fp: { w: 0.94, h: 1.03, jaw: 0, chin: 0.45, eye: 1.12, gap: 1.1, eyeY: -0.02, nose: 'snub', mouth: 0.82, lines: 0, cheeks: 0.35, ears: 0.9 }, eyeShape: 'wide', lashes: true, brow: 0.75, browArch: 0.25, skin: 0xf6d2b8, hair: 0x3f8f8a, hairStyle: 'bob', top: 0xe8c45a, bottom: 0x3a4a6a, scarf: 0xe8674a, scale: 0.94, build: 0.84, shoulders: 0.86, torso: 1.1, legs: 1.2, head: 0.9, eyes: 0x3a7a8a, face: 'heart', acc: ['pencil', 'freckles', 'satchel'], shoes: 0xc8573e, backdrop: 'river' },
     walk: W(1.7, 0.6, 0.06, 0.05, -0.02, 0.55),
     home: 'cottage_west',
     portraitBg: [0xbfe0e8, 0x8fb8d8],
@@ -1408,9 +1408,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
         title: 'The Stubborn Rose',
         hours: [8, 17],
         dry: true,
-        // (r7: she tends the rose side-on, not with her back to the lens — the reverse angle for a speaker
-        // facing north put the lens behind the Hall)
-        cast: { hazel: ['planters_hall', 'right'], player: [[30.6, 16.3], 'left'] },
+        // (r7: a step south of the planter mark — from the old mark every lens on the plaza side was
+        // blocked and the solve swung round behind the Hall)
+        cast: { hazel: [[28.9, 16.4], 'up'], player: [[30.7, 17.0], 'left'] },
         camera: { x: 30.6, z: 14.8, yaw: -6, pitch: 40, distance: 13 },
         insert: [{ kind: 'rose', word: 'rose|bloom', caption: 'Rosalind’s rose, in bud nine years' }],
         script: [

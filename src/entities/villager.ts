@@ -145,7 +145,9 @@ function hairShell(r: number, thetaStart: number, thetaLen: number, grooves: num
     const rr = r * (1 + depth * crown * (ridge * ridge - 0.35));
     // Temples lifted (r7 portrait gate: in the three-quarter bust the hem at ±70° hung over the far eye).
     const temple = Math.exp(-(((Math.abs(az) - 1.2) / 0.45) ** 2)) * THREE.MathUtils.smoothstep(t, 0.45, 1);
-    const th2 = th + scallop * THREE.MathUtils.smoothstep(t, 0.55, 1) * Math.pow(ridge, 1.6) - temple * Math.PI * 0.075;
+    // (and no long lock tip dead centre: in a bowed angry bust it pointed down onto the nose bridge)
+    const mid = 1 - 0.75 * Math.exp(-((az / 0.45) ** 2));
+    const th2 = th + scallop * mid * THREE.MathUtils.smoothstep(t, 0.55, 1) * Math.pow(ridge, 1.6) - temple * Math.PI * 0.075;
     v.set(rr * Math.sin(th2) * Math.sin(az), rr * Math.cos(th2), rr * Math.sin(th2) * Math.cos(az));
     pos.setXYZ(i, v.x, v.y, v.z);
     // An anisotropic sheen ring across the crown, broken up by the locks (brightest on the ridges).
@@ -851,13 +853,14 @@ export class Villager {
     if (fW > 1.01) rb.add(B.head, new THREE.SphereGeometry(R, 18, 12), H(0, skullY - R * 0.36, R * 0.04, 0, 0, 0, faceS[0] * fW * 0.93, 0.62 * faceS[1], 0.9), L.skin);
     if (jawK > 0.05) {
       const jw = R * 0.7 * (0.82 + 0.42 * jawK) * Math.max(0.9, Math.min(1.2, fW));
-      rb.add(B.head, new THREE.SphereGeometry(1, 18, 12), H(0, chinY + R * (0.5 - 0.1 * jawK), R * 0.06, 0.1, 0, 0, jw, R * (0.46 + 0.04 * jawK), R * 0.66), jawC);
+      // (its foot level with the chin: below it the pad read as a neck brace when the head tipped back)
+      rb.add(B.head, new THREE.SphereGeometry(1, 18, 12), H(0, chinY + R * (0.47 - 0.03 * jawK), R * 0.06, 0.1, 0, 0, jw, R * 0.44, R * 0.66), jawC);
     }
     if (chinK > 0.05) {
       {
         // (sits on the jaw line, mostly inside the skull: a firmer / longer point, not an egg)
         const cy = chinY + R * (0.2 - 0.12 * chinK);
-        rb.add(B.head, new THREE.SphereGeometry(1, 14, 10), H(0, cy, surfZ(0, cy + R * 0.08) - R * (0.2 - 0.04 * chinK), 0.35, 0, 0, R * (0.26 - 0.06 * chinK), R * (0.2 + 0.08 * chinK), R * 0.22), jawC);
+        rb.add(B.head, new THREE.SphereGeometry(1, 14, 10), H(0, cy, surfZ(0, cy + R * 0.08) - R * (0.25 - 0.03 * chinK), 0.35, 0, 0, R * (0.23 - 0.05 * chinK), R * (0.17 + 0.06 * chinK), R * 0.19), jawC);
       }
     } else if (chinK < -0.3) {
       // Soft chin: a rounded pad tucked under the jaw line (a gentle double chin from the side; a
@@ -1268,8 +1271,10 @@ export class Villager {
           // (a bob parts in the middle: no centre lock — it hung onto the nose bridge in a bowed bust)
           if (style === 'bob' && a === 0) return;
           // (under a brim the fringe is swept up: r6 Hazel's locks curtained her eyes when she bowed)
-          const len = brimmed && Math.abs(a) < 0.7 ? len0 * 0.55 : len0;
-          const tip = brimmed && Math.abs(a) < 0.7 ? tip0 + (len0 - len) * 0.9 : tip0;
+          // (a bob's middle locks too: in the bowed angry bust they reached the nose bridge)
+          const trim = Math.abs(a) < 0.7 ? (brimmed ? 0.55 : style === 'bob' ? 0.62 : 1) : 1;
+          const len = len0 * trim;
+          const tip = tip0 + (len0 - len) * 0.9;
           // A soft teardrop lock (round at the root, tapering to a curled tip), flattened against the
           // brow so neighbouring locks overlap into a scalloped fringe rather than a row of spikes.
           const cone = new THREE.SphereGeometry(1, 9, 7);
@@ -3137,12 +3142,12 @@ function portraitPainter(): THREE.ShaderMaterial {
           float ak = texture2D(tLit, vUv + vec2(-3.5, 3.5) * px).a;
           float rimH = ((abs(pk - 2.0) > 0.5 && pk < 5.5) || ak < 0.5) ? 1.0 : 0.0;
           col = mix(col, col * 1.42 + vec3(0.035, 0.028, 0.02), rimH * 0.6);
-          float zig = abs(fract(th * 6.5 + 0.25) - 0.5) * 0.22;
+          float zig = abs(fract(th * 6.5 + 0.25) - 0.5) * 0.12;
           float ring = 1.0 - smoothstep(0.0, 0.07, abs(rr - 0.74 - zig));
           float sideLit = smoothstep(0.35, -0.55, d.x) * smoothstep(-1.2, 0.2, d.y);
           // (hue-kept: a dark brown shine is a lighter brown, never a grey band — r6 Rowan)
           vec3 shine = col * 1.62 + vec3(0.06, 0.05, 0.035);
-          col = mix(col, shine, ring * sideLit * 0.85 * (0.4 + 0.6 * smoothstep(0.05, 0.4, L)));
+          col = mix(col, shine, ring * sideLit * 0.62 * (0.4 + 0.6 * smoothstep(0.05, 0.4, L)));
           // A couple of loose fly-away highlight strokes.
           float hl = smoothstep(0.035, 0.0, abs(fract(th * 4.0 + wob * 2.0) - 0.5)) * smoothstep(0.3, 0.6, rr) * smoothstep(1.3, 0.8, rr);
           col = mix(col, shine, hl * sideLit * 0.45);
@@ -3498,7 +3503,8 @@ function auditBust(r: THREE.WebGLRenderer, rtId: THREE.WebGLRenderTarget, g: Can
     return n ? h / n : 0;
   };
   // (the eye itself, not the brow line above it; the nose bridge, not a moustache under it)
-  const eyes = Math.max(frac(eL.x, eL.y, es * 0.18, es * 0.12), frac(eR.x, eR.y, es * 0.18, es * 0.12));
+  // (the pupil / iris itself: a bowed head's hairline brushing the top lid is drawing, not a veil)
+  const eyes = Math.max(frac(eL.x, eL.y, es * 0.13, es * 0.08), frac(eR.x, eR.y, es * 0.13, es * 0.08));
   const nc = eL.clone().add(eR).multiplyScalar(0.5).lerp(m, 0.35);
   const nose = frac(nc.x, nc.y, es * 0.1, es * 0.12);
   // Mean painted hair colour (the canvas already holds the painted bust, before the ink brows).
