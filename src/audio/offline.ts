@@ -71,7 +71,12 @@ const MIX_ENV: Record<string, EnvState> = {
   mine: AMBIENCE_PRESETS.mine!,
   night: AMBIENCE_PRESETS['farm-summer-night']!,
   rain: AMBIENCE_PRESETS['farm-rain']!,
-  festival: ENV({ map: 'town', hour: 20, season: 'summer', night: 0.8, fountain: 0.5 }),
+  // Festivals play on their own grounds, under the festival crowd (round 5: was a quiet town evening).
+  festival: AMBIENCE_PRESETS['festival-crowd']!,
+  'festival-blossom': AMBIENCE_PRESETS['festival-crowd']!,
+  'festival-tide': ENV({ map: 'fest-summer', hour: 21, season: 'summer', night: 1, water: 1 }),
+  'festival-harvest': ENV({ map: 'fest-fall', hour: 13, season: 'fall' }),
+  'festival-starfall': ENV({ map: 'fest-winter', hour: 20, season: 'winter', night: 1 }),
   title: ENV({ hour: 18.7 }),
   inn: ENV({ map: 'town', hour: 18.5, fountain: 0.3 }),
   forest: AMBIENCE_PRESETS['forest-stream']!,

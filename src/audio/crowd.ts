@@ -71,11 +71,20 @@ export class Crowd {
   }
 
   /** Node count held by the persistent talkers (perf telemetry). */
+  private lift = 1;
+
   get size(): number {
     return this.talkers.length;
   }
 
   tick(now: number, until: number, s: CrowdState): void {
+    // A festival is its crowd: +4 dB over the everyday square (round 5 — festival beds sat 10–14 LU
+    // under the music; a fair's chatter and applause should be right there with the band).
+    const lift = s.festive ? 1.6 : 1;
+    if (lift !== this.lift) {
+      this.lift = lift;
+      this.out.gain.setTargetAtTime(lift, now, 1);
+    }
     const want = s.active ? Math.round((s.festive ? 8 : 4) * clamp(0.5 + s.density * 0.5, 0.5, 1)) : 0;
     if (s.active) {
       this.idleSince = -1;

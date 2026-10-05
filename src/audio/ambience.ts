@@ -242,7 +242,7 @@ export class Ambience {
     // In the square the people carry the sense of place: the wind / leaf wash sits 6 dB lower.
     const townBed = s.map === 'town' || s.map.startsWith('fest') ? 0.5 : 1;
     // (A windy day is already loud: the day lift fades out as the weather's own wind takes over.)
-    const windLift = 1 + (dayLift - 1) * (1 - 0.7 * Math.max(0, windy - 0.35) / 0.65);
+    const windLift = 1 + (dayLift - 1) * (1 - 0.7 * Math.max(0, windy - 0.65) / 0.35);
     const wind = (outdoors ? townBed : 1) * (outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * nightLift * windLift : mine ? 0.015 : 0);
     this.setBed('wind', wind, now, 0.8);
     const wf = this.beds.wind!.filter!;
