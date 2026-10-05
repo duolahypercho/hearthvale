@@ -570,13 +570,13 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
             float life = fract(t * 0.16 + h * 7.0);
             float vis = smoothstep(0.0, 0.25, life) * (1.0 - smoothstep(0.55, 1.0, life));
             float r = length(f * vec2(1.0, 2.2));
-            float arcLen = mix(0.07, 0.2, hvHash12(id + 5.9));
+            float arcLen = mix(0.05, 0.12, hvHash12(id + 5.9)); // ≤ ≈ 1 m crescents (r6: longer ones read as streaks)
             float along = clamp(f.x / arcLen, -1.0, 1.0);
             float brk = smoothstep(0.25, 0.55, hvNoise(vec2(f.x * 16.0 + h * 40.0, t * 0.6 + h * 9.0)));
             float arc = smoothstep(0.035, 0.008, abs(r - 0.15 - life * 0.03)) * step(f.y, 0.0) * (1.0 - along * along) * brk;
             ticks = max(ticks, arc * vis);
           }
-          foam += ticks * crestK * smoothstep(1.8, 3.2, depth) * (0.45 + 0.35 * uWindStrength) * (1.0 - smoothstep(20.0, 38.0, dist)) * mix(0.2, 1.0, bandK);
+          foam += ticks * crestK * smoothstep(1.8, 3.2, depth) * (0.45 + 0.35 * uWindStrength) * (1.0 - smoothstep(20.0, 38.0, dist)) * mix(0.2, 1.0, bandK) * (1.0 - steep * 0.5);
         }
         // Spindrift on the far swell (white horses when it's windy).
         if (face * swellZone * detail > 0.0 && uWindStrength > 0.5)

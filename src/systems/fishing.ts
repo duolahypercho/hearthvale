@@ -808,8 +808,14 @@ export class FishingSystem implements System, FishingApi {
     // two in depth: step across the deck instead (≥ 1.7 m, the other side of them), plus a little
     // along the rail so the lines never run over the other farmer.
     const here = this.game.world.current?.id ?? '';
-    for (const a of this.remotes.values()) {
-      if (!a.active || a.map !== here) continue;
+    // Every co-op farmer standing here counts, not only those already fishing (two farmers casting in
+    // the same second never saw each other and fished one behind the other — critic r5 co-op shot).
+    const others: THREE.Vector3[] = [];
+    for (const a of this.remotes.values()) if (a.active && a.map === here) others.push(a.feetPos);
+    const net = (this.game.services as unknown as { net?: { remotes?: { list?: Map<number, { map: string; away?: boolean; farmer: { position: THREE.Vector3 } }> } } }).net;
+    for (const rp of net?.remotes?.list?.values() ?? []) if (rp.map === here && !rp.away) others.push(rp.farmer.position);
+    for (const fp of others) {
+      const a = { feetPos: fp };
       const px = p.x + this.nudge.x;
       const pz = p.z + this.nudge.z;
       const dx = px - a.feetPos.x;
