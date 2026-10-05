@@ -61,14 +61,24 @@ export function strawTufts(k: Kit, rng: Rng, cx: number, y: number, cz: number, 
   }
 }
 
+const _ta = new THREE.Color();
+const _tb = new THREE.Color();
+/** Optional colour multiplier for the straw (e.g. the barn's cooler, darker stall bedding). */
+function toner(tone?: number): (c: number) => number {
+  if (tone == null) return (c) => c;
+  _tb.setHex(tone);
+  return (c) => _ta.setHex(c).multiply(_tb).getHex();
+}
+
 /** A loose heap of hay / straw bedding: a soft dome of lumps bristling with straws. */
-export function hayPile(k: Kit, rng: Rng, x: number, z: number, w: number, d: number, h: number): void {
+export function hayPile(k: Kit, rng: Rng, x: number, z: number, w: number, d: number, h: number, tone?: number): void {
   const H = Math.max(h, 0.1);
+  const tn = toner(tone);
   const dome = (dx: number, dz: number) => {
     const q = 1 - (dx / (w * 0.5)) ** 2 - (dz / (d * 0.5)) ** 2;
     return q > 0 ? H * Math.sqrt(q) * 0.95 : 0;
   };
-  k.add('straw', lumpySphere(0.5, 2, 0.2, rng), mat(x, -H * 0.12, z, 0, rng.next() * 3, 0, w, H * 2.1, d), { tint: 0xfff0c8 });
+  k.add('straw', lumpySphere(0.5, 2, 0.2, rng), mat(x, -H * 0.12, z, 0, rng.next() * 3, 0, w, H * 2.1, d), { tint: tn(0xfff0c8) });
   const lumps = 3 + Math.floor(w * d * 3);
   for (let i = 0; i < lumps; i++) {
     const a = rng.next() * Math.PI * 2;
@@ -76,7 +86,7 @@ export function hayPile(k: Kit, rng: Rng, x: number, z: number, w: number, d: nu
     const dx = Math.cos(a) * r * w;
     const dz = Math.sin(a) * r * d;
     const s = 0.18 + rng.next() * 0.14;
-    k.add('straw', lumpySphere(0.5, 1, 0.3, rng), mat(x + dx, dome(dx, dz) * 0.55, z + dz, 0, rng.next() * 3, 0, s * w * 1.4, H * (0.7 + rng.next() * 0.6), s * d * 1.4), { tint: i % 2 ? 0xfff4d0 : 0xffe4a8 });
+    k.add('straw', lumpySphere(0.5, 1, 0.3, rng), mat(x + dx, dome(dx, dz) * 0.55, z + dz, 0, rng.next() * 3, 0, s * w * 1.4, H * (0.7 + rng.next() * 0.6), s * d * 1.4), { tint: tn(i % 2 ? 0xfff4d0 : 0xffe4a8) });
   }
   strawTufts(k, rng, x, 0, z, Math.round(26 + w * d * 30), Math.min(w, d) * 0.55, dome);
   // A skirt of stray straws on the floor around the heap
@@ -205,12 +215,13 @@ export function crate(k: Kit, x: number, z: number, ry: number, tint: number, y 
 }
 
 /** A low, flat drift of loose straw across the floor (breaks up the bedding texture). */
-export function strawDrift(k: Kit, rng: Rng, x: number, z: number, w: number, d: number): void {
+export function strawDrift(k: Kit, rng: Rng, x: number, z: number, w: number, d: number, tone?: number): void {
+  const tn = toner(tone);
   // A loose kicked-up drift with real body: a darker trodden underlayer that feathers into the bedding,
   // plump fluffy lumps on top (lit crowns, shadowed flanks), and straws bristling out of the edges so the
   // outline never reads as a cut-out decal.
   const n = 2 + Math.floor(w * d * 1.2);
-  k.add('straw', lumpySphere(0.5, 2, 0.25, rng), mat(x, -0.05, z, 0, rng.next() * 3, 0, w * 0.95, 0.16, d * 0.95), { tint: 0xe4c88c });
+  k.add('straw', lumpySphere(0.5, 2, 0.25, rng), mat(x, -0.05, z, 0, rng.next() * 3, 0, w * 0.95, 0.16, d * 0.95), { tint: tn(0xe4c88c) });
   const dome = (dx: number, dz: number): number => {
     const q = 1 - (dx / (w * 0.5)) ** 2 - (dz / (d * 0.5)) ** 2;
     return q > 0 ? 0.13 * Math.sqrt(q) : 0;
@@ -219,7 +230,7 @@ export function strawDrift(k: Kit, rng: Rng, x: number, z: number, w: number, d:
     const dx = (rng.next() - 0.5) * w * 0.7;
     const dz = (rng.next() - 0.5) * d * 0.7;
     const s = 0.3 + rng.next() * 0.22;
-    k.add('straw', lumpySphere(0.5, 2, 0.3, rng), mat(x + dx, -0.03, z + dz, 0, rng.next() * 3, 0, s * w * 0.85, 0.18 + rng.next() * 0.1, s * d * 0.85), { tint: i % 2 ? 0xf6e4bc : 0xefd8a4 });
+    k.add('straw', lumpySphere(0.5, 2, 0.3, rng), mat(x + dx, -0.03, z + dz, 0, rng.next() * 3, 0, s * w * 0.85, 0.18 + rng.next() * 0.1, s * d * 0.85), { tint: tn(i % 2 ? 0xf6e4bc : 0xefd8a4) });
   }
   strawTufts(k, rng, x, 0.02, z, Math.round(12 + w * d * 16), Math.max(w, d) * 0.55, dome);
 }

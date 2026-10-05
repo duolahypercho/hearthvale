@@ -273,7 +273,8 @@ export abstract class InteriorMap implements GameMap {
       // brass knob — the gap reads as a door standing open, not two stubby posts.
       const lk = new Kit();
       const lw = gap1 - gap0 - 0.06;
-      const lh = jh + 0.3;
+      // (r10: closed, cut at the jambs' height — swung open it stood edge-on to the lens in the doorway)
+      const lh = jh;
       const P = 4;
       for (let b = 0; b < P; b++) lk.box('paint', [lw / P - 0.012, lh, 0.05], [(b + 0.5) * (lw / P), 0.02, 0], { tint: b % 2 ? 0x7f9c86 : 0x89a68e, r: 0.012 });
       for (const y of [0.16, lh - 0.12]) lk.box('paint', [lw - 0.04, 0.1, 0.04], [lw / 2, y, -0.045], { tint: 0x6f8a76, r: 0.01 });
@@ -283,9 +284,9 @@ export abstract class InteriorMap implements GameMap {
       lk.sphere('brass', 0.035, [lw - 0.1, 0.62, 0.05]);
       lk.sphere('brass', 0.035, [lw - 0.1, 0.62, -0.08]);
       const leaf = lk.build('door-leaf');
-      // Hinged at the left jamb's inner face, opened ~65° into the room (its painted face turned to the lens).
-      leaf.position.set(gap0 + 0.06, 0, D - 0.02);
-      leaf.rotation.y = 1.15;
+      // Shut in the doorway: the painted, braced face to the lens, a section-cut slab like the walls.
+      leaf.position.set(gap0 + 0.06, 0, D + T * 0.5);
+      leaf.rotation.y = 0;
       this.statics.push(leaf);
     }
     // Coir doormat just inside: bristly tan field, dark woven border, two stripes
@@ -576,7 +577,53 @@ export abstract class InteriorMap implements GameMap {
   // ─────────────────────────────────────────── helpers for subclasses
 
   /** Block every tile whose centre lies inside the world rect. */
+  /**
+   * Co-op presence (r10): two farmers never stand inside each other in a small room — each client
+   * eases its OWN farmer out of any other farmer closer than ~0.7 m (both sides do it, so the pair
+   * slides apart symmetrically; a dead-centre overlap splits by player id). Walkable tiles only.
+   */
+  private separateFarmers(dt: number, game: Game): void {
+    const net = game.services.net as unknown as { remotes?: { list?: Map<number, { map: string; away?: boolean; id: number; farmer: { root: THREE.Object3D } }> }; myId?: () => number } | undefined;
+    const list = net?.remotes?.list;
+    if (!list || !list.size || game.cinematic) return;
+    const pp = game.player.position;
+    const R = 0.7;
+    for (const r of list.values()) {
+      if (r.away || r.map !== this.id) continue;
+      const o = r.farmer.root.position;
+      let dx = pp.x - o.x;
+      let dz = pp.z - o.z;
+      let d = Math.hypot(dx, dz);
+      if (d >= R) continue;
+      if (d < 1e-3) {
+        // Exactly on top: split along x, the lower id to the left.
+        const mine = net?.myId?.() ?? 0;
+        dx = mine < r.id ? -1 : 1;
+        dz = 0.15;
+        d = Math.hypot(dx, dz);
+      }
+      const push = Math.min((R - d) * 0.5, dt * 1.6);
+      const ux = dx / d;
+      const uz = dz / d;
+      // Straight away from them; if furniture / a wall blocks that, slide sideways (either way) instead.
+      for (const [cx, cz] of [[ux, uz], [-uz, ux], [uz, -ux], [ux * 0.7 - uz * 0.7, uz * 0.7 + ux * 0.7], [ux * 0.7 + uz * 0.7, uz * 0.7 - ux * 0.7]] as const) {
+        const nx = pp.x + cx * push;
+        const nz = pp.z + cz * push;
+        const ex = nx + cx * 0.2;
+        const ez = nz + cz * 0.2;
+        if (this.grid.isWalkable(Math.floor(ex), Math.floor(ez))) {
+          pp.set(nx, pp.y, nz);
+          break;
+        }
+      }
+    }
+  }
+
+  /** Every furniture rect passed to solid() (name cards keep off them on screen). */
+  readonly propRects: { x0: number; z0: number; x1: number; z1: number; id: string }[] = [];
+
   protected solid(x0: number, z0: number, x1: number, z1: number, id = 'furniture'): void {
+    this.propRects.push({ x0, z0, x1, z1, id });
     for (let z = Math.floor(z0); z <= Math.floor(z1); z++) {
       for (let x = Math.floor(x0); x <= Math.floor(x1); x++) {
         const cx = x + 0.5;
@@ -758,6 +805,7 @@ export abstract class InteriorMap implements GameMap {
   }
 
   update(dt: number, game: Game): void {
+    this.separateFarmers(dt, game);
     this.setAtmosphere();
     this.computeLight();
     const L = this.light;

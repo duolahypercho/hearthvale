@@ -316,7 +316,7 @@ export class CoopInterior extends InteriorMap {
     k.cyl('thatch', 0.19, 0.14, 0.15, [0.35, 0, 1.35], { tint: 0xc8a068 });
     k.add('thatch', new THREE.TorusGeometry(0.15, 0.015, 5, 16, Math.PI), mat(0.35, 0.15, 1.35, 0, Math.PI / 2, 0), { tint: 0xb08850 });
     for (let i = 0; i < 3; i++) k.sphere('ceramic', 0.045, [0.3 + (i % 2) * 0.1, 0.15, 1.3 + i * 0.05], i === 1 ? 0xd99a62 : 0xf4ecde, [1, 1.25, 1]);
-    // Straw value: trodden, darker paths (door → trough, door → feeder) and clean bright bedding under
+    // Straw value: clean bright bedding under
     // the nest boxes + roost, so the floor isn't one flat honey tone.
     const patch = (x: number, z: number, rx: number, rz: number, tint: number, y = 0.006): void => {
       for (let i = 0; i < 4; i++) {
@@ -332,8 +332,9 @@ export class CoopInterior extends InteriorMap {
       }
       strawTufts(k, rng, x, y + 0.01, z, 2, Math.max(rx, rz) * 0.9);
     };
-    patch(4.4, 5.05, 0.7, 0.5, 0xb09a7c);
-    patch(3.0, 4.75, 0.85, 0.32, 0xb49e80);
+    // (r10: the two darker trodden paths by the door read as stains / holes — gone; small light straw
+    // clumps kicked up by the door + trough instead)
+    for (const [x, z, w, d] of [[3.15, 4.7, 0.5, 0.3], [4.95, 5.05, 0.42, 0.26]] as const) strawDrift(k, rng, x, z, w, d);
     patch(1.4, 1.05, 1.1, 0.36, 0xfff2d4, 0.008);
     patch(6.0, 1.95, 1.25, 0.48, 0xfff0d0, 0.008);
     // Straw scatter clustered where the birds kick it about (nests, trough, roost) — the open floor stays

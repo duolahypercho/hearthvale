@@ -897,6 +897,8 @@ interface Pop {
   aspect?: number;
   /** Tag side (+1 camera-right / -1 left), fixed when it appears. */
   side?: number;
+  /** Tag text key (name|hearts): a repeat pop with the same text keeps the live card. */
+  tagKey?: string;
 }
 
 let zTex: THREE.Texture | null = null;
@@ -1045,6 +1047,32 @@ export class AnimalPops {
   /** The farmer (tags sit on the side of the animal away from them, the heart is nudged off them). */
   farmer: THREE.Vector3 | null = null;
 
+  /** Prop bounds (world) a name card should not sit over: the card flips sides when its screen rect
+   *  lands on one and the other side is clearer (r10: the coop card sat on the water fount). */
+  avoid: THREE.Box3[] = [];
+
+  /** Screen-space (NDC) overlap area of a card rect with the projected `avoid` boxes. */
+  private propOverlap(cam: THREE.Camera, cx: number, cy: number, hw: number, hh: number): number {
+    let sum = 0;
+    for (const b of this.avoid) {
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (let i = 0; i < 8; i++) {
+        _cp2.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).project(cam);
+        x0 = Math.min(x0, _cp2.x);
+        x1 = Math.max(x1, _cp2.x);
+        y0 = Math.min(y0, _cp2.y);
+        y1 = Math.max(y1, _cp2.y);
+      }
+      const ox = Math.min(x1, cx + hw) - Math.max(x0, cx - hw);
+      const oy = Math.min(y1, cy + hh) - Math.max(y0, cy - hh);
+      if (ox > 0 && oy > 0) sum += ox * oy;
+    }
+    return sum;
+  }
+
   /**
    * Heart pop: one crisp heart (~72 px at 1080p) 0.35 m over the animal's head, nudged towards the
    * camera so it never sits on the farmer: springs 0 → 1.25 → 1 in 220 ms, holds at full strength,
@@ -1053,12 +1081,17 @@ export class AnimalPops {
    * animal's head as it moves.
    */
   heart(at: THREE.Vector3, actor?: AnimalActor, tag?: { name: string; hearts: number }): void {
-    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.2, 0) : at.clone().setY(at.y + 0.2), null, 1.55);
+    // (r10: hugs the head it belongs to — 0.2 m up it drifted between the petted animal and its neighbour)
+    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.06, 0) : at.clone().setY(at.y + 0.06), null, 1.55);
     h.actor = actor;
     h.px = 72 / 1080;
     const n = 3 + Math.floor(Math.random() * 3);
+    // (r10: the little hearts fan out on the side away from the farmer — bursting both ways, half of
+    // them landed on the farmer's cheek and read as the farmer's hearts)
+    const base0 = actor ? actor.pos : at;
+    const away = this.farmer ? Math.atan2(base0.z - this.farmer.z, base0.x - this.farmer.x) : 0;
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + Math.random() * 0.8;
+      const a = this.farmer ? away + ((i + 0.5) / n - 0.5) * Math.PI * 1.1 + (Math.random() - 0.5) * 0.3 : (i / n) * Math.PI * 2 + Math.random() * 0.8;
       const off = new THREE.Vector3(Math.cos(a) * 0.12, 0.28, Math.sin(a) * 0.12);
       const p = this.spawn('mini', actor ? off : at.clone().add(off), null, 0.75 + Math.random() * 0.3);
       p.actor = actor;
@@ -1073,7 +1106,11 @@ export class AnimalPops {
       p.vel = new THREE.Vector3(Math.cos(a) * 0.7, 0.8 + Math.random() * 0.5, Math.sin(a) * 0.7);
       p.sprite.scale.setScalar(0.1 + Math.random() * 0.06);
     }
-    if (tag) {
+    // (r10: a repeat pat while the animal's card is still up keeps that card — a fresh card popping in
+    // over the fading one showed two overlapping name cards)
+    const live = tag && actor ? this.pops.find((q) => q.kind === 'tag' && q.actor === actor && q.t < q.life - 0.35 && q.tagKey === `${tag.name}|${tag.hearts}`) : undefined;
+    if (live) live.t = Math.min(live.t, 0.2);
+    else if (tag) {
       for (const q of this.pops) if (q.kind === 'tag' && q.actor === actor) q.t = Math.max(q.t, q.life - 0.12);
       const nt = nameTag(tag.name, tag.hearts);
       const m = new THREE.MeshBasicMaterial({ map: nt.tex, transparent: true, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
@@ -1081,6 +1118,7 @@ export class AnimalPops {
       p.actor = actor;
       p.px = 60 / 1080;
       p.aspect = nt.aspect;
+      p.tagKey = `${tag.name}|${tag.hearts}`;
     }
   }
 
@@ -1216,9 +1254,24 @@ export class AnimalPops {
         // Safe area: a card that would cross the screen edge flips to the animal's other side.
         if (cam && p.t < 0.05) {
           const off = heart * 0.95 + w * 0.5;
-          const ndc = _cp2.set(o.x + _right.x * off * p.side, o.y, o.z + _right.z * off * p.side).project(cam);
+          const yy = o.y + 0.2 + heart * 0.42;
           const half = w / (sk * cam.aspect);
-          if (Math.abs(ndc.x) + half > 0.9 && Math.sign(ndc.x) === p.side) p.side = -p.side;
+          const hh = h / sk;
+          const at = (sd: number): THREE.Vector3 => _cp2.set(o.x + _right.x * off * sd, yy, o.z + _right.z * off * sd).project(cam);
+          const ndc = at(p.side);
+          const nx = ndc.x;
+          const ny = ndc.y;
+          if (Math.abs(nx) + half > 0.9 && Math.sign(nx) === p.side) p.side = -p.side;
+          else if (this.avoid.length) {
+            // Prop check: flip when this side covers a prop and the other side is clearer + on screen.
+            const here = this.propOverlap(cam, nx, ny, half, hh);
+            if (here > 0) {
+              const o2 = at(-p.side);
+              const ox = o2.x;
+              const oy = o2.y;
+              if (Math.abs(ox) + half <= 0.9 && this.propOverlap(cam, ox, oy, half, hh) < here * 0.5) p.side = -p.side;
+            }
+          }
         }
         const side = p.side * (heart * 0.95 + w * 0.5);
         p.sprite.position.set(o.x + _right.x * side, o.y + 0.2 + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);

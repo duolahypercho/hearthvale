@@ -72,7 +72,9 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
   const gable = new THREE.ExtrudeGeometry(tri, { depth: 0.08, bevelEnabled: false, curveSegments: 1 });
   gable.translate(0, 0, -0.04);
   for (const sz of [-1, 1]) {
-    b.add(W_, gable, at(0, top, sz * (D * 0.5 - 0.02)), { tint: 0xa06c40 });
+    // (clone: MeshBuilder.add transforms the geometry in place — re-adding the one shared prism doubled the
+    // first transform and parked a stray gable triangle in mid-air at ~2x the cabin's coordinates)
+    b.add(W_, gable.clone(), at(0, top, sz * (D * 0.5 - 0.02)), { tint: 0xa06c40 });
     for (const u of [-0.27, 0, 0.27]) {
       const h = gh * (1 - Math.abs(u) * 2) * 0.92;
       b.add(W_, rb(0.06, h, 0.04, 0.012), at(u * W, top + h / 2, sz * (D * 0.5 + 0.03)), { tint: 0x8a5a34 });

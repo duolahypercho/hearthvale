@@ -71,6 +71,11 @@ interface BedSpec {
   wakeZ: number;
 }
 
+/** Bed-lie pitch: on the back, propped ~20° on the pillow (face tipped towards the lens). */
+const LIE_TILT = -Math.PI / 2 + 0.35;
+/** Chin tucked a little on the pillow (the face, not the crown of hair, turns up to the camera). */
+const LIE_NOD = 0.3;
+
 /** What the farmhouse offers the bedtime (house.ts). */
 interface HouseBed {
   bed?: BedSpec;
@@ -336,12 +341,15 @@ export class SleepSystem implements System, SleepApi {
     const pillow = house!.pillow ?? new THREE.Vector3((bed.x0 + bed.x1) / 2, 0.86, bed.z0 + 0.5);
     g.player.teleport((bed.x0 + bed.x1) / 2, Math.min(bed.z1 - 0.3, pillow.z + 1.4));
     g.player.setFacing('down');
-    // On its back, feet towards the foot of the bed, face up; then slide so the head rests on the pillow.
-    root.rotation.set(-Math.PI / 2, 0, 0);
+    // On its back, feet towards the foot of the bed, propped ~20° on the pillow so the face tips towards
+    // the lens; then slide so the head's CENTRE (not its neck pivot) sinks into the pillow in front of the
+    // headboard (r10: the old neck-on-pillow fit left the big chibi head up on the headboard).
+    root.rotation.set(LIE_TILT, 0, 0);
+    rig.head.rotation.set(LIE_NOD, 0, 0);
     root.position.set(pillow.x, pillow.y, pillow.z + 1.5);
     root.updateMatrixWorld(true);
-    const head = rig.head.getWorldPosition(new THREE.Vector3());
-    this.lieAt.copy(root.position).add(new THREE.Vector3(pillow.x - head.x, pillow.y + 0.08 - head.y, pillow.z + 0.12 - head.z));
+    const head = rig.head.localToWorld(new THREE.Vector3(0, 0.3, 0));
+    this.lieAt.copy(root.position).add(new THREE.Vector3(pillow.x - head.x, pillow.y + 0.22 - head.y, pillow.z + 0.2 - head.z));
     root.position.copy(this.lieAt);
     g.followPlayer(false);
   }
@@ -356,8 +364,10 @@ export class SleepSystem implements System, SleepApi {
   update(dt: number, game: Game): void {
     if (this.lying) {
       const r = game.player.root;
-      r.rotation.set(-Math.PI / 2, 0, 0);
+      r.rotation.set(LIE_TILT, 0, 0);
       r.position.copy(this.lieAt);
+      if (game.player.rig.hat) game.player.rig.hat.visible = false;
+      game.player.rig.head.rotation.set(LIE_NOD, 0, 0);
       // Eyes shut (the rig's blink groups hold a mesh named 'eye'; the player re-opens them every frame).
       for (const c of game.player.rig.head.children) if (c.children.some((m) => m.name === 'eye')) c.scale.y = 0.12;
     }

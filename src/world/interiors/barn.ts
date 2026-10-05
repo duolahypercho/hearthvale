@@ -9,7 +9,7 @@
  *              milking stool and pails by the cow stalls
  *   right      stone water trough, milk cans, shears + halter on pegs, a grain barrel, stacked crates,
  *              a shearing sawhorse with a fresh fleece + hand shears, a basket of rolled wool
- *   front      bales along the knee wall, a wheelbarrow of hay, feed sacks by the door
+ *   front      a short front (r10: 7.2 deep): heaped hay cart, feed sacks + milk cans either side of the door lane
  *   light      two lanterns over the aisle + a lantern between each pair of stalls (lit at night)
  */
 import * as THREE from 'three';
@@ -19,21 +19,29 @@ import { InteriorMap } from './room';
 import { Kit } from './kit';
 import { mat, roundedBox, lumpySphere } from '../geom';
 import type { PenAnchors, PenSlot } from './pen';
-import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, wheelbarrow, crate, strawDrift, spokedWheel } from './pen';
+import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, crate, strawDrift, spokedWheel } from './pen';
 
 export const BARN_EXIT = { x: 46.5, z: 35.9 };
 
 const W = 13;
-const D = 9;
+/** r10: 9 -> 7.2 deep: the stall row sits on the upper third, the whole box fits above the hotbar. */
+const D = 7.2;
 const SW = W / 6;
 /** Stall front line (mangers + half-doors). */
 const SF = 3.1;
 const PLANK = 0xc08a62;
+/** Stall dividers: weathered grey-brown, darker than the animals they frame. */
+const DIVIDER = 0x8a7868;
+/** The loft along the left wall (z range). */
+const LOFT0 = 4.3;
+const LOFT1 = 6.6;
 /** Pasture door in the front knee wall (tile x; the knee-wall row z = D). */
 const HATCH_X = 8;
 const POST = 0x6a4430;
 /** Manger centre (stall-local x) and where the half-door starts. */
 const MX = 0.8;
+/** The board walk: a darker weathered grey-brown (r10: it was the same orange as the straw + stalls). */
+const AISLE = 0x8e9294;
 const DOOR0 = 1.3;
 
 /** A little standing hurricane lantern: tin base, glowing glass chimney in a wire cage, cap + bail handle. */
@@ -80,11 +88,12 @@ export class BarnInterior extends InteriorMap {
       exit: { to: 'farm', x: BARN_EXIT.x, z: BARN_EXIT.z, facing: 'down' },
       floor: 'straw',
       style: 'barn',
-      wallTint: 0xf0bca0,
-      // Whitewashed lower boards (cool, chalky) under the warm red: the eye gets a rest.
-      wainscotTint: 0xd6dcd8,
-      timberLight: 1.3,
-      floorTint: 0xd0c0a8,
+      wallTint: 0xc89482,
+      // r10: blue-grey limewash on the lower boards (stall backs ~40 % value): the cream sheep, pink
+      // pig and tan Jersey separate from the set instead of melting into one orange hue.
+      wainscotTint: 0x7c8c9a,
+      timberLight: 1.05,
+      floorTint: 0x9ca0a6,
       windows: [
         { wall: 'back', at: 9.5, w: 1.0, y0: 1.9, y1: 2.9 },
         { wall: 'right', at: 3.9, w: 1.0, y0: 1.5, y1: 2.5 },
@@ -93,11 +102,11 @@ export class BarnInterior extends InteriorMap {
       sunDir: [-0.55, 0.5, -0.66],
     });
     // A lower 42° pitch: the stall row reads face-on (chins over the mangers), less bare floor.
-    this.camera = { yaw: 0, pitch: 42, distance: 17.2, offsetX: 0, offsetZ: 0.1 };
+    this.camera = { yaw: 0, pitch: 44, distance: 16.4, offsetX: 0, offsetZ: -0.2 };
     this.dayScale = 1.2;
     this.sunPoolK = 0.25;
     this.exposureBoost = 0.2;
-    this.coolFill = 0.4;
+    this.coolFill = 0.62;
     this.shaftK = 1.3;
     const rng = new Rng('barn-interior');
     const slots: PenSlot[] = Array.from({ length: 6 }, (_, i) => {
@@ -170,21 +179,18 @@ export class BarnInterior extends InteriorMap {
 
     // Stalls are the animals' (the farmer reaches over the manger / door from the aisle).
     this.solid(0, 0, W, SF - 0.5, 'stall');
-    this.solid(0, 4.4, 1.2, 7.2, 'loft');
+    this.solid(0, LOFT0, 1.2, LOFT1, 'loft');
     this.solid(0.2, 3.3, 0.9, 3.9, 'stool');
     this.solid(12.3, 4.1, 13, 5.7, 'water');
-    this.solid(11.6, 6.3, 13, 7.0, 'barrel');
-    this.solid(0.3, 7.9, 2.9, 8.9, 'bales');
-    this.solid(3.3, 7.4, 4.5, 8.4, 'barrow');
-    this.solid(4.6, 8.0, 5.5, 8.8, 'sacks');
-    this.solid(7.15, 8.0, 7.95, 8.8, 'cans');
-    this.solid(9.6, 7.9, 12.8, 8.9, 'crates');
-    this.solid(9.6, 5.2, 11.1, 6.6, 'stock-tank');
-    this.solid(8.3, 6.6, 9.5, 7.6, 'sawhorse');
+    this.solid(11.9, 6.2, 13, D, 'barrel');
+    this.solid(4.4, 6.4, 5.3, D, 'sacks');
+    this.solid(7.75, 6.3, 8.35, D, 'cans');
+    this.solid(9.4, 4.5, 10.8, 5.9, 'stock-tank');
+    this.solid(8.35, 6.0, 9.65, D, 'sawhorse');
+    this.solid(9.8, 6.3, 11.6, D, 'crates-bales');
     this.solid(2.6, 4.8, 4.5, 5.6, 'grain-bin');
     this.solid(4.5, 4.3, 5.1, 4.9, 'milking');
-    this.solid(1.6, 6.5, 3.4, 7.5, 'hay-cart');
-    this.solid(10.5, 6.7, 11.4, 7.4, 'bales');
+    this.solid(1.7, 5.9, 3.4, D, 'hay-cart');
 
     // Lanterns: two over the aisle, one between each pair of stalls over the bedding.
     const lk = new Kit();
@@ -211,7 +217,7 @@ export class BarnInterior extends InteriorMap {
     }
     // Two hurricane lanterns set down on the floor furniture: warm pools for the lower half of the
     // barn at night (emissive + a floor glow, no extra real lights — keeps the light count flat).
-    for (const [x, y, z] of [[3.25, 0.76, 5.18], [9.02, 0.18, 7.52]] as const) {
+    for (const [x, y, z] of [[3.25, 0.76, 5.18], [9.75, 0.02, 6.95]] as const) {
       hurricaneLantern(lk, x, y, z);
       this.glowPool(x, z + 0.1, 1.7, 0xffa850, () => this.light.night * 0.09, 0.05);
     }
@@ -224,8 +230,8 @@ export class BarnInterior extends InteriorMap {
       const x = THREE.MathUtils.clamp(i * SW, 0.08, W - 0.08);
       if (i > 0 && i < 6) {
         // Divider: board skirt + two rails, darker cap
-        k.box('wood', [0.09, 0.92, SF - 0.14], [x, 0, SF / 2 - 0.02], { tint: PLANK, uv: 1.2 });
-        k.box('wood', [0.08, 0.12, SF - 0.1], [x, 1.1, SF / 2], { tint: 0xa87050 });
+        k.box('wood', [0.09, 0.92, SF - 0.14], [x, 0, SF / 2 - 0.02], { tint: DIVIDER, uv: 1.2 });
+        k.box('wood', [0.08, 0.12, SF - 0.1], [x, 1.1, SF / 2], { tint: 0x7e6a5c });
         k.box('wood', [0.13, 0.07, SF - 0.06], [x, 1.32, SF / 2], { tint: POST });
       }
       // Front post with a turned ball cap
@@ -238,8 +244,8 @@ export class BarnInterior extends InteriorMap {
       const x0 = i * SW;
       const cx = x0 + SW / 2;
       // Bedding: a deep straw heap at the back, drifts towards the front
-      hayPile(k, rng, cx, 1.1, SW - 0.35, 1.5, 0.2);
-      strawDrift(k, rng, cx, SF - 0.9, SW - 0.4, 0.9);
+      hayPile(k, rng, cx, 1.1, SW - 0.35, 1.5, 0.2, 0xd8c8a4);
+      strawDrift(k, rng, cx, SF - 0.9, SW - 0.4, 0.9, 0xc8b48a);
       strawTufts(k, rng, cx, 0.02, 1.8, 26, 0.95);
       this.manger(k, rng, x0 + MX);
       this.halfDoor(k, x0 + DOOR0, x0 + SW - 0.09, i);
@@ -302,8 +308,8 @@ export class BarnInterior extends InteriorMap {
 
   /** Hay loft on posts along the left wall, bales up top, ladder; stool + pails by the cow stalls. */
   private loft(k: Kit, rng: Rng): void {
-    const z0 = 4.4;
-    const z1 = 7.2;
+    const z0 = LOFT0;
+    const z1 = LOFT1;
     const lw = 1.15;
     const ly = 2.45;
     k.box('wood', [lw, 0.1, z1 - z0], [lw / 2, ly, (z0 + z1) / 2], { tint: 0xb07a52, uv: 1.4 });
@@ -311,11 +317,10 @@ export class BarnInterior extends InteriorMap {
     for (const z of [z0 + 0.08, z1 - 0.08]) k.box('wood', [0.14, ly, 0.14], [lw - 0.06, 0, z], { tint: POST, ao: 0.3 });
     k.box('wood', [0.06, 0.06, z1 - z0], [lw - 0.02, ly + 0.55, (z0 + z1) / 2], { tint: 0x8a5a3a });
     for (let i = 0; i < 5; i++) k.box('wood', [0.05, 0.55, 0.05], [lw - 0.02, ly + 0.05, z0 + 0.3 + i * 0.6], { tint: 0x8a5a3a });
-    hayBale(k, 0.5, ly + 0.1, 4.9, Math.PI / 2 + 0.05, 0.9);
-    hayBale(k, 0.5, ly + 0.1, 5.85, Math.PI / 2 - 0.08, 0.9);
-    hayBale(k, 0.52, ly + 0.48, 5.35, Math.PI / 2 + 0.1, 0.9);
-    hayBale(k, 0.5, ly + 0.1, 6.75, Math.PI / 2, 0.9);
-    strawTufts(k, rng, 0.6, ly + 0.1, 5.8, 20, 1.2);
+    hayBale(k, 0.5, ly + 0.1, 4.8, Math.PI / 2 + 0.05, 0.9);
+    hayBale(k, 0.5, ly + 0.1, 5.7, Math.PI / 2 - 0.08, 0.9);
+    hayBale(k, 0.52, ly + 0.48, 5.25, Math.PI / 2 + 0.1, 0.9);
+    strawTufts(k, rng, 0.6, ly + 0.1, 5.5, 20, 1.0);
     for (let i = 0; i < 9; i++) {
       const g = new THREE.CylinderGeometry(0.006, 0.006, 0.18 + rng.next() * 0.2, 3);
       k.add('fabric', g, mat(lw + 0.04, ly - 0.12, z0 + 0.2 + rng.next() * 2.4, 0.1, 0, (rng.next() - 0.5) * 0.4), { tint: 0xf0d890 });
@@ -323,7 +328,7 @@ export class BarnInterior extends InteriorMap {
     // Ladder leaning on the loft edge
     const lean = 0.3;
     const lx = lw + 0.42;
-    const lz = 5.6;
+    const lz = 5.35;
     for (const s of [-1, 1]) k.add('wood', new THREE.CylinderGeometry(0.035, 0.035, 2.8, 8), mat(lx, 1.36, lz + s * 0.22, 0, 0, lean), { tint: 0x9a6a44 });
     for (let i = 0; i < 7; i++) {
       const y = 0.25 + i * 0.34;
@@ -332,8 +337,8 @@ export class BarnInterior extends InteriorMap {
       k.add('wood', g, mat(lx - Math.sin(lean) * (y - 1.36) / Math.cos(lean), y, lz), { tint: 0x9a6a44 });
     }
     // Under the loft: a bale stack, loose hay forked down, the pitchfork
-    hayBale(k, 0.55, 0, 6.6, Math.PI / 2 + 0.06);
-    hayBale(k, 0.55, 0.42, 6.55, Math.PI / 2 - 0.04);
+    hayBale(k, 0.55, 0, 6.15, Math.PI / 2 + 0.06);
+    hayBale(k, 0.55, 0.42, 6.1, Math.PI / 2 - 0.04);
     hayPile(k, rng, 0.75, 5.0, 1.0, 0.9, 0.22);
     pitchfork(k, 1.2, 4.55, -0.16);
     // Milking corner by the cow stalls: stool, pails (one frothy)
@@ -353,12 +358,11 @@ export class BarnInterior extends InteriorMap {
   /** Board walk, the right-wall water corner, front clutter along the knee wall. */
   private aisle(k: Kit, rng: Rng): void {
     // T-shaped board walk: along the stall fronts, then down to the door.
-    k.box('floor', [W - 1.6, 0.03, 1.05], [W / 2 + 0.55, 0, SF + 0.62], { tint: 0xd8c8b0, uv: 0.65, r: 0.01 });
-    k.box('floor', [2.3, 0.03, D - SF - 1.1], [6.5, 0, (SF + 1.1 + D) / 2], { tint: 0xd8c8b0, uv: 0.65, r: 0.01 });
+    k.box('floor', [W - 1.6, 0.03, 1.05], [W / 2 + 0.55, 0, SF + 0.62], { tint: AISLE, uv: 0.65, r: 0.01 });
+    k.box('floor', [2.3, 0.03, D - SF - 1.1], [6.5, 0, (SF + 1.1 + D) / 2], { tint: AISLE, uv: 0.65, r: 0.01 });
     // Straw kicked over the board edges + drifts across the floor
-    strawTufts(k, rng, 6.5, 0.035, 5.6, 36, 1.6);
-    for (const [x, z, w, d] of [[2.4, 6.4, 1.8, 1.0], [8.3, 5.2, 1.4, 1.0], [2.7, 7.4, 1.6, 0.8], [11.0, 7.3, 1.4, 0.8], [4.6, 4.1, 1.0, 0.5], [8.6, 4.1, 1.2, 0.5]] as const) strawDrift(k, rng, x, z, w, d);
-    hayPile(k, rng, 1.75, 5.85, 0.8, 0.6, 0.12);
+    strawTufts(k, rng, 6.5, 0.035, 5.3, 30, 1.4);
+    for (const [x, z, w, d] of [[8.3, 5.2, 1.2, 0.9], [4.6, 4.1, 1.0, 0.5], [8.6, 4.1, 1.2, 0.5], [11.3, 6.1, 1.0, 0.6]] as const) strawDrift(k, rng, x, z, w, d);
     // Milking vignette at the aisle corner by the cow stalls: stool, a pail brimming with milk, a can,
     // a folded cloth over the can's shoulder.
     k.cyl('wood', 0.16, 0.16, 0.05, [4.65, 0.34, 4.55], { tint: 0xb08050, seg: 16 });
@@ -371,7 +375,7 @@ export class BarnInterior extends InteriorMap {
     k.add('fabric', roundedBox(0.2, 0.02, 0.24, 0.01), mat(4.95, 0.6, 4.85, 0.3, 0.3, 0.9), { tint: 0xd86a5a });
     // A two-wheeled hay cart, heaped and bristling, shafts resting on the straw (left front).
     const cx = 2.5;
-    const cz = 7.0;
+    const cz = 6.45;
     k.box('wood', [1.3, 0.06, 0.8], [cx, 0.42, cz], { tint: 0xa87450, r: 0.015 });
     for (const sd of [-1, 1]) {
       k.box('wood', [1.34, 0.22, 0.04], [cx, 0.46, cz + sd * 0.4], { tint: 0xb88058, r: 0.01 });
@@ -383,9 +387,9 @@ export class BarnInterior extends InteriorMap {
     strawTufts(k, rng, cx, 0.8, cz, 30, 0.5, () => 0.08);
     strawTufts(k, rng, cx + 0.2, 0.02, cz + 0.2, 16, 0.9);
     // A stack of bales with a pitchfork stuck in the top (right front)
-    hayBale(k, 10.95, 0, 7.05, 0.05);
-    hayBale(k, 10.95, 0.42, 7.05, -0.08, 0.95);
-    pitchfork(k, 11.35, 7.25, 0.12, 0.4);
+    hayBale(k, 11.05, 0, 6.75, 0.05);
+    hayBale(k, 11.05, 0.42, 6.75, -0.08, 0.95);
+    pitchfork(k, 11.45, 6.5, 0.12, 0.4);
 
     // Right wall: stone water trough, pails, shears + halter pegs, grain barrel, crates
     k.box('stone', [0.55, 0.5, 1.5], [12.62, 0, 4.9], { tint: 0xb8b0a4, uv: 1.4, ao: 0.3, r: 0.05 });
@@ -396,28 +400,21 @@ export class BarnInterior extends InteriorMap {
     k.add('iron', roundedBox(0.02, 0.28, 0.06, 0.01), mat(12.93, 1.5, 5.12, -0.25, 0, 0), { tint: 0xa8b0b4 });
     k.add('fabric', new THREE.TorusGeometry(0.14, 0.02, 5, 14), mat(12.92, 1.52, 5.7, 0, Math.PI / 2, 0), { tint: 0xb8452e });
     // Grain barrel with a scoop
-    k.cyl('wood', 0.3, 0.27, 0.72, [12.3, 0, 6.65], { tint: 0x9a6a44, seg: 18 });
-    for (const y of [0.12, 0.6]) k.add('iron', new THREE.TorusGeometry(0.29, 0.014, 5, 20), mat(12.3, y, 6.65, Math.PI / 2, 0, 0), { tint: 0x3a3634 });
-    k.cyl('ceramic', 0.27, 0.27, 0.02, [12.3, 0.69, 6.65], { tint: 0xe0b050, seg: 18 });
-    k.cyl('tin', 0.07, 0.06, 0.12, [12.22, 0.72, 6.6], { rz: 1.2, tint: 0xc8d0d4 });
+    k.cyl('wood', 0.3, 0.27, 0.72, [12.3, 0, 6.6], { tint: 0x9a6a44, seg: 18 });
+    for (const y of [0.12, 0.6]) k.add('iron', new THREE.TorusGeometry(0.29, 0.014, 5, 20), mat(12.3, y, 6.6, Math.PI / 2, 0, 0), { tint: 0x3a3634 });
+    k.cyl('ceramic', 0.27, 0.27, 0.02, [12.3, 0.69, 6.6], { tint: 0xe0b050, seg: 18 });
+    k.cyl('tin', 0.07, 0.06, 0.12, [12.22, 0.72, 6.55], { rz: 1.2, tint: 0xc8d0d4 });
 
-    // Front, along the knee wall: bales, wheelbarrow, sacks | milk cans, crates
-    hayBale(k, 0.9, 0, 8.45, 0.04);
-    hayBale(k, 1.9, 0, 8.4, -0.06);
-    hayBale(k, 1.4, 0.42, 8.42, 0.1);
-    wheelbarrow(k, rng, 3.9, 7.85, -0.5);
-    feedSack(k, 5.1, 8.35, 0.3, 0xb4caa4);
-    feedSack(k, 4.8, 8.6, -0.5, 0xa8c098, true);
-    milkCan(k, 7.4, 8.3);
-    milkCan(k, 7.72, 8.55, 0.4);
-    crate(k, 10.0, 8.45, 0.08, 0x9a6a44);
-    crate(k, 10.75, 8.4, -0.05, 0xa87450);
-    crate(k, 10.4, 8.42, 0.2, 0xb08058, 0.5);
-    feedSack(k, 11.6, 8.4, -0.2, 0xfff0d8);
-    bucket(k, 12.3, 8.35, 0xb8c0c4, true);
+    // Front, either side of the door lane: sacks | milk cans, crates
+    feedSack(k, 5.0, 6.65, 0.3, 0xb4caa4);
+    feedSack(k, 4.7, 6.9, -0.5, 0xa8c098, true);
+    milkCan(k, 7.95, 6.55);
+    milkCan(k, 8.15, 6.88, 0.4);
+    crate(k, 10.1, 6.82, 0.08, 0x8a6a54);
+    crate(k, 10.1, 6.84, 0.2, 0x9a7a60, 0.5);
     // Mid-right: a round galvanised stock tank with a hand pump, a sawhorse with a saddle blanket
-    const tx = 10.3;
-    const tz = 5.9;
+    const tx = 10.1;
+    const tz = 5.2;
     // Open-topped: an outer skin, an inward-facing inner wall, the rolled rim, then the water inside.
     k.add('tin', new THREE.CylinderGeometry(0.62, 0.6, 0.5, 28, 1, true), mat(tx, 0.25, tz), { tint: 0xb8c0c4 });
     k.add('tin', insideOut(new THREE.CylinderGeometry(0.595, 0.575, 0.48, 28, 1, true)), mat(tx, 0.26, tz), { tint: 0x7c8488 });
@@ -441,8 +438,8 @@ export class BarnInterior extends InteriorMap {
     }
     // Shearing corner: a sawhorse with a freshly shorn fleece thrown over it (a fat cream cloud, curly
     // tips, the cut side showing), hand shears hung on a nail on the near leg, a basket of rolled wool.
-    const sx = 8.9;
-    const sz = 6.9;
+    const sx = 9.0;
+    const sz = 6.5;
     k.box('wood', [1.1, 0.09, 0.12], [sx, 0.72, sz], { tint: 0x9a6a44, r: 0.02 });
     for (const s of [-1, 1]) for (const t of [-1, 1]) k.cyl('wood', 0.03, 0.035, 0.8, [sx + s * 0.42, 0, sz + t * 0.12], { rx: t * 0.28, tint: 0x8a5a3a });
     const fleece = new Rng('barn-fleece');
@@ -458,8 +455,8 @@ export class BarnInterior extends InteriorMap {
     for (const s of [-1, 1]) k.add('iron', roundedBox(0.035, 0.3, 0.008, 0.004), mat(sx + 0.42 + s * 0.02, 0.36, sz + 0.24, 0, 0, s * 0.06), { tint: 0xd8dee2 });
     k.add('iron', new THREE.TorusGeometry(0.06, 0.012, 5, 14, Math.PI * 1.4), mat(sx + 0.42, 0.56, sz + 0.24, 0, 0, Math.PI * 0.8), { tint: 0x7a6a5a });
     // Basket of rolled wool beside it
-    k.cyl('thatch', 0.22, 0.17, 0.22, [sx + 0.25, 0, sz + 0.68], { tint: 0xc8a068 });
-    for (let i = 0; i < 4; i++) k.add('fabric', lumpySphere(0.09, 1, 0.22, fleece), mat(sx + 0.17 + (i % 2) * 0.15, 0.25 + Math.floor(i / 2) * 0.06, sz + 0.62 + (i % 3) * 0.05, 0, 0, Math.PI / 2, 1.3, 0.85, 0.85), { tint: [0xfff6e4, 0xf0e2c8, 0xfffaf0, 0xe8d8bc][i]! });
+    k.cyl('thatch', 0.22, 0.17, 0.22, [sx - 0.25, 0, sz - 0.62], { tint: 0xc8a068 });
+    for (let i = 0; i < 4; i++) k.add('fabric', lumpySphere(0.09, 1, 0.22, fleece), mat(sx - 0.33 + (i % 2) * 0.15, 0.25 + Math.floor(i / 2) * 0.06, sz - 0.68 + (i % 3) * 0.05, 0, 0, Math.PI / 2, 1.3, 0.85, 0.85), { tint: [0xfff6e4, 0xf0e2c8, 0xfffaf0, 0xe8d8bc][i]! });
     // Mid-left: a lidded grain bin + a scoop, sacks slumped against it
     const gx = 3.6;
     const gz = 5.2;
@@ -470,7 +467,5 @@ export class BarnInterior extends InteriorMap {
     feedSack(k, gx - 0.85, gz + 0.1, 0.5, 0xfff0d8);
     feedSack(k, gx + 0.8, gz + 0.35, -0.3, 0xe8d4b4, true);
     k.cyl('tin', 0.09, 0.07, 0.16, [gx + 0.3, 0.78, gz - 0.05], { rz: 1.4, tint: 0xc8d0d4 });
-    // A cartwheel leaning on the right wall
-    spokedWheel(k, 0.42, mat(12.86, 0.44, 7.6, 0, Math.PI / 2, 0).multiply(new THREE.Matrix4().makeRotationX(0.1)), 10, 0x9a6c46);
   }
 }

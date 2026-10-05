@@ -789,6 +789,11 @@ export class AnimalSystem implements System, AnimalsApi {
     this.mapId = mapId;
     this.demoHearts = 0;
     this.pops.clear();
+    // Name cards keep off the interior's furniture (stalls + structural rects excluded).
+    const m = this.game.world.current as unknown as { propRects?: { x0: number; z0: number; x1: number; z1: number; id: string }[] } | null;
+    this.pops.avoid = (isInterior(this.game.world.current) ? (m?.propRects ?? []) : [])
+      .filter((r) => r.id !== 'stall' && r.id !== 'loft' && (r.x1 - r.x0) * (r.z1 - r.z0) < 4)
+      .map((r) => new THREE.Box3(new THREE.Vector3(r.x0, 0, r.z0), new THREE.Vector3(r.x1, 0.7, r.z1)));
     this.respawn();
   }
 
@@ -1250,7 +1255,19 @@ export class AnimalSystem implements System, AnimalsApi {
     const tx = pp.x + dx * want;
     const tz = pp.z + dz * want;
     if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4)) return;
-    a.easeTo(tx, tz, Math.atan2(-dx, -dz));
+    // Small birds turn three-quarters to the lens while petted (r10: a hen facing the farmer showed the
+    // camera only its tail): blend the to-farmer heading with the to-camera direction.
+    let hx = -dx;
+    let hz = -dz;
+    if (a.gait.top * a.scale < 0.9) {
+      const cp = this.game.rc.camera.position;
+      const cx = cp.x - tx;
+      const cz = cp.z - tz;
+      const cl = Math.hypot(cx, cz) || 1;
+      hx += (cx / cl) * 1.1;
+      hz += (cz / cl) * 1.1;
+    }
+    a.easeTo(tx, tz, Math.atan2(hx, hz));
   }
 
   private give(itemId: string, q: number, qty = 1): void {
@@ -1524,7 +1541,9 @@ export class AnimalSystem implements System, AnimalsApi {
           }
         }
         const T = this.poseKind === 'lift' ? 1.05 : this.poseKind === 'pet' ? 0.95 : 1.0;
-        this.poseT = this.poseFreeze >= 0 ? Math.min(this.poseT + dt, this.poseFreeze) : this.poseT + dt;
+        // (r10: the staged showcase hearts hold the crouch too — the stills caught the farmer upright)
+        const hold = this.poseFreeze >= 0 ? this.poseFreeze : this.demoHearts > 0 && this.poseKind === 'pet' ? 0.5 : -1;
+        this.poseT = hold >= 0 ? Math.min(this.poseT + dt, hold) : this.poseT + dt;
         const t = this.poseT;
         if (t >= T) {
           this.poseT = -1;
@@ -1533,7 +1552,7 @@ export class AnimalSystem implements System, AnimalsApi {
           rig.armL.scale.y = 1;
           return this.posePrev?.(rig, dt) ?? null;
         }
-        if (t > 0.5 && this.poseFreeze < 0) pl.busy = false;
+        if (t >= 0.5 && this.poseFreeze < 0) pl.busy = false;
         const inT = this.poseKind === 'lift' ? 0.12 : 0.14;
         const e = t < inT ? 1 - Math.pow(1 - t / inT, 3) : t > T - 0.22 ? Math.pow((T - t) / 0.22, 2) * (3 - 2 * ((T - t) / 0.22)) : 1;
         if (this.poseKind === 'lift') {
@@ -1566,18 +1585,23 @@ export class AnimalSystem implements System, AnimalsApi {
           rig.legR.rotation.x = 0.35 * e;
           return { sy: 1 - (milk ? 0.2 : 0.1) * e, bob: (milk ? -0.12 : -0.05) * e };
         }
-        const low = this.petLow ? 1 : 0.55;
+        const low = this.petLow ? 1 : 0.6;
         const pat = t > 0.14 && t < T - 0.2 ? Math.sin((t - 0.14) * 17) * 0.16 : 0;
         // Bend at the hips but keep the face up (a forward-tipped head turns the big hat into a lid).
-        rig.torso.rotation.x = 0.48 * low * e;
-        rig.head.rotation.x = -0.22 * low * e;
-        rig.armR.rotation.x = (-1.05 - 0.25 * low + pat) * e;
+        // r10: a real crouch-and-reach for every species (a kneel-squat for hens + ducks): knees out,
+        // hips dropped, the reaching arm long and low; the free hand rests on the knee.
+        rig.torso.rotation.x = 0.5 * low * e;
+        rig.head.rotation.x = -0.24 * low * e;
+        rig.armR.rotation.x = (-1.0 - 0.35 * low + pat) * e;
         rig.armR.rotation.z = -0.12 - 0.1 * e;
-        rig.armL.rotation.x = -0.35 * e;
-        rig.armL.rotation.z = 0.12 + 0.18 * e;
-        rig.legL.rotation.x = -0.35 * low * e;
-        rig.legR.rotation.x = 0.25 * low * e;
-        return { sy: 1 - 0.13 * low * e, bob: -0.07 * low * e };
+        rig.armR.scale.y = 1 + 0.18 * low * e;
+        rig.armL.rotation.x = -0.55 * e;
+        rig.armL.rotation.z = 0.12 + 0.3 * e;
+        rig.legL.rotation.x = -0.75 * low * e;
+        rig.legR.rotation.x = 0.45 * low * e;
+        rig.legL.rotation.z = -0.2 * low * e;
+        rig.legR.rotation.z = 0.2 * low * e;
+        return { sy: 1 - 0.2 * low * e, bob: -0.17 * low * e };
       };
     }
     if (pl.actionPose !== this.poseDriver) {
@@ -1876,8 +1900,8 @@ export class AnimalSystem implements System, AnimalsApi {
       // turn their faces to the aisle; the goat is out of its stall in the aisle with the farmer)
       const wet = this.game.calendar.weather === 'rain' || this.game.calendar.weather === 'storm';
       const beats: Beat[] = [
-        { kind: 'munch', yaw: 0.22 },
-        { kind: 'stand', yaw: -0.3, back: 0.1 },
+        { kind: 'stand', yaw: 0.32, back: 0.15, dx: 0.3 },
+        { kind: 'stand', yaw: -0.16, back: 0.1 },
         wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.42, back: 0.25 },
         { kind: 'aisle', yaw: 0 },
         { kind: 'stand', yaw: -0.35, back: 0 },
@@ -1925,6 +1949,18 @@ export class AnimalSystem implements System, AnimalsApi {
           this.nappers.add(l);
         }
         a.place(x, z, beat.yaw);
+        // r10: the head stays in its own stall — slide the body so the muzzle keeps a hand's width off
+        // both partitions (a cow's face rested on the divider into the next stall).
+        const m = a.muzzle(new THREE.Vector3());
+        const lo = st0.x0 - 0.58 + 0.22;
+        const hi = st0.x1 + 0.58 - 0.22;
+        const shift = m.x < lo ? lo - m.x : m.x > hi ? hi - m.x : 0;
+        if (shift !== 0) {
+          const nx = THREE.MathUtils.clamp(x + shift, st0.x0 - 0.58 + half, st0.x1 + 0.58 - half);
+          a.area = { x0: nx - 0.03, z0: z - 0.03, x1: nx + 0.03, z1: z + 0.03 };
+          if (a.bedSpot && beat.kind === 'sleep') a.bedSpot.x = nx;
+          a.place(nx, z, beat.yaw);
+        }
         a.settle();
       }
     } else if (pen) {
@@ -1947,16 +1983,21 @@ export class AnimalSystem implements System, AnimalsApi {
       // covered the hen and its heart floated beside a hat)
       // (r6: a clear step towards the camera too — the farmer turns 3/4 to the lens to reach it, and the
       // bird's whole silhouette sits below the brim on screen)
-      const [sxo, szo] = fx === 0 ? [0.5, fz * 0.9] : [fx * 1.0, 0.78];
+      // (r10: beside the farmer at the same depth, a little towards the lens — the farmer turns side-on and
+      // its crouch reads in profile; the hen turns three-quarters to the camera instead of showing its back)
+      const [sxo, szo] = fx === 0 ? [1.0, fz > 0 ? 0.32 : -0.32] : [fx * 1.0, 0.32];
       if (free) {
         const a = free.actor;
         const d = Math.hypot(sxo, szo);
-        const want = a.gait.reach * a.scale + 0.78;
+        const want = a.gait.reach * a.scale + 0.72;
         const x = pp.x + (sxo / d) * want;
         const z = pp.z + (szo / d) * want;
         a.area = { x0: x - 0.05, z0: z - 0.05, x1: x + 0.05, z1: z + 0.05 };
         a.curious = false;
-        a.place(x, z, Math.atan2(-sxo, -szo));
+        // Heading halfway between "to the farmer" and "to the lens" (+z).
+        const hx = -sxo / d;
+        const hz = -szo / d + 1.1;
+        a.place(x, z, Math.atan2(hx, hz));
         this.demoPet = free;
       }
       // Coop life: a hen wallowing in the dust bath, another dozing on the roost bar in the sun.
@@ -2045,7 +2086,7 @@ export class AnimalSystem implements System, AnimalsApi {
         // stands head-up, face to the lens, instead of grazing with only her poll showing)
         cow: close ? [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [47.9, 37.6, 1.9]] : [[trough.x - 1.72, trough.z + 0.2, Math.PI / 2], [45.95, 39.3, -0.62]],
         // (r6: one sheep grazes out in the middle of the pen — the herd no longer hugs the fence)
-        sheep: close ? [[44.2, 39.2, 0], [48.9, 38.9, 2.3]] : [[47.35, 37.1, 0.75], [44.55, 37.45, 1.25]],
+        sheep: close ? [[44.2, 39.2, 0], [48.9, 38.9, 2.3]] : [[47.35, 37.1, 0.75], [44.55, 37.45, 0.35]],
         // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the
         // farmer the crouch put the hat brim over the goat's head.
         goat: [[41.5, 41.78, Math.atan2(-1.2, -0.28)]],
@@ -2081,7 +2122,8 @@ export class AnimalSystem implements System, AnimalsApi {
       const used: Record<string, number> = {};
       // Who is head-down grazing / pecking / dabbling in the still (≥ 40 % of the herd): both cows (one
       // drinking at the trough), the middle sheep, two hens, one duck.
-      const grazing: Record<string, number[]> = { cow: [0], sheep: [0, 1], chicken: [0, 2], duck: [1] };
+      // (r10: the near sheep stands head-up, face to the lens — two grazing sheep read as popcorn)
+      const grazing: Record<string, number[]> = { cow: [0], sheep: [0], chicken: [0, 2], duck: [1] };
       for (const l of this.live) {
         if (!l.rec) continue;
         const k = l.rec.species;
@@ -2098,7 +2140,10 @@ export class AnimalSystem implements System, AnimalsApi {
           // (r9: the big animals hold their marks — a wandering cow turned its back on the lens)
           if (k === 'cow' || k === 'sheep') {
             l.actor.area = { x0: s[0] - 0.1, z0: s[1] - 0.1, x1: s[0] + 0.1, z1: s[1] + 0.1 };
-            if (!l.actor.hold) l.actor.calm = true;
+            if (!l.actor.hold) {
+              l.actor.calm = true;
+              if (k === 'sheep') l.actor.hold = 'idle';
+            }
           }
           // The pig keeps to its wallow, snout to the camera (it wandered off and showed its rump).
           if (k === 'pig') {

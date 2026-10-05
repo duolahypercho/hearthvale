@@ -37,6 +37,9 @@ export function installInteriorLighting(game: Game): void {
     for (const o of scene.children) {
       if (!o.visible || o === room.root || o === game.player.root || (o as THREE.Light).isLight || o === game.rc.camera) continue;
       if (o.userData.indoors) continue;
+      // Co-op: other farmers in this room render too (r10: they were hidden with the outdoor world —
+      // the host saw only a floating name pill where the farmhand stood in the coop).
+      if (o.name === 'remote-farmer') continue;
       if ((o as THREE.Object3D).type === 'Object3D' && o.children.length === 0) continue; // light targets
       o.visible = false;
       hidden.push(o);
