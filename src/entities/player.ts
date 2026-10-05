@@ -161,6 +161,7 @@ export class Player {
     const straw = toonish(HAT, 0.9);
     const band = toonish(HATBAND, 0.7);
     const dark = toonish(0x1d1612, 0.3);
+    const lip = toonish(0x7a3e30, 0.5);
     const white = toonish(0xffffff, 0.3);
     const blush = toonish(0xf5a38c, 0.6);
     const metal = toonish(0xb7bcc2, 0.35);
@@ -281,7 +282,9 @@ export class Player {
           b.add(hair, new THREE.CapsuleGeometry(0.013, 0.055, 3, 6), mat(sx * 0.12, headR * 1.14, headR * 0.94, 0, 0, Math.PI / 2 + sx * 0.18));
           b.add(blush, new THREE.CircleGeometry(0.05, 14), mat(sx * 0.19, headR * 0.76, headR * 0.875, 0, sx * 0.55, 0));
         }
-        b.add(dark, new THREE.TorusGeometry(0.045, 0.011, 6, 14, Math.PI), mat(0, headR * 0.6, headR * 0.955, 0, 0, Math.PI));
+        // Smile: a short warm-brown arc lifted toward the cheeks (a long near-black one read as a
+        // moustache from the high farming camera).
+        b.add(lip, new THREE.TorusGeometry(0.034, 0.0085, 6, 14, Math.PI), mat(0, headR * 0.665, headR * 0.962, -0.12, 0, Math.PI));
       }, 'head'),
     );
     // Eyes (separate so they can blink); brows, mouth and blush are one static face part.

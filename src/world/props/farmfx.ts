@@ -662,17 +662,17 @@ function decalTexture(kind: 'wet' | 'crack'): THREE.CanvasTexture {
 
 // ───────────────────────────────────────────── watering-can stream
 
-const STREAM_N = 22;
-/** Jets out of the rose: a fat main stream + two thinner side jets that fan apart as they fall. */
-const JETS: { w0: number; w1: number; spread: number; lag: number; a: number }[] = [
-  // A generous pour (a trickle reads as a leak): fat glassy main stream + fuller side jets.
-  { w0: 0.13, w1: 0.05, spread: 0, lag: 0, a: 0.97 },
-  { w0: 0.06, w1: 0.024, spread: 0.15, lag: 0.02, a: 0.85 },
-  { w0: 0.06, w1: 0.024, spread: -0.15, lag: 0.035, a: 0.85 },
-  // The rose's outer holes: two fine jets that fan wide and break up first.
-  { w0: 0.032, w1: 0.012, spread: 0.3, lag: 0.05, a: 0.65 },
-  { w0: 0.032, w1: 0.012, spread: -0.28, lag: 0.065, a: 0.65 },
+/** Jets out of the rose: a main rope of droplets + thinner side jets that fan apart as they fall. */
+const JETS: { r0: number; r1: number; spread: number; lag: number; a: number; n: number; jit: number }[] = [
+  // Main rope: closely spaced fat beads (reads as a pour, but every drop is its own bead).
+  { r0: 0.021, r1: 0.027, spread: 0, lag: 0, a: 0.95, n: 20, jit: 0.012 },
+  { r0: 0.014, r1: 0.019, spread: 0.16, lag: 0.02, a: 0.85, n: 13, jit: 0.02 },
+  { r0: 0.014, r1: 0.019, spread: -0.16, lag: 0.035, a: 0.85, n: 13, jit: 0.02 },
+  // The rose's outer holes: a few fine drops that fan wide and break up first.
+  { r0: 0.009, r1: 0.013, spread: 0.32, lag: 0.05, a: 0.7, n: 9, jit: 0.035 },
+  { r0: 0.009, r1: 0.013, spread: -0.3, lag: 0.065, a: 0.7, n: 9, jit: 0.035 },
 ];
+const STREAM_BEADS = JETS.reduce((n, j) => n + j.n, 0);
 
 const STREAM_VS = /* glsl */ `
 attribute vec2 aUv;
@@ -688,41 +688,39 @@ void main() {
   #include <fog_vertex>
 }`;
 const STREAM_FS = /* glsl */ `
-uniform float uTime;
 uniform vec3 uBody;
 uniform vec3 uCore;
 varying vec2 vUv;
 varying float vA;
 #include <fog_pars_fragment>
-float h21(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
-float vn(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
-}
 void main() {
-  float x = abs(vUv.x);
-  // Scrolling glassy streaks: water rushing down the arc, breaking up toward the end.
-  float flow = vn(vec2(vUv.y * 9.0 - uTime * 7.5, vUv.x * 1.5)) * 0.6 + vn(vec2(vUv.y * 23.0 - uTime * 13.0, vUv.x * 3.0 + 7.0)) * 0.4;
-  float breakup = smoothstep(0.55, 1.0, vUv.y) * 0.55;
-  float edge = 1.0 - smoothstep(0.45 - breakup * 0.3, 1.0, x + (flow - 0.5) * 0.35);
-  float a = edge * vA * (0.72 + 0.28 * flow) * (1.0 - breakup * step(flow, 0.42));
-  if (a < 0.01) discard;
-  float core = 1.0 - smoothstep(0.0, 0.42, x);
-  vec3 c = mix(uBody, uCore, core * (0.55 + 0.45 * flow));
-  // A bright sun glint riding the upper edge.
-  c += vec3(0.25) * smoothstep(0.62, 0.9, flow) * (1.0 - x);
-  gl_FragColor = vec4(c, a);
+  // A glassy water drop (uv.y runs along its flight, +1 = the leading end): round head, the tail
+  // tapering a little behind it; sky-blue rim, bright core and a specular dot up-front.
+  vec2 q = vUv;
+  q.x *= 1.0 + 0.35 * smoothstep(0.2, -1.0, q.y);
+  float d = length(q);
+  float a = (1.0 - smoothstep(0.55, 1.0, d)) * vA;
+  if (a < 0.02) discard;
+  float core = 1.0 - smoothstep(0.0, 0.75, d);
+  vec3 c = mix(uBody, uCore, core * 0.7);
+  float hl = 1.0 - smoothstep(0.0, 0.32, length(vUv - vec2(-0.25, 0.35)));
+  c = mix(c, vec3(1.0), hl * 0.85);
+  gl_FragColor = vec4(c, a * (0.8 + 0.2 * core));
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
   #include <fog_fragment>
 }`;
 
+function h11(n: number): number {
+  const x = Math.sin(n * 127.1) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 /**
- * The watering-can pour: a camera-facing tapered ribbon (5 cm at the rose → 1.5 cm) along the
- * ballistic arc, with scrolling glassy streaks and a white-blue core, flanked by two thinner jets
- * that fan apart as they fall. It grows out of the spout when the pour starts, wobbles while it
- * runs and detaches + falls when it stops (droplets break off its end — see the farming system).
+ * The watering-can pour: ropes of individual droplets streaming along the ballistic arc from the
+ * rose (each bead a camera-facing quad stretched along its flight, fattening as the jet breaks
+ * up), a main rope flanked by thinner jets that fan apart as they fall. It grows out of the spout
+ * when the pour starts and detaches + falls when it stops. One draw call.
  */
 class Stream {
   readonly mesh: THREE.Mesh;
@@ -737,12 +735,11 @@ class Stream {
   private on = false;
   private t = 0;
   private mat: THREE.ShaderMaterial;
-  /** Camera forward (set by the owner each frame) — the ribbon faces the camera. */
+  /** Camera forward (set by the owner each frame) — the beads face the camera. */
   readonly view = new THREE.Vector3(0, -0.7, -0.7);
 
   constructor() {
-    const per = (STREAM_N + 1) * 2;
-    const n = per * JETS.length;
+    const n = STREAM_BEADS * 4;
     this.pos = new Float32Array(n * 3);
     this.uv = new Float32Array(n * 2);
     this.al = new Float32Array(n);
@@ -751,15 +748,15 @@ class Stream {
     g.setAttribute('aUv', new THREE.BufferAttribute(this.uv, 2).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aA', new THREE.BufferAttribute(this.al, 1).setUsage(THREE.DynamicDrawUsage));
     const idx: number[] = [];
-    for (let j = 0; j < JETS.length; j++) {
-      for (let i = 0; i < STREAM_N; i++) {
-        const a = j * per + i * 2;
-        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-      }
+    for (let i = 0; i < STREAM_BEADS; i++) {
+      const a = i * 4;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      // Corner uvs never change: (-1,-1) (1,-1) (-1,1) (1,1).
+      this.uv.set([-1, -1, 1, -1, -1, 1, 1, 1], i * 8);
     }
     g.setIndex(idx);
     this.mat = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x5aa6e6) }, uCore: { value: new THREE.Color(0xeaf7ff) } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uBody: { value: new THREE.Color(0x4f9ee0) }, uCore: { value: new THREE.Color(0xeaf7ff) } }]),
       vertexShader: STREAM_VS,
       fragmentShader: STREAM_FS,
       transparent: true,
@@ -806,14 +803,13 @@ class Stream {
   }
 
   private _p = new THREE.Vector3();
-  private _q = new THREE.Vector3();
   private _tan = new THREE.Vector3();
   private _side = new THREE.Vector3();
   private _lat = new THREE.Vector3();
+  private _up2 = new THREE.Vector3();
 
   update(dt: number): void {
     this.t += dt;
-    this.mat.uniforms.uTime!.value = this.t;
     if (this.on) this.head = Math.min(this.T, this.head + dt);
     else this.tail += dt;
     if (!this.on && this.tail >= this.head) {
@@ -822,47 +818,59 @@ class Stream {
     }
     if (this.head <= 0) return;
     this.mesh.visible = true;
-    const { _p: p, _q: q, _tan: tan, _side: side, _lat: lat } = this;
+    const { _p: p, _tan: tan, _side: side, _lat: lat, _up2: up } = this;
     // Lateral axis (horizontal, across the pour direction): the side jets fan out along it.
     lat.set(-this.vel.z, 0, this.vel.x);
     if (lat.lengthSq() < 1e-6) lat.set(1, 0, 0);
     lat.normalize();
-    const per = (STREAM_N + 1) * 2;
+    let bead = 0;
     JETS.forEach((jet, j) => {
       const s0 = Math.min(this.tail + jet.lag * (this.on ? 0 : 1), this.head);
       const s1 = Math.max(s0, this.head - jet.lag);
-      for (let i = 0; i <= STREAM_N; i++) {
-        const u = i / STREAM_N;
-        const s = s0 + (s1 - s0) * u;
-        this.at(s, p);
-        this.at(s + 0.01, q);
+      for (let i = 0; i < jet.n; i++, bead++) {
+        // Each bead flows out of the rose continuously (its own phase), riding the arc.
+        const hsh = h11(j * 31 + i * 7.3);
+        const u = (this.t / this.T + (i + hsh * 0.6) / jet.n) % 1;
+        const s = u * this.T;
+        const k4 = bead * 4;
+        if (s < s0 || s > s1) {
+          this.al.fill(0, k4, k4 + 4);
+          continue;
+        }
         const f = s / this.T;
-        // Side jets fan apart as they fall; everything wobbles a little (a hand-held can).
-        p.addScaledVector(lat, jet.spread * f * f + Math.sin(this.t * 21 + s * 35 + j * 2) * 0.008 * f);
-        q.addScaledVector(lat, jet.spread * f * f);
-        tan.subVectors(q, p).normalize();
+        this.at(s, p);
+        // Fan apart + per-bead scatter growing as the jet breaks up; a little hand-held wobble.
+        const jx = (h11(i * 3.1 + j * 17 + Math.floor(this.t / this.T + (i + hsh * 0.6) / jet.n) * 5.7) - 0.5) * 2;
+        p.addScaledVector(lat, jet.spread * f * f + jx * jet.jit * f + Math.sin(this.t * 21 + j * 2) * 0.006 * f);
+        p.y += (hsh - 0.5) * jet.jit * f;
+        tan.set(this.vel.x, this.vel.y - 9.8 * s, this.vel.z);
+        const sp = tan.length();
+        tan.divideScalar(Math.max(1e-4, sp));
         side.crossVectors(tan, this.view);
         if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
         side.normalize();
-        const w = (jet.w0 + (jet.w1 - jet.w0) * Math.min(1, f)) * (1 + 0.12 * Math.sin(this.t * 38 - s * 60 + j)) * 0.5;
-        // Pinch the leading tip and the detaching tail.
-        const tip = Math.min(1, (1 - u) / 0.08) * Math.min(1, u / 0.04 + (this.on ? 1 : 0));
-        const k = (j * per + i * 2) * 3;
-        for (let e = 0; e < 2; e++) {
-          const sg = e === 0 ? -1 : 1;
-          this.pos[k + e * 3] = p.x + side.x * w * sg;
-          this.pos[k + e * 3 + 1] = p.y + side.y * w * sg;
-          this.pos[k + e * 3 + 2] = p.z + side.z * w * sg;
-          const kk = (j * per + i * 2 + e) * 2;
-          this.uv[kk] = sg;
-          this.uv[kk + 1] = f;
-          this.al[j * per + i * 2 + e] = jet.a * (0.35 + 0.65 * tip);
+        // Along-flight axis in the view plane (so the stretch survives a grazing angle).
+        up.crossVectors(this.view, side).normalize();
+        if (up.dot(tan) < 0) up.negate();
+        const r = (jet.r0 + (jet.r1 - jet.r0) * f) * (0.8 + 0.4 * hsh);
+        // Stretched along their velocity: tighter at the rose, longer as they speed up.
+        const len = r * (1.25 + Math.min(1.1, sp * 0.22));
+        // The first bead out (the leading end) is fatter: a drop gathering at the head of the jet.
+        const lead = this.on && s1 - s < this.T / jet.n ? 1.35 : 1;
+        const tipFade = Math.min(1, (s - s0) / 0.03 + (this.on ? 1 : 0));
+        for (let e = 0; e < 4; e++) {
+          const sx = e & 1 ? 1 : -1;
+          const sy = e & 2 ? 1 : -1;
+          const o = (k4 + e) * 3;
+          this.pos[o] = p.x + side.x * r * lead * sx + up.x * len * lead * sy;
+          this.pos[o + 1] = p.y + side.y * r * lead * sx + up.y * len * lead * sy;
+          this.pos[o + 2] = p.z + side.z * r * lead * sx + up.z * len * lead * sy;
+          this.al[k4 + e] = jet.a * Math.min(1, tipFade) * Math.min(1, f * 12 + 0.4);
         }
       }
     });
     const g = this.mesh.geometry;
     (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-    (g.attributes.aUv as THREE.BufferAttribute).needsUpdate = true;
     (g.attributes.aA as THREE.BufferAttribute).needsUpdate = true;
   }
 }
@@ -1642,7 +1650,7 @@ export class FarmFX {
       const a = rnd(0, Math.PI * 2);
       this.drop(p.clone().setY(p.y + 0.02), new THREE.Vector3(Math.cos(a) * rnd(0.5, 0.9) * big, rnd(1.8, 2.4) * big, Math.sin(a) * rnd(0.5, 0.9) * big), 0.016 * big, true);
     }
-    this.mist(p.clone().setY(p.y + 0.06), 0.26 * big, 0.16);
+    this.mist(p.clone().setY(p.y + 0.04), 0.2 * big, 0.1);
     if (fxr.next() < 0.45) this.sparkle(p.clone().add(_v.set(rnd(-0.1, 0.1), rnd(0.06, 0.16), rnd(-0.1, 0.1))), _v.set(0, rnd(0.2, 0.5), 0), 0xd8f0ff, rnd(0.07, 0.11), 0.35);
   }
 
@@ -1850,6 +1858,9 @@ export class FarmFX {
         const e = 1 - Math.pow(1 - t, 2.2);
         m.position.lerpVectors(p.from, to, e);
         m.position.y += Math.sin(t * Math.PI) * 0.35;
+        // Bow the arc out toward the lens (in front of the farmer's torso, never through it).
+        _v.set(0, 0, 1).applyQuaternion(this.viewQuat).setY(0);
+        if (_v.lengthSq() > 1e-6) m.position.addScaledVector(_v.normalize(), Math.sin(t * Math.PI) * 0.3);
         const grow = t < 0.25 ? THREE.MathUtils.lerp(0.35, 1.05, t / 0.25) : 1;
         const stretch = 1 + Math.sin(t * Math.PI) * 0.22;
         m.scale.set((S * grow) / Math.sqrt(stretch), S * grow * stretch, (S * grow) / Math.sqrt(stretch));

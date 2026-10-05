@@ -36,6 +36,7 @@ import {
   daysForStage,
   cropsFor,
   SPRINKLERS,
+  CROP_IDS,
   sprinklerOffsets,
   SCARECROW_RADIUS,
   CAN_CAPACITY,
@@ -220,6 +221,8 @@ const rnd = (a: number, b: number): number => a + fxRng.next() * (b - a);
 
 /** Seconds of each swing during which the tool head leaves a smear (downswing → follow-through). */
 const SWING_WINDOW: Partial<Record<ActionKind, [number, number]>> = { chop: [0.2, 0.31], slam: [0.14, 0.27], sweep: [0.1, 0.3] };
+/** The hoe blade's cutting edge, tool-local (see world/props/tools.ts). */
+const HOE_EDGE = new THREE.Vector3(0, 0.56, 0.2);
 /** Tool-local [inner, outer] edge of the smear per tool (see world/props/tools.ts). */
 const TRAIL_POINTS: Record<string, [THREE.Vector3, THREE.Vector3]> = {
   // Wide ribbon: from the handle's upper third out to the blade's cutting edge.
@@ -281,6 +284,8 @@ export class FarmingSystem implements System, FarmingApi {
   /** Demo slow motion (`&slow=0.3`): action + FX time scale, so frame sequences catch a whole swing. */
   private slow = 1;
   private sprayAlways = false;
+  /** The full-roster gallery hides the farmer (restored on the next staging). */
+  private hidPlayer = false;
   private sprayT = 0;
   private wasSpraying = false;
   private autoLoop: { tool: string; t: number } | null = null;
@@ -314,6 +319,8 @@ export class FarmingSystem implements System, FarmingApi {
     game.scene.add(this.fx.group, this.cursor.mesh);
     this.actions = new FarmerActions(game.player);
     game.provide('farming', this);
+    // Dev probe for the art loop (blade / spout / held-produce placement checks from shot --eval).
+    if (import.meta.env.DEV) (window as unknown as { __farming?: unknown }).__farming = this;
     game.events.on('item:use', (e) => this.useItem(e.itemId, e.x, e.z, e.slot));
     game.events.on('player:interact', ({ x, z }) => this.interact(x, z));
     // Day-driven updates run on the farm even when the farmer sleeps in the house (or is anywhere else).
@@ -889,22 +896,34 @@ export class FarmingSystem implements System, FarmingApi {
     return hand;
   }
 
+  /** Dev probe: tool-local point in world space + the farmer's faced tile centre (art checks). */
+  probe(local: [number, number, number] = [0, 0.6, 0.19]): { tool: number[]; tile: number[]; player: number[] } | null {
+    const acts = this.actions;
+    if (!acts) return null;
+    const p = acts.toolPoint(new THREE.Vector3(...local));
+    const t = this.game.player.facingTile();
+    const pl = this.game.player.position;
+    const r = (v: number): number => Math.round(v * 1000) / 1000;
+    return { tool: [r(p.x), r(p.y), r(p.z)], tile: [t.x + 0.5, r(this.surfaceY(t.x + 0.5, t.z + 0.5)), t.z + 0.5], player: [r(pl.x), r(pl.y), r(pl.z)] };
+  }
+
   /**
-   * Two-hand overhead grip (big produce): hoisted over the crown of the hat between the raised
-   * palms — high enough that, from the 3/4 camera, it reads above the head, never over the face.
+   * Two-hand chest hug (big produce): the produce's centre sits midway between the two palms, a
+   * touch forward of them (palms press on its sides) — in front of the chest, under the chin.
    */
   private liftPos(): THREE.Vector3 {
     const r = this.game.player.rig;
     r.armR.updateWorldMatrix(true, false);
     r.armL.updateWorldMatrix(true, false);
-    const a = r.armR.localToWorld(new THREE.Vector3(0, -0.33, 0.02));
-    const b = r.armL.localToWorld(new THREE.Vector3(0, -0.33, 0.02));
-    const hands = a.add(b).multiplyScalar(0.5);
-    const hat = r.hat ?? r.head;
-    hat.updateWorldMatrix(true, false);
-    const crown = hat.localToWorld(_up.set(0, r.hat ? 0.3 : 0.5, 0));
-    // Over the hat (x/z), at whichever is higher: the palms or just above the crown.
-    return crown.setY(Math.max(hands.y - 0.05, crown.y + 0.02));
+    const a = r.armR.localToWorld(new THREE.Vector3(0, -0.3, 0.01));
+    const b = r.armL.localToWorld(new THREE.Vector3(0, -0.3, 0.01));
+    const mid = a.add(b).multiplyScalar(0.5);
+    // Forward = the farmer's facing (the produce bulges out past the fingertips).
+    r.torso.updateWorldMatrix(true, false);
+    const fwd = _up.set(0, 0, 1).transformDirection(r.torso.matrixWorld);
+    fwd.y = 0;
+    if (fwd.lengthSq() > 1e-6) mid.addScaledVector(fwd.normalize(), 0.13);
+    return mid;
   }
 
   private harvestFx(x: number, z: number, id: CropId, qty: number, quality: number, style: 'pull' | 'cut' | 'remote'): void {
@@ -932,8 +951,12 @@ export class FarmingSystem implements System, FarmingApi {
     // (a touch over) its size in the field — a held pumpkin never shrinks below the ones in the bed.
     const big = !!def.giant;
     const rad = geo.boundingSphere?.radius ?? 0.15;
-    const heroS = big ? THREE.MathUtils.clamp(0.42 / rad, 2.4, 3.6) : THREE.MathUtils.clamp(0.7 / rad, 2.05, 2.5);
+    const bb = geo.boundingBox;
+    const hw = bb ? Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2 : rad;
+    // Big produce fills the hug: its half-width matches the palms' gap (the hands touch its sides).
+    const heroS = big ? THREE.MathUtils.clamp(0.35 / hw, 1.6, 3.6) : THREE.MathUtils.clamp(0.7 / rad, 2.05, 2.5);
     const bottom = geo.boundingBox ? -geo.boundingBox.min.y : rad;
+    const hb = bb ? (bb.max.y + bb.min.y) / 2 : 0;
     for (let i = 0; i < n; i++) {
       const hero = i === 0 && style === 'pull';
       const off = new THREE.Vector3((i - (n - 1) / 2) * 0.22, i * 0.05, 0);
@@ -942,7 +965,8 @@ export class FarmingSystem implements System, FarmingApi {
         // sits down IN the fist (its lower third gripped), big produce rests on both palms overhead.
         to: hero ? (big ? () => this.liftPos() : () => this.holdPos()) : () => chest().add(off),
         pivot: () => pl.position.clone().setY(pl.position.y + 1.3),
-        lift: hero ? bottom * heroS * (big ? 0.95 : 0.55) : 0,
+        // Big: the produce's box centre sits between the palms; small: its lower end in the fist.
+        lift: hero ? (big ? -hb * heroS : bottom * heroS * 0.55) : 0,
         flight: hero ? 0.2 : 0.26 + i * 0.06,
         hold: hero ? 0.42 : 0.06,
         star: i === 0 && quality > 0 ? QUALITY_COLORS[quality as CropQuality] : null,
@@ -1049,8 +1073,10 @@ export class FarmingSystem implements System, FarmingApi {
     const ddx = x + 0.5 - p.x;
     const ddz = z + 0.5 - p.z;
     if (Math.abs(ddx) > 0.3 || Math.abs(ddz) > 0.3) {
+      // Always snap the body square to the tile (a diagonal walk leaves the yaw between two
+      // cardinals: the swing then chopped beside the farmer's own foot).
       const f = Math.abs(ddx) > Math.abs(ddz) ? (ddx > 0 ? 'right' : 'left') : ddz > 0 ? 'down' : 'up';
-      if (f !== this.game.player.facing) this.game.player.setFacing(f);
+      this.game.player.setFacing(f);
     }
     this.actTile = { x, z };
     this.actTiles = { tiles: [[x, z]], state: 'neutral' };
@@ -1069,6 +1095,8 @@ export class FarmingSystem implements System, FarmingApi {
       onUpdate: this.withTrail(kind, toolId, extra.onUpdate, TIER_TRAIL[tier] ?? 0xfff6e0),
       onDone: extra.onDone,
       freezeAt: extra.freezeAt,
+      // The hoe blade's cutting edge bites the middle of the target tile on the impact frame.
+      aim: toolId === 'hoe' && (kind === 'chop' || kind === 'slam') ? { target: new THREE.Vector3(x + 0.5, this.surfaceY(x + 0.5, z + 0.5) + 0.03, z + 0.5), local: HOE_EDGE } : undefined,
     });
     return IMPACT[kind];
   }
@@ -1572,6 +1600,7 @@ export class FarmingSystem implements System, FarmingApi {
         this.doneTile = { x: fx0, z: fz0 };
       },
       onUpdate: this.withTrail('slam', tool, undefined, gold, 1.25),
+      aim: tool === 'hoe' ? { target: new THREE.Vector3(fx0 + 0.5, this.surfaceY(fx0 + 0.5, fz0 + 0.5) + 0.03, fz0 + 0.5), local: HOE_EDGE } : undefined,
     });
   }
 
@@ -2120,6 +2149,10 @@ export class FarmingSystem implements System, FarmingApi {
 
   private onDemo(name: string, showcase: string[]): void {
     this.idleT = 99;
+    if (this.hidPlayer) {
+      this.game.player.root.visible = true;
+      this.hidPlayer = false;
+    }
     this.sprayAlways = false;
     const slowP = Number(new URLSearchParams(location.search).get('slow'));
     this.slow = slowP > 0 && slowP <= 1 ? slowP : 1;
@@ -2188,20 +2221,42 @@ export class FarmingSystem implements System, FarmingApi {
     } else if (showcase.includes('gallery')) {
       // Every crop of the season (rows) × every growth stage (columns), for art review.
       this.showcase = 'gallery';
+      const all = params.get('crops') === 'all';
       const ids = params.get('crops')?.split(',').filter((c) => c in CROPS) as CropId[] | undefined;
-      const list = ids?.length ? ids : cropsFor(season === 'winter' ? 'spring' : season);
-      // Rows start inside the starter field's rect (row 0 used to sit on the lawn above it).
-      const gz = (this.rect('field')?.z0 ?? 20);
-      this.clearRect(20, gz, 29, gz + list.length);
-      list.forEach((id, row) => {
-        for (let st = 0; st <= RIPE_STAGE; st++) {
-          const x = 21 + st;
-          const z = gz + row;
-          this.till(x, z, true);
-          this.water(x, z);
-          this.plant(id, x, z, this.daysAt(id, st), 11 + row * 7 + st);
-        }
-      });
+      const list = all ? [...CROP_IDS] : ids?.length ? ids : cropsFor(season === 'winter' ? 'spring' : season);
+      if (all) {
+        // The whole roster (every season, greenhouse-style) in two blocks of rows × 6 stages; the
+        // farmer steps out of the frame so nothing hides a row.
+        this.game.player.root.visible = false;
+        this.hidPlayer = true;
+        const half = Math.ceil(list.length / 2);
+        const gz = 19;
+        this.clearRect(16, gz, 30, gz + half);
+        list.forEach((id, i) => {
+          const block = i < half ? 0 : 1;
+          const row = i % half;
+          for (let st = 0; st <= RIPE_STAGE; st++) {
+            const x = (block === 0 ? 17 : 24) + st;
+            const z = gz + row;
+            this.till(x, z, true);
+            this.water(x, z);
+            this.plant(id, x, z, this.daysAt(id, st), 11 + i * 7 + st);
+          }
+        });
+      } else {
+        // Rows start inside the starter field's rect (row 0 used to sit on the lawn above it).
+        const gz = (this.rect('field')?.z0 ?? 20);
+        this.clearRect(20, gz, 29, gz + list.length);
+        list.forEach((id, row) => {
+          for (let st = 0; st <= RIPE_STAGE; st++) {
+            const x = 21 + st;
+            const z = gz + row;
+            this.till(x, z, true);
+            this.water(x, z);
+            this.plant(id, x, z, this.daysAt(id, st), 11 + row * 7 + st);
+          }
+        });
+      }
       this.commit();
     } else if (showcase.includes('wither')) {
       // The morning after the season turned: last season's field withered where it stood.
@@ -2520,16 +2575,16 @@ export class FarmingSystem implements System, FarmingApi {
         const land = this.surfaceY(ex, ez) + (hit ? 0.28 : 0);
         this.fx.sprayArc(p, a, d0 - 0.1, T, land - oy, j * 0.731 + base.x * 0.37 + base.z * 0.11, 0.95, spinRate * T);
         if (hit && fxRng.next() < dt * 6) this.fx.crown(new THREE.Vector3(ex, land, ez), 0.6, 4);
-        // Landing: a soft mist puff + the odd splash crown somewhere along the fan (the water
-        // that left ~T seconds ago, i.e. where the jet pointed spinRate·T radians back).
-        if (fxRng.next() < dt * 5) {
+        // Landing: a splash crown somewhere along the fan (the water that left ~T seconds ago, i.e.
+        // where the jet pointed spinRate·T radians back). No mist sprites: from the high camera
+        // they hung mid-air like smudges on the lens.
+        if (fxRng.next() < dt * 3) {
           const la = a - spinRate * T * 0.9;
           const ld = d0 * rnd(0.45, 1.0);
           const lx = base.x + Math.cos(la) * ld;
           const lz = base.z + Math.sin(la) * ld;
           const ly = this.surfaceY(lx, lz);
-          this.fx.mist(new THREE.Vector3(lx, ly + 0.1, lz), rnd(0.35, 0.55), 0.13);
-          if (fxRng.next() < 0.5) this.fx.crown(new THREE.Vector3(lx, ly, lz), 0.5, 4);
+          this.fx.crown(new THREE.Vector3(lx, ly, lz), 0.5, 4);
         }
         let acc = rate + fxRng.next();
         while (acc >= 1) {

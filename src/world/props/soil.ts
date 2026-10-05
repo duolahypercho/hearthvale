@@ -42,7 +42,7 @@ const RIDGE = 0.035;
 /** Height of the bed's rim where it meets untilled ground (the bevel's foot). */
 const LIP = 0.012;
 /** Shoulder width inside the tile and skirt width outside it (m). */
-const SH = 0.2;
+const SH = 0.15;
 const SK = 0.2;
 /** Samples per tile (x across the furrows' length, z across the furrows) and skirt rows. */
 const NX = 10;
@@ -175,7 +175,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           // Dry: pale, warm, a little dusty, the ridge crests sun-bleached, a fine crazing of hairline
           // cracks between lighter crusted plates.
           // (Ochre-leaning: a desaturated red-brown reads mauve / pink under the warm grade.)
-          vec3 dry = base * vec3(2.0, 1.93, 1.6);
+          vec3 dry = base * vec3(1.8, 1.72, 1.42);
           float dl = dot(dry, vec3(0.3, 0.59, 0.11));
           dry = mix(vec3(dl) * vec3(1.03, 0.99, 0.9), dry, 0.66);
           float crest = smoothstep(0.05, 0.066, vSoilH);
@@ -186,8 +186,21 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           dry *= (1.0 - crack * 0.16) * (1.0 + plate * 0.05);
           // Wet: dark, cooler, saturated; the texture's crumbs still read.
           vec3 wet = base * vec3(0.66, 0.6, 0.6);
+          // Furrows read in any light: troughs in shade, crests catching it (a lone fresh tile shows
+          // the same ploughed ridges as the beds around it, not a flat smear).
+          float ridgeT = smoothstep(0.032, 0.062, vSoilH);
+          dry *= 0.8 + 0.28 * ridgeT;
+          wet *= 0.86 + 0.2 * ridgeT;
           vec3 c = mix(dry, wet, hvSoilWet);
           c *= 1.0 - halo * 0.18;
+          // A faint, wobbly tread between tiles (the crop grid reads at a glance, like trodden
+          // seams between planting squares) — never a ruled line.
+          {
+            vec2 tq = fract(wq + vec2(hvNoise(wq * 3.7) - 0.5, hvNoise(wq * 3.7 + 9.0) - 0.5) * 0.06);
+            vec2 te = min(tq, 1.0 - tq);
+            float seam = (1.0 - smoothstep(0.0, 0.045, te.x)) * 0.7 + (1.0 - smoothstep(0.0, 0.035, te.y)) * 0.45;
+            c *= 1.0 - min(1.0, seam) * 0.1 * smoothstep(0.7, 1.0, vSoilEdge);
+          }
           // Freshly turned earth: darker and moist for a moment after the hoe bites.
           c = mix(c, base * vec3(0.95, 0.86, 0.8), vSoilFresh * (1.0 - hvSoilWet) * 0.85);
           // The fringe dries out into pale, dusty dirt as it spills over the turf.

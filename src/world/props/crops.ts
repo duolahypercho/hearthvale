@@ -509,7 +509,7 @@ function rosette(add: Adder, r: Rng, n: number, len: number, width: number, o: L
 }
 
 const GREEN = { dark: C(0x2f6a2a), mid: C(0x4f9a3a), light: C(0x8cc85a), blue: C(0x5a8f7a), blueL: C(0x9cc4a8), yellow: C(0xb8cf5a) };
-const WOOD = { post: C(0x9a7048), light: C(0xc49a68), twine: C(0xd8c088) };
+const WOOD = { post: C(0x8a6440), light: C(0xc49a68), dark: C(0x5e4430), twine: C(0xc8b080) };
 
 // ═════════════════════════════════════════════ stage builders
 
@@ -559,13 +559,14 @@ function sprout(add: Adder, r: Rng, scale = 1): void {
 /** Wooden trellis: two posts, three rails, twine diagonals. Local X is the row direction. */
 function trellis(add: Adder, h = 1.05, w = 0.34): void {
   for (const sx of [-1, 1]) {
-    add(stalk(h, 0.026, 0.022, WOOD.post, WOOD.light, 0, 5), mat(sx * w, -0.05, 0, 0, 0, sx * 0.03), 'wood');
-    const cap = new THREE.ConeGeometry(0.03, 0.05, 5);
-    add(colored(cap, () => WOOD.light), mat(sx * w, h - 0.02, 0), 'wood');
+    // Weathered, darker posts (pale ones read as a noisy picket wall through the leaves).
+    add(stalk(h, 0.024, 0.02, WOOD.dark, WOOD.post, 0, 5), mat(sx * w, -0.05, 0, 0, 0, sx * 0.03), 'wood');
+    const cap = new THREE.ConeGeometry(0.027, 0.045, 5);
+    add(colored(cap, () => WOOD.post), mat(sx * w, h - 0.02, 0), 'wood');
   }
-  // Two rails and a single twine (was 3 + 3): the frame supports the plant, it isn't the subject.
-  for (const y of [0.46, 0.95]) {
-    const rail = stalk(w * 2 + 0.06, 0.011, 0.011, WOOD.light, WOOD.post, 0, 4);
+  // One thin top rail + a twine: the frame supports the plant, it isn't the subject.
+  for (const y of [0.95]) {
+    const rail = stalk(w * 2 + 0.06, 0.008, 0.008, WOOD.post, WOOD.dark, 0, 4);
     add(rail, mat(-w - 0.03, y * h, 0, 0, 0, -Math.PI / 2), 'wood');
   }
   add(stalk(h * 0.93, 0.004, 0.004, WOOD.twine, WOOD.twine, 0, 3), mat(0, 0, 0.012), 'wood');
@@ -1092,122 +1093,170 @@ export function witherKind(id: CropId): WitherKind {
   return 'leafy';
 }
 
+/** Identity accent of a dead plant (what is left of its fruit): one set per accent × variant. */
+export type WitherAccent = 'melon' | 'pumpkin' | 'tomato' | 'pepper' | 'berry' | 'plain';
+
+export function witherAccent(id: CropId | undefined): WitherAccent {
+  if (id === 'melon') return 'melon';
+  if (id === 'pumpkin') return 'pumpkin';
+  if (id === 'tomato') return 'tomato';
+  if (id === 'hotPepper' || id === 'eggplant') return 'pepper';
+  if (id === 'blueberry' || id === 'strawberry') return 'berry';
+  return 'plain';
+}
+
 /**
- * Dead plant after a season change. Four families (tall stalk / collapsed vine / twiggy bush / slumped
- * rosette) × three silhouettes (0 collapsed, 1 leaning, 2 bare stalk), straw-to-grey-brown, papery
- * curled leaves, some fallen onto the soil. Instances also get a random yaw and tint.
+ * A collapsed, rotting gourd: the fruit's own rind pattern (stripes / ribs) desaturated, caved in
+ * on top with a wrinkled sag, slumped into the soil.
  */
-function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v = 0): Map<Bucket, THREE.BufferGeometry> {
+function deflated(R: number, base: THREE.Color, o: { stripes?: THREE.Color; ribs?: number; long?: number }): THREE.BufferGeometry {
+  const g = fruit(R, base, { stripes: o.stripes ? 6 : undefined, stripeColor: o.stripes, ribs: o.ribs, crease: !!o.ribs, long: o.long, seg: o.stripes ? 24 : 16, shade: 0.5 });
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    let y = pos.getY(i);
+    const z = pos.getZ(i);
+    const d = Math.min(1, Math.hypot(x / (o.long ?? 1), z) / R);
+    // Sag: squashed, the top caved in (a dish), wrinkles running round the dent.
+    y = y * 0.5;
+    if (y > 0) y -= (1 - d * d) * R * 0.32 * (1 + 0.25 * Math.sin(Math.atan2(z, x) * 7 + d * 9));
+    pos.setY(i, y);
+    // Spread a little where it slumps onto the soil.
+    const k = 1 + Math.max(0, -y / R) * 0.25;
+    pos.setX(i, x * k);
+    pos.setZ(i, z * k);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Dead plant after a season change: a bold, readable silhouette per crop family in desaturated
+ * grey-brown (identifiable from across the farm), with the crop's own remains as the accent —
+ * tomato: a stalk flopped over its stake, curled leaves hanging, shrivelled dark fruit;
+ * pepper: a slumped bare stalk with a wrinkled pod dangling; melon / pumpkin: a collapsed mat of
+ * runners and big flat dead leaves around a caved-in, faded gourd; tall crops a snapped cane.
+ * Two silhouettes per family (v 0 slumped, 1 leaning), random yaw + tint per instance.
+ */
+function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v = 0, accent: WitherAccent = 'plain'): Map<Bucket, THREE.BufferGeometry> {
   const b = new MeshBuilder();
   const keys: Record<Bucket, THREE.Material> = { leaf: 'leaf' as unknown as THREE.Material, gloss: 'gloss' as unknown as THREE.Material, skin: 'skin' as unknown as THREE.Material, wood: 'wood' as unknown as THREE.Material };
   const add: Adder = (g, m, bucket = 'leaf') => void b.add(keys[bucket], g, m);
-  const brown0 = C(0x5a4630);
-  const brown1 = C(0x9a7c52);
-  const straw0 = C(0x6a5234);
-  const straw1 = C(0xc8a86e);
-  // Papery dead leaves are straw-pale so a withered bed still reads against the dark soil.
-  const curled = (len: number, w: number): THREE.BufferGeometry => leafGeo(len, w, { shape: 'oval', lift: 0.05, bend: 0.1, fold: 0.55, curl: 0.8 + r.next() * 0.5, ruffle: 0.25, c0: C(0x7e6240), c1: C(0xbc9a66), segs: 3 });
+  // Desaturated grey-browns (no pink, no straw-gold): dead, dry, but darker than pale soil crumbs.
+  const stem0 = C(0x3e352b);
+  const stem1 = C(0x7a6c58);
+  const leaf0 = C(0x4f463a);
+  const leaf1 = C(0x7f735f);
+  // Dead leaves: petal-marked (no fall hue shift, no painted veins) so they stay grey-brown; rolled
+  // up along the midrib and curled back at the tip (a crumpled husk, never a flat paper square).
+  const curled = (len: number, w: number, lift = 0.05, bend = 0.4): THREE.BufferGeometry => asPetal(leafGeo(len, w * 0.8, { shape: 'oval', lift, bend, fold: 0.8, curl: 1.4 + r.next() * 0.8, ruffle: 0.45, cup: 0.7, c0: leaf0, c1: leaf1, segs: 5 }));
   const fallen = (n: number, rad: number): void => {
     for (let i = 0; i < n; i++) {
       const a = r.next() * Math.PI * 2;
-      const d = rad * (0.4 + r.next() * 0.6);
-      add(curled(0.08 + r.next() * 0.04, 0.055), mat(Math.cos(a) * d, 0.005, Math.sin(a) * d, 0, a, 0));
+      const d = rad * (0.45 + r.next() * 0.55);
+      add(curled(0.08 + r.next() * 0.03, 0.06, -0.05, 0.1), mat(Math.cos(a) * d, 0.006, Math.sin(a) * d, 0, a, 0));
     }
   };
   if (trellised) {
     trellis(add);
-    climber(add, r, v === 2 ? 0.45 : 0.7, { shape: 'heart', lift: -0.2, bend: 0.9, fold: 0.4, c0: brown0, c1: brown1, segs: 3 }, 0.1, 0.09, 1.0, 0.3, 2);
+    climber(add, r, v === 1 ? 0.5 : 0.75, { shape: 'heart', lift: -0.35, bend: 1.0, fold: 0.5, curl: 0.8, c0: leaf0, c1: leaf1, segs: 3 }, 0.12, 0.1, 1.0, 0.3, 2);
     fallen(4, 0.3);
   } else if (kind === 'tall') {
-    // A dry cane: snapped and folded over (0), leaning hard (1) or standing bare (2).
-    const h = 0.55 + r.next() * 0.2;
-    const lean = v === 1 ? 0.28 : v === 0 ? 0.06 : 0.03;
-    const hMain = v === 0 ? h * 0.55 : h;
-    add(stalk(hMain, 0.02, 0.012, brown0, straw1, lean, 5));
-    if (v === 0) add(stalk(h * 0.5, 0.012, 0.008, straw0, straw1, 0.05, 4), mat(lean, hMain - 0.01, 0, 0, r.next() * 6, -2.3));
-    const nl = v === 2 ? 2 : 4;
-    for (let i = 0; i < nl; i++) {
-      const y = (0.2 + (i / nl) * 0.6) * hMain;
-      add(leafGeo(0.22 + r.next() * 0.08, 0.05, { shape: 'ribbon', lift: -0.3, bend: 1.2, fold: 0.3, ruffle: 0.2, c0: straw0, c1: straw1, segs: 4 }), mat(lean * (y / hMain) ** 2, y, 0, 0, i * 2.3 + r.next(), 0));
+    // A dry cane snapped and folded over (0) or leaning hard (1), ribbon leaves hanging limp.
+    const h = 0.62 + r.next() * 0.16;
+    const lean = v === 1 ? 0.3 : 0.06;
+    const hMain = v === 0 ? h * 0.6 : h;
+    add(stalk(hMain, 0.024, 0.014, stem0, stem1, lean, 5));
+    if (v === 0) add(stalk(h * 0.5, 0.014, 0.009, stem0, stem1, 0.05, 4), mat(lean, hMain - 0.01, 0, 0, r.next() * 6, -2.2));
+    for (let i = 0; i < 4; i++) {
+      const y = (0.22 + (i / 4) * 0.62) * hMain;
+      add(asPetal(leafGeo(0.26 + r.next() * 0.08, 0.06, { shape: 'ribbon', lift: -0.45, bend: 1.4, fold: 0.35, ruffle: 0.3, c0: leaf0, c1: leaf1, segs: 5 })), mat(lean * (y / hMain) ** 2, y, 0, 0, i * 2.3 + r.next(), 0));
     }
-    if (v !== 2) {
-      // A dead, nodding seed head.
-      const head = fruit(0.05, C(0x4a3424), { sy: 0.55, seg: 7 });
-      add(head, mat(lean + (v === 0 ? 0.25 : 0.04), v === 0 ? hMain * 0.6 : hMain + 0.02, 0.02, v === 0 ? 1.8 : 0.9, 0, 0.3));
-    }
-    fallen(3, 0.2);
+    // A dead, nodding seed head.
+    add(fruit(0.06, C(0x3a2e24), { sy: 0.55, seg: 8 }), mat(lean + (v === 0 ? 0.26 : 0.04), v === 0 ? hMain * 0.6 : hMain + 0.02, 0.02, v === 0 ? 1.8 : 0.9, 0, 0.3), 'skin');
+    fallen(3, 0.22);
   } else if (kind === 'vine') {
-    // Collapsed vines lying on the soil, shrivelled leaves clinging to them.
-    const nv = v === 2 ? 2 : 3;
+    // A collapsed mat: four runners sprawled flat, big dead leaves lying along them.
+    const nv = 4;
     for (let i = 0; i < nv; i++) {
-      const a = (i / nv) * Math.PI * 2 + r.next();
-      const len = 0.32 + r.next() * 0.14 + (v === 0 ? 0.1 : 0);
+      const a = (i / nv) * Math.PI * 2 + r.next() * 0.6;
+      const len = 0.34 + r.next() * 0.12;
       const pts: THREE.Vector3[] = [];
       let ang = a;
       for (let k = 0; k <= 4; k++) {
-        ang += (r.next() - 0.5) * 0.8;
+        ang += (r.next() - 0.5) * 0.9;
         const d = (len * k) / 4;
-        pts.push(new THREE.Vector3(Math.cos(ang) * d, 0.012 + (k === 1 ? 0.02 : 0), Math.sin(ang) * d));
+        pts.push(new THREE.Vector3(Math.cos(ang) * d, 0.014 + (k === 1 ? 0.025 : 0), Math.sin(ang) * d));
       }
-      add(tube(pts, 0.009, 0.005, brown0, straw0, 6, 4));
+      add(tube(pts, 0.011, 0.006, stem0, stem1, 6, 4));
       const cv = new THREE.CatmullRomCurve3(pts);
-      // Big papery leaves still pinned along the runner: the sprawl's footprint survives as a pale,
-      // straw mat that reads against the dark bed (thin brown vines alone vanished into the soil).
-      for (let k = 0; k < (v === 2 ? 2 : 3); k++) {
-        const pp = cv.getPointAt(0.3 + k * 0.3);
-        const big = 0.14 + r.next() * 0.06;
-        add(curled(big, big * 0.85), mat(pp.x, pp.y + 0.012, pp.z, 0.12, r.next() * 6, 0.1));
+      for (let k = 0; k < 2; k++) {
+        const pp = cv.getPointAt(0.35 + k * 0.4);
+        const big = 0.15 + r.next() * 0.05;
+        add(curled(big, big * 0.9, 0.0, 0.2), mat(pp.x, pp.y + 0.01, pp.z, 0.1, r.next() * 6, 0.1));
       }
     }
-    if (v === 1) add(stalk(0.12, 0.01, 0.006, brown0, straw1, 0.08, 4));
-    // The fruit left on the vine: a sunken, wrinkled, sun-bleached gourd slumped into the soil.
-    if (v !== 2) {
-      // Sun-bleached khaki / sickly olive rind, caved in on top (not a brown potato).
-      const R = 0.08 + r.next() * 0.03;
-      const rot = r.next();
-      const g = lumpyColored(R, C(rot < 0.45 ? 0xa39a62 : rot < 0.8 ? 0x8a8a52 : 0x7a6440), r, 2, 0.34);
-      g.scale(1.35, 0.46, 1.05);
-      const a = r.next() * Math.PI * 2;
-      add(g, mat(Math.cos(a) * 0.14, R * 0.42, Math.sin(a) * 0.14, 0.12, a, 0.08), 'skin');
+    // The fruit left on the vine, caved in where it lay.
+    if (accent === 'melon') add(deflated(0.13, C(0x7f8a66), { stripes: C(0x4e5640), long: 1.2 }), mat(0.05, 0.035, -0.03, 0, r.next() * 6, 0.12), 'skin');
+    else if (accent === 'pumpkin') add(deflated(0.13, C(0xa07a50), { ribs: 9 }), mat(0.05, 0.04, -0.02, 0.1, r.next() * 6, 0.08), 'skin');
+    else if (accent === 'berry') {
+      for (let i = 0; i < 3; i++) add(lumpyColored(0.026, C(0x5a2a22), r, 2, 0.3), mat((r.next() - 0.5) * 0.3, 0.018, (r.next() - 0.5) * 0.3), 'skin');
     }
+    // A stub of the crown.
+    add(stalk(0.1, 0.014, 0.008, stem0, stem1, 0.06, 4));
   } else if (kind === 'bush') {
-    // Twiggy dead shrub: woody stems, a few curled leaves; slumped (0), leaning (1) or bare (2).
-    const ns = v === 2 ? 3 : 4;
-    const lean = v === 1 ? 0.2 : 0;
-    for (let i = 0; i < ns; i++) {
-      const a = (i / ns) * Math.PI * 2 + r.next() * 0.5;
-      const h = (v === 0 ? 0.16 : 0.26) + r.next() * 0.1;
-      add(stalk(h, 0.011, 0.005, C(0x5a4632), C(0x8a7050), lean + 0.06, 4), mat(0, 0, 0, 0, a, v === 0 ? 0.9 : 0.35));
-    }
-    if (v !== 2) {
+    if (accent === 'tomato') {
+      // Its stake still standing; the dead stalk flopped over the tie, leaves hanging off it.
+      add(stalk(0.62, 0.017, 0.014, WOOD.post, WOOD.light, 0, 5), mat(-0.06, -0.02, 0, 0, 0, 0.04), 'wood');
+      add(stalk(0.03, 0.022, 0.022, WOOD.twine, WOOD.twine, 0, 5), mat(-0.05, 0.41, 0), 'wood');
+      const pts = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(-0.03, 0.22, 0), new THREE.Vector3(-0.04, 0.42, 0.01), new THREE.Vector3(0.06, 0.47, 0.03), new THREE.Vector3(0.17, 0.38, 0.05), new THREE.Vector3(0.22, 0.24, 0.06)];
+      add(tube(pts, 0.016, 0.008, stem0, stem1, 10, 5));
+      const cv = new THREE.CatmullRomCurve3(pts);
+      for (let k = 0; k < 3; k++) {
+        const pp = cv.getPointAt(0.35 + k * 0.22);
+        add(curled(0.13, 0.09, -0.9, 1.0), mat(pp.x, pp.y, pp.z, 0, (k - 1) * 1.9 + 0.4, 0));
+      }
+      // Shrivelled fruit: one still hanging at the bend, two dropped on the soil.
+      const red = C(0x6e3226);
+      add(lumpyColored(0.04, red, r, 2, 0.3), mat(0.15, 0.31, 0.06, 0, 0, 0), 'skin');
+      add(lumpyColored(0.035, red, r, 2, 0.35), mat(0.2, 0.028, -0.1, 0, 0, 0, 1, 0.7, 1), 'skin');
+      add(lumpyColored(0.032, C(0x5e3a26), r, 2, 0.35), mat(-0.14, 0.024, 0.12, 0, 0, 0, 1, 0.7, 1), 'skin');
+      fallen(3, 0.24);
+    } else if (accent === 'pepper') {
+      // A bare stalk slumped sideways, two curled leaves, wrinkled pods hanging / dropped.
+      const lean = v === 1 ? 0.24 : 0.36;
+      add(stalk(0.36, 0.016, 0.008, stem0, stem1, lean, 5));
+      add(stalk(0.2, 0.011, 0.006, stem0, stem1, -0.12, 4), mat(0.03, 0.14, 0, 0, 1.1, 0.5));
+      for (let k = 0; k < 3; k++) add(curled(0.12, 0.075, -0.8, 1.0), mat(lean * (0.4 + k * 0.2) ** 2, 0.16 + k * 0.07, 0, 0, k * 2.2, 0));
+      const pod = (len: number, c: THREE.Color): THREE.BufferGeometry => tube([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.005, -len * 0.5, 0.01), new THREE.Vector3(0.02, -len, 0.0)], 0.022, 0.006, c, c.clone().multiplyScalar(0.7), 6, 6);
+      add(pod(0.1, C(0x6a2e22)), mat(lean * 0.8, 0.3, 0.02, 0, 0, 0.2), 'skin');
+      add(pod(0.09, C(0x5a3424)), mat(0.14, 0.02, 0.1, Math.PI / 2, 0, 0.4), 'skin');
+      fallen(3, 0.22);
+    } else {
+      // Twiggy dead shrub: woody stems splayed, curled leaves clinging, a few dark berries.
+      const ns = 5;
+      for (let i = 0; i < ns; i++) {
+        const a = (i / ns) * Math.PI * 2 + r.next() * 0.5;
+        const h = (v === 0 ? 0.22 : 0.3) + r.next() * 0.1;
+        add(stalk(h, 0.013, 0.006, stem0, stem1, 0.08, 4), mat(0, 0, 0, 0, a, v === 0 ? 0.8 : 0.4));
+      }
       for (let i = 0; i < 5; i++) {
         const a = r.next() * Math.PI * 2;
-        const y = (v === 0 ? 0.08 : 0.14) + r.next() * 0.1;
-        add(curled(0.09, 0.06), mat(Math.cos(a) * 0.08 + lean * 0.4, y, Math.sin(a) * 0.08, 0.6, a, 0));
+        add(curled(0.1, 0.07, -0.6, 0.9), mat(Math.cos(a) * 0.1, 0.12 + r.next() * 0.1, Math.sin(a) * 0.1, 0, a, 0));
       }
+      const bc = accent === 'berry' ? C(0x2e2c40) : C(0x4a3a2a);
+      for (let i = 0; i < 4; i++) {
+        const a = r.next() * Math.PI * 2;
+        add(berry(0.02, bc), mat(Math.cos(a) * 0.09, 0.14 + r.next() * 0.08, Math.sin(a) * 0.09), 'skin');
+      }
+      fallen(4, 0.24);
     }
-    // A couple of shrivelled fruits hanging on / dropped under the dead shrub.
-    for (let i = 0; i < (v === 2 ? 1 : 2); i++) {
-      const a = r.next() * Math.PI * 2;
-      const R = 0.028 + r.next() * 0.012;
-      const g = lumpyColored(R, C(r.next() < 0.6 ? 0x6a2a1c : 0x4a3a2a), r, 1, 0.3);
-      g.scale(1, 0.8, 1);
-      const hang = i === 0 && v !== 2;
-      add(g, mat(Math.cos(a) * (hang ? 0.07 : 0.15), hang ? 0.1 : R * 0.7, Math.sin(a) * (hang ? 0.07 : 0.15)), 'skin');
-    }
-    fallen(v === 2 ? 5 : 3, 0.22);
   } else {
-    // A slumped rosette of papery leaves; flat collapsed (0), leaning tuft (1) or a bare stub (2).
-    if (v === 2) {
-      add(stalk(0.12, 0.012, 0.007, brown0, straw1, 0.03, 4));
-      add(stalk(0.09, 0.009, 0.005, brown0, straw1, -0.05, 4), mat(0, 0, 0, 0, 1.3, 0.4));
-      fallen(5, 0.2);
-    } else {
-      const lift = v === 0 ? 0.12 : 0.55;
-      rosette(add, r, 6, 0.17, 0.1, { shape: 'lance', lift, bend: 0.9, fold: 0.5, ruffle: 0.3, c0: straw0, c1: straw1, segs: 4 }, 0, 0.01);
-      if (v === 1) add(stalk(0.2, 0.012, 0.006, brown0, straw1, 0.12, 4));
-      fallen(2, 0.2);
-    }
+    // A slumped rosette of dead leaves flat on the soil (0) or a leaning tuft (1).
+    const lift = v === 0 ? 0.08 : 0.5;
+    rosette(add, r, 6, 0.19, 0.11, { shape: 'lance', lift, bend: 1.0, fold: 0.5, ruffle: 0.35, c0: leaf0, c1: leaf1, segs: 4 }, 0, 0.01);
+    add(stalk(v === 1 ? 0.22 : 0.12, 0.013, 0.007, stem0, stem1, 0.12, 4));
+    fallen(2, 0.2);
   }
   const out = new Map<Bucket, THREE.BufferGeometry>();
   for (const [k, g] of b.geometries()) {
@@ -1932,13 +1981,14 @@ export class CropVisuals {
   }
 
   addWithered(x: number, y: number, z: number, seed: number, trellised: boolean, id?: CropId): CropHandle {
-    const v = seed % 3;
+    const v = seed % 2;
     const kind = id ? witherKind(id) : 'leafy';
-    const set = this.special(`withered:${trellised ? 't' : kind}:${v}`, () => buildWithered(new Rng(`withered:${kind}:${v}`), trellised, kind, v), true);
-    const s = (kind === 'tall' ? 1.3 : 1.4) * (0.88 + ((seed >> 3) % 24) / 100);
-    // Straw-gold to grey-brown, a little lighter / darker per plant.
+    const accent = kind === 'vine' || kind === 'bush' ? witherAccent(id) : 'plain';
+    const set = this.special(`withered:${trellised ? 't' : `${kind}:${accent}`}:${v}`, () => buildWithered(new Rng(`withered:${kind}:${accent}:${v}`), trellised, kind, v, accent), true);
+    const s = (kind === 'tall' ? 1.3 : 1.45) * (0.9 + ((seed >> 3) % 20) / 100);
+    // Grey-brown, a little lighter / darker and warmer / cooler per plant.
     const h = ((seed >> 7) % 100) / 100;
-    const tint = new THREE.Color().setRGB(1, 0.96, 0.86).lerp(new THREE.Color(0.82, 0.8, 0.78), h).multiplyScalar(0.86 + (((seed >> 11) % 30) / 100));
+    const tint = new THREE.Color().setRGB(1, 0.97, 0.92).lerp(new THREE.Color(0.9, 0.9, 0.9), h).multiplyScalar(0.9 + (((seed >> 11) % 24) / 100));
     return this.place(set, new THREE.Vector3(x, y, z), trellised ? 0 : ((seed % 360) * Math.PI) / 180, new THREE.Vector3(s, s * (0.9 + ((seed >> 5) % 20) / 100), s), tint);
   }
 

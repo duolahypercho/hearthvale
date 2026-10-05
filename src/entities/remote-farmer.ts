@@ -669,7 +669,8 @@ export class RemoteFarmer {
       const sc = 1 - d.t * 0.45;
       const sp = d.v.length();
       _dq.setFromUnitVectors(_up, _dv.copy(d.v).divideScalar(Math.max(1e-3, sp)));
-      _ds.set(sc * 0.82, sc * (1.6 + Math.min(3.4, sp * 0.95)), sc * 0.82);
+      // (Capped stretch: a long stretch on fast falling drops read as one tall glass rod.)
+      _ds.set(sc * 0.9, sc * (1.3 + Math.min(1.3, sp * 0.3)), sc * 0.9);
       _dm.compose(d.p, _dq, _ds);
       mesh.setMatrixAt(n++, _dm);
     }
@@ -869,7 +870,7 @@ export class RemoteFarmer {
 }
 
 const BLOB_GEO = new THREE.CircleGeometry(0.42, 24);
-const DROP_GEO = new THREE.SphereGeometry(0.046, 6, 4);
+const DROP_GEO = new THREE.SphereGeometry(0.022, 6, 4);
 const DROP_MAT = new THREE.MeshStandardMaterial({ color: 0xa8dcff, roughness: 0.15, transparent: true, opacity: 0.85, emissive: 0x2a5a80, emissiveIntensity: 0.25 });
 const _fw = new THREE.Vector3();
 const _dm = new THREE.Matrix4();

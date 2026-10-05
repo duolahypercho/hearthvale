@@ -519,7 +519,10 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
   side-on, frozen just after impact), `farm-water`, `farm-pop` (produce held up with a gold star; `&quality=0..3`),
   `farm-slam` (tier-3 charged hoe), `farm-crows` (a raid in progress: crows pecking, feathers, a chewed stub;
-  `&raid=fly` = crows flying in), `farm-wither`, `farm-field`.
+  `&raid=fly` = crows flying in), `farm-wither` (per-crop dead silhouettes: staked tomato, slumped pepper, caved-in
+  melon / pumpkin on a collapsed vine mat), `farm-field`, `farm-lift` (two-hand chest hug of a melon),
+  `farm-sprinkler`, `farm-crops-all` (all 19 crops × 6 stages, every season, farmer out of frame; `&crops=all` on
+  any gallery).
   Params: `&tool=hoe|wateringCan|scythe|axe|pickaxe|sow|harvest|charge`, `&pose=<s>` freezes the action at s seconds
   (`__game.game.services.farming.scrub(t)` advances a frozen pose), `&loop=<tool>` repeats the action,
   `&slow=0.25` slow motion (so `--frames 8 --every 80` spans a whole swing), `&tier=0..3`.

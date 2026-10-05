@@ -79,15 +79,16 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.32, ease: 'out', aR: [-1.2, 0.45], aL: [-0.7, 0.1], torso: [0.15, -1.15, -0.05], sy: 0.97, tool: [Math.PI / 2, 0, -1.35] },
     { t: 0.56, ease: 'inout' },
   ],
-  // The can comes up and out in front (the rose held high), then tips: a long, readable arc.
-  // Arms reach well out in front (a touch of stretch) so the rose sits clear of the toes; the can
-  // tips forward only, its yaw locked to the facing (see apply), the stream arcing out to the tile.
+  // Two-hand pour: the can is carried by its top handle well out in front at hip height (in the
+  // camera-side hand, see `start`), the free hand steadying its belly from below; it tips ~35°
+  // about the farmer's own left-right axis, rolling forward off the body (never into the bib), so
+  // the rose points along the facing and the droplets arc out to the tile.
   pour: [
     { t: 0 },
-    { t: 0.2, ease: 'back', aR: [-1.62, -0.12], aL: [-1.3, 0.3], torso: [0.08, 0, 0], sy: 0.98, level: 0 },
-    { t: 0.32, ease: 'inout', aR: [-1.66, -0.12], aL: [-1.32, 0.3], torso: [0.12, 0, 0], sy: 0.99, level: 0.72 },
-    { t: 0.72, ease: 'linear', aR: [-1.7, -0.1], aL: [-1.36, 0.3], torso: [0.14, 0, 0], sy: 0.99, level: 0.8 },
-    { t: 0.84, ease: 'inout', aR: [-1.5, -0.14], aL: [-1.2, 0.28], torso: [0.08, 0, 0], sy: 1.0, level: 0 },
+    { t: 0.2, ease: 'back', aR: [-1.05, -0.14], aL: [-0.82, 0.6], torso: [0.1, 0, 0], head: 0.08, sy: 0.97, level: 0, reach: 1.3 },
+    { t: 0.32, ease: 'inout', aR: [-1.12, -0.14], aL: [-0.9, 0.6], torso: [0.14, 0, 0], head: 0.12, sy: 0.98, level: 0.66, reach: 1.32 },
+    { t: 0.72, ease: 'linear', aR: [-1.15, -0.14], aL: [-0.92, 0.6], torso: [0.15, 0, 0], head: 0.12, sy: 0.98, level: 0.72, reach: 1.32 },
+    { t: 0.84, ease: 'inout', aR: [-0.9, -0.14], aL: [-0.6, 0.45], torso: [0.06, 0, 0], sy: 1.0, level: 0, reach: 1.2 },
     { t: 1.05, ease: 'inout' },
   ],
   refill: [
@@ -122,28 +123,31 @@ const TRACKS: Record<ActionKind, Key[]> = {
   // head tilts BACK (face up) so the big hat never covers the farmer from the high camera.
   pull: [
     { t: 0 },
-    { t: 0.13, ease: 'out', aR: [-0.95, -0.1], aL: [-0.95, 0.1], torso: [0.3, 0, 0], head: -0.22, sy: 0.82, bob: -0.07 },
-    { t: 0.26, ease: 'back', aR: [0.12, 2.45], aL: [-0.3, -0.62], torso: [-0.1, 0, -0.1], head: -0.1, sy: 1.08, bob: 0.05, reach: 1.5 },
-    { t: 0.36, ease: 'out', aR: [0.1, 2.38], aL: [-0.26, -0.55], torso: [-0.06, 0, -0.08], head: -0.12, sy: 0.97, bob: 0.0, reach: 1.46 },
-    // Held up until the produce has zipped off to the backpack (pop leaves at ~0.82 s).
-    { t: 0.92, ease: 'linear', aR: [0.08, 2.34], aL: [-0.24, -0.52], torso: [-0.04, 0, -0.07], head: -0.1, sy: 1.0, reach: 1.44 },
-    { t: 1.12, ease: 'inout' },
+    { t: 0.11, ease: 'out', aR: [-0.95, -0.1], aL: [-0.95, 0.1], torso: [0.35, 0, 0], head: -0.22, sy: 0.8, bob: -0.075 },
+    // Held crouch (two frames of anticipation: knees bent, torso pitched ~20° over the crop).
+    { t: 0.19, ease: 'linear', aR: [-1.0, -0.1], aL: [-1.0, 0.1], torso: [0.36, 0, 0], head: -0.2, sy: 0.79, bob: -0.08 },
+    { t: 0.3, ease: 'back', aR: [0.12, 2.45], aL: [-0.3, -0.62], torso: [-0.1, 0, -0.1], head: -0.1, sy: 1.08, bob: 0.05, reach: 1.5 },
+    { t: 0.4, ease: 'out', aR: [0.1, 2.38], aL: [-0.26, -0.55], torso: [-0.06, 0, -0.08], head: -0.12, sy: 0.97, bob: 0.0, reach: 1.46 },
+    // Held up until the produce zips off to the backpack (it leaves at ~0.82 s); the arm drops
+    // with it (no empty hand left hanging in the air).
+    { t: 0.83, ease: 'linear', aR: [0.08, 2.34], aL: [-0.24, -0.52], torso: [-0.04, 0, -0.07], head: -0.1, sy: 1.0, reach: 1.44 },
+    { t: 1.04, ease: 'inout' },
   ],
-  // Big produce (melon, pumpkin, cauliflower): squat, heave it up, then hold it overhead with
-  // BOTH hands — the classic "look what I grew" — knees giving a little under the weight.
+  // Big produce (melon, pumpkin, cauliflower): squat and hold the crouch, heave, then hug it up in
+  // front of the chest with BOTH palms pressed on its sides (the produce sits between the hands,
+  // under the chin — the face stays clear above it), leaning back a touch under the weight.
   lift: [
     { t: 0 },
-    { t: 0.14, ease: 'out', aR: [-1.0, -0.3], aL: [-1.0, 0.3], torso: [0.3, 0, 0], head: -0.22, sy: 0.8, bob: -0.08 },
-    // Arms stretch (cartoon reach) up and out in a V past the big head (both visible beside the hat),
-    // the prize sits ABOVE the hat between the palms — never in front of the face.
-    { t: 0.3, ease: 'back', aR: [-2.92, 0.42], aL: [-2.92, -0.42], torso: [-0.08, 0, 0], head: -0.16, sy: 1.1, bob: 0.06, reach: 2.2 },
-    { t: 0.42, ease: 'out', aR: [-2.9, 0.4], aL: [-2.9, -0.4], torso: [-0.05, 0, 0], head: -0.14, sy: 0.94, bob: -0.02, reach: 2.1 },
-    { t: 0.94, ease: 'linear', aR: [-2.88, 0.4], aL: [-2.88, -0.4], torso: [-0.04, 0, 0], head: -0.12, sy: 0.98, reach: 2.1 },
-    { t: 1.16, ease: 'inout' },
+    { t: 0.12, ease: 'out', aR: [-1.0, 0.2], aL: [-1.0, -0.2], torso: [0.36, 0, 0], head: -0.2, sy: 0.8, bob: -0.08 },
+    { t: 0.22, ease: 'linear', aR: [-1.05, 0.2], aL: [-1.05, -0.2], torso: [0.37, 0, 0], head: -0.2, sy: 0.78, bob: -0.085 },
+    { t: 0.38, ease: 'back', aR: [-1.94, 0.18], aL: [-1.94, -0.18], torso: [-0.14, 0, 0], head: -0.22, sy: 1.08, bob: 0.06, reach: 1.4 },
+    { t: 0.5, ease: 'out', aR: [-1.86, 0.17], aL: [-1.86, -0.17], torso: [-0.1, 0, 0], head: -0.18, sy: 0.95, bob: -0.01, reach: 1.38 },
+    { t: 1.02, ease: 'linear', aR: [-1.84, 0.17], aL: [-1.84, -0.17], torso: [-0.09, 0, 0], head: -0.17, sy: 0.99, reach: 1.38 },
+    { t: 1.24, ease: 'inout' },
   ],
 };
 
-export const IMPACT: Record<ActionKind, number> = { chop: 0.27, slam: 0.22, sweep: 0.2, pour: 0.3, refill: 0.24, sow: 0.19, place: 0.2, pull: 0.2, lift: 0.22, shrug: 0.36 };
+export const IMPACT: Record<ActionKind, number> = { chop: 0.27, slam: 0.22, sweep: 0.2, pour: 0.3, refill: 0.24, sow: 0.19, place: 0.2, pull: 0.2, lift: 0.24, shrug: 0.36 };
 
 function ease(k: Key['ease'], t: number): number {
   switch (k) {
@@ -187,6 +191,10 @@ const _X = new THREE.Vector3(1, 0, 0);
 const _q0 = new THREE.Quaternion();
 const _q1 = new THREE.Quaternion();
 const _qOut = new THREE.Quaternion();
+const _qAim = new THREE.Quaternion();
+const _qId = new THREE.Quaternion();
+const _aT = new THREE.Vector3();
+const _aB = new THREE.Vector3();
 
 export interface ActionOpts {
   tool?: THREE.Object3D | null;
@@ -199,6 +207,11 @@ export interface ActionOpts {
   speed?: number;
   /** Freeze the whole action at this time (seconds) — for demo stills. */
   freezeAt?: number;
+  /**
+   * Blade-tip IK: around the impact the held tool is turned (and slid along its handle) so the
+   * tool-local point `local` lands exactly on `target` (world) — the hoe bites the tile centre.
+   */
+  aim?: { target: THREE.Vector3; local: THREE.Vector3 };
 }
 
 interface Active {
@@ -226,6 +239,8 @@ export class FarmerActions {
    */
   side = 1;
   private hatK = 1;
+  /** The can is carried in the LEFT hand (a pour on the camera's left side): arms swap roles. */
+  private leftHand = false;
 
   constructor(private player: Player) {
     this.rig = player.rig;
@@ -280,8 +295,17 @@ export class FarmerActions {
       prev = p;
     }
     this.charging = null;
+    // The can goes in the camera-side hand (never carried behind the body, never crossing it).
+    this.setHand((kind === 'pour' || kind === 'refill') && this.side < 0);
     this.cur = { kind, t: 0, keys, times: track, opts, fired: false, dur: track[track.length - 1]!.t };
     this.player.busy = true;
+  }
+
+  private setHand(left: boolean): void {
+    if (this.leftHand === left) return;
+    this.leftHand = left;
+    const arm = left ? this.rig.armL : this.rig.armR;
+    arm.add(this.rig.tool);
   }
 
   /** Freeze the running action when it reaches `t` seconds (demo stills). */
@@ -292,6 +316,7 @@ export class FarmerActions {
   /** Enter the hold-to-charge pose (tool raised, trembling). */
   charge(): void {
     this.cur = null;
+    this.setHand(false);
     this.charging = { t: 0, level: 0, tool: this.held };
     this.player.busy = true;
   }
@@ -323,11 +348,13 @@ export class FarmerActions {
     for (const t of times) {
       a.t = t;
       this.apply(this.rig, this.sample(a));
+      this.aimTool(a, t);
       locals.forEach((l, i) => this.toolPoint(l, pts[i]));
       each(pts);
     }
     a.t = now;
     this.apply(this.rig, this.sample(a));
+    this.aimTool(a, now);
   }
 
   /** World direction of a tool-local axis. */
@@ -343,10 +370,18 @@ export class FarmerActions {
     const sd = this.side;
     // Mirror about the rest pose: the arm roll offsets, torso twist / lean and tool roll flip sides.
     const mz = (v: number, rest: number): number => (sd > 0 ? v : rest - (v - rest));
-    R.x = lerp(R.x, p.aR[0], w);
-    R.z = lerp(R.z, mz(p.aR[1], REST.aR[1]), w);
-    L.x = lerp(L.x, p.aL[0], w);
-    L.z = lerp(L.z, mz(p.aL[1], REST.aL[1]), w);
+    if (this.leftHand) {
+      // Left-hand carry: an exact mirror (the "right" keys drive the left arm and vice versa).
+      L.x = lerp(L.x, p.aR[0], w);
+      L.z = lerp(L.z, -p.aR[1], w);
+      R.x = lerp(R.x, p.aL[0], w);
+      R.z = lerp(R.z, -p.aL[1], w);
+    } else {
+      R.x = lerp(R.x, p.aR[0], w);
+      R.z = lerp(R.z, mz(p.aR[1], REST.aR[1]), w);
+      L.x = lerp(L.x, p.aL[0], w);
+      L.z = lerp(L.z, mz(p.aL[1], REST.aL[1]), w);
+    }
     rig.torso.rotation.x = lerp(rig.torso.rotation.x, p.torso[0], w);
     rig.torso.rotation.y = lerp(rig.torso.rotation.y, p.torso[1] * sd, w);
     rig.torso.rotation.z = lerp(rig.torso.rotation.z, p.torso[2] * sd, w);
@@ -369,9 +404,13 @@ export class FarmerActions {
       // The can's orientation is set in the torso frame (undo the arm's pitch AND roll exactly), so
       // it only ever tips forward about the farmer's own left-right axis: the rose stays pointed
       // along the facing direction for the whole pour (never swings round to face the camera).
-      _qArm.setFromEuler(_eArm.set(R.x, R.y, R.z, R.order)).invert();
+      const H = this.leftHand ? L : R;
+      _qArm.setFromEuler(_eArm.set(H.x, H.y, H.z, H.order)).invert();
       _qTip.setFromAxisAngle(_X, p.level * 0.95);
       tool.quaternion.copy(_qArm).multiply(_qTip);
+      // Tipping about the handle swings the can's body back toward the farmer: roll it forward
+      // (torso frame) by the same amount so it tips over its own belly, clear of the overalls.
+      if (p.level > 0) tool.position.add(GRIP_V.set(0, 0.04 * p.level, 0.2 * p.level).applyQuaternion(_qArm));
     } else if (p.toolQ) {
       tool.quaternion.copy(p.toolQ);
     } else if (p.tool) {
@@ -385,6 +424,39 @@ export class FarmerActions {
     rig.legL.rotation.x = lerp(rig.legL.rotation.x, -brace, w);
     rig.legR.rotation.x = lerp(rig.legR.rotation.x, brace * 0.6, w);
     return { sy: lerp(1, p.sy, w), bob: p.bob * w };
+  }
+
+  /** Weight of the blade-tip IK at action time t: ramps in through the downswing, holds, releases. */
+  private aimWeight(a: Active, t: number): number {
+    const imp = IMPACT[a.kind];
+    const ss = THREE.MathUtils.smoothstep;
+    return ss(t, imp - 0.07, imp - 0.005) * (1 - ss(t, imp + 0.16, imp + 0.32));
+  }
+
+  private aimTool(a: Active, t: number): void {
+    const aim = a.opts.aim;
+    if (!aim) return;
+    const w = this.aimWeight(a, t);
+    if (w <= 0.001) return;
+    const tool = this.rig.tool;
+    const parent = tool.parent;
+    if (!parent) return;
+    parent.updateWorldMatrix(true, false);
+    _aT.copy(aim.target);
+    parent.worldToLocal(_aT);
+    _aB.copy(aim.local).applyQuaternion(tool.quaternion);
+    const L0 = _aB.length();
+    _aT.sub(tool.position);
+    const L1 = _aT.length();
+    if (L0 < 1e-4 || L1 < 1e-4) return;
+    _aB.divideScalar(L0);
+    _aT.divideScalar(L1);
+    _qAim.setFromUnitVectors(_aB, _aT);
+    _qAim.slerpQuaternions(_qId, _qAim, w);
+    tool.quaternion.premultiply(_qAim);
+    // Slide the grip along the (new) blade direction to close the length gap (bounded).
+    const slide = THREE.MathUtils.clamp(L1 - L0, -0.3, 0.3) * w;
+    tool.position.addScaledVector(_aT, slide);
   }
 
   private sample(a: Active): Pose {
@@ -481,6 +553,7 @@ export class FarmerActions {
     }
     rig.tool.visible = !!this.held;
     const pose = this.apply(rig, this.sample(a));
+    this.aimTool(a, a.t);
     // After the pose is applied: toolPoint() now reads this frame's arm + tool transforms (the
     // player's idle animation overwrites the arms before actionPose runs).
     a.opts.onUpdate?.(a.t);
