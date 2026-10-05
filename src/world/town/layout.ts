@@ -97,6 +97,7 @@ export const NEW_BUILDINGS: NewBuilding[] = [
 
 export type ExtraPropKind =
   | 'scaffold'
+  | 'hallBanner'
   | 'stall'
   | 'lamp'
   | 'lampLit'
@@ -154,6 +155,9 @@ export const EXTRA_PROPS: ExtraProp[] = [
   // square shot): a timber scaffold with a tarp and the townsfolk's paint pots over the west window
   // — story, not neglect.
   { kind: 'scaffold', x: 28.67, z: 12.5, rot: 0, solid: [[27, 12], [28, 12], [29, 12]] },
+  // …and over the east window a 'Relight the Hall' banner (r7 blind judge: the boards' red X read as
+  // a placeholder / error marker).
+  { kind: 'hallBanner', x: 35.33, z: 11.95, rot: 0, noShadow: true },
   // Market row on the east road.
   { kind: 'stall', x: 50.4, z: 21.3, rot: 0, goods: 'produce', colors: [0xd8573e, 0xf6ecd8], solid: [[49, 21], [50, 21], [51, 21]] },
   { kind: 'stall', x: 55.8, z: 21.5, rot: 0.08, goods: 'flowers', colors: [0x8a5ab0, 0xf6ecd8], solid: [[54, 21], [55, 21], [56, 21]] },
@@ -384,7 +388,7 @@ const PLAZA_C = { x: 32, z: 25, r: 7.6 };
 const post = (deg: number): [number, number] => [PLAZA_C.x + Math.cos((deg * Math.PI) / 180) * PLAZA_C.r, PLAZA_C.z + Math.sin((deg * Math.PI) / 180) * PLAZA_C.r];
 const [SE, SW, NW, NE] = [post(30), post(150), post(210), post(330)];
 /** Mast top on a plaza lamp post (m above ground). */
-const MAST = 3.05;
+const MAST = 3.45;
 /** Festoon pole top (m above ground). */
 const POLE = 3.3;
 
@@ -407,8 +411,10 @@ export const FESTOON_MASTS: [number, number][] = [SE, SW, NW, NE];
  */
 export const FESTOON_SPANS: { a: [number, number, number]; b: [number, number, number]; sag: number }[] = [
   // Across the plaza, north and south of the fountain (mast to mast, across the view).
-  { a: [NW[0], MAST, NW[1]], b: [NE[0], MAST, NE[1]], sag: 0.34 },
-  { a: [SE[0], MAST, SE[1]], b: [SW[0], MAST, SW[1]], sag: 0.34 },
+  // (r7: masts up 0.4 m, flatter sag — the lowest bulb sits ~3.2 m, well over the tallest head, so the
+  // wires stop slicing faces from the high lens)
+  { a: [NW[0], MAST, NW[1]], b: [NE[0], MAST, NE[1]], sag: 0.24 },
+  { a: [SE[0], MAST, SE[1]], b: [SW[0], MAST, SW[1]], sag: 0.24 },
   // Shop-front corners (under the eaves) out to the north masts.
   { a: [24.35, 3.2, 18.45], b: [NW[0], MAST, NW[1]], sag: 0.14 },
   { a: [39.65, 3.15, 18.45], b: [NE[0], MAST, NE[1]], sag: 0.14 },

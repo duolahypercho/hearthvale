@@ -76,6 +76,7 @@ import {
   buildRowboat,
   buildSawhorse,
   buildScaffold,
+  buildHallBanner,
   buildLumber,
   buildLogPile,
   buildSacks,
@@ -676,6 +677,9 @@ export class TownMap implements GameMap {
           break;
         case 'scaffold':
           g = buildScaffold(r);
+          break;
+        case 'hallBanner':
+          g = buildHallBanner();
           break;
         case 'lumber':
           g = buildLumber(r);

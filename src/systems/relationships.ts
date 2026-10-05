@@ -43,6 +43,11 @@ export interface RelationshipApi {
   meet(npcId: string): void;
   /** Host: a farmhand's friendship points as the host keeps them (co-op authority). */
   remotePoints(from: number, npcId: string): number;
+  /**
+   * Farmhand: a gift sent to the host and not acknowledged yet (its predicted points are NOT in the
+   * ledger until the host's r.set confirms it; rolled back — item returned — after GIFT_ACK_MS).
+   */
+  pendingGift(npcId: string): { itemId: string; points: number } | null;
 }
 
 declare module '../core/game' {
@@ -59,6 +64,8 @@ declare module '../core/events' {
     'npc:choice': { npcId: string; delta: number };
     /** Morning announcement: it's this villager's birthday. */
     'npc:birthday': { npcId: string };
+    /** Farmhand: a gift is waiting on the host (on) / was confirmed or rolled back (off, ok). */
+    'relationship:pending': { npcId: string; on: boolean; ok?: boolean };
     /** Host only: a farmhand's gift the host accepted (from = their player id). */
     'npc:gift-remote': { npcId: string; itemId: string; reaction: 'love' | 'like' | 'neutral' | 'dislike'; from: number };
   }
@@ -68,6 +75,8 @@ export const PER_HEART = 250;
 const TALK_POINTS = 20;
 const BASE: Record<GiftReaction, number> = { love: 80, like: 45, neutral: 20, dislike: -20 };
 const THREE_CLAMP = (v: number, a: number, b: number): number => Math.max(a, Math.min(b, v));
+/** A farmhand's unacknowledged gift is rolled back after this long (r7: no local gain without the host). */
+const GIFT_ACK_MS = 9000;
 
 interface Friend {
   points: number;
@@ -204,10 +213,38 @@ export class RelationshipSystem implements System, RelationshipApi {
     f.giftedToday = true;
     f.giftsWeek++;
     this.game.services.inventory?.remove(itemId, 1);
-    this.addPoints(id, BASE[reaction] * mult);
+    if (this.role() === 'client') {
+      // r7 (co-op critic: the farmhand kept +20 the host never granted): the villager reacts at once,
+      // but the points wait for the host's word — a pending ghost on the heart row until r.set acks.
+      const pts = BASE[reaction] * mult;
+      this.pending.set(id, { itemId, points: pts, at: performance.now() });
+      this.game.events.emit('relationship:pending', { npcId: id, on: true });
+      window.setTimeout(() => this.expire(id), GIFT_ACK_MS + 50);
+      this.net()!.sendExt('host', ['r.gift', NPC_IDS.indexOf(id as NpcId), itemId]);
+    } else this.addPoints(id, BASE[reaction] * mult);
     this.game.events.emit('npc:gift', { npcId: id, itemId, reaction });
-    if (this.role() === 'client') this.net()!.sendExt('host', ['r.gift', NPC_IDS.indexOf(id as NpcId), itemId]);
     return reaction;
+  }
+
+  private pending = new Map<string, { itemId: string; points: number; at: number }>();
+  pendingGift(id: string): { itemId: string; points: number } | null {
+    const p = this.pending.get(id);
+    return p ? { itemId: p.itemId, points: p.points } : null;
+  }
+
+  /** No ack in time (host gone, link dropped): undo the predicted lock and hand the item back. */
+  private expire(id: string): void {
+    const p = this.pending.get(id);
+    if (!p || performance.now() - p.at < GIFT_ACK_MS) return;
+    this.pending.delete(id);
+    const f = this.friends[id];
+    if (f) {
+      f.giftedToday = false;
+      f.giftsWeek = Math.max(0, f.giftsWeek - 1);
+    }
+    this.game.services.inventory?.add(p.itemId, 1);
+    this.game.events.emit('relationship:pending', { npcId: id, on: false, ok: false });
+    this.game.events.emit('relationship:change', { npcId: id, points: this.points(id), hearts: this.hearts(id), delta: 0 });
   }
 
   // ───────────────────────────────────────────── co-op ledger (host-authoritative)
@@ -242,8 +279,15 @@ export class RelationshipSystem implements System, RelationshipApi {
       f.talks = Math.max(0, Number(data[3]) || 0);
       const flags = Number(data[4]) || 0;
       f.talkedToday = !!(flags & 1);
-      f.giftedToday = !!(flags & 2);
-      f.giftsWeek = Math.max(0, Number(data[5]) || 0);
+      const pend = this.pending.get(id);
+      if (pend && flags & 2) {
+        // The host's word on the gift: its points are now in `pts` (authoritative).
+        this.pending.delete(id);
+        this.game.events.emit('relationship:pending', { npcId: id, on: false, ok: true });
+      }
+      // (an older r.set still in flight keeps the predicted gift lock until the ack / the roll-back)
+      f.giftedToday = !!(flags & 2) || this.pending.has(id);
+      f.giftsWeek = Math.max(0, Number(data[5]) || 0) + (this.pending.has(id) && !(flags & 2) ? 1 : 0);
       if (f.points !== before) this.game.events.emit('relationship:change', { npcId: id, points: f.points, hearts: this.hearts(id), delta: f.points - before });
       return;
     }

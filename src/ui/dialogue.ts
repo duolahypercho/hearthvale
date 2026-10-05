@@ -14,7 +14,7 @@
  */
 import type { Game } from '../core/game';
 import type { Panel } from './hud';
-import { portraitSvg } from './portraits';
+import { portraitSvg, insertArt } from './portraits';
 import { NPCS, NPC_IDS, parseLine, type NpcId, type Mood, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
 
@@ -34,6 +34,11 @@ export interface DialogueBoxApi {
    * is the host's), labelled with the host's name; null hands the row back to the local ledger.
    */
   spectatorHearts?(id: NpcId, pts: number | null, who?: string): void;
+  /**
+   * Heart-event insert card (r7): a painted close-up of the thing the line is about (portraits
+   * insertArt kind) pinned left of the scene with a caption; null takes it down.
+   */
+  insert?(card: { kind: string; caption: string } | null): void;
 }
 
 declare module '../core/game' {
@@ -231,6 +236,36 @@ body.hv-dlg-open .hv-np { opacity: 0 !important; transition: opacity 200ms; }
 .hv-social .card .meta .box.on { background: #5fa83c; border-color: #3f7a2a; }
 .hv-social .card .meta .box.on::after { content: ''; width: 8px; height: 4px; border: solid #fff; border-width: 0 0 2.5px 2.5px; transform: rotate(-45deg) translate(1px, -1px); }
 .hv-social .card.bday { border-color: #e8674a; background: rgba(255, 236, 220, 0.8); }
+/* r7 co-op: a farmhand's unconfirmed gift — ghost hearts breathing until the host answers. */
+.hv-dialogue.dlg2 .dlg-hearts svg.ghost { animation: dlgGhost 0.9s ease-in-out infinite alternate; filter: drop-shadow(0 0 3px rgba(255, 150, 120, 0.8)); }
+@keyframes dlgGhost { from { opacity: 0.45; } to { opacity: 1; } }
+/* r7: heart-event insert card — a pinned, slightly tilted painted close-up of what the scene is about. */
+.dlg-insert { position: absolute; left: max(26px, 4.5vw); top: calc(4.6vh + 64px); width: 300px; z-index: 6; pointer-events: none; padding: 10px 10px 8px; border-radius: 6px;
+  background: linear-gradient(#fdf6e6, #f2e2c0); box-shadow: 0 0 0 3px #b07a42, 0 0 0 5px #5a2e14, 0 12px 26px rgba(30, 15, 5, 0.5); transform: rotate(-3.2deg); opacity: 0; visibility: hidden; }
+.dlg-insert.on { visibility: visible; animation: dlgInsIn 460ms var(--ease-back) both; }
+.dlg-insert.off { visibility: visible; animation: dlgInsOut 240ms ease-in both; }
+.dlg-insert .art svg { display: block; width: 280px; height: 210px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(90, 50, 20, 0.3); }
+.dlg-insert .cap { margin-top: 7px; text-align: center; font-family: var(--font-head); font-weight: 700; font-size: 19px; line-height: 23px; color: #5a2e14; }
+.dlg-insert .tape { position: absolute; left: 50%; top: -12px; width: 86px; height: 24px; margin-left: -43px; transform: rotate(4deg); background: rgba(246, 226, 170, 0.82); box-shadow: 0 1px 2px rgba(60, 30, 10, 0.25); }
+@keyframes dlgInsIn { from { opacity: 0; transform: rotate(-11deg) scale(0.6) translateY(18px); } to { opacity: 1; transform: rotate(-3.2deg) scale(1); } }
+@keyframes dlgInsOut { from { opacity: 1; transform: rotate(-3.2deg); } to { opacity: 0; transform: rotate(2deg) scale(0.9) translateY(10px); } }
+/* r7 box pass (critic: pale, low-contrast, two-thirds empty): a warmer amber parchment, darker ink,
+   bigger type; the gift ribbon rides under the name plaque at a readable size. */
+.hv-dialogue.dlg2 .dlg-box .hv-inner { background: var(--u-paper) 0 0 / 256px, radial-gradient(120% 140% at 30% 20%, #fbe3b4 0%, #f0cf92 55%, #e2b672 100%) !important; }
+.hv-dialogue.dlg2 .dlg-side > .hv-inner { background: var(--u-paper) 0 0 / 256px, radial-gradient(120% 90% at 50% 20%, #f8deae, #e8c184) !important; }
+.hv-dialogue.dlg2 .dlg-text { font-size: 34px; line-height: 47px; color: #3a1c0c; font-weight: 700; }
+.hv-dialogue.dlg2 .dlg-q { font-size: 26px; line-height: 34px; color: #3a1c0c; }
+.hv-dialogue.dlg2 .dlg-choice { font-size: 23px; }
+.hv-dialogue.dlg2 .dlg-ribbon { position: relative; top: auto; right: auto; order: 9; margin-top: 7px; max-width: 276px; font-size: 18px; line-height: 22px; padding: 4px 14px 4px 9px; transform: rotate(-1.5deg); }
+.hv-dialogue.dlg2 .dlg-ribbon svg { width: 22px; height: 22px; }
+/* r7: the text box hugs its text (min three lines) and the taller portrait card stands up out of the
+   frame's right end — no more two-thirds-empty parchment under a one-line remark. */
+.hv-dialogue.dlg2 { align-items: flex-end; }
+.hv-dialogue.dlg2 .dlg-box { align-self: flex-end; }
+.hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 205px; padding-top: 28px; padding-bottom: 26px; }
+.hv-dialogue.dlg2:not(.narr) .dlg-side { border-radius: 18px 18px 18px 0; border-left-width: 2px; margin-left: -2px; }
+.hv-dialogue.dlg2 .dlg-side::before { top: auto; height: 190px; bottom: 6px; }
+@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-text { font-size: 27px; line-height: 38px; } .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 170px; } .dlg-insert { width: 236px; } .dlg-insert .art svg { width: 216px; height: 162px; } }
 `;
 
 const HEART = (fill: number, key: string): string => {
@@ -251,7 +286,7 @@ const PER_HEART = 250;
 /** "Marigold", "Dr. Pell". */
 export const shortName = (name: string): string => (name.startsWith('Dr. ') ? `Dr. ${name.split(' ').pop()}` : name.split(' ')[0]!);
 
-type Step = { kind: 'line'; text: string; mood: Mood } | { kind: 'ask'; q: string; mood: Mood; options: { text: string; reply: string; mood?: Mood; delta: number }[] };
+type Step = { kind: 'line'; text: string; mood: Mood; delay?: number } | { kind: 'ask'; q: string; mood: Mood; options: { text: string; reply: string; mood?: Mood; delta: number }[] };
 
 /**
  * A painterly canvas texture (brush dabs + fine tooth), drawn once: laid over the portrait art in
@@ -366,7 +401,9 @@ export class DialoguePanel implements Panel {
     this.titleCard.className = 'dlg-title';
     this.toastEl = document.createElement('div');
     this.toastEl.className = 'hv-panel dlg-toast hv-hidden';
-    parent.append(this.letterbox, this.titleCard, this.toastEl);
+    this.insertEl = document.createElement('div');
+    this.insertEl.className = 'dlg-insert';
+    parent.append(this.letterbox, this.titleCard, this.toastEl, this.insertEl);
 
     this.el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
@@ -400,6 +437,9 @@ export class DialoguePanel implements Panel {
       this.hearts.classList.add(delta > 0 ? 'pulse' : 'shake');
       if (delta > 0) this.sprinkle(Math.min(6, 1 + Math.round(delta / 20)));
     });
+    game.events.on('relationship:pending', ({ npcId }) => {
+      if (npcId === this.npc && this.openFlag) this.renderHearts(npcId as NpcId);
+    });
     game.events.on('npc:birthday', ({ npcId }) => {
       const d = NPCS[npcId as NpcId];
       if (d) this.toast(d.look, d.portraitBg, `It’s ${d.name.split(' ')[0]}’s birthday today!`);
@@ -411,6 +451,7 @@ export class DialoguePanel implements Panel {
       end: () => this.endScripted(),
       cinema: (on, title, sub) => this.cinema(on, title, sub),
       finishLine: () => this.finishLine(),
+      insert: (card) => this.insert(card),
     });
   }
 
@@ -473,7 +514,8 @@ export class DialoguePanel implements Panel {
     this.ribbon(REACT[reaction]![0], REACT[reaction]![1], `${name}`);
     const out: Step[] = [];
     const main = parseLine(def.giftLines[reaction]);
-    out.push({ kind: 'line', text: main.text, mood: main.mood });
+    // (the line waits for the gift's arc to land — r7 critic: every frame showed the finished line)
+    out.push({ kind: 'line', text: main.text, mood: main.mood, delay: 820 });
     if (birthday) {
       const b = parseLine(def.giftLines.birthday);
       out.push({ kind: 'line', text: b.text, mood: b.mood });
@@ -485,6 +527,10 @@ export class DialoguePanel implements Panel {
   private async runSteps(id: NpcId, steps: Step[], run: number): Promise<void> {
     for (const s of steps) {
       if (run !== this.runId || !this.openFlag) return;
+      if (s.kind === 'line' && s.delay) {
+        await new Promise<void>((r) => window.setTimeout(r, s.delay));
+        if (run !== this.runId || !this.openFlag) return;
+      }
       if (s.kind === 'line') await this.line_(id, s.text, s.mood);
       else {
         const i = await this.choice_(id, s.q, s.options.map((o) => o.text), s.mood);
@@ -525,7 +571,27 @@ export class DialoguePanel implements Panel {
 
   private endScripted(): void {
     this.scripted = false;
+    this.insert(null);
     this.hide();
+  }
+
+  private insertEl: HTMLElement;
+  private insertKey = '';
+  /** Pin / swap / take down the heart-event insert card (a re-pin of the same card keeps it still). */
+  insert(card: { kind: string; caption: string } | null): void {
+    const key = card ? `${card.kind}|${card.caption}` : '';
+    if (key === this.insertKey) return;
+    this.insertKey = key;
+    const art = card ? insertArt(card.kind) : null;
+    if (!card || !art) {
+      this.insertEl.classList.remove('on');
+      this.insertEl.classList.add('off');
+      return;
+    }
+    this.insertEl.innerHTML = `<div class="tape"></div><div class="art">${art}</div><div class="cap">${card.caption}</div>`;
+    this.insertEl.classList.remove('on', 'off');
+    void this.insertEl.offsetWidth;
+    this.insertEl.classList.add('on');
   }
 
   // ───────────────────────────────────────────── view
@@ -593,10 +659,20 @@ export class DialoguePanel implements Panel {
   private renderHearts(id: NpcId, prev = -1): void {
     const spec = this.specHearts && this.specHearts.id === id ? this.specHearts : null;
     const pts = spec ? spec.pts : (this.game.services.relationships?.points(id) ?? 0);
-    this.hearts.innerHTML = Array.from({ length: 10 }, (_, i) => HEART((pts - i * PER_HEART) / PER_HEART, `${id}${i}`)).join('');
+    // Co-op farmhand: a gift the host hasn't confirmed yet shows as a breathing ghost past the fill.
+    const pend = spec ? null : (this.game.services.relationships?.pendingGift?.(id) ?? null);
+    const shown = pts + Math.max(0, pend?.points ?? 0);
+    this.hearts.innerHTML = Array.from({ length: 10 }, (_, i) => HEART((shown - i * PER_HEART) / PER_HEART, `${id}${i}`)).join('');
     this.hearts.title = `${Math.floor(pts / PER_HEART)} / 10 hearts`;
-    this.hearts.dataset.spec = spec ? `${spec.who}'s friendship · ${Math.floor(pts / PER_HEART)}♥` : '';
-    this.hearts.classList.toggle('spec', !!spec);
+    if (pend && pend.points > 0) {
+      const svgs = this.hearts.querySelectorAll('svg');
+      const i0 = Math.floor(pts / PER_HEART);
+      const i1 = Math.min(9, Math.floor((pts + pend.points - 1) / PER_HEART));
+      for (let i = i0; i <= i1; i++) svgs[i]?.classList.add('ghost');
+    }
+    this.hearts.dataset.spec = spec ? `${spec.who}'s friendship · ${Math.floor(pts / PER_HEART)}♥` : pend ? 'Gift on its way to the host…' : '';
+    this.hearts.classList.toggle('spec', !!spec || !!pend);
+    this.hearts.classList.toggle('pending', !!pend);
     if (prev >= 0 && pts > prev) {
       // Pop the hearts whose fill changed (the newest last, a beat later).
       const svgs = this.hearts.querySelectorAll('svg');
@@ -645,6 +721,7 @@ export class DialoguePanel implements Panel {
   }
 
   cinema(on: boolean, title?: string, sub?: string): void {
+    if (!on) this.insert(null);
     this.letterbox.classList.toggle('on', on);
     this.game.hud.root.classList.toggle('hv-heartcine', on);
     this.el.classList.toggle('cine', on);

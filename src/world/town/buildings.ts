@@ -703,6 +703,108 @@ export function buildScaffold(rng: Rng): THREE.Group {
   return b.build({ name: 'scaffold' });
 }
 
+/**
+ * "Relight the Hall" banner for the Hall's east window (r7 blind judge: the boarded window's red X of
+ * planks read as a placeholder / error marker): a painted canvas banner on a rod hung from two iron
+ * brackets, a glowing lantern and hand lettering, tassels at the foot. Faces +Z, ~1.6 m wide.
+ */
+export function buildHallBanner(): THREE.Group {
+  const b = new MeshBuilder();
+  const W = 1.62;
+  const top = 3.42;
+  const H = 2.05;
+  // Rod + finials + wall brackets.
+  b.add('woodGrain', new THREE.CylinderGeometry(0.035, 0.035, W + 0.3, 8).rotateZ(Math.PI / 2), mat(0, top, 0.12), { tint: 0x7a5232 });
+  for (const sx of [-1, 1]) {
+    b.add('metal', new THREE.SphereGeometry(0.06, 8, 6), mat(sx * (W / 2 + 0.17), top, 0.12), { tint: 0xd8a84a });
+    b.add('metal', roundedBox(0.04, 0.04, 0.2, 0.01), mat(sx * (W / 2 - 0.05), top + 0.04, 0.04), { tint: 0x3a3a3e });
+  }
+  // Tassels at the two lower corners.
+  for (const sx of [-1, 1]) {
+    b.add('cloth', new THREE.ConeGeometry(0.045, 0.2, 6), mat(sx * (W / 2 - 0.05), top - H - 0.14, 0.15, Math.PI, 0, 0), { tint: 0xd8a84a });
+    b.add('cloth', new THREE.SphereGeometry(0.035, 6, 5), mat(sx * (W / 2 - 0.05), top - H - 0.03, 0.15), { tint: 0xc8412f });
+  }
+  const g = b.build({ name: 'hall-banner' });
+  // The banner itself: a gently swagged canvas with its own painted texture.
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 320;
+  const x = c.getContext('2d')!;
+  const gr = x.createLinearGradient(0, 0, 0, 320);
+  gr.addColorStop(0, '#2f5a4a');
+  gr.addColorStop(1, '#244a3c');
+  x.fillStyle = gr;
+  x.fillRect(0, 0, 256, 320);
+  x.strokeStyle = '#e8c86a';
+  x.lineWidth = 6;
+  x.strokeRect(12, 12, 232, 270);
+  // Swallowtail foot.
+  x.fillStyle = 'rgba(0,0,0,0)';
+  x.clearRect(0, 290, 256, 30);
+  x.fillStyle = '#244a3c';
+  x.beginPath();
+  x.moveTo(0, 288);
+  x.lineTo(256, 288);
+  x.lineTo(256, 320);
+  x.lineTo(128, 296);
+  x.lineTo(0, 320);
+  x.closePath();
+  x.fill();
+  // Lantern with a warm glow.
+  const glow = x.createRadialGradient(128, 112, 6, 128, 112, 70);
+  glow.addColorStop(0, 'rgba(255,214,120,0.95)');
+  glow.addColorStop(1, 'rgba(255,214,120,0)');
+  x.fillStyle = glow;
+  x.fillRect(40, 30, 176, 170);
+  x.fillStyle = '#3a2a1e';
+  x.fillRect(118, 52, 20, 10);
+  x.beginPath();
+  x.moveTo(98, 70);
+  x.lineTo(158, 70);
+  x.lineTo(150, 150);
+  x.lineTo(106, 150);
+  x.closePath();
+  x.fill();
+  x.fillStyle = '#ffd86a';
+  x.beginPath();
+  x.moveTo(106, 78);
+  x.lineTo(150, 78);
+  x.lineTo(144, 142);
+  x.lineTo(112, 142);
+  x.closePath();
+  x.fill();
+  x.fillStyle = '#ff9a3a';
+  x.beginPath();
+  x.ellipse(128, 116, 8, 16, 0, 0, Math.PI * 2);
+  x.fill();
+  x.fillStyle = '#f6ecd2';
+  x.textAlign = 'center';
+  x.font = '700 38px Fredoka, Nunito, sans-serif';
+  x.fillText('RELIGHT', 128, 202);
+  x.fillText('THE HALL', 128, 242);
+  x.font = '700 18px Nunito, sans-serif';
+  x.fillStyle = '#e8c86a';
+  x.fillText('♥ friends of the hall ♥', 128, 272);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  const geo = new THREE.PlaneGeometry(W, H, 6, 8);
+  const pa = geo.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pa.count; i++) {
+    const px = pa.getX(i);
+    const py = pa.getY(i);
+    // A soft belly in the cloth and a ripple across it.
+    pa.setZ(i, 0.05 * (1 - (2 * px / W) ** 2) * (0.5 - py / H) + Math.sin(px * 7 + py * 2) * 0.012);
+  }
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, applyWorldFx(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, transparent: false, alphaTest: 0.5, side: THREE.DoubleSide })));
+  m.position.set(0, top - H / 2 - 0.02, 0.15);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return g;
+}
+
 export function buildSawhorse(rng: Rng): THREE.Group {
   const b = new MeshBuilder();
   b.add('woodGrain', roundedBox(1.2, 0.1, 0.12, 0.02), mat(0, 0.7, 0), { tint: 0xb89060 });

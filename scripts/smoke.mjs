@@ -165,6 +165,10 @@ try {
     // Town pod: the live talk lens is clear (no fountain / bystander heads in front, no buildings in
     // the sight lines) for every villager at 10:30; the dialogue card is each villager's own 3D model.
     out.talkCam = g.game.services.npcs?.auditTalk?.(10.5) ?? { checked: 0, fails: ['no audit'] };
+    // Town pod r7: heart-event staging audit (owner faces, sight lines, framing) and the portrait gate
+    // (hair over eyes / nose, painted hair colour vs the 3D look) fail npm test.
+    out.evAudit = g.game.services.npcs?.auditEvents?.() ?? { beats: 0, fails: ['no audit'] };
+    out.portraitAudit = g.game.services.npcs?.auditPortraits?.() ?? { checked: 0, fails: ['no audit'] };
     try {
       const P = await import('/src/ui/portraits.ts');
       const N = await import('/src/data/npcs.ts');
@@ -312,6 +316,8 @@ try {
   check('town map loads with villagers', r.townMap === 'town' && r.npcs >= 3, `${r.townMap}, ${r.npcs} npcs`);
   check('villagers never overlap (≥ 0.6 m at 9/12/15/18 h)', r.npcGaps.every((x) => x.d >= 0.6), r.npcGaps.map((x) => `${x.h}h ${x.d.toFixed(2)} ${x.a}/${x.b}`).join(', '));
   check('town: live talk lens clear for all villagers at 10:30 (auditTalk)', r.talkCam.checked >= 8 && r.talkCam.fails.length === 0, `${r.talkCam.checked} checked; ${r.talkCam.fails.join(' · ')}`);
+  check('town: heart-event staging audit clean (auditEvents)', r.evAudit.beats >= 40 && r.evAudit.fails.length === 0, `${r.evAudit.beats} beats; ${r.evAudit.fails.slice(0, 6).join(' · ')}`);
+  check('town: portraits pass the hair / colour gate (auditPortraits)', r.portraitAudit.checked >= 90 && r.portraitAudit.fails.length === 0, `${r.portraitAudit.checked} busts; ${r.portraitAudit.fails.slice(0, 6).join(' · ')}`);
   check('town: portraits are the villagers\' own 3D models (same look → same skin / hair)', r.portraits.length === 10 && r.portraits.every((p) => p.model && p.own), r.portraits.filter((p) => !p.model || !p.own).map((p) => p.id + (p.err ? ` ${p.err}` : '')).join(', '));
   check('render budget (town)', r.townPerf.ok, `${r.townPerf.drawCalls} calls, ${(r.townPerf.triangles / 1e6).toFixed(2)}M tris`);
   check('farm → town warp', r.warps.includes('town'));

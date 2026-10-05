@@ -103,6 +103,38 @@ export interface NpcLook {
   /** Brow thickness (1 = default) and arch (0 = straight, + = arched). */
   brow?: number;
   browArch?: number;
+  /** Face structure (r7 critic: ten faces from one template) — drives the 3D head, so the portrait too. */
+  fp?: FaceShape;
+}
+
+/**
+ * Per-villager face structure. Everything defaults to the chibi template (1 / 0); the crown stays
+ * put under the hair and the face grows / narrows below it, so hats and hair still fit.
+ */
+export interface FaceShape {
+  /** Face width (≤ 1 narrows the skull; > 1 adds cheek / jowl mass below the hair line). */
+  w?: number;
+  /** Face length (crown anchored: > 1 drops the chin). */
+  h?: number;
+  /** 0 = soft round jaw, 1 = broad square jaw. */
+  jaw?: number;
+  /** + = a pointed / jutting chin, − = a soft receding chin with a little double chin. */
+  chin?: number;
+  /** Eye size, spacing (1 = default) and height (fractions of the head radius, + = up). */
+  eye?: number;
+  gap?: number;
+  eyeY?: number;
+  nose?: 'button' | 'bulb' | 'long' | 'hook' | 'snub' | 'broad';
+  /** Mouth width (1 = default). */
+  mouth?: number;
+  /** Age lines 0..1: crow's feet (≥ .3), under-eye bags (≥ .55), smile folds (≥ .5), forehead (≥ .75). */
+  lines?: number;
+  /** Rosy cheek disc strength 0..1 (default .6; 0 = none). */
+  cheeks?: number;
+  /** Ear size (1 = default). */
+  ears?: number;
+  /** A cleft / dimpled chin line. */
+  cleft?: boolean;
 }
 
 export type Backdrop = 'shop' | 'bakery' | 'river' | 'forge' | 'clinic' | 'inn' | 'hall' | 'meadow' | 'workshop' | 'garden';
@@ -163,9 +195,14 @@ export interface HeartEvent {
    * shot pulls it into frame and auditEvents() fails if it is not on screen there.
    */
   subject?: { at: [number, number]; y?: number; label: string };
+  /**
+   * Insert cards (r7): a painted close-up of the thing the scene is about (ui/portraits insertArt
+   * kinds) pinned beside the dialogue while a line containing one of `word`'s '|'-separated words plays.
+   */
+  insert?: { kind: string; word: string; caption: string }[];
   /** Extra actors spawned for the scene (e.g. Pip the shop cat): at [x, z], height above ground. */
   props?: {
-    kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks';
+    kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks' | 'letter';
     at: [number, number];
     y?: number;
     rot?: number;
@@ -224,7 +261,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Marigold Thimble',
     role: 'Keeps Thimble & Pip’s general store',
     birthday: { season: 'spring', day: 11 },
-    look: { eyeShape: 'almond', lashes: true, brow: 0.7, browArch: 0.35, head: 0.94, skin: 0xf0c4a0, hair: 0xb8b0b4, hairStyle: 'bun', top: 0x8f6fb0, bottom: 0x5a4a6a, apron: 0xf2e6d0, glasses: true, scale: 0.9, build: 1.3, torso: 0.9, belly: 0.55, shoulders: 0.92, legs: 0.82, eyes: 0x6a8a4a, skirt: true, face: 'round', acc: ['wrinkles', 'earrings', 'keys'], shoes: 0x6a3a3a, backdrop: 'shop' },
+    look: { fp: { w: 1.1, h: 0.94, jaw: 0.15, chin: -0.5, eye: 0.84, gap: 1.04, nose: 'bulb', mouth: 0.86, lines: 0.8, cheeks: 0.9, ears: 1.1 }, eyeShape: 'almond', lashes: true, brow: 0.7, browArch: 0.35, head: 0.94, skin: 0xf0c4a0, hair: 0xb8b0b4, hairStyle: 'bun', top: 0x8f6fb0, bottom: 0x5a4a6a, apron: 0xf2e6d0, glasses: true, scale: 0.9, build: 1.3, torso: 0.9, belly: 0.55, shoulders: 0.92, legs: 0.82, eyes: 0x6a8a4a, skirt: true, face: 'round', acc: ['wrinkles', 'earrings', 'keys'], shoes: 0x6a3a3a, backdrop: 'shop' },
     walk: W(1.35, 0.42, 0.035, 0.06, 0.04, 0.35),
     home: 'general_store',
     portraitBg: [0xf6d9a8, 0xe8a888],
@@ -300,6 +337,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         cast: { marigold: ['store_front', 'down'], player: [[24.4, 22.4], 'left'] },
         camera: { x: 22.6, z: 21.4, yaw: -6, pitch: 42, distance: 15 },
         props: [{ kind: 'cat', at: [27.25, 19.62], y: 2.16, rot: 0.25, pose: 'curl', scale: 1.35 }],
+        insert: [{ kind: 'cat', word: 'notice board|tear it', caption: 'Pip, asleep on the Glimmerco flyer' }],
         script: [
           { emote: 'marigold', icon: 'question' },
           { say: 'marigold', text: 'Pip? Pip! …Oh, it’s you, dear. Have you seen a cat? Orange, round, judgmental?', mood: 'worried' },
@@ -332,6 +370,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         camera: { x: 27.9, z: 28.5, yaw: 155, pitch: 40, distance: 14 },
         // The ledger itself, open on her lap (r4 critic: "no ledger prop in sight").
         props: [{ kind: 'ledger', at: [0, 0], hold: ['marigold', 'lap'], word: 'tab' }],
+        insert: [{ kind: 'ledger', word: 'tab|paid in pie|page left', caption: 'Gran’s tab — every line “paid in pie”' }],
         script: [
           { act: 'marigold', activity: 'sit' },
           { wait: 0.8 },
@@ -360,7 +399,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Bram Oakhollow',
     role: 'Baker at The Hearth Oven',
     birthday: { season: 'fall', day: 3 },
-    look: { eyeShape: 'beady', brow: 1.6, browArch: 0.1, skin: 0xd9a07a, hair: 0x5a3a24, hairStyle: 'cap', top: 0xe4d9c6, bottom: 0x6a5a48, apron: 0xd8cbb0, beard: 'full', scale: 1.08, build: 1.5, belly: 1, shoulders: 1.12, torso: 1.06, hands: 1.35, head: 0.86, eyes: 0x5a3a24, face: 'square', legs: 0.84, acc: ['rollingpin'], shoes: 0x4a3222, backdrop: 'bakery' },
+    look: { fp: { w: 1.16, h: 0.94, jaw: 1, chin: -0.2, eye: 0.82, gap: 0.92, eyeY: 0.02, nose: 'broad', mouth: 1.12, lines: 0.35, cheeks: 0.85, ears: 1.15 }, eyeShape: 'beady', brow: 1.6, browArch: 0.1, skin: 0xd9a07a, hair: 0x5a3a24, hairStyle: 'cap', top: 0xe4d9c6, bottom: 0x6a5a48, apron: 0xd8cbb0, beard: 'full', scale: 1.08, build: 1.5, belly: 1, shoulders: 1.12, torso: 1.06, hands: 1.35, head: 0.86, eyes: 0x5a3a24, face: 'square', legs: 0.84, acc: ['rollingpin'], shoes: 0x4a3222, backdrop: 'bakery' },
     walk: W(1.4, 0.45, 0.03, 0.12, 0.0, 0.3),
     home: 'bakery',
     portraitBg: [0xf4d49a, 0xe89a5a],
@@ -422,6 +461,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [6, 12],
         cast: { bram: ['bakery_front', 'down'], player: [[40.6, 22.4], 'right'] },
         camera: { x: 42.4, z: 21.4, yaw: 4, pitch: 42, distance: 14 },
+        insert: [{ kind: 'loaf', word: 'charcoal|bread|smoke', caption: 'Charcoal rye (decorative)' }],
         script: [
           { emote: 'bram', icon: 'sweat' },
           { say: 'bram', text: 'Don’t come in! Don’t — the smoke is decorative. It’s a new… style. Of bread.', mood: 'worried' },
@@ -446,6 +486,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [19, 24],
         cast: { bram: ['hall_steps', 'up'], player: [[33.6, 17.6], 'up'] },
         camera: { x: 32.4, z: 15.2, yaw: 0, pitch: 38, distance: 16 },
+        insert: [{ kind: 'hall', word: 'song|hall|in there', caption: 'The Lantern Hall, dark nine winters' }],
         script: [
           { emote: 'bram', icon: 'music' },
           { narrate: 'A deep, warm voice rolls across the empty square. Bram is singing to the dark windows of the Lantern Hall.' },
@@ -473,7 +514,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Wren Fairweather',
     role: 'Painter, wanderer, bad at sitting still',
     birthday: { season: 'summer', day: 22 },
-    look: { eyeShape: 'wide', lashes: true, brow: 0.75, browArch: 0.25, skin: 0xf6d2b8, hair: 0x3f8f8a, hairStyle: 'bob', top: 0xe8c45a, bottom: 0x3a4a6a, scarf: 0xe8674a, scale: 0.94, build: 0.84, shoulders: 0.86, torso: 1.1, legs: 1.2, head: 0.9, eyes: 0x3a7a8a, face: 'heart', acc: ['pencil', 'freckles', 'satchel'], shoes: 0xc8573e, backdrop: 'river' },
+    look: { fp: { w: 0.94, h: 1.03, jaw: 0, chin: 0.7, eye: 1.12, gap: 1.1, eyeY: -0.02, nose: 'snub', mouth: 0.82, lines: 0, cheeks: 0.35, ears: 0.9 }, eyeShape: 'wide', lashes: true, brow: 0.75, browArch: 0.25, skin: 0xf6d2b8, hair: 0x3f8f8a, hairStyle: 'bob', top: 0xe8c45a, bottom: 0x3a4a6a, scarf: 0xe8674a, scale: 0.94, build: 0.84, shoulders: 0.86, torso: 1.1, legs: 1.2, head: 0.9, eyes: 0x3a7a8a, face: 'heart', acc: ['pencil', 'freckles', 'satchel'], shoes: 0xc8573e, backdrop: 'river' },
     walk: W(1.7, 0.6, 0.06, 0.05, -0.02, 0.55),
     home: 'cottage_west',
     portraitBg: [0xbfe0e8, 0x8fb8d8],
@@ -542,6 +583,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         subject: { at: [62.4, 25.3], y: 0.9, label: 'Kettle Bridge' },
         // Yesterday's attempt, propped on a field stand facing the path: the painting she asks about.
         props: [{ kind: 'painting', at: [58.75, 22.7], rot: 0.75, scale: 1.3, word: 'look like a river' }],
+        insert: [{ kind: 'painting', word: 'paint|river', caption: 'Wren’s canvas: the Kettle Bridge' }],
         script: [
           { act: 'wren', activity: 'paint' },
           { wait: 1.0 },
@@ -569,6 +611,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         demoTime: 20.2,
         cast: { wren: ['fountain_s', 'up'], player: [[33.9, 28.8], 'left'] },
         camera: { x: 32.4, z: 24.6, yaw: 0, pitch: 40, distance: 18 },
+        insert: [{ kind: 'greyhall', word: 'grey|painting|paints', caption: 'Every hall she paints comes out grey' }],
         script: [
           { say: 'wren', text: 'Every painting of the hall I’ve ever done comes out grey. I thought it was my paints.', mood: 'sad' },
           { walk: 'wren', to: [32.4, 21.0], face: 'up' },
@@ -595,7 +638,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Odessa Flint',
     role: 'Blacksmith at Flint & Ember',
     birthday: { season: 'winter', day: 9 },
-    look: { eyeShape: 'almond', brow: 1.45, browArch: -0.05, skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.3, shoulders: 1.36, torso: 1.32, hands: 1.3, head: 0.78, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.4, acc: ['toolbelt', 'earrings', 'tongs'], shoes: 0x2e2420, backdrop: 'forge' },
+    look: { fp: { w: 1.02, h: 1.07, jaw: 0.95, chin: 0.25, eye: 0.9, gap: 1.0, eyeY: 0.02, nose: 'broad', mouth: 1.18, lines: 0.2, cheeks: 0.0, ears: 0.95, cleft: true }, eyeShape: 'almond', brow: 1.45, browArch: -0.05, skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.3, shoulders: 1.36, torso: 1.32, hands: 1.3, head: 0.78, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.4, acc: ['toolbelt', 'earrings', 'tongs'], shoes: 0x2e2420, backdrop: 'forge' },
     walk: W(1.6, 0.52, 0.025, 0.03, 0.02, 0.3),
     home: 'forge',
     portraitBg: [0xf2b48a, 0xb8563a],
@@ -660,6 +703,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         camera: { x: 83.6, z: 19.8, yaw: -8, pitch: 42, distance: 14 },
         // Sparks off the anvil with every strike, and the forge's glow on her face.
         props: [{ kind: 'sparks', at: [0, 0], near: ['odessa', 0.2, 0.7] }],
+        insert: [{ kind: 'hinge', word: 'hinge|hall door', caption: 'A hinge for the Hall door' }],
         script: [
           { act: 'odessa', activity: 'hammer' },
           { wait: 1.2 },
@@ -682,8 +726,10 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hearts: 4,
         title: 'The Lantern Cage',
         hours: [20, 25],
-        cast: { odessa: [[33.6, 14.6], 'up'], player: [[31.0, 16.2], 'up'] },
+        // (r7: she checks the cage side-on — 'up' put her back to the lens on the opening line)
+        cast: { odessa: [[33.6, 14.6], 'left'], player: [[31.0, 16.2], 'up'] },
         camera: { x: 32.4, z: 13.8, yaw: 6, pitch: 36, distance: 15 },
+        insert: [{ kind: 'cage', word: 'cage|rivet|lantern', caption: 'Her grandfather’s lantern cage' }],
         script: [
           { say: 'odessa', text: 'Shh. Rivet check. My grandfather made this cage — every piece, by hand, the winter the old one rusted through.', mood: 'neutral' },
           { face: 'odessa', to: 'player' },
@@ -709,7 +755,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Dr. Linus Pell',
     role: 'Runs the Willowmere Clinic',
     birthday: { season: 'summer', day: 5 },
-    look: { eyeShape: 'narrow', brow: 0.8, browArch: 0.45, head: 0.78, skin: 0xf2d0b4, hair: 0x9a9690, hairStyle: 'slick', top: 0xd8e4ea, bottom: 0x4a5058, coat: 0xe6e8e2, bowtie: 0x2f8f8a, glasses: true, beard: 'mustache', scale: 1.1, build: 0.8, shoulders: 0.84, torso: 1.34, neck: 0.13, eyes: 0x4a6a8a, face: 'long', legs: 1.52, acc: ['stethoscope', 'docbag'], shoes: 0x2a2624, backdrop: 'clinic' },
+    look: { fp: { w: 0.9, h: 1.09, jaw: 0.3, chin: 0.35, eye: 0.84, gap: 0.88, eyeY: 0.02, nose: 'long', mouth: 0.78, lines: 0.5, cheeks: 0.1, ears: 1.05 }, eyeShape: 'almond', brow: 0.8, browArch: 0.45, head: 0.78, skin: 0xf2d0b4, hair: 0x9a9690, hairStyle: 'slick', top: 0xd8e4ea, bottom: 0x4a5058, coat: 0xe6e8e2, bowtie: 0x2f8f8a, glasses: true, beard: 'mustache', scale: 1.1, build: 0.8, shoulders: 0.84, torso: 1.34, neck: 0.13, eyes: 0x4a6a8a, face: 'long', legs: 1.52, acc: ['stethoscope', 'docbag'], shoes: 0x2a2624, backdrop: 'clinic' },
     walk: W(1.75, 0.5, 0.02, 0.02, -0.04, 0.2),
     home: 'clinic',
     portraitBg: [0xd4ece4, 0x8ec4b8],
@@ -779,6 +825,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         // head — to the bench's west arm; the farmer stands back beside him)
         cast: { linus: [[32.8, 27.2], 'right'], tobias: ['bench_se', 'down'], player: [[34.5, 30.8], 'right'] },
         camera: { x: 36.0, z: 28.9, yaw: -160, pitch: 40, distance: 15 },
+        insert: [{ kind: 'biscuit', word: 'biscuit', caption: 'The hostage' }],
         script: [
           { walk: 'linus', to: [35.05, 28.95], face: 'tobias' },
           { say: 'linus', text: 'Tobias. Your check-up was at ten.', mood: 'neutral' },
@@ -805,6 +852,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [18, 23],
         cast: { linus: ['river_walk', 'right'], player: [[57.4, 31.6], 'right'] },
         camera: { x: 59.0, z: 31.4, yaw: -4, pitch: 38, distance: 14 },
+        props: [{ kind: 'letter', at: [0, 0], hold: ['linus', 'chest'], word: 'letter' }],
+        insert: [{ kind: 'letter', word: 'letter|read it|wrote', caption: 'A resignation, nineteen years unsent' }],
         script: [
           { say: 'linus', text: 'I keep a resignation letter in my desk. Written nineteen years ago. Never sent.', mood: 'thinking' },
           { face: 'linus', to: 'player' },
@@ -829,7 +878,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'June Ashby',
     role: 'Innkeeper of The Copper Kettle',
     birthday: { season: 'spring', day: 24 },
-    look: { eyeShape: 'wide', lashes: true, brow: 0.9, browArch: 0.4, skin: 0xf4c8a8, hair: 0xc8482a, hairStyle: 'curly', top: 0xf4ead8, bottom: 0x6a3a4a, vest: 0x3f7a5a, skirt: true, scale: 1.0, build: 1.16, belly: 0.25, torso: 1.1, legs: 1.08, head: 0.88, eyes: 0x3a8a5a, face: 'heart', acc: ['earrings', 'freckles', 'towel'], shoes: 0x4a2a22, backdrop: 'inn' },
+    look: { fp: { w: 1.0, h: 0.98, jaw: 0.1, chin: 0.3, eye: 1.04, gap: 1.02, nose: 'button', mouth: 1.2, lines: 0.15, cheeks: 0.65, ears: 1.0 }, eyeShape: 'wide', lashes: true, brow: 0.9, browArch: 0.4, skin: 0xf4c8a8, hair: 0xc8482a, hairStyle: 'curly', top: 0xf4ead8, bottom: 0x6a3a4a, vest: 0x3f7a5a, skirt: true, scale: 1.0, build: 1.16, belly: 0.25, torso: 1.1, legs: 1.08, head: 0.88, eyes: 0x3a8a5a, face: 'heart', acc: ['earrings', 'freckles', 'towel'], shoes: 0x4a2a22, backdrop: 'inn' },
     walk: W(1.5, 0.45, 0.04, 0.16, 0.0, 0.45),
     home: 'inn',
     portraitBg: [0xf6c89a, 0xc8584a],
@@ -894,6 +943,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [17, 24],
         cast: { june: ['inn_front', 'down'], rowan: ['inn_tables', 'right'], player: [[81.4, 27.4], 'down'] },
         camera: { x: 79.4, z: 28.4, yaw: 180, pitch: 48, distance: 15 },
+        insert: [{ kind: 'chair', word: 'leaning|chair|firewood', caption: 'Chair no. 4 — mended thirty-one times' }],
         script: [
           { face: 'june', to: 'rowan' },
           { face: 'rowan', to: 'up' },
@@ -921,6 +971,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         cast: { june: [[81.8, 30.4], 'up'], player: [[79.4, 28.4], 'right'] },
         camera: { x: 80.6, z: 29.6, yaw: 168, pitch: 42, distance: 12 },
         props: [{ kind: 'candle', at: [82.9, 31.7], y: 1.02, word: 'candle' }],
+        insert: [{ kind: 'candle', word: 'candle|window', caption: 'Dad’s candle in the window' }],
         script: [
           { say: 'june', text: 'Oh — still up? I was just setting out Dad’s candle.', mood: 'surprised' },
           { say: 'june', text: 'He said a town is only as warm as its last lit window. I’ve never missed a night. Not one.', mood: 'thinking' },
@@ -945,7 +996,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Tobias Reed',
     role: 'The last lamplighter of the Lantern Hall',
     birthday: { season: 'winter', day: 20 },
-    look: { eyeShape: 'narrow', brow: 1.7, browArch: 0.2, head: 0.93, skin: 0xe8b894, hair: 0xeae6de, hairStyle: 'short', top: 0x7a5a3e, bottom: 0x5a5046, coat: 0x6a5238, beard: 'full', hat: 'flatcap', hatColor: 0x5a6a5a, scale: 0.92, build: 0.96, shoulders: 0.9, torso: 0.96, belly: 0.2, eyes: 0x6a8aa8, face: 'long', legs: 0.86, acc: ['cane', 'wrinkles', 'lantern'], shoes: 0x3a2a1e, backdrop: 'hall' },
+    look: { fp: { w: 0.94, h: 1.08, jaw: 0.3, chin: 0, eye: 0.8, gap: 1.02, eyeY: 0.01, nose: 'hook', mouth: 0.9, lines: 1, cheeks: 0.75, ears: 1.3 }, eyeShape: 'narrow', brow: 1.7, browArch: 0.2, head: 0.93, skin: 0xe8b894, hair: 0xeae6de, hairStyle: 'short', top: 0x7a5a3e, bottom: 0x5a5046, coat: 0x6a5238, beard: 'full', hat: 'flatcap', hatColor: 0x5a6a5a, scale: 0.92, build: 0.96, shoulders: 0.9, torso: 0.96, belly: 0.2, eyes: 0x6a8aa8, face: 'long', legs: 0.86, acc: ['cane', 'wrinkles', 'lantern'], shoes: 0x3a2a1e, backdrop: 'hall' },
     walk: W(0.95, 0.3, 0.015, 0.05, 0.34, 0.15),
     home: 'keeper_cottage',
     portraitBg: [0xd8d0b8, 0x8a8a6a],
@@ -1009,6 +1060,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         // lens on his face would sit inside the Hall)
         cast: { tobias: [[33.5, 14.7], 'left'], player: [[30.6, 16.4], 'up'] },
         camera: { x: 32.0, z: 14.8, yaw: -4, pitch: 38, distance: 15 },
+        insert: [{ kind: 'match', word: 'match|last one|saving', caption: 'The last match in the last box' }],
         script: [
           { wait: 0.8 },
           { say: 'tobias', text: 'Six-forty. On the dot. This was when I climbed up.', mood: 'thinking' },
@@ -1034,6 +1086,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         dry: true,
         cast: { tobias: ['bench_se', 'down'], player: [[35.2, 31.2], 'up'] },
         camera: { x: 36.0, z: 29.8, yaw: 26, pitch: 38, distance: 13 },
+        insert: [{ kind: 'bench', word: 'her side|tea|sat right here', caption: 'Rosalind’s side of the bench' }],
         script: [
           { say: 'tobias', text: 'Sit, sit. This was her side. She’d bring the tea, I’d bring the complaints.', mood: 'happy' },
           { walk: 'player', to: [35.8, 29.9], face: 'tobias' },
@@ -1059,7 +1112,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Kit Birch',
     role: 'Nine and three-quarters. Future explorer',
     birthday: { season: 'summer', day: 14 },
-    look: { eyeShape: 'round', brow: 1.05, browArch: 0.15, skin: 0xf2c8a2, hair: 0xa8602e, hairStyle: 'spiky', top: 0xe8843a, bottom: 0x4a6a9a, scale: 0.7, build: 0.9, torso: 0.8, legs: 0.76, eyes: 0x5a8a3a, head: 1.3, face: 'round', acc: ['freckles', 'bandage', 'satchel'], shoes: 0xd84a3a, backdrop: 'meadow' },
+    look: { fp: { w: 1.06, h: 0.93, jaw: 0, chin: -0.15, eye: 1.16, gap: 1.12, eyeY: -0.06, nose: 'snub', mouth: 0.9, lines: 0, cheeks: 0.75, ears: 1.15 }, eyeShape: 'round', brow: 1.05, browArch: 0.15, skin: 0xf2c8a2, hair: 0xa8602e, hairStyle: 'spiky', top: 0xe8843a, bottom: 0x4a6a9a, scale: 0.7, build: 0.9, torso: 0.8, legs: 0.76, eyes: 0x5a8a3a, head: 1.3, face: 'round', acc: ['freckles', 'bandage', 'satchel'], shoes: 0xd84a3a, backdrop: 'meadow' },
     walk: W(2.3, 0.75, 0.09, 0.05, -0.05, 0.75, true),
     home: 'birch_house',
     portraitBg: [0xf8e0a0, 0x9ac87a],
@@ -1122,6 +1175,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         dry: true,
         cast: { kit: ['river_dock', 'right'], player: [[57.6, 35.6], 'right'] },
         camera: { x: 59.4, z: 35.4, yaw: -6, pitch: 40, distance: 13 },
+        insert: [{ kind: 'frog', word: 'frog|ribbington|jumped', caption: 'Sir Ribbington, Esq.' }],
         script: [
           { emote: 'kit', icon: 'exclaim' },
           { say: 'kit', text: 'SHH. There’s a frog. The BIG one. His name is Sir Ribbington.', mood: 'surprised' },
@@ -1150,6 +1204,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         camera: { x: 32.4, z: 15.8, yaw: 0, pitch: 40, distance: 14 },
         // The map itself, spread on the cobbles between them and weighted with pebbles.
         props: [{ kind: 'map', at: [32.85, 18.25], rot: 0.12, word: 'A map' }],
+        insert: [{ kind: 'map', word: 'map|this x|blob', caption: 'Kit’s TOP SECRET map' }],
         script: [
           { say: 'kit', text: 'Okay. I’m gonna show you something. It’s TOP secret. Cross your heart.', mood: 'worried' },
           { walk: 'kit', to: [32.2, 17.4], face: 'player' },
@@ -1174,7 +1229,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Rowan Birch',
     role: 'Carpenter, fixer, Kit’s long-suffering brother',
     birthday: { season: 'fall', day: 18 },
-    look: { eyeShape: 'sleepy', brow: 1.3, browArch: 0.0, skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.06, shoulders: 1.26, torso: 1.3, hands: 1.2, head: 0.8, eyes: 0x6a4a2a, face: 'long', legs: 1.36, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
+    look: { fp: { w: 0.98, h: 1.1, jaw: 0.8, chin: 0.3, eye: 0.9, gap: 0.95, eyeY: 0.02, nose: 'long', mouth: 1.0, lines: 0.1, cheeks: 0.15, ears: 1.0, cleft: true }, eyeShape: 'sleepy', brow: 1.3, browArch: 0.0, skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.06, shoulders: 1.26, torso: 1.3, hands: 1.2, head: 0.8, eyes: 0x6a4a2a, face: 'long', legs: 1.36, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
     walk: W(1.55, 0.55, 0.035, 0.09, 0.03, 0.4),
     home: 'birch_house',
     portraitBg: [0xd8e8c0, 0x7aa86a],
@@ -1238,6 +1293,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         demoTime: 10.2,
         cast: { rowan: ['lumber_yard', 'up'], player: [[88.4, 47.3], 'left'] },
         camera: { x: 86.0, z: 46.4, yaw: -6, pitch: 40, distance: 14 },
+        insert: [{ kind: 'swing', word: 'swing|rope ladder', caption: 'A swing for the plaza tree' }],
         script: [
           { act: 'rowan', activity: 'saw' },
           { wait: 1.0 },
@@ -1262,6 +1318,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [18, 23],
         cast: { rowan: ['bridge_mid', 'down'], player: [[62.2, 26.4], 'right'] },
         camera: { x: 63.6, z: 25.6, yaw: 4, pitch: 38, distance: 14 },
+        props: [{ kind: 'letter', at: [0, 0], hold: ['rowan', 'chest'], word: 'letter' }],
+        insert: [{ kind: 'letter', word: 'letter|mum|city', caption: 'From Mum — the first in six years' }],
         script: [
           { say: 'rowan', text: 'Got a letter. From Mum. First one in six years.', mood: 'sad' },
           { face: 'rowan', to: 'player' },
@@ -1287,7 +1345,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Hazel Moss',
     role: 'Retired gardener, keeper of the square’s flowers',
     birthday: { season: 'spring', day: 3 },
-    look: { eyeShape: 'almond', lashes: true, brow: 0.65, browArch: 0.3, head: 0.94, skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, hat: 'sunhat', hatColor: 0xd6a85a, skirt: true, scale: 0.88, build: 1.08, belly: 0.3, torso: 0.9, legs: 0.84, shoulders: 0.9, eyes: 0x7a6a9a, face: 'round', acc: ['shawl', 'wrinkles', 'flower', 'trowel'], shoes: 0x6a4a3a, backdrop: 'garden' },
+    look: { fp: { w: 1.04, h: 0.96, jaw: 0, chin: 0.1, eye: 0.8, gap: 1.08, nose: 'button', mouth: 0.84, lines: 0.9, cheeks: 1.0, ears: 1.0 }, eyeShape: 'round', brow: 0.65, browArch: 0.3, head: 0.94, skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, hat: 'sunhat', hatColor: 0xd6a85a, skirt: true, scale: 0.88, build: 1.08, belly: 0.3, torso: 0.9, legs: 0.84, shoulders: 0.9, eyes: 0x7a6a9a, face: 'round', acc: ['shawl', 'wrinkles', 'flower', 'trowel'], shoes: 0x6a4a3a, backdrop: 'garden' },
     walk: W(1.05, 0.34, 0.02, 0.07, 0.14, 0.22),
     home: 'cottage_east',
     portraitBg: [0xe8d8f0, 0xa88ab8],
@@ -1350,8 +1408,11 @@ export const NPCS: Record<NpcId, NpcDef> = {
         title: 'The Stubborn Rose',
         hours: [8, 17],
         dry: true,
-        cast: { hazel: ['planters_hall', 'up'], player: [[30.2, 16.4], 'right'] },
+        // (r7: she tends the rose side-on, not with her back to the lens — the reverse angle for a speaker
+        // facing north put the lens behind the Hall)
+        cast: { hazel: ['planters_hall', 'right'], player: [[30.6, 16.3], 'left'] },
         camera: { x: 30.6, z: 14.8, yaw: -6, pitch: 40, distance: 13 },
+        insert: [{ kind: 'rose', word: 'rose|bloom', caption: 'Rosalind’s rose, in bud nine years' }],
         script: [
           { act: 'hazel', activity: 'water' },
           { wait: 1.0 },
@@ -1376,6 +1437,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         dry: true,
         cast: { hazel: ['garden_east', 'up'], player: [[47.0, 38.0], 'right'] },
         camera: { x: 48.0, z: 36.4, yaw: 4, pitch: 40, distance: 13 },
+        insert: [{ kind: 'tin', word: 'seeds|tin', caption: 'Half of Rosalind’s seeds' }],
         script: [
           { face: 'hazel', to: 'player' },
           { say: 'hazel', text: 'I have something for you. I’ve been keeping it since the funeral.', mood: 'sad' },

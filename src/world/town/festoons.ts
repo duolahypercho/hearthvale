@@ -255,11 +255,11 @@ export function buildFestoonPole(h = 3.3): THREE.Group {
   return b.build({ name: 'festoon-pole' });
 }
 
-/** Iron mast bolted onto a plaza lamp post (adds ~0.8 m so strings clear heads). */
+/** Iron mast bolted onto a plaza lamp post (adds ~1.2 m so strings clear heads). */
 export function buildLampMast(): THREE.Group {
   const b = new MeshBuilder();
-  b.add('metal', new THREE.CylinderGeometry(0.028, 0.032, 0.9, 6), mat(0, 2.72, 0));
-  b.add('metal', new THREE.SphereGeometry(0.05, 8, 6), mat(0, 3.2, 0));
-  b.add('metal', new THREE.TorusGeometry(0.045, 0.01, 4, 8), mat(0, 3.02, 0, Math.PI / 2, 0, 0));
+  b.add('metal', new THREE.CylinderGeometry(0.028, 0.034, 1.3, 6), mat(0, 2.92, 0));
+  b.add('metal', new THREE.SphereGeometry(0.05, 8, 6), mat(0, 3.6, 0));
+  b.add('metal', new THREE.TorusGeometry(0.045, 0.01, 4, 8), mat(0, 3.42, 0, Math.PI / 2, 0, 0));
   return b.build({ name: 'lamp-mast' });
 }
