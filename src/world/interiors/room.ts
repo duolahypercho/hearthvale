@@ -235,7 +235,116 @@ export abstract class InteriorMap implements GameMap {
     this.root.add(this.rim);
 
     this.buildShell();
+    this.buildDoorway();
   }
+
+  // ─────────────────────────────────────────── doorway (the way out must read at a glance)
+
+  /**
+   * The exit, readable at gameplay zoom: a painted door frame cut at the section line (jambs a little
+   * proud of the knee wall, a dark lintel cap), a coir doormat inside, a fan of outside light spilling
+   * in over the threshold (warm daylight / cool moonlight), and a pair of bobbing floor chevrons
+   * pointing out of the door whenever the farmer is within two tiles of it.
+   */
+  private buildDoorway(): void {
+    const { D, style } = this.spec;
+    const T = 0.22;
+    const kneeH = this.spec.kneeH ?? 0.3;
+    const gap0 = this.spec.doorX - 0.1;
+    const gap1 = this.spec.doorX + 1.1;
+    const dc = this.spec.doorX + 0.5;
+    const k = new Kit();
+    const trim = style === 'house' ? 0xf6eedc : 0xf2ead8;
+    const jh = kneeH + 0.46;
+    for (const x of [gap0 - 0.04, gap1 + 0.04]) {
+      k.box('paint', [0.16, jh, T + 0.08], [x, 0, D + T / 2], { tint: trim, r: 0.02 });
+      k.box('wood', [0.2, 0.06, T + 0.12], [x, jh, D + T / 2], { tint: 0x6a4428, r: 0.02 });
+      // Iron hinge pins on the right jamb (the door itself swung away out of the cut)
+      if (x > dc) for (const y of [0.12, jh - 0.16]) k.box('iron', [0.05, 0.08, 0.05], [x - 0.09, y, D + T * 0.85], { tint: 0x2a2624, r: 0.01 });
+    }
+    // Coir doormat just inside: bristly tan field, dark woven border, two stripes
+    // (on straw floors it sits on the board walk that runs to the door: lift it clear)
+    const mz = D - 0.3;
+    const my = this.spec.floor.startsWith('straw') ? 0.032 : 0;
+    k.box('fabric', [1.0, 0.014, 0.48], [dc, my, mz], { tint: 0x5a3a22, r: 0.006 });
+    k.box('burlap', [0.9, 0.018, 0.38], [dc, my, mz], { tint: 0xc89048, r: 0.006, uv: 0.6 });
+    for (const dz of [-0.1, 0.1]) k.box('fabric', [0.9, 0.02, 0.035], [dc, my, mz + dz], { tint: 0x8a5a2e });
+    const g = k.build('doorway');
+    this.statics.push(g);
+
+    // Light spill: a trapezoid fanning in from the door gap, bright at the threshold, feathered sides.
+    const spill = new THREE.BufferGeometry();
+    const w0 = (gap1 - gap0) * 0.5;
+    const w1 = w0 + 0.75;
+    const z0 = D + T * 0.5;
+    const z1 = D - 2.3;
+    const P = [dc - w0, z0, dc + w0, z0, dc + w1, z1, dc - w1, z1];
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const UV = [0, 1, 1, 1, 1, 0, 0, 0];
+    for (const i of [0, 1, 2, 0, 2, 3]) {
+      pos.push(P[i * 2]!, 0.016, P[i * 2 + 1]!);
+      uv.push(UV[i * 2]!, UV[i * 2 + 1]!);
+    }
+    spill.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    spill.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    const sm = new THREE.MeshBasicMaterial({ map: spillTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide });
+    const sMesh = new THREE.Mesh(spill, sm);
+    sMesh.userData.noAO = true;
+    sMesh.userData.dynamic = true;
+    sMesh.renderOrder = 2;
+    sMesh.name = 'door-spill';
+    this.root.add(sMesh);
+    const moon = new THREE.Color(0x6f86c9);
+    this.updaters.push((_dt, _t, L) => sm.color.copy(L.sunColor).multiplyScalar(0.3 * L.day).add(_c.copy(moon).multiplyScalar(0.1 * L.night)).multiplyScalar(1 - this.dim));
+
+    // Exit chevrons on the threshold (shown near the door only).
+    const chev = new THREE.Shape();
+    chev.moveTo(-0.22, 0);
+    chev.lineTo(0, 0.16);
+    chev.lineTo(0.22, 0);
+    chev.lineTo(0.22, 0.08);
+    chev.lineTo(0, 0.24);
+    chev.lineTo(-0.22, 0.08);
+    chev.closePath();
+    const cg = new THREE.ShapeGeometry(chev);
+    cg.rotateX(Math.PI / 2); // shape +y → world +z (out of the door)
+    const arrows = new THREE.Group();
+    arrows.name = 'exit-arrows';
+    arrows.userData.dynamic = true;
+    const am = new THREE.MeshBasicMaterial({ color: 0xfff2cc, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide });
+    const om = new THREE.MeshBasicMaterial({ color: 0x3a2414, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide });
+    for (let i = 0; i < 2; i++) {
+      const o = new THREE.Mesh(cg, om);
+      o.scale.set(1.22, 1, 1.32);
+      o.position.set(0, 0.002, -0.03);
+      const a = new THREE.Mesh(cg, am);
+      const holder = new THREE.Group();
+      holder.add(o, a);
+      holder.position.set(0, 0, i * 0.26);
+      for (const m of [o, a]) {
+        m.renderOrder = 6;
+        m.userData.noAO = true;
+      }
+      arrows.add(holder);
+    }
+    arrows.position.set(dc, 0.05, D - 0.55);
+    arrows.visible = false;
+    this.root.add(arrows);
+    let shown = 0;
+    this.updaters.push((dt, t) => {
+      const pp = this.game.player.position;
+      const near = this.game.world.current === this && Math.hypot(pp.x - dc, (pp.z - D) * 1.1) < 2.2 && !this.game.player.busy;
+      shown += ((near ? 1 : 0) - shown) * (1 - Math.exp(-7 * dt));
+      arrows.visible = shown > 0.02;
+      if (!arrows.visible) return;
+      arrows.position.z = D - 0.55 + ((t * 0.6) % 1) * 0.18;
+      const pulse = 0.75 + 0.25 * Math.sin(t * 5);
+      am.opacity = shown * pulse;
+      om.opacity = shown * 0.55;
+    });
+  }
+
 
   // ─────────────────────────────────────────── shell
 
@@ -244,7 +353,7 @@ export abstract class InteriorMap implements GameMap {
     const k = new Kit();
     const T = 0.22;
     // Floor + slab (its cut edge shows under the knee wall at the front).
-    k.add(this.spec.floor, floorPlane(W, D + 0.02, this.spec.floor === 'straw' ? 0.5 : 1), new THREE.Matrix4().makeTranslation(W / 2, 0, D / 2), { tint: this.spec.floorTint ?? 0xffffff });
+    k.add(this.spec.floor, floorPlane(W, D + 0.02, this.spec.floor.startsWith('straw') ? 0.5 : 1), new THREE.Matrix4().makeTranslation(W / 2, 0, D / 2), { tint: this.spec.floorTint ?? 0xffffff });
     k.box('stone', [W + 2 * T + 0.1, 0.5, D + 2 * T + 0.1], [W / 2, -0.52, D / 2], { tint: 0xa8947e, uv: 1.2 });
     k.box('wood', [W + 2 * T + 0.14, 0.1, 0.12], [W / 2, -0.07, D + T + 0.04], { tint: 0xa87048, r: 0.03, uv: 1.5 });
 
@@ -270,7 +379,7 @@ export abstract class InteriorMap implements GameMap {
     const gap1 = this.spec.doorX + 1.1;
     const frontTint = style === 'house' ? 0xe8dcc4 : 0xb89a78;
     const frontMat: IMat = style === 'house' ? 'bead' : 'barn';
-    const straw = this.spec.floor === 'straw';
+    const straw = this.spec.floor.startsWith('straw');
     for (const [a, b] of [[-T, gap0], [gap1, W + T]] as const) {
       const w = b - a;
       k.box(frontMat, [w, kneeH, T], [(a + b) / 2, 0, D + T / 2], { tint: frontTint, uv: 1 });
@@ -280,7 +389,7 @@ export abstract class InteriorMap implements GameMap {
       k.box('paint', [w + 0.07, 0.035, 0.035], [(a + b) / 2, kneeH + 0.06, D + T + 0.035], { tint: style === 'house' ? 0xf6e8cc : 0xf0dcb8, r: 0.012 });
     }
     // Threshold (worn oak, lit like the floor) + a fieldstone doorstep outside it
-    k.box(this.spec.floor === 'straw' ? 'plank' : 'floor', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: this.spec.floor === 'straw' ? 0xd8bc98 : 0xe8d0b0, uv: 1 });
+    k.box(straw ? 'plank' : 'floor', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: straw ? 0xd8bc98 : 0xe8d0b0, uv: 1 });
     k.box('stone', [gap1 - gap0 + 0.16, 0.14, 0.3], [(gap0 + gap1) / 2, -0.16, D + T + 0.17], { tint: 0xc8b8a0, r: 0.04, uv: 0.8 });
     this.statics.push(k.build('shell'));
 
@@ -709,6 +818,35 @@ function dioramaGround(W: number, D: number): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+let _spill: THREE.CanvasTexture | null = null;
+/** Door light spill: bright at the threshold (v = 1), fading into the room, feathered at the sides. */
+function spillTexture(): THREE.CanvasTexture {
+  if (_spill) return _spill;
+  const W = 64;
+  const H = 128;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const v = 1 - y / (H - 1); // canvas top = uv v 1 (threshold)
+    const along = Math.pow(v, 1.6);
+    for (let x = 0; x < W; x++) {
+      const u = Math.abs(x / (W - 1) - 0.5) * 2;
+      const side = 1 - THREE.MathUtils.smoothstep(u, 0.45, 1);
+      const a = along * side;
+      const i = (y * W + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(a * 255);
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  _spill = new THREE.CanvasTexture(c);
+  _spill.colorSpace = THREE.SRGBColorSpace;
+  return _spill;
 }
 
 /** Convenience: material handle (for subclasses creating custom meshes). */

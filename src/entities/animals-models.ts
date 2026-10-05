@@ -12,7 +12,7 @@
  */
 import * as THREE from 'three';
 import { mat } from '../world/geom';
-import { RigBuilder, ellipsoid, capsuleZ, limb, noise3, animalMaterial, type CoatPatch } from './animals-rig';
+import { RigBuilder, ellipsoid, capsuleZ, limb, noise3, animalMaterial, RIG_DETAIL, type CoatPatch } from './animals-rig';
 
 export type Species = 'chicken' | 'duck' | 'cow' | 'goat' | 'sheep' | 'pig' | 'dog' | 'cat';
 
@@ -227,7 +227,7 @@ function legGeo(R: number, top: number, hoof: number): THREE.BufferGeometry {
     [R * 0.86, h * 0.05],
     [R * 0.9, 0],
   ].map(([x, y]) => new THREE.Vector2(x!, y! + hoof));
-  return new THREE.LatheGeometry(pts, 10);
+  return new THREE.LatheGeometry(pts, Math.max(6, Math.round(10 * RIG_DETAIL.k)));
 }
 
 function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofTint: number, patch?: CoatPatch): void {
@@ -247,7 +247,7 @@ function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofT
  * waist tuck and rump in a single surface — no overlapping-capsule seams catching the light.
  */
 function barrel(profile: [number, number][], seg = 22): THREE.BufferGeometry {
-  const g = new THREE.LatheGeometry(profile.map(([z, rr]) => new THREE.Vector2(rr, z)), seg);
+  const g = new THREE.LatheGeometry(profile.map(([z, rr]) => new THREE.Vector2(rr, z)), Math.max(12, Math.round(seg * RIG_DETAIL.k)));
   g.rotateX(Math.PI / 2);
   return g;
 }
@@ -259,7 +259,9 @@ function cow(variant: number): AnimalModel {
   const spots: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [3.4, 3.0, 3.2], seed: 4.3, edge: 0.24, sinAmp: 0.25 };
   // Jersey: fawn, shading darker over the hindquarters and down the legs (a smooth gradient, no patches).
   const shade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.16 * THREE.MathUtils.smoothstep(-p.z, 0.0, 0.6)) : undefined;
-  const d: QuadDims = { bodyY: 0.74, bodyR: 0.36, bodyLen: 0.5, hipX: 0.2, frontZ: 0.26, backZ: -0.32, legR: 0.085, hoof: 0.09 };
+  // (hips set a touch wider than the belly: from the high camera the legs show either side, so the cow
+  // stands on four legs instead of reading as a loaf)
+  const d: QuadDims = { bodyY: 0.74, bodyR: 0.36, bodyLen: 0.5, hipX: 0.235, frontZ: 0.27, backZ: -0.33, legR: 0.085, hoof: 0.09 };
   r.bone('body', 'root', [0, d.bodyY, 0]);
   r.bone('head', 'body', [0, 0.92, 0.42]);
   r.bone('eyes', 'head', [0, 1.09, 0.78]);
@@ -269,7 +271,7 @@ function cow(variant: number): AnimalModel {
   // One sculpted barrel: square rump, a slight waist, deep brisket (no capsule seams).
   const cowBody = barrel([[-0.66, 0], [-0.648, 0.14], [-0.61, 0.26], [-0.53, 0.34], [-0.41, 0.372], [-0.26, 0.362], [-0.1, 0.352], [0.05, 0.356], [0.2, 0.372], [0.33, 0.366], [0.45, 0.318], [0.53, 0.23], [0.572, 0.12], [0.584, 0]], 24);
   r.part('body', cowBody, mat(0, d.bodyY + 0.01, 0, 0, 0, 0, 1, 0.97, 1), base, { patch: spots, paint: shade });
-  r.part('body', ellipsoid(d.bodyR * 0.9, d.bodyR * 0.72, 0.4), mat(0, d.bodyY - d.bodyR * 0.26, -0.02), base, { patch: spots, paint: shade });
+  r.part('body', ellipsoid(d.bodyR * 0.8, d.bodyR * 0.66, 0.4), mat(0, d.bodyY - d.bodyR * 0.22, -0.02), base, { patch: spots, paint: shade });
   // Udder + teats
   r.part('body', ellipsoid(0.14, 0.085, 0.15), mat(0, 0.44, -0.24), 0xf4b0aa);
   for (const [x, z] of [[-0.05, -0.2], [0.05, -0.2], [-0.05, -0.29], [0.05, -0.29]] as const) r.part('body', limb(0.018, 0.015, 0.4, 0.34, 6), mat(x, 0, z), 0xe8908c, { flat: true });

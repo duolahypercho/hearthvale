@@ -315,8 +315,8 @@ export function roomAO(): TexPair {
 }
 
 /** Straw bedding over packed earth (coop / barn floor). 1 repeat = 2 m. */
-export function strawFloor(): TexPair {
-  return cached('i:straw', () => {
+export function strawFloor(calm = false): TexPair {
+  return cached(calm ? 'i:straw-calm' : 'i:straw', () => {
     const S = 512;
     const [c, ctx] = makeCanvas(S);
     const [h, hctx] = makeCanvas(S);
@@ -328,15 +328,32 @@ export function strawFloor(): TexPair {
     ctx.fillRect(0, 0, S, S);
     hctx.fillStyle = '#303030';
     hctx.fillRect(0, 0, S, S);
+    if (calm) {
+      // Broad soft value patches first (packed vs fluffed bedding), so the field isn't one tone.
+      for (let i = 0; i < 40; i++) {
+        const x = rng.next() * S;
+        const y = rng.next() * S;
+        const r = 30 + rng.next() * 70;
+        const lit = rng.next() < 0.5;
+        for (const [ox, oy] of [[0, 0], [S, 0], [-S, 0], [0, S], [0, -S]] as const) {
+          const gr = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+          gr.addColorStop(0, lit ? 'rgba(196,160,104,0.35)' : 'rgba(96,72,44,0.3)');
+          gr.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = gr;
+          ctx.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+        }
+      }
+    }
     ctx.lineCap = hctx.lineCap = 'round';
-    for (let i = 0; i < 16000; i++) {
+    const N = calm ? 7000 : 16000;
+    for (let i = 0; i < N; i++) {
       const x = rng.next() * S;
       const y = rng.next() * S;
       const len = 6 + rng.next() * 22;
       const ang = rng.next() * Math.PI;
       const t = rng.next();
-      const r = 175 + t * 70;
-      ctx.strokeStyle = `rgba(${r},${r * 0.82},${r * 0.45},${0.55 + t * 0.4})`;
+      const r = calm ? 165 + t * 50 : 175 + t * 70;
+      ctx.strokeStyle = calm ? `rgba(${r},${r * 0.8},${r * 0.48},${0.35 + t * 0.35})` : `rgba(${r},${r * 0.82},${r * 0.45},${0.55 + t * 0.4})`;
       ctx.lineWidth = 0.8 + rng.next() * 1.4;
       hctx.strokeStyle = `rgba(${120 + t * 130},${120 + t * 130},${120 + t * 130},1)`;
       hctx.lineWidth = ctx.lineWidth;

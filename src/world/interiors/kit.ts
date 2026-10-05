@@ -33,6 +33,7 @@ export type IMat =
   | 'brass'
   | 'ceramic'
   | 'straw'
+  | 'strawCalm'
   | 'photo'
   | 'glow'
   | 'ember'
@@ -123,6 +124,11 @@ function build(name: IMat): THREE.MeshStandardMaterial {
     case 'straw': {
       const t = strawFloor();
       return std({ map: t.map, bumpMap: t.bump, bumpScale: 2.5, roughness: 1 });
+    }
+    case 'strawCalm': {
+      // Coop bedding: fewer, softer strands over broad tonal mottling (the hens read against it).
+      const t = strawFloor(true);
+      return std({ map: t.map, bumpMap: t.bump, bumpScale: 1.6, roughness: 1 });
     }
     case 'thatch': {
       const t = textures.thatch();

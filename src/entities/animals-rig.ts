@@ -282,9 +282,16 @@ export class RigBuilder {
 
 // ───────────────────────────────────────────── small geometry helpers
 
+/**
+ * Tessellation scale for the helpers below (1 = full). The far LOD templates (outdoor herd seen from the
+ * high farm camera) are built at ~0.55: same parts, same bones, about a third of the triangles.
+ */
+export const RIG_DETAIL = { k: 1 };
+const seg = (n: number, min: number): number => Math.max(min, Math.round(n * RIG_DETAIL.k));
+
 /** Ellipsoid (sphere scaled per axis). */
 export function ellipsoid(rx: number, ry: number, rz: number, ws = 14, hs = 10): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, ws, hs);
+  const g = new THREE.SphereGeometry(1, seg(ws, 6), seg(hs, 4));
   g.scale(rx, ry, rz);
   return g;
 }
@@ -298,9 +305,9 @@ export function capsuleZ(r: number, len: number, cap = 8, radial = 16): THREE.Bu
 }
 
 /** Tapered limb from y0 (top) down to y1, radius r0 → r1. */
-export function limb(r0: number, r1: number, y0: number, y1: number, seg = 8): THREE.BufferGeometry {
+export function limb(r0: number, r1: number, y0: number, y1: number, n = 8): THREE.BufferGeometry {
   const h = y0 - y1;
-  const g = new THREE.CylinderGeometry(r0, r1, h, seg, 1);
+  const g = new THREE.CylinderGeometry(r0, r1, h, seg(n, 5), 1);
   g.translate(0, y1 + h / 2, 0);
   return g;
 }

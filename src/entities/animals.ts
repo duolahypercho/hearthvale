@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { buildAnimal, type Species, type Gait, type AnimalModel } from './animals-models';
+import { RIG_DETAIL } from './animals-rig';
 import { heartSprite } from '../world/interiors/textures';
 import { textures } from '../render/textures';
 
@@ -51,6 +52,23 @@ function instantiate(species: Species, variant: number): AnimalModel {
     if ((o as THREE.Bone).isBone) bones[o.name] = o as THREE.Bone;
   });
   return { mesh, bones, gait: t.gait, species };
+}
+
+/** Far LOD templates: the same rig built at ~0.55 tessellation (same bones, same bone order). */
+const loTemplates = new Map<string, AnimalModel>();
+function loTemplate(species: Species, variant: number): AnimalModel {
+  const key = `${species}:${variant}`;
+  let t = loTemplates.get(key);
+  if (!t) {
+    RIG_DETAIL.k = 0.55;
+    try {
+      t = buildAnimal(species, variant);
+    } finally {
+      RIG_DETAIL.k = 1;
+    }
+    loTemplates.set(key, t);
+  }
+  return t;
 }
 
 /** Personal space per species (m, world): capsules are padded to at least this radius when separating. */
@@ -99,6 +117,10 @@ export class AnimalActor {
   slotId = 0;
   /** Model review: just stand, breathe and look around. */
   calm = false;
+  /** Grazers' wander pull point (pasture centre / hay rack); null = the area's middle. */
+  lure: THREE.Vector3 | null = null;
+  /** Staged behaviour (demos): keep cycling this pose in place ('eat' = grazing / rooting / munching). */
+  hold: 'eat' | 'idle' | null = null;
   /** Sit up on the roost bar (bedSpot, y > 0) by day too, awake. */
   perched = false;
   /** Where the farmer stands (set by the system each frame; animals step around them). */
@@ -148,8 +170,35 @@ export class AnimalActor {
     this.root.add(this.mesh);
     this.root.name = `animal:${species}`;
     for (const [k, bone] of Object.entries(this.b)) this.rest[k] = { bone, p: bone.position.clone(), q: bone.rotation.clone() };
+    this.variant = variant;
     this.speedK = 0.85 + Math.random() * 0.3;
     this.dur = 0.5 + Math.random() * 2;
+  }
+
+  private readonly variant: number;
+  private lo: THREE.SkinnedMesh | null = null;
+  private far = false;
+
+  /**
+   * Far LOD (outdoor herd from the high farm camera): swap to the low-tessellation mesh, skinned to this
+   * actor's own skeleton (so every pose keeps working), and drop its shadow-pass cost to the same mesh.
+   */
+  setFar(far: boolean): void {
+    if (far === this.far) return;
+    this.far = far;
+    if (far && !this.lo) {
+      const t = loTemplate(this.species, this.variant);
+      const lo = new THREE.SkinnedMesh(t.mesh.geometry, t.mesh.material);
+      lo.name = `${this.mesh.name}:lo`;
+      lo.bind(this.mesh.skeleton, this.mesh.bindMatrix);
+      lo.boundingSphere = this.mesh.boundingSphere?.clone() ?? null;
+      lo.castShadow = true;
+      lo.receiveShadow = true;
+      this.root.add(lo);
+      this.lo = lo;
+    }
+    this.mesh.visible = !far;
+    if (this.lo) this.lo.visible = far;
   }
 
   place(x: number, z: number, heading = this.heading): void {
@@ -281,11 +330,16 @@ export class AnimalActor {
 
   private pickTarget(): boolean {
     const a = this.area;
+    // Grazers drift towards the middle of the pasture (and the hay rack / trough the system names in
+    // `lure`): a herd strung out along the fence left the pen's centre empty.
+    const cx = this.lure ? this.lure.x : (a.x0 + a.x1) / 2;
+    const cz = this.lure ? this.lure.z : (a.z0 + a.z1) / 2;
+    const pull = this.grazes ? 0.35 : 0;
     for (let i = 0; i < 8; i++) {
       const r = 0.8 + Math.random() * 2.6;
       const ang = Math.random() * Math.PI * 2;
-      const x = THREE.MathUtils.clamp(this.pos.x + Math.cos(ang) * r, a.x0, a.x1);
-      const z = THREE.MathUtils.clamp(this.pos.z + Math.sin(ang) * r, a.z0, a.z1);
+      const x = THREE.MathUtils.clamp(THREE.MathUtils.lerp(this.pos.x + Math.cos(ang) * r, cx + (Math.random() - 0.5) * (a.x1 - a.x0) * 0.6, pull), a.x0, a.x1);
+      const z = THREE.MathUtils.clamp(THREE.MathUtils.lerp(this.pos.z + Math.sin(ang) * r, cz + (Math.random() - 0.5) * (a.z1 - a.z0) * 0.6, pull), a.z0, a.z1);
       if (this.walkable(x, z) && Math.hypot(x - this.pos.x, z - this.pos.z) > 0.5) {
         this.target.set(x, 0, z);
         return true;
@@ -330,6 +384,11 @@ export class AnimalActor {
     }
     const r = Math.random();
     const birds = this.gait.biped;
+    if (this.hold) {
+      this.setState(this.hold, 2.5 + Math.random() * 3);
+      if (this.hold === 'idle') this.lookTarget = (Math.random() - 0.5) * 0.9;
+      return;
+    }
     if (this.calm) {
       this.setState('idle', 2 + Math.random() * 3);
       this.lookTarget = (Math.random() - 0.5) * 0.9;
@@ -367,8 +426,10 @@ export class AnimalActor {
         }
       }
     }
-    if (r < 0.42 && this.pickTarget()) this.setState('walk', 8);
-    else if (r < (this.grazes || birds ? 0.78 : 0.55)) this.setState('eat', 2.5 + Math.random() * 4);
+    // Grazers spend most of the day head-down (≥ 40 % of the herd grazing at any moment): shorter
+    // ambles, long mouthfuls.
+    if (r < (this.grazes ? 0.3 : 0.42) && this.pickTarget()) this.setState('walk', 8);
+    else if (r < (this.grazes || birds ? 0.8 : 0.55)) this.setState('eat', this.grazes ? 4 + Math.random() * 5 : 2.5 + Math.random() * 4);
     else if (this.sitter && r < 0.9) this.setState('sit', 4 + Math.random() * 6);
     else this.setState('idle', 1.5 + Math.random() * 3.5);
     if (this.state === 'idle' || this.state === 'sit') this.lookTarget = (Math.random() - 0.5) * 1.2;
@@ -630,7 +691,13 @@ export class AnimalActor {
     if (tail) {
       if (this.species === 'dog') tail.rotation.y += Math.sin(t * (this.happyT >= 0 ? 22 : 9)) * (this.happyT >= 0 ? 0.5 : 0.22) * (1 - Z);
       else if (this.species === 'cat') tail.rotation.x += 0.2 * Math.sin(t * 1.3 + this.seed) - 0.6 * S + 0.8 * Z;
-      else if (this.species === 'cow') tail.rotation.z += Math.sin(t * 1.9 + this.seed) * 0.25;
+      else if (this.species === 'cow') {
+        // Lazy swish + every few seconds a hard fly-swat flick, held a little off the rump so the
+        // switch reads in silhouette from the high camera.
+        const swat = Math.pow(Math.max(0, Math.sin(t * 0.8 + this.seed)), 10) * Math.sin(t * 16);
+        tail.rotation.z += Math.sin(t * 1.9 + this.seed) * 0.25 + swat * 0.85;
+        tail.rotation.x += 0.22 + Math.abs(swat) * 0.3;
+      }
       else if (this.species === 'pig') tail.rotation.z += Math.sin(t * 5 + this.seed) * 0.3;
       else tail.rotation.x += Math.sin(t * 6 + this.seed) * 0.08;
     }
@@ -683,6 +750,10 @@ export class AnimalActor {
       body.scale.x *= 1 - sq * 0.06;
       head.rotation.z += Math.sin(h * 18) * 0.15 * (1 - h);
       head.rotation.x -= 0.3 * (1 - h);
+      // Nuzzle into the farmer's hand: the head squashes + pushes forward on each rub, stretches back.
+      const rub = Math.sin(h * Math.PI * 6) * (1 - h);
+      head.scale.set(1 + rub * 0.07, 1 - rub * 0.09, 1 + Math.max(0, rub) * 0.06);
+      head.position.z += Math.max(0, rub) * 0.035;
     }
 
     // Blink (eyes shut asleep or happy)
@@ -947,7 +1018,7 @@ export class AnimalPops {
    * animal's head as it moves.
    */
   heart(at: THREE.Vector3, actor?: AnimalActor, tag?: { name: string; hearts: number }): void {
-    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.35, 0) : at.clone().setY(at.y + 0.35), null, 1.55);
+    const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.2, 0) : at.clone().setY(at.y + 0.2), null, 1.55);
     h.actor = actor;
     h.px = 72 / 1080;
     const n = 3 + Math.floor(Math.random() * 3);
@@ -1077,14 +1148,15 @@ export class AnimalPops {
         const pt = p.t;
         const pop = pt < 0.13 ? 1.25 * (1 - Math.pow(1 - pt / 0.13, 3)) : pt < 0.22 ? 1.25 - 0.25 * Math.sin(((pt - 0.13) / 0.09) * Math.PI * 0.5) : 1;
         const out = Math.max(0, (pt - (p.life - 0.28)) / 0.28);
-        const rise = 0.3 * (1 - Math.pow(1 - Math.min(1, pt / 0.7), 3));
+        const rise = 0.14 * (1 - Math.pow(1 - Math.min(1, pt / 0.7), 3));
         const size = Math.max(0.01, (p.px ?? 0.06) * screenK(o) * 1.18);
         // Slide off the farmer's side on screen (the heart belongs over the animal, never on a face).
         if (this.farmer && camera) {
           _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
           const fx = (this.farmer.x - o.x) * _right.x + (this.farmer.z - o.z) * _right.z;
           if (p.side == null) p.side = Math.abs(fx) < 0.08 ? 0 : fx > 0 ? -1 : 1;
-          o.addScaledVector(_right, p.side * size * 0.45);
+          // (only as far as needed: the heart stays over the head it belongs to)
+          o.addScaledVector(_right, p.side * size * 0.3);
         }
         p.sprite.position.set(o.x + Math.sin(pt * 5) * 0.03, o.y + size * 0.42 + rise, o.z);
         p.sprite.scale.setScalar(Math.max(0.01, size * pop * (1 - out * out)));
@@ -1114,7 +1186,7 @@ export class AnimalPops {
           if (Math.abs(ndc.x) + half > 0.9 && Math.sign(ndc.x) === p.side) p.side = -p.side;
         }
         const side = p.side * (heart * 0.95 + w * 0.5);
-        p.sprite.position.set(o.x + _right.x * side, o.y + 0.35 + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);
+        p.sprite.position.set(o.x + _right.x * side, o.y + 0.2 + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);
         p.sprite.scale.set(w, h, 1);
         m.opacity = p.t > p.life - 0.35 ? Math.max(0, (p.life - p.t) / 0.35) : 1;
       } else if (p.kind === 'drop' || p.kind === 'fluff') {

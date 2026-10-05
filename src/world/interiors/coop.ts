@@ -17,8 +17,8 @@ import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { Rng } from '../../core/rng';
 import { InteriorMap } from './room';
-import { Kit } from './kit';
-import { mat, lumpySphere, roundedBox } from '../geom';
+import { Kit, imat } from './kit';
+import { mat, lumpySphere, roundedBox, prep } from '../geom';
 import type { PenAnchors } from './pen';
 import { hayPile, strawTufts, lanternHook, feedSack, strawDrift, hayBale, bucket } from './pen';
 
@@ -47,14 +47,14 @@ export class CoopInterior extends InteriorMap {
       H: 2.8,
       doorX: 4,
       exit: { to: 'farm', x: COOP_EXIT.x, z: COOP_EXIT.z, facing: 'down' },
-      floor: 'straw',
+      floor: 'strawCalm',
       style: 'barn',
       wallMat: 'limewash',
       wallTint: 0xffffff,
       // Blue-grey limewash below the girt: a cool band under the warm straw + timber.
       wainscotTint: 0x96acba,
       timberLight: 1.7,
-      floorTint: 0xd4c6ae,
+      floorTint: 0xeadbc0,
       kneeH: 0.42,
       windows: [
         { wall: 'back', at: 3.75, w: 0.85, y0: 1.2, y1: 2.0 },
@@ -158,10 +158,41 @@ export class CoopInterior extends InteriorMap {
     for (const s of [-1, 1]) k.box('wood', [tl, 0.2, 0.05], [tc, 0.06, trough.z + s * 0.17], { tint: 0x9a6a44 });
     for (const x of [trough.x0 + 0.05, trough.x1 - 0.05]) k.box('wood', [0.06, 0.24, 0.4], [x, 0.02, trough.z], { tint: DARK });
     for (const x of [trough.x0 + 0.2, tc, trough.x1 - 0.2]) k.box('wood', [0.08, 0.08, 0.44], [x, 0, trough.z], { tint: DARK });
-    // Hopper: a slanted-lid bin against the left wall behind the trough's end
-    k.box('wood', [0.5, 0.9, 0.5], [0.3, 0, 4.35], { tint: 0xc8a070, ao: 0.3 });
-    k.box('wood', [0.58, 0.06, 0.6], [0.3, 0.92, 4.35], { tint: DARK, rx: -0.2 });
-    k.box('paint', [0.3, 0.18, 0.02], [0.3, 0.5, 4.61], { tint: 0xf2e6c8 });
+    // Hay hopper (r6 focal prop): a tall slatted bin against the left wall by the trough's end, lid
+    // propped open, a chute at its foot spilling into the trough; through the slats you see how full it
+    // is (the hay fill is a live mesh: hopperFill()). Painted HAY board, an iron scoop on a nail.
+    {
+      const hx = 0.36;
+      const hz = 4.35;
+      const HW = 0.62;
+      const HD = 0.56;
+      const HH = 1.18;
+      // Corner posts + base + back board
+      for (const [px, pz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) k.box('wood', [0.07, HH + 0.05, 0.07], [hx + px * (HW / 2 - 0.035), 0, hz + pz * (HD / 2 - 0.035)], { tint: DARK });
+      k.box('wood', [HW, 0.1, HD], [hx, 0, hz], { tint: 0x8a6040 });
+      k.box('wood', [0.04, HH, HD - 0.08], [hx - HW / 2 + 0.03, 0.1, hz], { tint: 0xa87850 });
+      // Slatted front (+z) and side (+x): 5 vertical slats with gaps
+      for (let i = 0; i < 5; i++) {
+        k.box('wood', [0.07, HH - 0.12, 0.03], [hx - HW / 2 + 0.1 + i * 0.105, 0.1, hz + HD / 2 - 0.02], { tint: i % 2 ? 0xc49a6a : 0xb88c5c, r: 0.008 });
+        k.box('wood', [0.03, HH - 0.12, 0.07], [hx + HW / 2 - 0.02, 0.1, hz - HD / 2 + 0.1 + i * 0.09], { tint: i % 2 ? 0xc49a6a : 0xb88c5c, r: 0.008 });
+      }
+      for (const y of [0.16, HH - 0.08]) {
+        k.box('wood', [HW + 0.02, 0.07, 0.04], [hx, y, hz + HD / 2], { tint: DARK, r: 0.01 });
+        k.box('wood', [0.04, 0.07, HD + 0.02], [hx + HW / 2, y, hz], { tint: DARK, r: 0.01 });
+      }
+      // Lid propped open against the wall, a few stalks poking over the rim
+      k.box('wood', [0.05, 0.62, HD + 0.06], [hx - HW / 2 + 0.03, HH + 0.04, hz], { tint: 0x9a6a44, rz: 0.32, r: 0.012 });
+      strawTufts(k, rng, hx + 0.05, HH - 0.02, hz, 8, 0.18);
+      // Chute at the foot, out towards the trough's end, with a spill of hay
+      k.box('wood', [0.34, 0.05, 0.26], [hx + HW / 2 + 0.12, 0.16, hz + 0.14], { tint: 0x9a6a44, rz: -0.35 });
+      for (const s of [-1, 1]) k.box('wood', [0.32, 0.1, 0.03], [hx + HW / 2 + 0.12, 0.17, hz + 0.14 + s * 0.13], { tint: DARK, rz: -0.35 });
+      strawTufts(k, rng, hx + HW / 2 + 0.3, 0.02, hz + 0.25, 14, 0.25);
+      // HAY board on the front slats + the scoop on a nail
+      k.box('paint', [0.34, 0.14, 0.02], [hx, HH - 0.42, hz + HD / 2 + 0.01], { tint: 0xf2e6c8, r: 0.01 });
+      k.box('paint', [0.22, 0.03, 0.022], [hx, HH - 0.37, hz + HD / 2 + 0.012], { tint: 0x7a3a24 });
+      k.cyl('tin', 0.06, 0.05, 0.12, [hx + HW / 2 + 0.05, 0.72, hz - 0.12], { tint: 0xc8d0d4, seg: 12, rx: 0.2 });
+      this.hopperFill(hx, hz, HW, HD, HH);
+    }
 
     // ── Middle: dust bath (a scooped hollow of fine dry soil, ragged soft-edged discs, a berm of clods)
     const dbx = 2.75;
@@ -170,10 +201,11 @@ export class CoopInterior extends InteriorMap {
       const a = rng.next() * Math.PI * 2;
       const r = 0.12 + rng.next() * 0.18;
       const sc = 0.56 - i * 0.042 + rng.next() * 0.08;
-      const tint = new THREE.Color(0xa87c42).lerp(new THREE.Color(0x8a6444), i / 6);
+      // Dry, pale, sifted soil (r6: the darker brown read as an indoor mud puddle)
+      const tint = new THREE.Color(0xb89a6c).lerp(new THREE.Color(0xc8aa78), i / 6);
       k.add('fabric', new THREE.CircleGeometry(sc, 18).rotateX(-Math.PI / 2).scale(1.25, 1, 0.85), mat(dbx + Math.cos(a) * r * (1 - i / 8), 0.01 + i * 0.003, dbz + Math.sin(a) * r * 0.7 * (1 - i / 8)), { tint });
     }
-    k.add('fabric', new THREE.CircleGeometry(0.33, 22).rotateX(-Math.PI / 2).scale(1.2, 1, 0.8), mat(dbx + 0.05, 0.034, dbz), { tint: 0x7a5a3e });
+    k.add('fabric', new THREE.CircleGeometry(0.33, 22).rotateX(-Math.PI / 2).scale(1.2, 1, 0.8), mat(dbx + 0.05, 0.034, dbz), { tint: 0xd0b282 });
     for (let i = 0; i < 30; i++) {
       const a = rng.next() * Math.PI * 2;
       const rr = 0.46 + rng.next() * 0.32;
@@ -182,7 +214,7 @@ export class CoopInterior extends InteriorMap {
     for (let i = 0; i < 16; i++) {
       const a = rng.next() * Math.PI * 2;
       const rr = 0.5 + rng.next() * 0.6;
-      k.add('fabric', lumpySphere(0.018 + rng.next() * 0.025, 1, 0.4, rng), mat(dbx + Math.cos(a) * rr, 0.01, dbz + Math.sin(a) * rr * 0.72, 0, rng.next() * 3, 0, 1, 0.6, 1), { tint: rng.next() < 0.5 ? 0x7e5e42 : 0xa0805c });
+      k.add('fabric', lumpySphere(0.018 + rng.next() * 0.025, 1, 0.4, rng), mat(dbx + Math.cos(a) * rr, 0.01, dbz + Math.sin(a) * rr * 0.72, 0, rng.next() * 3, 0, 1, 0.6, 1), { tint: rng.next() < 0.5 ? 0xc0a070 : 0xd8bc8c });
     }
     // Standing grain feeder (galvanised hopper on a round pan, raised on an upturned crate lid) with a
     // halo of spilled grain + two pecked-clean patches.
@@ -236,9 +268,11 @@ export class CoopInterior extends InteriorMap {
       k.sphere('ceramic', 0.013, [sx + Math.cos(a) * r * 0.9, 0.012, sz - Math.sin(a) * r * 0.6], rng.next() < 0.35 ? 0xd8a830 : 0xf0c848);
     }
     // Feathers: white + russet, scattered (a few caught on the straw drifts)
-    for (let i = 0; i < 22; i++) {
+    // (r6: 9, under the roost + by the nests, not sprinkled over the whole floor)
+    for (let i = 0; i < 9; i++) {
       const f = new THREE.CircleGeometry(0.05, 8).rotateX(-Math.PI / 2).scale(0.42, 1, 1.5);
-      k.add('fabric', f, mat(0.9 + rng.next() * 6.3, 0.02 + rng.next() * 0.02, 1.3 + rng.next() * 3.5, (rng.next() - 0.5) * 0.4, rng.next() * 3, 0.15), { tint: rng.next() < 0.55 ? 0xf8f4ea : rng.next() < 0.5 ? 0xc8844a : 0x3a6a4a });
+      const [fx0, fz0] = i % 2 ? [5.2, 1.7] : [1.2, 1.1];
+      k.add('fabric', f, mat(fx0 + rng.next() * 1.6, 0.02 + rng.next() * 0.02, fz0 + rng.next() * 0.8, (rng.next() - 0.5) * 0.4, rng.next() * 3, 0.15), { tint: rng.next() < 0.55 ? 0xf8f4ea : rng.next() < 0.5 ? 0xc8844a : 0x3a6a4a });
     }
 
     // ── Front-right: sacks, egg basket on a crate, wildflowers, broom
@@ -291,16 +325,19 @@ export class CoopInterior extends InteriorMap {
         const pos = g.attributes.position as THREE.BufferAttribute;
         const uv = g.attributes.uv as THREE.BufferAttribute;
         for (let v = 0; v < uv.count; v++) uv.setXY(v, pos.getX(v) * 0.5, (D - pos.getZ(v)) * 0.5);
-        k.add('straw', g, undefined, { tint });
+        k.add('strawCalm', g, undefined, { tint });
       }
-      strawTufts(k, rng, x, y + 0.01, z, 10, Math.max(rx, rz) * 1.1);
+      strawTufts(k, rng, x, y + 0.01, z, 5, Math.max(rx, rz) * 1.1);
     };
     patch(4.4, 5.05, 0.7, 0.5, 0xb09a7c);
     patch(3.0, 4.75, 0.85, 0.32, 0xb49e80);
     patch(1.4, 1.05, 1.1, 0.36, 0xfff2d4, 0.008);
     patch(6.0, 1.95, 1.25, 0.48, 0xfff0d0, 0.008);
-    // Straw scatter + drifts break up the bedding
-    strawTufts(k, rng, 4, 0.02, 3.2, 44, 3.3);
+    // Straw scatter clustered where the birds kick it about (nests, trough, roost) — the open floor stays
+    // calm so the hens read against it (r6: was 44 strands over the whole room).
+    strawTufts(k, rng, 1.4, 0.02, 1.15, 9, 0.8);
+    strawTufts(k, rng, 2.1, 0.02, 4.85, 8, 1.0);
+    strawTufts(k, rng, 6.0, 0.02, 2.2, 8, 0.9);
     for (const [x, z, w, d] of [[1.55, 3.05, 1.1, 0.7], [6.35, 3.3, 1.3, 0.8], [3.05, 4.75, 0.9, 0.45], [6.95, 1.15, 0.8, 0.5], [4.9, 4.55, 0.9, 0.5]] as const) strawDrift(k, rng, x, z, w, d);
     // Egg shelf with cartons on the right wall (back corner)
     k.box('wood', [0.3, 0.04, 1.1], [W - 0.16, 1.3, 1.1], { tint: 0xb08058 });
@@ -399,7 +436,7 @@ export class CoopInterior extends InteriorMap {
     this.statics.push(k.build('coop-furniture'));
     this.solid(0.2, 0, 2.6, 0.7, 'nests');
     this.solid(0.4, 5.1, 3.6, 5.6, 'trough');
-    this.solid(0, 4.05, 0.6, 4.65, 'hopper');
+    this.solid(0, 4.05, 0.75, 4.65, 'hopper');
     this.solid(6.5, 3.15, 7.2, 3.85, 'waterer');
     this.solid(7.0, 4.5, 7.95, 5.6, 'sacks');
     this.solid(5.9, 5.2, 6.95, 5.8, 'basket');
@@ -422,6 +459,38 @@ export class CoopInterior extends InteriorMap {
     this.addLamp(new THREE.Vector3(5.95, 1.85, 0.85), 0xffb870, 0.0, 3.6, 0.04, 5);
     this.glowPool(1.3, 3.3, 2.3, 0xffb060, () => 0.05 + this.light.night * 0.16);
     void roundedBox;
+  }
+
+  /**
+   * The hopper's hay, seen through its slats: a straw block whose height follows the hay the farmer has
+   * on hand (that's what the hopper is filled from), eased so a feeding run visibly drops the level.
+   */
+  private hopperFill(hx: number, hz: number, w: number, d: number, h: number): void {
+    const g = new THREE.BoxGeometry(w - 0.12, 1, d - 0.12);
+    g.translate(0, 0.5, 0);
+    const top = new THREE.SphereGeometry(0.5, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+    top.scale(w - 0.14, 0.22, d - 0.14);
+    const m = imat('straw');
+    const block = new THREE.Mesh(prep(g, 0xfff0c8), m);
+    const dome = new THREE.Mesh(prep(top, 0xfff4d0), m);
+    for (const o of [block, dome]) {
+      o.userData.noAO = true;
+      o.receiveShadow = true;
+    }
+    const grp = new THREE.Group();
+    grp.name = 'hopper-hay';
+    grp.userData.dynamic = true;
+    grp.add(block, dome);
+    grp.position.set(hx + 0.01, 0.1, hz);
+    this.root.add(grp);
+    let level = -1;
+    this.updaters.push((dt) => {
+      const n = this.game.services.inventory?.count('hay') ?? 12;
+      const want = THREE.MathUtils.clamp(n / 24, 0.06, 1) * (h - 0.25);
+      level = level < 0 ? want : level + (want - level) * (1 - Math.exp(-3 * dt));
+      block.scale.y = level;
+      dome.position.y = level;
+    });
   }
 
   /**
