@@ -1828,7 +1828,9 @@ export class AnimalSystem implements System, AnimalsApi {
         { kind: 'sleep', yaw: 1.05, back: 1 },
         { kind: 'stand', yaw: -0.5, back: 0.3, dx: 0.12 },
         { kind: 'root', yaw: 0.62, back: 0.45 },
-        { kind: 'stand', yaw: -0.3, back: 0.15 },
+        // (r8: the end sheep stands side-on in its stall, nosing the partition — three faces to the lens
+        // still read as a line-up)
+        { kind: 'stand', yaw: -1.2, back: 0.35 },
       ];
       for (const l of this.live) {
         const a = l.actor;
