@@ -1458,10 +1458,10 @@ export class AnimalSystem implements System, AnimalsApi {
     if (this.mapId === 'farm') {
       const { pond } = YARD;
       for (const l of this.live) {
-        if (n >= MAX_DUCKS) break;
         const a = l.actor;
         const q = ((a.pos.x - pond.x) / pond.rx) ** 2 + ((a.pos.z - pond.z) / pond.rz) ** 2;
-        if (q > 1.05) continue;
+        if (a.species === 'duck') a.setCastShadow(q > 0.85);
+        if (n >= MAX_DUCKS || q > 1.05) continue;
         // Swimmers leave stronger wakes; anything wading at the edge only a faint ring.
         const k = (l.rec?.species === 'duck' ? 1 : 0.4) * THREE.MathUtils.clamp((1.05 - q) * 3, 0, 1);
         ducks[n++]!.set(a.pos.x, a.pos.z, k, l.rec ? l.rec.id * 1.7 : 0);
@@ -1880,7 +1880,7 @@ export class AnimalSystem implements System, AnimalsApi {
         { kind: 'stand', yaw: -0.3, back: 0.1 },
         wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.42, back: 0.25 },
         { kind: 'aisle', yaw: 0 },
-        { kind: 'stand', yaw: -0.22, back: 0.15 },
+        { kind: 'stand', yaw: -0.35, back: 0 },
         { kind: 'stand', yaw: -0.5, back: 0.2 },
       ];
       for (const l of this.live) {
@@ -1947,7 +1947,7 @@ export class AnimalSystem implements System, AnimalsApi {
       // covered the hen and its heart floated beside a hat)
       // (r6: a clear step towards the camera too — the farmer turns 3/4 to the lens to reach it, and the
       // bird's whole silhouette sits below the brim on screen)
-      const [sxo, szo] = fx === 0 ? [0.8, fz * 0.78] : [fx * 1.0, 0.78];
+      const [sxo, szo] = fx === 0 ? [0.5, fz * 0.9] : [fx * 1.0, 0.78];
       if (free) {
         const a = free.actor;
         const d = Math.hypot(sxo, szo);

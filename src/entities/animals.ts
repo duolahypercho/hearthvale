@@ -193,6 +193,14 @@ export class AnimalActor {
    * Far LOD (outdoor herd from the high farm camera): swap to the low-tessellation mesh, skinned to this
    * actor's own skeleton (so every pose keeps working), and drop its shadow-pass cost to the same mesh.
    */
+  /** Cast a sun shadow (off for a duck afloat: the pond shader draws its own contact shadow — saves a
+   *  shadow draw per swimmer). */
+  setCastShadow(on: boolean): void {
+    if (this.mesh.castShadow === on) return;
+    this.mesh.castShadow = on;
+    if (this.lo) this.lo.castShadow = on;
+  }
+
   setFar(far: boolean): void {
     if (far === this.far) return;
     this.far = far;
@@ -202,7 +210,7 @@ export class AnimalActor {
       lo.name = `${this.mesh.name}:lo`;
       lo.bind(this.mesh.skeleton, this.mesh.bindMatrix);
       lo.boundingSphere = this.mesh.boundingSphere?.clone() ?? null;
-      lo.castShadow = true;
+      lo.castShadow = this.mesh.castShadow;
       lo.receiveShadow = true;
       this.root.add(lo);
       this.lo = lo;

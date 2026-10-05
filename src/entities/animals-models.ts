@@ -222,13 +222,14 @@ function legGeo(R: number, top: number, hoof: number): THREE.BufferGeometry {
   const h = top - hoof;
   const pts = [
     [R * 0.2, h + 0.05],
-    [R * 1.15, h - 0.02],
-    [R * 1.18, h * 0.78],
-    [R * 0.9, h * 0.58],
-    [R * 1.0, h * 0.48],
-    [R * 0.78, h * 0.36],
-    [R * 0.72, h * 0.14],
-    [R * 0.86, h * 0.05],
+    [R * 1.2, h - 0.02],
+    [R * 1.24, h * 0.8],
+    [R * 0.86, h * 0.6],
+    // (r9: a rounder knee + a slimmer cannon: the legs taper instead of reading as straight sticks)
+    [R * 1.08, h * 0.49],
+    [R * 0.74, h * 0.36],
+    [R * 0.66, h * 0.15],
+    [R * 0.84, h * 0.05],
     [R * 0.9, 0],
   ].map(([x, y]) => new THREE.Vector2(x!, y! + hoof));
   return new THREE.LatheGeometry(pts, Math.max(6, Math.round(10 * RIG_DETAIL.k)));
