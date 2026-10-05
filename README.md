@@ -609,8 +609,10 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
   chest for the rest of the day. Produce Judging draws three rivals per year (stronger each year), stages your entry
   on a draped plinth (judges gather round it) and adds a presentation pick (the judges favour one touch a year).
   Sack Race: five 1.05 m lanes whose 3D positions are the HUD's progress, dust on every landing, tumbles on wobbles,
-  finishers fan out past the tape, the camera tracks the pack. Gift Exchange unwraps the present in 3D in your hands.
-  Lantern Release: five throws on a quickening swell, a radiant-streak bonus, and each of your lanterns joins the
+  finishers fan out past the tape, the camera tracks the pack. Gift Exchange unwraps the present in 3D in your hands
+  (the circle steps back and you face the lens beside the recipient; cards sit to the side).
+  Lantern Release (a low three-quarter from the east sand: your face lit by the paper toro lantern in your hands —
+  the fireworks flash light doubles as its glow — the dark bay and the lighthouse headland beyond): five throws on a quickening swell, a radiant-streak bonus, and each of your lanterns joins the
   flotilla colour-coded by how well it was let go (gold radiant … dull sputter). Produce Judging runs as a
   lower-third ribbon while the judges walk plinth to plinth in 3D and the rosettes are staked beside the winners.
 - Fireworks (tide night): shells launch on one shared period, evenly staggered, so every frame of the show holds a
@@ -619,7 +621,8 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
   green / violet curtains with fine rays (the high camera sees the ice far more than the sky).
 - Crowds: townsfolk get 12+ hue families a season, ~40 % seasonal hats (the rest bare hair / headbands / earmuffs /
   bows), elders + children, ±10 % height / ±8 % width, bags; the staged crowd is relaxed so nobody stands inside
-  anybody else (`FestivalMap.separateCrowd`).
+  anybody else (`FestivalMap.separateCrowd`); in close mini-game framings anyone within ~5 m of the lens shrinks away
+  (`Crowd.nearCam`), so no giant cropped heads fill the frame.
 - Perf: at most 3 dynamic point lights per festival map (constant count; lamps / stalls / lighthouse are glow sprites +
   pool decals, the firework flash is one shared light + a sea tint); the cocoa lamp rides with the skater in the skate.
 - Events: `festival:start` / `festival:end`, `festival:music` (tempo / mode / timbre hints), `festival:minigame`,
@@ -627,7 +630,8 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
 - Co-op: `festivals.record(activity, score)` takes a peer's relayed `festival:score` (player `'local'` = this browser;
   the net layer stamps its peer id); the result card ranks every farmer who played today once more than one has a
   score. `festivals.snapshot()` / `applySnapshot()` hand the festival day (done activities + boards) to a joiner.
-- Demos: `fest-spring`, `fest-summer`, `fest-fall`, `fest-winter`, `fest-winter-night`, and the mini-games
+- Demos: `fest-spring`, `fest-summer`, `fest-fall`, `fest-winter` (8:10 pm, aurora up), `fest-winter-night`,
+  `fest-winter-dusk` (afterglow, aurora just rising), and the mini-games
   `fest-spring-dance`, `fest-summer-lanterns`, `fest-fall-race`, `fest-fall-judging`, `fest-winter-gifts`,
   `fest-winter-skate`. `&result=1` ends on the result card; `&coop=1` adds two visiting farmers (villager-safe names,
   seeded skill vs each game's par) to its board AND stages them in 3D at the activity spots with name tags.

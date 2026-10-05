@@ -416,18 +416,20 @@ export class StarfallSquare extends FestivalMap {
     const gz = TREE.z + 5.6;
     const named = NPC_IDS.slice();
     const circle: [string | null, CrowdSpec['anim']][] = [
+      // Named villagers spaced round the ring (side by side they stacked their name tags in the
+      // long postcard view).
       ['marigold', 'talk'],
-      ['bram', 'cheer'],
-      ['wren', 'wave'],
       [null, 'clap'],
-      [null, 'cheer'],
+      ['bram', 'cheer'],
       [null, 'talk'],
+      [null, 'cheer'],
+      ['wren', 'wave'],
     ];
     circle.forEach(([id, anim], k) => {
       const a = Math.PI * 0.15 + (k / circle.length) * Math.PI * 1.7 - Math.PI / 2 + Math.PI;
       const x = gx + Math.cos(a) * 2.1;
       const z = gz + Math.sin(a) * 1.5;
-      const look = id ? { ...NPCS[id as keyof typeof NPCS].look } : randomLook(r, { palette: P.tops, child: k === 4 });
+      const look = id ? { ...NPCS[id as keyof typeof NPCS].look } : randomLook(r, { palette: P.tops, child: k === 3 });
       person(look, anim, x, z, face(x, z, gx, gz), { id: id ?? undefined, props: ['gift'], accent: pick(P.accents) });
     });
     // Carolers by the tree with song books.
@@ -551,6 +553,12 @@ export class StarfallSquare extends FestivalMap {
       // You and the recipient face each other under the Fir, side by side to the lens (both faces,
       // the present between you); the cards sit on the right, the pair left of centre.
       this.placePlayer(gx - 0.55, gz + 0.4, 'right');
+      // Draw the name here when nobody was chosen, so the card and the villager who steps up to
+      // receive the present in 3D are always the same person.
+      if (!play.partner && this.named.size) {
+        const ids = [...this.named.keys()];
+        play.partner = ids[Math.floor(Math.random() * ids.length)];
+      }
       const i = play.partner ? this.named.get(play.partner) : undefined;
       const c = this.crowd;
       if (c && i !== undefined) {
@@ -890,7 +898,8 @@ export class StarfallSquare extends FestivalMap {
     pr.lid.rotation.set(-u * 2.2, u * 1.5, u * 3.1);
     for (const r of pr.ribbons) r.scale.set(Math.max(0.01, 1 - u * 3), 1, 1);
     pr.prize.visible = true;
-    pr.prize.position.y = 0.2 + Math.min(1, u / 0.7) * 0.65;
+    // It rises just clear of the open box (below the chin: the face must read over it).
+    pr.prize.position.y = 0.2 + Math.min(1, u / 0.7) * 0.3;
     pr.prize.rotation.y = u * 4;
     if (u > 1.3) pr.lid.visible = false;
     else pr.lid.visible = true;
