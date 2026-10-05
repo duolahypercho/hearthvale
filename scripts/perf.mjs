@@ -14,6 +14,7 @@
  *   npm run perf -- --profile 15                   # + top-15 self-time JS functions per demo (CDP sampling profiler)
  *   npm run perf -- --ready-budget 200000         # ms allowed for page load + __game.ready() (default 150000)
  *   npm run perf -- --resume                       # skip demos already in shots/perf/partial.json (after a killed run)
+ *   npm run perf -- --no-prime                     # skip the unrecorded priming load of the first demo (cold-GPU tax)
  *
  * Per demo: fresh page on `?demo=<name>&quality=<q>`, await __game.ready(), warm up `--warmup` ms,
  * then record `--record` ms of requestAnimationFrame deltas plus:
@@ -68,6 +69,7 @@ function parseArgs(argv) {
     if (!a.startsWith('--')) continue;
     const key = a.slice(2);
     if (key === 'no-history') { out.history = false; continue; }
+    if (key === 'no-prime') { out.prime = 'false'; continue; }
     if (key === 'headed' || key === 'strict' || key === 'resume') { out[key] = true; continue; }
     const val = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : 'true';
     out[key] = ['w', 'h', 'dpr', 'warmup', 'record', 'timeout'].includes(key) ? Number(val) : val;
@@ -602,6 +604,18 @@ async function main() {
     }
     const results = [];
     const isClosed = (e) => /closed|disconnected|crash/i.test(String(e?.message || e));
+    // Priming pass (unrecorded): the first demo of a fresh browser paid a cold-GPU tax — ANGLE/Metal
+    // pipeline states + GPU clocks — that no later demo pays: r13 measured farm-morning at 60 fps / 39 ms
+    // GPU as demo 1 and 91 fps / 23.6 ms GPU as demo 3 of the same run (it had been "worst" in every survey
+    // because it is always listed first). One throwaway load of the first demo absorbs it. `--no-prime` skips.
+    if (args.prime !== 'false' && demos.length && !done.has(demos[0])) {
+      const keep = { warmup: args.warmup, record: args.record };
+      args.warmup = 2500;
+      args.record = 1500;
+      await measureDemoSafe(ctx, base, demos[0]).catch(() => {});
+      Object.assign(args, keep);
+      console.log(`[perf] primed on ${demos[0]} (unrecorded)`);
+    }
     for (const [i, name] of demos.entries()) {
       if (done.has(name)) { results.push(done.get(name)); continue; }
       let res;
