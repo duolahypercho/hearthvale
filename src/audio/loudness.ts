@@ -14,11 +14,19 @@ export const TARGET_OFFSET: Record<string, number> = {
   mine: -1, 'mine-ice': -1, 'mine-lava': -1,
   night: -0.8, 'night-spring': -0.8, 'night-fall': -0.8, 'night-winter': -0.8, 'night-summer': -0.8,
   rain: -0.5,
+  // The event score sits a touch under the day: it plays beneath dialogue.
+  'event-tender': -1, 'event-playful': -1, 'event-wistful': -1, 'event-mystery': -1, 'event-sly': -1, 'event-dawn': -1,
 };
 
 // @generated-begin (scripts/audio-render.mjs --calibrate)
 export const MEASURED_LUFS: Record<string, number> = {
   'beach': -23,
+  'event-dawn': -20,
+  'event-mystery': -21.9,
+  'event-playful': -23.7,
+  'event-sly': -22.7,
+  'event-tender': -26.9,
+  'event-wistful': -21.3,
   'fall': -21.4,
   'fall-2': -18.9,
   'fall-3': -23.6,

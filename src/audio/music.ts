@@ -43,6 +43,8 @@ export const MUSIC_LOOKAHEAD = 1.5;
 export const MUSIC_SCHED = { staleAfter: 0.25 };
 /** Worker wait cap at song start (s): after this the song is composed on the frame rather than kept silent. */
 const WORKER_WAIT = 1.5;
+/** The same cap for scene cues (event-*): the old song is still fading, the actors are talking. */
+const WORKER_WAIT_SCENE = 4;
 /** Scheduling diagnostics (all players): notes played slightly late, notes skipped as stale. */
 export const MUSIC_STATS = { late: 0, skipped: 0 };
 
@@ -587,7 +589,9 @@ export class MusicDirector {
         this.pieces.request(th, seed);
         if (now >= this.restUntil && this.pieces.hasWorker && !this.pieces.settled(th, seed)) {
           this.waitSince ??= now;
-          if (now - this.waitSince < WORKER_WAIT) {
+          // A scene cue (songbook-events.ts) may wait longer: the dialogue carries the moment, and a
+          // frame hitch while a heart event's camera moves is worse than a beat of quiet.
+          if (now - this.waitSince < (id.startsWith('event-') ? WORKER_WAIT_SCENE : WORKER_WAIT)) {
             this.old = this.old.filter((p) => p.pump(now + lookahead) && !p.finished);
             return;
           }

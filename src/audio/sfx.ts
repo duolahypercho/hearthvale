@@ -308,10 +308,11 @@ export class Sfx {
     // +6.5 dB over round 3 (steps were buried under the dawn chorus), sand / snow / shallow water
     // brought up to the set.
     // Round 9: surfaces levelled to within ±2 dB on the reel (snow and sand had run 8 dB over wood).
+    // Round 12: the whole set +1 dB (live check: grass sat 3.4 dB under the menu open / close cues).
     const soft = surface === 'grass' || surface === 'tilled' || surface === 'dirt';
     // (The presence peak adds ~2 dB of loudness to the soft surfaces: trimmed back so the set stays level.)
     const trim = (soft ? 0.88 : 1) * (surface === 'wood' ? 0.74 : surface === 'grass' ? 0.95 : surface === 'sand' ? 1.28 : surface === 'snow' ? 1.6 : surface === 'water' ? 1.8 : surface === 'stone' ? 1.45 : 1.38);
-    const { d, t } = this.bus({ ...o, pan: (o?.pan ?? 0) + this.stepSide * 0.06, gain: (o?.gain ?? 1) * trim * this.v(1.45 * 2.1) }, false, false, soft ? this.stepPresence : undefined);
+    const { d, t } = this.bus({ ...o, pan: (o?.pan ?? 0) + this.stepSide * 0.06, gain: (o?.gain ?? 1) * trim * this.v(1.45 * 2.1 * 1.12) }, false, false, soft ? this.stepPresence : undefined);
     const k = 0.9 + this.rng.next() * 0.2;
     // Sole scuff: a short 2–4 kHz grain on every surface — the part that cuts through birdsong.
     // (Round 5: +3 dB — steps sat ~7 dB under the bed in the gameplay check; this grain carries them.)

@@ -9,6 +9,7 @@
 import type { ThemeDef } from './composer';
 import { SONGBOOK } from './songbook';
 import { SONGBOOK_TOWN, winterTown } from './songbook-town';
+import { SONGBOOK_EVENTS } from './songbook-events';
 
 /** Song form: the tune twice, its answer, the tune, a bridge (C) in a new harmonic area, the tune home. */
 const FORM_SONG: ThemeDef['form'] = ['intro', 'A', 'A', 'B', 'A', 'C', 'A', 'outro'];
@@ -635,6 +636,8 @@ export const THEMES: Record<string, ThemeDef> = {
     },
     rest: [5, 12],
     gain: 0.92,
+    // (Round 12: presence + air sat on the 12 % mellow line — a gentle sheen opens the whistle and harp.)
+    sheen: 2.5,
   },
 
   /** Festival jig — running fiddle quavers with whistle doubling, accordion oom-pah, bodhrán and tambourine. */
@@ -744,6 +747,8 @@ export const THEMES: Record<string, ThemeDef> = {
 Object.assign(THEMES, SONGBOOK);
 // More rainy-day and town songs (the 'rain:<season>' / 'town:<season>' playlists in select.ts).
 Object.assign(THEMES, SONGBOOK_TOWN);
+// The event score: cues for heart events and story scenes (songbook-events.ts, chosen by eventCue()).
+Object.assign(THEMES, SONGBOOK_EVENTS);
 THEMES['town-winter'] = winterTown(THEMES.town!);
 
 /** Mood hints the festival system broadcasts (`festival:music`). */

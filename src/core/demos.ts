@@ -175,6 +175,8 @@ export const DEMOS: Record<string, DemoDef> = {
   // cicada chorus (swells in within ~3 s). Menu duck: `?demo=audio&ui=inventory` (score −3 dB + low-pass behind the page).
   'audio-brook': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: FOREST_FALLS_CAM },
   'audio-noon': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 12.5, season: 'summer', weather: 'sun', camera: HOME_CAM },
+  // Audio pod: the event score in the square — `&event=<npc>-<2|4>` plays that heart event's cue, `&cue=event-tender|playful|wistful|mystery|sly|dawn` one directly.
+  'audio-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.1, offsetZ: -0.5 }, showcase: ['interior'] },

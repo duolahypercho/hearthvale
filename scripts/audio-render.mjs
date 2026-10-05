@@ -502,6 +502,12 @@ const LIVE_SCENES = [
   { demo: 'audio-night', expect: /^night(-summer)?$/ },
   { demo: 'town-rain', expect: /^rain(-\d)?$/ },
   { demo: 'fest-spring', expect: /^festival/ },
+  // The event score (songbook-events.ts): a heart event / story scene swaps the square's music for its
+  // cue (quick fade), and the place's music comes back when it ends.
+  { demo: 'town-day', label: 'heart-event june-2', emit: [['npc:event', { id: 'june-2', npcId: 'june', phase: 'start' }]], expect: 'event-wistful' },
+  { demo: 'town-day', label: 'heart-event kit-2', emit: [['npc:event', { id: 'kit-2', npcId: 'kit', phase: 'start' }]], after: [['npc:event', { id: 'kit-2', npcId: 'kit', phase: 'end' }]], expect: 'event-playful' },
+  { demo: 'town-day', label: 'after the event', expect: /^town(-[a-z0-9]+)?$/ },
+  { demo: 'town-day', label: 'scene glimmer-offer', emit: [['cutscene:start', { scene: 'glimmer-offer' }]], after: [['cutscene:end', { scene: 'glimmer-offer', skipped: false }]], expect: 'event-sly' },
   { demo: 'title', expect: 'title' },
 ];
 const LIVE_SFX = ['step:grass', 'water', 'hoe', 'scythe', 'axe', 'pickaxe', 'rockbreak', 'harvest', 'coin', 'ui:click', 'ui:open', 'ui:close', 'ui:hover', 'ui:select', 'ui:slot', 'splash', 'sword', 'slime', 'heart', 'levelup', 'chest', 'join', 'chat', 'emote:heart'];
@@ -561,6 +567,7 @@ async function live() {
       if (sc.weather) g.setWeather(sc.weather);
       const a = g.game.services.audio;
       a.music(null);
+      for (const [n, p] of sc.emit ?? []) g.game.events.emit(n, p);
       let st = a.state();
       const t0 = performance.now();
       while (performance.now() - t0 < 20000) {
@@ -574,13 +581,14 @@ async function live() {
         max = Math.max(max, a.meter());
         await sleep(200);
       }
+      for (const [n, p] of sc.after ?? []) g.game.events.emit(n, p);
       return { wanted: st.wanted, playing: st.theme, running: st.running, max };
     }, { ...sc, expect: undefined });
     const want = sc.expect;
     const okTheme = res.playing && (want instanceof RegExp ? want.test(res.playing) : res.playing === want);
     const ok = res.running && okTheme && res.max > -45;
     if (!ok) fails++;
-    console.log(`${(sc.demo + (sc.season ? `/${sc.season}` : '')).padEnd(22)} ${String(res.wanted).padEnd(20)} ${String(res.playing).padEnd(20)} ${fmt(res.max).padStart(7)}  ${ok ? 'ok' : `FAIL (expected ${want})`}`);
+    console.log(`${(sc.label ?? sc.demo + (sc.season ? `/${sc.season}` : '')).padEnd(22)} ${String(res.wanted).padEnd(20)} ${String(res.playing).padEnd(20)} ${fmt(res.max).padStart(7)}  ${ok ? 'ok' : `FAIL (expected ${want})`}`);
   }
   // Reliability: the scene change that failed intermittently in round 1, twenty times in a row.
   const loop = await page.evaluate(async () => {
@@ -646,15 +654,22 @@ async function live() {
     await sleep(5000);
     const floor = a.meter();
     const out = [];
+    // Each effect three times, median of the peaks: effects carry ±1.2 dB of humanised level and the
+    // 30 ms meter can land either side of a transient, so one shot made the hierarchy check flaky.
     for (const n of names) {
-      a.play(n);
-      let max = -Infinity;
-      for (let i = 0; i < 8; i++) {
-        await sleep(30);
-        max = Math.max(max, a.meter());
+      const peaks = [];
+      for (let k = 0; k < 3; k++) {
+        a.play(n);
+        let max = -Infinity;
+        for (let i = 0; i < 8; i++) {
+          await sleep(30);
+          max = Math.max(max, a.meter());
+        }
+        peaks.push(max);
+        await sleep(500);
       }
-      out.push({ name: n, max });
-      await sleep(500);
+      peaks.sort((x, y) => x - y);
+      out.push({ name: n, max: peaks[1] });
     }
     a.music(null);
     return { floor, out };
@@ -837,6 +852,27 @@ async function coop() {
     const hostLog = await host.evaluate(() => window.__game.game.services.audio.state().sfxLog.slice(-3).map((x) => x.name).join(','));
     check('farmhand voices the host\'s hoe stroke as the host resolved it (soil, not a dull thunk)', hoe?.name === 'hoe' && hoe.gain >= 0.85, hoe ? `${hoe.name} gain ${hoe.gain} pan ${hoe.pan}` : `farmhand log: ${fresh.map((x) => x.name).join(',') || 'empty'}`);
     check('farmhand output peaks over its ambience', peak > med + 3, `peak ${fmt(peak)} vs 90th percentile ${fmt(med)} dBFS before; host voiced ${hostLog}`);
+    // Event score: the host's heart event start / end goes over the relay as npcs.ts's 'v.e' message; a
+    // farmhand watching in the square hears the event's cue, then the square's music again.
+    for (const p of [host, hand]) await p.evaluate(() => { window.__game.game.services.audio.music(null); return window.__game.demo('town-day'); });
+    const waitTheme = (re) => hand.evaluate(async (src) => {
+      const re0 = new RegExp(src);
+      const a = window.__game.game.services.audio;
+      const t0 = performance.now();
+      let st = a.state();
+      while (performance.now() - t0 < 20000) {
+        st = a.state();
+        if (st.theme && st.theme === st.wanted && re0.test(st.theme)) break;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return `${st.wanted}/${st.theme}`;
+    }, re.source);
+    await host.evaluate(() => window.__game.game.services.net.sendExt('*', ['v.e', 1, 'june-2', 0, 'Host']));
+    const evOn = await waitTheme(/^event-wistful$/);
+    check('farmhand spectating the host\'s heart event hears its cue', evOn === 'event-wistful/event-wistful', `wanted/playing ${evOn}`);
+    await host.evaluate(() => window.__game.game.services.net.sendExt('*', ['v.e', 0, 'june-2']));
+    const evOff = await waitTheme(/^town/);
+    check('…and the square\'s music returns when it ends', /^town[^/]*\/town/.test(evOff), `wanted/playing ${evOff}`);
     // Festival: both clients walk onto the Blossom Parade grounds.
     for (const p of [host, hand]) await p.evaluate(() => { window.__game.game.services.audio.music(null); return window.__game.demo('fest-spring'); });
     const themes = await Promise.all([host, hand].map((p) => p.evaluate(async () => {

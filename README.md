@@ -240,6 +240,19 @@ adapts it to game events.
   harp + ukulele off-beats), Harvest Reel (Harvest Fair: a D-dorian reel in 4/4 with its own hook, guitar chop,
   bodhrán), Lanterns on the Tide, Starfall Carol. Comping varies per bar (3–4 rhythm variants per pattern, the
   phrase's last bar pushes, ghost notes) and the voicing window climbs through inversions over each phrase.
+- **The event score** (`src/audio/songbook-events.ts`): heart events and story scenes get their own cue
+  instead of the square's music — Kindling (tender: felt piano over a rolled harp, cello on the return),
+  Tiptoe (playful: staccato clarinet, pizzicato off-beats, glockenspiel wink, a comic button ending),
+  The Empty Chair (wistful: a D-minor fiddle air), Lantern Dark (mystery: celesta in D lydian, the I↔II sway, a
+  borrowed bVImaj7) and Glimmer & Co. (sly: an A-minor habanera, clarinet with chromatic sidesteps, tresillo
+  bass, the accordion turning on the charm) and Lanterns Relit (a 3/4 fiddle hymn for the Lantern Hall room
+  restorations and the town turning Glimmer away, lifted a whole step into its last A with hand bells on the
+  tune). `eventCue()` maps the 20 heart events and the hall / Glimmer / restoration scenes, and any new event by
+  a vote over its lines' moods. `npc:event` / `cutscene:start` swap in the cue
+  with a quick fade and the place's music returns at the phrase end after `…:end`; a cutscene's own
+  `cue: 'music'` still wins; co-op farmhands spectating the host's heart event hear the same cue (the
+  host's 'v.e' net message). No now-playing card over the actors. Hear it: `?demo=audio-event&event=june-2`
+  or `&cue=event-sly`; `?demo=town-heart-event&event=<id>` scores the staged event too.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);

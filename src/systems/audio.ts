@@ -31,6 +31,8 @@ import { chooseTheme, MENU_LEVEL, MENU_MUFFLE, MENU_TAU, songFor, STORM_OUTDOOR_
 import { PiecePrefetch } from '../audio/prefetch';
 import { MusicDirector, MUSIC_LOOKAHEAD, MUSIC_STATS } from '../audio/music';
 import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
+import { eventCue } from '../audio/songbook-events';
+import { heartEvent } from '../data/npcs';
 import { voiceFor, type Surface } from '../audio/sfx';
 import { tuneHook } from '../audio/composer';
 import type { DirectorTrace } from '../audio/music';
@@ -173,6 +175,12 @@ export class AudioSystem implements System {
   private vol = { master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7 };
   private muted = false;
   private forced: string | null = null;
+  /**
+   * The event score: while a heart event or a story scene plays, its cue (songbook-events.ts) stands
+   * in for the place's music; a cutscene's own `cue: 'music'` (forced) still wins. `kick` asks the
+   * director for a quick fade instead of waiting for the phrase end.
+   */
+  private sceneCue: { id: string; theme: string; kick: boolean } | null = null;
   private demoTheme: { theme: string; map: string } | null = null;
   private festival: string | null = null;
   private lastTheme: string | null = null;
@@ -625,6 +633,42 @@ export class AudioSystem implements System {
       const sp = this.spatial(x + 0.5, z + 0.5);
       if (sp) this.sfx('wither', { gain: sp.gain, pan: sp.pan }, 0.4);
     });
+    // The event score (songbook-events.ts): heart events and story scenes get their own cue — tender,
+    // playful, wistful, mysterious or sly — picked from a table, else from a vote over the lines' moods.
+    const eventMoods = (id: string): string[] => {
+      const he = heartEvent(id);
+      const moods: string[] = [];
+      for (const st of he?.ev.script ?? []) {
+        const s0 = st as { mood?: string; options?: { mood?: string }[] };
+        if (s0.mood) moods.push(s0.mood);
+        for (const o of s0.options ?? []) if (o.mood) moods.push(o.mood);
+      }
+      return moods;
+    };
+    const startCue = (id: string, moods?: string[]): void => {
+      const theme = eventCue(id, moods);
+      if (!theme || !THEMES[theme]) return;
+      this.sceneCue = { id, theme, kick: true };
+      this.preload();
+      this.engine?.music.kick();
+    };
+    const endCue = (id: string): void => {
+      if (this.sceneCue?.id !== id) return;
+      this.sceneCue = null;
+      this.preload();
+    };
+    ev.on('npc:event', ({ id, phase }) => (phase === 'start' ? startCue(id, eventMoods(id)) : endCue(id)));
+    ev.on('cutscene:start', ({ scene }) => startCue(scene));
+    ev.on('cutscene:end', ({ scene }) => endCue(scene));
+    // Co-op: a farmhand spectating the host's heart event (npcs.ts 'v.e' start / end, host-authoritative)
+    // hears the same cue — only while they are in the square watching it.
+    ev.on('net:ext', ({ data }) => {
+      if (data[0] !== 'v.e' || game.services.net?.role() !== 'client') return;
+      const id = String(data[2] ?? '');
+      if (data[1]) {
+        if (game.world.current?.id === 'town') startCue(id, eventMoods(id));
+      } else endCue(id);
+    });
     ev.on('cutscene:cue', ({ cue, arg, instant }) => {
       if (cue === 'music') {
         this.forced = !arg || arg === 'auto' ? null : arg;
@@ -708,6 +752,15 @@ export class AudioSystem implements System {
     ev.on('demo:stage', ({ name }) => {
       const map = game.world.current?.id ?? '';
       this.demoTheme = name === 'festival' ? { theme: 'festival', map } : null;
+      // Heart-event stagings score the scene: `&event=<npc>-<2|4>` (its cue) or `&cue=event-<mood>`.
+      if (name === 'town-heart-event' || name === 'audio-event') {
+        const q = new URLSearchParams(location.search);
+        const cue = q.get('cue');
+        const id = q.get('event') ?? 'wren-2';
+        if (cue && THEMES[cue] && cue.startsWith('event-')) {
+          this.sceneCue = { id: `demo:${cue}`, theme: cue, kick: true };
+        } else startCue(id, eventMoods(id));
+      } else if (this.sceneCue?.id.startsWith('demo:')) this.sceneCue = null;
       this.preload();
       this.engine?.music.kick();
       if (name === 'audio' || name.startsWith('audio-')) {
@@ -816,7 +869,7 @@ export class AudioSystem implements System {
       indoor: this.isIndoor(),
       title: panel === 'title' || panel.endsWith(':title'),
       festival: this.festival ?? this.demoTheme?.theme ?? null,
-      forced: this.forced,
+      forced: this.forced ?? this.sceneCue?.theme ?? null,
       mineFloor: this.mineFloor,
     });
   }
@@ -921,7 +974,8 @@ export class AudioSystem implements System {
         const def = THEMES[playing];
         game.events.emit('audio:theme', { id: playing, title: def?.title ?? playing });
         const title = panel === 'title' || panel.endsWith(':title');
-        if (def && !title && !this.pinCard) this.card.show(def);
+        // Scene cues play under a heart event / cutscene: no "now playing" card over the actors.
+        if (def && !title && !this.pinCard && !playing.startsWith('event-')) this.card.show(def);
       }
     }
     const lift = e.music.resting || !playing ? 1 : 0;
@@ -1072,7 +1126,8 @@ export class AudioSystem implements System {
     const map = game.world.current?.id ?? '';
     if (want !== e.music.desired) {
       // Same place, new hour / weather: finish the phrase, then hand over. New place: quick fade.
-      e.music.handoff = map === this.lastMap ? 'drift' : 'move';
+      e.music.handoff = map === this.lastMap && !this.sceneCue?.kick ? 'drift' : 'move';
+      if (this.sceneCue) this.sceneCue.kick = false;
       e.music.desired = want;
     }
     this.lastMap = map;
