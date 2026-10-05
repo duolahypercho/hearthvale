@@ -202,13 +202,14 @@ export class CoopInterior extends InteriorMap {
       const r = 0.12 + rng.next() * 0.18;
       const sc = 0.56 - i * 0.042 + rng.next() * 0.08;
       // Dry, pale, sifted soil (r6: the darker brown read as an indoor mud puddle)
-      const tint = new THREE.Color(0xb89a6c).lerp(new THREE.Color(0xc8aa78), i / 6);
+      const tint = new THREE.Color(0x9c7e54).lerp(new THREE.Color(0xb49668), i / 6);
       k.add('fabric', new THREE.CircleGeometry(sc, 18).rotateX(-Math.PI / 2).scale(1.25, 1, 0.85), mat(dbx + Math.cos(a) * r * (1 - i / 8), 0.01 + i * 0.003, dbz + Math.sin(a) * r * 0.7 * (1 - i / 8)), { tint });
     }
-    k.add('fabric', new THREE.CircleGeometry(0.33, 22).rotateX(-Math.PI / 2).scale(1.2, 1, 0.8), mat(dbx + 0.05, 0.034, dbz), { tint: 0xd0b282 });
-    for (let i = 0; i < 30; i++) {
+    k.add('fabric', new THREE.CircleGeometry(0.33, 22).rotateX(-Math.PI / 2).scale(1.2, 1, 0.8), mat(dbx + 0.05, 0.034, dbz), { tint: 0xbc9e70 });
+    // (r6: 8 strands out on the berm — 30 dark strands across the pale dust read as scratched glyphs)
+    for (let i = 0; i < 8; i++) {
       const a = rng.next() * Math.PI * 2;
-      const rr = 0.46 + rng.next() * 0.32;
+      const rr = 0.72 + rng.next() * 0.2;
       k.cyl('thatch', 0.007, 0.007, 0.14 + rng.next() * 0.14, [dbx + Math.cos(a) * rr * 1.2, 0.045, dbz + Math.sin(a) * rr * 0.85], { rz: Math.PI / 2, ry: rng.next() * Math.PI, tint: rng.next() < 0.5 ? 0xe8c878 : 0xc8a050 });
     }
     for (let i = 0; i < 16; i++) {
