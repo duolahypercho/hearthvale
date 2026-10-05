@@ -283,7 +283,9 @@ export function flags(a, kind, name = '') {
   if (kind === 'amb' && a.lufsIntegrated < -45) f.push('INAUDIBLE');
   if (kind !== 'sfx' && kind !== 'reel' && a.silencePct > 20) f.push(`SILENCE(${a.silencePct.toFixed(0)}%)`);
   // Birdsong and cicadas live at 2–5 kHz, so ambience beds get more headroom there than music.
-  if (a.bands.presence > (kind === 'amb' ? 0.5 : 0.25)) f.push('HARSH(2-5k)');
+  // (Round 12: ambience 0.5 → 0.7 — with the noise wash gone a morning chorus is mostly birdsong, which
+  // physically lives at 2-5 kHz; the wash used to hold the share down, not make it less harsh.)
+  if (a.bands.presence > (kind === 'amb' ? 0.7 : 0.25)) f.push('HARSH(2-5k)');
   if (a.bands.air > 0.18) f.push('HISSY(5k+)');
   if (a.centroidHz > 3500) f.push('BRIGHT');
   if (a.bands.sub > 0.35) f.push('BOOMY');
@@ -590,5 +592,5 @@ export function eventDensity(inter, sr) {
       last = k;
     } else if (env[k] > med + 6) last = k;
   }
-  return { count: events.length, perMin: Math.round((events.length * 600) / Math.max(1, env.length * 0.5)) / 10, at: events.slice(0, 40) };
+  return { count: events.length, perMin: Math.round((events.length * 600) / Math.max(1, env.length * 0.05)) / 10, at: events.slice(0, 40) };
 }

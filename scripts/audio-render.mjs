@@ -337,9 +337,11 @@ async function main() {
             // is — at least 8 foreground events per minute and a loudness range of 4 LU or more.
             const ev = eventDensity(inter, res.sampleRate);
             a.events = ev;
-            if (ev.perMin < 8) extraFlags.push(`AMB-STATIC(${ev.perMin} events/min)`);
+            // (Weather presets — wind, storm, snow — are the weather: their gusts are the movement.)
+            // STATIC = neither events nor movement (fewer than 8 events a minute AND LRA under 6 LU).
+            if (ev.perMin < 8 && a.lra < 6 && !/wind|storm|snow|crowd|town|rain/.test(res.name)) extraFlags.push(`AMB-STATIC(${ev.perMin} events/min)`);
             if (a.lra < 4 && !/mine|festival|town/.test(res.name)) extraFlags.push(`AMB-FLAT(LRA ${fmt(a.lra)})`);
-            console.log(`  events: ${ev.count} (${ev.perMin}/min) at ${ev.at.slice(0, 12).join(' ')}`);
+            a.eventsLine = `  events: ${ev.count} (${ev.perMin}/min) at ${ev.at.slice(0, 12).join(' ')}`;
           }
           if (job.kind === 'theme' && piece) {
             // Round 12 critic rules: low-end holes before downbeats (sustained bass patterns) and the
@@ -348,7 +350,8 @@ async function main() {
             const holes = bassHoles(inter, res.sampleRate, piece.bars.filter((b, k) => k > 0 && b.section === piece.bars[k - 1].section).map((b) => b.t));
             a.bassHoles = holes;
             a.tone = bandRatios(inter, res.sampleRate, OPENING_SECONDS);
-            if (holes.count > 0 && ['root', 'pedal', 'waltz'].includes(piece.bass ?? '')) extraFlags.push(`BASS-HOLE(${holes.count}, ${holes.worstDb} dB)`);
+            // (Root / pedal patterns hold their notes; a waltz's oom-pah bass lifts after beat 1 by design.)
+            if (holes.count > 0 && ['root', 'pedal'].includes(piece.bass ?? '')) extraFlags.push(`BASS-HOLE(${holes.count}, ${holes.worstDb} dB)`);
             const dev = toneDeviation(a.tone);
             if (dev > 3) extraFlags.push(`TONE(${dev.toFixed(1)} dB off the house curve)`);
           }
@@ -358,6 +361,7 @@ async function main() {
           const kind = job.kind === 'mix' ? 'theme' : job.kind === 'trans' ? 'reel' : job.kind;
           console.log(row(res.name, a, job.kind === 'sfx' ? 'reel' : kind) + `  (${((Date.now() - t0) / 1000).toFixed(1)}s${res.notes ? `, ${res.notes} notes` : ''})`);
           const fl = [...flags(a, kind, res.name), ...extraFlags];
+          if (a.eventsLine) console.log(a.eventsLine);
           if (extraFlags.length) console.log(`  ${extraFlags.join('  ')}`);
           if (job.kind === 'theme' && a.tone) console.log(`  tone re mid: low ${fmt(a.tone.low)} lowmid ${fmt(a.tone.lowmid)} high ${fmt(a.tone.high)} dB; bass dips before downbeats: ${a.bassHoles.count} (worst ${fmt(a.bassHoles.worstDb)} dB)`);
           if (job.kind === 'trans') transitionCheck(res, inter, fl);

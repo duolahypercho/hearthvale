@@ -113,7 +113,7 @@ export function makeNoise(ctx: BaseAudioContext, seconds: number, color: 'white'
  * puddles, their pitch falling), scattered across the stereo field with equal-power panning.
  * Rendered once; the ambience loops it and rides its level, so a downpour costs one buffer source.
  */
-export function makeRain(ctx: BaseAudioContext, seconds: number, perSecond: number, rng: Rand): AudioBuffer {
+export function makeRain(ctx: BaseAudioContext, seconds: number, perSecond: number, rng: Rand, bigChance = 0.07): AudioBuffer {
   const sr = ctx.sampleRate;
   const len = Math.floor(sr * seconds);
   const buf = ctx.createBuffer(2, len, sr);
@@ -125,7 +125,7 @@ export function makeRain(ctx: BaseAudioContext, seconds: number, perSecond: numb
     const pan = rng.next() * 2 - 1;
     const gl = Math.cos(((pan + 1) * Math.PI) / 4);
     const gr = Math.sin(((pan + 1) * Math.PI) / 4);
-    const big = rng.next() < 0.07;
+    const big = rng.next() < bigChance;
     const amp = (big ? 0.28 : 0.1 + 0.3 * Math.pow(rng.next(), 2.2)) * (0.6 + 0.4 * rng.next());
     const f0 = big ? 700 + rng.next() * 900 : 2000 * Math.pow(4, rng.next());
     const tau = big ? 0.012 + rng.next() * 0.01 : 0.0007 + rng.next() * 0.0022;

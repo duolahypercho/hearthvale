@@ -650,7 +650,9 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   if (o?.art !== 'legato') noiseHit(g, dest, t + 0.003, { f: 2400, q: 2, amp: v * 0.008, attack: 0.002, tau: 0.03 });
   // A little sine body under the string for warmth, plus its octave so it reads on small speakers.
   const f = mtof(m);
-  const stop = t + Math.min(dur, 1.2) + 0.4;
+  // (Round 12: the body rings to the note's end — capped at 1.2 s it cut out ~150 ms before the next
+  // downbeat of a slow song's half-bar notes: the dark notch at every bar line in the title.)
+  const stop = t + Math.min(dur, 3) + 0.6;
   const a = gain(g);
   a.gain.setValueAtTime(0, t);
   a.gain.linearRampToValueAtTime(v * 0.46, t + 0.012);
@@ -658,7 +660,7 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   // sine "brick" under every bass note was the most synthetic thing in the low end).
   a.gain.setTargetAtTime(v * 0.25, t + 0.012, 0.12);
   a.gain.setTargetAtTime(0, t + 0.2, 0.55);
-  a.gain.setTargetAtTime(0, t + Math.min(dur, 1.2), 0.07);
+  a.gain.setTargetAtTime(0, t + Math.min(dur, 3), 0.1);
   sine(g, f, t, stop).connect(a);
   const o2 = gain(g, 0.35);
   sine(g, f * 2, t, stop).connect(o2).connect(a);

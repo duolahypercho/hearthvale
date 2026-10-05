@@ -108,9 +108,10 @@ export type SfxName = (typeof SFX_NAMES)[number];
  * big stingers stay under the score's loudness (they also duck it).
  */
 const TRIM: Record<string, number> = {
-  harvest: 0.62, coin: 0.6, craft: 0.6, 'gift:love': 0.4, 'gift:like': 0.6, heart: 0.6, catch: 0.42, 'catch:perfect': 0.42,
+  // (harvest, round 12: +6.6 dB — the gameplay render had the pop only +0.8 over the louder melody bus)
+  harvest: 1.32, coin: 0.6, craft: 0.6, 'gift:love': 0.4, 'gift:like': 0.6, heart: 0.6, catch: 0.42, 'catch:perfect': 0.42,
   lantern: 0.48, hall: 0.34, treefall: 1.7, purchase: 0.75, ship: 0.8, bite: 0.6, bundle: 0.75, sleep: 0.8, morning: 0.8,
-  swing: 5.9, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 6.4, scythe: 16, weed: 5,
+  swing: 5.9, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 5, scythe: 16, weed: 5,
   // Round 9 hierarchy: a splash / plop is a water event, louder than a footstep (splash ≈ -20 LUFS
   // momentary on the reel), the door ≈ -24, thunder a +10 dB event over the storm bed.
   splash: 3.3, plop: 1.8, door: 2.7, thunder: 1.6, 'hoe:dull': 1.7,
@@ -135,9 +136,10 @@ const TRIM: Record<string, number> = {
   rockbreak: 2.7, hoe: 6.4,
   // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
   // momentary on the reel), rewards / stingers pulled ~2 dB under them so they stay under median + 9.
-  axe: 2.2, pickaxe: 2.6, 'sword:hit': 2.6, hurt: 2, 'ui:tick': 5.2,
+  axe: 2.2, pickaxe: 2.6, 'sword:hit': 4, hurt: 2, 'ui:tick': 5.2,
   // Round 12: combat lands harder than tilling (the reel had sword -23.7 / slime:hit -23.3 LUFS
-  // momentary against the hoe's -14.4): the swing +5 dB (3.6 → 6.4), the blows built on a contact
+  // momentary against the hoe's -14.4): the swing +2.9 dB (3.6 → 5), the hit +3.7 dB (it must clear the
+  // swing by 2 LU on the reel), the blows built on a contact
   // layer and levelled with the payoffs (a kill outranks a hit, a crit rings over a plain one).
   // (--live peaks, round 12: slime -12.1, crab -15.3, bat -16.1 vs the hoe -13.8 → crab / bat / wisp up.)
   'hit:slime': 2.6, 'hit:crab': 3.1, 'hit:bat': 3.9, 'hit:wisp': 3.1, 'hit:imp': 3, 'hit:flesh': 2.6, parry: 2.2,
@@ -688,10 +690,10 @@ export class Sfx {
           this.noise(d, t + 0.04, { f: 1700, f1: 900, q: 4, amp: 0.08, attack: 0.006, tau: 0.03, buf: this.g.pink });
           if (killed) {
             // It bursts: a gloopy collapse, three wet drips and a small bright "pop" in key.
-            this.noise(d, t + 0.06, { f: 820, f1: 260, q: 2, amp: 0.3, attack: 0.012, tau: 0.09, buf: this.g.pink });
-            this.tone(d, t + 0.1, { f0: 480, f1: 1500, glide: 0.05, amp: 0.18, tau: 0.03 });
+            this.noise(d, t + 0.06, { f: 820, f1: 260, q: 2, amp: 0.2, attack: 0.012, tau: 0.09, buf: this.g.pink });
+            this.tone(d, t + 0.1, { f0: 480, f1: 1200, glide: 0.05, amp: 0.1, tau: 0.03 });
             for (let i = 0; i < 3; i++) this.tone(d, t + 0.2 + i * 0.075 + r.next() * 0.02, { f0: 420 - i * 70, f1: 260 - i * 50, glide: 0.05, amp: 0.12, tau: 0.03, lp: 1100 });
-            this.chime(d, t + 0.24, this.kn(4), 0.16);
+            this.chime(d, t + 0.24, this.kn(4), 0.07);
           }
         } else if (kind === 'crab') {
           // Shell clank: three inharmonic plate partials over a hollow knock, a chitin crunch.
@@ -726,16 +728,16 @@ export class Sfx {
           for (let i = 0; i < 6; i++) this.noise(d, t + r.next() * 0.12, { f: 3000 + r.next() * 3000, q: 3, amp: 0.05 + r.next() * 0.05, attack: 0.0008, tau: 0.006 });
           if (killed) {
             // The spirit comes apart into glass: a falling celesta spray in key and a sigh of air.
-            [7, 5, 4, 2, 0].forEach((k, i) => this.chime(d, t + 0.08 + i * 0.05, this.kn(k), 0.13 - i * 0.015));
-            this.noise(d, t + 0.05, { f: 2400, f1: 900, q: 0.8, amp: 0.1, attack: 0.06, tau: 0.2, buf: this.g.pink });
+            [7, 5, 4, 2, 0].forEach((k, i) => this.chime(d, t + 0.08 + i * 0.05, this.kn(k - 5), 0.05 - i * 0.006));
+            this.noise(d, t + 0.05, { f: 1800, f1: 700, q: 0.8, amp: 0.07, attack: 0.06, tau: 0.2, buf: this.g.pink });
           }
         } else {
           // Imp: a leathery smack, a low growl and the hiss of its embers.
           this.tone(d, t + 0.01, { type: 'sawtooth', f0: 125, f1: 90, glide: 0.12, amp: 0.07, attack: 0.01, tau: 0.06, lp: 520 });
-          this.noise(d, t + 0.01, { type: 'highpass', f: 3800, amp: 0.06, attack: 0.01, tau: 0.12 });
+          this.noise(d, t + 0.01, { f: 2600, q: 0.9, amp: 0.025, attack: 0.01, tau: 0.1, buf: this.g.pink });
           if (killed) {
-            this.noise(d, t + 0.05, { f: 380, f1: 1500, q: 0.9, amp: 0.26, attack: 0.03, tau: 0.12, buf: this.g.brown });
-            this.noise(d, t + 0.08, { type: 'highpass', f: 3000, amp: 0.08, attack: 0.02, tau: 0.25 });
+            this.noise(d, t + 0.05, { f: 380, f1: 1200, q: 0.9, amp: 0.26, attack: 0.03, tau: 0.12, buf: this.g.brown });
+            this.noise(d, t + 0.08, { f: 1800, q: 0.8, amp: 0.04, attack: 0.02, tau: 0.22, buf: this.g.pink });
           }
         }
         if (crit) {
@@ -749,11 +751,13 @@ export class Sfx {
       }
       case 'parry':
         // Fireball knocked off the blade: a short steel clang + an ember spray.
-        this.tone(d, t, { f0: 1840, amp: 0.08, tau: 0.09 });
-        this.tone(d, t, { f0: 2950, amp: 0.05, tau: 0.07 });
-        this.tone(d, t, { f0: 4110, amp: 0.025, tau: 0.05 });
-        this.crunch(d, t, 0.2, { n: 5, span: 0.03, click: 1, clickF: 1900 });
-        for (let i = 0; i < 5; i++) this.noise(d, t + 0.03 + r.next() * 0.2, { f: 3500 + r.next() * 2500, q: 2.5, amp: 0.04, attack: 0.001, tau: 0.008 });
+        // (A body knock under the steel so it isn't all 2-4 kHz.)
+        this.tone(d, t, { f0: 420, f1: 300, glide: 0.04, amp: 0.16, tau: 0.04 });
+        this.tone(d, t, { f0: 1240, amp: 0.07, tau: 0.09 });
+        this.tone(d, t, { f0: 1840, amp: 0.04, tau: 0.07 });
+        this.tone(d, t, { f0: 2950, amp: 0.015, tau: 0.05 });
+        this.crunch(d, t, 0.12, { n: 4, span: 0.03, click: 0.8, clickF: 1400 });
+        for (let i = 0; i < 4; i++) this.noise(d, t + 0.03 + r.next() * 0.2, { f: 2200 + r.next() * 1500, q: 2.5, amp: 0.025, attack: 0.001, tau: 0.008 });
         break;
       case 'monster:pop':
         // A monster dissolving (no kill blow voiced it): a soft goo pop and a little sparkle.
@@ -795,15 +799,17 @@ export class Sfx {
         break;
       case 'sizzle':
         // Lava on boot leather: a hiss (3–8 kHz, high-passed) with spitting crackles and a dull puff.
-        this.noise(d, t, { type: 'highpass', f: 3200, amp: 0.14, attack: 0.01, tau: 0.16 });
-        for (let i = 0; i < 9; i++) this.noise(d, t + r.next() * 0.35, { f: 2500 + r.next() * 4000, q: 3, amp: 0.04 + r.next() * 0.05, attack: 0.0008, tau: 0.006 });
-        this.noise(d, t + 0.02, { type: 'lowpass', f: 380, amp: 0.2, attack: 0.02, tau: 0.1, buf: this.g.brown });
+        // (Round 12 reel: was 9 kHz centroid — the hiss now sits at 1.5-3 kHz over a fat puff of steam.)
+        this.noise(d, t, { f: 2200, q: 0.7, amp: 0.1, attack: 0.01, tau: 0.16, buf: this.g.pink });
+        for (let i = 0; i < 9; i++) this.noise(d, t + r.next() * 0.35, { f: 1500 + r.next() * 2000, q: 3, amp: 0.03 + r.next() * 0.03, attack: 0.0008, tau: 0.006 });
+        this.noise(d, t + 0.02, { type: 'lowpass', f: 500, amp: 0.3, attack: 0.02, tau: 0.12, buf: this.g.brown });
+        this.tone(d, t, { f0: 160, f1: 110, glide: 0.06, amp: 0.1, tau: 0.05 });
         break;
       case 'fireball':
         // An imp lobs fire: a breathy whoomph (brown noise sweeping 300 Hz → 1.4 kHz) and crackle.
         this.noise(d, t, { f: 320, f1: 1400, q: 0.9, amp: 0.3, attack: 0.04, tau: 0.12, buf: this.g.brown });
-        this.noise(d, t + 0.03, { type: 'highpass', f: 2800, amp: 0.04, attack: 0.03, tau: 0.15 });
-        for (let i = 0; i < 4; i++) this.noise(d, t + 0.05 + r.next() * 0.25, { f: 2000 + r.next() * 2500, q: 2.5, amp: 0.04, tau: 0.007 });
+        this.noise(d, t + 0.03, { f: 1600, q: 0.8, amp: 0.03, attack: 0.03, tau: 0.15, buf: this.g.pink });
+        for (let i = 0; i < 4; i++) this.noise(d, t + 0.05 + r.next() * 0.25, { f: 1200 + r.next() * 1800, q: 2.5, amp: 0.03, tau: 0.007 });
         break;
       case 'lift': {
         // The mine lift: a latch, a low motor hum under a chain clatter, then an arrival bell in key.
