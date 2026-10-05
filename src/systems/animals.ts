@@ -181,8 +181,10 @@ export interface AnimalSummary {
 }
 
 const CAP = 6;
-/** Presentation scale per species (chibi models read small next to the farmer otherwise). */
-const SCALE: Record<Species, number> = { chicken: 1.14, duck: 1.14, cow: 1.1, goat: 1.08, sheep: 1.1, pig: 1.08, dog: 1.3, cat: 1.25 };
+/** Presentation scale per species (chibi models read small next to the farmer otherwise).
+ *  (r9: livestock scaled up so the herd reads as big soft animals beside the big-headed farmer, not toys:
+ *  a cow's poll stands level with the farmer's hat, sheep / goat / pig at the farmer's shoulders) */
+const SCALE: Record<Species, number> = { chicken: 1.22, duck: 1.22, cow: 1.6, goat: 1.42, sheep: 1.45, pig: 1.5, dog: 1.38, cat: 1.3 };
 const QUALITY_NAME = ['', 'silver', 'gold', 'radiant'];
 
 interface Live {
@@ -207,6 +209,8 @@ export class AnimalSystem implements System, AnimalsApi {
   private mapId = '';
   private demoHearts = 0;
   private demoHeartT = 0;
+  /** Unpaused seconds the staged showcase hearts keep popping. */
+  private demoLive = 0;
   /** Demo: the animal the staged petting hearts go to (null = whoever is nearest the farmer). */
   private demoPet: Live | null = null;
   /** Demo staging: animals dozing through the day (a hen napping in the sunbeam). */
@@ -246,7 +250,11 @@ export class AnimalSystem implements System, AnimalsApi {
     this.props.userData.indoors = true;
     game.scene.add(this.group, this.pops.group, this.props);
 
-    game.events.on('player:interact', ({ x, z }) => this.interact(x, z));
+    game.events.on('player:interact', ({ x, z }) => {
+      this.demoHearts = 0;
+      this.interact(x, z);
+    });
+    game.events.on('player:use', () => (this.demoHearts = 0));
     game.events.on('player:use', ({ x, z }) => {
       // Watering can on the pet bowl fills it too.
       if (this.mapId === 'farm' && this.isBowl(x, z) && game.services.inventory?.selected()?.id === 'wateringCan') this.fillBowl();
@@ -495,6 +503,14 @@ export class AnimalSystem implements System, AnimalsApi {
         }
         const r = this.st.animals.find((a) => a.id === it.id);
         if (!r) break;
+        // The farmhand names the animal they picked; the host only checks it is within their reach (no
+        // re-pick on the host: positions differ by a frame or two of interpolation, and in a cluster a
+        // re-pick credited the neighbour). Unknown position (other map / no body yet) = trust the id.
+        if (peer != null) {
+          const lv = this.live.find((v) => v.rec === r);
+          const from = this.peerFarmer(peer);
+          if (lv && from && Math.hypot(lv.actor.pos.x - from.x, lv.actor.pos.z - from.z) > 4.5 + lv.actor.gait.len * lv.actor.scale) break;
+        }
         // Milk / wool only for a farmer who really carries the pail / shears (host mirror of their backpack).
         const tool = r.species === 'sheep' ? 'shears' : 'milkPail';
         if (r.ready && it.tool && LIVESTOCK[r.species].byHand && (peer == null || this.peerCount(peer, tool) > 0)) {
@@ -1114,27 +1130,55 @@ export class AnimalSystem implements System, AnimalsApi {
     }
   }
 
-  /** The animal the farmer is reaching for: body capsule nearest to points along the facing ray. */
+  /**
+   * The animal the farmer is reaching for. The click point (the tile centre, or an exact world point
+   * from a remote / scripted interact) wins first: of the bodies whose footprint covers it, the one
+   * whose footprint centre is nearest (relative to its own size) is picked — overlapping neighbours
+   * never steal the pet. Only when no body covers the point does the facing ray decide (nearest
+   * capsule to points along it, closest sample first).
+   * (r9: a farmhand petting a cow standing in a cluster credited the sheep beside it)
+   */
   private hitAnimal(x: number, z: number): Live | null {
     const pp = this.game.player.position;
-    let dx = x + 0.5 - pp.x;
-    let dz = z + 0.5 - pp.z;
+    const cx = Number.isInteger(x) ? x + 0.5 : x;
+    const cz = Number.isInteger(z) ? z + 0.5 : z;
+    let dx = cx - pp.x;
+    let dz = cz - pp.z;
     const dl = Math.hypot(dx, dz) || 1;
     dx /= dl;
     dz /= dl;
-    const samples = [0.45, 0.9, 1.35].map((k) => [pp.x + dx * k, pp.z + dz * k] as const);
-    samples.push([x + 0.5, z + 0.5]);
+    const segDist = (c: { ax: number; az: number; bx: number; bz: number; r: number }, sx: number, sz: number): number => {
+      const ux = c.bx - c.ax;
+      const uz = c.bz - c.az;
+      const l2 = ux * ux + uz * uz;
+      const k = l2 > 1e-8 ? THREE.MathUtils.clamp(((sx - c.ax) * ux + (sz - c.az) * uz) / l2, 0, 1) : 0;
+      return Math.hypot(sx - (c.ax + ux * k), sz - (c.az + uz * k)) - c.r;
+    };
+    // 1. Bodies under the click point, ranked by distance to their footprint centre / their size.
     let best: Live | null = null;
     let bs = Infinity;
     for (const l of this.live) {
       if (l.leaving) continue;
       const c = l.actor.capsule();
+      if (segDist(c, cx, cz) > 0.12) continue;
+      const mx = (c.ax + c.bx) / 2;
+      const mz = (c.az + c.bz) / 2;
+      const half = Math.hypot(c.bx - c.ax, c.bz - c.az) / 2 + c.r;
+      const score = Math.hypot(cx - mx, cz - mz) / Math.max(0.2, half);
+      if (score < bs) {
+        bs = score;
+        best = l;
+      }
+    }
+    if (best) return best;
+    // 2. Nothing under the point: nearest body to the facing ray.
+    const samples = [0.45, 0.9, 1.35].map((k) => [pp.x + dx * k, pp.z + dz * k] as const);
+    samples.push([cx, cz]);
+    for (const l of this.live) {
+      if (l.leaving) continue;
+      const c = l.actor.capsule();
       samples.forEach(([sx, sz], i) => {
-        const ux = c.bx - c.ax;
-        const uz = c.bz - c.az;
-        const l2 = ux * ux + uz * uz;
-        const k = l2 > 1e-8 ? THREE.MathUtils.clamp(((sx - c.ax) * ux + (sz - c.az) * uz) / l2, 0, 1) : 0;
-        const d = Math.hypot(sx - (c.ax + ux * k), sz - (c.az + uz * k)) - c.r;
+        const d = segDist(c, sx, sz);
         const score = d + i * 0.04;
         if (d < 0.45 && score < bs) {
           bs = score;
@@ -1375,7 +1419,13 @@ export class AnimalSystem implements System, AnimalsApi {
         }
       }
     }
-    // Demo: a steady trickle of hearts over whoever is nearest the player.
+    // Demo: a steady trickle of hearts over whoever is nearest the player — only while the staged still
+    // holds: once the game runs (unpaused) the showcase pops expire after a few seconds, and the first
+    // tool use / interact ends them (r9: a pinned heart + name card stayed over the goat for hours).
+    if (this.demoHearts > 0 && !game.paused) {
+      this.demoLive -= dt;
+      if (this.demoLive < 0) this.demoHearts = 0;
+    }
     if (this.demoHearts > 0) {
       this.demoHeartT -= dt;
       if (this.demoHeartT < 0) {
@@ -1798,7 +1848,7 @@ export class AnimalSystem implements System, AnimalsApi {
     // head down in the manger read as a pink back-end from above.)
     // Barn: Cocoa munching at a full manger, two more mangers heaped (those two grazed earlier, so the
     // hay waits for them), the rest bare boards — the feeding state reads along the stall row.
-    st.hay.barn = [false, true, false, true, false, true];
+    st.hay.barn = [true, false, false, false, false, true];
     st.animals.filter((a) => a.home === 'barn').forEach((a, i) => {
       if (i === 3 || i === 5) a.fed = true;
     });
@@ -1821,20 +1871,43 @@ export class AnimalSystem implements System, AnimalsApi {
       // A living barn, not a line-up: each stall gets its own beat (head in the hay, asleep in the
       // straw, rooting, turned to watch the farmer), every animal on its own yaw, all kept inside the
       // stall's free rect (body half-width clear of both partitions).
-      type Beat = { kind: 'stand' | 'munch' | 'sleep' | 'root'; yaw: number; back?: number; dx?: number };
+      type Beat = { kind: 'stand' | 'munch' | 'sleep' | 'root' | 'aisle'; yaw: number; back?: number; dx?: number };
+      // (r9: naps only on a wet day — a sheep asleep at 4:40 pm read as a bug; the pig and the end sheep
+      // turn their faces to the aisle; the goat is out of its stall in the aisle with the farmer)
+      const wet = this.game.calendar.weather === 'rain' || this.game.calendar.weather === 'storm';
       const beats: Beat[] = [
-        { kind: 'stand', yaw: 0.34 },
-        { kind: 'munch', yaw: -0.12 },
-        { kind: 'sleep', yaw: 1.05, back: 1 },
-        { kind: 'stand', yaw: -0.5, back: 0.3, dx: 0.12 },
-        { kind: 'root', yaw: 0.62, back: 0.45 },
-        // (r8: the end sheep stands side-on in its stall, nosing the partition — three faces to the lens
-        // still read as a line-up)
-        { kind: 'stand', yaw: -1.2, back: 0.35 },
+        { kind: 'munch', yaw: 0.22 },
+        { kind: 'stand', yaw: -0.3, back: 0.1 },
+        wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.42, back: 0.25 },
+        { kind: 'aisle', yaw: 0 },
+        { kind: 'stand', yaw: -0.22, back: 0.15 },
+        { kind: 'stand', yaw: -0.5, back: 0.2 },
       ];
       for (const l of this.live) {
         const a = l.actor;
         if (!l.rec || !a.feedSpot) continue;
+        if (beats[l.slot]?.kind === 'aisle') {
+          // Out for a stroll: stands in the aisle beside the farmer (front-right, turned to them), so the
+          // petting reads with the farmer 3/4 to the lens.
+          const pp = this.game.player.position;
+          const want = a.gait.reach * a.scale + 0.86;
+          const dx = 0.9;
+          const dz = 0.42;
+          const dl = Math.hypot(dx, dz);
+          const x = pp.x + (dx / dl) * want;
+          const z = pp.z + (dz / dl) * want;
+          a.stalled = false;
+          a.hungry = false;
+          a.curious = false;
+          a.calm = true;
+          a.confine = true;
+          a.walkable = () => true;
+          a.area = { x0: x - 0.05, z0: z - 0.05, x1: x + 0.05, z1: z + 0.05 };
+          a.place(x, z, Math.atan2(dx, dz) + Math.PI);
+          a.settle();
+          this.demoPet = l;
+          continue;
+        }
         const s = pen.slots[l.slot % pen.slots.length]!;
         const beat = beats[l.slot] ?? beats[0]!;
         a.hungry = beat.kind === 'munch' && !!st.hay.barn[l.slot];
@@ -1874,7 +1947,7 @@ export class AnimalSystem implements System, AnimalsApi {
       // covered the hen and its heart floated beside a hat)
       // (r6: a clear step towards the camera too — the farmer turns 3/4 to the lens to reach it, and the
       // bird's whole silhouette sits below the brim on screen)
-      const [sxo, szo] = fx === 0 ? [0.95, fz * 0.4] : [fx * 1.0, 0.78];
+      const [sxo, szo] = fx === 0 ? [0.8, fz * 0.78] : [fx * 1.0, 0.78];
       if (free) {
         const a = free.actor;
         const d = Math.hypot(sxo, szo);
@@ -1908,10 +1981,13 @@ export class AnimalSystem implements System, AnimalsApi {
           roost.actor.place(bar.x, bar.z, 0.3);
           roost.actor.settle();
         }
-        // One dozes in the sun-warmed straw nest under the back window.
+        // One sits up in the sun-warmed straw nest under the back window, preening (r9: awake — a daytime
+        // nap read as a bug; it only dozes there on a wet day).
+        const wet = this.game.calendar.weather === 'rain' || this.game.calendar.weather === 'storm';
         const nap = this.live.find((l) => l.rec && l !== free && l !== bath && l !== roost && !l.actor.hungry);
         if (nap) {
-          nap.actor.sleeping = true;
+          nap.actor.sleeping = wet;
+          nap.actor.hold = wet ? null : 'idle';
           // (its own bed is under the roost: a sleeper walks home to its bed spot)
           nap.actor.bedSpot = new THREE.Vector3(3.85, 0, 1.73);
           nap.actor.calm = true;
@@ -1919,7 +1995,7 @@ export class AnimalSystem implements System, AnimalsApi {
           nap.actor.area = { x0: 3.82, z0: 1.7, x1: 3.88, z1: 1.76 };
           nap.actor.place(3.85, 1.73, 0.6);
           nap.actor.settle();
-          this.nappers.add(nap);
+          if (wet) this.nappers.add(nap);
         }
         // Anyone left over potters at the waterer / feeder (never drifting into the petting shot).
         // (r8: kept a body length clear of the petting spot right of the farmer and out of the door lane)
@@ -1965,9 +2041,11 @@ export class AnimalSystem implements System, AnimalsApi {
       const { pond, wallow, trough } = YARD;
       const close = showcase.includes('pet-close');
       const spots: Record<string, [number, number, number][]> = {
-        cow: close ? [[trough.x - 1.25, trough.z + 0.2, Math.PI / 2], [47.9, 37.6, 1.9]] : [[trough.x - 1.25, trough.z + 0.25, Math.PI / 2], [46.3, 39.6, -0.45]],
+        // (r9: re-spaced for the bigger herd — every body keeps a clear gap of grass round it; the jersey
+        // stands head-up, face to the lens, instead of grazing with only her poll showing)
+        cow: close ? [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [47.9, 37.6, 1.9]] : [[trough.x - 1.72, trough.z + 0.2, Math.PI / 2], [45.95, 39.3, -0.62]],
         // (r6: one sheep grazes out in the middle of the pen — the herd no longer hugs the fence)
-        sheep: close ? [[44.2, 39.2, 0], [48.9, 38.9, 2.3]] : [[47.55, 37.65, 0.5], [45.0, 39.3, 1.1]],
+        sheep: close ? [[44.2, 39.2, 0], [48.9, 38.9, 2.3]] : [[47.35, 37.1, 0.75], [44.55, 37.45, 1.25]],
         // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the
         // farmer the crouch put the hat brim over the goat's head.
         goat: [[41.5, 41.78, Math.atan2(-1.2, -0.28)]],
@@ -2003,7 +2081,7 @@ export class AnimalSystem implements System, AnimalsApi {
       const used: Record<string, number> = {};
       // Who is head-down grazing / pecking / dabbling in the still (≥ 40 % of the herd): both cows (one
       // drinking at the trough), the middle sheep, two hens, one duck.
-      const grazing: Record<string, number[]> = { cow: [0, 1], sheep: [1], chicken: [0, 2], duck: [1] };
+      const grazing: Record<string, number[]> = { cow: [0], sheep: [0, 1], chicken: [0, 2], duck: [1] };
       for (const l of this.live) {
         if (!l.rec) continue;
         const k = l.rec.species;
@@ -2017,6 +2095,11 @@ export class AnimalSystem implements System, AnimalsApi {
           l.actor.settle();
           // Birds potter about their own patch (a wandering hen ended up stacked behind another one).
           if (k === 'chicken' || k === 'duck') l.actor.area = { x0: s[0] - 0.3, z0: s[1] - 0.3, x1: s[0] + 0.3, z1: s[1] + 0.3 };
+          // (r9: the big animals hold their marks — a wandering cow turned its back on the lens)
+          if (k === 'cow' || k === 'sheep') {
+            l.actor.area = { x0: s[0] - 0.1, z0: s[1] - 0.1, x1: s[0] + 0.1, z1: s[1] + 0.1 };
+            if (!l.actor.hold) l.actor.calm = true;
+          }
           // The pig keeps to its wallow, snout to the camera (it wandered off and showed its rump).
           if (k === 'pig') {
             l.actor.area = { x0: s[0] - 0.08, z0: s[1] - 0.08, x1: s[0] + 0.08, z1: s[1] + 0.08 };
@@ -2057,10 +2140,10 @@ export class AnimalSystem implements System, AnimalsApi {
         // Sits in its own clearing up-field of the goat (its name card pops right where the pet used
         // to sit and hid it), between the hens and the cow, face to the camera.
         // (up-field of the goat's heart + name card, which used to cover it)
-        pet.actor.area = { x0: 43.1, z0: 38.75, x1: 43.4, z1: 39.05 };
+        pet.actor.area = { x0: 42.75, z0: 38.75, x1: 43.05, z1: 39.05 };
         pet.actor.blockers = PASTURE_PROPS;
         pet.actor.curious = false;
-        pet.actor.place(43.25, 38.9, 0.25);
+        pet.actor.place(42.9, 38.9, 0.25);
       } else if (pet) {
         // Yard shot: sitting by the bowl, looking up at the farmer.
         pet.actor.area = { x0: SITES.bowl.x - 1.2, z0: SITES.bowl.z + 0.2, x1: SITES.bowl.x - 0.2, z1: SITES.bowl.z + 1.0 };
@@ -2069,6 +2152,7 @@ export class AnimalSystem implements System, AnimalsApi {
     }
     this.demoHearts = params.get('hearts') === '0' ? 0 : 1;
     this.demoHeartT = 0.2;
+    this.demoLive = 5;
     this.holdHay();
   }
 
@@ -2316,7 +2400,7 @@ function truffleMat(): THREE.MeshStandardMaterial {
 
 let _plaque: THREE.PlaneGeometry | null = null;
 function plaqueGeo(): THREE.PlaneGeometry {
-  if (!_plaque) _plaque = new THREE.PlaneGeometry(0.88, 0.4);
+  if (!_plaque) _plaque = new THREE.PlaneGeometry(0.74, 0.34);
   return _plaque;
 }
 

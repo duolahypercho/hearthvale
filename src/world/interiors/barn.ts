@@ -120,7 +120,9 @@ export class BarnInterior extends InteriorMap {
       area: { x0: 0.8, z0: 0.6, x1: 12.2, z1: SF - 0.3 },
       trough: { x0: 0, z0: 2, x1: 12, z1: 2 },
       feedTile: { x: 3, z: 2 },
-      plaques: Array.from({ length: 6 }, (_, i) => new THREE.Vector3(i * SW + (DOOR0 + SW - 0.09) / 2, 0.74, SF + 0.075)),
+      // (r9: plaques hang low on the door's kick-board, under the animals' chins — at chest height they
+      // covered half of every body from the camera)
+      plaques: Array.from({ length: 6 }, (_, i) => new THREE.Vector3(i * SW + (DOOR0 + SW - 0.09) / 2, 0.27, SF + 0.075)),
       hatch: { x: HATCH_X, z: D },
     };
     this.furnish(rng);
@@ -294,8 +296,8 @@ export class BarnInterior extends InteriorMap {
     for (const y of [0.22, 0.94]) k.box('iron', [0.3, 0.035, 0.012], [x1 - 0.15, y, SF + 0.07], { tint: 0x2a2624, r: 0.006 });
     k.box('iron', [0.08, 0.05, 0.03], [x0 + 0.06, 0.66, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
     // Plaque board (the animal's name is painted on by the animal system)
-    k.box('iron', [0.04, 0.04, 0.06], [cx - 0.3, 0.9, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
-    k.box('iron', [0.04, 0.04, 0.06], [cx + 0.3, 0.9, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
+    k.box('iron', [0.04, 0.04, 0.06], [cx - 0.26, 0.4, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
+    k.box('iron', [0.04, 0.04, 0.06], [cx + 0.26, 0.4, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
   }
 
   /** Hay loft on posts along the left wall, bales up top, ladder; stool + pails by the cow stalls. */

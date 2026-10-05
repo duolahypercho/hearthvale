@@ -408,6 +408,53 @@ try {
     await sleep(1000);
   }
 
+  // ── animals (animals pod): Ash pets a cow standing in an overlapping cluster → the host credits the cow ──
+  {
+    const herd = await net(host, () => {
+      const g = window.__game.game;
+      g.services.buildings.complete('barn');
+      const A = g.services.animals;
+      const cow = A['add']('cow', 1, 'Clover', 600);
+      const sheep = A['add']('sheep', 0, 'Tansy', 600);
+      A['st'].doors.barn = true;
+      A['respawn']();
+      // Pin the pair overlapping: the sheep's body right against the cow's shoulder.
+      const at = { cow: [44.2, 39.2, 1.5], sheep: [45.15, 39.55, -2.2] };
+      for (const l of A['live']) {
+        const k = l.rec?.species;
+        const s = at[k];
+        if (!s) continue;
+        l.actor.area = { x0: s[0] - 0.02, z0: s[1] - 0.02, x1: s[0] + 0.02, z1: s[1] + 0.02 };
+        l.actor.curious = false;
+        l.actor.calm = true;
+        l.actor.place(s[0], s[1], s[2]);
+        l.actor.settle();
+      }
+      A['touch']();
+      return { cow: cow.id, sheep: sheep.id, live: A['live'].filter((l) => l.rec).length };
+    });
+    check('animals: host staged a cow + sheep on the pasture', herd.live >= 2, JSON.stringify(herd));
+    await net(a, () => window.__game.teleport('farm', 44.0, 40.6));
+    const seen = await waitFor(a, (ids) => window.__game.game.services.animals['live'].filter((l) => l.rec && (l.rec.id === ids.cow || l.rec.id === ids.sheep)).length === 2, herd, 15000);
+    check('animals: the farmhand sees the herd', seen);
+    await sleep(1500);
+    const pick = await net(a, (ids) => {
+      const A = window.__game.game.services.animals;
+      const cow = A['live'].find((l) => l.rec?.id === ids.cow);
+      if (!cow) return null;
+      const p = cow.actor.pos;
+      // Click the cow's body on its sheep-side flank (inside both footprints' reach).
+      window.__game.game.events.emit('player:interact', { x: p.x + 0.35, z: p.z + 0.1 });
+      return { x: +p.x.toFixed(2), z: +p.z.toFixed(2) };
+    }, herd);
+    const credited = await waitFor(host, (ids) => {
+      const r = window.__game.game.services.animals.roster();
+      return r.find((x) => x.id === ids.cow)?.petted === true;
+    }, herd, 8000);
+    const after = await net(host, (ids) => window.__game.game.services.animals.roster().filter((x) => x.id === ids.cow || x.id === ids.sheep).map((x) => `${x.name}:${x.friendship}:${x.petted ? 'petted' : '-'}`).join(' '), herd);
+    check('animals: the farmhand\'s pet credits the cow they clicked, not the overlapping sheep', credited && /Tansy:600:-/.test(after), `${JSON.stringify(pick)} ${after}`);
+  }
+
   // ── Ash leaves → back on their own farm (own purse), then comes back ──
   await net(a, () => window.__game.game.services.net.leave());
   await sleep(1500);

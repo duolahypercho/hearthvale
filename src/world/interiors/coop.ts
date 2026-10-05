@@ -212,7 +212,7 @@ export class CoopInterior extends InteriorMap {
       const rr = 0.72 + rng.next() * 0.2;
       k.cyl('thatch', 0.007, 0.007, 0.14 + rng.next() * 0.14, [dbx + Math.cos(a) * rr * 1.2, 0.045, dbz + Math.sin(a) * rr * 0.85], { rz: Math.PI / 2, ry: rng.next() * Math.PI, tint: rng.next() < 0.5 ? 0xe8c878 : 0xc8a050 });
     }
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 7; i++) {
       const a = rng.next() * Math.PI * 2;
       const rr = 0.5 + rng.next() * 0.6;
       k.add('fabric', lumpySphere(0.018 + rng.next() * 0.025, 1, 0.4, rng), mat(dbx + Math.cos(a) * rr, 0.01, dbz + Math.sin(a) * rr * 0.72, 0, rng.next() * 3, 0, 1, 0.6, 1), { tint: rng.next() < 0.5 ? 0xc0a070 : 0xd8bc8c });
@@ -229,9 +229,10 @@ export class CoopInterior extends InteriorMap {
     for (const y of [0.3, 0.52]) k.add('tin', new THREE.TorusGeometry(0.155, 0.01, 5, 20), mat(fx, y, fz, Math.PI / 2, 0, 0), { tint: 0xa8b0b4 });
     k.add('tin', new THREE.ConeGeometry(0.17, 0.14, 20), mat(fx, 0.67, fz), { tint: 0xc8d0d4 });
     k.sphere('tin', 0.03, [fx, 0.75, fz], 0xa8b0b4);
-    for (let i = 0; i < 90; i++) {
+    // (r9: thinned ~60 % and kept close to the pan — the floor read as noise at the props' contrast)
+    for (let i = 0; i < 34; i++) {
       const a = rng.next() * Math.PI * 2;
-      const r = 0.36 + Math.sqrt(rng.next()) * 0.62;
+      const r = 0.36 + Math.sqrt(rng.next()) * 0.4;
       k.sphere('ceramic', 0.012, [fx + Math.cos(a) * r, 0.012, fz + Math.sin(a) * r * 0.8], rng.next() < 0.3 ? 0xc89a40 : 0xe8c050);
     }
     // Stoneware water crock on a damp ring of straw (r8: a faint darkening hugging the pan, three small
@@ -256,22 +257,22 @@ export class CoopInterior extends InteriorMap {
     // half-off it, loose straw kicked round the foot and a scatter of grain on the top.
     hayBale(k, 2.3, 0, 3.88, 0.28, 0.86);
     hayBale(k, 2.12, 0.36, 3.92, 0.12, 0.66);
-    strawTufts(k, rng, 2.3, 0.02, 3.9, 16, 0.75);
-    for (let i = 0; i < 14; i++) k.sphere('ceramic', 0.012, [2.0 + rng.next() * 0.35, 0.645, 3.82 + rng.next() * 0.2], rng.next() < 0.35 ? 0xc89a40 : 0xe8c050);
+    strawTufts(k, rng, 2.3, 0.02, 3.9, 6, 0.6);
+    for (let i = 0; i < 6; i++) k.sphere('ceramic', 0.012, [2.0 + rng.next() * 0.35, 0.645, 3.82 + rng.next() * 0.2], rng.next() < 0.35 ? 0xc89a40 : 0xe8c050);
     // A tipped-over feed sack spilling a fan of corn towards the feeder
     const sx = 6.55;
     const sz = 4.55;
     const sack = new THREE.LatheGeometry([[0, 0], [0.18, 0.01], [0.23, 0.12], [0.23, 0.32], [0.2, 0.44], [0.22, 0.5], [0, 0.5]].map(([a, b]) => new THREE.Vector2(a!, b!)), 18);
     sack.scale(1, 1, 0.72);
     k.add('burlap', sack, mat(sx, 0.17, sz, 0, 0.9, Math.PI / 2 + 0.12), { tint: 0xfff0d8 });
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 26; i++) {
       const a = Math.PI + 0.9 + (rng.next() - 0.5) * 1.1;
-      const r = 0.3 + Math.pow(rng.next(), 0.7) * 0.75;
+      const r = 0.3 + Math.pow(rng.next(), 0.7) * 0.5;
       k.sphere('ceramic', 0.013, [sx + Math.cos(a) * r * 0.9, 0.012, sz - Math.sin(a) * r * 0.6], rng.next() < 0.35 ? 0xd8a830 : 0xf0c848);
     }
     // Feathers: white + russet, scattered (a few caught on the straw drifts)
     // (r6: 9, under the roost + by the nests, not sprinkled over the whole floor)
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 5; i++) {
       const f = new THREE.CircleGeometry(0.05, 8).rotateX(-Math.PI / 2).scale(0.42, 1, 1.5);
       const [fx0, fz0] = i % 2 ? [5.2, 1.7] : [1.2, 1.1];
       k.add('fabric', f, mat(fx0 + rng.next() * 1.6, 0.02 + rng.next() * 0.02, fz0 + rng.next() * 0.8, (rng.next() - 0.5) * 0.4, rng.next() * 3, 0.15), { tint: rng.next() < 0.55 ? 0xf8f4ea : rng.next() < 0.5 ? 0xc8844a : 0x3a6a4a });
@@ -329,7 +330,7 @@ export class CoopInterior extends InteriorMap {
         for (let v = 0; v < uv.count; v++) uv.setXY(v, pos.getX(v) * 0.5, (D - pos.getZ(v)) * 0.5);
         k.add('strawCalm', g, undefined, { tint });
       }
-      strawTufts(k, rng, x, y + 0.01, z, 5, Math.max(rx, rz) * 1.1);
+      strawTufts(k, rng, x, y + 0.01, z, 2, Math.max(rx, rz) * 0.9);
     };
     patch(4.4, 5.05, 0.7, 0.5, 0xb09a7c);
     patch(3.0, 4.75, 0.85, 0.32, 0xb49e80);
@@ -337,10 +338,9 @@ export class CoopInterior extends InteriorMap {
     patch(6.0, 1.95, 1.25, 0.48, 0xfff0d0, 0.008);
     // Straw scatter clustered where the birds kick it about (nests, trough, roost) — the open floor stays
     // calm so the hens read against it (r6: was 44 strands over the whole room).
-    strawTufts(k, rng, 1.4, 0.02, 1.15, 9, 0.8);
-    strawTufts(k, rng, 2.1, 0.02, 4.85, 8, 1.0);
-    strawTufts(k, rng, 6.0, 0.02, 2.2, 8, 0.9);
-    for (const [x, z, w, d] of [[1.55, 3.05, 1.1, 0.7], [6.35, 3.3, 1.3, 0.8], [3.05, 4.75, 0.9, 0.45], [6.95, 1.15, 0.8, 0.5], [4.9, 4.55, 0.9, 0.5]] as const) strawDrift(k, rng, x, z, w, d);
+    strawTufts(k, rng, 1.4, 0.02, 1.15, 4, 0.7);
+    strawTufts(k, rng, 6.0, 0.02, 2.2, 3, 0.8);
+    for (const [x, z, w, d] of [[1.55, 3.05, 1.1, 0.7], [6.95, 1.15, 0.8, 0.5]] as const) strawDrift(k, rng, x, z, w, d);
     // Egg shelf with cartons on the right wall (back corner)
     k.box('wood', [0.3, 0.04, 1.1], [W - 0.16, 1.3, 1.1], { tint: 0xb08058 });
     for (const z of [0.7, 1.5]) k.box('wood', [0.2, 0.18, 0.04], [W - 0.1, 1.14, z], { tint: 0x6a4a32 });

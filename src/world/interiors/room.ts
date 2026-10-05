@@ -95,6 +95,7 @@ interface Lamp {
 }
 
 const _c = new THREE.Color();
+const _c2 = new THREE.Color();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _f = new THREE.Vector3();
@@ -154,6 +155,10 @@ export abstract class InteriorMap implements GameMap {
   protected coolFill = 0;
   /** Window shaft strength multiplier. */
   protected shaftK = 1;
+  /** How much of the cool morning sky light this room takes (0..1). */
+  protected morningCool = 0.6;
+  /** This frame's cool-morning weight (computeLight). */
+  protected coolK = 0;
   /** Moonlight shaft strength at night (the cool beam over the bed / floor). */
   protected moonShaft = 0.025;
   protected finalized = false;
@@ -261,6 +266,27 @@ export abstract class InteriorMap implements GameMap {
       k.box('wood', [0.2, 0.06, T + 0.12], [x, jh, D + T / 2], { tint: 0x6a4428, r: 0.02 });
       // Iron hinge pins on the right jamb (the door itself swung away out of the cut)
       if (x > dc) for (const y of [0.12, jh - 0.16]) k.box('iron', [0.05, 0.08, 0.05], [x - 0.09, y, D + T * 0.85], { tint: 0x2a2624, r: 0.01 });
+    }
+    if (style === 'house') {
+      // (r9) The front door itself, swung open into the room against the left jamb: a sage dutch door's
+      // lower leaf (cut at the section height like the walls), planked with a Z brace, strap hinges and a
+      // brass knob — the gap reads as a door standing open, not two stubby posts.
+      const lk = new Kit();
+      const lw = gap1 - gap0 - 0.06;
+      const lh = jh + 0.3;
+      const P = 4;
+      for (let b = 0; b < P; b++) lk.box('paint', [lw / P - 0.012, lh, 0.05], [(b + 0.5) * (lw / P), 0.02, 0], { tint: b % 2 ? 0x7f9c86 : 0x89a68e, r: 0.012 });
+      for (const y of [0.16, lh - 0.12]) lk.box('paint', [lw - 0.04, 0.1, 0.04], [lw / 2, y, -0.045], { tint: 0x6f8a76, r: 0.01 });
+      lk.box('paint', [Math.hypot(lw - 0.16, lh - 0.36), 0.09, 0.035], [lw / 2, lh / 2 - 0.045, -0.05], { tint: 0x6f8a76, rz: Math.atan2(lh - 0.36, lw - 0.16) });
+      lk.box('paint', [lw + 0.02, 0.05, 0.08], [lw / 2, lh, 0], { tint: trim, r: 0.015 });
+      for (const y of [0.22, lh - 0.2]) lk.box('iron', [0.34, 0.035, 0.012], [0.17, y, 0.032], { tint: 0x2a2624, r: 0.005 });
+      lk.sphere('brass', 0.035, [lw - 0.1, 0.62, 0.05]);
+      lk.sphere('brass', 0.035, [lw - 0.1, 0.62, -0.08]);
+      const leaf = lk.build('door-leaf');
+      // Hinged at the left jamb's inner face, opened ~65° into the room (its painted face turned to the lens).
+      leaf.position.set(gap0 + 0.06, 0, D - 0.02);
+      leaf.rotation.y = 1.15;
+      this.statics.push(leaf);
     }
     // Coir doormat just inside: bristly tan field, dark woven border, two stripes
     // (on straw floors it sits on the board walk that runs to the door: lift it clear)
@@ -684,27 +710,33 @@ export abstract class InteriorMap implements GameMap {
     // Daylight 0..1: dawn 5.5 → 7.0 (shafts ramp in with it), dusk 18.2 → 20.2.
     const day = h < 12 ? S(h, 5.5, 7.0) : 1 - S(h, 18.2, 20.2);
     const night = 1 - day;
-    const warm = h < 12 ? 1 - S(h, 7, 10.5) : S(h, 15.5, 19);
+    // (r9: golden light only right at dawn and through the evening — at 8 am the room read as dusk.
+    // Mornings to early afternoon get a cool near-white sky light through the windows, so the hearth and
+    // lamps read as a warm pocket against it.)
+    const warm = h < 12 ? 1 - S(h, 6.2, 7.8) : S(h, 15.5, 19);
+    const cool = day * (1 - overcast * 0.6) * (h < 12 ? S(h, 6.4, 8.0) : 1 - S(h, 13.5, 16.5)) * this.morningCool;
+    this.coolK = cool;
     const L = this.light;
     L.day = day * (1 - overcast * 0.85);
     L.night = night;
     // Sun through the windows: golden morning / evening, cream midday, cool moonlight at night.
-    const sunDay = _c.setHex(0xfff1dc).lerp(new THREE.Color(0xffb46a), warm * 0.85);
+    const sunDay = _c.setHex(0xfff1dc).lerp(new THREE.Color(0xffb46a), warm * 0.85).lerp(_c2.setHex(0xf0f4ff), cool * 0.78);
     L.sunColor.copy(sunDay).lerp(new THREE.Color(0x8aa6ff), night);
     L.sunI = day * 5.2 * (1 - overcast * 0.85) * this.dayScale + night * 1.35 * this.moonScale * (1 - overcast * 0.6);
     // Ambient: warm wood bounce by day; at night a cool moonlight fill through the windows so the
     // floor never crushes to black (the lamps then paint warm pools over it).
     L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x6f86c9), night);
     if (this.coolFill > 0) L.hemiSky.lerp(new THREE.Color(0xb4c8ee), this.coolFill * day * (1 - overcast * 0.5));
-    L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x3a2a24), night);
-    L.hemiI = THREE.MathUtils.lerp((0.55 + day * 0.55) * (1 - overcast * 0.2) * (0.7 + 0.3 * this.dayScale), 0.46, night);
+    L.hemiSky.lerp(_c2.setHex(0xc2d0f2), cool * 0.68);
+    L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x3a2a24), night).lerp(_c2.setHex(0x665a54), cool * 0.5);
+    L.hemiI = THREE.MathUtils.lerp((0.55 + day * 0.55) * (1 - overcast * 0.2) * (0.7 + 0.3 * this.dayScale), 0.46, night) * (1 - cool * 0.1);
     L.envI = 0.12 + day * 0.14 + night * 0.06;
     // +0.4 EV indoors at night.
     L.exposure = (1.0 + night * 0.18 + overcast * 0.1 + this.exposureBoost * day) * (1 + night * 0.32);
     L.bg.setHex(0x1c140e).lerp(new THREE.Color(0x0a0a12), night);
     // Night lift keeps the corners readable (the lamps stay the key, the shadows stay blue-brown).
     L.lift = [0.025 + night * 0.028, 0.018 + night * 0.02, 0.012 + night * 0.05];
-    L.gain = [1.06 + warm * 0.04 - this.coolFill * day * 0.02, 1.0, 0.93 - warm * 0.03 + night * 0.06 + this.coolFill * day * 0.05];
+    L.gain = [1.06 + warm * 0.04 - this.coolFill * day * 0.02 - cool * 0.045, 1.0, 0.93 - warm * 0.03 + night * 0.06 + this.coolFill * day * 0.05 + cool * 0.06];
     L.sat = 1.1 - night * 0.05;
     L.contrast = 1.06 + night * 0.04;
     L.vignette = 0.52 + night * 0.12;
@@ -748,7 +780,7 @@ export abstract class InteriorMap implements GameMap {
     for (const e of interiorEmissive) e.material.emissiveIntensity = THREE.MathUtils.lerp(e.day, e.night, THREE.MathUtils.clamp(lampK, 0, 1));
     // Shafts: warm by day, faint blue by moonlight.
     const shaft = this.shaftMat.uniforms;
-    (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.11 * L.day * this.dayScale * this.shaftK + this.moonShaft * L.night);
+    (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.11 * L.day * this.dayScale * this.shaftK * (1 + this.coolK * 0.7) + this.moonShaft * L.night);
     shaft.uTime!.value = t;
     // Window views: bright painted day, deep blue at night.
     const vu = this.viewMat.uniforms;

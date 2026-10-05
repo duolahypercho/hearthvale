@@ -55,24 +55,28 @@ interface EyeOpts {
   rim?: number;
   /** Coloured iris with a horizontal bar pupil (goats). */
   iris?: number;
+  /** Tilt the eye up onto the brow (rad): it faces up-and-forward, readable from the high camera. */
+  pitch?: number;
 }
 
 /** Big glossy chibi eyes: a dark lens, a large upper catchlight and a small lower one (+ optional rim / goat iris). */
 function eyes(r: RigBuilder, x: number, y: number, z: number, size: number, ry = 0.25, o: EyeOpts = {}): void {
   for (const s of [-1, 1]) {
+    const piv = o.pitch ? new THREE.Matrix4().makeTranslation(s * x, y, z).multiply(new THREE.Matrix4().makeRotationX(-o.pitch)).multiply(new THREE.Matrix4().makeTranslation(-s * x, -y, -z)) : null;
+    const P = (m: THREE.Matrix4): THREE.Matrix4 => (piv ? m.premultiply(piv) : m);
     const rot = mat(s * x, y, z, 0, s * ry, 0);
-    if (o.rim != null) r.part('eyes', ellipsoid(size * 1.28, size * 1.34, size * 0.6, 12, 10), mat(s * x, y, z - size * 0.12, 0, s * ry, 0), o.rim, { flat: true });
+    if (o.rim != null) r.part('eyes', ellipsoid(size * 1.28, size * 1.34, size * 0.6, 12, 10), P(mat(s * x, y, z - size * 0.12, 0, s * ry, 0)), o.rim, { flat: true });
     if (o.iris != null) {
-      r.part('eyes', ellipsoid(size, size * 1.05, size * 0.66, 14, 10), rot, o.iris, { flat: true });
+      r.part('eyes', ellipsoid(size, size * 1.05, size * 0.66, 14, 10), P(rot), o.iris, { flat: true });
       // Horizontal bar pupil, sitting just proud of the iris.
       const pupil = ellipsoid(size * 0.78, size * 0.26, size * 0.2, 12, 6);
-      r.part('eyes', pupil, new THREE.Matrix4().makeRotationY(s * ry).premultiply(new THREE.Matrix4().makeTranslation(s * x + s * Math.sin(ry) * size * 0.55, y, z + Math.cos(ry) * size * 0.55)), EYE, { flat: true });
-    } else r.part('eyes', ellipsoid(size, size * 1.14, size * 0.7, 14, 10), rot, EYE, { flat: true });
+      r.part('eyes', pupil, P(new THREE.Matrix4().makeRotationY(s * ry).premultiply(new THREE.Matrix4().makeTranslation(s * x + s * Math.sin(ry) * size * 0.55, y, z + Math.cos(ry) * size * 0.55))), EYE, { flat: true });
+    } else r.part('eyes', ellipsoid(size, size * 1.14, size * 0.7, 14, 10), P(rot), EYE, { flat: true });
     // Catchlights: big one up-and-out, a small one low-and-in (reads "alive" at any zoom).
     const fx = Math.sin(ry) * s;
     const fz = Math.cos(ry);
-    r.part('eyes', ellipsoid(size * 0.42, size * 0.42, size * 0.22, 10, 8), mat(s * x + fx * size * 0.62 + s * size * 0.22, y + size * 0.42, z + fz * size * 0.62), HI, { flat: true });
-    r.part('eyes', ellipsoid(size * 0.18, size * 0.18, size * 0.12, 8, 6), mat(s * x + fx * size * 0.64 - s * size * 0.2, y - size * 0.38, z + fz * size * 0.6), HI, { flat: true });
+    r.part('eyes', ellipsoid(size * 0.42, size * 0.42, size * 0.22, 10, 8), P(mat(s * x + fx * size * 0.62 + s * size * 0.22, y + size * 0.42, z + fz * size * 0.62)), HI, { flat: true });
+    r.part('eyes', ellipsoid(size * 0.18, size * 0.18, size * 0.12, 8, 6), P(mat(s * x + fx * size * 0.64 - s * size * 0.2, y - size * 0.38, z + fz * size * 0.6)), HI, { flat: true });
   }
 }
 
@@ -306,8 +310,9 @@ function cow(variant: number): AnimalModel {
   // (jersey's mealy ring kept close to the coat's value: a bright ring read as a mask from behind)
   const muzzle = jersey ? 0xe8d0ac : 0xf6c0b4;
   r.part('head', ellipsoid(jersey ? 0.195 : 0.215, 0.15, 0.15), mat(0, 0.94, 0.8), muzzle);
-  r.part('head', ellipsoid(jersey ? 0.13 : 0.17, jersey ? 0.075 : 0.1, 0.07), mat(0, 0.95, 0.9), jersey ? 0x4a3830 : 0xf09a94);
-  for (const s of [-1, 1]) r.part('head', ellipsoid(0.03, 0.022, 0.012, 8, 6), mat(s * 0.07, 0.955, 0.965, 0, s * 0.3, 0), jersey ? 0x140e0c : 0x3a2418, { flat: true });
+  // (r9: a darker nose pad, its nostrils on the upward-facing front so they read from the high camera)
+  r.part('head', ellipsoid(jersey ? 0.14 : 0.165, jersey ? 0.08 : 0.095, 0.075), mat(0, 0.955, 0.895), jersey ? 0x3e2e28 : 0xd9807e);
+  for (const s of [-1, 1]) r.part('head', ellipsoid(0.038, 0.03, 0.014, 8, 6), mat(s * 0.068, 0.985, 0.952, -0.5, s * 0.3, 0), jersey ? 0x120c0a : 0x5a2622, { flat: true });
   r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92), 0x4a2a1e, { flat: true });
   for (const s of [-1, 1]) {
     const horn = new THREE.ConeGeometry(0.04, 0.12, 10);
@@ -319,7 +324,9 @@ function cow(variant: number): AnimalModel {
   }
   // Forelock tuft
   for (let i = 0; i < 3; i++) r.part('head', ellipsoid(0.05, 0.04, 0.05, 8, 6), mat(-0.04 + i * 0.04, 1.3, 0.6 + (i % 2) * 0.03), jersey ? 0x9a6238 : base);
-  eyes(r, 0.125, 1.1, 0.79, 0.05, 0.36, { rim: 0xf6efe4 });
+  // (r9: bigger eyes up on the brow, tilted to face up-and-forward: from the 42-50° gameplay pitch the
+  // old ones sat under the brow line and the face read as an eyeless lump)
+  eyes(r, 0.13, 1.145, 0.79, 0.058, 0.36, { rim: 0xf6efe4, pitch: 0.42 });
   cheeks(r, 0.2, 0.98, 0.74, 0.036, 0xf2b0a6);
   r.lift(LIFT, ['legFL', 'legFR', 'legBL', 'legBR']);
   // Chibi: a shorter barrel and a bigger head read as "cow" (not "capsule") from the high camera.

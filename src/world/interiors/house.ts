@@ -72,6 +72,7 @@ export class HouseInterior extends InteriorMap {
       sunDir: [-0.34, 0.58, -0.74],
     });
     this.coolFill = 0.38;
+    this.morningCool = 1;
     this.shaftK = 1.75;
     this.moonShaft = 0.07;
     const rng = new Rng('house-interior');
@@ -575,6 +576,31 @@ export class HouseInterior extends InteriorMap {
       k.box('paint', [0.12, 0.07, 0.24], [btx + 0.18 + s * 0.14, 0.05, btz + 0.02], { tint: 0xc0503a, r: 0.03, ry: 0.15 });
     }
     this.solid(3.9, 7.3, 4.7, 7.8, 'boot-tray');
+    // (r9) Today's harvest set down inside the door: a slatted crate of turnips, a fat pumpkin and a
+    // basket of eggs on the boards — the front floor tells the morning's story instead of bare planks.
+    const gx = 3.55;
+    const gz = 6.45;
+    k.box('wood', [0.62, 0.05, 0.44], [gx, 0, gz], { tint: 0x9a6a44, r: 0.01, ry: 0.18 });
+    for (const s of [-1, 1]) {
+      for (let b = 0; b < 2; b++) k.box('wood', [0.62, 0.08, 0.03], [gx - s * Math.sin(0.18) * 0.21, 0.08 + b * 0.13, gz + s * Math.cos(0.18) * 0.21], { tint: b ? 0xb88a5a : 0xa87a4c, ry: 0.18, r: 0.008 });
+      k.box('wood', [0.03, 0.3, 0.44], [gx + s * Math.cos(0.18) * 0.3, 0, gz - s * Math.sin(0.18) * 0.3], { tint: 0x8a5a38, ry: 0.18, r: 0.008 });
+    }
+    for (let i = 0; i < 7; i++) {
+      const tx = gx - 0.2 + (i % 4) * 0.13 + (i > 3 ? 0.06 : 0);
+      const tz = gz - 0.08 + (i > 3 ? 0.14 : 0) + ((i * 37) % 5) * 0.01;
+      k.add('ceramic', lumpySphere(0.075, 1, 0.12, rng), mat(tx, 0.26, tz, 0, 0, 0, 1, 0.85, 1), { tint: 0xf2ece4 });
+      k.add('ceramic', new THREE.SphereGeometry(0.06, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat(tx, 0.27, tz), { tint: 0x9a4a8a });
+      k.add('leaf', new THREE.ConeGeometry(0.03, 0.18, 5), mat(tx, 0.4, tz, (i % 3 - 1) * 0.3, 0, (i % 2 ? 0.25 : -0.25)), { tint: 0x5a9a42 });
+    }
+    const pump = new THREE.SphereGeometry(0.2, 16, 10);
+    k.add('ceramic', pump, mat(gx + 0.55, 0.15, gz + 0.18, 0, 0, 0, 1.15, 0.78, 1.15), { tint: 0xe08a2a });
+    for (let i = 0; i < 6; i++) k.add('ceramic', new THREE.TorusGeometry(0.2, 0.012, 4, 18), mat(gx + 0.55, 0.15, gz + 0.18, 0, (i / 6) * Math.PI, 0, 1.15, 0.78, 1.15), { tint: 0xc8701e });
+    k.cyl('wood', 0.022, 0.03, 0.1, [gx + 0.55, 0.3, gz + 0.18], { tint: 0x6a5a2a, rz: 0.3 });
+    const eb = new THREE.LatheGeometry([[0, 0], [0.12, 0], [0.16, 0.04], [0.17, 0.12], [0.15, 0.12], [0.14, 0.04], [0, 0.03]].map(([a, b]) => new THREE.Vector2(a!, b!)), 18);
+    k.add('thatch', eb, mat(gx - 0.5, 0, gz + 0.28), { tint: 0xc89a60 });
+    k.add('thatch', new THREE.TorusGeometry(0.14, 0.012, 4, 16, Math.PI), mat(gx - 0.5, 0.12, gz + 0.28, 0, 0.6, 0), { tint: 0xb08850 });
+    for (let i = 0; i < 5; i++) k.sphere('ceramic', 0.045, [gx - 0.55 + (i % 3) * 0.06, 0.13 + Math.floor(i / 3) * 0.04, gz + 0.24 + (i % 2) * 0.07], i % 2 ? 0xd99a62 : 0xf6eee0, [1, 1.25, 1]);
+    this.solid(3.0, 6.1, 4.2, 6.8, 'harvest');
     // Big potted plant (front right) + a watering can by it
     this.pottedPlant(k, rng, 12.3, 7.3, 0, 1.2);
     // Grandmother's writing desk under the east window: the letter, ink, a quill, spectacles
@@ -756,79 +782,47 @@ export class HouseInterior extends InteriorMap {
   }
 
   /**
-   * Bedroom nook: a half-height beadboard partition off the living room (x = 9.3) from the back wall,
-   * a framed elliptical archway (squared oak posts, a shaped arch board under the header, cream trim)
-   * over the opening, and a short half wall on the room side ending in a newel post. Rose curtains hang
-   * on the bedroom side of the arch, tied back to the posts.
+   * Bedroom nook: a proper half wall off the living room (x = 9.3) — beadboard on a dark skirting, a
+   * wide cream top rail you can read from the high camera, running from the back wall to the bedroom
+   * doorway and on again past it, each run ending in a turned newel post with a ball finial. The
+   * doorway between (z 1.3–3.2) carries a short sill board and a rag rug threshold.
+   * (r9: the old framed archway stood edge-on to the lens — from the gameplay camera it read as a
+   * freestanding post and a shelf stub floating mid-floor)
    */
   private partition(): void {
     const k = new Kit();
     const x = 9.3;
-    const z1 = 1.25;
-    const h = 1.25;
-    const OAKP = 0xb47e50;
+    const h = 1.02;
     const TRIM = 0xf2e8d2;
-    k.box('bead', [0.16, h, z1 + 0.05], [x, 0, z1 / 2], { tint: 0x98b0a8, uv: 1 });
-    k.box('paint', [0.2, 0.06, z1 + 0.1], [x, h, z1 / 2], { tint: TRIM, r: 0.015 });
-    k.box('paint', [0.12, 0.12, z1 + 0.05], [x, 0, z1 / 2], { tint: 0x6a4a34 });
-    const posts = [1.3, 3.2];
-    const top = 2.3;
-    for (const pz of posts) {
-      // Squared, chamfered oak post on a plinth block, a capital where it meets the arch
-      k.box('paint', [0.16, top, 0.16], [x, 0, pz], { tint: 0xe6d8bc, r: 0.025 });
-      k.box('paint', [0.2, 0.16, 0.2], [x, 0, pz], { tint: TRIM, r: 0.02 });
-      k.box('paint', [0.2, 0.06, 0.2], [x, 1.7, pz], { tint: TRIM, r: 0.015 });
-    }
-    // Header beam from the back wall over the arch
-    k.box('wood', [0.2, 0.18, posts[1]! + 0.1], [x, top, (posts[1]! + 0.1) / 2], { tint: 0xb07a4c, r: 0.02, uv: 1.4 });
-    // The arch board: a header-deep panel with an elliptical opening cut from it (springs at 1.76 m)
-    const zc = (posts[0]! + posts[1]!) / 2;
-    const half = (posts[1]! - posts[0]!) / 2 - 0.08;
-    const spring = 1.76;
-    const sh = new THREE.Shape();
-    sh.moveTo(zc - half, spring);
-    sh.lineTo(zc - half, top);
-    sh.lineTo(zc + half, top);
-    sh.lineTo(zc + half, spring);
-    sh.absellipse(zc, spring, half, top - spring - 0.12, 0, Math.PI, false, 0);
-    const arch = new THREE.ExtrudeGeometry(sh, { depth: 0.14, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 1, curveSegments: 24 });
-    arch.clearGroups();
-    arch.rotateY(-Math.PI / 2);
-    arch.translate(x + 0.07, 0, 0);
-    k.add('paint', arch, mat(0, 0, 0), { tint: 0xe6d8bc });
-    // Cream bead along the arch's inner edge (reads as finished joinery from the high camera)
-    const bead = new THREE.TorusGeometry(1, 0.022, 5, 28, Math.PI);
-    bead.scale(half, top - spring - 0.12, 1);
-    bead.rotateY(Math.PI / 2);
-    k.add('wood', bead, mat(x, spring, zc), { tint: OAKP });
-    // Room-side half wall: beadboard with a cream cap, ending in a short newel post with a ball finial
-    const stub0 = posts[1]! + 0.08;
-    const stub1 = stub0 + 0.7;
-    k.box('bead', [0.16, 1.05, stub1 - stub0], [x, 0, (stub0 + stub1) / 2], { tint: 0x98b0a8, uv: 1 });
-    k.box('paint', [0.22, 0.06, stub1 - stub0 + 0.08], [x, 1.05, (stub0 + stub1) / 2], { tint: TRIM, r: 0.015 });
-    k.box('paint', [0.13, 0.12, stub1 - stub0], [x, 0, (stub0 + stub1) / 2], { tint: 0x6a4a34 });
-    k.box('paint', [0.15, 1.18, 0.15], [x, 0, stub1], { tint: 0xe6d8bc, r: 0.025 });
-    k.box('paint', [0.19, 0.05, 0.19], [x, 1.18, stub1], { tint: TRIM, r: 0.015 });
-    k.sphere('wood', 0.075, [x, 1.28, stub1], OAKP);
-    // On the half wall: a little jug of meadow flowers and a stack of two books
-    k.cyl('ceramic', 0.055, 0.045, 0.14, [x, 1.11, stub0 + 0.4], { tint: 0x5a7ea0, seg: 14 });
-    for (let i = 0; i < 5; i++) k.sphere('fabric', 0.03, [x + Math.cos(i * 1.3) * 0.05, 1.29 + (i % 2) * 0.03, stub0 + 0.4 + Math.sin(i * 1.3) * 0.05], [0xf4f0e4, 0xe8a0b0, 0xf4d060, 0xc8a0e0, 0xf4f0e4][i]!);
-    k.box('paint', [0.13, 0.04, 0.2], [x, 1.11, stub0 + 0.13], { tint: 0x8a3a3a, r: 0.008 });
-    k.box('paint', [0.12, 0.035, 0.18], [x, 1.15, stub0 + 0.14], { tint: 0x3a5a7a, r: 0.008, ry: 0.15 });
-    // Curtains on the bedroom side of the arch: a brass rod, gathered rose panels tied back to the posts.
-    const cxr = x + 0.17;
-    const rod = new THREE.CylinderGeometry(0.02, 0.02, posts[1]! - posts[0]!, 8);
-    rod.rotateX(Math.PI / 2);
-    k.add('brass', rod, mat(cxr, 2.12, zc));
-    for (const [pz, sd] of [[posts[0]!, 1], [posts[1]!, -1]] as const) {
-      for (let f = 0; f < 3; f++) {
-        const zf = pz + sd * (0.12 + f * 0.07);
-        const ox = (f % 2 ? 0.05 : -0.03);
-        k.add('fabric', new THREE.CylinderGeometry(0.075, 0.05, 0.9, 9), mat(cxr + ox, 1.66, zf + sd * 0.05, sd * 0.12, 0, 0, 1.2, 1, 1), { tint: f % 2 ? 0xd28a84 : 0xe6a49c });
-        k.add('fabric', new THREE.CylinderGeometry(0.05, 0.11, 1.18, 9), mat(cxr + ox, 0.6, zf - sd * 0.02, -sd * 0.08, 0, 0, 1.2, 1, 1), { tint: f % 2 ? 0xd28a84 : 0xe6a49c });
+    const NEWEL = 0xb47e50;
+    const run = (z0: number, z1: number, ends: number[]): void => {
+      const len = z1 - z0;
+      const zc = (z0 + z1) / 2;
+      k.box('bead', [0.2, h, len], [x, 0, zc], { tint: 0x98b0a8, uv: 1 });
+      k.box('paint', [0.22, 0.13, len], [x, 0, zc], { tint: 0x5e4232 });
+      // Top rail: a wide cream cap with a moulded lip under it (a clear line from above)
+      k.box('paint', [0.3, 0.06, len + 0.06], [x, h, zc], { tint: TRIM, r: 0.018 });
+      k.box('paint', [0.25, 0.04, len], [x, h - 0.04, zc], { tint: 0xd8ccb0, r: 0.01 });
+      for (const ez of ends) {
+        k.box('paint', [0.19, h + 0.2, 0.19], [x, 0, ez], { tint: NEWEL, r: 0.03 });
+        k.box('paint', [0.24, 0.06, 0.24], [x, h + 0.2, ez], { tint: TRIM, r: 0.018 });
+        k.sphere('wood', 0.085, [x, h + 0.33, ez], NEWEL);
       }
-      k.add('fabric', new THREE.TorusGeometry(0.08, 0.02, 5, 10), mat(cxr, 1.2, pz + sd * 0.17, 0, Math.PI / 2, 0), { tint: 0xd8b060 });
-    }
+    };
+    run(0.02, 1.3, [1.3]);
+    run(3.2, 4.05, [3.2, 4.05]);
+    // Doorway sill + a little rag rug across the threshold into the bedroom
+    k.box('wood', [0.24, 0.025, 1.78], [x, 0, 2.25], { tint: 0x8a5a38, r: 0.008 });
+    k.add('runner', floorPlane(0.7, 0.9), mat(x + 0.5, 0.008, 2.25, 0, Math.PI / 2, 0));
+    // Dressing on the rails: a jug of meadow flowers and two books on the front run, a folded shawl
+    // draped over the back run
+    const fz = 3.62;
+    k.cyl('ceramic', 0.055, 0.045, 0.14, [x, h + 0.06, fz], { tint: 0x5a7ea0, seg: 14 });
+    for (let i = 0; i < 5; i++) k.sphere('fabric', 0.03, [x + Math.cos(i * 1.3) * 0.05, h + 0.24 + (i % 2) * 0.03, fz + Math.sin(i * 1.3) * 0.05], [0xf4f0e4, 0xe8a0b0, 0xf4d060, 0xc8a0e0, 0xf4f0e4][i]!);
+    k.box('paint', [0.15, 0.04, 0.22], [x, h + 0.06, 3.38], { tint: 0x8a3a3a, r: 0.008 });
+    k.box('paint', [0.14, 0.035, 0.2], [x, h + 0.1, 3.39], { tint: 0x3a5a7a, r: 0.008, ry: 0.15 });
+    k.add('fabric', roundedBox(0.26, 0.05, 0.42, 0.02), mat(x, h + 0.06, 0.62, 0, 0.05, 0), { tint: 0x7a9a8a });
+    k.add('fabric', roundedBox(0.24, 0.03, 0.4, 0.015), mat(x, h + 0.1, 0.63, 0, -0.06, 0), { tint: 0xe8dcc0 });
     this.statics.push(k.build('bed-nook'));
     this.solid(9.2, 0, 9.4, 1.35, 'partition');
     this.solid(9.2, 3.15, 9.4, 4.05, 'partition-stub');

@@ -352,8 +352,10 @@ export function strawFloor(calm = false): TexPair {
       const len = 6 + rng.next() * 22;
       const ang = rng.next() * Math.PI;
       const t = rng.next();
-      const r = calm ? 165 + t * 50 : 175 + t * 70;
-      ctx.strokeStyle = calm ? `rgba(${r},${r * 0.8},${r * 0.48},${0.35 + t * 0.35})` : `rgba(${r},${r * 0.82},${r * 0.45},${0.55 + t * 0.4})`;
+      // (r9: calm strands held inside the bedding's own value range — bright sprigs at the props'
+      // contrast made the coop floor read as noise)
+      const r = calm ? 142 + t * 36 : 175 + t * 70;
+      ctx.strokeStyle = calm ? `rgba(${r},${r * 0.79},${r * 0.5},${0.28 + t * 0.26})` : `rgba(${r},${r * 0.82},${r * 0.45},${0.55 + t * 0.4})`;
       ctx.lineWidth = 0.8 + rng.next() * 1.4;
       hctx.strokeStyle = `rgba(${120 + t * 130},${120 + t * 130},${120 + t * 130},1)`;
       hctx.lineWidth = ctx.lineWidth;
