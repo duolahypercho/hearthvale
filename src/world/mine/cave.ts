@@ -378,6 +378,9 @@ ${CAVE_GLSL}`,
       float hvCrackV = 0.0;
       float hvSnow = 0.0;
       vec2 fp = vCW.xz;
+      // Every floor term below is scaled by onFloor: skipping the block where it is 0 (walls,
+      // crests) leaves those pixels bit-identical and saves the Voronoi + ~20 noise taps (pillar 14).
+      if (onFloor > 0.0) {
       if (uCrack < 0.5) {
         // EARTH: packed dirt. Trodden (lighter, smoother) lanes, darker gravel patches with dense
         // specks, a few faint hairline cracks (30 % of the old crazing).
@@ -453,13 +456,15 @@ ${CAVE_GLSL}`,
         diffuseColor.rgb *= 1.0 - fis * 0.45;
         hvCrackV = max(fis, crackP * onFloor * (1.0 - ash) * 0.6);
       }
+      }
       // WALLS: natural fractured rock, not masonry. A domain-warped Voronoi breaks the face into
       // irregular slabs (wider than tall: bedding), only some slab borders open into dark cracks,
       // a finer fracture set crazes the big slabs, and each slab bulges (bump-mapped below) so the
       // lantern rakes real relief across it. No straight lines, no regular joints.
       float hvWallH = 0.0;
-      if (onWall > 0.01) {
-        float steep = smoothstep(0.5, 0.82, 1.0 - abs(cwn.y));
+      // (every wall term is scaled by steep too: gentle wall-flagged slopes skip the slab maths)
+      float steep = smoothstep(0.5, 0.82, 1.0 - abs(cwn.y));
+      if (onWall > 0.01 && steep > 0.0) {
         // Blended biplanar (X / Z planes): no projection seams, no stretching on any facing.
         float wx = pow(abs(cwn.x), 4.0);
         float wz = pow(abs(cwn.z), 4.0);
@@ -510,7 +515,8 @@ ${CAVE_GLSL}`,
     fs = after(
       fs,
       '#include <roughnessmap_fragment>',
-      `roughnessFactor = mix(uFloorRough * (0.85 + 0.3 * hvNoise(vCW.xz * 1.7)), 0.9, smoothstep(0.1, 0.6, vWall));
+      `float hvRw = smoothstep(0.1, 0.6, vWall);
+      roughnessFactor = hvRw >= 1.0 ? 0.9 : mix(uFloorRough * (0.85 + 0.3 * hvNoise(vCW.xz * 1.7)), 0.9, hvRw);
       if (uCrack > 1.5) roughnessFactor = mix(mix(roughnessFactor, 0.12, hvCrackV), 0.85, hvSnow);`,
     );
     fs = after(
@@ -520,6 +526,8 @@ ${CAVE_GLSL}`,
       {
         // Mineral glints that twinkle on the rock faces (not in the void, not on the floor).
         // Point-like specks (a tiny disc per lucky cell of the triplanar plane), never whole cells.
+        // (scaled by smoothstep(0.3, 0.7, vWall): exactly 0 below 0.3, so the floor skips it)
+        if (vWall > 0.3) {
         vec3 gn = normalize(vCN);
         vec2 gtp = abs(gn.y) > 0.6 ? vCW.xz : (abs(gn.x) > abs(gn.z) ? vCW.zy : vCW.xy);
         vec2 gc = floor(gtp * 5.0);
@@ -528,8 +536,9 @@ ${CAVE_GLSL}`,
         float dotK = smoothstep(0.07, 0.0, length(gof));
         float tw = pow(max(0.0, sin(uTime * 1.7 + gh2 * 71.0)), 10.0);
         totalEmissiveRadiance += uGlint * step(0.93, gh2) * dotK * (0.25 + tw) * smoothstep(0.3, 0.7, vWall) * (1.0 - vVoid);
+        }
         // Lit lip along every cliff crest: the wall silhouette always reads against the dark.
-        totalEmissiveRadiance += uRimCol * vCrest * (0.75 + 0.25 * hvNoise(vCW.xz * 2.0));
+        if (vCrest > 0.0) totalEmissiveRadiance += uRimCol * vCrest * (0.75 + 0.25 * hvNoise(vCW.xz * 2.0));
         // Minimum ambient on the rock (the lava band's basalt keeps its form out of the light).
         totalEmissiveRadiance += diffuseColor.rgb * (uCrack > 0.5 && uCrack < 1.5 ? 0.06 : 0.015) * (1.0 - vVoid);
         if (uCrack > 0.5 && uCrack < 1.5) {
@@ -619,19 +628,18 @@ ${CAVE_GLSL}`,
           float n = hvCrust(p, t);
           // Dark cooled plates drift on more of the surface (a skin with glowing rifts, not a sheet).
           float crust = smoothstep(0.53, 0.58, n);
-          // Crust relief lighting from finite differences (lantern from above-front).
-          float e = 0.06;
-          float nx = hvCrust(p + vec2(e, 0.0), t) - n;
-          float nz = hvCrust(p + vec2(0.0, e), t) - n;
-          vec3 nrm = normalize(vec3(-nx * 9.0, 1.0, -nz * 9.0));
-          float lit = 0.5 + 0.9 * max(0.0, dot(nrm, normalize(vec3(-0.3, 0.8, 0.5))));
           float pulse = 0.8 + 0.2 * sin(t * 1.7 + p.x * 0.9 + p.y * 0.6);
+          // col = mix(molten, crustC, crust): the melt only where crust < 1, the rafts only where
+          // crust > 0 (two extra crust fields for the relief, a Voronoi, 7 noise taps) — skipping
+          // the side that gets weight 0 leaves every pixel bit-identical (pillar 14).
+          vec3 molten = vec3(0.0);
+          if (crust < 1.0) {
           // Melt: deep red in the slow middle, orange as it thins, yellow-white only where hottest.
           float hot = 1.0 - smoothstep(0.3, 0.52, n);
           float swirl = hvNoise(p * 1.7 - vec2(t * 0.12, t * 0.07));
           // (kept below the bloom knee: a peak of ~0.85 after tonemapping, never a flat white-orange
           // sheet; depth comes from the dark-red slow middle vs. the orange thinning edges)
-          vec3 molten = mix(vec3(0.26, 0.03, 0.005), vec3(0.64, 0.17, 0.02), smoothstep(0.2, 0.75, hot * 0.7 + swirl * 0.45));
+          molten = mix(vec3(0.26, 0.03, 0.005), vec3(0.64, 0.17, 0.02), smoothstep(0.2, 0.75, hot * 0.7 + swirl * 0.45));
           molten = mix(molten, vec3(0.98, 0.5, 0.12), smoothstep(0.8, 1.0, hot) * pulse * 0.7);
           // Flow banding: dark-red ropes dragged along the current (pahoehoe skin), so open melt has
           // texture and depth instead of a flat orange fill.
@@ -639,9 +647,18 @@ ${CAVE_GLSL}`,
           float rope = abs(hvNoise(vec2(fq.x * 1.1 + swirl * 1.6, fq.y * 3.2 + hvNoise(fq * 0.7) * 2.5)) - 0.5);
           molten *= 0.55 + 0.6 * smoothstep(0.02, 0.22, rope);
           molten *= 0.8 + 0.35 * hvNoise(fq * 0.9 + 13.0);
+          }
+          vec3 crustC = vec3(0.0);
+          if (crust > 0.0) {
+          // Crust relief lighting from finite differences (lantern from above-front).
+          float e = 0.06;
+          float nx = hvCrust(p + vec2(e, 0.0), t) - n;
+          float nz = hvCrust(p + vec2(0.0, e), t) - n;
+          vec3 nrm = normalize(vec3(-nx * 9.0, 1.0, -nz * 9.0));
+          float lit = 0.5 + 0.9 * max(0.0, dot(nrm, normalize(vec3(-0.3, 0.8, 0.5))));
           // Crust rafts: near-black basalt (linear!), a faint sheen on the relief.
           float grain = hvNoise(p * 7.0) * 0.6 + hvNoise(p * 19.0) * 0.4;
-          vec3 crustC = mix(vec3(0.018, 0.011, 0.01), vec3(0.055, 0.032, 0.026), grain) * lit;
+          crustC = mix(vec3(0.018, 0.011, 0.01), vec3(0.055, 0.032, 0.026), grain) * lit;
           // Crust breaks into cooled plates: glowing fissures between irregular Voronoi plates.
           vec2 cellP = hvMineCell(p * 1.35 + vec2(hvNoise(p * 2.0), hvNoise(p * 2.0 + 3.0)) * 0.5);
           float plate = cellP.y - cellP.x;
@@ -650,6 +667,7 @@ ${CAVE_GLSL}`,
           // The crust edge cools gradually: dull red rim before the seam.
           float edgeHeat = 1.0 - smoothstep(0.53, 0.68, n);
           crustC += vec3(0.25, 0.03, 0.0) * edgeHeat * crust;
+          }
           vec3 col = mix(molten, crustC, crust);
           // Glowing seam where crust meets melt.
           float seam = 1.0 - smoothstep(0.0, 0.025, abs(n - 0.545));
