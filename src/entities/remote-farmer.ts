@@ -406,6 +406,17 @@ function hatFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix
       add(roundedBox(0.34, 0.03, 0.2, 0.012), inHat(mat(0, r * 1.42, r * 0.86, -0.22, 0, 0)), C(hc, 0.8));
       add(new THREE.SphereGeometry(0.03, 8, 6), inHat(mat(0, r * 1.92, -0.2)), C(hc, 0.75));
       add(new THREE.CylinderGeometry(r * 1.1, r * 1.1, 0.04, 24, 1, true), inHat(mat(0, r * 1.12, -0.07, -0.34, 0, 0)), C(hc, 0.7));
+      // Seen from behind a plain dome read as a bald coloured head (r5): six stitched panel seams
+      // running up to the button, and the snapback's opening + strap with a brass slider at the back.
+      const capM = mat(0, r * 1.1, -0.07, -0.34, 0, 0, 1, 0.8, 1);
+      const seam = new THREE.TorusGeometry(r * 1.115, 0.007, 3, 10, Math.PI / 2);
+      for (let i = 0; i < 6; i++) add(seam, inHat(capM.clone().multiply(new THREE.Matrix4().makeRotationY((i / 6) * Math.PI * 2 + Math.PI / 6))), C(hc, 0.6));
+      // Opening arch (a dark half ring where the hair shows through) + the strap across its foot.
+      const back = capM.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0, -r * 1.112));
+      add(new THREE.TorusGeometry(r * 0.32, 0.016, 4, 10, Math.PI), inHat(back.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.005, 0))), C(hc, 0.45));
+      add(new THREE.CircleGeometry(r * 0.31, 10, 0, Math.PI), inHat(back.clone().multiply(new THREE.Matrix4().makeRotationY(Math.PI)).multiply(new THREE.Matrix4().makeTranslation(0, 0.005, 0.004))), look.hair);
+      add(roundedBox(r * 0.78, 0.034, 0.018, 0.008), inHat(back.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.022, -0.006))), C(hc, 0.55));
+      add(roundedBox(0.035, 0.03, 0.022, 0.006), inHat(back.clone().multiply(new THREE.Matrix4().makeTranslation(r * 0.16, 0.022, -0.012))), 0xd9b25a);
       break;
     }
     case 'beanie': {
@@ -428,6 +439,13 @@ function hatFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix
         add(roundedBox(0.03, 0.115, 0.016, 0.006), inHat(m), C(hc, 0.78));
       }
       add(lumpySphere(0.085, 1, 0.24, new Rng('pom')), inHat(mat(0, cy + r * 0.95, cz - r * 0.62)), C(hc).lerp(new THREE.Color(0xffffff), 0.5));
+      // Two cream knit stripes round the crown + a fold seam: from behind it reads as a knitted
+      // beanie, not an orange ball (r5).
+      const stripe = C(hc).lerp(new THREE.Color(0xfff4e0), 0.72);
+      for (const th of [0.42, 0.78]) {
+        const ring = new THREE.TorusGeometry(r * Math.cos(th) * 1.01, 0.022, 4, 28);
+        add(ring, inHat(mat(0, cy + r * Math.sin(th) * 1.12, cz, tip, 0, 0).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))), stripe);
+      }
       break;
     }
     case 'flower': {
@@ -686,7 +704,11 @@ export class RemoteFarmer {
 
   emote(id: EmoteId, dur?: number): void {
     this.bubble.show(id, dur);
+    // A little hop with the pop (anticipation squash, stretched hop, landing squash), so whoever
+    // emoted reads at a glance (r5: a bubble alone floating between two tags was hard to attribute).
+    if (!this.busy && id !== 'sleepy') this.hopT = 0;
   }
+  private hopT = -1;
 
   /** Carry `obj` in both arms (null puts it down; the caller owns the object). */
   carry(obj: THREE.Object3D | null): void {
@@ -852,6 +874,19 @@ export class RemoteFarmer {
     p.eyeL.scale.y = eyeY;
     p.eyeR.scale.y = eyeY;
 
+    if (this.hopT >= 0) {
+      this.hopT += dt;
+      const fz = this.bubble.freezeAt;
+      if (fz !== null) this.hopT = Math.min(this.hopT, fz);
+      const h = this.hopT;
+      if (h < 0.1) sy *= 1 - 0.13 * Math.sin((h / 0.1) * Math.PI * 0.5);
+      else if (h < 0.34) {
+        const k = (h - 0.1) / 0.24;
+        bob += Math.sin(k * Math.PI) * 0.16;
+        sy *= 1 + 0.09 * Math.sin(k * Math.PI);
+      } else if (h < 0.48) sy *= 1 - 0.08 * Math.sin(((h - 0.34) / 0.14) * Math.PI);
+      else this.hopT = -1;
+    }
     p.body.position.y = bob;
     p.body.scale.set(BODY_SCALE / Math.sqrt(sy), BODY_SCALE * sy, BODY_SCALE / Math.sqrt(sy));
     p.hat.position.y = HEAD_R * 1.55 + (state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);

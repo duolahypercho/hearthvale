@@ -27,6 +27,8 @@ import type { RemotePlayer } from './players';
 import type { EmoteId } from '../entities/remote-emotes';
 
 export const LOOP = 26;
+/** When each choreography line last went to the chat log (performance.now ms), across re-seeks. */
+const LOGGED = new Map<string, number>();
 /** The ripe strawberry bed (tiles inclusive). */
 const BED_Z0 = 25;
 export const BED = { x0: 22, z0: BED_Z0, x1: 27, z1: 26 };
@@ -171,12 +173,14 @@ export class FarmChoreo {
     const act: Actor = { p, keys, events, actYaw: null, actUntil: 0 };
     // Works the west end of the back row (cols 22-23), Pip the east end: never shoulder to shoulder.
     for (const c0 of [0, 13]) {
+      // (second pass: the last pick stays in column 1, so she stands facing the camera from ~20.5 s
+      // through the coffee beat — the default still)
       const picks: [number, number][] = [
         [0.6, 0],
         [2.8, 1],
         [5.0, 0],
         [7.8, 1],
-        [10.0, 0],
+        [c0 ? 11.0 : 10.0, c0 ? 1 : 0],
       ];
       let x = BED.x0 + 0.5;
       for (const [tp, i] of picks) {
@@ -218,8 +222,10 @@ export class FarmChoreo {
         }
         events.push({ t: tw, run: (age) => this.water(act, tx, BED.z0, age) });
       }
-      keys.push({ t: c0 + 8.6, x: BED.x1 - 1.5, z, f: 'down' });
-      keys.push({ t: c0 + 9.9, x: home, z, f: 'down' });
+      // (second pass: he lingers at the bed's west end, facing the camera, through the coffee beat)
+      const stay = c0 ? 10.8 : 8.6;
+      keys.push({ t: c0 + stay, x: BED.x1 - 1.5, z, f: 'down' });
+      keys.push({ t: c0 + stay + 1.3, x: home, z, f: 'down' });
     }
     events.push({ t: 7.1, run: (age) => this.say(p, 'Berries are watered!', age) });
     events.push({ t: 7.7, run: (age) => this.emote(p, 'music', age) });
@@ -255,8 +261,9 @@ export class FarmChoreo {
     events.push({ t: back + 0.1, run: () => this.setDown() });
     events.push({ t: back + 0.35, run: (age) => this.waveFor(p, age) });
     events.push({ t: back + 0.45, run: (age) => this.say(p, 'Coffee’s on at my cabin, come on over!', age) });
-    keys.push({ t: back + 4.5, x: home.x, z: home.z, f: 'down' });
-    keys.push({ t: back + 4.6, x: home.x, z: home.z, f: 'right' });
+    // (faces the camera through the coffee beat: stills land anywhere in t ≈ 19.9-23.5)
+    keys.push({ t: back + 6.0, x: home.x, z: home.z, f: 'down' });
+    keys.push({ t: back + 6.1, x: home.x, z: home.z, f: 'right' });
     return act;
   }
 
@@ -363,7 +370,13 @@ export class FarmChoreo {
   private say(p: RemotePlayer, text: string, age: number): void {
     const dur = Math.min(8, 4 + text.length * 0.05);
     if (age < dur - 0.3) p.chat(text, dur - age);
-    if (age < 7.5) this.game.events.emit('net:chat', { id: p.id, name: p.name, text, color: hex(p.look.scarf) });
+    // (a re-seek replays the recent lines: never log the same line twice while its chip is still up)
+    const key = `${p.id}|${text}`;
+    const now = performance.now();
+    if (age < 7.5 && now - (LOGGED.get(key) ?? -1e9) > 8000) {
+      LOGGED.set(key, now);
+      this.game.events.emit('net:chat', { id: p.id, name: p.name, text, color: hex(p.look.scarf) });
+    }
   }
 
   // ─────────────────────────────── the host (the local farmer)
@@ -388,7 +401,11 @@ export class FarmChoreo {
     });
   }
 
+  /** Farmers whose scripted emotes are skipped (coop-emote holds Fennel's staged "Wow!"). */
+  readonly muteEmotes = new Set<number>();
+
   private emote(p: RemotePlayer, id: EmoteId, age: number): void {
+    if (this.muteEmotes.has(p.id)) return;
     if (age < 2.2) p.emote(id, 2.6 - age);
   }
 

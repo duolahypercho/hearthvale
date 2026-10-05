@@ -310,7 +310,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'coop-lobby': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
   // Co-op night: the three farmhands are in bed, you're still up (holdout nudge + glowing roster sleepers) /
   // the day-end card with the "Farm today" row (every farmer's harvest, watering, tilling, sowing).
-  'coop-bedtime': { map: 'farm', x: 16.3, z: 22.5, facing: 'down', time: 22.6, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 44, distance: 16.5, offsetX: 1.25, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
+  'coop-bedtime': { map: 'farm', x: 17.7, z: 23.05, facing: 'down', time: 22.6, season: 'spring', weather: 'sun', camera: { yaw: -4, pitch: 50, distance: 14.5, offsetX: -1.0, offsetZ: -3.4 }, showcase: ['field', 'coop'] },
   'coop-dayend': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, showcase: ['coop'], ui: 'dayend' },
   // Co-op social stills: the emote wheel open over the farm (&emote=<id>) / typing a chat line (&say=<text>).
   'coop-emote': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },

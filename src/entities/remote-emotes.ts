@@ -255,6 +255,53 @@ function drawIcon(g: CanvasRenderingContext2D, id: EmoteId): void {
 }
 
 const BUBBLE_GEO = new THREE.PlaneGeometry(1, 1).translate(0, 0.42, 0);
+/** The pop's sparkle ring, centred on the bubble's body (a child of the bubble quad). */
+const SPARK_GEO = new THREE.PlaneGeometry(1.7, 1.7).translate(0, 0.47, 0);
+let sparkTex: THREE.CanvasTexture | null = null;
+
+/** Eight 4-point twinkles on a ring (gold / cream, alternating sizes) + a faint soft halo. */
+function sparkleTexture(): THREE.CanvasTexture {
+  if (sparkTex) return sparkTex;
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  g.translate(S / 2, S / 2);
+  const star = (x: number, y: number, r: number, col: string): void => {
+    g.save();
+    g.translate(x, y);
+    g.shadowColor = 'rgba(255,190,70,0.95)';
+    g.shadowBlur = r * 0.8;
+    g.fillStyle = col;
+    g.strokeStyle = 'rgba(120,70,10,0.55)';
+    g.lineWidth = 2;
+    g.beginPath();
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 - Math.PI / 2;
+      const rr = k % 2 ? r * 0.26 : r;
+      g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    g.closePath();
+    g.stroke();
+    g.fill();
+    g.restore();
+  };
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.2;
+    const R = i % 2 ? 92 : 104;
+    star(Math.cos(a) * R, Math.sin(a) * R, i % 2 ? 15 : 24, i % 3 ? '#fff3c4' : '#ffc93a');
+  }
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.75;
+    g.fillStyle = 'rgba(255,240,200,0.95)';
+    g.beginPath();
+    g.arc(Math.cos(a) * 78, Math.sin(a) * 78, 3.2, 0, Math.PI * 2);
+    g.fill();
+  }
+  sparkTex = new THREE.CanvasTexture(c);
+  sparkTex.colorSpace = THREE.SRGBColorSpace;
+  return sparkTex;
+}
 
 /**
  * Bubbles are drawn in their own tiny overlay pass AFTER post-processing (renderEmoteOverlay, run from
@@ -336,6 +383,10 @@ registerOverlayWarm((renderer, camera) => {
 export class EmoteBubble {
   readonly sprite: THREE.Mesh;
   private tex: THREE.Texture;
+  /** Twinkle ring that bursts out of the bubble on the pop (child of the quad, ~0.5 s). */
+  private spark: THREE.Mesh;
+  /** Showcase stills: hold the animation at this age (s) — e.g. 0.2 = mid-pop with the sparkle out. */
+  freezeAt: number | null = null;
   private t = -1;
   private dur = 2.6;
   /** Height of the bubble's base above the anchor, m. */
@@ -365,6 +416,14 @@ export class EmoteBubble {
     this.sprite.visible = false;
     this.sprite.frustumCulled = false;
     this.sprite.scale.setScalar(0.001);
+    // (alphaTest > 0 like the bubble: the same program variant, no first-use compile)
+    const sm = new THREE.MeshBasicMaterial({ map: sparkleTexture(), transparent: true, alphaTest: 0.02, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
+    this.spark = new THREE.Mesh(SPARK_GEO, sm);
+    this.spark.name = 'emote-spark';
+    this.spark.frustumCulled = false;
+    this.spark.visible = false;
+    this.spark.renderOrder = -1;
+    this.sprite.add(this.spark);
   }
 
   /** Pop the bubble for `dur` seconds (demo stills pass a long hold). */
@@ -390,7 +449,17 @@ export class EmoteBubble {
   update(dt: number, time: number): void {
     if (this.t < 0) return;
     this.t += dt;
+    if (this.freezeAt !== null) this.t = Math.min(this.t, this.freezeAt);
     const t = this.t;
+    // Sparkle burst: the ring expands out of the bubble as it pops and fades by ~0.55 s.
+    const sk = (t - 0.04) / 0.5;
+    this.spark.visible = sk > 0 && sk < 1;
+    if (this.spark.visible) {
+      const e = 1 - Math.pow(1 - sk, 3);
+      this.spark.scale.setScalar(0.55 + 0.75 * e);
+      this.spark.rotation.z = sk * 0.5;
+      (this.spark.material as THREE.MeshBasicMaterial).opacity = Math.min(1, sk * 6) * (1 - sk * sk);
+    }
     let s: number;
     if (t < 0.28) {
       const k = t / 0.28;
@@ -414,5 +483,6 @@ export class EmoteBubble {
     this.hide();
     this.tex.dispose();
     (this.sprite.material as THREE.Material).dispose();
+    (this.spark.material as THREE.Material).dispose();
   }
 }

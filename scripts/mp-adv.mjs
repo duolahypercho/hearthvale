@@ -141,8 +141,16 @@ const watch = (page, id) =>
     if (!r) return false;
     // Stamped with the animation-frame time (the vsync the frame is presented on), not the moment
     // this callback happens to run in a busy frame.
+    // Only frames the game actually stepped + drew count: under load the frame governor paces the game
+    // to every other vsync, and a sample taken on a skipped vsync (nothing presented) followed by a
+    // drawn one read as a 2-3x "pop" that no one ever saw (r5/r6 first-walk failures on a saturated box).
+    const g = window.__game.game;
+    let lastFrame = -1;
     const tick = (ts) => {
-      window.__advS.push([ts ?? Number(document.timeline.currentTime), r.farmer.position.x, r.farmer.position.z]);
+      if (g.frame !== lastFrame) {
+        lastFrame = g.frame;
+        window.__advS.push([ts ?? Number(document.timeline.currentTime), r.farmer.position.x, r.farmer.position.z]);
+      }
       window.__advRaf = requestAnimationFrame(tick);
     };
     tick();
@@ -218,6 +226,18 @@ try {
     }, lane);
     for (const w of watchers) await ev(w, (l) => window.__game.teleport('farm', l.x + 4, l.z + 4.5), lane);
     await sleep(1500);
+    // On a saturated machine the start teleport can take longer to reach a watcher: don't start the
+    // per-frame watch (which would count the teleport as a 17 m "step") until everyone sees him there.
+    const atStart = await Promise.all(watchers.map((w) => waitFor(w, (q) => {
+      const r = window.__game.game.services.net.remotes.get(q.id);
+      return !!r && Math.hypot(r.farmer.position.x - (q.l.x + 0.5), r.farmer.position.z - (q.l.z + 1.5)) < 0.3;
+    }, { id: ids[moverName], l: lane }, 30000)));
+    await sleep(400);
+    const play0 = await Promise.all(watchers.map((w) => ev(w, (id) => {
+      const r = window.__game.game.services.net.remotes.get(id);
+      return r ? { snaps: r.play.snaps, limited: r.play.limited, x: +r.farmer.position.x.toFixed(2), z: +r.farmer.position.z.toFixed(2) } : null;
+    }, ids[moverName])));
+    log(`${moverName} at start: ${atStart.join(',')} · ${JSON.stringify(play0)}`);
     const okW = await Promise.all(watchers.map((w) => watch(w, ids[moverName])));
     if (run) await mover.keyboard.down('ShiftLeft');
     await mover.keyboard.down(key);
@@ -227,6 +247,25 @@ try {
     await sleep(1200);
     const own = await ev(mover, () => ({ ...window.__game.info().player, corr: window.__game.game.services.net.stats().corrections }));
     const rs = await Promise.all(watchers.map((w) => unwatch(w)));
+    // Diagnostics: the mover's sample stream as each watcher buffered it (sender clock): the fastest
+    // segment and the fastest 300 ms window — tells a sender-side burst from a playout pop.
+    const streams = await Promise.all(watchers.map((w) => ev(w, (id) => {
+      const r = window.__game.game.services.net.remotes.get(id);
+      const b = r ? r.play.buf : [];
+      let seg = 0, segDt = 0, win = 0;
+      for (let i = 1; i < b.length; i++) {
+        const dt = b[i].t - b[i - 1].t;
+        const v = (Math.hypot(b[i].x - b[i - 1].x, b[i].z - b[i - 1].z) / Math.max(1, dt)) * 1000;
+        if (v > seg) { seg = v; segDt = dt; }
+        let j = i;
+        while (j < b.length - 1 && b[j].t - b[i - 1].t < 300) j++;
+        let len = 0;
+        for (let k = i; k <= j; k++) len += Math.hypot(b[k].x - b[k - 1].x, b[k].z - b[k - 1].z);
+        win = Math.max(win, (len / Math.max(1, b[j].t - b[i - 1].t)) * 1000);
+      }
+      return { n: b.length, seg: +seg.toFixed(2), segDt: Math.round(segDt), win300: +win.toFixed(2), snaps: r?.play.snaps, limited: r?.play.limited };
+    }, ids[moverName])));
+    log(`${moverName} stream`, JSON.stringify(streams));
     const seen = await Promise.all(watchers.map((w) => ev(w, (id) => {
       const r = window.__game.game.services.net.remotes.get(id);
       return r ? { x: r.farmer.position.x, z: r.farmer.position.z } : null;
@@ -234,8 +273,11 @@ try {
     const end = seen.map((s) => (s ? Math.hypot(s.x - own.x, s.z - own.z) : 99));
     return { rs, end, own, okW };
   };
-  const speedCap = (run) => (run ? 6.4 : 4.2) * 2;
-  for (const run of [false, true]) {
+  // r6: the rendered pace may surge at most 1.5x (playout VCAP 1.4x of the windowed path pace), over
+  // WALKS consecutive walks (--walks, default 5) + one run.
+  const speedCap = (run) => (run ? 6.4 : 4.2) * 1.5;
+  const WALKS = opt('walks', 5);
+  for (const run of [...Array(WALKS).fill(false), true]) {
     const r = await moveTest(ash, 'ash', [host, bea, cole], 'KeyD', run ? 1100 : 1600, run);
     const wn = ['host', 'bea', 'cole'];
     log(`ash ${run ? 'run' : 'walk'}`, JSON.stringify(r.rs));

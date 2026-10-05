@@ -124,10 +124,10 @@ const waitFor = async (page, fn, arg, timeout = 20000) => {
 
 // ── remote-farmer playout (pure, no browser): jitter / spikes / stalls never step backwards ──
 {
-  const { torture, CASES } = await import('./mp-interp.mjs');
+  const { torture, CASES, passes } = await import('./mp-interp.mjs');
   const rs = CASES.map((c) => ({ c, r: torture(c) }));
-  const bad = rs.filter(({ c, r }) => !(r.back === 0 && r.pops === 0 && r.snaps === 0 && (c.maxSd == null || r.sd <= c.maxSd)));
-  check('playout torture: no backward steps / pops over jitter, spikes and a stall', bad.length === 0, rs.map(({ c, r }) => `${c.name.split(',')[0]} back ${r.back} pops ${r.pops} maxV ${r.maxV} sd ${r.sd}`).join(' · '));
+  const bad = rs.filter(({ c, r }) => !passes(c, r));
+  check('playout torture: no backward steps / pops over jitter, spikes, a stall, busy / frozen senders (≤ 1.45x pace)', bad.length === 0, rs.map(({ c, r }) => `${c.name.split(',')[0]} back ${r.back} pops ${r.pops} maxV ${r.maxV} sd ${r.sd}`).join(' · '));
 }
 
 let host, a, b;

@@ -8,6 +8,7 @@ import { MeshBuilder, roundedBox, bevelCylinder, mat, groundAO } from '../world/
 import type { GameMap } from '../world/map';
 import { EmoteBubble } from '../entities/remote-emotes';
 import { globalUniforms } from '../render/uniforms';
+import { SmokeEmitter } from '../render/particles';
 
 /** Footprint top-left tile of each cabin slot (3×3 tiles, door on the south side). */
 export const CABIN_SITES: { x0: number; z0: number }[] = [
@@ -34,6 +35,9 @@ const W_ = 'woodGrain';
 const log = (r: number, len: number, bevel = 0.03, radial = 7): THREE.BufferGeometry => bevelCylinder(r, r, len, bevel, radial).translate(0, -len / 2, 0);
 /** Single-segment rounded box (108 tris: at cabin scale the 2-segment bevel is invisible). */
 const rb = (w: number, h: number, d: number, r = 0.04): THREE.BufferGeometry => roundedBox(w, h, d, r, 1);
+
+/** World positions of the chimney pots built by the last buildCabin calls (smoke origins). */
+const chimneyTops: THREE.Vector3[] = [];
 
 function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: number, seed: number): void {
   const at = (x: number, yy: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx): THREE.Matrix4 => mat(cx + x, y + yy, cz + z, rx, ry, rz, sx, sy, sz);
@@ -62,37 +66,56 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add(W_, new THREE.CylinderGeometry(lh * 0.46, lh * 0.46, 0.02, 7), at(sx * (W / 2 + 0.21), yy, sz * D * 0.5, 0, 0, Math.PI / 2), { tint: 0xf0cf98 });
   }
   b.add(W_, rb(W - 0.12, wallH, D - 0.12, 0.04), at(0, base + wallH / 2, 0), { tint: 0x6a4428 });
-  // Gable ends: one board-and-batten triangle each (a prism + 3 battens: ~60 tris, not 14 planks).
+  // Gable ends: a backing triangle flush with the outer log faces (r5 sat it 0.2 m behind them, deep in
+  // the eave's shadow: a hollow black void at night), lapped siding boards stepping in with the rake,
+  // and a round vent window over the door that glows with the cabin's lamps.
   const gh = 1.05;
   const tri = new THREE.Shape();
-  tri.moveTo(-W / 2, 0);
-  tri.lineTo(W / 2, 0);
-  tri.lineTo(0, gh + 0.04);
+  tri.moveTo(-W / 2 - 0.12, 0);
+  tri.lineTo(W / 2 + 0.12, 0);
+  tri.lineTo(0, gh + 0.08);
   tri.closePath();
-  const gable = new THREE.ExtrudeGeometry(tri, { depth: 0.08, bevelEnabled: false, curveSegments: 1 });
-  gable.translate(0, 0, -0.04);
+  const gable = new THREE.ExtrudeGeometry(tri, { depth: 0.1, bevelEnabled: false, curveSegments: 1 });
+  gable.translate(0, 0, -0.05);
+  const gz = D * 0.5 + 0.13;
+  const boards = 5;
   for (const sz of [-1, 1]) {
     // (clone: MeshBuilder.add transforms the geometry in place — re-adding the one shared prism doubled the
     // first transform and parked a stray gable triangle in mid-air at ~2x the cabin's coordinates)
-    b.add(W_, gable.clone(), at(0, top, sz * (D * 0.5 - 0.02)), { tint: 0xa06c40 });
-    for (const u of [-0.27, 0, 0.27]) {
-      const h = gh * (1 - Math.abs(u) * 2) * 0.92;
-      b.add(W_, rb(0.06, h, 0.04, 0.012), at(u * W, top + h / 2, sz * (D * 0.5 + 0.03)), { tint: 0x8a5a34 });
+    b.add(W_, gable.clone(), at(0, top - 0.02, sz * gz), { tint: 0x9a6438 });
+    for (let k = 0; k < boards; k++) {
+      // Each lap board spans the triangle at its own height (its ends tuck under the barge boards).
+      const h0 = (k / boards) * gh * 0.9;
+      const bh = (gh * 0.9) / boards;
+      const w = (W + 0.24) * (1 - (h0 + bh * 0.5) / (gh + 0.08)) - 0.1;
+      b.add(W_, rb(Math.max(0.12, w), bh * 1.04, 0.05, 0.015), at(0, top + h0 + bh * 0.5, sz * (gz + 0.06), -0.08 * sz, 0, 0), { tint: k % 2 ? 0xd29c66 : 0xc48a56 });
     }
   }
+  // Round vent window in the front gable: dark frame ring + lit glass (windowCard glows at dusk).
+  const vy = top + gh * 0.42;
+  b.add(W_, bevelCylinder(0.2, 0.2, 0.06, 0.015, 12), at(0, vy, gz + 0.1, Math.PI / 2, 0, 0), { tint: 0x4e3220 });
+  b.add('windowCard', new THREE.CircleGeometry(0.14, 12), at(0, vy, gz + 0.165));
+  b.add(W_, rb(0.025, 0.28, 0.02, 0.008), at(0, vy, gz + 0.175), { tint: 0x4e3220 });
+  b.add(W_, rb(0.28, 0.025, 0.02, 0.008), at(0, vy, gz + 0.175), { tint: 0x4e3220 });
   // Roof: each side is ONE pitched plane laid on the gable line — a continuous deck board, then
   // shingle courses lying flush on that same plane (eave course first, each higher course a hair
   // proud so its butt edge throws a thin shadow line), a fascia board along the eave, barge boards
   // up both gables and a ridge cap. Everything shares the side's transform, so nothing splays.
+  // Shingles in the owner's colour (weathered toward a warm brown): whose cabin is whose reads from
+  // across the farm, and a muted blue / green / ochre keeps its value under the night's blue moonlight
+  // where the r5 terracotta went black.
+  const weather = new THREE.Color(0xa47a62);
+  const roofA = acc.clone().lerp(weather, 0.5).getHex();
+  const roofB = acc.clone().lerp(weather, 0.38).lerp(new THREE.Color(0xffffff), 0.1).getHex();
   const pitch = Math.atan2(gh, W / 2);
   const cosP = Math.cos(pitch);
   const sinP = Math.sin(pitch);
   const rake = Math.hypot(W / 2, gh);
-  const over = 0.42; // eave overhang along the slope
+  const over = 0.4; // eave overhang along the slope
   const t0 = -0.06; // a touch past the ridge so the two decks meet under the cap
   const t1 = rake + over;
   const deckT = 0.09;
-  const roofD = D + 0.86;
+  const roofD = D + 0.72; // ~0.23 m past the gable siding at each end
   const courses = 5;
   const courseW = (t1 - t0) / courses;
   /** A point on the side-`sx` roof plane: `t` m down the slope from the apex, `n` m off the gable line. */
@@ -109,19 +132,57 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
       // r = 0 at the eave; each course overlaps the one below by ~18% and sits 8 mm prouder.
       const tc = t1 - (r + 0.5) * courseW;
       const n = deckT + 0.02 + 0.03 + r * 0.008;
-      const tone = r % 2 ? 0xc4604a : 0xd27456;
+      const tone = r % 2 ? roofA : roofB;
       b.add(W_, rb(courseW * 1.18, 0.06, roofD - 0.04, 0.025), onRoof(sx, tc, n, 0), { tint: tone });
     }
     // Fascia along the eave (a pale painted board standing square to the slope)
-    b.add(W_, rb(0.06, 0.2, roofD + 0.04, 0.02), onRoof(sx, t1 + 0.01, deckT / 2 + 0.02, 0), { tint: 0xe8d8b8 });
+    b.add(W_, rb(0.06, 0.2, roofD + 0.04, 0.02), onRoof(sx, t1 + 0.01, deckT / 2 + 0.02, 0), { tint: 0xfff2d8 });
     // Barge boards up each gable end, just proud of the deck edge
-    for (const sz of [-1, 1]) b.add(W_, rb(t1 - t0 + 0.04, 0.2, 0.06, 0.02), onRoof(sx, (t0 + t1) / 2, deckT / 2 + 0.02, sz * (roofD / 2 + 0.02)), { tint: 0xe8d8b8 });
+    // (cream: at night they are the roof's readable rim, catching the porch lamp and the moon)
+    for (const sz of [-1, 1]) b.add(W_, rb(t1 - t0 + 0.04, 0.24, 0.07, 0.02), onRoof(sx, (t0 + t1) / 2, deckT / 2 + 0.04, sz * (roofD / 2 + 0.02)), { tint: 0xfff2d8 });
   }
+  // A lit skylight on the east slope (framed, lying on the shingles): from the high camera the roof
+  // reads as a lived-in roof, not a dark slab, after dusk.
+  {
+    const sx = 1;
+    const tS = rake * 0.52;
+    const nS = deckT + 0.02 + 0.03 + 3 * 0.008 + 0.05;
+    b.add(W_, rb(0.62, 0.07, 0.56, 0.02), onRoof(sx, tS, nS, -0.35), { tint: 0x5a3a22 });
+    b.add('windowCard', new THREE.PlaneGeometry(0.48, 0.42).rotateX(-Math.PI / 2), onRoof(sx, tS, nS + 0.04, -0.35));
+    b.add(W_, rb(0.5, 0.03, 0.025, 0.008), onRoof(sx, tS, nS + 0.05, -0.35), { tint: 0x5a3a22 });
+  }
+  // Festoon bulbs strung up the front gable's barge boards (a warm, readable roof line at night —
+  // the r5 cabin roof read as a black trapezoid after dark): lampGlow follows the lamps' dusk curve.
+  for (const sx of [-1, 1]) {
+    const nB = 6;
+    for (let k = 0; k < nB; k++) {
+      const t = t0 + 0.2 + ((t1 - t0 - 0.3) * (k + 0.5)) / nB;
+      b.add('lampGlow', new THREE.SphereGeometry(0.04, 7, 5), onRoof(sx, t, -0.05, roofD / 2 + 0.08));
+    }
+    b.add(W_, rb(t1 - t0 - 0.2, 0.012, 0.012, 0.004), onRoof(sx, (t0 + t1) / 2 + 0.05, -0.0, roofD / 2 + 0.08), { tint: 0x2a2420 });
+  }
+  b.add('lampGlow', new THREE.SphereGeometry(0.05, 7, 5), at(0, top + gh + 0.02, roofD / 2 + 0.1));
   // Ridge cap: a rounded log saddled over both decks
   b.add(W_, log(0.11, roofD + 0.1, 0.02, 10), at(0, top + gh + deckT + 0.1, 0, Math.PI / 2, 0, 0), { tint: 0x8e4a32 });
-  // Chimney (stone) with a cap
-  b.add(W_, rb(0.44, 1.25, 0.44, 0.07), at(-W * 0.26, top + gh * 0.55, -D * 0.18), { tint: 0xa49e94 });
-  b.add(W_, rb(0.54, 0.1, 0.54, 0.03), at(-W * 0.26, top + gh * 0.55 + 0.64, -D * 0.18), { tint: 0x7e786e });
+  // Chimney: a fieldstone stack (staggered courses of 2 stones in alternating greys) with a slate cap
+  // and a clay pot; smoke rises from the pot while the cabin is lived in (Cabins.update).
+  const chx = -W * 0.26;
+  const chz = -D * 0.18;
+  const ch0 = top + gh * 0.05;
+  const courseH = 0.2;
+  for (let r = 0; r < 7; r++) {
+    const yy = ch0 + r * courseH + courseH / 2;
+    const flip = r % 2 ? 1 : -1;
+    for (let k = 0; k < 2; k++) {
+      const off = (k - 0.5) * 0.24 + flip * 0.03;
+      const tone = [0xb4ada2, 0x9c968c, 0xa8a196, 0x8e887e][(r + k * 3 + seed) % 4]!;
+      b.add(W_, rb(0.26, courseH * 0.94, 0.48, 0.05), at(chx + off, yy, chz + (k ? 0.012 : -0.012) * flip, 0, (k - 0.5) * 0.06, 0), { tint: tone });
+    }
+  }
+  const capY = ch0 + 7 * courseH;
+  b.add(W_, rb(0.62, 0.08, 0.62, 0.025), at(chx, capY + 0.04, chz), { tint: 0x5e5a56 });
+  b.add(W_, bevelCylinder(0.1, 0.12, 0.2, 0.02, 9), at(chx, capY + 0.08, chz), { tint: 0xb4643c });
+  chimneyTops.push(new THREE.Vector3(cx + chx, y + capY + 0.3, cz + chz));
   // Door in the owner's colour: frame, planks, braces, brass knob
   const fz = D * 0.5 + 0.2;
   b.add(W_, rb(0.9, 1.32, 0.1, 0.03), at(0, base + 0.64, fz - 0.03), { tint: 0x4e3220 });
@@ -167,15 +228,18 @@ export class Cabins {
   /** A sleepy bubble drifting over the roof of every cabin whose farmhand has turned in (slot → bubble). */
   private zzz = new Map<number, { anchor: THREE.Object3D; bubble: EmoteBubble; on: boolean }>();
   private lamps: THREE.PointLight[] = [];
+  /** A thin wisp from every cabin's chimney pot (1 draw each, only while the farm is on screen). */
+  private smoke: SmokeEmitter[] = [];
 
   /**
    * Show the "asleep" bubble over each cabin in `sleeping` (slots), fade the rest. The bubble rides an
    * anchor just under the ridge (EmoteBubble lifts it above), so from the high camera it reads as
    * "someone's asleep in there" — the bedtime overlay names who; the farm shows where.
    */
-  sleepers(map: GameMap | null, sleeping: Set<number>, dt: number, time: number): void {
+  sleepers(map: GameMap | null, sleeping: Set<number>, dt: number, time: number, night = 0, viewH = 1080): void {
     const glow = globalUniforms.uLamps.value as number;
     for (const l of this.lamps) l.intensity = 6 * glow;
+    if (map) for (const sm of this.smoke) sm.update(Math.min(dt, 0.1), night, viewH);
     for (const slot of sleeping) {
       const s = CABIN_SITES[slot];
       if (!s || !map || this.zzz.get(slot)?.on) continue;
@@ -212,6 +276,7 @@ export class Cabins {
     }
     if (!map || !slots.size) return;
     const b = new MeshBuilder();
+    chimneyTops.length = 0;
     for (const [slot, accent] of slots) {
       const s = CABIN_SITES[slot];
       if (!s) continue;
@@ -235,6 +300,11 @@ export class Cabins {
       this.group.add(l);
       this.lamps.push(l);
     }
+    this.smoke = chimneyTops.map((p) => {
+      const sm = new SmokeEmitter(p.clone(), 2.6, 32);
+      this.group!.add(sm.object);
+      return sm;
+    });
     this.group.userData.perfTag = 'cabins';
     // Only the body and roof cast shadows (the glow cards are tiny).
     this.group.traverse((o) => {

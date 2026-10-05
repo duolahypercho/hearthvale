@@ -36,6 +36,8 @@ export class CoopDemo {
   private bots: Bot[] = [];
   /** coop-farm (+ coop-emote / coop-chat): the looping work choreography. */
   private choreo: FarmChoreo | null = null;
+  /** Bumped per stage() (a deferred re-seek only applies to the staging that scheduled it). */
+  private stageId = 0;
 
   constructor(
     private game: Game,
@@ -50,6 +52,7 @@ export class CoopDemo {
     if (this.net.role() !== 'solo') return;
     this.clear();
     this.active = true;
+    this.stageId++;
     this.asleep = false;
     // The staged host is Saffron (as in the coop-lobby demo), unless you've named your farmer.
     this.net.demoName('Saffron');
@@ -120,8 +123,19 @@ export class CoopDemo {
         this.choreo?.hostPose();
         this.game.followPlayer(true);
       });
-      const t = Number(new URLSearchParams(location.search).get('t'));
-      this.choreo.seek(Number.isFinite(t) && t > 0 ? t : 19.6);
+      const q = new URLSearchParams(location.search);
+      const t = Number(q.get('t'));
+      const t0 = Number.isFinite(t) && t > 0 ? t : 19.9;
+      this.choreo.seek(t0);
+      // The loop runs on real time, and boot + shader warm-up can take tens of seconds on a busy
+      // machine: a still taken "2.5 s after ready" drifted anywhere in the loop (r5's critic shots
+      // caught everyone walking away). Restart the loop at t0 once the game is ready.
+      const staged = this.stageId;
+      void this.game.ready().then(() => {
+        if (!this.active || !this.choreo || staged !== this.stageId) return;
+        this.seek(t0);
+        if (name === 'coop-emote') this.emotePops();
+      });
     }
     if (name === 'coop-bedtime') {
       // Everyone else has turned in: the farmhands are asleep in their cabins, you're the one still up.
@@ -195,6 +209,21 @@ export class CoopDemo {
     this.choreo = new FarmChoreo(this.game, this.net, this.bots.map((b) => b.p));
     this.choreo.seek(t);
     this.choreo.hostPose();
+  }
+
+  /**
+   * coop-emote: Fennel throws a "Wow!" — held at the pop's peak (bubble overshoot + sparkle ring + his
+   * mid-air hop) for stills; Juniper answers with a heart a beat later (live). Your own wheel opens
+   * beside your farmer (ui/coop.ts).
+   */
+  private emotePops(): void {
+    const fennel = this.bots[1]?.p;
+    const juniper = this.bots[0]?.p;
+    if (!fennel || !juniper) return;
+    fennel.emote('wow', 1e6);
+    fennel.farmer.bubble.freezeAt = new URLSearchParams(location.search).get('live') === '1' ? null : 0.16;
+    this.choreo?.muteEmotes.add(fennel.id);
+    juniper.emote('heart', 1e6);
   }
 
   private emote(b: Bot, e: EmoteId, hold = false): void {

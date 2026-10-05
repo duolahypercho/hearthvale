@@ -313,6 +313,8 @@ export class NetSystem implements System, NetApi {
   private lastTickAt = 0;
   /** Frame clock: when the latest rendered frame sampled the player (ms, performance.now()). */
   private frameAt = 0;
+  /** Sim time of the player's position this frame (frame clock − fixed-step accumulator), monotonic. */
+  private simAt = 0;
   private frameNo = 0;
   private sentFrame = -1;
   private appRtt = 0;
@@ -1440,7 +1442,7 @@ export class NetSystem implements System, NetApi {
       this.sentFrame = this.frameNo;
       const pl = g.player;
       const row = [this.id, g.world.current?.id ?? '', cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), this.localAnim()];
-      this.toAll(['s', this.frameAt, [row]]);
+      this.toAll(['s', this.simAt, [row]]);
     }
     if (this.goldDirty) {
       this.goldDirty = false;
@@ -1857,7 +1859,7 @@ export class NetSystem implements System, NetApi {
       this.history.push({ seq, x: pl.position.x, z: pl.position.z });
       if (this.history.length > 60) this.history.shift();
       // To everyone: the host validates it, the other farmhands interpolate it on our clock.
-      this.toAll(['st', seq, this.frameAt, map, cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), anim, Math.round(g.services.energy?.value() ?? 0), Math.round(this.rtt())]);
+      this.toAll(['st', seq, this.simAt, map, cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), anim, Math.round(g.services.energy?.value() ?? 0), Math.round(this.rtt())]);
     }
     this.tPing += ms;
     if (this.tPing >= PING_MS) {
@@ -2267,6 +2269,10 @@ export class NetSystem implements System, NetApi {
     this.frameCount++;
     const now = frameClock();
     this.frameAt = now;
+    // The position we sample is the fixed-step sim's, which trails the frame clock by the step
+    // accumulator: stamp samples with the sim's own time so a 17 ms frame that ran 0 or 2 steps
+    // doesn't read as a 0x / 2x pace on every receiver (the r5 mp-adv walk surge).
+    this.simAt = Math.max(this.simAt, now - game.simLag * 1000);
     this.frameNo++;
     if (this.timers.length) {
       let due = false;
@@ -2321,7 +2327,7 @@ export class NetSystem implements System, NetApi {
       const mine = this.cabinOf.get(this.id);
       if (this.asleep && this.bedWhere === 'cabin' && mine !== undefined && mine >= 0) sleeping.add(mine);
     }
-    this.cabins.sleepers(game.world.current?.id === 'farm' ? (game.world.current ?? null) : null, sleeping, dt, game.time);
+    this.cabins.sleepers(game.world.current?.id === 'farm' ? (game.world.current ?? null) : null, sleeping, dt, game.time, game.lighting.night, game.rc.renderer.domElement.height);
     this.myBubble?.update(dt, game.time);
     this.ui.update(dt);
   }

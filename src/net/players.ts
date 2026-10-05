@@ -337,7 +337,7 @@ function cam(game: Game): THREE.Camera {
 }
 
 /** HUD cards tags keep clear of (dimmed over them); re-read when the HUD changes (+ every 2.5 s), never per frame. */
-const HUD_CARDS = '.h-clock, .hv-toolbar, .hv-energy, .coop-roster:not(.hv-hidden), .hv-np, .coop-log > *';
+const HUD_CARDS = '.h-clock, .hv-toolbar, .hv-energy, .coop-roster:not(.hv-hidden), .hv-np, .coop-log > *, .coop-chat-row:not(.hv-hidden), .coop-sleep:not(.hv-hidden)';
 
 /**
  * Screen rectangles already claimed this frame (pills, chat and emote bubbles), in a flat pooled
@@ -629,11 +629,14 @@ export class RemotePlayers {
         if (pass === 3 && say.active && say.w > 0) {
           const w = say.w;
           const h = say.h;
-          const base = y - ph - 10 * S; // bubble bottom (tail below it)
+          // (our own farmer has no pill: lift the bubble past the hat crown instead of onto the brim)
+          const base = y - (p ? ph : a.ppm * 0.34) - 10 * S; // bubble bottom (tail below it)
           const free = (dx: number, dy: number, pad: number): boolean => {
             const x0 = x - w / 2 + dx;
             const y1 = base + dy;
-            return R.hit(x0, y1 - h, x0 + w, y1, pad) < 0 && hud.hit(x0, y1 - h, x0 + w, y1, pad) < 0;
+            // HUD cards (chat log chips, the Say row, the clock…) are never tolerated under a bubble,
+            // not even by the hysteresis' 20 px slack (r5: Rowan's bubble sat on the log's top chip).
+            return R.hit(x0, y1 - h, x0 + w, y1, pad) < 0 && hud.hit(x0, y1 - h, x0 + w, y1, Math.max(6, pad)) < 0;
           };
           // Hysteresis: keep the slot picked earlier unless it has overlapped something by > 20 px
           // for 300 ms; drift back to the centred spot once that has been free for 0.6 s.
@@ -713,7 +716,7 @@ function faceRect(R: Rects, a: Anchor): void {
 }
 
 /** Sideways nudges tried for a chat bubble (fractions of its width). */
-const NUDGE = [0, -0.34, 0.34, -0.62, 0.62];
+const NUDGE = [0, -0.34, 0.34, -0.62, 0.62, 0.92, -0.92];
 
 function byNearest(a: Actor, b: Actor): number {
   return b.a.y - a.a.y;

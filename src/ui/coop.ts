@@ -14,7 +14,9 @@ import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { NetApi, PlayerView } from '../net/system';
 import { Screen, el, sfx, replay, escapeHtml, frame } from './kit';
-import { RemoteFarmer } from '../entities/remote-farmer';
+import { RemoteFarmer, farmerMaterial } from '../entities/remote-farmer';
+import { MeshBuilder, mat, roundedBox, bevelCylinder, lumpySphere } from '../world/geom';
+import { Rng } from '../core/rng';
 import { EMOTES, EMOTE_LABEL, emoteIconUrl, type EmoteId } from '../entities/remote-emotes';
 import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, DEMO_HOST_LOOK, hex, randomLook, extra, EYE_STYLES, BROW_STYLES, MOUTH_STYLES, OUTFIT_CUTS, ACCESSORIES, type FarmerLook, type HairStyle, type HatStyle, type EyeStyle, type BrowStyle, type MouthStyle, type OutfitCut, type Accessory } from '../entities/remote-look';
 import { resetCamera } from './pause';
@@ -77,6 +79,45 @@ void main() {
   c *= 1.0 - 0.38 * smoothstep(0.32, 0.78, length(q));
   gl_FragColor = vec4(c, 1.0);
 }`;
+
+/**
+ * The creator's set dressing (one merged mesh): a white picket fence curving round behind the tile,
+ * a sunflower either side and a clump of tufts — the portrait sits in a little garden instead of an
+ * empty sky window (r5), well behind the farmer so nothing crosses the silhouette.
+ */
+function previewBackdrop(): THREE.Mesh {
+  const m = farmerMaterial();
+  const b = new MeshBuilder();
+  const R = 2.3;
+  for (let i = -6; i <= 6; i++) {
+    const a = (i / 6) * 1.05 + Math.PI;
+    const x = Math.sin(a) * R;
+    const z = Math.cos(a) * R;
+    b.add(m, roundedBox(0.11, 0.74, 0.05, 0.02, 1), mat(x, 0.3, z, 0, a, 0), { tint: 0xf6efe0 });
+    b.add(m, new THREE.ConeGeometry(0.075, 0.1, 4), mat(x, 0.72, z, 0, a + Math.PI / 4, 0), { tint: 0xf6efe0 });
+    if (i < 6) {
+      const a2 = ((i + 0.5) / 6) * 1.05 + Math.PI;
+      const span = 2 * R * Math.sin(1.05 / 12) + 0.04;
+      for (const y of [0.18, 0.5]) b.add(m, roundedBox(span, 0.06, 0.035, 0.012, 1), mat(Math.sin(a2) * (R + 0.04), y, Math.cos(a2) * (R + 0.04), 0, a2 + Math.PI / 2, 0), { tint: 0xe8dcc4 });
+    }
+  }
+  for (const sx of [-1, 1]) {
+    const x = sx * 1.55;
+    const z = -1.35;
+    const h = sx < 0 ? 1.35 : 1.1;
+    b.add(m, bevelCylinder(0.03, 0.035, h, 0.01, 6), mat(x, -0.05, z), { tint: 0x5f8f38 });
+    for (const [lx, ly] of [[0.13, 0.45], [-0.12, 0.7]] as const) b.add(m, new THREE.SphereGeometry(0.11, 8, 5), mat(x + lx, ly, z, 0, 0, sx * 0.5, 1.2, 0.35, 0.7), { tint: 0x6aa244 });
+    b.add(m, bevelCylinder(0.25, 0.25, 0.05, 0.02, 14), mat(x, h - 0.05, z + 0.05, Math.PI / 2 - 0.25, 0, 0), { tint: 0xf3c43a });
+    b.add(m, bevelCylinder(0.12, 0.12, 0.07, 0.02, 12), mat(x, h - 0.05, z + 0.08, Math.PI / 2 - 0.25, 0, 0), { tint: 0x6a4020 });
+  }
+  for (let i = 0; i < 9; i++) {
+    const a = Math.PI + (i - 4) * 0.22;
+    b.add(m, lumpySphere(0.2 + (i % 3) * 0.05, 1, 0.3, new Rng(`bush${i}`)), mat(Math.sin(a) * 2.05, 0.08, Math.cos(a) * 2.05, 0, 0, 0, 1, 0.75, 1), { tint: i % 2 ? 0x76ad4a : 0x5f9a3c });
+  }
+  const mesh = new THREE.Mesh(b.geometries().get(m)!, m);
+  mesh.name = 'creator-backdrop';
+  return mesh;
+}
 
 /** Character-creator turntable: a scene the lobby renderer draws with the main WebGL context. */
 class FarmerPreview implements TurntableView {
@@ -145,6 +186,7 @@ class FarmerPreview implements TurntableView {
     shadow.position.y = 0.017;
     tile.add(shadow);
     this.scene.add(tile);
+    this.scene.add(previewBackdrop());
     // Framed like a portrait: boots to hat fill ~85 % of the stage height.
     // (r4: the hat crown kissed the top edge; pulled back + down so every hat has headroom.)
     this.camera.position.set(0, 1.5, 4.95);
@@ -404,7 +446,22 @@ class CoopScreen extends Screen {
     const opts = this.buildMakerOptions(body);
     body.appendChild(opts);
     this.pinOptsHeight(body, opts);
+    // A measure taken before the web fonts land wraps the chip rows differently (r5: the panels still
+    // jumped ~9 px between tabs): measure again once they're in, and never pin below what's on screen.
+    if (!this.fontsPinned) {
+      this.fontsPinned = true;
+      void document.fonts?.ready.then(() => {
+        this.optsMinH = 0;
+        const cur = body.querySelector<HTMLElement>('.coop-opts');
+        if (cur?.isConnected) this.pinOptsHeight(body, cur);
+      });
+    }
+    if (opts.offsetHeight > this.optsMinH && this.optsMinH > 0) {
+      this.optsMinH = opts.offsetHeight;
+      opts.style.minHeight = `${this.optsMinH}px`;
+    }
   }
+  private fontsPinned = false;
 
   private buildMakerOptions(body: HTMLElement): HTMLElement {
     const opts = el('div', 'coop-opts');
@@ -441,7 +498,7 @@ class CoopScreen extends Screen {
     };
     const L = this.look;
     if (this.makerTab === 'look') {
-      swatch('skin', 'Skin', PALETTE.skin);
+      // (skin lives in the Face tab only)
       swatch('hair', 'Hair', PALETTE.hair);
       opts.appendChild(this.chipRow('Style', HAIR_STYLES, HAIR_LABEL, L.hairStyle, (v) => (L.hairStyle = v as HairStyle), body));
       opts.appendChild(this.chipRow('Hat', HAT_STYLES, HAT_LABEL, L.hat, (v) => (L.hat = v as HatStyle), body));
@@ -619,7 +676,7 @@ class CoopScreen extends Screen {
       }
       const s = el('div', `coop-slot${p.isMe ? ' me' : ''}${p.away ? ' away' : ''}`);
       s.style.animationDelay = `${i * 70}ms`;
-      s.innerHTML = `${avatar(p.look, 42)}<div><b>${escapeHtml(farmerName(p.name))}${p.isHost ? ` ${CROWN}` : ''}</b><small>${p.isHost ? 'Host' : p.cabin >= 0 ? `Farmhand · cabin ${p.cabin + 1}` : 'Farmhand'}${p.isMe ? ' · you' : ''}${p.away ? ' · reconnecting…' : ''}</small></div><span class="side">${p.isMe && p.isHost ? '' : pingBars(p.ping)}</span>`;
+      s.innerHTML = `${avatar(p.look, 42)}<div><b>${escapeHtml(farmerName(p.name))}${p.isHost ? ` ${CROWN}` : ''}</b><small>${p.isHost ? 'Host' : p.cabin >= 0 ? `Cabin ${p.cabin + 1}` : 'Farmhand'}${p.isMe ? ' · you' : ''}${p.away ? ' · reconnecting…' : ''}</small></div><span class="side">${p.isMe && p.isHost ? '' : pingBars(p.ping)}</span>`;
       if (hosting && !p.isMe) s.querySelector('.side')!.appendChild(this.kickButton(p));
       slots.appendChild(s);
     }
@@ -879,8 +936,14 @@ export class CoopUi {
     const z = this.uiZoom();
     // Keep the whole ring on screen.
     const R = 130;
-    const x = Math.min(innerWidth / z - R, Math.max(R, ((v.x + 1) / 2) * (innerWidth / z)));
-    const y = Math.min(innerHeight / z - R - 90, Math.max(R, ((1 - v.y) / 2) * (innerHeight / z)));
+    // Beside the farmer, not on it (r5: the hub and its label sat right over your own face): the ring
+    // opens to whichever side has room, its inner edge just clear of the farmer, a little above the waist.
+    const fx = ((v.x + 1) / 2) * (innerWidth / z);
+    const fy = ((1 - v.y) / 2) * (innerHeight / z);
+    const side = fx + R * 2 + 40 > innerWidth / z ? -1 : 1;
+    this.wheel.classList.toggle('left', side < 0);
+    const x = Math.min(innerWidth / z - R, Math.max(R, fx + side * (R + 64)));
+    const y = Math.min(innerHeight / z - R - 90, Math.max(R, fy - 40));
     this.wheelAt = { x, y };
     this.wheel.style.left = `${Math.round(x)}px`;
     this.wheel.style.top = `${Math.round(y)}px`;

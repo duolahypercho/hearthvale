@@ -129,6 +129,10 @@ export class Game {
   toolbarSlot = 0;
   frame = 0;
   private acc = 0;
+  /** Seconds the fixed-step sim (player position) trails this frame's clock (co-op sample stamps). */
+  get simLag(): number {
+    return this.acc;
+  }
   /** Seconds the current pausing menu has been open (backdrop refresh policy in step()). */
   private menuOpenT = 0;
   private last = 0;

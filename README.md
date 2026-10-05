@@ -807,6 +807,7 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
 npm run server        # relay + lobby server on ws://<host>:8787/ws (also serves dist/ after npm run build)
 npm run dev           # then Title → Co-op → "New farm" / "My saved farm" (host) or type the 6-letter code (join)
 npm run mp-test       # e2e + adversarial: relay + Vite + headless clients; screenshots + results in shots/mp/
+node scripts/mp-shots.mjs [--jobs f --dir d]   # every co-op demo still from ONE Vite + browser (+ draws / tris / fps)
 ```
 
 Friends on other machines open the game from the host's address; the relay defaults to the page's host on port
@@ -844,7 +845,12 @@ Friends on other machines open the game from the host's address; the relay defau
   between our own night and the host's morning farm, whose weeds / crows legitimately differ until it lands). Movement is predicted; the host's `fix` is
   reconciled against the position history and bled in over ~150 ms. Remote farmers use an adaptive jitter buffer
   (100 ms floor, grows with measured arrival jitter up to 260 ms) with brief extrapolation; their rendered speed is
-  capped at 1.4× the path's own pace (the excess is absorbed over the next frames). Input presses are latched for the
+  capped at 1.4× the path's own pace, measured over a ±150 ms window of samples (not the current segment), and the
+  excess is absorbed over the next frames — also across a playout-clock restart after a sender froze for seconds. A
+  guess that ran ahead (the sender stalled) is absorbed by letting the real path catch up under it: the farmer pauses
+  instead of stepping back. Samples are stamped with the **sim time** of the position they carry (frame clock − the
+  fixed-step accumulator, `game.simLag`), so a frame that ran 0 or 2 sim steps no longer reads as a 0× / 2× pace on
+  every receiver (the r5 walk surge). Input presses are latched for the
   fixed-step sim (`input.takeFixed`), so a tap shorter than a frame still swings the tool.
 - **Saves**: a farmhand never writes the host's farm into its own slots (`SaveManager.guard`: "saving" stores the
   personal part on the host + a local per-farm copy). Personal state (`psave`: backpack, energy, friendships,
@@ -860,7 +866,8 @@ Friends on other machines open the game from the host's address; the relay defau
   cuts (overalls, pinafore, waistcoat, apron), an accessory (glasses, daisy, knitted scarf), skin / hair / shirt /
   outfit / kerchief / hat colours (`entities/remote-look.ts`; the extras are optional on the wire). Readability from
   the high camera: heads tip ~9° toward the camera, caps sit pushed back, a face-fill term keeps faces out of the
-  hat's shadow, hair roots a value step darker than the locks. Emote bubbles are 3D sprites (`remote-emotes.ts`). Name tags /
+  hat's shadow, hair roots a value step darker than the locks. Emote bubbles are 3D sprites (`remote-emotes.ts`) that pop with an overshoot and a burst
+  of twinkles (a sparkle ring child of the bubble, ~0.5 s), and the farmer who emoted does a little squash-hop. Name tags /
   chat bubbles are DOM, placed after each render (`game.afterRender`, so they match the frame's camera even while
   paused) and stacked when farmers bunch up; emote bubbles sit beside the pill on the side away from the nearest
   other farmer (so they never read as the neighbour's); your own chat shows over your own head too. The whole layer
@@ -870,21 +877,28 @@ Friends on other machines open the game from the host's address; the relay defau
   Hair & hat / Face / Outfit, "Try an emote", Surprise me — Host / Join by code, lobby with invite-code tiles, 4
   slots, ping bars, Kick), roster plate (top-left), chat (**T**: a parchment "Say:" row with a counter; a "…"
   bubble shows over whoever is typing, sent as a volatile `typ` message; log chips fade after 8 s, bubbles after
-  ~6 s), emote wheel (hold **G**, 1–8; centred on your farmer, number under each icon), join/leave toasts, bedtime overlay ("waiting for 2 farmers"; the host gets **Sleep anyway** after
+  ~6 s), emote wheel (hold **G**, 1–8; opens beside your farmer with a notch pointing at you, never over your face; number under each icon), join/leave toasts, bedtime overlay ("waiting for 2 farmers"; the host gets **Sleep anyway** after
   10 s), a Co-op card in the pause menu (players, away state, Kick).
 - **Day end**: the bed (farmhouse) or your cabin door marks you ready; the day ends when everyone connected is in
   bed (a farmer who drops no longer holds the night hostage). Cabins (`net/cabins.ts`) appear for each farmhand:
   log walls, a pitched shingle roof (one plane per side: deck, flush courses, fascia, barge boards, ridge cap), a
   porch lamp that is a real point light at dusk (through the renderer's light budget, so no extra shader cost),
-  and a "Zzz" bubble over the roof while its farmhand sleeps inside. Every machine clears a cabin's footprint
+  and a "Zzz" bubble over the roof while its farmhand sleeps inside. Shingles in the owner's colour (weathered
+  toward a warm brown: whose cabin is whose reads across the farm), lapped siding on the gables flush with the log
+  faces + a round vent window, festoon bulbs up the front barge boards and a skylight on the east slope (both glow
+  after dusk, so the roof never reads as a black slab at night), a fieldstone chimney with a slate cap, clay pot and a
+  smoke wisp (one `SmokeEmitter` per cabin). Every machine clears a cabin's footprint
   itself; the host flushes those tiles right away and farmhands fold them into their mirror, so it never reads as
   drift. The day-end card's "Farm today" row has a legend (Harvested · Watered · Tilled · Sown) and a "Busiest"
   ribbon.
-- **Perf**: 3 remote farmers cost ~17 draws; all cabins 2 draws + 1 shadow draw (~9k tris each); net work is a few small JSON messages per tick; farm digests only when
+- **Perf**: 3 remote farmers cost ~17 draws; all cabins 3 draws (wood, glass, bulbs) + 1 shadow draw + one smoke
+  wisp each; net work is a few small JSON messages per tick; farm digests only when
   dirty. The co-op screen (`ui/coop-stage.ts`) renders the world **once** into a GPU-blurred still and draws the
   turntable with the main renderer (no second WebGL context): ~4 draw calls per frame. `services.net.stats()`
   reports fps / frame-time percentiles, RTT, bytes, queue and reconcile / refund / denied counters.
-- **Tests**: `node scripts/mp-adv.mjs` (4 clients, one behind a 75±25 ms proxy) adds per-frame pop checks, harvest
+- **Tests**: `node scripts/mp-interp.mjs` (node only) tortures the playout clock: jitter, spikes, stalls, a busy
+  fixed-step sender at 150±40 ms one way (≤ 1.45× pace over 5 seeds), a sender stamping frame time, and a sender tab
+  frozen 0.6 / 1.2 / 2.5 s mid-walk. `node scripts/mp-adv.mjs [--delay 150 --jitter 40 --walks 5]` (4 clients, one behind a 75±25 ms proxy) adds per-frame pop checks (only frames the game drew; ≤ 1.5× pace over 5 walks + a run), harvest
   races, drop / crash rejoin, bedtime and a per-client frame-time gate (each client measured while the other tabs
   skip drawing: p95 ≤ 20 ms). `npm run mp-test` (relay in its own process + Vite + headless clients) covers sync, convergence, RTT,
   farmhand→farmhand smoothness, drop/rejoin, and the adversarial cases: own save untouched by a co-op night,
@@ -895,8 +909,12 @@ Friends on other machines open the game from the host's address; the relay defau
   the row in front of him; the host stands three-quarters to the camera at the bed's corner and picks too; Rowan
   hauls the full basket past the bed and up the path to the bin, turns round with a grin, jogs back and waves
   everyone over for coffee. Every line said goes through `net:chat`, so the log matches the bubbles; `&t=<sec>`
-  seeks the loop for stills, `services.net.demoSeek(t)` re-seeks a live page), `coop-emote`, `coop-chat`,
-  `coop-bedtime` (you at Juniper's cabin door under its porch lamp, a Zzz over the roof, the bedtime banner),
+  seeks the loop for stills — the loop restarts at that time once `__game.ready()` resolves, so a still taken N s after
+  ready lands N s into the coffee beat whatever the boot took; default t = 19.9, everyone facing the camera until ~23.5;
+  `services.net.demoSeek(t)` re-seeks a live page), `coop-chat`,
+  `coop-bedtime` (you at Juniper's festooned cabin under its porch lamp, a Zzz over the roof, the bedtime banner; the lens
+  sits north of the blossom tree so no canopy crosses the frame), `coop-emote` = Fennel's "Wow!" held at the pop's peak
+  (overshoot + sparkle ring + hop; `&live=1` lets it play out) with your wheel open beside you,
   `coop-dayend`, `coop-lobby` (creator + lobby; your lobby card follows the creator live). Emote bubbles are drawn in a small overlay pass after post-processing
   (`renderEmoteOverlay`, from `game.afterRender`) so tilt-shift / bloom never smear them.
   `MP_TIMEOUT_MIN` raises mp-test's wall-clock guard on a saturated machine (default 25). Debug: `services.net` (`host()`, `join(code)`, `kick(id)`,
