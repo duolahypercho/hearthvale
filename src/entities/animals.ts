@@ -129,6 +129,14 @@ export class AnimalActor {
   farmers: readonly THREE.Vector3[] = [];
   /** Solid props (world AABBs: feeders, troughs, hay racks): the body capsule is pushed out of them. */
   blockers: readonly { x0: number; z0: number; x1: number; z1: number }[] = [];
+  /** Water to keep out of (world ellipses: the duck pond). The body capsule stays `margin` clear of the
+   *  rim and wander targets never land in it — only ducks are left without one. */
+  pools: readonly { x: number; z: number; rx: number; rz: number }[] = [];
+  /** True when (x, z) is inside a pool (+ margin m, + this body's radius). */
+  inPool(x: number, z: number, m = 0.4): boolean {
+    const r = this.gait.radius * this.scale + m;
+    return this.pools.some((p) => ((x - p.x) / (p.rx + r)) ** 2 + ((z - p.z) / (p.rz + r)) ** 2 < 1);
+  }
 
   private b: Record<string, THREE.Bone>;
   private rest: Record<string, Rest> = {};
@@ -148,6 +156,8 @@ export class AnimalActor {
   private earT = Math.random() * 5;
   private seed = Math.random() * 100;
   private speedK = 1;
+  /** Walk-speed multiplier for errands (a herd trotting home out of the rain). */
+  hurry = 1;
   private forced: { x: number; z: number; cb?: () => void } | null = null;
   private stuck = 0;
   /** Turn towards this heading while standing (null = keep). */
@@ -340,7 +350,7 @@ export class AnimalActor {
       const ang = Math.random() * Math.PI * 2;
       const x = THREE.MathUtils.clamp(THREE.MathUtils.lerp(this.pos.x + Math.cos(ang) * r, cx + (Math.random() - 0.5) * (a.x1 - a.x0) * 0.6, pull), a.x0, a.x1);
       const z = THREE.MathUtils.clamp(THREE.MathUtils.lerp(this.pos.z + Math.sin(ang) * r, cz + (Math.random() - 0.5) * (a.z1 - a.z0) * 0.6, pull), a.z0, a.z1);
-      if (this.walkable(x, z) && Math.hypot(x - this.pos.x, z - this.pos.z) > 0.5) {
+      if (this.walkable(x, z) && !this.inPool(x, z, 0.5) && Math.hypot(x - this.pos.x, z - this.pos.z) > 0.5) {
         this.target.set(x, 0, z);
         return true;
       }
@@ -472,7 +482,7 @@ export class AnimalActor {
         dh = Math.atan2(Math.sin(dh), Math.cos(dh));
         this.heading += dh * (1 - Math.exp(-6 * dt));
         const align = Math.max(0, Math.cos(dh));
-        const spd = this.gait.speed * this.speedK * align * Math.min(1, d * 2 + 0.3) * (this.sleeping ? 1.2 : 1);
+        const spd = this.gait.speed * this.speedK * (this.forced ? this.hurry : 1) * align * Math.min(1, d * 2 + 0.3) * (this.sleeping ? 1.2 : 1);
         const nx = this.pos.x + Math.sin(this.heading) * spd * dt;
         const nz = this.pos.z + Math.cos(this.heading) * spd * dt;
         if (this.walkable(nx, nz)) {
@@ -569,6 +579,23 @@ export class AnimalActor {
         else this.nudge(0, pz - (bx.z0 + bx.z1) / 2 < 0 ? -oz : oz, me);
       }
     }
+    // Water: the capsule (tail, middle, muzzle) is pushed out radially past the rim + a margin
+    // (no sheep with a hind leg in the duck pond).
+    for (const pl of this.pools) {
+      for (let i = 0; i < 3; i++) {
+        const k = i * 0.5;
+        const px = me.ax + (me.bx - me.ax) * k;
+        const pz = me.az + (me.bz - me.az) * k;
+        const ex = pl.rx + me.r * 0.9 + 0.3;
+        const ez = pl.rz + me.r * 0.9 + 0.3;
+        const dx = px - pl.x;
+        const dz = pz - pl.z;
+        const q = (dx / ex) ** 2 + (dz / ez) ** 2;
+        if (q >= 1) continue;
+        const f = q < 1e-6 ? 0 : 1 / Math.sqrt(q) - 1;
+        this.nudge(q < 1e-6 ? 0 : dx * f, q < 1e-6 ? ez : dz * f, me);
+      }
+    }
     if (this.confine) {
       const a = this.area;
       this.pos.x = THREE.MathUtils.clamp(this.pos.x, a.x0, a.x1);
@@ -587,7 +614,7 @@ export class AnimalActor {
     this.eatW = damp(this.eatW, this.state === 'eat' ? 1 : 0, 5, dt);
     this.sleepW = damp(this.sleepW, this.state === 'sleep' ? 1 : 0, 2.2, dt);
     this.sitW = damp(this.sitW, this.state === 'sit' ? 1 : 0, 4, dt);
-    if (moving) this.phase += dt * this.gait.freq * Math.PI * 2 * this.speedK;
+    if (moving) this.phase += dt * this.gait.freq * Math.PI * 2 * this.speedK * (this.forced ? Math.sqrt(this.hurry) : 1);
     if (this.happyT >= 0) {
       this.happyT += dt;
       if (this.happyT > 1.0) this.happyT = -1;

@@ -117,8 +117,8 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.7, ease: 'inout' },
   ],
   // Yank it out (crouch → spring up), then the show-off: the right arm thrown up and out
-  // (stretched a touch, cartoon reach) holding the produce up beside the head, the left fist
-  // swinging out for balance.
+  // (stretched a touch, cartoon reach) holding the produce up beside the head, the free fist
+  // thrown up too in a cheer (a 'ta-da' V, never a doll's T-pose).
   // The grab is a squat (body squashed + dropped), not a deep bow: the torso tips only ~17° and the
   // head tilts BACK (face up) so the big hat never covers the farmer from the high camera.
   pull: [
@@ -126,11 +126,11 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.11, ease: 'out', aR: [-0.95, -0.1], aL: [-0.95, 0.1], torso: [0.35, 0, 0], head: -0.22, sy: 0.8, bob: -0.075 },
     // Held crouch (two frames of anticipation: knees bent, torso pitched ~20° over the crop).
     { t: 0.19, ease: 'linear', aR: [-1.0, -0.1], aL: [-1.0, 0.1], torso: [0.36, 0, 0], head: -0.2, sy: 0.79, bob: -0.08 },
-    { t: 0.3, ease: 'back', aR: [0.12, 2.45], aL: [-0.3, -0.62], torso: [-0.1, 0, -0.1], head: -0.1, sy: 1.08, bob: 0.05, reach: 1.5 },
-    { t: 0.4, ease: 'out', aR: [0.1, 2.38], aL: [-0.26, -0.55], torso: [-0.06, 0, -0.08], head: -0.12, sy: 0.97, bob: 0.0, reach: 1.46 },
+    { t: 0.3, ease: 'back', aR: [0.12, 2.45], aL: [-0.3, -2.7], torso: [-0.1, 0, -0.1], head: -0.1, sy: 1.08, bob: 0.05, reach: 1.5 },
+    { t: 0.4, ease: 'out', aR: [0.1, 2.38], aL: [-0.28, -2.6], torso: [-0.06, 0, -0.08], head: -0.12, sy: 0.97, bob: 0.0, reach: 1.46 },
     // Held up until the produce zips off to the backpack (it leaves at ~0.82 s); the arm drops
     // with it (no empty hand left hanging in the air).
-    { t: 0.83, ease: 'linear', aR: [0.08, 2.34], aL: [-0.24, -0.52], torso: [-0.04, 0, -0.07], head: -0.1, sy: 1.0, reach: 1.44 },
+    { t: 0.83, ease: 'linear', aR: [0.08, 2.34], aL: [-0.26, -2.55], torso: [-0.04, 0, -0.07], head: -0.1, sy: 1.0, reach: 1.44 },
     { t: 1.04, ease: 'inout' },
   ],
   // Big produce (melon, pumpkin, cauliflower): squat and hold the crouch, heave, then hug it up in

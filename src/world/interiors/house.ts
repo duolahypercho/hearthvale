@@ -657,9 +657,10 @@ export class HouseInterior extends InteriorMap {
     // sea-green with a domed lid, brass corners + hasp, leather straps, a folded quilt on top (r6: off the
     // open floor — the middle of the room is walking space).
     {
-      const tx = 10.65;
-      const tz = 7.45;
-      const ry = 0;
+      const tx = 10.7;
+      const tz = 7.4;
+      // (r7: angled off the knee wall — a row of furniture square to the front edge read as a showroom)
+      const ry = -0.24;
       const P = (lx: number, ly: number, lz: number, rx = 0, rry = 0, rz = 0) => mat(tx + lx * Math.cos(ry) + lz * Math.sin(ry), ly, tz - lx * Math.sin(ry) + lz * Math.cos(ry), rx, ry + rry, rz);
       k.add('paint', roundedBox(0.96, 0.4, 0.52, 0.03), P(0, 0.2, 0), { tint: 0x5a8a82 });
       const lid = new THREE.CylinderGeometry(0.26, 0.26, 0.96, 18, 1, false, 0, Math.PI);
@@ -676,6 +677,8 @@ export class HouseInterior extends InteriorMap {
       k.add('quilt', roundedBox(0.58, 0.11, 0.4, 0.04), P(-0.08, 0.56, 0.02, 0, 0.12, 0));
       k.add('fabric', roundedBox(0.5, 0.05, 0.34, 0.02), P(-0.1, 0.64, 0.04, 0, 0.2, 0), { tint: 0xe8dcc0 });
     }
+    this.playCorner(k, rng);
+    this.dairyCorner(k, rng);
     this.statics.push(k.build('front'));
     this.solid(10.65, 4.2, 11.75, 5.25, 'spinning-wheel');
     this.solid(10.1, 7.15, 11.2, 7.8, 'blanket-trunk');
@@ -683,6 +686,155 @@ export class HouseInterior extends InteriorMap {
     this.solid(4.9, 7.25, 5.4, 7.8, 'coat-rack');
     this.solid(11.9, 6.9, 12.8, 7.7, 'plant');
     this.solid(11.6, 5.0, 13, 6.4, 'desk');
+  }
+
+  /**
+   * Lower-left floor (r7): the farmer's childhood corner Gran kept — a round hooked rug, the old
+   * dapple rocking horse, a basket of wooden toys and a floor cushion, with a wall sconce over it so
+   * the front half of the room keeps a warm pool at night.
+   */
+  private playCorner(k: Kit, rng: Rng): void {
+    const cx = 3.25;
+    const cz = 6.15;
+    const rug = new THREE.CircleGeometry(0.5, 64);
+    rug.rotateX(-Math.PI / 2);
+    rug.scale(2.0, 1, 1.6);
+    k.add('braid', rug, mat(cx, 0.009, cz, 0, 0.2, 0), { tint: 0xb8c8e8 });
+    // Rocking horse, side-on to the lens, nose towards the door lane.
+    {
+      const hx = cx - 0.15;
+      const hz = cz - 0.05;
+      const ry = 0.35;
+      const P = (lx: number, ly: number, lz: number, rx = 0, rry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => mat(hx + lx * Math.cos(ry) + lz * Math.sin(ry), ly, hz - lx * Math.sin(ry) + lz * Math.cos(ry), rx, ry + rry, rz, sx, sy, sz);
+      const coat = 0xf2ece0;
+      // Rockers: two long curved runners joined by a stretcher
+      for (const s2 of [-1, 1]) {
+        const arc = new THREE.TorusGeometry(1.1, 0.025, 6, 28, 1.0);
+        k.add('wood', arc, P(0, 1.16, s2 * 0.15, 0, 0, -Math.PI / 2 - 0.5), { tint: 0xb04a32 });
+      }
+      k.add('wood', roundedBox(0.06, 0.04, 0.34, 0.01), P(0, 0.07, 0), { tint: 0x8a3a26 });
+      // Legs splayed onto the rockers
+      for (const [lx, lz] of [[0.26, 0.09], [0.26, -0.09], [-0.26, 0.09], [-0.26, -0.09]] as const) k.add('wood', new THREE.CylinderGeometry(0.03, 0.026, 0.3, 8), P(lx * 0.9, 0.22, lz * 1.25, lz * 1.1, 0, -lx * 0.5), { tint: coat });
+      // Body, neck, head, ears, saddle, yarn mane + tail
+      k.add('paint', new THREE.CapsuleGeometry(0.11, 0.38, 4, 12).rotateZ(Math.PI / 2), P(0, 0.42, 0), { tint: coat });
+      for (const [sx, sy, sz] of [[0.12, 0.47, 0.06], [-0.1, 0.44, -0.07], [0.02, 0.38, 0.1], [-0.18, 0.4, 0.08]] as const) k.add('paint', new THREE.SphereGeometry(0.035, 8, 6), P(sx, sy, sz, 0, 0, 0, 1, 0.7, 0.4), { tint: 0x8a9098 });
+      k.add('paint', new THREE.CylinderGeometry(0.06, 0.085, 0.26, 10), P(0.25, 0.55, 0, 0, 0, -0.6), { tint: coat });
+      k.add('paint', new THREE.CapsuleGeometry(0.07, 0.16, 4, 10).rotateZ(Math.PI / 2), P(0.38, 0.68, 0, 0, 0, -0.35), { tint: coat });
+      k.add('paint', new THREE.SphereGeometry(0.045, 10, 8), P(0.5, 0.63, 0, 0, 0, 0, 1, 0.8, 0.9), { tint: 0x3a2a24 });
+      for (const s2 of [-1, 1]) {
+        k.add('paint', new THREE.ConeGeometry(0.025, 0.08, 8), P(0.32, 0.79, s2 * 0.035, s2 * 0.2, 0, 0.2), { tint: coat });
+        k.add('paint', new THREE.SphereGeometry(0.016, 8, 6), P(0.43, 0.71, s2 * 0.05), { tint: 0x1a1412 });
+      }
+      for (let i = 0; i < 6; i++) k.add('fabric', new THREE.SphereGeometry(0.035, 8, 6), P(0.3 - i * 0.04, 0.74 - i * 0.04, 0, 0, 0, 0, 0.8, 1.2, 0.9), { tint: i % 2 ? 0x7a3a24 : 0x8a4a2a });
+      k.add('fabric', new THREE.CylinderGeometry(0.02, 0.06, 0.24, 8), P(-0.31, 0.38, 0, 0, 0, -0.4), { tint: 0x7a3a24 });
+      k.add('fabric', roundedBox(0.16, 0.03, 0.25, 0.012), P(-0.02, 0.53, 0, 0, 0, 0.05), { tint: 0xc8302a });
+      k.add('brass', new THREE.TorusGeometry(0.03, 0.006, 4, 10), P(-0.02, 0.45, 0.13, 0, 0, 0));
+    }
+    // Toy basket spilling wooden blocks, a ball and a pull-along duck
+    const bx = cx + 0.78;
+    const bz = cz + 0.38;
+    const lb = new THREE.LatheGeometry([[0, 0], [0.18, 0], [0.21, 0.05], [0.22, 0.22], [0.24, 0.24], [0.21, 0.24], [0.2, 0.05], [0, 0.03]].map(([a, b]) => new THREE.Vector2(a!, b!)), 22);
+    k.add('thatch', lb, mat(bx, 0, bz), { tint: 0xc8a068 });
+    const blk = [0xd8443a, 0x3a7ac8, 0xf0c040, 0x5aa04a, 0xe88040];
+    for (let i = 0; i < 4; i++) k.box('paint', [0.08, 0.08, 0.08], [bx - 0.08 + (i % 2) * 0.12, 0.2 + Math.floor(i / 2) * 0.05, bz - 0.05 + (i % 3) * 0.04], { tint: blk[i]!, r: 0.012, ry: i * 0.6 });
+    for (let i = 0; i < 3; i++) k.box('paint', [0.08, 0.08, 0.08], [bx - 0.4 + i * 0.13, 0, bz + 0.2 - i * 0.07], { tint: blk[(i + 2) % 5]!, r: 0.012, ry: rng.next() * 1.5 });
+    k.sphere('paint', 0.09, [bx + 0.32, 0.09, bz - 0.18], 0xd8443a);
+    k.add('paint', new THREE.TorusGeometry(0.09, 0.012, 5, 18), mat(bx + 0.32, 0.09, bz - 0.18, 0.3, 0.6, 0), { tint: 0xf6efe0 });
+    // Pull-along duck on wheels with its string
+    const dx = cx + 0.25;
+    const dz = cz + 0.62;
+    k.add('paint', new THREE.SphereGeometry(0.08, 12, 10), mat(dx, 0.1, dz, 0, 0, 0, 1.3, 0.8, 0.9), { tint: 0xf0c040 });
+    k.add('paint', new THREE.SphereGeometry(0.05, 10, 8), mat(dx + 0.08, 0.19, dz), { tint: 0xf0c040 });
+    k.add('paint', new THREE.ConeGeometry(0.02, 0.05, 8).rotateZ(-Math.PI / 2), mat(dx + 0.14, 0.18, dz), { tint: 0xe86a2a });
+    for (const s2 of [-1, 1]) k.cyl('wood', 0.035, 0.035, 0.02, [dx, 0.035, dz + s2 * 0.07], { rx: Math.PI / 2, tint: 0xb04a32 });
+    k.add('fabric', new THREE.CylinderGeometry(0.004, 0.004, 0.5, 4), mat(dx + 0.38, 0.012, dz + 0.05, 0, 0.3, Math.PI / 2), { tint: 0xd84a3a });
+    // A floor cushion to sit on
+    k.add('fabric', roundedBox(0.44, 0.12, 0.44, 0.06), mat(cx - 0.62, 0.0, cz + 0.42, 0, 0.5, 0), { tint: 0xd8a040 });
+    k.add('fabric', roundedBox(0.2, 0.125, 0.2, 0.03), mat(cx - 0.62, 0.005, cz + 0.42, 0, 0.5, 0), { tint: 0xc0503a });
+    this.solid(cx - 0.65, cz - 0.3, cx + 0.55, cz + 0.2, 'rocking-horse');
+    this.solid(bx - 0.25, bz - 0.25, bx + 0.25, bz + 0.25, 'toy-basket');
+    // Wall sconce on the left wall over the corner: brass plate, curled arm, a frosted tulip shade
+    const wx = 0.13;
+    const wz = 6.1;
+    k.box('brass', [0.03, 0.22, 0.12], [wx, 1.55, wz], { r: 0.01 });
+    k.add('brass', new THREE.TorusGeometry(0.08, 0.01, 5, 12, Math.PI), mat(wx + 0.08, 1.7, wz, 0, 0, Math.PI));
+    k.add('glow', new THREE.SphereGeometry(0.06, 12, 10), mat(wx + 0.16, 1.74, wz, 0, 0, 0, 1, 1.2, 1), { tint: 0xffe2b0 });
+    k.add('ceramic', new THREE.CylinderGeometry(0.11, 0.06, 0.13, 16, 1, true), mat(wx + 0.16, 1.82, wz), { tint: 0xf4d8a8 });
+    this.glowPool(1.2, 6.2, 1.9, 0xffa858, () => this.light.night * 0.34 * (1 - this.dim));
+    this.glowPool(cx, cz, 1.5, 0xffb870, () => this.light.night * 0.16 * (1 - this.dim));
+  }
+
+  /**
+   * Lower-right floor (r7): the dairy corner by the door — a sage hooked rug, a tall butter churn with
+   * its dasher, a three-legged milking stool, a crate of carrots + turnips and a floor lamp whose pool
+   * keeps the front-right corner readable at night.
+   */
+  private dairyCorner(k: Kit, rng: Rng): void {
+    const cx = 9.05;
+    const cz = 5.85;
+    const rug = new THREE.CircleGeometry(0.5, 64);
+    rug.rotateX(-Math.PI / 2);
+    rug.scale(1.9, 1, 1.35);
+    k.add('braid', rug, mat(cx, 0.009, cz, 0, -0.15, 0), { tint: 0xc8dcb0 });
+    // Butter churn: tapered staved barrel, iron hoops, lid + dasher
+    const ux = cx - 0.45;
+    const uz = cz - 0.1;
+    k.cyl('wood', 0.15, 0.19, 0.6, [ux, 0, uz], { tint: 0xc08a54, seg: 18 });
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      k.box('wood', [0.01, 0.6, 0.02], [ux + Math.cos(a) * 0.172, 0, uz + Math.sin(a) * 0.172], { tint: 0x9a6a3e, ry: -a, r: 0.003 });
+    }
+    for (const y of [0.1, 0.48]) k.add('iron', new THREE.TorusGeometry(y < 0.3 ? 0.186 : 0.158, 0.012, 5, 24), mat(ux, y, uz, Math.PI / 2, 0, 0), { tint: 0x3a3430 });
+    k.cyl('wood', 0.135, 0.15, 0.05, [ux, 0.6, uz], { tint: 0xa87040, seg: 18 });
+    k.cyl('wood', 0.018, 0.018, 0.5, [ux, 0.62, uz], { tint: 0xd8b080 });
+    k.sphere('wood', 0.035, [ux, 1.13, uz], 0xd8b080);
+    // A splash of cream on the lid
+    k.add('ceramic', new THREE.CircleGeometry(0.05, 10).rotateX(-Math.PI / 2), mat(ux + 0.06, 0.653, uz + 0.04), { tint: 0xfff8e8 });
+    // Milking stool + a pail
+    const sx = cx + 0.15;
+    const sz = cz + 0.25;
+    k.cyl('wood', 0.17, 0.17, 0.045, [sx, 0.3, sz], { tint: OAK, seg: 18 });
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.4;
+      k.cyl('wood', 0.02, 0.022, 0.32, [sx + Math.cos(a) * 0.08, 0, sz + Math.sin(a) * 0.08], { tint: WALNUT, rx: Math.sin(a) * 0.25, rz: -Math.cos(a) * 0.25 });
+    }
+    k.cyl('tin', 0.14, 0.11, 0.24, [sx + 0.42, 0, sz - 0.12], { tint: 0xc8d0d4, seg: 18 });
+    k.add('ceramic', new THREE.CircleGeometry(0.125, 16).rotateX(-Math.PI / 2), mat(sx + 0.42, 0.2, sz - 0.12), { tint: 0xfdf8ee });
+    k.add('iron', new THREE.TorusGeometry(0.14, 0.006, 4, 14, Math.PI), mat(sx + 0.42, 0.24, sz - 0.12, 0, 0.5, 0), { tint: 0x5a5a5a });
+    // Crate of carrots + turnips
+    const vx = cx + 0.5;
+    const vz = cz - 0.32;
+    k.box('wood', [0.5, 0.06, 0.36], [vx, 0, vz], { tint: 0xa87a4a, r: 0.01, ry: 0.25 });
+    for (const yy of [0.06, 0.15]) for (const s2 of [-1, 1]) k.box('wood', [0.5, 0.06, 0.02], [vx + Math.sin(0.25) * s2 * 0.17, yy, vz + Math.cos(0.25) * s2 * 0.17], { tint: 0xb88a58, ry: 0.25, r: 0.006 });
+    for (let i = 0; i < 5; i++) {
+      const ox = (i - 2) * 0.08;
+      const carrot = new THREE.ConeGeometry(0.032, 0.2, 8).rotateZ(Math.PI / 2 + 0.25);
+      k.add('paint', carrot, mat(vx + ox * Math.cos(0.25), 0.2, vz - ox * Math.sin(0.25) - 0.05, 0, 0.25 + Math.PI / 2, 0), { tint: 0xe8782a });
+      k.add('leaf', new THREE.ConeGeometry(0.03, 0.12, 5), mat(vx + ox * Math.cos(0.25), 0.27, vz - ox * Math.sin(0.25) - 0.13, -0.6, 0, 0), { tint: 0x5a9a3a });
+    }
+    for (let i = 0; i < 3; i++) {
+      const ox = (i - 1) * 0.13;
+      k.add('paint', new THREE.SphereGeometry(0.055, 10, 8), mat(vx + ox, 0.2, vz + 0.08, 0, 0, 0, 1, 0.9, 1), { tint: rng.next() < 0.5 ? 0xf0e8f0 : 0xe8d0e8 });
+      k.add('paint', new THREE.SphereGeometry(0.03, 8, 6), mat(vx + ox, 0.24, vz + 0.08), { tint: 0x9a4a8a });
+    }
+    this.solid(ux - 0.2, uz - 0.2, ux + 0.2, uz + 0.2, 'churn');
+    this.solid(vx - 0.3, vz - 0.22, vx + 0.3, vz + 0.22, 'veg-crate');
+    this.solid(sx - 0.18, sz - 0.18, sx + 0.58, sz + 0.1, 'stool');
+    // Floor lamp in the front-right corner by the desk: turned walnut stem, pleated cream shade
+    const lx = 11.55;
+    const lz = 6.75;
+    k.cyl('wood', 0.16, 0.19, 0.05, [lx, 0, lz], { tint: WALNUT, seg: 18 });
+    // (a reading-lamp height, not a pole: from the high camera a tall stem read as a toppled stick; the
+    // shade is a closed drum — open-ended, its inside showed as a dark cut-out disc)
+    k.cyl('wood', 0.022, 0.03, 1.0, [lx, 0.05, lz], { tint: WALNUT });
+    k.sphere('wood', 0.04, [lx, 0.5, lz], WALNUT);
+    k.add('glow', new THREE.SphereGeometry(0.07, 12, 10), mat(lx, 1.02, lz), { tint: 0xffe8c0 });
+    k.add('fabric', new THREE.CylinderGeometry(0.15, 0.24, 0.26, 20, 1, false), mat(lx, 1.17, lz), { tint: 0xf2d4a8 });
+    k.add('glow', new THREE.TorusGeometry(0.24, 0.01, 4, 22), mat(lx, 1.04, lz, Math.PI / 2, 0, 0), { tint: 0xffd8a0 });
+    k.add('fabric', new THREE.TorusGeometry(0.15, 0.012, 4, 20), mat(lx, 1.3, lz, Math.PI / 2, 0, 0), { tint: 0xc87a4a });
+    this.solid(lx - 0.2, lz - 0.2, lx + 0.2, lz + 0.2, 'floor-lamp');
+    this.glowPool(lx - 0.3, lz, 2.0, 0xffa858, () => this.light.night * 0.32 * (1 - this.dim));
+    this.glowPool(cx, cz, 1.4, 0xffb870, () => this.light.night * 0.14 * (1 - this.dim));
   }
 
   // ───────────────────────────────────────────── furniture helpers

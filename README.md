@@ -550,8 +550,17 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   `farm-slam` (tier-3 charged hoe), `farm-crows` (a raid in progress: crows pecking, feathers, a chewed stub;
   `&raid=fly` = crows flying in), `farm-wither` (per-crop dead silhouettes: staked tomato, slumped pepper, caved-in
   melon / pumpkin on a collapsed vine mat), `farm-field`, `farm-lift` (two-hand chest hug of a melon),
-  `farm-sprinkler`, `farm-crops-all` (all 19 crops × 6 stages, every season, farmer out of frame; `&crops=all` on
-  any gallery).
+  `farm-sprinkler`, `farm-crops-all` (all 18 crops × 6 stages, every season, farmer out of frame, two blocks either
+  side of the field's scarecrow / can-stump column; `&crops=all` on any gallery).
+- **Readability (r7)**: hero fields plant tall crops as single-species blocks either side of the walkway with a bare
+  spacing row (`HARVEST_ROWS` `[west, east]` pairs, `'gap'`); stakes stop a hand above the plant with a twine tie;
+  corn is a paler yellow-green block, beans a dark blue-green; stage 1 is a per-family signature seedling (corn grass
+  blades, gourd heart cotyledons, brassica frilly rosette, beet red stems, bean hooked sprout + tendril to the twine,
+  …) and stage 0 shows the crop's own seed; ripe plants twinkle (`updateRipeGlints`). The hoed tile springs 0 → 1.3
+  → 1 out of the turf with a dark inner sod rim, 2–3 big chunks + 10–14 clods, a low dust ring and a 1-frame blade
+  flash; the can pours three fat bead ropes + flanking jets with a bounce spatter; the wet flood fills the tile in
+  ~0.3 s with a dark meniscus at the front and a glossier finish; sprinklers throw denser bead ropes (size falloff),
+  pulse dark soak spots under the turning jets, glint at the nozzle and (near the lens) hang a faint mist at the apex.
   Params: `&tool=hoe|wateringCan|scythe|axe|pickaxe|sow|harvest|charge`, `&pose=<s>` freezes the action at s seconds
   (`__game.game.services.farming.scrub(t)` advances a frozen pose), `&loop=<tool>` repeats the action,
   `&slow=0.25` slow motion (so `--frames 8 --every 80` spans a whole swing), `&tier=0..3`.

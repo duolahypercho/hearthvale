@@ -31,7 +31,8 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
   if (!shared) {
     shared = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
     shared.name = 'animal';
-    applyWorldFx(shared, { snow: false });
+    // (r7: fur, fleece and feathers stay matte in the rain — full wet gloss turned wool into latex balloons)
+    applyWorldFx(shared, { snow: false, wetGloss: 0.92, wetDark: 0.18 });
     // Soft fur sheen: a gentle fresnel rim in the coat's own colour (velvety, never plastic).
     // Coat patches (holstein spots, pig spots, saddles): a per-pixel noise threshold in rest-pose
     // model space with an fwidth()-sized edge — crisp at any zoom, still one draw call.
@@ -201,6 +202,20 @@ export class RigBuilder {
     g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
     this.geos.push(g);
     this.geoBone.push(bi);
+    return this;
+  }
+
+  /** Raise every part and bone except those on `keep` (legs) by `dy`: longer legs without re-authoring
+   *  every absolute height in a model (the kept legs must already be built to the raised top). */
+  lift(dy: number, keep: readonly string[]): this {
+    const kept = new Set(keep.filter((k) => this.names.has(k)).map((k) => this.idx(k)));
+    kept.add(this.idx('root'));
+    this.geos.forEach((g, i) => {
+      if (!kept.has(this.geoBone[i]!)) g.translate(0, dy, 0);
+    });
+    this.abs.forEach((a, i) => {
+      if (!kept.has(i)) a.y += dy;
+    });
     return this;
   }
 

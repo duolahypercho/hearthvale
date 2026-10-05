@@ -48,7 +48,7 @@ let crowMat: THREE.MeshStandardMaterial | null = null;
  */
 function material(): THREE.MeshStandardMaterial {
   if (!crowMat) {
-    crowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.04 });
+    crowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.08 });
     crowMat.name = 'crow';
     applyWorldFx(crowMat, { snow: false });
     patchMaterial(crowMat, 'crow-sheen', (shader) => {
@@ -61,7 +61,10 @@ function material(): THREE.MeshStandardMaterial {
           float rim = pow(1.0 - ndv, 2.4);
           // Oil-slick sheen: blue at the rim shading to violet, stronger on the darkest feathers.
           float ink = 1.0 - smoothstep(0.05, 0.3, dot(diffuseColor.rgb, vec3(0.33)));
-          totalEmissiveRadiance += mix(vec3(0.12, 0.17, 0.34), vec3(0.2, 0.14, 0.3), ndv) * rim * (0.25 + 0.3 * ink) + diffuseColor.rgb * rim * 0.4;
+          totalEmissiveRadiance += mix(vec3(0.12, 0.17, 0.34), vec3(0.2, 0.14, 0.32), ndv) * rim * (0.35 + 0.4 * ink) + diffuseColor.rgb * rim * 0.5;
+          // Feather gloss: a soft blue-white band across the back where the sky reflects.
+          vec3 Nv = normalize(normal);
+          totalEmissiveRadiance += vec3(0.1, 0.13, 0.2) * smoothstep(0.55, 0.95, Nv.y) * ink * 0.6;
         }`,
       );
     });
@@ -80,9 +83,9 @@ function part(fn: (b: MeshBuilder) => void, name: string): THREE.Mesh {
 
 // Slate blue-black rather than pure ink: the form (breast, folded wing, crown) keeps reading
 // against dark soil and leaf shadow instead of collapsing into a black blob.
-const INK = 0x1c202c;
-const SHEEN = 0x3a4666;
-const BREAST = 0x2c3242;
+const INK = 0x1c2131;
+const SHEEN = 0x42507a;
+const BREAST = 0x323a50;
 const WING = 0x252c42;
 
 const _cc = new THREE.Color();
@@ -277,14 +280,14 @@ export class CrowFlock {
         b.add(M, headGeo(), mat(0, 0.02, 0.02));
         // Heavy crow bill: horn-grey (lighter than the plumage so it reads at gameplay zoom), a deep
         // curved upper mandible over a thinner lower one, bristles at the base.
-        b.add(M, billGeo(0.03, 0.12, 0.1), mat(0, 0.016, 0.07, 0, 0, 0), { tint: 0x55545c });
-        b.add(M, billGeo(0.02, 0.09, -0.05), mat(0, -0.004, 0.07, 0.1, 0, 0), { tint: 0x3a3940 });
+        b.add(M, billGeo(0.03, 0.12, 0.1), mat(0, 0.016, 0.07, 0, 0, 0), { tint: 0x9a9284 });
+        b.add(M, billGeo(0.02, 0.09, -0.05), mat(0, -0.004, 0.07, 0.1, 0, 0), { tint: 0x6a6460 });
         b.add(M, new THREE.SphereGeometry(0.03, 8, 6), mat(0, 0.02, 0.07, 0, 0, 0, 1, 0.9, 0.7), { tint: 0x2a2e3c });
         for (const sd of [-1, 1]) {
           // Dark eye in a slate ring with a hard white glint (reads at gameplay zoom).
           b.add(M, new THREE.SphereGeometry(0.017, 10, 8), mat(sd * 0.044, 0.036, 0.048), { tint: 0x3a4050 });
           b.add(M, new THREE.SphereGeometry(0.0145, 10, 8), mat(sd * 0.048, 0.037, 0.05), { tint: 0x050507 });
-          b.add(M, new THREE.SphereGeometry(0.0055, 6, 4), mat(sd * 0.058, 0.044, 0.058), { tint: 0xffffff });
+          b.add(M, new THREE.SphereGeometry(0.0075, 6, 4), mat(sd * 0.058, 0.045, 0.058), { tint: 0xffffff });
         }
       }, 'crow-head'),
     );

@@ -33,14 +33,14 @@ import { BatchPool, InstancedSet } from './instanced';
 import { globalUniforms } from '../../render/uniforms';
 
 /** Ridge crest height above the terrain. */
-export const SOIL_HEIGHT = 0.065;
+export const SOIL_HEIGHT = 0.069;
 /** Kept for callers: the beds now follow the terrain exactly (no pad lift). */
 export const SOIL_LIFT = 0;
 /** Furrow troughs above the terrain; ridges add RIDGE on top. */
-const BASE = 0.03;
+const BASE = 0.034;
 const RIDGE = 0.035;
 /** Height of the bed's rim where it meets untilled ground (the bevel's foot). */
-const LIP = 0.012;
+const LIP = 0.018;
 /** Shoulder width inside the tile and skirt width outside it (m). */
 const SH = 0.15;
 const SK = 0.2;
@@ -123,7 +123,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
       shader.uniforms.uHeave = uHeave;
       shader.uniforms.uSnowSink = globalUniforms.uSnow;
       let vs = shader.vertexShader;
-      vs = before(vs, 'void main() {', 'attribute vec4 soilA;\nvarying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilFresh;\nuniform float uSnowSink;\nuniform sampler2D uHeave;\nuniform vec2 uWetSize;');
+      vs = before(vs, 'void main() {', 'attribute vec4 soilA;\nvarying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilRim;\nvarying float vSoilFresh;\nuniform float uSnowSink;\nuniform sampler2D uHeave;\nuniform vec2 uWetSize;');
       vs = after(
         vs,
         '#include <begin_vertex>',
@@ -137,12 +137,13 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           transformed.y += nh - h + (hv.b - 0.5) * 0.08 * smoothstep(-0.01, 0.02, h);
           vSoilH = h;
           vSoilEdge = soilA.y;
+          vSoilRim = soilA.z;
           vSoilFresh = hv.g;
         }`,
       );
       shader.vertexShader = vs;
       let fs = shader.fragmentShader;
-      fs = before(fs, 'void main() {', `varying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilFresh;\nuniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}\n`);
+      fs = before(fs, 'void main() {', `varying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilRim;\nvarying float vSoilFresh;\nuniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}\n`);
       // Crumbly fringe: the outer skirt breaks up into dirt specks over the turf.
       fs = after(
         fs,
@@ -169,13 +170,16 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           float nb = hvNoise(wq * 13.3 + 4.0);
           float we = (na - 0.5) * 0.22 + (nb - 0.5) * 0.1;
           hvSoilWet = smoothstep(0.34, 0.6, wm + we);
+          // Meniscus: a dark, saturated band right at the advancing wet front (and the soaked
+          // tile's rim), so a fresh soak reads as water spreading, not a fade.
+          float menis = smoothstep(0.26, 0.42, wm + we) * (1.0 - smoothstep(0.42, 0.66, wm + we));
           // Damp halo just outside the watered area.
           float halo = smoothstep(0.1, 0.4, wm + we) * (1.0 - hvSoilWet);
           vec3 base = diffuseColor.rgb;
           // Dry: pale, warm, a little dusty, the ridge crests sun-bleached, a fine crazing of hairline
           // cracks between lighter crusted plates.
           // (Ochre-leaning: a desaturated red-brown reads mauve / pink under the warm grade.)
-          vec3 dry = base * vec3(1.8, 1.72, 1.42);
+          vec3 dry = base * vec3(1.62, 1.54, 1.28);
           float dl = dot(dry, vec3(0.3, 0.59, 0.11));
           dry = mix(vec3(dl) * vec3(1.03, 0.99, 0.9), dry, 0.66);
           float crest = smoothstep(0.05, 0.066, vSoilH);
@@ -185,7 +189,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           float plate = smoothstep(0.06, 0.2, cw);
           dry *= (1.0 - crack * 0.16) * (1.0 + plate * 0.05);
           // Wet: dark, cooler, saturated; the texture's crumbs still read.
-          vec3 wet = base * vec3(0.66, 0.6, 0.6);
+          vec3 wet = base * vec3(0.56, 0.5, 0.5);
           // Furrows read in any light: troughs in shade, crests catching it (a lone fresh tile shows
           // the same ploughed ridges as the beds around it, not a flat smear).
           float ridgeT = smoothstep(0.032, 0.062, vSoilH);
@@ -193,6 +197,11 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           wet *= 0.86 + 0.2 * ridgeT;
           vec3 c = mix(dry, wet, hvSoilWet);
           c *= 1.0 - halo * 0.18;
+          c *= 1.0 - menis * 0.3;
+          // Sod lip: a darker inner rim just inside the bed's shoulder (the tilled square reads with
+          // an outline against the turf, like a hand-dug edge) — strongest on a lone fresh tile.
+          float rimIn = (1.0 - smoothstep(0.2, 0.9, vSoilRim)) * step(0.99, vSoilEdge);
+          c *= 1.0 - rimIn * 0.45;
           // A faint, wobbly tread between tiles (the crop grid reads at a glance, like trodden
           // seams between planting squares) — never a ruled line.
           {
@@ -211,7 +220,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           diffuseColor.rgb = c;
         }`,
       );
-      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.42, max(hvSoilWet, vSoilFresh * 0.5));');
+      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.3, max(hvSoilWet, vSoilFresh * 0.5));');
       shader.fragmentShader = fs;
     });
   }
@@ -535,7 +544,7 @@ export class SoilBeds {
         const n = 0.94 + 0.06 * vnoise(wx * 31, wz * 31);
         const ao = s >= 0 ? (0.74 + 0.26 * (r * f + (1 - f) * 0.45)) * (0.72 + 0.28 * f) * n : 0.72 * (0.9 + 0.1 * edge) * n;
         col.push(ao, ao * 0.98, ao * 0.96);
-        attr.push(h, edge, 0, 0);
+        attr.push(h, edge, s >= 0 ? f : 0, 0);
       }
     }
     const idx: number[] = [];
@@ -593,7 +602,7 @@ export class SoilBeds {
         const ao = tone * (0.7 + 0.3 * Math.max(0, v.y));
         col.push(ao, ao * 0.97, ao * 0.94);
         // Clods count as crest height (they sit on top), and never fringe-dither away.
-        attr.push(h + r * 0.4, Math.max(0.6, edge), 0, 0);
+        attr.push(h + r * 0.4, Math.max(0.6, edge), 1, 0);
       }
       for (let k = 0; k < CLOD.idx.length; k++) idx.push(base + CLOD.idx[k]!);
     }
@@ -713,6 +722,8 @@ export class SoilBeds {
     const was = this.wetTile[i] === 1;
     this.wetTile[i] = wet ? 1 : 0;
     if (!fade) {
+      // A tile already drying off keeps its fade (a re-pour mid-fade floods from what's left).
+      if (!wet && this.drying.has(i)) return;
       this.floods.delete(i);
       this.drying.delete(i);
       this.fillTile(x, z, wet ? 255 : 0);
@@ -757,7 +768,7 @@ export class SoilBeds {
     // Freshly hoed: the bed is there from the first frame, low and dark, and springs up.
     if (opts.animate) {
       this.anims.set(i, { t: 0, x, z, amp: 1 });
-      this.writeHeave(x, z, 0.55, 1, 0.5);
+      this.writeHeave(x, z, 0.03, 1, 0.5);
     }
   }
 
@@ -827,7 +838,7 @@ export class SoilBeds {
         const x = i % this.width;
         const z = Math.floor(i / this.width);
         // Radial front from the pour point: reaches the far corner in ~0.4 s.
-        const R = (f.t / 0.4) * 1.15;
+        const R = (f.t / 0.3) * 1.2;
         for (let jj = 0; jj < WR; jj++) {
           const row = (z * WR + jj) * this.tw + x * WR;
           for (let ii = 0; ii < WR; ii++) {
@@ -836,7 +847,7 @@ export class SoilBeds {
             if (v > this.wetData[row + ii]!) this.wetData[row + ii] = v;
           }
         }
-        if (f.t >= 0.55) {
+        if (f.t >= 0.42) {
           this.floods.delete(i);
           this.fillTile(x, z, 255);
         }
@@ -858,11 +869,11 @@ export class SoilBeds {
       a.t += dt;
       if (a.t < 0) continue;
       if (a.amp >= 1) {
-        // Rise with an overshoot (easeOutBack) from 55 %, the moist darkness fading over ~1.6 s.
-        const t = Math.min(1, a.t / 0.3);
-        const c1 = 2.4;
-        const e = 1 + (c1 + 1) * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-        const scale = 0.55 + 0.45 * e;
+        // Springs out of the turf: 0 → 1.3 (over ~70 ms) → 1 with a damped wobble (~120 ms to
+        // settle), the moist darkness fading over ~2 s.
+        let scale: number;
+        if (a.t < 0.07) scale = 0.05 + 1.25 * Math.sin((a.t / 0.07) * Math.PI * 0.5);
+        else scale = 1 + 0.3 * Math.exp(-(a.t - 0.07) * 22) * Math.cos((a.t - 0.07) * 30);
         // Freshly turned earth stays dark and moist for a beat, then settles to the bed's tone
         // over ~2 s (so a charged strip reads as "just worked" against the older beds).
         const fresh = 1 - smooth(0.6, 2.6, a.t);

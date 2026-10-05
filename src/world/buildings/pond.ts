@@ -4,9 +4,9 @@
  *
  * Every pool is a wobbly-rimmed disc whose vertices carry `aDepth` (0 at the rim → 1 in the middle) and
  * `aKind` (0 water, 1 mud), so the shader fakes a basin without carving the terrain:
- *   water  shallow silt-green → deep teal by depth, caustic shimmer in the shallows, Fresnel sky + dark
- *          bank reflection, sun glints (bloom), a broken animated foam line at the rim, and expanding
- *          ripple rings + a soft contact shadow round every duck on it (`pondUniforms.uDucks`).
+ *   water  stylised: jade shallows → deep blue-teal by depth, a soft view-angle sky gradient, sparse
+ *          drifting glints, a clean foam line + lapping line at the shore, clean expanding rings + a soft
+ *          contact shadow round every duck on it (`pondUniforms.uDucks`), rain rings in wet weather.
  *   mud    dry crusted rim → darker wet ring → a glossy puddle film in the middle (sky + sun glint),
  *          clumpy normal noise, hoof dimples and the odd slow bubble.
  *
@@ -38,7 +38,8 @@ export class PondBuilder {
   constructor(private heightAt: (x: number, z: number) => number) {}
 
   water(cx: number, cz: number, rx: number, rz: number, lift = 0.034): void {
-    this.disc(cx, cz, rx, rz, 0, lift, 36, 6);
+    // (64 rim segments: at 36 the wobbly shore + its foam line showed polygon kinks)
+    this.disc(cx, cz, rx, rz, 0, lift, 64, 6);
   }
 
   mud(cx: number, cz: number, rx: number, rz: number, lift = 0.022): void {
@@ -56,7 +57,8 @@ export class PondBuilder {
       const k = r / rings;
       for (let i = 0; i < seg; i++) {
         const a = (i / seg) * Math.PI * 2;
-        const w = 0.82 + 0.22 * wob(cx * 3 + Math.cos(a) * 2.2, cz * 3 + Math.sin(a) * 2.2);
+        // (water: a smooth lobed shore — the ragged wobble field read as a gear / spiky outline)
+        const w = kind === 0 ? 0.92 + 0.06 * Math.sin(a * 3 + cx) + 0.04 * Math.sin(a * 5 + cz * 2) + 0.025 * Math.sin(a * 2 + 2.1) : 0.82 + 0.22 * wob(cx * 3 + Math.cos(a) * 2.2, cz * 3 + Math.sin(a) * 2.2);
         const x = cx + Math.cos(a) * rx * w * k;
         const z = cz + Math.sin(a) * rz * w * k;
         this.pos.push(x, y(x, z), z);
@@ -147,66 +149,73 @@ function pondMaterial(): THREE.ShaderMaterial {
         vec3 c;
         float alpha;
         if (vKind < 0.5) {
-          // ── Water ──
+          // ── Water ── (r7: stylised, not physical. A flat depth-tinted base, a soft view-angle sky
+          // gradient, clean concentric rings round each duck and a continuous foam line at the shore.
+          // No noise-derived normals anywhere: their gradients read as a gear / mosaic pattern on a
+          // surface this small.)
           float d = vDepth;
-          float e = 0.05;
-          float amp = 0.12 + 0.06 * uWindStrength;
-          float hx = wh(p + vec2(e, 0.0), t) - wh(p - vec2(e, 0.0), t);
-          float hz = wh(p + vec2(0.0, e), t) - wh(p - vec2(0.0, e), t);
-          vec2 nrm = vec2(-hx, -hz) / (2.0 * e) * amp;
-          // Duck wakes: rings spreading from each swimmer, plus a soft contact shadow under it.
-          float wake = 0.0;
+          vec3 shallow = vec3(0.13, 0.27, 0.22);
+          vec3 mid = vec3(0.04, 0.16, 0.18);
+          vec3 deep = vec3(0.016, 0.075, 0.125);
+          vec3 col = mix(shallow, mid, smoothstep(0.05, 0.4, d));
+          col = mix(col, deep, smoothstep(0.4, 0.95, d));
+          // A broad, slow tonal drift across the basin (cloud of silt), smooth and very low contrast.
+          col *= 0.94 + 0.12 * hvNoise(p * 0.9 + vec2(t * 0.03, -t * 0.02));
+          // Duck rings + contact shadow
+          float rings = 0.0;
           float shade = 0.0;
           for (int i = 0; i < ${MAX_DUCKS}; i++) {
             vec4 dk = uDucks[i];
             if (dk.z <= 0.0) continue;
             vec2 dv = p - dk.xy;
-            float r = length(dv);
-            float ring = sin(r * 26.0 - t * 3.2 + dk.w) * exp(-r * 2.6) * smoothstep(0.12, 0.2, r);
-            nrm += normalize(dv + 1e-4) * ring * 0.35 * dk.z;
-            wake += max(ring, 0.0) * dk.z * smoothstep(1.1, 0.2, r);
-            shade = max(shade, smoothstep(0.26, 0.05, length(dv * vec2(1.0, 1.35) + vec2(-0.03, -0.05))) * dk.z);
+            float r = length(dv * vec2(1.0, 1.12));
+            for (int k = 0; k < 3; k++) {
+              float ph = fract(t * 0.38 + dk.w * 0.13 + float(k) / 3.0);
+              float rr = 0.2 + ph * 0.95;
+              float w = 0.016 + ph * 0.02;
+              rings += smoothstep(w, 0.0, abs(r - rr)) * pow(1.0 - ph, 1.6) * dk.z;
+            }
+            shade = max(shade, smoothstep(0.3, 0.06, length(dv * vec2(1.0, 1.35) + vec2(-0.03, -0.05))) * dk.z);
           }
-          vec3 n = normalize(vec3(nrm.x, 1.0, nrm.y));
-          float ndv = max(dot(n, V), 0.0);
-          float fres = max(0.02 + 0.98 * pow(1.0 - ndv, 5.0), 0.06);
-          // Silt-green shallows → clear teal → deep blue-teal in the middle
-          // (The sun is HDR-bright here: these read as olive shallows → jade → a deep blue-green well.)
-          vec3 shallow = vec3(0.16, 0.2, 0.08);
-          vec3 mid = vec3(0.025, 0.13, 0.12);
-          vec3 deep = vec3(0.006, 0.035, 0.06);
-          float dk = pow(d, 0.7);
-          vec3 col = mix(shallow, mid, smoothstep(0.0, 0.3, dk));
-          col = mix(col, deep, smoothstep(0.3, 0.9, dk));
-          // Pebbly bed visible through the shallows
-          col *= 0.85 + 0.3 * hvNoise(p * 9.0) * (1.0 - smoothstep(0.1, 0.6, d));
-          float caus = pow(hvNoise(p * 4.0 + vec2(t * 0.4, t * 0.3)) * hvNoise(p * 4.9 - vec2(t * 0.35, t * 0.2)), 1.5);
-          col += vec3(0.5, 0.85, 0.7) * caus * 0.45 * (1.0 - smoothstep(0.0, 0.7, d));
-          col *= 1.0 - shade * 0.45;
-          float diff = 0.55 + 0.45 * max(dot(n, L), 0.0);
-          vec3 lit = col * (uSunColor * diff * 0.9 * cloud + uSkyColor * 0.55);
-          vec3 Rv = reflect(-V, n);
-          vec3 skyR = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.7, Rv.y));
-          // Bank + reeds mirrored in a band along the rim (dark green), clear sky in the middle
-          float bank = smoothstep(0.45, 0.0, d) * (0.5 + 0.5 * hvNoise(p * 2.0 + n.xz * 3.0));
-          vec3 bankCol = mix(vec3(0.07, 0.14, 0.06), vec3(0.16, 0.24, 0.1), hvNoise(p * 3.0)) * (uSunColor * 0.4 + uSkyColor * 0.5);
-          vec3 refl = mix(skyR * 0.95, bankCol, bank * 0.7);
-          // (Mostly looking down into it at this pitch: a little sky, the depth colour does the work.)
-          c = mix(lit, refl, clamp(fres * 1.2 + 0.05 + bank * 0.25, 0.0, 0.7));
-          vec3 R = reflect(-L, n);
-          float spec = pow(max(dot(R, V), 0.0), 260.0) * 7.0 + pow(max(dot(R, V), 0.0), 28.0) * 0.2;
-          c += uSunColor * spec * cloud * (1.0 - uNight * 0.6);
-          // Foam: a broken line hugging the rim + a lapping band just inside it; wake crests
-          float fn = hvNoise(p * 7.0 + t * 0.35);
-          float fn2 = hvNoise(p * 15.0 - vec2(t * 0.5, t * 0.2));
-          float rim = smoothstep(0.1, 0.0, d);
-          float shoreF = smoothstep(0.5, 0.68, fn * 0.6 + fn2 * 0.4 + rim * 0.5 - 0.12) * smoothstep(0.16, 0.02, d);
-          float band = smoothstep(0.85, 1.0, sin(d * 40.0 - t * 1.8 + fn * 4.0)) * smoothstep(0.2, 0.06, d) * smoothstep(0.3, 0.6, fn2);
-          float foam = clamp(shoreF * 0.85 + band * 0.4 + wake * 0.55 * smoothstep(0.4, 0.7, fn2 + 0.2), 0.0, 1.0);
-          vec3 foamCol = vec3(0.95, 0.97, 0.96) * (uSunColor * 0.6 + uSkyColor * 0.6);
+          col *= 1.0 - shade * 0.4;
+          vec3 lit = col * (uSunColor * 0.85 * cloud + uSkyColor * 0.6);
+          // Sky: a soft gradient by view angle only (horizon colour at grazing angles, zenith above).
+          float vy = clamp(V.y, 0.0, 1.0);
+          vec3 sky = mix(uHorizonColor, uSkyColor, smoothstep(0.3, 0.95, vy));
+          float fres = 0.08 + 0.42 * pow(1.0 - vy, 3.0);
+          c = mix(lit, sky * 0.9, fres);
+          // Bank shade: the rim's own dark reflection, a smooth band (no noise).
+          c *= 1.0 - 0.22 * smoothstep(0.32, 0.1, d) * smoothstep(0.0, 0.08, d);
+          // Wind sparkle: sparse soft glints drifting across the open water (sunny days only).
+          // (tiny twinkles on a jittered cell grid, each fading in and out on its own clock — big noise
+          // blobs read as white paint spills)
+          vec2 gq = p * 6.5 + vec2(t * 0.12, t * 0.05);
+          vec2 gid = floor(gq);
+          vec2 go = fract(gq) - 0.5 - (hvHash22(gid) - 0.5) * 0.6;
+          float gph = fract(t * 0.5 + hvHash12(gid + 3.7) * 9.0);
+          float glint = smoothstep(0.07, 0.0, length(go * vec2(1.0, 2.2))) * step(hvHash12(gid + 1.3), 0.35) * sin(gph * 3.14159) * smoothstep(0.15, 0.45, d);
+          c += (uSunColor * 0.5 + 0.2) * glint * 0.45 * cloud * (1.0 - uNight * 0.8);
+          // Rain: tiny expanding rings all over
+          if (uRain > 0.01) {
+            vec2 rq = p * 3.5;
+            vec2 rid = floor(rq);
+            vec2 ro = fract(rq) - 0.5 - (hvHash22(rid) - 0.5) * 0.5;
+            float rph = fract(t * 1.3 + hvHash12(rid) * 7.0);
+            rings += smoothstep(0.03, 0.0, abs(length(ro) - rph * 0.4)) * (1.0 - rph) * uRain * 0.8;
+          }
+          vec3 ringCol = mix(uSkyColor, vec3(1.0), 0.4) * (uSunColor * 0.25 + 0.55);
+          c = mix(c, ringCol, clamp(rings, 0.0, 1.0) * 0.55);
+          // Shore: a clean wobbly foam line just inside the rim + a lapping line that creeps in and fades.
+          float dd = d + (hvNoise(p * 5.0 + vec2(t * 0.15, -t * 0.1)) - 0.5) * 0.035;
+          float shore = smoothstep(0.012, 0.028, dd) * (1.0 - smoothstep(0.065, 0.085, dd));
+          float lp = fract(t * 0.22);
+          float lapD = 0.09 + lp * 0.12;
+          float lap = smoothstep(0.012, 0.0, abs(dd - lapD)) * (1.0 - lp) * 0.7;
+          vec3 foamCol = vec3(0.96, 0.98, 0.97) * (uSunColor * 0.45 + uSkyColor * 0.7);
+          float foam = clamp(shore * 0.9 + lap, 0.0, 1.0);
           c = mix(c, foamCol, foam);
-          alpha = mix(0.72, 0.95, smoothstep(0.0, 0.5, d));
-          alpha = max(alpha, foam) * smoothstep(0.0, 0.035, d);
+          alpha = mix(0.86, 0.97, smoothstep(0.0, 0.4, d));
+          alpha = max(alpha, foam) * smoothstep(0.0, 0.014, d);
         } else {
           // ── Mud ──
           float d = vDepth;

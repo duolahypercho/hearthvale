@@ -74,7 +74,7 @@ export class CoopInterior extends InteriorMap {
     // Beds on the straw under the roost (ducks); chickens flutter up onto the perches.
     const beds = [[5.2, 2.35], [6.0, 2.55], [6.8, 2.3], [5.55, 2.95], [6.45, 3.0], [7.2, 2.8]];
     const slots = Array.from({ length: 6 }, (_, i) => {
-      const x = 0.85 + i * 0.5;
+      const x = 1.02 + i * 0.47;
       return {
         feed: new THREE.Vector3(x, 0, trough.z - 0.3),
         feedHeading: 0,
@@ -421,13 +421,14 @@ export class CoopInterior extends InteriorMap {
       strawTufts(k, rng, nx, 0.06, nz, 22, 0.4);
     }
     // An open sack of layers' mash by the hopper with its tin scoop and a little spill
-    feedSack(k, 1.0, 4.22, 0.5, 0xd8c8a4, true);
-    k.cyl('tin', 0.06, 0.055, 0.1, [1.3, 0.01, 4.46], { tint: 0xc8d0d4, seg: 12, rz: 1.35 });
-    k.cyl('wood', 0.015, 0.015, 0.14, [1.41, 0.05, 4.46], { tint: 0x8a6040, rz: 1.35 });
+    // (r7: set back off the trough line — the first hen at the trough had the sack through her back)
+    feedSack(k, 1.0, 3.78, 0.5, 0xd8c8a4, true);
+    k.cyl('tin', 0.06, 0.055, 0.1, [1.3, 0.01, 4.02], { tint: 0xc8d0d4, seg: 12, rz: 1.35 });
+    k.cyl('wood', 0.015, 0.015, 0.14, [1.41, 0.05, 4.02], { tint: 0x8a6040, rz: 1.35 });
     for (let i = 0; i < 30; i++) {
       const a = rng.next() * Math.PI * 2;
       const r = Math.sqrt(rng.next()) * 0.32;
-      k.sphere('ceramic', 0.012, [1.3 + Math.cos(a) * r, 0.012, 4.5 + Math.sin(a) * r * 0.6], rng.next() < 0.35 ? 0xc89a40 : 0xe8c050);
+      k.sphere('ceramic', 0.012, [1.3 + Math.cos(a) * r, 0.012, 4.06 + Math.sin(a) * r * 0.6], rng.next() < 0.35 ? 0xc89a40 : 0xe8c050);
     }
     // Pop-door frame in the knee wall (the hatch itself slides: popDoor())
     const hx = HATCH_X + 0.5;
@@ -445,7 +446,7 @@ export class CoopInterior extends InteriorMap {
     this.solid(1.85, 3.6, 2.75, 4.15, 'bales');
     this.solid(6.2, 4.35, 6.9, 4.75, 'spilled-sack');
     this.solid(0.1, 1.1, 0.6, 1.6, 'basket');
-    this.solid(0.75, 4.0, 1.25, 4.45, 'mash-sack');
+    this.solid(0.75, 3.55, 1.25, 4.0, 'mash-sack');
     this.solid(4.4, 0.15, 4.85, 0.65, 'hanging-feeder');
 
     // Lanterns on iron brackets (left wall, back wall over the roost) + practical lights

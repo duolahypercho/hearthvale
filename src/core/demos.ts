@@ -67,9 +67,9 @@ export const DEMOS: Record<string, DemoDef> = {
   // morning sprinkler turret soaking its square of the summer field (wet front spreading outward).
   'farm-lift': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'summer', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest', 'crop=melon', 'pose=0.72'] },
   'farm-sprinkler': { map: 'farm', x: 23.5, z: 22.6, facing: 'right', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 47, distance: 10.5, offsetX: 2.4, offsetZ: -0.7 }, showcase: ['harvest', 'act=none'] },
-  // Farming r12: the full crop roster (all 19 crops × 6 growth stages, every season — greenhouse-style)
-  // in two blocks, the farmer out of frame.
-  'farm-crops-all': { map: 'farm', x: 23.5, z: 31.5, facing: 'up', time: 10.5, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 54, distance: 17.5, offsetX: 0, offsetZ: -7.4 }, showcase: ['gallery', 'crops=all'] },
+  // Farming r12/r7: the full crop roster (all 18 crops × 6 growth stages, every season — greenhouse-style)
+  // in two blocks either side of the scarecrow / can-stump column, the farmer out of frame.
+  'farm-crops-all': { map: 'farm', x: 21.5, z: 23.4, facing: 'up', time: 10.5, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 54, distance: 18.6, offsetX: 0, offsetZ: 0.2 }, showcase: ['gallery', 'crops=all'] },
   // Town square (plaza, Lantern Hall, villagers).
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
@@ -191,7 +191,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
   'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21.5, offsetX: 2.2, offsetZ: -3.5 }, showcase: ['animals', 'coop'] },
   // Petting close-up: crouch + reach, big heart pop with mini hearts, the animal's name + heart meter.
-  'animals-petting': { map: 'farm', x: 45.3, z: 40.2, facing: 'left', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: -4, pitch: 40, distance: 11, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals', 'pet-close'] },
+  'animals-petting': { map: 'farm', x: 45.7, z: 39.05, facing: 'left', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: -4, pitch: 40, distance: 11, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals', 'pet-close'] },
   // &pet=dog|cat picks the pet, &hearts=0 stops the staged petting hearts (all 'animals' showcases).
   'coop-night': { map: 'coop', x: 4.5, z: 4.6, facing: 'down', time: 21.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 13.2, offsetZ: 0.6 }, showcase: ['animals'] },
   'barn-night': { map: 'barn', x: 6.5, z: 5.6, facing: 'down', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 16.8, offsetZ: 0.1 }, showcase: ['animals'] },

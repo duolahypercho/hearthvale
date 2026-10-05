@@ -258,10 +258,22 @@ function cow(variant: number): AnimalModel {
   const base = jersey ? 0xcb8d58 : 0xdfd9cc;
   const spots: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [3.4, 3.0, 3.2], seed: 4.3, edge: 0.24, sinAmp: 0.25 };
   // Jersey: fawn, shading darker over the hindquarters and down the legs (a smooth gradient, no patches).
-  const shade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.16 * THREE.MathUtils.smoothstep(-p.z, 0.0, 0.6)) : undefined;
+  // (r7: from the gameplay pitch a plain fawn barrel read as a featureless loaf — a cream belly + inner
+  // flank and a darker dorsal line along the spine give it a top, a bottom and a direction)
+  const cream = new THREE.Color(0xf2e2c6);
+  const shade = jersey
+    ? (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => {
+        c.multiplyScalar(1 - 0.16 * THREE.MathUtils.smoothstep(-p.z, 0.0, 0.6));
+        c.lerp(cream, 0.85 * THREE.MathUtils.smoothstep(-n.y, 0.2, 0.62));
+        c.multiplyScalar(1 - 0.3 * THREE.MathUtils.smoothstep(n.y, 0.8, 0.97) * (1 - THREE.MathUtils.smoothstep(Math.abs(p.x), 0.05, 0.13)));
+      }
+    : undefined;
   // (hips set a touch wider than the belly: from the high camera the legs show either side, so the cow
   // stands on four legs instead of reading as a loaf)
   const d: QuadDims = { bodyY: 0.74, bodyR: 0.36, bodyLen: 0.5, hipX: 0.235, frontZ: 0.27, backZ: -0.33, legR: 0.085, hoof: 0.09 };
+  // (r7: legs ~12 % longer — everything above them is lifted at the end — so they show below the barrel
+  // from the gameplay pitch instead of vanishing into the grass)
+  const LIFT = 0.065;
   r.bone('body', 'root', [0, d.bodyY, 0]);
   r.bone('head', 'body', [0, 0.92, 0.42]);
   r.bone('eyes', 'head', [0, 1.09, 0.78]);
@@ -279,20 +291,20 @@ function cow(variant: number): AnimalModel {
   r.part('body', new THREE.TorusGeometry(0.205, 0.03, 8, 22), mat(0, 0.86, 0.43, Math.PI / 2 - 0.55, 0, 0), 0x8e3526);
   r.part('body', new THREE.CylinderGeometry(0.045, 0.07, 0.1, 14), mat(0, 0.69, 0.56), 0xe8b840, { flat: true });
   r.part('body', new THREE.SphereGeometry(0.02, 8, 6), mat(0, 0.635, 0.56), 0x5a4020, { flat: true });
-  legs(r, d, base, 0x3e302a, jersey ? band(0x86583a, 0.17) : spots);
+  legs(r, { ...d, bodyY: d.bodyY + LIFT }, base, 0x3e302a, jersey ? band(0xf0dcc0, 0.2) : spots);
   // Tail with a tuft
   r.part('tail', limb(0.022, 0.018, 0.97, 0.5, 6), mat(0, 0, -0.63), base);
   r.part('tail', ellipsoid(0.045, 0.085, 0.045, 10, 8), mat(0, 0.47, -0.63), jersey ? 0x3a2418 : 0x26221f);
   // Big chibi head (holstein: a black patch over the left eye + ear), rounded pink muzzle with nostrils
   // (a ragged crown cap, held up off the eye line by a height ramp: an eye inside a black patch lost its
   // lens and only the white catchlights showed — they read as teeth from the high camera)
-  const headPatch: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [4.2, 3.6, 3.0], seed: 1.7, edge: 0.3, yK: 9, y0: 1.24 };
+  const headPatch: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [4.2, 3.6, 3.0], seed: 1.7, edge: 0.3, yK: 9, y0: 1.24 + LIFT };
   // Jersey: the face darkens softly around the eyes (a gradient, not a patch)
   const faceShade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.22 * THREE.MathUtils.smoothstep(Math.abs(p.x), 0.02, 0.2) * THREE.MathUtils.smoothstep(p.y, 0.98, 1.12)) : undefined;
   r.part('head', ellipsoid(0.27, 0.25, 0.26), mat(0, 1.07, 0.6), base, { patch: headPatch, paint: faceShade });
   // Muzzle: jersey's pale "mealy" ring around a dark nose; holstein pink
   // (jersey's mealy ring kept close to the coat's value: a bright ring read as a mask from behind)
-  const muzzle = jersey ? 0xdcbc98 : 0xf6c0b4;
+  const muzzle = jersey ? 0xe8d0ac : 0xf6c0b4;
   r.part('head', ellipsoid(jersey ? 0.195 : 0.215, 0.15, 0.15), mat(0, 0.94, 0.8), muzzle);
   r.part('head', ellipsoid(jersey ? 0.13 : 0.17, jersey ? 0.075 : 0.1, 0.07), mat(0, 0.95, 0.9), jersey ? 0x4a3830 : 0xf09a94);
   for (const s of [-1, 1]) r.part('head', ellipsoid(0.03, 0.022, 0.012, 8, 6), mat(s * 0.07, 0.955, 0.965, 0, s * 0.3, 0), jersey ? 0x140e0c : 0x3a2418, { flat: true });
@@ -309,10 +321,13 @@ function cow(variant: number): AnimalModel {
   for (let i = 0; i < 3; i++) r.part('head', ellipsoid(0.05, 0.04, 0.05, 8, 6), mat(-0.04 + i * 0.04, 1.3, 0.6 + (i % 2) * 0.03), jersey ? 0x9a6238 : base);
   eyes(r, 0.125, 1.1, 0.79, 0.05, 0.36, { rim: 0xf6efe4 });
   cheeks(r, 0.2, 0.98, 0.74, 0.036, 0xf2b0a6);
+  r.lift(LIFT, ['legFL', 'legFR', 'legBL', 'legBR']);
   // Chibi: a shorter barrel and a bigger head read as "cow" (not "capsule") from the high camera.
-  const [reach, top] = chibiGait(r, 0.82, 1.18, 0.94, 0.98, 1.55, 0.6);
+  const [reach, top] = chibiGait(r, 0.82, 1.18, 0.94 + LIFT, 0.98, 1.55 + LIFT, 0.6);
   const { mesh, bones } = r.build(animalMaterial(), 'cow');
-  return { mesh, bones, species: 'cow', gait: { biped: false, speed: 0.55, freq: 1.55, legAmp: 0.38, bob: 0.02, eatPitch: 0.95, radius: 0.36, len: 0.42 * 0.82, reach, top, sleepDrop: 0.36, fold: 0.3 } };
+  // (eatPitch capped: grazing head-down at 0.95 rad flattened the big head against the chest — the
+  // poll and ears now stay above the shoulder line)
+  return { mesh, bones, species: 'cow', gait: { biped: false, speed: 0.55, freq: 1.55, legAmp: 0.38, bob: 0.02, eatPitch: 0.62, radius: 0.36, len: 0.42 * 0.82, reach, top, sleepDrop: 0.36, fold: 0.3 } };
 }
 
 function goat(variant: number): AnimalModel {

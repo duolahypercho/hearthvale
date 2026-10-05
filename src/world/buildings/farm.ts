@@ -39,7 +39,8 @@ export const PASTURE_PROPS: readonly { x0: number; z0: number; x1: number; z1: n
 
 /** Yard features inside the paddock the herd uses (world coords): the duck pond and the pig's wallow. */
 export const YARD = {
-  pond: { x: 44.3, z: 41.9, rx: 1.25, rz: 0.82 },
+  // (r7: half again as big — room for both ducks to paddle, and it holds the paddock's middle)
+  pond: { x: 44.6, z: 41.55, rx: 1.85, rz: 1.2 },
   wallow: { x: 48.7, z: 41.75, rx: 0.85, rz: 0.6 },
   trough: { x: SITES.pasture.x1 - 1.0, z: SITES.pasture.z0 + 2.6 },
   rack: { x: SITES.pasture.x0 + 1.9, z: SITES.pasture.z1 - 1.5 },
@@ -393,8 +394,8 @@ export class FarmBuildings {
     this.pools = pools.build();
     this.pools.userData.perfTag = 'buildings';
     this.group.add(this.pools);
-    for (let i = 0; i < 4; i++) {
-      const a = 0.6 + i * 1.3 + rng.next() * 0.4;
+    for (let i = 0; i < 6; i++) {
+      const a = 0.6 + i * 1.05 + rng.next() * 0.35;
       const r = 0.45 + rng.next() * 0.3;
       const pad = new THREE.CircleGeometry(0.11 + rng.next() * 0.05, 12, 0.4, Math.PI * 2 - 0.5).rotateX(-Math.PI / 2);
       const lx = pond.x + Math.cos(a) * pond.rx * r;
@@ -402,8 +403,8 @@ export class FarmBuildings {
       b.add('white', pad, mat(lx, y(lx, lz) + 0.045, lz, 0, rng.next() * 6, 0), { tint: i % 2 ? 0x5a8a3a : 0x6e9a44 });
       if (i === 1) b.add('white', new THREE.SphereGeometry(0.04, 8, 6), mat(lx + 0.03, y(lx, lz) + 0.07, lz, 0, 0, 0, 1, 0.6, 1), { tint: 0xf4c8d8 });
     }
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2 + rng.next() * 0.3;
+    for (let i = 0; i < 22; i++) {
+      const a = (i / 22) * Math.PI * 2 + rng.next() * 0.3;
       // Leave the front (camera side) open; stones round the back and sides.
       if (Math.sin(a) > 0.55 && i % 3) continue;
       const sx = pond.x + Math.cos(a) * (pond.rx + 0.12);
