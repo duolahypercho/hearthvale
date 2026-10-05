@@ -454,8 +454,8 @@ export async function calibrate(themes, call, { root, seconds: secs = OPENING_SE
     const [cl, ch] = corr(t);
     // (A shelf moves its band by roughly its gain: the uncorrected ratio is measured − correction.)
     toneOut[t] = [Math.round((tr.low - cl * 0.85) * 10) / 10, Math.round((tr.high - ch * 0.85) * 10) / 10];
-    log(`    tone re mid: low ${fmt(tr.low)} high ${fmt(tr.high)} dB (shelves ${fmt(cl)} / ${fmt(ch)}) → uncorrected [${toneOut[t].join(', ')}]`);
     log(`  ${t.padEnd(20)} measured ${fmt(a.lufsIntegrated)} LUFS (trim ${applied >= 0 ? '+' : ''}${fmt(applied)} dB) → untrimmed ${fmt(out[t])}, off target ${fmt(a.lufsIntegrated - tgt)} LU`);
+    log(`    tone re mid: low ${fmt(tr.low)} high ${fmt(tr.high)} dB (shelves ${fmt(cl)} / ${fmt(ch)}) → uncorrected [${toneOut[t].join(', ')}]`);
   }
   const body = Object.keys(out).sort().map((k) => `  '${k}': ${out[k]},`).join('\n');
   const next = src.replace(/\/\/ @generated-begin[\s\S]*\/\/ @generated-end/, `// @generated-begin (scripts/audio-render.mjs --calibrate)\nexport const MEASURED_LUFS: Record<string, number> = {\n${body}\n};\n// @generated-end`);

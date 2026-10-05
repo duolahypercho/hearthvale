@@ -291,7 +291,9 @@ export class Ambience {
     this.setBed('snowHush', outdoors && s.weather === 'snow' ? 0.035 : 0, now, 2);
     const hearth = s.indoor && (s.night > 0.3 || s.season === 'winter' || s.season === 'fall' || raining);
     this.setBed('room', s.indoor ? (raining ? 0.016 : 0.026) : 0, now, 1);
-    this.setBed('fire', hearth ? 0.035 : 0, now, 1.5);
+    // (Round 12: the hearth's roar −4 dB — with the room tone it was most of the house's low hum;
+    // the crackles carry the fire.)
+    this.setBed('fire', hearth ? 0.022 : 0, now, 1.5);
     const town = s.map === 'town' || s.map.startsWith('fest');
     const cicadaTime = s.season === 'summer' && outdoors && !beach && !raining && h >= 10 && h <= 18.5;
     this.cicadas(now, cicadaTime);

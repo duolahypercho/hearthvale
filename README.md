@@ -526,7 +526,10 @@ actors such as Pip the shop cat).
   card standing taller at its end, the gift ribbon under the name plaque at 18 px. *Gifts* — a loved gift
   hops (0.3 s, squash), pops a heart emote and a sparkle where it lands; the line waits for the arc.
   *Town* — a "Relight the Hall" banner over the east window (no more red X of boards), festoon masts 0.4 m
-  higher, winter / day chat pairs side by side across the view, 1 m personal space, barks never repeat in a day.
+  higher, winter / day chat pairs side by side across the view, 1 m personal space, barks never repeat in a day,
+  bark bubbles carry a name tab in the speaker's colour, and `town-evening` sits on a closer, lower lens (faces
+  read, the Hall's rose window crowns the frame, the fountain clears the toolbar). Live talks also re-block the
+  farmer across the lens (clear of lamp posts) and drop bystanders within 2.2 m of the pair from the shot.
 
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit), `town-winter` (its own

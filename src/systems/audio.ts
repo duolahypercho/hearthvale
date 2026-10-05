@@ -183,6 +183,9 @@ export class AudioSystem implements System {
    * director for a quick fade instead of waiting for the phrase end.
    */
   private sceneCue: { id: string; theme: string; kick: boolean } | null = null;
+  /** Between-songs teaser bookkeeping (see updateInner): when this rest began, and whether it has played. */
+  private restSeen: number | null = null;
+  private teased = false;
   private demoTheme: { theme: string; map: string } | null = null;
   private festival: string | null = null;
   private lastTheme: string | null = null;
@@ -1020,6 +1023,25 @@ export class AudioSystem implements System {
     this.menuOpen = menu;
     // Farm days breathe: 30–90 s of birds and wind between songs (the town / festivals keep theirs).
     e.music.restOverride = this.env.map === 'farm' && this.env.night < 0.5 ? FARM_REST : null;
+    // Between songs (round 12): once in a long farm rest, a far-off flute (a clarinet in fall /
+    // winter) tries the coming song's first bar across the fields — a hint of the tune, then birds
+    // again. Wind voices are oscillators: nothing is rendered on the frame.
+    if (e.music.resting && this.env.map === 'farm' && !this.env.indoor && this.env.night < 0.5) {
+      this.restSeen ??= ctx.currentTime;
+      if (!this.teased && ctx.currentTime - this.restSeen > 14 && e.music.restLeft > 10) {
+        this.teased = true;
+        const th = THEMES[this.resolved(this.wanted()) ?? ''];
+        const hook = th ? tuneHook(th, 1) : [];
+        if (hook.length && !this.muted) {
+          const lift = hook[0]!.midi < 67 ? 12 : hook[0]!.midi > 84 ? -12 : 0;
+          const inst = this.env.season === 'fall' || this.env.season === 'winter' ? 'clarinet' : 'flute';
+          e.sfx.phrase(inst, hook.map((n) => ({ ...n, midi: n.midi + lift })), { bpm: th!.bpm * 0.92, gain: 0.3 * (this.vol.music / 0.7), pan: (this.daySeed() % 2 ? 1 : -1) * 0.55 });
+        }
+      }
+    } else if (!e.music.resting) {
+      this.restSeen = null;
+      this.teased = false;
+    }
     const muffle = paused ? 0.72 : menu ? MENU_MUFFLE : this.sleeping ? 0.8 : 0;
     if (Math.abs(muffle - this.muffle) > 0.01) {
       const snap = menu || Math.abs(this.muffle - MENU_MUFFLE) < 0.01;

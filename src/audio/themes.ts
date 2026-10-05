@@ -734,7 +734,7 @@ export const THEMES: Record<string, ThemeDef> = {
     counter: { inst: 'cello', range: [50, 64], on: 'repeat', style: 'moving' },
     accomp: { inst: 'harp', pattern: 'harpRoll', range: [55, 74], voices: 4, vel: 0.7 },
     // (Round 12: a plucked upright with finger noise, not the sine-and-triangle soft bass.)
-    bass: { inst: 'upright', pattern: 'root', range: [38, 50], vel: 0.68 },
+    bass: { inst: 'upright', pattern: 'rootFifth', range: [38, 50], vel: 0.74 },
     pad: { inst: 'pad', range: [54, 71], voices: 4, vel: 0.45, on: 'B' },
     mix: {
       melody: { gain: 0.84, pan: 0.05, send: 0.4 },
@@ -743,7 +743,7 @@ export const THEMES: Record<string, ThemeDef> = {
       accomp: { gain: 0.74, pan: 0.3, send: 0.38 },
       // (Round 9: the louder low end left the main theme DULL — the harp roll and cello carry
       // their own bottom, so the soft bass steps back and a sheen lifts the flute and celesta.)
-      bass: { gain: 0.32, pan: 0, send: 0.08 },
+      bass: { gain: 0.72, pan: 0, send: 0.08 },
       pad: { gain: 0.36, pan: 0, send: 0.55 },
     },
     rest: [0, 0],
