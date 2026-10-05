@@ -63,6 +63,7 @@ export class Ambience {
   private wxTarget = 0;
   /** Cicada chorus envelope bookkeeping. */
   private cicadaOn = false;
+  private babbleDests: AudioNode[] | undefined;
   /** Town / festival crowd life (talkers, laughter, applause, footsteps, the shop bell). */
   readonly crowd: Crowd;
   private chimeBufs = new Map<number, AudioBuffer>();
@@ -232,20 +233,28 @@ export class Ambience {
     // Night lift: after 01:00 the score rests until morning and the beds carry the night alone; the
     // night air (wind in the trees, the leaves, the critters) comes up ~6 dB with the dark so the
     // music-free hours sit near -30 LUFS instead of -38 (near silence on laptop speakers).
-    const nightLift = outdoors ? 1 + 1.5 * s.night : 1;
+    // (Round 5: +5.6 dB, was +8 — the ambience bus came up 3.5 dB for the day beds.)
+    const nightLift = outdoors ? 1 + 0.9 * s.night : 1;
     this.nightLift = nightLift;
+    // Day beds (round 5): the wind / leaves / snow air sat 13–17 LU under a playing song — outdoors by
+    // day they come up a further ~3.5 dB so the place is heard under the score (≤ 10 LU down).
+    const dayLift = outdoors ? 1 + 0.5 * (1 - s.night) : 1;
     // In the square the people carry the sense of place: the wind / leaf wash sits 6 dB lower.
     const townBed = s.map === 'town' || s.map.startsWith('fest') ? 0.5 : 1;
-    const wind = (outdoors ? townBed : 1) * (outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * nightLift : mine ? 0.015 : 0);
+    // (A windy day is already loud: the day lift fades out as the weather's own wind takes over.)
+    const windLift = 1 + (dayLift - 1) * (1 - 0.7 * Math.max(0, windy - 0.35) / 0.65);
+    const wind = (outdoors ? townBed : 1) * (outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * nightLift * windLift : mine ? 0.015 : 0);
     this.setBed('wind', wind, now, 0.8);
     const wf = this.beds.wind!.filter!;
     wf.frequency.setTargetAtTime((260 + 520 * this.gust) * (1 + 0.15 * this.wx), now, 1.2);
     const hasLeaves = s.season !== 'winter' && outdoors && !beach;
-    this.setBed('leaves', townBed * (hasLeaves ? (0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1)) * nightLift : 0), now, 0.6);
+    this.setBed('leaves', townBed * (hasLeaves ? (0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.6 : 1)) * nightLift * dayLift : 0), now, 0.6);
     // Rain: ±4 dB and ±30 % of the hiss band with the weather swell (showers come and go).
-    this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0) * swellDb(5), now, 1.5);
+    // (Round 5: with the ambience bus +6 dB, rain sits ~3 LU under the score offline and level with it
+    // in game — rain is a foreground mood; the adapter drops the music to ~0.7 on wet days.)
+    this.setBed('rain', (outdoors && raining ? (storm ? 0.22 : 0.15) : s.indoor && raining ? 0.025 : 0) * swellDb(5), now, 1.5);
     this.beds.rain!.filter!.frequency.setTargetAtTime(5000 * (1 + 0.3 * this.wx), now, 1.5);
-    this.setBed('rainLow', (raining && !mine ? (storm ? 0.15 : 0.06) * (s.indoor ? 0.5 : 1) : 0) * swellDb(3), now, 1.5);
+    this.setBed('rainLow', (raining && !mine ? (storm ? 0.16 : 0.075) * (s.indoor ? 0.5 : 1) : 0) * swellDb(3), now, 1.5);
     // Individual drops: a light patter always, the heavy layer in a storm; muffled on the roof indoors.
     if (raining && !mine && !this.drops) this.buildDrops();
     if (this.drops) {
@@ -255,19 +264,19 @@ export class Ambience {
       const key = `${lv}:${storm}:${q}`;
       if (key !== this.dropsKey) {
         this.dropsKey = key;
-        this.drops.light.gain.setTargetAtTime(0.5 * lv * (1 + 0.5 * q), now, 1.5);
+        this.drops.light.gain.setTargetAtTime(0.6 * lv * (1 + 0.5 * q), now, 1.5);
         this.drops.heavy.gain.setTargetAtTime((storm ? 0.55 * (1 + 0.3 * q) : Math.max(0, q - 0.15) * 0.45) * lv, now, 1.5);
       }
     }
     // (Round 4: −5 dB — the fountain's broadband wash had been the town's loudest layer; the
     // crowd now carries the square.)
     this.setBed('fountain', outdoors ? 0.078 * s.fountain : 0, now, 0.6);
-    this.setBed('cave', mine ? 0.1 : 0, now, 2);
-    this.setBed('caveAir', mine ? 0.07 : 0, now, 2);
+    this.setBed('cave', mine ? 0.07 : 0, now, 2);
+    this.setBed('caveAir', mine ? 0.05 : 0, now, 2);
     const cold = s.season === 'winter' && outdoors;
-    this.setBed('howl', cold ? 0.012 + 0.03 * this.gust * windy : 0, now, 1);
+    this.setBed('howl', cold ? (0.012 + 0.03 * this.gust * windy) * dayLift : 0, now, 1);
     this.beds.howl!.filter!.frequency.setTargetAtTime(480 + 420 * this.gust, now, 2);
-    this.setBed('snowHush', outdoors && s.weather === 'snow' ? 0.02 : 0, now, 2);
+    this.setBed('snowHush', outdoors && s.weather === 'snow' ? 0.035 : 0, now, 2);
     const hearth = s.indoor && (s.night > 0.3 || s.season === 'winter' || s.season === 'fall' || raining);
     this.setBed('room', s.indoor ? 0.05 : 0, now, 1);
     this.setBed('fire', hearth ? 0.035 : 0, now, 1.5);
@@ -287,6 +296,22 @@ export class Ambience {
     } else this.setBed('surf', 0, now, 2);
     const stream = outdoors && s.map === 'forest';
     this.setBed('brook', stream ? 0.02 + 0.07 * s.water : 0, now, 1);
+    // The babble: granular bubbles (rising 300–1500 Hz chirps, 20–40 a second, spread across the
+    // stereo field) over the bed's wash — the difference between a brook and wind.
+    if (stream) {
+      const lvl = 0.3 + 0.7 * s.water;
+      let bt = this.next.babble ?? now;
+      if (bt < now) bt = now;
+      while (bt < now + ahead) {
+        // Five fixed positions across the bank (built once: no per-grain panner / filter nodes).
+        this.babbleDests ??= [-0.7, -0.35, 0, 0.35, 0.7].map((pn, i) => this.dest(pn, 0.2 + (i % 2) * 0.2));
+        const d = this.babbleDests[this.rng.int(0, 4)]!;
+        this.bank.play(d, 'bubble', this.rng.int(0, 31), bt, 0.05 * lvl * this.rng.range(0.4, 1), this.rng.range(0.9, 1.12));
+        // Clustered: runs of quick bubbles with short lulls (a stream gurgles, it doesn't tick).
+        bt += this.rng.chance(0.12) ? this.rng.range(0.08, 0.16) : this.rng.range(0.012, 0.04);
+      }
+      this.next.babble = bt;
+    }
 
     const until = now + ahead;
     const due = (k: string, min: number, max: number, active: boolean): number | null => {
@@ -685,13 +710,17 @@ export class Ambience {
       }
       return;
     }
+    // Entering a hot noon: the first chorus is already swelling (up within ~3 s, not after a gap).
+    const first = !this.cicadaOn;
     this.cicadaOn = true;
+    if (first) this.next.cicada = Math.min(this.next.cicada ?? 0, now);
     if ((this.next.cicada ?? 0) > now) return;
     const r = this.rng;
-    const rise = r.range(3, 5);
-    const hold = r.range(2, 6);
+    const rise = first ? r.range(1.5, 2.5) : r.range(3, 5);
+    const hold = r.range(4, 8);
     const fall = r.range(3, 6);
-    const peak = r.range(0.012, 0.02);
+    // (Round 5: +18 dB — the noon chorus never surfaced, even in the bed alone; it is summer's signature.)
+    const peak = r.range(0.1, 0.15);
     b.filter!.frequency.setTargetAtTime(r.range(4500, 6500), now, 1);
     gp.cancelScheduledValues(now);
     gp.setValueAtTime(Math.max(0.0005, b.level), now);
@@ -699,7 +728,7 @@ export class Ambience {
     gp.setValueAtTime(peak, now + rise + hold);
     gp.linearRampToValueAtTime(0.0015, now + rise + hold + fall);
     b.level = 0.0015;
-    this.next.cicada = now + rise + hold + fall + r.range(1, 9);
+    this.next.cicada = now + rise + hold + fall + r.range(1, 6);
   }
 
   private wave(t: number, size: number): void {
@@ -726,7 +755,8 @@ export class Ambience {
     // The break: white water crashing (1.5–8 kHz) as the lip lands...
     const r = this.rng;
     const brk = t + 2.15 + r.next() * 0.2;
-    noiseHit(this.g, this.dest(0.1 * dir, 0.25), brk, { type: 'highpass', f: 1500, amp: 0.2 * size, attack: 0.06, tau: 0.35, buf: this.g.pinkSt });
+    // (attack 60 → 150 ms: a crash, not a splice — the spectrogram showed a hard broadband edge.)
+    noiseHit(this.g, this.dest(0.1 * dir, 0.25), brk, { type: 'highpass', f: 1500, amp: 0.2 * size, attack: 0.15, tau: 0.38, buf: this.g.pinkSt });
     // ...then the foam: a 2–8 kHz fizz that spreads up the beach and dies away over 2–3 s.
     noiseHit(this.g, this.dest(0.45 * dir, 0.2), brk + 0.25, { type: 'bandpass', f: 4800, q: 0.35, amp: 0.26 * size, attack: 0.35, tau: 0.9, buf: this.g.pinkSt });
     noiseHit(this.g, this.dest(-0.2 * dir, 0.3), brk + 0.4, { type: 'highpass', f: 6500, amp: 0.07 * size, attack: 0.5, tau: 0.8 });

@@ -128,6 +128,11 @@ export interface ThemeDef {
   /** Tone fixes on the theme's dry bus: a high-pass (Hz) and one peaking cut. */
   eq?: { hp?: number; cut?: { f: number; db: number; q?: number } };
   /**
+   * Air exciter return on the score bus while this song plays (graph.exciter; default
+   * DEFAULT_AIR): already-bright songs (music box / bells) take less, so the sparkle never fizzes.
+   */
+  air?: number;
+  /**
    * Per-song mastering EQ: high-shelf gain (dB) at 2.4 kHz on this theme's bus — lifts the attack
    * and overtones of near-pure mallet / music-box timbres without touching their instruments.
    */
@@ -467,6 +472,7 @@ export class Composer {
     this.shapeDynamics(ev, bars);
     this.perform(ev, bars);
     ev.sort((a, b) => a.t - b.t);
+    this.clearTune(ev);
     const lastBar = bars[bars.length - 1]!;
     const barInfo = bars.map((b) => ({ t: b.t0, chords: b.spans.map((sp) => sp.chord.symbol).join(' '), section: b.i === 0 ? b.section : '', i: b.i, shift: b.shift }));
     return { theme: th.id, seed: this.seed, events: ev, duration: lastBar.t0 + lastBar.dur, bars: bars.length, barInfo };
@@ -501,6 +507,45 @@ export class Composer {
       const db = (arch * archAmt + section) * depth[e.track];
       e.vel *= Math.pow(10, db / 20);
     }
+  }
+
+  /**
+   * Arranger's pass: the comping never sits on top of the tune. Any accompaniment note that is
+   * still heard when a melody note starts and lies within a whole tone under it (or above it) is
+   * re-voiced an octave down, as long as that keeps it a minor third clear of the bass; if there is
+   * no room it is left out (the chord is still in the bass + other voices). Round 5: winter,
+   * beach and Starfall comping had crowded ~40 % of their tunes' notes.
+   */
+  private clearTune(ev: NoteEvent[]): void {
+    const heard = (e: NoteEvent): number => e.t + (DECAY_INST.has(e.inst) ? Math.min(e.dur, 0.35) : e.dur);
+    const mel = ev.filter((e) => e.track === 'melody');
+    if (!mel.length) return;
+    const bass = ev.filter((e) => e.track === 'bass');
+    const drop = new Set<NoteEvent>();
+    let mi = 0;
+    let bi = 0;
+    for (const c of ev) {
+      if (c.track !== 'accomp' && c.track !== 'accomp2') continue;
+      const end = heard(c);
+      while (mi < mel.length && mel[mi]!.t < c.t - 0.05) mi++;
+      let top = -1;
+      for (let k = mi; k < mel.length && mel[k]!.t < end - 0.02; k++) {
+        const m = mel[k]!;
+        if (c.midi >= m.midi - 2) top = top < 0 ? m.midi : Math.min(top, m.midi);
+      }
+      if (top < 0) continue;
+      while (bi < bass.length && heard(bass[bi]!) < c.t) bi++;
+      let bassTop = 0;
+      for (let k = bi; k < bass.length && bass[k]!.t < end; k++) if (heard(bass[k]!) > c.t) bassTop = Math.max(bassTop, bass[k]!.midi);
+      let to = c.midi - 12;
+      while (to >= top - 2) to -= 12;
+      if (to >= Math.max(bassTop + 3, 43)) c.midi = to;
+      else drop.add(c);
+    }
+    if (!drop.size) return;
+    let w = 0;
+    for (const e of ev) if (!drop.has(e)) ev[w++] = e;
+    ev.length = w;
   }
 
   private transpose(ev: NoteEvent[], from: number, shift: number): void {
@@ -1621,6 +1666,7 @@ export class Composer {
       }
     }
     ev.sort((x, y) => x.t - y.t);
+    this.clearTune(ev);
     return { theme: th.id, seed: this.seed, events: ev, duration: t, bars: gi, barInfo };
   }
 }
@@ -1665,6 +1711,9 @@ function warnOnce(msg: string): void {
   warned.add(msg);
   console.warn(`[audio] ${msg}`);
 }
+
+/** Plucked / struck instruments: heard for ~0.35 s, whatever the written length. */
+const DECAY_INST = new Set<string>(['kalimba', 'harp', 'guitar', 'ukulele', 'marimba', 'pizz', 'celesta', 'musicBox', 'bell', 'glass', 'steelPan']);
 
 function hash(s: string): number {
   let h = 2166136261;

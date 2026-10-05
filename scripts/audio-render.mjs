@@ -24,6 +24,7 @@
  *   node scripts/audio-render.mjs --sfx hoe,axe,rockbreak   # just these effects (reel analysis: level, centroid)
  *   node scripts/audio-render.mjs --calibrate         # measure every theme's opening (first 30 s) → src/audio/loudness.ts
  *                                                     # normalisation; fails if two openings land > 2 LU apart
+ *   node scripts/audio-render.mjs --keep-wav          # also keep the mix-* WAVs (analysed + plotted either way)
  *   node scripts/audio-render.mjs --no-live-budget    # render without the game's 72-voice polyphony budget
  *   Renders use the game's default volume settings and (by default) its live voice budget, so the
  *   numbers are what a player hears. Each job is isolated: a crash relaunches the browser and retries,
@@ -40,7 +41,7 @@
  */
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, statfsSync } from 'node:fs';
 import { dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -52,6 +53,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outArg = process.argv.indexOf('--out');
 const outDir = resolve(root, outArg > 0 ? process.argv[outArg + 1] : 'shots/audio');
 const outRel = outDir.startsWith(root) ? outDir.slice(root.length + 1) : outDir;
+// A full run writes ~180 MB (themes, ambience, reel; mixes only with --keep-wav): warn early.
+try {
+  const st = statfsSync(root);
+  const freeMb = (st.bavail * st.bsize) / 1048576;
+  if (freeMb < 1500) console.warn(`WARNING: only ${freeMb.toFixed(0)} MB free on this disk — a full render needs ~200 MB (${process.argv.includes('--keep-wav') ? '~400 MB with --keep-wav' : 'mix WAVs are not kept'}).`);
+} catch {
+  /* statfs unavailable: skip the check */
+}
 
 function parseArgs(argv) {
   const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, compose: false, verbose: false, plots: true, stems: false, themes: true, trans: true, gameplay: true, gameplayOnly: false, sfxList: null, calibrate: false, liveBudget: true };
@@ -71,6 +80,7 @@ function parseArgs(argv) {
     else if (a === '--no-gameplay') o.gameplay = false;
     else if (a === '--gameplay') o.gameplayOnly = true;
     else if (a === '--calibrate') o.calibrate = true;
+    else if (a === '--keep-wav') o.keepWav = true;
     else if (a === '--sfx') {
       o.sfxList = next().split(',');
       o.themes = false;
@@ -287,7 +297,10 @@ async function main() {
         } else {
           const res = await call(job.fn, job.a);
           const inter = decode(res);
-          writeWav(resolve(outDir, `${res.name}.wav`), inter, res.sampleRate);
+          // Mixes are analysed + plotted but (by default) not kept on disk: a full run otherwise
+          // writes ~350 MB of WAVs (--keep-wav keeps them).
+          const keep = job.kind !== 'mix' || args.keepWav;
+          if (keep) writeWav(resolve(outDir, `${res.name}.wav`), inter, res.sampleRate);
           const a = analyze(inter, res.sampleRate);
           if (args.plots) {
             const piece = job.fn === 'renderTheme' ? await sess.page.evaluate(([id, seed, secs]) => window.__audioOffline.pieceData(id, seed, secs), [job.a[0], args.seed, args.seconds]) : undefined;
@@ -297,7 +310,20 @@ async function main() {
           console.log(row(res.name, a, job.kind === 'sfx' ? 'reel' : kind) + `  (${((Date.now() - t0) / 1000).toFixed(1)}s${res.notes ? `, ${res.notes} notes` : ''})`);
           const fl = flags(a, kind, res.name);
           if (job.kind === 'trans') transitionCheck(res, inter, fl);
-          report.renders.push({ name: res.name, kind: job.kind, file: `${outRel}/${res.name}.wav`, notes: res.notes, ...a, flags: fl });
+          if (job.kind === 'mix') {
+            // Ambience vs score (round 5): the same seed's theme render is the music alone, so the
+            // power the mix adds is the ambience's. The beds must sit within 10 LU of the music.
+            const th = report.renders.find((r) => r.name === res.name.replace(/^mix-/, 'theme-'));
+            if (th && Number.isFinite(th.lufsIntegrated)) {
+              const extra = Math.pow(10, a.lufsIntegrated / 10) - Math.pow(10, th.lufsIntegrated / 10);
+              const ambLu = extra > 0 ? 10 * Math.log10(extra) : -Infinity;
+              const under = th.lufsIntegrated - ambLu;
+              a.ambienceUnderMusic = Number.isFinite(under) ? Math.round(under * 10) / 10 : null;
+              console.log(`  ambience ≈ ${fmt(ambLu)} LUFS, ${fmt(under)} LU under the music (need ≤ 10)  ${under <= 10 ? 'ok' : 'AMB-BURIED'}`);
+              if (!(under <= 10)) fl.push('AMB-BURIED');
+            }
+          }
+          report.renders.push({ name: res.name, kind: job.kind, file: keep ? `${outRel}/${res.name}.wav` : null, notes: res.notes, ...a, flags: fl });
           if (res.markers && job.kind === 'sfx') sfxBalance(res, inter, report);
         }
         done = true;
@@ -323,7 +349,7 @@ async function main() {
     if (!o.ok) report.renders.push({ name: 'opening-spread', kind: 'check', flags: ['OPENING-SPREAD'] });
   }
   writeReport();
-  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|THIN|DEAD-AIR|SLOW-HANDOFF|SFX-MASKED|OPENING-SPREAD/.test(f)));
+  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|THIN|DEAD-AIR|SLOW-HANDOFF|SFX-MASKED|OPENING-SPREAD|AMB-BURIED/.test(f)));
   console.log(`\nwrote ${report.renders.length} WAVs + report.json to ${outRel}/`);
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   if (report.failedJobs.length) console.log(`FAILED JOBS: ${report.failedJobs.map((j) => j.name).join(' ')}`);
@@ -429,6 +455,23 @@ function sfxBalance(res, inter, report) {
     checks.push([`voice spread ${fmt(hi.momentaryMax - lo.momentaryMax)} LU (${lo.name.slice(6)} … ${hi.name.slice(6)}, need ≤ 3)`, hi.momentaryMax - lo.momentaryMax <= 3]);
   }
   if (has('sword:hit', 'sword')) checks.push([`sword:hit ${fmt(M['sword:hit'] - M.sword)} LU vs sword (need ≥ +2)`, M['sword:hit'] - M.sword >= 2]);
+  // Round 5: payoffs louder than their setups (momentary: these are long events), steps level per surface.
+  const Mm = Object.fromEntries(ms.map((x) => [x.name, x.momentaryMax]));
+  const hasM = (...n) => n.every((k) => Number.isFinite(Mm[k]));
+  if (hasM('treefall', 'axe')) checks.push([`treefall ${fmt(Mm.treefall - Mm.axe)} LU vs axe (need ≥ +4)`, Mm.treefall - Mm.axe >= 4]);
+  if (hasM('rockbreak', 'pickaxe')) checks.push([`rockbreak ${fmt(Mm.rockbreak - Mm.pickaxe)} LU vs pickaxe (need ≥ +3)`, Mm.rockbreak - Mm.pickaxe >= 3]);
+  const stepPk = Object.fromEntries(ms.filter((x) => x.name.startsWith('step:')).map((x) => [x.name.slice(5), x.peakDb]));
+  // (against the median peak of the firm surfaces — grass / dirt / wood / stone)
+  const firm = ['grass', 'dirt', 'wood', 'stone'].map((k) => stepPk[k]).filter(Number.isFinite).sort((a, b) => a - b);
+  const firmMed = firm.length ? (firm[(firm.length - 1) >> 1] + firm[firm.length >> 1]) / 2 : NaN;
+  // One random step per surface on the reel: its sample peak wanders ±2 dB between renders, so the
+  // peak gets ±3 dB and the 100 ms loudness (the steadier measure) ±2 LU.
+  const stepSh = Object.fromEntries(ms.filter((x) => x.name.startsWith('step:')).map((x) => [x.name.slice(5), x.short]));
+  const firmS = ['grass', 'dirt', 'wood', 'stone'].map((k) => stepSh[k]).filter(Number.isFinite).sort((a, b) => a - b);
+  const firmSMed = firmS.length ? (firmS[(firmS.length - 1) >> 1] + firmS[firmS.length >> 1]) / 2 : NaN;
+  for (const sf of ['sand', 'snow']) {
+    if (Number.isFinite(stepPk[sf]) && Number.isFinite(firmMed)) checks.push([`step:${sf} peak ${fmt(stepPk[sf] - firmMed)} dB / 100 ms ${fmt(stepSh[sf] - firmSMed)} LU vs the firm surfaces' median (need ±3 dB / ±2 LU)`, Math.abs(stepPk[sf] - firmMed) <= 3 && Math.abs(stepSh[sf] - firmSMed) <= 2]);
+  }
   for (const [msg, ok] of checks) console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${msg}`);
   report.sfxChecks = checks.map(([msg, ok]) => ({ msg, ok }));
   report.sfxHierarchyFails = checks.filter(([, ok]) => !ok).map(([m]) => m);
@@ -770,6 +813,7 @@ async function coop() {
     }, ms);
     const before = await meterWin(1200);
     const logLen = await hand.evaluate(() => window.__game.game.services.audio.state().sfxLog.length);
+    const strokeAt = await hand.evaluate(() => window.__game.game.services.audio.state().sfxLog.at(-1)?.at ?? 0);
     const after = hand.evaluate(async (ms) => {
       const a = window.__game.game.services.audio;
       const out = [];
@@ -785,12 +829,13 @@ async function coop() {
     const aft = await after;
     const log = await hand.evaluate(() => window.__game.game.services.audio.state().sfxLog);
     const fresh = log.slice(Math.max(0, logLen - (log.length >= 24 ? 24 : 0)));
-    const hoe = log.find((x) => x.name === 'hoe' || x.name === 'hoe:dull');
+    // Only effects voiced after the stroke (the log also holds earlier entries).
+    const hoe = log.find((x) => x.at > strokeAt && (x.name === 'hoe' || x.name === 'hoe:dull'));
     // Against the ambience's own busy moments (birds): the 90th percentile of the window before.
     const med = [...before].sort((x, y) => x - y)[Math.floor(before.length * 0.9)];
     const peak = Math.max(...aft);
     const hostLog = await host.evaluate(() => window.__game.game.services.audio.state().sfxLog.slice(-3).map((x) => x.name).join(','));
-    check('farmhand voices the host\'s hoe stroke (replayed tool:impact)', !!hoe, hoe ? `${hoe.name} gain ${hoe.gain} pan ${hoe.pan}` : `farmhand log: ${fresh.map((x) => x.name).join(',') || 'empty'}`);
+    check('farmhand voices the host\'s hoe stroke as the host resolved it (soil, not a dull thunk)', hoe?.name === 'hoe' && hoe.gain >= 0.85, hoe ? `${hoe.name} gain ${hoe.gain} pan ${hoe.pan}` : `farmhand log: ${fresh.map((x) => x.name).join(',') || 'empty'}`);
     check('farmhand output peaks over its ambience', peak > med + 3, `peak ${fmt(peak)} vs 90th percentile ${fmt(med)} dBFS before; host voiced ${hostLog}`);
     // Festival: both clients walk onto the Blossom Parade grounds.
     for (const p of [host, hand]) await p.evaluate(() => { window.__game.game.services.audio.music(null); return window.__game.demo('fest-spring'); });

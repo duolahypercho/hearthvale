@@ -105,7 +105,7 @@ export type SfxName = (typeof SFX_NAMES)[number];
  */
 const TRIM: Record<string, number> = {
   harvest: 0.62, coin: 0.6, craft: 0.6, 'gift:love': 0.4, 'gift:like': 0.6, heart: 0.6, catch: 0.42, 'catch:perfect': 0.42,
-  lantern: 0.48, hall: 0.34, treefall: 1.1, purchase: 0.75, ship: 0.8, bite: 0.6, bundle: 0.75, sleep: 0.8, morning: 0.8,
+  lantern: 0.48, hall: 0.34, treefall: 1.7, purchase: 0.75, ship: 0.8, bite: 0.6, bundle: 0.75, sleep: 0.8, morning: 0.8,
   swing: 5.9, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 3.6, scythe: 16, weed: 5,
   // Round 9 hierarchy: a splash / plop is a water event, louder than a footstep (splash ≈ -20 LUFS
   // momentary on the reel), the door ≈ -24, thunder a +10 dB event over the storm bed.
@@ -119,7 +119,7 @@ const TRIM: Record<string, number> = {
   // Round 4 UI hierarchy (reel, 100 ms loudness — the ear's integration time for short cues):
   // hover ≈ click − 6 (it fires constantly), click ≈ select ≈ slot ≈ tab, open / close over click,
   // the error cue at least as loud as open (a cue you can't miss); the whole set inside 8 LU.
-  'ui:open': 1.1, 'ui:close': 1.39, 'ui:hover': 10.9, 'ui:select': 11, 'ui:tab': 2.8, 'ui:toggle': 5.3, 'ui:error': 1.85,
+  'ui:open': 1.1, 'ui:close': 1.6, 'ui:hover': 10.9, 'ui:select': 11, 'ui:tab': 2.8, 'ui:toggle': 5.3, 'ui:error': 1.85,
   // (Round 7: menu open / talk-select +2.8 dB — the live probe had them at the ambience floor + 3 dB, a
   // chorus of birds away from inaudible; still ~6 dB under the quietest farming verb.)
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
@@ -128,17 +128,23 @@ const TRIM: Record<string, number> = {
   // (Round 9: +6 dB — the live probe had it 2 dB over the ambience floor.)
   'ui:slot': 5.6,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
-  rockbreak: 1.6, hoe: 5.8,
+  rockbreak: 2.7, hoe: 6.4,
   // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
   // momentary on the reel), rewards / stingers pulled ~2 dB under them so they stay under median + 9.
-  axe: 2.2, pickaxe: 2.6, 'sword:hit': 2, hurt: 2, 'ui:tick': 5.2,
+  axe: 2.2, pickaxe: 2.6, 'sword:hit': 2.6, hurt: 2, 'ui:tick': 5.2,
   // Round 3 additions, levelled from the reel (median momentary max ≈ -21 LUFS): level-up / chest sit
   // with the rewards (~-15), emotes and chat around the small foley (~-20 … -26).
-  levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 6, chat: 2,
+  levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 6, chat: 3.4, // (chat +4.6 dB in round 5: the beds came up 6 dB)
   'emote:question': 3, 'emote:sweat': 3.5, 'emote:anger': 2, 'emote:sad': 2.2, 'emote:zzz': 1.2, 'emote:dots': 4, 'emote:music': 0.7,
 };
 
-/** Impacts that get per-repeat pitch (±2.5 st) and level (±2 dB) variation. */
+/**
+ * Round 5: the whole menu set +4.4 dB (spacing inside it unchanged) — clicks sat ~5 dB under the
+ * score's short-term max; with the menu duck (systems/audio.ts) they now sit on top of the page.
+ */
+const UI_LIFT = 1.66;
+
+/** Impacts that get per-repeat pitch (±2.5 st) and level (±1.2 dB) variation. */
 const VARY = new Set(['hoe', 'hoe:dull', 'axe', 'pickaxe', 'rockbreak', 'sword', 'sword:hit', 'slime:hit', 'hurt', 'door', 'place', 'plant', 'weed', 'scythe', 'swing', 'axe:miss', 'harvest', 'pickup', 'eat', 'ladder']);
 
 const LONG_SFX = new Set(['treefall', 'hall', 'lantern', 'catch', 'catch:perfect', 'sleep', 'thunder', 'giant', 'gift:love', 'levelup', 'join', 'chest']);
@@ -308,7 +314,8 @@ export class Sfx {
     const { d, t } = this.bus({ ...o, pan: (o?.pan ?? 0) + this.stepSide * 0.06, gain: (o?.gain ?? 1) * trim * this.v(1.45 * 2.1) }, false, false, soft ? this.stepPresence : undefined);
     const k = 0.9 + this.rng.next() * 0.2;
     // Sole scuff: a short 2–4 kHz grain on every surface — the part that cuts through birdsong.
-    if (surface !== 'water') this.noise(d, t + 0.004, { f: 2900 * k, q: 1.3, amp: surface === 'wood' ? 0.05 : 0.07, attack: 0.003, tau: 0.014, buf: this.g.pink });
+    // (Round 5: +3 dB — steps sat ~7 dB under the bed in the gameplay check; this grain carries them.)
+    if (surface !== 'water') this.noise(d, t + 0.004, { f: 2900 * k, q: 1.3, amp: surface === 'wood' ? 0.07 : 0.1, attack: 0.003, tau: 0.014, buf: this.g.pink });
     switch (surface) {
       case 'grass':
         this.noise(d, t, { f: 1300 * k, q: 0.7, amp: 0.2, attack: 0.008, tau: 0.03, buf: this.g.pink });
@@ -356,12 +363,16 @@ export class Sfx {
       case 'sand':
         // Sand gives: a soft 400–700 Hz compression thump under the hiss of grains.
         this.noise(d, t, { f: 560 * k, q: 0.9, amp: 0.26, attack: 0.015, tau: 0.05, buf: this.g.pink });
+        // Round 5: the heel's first bite into dry grains — a tight crunch at the contact frame so the
+        // step has the same attack as the other surfaces (sand peaked 3.4 dB under grass).
+        this.crunch(d, t + 0.002, 0.13, { n: 4, span: 0.02, lo: 1800, hi: 4200, click: 0.35, clickF: 900 + this.rng.next() * 300 });
         this.noise(d, t + 0.005, { f: 1700 * k, q: 0.5, amp: 0.2, attack: 0.025, tau: 0.05, buf: this.g.pink });
         this.noise(d, t + 0.02, { type: 'highpass', f: 5200, amp: 0.012, attack: 0.02, tau: 0.03 });
         break;
       case 'snow':
         // Compressed-snow squeak: a burst of tiny tuned crunches.
-        for (let i = 0; i < 7; i++) this.noise(d, t + i * 0.011 + this.rng.next() * 0.006, { f: (1500 + this.rng.next() * 1300) * k, q: 3.5, amp: 0.16 * (1 - i * 0.11), tau: 0.009 });
+        // (Round 5: the first squeak +4 dB — the crunch's attack — to level its peak with grass.)
+        for (let i = 0; i < 7; i++) this.noise(d, t + i * 0.011 + this.rng.next() * 0.006, { f: (1500 + this.rng.next() * 1300) * k, q: 3.5, amp: (i === 0 ? 0.21 : 0.16) * (1 - i * 0.11), tau: 0.009 });
         this.noise(d, t, { type: 'lowpass', f: 800, amp: 0.18, attack: 0.01, tau: 0.04, buf: this.g.pink });
         this.roll(d, t, k, 0.8, 0.75);
         break;
@@ -432,12 +443,14 @@ export class Sfx {
     // SFX outrank the score in the polyphony budget; only cosmetic repeats are refused under load.
     const at = Math.max(o?.at ?? this.g.ctx.currentTime, this.g.ctx.currentTime);
     if (!this.g.voiceStart(at, LONG_SFX.has(name) ? 3 : 0.8, name === 'ui:hover' || name === 'reel' || name.startsWith('step:') ? 2 : 3)) return;
-    // Repeated impacts never machine-gun: ±2.5 semitones and ±2 dB per repeat.
+    // Repeated impacts never machine-gun: ±2.5 semitones and ±1.2 dB per repeat.
     const vary = VARY.has(name);
     this.pv = vary ? Math.pow(2, r.range(-2.5, 2.5) / 12) : 1;
-    const lv = vary ? Math.pow(10, r.range(-2, 2) / 20) : 1;
+    // (Round 5: level ±1.2 dB, was ±2 — the pitch carries the variety; ±2 dB let a chop outshout
+    // the tree crash it set up.)
+    const lv = vary ? Math.pow(10, r.range(-1.2, 1.2) / 20) : 1;
     const key = !ui && name !== 'reel' && !name.startsWith('step:') && !name.startsWith('emote:');
-    const { d, t } = this.bus({ ...o, gain: (o?.gain ?? 1) * (TRIM[name] ?? 1) * lv }, ui, key);
+    const { d, t } = this.bus({ ...o, gain: (o?.gain ?? 1) * (TRIM[name] ?? 1) * lv * (name.startsWith('ui:') ? UI_LIFT : 1) }, ui, key);
     const shared = this.g.rng;
     this.g.rng = this.grng;
     try {
@@ -532,7 +545,16 @@ export class Sfx {
         this.crunch(d, t + 1.62, 0.18, { n: 6, span: 0.2, lo: 1800, hi: 5000, click: 0.3 });
         this.noise(d, t + 1.47, { f: 2600, q: 0.8, amp: 0.2, attack: 0.03, tau: 0.3, buf: this.g.pink });
         this.crumbs(d, t + 1.5, 12, 0.06, 0.6);
-        this.g.duckMusic(t + 1.4, 0.7, 0.5, 0.8);
+        // Round 5 payoff: the trunk hits the ground with weight — a 50-80 Hz ground thump that rings
+        // (tau 0.35 s), a 200-400 Hz body bloom, then the crown settling: a 1.2 s leaf-and-twig
+        // rustle that thins out, with late branch snaps. The score ducks hard under the landing.
+        this.tone(d, t + 1.45, { f0: 78, f1: 48, glide: 0.35, amp: 0.15, attack: 0.004, tau: 0.35 });
+        this.noise(d, t + 1.45, { type: 'lowpass', f: 380, amp: 0.22, attack: 0.006, tau: 0.22, buf: this.g.brown });
+        this.noise(d, t + 1.46, { f: 260, q: 0.9, amp: 0.2, attack: 0.01, tau: 0.18, buf: this.g.pink });
+        this.noise(d, t + 1.5, { f: 1800, f1: 3400, q: 0.6, amp: 0.4, attack: 0.06, tau: 0.42, buf: this.g.pink });
+        this.noise(d, t + 1.55, { f: 4200, q: 0.8, amp: 0.12, attack: 0.08, tau: 0.45 });
+        for (let i = 0; i < 6; i++) this.crunch(d, t + 1.7 + i * (0.12 + r.next() * 0.1), 0.16 * (1 - i * 0.12), { n: 4, span: 0.05, lo: 1800, hi: 4800, click: 0.3 });
+        this.g.duckMusic(t + 1.4, 0.45, 0.9, 1.2);
         break;
       case 'pickaxe':
         // Steel on stone: a bright ring, a chip-crunch and a small knock.
@@ -553,6 +575,14 @@ export class Sfx {
         this.crunch(d, t, 0.36, { n: 8, span: 0.06, click: 1, clickF: 1400 });
         this.crunch(d, t + 0.07, 0.2, { n: 6, span: 0.1, lo: 1800, hi: 5000, click: 0 });
         this.crumbs(d, t + 0.1, 14, 0.1, 0.45);
+        // Round 5 payoff: the halves fall apart — a fuller 120-300 Hz knock of the chunks landing,
+        // a 0.3 s gravel slide and a second rattle of shards, so the break outranks the strike.
+        this.tone(d, t + 0.12, { f0: 140, f1: 90, glide: 0.1, amp: 0.2, tau: 0.08 });
+        this.noise(d, t + 0.12, { f: 900, q: 0.7, amp: 0.34, attack: 0.01, tau: 0.12, buf: this.g.pink });
+        this.noise(d, t + 0.16, { f: 2600, q: 0.7, amp: 0.16, attack: 0.03, tau: 0.16, buf: this.g.pink });
+        this.crunch(d, t + 0.2, 0.2, { n: 8, span: 0.22, lo: 1600, hi: 4600, click: 0.4, clickF: 1250 });
+        this.crumbs(d, t + 0.3, 10, 0.08, 0.4);
+        this.g.duckMusic(t, 0.75, 0.25, 0.4);
         break;
       case 'scythe':
         // A soft airy swish (kept under ~2 kHz so repeated mowing never gets hissy).
@@ -624,6 +654,10 @@ export class Sfx {
         this.noise(d, t + 0.012, { type: 'highpass', f: 3200, amp: 0.05, attack: 0.008, tau: 0.05 });
         this.tone(d, t, { f0: 280, f1: 950, glide: 0.06, amp: 0.32, tau: 0.045 });
         this.noise(d, t, { f: 1200, q: 1, amp: 0.16, tau: 0.025, buf: this.g.pink });
+        // Round 5: the "pop" itself — a bright 2.5-4 kHz cork-pop transient (rising blip + tight
+        // band of noise) that clears the score's 1-4 kHz band instead of sitting under it.
+        this.tone(d, t + 0.004, { f0: 2500, f1: 3900, glide: 0.018, amp: 0.2, attack: 0.001, tau: 0.016 });
+        this.noise(d, t + 0.002, { f: 3300, q: 1.6, amp: 0.34, attack: 0.0008, tau: 0.012 });
         this.chime(d, t + 0.07, this.kn(3), 0.3, 'kalimba');
         this.chime(d, t + 0.14, this.kn(5), 0.26, 'kalimba');
         break;
@@ -747,11 +781,15 @@ export class Sfx {
       }
       case 'ui:open':
         this.noise(d, t, { f: 600, f1: 2400, q: 1.2, amp: 0.09, attack: 0.06, tau: 0.04, buf: this.g.pink });
+        // (Round 5) the page edge flicking past: a crisp 2.5–3.5 kHz tick on the very first frame,
+        // so the cue's onset reads over the score's 1–4 kHz band before the chimes ring.
+        this.noise(d, t, { f: 3000, q: 1.6, amp: 0.22, attack: 0.001, tau: 0.012 });
         this.chime(d, t + 0.03, this.kn(3), 0.16);
         this.chime(d, t + 0.09, this.kn(5), 0.16);
         break;
       case 'ui:close':
         this.noise(d, t, { f: 2200, f1: 600, q: 1.2, amp: 0.07, attack: 0.05, tau: 0.04, buf: this.g.pink });
+        this.noise(d, t, { f: 2700, q: 1.6, amp: 0.09, attack: 0.001, tau: 0.01 });
         this.chime(d, t + 0.02, this.kn(5), 0.11);
         this.chime(d, t + 0.08, this.kn(3), 0.11);
         break;

@@ -27,7 +27,7 @@ import type { Game } from '../core/game';
 import { TileFlag, TileType } from '../world/tiles';
 import { AudioEngine } from '../audio/engine';
 import type { EnvState, AmbSeason, AmbWeather } from '../audio/ambience';
-import { chooseTheme, songFor, STORM_OUTDOOR_LEVEL } from '../audio/select';
+import { chooseTheme, MENU_LEVEL, MENU_MUFFLE, MENU_TAU, songFor, STORM_OUTDOOR_LEVEL } from '../audio/select';
 import { PiecePrefetch } from '../audio/prefetch';
 import { MusicDirector, MUSIC_LOOKAHEAD, MUSIC_STATS } from '../audio/music';
 import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
@@ -51,6 +51,12 @@ interface RemoteVoice {
   fish: string;
   reelT: number;
 }
+
+/** Rest between songs on the farm by day (see MusicDirector.restOverride). */
+const FARM_REST: [number, number] = [30, 90];
+
+/** Panels that are a menu "page" (the score steps back behind them; see update()). */
+const MENU_PANELS = new Set(['inventory', 'shop', 'crafting', 'map', 'journal', 'bundles', 'board', 'social', 'carpenter', 'tackle', 'coop', 'letter', 'elevator', 'saves']);
 
 export interface AudioState {
   running: boolean;
@@ -788,6 +794,8 @@ export class AudioSystem implements System {
 
   /** Recent SFX voiced on this client (see state().sfxLog). */
   private sfxLog: { name: string; gain: number; pan: number; at: number }[] = [];
+  /** A menu page was open on the last update (see MENU_PANELS). */
+  private menuOpen = false;
 
   // ───────────────────────────────────────────── per frame
 
@@ -881,18 +889,28 @@ export class AudioSystem implements System {
     this.decide(game);
     const panel = game.hud.openPanelName ?? '';
     const paused = panel === 'pause' || panel.startsWith('settings');
-    let level = 1;
+    // Menus are their own space: the score steps back behind the page (−3 dB, ~2.6 kHz low-pass) so
+    // the clicks / ticks sit crisply on top, and opens up again the moment the panel closes.
+    const menu = MENU_PANELS.has(panel.split(':')[0] ?? '');
+    let level = menu ? MENU_LEVEL : 1;
     if (this.env.night > 0.5 && !e.music.desired?.startsWith('night')) level *= 0.8;
     if (this.speaking) level *= 0.78;
     if (this.env.indoor) level *= 0.9;
     // A storm keeps the rain tune outdoors too, just under the thunder (same selection indoors and
     // out, so a doorway only changes the level — see select.ts).
     else if (this.env.weather === 'storm') level *= STORM_OUTDOOR_LEVEL;
-    e.music.setLevel(level);
-    const muffle = paused ? 0.55 : this.sleeping ? 0.8 : 0;
+    // Rain outdoors is a foreground mood: the score steps back (−3 dB) under the louder rain bed.
+    else if (this.env.weather === 'rain') level *= 0.72;
+    // A menu steps the score back (and forward again) quickly; everything else drifts.
+    e.music.setLevel(level, menu !== this.menuOpen ? MENU_TAU : 2);
+    this.menuOpen = menu;
+    // Farm days breathe: 30–90 s of birds and wind between songs (the town / festivals keep theirs).
+    e.music.restOverride = this.env.map === 'farm' && this.env.night < 0.5 ? FARM_REST : null;
+    const muffle = paused ? 0.72 : menu ? MENU_MUFFLE : this.sleeping ? 0.8 : 0;
     if (Math.abs(muffle - this.muffle) > 0.01) {
+      const snap = menu || Math.abs(this.muffle - MENU_MUFFLE) < 0.01;
       this.muffle = muffle;
-      e.graph.setMusicMuffle(muffle);
+      e.graph.setMusicMuffle(muffle, ctx.currentTime, snap ? MENU_TAU : 0.4);
     }
     if (this.hiddenFade && !document.hidden) this.onRunning();
     this.tickAudio(false);

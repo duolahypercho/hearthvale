@@ -1533,9 +1533,12 @@ export class NetSystem implements System, NetApi {
         const tiles = this._role === 'client' ? this.affected(itemId, x, z, facing) : [];
         for (const i of tiles) this.replayTiles.set(i, (this.replayTiles.get(i) ?? 0) + 1);
         const heard = performance.now();
+        // The tile as it was when the stroke was announced: if the host's delta lands before the
+        // replay, the replay still voices the stroke as it landed (farmsync.applyUse).
+        const heardKey = this._role === 'client' && itemId !== '@act' ? this.sync.tileKey(x, z) : undefined;
         this.later(IMPACT[act.kind] * 1000, () => {
           if (itemId === '@act') this.sync.applyHarvest(x, z);
-          else this.sync.applyUse(itemId, x, z, facing);
+          else this.sync.applyUse(itemId, x, z, facing, undefined, false, heardKey);
           // Now settle those tiles on the host's word (normally a no-op: the replay matched it).
           for (const i of tiles) this.settleReplay(i, heard, 0);
         });

@@ -16,7 +16,7 @@
  */
 import { Rand } from './dsp';
 
-export type Species = 'robin' | 'finch' | 'warbler' | 'thrush' | 'wren' | 'chickadee' | 'dove' | 'owl' | 'gull' | 'cricket' | 'drip' | 'frog';
+export type Species = 'robin' | 'finch' | 'warbler' | 'thrush' | 'wren' | 'chickadee' | 'dove' | 'owl' | 'gull' | 'cricket' | 'drip' | 'frog' | 'bubble';
 
 interface Syl {
   dur: number;
@@ -179,10 +179,16 @@ function template(sp: Species, r: Rand, i: number): Syl {
       const f = r.range(1400, 3600);
       return { ...base, dur: r.range(0.035, 0.07), f0: f, f1: f * r.range(0.8, 0.9), h2: 0.1, h3: 0.02, fmDepth: 0, attack: 0.0015, wet: 0.3, formant: 1, q: 1.5 };
     }
+    case 'bubble': {
+      // A brook's babble grain: a resonant bubble closing at the surface — pitch RISES fast through
+      // its short life (Minnaert resonance as the bubble shrinks), 300–1500 Hz, 20–55 ms.
+      const f = 300 * Math.pow(5, r.next());
+      return { ...base, dur: r.range(0.02, 0.055), f0: f, f1: f * r.range(1.35, 1.9), h2: 0.06, h3: 0, fmDepth: 0, attack: 0.001, wet: 0.25, formant: 1, q: 2.2 };
+    }
   }
 }
 
-const BANK_SIZE: Partial<Record<Species, number>> = { chickadee: 12, owl: 12, dove: 16, cricket: 12, drip: 24, frog: 16 };
+const BANK_SIZE: Partial<Record<Species, number>> = { chickadee: 12, owl: 12, dove: 16, cricket: 12, drip: 24, frog: 16, bubble: 32 };
 
 export class BirdBank {
   private banks = new Map<Species, AudioBuffer[]>();

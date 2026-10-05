@@ -65,7 +65,9 @@ export interface VoiceSpan {
 export const DEFAULT_VOLUMES = { master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7 };
 /** Fixed bus trims under the user volumes. */
 // SFX sit ~8 dB hotter than round 1 (the gameplay render: verbs must clear the score by +4 LU).
-export const BUS_TRIM = { master: 0.8, music: 1, sfx: 2.2, ui: 0.9, ambience: 0.9 };
+// (Round 5: ambience +6 dB — the beds sat 13–17 LU under the score; the night lift and the rest lift
+// came down to match.)
+export const BUS_TRIM = { master: 0.8, music: 1, sfx: 2.2, ui: 0.9, ambience: 1.8 };
 
 export interface GraphOptions {
   /** Offline only: apply the live polyphony budget (72 voices) so renders match the game. */
@@ -91,7 +93,11 @@ export class AudioGraph {
   readonly musicVol: GainNode;
   /** Music tone control: a gentle low-pass for "muffled" states (indoors, pause menu, fainting). */
   readonly musicTone: BiquadFilterNode;
+  /** Parallel air exciter's return level on the score (see the constructor). */
+  readonly exciter: GainNode;
   readonly ambBus: GainNode;
+  /** The ambience's share of the SFX sidechain (see attachSidechain). */
+  private ambSide: { gain: GainNode; amount: number }[] = [];
   /** Extra ambience lift while the score rests (so silences feel intentional). */
   readonly ambRest: GainNode;
   readonly sfxBus: GainNode;
@@ -219,6 +225,25 @@ export class AudioGraph {
     glue.release.value = 0.3;
     const glueMakeup = g(1);
     this.musicBus.connect(this.duck).connect(this.sideDuck).connect(this.musicTone).connect(warm).connect(mud).connect(presence).connect(air).connect(glue).connect(glueMakeup).connect(this.musicVol).connect(this.mix);
+    // Air exciter (round 5): the synthesised ensemble has almost nothing above 8 kHz (0–2 % of its
+    // power), and a shelf can't lift what isn't there. A parallel band (3.5 kHz up) is gently
+    // saturated to grow its own upper harmonics; only what lands above 7.5 kHz is mixed back in,
+    // ~-20 dB under the dry signal — the sparkle of a real mallet / pluck attack, not fizz. It
+    // follows the muffle (taken after the tone filter).
+    const exHp = bq('highpass', 3500, 0.7);
+    const exSat = ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < curve.length; i++) {
+      const x = (i / (curve.length - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * 4) / Math.tanh(4);
+    }
+    exSat.curve = curve;
+    exSat.oversample = '2x';
+    const exPre = g(3);
+    const exHp2 = bq('highpass', 7500, 0.7);
+    const exHp3 = bq('highpass', 7500, 0.7);
+    this.exciter = g(0.3); // per song: ThemeDef.air (music.ts)
+    air.connect(exHp).connect(exPre).connect(exSat).connect(exHp2).connect(exHp3).connect(this.exciter).connect(glue);
     // Stage width: a mid/side lift of the score's side signal above 300 Hz (+1.7 dB), added in
     // parallel (L += w·S, R −= w·S) so the bass stays centred and the mono fold-down is untouched.
     // The ensemble read close to mono (L/R correlation ~0.7); this opens it to ~0.6. Songs that are
@@ -238,7 +263,11 @@ export class AudioGraph {
     sideHp.connect(wL).connect(merge, 0, 0);
     sideHp.connect(wR).connect(merge, 0, 1);
     merge.connect(this.musicVol);
-    this.ambBus.connect(this.ambRest).connect(this.mix);
+    // (Round 5) the beds sit higher now, so they step back with the score under a world SFX — at
+    // 70 % of the music's sidechain depth (≈ 2 dB), birds and wind politely make room for the hoe.
+    const ambDuck = g(1);
+    this.ambSide = [{ gain: ambDuck, amount: 0.7 }];
+    this.ambBus.connect(this.ambRest).connect(ambDuck).connect(this.mix);
     this.sfxBus.connect(this.mix);
     this.uiBus.connect(this.mix);
     if (opts.worklet) this.attachSidechain(true);
@@ -527,7 +556,7 @@ export class AudioGraph {
 
   /** Lift the ambience a little while the score rests (0..1). */
   setAmbienceLift(amount: number, at = this.ctx.currentTime): void {
-    this.ambRest.gain.setTargetAtTime(1 + 0.41 * amount, at, 1.5); // +3 dB
+    this.ambRest.gain.setTargetAtTime(1 + 0.19 * amount, at, 1.5); // +1.5 dB (round 5: the beds sit higher all the time)
   }
 
   /** Glide the score's stage width to `w` (a new song's `width`) over `over` seconds from `at`. */
@@ -544,10 +573,10 @@ export class AudioGraph {
   attachSidechain(worklet: boolean): void {
     if (this.ducker) return;
     try {
-      attachDucker(this.ctx, this.duckKey, this.sideDuck, worklet);
+      attachDucker(this.ctx, this.duckKey, this.sideDuck, worklet, this.ambSide);
       this.ducker = worklet ? 'worklet' : 'native';
     } catch {
-      attachDucker(this.ctx, this.duckKey, this.sideDuck, false);
+      attachDucker(this.ctx, this.duckKey, this.sideDuck, false, this.ambSide);
       this.ducker = 'native';
     }
   }

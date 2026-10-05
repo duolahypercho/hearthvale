@@ -40,6 +40,14 @@ export interface MusicContext {
 
 /** Music level outdoors in a storm (× the normal level): the rain tune under the thunder. */
 export const STORM_OUTDOOR_LEVEL = 0.55;
+/**
+ * Menu "page" (inventory, shop, crafting, map, journal…): the score steps back behind it — level
+ * ×0.72 (−3 dB) and a ~2.6 kHz low-pass (graph.setMusicMuffle amount) over MENU_TAU s — so the UI
+ * ticks sit on top. Applied by the adapter (systems/audio.ts) and mirrored in the gameplay render.
+ */
+export const MENU_LEVEL = 0.72;
+export const MENU_MUFFLE = 0.66;
+export const MENU_TAU = 0.1;
 
 export function mineThemeFor(floor: number | undefined): string {
   if (!floor || floor < 1) return 'mine';

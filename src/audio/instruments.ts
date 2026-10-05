@@ -92,8 +92,14 @@ export function noiseHit(
   a.gain.linearRampToValueAtTime(o.amp, t + attack);
   a.gain.setTargetAtTime(0, t + attack, o.tau);
   src.connect(bf).connect(a).connect(dest);
+  // Loop the buffer so long tails (surf foam, thunder rumble: 6-9 s) never run out mid-decay;
+  // the random offset still varies the grain. Buffers are >= 3 s, so the loop seam is inaudible
+  // under the exponential decay.
   const len = src.buffer.duration;
-  src.start(t, g.rng.next() * (len - 1));
+  src.loop = true;
+  src.loopStart = 0;
+  src.loopEnd = len;
+  src.start(t, g.rng.next() * (len - 0.05));
   src.stop(t + attack + o.tau * 7);
 }
 
@@ -780,6 +786,7 @@ function windVoice(o: WindSpec): InstrumentFn {
     // glides with it) and a soft broadband hiss; strongest at the onset, riding the swell.
     const src = g.ctx.createBufferSource();
     src.buffer = g.pink;
+    src.loop = true; // long held notes outlast the 4 s noise buffer
     src.loop = true;
     const res = filter(g, 'bandpass', f, o.breathQ);
     if (legato && opt?.from !== undefined) glide(res.frequency, t, f, opt.from, 0.05);

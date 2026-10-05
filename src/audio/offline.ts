@@ -6,7 +6,7 @@
 import { AudioGraph } from './graph';
 import { loadDucker } from './ducker';
 import { MusicDirector, scheduleTheme, MUSIC_LOOKAHEAD, MUSIC_SCHED, MUSIC_STATS } from './music';
-import { chooseTheme, STORM_OUTDOOR_LEVEL } from './select';
+import { chooseTheme, MENU_LEVEL, MENU_MUFFLE, MENU_TAU, STORM_OUTDOOR_LEVEL } from './select';
 import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
 import { THEMES } from './themes';
@@ -412,6 +412,14 @@ export async function renderGameplay(part: 'full' | 'sfx' | 'bed', seconds = 20,
       const sfx = new Sfx(g, 5);
       sfx.key = THEMES[theme]!.key;
       for (const e of GAMEPLAY_SCRIPT) sfx.play(e.name, { at: e.t, gain: e.gain });
+    }
+    // The menu opening at 17.8 s: the game's adapter steps the score back behind the page (−3 dB,
+    // ~2.6 kHz low-pass; systems/audio.ts MENU_PANELS) as the panel opens — the same in the bed.
+    if (part !== 'sfx') {
+      const open = GAMEPLAY_SCRIPT.find((e) => e.name === 'ui:open')!.t;
+      g.setMusicMuffle(MENU_MUFFLE, open, MENU_TAU);
+      const v = g.musicVol.gain.value;
+      g.musicVol.gain.setTargetAtTime(v * MENU_LEVEL, open, MENU_TAU);
     }
   });
   return { name: `gameplay-${part}`, sampleRate: sr, data: encode(buf), frames: buf.length, markers: GAMEPLAY_SCRIPT.filter((e) => !e.aux).map((e) => ({ name: e.verb ? `${e.name}*` : e.name, t: e.t })) };

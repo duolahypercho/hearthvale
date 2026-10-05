@@ -270,7 +270,8 @@ export const DAY_THEME = /^(theme|mix)-(spring|summer|fall|winter|town|beach|tit
 export function flags(a, kind, name = '') {
   const f = [];
   const top = a.bands.presence + a.bands.air;
-  if (DAY_THEME.test(name) && top < 0.09) f.push(`DULL(${(top * 100).toFixed(0)}%)`);
+  // (Round 5: the DULL fail line moved 9 → 10 %.)
+  if (DAY_THEME.test(name) && top < 0.1) f.push(`DULL(${(top * 100).toFixed(0)}%)`);
   else if (DAY_THEME.test(name) && top < 0.12) f.push(`mellow(${(top * 100).toFixed(0)}%)`);
   // The other end: a day theme with under 6 % of its power in 60–250 Hz has no bottom (a boxy,
   // laptop-voiced mix). Target 10–20 % (the warm acoustic-ensemble norm).

@@ -323,7 +323,7 @@ export function critiquePiece(id: string, seed = 1): Critique {
     if (steps / moves < 0.3) flags.push('ANGULAR');
     if (parallels / minutes > 4) flags.push('PARALLELS');
     if (finalDeg && finalDeg !== '1') flags.push(`NO-TONIC-CADENCE(${finalDeg})`);
-    if (crowdPct > 50) flags.push(`MASKED-TUNE(${crowdWorst})`);
+    if (crowdPct > 25) flags.push(`MASKED-TUNE(${crowdWorst})`);
     if (tenorGap > 22) flags.push('HOLLOW-MIDDLE');
   }
   const distinct = new Set(spans.map((s) => s.sym)).size;

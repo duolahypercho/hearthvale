@@ -17,6 +17,7 @@ import type { EventName, GameEvents } from '../core/events';
 import type { System } from '../core/system';
 import type { GameMap } from '../world/map';
 import type { TileGrid } from '../world/tiles';
+import type { ImpactKind } from '../systems/farming';
 import { TileFlag, TileType } from '../world/tiles';
 import type { Nature } from '../world/props/nature';
 
@@ -60,6 +61,9 @@ export const FARM_TOOLS = new Set(['hoe', 'wateringCan', 'axe', 'pickaxe', 'scyt
 
 /** Events that still fire while replaying another farmer's action (world FX + ambience SFX). */
 const PASS = new Set<EventName>(['item:use', 'soil:tilled', 'soil:watered', 'crop:planted', 'sprinkler:spray', 'soil:fertilized', 'tool:impact', 'crop:giant'] as EventName[]);
+
+/** What a stroke hit when it landed on the host (a farmhand replay that found the tile already changed). */
+const LANDED: Record<string, ImpactKind> = { hoe: 'soil', pickaxe: 'stone', axe: 'wood', scythe: 'weed', wateringCan: 'water' };
 
 export type Interceptor = <K extends EventName>(name: K, payload: GameEvents[K]) => boolean;
 
@@ -131,9 +135,24 @@ export class FarmSync {
         return true;
       }
       if (name === 'tool:impact') {
-        const p = payload as GameEvents['tool:impact'];
+        let p = payload as GameEvents['tool:impact'];
+        const ov = this.impactOverride;
+        if (ov && !opts.quiet && (p.hit === 'none' || p.hit === 'tilled')) p = { ...p, hit: ov.hit, strength: ov.strength };
         if (p.hit === 'none' || opts.quiet) return true;
-        return prev ? prev(name, payload) : false;
+        if (prev?.('tool:impact', p)) return true;
+        // Dispatch it ourselves (host's outcome, see applyUse) with the local farmer back where they
+        // stand: the replay parks them 100 km away (above), and positional listeners (the audio's
+        // distance / pan) must hear the stroke from where the farmer really is.
+        bus.interceptor = prev;
+        const off = pl.position.x;
+        pl.position.x = px;
+        try {
+          game.events.emit('tool:impact', p);
+        } finally {
+          pl.position.x = off;
+          bus.interceptor = hook;
+        }
+        return true;
       }
       if (!PASS.has(name)) return true;
       return prev ? prev(name, payload) : false;
@@ -173,10 +192,26 @@ export class FarmSync {
   }
 
   /** Apply a farmer's tool / seed use on (x, z) (host: validated intent; farmhands: a replay). */
-  applyUse(itemId: string, x: number, z: number, facing: 'up' | 'down' | 'left' | 'right', give?: (itemId: string, qty: number, quality: number) => void, quiet = false): boolean {
+  applyUse(itemId: string, x: number, z: number, facing: 'up' | 'down' | 'left' | 'right', give?: (itemId: string, qty: number, quality: number) => void, quiet = false, heardKey?: string): boolean {
     const f = this.farming();
     if (!f) return false;
     const before = this.tileKey(x, z);
+    // Farmhand replay: if the tile already changed between the 'did' arriving (`heardKey`) and this
+    // replay (the host's delta / a full sync got there first), the stroke still landed on the host —
+    // voice it as the host resolved it, not as a refused "dull" thunk (or silence) on our copy.
+    const landed = heardKey !== undefined && heardKey !== before ? LANDED[itemId] : undefined;
+    this.impactOverride = landed ? { hit: landed, strength: 1 } : null;
+    try {
+      return this.applyUseInner(f, itemId, x, z, facing, give, quiet, before);
+    } finally {
+      this.impactOverride = null;
+    }
+  }
+
+  /** Host-resolved impact for the replay in flight (see applyUse). */
+  private impactOverride: { hit: ImpactKind; strength: number } | null = null;
+
+  private applyUseInner(f: FarmingNet, itemId: string, x: number, z: number, facing: 'up' | 'down' | 'left' | 'right', give: ((itemId: string, qty: number, quality: number) => void) | undefined, quiet: boolean, before: string): boolean {
     this.remote({ give, facing, quiet }, () => {
       if (itemId === 'scythe') {
         // Ripe crops in the arc are harvested without the "held overhead" pop (it would fly to us).

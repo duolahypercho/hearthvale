@@ -49,6 +49,9 @@ export const MUSIC_STATS = { late: 0, skipped: 0 };
 /** Polyphony priority per track: melody and bass always play; texture thins first. */
 const PRIO: Record<TrackName, number> = { melody: 3, bass: 3, counter: 2, accomp: 2, double: 1, accomp2: 1, pad: 1, perc: 1 };
 
+/** Default air-exciter return for a song (see ThemeDef.air). */
+export const DEFAULT_AIR = 0.3;
+
 export class MusicPlayer {
   readonly out: GainNode;
   readonly wet: GainNode;
@@ -133,6 +136,7 @@ export class MusicPlayer {
     this.wet.connect(shelf(g.hall));
     // Stage width follows the song in (the mines and misty nights are wide already; the day tunes open up).
     g.setWidth(theme.width ?? DEFAULT_WIDTH, Math.max(ctx.currentTime, startAt), Math.max(1, fadeIn));
+    g.exciter.gain.setTargetAtTime(theme.air ?? DEFAULT_AIR, Math.max(ctx.currentTime, startAt), Math.max(0.3, fadeIn / 3));
     this.piece = pieces ? pieces.take(theme, seed) : new Composer(theme, seed).compose();
     this.pinNotes();
     // Seamless loops chain the next piece on the downbeat: have it composed in the background by then.
@@ -425,6 +429,11 @@ export class MusicDirector {
   private current: MusicPlayer | null = null;
   private old: MusicPlayer[] = [];
   private restUntil = 0;
+  /**
+   * Rest between songs set by the game (seconds, [min, max]); null = each song's own `rest`. Farm
+   * days use 30–90 s: the ambience carries the gaps and each song arrives like an event.
+   */
+  restOverride: [number, number] | null = null;
   /** Planned start of the song after a pending handoff (a drift waits for the phrase end). */
   private handoffStart = 0;
   private rng: Rand;
@@ -557,7 +566,7 @@ export class MusicDirector {
       this.lastWant = want;
     }
     if (this.current?.finished) {
-      const [a, b] = this.current.theme.rest;
+      const [a, b] = this.current.theme.rest[1] > 0 && this.restOverride ? this.restOverride : this.current.theme.rest;
       this.old.push(this.current);
       this.log(`finished ${this.current.theme.id}`, want);
       this.current = null;
@@ -631,10 +640,11 @@ export class MusicDirector {
     this.log('recover: players dropped after repeated update failures', this.forced ?? this.desired);
   }
 
-  setLevel(v: number): void {
+  /** Scale the score's level; `tau` (s) — slow by default, fast for a menu stepping in / out. */
+  setLevel(v: number, tau = 2): void {
     if (Math.abs(v - this.level) < 0.01) return;
     this.level = v;
-    this.current?.setLevel(v, 2);
+    this.current?.setLevel(v, tau);
   }
 
   stopAll(fade = 1.5): void {

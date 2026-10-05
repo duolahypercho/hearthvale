@@ -213,6 +213,8 @@ export const THEMES: Record<string, ThemeDef> = {
     rest: [8, 15],
     gain: 0.93,
     sheen: 4.5,
+    // Music box + bells are bright already: a touch of exciter only (0.3 put 19 % of it above 5 kHz).
+    air: 0.04,
   },
 
   /** Hearthvale Square by day — a skipping ocarina tune, off-beat pizzicato, walking bass, woodblocks. */
@@ -313,6 +315,7 @@ export const THEMES: Record<string, ThemeDef> = {
     rest: [5, 12],
     gain: 1.3,
     sheen: 4.5,
+    air: 0.15, // ukulele + steel pan sparkle already (0.3 put 13 % above 5 kHz)
   },
 
   /** The mine (earth floors) — a drone with glass bells that keep returning to one small figure, over
@@ -350,11 +353,12 @@ export const THEMES: Record<string, ThemeDef> = {
       accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
       melody: { gain: 0.62, pan: 0.2, send: 0.7 },
       counter: { gain: 0.38, pan: -0.3, send: 0.6 },
-      bass: { gain: 0.55, pan: 0, send: 0.2 },
+      // (Round 5: drone −4 dB, high-pass 60 → 90 Hz: the floor opened on a muddy 60–200 Hz hum.)
+      bass: { gain: 0.35, pan: 0, send: 0.2 },
       pad: { gain: 0.42, pan: 0, send: 0.6 },
     },
     // Tone: no sub rumble under the drone, 150–250 Hz mud cut (laptop speakers heard only boom).
-    eq: { hp: 60, cut: { f: 200, db: -3, q: 0.8 } },
+    eq: { hp: 90, cut: { f: 200, db: -3, q: 0.8 } },
     rest: [4, 12],
     gain: 1.1,
   },
@@ -868,6 +872,7 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
         rest: [0, 0],
         gain: 0.72,
         sheen: 4,
+        air: 0.12, // music box + sleigh bells: bright already
       };
     case 'fiddle':
       // The Harvest Fair's own tune: a real reel in D dorian (4/4, running quavers), not the jig with

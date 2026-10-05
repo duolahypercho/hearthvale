@@ -171,6 +171,10 @@ export const DEMOS: Record<string, DemoDef> = {
   'audio-eve': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 18.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
   'audio-rain': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 14, season: 'summer', weather: 'rain', camera: HOME_CAM },
   'audio-coop': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
+  // Audio pod r5: the forest brook's babble (granular bubbles over the wash) by the falls, and the summer noon
+  // cicada chorus (swells in within ~3 s). Menu duck: `?demo=audio&ui=inventory` (score −3 dB + low-pass behind the page).
+  'audio-brook': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: FOREST_FALLS_CAM },
+  'audio-noon': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 12.5, season: 'summer', weather: 'sun', camera: HOME_CAM },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.1, offsetZ: -0.5 }, showcase: ['interior'] },
