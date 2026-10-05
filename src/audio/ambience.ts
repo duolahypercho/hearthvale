@@ -261,13 +261,15 @@ export class Ambience {
     const hush = outdoors ? 1 - calm * Math.max(0.65 * s.night, h >= 4.5 && h < 10 ? 0.42 * (1 - s.night) : 0.4) : 1;
     const bedLift = 1 + (windLift - 1) * (1 - calm);
     // (Round 12: a storm's own wind / rain bed −4 dB so the thunder can stand +8-12 dB over it.)
-    const stormBed = storm ? 0.63 : 1;
+    // (Plain rain: the wind wash −6 dB as well — the rain render was still broadband down to 50 Hz;
+    // the patter and the drops are the sound of a wet day.)
+    const stormBed = storm ? 0.63 : raining ? 0.5 : 1;
     const wind = stormBed * (outdoors ? townBed : 1) * (outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * hush * bedLift : mine ? 0.015 : 0);
     this.setBed('wind', wind, now, 0.8);
     const wf = this.beds.wind!.filter!;
     wf.frequency.setTargetAtTime((260 + 520 * this.gust) * (1 + 0.15 * this.wx), now, 1.2);
     const hasLeaves = s.season !== 'winter' && outdoors && !beach;
-    this.setBed('leaves', townBed * (hasLeaves ? (0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.6 : 1)) * hush * (1 + (dayLift - 1) * (1 - calm)) : 0), now, 0.6);
+    this.setBed('leaves', townBed * (raining && !storm ? 0.6 : 1) * (hasLeaves ? (0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.6 : 1)) * hush * (1 + (dayLift - 1) * (1 - calm)) : 0), now, 0.6);
     // Rain: ±4 dB and ±30 % of the hiss band with the weather swell (showers come and go).
     // (Round 5: with the ambience bus +6 dB, rain sits ~3 LU under the score offline and level with it
     // in game — rain is a foreground mood; the adapter drops the music to ~0.7 on wet days.)
@@ -327,7 +329,8 @@ export class Ambience {
     // The babble: granular bubbles (rising 300–1500 Hz chirps, 20–40 a second, spread across the
     // stereo field) over the bed's wash — the difference between a brook and wind.
     if (stream) {
-      const lvl = 0.3 + 0.7 * s.water;
+      // (The brook surges: a slow 6-15 s swell in the babble, so the stream moves.)
+      const lvl = (0.3 + 0.7 * s.water) * (0.6 + 0.4 * Math.sin(now / 2.3) * Math.sin(now / 5.7 + 2));
       let bt = this.next.babble ?? now;
       if (bt < now) bt = now;
       while (bt < now + ahead) {
@@ -360,7 +363,8 @@ export class Ambience {
     const chorus = h < 9.5 ? 1 : h < 17 ? 0.45 : h < 19.5 ? 0.6 : 0;
     const birdsActive = outdoors && !beach && !raining && s.night < 0.35 && chorus > 0 && s.season !== 'winter';
     // Dawn chorus: a phrase (often answered) every ~2 s at sunrise, sparser through the afternoon.
-    let t = due('bird', 1.1 / Math.max(0.2, chorus), 3.6 / Math.max(0.2, chorus), birdsActive);
+    const woods = s.map === 'forest' ? 0.6 : 1;
+    let t = due('bird', (1.1 * woods) / Math.max(0.2, chorus), (3.6 * woods) / Math.max(0.2, chorus), birdsActive);
     if (t !== null) this.bird(t, s, chorus);
     t = due('dove', 9, 22, birdsActive && h < 10.5);
     if (t !== null) this.dove(t);
@@ -385,7 +389,7 @@ export class Ambience {
     if (t !== null) this.dog(t);
     t = due('nightjar', 18, 40, outdoors && s.night > 0.7 && !raining && (s.season === 'summer' || s.season === 'spring'));
     if (t !== null) this.nightjar(t);
-    t = due('woodpecker', 20, 45, outdoors && !raining && s.night < 0.3 && h < 13 && (s.map === 'forest' || s.map === 'farm') && s.season !== 'winter');
+    t = due('woodpecker', 20 * woods, 45 * woods, outdoors && !raining && s.night < 0.3 && h < 13 && (s.map === 'forest' || s.map === 'farm') && s.season !== 'winter');
     if (t !== null) this.woodpecker(t);
     t = due('rooster', 40, 90, outdoors && s.map === 'farm' && h >= 5.5 && h < 8.5 && !raining);
     if (t !== null) this.rooster(t);
@@ -393,7 +397,8 @@ export class Ambience {
     t = due('drip', 0.05, 0.25, raining && !mine);
     if (t !== null) this.drip(t, s.indoor ? 0.4 : 1);
     // Indoors: rain on the roof shingles (1-4 kHz ticks in clusters) and the gutter's slow drip.
-    t = due('roof', 0.02, 0.09, raining && s.indoor);
+    // (The roof follows the showers: thinner and quieter in a lull, a drumming patter in a downpour.)
+    t = due('roof', 0.02 * (1.3 - 0.6 * this.wx), 0.09 * (1.3 - 0.6 * this.wx), raining && s.indoor);
     if (t !== null) this.roofTick(t, (storm ? 1.3 : 1) * swellDb(7));
     t = due('gutter', 0.5, 1.4, raining && s.indoor);
     if (t !== null) this.gutter(t);
@@ -409,7 +414,9 @@ export class Ambience {
     t = due('lap', 0.8, 2.6, outdoors && !beach && s.map !== 'forest' && s.water > 0.25);
     if (t !== null) this.lap(t, s.water);
     // Hearth crackles indoors.
-    t = due('crackle', 0.08, 0.6, hearth);
+    // (The fire flares and settles on its own slow cycle — crackles bunch up, then thin out.)
+    const flare = 1 + 0.7 * Math.sin(now / 9.3) * Math.sin(now / 4.1 + 1);
+    t = due('crackle', 0.08 * flare, 0.6 * flare, hearth);
     if (t !== null) this.crackle(t);
     // Town life: distant chatter by day (busier at festivals), the smithy's anvil, a cart.
     const festive = s.map.startsWith('fest');
@@ -929,7 +936,8 @@ export class Ambience {
     const r = this.rng;
     const brk = t + 2.15 + r.next() * 0.2;
     // (attack 60 → 150 ms: a crash, not a splice — the spectrogram showed a hard broadband edge.)
-    noiseHit(this.g, this.dest(0.1 * dir, 0.25), brk, { type: 'highpass', f: 1500, amp: 0.2 * size, attack: 0.15, tau: 0.38, buf: this.g.pinkSt });
+    // (Round 12: 0.15 → 0.32 s — the render still showed the break as a hard broadband wall.)
+    noiseHit(this.g, this.dest(0.1 * dir, 0.25), brk - 0.12, { type: 'highpass', f: 1500, amp: 0.2 * size, attack: 0.32, tau: 0.38, buf: this.g.pinkSt });
     // ...then the foam: a 2–8 kHz fizz that spreads up the beach and dies away over 2–3 s.
     noiseHit(this.g, this.dest(0.45 * dir, 0.2), brk + 0.25, { type: 'bandpass', f: 4800, q: 0.35, amp: 0.26 * size, attack: 0.35, tau: 0.9, buf: this.g.pinkSt });
     noiseHit(this.g, this.dest(-0.2 * dir, 0.3), brk + 0.4, { type: 'highpass', f: 6500, amp: 0.07 * size, attack: 0.5, tau: 0.8 });

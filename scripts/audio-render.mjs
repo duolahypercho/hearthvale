@@ -723,7 +723,15 @@ async function live() {
     await g.demo('farm-morning');
     a.music('none');
     await sleep(5000);
-    const floor = a.meter();
+    // The ambience floor: the median of 2 s of meter reads (one 46 ms read could land on a rooster,
+    // a dove or a woodpecker — the beds now carry sparse foreground critters, not a steady wash).
+    const reads = [];
+    for (let i = 0; i < 20; i++) {
+      reads.push(a.meter());
+      await sleep(100);
+    }
+    reads.sort((x, y) => x - y);
+    const floor = reads[10];
     const out = [];
     // Each effect three times, median of the peaks: effects carry ±1.2 dB of humanised level and the
     // 30 ms meter can land either side of a transient, so one shot made the hierarchy check flaky.

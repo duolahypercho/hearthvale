@@ -136,7 +136,7 @@ const TRIM: Record<string, number> = {
   rockbreak: 2.7, hoe: 6.4,
   // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
   // momentary on the reel), rewards / stingers pulled ~2 dB under them so they stay under median + 9.
-  axe: 2.2, pickaxe: 2.6, 'sword:hit': 4, hurt: 2, 'ui:tick': 5.2,
+  axe: 2.2, pickaxe: 2.6, 'sword:hit': 4.8, hurt: 2, 'ui:tick': 5.2,
   // Round 12: combat lands harder than tilling (the reel had sword -23.7 / slime:hit -23.3 LUFS
   // momentary against the hoe's -14.4): the swing +2.9 dB (3.6 → 5), the hit +3.7 dB (it must clear the
   // swing by 2 LU on the reel), the blows built on a contact
@@ -779,7 +779,7 @@ export class Sfx {
         this.voice('pickaxe', this.sub(d, 0.55), t, o);
         this.voice('rockbreak', d, t + 0.008, o);
         if ((o?.level ?? 0) >= 1) {
-          this.noise(d, t + 0.05, { type: 'lowpass', f: 220, q: 0.7, amp: 0.55, attack: 0.04, tau: 0.32, buf: this.g.brown });
+          this.noise(d, t + 0.05, { type: 'lowpass', f: 220, q: 0.7, amp: 0.32, attack: 0.04, tau: 0.32, buf: this.g.brown });
           this.crumbs(d, t + 0.35, 10, 0.07, 0.6);
         }
         break;
