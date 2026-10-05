@@ -234,13 +234,14 @@ export class CoopInterior extends InteriorMap {
       const r = 0.36 + Math.sqrt(rng.next()) * 0.62;
       k.sphere('ceramic', 0.012, [fx + Math.cos(a) * r, 0.012, fz + Math.sin(a) * r * 0.8], rng.next() < 0.3 ? 0xc89a40 : 0xe8c050);
     }
-    // Stoneware water crock on its dark wet ring (splashes round it)
+    // Stoneware water crock on a damp ring of straw (r8: a faint darkening hugging the pan, three small
+    // drips — the old dark-brown ring + splashes read as an indoor mud puddle under the ducks)
     const wx = 6.85;
     const wz = 3.5;
-    k.add('fabric', new THREE.CircleGeometry(0.42, 22).rotateX(-Math.PI / 2).scale(1.15, 1, 0.9), mat(wx, 0.011, wz), { tint: 0x8a6a48 });
-    for (let i = 0; i < 5; i++) {
-      const a = 0.6 + i * 1.3;
-      k.add('fabric', new THREE.CircleGeometry(0.07 + (i % 2) * 0.05, 12).rotateX(-Math.PI / 2), mat(wx + Math.cos(a) * 0.55, 0.012, wz + Math.sin(a) * 0.45), { tint: 0x94744e });
+    k.add('fabric', new THREE.CircleGeometry(0.4, 22).rotateX(-Math.PI / 2).scale(1.08, 1, 0.92), mat(wx, 0.011, wz), { tint: 0xa88c5e });
+    for (let i = 0; i < 3; i++) {
+      const a = 0.6 + i * 2.1;
+      k.add('fabric', new THREE.CircleGeometry(0.05 + (i % 2) * 0.03, 12).rotateX(-Math.PI / 2), mat(wx + Math.cos(a) * 0.47, 0.012, wz + Math.sin(a) * 0.4), { tint: 0xac9062 });
     }
     // Blue enamel poultry fount: a wide drinking pan (water ring showing) under a domed reservoir with a
     // white rim stripe and a ring handle (a cool accent in the honey straw).

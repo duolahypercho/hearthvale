@@ -1920,7 +1920,8 @@ export class AnimalSystem implements System, AnimalsApi {
           this.nappers.add(nap);
         }
         // Anyone left over potters at the waterer / feeder (never drifting into the petting shot).
-        const spare: [number, number, number][] = [[6.3, 3.85, 0.7], [4.85, 3.35, -0.5], [6.9, 2.75, 0.3]];
+        // (r8: kept a body length clear of the petting spot right of the farmer and out of the door lane)
+        const spare: [number, number, number][] = [[7.15, 2.7, 0.3], [4.45, 3.4, -0.5], [6.1, 2.35, 0.7]];
         let si = 0;
         for (const l of this.live) {
           if (!l.rec || l === free || l === bath || l === roost || l === nap || l.actor.hungry) continue;

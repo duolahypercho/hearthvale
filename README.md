@@ -705,6 +705,11 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   `barn-interior`, `barn-night`, `animals-pasture`, `animals-petting` (close-up), `animals-coop` (pasture + three co-op
   farmhands, perf), `animals-gallery` (every species + coat), `pet-yard`, `carpenter`, `carpenter-animals`.
   `&pet=dog|cat` picks the pet, `&hearts=0` stops the staged petting hearts, `&petted=1` pre-marks today's petting.
+- Weather: rain / storm sends the herd trotting back through the pop doors (`weather:change`), the pet curls up in its
+  kennel; non-duck animals keep a body-width clear of the duck pond (ducks float low in it). Indoors at night the
+  moonlight shadow fades to 40 % (the farmer no longer throws a black wedge across the lamp-lit floor).
+- Farmhouse floor plan: zoned rooms round an open walking floor (kitchen, dining, hearth circle, bed nook behind the
+  arch, desk + spinning wheel, mudroom along the front knee wall) — no loose prop islands in the middle.
 
 ## Co-op multiplayer (1–4 farmers)
 

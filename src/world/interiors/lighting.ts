@@ -26,7 +26,7 @@ export function installInteriorLighting(game: Game): void {
   const prevBefore = scene.onBeforeRender;
   const prevAfter = scene.onAfterRender;
   const hidden: THREE.Object3D[] = [];
-  let saved: { wet: number; snow: number; rain: number; bias: number; normalBias: number } | null = null;
+  let saved: { wet: number; snow: number; rain: number; bias: number; normalBias: number; shadowK: number } | null = null;
   const center = new THREE.Vector3();
 
   scene.onBeforeRender = function (...args) {
@@ -80,10 +80,13 @@ export function installInteriorLighting(game: Game): void {
     g.uVignette!.value = L.vignette;
     game.rc.post.setBloom(L.bloom, 0.9);
     // 3. Outdoor-only shader globals.
-    if (!saved) saved = { wet: globalUniforms.uWet.value, snow: globalUniforms.uSnow.value, rain: globalUniforms.uRain.value, bias: sun.shadow.bias, normalBias: sun.shadow.normalBias };
+    if (!saved) saved = { wet: globalUniforms.uWet.value, snow: globalUniforms.uSnow.value, rain: globalUniforms.uRain.value, bias: sun.shadow.bias, normalBias: sun.shadow.normalBias, shadowK: sun.shadow.intensity };
     // Grazing window light: push the lookup off the surface along the normal (hat brims, animal backs).
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.035;
+    // (r8: moonlight is a soft fill, not a key — at full strength the farmer threw a black wedge from the
+    // back windows across the lamp-lit floor straight at the lens; the shadow fades to 40 % by night)
+    sun.shadow.intensity = THREE.MathUtils.lerp(1, 0.4, L.night);
     globalUniforms.uWet.value = 0;
     globalUniforms.uSnow.value = 0;
     globalUniforms.uRain.value = 0;
@@ -105,6 +108,7 @@ export function installInteriorLighting(game: Game): void {
       globalUniforms.uRain.value = saved.rain;
       game.lighting.sun.shadow.bias = saved.bias;
       game.lighting.sun.shadow.normalBias = saved.normalBias;
+      game.lighting.sun.shadow.intensity = saved.shadowK;
       saved = null;
     }
   };

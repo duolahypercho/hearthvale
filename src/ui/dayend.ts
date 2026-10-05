@@ -48,6 +48,12 @@ const ALMANAC: Record<string, string[]> = {
   fall: ['Pumpkins like room. Give them a little more than you think.', 'Stack wood now; winter comes quicker than you’d like.', 'The forest drops its best gifts after a wind.'],
   winter: ['Snow is a blanket, not an ending. Plan the spring beds.', 'The mines are warm in winter. Mind the slimes.', 'Visit folk. A kind word keeps longer than jam.'],
 };
+/** Almanac lines for a day spent with the herd (nothing shipped, the animals card on show). */
+const ANIMAL_ALMANAC = [
+  'A pat every morning is worth more than the finest hay. They remember who stops to say hello.',
+  'Happy hens lay golden-star eggs. Fill the trough before you fill your own plate.',
+  'Let them out on a fine day — sunshine and grass make the sweetest milk.',
+];
 /** Fair-ribbon rosette for the day's best line (a sun here read as tomorrow's weather). */
 const ROSETTE = `<svg viewBox="0 0 40 44" xmlns="http://www.w3.org/2000/svg"><path d="M13 22 L7 41 L13.5 37.5 L16.5 43 L21 25 Z" fill="#3f7fc4" stroke="#1d3f66" stroke-width="1.4" stroke-linejoin="round"/><path d="M27 22 L33 41 L26.5 37.5 L23.5 43 L19 25 Z" fill="#3474b8" stroke="#1d3f66" stroke-width="1.4" stroke-linejoin="round"/><path d="M20 2 L23.2 5.4 L27.8 4.4 L28.8 9 L33.2 10.8 L31.8 15.3 L34.6 19 L31.2 22.2 L31.6 26.9 L27 27.5 L24.6 31.6 L20 29.8 L15.4 31.6 L13 27.5 L8.4 26.9 L8.8 22.2 L5.4 19 L8.2 15.3 L6.8 10.8 L11.2 9 L12.2 4.4 L16.8 5.4 Z" fill="#f2b632" stroke="#8a5a0a" stroke-width="1.4" stroke-linejoin="round"/><circle cx="20" cy="17" r="8.6" fill="#ffe28a" stroke="#b07a14" stroke-width="1.3"/><path d="M20 11.4 L21.7 15 L25.6 15.4 L22.7 18 L23.5 21.9 L20 19.9 L16.5 21.9 L17.3 18 L14.4 15.4 L18.3 15 Z" fill="#fff6d0" stroke="#b07a14" stroke-width="1" stroke-linejoin="round"/><ellipse cx="15.5" cy="12" rx="3" ry="1.4" fill="#fff" opacity=".6" transform="rotate(-35 15.5 12)"/></svg>`;
 /** r5: lifetime shipping milestones (the side column's progress bar). */
@@ -417,7 +423,7 @@ export class DayEndScreen extends Screen {
           const pet = an.pet ? `<small style="display:block;margin-top:3px;color:#8a6440;font-weight:700">${escapeHtml(an.pet.name)}’s bowl was ${an.pet.bowl ? 'full' : 'empty'}${an.pet.bowl ? ' ♥' : ''}</small>` : '';
           return `<div class="de-animals" style="margin-top:12px;padding:10px 12px;border-radius:14px;background:rgba(255,252,240,.72);box-shadow:inset 0 0 0 2px rgba(138,100,64,.2)">
             <div class="de-h" style="margin-bottom:4px">Animals</div>
-            <div style="display:flex;gap:${an.leftover ? 7 : 14}px;align-items:baseline;flex-wrap:wrap;row-gap:0;font-weight:800;color:#8a6440;white-space:nowrap"><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.produce.length}</b> ${an.leftover ? 'new' : 'produce'}</span>${an.leftover ? `<span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.leftover}</b> in nests</span>` : ''}${gold ? `<span><b style="font-family:var(--font-head);font-size:21px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.petted}</b> petted</span></div>
+            <div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;row-gap:5px;font-weight:800;font-size:13px;color:#8a6440;white-space:nowrap"><span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.produce.length}</b> ${an.leftover ? 'new' : 'produce'}</span>${an.leftover ? `<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.leftover}</b> in nests</span>` : ''}${gold ? `<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.petted}</b> petted</span></div>
             ${icons ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${icons}</div>` : ''}
             ${hungry}${pet}
           </div>`;
@@ -445,7 +451,7 @@ export class DayEndScreen extends Screen {
             ${tmrCard}
             <div class="de-purse"><span>Purse</span><b>${ICONS.coin}<span class="pv">${gold.toLocaleString()}</span>g</b></div>
             ${choresCard}
-            <div class="de-note"><small>From Grandmother’s almanac</small><p>${(ALMANAC[tSeason] ?? ALMANAC.spring!)[s.day % 3]}</p></div>
+            <div class="de-note"><small>From Grandmother’s almanac</small><p>${animalsCard && quiet ? ANIMAL_ALMANAC[s.day % ANIMAL_ALMANAC.length] : (ALMANAC[tSeason] ?? ALMANAC.spring!)[s.day % 3]}</p></div>
           </div>
         </div>`
       : `<div class="de-body">
