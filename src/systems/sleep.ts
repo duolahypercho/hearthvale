@@ -16,6 +16,8 @@ import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { AnimalPops } from '../entities/animals';
+import { animalPortraits } from '../world/buildings/icons';
+import type { Species } from '../entities/animals-models';
 
 export interface SleepApi {
   canSleep(): boolean;
@@ -40,6 +42,9 @@ export interface SleepAnimals {
   chores?: { icon: string; text: string }[];
   /** Eggs left in the nests from earlier days (shown apart from tonight's produce). */
   leftover?: number;
+  /** (r9) Per-animal recap for the card's left panel: portrait (3D model render, data URL), care marks,
+   *  hearts and the overnight friendship change; the happiest animal comes first. */
+  herd?: { name: string; species: string; portrait?: string; fed: boolean; petted: boolean; hearts: number; delta: number; best?: boolean }[];
 }
 
 declare module '../core/game' {
@@ -126,6 +131,7 @@ export class SleepSystem implements System, SleepApi {
         pet: s.pet ? { name: s.pet.name, species: s.pet.species, bowl: s.pet.bowl } : undefined,
         chores: s.chores?.slice(0, 5),
         leftover: s.leftover,
+        herd: herdRecap(s.animals),
       };
     });
     game.events.on('player:interact', ({ x, z }) => {
@@ -388,4 +394,29 @@ export class SleepSystem implements System, SleepApi {
     g.player.controllable = true;
     g.events.emit('sleep:wake', { passedOut });
   }
+}
+
+/** Day-end herd recap: happiest first, then the ones who missed out (unfed / unpetted), then the rest. */
+function herdRecap(list: { name: string; species: string; variant?: number; fed: boolean; petted: boolean; delta: number; friendship: number }[]): SleepAnimals['herd'] {
+  if (!list.length) return undefined;
+  let shots: Map<string, string> | null = null;
+  try {
+    shots = animalPortraits(list.map((a) => ({ species: a.species as Species, variant: a.variant ?? 0 })));
+  } catch {
+    shots = null;
+  }
+  const top = list.reduce((b, a) => (a.friendship > b.friendship ? a : b), list[0]!);
+  const rank = (a: (typeof list)[number]): number => (a === top ? 0 : !a.fed || !a.petted ? 1 : 2);
+  return [...list]
+    .sort((a, b) => rank(a) - rank(b) || b.friendship - a.friendship)
+    .map((a) => ({
+      name: a.name,
+      species: a.species,
+      portrait: shots?.get(`${a.species}:${a.variant ?? 0}`),
+      fed: a.fed,
+      petted: a.petted,
+      hearts: Math.round(a.friendship / 100) / 2,
+      delta: a.delta,
+      best: a === top,
+    }));
 }

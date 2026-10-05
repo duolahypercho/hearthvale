@@ -34,6 +34,8 @@ interface Summary {
     chores?: { icon: string; text: string }[];
     /** Eggs still in the nests from earlier days (apart from tonight's produce). */
     leftover?: number;
+    /** Per-animal recap (portrait, care marks, hearts, overnight change), happiest first. */
+    herd?: { name: string; species: string; portrait?: string; fed: boolean; petted: boolean; hearts: number; delta: number; best?: boolean }[];
   };
 }
 
@@ -429,6 +431,32 @@ export class DayEndScreen extends Screen {
           </div>`;
         })()
       : '';
+    // (r9) The herd tonight: on a herd day the quiet panel's illustration gives way to a portrait chip
+    // per animal (3D portrait, name, hearts, the overnight change, a wheat / heart mark for fed / petted,
+    // a red tag for whoever missed out), the happiest one ribboned first.
+    const herd = an?.herd ?? [];
+    const herdBoard = herd.length
+      ? (() => {
+          const shown = herd.slice(0, 12);
+          const chip = (h: (typeof herd)[number], i: number): string => {
+            const miss = !h.fed ? 'hungry' : !h.petted ? 'no pat' : '';
+            const ring = h.best ? '#e0a82e' : miss ? '#d0644a' : 'rgba(138,100,64,.28)';
+            const full = Math.floor(h.hearts);
+            const hearts = Array.from({ length: 5 }, (_, k) => `<i style="display:inline-block;width:7px;height:7px;margin:0 .5px;border-radius:50% 50% 0 50%;transform:rotate(45deg);background:${k < full ? '#e8385a' : k < h.hearts ? 'linear-gradient(90deg,#e8385a 50%,#e6d2b0 50%)' : '#e6d2b0'}"></i>`).join('');
+            const art = h.portrait ? `<img src="${h.portrait}" alt="" style="width:58px;height:58px;object-fit:contain;filter:drop-shadow(0 3px 3px rgba(90,50,14,.3))"/>` : `<span style="font:700 24px var(--font-head);color:#8a6440">${escapeHtml(h.name.slice(0, 1))}</span>`;
+            return `<div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;width:62px;animation:uPop 420ms var(--ease-back) ${520 + i * 60}ms both">
+              <div style="position:relative;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;overflow:visible;background:radial-gradient(circle at 50% 38%,#fffaf0,#f0dfbe);box-shadow:inset 0 0 0 2.5px ${ring},0 2px 4px rgba(90,50,14,.18)">${art}
+                ${h.best ? `<span style="position:absolute;top:-7px;left:50%;transform:translateX(-50%);padding:0 6px;border-radius:999px;background:#e0a82e;color:#fff;font:800 9px var(--font-body,inherit);letter-spacing:.04em;white-space:nowrap;box-shadow:0 1px 2px rgba(90,50,14,.3)">HAPPIEST</span>` : ''}
+                ${h.delta > 0 ? `<span style="position:absolute;right:-6px;bottom:-2px;padding:0 4px;border-radius:7px;background:#5a9a42;color:#fff;font:800 10px var(--font-body,inherit)">+${h.delta}</span>` : ''}
+              </div>
+              <b style="font:700 12.5px var(--font-head);color:var(--ink);max-width:62px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(h.name)}</b>
+              <span style="line-height:7px">${hearts}</span>
+              ${miss ? `<small style="font-weight:800;font-size:10px;color:#b8321e;line-height:1.1">${miss}</small>` : `<small style="font-weight:800;font-size:10px;color:#6a8a3a;line-height:1.1">fed · petted</small>`}
+            </div>`;
+          };
+          return `<div class="qv-herd" style="width:100%"><div class="de-h" style="text-align:center;margin-bottom:8px">The herd tonight</div><div style="display:flex;flex-wrap:wrap;justify-content:center;gap:12px 6px">${shown.map(chip).join('')}</div>${herd.length > shown.length ? `<small style="display:block;text-align:center;margin-top:4px;color:#a08060;font-weight:800">+${herd.length - shown.length} more</small>` : ''}</div>`;
+        })()
+      : '';
     // Tomorrow's chores (animals): fills the side column on a quiet day.
     const chores = an?.chores ?? [];
     const choresCard = chores.length
@@ -444,7 +472,9 @@ export class DayEndScreen extends Screen {
       : '';
     const body = quiet
       ? `<div class="de-body quiet">
-          <div class="de-quiet"><div class="qv-art">${quietVignetteSvg(s.animals?.pet?.species)}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>
+          ${herdBoard
+            ? `<div class="de-quiet" style="align-content:center;gap:6px">${herdBoard}<div class="qv-tx" style="max-width:none;width:100%"><h3 style="font-size:24px;margin-top:4px">A day with the animals</h3>${animalsCard}</div></div>`
+            : `<div class="de-quiet"><div class="qv-art">${quietVignetteSvg(s.animals?.pet?.species)}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>`}
           <div class="de-side">
             ${penCard}
             <div class="de-rest"><div class="de-h">Rest</div><div class="bar"><i style="--e:${(eNow / eMax).toFixed(3)}"></i></div><div class="rl"><span>${ICONS.bolt ?? ''}Energy</span><b><span class="ev" data-v="0">0</span> / ${eMax}</b></div><small>${s.passedOut ? 'You slept where you fell — half your energy returns.' : 'A full night’s sleep. You wake refreshed.'}</small></div>

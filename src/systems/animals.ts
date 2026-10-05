@@ -170,7 +170,7 @@ export interface AnimalSummary {
   hungry: number;
   unpetted: number;
   /** Per animal: yesterday's care and the overnight friendship change. */
-  animals: { id: number; name: string; species: Livestock; fed: boolean; petted: boolean; delta: number; friendship: number }[];
+  animals: { id: number; name: string; species: Livestock; variant?: number; fed: boolean; petted: boolean; delta: number; friendship: number }[];
   /** Laid overnight / ready to collect this morning. */
   produce: { item: string; q: number }[];
   pet?: { name: string; species: 'dog' | 'cat'; bowl: boolean };
@@ -700,7 +700,7 @@ export class AnimalSystem implements System, AnimalsApi {
           }
         }
       }
-      report.push({ id: a.id, name: a.name, species: a.species, fed, petted, delta: a.friendship - f0 + (petted ? 15 : 0), friendship: a.friendship });
+      report.push({ id: a.id, name: a.name, species: a.species, variant: a.variant, fed, petted, delta: a.friendship - f0 + (petted ? 15 : 0), friendship: a.friendship });
       a.fed = false;
       a.petted = false;
       a.grazed = 0;
