@@ -370,11 +370,16 @@ function buildCoach(): Coach {
   }
   // Wheels: one tinted geometry, four instances (they spin).
   const wb = new MeshBuilder();
-  wb.add('white', bevelCylinder(0.42, 0.42, 0.3, 0.06, 18).rotateX(Math.PI / 2), undefined, { tint: 0x2a2624 });
-  wb.add('white', bevelCylinder(0.24, 0.24, 0.31, 0.03, 14).rotateX(Math.PI / 2), undefined, { tint: 0x5f7a66 });
-  wb.add('white', bevelCylinder(0.1, 0.1, 0.33, 0.02, 10).rotateX(Math.PI / 2), undefined, { tint: 0xb0b6be });
-  for (let k = 0; k < 5; k++) wb.add('white', roundedBox(0.05, 0.36, 0.33, 0.01), mat(0, 0, 0, 0, 0, (k / 5) * Math.PI), { tint: 0xb8bec6 });
-  wb.add('white', new THREE.CylinderGeometry(0.06, 0.06, 0.34, 8).rotateX(Math.PI / 2), undefined, { tint: 0xc8573e });
+  // Artillery wheels of the period: a fat black balloon tyre with a cream whitewall, a red-lined
+  // felloe, twelve cream spokes you can see the road through, and a domed brass hub cap.
+  const tyre = new THREE.TorusGeometry(0.34, 0.085, 10, 28);
+  tyre.scale(1, 1, 1.55);
+  wb.add('white', tyre, undefined, { tint: 0x221e1c });
+  for (const sz of [-1, 1]) wb.add('white', new THREE.TorusGeometry(0.305, 0.022, 6, 28), mat(0, 0, sz * 0.105), { tint: 0xeee2c4 });
+  wb.add('white', new THREE.CylinderGeometry(0.262, 0.262, 0.14, 28, 1, true).rotateX(Math.PI / 2), undefined, { tint: 0xa83c2e });
+  for (let k = 0; k < 12; k++) wb.add('white', roundedBox(0.032, 0.25, 0.03, 0.008), mat(Math.cos((k / 12) * Math.PI * 2) * 0.135, Math.sin((k / 12) * Math.PI * 2) * 0.135, 0, 0, 0, (k / 12) * Math.PI * 2 - Math.PI / 2), { tint: 0xe8dcbc });
+  wb.add('white', bevelCylinder(0.07, 0.07, 0.2, 0.02, 14).rotateX(Math.PI / 2), undefined, { tint: 0xa83c2e });
+  for (const sz of [-1, 1]) wb.add('white', new THREE.SphereGeometry(0.055, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2).rotateX((sz * Math.PI) / 2), mat(0, 0, sz * 0.1), { tint: 0xd8a24a });
   const wheelGeo = wb.geometries().get('white')!;
   const wheels = new THREE.InstancedMesh(wheelGeo, materials.get('white'), 4);
   wheels.name = 'coach-wheels';

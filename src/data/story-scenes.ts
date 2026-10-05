@@ -176,8 +176,10 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'fade', to: 'clear', dur: 1.2 },
     { do: 'walk', id: 'player', path: [FARM_P], facing: 'right', wait: false },
     { do: 'walk', id: 'hollis', path: [FARM_H], speed: 1.3 },
-    { do: 'face', id: 'hollis', toward: 'player' },
-    { do: 'cam', to: ots(FARM_P, FARM_H, { side: 1, off: 36, dist: 11.5, pitch: 28 }), dur: 2.4, ease: 'inOut', wait: false },
+    // Frontal two-shot with the old farmhouse behind them, both turned three-quarter to the lens.
+    { do: 'face', id: 'hollis', at: [FARM_P[0] + 0.4, FARM_P[1] + 2.6] },
+    { do: 'face', id: 'player', at: [FARM_P[0] + 1.6, FARM_P[1] + 2.4] },
+    { do: 'cam', to: { x: (FARM_P[0] + FARM_H[0]) / 2, z: (FARM_P[1] + FARM_H[1]) / 2 + 0.2, y: 1.25, yaw: -8, pitch: 19, dist: 10.5 }, dur: 2.4, ease: 'inOut', wait: false },
     { do: 'mark', id: 'farm' },
     { do: 'say', who: 'hollis', text: "Here we are. She's, ah... she's got good bones." },
     { do: 'emote', id: 'hollis', emote: 'sweat' },

@@ -1575,8 +1575,17 @@ export class CutsceneSystem implements System, CutsceneApi {
     }
     // Held lantern practical follows its bearer.
     if (lantern?.prop) {
-      lantern.prop.getWorldPosition(this.lanternLight.position);
-      this.lanternLight.position.y += 0.1;
+      // Film cheat: the practical's light is rigged a little above it and towards the lens, so it keys
+      // the faces (the bearer's and whoever stands with them) instead of only their knees.
+      const lp = this.lanternLight.position;
+      lantern.prop.getWorldPosition(lp);
+      const cp = this.game.rc.camera.position;
+      const dx = cp.x - lp.x;
+      const dz = cp.z - lp.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      lp.x += (dx / dl) * 1.15;
+      lp.z += (dz / dl) * 1.15;
+      lp.y += 0.45;
       const flick = 0.9 + Math.sin(this.clock * 11) * 0.05 + Math.sin(this.clock * 23.7) * 0.04;
       this.lanternLight.intensity = 5.5 * flick * (0.35 + this.game.lighting.night * 0.65);
     } else this.lanternLight.intensity = 0;
