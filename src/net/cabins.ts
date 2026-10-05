@@ -105,8 +105,8 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
   // across the farm, and a muted blue / green / ochre keeps its value under the night's blue moonlight
   // where the r5 terracotta went black.
   const weather = new THREE.Color(0xa47a62);
-  const roofA = acc.clone().lerp(weather, 0.5).getHex();
-  const roofB = acc.clone().lerp(weather, 0.38).lerp(new THREE.Color(0xffffff), 0.1).getHex();
+  const roofA = acc.clone().lerp(weather, 0.32).getHex();
+  const roofB = acc.clone().lerp(weather, 0.2).lerp(new THREE.Color(0xffffff), 0.1).getHex();
   const pitch = Math.atan2(gh, W / 2);
   const cosP = Math.cos(pitch);
   const sinP = Math.sin(pitch);
@@ -301,7 +301,7 @@ export class Cabins {
       this.lamps.push(l);
     }
     this.smoke = chimneyTops.map((p) => {
-      const sm = new SmokeEmitter(p.clone(), 2.6, 32);
+      const sm = new SmokeEmitter(p.clone(), 1.8, 28);
       this.group!.add(sm.object);
       return sm;
     });
