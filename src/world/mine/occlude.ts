@@ -202,7 +202,7 @@ interface OccEntry {
   total?: number;
 }
 
-const OCC_CELL = 4;
+const OCC_CELL = 2;
 const entries: OccEntry[] = [];
 let variantsReady = false;
 let scanGen = 0;

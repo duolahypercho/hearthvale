@@ -552,8 +552,8 @@ ${CAVE_GLSL}`,
   OCC.uFgLift.value.setHex(L.biome === 'ice' ? 0x0c1826 : L.biome === 'lava' ? 0x2a1208 : 0x1c130c).convertSRGBToLinear().multiplyScalar(L.biome === 'lava' ? 2.4 : 1.6);
   const mesh = new THREE.Mesh(geo, shell);
   mesh.name = 'cave-shell';
-  // Cut / solid draw ranges per 4 m cell (occlude.ts: the cutaway's discard only where it can land).
-  mesh.userData.occGroup = 6;
+  // Cut / solid draw ranges per 2 m cell (occlude.ts: the cutaway's discard only where it can land).
+  mesh.userData.occGroup = 10;
   mesh.receiveShadow = true;
   mesh.castShadow = true;
   group.add(mesh);
@@ -865,7 +865,7 @@ ${CAVE_GLSL}`,
     occlusionPatch(rm, true, true);
     const bm = new THREE.Mesh(merged, rm);
     bm.name = 'cave-boulders';
-    bm.userData.occGroup = 5;
+    bm.userData.occGroup = 8;
     bm.castShadow = true;
     bm.receiveShadow = true;
     group.add(bm);

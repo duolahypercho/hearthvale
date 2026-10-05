@@ -852,7 +852,7 @@ Frostvein Grotto, Cinder Depths (`biomes.ts`), repeating with a tier (tougher mo
   (`&still=1` freezes the pick impact), `&foe=0` (no staged monster), `&ui=elevator`.
 - **Perf (pillar 14)**: the farmer / monster cutaway's `discard` switches off hidden-surface removal on tile GPUs, so
   every cut-patched material has a solid twin (`occlude.ts`): the shell, rim boulders, rubble and merged props are
-  sorted into 4 m cells and each frame only the cells whose bounds can reach a cutaway ellipse or the foreground band
+  sorted into 2 m cells and each frame only the cells whose bounds can reach a cutaway ellipse or the foreground band
   draw the cut variant (a handful of draw ranges per mesh), the rest draws solid — same pixels. `&occvar=0` turns it
   off (A/B); `OCC_STATS` (import from `world/mine/occlude.ts`) reports cells, cut cells and ranges.
 
