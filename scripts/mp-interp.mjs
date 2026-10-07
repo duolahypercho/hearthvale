@@ -50,7 +50,8 @@ export function torture(o = {}) {
     // stalls for that long once mid-walk (a saturated machine).
     let ft = 0, simT = 0, acc = 0, lastSend = -1e9, stamp = 0, frozen = false;
     while (ft <= dur) {
-      let fdt = rnd() < 0.08 ? 25 + rnd() * 40 : 14 + rnd() * 5.4;
+      // (`heavy`: a saturated box, load average 60-100 — 30 % of frames 40-130 ms, the sim drops time)
+      let fdt = o.heavy ? (rnd() < 0.3 ? 40 + rnd() * 90 : 16.7 + rnd() * 16) : rnd() < 0.08 ? 25 + rnd() * 40 : 14 + rnd() * 5.4;
       if (o.freeze && !frozen && ft > dur * 0.4) {
         frozen = true;
         fdt = o.freeze;
@@ -96,7 +97,8 @@ export function torture(o = {}) {
       frames.push([now, p.x, p.z]);
       if (process.env.MP_INTERP_TRACE && Math.abs(now - Number(process.env.MP_INTERP_TRACE)) < 120) console.log('   t', Math.round(now), 'x', p.x.toFixed(3), 'raw', p.rawX?.toFixed?.(3), 'off', p.offX?.toFixed?.(3), 'extrap', p.extrap, 'rt', p.rt?.toFixed?.(0), 'lim', p.limited, 'snaps', p.snaps);
     }
-    now += rnd() < 0.03 ? 40 + rnd() * 60 : 16.67;
+    // (`heavy`: the receiver is loaded too — the governor presents every 1st / 2nd / 3rd vsync)
+    now += o.heavy ? [16.67, 16.67, 33.33, 50][Math.floor(rnd() * 4)] : rnd() < 0.03 ? 40 + rnd() * 60 : 16.67;
   }
   let back = 0, pops = 0, maxV = 0, maxLag = 0;
   const vs = [];
@@ -152,6 +154,8 @@ export const CASES = [
   // The rendered walk must never exceed 1.45x pace, whichever way the sender stamps its samples.
   ...[11, 12, 13, 14, 15].map((seed) => ({ name: `walk, busy sender, 150±40 ms one way (seed ${seed})`, seed, quant: true, stamp: 'sim', base: 130, jitter: 40, spikes: 0.03, stall: false, popX: 1.45 })),
   { name: 'walk, busy sender stamping frame time (defence in depth)', seed: 16, quant: true, stamp: 'frame', base: 130, jitter: 40, spikes: 0.03, stall: false, popX: 1.45 },
+  // r7: both boxes saturated (the r6 mp-adv lagged-Cole surge) at 150-200±40 ms one way, 50 ms send gaps.
+  ...[31, 32, 33, 34, 35, 36].map((seed, i) => ({ name: `walk, saturated sender + receiver, ${150 + (i % 3) * 25}±40 ms one way (seed ${seed})`, seed, quant: true, heavy: true, stamp: 'sim', base: 130 + (i % 3) * 25, jitter: 40, spikes: 0.03, stall: false, popX: 1.45 })),
   { name: 'run, busy sender, 150±40 ms', seed: 17, quant: true, stamp: 'sim', speed: 6.5, base: 130, jitter: 40, stall: false, popX: 1.45 },
   ...[600, 1200, 2500].map((f, i) => ({ name: `walk, sender tab freezes ${f} ms mid-walk, 150±40 ms`, seed: 21 + i, quant: true, stamp: 'sim', freeze: f, base: 130, jitter: 40, spikes: 0, stall: false, popX: 1.45 })),
 ];

@@ -413,6 +413,18 @@ export class FarmSync {
         }
     });
   }
+
+  /** The cabin's doorstep row: debris cleared (r6: a boulder sat on the doormat), still walkable. */
+  clearDoorstep(x0: number, z: number, x1: number): void {
+    const g = this.grid();
+    if (!g) return;
+    this.remote({ quiet: true }, () => {
+      for (let x = x0; x <= x1; x++) {
+        const o = g.inBounds(x, z) ? g.getObject(x, z) : null;
+        if (o && DEBRIS.has(o.kind)) g.removeObject(x, z);
+      }
+    });
+  }
 }
 
 export function dirVec(f: 'up' | 'down' | 'left' | 'right'): { dx: number; dz: number } {

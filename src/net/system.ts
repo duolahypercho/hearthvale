@@ -53,7 +53,7 @@ import { CoopDemo } from './demo';
 import { NetBridge } from './bridge';
 import { IMPACT, type ActionKind } from '../entities/farmer-actions';
 import { applyLookToPlayer } from '../entities/remote-farmer';
-import { DEFAULT_LOOK, isDefaultLook, loadProfile, saveProfile, sanitizeLook, hex, PRESET_LOOKS, type FarmerLook, type FarmerProfile } from '../entities/remote-look';
+import { DEFAULT_LOOK, DEMO_HOST_LOOK, isDefaultLook, loadProfile, saveProfile, sanitizeLook, hex, PRESET_LOOKS, type FarmerLook, type FarmerProfile } from '../entities/remote-look';
 import { EmoteBubble, EMOTES, renderEmoteOverlay, type EmoteId } from '../entities/remote-emotes';
 import { itemDef } from '../data/items';
 import { CROPS } from '../data/crops';
@@ -165,7 +165,7 @@ export interface DayTally {
   name: string;
   look: FarmerLook;
   isMe: boolean;
-  /** [harvested, watered, tilled, sown] */
+  /** [harvested, watered, tilled, sown, shipped gold] (older peers send the first four) */
   n: number[];
 }
 
@@ -294,6 +294,8 @@ export class NetSystem implements System, NetApi {
   private token: string | null = null;
   serverUrl = defaultServerUrl();
   private prof: FarmerProfile = { name: 'Farmer', look: DEFAULT_LOOK };
+  /** Demo staging: the staged host's look (null = the profile's). */
+  private sessionLook: FarmerLook | null = null;
   /** Name the lobby gave us (deduped: "Ash 2"). */
   private sessionName: string | null = null;
   private pid = '';
@@ -338,7 +340,7 @@ export class NetSystem implements System, NetApi {
   private hostBeds = new Set<number>();
   private counters = { reconciles: 0, mispredicts: 0, drift: 0, needs: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
   /** Our own work today: [harvested, watered, tilled, sown] (farmhands report it to the host). */
-  private today = [0, 0, 0, 0];
+  private today = [0, 0, 0, 0, 0];
   private todayDirty = false;
   private todaySentAt = 0;
   /** Host: each farmhand's reported tally for today. */
@@ -480,6 +482,12 @@ export class NetSystem implements System, NetApi {
         this.todayDirty = true;
       }),
     );
+    // (r7) …and what we put in the bin (gold value), so the card says who shipped what.
+    game.events.on('shipping:add', ({ value }) => {
+      if (this._role === 'solo' || this.sync.inRemote || this.demo.active) return;
+      this.today[4] = (this.today[4] ?? 0) + Math.max(0, Math.round(value || 0));
+      this.todayDirty = true;
+    });
     game.events.on('game:ready', () => this.autoStart());
     // Name tags / chat bubbles follow this frame's camera (placed after the render, even when paused).
     this.remotes.localBubble = () => this.myBubble;
@@ -543,6 +551,13 @@ export class NetSystem implements System, NetApi {
   demoName(n: string | null): void {
     if (this._role !== 'solo') return;
     this.sessionName = n && this.prof.name === 'Farmer' ? n : null;
+    // (r7) One staged host everywhere: the coop-lobby creator, the farm / bedtime / emote demos, the
+    // roster, lobby and day-end chips all show Saffron's auburn bob + straw hat (unless you made a farmer).
+    const look = this.sessionName && isDefaultLook(this.prof.look) ? DEMO_HOST_LOOK : null;
+    if (look !== this.sessionLook) {
+      this.sessionLook = look;
+      this.applyLocalLook();
+    }
     this.emitRoster();
   }
 
@@ -561,14 +576,20 @@ export class NetSystem implements System, NetApi {
   private applyLocalLook(): void {
     this.undoLook?.();
     this.undoLook = null;
-    if (!isDefaultLook(this.prof.look)) this.undoLook = applyLookToPlayer(this.game.player, this.prof.look);
+    const look = this.myLook();
+    if (!isDefaultLook(look)) this.undoLook = applyLookToPlayer(this.game.player, look);
+  }
+
+  /** The look everyone sees for us: the profile's, or the staged host's (Saffron) in a demo. */
+  myLook(): FarmerLook {
+    return this.sessionLook ?? this.prof.look;
   }
 
   players(): PlayerView[] {
     const me: PlayerView = {
       id: this.id || 1,
       name: this.myName(),
-      look: this.prof.look,
+      look: this.myLook(),
       isHost: this._role !== 'client',
       isMe: true,
       ready: this.asleep,
@@ -1231,7 +1252,7 @@ export class NetSystem implements System, NetApi {
         return;
       }
       case 'day': {
-        this.tallies.set(from, d.slice(1, 5).map((v) => Math.max(0, Math.min(9999, Math.round(Number(v) || 0)))));
+        this.tallies.set(from, [0, 1, 2, 3, 4].map((i) => Math.max(0, Math.min(i === 4 ? 999999 : 9999, Math.round(Number(d[i + 1]) || 0)))));
         return;
       }
       case 'bed': {
@@ -1359,7 +1380,7 @@ export class NetSystem implements System, NetApi {
   }
 
   private rosterPayload(): unknown[] {
-    const me = [this.id, this.myName(), this.prof.look, this.hostBeds.has(this.id) ? 1 : 0, 0, -1, 0];
+    const me = [this.id, this.myName(), this.myLook(), this.hostBeds.has(this.id) ? 1 : 0, 0, -1, 0];
     const rest = [...this.remotes.list.values()].map((p) => [p.id, p.name, p.look, p.ready ? 1 : 0, Math.round(p.ping), p.cabin, p.away ? 1 : 0]);
     return [me, ...rest];
   }
@@ -1387,7 +1408,7 @@ export class NetSystem implements System, NetApi {
   /** Host: end the day for everyone, handing out the day's "Farm today" tally with the order. */
   private hostSleep(): void {
     const rows: number[][] = [[this.id, ...this.today]];
-    for (const p of this.remotes.list.values()) if (!p.away) rows.push([p.id, ...(this.tallies.get(p.id) ?? [0, 0, 0, 0])]);
+    for (const p of this.remotes.list.values()) if (!p.away) rows.push([p.id, ...(this.tallies.get(p.id) ?? [0, 0, 0, 0, 0])]);
     this.toAll(['sleep', rows]);
     this.setTally(rows);
     this.sleepNow();
@@ -1399,11 +1420,11 @@ export class NetSystem implements System, NetApi {
     for (const r of rows as unknown[]) {
       if (!Array.isArray(r)) continue;
       const id = Number(r[0]);
-      const n = r.slice(1, 5).map((v) => Math.max(0, Math.min(9999, Math.round(Number(v) || 0))));
+      const n = [0, 1, 2, 3, 4].map((i) => Math.max(0, Math.min(i === 4 ? 999999 : 9999, Math.round(Number(r[i + 1]) || 0))));
       const isMe = id === this.id;
       const p = this.remotes.get(id);
       if (!isMe && !p) continue;
-      out.push({ id, name: isMe ? this.myName() : p!.name, look: isMe ? this.prof.look : p!.look, isMe, n });
+      out.push({ id, name: isMe ? this.myName() : p!.name, look: isMe ? this.myLook() : p!.look, isMe, n });
     }
     this.lastTally = out.length > 1 ? out : null;
   }
@@ -2187,7 +2208,7 @@ export class NetSystem implements System, NetApi {
     const isMe = id === (this.id || 1);
     const p = this.remotes.get(id);
     const name = isMe ? this.myName() : (p?.name ?? '?');
-    const look = isMe ? this.prof.look : (p?.look ?? DEFAULT_LOOK);
+    const look = isMe ? this.myLook() : (p?.look ?? DEFAULT_LOOK);
     if (isMe) this.remotes.sayLocal(text);
     else p?.chat(text);
     if (log) this.game.events.emit('net:chat', seq ? { id, name, text, color: hex(look.scarf), seq, pending: true } : { id, name, text, color: hex(look.scarf) });
@@ -2210,6 +2231,9 @@ export class NetSystem implements System, NetApi {
 
   emitRoster(): void {
     this.game.events.emit('net:roster', { players: this.players() });
+    // (r7) Our own name pill whenever other farmers can be on screen with us (co-op, staged demos).
+    const coop = this._role !== 'solo' || this.demo.active;
+    this.remotes.local.pill(coop ? this.myName() : null, hex(this.myLook().scarf), this._role !== 'client');
   }
 
   /** Cabins for every farmhand slot in use (plus demo bots). */
@@ -2217,7 +2241,7 @@ export class NetSystem implements System, NetApi {
     const slots = new Map<number, number>();
     for (const [id, slot] of this.cabinOf) {
       if (slot < 0) continue;
-      const look = id === this.id ? this.prof.look : this.remotes.get(id)?.look;
+      const look = id === this.id ? this.myLook() : this.remotes.get(id)?.look;
       slots.set(slot, (look ?? PRESET_LOOKS[slot % PRESET_LOOKS.length]!).scarf);
     }
     if (extra) for (const [k, v] of extra) slots.set(k, v);
@@ -2228,7 +2252,8 @@ export class NetSystem implements System, NetApi {
       const site = CABIN_SITES[s];
       if (!site) continue;
       this.sync.claimFootprint(site.x0, site.z0, site.x0 + 2, site.z0 + 2);
-      if (g) for (let z = site.z0; z <= site.z0 + 2; z++) for (let x = site.x0; x <= site.x0 + 2; x++) if (g.inBounds(x, z)) claimed.push(g.idx(x, z));
+      this.sync.clearDoorstep(site.x0, site.z0 + 3, site.x0 + 2);
+      if (g) for (let z = site.z0; z <= site.z0 + 3; z++) for (let x = site.x0; x <= site.x0 + 2; x++) if (g.inBounds(x, z)) claimed.push(g.idx(x, z));
     }
     // Every machine clears a cabin's footprint itself (quietly), so the debris that stood there must not
     // read as drift: the host flushes the cleared tiles at once (not on the 2 s heartbeat), and a farmhand
@@ -2267,7 +2292,7 @@ export class NetSystem implements System, NetApi {
     this.frameTimes[this.frameIdx] = dt * 1000;
     this.frameIdx = (this.frameIdx + 1) % this.frameTimes.length;
     this.frameCount++;
-    const now = frameClock();
+    const now = frameClock(game.frameTs);
     this.frameAt = now;
     // The position we sample is the fixed-step sim's, which trails the frame clock by the step
     // accumulator: stamp samples with the sim's own time so a 17 ms frame that ran 0 or 2 steps
@@ -2378,8 +2403,11 @@ function esc(s: string): string {
  * farmers on it keeps their motion even when CPU time before the net update varies frame to frame.
  * Falls back to performance.now() outside a rendered frame (tests stepping by hand, hidden tab).
  */
-function frameClock(): number {
+function frameClock(ts = NaN): number {
   const now = performance.now();
+  // Inside the game loop: the frame's own rAF timestamp, however long the frame's work took (a > 250 ms
+  // frame on a saturated box fell back to performance.now() and mixed clocks: one frame 'moved' 0.3 s).
+  if (Number.isFinite(ts) && ts <= now) return ts;
   const t = typeof document !== 'undefined' ? Number(document.timeline?.currentTime) : NaN;
   return Number.isFinite(t) && t <= now && now - t < 250 ? t : now;
 }

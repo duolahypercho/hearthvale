@@ -287,19 +287,65 @@ class SayBubble {
 }
 
 /** Speech bubble over the local farmer (chat you send shows over your own head too). */
-class LocalSay {
+export class LocalSay {
   readonly tag: HTMLElement;
   readonly say: SayBubble;
   readonly anchor: Anchor = { x: 0, y: 0, ppm: 60, z: 0 };
   private shown = false;
   private tx = -1;
   private ty = -1;
+  /** (r7) Our own name pill in a co-op session — every farmer on screen is tagged, us included. */
+  private label: HTMLElement;
+  private pillKey = '';
+  pillOn = false;
+  tagW = 0;
+  tagH = 0;
+  private dim = false;
 
   constructor(tags: HTMLElement) {
     this.tag = document.createElement('div');
     this.tag.className = 'coop-tag self';
     this.say = new SayBubble(this.tag);
+    this.label = document.createElement('div');
+    this.label.className = 'coop-name me';
+    this.tag.appendChild(this.label);
     tags.appendChild(this.tag);
+  }
+
+  /** Show our pill (name + colour), or null for none (solo play). */
+  pill(name: string | null, color: string, host: boolean): void {
+    const key = name === null ? '' : `${name}|${color}|${host}`;
+    if (key === this.pillKey) return;
+    this.pillKey = key;
+    this.pillOn = name !== null;
+    this.label.style.display = this.pillOn ? '' : 'none';
+    if (name !== null) {
+      this.label.innerHTML = `<i style="background:${color}"></i><span></span><em>you</em>`;
+      this.label.querySelector('span')!.textContent = name;
+    }
+    this.tag.classList.toggle('host', host);
+    this.tagW = 0;
+  }
+
+  measure(): void {
+    if (this.tagW > 0 || !this.pillOn) return;
+    this.tagW = this.label.offsetWidth || 60;
+    this.tagH = this.label.offsetHeight || 24;
+  }
+
+  /** The laid-out pill spot (bottom-centre, px); dim = over a HUD card / the screen edge (hidden). */
+  place(px: number, py: number, dim: boolean): void {
+    px = Math.round(px);
+    py = Math.round(py);
+    if (px !== this.tx || py !== this.ty) {
+      this.tx = px;
+      this.ty = py;
+      this.tag.style.transform = `translate(${px}px, ${py}px)`;
+    }
+    if (dim !== this.dim) {
+      this.dim = dim;
+      this.tag.classList.toggle('dim', dim);
+    }
   }
 
   /** Our head is on screen this frame (its face is kept clear of other farmers' bubbles). */
@@ -311,11 +357,11 @@ class LocalSay {
     if (game.cinematic || !game.player.root.visible) return false;
     const p = game.player.position;
     this.seen = projectAnchor(v.set(p.x, p.y + 2.3, p.z), cam(game), right, this.anchor);
-    return this.seen && (this.say.active || emoting);
+    return this.seen && (this.say.active || emoting || this.pillOn);
   }
 
   apply(show: boolean): void {
-    show = show && this.say.active;
+    show = show && (this.say.active || this.pillOn);
     if (show) {
       const x = Math.round(this.anchor.x);
       const y = Math.round(this.anchor.y);
@@ -372,9 +418,16 @@ class Rects {
 }
 
 /** One farmer's overlay stack for this frame's layout. */
+interface Pill {
+  tagW: number;
+  tagH: number;
+}
+
 interface Actor {
   a: Anchor;
   remote: RemotePlayer | null;
+  /** The name pill laid out this frame (a remote's, or our own in co-op), null = none. */
+  pill: Pill | null;
   say: SayBubble;
   bubble: EmoteBubble | null;
   /** Laid-out pill bottom (px) this frame. */
@@ -385,7 +438,7 @@ export class RemotePlayers {
   readonly list = new Map<number, RemotePlayer>();
   readonly tags: HTMLElement;
   private v = new THREE.Vector3();
-  private local: LocalSay;
+  readonly local: LocalSay;
   private lastPlace = 0;
   /** Is this farmer's angling drawn by the fishing pod (RemoteAngler)? Then we skip our own rod. */
   fishingCheck: ((id: number) => boolean) | null = null;
@@ -497,6 +550,7 @@ export class RemotePlayers {
         p.say.w = 0;
       }
       this.local.say.w = 0;
+      this.local.tagW = 0;
     }
     if ((this.hudDirty && now - this.hudAt > 150) || now - this.hudAt > 2500) {
       this.hudAt = now;
@@ -513,9 +567,10 @@ export class RemotePlayers {
       if (p.project(c, vis, this.v, right)) {
         p.measure();
         if (p.say.active) p.say.measure();
-        const act = actors[n] ?? (actors[n] = { a: p.anchor, remote: p, say: p.say, bubble: null, y: 0 });
+        const act = actors[n] ?? (actors[n] = { a: p.anchor, remote: p, pill: p, say: p.say, bubble: null, y: 0 });
         act.a = p.anchor;
         act.remote = p;
+        act.pill = p;
         act.say = p.say;
         act.bubble = p.farmer.bubble.active ? p.farmer.bubble : null;
         n++;
@@ -528,7 +583,9 @@ export class RemotePlayers {
     const meOn = this.local.project(g, this.v, right, meEmote);
     if (meOn) {
       if (this.local.say.active) this.local.say.measure();
-      const act = actors[n] ?? (actors[n] = { a: this.local.anchor, remote: null, say: this.local.say, bubble: null, y: 0 });
+      this.local.measure();
+      const act = actors[n] ?? (actors[n] = { a: this.local.anchor, remote: null, pill: null, say: this.local.say, bubble: null, y: 0 });
+      act.pill = this.local.pillOn ? this.local : null;
       act.a = this.local.anchor;
       act.remote = null;
       act.say = this.local.say;
@@ -552,7 +609,7 @@ export class RemotePlayers {
     // (a pill only climbs past another farmer's pill or face, never past a speech bubble).
     for (const act of list) {
       const a = act.a;
-      const p = act.remote;
+      const p = act.pill;
       const x = a.x;
       let y = a.y;
       if (p) {
@@ -564,7 +621,10 @@ export class RemotePlayers {
           y = R.top(i) - 2;
         }
         R.add(x - pw / 2, y - ph, x + pw / 2, y);
-        p.apply(x, y, hud.hit(x - pw / 2, y - ph, x + pw / 2, y, 0) >= 0);
+        // Over a HUD card or past the screen edge: faded right out (no ghost pill in the clock).
+        const dim = hud.hit(x - pw / 2, y - ph, x + pw / 2, y, 6) >= 0 || x - pw / 2 < 4 || x + pw / 2 > innerWidth - 4 || y - ph < 4;
+        if (act.remote) act.remote.apply(x, y, dim);
+        else this.local.place(x, y, dim);
       }
       act.y = y;
     }
@@ -572,7 +632,7 @@ export class RemotePlayers {
     for (let pass = 2; pass <= 3; pass++) {
       for (const act of list) {
         const a = act.a;
-        const p = act.remote;
+        const p = act.pill;
         const x = a.x;
         const y = act.y;
         const pw = p ? p.tagW : 0;

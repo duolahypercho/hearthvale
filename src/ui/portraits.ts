@@ -32,7 +32,7 @@ const P3D = new Map<string, string | null>();
 /** Where the head sits in each rendered bust (fractions of the frame) — the manga marks follow it. */
 const P3D_HEAD = new Map<string, { x: number; y: number; r: number }>();
 /** Painted-mode switch for A/B shots and tests (`__game` eval): false = the SVG bust. */
-export const portraitOpts = { model3d: true };
+export const portraitOpts = { model3d: false, plate: true };
 
 /** Data URL of the 3D bust for this look + mood (cached), or null (not a villager / no WebGL). */
 export function portrait3dUrl(look: NpcLook, mood: Mood): string | null {
@@ -200,8 +200,18 @@ function facePath(f: Face, t = 0): string {
   return `M${cx - wl} ${cheekY} C ${cx - wl} ${top + 10}, ${cx - wl * 0.55} ${top}, ${cx} ${top} C ${cx + wr * 0.55} ${top}, ${cx + wr} ${top + 10}, ${cx + wr} ${cheekY} C ${cx + wr} ${cheekY + 22 * jaw}, ${chx + wr * (0.35 + 0.3 * jaw)} ${chin - 2}, ${chx} ${chin} C ${chx - wl * (0.35 + 0.3 * jaw) * (1 - 0.3 * t)} ${chin - 2}, ${cx - wl} ${cheekY + 22 * jaw * (1 - 0.25 * t)}, ${cx - wl} ${cheekY} Z`;
 }
 
-function eye(id: string, x: number, y: number, side: -1 | 1, m: MoodParams, iris: number, lash: string, skin: number, old: boolean): string {
-  const W = 9.5;
+/** Eye cut per NpcLook.eyeShape: half width, upper / lower lid height, iris scale, outer-corner lift, heavy-lid cover. */
+const EYE_CUT: Record<string, { W: number; up: number; low: number; ik: number; lift: number; lid: number }> = {
+  round: { W: 9.5, up: 11.5, low: 8.5, ik: 1, lift: 0, lid: 0 },
+  wide: { W: 10.4, up: 13, low: 9.5, ik: 1.08, lift: 0.5, lid: 0 },
+  almond: { W: 10.8, up: 10, low: 6.6, ik: 0.95, lift: 2.4, lid: 0 },
+  narrow: { W: 10, up: 7.4, low: 5.2, ik: 0.86, lift: 1.2, lid: 0 },
+  sleepy: { W: 10, up: 10, low: 7.5, ik: 1, lift: -0.8, lid: 0.42 },
+  beady: { W: 7.6, up: 9, low: 7.2, ik: 0.74, lift: 0, lid: 0 },
+};
+
+function eye(id: string, x: number, y: number, side: -1 | 1, m: MoodParams, iris: number, lash: string, skin: number, old: boolean, cut = EYE_CUT.round!, lashes = false): string {
+  const W = cut.W;
   const out: string[] = [];
   if (m.closed) {
     // ^ ^ closed happy eyes
@@ -209,9 +219,12 @@ function eye(id: string, x: number, y: number, side: -1 | 1, m: MoodParams, iris
     out.push(`<path d="M${x + side * W} ${y + 1} l ${side * 3} -2" stroke="${lash}" stroke-width="2.4" stroke-linecap="round"/>`);
     return out.join('');
   }
-  const up = 11.5 * m.open;
-  const low = 8.5 - m.smile * 4;
-  const sclera = `M${x - W} ${y} Q ${x - W * 0.6} ${y - up} ${x + side * 1} ${y - up} Q ${x + W * 0.8} ${y - up * 0.9} ${x + W} ${y - 1} Q ${x + W * 0.5} ${y + low} ${x} ${y + low} Q ${x - W * 0.6} ${y + low} ${x - W} ${y} Z`;
+  const up = cut.up * m.open;
+  const low = cut.low - m.smile * 4 * (cut.low / 8.5);
+  // (outer corner lifted for almond / narrow cuts; the outer corner is on the eye's own side)
+  const yl = y - (side < 0 ? cut.lift : 0);
+  const yr = y - 1 - (side > 0 ? cut.lift : 0);
+  const sclera = `M${x - W} ${yl} Q ${x - W * 0.6} ${y - up} ${x + side * 1} ${y - up} Q ${x + W * 0.8} ${y - up * 0.9} ${x + W} ${yr} Q ${x + W * 0.5} ${y + low} ${x} ${y + low} Q ${x - W * 0.6} ${y + low} ${x - W} ${yl} Z`;
   out.push(`<clipPath id="${id}c${side}"><path d="${sclera}"/></clipPath>`);
   out.push(`<path d="${sclera}" fill="#fffaf4"/>`);
   const ix = x + m.gazeX + side * 0.3;
@@ -219,15 +232,27 @@ function eye(id: string, x: number, y: number, side: -1 | 1, m: MoodParams, iris
   out.push(`<g clip-path="url(#${id}c${side})">`);
   // Lid shadow on the white
   out.push(`<path d="M${x - W} ${y - up + 1} L ${x + W} ${y - up + 1} L ${x + W} ${y - up + 5} Q ${x} ${y - up + 7} ${x - W} ${y - up + 5} Z" fill="${shade(skin, 0.7)}" opacity="0.35"/>`);
-  out.push(`<ellipse cx="${ix}" cy="${iy}" rx="6.6" ry="8" fill="url(#${id}iris)"/>`);
-  out.push(`<ellipse cx="${ix}" cy="${iy}" rx="6.6" ry="8" fill="none" stroke="${shade(iris, 0.45)}" stroke-width="1.1"/>`);
-  out.push(`<ellipse cx="${ix}" cy="${iy + 0.6}" rx="${3.1 * m.pupil}" ry="${4.2 * m.pupil}" fill="#1a1010"/>`);
-  out.push(`<ellipse cx="${ix + 2.4}" cy="${iy - 3.4}" rx="2.3" ry="2.7" fill="#fff"/>`);
-  out.push(`<circle cx="${ix - 2.4}" cy="${iy + 3.6}" r="1.2" fill="#fff" opacity="0.85"/>`);
+  const k = cut.ik;
+  out.push(`<ellipse cx="${ix}" cy="${iy}" rx="${6.6 * k}" ry="${8 * k}" fill="url(#${id}iris)"/>`);
+  out.push(`<ellipse cx="${ix}" cy="${iy}" rx="${6.6 * k}" ry="${8 * k}" fill="none" stroke="${shade(iris, 0.45)}" stroke-width="1.1"/>`);
+  out.push(`<ellipse cx="${ix}" cy="${iy + 0.6}" rx="${3.1 * m.pupil * k}" ry="${4.2 * m.pupil * k}" fill="#1a1010"/>`);
+  out.push(`<ellipse cx="${ix + 2.4 * k}" cy="${iy - 3.4 * k}" rx="${2.3 * Math.max(0.8, k)}" ry="${2.7 * Math.max(0.8, k)}" fill="#fff"/>`);
+  out.push(`<circle cx="${ix - 2.4 * k}" cy="${iy + 3.6 * k}" r="1.2" fill="#fff" opacity="0.85"/>`);
+  if (cut.lid > 0) {
+    // Heavy upper lid (sleepy cut): skin over the top of the iris, its edge the lash line.
+    const ly = y - up + up * cut.lid * 1.7;
+    out.push(`<path d="M${x - W - 2} ${y - up - 3} L ${x + W + 2} ${y - up - 3} L ${x + W + 2} ${ly - 1} Q ${x} ${ly + 2.2} ${x - W - 2} ${ly - 1} Z" fill="${shade(skin, 0.93)}"/>`);
+  }
   out.push(`</g>`);
   // Lash line (thicker on the outer corner) + lower lid hint
-  out.push(`<path d="M${x - W - 0.5} ${y + 0.5} Q ${x - W * 0.6} ${y - up - 0.8} ${x + side * 1} ${y - up - 0.8} Q ${x + W * 0.8} ${y - up * 0.9 - 0.8} ${x + W + 0.5} ${y - 1}" stroke="${lash}" stroke-width="3" fill="none" stroke-linecap="round"/>`);
-  out.push(`<path d="M${x + side * W} ${y - (side > 0 ? 1 : 0)} l ${side * 3.2} ${-2.6}" stroke="${lash}" stroke-width="2.4" stroke-linecap="round"/>`);
+  if (cut.lid > 0) {
+    const ly = y - up + up * cut.lid * 1.7;
+    out.push(`<path d="M${x - W - 0.5} ${ly - 0.4} Q ${x} ${ly + 2.6} ${x + W + 0.5} ${ly - 0.6}" stroke="${lash}" stroke-width="3" fill="none" stroke-linecap="round"/>`);
+    out.push(`<path d="M${x - W - 0.5} ${yl + 0.5} Q ${x - W * 0.6} ${y - up - 0.8} ${x + side * 1} ${y - up - 0.8} Q ${x + W * 0.8} ${y - up * 0.9 - 0.8} ${x + W + 0.5} ${yr}" stroke="${shade(skin, 0.62)}" stroke-width="1.3" fill="none" stroke-linecap="round"/>`);
+  } else out.push(`<path d="M${x - W - 0.5} ${yl + 0.5} Q ${x - W * 0.6} ${y - up - 0.8} ${x + side * 1} ${y - up - 0.8} Q ${x + W * 0.8} ${y - up * 0.9 - 0.8} ${x + W + 0.5} ${yr}" stroke="${lash}" stroke-width="3" fill="none" stroke-linecap="round"/>`);
+  const oy = side > 0 ? yr : yl;
+  out.push(`<path d="M${x + side * W} ${oy} l ${side * 3.2} ${-2.6}" stroke="${lash}" stroke-width="2.4" stroke-linecap="round"/>`);
+  if (lashes) out.push(`<path d="M${x + side * (W - 2.5)} ${oy - up * 0.55} l ${side * 2.8} ${-3}" stroke="${lash}" stroke-width="1.9" stroke-linecap="round"/><path d="M${x + side * (W + 0.5)} ${oy + 1.6} l ${side * 3.4} ${-0.6}" stroke="${lash}" stroke-width="1.6" stroke-linecap="round"/>`);
   out.push(`<path d="M${x - W * 0.7} ${y + low - 0.5} Q ${x} ${y + low + 1.5} ${x + W * 0.7} ${y + low - 0.5}" stroke="${shade(skin, 0.62)}" stroke-width="1.1" fill="none" opacity="0.7"/>`);
   // Crease above the lid
   out.push(`<path d="M${x - W * 0.7} ${y - up - 3.6} Q ${x} ${y - up - 6} ${x + W * 0.8} ${y - up - 3}" stroke="${shade(skin, 0.7)}" stroke-width="1" fill="none" opacity="0.6"/>`);
@@ -235,12 +260,26 @@ function eye(id: string, x: number, y: number, side: -1 | 1, m: MoodParams, iris
   return out.join('');
 }
 
-function brow(x: number, y: number, side: -1 | 1, m: MoodParams, color: string, thick: number): string {
+/**
+ * A tapered painted brow: a filled crescent (thick at the inner head, a fine tail) with a dark ink
+ * edge, bent by the mood and the villager's own arch. Returns the path and its lowest point (the
+ * audit keeps every brow clear above the upper lid).
+ */
+function browShape(x: number, y: number, side: -1 | 1, m: MoodParams, thick: number, arch: number): { d: string; low: number } {
   const inner = y + m.browIn * 0.8;
   const outer = y + m.browOut * 0.8 + (side === -1 ? m.browRaiseL : 0);
   const xi = x - side * 9;
-  const xo = x + side * 10;
-  return `<path d="M${xi} ${inner} Q ${x} ${Math.min(inner, outer) - 4} ${xo} ${outer + 1}" stroke="${color}" stroke-width="${thick}" fill="none" stroke-linecap="round"/>`;
+  const xo = x + side * 10.5;
+  const cy = Math.min(inner, outer) - 4 * (1 + arch * 1.6);
+  const t0 = thick * 0.62;
+  const t1 = thick * 0.18;
+  // top edge inner→outer, bottom edge outer→inner
+  const d = `M${xi} ${inner - t0} Q ${x} ${cy - t0 * 0.8} ${xo} ${outer + 1 - t1} Q ${xo + side * 1.2} ${outer + 1.4} ${xo - side * 0.4} ${outer + 1 + t1} Q ${x} ${cy + t0 * 1.1} ${xi} ${inner + t0} Q ${xi - side * 1.6} ${inner} ${xi} ${inner - t0} Z`;
+  return { d, low: Math.max(inner + t0, outer + 1 + t1) };
+}
+function brow(x: number, y: number, side: -1 | 1, m: MoodParams, color: string, thick: number, arch = 0, inkC = '#2a120c'): string {
+  const b = browShape(x, y, side, m, thick, arch);
+  return `<path d="${b.d}" fill="${color}" stroke="${inkC}" stroke-width="1.1" stroke-linejoin="round"/>`;
 }
 
 function mouth(mood: Mood, cx: number, y: number, skin: number, beard: boolean): string {
@@ -472,7 +511,13 @@ function frontHair(id: string, L: NpcLook, f: Face): string {
     case 'slick':
       return `<path d="M${cx - w - 2} ${t + 46} Q ${cx - w - 4} ${t - 2} ${cx + 6} ${t - 4} Q ${cx + w + 6} ${t} ${cx + w + 2} ${t + 42} Q ${cx + w - 2} ${t + 20} ${cx + 20} ${t + 14} Q ${cx - 10} ${t + 12} ${cx - 24} ${t + 22} Q ${cx - w + 2} ${t + 28} ${cx - w - 2} ${t + 46} Z" fill="${H}" ${s}/>` + `<path d="M${cx - 18} ${t + 4} Q ${cx + 4} ${t - 4} ${cx + 30} ${t + 8}" stroke="${hl}" stroke-width="3" fill="none" opacity="0.55" stroke-linecap="round"/><path d="M${cx - 22} ${t + 2} Q ${cx - 20} ${t + 10} ${cx - 24} ${t + 20}" stroke="${shade(L.hair, 0.6)}" stroke-width="1.4" fill="none"/>`;
     default:
-      if (L.hat === 'flatcap' || L.hat === 'beanie' || L.hat === 'bandana') return `<path d="M${cx - w - 2} ${t + 56} Q ${cx - w - 2} ${t + 36} ${cx - w + 8} ${t + 30} L ${cx - w + 6} ${t + 56} Z M${cx + w + 2} ${t + 56} Q ${cx + w + 2} ${t + 36} ${cx + w - 8} ${t + 30} L ${cx + w - 6} ${t + 56} Z" fill="${H}" ${s}/>`;
+      if (L.hat === 'flatcap' || L.hat === 'beanie' || L.hat === 'bandana') {
+        // Tufts curling out from under the hat over each ear (soft tapered locks, not blocks).
+        const tuft = (sx: number): string =>
+          `<path d="M${cx + sx * (w - 9)} ${t + 26} Q ${cx + sx * (w + 7)} ${t + 30} ${cx + sx * (w + 5)} ${t + 46} Q ${cx + sx * (w + 3)} ${t + 54} ${cx + sx * (w - 1)} ${t + 60} Q ${cx + sx * (w + 1)} ${t + 50} ${cx + sx * (w - 3)} ${t + 44} Q ${cx + sx * (w - 4)} ${t + 34} ${cx + sx * (w - 9)} ${t + 26} Z" fill="${H}" ${s}/>` +
+          `<path d="M${cx + sx * (w - 2)} ${t + 32} Q ${cx + sx * (w + 2)} ${t + 40} ${cx + sx * (w + 1)} ${t + 48}" stroke="${hl}" stroke-width="1.6" fill="none" opacity="0.5" stroke-linecap="round"/>`;
+        return tuft(-1) + tuft(1);
+      }
       return (
         `<path d="M${cx - w - 2} ${t + 50} Q ${cx - w - 6} ${t - 2} ${cx} ${t - 4} Q ${cx + w + 6} ${t - 2} ${cx + w + 2} ${t + 50} Q ${cx + w - 4} ${t + 22} ${cx} ${t + 16} Q ${cx - w + 2} ${t + 24} ${cx - w - 2} ${t + 50} Z" fill="${H}" ${s}/>` +
         lockSet(id, L, [
@@ -629,6 +674,43 @@ function modelPortraitSvg(url: string, look: NpcLook, bg: [number, number], mood
   return `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">${p.join('')}</svg>`;
 }
 
+const lum = (h: number): number => (0.299 * ((h >> 16) & 255) + 0.587 * ((h >> 8) & 255) + 0.114 * (h & 255)) / 255;
+/** Mean value of each painted place behind the bust (measured from the rendered cards, see auditPainted). */
+const BACK_L: Record<string, number> = { shop: 0.67, bakery: 0.51, river: 0.76, forge: 0.25, clinic: 0.8, inn: 0.38, hall: 0.41, meadow: 0.81, workshop: 0.68, garden: 0.74 };
+/**
+ * The wash that keeps a ≥ .3 value gap between skin and backdrop: deep skin gets a cool pale plate,
+ * light skin the place's own hue sunk dark. Returns colour + alpha (0 = none needed).
+ */
+export function valuePlate(skin: number, bg: [number, number], kind?: Backdrop): { c: number; a: number; skinL: number; backL: number } {
+  const sk = lum(skin);
+  const b0 = BACK_L[kind ?? ''] ?? (lum(bg[0]) + lum(bg[1])) / 2;
+  let c: number;
+  let target: number;
+  if (sk < 0.62) {
+    c = 0xe4ecf4;
+    target = Math.min(0.9, sk + 0.34);
+  } else {
+    // (the backdrop's darker stop, sunk to a deep tone of its own hue)
+    const h = bg[1];
+    const k = 0.26 / Math.max(0.05, lum(h));
+    c = (Math.min(255, Math.round(((h >> 16) & 255) * k)) << 16) | (Math.min(255, Math.round(((h >> 8) & 255) * k)) << 8) | Math.min(255, Math.round((h & 255) * k));
+    target = Math.max(0.14, sk - 0.4);
+  }
+  const pl = lum(c);
+  const need = sk < 0.62 ? b0 < target : b0 > target;
+  const a = need ? Math.min(0.86, Math.max(0, (target - b0) / (pl - b0 || 1e-3))) : 0;
+  return { c, a, skinL: sk, backL: b0 * (1 - a) + pl * a };
+}
+
+/** Close crop for the painted bust: scale round (100, 100) → (100, Y0), fitted to hats and brims. */
+function portraitCrop(L: NpcLook, f: Face): { t: string; k: number } {
+  const extra = L.hat === 'beanie' ? 34 : L.hat === 'sunhat' ? 30 : L.hat === 'bandana' ? 24 : L.hat === 'flatcap' ? 16 : L.hairStyle === 'cap' ? 34 : L.hairStyle === 'bun' ? 27 : L.hairStyle === 'spiky' ? 26 : L.hairStyle === 'curly' ? 16 : 8;
+  const Y0 = 104;
+  let k = Math.min(1.27, Math.max(1.0, (Y0 - 5) / (100 - (f.top - extra))));
+  if (L.hat === "sunhat") k = Math.min(k, 1.2); // (the brim runs off both card edges, as a painter would crop it)
+  return { t: `translate(100 ${Y0}) scale(${k.toFixed(3)}) translate(-100 -100)`, k };
+}
+
 /** The painted SVG bust (fallback without WebGL; festival extras). */
 export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'happy'): string {
   const id = `p${uid++}`;
@@ -637,11 +719,16 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   const skin = L.skin;
   const hair = L.hair;
   const acc = new Set(L.acc ?? []);
-  const old = acc.has('wrinkles');
+  const old = acc.has('wrinkles') || (L.fp?.lines ?? 0) >= 0.3;
   const faceKind = L.face ?? 'round';
   const hs = L.head ?? 1;
   const w = (faceKind === 'long' ? 42 : faceKind === 'square' ? 47 : 45) * (hs > 1.05 ? 1.04 : 1);
   const f: Face = { cx: 100, top: faceKind === 'long' ? 42 : 46, chin: faceKind === 'long' ? 144 : faceKind === 'heart' ? 141 : 138, w, jaw: faceKind === 'square' ? 1.4 : faceKind === 'heart' ? 0.5 : faceKind === 'long' ? 0.9 : 1 };
+  // Face structure (NpcLook.fp, the same numbers that shape the 3D head): width, jaw, length, chin.
+  const fp = L.fp ?? {};
+  f.w *= 0.55 + 0.45 * Math.min(1.2, Math.max(0.85, fp.w ?? 1));
+  if (fp.jaw !== undefined) f.jaw = 0.55 + fp.jaw * 0.85;
+  f.chin += ((fp.h ?? 1) - 1) * 36 + (fp.chin ?? 0) * 3;
   const sw = 58 * Math.min(1.35, Math.max(0.85, L.build));
   const iris = L.eyes ?? 0x6a4a2a;
   const lash = mix(hair, 0x1a0e0a, 0.55);
@@ -659,6 +746,9 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   const d0 = X(0) - 100;
   // Eyes meet the viewer (irises slide towards the near side) unless the mood looks away.
   const m: MoodParams = LOOK_AWAY.has(mood) ? m0 : { ...m0, gazeX: m0.gazeX + th * 7 };
+  const this_brows: { side: number; low: number; eyeTop: number }[] = [];
+  const plate = portraitOpts.plate ? valuePlate(skin, bg, L.backdrop) : { c: 0, a: 0, skinL: 0, backL: 0 };
+  const crop = portraitCrop(L, f);
   const p: string[] = [];
   p.push(`<defs>
     <radialGradient id="${id}bg" cx="42%" cy="34%" r="80%"><stop offset="0" stop-color="${shade(bg[0], 1.1)}"/><stop offset="0.6" stop-color="${css(bg[0])}"/><stop offset="1" stop-color="${css(bg[1])}"/></radialGradient>
@@ -676,6 +766,8 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
     <filter id="${id}soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>
     <filter id="${id}soft2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.8"/></filter>
     <filter id="${id}wob" x="-4%" y="-4%" width="108%" height="108%"><feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="${(uid * 7) % 97}"/><feDisplacementMap in="SourceGraphic" scale="1.7" xChannelSelector="R" yChannelSelector="G"/></filter>
+    <filter id="${id}ol" x="-8%" y="-8%" width="116%" height="116%"><feMorphology in="SourceAlpha" operator="dilate" radius="1.35" result="d"/><feFlood flood-color="#2a120a"/><feComposite in2="d" operator="in" result="o"/><feMerge><feMergeNode in="o"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <radialGradient id="${id}plate" cx="50%" cy="44%" r="70%"><stop offset="0" stop-color="${css(plate.c)}" stop-opacity="${plate.a.toFixed(3)}"/><stop offset="1" stop-color="${css(plate.c)}" stop-opacity="${(plate.a * 0.92).toFixed(3)}"/></radialGradient>
     <filter id="${id}grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="4"/><feColorMatrix type="saturate" values="0"/></filter>
     <filter id="${id}brush" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.012 0.07" numOctaves="3" seed="9"/><feColorMatrix type="saturate" values="0"/></filter>
   </defs>`);
@@ -685,6 +777,9 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   p.push(`<rect width="200" height="200" fill="${pz.tint}" opacity="${pz.tintA}" style="mix-blend-mode:${mood === 'sad' || mood === 'worried' ? 'multiply' : 'soft-light'}"/>`);
   if (mood === 'sad') p.push(`<rect width="200" height="200" fill="url(#${id}cool)"/>`);
   if (mood === 'angry') p.push(`<rect width="200" height="200" fill="url(#${id}hot)"/>`);
+  // Value plate (r7: Odessa's brown face on a brown forge): the backdrop is pushed ≥ .3 in value away
+  // from the skin — a cool pale wash behind deep skin, the place's own hue sunk dark behind light skin.
+  p.push(`<rect width="200" height="200" fill="url(#${id}plate)"/>`);
   if (mood === 'surprised' || mood === 'laugh')
     p.push(`<g opacity="${mood === 'surprised' ? 0.45 : 0.3}" stroke="#fffbe8" stroke-width="4" stroke-linecap="round">${Array.from({ length: 14 }, (_, i) => {
       const a = (i / 14) * Math.PI * 2 + 0.2;
@@ -693,7 +788,9 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   const HT = `translate(${pz.dx} ${pz.dy}) rotate(${pz.tilt} 100 ${f.chin}) translate(100 ${f.chin}) scale(${pz.scale}) translate(-100 ${-f.chin})`;
   const ST = `translate(0 ${pz.shoulders * 0.7})`;
   // The bust is drawn slightly larger than the frame for a closer, more intimate crop.
-  p.push(`<g transform="translate(100 206) scale(1.07) translate(-100 -206)"><g filter="url(#${id}wob)">`);
+  // Close crop (r7: the face must fill the card): head + shoulders scaled round a pivot so the face
+  // spans ≥ 55 % of the card; an ink outline round the whole bust separates it from the place.
+  p.push(`<g transform="${crop.t}"><g filter="url(#${id}ol)"><g filter="url(#${id}wob)">`);
   // Braids drape in front of the shoulders, so body first for everything else.
   p.push(`<g transform="${HT} translate(${(-d0 * 0.3).toFixed(2)} 0)">${backHair(id, L, f)}</g>`);
   p.push(`<g transform="${ST}">`);
@@ -729,7 +826,8 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
     // The far ear slips behind the cheek once the head turns.
     if (sx === -1 && th > 0.08) continue;
     const ex = X(sx * f.w, 1);
-    p.push(`<ellipse cx="${ex}" cy="${eyeY + 2}" rx="8.5" ry="12" fill="${shade(skin, 0.96)}" stroke="${ink(skin)}" stroke-width="1.6"/><path d="M${ex - sx * 1} ${eyeY - 4} q ${sx * 4} 6 0 12" stroke="${shade(skin, 0.72)}" stroke-width="1.6" fill="none"/>`);
+    const ek = Math.min(1.3, Math.max(0.8, L.fp?.ears ?? 1));
+    p.push(`<ellipse cx="${ex}" cy="${eyeY + 2}" rx="${8.5 * ek}" ry="${12 * ek}" fill="${shade(skin, 0.96)}" stroke="${ink(skin)}" stroke-width="1.6"/><path d="M${ex - sx * 1} ${eyeY - 4 * ek} q ${sx * 4 * ek} ${6 * ek} 0 ${12 * ek}" stroke="${mix(skin, 0x8a3028, 0.35)}" stroke-width="1.6" fill="none"/>`);
     if (acc.has('earrings')) p.push(`<circle cx="${ex + sx * 1}" cy="${eyeY + 15}" r="3.6" fill="#f2c43a" stroke="#a87a1a" stroke-width="1.2"/><circle cx="${ex + sx * 0.4}" cy="${eyeY + 14}" r="1.1" fill="#fff" opacity="0.8"/>`);
   }
   // Face
@@ -737,7 +835,8 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   p.push(`<g clip-path="url(#${id}face)">`);
   // Cel shadow on the far cheek + rim light on the near one
   const warmShadow = mix(skin, 0x8a3028, 0.42);
-  p.push(`<g filter="url(#${id}soft)">`);
+  // (two-tone cel: a crisp-edged shadow shape, only a hair of blur)
+  p.push(`<g filter="url(#${id}soft2)">`);
   p.push(`<path d="M${100 + f.w * 0.5} ${f.top - 6} Q ${100 + f.w * 1.05} ${eyeY} ${100 + f.w * 0.25} ${f.chin + 6} L ${100 + f.w + 14} ${f.chin + 6} L ${100 + f.w + 14} ${f.top - 6} Z" fill="${warmShadow}" opacity="0.42"/>`);
   p.push(`<ellipse cx="100" cy="${f.chin + 2}" rx="${f.w * 0.75}" ry="12" fill="${warmShadow}" opacity="0.4"/>`);
   p.push(`<ellipse cx="${100 - f.w * 0.42}" cy="${eyeY + 14}" rx="13" ry="9" fill="#fff6ea" opacity="0.38"/>`);
@@ -752,62 +851,77 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   if (mood === 'sad' || mood === 'worried') for (const sx of [-1, 1]) p.push(`<ellipse cx="${100 + sx * 21}" cy="${eyeY + 10}" rx="10" ry="4" fill="#6a78b0" opacity="0.22" filter="url(#${id}soft2)"/>`);
   // Stubble / beard base inside the face
   if (beard === 'stubble') {
-    // Five o'clock shadow: a soft-edged jaw wash + a sparse stipple, strongest along the jawline.
-    p.push(`<path transform="translate(${(d0 * 0.6).toFixed(2)} 0)" d="M${100 - f.w + 4} ${mouthY - 6} Q 100 ${mouthY + 2} ${100 + f.w - 4} ${mouthY - 6} L ${100 + f.w} ${f.chin + 4} L ${100 - f.w} ${f.chin + 4} Z" fill="${css(hair)}" opacity="0.13" filter="url(#${id}soft2)"/>`);
-    const dots: string[] = [];
-    const hsh = (n: number): number => {
-      const v = Math.sin(n * 12.9898) * 43758.5453;
-      return v - Math.floor(v);
-    };
-    for (let i = 0; i < 34; i++) {
-      const a = hsh(i + 1);
-      const bx = 100 + (a - 0.5) * f.w * 1.55;
-      const by = mouthY - 2 + hsh(i + 71) * (f.chin - mouthY + 2) - Math.abs(a - 0.5) * 10;
-      if (Math.abs(bx - 100) < 10 && by < mouthY + 7) continue;
-      dots.push(`<circle cx="${(bx + d0 * 0.7).toFixed(1)}" cy="${by.toFixed(1)}" r="0.8"/>`);
-    }
-    p.push(`<g fill="${shade(hair, 0.8)}" opacity="0.4">${dots.join('')}</g>`);
+    // Five o'clock shadow as one soft cool-grey wash inside the jaw band (r7: stippled stubble read as
+    // dirt / an eyepatch-dark ear) — under the mouth and along the jaw, never up the cheek.
+    p.push(`<path transform="translate(${(d0 * 0.6).toFixed(2)} 0)" d="M${100 - f.w * 0.82} ${mouthY - 4} Q ${100 - f.w * 0.5} ${mouthY + 6} 100 ${mouthY + 4} Q ${100 + f.w * 0.5} ${mouthY + 6} ${100 + f.w * 0.82} ${mouthY - 4} Q ${100 + f.w * 0.8} ${f.chin} 100 ${f.chin + 3} Q ${100 - f.w * 0.8} ${f.chin} ${100 - f.w * 0.82} ${mouthY - 4} Z" fill="${mix(skin, 0x46505a, 0.42)}" opacity="0.32" filter="url(#${id}soft2)"/>`);
   }
   p.push(`</g>`);
   if (beard === 'full') p.push(`<path transform="translate(${(d0 * 0.5).toFixed(2)} 0)" d="M${100 - f.w + 2} ${eyeY + 6} Q ${100 - f.w + 2} ${f.chin + 12} 100 ${f.chin + 14} Q ${100 + f.w - 2} ${f.chin + 12} ${100 + f.w - 2} ${eyeY + 6} Q ${100 + f.w - 8} ${mouthY + 2} 100 ${mouthY + 2} Q ${100 - f.w + 8} ${mouthY + 2} ${100 - f.w + 2} ${eyeY + 6} Z" fill="url(#${id}hr)" stroke="${ink(hair)}" stroke-width="1.8"/><path d="M92 ${f.chin + 2} q 8 6 16 0" stroke="${shade(hair, 1.35)}" stroke-width="2" fill="none" opacity="0.5"/>`);
   // Blush
-  const bo = Math.min(1, m.blush);
+  // Blush: soft gradient ovals only (r7: stroked blush read as scrapes), stronger for rosy-cheeked
+  // villagers, a wide warm flush across the nose when shy, a hot wash when angry.
+  const cheekK = Math.min(1.3, Math.max(0.35, (L.fp?.cheeks ?? 0.6) / 0.6));
+  const bo = Math.min(1, m.blush * (mood === 'blush' || mood === 'angry' ? 1 : cheekK));
   for (const sx of [-1, 1]) p.push(`<ellipse cx="${X(sx * 27)}" cy="${eyeY + 15}" rx="${(11 + m.blush * 3) * WS(sx * 27)}" ry="${6.5 + m.blush * 1.5}" fill="url(#${id}bl)" opacity="${bo}"/>`);
-  if (mood === 'blush' || mood === 'angry') for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) p.push(`<path d="M${X(sx * 27) - 6 * WS(sx * 27) + i * 5 * WS(sx * 27)} ${eyeY + 18} l 3 -6" stroke="${mood === 'angry' ? '#c8403a' : '#e0605a'}" stroke-width="1.3" opacity="0.7" stroke-linecap="round"/>`);
+  if (mood === 'blush') p.push(`<ellipse cx="${X(0, 6)}" cy="${eyeY + 15}" rx="${f.w * 0.7}" ry="7" fill="url(#${id}bl)" opacity="0.45"/>`);
+  if (mood === 'blush') for (const sx of [-1, 1]) p.push(`<ellipse cx="${X(sx * 25) - 3}" cy="${eyeY + 12}" rx="2.2" ry="1.4" fill="#fff" opacity="0.6"/>`);
   if (acc.has('freckles')) for (const sx of [-1, 1]) for (let i = 0; i < 5; i++) p.push(`<circle cx="${X(sx * (16 + (i % 3) * 5 + (i > 2 ? 2 : 0)))}" cy="${eyeY + 10 + (i > 2 ? 5 : 0) + (i % 2)}" r="1.2" fill="${shade(skin, 0.62)}" opacity="0.75"/>`);
   if (old) {
     p.push(`<g transform="translate(${d0.toFixed(2)} 0)">`);
-    p.push(`<path d="M${100 - 26} ${f.top + 18} q 26 -5 52 0 M${100 - 20} ${f.top + 24} q 20 -3 40 0" stroke="${shade(skin, 0.72)}" stroke-width="1.1" fill="none" opacity="0.55"/>`);
-    p.push(`<path d="M${100 - 13} ${eyeY + 14} q -4 10 -2 18 M${100 + 13} ${eyeY + 14} q 4 10 2 18" stroke="${shade(skin, 0.7)}" stroke-width="1.2" fill="none" opacity="0.55"/>`);
+    // (forehead lines only for the oldest faces; the cheek lines read as scratches — r7 Hazel)
+    if ((L.fp?.lines ?? 0) >= 0.75) p.push(`<path d="M${100 - 22} ${f.top + 18} q 22 -4 44 0" stroke="${mix(skin, 0x8a3028, 0.3)}" stroke-width="1" fill="none" opacity="0.5" stroke-linecap="round"/>`);
     p.push(`</g>`);
   }
   // Eyes + brows
   const kid = hs > 1.05;
-  const ex = kid ? 21.5 : old ? 20 : 20.5;
-  const es = kid ? 1.14 : old ? 0.93 : 1;
+  const ex = (kid ? 21.5 : acc.has('wrinkles') ? 20 : 20.5) * Math.min(1.12, Math.max(0.9, fp.gap ?? 1));
+  const es = (kid ? 1.14 : acc.has('wrinkles') ? 0.93 : 1) * Math.min(1.18, Math.max(0.86, fp.eye ?? 1));
+  const cut = EYE_CUT[L.eyeShape ?? 'round'] ?? EYE_CUT.round!;
   // Each eye (and its brow / lens) is drawn square-on, then moved + foreshortened onto the turned head.
   const onHead = (x: number, svg: string, k = es): string => `<g transform="translate(${X(x).toFixed(2)} ${eyeY}) scale(${(k * WS(x)).toFixed(3)} ${k}) translate(${-x} ${-eyeY})">${svg}</g>`;
-  p.push(onHead(-ex, eye(id, -ex, eyeY, -1, m, iris, lash, skin, old)));
-  p.push(onHead(ex, eye(id, ex, eyeY, 1, m, iris, lash, skin, old)));
-  const browC = L.hairStyle === 'bald' || L.hat ? shade(hair, 0.82) : shade(hair, 0.8);
-  const browT = (beard === 'full' || L.build > 1.3 ? 5 : 4) + (mood === 'angry' ? 1.4 : 0);
-  p.push(onHead(-ex, brow(-ex, eyeY - 18, -1, m, browC, browT), 1));
-  p.push(onHead(ex, brow(ex, eyeY - 18, 1, m, browC, browT), 1));
+  p.push(onHead(-ex, eye(id, -ex, eyeY, -1, m, iris, lash, skin, old, cut, !!L.lashes)));
+  p.push(onHead(ex, eye(id, ex, eyeY, 1, m, iris, lash, skin, old, cut, !!L.lashes)));
+  // Brows: tapered painted crescents, thickness / arch from the look; light hair gets a darker brow
+  // so it reads. Clamped clear above the upper lid (r7: a grey brow bar lay across Hazel's eye).
+  const lightHair = ((hair >> 16) & 255) + ((hair >> 8) & 255) + (hair & 255) > 520;
+  const browC = lightHair ? shade(hair, 0.68) : shade(hair, 0.85);
+  const browT = (2.6 + 2.3 * Math.min(1.7, Math.max(0.6, L.brow ?? 1))) * (kid ? 1.05 : 1) + (mood === 'angry' ? 1.2 : 0);
+  const arch = L.browArch ?? 0.2;
+  const lidTop = cut.up * m0.open * es + (cut.lid > 0 ? 0 : 0);
+  for (const side of [-1, 1] as const) {
+    let by = eyeY - Math.max(18, cut.up * es + 6);
+    const b0 = browShape(side * ex, by, side, m, browT, arch);
+    const clear = eyeY - (m.closed ? 4 : lidTop) - 2.2;
+    if (b0.low > clear) by -= b0.low - clear;
+    this_brows.push({ side, low: browShape(side * ex, by, side, m, browT, arch).low, eyeTop: eyeY - (m.closed ? 4 : lidTop) });
+    p.push(onHead(side * ex, brow(side * ex, by, side, m, browC, browT, arch, mix(hair, 0x1a0a06, 0.7)), 1));
+  }
   // Nose
   // Painted nose: soft shadow down the far side of the bridge, a nostril shade, a lit tip.
-  const nl = kid ? 0.8 : faceKind === 'long' ? 1.2 : 1;
+  const nk = L.fp?.nose ?? 'button';
+  const nl = (kid ? 0.8 : faceKind === 'long' ? 1.15 : 1) * (nk === 'long' || nk === 'hook' ? 1.18 : nk === 'snub' || nk === 'button' ? 0.86 : 1);
+  const nwk = nk === 'broad' ? 1.45 : nk === 'bulb' ? 1.25 : nk === 'button' ? 0.85 : 1;
   const nd = X(0, 9) - 100;
-  if (th > 0.05) p.push(`<path d="M${X(-4, 2) - 1} ${eyeY + 1} Q ${100 + nd - 5} ${eyeY + 9 * nl} ${100 + nd - 3.5} ${eyeY + 15.5 * nl}" stroke="${shade(skin, 0.7)}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="${Math.min(0.75, th * 2.4).toFixed(2)}"/>`);
+  if (th > 0.05) p.push(`<path d="M${X(-4, 2) - 1} ${eyeY + 1} Q ${100 + nd - 5 - (nk === 'hook' ? 2.5 : 0)} ${eyeY + 9 * nl} ${100 + nd - 3.5} ${eyeY + 15.5 * nl}" stroke="${mix(skin, 0x8a3028, 0.4)}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="${Math.min(0.8, th * 2.6).toFixed(2)}"/>`);
   p.push(`<g transform="translate(${nd.toFixed(2)} 0)">`);
-  p.push(`<g filter="url(#${id}soft2)"><path d="M${102} ${eyeY + 2} Q ${106} ${eyeY + 10 * nl} ${104} ${eyeY + 16 * nl}" stroke="${warmShadow}" stroke-width="4" fill="none" opacity="0.45" stroke-linecap="round"/><ellipse cx="${100}" cy="${eyeY + 18 * nl}" rx="6" ry="2.6" fill="${warmShadow}" opacity="0.5"/></g>`);
-  p.push(`<path d="M${97} ${eyeY + 16 * nl} Q ${100} ${eyeY + 18.5 * nl} ${104} ${eyeY + 15.5 * nl}" stroke="${shade(skin, 0.62)}" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0.8"/><ellipse cx="${99}" cy="${eyeY + 12 * nl}" rx="2.6" ry="2" fill="#fff" opacity="0.5" filter="url(#${id}soft2)"/>`);
+  // Cel shadow under / beside the nose (crisp edge, two tones), a lit tip.
+  p.push(`<path d="M${101} ${eyeY + 3} Q ${106} ${eyeY + 10 * nl} ${104.5} ${eyeY + 16 * nl} Q ${100} ${eyeY + 19.5 * nl} ${95} ${eyeY + 17 * nl} Q ${100} ${eyeY + 17.5 * nl} ${102.5} ${eyeY + 14 * nl} Q ${103.5} ${eyeY + 9 * nl} ${101} ${eyeY + 3} Z" fill="${mix(skin, 0x8a3028, 0.32)}" opacity="0.55"/>`);
+  if (nk === 'bulb') p.push(`<circle cx="99.5" cy="${eyeY + 14.5 * nl}" r="5.6" fill="${shade(skin, 1.02)}" stroke="${mix(skin, 0x8a3028, 0.45)}" stroke-width="1.2"/>`);
+  p.push(`<path d="M${100 - 4 * nwk} ${eyeY + 16 * nl} Q ${100} ${eyeY + 18.8 * nl} ${100 + 4 * nwk} ${eyeY + 15.6 * nl}" stroke="${mix(skin, 0x6a2018, 0.48)}" stroke-width="1.8" fill="none" stroke-linecap="round"/>`);
+  if (nk === 'snub' || nk === 'broad') p.push(`<ellipse cx="${100 - 2.4 * nwk}" cy="${eyeY + 16.4 * nl}" rx="1.3" ry="0.9" fill="${mix(skin, 0x4a1410, 0.55)}"/><ellipse cx="${100 + 2.6 * nwk}" cy="${eyeY + 16.2 * nl}" rx="1.3" ry="0.9" fill="${mix(skin, 0x4a1410, 0.55)}"/>`);
+  if (nk === 'hook') p.push(`<path d="M${101.5} ${eyeY + 4} Q ${105.5} ${eyeY + 7} ${103} ${eyeY + 10}" stroke="${mix(skin, 0x8a3028, 0.45)}" stroke-width="1.3" fill="none"/>`);
+  p.push(`<ellipse cx="${98.6}" cy="${eyeY + 12.5 * nl}" rx="2.3" ry="1.8" fill="#fff" opacity="0.55"/>`);
   p.push(`</g>`);
+  // Age: smile folds and a cleft chin from the face structure.
+  if ((L.fp?.lines ?? 0) >= 0.5) for (const sx of [-1, 1]) p.push(`<path d="M${X(sx * 13, 2)} ${eyeY + 17} q ${sx * -5} 8 ${sx * -2} 16" transform="translate(${(d0 * 0.4).toFixed(2)} 0)" stroke="${mix(skin, 0x8a3028, 0.32)}" stroke-width="1.1" fill="none" stroke-linecap="round" opacity="0.55"/>`);
+  if (L.fp?.cleft && beard !== 'full') p.push(`<path d="M${X(0, 3) - 2.5} ${f.chin - 7} q 2.5 3 5 0" stroke="${mix(skin, 0x8a3028, 0.42)}" stroke-width="1.3" fill="none" stroke-linecap="round"/>`);
   if (beard === 'full' || beard === 'mustache') {
     const mc = `url(#${id}hr)`;
     p.push(`<path transform="translate(${(X(0, 4) - 100).toFixed(2)} 0)" d="M${100} ${mouthY - 7} Q ${88} ${mouthY - 12} ${78} ${mouthY - 2} Q ${86} ${mouthY - 3} ${92} ${mouthY - 1} Q ${97} ${mouthY - 3} ${100} ${mouthY - 5} Q ${103} ${mouthY - 3} ${108} ${mouthY - 1} Q ${114} ${mouthY - 3} ${122} ${mouthY - 2} Q ${112} ${mouthY - 12} ${100} ${mouthY - 7} Z" fill="${mc}" stroke="${ink(hair)}" stroke-width="1.6" stroke-linejoin="round"/>`);
   }
   const my = mouthY + (beard === 'full' || beard === 'mustache' ? 2 : 0);
-  p.push(`<g transform="translate(${(X(0, 2) - 100).toFixed(2)} 0) translate(100 ${my}) scale(${(1 - 0.28 * Math.sin(th)).toFixed(3)} 1) translate(-100 ${-my})">${mouth(mood, 100, my, skin, !!beard)}</g>`);
+  const mwk = Math.min(1.22, Math.max(0.8, L.fp?.mouth ?? 1));
+  p.push(`<g transform="translate(${(X(0, 2) - 100).toFixed(2)} 0) translate(100 ${my}) scale(${((1 - 0.28 * Math.sin(th)) * mwk).toFixed(3)} 1) translate(-100 ${-my})">${mouth(mood, 100, my, skin, !!beard)}</g>`);
   if (L.glasses) {
     const gc = '#6a4424';
     for (const sx of [-1, 1]) p.push(onHead(sx * ex, `<circle cx="${sx * ex}" cy="${eyeY - 1}" r="15" fill="#e8f4ff" fill-opacity="0.14" stroke="${gc}" stroke-width="3"/><path d="M${sx * ex - 8} ${eyeY - 8} l 7 -5" stroke="#fff" stroke-width="2.4" opacity="0.7" stroke-linecap="round"/>`, 1));
@@ -825,8 +939,9 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   if (fh && L.hairStyle !== 'bald') {
     // Painted sheen: a soft light band across the crown + a darker band where hair meets the face.
     p.push(`<clipPath id="${id}hc">${fh.replace(/<path d="[^"]*" stroke="[^"]*" stroke-width="[^"]*" fill="none"[^>]*\/>/g, '')}</clipPath>`);
-    p.push(`<g clip-path="url(#${id}hc)"><g filter="url(#${id}soft2)"><path d="M${100 - f.w * 0.8} ${f.top + 12} Q ${100 - 4} ${f.top - 2} ${100 + f.w * 0.6} ${f.top + 10}" stroke="#fffaf0" stroke-width="7" fill="none" opacity="0.32" stroke-linecap="round"/>`);
-    p.push(`<path d="M${100 - f.w} ${f.top + 34} Q 100 ${f.top + 22} ${100 + f.w} ${f.top + 34}" stroke="${shade(L.hair, 0.45)}" stroke-width="9" fill="none" opacity="0.35"/></g></g>`);
+    // Two-tone hair: a crisp lit band across the crown + a crisp shade band where it meets the face.
+    p.push(`<g clip-path="url(#${id}hc)"><g><path d="M${100 - f.w * 0.8} ${f.top + 10} Q ${100 - 4} ${f.top - 4} ${100 + f.w * 0.55} ${f.top + 8}" stroke="${mix(L.hair, 0xfff6e0, 0.42)}" stroke-width="5" fill="none" opacity="0.6" stroke-linecap="round"/>`);
+    p.push(`<path d="M${100 - f.w} ${f.top + 36} Q 100 ${f.top + 22} ${100 + f.w} ${f.top + 36}" stroke="${shade(L.hair, 0.55)}" stroke-width="10" fill="none" opacity="0.5"/></g></g>`);
   }
   p.push(`</g>`);
   p.push(`<g transform="translate(${(d0 * 0.4).toFixed(2)} 0)">${hat(L, f)}</g>`);
@@ -845,7 +960,8 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   if (mood === 'thinking') p.push(`<g fill="#fffaf0" stroke="#7a5a3a" stroke-width="1.4"><circle cx="${100 + f.w + 10}" cy="${f.top + 4}" r="3"/><circle cx="${100 + f.w + 18}" cy="${f.top - 6}" r="4.5"/><circle cx="${100 + f.w + 28}" cy="${f.top - 20}" r="7"/></g>`);
   p.push(`</g>`);
   p.push(`</g>`);
-  if (pz.hand) {
+  // (r8: only the thinking hand under the chin stays — the floating mitten at a cheek / mouth read as a prop)
+  if (pz.hand === 'chin') {
     const sleeve = L.coat ?? L.top;
     const cy = f.chin + pz.dy;
     const hx = 100 + pz.dx + d0;
@@ -855,11 +971,39 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
     else if (pz.hand === 'fist') p.push(hand(100 - sw * 0.55, 186 + pz.shoulders * 0.7, 8, skin, sleeve, true));
     else if (pz.hand === 'chest') p.push(hand(100 + 6, 184 + pz.shoulders * 0.7, -6, skin, sleeve));
   }
-  p.push(`</g></g>`);
+  p.push(`</g></g></g>`);
   // Painted surface: brush streaks + fine canvas grain.
   p.push(`<rect width="200" height="200" filter="url(#${id}brush)" opacity="0.15" style="mix-blend-mode:soft-light"/>`);
   p.push(`<rect width="200" height="200" filter="url(#${id}grain)" opacity="0.13" style="mix-blend-mode:overlay"/>`);
+  PAINT_AUDIT.last = { brows: this_brows, skinL: plate.skinL, backL: plate.backL, faceH: ((f.chin - f.top + 18) * crop.k) / 200, faceW: (2 * f.w * crop.k) / 200 };
   return `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">${p.join('')}</svg>`;
+}
+
+/** The last painted bust's own measurements (auditPainted). */
+export const PAINT_AUDIT: { last: { brows: { side: number; low: number; eyeTop: number }[]; skinL: number; backL: number; faceH: number; faceW: number } | null } = { last: null };
+
+/**
+ * Painted-portrait gate (r8): every villager in every mood — each brow clear above its upper lid,
+ * a ≥ .25 value gap between skin and backdrop, the face (brow line to chin) ≥ 55 % of the card's
+ * height. `stats` lists each villager's numbers.
+ */
+export function auditPainted(looks: { id: string; look: NpcLook; bg: [number, number] }[], moods: Mood[]): { checked: number; fails: string[]; stats: Record<string, string> } {
+  const out = { checked: 0, fails: [] as string[], stats: {} as Record<string, string> };
+  for (const v of looks)
+    for (const m of moods) {
+      PAINT_AUDIT.last = null;
+      paintedPortraitSvg(v.look, v.bg, m);
+      const a = PAINT_AUDIT.last as { brows: { side: number; low: number; eyeTop: number }[]; skinL: number; backL: number; faceH: number; faceW: number } | null;
+      if (!a) continue;
+      out.checked++;
+      const k = `${v.id}/${m}`;
+      for (const b of a.brows) if (b.low > b.eyeTop - 1.5) out.fails.push(`${k}: brow over the ${b.side < 0 ? 'left' : 'right'} eye (${(b.low - b.eyeTop).toFixed(1)})`);
+      const dv = Math.abs(a.skinL - a.backL);
+      if (dv < 0.25) out.fails.push(`${k}: skin / backdrop value gap ${dv.toFixed(2)}`);
+      if (a.faceH < 0.55) out.fails.push(`${k}: face only ${(a.faceH * 100).toFixed(0)} % of the card`);
+      if (m === moods[0]) out.stats[v.id] = `skin ${a.skinL.toFixed(2)} back ${a.backL.toFixed(2)} face ${(a.faceH * 100).toFixed(0)}%×${(a.faceW * 100).toFixed(0)}%`;
+    }
+  return out;
 }
 
 // ───────────────────────────────────────────── heart-event insert cards

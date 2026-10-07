@@ -6,7 +6,8 @@
   transform: translate(-50%, -47%);
   display: flex;
   gap: 34px;
-  align-items: flex-start;
+  /* (r7) both panels share one height (r6: mismatched bottoms) */
+  align-items: stretch;
   pointer-events: auto;
 }
 .hv-coop .u-frame > .u-paper {
@@ -156,8 +157,9 @@
 .coop-opts {
   display: grid;
   gap: 7px;
-  /* pinned to the tallest tab (CoopScreen.pinOptsHeight): spare room collects at the bottom */
-  align-content: start;
+  /* pinned to the tallest tab (CoopScreen.pinOptsHeight): a shorter tab spreads its rows over the
+     same height instead of leaving an empty band at the bottom (r6 Outfit tab) */
+  align-content: space-evenly;
 }
 .coop-row {
   display: grid;
@@ -510,6 +512,20 @@
   background: var(--hat);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
 }
+.coop-av.pic {
+  /* kerchief-coloured ring around a soft sky disc; the bust overflows the top a touch */
+  background: radial-gradient(circle at 50% 38%, #fff8e6 0 52%, color-mix(in srgb, var(--ring) 38%, #f3e2bf) 53% 100%);
+  box-shadow: 0 2px 0 rgba(50, 24, 8, 0.35), inset 0 0 0 2px var(--ring), inset 0 0 0 3.5px rgba(50, 24, 8, 0.35);
+}
+.coop-av.pic img {
+  position: absolute;
+  left: -8%;
+  top: -6%;
+  width: 116%;
+  height: 116%;
+  object-fit: cover;
+  pointer-events: none;
+}
 .coop-av.empty {
   background: rgba(150, 100, 40, 0.15);
   box-shadow: inset 0 0 0 2px rgba(150, 100, 40, 0.35);
@@ -643,9 +659,10 @@
 .coop-tag.on {
   opacity: 1;
 }
-/* Over a HUD card (clock, roster, now-playing, hotbar): step back. */
+/* Over a HUD card (clock, roster, now-playing, hotbar): fade right out — never a ghost pill inside the
+   date panel (r6 'Spring 1 ar'). */
 .coop-tag.on.dim {
-  opacity: 0.16;
+  opacity: 0;
 }
 .coop-name {
   position: absolute;
@@ -669,6 +686,15 @@
   height: calc(11px * var(--coop-s));
   border-radius: 50%;
   box-shadow: 0 0 0 2px rgba(255, 248, 234, 0.8);
+}
+/* our own pill (co-op): the same pill with a small 'you' after the name */
+.coop-name.me em {
+  margin-left: calc(4px * var(--coop-s));
+  font: 700 calc(10px * var(--coop-s)) / 1 var(--font-body);
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.62;
 }
 /* Laid out by net/players.ts (bottom-centre on the tag anchor + a JS offset clear of other bubbles). */
 .coop-say {
@@ -821,12 +847,18 @@
   color: #c0502a;
 }
 .coop-chat-row .hint {
+  /* a parchment tab hanging under the row (r6: white text straight on the grass) */
   position: absolute;
-  right: 10px;
-  bottom: -24px;
-  font: 700 12px var(--font-body);
-  color: #fff6e6;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  right: 14px;
+  bottom: -27px;
+  padding: 3px 9px 4px;
+  border: 2.5px solid #6a3c1a;
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: linear-gradient(180deg, #f4e2bc, #ead3a4);
+  box-shadow: 0 3px 0 rgba(50, 24, 8, 0.3);
+  font: 700 12.5px var(--font-body);
+  color: #7a4a24;
   white-space: nowrap;
 }
 .coop-chat-row .hint kbd {
@@ -1112,6 +1144,10 @@
    no CSS backdrop blur over a full-screen canvas (the expensive part of the old lobby). */
 .hv-coop .u-backdrop {
   backdrop-filter: none;
+  /* (r7) a light, warm scrim: the farm behind the lobby reads sunny and cozy, not a dark olive blur */
+  background:
+    radial-gradient(ellipse 80% 70% at 50% 48%, rgba(255, 236, 190, 0.1), rgba(120, 70, 20, 0.12) 64%, rgba(70, 36, 10, 0.34)),
+    linear-gradient(180deg, rgba(255, 226, 160, 0.1), rgba(90, 50, 14, 0.08));
 }
 
 
@@ -1299,9 +1335,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
-  padding: 5px 8px 5px 6px;
+  padding: 8px 10px 8px 8px;
   border-radius: 12px;
   background: #fffaf0;
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--c) 45%, transparent), 0 2px 0 rgba(138, 100, 64, 0.2);
@@ -1311,7 +1347,8 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 6px;
+  /* room for the Busiest ribbon riding the cards' top edge (clear of the legend) */
+  margin-bottom: 14px;
 }
 .coop-today .ct-hd .de-h {
   margin-bottom: 0;
@@ -1338,11 +1375,12 @@
 .coop-today .ct-key b {
   color: #c0a080;
 }
-/* The day's busiest farmer: a small gold ribbon that says so (r4: an unexplained star). */
+/* The day's busiest farmer: a small gold ribbon that says so (r4: an unexplained star). Sits on the
+   card's top edge, inside its width (r6: it overlapped the card border at the bottom-right). */
 .coop-today .ct-best {
   position: absolute;
-  right: -6px;
-  bottom: -9px;
+  right: 8px;
+  top: -9px;
   padding: 1px 7px 2px;
   border-radius: 9px;
   font: 700 11px/1.2 var(--font-head);
@@ -1357,7 +1395,7 @@
 }
 .coop-today .ct-tx b {
   display: block;
-  font: 700 15px/1.15 var(--font-head);
+  font: 700 17px/1.15 var(--font-head);
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -1384,14 +1422,36 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font: 800 14px var(--font-body);
+  font: 800 16px var(--font-body);
   font-style: normal;
   color: #6a4424;
 }
 .coop-today .ct-tx i svg,
 .coop-today .ct-tx i img {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+}
+/* who shipped what (r7) */
+.coop-today .ct-tx small.ct-ship {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 3px;
+  font: 700 13px var(--font-body);
+  color: #8a6440;
+  white-space: nowrap;
+}
+.coop-today .ct-tx small.ct-ship b {
+  color: #b07a12;
+  font-weight: 800;
+}
+.coop-today .ct-tx small.ct-ship svg {
+  width: 15px;
+  height: 15px;
+}
+.coop-today .ct-tx small.ct-ship.z {
+  opacity: 0.5;
+  font-weight: 600;
 }
 .coop-today .ct-tx small {
   font: 700 12px var(--font-body);
@@ -1489,4 +1549,26 @@
 .coop-name-row.clash input,
 .ng-field.clash input {
   box-shadow: inset 0 0 0 2px #d9503a !important;
+}
+
+/* (r7) Spectating a heart event / any letterboxed scene: the roster drops inside the safe area under the
+   top bar (r6 clipped its 'Co-op · CODE' header), and the chat column docks top-right, clear of the
+   dialogue box and the insert card (r6: a chip sat on the dialogue box's top edge). */
+body:has(.dlg-letterbox.on) .coop-roster {
+  top: calc((4.6vh + 10px) / var(--uiz, 1));
+}
+body:has(.dlg-letterbox.on) .coop-chat {
+  left: auto;
+  right: 18px;
+  bottom: auto;
+  top: calc((4.6vh + 64px) / var(--uiz, 1));
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+body:has(.dlg-letterbox.on) .coop-chat .coop-log {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }

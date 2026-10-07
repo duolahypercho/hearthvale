@@ -249,7 +249,9 @@ export function applyBeachSand(material: THREE.Material, seaLevel: number, pools
           }
         }
         // Seabed: cooler, darker with depth; caustics (applied as light below).
-        vec3 bed = sand * vec3(0.6, 0.72, 0.68) * (0.88 + 0.12 * rip);
+        // (r7: the shallow bed keeps the warm sand albedo, only cooling with depth: a grey-green bed
+        // under a pale sheet read as milky frosted glass, critic r6.)
+        vec3 bed = sand * mix(vec3(0.95, 0.9, 0.76), vec3(0.62, 0.74, 0.7), smoothstep(0.25, 1.1, depth)) * (0.88 + 0.12 * rip);
         s = mix(s, bed, smoothstep(0.0, 0.3, depth));
         // Life on the sea bed, seen through the clear shallows (so the water off the pier is never a
         // plain pale swimming-pool sheet): seagrass meadows with swaying blades, dark rippled sand in

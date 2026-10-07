@@ -385,47 +385,64 @@ function pierWoodMaterial(): THREE.MeshStandardMaterial {
 let signTex: THREE.CanvasTexture | null = null;
 function signMaterial(): THREE.MeshStandardMaterial {
   if (!signTex) {
+    // (r7: 1024 x 256 and the lettering measured to fit between the two fish, which sit in their own
+    // end panels — at 512 px the fish were painted over the B and the E: "AIT & TACKL", critic r6.)
     const c = document.createElement('canvas');
-    c.width = 512;
-    c.height = 128;
+    c.width = 1024;
+    c.height = 256;
     const g = c.getContext('2d')!;
-    const grad = g.createLinearGradient(0, 0, 0, 128);
-    grad.addColorStop(0, '#f2e6cc');
-    grad.addColorStop(1, '#d8c4a0');
+    const grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#f4e9d0');
+    grad.addColorStop(1, '#dcc8a2');
     g.fillStyle = grad;
-    g.fillRect(0, 0, 512, 128);
-    g.globalAlpha = 0.18;
-    for (let y = 6; y < 128; y += 9) {
+    g.fillRect(0, 0, 1024, 256);
+    g.globalAlpha = 0.16;
+    for (let y = 12; y < 256; y += 18) {
       g.fillStyle = '#8a6a4a';
-      g.fillRect(0, y + Math.sin(y) * 2, 512, 1.5);
+      g.fillRect(0, y + Math.sin(y) * 4, 1024, 3);
     }
     g.globalAlpha = 1;
     g.strokeStyle = '#2f5f6a';
-    g.lineWidth = 8;
-    g.strokeRect(8, 8, 496, 112);
+    g.lineWidth = 14;
+    g.strokeRect(14, 14, 996, 228);
+    // End panels for the fish, split off by thin rules.
+    g.lineWidth = 5;
+    for (const x of [176, 848]) {
+      g.beginPath();
+      g.moveTo(x, 34);
+      g.lineTo(x, 222);
+      g.stroke();
+    }
     g.fillStyle = '#2f5f6a';
-    g.font = 'bold 60px Georgia, serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText('BAIT  &  TACKLE', 256, 58);
-    // little fish flourish
+    const label = 'BAIT & TACKLE';
+    let px = 104;
+    g.font = `bold ${px}px Georgia, serif`;
+    while (g.measureText(label).width > 620 && px > 40) {
+      px -= 2;
+      g.font = `bold ${px}px Georgia, serif`;
+    }
+    g.fillText(label, 512, 132);
+    // Little fish, one per end panel, nose to the lettering.
     g.fillStyle = '#c8483a';
-    g.beginPath();
-    g.ellipse(58, 64, 22, 11, 0, 0, Math.PI * 2);
-    g.fill();
-    g.beginPath();
-    g.moveTo(78, 64);
-    g.lineTo(94, 52);
-    g.lineTo(94, 76);
-    g.fill();
-    g.beginPath();
-    g.ellipse(454, 64, 22, 11, 0, 0, Math.PI * 2);
-    g.fill();
-    g.beginPath();
-    g.moveTo(434, 64);
-    g.lineTo(418, 52);
-    g.lineTo(418, 76);
-    g.fill();
+    const fish = (cx: number, dir: number): void => {
+      g.beginPath();
+      g.ellipse(cx, 128, 40, 21, 0, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.moveTo(cx - dir * 34, 128);
+      g.lineTo(cx - dir * 64, 104);
+      g.lineTo(cx - dir * 64, 152);
+      g.fill();
+      g.fillStyle = '#f4e9d0';
+      g.beginPath();
+      g.arc(cx + dir * 20, 122, 5, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#c8483a';
+    };
+    fish(104, 1);
+    fish(920, -1);
     signTex = new THREE.CanvasTexture(c);
     signTex.colorSpace = THREE.SRGBColorSpace;
     signTex.anisotropy = 4;

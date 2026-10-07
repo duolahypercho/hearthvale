@@ -24,7 +24,7 @@ export type HatKind = 'flatcap' | 'beanie' | 'sunhat' | 'bandana' | 'earmuffs';
 export type Accessory = 'cane' | 'satchel' | 'earrings' | 'pencil' | 'toolbelt' | 'freckles' | 'stethoscope' | 'shawl' | 'flower' | 'wrinkles' | 'bandage' | 'rollingpin' | 'tongs' | 'docbag' | 'keys' | 'trowel' | 'lantern' | 'towel';
 export type Emote = 'heart' | 'exclaim' | 'question' | 'music' | 'sweat' | 'anger' | 'idea' | 'sad' | 'zzz' | 'dots';
 
-export type Activity = 'idle' | 'sweep' | 'read' | 'chat' | 'hammer' | 'paint' | 'water' | 'sit' | 'play' | 'fish' | 'inside' | 'wander' | 'knead' | 'saw' | 'lean';
+export type Activity = 'idle' | 'sweep' | 'read' | 'chat' | 'hammer' | 'paint' | 'water' | 'sit' | 'play' | 'fish' | 'inside' | 'wander' | 'knead' | 'saw' | 'lean' | 'tip';
 
 export interface WalkStyle {
   /** m/s */
@@ -202,7 +202,7 @@ export interface HeartEvent {
   insert?: { kind: string; word: string; caption: string }[];
   /** Extra actors spawned for the scene (e.g. Pip the shop cat): at [x, z], height above ground. */
   props?: {
-    kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks' | 'letter';
+    kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks' | 'letter' | 'cage';
     at: [number, number];
     y?: number;
     rot?: number;
@@ -729,6 +729,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
         // (r7: she checks the cage side-on — 'up' put her back to the lens on the opening line)
         cast: { odessa: [[33.6, 14.6], 'left'], player: [[31.0, 16.2], 'up'] },
         camera: { x: 32.4, z: 13.8, yaw: 6, pitch: 36, distance: 15 },
+        // (r8: the cage the scene is about is in her hands, not only on the insert card)
+        props: [{ kind: 'cage', at: [0, 0], hold: ['odessa', 'chest'], word: 'cage|rivet' }],
         insert: [{ kind: 'cage', word: 'cage|rivet|lantern', caption: 'Her grandfather’s lantern cage' }],
         script: [
           { say: 'odessa', text: 'Shh. Rivet check. My grandfather made this cage — every piece, by hand, the winter the old one rusted through.', mood: 'neutral' },
@@ -941,10 +943,13 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hearts: 2,
         title: 'The Empty Chair',
         hours: [17, 24],
-        cast: { june: ['inn_front', 'down'], rowan: ['inn_tables', 'right'], player: [[81.4, 27.4], 'down'] },
+        // (r8: Rowan out from under the terrace parasol, tipping chair no. 4 back on its hind legs —
+        // the line is about what he is doing, so he does it)
+        cast: { june: ['inn_front', 'down'], rowan: [[79.7, 30.5], 'up'], player: [[81.4, 27.4], 'down'] },
         camera: { x: 79.4, z: 28.4, yaw: 180, pitch: 48, distance: 15 },
         insert: [{ kind: 'chair', word: 'leaning|chair|firewood', caption: 'Chair no. 4 — mended thirty-one times' }],
         script: [
+          { act: 'rowan', activity: 'tip' },
           { face: 'june', to: 'rowan' },
           { face: 'rowan', to: 'up' },
           { emote: 'june', icon: 'anger' },

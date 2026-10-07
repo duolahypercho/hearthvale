@@ -105,8 +105,9 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
   // across the farm, and a muted blue / green / ochre keeps its value under the night's blue moonlight
   // where the r5 terracotta went black.
   const weather = new THREE.Color(0xa47a62);
-  const roofA = acc.clone().lerp(weather, 0.32).getHex();
-  const roofB = acc.clone().lerp(weather, 0.2).lerp(new THREE.Color(0xffffff), 0.1).getHex();
+  // (r7: a value step lighter again — the owner's colour must survive the moonlight from the high lens)
+  const roofA = acc.clone().lerp(weather, 0.24).lerp(new THREE.Color(0xffffff), 0.08).getHex();
+  const roofB = acc.clone().lerp(weather, 0.14).lerp(new THREE.Color(0xffffff), 0.2).getHex();
   const pitch = Math.atan2(gh, W / 2);
   const cosP = Math.cos(pitch);
   const sinP = Math.sin(pitch);
@@ -206,10 +207,26 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
     b.add(W_, new THREE.SphereGeometry(0.065, 6, 4), at(wx - 0.24 + i * 0.12, wy - 0.24 + (i % 2) * 0.03, fz + 0.1), { tint: c });
     b.add(W_, new THREE.SphereGeometry(0.05, 5, 4), at(wx - 0.22 + i * 0.12, wy - 0.28, fz + 0.02), { tint: 0x5f9a3c });
   }
-  // Porch lamp east of the door
-  b.add(W_, rb(0.05, 0.28, 0.05, 0.01), at(0.62, base + 1.18, fz + 0.02), { tint: 0x3a3230 });
-  b.add(W_, rb(0.17, 0.22, 0.17, 0.03), at(0.62, base + 1.02, fz + 0.12), { tint: 0x3a3230 });
-  b.add('windowCard', new THREE.BoxGeometry(0.12, 0.15, 0.12), at(0.62, base + 1.02, fz + 0.12));
+  // Porch lantern east of the door: a bracket, a cap + base and four corner posts around a glass that
+  // glows with the lamps (r6: the housing box swallowed the glass — an unlit dark box at 10:30 pm).
+  const lx = 0.62;
+  const ly = base + 1.02;
+  const lz = fz + 0.14;
+  b.add(W_, rb(0.05, 0.05, 0.16, 0.01), at(lx, ly + 0.2, fz + 0.06), { tint: 0x3a3230 });
+  b.add(W_, rb(0.2, 0.05, 0.2, 0.02), at(lx, ly + 0.11, lz), { tint: 0x3a3230 });
+  b.add(W_, new THREE.ConeGeometry(0.12, 0.08, 4), at(lx, ly + 0.17, lz, 0, Math.PI / 4, 0), { tint: 0x3a3230 });
+  b.add(W_, rb(0.17, 0.04, 0.17, 0.015), at(lx, ly - 0.1, lz), { tint: 0x3a3230 });
+  for (const ox of [-1, 1]) for (const oz of [-1, 1]) b.add(W_, rb(0.022, 0.2, 0.022, 0.006), at(lx + ox * 0.07, ly, lz + oz * 0.07), { tint: 0x3a3230 });
+  b.add('lampGlow', new THREE.BoxGeometry(0.12, 0.17, 0.12), at(lx, ly, lz));
+  // Coffee on the porch: a little crate side-table by the step with a cream mug on it (handle out,
+  // dark coffee inside) — readable from the farm camera as "someone left you a coffee".
+  const tx = 1.02;
+  const tz = D * 0.5 + 0.42;
+  b.add(W_, rb(0.36, 0.34, 0.32, 0.03), at(tx, 0.17, tz, 0, 0.15, 0), { tint: 0xb98a58, ao: groundAO(0.18, 0.6) });
+  b.add(W_, rb(0.38, 0.03, 0.34, 0.01), at(tx, 0.35, tz, 0, 0.15, 0), { tint: 0x8a5a34 });
+  b.add(W_, bevelCylinder(0.07, 0.065, 0.13, 0.015, 12), at(tx - 0.03, 0.365, tz + 0.02), { tint: 0xf4ead8 });
+  b.add(W_, new THREE.CylinderGeometry(0.058, 0.058, 0.01, 12), at(tx - 0.03, 0.485, tz + 0.02), { tint: 0x4a2a16 });
+  b.add(W_, new THREE.TorusGeometry(0.04, 0.012, 5, 10), at(tx + 0.045, 0.43, tz + 0.02, 0, 0, 0), { tint: 0xf4ead8 });
   // Doorstep + mat
   b.add(W_, rb(1.15, 0.14, 0.52, 0.04), at(0, 0.07, D * 0.5 + 0.5), { tint: 0xa77a50, ao: groundAO(0.2, 0.7) });
   b.add(W_, rb(0.74, 0.02, 0.34, 0.01), at(0, 0.15, D * 0.5 + 0.52), { tint: acc.clone().lerp(new THREE.Color(0xf4e4c4), 0.55).getHex() });

@@ -136,6 +136,8 @@ export class Game {
   /** Seconds the current pausing menu has been open (backdrop refresh policy in step()). */
   private menuOpenT = 0;
   private last = 0;
+  /** rAF timestamp (ms) of the frame being stepped by the loop; NaN otherwise. */
+  frameTs = NaN;
   private readyResolve!: () => void;
   readonly readyPromise: Promise<void>;
   private started = false;
@@ -254,7 +256,11 @@ export class Game {
     // rAF timestamps can precede the performance.now() taken when the loop started: never step backwards.
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000) || 0);
     this.last = now;
+    // The rAF timestamp of the frame being stepped (co-op playout / stamps run on it however long the
+    // frame's work takes); NaN outside the loop (tests stepping by hand).
+    this.frameTs = now;
     this.step(dt);
+    this.frameTs = NaN;
   };
 
   /** Advance one rendered frame by dt seconds (also used by tests / frame capture). */

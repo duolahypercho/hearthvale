@@ -18,6 +18,7 @@ import { RemoteFarmer, farmerMaterial } from '../entities/remote-farmer';
 import { MeshBuilder, mat, roundedBox, bevelCylinder, lumpySphere } from '../world/geom';
 import { Rng } from '../core/rng';
 import { EMOTES, EMOTE_LABEL, emoteIconUrl, type EmoteId } from '../entities/remote-emotes';
+import { farmerPortraitUrl } from './coop-portrait';
 import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, DEMO_HOST_LOOK, hex, randomLook, extra, EYE_STYLES, BROW_STYLES, MOUTH_STYLES, OUTFIT_CUTS, ACCESSORIES, type FarmerLook, type HairStyle, type HatStyle, type EyeStyle, type BrowStyle, type MouthStyle, type OutfitCut, type Accessory } from '../entities/remote-look';
 import { resetCamera } from './pause';
 import { nameClash, farmerName } from './profile';
@@ -44,7 +45,11 @@ const MAKER_TABS: { id: MakerTab; label: string }[] = [
 ];
 
 /** Little portrait disc for a farmer (kerchief ring, hair cap, skin face). */
-function avatar(look: FarmerLook, size = 34): string {
+export function avatar(look: FarmerLook, size = 34): string {
+  // (r7) The real 3D bust of this farmer (hair colour + style, hat, face) on the kerchief ring; the
+  // painted disc only where there's no WebGL.
+  const url = farmerPortraitUrl(look);
+  if (url) return `<span class="coop-av pic" style="--s:${size}px;--ring:${hex(look.scarf)}"><img src="${url}" alt="" draggable="false"/></span>`;
   return `<span class="coop-av" style="--s:${size}px;--skin:${hex(look.skin)};--hair:${hex(look.hair)};--ring:${hex(look.scarf)};--hat:${hex(look.hatColor)}"><i class="face"></i><i class="hair"></i>${look.hat !== 'none' ? '<i class="hat"></i>' : ''}</span>`;
 }
 
@@ -127,9 +132,16 @@ class FarmerPreview implements TurntableView {
   width = 300;
   height = 262;
   private farmer: RemoteFarmer;
-  private spin = 0.35;
   private drag: number | null = null;
   private t = 0;
+  /** (r7) Idle sway ±25° around a three-quarter pose, plus whatever the player dragged in (decays back). */
+  private dragYaw = 0;
+  private holdYaw: number | null = null;
+  /** Per-tab framing: head close-up on Face, waist-up on Hair & hat, full body on Outfit (eased). */
+  private camPos = new THREE.Vector3(0, 1.5, 4.95);
+  private camAim = new THREE.Vector3(0, 1.08, 0);
+  private wantPos = new THREE.Vector3(0, 1.5, 4.95);
+  private wantAim = new THREE.Vector3(0, 1.08, 0);
 
   constructor(look: FarmerLook) {
     this.canvas = el('canvas', 'coop-preview');
@@ -197,8 +209,7 @@ class FarmerPreview implements TurntableView {
     });
     this.canvas.addEventListener('pointermove', (e) => {
       if (this.drag === null) return;
-      this.farmer.yaw += (e.clientX - this.drag) * 0.012;
-      this.farmer.targetYaw = this.farmer.yaw;
+      this.dragYaw += (e.clientX - this.drag) * 0.012;
       this.drag = e.clientX;
     });
     this.canvas.addEventListener('pointerup', () => (this.drag = null));
@@ -220,11 +231,31 @@ class FarmerPreview implements TurntableView {
     replay(bubble, 'pop');
   }
 
-  /** Stop the spin at `yaw` (radians, 0 = facing the camera). */
+  /** Stop the sway at `yaw` (radians, 0 = facing the camera). */
   hold(yaw: number): void {
-    this.spin = 0;
+    this.holdYaw = yaw;
     this.farmer.yaw = yaw;
     this.farmer.targetYaw = yaw;
+  }
+
+  /** Frame the tab's subject; `snap` skips the ease (first show / stills). */
+  frame(tab: MakerTab, snap = false): void {
+    if (tab === 'face') {
+      this.wantPos.set(0.05, 1.86, 2.75);
+      this.wantAim.set(0, 1.6, 0);
+    } else if (tab === 'look') {
+      this.wantPos.set(0, 1.8, 3.35);
+      this.wantAim.set(0, 1.42, 0);
+    } else {
+      this.wantPos.set(0, 1.5, 4.95);
+      this.wantAim.set(0, 1.08, 0);
+    }
+    if (snap) {
+      this.camPos.copy(this.wantPos);
+      this.camAim.copy(this.wantAim);
+      this.camera.position.copy(this.camPos);
+      this.camera.lookAt(this.camAim);
+    }
   }
 
   tick(dt: number): void {
@@ -242,10 +273,16 @@ class FarmerPreview implements TurntableView {
     }
     dt = Math.min(0.05, dt);
     this.t += dt;
-    if (this.drag === null) {
-      this.farmer.yaw += dt * this.spin;
-      this.farmer.targetYaw = this.farmer.yaw;
-    }
+    // Idle: a slow ±25° sway around three-quarters (the face always reads), drag adds a turn that eases
+    // back once let go; a held still pose (demo) stays put.
+    if (this.drag === null) this.dragYaw *= Math.exp(-dt * 1.2);
+    const base = this.holdYaw ?? 0.32 + Math.sin(this.t * 0.55) * 0.44;
+    this.farmer.yaw = this.farmer.targetYaw = base + this.dragYaw;
+    const k = 1 - Math.exp(-dt * 6);
+    this.camPos.lerp(this.wantPos, k);
+    this.camAim.lerp(this.wantAim, k);
+    this.camera.position.copy(this.camPos);
+    this.camera.lookAt(this.camAim);
     this.farmer.update(dt, this.t);
   }
 }
@@ -318,6 +355,7 @@ class CoopScreen extends Screen {
 
   private renderMaker(body: HTMLElement): void {
     this.preview = new FarmerPreview(this.look);
+    this.preview.frame(this.makerTab, true);
     this.stage.setView(this.preview);
     const stage = el('div', 'coop-stage');
     stage.appendChild(this.preview.canvas);
@@ -472,6 +510,7 @@ class CoopScreen extends Screen {
       b.addEventListener('click', () => {
         if (this.makerTab === t.id) return;
         this.makerTab = t.id;
+        this.preview?.frame(t.id);
         sfx(this.game, 'click');
         body.querySelectorAll('.coop-opts').forEach((n) => n.remove());
         this.renderMakerOptions(body);
@@ -507,13 +546,14 @@ class CoopScreen extends Screen {
       opts.appendChild(this.chipRow('Eyes', EYE_STYLES, EYE_LABEL, extra(L, 'eyes'), (v) => (L.eyes = v), body));
       opts.appendChild(this.chipRow('Brows', BROW_STYLES, BROW_LABEL, extra(L, 'brows'), (v) => (L.brows = v), body));
       opts.appendChild(this.chipRow('Mouth', MOUTH_STYLES, MOUTH_LABEL, extra(L, 'mouth'), (v) => (L.mouth = v), body));
-      opts.appendChild(this.chipRow('Extra', ACCESSORIES, ACC_LABEL, extra(L, 'accessory'), (v) => (L.accessory = v), body));
       swatch('skin', 'Skin', PALETTE.skin);
     } else {
       opts.appendChild(this.chipRow('Cut', OUTFIT_CUTS, CUT_LABEL, extra(L, 'outfit'), (v) => (L.outfit = v), body));
       swatch('overalls', CUT_LABEL[extra(L, 'outfit')], PALETTE.overalls);
       swatch('shirt', 'Shirt', PALETTE.shirt);
       swatch('scarf', extra(L, 'accessory') === 'scarf' ? 'Scarf' : 'Kerchief', PALETTE.scarf);
+      // (r7: the Outfit tab left its lower third empty) the finishing touch lives with the clothes
+      opts.appendChild(this.chipRow('Extra', ACCESSORIES, ACC_LABEL, extra(L, 'accessory'), (v) => (L.accessory = v), body));
     }
     return opts;
   }
@@ -1134,18 +1174,26 @@ export class CoopUi {
       [hoe, 'tilled'],
       [ICONS.sprout ?? '', 'sown'],
     ];
-    // The busiest farmer of the day gets a little ribbon.
-    const total = (n: number[]): number => n.reduce((a, b) => a + b, 0);
-    const best = rows.reduce((a, b) => (total(b.n) > total(a.n) ? b : a));
+    // The busiest farmer of the day gets a little ribbon — only for a real day's work (≥ 12 jobs) and a
+    // clear lead (r6: '★ Busiest' went to a 1/1/1 day).
+    const total = (n: number[]): number => n.slice(0, 4).reduce((a, b) => a + b, 0);
+    const ranked = [...rows].sort((a, b) => total(b.n) - total(a.n));
+    const top = ranked[0]!;
+    const best = total(top.n) >= 12 && total(top.n) >= total(ranked[1]?.n ?? [0]) + 3 ? top : null;
+    const gold = (r: (typeof rows)[number]): string => {
+      const g = r.n[4] ?? 0;
+      return g > 0 ? `<small class="ct-ship">${ICONS.coin ?? ''}<b>${g.toLocaleString()}g</b> shipped</small>` : `<small class="ct-ship z">nothing shipped</small>`;
+    };
     const box = el('div', 'coop-today');
     // Header + a one-line legend for the four tallies, and the ribbon says what it's for.
     const legend = kinds.map(([ic, w]) => `<i>${ic}${w[0]!.toUpperCase()}${w.slice(1)}</i>`).join('<b>·</b>');
     box.innerHTML = `<div class="ct-hd"><div class="de-h">Farm today</div><div class="ct-key">${legend}</div></div><div class="ct-row">${rows
       .map(
         (r) =>
-          `<div class="ct-f${r.isMe ? ' me' : ''}${r === best && total(r.n) > 0 ? ' best' : ''}" style="--c:${hex(r.look.scarf)}"${r === best && total(r.n) > 0 ? ' title="Busiest farmer today (most jobs done)"' : ''}>${r === best && total(r.n) > 0 ? '<em class="ct-best">★ Busiest</em>' : ''}${avatar(r.look, 34)}<div class="ct-tx"><b>${escapeHtml(farmerName(r.name))}${r.isMe ? ' <em>you</em>' : ''}</b><span>${r.n
+          `<div class="ct-f${r.isMe ? ' me' : ''}${r === best ? ' best' : ''}" style="--c:${hex(r.look.scarf)}"${r === best ? ' title="Busiest farmer today (most jobs done)"' : ''}>${r === best ? '<em class="ct-best">★ Busiest</em>' : ''}${avatar(r.look, 52)}<div class="ct-tx"><b>${escapeHtml(farmerName(r.name))}${r.isMe ? ' <em>you</em>' : ''}</b><span>${r.n
+            .slice(0, 4)
             .map((v, i) => `<i class="${v > 0 ? '' : 'z'}" title="${kinds[i]![1]}">${kinds[i]![0]}${v}</i>`)
-            .join('')}</span></div></div>`,
+            .join('')}</span>${gold(r)}</div></div>`,
       )
       .join('')}</div>`;
     card.insertBefore(box, foot);

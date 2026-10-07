@@ -543,6 +543,26 @@ try {
   check('farmhand sees farmhand walk: no backward steps, no pops (per frame)', motion.back === 0 && motion.maxV <= Math.max(2, motion.walk * 2), `${motion.back} backward frames, fastest frame ${motion.maxV} m/s vs walk ${motion.walk} m/s`);
   const perf = await Promise.all([host, a, b].map((p) => net(p, () => window.__game.info().perf)));
   check('render budget with 3 farmers in view (host)', perf[0].drawCalls <= 300, `${perf[0].drawCalls} draw calls, ${(perf[0].triangles / 1e6).toFixed(2)}M tris`);
+  // r7: a name pill never shows over a HUD card (clock, roster, hotbar, energy, chat) — it fades out.
+  const tagHud = await Promise.all([host, a, b].map((p) => net(p, async () => {
+    const HUD = '.h-clock, .hv-toolbar, .hv-energy, .coop-roster:not(.hv-hidden), .coop-log > *, .coop-chat-row:not(.hv-hidden)';
+    let frames = 0, hits = 0, seen = 0;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 1500) {
+      await new Promise((r) => requestAnimationFrame(r));
+      frames++;
+      const huds = [...document.querySelectorAll(HUD)].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 4 && r.height > 4);
+      for (const t of document.querySelectorAll('.coop-tag.on:not(.dim) > .coop-name')) {
+        if (getComputedStyle(t.parentElement).opacity < 0.5 || t.offsetParent === null) continue;
+        const r = t.getBoundingClientRect();
+        if (r.width < 4) continue;
+        seen++;
+        if (huds.some((h) => r.left < h.right && r.right > h.left && r.top < h.bottom && r.bottom > h.top)) hits++;
+      }
+    }
+    return { frames, seen, hits };
+  })));
+  check('name pills never sit over a HUD card (every client)', tagHud.every((q) => q.hits === 0) && tagHud.some((q) => q.seen > 0), tagHud.map((q, i) => `${['host', 'ash', 'bea'][i]} ${q.hits} hits / ${q.seen} pills`).join(' · '));
 
   // Pose for the photo (distinct spots, facing the camera), then each client's view.
   await net(host, (t) => { window.__game.teleport('farm', t.x + 2.6, t.z + 2.4); window.__game.facing('down'); }, T1);

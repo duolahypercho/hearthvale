@@ -26,6 +26,7 @@ import { BatchPool, InstancedSet } from '../props/instanced';
 import { FountainFX } from './fountain';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
+import { buildChalkAFrame } from './aframe';
 import { buildSnowmen, buildSweptPaths, buildWreathDressing } from './winter';
 import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
@@ -589,7 +590,7 @@ export class TownMap implements GameMap {
           g = buildCafeSet();
           break;
         case 'sandwichBoard':
-          g = buildSandwichBoard(p.colors?.[0]);
+          g = buildChalkAFrame(p.colors?.[0]);
           break;
       }
       this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid);
@@ -713,7 +714,7 @@ export class TownMap implements GameMap {
           break;
         case 'chalkBoard':
         case 'sandwichBoard':
-          g = buildSandwichBoard(p.colors?.[0]);
+          g = buildChalkAFrame(p.colors?.[0]);
           break;
         case 'wheelbarrow':
           g = buildWheelbarrow();

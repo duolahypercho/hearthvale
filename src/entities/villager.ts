@@ -433,6 +433,9 @@ export class Villager {
   readonly position = new THREE.Vector3();
   /** Scaled body (rotates with yaw, bobs, squashes). */
   private body = new THREE.Group();
+  private tipBlend = 0;
+  private tipLift = 0;
+  private tipChair: THREE.Object3D | null = null;
   private mesh!: THREE.SkinnedMesh;
   private bones: THREE.Bone[] = [];
   private rest: THREE.Vector3[] = [];
@@ -846,7 +849,7 @@ export class Villager {
     // (pointed / jutting, or soft with a little double chin) — what tells ten faces apart with the
     // hair hidden. Stubble tints the jaw pieces instead of a shell laid over the eyes (r6 blocker).
     const beardK = L.beard === true ? 'full' : L.beard;
-    const jawC = beardK === 'stubble' ? mixHex(L.skin, L.hair, 0.32) : L.skin;
+    const jawC = beardK === 'stubble' ? mixHex(L.skin, L.hair, 0.16) : L.skin;
     const chinY = skullY - R * faceS[1];
     const jawK = FP.jaw ?? (face === 'square' ? 0.8 : face === 'heart' ? 0 : 0.25);
     const chinK = FP.chin ?? (face === 'heart' ? 0.4 : 0);
@@ -1040,7 +1043,8 @@ export class Villager {
       // Stubble (r7 blocker fix): a skin-tagged band on the jaw only, well below the mouth corners —
       // the r6 hair-tagged shell rode up over the eyes and the painter lit it as pale hair.
       rb.tag = 1;
-      const sh = new THREE.SphereGeometry(R * 1.006, 24, 8, -Math.PI * 0.1, Math.PI * 1.2, Math.PI * 0.72, Math.PI * 0.24);
+      // (r8: front of the jaw only — wrapped round to the ears it read as a dark disc / eyepatch in profile)
+      const sh = new THREE.SphereGeometry(R * 1.006, 24, 8, Math.PI * 0.2, Math.PI * 0.6, Math.PI * 0.74, Math.PI * 0.22);
       rb.add(B.head, sh, H(0, skullY, 0.002, 0, 0, 0, ...faceS), jawC);
     }
     rb.tag = 0;
@@ -1249,12 +1253,18 @@ export class Villager {
         braids: [15, 0.05, 0.04, 0.2],
         slick: [16, 0.022, 0.04, 2.2],
       };
-      const [gv, dp, sc, tw] = SHELL[style] ?? [12, 0.06, 0.1, 0.8];
+      let [gv, dp, sc, tw] = SHELL[style] ?? [12, 0.06, 0.1, 0.8];
+      // r8: pale bobs (Hazel) and the spiky mop (Kit) read as stringy noise / cookie dough at plaza
+      // distance — a few big clumps instead of many fine grooves.
+      const pale = ((hair >> 16) & 255) + ((hair >> 8) & 255) + (hair & 255) > 560;
+      if (style === 'spiky') [gv, dp, sc, tw] = [5, 0.12, 0.2, 0.9];
+      else if (pale) [gv, dp, sc, tw] = [5, 0.08, sc * 0.8, tw * 0.6];
       // Under a headscarf the hair follows the scarf's tilt and sits just inside it (no dark patches
       // poking through the cloth over the crown).
       const scarf = L.hat === 'bandana';
       // (under a beanie the shell stops above the eyes: r6 Rowan's temple locks hung over the far eye)
-      const cap = hairShell(R * (scarf ? 1.035 : 1.07), top, (L.hat === 'beanie' ? Math.PI * 0.46 : Math.PI * 0.55) - top, gv, top > 0 ? dp * 0.4 : dp, scarf ? 0.02 : top > 0 || hatted ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw);
+      // (r8: under a beanie it stops above the ear — the side of the shell read as a dark disc on the cheek)
+      const cap = hairShell(R * (scarf ? 1.035 : 1.07), top, (L.hat === 'beanie' ? Math.PI * 0.38 : Math.PI * 0.55) - top, gv, top > 0 ? dp * 0.4 : dp, scarf ? 0.02 : top > 0 || hatted ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw);
       rb.add(B.head, cap, scarf ? H(0, R * 0.98, -0.03, -0.5, 0, 0, 0.97, 0.76, 0.98) : H(0, R * 0.98, -0.02, -0.25, 0, 0), hair);
       // A glossy sheen band across the crown (reads as combed, not a plastic dome) and a darker
       // underlayer at the nape.
@@ -1384,7 +1394,8 @@ export class Villager {
         const c = new THREE.Vector3(0, R * 0.98, -0.02);
         const up = new THREE.Vector3(0, 1, 0);
         const q = new THREE.Quaternion();
-        const tufts: [number, number, number][] = [[0, 0.12, 0.2], [0.55, 0.2, 0.19], [-0.55, 0.2, 0.19], [1.1, 0.3, 0.17], [-1.1, 0.3, 0.17], [1.7, 0.36, 0.16], [-1.7, 0.36, 0.16], [2.4, 0.3, 0.17], [-2.4, 0.3, 0.17], [3.1, 0.22, 0.18], [0.25, 0.3, 0.16], [-0.3, 0.32, 0.15], [0.9, 0.08, 0.14], [-0.9, 0.08, 0.14], [2.0, 0.12, 0.15], [-2.0, 0.12, 0.15]];
+        // (r8: eight big locks, not sixteen small cones — the mop read as lumpy cookie dough)
+        const tufts: [number, number, number][] = [[0, 0.12, 0.22], [0.62, 0.2, 0.21], [-0.62, 0.2, 0.21], [1.45, 0.32, 0.2], [-1.45, 0.32, 0.2], [2.35, 0.3, 0.2], [-2.35, 0.3, 0.2], [3.1, 0.22, 0.2]];
         tufts.forEach(([az, pol, len0], i) => {
           if (L.hat === 'beanie' && pol < 0.3) return;
           // (front tufts a little shorter: in the portrait's laugh / sad tilt they fell over the eyes)
@@ -1398,8 +1409,8 @@ export class Villager {
           const flop = dir.clone().multiplyScalar(front ? 1.0 : 0.55).addScaledVector(down, front ? 0.38 : 0.85).normalize();
           q.setFromUnitVectors(up, flop);
           const pos = c.clone().addScaledVector(dir, R * 1.0).addScaledVector(flop, len * 0.3);
-          const cone = new THREE.ConeGeometry(0.085, len * 1.35, 7);
-          cone.scale(1, 1, 0.55);
+          const cone = new THREE.ConeGeometry(0.11, len * 1.35, 8);
+          cone.scale(1, 1, 0.6);
           rb.add(B.head, cone, H().multiply(new THREE.Matrix4().compose(pos, q, new THREE.Vector3(1, 1, 1))), i % 3 === 0 ? hi : hair);
         });
         break;
@@ -1467,7 +1478,9 @@ export class Villager {
           const a = -0.9 + i * 0.36;
           rb.add(B.head, lumpySphere(0.13, 1, 0.18, rng), H(Math.sin(a) * R * 0.8, R * 1.35, Math.cos(a) * R * 0.75), i % 2 ? hair : hi);
         }
-        else for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.1, 1, 0.12, rng), H(sx * R * 0.9, R * 0.95, R * 0.05, 0, 0, 0, 0.6, 1, 1), hair);
+        // (r8: under a hat, a slim tuft above and behind each ear — the round puff over the ear read as a
+        // dark disc / headphones on Rowan's cheek from the plaza lens)
+        else for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.08, 1, 0.1, rng), H(sx * R * 0.93, R * 1.12, -R * 0.2, 0.25, 0, sx * 0.2, 0.42, 0.85, 0.9), hair);
     }
   }
 
@@ -1757,6 +1770,25 @@ export class Villager {
     this.yaw += dy * (1 - Math.exp(-9 * dt));
     this.root.position.copy(this.position);
     this.body.rotation.y = this.yaw;
+    // Tipping a chair back on its rear legs (june-2 'The Empty Chair'): body + chair rock round the
+    // back legs; reset every frame otherwise.
+    {
+      const tipping = this.activity === 'tip' && !this.moving;
+      this.tipBlend += ((tipping ? 1 : 0) - this.tipBlend) * (dt === 0 ? 1 : 1 - Math.exp(-5 * dt));
+      const a = -this.tipBlend * (0.36 + Math.sin(this.t * 1.7) * 0.08);
+      this.body.rotation.order = 'YXZ';
+      this.body.rotation.x = a;
+      const pz = -0.34;
+      this.body.position.z = 0;
+      this.tipLift = pz * Math.sin(a);
+      this.body.position.x = Math.sin(this.yaw) * pz * (1 - Math.cos(a));
+      this.body.position.z = Math.cos(this.yaw) * pz * (1 - Math.cos(a));
+      if (this.tipBlend > 0.01 && !this.tipChair) {
+        this.tipChair = buildChair();
+        this.body.add(this.tipChair);
+      }
+      if (this.tipChair) this.tipChair.visible = this.tipBlend > 0.01;
+    }
 
     // ── reset pose
     const bn = this.bones;
@@ -1786,7 +1818,7 @@ export class Villager {
     head.rotation.x = -W.hunch * 0.7;
 
     const act = this.moving || this.talkTo ? 'idle' : this.activity;
-    const sitting = act === 'sit' && !this.moving;
+    const sitting = (act === 'sit' || act === 'tip') && !this.moving;
     // (dt = 0: a staging / audit settle — the pose snaps to its target)
     this.sitBlend += ((sitting ? 1 : 0) - this.sitBlend) * (dt === 0 ? 1 : 1 - Math.exp(-8 * dt));
     this.actBlend += ((act !== 'idle' && act !== 'chat' && act !== 'wander' && act !== 'inside' ? 1 : 0) - this.actBlend) * (dt === 0 ? 1 : 1 - Math.exp(-6 * dt));
@@ -1880,10 +1912,12 @@ export class Villager {
       sR.rotation.x = THREE.MathUtils.lerp(sR.rotation.x, 1.4, k);
       hips.position.y = THREE.MathUtils.lerp(this.hipY, 0.47 / this.scaleS, k);
       hips.position.z -= 0.1 * k;
-      aL.rotation.x = THREE.MathUtils.lerp(aL.rotation.x, -0.5, k);
-      aR.rotation.x = THREE.MathUtils.lerp(aR.rotation.x, -0.5, k);
-      fL.rotation.x = THREE.MathUtils.lerp(fL.rotation.x, -0.5, k);
-      fR.rotation.x = THREE.MathUtils.lerp(fR.rotation.x, -0.5, k);
+      if (this.activity !== 'tip') {
+        aL.rotation.x = THREE.MathUtils.lerp(aL.rotation.x, -0.5, k);
+        aR.rotation.x = THREE.MathUtils.lerp(aR.rotation.x, -0.5, k);
+        fL.rotation.x = THREE.MathUtils.lerp(fL.rotation.x, -0.5, k);
+        fR.rotation.x = THREE.MathUtils.lerp(fR.rotation.x, -0.5, k);
+      }
     }
     // Rain: the umbrella goes up in the left hand (the cane hand too) whenever it is free.
     const ub = this.propBones.get('umbrella');
@@ -1929,7 +1963,7 @@ export class Villager {
     }
     this.blinkT -= dt;
     this.applyFace(dt, act);
-    this.body.position.y = bob + this.hop;
+    this.body.position.y = bob + this.hop + this.tipLift;
     this.hop = 0;
     // Sit on the front of the seat, not inside the backrest.
     if (this.sitBlend > 0.001) {
@@ -1971,10 +2005,39 @@ export class Villager {
       const h = 0.96 * pop * this.barkHK;
       this.barkSprite.scale.set(h * this.barkAspect, h, 1);
       this.barkLiftCur += (this.barkLift - this.barkLiftCur) * Math.min(1, dt * 8);
-      this.barkSprite.position.set(this.barkSide * h * this.barkAspect * 0.32, this.headTop + 0.64 + (this.barkHK - 1) * 0.42 + this.barkLiftCur + Math.sin(age * 2.2) * 0.025, 0);
-      this.barkSprite.material.opacity = fade;
+      const bob = Math.sin(age * 2.2) * 0.025;
+      const sc = this.root.scale;
+      const P = this.barkPlace;
+      const tail = this.barkTail;
+      if (P) {
+        this.barkSprite.position.set(P.cx / sc.x, (P.cy + bob) / sc.y, P.cz / sc.z);
+        if (tail) {
+          tail.position.set(P.tx / sc.x, (P.ty + bob * 0.5) / sc.y, P.tz / sc.z);
+          tail.scale.set(0.2 * pop, Math.max(0.05, P.len) * pop, 1);
+          tail.userData.rot = P.rot;
+        }
+      } else {
+        const cy = this.headTop + 0.64 + (this.barkHK - 1) * 0.42 + this.barkLiftCur;
+        this.barkSprite.position.set(this.barkSide * h * this.barkAspect * 0.32, cy + bob, 0);
+        if (tail) {
+          const b = cy - this.barkBot * h + 0.05;
+          const len = Math.max(0.08, b - (this.headTop + 0.08));
+          tail.position.set(this.barkSide * h * this.barkAspect * 0.32 * 0.6, b - len / 2 + bob, 0);
+          tail.scale.set(0.2 * pop, len * pop, 1);
+          tail.userData.rot = 0;
+        }
+      }
+      const op = fade * (P ? P.fade : 1);
+      this.barkSprite.material.opacity = op;
+      if (tail) {
+        tail.material.opacity = op;
+        tail.visible = this.barkSprite.visible;
+      }
       if (this.emoteSprite) this.emoteSprite.visible = false;
-      if (this.barkT <= 0) this.barkSprite.visible = false;
+      if (this.barkT <= 0) {
+        this.barkSprite.visible = false;
+        if (tail) tail.visible = false;
+      }
     }
   }
 
@@ -1992,18 +2055,39 @@ export class Villager {
   private barkLiftCur = 0;
   /** Bubble canvas height over the plain one (the name tab adds a strip on top). */
   private barkHK = 1;
+  /** Bubble bottom below the sprite centre (fraction of the sprite height). */
+  private barkBot = 0.24;
+  private barkTail: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
+  /**
+   * Bubble solver placement (NpcSystem.placeBubbles, r8): bubble centre (cx, cy, cz) and tail (tx, ty,
+   * tz, len, rot) as offsets from the root in world metres, plus a fade (speaker turned away and hidden).
+   * Null = the default: centred over the head, tail straight down.
+   */
+  barkPlace: { cx: number; cy: number; cz: number; tx: number; ty: number; tz: number; len: number; rot: number; fade: number } | null = null;
+  /** World size of the bubble right now: height, width, bottom offset below its centre (solver input). */
+  barkSize(): { h: number; w: number; bot: number } {
+    const h = 0.96 * this.barkHK;
+    return { h, w: h * this.barkAspect, bot: this.barkBot * h };
+  }
   /** Say a short line out loud (street chatter): a speech bubble over the head for `dur` s. */
   bark(text: string, dur = 3.4, side = 0): void {
     this.barkSide = side;
     const nm = this.def.name.startsWith('Dr. ') ? `Dr. ${this.def.name.split(' ').pop()}` : this.def.name.split(' ')[0]!;
-    const { tex, aspect, hk } = barkTexture(text, { name: nm, color: this.def.look.hatColor ?? this.def.look.coat ?? this.def.look.top });
+    const { tex, aspect, hk, bot } = barkTexture(text, { name: nm, color: this.def.look.hatColor ?? this.def.look.coat ?? this.def.look.top });
     this.barkHK = hk;
+    this.barkBot = bot;
+    this.barkPlace = null;
     if (!this.barkSprite) {
       this.barkSprite = billboard(tex, 21);
       this.barkSprite.name = 'npc-bark';
       this.barkSprite.userData.perfTag = 'npcs';
       this.root.add(this.barkSprite);
+      this.barkTail = billboard(barkTailTexture(), 22);
+      this.barkTail.name = 'npc-bark-tail';
+      this.barkTail.userData.perfTag = 'npcs';
+      this.root.add(this.barkTail);
     }
+    this.barkTail!.visible = true;
     this.barkSprite.material.map = tex;
     this.barkSprite.material.needsUpdate = true;
     this.barkSprite.visible = true;
@@ -2014,6 +2098,7 @@ export class Villager {
   /** Drop any speech bark at once (a conversation / scene takes the stage). */
   hush(): void {
     if (this.barkSprite) this.barkSprite.visible = false;
+    if (this.barkTail) this.barkTail.visible = false;
     this.barkT = 0;
   }
 
@@ -2041,6 +2126,8 @@ export class Villager {
    * flaps while speaking. Laughs close the eyes into "^" arcs, sorrow tents the brows and wells a
    * tear, anger knits them into a V, surprise pops the eyes and rounds the mouth.
    */
+  /** Feature scale for distance (1 = close; ≈ 1.18 from the far plaza lens). */
+  faceLod = 1;
   private applyFace(dt: number, act: Activity): void {
     const bn = this.bones;
     this.moodT += dt;
@@ -2143,8 +2230,11 @@ export class Villager {
     const blinkS = this.blinkT > 0 ? 0.12 : act === 'read' ? 0.55 : 1;
     const ey = closed ? 0.0001 : Math.min(blinkS, L(1, eyeY));
     const ex = closed ? 0.0001 : L(1, eyeX);
-    bn[B.eyeL]!.scale.set(ex, ey, ex);
-    bn[B.eyeR]!.scale.set(ex, ey, ex);
+    // Face LOD (r8): from the plaza lens (> ~18 m) the eyes, brows and mouth grow ~18 % so a face
+    // still reads as a face, not two dots (NpcSystem sets faceLod from the camera distance).
+    const fk = this.faceLod;
+    bn[B.eyeL]!.scale.set(ex * fk, ey * fk, ex * fk);
+    bn[B.eyeR]!.scale.set(ex * fk, ey * fk, ex * fk);
     const lid = closed ? Math.max(0.0001, w) : 0.0001;
     bn[B.lidL]!.scale.setScalar(lid);
     bn[B.lidR]!.scale.setScalar(lid);
@@ -2153,6 +2243,8 @@ export class Villager {
     // Left brow: inner end is +x, so a positive tilt (inner down) is a clockwise (negative z) turn.
     bL.rotation.z = -L(0, tilt);
     bR.rotation.z = L(0, tilt);
+    bL.scale.set(fk, fk * 1.1 - 0.1, fk);
+    bR.scale.set(fk, fk * 1.1 - 0.1, fk);
     bL.position.y += L(0, lift);
     bR.position.y += L(0, lift + browAsym);
     bn[B.tear]!.scale.setScalar(tear ? Math.max(0.0001, w * (1 + Math.sin(this.t * 2.2) * 0.06)) : 0.0001);
@@ -2168,7 +2260,7 @@ export class Villager {
       sy *= 1 + flap * (m === 'surprised' || m === 'laugh' ? 0.5 : 1.6);
     }
     // The open mouth stays inside the chin whatever the mood + talk flap.
-    mouth.scale.set(sx, Math.min(sy, 2.4), 1);
+    mouth.scale.set(sx * fk, Math.min(sy, 2.4) * fk, 1);
     if (flip) mouth.rotation.z = Math.PI * w;
     else if (smirk) mouth.rotation.z = smirk * w;
   }
@@ -2498,6 +2590,18 @@ export class Villager {
         head.rotation.y = Math.sin(t * 0.3) * 0.35;
         break;
       }
+      case 'tip': {
+        // Hands laced behind the head, chin up: the picture of a man about to break a chair.
+        aL.rotation.x = lerp(aL.rotation.x, -2.55, k);
+        aR.rotation.x = lerp(aR.rotation.x, -2.55, k);
+        aL.rotation.z = lerp(aL.rotation.z, 0.55, k);
+        aR.rotation.z = lerp(aR.rotation.z, -0.55, k);
+        fL.rotation.x = lerp(fL.rotation.x, -1.7, k);
+        fR.rotation.x = lerp(fR.rotation.x, -1.7, k);
+        head.rotation.x += 0.12 * k;
+        spine.rotation.x += 0.1 * k;
+        break;
+      }
       default:
         break;
     }
@@ -2640,8 +2744,8 @@ function billboard(tex: THREE.Texture, renderOrder: number): THREE.Mesh<THREE.Pl
 }
 
 /** Speech-bark bubbles: one canvas texture per line (a handful per villager), cached. */
-const BARK_TEX = new Map<string, { tex: THREE.CanvasTexture; aspect: number; hk: number }>();
-function barkTexture(text: string, who?: { name: string; color: number }): { tex: THREE.CanvasTexture; aspect: number; hk: number } {
+const BARK_TEX = new Map<string, { tex: THREE.CanvasTexture; aspect: number; hk: number; bot: number }>();
+function barkTexture(text: string, who?: { name: string; color: number }): { tex: THREE.CanvasTexture; aspect: number; hk: number; bot: number } {
   const key = `${who?.name ?? ''}|${text}`;
   const hit = BARK_TEX.get(key);
   if (hit) return hit;
@@ -2668,10 +2772,7 @@ function barkTexture(text: string, who?: { name: string; color: number }): { tex
     g.moveTo(8 + r, y0);
     g.arcTo(W - 8, y0, W - 8, BH, r);
     g.arcTo(W - 8, BH, 8, BH, r);
-    // the tail, down-left of centre, pointing at the speaker's head
-    g.lineTo(W / 2 + 4, BH);
-    g.lineTo(W / 2 - 14, BH + 24);
-    g.lineTo(W / 2 - 22, BH);
+    // (r8: no baked tail — a separate tail sprite is aimed at the speaker's head by the bubble solver)
     g.arcTo(8, BH, 8, y0, r);
     g.arcTo(8, y0, W - 8, y0, r);
     g.closePath();
@@ -2721,9 +2822,40 @@ function barkTexture(text: string, who?: { name: string; color: number }): { tex
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  const out = { tex, aspect: c.width / c.height, hk: c.height / 116 };
+  const out = { tex, aspect: c.width / c.height, hk: c.height / 116, bot: (BH - c.height / 2) / c.height };
   BARK_TEX.set(key, out);
   return out;
+}
+
+/** The speech-bubble tail: a parchment wedge, wide at the top (tucked under the bubble), tip at the bottom. */
+let BARK_TAIL: THREE.CanvasTexture | null = null;
+function barkTailTexture(): THREE.CanvasTexture {
+  if (BARK_TAIL) return BARK_TAIL;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 96;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fff6e2';
+  g.strokeStyle = '#8a5a34';
+  g.lineWidth = 5;
+  g.lineJoin = 'round';
+  g.beginPath();
+  g.moveTo(8, 0);
+  g.quadraticCurveTo(30, 40, 33, 90);
+  g.quadraticCurveTo(40, 40, 56, 0);
+  g.closePath();
+  g.fill();
+  g.beginPath();
+  g.moveTo(8, 0);
+  g.quadraticCurveTo(30, 40, 33, 90);
+  g.quadraticCurveTo(40, 40, 56, 0);
+  g.stroke();
+  // (the top edge stays unstroked: it disappears into the bubble it overlaps)
+  g.fillStyle = '#fff6e2';
+  g.fillRect(11, 0, 42, 7);
+  BARK_TAIL = new THREE.CanvasTexture(c);
+  BARK_TAIL.colorSpace = THREE.SRGBColorSpace;
+  return BARK_TAIL;
 }
 
 /** Shared canvas textures for the reaction particles. */
@@ -3836,6 +3968,67 @@ function propCanvas(w: number, h: number, draw: (x: CanvasRenderingContext2D) =>
 }
 
 /** A handwritten letter held open at the chest (rowan-4, linus-4): cream paper, a fold crease, ink lines. */
+/** A tavern chair (seat at hip height, ladder back) that tips back with its sitter. */
+export function buildChair(color = 0x8a5a32): THREE.Mesh {
+  const parts: THREE.BufferGeometry[] = [];
+  const put = (g: THREE.BufferGeometry, x: number, y: number, z: number, rx = 0): void => {
+    g.rotateX(rx);
+    g.translate(x, y, z);
+    parts.push(g.index ? g.toNonIndexed() : g);
+  };
+  put(new THREE.BoxGeometry(0.46, 0.06, 0.42), 0, 0.42, -0.1);
+  for (const sx of [-0.19, 0.19]) {
+    put(new THREE.CylinderGeometry(0.024, 0.02, 0.42, 6), sx, 0.21, 0.08);
+    put(new THREE.CylinderGeometry(0.026, 0.022, 0.98, 6), sx, 0.49, -0.29, -0.08);
+  }
+  for (const y of [0.66, 0.8, 0.94]) put(new THREE.BoxGeometry(0.4, 0.05, 0.03), 0, y, -0.3 - (y - 0.5) * 0.08);
+  put(new THREE.BoxGeometry(0.4, 0.03, 0.03), 0, 0.14, 0.08);
+  for (const p of parts) for (const k of Object.keys(p.attributes)) if (k !== 'position' && k !== 'normal') p.deleteAttribute(k);
+  const geo = mergeGeometries(parts)!;
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.8 }));
+  m.castShadow = true;
+  m.name = 'npc-chair';
+  m.userData.perfTag = 'npcs';
+  return m;
+}
+
+/**
+ * Odessa's grandfather's lantern cage (odessa-4): a hand-riveted iron birdcage-lantern with a brass
+ * ring, a domed top and an empty, unlit glass chimney — held upright at her chest.
+ */
+export function buildLanternCage(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'npc-cage';
+  const inner = new THREE.Group();
+  // (holdProp's chest pose tilts props 1.15 rad for flat letters: stand the cage back upright)
+  inner.rotation.x = -1.15;
+  inner.scale.setScalar(1.4);
+  g.add(inner);
+  const iron = new THREE.MeshStandardMaterial({ color: 0x2e2e36, roughness: 0.45, metalness: 0.7 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0xc8a050, roughness: 0.35, metalness: 0.8 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x9ab0c0, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.45 });
+  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0): void => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    m.castShadow = true;
+    inner.add(m);
+  };
+  add(new THREE.CylinderGeometry(0.1, 0.11, 0.035, 14), iron, 0, 0, 0);
+  add(new THREE.TorusGeometry(0.1, 0.009, 6, 18), brass, 0, 0.03, 0, Math.PI / 2);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    add(new THREE.CylinderGeometry(0.006, 0.006, 0.24, 4), iron, Math.cos(a) * 0.095, 0.14, Math.sin(a) * 0.095);
+    add(new THREE.SphereGeometry(0.011, 6, 4), brass, Math.cos(a) * 0.095, 0.1, Math.sin(a) * 0.095);
+  }
+  add(new THREE.TorusGeometry(0.095, 0.008, 6, 18), iron, 0, 0.17, 0, Math.PI / 2);
+  add(new THREE.SphereGeometry(0.1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), iron, 0, 0.255, 0);
+  add(new THREE.TorusGeometry(0.035, 0.008, 6, 14), brass, 0, 0.38, 0);
+  add(new THREE.CylinderGeometry(0.045, 0.045, 0.16, 12), glass, 0, 0.12, 0);
+  add(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 6), new THREE.MeshStandardMaterial({ color: 0xf2ead8 }), 0, 0.06, 0);
+  return g;
+}
+
 export function buildLetter(seal = 0xc8412f): THREE.Group {
   const g = new THREE.Group();
   g.name = 'npc-letter';

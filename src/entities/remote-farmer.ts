@@ -102,7 +102,11 @@ export function farmerMaterial(): THREE.MeshStandardMaterial {
         '#include <opaque_fragment>',
         `{
           float hvNdv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
-          outgoingLight += reflectedLight.indirectDiffuse * (0.55 * hvNdv * hvNdv) + reflectedLight.indirectDiffuse * 0.35 * pow(1.0 - hvNdv, 3.0);
+          // (r7) darker albedos (deep skin tones, dark hair) get a stronger fill, so a deep-skinned face
+          // under a beanie reads as clearly as a pale one instead of sinking into shade.
+          float hvLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          float hvBoost = 1.0 + 1.3 * clamp((0.32 - hvLum) / 0.32, 0.0, 1.0);
+          outgoingLight += reflectedLight.indirectDiffuse * (0.55 * hvBoost * hvNdv * hvNdv) + reflectedLight.indirectDiffuse * 0.35 * pow(1.0 - hvNdv, 3.0);
         }
         #include <opaque_fragment>`,
       );
@@ -423,28 +427,31 @@ function hatFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix
       // A knitted cap worn high and pushed well back (a woodworker's beanie): from the high 3/4
       // camera the brow and eyes stay clear instead of reading as a mushroom cap over the face.
       // Folded, ribbed cuff + a slouched crown + a pom-pom over the back of the head.
-      const tip = -0.5;
-      const cy = r * 1.3;
-      const cz = -0.09;
+      // (r7: lower, slouchier crown + a thinner fold-up cuff — r6 read as a tall ribbed bucket / flowerpot)
+      const tip = -0.56;
+      const cy = r * 1.2;
+      const cz = -0.1;
       const dome = new THREE.SphereGeometry(r * 1.0, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
-      add(dome, inHat(mat(0, cy, cz, tip, 0, 0, 1, 1.12, 1)), hc);
-      add(new THREE.CylinderGeometry(r * 1.04, r * 1.07, 0.12, 28), inHat(mat(0, cy + 0.02, cz, tip, 0, 0)), C(hc, 0.86));
+      add(dome, inHat(mat(0, cy, cz - 0.02, tip - 0.12, 0, 0, 1.03, 0.8, 1.08)), hc);
+      add(new THREE.CylinderGeometry(r * 1.07, r * 1.09, 0.085, 28), inHat(mat(0, cy + 0.01, cz, tip, 0, 0)), C(hc, 0.86));
       const ribs = 18;
       const ribM = new THREE.Matrix4();
       const tilt = new THREE.Matrix4().makeRotationX(tip);
       for (let i = 0; i < ribs; i++) {
         const a = (i / ribs) * Math.PI * 2;
         ribM.makeRotationY(a).setPosition(Math.sin(a) * r * 1.065, 0, Math.cos(a) * r * 1.065);
-        const m = new THREE.Matrix4().makeTranslation(0, cy + 0.02, cz).multiply(tilt).multiply(ribM);
-        add(roundedBox(0.03, 0.115, 0.016, 0.006), inHat(m), C(hc, 0.78));
+        const m = new THREE.Matrix4().makeTranslation(0, cy + 0.01, cz).multiply(tilt).multiply(ribM);
+        add(roundedBox(0.03, 0.08, 0.016, 0.006), inHat(m), C(hc, 0.78));
       }
-      add(lumpySphere(0.085, 1, 0.24, new Rng('pom')), inHat(mat(0, cy + r * 0.95, cz - r * 0.62)), C(hc).lerp(new THREE.Color(0xffffff), 0.5));
+      add(lumpySphere(0.08, 1, 0.24, new Rng('pom')), inHat(mat(0, cy, cz - 0.02, tip - 0.12, 0, 0).multiply(new THREE.Matrix4().makeTranslation(0, r * 0.84, -r * 0.1))), C(hc).lerp(new THREE.Color(0xffffff), 0.5));
       // Two cream knit stripes round the crown + a fold seam: from behind it reads as a knitted
       // beanie, not an orange ball (r5).
       const stripe = C(hc).lerp(new THREE.Color(0xfff4e0), 0.72);
       for (const th of [0.42, 0.78]) {
-        const ring = new THREE.TorusGeometry(r * Math.cos(th) * 1.01, 0.022, 4, 28);
-        add(ring, inHat(mat(0, cy + r * Math.sin(th) * 1.12, cz, tip, 0, 0).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))), stripe);
+        const ring = new THREE.TorusGeometry(r * Math.cos(th) * 1.05, 0.022, 4, 28);
+        // (on the dome's own tilted axis, so the stripes hug the slouched crown)
+        const m = mat(0, cy, cz - 0.02, tip - 0.12, 0, 0).multiply(new THREE.Matrix4().makeTranslation(0, r * Math.sin(th) * 0.8, 0)).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+        add(ring, inHat(m), stripe);
       }
       break;
     }

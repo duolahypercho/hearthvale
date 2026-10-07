@@ -23,7 +23,7 @@ const SOFT_MS = 35;
 /** Fastest an extrapolation error is walked off (m/s, added to the farmer's own speed). */
 const CORRECT_MS = 2.8;
 /** Rendered speed never exceeds this multiple of the path's own speed (the rest is absorbed later). */
-const VCAP = 1.4;
+const VCAP = 1.32;
 /** Floor of that cap (m/s) so a standing farmer can still settle a small error. */
 const VCAP_MIN = 1.6;
 /** Error the limiter may carry before it gives up and lets the farmer catch up (m). */
@@ -78,6 +78,10 @@ export class Playout {
   private vz = 0;
   /** Diagnostics: frames the speed limiter clamped. */
   limited = 0;
+  /** Receiver frame interval (ms, EMA): the limiter's frame clock (one hitch can't release a surge). */
+  private fEma = 16.7;
+  /** Sender's sample spacing (ms, EMA): sizes the pace window. */
+  private gap = 50;
 
   get empty(): boolean {
     return this.buf.length === 0;
@@ -112,6 +116,7 @@ export class Playout {
     this.interp = Math.min(INTERP_MAX, Math.max(INTERP_MS, this.jitter * 1.25 + 35));
     const last = this.buf[this.buf.length - 1];
     if (last && t <= last.t) return;
+    if (last && t - last.t < 400) this.gap += (t - last.t - this.gap) * 0.1;
     if (last && Math.hypot(x - last.x, z - last.z) > TELEPORT_M) {
       this.reset();
       this.snaps++;
@@ -168,6 +173,11 @@ export class Playout {
     }
     const fdt = Math.min(0.1, Math.max(0, (now - (this.rtAt || now)) / 1000));
     this.rtAt = now;
+    // The limiter runs on the receiver's own frame clock: a frame may move the farmer at most what a
+    // typical frame here would (2.5x the frame-interval EMA), so a late / stale frame stamp can't let a
+    // catch-up surge through in one presented frame (r6 mp-adv: lagged Cole at 1.62x).
+    if (fdt > 0) this.fEma += (Math.min(100, fdt * 1000) - this.fEma) * 0.08;
+    const capDt = Math.min(fdt, Math.max(0.008, (this.fEma * 2.5) / 1000));
     this.eval(this.rt);
     this.extrap = this.rt > newest;
     if (this.extrap) this.extrapFrames++;
@@ -203,7 +213,7 @@ export class Playout {
       const dx = x - this.ox;
       const dz = z - this.oz;
       const step = Math.hypot(dx, dz);
-      const cap = Math.max(VCAP_MIN, VCAP * this.vEnv) * fdt;
+      const cap = Math.max(VCAP_MIN, VCAP * this.vEnv) * capDt;
       if (step > cap && step - cap < VCAP_SLACK + cap) {
         const k = cap / step;
         x = this.ox + dx * k;
@@ -234,15 +244,20 @@ export class Playout {
     return true;
   }
 
-  /** Mean path speed (m/s) over the buffered samples within ±150 ms of sender time `rt`. */
+  /**
+   * Mean path speed (m/s) over the buffered samples around sender time `rt`: a window of
+   * max(300 ms, 3 send intervals + 2x the measured jitter), so a lagged / busy sender's uneven stamps
+   * average out instead of reading as a surge (or a stall) the cap then follows.
+   */
   private pace(rt: number): number {
     const b = this.buf;
     const n = b.length;
     if (n < 2) return 0;
+    const h = Math.max(150, 1.5 * this.gap + this.jitter);
     let i = 0;
-    while (i < n - 2 && b[i + 1]!.t < rt - 150) i++;
+    while (i < n - 2 && b[i + 1]!.t < rt - h) i++;
     let j = n - 1;
-    while (j > i + 1 && b[j - 1]!.t > rt + 150) j--;
+    while (j > i + 1 && b[j - 1]!.t > rt + h) j--;
     let len = 0;
     for (let k = i; k < j; k++) len += Math.hypot(b[k + 1]!.x - b[k]!.x, b[k + 1]!.z - b[k]!.z);
     const span = b[j]!.t - b[i]!.t;

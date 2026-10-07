@@ -276,6 +276,8 @@ export class FarmingSystem implements System, FarmingApi {
   private farmMap: GameMap | null = null;
   private seededGarden = false;
   private showcase: string | null = null;
+  /** Co-op demo stills (showcase 'coop'): the tile cursor stays hidden. */
+  private coopStill = false;
   private splatDirty = false;
   private tiers: Record<FarmTool, ToolTier> = { hoe: 0, wateringCan: 0, axe: 0, pickaxe: 0, scythe: 0 };
   private canLevel: number = CAN_CAPACITY[0];
@@ -2178,6 +2180,8 @@ export class FarmingSystem implements System, FarmingApi {
 
   private onDemo(name: string, showcase: string[]): void {
     this.idleT = 99;
+    // (co-op pod) staged co-op stills: no targeting bracket at the host's feet
+    this.coopStill = showcase.includes('coop');
     if (this.hidPlayer) {
       this.game.player.root.visible = true;
       this.hidPlayer = false;
@@ -2798,7 +2802,7 @@ export class FarmingSystem implements System, FarmingApi {
     }
     if (this.fxScale === 0 && (this.showcase !== 'tools' || (this.stillTool !== 'hoe' && this.stillTool !== 'charge'))) visible = false;
     // Beauty stills (hero fields, gallery, crows) don't need a targeting cursor on screen.
-    if (this.showcase === 'harvest' || this.showcase === 'giant' || this.showcase === 'gallery' || this.showcase === 'crows') visible = false;
+    if (this.showcase === 'harvest' || this.showcase === 'giant' || this.showcase === 'gallery' || this.showcase === 'crows' || this.coopStill) visible = false;
     this.cursor.update(dt, visible);
     // Scarecrow in hand: show the nearest scarecrow's protection radius (a soft dashed ring).
     const sel = this.game.services.inventory?.selected()?.id ?? null;
