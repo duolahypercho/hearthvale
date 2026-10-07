@@ -54,13 +54,15 @@ export const DEMOS: Record<string, DemoDef> = {
   // tool feel stills (&tool=hoe|wateringCan|scythe|axe|pickaxe|charge|harvest|sow, &tier=0-3,
   // &pose=<seconds> to freeze, -1 = live; &loop=<tool> repeats the action), giant crops, crows.
   'farm-harvest': { map: 'farm', x: 20.5, z: 24.5, facing: 'down', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: 6, pitch: 44, distance: 17, offsetX: 2.0, offsetZ: 0.5 }, showcase: ['harvest'] },
-  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -46, pitch: 34, distance: 9.6, offsetX: -0.55, offsetZ: -1.3 }, showcase: ['tools'] },
+  // (r15: swung ~24° round and closer: the blade lands in front of the farmer's body, not under the hat.)
+  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -32, pitch: 33, distance: 7.6, offsetX: -0.7, offsetZ: -0.6 }, showcase: ['tools'] },
   'farm-giant': { map: 'farm', x: 20.6, z: 27.7, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: -30, pitch: 37, distance: 10, offsetX: -0.75, offsetZ: 0.1 }, showcase: ['giant'] },
   'farm-crops': { map: 'farm', x: 28.6, z: 27.2, facing: 'left', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 12.2, offsetX: -4.6, offsetZ: -4.0 }, showcase: ['gallery'] },
   'farm-crows': { map: 'farm', x: 30.5, z: 30.5, facing: 'left', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 42, distance: 7.2, offsetX: -5.0, offsetZ: 0.3 }, showcase: ['crows'] },
   'farm-harvest-fall': { map: 'farm', x: 19.5, z: 24.5, facing: 'down', time: 10.4, season: 'fall', weather: 'sun', camera: { yaw: 18, pitch: 41, distance: 15.5, offsetX: 1.8, offsetZ: 1.4 }, showcase: ['harvest'] },
   'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -46, pitch: 34, distance: 9.6, offsetX: -0.55, offsetZ: -1.3 }, showcase: ['tools', 'tool:wateringCan'] },
-  'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest'] },
+  // (r15: 3/4 to the lens, the farmer standing in the bed with the pulled hole in front of the boots.)
+  'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 34, pitch: 40, distance: 8.2, offsetX: -0.2, offsetZ: -0.9 }, showcase: ['tools', 'tool:harvest'] },
   'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 32, distance: 9.6, offsetX: -0.7, offsetZ: -1.6 }, showcase: ['tools', 'tool:charge'] },
   'farm-wither': { map: 'farm', x: 19.4, z: 24.5, facing: 'down', time: 16.2, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 19.5, offsetX: 2.9, offsetZ: 0.3 }, showcase: ['wither'] },
   // Farming r11: the two-hand "hooray" lift of a big crop (melon on the hat, arms up) and a close
@@ -306,6 +308,9 @@ export const DEMOS: Record<string, DemoDef> = {
   'ui-coop': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
   // Multiplayer pod (src/net, src/ui/coop*): three scripted farmhands on the host's farm (no server needed) — hoeing,
   // watering, chatting — with cabins, name tags, emote bubbles and the roster; the lobby / character creator.
+  // Farming pod r15: the co-op work loop caught mid-action (Juniper's pick held up, Fennel's pour
+  // landing in the berry row — the replicated FX on screen); seeks the loop (~1.5 s before a still).
+  'coop-farm-work': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop', 't=3.6'] },
   'coop-farm': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
   'coop-lobby': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
   // Co-op night: the three farmhands are in bed, you're still up (holdout nudge + glowing roster sleepers) /
