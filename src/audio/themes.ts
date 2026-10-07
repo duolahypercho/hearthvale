@@ -106,12 +106,14 @@ export const THEMES: Record<string, ThemeDef> = {
     accomp2: { inst: 'marimba', pattern: 'ostinato332', range: [50, 64], voices: 3, vel: 0.4, on: 'repeat' },
     bass: { inst: 'upright', pattern: 'tresillo', range: [36, 50], vel: 0.82 },
     perc: { pattern: 'shaker', on: 'always', vel: 0.6 },
+    // (Round 6: the marimba ostinato moves to the far left, under the guitar's side, and the ocarina
+    // answers from the right — the tune's marimba no longer shares a side with its own timbre.)
     mix: {
-      melody: { gain: 0.9, pan: 0.12, send: 0.28 },
-      double: { gain: 0.2, pan: -0.2, send: 0.35 },
-      counter: { gain: 0.46, pan: -0.35, send: 0.35 },
-      accomp: { gain: 0.7, pan: -0.25, send: 0.22 },
-      accomp2: { gain: 0.42, pan: 0.35, send: 0.25 },
+      melody: { gain: 0.9, pan: 0.16, send: 0.28 },
+      double: { gain: 0.2, pan: 0.3, send: 0.35 },
+      counter: { gain: 0.46, pan: 0.34, send: 0.35 },
+      accomp: { gain: 0.7, pan: -0.18, send: 0.22 },
+      accomp2: { gain: 0.38, pan: -0.45, send: 0.3 },
       bass: { gain: 0.7, pan: 0, send: 0.05 },
       perc: { gain: 0.4, pan: -0.15, send: 0.12 },
     },

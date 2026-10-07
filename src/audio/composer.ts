@@ -476,9 +476,33 @@ export class Composer {
     this.perform(ev, bars);
     ev.sort((a, b) => a.t - b.t);
     this.clearTune(ev);
+    this.letRing(ev);
     const lastBar = bars[bars.length - 1]!;
     const barInfo = bars.map((b) => ({ t: b.t0, chords: b.spans.map((sp) => sp.chord.symbol).join(' '), section: b.i === 0 ? b.section : '', i: b.i, shift: b.shift }));
     return { theme: th.id, seed: this.seed, events: ev, duration: lastBar.t0 + lastBar.dur, bars: bars.length, barInfo };
+  }
+
+  /**
+   * A plucked bass is never damped early (round 6): an upright / bass-string note rings on — and
+   * decays on its own — until the next bass note, 35 ms before it, at most 1.4 s past its written
+   * length. The waltz / jig / rootFifth patterns wrote 1/3-bar notes, so the 50-220 Hz band fell
+   * 13-30 dB in the beat before nearly every downbeat (fall, town-2, forest-2, title: BASS-HOLE).
+   * Stop-time hits (staccato) stay short: that silence is the arrangement.
+   */
+  private letRing(ev: NoteEvent[]): void {
+    const cfg = this.th.bass;
+    if (!cfg || SUSTAINED_BASS.has(cfg.inst)) return;
+    const bass = ev.filter((e) => e.track === 'bass');
+    for (let i = 0; i < bass.length; i++) {
+      const e = bass[i]!;
+      if (e.o?.art === 'staccato') continue;
+      let j = i + 1;
+      while (j < bass.length && bass[j]!.t < e.t + 0.02) j++;
+      const nx = bass[j];
+      if (!nx) continue;
+      const room = nx.t - e.t - 0.035;
+      if (room > e.dur) e.dur = Math.min(room, e.dur + 1.4);
+    }
   }
 
   /**
@@ -1123,6 +1147,8 @@ export class Composer {
     if (b.brk) {
       // Stop-time: root hit, silence, then the run.
       push(s0, down, 1, 1);
+      const hit = ev[ev.length - 1];
+      if (hit?.track === 'bass') hit.o = { ...hit.o, art: 'staccato' };
     } else {
       switch (cfg.pattern) {
         case 'root':

@@ -63,6 +63,8 @@ export class Ambience {
   private wxTarget = 0;
   /** Cicada chorus envelope bookkeeping. */
   private cicadaOn = false;
+  /** Indoor rain's slow shower envelope (linear gain, ~0.45-2.2), shared by the roof / hiss / drops. */
+  private shower = 1;
   private babbleDests: AudioNode[] | undefined;
   /** Town / festival crowd life (talkers, laughter, applause, footsteps, the shop bell). */
   readonly crowd: Crowd;
@@ -106,7 +108,9 @@ export class Ambience {
       return b;
     };
     // Every bed runs on decorrelated stereo noise (L/R correlation ~0.3): wide, not a point in the head.
-    bed('wind', g.pinkSt, [bf('bandpass', 420, 0.55), bf('lowpass', 1600)]);
+    // (Round 6: + a 110 Hz high-pass — the wide band-pass still let a 50-100 Hz rumble under every
+    // calm morning; wind in grass is air, not a subwoofer.)
+    bed('wind', g.pinkSt, [bf('bandpass', 420, 0.55), bf('lowpass', 1600), bf('highpass', 110, 0.6)]);
     // Leaf rustle: pink (not white) noise so a windy day reads as foliage, not hiss (render: 63 % > 2 kHz).
     // (tilted: pink through a 350 Hz–2.8 kHz band and a −6 dB shelf above 4 kHz — no steady hiss).
     const tilt = bf('highshelf', 4000, 0.7);
@@ -116,7 +120,7 @@ export class Ambience {
     // (Round 12: centred 3.8 kHz, was 5 kHz — the re-voiced rain read HISSY with 23 % above 5 kHz.)
     const rainTop = bf('highshelf', 7000, 0.7);
     rainTop.gain.value = -4;
-    bed('rain', g.pinkSt, [bf('bandpass', 3800, 0.6), rainTop, bf('lowpass', 6500, 0.6)]);
+    bed('rain', g.pinkSt, [bf('bandpass', 3800, 0.6), rainTop, bf('lowpass', 6000, 0.6)]);
     // (High-passes on the brown / pink low beds: the sub-60 Hz rumble was 27–29 % of the beach and
     // indoor-rain energy — inaudible on laptops, woolly on headphones, and it ate the limiter's headroom. The low-pass stays first: it is the bed's automated `filter`.)
     bed('rainLow', g.pinkSt, [bf('lowpass', 900, 0.5), bf('highpass', 150, 0.7)]);
@@ -258,7 +262,9 @@ export class Ambience {
     const calm = 1 - clamp((windy - 0.35) / 0.3, 0, 1);
     // (Calm days too: the noon render was a 50 Hz-5 kHz wash with the birds buried in it — a still
     // summer noon is birds and insects. Calm day ≈ -8 dB: no day lift and -4.4 dB.)
-    const hush = outdoors ? 1 - calm * Math.max(0.65 * Math.min(1, s.night * 1.5), h >= 4.5 && h < 10 ? 0.42 * (1 - s.night) : 0.4) : 1;
+    // (Round 6: calm mornings -8.4 dB, calm days -6 dB, was -4.7 / -4.4 — the live probe's farm-morning
+    // floor sat at -25.7 dBFS, within 4 dB of a menu hover and level with a footstep.)
+    const hush = outdoors ? 1 - calm * Math.max(0.65 * Math.min(1, s.night * 1.5), h >= 4.5 && h < 10 ? 0.62 * (1 - s.night) : 0.5) : 1;
     const bedLift = 1 + (windLift - 1) * (1 - calm);
     // (Round 12: a storm's own wind / rain bed −4 dB so the thunder can stand +8-12 dB over it.)
     // (Plain rain: the wind wash −6 dB as well — the rain render was still broadband down to 50 Hz;
@@ -276,15 +282,20 @@ export class Ambience {
     // Round 12 re-voice: rain is patter and hiss (centroid 3-5 kHz), not a roar — the low bed is
     // high-passed at 150 Hz and ~10 dB down, the drops carry the rain; indoors the roof and the gutter
     // tick at 1-4 kHz over a much quieter room (the house-rain render was 83 % below 250 Hz).
-    this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.2) : s.indoor && raining ? 0.012 : 0) * swellDb(7), now, 1.5);
+    // (Round 6: heard from indoors the rain comes in showers — a slow ±7 dB ebb over ~40 s on the
+    // roof, the hiss and the drops. The house-rain render had LRA 3.3 LU: a steady wash through a wall.)
+    const shower = s.indoor && raining ? Math.pow(10, (4.5 * Math.sin(now / 6.3) + 2.5 * Math.sin(now / 2.3 + 1)) / 20) : 1;
+    this.shower = shower;
+    this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.2) : s.indoor && raining ? 0.012 * shower : 0) * swellDb(7), now, 1.5);
     this.beds.rain!.filter!.frequency.setTargetAtTime(3800 * (1 + 0.3 * this.wx), now, 1.5);
-    this.setBed('rainLow', (raining && !mine ? (storm ? 0.06 : 0.024) * (s.indoor ? 0.35 : 1) : 0) * swellDb(3), now, 1.5);
+    this.setBed('rainLow', (raining && !mine ? (storm ? 0.06 : 0.024) * (s.indoor ? 0.35 * shower : 1) : 0) * swellDb(3), now, 1.5);
     // Individual drops: a light patter always, the heavy layer in a storm; muffled on the roof indoors.
     if (raining && !mine && !this.drops) this.buildDrops();
     if (this.drops) {
       // Drop density follows the swell: the heavy layer fades in on the downpours even in plain rain.
       const q = Math.round(this.wx * 20) / 20;
-      const lv = !raining || mine ? 0 : s.indoor ? 0.1 * Math.pow(10, (10 * q) / 20) : 1.25;
+      const sq = Math.round(shower * 10) / 10;
+      const lv = !raining || mine ? 0 : s.indoor ? 0.1 * sq * Math.pow(10, (10 * q) / 20) : 1.25;
       const key = `${lv}:${storm}:${q}`;
       if (key !== this.dropsKey) {
         this.dropsKey = key;
@@ -401,7 +412,7 @@ export class Ambience {
     // Indoors: rain on the roof shingles (1-4 kHz ticks in clusters) and the gutter's slow drip.
     // (The roof follows the showers: thinner and quieter in a lull, a drumming patter in a downpour.)
     t = due('roof', 0.02 * (1.3 - 0.6 * this.wx), 0.09 * (1.3 - 0.6 * this.wx), raining && s.indoor);
-    if (t !== null) this.roofTick(t, (storm ? 1.3 : 1) * swellDb(10));
+    if (t !== null) this.roofTick(t, (storm ? 1.3 : 1) * swellDb(10) * this.shower);
     t = due('gutter', 0.5, 1.4, raining && s.indoor);
     if (t !== null) this.gutter(t);
     t = due('thunder', 14, 38, storm && now > this.externalThunderUntil);
@@ -698,11 +709,14 @@ export class Ambience {
         const sw = 0.55 + 0.45 * Math.sin(2 * Math.PI * (tt / (17 + c.f * 9) + c.pan)) * Math.sin(2 * Math.PI * (tt / 31 + c.f));
         // (Round 12: longer lulls — ~5 s in every 41 — so the field visibly breathes: LRA ≥ 4 LU.)
         const lull = Math.sin(2 * Math.PI * (tt / 41)) > 0.82 - 0.03 * (c.pan + 1);
+        // (Round 6: and the whole field ebbs together on a ~23 s swell, -8 dB at its ebb — a warm gust,
+        // a cooler minute; the summer-night render still measured LRA 4.0, a wall with gaps.)
+        const field = 0.7 + 0.3 * Math.sin(2 * Math.PI * (tt / 23.3) + 1.3);
         if (!lull && r.next() < 0.6 + 0.4 * sw) {
           const d = this.dest(c.pan, 0.5);
           const pulses = r.int(3, 4);
           const k = r.int(0, 11);
-          for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, tt + i * 0.022, 0.028 * this.nightLift * (0.2 + 1 * sw * sw), c.f);
+          for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, tt + i * 0.022, 0.028 * this.nightLift * field * (0.2 + 1 * sw * sw), c.f);
         }
         c.next += c.period * r.range(0.9, 1.1);
       }
@@ -902,7 +916,9 @@ export class Ambience {
     // (Round 5: +18 dB — the noon chorus never surfaced, even in the bed alone; it is summer's signature.)
     // (Round 12: −4 dB — with the noon wash gone the chorus alone read HISSY / BRIGHT.)
     const peak = r.range(0.06, 0.095);
-    b.filter!.frequency.setTargetAtTime(r.range(4500, 6500), now, 1);
+    // (Round 6: centred 4.2-5.6 kHz, was 4.5-6.5 — with the calm-day bed down 2 dB the noon render
+    // read HISSY again: 18 % of its power above 5 kHz.)
+    b.filter!.frequency.setTargetAtTime(r.range(4200, 5600), now, 1);
     gp.cancelScheduledValues(now);
     gp.setValueAtTime(Math.max(0.0005, b.level), now);
     gp.linearRampToValueAtTime(peak, now + rise);

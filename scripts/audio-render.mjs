@@ -797,17 +797,24 @@ async function live() {
       await sleep(700);
       return max;
     };
+    const fl = [];
+    for (let i = 0; i < 12; i++) {
+      fl.push(a.meter());
+      await sleep(60);
+    }
+    fl.sort((x, y) => x - y);
+    const mineFloor = fl[6];
     const nearHit = await peak(() => mineSfx.hit('crab', false, false, { x: p.x + 1, z: p.z }));
     const farHit = await peak(() => mineSfx.hit('crab', false, false, { x: p.x + 12, z: p.z }));
     a.music(null);
-    return { voiced: log.map((x) => x.name), grew: a.state().sfxLog.length - before, nearHit, farHit, contexts: window.__audioContexts ?? null };
+    return { voiced: log.map((x) => x.name), grew: a.state().sfxLog.length - before, nearHit, farHit, mineFloor, contexts: window.__audioContexts ?? null };
   });
   const sweepOk = mine.voiced.filter((n) => n === 'hit:slime').length === 1;
   const mPosOk = mine.nearHit > mine.farHit + 5;
   if (!sweepOk || !mPosOk) fails++;
   if (mine.contexts !== 1) fails++;
   console.log(`  AudioContexts constructed on the page: ${mine.contexts}  ${mine.contexts === 1 ? 'ok' : 'FAIL (one graph only)'}`);
-  console.log(`  mine: 3-slime sweep voiced as [${mine.voiced.join(', ')}] ${sweepOk ? 'ok' : 'FAIL (expected one hit:slime)'}; crab blow at 1 tile ${fmt(mine.nearHit)} vs 12 tiles ${fmt(mine.farHit)}  ${mPosOk ? 'ok' : 'FAIL'}`);
+  console.log(`  mine: 3-slime sweep voiced as [${mine.voiced.join(', ')}] ${sweepOk ? 'ok' : 'FAIL (expected one hit:slime)'}; crab blow at 1 tile ${fmt(mine.nearHit)} vs 12 tiles ${fmt(mine.farHit)} (cave floor ${fmt(mine.mineFloor)})  ${mPosOk ? 'ok' : 'FAIL'}`);
   // Co-op / positional: a partner's sound must pan toward them and fade with distance; far = silent.
   const pos = await page.evaluate(async () => {
     const g = window.__game;

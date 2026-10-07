@@ -111,7 +111,7 @@ const TRIM: Record<string, number> = {
   // (harvest, round 12: +6.6 dB — the gameplay render had the pop only +0.8 over the louder melody bus)
   harvest: 1.32, coin: 0.6, craft: 0.6, 'gift:love': 0.4, 'gift:like': 0.6, heart: 0.6, catch: 0.42, 'catch:perfect': 0.42,
   lantern: 0.48, hall: 0.34, treefall: 1.7, purchase: 0.75, ship: 0.8, bite: 0.6, bundle: 0.75, sleep: 0.8, morning: 0.8,
-  swing: 5.9, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 5, scythe: 16, weed: 5,
+  swing: 5.9, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 4.7, scythe: 16, weed: 5,
   // Round 9 hierarchy: a splash / plop is a water event, louder than a footstep (splash ≈ -20 LUFS
   // momentary on the reel), the door ≈ -24, thunder a +10 dB event over the storm bed.
   splash: 3.3, plop: 1.8, door: 2.7, thunder: 1.6, 'hoe:dull': 1.7,
@@ -124,11 +124,13 @@ const TRIM: Record<string, number> = {
   // Round 4 UI hierarchy (reel, 100 ms loudness — the ear's integration time for short cues):
   // hover ≈ click − 6 (it fires constantly), click ≈ select ≈ slot ≈ tab, open / close over click,
   // the error cue at least as loud as open (a cue you can't miss); the whole set inside 8 LU.
-  'ui:open': 0.95, 'ui:close': 1.38, 'ui:hover': 10.9, 'ui:select': 11, 'ui:tab': 2.8, 'ui:toggle': 5.3, 'ui:error': 1.85,
+  'ui:open': 0.95, 'ui:close': 1.38, 'ui:hover': 13.2, 'ui:select': 11, 'ui:tab': 2.8, 'ui:toggle': 5.3, 'ui:error': 1.85,
   // (Round 7: menu open / talk-select +2.8 dB — the live probe had them at the ambience floor + 3 dB, a
   // chorus of birds away from inaudible; still ~6 dB under the quietest farming verb.)
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.
   'ui:click': 4.9,
+  // (Round 6: hover +1.7 dB — -6.4 LU under click on the reel, but only 1.2 dB over the farm's floor in
+  // game; the swing -0.5 dB / the connecting hit +0.7 dB so the blow clears the whoosh by 2 LU.)
   // Toolbar detent: level with ui:tab on the reel (it measured 5.5 dB under it).
   // (Round 9: +6 dB — the live probe had it 2 dB over the ambience floor.)
   'ui:slot': 5.6,
@@ -136,18 +138,18 @@ const TRIM: Record<string, number> = {
   rockbreak: 2.7, hoe: 6.4,
   // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
   // momentary on the reel), rewards / stingers pulled ~2 dB under them so they stay under median + 9.
-  axe: 2.2, pickaxe: 2.6, 'sword:hit': 4.8, hurt: 2, 'ui:tick': 5.2,
+  axe: 2.2, pickaxe: 2.6, 'sword:hit': 5.2, hurt: 2, 'ui:tick': 5.2,
   // Round 12: combat lands harder than tilling (the reel had sword -23.7 / slime:hit -23.3 LUFS
   // momentary against the hoe's -14.4): the swing +2.9 dB (3.6 → 5), the hit +3.7 dB (it must clear the
   // swing by 2 LU on the reel), the blows built on a contact
   // layer and levelled with the payoffs (a kill outranks a hit, a crit rings over a plain one).
   // (--live peaks, round 12: slime -12.1, crab -15.3, bat -16.1 vs the hoe -13.8 → crab / bat / wisp up.)
-  'hit:slime': 2.6, 'hit:crab': 3.1, 'hit:bat': 3.9, 'hit:wisp': 3.1, 'hit:imp': 3, 'hit:flesh': 2.6, parry: 2.2,
+  'hit:slime': 2.6, 'hit:crab': 3.9, 'hit:bat': 3.9, 'hit:wisp': 3.1, 'hit:imp': 3, 'hit:flesh': 2.6, parry: 2.2,
   'monster:pop': 2.4, 'mine:pick': 2.6, 'mine:break': 2.6, gem: 0.6, 'mine:reveal': 0.6, sizzle: 2.4, fireball: 2.6, lift: 1.4, passout: 0.7,
   'slime:hit': 1.8, 'slime:die': 1.8, slime: 1.8,
   // Round 3 additions, levelled from the reel (median momentary max ≈ -21 LUFS): level-up / chest sit
   // with the rewards (~-15), emotes and chat around the small foley (~-20 … -26).
-  levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 6, chat: 3.4, // (chat +4.6 dB in round 5: the beds came up 6 dB)
+  levelup: 0.55, chest: 0.7, join: 0.6, leave: 0.7, learn: 0.55, paper: 4.5, sprinkler: 1.2, wither: 6, chat: 4.6, // (chat +4.6 dB in round 5: the beds came up 6 dB; round 6 +2.6 dB: the live probe had it 1.5 dB over the farm floor)
   'emote:question': 3, 'emote:sweat': 3.5, 'emote:anger': 2, 'emote:sad': 2.2, 'emote:zzz': 1.2, 'emote:dots': 4, 'emote:music': 0.7,
 };
 

@@ -612,7 +612,9 @@ const PLUCKS: Record<string, PluckFlavour> = {
   harp: { key: 'hrp', brightness: 0.7, position: 0.3, decay: (m) => clamp(5 - (m - 55) * 0.08, 1.6, 5.5), seconds: 4, gain: 1.9, damp: 0.5, lpMax: 7500, body: [[180, 2, 0.25], [460, 3, 0.18], [2200, 1.5, 0.2]], thump: (m) => [132, 0.11, clamp(0.26 - (m - 55) * 0.006, 0.1, 0.26)] },
   ukulele: { key: 'uke', brightness: 0.72, position: 0.2, decay: (m) => clamp(1.9 - (m - 60) * 0.03, 0.8, 2), seconds: 1.8, gain: 1.3, damp: 0.06, lpMax: 7500, body: [[250, 3, 0.35], [520, 4, 0.25], [2300, 1.5, 0.2]], thump: () => [178, 0.06, 0.14] },
   // +5 dB (gain 1.9 → 3.4): the day themes had 1–2 % of their power under 250 Hz.
-  bass: { key: 'bas', brightness: 0.26, position: 0.24, decay: (m) => clamp(2.2 - (m - 36) * 0.04, 1, 2.4), seconds: 2, gain: 3.4, damp: 0.08, lpMax: 1400, body: [[92, 3, 0.45], [180, 4, 0.25], [700, 2, 0.15]] },
+  // (Round 6: a longer ring — T60 ~2.9 s low, buffer 2.6 s — a gut-string pizz under a slow waltz bar
+  // fell ~10 dB in the beat before the next downbeat: a hole in the low end the ear reads as a gate.)
+  bass: { key: 'bas', brightness: 0.26, position: 0.24, decay: (m) => clamp(2.9 - (m - 36) * 0.045, 1.4, 3), seconds: 2.6, gain: 3.4, damp: 0.08, lpMax: 1400, body: [[92, 3, 0.45], [180, 4, 0.25], [700, 2, 0.15]] },
   pizz: { key: 'piz', brightness: 0.4, position: 0.26, decay: () => 0.55, seconds: 0.8, gain: 2.2, damp: 0.05, lpMax: 5200, body: [[280, 4, 0.4], [460, 5, 0.28], [1100, 3, 0.2], [2800, 2, 0.25]] },
 };
 
@@ -659,7 +661,9 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   // A plucked string never plateaus: the body blooms, then dies away the whole note long (a held
   // sine "brick" under every bass note was the most synthetic thing in the low end).
   a.gain.setTargetAtTime(v * 0.25, t + 0.012, 0.12);
-  a.gain.setTargetAtTime(0, t + 0.2, 0.55);
+  // (Round 6: tau 0.85 s, was 0.55 — the low band fell ~16 dB/s under a waltz bar and leapt back
+  // +25 dB on every downbeat; a gut string's body hums on through the bar.)
+  a.gain.setTargetAtTime(0, t + 0.2, 0.85);
   a.gain.setTargetAtTime(0, t + Math.min(dur, 3), 0.1);
   sine(g, f, t, stop).connect(a);
   const o2 = gain(g, 0.35);

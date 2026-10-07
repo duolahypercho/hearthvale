@@ -546,9 +546,12 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       inst: 'clarinet', range: [55, 79], density: 0.35, legato: true, ornament: 0.15, cInst: 'flute',
       tune: {
         octave: 0,
-        // "A. F D | G. B D' | C. A F | E... | D'. C A | B. A G | G E C | D..." — the raised sixth (B) is the owl.
-        A: ['5:3 3:1 1:2', "4:3 6:1 1':2", '7:3 5:1 3:2', '2:4 r:2', "1':3 7:1 5:2", '6:3 5:1 4:2', '4:2 2:2 7,:2', '1:6'],
-        B: ['3:2 5:2 7:2', "7:2 2':2 4':2", "1':3 6:1 4:2", '5:6', '3:3 5:1 7:2', "2':3 1':1 7:2", "6:3 4:1 1':2", '5:4 r:2'],
+        // "A. G F | G. A B | C'. B A | F E... | F. G A | B. A G | E. F E | D..." — round 6: a sung lullaby
+        // (was 28 % stepwise: a chord arpeggio flagged ANGULAR). The raised sixth (B) is still the owl,
+        // now reached by step; bar 4 leans F→E (a 4-3 suspension over C).
+        A: ['5:3 4:1 3:2', '4:3 5:1 6:2', "7:3 6:1 5:2", '3:2 2:4', '3:3 4:1 5:2', '6:3 5:1 4:2', '2:3 3:1 2:2', '1:6'],
+        // The bridge climbs by step to a held A, then one wide reach (A → F') and a falling answer.
+        B: ['3:2 5:2 4:1 3:1', '5:3 6:1 7:2', "1':3 7:1 6:2", '5:6', "3':3 2':1 1':2", "2':2 7:2 5:2", '4:3 6:1 4:2', '5:4 r:2'],
         C: ["1':3 b6:1 3:2", "5:3 7:1 3':2", "2':3 1':1 7:2", "1':6", "3':3 1':1 b6:2", '7:3 5:1 2:2', "4:3 6:1 1':2", '5:3 7:3'],
       },
     },

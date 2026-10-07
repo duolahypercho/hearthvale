@@ -528,8 +528,10 @@ export function bassHoles(inter, sr, downbeats) {
     let ref = -Infinity;
     for (let x = t - 0.6; x < t - 0.3; x += 0.02) ref = Math.max(ref, at(x));
     if (ref < loud - 25) continue;
+    // (Round 6: the hole must last 60 ms — the floor of 3 consecutive 20 ms frames. A plucked note
+    // re-struck leaves a 20-40 ms damping notch, which is articulation, not a hole in the low end.)
     let lo = Infinity;
-    for (let x = t - 0.3; x < t - 0.02; x += 0.02) lo = Math.min(lo, at(x));
+    for (let x = t - 0.3; x < t - 0.06; x += 0.02) lo = Math.min(lo, Math.max(at(x), at(x + 0.02), at(x + 0.04)));
     const drop = ref - lo;
     if (drop > 10) holes.push(Math.round(t * 100) / 100);
     worst = Math.max(worst, drop);
