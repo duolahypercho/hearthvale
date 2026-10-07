@@ -638,7 +638,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Odessa Flint',
     role: 'Blacksmith at Flint & Ember',
     birthday: { season: 'winter', day: 9 },
-    look: { fp: { w: 1.02, h: 1.07, jaw: 0.95, chin: 0.25, eye: 0.9, gap: 1.0, eyeY: 0.02, nose: 'broad', mouth: 1.18, lines: 0.2, cheeks: 0.0, ears: 0.95, cleft: true }, eyeShape: 'almond', brow: 1.45, browArch: -0.05, skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.3, shoulders: 1.36, torso: 1.32, hands: 1.3, head: 0.78, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.4, acc: ['toolbelt', 'earrings', 'tongs'], shoes: 0x2e2420, backdrop: 'forge' },
+    look: { fp: { w: 1.02, h: 1.07, jaw: 0.95, chin: 0.25, eye: 0.9, gap: 1.0, eyeY: 0.02, nose: 'broad', mouth: 1.18, lines: 0.2, cheeks: 0.0, ears: 0.95, cleft: true }, eyeShape: 'almond', brow: 1.2, browArch: -0.05, skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.3, shoulders: 1.36, torso: 1.32, hands: 1.3, head: 0.78, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.4, acc: ['toolbelt', 'earrings', 'tongs'], shoes: 0x2e2420, backdrop: 'forge' },
     walk: W(1.6, 0.52, 0.025, 0.03, 0.02, 0.3),
     home: 'forge',
     portraitBg: [0xf2b48a, 0xb8563a],

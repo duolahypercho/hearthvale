@@ -75,18 +75,18 @@ export const DEMOS: Record<string, DemoDef> = {
   // Town square (plaza, Lantern Hall, villagers).
   // (r7 blind judge: villagers too small to read, the hotbar over the fountain — a closer, lower lens
   // with the Hall's rose window still at the top and the fountain clear of the toolbar)
-  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 41, distance: 29.5, offsetX: -2.9, offsetZ: -4.5 }, showcase: ['npcs'] },
+  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 19.05, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 41, distance: 29.5, offsetX: -2.9, offsetZ: -4.5 }, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
-  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 32, distance: 26.4, offsetX: -2.9, offsetZ: -4.5 }, showcase: ['npcs'] },
+  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
   // Town pod: co-op in the square, no server — Juniper chats with Bram, Pip gives Wren strawberries (host paths: talk lock, gift ledger, 'v.g').
   'town-coop': { map: 'town', x: 32.4, z: 28.2, facing: 'up', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 21, offsetX: -0.2, offsetZ: -4.2 }, showcase: ['npcs'] },
   'town-dialogue': { map: 'town', x: 31.2, z: 30.8, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
   // Town pod: `&event=<npc>-<2|4>&step=N` picks the heart event; `&npc=<id>&mood=<mood>|&gift=<item>|&ask=1` the dialogue.
   'town-heart-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
-  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 34, distance: 27.2, offsetX: -2.9, offsetZ: -5.0 }, showcase: ['npcs'] },
+  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 29, distance: 27.6, offsetX: -2.9, offsetZ: -5.2 }, showcase: ['npcs'] },
   'town-river': { map: 'town', x: 69.2, z: 24.4, facing: 'left', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 42, distance: 34, offsetX: -3.2, offsetZ: -3.0 }, showcase: ['npcs'] },
   'town-east': { map: 'town', x: 70.6, z: 26.4, facing: 'right', time: 17.4, season: 'summer', weather: 'sun', camera: { yaw: -4, pitch: 43, distance: 32, offsetX: 3.2, offsetZ: -5.8 }, showcase: ['npcs'] },
-  'town-cast': { map: 'town', x: 40.4, z: 29.6, facing: 'down', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 13, offsetX: -7.9, offsetZ: -1.2 }, showcase: ['npcs'] },
+  'town-cast': { map: 'town', x: 40.6, z: 33.4, facing: 'down', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 22, distance: 12.6, offsetX: -9.35, offsetY: 0.85, offsetZ: -4.1 }, showcase: ['npcs'] },
   'town-rain': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 14, season: 'fall', weather: 'rain', camera: TOWN_CAM, showcase: ['npcs'] },
   // Town pod: Meadow Lane (schoolhouse + kitchen garden), the portrait model sheet (&ui=portraits:<id> = one villager in all
   // nine moods), the Hearthvale Folk social page, and a night-time conversation under the lamps.

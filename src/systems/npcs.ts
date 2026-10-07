@@ -187,12 +187,12 @@ const STAGES: Record<string, Mark[]> = {
     ['kit', 31.3, 14.1, 20, 'sit'],
     ['marigold', 26.0, 22.0, 44, 'chat', 'heart'],
     ['hazel', 27.9, 22.8, -58, 'chat'],
-    ['wren', 23.7, 25.9, -70, 'chat', 'music'],
+    ['wren', 23.7, 25.9, -35, 'chat', 'music'],
     ['bram', 42.3, 23.3, 55, 'chat', 'music'],
     ['june', 44.0, 23.0, -50, 'chat'],
     ['odessa', 36.0, 24.8, 50, 'chat'],
     ['rowan', 37.9, 24.0, -34, 'chat', 'exclaim'],
-    ['linus', 21.8, 24.6, 60, 'read'],
+    ['linus', 21.8, 24.6, 35, 'read'],
   ],
   // r5 hero: the river crossing — the market row, the painter at her easel on the west bank, two old
   // friends leaning on the stone bridge, a kid on the bank, the inn terrace and the forge yard beyond.
@@ -224,9 +224,11 @@ const STAGES: Record<string, Mark[]> = {
   // step, Kit plays by the snowmen with Tobias keeping an eye on him, Bram sells hot buns with Linus
   // warming his hands, Odessa and Rowan talk sledges by the bakery, Wren sketches the snowy Hall.
   'town-winter': [
-    ['marigold', 20.6, 21.3, 25, 'sweep'],
+    // (r8b: the lower third was empty cobbles — Marigold sweeps the snow off the front of the square
+    // and Kit plays in it below the fountain)
+    ['marigold', 27.4, 27.6, 25, 'sweep'],
     ['wren', 25.0, 23.4, 75, 'paint'],
-    ['kit', 29.7, 18.9, -15, 'play', 'exclaim'],
+    ['kit', 30.4, 26.3, -25, 'play', 'exclaim'],
     ['tobias', 31.2, 19.6, -40, 'idle', 'music'],
     // (r7: chat pairs side by side across the view, ~1.6 m apart — the r6 diagonal pairs overlapped
     // on screen: Rowan's beanie in Odessa's face, Bram hidden behind Linus)
@@ -509,13 +511,22 @@ export class NpcSystem implements System {
     const pl = this.game.player;
     const p0 = { x: pl.position.x, z: pl.position.z };
     const v0 = { x: t.v.position.x, z: t.v.position.z };
-    for (let i = 0; i < 4; i++) {
+    // (r8b: six tries — the wider post berth needs a couple more re-blocks round the lamp-lit spots.
+    // Placements are weighed, not counted: a post beside a head is a softer flaw than the lens inside
+    // a prop or a building in a sight line, and the fountain / a bystander in front of the pair
+    // (auditTalk's foreground clutter) counts too.)
+    let bestScore = Infinity;
+    for (let i = 0; i < 6; i++) {
       const fails = this.talkFrameFails();
-      if (!bestFails || fails.length < bestFails.length) {
+      let score = 0;
+      for (const f of fails) score += f.startsWith('post on a head') ? 0.4 : 1;
+      if (this.talkClutter() > 0) score += 0.8;
+      if (score < bestScore) {
+        bestScore = score;
         bestFails = fails;
         bestPlace = { slide: this.talkSlide ? { ...this.talkSlide } : null, vx: t.v.position.x, vz: t.v.position.z };
       }
-      if (!fails.length || i === 3) break;
+      if (score === 0 || i === 5) break;
       const s = this.talkSlide;
       ban.push(s ? { x: s.x1, z: s.z1 } : { x: pl.position.x, z: pl.position.z });
       // (re-solve from the original stance)
@@ -541,6 +552,25 @@ export class NpcSystem implements System {
   }
   /** The screen check of the open live talk (empty = clean). */
   liveFrame: string[] = [];
+
+  /**
+   * Foreground clutter of the candidate talk lens talkFrameFails just solved (fitCam): the fountain or
+   * a bystander's head in front of the pair — the same measure auditTalk fails on.
+   */
+  private talkClutter(): number {
+    const t = this.talking;
+    const map = this.game.world.current;
+    if (!t || !map) return 0;
+    const v = t.v.position;
+    const s = this.talkSlide;
+    const px = s ? s.x1 : this.game.player.position.x;
+    const pz = s ? s.z1 : this.game.player.position.z;
+    const by: THREE.Vector3[] = [];
+    for (const o of this.agents.values()) if (o !== t && !o.inside && o.v.root.visible && o.v.position.distanceTo(v) < 12) by.push(new THREE.Vector3(o.v.position.x, o.v.position.y + o.v.headTop * 0.55, o.v.position.z));
+    const mid = new THREE.Vector3((v.x + px) / 2, map.heightAt(v.x, v.z) + 0.9, (v.z + pz) / 2);
+    const look = new THREE.Vector3(0, 0, -1).applyQuaternion(this.fitCam.quaternion).multiplyScalar(this.fitCam.position.distanceTo(mid)).add(this.fitCam.position);
+    return this.foreground(this.fitCam.position, look, by, mid);
+  }
 
   /**
    * Screen-space check of the talk frame the director would settle on (the farmer at the end of their
@@ -598,7 +628,9 @@ export class NpcSystem implements System {
           }
         }
       }
-      const pn = this.postsNearHeads(tc, acts, t.def.id);
+      // (r8b: a wider berth than the event scorer — the post's hanging lantern sits ~0.5 m out from the
+      // pole: in the live Rowan talk it hung right beside the farmer's hat brim)
+      const pn = this.postsNearHeads(tc, acts, t.def.id, 2.7);
       if (pn) fails.push(`post on a head (${pn})`);
       this.gatherOcc(tc.position.x, tc.position.z, 24);
       const ph = this.propHits(tc.position, acts);
@@ -1403,8 +1435,9 @@ export class NpcSystem implements System {
     if (name === 'town-cast') {
       CAST_ORDER.forEach((id, i) => {
         const a = this.agents.get(id)!;
-        const x = 26.6 + i * 1.3;
-        const z = 29.2;
+        // (r8b: a step south of the square's benches — Wren and Rowan stood inside them)
+        const x = 26.3 + i * 1.1;
+        const z = 30.7;
         this.setInside(a, false, true);
         a.v.setPosition(x, map.heightAt(x, z), z);
         a.v.setYaw(0);
@@ -1782,6 +1815,10 @@ export class NpcSystem implements System {
     this.camCur.pitch = g.pitch;
     this.camCur.dist = g.dist;
     this.camCur.target.copy(g.target);
+    // (r8b: a talk's lens hangs off the farmer — after a re-block slide the rig still held the old
+    // stance, so the snapped camera sat ~1 m off the solved one: auditTalk measured that lens, not the
+    // one talkFrameFails had cleared)
+    if (this.camMode === 'talk') this.game.followPlayer(false);
     this.applyCam();
     this.game.rc.rig.snap();
     this.game.rc.camera.updateMatrixWorld(true);
@@ -2148,7 +2185,9 @@ export class NpcSystem implements System {
     } else if (kind === 'two') {
       // Conversations lean in close (the villager's face and outfit read at thumbnail size).
       pitch = this.camMode === 'talk' ? 25 : 29;
-      dist = this.camMode === 'talk' ? 8.3 : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
+      // (r8b: 8.9 m — with the rig now on the farmer's settled stance the 8.3 m lens cut a tall
+      // villager's beanie pom at the top of the frame)
+      dist = this.camMode === 'talk' ? 8.9 : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
     } else {
       // Close-up: lower for short actors (children) so the lens meets the face, not the crown.
       pitch = lead.head < 1.6 ? 22 : 28;
@@ -2652,7 +2691,7 @@ export class NpcSystem implements System {
    * 0.6 head-widths of a framed head — "a lamp post growing out of Dr. Pell's head". Returns the
    * weighted hit count (speaker heads count double).
    */
-  private postsNearHeads(cam: THREE.Camera, acts: { id: Who; x: number; y: number; z: number; head: number }[], speaker: Who | null): number {
+  private postsNearHeads(cam: THREE.Camera, acts: { id: Who; x: number; y: number; z: number; head: number }[], speaker: Who | null, berth = 2.2): number {
     const map = this.game.world.current;
     if (!map) return 0;
     let n = 0;
@@ -2675,7 +2714,7 @@ export class NpcSystem implements System {
         if (!(Math.min(by, t0.y) < hc.y && Math.max(by, t0.y) > hc.y - rs)) return;
         const u = (hc.y - by) / ((t0.y - by) || 1e-4);
         const px = bx + (t0.x - bx) * THREE.MathUtils.clamp(u, 0, 1);
-        if (Math.abs(px - hc.x) < rs * 2.2) n += a.id === speaker ? 2 : 1;
+        if (Math.abs(px - hc.x) < rs * berth) n += a.id === speaker ? 2 : 1;
       };
       for (const po of POSTS) test(po.x, po.z, 3.3);
       for (const t of this.balls()) if (Math.abs(t.c.x - a.x) < 12 && Math.abs(t.c.z - a.z) < 12) test(t.c.x, t.c.z, Math.max(0.5, t.c.y - map.heightAt(t.c.x, t.c.z) - t.r * 0.35));
@@ -2912,7 +2951,9 @@ export class NpcSystem implements System {
         const hp = _q.set(pl.position.x, pl.position.y + 1.5, pl.position.z).project(cam);
         // (…or cut by the frame edge: r6 marigold-2's farmer was half a figure at the left edge)
         const onScreen = hp.z < 1 && Math.abs(hp.x) < 1.25 && hp.y > -1.3 && hp.y < 1.1;
-        tuck = onScreen && ((closeK && dP < dS - 0.4) || Math.abs(hp.x) > 0.74);
+        // (r8b: …or well in front of the speaker in any tighter shot — odessa-4's two-shot still had the
+        // farmer as a big dark hat silhouette in the near foreground)
+        tuck = onScreen && ((closeK && dP < dS - 0.4) || dP < dS - 1.5 || Math.abs(hp.x) > 0.74);
       }
     }
     if (tuck === this.playerTucked) return;
@@ -3548,7 +3589,7 @@ export class NpcSystem implements System {
         if (b.near) fgv += b.cover;
       }
       if (fgv > 0.08) out.fails.push(`${id}: bystander villager covers ${(fgv * 100).toFixed(0)} % of the near foreground`);
-      out.lens[id] += ` fgv ${(fgv * 100).toFixed(0)}%`;
+      out.lens[id] += ` fgv ${(fgv * 100).toFixed(0)}% live [${this.liveFrame.join(' | ')}]`;
       if (hits) out.fails.push(`${id}: ${hits} sight line(s) behind a building`);
       if (fb) out.fails.push(`${id}: face behind the farmer (${fb}/2)`);
       a.v.talkTo = null;
@@ -3981,11 +4022,13 @@ export class NpcSystem implements System {
     }
     // A soft fill that lifts faces out of the night, not a flash: white hair / beards / pale caps
     // blew out to paper-white at 15.
-    const target = want * night * 5.5;
+    // (r8b: by day too, a gentle lens-side key — a speaker with the sun behind them had the lower half of
+    // the face in a dark grey-brown band with a hard terminator across the cheeks)
+    const target = want * (night * 5.5 + (1 - night) * 1.4);
     this.keyLight.intensity += (target - this.keyLight.intensity) * (1 - Math.exp(-4 * dt));
     if (this.keyLight.intensity < 0.01 && !want) this.keyLight.intensity = 0;
     // Faces lifted out of the night (albedo-relative lens-side fill in the villager shader).
-    const fill = want * Math.min(1, night * 1.25) * 0.55;
+    const fill = want * Math.max(Math.min(1, night * 1.25) * 0.55, 0.06);
     VILLAGER_FILL.value += (fill - VILLAGER_FILL.value) * (dt > 0 ? 1 - Math.exp(-4 * dt) : 1);
     if (VILLAGER_FILL.value < 0.002 && !want) VILLAGER_FILL.value = 0;
   }

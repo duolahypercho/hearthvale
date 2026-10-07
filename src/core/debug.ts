@@ -85,7 +85,9 @@ export function installDebugApi(game: Game): DebugApi {
       game.player.setFacing(d.facing);
       api.camera(d.camera ?? {});
       game.setPaused(true);
-      if (d.ui) api.openUI(d.ui);
+      // (a dialogue demo given its own &npc= has already opened that villager's box while staging: the
+      // default box on top of it flashed the wrong speaker's line for the first frames)
+      if (d.ui && !(d.ui.startsWith('dialogue') && new URLSearchParams(window.location.search).get('npc'))) api.openUI(d.ui);
       game.followPlayer(true);
     },
     ready: () => game.ready(),

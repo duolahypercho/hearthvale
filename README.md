@@ -530,6 +530,30 @@ actors such as Pip the shop cat).
   bark bubbles carry a name tab in the speaker's colour, and `town-evening` sits on a closer, lower lens (faces
   read, the Hall's rose window crowns the frame, the fountain clears the toolbar). Live talks also re-block the
   farmer across the lens (clear of lamp posts) and drop bystanders within 2.2 m of the pair from the shot.
+- **Round 8** — *Live talks*: every F-talk runs the scored lens solve the demos use (`liveResolve`: up to
+  four re-blocks of the farmer / villager, keeping the placement with the fewest `talkFrameFails` — a post
+  between the pair, a pole on a head, the lens inside a prop, a sight line behind a building, a head cut
+  by the frame); `npcs.auditLive([9, 13, 17])` stands beside every villager at three hours and is in
+  `npm test`. *Portraits* — the dialogue cards are the painted SVG busts (`portraitOpts.model3d` keeps the
+  3D-bust A/B): ink outline, two-tone cel shadow, a drawn jaw and chin, gradient-oval blush, brows clamped
+  above the iris, a backdrop picked for a ≥ .25 value gap from the skin; `auditPainted` gates brows / value
+  gap / face fill. Sad / worried lids are a mauve crescent tucked under each eye (the blue cheek ellipse
+  read as a bruise). *Bubbles* — a screen-space solver places every bark clear of all head boxes (its own
+  speaker's too), other bubbles, name tags and the frame edge, with a separate tail aimed at the speaker's
+  head; a speaker turned away behind a nearer head fades. *Faces* — villager bodies draw into the AO
+  G-buffer (`userData.ao`): flagged out, the AO of whatever stood behind them was multiplied onto their
+  pixels — the grey-brown jagged 'muzzle' on lower faces, cookie-dough blotches on Kit's / Wren's hair, the
+  dark disc on Rowan's cheek. Jaw / cheek / chin masses shade with the skull's own normals
+  (`RigBuilder.nrmTo`), the soft-chin pad is gone (from the chin-up tilt it sat over the mouth as a disc),
+  ears are skin, stubble stays in the jaw band, and a face LOD grows eyes / brows / mouth ~18 % beyond
+  ~18 m. Talks and events by day get a gentle lens-side key too. *Staging* — showcase marks open to ≤ 45°
+  of the lens; june-2 tips Rowan's chair back; odessa-4 puts the lantern cage in her hands; wren-2 turns
+  the canvas to the lens; the farmer steps out of any tighter event shot when well in front of the
+  speaker; chalk A-frame boards with a painted menu on both faces (`world/town/aframe.ts`). *Demos* —
+  `town-day` / `town-winter` on a lower, wider lens (the Hall's rose window in frame, the farmer facing
+  the lens), winter's lower third gets Marigold sweeping snow and Kit playing, `town-cast` lines the
+  ten up south of the benches, and `town-dialogue&npc=…` no longer flashes Marigold's default line first.
+
 
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit), `town-winter` (its own

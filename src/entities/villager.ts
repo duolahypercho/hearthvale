@@ -191,6 +191,12 @@ class RigBuilder {
    * belly out and carries the arms / held props with it. Applied to every vertex after its matrix.
    */
   warp: ((v: THREE.Vector3, nrm: THREE.Vector3, bone: number) => void) | null = null;
+  /**
+   * Normal transfer (r8b): pieces added while this is set take their shading normals mostly from an
+   * ellipsoid (centre c, semi-axes a, blend k) — the lower-face masses (jaw block, cheeks, chin) light
+   * as one surface with the skull instead of a darker jagged muzzle where two spheres intersect.
+   */
+  nrmTo: { c: THREE.Vector3; a: THREE.Vector3; k: number } | null = null;
   add(bone: number, geo: THREE.BufferGeometry, m: THREE.Matrix4 | undefined, color: number, ao = 1): void {
     let g = geo.index ? geo.clone() : geo.clone();
     // Optional per-vertex tone (hair locks: darker grooves, lit ridges) multiplies the part colour.
@@ -208,6 +214,17 @@ class RigBuilder {
     if (m) g.applyMatrix4(m);
     const pos = g.attributes.position as THREE.BufferAttribute;
     const n = pos.count;
+    if (this.nrmTo) {
+      const { c: ec, a: ea, k } = this.nrmTo;
+      const nrm = g.attributes.normal as THREE.BufferAttribute;
+      const e = new THREE.Vector3();
+      const o = new THREE.Vector3();
+      for (let i = 0; i < n; i++) {
+        e.set((pos.getX(i) - ec.x) / (ea.x * ea.x), (pos.getY(i) - ec.y) / (ea.y * ea.y), (pos.getZ(i) - ec.z) / (ea.z * ea.z)).normalize();
+        o.fromBufferAttribute(nrm, i).lerp(e, k).normalize();
+        nrm.setXYZ(i, o.x, o.y, o.z);
+      }
+    }
     if (this.warp) {
       const v = new THREE.Vector3();
       const nv = new THREE.Vector3();
@@ -853,6 +870,9 @@ export class Villager {
     const chinY = skullY - R * faceS[1];
     const jawK = FP.jaw ?? (face === 'square' ? 0.8 : face === 'heart' ? 0 : 0.25);
     const chinK = FP.chin ?? (face === 'heart' ? 0.4 : 0);
+    // (r8b: the lower-face masses shade with the skull's own normals — on deep skin tones the jaw
+    // block read as a darker jagged muzzle where its sphere cut the skull)
+    rb.nrmTo = { c: new THREE.Vector3(0, headY + skullY * hs, 0), a: new THREE.Vector3(R * faceS[0] * hs, R * faceS[1] * hs, R * faceS[2] * hs), k: 0.82 };
     if (fW > 1.01) rb.add(B.head, new THREE.SphereGeometry(R, 18, 12), H(0, skullY - R * 0.36, R * 0.04, 0, 0, 0, faceS[0] * fW * 0.93, 0.62 * faceS[1], 0.9), L.skin);
     if (jawK > 0.05) {
       const jw = R * 0.7 * (0.82 + 0.42 * jawK) * Math.max(0.9, Math.min(1.2, fW));
@@ -865,11 +885,10 @@ export class Villager {
         const cy = chinY + R * (0.2 - 0.12 * chinK);
         rb.add(B.head, new THREE.SphereGeometry(1, 14, 10), H(0, cy, surfZ(0, cy + R * 0.08) - R * (0.25 - 0.03 * chinK), 0.35, 0, 0, R * (0.23 - 0.05 * chinK), R * (0.17 + 0.06 * chinK), R * 0.19), jawC);
       }
-    } else if (chinK < -0.3) {
-      // Soft chin: a rounded pad tucked under the jaw line (a gentle double chin from the side; a
-      // milder soft chin is just the round skull — the r7 pad on Kit read as a pale beard).
-      rb.add(B.head, new THREE.SphereGeometry(1, 14, 10), H(0, chinY + R * 0.06, R * 0.3, 0, 0, 0, R * 0.4, R * 0.17 * (1 - chinK * 0.5), R * 0.34), shadeHex(L.skin, 0.97));
     }
+    // (r8b: no soft-chin pad any more — a soft chin is the round skull itself; from the chin-up
+    // plaza tilt the pad sat in front of the mouth and read as a disc / pale ball over the 'o')
+    rb.nrmTo = null;
     if (FP.cleft) {
       rb.tag = 1;
       rb.add(B.head, new THREE.CapsuleGeometry(0.006, 0.03, 2, 4), H(0, chinY + R * (0.16 - 0.1 * chinK), surfZ(0, chinY + R * 0.2) + R * (0.12 + 0.1 * chinK)), mixHex(jawC, 0x5a2a1a, 0.4));
@@ -1216,7 +1235,10 @@ export class Villager {
     this.mesh.name = 'npc-body';
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
-    this.mesh.userData.noAO = true;
+    // (r8b: the body draws into the AO G-buffer. Skipped, the AO of whatever stood *behind* the villager
+    // (grass, a wall, a stall) was multiplied onto their pixels: the grey-brown jagged 'muzzle' over the
+    // lower face, the cookie-dough blotches on Kit's / Wren's hair, the dark disc on Rowan's cheek.)
+    this.mesh.userData.ao = true;
     this.mesh.frustumCulled = false;
     this.mesh.add(this.bones[B.root]!);
     this.mesh.add(this.bones[B.propBase]!);
@@ -2399,10 +2421,12 @@ export class Villager {
       case 'surprise': {
         const hopT = Math.min(1, t / 0.32);
         this.hop += Math.sin(hopT * Math.PI) * 0.11 * w;
-        set(aL, -0.4, 0, -0.95);
-        set(aR, -0.4, 0, 0.95);
-        set(fL, -1.25);
-        set(fR, -1.25);
+        // (r8b: hands thrown up and out beside the head — the r7 forearms came up in front of a short
+        // villager's face and the hand read as a pale disc over the gasping mouth)
+        set(aL, -0.25, 0, -1.25);
+        set(aR, -0.25, 0, 1.25);
+        set(fL, -0.85);
+        set(fR, -0.85);
         head.rotation.x -= 0.16 * w;
         spine.rotation.x -= 0.12 * w;
         break;

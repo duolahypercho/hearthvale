@@ -848,7 +848,9 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   // Fringe shadow on the forehead
   if (L.hairStyle !== 'bald') p.push(`<path d="M${100 - f.w} ${f.top + 30} Q 100 ${f.top + 46} ${100 + f.w} ${f.top + 30} L ${100 + f.w} ${f.top} L ${100 - f.w} ${f.top} Z" fill="${warmShadow}" opacity="0.4" filter="url(#${id}soft2)"/>`);
   if (mood === 'angry') p.push(`<ellipse cx="100" cy="${eyeY - 7}" rx="${f.w}" ry="10" fill="${warmShadow}" opacity="0.38" filter="url(#${id}soft2)"/>`);
-  if (mood === 'sad' || mood === 'worried') for (const sx of [-1, 1]) p.push(`<ellipse cx="${100 + sx * 21}" cy="${eyeY + 10}" rx="10" ry="4" fill="#6a78b0" opacity="0.22" filter="url(#${id}soft2)"/>`);
+  // (r8b: tired lids as a warm mauve crescent tucked under each eye, following the head's turn — the
+  // r7 blue ellipse sat out on the cheek and read as a bruise)
+  if (mood === 'sad' || mood === 'worried') for (const sx of [-1, 1]) p.push(`<path d="M${X(sx * 20 - 7) } ${eyeY + 7} Q ${X(sx * 20)} ${eyeY + 12} ${X(sx * 20 + 7)} ${eyeY + 7}" stroke="${mix(skin, 0x6a3a5a, 0.45)}" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0.32" filter="url(#${id}soft2)"/>`);
   // Stubble / beard base inside the face
   if (beard === 'stubble') {
     // Five o'clock shadow as one soft cool-grey wash inside the jaw band (r7: stippled stubble read as
