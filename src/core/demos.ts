@@ -310,7 +310,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // watering, chatting — with cabins, name tags, emote bubbles and the roster; the lobby / character creator.
   // Farming pod r15: the co-op work loop caught mid-action (Juniper's pick held up, Fennel's pour
   // landing in the berry row — the replicated FX on screen); seeks the loop (~1.5 s before a still).
-  'coop-farm-work': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop', 't=3.6'] },
+  'coop-farm-work': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop', 't=2.4'] },
   'coop-farm': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
   'coop-lobby': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
   // Co-op night: the three farmhands are in bed, you're still up (holdout nudge + glowing roster sleepers) /
