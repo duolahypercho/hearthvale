@@ -124,7 +124,7 @@ const TRIM: Record<string, number> = {
   // Round 4 UI hierarchy (reel, 100 ms loudness — the ear's integration time for short cues):
   // hover ≈ click − 6 (it fires constantly), click ≈ select ≈ slot ≈ tab, open / close over click,
   // the error cue at least as loud as open (a cue you can't miss); the whole set inside 8 LU.
-  'ui:open': 0.95, 'ui:close': 1.38, 'ui:hover': 13.2, 'ui:select': 11, 'ui:tab': 2.8, 'ui:toggle': 5.3, 'ui:error': 1.85,
+  'ui:open': 1.02, 'ui:close': 1.4, 'ui:hover': 13.2, 'ui:select': 11, 'ui:tab': 2.8, 'ui:toggle': 5.3, 'ui:error': 1.85,
   // (Round 7: menu open / talk-select +2.8 dB — the live probe had them at the ambience floor + 3 dB, a
   // chorus of birds away from inaudible; still ~6 dB under the quietest farming verb.)
   // Reel: clicks / ticks sat ~15 dB under the set, mowing ~15 dB — lifted to read under a playing score.

@@ -287,6 +287,18 @@ adapts it to game events.
   (LRA < 4 LU) instead of their level under the music. Villager voices +3 dB with a 2–4 kHz consonant click;
   combat blows land at least level with the hoe (`--live` asserts it, and counts AudioContexts: exactly one).
   The scene cues and the title are composed in the worker at load / dawn and kept ready (never on the frame).
+- **Round 13** (audio pod r6): plucked basses **ring to the next note** (`composer.ts` `letRing`: an upright /
+  bass-string note is never damped early, ≤ 1.4 s past its written length; stop-time hits stay short) and the
+  upright rings longer (T60 ~2.9 s, body bloom 0.85 s) — the low end no longer gates before every downbeat
+  (bass dips: town 7 → 0, spring-2 15 → 3, town-2 10 → 4, festival 15 → 7; `BASS-HOLE` now needs a 60 ms hole,
+  a re-struck pluck's 20-40 ms notch is articulation). Owl Hour re-sung stepwise (75 % steps, was ANGULAR).
+  Quieter calm air (calm mornings -8.4 dB, calm days -6 dB, wind high-passed at 110 Hz): the live farm floor
+  -25.7 → -28.1 dBFS, so hover / chat / footsteps all clear it (`--live`: all checks green, was 5 fails);
+  the cave roar -3 dB (a 12-tile fight reads over it), crickets ebb together on a ~23 s swell, cicadas
+  4.2-5.6 kHz (no HISSY noon), rain hiss low-passed at 6 kHz; indoors the rain comes in showers (roof, hiss,
+  eaves drips and the hearth's roar breathe over ~40 s; drips are the eaves, not a puddle in the room).
+  Summer's marimba ostinato moved hard left, away from the marimba tune. `--amb <presets>` renders just those
+  ambience presets.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);

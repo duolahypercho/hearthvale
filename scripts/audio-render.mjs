@@ -6,6 +6,7 @@
  *   node scripts/audio-render.mjs --only spring,fall  # subset of themes (also filters mixes)
  *   node scripts/audio-render.mjs --seconds 45 --seed 3 --no-amb --no-sfx --no-mix
  *   node scripts/audio-render.mjs --no-themes         # ambience presets + SFX reel only
+ *   node scripts/audio-render.mjs --amb farm-summer-noon,mine   # just these ambience presets
  *   node scripts/audio-render.mjs --analyze shots/audio/theme-spring.wav   # analyse any WAV
  *   node scripts/audio-render.mjs --describe spring   # print the composed melody (symbolic)
  *   node scripts/audio-render.mjs --compose           # composition critic only (symbolic, fast): melody shape,
@@ -92,6 +93,15 @@ function parseArgs(argv) {
       o.sfxList = next().split(',');
       o.themes = false;
       o.amb = false;
+      o.trans = false;
+      o.gameplay = false;
+    }
+    else if (a === '--amb') {
+      // Just these ambience presets (e.g. --amb farm-summer-noon,mine): no themes / SFX / mixes.
+      o.ambList = next().split(',');
+      o.themes = false;
+      o.sfx = false;
+      o.mix = false;
       o.trans = false;
       o.gameplay = false;
     }
@@ -252,7 +262,7 @@ async function main() {
       return;
     }
   }
-  const ambs = args.amb && !args.only && !args.gameplayOnly ? await sess.page.evaluate(() => window.__audioOffline.listAmbience()) : [];
+  const ambs = (args.amb && !args.only && !args.gameplayOnly ? await sess.page.evaluate(() => window.__audioOffline.listAmbience()) : []).filter((p) => !args.ambList || args.ambList.includes(p));
   const report = { generated: new Date().toISOString(), seconds: args.seconds, seed: args.seed, liveBudget: args.liveBudget, renders: [], sfx: [], gameplay: [], failedJobs: [] };
   const writeReport = () => writeFileSync(resolve(outDir, 'report.json'), JSON.stringify(report, null, 2));
   if (args.stems) {

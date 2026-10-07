@@ -155,7 +155,8 @@ export class Ambience {
     // Interior room tone: a faint low hum of a quiet wooden house.
     bed('room', g.brownSt, [bf('lowpass', 240, 0.6), bf('highpass', 50, 0.7)], 0.8);
     // Fireplace: a soft roar under the crackles.
-    bed('fire', g.pinkSt, [bf('lowpass', 520, 0.7)], 0.7);
+    // (Round 6: + a 90 Hz high-pass — a hearth roars in the low mids, it doesn't hum in the sub.)
+    bed('fire', g.pinkSt, [bf('lowpass', 520, 0.7), bf('highpass', 90, 0.6)], 0.7);
     // Cicadas: a 4–7 kHz noise band pulsed at ~40 Hz (the tymbal buzz), in choruses that swell in and
     // out every 10–25 s (see tick) — never a constant band.
     const cic = bed('cicada', g.whiteSt, [bf('bandpass', 5300, 3), tame()]);
@@ -282,9 +283,9 @@ export class Ambience {
     // Round 12 re-voice: rain is patter and hiss (centroid 3-5 kHz), not a roar — the low bed is
     // high-passed at 150 Hz and ~10 dB down, the drops carry the rain; indoors the roof and the gutter
     // tick at 1-4 kHz over a much quieter room (the house-rain render was 83 % below 250 Hz).
-    // (Round 6: heard from indoors the rain comes in showers — a slow ±7 dB ebb over ~40 s on the
+    // (Round 6: heard from indoors the rain comes in showers — a slow ±5 dB ebb over ~40 s on the
     // roof, the hiss and the drops. The house-rain render had LRA 3.3 LU: a steady wash through a wall.)
-    const shower = s.indoor && raining ? Math.pow(10, (4.5 * Math.sin(now / 6.3) + 2.5 * Math.sin(now / 2.3 + 1)) / 20) : 1;
+    const shower = s.indoor && raining ? Math.pow(10, (3.3 * Math.sin(now / 6.3) + 1.7 * Math.sin(now / 2.3 + 1)) / 20) : 1;
     this.shower = shower;
     this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.2) : s.indoor && raining ? 0.012 * shower : 0) * swellDb(7), now, 1.5);
     this.beds.rain!.filter!.frequency.setTargetAtTime(3800 * (1 + 0.3 * this.wx), now, 1.5);
@@ -306,7 +307,9 @@ export class Ambience {
     // (Round 4: −5 dB — the fountain's broadband wash had been the town's loudest layer; the
     // crowd now carries the square.)
     this.setBed('fountain', outdoors ? 0.078 * s.fountain : 0, now, 0.6);
-    this.setBed('cave', mine ? 0.07 : 0, now, 2);
+    // (Round 6: the hollow roar -3 dB — the live probe's cave floor sat at -20 dBFS, 8 dB over the
+    // farm's: a distant 12-tile fight was buried in it. The drips and the far rumbles carry the mine.)
+    this.setBed('cave', mine ? 0.05 : 0, now, 2);
     this.setBed('caveAir', mine ? 0.05 : 0, now, 2);
     const cold = s.season === 'winter' && outdoors;
     this.setBed('howl', cold ? (0.012 + 0.03 * this.gust * windy) * dayLift : 0, now, 1);
@@ -316,7 +319,10 @@ export class Ambience {
     this.setBed('room', s.indoor ? (raining ? 0.005 : 0.022) : 0, now, 1);
     // (Round 12: the hearth's roar −4 dB — with the room tone it was most of the house's low hum;
     // the crackles carry the fire.)
-    this.setBed('fire', hearth ? (raining ? 0.014 : 0.022) : 0, now, 1.5);
+    // (Round 6: the roar breathes with the flames' own flare cycle, ±4 dB, and sits a further -3.8 dB
+    // under rain — the house-rain render was a steady 30 Hz-1 kHz wash, LRA 2.5 LU, the roof on top.)
+    const roar = 1 + 0.6 * Math.sin(now / 9.3) * Math.sin(now / 4.1 + 1);
+    this.setBed('fire', hearth ? (raining ? 0.009 : 0.022) * roar : 0, now, 1.5);
     const town = s.map === 'town' || s.map.startsWith('fest');
     const cicadaTime = s.season === 'summer' && outdoors && !beach && !raining && h >= 10 && h <= 18.5;
     this.cicadas(now, cicadaTime);
@@ -407,14 +413,19 @@ export class Ambience {
     t = due('rooster', 40, 90, outdoors && s.map === 'farm' && h >= 5.5 && h < 8.5 && !raining);
     if (t !== null) this.rooster(t);
     // Weather.
-    t = due('drip', 0.05, 0.25, raining && !mine);
-    if (t !== null) this.drip(t, s.indoor ? 0.4 : 1);
+    // (Round 6: indoors the drops are the eaves outside the window — sparser, and they follow the
+    // shower with the roof; 20 a second at a fixed level were the flat floor of the house-rain render.)
+    t = s.indoor ? due('drip', 0.18, 0.7, raining) : due('drip', 0.05, 0.25, raining && !mine);
+    if (t !== null) this.drip(t, s.indoor ? 0.4 * this.shower : 1);
     // Indoors: rain on the roof shingles (1-4 kHz ticks in clusters) and the gutter's slow drip.
     // (The roof follows the showers: thinner and quieter in a lull, a drumming patter in a downpour.)
-    t = due('roof', 0.02 * (1.3 - 0.6 * this.wx), 0.09 * (1.3 - 0.6 * this.wx), raining && s.indoor);
+    const roofGap = (1.3 - 0.6 * this.wx) / Math.sqrt(this.shower);
+    t = due('roof', 0.02 * roofGap, 0.09 * roofGap, raining && s.indoor);
     if (t !== null) this.roofTick(t, (storm ? 1.3 : 1) * swellDb(10) * this.shower);
-    t = due('gutter', 0.5, 1.4, raining && s.indoor);
-    if (t !== null) this.gutter(t);
+    // (The gutter runs with the shower too — a quick trickle in a downpour, a slow drip in a lull. Its
+    // plinks were the loudest steady thing in the house-rain render's 1-4 kHz band.)
+    t = due('gutter', 0.5 / this.shower, 1.4 / this.shower, raining && s.indoor);
+    if (t !== null) this.gutter(t, this.shower);
     t = due('thunder', 14, 38, storm && now > this.externalThunderUntil);
     if (t !== null) this.thunder(t, r.range(0.1, 0.8));
     // Farm wind chimes on strong gusts.
@@ -571,11 +582,11 @@ export class Ambience {
   }
 
   /** The gutter by the window: a drop falling into the water butt, a hollow resonant plink. */
-  private gutter(t: number): void {
+  private gutter(t: number, k = 1): void {
     const r = this.rng;
     const d = this.dest(-0.6, 0.35);
-    this.bank.play(d, 'drip', r.int(0, 23), t, 0.05, r.range(0.7, 0.85));
-    if (r.chance(0.3)) this.bank.play(d, 'drip', r.int(0, 23), t + r.range(0.18, 0.3), 0.03, r.range(0.75, 0.9));
+    this.bank.play(d, 'drip', r.int(0, 23), t, 0.05 * k, r.range(0.7, 0.85));
+    if (r.chance(0.3)) this.bank.play(d, 'drip', r.int(0, 23), t + r.range(0.18, 0.3), 0.03 * k, r.range(0.75, 0.9));
   }
 
   /** Something small moving through the grass: a short run of dry 1.5-4 kHz rustles. */
