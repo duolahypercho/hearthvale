@@ -228,8 +228,9 @@ function pondMaterial(): THREE.ShaderMaterial {
           float wet = smoothstep(0.12, 0.5, d + (clump - 0.5) * 0.25);
           float film = smoothstep(0.55, 0.8, d + (hvNoise(p * 3.0) - 0.5) * 0.3);
           vec3 dry = vec3(0.36, 0.25, 0.15);
-          vec3 damp = vec3(0.17, 0.10, 0.055);
-          vec3 soaked = vec3(0.11, 0.065, 0.035);
+          // (r11: the wet middle stays a warm wet brown with a sheen — darker read as a black hole)
+          vec3 damp = vec3(0.23, 0.145, 0.08);
+          vec3 soaked = vec3(0.2, 0.125, 0.07);
           vec3 col = mix(dry, damp, wet);
           col = mix(col, soaked, film);
           col *= 0.82 + 0.36 * clump;
@@ -253,7 +254,7 @@ function pondMaterial(): THREE.ShaderMaterial {
           vec3 skyR = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.7, Rv.y));
           float gloss = mix(wet * 0.25, 1.0, film);
           // (The film is muddy water: the sky in it is tinted brown, not blue.)
-          c = mix(c, skyR * vec3(0.5, 0.42, 0.34), clamp(fres * 1.3 + 0.1, 0.0, 0.45) * gloss);
+          c = mix(c, skyR * vec3(0.56, 0.46, 0.36), clamp(fres * 1.3 + 0.16, 0.0, 0.5) * gloss);
           vec3 R = reflect(-L, n);
           float spec = pow(max(dot(R, V), 0.0), 140.0) * 3.5 * film + pow(max(dot(R, V), 0.0), 18.0) * 0.12 * wet;
           c += uSunColor * spec * cloud * (1.0 - uNight * 0.6);

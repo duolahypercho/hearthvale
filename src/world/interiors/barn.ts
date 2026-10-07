@@ -19,7 +19,7 @@ import { InteriorMap } from './room';
 import { Kit } from './kit';
 import { mat, roundedBox, lumpySphere } from '../geom';
 import type { PenAnchors, PenSlot } from './pen';
-import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, crate, strawDrift, spokedWheel } from './pen';
+import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, crate, strawDrift, spokedWheel, STRAW_DRY } from './pen';
 
 export const BARN_EXIT = { x: 46.5, z: 35.9 };
 
@@ -361,8 +361,8 @@ export class BarnInterior extends InteriorMap {
     k.box('floor', [W - 1.6, 0.03, 1.05], [W / 2 + 0.55, 0, SF + 0.62], { tint: AISLE, uv: 0.65, r: 0.01 });
     k.box('floor', [2.3, 0.03, D - SF - 1.1], [6.5, 0, (SF + 1.1 + D) / 2], { tint: AISLE, uv: 0.65, r: 0.01 });
     // Straw kicked over the board edges + drifts across the floor
-    strawTufts(k, rng, 6.5, 0.035, 5.3, 30, 1.4);
-    for (const [x, z, w, d] of [[8.3, 5.2, 1.2, 0.9], [4.6, 4.1, 1.0, 0.5], [8.6, 4.1, 1.2, 0.5], [11.3, 6.1, 1.0, 0.6]] as const) strawDrift(k, rng, x, z, w, d);
+    strawTufts(k, rng, 6.5, 0.035, 5.3, 18, 1.4, undefined, STRAW_DRY);
+    for (const [x, z, w, d] of [[8.3, 5.2, 1.2, 0.9], [4.6, 4.1, 1.0, 0.5], [8.6, 4.1, 1.2, 0.5], [11.3, 6.1, 1.0, 0.6]] as const) strawDrift(k, rng, x, z, w, d, 0xd8d0c4);
     // Milking vignette at the aisle corner by the cow stalls: stool, a pail brimming with milk, a can,
     // a folded cloth over the can's shoulder.
     k.cyl('wood', 0.16, 0.16, 0.05, [4.65, 0.34, 4.55], { tint: 0xb08050, seg: 16 });
@@ -431,10 +431,29 @@ export class BarnInterior extends InteriorMap {
     k.cyl('iron', 0.06, 0.06, 0.34, [tx + 0.72, 0.95, tz - 0.35], { tint: 0x4a6a5a });
     k.cyl('iron', 0.02, 0.02, 0.36, [tx + 0.5, 1.12, tz - 0.35], { rz: Math.PI / 2 - 0.35, tint: 0x3a3634 });
     k.cyl('iron', 0.025, 0.02, 0.26, [tx + 0.6, 1.02, tz - 0.25], { rx: 0.9, tint: 0x4a6a5a });
-    // Wet splash marks on the boards around the tank
-    for (let i = 0; i < 5; i++) {
-      const a = 0.4 + i * 0.5;
-      k.add('fabric', new THREE.CircleGeometry(0.12 + (i % 2) * 0.08, 14).rotateX(-Math.PI / 2), mat(tx + Math.cos(a) * 0.82, 0.014, tz + Math.sin(a) * 0.72), { tint: 0x8a6a48 });
+    // Wet patches on the boards round the tank (r11: irregular, glossy-dark spills + a few drips, not a
+    // ring of identical brown discs)
+    {
+      const wet = new Rng('barn-wet');
+      const blob = (r: number, n: number): THREE.BufferGeometry => {
+        const sh = new THREE.Shape();
+        const ph = wet.next() * 6;
+        for (let i = 0; i <= n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          const rr = r * (0.7 + 0.22 * Math.sin(a * 3 + ph) + 0.12 * Math.sin(a * 5 - ph * 1.7) + wet.next() * 0.08);
+          if (i === 0) sh.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+          else sh.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+        }
+        return new THREE.ShapeGeometry(sh, 2).rotateX(-Math.PI / 2);
+      };
+      for (const [a, r, sx2, sz2] of [[0.5, 0.26, 1.6, 0.8], [1.5, 0.16, 1.0, 1.3], [2.6, 0.2, 1.4, 0.9]] as const) {
+        k.add('straw', blob(r, 22), mat(tx + Math.cos(a) * 0.8, 0.02, tz + Math.sin(a) * 0.7, 0, wet.next() * 3, 0, sx2, 1, sz2), { tint: 0xa08a6a });
+      }
+      for (let i = 0; i < 7; i++) {
+        const a = wet.next() * Math.PI * 2;
+        const r = 0.62 + wet.next() * 0.45;
+        k.add('straw', blob(0.025 + wet.next() * 0.03, 10), mat(tx + Math.cos(a) * r, 0.02, tz + Math.sin(a) * r * 0.85), { tint: 0xa08a6a });
+      }
     }
     // Shearing corner: a sawhorse with a freshly shorn fleece thrown over it (a fat cream cloud, curly
     // tips, the cut side showing), hand shears hung on a nail on the near leg, a basket of rolled wool.
@@ -443,12 +462,21 @@ export class BarnInterior extends InteriorMap {
     k.box('wood', [1.1, 0.09, 0.12], [sx, 0.72, sz], { tint: 0x9a6a44, r: 0.02 });
     for (const s of [-1, 1]) for (const t of [-1, 1]) k.cyl('wood', 0.03, 0.035, 0.8, [sx + s * 0.42, 0, sz + t * 0.12], { rx: t * 0.28, tint: 0x8a5a3a });
     const fleece = new Rng('barn-fleece');
-    k.add('fabric', lumpySphere(0.5, 2, 0.16, fleece), mat(sx, 0.78, sz, 0, 0.1, 0, 0.95, 0.24, 0.62), { tint: 0xfff6e4 });
-    for (const t of [-1, 1]) k.add('fabric', lumpySphere(0.4, 2, 0.2, fleece), mat(sx + 0.04, 0.6, sz + t * 0.3, t * 0.5, 0.1, 0, 0.85, 0.36, 0.16), { tint: 0xf6ead2 });
-    for (let i = 0; i < 16; i++) {
-      const a = fleece.next() * Math.PI * 2;
-      const r = 0.25 + fleece.next() * 0.2;
-      k.add('fabric', lumpySphere(0.06 + fleece.next() * 0.04, 1, 0.3, fleece), mat(sx + Math.cos(a) * r * 0.95, 0.82 + fleece.next() * 0.06, sz + Math.sin(a) * r * 0.55), { tint: i % 3 ? 0xfffaf0 : 0xeadcc0 });
+    // r11: the fleece as a real shorn mat — a lumpy blanket of packed curls (staple tufts), draped over
+    // the bar and hanging down both sides, the outer tips a touch darker + creamier than the cut side.
+    k.add('fabric', lumpySphere(0.5, 2, 0.14, fleece), mat(sx, 0.76, sz, 0, 0.05, 0, 0.98, 0.14, 0.36), { tint: 0xf0e4cc });
+    for (const t of [-1, 1]) k.add('fabric', lumpySphere(0.4, 2, 0.18, fleece), mat(sx, 0.58, sz + t * 0.2, t * 0.35, 0.05, 0, 1.15, 0.42, 0.14), { tint: 0xeadcc0 });
+    for (let i = 0; i < 150; i++) {
+      // Cloth coords: u across the bar (−1 … 1, past ±0.5 it hangs down the sides), v along it.
+      const u = (fleece.next() * 2 - 1) * 1.1;
+      const v = (fleece.next() * 2 - 1) * 0.47;
+      const hang = Math.max(0, Math.abs(u) - 0.5);
+      const y = 0.83 - hang * 0.62 + fleece.next() * 0.02;
+      const z = sz + Math.sign(u) * Math.min(Math.abs(u), 0.5) * 0.36 + Math.sign(u) * hang * 0.1;
+      const r = 0.032 + fleece.next() * 0.026;
+      const tip = fleece.next();
+      const tint = tip < 0.15 ? 0xdcc8a2 : tip < 0.45 ? 0xf4e8d2 : 0xfdf6e8;
+      k.add('fabric', lumpySphere(r, 1, 0.4, fleece), mat(sx + v, y, z, fleece.next(), fleece.next() * 3, 0, 1, 0.7, 1), { tint });
     }
     // Hand shears: two long blades + bowed spring handle, hanging from a nail on the near leg
     k.cyl('iron', 0.012, 0.012, 0.05, [sx + 0.42, 0.62, sz + 0.2], { rx: Math.PI / 2, tint: 0x2a2624 });

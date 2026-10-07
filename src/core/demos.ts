@@ -186,7 +186,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   'house-interior': { map: 'house', x: 4.75, z: 6.25, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.2, offsetZ: -1.4 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 8.2, z: 6.2, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.2, offsetX: -1.7, offsetZ: -2.1 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 6.95, z: 5.95, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.2, offsetX: -1.7, offsetZ: -2.1 }, showcase: ['interior'] },
   // Bedtime: the "Go to bed for the night?" prompt beside the quilted bed / tucked in under the quilt, room dimmed, Zzz.
   'house-bedtime': { map: 'house', x: 9.6, z: 2.9, facing: 'right', time: 21.8, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-ask'] },
   'animals-dayend': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'animals', 'dayend'] },

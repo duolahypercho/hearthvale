@@ -838,7 +838,12 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   (fed / produce with quality stars / hungry names / the pet's bowl) from `animals:summary` via `sleep:summary.animals`.
 - Petting: a ~64 px heart pop (ease-out-back) with mini hearts + sparkles, the animal's name + heart meter, a squash on
   the animal and a crouch-and-reach pose on the farmer; at most 3 curious animals walk up at a time (20–40 s cooldown).
-  Eggs are picked per nest box and shown off overhead with their quality star.
+  Eggs are picked per nest box and shown off overhead with their quality star. (r11) Tall stock is staged side-on at
+  the farmer's reaching hand (crown under a one-bone arm IK, muzzle ≥ ~0.9 m from the farmer's face, turned towards
+  the lens), tips its head into the hand with its eyes shut; the host stages a farmhand's pat the same way and the herd
+  poses carry it. Homebodies: on a pasture day one or two coop birds (and one barn animal) stay in — a hen sunning on
+  the roost bar, a late sleeper — deterministic per day + id (`animals-*` showcases keep everyone out, `&homebodies=1`).
+  Coat relief per part (`aCoat`: short hair / wool curls / feather scales / skin) as a screen-derivative bump.
 - Demos: `house-interior`, `house-night`, `house-bedtime` (prompt), `house-asleep` (tucked in), `animals-dayend`
   (day-end card with the Animals row), `coop-interior`, `coop-eggs` (`&nest=0..5`), `coop-night`, `coop-dawn`,
   `barn-interior`, `barn-night`, `animals-pasture`, `animals-petting` (close-up), `animals-coop` (pasture + three co-op

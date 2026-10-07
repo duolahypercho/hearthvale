@@ -531,6 +531,13 @@ export class AnimalSystem implements System, AnimalsApi {
             const from = this.peerFarmer(peer);
             // (The staged co-op showcase keeps Maple drinking, head clear of Juniper's name tag.)
             l.actor.pet(this.hands.length ? undefined : (from ?? this.game.player.position));
+            // (r11: the host stages the farmhand's pat like a local one — side-on at their hand, muzzle
+            // clear of their face — and the herd poses carry it to every screen)
+            if (from && !this.hands.length && Math.hypot(l.actor.pos.x - from.x, l.actor.pos.z - from.z) < 2.2) {
+              const keep = this.petYaw;
+              this.settleForPet(l.actor, from.clone());
+              this.petYaw = keep;
+            }
             // (Heart only: the name card is the petting farmer's own read-out; on the host's screen a
             // farmhand's pet stacked a second label next to their chat bubble.)
             // (r7: popped on the animal's far side from the petting farmer, so it never lands on their name
@@ -651,8 +658,12 @@ export class AnimalSystem implements System, AnimalsApi {
    * empty box at noon. Deterministic per day + id: host and co-op clients agree without a wire field.
    * Returns 0 (goes out) or the homebody's rank (1, 2).
    */
+  private allOut = false;
+
   private homebody(rec: AnimalRec): number {
-    const mine = this.st.animals.filter((a) => a.home === rec.home);
+    // (pigs always go out: their truffles come from a day of rooting in the pasture)
+    if (this.allOut || rec.species === 'pig') return 0;
+    const mine = this.st.animals.filter((a) => a.home === rec.home && a.species !== 'pig');
     const n = mine.length;
     const k = rec.home === 'coop' ? (n >= 6 ? 2 : n >= 3 ? 1 : 0) : n >= 3 ? 1 : 0;
     if (!k) return 0;
@@ -942,7 +953,10 @@ export class AnimalSystem implements System, AnimalsApi {
 
   private setupPasture(a: AnimalActor): void {
     const p = this.game.services.buildings!.pasture();
-    a.area = { x0: p.x0 + 0.9, z0: p.z0 + 1.0, x1: p.x1 - 0.9, z1: p.z1 - 0.9 };
+    // (r11: inset by the animal's own half-length + 0.6 m — a big sheep's rump poked through the fence
+    // when only its root was kept 0.9 m in)
+    const inset = Math.max(0.9, 0.6 + (a.gait.len + a.gait.radius) * a.scale);
+    a.area = { x0: p.x0 + inset, z0: p.z0 + inset + 0.1, x1: p.x1 - inset, z1: p.z1 - inset };
     a.blockers = PASTURE_PROPS;
     a.grazes = true;
     a.curious = true;
@@ -1279,7 +1293,9 @@ export class AnimalSystem implements System, AnimalsApi {
   /** The floating name card for a heart pop — skipped for a barn stall animal (its stall plaque already
    *  carries the name + hearts; two labels per animal was noise). */
   private tagFor(a: AnimalActor, t: { name: string; hearts: number }): { name: string; hearts: number } | undefined {
-    return a.stalled && this.pen()?.kind === 'barn' ? undefined : t;
+    // (r11: no card anywhere in the barn — every barn animal has its stall plaque, and a floating card over
+    // the stall row sat on top of those plaques)
+    return this.pen()?.kind === 'barn' ? undefined : t;
   }
 
   /**
@@ -1290,10 +1306,13 @@ export class AnimalSystem implements System, AnimalsApi {
    * its eyes shut (actor.blissT). Stall / sleeping / perched animals stay put; the farmer just faces the
    * crown and, if their face would be within reach of the muzzle, steps back a little.
    */
-  private settleForPet(a: AnimalActor): void {
+  private settleForPet(a: AnimalActor, from?: THREE.Vector3): void {
+    // `from`: a co-op farmer's spot (host side): the same staging, replicated through the herd poses —
+    // no local farmer yaw / step-back.
+    const local = !from;
+    const prevYaw = this.petYaw;
     this.petYaw = null;
-    const player = this.game.player;
-    const pp = player.position;
+    const pp = from ?? this.game.player.position;
     let dx = a.pos.x - pp.x;
     let dz = a.pos.z - pp.z;
     const d = Math.hypot(dx, dz) || 1;
@@ -1310,8 +1329,9 @@ export class AnimalSystem implements System, AnimalsApi {
         const back = 0.85 - md;
         const bx = pp.x - Math.sin(this.petYaw) * back;
         const bz = pp.z - Math.cos(this.petYaw) * back;
-        if (back > 0.02 && this.walkableAt(bx, bz)) pp.set(bx, pp.y, bz);
+        if (local && back > 0.02 && this.walkableAt(bx, bz)) pp.set(bx, pp.y, bz);
       }
+      if (!local) this.petYaw = prevYaw;
       return;
     }
     if (low) {
@@ -1997,6 +2017,8 @@ export class AnimalSystem implements System, AnimalsApi {
     const params = new URLSearchParams(location.search);
     const st = AnimalSystem.fresh();
     this.st = st;
+    // Pasture showcases stage the whole herd out on the grass (no homebodies; &homebodies=1 keeps them).
+    this.allOut = name.startsWith('animals-') && params.get('homebodies') !== '1';
     const petKind = params.get('pet') === 'cat' ? 'cat' : 'dog';
     st.pet = { species: petKind, variant: Number(params.get('petVariant') ?? 0) % 2, name: PET_NAMES[petKind], friendship: 700, bowl: true, petted: false };
     const coop: [Livestock, number, number][] = [['chicken', 0, 820], ['chicken', 1, 640], ['duck', 1, 720], ['chicken', 0, 400], ['duck', 0, 560], ['chicken', 1, 900]];
@@ -2239,7 +2261,9 @@ export class AnimalSystem implements System, AnimalsApi {
         sheep: close ? [[44.2, 39.2, 0], [48.9, 38.9, 2.3]] : [[47.35, 37.1, 0.75], [44.55, 37.45, 0.35]],
         // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the
         // farmer the crouch put the hat brim over the goat's head.
-        goat: [[41.5, 41.78, Math.atan2(-1.2, -0.28)]],
+        // (r11: a step towards the lens too — the farmer turns three-quarters to the camera to reach its
+        // crown instead of showing the lens their back)
+        goat: [[40.85, 42.5, Math.atan2(-0.55, -1.0)]],
         pig: [[wallow.x - 0.05, wallow.z - 0.05, -0.45]],
         chicken: [[40.0, 38.5, 2.4], [40.95, 37.75, -1.1], [41.55, 38.75, 0.4], [39.2, 37.7, 1.9]],
         duck: [[pond.x - 0.55, pond.z - 0.15, 1.3], [pond.x + 0.75, pond.z + 0.3, -2.2]],

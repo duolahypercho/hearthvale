@@ -46,7 +46,7 @@ export interface PenAnchors {
 const STRAW = [0xf2dc94, 0xe0bc62, 0xf6e6aa, 0xd4a850, 0xe8cc7a];
 
 /** Loose straws lying around (cx, cz within `spread`); `lift(dx, dz)` raises them onto a mound. */
-export function strawTufts(k: Kit, rng: Rng, cx: number, y: number, cz: number, n: number, spread: number, lift?: (dx: number, dz: number) => number): void {
+export function strawTufts(k: Kit, rng: Rng, cx: number, y: number, cz: number, n: number, spread: number, lift?: (dx: number, dz: number) => number, palette: readonly number[] = STRAW): void {
   for (let i = 0; i < n; i++) {
     const len = 0.1 + rng.next() * 0.16;
     const g = new THREE.CylinderGeometry(0.011, 0.008, len, 3, 1, true);
@@ -57,9 +57,13 @@ export function strawTufts(k: Kit, rng: Rng, cx: number, y: number, cz: number, 
     const dz = Math.sin(a) * r * 0.9;
     const up = lift ? lift(dx, dz) : 0;
     const lie = up > 0.02 ? 0.6 + rng.next() * 0.9 : 1.25 + rng.next() * 0.3;
-    k.add('fabric', g, mat(cx + dx, y + up + 0.012, cz + dz, lie, rng.next() * Math.PI, (rng.next() - 0.5) * 0.6), { tint: STRAW[Math.floor(rng.next() * STRAW.length)]! });
+    k.add('fabric', g, mat(cx + dx, y + up + 0.012, cz + dz, lie, rng.next() * Math.PI, (rng.next() - 0.5) * 0.6), { tint: palette[Math.floor(rng.next() * palette.length)]! });
   }
 }
+
+/** Dry, sun-bleached straw for board floors (r11: the bright bedding tones read as orange confetti on the
+ *  grey boards). */
+export const STRAW_DRY = [0xd8ccaa, 0xc8b88e, 0xe2d6b6, 0xb8a882, 0xcfc09a];
 
 const _ta = new THREE.Color();
 const _tb = new THREE.Color();

@@ -235,10 +235,30 @@ export function buildCoopExterior(rng: Rng): THREE.Group {
   // Horseshoe over the door
   b.add('metal', new THREE.TorusGeometry(0.07, 0.014, 5, 12, Math.PI * 1.4), mat(0, base + 1.62, fz + 0.1, 0, 0, -Math.PI * 0.2 + Math.PI), { tint: 0x5a504a });
   lantern(b, 0.62, base + 1.28, fz + 0.14, 0.75);
+  // r11: coop language, not cottage — the front window is a screened hen vent (chicken wire over a dark
+  // opening, a top-hung board flap propped open on a stick) and a wire vent strip runs under the eaves.
   {
-    const wb = new MeshBuilder();
-    windowUnit(wb, 0.6, 0.5, true, true, rng);
-    b.addBuilder(wb, mat(-1.0, base + 1.05, fz + 0.03));
+    const wx = -1.0;
+    const wy = base + 1.05;
+    const ww = 0.66;
+    const wh = 0.48;
+    b.add('white', roundedBox(ww, wh, 0.02, 0.01), mat(wx, wy, fz + 0.025), { tint: 0x1a120c });
+    b.add(chickenWire(), wirePlane(ww, wh), mat(wx, wy, fz + 0.05));
+    for (const sy of [-1, 1]) b.add('woodGrain', roundedBox(ww + 0.12, 0.06, 0.06, 0.015), mat(wx, wy + sy * (wh / 2 + 0.02), fz + 0.06), { tint: COOP_TRIM });
+    for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.06, wh + 0.1, 0.06, 0.015), mat(wx + sx * (ww / 2 + 0.03), wy, fz + 0.06), { tint: COOP_TRIM });
+    // The flap: boards hinged at the top, swung up ~55° on a prop stick.
+    b.add('wood', boxUV(roundedBox(ww + 0.08, wh + 0.04, 0.04, 0.015), 1 / 0.8), mat(wx, wy + wh / 2 + 0.05 + Math.sin(0.95) * (wh / 2), fz + 0.1 + Math.cos(0.95) * (wh / 2) * 0.9, -0.95, 0, 0), { tint: SAGE });
+    b.add('woodGrain', roundedBox(0.025, 0.42, 0.025, 0.008), mat(wx + 0.22, wy + 0.1, fz + 0.18, -0.55, 0, 0), { tint: 0x8a6a4a });
+    // Flower box stays (a coop can be loved), lower and simpler.
+    b.add('woodPaint', roundedBox(ww + 0.06, 0.14, 0.16, 0.02), mat(wx, wy - wh / 2 - 0.1, fz + 0.12), { tint: SAGE });
+    for (let i = 0; i < 6; i++) b.add('white', new THREE.SphereGeometry(0.045, 7, 5), mat(wx - 0.28 + i * 0.11, wy - wh / 2 - 0.02, fz + 0.12 + (i % 2) * 0.03), { tint: [0xf2c43a, 0xe86a7a, 0xf8f0e0][i % 3] });
+  }
+  // Wire vent strip under the front eave (dark gap behind the mesh, trim battens either side).
+  {
+    const vy = top - 0.2;
+    b.add('white', roundedBox(W - 0.5, 0.2, 0.02, 0.01), mat(0, vy, fz + 0.025), { tint: 0x1a120c });
+    b.add(chickenWire(), wirePlane(W - 0.5, 0.2), mat(0, vy, fz + 0.05));
+    for (const sy of [-1, 1]) b.add('woodGrain', roundedBox(W - 0.4, 0.045, 0.05, 0.012), mat(0, vy + sy * 0.12, fz + 0.06), { tint: COOP_TRIM });
   }
   // Pop hole + long cleated ramp
   const px = 1.05;
@@ -293,7 +313,12 @@ export function buildCoopExterior(rng: Rng): THREE.Group {
   b.add('woodPaint', roundedBox(0.56, 0.06, 0.46, 0.02), mat(-1.95, 0.52, fz + 0.15, -0.12, 0, 0), { tint: SAGE });
   b.add('metal', bevelCylinder(0.2, 0.22, 0.08, 0.02, 16), mat(1.75, 0, fz + 0.85), { tint: 0x7aa4d8 });
   b.add('stillWater', new THREE.CircleGeometry(0.17, 16).rotateX(-Math.PI / 2), mat(1.75, 0.07, fz + 0.85), { tint: 0xb8e4ec });
-  return b.build({ name: 'coop' });
+  const g = b.build({ name: 'coop' });
+  // (the see-through wire never casts a solid panel shadow)
+  g.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh && (o as THREE.Mesh).material === wireMat) o.castShadow = false;
+  });
+  return g;
 }
 
 // ───────────────────────────────────────────── barn
@@ -774,4 +799,50 @@ export function coopHatch(): { obj: THREE.Group; closed: THREE.Vector3; slide: T
   const obj = b.build({ name: 'coop-hatch', castShadow: true, receiveShadow: true });
   const base = 0.4;
   return { obj, closed: new THREE.Vector3(1.05, base + 0.07, COOP_SIZE.D / 2 + 0.07), slide: new THREE.Vector3(0, 0.38, 0) };
+}
+
+/** A plane whose UVs run in metres (the wire tile repeats every 7 cm whatever the panel size). */
+function wirePlane(w: number, h: number): THREE.BufferGeometry {
+  const g = new THREE.PlaneGeometry(w, h);
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w, uv.getY(i) * h);
+  return g;
+}
+
+let wireMat: THREE.MeshStandardMaterial | null = null;
+/** Galvanised hex chicken wire: an alpha-blended canvas tile (thin grey wires, open holes). Blended, not
+ *  alpha-tested, so far away the mip-averaged mesh reads as a faint grey veil instead of shimmering. */
+export function chickenWire(): THREE.MeshStandardMaterial {
+  if (wireMat) return wireMat;
+  const S = 128;
+  const c = document.createElement('canvas');
+  c.width = S;
+  c.height = S;
+  const g = c.getContext('2d')!;
+  g.clearRect(0, 0, S, S);
+  g.strokeStyle = 'rgba(205,210,206,1)';
+  g.lineWidth = 3;
+  g.lineJoin = 'round';
+  // Two hex cells per tile (twisted-wire honeycomb), drawn wrap-safe.
+  const hex = (cx: number, cy: number, r: number): void => {
+    g.beginPath();
+    for (let i = 0; i <= 6; i++) {
+      const a = Math.PI / 6 + (i / 6) * Math.PI * 2;
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r * 1.15;
+      if (i === 0) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.stroke();
+  };
+  const r = S / 4 / Math.cos(Math.PI / 6);
+  for (const [ox, oy] of [[0, 0], [S, 0], [0, S], [S, S], [S / 2, S / 2], [S / 2, -S / 2], [S / 2, S * 1.5], [-S / 2, S / 2], [S * 1.5, S / 2]] as const) hex(ox, oy, r);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1 / 0.07, 1 / 0.07);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  wireMat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.45, metalness: 0.6, side: THREE.DoubleSide });
+  wireMat.name = 'chicken-wire';
+  return wireMat;
 }

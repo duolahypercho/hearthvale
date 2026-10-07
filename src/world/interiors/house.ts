@@ -75,6 +75,8 @@ export class HouseInterior extends InteriorMap {
     this.coolFill = 0.38;
     this.morningCool = 1;
     this.shaftK = 1.75;
+    // r11: the shafts land — a soft window-shaped pool of sun where each beam hits the boards.
+    this.sunPoolK = 0.3;
     this.moonShaft = 0.07;
     const rng = new Rng('house-interior');
     this.kitchen(rng);
@@ -1105,8 +1107,8 @@ function drapedQuilt(w: number, l: number, drop: number, r: number): THREE.Buffe
   const fall = drop - r;
   const S = w / 2 + arc - r + fall + r; // half arc-length across (flat a + roll + hang)
   const T = l - r + arc + fall;
-  const ns = 44;
-  const nt = 40;
+  const ns = 72;
+  const nt = 64;
   const map = (u: number, lim: number): [number, number, number] => {
     // → (offset, drop y, fall fraction) for an arc-length u past the flat part `lim`.
     if (u <= lim) return [u, 0, 0];
@@ -1136,7 +1138,7 @@ function drapedQuilt(w: number, l: number, drop: number, r: number): THREE.Buffe
       // Quilted puff on the top: each 25 cm patch domes, the seams stay down.
       if (ys > -1e-4 && yt > -1e-4) {
         const pu = Math.sin(Math.PI * (((sa / 0.25) % 1) + 1) % 1) * Math.sin(Math.PI * (((t / 0.25) % 1) + 1) % 1);
-        y += 0.03 + 0.04 * Math.sqrt(Math.max(0, pu));
+        y += 0.025 + 0.06 * Math.pow(Math.max(0, pu), 0.35);
       } else y += 0.035 * (1 - f);
       pos.push(x, y, zz);
       uv.push((sa + S) * 0.5, t * 0.5);
