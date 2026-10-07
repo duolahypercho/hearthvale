@@ -101,6 +101,7 @@ function band(color: THREE.ColorRepresentation, y0: number, below = true): CoatP
 
 function chicken(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 3;
   const brown = variant === 1;
   const body = brown ? 0xc9773c : 0xeae4d8;
   const tail = brown ? 0xa4542a : 0xe8e0d0;
@@ -157,6 +158,7 @@ function chicken(variant: number): AnimalModel {
 
 function duck(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 3;
   const mallard = variant === 1;
   // (white duck a touch off-white: pure white bloomed into a glowing blob in full sun)
   const body = mallard ? 0xb4aca0 : 0xe2dccf;
@@ -262,6 +264,7 @@ function barrel(profile: [number, number][], seg = 22): THREE.BufferGeometry {
 
 function cow(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   const jersey = variant === 1;
   const base = jersey ? 0xcb8d58 : 0xdfd9cc;
   const spots: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [3.4, 3.0, 3.2], seed: 4.3, edge: 0.24, sinAmp: 0.25 };
@@ -292,6 +295,12 @@ function cow(variant: number): AnimalModel {
   const cowBody = barrel([[-0.66, 0], [-0.648, 0.14], [-0.61, 0.26], [-0.53, 0.34], [-0.41, 0.372], [-0.26, 0.362], [-0.1, 0.352], [0.05, 0.356], [0.2, 0.372], [0.33, 0.366], [0.45, 0.318], [0.53, 0.23], [0.572, 0.12], [0.584, 0]], 24);
   r.part('body', cowBody, mat(0, d.bodyY + 0.01, 0, 0, 0, 0, 1, 0.97, 1), base, { patch: spots, paint: shade });
   r.part('body', ellipsoid(d.bodyR * 0.8, d.bodyR * 0.66, 0.4), mat(0, d.bodyY - d.bodyR * 0.22, -0.02), base, { patch: spots, paint: shade });
+  // r11: anatomy that reads from the high camera — hook bones at the rump corners, a spine line, a
+  // thick neck that blends the barrel into the head, a soft dewlap hanging under the throat.
+  for (const sx of [-1, 1]) r.part('body', ellipsoid(0.075, 0.06, 0.09, 10, 8), mat(sx * 0.2, d.bodyY + 0.3, -0.44), base, { patch: spots, paint: shade });
+  r.part('body', ellipsoid(0.05, 0.035, 0.5, 10, 8), mat(0, d.bodyY + 0.335, -0.06), base, { patch: spots, paint: shade });
+  r.part('body', ellipsoid(0.22, 0.25, 0.22, 14, 12), mat(0, 0.94, 0.47, -0.5, 0, 0), base, { patch: spots, paint: shade });
+  r.part('body', ellipsoid(0.055, 0.17, 0.2, 10, 10), mat(0, 0.72, 0.5, 0.25, 0, 0), base, { patch: spots, paint: shade });
   // Udder + teats
   r.part('body', ellipsoid(0.14, 0.085, 0.15), mat(0, 0.44, -0.24), 0xf4b0aa);
   for (const [x, z] of [[-0.05, -0.2], [0.05, -0.2], [-0.05, -0.29], [0.05, -0.29]] as const) r.part('body', limb(0.018, 0.015, 0.4, 0.34, 6), mat(x, 0, z), 0xe8908c, { flat: true });
@@ -345,6 +354,7 @@ function cow(variant: number): AnimalModel {
 
 function goat(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   const togg = variant === 1;
   // 0: snowy Saanen · 1: Toggenburg (cocoa coat, cream muzzle, ear rims and socks)
   const base = togg ? 0x8e5c38 : 0xeee8dc;
@@ -361,7 +371,13 @@ function goat(variant: number): AnimalModel {
   // (r10: a lean dairy goat, not a brick — narrower, the round barrel tapering to a bony haunch and a
   // slim chest, a long neck rising clear of the shoulders)
   const goatBody = barrel([[-0.43, 0], [-0.41, 0.07], [-0.36, 0.13], [-0.28, 0.165], [-0.17, 0.188], [-0.04, 0.205], [0.08, 0.218], [0.19, 0.214], [0.29, 0.19], [0.36, 0.145], [0.405, 0.08], [0.42, 0]]);
-  r.part('body', goatBody, mat(0, d.bodyY + 0.02, 0, 0, 0, 0, 0.86, 1.12, 1), base);
+  r.part('body', goatBody, mat(0, d.bodyY + 0.02, 0, 0, 0, 0, 0.8, 1.12, 1), base);
+  // r11: a visible spine ridge (a darker dorsal line on the Toggenburg), bony hook bones at the haunch
+  // and withers — a goat's angular topline instead of a smooth capsule.
+  const dorsal = togg ? 0x5e3a22 : 0xe2dacb;
+  r.part('body', ellipsoid(0.024, 0.026, 0.4, 8, 10), mat(0, d.bodyY + 0.245, -0.02), dorsal);
+  for (const sx of [-1, 1]) r.part('body', ellipsoid(0.045, 0.04, 0.06, 8, 6), mat(sx * 0.105, d.bodyY + 0.205, -0.27), base);
+  r.part('body', ellipsoid(0.06, 0.045, 0.08, 8, 6), mat(0, d.bodyY + 0.235, 0.21), base);
   // Neck rising from the chest
   r.part('body', ellipsoid(0.082, 0.22, 0.095), mat(0, 0.86, 0.32, 0.5, 0, 0), base);
   // Red leather collar + brass bell
@@ -373,6 +389,11 @@ function goat(variant: number): AnimalModel {
   // (coat-coloured with a pale underside: a dark disc here read as a hole from the high camera)
   r.part('tail', ellipsoid(0.04, 0.09, 0.034, 10, 8), mat(0, 0.85, -0.38, -0.85, 0, 0), base);
   r.part('tail', ellipsoid(0.026, 0.06, 0.02, 8, 6), mat(0, 0.838, -0.365, -0.85, 0, 0), togg ? cream : 0xf6f0e6);
+  // Tufted tip: a little brush of hair flicking up off the flag.
+  for (let i = 0; i < 4; i++) {
+    const tuft = new THREE.ConeGeometry(0.011, 0.06, 5);
+    r.part('tail', tuft, mat((i - 1.5) * 0.01, 0.905 + (i % 2) * 0.008, -0.44 - (i % 2) * 0.008, -1.35 + (i - 1.5) * 0.1, 0, (i - 1.5) * 0.3), togg ? 0x7a4c2c : 0xf6f0e6);
+  }
   // Head: domed skull, long tapering muzzle angled down, beard, floppy-flat ears, swept horns
   r.part('head', ellipsoid(0.145, 0.15, 0.16), mat(0, 1.04, 0.43), base);
   r.part('head', ellipsoid(0.09, 0.09, 0.14), mat(0, 0.96, 0.58, 0.35, 0, 0), togg ? cream : base);
@@ -410,6 +431,7 @@ function goat(variant: number): AnimalModel {
 
 function sheep(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   // 0: cream fleece, soft taupe face · 1: black-faced (Suffolk-ish). Both: dark legs + face under white wool.
   const blackFace = variant === 1;
   const wool = blackFace ? 0xebe4d6 : 0xede6d8;
@@ -425,10 +447,10 @@ function sheep(variant: number): AnimalModel {
   r.bone('earR', 'head', [0.12, 0.81, 0.45]);
   r.bone('tail', 'body', [0, 0.59, -0.42]);
   // Shorn body underneath
-  r.part('body', capsuleZ(d.bodyR, d.bodyLen, 8, 16), mat(0, d.bodyY, -0.02), 0xe8dcc8);
+  r.part('body', capsuleZ(d.bodyR, d.bodyLen, 8, 16), mat(0, d.bodyY, -0.02), 0xe8dcc8, { coat: 2 });
   // Fleece: an overlapping cloud of puffs over the back and flanks — kept above the knees so the legs read
   const puff = (x: number, y: number, z: number, s: number) =>
-    r.part('wool', new THREE.IcosahedronGeometry(s, s > 0.15 ? 2 : 1), mat(x, y, z), wool, { paint: (p, _n, c) => c.multiplyScalar(0.92 + 0.08 * noise3(p.x * 22, p.y * 22, p.z * 22, 3)) });
+    r.part('wool', new THREE.IcosahedronGeometry(s, s > 0.15 ? 2 : 1), mat(x, y, z), wool, { coat: 2, paint: (p, _n, c) => c.multiplyScalar(0.92 + 0.08 * noise3(p.x * 22, p.y * 22, p.z * 22, 3)) });
   let k = 0;
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI + 0.02;
@@ -446,7 +468,7 @@ function sheep(variant: number): AnimalModel {
   puff(0, d.bodyY + 0.07, 0.24, 0.17);
   for (const s of [-1, 1]) puff(s * 0.2, d.bodyY - 0.05, 0.0, 0.15);
   legs(r, d, blackFace ? face : 0xd8c4ac, 0x3a2c26);
-  r.part('tail', new THREE.IcosahedronGeometry(0.07, 1), mat(0, 0.59, -0.43), wool);
+  r.part('tail', new THREE.IcosahedronGeometry(0.07, 1), mat(0, 0.59, -0.43), wool, { coat: 2 });
   // Head poking forward out of the fleece: long face, dark nose, ears sticking straight out sideways
   r.part('head', ellipsoid(0.15, 0.16, 0.17), mat(0, 0.79, 0.49), face);
   r.part('head', ellipsoid(0.1, 0.09, 0.105), mat(0, 0.72, 0.6, 0.25, 0, 0), blackFace ? 0x3a3230 : 0xf2e4d2);
@@ -454,14 +476,14 @@ function sheep(variant: number): AnimalModel {
   r.part('head', ellipsoid(0.03, 0.005, 0.01, 6, 4), mat(0, 0.695, 0.69), blackFace ? 0x1a1414 : 0x7a4a44, { flat: true });
   // Wool topknot
   for (const [x, y, z, s] of [[0, 0.93, 0.43, 0.095], [-0.075, 0.9, 0.46, 0.07], [0.075, 0.9, 0.46, 0.07], [0, 0.9, 0.36, 0.1]] as const) {
-    r.part('head', new THREE.IcosahedronGeometry(s, 1), mat(x, y, z), wool);
+    r.part('head', new THREE.IcosahedronGeometry(s, 1), mat(x, y, z), wool, { coat: 2 });
   }
   for (const s of [-1, 1]) {
     const ear = s < 0 ? 'earL' : 'earR';
     r.part(ear, ellipsoid(0.12, 0.034, 0.055), mat(s * 0.22, 0.81, 0.46, 0, 0.3 * s, s * -0.12), face);
     r.part(ear, ellipsoid(0.08, 0.016, 0.034), mat(s * 0.225, 0.815, 0.48, 0, 0.3 * s, s * -0.12), 0xe8a098, { flat: true });
     // Ear tuft: a little curl of fleece where the ear pokes out of the wool
-    r.part(ear, new THREE.IcosahedronGeometry(0.05, 1), mat(s * 0.15, 0.85, 0.44), wool);
+    r.part(ear, new THREE.IcosahedronGeometry(0.05, 1), mat(s * 0.15, 0.85, 0.44), wool, { coat: 2 });
   }
   eyes(r, 0.095, 0.81, 0.6, 0.043, 0.48, { rim: blackFace ? 0xf6f0e6 : 0x6a5248 });
   cheeks(r, 0.12, 0.735, 0.575, 0.03, 0xf08a86);
@@ -471,6 +493,7 @@ function sheep(variant: number): AnimalModel {
 
 function pig(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 4;
   const spotted = variant === 1;
   const base = 0xf8b8ae;
   const spots: CoatPatch | undefined = spotted ? { color: 0x4a302c, freq: [4, 4, 4], seed: 9, edge: 0.52 } : undefined;
@@ -507,6 +530,7 @@ function pig(variant: number): AnimalModel {
 
 function dog(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   const collie = variant === 1;
   const base = collie ? 0x3a2e2a : 0xd88a3c;
   const cream = 0xf6ead4;
@@ -550,6 +574,7 @@ function dog(variant: number): AnimalModel {
 
 function cat(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   const grey = variant === 1;
   const base = grey ? 0x8a8a92 : 0xe89a4a;
   const stripe = grey ? 0x55555e : 0xb8662a;

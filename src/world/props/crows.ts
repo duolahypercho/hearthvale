@@ -83,10 +83,11 @@ function part(fn: (b: MeshBuilder) => void, name: string): THREE.Mesh {
 
 // Slate blue-black rather than pure ink: the form (breast, folded wing, crown) keeps reading
 // against dark soil and leaf shadow instead of collapsing into a black blob.
-const INK = 0x1c2131;
-const SHEEN = 0x42507a;
-const BREAST = 0x323a50;
-const WING = 0x252c42;
+// (r15: near-black glossy — the slate navy read as a toy bird; the blue lives in the rim sheen.)
+const INK = 0x111318;
+const SHEEN = 0x2c3448;
+const BREAST = 0x1b1e26;
+const WING = 0x15181f;
 
 const _cc = new THREE.Color();
 const _cs = new THREE.Color();
@@ -280,12 +281,13 @@ export class CrowFlock {
         b.add(M, headGeo(), mat(0, 0.02, 0.02));
         // Heavy crow bill: horn-grey (lighter than the plumage so it reads at gameplay zoom), a deep
         // curved upper mandible over a thinner lower one, bristles at the base.
-        b.add(M, billGeo(0.03, 0.12, 0.1), mat(0, 0.016, 0.07, 0, 0, 0), { tint: 0x9a9284 });
-        b.add(M, billGeo(0.02, 0.09, -0.05), mat(0, -0.004, 0.07, 0.1, 0, 0), { tint: 0x6a6460 });
+        // A heavy black bill (a grey one read as a toy's).
+        b.add(M, billGeo(0.03, 0.12, 0.1), mat(0, 0.016, 0.07, 0, 0, 0), { tint: 0x3a3a40 });
+        b.add(M, billGeo(0.02, 0.09, -0.05), mat(0, -0.004, 0.07, 0.1, 0, 0), { tint: 0x26262a });
         b.add(M, new THREE.SphereGeometry(0.03, 8, 6), mat(0, 0.02, 0.07, 0, 0, 0, 1, 0.9, 0.7), { tint: 0x2a2e3c });
         for (const sd of [-1, 1]) {
           // Dark eye in a slate ring with a hard white glint (reads at gameplay zoom).
-          b.add(M, new THREE.SphereGeometry(0.017, 10, 8), mat(sd * 0.044, 0.036, 0.048), { tint: 0x3a4050 });
+          b.add(M, new THREE.SphereGeometry(0.017, 10, 8), mat(sd * 0.044, 0.036, 0.048), { tint: 0x2a2e38 });
           b.add(M, new THREE.SphereGeometry(0.0145, 10, 8), mat(sd * 0.048, 0.037, 0.05), { tint: 0x050507 });
           b.add(M, new THREE.SphereGeometry(0.0075, 6, 4), mat(sd * 0.058, 0.045, 0.058), { tint: 0xffffff });
         }

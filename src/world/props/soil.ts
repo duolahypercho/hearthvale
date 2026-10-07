@@ -194,7 +194,8 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           // Furrows read in any light: troughs in shade, crests catching it (a lone fresh tile shows
           // the same ploughed ridges as the beds around it, not a flat smear).
           float ridgeT = smoothstep(0.032, 0.062, vSoilH);
-          dry *= 0.8 + 0.28 * ridgeT;
+          // (r15: deeper troughs — dry beds read ploughed, never as flat tan tiles.)
+          dry *= 0.7 + 0.4 * ridgeT;
           wet *= 0.86 + 0.2 * ridgeT;
           vec3 c = mix(dry, wet, hvSoilWet);
           c *= 1.0 - halo * 0.18;
@@ -209,11 +210,21 @@ function soilMaterial(): THREE.MeshStandardMaterial {
             vec2 tq = fract(wq + vec2(hvNoise(wq * 3.7) - 0.5, hvNoise(wq * 3.7 + 9.0) - 0.5) * 0.06);
             vec2 te = min(tq, 1.0 - tq);
             float seam = (1.0 - smoothstep(0.0, 0.045, te.x)) * 0.7 + (1.0 - smoothstep(0.0, 0.035, te.y)) * 0.45;
-            c *= 1.0 - min(1.0, seam) * 0.1 * smoothstep(0.7, 1.0, vSoilEdge);
+            // (r15: no tread across freshly hoed ground — a charged strip is one turned patch,
+            // never nine floor tiles.)
+            c *= 1.0 - min(1.0, seam) * 0.05 * smoothstep(0.7, 1.0, vSoilEdge) * (1.0 - vSoilFresh);
           }
-          // Freshly turned earth: darker and moist for a moment after the hoe bites.
+          // Freshly turned earth (r15): dark, moist, crumbly — deep furrow shading, the crests
+          // breaking into paler dry crumbs — easing back to the bed's tone over a few seconds.
           // (Kept well above wet: a fresh furrow must not already look watered.)
-          c = mix(c, base * vec3(1.25, 1.14, 0.98), vSoilFresh * (1.0 - hvSoilWet) * 0.6);
+          {
+            float fk = vSoilFresh * (1.0 - hvSoilWet);
+            float crumbs = smoothstep(0.6, 0.78, hvNoise(wq * 29.0 + 5.0)) * (0.4 + 0.6 * ridgeT);
+            float clumps = hvNoise(wq * 11.0 + 2.0);
+            vec3 turned = base * vec3(1.08, 0.95, 0.8) * (0.8 + 0.32 * clumps) * (0.62 + 0.55 * ridgeT);
+            turned = mix(turned, base * vec3(1.7, 1.56, 1.3), crumbs * 0.55);
+            c = mix(c, turned, fk * 0.88);
+          }
           // The fringe dries out into pale, dusty dirt as it spills over the turf.
           // Patchy, not a uniform band: earthy ochre crumbs with an olive cast where it meets the sod.
           float fr = (1.0 - smoothstep(0.35, 1.0, vSoilEdge)) * (0.55 + 0.6 * hvNoise(wq * 3.1 + 7.0));
@@ -878,17 +889,21 @@ export class SoilBeds {
         else scale = 1 + 0.3 * Math.exp(-(a.t - 0.07) * 22) * Math.cos((a.t - 0.07) * 30);
         // Freshly turned earth stays dark and moist for a beat, then settles to the bed's tone
         // over ~2 s (so a charged strip reads as "just worked" against the older beds).
-        const fresh = 1 - smooth(0.6, 2.6, a.t);
-        this.writeHeave(a.x, a.z, scale / 2, fresh, 0.5);
-        if (a.t >= 2.6) {
+        // (r15: lingers ~5 s, and the fresh earth stands fluffed up — furrows ~50 % taller — before
+        // it settles to the bed's height: freshly hoed ground reads as deformed, not a flat tile.)
+        const fresh = 1 - smooth(1.4, 5.5, a.t);
+        this.writeHeave(a.x, a.z, (scale * (1 + 0.5 * fresh)) / 2, fresh, 0.5);
+        if (a.t >= 5.5) {
           this.writeHeave(a.x, a.z, 0.5, 0, 0.5);
           this.anims.delete(i);
         }
       } else {
-        // Slam heave: the bed is punched down, then springs back with a wobble.
+        // Slam heave: the bed is punched down, then springs back with a wobble — and a hard strike
+        // (amp ≥ 0.5) turns the bed over: it reads freshly worked for a few seconds too (r15).
         const osc = Math.exp(-a.t * 9) * Math.cos(a.t * 26);
-        this.writeHeave(a.x, a.z, (1 - osc * 0.45 * a.amp) / 2, 0, 0.5 - osc * 0.12 * a.amp);
-        if (a.t > 0.5) {
+        const fresh = a.amp >= 0.5 ? 1 - smooth(1.4, 5.5, a.t) : 0;
+        this.writeHeave(a.x, a.z, ((1 - osc * 0.45 * a.amp) * (1 + 0.5 * fresh)) / 2, fresh, 0.5 - osc * 0.12 * a.amp);
+        if (a.t > (a.amp >= 0.5 ? 5.5 : 0.5)) {
           this.writeHeave(a.x, a.z, 0.5, 0, 0.5);
           this.anims.delete(i);
         }

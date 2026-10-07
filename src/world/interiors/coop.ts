@@ -63,7 +63,8 @@ export class CoopInterior extends InteriorMap {
       ],
       sunDir: [-0.4, 0.62, -0.68],
     });
-    this.camera = { yaw: 0, pitch: 48, distance: 12.6, offsetX: 0, offsetZ: 0.4 };
+    // r11: closer — the walls fill the frame instead of a small box in a black void.
+    this.camera = { yaw: 0, pitch: 48, distance: 11.2, offsetX: 0, offsetZ: 0.3 };
     this.dayScale = 1.3;
     this.sunPoolK = 0.4;
     this.exposureBoost = 0.28;
@@ -335,6 +336,28 @@ export class CoopInterior extends InteriorMap {
     // (r10: the two darker trodden paths by the door read as stains / holes — gone; small light straw
     // clumps kicked up by the door + trough instead)
     for (const [x, z, w, d] of [[3.15, 4.7, 0.5, 0.3], [4.95, 5.05, 0.42, 0.26]] as const) strawDrift(k, rng, x, z, w, d);
+    // r11: a gently trodden lane (compressed, a shade deeper — never a dark stain) from the door up to
+    // the feeder and on to the nest boxes; many soft overlapping ovals so its edge feathers out.
+    {
+      const lane: [number, number][] = [[4.1, 5.3], [3.9, 4.6], [3.5, 3.9], [2.9, 3.3], [2.3, 2.6], [1.8, 1.9]];
+      for (let i = 0; i < lane.length - 1; i++) {
+        const [x0, z0] = lane[i]!;
+        const [x1, z1] = lane[i + 1]!;
+        for (let j = 0; j < 2; j++) {
+          const f = (j + 0.5) / 2;
+          patch(x0 + (x1 - x0) * f, z0 + (z1 - z0) * f, 0.42, 0.3, 0xd9c39c, 0.005);
+        }
+      }
+    }
+    // Shed feathers about the floor: white + russet curls, densest under the roost + nests.
+    for (let i = 0; i < 16; i++) {
+      const near = i < 9;
+      const fx = near ? (i % 2 ? 1.4 : 5.9) + (rng.next() - 0.5) * 1.4 : 0.6 + rng.next() * (W - 1.2);
+      const fz = near ? (i % 2 ? 1.2 : 2.2) + (rng.next() - 0.5) * 0.9 : 1.0 + rng.next() * (D - 2.2);
+      const f = new THREE.CircleGeometry(0.04, 8).scale(0.45, 1.6, 1);
+      f.rotateX(-Math.PI / 2 + 0.25);
+      k.add('fabric', f, mat(fx, 0.03, fz, 0, rng.next() * Math.PI * 2, 0), { tint: rng.next() < 0.62 ? 0xfbf6ea : rng.next() < 0.5 ? 0xb8683a : 0x8a4a2a });
+    }
     patch(1.4, 1.05, 1.1, 0.36, 0xfff2d4, 0.008);
     patch(6.0, 1.95, 1.25, 0.48, 0xfff0d0, 0.008);
     // Straw scatter clustered where the birds kick it about (nests, trough, roost) — the open floor stays

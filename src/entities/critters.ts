@@ -66,6 +66,36 @@ export class Butterfly {
     this.pickTarget();
   }
 
+  /** Seconds of startled flight left (faster, higher, no landing). */
+  private flee = 0;
+
+  /**
+   * Startle: a butterfly within `r` of (x, z) bolts away from it (tool swings, a farmer at work)
+   * and settles somewhere at least `r` + 1.5 m off — never perched on a working blade.
+   */
+  scare(x: number, z: number, r: number): void {
+    const dx = this.pos.x - x;
+    const dz = this.pos.z - z;
+    const d = Math.hypot(dx, dz);
+    if (d > r) return;
+    const a = d > 1e-3 ? Math.atan2(dz, dx) : Math.random() * Math.PI * 2;
+    const go = r + 1.5 + Math.random() * 1.5;
+    this.target.set(x + Math.cos(a) * go, 0, z + Math.sin(a) * go);
+    this.rest = 0;
+    this.flee = 1.2;
+  }
+
+  /** Keep clear of (x, z) without a startle (demo stills: nothing perches near the work). */
+  avoid(x: number, z: number, r: number, snap = false): void {
+    if (Math.hypot(this.pos.x - x, this.pos.z - z) < r) {
+      this.scare(x, z, r);
+      if (snap) {
+        this.pos.x = this.target.x;
+        this.pos.z = this.target.z;
+      }
+    } else if (Math.hypot(this.target.x - x, this.target.z - z) < r) this.pickTarget();
+  }
+
   private pickTarget(): void {
     const s = this.spots[Math.floor(Math.random() * this.spots.length)]!;
     this.target.set(s.x + (Math.random() - 0.5) * 2, 0, s.z + (Math.random() - 0.5) * 2);
@@ -83,16 +113,18 @@ export class Butterfly {
     } else {
       if (dist < 0.3) {
         this.rest = 1 + Math.random() * 3;
+        this.flee = 0;
       } else {
         d.normalize();
         const wob = new THREE.Vector3(Math.sin(t * 2.3 + this.phase), 0, Math.cos(t * 1.9 + this.phase)).multiplyScalar(0.6);
-        this.pos.addScaledVector(d.add(wob).normalize(), dt * 1.1);
+        if (this.flee > 0) this.flee -= dt;
+        this.pos.addScaledVector(d.add(wob.multiplyScalar(this.flee > 0 ? 0.4 : 1)).normalize(), dt * (this.flee > 0 ? 3.2 : 1.1));
         this.root.rotation.y = Math.atan2(d.x, d.z);
       }
       this.wings.scale.x = 0.25 + Math.abs(Math.sin(t * 13 + this.phase)) * 0.85;
     }
     const g = this.heightAt(this.pos.x, this.pos.z);
-    const hover = this.rest > 0 ? 0.32 : 0.55 + Math.sin(t * 3.1 + this.phase) * 0.18 + Math.sin(t * 7 + this.phase) * 0.05;
+    const hover = (this.rest > 0 ? 0.32 : 0.55 + Math.sin(t * 3.1 + this.phase) * 0.18 + Math.sin(t * 7 + this.phase) * 0.05) + (this.flee > 0 ? 0.6 * Math.min(1, this.flee) : 0);
     this.pos.y += (g + hover - this.pos.y) * Math.min(1, dt * 4);
     this.root.position.copy(this.pos);
   }

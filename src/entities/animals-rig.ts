@@ -44,20 +44,63 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
         .replace(
           '#include <common>',
           `#include <common>
-          attribute vec4 aPatchA; attribute vec4 aPatchB; attribute vec4 aPatchC;
-          varying vec4 vPatchA; varying vec4 vPatchB; varying vec4 vPatchC; varying vec3 vRest;`,
+          attribute vec4 aPatchA; attribute vec4 aPatchB; attribute vec4 aPatchC; attribute float aCoat;
+          varying vec4 vPatchA; varying vec4 vPatchB; varying vec4 vPatchC; varying vec3 vRest; varying float vCoat;`,
         )
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-          vPatchA = aPatchA; vPatchB = aPatchB; vPatchC = aPatchC; vRest = position;`,
+          vPatchA = aPatchA; vPatchB = aPatchB; vPatchC = aPatchC; vRest = position; vCoat = aCoat;`,
         );
       sh.fragmentShader = sh.fragmentShader
         .replace(
           '#include <common>',
           `#include <common>
-          varying vec4 vPatchA; varying vec4 vPatchB; varying vec4 vPatchC; varying vec3 vRest;
-          ${GLSL_NOISE3}`,
+          varying vec4 vPatchA; varying vec4 vPatchB; varying vec4 vPatchC; varying vec3 vRest; varying float vCoat;
+          ${GLSL_NOISE3}
+          // Screen-derivative bump (no tangents needed): tilt the normal by the gradient of h.
+          vec3 hvBump(vec3 pos, vec3 n, float h) {
+            vec3 dpx = dFdx(pos); vec3 dpy = dFdy(pos);
+            float dhx = dFdx(h); float dhy = dFdy(h);
+            vec3 r1 = cross(dpy, n); vec3 r2 = cross(n, dpx);
+            float det = dot(dpx, r1);
+            vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
+            return normalize(abs(det) * n - grad);
+          }`,
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          `#include <normal_fragment_maps>
+          if (vCoat > 0.5) {
+            // r11 coat relief in rest-pose space: 1 short hair (combed streaks), 2 wool (lumpy curls),
+            // 3 feathers (overlapping scale rows), 4 bristly skin (pig: a faint pore stipple).
+            vec3 q = vRest;
+            float hh;
+            float amp;
+            if (vCoat < 1.5) {
+              hh = hvNoise3(q * vec3(120.0, 105.0, 20.0), 2.0) * 0.6 + hvNoise3(q * vec3(230.0, 210.0, 36.0), 4.0) * 0.4;
+              amp = 0.0016;
+            } else if (vCoat < 2.5) {
+              float a = hvNoise3(q * 24.0, 1.0);
+              float b = hvNoise3(q * 52.0 + 3.0, 2.0);
+              float c = hvNoise3(q * 105.0 + 7.0, 3.0);
+              hh = abs(a) * 0.55 + abs(b) * 0.3 + c * 0.15;
+              amp = 0.011;
+            } else if (vCoat < 3.5) {
+              // (r11b: bigger, softer scales — fine rows read as a sandpaper stipple from the camera)
+              float row = q.z * 15.0 - q.y * 7.0 + hvNoise3(q * 5.0, 5.0) * 0.3;
+              float col = (q.x * 17.0 + floor(row) * 0.5);
+              float fr = fract(row);
+              float fc = fract(col) - 0.5;
+              hh = smoothstep(0.0, 0.9, fr) * (1.0 - fc * fc * 2.4) * (1.0 - smoothstep(0.9, 1.0, fr));
+              amp = 0.0042;
+            } else {
+              hh = hvNoise3(q * 160.0, 6.0);
+              amp = 0.0006;
+            }
+            float fade = 1.0 - smoothstep(0.35, 0.95, fwidth(hh));
+            normal = hvBump(-vViewPosition, normal, hh * amp * fade);
+          }`,
         )
         .replace(
           '#include <color_fragment>',
@@ -87,7 +130,7 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
         totalEmissiveRadiance += diffuseColor.rgb * hvFur * 0.16 * (1.0 - 0.7 * smoothstep(0.55, 0.9, max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b))));`,
         );
     };
-    shared.customProgramCacheKey = () => `${prevKey.call(shared)}|fur|patch`;
+    shared.customProgramCacheKey = () => `${prevKey.call(shared)}|fur|patch|coat`;
   }
   return shared;
 }
@@ -118,6 +161,9 @@ interface PartOpts {
   ground?: boolean;
   /** Crisp per-pixel coat patch (see CoatPatch). */
   patch?: CoatPatch;
+  /** Coat relief (0 none, 1 short hair, 2 wool, 3 feathers, 4 skin). Default: the builder's `coat`
+   *  (0 for `flat` parts: eyes, noses, hooves, horns, catchlights). */
+  coat?: number;
 }
 
 const _p = new THREE.Vector3();
@@ -132,6 +178,8 @@ export class RigBuilder {
   private geos: THREE.BufferGeometry[] = [];
   private geoBone: number[] = [];
   private chibiOpts: { bodyZ: number; head: number } | null = null;
+  /** Default coat relief for parts (see PartOpts.coat). */
+  coat = 0;
 
   constructor() {
     this.bone('root', null, [0, 0, 0]);
@@ -191,6 +239,7 @@ export class RigBuilder {
     g.setAttribute('aPatchA', new THREE.Float32BufferAttribute(pa, 4));
     g.setAttribute('aPatchB', new THREE.Float32BufferAttribute(pb, 4));
     g.setAttribute('aPatchC', new THREE.Float32BufferAttribute(pc, 4));
+    g.setAttribute('aCoat', new THREE.Float32BufferAttribute(new Float32Array(n).fill(opts.coat ?? (opts.flat ? 0 : this.coat)), 1));
     const bi = this.idx(bone);
     const si = new Uint16Array(n * 4);
     const sw = new Float32Array(n * 4);

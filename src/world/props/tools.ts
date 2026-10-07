@@ -160,7 +160,8 @@ export function buildTool(id: string, tier: number): THREE.Group {
       b.add(M, neckTube([new THREE.Vector3(0, 0.72, 0), new THREE.Vector3(0, 0.765, 0.045), new THREE.Vector3(0, 0.755, 0.115), new THREE.Vector3(0, 0.705, 0.158)], 0.015, 0.012), undefined, { tint: body.clone().multiplyScalar(0.85).getHex() });
       // Blade: a bevelled, slightly dished trapezoid — dark forged body, a dark line at the bevel,
       // a bright honed cutting edge.
-      b.add(M, hoeBlade(body, new THREE.Color(edge)), mat(0, 0.705, 0.165, -0.22, 0, 0));
+      // (r15: 1.4× — the blade reads as a hoe from the gameplay camera, not a stick with a tick.)
+      b.add(M, hoeBlade(body, new THREE.Color(edge)), mat(0, 0.705, 0.165, -0.22, 0, 0, 1.4, 1.4, 1.25));
       break;
     }
     case 'axe': {

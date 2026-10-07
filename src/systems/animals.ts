@@ -171,8 +171,8 @@ export interface AnimalSummary {
   unpetted: number;
   /** Per animal: yesterday's care and the overnight friendship change. */
   animals: { id: number; name: string; species: Livestock; variant?: number; fed: boolean; petted: boolean; delta: number; friendship: number }[];
-  /** Laid overnight / ready to collect this morning. */
-  produce: { item: string; q: number }[];
+  /** Laid overnight / ready to collect this morning (`from`: the animal's name). */
+  produce: { item: string; q: number; from?: string }[];
   pet?: { name: string; species: 'dog' | 'cat'; bowl: boolean };
   /** The morning's to-do list (end-of-day card "Tomorrow's chores"): icon item id + short line. */
   chores?: { icon: string; text: string }[];
@@ -645,6 +645,48 @@ export class AnimalSystem implements System, AnimalsApi {
     return (!home || this.st.doors[home]) && this.grazing() && h >= 8.5 && h < 17.5;
   }
 
+  /**
+   * Homebodies (r11): on a pasture day one or two coop birds (and one barn animal in a herd of three+)
+   * stay in — a hen sunning on the roost bar, a late sleeper in the straw — so a building is never an
+   * empty box at noon. Deterministic per day + id: host and co-op clients agree without a wire field.
+   * Returns 0 (goes out) or the homebody's rank (1, 2).
+   */
+  private homebody(rec: AnimalRec): number {
+    const mine = this.st.animals.filter((a) => a.home === rec.home);
+    const n = mine.length;
+    const k = rec.home === 'coop' ? (n >= 6 ? 2 : n >= 3 ? 1 : 0) : n >= 3 ? 1 : 0;
+    if (!k) return 0;
+    const day = this.game.calendar.day;
+    const h = (id: number) => (Math.imul(id + 7, 2654435761) ^ Math.imul(day + 13, 40503)) >>> 0;
+    const order = mine.slice().sort((a, b) => h(a.id) - h(b.id));
+    const i = order.indexOf(rec);
+    return i >= 0 && i < k ? i + 1 : 0;
+  }
+
+  /** A homebody's day indoors: the first hen suns herself on the roost bar, anyone else naps. */
+  private stageHomebody(l: Live, rank: number, pen: PenAnchors): void {
+    const a = l.actor;
+    const bar = pen.perches?.[1];
+    if (rank === 1 && bar && l.rec?.species === 'chicken') {
+      a.bedSpot = bar;
+      a.perched = true;
+      a.confine = true;
+      a.calm = true;
+      a.curious = false;
+      a.area = { x0: bar.x, z0: bar.z, x1: bar.x, z1: bar.z };
+      a.place(bar.x, bar.z, 0.3);
+      a.settle();
+      return;
+    }
+    a.sleeping = true;
+    this.nappers.add(l);
+  }
+
+  /** Out on the grass right now (door open, fine day, daylight) — homebodies excepted. */
+  private outsideFor(rec: AnimalRec): boolean {
+    return this.outsideNow(rec.home) && !this.homebody(rec);
+  }
+
   private quality(a: { friendship: number; mood: number }): number {
     const s = (a.friendship / 1000) * 0.65 + (a.mood / 255) * 0.35 + (this.rng.next() - 0.5) * 0.18;
     return s > 0.97 ? 3 : s > 0.8 ? 2 : s > 0.55 ? 1 : 0;
@@ -683,7 +725,7 @@ export class AnimalSystem implements System, AnimalsApi {
           const q = this.quality(a);
           if (info.byHand) {
             a.ready = true;
-            produce.push({ item: produceFor(a.species, a.variant), q });
+            produce.push({ item: produceFor(a.species, a.variant), q, from: a.name });
           } else if (info.home === 'coop') {
             const free = [0, 1, 2, 3, 4, 5].filter((n) => !eggs.some((e) => e.nest === n));
             if (free.length) {
@@ -691,12 +733,12 @@ export class AnimalSystem implements System, AnimalsApi {
               if (a.species === 'duck' && a.mood > 200 && a.friendship > 600 && this.rng.next() < 0.3) item = 'duckFeather';
               eggs.push({ nest: free[0]!, item, q, id: a.id, sp: a.species });
               made.set(item, (made.get(item) ?? 0) + 1);
-              produce.push({ item, q });
+              produce.push({ item, q, from: a.name });
             }
           } else if (a.species === 'pig' && (a.grazed ?? 0) >= 60) {
             // Pigs only snuffle up truffles after a day out rooting in the pasture.
             this.digTruffles(q);
-            produce.push({ item: 'truffle', q });
+            produce.push({ item: 'truffle', q, from: a.name });
           }
         }
       }
@@ -839,7 +881,8 @@ export class AnimalSystem implements System, AnimalsApi {
       const out = this.outsideNow(pen.kind) && this.game.services.buildings?.has(pen.kind);
       let perch = 0;
       mine.forEach((rec, i) => {
-        if (out) return;
+        const hb = out ? this.homebody(rec) : 0;
+        if (out && !hb) return;
         const l = this.spawn(rec, rec.species, rec.variant, i);
         const s = pen.slots[i % pen.slots.length]!;
         const a = l.actor;
@@ -852,6 +895,7 @@ export class AnimalSystem implements System, AnimalsApi {
         const h = night ? (roost ? (Math.random() - 0.5) * 0.4 : (s.bedHeading ?? Math.PI * (0.6 + Math.random() * 0.8)) + (Math.random() - 0.5) * 0.5) : s.stall ? (Math.random() - 0.5) * 0.6 : Math.random() * Math.PI * 2;
         a.place(p.x, p.z, h);
         a.settle();
+        if (hb) this.stageHomebody(l, hb, pen);
       });
     } else if (map.id === 'farm') {
       const b = this.game.services.buildings;
@@ -859,7 +903,7 @@ export class AnimalSystem implements System, AnimalsApi {
         const homes: Record<AnimalHome, number> = { coop: 0, barn: 0 };
         for (const rec of this.st.animals) {
           const slot = homes[rec.home]++;
-          if (!b.has(rec.home) || !this.outsideNow(rec.home)) continue;
+          if (!b.has(rec.home) || !this.outsideFor(rec)) continue;
           const l = this.spawn(rec, rec.species, rec.variant, slot);
           this.setupPasture(l.actor);
           const p = this.randomIn(l.actor.area, l.actor);
@@ -1239,35 +1283,110 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   /**
-   * Petting distance: the animal eases round to face the farmer with its muzzle ~0.5 m from them (at
-   * the reaching hand, never in the farmer's hip); stall animals stay put behind the manger.
+   * Petting staging (r11). Birds: the hen eases round to stand at arm's length, three-quarters to the
+   * lens, and the farmer kneels. Tall stock: the farmer turns a little left and the animal stands at
+   * their right hand, angled across their front so its muzzle ends ≥ 0.9 m from the farmer's face (no
+   * nose-to-nose "kiss"), its crown under the reaching hand; it then tips its head up into the hand with
+   * its eyes shut (actor.blissT). Stall / sleeping / perched animals stay put; the farmer just faces the
+   * crown and, if their face would be within reach of the muzzle, steps back a little.
    */
   private settleForPet(a: AnimalActor): void {
-    if (a.stalled || a.isSleeping || a.perched) return;
-    const pp = this.game.player.position;
+    this.petYaw = null;
+    const player = this.game.player;
+    const pp = player.position;
     let dx = a.pos.x - pp.x;
     let dz = a.pos.z - pp.z;
     const d = Math.hypot(dx, dz) || 1;
     dx /= d;
     dz /= d;
-    // Small birds stand a little further out: the crouching farmer's hat brim otherwise covers them.
-    const want = a.gait.reach * a.scale + (a.gait.top * a.scale < 0.9 ? 0.78 : 0.66);
-    const tx = pp.x + dx * want;
-    const tz = pp.z + dz * want;
-    if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4)) return;
-    // Small birds turn three-quarters to the lens while petted (r10: a hen facing the farmer showed the
-    // camera only its tail): blend the to-farmer heading with the to-camera direction.
-    let hx = -dx;
-    let hz = -dz;
-    if (a.gait.top * a.scale < 0.9) {
+    const low = a.gait.top * a.scale < 0.9;
+    a.blissT = 1.4;
+    if (a.stalled || a.isSleeping || a.perched) {
+      const poll = a.pollPoint(this._lt2);
+      this.petYaw = Math.atan2(poll.x - pp.x, poll.z - pp.z);
+      if (!low) {
+        const m = a.muzzle(this._lt2);
+        const md = Math.hypot(m.x - pp.x, m.z - pp.z);
+        const back = 0.85 - md;
+        const bx = pp.x - Math.sin(this.petYaw) * back;
+        const bz = pp.z - Math.cos(this.petYaw) * back;
+        if (back > 0.02 && this.walkableAt(bx, bz)) pp.set(bx, pp.y, bz);
+      }
+      return;
+    }
+    if (low) {
+      // Small birds stand a little further out: the crouching farmer's hat brim otherwise covers them.
+      const want = a.gait.reach * a.scale + 0.78;
+      const tx = pp.x + dx * want;
+      const tz = pp.z + dz * want;
+      if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4)) return;
+      // Three-quarters to the lens (r10: a hen facing the farmer showed the camera only its tail).
       const cp = this.game.rc.camera.position;
       const cx = cp.x - tx;
       const cz = cp.z - tz;
       const cl = Math.hypot(cx, cz) || 1;
-      hx += (cx / cl) * 1.1;
-      hz += (cz / cl) * 1.1;
+      const hx = -dx + (cx / cl) * 1.1;
+      const hz = -dz + (cz / cl) * 1.1;
+      a.easeTo(tx, tz, Math.atan2(hx, hz));
+      this.petYaw = Math.atan2(dx, dz);
+      a.blissSide = (cx / cl) * dz - (cz / cl) * dx > 0 ? 1 : -1;
+      return;
     }
-    a.easeTo(tx, tz, Math.atan2(hx, hz));
+    // Tall stock (r11): the crown goes under the farmer's reaching hand (~0.62 m out along the line to
+    // the animal) and the animal stands side-on to that line — turned towards the lens, 20° past square
+    // so its muzzle ends ~0.85 m from the farmer's face instead of in it. Tried on the camera side first,
+    // then the far side; with no room it keeps its spot and only the farmer turns to its crown.
+    const cp = this.game.rc.camera.position;
+    const poll0 = a.pollPoint(this._lt2).clone();
+    const k = Math.max(0.2, Math.min(a.gait.reach * a.scale, (poll0.x - a.pos.x) * Math.sin(a.heading) + (poll0.z - a.pos.z) * Math.cos(a.heading)));
+    // The line runs to the crown, not the barrel: a repeat pat then lands on the same pose (measured to
+    // the root, each pat swung the animal a little further round the farmer).
+    {
+      const qx = poll0.x - pp.x;
+      const qz = poll0.z - pp.z;
+      const ql = Math.hypot(qx, qz);
+      if (ql > 0.2) {
+        dx = qx / ql;
+        dz = qz / ql;
+      }
+    }
+    const need = a.gait.radius * a.scale + 0.4;
+    // Crown distance along the line: at the hand (0.62 m) unless the barrel would then crowd the farmer
+    // (|s·u − k·h| ≥ need, with u·h = 0.34 for the 20° past-square heading).
+    const uh = 0.34;
+    const s0 = k * uh + Math.sqrt(Math.max(0, need * need - k * k * (1 - uh * uh)));
+    const reachOut = Math.max(0.62, Math.min(0.95, s0));
+    const px = pp.x + dx * reachOut;
+    const pz = pp.z + dz * reachOut;
+    const ccx = cp.x - px;
+    const ccz = cp.z - pz;
+    const first = -dz * ccx + dx * ccz >= 0 ? 1 : -1;
+    for (const side of [first, -first]) {
+      let hx = -dz * side + dx * 0.36;
+      let hz = dx * side + dz * 0.36;
+      const hl = Math.hypot(hx, hz);
+      hx /= hl;
+      hz /= hl;
+      const tx = px - hx * k;
+      const tz = pz - hz * k;
+      if (Math.hypot(tx - pp.x, tz - pp.z) < need - 0.03) continue;
+      if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4)) continue;
+      // A staged animal pinned to its spot (demo stills: a tiny confine box) carries its pin along.
+      const ar = a.area;
+      if (a.confine && ar.x1 - ar.x0 < 0.3 && ar.z1 - ar.z0 < 0.3) a.area = { x0: tx - 0.05, z0: tz - 0.05, x1: tx + 0.05, z1: tz + 0.05 };
+      a.easeTo(tx, tz, Math.atan2(hx, hz));
+      // The farmer sits on the animal's left (local -x) when it faces the side-perpendicular +1.
+      a.blissSide = side;
+      this.petYaw = Math.atan2(px - pp.x, pz - pp.z);
+      return;
+    }
+    this.petYaw = Math.atan2(poll0.x - pp.x, poll0.z - pp.z);
+  }
+
+  /** Is a farmer spot open floor (current map's walkability)? */
+  private walkableAt(x: number, z: number): boolean {
+    const pl = this.game.player as unknown as { blocked?: (x: number, z: number) => boolean };
+    return pl.blocked ? !pl.blocked.call(this.game.player, x, z) : false;
   }
 
   private give(itemId: string, q: number, qty = 1): void {
@@ -1316,7 +1435,7 @@ export class AnimalSystem implements System, AnimalsApi {
     if (!this.authority || dh <= 0 || dh > 0.5) return;
     const b = game.services.buildings;
     for (const a of this.st.animals) {
-      if (!b?.has(a.home) || !this.outsideNow(a.home)) continue;
+      if (!b?.has(a.home) || !this.outsideFor(a)) continue;
       a.grazed = (a.grazed ?? 0) + dh * 60;
       if (!a.fed && a.grazed >= 60) {
         a.fed = true;
@@ -1352,7 +1471,7 @@ export class AnimalSystem implements System, AnimalsApi {
         const slot = homes[rec.home]++;
         if (!b.has(rec.home)) continue;
         const l = this.live.find((v) => v.rec === rec);
-        const out = this.outsideNow(rec.home);
+        const out = this.outsideFor(rec);
         if (out && !l) {
           const d = b.doorFront(rec.home);
           const n = this.spawn(rec, rec.species, rec.variant, slot);
@@ -1514,6 +1633,14 @@ export class AnimalSystem implements System, AnimalsApi {
   private poseReentry = false;
   private poseKind: 'pet' | 'lift' | 'milk' | 'shear' = 'pet';
   private petLow = false;
+  /** The animal under the farmer's petting hand (arm IK target), cleared when the pose ends. */
+  private petTarget: AnimalActor | null = null;
+  /** Farmer yaw chosen by settleForPet (the animal stands beside the reaching hand, not in the face). */
+  private petYaw: number | null = null;
+  private _ik = new THREE.Vector3();
+  private _ikQ = new THREE.Quaternion();
+  private _ikQ2 = new THREE.Quaternion();
+  private _down = new THREE.Vector3(0, -1, 0);
   private poseDriver: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
   private posePrev: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
   /** Demo stills: hold the pose at this time (s) instead of finishing it. */
@@ -1585,22 +1712,39 @@ export class AnimalSystem implements System, AnimalsApi {
           rig.legR.rotation.x = 0.35 * e;
           return { sy: 1 - (milk ? 0.2 : 0.1) * e, bob: (milk ? -0.12 : -0.05) * e };
         }
-        const low = this.petLow ? 1 : 0.6;
-        const pat = t > 0.14 && t < T - 0.2 ? Math.sin((t - 0.14) * 17) * 0.16 : 0;
-        // Bend at the hips but keep the face up (a forward-tipped head turns the big hat into a lid).
-        // r10: a real crouch-and-reach for every species (a kneel-squat for hens + ducks): knees out,
-        // hips dropped, the reaching arm long and low; the free hand rests on the knee.
-        rig.torso.rotation.x = 0.5 * low * e;
-        rig.head.rotation.x = -0.24 * low * e;
-        rig.armR.rotation.x = (-1.0 - 0.35 * low + pat) * e;
+        // r11: birds get the kneel-squat; tall stock a light lean (the big chibi head stays upright, well
+        // clear of the animal's face) and the hand is laid on the crown by a one-bone IK.
+        const low = this.petLow ? 1 : 0.32;
+        const pat = t > 0.14 && t < T - 0.2 ? Math.sin((t - 0.14) * 11) : 0;
+        rig.torso.rotation.x = (this.petLow ? 0.5 : 0.14) * e;
+        rig.head.rotation.x = (this.petLow ? -0.24 : -0.1) * e;
+        rig.armR.rotation.x = (-1.0 - 0.35 * low + pat * 0.16) * e;
         rig.armR.rotation.z = -0.12 - 0.1 * e;
         rig.armR.scale.y = 1 + 0.18 * low * e;
-        rig.armL.rotation.x = -0.55 * e;
-        rig.armL.rotation.z = 0.12 + 0.3 * e;
+        rig.armL.rotation.x = (this.petLow ? -0.55 : -0.2) * e;
+        rig.armL.rotation.z = 0.12 + (this.petLow ? 0.3 : 0.1) * e;
         rig.legL.rotation.x = -0.75 * low * e;
         rig.legR.rotation.x = 0.45 * low * e;
         rig.legL.rotation.z = -0.2 * low * e;
         rig.legR.rotation.z = 0.2 * low * e;
+        const tgt = this.petTarget;
+        if (tgt && this.live.some((l) => l.actor === tgt)) {
+          // One-bone IK: aim the arm (hangs along -y) at the poll, stretch it (cartoon) to land the hand
+          // there, a slow stroke along the neck on top.
+          const P = tgt.pollPoint(this._ik);
+          P.y += pat * 0.025;
+          const par = rig.armR.parent!;
+          par.updateWorldMatrix(true, false);
+          par.worldToLocal(P).sub(rig.armR.position);
+          const len = P.length();
+          if (len > 1e-3) {
+            P.multiplyScalar(1 / len);
+            this._ikQ.setFromUnitVectors(this._down, P);
+            this._ikQ2.copy(rig.armR.quaternion);
+            rig.armR.quaternion.slerpQuaternions(this._ikQ2, this._ikQ, e);
+            rig.armR.scale.y = THREE.MathUtils.lerp(1, THREE.MathUtils.clamp(len / 0.33, 0.85, 1.5), e);
+          }
+        }
         return { sy: 1 - 0.2 * low * e, bob: -0.17 * low * e };
       };
     }
@@ -1608,6 +1752,7 @@ export class AnimalSystem implements System, AnimalsApi {
       this.posePrev = pl.actionPose;
       pl.actionPose = this.poseDriver;
     }
+    if (kind !== 'pet') this.petTarget = null;
     this.poseKind = kind;
     this.poseT = 0;
     pl.busy = true;
@@ -1616,14 +1761,19 @@ export class AnimalSystem implements System, AnimalsApi {
   private petPose(a: AnimalActor): void {
     this.petLow = a.gait.top * a.scale < 0.9;
     this.faceAnimal(a);
+    this.petTarget = a;
     this.playPose('pet');
   }
 
-  /** Turn the farmer (smoothly, any angle) towards the animal's head. */
+  /** Turn the farmer (smoothly, any angle) towards the animal's head (or the yaw settleForPet chose). */
   private faceAnimal(a: AnimalActor): void {
     const pp = this.game.player.position;
-    const m = a.muzzle(this._lt2);
-    const yaw = Math.atan2(m.x - pp.x, m.z - pp.z);
+    let yaw: number;
+    if (this.petYaw !== null) yaw = this.petYaw;
+    else {
+      const m = a.pollPoint(this._lt2);
+      yaw = Math.atan2(m.x - pp.x, m.z - pp.z);
+    }
     (this.game.player as unknown as { targetYaw: number }).targetYaw = yaw;
   }
 

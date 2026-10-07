@@ -36,7 +36,7 @@ export interface SleepAnimals {
   hungry: number;
   hungryNames: string[];
   petted: number;
-  produce: { item: string; q: number }[];
+  produce: { item: string; q: number; from?: string }[];
   pet?: { name: string; species: string; bowl: boolean };
   /** Tomorrow's chores (ready to milk / shear, eggs in the nests, empty troughs...). */
   chores?: { icon: string; text: string }[];
@@ -132,7 +132,7 @@ export class SleepSystem implements System, SleepApi {
         hungry: s.hungry,
         hungryNames: s.animals.filter((a) => !a.fed).map((a) => a.name),
         petted: s.animals.length - s.unpetted,
-        produce: s.produce.map((p) => ({ item: p.item, q: p.q })),
+        produce: s.produce.map((p) => ({ item: p.item, q: p.q, from: p.from })),
         pet: s.pet ? { name: s.pet.name, species: s.pet.species, bowl: s.pet.bowl } : undefined,
         chores: s.chores?.slice(0, 5),
         leftover: s.leftover,
@@ -415,7 +415,11 @@ function herdRecap(list: { name: string; species: string; variant?: number; fed:
   } catch {
     shots = null;
   }
-  const top = list.reduce((b, a) => (a.friendship > b.friendship ? a : b), list[0]!);
+  // (r11: the ribbon only goes to an animal that was fed — a "happiest" chip tagged hungry contradicted
+  // itself; fed + petted wins over fed alone, then friendship)
+  const score = (a: (typeof list)[number]): number => (a.fed ? 2000 : -1e9) + (a.petted ? 1000 : 0) + a.friendship;
+  const best = list.reduce((b, a) => (score(a) > score(b) ? a : b), list[0]!);
+  const top = best.fed ? best : null;
   const rank = (a: (typeof list)[number]): number => (a === top ? 0 : !a.fed || !a.petted ? 1 : 2);
   return [...list]
     .sort((a, b) => rank(a) - rank(b) || b.friendship - a.friendship)

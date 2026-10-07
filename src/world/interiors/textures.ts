@@ -18,7 +18,8 @@ export function floorPlanks(): TexPair {
   return cached('i:floor', () => {
     const S = 1536;
     const M = 4; // metres per texture
-    const rows = 20;
+    // r11: narrower boards (12.5 cm, were 20 cm: they read oversized beside the chibi furniture)
+    const rows = 32;
     const grain = new PeriodicNoise(24, 'fl-grain');
     const fine = new PeriodicNoise(96, 'fl-fine');
     const n = makeTileNoise(4, 4, 'fl');
@@ -30,7 +31,7 @@ export function floorPlanks(): TexPair {
       let u = rng.next();
       const start = u;
       while (u < start + 1 - 1e-6) {
-        let len = (1.2 + rng.next() * 1.2) / M;
+        let len = (0.9 + rng.next() * 1.0) / M;
         if (start + 1 - (u + len) < 1.0 / M) len = start + 1 - u; // last board closes the loop
         const knots: [number, number, number][] = [];
         const kn = rng.next() < 0.45 ? 1 + (rng.next() < 0.3 ? 1 : 0) : 0;
@@ -40,8 +41,9 @@ export function floorPlanks(): TexPair {
       }
       table.push(list);
     }
-    const light = hex(0xdba36a);
-    const dark = hex(0x9a5f34);
+    // Honey, not orange: ~20 % less saturated so the props + rugs carry the colour.
+    const light = hex(0xd2aa7e);
+    const dark = hex(0x8e6442);
     const ppm = S / M; // pixels per metre
     const { color, height } = pixels(S, (u, v) => {
       const pv = v * rows;
@@ -88,7 +90,7 @@ export function floorPlanks(): TexPair {
       // Nail heads: two per board end, 5 cm in
       const endM = Math.min(local, 1 - local) * lenM;
       for (const nv of [0.28, 0.72]) {
-        const d = Math.hypot((endM - 0.05) * 90, (rf - nv) * 0.2 * 90);
+        const d = Math.hypot((endM - 0.04) * 110, (rf - nv) * 0.125 * 110);
         if (d < 1) c = scale3(c, 0.45 + 0.35 * d);
       }
       return { c, h: gapV * gapU * (0.75 + 0.25 * bevel) + rings * 0.05 - knot * 0.05 };

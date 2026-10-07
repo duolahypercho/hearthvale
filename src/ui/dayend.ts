@@ -29,7 +29,7 @@ interface Summary {
     hungry: number;
     hungryNames: string[];
     petted: number;
-    produce: { item: string; q: number }[];
+    produce: { item: string; q: number; from?: string }[];
     pet?: { name: string; species: string; bowl: boolean };
     chores?: { icon: string; text: string }[];
     /** Eggs still in the nests from earlier days (apart from tonight's produce). */
@@ -427,7 +427,14 @@ export class DayEndScreen extends Screen {
             <div class="de-h" style="margin-bottom:4px">Animals</div>
             <div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;row-gap:5px;font-weight:800;font-size:13px;color:#8a6440;white-space:nowrap"><span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.produce.length}</b> ${an.leftover ? 'new' : 'produce'}</span>${an.leftover ? `<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.leftover}</b> in nests</span>` : ''}${gold ? `<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.petted}</b> petted</span></div>
             ${icons ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${icons}</div>` : ''}
+            ${gold ? `<small style="display:block;margin-top:5px;color:#8a6a1a;font-weight:800">★ Gold-star from ${escapeHtml([...new Set(an.produce.filter((p) => p.q >= 2 && p.from).map((p) => p.from!))].slice(0, 3).join(' & ') || 'the herd')} — well fed and well loved</small>` : ''}
             ${hungry}${pet}
+            ${(() => {
+              // (r11) Best of the day: the top-quality piece of produce and who made it (fills the card).
+              const b = [...an.produce].sort((x, y) => y.q - x.q)[0];
+              if (!b) return '';
+              return `<div style="display:flex;align-items:center;gap:10px;margin-top:10px;padding:8px 10px;border-radius:12px;background:linear-gradient(90deg,rgba(232,184,64,.18),rgba(232,184,64,.04));box-shadow:inset 0 0 0 1.5px rgba(184,134,11,.25)"><div class="u-slot mini" style="width:44px;height:44px;border-radius:10px;flex:none">${itemIcon(b.item)}${qualityStar(b.q)}</div><div style="display:flex;flex-direction:column;line-height:1.2"><small style="font-weight:800;font-size:10.5px;letter-spacing:.06em;color:#a07a2a">BEST OF THE DAY</small><b style="font:700 15px var(--font-head);color:var(--ink)">${b.q >= 3 ? 'Radiant' : b.q === 2 ? 'Gold-star' : b.q === 1 ? 'Silver-star' : 'Fresh'} ${escapeHtml(itemDef(b.item)?.name ?? b.item)}${b.from ? ` <span style="font-weight:600;color:#8a6440">from ${escapeHtml(b.from)}</span>` : ''}</b></div></div>`;
+            })()}
           </div>`;
         })()
       : '';

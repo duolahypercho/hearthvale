@@ -59,8 +59,12 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // Top of the wind-up: hands up beside the hat on the wind-up side, the handle raked up and OUT
     // (torso-space `toolT`), so the blade stands clear of the big head's silhouette.
     { t: 0.21, ease: 'out', aR: [-2.85, -0.7], aL: [-2.6, -0.42], torso: [-0.2, -0.2, -0.12], head: -0.06, sy: 1.08, grip: 0.24, toolT: [-0.35, 0, 0.62] },
-    { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.36, -0.06, 0], head: -0.26, sy: 0.88, bob: -0.025, tool: [Math.PI / 2 - 0.2, 0, 0] },
-    { t: 0.36, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.38, 0.04, 0], head: -0.24, sy: 0.95, tool: [Math.PI / 2 - 0.25, 0, 0] },
+    // Impact (r15: weight): the whole body drives into the blow — ~29° forward lean, knees dipped
+    // into a lunge (legs brace off the lean), a hard squash held for two frames, then the
+    // follow-through keeps leaning in while the body springs back up.
+    { t: 0.27, ease: 'in', aR: [-0.34, -0.05], aL: [-0.22, 0.05], torso: [0.5, -0.05, 0], head: -0.36, sy: 0.84, bob: -0.05, tool: [Math.PI / 2 - 0.2, 0, 0] },
+    { t: 0.31, ease: 'linear', aR: [-0.3, -0.05], aL: [-0.2, 0.05], torso: [0.52, 0, 0], head: -0.36, sy: 0.85, bob: -0.05, tool: [Math.PI / 2 - 0.22, 0, 0] },
+    { t: 0.4, ease: 'out', aR: [-0.26, -0.05], aL: [-0.16, 0.05], torso: [0.44, 0.05, 0], head: -0.3, sy: 0.97, bob: -0.02, tool: [Math.PI / 2 - 0.25, 0, 0] },
     { t: 0.66, ease: 'inout' },
   ],
   // Released from the charge hold: it starts up beside the hat (same as the charge pose, no pop
@@ -68,7 +72,7 @@ const TRACKS: Record<ActionKind, Key[]> = {
   slam: [
     { t: 0, aR: [-2.85, -0.72], aL: [-2.6, -0.42], torso: [-0.2, -0.32, -0.12], head: -0.12, sy: 0.93, grip: 0.24, toolT: [-0.35, 0, 0.62] },
     { t: 0.15, ease: 'out', aR: [-2.95, -0.7], aL: [-2.7, -0.5], torso: [-0.24, -0.2, -0.1], head: -0.16, sy: 1.1, grip: 0.32, toolT: [-0.25, 0, 0.55] },
-    { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.48, 0, 0], head: -0.14, sy: 0.86, bob: -0.04, tool: [Math.PI / 2 - 0.3, 0, 0] },
+    { t: 0.22, ease: 'in', aR: [-0.2, -0.05], aL: [-0.15, 0.05], torso: [0.56, 0, 0], head: -0.3, sy: 0.8, bob: -0.06, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.36, ease: 'out', aR: [-0.18, -0.05], aL: [-0.12, 0.05], torso: [0.5, 0, 0], head: -0.1, sy: 0.92, bob: -0.03, tool: [Math.PI / 2 - 0.3, 0, 0] },
     { t: 0.75, ease: 'inout' },
   ],
@@ -420,7 +424,8 @@ export class FarmerActions {
     }
     if (p.grip) tool.position.add(GRIP_V.set(0, p.grip, 0).applyEuler(tool.rotation));
     // Legs brace during heavy swings.
-    const brace = Math.max(0, p.torso[0]) * 0.5;
+    // (r15: a deeper lunge — the knees read as dipping under a heavy blow.)
+    const brace = Math.max(0, p.torso[0]) * 0.8;
     rig.legL.rotation.x = lerp(rig.legL.rotation.x, -brace, w);
     rig.legR.rotation.x = lerp(rig.legR.rotation.x, brace * 0.6, w);
     return { sy: lerp(1, p.sy, w), bob: p.bob * w };

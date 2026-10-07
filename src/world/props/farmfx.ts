@@ -667,7 +667,8 @@ const JETS: { r0: number; r1: number; spread: number; lag: number; a: number; n:
   // Three parallel bead ropes (the rose's centre holes): fat, closely spaced glassy drops that read
   // as a generous pour from the gameplay camera, every drop still its own bead.
   // (r14: the ropes taper as the water speeds up and thins — a tapering ribbon of beads.)
-  { r0: 0.038, r1: 0.03, spread: 0, lag: 0, a: 1.0, n: 24, jit: 0.012 },
+  // (r15: a thicker, denser core rope.)
+  { r0: 0.047, r1: 0.036, spread: 0, lag: 0, a: 1.0, n: 26, jit: 0.012 },
   { r0: 0.03, r1: 0.022, spread: 0.07, lag: 0.015, a: 0.95, n: 18, jit: 0.016, off: 0.045 },
   { r0: 0.03, r1: 0.022, spread: -0.07, lag: 0.025, a: 0.95, n: 18, jit: 0.016, off: -0.045 },
   // Flanking jets fanning apart as they fall.
@@ -940,7 +941,10 @@ void main() {
   side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
   // Tight glassy beads off the nozzle that thin and stretch into velocity-aligned streaks as they
   // fall (motion blur); shed drops stay fine.
-  float r = (rope ? mix(0.026, 0.013, s * s) : mix(0.014, 0.018, s)) * mix(0.75, 1.25, h4);
+  float r = (rope ? mix(0.026, 0.013, s * s) : mix(0.011, 0.024, h3)) * mix(0.75, 1.25, h4);
+  // (r15) Seen from a hero-field distance (15–20 m) the beads thicken so the jets never thin into
+  // hairlines; up close they keep their real size.
+  r *= clamp(length(cameraPosition - p) / 9.0, 1.0, 1.9);
   float stretch = 2.4 + 2.6 * s;
   if (land > 0.0) {
     // Crown splash: a flat ring on the soil, expanding as it fades (only every other bead, so

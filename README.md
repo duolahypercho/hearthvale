@@ -642,6 +642,22 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   vine leaves vary in hue / tilt; `farm-giant` frames the farmer 3/4 looking at the giant, `farm-sprinkler` keeps
   the farmer beside the bed facing the lens, `farm-crows` shows the scarecrow ring, `farm-crops-all` puts tall rows at
   the back of each block.
+- **r15 polish**: summer hero field = one melon row a side (giant in the SW corner), the NE bed packed with
+  peppers + tomatoes, blueberry / pepper / tomato blocks up front; peppers are rounded glossy bushes wearing their
+  red pods on the outside, blueberries woody balls of small leaves with dusty-blue clusters on the lens-facing side,
+  strawberries low trifoliate clumps with 5–7 berries hung off the rim on pedicels, corn a fuller fan, tomatoes four
+  leaves a tier; seedlings carry a signature from the first true leaves (serrated staked tomato, glossy round pepper,
+  purple-stemmed velvet eggplant) and stages 1–2 are larger. Freshly hoed (or slam-struck) earth is dark, crumbly and
+  fluffed ~50 % taller for ~5 s with no tread seams; dry beds have deeper troughs. The hoe blade is 1.4×; chop / slam
+  impacts drive a ~29° lean, a knee-dipped lunge and a two-frame squash. Tool impacts startle butterflies (a farmer at
+  work keeps a ~2.4 m bubble; staged stills snap them out of ~3.6 m). The pour leaves as the can tips, lands ~0.24 s
+  later (fatter, sparser droplets around a thicker core) and splashes until the tail lands, ~80 ms into the lift.
+  Sprinkler heads turn lazily (1.25–1.6 rad/s) and throw uneven jets on real 0.6–0.9 m arcs with sun glints, beads
+  thickening with camera distance. Crows are near-black with a black bill (blue lives in the rim sheen); the farm-crows
+  ring is opt-in (`&ring`). Pulled roots leave a dark hole + a ring of crumbs and a bed kick (a farmhand's too). A charge
+  is paid by the share of its footprint actually worked (≥ 2) and skipped tiles keep their red ✕ through the slam; the
+  slam ripple is 12 ms a tile. Demos: `farm-tools` swung 24° (blade in front of the body), `farm-pop` 3/4 with the
+  farmer standing in the bed, `coop-farm-work` (the co-op loop seeked mid-pick / mid-pour; demo-table `t=<sec>` token).
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

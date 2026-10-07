@@ -150,6 +150,11 @@ export class AnimalActor {
   private sleepW = 0;
   private sitW = 0;
   private happyT = -1;
+  /** Seconds left leaning into a petting hand (head tipped up + rolled into the hand, eyes shut). */
+  blissT = 0;
+  /** Which side the petting farmer is on in the animal's own frame (+1 = local -x, -1 = local +x). */
+  blissSide = 1;
+  private blissW = 0;
   private blinkT = 1 + Math.random() * 3;
   private look = 0;
   private lookTarget = 0;
@@ -312,6 +317,16 @@ export class AnimalActor {
     return out.set(this.pos.x + Math.sin(this.heading) * r, this.pos.y, this.pos.z + Math.cos(this.heading) * r);
   }
 
+  /** Where a petting hand lands: the crown just behind the eyes (follows the head bone). */
+  pollPoint(out = new THREE.Vector3()): THREE.Vector3 {
+    const head = this.b.head;
+    if (!head) return out.copy(this.pos).setY(this.pos.y + this.gait.top * this.scale * 0.8);
+    head.getWorldPosition(out);
+    const k = this.gait.biped ? 0.06 : 0.16;
+    out.y += k * this.scale;
+    return out;
+  }
+
   get isSleeping(): boolean {
     return this.sleepW > 0.5;
   }
@@ -383,6 +398,11 @@ export class AnimalActor {
       }
       return;
     }
+    // Being petted: hold still under the hand (no wander, no curious turn back to the farmer's face).
+    if (this.blissT > 0) {
+      this.setState('idle', this.blissT + 0.2);
+      return;
+    }
     if (this.sleeping) {
       if (this.bedSpot && Math.hypot(this.bedSpot.x - this.pos.x, this.bedSpot.z - this.pos.z) > 0.35 && this.state !== 'walk') {
         this.target.copy(this.bedSpot);
@@ -426,7 +446,7 @@ export class AnimalActor {
       if (this.state === 'idle') this.lookTarget = (Math.random() - 0.5) * 1.2;
       return;
     }
-    if (this.curious && this.player && r < 0.22 && this.curiousCD <= 0 && curiousNow.size < MAX_CURIOUS) {
+    if (this.curious && this.blissT <= 0 && this.player && r < 0.22 && this.curiousCD <= 0 && curiousNow.size < MAX_CURIOUS) {
       const pd = Math.hypot(this.player.x - this.pos.x, this.player.z - this.pos.z);
       if (pd < 4.5) {
         // Fan out on a ring around the farmer (golden-angle slots) instead of piling onto them.
@@ -482,7 +502,7 @@ export class AnimalActor {
           this.setState(Math.random() < 0.5 ? 'idle' : 'eat', 1 + Math.random() * 2.5);
           // Stall animals face out over the manger; curious ones turn to look at the farmer.
           if (this.stalled) this.faceTo = this.sleeping ? null : 0;
-          else if (this.curious && this.player && Math.hypot(this.player.x - this.pos.x, this.player.z - this.pos.z) < 2.6) this.faceTo = Math.atan2(this.player.x - this.pos.x, this.player.z - this.pos.z);
+          else if (this.curious && this.blissT <= 0 && this.player && Math.hypot(this.player.x - this.pos.x, this.player.z - this.pos.z) < 2.6) this.faceTo = Math.atan2(this.player.x - this.pos.x, this.player.z - this.pos.z);
         }
       } else {
         const want = Math.atan2(dx, dz);
@@ -627,6 +647,8 @@ export class AnimalActor {
       this.happyT += dt;
       if (this.happyT > 1.0) this.happyT = -1;
     }
+    this.blissT = Math.max(0, this.blissT - dt);
+    this.blissW = damp(this.blissW, this.blissT > 0 && this.state !== 'sleep' ? 1 : 0, this.blissT > 0 ? 7 : 4, dt);
     this.animate(dt, t);
   }
 
@@ -791,6 +813,17 @@ export class AnimalActor {
       head.position.z += Math.max(0, rub) * 0.035;
     }
 
+    // Petted (r11): the head tips up 30° and rolls into the farmer's hand, eyes shut, a slow rub —
+    // never nose-to-nose with the farmer (the system stands the animal beside them, muzzle clear).
+    const B = this.blissW;
+    if (B > 0.01) {
+      const rub = Math.sin(t * 5.5 + this.seed);
+      head.rotation.x -= (g.biped ? 0.28 : 0.52) * B;
+      head.rotation.z += this.blissSide * (0.26 + rub * 0.06) * B;
+      head.rotation.y -= this.blissSide * 0.14 * B;
+      body.rotation.z += this.blissSide * 0.04 * B;
+    }
+
     // Blink (eyes shut asleep or happy)
     // Blink: eyes squeeze to a line for ~90 ms every 2–5 s.
     this.blinkT -= dt;
@@ -799,7 +832,7 @@ export class AnimalActor {
       this.blinkT = 2 + Math.random() * 3;
     }
     this.blinkHold = Math.max(0, this.blinkHold - dt);
-    const shut = Math.max(Z, this.happyT >= 0 ? 0.9 : 0, this.blinkHold > 0 ? 1 : 0);
+    const shut = Math.max(Z, this.happyT >= 0 ? 0.9 : 0, this.blissW * 0.95, this.blinkHold > 0 ? 1 : 0);
     if (b.eyes) b.eyes.scale.y = Math.max(0.1, 1 - shut * 0.9);
     // Pet squash on the whole animal: 0.85 → 1.1 → 1 over 250 ms.
     if (this.squashT >= 0) {
@@ -1219,7 +1252,8 @@ export class AnimalPops {
         const o = base ? _cp2.copy(base).add(p.from) : _cp2.copy(p.from);
         if (cam) o.addScaledVector(_toCam.copy(cam.position).sub(o).normalize(), 0.3);
         const pt = p.t;
-        const pop = pt < 0.13 ? 1.25 * (1 - Math.pow(1 - pt / 0.13, 3)) : pt < 0.22 ? 1.25 - 0.25 * Math.sin(((pt - 0.13) / 0.09) * Math.PI * 0.5) : 1;
+        // (r11: springs from 0.55, not 0 — a co-op farmhand's own pat showed nothing in the first frames)
+        const pop = pt < 0.13 ? 0.55 + 0.7 * (1 - Math.pow(1 - pt / 0.13, 3)) : pt < 0.22 ? 1.25 - 0.25 * Math.sin(((pt - 0.13) / 0.09) * Math.PI * 0.5) : 1;
         const out = Math.max(0, (pt - (p.life - 0.28)) / 0.28);
         const rise = 0.14 * (1 - Math.pow(1 - Math.min(1, pt / 0.7), 3));
         const size = Math.max(0.01, (p.px ?? 0.06) * screenK(o) * 1.18);
@@ -1238,7 +1272,7 @@ export class AnimalPops {
         // Name + heart meter beside the heart, on the side away from the farmer (screen space): springs
         // in, holds, fades. Side by side keeps the pair tight over the animal (no tall tower).
         const o = base ?? p.from;
-        const pop = p.t < 0.16 ? easeOutBack(p.t / 0.16) : 1;
+        const pop = p.t < 0.16 ? 0.5 + 0.5 * easeOutBack(p.t / 0.16) : 1;
         const sk = screenK(o);
         // Constant on screen, a touch larger from far cameras (≥ 18 px text at 1080p everywhere).
         const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(1 + ((refK || sk) - 7) * 0.04, 1, 1.4) * pop;

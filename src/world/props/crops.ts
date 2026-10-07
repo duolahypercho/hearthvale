@@ -647,10 +647,16 @@ function seedling(id: CropId, add: Adder, r: Rng): void {
     case 'tomato':
     case 'hotPepper':
     case 'eggplant': {
-      const stem = id === 'eggplant' ? C(0x5a3a5e) : C(0x5f8a3a);
-      add(stalk(0.08, 0.008, 0.006, stem, GREEN.mid, 0.01));
-      cot(0.07, 0.03, 0.075, C(0x5f9a3e), C(0x8cc060), 'lance', 0.35);
-      add(leafGeo(0.07, 0.05, { shape: id === 'tomato' ? 'lance' : 'oval', serrate: id === 'tomato' ? 0.45 : 0, lift: 1.0, bend: 0.3, fold: 0.3, c0: id === 'eggplant' ? C(0x3f6a3a) : GREEN.dark, c1: GREEN.mid, segs: 4 }), mat(0, 0.08, 0, 0, Math.PI / 2, 0));
+      // Each its own signature from the first true leaves (r15): tomato = serrated, dark, staked;
+      // pepper = glossy bright round blades; eggplant = purple stem + velvety grey-green blades.
+      const stem = id === 'eggplant' ? C(0x6a3a72) : C(0x5f8a3a);
+      const tc0 = id === 'eggplant' ? C(0x4a6a50) : id === 'hotPepper' ? C(0x2f7a2e) : C(0x2c5e28);
+      const tc1 = id === 'eggplant' ? C(0x92a88c) : id === 'hotPepper' ? C(0x74c84a) : C(0x5a9a3c);
+      add(stalk(0.09, 0.009, 0.006, stem, id === 'eggplant' ? C(0x7a5a80) : GREEN.mid, 0.01));
+      cot(0.07, 0.03, 0.085, C(0x5f9a3e), C(0x8cc060), 'lance', 0.35);
+      for (const a of id === 'tomato' ? [Math.PI / 2, -Math.PI / 2 + 0.3] : [Math.PI / 2, -Math.PI / 2 + 0.4, 0.3]) {
+        add(leafGeo(id === 'eggplant' ? 0.085 : 0.075, id === 'tomato' ? 0.05 : 0.065, { shape: id === 'tomato' ? 'lance' : id === 'hotPepper' ? 'round' : 'oval', serrate: id === 'tomato' ? 0.5 : 0, lift: 0.8, bend: 0.3, fold: 0.3, c0: tc0, c1: tc1, segs: 4 }), mat(0, 0.09, 0, 0, a, 0));
+      }
       break;
     }
     case 'strawberry': {
@@ -908,41 +914,49 @@ const BUILDERS: Record<CropId, Builder> = {
     }
   },
   strawberry(add, r, k) {
-    const nStem = 3 + k * 2;
+    // A low, full trifoliate clump (r15): long-stalked leaves arching out of the crown into a
+    // mounded cushion, and on ripe plants 4–6 berries hanging off the clump's RIM on arched
+    // pedicels (each with its green calyx and seed dots) — never loose red marbles on the soil.
+    const nStem = 4 + k * 2;
+    const leafL = 0.07 + k * 0.014;
     for (let i = 0; i < nStem; i++) {
-      const a = (i / nStem) * Math.PI * 2 + r.next();
-      const stemL = 0.08 + k * 0.025;
-      const m = mat(0, 0, 0, 0, a, 0);
-      add(stalk(stemL, 0.006, 0.005, GREEN.mid, GREEN.mid, 0.05, 3), m);
-      for (const la of [-0.7, 0, 0.7]) {
-        add(leafGeo(0.065 + k * 0.013, 0.06, { shape: 'round', lift: 0.25, bend: 0.2, serrate: 0.3, cup: 0.4, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }), m.clone().multiply(mat(0, stemL, 0.04, 0, la, 0)));
+      const a = (i / nStem) * Math.PI * 2 + r.next() * 0.6;
+      const stemL = (0.08 + k * 0.03) * (0.8 + r.next() * 0.35);
+      const lean = 0.35 + r.next() * 0.3;
+      const m = mat(0, 0, 0, 0, a, 0).multiply(mat(0, 0, 0, lean, 0, 0));
+      add(stalk(stemL, 0.006, 0.005, C(0x6a8a3a), GREEN.mid, 0, 3), m);
+      const tip = m.clone().multiply(mat(0, stemL, 0, -lean * 0.8, 0, 0));
+      for (const la of [-0.75, 0, 0.75]) {
+        add(leafGeo(leafL * (la ? 0.9 : 1.05), leafL * 0.86, { shape: 'round', lift: 0.3, bend: 0.25, serrate: 0.3, cup: 0.4, rib: C(0x8ab86a), c0: C(0x2a6230), c1: C(0x56a040), segs: 4 }), tip.clone().multiply(mat(0, 0, 0, 0, la, 0)));
       }
     }
     if (k === 2) {
-      // Flowering: white blossoms + a few hard green berries tucked at the rim.
+      // Flowering: white blossoms + a few hard green berries at the rim.
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2 + r.next() * 0.6;
         if (i % 2 === 0) {
-          flower(add, 0.026, C(0xffffff), C(0xf2d040), mat(Math.cos(a) * 0.14, 0.13, Math.sin(a) * 0.14, 0.4, a, 0));
+          flower(add, 0.026, C(0xffffff), C(0xf2d040), mat(Math.cos(a) * 0.12, 0.14, Math.sin(a) * 0.12, 0.4, a, 0));
           continue;
         }
-        add(fruit(0.034, C(0xc8dc8a), { sy: 1.15, taper: 0.55, spots: C(0xf0e090), seg: 7, rows: 5 }), mat(Math.cos(a) * 0.19, 0.05, Math.sin(a) * 0.19, Math.cos(a) * 0.3, 0, -Math.sin(a) * 0.3), 'gloss');
+        add(fruit(0.03, C(0xc8dc8a), { sy: 1.15, taper: 0.55, spots: C(0xf0e090), seg: 7, rows: 5 }), mat(Math.cos(a) * 0.14, 0.07, Math.sin(a) * 0.14), 'gloss');
       }
     } else if (k === 3) {
-      // Ripe: 9 fat, saturated berries draped over the rim of the rosette and a few resting on top
-      // of the leaves, so the plant reads red from the high game camera (they used to hide under
-      // the canopy as one or two red dots). A blush-white one or two for variety.
-      const n = 9;
+      const n = 5 + Math.floor(r.next() * 3);
       for (let i = 0; i < n; i++) {
-        const top = i >= 6;
-        const a = top ? (i - 6) * 2.1 + r.next() * 0.8 : (i / 6) * Math.PI * 2 + r.next() * 0.5;
-        const rad = top ? 0.07 + r.next() * 0.04 : 0.2 + r.next() * 0.03;
-        const y = top ? 0.15 + r.next() * 0.02 : 0.06 + r.next() * 0.03;
-        const R = 0.046 + r.next() * 0.012;
-        const col = (r.next() < 0.12 ? C(0xf06a50) : C(0xd81a2a)).offsetHSL((r.next() - 0.5) * 0.02, 0, (r.next() - 0.5) * 0.06);
-        const m = mat(Math.cos(a) * rad, y, Math.sin(a) * rad, Math.cos(a) * 0.5, 0, -Math.sin(a) * 0.5);
+        // Mostly on the lens-facing half of the clump, draped over the leaf rim (read red from the
+        // high camera at 20 m, never hidden under the cushion nor loose on the soil).
+        const a = Math.PI / 2 + ((i + 0.5) / n - 0.5) * 4.6 + (r.next() - 0.5) * 0.4;
+        const ca = Math.cos(a);
+        const sa = Math.sin(a);
+        const rad = 0.14 + r.next() * 0.03;
+        const R = 0.046 + r.next() * 0.01;
+        const y = 0.1 + r.next() * 0.035;
+        const col = (r.next() < 0.15 ? C(0xf06a50) : C(0xd81a2a)).offsetHSL((r.next() - 0.5) * 0.02, 0, (r.next() - 0.5) * 0.06);
+        // Pedicel: out of the crown, arching over the leaves and down to the berry's calyx.
+        add(tube([new THREE.Vector3(0, 0.06, 0), new THREE.Vector3(ca * rad * 0.55, 0.15, sa * rad * 0.55), new THREE.Vector3(ca * rad, y + R * 1.25, sa * rad)], 0.004, 0.003, C(0x6a8a3a), C(0x8aa84a), 6, 3));
+        const m = mat(ca * rad, y, sa * rad, -sa * 0.35, 0, ca * 0.35);
         add(fruit(R, col, { sy: 1.2, taper: 0.55, spots: C(0xf6e8a0), seg: 9, rows: 6 }), m, 'gloss');
-        add(rosetteCap(R * 0.75), m.clone().multiply(mat(0, R * 1.05, 0)));
+        add(rosetteCap(R * 0.8, C(0x3f8a2e)), m.clone().multiply(mat(0, R * 1.0, 0)));
       }
     }
   },
@@ -966,7 +980,8 @@ const BUILDERS: Record<CropId, Builder> = {
     const tiers = 1 + k;
     for (let t = 0; t < tiers; t++) {
       const y = (t / tiers) * h * 0.9 + 0.04;
-      rosette(add, r, 3, 0.11 + (1 - t / tiers) * 0.08 + k * 0.012, 0.1, { shape: 'lance', serrate: 0.4, lift: 0.3, bend: 0.5, fold: 0.3, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }, t * 1.1, y);
+      // r15: four compound leaves a tier (was three) and longer — a leafy staked bush, not a pole.
+      rosette(add, r, 4, 0.13 + (1 - t / tiers) * 0.09 + k * 0.015, 0.11, { shape: 'lance', serrate: 0.4, lift: 0.3, bend: 0.5, fold: 0.3, c0: C(0x2c6428), c1: C(0x5a9e3c), segs: 4 }, t * 1.1, y);
     }
     if (k === 2) for (let i = 0; i < 4; i++) flower(add, 0.02, C(0xffd83a), C(0xe8a020), mat((r.next() - 0.5) * 0.18, h * (0.5 + r.next() * 0.4), (r.next() - 0.5) * 0.18, 0.4, 0, 0), 6);
     if (k >= 2) {
@@ -979,8 +994,8 @@ const BUILDERS: Record<CropId, Builder> = {
         const col = (ripe ? C(0xe0301e) : r.next() < 0.4 ? C(0xe89a3a) : C(0x7fb040)).offsetHSL((r.next() - 0.5) * 0.02, 0, (r.next() - 0.5) * 0.06);
         // No two alike: ±15 % size, squat (0.85 Y), each with its calyx star.
         const fr = (k === 3 ? 0.052 : 0.036) * (0.85 + r.next() * 0.3);
-        const ox = Math.cos(a) * (0.08 + r.next() * 0.04);
-        const oz = Math.sin(a) * (0.08 + r.next() * 0.04);
+        const ox = Math.cos(a) * (0.1 + r.next() * 0.05);
+        const oz = Math.sin(a) * (0.1 + r.next() * 0.05);
         add(fruit(fr, col, { sy: 0.85, ribs: 5, seg: 8, rows: 6 }), mat(ox, yy, oz, (r.next() - 0.5) * 0.3, r.next() * 6, 0), 'gloss');
         add(rosetteCap(fr * 0.55), mat(ox, yy + fr * 0.78, oz, 0, r.next() * 6, 0));
       }
@@ -993,11 +1008,12 @@ const BUILDERS: Record<CropId, Builder> = {
       add(stalk(hh, 0.02, 0.012, C(0x86a648), C(0xb4cc6a), 0.03));
       // Fewer blades (≈ -25 %) so the cobs and tassels read; a paler, yellower green than the
       // beans and sunflowers beside it (corn is its own colour block from across the field).
-      const nl = 2 + Math.round(k * 1.6);
+      // r15: a wider, fuller fan (more and longer blades) — a corn row reads as a green wall.
+      const nl = 3 + Math.round(k * 1.8);
       for (let i = 0; i < nl; i++) {
         const y = (i / nl) * hh * 0.85 + 0.06;
         const tan = k === 3 ? 0.35 * (1 - i / nl) : 0;
-        add(leafGeo(0.24 + k * 0.08, 0.07, { shape: 'ribbon', lift: 0.7, bend: 0.8, fold: 0.2, c0: C(0x6e9c46).lerp(C(0xb8a050), tan), c1: C(0xbcd67c).lerp(C(0xe0c880), tan), segs: 5 }), mat(ox, y, oz, 0, i * 2.4 + r.next(), 0));
+        add(leafGeo(0.28 + k * 0.09, 0.08, { shape: 'ribbon', lift: 0.7, bend: 0.8, fold: 0.2, c0: C(0x6e9c46).lerp(C(0xb8a050), tan), c1: C(0xbcd67c).lerp(C(0xe0c880), tan), segs: 5 }), mat(ox, y, oz, 0, i * 2.4 + r.next(), 0));
       }
       if (k >= 2) {
         for (let i = 0; i < 5; i++) add(stalk(0.14, 0.004, 0.002, k === 3 ? C(0xc8a050) : C(0xb8c870), k === 3 ? C(0xf0d890) : C(0xe0e0a0), 0.05, 3), mat(ox, hh, oz, 0, i * 1.3, 0));
@@ -1045,59 +1061,63 @@ const BUILDERS: Record<CropId, Builder> = {
     }
   },
   blueberry(add, r, k) {
-    // A compact rounded shrub: short woody canes under a dense dome of small cupped oval leaves
-    // (glossy deep green with a blue cast, a few reddening in late summer), each blade pointing out
-    // of the dome so the canopy shades itself; berry clusters sit on the dome's sunlit face.
-    // (Shell sized to the leaves so the dome closes: no see-through to the canes from above.)
-    const R = 0.1 + k * 0.045;
-    const bark0 = C(0x5e4230);
-    const bark1 = C(0x8a6248);
-    for (let i = 0; i < 3 + k; i++) {
-      const a = (i / (3 + k)) * Math.PI * 2 + r.next() * 0.6;
+    // A woody, rounded shrub (r15: no more hosta rosette): a few grey-brown canes that show at the
+    // base, under a dense ball of SMALL glossy oval leaves (blue-green, some reddening in late
+    // summer). Ripe berry clusters sit on the outer shell, mostly on the crown and the lens-facing
+    // (+Z) flank, dusty blue with a pale bloom, so a ripe bush reads blue from the game camera.
+    const R = 0.11 + k * 0.048;
+    const bark0 = C(0x5a4636);
+    const bark1 = C(0x8a7058);
+    for (let i = 0; i < 4 + k; i++) {
+      const a = (i / (4 + k)) * Math.PI * 2 + r.next() * 0.6;
       const ca = Math.cos(a);
       const sa = Math.sin(a);
-      const reach = R * (0.35 + r.next() * 0.25);
-      add(tube([new THREE.Vector3(ca * 0.01, 0, sa * 0.01), new THREE.Vector3(ca * reach * 0.4, R * 0.5, sa * reach * 0.4), new THREE.Vector3(ca * reach, R * 1.05, sa * reach)], 0.012 + k * 0.002, 0.005, bark0, bark1, 5, 4), mat());
+      const reach = R * (0.45 + r.next() * 0.3);
+      add(tube([new THREE.Vector3(ca * 0.012, 0, sa * 0.012), new THREE.Vector3(ca * reach * 0.55, R * 0.45, sa * reach * 0.55), new THREE.Vector3(ca * reach, R * 1.15, sa * reach)], 0.013 + k * 0.002, 0.005, bark0, bark1, 5, 4), mat());
     }
-    const deep = C(0x24522e);
-    const mid = C(0x4e8c4a);
-    const blue = C(0x4a7e6a);
-    // Inner canopy shell (r13): a lumpy dark-green dome just inside the leaf tips closes the bush
-    // from the high camera — the open crown read as a wreath of leaves round bare soil.
+    const deep = C(0x234e30);
+    const mid = C(0x4c8a4e);
+    const blue = C(0x5a8a80);
+    const cy = R * 1.05;
     if (k >= 1) {
-      const shell = new THREE.SphereGeometry(R * 0.86, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.62);
+      // Inner canopy shell: a lumpy dark ball just inside the leaf tips (closes the bush).
+      const shell = new THREE.SphereGeometry(R * 0.86, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.72);
       const sp = shell.attributes.position as THREE.BufferAttribute;
       const ph = r.next() * 6;
       for (let i = 0; i < sp.count; i++) {
         const x = sp.getX(i), y = sp.getY(i), z = sp.getZ(i);
-        const lump = 1 + 0.12 * Math.sin(Math.atan2(z, x) * 5 + ph) * Math.min(1, Math.hypot(x, z) / R);
-        sp.setXYZ(i, x * lump, y * 0.8 * lump, z * lump);
+        const lump = 1 + 0.1 * Math.sin(Math.atan2(z, x) * 5 + ph) * Math.sin(y * 30 + ph);
+        sp.setXYZ(i, x * lump, y * 0.88 * lump, z * lump);
       }
       shell.computeVertexNormals();
-      add(colored(shell, (p, n) => deep.clone().lerp(blue, 0.25).multiplyScalar(0.72 + 0.35 * Math.max(0, n.y) + 0.15 * (p.y / R))), mat(0, R * 0.95 - R * 0.12, 0));
+      add(colored(shell, (p, n) => deep.clone().lerp(blue, 0.2).multiplyScalar(0.7 + 0.35 * Math.max(0, n.y) + 0.12 * (p.y / R))), mat(0, cy - R * 0.08, 0));
     }
-    const nl = 20 + k * 15;
+    const nl = 34 + k * 30;
     for (let i = 0; i < nl; i++) {
       const t = (i + 0.5) / nl;
-      const el = Math.acos(1 - t * 1.35);
+      const el = Math.acos(1 - t * 1.55);
       const az = i * 2.39996 + (r.next() - 0.5) * 0.3;
-      const rr = R * (0.88 + r.next() * 0.22);
-      const p = new THREE.Vector3(Math.sin(el) * Math.cos(az) * rr, R * 0.95 + Math.cos(el) * rr * 0.8, Math.sin(el) * Math.sin(az) * rr);
+      // Rooted just inside the shell so the blades lie over it (no spiky fringe on the silhouette).
+      const rr = R * (0.76 + r.next() * 0.16);
+      const p = new THREE.Vector3(Math.sin(el) * Math.cos(az) * rr, cy + Math.cos(el) * rr * 0.88, Math.sin(el) * Math.sin(az) * rr);
       const tint = r.next();
-      const c0 = deep.clone().lerp(blue, tint * 0.4);
-      const c1 = mid.clone().lerp(blue, tint * 0.25);
-      if (k === 3 && r.next() < 0.07) c1.lerp(C(0xb4523c), 0.6);
-      const L = 0.09 + r.next() * 0.045;
-      // Outward yaw (+Z → the dome normal's azimuth), steeper on the crown, drooping on the flanks.
-      add(leafGeo(L, L * 0.66, { shape: 'round', lift: 0.2 + (1 - el / 1.6) * 0.5 + r.next() * 0.2, bend: 0.4, fold: 0.3, cup: 0.45, rib: C(0x96bc9c), c0, c1, segs: 4 }), mat(p.x, p.y, p.z, 0, Math.atan2(Math.cos(az), Math.sin(az)) + (r.next() - 0.5) * 0.7, 0));
+      const c0 = deep.clone().lerp(blue, tint * 0.45);
+      const c1 = mid.clone().lerp(blue, tint * 0.3);
+      if (k === 3 && r.next() < 0.08) c1.lerp(C(0xb4523c), 0.6);
+      const L = (0.056 + r.next() * 0.03) * (k === 0 ? 1.15 : 1);
+      add(leafGeo(L, L * 0.62, { shape: 'oval', lift: 0.15 + (1 - el / 1.9) * 0.5 + r.next() * 0.2, bend: 0.35, fold: 0.35, cup: 0.4, rib: C(0x96bc9c), c0, c1, segs: 3 }), mat(p.x, p.y, p.z, 0, Math.atan2(Math.cos(az), Math.sin(az)) + (r.next() - 0.5) * 0.8, 0));
     }
     if (k >= 2) {
-      for (let i = 0; i < (k === 3 ? 9 : 5); i++) {
-        const a = r.next() * Math.PI * 2;
-        const e = 0.45 + r.next() * 0.75;
-        const m = mat(Math.sin(e) * Math.cos(a) * R * 1.1, R * 0.95 + Math.cos(e) * R * 0.85, Math.sin(e) * Math.sin(a) * R * 1.1);
-        if (k === 2) bunch(add, r, 4, 0.016, 0.04, r.next() < 0.5 ? C(0xa8c880) : C(0xc8a0b8), m);
-        else bunch(add, r, 7, 0.023, 0.055, C(0x3a4ab0), m, 0.5);
+      const n = k === 3 ? 13 : 6;
+      for (let i = 0; i < n; i++) {
+        // 3 of 4 clusters on the lens-facing half (+Z), the rest round the crown.
+        const front = i % 4 !== 3;
+        const a = front ? Math.PI / 2 + (r.next() - 0.5) * 2.6 : r.next() * Math.PI * 2;
+        const e = front ? 0.55 + r.next() * 0.7 : 0.15 + r.next() * 0.5;
+        const m = mat(Math.sin(e) * Math.cos(a) * R * 1.04, cy + Math.cos(e) * R * 0.92 + 0.012, Math.sin(e) * Math.sin(a) * R * 1.04);
+        // Unripe: hard green and a blush of red-violet (pale lilac read as flowers).
+        if (k === 2) bunch(add, r, 4, 0.017, 0.035, r.next() < 0.6 ? C(0x9ab86a) : C(0x8a3a5a), m);
+        else bunch(add, r, 6, 0.024, 0.045, i % 5 === 4 ? C(0x5a2a6a) : C(0x2f44aa), m, 0.35);
       }
     }
   },
@@ -1128,18 +1148,47 @@ const BUILDERS: Record<CropId, Builder> = {
     }
   },
   hotPepper(add, r, k) {
-    const h = 0.14 + k * 0.08;
-    add(stalk(h, 0.012, 0.008, GREEN.dark, GREEN.mid, 0.02, 4));
-    for (let t = 0; t < 1 + k; t++) {
-      rosette(add, r, 4, 0.08 + k * 0.015, 0.06, { shape: 'oval', lift: 0.4, bend: 0.4, fold: 0.3, c0: GREEN.dark, c1: C(0x5faa44), segs: 4 }, t * 0.8, 0.03 + t * h * 0.3);
+    // A rounded, glossy little bush (r15: never a stick with leaves): a short stem forking into
+    // three or four leafy branches whose tufts close into a dome, bright glossy green; ripe pods
+    // hang OUTSIDE the canopy — red, a couple orange, one late green — so a pepper row reads as a
+    // block of colour from the high camera.
+    const h = 0.15 + k * 0.075;
+    const leaf = { shape: 'oval' as const, lift: 0.4, bend: 0.4, fold: 0.3, cup: 0.35, c0: C(0x2a6e2a), c1: C(0x6cbc44), segs: 4 };
+    const stem0 = C(0x3f6a2a);
+    add(stalk(h * 0.7, 0.013, 0.009, stem0, GREEN.mid, 0.01, 4));
+    rosette(add, r, 4 + k, 0.085 + k * 0.016, 0.064, leaf, 0, 0.03);
+    const nb = k === 0 ? 2 : k === 1 ? 3 : 4;
+    const tips: THREE.Vector3[] = [];
+    for (let i = 0; i < nb; i++) {
+      const a = (i / nb) * Math.PI * 2 + r.next() * 0.5;
+      const reach = 0.04 + k * 0.03;
+      const top = new THREE.Vector3(Math.cos(a) * reach, h * (0.8 + r.next() * 0.25), Math.sin(a) * reach);
+      add(tube([new THREE.Vector3(0, h * 0.3, 0), new THREE.Vector3(top.x * 0.5, h * 0.62, top.z * 0.5), top], 0.008, 0.005, stem0, GREEN.mid, 5, 4));
+      tips.push(top);
+      const nl = 4 + Math.min(2, k);
+      for (let j = 0; j < nl; j++) {
+        const la = (j / nl) * Math.PI * 2 + r.next() * 0.6;
+        add(leafGeo((0.075 + k * 0.014) * (0.8 + r.next() * 0.4), 0.06, { ...leaf, lift: 0.2 + r.next() * 0.45 }), mat(top.x, top.y - (j % 2) * 0.014, top.z, 0, la, 0));
+      }
     }
-    if (k === 2) for (let i = 0; i < 4; i++) flower(add, 0.018, C(0xffffff), C(0xe8e0a0), mat((r.next() - 0.5) * 0.18, h * (0.6 + r.next() * 0.4), (r.next() - 0.5) * 0.18, 0.5, 0, 0));
+    if (k === 2) for (const t of tips) flower(add, 0.02, C(0xffffff), C(0xe8e0a0), mat(t.x * 1.15, t.y + 0.02, t.z * 1.15, 0.5, 0, 0));
     if (k >= 2) {
-      const n = k === 3 ? 7 : 3;
+      const n = k === 3 ? 10 : 4;
       for (let i = 0; i < n; i++) {
-        const a = r.next() * Math.PI * 2;
-        const ripe = k === 3 && r.next() < 0.85;
-        add(hangingPod(k === 3 ? 0.1 : 0.06, 0.016, 0.35, ripe ? C(0xd82a1a) : C(0x5a9a2a), ripe ? C(0xf04a2a) : C(0x7aba3a), 0.25, 5), mat(Math.cos(a) * 0.08, h * (0.55 + r.next() * 0.4), Math.sin(a) * 0.08, 0, a, 0), 'gloss');
+        const a = (i / n) * Math.PI * 2 + r.next() * 0.5;
+        const roll = r.next();
+        const ripe = k === 3 && roll < 0.92;
+        const col0 = !ripe ? C(0x4f9a2a) : roll < 0.1 ? C(0xe0661a) : C(0xc8201a);
+        const col1 = !ripe ? C(0x7aba3a) : roll < 0.1 ? C(0xf8a030) : C(0xe8382a);
+        // Hung from the top of the dome and splayed outward over the leaf tufts (from ~50° above
+        // pods hanging inside the canopy vanished): the bush wears its colour on the outside.
+        const rad = 0.05 + k * 0.025 + r.next() * 0.025;
+        const len = (k === 3 ? 0.11 : 0.07) * (0.85 + r.next() * 0.3);
+        const y = h * (0.92 + r.next() * 0.16) + 0.03;
+        const tilt = 0.3 + r.next() * 0.3;
+        const pm = mat(Math.cos(a) * rad, y, Math.sin(a) * rad, -Math.sin(a) * tilt, 0, Math.cos(a) * tilt);
+        add(hangingPod(len, 0.02, 0.25, col0, col1, 0.22, 6), pm.clone().multiply(mat(0, 0, 0, 0, r.next() * 6, 0)), 'gloss');
+        add(rosetteCap(0.018, C(0x4f8a2e)), pm.clone().multiply(mat(0, 0.008, 0)));
       }
     }
   },
@@ -2201,10 +2250,13 @@ const PLACE: Partial<Record<CropId, { scale?: number; yaw?: number }>> = {
   corn: { scale: 0.92 },
   tomato: { yaw: 0.6 },
   hotPepper: { scale: 1.2 },
-  blueberry: { scale: 1.1 },
+  // Berry clusters / hanging fruit are hung on the lens-facing (+Z) half: only a little spin.
+  blueberry: { scale: 1.1, yaw: 1.2 },
+  strawberry: { yaw: 1.4 },
 };
 
-const STAGE_SCALE = [1.3, 1.62, 1.55, 1.58, 1.62, 1.68];
+// r15: sprouts and seedlings a touch bigger (stage 1–2 read as specks from the game camera).
+const STAGE_SCALE = [1.3, 1.8, 1.72, 1.6, 1.62, 1.68];
 
 export class CropVisuals {
   readonly group = new THREE.Group();

@@ -16,11 +16,22 @@ export class CritterSystem implements System {
   private chickens: Chicken[] = [];
   private cat: Cat | null = null;
   private built = new Set<string>();
+  private snapT = 0;
 
   init(game: Game): void {
     this.group.name = 'critters';
     this.group.userData.noAO = true;
     game.scene.add(this.group);
+    // (Farming pod r15) Tool work startles butterflies off the target tile (they used to perch on
+    // the hoe blade mid-swing); remote farmers' replicated impacts scare them too.
+    game.events.on('tool:impact', ({ x, z }) => {
+      for (const b of this.butterflies) b.scare(x + 0.5, z + 0.5, 3.2);
+    });
+    // Staged stills: while a demo is up, any butterfly is snapped out of a ~3.6 m bubble round the
+    // farmer (in play they fly off instead — no visible pop).
+    game.events.on('demo:stage', () => {
+      this.snapT = Infinity;
+    });
   }
 
   onMapChange(mapId: string, game: Game): void {
@@ -74,8 +85,13 @@ export class CritterSystem implements System {
     const night = game.lighting.night;
     const wet = cal.weather === 'rain' || cal.weather === 'storm' || cal.weather === 'snow';
     const bfly = !wet && cal.season !== 'winter' && night < 0.3;
+    // A farmer mid-action (or frozen in a staged tool still) keeps a ~2 m bubble clear of them.
+    const pp = game.player.position;
+    const working = game.player.busy;
+    if (this.snapT > 0) this.snapT -= dt;
     for (const b of this.butterflies) {
       b.root.visible = bfly;
+      if (working || this.snapT > 0) b.avoid(pp.x, pp.z, this.snapT > 0 ? 3.6 : 2.4, this.snapT > 0);
       if (bfly) b.update(dt, t);
     }
     const birds = !wet && night < 0.5;

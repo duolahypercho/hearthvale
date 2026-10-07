@@ -17,20 +17,29 @@ float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
 float fbm(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * vnoise(p); p *= 2.03; a *= 0.5; } return s; }
 void main() {
   vec2 uv = vUv;
-  float t = uTime * 1.0 + uSeed * 7.0;
-  // Rising turbulence, stronger towards the tips.
-  float n = fbm(vec2(uv.x * 3.2 + uSeed, uv.y * 2.4 - t * 2.6));
-  float n2 = fbm(vec2(uv.x * 6.0 - uSeed, uv.y * 4.0 - t * 3.7));
-  float x = (uv.x - 0.5) * 2.0 + (n - 0.5) * 0.7 * uv.y;
-  float body = 1.0 - smoothstep(0.0, 0.9 - uv.y * 0.75, abs(x));
-  float h = 1.0 - smoothstep(0.35, 1.0, uv.y + (n2 - 0.5) * 0.45);
-  float f = clamp(body * h * 1.6, 0.0, 1.0);
-  f *= smoothstep(0.0, 0.08, uv.y);
-  vec3 deep = vec3(0.85, 0.18, 0.04);
-  vec3 mid = vec3(1.0, 0.52, 0.12);
-  vec3 core = vec3(1.0, 0.86, 0.5);
-  vec3 col = mix(deep, mid, smoothstep(0.15, 0.55, f));
-  col = mix(col, core, smoothstep(0.65, 0.95, f));
+  float t = uTime + uSeed * 7.0;
+  // Tongues (r11): a teardrop silhouette — full near the base, licking to a thin tip — whose upper half
+  // sways and splits with rising noise, so the cards read as separate soft licks, not a row of spikes.
+  float n  = fbm(vec2(uv.x * 2.6 + uSeed, uv.y * 2.0 - t * 1.9));
+  float n2 = fbm(vec2(uv.x * 6.0 - uSeed * 2.0, uv.y * 4.2 - t * 3.2));
+  float sway = sin(t * 2.3 + uSeed * 3.0 + uv.y * 3.0) * 0.07 * uv.y * uv.y;
+  float bulge = smoothstep(0.0, 0.22, uv.y);
+  float halfW = mix(0.44, 0.015, smoothstep(0.08, 1.0, uv.y)) * (0.7 + 0.3 * bulge);
+  float edge = (n - 0.5) * 0.36 * (0.25 + uv.y) + (n2 - 0.5) * 0.12 * uv.y + sway;
+  float body = 1.0 - smoothstep(halfW - 0.16, halfW + 0.03, abs(uv.x - 0.5 + edge));
+  // Licks break off the top: the cut line rides the second octave.
+  float top = 1.0 - smoothstep(0.55, 0.98, uv.y + (n2 - 0.5) * 0.5);
+  float base = smoothstep(0.0, 0.12, uv.y);
+  float f = clamp(body * top * base, 0.0, 1.0);
+  // Heat: deep red at the edge + tips, orange through the body, a warm yellow core low in the flame
+  // (never white: the additive cards overlap, so each one stays well under 1).
+  float heat = clamp(f * (1.1 - uv.y * 0.6) + (n - 0.5) * 0.2, 0.0, 1.0);
+  vec3 deep = vec3(0.55, 0.08, 0.02);
+  vec3 mid  = vec3(0.95, 0.38, 0.07);
+  vec3 core = vec3(1.0, 0.72, 0.30);
+  vec3 col = mix(deep, mid, smoothstep(0.08, 0.5, heat));
+  col = mix(col, core, smoothstep(0.72, 1.0, heat) * 0.75);
+  f *= 0.62 + 0.38 * smoothstep(0.0, 0.5, heat);
   gl_FragColor = vec4(col * f * uGain, 1.0);
 }`;
 

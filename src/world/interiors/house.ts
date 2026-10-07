@@ -19,10 +19,9 @@ import type { Game } from '../../core/game';
 import { Rng } from '../../core/rng';
 import { InteriorMap, type RoomLight } from './room';
 import { Kit, imat, floorPlane } from './kit';
-import { atlasUV, PHOTO_CELLS, type PhotoName } from './textures';
+import { atlasUV, glowDisc, PHOTO_CELLS, type PhotoName } from './textures';
 import { mat, roundedBox, lumpySphere } from '../geom';
 import { HearthFlames, Wisps } from './fx';
-import { FireFX } from '../../render/particles';
 
 export const HOUSE_DOOR = { x: 31, z: 17 };
 /** Where you step out onto the porch. */
@@ -40,7 +39,7 @@ export class HouseInterior extends InteriorMap {
   readonly bed = { x0: 10.3, z0: 0, x1: 12.1, z1: 2.3, wakeX: 9.6, wakeZ: 2.9 };
   private pendulum!: THREE.Object3D;
   private flames!: HearthFlames;
-  private sparks!: FireFX;
+  private sparks!: Wisps;
   private smoke!: Wisps;
   private steam!: Wisps;
   private fireLight!: THREE.PointLight;
@@ -59,6 +58,8 @@ export class HouseInterior extends InteriorMap {
       doorX: 6,
       exit: { to: 'farm', x: HOUSE_PORCH.x, z: HOUSE_PORCH.z, facing: 'down' },
       floor: 'floor',
+      // A touch darker + cooler than the raw boards: the plank field no longer outshouts the props.
+      floorTint: 0xe4dace,
       style: 'house',
       // Cool lavender-grey paper: the hearth, lamps and honey floor pop warm against it.
       wallTint: 0xd6d6ee,
@@ -296,29 +297,60 @@ export class HouseInterior extends InteriorMap {
       k.box('iron', [0.05, 0.22, 0.05], [cx + s * 0.32, 0, 0.55], { tint: 0x2a2624 });
       k.box('iron', [0.04, 0.04, 0.4], [cx + s * 0.32, 0.12, 0.38], { tint: 0x2a2624 });
     }
-    for (const [lx, lz, ry, rr] of [[0, 0.35, 0.2, 0.08], [-0.1, 0.42, -0.35, 0.07], [0.12, 0.3, 0.6, 0.065]] as const) {
+    // Split logs on the dogs: charred bark, a glowing seam along each underside (the heat reads from
+    // below, never as a white lamp), a bright split end facing the room.
+    const logs: [number, number, number, number][] = [[0, 0.35, 0.2, 0.08], [-0.1, 0.44, -0.35, 0.07], [0.12, 0.3, 0.6, 0.065]];
+    const ember = new Kit();
+    for (const [lx, lz, ry, rr] of logs) {
       const g = new THREE.CylinderGeometry(rr, rr, 0.8, 9);
       g.rotateZ(Math.PI / 2);
-      k.add('stone', g, mat(cx + lx, 0.14 + rr * 0.5, lz, 0, ry, 0), { tint: 0x4a3222 });
+      k.add('stone', g, mat(cx + lx, 0.14 + rr * 0.5, lz, 0, ry, 0), { tint: 0x5a3c26 });
+      // Glow seam: a slimmer ember cylinder sunk under the log, peeking out along its belly.
+      const sg = new THREE.CylinderGeometry(rr * 0.82, rr * 0.82, 0.66, 9);
+      sg.rotateZ(Math.PI / 2);
+      ember.add('ember', sg, mat(cx + lx, 0.14 + rr * 0.5 - rr * 0.32, lz, 0, ry, 0), { tint: 0xd8501a });
     }
-    const ember = new Kit();
-    for (let i = 0; i < 14; i++) {
-      ember.add('ember', lumpySphere(0.05 + rng.next() * 0.04, 1, 0.3, rng), mat(cx + (rng.next() - 0.5) * 0.7, 0.05, 0.25 + rng.next() * 0.3, 0, 0, 0, 1, 0.5, 1), { tint: rng.next() < 0.5 ? 0xffffff : 0xffc080 });
+    // Ember bed: a mound of coals in three heats (dull red at the rim, orange towards the middle, a
+    // few hot yellow-orange hearts under the flames), char-dark between them.
+    for (let i = 0; i < 26; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = Math.sqrt(rng.next());
+      const ex = Math.cos(a) * r * 0.36;
+      const ez = Math.sin(a) * r * 0.17;
+      const heat = 1 - r;
+      const tint = heat > 0.62 ? 0xffa040 : heat > 0.3 ? 0xf06a1c : rng.next() < 0.5 ? 0xa8300e : 0x3a2016;
+      const sz = 0.035 + rng.next() * 0.035;
+      ember.add('ember', lumpySphere(sz, 1, 0.3, rng), mat(cx + ex, 0.05 + heat * 0.03, 0.4 + ez, 0, rng.next() * 3, 0, 1, 0.55, 1), { tint });
     }
     const emberG = ember.build('embers', false);
     emberG.traverse((o) => (o.userData.noAO = true));
     this.root.add(emberG);
     // Flames, sparks, a thin smoke curl, the flicker light and a glow pool on the hearth + floor.
-    this.flames = new HearthFlames(0.72, 0.66, 5);
-    this.flames.group.position.set(cx, 0.12, 0.38);
+    // (r11: the soft fire-blob particles stacked additively into a white lamp inside the firebox: the
+    // flame cards carry the fire alone now, with a few lazy sparks winking up the flue.)
+    this.flames = new HearthFlames(0.8, 0.76, 6);
+    this.flames.group.position.set(cx, 0.12, 0.4);
     this.root.add(this.flames.group);
-    this.sparks = new FireFX([new THREE.Vector3(cx, 0.22, 0.38)], 70);
-    this.sparks.object.scale.setScalar(1);
-    this.root.add(this.sparks.object);
+    // Firelight on the sooty back + cheeks of the firebox (an additive glow card, flickering with the fire).
+    {
+      const gm = new THREE.MeshBasicMaterial({ map: glowDisc().map, color: 0xff7a30, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      const g = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.0), gm);
+      g.position.set(cx, 0.32, 0.145);
+      g.userData.noAO = true;
+      g.userData.dynamic = true;
+      g.renderOrder = 3;
+      this.root.add(g);
+      const c0 = new THREE.Color(0xff7a30);
+      this.updaters.push((_dt, _t, L) => gm.color.copy(c0).multiplyScalar((0.32 + L.night * 0.18) * this.fireK * (1 - this.dim * 0.5)));
+    }
+    this.sparks = new Wisps(new THREE.Vector3(cx, 0.3, 0.4), { rate: 5, life: 1.3, rise: 0.75, spread: 0.45, size: 0.035, color: 0xffa040, additive: true, count: 24 });
+    this.root.add(this.sparks.points);
     this.smoke = new Wisps(new THREE.Vector3(cx, 0.75, 0.3), { rate: 3, life: 1.2, rise: 0.4, spread: 0.3, size: 0.3, color: 0x6a5a50, additive: false, count: 16, opacity: 0.25 });
     this.root.add(this.smoke.points);
     this.fireLight = this.addLamp(new THREE.Vector3(cx, 0.6, 0.95), 0xff8a3c, 2.2, 7.5, 0, 9);
-    this.glowPool(cx, 1.3, 1.9, 0xff7a30, () => 0.16 + this.light.night * 0.2 * this.fireK);
+    this.glowPool(cx, 1.3, 1.9, 0xff7a30, () => (0.22 + this.light.night * 0.16) * this.fireK);
+    // The warm fan reaches out across the hearth rug even at 8 am (the fire is the room's warm pocket).
+    this.glowPool(cx, 2.55, 2.5, 0xff8a40, () => (0.075 + this.light.night * 0.07) * this.fireK, 0.016);
     this.glowPool(cx, 0.55, 0.9, 0xffa050, () => 0.35 * this.fireK, 0.09);
     // Mantel dressing: clock, candlesticks, two small photos, a jar of dried flowers, pinecones
     const my = 1.44;
@@ -415,10 +447,9 @@ export class HouseInterior extends InteriorMap {
   private tickHearth(dt: number, t: number, L: RoomLight): void {
     this.fireK = 0.85 + 0.12 * Math.sin(t * 11.3) * Math.sin(t * 6.1 + 1) + 0.08 * Math.sin(t * 23.7) + 0.06 * Math.sin(t * 3.1);
     this.fireLight.intensity *= this.fireK;
-    this.flames.gain = (1.3 + L.night * 0.6) * (0.9 + 0.2 * this.fireK) * (1 - this.dim * 0.55);
+    this.flames.gain = (0.78 + L.night * 0.34) * (0.9 + 0.2 * this.fireK) * (1 - this.dim * 0.55);
     this.flames.update(t);
-    const h = this.game.rc.renderer.domElement.height;
-    this.sparks.update(dt, h);
+    this.sparks.update(dt, 0.7 + 0.3 * this.fireK);
     this.smoke.update(dt);
     this.steam.update(dt);
     this.pendulum.rotation.z = Math.sin(t * Math.PI) * 0.2;
@@ -445,17 +476,21 @@ export class HouseInterior extends InteriorMap {
     k.box('wood', [bw - 0.1, 0.36, 0.05], [bx, 0.34, bl], { tint: 0x9a6440, r: 0.02 });
     // Mattress, sheet fold, pillows, patchwork quilt with draped sides, folded throw
     k.box('fabric', [bw - 0.08, 0.24, bl - 0.08], [bx, 0.36, bl / 2 + 0.04], { tint: 0xf4efe4, r: 0.08 });
-    for (const s of [-1, 1]) k.add('fabric', roundedBox(0.66, 0.17, 0.4, 0.08, 3), mat(bx + s * 0.4, 0.66, 0.42, -0.25, s * 0.06, 0), { tint: s < 0 ? 0xfaf6ee : 0xeef2f6 });
-    const qz0 = 0.78;
-    const ql = bl - qz0 + 0.06;
-    k.box('fabric', [bw + 0.02, 0.05, 0.22], [bx, 0.6, qz0 - 0.04], { tint: 0xfaf8f2, r: 0.02 });
-    k.box('quilt', [bw + 0.04, 0.07, ql], [bx, 0.6, qz0 + ql / 2], { uv: 0.5, r: 0.03 });
-    for (const s of [-1, 1]) k.box('quilt', [0.05, 0.36, ql], [bx + s * (bw / 2 + 0.03), 0.3, qz0 + ql / 2], { uv: 0.5, r: 0.02 });
-    k.box('quilt', [bw + 0.1, 0.3, 0.05], [bx, 0.34, bl + 0.03], { uv: 0.5, r: 0.02 });
-    k.box('fabric', [1.2, 0.08, 0.36], [bx + 0.05, 0.67, bl - 0.3], { tint: 0xd8a040, r: 0.03, ry: 0.05 });
-    k.box('fabric', [1.2, 0.02, 0.36], [bx + 0.05, 0.71, bl - 0.3], { tint: 0xe8b860, r: 0.01, ry: 0.05 });
+    // Plump pillows (r11): a pinched, crease-dented cushion shape leaning on the headboard, not blocks.
+    for (const s of [-1, 1]) k.add('fabric', pillowGeo(0.34, 0.1, 0.21, s), mat(bx + s * 0.4, 0.72, 0.42, -0.32, s * 0.08, s * 0.03), { tint: s < 0 ? 0xfaf6ee : 0xeef2f6 });
+    // Patchwork quilt (r11): one draped cloth — puffy quilted squares over the mattress top, rolling
+    // over the edges and hanging 30 cm down the sides + foot with a soft wave, hanging corners flared;
+    // a turned-down cuff at the head shows the cream backing and the sheet under it.
+    const qz0 = 0.86;
+    const ql = bl - qz0 - 0.02;
+    k.add('quilt', drapedQuilt(bw - 0.06, ql, 0.32, 0.07), mat(bx, 0.6, qz0));
+    k.add('fabric', roundedBox(bw - 0.02, 0.05, 0.26, 0.025, 2), mat(bx, 0.63, qz0 - 0.08, -0.06, 0, 0), { tint: 0xf6efe2 });
+    k.add('fabric', roundedBox(bw - 0.02, 0.012, 0.035, 0.006), mat(bx, 0.657, qz0 + 0.035, -0.06, 0, 0), { tint: 0xc86a5a });
+    k.add('fabric', roundedBox(bw - 0.1, 0.03, 0.2, 0.015, 2), mat(bx, 0.6, qz0 - 0.24), { tint: 0xfaf8f2 });
+    k.box('fabric', [1.2, 0.08, 0.36], [bx + 0.05, 0.685, bl - 0.36], { tint: 0xd8a040, r: 0.03, ry: 0.05 });
+    k.box('fabric', [1.2, 0.02, 0.36], [bx + 0.05, 0.725, bl - 0.36], { tint: 0xe8b860, r: 0.01, ry: 0.05 });
     // A sleepy book left on the quilt
-    k.box('paint', [0.22, 0.04, 0.3], [bx - 0.45, 0.67, 1.3], { tint: 0x3a5a7a, ry: 0.4, r: 0.01 });
+    k.box('paint', [0.22, 0.04, 0.3], [bx - 0.45, 0.685, 1.3], { tint: 0x3a5a7a, ry: 0.4, r: 0.01 });
     // Nightstand: drawer, lamp, glasses, water glass
     const nx = 9.75;
     k.box('wood', [0.6, 0.62, 0.5], [nx, 0, 0.3], { tint: OAK, ao: 0.25, r: 0.03 });
@@ -714,6 +749,7 @@ export class HouseInterior extends InteriorMap {
     this.playCorner(k, rng);
     this.readingNook(k, rng);
     this.dairyCorner(k, rng);
+    this.puzzleTable(k, rng);
     this.statics.push(k.build('front'));
     this.solid(10.65, 4.2, 11.75, 5.25, 'spinning-wheel');
     this.solid(10.1, 7.15, 11.2, 7.8, 'blanket-trunk');
@@ -721,6 +757,63 @@ export class HouseInterior extends InteriorMap {
     this.solid(1.1, 7.2, 1.6, 7.8, 'coat-rack');
     this.solid(11.9, 6.9, 12.8, 7.7, 'plant');
     this.solid(11.6, 5.0, 13, 6.4, 'desk');
+  }
+
+  /**
+   * r11: a low centrepiece in the open band between the loveseat and the door (the critic's empty plank
+   * stripe): a walnut tea-trunk table on a small round rag rug, a jigsaw half done (the farm's own
+   * meadow, sky row still missing pieces), loose pieces + the box lid, two floor cushions.
+   */
+  private puzzleTable(k: Kit, rng: Rng): void {
+    const x = 7.95;
+    const z = 5.62;
+    const rug = new THREE.CircleGeometry(0.5, 64);
+    rug.rotateX(-Math.PI / 2);
+    rug.scale(1.75, 1, 1.3);
+    k.add('braid', rug, mat(x, 0.008, z + 0.04), { tint: 0xe0b8a0 });
+    // Trunk table: a low walnut box, iron corner straps, a lighter oak lid.
+    const w = 0.92;
+    const d = 0.58;
+    k.box('wood', [w, 0.3, d], [x, 0, z], { tint: WALNUT, uv: 1.2, r: 0.03 });
+    k.box('wood', [w + 0.05, 0.045, d + 0.05], [x, 0.3, z], { tint: OAK, uv: 1.4, r: 0.02 });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.box('iron', [0.05, 0.3, 0.05], [x + sx * (w / 2 - 0.01), 0, z + sz * (d / 2 - 0.01)], { tint: 0x3a3430, r: 0.012 });
+    k.box('brass', [0.08, 0.07, 0.015], [x, 0.17, z + d / 2 + 0.005], { r: 0.008 });
+    // Puzzle board: 9 × 6 pieces — sky, a hill line, the meadow, a red barn in the middle.
+    const top = 0.345;
+    const pw = 0.068;
+    const cols = 9;
+    const rows = 6;
+    const ox = x - (cols * pw) / 2 + pw / 2 - 0.06;
+    const oz = z - (rows * pw) / 2 + pw / 2;
+    k.box('paint', [cols * pw + 0.03, 0.006, rows * pw + 0.03], [ox + ((cols - 1) * pw) / 2, top, oz + ((rows - 1) * pw) / 2], { tint: 0x5a4030, r: 0.004 });
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        // The top two rows (sky) are half done.
+        if (r < 2 && rng.next() < 0.55) continue;
+        const sky = r < 2;
+        const hill = r === 2;
+        const barn = r >= 3 && r <= 4 && c >= 4 && c <= 5;
+        const base = sky ? 0x8ec4e4 : hill ? (c % 3 === 0 ? 0x6a9a58 : 0x7aa860) : barn ? 0xb84a3a : r === 5 ? 0xd8b85a : 0x8cba62;
+        const col = new THREE.Color(base).offsetHSL(0, 0, (rng.next() - 0.5) * 0.05);
+        k.box('paint', [pw - 0.004, 0.01, pw - 0.004], [ox + c * pw, top + 0.006, oz + r * pw], { tint: col.getHex(), r: 0.003 });
+      }
+    }
+    // Loose pieces + the box lid leaning on the table, a teacup on a saucer.
+    for (let i = 0; i < 7; i++) {
+      const px = x + 0.3 + rng.next() * 0.12;
+      const pz = z - 0.2 + rng.next() * 0.4;
+      k.box('paint', [pw - 0.006, 0.01, pw - 0.006], [px, top, pz], { tint: rng.next() < 0.6 ? 0x8ec4e4 : 0x9ac8e8, ry: rng.next() * 3, r: 0.003 });
+    }
+    k.box('paint', [0.36, 0.26, 0.03], [x - 0.12, 0.0, z + d / 2 + 0.12], { tint: 0x4a7a9a, rx: -0.32, r: 0.01 });
+    k.box('paint', [0.26, 0.15, 0.005], [x - 0.12, 0.06, z + d / 2 + 0.115], { tint: 0x9ac87a, rx: -0.32, r: 0.003 });
+    k.cyl('ceramic', 0.065, 0.065, 0.01, [x + 0.34, top, z + 0.2], { tint: 0xf2eee4 });
+    k.cyl('ceramic', 0.042, 0.033, 0.055, [x + 0.34, top + 0.01, z + 0.2], { tint: 0xc8d8e8 });
+    // Two floor cushions, plumped + a little squashed, tufted button in the middle.
+    for (const [cx, cz, tint, ry] of [[x - 0.72, z + 0.12, 0xc27a78, 0.3], [x + 0.1, z + 0.62, 0x86a48c, -0.2]] as const) {
+      k.add('fabric', roundedBox(0.46, 0.13, 0.46, 0.06, 3), mat(cx, 0.065, cz, 0, ry, 0), { tint });
+      k.sphere('fabric', 0.022, [cx, 0.13, cz], 0xf0e2c8);
+    }
+    this.solid(x - w / 2 - 0.02, z - d / 2 - 0.02, x + w / 2 + 0.02, z + d / 2 + 0.02, 'puzzle-table');
   }
 
   /**
@@ -998,4 +1091,88 @@ export class HouseInterior extends InteriorMap {
     k.add('photo', g, m(h / 2 + 0.035, 0.043));
     void imat;
   }
+}
+
+/**
+ * A quilt draped over a mattress: local origin at the head-end centre of the mattress top, +z to the
+ * foot. Flat top `w` × `l`, edges rolling over a radius `r` and hanging `drop` down both sides and the
+ * foot; quilted puff per 25 cm patch; UVs in metres × 0.5 along the cloth (patches stay square over
+ * the roll). Hanging corners flare out a little and the hems wave.
+ */
+function drapedQuilt(w: number, l: number, drop: number, r: number): THREE.BufferGeometry {
+  const a = w / 2 - r;
+  const arc = (r * Math.PI) / 2;
+  const fall = drop - r;
+  const S = w / 2 + arc - r + fall + r; // half arc-length across (flat a + roll + hang)
+  const T = l - r + arc + fall;
+  const ns = 44;
+  const nt = 40;
+  const map = (u: number, lim: number): [number, number, number] => {
+    // → (offset, drop y, fall fraction) for an arc-length u past the flat part `lim`.
+    if (u <= lim) return [u, 0, 0];
+    const k = u - lim;
+    if (k <= arc) {
+      const th = k / r;
+      return [lim + r * Math.sin(th), -r * (1 - Math.cos(th)), 0];
+    }
+    const f = k - arc;
+    return [lim + r, -r - f, f / Math.max(1e-3, fall)];
+  };
+  const pos: number[] = [];
+  const uv: number[] = [];
+  for (let j = 0; j <= nt; j++) {
+    const t = (j / nt) * T;
+    const [z, yt, ft] = map(t, l - r);
+    for (let i = 0; i <= ns; i++) {
+      const sa = (i / ns) * 2 * S - S;
+      const [xa, ys, fs] = map(Math.abs(sa), a);
+      let x = Math.sign(sa) * xa;
+      let zz = z;
+      let y = Math.max(-drop - 0.04, ys + yt);
+      // Hanging corners flare outward; hems wave.
+      const f = Math.max(fs, ft);
+      x += Math.sign(sa) * 0.05 * fs * ft + Math.sign(sa) * Math.sin(t * 9) * 0.012 * fs;
+      zz += 0.05 * fs * ft + Math.sin(sa * 8) * 0.012 * ft;
+      // Quilted puff on the top: each 25 cm patch domes, the seams stay down.
+      if (ys > -1e-4 && yt > -1e-4) {
+        const pu = Math.sin(Math.PI * (((sa / 0.25) % 1) + 1) % 1) * Math.sin(Math.PI * (((t / 0.25) % 1) + 1) % 1);
+        y += 0.03 + 0.04 * Math.sqrt(Math.max(0, pu));
+      } else y += 0.035 * (1 - f);
+      pos.push(x, y, zz);
+      uv.push((sa + S) * 0.5, t * 0.5);
+    }
+  }
+  const idx: number[] = [];
+  for (let j = 0; j < nt; j++) {
+    for (let i = 0; i < ns; i++) {
+      const p = j * (ns + 1) + i;
+      idx.push(p, p + ns + 1, p + 1, p + 1, p + ns + 1, p + ns + 2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A plump pillow (half-sizes hx × hy × hz): squared-off soft body, pinched corners, a crease dent. */
+function pillowGeo(hx: number, hy: number, hz: number, seed: number): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(1, 28, 16);
+  const p = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i);
+    const y = p.getY(i);
+    const z = p.getZ(i);
+    const sx = Math.sign(x) * Math.pow(Math.abs(x), 0.55);
+    const sz = Math.sign(z) * Math.pow(Math.abs(z), 0.55);
+    const edge = Math.max(Math.abs(sx), Math.abs(sz));
+    let yy = y * (1 - 0.55 * Math.pow(edge, 3));
+    // A soft crease across the middle (where a head rested), off-centre per pillow.
+    yy -= 0.22 * Math.exp(-(((sx - 0.15 * seed) / 0.22) ** 2)) * Math.max(0, y);
+    p.setXYZ(i, sx * hx, yy * hy, sz * hz);
+  }
+  g.computeVertexNormals();
+  return g;
 }

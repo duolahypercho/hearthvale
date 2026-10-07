@@ -136,7 +136,8 @@ export class CoopDemo {
         this.game.followPlayer(true);
       });
       const q = new URLSearchParams(location.search);
-      const t = Number(q.get('t'));
+      // (farming pod) a demo-table token `t=<sec>` seeks too (coop-farm-work: farmhands mid-action).
+      const t = Number(q.get('t') ?? showcase.find((s) => s.startsWith('t='))?.slice(2));
       const t0 = Number.isFinite(t) && t > 0 ? t : 19.9;
       this.choreo.seek(t0);
       // The loop runs on real time, and boot + shader warm-up can take tens of seconds on a busy
