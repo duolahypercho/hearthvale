@@ -211,6 +211,7 @@ export function buildFishMesh(def: FishDef): FishMesh {
   bodyGeo.setIndex(idx);
   bodyGeo.computeVertexNormals();
   const basePos = Float32Array.from(pos);
+  const baseNrm = Float32Array.from((bodyGeo.attributes.normal as THREE.BufferAttribute).array as Float32Array);
 
   const bodyMat = new THREE.MeshStandardMaterial({ map: skin(def), roughness: 0.36, metalness: 0.1, envMapIntensity: 1.0 });
   bodyMat.name = 'fishSkin';
@@ -346,14 +347,49 @@ export function buildFishMesh(def: FishDef): FishMesh {
     }
     attr.needsUpdate = true;
   };
+  // Body: positions + normals in one pass. The bend is a shear z += f(x), so a rest normal maps
+  // exactly to (nx - f'(x) nz, ny, nz) (inverse-transpose of the shear's Jacobian) — the same shading
+  // as re-running computeVertexNormals() over the 1008 triangles every frame, without its cost or its
+  // ~70 KB/frame of garbage (perf r12: the top allocator on beach-sunset, GC hitches in the p99).
+  const flexBody = (t: number, amt: number): void => {
+    const pa = bodyGeo.attributes.position as THREE.BufferAttribute;
+    const na = bodyGeo.attributes.normal as THREE.BufferAttribute;
+    const a = pa.array as Float32Array;
+    const nn = na.array as Float32Array;
+    const kk = amt * 0.12;
+    for (let i = 0; i < a.length; i += 3) {
+      const x = basePos[i]!;
+      const sx = (x - x0) / L;
+      let f = 0;
+      let df = 0;
+      if (sx > 0) {
+        const ph = sx * 6.5 - t * 12;
+        const sn = Math.sin(ph);
+        const p16 = Math.pow(sx, 1.6);
+        f = sn * kk * p16;
+        df = (kk * (6.5 * Math.cos(ph) * p16 + 1.6 * sn * (p16 / sx))) / L;
+      }
+      a[i] = x;
+      a[i + 1] = basePos[i + 1]!;
+      a[i + 2] = basePos[i + 2]! + f;
+      const nz = baseNrm[i + 2]!;
+      const nx = baseNrm[i]! - df * nz;
+      const ny = baseNrm[i + 1]!;
+      const inv = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz || 1);
+      nn[i] = nx * inv;
+      nn[i + 1] = ny * inv;
+      nn[i + 2] = nz * inv;
+    }
+    pa.needsUpdate = true;
+    na.needsUpdate = true;
+  };
   let lastAmt = 0;
   return {
     group,
     flex(t, amount) {
       if (amount === 0 && lastAmt === 0) return;
       lastAmt = amount;
-      apply(bodyGeo.attributes.position as THREE.BufferAttribute, basePos, t, amount);
-      bodyGeo.computeVertexNormals();
+      flexBody(t, amount);
       apply(finGeo.attributes.position as THREE.BufferAttribute, finBase, t, amount);
       apply(eyes.geometry.attributes.position as THREE.BufferAttribute, eyeBase, t, amount);
     },

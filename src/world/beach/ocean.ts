@@ -154,6 +154,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       varying vec3 vW;
       varying float vLift;
       varying float vCloudN;
+      varying vec4 vLowN;
       ${NOISE_GLSL}
       ${SWASH_GLSL}
       float groundAt(vec2 xz) {
@@ -178,6 +179,16 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // Cloud-shadow field per vertex on the 0.25 m near sheet (the 9-36 m field is linear between
         // vertices): 4 noise taps fewer per sea pixel (perf r8). Far sheet + pools keep it per pixel.
         vCloudN = uFar > 0.5 || uPool > 0.5 || uCloudShadow < 0.001 ? 0.0 : hvFbm(wp.xz * 0.028 + vec2(uTime * 0.012, uTime * 0.006));
+        // The low-frequency noise fields (9-55 m cells: swell phase, far bands, lace patches) per vertex
+        // on the 0.5 m near sheet too: linear between vertices is identical to the eye (< 0.4 % of a
+        // cell's range), 4 noise taps fewer per sea pixel (perf r12). Far sheet + pools stay per pixel.
+        vLowN = vec4(0.0);
+        if (uFar < 0.5 && uPool < 0.5) {
+          vec2 q = wp.xz;
+          float tq = uTime;
+          vLowN = vec4(hvNoise(q * 0.07 + vec2(tq * 0.01, 0.0)), hvNoise(q * 0.018 + vec2(tq * 0.004, 0.0)),
+                       hvNoise(vec2(q.x * 0.02, q.y * 0.06) + vec2(tq * 0.01, 0.0)), hvNoise(q * 0.11 + vec2(tq * 0.012, -tq * 0.008)));
+        }
         vW = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
@@ -204,6 +215,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       varying vec3 vW;
       varying float vLift;
       varying float vCloudN;
+      varying vec4 vLowN;
       ${NOISE_GLSL}
       ${SWASH_GLSL}
       ${VORONOI_GLSL}
@@ -241,6 +253,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       void main() {
         float t = uTime;
         vec2 p = vW.xz;
+        bool lowV = uFar < 0.5 && uPool < 0.5; // vLowN is filled (near sheet)
         float ground = groundAt(p);
         float level = uLevel + vLift;
         float depth = level - ground;
@@ -295,7 +308,9 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         float rip2 = 0.0;
         {
           vec2 sd = vec2(0.28, 0.96);
-          float sPh = dot(p, sd) * 0.62 + t * 1.15 + hvNoise(p * 0.07 + vec2(t * 0.01, 0.0)) * 4.0;
+          float nSw;
+          if (lowV) nSw = vLowN.x; else nSw = hvNoise(p * 0.07 + vec2(t * 0.01, 0.0));
+          float sPh = dot(p, sd) * 0.62 + t * 1.15 + nSw * 4.0;
           swell = sin(sPh) * deepK;
           vec2 q1 = vec2(dot(p, vec2(0.96, -0.28)) * 0.75, dot(p, sd) * 1.9) + vec2(t * 0.22, t * 0.5);
           vec2 q2 = vec2(p.x * 3.1 + p.y * 1.2, p.y * 3.6 - p.x * 0.9) + vec2(-t * 0.42, t * 0.31);
@@ -365,9 +380,12 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // Far field: broad painted swell bands (long, soft, lined up with the swell), no fine texture.
         float farBand = 0.0;
         if (farK > 0.0) {
-          float fb = dot(p, vec2(0.28, 0.96)) * 0.16 + t * 0.35 + hvNoise(p * 0.018 + vec2(t * 0.004, 0.0)) * 3.2;
+          float nB1, nB2;
+          if (lowV) { nB1 = vLowN.y; nB2 = vLowN.z; }
+          else { nB1 = hvNoise(p * 0.018 + vec2(t * 0.004, 0.0)); nB2 = hvNoise(vec2(p.x * 0.02, p.y * 0.06) + vec2(t * 0.01, 0.0)); }
+          float fb = dot(p, vec2(0.28, 0.96)) * 0.16 + t * 0.35 + nB1 * 3.2;
           farBand = sin(fb) * 0.5 + 0.5;
-          float fb2 = smoothstep(0.35, 0.8, hvNoise(vec2(p.x * 0.02, p.y * 0.06) + vec2(t * 0.01, 0.0)));
+          float fb2 = smoothstep(0.35, 0.8, nB2);
           col *= 1.0 + (farBand - 0.5) * 0.26 * farK * (1.0 - uNight * 0.6);
           col = mix(col, col * vec3(0.8, 1.05, 1.08), fb2 * 0.3 * farK);
         }
@@ -512,7 +530,9 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         }
 
         // Foam: breaker bands, the swash front, lace in the shallows (only in drifting patches).
-        float lacePatch = smoothstep(0.42, 0.74, hvNoise(p * 0.11 + vec2(t * 0.012, -t * 0.008)));
+        float nLp;
+        if (lowV) nLp = vLowN.w; else nLp = hvNoise(p * 0.11 + vec2(t * 0.012, -t * 0.008));
+        float lacePatch = smoothstep(0.42, 0.74, nLp);
         // Gaps along each crest so the lines break up like real surf.
         float gaps = smoothstep(0.28, 0.62, hvNoise(vec2(p.x * 0.22, p.y * 0.05) + vec2(t * 0.03, 0.0)) + face * 0.2);
         // The lace (warped voronoi, the priciest term) is only evaluated where a term below uses it:
@@ -909,12 +929,16 @@ export function createHorizonClouds(): THREE.Mesh {
           dens *= 1.0 - 0.75 * day;
           // Daytime cumulus banks: 2-3 stylised heaps sat on a flat base just above the horizon,
           // cauliflower tops from a billow field, white sunlit crowns over blue-grey bellies.
-          if (day > 0.0) {
-            float bank = smoothstep(0.5, 0.72, hvNoise(vec2(az * 1.9 + 4.0, 1.3)));
+          // Perf r12: the heaps only exist where bank >= 0.01 (cum is multiplied by step(0.01, bank))
+          // and below the tallest possible crown (base + 0.12 + 0.025 + fade), so skip the billow fbm
+          // (4 taps) + crown noise everywhere else: zero visual change, most of the band skips them.
+          float bank = 0.0;
+          if (day > 0.0 && el < 0.17) bank = smoothstep(0.5, 0.72, hvNoise(vec2(az * 1.9 + 4.0, 1.3)));
+          if (bank >= 0.01) {
             float base = 0.014;
             float bill = hvFbm(vec2(az * 26.0 + uTime * 0.003, el * 34.0));
             float top = base + bank * (0.05 + 0.07 * hvNoise(vec2(az * 7.0, 2.0))) + (bill - 0.5) * 0.05 * bank;
-            cum = smoothstep(base - 0.004, base + 0.006, el) * smoothstep(top + 0.006, top - 0.006, el) * step(0.01, bank) * day;
+            cum = smoothstep(base - 0.004, base + 0.006, el) * smoothstep(top + 0.006, top - 0.006, el) * day;
             cumH = clamp((el - base) / max(top - base, 0.01), 0.0, 1.0);
           }
         }
