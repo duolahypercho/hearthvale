@@ -710,6 +710,92 @@ function seedling(id: CropId, add: Adder, r: Rng): void {
   }
 }
 
+/**
+ * (r16) Crop identity in the young stages (2–3), on top of the builder's foliage, so rows read as
+ * their crop from the gameplay camera before any fruit: potato on a hilled ridge with purple-tinged
+ * stems · strawberry red runners rooting little daughter crowns · melon / pumpkin a running vine with
+ * curling tendrils (pumpkin: an early yellow trumpet bud) · pepper / eggplant / tomato their first
+ * flower buds (white stars / lavender / yellow) · yam red twining shoots · blueberry a woody base with
+ * a blush of red new growth.
+ */
+function earlyIdentity(id: CropId, add: Adder, r: Rng, k: number): void {
+  const s = 0.8 + k * 0.25;
+  switch (id) {
+    case 'potato': {
+      // Hilled ridge along the row + purple stem bases.
+      const ridge = new THREE.SphereGeometry(0.17, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2);
+      ridge.scale(1.35, 0.32, 0.8);
+      add(colored(ridge, (_p, n) => C(0x5c3b25).multiplyScalar(0.62 + 0.4 * n.y)), mat(0, -0.012, 0), 'skin');
+      for (let i = 0; i < 3; i++) add(stalk(0.08 * s, 0.008, 0.006, C(0x5a3a5a), C(0x6a7a3a), 0.02, 4), mat((i - 1) * 0.05, 0.03, 0, 0, i * 2, 0.25 * (i - 1)));
+      break;
+    }
+    case 'strawberry': {
+      // Runners: thin red stolons arching over the soil, each rooting a tiny trifoliate crown.
+      for (let i = 0; i < 2 + k; i++) {
+        const a = i * 2.3 + r.next() * 0.6;
+        const L = (0.2 + r.next() * 0.06) * s;
+        const pts = [new THREE.Vector3(0, 0.02, 0), new THREE.Vector3(Math.cos(a) * L * 0.5, 0.05, Math.sin(a) * L * 0.5), new THREE.Vector3(Math.cos(a) * L, 0.008, Math.sin(a) * L)];
+        add(tube(pts, 0.005, 0.004, C(0xa83a32), C(0xc8584a), 8, 3));
+        for (const la of [-0.8, 0, 0.8]) add(leafGeo(0.035, 0.03, { shape: 'round', lift: 0.5, bend: 0.2, serrate: 0.35, cup: 0.4, c0: GREEN.dark, c1: GREEN.mid, segs: 3 }), mat(Math.cos(a) * L, 0.012, Math.sin(a) * L, 0, a + la, 0));
+      }
+      if (k === 1) for (let i = 0; i < 2; i++) flower(add, 0.024, C(0xfbf8f0), C(0xf2d040), mat((r.next() - 0.5) * 0.12, 0.1, (r.next() - 0.5) * 0.12, -0.4, r.next() * 6, 0));
+      break;
+    }
+    case 'melon':
+    case 'pumpkin': {
+      // A runner reaching out of the clump along the soil, tendrils curling off it.
+      for (let i = 0; i < 1 + k; i++) {
+        const a = i * 2.8 + r.next() * 0.5;
+        const L = (0.26 + k * 0.08) * s;
+        const pts: THREE.Vector3[] = [];
+        for (let j = 0; j <= 4; j++) pts.push(new THREE.Vector3(Math.cos(a + j * 0.12) * L * (j / 4), 0.018 + (j === 1 ? 0.02 : 0), Math.sin(a + j * 0.12) * L * (j / 4)));
+        add(tube(pts, 0.009, 0.006, C(0x5f8a34), C(0x8ab84a), 8, 4));
+        const tip = pts[4]!;
+        const curl: THREE.Vector3[] = [];
+        for (let j = 0; j <= 8; j++) {
+          const t = j / 8;
+          curl.push(new THREE.Vector3(tip.x + Math.cos(t * 9) * 0.025 * (1 - t * 0.5), tip.y + 0.01 + t * 0.05, tip.z + Math.sin(t * 9) * 0.025 * (1 - t * 0.5)));
+        }
+        add(tube(curl, 0.0035, 0.002, C(0x8ab84a), C(0xb0d070), 12, 3));
+        add(leafGeo(0.08, 0.08, { shape: id === 'melon' ? 'lobed' : 'heart', lift: 0.4, bend: 0.3, fold: 0.2, cup: 0.4, c0: GREEN.dark, c1: GREEN.mid, segs: 4 }), mat(pts[2]!.x, pts[2]!.y + 0.01, pts[2]!.z, 0, a + 1.4, 0));
+      }
+      if (id === 'pumpkin' && k === 1) flower(add, 0.04, C(0xf6b42a), C(0xe08a1a), mat(0.05, 0.12, 0.03, -0.6, 0.4, 0), 5);
+      break;
+    }
+    case 'hotPepper':
+    case 'eggplant':
+    case 'tomato': {
+      if (k !== 1) break;
+      const petal = id === 'eggplant' ? C(0xb89ad8) : id === 'tomato' ? C(0xf6d23a) : C(0xfbf8f0);
+      const heart = id === 'eggplant' ? C(0xf2d040) : id === 'tomato' ? C(0xe0a020) : C(0xd8e0a0);
+      for (let i = 0; i < 3; i++) {
+        const a = i * 2.1 + r.next() * 0.5;
+        flower(add, 0.026, petal, heart, mat(Math.cos(a) * 0.07, (id === 'tomato' ? 0.3 : 0.2) + r.next() * 0.05, Math.sin(a) * 0.07, 0.9, a, 0));
+      }
+      break;
+    }
+    case 'yam': {
+      for (let i = 0; i < 2; i++) {
+        const pts: THREE.Vector3[] = [];
+        const a0 = i * Math.PI + r.next();
+        for (let j = 0; j <= 8; j++) {
+          const t = j / 8;
+          pts.push(new THREE.Vector3(Math.cos(a0 + t * 5) * 0.05 * t + Math.cos(a0) * 0.15 * t * s, 0.02 + t * 0.14 * s, Math.sin(a0 + t * 5) * 0.05 * t + Math.sin(a0) * 0.15 * t * s));
+        }
+        add(tube(pts, 0.006, 0.003, C(0x8a3a3a), C(0xb05a4a), 12, 3));
+      }
+      break;
+    }
+    case 'blueberry': {
+      add(stalk(0.1, 0.016, 0.01, C(0x5e4230), C(0x8a6248), 0.02, 5));
+      for (let i = 0; i < 4; i++) add(leafGeo(0.045, 0.03, { shape: 'round', lift: 0.7, bend: 0.3, cup: 0.4, c0: C(0x9a3a3a), c1: C(0xc86a5a), segs: 3 }), mat(Math.cos(i * 1.6) * 0.08, 0.16 + k * 0.05, Math.sin(i * 1.6) * 0.08, 0, i * 1.6, 0));
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 /** Wooden trellis: two posts, three rails, twine diagonals. Local X is the row direction. */
 function trellis(add: Adder, h = 0.98, w = 0.34): void {
   for (const sx of [-1, 1]) {
@@ -785,6 +871,7 @@ function buildCrop(id: CropId, stage: number, r: Rng): Map<Bucket, THREE.BufferG
   } else {
     const k = stage - 2; // 0 seedling · 1 young · 2 mature / flowering · 3 ripe
     BUILDERS[id](add, r, k);
+    if (k <= 1) earlyIdentity(id, add, r, k);
   }
   const out = new Map<Bucket, THREE.BufferGeometry>();
   const geos = b.geometries();

@@ -61,6 +61,8 @@ import { CrowFlock } from '../world/props/crows';
 import { buildTool, CAN_SPOUT } from '../world/props/tools';
 import { buildSprinklerModel, type SprinklerModel } from '../world/props/sprinklers';
 import { FarmerActions, IMPACT, type ActionKind } from '../entities/farmer-actions';
+import { RemoteFarmer } from '../entities/remote-farmer';
+import { PRESET_LOOKS } from '../entities/remote-look';
 import type { Nature, NatureHandle } from '../world/props/nature';
 import { flyItemToToolbar } from '../ui/item-fly';
 import { registerFarmIcons } from '../ui/farm-icons';
@@ -318,6 +320,8 @@ export class FarmingSystem implements System, FarmingApi {
   private autoLoop: { tool: string; t: number } | null = null;
   /** Frame-sequence capture state (see SEQ_PLANS / seqFrame). */
   private seq: { tool: string; energy: number | null; acks: string[] } | null = null;
+  /** farm-coop-tools: staged farmhands (real co-op avatars) frozen mid-action beside the host. */
+  private crew: { f: RemoteFarmer; pour: boolean }[] = [];
   /** farm-crows `&ring`: show the scarecrow's reach (hidden by default — it smeared across the lawn). */
   private ringDemo = false;
   /** Tile the running action targets (the cursor stays locked on it through the swing). */
@@ -502,6 +506,84 @@ export class FarmingSystem implements System, FarmingApi {
 
   stage(name: string): void {
     this.onDemo(name, [name]);
+  }
+
+  private clearCrew(): void {
+    for (const c of this.crew) c.f.root.removeFromParent();
+    this.crew.length = 0;
+  }
+
+  /**
+   * farm-coop-tools (pillar 13 on screen): three farmhands — the same RemoteFarmer avatars and
+   * FarmerActions keyframes the net shows — work the bed beside the host, all caught on one beat:
+   * a hoe at blade contact (fresh clods), a can mid-pour onto a darkening tile, and a ripe crop
+   * caught in raised hands (a gold star). Their FX share the host's frozen timeline (stills).
+   */
+  private stageCrew(): void {
+    const g = this.grid();
+    if (!g || !this.map) return;
+    const yawOf = (f: 'down' | 'left' | 'up' | 'right'): number => (f === 'down' ? 0 : f === 'up' ? Math.PI : f === 'left' ? -Math.PI / 2 : Math.PI / 2);
+    const add = (look: number, x: number, z: number, face: 'down' | 'left' | 'up' | 'right'): RemoteFarmer => {
+      const f = new RemoteFarmer(PRESET_LOOKS[look % PRESET_LOOKS.length]!);
+      f.position.set(x, this.map!.heightAt(x, z), z);
+      f.yaw = f.targetYaw = yawOf(face);
+      f.facing = face;
+      f.gaze = f.yaw;
+      this.map!.root.add(f.root);
+      return f;
+    };
+    const freeze = (f: RemoteFarmer, t: number): void => {
+      const acts = (f as unknown as { actions: FarmerActions }).actions;
+      acts.setFreeze(t);
+      for (let k = 0; k < Math.ceil(t * 120) + 4; k++) f.update(1 / 120, 0);
+    };
+    // A: hoeing the lawn edge north of the bed, facing the lens; the tile breaks on the host's beat.
+    const hx = 23, hz = 20;
+    this.untill(hx, hz);
+    const a = add(0, hx + 0.5, hz - 0.62, 'down');
+    // B: pouring onto the dry furrow next to it.
+    const wx = 25, wz = 20;
+    this.till(wx, wz, true);
+    g.setFlag(wx, wz, TileFlag.Watered, false);
+    this.soil?.setWet(wx, wz, false);
+    const b = add(1, wx + 0.5, wz - 0.66, 'down');
+    // C: at the bed's east end, pulling a ripe crop up into both raised hands.
+    const cx = 29, cz = 22;
+    const season = this.game.calendar.season;
+    const id: CropId = season === 'summer' ? 'melon' : season === 'fall' ? 'pumpkin' : 'cauliflower';
+    const tt = this.tiles.get(key(cx, cz));
+    if (tt?.crop) this.removeCrop(tt);
+    this.till(cx, cz, true);
+    const c = add(2, cx + 1.25, cz + 0.5, 'left');
+    this.commit();
+    this.crew.push({ f: a, pour: false }, { f: b, pour: true }, { f: c, pour: false });
+    a.act('chop', 'hoe', 2, 1);
+    freeze(a, IMPACT.chop + 0.04);
+    b.act('pour', 'wateringCan', 1, 1);
+    freeze(b, 0.6);
+    c.act('lift', null, 0, 1);
+    freeze(c, 0.5);
+    // FX on the host's beat (the still freezes every farm FX with the host's frozen swing).
+    this.later(0.48, () => {
+      const p = this.center(hx, hz, 0.05);
+      this.till(hx, hz, true, true);
+      this.fx.hoeImpact(p, 0, 1, SOIL_COLOR, 1);
+      // (wet at once: the soak's flood would freeze half-way with the still)
+      this.water(wx, wz);
+      this.fx.splash(this.center(wx, wz, 0.02).add(new THREE.Vector3(0, 0, -0.15)), 0.8);
+      this.commit();
+    });
+    this.later(0.2, () => {
+      const geo = produceGeometry(id);
+      const rig = c.rig;
+      const hands = (): THREE.Vector3 => {
+        const l = rig.armL.localToWorld(new THREE.Vector3(0, -0.3, 0));
+        const r = rig.armR.localToWorld(new THREE.Vector3(0, -0.3, 0));
+        return l.add(r).multiplyScalar(0.5);
+      };
+      this.fx.leafBurst(this.center(cx, cz, 0.1), CROPS[id].leaf, 8, 1.3);
+      this.fx.pop(geo, this.center(cx, cz, 0.15), { to: hands, lift: -0.02, flight: 0.24, hold: 600, star: QUALITY_COLORS[2], scale: 1.05, face: 0.6, pivot: () => c.headWorld(new THREE.Vector3()) });
+    });
   }
 
   /** Hoe drag after the bite: ~16 cm from the tile centre back toward the farmer, rising out of the soil. */
@@ -2324,6 +2406,7 @@ export class FarmingSystem implements System, FarmingApi {
     this.timers.length = 0;
     this.autoLoop = null;
     this.seq = null;
+    this.clearCrew();
     // (r16) Hero fields keep the whole field crisp (the bottom-edge tilt-shift smeared the near
     // beds into mush); every other demo gets the default lens back.
     const hero = showcase.includes('harvest') || showcase.includes('wither') || showcase.includes('gallery');
@@ -2395,6 +2478,7 @@ export class FarmingSystem implements System, FarmingApi {
       if (loop) this.autoLoop = { tool: loop, t: 0.2 };
       else this.later(0.25, () => this.demoAct(tool, params, pose === null ? undefined : Number(pose)));
       this.game.seqHook = (i, n) => this.seqFrame(i, n, loop ?? tool);
+      if (showcase.includes('crew')) this.stageCrew();
     } else if (showcase.includes('gallery')) {
       // Every crop of the season (rows) × every growth stage (columns), for art review.
       this.showcase = 'gallery';
@@ -2622,6 +2706,11 @@ export class FarmingSystem implements System, FarmingApi {
     this.updateGiants(fdt);
     this.updateSprinklers(fdt, game);
     this.updateCursor(dt);
+    for (const c of this.crew) {
+      // Keep the staged pour flowing (its stream runs on the avatar's own clock).
+      if (c.pour) (c.f as unknown as { pourT: number }).pourT = 0.5;
+      c.f.update(dt, game.time);
+    }
     this.soil?.tick(fdt);
     this.fx.setCamera(game.rc.camera);
     this.fx.update(fdt, game.rc.renderer.domElement.height);
