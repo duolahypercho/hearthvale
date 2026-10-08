@@ -473,6 +473,28 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     pf.scale(1.08, 0.48, 1.12);
     b.add(Bone.Head, HP, pf, hm(0, R * 1.62, -0.02, -0.1), hatC);
     b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.7, R * 0.75, 0.03, 10, 1, false, -Math.PI * 0.5, Math.PI), hm(0, R * 1.45, R * 0.72, 0.22), shade(hatC, 0.85));
+  } else if (winterHat && !named && hw >= 0.14) {
+    // Winter townsfolk don't all wear the same round beanie: a floppy stocking cap, a fur trapper
+    // or a hood framing the face — distinct silhouettes in a packed square.
+    const c = hatTint;
+    if (hw < 0.24) {
+      b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 1.06, 0.05, 4, 14), hm(0, R * 1.15, -0.02, Math.PI / 2 - 0.2), shade(c, 0.8));
+      b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 0.62, R * 1.08, 0.26, 10, 1), hm(0, R * 1.42, -0.04, -0.2), c);
+      const side = hw < 0.19 ? 1 : -1;
+      b.add(Bone.Head, HP, new THREE.ConeGeometry(R * 0.6, 0.34, 9, 1), hm(side * 0.1, R * 1.95, -0.14, -0.55, 0, -side * 0.85), c);
+      b.add(Bone.Head, HP, lump(0.085, rng, 0, 0.2), hm(side * 0.27, R * 2.02, -0.3), 0xf4efe6);
+    } else if (hw < 0.32) {
+      const fur = [0x8a6a4a, 0x5a4636, 0xd8ccb8][Math.floor(hw * 300) % 3]!;
+      b.add(Bone.Head, HP, new THREE.CylinderGeometry(R * 1.06, R * 1.12, 0.2, 12, 1), hm(0, R * 1.62, -0.03, -0.15), c);
+      b.add(Bone.Head, HP, new THREE.SphereGeometry(R * 1.06, 12, 3, 0, Math.PI * 2, 0, Math.PI * 0.35), hm(0, R * 1.68, -0.03, -0.15), c);
+      b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 1.12, 0.075, 5, 16), hm(0, R * 1.42, -0.03, Math.PI / 2 - 0.15), fur);
+      for (const sx of [-1, 1]) b.add(Bone.Head, HP, roundedBox(0.09, 0.26, 0.2, 0.04), hm(sx * R * 1.1, R * 1.0, -0.02, 0, 0, sx * 0.12), fur);
+    } else {
+      const hood = new THREE.SphereGeometry(R * 1.24, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.62);
+      b.add(Bone.Head, HP, hood, hm(0, R * 0.98, -0.07, -0.42), c);
+      b.add(Bone.Head, HP, new THREE.ConeGeometry(R * 0.38, 0.22, 8), hm(0, R * 1.62, -R * 1.02, -1.9), c);
+      b.add(Bone.Head, HP, new THREE.TorusGeometry(R * 1.02, 0.065, 5, 18), hm(0, R * 1.0, R * 0.5, -0.12), 0xf4efe6);
+    }
   } else if (hat === 'beanie' || (winterHat && !named) || (winter && hat === 'sunhat')) {
     const c = hat ? hatC : hatTint;
     const bh = new THREE.SphereGeometry(R * 1.1, 10, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);

@@ -87,6 +87,8 @@ export class StarfallSquare extends FestivalMap {
     this.visitorSpots.push({ x: 28.2, z: 27.9, yaw: 2.7 }, { x: 36.0, z: 27.2, yaw: -2.6 });
     this.confettiColors = [0xd8312a, 0xf2d27a, 0x2f6a4a, 0xffffff, 0x5ab8e0];
     this.focusPoints.push({ x: TREE.x, z: TREE.z, r: 12 });
+    // Lamplit faces + a cold moon rim on hats and shoulders (warm-cool separation in the crowd).
+    this.faceLight = [0.22, 0.28];
   }
 
   // ───────────────────────────────────────────── shape
@@ -271,13 +273,14 @@ export class StarfallSquare extends FestivalMap {
       this.addProp(buildLanternPost(), x, z, rot, { solidR: 0.35, lights: 'glow' });
       for (const g of this.glowList.slice(n0)) lamps.push(new THREE.Vector3(g.x, g.y, g.z));
     };
-    for (const x of [38.5, 44.5, 50.5]) post(x, this.riverZ(x) - 3.1, Math.PI);
-    for (const x of [15.5, 21.5, 26.8]) post(x, this.riverZ(x) - 3.1, 0);
+    // (The north bank between the fire and the ice sculptures stays open: the lens looks across it
+    // to the gift circle, so no posts stand in front of faces there.)
+    for (const x of [44.5, 50.5]) post(x, this.riverZ(x) - 3.1, Math.PI);
+    for (const x of [14.5, 20.5]) post(x, this.riverZ(x) - 3.1, 0);
     for (const x of [18.5, 45.5]) post(x, this.riverZ(x) + 3.2, x < BRIDGE_X ? 0 : Math.PI);
     // Lamps at the bridge ends.
-    for (const sz of [-1, 1]) {
-      for (const sx of [-1, 1]) post(BRIDGE_X + sx * 1.5, bz + sz * 4.0, sx < 0 ? 0 : Math.PI);
-    }
+    // (South end only: posts at the north end framed the gift circle's open side like bars.)
+    for (const sx of [-1, 1]) post(BRIDGE_X + sx * 1.5, bz + 4.0, sx < 0 ? 0 : Math.PI);
     this.river.setLamps(lamps);
     // The bridge-end lamps also light the deck (the lane over the ice is never a dark trench).
     for (const sz of [-1, 1]) this.pools.add(BRIDGE_X, bz + sz * 2.6, 0.75, 2.0);
@@ -288,7 +291,8 @@ export class StarfallSquare extends FestivalMap {
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
       // Gaps where the stalls / fire open onto the plaza (the ring isn't a fence of identical posts).
-      if (Math.abs(a - Math.PI / 2) < 0.3 || i === 3 || i === 7) continue;
+      // The two south posts stood either side of the gift circle's open side (the hero sightline).
+      if (Math.abs(a - Math.PI / 2) < 0.3 || i === 1 || i === 2 || i === 3 || i === 7) continue;
       const x = TREE.x + Math.cos(a) * (PLAZA_R + 0.9);
       const z = TREE.z + Math.sin(a) * (PLAZA_R + 0.9);
       this.addProp(buildLanternPost(), x, z, -a + Math.PI, { solidR: 0.35 });
@@ -433,7 +437,7 @@ export class StarfallSquare extends FestivalMap {
       person(look, anim, x, z, face(x, z, gx, gz), { id: id ?? undefined, props: ['gift'], accent: pick(P.accents) });
     });
     // Carolers by the tree with song books.
-    for (const [dx, dz, id] of [[-3.8, 2.6, null], [-2.9, 3.4, null], [-4.6, 1.6, null], [3.9, 2.8, null]] as const) {
+    for (const [dx, dz, id] of [[-3.9, 2.4, null], [-3.1, 3.3, null], [-4.7, 1.4, null]] as const) {
       const x = TREE.x + dx;
       const z = TREE.z + dz;
       person(randomLook(r, { palette: P.tops }), 'carol', x, z, face(x, z, TREE.x, TREE.z + 8), { id: id ?? undefined, props: ['songbook'] });
@@ -488,8 +492,8 @@ export class StarfallSquare extends FestivalMap {
     {
       const a = randomLook(r, { palette: P.tops });
       const c = randomLook(r, { palette: P.tops, child: true });
-      person(a, 'lantern', 37.4, 25.6, face(37.4, 25.6, TREE.x, TREE.z), { pinned: true });
-      person(c, 'ride', 37.4, 25.6, face(37.4, 25.6, TREE.x, TREE.z), { lift: shoulderLift(a, c) });
+      person(a, 'lantern', 39.6, 24.6, face(39.6, 24.6, TREE.x, TREE.z), { pinned: true });
+      person(c, 'ride', 39.6, 24.6, face(39.6, 24.6, TREE.x, TREE.z), { lift: shoulderLift(a, c) });
     }
     // A couple chatting on the east trail, friends waving across the north path.
     person(randomLook(r, { palette: P.tops }), 'talk', 40.2, 22.6, face(40.2, 22.6, 41.3, 23.2), { props: ['mug'] });
@@ -497,7 +501,8 @@ export class StarfallSquare extends FestivalMap {
     person(randomLook(r, { palette: P.tops }), 'wave', 37.2, 15.4, 0.6, {});
     person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 26.8, 15.6, -0.5, { props: ['balloon'] });
     // Onlookers on the banks + bridge, watching the ice (facing south, toward the camera).
-    for (const [x, z, yaw, anim] of [[29.6, 29.0, 0.3, 'wave'], [35.4, 28.8, -0.2, 'cheer'], [17.8, 29.4, 0.5, 'clap'], [47.0, 29.2, -0.4, 'wave']] as const) {
+    // (None between the lens and the gift circle: that sightline is the hero zone.)
+    for (const [x, z, yaw, anim] of [[17.8, 29.4, 0.5, 'clap'], [47.0, 29.2, -0.4, 'wave']] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.3 }), anim, x, z, yaw, {});
     }
     // The welcome choir on the south bank by the bridge: two ranks singing to the arrivals (faces to

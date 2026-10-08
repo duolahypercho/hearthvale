@@ -22,7 +22,7 @@ import { buildMarketStall } from '../props/townkit';
 import { buildBunting, buildLanternPole } from '../props/festival';
 import { FestivalMap, type PlayState, type SpecView } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
-import { buildPier, buildLanternCrook, buildCabana, buildUmbrella, buildBlanket, buildBonfire, buildLighthouse, buildBeam, buildRowboat, buildSandcastle, buildWishArch } from './kit';
+import { buildPier, buildLanternCrook, buildCabana, buildUmbrella, buildBlanket, buildBonfire, buildLighthouse, buildBeam, buildRowboat, buildSandcastle, buildWishArch, buildWishTable, buildSnackCart } from './kit';
 import { Fireworks, Lanterns, GlowPoints, Bonfire, NightSky } from './fx';
 import { NightSea, SEA_FEET } from './sea';
 import { applyBeachSand } from '../beach/sand';
@@ -36,6 +36,9 @@ const _glow = new THREE.Vector3();
 const PIER = { x: 41.5, z0: 21.2, len: 17.5, deckY: 0.78, w: 2.4 };
 const ARCH = { x: 31.5, z: 19.6 };
 const FIRE = { x: 21.5, z: 27.2 };
+/** Storytelling props near the show camera: the wish table (write + fold a lantern) and a snack cart. */
+const WISH_TABLE = { x: 28.0, z: 25.9, rot: 0.3 };
+const CART = { x: 35.7, z: 25.5, rot: -0.45 };
 const LIGHTHOUSE = { x: 4.2, z: 8.6 };
 /**
  * Facing for the Lantern Release: out over the bay to the north-east, turned ~50° toward the low
@@ -80,6 +83,8 @@ export class SummerLanterns extends FestivalMap {
     // No wind-blown leaves drifting over the night sea.
     this.leafGusts = 0;
     this.focusPoints.push({ x: 31, z: 4, r: 26 });
+    // Lantern-lit faces + a cool moon rim: the crowd reads against the bright bay.
+    this.faceLight = [0.34, 0.3];
   }
 
   // ───────────────────────────────────────────── shape
@@ -240,8 +245,8 @@ export class SummerLanterns extends FestivalMap {
     this.blockCircle(ARCH.x - 2.4, ARCH.z, 0.35);
     this.blockCircle(ARCH.x + 2.4, ARCH.z, 0.35);
     const ay = this.H(ARCH.x, ARCH.z);
-    for (const l of arch.lamps) this.glowPt(ARCH.x + l.x, ay + l.y, ARCH.z + l.z, 0xffa850, 1.05, 0.07);
-    this.addLight(ARCH.x, ay + 2.4, ARCH.z + 0.6, 0xffa860, 7, 0.05, 8);
+    for (const l of arch.lamps) this.glowPt(ARCH.x + l.x, ay + l.y, ARCH.z + l.z, 0xffa850, 0.78, 0.07);
+    this.addLight(ARCH.x, ay + 2.4, ARCH.z + 0.6, 0xffa860, 5, 0.05, 8);
     this.sea.setPool(this.poolK++, ARCH.x, this.shoreZ(ARCH.x) - 1.2, 2.6, 0.8);
     // Bonfire ring.
     const bf = buildBonfire(r);
@@ -257,12 +262,32 @@ export class SummerLanterns extends FestivalMap {
     // Beach life.
     this.addProp(buildCabana(r, [0x3a6aa8, 0xf6efe2]), 50.6, 28.6, -0.15, { solidRect: [2.4, 2.0], ao: 1.8 });
     this.addProp(buildCabana(r, [0xd8573e, 0xf6efe2]), 55.8, 27.6, -0.35, { solidRect: [2.4, 2.0], ao: 1.8 });
-    this.addProp(buildUmbrella([0xf2b928, 0xf6efe2], 0.1), 46.4, 24.8, 0.4, { solidR: 0.3 });
+    this.addProp(buildUmbrella([0xf2b928, 0xf6efe2], 0.1), 45.4, 23.4, 0.4, { solidR: 0.3 });
+    // Things to do right in front of the lens: write a wish + fold a lantern, grab grilled corn.
+    const wt = buildWishTable(r);
+    this.addProp(wt.group, WISH_TABLE.x, WISH_TABLE.z, WISH_TABLE.rot, { solidRect: [2.1, 0.9], ao: 1.4 });
+    const wy = this.H(WISH_TABLE.x, WISH_TABLE.z);
+    for (const g of wt.glows) {
+      const q = g.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), WISH_TABLE.rot);
+      this.glowPt(WISH_TABLE.x + q.x, wy + q.y, WISH_TABLE.z + q.z, 0xffa850, 0.55, 0.08);
+    }
+    this.pools.add(WISH_TABLE.x, WISH_TABLE.z + 0.3, wy, 2.0);
+    const cart = buildSnackCart(r);
+    this.addProp(cart.group, CART.x, CART.z, CART.rot, { solidRect: [1.8, 1.1], ao: 1.4 });
+    const cy = this.H(CART.x, CART.z);
+    for (const g of cart.glows) {
+      const q = g.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), CART.rot);
+      this.glowPt(CART.x + q.x, cy + q.y, CART.z + q.z, 0xffa850, 0.6, 0.06);
+    }
+    const gq = cart.grill.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), CART.rot);
+    this.glowPt(CART.x + gq.x, cy + gq.y - 0.1, CART.z + gq.z, 0xff7a30, 0.5, 0.25);
+    this.addSmoke(new THREE.Vector3(CART.x + gq.x, cy + gq.y + 0.2, CART.z + gq.z), 1.6);
+    this.pools.add(CART.x, CART.z + 0.5, cy, 2.2);
     this.addProp(buildUmbrella([0x3aa8b0, 0xf6efe2], -0.12), 15.8, 25.4, 1.2, { solidR: 0.3 });
-    this.addProp(buildUmbrella([0xf06a8a, 0xf6efe2], 0.14), 36.4, 27.8, 2.2, { solidR: 0.3 });
-    this.addProp(buildBlanket(r, [0xd8573e, 0xf6efe2]), 26.8, 24.8, 0.2, {});
-    this.addProp(buildBlanket(r, [0x3a6aa8, 0xf2e6d0]), 36.2, 25.8, -0.25, {});
-    this.addProp(buildBlanket(r, [0xf2b928, 0x8a3a4a]), 46.8, 26.8, 0.4, {});
+    this.addProp(buildUmbrella([0xf06a8a, 0xf6efe2], 0.14), 41.0, 24.6, 2.2, { solidR: 0.3 });
+    this.addProp(buildBlanket(r, [0xd8573e, 0xf6efe2]), 22.4, 23.0, 0.2, {});
+    this.addProp(buildBlanket(r, [0x3a6aa8, 0xf2e6d0]), 40.6, 25.4, -0.25, {});
+    this.addProp(buildBlanket(r, [0xf2b928, 0x8a3a4a]), 45.6, 25.2, 0.4, {});
     this.addProp(buildSandcastle(r), 38.4, 22.6, 0.3, { solidR: 0.6 });
     // Driftwood + shells on the strand.
     for (const [x, z, rot] of [[10.5, 22.5, 0.4], [57.5, 21.5, -0.3], [44.6, 21.6, 1.2]] as const) this.nature.place('log', x, this.H(x, z), z, { rot, scale: 0.9, color: 0xc8b8a0 });
@@ -282,7 +307,8 @@ export class SummerLanterns extends FestivalMap {
     }
     this.addProp(bw.build({ name: 'boardwalk' }), 0, 0, 0, { y: 0 });
     const posts: THREE.Vector3[] = [];
-    for (const x of [12, 20, 28, 35, 43, 51]) {
+    // (The show camera's bottom corners stay clear: no poles cut by the frame edge.)
+    for (const x of [9.5, 16.5, 47.5, 54.5]) {
       const z = 31.2 + Math.sin(x * 0.2) * 0.4;
       this.addProp(buildLanternPole(r, posts.length), x, z, 0, { solidR: 0.4 });
       const y = this.H(x, z);
@@ -292,7 +318,7 @@ export class SummerLanterns extends FestivalMap {
     // Bunting on the outer spans only: the middle of the boardwalk is the show camera's corridor
     // down to the Wish Arch (pennants strung across it sat right in front of the lens).
     for (let i = 0; i + 1 < posts.length; i++) {
-      if (i >= 1 && i <= 3) continue;
+      if (i === 1) continue;
       this.addProp(buildBunting(r, posts[i]!, posts[i + 1]!, 0.55, 12, 3), 0, 0, 0, { y: 0 });
     }
     // Food stalls.
@@ -336,10 +362,16 @@ export class SummerLanterns extends FestivalMap {
         const d = cz - this.shoreZ(cx);
         const y = this.H(cx, cz);
         const roll = r.next();
+        // The show camera's foreground (the dunes in front of the beach) stays low: tall reeds there
+        // stood across the bottom third of the frame, over the action and the toolbar.
+        const lens = Math.abs(cx - 32) < 21 && cz > 26;
         if (d > 11) {
-          if (roll < 0.12) this.nature.place('reed', cx, y, cz, { scale: 1 + r.next() * 0.5, color: 0xb8b070 });
-          else if (roll < 0.18) this.nature.place('tallGrass', cx, y, cz, { scale: 1.2 });
-          else if (roll < 0.21) this.nature.place('tallGrass', cx, y, cz, { scale: 1.0 + r.next() * 0.3 });
+          if (roll < 0.12) {
+            if (!lens) this.nature.place('reed', cx, y, cz, { scale: 1 + r.next() * 0.5, color: 0xb8b070 });
+            else if (roll < 0.03) this.nature.place('tallGrass', cx, y, cz, { scale: 0.7 });
+          }
+          else if (roll < 0.18) this.nature.place('tallGrass', cx, y, cz, { scale: lens ? 0.75 : 1.2 });
+          else if (roll < 0.21 && !lens) this.nature.place('tallGrass', cx, y, cz, { scale: 1.0 + r.next() * 0.3 });
           else if (roll < 0.24) this.nature.place('flower', cx, y, cz, { color: [0xf6c8d8, 0xffffff, 0xf2b928][Math.floor(r.next() * 3)]! });
         } else if (d > 1.5 && roll < 0.05) {
           this.nature.place('pebbles', cx, y, cz, { scale: 0.8, color: 0xe8dcc8 });
@@ -376,7 +408,8 @@ export class SummerLanterns extends FestivalMap {
     const shoreXs = [14.5, 17.2, 20.4, 23.6, 26.2, 29.0, 35.6, 38.0, 45.2, 48.4, 51.2, 54.6];
     shoreXs.forEach((x, k) => {
       const child = r.next() < 0.3;
-      const z = this.shoreZ(x) + 0.7 + r.next() * 0.6;
+      // On the dry sand just above the swash line (feet in the surf read as accidents).
+      const z = this.shoreZ(x) + 1.6 + r.next() * 0.5;
       const yaw = Math.PI + (k % 2 ? -1 : 1) * (1.05 + r.next() * 0.35);
       const i = person(randomLook(r, { child, palette: P.tops }), child ? 'cheer' : 'lantern', x, z, yaw, { props: [child ? 'lanternPole' : 'lantern'], accent: pick(warm) });
       this.releasers.push({ i, seed: r.next() * 20 });
@@ -410,8 +443,8 @@ export class SummerLanterns extends FestivalMap {
       [0, 0, 0, 'perch', ['mug']],
       [35.4, 20.8, Math.PI + 1.2, 'lantern', ['lantern']],
       [PIER.x + 0.6, PIER.z0 - PIER.len - 0.9, Math.PI - 0.9, 'lantern', ['lantern']],
-      [47.2, 27.6, 0.4, 'sit', []],
-      [36.0, 26.6, -0.5, 'sit', []],
+      [46.0, 25.8, -0.5, 'sit', []],
+      [40.8, 25.9, -0.5, 'sit', []],
       [18.4, 23.2, 0.6, 'wave', []],
     ];
     for (const id of NPC_IDS) {
@@ -443,10 +476,22 @@ export class SummerLanterns extends FestivalMap {
       person(a, 'lantern', 41.6, 24.4, Math.PI - 0.4, { pinned: true });
       person(c, 'ride', 41.6, 24.4, Math.PI - 0.4, { lift: shoulderLift(a, c), props: ['lanternPole'], accent: 0xffb050 });
     }
+    // The wish table: a writer folding a lantern and a friend holding hers up, both three-quarters
+    // to the lens behind the table; a child in front pointing up at the shells.
+    {
+      const tx = WISH_TABLE.x;
+      const tz = WISH_TABLE.z;
+      person(randomLook(r, { palette: P.tops }), 'lantern', tx + 0.45, tz - 0.75, -0.35, { props: ['lantern'], accent: 0xffb050 });
+      person(randomLook(r, { palette: P.tops }), 'talk', tx - 0.55, tz - 0.8, 0.45, {});
+      person(randomLook(r, { palette: P.tops, child: true }), 'cheer', tx + 1.35, tz + 0.1, -0.5, { props: ['lanternPole'], accent: 0xff8a60 });
+      // The snack cart: the cook behind the grill, a customer at the counter turned side-on.
+      person(randomLook(r, { palette: P.tops }), 'talk', CART.x + 0.25, CART.z - 0.85, -0.4, {});
+      person(randomLook(r, { palette: P.tops }), 'toast', CART.x - 1.25, CART.z - 0.35, 1.5, { props: ['mug'] });
+    }
     // Blanket sitters + stall customers (turned to the camera / each other).
-    person(randomLook(r, { palette: P.tops }), 'sit', 26.4, 24.6, 0.5, { lift: 0.02 });
-    person(randomLook(r, { palette: P.tops }), 'sit', 27.4, 25.0, -0.6, { lift: 0.02 });
-    person(randomLook(r, { palette: P.tops, child: true }), 'clap', 36.8, 25.2, 0.2, { lift: 0.02 });
+    person(randomLook(r, { palette: P.tops }), 'sit', 22.0, 22.8, 0.5, { lift: 0.02 });
+    person(randomLook(r, { palette: P.tops }), 'sit', 23.0, 23.2, -0.6, { lift: 0.02 });
+    person(randomLook(r, { palette: P.tops, child: true }), 'clap', 41.5, 25.2, -0.3, { lift: 0.02 });
     person(randomLook(r, { palette: P.tops }), 'talk', 38.0, 37.0, -0.6, {});
     person(randomLook(r, { palette: P.tops }), 'toast', 24.5, 37.2, 0.4, { props: ['mug'] });
     person(randomLook(r, { palette: P.tops }), 'sway', 42.6, 30.2, -0.4, { props: ['lantern'], accent: 0xffb050 });
@@ -461,10 +506,12 @@ export class SummerLanterns extends FestivalMap {
     const pts: [number, number][] = [];
     for (let x = 13; x <= 56; x += 1.6) pts.push([x, this.shoreZ(x) - 0.4]);
     for (let i = 0; i < 6; i++) pts.push([PIER.x - 2.5 + i, PIER.z0 - PIER.len - 3.6]);
-    const floating = new Lanterns({ count: 130, area: new THREE.Vector4(12, 58, 18, 34), seaY: 0.02, mode: 'float', rng: r.fork('float'), points: pts });
+    // Half the old flotilla, held under white: the arch, the fireworks and the hero group are the
+    // focal points, with dark water between the lanterns.
+    const floating = new Lanterns({ count: 64, area: new THREE.Vector4(12, 58, 18, 34), seaY: 0.02, mode: 'float', rng: r.fork('float'), points: pts, glow: 0.5 });
     floating.group.userData.perfTag = 'lanterns';
     this.root.add(floating.group);
-    const sky = new Lanterns({ count: 26, area: new THREE.Vector4(14, 54, 20, 30), seaY: 1.2, mode: 'sky', rng: r.fork('sky'), points: pts.filter((_, i) => i % 3 === 0) });
+    const sky = new Lanterns({ count: 16, area: new THREE.Vector4(14, 54, 20, 30), seaY: 1.2, mode: 'sky', rng: r.fork('sky'), points: pts.filter((_, i) => i % 3 === 0), glow: 0.6 });
     sky.group.userData.perfTag = 'lanterns';
     this.root.add(sky.group);
     // The night sky over the bay: stars, a low violet afterglow and the moon, matched to the fog at

@@ -615,6 +615,8 @@ export interface LanternOptions {
   rng: Rng;
   /** Optional explicit base points (x, z). */
   points?: [number, number][];
+  /** Emissive / halo strength (1 = full; lower keeps the paper's warm gradient out of the white). */
+  glow?: number;
 }
 
 export class Lanterns {
@@ -635,12 +637,12 @@ export class Lanterns {
     }
     const aBase = new THREE.InstancedBufferAttribute(base, 4);
     g.setAttribute('aBase', aBase);
-    const U = { uSeaY: { value: o.seaY }, uMode: { value: o.mode === 'float' ? 0 : 1 }, uArea: { value: o.area.clone() } };
+    const U = { uSeaY: { value: o.seaY }, uMode: { value: o.mode === 'float' ? 0 : 1 }, uArea: { value: o.area.clone() }, uGlowK: { value: o.glow ?? 1 } };
     const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.65, side: THREE.DoubleSide });
     m.name = `lantern-${o.mode}`;
     patchMaterial(m, `lanterns-${o.mode}`, (shader) => {
       Object.assign(shader.uniforms, U, { uTime: globalUniforms.uTime, uLamps: globalUniforms.uLamps });
-      let vs = before(shader.vertexShader, 'void main() {', `attribute vec4 aBase; attribute float aGlow; varying float vGlow; uniform float uTime; uniform float uSeaY; uniform float uMode; uniform vec4 uArea;\n${LANTERN_MOTION}`);
+      let vs = before(shader.vertexShader, 'void main() {', `attribute vec4 aBase; attribute float aGlow; varying float vGlow; varying float vLy; uniform float uTime; uniform float uSeaY; uniform float uMode; uniform vec4 uArea;\n${LANTERN_MOTION}`);
       vs = after(
         vs,
         '#include <begin_vertex>',
@@ -651,11 +653,14 @@ export class Lanterns {
           float sw = sin(uTime * 1.1 + aBase.z * 20.0) * (uMode > 0.5 ? 0.12 : 0.06);
           transformed = vec3(transformed.x * cos(sw) - transformed.y * sin(sw), transformed.x * sin(sw) + transformed.y * cos(sw), transformed.z) * f + lp;
           vGlow = aGlow * (0.85 + 0.15 * sin(uTime * 9.0 + aBase.z * 50.0) * sin(uTime * 13.0 + aBase.w * 30.0));
+          vLy = position.y;
         }`,
       );
       shader.vertexShader = vs;
-      let fs = before(shader.fragmentShader, 'void main() {', 'varying float vGlow; uniform float uLamps;');
-      fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * vGlow * (0.6 + uLamps * 2.2);');
+      let fs = before(shader.fragmentShader, 'void main() {', 'varying float vGlow; varying float vLy; uniform float uLamps; uniform float uGlowK;');
+      // Candle-lit paper: hottest just above the flame at the foot, falling off up the shade, so the
+      // lantern keeps a warm amber gradient instead of one clipped white blob.
+      fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * vGlow * (0.6 + uLamps * 2.2) * uGlowK * mix(1.25, 0.55, smoothstep(0.02, 0.3, vLy));');
       shader.fragmentShader = fs;
     });
     const mesh = new THREE.Mesh(g, m);
@@ -708,7 +713,7 @@ export class Lanterns {
             ${FOG_V}
           }`,
         fragmentShader: /* glsl */ `
-          uniform float uLamps; uniform float uStreak;
+          uniform float uLamps; uniform float uStreak; uniform float uGlowK;
           varying vec2 vUv; varying float vF; varying float vFl;
           ${FOG_PARS_F}
           void main() {
@@ -722,7 +727,7 @@ export class Lanterns {
               float r = length(d) * 2.0;
               a = exp(-r * r * 5.0) * 0.55 + exp(-r * r * 30.0) * 0.4;
             }
-            vec3 c = vec3(1.0, 0.5, 0.18) * a * vF * vFl * (0.15 + uLamps * (uStreak > 0.5 ? 1.1 : 0.55));
+            vec3 c = vec3(1.0, 0.5, 0.18) * a * vF * vFl * (0.15 + uLamps * (uStreak > 0.5 ? 1.1 : 0.55)) * uGlowK;
             gl_FragColor = vec4(c, 1.0);
             #ifdef USE_FOG
               float fogDepth2 = vFogDepth;

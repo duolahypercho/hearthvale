@@ -1223,7 +1223,8 @@ export function buildWishArch(rng: Rng, span = 4.6): { group: THREE.Group; lamps
     b.add('bark', g, mat((p.x + q.x) / 2, (p.y + q.y) / 2, 0, 0, 0, Math.atan2(d.y, d.x)), { tint: drift });
   }
   const lamps: THREE.Vector3[] = [];
-  const tints = [0xffa850, 0xff8a60, 0xffc870, 0xff7a70];
+  // Deep amber / coral paper (not pale gold): lit, it stays a warm gradient instead of clipping white.
+  const tints = [0xd88a48, 0xd87050, 0xdea058, 0xd46658];
   for (let i = 0; i < 7; i++) {
     const t = (i + 0.5) / 7;
     const p = beam(t);
@@ -2254,4 +2255,163 @@ export function buildBanquetTable(rng: Rng, len = 4.2, season: 'spring' | 'fall'
     dishes[order[k]!]!(x, (k % 2 ? 0.14 : -0.14) + (rng.next() - 0.5) * 0.05);
   }
   return b.build({ name: `banquet-${season}` });
+}
+
+/**
+ * Tide night's wish table: a driftwood trestle where villagers write a wish on a paper slip and
+ * fold it into a toro lantern before carrying it down to the water. Bleached planks on X trestles,
+ * flat-packed lanterns, two lit toro lanterns (paper over a dark frame), a candle tray, a stack of
+ * wish slips with an ink pot + brush, a basket of more lanterns, and a line of written wishes strung
+ * between two bamboo canes behind it (each slip a different paper colour) — a thing to *do*.
+ * Returns the lit lanterns' glow anchors (prop space) for halo sprites.
+ */
+export function buildWishTable(rng: Rng): { group: THREE.Group; glows: THREE.Vector3[] } {
+  const b = new MeshBuilder();
+  const W = 1.9;
+  const D = 0.72;
+  const H = 0.74;
+  const drift = (k: number): number => [0xbcae98, 0xc8bba4, 0xa89c88, 0xb4a690][k % 4]!;
+  // Top: three bleached planks with gaps + a little warp.
+  for (let i = 0; i < 3; i++) {
+    const z = -D / 2 + (i + 0.5) * (D / 3);
+    b.add('woodGrain', roundedBox(W + (rng.next() - 0.5) * 0.08, 0.05, D / 3 - 0.025, 0.015), mat((rng.next() - 0.5) * 0.04, H, z, (rng.next() - 0.5) * 0.02, (rng.next() - 0.5) * 0.02, 0), { tint: drift(i) });
+  }
+  // X trestles (two crossed driftwood limbs each end) + a stretcher.
+  for (const sx of [-1, 1]) {
+    for (const s of [-1, 1]) {
+      const leg = bevelCylinder(0.035, 0.045, H * 1.12, 0.01, 6);
+      b.add('woodGrain', leg, mat(sx * (W / 2 - 0.22), H * 0.5, 0, s * 0.42, 0, 0), { tint: drift(2 + (s > 0 ? 1 : 0)), aoWorld: groundAO(0.25) });
+    }
+  }
+  b.add('woodGrain', bevelCylinder(0.03, 0.03, W - 0.4, 0.01, 6), mat(0, H * 0.42, 0, 0, 0, Math.PI / 2), { tint: drift(1) });
+  // A linen runner down the middle (the work surface reads pale in the lantern light).
+  b.add('cloth', roundedBox(W - 0.3, 0.012, D * 0.62, 0.004, 1), mat(0, H + 0.03, 0), { tint: 0xf2e8d6 });
+  for (const sx of [-1, 1]) b.add('cloth', roundedBox(0.012, 0.16, D * 0.62, 0.004, 1), mat(sx * (W / 2 - 0.15), H - 0.05, 0), { tint: 0xe8dcc6 });
+  // Flat-packed paper lanterns waiting to be folded (a loose fan of white / rose / pale gold sheets).
+  for (let i = 0; i < 5; i++) {
+    b.add('white', roundedBox(0.28, 0.012, 0.28, 0.004, 1), mat(-0.62 + i * 0.02, H + 0.035 + i * 0.013, -0.08 + (i % 2) * 0.03, 0, 0.25 * i - 0.4, 0), { tint: [0xf6eedc, 0xf6d6dc, 0xf6e6b8][i % 3]! });
+  }
+  // Two finished toro lanterns, lit: a paper box in a dark frame on a raft tray.
+  const glows: THREE.Vector3[] = [];
+  for (const [x, z, ry, tint] of [[0.18, -0.12, 0.3, 0xd89a58], [0.56, 0.1, -0.2, 0xd88a6a]] as const) {
+    const y = H + 0.03;
+    b.add('woodDark', roundedBox(0.3, 0.04, 0.3, 0.01, 1), mat(x, y + 0.02, z, 0, ry, 0), { tint: 0x4a2a16 });
+    b.add('paperLantern', roundedBox(0.24, 0.28, 0.24, 0.02, 1), mat(x, y + 0.19, z, 0, ry, 0), { tint });
+    for (const [px, pz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      const c = Math.cos(ry);
+      const s = Math.sin(ry);
+      const lx = px * 0.125;
+      const lz = pz * 0.125;
+      b.add('woodDark', roundedBox(0.025, 0.31, 0.025, 0.006, 1), mat(x + lx * c + lz * s, y + 0.19, z - lx * s + lz * c, 0, ry, 0), { tint: 0x3a2214 });
+    }
+    b.add('woodDark', new THREE.ConeGeometry(0.2, 0.07, 4, 1).rotateY(Math.PI / 4), mat(x, y + 0.37, z, 0, ry, 0), { tint: 0x3a2214 });
+    glows.push(new THREE.Vector3(x, y + 0.2, z));
+  }
+  // Candle tray: stubby candles on a tin plate.
+  b.add('metal', new THREE.CylinderGeometry(0.17, 0.17, 0.015, 14), mat(-0.15, H + 0.035, 0.2), { tint: 0x8a7a68 });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const h = 0.05 + rng.next() * 0.04;
+    b.add('white', new THREE.CylinderGeometry(0.022, 0.024, h, 7), mat(-0.15 + Math.cos(a) * 0.1, H + 0.04 + h / 2, 0.2 + Math.sin(a) * 0.08), { tint: 0xf6ecd4 });
+  }
+  // Wish slips, ink pot + brush.
+  for (let i = 0; i < 6; i++) b.add('white', roundedBox(0.1, 0.006, 0.17, 0.002, 1), mat(-0.4 + (rng.next() - 0.5) * 0.05, H + 0.033 + i * 0.006, 0.2 + (rng.next() - 0.5) * 0.04, 0, (rng.next() - 0.5) * 0.5, 0), { tint: 0xfbf4e4 });
+  b.add('white', new THREE.CylinderGeometry(0.035, 0.04, 0.05, 10), mat(-0.24, H + 0.055, 0.27), { tint: 0x23262e });
+  b.add('woodGrain', bevelCylinder(0.007, 0.006, 0.2, 0.002, 5), mat(-0.27, H + 0.06, 0.2, 0, 0.3, 1.45), { tint: 0xc8a060 });
+  // A basket of folded lanterns at the trestle foot.
+  b.add('thatch', new THREE.CylinderGeometry(0.24, 0.19, 0.26, 12, 1, true), mat(-W / 2 - 0.05, 0.13, 0.32), { tint: 0xc89858, aoWorld: groundAO(0.2) });
+  b.add('thatch', new THREE.TorusGeometry(0.235, 0.025, 4, 14), mat(-W / 2 - 0.05, 0.26, 0.32, Math.PI / 2, 0, 0), { tint: 0xa87a44 });
+  for (let i = 0; i < 4; i++) {
+    const a = i * 1.7;
+    b.add('paperLantern', roundedBox(0.15, 0.17, 0.15, 0.015, 1), mat(-W / 2 - 0.05 + Math.cos(a) * 0.09, 0.3 + (i % 2) * 0.03, 0.32 + Math.sin(a) * 0.08, 0.2 * (i - 1.5), a, 0.15), { tint: [0xb8806a, 0xc89a5a, 0xb07888, 0xc8a070][i]! });
+  }
+  // The wish line: two bamboo canes behind the table and a sagging string of written slips.
+  // (Strung well above head height: the slips never cross a face.)
+  const pA = new THREE.Vector3(-W / 2 + 0.05, 2.5, -D / 2 - 0.25);
+  const pB = new THREE.Vector3(W / 2 - 0.05, 2.4, -D / 2 - 0.25);
+  for (const p of [pA, pB]) {
+    b.add('woodGrain', bevelCylinder(0.025, 0.03, p.y + 0.15, 0.008, 6), mat(p.x, (p.y + 0.15) / 2 - 0.1, p.z), { tint: 0xb8a060, aoWorld: groundAO(0.2) });
+    for (let k = 1; k < 4; k++) b.add('woodGrain', new THREE.TorusGeometry(0.03, 0.006, 3, 8), mat(p.x, k * 0.5, p.z, Math.PI / 2, 0, 0), { tint: 0x8a7040 });
+  }
+  const tmp = new THREE.Vector3();
+  const N = 11;
+  for (let i = 0; i <= 24; i++) {
+    catenary(pA, pB, 0.22, i / 24, tmp);
+    b.add('white', new THREE.SphereGeometry(0.008, 4, 3), mat(tmp.x, tmp.y, tmp.z), { tint: 0xe8dcc0 });
+  }
+  const slip = [0xfbf4e4, 0xf6d6dc, 0xf6e6b8, 0xd8ecf0, 0xe8dcf4];
+  for (let i = 0; i < N; i++) {
+    catenary(pA, pB, 0.22, (i + 0.5) / N, tmp);
+    const h = 0.16 + rng.next() * 0.06;
+    b.add('white', roundedBox(0.075, h, 0.006, 0.003, 1), mat(tmp.x, tmp.y - h / 2 - 0.01, tmp.z, 0, (rng.next() - 0.5) * 0.6, (rng.next() - 0.5) * 0.15), { tint: slip[i % slip.length]! });
+  }
+  return { group: b.build({ name: 'wish-table' }), glows };
+}
+
+/**
+ * A beach snack cart (grilled corn + sweet skewers): a painted box cart on two spoked wheels with a
+ * striped canopy on thin poles, a charcoal grill glowing on top (corn cobs + skewers on the bars),
+ * a slate menu board, two paper lanterns from the canopy corners. Returns the grill (for smoke) and
+ * the lanterns' glow anchors.
+ */
+export function buildSnackCart(rng: Rng, stripes: [number, number] = [0xd8573e, 0xf6efe2]): { group: THREE.Group; grill: THREE.Vector3; glows: THREE.Vector3[] } {
+  const b = new MeshBuilder();
+  const W = 1.5;
+  const D = 0.8;
+  // Body: teal painted planks with a cream trim band.
+  b.add('woodPaint', roundedBox(W, 0.62, D, 0.04), mat(0, 0.62, 0), { tint: 0x2f7a7a, aoWorld: groundAO(0.4) });
+  b.add('woodPaint', roundedBox(W + 0.04, 0.08, D + 0.04, 0.02), mat(0, 0.36, 0), { tint: 0xf2e6c8 });
+  for (let i = 0; i < 5; i++) b.add('woodPaint', roundedBox(0.012, 0.5, 0.01, 0.004, 1), mat(-W / 2 + 0.15 + i * 0.3, 0.66, D / 2 + 0.005), { tint: 0x245e5e });
+  b.add('woodGrain', roundedBox(W + 0.12, 0.05, D + 0.12, 0.02), mat(0, 0.95, 0), { tint: 0xc8a07a });
+  // Wheels + axle + handles.
+  for (const sz of [-1, 1]) {
+    const z = sz * (D / 2 + 0.04);
+    b.add('woodGrain', new THREE.TorusGeometry(0.28, 0.035, 5, 16), mat(0.15, 0.3, z), { tint: 0x6a4a2e });
+    for (let k = 0; k < 6; k++) b.add('woodGrain', roundedBox(0.025, 0.52, 0.02, 0.006, 1), mat(0.15, 0.3, z, 0, 0, (k / 6) * Math.PI), { tint: 0x7a5434 });
+    b.add('woodGrain', new THREE.SphereGeometry(0.05, 8, 6), mat(0.15, 0.3, z), { tint: 0x4a3420 });
+    b.add('woodGrain', bevelCylinder(0.02, 0.02, 0.7, 0.005, 6), mat(-W / 2 - 0.3, 0.72, sz * 0.25, 0, 0, Math.PI / 2 - 0.2), { tint: 0x8a6440 });
+  }
+  // Grill: an iron trough with glowing coals, bars, corn cobs + skewers.
+  b.add('metal', roundedBox(0.75, 0.16, 0.42, 0.03), mat(-0.25, 1.06, 0), { tint: 0x2e2a28 });
+  for (let i = 0; i < 9; i++) b.add('lampGlow', lumpySphere(0.045, 0, 0.3, rng, 2), mat(-0.55 + i * 0.075, 1.13, -0.1 + (i % 3) * 0.1), { tint: [0xff6a2a, 0xffa040, 0xd84a1a][i % 3]! });
+  for (let i = 0; i < 6; i++) b.add('metal', bevelCylinder(0.006, 0.006, 0.42, 0.002, 4), mat(-0.55 + i * 0.12, 1.16, 0, Math.PI / 2, 0, 0), { tint: 0x5a5450 });
+  for (let i = 0; i < 3; i++) {
+    const cob = lumpySphere(0.05, 1, 0.12, rng, 4);
+    cob.scale(1, 1, 2.6);
+    b.add('white', cob, mat(-0.48 + i * 0.16, 1.2, 0.02, 0, 0.1 * (i - 1), 0), { tint: [0xf2c43a, 0xe8b030, 0xd89a28][i]! });
+  }
+  for (let i = 0; i < 3; i++) {
+    b.add('woodGrain', bevelCylinder(0.005, 0.005, 0.38, 0.002, 4), mat(0.0 + i * 0.05, 1.21, 0, Math.PI / 2, 0.2, 0), { tint: 0xd8c098 });
+    for (let k = 0; k < 3; k++) b.add('white', lumpySphere(0.03, 0, 0.25, rng, 2), mat(0.0 + i * 0.05, 1.21, -0.1 + k * 0.08), { tint: [0xe86a7a, 0xf2a85a, 0x8ac06a][(i + k) % 3]! });
+  }
+  // Paper cups + a jar of sweets on the counter.
+  for (let i = 0; i < 4; i++) b.add('white', new THREE.CylinderGeometry(0.04, 0.03, 0.09, 8), mat(0.32 + (i % 2) * 0.1, 1.02, -0.12 + Math.floor(i / 2) * 0.12), { tint: [0xf6ecd8, 0xf6d6dc][i % 2]! });
+  b.add('glass', new THREE.CylinderGeometry(0.07, 0.07, 0.18, 10), mat(0.58, 1.06, 0.12), { tint: 0xd8e8f0 });
+  // Canopy: four thin poles + a striped pitched cloth top with a scalloped valance.
+  const ch = 2.15;
+  for (const [px, pz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add('woodGrain', bevelCylinder(0.022, 0.022, ch - 0.95, 0.005, 6), mat(px * (W / 2 - 0.03), 0.95 + (ch - 0.95) / 2, pz * (D / 2 - 0.03)), { tint: 0xe8dcc8 });
+  const n = 7;
+  for (let i = 0; i < n; i++) {
+    const x = -W / 2 - 0.1 + (i + 0.5) * ((W + 0.2) / n);
+    for (const s of [-1, 1]) b.add('cloth', roundedBox((W + 0.2) / n + 0.004, 0.025, D * 0.62, 0.01, 1), mat(x, ch + 0.1, s * D * 0.28, s * 0.32, 0, 0), { tint: stripes[i % 2]! });
+    for (const s of [-1, 1]) b.add('cloth', new THREE.SphereGeometry((W + 0.2) / n / 2, 8, 3, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2).scale(1, 0.55, 0.25), mat(x, ch - 0.06, s * (D * 0.56 + 0.02)), { tint: stripes[(i + 1) % 2]! });
+  }
+  // Slate menu board leaning on the front.
+  b.add('woodGrain', roundedBox(0.42, 0.52, 0.03, 0.01), mat(W / 2 + 0.28, 0.27, D / 2 - 0.05, -0.18, -0.5, 0), { tint: 0x6a4a2e });
+  b.add('white', roundedBox(0.36, 0.44, 0.012, 0.005, 1), mat(W / 2 + 0.285, 0.275, D / 2 - 0.03, -0.18, -0.5, 0), { tint: 0x2a3030 });
+  for (let i = 0; i < 4; i++) b.add('white', roundedBox(0.24 - (i % 2) * 0.08, 0.018, 0.004, 0.002, 1), mat(W / 2 + 0.29 + 0.0, 0.4 - i * 0.08, D / 2 - 0.018 + i * 0.01, -0.18, -0.5, 0), { tint: 0xf2ecdc });
+  // Two lanterns hanging from the front canopy corners.
+  const glows: THREE.Vector3[] = [];
+  for (const sx of [-1, 1]) {
+    const x = sx * (W / 2 - 0.03);
+    const z = D / 2 + 0.05;
+    b.add('white', bevelCylinder(0.004, 0.004, 0.22, 0.001, 3), mat(x, ch - 0.2, z), { tint: 0x3a2a1e });
+    const lan = new THREE.SphereGeometry(0.13, 10, 8);
+    lan.scale(1, 1.25, 1);
+    b.add('paperLantern', lan, mat(x, ch - 0.45, z), { tint: sx < 0 ? 0xd88a5a : 0xd8a058 });
+    b.add('woodDark', new THREE.CylinderGeometry(0.07, 0.08, 0.04, 8), mat(x, ch - 0.29, z), { tint: 0x3a2214 });
+    b.add('woodDark', new THREE.CylinderGeometry(0.08, 0.07, 0.04, 8), mat(x, ch - 0.61, z), { tint: 0x3a2214 });
+    glows.push(new THREE.Vector3(x, ch - 0.45, z));
+  }
+  return { group: b.build({ name: 'snack-cart' }), grill: new THREE.Vector3(-0.25, 1.25, 0), glows };
 }

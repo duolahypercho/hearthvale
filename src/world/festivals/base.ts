@@ -396,11 +396,13 @@ export abstract class FestivalMap implements GameMap {
       for (const [id, i] of this.named) {
         const m = c.members[i]!;
         const d = Math.hypot(m.x - p.x, m.z - p.z);
-        if (d < 9) near.push({ id, i, d });
+        if (d < PIP_R) near.push({ id, i, d });
       }
       near.sort((a, b) => a.d - b.d);
     }
-    const want = near.slice(0, 4);
+    // Only the one or two villagers you're actually next to (or about to talk to) are tagged: a
+    // floating label over every face buried the hosts, the player and the activity in the crowd.
+    const want = near.slice(0, 2);
     while (this.pips.length < 4) {
       const el = document.createElement('div');
       el.className = 'fest-pip';
@@ -426,7 +428,7 @@ export abstract class FestivalMap implements GameMap {
         }
       }
       const cur = want.find((x) => x.id === pip.id);
-      const goal = cur ? Math.min(1, (9 - cur.d) / 2) : 0;
+      const goal = cur ? Math.min(1, (PIP_R - cur.d) / 1.5) : 0;
       pip.a += (goal - pip.a) * (1 - Math.exp(-8 * dt));
       const idx = this.named.get(pip.id);
       const m = idx !== undefined ? c.members[idx] : undefined;
@@ -1058,6 +1060,9 @@ export abstract class FestivalMap implements GameMap {
     this.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
   }
 }
+
+/** Name pips show for villagers within this many metres of the player. */
+const PIP_R = 4.5;
 
 /** A small pill name tag (co-op visitor) above a farmer's head. */
 function nameTag(name: string, color: string): THREE.Sprite {
