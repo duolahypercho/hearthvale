@@ -470,3 +470,80 @@ export function buildWinterWear(
   out.userData.perfTag = 'terrain';
   return out;
 }
+
+/**
+ * r12 (critic: "flat grey-white snow with weak, neutral shadows"; Stardew's winter gets its charm from
+ * saturated cyan-blue shadows): a cold contact shade multiplied over the snow — a blurred blue pool
+ * round every building (heavier on the north-east, the afternoon shadow side) and under every prop,
+ * stall, bench and lamp. One draped decal over the town centre, one draw call, unlit multiply, winter only.
+ */
+export function buildWinterShade(
+  region: { x0: number; z0: number; x1: number; z1: number },
+  rects: [number, number, number, number][],
+  props: { x: number; z: number; r: number }[],
+  heightAt: (x: number, z: number) => number,
+): THREE.Mesh {
+  const W = region.x1 - region.x0;
+  const D = region.z1 - region.z0;
+  const ppm = 16;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(W * ppm);
+  c.height = Math.ceil(D * ppm);
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, c.width, c.height);
+  const X = (x: number): number => (x - region.x0) * ppm;
+  const Z = (z: number): number => (z - region.z0) * ppm;
+  // Buildings: a wide soft pool, pushed to the shadow side, then a tighter, deeper band at the walls.
+  g.filter = `blur(${Math.round(ppm * 1.1)}px)`;
+  g.fillStyle = 'rgb(150,184,232)';
+  for (const [x0, z0, x1, z1] of rects) g.fillRect(X(x0 - 0.6 + 0.5), Z(z0 - 1.6), (x1 - x0 + 1.6) * ppm, (z1 - z0 + 2.0) * ppm);
+  g.filter = `blur(${Math.round(ppm * 0.4)}px)`;
+  g.fillStyle = 'rgb(128,168,226)';
+  for (const [x0, z0, x1, z1] of rects) g.fillRect(X(x0 - 0.25), Z(z0 - 0.45), (x1 - x0 + 0.7) * ppm, (z1 - z0 + 0.6) * ppm);
+  // Props: a blue contact pool under each, offset to the shadow side.
+  g.filter = `blur(${Math.round(ppm * 0.35)}px)`;
+  for (const p of props) {
+    g.fillStyle = 'rgba(122,162,224,0.85)';
+    g.beginPath();
+    g.ellipse(X(p.x + p.r * 0.25), Z(p.z - p.r * 0.3), p.r * ppm, p.r * ppm * 0.8, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.filter = 'none';
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const NX = Math.ceil(W / 1.2);
+  const NZ = Math.ceil(D / 1.2);
+  const geo = new THREE.PlaneGeometry(W, D, NX, NZ);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i) + region.x0 + W / 2;
+    const z = pos.getZ(i) + region.z0 + D / 2;
+    pos.setXYZ(i, x, heightAt(x, z) + 0.035, z);
+  }
+  geo.computeBoundingSphere();
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+    fog: false,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.DstColorFactor,
+    blendDst: THREE.ZeroFactor,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
+  });
+  mat.name = 'winter-shade';
+  const m = new THREE.Mesh(geo, mat);
+  m.name = 'winter-shade';
+  m.renderOrder = 1;
+  m.userData.perfTag = 'terrain';
+  m.userData.noAO = true;
+  m.castShadow = m.receiveShadow = false;
+  return m;
+}

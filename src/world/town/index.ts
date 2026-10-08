@@ -23,11 +23,12 @@ import { TreeField } from '../props/trees';
 import { Nature } from '../props/nature';
 import { mergeStatic } from '../geom';
 import { BatchPool, InstancedSet } from '../props/instanced';
-import { FountainFX } from './fountain';
+import { FountainFX, buildFountainIce } from './fountain';
+import { buildPlazaWear } from './plaza';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
 import { buildChalkAFrame } from './aframe';
-import { buildSnowmen, buildSweptPaths, buildWreathDressing, buildWinterWear } from './winter';
+import { buildSnowmen, buildSweptPaths, buildWreathDressing, buildWinterWear, buildWinterShade } from './winter';
 import { findPath } from './pathfind';
 import { NPCS } from '../../data/npcs';
 import { globalUniforms } from '../../render/uniforms';
@@ -166,6 +167,9 @@ export class TownMap implements GameMap {
   private forgeFire: FireFX | null = null;
   private forgeLight: THREE.PointLight | null = null;
   private fountainFx: FountainFX | null = null;
+  private fountainIce: THREE.Mesh | null = null;
+  private plazaWear: THREE.Mesh | null = null;
+  private winterShade: THREE.Mesh | null = null;
   private festoons: Festoons | null = null;
   private snowmen: THREE.Group | null = null;
   private swept: THREE.Mesh | null = null;
@@ -647,6 +651,9 @@ export class TownMap implements GameMap {
     this.poi.plaza = [{ x: PLAZA.x, z: PLAZA.z }];
     this.fountainFx = new FountainFX(new THREE.Vector3(PLAZA.x, this.terrain.heightAt(PLAZA.x, PLAZA.z) - 0.03, PLAZA.z));
     this.root.add(this.fountainFx.group);
+    // r12: foot-traffic wear, moss in the quiet joints, damp under the basin, petals in the corners.
+    this.plazaWear = buildPlazaWear(PLAZA.x, PLAZA.z, 8.6, (x, z) => this.terrain.heightAt(x, z));
+    this.root.add(this.plazaWear);
   }
 
   private buildExtraProps(): void {
@@ -1152,8 +1159,26 @@ export class TownMap implements GameMap {
 
   setSeason(season: Season): void {
     if (this.wreaths) for (const [k, g] of Object.entries(this.wreaths)) g.visible = k === season;
-    // The basin freezes over in winter: no running water.
+    // The basin freezes over in winter: no running water — an ice sheet, frozen jets and icicles (r12).
     if (this.fountainFx) this.fountainFx.group.visible = season !== 'winter';
+    if (season === 'winter' && !this.fountainIce) {
+      this.fountainIce = buildFountainIce(new THREE.Vector3(PLAZA.x, this.terrain.heightAt(PLAZA.x, PLAZA.z) - 0.03, PLAZA.z));
+      this.root.add(this.fountainIce);
+    }
+    if (this.fountainIce) this.fountainIce.visible = season === 'winter';
+    if (this.plazaWear) this.plazaWear.visible = season !== 'winter';
+    if (season === 'winter' && !this.winterShade) {
+      const R: Partial<Record<string, number>> = { marketStall: 1.7, stall: 1.6, fountain: 2.9, bench: 1.0, lanternPost: 0.5, lamp: 0.5, lampLit: 0.5, noticeBoard: 1.1, planter: 0.8, barrel: 0.5, crateStack: 0.8, crates: 0.8, cafeSet: 1.0, flowerCart: 1.1, wheelbarrow: 0.8, well: 1.1, produce: 1.1, sacks: 0.6, hedge: 1.2, signpost: 0.4, sandwichBoard: 0.45 };
+      const props: { x: number; z: number; r: number }[] = [];
+      for (const p of [...TOWN_PROPS, ...EXTRA_PROPS] as { kind: string; x: number; z: number }[]) {
+        const r = R[p.kind];
+        if (r) props.push({ x: p.x, z: p.z, r });
+      }
+      const rects = [...BUILDINGS, ...NEW_BUILDINGS].map((b) => [b.block[0], b.block[1], b.block[2] + 1, b.block[3] + 1] as [number, number, number, number]);
+      this.winterShade = buildWinterShade({ x0: 6, z0: 2, x1: 96, z1: 56 }, rects, props, (x, z) => this.terrain.heightAt(x, z) + this.terrain.driftAt(x, z) * 0.2 + 0.03);
+      this.root.add(this.winterShade);
+    }
+    if (this.winterShade) this.winterShade.visible = season === 'winter';
     this.trees.setSeason(season);
     this.nature.setSeason(season);
     this.ambience.setSeason(season);

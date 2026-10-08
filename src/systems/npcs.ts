@@ -124,6 +124,8 @@ const _bRight = new THREE.Vector3();
 const _bUp = new THREE.Vector3();
 // Lens-sweep scratch (pillar 14: the 42-angle camera search allocated ~30-74 KB a frame, GC on p99, r5).
 const _cp = new THREE.Vector3();
+const _rcDir = new THREE.Vector3();
+const _rcNear: number[] = [];
 const _sa = new THREE.Vector3();
 const _sb = new THREE.Vector3();
 const _seen: { id: Who; x: number; y: number; z: number; head: number }[] = [];
@@ -141,6 +143,10 @@ const CAM_CANDS: readonly (readonly [number, number, number])[] = (() => {
  *  north-facing facade — the inn terrace — can only be seen from the far side). */
 const CAM_REV: readonly (readonly [number, number, number])[] = CAM_CANDS.filter((c) => Math.abs(c[0]) <= 30).map((c) => [c[0] + 180, c[1], c[2]] as const);
 /** A/B switch for the prop-occluder term (`&propocc=0`). */
+/** Live-talk lens (r12): distance (m), pitch (°) and the actors' lift above frame centre. `?talkd=` A/B. */
+const TALK_DIST = typeof location !== 'undefined' && new URLSearchParams(location.search).get('talkd') ? Number(new URLSearchParams(location.search).get('talkd')) : 6.5;
+const TALK_PITCH = TALK_DIST > 8 ? 25 : 20;
+const TALK_UP = TALK_DIST > 8 ? 0.24 : 0.3;
 const NO_PROP_OCC = typeof location !== 'undefined' && new URLSearchParams(location.search).get('propocc') === '0';
 const CAM_ALL = [...CAM_CANDS, ...CAM_REV];
 const FACING_YAW: Record<Facing, number> = { down: 0, up: Math.PI, left: -Math.PI / 2, right: Math.PI / 2 };
@@ -201,6 +207,22 @@ const STAGES: Record<string, Mark[]> = {
     ['linus', 46.6, 31.2, 0, 'idle', undefined, { walk: [40.4, 34.6] }],
     ['odessa', 58.6, 29.6, 0, 'idle', undefined, { walk: [52.8, 26.0] }],
     ['tobias', 37.8, 26.8, -35, 'idle', 'music'],
+  ],
+  // r12 (critic: "the forge, inn and clinic are off-frame in every establishing shot"): the east bank
+  // from over the river — Rowan crossing the Kettle Bridge, Wren at her easel on the near bank, Linus
+  // fishing off the dock, a pair at the café parasols, Kit tearing up the road, Odessa hauling stock
+  // to the forge, June and Bram on the inn terrace, Tobias on his way along the bank.
+  'town-establish': [
+    ['rowan', 61.6, 25.6, 0, 'idle', undefined, { walk: [67.8, 25.8] }],
+    ['wren', 59.9, 21.5, 40, 'paint'],
+    ['linus', 61.3, 36.6, 0, 'fish', undefined, { free: true }],
+    ['marigold', 71.6, 23.2, 70, 'chat', 'music', { free: true }],
+    ['hazel', 72.7, 23.7, -100, 'chat', undefined, { free: true }],
+    ['kit', 69.6, 28.8, 0, 'play', 'exclaim', { walk: [73.6, 31.2], run: true }],
+    ['odessa', 72.4, 19.6, 0, 'carry', undefined, { walk: [76.4, 18.8] }],
+    ['june', 78.4, 30.6, -40, 'chat', undefined, { free: true }],
+    ['bram', 79.7, 30.3, 60, 'chat', 'heart', { free: true }],
+    ['tobias', 70.6, 33.8, 20, 'idle', undefined, { walk: [71.2, 30.2] }],
   ],
   'town-square': [
     ['marigold', 20.6, 21.3, 25, 'sweep'],
@@ -358,13 +380,19 @@ const PROP_CLEAR: { x: number; z: number; r: number }[] = [
 /** Benches (seat centre + yaw): actors may only be on one seated. */
 const BENCHES: { x: number; z: number; rot: number }[] = [...TOWN_PROPS, ...EXTRA_PROPS].filter((p) => p.kind === 'bench').map((p) => ({ x: p.x, z: p.z, rot: (p as { rot?: number }).rot ?? 0 }));
 /** Thin vertical occluders (lamp posts, festoon poles): a lens whose sight line grazes one is rejected. */
-const POSTS: { x: number; z: number }[] = [
+const POSTS: { x: number; z: number; h?: number }[] = [
   ...TOWN_PROPS.filter((p) => p.kind === 'lanternPost').map((p) => ({ x: p.x, z: p.z })),
-  ...EXTRA_PROPS.filter((p) => p.kind === 'lamp' || p.kind === 'lampLit' || p.kind === 'signpost').map((p) => ({ x: p.x, z: p.z })),
+  ...EXTRA_PROPS.filter((p) => p.kind === 'lamp' || p.kind === 'lampLit' || p.kind === 'signpost').map((p) => ({ x: p.x, z: p.z, h: p.kind === 'signpost' ? 2.0 : undefined })),
   ...FESTOON_POLES.map(([x, z]) => ({ x, z })),
   // Stone-bridge end pillars (parapet posts at each corner).
-  ...BRIDGES.filter((b) => b.kind === 'stone').flatMap((b) => [-1, 1].flatMap((sx) => [-1, 1].map((sz) => ({ x: b.x + (sx * b.len) / 2, z: b.z + (sz * b.width) / 2 })))),
+  // (r12: knee-to-waist high stone pillars, not 3.3 m lamp posts — rowan-4's pillar 'beside his head')
+  ...BRIDGES.filter((b) => b.kind === 'stone').flatMap((b) => [-1, 1].flatMap((sx) => [-1, 1].map((sz) => ({ x: b.x + (sx * b.len) / 2, z: b.z + (sz * b.width) / 2, h: 1.35 })))),
 ];
+/** r12: the lanterns hanging off the plaza posts' arms (0.45 m out at ~1.6–2.15 m: right at face height). */
+const LANTERNS: { x: number; z: number }[] = TOWN_PROPS.filter((p) => p.kind === 'lanternPost').map((p) => {
+  const r = (p as { rot?: number }).rot ?? 0;
+  return { x: p.x + Math.cos(r) * 0.45, z: p.z - Math.sin(r) * 0.45 };
+});
 /** Free-standing lamp posts + festoon poles (no bridge pillars): kept out of the middle of event frames. */
 const LAMP_POSTS = POSTS.filter((p) => !BRIDGES.some((b) => b.kind === 'stone' && Math.abs(p.x - b.x) <= b.len / 2 + 0.01 && Math.abs(p.z - b.z) <= b.width / 2 + 0.01));
 /** Errand destinations: the everyday walks between shops, the board, the square and the river. */
@@ -599,17 +627,17 @@ export class NpcSystem implements System {
     // a prop or a building in a sight line, and the fountain / a bystander in front of the pair
     // (auditTalk's foreground clutter) counts too.)
     let bestScore = Infinity;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 9; i++) {
       const fails = this.talkFrameFails();
       let score = 0;
-      for (const f of fails) score += f.startsWith('post on a head') ? 0.4 : 1;
+      for (const f of fails) score += f.startsWith('post on a head') ? 0.4 : f.startsWith('post over a face') ? 2.5 : 1;
       if (this.talkClutter() > 0) score += 0.8;
       if (score < bestScore) {
         bestScore = score;
         bestFails = fails;
         bestPlace = { slide: this.talkSlide ? { ...this.talkSlide } : null, vx: t.v.position.x, vz: t.v.position.z };
       }
-      if (score === 0 || i === 5) break;
+      if (score === 0 || i === 8) break;
       const s = this.talkSlide;
       ban.push(s ? { x: s.x1, z: s.z1 } : { x: pl.position.x, z: pl.position.z });
       // (re-solve from the original stance)
@@ -714,7 +742,11 @@ export class NpcSystem implements System {
       // (r8b: a wider berth than the event scorer — the post's hanging lantern sits ~0.5 m out from the
       // pole: in the live Rowan talk it hung right beside the farmer's hat brim)
       const pn = this.postsNearHeads(tc, acts, t.def.id, 2.7);
-      if (pn) fails.push(`post on a head (${pn})`);
+      if (pn) fails.push(`post on a head (${pn}: ${this.postHits.join(' ')})`);
+      // (r12 critic: a lamp post + its lantern IN FRONT of the farmer's face in a live talk — the post
+      // and the lantern hanging ~0.5 m off it cover the head: a hard fail, not a soft 'beside')
+      const pf = this.postsNearHeads(tc, acts, t.def.id, 2.1, true);
+      if (pf) fails.push(`post over a face (${pf})`);
       this.gatherOcc(tc.position.x, tc.position.z, 24);
       const ph = this.propHits(tc.position, acts);
       if (ph) fails.push(`lens in / behind a prop (${ph})`);
@@ -914,6 +946,8 @@ export class NpcSystem implements System {
     if (ph) fails.push(`lens in / behind a prop (${ph})`);
     const hits = this.buildingHits(cam.position, acts);
     if (hits) fails.push(`${hits} sight line(s) behind a building`);
+    const pf = this.postsNearHeads(cam, acts, t.def.id, 2.1, true);
+    if (pf) fails.push(`post over a face (${pf})`);
     this.liveAudit = { id: t.def.id, gap, fails };
     if (fails.length) console.warn(`[npcs] live talk audit (${t.def.id}): ${fails.join(' · ')}`);
   }
@@ -2093,11 +2127,20 @@ export class NpcSystem implements System {
     this.game.rc.camera.updateMatrixWorld(true);
   }
 
+  /** When the current event shot began (NpcSystem clock): the slow drift / push-in runs from it. */
+  private shotT = 0;
   private applyCam(): void {
     const rig = this.game.rc.rig;
     rig.yaw = this.camCur.yaw;
     rig.pitch = this.camCur.pitch;
     rig.distance = this.camCur.dist;
+    if (this.camMode === 'event' && !this.spectating) {
+      // (r12 critic: heart events were frozen frames — every shot breathes: a slow 2° drift round the
+      // actors and a 4 % push-in over its first seconds, as a handheld operator would)
+      const t = this.clock - this.shotT;
+      rig.yaw += Math.sin(t * 0.23 + 0.6) * 1.8 - Math.sin(0.6) * 1.8;
+      rig.distance *= 1 - 0.04 * THREE.MathUtils.smoothstep(t, 0, 8);
+    }
     if (this.camMode === 'talk') {
       const p = this.game.player.position;
       rig.lookOffset.set(this.camCur.target.x - p.x, this.camCur.target.y - p.y, this.camCur.target.z - p.z);
@@ -2175,6 +2218,57 @@ export class NpcSystem implements System {
       }
     }
     return hits;
+  }
+
+  /**
+   * r12 (critic blocker, odessa-6): share of the frame (above the dialogue box) a building's walls or
+   * roof cover IN FRONT of the actors — sight lines to the heads can be clear while a roof eave fills
+   * half the shot. A 9 × 6 grid of lens rays marched up to the subject's depth against the building
+   * boxes (eaves: + 0.7 m round the footprint). `cam` must hold the candidate's pose.
+   */
+  roofCover(cam: THREE.Camera, subject: THREE.Vector3): number {
+    const map = this.game.world.current;
+    if (!map) return 0;
+    const blk = NpcSystem.BLOCKERS;
+    const near = _rcNear;
+    near.length = 0;
+    for (let bi = 0; bi < blk.length; bi++) {
+      const r = blk[bi]!.r;
+      if (blk[bi]!.h < 2.5) continue;
+      if (subject.x < r[0] - 26 || subject.x > r[2] + 26 || subject.z < r[1] - 26 || subject.z > r[3] + 26) continue;
+      near.push(bi);
+    }
+    if (!near.length) return 0;
+    const o = cam.position;
+    // (stop short of the subject: a porch / doorway the actors stand under is their set, not a cover)
+    const maxT = o.distanceTo(subject) - 1.4;
+    let hit = 0;
+    let n = 0;
+    for (let iy = 0; iy < 6; iy++)
+      for (let ix = 0; ix < 9; ix++) {
+        n++;
+        const d = _rcDir.set(-0.92 + (ix / 8) * 1.84, -0.38 + (iy / 5) * 1.22, 0.5).unproject(cam).sub(o).normalize();
+        let covered = false;
+        for (let t = 1.2; t < maxT && !covered; t += 0.4) {
+          const x = o.x + d.x * t;
+          const y = o.y + d.y * t;
+          const z = o.z + d.z * t;
+          for (let k = 0; k < near.length; k++) {
+            const b = blk[near[k]!]!;
+            const r = b.r;
+            if (x < r[0] - 0.45 || x > r[2] + 0.45 || z < r[1] - 0.45 || z > r[3] + 0.45) continue;
+            // (the eave band hangs from ~2.8 m; inside the footprint the whole height counts)
+            const inFoot = x > r[0] && x < r[2] && z > r[1] && z < r[3];
+            const gy = y - map.heightAt(x, z);
+            if (gy < b.h && (inFoot || gy > 2.8)) {
+              covered = true;
+              break;
+            }
+          }
+        }
+        if (covered) hit++;
+      }
+    return hit / n;
   }
 
   /** Tall static prop boxes near the lens subject, gathered once per lens solve (see TownMap.occluders). */
@@ -2369,7 +2463,8 @@ export class NpcSystem implements System {
     let wz = 0;
     let W = 0;
     for (const a of acts) {
-      const w = a.id === 'player' ? 0.6 : a.id === s.speaker ? 1.5 : 1;
+      // (r12: a live talk centres on the villager — the farmer is the shoulder at the frame's side)
+      const w = a.id === 'player' ? 0.6 : this.camMode === 'talk' ? 2.4 : a.id === s.speaker ? 1.5 : 1;
       wx += a.x * w;
       wz += a.z * w;
       W += w;
@@ -2451,10 +2546,12 @@ export class NpcSystem implements System {
       }
     } else if (kind === 'two') {
       // Conversations lean in close (the villager's face and outfit read at thumbnail size).
-      pitch = this.camMode === 'talk' ? 25 : 29;
+      pitch = this.camMode === 'talk' ? TALK_PITCH : 29;
       // (r8b: 8.9 m — with the rig now on the farmer's settled stance the 8.3 m lens cut a tall
       // villager's beanie pom at the top of the frame)
-      dist = this.camMode === 'talk' ? 8.9 : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
+      // (r12 critic: the speaker's face was ~6 % of the frame height and the farmer's back dominated —
+      // a closer, lower lens puts the face near the upper third at ~10 %)
+      dist = this.camMode === 'talk' ? TALK_DIST : THREE.MathUtils.clamp(spread * 1.35 + 5.8, 8, 12.5);
     } else {
       // Close-up: lower for short actors (children) so the lens meets the face, not the crown.
       pitch = lead.head < 1.6 ? 22 : 28;
@@ -2493,7 +2590,7 @@ export class NpcSystem implements System {
         // Test the lens where it will really sit: the look point is lifted towards it (see below).
         const cp = Math.min(62, pitch + c[1]);
         const cd = dist * c[2];
-        const upK = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? 0.24 : kind === 'two' ? 0.28 : 0.16;
+        const upK = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? TALK_UP : kind === 'two' ? 0.28 : 0.16;
         const lf = (cd * Math.tan(upK * Math.tan(THREE.MathUtils.degToRad(this.game.rc.camera.fov) / 2))) / Math.sin(THREE.MathUtils.degToRad(cp));
         const cyr = THREE.MathUtils.degToRad(cy);
         const pos = this.camPosFor(_q2.set(probe.x + Math.sin(cyr) * lf, probe.y, probe.z + Math.cos(cyr) * lf), cy, cp, cd, _cp);
@@ -2588,7 +2685,8 @@ export class NpcSystem implements System {
         if (fy !== null && kind !== 'wide') {
           const cr = THREE.MathUtils.degToRad(cy);
           const off = Math.abs(Math.atan2(Math.sin(fy - cr), Math.cos(fy - cr)));
-          if (off > THREE.MathUtils.degToRad(100)) h += 6;
+          // (r12: a live talk whose villager shows the lens the back of their head is the worst frame of all)
+          if (off > THREE.MathUtils.degToRad(100)) h += this.camMode === 'talk' ? 14 : 6;
           h += (Math.abs(off - 0.6) / Math.PI) * 3;
           if (lh) h += this.faceBlocked(pos, lead, acts) * 8;
         }
@@ -2603,6 +2701,13 @@ export class NpcSystem implements System {
           tc.updateMatrixWorld(true);
           const framed = kind === 'close' || ots ? acts.filter((a) => a.id === s.speaker) : acts;
           h += this.postsNearHeads(tc, framed, s.speaker) * 3.5;
+          // (r12: a post or its hanging lantern IN FRONT of a face — the live talk's lamp over the farmer)
+          if (this.camMode === 'talk') h += this.postsNearHeads(tc, framed, s.speaker, 2.1, true) * 6;
+          // (r12 blocker) A roof eave / wall filling the frame in front of the actors.
+          if (kind !== 'wide') {
+            const rc = this.roofCover(tc, _sa.set(lead.x, lead.y + lead.head * 0.6, lead.z));
+            if (rc > 0.12) h += (rc - 0.12) * 46;
+          }
           // The event's owner must face the lens (≤ 50°) whenever they are framed.
           const ow = this.evOwner();
           const oa = ow && this.camMode === 'event' ? this.agents.get(ow) : null;
@@ -2627,7 +2732,7 @@ export class NpcSystem implements System {
     dist *= this.camPick.k;
     // Lift the look point towards the lens so the actors sit ~26 % above centre (clear of the box).
     const fov = THREE.MathUtils.degToRad(this.game.rc.camera.fov);
-    const up = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? 0.24 : kind === 'two' ? 0.28 : 0.16;
+    const up = ots ? 0.14 : kind === 'close' ? 0.15 : this.camMode === 'talk' ? TALK_UP : kind === 'two' ? 0.28 : 0.16;
     const yr = THREE.MathUtils.degToRad(yaw);
     const gy = map.heightAt(cx, cz);
     const target = new THREE.Vector3();
@@ -2640,7 +2745,7 @@ export class NpcSystem implements System {
     for (let it = 0; it < 6; it++) {
       const lift = (dist * Math.tan(up * Math.tan(fov / 2))) / Math.sin(THREE.MathUtils.degToRad(pitch));
       target.set(cx + Math.sin(yr) * lift, gy + lead.head * (kind === 'close' || ots ? 0.58 : 0.42), cz + Math.cos(yr) * lift);
-      if (this.camMode !== 'event' || kind === 'wide') break;
+      if ((this.camMode !== 'event' && this.camMode !== 'talk') || kind === 'wide') break;
       this.camPosFor(target, yaw, pitch, dist, tc.position);
       tc.lookAt(target);
       tc.updateMatrixWorld(true);
@@ -2650,7 +2755,9 @@ export class NpcSystem implements System {
       for (const a of acts) {
         if ((kind === 'close' || ots) && a.id !== s.speaker) continue;
         const hp = _q2.set(a.x, a.y + a.head - 0.1, a.z).project(tc);
-        if (hp.y > 0.72 || Math.abs(hp.x) > 0.88) bad = true;
+        // (r12: the closer live-talk lens backs off for a tall pair too — Linus's crown at the top edge)
+        if (hp.y > (this.camMode === 'talk' ? 0.8 : 0.72) || Math.abs(hp.x) > 0.88) bad = true;
+        if (this.camMode === 'talk') continue;
         // (r7 marigold-2: the card pan pushed the farmer half off the left edge — never pan past it)
         if (hp.x < -0.62) edgeL = true;
         // The portrait card (lower right, beside the box) must not cover a face: slide the frame.
@@ -2693,6 +2800,8 @@ export class NpcSystem implements System {
         this.camSaved = null;
       }
     }
+    // (r12: close dialogue / event lenses keep their background — lighting scales fog by lens distance)
+    this.game.lighting.fogDistMin = this.camMode ? 15 : 0;
     if (!this.camMode) return;
     const g = this.specGoal && this.spectating ? this.specGoal : this.shotGoal();
     if (!g) return;
@@ -2958,10 +3067,13 @@ export class NpcSystem implements System {
    * 0.6 head-widths of a framed head — "a lamp post growing out of Dr. Pell's head". Returns the
    * weighted hit count (speaker heads count double).
    */
-  private postsNearHeads(cam: THREE.Camera, acts: { id: Who; x: number; y: number; z: number; head: number }[], speaker: Who | null, berth = 2.2): number {
+  /** Where the last postsNearHeads call found its poles (audit messages). */
+  private postHits: string[] = [];
+  private postsNearHeads(cam: THREE.Camera, acts: { id: Who; x: number; y: number; z: number; head: number }[], speaker: Who | null, berth = 2.2, front = false): number {
     const map = this.game.world.current;
     if (!map) return 0;
     let n = 0;
+    this.postHits.length = 0;
     const right = _pr.set(1, 0, 0).applyQuaternion(cam.quaternion);
     for (const a of acts) {
       const hr = a.id === 'player' ? 0.36 : Math.min(0.5, 0.3 + a.head * 0.04);
@@ -2970,21 +3082,30 @@ export class NpcSystem implements System {
       hc.project(cam);
       if (hc.z > 1 || Math.abs(hc.x) > 1 || Math.abs(hc.y) > 1) continue;
       const rs = Math.abs(edge.x - hc.x);
-      const test = (x: number, z: number, h: number): void => {
+      const test = (x: number, z: number, h: number, y0 = 0, wk = 1): void => {
         if (Math.hypot(x - a.x, z - a.z) > 12) return;
         const gy = map.heightAt(x, z);
-        const b0 = _pb.set(x, gy, z).project(cam);
+        const b0 = _pb.set(x, gy + y0, z).project(cam);
         const bx = b0.x;
         const by = b0.y;
         const t0 = _pt.set(x, gy + h, z).project(cam);
         if (b0.z > 1 || t0.z > 1) return;
+        // (front: only a post nearer the lens than the head — it covers the face, not frames it)
+        // (…or level with it: a lantern hung right beside a face at the same depth is a tangent that reads as clutter)
+        if (front && cam.position.distanceTo(_pt.set(x, a.y + a.head * 0.8, z)) > cam.position.distanceTo(_pb.set(a.x, a.y + a.head * 0.8, a.z)) + 0.6) return;
         if (!(Math.min(by, t0.y) < hc.y && Math.max(by, t0.y) > hc.y - rs)) return;
         const u = (hc.y - by) / ((t0.y - by) || 1e-4);
         const px = bx + (t0.x - bx) * THREE.MathUtils.clamp(u, 0, 1);
-        if (Math.abs(px - hc.x) < rs * berth) n += a.id === speaker ? 2 : 1;
+        if (Math.abs(px - hc.x) < rs * berth * wk) {
+          n += a.id === speaker ? 2 : 1;
+          this.postHits.push(`${a.id}@${x.toFixed(1)},${z.toFixed(1)}`);
+        }
       };
-      for (const po of POSTS) test(po.x, po.z, 3.3);
-      for (const t of this.balls()) if (Math.abs(t.c.x - a.x) < 12 && Math.abs(t.c.z - a.z) < 12) test(t.c.x, t.c.z, Math.max(0.5, t.c.y - map.heightAt(t.c.x, t.c.z) - t.r * 0.35));
+      // (a waist-high bridge pillar by the listening farmer's hat is foreground, not a pole on a head)
+      for (const po of POSTS) if (!(a.id === 'player' && (po.h ?? 3.3) < 1.6)) test(po.x, po.z, po.h ?? 3.3);
+      // (the hanging lantern: a fat box at face height, nearer the lens it hides a face outright)
+      if (front) for (const ln of LANTERNS) test(ln.x, ln.z, 2.15, 1.55, 1.9);
+      if (!front) for (const t of this.balls()) if (Math.abs(t.c.x - a.x) < 12 && Math.abs(t.c.z - a.z) < 12) test(t.c.x, t.c.z, Math.max(0.5, t.c.y - map.heightAt(t.c.x, t.c.z) - t.r * 0.35));
     }
     return n;
   }
@@ -3071,12 +3192,16 @@ export class NpcSystem implements System {
       const sz = v.position.z;
       const S = P(sx, sy, sz);
       if (S[2] > 1) continue;
+      // (r12) A speaker off screen or behind a building has no bubble: an orphan line reads as noise.
+      const hidden = Math.abs(S[0]) > asp * 1.02 || S[1] > 1.02 || S[1] < -1.02 || this.buildingHits(cam.position, [{ x: sx, y: v.position.y, z: sz, head: v.headTop + 0.3 }]) >= 2;
       const k = Math.abs(P(sx + up.x, sy + up.y, sz + up.z)[1] - S[1]);
       const { h, w, bot } = v.barkSize();
-      const g = 0.42 + bot;
+      // (r12 critic: barks floated metres over the crowd with no clear owner — the bubble's bottom
+      // edge now sits at most ~0.6 m over the speaker's head, sliding sideways rather than up)
+      const g = 0.26 + bot;
       const cands: [number, number][] = [];
-      for (const oy of [g, g + 0.45 * h, g + 0.95 * h]) for (const ox of [0, -0.3 * w, 0.3 * w, -0.56 * w, 0.56 * w]) cands.push([ox, oy]);
-      cands.push([-(w / 2 + 0.62), bot + 0.1], [w / 2 + 0.62, bot + 0.1]);
+      for (const oy of [g, g + 0.3]) for (const ox of [0, -0.28 * w, 0.28 * w, -0.48 * w, 0.48 * w]) cands.push([ox, oy]);
+      cands.push([-(w / 2 + 0.5), bot + 0.05], [w / 2 + 0.5, bot + 0.05]);
       const last = this.bubblePick.get(a.def.id) ?? 0;
       let best = 0;
       let bestC = Infinity;
@@ -3118,6 +3243,7 @@ export class NpcSystem implements System {
       const ly = v.lensYaw ?? yaw;
       const off = Math.abs(Math.atan2(Math.sin(yaw - ly), Math.cos(yaw - ly)));
       if (my && off > THREE.MathUtils.degToRad(110)) for (const hb of heads) if (hb !== my && hb.d < my.d - 0.3 && overlap(my, hb) > 0.35) fade = 0.35;
+      if (hidden) fade = 0;
       const ux = (ox2: number, oy2: number, axis: 'x' | 'y' | 'z'): number => right[axis] * ox2 + up[axis] * oy2;
       const tx = (aox + 0) * 0.5;
       const ty = aoy * 0.5;
@@ -3132,6 +3258,33 @@ export class NpcSystem implements System {
         rot,
         fade,
       };
+    }
+  }
+
+  /**
+   * r12 (critic: the gift's heart emote over Linus was cut by the top of a close lens): an emote whose
+   * bubble would cross the top ~8 % of the frame slides down beside the head (camera-right side, or
+   * left when that side is off frame) instead of floating above it.
+   */
+  private emoteSafe(): void {
+    const cam = this.game.rc.camera;
+    const right = _bRight.set(1, 0, 0).applyQuaternion(cam.quaternion);
+    for (const a of this.agents.values()) {
+      const v = a.v;
+      const sh = v.emoteShift;
+      if (!v.emoting || !v.root.visible) {
+        sh.set(0, 0, 0);
+        continue;
+      }
+      const p = v.position;
+      const top = _pt.set(p.x, p.y + v.headTop + 0.42 + 0.34, p.z).project(cam);
+      if (top.y < 0.84 || top.z > 1) {
+        sh.multiplyScalar(0.9);
+        continue;
+      }
+      const side = _pb.set(p.x + right.x * 0.62, p.y + v.headTop * 0.92, p.z + right.z * 0.62).project(cam).x < 0.9 ? 1 : -1;
+      const want = _pe.set(right.x * 0.62 * side, -0.42 - v.headTop * 0.08 - 0.1, right.z * 0.62 * side);
+      sh.lerp(want, 0.35);
     }
   }
 
@@ -3223,8 +3376,32 @@ export class NpcSystem implements System {
         // (r11 blind judge: odessa-4's "out-of-focus foreground figure in a hat blocks the view" — in a
         // close single the farmer off to the side (level with the speaker, dark, cut by the frame) goes,
         // and in a two-shot so does one in front of the speaker and off to the side)
-        tuck = onScreen && ((closeK && dP < dS - 0.4) || dP < dS - 1.5 || Math.abs(hp.x) > 0.74 || ((closeK || dP < dS - 0.6) && Math.abs(hp.x) > 0.42));
+        // (r12 blocker: odessa-6 — the farmer straight behind the speaker, the hat poking out of her
+        // headscarf: a head stacked behind the speaker's head goes too)
+        const sh = _q2.set(sp.v.position.x, sp.v.position.y + sp.v.headTop - 0.25, sp.v.position.z).project(cam);
+        const stacked = Math.abs(hp.x - sh.x) < 0.09 && Math.abs(hp.y - 0.06 - sh.y) < 0.2;
+        // (…or sunk to the dialogue box: a hat and shoulders poking over the box's top edge)
+        const feetY = _hp.set(pl.position.x, pl.position.y + 0.1, pl.position.z).project(cam).y;
+        const sunk = hp.y < -0.36 || (feetY < -0.5 && hp.y < -0.05);
+        tuck = onScreen && (stacked || sunk || (closeK && dP < dS - 0.4) || dP < dS - 1.5 || Math.abs(hp.x) > 0.74 || ((closeK || dP < dS - 0.6) && Math.abs(hp.x) > 0.42));
       }
+    }
+    // (any shot, wide too: the farmer's head stacked on any actor's head reads as one two-headed figure,
+    // and a farmer sunk behind the dialogue box — hat and shoulders over its edge — goes)
+    if (!tuck && this.camMode === 'event') {
+      const cam = this.game.rc.camera;
+      const feet = _hp.set(pl.position.x, pl.position.y + 0.1, pl.position.z).project(cam);
+      const hp = _q.set(pl.position.x, pl.position.y + 1.6, pl.position.z).project(cam);
+      if (feet.z < 1 && Math.abs(hp.x) < 1.1 && feet.y < -0.5 && hp.y < 0.4 && hp.y > -1.1) tuck = true;
+      if (hp.z < 1 && Math.abs(hp.x) < 1.1 && Math.abs(hp.y) < 1.1)
+        for (const a of this.agents.values()) {
+          if (!a.scripted || !a.v.root.visible) continue;
+          const ah = _q2.set(a.v.position.x, a.v.position.y + a.v.headTop - 0.25, a.v.position.z).project(cam);
+          if (Math.abs(hp.x - ah.x) < 0.08 && Math.abs(hp.y - ah.y) < 0.18) {
+            tuck = true;
+            break;
+          }
+        }
     }
     if (tuck === this.playerTucked) return;
     this.playerTucked = tuck;
@@ -3409,6 +3586,7 @@ export class NpcSystem implements System {
   /** Shot for a script beat (heart events). */
   private shotFor(ev: HeartEvent, i: number): void {
     const s = ev.script[i]!;
+    this.shotT = this.clock;
     const next = ev.script.slice(i + 1).find((x) => 'say' in x || 'choice' in x || 'narrate' in x);
     if ('say' in s) {
       this.lineNo++;
@@ -3525,9 +3703,11 @@ export class NpcSystem implements System {
     for (let i = 0; i < mark; i++) {
       if (!this.stepOn(ev.script[i]!)) continue;
       this.applyInstant(ev.script[i]!);
+      this.addressNow(ev, ev.script[i]!);
       if ('say' in ev.script[i]!) this.lineNo++;
       if ('cam' in ev.script[i]!) this.shotFor(ev, i);
     }
+    this.addressNow(ev, ev.script[mark]!);
     this.shotFor(ev, mark);
     for (const a of this.agents.values()) if (a.scripted) a.v.update(0, (x, z) => this.game.world.heightAt(x, z), false);
     // Show the last emote before the mark so the bubble is in the shot.
@@ -3546,7 +3726,10 @@ export class NpcSystem implements System {
     const s = ev.script[mark];
     if (!s || !box) return;
     box.insert?.(NpcSystem.insertFor(ev, 'say' in s ? s.text : 'narrate' in s ? s.narrate : 'choice' in s ? s.q : undefined));
-    if ('choice' in s) void box.choose(s.choice, s.q, s.options.map((o) => o.text), 'thinking');
+    if ('choice' in s) {
+      void box.choose(s.choice, s.q, s.options.map((o) => o.text), 'thinking');
+      this.holdChoice(s.choice);
+    }
     else if ('say' in s) {
       void box.say(s.say, s.text, s.mood);
       window.setTimeout(() => box.finishLine(), 30);
@@ -3596,6 +3779,7 @@ export class NpcSystem implements System {
       if (talky) box?.insert?.(NpcSystem.insertFor(ev, 'say' in s ? s.text : 'narrate' in s ? s.narrate : 'choice' in s ? s.q : undefined));
       if ('say' in s) {
         boxOpen = true;
+        this.addressFarmer(ev, s);
         this.faceSpeaker(s.say);
         await box?.say(s.say, s.text, s.mood);
       } else if ('narrate' in s) {
@@ -3603,7 +3787,12 @@ export class NpcSystem implements System {
         await box?.narrate(s.narrate);
       } else if ('choice' in s) {
         boxOpen = true;
-        const k = (await box?.choose(s.choice, s.q, s.options.map((o) => o.text), 'thinking')) ?? 0;
+        this.addressFarmer(ev, s);
+        const pick = box?.choose(s.choice, s.q, s.options.map((o) => o.text), 'thinking');
+        this.holdChoice(s.choice);
+        const k = (await pick) ?? 0;
+        // (the held think pose eases out; the reply's own gesture follows)
+        this.agents.get(s.choice)?.v.gesture('think', 0.45);
         this.eventNet(['v.c', id, i, k]);
         const opt = s.options[k]!;
         this.game.events.emit('npc:choice', { npcId: s.choice, delta: opt.delta, flag: opt.flag });
@@ -3635,6 +3824,54 @@ export class NpcSystem implements System {
     this.endEvent();
     await this.game.hud.fade(false);
     this.game.events.emit('npc:event', { id, npcId: npc.id, phase: 'end' });
+  }
+
+  /**
+   * r12 (critic blocker, odessa-6): an intimate line (sorrow, a blush, worry, a fond memory) or a
+   * question to the farmer is said TO them — a speaker still turned to the anvil / the lantern with
+   * their back to the farmer turns round (the lens then cheats them open), instead of the director
+   * swinging a reverse angle through the roof behind them. Lines about a scene prop keep their gaze.
+   */
+  private addressFarmer(ev: HeartEvent, s: CutStep): void {
+    const id = 'say' in s ? s.say : 'choice' in s ? s.choice : null;
+    if (!id) return;
+    const mood = 'say' in s ? s.mood : 'thinking';
+    const intimate = 'choice' in s || mood === 'sad' || mood === 'blush' || mood === 'worried' || mood === 'wistful';
+    if (!intimate) return;
+    const txt = ('say' in s ? s.text : 'choice' in s ? (s.q ?? '') : '').toLowerCase();
+    if ((ev.props ?? []).some((p) => p.word && p.kind !== 'sparks' && txt.includes(p.word))) return;
+    const a = this.agents.get(id);
+    if (!a || a.activity === 'sit') return;
+    const p = this.game.player.position;
+    const d = Math.hypot(p.x - a.v.position.x, p.z - a.v.position.z);
+    if (d > 5 || d < 0.3) return;
+    const fy = (a.v as unknown as { targetYaw: number }).targetYaw;
+    const to = Math.atan2(p.x - a.v.position.x, p.z - a.v.position.z);
+    if (Math.abs(Math.atan2(Math.sin(fy - to), Math.cos(fy - to))) < THREE.MathUtils.degToRad(100)) return;
+    this.faceTo(id, 'player');
+  }
+
+  /** addressFarmer, settled at once (staging / audits): the turn lands, the farmer faces the speaker. */
+  private addressNow(ev: HeartEvent, s: CutStep): void {
+    const id = 'say' in s ? s.say : 'choice' in s ? s.choice : null;
+    if (!id) return;
+    this.addressFarmer(ev, s);
+    const a = this.agents.get(id);
+    if (a && a.activity !== 'sit') a.v.setYaw((a.v as unknown as { targetYaw: number }).targetYaw);
+    const p = this.game.player.position;
+    if (a && Math.hypot(p.x - a.v.position.x, p.z - a.v.position.z) < 5) this.faceTo('player', id);
+  }
+
+  /**
+   * r12 (critic: "heart_000 and heart_001 are pixel-identical") — while the farmer weighs a choice the
+   * asker stays alive: the portrait's 'thinking' face on the 3D head and a long, breathing think pose
+   * (chin tap, sway, a glance down at what they are weighing); the lens drifts meanwhile (applyCam).
+   */
+  private holdChoice(id: NpcId): void {
+    const a = this.agents.get(id);
+    if (!a) return;
+    a.v.setMood('thinking');
+    a.v.gesture('think', 900);
   }
 
   private faceSpeaker(id: NpcId): void {
@@ -3724,12 +3961,15 @@ export class NpcSystem implements System {
           const s = ev.script[i]!;
           if ('cam' in s) this.shotFor(ev, i);
           if ('say' in s || 'choice' in s || 'narrate' in s) {
+            this.addressNow(ev, s);
             this.shotFor(ev, i);
             for (const a of this.agents.values()) if (a.scripted) a.v.update(0, (x, z) => this.game.world.heightAt(x, z), false);
             this.snapCam();
             this.cheatOpen(true);
             for (const a of this.agents.values()) if (a.scripted) a.v.update(0, (x, z) => this.game.world.heightAt(x, z), false);
             this.snapCam();
+            // (the runtime tucks a farmer stacked behind / crowding the speaker: audit the frame it shows)
+            this.tuckPlayer();
             out.beats++;
             const acts = this.camActors();
             // (a) The owner's face reads (≤ 50° off the lens) whenever they are in the frame.
@@ -3747,7 +3987,7 @@ export class NpcSystem implements System {
             // (b) No pole / trunk within 0.6 head-widths of a framed head (screen space).
             const framedA = this.shot.kind === 'close' || this.goalKind.ots ? acts.filter((a) => a.id === this.shot.speaker) : acts;
             const ph = this.postsNearHeads(cam, framedA, this.shot.speaker);
-            if (ph) out.fails.push(`${ev.id}#${i}: vertical prop beside a head (${ph})`);
+            if (ph) out.fails.push(`${ev.id}#${i}: vertical prop beside a head (${ph}: ${this.postHits.join(' ')})`);
             this.gatherOcc(cam.position.x, cam.position.z, 24);
             this.propHits(cam.position, acts);
             if (this.propCamIn) out.fails.push(`${ev.id}#${i}: lens inside a prop`);
@@ -3758,6 +3998,23 @@ export class NpcSystem implements System {
               const po = sp ? this.propOverHead(cam, sp) : 0;
               if (po > 0.22) out.fails.push(`${ev.id}#${i}: a prop covers ${(po * 100).toFixed(0)} % of ${sp!.id}'s face`);
             }
+            // (r12 blocker) A roof / wall filling the shot in front of the actors (odessa-6's eave).
+            if (this.shot.kind !== 'wide') {
+              const ld = acts.find((a) => a.id === this.shot.speaker) ?? acts[0];
+              const rc = ld ? this.roofCover(cam, new THREE.Vector3(ld.x, ld.y + ld.head * 0.6, ld.z)) : 0;
+              if (rc > 0.2) out.fails.push(`${ev.id}#${i}: a building covers ${(rc * 100).toFixed(0)} % of the frame in front of the actors`);
+            }
+            // (r12 blocker) Two actors stacked on the lens axis (the farmer's hat poking out of
+            // Odessa's headscarf) or standing inside each other.
+            for (const a of acts)
+              for (const b of acts) {
+                if (a === b || a.id > b.id) continue;
+                const gap = Math.hypot(a.x - b.x, a.z - b.z);
+                if (gap < 0.9) out.fails.push(`${ev.id}#${i}: ${a.id} and ${b.id} ${gap.toFixed(2)} m apart`);
+                const ha = new THREE.Vector3(a.x, a.y + a.head - 0.25, a.z).project(cam);
+                const hb = new THREE.Vector3(b.x, b.y + b.head - 0.25, b.z).project(cam);
+                if (Math.abs(ha.x - hb.x) < 0.07 && Math.abs(ha.y - hb.y) < 0.16 && Math.abs(ha.x) < 1 && Math.abs(ha.y) < 1) out.fails.push(`${ev.id}#${i}: ${a.id}'s and ${b.id}'s heads stacked on screen`);
+              }
             const hits = this.buildingHits(cam.position, acts);
             if (hits) out.fails.push(`${ev.id}#${i}: ${hits} sight line(s) behind a building (lens ${cam.position.x.toFixed(1)},${cam.position.y.toFixed(1)},${cam.position.z.toFixed(1)}; ${acts.map((a) => `${a.id} ${a.x.toFixed(1)},${a.z.toFixed(1)}`).join(' ')})`);
             // The speaker's face must read: turned towards the lens and not behind the listener's head / hat.
@@ -3790,6 +4047,8 @@ export class NpcSystem implements System {
               const fp = new THREE.Vector3(a.x, a.y + (closeUp ? a.head * 0.62 : 0.1), a.z).project(cam);
               // Off-frame, or the feet under the dialogue box (its top sits ≈ -0.5 NDC since r4: thin letterbox,
               // the box sized to its text).
+              // (r12: a farmer wholly out of the frame is staging, not a bad frame — tuckPlayer handles the rest)
+              if (a.id === 'player' && Math.abs(hp.x) > 1.2) continue;
               if (Math.abs(hp.x) > 0.93 || hp.y > 0.8 || fp.y < -0.5) out.fails.push(`${ev.id}#${i}: ${a.id} framed badly (head ${hp.x.toFixed(2)},${hp.y.toFixed(2)} feet ${fp.y.toFixed(2)})`);
             }
           } else this.applyInstant(s);
@@ -3797,6 +4056,8 @@ export class NpcSystem implements System {
         for (const a of this.agents.values()) a.scripted = false;
       }
     this.clearEventProps();
+    this.playerTucked = false;
+    this.game.player.root.visible = true;
     this.releaseCam();
     this.camRelease = null;
     if (this.camSaved) {
@@ -4318,6 +4579,7 @@ export class NpcSystem implements System {
     }
     this.separate(dt);
     this.placeBubbles();
+    this.emoteSafe();
     this.updatePrompt(dt, game);
     this.updateBlobs();
     this.updateEasels(map.root);
@@ -5037,7 +5299,11 @@ export class NpcSystem implements System {
       box.insert?.(NpcSystem.insertFor(he.ev, 'say' in st ? st.text : 'narrate' in st ? st.narrate : 'choice' in st ? st.q : undefined));
       if ('say' in st) void box.say(st.say, st.text, st.mood);
       else if ('narrate' in st) void box.narrate(st.narrate);
-      else if ('choice' in st) void box.choose(st.choice, st.q, st.options.map((o) => o.text), 'thinking', 'Waiting for the host to choose…');
+      else if ('choice' in st) {
+        void box.choose(st.choice, st.q, st.options.map((o) => o.text), 'thinking', 'Waiting for the host to choose…');
+        // (co-op: the spectating farmhand sees the asker think it over too)
+        this.holdChoice(st.choice);
+      }
     } else if ('choice' in st) {
       const opt = st.options[Number(data[3])];
       if (opt) void box.say(st.choice, opt.reply, opt.mood ?? 'happy');

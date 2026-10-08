@@ -340,7 +340,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       { minHearts: 6, lines: ['[happy] Rosalind would have liked you. She’d have hidden it well, mind — she hid most things behind a scone.', '[thinking] Stay for supper sometime. I make a stew that could raise the dead. Or at least Tobias.'] },
       { hours: [6, 9], lines: ['[happy] Early bird! The parsnip seeds just came in on the morning cart.', '[worried] Mind the third step, dear. It’s been creaking since the Lantern Hall went dark.'] },
       { seasons: ['spring'], lines: ['[thinking] Spring’s for planting and for plans. Your gran used to say that, you know.', '[happy] Cauliflower takes its time, but oh, it pays.'] },
-      { seasons: ['winter'], lines: ['[neutral] Winter’s slow in the shop. I knit. Pip unravels. We call it teamwork.'] },
+      { seasons: ['winter'], lines: ['[happy] Winter’s slow in the shop. I knit. Pip unravels. We call it teamwork.'] },
       { seasons: ['fall'], lines: ['[laugh] The whole square smells of pumpkin bread this time of year. Blame Bram.'] },
       {
         lines: [
@@ -577,7 +577,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     giftLines: {
       love: '[surprised] Is this for me? Look at the COLOUR of it. Hold still — no, the gift, hold the gift still, I need to sketch it!',
       like: '[happy] Oh, lovely! It’s going straight into a still life. Then into me. Art first, lunch second.',
-      neutral: '[neutral] Thanks! I’ll find a use for it. Probably as a paperweight. Everything’s a paperweight if you believe.',
+      neutral: '[laugh] Thanks! I’ll find a use for it. Probably as a paperweight. Everything’s a paperweight if you believe.',
       dislike: '[worried] Oh… um. Is it… abstract? I don’t get it. That’s fine! Nobody gets my stuff either.',
       birthday: '[blush] You knew it was my birthday? I didn’t even know it was my birthday. I lose track of days. And shoes.',
     },
@@ -832,7 +832,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       { birthday: true, lines: ['[blush] It’s my birthday. I’ve had exactly one slice of cake. Medicinally.'] },
       { weather: ['rain', 'storm'], lines: ['[worried] Rainy days bring out the rheumatism. And the gossip. The waiting room is very lively.'] },
       { minHearts: 6, lines: ['[thinking] I came here for a quiet posting. Two years, I said. That was nineteen years ago.', '[happy] The valley grows on you. Like moss. Beneficial moss.'] },
-      { hours: [17, 22], lines: ['[neutral] A walk by the river after surgery hours. Doctor’s orders. I am the doctor, so they’re very convenient orders.'] },
+      { hours: [17, 22], lines: ['[happy] A walk by the river after surgery hours. Doctor’s orders. I am the doctor, so they’re very convenient orders.'] },
       {
         lines: ['[thinking] You look well. Mildly sunburnt. Wear a hat. You own a hat. Wear it.', '[neutral] Tobias skipped his check-up again. Third time. I shall ambush him on his bench.'],
         ask: {
@@ -945,14 +945,14 @@ export const NPCS: Record<NpcId, NpcDef> = {
     giftLines: {
       love: '[laugh] Oh, you absolute darling! That’s going on tonight’s menu, with your name on the chalkboard. In big letters.',
       like: '[happy] Ooh, lovely. The kitchen thanks you. The kitchen is me.',
-      neutral: '[neutral] Thanks, pet. Everything finds a pot eventually.',
+      neutral: '[happy] Thanks, pet. Everything finds a pot eventually.',
       dislike: '[worried] Ah — well — it’s very… crunchy-looking. I’ll put it by the fire. For… ambience.',
       birthday: '[blush] My birthday! Drinks on the house! …Don’t tell the regulars, they’ll hold me to it.',
     },
     dialogue: [
       { first: true, lines: ['[happy] Well hello, new face! June. I run the Kettle — best stew, worst piano, warmest fire this side of the valley.', '[laugh] First cider’s free. Second one I’ll talk you into.'] },
       { birthday: true, lines: ['[laugh] Birthday at the Kettle means everyone sings. Badly. Bram carries the tune on his back like a sack of flour.'] },
-      { hours: [6, 11], lines: ['[neutral] Mornings are for mopping. Evenings are for making the floor sticky again. It’s the circle of life.'] },
+      { hours: [6, 11], lines: ['[laugh] Mornings are for mopping. Evenings are for making the floor sticky again. It’s the circle of life.'] },
       { weather: ['rain', 'storm'], lines: ['[happy] Rain keeps ’em indoors and thirsty. I love a wet Tuesday.'] },
       { minHearts: 5, lines: ['[thinking] My dad ran the Kettle before me. He used to leave a candle in the window for anyone walking home late. I still do.', '[blush] You’re one of the regulars now, you know. There’s no escape. It’s in the lease.'] },
       { seasons: ['winter'], lines: ['[happy] Winter stew is on. It’s mostly potatoes and gossip. The gossip is the good bit.'] },
@@ -1076,7 +1076,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       { weather: ['rain', 'storm'], lines: ['[neutral] Rain on the old knees. They forecast better than the almanac.'] },
       { minHearts: 5, lines: ['[thinking] The hall lantern doesn’t burn oil, you know. It burns what the valley brings it. Rosalind knew. Now maybe you do.', '[happy] You’ve been good company for an old man. Better than the pigeons. Don’t tell the pigeons.'] },
       {
-        lines: ['[neutral] Linus wants to check my heart. Told him it’s been broken since ’67 and it still works fine.', '[laugh] Heh! That Kit keeps trying to climb the bell tower. Reminds me of me. Terrifying.'],
+        lines: ['[laugh] Linus wants to check my heart. Told him it’s been broken since ’67 and it still works fine.', '[laugh] Heh! That Kit keeps trying to climb the bell tower. Reminds me of me. Terrifying.'],
         ask: {
           q: 'Do you believe a town can remember things?',
           mood: 'thinking',
@@ -1305,7 +1305,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     dialogue: [
       { first: true, lines: ['[happy] Hey. Rowan. I fix things. Roofs, fences, chairs June says I broke.', '[neutral] If you see a small orange hurricane, that’s my brother Kit. Point him home, would you?'] },
       { birthday: true, lines: ['[laugh] Kit made me a birthday card. It says “Happy Birthday Rowan, You Are Old.” Heartwarming.'] },
-      { hours: [7, 12], lines: ['[neutral] Measure twice, cut once. Measure three times if June’s watching.'] },
+      { hours: [7, 12], lines: ['[happy] Measure twice, cut once. Measure three times if June’s watching.'] },
       { weather: ['rain', 'storm'], lines: ['[worried] Rain means leaks. Leaks mean me on somebody’s roof. Pray for me.'] },
       { minHearts: 5, lines: ['[sad] Mum and Dad left for the city when Kit was a baby. Said they’d send for us. …That was a long time ago.', '[thinking] Kit thinks I’m boring. Somebody has to be boring. Boring is what keeps the roof on.'] },
       {
@@ -1415,7 +1415,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     giftLines: {
       love: '[blush] Oh my stars. You grew this? Look at the leaves on it. You’ve got green hands, dear. Not thumbs. Hands.',
       like: '[happy] How lovely. I’ll press a petal in my book.',
-      neutral: '[neutral] Thank you, dear. You’re very kind to an old lady.',
+      neutral: '[happy] Thank you, dear. You’re very kind to an old lady.',
       dislike: '[worried] Oh, goodness. It’s… wriggling? Is it meant to wriggle?',
       birthday: '[surprised] For my birthday? I thought everyone had forgotten. I’d half forgotten myself!',
     },
@@ -1460,7 +1460,10 @@ export const NPCS: Record<NpcId, NpcDef> = {
         dry: true,
         // (r7: a step south of the planter mark — from the old mark every lens on the plaza side was
         // blocked and the solve swung round behind the Hall)
-        cast: { hazel: [[28.9, 16.4], 'up'], player: [[30.7, 17.0], 'left'] },
+        // (r12: beside the planter, side-on to the square — from the south mark she spoke to the rose
+        // with her back to the lens and the director swung round between the Hall and the store,
+        // looking down on her sun hat)
+        cast: { hazel: [[30.15, 14.95], 'left'], player: [[31.95, 16.7], 'left'] },
         camera: { x: 30.6, z: 14.8, yaw: -6, pitch: 40, distance: 13 },
         insert: [{ kind: 'rose', word: 'rose|bloom', caption: 'Rosalind’s rose, in bud nine years' }],
         script: [
@@ -2231,6 +2234,8 @@ const ARCS: Record<NpcId, { events: ArcEvent[]; keeps: Consequence[] }> = {
         stage: 'planters',
         insert: [{ kind: 'badge', word: 'badge|forever', caption: 'FOREVER MEMBER (spelled right, Rowan checked)' }],
         script: [
+          // (r12: the club rules are read OUT to the member — Kit turns from the planter first)
+          { face: 'kit', to: 'player' },
           { say: 'kit', text: 'I wrote the club rules. Rule one: no grown-ups. Rule two: except you. Rule three: frogs are honorary.', mood: 'happy' },
           { if: 'rowan.home', say: 'kit', text: 'Rowan says we’re STAYING. He said it at breakfast all serious and then did a little dance. Don’t tell him I told you.', mood: 'laugh' },
           { if: 'kit.stay', say: 'kit', text: 'You said Hearthvale needs me. So I’m staying. Even if Rowan hadn’t. I’d have hidden in the moat.', mood: 'happy' },

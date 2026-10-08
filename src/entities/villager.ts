@@ -63,6 +63,11 @@ function sharedMat(): THREE.MeshStandardMaterial {
   return shared;
 }
 
+/** Iris size per villager (ui/portraits Persona.iris: the painted cards and the 3D face agree). */
+const EYE_IRIS: Record<string, number> = { marigold: 0.9, bram: 0.94, wren: 1.06, odessa: 0.9, linus: 0.9, june: 0.98, tobias: 0.86, kit: 1.1, rowan: 0.92, hazel: 0.93 };
+/** Upper lash-line weight per villager (Persona.lid). */
+const LASH_W: Record<string, number> = { marigold: 1, bram: 1.15, wren: 0.95, odessa: 1.3, linus: 1.05, june: 1.15, tobias: 1.2, kit: 0.9, rowan: 1.15, hazel: 1 };
+
 /** Heads are drawn bigger than the body (chibi) so faces read from the high diorama camera. */
 const HEAD_BOOST = 1.2;
 /** Chin up: faces tilt towards the camera. */
@@ -1230,19 +1235,32 @@ export class Villager {
       const c0 = new THREE.Vector3().setFromMatrixPosition(H(ex, EY, (EZ - R * 0.01)));
       const T = new THREE.Matrix4().makeTranslation(c0.x, c0.y, c0.z).multiply(M(0, 0, 0, 0, 0, sx * lift, ew * eyeK, eh * eyeK, eyeK)).multiply(new THREE.Matrix4().makeTranslation(-c0.x, -c0.y, -c0.z));
       const E = (...a: number[]): THREE.Matrix4 => T.clone().multiply(H(...a));
-      // Big glossy chibi eyes: a dark oval with an iris-tinted lower half and two catch-lights.
-      rb.add(eye, capG(0.043, 0.05, 3, 10), E(ex, EY, (EZ - R * 0.01), -0.12), 0x1d1612);
-      const irisK = shape === 'wide' ? 1.18 : 1;
-      rb.add(eye, sphG(0.03 * irisK, 10, 6, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45), E(ex, EY + 0.004, EZ + 0.016, -0.35, 0, 0, 1, 1.25, 0.9), mixHex(0x1d1612, L.eyes ?? 0x3a2418, shape === 'wide' ? 0.9 : 0.75));
+      // r12 (critic: "toy faces that don't match the painted portraits"): the portrait's eye, built in
+      // 3D — a warm white, a big iris (dark rim, the villager's own colour, a bright lower crescent), a
+      // pupil, two catch-lights and the heavy upper lash line with its outer flick. The iris fills most
+      // of the eye's height (the painted cut), so from the plaza lens the eye still reads dark.
+      // (the white sits nearly flush with the face — a full-depth capsule read as bug eyes in profile)
+      const z0 = EZ - R * 0.01;
+      const zf = z0 + 0.043 * 0.62;
+      const irisC = L.eyes ?? 0x3a2418;
+      const irisK = (shape === 'wide' ? 1.08 : shape === 'beady' ? 1.15 : shape === 'narrow' ? 1.12 : 1) * (EYE_IRIS[this.def.id] ?? 1);
+      rb.add(eye, capG(0.043, 0.05, 3, 10), E(ex, EY, z0, -0.12, 0, 0, 1, 1, 0.62), 0xfbf3e8);
+      const iy = EY - 0.006;
+      const ixo = ex - sx * 0.002;
+      rb.add(eye, sphG(0.037 * irisK, 14, 8), E(ixo, iy, zf - 0.006, -0.12, 0, 0, 1, 1.22, 0.36), shadeHex(irisC, 0.42));
+      rb.add(eye, sphG(0.0305 * irisK, 14, 8), E(ixo, iy, zf - 0.003, -0.12, 0, 0, 1, 1.22, 0.36), mixHex(irisC, 0xffffff, 0.06));
+      rb.add(eye, sphG(0.022 * irisK, 12, 6), E(ixo, iy - 0.017 * irisK, zf + 0.0005, -0.12, 0, 0, 1.15, 0.62, 0.36), mixHex(irisC, 0xfff4d0, 0.42));
+      rb.add(eye, sphG(0.0145 * irisK, 10, 6), E(ixo, iy + 0.004, zf + 0.0035, -0.12, 0, 0, 1, 1.25, 0.36), 0x140c0a);
       // Catch-lights stay round (counter-scaled) whatever the cut.
-      rb.add(eye, sphG(0.016, 8, 6), E(ex + 0.015, EY + 0.028 * Math.min(1, 0.8 / eh), EZ + 0.034, 0, 0, 0, 1 / ew, 1 / eh, 1), 0xffffff);
-      if (shape !== 'beady' && shape !== 'narrow') rb.add(eye, sphG(0.009, 6, 4), E(ex - 0.013, EY - 0.022, EZ + 0.034, 0, 0, 0, 1 / ew, 1 / eh, 1), mixHex(0xffffff, L.eyes ?? 0x3a2418, 0.3));
-      if (shape === 'wide') rb.add(eye, sphG(0.007, 6, 4), E(ex + 0.02, EY - 0.012, EZ + 0.036), 0xffffff);
-      // Lid line: a soft ink arc over the top of every cut but the plain chibi oval (gives the eye a shape).
-      if (shape !== 'round' && shape !== 'beady') {
-        const lid = torG(0.05, 0.0085 / Math.max(0.5, eh), 4, 12, Math.PI * 0.9);
-        lid.rotateZ(Math.PI * 0.05);
-        rb.add(eye, lid, E(ex, EY + 0.004, EZ + 0.012, -0.2), lashC);
+      rb.add(eye, sphG(0.0145, 8, 6), E(ex + 0.014, EY + 0.02 * Math.min(1, 0.8 / eh), zf + 0.009, 0, 0, 0, 1 / ew, 1 / eh, 0.5), 0xffffff);
+      if (shape !== 'beady' && shape !== 'narrow') rb.add(eye, sphG(0.008, 6, 4), E(ex - 0.012, EY - 0.024, zf + 0.009, 0, 0, 0, 1 / ew, 1 / eh, 0.5), mixHex(0xffffff, irisC, 0.2));
+      // Upper lash line: a heavy ink arc hugging the top of the eye, thicker at the outer corner, and a flick.
+      {
+        const lw = (LASH_W[this.def.id] ?? 1) * (L.lashes ? 1.15 : 1);
+        const lid = torG(0.045, 0.0105 * lw / Math.max(0.6, eh), 4, 14, Math.PI * 0.92);
+        lid.rotateZ(Math.PI * 0.04);
+        rb.add(eye, lid, E(ex, EY + 0.025, z0 + 0.006, -0.2, 0, 0, 1, 1, 1.25), lashC);
+        rb.add(eye, capG(0.0095 * lw, 0.026, 2, 5), E(ex + sx * 0.05, EY + 0.03, z0 + 0.01, 0, 0, -sx * 1.05), lashC);
       }
       if (shape === 'sleepy') {
         // A heavy upper lid (skin) over the top third, laid-back.
@@ -2181,7 +2199,9 @@ export class Villager {
       const fade = THREE.MathUtils.clamp(this.emoteT / 0.3, 0, 1);
       const s = 0.62 * pop;
       this.emoteSprite.scale.set(s, s, 1);
-      this.emoteSprite.position.set(0, this.headTop + 0.42 + Math.sin(age * 3) * 0.04, 0);
+      const es = this.emoteShift;
+      const rs = this.root.scale;
+      this.emoteSprite.position.set(es.x / rs.x, this.headTop + 0.42 + es.y / rs.y + Math.sin(age * 3) * 0.04, es.z / rs.z);
       this.emoteSprite.material.opacity = fade;
       if (this.emoteT <= 0) this.emoteSprite.visible = false;
     }
@@ -2232,6 +2252,12 @@ export class Villager {
     }
   }
 
+  /** r12: world offset of the emote bubble from its spot over the head (NpcSystem keeps it inside the frame). */
+  readonly emoteShift = new THREE.Vector3();
+  /** An emote bubble is up right now. */
+  get emoting(): boolean {
+    return !!this.emoteSprite && this.emoteSprite.visible;
+  }
   private barkSprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
   private barkT = 0;
   private barkDur = 3.4;
@@ -2409,11 +2435,13 @@ export class Villager {
         break;
       case 'thinking':
         // One brow up, eyes narrowed, the mouth pressed into a lopsided "hmm".
-        browAsym = 0.045;
-        eyeY = 0.74;
-        mx = 0.62;
-        my = 0.3;
-        smirk = 0.32;
+        // (r12: pushed — from the event lens the r9 'hmm' read as the resting face)
+        browAsym = 0.07;
+        tilt = 0.18;
+        eyeY = 0.7;
+        mx = 0.7;
+        my = 0.34;
+        smirk = 0.5;
         break;
     }
     const L = (a: number, b: number): number => a + (b - a) * w;
@@ -2570,15 +2598,20 @@ export class Villager {
         set(aR, -0.2, 0, 2.5);
         set(fR, 0, 0, 0.35 * Math.sin(t * 11));
         break;
-      case 'think':
+      case 'think': {
+        // (r12 critic: a choice held over a frozen pose read as a still with a menu — the thinker taps
+        // the chin, sways, and every few seconds drops their eyes to what they are weighing up)
+        const glance = THREE.MathUtils.smoothstep(Math.sin(t * 0.62 + 1.4), 0.5, 0.92);
+        const sway = Math.sin(t * 0.85);
         set(aR, -0.55, 0, -0.3);
-        set(fR, -2.25);
-        set(aL, -0.55, 0, 0.4);
+        set(fR, -2.25 + 0.07 * Math.max(0, Math.sin(t * 5.2)) * (t > 1.2 ? 1 : 0));
+        set(aL, -0.55 + 0.04 * sway, 0, 0.4);
         set(fL, -1.3);
-        head.rotation.z += 0.15 * w;
-        head.rotation.y += 0.22 * w;
-        head.rotation.x -= 0.1 * w;
+        head.rotation.z += (0.15 + 0.06 * sway) * w;
+        head.rotation.y += (0.22 - 0.28 * glance) * w;
+        head.rotation.x -= (0.1 - 0.36 * glance) * w;
         break;
+      }
       case 'wring': {
         const j = Math.sin(t * 9) * 0.06;
         set(aL, -0.62 + j, 0, 0.32);
@@ -3105,11 +3138,12 @@ function barkTexture(text: string, who?: { name: string; color: number }): { tex
   const tw = Math.ceil(g.measureText(text).width);
   // (r7 blind judge: bubbles were plain and anonymous — a name tab in the speaker's own colour rides
   // the top-left corner, so a bark reads as somebody talking)
-  const tabFont = '800 26px Fredoka, Nunito, sans-serif';
+  const tabFont = '700 28px Fredoka, Nunito, sans-serif';
   g.font = tabFont;
   const nw = who ? Math.ceil(g.measureText(who.name).width) + 34 : 0;
+  // (the chip carries a colour dot: 16 px wider than the name alone)
   const TOP = who ? 26 : 0;
-  const W = Math.max(tw + 70, nw + 60);
+  const W = Math.max(tw + 70, nw + 76);
   const BH = 86 + TOP;
   c.width = W;
   c.height = BH + 30;
@@ -3149,24 +3183,32 @@ function barkTexture(text: string, who?: { name: string; color: number }): { tex
   g.textBaseline = 'middle';
   g.fillText(text, W / 2, y0 + (BH - y0) / 2 + 3);
   if (who) {
-    // Name tab: a rounded pill in the villager's colour, darkened for white lettering.
+    // Name chip (r12 critic: pale tabs in the villager's colour were unreadable on cream at 1080p): a
+    // dark walnut chip with cream bold lettering, the villager's colour kept as a dot at its head.
     const col = new THREE.Color(who.color);
     const hsl = { h: 0, s: 0, l: 0 };
     col.getHSL(hsl);
-    col.setHSL(hsl.h, Math.min(0.7, hsl.s * 1.1 + 0.1), Math.min(0.42, Math.max(0.28, hsl.l * 0.7)));
-    const tx = 22;
-    const th = 40;
-    g.fillStyle = `#${col.getHexString()}`;
-    g.strokeStyle = '#5a3418';
-    g.lineWidth = 4;
+    col.setHSL(hsl.h, Math.min(0.85, hsl.s * 1.2 + 0.15), THREE.MathUtils.clamp(hsl.l, 0.45, 0.62));
+    const tx = 20;
+    const th = 42;
+    g.fillStyle = '#4e301c';
+    g.strokeStyle = '#2e1a0e';
+    g.lineWidth = 3;
     g.beginPath();
-    g.roundRect(tx, 4, nw, th, 14);
+    g.roundRect(tx, 3, nw + 16, th, 15);
+    g.fill();
+    g.stroke();
+    g.fillStyle = `#${col.getHexString()}`;
+    g.strokeStyle = '#fff1d6';
+    g.lineWidth = 2.5;
+    g.beginPath();
+    g.arc(tx + 19, 3 + th / 2, 7.5, 0, Math.PI * 2);
     g.fill();
     g.stroke();
     g.font = tabFont;
-    g.fillStyle = '#fff8ea';
+    g.fillStyle = '#fff1d6';
     g.textAlign = 'left';
-    g.fillText(who.name, tx + 17, 4 + th / 2 + 2);
+    g.fillText(who.name, tx + 34, 3 + th / 2 + 2);
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;

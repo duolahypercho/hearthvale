@@ -93,13 +93,15 @@ const MOOD: Record<Mood, MoodParams> = {
   neutral: { open: 1, smile: 0, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: 0, browOut: 0, browRaiseL: 0, blush: 0.45, tilt: 0 },
   happy: { open: 0.92, smile: 0.35, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: -2, browOut: -1, browRaiseL: 0, blush: 0.6, tilt: -2 },
   laugh: { open: 0, smile: 1, gazeX: 0, gazeY: 0, pupil: 1, closed: true, browIn: -4, browOut: -2, browRaiseL: 0, blush: 0.8, tilt: -5 },
-  sad: { open: 0.5, smile: 0, gazeX: 0, gazeY: 3, pupil: 1, closed: false, browIn: -7, browOut: 3, browRaiseL: 0, blush: 0.3, tilt: 3 },
-  angry: { open: 0.62, smile: 0, gazeX: 0, gazeY: 0, pupil: 0.85, closed: false, browIn: 7, browOut: -4, browRaiseL: 0, blush: 0.75, tilt: 0 },
+  // (r12 critic: sad / wistful / neutral differed only at the mouth and angry read as worried — the
+  // brows carry it now: sorrow's inner ends lift hard, anger's drive down ~25° into the lids)
+  sad: { open: 0.42, smile: 0, gazeX: 0, gazeY: 3.5, pupil: 1, closed: false, browIn: -11, browOut: 4.5, browRaiseL: 0, blush: 0.3, tilt: 3 },
+  angry: { open: 0.5, smile: 0, gazeX: 0, gazeY: 0, pupil: 0.8, closed: false, browIn: 12, browOut: -6.5, browRaiseL: 0, blush: 0.9, tilt: 0 },
   surprised: { open: 1.2, smile: 0, gazeX: 0, gazeY: -0.5, pupil: 0.7, closed: false, browIn: -8, browOut: -7, browRaiseL: 0, blush: 0.4, tilt: 0 },
   blush: { open: 0.82, smile: 0.2, gazeX: -3, gazeY: 1.5, pupil: 1.05, closed: false, browIn: -3, browOut: 1, browRaiseL: 0, blush: 1.2, tilt: 4 },
-  worried: { open: 0.95, smile: 0, gazeX: 1.5, gazeY: 0, pupil: 0.95, closed: false, browIn: -6, browOut: 3, browRaiseL: 0, blush: 0.35, tilt: 2 },
+  worried: { open: 1, smile: 0, gazeX: 1.5, gazeY: 0, pupil: 0.9, closed: false, browIn: -8.5, browOut: 3.5, browRaiseL: 0, blush: 0.35, tilt: 2 },
   thinking: { open: 0.85, smile: 0, gazeX: 3, gazeY: -3, pupil: 1, closed: false, browIn: 0, browOut: 0, browRaiseL: -6, blush: 0.4, tilt: -3 },
-  wistful: { open: 0.55, smile: 0.15, gazeX: -1.5, gazeY: 2, pupil: 1, closed: false, browIn: -4, browOut: 2, browRaiseL: 0, blush: 0.5, tilt: 3 },
+  wistful: { open: 0.5, smile: 0.25, gazeX: -3, gazeY: 2.5, pupil: 1, closed: false, browIn: -5, browOut: 1.5, browRaiseL: 0, blush: 0.55, tilt: 4 },
 };
 
 /**
@@ -121,13 +123,13 @@ const POSE: Record<Mood, Pose> = {
   neutral: { dx: 0, dy: 0, tilt: 0, scale: 1, shoulders: 0, tint: '#fff2d8', tintA: 0.06 },
   happy: { dx: 0, dy: -1.5, tilt: -3, scale: 1, shoulders: -1, tint: '#ffcf6a', tintA: 0.2 },
   laugh: { dx: -1, dy: -5, tilt: -7, scale: 1.01, shoulders: -3, hand: 'mouth', tint: '#ffd27a', tintA: 0.28 },
-  sad: { dx: 1, dy: 6, tilt: 6, scale: 0.99, shoulders: 6, tint: '#4a6ab0', tintA: 0.34 },
-  angry: { dx: 0, dy: 3.5, tilt: -3, scale: 1.045, shoulders: -2, tint: '#c8342a', tintA: 0.2, rim: '#ff5a3a' },
+  sad: { dx: 1.5, dy: 8, tilt: 8, scale: 0.98, shoulders: 8, tint: '#4a6ab0', tintA: 0.36 },
+  angry: { dx: -1, dy: 4.5, tilt: -4, scale: 1.06, shoulders: -4, tint: '#c8342a', tintA: 0.24, rim: '#ff5a3a' },
   surprised: { dx: 0, dy: -6, tilt: 0, scale: 1.02, shoulders: -6, tint: '#fff3a0', tintA: 0.26 },
   blush: { dx: 2.5, dy: 2, tilt: 7, scale: 1, shoulders: -1, hand: 'cheek', tint: '#ff8fb0', tintA: 0.26 },
   worried: { dx: -1.5, dy: 1, tilt: 3, scale: 0.99, shoulders: -3, hand: 'chest', tint: '#7a8ac8', tintA: 0.24 },
   thinking: { dx: 3, dy: -1, tilt: -7, scale: 1, shoulders: 0, hand: 'chin', tint: '#a898e0', tintA: 0.2 },
-  wistful: { dx: 1, dy: 3, tilt: 4, scale: 1, shoulders: 3, hand: 'chest', tint: '#e8a87a', tintA: 0.22 },
+  wistful: { dx: 2, dy: 2, tilt: -5, scale: 1, shoulders: 2, hand: 'chest', tint: '#e8a87a', tintA: 0.24 },
 };
 
 /**
@@ -538,7 +540,14 @@ function frontHair(id: string, L: NpcLook, f: Face): string {
   const hl = shade(L.hair, 1.4);
   const { cx, top, w } = f;
   const t = top;
-  const strands = (d: string): string => `<path d="${d}" stroke="${hl}" stroke-width="2.4" fill="none" opacity="0.45" stroke-linecap="round"/>`;
+  // (r12 critic: "flat cut-paper hair" — every lock now carries three tones: a dark clump-parting line
+  // under it, the lit band, and a fine sheen strand riding the lit band's top)
+  const lo = shade(L.hair, 0.62);
+  const sheen = shade(L.hair, 1.85);
+  const strands = (d: string): string =>
+    `<path d="${d}" transform="translate(0 3.2)" stroke="${lo}" stroke-width="2.2" fill="none" opacity="0.42" stroke-linecap="round"/>` +
+    `<path d="${d}" stroke="${hl}" stroke-width="3" fill="none" opacity="0.5" stroke-linecap="round"/>` +
+    `<path d="${d}" transform="translate(1.5 -1.1)" stroke="${sheen}" stroke-width="1.1" fill="none" opacity="0.7" stroke-linecap="round" stroke-dasharray="14 7 6 30"/>`;
   switch (L.hairStyle) {
     case 'bun':
       return `<path d="M${cx - w - 2} ${t + 46} Q ${cx - w - 4} ${t + 2} ${cx} ${t} Q ${cx + w + 4} ${t + 2} ${cx + w + 2} ${t + 46} Q ${cx + w - 6} ${t + 22} ${cx + 16} ${t + 18} Q ${cx + 2} ${t + 30} ${cx - 18} ${t + 26} Q ${cx - w + 4} ${t + 26} ${cx - w - 2} ${t + 46} Z" fill="${H}" ${s}/>` + `<path d="M${cx - w - 2} ${t + 44} Q ${cx - w - 6} ${t + 62} ${cx - w + 2} ${t + 72} Q ${cx - w + 2} ${t + 58} ${cx - w + 4} ${t + 46} Z M${cx + w + 2} ${t + 44} Q ${cx + w + 6} ${t + 62} ${cx + w - 2} ${t + 72} Q ${cx + w - 2} ${t + 58} ${cx + w - 4} ${t + 46} Z" fill="${H}" ${s}/>` + strands(`M${cx - 26} ${t + 8} Q ${cx - 6} ${t + 2} ${cx + 18} ${t + 8}`);
@@ -962,6 +971,11 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   const bo = Math.min(1, m.blush * (mood === 'blush' || mood === 'angry' ? 1 : cheekK));
   for (const sx of [-1, 1]) p.push(`<ellipse cx="${X(sx * 27)}" cy="${eyeY + 15}" rx="${(11 + m.blush * 3) * WS(sx * 27)}" ry="${6.5 + m.blush * 1.5}" fill="url(#${id}bl)" opacity="${bo}"/>`);
   if (mood === 'blush') p.push(`<ellipse cx="${X(0, 6)}" cy="${eyeY + 15}" rx="${f.w * 0.7}" ry="7" fill="url(#${id}bl)" opacity="0.45"/>`);
+  // (r12: anger flushes — a hot wash over the nose bridge and upper cheeks, a shadowed brow ridge)
+  if (mood === 'angry') {
+    p.push(`<ellipse cx="${X(0, 6)}" cy="${eyeY + 9}" rx="${f.w * 0.82}" ry="10" fill="#e0302a" opacity="0.2"/>`);
+    p.push(`<ellipse cx="${X(0, 3)}" cy="${eyeY - 9}" rx="${f.w * 0.62}" ry="5" fill="${mix(skin, 0x5a1a14, 0.5)}" opacity="0.22"/>`);
+  }
   if (mood === 'blush') for (const sx of [-1, 1]) p.push(`<ellipse cx="${X(sx * 25) - 3}" cy="${eyeY + 12}" rx="2.2" ry="1.4" fill="#fff" opacity="0.6"/>`);
   if (acc.has('freckles')) for (const sx of [-1, 1]) for (let i = 0; i < 5; i++) p.push(`<circle cx="${X(sx * (16 + (i % 3) * 5 + (i > 2 ? 2 : 0)))}" cy="${eyeY + 10 + (i > 2 ? 5 : 0) + (i % 2)}" r="1.2" fill="${shade(skin, 0.62)}" opacity="0.75"/>`);
   if (old) {
@@ -1080,7 +1094,12 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   if (mood === 'angry' && mk.has('vein')) p.push(`<g stroke="#d8342a" stroke-width="2.6" fill="none" stroke-linecap="round"><path d="M${100 + f.w - 16} ${f.top + 8} q 4 4 8 0 M${100 + f.w - 12} ${f.top + 4} q 4 4 0 8 M${100 + f.w - 4} ${f.top + 8} q -4 4 -8 0"/></g>`);
   if (mood === 'surprised' && mk.has('burst')) p.push(`<g stroke="#5a3a2a" stroke-width="2.2" stroke-linecap="round"><path d="M${100 - f.w - 6} ${f.top + 4} l -8 -6 M${100 - f.w - 2} ${f.top - 4} l -4 -9 M${100 + f.w + 6} ${f.top + 4} l 8 -6 M${100 + f.w + 2} ${f.top - 4} l 4 -9"/></g>`);
   if ((mood === 'blush' || mood === 'laugh') && mk.has('sparkle')) p.push(`<g fill="#fff6c0" stroke="#e8b84a" stroke-width="0.8"><path d="M${100 + f.w + 8} ${f.top + 10} l 2 5 l 5 2 l -5 2 l -2 5 l -2 -5 l -5 -2 l 5 -2 Z"/><path d="M${100 - f.w - 10} ${f.top + 30} l 1.4 3.6 l 3.6 1.4 l -3.6 1.4 l -1.4 3.6 l -1.4 -3.6 l -3.6 -1.4 l 3.6 -1.4 Z"/></g>`);
-  if (mood === 'thinking' && mk.has('think')) p.push(`<g fill="#fffaf0" stroke="#7a5a3a" stroke-width="1.4"><circle cx="${100 + f.w + 10}" cy="${f.top + 4}" r="3"/><circle cx="${100 + f.w + 18}" cy="${f.top - 6}" r="4.5"/><circle cx="${100 + f.w + 28}" cy="${f.top - 20}" r="7"/></g>`);
+  if (mood === 'thinking' && mk.has('think')) {
+    // (r12: inside the card's inner frame — it was clipped by the top edge on Tobias's flat cap)
+    const tt = Math.max(f.top, 40);
+    const tx = Math.min(100 + f.w, 150);
+    p.push(`<g fill="#fffaf0" stroke="#7a5a3a" stroke-width="1.4"><circle cx="${tx + 10}" cy="${tt + 4}" r="3"/><circle cx="${tx + 18}" cy="${tt - 6}" r="4.5"/><circle cx="${tx + 28}" cy="${tt - 20}" r="7"/></g>`);
+  }
   p.push(`</g>`);
   p.push(`</g>`);
   // (r8: only the thinking hand under the chin stays — the floating mitten at a cheek / mouth read as a prop)

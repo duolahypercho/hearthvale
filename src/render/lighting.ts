@@ -96,6 +96,9 @@ export class DayNight {
   mist = 0;
   /** Minimum wetness (weather system: surfaces stay damp for a while after the rain stops). */
   wetFloor = 0;
+  /** Fog is scaled by the lens distance; close dialogue lenses (NpcSystem) set a floor so a 6 m
+   *  two-shot keeps its background instead of drowning it in haze (0 = off). */
+  fogDistMin = 0;
   /** Current weather blend (smoothed). */
   private overcast = 0;
   private snowTarget = 0;
@@ -376,8 +379,9 @@ export class DayNight {
     (this.rc.scene.background as THREE.Color).copy(this.fog.color);
     // Rain thickens the distance haze, but storms stay crisp and dark (the drama is in the grade,
     // the rain sheets and the lightning, not in a milky wash).
-    this.fog.near = this.rc.rig.distance * (1.25 - rainy * 0.35 + storm * 0.2);
-    this.fog.far = this.rc.rig.distance * (4.2 - oc * 1.1 - rainy * 0.75 + storm * 0.6);
+    const fogD = Math.max(this.rc.rig.distance, this.fogDistMin);
+    this.fog.near = fogD * (1.25 - rainy * 0.35 + storm * 0.2);
+    this.fog.far = fogD * (4.2 - oc * 1.1 - rainy * 0.75 + storm * 0.6);
     if (this.mist > 0.001) {
       const m = this.mist;
       _c1.setRGB(0.86, 0.87, 0.86).lerp(this.sun.color, 0.25).multiplyScalar(1 - this.night * 0.75);

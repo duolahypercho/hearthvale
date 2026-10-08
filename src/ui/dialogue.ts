@@ -499,7 +499,9 @@ export class DialoguePanel implements Panel {
         if (hit) steps.splice(0, steps.length, { kind: 'line', text: hit.text, mood: hit.mood });
         else if (steps[0]?.kind === 'line') steps[0].mood = moodOverride;
       }
-      const ask = conv?.ask;
+      // (r12 critic: `&ask=1` showed a plain line when the conversation picked for this hour carried no
+      // question — staging the ask goes straight to one of the villager's own questions, choices up)
+      const ask = conv?.ask ?? (mode === 'ask' ? def.dialogue.find((g) => g.ask)?.ask : undefined);
       if (ask) {
         const q = parseLine(ask.q, ask.mood ?? 'thinking');
         const askStep: Step = { kind: 'ask', q: q.text, mood: ask.mood ?? q.mood, options: ask.options };

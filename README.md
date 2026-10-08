@@ -710,8 +710,44 @@ actors such as Pip the shop cat).
   hat at the left edge, the blind judge's "out-of-focus foreground figure"); Odessa's headscarf comes
   forward to her brows and the broad nose's alae tuck into the tip (they inked a snout).
 
+- **Round 12** — *Heart-event staging*: an intimate line (sad, blush, worried, wistful) or a question is
+  said to the farmer — a speaker still turned to the anvil / lantern turns round first (`addressFarmer`;
+  odessa-6 had the director swing a reverse angle through the forge roof with the farmer stacked behind
+  her). The lens solve and `auditEvents` now measure how much of the frame a building's walls / eaves
+  cover in front of the actors (`roofCover`: a 9 × 6 grid of lens rays) and fail two actors' heads
+  stacked on screen or standing < 0.9 m apart; a farmer stacked with an actor or sunk behind the box
+  steps out of the shot. kit-10 turns to the farmer before the club rules; hazel-2 stands beside the
+  planter, side-on to the square (the reverse angle squeezed between the Hall and the store and looked
+  down on her sun hat); stone-bridge pillars count as waist-high posts, not lamp posts.
+  *Live cutscenes*: every event shot breathes (a slow 2° drift and a 4 % push-in from the cut), and while
+  a choice is open the asker holds the portrait's `thinking` face with a living think pose (chin tap,
+  sway, a glance down at what they are weighing) — for co-op spectators too. *Live talks*: a closer,
+  lower lens (6.5 m, 20°, `?talkd=` A/B) centred on the villager, faces at ~10–12 % of the frame near
+  the upper third; the plaza posts' hanging lanterns (face height) count as occluders and a post or
+  lantern over / level with a face is a hard fail in the re-block; a villager showing the lens the back
+  of their head costs far more; close lenses keep their background (`lighting.fogDistMin`). *Faces*:
+  the 3D eyes are the portraits' eyes — a warm white, a big iris in the villager's own colour (dark rim,
+  bright lower crescent, pupil, two catch-lights) and a heavy upper lash line with an outer flick
+  (per-villager iris size / lash weight from the painted Persona); the `thinking` face is pushed so it
+  reads from the event lens. *Barks*: the bubble's bottom edge sits ≤ ~0.6 m over the speaker's head
+  (sliding sideways rather than up) with its tail on them, a dark walnut name chip with cream lettering
+  and a dot in the villager's colour, and no bubble for a speaker off screen or behind a building.
+  Emotes that would cross the top of a close lens slide down beside the head. `&ask=1` stages straight
+  to one of the villager's own questions with the choices up; joking lines carry happy / laugh tags.
+  *Portraits*: brows carry the mood (anger's inner ends drive down ~25° with a hot flush over the nose
+  and a shadowed brow ridge, sorrow's lift hard), sad slumps, wistful looks away, the thinking bubble
+  stays inside the card, every hair lock gets three tones (a dark parting line, the lit band, a sheen
+  strand). *Winter*: the fountain freezes (ice sheets with cracks, trapped air and blown snow over the
+  pool and the bowl, the crown jets frozen mid-arc, overflow caught as icicle columns, icicle fringes;
+  `fountain.ts buildFountainIce`), a cold blue contact shade pools round every building and prop
+  (`winter.ts buildWinterShade`, one multiply decal), and `town-winter` is a clear winter afternoon.
+  *Town*: plaza wear (`plaza.ts`: a polished foot-traffic ring and desire lines to the shops and Hall,
+  moss in the quiet joints, damp under the basin, petals blown into the corners); `town-establish`
+  frames the east bank in one shot — the Kettle Bridge in front, Flint & Ember left, The Copper Kettle
+  right, the town busy on it.
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
-(the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
+(the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
 paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·
