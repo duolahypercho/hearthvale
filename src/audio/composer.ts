@@ -1175,8 +1175,19 @@ export class Composer {
           break;
         }
         case 'waltz':
+          if (sustained) {
+            // (Round 6: a bowed / soft bass holds its waltz note through the bar — two beats of a
+            // sustained note then silence was a hole under every bar of rain-3 and the dawn cue.)
+            const first = down !== root ? down : b.i % 2 === 1 && r.chance(0.4) ? fifth : root;
+            const lift = len >= 6 && r.chance(0.3);
+            push(s0, first, lift ? 4 : len, 1);
+            if (lift) push(s0 + 4, fifth, len - 4, 0.6);
+            break;
+          }
           push(s0, down !== root ? down : b.i % 2 === 1 && r.chance(0.4) ? fifth : root, 2, 1);
-          if (len >= 6 && r.chance(0.3)) push(s0 + 4, fifth, 2, 0.6);
+          // (Round 6: in a slow waltz — a bar of 1.75 s or more — the pluck on beat 3 comes most bars:
+          // one pluck decayed ~20 dB across the bar, the low end sagging into every downbeat.)
+          if (len >= 6 && r.chance(b.dur >= 1.75 ? 0.65 : 0.3)) push(s0 + 4, fifth, 2, 0.6);
           break;
         case 'jig':
           push(s0, down, 2, 1);

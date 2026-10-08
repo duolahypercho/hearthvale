@@ -297,7 +297,12 @@ adapts it to game events.
   the cave roar -3 dB (a 12-tile fight reads over it), crickets ebb together on a ~23 s swell, cicadas
   4.2-5.6 kHz (no HISSY noon), rain hiss low-passed at 6 kHz; indoors the rain comes in showers (roof, hiss,
   eaves drips and the hearth's roar breathe over ~40 s; drips are the eaves, not a puddle in the room).
-  Summer's marimba ostinato moved hard left, away from the marimba tune. `--amb <presets>` renders just those
+  Summer's marimba ostinato moved hard left, away from the marimba tune. A sustained (soft) bass holds its
+  waltz note through the bar, and a slow plucked waltz (bar ≥ 1.75 s) adds the beat-3 pluck most bars —
+  bass dips before downbeats: 64 in the first 16 themes before, 20 over all 44 theme renders after (worst
+  mostly 11-13 dB: a pizz decaying across a slow bar; festival-tide's jig 7). The mines get their own
+  `cave` house curve (3 dB darker than the day; they were uncorrected, mine-lava's top 9 dB under the farm's)
+  and the `TONE` flag judges each song against its family curve. `--amb <presets>` renders just those
   ambience presets.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
