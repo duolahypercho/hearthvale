@@ -19,6 +19,7 @@ import { applyWorldFx } from '../../render/worldfx';
 import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
 import { Rng } from '../../core/rng';
+import { sackGeometry } from './kit';
 
 /** Animation clips evaluated in the vertex shader. */
 export const Anim = {
@@ -269,14 +270,16 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     }
   }
   if (props.has('sack')) {
-    // Burlap sack pulled up to the waist, gathered at the top.
-    const sack = new THREE.CylinderGeometry(0.29 * bw, 0.26 * bw, 0.62, 10, 2, true);
-    const sp = sack.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < sp.count; i++) sp.setX(i, sp.getX(i) * (1 + (rng.next() - 0.5) * 0.08));
-    b.add(Bone.Root, WAIST, sack, mat(0, 0.3, 0), 0xc8a46a);
-    b.add(Bone.Root, WAIST, new THREE.CircleGeometry(0.26 * bw, 10), mat(0, 0.0, 0, -Math.PI / 2), 0xb08a52);
-    b.add(Bone.Root, WAIST, new THREE.TorusGeometry(0.29 * bw, 0.03, 3, 12), mat(0, 0.6, 0, Math.PI / 2), 0xa88450);
-    b.add(Bone.Root, WAIST, box(0.2, 0.12, 0.01), mat(0, 0.34, 0.29 * bw), 0x8a3a2a);
+    // Burlap sack pulled up to the chest (both hands on the gathered rim): a full foot, a shin
+    // bulge, drawn in at the knees, creased cloth — a racer *in a sack*, not a figure in a bucket.
+    const sack = sackGeometry(rng, 0.3 * bw, 0.86);
+    b.add(Bone.Root, WAIST, sack, mat(0, -0.02, 0), 0xc8a46a);
+    // Woven bands (darker weave) + the drawstring under the rim + a stencilled number patch.
+    for (const y of [0.22, 0.5]) b.add(Bone.Root, WAIST, new THREE.TorusGeometry(0.27 * bw, 0.012, 3, 14), mat(0, y, 0, Math.PI / 2), 0xa8844e);
+    b.add(Bone.Root, WAIST, new THREE.TorusGeometry(0.29 * bw, 0.022, 3, 14), mat(0, 0.78, 0, Math.PI / 2), 0x8a6a3a);
+    b.add(Bone.Root, WAIST, new THREE.CapsuleGeometry(0.012, 0.16, 1, 4), mat(0.08, 0.68, 0.29 * bw, 0, 0, 0.3), 0x8a6a3a);
+    b.add(Bone.Root, WAIST, box(0.17, 0.15, 0.012), mat(0, 0.4, 0.27 * bw, -0.08, 0, 0), 0xe8d8b0);
+    b.add(Bone.Root, WAIST, box(0.06, 0.09, 0.014), mat(0, 0.4, 0.278 * bw, -0.08, 0, 0), 0x8a3a2a);
   }
   if (props.has('rosette')) {
     b.add(Bone.Torso, P, new THREE.CylinderGeometry(0.06, 0.06, 0.015, 8), TT(-0.1, 0.3, 0.2, Math.PI / 2), 0x3f6fd0);
@@ -364,7 +367,8 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
   // ── head
   const HP = NECK;
   const hm = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => headM(mat(x, y, z, rx, ry, rz, sx, sy, sz));
-  const face = L.face ?? 'round';
+  // Townsfolk vary in head shape too (not one round face cloned through the crowd).
+  const face = L.face ?? (named ? 'round' : (['round', 'round', 'long', 'square'] as const)[Math.floor(new Rng(`${seed}:fs`).next() * 4)]!);
   const fy = face === 'long' ? 1.06 : face === 'square' ? 0.96 : 0.96;
   const fx = face === 'square' ? 1.08 : face === 'long' ? 0.98 : 1.04;
   b.add(Bone.Head, HP, new THREE.SphereGeometry(R, 12, 8), hm(0, R * 0.92, 0, 0, 0, 0, fx, fy, 1), L.skin);
@@ -653,11 +657,14 @@ void crowdPose(inout vec3 p, inout vec3 n) {
     hdZ = 0.14 + sin(t * 0.6) * 0.05; hdX = 0.05 + sin(t * 1.3) * 0.04; hdY = sin(t * 0.4) * 0.3; torZ = -0.04;
   } else if (anim < 11.5) { // sack race hop
     // A clear 0.36 m hop arc: stretched in the air, squashed flat for the beat after landing.
+    // Crouch-and-spring: the ground beat squashes down (anticipation), the take-off stretches, the
+    // body pitches forward over the sack in the air and the hands haul the rim up to the chest.
     float sh = sin(t * 5.2);
     float h = crPos(sh);
     float g = crPos(-sh);
-    bob = pow(h, 0.7) * 0.36; squash = 1.0 + h * 0.1 - pow(g, 0.5) * 0.17 * (1.0 - g * 0.6);
-    armLx = -0.35; armRx = -0.35; armLs = -0.3; armRs = -0.3; torX = 0.12 - h * 0.2; hdX = -0.1;
+    bob = pow(h, 0.7) * 0.36; squash = 1.0 + h * 0.12 - pow(g, 0.5) * 0.2 * (1.0 - g * 0.6);
+    armLx = -0.7 - h * 0.25; armRx = -0.7 - h * 0.25; armLs = -0.38; armRs = -0.38;
+    torX = 0.22 + h * 0.16 - g * 0.1; hdX = -0.22 - h * 0.1; hdZ = sin(t * 2.6) * 0.06;
   } else if (anim < 12.5) { // fiddle
     armLx = -1.55; armLs = 0.2; armRx = -1.25; armRs = 0.35 + sin(t * 5.0) * 0.35;
     hdZ = 0.35; hdY = 0.25; torZ = sin(t * 2.5) * 0.07; bob = abs(sin(t * 2.5)) * 0.02;
@@ -959,26 +966,31 @@ export class Crowd {
     // Hand centre relative to the shoulder: crZ(±up) then crX(armX) applied to (0, HAND_Y - 0.03, 0).
     const d = HAND_Y - 0.04;
     const sz = right ? up : -up;
+    // (Plain scalar temporaries — no destructuring tuples: this runs per dancer per frame.)
     let x = -Math.sin(sz) * d;
-    let y = Math.cos(sz) * d;
-    let z = 0;
+    const y0 = Math.cos(sz) * d;
     const cx = Math.cos(armX);
     const sx = Math.sin(armX);
-    [y, z] = [cx * y - sx * z, sx * y + cx * z];
+    let y = cx * y0;
+    let z = sx * y0;
     x += (right ? 1 : -1) * SHOULDER_X * bw;
     y += 0.82;
     // Torso roll about the waist (crZ).
     const ty = y - 0.5;
     const ct = Math.cos(torZ);
     const st = Math.sin(torZ);
-    [x, y] = [ct * x - st * ty, st * x + ct * ty + 0.5];
+    const xr = ct * x - st * ty;
+    y = st * x + ct * ty + 0.5;
+    x = xr;
     const sq = m.squash;
     y *= sq;
     x /= Math.sqrt(sq);
     z /= Math.sqrt(sq);
     const cr = Math.cos(m.lean);
     const sr = Math.sin(m.lean);
-    [x, y] = [cr * x - sr * y, sr * x + cr * y];
+    const xl = cr * x - sr * y;
+    y = sr * x + cr * y;
+    x = xl;
     y += bob;
     const cy = Math.cos(m.yaw);
     const sy = Math.sin(m.yaw);

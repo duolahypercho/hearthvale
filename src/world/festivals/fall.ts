@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { smoothstep } from '../../core/noise';
-import type { Rng } from '../../core/rng';
+import { Rng } from '../../core/rng';
 import { NPCS, NPC_IDS, type NpcLook } from '../../data/npcs';
 import { OUTFIT_PALETTES, produceRivals, entryNickname } from '../../data/festivals';
 import { itemDef } from '../../data/items';
@@ -28,7 +28,7 @@ import { buildHayBale, buildHarvestPile, buildScarecrow, buildBench } from '../p
 import { FestivalMap, type PlayState, type SpecView } from './base';
 import { sackNpcPos, SACK_LEN } from './coop';
 import type { ActionPose, PlayerRig } from '../../entities/player';
-import { buildShowStage, buildMarquee, buildGiantPumpkin, buildRosette, buildEntryCard, buildCornField, buildRaceGate, buildAppleTub, buildCiderPress, buildGourdGarland, buildBanquetTable } from './kit';
+import { sackGeometry, buildShowStage, buildMarquee, buildGiantPumpkin, buildRosette, buildEntryCard, buildCornField, buildRaceGate, buildAppleTub, buildCiderPress, buildGourdGarland, buildBanquetTable } from './kit';
 import { PetalStorm, GroundScatter } from './fx';
 import { produceGeometry } from '../props/crops';
 import { CROPS, type CropId } from '../../data/crops';
@@ -742,7 +742,7 @@ export class HarvestFair extends FestivalMap {
         if (!av || this.remoteSacks.has(r.id) || !this.sack) continue;
         const s2 = this.sack.clone();
         s2.scale.set(1, 1, 1);
-        s2.position.set(0, 0.3, 0);
+        s2.position.set(0, 0, 0);
         av.add(s2);
         this.remoteSacks.set(r.id, s2);
       }
@@ -868,7 +868,7 @@ export class HarvestFair extends FestivalMap {
           const s2 = this.sackMesh().clone();
           s2.visible = true;
           s2.scale.set(1, 1, 1);
-          s2.position.set(0, 0.3, 0);
+          s2.position.set(0, 0, 0);
           av.add(s2);
           this.remoteSacks.set(pid, s2);
         }
@@ -883,20 +883,13 @@ export class HarvestFair extends FestivalMap {
   /** The burlap racing sack (yours; co-op racers wear clones). */
   private sackMesh(): THREE.Mesh {
     if (!this.sack) {
-      const g = new THREE.CylinderGeometry(0.3, 0.26, 0.62, 12, 3, true);
-      const pos = g.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < pos.count; i++) {
-        // Lumpy burlap: bulge at the bottom, gathered at the top.
-        const y = pos.getY(i);
-        const k = 1 + 0.12 * Math.sin(pos.getX(i) * 20 + y * 9) * (0.5 - y) - (y > 0.25 ? 0.18 : 0);
-        pos.setX(i, pos.getX(i) * k);
-        pos.setZ(i, pos.getZ(i) * k);
-      }
-      g.computeVertexNormals();
-      const m = new THREE.MeshStandardMaterial({ color: 0xc8a068, roughness: 0.95, side: THREE.DoubleSide, map: textures.thatch().map });
+      // Burlap pulled up to the chest (the same creased sack the villagers race in).
+      const g = sackGeometry(new Rng('player-sack'), 0.3, 0.86);
+      // Plain burlap (a thatch map read as a wicker basket on the near lane).
+      const m = new THREE.MeshStandardMaterial({ color: 0xc8a46a, roughness: 0.96, side: THREE.DoubleSide });
       this.sack = new THREE.Mesh(g, m);
       this.sack.castShadow = true;
-      this.sack.position.y = 0.3;
+      this.sack.position.y = 0;
     }
     return this.sack;
   }
@@ -1028,7 +1021,18 @@ export class HarvestFair extends FestivalMap {
   }
 
   private clearEntry(): void {
-    this.entry?.children.filter((c) => c.name === 'entry-crop').forEach((c) => c.removeFromParent());
+    this.entry?.children
+      .filter((c) => c.name === 'entry-crop')
+      .forEach((c) => {
+        c.removeFromParent();
+        // (The entry's geometry + material are its own copies: free them.)
+        c.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          m.geometry.dispose();
+          for (const mm of Array.isArray(m.material) ? m.material : [m.material]) mm.dispose();
+        });
+      });
   }
 
   /** Prize radius for a judged score (the rivals' giants use the same scale). */
@@ -1044,12 +1048,29 @@ export class HarvestFair extends FestivalMap {
   private showEntry(id: string, quiet = false, score = 92, touch = -1): void {
     const g = this.ensureEntryStand();
     this.clearEntry();
-    const crop = id in CROPS ? produceGeometry(id as CropId) : null;
+    // A prize-sized copy of the crop with its own skin: a low-frequency mottle across the surface
+    // and a darker underside where it sits (the shared field mesh scaled 10× read as moulded plastic).
+    const crop = id in CROPS ? produceGeometry(id as CropId).clone() : null;
+    if (crop?.attributes.color) {
+      crop.computeBoundingBox();
+      const bb0 = crop.boundingBox!;
+      const pos = crop.attributes.position as THREE.BufferAttribute;
+      const col = crop.attributes.color as THREE.BufferAttribute;
+      const span = Math.max(1e-3, bb0.max.y - bb0.min.y);
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const z = pos.getZ(i);
+        const n = 0.92 + 0.08 * Math.sin(x * 61 + y * 37) * Math.sin(z * 53 - y * 29) + 0.03 * Math.sin(x * 140 + z * 120);
+        const k = n * (0.72 + 0.28 * THREE.MathUtils.smoothstep((y - bb0.min.y) / span, 0, 0.45));
+        col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+      }
+    }
     const polish = touch === 0;
     // Pale produce (turnips, cauliflower) is held well under white so it never blooms out.
     const mesh = new THREE.Mesh(
       crop ?? new THREE.IcosahedronGeometry(0.16, 1),
-      new THREE.MeshStandardMaterial({ vertexColors: !!crop, color: crop ? 0xd8d2c8 : 0x9a9a9a, roughness: polish ? 0.28 : 0.62, metalness: 0, envMapIntensity: polish ? 1.6 : 1 }),
+      new THREE.MeshStandardMaterial({ vertexColors: !!crop, color: crop ? 0xd8d2c8 : 0x9a9a9a, roughness: polish ? 0.34 : 0.7, metalness: 0, envMapIntensity: polish ? 1.4 : 0.8 }),
     );
     const def = itemDef(id);
     if (def) this.setEntryCard(entryNickname(id, this.game.calendar.year, def.name).replace(/ \(.*\)$/, ''));
@@ -1152,15 +1173,18 @@ export class HarvestFair extends FestivalMap {
       }
       const h = play.hop;
       const air = h < 1 ? Math.sin(h * Math.PI) : 0;
-      const land = h < 1 && h > 0.75 ? (h - 0.75) * 4 : 0;
-      rig.legL.rotation.set(-0.1, 0, 0.05);
-      rig.legR.rotation.set(-0.1, 0, -0.05);
-      // Fists clutching the sack rim; arms flare in the air.
-      rig.armL.rotation.set(-0.5 - air * 0.4, 0, 0.35 + air * 0.5);
-      rig.armR.rotation.set(-0.5 - air * 0.4, 0, -0.35 - air * 0.5);
-      rig.torso.rotation.set(0.12 - air * 0.1, 0, 0);
-      rig.head.rotation.set(-0.08, 0, 0);
-      return { bob: air * 0.42, sy: 1 + air * 0.08 - land * 0.1 };
+      const land = h < 1 && h > 0.75 ? Math.sin(((h - 0.75) / 0.25) * Math.PI) : 0;
+      // Waiting for the next press: crouched, knees loaded in the sack (anticipation).
+      const load = h >= 1 ? 1 : 0;
+      rig.legL.rotation.set(-0.25 * load, 0, 0.05);
+      rig.legR.rotation.set(-0.25 * load, 0, -0.05);
+      // Fists hauling the rim up to the chest; elbows flare out in the air.
+      rig.armL.rotation.set(-0.85 - air * 0.3, 0, 0.3 + air * 0.45);
+      rig.armR.rotation.set(-0.85 - air * 0.3, 0, -0.3 - air * 0.45);
+      // Pitched forward over the sack on the way up, rocked back on the landing.
+      rig.torso.rotation.set(0.22 + air * 0.18 - land * 0.14 + load * 0.08, 0, Math.sin(play.t * 6) * 0.04);
+      rig.head.rotation.set(-0.2 - air * 0.08, 0, 0);
+      return { bob: air * 0.46 - load * 0.04, sy: 1 + air * 0.1 - land * 0.16 - load * 0.06 };
     }
     if (play.id === 'pumpkin') {
       rig.tool.visible = false;

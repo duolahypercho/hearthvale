@@ -1088,14 +1088,41 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
 - Crowds: townsfolk get 12+ hue families a season, ~40 % seasonal hats (the rest bare hair / headbands / earmuffs /
   bows), elders + children, ±10 % height / ±8 % width, bags; the staged crowd is relaxed so nobody stands inside
   anybody else (`FestivalMap.separateCrowd`); in close mini-game framings anyone within ~5 m of the lens shrinks away
-  (`Crowd.nearCam`), so no giant cropped heads fill the frame.
+  (`Crowd.nearCam`), so no giant cropped heads fill the frame. (r8) Winter hats come as beanies, floppy stocking
+  caps, fur trappers and face-framing hoods; extras get round / long / square heads. Night festivals light faces
+  with a per-crowd warm lantern fill + cool moon rim (`Crowd.light`, `FestivalMap.faceLight`). Name pips only tag
+  the two villagers within 4.5 m of you.
+- (r8) Composition: Tide night keeps its bottom third clear (no reeds / poles across it), half the flotilla, paper
+  lanterns held under white (candle-lit gradient, `Lanterns` `glow`), villagers on dry sand, and two things to *do*
+  in front of the lens — the wish table (write a slip, fold a toro lantern, a line of written wishes; `buildWishTable`)
+  and a grilled-corn snack cart (`buildSnackCart`). Starfall's postcard looks over the skaters on the ice to three
+  hero zones (fire + cocoa, the gift circle round the Fir with you at its open side, the ice sculptures) with the
+  star against the aurora; no posts or onlookers in the gift circle's sightline. Sack racers stand in creased burlap
+  sacks pulled to the chest (`sackGeometry`), crouch before take-off, pitch forward in the air and squash on
+  landing; attract mode joins the race mid-lane. Skating banks into carves with a forward push crouch, an edge-spray
+  fan and a bright speed streak in the blade trail; lens-side strip skaters clear the course. Ribbon Dance partners
+  hold hands a step apart and swing round each other on big Blooms.
 - Perf: at most 3 dynamic point lights per festival map (constant count; lamps / stalls / lighthouse are glow sprites +
   pool decals, the firework flash is one shared light + a sea tint); the cocoa lamp rides with the skater in the skate.
 - Events: `festival:start` / `festival:end`, `festival:music` (tempo / mode / timbre hints), `festival:minigame`,
   `festival:score` (co-op relay payload).
-- Co-op: `festivals.record(activity, score)` takes a peer's relayed `festival:score` (player `'local'` = this browser;
-  the net layer stamps its peer id); the result card ranks every farmer who played today once more than one has a
-  score. `festivals.snapshot()` / `applySnapshot()` hand the festival day (done activities + boards) to a joiner.
+- Co-op (host-authoritative end to end, `world/festivals/coop.ts`): the host owns every activity — session id, seed,
+  start tick, the start-line lobby + lanes, live race progress, the outcome and every staged moment. A farmhand only
+  submits inputs (`fe.req` start, `fe.ev` moment, `fe.in` progress claim, `fe.end` result, `fe.line` / `fe.start` /
+  `fe.leave` at a start line); the host validates them (known activity + event kind, finite values, progress capped
+  at the game's top speed, finish times inside a 1 s lag window, scores inside the par band) and broadcasts
+  `fe.stage` / `fe.x` / `fe.go` / `fe.st` (10 Hz) / `fe.res` / `fe.fin` / `fe.bd`. The host ranks the sack race
+  (farmers + villager racers, whose run is a closed-form function of the host's seed and the race clock,
+  `sackNpcPos`, so racer HUDs, spectators and the host agree); every machine shows the host's places.
+  Spectating: another farmer's dance (partner steps up, plait + hearts), lantern release (their lanterns join the
+  flotilla), judging (judges walk, rosettes staked), gift exchange (recipient + present in their hands), skate (edge
+  spray) and sack race (the villager field in lanes, sacks on the farmers) are staged in 3D on everyone else's
+  map (`FestivalMap.spectateBegin / Event / End / Race`), their avatar posed with the activity's own body animation
+  and the nearest onlookers turning to watch, then applauding the host's result. A late joiner gets live sessions +
+  races in the join snapshot. `festivals.coopStats()` → msgs, relayed, rejected, watching, staged.
+  `node scripts/fest-coop-test.mjs` checks lobby → host lanes → live progress → host standings (places agree) →
+  a watched solo race (relayed hops, posed avatar, villager field) → a forged teleport claim rejected → `fe.fin`
+  closes it for everyone → late-joiner boards.
 - Demos: `fest-spring`, `fest-summer`, `fest-fall`, `fest-winter` (8:10 pm, aurora up), `fest-winter-night`,
   `fest-winter-dusk` (afterglow, aurora just rising), and the mini-games
   `fest-spring-dance`, `fest-summer-lanterns`, `fest-fall-race`, `fest-fall-judging`, `fest-winter-gifts`,

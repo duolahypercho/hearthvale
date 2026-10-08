@@ -1090,6 +1090,10 @@ export class FestivalOverlay {
     env.play.progress = pos.map(() => 0);
     if (!(await this.countdown(root))) return null;
     env.play.live = true;
+    // Attract mode (demos) joins the race a few seconds in, so a still catches the field strung out
+    // mid-lane — sacks in the air, wobblers tumbling — rather than five racers at the start line.
+    const T0 = env.auto && !race ? 5.5 : 0;
+    if (T0) pos[0] = T0 * 2.3;
     let next: 0 | 1 = 0;
     let last = -1;
     let stun = 0;
@@ -1111,8 +1115,8 @@ export class FestivalOverlay {
           }
           continue;
         }
-        pos[i] = sackNpcPos(seed, npcK[i]!, t);
-        if (pos[i]! >= LEN) finT[i] = sackNpcFinish(seed, npcK[i]!);
+        pos[i] = sackNpcPos(seed, npcK[i]!, t + T0);
+        if (pos[i]! >= LEN) finT[i] = sackNpcFinish(seed, npcK[i]!) - T0;
       }
       // Player hops.
       stun = Math.max(0, stun - dt);

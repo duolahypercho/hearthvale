@@ -1270,14 +1270,16 @@ export function buildSandcastle(rng: Rng): THREE.Group {
 
 /** Ribbed giant pumpkin (contest entry). */
 export function pumpkinGeometry(r: number, ribs = 12, squash = 0.72): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(r, 28, 16);
+  const g = new THREE.SphereGeometry(r, 40, 20);
   const pos = g.attributes.position as THREE.BufferAttribute;
   for (let k = 0; k < pos.count; k++) {
     const x = pos.getX(k);
     const z = pos.getZ(k);
     const y = pos.getY(k);
     const a = Math.atan2(z, x);
-    const rib = 1 - 0.07 * Math.pow(0.5 - 0.5 * Math.cos(a * ribs), 0.6);
+    // Deep, slightly irregular ribs (each lobe its own fullness) — a grown giant, not a ball.
+    const lobe = 1 + 0.035 * Math.sin(Math.floor(((a + Math.PI) / (Math.PI * 2)) * ribs) * 2.7);
+    const rib = (1 - 0.1 * Math.pow(0.5 - 0.5 * Math.cos(a * ribs), 0.55)) * lobe;
     const flat = 1 - 0.25 * Math.pow(Math.abs(y / r), 6);
     pos.setXYZ(k, x * rib * flat, y * squash - (y > 0 ? Math.pow(1 - Math.hypot(x, z) / r, 4) * r * 0.2 : 0), z * rib * flat);
   }
@@ -1296,9 +1298,35 @@ export function buildGiantPumpkin(rng: Rng, r: number, tint: number, plinth = tr
   // `body` false: just the straw pallet (another crop — or your entry — goes on top).
   if (!body) return { group: b.build({ name: 'produce-pallet' }), top: base };
   const g = pumpkinGeometry(r, 12, 0.74);
-  b.add('white', g, mat(0, base + r * 0.72, 0), { tint, aoWorld: (p) => 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y, base, base + r * 0.7) });
-  const stem = new THREE.CylinderGeometry(r * 0.07, r * 0.12, r * 0.35, 7);
-  b.add('woodDark', stem, mat(0.02, base + r * 1.5, 0, 0.25, 0, 0.2), { tint: 0x6a7a3a });
+  // Layered skin: dark rib grooves, lighter sun-ripened ridges, a mottled bloom across the lobes and
+  // a pale ground spot where it sat in the field (surface breakup that survives a close camera).
+  const cy = base + r * 0.72;
+  b.add('white', g, mat(0, cy, 0), {
+    tint,
+    aoWorld: (p) => {
+      const a = Math.atan2(p.z, p.x);
+      const groove = Math.pow(0.5 - 0.5 * Math.cos(a * 12), 0.55);
+      const mottle = 0.94 + 0.06 * Math.sin(p.x * 9.1 + p.y * 5.3) * Math.sin(p.z * 7.7 - p.y * 3.1);
+      const ridge = 1.06 - 0.3 * groove;
+      const low = 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y, base, base + r * 0.7);
+      return ridge * mottle * low;
+    },
+  });
+  // A thick, twisted, ridged stem with a dried tip.
+  const stem = new THREE.CylinderGeometry(r * 0.075, r * 0.13, r * 0.38, 8, 4);
+  {
+    const sp = stem.attributes.position as THREE.BufferAttribute;
+    for (let k = 0; k < sp.count; k++) {
+      const x = sp.getX(k);
+      const y = sp.getY(k);
+      const z = sp.getZ(k);
+      const tw = (y / (r * 0.38)) * 0.9;
+      const ridge = 1 + 0.12 * Math.cos(Math.atan2(z, x) * 4);
+      sp.setXYZ(k, (x * Math.cos(tw) - z * Math.sin(tw)) * ridge, y, (x * Math.sin(tw) + z * Math.cos(tw)) * ridge);
+    }
+    stem.computeVertexNormals();
+  }
+  b.add('woodDark', stem, mat(0.02, base + r * 1.5, 0, 0.25, 0, 0.2), { tint: 0x6a7a3a, aoWorld: (p) => (p.y > base + r * 1.62 ? 0.75 : 1) });
   // Curly vine + two leaves.
   for (let i = 0; i < 8; i++) {
     const t = i / 7;
@@ -2414,4 +2442,45 @@ export function buildSnackCart(rng: Rng, stripes: [number, number] = [0xd8573e, 
     glows.push(new THREE.Vector3(x, ch - 0.45, z));
   }
   return { group: b.build({ name: 'snack-cart' }), grill: new THREE.Vector3(-0.25, 1.25, 0), glows };
+}
+
+/**
+ * A burlap racing sack (open lathe): a full rounded foot where both feet stand, a bulge at the
+ * shins, drawn in at the knees, then up to a gathered, slightly flared rim at chest height that the
+ * racer clutches with both hands; loose vertical creases + a sag on one side so it reads as cloth
+ * (not a bucket). Origin at the ground, `h` tall.
+ */
+export function sackGeometry(rng: Rng, r = 0.3, h = 0.82): THREE.BufferGeometry {
+  const prof: [number, number][] = [
+    [0.0, 0.0],
+    [0.62, 0.0],
+    [0.92, 0.04],
+    [1.03, 0.12],
+    [1.06, 0.24],
+    [0.98, 0.38],
+    [0.88, 0.5],
+    [0.9, 0.66],
+    [0.96, 0.82],
+    [1.02, 0.92],
+    [1.08, 0.98],
+    [1.04, 1.0],
+  ];
+  const pts = prof.map(([x, y]) => new THREE.Vector2(x * r, y * h));
+  const g = new THREE.LatheGeometry(pts, 16);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const ph = rng.next() * 6.28;
+  const sag = rng.next() * 6.28;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const a = Math.atan2(z, x);
+    const v = y / h;
+    // Creases deepen toward the gathered rim; one side slumps a little lower.
+    const crease = 1 + (0.035 + 0.06 * v * v) * Math.sin(a * 7 + ph + v * 2.2) + 0.03 * Math.sin(a * 3 - ph);
+    const slump = v > 0.85 ? -0.05 * h * (0.5 + 0.5 * Math.cos(a - sag)) : 0;
+    pos.setXYZ(i, x * crease, y + slump, z * crease);
+  }
+  g.computeVertexNormals();
+  return g;
 }

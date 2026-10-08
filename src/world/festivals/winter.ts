@@ -59,7 +59,7 @@ export class StarfallSquare extends FestivalMap {
   private auroraGlow!: AuroraGlow;
   private snow!: Snowfall;
   private stardust!: Snowfall;
-  private skaters: { i: number; cx: number; rx: number; rz: number; sp: number; a0: number; side: number; oz: number }[] = [];
+  private skaters: { i: number; cx: number; rx: number; rz: number; sp: number; a0: number; side: number; oz: number; ozc?: number }[] = [];
   private starLight!: THREE.PointLight;
   /** Starlight Skate: the player's run (laps of the east reach) + the course on the ice. */
   private run: { x: number; off: number; vx: number; dir: 1 | -1; leg: number; dist: number; stun: number; spray: number; turn: number; items: SkItem[]; combo: number; comboT: number; best: number; gates: number; stars: number; cracks: number; trailT: number } | null = null;
@@ -995,14 +995,19 @@ export class StarfallSquare extends FestivalMap {
         return { bob: 0.02, sy: 0.94 };
       }
       const push = play.live ? Math.sin(t * (play.boost ? 7 : 4.5)) : 0;
-      // Lean into the glide, arms out for balance, long alternating strokes.
-      rig.torso.rotation.set(0.38, push * 0.15, -play.steer * 0.18);
-      rig.head.rotation.set(-0.3, 0, play.steer * 0.1);
-      rig.legL.rotation.set(Math.max(0, push) * -0.7, 0, 0.12 + Math.max(0, push) * 0.25);
-      rig.legR.rotation.set(Math.max(0, -push) * -0.7, 0, -0.12 - Math.max(0, -push) * 0.25);
-      rig.armL.rotation.set(-0.3 + push * 0.4, 0, 1.0 - play.steer * 0.3);
-      rig.armR.rotation.set(-0.3 - push * 0.4, 0, -1.0 - play.steer * 0.3);
-      return { bob: Math.abs(push) * 0.03 - 0.04, sy: 0.96 };
+      // Lean into the glide: a deep forward crouch when pushing hard, the whole upper body banked
+      // into the carve (screen-relative steer → the skater's own left / right by travel direction),
+      // the outside leg reaching out on long alternating strokes, arms out for balance.
+      const dir = play.stats.dir ?? 1;
+      const bank = THREE.MathUtils.clamp(-play.steer * dir, -1, 1);
+      const crouch = play.boost ? 1 : 0.45;
+      rig.torso.rotation.set(0.34 + crouch * 0.22, push * 0.18, bank * 0.36);
+      rig.head.rotation.set(-0.36 - crouch * 0.12, 0, -bank * 0.18);
+      rig.legL.rotation.set(Math.max(0, push) * -0.85 - crouch * 0.2, 0, 0.12 + Math.max(0, push) * 0.32 + Math.max(0, bank) * 0.2);
+      rig.legR.rotation.set(Math.max(0, -push) * -0.85 - crouch * 0.2, 0, -0.12 - Math.max(0, -push) * 0.32 + Math.min(0, bank) * 0.2);
+      rig.armL.rotation.set(-0.3 + push * 0.5, 0, 1.05 + bank * 0.35);
+      rig.armR.rotation.set(-0.3 - push * 0.5, 0, -1.05 + bank * 0.35);
+      return { bob: Math.abs(push) * 0.03 - 0.05 - crouch * 0.06, sy: 0.95 - crouch * 0.03 };
     }
     if (play.id === 'giftswap') {
       // Turned three-quarters between the recipient (east) and the lens, so both faces read; once
@@ -1113,17 +1118,29 @@ export class StarfallSquare extends FestivalMap {
       if (run.spray <= 0) {
         run.spray = play.boost ? 0.06 : 0.14;
         const z = this.riverZ(run.x) + run.off;
-        this.burst(run.x - 0.2 * run.dir, ICE_Y + 0.05, z, { color: 0xe8f4ff, count: play.boost || Math.abs(play.steer) > 0.5 ? 5 : 2, speed: 0.9, size: 0.07, gravity: 4, life: 0.5, up: 0.6, spread: 0.2 });
+        // Edge spray: a carve throws a fan of ice off the outside blade, a push a puff behind.
+        const carve = Math.abs(play.steer) > 0.5;
+        this.burst(run.x - 0.2 * run.dir, ICE_Y + 0.05, z + (carve ? -Math.sign(play.steer) * 0.18 : 0), { color: 0xe8f4ff, count: carve ? 9 : play.boost ? 5 : 2, speed: carve ? 1.6 : 0.9, size: 0.07, gravity: 4, life: carve ? 0.65 : 0.5, up: carve ? 0.9 : 0.6, spread: carve ? 0.35 : 0.2 });
       }
     }
-    Object.assign(st, { lap: Math.min(LAPS, Math.floor(run.leg / 2) + 1), gates: run.gates, stars: run.stars, cracks: run.cracks, combo: run.combo, comboT: run.comboT, best: run.best, stun: run.stun, leg: run.leg });
+    // (Field writes, not Object.assign of a fresh literal: no per-frame garbage.)
+    st.lap = Math.min(LAPS, Math.floor(run.leg / 2) + 1);
+    st.gates = run.gates;
+    st.stars = run.stars;
+    st.cracks = run.cracks;
+    st.combo = run.combo;
+    st.comboT = run.comboT;
+    st.best = run.best;
+    st.stun = run.stun;
+    st.leg = run.leg;
+    st.dir = run.dir;
     const z = this.riverZ(run.x) + run.off;
     this.movePlayer(run.x, z, ICE_Y + 0.02);
     // Blade scratches follow you across the ice.
     run.trailT -= dt;
     if (run.trailT <= 0 && play.live) {
       run.trailT = 0.05;
-      kit.trail.push(run.x, z, game.time, run.dir);
+      kit.trail.push(run.x, z, game.time, run.dir, Math.min(1, run.vx / 3.4));
     }
     kit.trail.update(game.time);
     // A warm lantern glow rides along with the skater.
@@ -1169,11 +1186,17 @@ export class StarfallSquare extends FestivalMap {
     this.starLight.intensity *= 0.85 + 0.15 * Math.sin(t * 2.1);
     const crowd = this.crowd;
     if (!crowd) return;
+    // During the Starlight Skate the strip skaters on the lens side of the reach drift over to the
+    // far bank: nobody glides between the camera and the racer.
+    const racing = this.play?.id === 'skate';
+    const kOz = 1 - Math.exp(-1.5 * dt);
     for (const s of this.skaters) {
       const a = s.a0 + t * s.sp;
       const x0 = s.cx + Math.cos(a) * s.rx;
       const zc = this.riverZ(x0);
-      const z0 = zc + s.oz + Math.sin(a) * s.rz;
+      const ozGoal = racing && s.oz > 1 ? -s.oz - 0.55 : s.oz;
+      s.ozc = s.ozc === undefined ? ozGoal : s.ozc + (ozGoal - s.ozc) * kOz;
+      const z0 = zc + s.ozc + Math.sin(a) * s.rz;
       const dx = -Math.sin(a) * s.rx * Math.sign(s.sp);
       const dz = Math.cos(a) * s.rz * Math.sign(s.sp) + (this.riverZ(x0 + 0.1) - zc) * 10 * dx;
       const l = Math.hypot(dx, dz) || 1;
@@ -1234,7 +1257,7 @@ interface SkateKit {
 /** Twin blade scratches behind the skater: a strip per blade, fading over a few seconds. */
 class SkateTrail {
   readonly mesh: THREE.Mesh;
-  private pts: { x: number; z: number; t: number; dir: number }[] = [];
+  private pts: { x: number; z: number; t: number; dir: number; v: number }[] = [];
   private pos: THREE.BufferAttribute;
   private col: THREE.BufferAttribute;
   private static N = 260;
@@ -1267,8 +1290,8 @@ class SkateTrail {
   reset(): void {
     this.pts = [];
   }
-  push(x: number, z: number, t: number, dir: number): void {
-    this.pts.push({ x, z, t, dir });
+  push(x: number, z: number, t: number, dir: number, v = 0): void {
+    this.pts.push({ x, z, t, dir, v });
     if (this.pts.length > SkateTrail.N) this.pts.shift();
   }
   update(t: number): void {
@@ -1291,12 +1314,19 @@ class SkateTrail {
       const age = t - p.t;
       const grain = 0.7 + 0.3 * Math.sin(p.x * 23.0 + p.z * 17.0) * Math.sin(p.x * 7.1 - p.z * 5.3);
       const a = Math.max(0, 1 - age / 13) * Math.min(1, age * 3 + 0.3) * 0.5 * grain;
+      // Speed line: right behind a fast skater the grooves flare into a bright frosted streak that
+      // narrows back to hairlines over half a second (the run reads as *fast* from the ice itself).
+      const fresh = Math.max(0, 1 - age / 0.55) * p.v * p.v;
+      const wide = 1 + fresh * 5.5;
+      const aa = Math.max(a, fresh * 0.9);
+      const c = 0.86 + fresh * 0.14;
       let k = 0;
-      for (const blade of [-0.11, 0.11]) {
-        for (const w of [-0.013, 0.013]) {
-          const o = blade + w;
+      for (let bi = 0; bi < 2; bi++) {
+        const blade = bi ? 0.11 : -0.11;
+        for (let wi = 0; wi < 2; wi++) {
+          const o = blade + (wi ? 0.013 : -0.013) * wide;
           this.pos.setXYZ(i * 4 + k, p.x - dz * o, this.y, p.z + dx * o);
-          this.col.setXYZW(i * 4 + k, 0.86, 0.94, 1.0, a);
+          this.col.setXYZW(i * 4 + k, c, 0.94 + fresh * 0.06, 1.0, aa);
           k++;
         }
       }

@@ -363,7 +363,8 @@ export abstract class FestivalMap implements GameMap {
    * post chain, no draw calls), projected every frame; hidden during mini-games, menus and cutscenes.
    */
   private pipLayer: HTMLElement | null = null;
-  private pips: { el: HTMLElement; id: string; a: number; hearts: number }[] = [];
+  private pips: Pip[] = [];
+  private readonly pipWant: string[] = ['', ''];
   private readonly pipV = new THREE.Vector3();
 
   private updatePips(dt: number, game: Game): void {
@@ -391,44 +392,56 @@ export abstract class FestivalMap implements GameMap {
     layer.style.display = '';
     const hush = !!this.play || !!game.hud.openPanelName || !!(game as { cinematic?: unknown }).cinematic;
     const p = game.player.position;
-    const near: { id: string; i: number; d: number }[] = [];
+    // Only the one or two villagers you're actually next to (or about to talk to) are tagged: a
+    // floating label over every face buried the hosts, the player and the activity in the crowd.
+    // (Pooled scratch — no per-frame arrays / closures.)
+    const want = this.pipWant;
+    want[0] = want[1] = '';
+    let d0 = Infinity;
+    let d1 = Infinity;
     if (!hush) {
       for (const [id, i] of this.named) {
         const m = c.members[i]!;
         const d = Math.hypot(m.x - p.x, m.z - p.z);
-        if (d < PIP_R) near.push({ id, i, d });
+        if (d >= PIP_R) continue;
+        if (d < d0) {
+          want[1] = want[0]!;
+          d1 = d0;
+          want[0] = id;
+          d0 = d;
+        } else if (d < d1) {
+          want[1] = id;
+          d1 = d;
+        }
       }
-      near.sort((a, b) => a.d - b.d);
     }
-    // Only the one or two villagers you're actually next to (or about to talk to) are tagged: a
-    // floating label over every face buried the hosts, the player and the activity in the crowd.
-    const want = near.slice(0, 2);
-    while (this.pips.length < 4) {
+    while (this.pips.length < 2) {
       const el = document.createElement('div');
       el.className = 'fest-pip';
       el.style.opacity = '0';
       el.innerHTML = '<span></span><i></i>';
       layer.append(el);
-      this.pips.push({ el, id: '', a: 0, hearts: -1 });
+      this.pips.push({ el, id: '', a: 0, hearts: -1, x: 0, y: 0, w: 0, on: false });
     }
     const cam = game.rc.camera;
     const W = layer.clientWidth || innerWidth;
     const H = layer.clientHeight || innerHeight;
     const k = Math.min(1.3, Math.max(0.9, H / 900));
-    const placed: { el: HTMLElement; x: number; y: number; w: number; a: number }[] = [];
     for (const pip of this.pips) {
-      if (!want.some((x) => x.id === pip.id) && pip.a <= 0.01) {
-        const free = want.find((x) => !this.pips.some((q) => q.id === x.id));
+      pip.on = false;
+      const wanted = pip.id !== '' && (pip.id === want[0] || pip.id === want[1]);
+      if (!wanted && pip.a <= 0.01) {
+        const free = want[0] && !this.pipHas(want[0]) ? want[0] : want[1] && !this.pipHas(want[1]) ? want[1] : '';
         if (free) {
-          pip.id = free.id;
+          pip.id = free;
           pip.a = 0;
-          const npc = NPCS[free.id as keyof typeof NPCS];
-          (pip.el.firstElementChild as HTMLElement).textContent = npc?.name.split(/\s+/)[0] ?? free.id;
+          const npc = NPCS[free as keyof typeof NPCS];
+          (pip.el.firstElementChild as HTMLElement).textContent = npc?.name.split(/\s+/)[0] ?? free;
           pip.hearts = -1;
         }
       }
-      const cur = want.find((x) => x.id === pip.id);
-      const goal = cur ? Math.min(1, (PIP_R - cur.d) / 1.5) : 0;
+      const dist = pip.id && pip.id === want[0] ? d0 : pip.id && pip.id === want[1] ? d1 : Infinity;
+      const goal = dist < PIP_R ? Math.min(1, (PIP_R - dist) / 1.5) : 0;
       pip.a += (goal - pip.a) * (1 - Math.exp(-8 * dt));
       const idx = this.named.get(pip.id);
       const m = idx !== undefined ? c.members[idx] : undefined;
@@ -446,26 +459,30 @@ export abstract class FestivalMap implements GameMap {
         pip.el.style.opacity = '0';
         continue;
       }
-      placed.push({ el: pip.el, x: ((this.pipV.x + 1) / 2) * W, y: ((1 - this.pipV.y) / 2) * H, w: (pip.el.offsetWidth || 80) * k, a: pip.a });
+      pip.on = true;
+      pip.x = ((this.pipV.x + 1) / 2) * W;
+      pip.y = ((1 - this.pipV.y) / 2) * H;
+      pip.w = (pip.el.offsetWidth || 80) * k;
     }
-    // Declutter: villagers standing close together stack their tags instead of overlapping them
-    // (nearest the camera — lowest on screen — keeps its spot, the others step up).
-    placed.sort((a, b) => b.y - a.y);
+    // Declutter: two villagers standing close together stack their tags (the one nearer the
+    // camera — lower on screen — keeps its spot, the other steps up).
+    const a = this.pips[0]!;
+    const b = this.pips[1]!;
     const rowH = 30 * k;
-    for (let i = 0; i < placed.length; i++) {
-      const p = placed[i]!;
-      for (let guard = 0; guard < 4; guard++) {
-        let hit = false;
-        for (let j = 0; j < i && !hit; j++) {
-          const q = placed[j]!;
-          hit = Math.abs(q.x - p.x) < (q.w + p.w) / 2 + 4 && Math.abs(q.y - p.y) < rowH;
-        }
-        if (!hit) break;
-        p.y -= rowH;
-      }
-      p.el.style.opacity = p.a.toFixed(3);
-      p.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${k.toFixed(3)})`;
+    if (a.on && b.on && Math.abs(a.x - b.x) < (a.w + b.w) / 2 + 4 && Math.abs(a.y - b.y) < rowH) {
+      if (a.y > b.y) b.y = a.y - rowH;
+      else a.y = b.y - rowH;
     }
+    for (const q of this.pips) {
+      if (!q.on) continue;
+      q.el.style.opacity = q.a.toFixed(3);
+      q.el.style.transform = `translate3d(${q.x.toFixed(1)}px, ${q.y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${k.toFixed(3)})`;
+    }
+  }
+
+  private pipHas(id: string): boolean {
+    for (const q of this.pips) if (q.id === id) return true;
+    return false;
   }
 
   /**
@@ -1059,6 +1076,18 @@ export abstract class FestivalMap implements GameMap {
   dispose(): void {
     this.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
   }
+}
+
+/** A floating name + heart pip (pooled; at most two on screen). */
+interface Pip {
+  el: HTMLElement;
+  id: string;
+  a: number;
+  hearts: number;
+  x: number;
+  y: number;
+  w: number;
+  on: boolean;
 }
 
 /** Name pips show for villagers within this many metres of the player. */
