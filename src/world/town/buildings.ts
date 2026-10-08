@@ -373,6 +373,8 @@ export function buildStoneBridge(rng: Rng, br: { len: number; width: number; ris
   const b = new MeshBuilder();
   const L = br.len;
   const W = br.width;
+  // (r9, pillar 14: one bevel segment on the 80 deck / parapet / coping blocks and the voussoirs —
+  // the bridge was the town's heaviest prop, 65k triangles with its shadow)
   const N = 16;
   const seg = L / N;
   for (let i = 0; i < N; i++) {
@@ -382,11 +384,11 @@ export function buildStoneBridge(rng: Rng, br: { len: number; width: number; ris
     const ang = Math.atan2(y1 - y0, seg);
     const y = (y0 + y1) / 2;
     // Deck body (thick so the arch reads from the side).
-    b.add('stone', boxUV(roundedBox(seg + 0.06, 0.34, W, 0.03), 0.6), mat(x, y - 0.17, 0, 0, 0, ang), { tint: i % 2 ? 0xc8beb0 : 0xbeb4a4 });
+    b.add('stone', boxUV(roundedBox(seg + 0.06, 0.34, W, 0.03, 1), 0.6), mat(x, y - 0.17, 0, 0, 0, ang), { tint: i % 2 ? 0xc8beb0 : 0xbeb4a4 });
     // Parapets: low walls with coping stones.
     for (const s of [-1, 1]) {
-      b.add('stone', boxUV(roundedBox(seg + 0.04, 0.5, 0.3, 0.05), 0.7), mat(x, y + 0.25, s * (W / 2 - 0.1), 0, 0, ang), { tint: (i + (s > 0 ? 1 : 0)) % 3 ? 0xcfc6b8 : 0xc2b8a8 });
-      b.add('stone', roundedBox(seg + 0.08, 0.1, 0.38, 0.04), mat(x, y + 0.54, s * (W / 2 - 0.1), 0, 0, ang), { tint: 0xe0d8ca });
+      b.add('stone', boxUV(roundedBox(seg + 0.04, 0.5, 0.3, 0.05, 1), 0.7), mat(x, y + 0.25, s * (W / 2 - 0.1), 0, 0, ang), { tint: (i + (s > 0 ? 1 : 0)) % 3 ? 0xcfc6b8 : 0xc2b8a8 });
+      b.add('stone', roundedBox(seg + 0.08, 0.1, 0.38, 0.04, 1), mat(x, y + 0.54, s * (W / 2 - 0.1), 0, 0, ang), { tint: 0xe0d8ca });
     }
   }
   // End piers + newel posts with little lanterns.
@@ -408,7 +410,7 @@ export function buildStoneBridge(rng: Rng, br: { len: number; width: number; ris
       const x = Math.cos(a) * (archR + 0.18);
       const y = archCY + Math.sin(a) * (archR + 0.18);
       if (y < bedY - 0.2) continue;
-      b.add('stone', roundedBox(0.42, 0.36, 0.14, 0.04), mat(x, y, s * (W / 2 + 0.01), 0, 0, a - Math.PI / 2), { tint: k % 2 ? 0xb8ae9e : 0xc8beae });
+      b.add('stone', roundedBox(0.42, 0.36, 0.14, 0.04, 1), mat(x, y, s * (W / 2 + 0.01), 0, 0, a - Math.PI / 2), { tint: k % 2 ? 0xb8ae9e : 0xc8beae });
     }
     // Spandrel fill between arch and deck (dark stone, set back).
     for (const sx of [-1, 1]) {

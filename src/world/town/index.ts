@@ -114,6 +114,21 @@ const CELL = 12;
 const cellOf = (x: number, z: number): string => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
 
 /** Knee-high street clutter: grounded by the contact-AO stamp, so it skips the shadow pass. */
+/**
+ * Street clutter that drops out of the batches past FAR_CLUTTER_M of the lens (r9, pillar 14: wide
+ * establishing frames of the whole town paid ~1.8M triangles for pots, barrels, sacks and wildflowers
+ * a few pixels tall). Kept per 12 m cell in its own batch sets; `?farclutter=0` turns it off.
+ */
+const FAR_CLUTTER = new Set<string>(['flowerPot', 'wildflowers', 'planter', 'barrel', 'crates', 'crateStack', 'sacks', 'produce', 'mailbox', 'bicycle', 'wheelbarrow', 'beehive', 'vegBed', 'cafeSet', 'sandwichBoard', 'chalkBoard', 'logpile', 'picnic', 'flowerCart', 'sawhorse', 'lumber']);
+const FAR_CLUTTER_M = ((): number => {
+  try {
+    const q = new URLSearchParams(location.search).get('farclutter');
+    if (q !== null) return Number(q) || 0;
+  } catch {
+    /* no location */
+  }
+  return 40;
+})();
 const SMALL_CLUTTER = new Set<string>(['picnic', 'wildflowers', 'flowerPot', 'mailbox', 'sandwichBoard', 'chalkBoard', 'produce', 'sacks', 'bicycle', 'wheelbarrow']);
 
 export class TownMap implements GameMap {
@@ -134,6 +149,8 @@ export class TownMap implements GameMap {
   private streetSamples: { x: number; z: number; w: number }[] = [];
   private riverSamples: THREE.Vector3[] = [];
   private staticRoots: THREE.Object3D[] = [];
+  /** Far-clutter cells (centre, their batch sets, shown?). */
+  private clutterCells: { x: number; z: number; sets: InstancedSet[]; on: boolean }[] = [];
   private smoke: SmokeEmitter[] = [];
   private ambience: Ambience;
   private pools = new LightPools();
@@ -594,6 +611,7 @@ export class TownMap implements GameMap {
           break;
       }
       this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid);
+      if (FAR_CLUTTER.has(p.kind)) this.staticRoots[this.staticRoots.length - 1]!.userData.clutter = true;
       if (p.kind === 'noticeBoard') {
         // The notes on the board, painted (a separate quad: the board itself merges into the batches).
         const o = buildNoticeOverlay();
@@ -760,6 +778,7 @@ export class TownMap implements GameMap {
       // Street boards stand on their own tile: villagers path round them instead of through them.
       const solid = p.solid ?? (p.kind === 'sandwichBoard' || p.kind === 'chalkBoard' ? ([[Math.floor(p.x), Math.floor(p.z)]] as [number, number][]) : undefined);
       this.addProp(g, p.x, p.z, p.rot ?? 0, solid, { lights, y });
+      if (FAR_CLUTTER.has(p.kind)) this.staticRoots[this.staticRoots.length - 1]!.userData.clutter = true;
       if (!['hedge', 'dock', 'rowboat', 'laundry', 'fence', 'flowerRing'].includes(p.kind)) this.terrain.stampCover('ao', p.x, p.z, p.kind === 'stall' ? 1.6 : p.kind === 'well' ? 1.2 : 0.6, 0.6);
     }
     // The dock is walkable: a short jetty over the water.
@@ -859,7 +878,7 @@ export class TownMap implements GameMap {
     }
     this.occluders = new Float32Array(occ);
     for (const o of this.staticRoots) {
-      const k = cellOf(o.position.x, o.position.z);
+      const k = (o.userData.clutter && FAR_CLUTTER_M > 0 ? 'c:' : '') + cellOf(o.position.x, o.position.z);
       let list = cells.get(k);
       if (!list) cells.set(k, (list = []));
       list.push(o);
@@ -871,11 +890,20 @@ export class TownMap implements GameMap {
     const NO_SHADOW = new Set(['windowCard', 'lampGlow', 'glass', 'boxFlower', 'forgeCoals', 'stillWater', 'brass', 'copper']);
     for (const [k, list] of cells) {
       const merged = mergeStatic(list, `town-${k}`);
+      let cx = 0;
+      let cz = 0;
+      for (const o of list) {
+        cx += o.position.x / list.length;
+        cz += o.position.z / list.length;
+      }
+      const sets: InstancedSet[] = [];
       for (const m of merged.children as THREE.Mesh[]) {
         const mat = m.material as THREE.Material;
         const set = new InstancedSet(m.name, [{ geometry: m.geometry, material: mat, castShadow: m.castShadow && !NO_SHADOW.has(mat.name), receiveShadow: m.receiveShadow }], pool);
         set.add(I);
+        sets.push(set);
       }
+      if (k.startsWith('c:')) this.clutterCells.push({ x: cx, z: cz, sets, on: true });
     }
     pool.group.userData.perfTag = 'props';
     this.root.add(pool.group);
@@ -1035,6 +1063,17 @@ export class TownMap implements GameMap {
 
   update(dt: number, game: Game): void {
     this.pools.update();
+    if (FAR_CLUTTER_M > 0) {
+      // Hysteresis (±2 m) so a cell on the edge never flickers while the lens drifts.
+      const cp = game.rc.camera.position;
+      for (const c of this.clutterCells) {
+        const d = Math.hypot(c.x - cp.x, c.z - cp.z);
+        const on = c.on ? d < FAR_CLUTTER_M + 2 : d < FAR_CLUTTER_M - 2;
+        if (on === c.on) continue;
+        c.on = on;
+        for (const st of c.sets) st.setVisible(on);
+      }
+    }
     this.grass.update(game.rc.rig.focus);
     const h = game.rc.renderer.domElement.height;
     // Chimney plumes only near the view (each is a draw call; off-screen ones stop simulating).

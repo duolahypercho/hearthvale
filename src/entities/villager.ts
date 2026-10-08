@@ -76,8 +76,8 @@ export const MOOD_GESTURE: Record<string, Gesture> = { happy: 'open', laugh: 'la
 const FACING_YAW: Record<Facing, number> = { down: 0, up: Math.PI, left: -Math.PI / 2, right: Math.PI / 2 };
 const DEFAULT_WALK: WalkStyle = { speed: 1.55, stride: 0.55, bounce: 0.045, sway: 0.06, hunch: 0, arms: 0.45 };
 
-type PropName = 'broom' | 'book' | 'hammer' | 'can' | 'brush' | 'palette' | 'saw' | 'rod' | 'cane' | 'mug' | 'umbrella';
-const PROPS: PropName[] = ['broom', 'book', 'hammer', 'can', 'brush', 'palette', 'saw', 'rod', 'cane', 'mug', 'umbrella'];
+type PropName = 'broom' | 'book' | 'hammer' | 'can' | 'brush' | 'palette' | 'saw' | 'rod' | 'cane' | 'mug' | 'umbrella' | 'crate';
+const PROPS: PropName[] = ['broom', 'book', 'hammer', 'can', 'brush', 'palette', 'saw', 'rod', 'cane', 'mug', 'umbrella', 'crate'];
 /** Activities that leave a hand free for an umbrella in the rain. */
 const UMBRELLA_OK = new Set<Activity>(['idle', 'chat', 'wander', 'read', 'lean', 'play', 'sit', 'inside']);
 /** Umbrella canopy colours (picked per villager). */
@@ -90,6 +90,7 @@ const ACTIVITY_PROPS: Partial<Record<Activity, PropName[]>> = {
   paint: ['brush', 'palette'],
   saw: ['saw'],
   fish: ['rod'],
+  carry: ['crate'],
 };
 
 /** Activities a villager may perform (schedules, rainy days, heart-event beats) → their props. */
@@ -1308,6 +1309,14 @@ export class Villager {
         add(sphG(0.022, 5, 4), M(Math.cos(a) * 0.65, 1.19, Math.sin(a) * 0.65), shadeHex(col, 0.8));
       }
       add(sphG(0.03, 6, 5), M(0, 1.49, 0), 0x3a2a22);
+    });
+    // r9 street life: a crate of stock carried in both arms (unloading at the shop / bakery / inn).
+    addProp('crate', (add) => {
+      const cx = -0.13 * Math.sign(handR.x);
+      add(roundedBox(0.36, 0.22, 0.26, 0.025), M(cx, 0.02, 0.17), 0xa8743e);
+      for (const dy of [-0.06, 0.04]) add(roundedBox(0.37, 0.035, 0.27, 0.01), M(cx, 0.02 + dy, 0.17), 0x8a5a2e);
+      const goods = [0xe8574a, 0xf2b830, 0x7ab05a, 0xe8843a, 0xc8412f];
+      for (let i = 0; i < 6; i++) add(sphG(0.055, 8, 6), M(cx - 0.1 + (i % 3) * 0.1, 0.15 + (i > 2 ? 0.02 : 0), 0.12 + (i > 2 ? 0.1 : 0)), goods[i % goods.length]!);
     });
     addProp('mug', (add) => {
       add(cylG(0.05, 0.045, 0.1, 10), M(0, 0.02, 0.07), 0xf2ece0);
@@ -2679,6 +2688,22 @@ export class Villager {
         aL.rotation.x = lerp(0, -0.6 + bobble, k);
         aL.rotation.z = lerp(-0.12, 0.35, k);
         fL.rotation.x = lerp(-0.15, -0.8, k);
+        break;
+      }
+      case 'carry': {
+        // Both arms under a crate held at the chest, leaning back against its weight, a slow
+        // shuffle of the weight from foot to foot.
+        const sh = Math.sin(t * 1.6);
+        spine.rotation.x += -0.12 * k;
+        spine.rotation.z = sh * 0.04 * k;
+        aL.rotation.x = lerp(0, -0.85, k);
+        aR.rotation.x = lerp(0, -0.85, k);
+        aL.rotation.z = lerp(-0.12, 0.42, k);
+        aR.rotation.z = lerp(0.12, -0.42, k);
+        fL.rotation.x = lerp(-0.15, -0.75, k);
+        fR.rotation.x = lerp(-0.15, -0.75, k);
+        head.rotation.x += 0.12 * k;
+        head.rotation.y = Math.sin(t * 0.5) * 0.12 * k;
         break;
       }
       case 'lean': {

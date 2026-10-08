@@ -55,13 +55,15 @@ export const DEMOS: Record<string, DemoDef> = {
   // &pose=<seconds> to freeze, -1 = live; &loop=<tool> repeats the action), giant crops, crows.
   'farm-harvest': { map: 'farm', x: 20.5, z: 24.5, facing: 'down', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: 6, pitch: 44, distance: 17, offsetX: 2.0, offsetZ: 0.5 }, showcase: ['harvest'] },
   // (r15: swung ~24° round and closer: the blade lands in front of the farmer's body, not under the hat.)
-  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -32, pitch: 33, distance: 7.6, offsetX: -0.7, offsetZ: -0.6 }, showcase: ['tools'] },
+  // (r17: pulled back to ~1.4x gameplay zoom — the whole farmer, hat to boots, the bed and the tool's arc in frame.)
+  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -24, pitch: 40, distance: 13.5, offsetX: -1.0, offsetZ: -2.8 }, showcase: ['tools'] },
   'farm-giant': { map: 'farm', x: 20.6, z: 27.7, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: -30, pitch: 37, distance: 10, offsetX: -0.75, offsetZ: 0.1 }, showcase: ['giant'] },
   'farm-crops': { map: 'farm', x: 28.6, z: 27.2, facing: 'left', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 12.2, offsetX: -4.6, offsetZ: -4.0 }, showcase: ['gallery'] },
   'farm-crows': { map: 'farm', x: 30.5, z: 30.5, facing: 'left', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 9.4, offsetX: -5.2, offsetZ: -0.6 }, showcase: ['crows'] },
   'farm-harvest-fall': { map: 'farm', x: 19.5, z: 24.5, facing: 'down', time: 15.9, season: 'fall', weather: 'sun', camera: { yaw: 26, pitch: 40, distance: 15, offsetX: 3.1, offsetZ: 1.0 }, showcase: ['harvest'] },
   // (r16) Co-op on one beat: the host hoeing + three farmhands (hoe contact, mid-pour, catching a crop).
-  'farm-coop-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 40, distance: 10.5, offsetX: -1.4, offsetZ: 1.0 }, showcase: ['tools', 'crew'] },
+  // (r17: pulled back + recentred so all four farmers and their tiles sit inside the frame.)
+  'farm-coop-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 42, distance: 12.5, offsetX: -0.8, offsetZ: 0.9 }, showcase: ['tools', 'crew'] },
   'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -46, pitch: 34, distance: 9.6, offsetX: -0.55, offsetZ: -1.3 }, showcase: ['tools', 'tool:wateringCan'] },
   // (r15: 3/4 to the lens, the farmer standing in the bed with the pulled hole in front of the boots.)
   'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 34, pitch: 40, distance: 8.2, offsetX: -0.2, offsetZ: -0.9 }, showcase: ['tools', 'tool:harvest'] },
@@ -81,7 +83,10 @@ export const DEMOS: Record<string, DemoDef> = {
   // r9: a farmer a year in — every heart-event answer remembered (`&mem=all|alt|a.b,…`): keepsakes in the square.
   'town-memories': { map: 'town', x: 26.6, z: 25.6, facing: 'down', time: 16.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 20, offsetX: 0.6, offsetZ: -5.2 }, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
-  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
+  // r9: town-day establishes the town (plaza edge, bakery, market row, Kettle Bridge, river) with the town at
+  // work — `&live=1` runs it (walkers walk); `town-square` keeps the old plaza frame.
+  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -42, pitch: 31, distance: 32, offsetX: 11.5, offsetZ: 1.5 }, showcase: ['npcs'] },
+  'town-square': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
   // Town pod: co-op in the square, no server — Juniper chats with Bram, Pip gives Wren strawberries (host paths: talk lock, gift ledger, 'v.g').
   'town-coop': { map: 'town', x: 32.4, z: 28.2, facing: 'up', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 21, offsetX: -0.2, offsetZ: -4.2 }, showcase: ['npcs'] },
   'town-dialogue': { map: 'town', x: 31.2, z: 30.8, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },

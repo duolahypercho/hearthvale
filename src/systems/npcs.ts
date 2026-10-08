@@ -157,7 +157,7 @@ interface CoopBot {
   chat?(text: string, hold?: number): void;
 }
 
-const ACTS: Activity[] = ['idle', 'sweep', 'read', 'chat', 'hammer', 'paint', 'water', 'sit', 'play', 'fish', 'inside', 'wander', 'knead', 'saw', 'lean', 'tip'];
+const ACTS: Activity[] = ['idle', 'sweep', 'read', 'chat', 'hammer', 'paint', 'water', 'sit', 'play', 'fish', 'inside', 'wander', 'knead', 'saw', 'lean', 'tip', 'carry'];
 /** Host → farmhands villager snapshot period (s). */
 const NET_SNAP = 0.25;
 
@@ -165,12 +165,42 @@ const NET_SNAP = 0.25;
  * Beauty-shot blocking for the town demos: [villager, x, z, yaw (deg, 0 = facing camera), activity,
  * emote held over the head]. Pairs stand three-quarter to the lens so faces read.
  */
-type Mark = [NpcId, number, number, number, Activity, Emote?];
+type Mark = [NpcId, number, number, number, Activity, Emote?, MarkOpt?];
+/**
+ * r9 street life: `free` marks turn `deg` relative to the lens with no clamp (a profile, a back
+ * three-quarter — people busy with each other, not posing); `walk` sends them on their way (A* to the
+ * point; a still catches them mid-stride, `&live=1` lets the demo run); `door` walks them to a door
+ * and in (the door fade).
+ */
+interface MarkOpt {
+  free?: boolean;
+  walk?: [number, number];
+  run?: boolean;
+  door?: string;
+}
 const STAGES: Record<string, Mark[]> = {
   // r5: spread over the whole square, not a ring round the fountain — the store step, the Hall steps
   // and planters, the notice board, the bakery stall, a bench, the east cobbles — each busy with
   // their own thing, a pair or two chatting turned to each other.
+  // r9 critic: "the flagship day frame shows the same showcase square … villagers evenly spread,
+  // facing the camera". town-day is now the establishing frame — plaza edge, the bakery, the market
+  // row, the Kettle Bridge and the river — with the town at work in asymmetric knots: Bram unloading
+  // flour, June and Hazel haggling at the produce stall in profile, Marigold browsing the flowers
+  // with her back half-turned, Rowan crossing the bridge into town, Kit running the lane, Linus
+  // heading off frame, Odessa walking up from the forge road. (`town-square`: the old plaza frame.)
   'town-day': [
+    ['bram', 42.4, 21.3, 25, 'carry', undefined, { free: true }],
+    ['june', 49.7, 23.9, 78, 'chat', 'music', { free: true }],
+    ['hazel', 51.0, 24.1, -82, 'chat', undefined, { free: true }],
+    ['marigold', 55.2, 24.0, 150, 'idle', undefined, { free: true }],
+    ['rowan', 67.4, 26.3, 0, 'idle', undefined, { walk: [57.8, 26.4] }],
+    ['wren', 59.6, 21.6, 133, 'paint'],
+    ['kit', 44.6, 28.6, 0, 'play', 'exclaim', { walk: [52.6, 27.4], run: true }],
+    ['linus', 46.6, 31.2, 0, 'idle', undefined, { walk: [40.4, 34.6] }],
+    ['odessa', 58.6, 29.6, 0, 'idle', undefined, { walk: [52.8, 26.0] }],
+    ['tobias', 37.8, 26.8, -35, 'idle', 'music'],
+  ],
+  'town-square': [
     ['marigold', 20.6, 21.3, 25, 'sweep'],
     ['hazel', 29.9, 18.6, -150, 'water', 'music'],
     ['kit', 34.6, 18.4, 30, 'play'],
@@ -278,6 +308,8 @@ interface Agent {
   run: boolean;
   /** Demo blocking: hold the staged yaw (no turning towards chat partners / the player). */
   staged?: boolean;
+  /** r9 free mark: no lens cheat (a profile / back three-quarter, walking past). */
+  free?: boolean;
   /** Seconds until this villager may wave at a passing farmer again. */
   greetT?: number;
   /** Quarter-hour index until which the villager is out on an errand (a walk to another spot). */
@@ -1317,6 +1349,7 @@ export class NpcSystem implements System {
     this.claimOf.clear();
     for (const a of this.agents.values()) {
       a.staged = false;
+      a.free = false;
       a.errandUntil = undefined;
       a.v.setMood('neutral');
       if (a.scripted) continue;
@@ -1423,6 +1456,8 @@ export class NpcSystem implements System {
     const map = this.game.world.current;
     if (!map) return;
     this.stageMemory(name);
+    // `&live=1`: the staged town runs (walkers walk, the clock ticks) — sequence captures of street life.
+    if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('live') === '1') window.setTimeout(() => this.game.setPaused(false), 120);
     // Demos staged back to back in one page (critic batches): drop the previous demo's still —
     // a staged heart event (cast, props, letterbox, event lens) or a held conversation.
     if (!this.eventRunning && (this.camMode || [...this.agents.values()].some((a) => a.scripted))) {
@@ -1462,7 +1497,7 @@ export class NpcSystem implements System {
     }
     this.clearBots();
     if (name === 'town-coop') {
-      this.applyMarks(STAGES['town-day']!);
+      this.applyMarks(STAGES['town-square']!);
       // (the square's own chatter and held bubbles stay quiet: the frame is about the two farmhands)
       for (const a of this.agents.values()) {
         a.v.hush();
@@ -1569,16 +1604,45 @@ export class NpcSystem implements System {
     const map = this.game.world.current!;
     {
       let barks = 0;
-      for (const [id, x, z, deg, act, emote] of marks) {
+      for (const [id, x, z, deg, act, emote, mo] of marks) {
         if (id === skip) continue;
         const a = this.agents.get(id)!;
         this.setInside(a, false, true);
         a.v.setPosition(x, map.heightAt(x, z), z);
+        a.free = !!mo?.free || !!mo?.walk;
+        if (mo && (mo.walk || mo.door)) {
+          // Caught on the way somewhere: a real A* walk (a still steps them into the stride).
+          this.setActivity(a, 'idle');
+          a.anchor = null;
+          a.staged = true;
+          a.stepKey = '';
+          a.v.setMood(emote && EMOTE_MOOD[emote] ? EMOTE_MOOD[emote]! : 'neutral');
+          if (emote) {
+            a.v.emote(emote, 600);
+            a.emoteT = 600;
+          }
+          const dst = mo.door ? this.spot(`door:${mo.door}`) : { x: mo.walk![0], z: mo.walk![1], yaw: 0 };
+          if (!dst) continue;
+          const path = findPath(map.grid, x, z, dst.x, dst.z);
+          a.path = path.length ? path.slice(1) : [{ x: dst.x, z: dst.z }];
+          a.goal = { x: dst.x, z: dst.z, yaw: this.toLens(dst.x, dst.z, 0, 60) };
+          a.run = !!mo.run;
+          a.onArrive = () => {
+            if (mo.door) this.setInside(a, true);
+            this.setActivity(a, act);
+          };
+          this.nextWaypoint(a);
+          for (let k = 0; k < 6; k++) a.v.update(0.055, (qx, qz) => map.heightAt(qx, qz), true);
+          continue;
+        }
         // (a mark may turn three-quarter away, never show the back of a head: within ±75° of the lens)
         // (r8: showcase faces open to within 45° of the lens — a third of the cast was the back of a
         // head; work at a bench / anvil / saw keeps 75°)
         const lim = act === 'hammer' || act === 'saw' || act === 'knead' || act === 'fish' ? 75 : 45;
-        a.v.setYaw(act === 'sit' || act === 'paint' ? (deg * Math.PI) / 180 : this.toLens(x, z, (deg * Math.PI) / 180, lim));
+        if (mo?.free) {
+          const toC = this.toLens(x, z, 0, 0);
+          a.v.setYaw(toC + (deg * Math.PI) / 180);
+        } else a.v.setYaw(act === 'sit' || act === 'paint' ? (deg * Math.PI) / 180 : this.toLens(x, z, (deg * Math.PI) / 180, lim));
         this.setActivity(a, act);
         a.anchor = { x, z };
         a.stepKey = '';
@@ -4110,7 +4174,7 @@ export class NpcSystem implements System {
       // Mesh LOD (r9, pillar 14): half-segment copy past ~19 m of lens.
       v.lodFor(camP);
       // Staged talkers / idlers keep at least a profile to the lens (the demo's lens may land after the marks).
-      if (a.staged && !a.scripted && (a.activity === 'chat' || a.activity === 'idle') && !v.isMoving) {
+      if (a.staged && !a.free && !a.scripted && (a.activity === 'chat' || a.activity === 'idle') && !v.isMoving) {
         const ty = (v as unknown as { targetYaw: number }).targetYaw;
         const want = this.toLens(v.position.x, v.position.z, ty, 45);
         if (Math.abs(want - ty) > 0.01) v.faceYaw(want);

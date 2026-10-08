@@ -24,7 +24,7 @@ export type HatKind = 'flatcap' | 'beanie' | 'sunhat' | 'bandana' | 'earmuffs';
 export type Accessory = 'cane' | 'satchel' | 'earrings' | 'pencil' | 'toolbelt' | 'freckles' | 'stethoscope' | 'shawl' | 'flower' | 'wrinkles' | 'bandage' | 'rollingpin' | 'tongs' | 'docbag' | 'keys' | 'trowel' | 'lantern' | 'towel';
 export type Emote = 'heart' | 'exclaim' | 'question' | 'music' | 'sweat' | 'anger' | 'idea' | 'sad' | 'zzz' | 'dots';
 
-export type Activity = 'idle' | 'sweep' | 'read' | 'chat' | 'hammer' | 'paint' | 'water' | 'sit' | 'play' | 'fish' | 'inside' | 'wander' | 'knead' | 'saw' | 'lean' | 'tip';
+export type Activity = 'idle' | 'sweep' | 'read' | 'chat' | 'hammer' | 'paint' | 'water' | 'sit' | 'play' | 'fish' | 'inside' | 'wander' | 'knead' | 'saw' | 'lean' | 'tip' | 'carry';
 
 export interface WalkStyle {
   /** m/s */
@@ -309,6 +309,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     portraitBg: [0xf6d9a8, 0xe8a888],
     schedule: [
       [6, 'store_front', 'sweep'],
+      [8.5, 'store_front', 'carry'],
       [9, 'store_counter', 'idle'],
       [12, 'fountain_w', 'chat'],
       [13.5, 'store_counter', 'idle'],
@@ -447,6 +448,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     portraitBg: [0xf4d49a, 0xe89a5a],
     schedule: [
       [6, 'bakery_front', 'knead'],
+      [10, 'bakery_front', 'carry'],
       [11, 'market_produce', 'chat'],
       [13, 'bakery_front', 'knead'],
       [16, 'cafe', 'sit'],
@@ -931,6 +933,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [8, 'inn_front', 'sweep'],
       [9.25, 'fountain_s', 'chat'],
       [11, 'market_flowers', 'chat'],
+      [12, 'inn_front', 'carry'],
       [12.5, 'door:inn', 'inside'],
       [15, 'inn_tables', 'idle'],
       [17, 'inn_front', 'chat'],
