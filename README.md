@@ -179,6 +179,12 @@ triangle-balanced slice of the still casters per frame; a shadow-camera step, ma
 moved / vanished still refreshes at once (`?shadowsplit=1` = old one-frame refresh). MeshBuilder parts under 7.5 cm
 (moss, petals, beads, rivets) merge after the larger parts of their material and depth-only passes (sun shadow, GTAO
 G-buffer) draw only the larger prefix (`geom.ts` DETAIL_R, `userData.shadowCount`; `?detailr=0` = off).
+Water (perf r17): solid winter ice skips the open-water colour it fully replaces and runs its crack Voronoi only on the
+cracks' runs; open water takes a forward 2e wave difference (`world/water.ts`, `?waterfast=0` = old shader). The beach
+ocean's swash / breaker phase noise and kelp-bed warp are per vertex on the 0.5 m near sheet (`?oceanvn=0`). Rain / snow
+quads that are inactive or faded out at the lens are clipped in the vertex shader. Measure shader changes with
+`scripts/matbench.mjs --names <tag>` (isolated, min / p20 of interleaved samples) and prove them with `scripts/abshot.mjs`:
+wall-clock `npm run perf` on this shared machine (load 100-400 on 18 cores) cannot resolve a 10 % change.
 
 URL: `?demo=farm-morning`, `?map=farm&x=30&z=20&time=18.5&season=fall&weather=rain&day=3&gold=900&facing=up&pause=1`,
 `&ui=inventory`, `&quality=low|medium|high|ultra`, `&hud=0` (hide HUD), `&cam=yaw,pitch,dist[,offX,offZ]`, `&seed=abc`,
