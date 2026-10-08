@@ -97,6 +97,13 @@ export type AnimalIntent =
   | { kind: 'bowl' }
   | { kind: 'buy'; species: Livestock; name?: string };
 
+/** One beat of an action demo script (see AnimalSystem.stageAct). */
+type ActOp =
+  | { kind: 'wait'; s: number }
+  | { kind: 'walk'; x: number; z: number; face?: 'up' | 'down' | 'left' | 'right' }
+  | { kind: 'do'; fn: () => void | Promise<unknown> }
+  | { kind: 'until'; test: () => boolean };
+
 export interface AnimalGrant {
   itemId: string;
   qty: number;
@@ -260,7 +267,11 @@ export class AnimalSystem implements System, AnimalsApi {
       if (this.mapId === 'farm' && this.isBowl(x, z) && game.services.inventory?.selected()?.id === 'wateringCan') this.fillBowl();
     });
     game.events.on('day:start', ({ day }) => this.newDay(day));
-    game.events.on('sleep:wake', () => this.flushMorning());
+    game.events.on('sleep:wake', () => {
+      this.sleepBusy = false;
+      this.flushMorning();
+    });
+    game.events.on('sleep:start', () => (this.sleepBusy = true));
     // Scything meadow weeds gathers hay once there's a building to store it for.
     game.events.on('tool:impact', ({ tool, hit }) => {
       const b = game.services.buildings;
@@ -481,6 +492,76 @@ export class AnimalSystem implements System, AnimalsApi {
     return typeof n === 'number' ? n : unknown;
   }
 
+  /** Host: farmhand intents refused by peerMayAct (wrong map, out of reach, unknown position). */
+  rejected = 0;
+  /** Pen anchors of each building interior, kept from the last visit (host checks reach on any map). */
+  private penSeen: Partial<Record<AnimalHome, PenAnchors>> = {};
+
+  /** Host: where a farmhand stands right now — the net layer's validated last state (not the
+   *  interpolated body, which only exists on the host's own map). null = unknown. */
+  private peerAt(peer: string): { map: string; x: number; z: number } | null {
+    const net = this.game.services.net as unknown as { remotes?: { list?: Map<number, { last?: { map: string; x: number; z: number } }> } } | undefined;
+    const l = net?.remotes?.list?.get(Number(peer))?.last;
+    return l && typeof l.map === 'string' && l.map && Number.isFinite(l.x) && Number.isFinite(l.z) ? { map: l.map, x: l.x, z: l.z } : null;
+  }
+
+  /**
+   * Host: may this farmhand do `it` from where they stand? Every animal intent is checked against the
+   * authoritative map + position + an interaction radius (r12, the critic's hostile-request hole):
+   * eggs only inside the coop at the nest shelf, hay only in that building at its trough, a pop door
+   * only at its hatch (farm side or inside), truffles / the pet bowl only beside them on the farm, a
+   * pet only on the map the animal is on. Unknown position = refused. Buying stays a board order.
+   */
+  private peerMayAct(peer: string, it: AnimalIntent): boolean {
+    const at = this.peerAt(peer);
+    if (!at) return false;
+    if (it.kind === 'buy') return true;
+    const near = (x: number, z: number, r = 2.6): boolean => Math.hypot(at.x - x, at.z - z) <= r;
+    const nearRect = (b: { x0: number; z0: number; x1: number; z1: number }, r: number): boolean =>
+      at.x >= b.x0 - r && at.x <= b.x1 + 1 + r && at.z >= b.z0 - r && at.z <= b.z1 + 1 + r;
+    switch (it.kind) {
+      case 'eggs': {
+        if (at.map !== 'coop') return false;
+        const pen = this.penSeen.coop;
+        // (No visit yet on this host: the nest shelf is the back-left tiles x 0-2, z 0 — see interact.)
+        if (!pen?.nests.length) return at.x <= 5.2 && at.z <= 2.8;
+        const nests = it.nest == null ? pen.nests : [pen.nests[it.nest]].filter((n): n is THREE.Vector3 => !!n);
+        return nests.some((n) => near(n.x, n.z, 2.4));
+      }
+      case 'feed': {
+        if (it.home !== 'coop' && it.home !== 'barn') return false;
+        if (at.map !== it.home) return false;
+        const pen = this.penSeen[it.home];
+        return !pen || nearRect(pen.trough, 1.6);
+      }
+      case 'door': {
+        if (it.home !== 'coop' && it.home !== 'barn') return false;
+        if (at.map === 'farm') return near(SITES[it.home].door.x + 1.5, SITES[it.home].door.z + 0.5, 2.6);
+        if (at.map !== it.home) return false;
+        const h = this.penSeen[it.home]?.hatch;
+        return !h || near(h.x + 0.5, h.z + 0.5, 2.6);
+      }
+      case 'truffle':
+        return at.map === 'farm' && Number.isFinite(it.x) && Number.isFinite(it.z) && near(it.x + 0.5, it.z + 0.5);
+      case 'bowl':
+        return at.map === 'farm' && near(SITES.bowl.x, SITES.bowl.z);
+      case 'pet': {
+        if (it.id === 0) return at.map === 'farm' || at.map === 'house';
+        const r = this.st.animals.find((a) => a.id === it.id);
+        if (!r) return false;
+        const where = this.outsideFor(r) ? 'farm' : r.home;
+        if (at.map !== where) return false;
+        // Host on that map too: the animal's simulated body must be within arm's reach (+ its length).
+        if (this.mapId === at.map) {
+          const lv = this.live.find((v) => v.rec === r);
+          if (lv) return Math.hypot(lv.actor.pos.x - at.x, lv.actor.pos.z - at.z) <= 4.5 + lv.actor.gait.len * lv.actor.scale;
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** The authoritative effect of an intent. `peer` null = this machine's farmer. */
   private apply(peer: string | null, it: AnimalIntent): void {
     const out: AnimalGrant[] = [];
@@ -489,8 +570,12 @@ export class AnimalSystem implements System, AnimalsApi {
       if (peer == null) this.give(itemId, quality, qty);
       else out.push({ itemId, qty, quality });
     };
-    // Farmhand intents are untrusted (DESIGN §13): rate-limit them per peer and kind.
-    if (peer != null && !this.peerGate(peer, it.kind)) return;
+    // Farmhand intents are untrusted (DESIGN §13): rate-limit them per peer and kind, then check the
+    // farmer really stands where the action happens (authoritative map + position + reach).
+    if (peer != null && (!this.peerGate(peer, it.kind) || !this.peerMayAct(peer, it))) {
+      this.rejected++;
+      return;
+    }
     switch (it.kind) {
       case 'pet': {
         if (it.id === 0) {
@@ -505,7 +590,7 @@ export class AnimalSystem implements System, AnimalsApi {
         if (!r) break;
         // The farmhand names the animal they picked; the host only checks it is within their reach (no
         // re-pick on the host: positions differ by a frame or two of interpolation, and in a cluster a
-        // re-pick credited the neighbour). Unknown position (other map / no body yet) = trust the id.
+        // re-pick credited the neighbour). peerMayAct already refused an unknown position / other map.
         if (peer != null) {
           const lv = this.live.find((v) => v.rec === r);
           const from = this.peerFarmer(peer);
@@ -860,12 +945,16 @@ export class AnimalSystem implements System, AnimalsApi {
 
   private pen(): PenAnchors | null {
     const m = this.game.world.current;
-    return isInterior(m) ? ((m as unknown as { pen?: PenAnchors }).pen ?? null) : null;
+    const pen = isInterior(m) ? ((m as unknown as { pen?: PenAnchors }).pen ?? null) : null;
+    if (pen) this.penSeen[pen.kind] = pen;
+    return pen;
   }
 
   private spawn(rec: AnimalRec | null, species: Species, variant: number, slot: number): Live {
     const actor = new AnimalActor(species, variant);
-    actor.setScale(SCALE[species]);
+    // (r12: indoors the lens sits closer — the barn's livestock read oversized, "toys on a shelf"; a
+    // touch smaller inside the stalls so the stall boards frame them)
+    actor.setScale(SCALE[species] * (this.game.world.current?.id === 'barn' ? 0.9 : 1));
     const map = this.game.world.current!;
     actor.heightAt = (x, z) => map.heightAt(x, z);
     actor.walkable = (x, z) => map.grid.isWalkable(Math.floor(x), Math.floor(z));
@@ -1544,6 +1633,7 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   update(dt: number, game: Game): void {
+    this.tickAct(dt);
     const t = game.time;
     const actors = this._actors;
     actors.length = 0;
@@ -2007,6 +2097,8 @@ export class AnimalSystem implements System, AnimalsApi {
   // ───────────────────────────────────────────── demos
 
   private stageDemo(name: string, showcase: string[]): void {
+    if (this.act) for (const k of [...this.act.keys]) this.key(k, false);
+    this.act = null;
     this.demoHearts = 0;
     this.demoPet = null;
     this.nappers.clear();
@@ -2029,6 +2121,8 @@ export class AnimalSystem implements System, AnimalsApi {
       coop.splice(0, coop.length, ['chicken', 0, 800], ['chicken', 1, 800], ['duck', 0, 800], ['duck', 1, 800]);
       barn.splice(0, barn.length, ['cow', 0, 800], ['cow', 1, 800], ['goat', 0, 800], ['goat', 1, 800], ['sheep', 0, 800], ['sheep', 1, 800], ['pig', 0, 800], ['pig', 1, 800]);
     }
+    // (r12: the pasture still had one hen too many in a staged cluster — one stays in the coop)
+    if (name === 'animals-pasture') coop.pop();
     for (const [s, v, f] of [...coop, ...barn]) this.add(s, v, undefined, f).mood = 230;
     for (const a of st.animals) if (a.species === 'sheep') a.ready = true;
     // &petted=1 pre-marks today's petting (default: nobody petted yet, so a critic's pet shows the +friendship).
@@ -2051,6 +2145,11 @@ export class AnimalSystem implements System, AnimalsApi {
     if (name === 'animals-pasture') st.truffles = [{ x: 47.5, z: 42.6, q: 2 }, { x: 49.8, z: 40.4, q: 1 }];
     // Interior showcases keep the pop doors shut so the flock is home.
     if (this.pen()) st.doors = { coop: false, barn: false };
+    // r12 action demos stage their own start state (see stageAct).
+    if (showcase.includes('act')) {
+      this.stageAct(name, params);
+      return;
+    }
     this.syncDoors();
     this.respawn();
     this.touch();
@@ -2071,13 +2170,17 @@ export class AnimalSystem implements System, AnimalsApi {
       // (r9: naps only on a wet day — a sheep asleep at 4:40 pm read as a bug; the pig and the end sheep
       // turn their faces to the aisle; the goat is out of its stall in the aisle with the farmer)
       const wet = this.game.calendar.weather === 'rain' || this.game.calendar.weather === 'storm';
+      // (r12: the critic's "toys on a shelf" — five chins over five mangers, all square to the lens. Now
+      // each stall is lived in: Maple head-down in her hay, Cocoa turned three-quarters to watch the
+      // farmer, the first sheep side-on nosing the bedding at the back of its stall, the pig rooting the
+      // straw on the diagonal, Daisy at her door craning towards the aisle.)
       const beats: Beat[] = [
-        { kind: 'stand', yaw: 0.32, back: 0.15, dx: 0.3 },
-        { kind: 'stand', yaw: -0.16, back: 0.1 },
-        wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.42, back: 0.25 },
+        { kind: 'munch', yaw: 0 },
+        { kind: 'stand', yaw: 0.78, back: 0.3, dx: -0.15 },
+        wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'root', yaw: 1.4, back: 0.62 },
         { kind: 'aisle', yaw: 0 },
-        { kind: 'stand', yaw: -0.35, back: 0 },
-        { kind: 'stand', yaw: -0.5, back: 0.2 },
+        { kind: 'root', yaw: -1.05, back: 0.45 },
+        { kind: 'stand', yaw: -0.82, back: 0.05 },
       ];
       for (const l of this.live) {
         const a = l.actor;
@@ -2256,16 +2359,20 @@ export class AnimalSystem implements System, AnimalsApi {
       const spots: Record<string, [number, number, number][]> = {
         // (r9: re-spaced for the bigger herd — every body keeps a clear gap of grass round it; the jersey
         // stands head-up, face to the lens, instead of grazing with only her poll showing)
-        cow: close ? [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [47.9, 37.6, 1.9]] : [[trough.x - 1.72, trough.z + 0.2, Math.PI / 2], [45.95, 39.3, -0.62]],
+        // (r12: the critic's "staged cluster" — the jersey leaves the middle for the open west half, so the
+        // herd fills the whole paddock in three depths: hens + sheep along the back, the jersey, the dog and
+        // the drinking Holstein across the middle, goat / pond / wallow at the front, the pond ringed by
+        // clear grass)
+        cow: close ? [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [47.9, 37.6, 1.9]] : [[trough.x - 1.72, trough.z + 0.2, Math.PI / 2], [38.35, 39.55, 0.42]],
         // (r6: one sheep grazes out in the middle of the pen — the herd no longer hugs the fence)
-        sheep: close ? [[44.2, 39.2, 0], [48.9, 38.9, 2.3]] : [[47.35, 37.1, 0.75], [44.55, 37.45, 0.35]],
+        sheep: close ? [[44.2, 39.2, 0], [48.9, 38.9, 2.3]] : [[46.45, 37.35, 0.75], [44.2, 37.25, 0.3]],
         // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the
         // farmer the crouch put the hat brim over the goat's head.
         // (r11: a step towards the lens too — the farmer turns three-quarters to the camera to reach its
         // crown instead of showing the lens their back)
         goat: [[40.85, 42.5, Math.atan2(-0.55, -1.0)]],
         pig: [[wallow.x - 0.05, wallow.z - 0.05, -0.45]],
-        chicken: [[40.0, 38.5, 2.4], [40.95, 37.75, -1.1], [41.55, 38.75, 0.4], [39.2, 37.7, 1.9]],
+        chicken: [[40.75, 38.15, 2.4], [41.75, 37.45, -1.1], [42.15, 38.65, 0.4], [39.85, 37.35, 1.9]],
         duck: [[pond.x - 0.55, pond.z - 0.15, 1.3], [pond.x + 0.75, pond.z + 0.3, -2.2]],
       };
       if (gallery) {
@@ -2359,10 +2466,10 @@ export class AnimalSystem implements System, AnimalsApi {
         // Sits in its own clearing up-field of the goat (its name card pops right where the pet used
         // to sit and hid it), between the hens and the cow, face to the camera.
         // (up-field of the goat's heart + name card, which used to cover it)
-        pet.actor.area = { x0: 42.75, z0: 38.75, x1: 43.05, z1: 39.05 };
+        pet.actor.area = { x0: 43.55, z0: 39.25, x1: 43.85, z1: 39.55 };
         pet.actor.blockers = PASTURE_PROPS;
         pet.actor.curious = false;
-        pet.actor.place(42.9, 38.9, 0.25);
+        pet.actor.place(43.7, 39.4, 0.1);
       } else if (pet) {
         // Yard shot: sitting by the bowl, looking up at the farmer.
         pet.actor.area = { x0: SITES.bowl.x - 1.2, z0: SITES.bowl.z + 0.2, x1: SITES.bowl.x - 0.2, z1: SITES.bowl.z + 1.0 };
@@ -2373,6 +2480,196 @@ export class AnimalSystem implements System, AnimalsApi {
     this.demoHeartT = 0.2;
     this.demoLive = 5;
     this.holdHay();
+  }
+
+  // ───────────────────────────────────────────── action demos (r12)
+
+  /**
+   * Action demos (the critic's "no motion sequence proves it"): a staged START state, then the scene is
+   * driven only through the real paths — synthetic key presses on window (→ Input → Player →
+   * player:interact / toolbar:select → this system's interact / feed / egg / pet code), the real
+   * weather change (→ grazing() → sendHome) and the real carpenter order + sleep systems. Nothing is
+   * pinned to a mark and no showcase hearts are injected; simulation time runs. Capture with
+   * `--frames N --every ms`. `&act=0` holds the start state.
+   *   animals-live       the herd's own day on the pasture (wander, graze, drink, the pet's rounds)
+   *   animals-rain       a shower rolls in at ~2 s: the herd trots back to the coop / barn doors
+   *   animals-chores     coop morning: lift two eggs from the nest shelf, fill the trough with hay
+   *                      (the flock comes to eat), pet the hen at the trough
+   *   animals-overnight  order a coop on the carpenter's board at dusk, sleep (fade, day-end card),
+   *                      wake and step out: the coop stands on the farm
+   */
+  private act: { ops: ActOp[]; i: number; t: number; walkT: number; keys: Set<string>; waiting: boolean; started: boolean } | null = null;
+
+  private stageAct(name: string, params: URLSearchParams): void {
+    const g = this.game;
+    const st = this.st;
+    this.demoHearts = 0;
+    this.pops.clear();
+    const ops: ActOp[] = [];
+    const wait = (s: number): void => void ops.push({ kind: 'wait', s });
+    const walk = (x: number, z: number, face?: 'up' | 'down' | 'left' | 'right'): void => void ops.push({ kind: 'walk', x, z, face });
+    const run = (fn: () => void | Promise<unknown>): void => void ops.push({ kind: 'do', fn });
+    const press = (code: string): void => run(() => this.tap(code));
+    if (name === 'animals-chores') {
+      // Coop, 7:20 am: four eggs waiting, an empty trough, the flock indoors and awake.
+      st.eggs = [
+        { nest: 1, item: 'brownEgg', q: 1 },
+        { nest: 4, item: 'egg', q: 2 },
+        { nest: 0, item: 'egg', q: 0 },
+        { nest: 3, item: 'duckEgg', q: 1 },
+      ];
+      st.hay.coop = [false, false, false, false, false, false];
+      for (const a of st.animals) a.fed = false;
+      st.doors = { coop: false, barn: false };
+      this.syncDoors();
+      this.respawn();
+      this.touch();
+      g.player.teleport(1.6, 2.4);
+      g.player.setFacing('up');
+      // A morning's hay on the toolbar's last slot (picked with the 0 key below, like a player would).
+      g.services.inventory?.setSlot(9, { id: 'hay', qty: 20 });
+      wait(0.7);
+      walk(1.5, 1.05, 'up');
+      wait(0.25);
+      press('KeyF'); // nest box column 1, lower box: the brown egg
+      wait(1.7);
+      // (the lift turns the farmer to show the egg to the lens: face the shelf again)
+      walk(1.5, 1.05, 'up');
+      press('KeyF'); // same column, top box: the gold-star egg
+      wait(1.7);
+      walk(1.5, 4.3, 'down');
+      press('Digit0'); // hay in hand (toolbar slot 10)
+      wait(0.45);
+      press('KeyF'); // trough tile in front: fill it
+      wait(2.2);
+      // A hen that came to eat beside the farmer gets a pat: turn to whichever side has a bird in reach
+      // (with hay in hand a full trough hands the click to the animal standing there).
+      run(() => {
+        const p = g.player.position;
+        const tx = Math.floor(p.x);
+        const tz = Math.floor(p.z);
+        const dirs = [['down', 0, 1], ['left', -1, 0], ['right', 1, 0], ['up', 0, -1]] as const;
+        for (const [f, ox, oz] of dirs) {
+          if (this.hitAnimal(tx + ox, tz + oz)) {
+            g.player.setFacing(f);
+            break;
+          }
+        }
+      });
+      press('KeyF');
+    } else if (name === 'animals-rain') {
+      this.syncDoors();
+      this.respawn();
+      this.touch();
+      wait(2.2);
+      run(() => {
+        g.calendar.setWeather('rain');
+        g.applyWeather('rain', false);
+      });
+    } else if (name === 'animals-overnight') {
+      // Dusk on the farm, the coop plot still empty (the buildings system staged barn-only).
+      this.syncDoors();
+      this.respawn();
+      this.touch();
+      g.events.emit('item:give', { itemId: 'wood', qty: 400 });
+      g.events.emit('item:give', { itemId: 'stone', qty: 150 });
+      g.services.economy?.set(9000);
+      wait(1.4);
+      run(() => {
+        const err = g.services.buildings?.order('coop');
+        g.events.emit('ui:toast', { text: err ?? 'The carpenter will raise your <b>coop</b> overnight', icon: 'wood', kind: err ? 'bad' : 'good' });
+      });
+      wait(2.6);
+      run(() => {
+        this.sleepBusy = true;
+        return g.services.sleep?.goToBed();
+      });
+      ops.push({ kind: 'until', test: () => !this.sleeping() });
+      wait(2.2);
+      press('Enter');
+      wait(0.5);
+      run(() => g.teleport('farm', 38.2, 36.2));
+      run(() => g.player.setFacing('up'));
+    } else {
+      // animals-live: nothing scripted — the herd's own brains.
+      this.syncDoors();
+      this.respawn();
+      this.touch();
+    }
+    this.act = { ops, i: 0, t: 0, walkT: 0, keys: new Set(), waiting: false, started: false };
+    if (params.get('act') === '0') return;
+    // Run once the page is warm: the scripted beats start ~0.4 s after ready().
+    const act = this.act;
+    void g.ready().then(() =>
+      window.setTimeout(() => {
+        act.started = true;
+        g.setPaused(false);
+      }, 400),
+    );
+  }
+
+  private sleepBusy = false;
+
+  /** True while the sleep system's bedtime runs (sleep:start → sleep:wake). */
+  private sleeping(): boolean {
+    return this.sleepBusy;
+  }
+
+  private key(code: string, down: boolean): void {
+    const key = code === 'Enter' ? 'Enter' : code.startsWith('Key') ? code.slice(3).toLowerCase() : code.startsWith('Digit') ? code.slice(5) : code;
+    window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key, bubbles: true }));
+    if (down) this.act?.keys.add(code);
+    else this.act?.keys.delete(code);
+  }
+
+  private tap(code: string): void {
+    this.key(code, true);
+    window.setTimeout(() => this.key(code, false), 80);
+  }
+
+  /** Advance the action script (unpaused frames only). */
+  private tickAct(dt: number): void {
+    const a = this.act;
+    // (wall-clock once started: the day-end card pauses the sim and the script must still close it)
+    if (!a || !a.started || a.i >= a.ops.length) return;
+    const op = a.ops[a.i]!;
+    a.t += dt;
+    if (op.kind === 'wait') {
+      if (a.t >= op.s) this.nextOp();
+    } else if (op.kind === 'do') {
+      if (!a.waiting) {
+        a.waiting = true;
+        const r = op.fn();
+        if (r && typeof (r as Promise<unknown>).then === 'function') (r as Promise<unknown>).catch((e) => console.error('[animals] act step', e));
+        this.nextOp();
+      }
+    } else if (op.kind === 'until') {
+      if (op.test() || a.t > 30) this.nextOp();
+    } else {
+      // Walk with the movement keys (closed loop on the farmer's position; the camera may be yawed).
+      const p = this.game.player.position;
+      const dx = op.x - p.x;
+      const dz = op.z - p.z;
+      const want = new Set<string>();
+      if (dx < -0.18) want.add('KeyA');
+      if (dx > 0.18) want.add('KeyD');
+      if (dz < -0.18) want.add('KeyW');
+      if (dz > 0.18) want.add('KeyS');
+      for (const k of [...a.keys]) if (k.startsWith('Key') && 'WASD'.includes(k.slice(3)) && !want.has(k)) this.key(k, false);
+      for (const k of want) if (!a.keys.has(k)) this.key(k, true);
+      if (!want.size || a.t > 3) {
+        for (const k of [...a.keys]) this.key(k, false);
+        if (op.face) this.game.player.setFacing(op.face);
+        this.nextOp();
+      }
+    }
+  }
+
+  private nextOp(): void {
+    const a = this.act!;
+    a.i++;
+    a.t = 0;
+    a.waiting = false;
   }
 
   // ───────────────────────────────────────────── co-op demo farmhands

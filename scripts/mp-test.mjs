@@ -455,6 +455,47 @@ try {
     check('animals: the farmhand\'s pet credits the cow they clicked, not the overlapping sheep', credited && /Tansy:600:-/.test(after), `${JSON.stringify(pick)} ${after}`);
   }
 
+  // ── animals + carpenter (r12): hostile farmhand intents from the wrong map / out of reach / without
+  // materials are refused by the host (eggs on the farm, a far truffle + pet bowl, hay into the coop from
+  // the pasture, the barn door from across the paddock, a coop order with an empty backpack) ──
+  {
+    const before = await net(host, () => {
+      const g = window.__game.game;
+      const A = g.services.animals;
+      A['st'].eggs = [{ nest: 0, item: 'egg', q: 0 }];
+      A['st'].truffles = [{ x: 30, z: 20, q: 1 }];
+      A['st'].pet.bowl = false;
+      A['st'].hay.coop = [false, false, false, false, false, false];
+      g.services.economy.set(99999);
+      return { door: !!A['st'].doors.barn, rejA: A.rejected ?? 0, rejB: g.services.buildings.rejected ?? 0 };
+    });
+    await net(a, () => {
+      const g = window.__game.game;
+      const inv = g.services.inventory;
+      inv.remove('wood', inv.count('wood'));
+      inv.remove('stone', inv.count('stone'));
+    });
+    await sleep(900); // the farmhand's backpack mirror (psave) reaches the host
+    await net(a, () => {
+      const ev = window.__game.game.events;
+      const send = (intent) => ev.emit('animals:intent', { intent });
+      send({ kind: 'eggs' });
+      send({ kind: 'truffle', x: 30, z: 20 });
+      send({ kind: 'bowl' });
+      send({ kind: 'feed', home: 'coop', hay: 6 });
+      send({ kind: 'door', home: 'barn' });
+      ev.emit('buildings:intent', { intent: { kind: 'order', building: 'coop' } });
+    });
+    await sleep(2000);
+    const after = await net(host, () => {
+      const g = window.__game.game;
+      const A = g.services.animals;
+      return { eggs: A['st'].eggs.length, truffles: A['st'].truffles.length, bowl: A['st'].pet.bowl, hay: A['st'].hay.coop.filter(Boolean).length, door: !!A['st'].doors.barn, coop: g.services.buildings.pending('coop') || g.services.buildings.has('coop'), rejA: A.rejected ?? 0, rejB: g.services.buildings.rejected ?? 0 };
+    });
+    check('animals: hostile farmhand intents (wrong map / out of reach) are refused by the host', after.eggs === 1 && after.truffles === 1 && !after.bowl && after.hay === 0 && after.door === before.door && after.rejA - before.rejA >= 5, JSON.stringify(after));
+    check('carpenter: a farmhand order without wood / stone in their backpack is refused', !after.coop && after.rejB - before.rejB >= 1, JSON.stringify(after));
+  }
+
   // ── Ash leaves → back on their own farm (own purse), then comes back ──
   await net(a, () => window.__game.game.services.net.leave());
   await sleep(1500);

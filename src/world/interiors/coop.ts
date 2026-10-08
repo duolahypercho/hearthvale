@@ -69,7 +69,7 @@ export class CoopInterior extends InteriorMap {
     this.sunPoolK = 0.4;
     this.exposureBoost = 0.28;
     this.coolFill = 0.45;
-    this.shaftK = 1.25;
+    this.shaftK = 0.95;
     const rng = new Rng('coop-interior');
     const trough = { x0: 0.55, x1: 3.55, z: 5.35 };
     // Beds on the straw under the roost (ducks); chickens flutter up onto the perches.

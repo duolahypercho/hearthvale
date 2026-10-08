@@ -109,7 +109,7 @@ export class BarnInterior extends InteriorMap {
     this.sunPoolK = 0.25;
     this.exposureBoost = 0.2;
     this.coolFill = 0.62;
-    this.shaftK = 1.3;
+    this.shaftK = 1.0;
     const rng = new Rng('barn-interior');
     const slots: PenSlot[] = Array.from({ length: 6 }, (_, i) => {
       const x0 = i * SW;

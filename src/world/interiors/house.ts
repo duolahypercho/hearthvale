@@ -74,7 +74,7 @@ export class HouseInterior extends InteriorMap {
     });
     this.coolFill = 0.38;
     this.morningCool = 1;
-    this.shaftK = 1.75;
+    this.shaftK = 1.05;
     // r11: the shafts land — a soft window-shaped pool of sun where each beam hits the boards.
     this.sunPoolK = 0.3;
     this.moonShaft = 0.07;
@@ -182,9 +182,11 @@ export class HouseInterior extends InteriorMap {
     this.photo(k, 'calendar', [2.95 + 0.0, 1.5, 0.02], 0.34, 0.66, 'back', false);
     // Glazed quarry-tile floor for the kitchen zone, framed by an oak edge strip (the boards take over
     // at the dining rug) — the room reads as zones, not one plank box.
+    // (r12: the tiles run on under the dining table — kitchen + dining read as ONE zone, framed by the
+    // oak strip, instead of a tiled patch plus a separate rug island)
     const TW = 4.3;
-    const TD = 3.05;
-    k.add('tile', floorPlane(TW, TD, 1), mat(TW / 2, 0.0015, TD / 2));
+    const TD = 5.15;
+    k.add('tile', floorPlane(TW, TD, 1), mat(TW / 2, 0.0015, TD / 2), { tint: 0xe6dcd2 });
     k.box('wood', [TW - 0.55, 0.018, 0.07], [(TW + 0.55) / 2, 0, TD], { tint: 0x8a5a38, r: 0.008 });
     k.box('wood', [0.07, 0.018, TD - 0.7], [TW, 0, (TD + 0.7) / 2], { tint: 0x8a5a38, r: 0.008 });
     // A rag mat at the sink
@@ -240,8 +242,6 @@ export class HouseInterior extends InteriorMap {
     k.add('glow', new THREE.SphereGeometry(0.065, 12, 10), mat(tx + 0.35, 0.93, tz - 0.22, 0, 0, 0, 1, 1.5, 1), { tint: 0xe8a050 });
     k.add('brass', new THREE.TorusGeometry(0.07, 0.006, 5, 12, Math.PI), mat(tx + 0.35, 1.03, tz - 0.22));
     this.addLamp(new THREE.Vector3(tx + 0.3, 1.6, tz + 0.05), 0xffc27a, 0, 2.2, 0.04, 6);
-    // Rag rug under the table
-    k.add('rug', floorPlane(2.3, 1.7), mat(tx, 0.006, tz, 0, Math.PI / 2, 0));
     // Bookshelf (left wall, front) with books, a globe and a plant
     const bz = 5.9;
     k.box('wood', [0.42, 2.0, 1.3], [0.24, 0, bz], { tint: WALNUT, ao: 0.3 });
@@ -343,7 +343,7 @@ export class HouseInterior extends InteriorMap {
       g.renderOrder = 3;
       this.root.add(g);
       const c0 = new THREE.Color(0xff7a30);
-      this.updaters.push((_dt, _t, L) => gm.color.copy(c0).multiplyScalar((0.32 + L.night * 0.18) * this.fireK * (1 - this.dim * 0.5)));
+      this.updaters.push((_dt, _t, L) => gm.color.copy(c0).multiplyScalar((0.3 + L.night * 0.06) * this.fireK * (1 - this.dim * 0.5)));
     }
     this.sparks = new Wisps(new THREE.Vector3(cx, 0.3, 0.4), { rate: 5, life: 1.3, rise: 0.75, spread: 0.45, size: 0.035, color: 0xffa040, additive: true, count: 24 });
     this.root.add(this.sparks.points);
@@ -353,7 +353,7 @@ export class HouseInterior extends InteriorMap {
     this.glowPool(cx, 1.3, 1.9, 0xff7a30, () => (0.22 + this.light.night * 0.16) * this.fireK);
     // The warm fan reaches out across the hearth rug even at 8 am (the fire is the room's warm pocket).
     this.glowPool(cx, 2.55, 2.5, 0xff8a40, () => (0.075 + this.light.night * 0.07) * this.fireK, 0.016);
-    this.glowPool(cx, 0.55, 0.9, 0xffa050, () => 0.35 * this.fireK, 0.09);
+    this.glowPool(cx, 0.55, 0.9, 0xffa050, () => (0.3 - this.light.night * 0.08) * this.fireK, 0.09);
     // Mantel dressing: clock, candlesticks, two small photos, a jar of dried flowers, pinecones
     const my = 1.44;
     k.box('wood', [0.3, 0.34, 0.14], [cx, my, D0 + 0.08], { tint: 0x7a4a2a, r: 0.04 });
@@ -399,9 +399,7 @@ export class HouseInterior extends InteriorMap {
     k.cyl('ceramic', 0.035, 0.045, 0.12, [8.95, 0.86, 1.85], { tint: 0xf4f4f0 });
     this.addLamp(new THREE.Vector3(8.95, 1.25, 1.95), 0xffc27a, 0, 1.4, 0.05, 4.5);
     k.cyl('ceramic', 0.045, 0.035, 0.05, [8.8, 0.6, 1.98], { tint: 0xf2eee4 });
-    k.cyl('thatch', 0.2, 0.17, 0.2, [8.75, 0, 3.55], { tint: 0xc8a068 });
-    for (const [i, c] of [[0, 0xc84a5a], [1, 0x5a8ac0], [2, 0xf0c050]] as const) k.sphere('fabric', 0.08, [8.68 + i * 0.09, 0.22, 3.52 + (i % 2) * 0.06], c);
-    for (const s of [-1, 1]) k.cyl('wood', 0.006, 0.006, 0.36, [8.78 + s * 0.02, 0.26, 3.5], { rz: 0.5 * s, rx: 0.3, tint: 0xd8b080 });
+    // (r12: the knitting basket left the bedroom doorway — the bed-to-door lane is clear planks)
     // The pet's wicker bed by the hearth: a plaid cushion, a chewed rope toy
     const pbx = 7.95;
     const pbz = 1.5;
@@ -410,14 +408,6 @@ export class HouseInterior extends InteriorMap {
     k.add('fabric', lumpySphere(0.3, 2, 0.08, rng), mat(pbx, 0.08, pbz, 0, 0, 0, 1, 0.22, 0.8), { tint: 0xb84a3e });
     for (let i = 0; i < 3; i++) k.add('fabric', roundedBox(0.52, 0.012, 0.04, 0.005), mat(pbx, 0.135, pbz - 0.14 + i * 0.14), { tint: 0xe8d8b0 });
     k.add('fabric', new THREE.TorusGeometry(0.06, 0.02, 6, 12), mat(pbx + 0.42, 0.02, pbz + 0.3, Math.PI / 2, 0, 0.4), { tint: 0x5a8ac0 });
-    // A stack of well-read books + a teacup by the armchair
-    const bkx = 4.2;
-    const bkz = 3.55;
-    const bkc = [0x7a3a3a, 0x3a5a7a, 0xc8a050, 0x4a6a3a, 0x8a5a8a];
-    for (let i = 0; i < 5; i++) k.box('paint', [0.3 - (i % 2) * 0.04, 0.055, 0.22 - (i % 3) * 0.02], [bkx + (i % 2) * 0.02, i * 0.056, bkz], { ry: (i - 2) * 0.12, tint: bkc[i]!, r: 0.012 });
-    for (let i = 0; i < 5; i++) k.box('paint', [0.26 - (i % 2) * 0.04, 0.042, 0.18 - (i % 3) * 0.02], [bkx + (i % 2) * 0.02 + 0.004, i * 0.056 + 0.007, bkz + 0.003], { ry: (i - 2) * 0.12, tint: 0xf2e8d0, r: 0.008 });
-    k.cyl('ceramic', 0.05, 0.04, 0.06, [bkx + 0.02, 0.28, bkz], { tint: 0xf2eee4 });
-    k.cyl('ceramic', 0.08, 0.08, 0.008, [bkx + 0.02, 0.28, bkz], { tint: 0xf2eee4 });
     // Pendulum wall clock between the stove and the hearth
     const clk = { x: 4.6, y: 1.55 };
     k.box('wood', [0.36, 0.95, 0.12], [clk.x, clk.y, 0.07], { tint: 0x6a3a22, r: 0.03 });
@@ -449,7 +439,7 @@ export class HouseInterior extends InteriorMap {
   private tickHearth(dt: number, t: number, L: RoomLight): void {
     this.fireK = 0.85 + 0.12 * Math.sin(t * 11.3) * Math.sin(t * 6.1 + 1) + 0.08 * Math.sin(t * 23.7) + 0.06 * Math.sin(t * 3.1);
     this.fireLight.intensity *= this.fireK;
-    this.flames.gain = (0.78 + L.night * 0.34) * (0.9 + 0.2 * this.fireK) * (1 - this.dim * 0.55);
+    this.flames.gain = (0.78 - L.night * 0.2) * (0.9 + 0.2 * this.fireK) * (1 - this.dim * 0.55);
     this.flames.update(t);
     this.sparks.update(dt, 0.7 + 0.3 * this.fireK);
     this.smoke.update(dt);
@@ -526,6 +516,9 @@ export class HouseInterior extends InteriorMap {
     k.box('wood', [1.34, 0.06, 0.54], [bx, 0.48, 2.72], { tint: 0x7a4a2c, r: 0.03 });
     for (const s of [-1, 1]) k.box('iron', [0.05, 0.5, 0.52], [bx + s * 0.45, 0.02, 2.72], { tint: 0x3a3634 });
     k.box('fabric', [0.5, 0.08, 0.4], [bx - 0.3, 0.54, 2.72], { tint: 0x7aa0c8, r: 0.03, ry: 0.2 });
+    // (r12) The sleeping zone's own floor: one broad woven rug under the bed in a cool dusk tone, so the
+    // bedroom reads as a room (kitchen = tiles, living = the braided hearth rug, bedroom = this).
+    k.add('rug', floorPlane(3.3, 2.95), mat(bx + 0.05, 0.005, 2.35, 0, Math.PI / 2, 0), { tint: 0xc4c2e2 });
     // Window-sill plants
     this.pottedPlant(k, rng, 12.8, 5.3, 1.22, 0.3);
     this.statics.push(k.build('bedroom'));
@@ -616,26 +609,6 @@ export class HouseInterior extends InteriorMap {
       k.box('paint', [0.12, 0.07, 0.24], [btx + 0.18 + s * 0.14, 0.05, btz + 0.02], { tint: 0xc0503a, r: 0.03, ry: 0.15 });
     }
     this.solid(3.15, 7.25, 3.95, 7.8, 'boot-tray');
-    // (r9) Today's harvest set down inside the door: a slatted crate of turnips, a fat pumpkin and a
-    // basket of eggs on the boards — the front floor tells the morning's story instead of bare planks.
-    const gx = 4.55;
-    const gz = 7.35;
-    k.box('wood', [0.62, 0.05, 0.44], [gx, 0, gz], { tint: 0x9a6a44, r: 0.01, ry: 0.18 });
-    for (const s of [-1, 1]) {
-      for (let b = 0; b < 2; b++) k.box('wood', [0.62, 0.08, 0.03], [gx - s * Math.sin(0.18) * 0.21, 0.08 + b * 0.13, gz + s * Math.cos(0.18) * 0.21], { tint: b ? 0xb88a5a : 0xa87a4c, ry: 0.18, r: 0.008 });
-      k.box('wood', [0.03, 0.3, 0.44], [gx + s * Math.cos(0.18) * 0.3, 0, gz - s * Math.sin(0.18) * 0.3], { tint: 0x8a5a38, ry: 0.18, r: 0.008 });
-    }
-    for (let i = 0; i < 7; i++) {
-      const tx = gx - 0.2 + (i % 4) * 0.13 + (i > 3 ? 0.06 : 0);
-      const tz = gz - 0.08 + (i > 3 ? 0.14 : 0) + ((i * 37) % 5) * 0.01;
-      k.add('ceramic', lumpySphere(0.075, 1, 0.12, rng), mat(tx, 0.26, tz, 0, 0, 0, 1, 0.85, 1), { tint: 0xf2ece4 });
-      k.add('ceramic', new THREE.SphereGeometry(0.06, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat(tx, 0.27, tz), { tint: 0x9a4a8a });
-      k.add('leaf', new THREE.ConeGeometry(0.03, 0.18, 5), mat(tx, 0.4, tz, (i % 3 - 1) * 0.3, 0, (i % 2 ? 0.25 : -0.25)), { tint: 0x5a9a42 });
-    }
-    const pump = new THREE.SphereGeometry(0.2, 16, 10);
-    k.add('ceramic', pump, mat(gx + 0.55, 0.15, gz + 0.18, 0, 0, 0, 1.15, 0.78, 1.15), { tint: 0xe08a2a });
-    for (let i = 0; i < 6; i++) k.add('ceramic', new THREE.TorusGeometry(0.2, 0.012, 4, 18), mat(gx + 0.55, 0.15, gz + 0.18, 0, (i / 6) * Math.PI, 0, 1.15, 0.78, 1.15), { tint: 0xc8701e });
-    k.cyl('wood', 0.022, 0.03, 0.1, [gx + 0.55, 0.3, gz + 0.18], { tint: 0x6a5a2a, rz: 0.3 });
     const eb = new THREE.LatheGeometry([[0, 0], [0.12, 0], [0.16, 0.04], [0.17, 0.12], [0.15, 0.12], [0.14, 0.04], [0, 0.03]].map(([a, b]) => new THREE.Vector2(a!, b!)), 18);
     // Egg basket set on the seed chest's lid (left end)
     const ebx = 1.98;
@@ -644,7 +617,6 @@ export class HouseInterior extends InteriorMap {
     k.add('thatch', eb, mat(ebx, eby, ebz), { tint: 0xc89a60 });
     k.add('thatch', new THREE.TorusGeometry(0.14, 0.012, 4, 16, Math.PI), mat(ebx, eby + 0.12, ebz, 0, 0.6, 0), { tint: 0xb08850 });
     for (let i = 0; i < 5; i++) k.sphere('ceramic', 0.045, [ebx - 0.05 + (i % 3) * 0.06, eby + 0.13 + Math.floor(i / 3) * 0.04, ebz - 0.04 + (i % 2) * 0.07], i % 2 ? 0xd99a62 : 0xf6eee0, [1, 1.25, 1]);
-    this.solid(4.15, 6.95, 5.35, 7.8, 'harvest');
     // Big potted plant (front right) + a watering can by it
     this.pottedPlant(k, rng, 12.3, 7.3, 0, 1.2);
     // Grandmother's writing desk under the east window: the letter, ink, a quill, spectacles
@@ -668,9 +640,9 @@ export class HouseInterior extends InteriorMap {
     this.addLamp(new THREE.Vector3(dx - 0.35, 1.45, dz - 0.05), 0xffcf8a, 0, 1.25, 0.02, 5);
     this.glowPool(dx - 0.5, dz, 1.3, 0xffb060, () => this.light.night * 0.07);
     // Grandmother's spinning wheel + a basket of carded wool (the empty east floor)
-    this.spinningWheel(k, 11.25, 4.75, -0.95);
-    k.cyl('thatch', 0.2, 0.16, 0.18, [10.5, 0, 4.3], { tint: 0xc8a068 });
-    for (const [i, c] of [[0, 0xf4efe4], [1, 0xe8dcc8], [2, 0xd8b0a0]] as const) k.add('fabric', lumpySphere(0.075, 1, 0.25, rng), mat(10.45 + i * 0.07, 0.22, 4.27 + (i % 2) * 0.06), { tint: c });
+    // (r12: pushed back against the wardrobe wall and the loose wool basket gone — no floor strays in
+    // the lane from the bedroom doorway to the front door)
+    this.spinningWheel(k, 11.75, 4.55, -1.2);
     // Entry bench (front right): a settle with a plaid cushion, a basket of apples + a farm-gloves pair,
     // a tin milk can at its end — the farmer’s drop zone by the door.
     // (front right, against the knee wall: clear of the door lane)
@@ -751,71 +723,12 @@ export class HouseInterior extends InteriorMap {
     this.playCorner(k, rng);
     this.readingNook(k, rng);
     this.dairyCorner(k, rng);
-    this.puzzleTable(k, rng);
     this.statics.push(k.build('front'));
-    this.solid(10.65, 4.2, 11.75, 5.25, 'spinning-wheel');
+    this.solid(11.2, 4.0, 12.3, 5.1, 'spinning-wheel');
     this.solid(10.1, 7.15, 11.2, 7.8, 'blanket-trunk');
-    this.solid(10.3, 4.1, 10.7, 4.5, 'wool-basket');
     this.solid(1.1, 7.2, 1.6, 7.8, 'coat-rack');
     this.solid(11.9, 6.9, 12.8, 7.7, 'plant');
     this.solid(11.6, 5.0, 13, 6.4, 'desk');
-  }
-
-  /**
-   * r11: a low centrepiece in the open band between the loveseat and the door (the critic's empty plank
-   * stripe): a walnut tea-trunk table on a small round rag rug, a jigsaw half done (the farm's own
-   * meadow, sky row still missing pieces), loose pieces + the box lid, two floor cushions.
-   */
-  private puzzleTable(k: Kit, rng: Rng): void {
-    const x = 7.95;
-    const z = 5.62;
-    const rug = new THREE.CircleGeometry(0.5, 64);
-    rug.rotateX(-Math.PI / 2);
-    rug.scale(1.75, 1, 1.3);
-    k.add('braid', rug, mat(x, 0.008, z + 0.04), { tint: 0xe0b8a0 });
-    // Trunk table: a low walnut box, iron corner straps, a lighter oak lid.
-    const w = 0.92;
-    const d = 0.58;
-    k.box('wood', [w, 0.3, d], [x, 0, z], { tint: WALNUT, uv: 1.2, r: 0.03 });
-    k.box('wood', [w + 0.05, 0.045, d + 0.05], [x, 0.3, z], { tint: OAK, uv: 1.4, r: 0.02 });
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.box('iron', [0.05, 0.3, 0.05], [x + sx * (w / 2 - 0.01), 0, z + sz * (d / 2 - 0.01)], { tint: 0x3a3430, r: 0.012 });
-    k.box('brass', [0.08, 0.07, 0.015], [x, 0.17, z + d / 2 + 0.005], { r: 0.008 });
-    // Puzzle board: 9 × 6 pieces — sky, a hill line, the meadow, a red barn in the middle.
-    const top = 0.345;
-    const pw = 0.068;
-    const cols = 9;
-    const rows = 6;
-    const ox = x - (cols * pw) / 2 + pw / 2 - 0.06;
-    const oz = z - (rows * pw) / 2 + pw / 2;
-    k.box('paint', [cols * pw + 0.03, 0.006, rows * pw + 0.03], [ox + ((cols - 1) * pw) / 2, top, oz + ((rows - 1) * pw) / 2], { tint: 0x5a4030, r: 0.004 });
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        // The top two rows (sky) are half done.
-        if (r < 2 && rng.next() < 0.55) continue;
-        const sky = r < 2;
-        const hill = r === 2;
-        const barn = r >= 3 && r <= 4 && c >= 4 && c <= 5;
-        const base = sky ? 0x8ec4e4 : hill ? (c % 3 === 0 ? 0x6a9a58 : 0x7aa860) : barn ? 0xb84a3a : r === 5 ? 0xd8b85a : 0x8cba62;
-        const col = new THREE.Color(base).offsetHSL(0, 0, (rng.next() - 0.5) * 0.05);
-        k.box('paint', [pw - 0.004, 0.01, pw - 0.004], [ox + c * pw, top + 0.006, oz + r * pw], { tint: col.getHex(), r: 0.003 });
-      }
-    }
-    // Loose pieces + the box lid leaning on the table, a teacup on a saucer.
-    for (let i = 0; i < 7; i++) {
-      const px = x + 0.3 + rng.next() * 0.12;
-      const pz = z - 0.2 + rng.next() * 0.4;
-      k.box('paint', [pw - 0.006, 0.01, pw - 0.006], [px, top, pz], { tint: rng.next() < 0.6 ? 0x8ec4e4 : 0x9ac8e8, ry: rng.next() * 3, r: 0.003 });
-    }
-    k.box('paint', [0.36, 0.26, 0.03], [x - 0.12, 0.0, z + d / 2 + 0.12], { tint: 0x4a7a9a, rx: -0.32, r: 0.01 });
-    k.box('paint', [0.26, 0.15, 0.005], [x - 0.12, 0.06, z + d / 2 + 0.115], { tint: 0x9ac87a, rx: -0.32, r: 0.003 });
-    k.cyl('ceramic', 0.065, 0.065, 0.01, [x + 0.34, top, z + 0.2], { tint: 0xf2eee4 });
-    k.cyl('ceramic', 0.042, 0.033, 0.055, [x + 0.34, top + 0.01, z + 0.2], { tint: 0xc8d8e8 });
-    // Two floor cushions, plumped + a little squashed, tufted button in the middle.
-    for (const [cx, cz, tint, ry] of [[x - 0.72, z + 0.12, 0xc27a78, 0.3], [x + 0.1, z + 0.62, 0x86a48c, -0.2]] as const) {
-      k.add('fabric', roundedBox(0.46, 0.13, 0.46, 0.06, 3), mat(cx, 0.065, cz, 0, ry, 0), { tint });
-      k.sphere('fabric', 0.022, [cx, 0.13, cz], 0xf0e2c8);
-    }
-    this.solid(x - w / 2 - 0.02, z - d / 2 - 0.02, x + w / 2 + 0.02, z + d / 2 + 0.02, 'puzzle-table');
   }
 
   /**
@@ -838,19 +751,14 @@ export class HouseInterior extends InteriorMap {
   }
 
   /**
-   * r10: the open middle-front of the room gets two small zones instead of a bare plank field —
-   *   left   a reading nook under the wall sconce by the bookshelf: Gran's armchair turned to the room on
-   *          a blue braided rug, a round side table with a book stack + teacup, a footstool with a folded
-   *          throw;
-   *   right  a knitting spot beside the spinning wheel: a rag rug, a mustard pouf, a basket of yarn.
+   * Reading corner under the wall sconce by the bookshelf: Gran's armchair turned to the room and a round
+   * side table with a book stack + teacup — both against the left wall. (r12: no rug / footstool island,
+   * and the knitting pouf + yarn rug by the spinning wheel are gone: the critic counted too many floor
+   * islands at equal weight; the open planks now carry the bed-to-door lane.)
    */
-  private readingNook(k: Kit, rng: Rng): void {
+  private readingNook(k: Kit, _rng: Rng): void {
     const ax = 1.45;
     const az = 6.05;
-    const rug = new THREE.CircleGeometry(0.5, 64);
-    rug.rotateX(-Math.PI / 2);
-    rug.scale(2.3, 1, 1.45);
-    k.add('braid', rug, mat(ax + 0.6, 0.008, az + 0.05), { tint: 0x9ab8c8 });
     // Gran's reading chair in faded sage velvet (the hearth chair is the rose one)
     this.armchair(k, ax, az, 0.95, 0x6f8e78, 0x86a48c);
     // Side table: round oak top, turned stem, a stack of books + teacup on a saucer
@@ -862,27 +770,8 @@ export class HouseInterior extends InteriorMap {
     for (const [i, c] of [[0, 0x8a3a3a], [1, 0x3a5a7a], [2, 0xc8a050]] as const) k.box('paint', [0.24 - i * 0.02, 0.045, 0.17], [tx - 0.06, 0.585 + i * 0.047, tz - 0.02], { tint: c, ry: 0.3 - i * 0.25, r: 0.008 });
     k.cyl('ceramic', 0.075, 0.075, 0.012, [tx + 0.12, 0.585, tz + 0.08], { tint: 0xf2eee4 });
     k.cyl('ceramic', 0.045, 0.035, 0.06, [tx + 0.12, 0.595, tz + 0.08], { tint: 0xe8f0f4 });
-    // Footstool with a folded throw
-    const fx = 2.3;
-    const fz = 6.55;
-    k.add('fabric', roundedBox(0.5, 0.18, 0.4, 0.07, 3), mat(fx, 0.13, fz, 0, 0.3, 0), { tint: 0xc27a78 });
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.add('wood', new THREE.CylinderGeometry(0.025, 0.018, 0.13, 6), mat(fx + sx * 0.18 * Math.cos(0.3) + sz * 0.14 * Math.sin(0.3), 0.065, fz - sx * 0.18 * Math.sin(0.3) + sz * 0.14 * Math.cos(0.3)), { tint: WALNUT });
-    k.add('quilt', roundedBox(0.36, 0.05, 0.3, 0.02), mat(fx + 0.04, 0.245, fz, 0, 0.55, 0));
     this.solid(0.95, 5.55, 2.0, 6.55, 'armchair');
     this.solid(2.1, 5.35, 2.6, 5.85, 'side-table');
-    this.solid(2.05, 6.3, 2.55, 6.8, 'footstool');
-    // Knitting spot by the spinning wheel
-    const kx = 9.85;
-    const kz = 5.9;
-    k.add('rug', floorPlane(1.9, 1.25), mat(kx, 0.007, kz, 0, -0.08, 0), { tint: 0x9ac4c0 });
-    k.cyl('fabric', 0.28, 0.3, 0.3, [kx - 0.35, 0, kz - 0.05], { tint: 0xd8a040, seg: 20 });
-    k.add('fabric', new THREE.SphereGeometry(0.28, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(kx - 0.35, 0.29, kz - 0.05, 0, 0, 0, 1, 0.25, 1), { tint: 0xe0b050 });
-    k.cyl('thatch', 0.2, 0.16, 0.18, [kx + 0.35, 0, kz + 0.2], { tint: 0xc8a068 });
-    for (const [i, c] of [[0, 0xc85a5a], [1, 0x5a8ac0], [2, 0xe8dcc0], [3, 0x7aa860]] as const) k.add('fabric', lumpySphere(0.07, 1, 0.2, rng), mat(kx + 0.28 + (i % 2) * 0.12, 0.2 + Math.floor(i / 2) * 0.05, kz + 0.16 + (i % 3) * 0.04), { tint: c });
-    k.cyl('wood', 0.008, 0.008, 0.36, [kx + 0.4, 0.25, kz + 0.18], { rz: 0.5, rx: 0.2, tint: 0xd8c8a0 });
-    k.cyl('wood', 0.008, 0.008, 0.36, [kx + 0.36, 0.25, kz + 0.22], { rz: 0.7, rx: -0.1, tint: 0xd8c8a0 });
-    this.solid(kx - 0.65, kz - 0.35, kx - 0.05, kz + 0.25, 'pouf');
-    this.solid(kx + 0.15, kz, kx + 0.55, kz + 0.4, 'yarn');
   }
 
   /**

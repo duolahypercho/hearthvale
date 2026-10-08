@@ -892,6 +892,26 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   moonlight shadow fades to 40 % (the farmer no longer throws a black wedge across the lamp-lit floor).
 - Farmhouse floor plan: zoned rooms round an open walking floor (kitchen, dining, hearth circle, bed nook behind the
   arch, desk + spinning wheel, mudroom along the front knee wall) — no loose prop islands in the middle.
+- r12 (round 10 critique): three readable farmhouse zones — kitchen + dining on one quarry-tile floor, the hearth
+  circle, the bedroom on its own broad woven rug — with the puzzle table, knitting pouf, reading rug, harvest crate and
+  floor strays gone and a clear bed → bedroom doorway → front door lane; softer window shafts (house 1.75 → 1.05, coop /
+  barn ~0.75x) and a calmer night fire (flame gain falls at night, back-glow + slab pool trimmed). Barn stalls lived in
+  (Maple head-down in her hay, Cocoa turned 3/4, a sheep side-on nosing the bedding, the pig rooting on the diagonal,
+  Daisy craning to the aisle; livestock 0.9x inside). Pasture spread over three depths (jersey to the open west half,
+  one hen fewer, pond ringed by clear grass). Petting card smaller (48 px), shorter-lived (1.45 s), capped growth from
+  far lenses, never flipped onto the farmer by a prop.
+- Co-op authority (r12): every farmhand animal intent is checked on the host against the net layer's validated
+  `last` map + position (not the interpolated body): eggs only in the coop at the nest shelf, hay only in that building
+  at its trough, a pop door only at its hatch, truffles / the pet bowl only beside them, a pet only on the map the animal
+  is on (+ reach when the host shares it); unknown position = refused (`animals.rejected` counts). Carpenter orders
+  from a farmhand need the wood / stone in the host's mirror of their backpack (a stale mirror is debited per accepted
+  order; a refused order refunds at most what the mirror shows). `npm run mp-test` sends the hostile set from the
+  pasture and checks the host state is untouched.
+- Action demos (r12, real input / weather / carpenter / sleep paths, nothing pinned, sim running; `&act=0` holds the
+  start): `animals-chores` (coop morning: two eggs off the nest shelf, hay into the trough with the 0 key, the flock
+  comes to eat, a pat — `--frames 11 --every 1400`), `animals-rain` (a shower at ~2 s, the herd trots home —
+  `--frames 7 --every 1500`), `animals-live` (the herd's own morning), `animals-overnight` (order a coop at dusk, bed,
+  day-end card, wake, the coop stands — `--frames 10 --every 1800`).
 
 ## Co-op multiplayer (1–4 farmers)
 

@@ -207,6 +207,12 @@ export const DEMOS: Record<string, DemoDef> = {
   'barn-night': { map: 'barn', x: 6.5, z: 5.6, facing: 'down', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 16.8, offsetZ: 0.1 }, showcase: ['animals'] },
   // Close-up line-up of every species + coat (model review): &cam= to orbit.
   'animals-gallery': { map: 'farm', x: 50.2, z: 42.4, facing: 'left', time: 15.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 26, distance: 10.5, offsetX: -5.8, offsetZ: -2.4 }, showcase: ['animals'] },
+  // r12 action demos (animals pod): real input / weather / carpenter / sleep paths, nothing pinned, sim
+  // time running — shoot with --frames N --every ms (&act=0 holds the start). See AnimalSystem.stageAct.
+  'animals-live': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21.5, offsetX: 2.2, offsetZ: -3.5 }, showcase: ['animals', 'act'] },
+  'animals-rain': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21.5, offsetX: 2.2, offsetZ: -4.4 }, showcase: ['animals', 'act'] },
+  'animals-chores': { map: 'coop', x: 1.6, z: 2.4, facing: 'up', time: 7.3, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 12.4, offsetZ: 0.3 }, showcase: ['animals', 'act'] },
+  'animals-overnight': { map: 'farm', x: 38.2, z: 36.2, facing: 'up', time: 19.2, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 17, offsetX: 1.2, offsetZ: -2.2 }, showcase: ['animals', 'act', 'no-coop'] },
   // 6 am in the coop: dawn light shafts, eggs in the nest boxes.
   'coop-dawn': { map: 'coop', x: 4.6, z: 4.1, facing: 'up', time: 6.1, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 13.2, offsetZ: 0.6 }, showcase: ['animals'] },
   'pet-yard': { map: 'farm', x: 36.5, z: 18.7, facing: 'left', time: 16.4, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 13, offsetX: 0.4, offsetZ: -1.2 }, showcase: ['animals'] },

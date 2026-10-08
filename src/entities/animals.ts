@@ -1147,9 +1147,11 @@ export class AnimalPops {
       for (const q of this.pops) if (q.kind === 'tag' && q.actor === actor) q.t = Math.max(q.t, q.life - 0.12);
       const nt = nameTag(tag.name, tag.hearts);
       const m = new THREE.MeshBasicMaterial({ map: nt.tex, transparent: true, depthWrite: false, depthTest: false, fog: false, toneMapped: false });
-      const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.9);
+      // (r12: a smaller, shorter-lived card — in the wide pasture shot it competed with the herd's
+      // silhouettes; it reads as a quick tag on the pat, not a sign)
+      const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.45);
       p.actor = actor;
-      p.px = 60 / 1080;
+      p.px = 48 / 1080;
       p.aspect = nt.aspect;
       p.tagKey = `${tag.name}|${tag.hearts}`;
     }
@@ -1275,7 +1277,7 @@ export class AnimalPops {
         const pop = p.t < 0.16 ? 0.5 + 0.5 * easeOutBack(p.t / 0.16) : 1;
         const sk = screenK(o);
         // Constant on screen, a touch larger from far cameras (≥ 18 px text at 1080p everywhere).
-        const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(1 + ((refK || sk) - 7) * 0.04, 1, 1.4) * pop;
+        const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(1 + ((refK || sk) - 7) * 0.03, 1, 1.15) * pop;
         const heart = (72 / 1080) * sk * 1.18;
         const w = h * (p.aspect ?? 3);
         if (camera) _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -1296,7 +1298,9 @@ export class AnimalPops {
           const nx = ndc.x;
           const ny = ndc.y;
           if (Math.abs(nx) + half > 0.9 && Math.sign(nx) === p.side) p.side = -p.side;
-          else if (this.avoid.length) {
+          // (r12: a prop never pushes the card over to the farmer's side — in the coop it flipped off the
+          // water fount onto the farmer's hat and face)
+          else if (this.avoid.length && (!this.farmer || p.side !== dir)) {
             // Prop check: flip when this side covers a prop and the other side is clearer + on screen.
             const here = this.propOverlap(cam, nx, ny, half, hh);
             if (here > 0) {
@@ -1310,7 +1314,7 @@ export class AnimalPops {
         const side = p.side * (heart * 0.95 + w * 0.5);
         p.sprite.position.set(o.x + _right.x * side, o.y + 0.2 + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);
         p.sprite.scale.set(w, h, 1);
-        m.opacity = p.t > p.life - 0.35 ? Math.max(0, (p.life - p.t) / 0.35) : 1;
+        m.opacity = 0.94 * (p.t > p.life - 0.35 ? Math.max(0, (p.life - p.t) / 0.35) : 1);
       } else if (p.kind === 'drop' || p.kind === 'fluff') {
         p.sprite.visible = true;
         if (p.vel) {
