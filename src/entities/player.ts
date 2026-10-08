@@ -40,7 +40,9 @@ export interface ActionPose {
 // Original palette: oatmeal shirt, sage overalls, terracotta neckerchief, slate hat band.
 const SKIN = 0xecb48e;
 const HAIR = 0x8a4a2a;
-const SHIRT = 0xf0e4c8;
+// (Farming r20) A shade deeper: the near-white oatmeal clipped under the noon sun and bloomed into a
+// glowing shoulder patch in every tool shot.
+const SHIRT = 0xe0d0ae;
 const OVERALLS = 0x5f8a5c;
 const BOOTS = 0x6a4128;
 const HAT = 0xe6c275;
@@ -73,6 +75,18 @@ function sharedMat(): THREE.MeshStandardMaterial {
           .replace(/shadowWorldNormal \* directionalLightShadows\[ i \]\.shadowNormalBias/g, 'shadowWorldNormal * directionalLightShadows[ i ].shadowNormalBias * 8.0')
           // Cascaded sun lights apply the normal offset in the fragment shader: scale the normal.
           .replace('vSunShadowWorldNormal = shadowWorldNormal;', 'vSunShadowWorldNormal = shadowWorldNormal * 8.0;'),
+      );
+    });
+    // (Farming r20) Soft highlight knee on the farmer's cloth / skin: sunlit pale sleeves and shoulders
+    // ran past the bloom threshold (0.92) and glowed as a white haze in every tool shot.
+    patchMaterial(shared, 'farmer-highlight-knee', (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        `{
+          float hvKL = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722));
+          if (hvKL > 0.78) outgoingLight *= (0.78 + (hvKL - 0.78) * 0.12) / hvKL;
+        }
+        #include <opaque_fragment>`,
       );
     });
   }

@@ -100,7 +100,7 @@ export class CritterSystem implements System {
         b.root.visible = false;
         continue;
       }
-      b.update(dt, t, game.player.position);
+      b.update(dt, t, game.player.position, this.snapT > 0);
     }
     if (this.cat) {
       this.cat.update(dt, t, night);

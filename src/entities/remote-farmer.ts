@@ -23,6 +23,7 @@ import { registerWarm } from '../render/warmkit';
 import { Rng } from '../core/rng';
 import { DEFAULT_LOOK, extra, type FarmerLook } from './remote-look';
 import { EmoteBubble, type EmoteId } from './remote-emotes';
+import { farmerBubbles } from './critters';
 
 const HEAD_R = 0.32;
 const BODY_SCALE = 1.22;
@@ -107,6 +108,18 @@ export function farmerMaterial(): THREE.MeshStandardMaterial {
           float hvLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
           float hvBoost = 1.0 + 1.3 * clamp((0.32 - hvLum) / 0.32, 0.0, 1.0);
           outgoingLight += reflectedLight.indirectDiffuse * (0.55 * hvBoost * hvNdv * hvNdv) + reflectedLight.indirectDiffuse * 0.35 * pow(1.0 - hvNdv, 3.0);
+        }
+        #include <opaque_fragment>`,
+      );
+    });
+    // (Farming r20) Soft highlight knee on the farmer's cloth / skin: sunlit pale sleeves and shoulders
+    // ran past the bloom threshold (0.92) and glowed as a white haze in every tool shot.
+    patchMaterial(sharedMat, 'farmer-highlight-knee', (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        `{
+          float hvKL = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722));
+          if (hvKL > 0.78) outgoingLight *= (0.78 + (hvKL - 0.78) * 0.12) / hvKL;
         }
         #include <opaque_fragment>`,
       );
@@ -599,6 +612,8 @@ export class RemoteFarmer {
   private waveT = 0;
 
   constructor(look: FarmerLook = DEFAULT_LOOK) {
+    // Songbirds keep clear of every farmhand, not just the local player (they perched on cans).
+    farmerBubbles.add(this.root);
     this.look = look;
     this.root.name = 'remote-farmer';
     this.root.userData.noAO = true;

@@ -63,13 +63,17 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // Rising coil: hips and shoulders wind away from the tile and the body leans back; the hoe comes
     // up across the chest onto the wind-up shoulder like a bat — the free arm crosses the chest to
     // the handle (both hands on it, below the chin).
-    { t: 0.19, ease: 'out', aR: [-1.45, -0.5], aL: [-1.35, -0.62], torso: [-0.08, -0.4, -0.14], head: -0.02, sy: 1.04, hips: [-0.05, -0.24], stance: 0.28, grip: 0.02, reach: 1.1, toolT: [-0.75, 0, 0.55] },
-    // Top: fully coiled, stretched tall, rear foot planted; the handle lies back over the shoulder and
-    // the blade is cocked high behind it on the wind-up side (face clear from the tool lenses).
-    { t: 0.236, ease: 'out', aR: [-1.8, -0.62], aL: [-1.66, -0.78], torso: [-0.18, -0.5, -0.2], head: -0.05, sy: 1.11, hips: [-0.08, -0.32], stance: 0.3, grip: 0.04, reach: 1.14, toolT: [-1.15, 0, 0.82] },
-    // Downswing: hips fire first and the shoulders follow; the hands drive forward at chest height,
-    // the blade whipping over the top on the wind-up side (outside the head's silhouette).
-    { t: 0.258, ease: 'in', aR: [-1.5, -0.32], aL: [-1.38, -0.08], torso: [0.18, -0.22, -0.06], head: -0.2, sy: 0.94, hips: [0.06, -0.04], stance: 0.36, grip: 0.04, reach: 1.24, toolT: [0.75, 0, 0.3] },
+    // (r20) Hands stay at shoulder height and the shaft is LAID BACK over the shoulder (~45° from
+    // vertical, blade behind the shoulder), the torso turned well away from the tile so the lens sees
+    // the loaded handle in profile — the r19 top held the hoe upright beside the hat like a flag.
+    { t: 0.17, ease: 'out', aR: [-1.45, -0.32], aL: [-1.35, -0.5], torso: [-0.12, -0.26, -0.08], head: 0.0, sy: 1.03, hips: [-0.05, -0.14], stance: 0.3, grip: 0.0, reach: 1.06, toolT: [-0.6, 0, 0.45] },
+    // Top: fully coiled, rear foot planted, both fists at the chest, the shaft lying back across the
+    // shoulder at ~45° with the blade cocked up behind it, clear of the hat.
+    { t: 0.205, ease: 'out', aR: [-1.9, -0.4], aL: [-1.8, -0.6], torso: [-0.2, -0.35, -0.1], head: 0.04, sy: 1.07, hips: [-0.08, -0.2], stance: 0.32, grip: 0.0, reach: 1.08, toolT: [-0.9, 0, 0.55] },
+    // Downswing (two readable frames, ~70 ms): the hips fire first, the shoulders unwind, the hands
+    // drive forward and down past the chest while the blade whips over the top on the wind-up side.
+    { t: 0.24, ease: 'in', aR: [-1.55, -0.3], aL: [-1.42, -0.12], torso: [0.12, -0.34, -0.06], head: -0.16, sy: 0.96, hips: [0.04, -0.12], stance: 0.36, grip: 0.03, reach: 1.2, toolT: [0.15, 0, 0.42] },
+    { t: 0.258, ease: 'in', aR: [-1.05, -0.18], aL: [-0.92, -0.04], torso: [0.26, -0.14, -0.02], head: -0.28, sy: 0.88, hips: [0.06, -0.02], stance: 0.4, grip: 0.04, reach: 1.24, toolT: [1.05, 0, 0.16] },
     // Impact: the torso whips over, knees drop into a lunge, the body squashes hard; the blade bites
     // below the surface (blade-tip IK, see `aim`).
     { t: 0.275, ease: 'in', aR: [-0.42, -0.05], aL: [-0.3, 0.05], torso: [0.32, -0.04, 0], head: -0.34, sy: 0.8, hips: [0.07, 0.06], stance: 0.44, tool: [Math.PI / 2 - 0.15, 0, 0] },
@@ -77,7 +81,10 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0.32, ease: 'linear', aR: [-0.38, -0.05], aL: [-0.27, 0.05], torso: [0.34, 0, 0], head: -0.35, sy: 0.8, hips: [0.08, 0.05], stance: 0.46, tool: [Math.PI / 2 - 0.12, 0, 0] },
     // Recoil: the hoe is ripped back toward the boots and out, the body springs up past rest.
     { t: 0.42, ease: 'out', aR: [-0.92, -0.08], aL: [-0.74, 0.06], torso: [0.06, 0.1, 0.02], head: -0.02, sy: 1.09, hips: [0.0, 0.04], stance: 0.18, tool: [Math.PI / 2 - 0.75, 0, 0] },
-    { t: 0.66, ease: 'inout' },
+    // (r20) Recovery to a blade-down rest: the hoe settles with its blade on the ground in front of
+    // the boots (never a shaft carried across the hips).
+    { t: 0.54, ease: 'inout', aR: [-0.5, -0.08], aL: [-0.36, 0.08], torso: [0.1, 0.04, 0], head: -0.06, sy: 0.99, hips: [0.02, 0.02], stance: 0.1, tool: [Math.PI / 2 + 0.05, 0, 0] },
+    { t: 0.68, ease: 'inout' },
   ],
   // Released from the charge hold: it starts up beside the hat (same as the charge pose, no pop
   // back to rest), rises a touch higher, then comes down hard.

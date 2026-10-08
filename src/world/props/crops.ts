@@ -1272,8 +1272,12 @@ const BUILDERS: Record<CropId, Builder> = {
         const rad = 0.05 + k * 0.025 + r.next() * 0.025;
         const len = (k === 3 ? 0.11 : 0.07) * (0.85 + r.next() * 0.3);
         const y = h * (0.92 + r.next() * 0.16) + 0.03;
-        const tilt = 0.3 + r.next() * 0.3;
-        const pm = mat(Math.cos(a) * rad, y, Math.sin(a) * rad, -Math.sin(a) * tilt, 0, Math.cos(a) * tilt);
+        // (r20) Pods HANG (≤ ~25° off vertical) from short arched pedicels at the canopy rim — the
+        // r19 splayed pods stuck out sideways like confetti / flying carrots.
+        const tilt = 0.1 + r.next() * 0.3;
+        const yy = y - 0.035;
+        const pm = mat(Math.cos(a) * rad, yy, Math.sin(a) * rad, -Math.sin(a) * tilt, 0, Math.cos(a) * tilt);
+        add(tube([new THREE.Vector3(Math.cos(a) * rad * 0.55, yy + 0.045, Math.sin(a) * rad * 0.55), new THREE.Vector3(Math.cos(a) * rad * 0.85, yy + 0.04, Math.sin(a) * rad * 0.85), new THREE.Vector3(Math.cos(a) * rad, yy + 0.012, Math.sin(a) * rad)], 0.0045, 0.0035, stem0, GREEN.mid, 5, 4));
         add(hangingPod(len, 0.02, 0.25, col0, col1, 0.22, 6), pm.clone().multiply(mat(0, 0, 0, 0, r.next() * 6, 0)), 'gloss');
         add(rosetteCap(0.018, C(0x4f8a2e)), pm.clone().multiply(mat(0, 0.008, 0)));
       }
@@ -1323,7 +1327,9 @@ const BUILDERS: Record<CropId, Builder> = {
     add(stalk(h, 0.016, 0.01, C(0x4a3a4a), C(0x5a7a3a), 0.02, 5));
     const velvet = { c0: C(0x3f6a3a), c1: C(0x7a9a6a), rib: C(0x8a7aa0) };
     for (let t = 0; t < 1 + Math.min(2, k); t++) {
-      rosette(add, r, 3, 0.13 + k * 0.02 - t * 0.02, 0.11, { shape: 'oval', lift: 0.35, bend: 0.45, fold: 0.25, ruffle: 0.08, segs: 4, ...velvet }, t * 1.0, 0.03 + t * h * 0.35);
+      // (r20) Ripe plants carry big velvet leaves (×1.35) over the fruit, not tiny ones beside plums.
+      const big = k === 3 ? 1.35 : 1;
+      rosette(add, r, 3, (0.13 + k * 0.02 - t * 0.02) * big, 0.11 * big, { shape: 'oval', lift: 0.35, bend: 0.45, fold: 0.25, ruffle: 0.08, segs: 4, ...velvet }, t * 1.0, 0.03 + t * h * 0.35);
     }
     if (k === 2) for (let i = 0; i < 3; i++) flower(add, 0.024, C(0xb888e0), C(0xf0d040), mat((r.next() - 0.5) * 0.2, h * (0.6 + r.next() * 0.3), (r.next() - 0.5) * 0.2, 0.6, 0, 0));
     if (k >= 2) {
@@ -1331,11 +1337,16 @@ const BUILDERS: Record<CropId, Builder> = {
       const n = k === 3 ? 5 : 2;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2 + r.next() * 0.6;
-        const sz = k === 3 ? 0.066 + r.next() * 0.012 : 0.032;
-        const y = h * (0.4 + r.next() * 0.35);
-        const rad = k === 3 ? 0.15 : 0.12;
-        add(fruit(sz, C(0x4a1a5e).offsetHSL((r.next() - 0.5) * 0.03, 0, (r.next() - 0.5) * 0.05), { sy: 1.6, taper: -0.25, seg: 12, shade: 0.45 }), mat(Math.cos(a) * rad, y - sz * 1.25, Math.sin(a) * rad, Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3), 'gloss');
-        add(rosetteCap(sz * 0.6, C(0x5a7a3a)), mat(Math.cos(a) * rad, y + sz * 0.25, Math.sin(a) * rad));
+        // (r20) Smaller fruit drooping on a curved green pedicel under the leaves (never lying on
+        // the soil like oversized plums).
+        const sz = k === 3 ? 0.052 + r.next() * 0.01 : 0.03;
+        const y = Math.max(sz * 2.9, h * (0.5 + r.next() * 0.3));
+        const rad = k === 3 ? 0.13 : 0.11;
+        const fx = Math.cos(a) * rad;
+        const fz = Math.sin(a) * rad;
+        add(tube([new THREE.Vector3(fx * 0.4, y + 0.05, fz * 0.4), new THREE.Vector3(fx * 0.85, y + 0.045, fz * 0.85), new THREE.Vector3(fx, y + sz * 0.3, fz)], 0.007, 0.005, C(0x5a7a3a), C(0x6a8a44), 6, 4));
+        add(fruit(sz, C(0x4a1a5e).offsetHSL((r.next() - 0.5) * 0.03, 0, (r.next() - 0.5) * 0.05), { sy: 1.6, taper: -0.25, seg: 12, shade: 0.45 }), mat(fx, y - sz * 1.25, fz, Math.sin(a) * 0.18, 0, -Math.cos(a) * 0.18), 'gloss');
+        add(rosetteCap(sz * 0.65, C(0x5a7a3a)), mat(fx, y + sz * 0.25, fz));
       }
     }
   },
@@ -1954,7 +1965,9 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     // (r17) Wider and darker: a strong AO pool the belly sinks into.
     add(contactDisc(1.32, C(0x0c0704), C(0x2e2016)), undefined, 'wood');
     // (r19) Weight: the belly slumps a little wider and lower than its rind's grown shape.
-    add(giantMelonBody(r), mat(0, 0, 0, 0, 0.3, 0).multiply(new THREE.Matrix4().makeScale(1.04, 0.92, 1.03)), 'skin');
+    // (r20) Waxy rind: the body rides the gloss bucket (a specular lobe slides over the stripes like
+    // the field melons' — the matte r19 body read as a flat-shaded blimp next to them).
+    add(giantMelonBody(r), mat(0, 0, 0, 0, 0.3, 0).multiply(new THREE.Matrix4().makeScale(1.04, 0.92, 1.03)), 'gloss');
     // (r17) Grown out of the patch, not pasted on it: vine runners creep round the base and up
     // over the belly's lower flank, and leaves drape against it (in the body's frame, rotated 0.3).
     {
@@ -1991,8 +2004,20 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
       }
     }
     // A short woody stem + curled dry tendril on the shoulder.
-    add(tube([new THREE.Vector3(-0.12, 1.38, 0.02), new THREE.Vector3(-0.1, 1.52, 0.04), new THREE.Vector3(0.0, 1.58, 0.09), new THREE.Vector3(0.09, 1.53, 0.13)], 0.06, 0.034, C(0x5e6a32), C(0x8a8a4a), 10, 7), undefined, 'skin');
-    add(tube([new THREE.Vector3(0.08, 1.54, 0.12), new THREE.Vector3(0.22, 1.6, 0.2), new THREE.Vector3(0.3, 1.52, 0.32), new THREE.Vector3(0.24, 1.46, 0.4), new THREE.Vector3(0.18, 1.5, 0.36)], 0.014, 0.006, GREEN.mid, C(0xa8b060), 14, 4));
+    // (r20) A thick woody stem with a flared button where it joins the rind, and a long curled
+    // tendril corkscrewing off it (readable from the hero lens, not a tiny hook).
+    add(fruit(0.11, C(0x6a7a3a), { sy: 0.35, seg: 10, rows: 5 }), mat(-0.12, 1.36, 0.02), 'skin');
+    add(tube([new THREE.Vector3(-0.12, 1.36, 0.02), new THREE.Vector3(-0.1, 1.54, 0.04), new THREE.Vector3(0.02, 1.64, 0.1), new THREE.Vector3(0.14, 1.6, 0.15), new THREE.Vector3(0.2, 1.5, 0.17)], 0.085, 0.05, C(0x5a5a2c), C(0x9a8e50), 14, 8), undefined, 'skin');
+    {
+      const tp: THREE.Vector3[] = [];
+      for (let k = 0; k <= 28; k++) {
+        const u = k / 28;
+        const a = u * Math.PI * 5.2;
+        const rr = 0.09 * (1 - u * 0.55);
+        tp.push(new THREE.Vector3(0.12 + u * 0.42 + Math.cos(a) * rr, 1.6 + Math.sin(a) * rr - u * 0.12, 0.14 + u * 0.3 + Math.sin(a) * rr * 0.6));
+      }
+      add(tube(tp, 0.016, 0.007, GREEN.mid, C(0xb0b464), 40, 4));
+    }
     // Big leaves pushed out past the berm (the dark heaved soil ring shows round the belly).
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + r.next() * 0.5;

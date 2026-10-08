@@ -182,9 +182,10 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           // cracks between lighter crusted plates.
           // (Ochre-leaning: a desaturated red-brown reads mauve / pink under the warm grade.)
           // (r14: ~+22 % value over r13 — dry beds read dusty tan so a soak is an obvious payoff.)
-          vec3 dry = base * vec3(1.98, 1.86, 1.52);
+          // (r20: sandier and warmer still — the whole dry bed sat in the wet value range at gameplay zoom.)
+          vec3 dry = base * vec3(2.3, 2.08, 1.62);
           float dl = dot(dry, vec3(0.3, 0.59, 0.11));
-          dry = mix(vec3(dl) * vec3(1.03, 0.99, 0.9), dry, 0.66);
+          dry = mix(vec3(dl) * vec3(1.04, 0.99, 0.86), dry, 0.7);
           float crest = smoothstep(0.05, 0.066, vSoilH);
           dry *= 1.0 + crest * 0.1;
           float cw = min(abs(na - 0.5), abs(nb - 0.5) * 1.3);
@@ -193,7 +194,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           dry *= (1.0 - crack * 0.16) * (1.0 + plate * 0.05);
           // Wet: dark, cooler, saturated; the texture's crumbs still read.
           // (r17) Warmer + more saturated (blue drops fastest): soaked earth, never cool grey glass.
-          vec3 wet = base * vec3(0.5, 0.37, 0.26);
+          vec3 wet = base * vec3(0.44, 0.32, 0.225);
           // Furrows read in any light: troughs in shade, crests catching it (a lone fresh tile shows
           // the same ploughed ridges as the beds around it, not a flat smear).
           float ridgeT = smoothstep(0.032, 0.062, vSoilH);
@@ -203,6 +204,9 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           vec3 c = mix(dry, wet, hvSoilWet);
           c *= 1.0 - halo * 0.18;
           c *= 1.0 - menis * 0.3;
+          // (r20) A cool sheen riding the wet edge (water standing at the meniscus), so the soak's
+          // boundary reads against dry tan even from the gameplay lens.
+          c = mix(c, c * vec3(0.8, 0.95, 1.2) + vec3(0.012, 0.02, 0.035), menis * 0.6);
           // Sod lip: a darker inner rim just inside the bed's shoulder (the tilled square reads with
           // an outline against the turf, like a hand-dug edge) — strongest on a lone fresh tile.
           float rimIn = (1.0 - smoothstep(0.2, 0.9, vSoilRim)) * step(0.99, vSoilEdge);
@@ -896,14 +900,18 @@ export class SoilBeds {
         // Springs out of the turf: 0 → 1.3 (over ~70 ms) → 1 with a damped wobble (~120 ms to
         // settle), the moist darkness fading over ~2 s.
         let scale: number;
-        if (a.t < 0.07) scale = 0.05 + 1.25 * Math.sin((a.t / 0.07) * Math.PI * 0.5);
-        else scale = 1 + 0.3 * Math.exp(-(a.t - 0.07) * 22) * Math.cos((a.t - 0.07) * 30);
+        // (r20) A bigger pop (→ 1.45) held ~2 frames, so the new furrow visibly heaves out of the turf.
+        if (a.t < 0.06) scale = 0.05 + 1.4 * Math.sin((a.t / 0.06) * Math.PI * 0.5);
+        else if (a.t < 0.09) scale = 1.45;
+        else scale = 1 + 0.45 * Math.exp(-(a.t - 0.09) * 18) * Math.cos((a.t - 0.09) * 28);
         // Freshly turned earth stays dark and moist for a beat, then settles to the bed's tone
         // over ~2 s (so a charged strip reads as "just worked" against the older beds).
         // (r15: lingers ~5 s, and the fresh earth stands fluffed up — furrows ~50 % taller — before
         // it settles to the bed's height: freshly hoed ground reads as deformed, not a flat tile.)
         const fresh = 1 - smooth(1.4, 5.5, a.t);
-        this.writeHeave(a.x, a.z, (scale * (1 + 0.5 * fresh)) / 2, fresh, 0.5);
+        // (r20: fluffed ~75 % taller and sitting ~1.5 cm proud of the bed while fresh — a raised,
+        // lumpy new furrow, not a dark smear.)
+        this.writeHeave(a.x, a.z, (scale * (1 + 0.75 * fresh)) / 2, fresh, 0.5 + 0.19 * fresh);
         if (a.t >= 5.5) {
           this.writeHeave(a.x, a.z, 0.5, 0, 0.5);
           this.anims.delete(i);

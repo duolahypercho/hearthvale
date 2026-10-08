@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 
-function cursorTexture(): THREE.CanvasTexture {
+function cursorTexture(w = 1): THREE.CanvasTexture {
   const S = 128;
   const c = document.createElement('canvas');
   c.width = c.height = S;
@@ -41,19 +41,19 @@ function cursorTexture(): THREE.CanvasTexture {
   // Soft dark under-stroke (a contact shadow for the bracket).
   for (const [x, y, sx, sy] of cs) {
     corner(x + sx * 1.2, y + sy * 1.8, sx, sy);
-    g.lineWidth = 8.5;
+    g.lineWidth = 8.5 * w;
     g.strokeStyle = 'rgba(24,12,4,0.5)';
     g.stroke();
   }
   for (const [x, y, sx, sy] of cs) {
     corner(x, y, sx, sy);
-    g.lineWidth = 4.2;
+    g.lineWidth = 4.2 * w;
     g.strokeStyle = 'rgba(255,255,255,0.86)';
     g.stroke();
   }
   // Faint dotted edge joining the brackets (reads the tile edge without a solid frame).
   g.setLineDash([2, 9]);
-  g.lineWidth = 2.4;
+  g.lineWidth = 2.4 * Math.min(1.4, w);
   g.strokeStyle = 'rgba(255,255,255,0.22)';
   g.beginPath();
   g.roundRect(pad, pad, S - pad * 2, S - pad * 2, r);
@@ -175,10 +175,24 @@ export class TileCursor {
   /** Impact pulse (1 → 0 over ~0.35 s): the bracket punches out and flares on the hit frame. */
   private pulseT = 0;
 
+  /** (r20) Stroke weight by lens distance: thin up close, ~1.8× at the gameplay camera. */
+  private texNear = cursorTexture(1);
+  private texFar: THREE.CanvasTexture | null = null;
+  private far = false;
+
+  /** Pick the stroke weight for the camera's distance to the cursor (m). */
+  setLens(dist: number): void {
+    const far = dist > 12.5;
+    if (far === this.far) return;
+    this.far = far;
+    if (far && !this.texFar) this.texFar = cursorTexture(1.8);
+    (this.mesh.material as THREE.MeshBasicMaterial).map = far ? this.texFar : this.texNear;
+  }
+
   constructor(max = 25) {
     const g = new THREE.PlaneGeometry(1, 1);
     g.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ map: cursorTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, toneMapped: false, fog: false });
+    const mat = new THREE.MeshBasicMaterial({ map: this.texNear, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, toneMapped: false, fog: false });
     mat.name = 'tile-cursor';
     this.mesh = new THREE.InstancedMesh(g, mat, max);
     this.mesh.name = 'tile-cursor';

@@ -62,6 +62,7 @@ import { buildTool, CAN_SPOUT } from '../world/props/tools';
 import { buildSprinklerModel, type SprinklerModel } from '../world/props/sprinklers';
 import { FarmerActions, IMPACT, type ActionKind } from '../entities/farmer-actions';
 import { RemoteFarmer } from '../entities/remote-farmer';
+import { farmerBubbles } from '../entities/critters';
 import { PRESET_LOOKS } from '../entities/remote-look';
 import type { Nature, NatureHandle } from '../world/props/nature';
 import { flyItemToToolbar, flyItemTo } from '../ui/item-fly';
@@ -243,7 +244,7 @@ const _v2 = new THREE.Vector3();
  * sequence always shows ONE swing / pour from anticipation to recovery whatever the capture timing.
  */
 const SEQ_PLANS: Partial<Record<ActionKind, [number, string][]>> = {
-  chop: [[0.03, 'ready'], [0.1, 'anticipation (crouch)'], [0.19, 'wind-up'], [0.235, 'wind-up top'], [0.262, 'downswing'], [0.275, 'impact'], [0.36, 'bite + recoil'], [0.56, 'recovery']],
+  chop: [[0.03, 'ready'], [0.1, 'anticipation (crouch)'], [0.17, 'wind-up'], [0.205, 'wind-up top'], [0.24, 'downswing'], [0.275, 'impact'], [0.36, 'bite + recoil'], [0.56, 'recovery']],
   slam: [[0.02, 'charged'], [0.1, 'rise'], [0.16, 'top'], [0.205, 'downswing'], [0.222, 'impact'], [0.3, 'shockwave'], [0.44, 'recoil'], [0.66, 'recovery']],
   // (r17) Retimed to the real flight: the water leaves at 0.27 s and lands 0.24 s later (0.51), the
   // tail lands at 1.04 and the soak finishes ~0.8 s after the first drops — the last frame is the
@@ -293,11 +294,13 @@ const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; t
   // sunflower at the back, tomato | pepper rows, then the melon patch (giant) | blueberry + tomato.
   // r18: no bare rows (Stardew-dense: one plant a tile, < 25 % visible soil inside the beds); the melon
   // is one front row a side + the giant's 3×3 corner; the NE bed packed edge to edge with pepper + tomato.
+  // r20: the row in front of the hero farmer is melon on the west side (he pulls a melon FROM a melon
+  // row — r10 critic: the melon came from nowhere, the melon rows were three beds away).
   // r19: still dense, but every bed side is ONE family (r9 critic: tomato / pepper rows merged into a
   // green-red carpet): staked tomatoes NW, pepper bushes NE, blueberries across the front beds' back
   // row, then peppers (W, beside the giant) | tomatoes (E) — family blocks read at a glance.
-  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['tomato', 'hotPepper'], null, ['blueberry', 'blueberry'], ['hotPepper', 'tomato'], ['hotPepper', 'tomato'], ['melon', 'melon']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
-  fall: { rows: [['corn', 'grape'], ['corn', 'grape'], 'beet', 'eggplant', null, 'beet', 'pumpkin', 'pumpkin', 'yam'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
+  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['tomato', 'hotPepper'], null, ['melon', 'blueberry'], ['hotPepper', 'tomato'], ['hotPepper', 'tomato'], ['melon', 'melon']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
+  fall: { rows: [['corn', 'grape'], ['corn', 'grape'], ['beet', 'eggplant'], 'eggplant', null, 'beet', 'pumpkin', 'pumpkin', 'yam'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
   winter: { rows: [], giant: null, trellis: null, crate: [] },
 };
 
@@ -528,7 +531,10 @@ export class FarmingSystem implements System, FarmingApi {
   }
 
   private clearCrew(): void {
-    for (const c of this.crew) c.f.root.removeFromParent();
+    for (const c of this.crew) {
+      c.f.root.removeFromParent();
+      farmerBubbles.delete(c.f.root);
+    }
     this.crew.length = 0;
   }
 
@@ -573,7 +579,8 @@ export class FarmingSystem implements System, FarmingApi {
     const b = add(1, wx + 0.5, wz + 0.5, 'right');
     {
       // Turned ~25° toward the lens (face + can in 3/4 profile, never the back of the head).
-      const yaw = Math.PI / 2 - 0.45;
+      // (r20) Nearly square profile (yaw −0.15): the tipping can reads side-on, never top-down as a ring.
+      const yaw = Math.PI / 2 - 0.15;
       b.position.set(wx + 0.5 - Math.sin(yaw) * 0.86, this.map.heightAt(wx + 0.5, wz + 0.5), wz + 0.5 - Math.cos(yaw) * 0.86);
       b.yaw = b.targetYaw = b.gaze = yaw;
     }
@@ -612,7 +619,13 @@ export class FarmingSystem implements System, FarmingApi {
         return l.add(r).multiplyScalar(0.5);
       };
       this.fx.leafBurst(this.center(cx, cz, 0.1), CROPS[id].leaf, 8, 1.3);
-      this.fx.pop(geo, this.center(cx, cz, 0.15), { to: hands, lift: -0.02, flight: 0.24, hold: 600, star: QUALITY_COLORS[2], scale: 1.05, face: 0.6, pivot: () => c.headWorld(new THREE.Vector3()) });
+      // (r20) The same held size as the host's lift (r10 critic: the farmhand's melon was tennis-ball sized).
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      const bb = geo.boundingBox!;
+      const hw = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
+      const heroS = THREE.MathUtils.clamp(0.35 / hw, 1.6, 3.6);
+      const hb = (bb.max.y + bb.min.y) / 2;
+      this.fx.pop(geo, this.center(cx, cz, 0.15), { to: hands, lift: -hb * heroS, flight: 0.24, hold: 600, star: QUALITY_COLORS[2], scale: heroS, face: 0.6, pivot: () => c.headWorld(new THREE.Vector3()) });
     });
   }
 
@@ -1749,7 +1762,8 @@ export class FarmingSystem implements System, FarmingApi {
       // water needs that run to read as an arc of drops rather than a stub under the spout.)
       // (r19: further out still — 0.2 past the middle — so the arc spans a real gap between the rose
       // and the soil instead of dropping straight down under the spout.)
-      if (d.lengthSq() > 1e-4) d.normalize().multiplyScalar(-0.3);
+      // (r20: 0.4 past the middle and a flatter, faster launch below — a visible forward parabola.)
+      if (d.lengthSq() > 1e-4) d.normalize().multiplyScalar(-0.4);
       c.add(d);
       c.y = this.surfaceY(c.x, c.z);
       return c;
@@ -1764,7 +1778,7 @@ export class FarmingSystem implements System, FarmingApi {
     // the lowering; the soil soak is scheduled on the same flight.
     const P0 = 0.38;
     const P1 = 0.98;
-    const FLY = 0.32;
+    const FLY = 0.28;
     const sweep = (i: number): number => P0 + ((P1 - P0) * i) / Math.max(1, targets.length);
     const wetSet = new Set(wet.map(([a, b]) => key(a, b)));
     targets.forEach(([tx, tz], i) => {
@@ -1792,13 +1806,27 @@ export class FarmingSystem implements System, FarmingApi {
         const pouring = t <= P1;
         if (!pouring) {
           this.fx.stream.stop();
-          if (t > P1 + FLY) return;
+          // (r20) The splash dies with the stream (~80 ms after the can is lowered), not a whole
+          // flight later — no fountain of beads standing over the tile once the can is at the hip.
+          if (t > P1 + 0.09) return;
         }
         // Which tile is the stream on right now?
         const i = Math.min(targets.length - 1, Math.floor(((Math.min(t, P1) - P0) / (P1 - P0)) * targets.length));
         const [tx, tz] = targets[i]!;
         const sp = acts.toolPoint(CAN_SPOUT);
         const aim = landAt(tx, tz);
+        {
+          // (r20) Always a visible forward throw: land ~0.32 m past the rose along the pour (kept on
+          // the tile). With the can held well out the rose already sat over the old landing point and
+          // the stream fell straight down under it.
+          const fx = tx + 0.5 - pl.x;
+          const fz = tz + 0.5 - pl.z;
+          const fl = Math.hypot(fx, fz) || 1;
+          const along = ((sp.x - (tx + 0.5)) * fx + (sp.z - (tz + 0.5)) * fz) / fl;
+          const k = THREE.MathUtils.clamp(along + 0.32, -0.44, 0.46);
+          aim.set(tx + 0.5 + (fx / fl) * k, 0, tz + 0.5 + (fz / fl) * k);
+          aim.y = this.surfaceY(aim.x, aim.z);
+        }
         aim.x += Math.sin(t * 13) * 0.05;
         aim.z += Math.cos(t * 11) * 0.05;
         // Flight time from the rose's own direction: launched along the spout, the stream leaves
@@ -1808,7 +1836,7 @@ export class FarmingSystem implements System, FarmingApi {
         const run = Math.hypot(aim.x - sp.x, aim.z - sp.z);
         const drop = sp.y - aim.y;
         const pitch = THREE.MathUtils.clamp(Math.atan2(sd.y, Math.hypot(sd.x, sd.z)), -0.9, 0.3);
-        const flyT = THREE.MathUtils.clamp(Math.sqrt(Math.max(0.02, drop + run * Math.tan(pitch)) / 4.9), 0.24, 0.42);
+        const flyT = THREE.MathUtils.clamp(Math.sqrt(Math.max(0.02, drop + run * Math.tan(pitch)) / 4.9), 0.22, 0.32);
         if (pouring) this.fx.stream.aim(sp, aim, flyT);
         // Droplets shed along the stream (a rose showers, it doesn't pour a laser): ~30 per pour
         // ride the same ballistic arc, fanned a little, and a fine spray around the landing spot.
@@ -2447,7 +2475,8 @@ export class FarmingSystem implements System, FarmingApi {
         // Trellis rows are always grown in (a bare frame reads as a placeholder).
         // Trellis rows and bushy fruiting rows (eggplant, pepper) are grown in densely: a stage-3
         // plant there read as a bare gap in a tidy block (r7 critic: sparse fall eggplant beds).
-        const dense = CROPS[id].trellis || id === 'eggplant' || id === 'hotPepper' || id === 'tomato' || id === 'blueberry';
+        // (r20) Beets + yams too: their stage-3 tufts read as bare soil in the fall beds (r10 critic).
+        const dense = CROPS[id].trellis || id === 'eggplant' || id === 'hotPepper' || id === 'tomato' || id === 'blueberry' || id === 'beet' || id === 'yam';
         // (r17) Red-fruited rows ripen unevenly (fewer red dots, silhouettes read).
         const redFruit = id === 'tomato' || id === 'hotPepper';
         // (r18) Peppers ripe ~2/3 of the time: their stage-4 flowering sprigs read as bare soil between bushes.
@@ -2593,7 +2622,8 @@ export class FarmingSystem implements System, FarmingApi {
     // never opens on last season's husks); the wither demo stages its own dead garden below.
     if (!showcase.includes('wither') && !showcase.includes('harvest')) this.plantGarden(season, true);
     // farm-crows shows the scarecrow's reach by default (r16: cause and effect); `&ring=0` hides it.
-    this.ringDemo = params.has('ring') ? params.get('ring') !== '0' : showcase.includes('crows');
+    // (r20) Opt-in only (`&ring`): by default farm-crows shows the raid, not the reach.
+    this.ringDemo = params.has('ring') && params.get('ring') !== '0';
     const tier = params.get('tier');
     if (tier) for (const t of TOOLS) this.setToolTier(t, Math.max(0, Math.min(3, Number(tier))) as ToolTier);
     const q = params.get('quality');
@@ -3076,6 +3106,16 @@ export class FarmingSystem implements System, FarmingApi {
           const ly = this.surfaceY(lx, lz);
           this.fx.crown(new THREE.Vector3(lx, ly, lz), 0.5, 4);
         }
+        // (r20) Wet glints on the leaves the jet is hitting right now (beads catching the sun as
+        // they strike the canopy), riding round with the landing fan.
+        if (fxRng.next() < dt * 7) {
+          const la = a - spinRate * T * rnd(0.8, 1.0);
+          const ld = d0 * rnd(0.5, 1.0);
+          const lx = base.x + Math.cos(la) * ld;
+          const lz = base.z + Math.sin(la) * ld;
+          const lc = this.tiles.get(key(Math.floor(lx), Math.floor(lz)))?.crop;
+          if (lc && lc.stage >= 2) this.fx.sparkle(new THREE.Vector3(lx, this.surfaceY(lx, lz) + rnd(0.18, 0.42), lz), new THREE.Vector3(0, -0.25, 0), 0xe6f4ff, rnd(0.06, 0.1), rnd(0.12, 0.22));
+        }
         // A wet disc pulsing under the fan: short-lived dark soak spots trail the landing water
         // round with the rotation (the covered soil glistens where the jets are hitting right now).
         // (r17) A dark soak crescent riding round under each rope's landing point.
@@ -3223,6 +3263,7 @@ export class FarmingSystem implements System, FarmingApi {
     if (this.fxScale === 0 && (this.showcase !== 'tools' || (this.stillTool !== 'hoe' && this.stillTool !== 'charge'))) visible = false;
     // Beauty stills (hero fields, gallery, crows) don't need a targeting cursor on screen.
     if (this.showcase === 'harvest' || this.showcase === 'giant' || this.showcase === 'gallery' || this.showcase === 'crows' || this.coopStill) visible = false;
+    this.cursor.setLens(this.game.rc.camera.position.distanceTo(this.game.player.position));
     this.cursor.update(dt, visible);
     // Scarecrow in hand: show the nearest scarecrow's protection radius (a soft dashed ring).
     const sel = this.game.services.inventory?.selected()?.id ?? null;

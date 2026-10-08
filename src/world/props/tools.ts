@@ -51,6 +51,20 @@ function enamel(): THREE.MeshStandardMaterial {
   return enamelMat;
 }
 
+/** Upgraded can bodies (copper / iron / gold): saturated, mostly diffuse metal so each tier reads at gameplay zoom. */
+const CAN_BODY: Record<number, number> = { 1: 0xc8743e, 2: 0x8c9cae, 3: 0xe2ad3c };
+const canMats = new Map<number, THREE.MeshStandardMaterial>();
+function canMetal(tier: number): THREE.MeshStandardMaterial {
+  let m = canMats.get(tier);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.28, envMapIntensity: 0.9 });
+    m.name = `tool-can-${tier}`;
+    applyWorldFx(m, { snow: false });
+    canMats.set(tier, m);
+  }
+  return m;
+}
+
 const HANDLE = 0xa8743f;
 /** Blade body colour per tier (the tint is the honed-edge colour). */
 const HEAD_BODY = [0x70767e, 0xc0703c, 0x8fa8c8, 0xe8b43a];
@@ -213,21 +227,30 @@ export function buildTool(id: string, tier: number): THREE.Group {
     case 'wateringCan': {
       // The starter can is painted enamel (the toolbar icon's sky blue) over zinc bands and rose;
       // upgraded cans show their metal. Enamel is non-metallic, so it never reads as chrome.
-      const P = tier === 0 ? enamel() : M;
-      const paint = tier === 0 ? CAN_PAINT : tint;
-      const band = tier === 0 ? 0x8d969e : edge;
+      // (r20) Upgraded cans are a satin, mostly-diffuse metal (a 0.6-metal copper body mirrored the
+      // dark soil and read as a hollow hoop on a farmhand) with DARKER rolled bands, a solid domed
+      // shoulder + filler cap, so the body always reads as a full, opaque vessel.
+      const P = tier === 0 ? enamel() : canMetal(tier);
+      const paint = tier === 0 ? CAN_PAINT : CAN_BODY[tier] ?? tint;
+      const band = tier === 0 ? 0x8d969e : new THREE.Color(paint).multiplyScalar(0.58).getHex();
       const body = new THREE.CylinderGeometry(0.13, 0.15, 0.24, 18, 2);
       b.add(P, body, mat(0, -0.23, -0.02), { tint: paint });
-      b.add(M, new THREE.TorusGeometry(0.14, 0.016, 6, 20), mat(0, -0.11, -0.02, Math.PI / 2, 0, 0), { tint: band });
-      b.add(M, new THREE.TorusGeometry(0.15, 0.016, 6, 20), mat(0, -0.35, -0.02, Math.PI / 2, 0, 0), { tint: band });
+      const BM = tier === 0 ? M : canMetal(tier);
+      b.add(BM, new THREE.TorusGeometry(0.14, 0.016, 6, 20), mat(0, -0.11, -0.02, Math.PI / 2, 0, 0), { tint: band });
+      b.add(BM, new THREE.TorusGeometry(0.15, 0.016, 6, 20), mat(0, -0.35, -0.02, Math.PI / 2, 0, 0), { tint: band });
       b.add(P, new THREE.CylinderGeometry(0.1, 0.13, 0.04, 16), mat(0, -0.095, -0.02), { tint: paint });
+      // Domed shoulder + a small filler cap (never an open ring from above).
+      const dome = new THREE.SphereGeometry(0.1, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+      dome.scale(1, 0.32, 1);
+      b.add(P, dome, mat(0, -0.075, -0.02), { tint: new THREE.Color(paint).multiplyScalar(0.92).getHex() });
+      b.add(BM, new THREE.CylinderGeometry(0.035, 0.04, 0.025, 12), mat(0, -0.05, -0.085), { tint: band });
       // Top handle arc (the grip, at the origin)
       const arc = new THREE.TorusGeometry(0.1, 0.018, 6, 14, Math.PI);
       b.add(P, arc, mat(0, -0.09, -0.02, 0, Math.PI / 2, 0), { tint: paint });
       // Spout + rose
       const spout = new THREE.CylinderGeometry(0.018, 0.03, 0.34, 8);
       b.add(P, spout, mat(0, -0.2, 0.2, 1.0, 0, 0), { tint: paint });
-      b.add(M, new THREE.CylinderGeometry(0.045, 0.025, 0.04, 10), mat(0, -0.06, 0.33, 1.0, 0, 0), { tint: band });
+      b.add(BM, new THREE.CylinderGeometry(0.045, 0.025, 0.04, 10), mat(0, -0.06, 0.33, 1.0, 0, 0), { tint: band });
       break;
     }
     case 'seeds': {

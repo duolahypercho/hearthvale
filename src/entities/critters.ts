@@ -130,6 +130,12 @@ export class Butterfly {
   }
 }
 
+/**
+ * Other farmers the songbirds keep clear of (co-op avatars, staged farmhands): registered by
+ * whoever places them. The local player is passed to `update` directly.
+ */
+export const farmerBubbles = new Set<THREE.Object3D>();
+
 export class Songbird {
   readonly root = new THREE.Group();
   private head: THREE.Mesh;
@@ -170,7 +176,21 @@ export class Songbird {
     this.yaw = rng.next() * 6;
   }
 
-  update(dt: number, t: number, player: THREE.Vector3): void {
+  update(dt: number, t: number, player: THREE.Vector3, snap = false): void {
+    // (Farming r20) The nearest farmer — the local player or any registered co-op avatar — is the
+    // one to flee (a bird used to land on a farmhand's watering-can spout). In staged stills a bird
+    // inside a farmer's bubble is whisked away at once instead of hanging mid-flight in frame.
+    for (const f of farmerBubbles) {
+      if (!f.parent) continue;
+      const fp = f.position;
+      if (Math.hypot(fp.x - this.pos.x, fp.z - this.pos.z) < Math.hypot(player.x - this.pos.x, player.z - this.pos.z)) player = fp;
+    }
+    if (snap && Math.hypot(player.x - this.pos.x, player.z - this.pos.z) < 3.2) {
+      this.flying = 4;
+      this.vel.set(0, 3, 0);
+      this.pos.y = this.heightAt(this.pos.x, this.pos.z) + 40;
+      this.root.visible = false;
+    }
     const g = this.heightAt(this.pos.x, this.pos.z);
     if (this.flying > 0) {
       this.flying -= dt;
@@ -187,7 +207,7 @@ export class Songbird {
       if (this.pos.y > g + 6) this.root.visible = false;
     } else {
       this.root.visible = true;
-      if (player.distanceTo(this.pos) < 2.2) {
+      if (Math.hypot(player.x - this.pos.x, player.z - this.pos.z) < 2.2) {
         this.flying = 4;
         const away = this.pos.clone().sub(player).setY(0).normalize();
         this.vel.set(away.x * 4, 2.5, away.z * 4);

@@ -903,7 +903,9 @@ class Stream {
   update(dt: number): void {
     this.t += dt;
     if (this.on) this.head = Math.min(this.T, this.head + dt);
-    else this.tail += dt;
+    // (r20) Once the can is lowered the rope drains fast (~80 ms for the whole arc), so no water
+    // hangs in the air unconnected to the rose.
+    else this.tail += dt * Math.max(1, this.head / 0.08);
     if (!this.on && this.tail >= this.head) {
       this.mesh.visible = false;
       return;
@@ -1069,7 +1071,7 @@ void main() {
     // (r18) The coherent body only over the first ~60 % of the throw, then it has broken into drops
     // (a full-length ribbon read as a hose / wire).
     // (r19) A soft glassy column only off the nozzle (the first ~40 %), feathered into the packets.
-    vA = aA.x * 0.34 * smoothstep(0.0, 0.05, sr) * (1.0 - smoothstep(0.16, 0.44, sr));
+    vA = aA.x * 0.2 * smoothstep(0.0, 0.05, sr) * (1.0 - smoothstep(0.1, 0.3, sr));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1089,8 +1091,11 @@ void main() {
   float T = aP.y * mix(0.62, 1.0, rj);
   // (r19) Rope beads leave in pulses (a sprinkler's water hammer): packets of 6 tightly spaced
   // drops with clear gaps between packets — a beaded trajectory, never a solid segmented rod.
+  // (r20) Packets evenly spaced (1/12 of the flight apart) and tight (6 drops over 3 % of it), so
+  // at hero distance the throw reads as dashes of beads with real gaps — the r19 scattered packet
+  // phases overlapped into a continuous white rod.
   float pk = floor(i / 6.0);
-  float ph1 = rope ? fract(pk * 0.1371 + mod(i, 6.0) * 0.0105 + h1 * 0.006) : h1;
+  float ph1 = rope ? fract(pk / 12.0 + mod(i, 6.0) * 0.0058 + h1 * 0.003 + floor(h4 * 2.0) * 0.5) : h1;
   // Flight fraction: beads flow out of the nozzle continuously. The last 12 % of a bead's life is
   // its landing: it sits where it struck and blooms into a flat crown splash on the soil.
   float sl = fract(uTime / T + ph1);
@@ -1108,7 +1113,7 @@ void main() {
   side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
   // Tight glassy beads off the nozzle that thin and stretch into velocity-aligned streaks as they
   // fall (motion blur); shed drops stay fine.
-  float r = (rope ? mix(0.019, 0.011, s * s) : mix(0.008, 0.015, h3)) * mix(0.75, 1.25, h4);
+  float r = (rope ? mix(0.017, 0.01, s * s) : mix(0.008, 0.014, h3)) * mix(0.75, 1.2, h4);
   // (r15) Seen from a hero-field distance (15–20 m) the beads thicken so the jets never thin into
   // hairlines; up close they keep their real size.
   r *= clamp(length(cameraPosition - p) / 9.0, 1.0, 1.6);
@@ -1694,33 +1699,32 @@ export class FarmFX {
     const key = `${c.x.toFixed(2)},${c.z.toFixed(2)},${r}`;
     if (key === this.radiusKey && this.radius) return;
     this.radiusKey = key;
-    // (r16) A crisp warm-gold dashed boundary with a faint gold wash just inside it ("guarded"),
-    // laid low over the ground: the old floating white band read as a smear across the beds.
-    const SEG = 260;
-    const RINGS = [0.86, 0.93, 0.985, 0.99, 0.996, 1.0];
+    // (r20) A thin ground-hugging dashed line only (no wash, no band): a dark contact under-stroke
+    // ~9 cm wide and a ~4 cm warm-gold dash on top, draped 3 cm over the ground, depth-tested so
+    // crops stand in front of it. The r16 0.6 m faint wash read as a milky fog wall across the beds.
+    const SEG = 360;
     const pos: number[] = [];
     const col: number[] = [];
     const idx: number[] = [];
-    for (let j = 0; j < RINGS.length; j++) {
-      const rr = r * RINGS[j]!;
+    const strip = (r0: number, r1: number, rgb: [number, number, number], alpha: number, dashed: boolean, lift: number): void => {
+      const base = pos.length / 3;
       for (let i = 0; i <= SEG; i++) {
         const a = (i / SEG) * Math.PI * 2;
-        const x = c.x + Math.cos(a) * rr;
-        const z = c.z + Math.sin(a) * rr;
-        pos.push(x, this.ground(x, z) + 0.07, z);
-        const edge = j >= 3;
-        const dash = i % 4 < 3 ? 1 : 0;
-        const al = [0.0, 0.07, 0.1, 0.8 * dash, 0.8 * dash, 0.0][j]!;
-        col.push(1, edge ? 0.84 : 0.88, edge ? 0.42 : 0.55, al);
+        for (const rr of [r0, r1]) {
+          const x = c.x + Math.cos(a) * rr;
+          const z = c.z + Math.sin(a) * rr;
+          pos.push(x, this.ground(x, z) + lift, z);
+          const dash = !dashed || i % 6 < 4 ? 1 : 0;
+          col.push(rgb[0], rgb[1], rgb[2], alpha * dash);
+        }
       }
-    }
-    for (let j = 0; j < RINGS.length - 1; j++) {
       for (let i = 0; i < SEG; i++) {
-        const a = j * (SEG + 1) + i;
-        const b = a + SEG + 1;
-        idx.push(a, b, a + 1, b, b + 1, a + 1);
+        const a = base + i * 2;
+        idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
       }
-    }
+    };
+    strip(r - 0.045, r + 0.045, [0.12, 0.09, 0.05], 0.28, true, 0.028);
+    strip(r - 0.02, r + 0.02, [1, 0.86, 0.46], 0.9, true, 0.032);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
@@ -1846,8 +1850,14 @@ export class FarmFX {
    * thrown back toward the farmer and fanned sideways, a low dust ring rolling out over the turf and
    * a soft cloud over the tile.
    */
+  /** (r20) Size boost for FX seen from far (1 up close → 1.6 at the 16 m gameplay lens). */
+  lensK(p: THREE.Vector3): number {
+    return THREE.MathUtils.clamp(p.distanceTo(this.stream.eye) / 10, 1, 1.6);
+  }
+
   hoeImpact(center: THREE.Vector3, dirX: number, dirZ: number, soil: number, strength = 1): void {
     const base = Math.atan2(dirZ, dirX);
+    const lk = this.lensK(center);
     // Big chunks first: heavy, short hops (they land on the tile's lip and roll).
     const nBig = strength >= 0.8 ? 3 : 1;
     for (let i = 0; i < nBig; i++) {
@@ -1858,7 +1868,7 @@ export class FarmFX {
       // (r17) Already airborne ON the impact frame (pre-advanced ~40 ms out of the soil), so the
       // strongest beat of the swing shows the earth breaking, not a smear over an intact tile.
       p.addScaledVector(_v, 0.04);
-      this.clods.spawn(p, _v, { color: _c.set(soil).offsetHSL(0, 0.02, rnd(-0.02, 0.05)), size: rnd(0.085, 0.12), life: 2.2, bounce: 0.25 });
+      this.clods.spawn(p, _v, { color: _c.set(soil).offsetHSL(0, 0.02, rnd(-0.02, 0.05)), size: rnd(0.085, 0.12) * lk, life: 2.2, bounce: 0.25 });
     }
     const n = Math.round(rnd(11, 14) * strength);
     for (let i = 0; i < n; i++) {
@@ -1870,7 +1880,7 @@ export class FarmFX {
       const p = center.clone().add(new THREE.Vector3(rnd(-0.2, 0.2), 0.05, rnd(-0.2, 0.2)));
       p.addScaledVector(_v, rnd(0.02, 0.05));
       // Three size classes: a few fat chunks, mid clods, small crumbs.
-      this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.07, 0.06)), i < 3 ? rnd(0.07, 0.09) : i < 7 ? rnd(0.048, 0.062) : rnd(0.03, 0.042));
+      this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.07, 0.06)), (i < 3 ? rnd(0.07, 0.09) : i < 7 ? rnd(0.048, 0.062) : rnd(0.03, 0.042)) * lk);
     }
     // Crumbs: a fine spray of tiny bits for texture.
     for (let i = 0; i < Math.round(8 * strength); i++) {
@@ -1879,22 +1889,25 @@ export class FarmFX {
       this.clods.spawn(center.clone().add(new THREE.Vector3(rnd(-0.15, 0.15), 0.04, rnd(-0.15, 0.15))), _v.set(Math.cos(a) * sp, rnd(1.6, 3), Math.sin(a) * sp), { color: _c.set(soil).offsetHSL(0, 0, rnd(0, 0.08)), size: rnd(0.018, 0.026), life: 1.1 });
     }
     // Low dust ring: puffs hugging the ground, rolling outward from the tile's rim.
-    const nr = Math.max(4, Math.round(12 * strength));
+    const nr = Math.max(3, Math.round(8 * strength));
     const a0 = rnd(0, Math.PI * 2);
     for (let i = 0; i < nr; i++) {
       const a = a0 + (i / nr) * Math.PI * 2 + rnd(-0.15, 0.15);
       const r0 = rnd(0.5, 0.58);
-      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0, rnd(0.02, 0.06), Math.sin(a) * r0)), new THREE.Vector3(Math.cos(a) * rnd(1.0, 1.5), rnd(0.12, 0.3), Math.sin(a) * rnd(1.0, 1.5)), { color: 0xdcc8a6, size: rnd(0.18, 0.24) * (0.6 + 0.4 * strength), life: rnd(0.4, 0.6), grow: 2.0, alpha: 0.34 * (0.5 + 0.5 * strength), gravity: 0, drag: 3.6 });
+      // (r20) Earth-toned, small and quick (a soft radial breath of dust hugging the soil): the pale
+      // r19 sheets lay along the furrows like frosted-glass cards.
+      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0 * 0.7, rnd(0.03, 0.06), Math.sin(a) * r0 * 0.7)), new THREE.Vector3(Math.cos(a) * rnd(0.8, 1.2), rnd(0.15, 0.3), Math.sin(a) * rnd(0.8, 1.2)), { color: 0xa88c68, size: rnd(0.1, 0.14) * (0.6 + 0.4 * strength), life: rnd(0.26, 0.36), grow: 2.2, alpha: 0.2 * (0.5 + 0.5 * strength), gravity: 0, drag: 4.2 });
     }
     // Dust: a full cloud for a single bite; a whisper per tile when a slam strikes a whole block.
     const np = Math.max(2, Math.round(3 * strength * strength));
     for (let i = 0; i < np; i++) {
       const a = rnd(0, Math.PI * 2);
-      this.puff(center.clone().add(new THREE.Vector3(Math.cos(a) * 0.15, 0.08, Math.sin(a) * 0.15)), new THREE.Vector3(Math.cos(a) * 0.7, rnd(0.4, 1.0), Math.sin(a) * 0.7), 0xb89a78, rnd(0.2, 0.32) * (0.6 + 0.4 * strength), rnd(0.7, 1.1) * (0.5 + 0.5 * strength), { alpha: 0.3 * (0.5 + 0.5 * strength) });
+      this.puff(center.clone().add(new THREE.Vector3(Math.cos(a) * 0.12, 0.1, Math.sin(a) * 0.12)), new THREE.Vector3(Math.cos(a) * 0.5, rnd(0.4, 0.8), Math.sin(a) * 0.5), 0x9c8060, rnd(0.14, 0.2) * (0.6 + 0.4 * strength), rnd(0.45, 0.7) * (0.5 + 0.5 * strength), { alpha: 0.22 * (0.5 + 0.5 * strength) });
     }
     // Impact flash on the blade (one bright frame, under the bloom clamp) + a pale shock ring.
     if (strength >= 0.8) {
-      this.glow.emit(center.clone().setY(center.y + 0.08), _v.set(0, 0, 0), { color: 0xfff0d0, size: 0.55, life: 0.07, grow: 0.6, alpha: 0.9, gravity: 0, drag: 0 });
+      // (r20) Small and warm: the 0.55 m flash bloomed into a white bokeh disc through the DoF.
+      this.glow.emit(center.clone().setY(center.y + 0.06), _v.set(0, 0, 0), { color: 0xe8c890, size: 0.22, life: 0.05, grow: 0.4, alpha: 0.5, gravity: 0, drag: 0 });
       this.ring(center.clone().setY(center.y + 0.03), 0.18, 0.75, 0.32, 0x8a7254);
     }
   }
@@ -1904,6 +1917,7 @@ export class FarmFX {
    * up and out + a wisp of mist (the soil itself darkens underneath).
    */
   splash(p: THREE.Vector3, big = 1): void {
+    big *= Math.sqrt(this.lensK(p));
     // One soft ripple washing out over the soil (splashes land several times a second while
     // pouring, so stacked bright rings read as a target gizmo — keep each one a whisper).
     this.ring(p.clone().setY(p.y + 0.015), 0.05 * big, 0.3 * big, 0.45, 0x5a8cb4);
@@ -2182,7 +2196,9 @@ export class FarmFX {
         if (ts > 0) k = ts < 0.08 ? THREE.MathUtils.lerp(0.6, 1.2, ts / 0.08) : 1 + 0.2 * (1 - outBack(Math.min(1, (ts - 0.08) / 0.1)));
         const out = p.age > flight + hold ? Math.max(0, 1 - (p.age - flight - hold) / 0.12) : 1;
         const sc = Math.max(0.001, k * out);
-        st.scale.setScalar(sc * Math.max(0.95, S * 0.62));
+        // (r20) Grows with camera distance (a hero-lens star at 17 m read as a flat sticker).
+        const camK = THREE.MathUtils.clamp(m.position.distanceTo(this.stream.eye) / 9, 1, 1.6);
+        st.scale.setScalar(sc * Math.max(0.95, S * 0.62) * camK);
         // Top-right of the item (screen space), clear of its silhouette and of the farmer's head.
         const side = p.opts.pivot ? (_v.subVectors(m.position, p.opts.pivot()).dot(this.viewRight) >= 0 ? 1 : -1) : 1;
         this.viewUp.set(0, 1, 0).applyQuaternion(this.viewQuat);
@@ -2200,6 +2216,11 @@ export class FarmFX {
         st.rotateY(Math.sin(p.age * 3) * 0.3);
         st.rotateZ(spinIn * spinIn * Math.PI * 2 + Math.sin(p.age * 2.2) * 0.12);
         // Twinkles: tiny additive glints popping around the star.
+        // (r20) A warm halo behind the star (additive, short-lived, re-emitted): its rim glows in
+        // any light while the star body itself stays under the bloom threshold.
+        if (sc > 0.5 && out > 0.5 && dt > 0 && fxr.next() < dt * 30) {
+          this.glow.emit(st.position.clone().addScaledVector(this.viewUp, 0.005), _v.set(0, 0, 0), { color: 0x6a5420, size: 0.3 * camK * sc, life: 0.14, grow: 0.15, alpha: 0.8, gravity: 0, drag: 0 });
+        }
         if (sc > 0.5 && out > 0.5 && dt > 0 && fxr.next() < dt * 14) {
           const a = rnd(0, Math.PI * 2);
           this.glow.emit(st.position.clone().add(_v.set(Math.cos(a) * 0.09, Math.sin(a) * 0.09, 0).applyQuaternion(this.viewQuat)), _v.set(0, 0.25, 0), { color: 0x8a7440, size: rnd(0.05, 0.09), life: 0.35, grow: 0.2, alpha: 1, gravity: 0, drag: 2 });
