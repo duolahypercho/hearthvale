@@ -1930,7 +1930,10 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     // Settled INTO the bed (sunk a hand's width, a dark underside where it sits on the soil): a
     // giant must weigh something, not hover on its leaves.
     // Fills its 3×3 footprint (≈ 2.7 tiles across, r7 critic: "only ~2× a normal one").
-    add(fruit(1.34, C(0xe8741e), { sy: 0.64, ribs: 12, crease: true, seg: 44, rows: 20, shade: 0.3 }), mat(0, 0.64, 0), 'skin');
+    // (r19) A dark pressed-soil pool under it (weight), and a squatter, heavier body (sy 0.64 → 0.6)
+    // leaning a touch off-axis (no perfect lathe).
+    add(contactDisc(1.3, C(0x0c0704), C(0x2e2016)), undefined, 'wood');
+    add(fruit(1.36, C(0xe8741e), { sy: 0.6, ribs: 12, crease: true, seg: 44, rows: 20, shade: 0.3 }), mat(0, 0.6, 0, 0.04, 0, -0.03), 'skin');
     // A thick, gnarled woody stem that curls over, and a dried tendril.
     const sy0 = 0.2;
     add(tube([new THREE.Vector3(0, 1.18 + sy0, 0), new THREE.Vector3(0.03, 1.38 + sy0, 0.01), new THREE.Vector3(0.14, 1.5 + sy0, 0.07), new THREE.Vector3(0.28, 1.46 + sy0, 0.14), new THREE.Vector3(0.33, 1.36 + sy0, 0.17)], 0.1, 0.05, C(0x5e5a2c), C(0x9a8a4a), 14, 8), undefined, 'skin');
@@ -1950,7 +1953,8 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     // Wet, dark soil pressed flat under the belly (fills the berm's ring: real ground contact).
     // (r17) Wider and darker: a strong AO pool the belly sinks into.
     add(contactDisc(1.32, C(0x0c0704), C(0x2e2016)), undefined, 'wood');
-    add(giantMelonBody(r), mat(0, 0, 0, 0, 0.3, 0), 'skin');
+    // (r19) Weight: the belly slumps a little wider and lower than its rind's grown shape.
+    add(giantMelonBody(r), mat(0, 0, 0, 0, 0.3, 0).multiply(new THREE.Matrix4().makeScale(1.04, 0.92, 1.03)), 'skin');
     // (r17) Grown out of the patch, not pasted on it: vine runners creep round the base and up
     // over the belly's lower flank, and leaves drape against it (in the body's frame, rotated 0.3).
     {
@@ -2264,6 +2268,13 @@ let cropMat: THREE.MeshStandardMaterial | null = null;
 let glossMat: THREE.MeshStandardMaterial | null = null;
 let woodMat: THREE.MeshStandardMaterial | null = null;
 let cropDepth: THREE.MeshDepthMaterial | null = null;
+const CROP_SHADOW_SWAY = ((): boolean => {
+  try {
+    return new URLSearchParams(location.search).get('cropsway') === '1';
+  } catch {
+    return false;
+  }
+})();
 
 /**
  * Seasonal foliage tint. Fall: leafy colours rotate ~12° toward yellow, lose ~20 % saturation and
@@ -2443,6 +2454,8 @@ const STAGE_SCALE = [1.3, 1.8, 1.72, 1.6, 1.62, 1.68];
 export class CropVisuals {
   readonly group = new THREE.Group();
   readonly pool = new BatchPool('crops');
+  /** Giants: animated every frame (breathing), so they keep their own batches + a swaying shadow. */
+  readonly livePool = new BatchPool('crops-live');
   private sets = new Map<string, InstancedSet>();
   private tmp = new THREE.Matrix4();
   private q = new THREE.Quaternion();
@@ -2453,21 +2466,27 @@ export class CropVisuals {
     this.group.userData.perfTag = 'crops';
     // Like the grass: dense foliage stays out of the GTAO G-buffer (vertex AO + shadows ground it).
     this.group.userData.noAO = true;
-    this.group.add(this.pool.group);
+    this.group.add(this.pool.group, this.livePool.group);
   }
 
-  private makeSet(key: string, geos: Map<Bucket, THREE.BufferGeometry>, shadow: boolean, tinted = false): InstancedSet {
+  private makeSet(key: string, geos: Map<Bucket, THREE.BufferGeometry>, shadow: boolean, tinted = false, live = false): InstancedSet {
     const parts: InstancedPart[] = [];
     const leaf = geos.get('leaf');
     const gloss = geos.get('gloss');
     const wood = geos.get('wood');
-    if (leaf) parts.push({ geometry: leaf, material: cropMaterial(), depthMaterial: cropDepth!, castShadow: shadow, tinted });
+    // (r19, pillar 14) Field crops cast a STILL shadow (no wind depth material): the static shadow
+    // cache bakes the whole field once instead of re-drawing ~150k swaying crop triangles into the
+    // sun's map every frame (the leaves' few-cm sway is invisible in a soft shadow). Only the live
+    // pool (giants, which breathe every frame) keeps the swaying depth pass. `?cropsway=1` = old path.
+    cropMaterial();
+    const depth = live || CROP_SHADOW_SWAY ? cropDepth! : undefined;
+    if (leaf) parts.push({ geometry: leaf, material: cropMaterial(), depthMaterial: depth, castShadow: shadow, tinted });
     // Small shiny fruit (berries, tomatoes, pods) hang inside the foliage's shadow: skip the shadow pass.
-    if (gloss) parts.push({ geometry: gloss, material: glossMaterial(), depthMaterial: cropDepth!, castShadow: false });
+    if (gloss) parts.push({ geometry: gloss, material: glossMaterial(), depthMaterial: depth, castShadow: false });
     const skin = geos.get('skin');
-    if (skin) parts.push({ geometry: skin, material: skinMaterial(), depthMaterial: cropDepth!, castShadow: shadow, tinted });
+    if (skin) parts.push({ geometry: skin, material: skinMaterial(), depthMaterial: depth, castShadow: shadow, tinted });
     if (wood) parts.push({ geometry: wood, material: trellisMaterial(), castShadow: true });
-    return new InstancedSet(`crop-${key}`, parts, this.pool);
+    return new InstancedSet(`crop-${key}`, parts, live ? this.livePool : this.pool);
   }
 
   private setFor(id: CropId, stage: number, variant: number): InstancedSet {
@@ -2480,10 +2499,10 @@ export class CropVisuals {
     return s;
   }
 
-  private special(key: string, build: () => Map<Bucket, THREE.BufferGeometry>, tinted = false): InstancedSet {
+  private special(key: string, build: () => Map<Bucket, THREE.BufferGeometry>, tinted = false, live = false): InstancedSet {
     let s = this.sets.get(key);
     if (!s) {
-      s = this.makeSet(key, build(), true, tinted);
+      s = this.makeSet(key, build(), true, tinted, live);
       this.sets.set(key, s);
     }
     return s;
@@ -2546,8 +2565,9 @@ export class CropVisuals {
   }
 
   addGiant(kind: GiantKind, x: number, y: number, z: number, seed: number): CropHandle {
-    const set = this.special(`giant:${kind}`, () => buildGiant(kind, new Rng(`giant:${kind}`)));
-    const s = 0.98 + ((seed >> 4) % 6) / 100;
+    const set = this.special(`giant:${kind}`, () => buildGiant(kind, new Rng(`giant:${kind}`)), false, true);
+    // (r19) A touch smaller (r9 critic: the giants overwhelmed the neighbouring beds).
+    const s = 0.9 + ((seed >> 4) % 6) / 100;
     return this.place(set, new THREE.Vector3(x, y, z), (((seed % 100) / 100) - 0.5) * 0.8, new THREE.Vector3(s, s, s));
   }
 

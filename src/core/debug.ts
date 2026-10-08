@@ -120,7 +120,15 @@ export function installDebugApi(game: Game): DebugApi {
     },
     info: () => ({
       // `frame`: fps, mean / p95 frame time and the audio system's main-thread ms per second.
-      perf: { ...game.perf(), frame: game.services.audio?.perf() },
+      perf: ((): object => {
+        const geo = game.perf();
+        const frame = game.services.audio?.perf();
+        // (farming r19) `ok` alone only checks the geometry budget; `frameOk` is the frame-time half of
+        // pillar 14 (≥ 58 fps mean and p95 ≤ 20 ms over the recent window; null = no samples yet).
+        // `npm run perf` stays the real gate (avg / p95 / p99 under controlled load).
+        const frameOk = frame && frame.fps > 0 ? frame.fps >= 58 && frame.frameP95Ms <= 20 : null;
+        return { ...geo, frame, frameOk, budgetOk: geo.ok };
+      })(),
       map: game.world.current?.id,
       player: { x: game.player.position.x, z: game.player.position.z, facing: game.player.facing },
       calendar: game.calendar.serialize(),

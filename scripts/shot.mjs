@@ -151,6 +151,10 @@ async function main() {
     const info = await page.evaluate(() => window.__game.info());
     console.log(`[shot] info ${JSON.stringify(info)}`);
     const perf = info?.perf;
+    if (perf?.frame && perf.frameOk === false) {
+      // Frame-time half of pillar 14 (contended machines read slow: confirm with `npm run perf`).
+      console.warn(`[shot] WARNING frame time: ${perf.frame.fps} fps, p95 ${perf.frame.frameP95Ms} ms (want >= 58 fps, p95 <= 20 ms)`);
+    }
     if (perf && !perf.ok) {
       console.warn(
         `[shot] WARNING render budget exceeded: ${perf.drawCalls} draw calls (budget ${perf.budget.drawCalls}), ` +

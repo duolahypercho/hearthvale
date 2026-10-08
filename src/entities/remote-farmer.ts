@@ -659,8 +659,8 @@ export class RemoteFarmer {
     if (parent && mesh.parent !== parent) parent.add(mesh);
     if (live) {
       this.pourT += dt;
-      // The rose tips at ~0.3 s and pours until ~0.8 s of the pour keys.
-      if (this.pourT > 0.28 && this.pourT < 0.82 && this.root.visible) {
+      // The rose tips at ~0.38 s and pours until ~0.98 s of the pour keys (farming r19 timing).
+      if (this.pourT > 0.38 && this.pourT < 0.98 && this.root.visible) {
         this.spawnAcc += dt * 90;
         const tool = this.rigParts.tool;
         tool.updateWorldMatrix(true, false);
@@ -675,7 +675,7 @@ export class RemoteFarmer {
           this.drops.push({ p, v, t: 0 });
         }
       }
-      if (this.pourT > 1) this.pourT = -1;
+      if (this.pourT > 1.3) this.pourT = -1;
     }
     const ground = this.position.y + 0.04;
     let n = 0;

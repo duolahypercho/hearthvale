@@ -66,7 +66,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // (r16) Co-op on one beat: the host hoeing + three farmhands (hoe contact, mid-pour, catching a crop).
   // (r17: pulled back + recentred so all four farmers and their tiles sit inside the frame.)
   'farm-coop-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 42, distance: 12.5, offsetX: -0.8, offsetZ: 0.9 }, showcase: ['tools', 'crew'] },
-  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -46, pitch: 34, distance: 9.6, offsetX: -0.55, offsetZ: -1.3 }, showcase: ['tools', 'tool:wateringCan'] },
+  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -30, pitch: 31, distance: 8.2, offsetX: -0.75, offsetZ: -0.8 }, showcase: ['tools', 'tool:wateringCan'] },
   // (r15: 3/4 to the lens, the farmer standing in the bed with the pulled hole in front of the boots.)
   'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 34, pitch: 40, distance: 8.2, offsetX: -0.2, offsetZ: -0.9 }, showcase: ['tools', 'tool:harvest'] },
   'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 32, distance: 9.6, offsetX: -0.7, offsetZ: -1.6 }, showcase: ['tools', 'tool:charge'] },

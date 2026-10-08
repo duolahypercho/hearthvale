@@ -64,7 +64,7 @@ import { FarmerActions, IMPACT, type ActionKind } from '../entities/farmer-actio
 import { RemoteFarmer } from '../entities/remote-farmer';
 import { PRESET_LOOKS } from '../entities/remote-look';
 import type { Nature, NatureHandle } from '../world/props/nature';
-import { flyItemToToolbar } from '../ui/item-fly';
+import { flyItemToToolbar, flyItemTo } from '../ui/item-fly';
 import { registerFarmIcons } from '../ui/farm-icons';
 import { Rng } from '../core/rng';
 
@@ -102,6 +102,8 @@ declare module '../core/events' {
     'sprinkler:spray': { x: number; z: number; on: boolean };
     /** Produce reached the backpack (end of the harvest pop). */
     'harvest:collect': { itemId: string; qty: number; quality: number };
+    /** (r19) The harvested item's icon landed in its toolbar slot: the count ticks up (a tier-specific chime). */
+    'harvest:land': { itemId: string; qty: number; quality: number };
     /** Fertilizer worked into a tile (a soft scatter SFX). */
     'soil:fertilized': { x: number; z: number; tier: number };
     /** Farming XP gained (harvests); `level` is the level after the gain. */
@@ -231,6 +233,9 @@ const rnd = (a: number, b: number): number => a + fxRng.next() * (b - a);
 const SWING_WINDOW: Partial<Record<ActionKind, [number, number]>> = { chop: [0.2, 0.31], slam: [0.14, 0.27], sweep: [0.1, 0.3] };
 /** The hoe blade's cutting edge, tool-local (see world/props/tools.ts). */
 const HOE_EDGE = new THREE.Vector3(0, 0.494, 0.212);
+/** The can's spout axis, tool-local (the spout tube is tipped 1.0 rad forward, world/props/tools.ts). */
+const CAN_SPOUT_DIR = new THREE.Vector3(0, Math.cos(1.0), Math.sin(1.0));
+const _v2 = new THREE.Vector3();
 
 /**
  * Frame-sequence capture plans (shot.mjs `--frames N`): 8 authored moments per action kind, in action
@@ -243,7 +248,8 @@ const SEQ_PLANS: Partial<Record<ActionKind, [number, string][]>> = {
   // (r17) Retimed to the real flight: the water leaves at 0.27 s and lands 0.24 s later (0.51), the
   // tail lands at 1.04 and the soak finishes ~0.8 s after the first drops — the last frame is the
   // settled wet tile, no splash left on it.
-  pour: [[0.06, 'lift'], [0.2, 'tip'], [0.33, 'stream leaves'], [0.52, 'stream lands'], [0.68, 'soaking'], [0.84, 'full soak'], [1.12, 'tail lands'], [1.75, 'wet tile']],
+  // (r19) Dip → heave → tip; the water leaves at 0.38 s and lands ~0.32 s later (0.70).
+  pour: [[0.1, 'anticipation (dip)'], [0.28, 'lift'], [0.44, 'tip: stream leaves'], [0.6, 'arc in flight'], [0.74, 'lands: splash'], [0.9, 'soaking'], [1.18, 'tail lands'], [1.8, 'wet tile']],
   sweep: [[0.03, 'ready'], [0.09, 'wind-up'], [0.13, 'top'], [0.18, 'cut'], [0.21, 'impact'], [0.27, 'follow-through'], [0.38, 'recoil'], [0.52, 'recovery']],
   pull: [[0.04, 'reach'], [0.13, 'crouch'], [0.2, 'yank'], [0.27, 'spring'], [0.36, 'catch (squash)'], [0.55, 'present'], [0.8, 'hold'], [0.98, 'to backpack']],
   lift: [[0.05, 'reach'], [0.15, 'squat'], [0.24, 'heave'], [0.34, 'rise'], [0.46, 'hug (squash)'], [0.7, 'present'], [1.0, 'hold'], [1.2, 'recovery']],
@@ -287,7 +293,10 @@ const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; t
   // sunflower at the back, tomato | pepper rows, then the melon patch (giant) | blueberry + tomato.
   // r18: no bare rows (Stardew-dense: one plant a tile, < 25 % visible soil inside the beds); the melon
   // is one front row a side + the giant's 3×3 corner; the NE bed packed edge to edge with pepper + tomato.
-  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['tomato', 'tomato'], null, ['blueberry', 'blueberry'], ['hotPepper', 'tomato'], ['hotPepper', 'hotPepper'], ['melon', 'melon']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
+  // r19: still dense, but every bed side is ONE family (r9 critic: tomato / pepper rows merged into a
+  // green-red carpet): staked tomatoes NW, pepper bushes NE, blueberries across the front beds' back
+  // row, then peppers (W, beside the giant) | tomatoes (E) — family blocks read at a glance.
+  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['tomato', 'hotPepper'], null, ['blueberry', 'blueberry'], ['hotPepper', 'tomato'], ['hotPepper', 'tomato'], ['melon', 'melon']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
   fall: { rows: [['corn', 'grape'], ['corn', 'grape'], 'beet', 'eggplant', null, 'beet', 'pumpkin', 'pumpkin', 'yam'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
   winter: { rows: [], giant: null, trellis: null, crate: [] },
 };
@@ -551,21 +560,24 @@ export class FarmingSystem implements System, FarmingApi {
     const hx = 23, hz = 20;
     this.untill(hx, hz);
     const a = add(0, hx + 0.5, hz - 0.62, 'down');
-    // B: pouring onto the dry furrow next to it.
-    const wx = 25, wz = 20;
+    // B: (r19) its own lane — the front of the bed, well clear of the hoers along the north edge
+    // (r9 critic: the four farmers fought in one knot), pouring east in profile onto a dry furrow.
+    const wx = 24, wz = 23;
+    for (const [qx, qz] of [[wx, wz], [wx - 1, wz], [wx, wz - 1], [wx - 1, wz - 1]] as [number, number][]) {
+      const q = this.tiles.get(key(qx, qz));
+      if (q?.crop) this.removeCrop(q);
+    }
     this.till(wx, wz, true);
     g.setFlag(wx, wz, TileFlag.Watered, false);
     this.soil?.setWet(wx, wz, false);
-    // (r17) Yawed ~60° off the lens so the can and its spout read in profile (end-on it was an
-    // orange disc), still pouring onto the same tile.
-    const b = add(1, wx + 0.5, wz - 0.66, 'down');
+    const b = add(1, wx + 0.5, wz + 0.5, 'right');
     {
-      const yaw = 1.05;
-      b.position.set(wx + 0.5 - Math.sin(yaw) * 0.68, this.map.heightAt(wx + 0.5, wz + 0.5), wz + 0.5 - Math.cos(yaw) * 0.68);
+      const yaw = Math.PI / 2 + 0.35;
+      b.position.set(wx + 0.5 - Math.sin(yaw) * 0.86, this.map.heightAt(wx + 0.5, wz + 0.5), wz + 0.5 - Math.cos(yaw) * 0.86);
       b.yaw = b.targetYaw = b.gaze = yaw;
     }
-    // C: at the bed's east end, pulling a ripe crop up into both raised hands.
-    const cx = 29, cz = 22;
+    // C: at the bed's east end (a third lane), pulling a ripe crop up into both raised hands.
+    const cx = 30, cz = 23;
     const season = this.game.calendar.season;
     const id: CropId = season === 'summer' ? 'melon' : season === 'fall' ? 'pumpkin' : 'cauliflower';
     const tt = this.tiles.get(key(cx, cz));
@@ -587,7 +599,7 @@ export class FarmingSystem implements System, FarmingApi {
       this.fx.hoeImpact(p, 0, 1, SOIL_COLOR, 1);
       // (wet at once: the soak's flood would freeze half-way with the still)
       this.water(wx, wz);
-      this.fx.splash(this.center(wx, wz, 0.02).add(new THREE.Vector3(0, 0, -0.15)), 0.8);
+      this.fx.splash(this.center(wx, wz, 0.02).add(new THREE.Vector3(0.12, 0, 0)), 0.9);
       this.commit();
     });
     this.later(0.2, () => {
@@ -1083,7 +1095,11 @@ export class FarmingSystem implements System, FarmingApi {
     const [lo, hi] = def.yield ?? [1, 1];
     const qty = lo + this.rng.int(0, hi - lo) + (this.rng.next() < 0.02 + this.lvl() * 0.01 ? 1 : 0);
     const quality = this.rollQuality(c, t.fert ?? 0);
+    // (r19) The reward is reserved now (authoritative: the inventory has it), but the toolbar keeps
+    // showing the old count until the produce's icon lands in the slot (cause → effect).
+    const snap = style !== 'instant' ? this.snapToolbar() : null;
     this.game.events.emit('item:give', { itemId: def.produce, qty, quality });
+    if (snap) this.holdToolbar(snap, def.produce, quality);
     this.addXp(harvestXp(def));
     this.game.events.emit('crop:harvested', { cropId: c.id, x, z, qty, quality });
     const oldHandle = c.handle;
@@ -1229,10 +1245,71 @@ export class FarmingSystem implements System, FarmingApi {
     const el = this.game.rc.renderer.domElement.getBoundingClientRect();
     const sx = el.left + (v.x * 0.5 + 0.5) * el.width;
     const sy = el.top + (-v.y * 0.5 + 0.5) * el.height;
+    const hi = this.slotHolds.findIndex((h) => h.itemId === itemId && h.quality === quality);
+    const hold = hi >= 0 ? this.slotHolds.splice(hi, 1)[0]! : null;
+    const land = (): void => {
+      // The count ticks up as the icon lands, with a quality-tier star burst + the land SFX hook.
+      if (hold) this.releaseHold(hold);
+      this.game.events.emit('harvest:land', { itemId, qty, quality });
+      if (target) slotBurst(target, quality);
+    };
+    let target: HTMLElement | null = null;
     try {
-      flyItemToToolbar(this.game.opts.uiRoot, itemId, { x: sx, y: sy }, slot < 0 ? (inv?.slots.findIndex((s) => s?.id === itemId) ?? -1) : slot, quality, { duration: 460, bounce: 1.15 });
+      const idx = slot < 0 ? (inv?.slots.findIndex((s) => s?.id === itemId) ?? -1) : slot;
+      const slots = this.toolbarSlots();
+      target = hold?.el ?? (idx >= 0 && idx < slots.length ? slots[idx]! : null);
+      if (target) flyItemTo(itemId, { x: sx, y: sy }, target, quality, land, 44, { duration: 460, bounce: 1.15 });
+      else {
+        flyItemToToolbar(this.game.opts.uiRoot, itemId, { x: sx, y: sy }, idx, quality, { duration: 460, bounce: 1.15 });
+        land();
+      }
     } catch {
       /* HUD not mounted (tests) */
+      if (hold) this.releaseHold(hold);
+    }
+  }
+
+  // ── (r19) toolbar count hold: reserve now, show on landing ──
+  private slotHolds: { itemId: string; quality: number; el: HTMLElement; before: string; after: string; emptyAfter: boolean; done: boolean }[] = [];
+
+  private toolbarSlots(): HTMLElement[] {
+    const bar = this.game.opts.uiRoot?.querySelector?.('.hv-toolbar');
+    return bar ? [...bar.querySelectorAll<HTMLElement>('.u-slot')] : [];
+  }
+
+  private snapToolbar(): { el: HTMLElement; html: string; empty: boolean }[] {
+    try {
+      return this.toolbarSlots().map((el) => ({ el, html: el.innerHTML, empty: el.classList.contains('empty') }));
+    } catch {
+      return [];
+    }
+  }
+
+  /** After the item:give: put back the slot the HUD just bumped, until the icon lands (or 3 s pass). */
+  private holdToolbar(snap: { el: HTMLElement; html: string; empty: boolean }[], itemId: string, quality: number): void {
+    for (const sn of snap) {
+      if (sn.el.innerHTML === sn.html) continue;
+      const h = { itemId, quality, el: sn.el, before: sn.html, after: sn.el.innerHTML, emptyAfter: sn.el.classList.contains('empty'), done: false };
+      sn.el.innerHTML = sn.html;
+      sn.el.classList.toggle('empty', sn.empty);
+      this.slotHolds.push(h);
+      // Safety: a harvest whose flight never runs (map change, HUD hidden) still shows its count.
+      this.later(3, () => {
+        const i = this.slotHolds.indexOf(h);
+        if (i >= 0) this.slotHolds.splice(i, 1);
+        this.releaseHold(h);
+      });
+      break;
+    }
+  }
+
+  private releaseHold(h: { el: HTMLElement; before: string; after: string; emptyAfter: boolean; done: boolean }): void {
+    if (h.done) return;
+    h.done = true;
+    // Only if the slot still shows our held snapshot (a newer HUD render wins).
+    if (h.el.innerHTML === h.before) {
+      h.el.innerHTML = h.after;
+      h.el.classList.toggle('empty', h.emptyAfter);
     }
   }
 
@@ -1669,7 +1746,9 @@ export class FarmingSystem implements System, FarmingApi {
       const d = new THREE.Vector3(pl.x - c.x, 0, pl.z - c.z);
       // (r15: a little past the middle of the tile — the rose sits over the near edge, so the
       // water needs that run to read as an arc of drops rather than a stub under the spout.)
-      if (d.lengthSq() > 1e-4) d.normalize().multiplyScalar(-0.12);
+      // (r19: further out still — 0.2 past the middle — so the arc spans a real gap between the rose
+      // and the soil instead of dropping straight down under the spout.)
+      if (d.lengthSq() > 1e-4) d.normalize().multiplyScalar(-0.3);
       c.add(d);
       c.y = this.surfaceY(c.x, c.z);
       return c;
@@ -1679,9 +1758,12 @@ export class FarmingSystem implements System, FarmingApi {
     // (r15: cause and effect together — the water leaves as the can tips (0.27 s), lands ~0.24 s
     // later while the can is still tipped, and keeps flowing ~80 ms into the lift so the last drops
     // land with the final splash crown; the splash runs until the tail has landed.)
-    const P0 = 0.27;
-    const P1 = 0.93;
-    const FLY = 0.24;
+    // (r19) Retimed to the new lift → tip → hold keys: the water leaves as the can reaches its tip
+    // (0.38 s), flies a real parabola (~0.32 s, launched along the rose) and keeps flowing ~60 ms into
+    // the lowering; the soil soak is scheduled on the same flight.
+    const P0 = 0.38;
+    const P1 = 0.98;
+    const FLY = 0.32;
     const sweep = (i: number): number => P0 + ((P1 - P0) * i) / Math.max(1, targets.length);
     const wetSet = new Set(wet.map(([a, b]) => key(a, b)));
     targets.forEach(([tx, tz], i) => {
@@ -1693,7 +1775,8 @@ export class FarmingSystem implements System, FarmingApi {
     });
     this.spend(wet.length ? Math.max(1, 2 + charge * 2 - this.tiers.wateringCan) : 1);
     let emitted = 0;
-    let splashT = 0;
+    let landed = false;
+    let splashT = 0.12;
     let lastT = 0;
     this.startAction('pour', 'wateringCan', x, z, () => {
       // (r17) The impact is the water LANDING (with soil:watered), not the can tipping.
@@ -1717,7 +1800,15 @@ export class FarmingSystem implements System, FarmingApi {
         const aim = landAt(tx, tz);
         aim.x += Math.sin(t * 13) * 0.05;
         aim.z += Math.cos(t * 11) * 0.05;
-        if (pouring) this.fx.stream.aim(sp, aim, FLY);
+        // Flight time from the rose's own direction: launched along the spout, the stream leaves
+        // forward-and-down and curves under gravity into the landing point (a visible parabola,
+        // physically joined to the can). T = sqrt((drop + run·tanθ) / g/2), θ = the spout's pitch.
+        const sd = acts.toolDir(CAN_SPOUT_DIR, _v2);
+        const run = Math.hypot(aim.x - sp.x, aim.z - sp.z);
+        const drop = sp.y - aim.y;
+        const pitch = THREE.MathUtils.clamp(Math.atan2(sd.y, Math.hypot(sd.x, sd.z)), -0.9, 0.3);
+        const flyT = THREE.MathUtils.clamp(Math.sqrt(Math.max(0.02, drop + run * Math.tan(pitch)) / 4.9), 0.24, 0.42);
+        if (pouring) this.fx.stream.aim(sp, aim, flyT);
         // Droplets shed along the stream (a rose showers, it doesn't pour a laser): ~30 per pour
         // ride the same ballistic arc, fanned a little, and a fine spray around the landing spot.
         // Fewer, fatter beads riding the arc with gaps between them (r15: a readable arc of
@@ -1725,15 +1816,23 @@ export class FarmingSystem implements System, FarmingApi {
         const want = pouring ? Math.floor((t - P0) * 60 * (1 + charge * 0.4)) : emitted;
         while (emitted < want) {
           emitted++;
-          const T = rnd(0.2, 0.3);
-          const spread = emitted % 4 === 0 ? 0.3 : 0.12;
+          const T = flyT * rnd(0.88, 1.08);
+          const spread = emitted % 4 === 0 ? 0.26 : 0.1;
           const a = aim.clone().add(new THREE.Vector3(rnd(-spread, spread), 0, rnd(-spread, spread)));
           a.y = this.surfaceY(a.x, a.z);
           const v = new THREE.Vector3((a.x - sp.x) / T, (a.y - sp.y) / T + 4.9 * T, (a.z - sp.z) / T);
           this.fx.drop(sp.clone().add(new THREE.Vector3(rnd(-0.03, 0.03), rnd(-0.015, 0.015), rnd(-0.03, 0.03))), v, emitted % 3 === 0 ? rnd(0.02, 0.028) : rnd(0.012, 0.017), emitted % 5 === 0);
         }
         const end = this.fx.stream.end;
-        if (end > FLY * 0.9 || !pouring) {
+        if (!landed && end > flyT * 0.92) {
+          // (r19) First contact: one broad, low splash and a dark wet pulse spreading under it, on the
+          // same tick the soak starts (cause → effect in one beat).
+          landed = true;
+          this.fx.splash(aim, 1.7 + charge * 0.2);
+          this.fx.crown(aim, 1.25, 12);
+          this.fx.wetSpot(aim, 0.38, 1.1, 0.5);
+        }
+        if (end > flyT * 0.9 || !pouring) {
           // Bounce: a steady spatter of droplets kicked back up where the stream hits (~6 a frame).
           // (r18) Low and outward (a crown over the soil), never a vertical spurt.
           let nb = Math.min(8, Math.round(dt * 260 + fxRng.next()));
@@ -2614,6 +2713,9 @@ export class FarmingSystem implements System, FarmingApi {
       this.stageCrowPatch(season);
       if (params.get('raid') === 'fly') this.later(0.2, () => this.sendCrows(3));
       else this.stageCrowRaid();
+      // (r19) `&raid=flee`: the takeoff beat — the near crows burst up and away (startled crouch →
+      // leap → flapping climb) while the rest keep pecking at their damaged plants.
+      if (params.get('raid') === 'flee') this.later(0.45, () => this.crows.scare(CROW_PATCH.x0 + 0.5, CROW_PATCH.z1 + 0.5, 2.2));
     } else if (showcase.includes('field')) {
       this.showcase = 'field';
       this.stageShowcase(season);
@@ -2976,7 +3078,7 @@ export class FarmingSystem implements System, FarmingApi {
         // A wet disc pulsing under the fan: short-lived dark soak spots trail the landing water
         // round with the rotation (the covered soil glistens where the jets are hitting right now).
         // (r17) A dark soak crescent riding round under each rope's landing point.
-        if (fxRng.next() < dt * 12) {
+        if (fxRng.next() < dt * 6) {
           const la = a - spinRate * T * rnd(0.85, 1.05);
           const ld = d0 * rnd(0.82, 1.0);
           const lx = base.x + Math.cos(la) * ld;
@@ -3003,10 +3105,12 @@ export class FarmingSystem implements System, FarmingApi {
         this.fx.drop(new THREE.Vector3(base.x, oy + 0.02, base.z), new THREE.Vector3(Math.cos(ga) * 0.6, rnd(1.4, 2.0), Math.sin(ga) * 0.6), 0.012);
       }
       const camD = game.rc.camera.position.distanceTo(base);
-      if (camD < 20 && fxRng.next() < dt * 1.6) {
-        const ma = sp.spin - spinRate * 0.3 + rnd(-0.4, 0.4);
-        const md = reach * rnd(0.4, 0.6);
-        this.fx.mist(new THREE.Vector3(base.x + Math.cos(ma) * md, oy + 0.35 + reach * 0.08, base.z + Math.sin(ma) * md), rnd(0.55, 0.8), 0.07);
+      // (r19) Apex mist: the jets' tops shed a fine veil that drifts and fades (one soft puff per jet
+      // apex every ~0.4 s, small and faint so it never smudges the lens).
+      if (camD < 26 && fxRng.next() < dt * 2.5 * jets) {
+        const ma = sp.spin - spinRate * 0.3 + rnd(-0.3, 0.3) + (Math.floor(fxRng.next() * jets) / jets) * Math.PI * 2;
+        const md = reach * rnd(0.42, 0.58);
+        this.fx.mist(new THREE.Vector3(base.x + Math.cos(ma) * md, oy + 0.3 + reach * 0.06, base.z + Math.sin(ma) * md), rnd(0.35, 0.55), 0.06);
       }
       // The wet front spreads outward from the head (tiles/s), soaking each covered tile once.
       if (sp.wetR < s.reach * 1.5 + 0.5) {
@@ -3219,5 +3323,41 @@ export class FarmingSystem implements System, FarmingApi {
     if (typeof d.water === 'number') this.canLevel = d.water;
     this.showcase = typeof d.showcase === 'string' ? d.showcase : d.showcase ? 'field' : null;
     this.commit();
+  }
+}
+
+/**
+ * (r19) A quality-tier star burst on a toolbar slot when a harvested item lands in it: silver = a few
+ * pale sparks, gold = more and warmer, iridium = a violet ring of stars (normal quality: a small dust
+ * of light). DOM only; removes itself.
+ */
+function slotBurst(slot: HTMLElement, quality: number): void {
+  const r = slot.getBoundingClientRect();
+  if (!r.width || typeof document === 'undefined') return;
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const col = ['#fff6dc', '#e6eef8', '#ffd34a', '#d7a2ff'][quality] ?? '#fff6dc';
+  const n = [4, 7, 10, 14][quality] ?? 4;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 - Math.PI / 2 + (i % 2) * 0.2;
+    const d = (quality ? 34 : 22) + (i % 3) * 7;
+    const el = document.createElement('div');
+    el.textContent = quality ? '\u2726' : '\u2022';
+    Object.assign(el.style, {
+      position: 'fixed', left: `${cx}px`, top: `${cy}px`, width: '0', height: '0', pointerEvents: 'none', zIndex: '61',
+      color: col, fontSize: `${quality ? 14 + quality * 2 : 9}px`, lineHeight: '0', textShadow: `0 0 6px ${col}, 0 1px 1px rgba(60,30,0,.45)`,
+    } as Partial<CSSStyleDeclaration>);
+    document.body.appendChild(el);
+    const dx = Math.cos(a) * d;
+    const dy = Math.sin(a) * d * 0.8 - 6;
+    const anim = el.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(0.3) rotate(0deg)', opacity: 1 },
+        { transform: `translate(calc(-50% + ${dx * 0.7}px), calc(-50% + ${dy * 0.7}px)) scale(1.15) rotate(70deg)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy + 8}px)) scale(0.4) rotate(140deg)`, opacity: 0 },
+      ],
+      { duration: 420 + quality * 90, easing: 'cubic-bezier(.2,.7,.3,1)' },
+    );
+    anim.onfinish = () => el.remove();
   }
 }

@@ -20,7 +20,9 @@ function cursorTexture(): THREE.CanvasTexture {
   // (r16) A slightly stronger state-tinted ground fill carries the read; the brackets got lighter.
   // (r17) No wash at all: an alpha fill read as a pale glass coaster over grass / fresh soil and
   // bleached the very tile the player is watching change. Brackets + a dotted rim carry the read.
-  const L = 30;
+  // (r19) Lighter, shorter strokes (r9 critic: oversized and pale), a darker contact under-stroke that
+  // seats the bracket on the ground.
+  const L = 26;
   const corner = (x: number, y: number, sx: number, sy: number): void => {
     g.beginPath();
     g.moveTo(x, y + sy * L);
@@ -38,21 +40,21 @@ function cursorTexture(): THREE.CanvasTexture {
   g.lineJoin = 'round';
   // Soft dark under-stroke (a contact shadow for the bracket).
   for (const [x, y, sx, sy] of cs) {
-    corner(x + sx * 1.5, y + sy * 1.5, sx, sy);
-    g.lineWidth = 11;
-    g.strokeStyle = 'rgba(28,16,6,0.32)';
+    corner(x + sx * 1.2, y + sy * 1.8, sx, sy);
+    g.lineWidth = 8.5;
+    g.strokeStyle = 'rgba(24,12,4,0.5)';
     g.stroke();
   }
   for (const [x, y, sx, sy] of cs) {
     corner(x, y, sx, sy);
-    g.lineWidth = 6;
-    g.strokeStyle = 'rgba(255,255,255,0.82)';
+    g.lineWidth = 4.2;
+    g.strokeStyle = 'rgba(255,255,255,0.86)';
     g.stroke();
   }
   // Faint dotted edge joining the brackets (reads the tile edge without a solid frame).
   g.setLineDash([2, 9]);
-  g.lineWidth = 3;
-  g.strokeStyle = 'rgba(255,255,255,0.3)';
+  g.lineWidth = 2.4;
+  g.strokeStyle = 'rgba(255,255,255,0.22)';
   g.beginPath();
   g.roundRect(pad, pad, S - pad * 2, S - pad * 2, r);
   g.stroke();
@@ -139,8 +141,9 @@ function areaOutline(w: number, d: number): THREE.BufferGeometry {
       idx.push(a, b, a + 1, a + 1, b, b + 1);
     }
   };
-  band(-0.06, 0.07, [0.11, 0.06, 0.02], 0.5, 0);
-  band(-0.03, 0.035, [1, 1, 1], 1, 0.002);
+  // (r19) A fine line, not a neon tube (r9 critic): thin bright core over a narrow dark contact band.
+  band(-0.035, 0.045, [0.11, 0.06, 0.02], 0.42, 0);
+  band(-0.014, 0.017, [1, 1, 1], 0.9, 0.002);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
@@ -154,11 +157,11 @@ export type CursorState = 'valid' | 'blocked' | 'charge' | 'neutral' | 'hover';
 const COLORS: Record<CursorState, THREE.Color> = {
   valid: new THREE.Color(0xfff1c8),
   blocked: new THREE.Color(0xe8705e),
-  charge: new THREE.Color(0xffcf3a),
+  charge: new THREE.Color(0xf6d47c),
   neutral: new THREE.Color(0xdfe6ee),
   hover: new THREE.Color(0xf4ead2),
 };
-const ALPHA: Record<CursorState, number> = { valid: 0.95, blocked: 0.85, charge: 1, neutral: 0.6, hover: 0.32 };
+const ALPHA: Record<CursorState, number> = { valid: 0.8, blocked: 0.9, charge: 0.85, neutral: 0.5, hover: 0.28 };
 
 export class TileCursor {
   readonly mesh: THREE.InstancedMesh;
@@ -296,7 +299,8 @@ export class TileCursor {
       // Brackets breathe inward a touch; charged tiles pulse faster.
       const b = tl.state === 'charge' ? Math.sin(this.t * 12 + i) * 0.03 : Math.sin(this.t * 5) * 0.022;
       // (r16) On impact the bracket compresses onto the tile and fades, giving the hit the stage.
-      const s = (0.9 + 0.1 * this.shown) * (1.02 + b - pk * 0.12) * (tl.state === 'hover' ? 0.78 : 1);
+      // (r19) Seated a touch inside the tile edge; collapses hard onto the tile on the hit (~0.1 s).
+      const s = (0.9 + 0.1 * this.shown) * (0.96 + b - pk * 0.3) * (tl.state === 'hover' ? 0.78 : 1);
       this.m.makeScale(s, 1, s).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
       this.mesh.setMatrixAt(nb, this.m);
       this.mesh.setColorAt(nb, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * ALPHA[tl.state]));
@@ -323,6 +327,6 @@ export class TileCursor {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
-    (this.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, this.shown * 1.1) * 0.85 * (1 - 0.7 * pk);
+    (this.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, this.shown * 1.1) * 0.78 * (1 - 0.92 * Math.sqrt(this.pulseT));
   }
 }

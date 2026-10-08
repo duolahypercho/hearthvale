@@ -731,6 +731,12 @@ const JETS: { r0: number; r1: number; spread: number; lag: number; a: number; n:
   { r0: 0.008, r1: 0.012, spread: -0.3, lag: 0.065, a: 0.62, n: 7, jit: 0.035 },
 ];
 const STREAM_BEADS = JETS.reduce((n, j) => n + j.n, 0);
+/**
+ * (r19) Segments of the pour's coherent glassy rope: a continuous tapered ribbon from the rose over the
+ * first ~half of the flight (necking in travelling varicose waves), after which the water has broken
+ * into the separate droplets of the bead ropes (r9 critic: "a short near-vertical bundle").
+ */
+const STREAM_RIB = 18;
 
 const STREAM_VS = /* glsl */ `
 attribute vec2 aUv;
@@ -754,6 +760,22 @@ varying float vA;
 void main() {
   // A glassy water drop (uv.y runs along its flight, +1 = the leading end): round head, the tail
   // tapering a little behind it; sky-blue rim, bright core and a specular dot up-front.
+  if (vUv.y > 2.0) {
+    // Ribbon: a glass rope — see-through middle, denser refracting edges, a bright specular line
+    // off-centre (the sky caught on a cylinder of water).
+    float ac = abs(vUv.x);
+    float edge = smoothstep(0.35, 0.85, ac) * (1.0 - smoothstep(0.85, 1.0, ac));
+    float body = 1.0 - smoothstep(0.7, 1.0, ac);
+    float spec = 1.0 - smoothstep(0.0, 0.22, abs(vUv.x + 0.35));
+    float ra = (body * 0.46 + edge * 0.44 + spec * 0.4) * vA;
+    if (ra < 0.02) discard;
+    vec3 rc = mix(uBody, uCore, clamp(edge * 0.35 + spec * 0.8, 0.0, 1.0));
+    gl_FragColor = vec4(rc, min(1.0, ra));
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+    #include <fog_fragment>
+    return;
+  }
   vec2 q = vUv;
   q.x *= 1.0 + 0.35 * smoothstep(0.2, -1.0, q.y);
   float d = length(q);
@@ -803,7 +825,7 @@ class Stream {
   readonly eye = new THREE.Vector3(0, 10, 10);
 
   constructor() {
-    const n = STREAM_BEADS * 4;
+    const n = (STREAM_BEADS + STREAM_RIB) * 4;
     this.pos = new Float32Array(n * 3);
     this.uv = new Float32Array(n * 2);
     this.al = new Float32Array(n);
@@ -817,6 +839,12 @@ class Stream {
       idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
       // Corner uvs never change: (-1,-1) (1,-1) (-1,1) (1,1).
       this.uv.set([-1, -1, 1, -1, -1, 1, 1, 1], i * 8);
+    }
+    // (r19) The coherent rope: STREAM_RIB chained quads (uv.y = 3 marks the ribbon in the shader).
+    for (let k = 0; k < STREAM_RIB; k++) {
+      const a = (STREAM_BEADS + k) * 4;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      this.uv.set([-1, 3, 1, 3, -1, 3, 1, 3], (STREAM_BEADS + k) * 8);
     }
     g.setIndex(idx);
     this.mat = new THREE.ShaderMaterial({
@@ -931,13 +959,58 @@ class Stream {
           this.pos[o] = p.x + side.x * r * lead * sx + up.x * len * lead * sy;
           this.pos[o + 1] = p.y + side.y * r * lead * sx + up.y * len * lead * sy;
           this.pos[o + 2] = p.z + side.z * r * lead * sx + up.z * len * lead * sy;
-          this.al[k4 + e] = jet.a * Math.min(1, tipFade) * Math.min(1, f * 12 + 0.4);
+          // (r19) Under the coherent rope the beads are only its texture; they own the lower arc.
+          this.al[k4 + e] = jet.a * Math.min(1, tipFade) * Math.min(1, f * 12 + 0.4) * (0.45 + 0.55 * THREE.MathUtils.smoothstep(f, 0.36, 0.6));
         }
       }
     });
+    this.writeRibbon();
     const g = this.mesh.geometry;
     (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (g.attributes.aA as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  private _q = new THREE.Vector3();
+
+  /** The coherent rope over the first ~55 % of the flight (it necks and breaks into the bead ropes). */
+  private writeRibbon(): void {
+    const base = STREAM_BEADS * 4;
+    const sCoh = this.T * 0.56;
+    const sa = Math.min(this.tail, this.head);
+    const sb = Math.min(this.head, sCoh);
+    if (sb - sa < 0.004) {
+      this.al.fill(0, base, base + STREAM_RIB * 4);
+      return;
+    }
+    const { _p: p, _tan: tan, _side: side, _q: q } = this;
+    const dist = Math.min(1.5, Math.max(1, this.at(sa, q).distanceTo(this.eye) / 9));
+    for (let k = 0; k <= STREAM_RIB; k++) {
+      const s = sa + ((sb - sa) * k) / STREAM_RIB;
+      const f = s / sCoh;
+      this.at(s, p);
+      tan.set(this.vel.x, this.vel.y - 9.8 * s, this.vel.z).normalize();
+      side.crossVectors(tan, this.view);
+      if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+      side.normalize();
+      // Tapers as it speeds up and necks in travelling waves (Plateau–Rayleigh) before it breaks.
+      const neck = 1 + Math.sin(s * 140 - this.t * 38) * 0.22 * f;
+      const r = (0.03 - 0.013 * f) * neck * dist;
+      // Fades over the break-up zone (the far end) and in over the first cm off the rose.
+      const a = 0.86 * Math.min(1, (s - sa) / 0.02 + (this.on ? 1 : 0)) * (1 - THREE.MathUtils.smoothstep(f, 0.62, 1));
+      // Vertex pair k belongs to quad k (its near end) and quad k-1 (its far end).
+      for (const [quad, end] of [[k, 0], [k - 1, 2]] as const) {
+        if (quad < 0 || quad >= STREAM_RIB) continue;
+        const v0 = base + quad * 4 + end;
+        for (let e = 0; e < 2; e++) {
+          const sx = e ? 1 : -1;
+          const o = (v0 + e) * 3;
+          this.pos[o] = p.x + side.x * r * sx;
+          this.pos[o + 1] = p.y + side.y * r * sx;
+          this.pos[o + 2] = p.z + side.z * r * sx;
+          this.al[v0 + e] = a;
+        }
+      }
+    }
   }
 }
 
@@ -995,7 +1068,8 @@ void main() {
     vS = -1.0;
     // (r18) The coherent body only over the first ~60 % of the throw, then it has broken into drops
     // (a full-length ribbon read as a hose / wire).
-    vA = aA.x * 0.46 * smoothstep(0.0, 0.06, sr) * (1.0 - smoothstep(0.28, 0.64, sr));
+    // (r19) A soft glassy column only off the nozzle (the first ~40 %), feathered into the packets.
+    vA = aA.x * 0.34 * smoothstep(0.0, 0.05, sr) * (1.0 - smoothstep(0.16, 0.44, sr));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1013,9 +1087,13 @@ void main() {
   bool rope = h2 < 0.8;
   float rj = rope ? mix(0.95, 1.02, h4) : mix(0.35, 0.95, h2);
   float T = aP.y * mix(0.62, 1.0, rj);
+  // (r19) Rope beads leave in pulses (a sprinkler's water hammer): packets of 6 tightly spaced
+  // drops with clear gaps between packets — a beaded trajectory, never a solid segmented rod.
+  float pk = floor(i / 6.0);
+  float ph1 = rope ? fract(pk * 0.1371 + mod(i, 6.0) * 0.0105 + h1 * 0.006) : h1;
   // Flight fraction: beads flow out of the nozzle continuously. The last 12 % of a bead's life is
   // its landing: it sits where it struck and blooms into a flat crown splash on the soil.
-  float sl = fract(uTime / T + h1);
+  float sl = fract(uTime / T + ph1);
   float s = min(sl / 0.88, 1.0);
   float land = clamp((sl - 0.88) / 0.12, 0.0, 1.0);
   // The head turned while this bead flew: it left when the jet pointed lag·s radians further back.
@@ -1030,12 +1108,13 @@ void main() {
   side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
   // Tight glassy beads off the nozzle that thin and stretch into velocity-aligned streaks as they
   // fall (motion blur); shed drops stay fine.
-  float r = (rope ? mix(0.022, 0.012, s * s) : mix(0.009, 0.018, h3)) * mix(0.7, 1.35, h4);
+  float r = (rope ? mix(0.019, 0.011, s * s) : mix(0.008, 0.015, h3)) * mix(0.75, 1.25, h4);
   // (r15) Seen from a hero-field distance (15–20 m) the beads thicken so the jets never thin into
   // hairlines; up close they keep their real size.
   r *= clamp(length(cameraPosition - p) / 9.0, 1.0, 1.6);
   // (r18) Short streaks: past the ribbon the rope reads as separate drops with gaps, not a cord.
-  float stretch = 1.4 + 0.6 * s;
+  // (r19) Round drops near the nozzle, a short velocity streak only late in the fall.
+  float stretch = 1.05 + 0.75 * s * s;
   if (land > 0.0) {
     // Crown splash: a flat ring on the soil, expanding as it fades (only every other bead, so
     // the landing zone sparkles rather than carpets).
@@ -1079,7 +1158,7 @@ void main() {
     float body = 1.0 - smoothstep(0.55, 1.0, d);
     float rim = smoothstep(0.35, 0.8, d) * body;
     float hl = 1.0 - smoothstep(0.0, 0.38, length(vUv - vec2(-0.25, 0.35)));
-    a = (body * 0.4 + rim * 0.4 + hl * 0.34) * vA;
+    a = (body * 0.3 + rim * 0.42 + hl * 0.36) * vA;
     c = mix(uBody, uCore, clamp(hl * 0.7 + rim * 0.25, 0.0, 1.0));
   }
   if (a < 0.02) discard;
