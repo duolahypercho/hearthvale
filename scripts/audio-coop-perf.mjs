@@ -4,7 +4,7 @@
  *
  *   node scripts/audio-coop-perf.mjs                      # 4 clients, each measured at 2560x1440 "high"
  *   node scripts/audio-coop-perf.mjs --clients 4 --w 2560 --h 1440 --quality high --record 6000 --warmup 4000
- *   node scripts/audio-coop-perf.mjs --out shots/audio-r7/coop-perf.json
+ *   node scripts/audio-coop-perf.mjs --out shots/audio-r7/coop-perf.json   # (--load-timeout ms, default 600000)
  *
  * Relay + Vite + one GPU Chromium (uncapped: --disable-gpu-vsync --disable-frame-rate-limit, the
  * same timing mode as scripts/perf.mjs, so the numbers are headroom, not a vsync-quantised 60).
@@ -54,6 +54,7 @@ const RECORD = Number(opt('record', 6000));
 const MIN_FPS = Number(opt('min-fps', 60));
 const AUDIO_BUDGET = Number(opt('audio-budget', 8));
 const OUT = resolve(root, opt('out', 'shots/audio/coop-perf.json'));
+const LOAD_MS = Number(opt('load-timeout', 600000));
 const NAMES = ['Hazel', 'Ash', 'Bo', 'Cy'];
 const SMALL = { width: 640, height: 360 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -101,12 +102,16 @@ async function main() {
     for (let i = 0; i < N; i++) {
       const ctx = await browser.newContext({ viewport: SMALL });
       const page = await ctx.newPage();
-      page.setDefaultTimeout(240000);
+      // (A machine shared with other teams' runs can take minutes to boot the fourth game while
+      // three already run: generous timeouts, and the running clients are paused meanwhile.)
+      page.setDefaultTimeout(LOAD_MS);
       page.on('pageerror', (e) => errors.push(`${NAMES[i]}: ${e}`));
+      for (const p of pages) await p.evaluate(() => window.__game.pause?.(true)).catch(() => {});
       const q = i === 0 ? `map=farm&x=30.5&z=22.5&time=9&name=${NAMES[i]}` : `name=${NAMES[i]}`;
-      await page.goto(`${base}/?notitle=1&audio=1&quality=low&card=0&${q}&server=${encodeURIComponent(ws)}`, { waitUntil: 'load' });
-      await page.waitForFunction(() => typeof window.__game?.ready === 'function');
+      await page.goto(`${base}/?notitle=1&audio=1&quality=low&card=0&${q}&server=${encodeURIComponent(ws)}`, { waitUntil: 'commit', timeout: LOAD_MS });
+      await page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: LOAD_MS });
       await page.evaluate(() => window.__game.ready());
+      for (const p of pages) await p.evaluate(() => window.__game.pause?.(false)).catch(() => {});
       await page.mouse.click(320, 180);
       await page.waitForFunction(() => window.__game.game.services.audio?.state().running, null, { timeout: 30000 }).catch(() => {});
       pages.push(page);
