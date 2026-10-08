@@ -1467,7 +1467,8 @@ export class FarmingSystem implements System, FarmingApi {
       if (!started) {
         started = true;
         // (r17) The hoe smear is a whisper (the clods + dust carry the impact frame).
-        this.fx.trail.begin(color, strength * (kind === 'chop' ? 0.5 : 1), kind === 'chop' ? 0.13 : 0.2, kind === 'sweep' ? 0.18 : 0.08, this.game.player.position.y);
+        // (r20) Shorter-lived: it reads on the two downswing keys and is gone by the bite (no glass sheet on the hit).
+        this.fx.trail.begin(color, strength * (kind === 'chop' ? 0.45 : 1), kind === 'chop' ? 0.075 : 0.2, kind === 'sweep' ? 0.18 : 0.08, this.game.player.position.y);
       }
       // Trace the real arc between the last frame and this one at ~240 Hz.
       const n = Math.max(1, Math.ceil((to - from) * 240));
@@ -1778,7 +1779,7 @@ export class FarmingSystem implements System, FarmingApi {
     // the lowering; the soil soak is scheduled on the same flight.
     const P0 = 0.38;
     const P1 = 0.98;
-    const FLY = 0.28;
+    const FLY = 0.32;
     const sweep = (i: number): number => P0 + ((P1 - P0) * i) / Math.max(1, targets.length);
     const wetSet = new Set(wet.map(([a, b]) => key(a, b)));
     targets.forEach(([tx, tz], i) => {
@@ -1816,14 +1817,14 @@ export class FarmingSystem implements System, FarmingApi {
         const sp = acts.toolPoint(CAN_SPOUT);
         const aim = landAt(tx, tz);
         {
-          // (r20) Always a visible forward throw: land ~0.32 m past the rose along the pour (kept on
+          // (r20) Always a visible forward throw: land ~0.45 m past the rose along the pour (kept on
           // the tile). With the can held well out the rose already sat over the old landing point and
           // the stream fell straight down under it.
           const fx = tx + 0.5 - pl.x;
           const fz = tz + 0.5 - pl.z;
           const fl = Math.hypot(fx, fz) || 1;
           const along = ((sp.x - (tx + 0.5)) * fx + (sp.z - (tz + 0.5)) * fz) / fl;
-          const k = THREE.MathUtils.clamp(along + 0.32, -0.44, 0.46);
+          const k = THREE.MathUtils.clamp(along + 0.45, -0.44, 0.52);
           aim.set(tx + 0.5 + (fx / fl) * k, 0, tz + 0.5 + (fz / fl) * k);
           aim.y = this.surfaceY(aim.x, aim.z);
         }
@@ -1836,7 +1837,9 @@ export class FarmingSystem implements System, FarmingApi {
         const run = Math.hypot(aim.x - sp.x, aim.z - sp.z);
         const drop = sp.y - aim.y;
         const pitch = THREE.MathUtils.clamp(Math.atan2(sd.y, Math.hypot(sd.x, sd.z)), -0.9, 0.3);
-        const flyT = THREE.MathUtils.clamp(Math.sqrt(Math.max(0.02, drop + run * Math.tan(pitch)) / 4.9), 0.22, 0.32);
+        // (r20) A floor of 0.3 s keeps the launch near-level (a curving parabola out of the rose, not a
+        // straight drop): at ~0.6 m drop the stream leaves at ≤ 0.5 m/s downward.
+        const flyT = THREE.MathUtils.clamp(Math.sqrt(Math.max(0.02, drop + run * Math.tan(pitch)) / 4.9), 0.3, 0.36);
         if (pouring) this.fx.stream.aim(sp, aim, flyT);
         // Droplets shed along the stream (a rose showers, it doesn't pour a laser): ~30 per pour
         // ride the same ballistic arc, fanned a little, and a fine spray around the landing spot.
