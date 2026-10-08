@@ -572,12 +572,13 @@ export class FarmingSystem implements System, FarmingApi {
     this.soil?.setWet(wx, wz, false);
     const b = add(1, wx + 0.5, wz + 0.5, 'right');
     {
-      const yaw = Math.PI / 2 + 0.35;
+      // Turned ~25° toward the lens (face + can in 3/4 profile, never the back of the head).
+      const yaw = Math.PI / 2 - 0.45;
       b.position.set(wx + 0.5 - Math.sin(yaw) * 0.86, this.map.heightAt(wx + 0.5, wz + 0.5), wz + 0.5 - Math.cos(yaw) * 0.86);
       b.yaw = b.targetYaw = b.gaze = yaw;
     }
     // C: at the bed's east end (a third lane), pulling a ripe crop up into both raised hands.
-    const cx = 30, cz = 23;
+    const cx = 29, cz = 23;
     const season = this.game.calendar.season;
     const id: CropId = season === 'summer' ? 'melon' : season === 'fall' ? 'pumpkin' : 'cauliflower';
     const tt = this.tiles.get(key(cx, cz));

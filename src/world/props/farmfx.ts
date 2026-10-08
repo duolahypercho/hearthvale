@@ -1118,7 +1118,8 @@ void main() {
   if (land > 0.0) {
     // Crown splash: a flat ring on the soil, expanding as it fades (only every other bead, so
     // the landing zone sparkles rather than carpets).
-    float cr = r * (1.4 + 5.5 * land) * (h4 < 0.5 ? 1.0 : 0.0);
+    // (r19) Every rope bead crowns where it lands (the landing ring reads as a wet footprint).
+    float cr = r * (1.4 + 6.5 * land) * (rope || h4 < 0.5 ? 1.0 : 0.0);
     p += vec3(1.0, 0.0, 0.0) * position.y * cr + vec3(0.0, 0.0, 1.0) * position.z * cr + vec3(0.0, 0.012, 0.0);
   } else {
     p += side * position.y * r + tan * position.z * r * stretch;
@@ -1128,7 +1129,7 @@ void main() {
   vUv = position.yz;
   vS = land;
   // Denser near the nozzle, fading as the jet breaks up into spray; a quick fade-in at the nozzle.
-  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? 1.0 - 0.55 * s : 0.55 - 0.25 * s) * (land > 0.0 ? 0.9 * (1.0 - land) : 1.0);
+  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? 1.0 - 0.35 * s : 0.6 - 0.25 * s) * (land > 0.0 ? 1.0 - land : 1.0);
   #include <fog_vertex>
 }`;
 const ARC_FS = /* glsl */ `

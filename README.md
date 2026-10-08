@@ -881,6 +881,28 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   jets that scale with distance (readable from the 11–17 m hero lenses), the coherent ribbon only over the first ~60 %
   of the throw, then short streaks with gaps (separate drops, not a hose). *Fall field* — the bare spacing row is a
   beet row. *Charged slam* — the gold area wash is fainter (5 %) and gets out of the way on the hit.
+- **r19 polish**: *Perf* — field crops cast a STILL shadow (no wind depth material), so the static shadow cache
+  bakes the whole field instead of re-drawing every crop into the sun's map each frame; giants (which breathe every
+  frame) live in their own `crops-live` batch pool and keep the swaying depth pass (`?cropsway=1` = the old path for
+  A/B). `__game.info().perf.frameOk` is the frame-time half of pillar 14 (≥ 58 fps mean and p95 ≤ 20 ms; `ok` /
+  `budgetOk` stay the geometry budget) and `shot.mjs` warns when it fails. Sprinkler soak decals halved.
+  *Pour* — dip (knees give, can swings back) → heave to shoulder height → a committed tip with the shoulder rolled into
+  it, face kept up; the stream is launched ALONG the rose (flight time solved from the spout's pitch, ~0.35 s) so it
+  leaves forward and curves into the tile 0.3 past its middle; a tapered glass rope (necking in travelling waves) over
+  the first half of the flight breaks into the bead ropes; first contact = one broad low splash + crown + a dark wet
+  pulse; `farm-water` is lensed 3/4-profile so the arc reads (sequence moments: dip · lift · tip · arc · lands · soak ·
+  tail · wet tile). *Hoe* — a real crouch with the blade skimming the ground, then a bat-style two-hand coil: the
+  handle laid back over the wind-up shoulder, free arm across the chest, blade cocked beside / behind the head (face
+  clear), legs split; the downswing drives the hands forward at chest height with the blade low in front, then the
+  lunge, the bite and a springier recoil. *Harvest* — the reward is reserved at the harvest (inventory), but the
+  toolbar slot keeps its old count until the item's icon lands in it; landing fires `harvest:land` (audio hook) and a
+  quality-tier star burst on the slot (silver / gold / iridium). *Sprinklers* — rope beads leave in packets of six with
+  clear gaps (beaded throws, not rods), rounder drops, a short soft glass column off the nozzle, apex mist per jet.
+  *Cursor* — thinner strokes, darker contact under-stroke, seated inside the tile, collapses + fades hard on the hit;
+  the charged footprint outline is a fine line. *Field* — the summer hero field plants one family per bed side
+  (staked tomatoes | pepper bushes, peppers | tomatoes up front). *Giants* — ~8 % smaller, slumped heavier bodies,
+  dark pressed-soil pools (pumpkin too). *Demos* — `farm-coop-tools` reblocked into lanes (hoe at the north edge, the
+  pour in the front bed in profile, the lift at the east end); `farm-crows&raid=flee` stages the takeoff beat.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
