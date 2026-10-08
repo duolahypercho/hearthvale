@@ -8,6 +8,15 @@ import { globalUniforms } from '../render/uniforms';
 import { NOISE_GLSL } from '../render/shaders/noise';
 import type { Terrain } from './terrain';
 
+function waterFast(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get('waterfast');
+    return !(q === '0' || q === 'false');
+  } catch {
+    return true;
+  }
+}
+
 export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; x1: number; z1: number }, level: number): THREE.Mesh {
   const w = bounds.x1 - bounds.x0;
   const d = bounds.z1 - bounds.z0;
@@ -19,6 +28,8 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
     transparent: true,
     depthWrite: false,
     fog: true,
+    // HV_WATER_FAST (pillar 14, perf r17): skip work whose result is discarded (see main()); `?waterfast=0` = old shader (A/B).
+    defines: waterFast() ? { HV_WATER_FAST: 1 } : {},
     uniforms: THREE.UniformsUtils.merge([
       THREE.UniformsLib.fog,
       {
@@ -99,19 +110,49 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         if (depth < -0.03) discard;
         float t = uTime;
         vec2 p = vW.xz;
+        float ice = smoothstep(0.5, 0.9, uSnow);
+        vec3 V = normalize(cameraPosition - vW);
+        vec3 L = normalize(uSunDir);
+        float dd = clamp(depth, 0.0, 2.0);
+        // Shoreline foam: a broken, animated ~0.3 m band (noise-thresholded), not a solid liner.
+        // (Computed first: its noise also feathers the winter snow rim, and it lifts the alpha.)
+        float fn = hvNoise(p * 4.0 + t * 0.3);
+        float fn2 = hvNoise(p * 9.0 - vec2(t * 0.5, t * 0.2));
+        float edgeW = smoothstep(0.1, 0.0, depth);
+        float foamN = fn * 0.6 + fn2 * 0.4;
+        float shoreF = smoothstep(0.52, 0.66, foamN + edgeW * 0.55 - 0.18) * smoothstep(0.12, 0.02, depth);
+        float band = smoothstep(0.8, 1.0, sin(depth * 22.0 - t * 1.6 + fn * 4.0)) * smoothstep(0.28, 0.06, depth) * smoothstep(0.35, 0.6, fn2);
+        float foam = clamp(shoreF * 0.8 + band * 0.35, 0.0, 1.0);
+        vec3 c = vec3(0.0);
+        vec3 skyR;
+        #ifdef HV_WATER_FAST
+        // Solid winter ice (ice = 1) replaces the whole open-water colour (c = mix(c, ic, 1.0) below):
+        // the wave normals, caustics, cloud shadow, bank mirror and glints were 30+ noise taps a pixel
+        // thrown away (pillar 14, perf r17). The ice only needs the sky it mirrors, from its own
+        // near-flat normal (wave amp x 0.05 there: < 0.5 % of the mirror colour).
+        if (ice >= 1.0) {
+          skyR = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.7, reflect(-V, vec3(0.0, 1.0, 0.0)).y));
+        } else {
+        float e = 0.06;
+        float amp = (0.28 + 0.12 * uWindStrength) * (1.0 - ice * 0.95);
+        // Same 2e-wide difference as a central one, taken forward from p (3 wave taps, not 6): the
+        // normal is the one 6 cm up-stream, identical to the eye (as the ocean's, beach r8).
+        float h0 = wh(p, t);
+        float hx = wh(p + vec2(2.0 * e, 0.0), t) - h0;
+        float hz = wh(p + vec2(0.0, 2.0 * e), t) - h0;
+        #else
+        {
         float e = 0.06;
         float amp = 0.28 + 0.12 * uWindStrength;
         float hx = wh(p + vec2(e, 0.0), t) - wh(p - vec2(e, 0.0), t);
         float hz = wh(p + vec2(0.0, e), t) - wh(p - vec2(0.0, e), t);
-        float ice = smoothstep(0.5, 0.9, uSnow);
         amp *= 1.0 - ice * 0.95;
+        #endif
         vec3 n = normalize(vec3(-hx / (2.0 * e) * amp, 1.0, -hz / (2.0 * e) * amp));
         if (uRain > 0.01) {
           vec2 rp = ripples(p, t) * 0.9 * uRain * (1.0 - ice);
           n = normalize(n + vec3(rp.x, 0.0, rp.y));
         }
-        vec3 V = normalize(cameraPosition - vW);
-        vec3 L = normalize(uSunDir);
         float ndv = max(dot(n, V), 0.0);
         // Schlick Fresnel, water F0 = 0.02 (boosted a touch for the stylised look).
         float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
@@ -120,12 +161,17 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         // Depth absorption: shallow teal #6fc7c0 → deep #2b5d7a (linear), plus a green-brown silt tint at the edge.
         vec3 shallow = vec3(0.159, 0.571, 0.527);
         vec3 deep = vec3(0.024, 0.110, 0.195);
-        float dd = clamp(depth, 0.0, 2.0);
         vec3 col = mix(shallow, deep, smoothstep(0.0, 1.1, dd));
         col = mix(col, vec3(0.2, 0.3, 0.18), smoothstep(0.12, 0.0, dd) * 0.5);
-        // Caustic shimmer in the shallows.
-        float caus = pow(hvNoise(p * 3.0 + vec2(t * 0.4, t * 0.3)) * hvNoise(p * 3.7 - vec2(t * 0.35, t * 0.2)), 1.5);
-        col += vec3(0.5, 0.8, 0.7) * caus * 0.3 * (1.0 - smoothstep(0.0, 0.6, dd));
+        // Caustic shimmer in the shallows (only where it can show: dd < 0.6).
+        #ifdef HV_WATER_FAST
+        if (dd < 0.6) {
+        #else
+        {
+        #endif
+          float caus = pow(hvNoise(p * 3.0 + vec2(t * 0.4, t * 0.3)) * hvNoise(p * 3.7 - vec2(t * 0.35, t * 0.2)), 1.5);
+          col += vec3(0.5, 0.8, 0.7) * caus * 0.3 * (1.0 - smoothstep(0.0, 0.6, dd));
+        }
 
         float cloud = hvCloudShadow(p, t, uCloudShadow);
         float diff = 0.55 + 0.45 * max(dot(n, L), 0.0);
@@ -133,26 +179,19 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         // Reflection: the sky gradient along the reflected ray, with the dark tree-lined banks
         // mirrored in a band near the shore (cheap stand-in for a planar reflection).
         vec3 Rv = reflect(-V, n);
-        vec3 skyR = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.7, Rv.y));
+        skyR = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.7, Rv.y));
         float bank = smoothstep(0.7, 0.15, dd) * (0.55 + 0.45 * hvNoise(p * 0.9 + n.xz * 2.0));
         vec3 bankCol = mix(vec3(0.05, 0.1, 0.05), vec3(0.12, 0.2, 0.08), hvNoise(p * 2.2)) * (uSunColor * 0.4 + uSkyColor * 0.5);
         vec3 refl = mix(skyR * 1.05, bankCol, bank * 0.75);
-        vec3 c = mix(lit, refl, clamp(fres * 1.6 + bank * 0.35, 0.0, 0.85));
+        c = mix(lit, refl, clamp(fres * 1.6 + bank * 0.35, 0.0, 0.85));
 
         vec3 R = reflect(-L, n);
         float spec = pow(max(dot(R, V), 0.0), 220.0) * 6.0 + pow(max(dot(R, V), 0.0), 24.0) * 0.18;
         c += uSunColor * spec * cloud * (1.0 - uNight * 0.6);
 
-        // Shoreline foam: a broken, animated ~0.3 m band (noise-thresholded), not a solid liner.
-        float fn = hvNoise(p * 4.0 + t * 0.3);
-        float fn2 = hvNoise(p * 9.0 - vec2(t * 0.5, t * 0.2));
-        float edgeW = smoothstep(0.1, 0.0, depth);
-        float foamN = fn * 0.6 + fn2 * 0.4;
-        float shoreF = smoothstep(0.52, 0.66, foamN + edgeW * 0.55 - 0.18) * smoothstep(0.12, 0.02, depth);
-        float band = smoothstep(0.8, 1.0, sin(depth * 22.0 - t * 1.6 + fn * 4.0)) * smoothstep(0.28, 0.06, depth) * smoothstep(0.35, 0.6, fn2);
-        float foam = clamp(shoreF * 0.8 + band * 0.35, 0.0, 1.0);
         vec3 foamCol = vec3(0.95, 0.97, 0.96) * (uSunColor * 0.6 + uSkyColor * 0.6);
         c = mix(c, foamCol, foam);
+        }
 
         // Winter: the pond freezes — dark, glassy black ice (deep blue-teal, mirror-bright sky in it),
         // an irregular network of white fracture lines, trapped air bubbles, and wind-swept frost /
@@ -161,16 +200,33 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
           // Clear black ice with only a FEW long fractures: a big-cell Voronoi edge network kept only
           // where a slow mask allows (long cracks that run and stop, never a tiled web), fine
           // hairline branches only alongside them, width + brightness varying along their length.
-          vec2 wq = p + (vec2(hvNoise(p * 0.45), hvNoise(p * 0.45 + 5.2)) - 0.5) * 2.4;
-          float e1 = iceEdge(wq * 0.26);
           float run = smoothstep(0.34, 0.5, hvNoise(p * 0.16 + 3.7));
-          float wv = 0.6 + 0.8 * hvNoise(p * 1.7 + 1.3);
-          float crack = smoothstep(0.04 * wv, 0.0, e1) * run;
-          float e2 = iceEdge(wq * 0.95 + 7.0);
-          float nearMain = smoothstep(0.32, 0.05, e1) * run;
-          crack = max(crack, smoothstep(0.022, 0.0, e2) * nearMain * 0.55 * smoothstep(0.4, 0.62, hvNoise(p * 0.9 + 2.0)));
-          // Fracture planes glow under the surface (a soft pale sheet beside the crack, offset along view).
-          float sub = smoothstep(0.1, 0.0, iceEdge((wq - V.xz * 0.15) * 0.26)) * run * 0.3;
+          float crack = 0.0;
+          float sub = 0.0;
+          #ifdef HV_WATER_FAST
+          // Every fracture term is scaled by run: off the cracks' runs (most of the ice) the three
+          // Voronoi searches (27 cell hashes) and the warp are skipped — identical output.
+          if (run > 0.0) {
+          #else
+          {
+          #endif
+            vec2 wq = p + (vec2(hvNoise(p * 0.45), hvNoise(p * 0.45 + 5.2)) - 0.5) * 2.4;
+            float e1 = iceEdge(wq * 0.26);
+            float wv = 0.6 + 0.8 * hvNoise(p * 1.7 + 1.3);
+            crack = smoothstep(0.04 * wv, 0.0, e1) * run;
+            float nearMain = smoothstep(0.32, 0.05, e1) * run;
+            #ifdef HV_WATER_FAST
+            if (nearMain > 0.0) {
+              float br = smoothstep(0.4, 0.62, hvNoise(p * 0.9 + 2.0));
+              if (br > 0.0) crack = max(crack, smoothstep(0.022, 0.0, iceEdge(wq * 0.95 + 7.0)) * nearMain * 0.55 * br);
+            }
+            #else
+            float e2 = iceEdge(wq * 0.95 + 7.0);
+            crack = max(crack, smoothstep(0.022, 0.0, e2) * nearMain * 0.55 * smoothstep(0.4, 0.62, hvNoise(p * 0.9 + 2.0)));
+            #endif
+            // Fracture planes glow under the surface (a soft pale sheet beside the crack, offset along view).
+            sub = smoothstep(0.1, 0.0, iceEdge((wq - V.xz * 0.15) * 0.26)) * run * 0.3;
+          }
           vec3 deepIce = vec3(0.02, 0.06, 0.1);
           vec3 shallowIce = vec3(0.1, 0.2, 0.26);
           vec3 iceCol = mix(deepIce, shallowIce, smoothstep(1.2, 0.0, dd));
@@ -185,7 +241,7 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
           vec2 bl = (fract(bq) - 0.5 - bo * 0.5) * vec2(1.0, 0.7);
           float bub = smoothstep(bsz, bsz * 0.5, length(bl)) * step(hvHash12(bid + 7.7), 0.3) * smoothstep(0.45, 0.68, hvNoise(p * 0.5 + 9.0));
           // Glassy: a restrained Fresnel sky mirror (the ice stays DARK seen from above) + sun glint.
-          vec3 Vn = normalize(cameraPosition - vW);
+          vec3 Vn = V;
           float ifr = 0.06 + 0.9 * pow(1.0 - max(Vn.y, 0.0), 5.0);
           vec3 ic = mix(iceCol, skyR * 0.85, clamp(ifr * 0.75 + 0.05, 0.0, 0.42));
           ic += vec3(0.78, 0.9, 1.0) * (crack * 0.7 + sub) * (uSunColor * 0.4 + uSkyColor * 0.8);
