@@ -19,8 +19,9 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Facing } from '../core/events';
 import type { NpcDef, NpcLook, Activity, Emote, WalkStyle } from '../data/npcs';
 import { NPCS } from '../data/npcs';
-import { roundedBox, lumpySphere, bevelCylinder, smoothNormals } from '../world/geom';
+import { roundedBox, lumpySphere, bevelCylinder, smoothNormals, DETAIL_R } from '../world/geom';
 import { applyWorldFx } from '../render/worldfx';
+import { inDetailPass } from '../render/batching';
 import { globalUniforms } from '../render/uniforms';
 import { patchMaterial, after, before } from '../render/patch';
 import { Rng } from '../core/rng';
@@ -177,6 +178,40 @@ function pleat(g: THREE.BufferGeometry, n: number, depth: number): THREE.BufferG
   return g;
 }
 
+/**
+ * Past this camera distance a villager draws only its detail prefix (RigBuilder.build) into the shadow map
+ * and the AO G-buffer: eyes, brows, buttons and small locks are a few texels there, while the body,
+ * head and hair masses still cover the figure (no AO of what stands behind it on their pixels, r8b).
+ */
+const VILLAGER_AO_FULL = 14;
+const _hookPos = new THREE.Vector3();
+
+/**
+ * Shadow map and AO G-buffer draw the detail prefix for villagers past VILLAGER_AO_FULL from the view
+ * camera; talk / event shots (lens ~9 m) keep every part (glasses and fingers shadow the face / dress).
+ */
+function villagerDepthHooks(mesh: THREE.SkinnedMesh): void {
+  const n = mesh.geometry.userData.shadowCount as number | undefined;
+  if (n === undefined) return;
+  // `userData.depthLod = false` turns both off (A/B: scripts/abshot.mjs).
+  mesh.onBeforeShadow = function (this: THREE.Mesh, _r, _o, cam) {
+    if (this.userData.depthLod === false) return;
+    _hookPos.setFromMatrixPosition(this.matrixWorld);
+    if (_hookPos.distanceToSquared(cam.position) > VILLAGER_AO_FULL * VILLAGER_AO_FULL) this.geometry.drawRange.count = n;
+  };
+  mesh.onAfterShadow = function (this: THREE.Mesh) {
+    this.geometry.drawRange.count = Infinity;
+  };
+  mesh.onBeforeRender = function (this: THREE.Mesh, _r, _s, cam) {
+    if (!inDetailPass() || this.userData.depthLod === false) return;
+    _hookPos.setFromMatrixPosition(this.matrixWorld);
+    if (_hookPos.distanceToSquared(cam.position) > VILLAGER_AO_FULL * VILLAGER_AO_FULL) this.geometry.drawRange.count = n;
+  };
+  mesh.onAfterRender = function (this: THREE.Mesh) {
+    this.geometry.drawRange.count = Infinity;
+  };
+}
+
 /** Collects parts weighted to single bones and merges them into one skinned geometry. */
 class RigBuilder {
   private parts: THREE.BufferGeometry[] = [];
@@ -260,7 +295,22 @@ class RigBuilder {
     void g;
   }
   build(): THREE.BufferGeometry {
-    const g = mergeGeometries(this.parts, false)!;
+    // Detail prefix (pillar 14, as geom.ts mergeStatic): parts under DETAIL_R (eyes, brows, lids, buttons,
+    // small hair locks, trims) merge after every larger part, and `userData.shadowCount` records the index
+    // count of the larger prefix. The shadow map and the AO G-buffer draw just that prefix for villagers
+    // past VILLAGER_AO_FULL (see villagerDepthHooks). The colour pass draws every part.
+    const big: THREE.BufferGeometry[] = [];
+    const small: THREE.BufferGeometry[] = [];
+    for (const p of this.parts) {
+      p.computeBoundingSphere();
+      ((p.boundingSphere?.radius ?? Infinity) < DETAIL_R ? small : big).push(p);
+    }
+    const g = mergeGeometries(big.concat(small), false)!;
+    if (small.length && big.length) {
+      let n = 0;
+      for (const p of big) n += p.index!.count;
+      g.userData.shadowCount = n;
+    }
     for (const p of this.parts) p.dispose();
     g.computeBoundingSphere();
     return g;
@@ -1239,6 +1289,7 @@ export class Villager {
     // (grass, a wall, a stall) was multiplied onto their pixels: the grey-brown jagged 'muzzle' over the
     // lower face, the cookie-dough blotches on Kit's / Wren's hair, the dark disc on Rowan's cheek.)
     this.mesh.userData.ao = true;
+    villagerDepthHooks(this.mesh);
     this.mesh.frustumCulled = false;
     this.mesh.add(this.bones[B.root]!);
     this.mesh.add(this.bones[B.propBase]!);

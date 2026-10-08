@@ -77,6 +77,11 @@ export function setDetailPass(on: boolean): void {
   detailPass = on;
 }
 
+/** True while the AO G-buffer (depth-only detail pass) renders: skinned meshes may draw a cheaper prefix (villager.ts). */
+export function inDetailPass(): boolean {
+  return detailPass && detailStats.enabled;
+}
+
 /** Record a batch geometry's detail prefix (from MeshBuilder / mergeStatic `userData.shadowCount`). */
 export function setBatchDetail(mesh: THREE.BatchedMesh, geometryId: number, geometry: THREE.BufferGeometry): void {
   const n = geometry.userData.shadowCount as number | undefined;
