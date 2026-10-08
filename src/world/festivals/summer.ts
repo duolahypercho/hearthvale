@@ -405,7 +405,8 @@ export class SummerLanterns extends FestivalMap {
     };
     const warm = [0xffb050, 0xff8a60, 0xffc870, 0xffa070];
     // Lantern releasers along the waterline, turned three-quarters to the sea (faces to camera).
-    const shoreXs = [14.5, 17.2, 20.4, 23.6, 26.2, 29.0, 35.6, 38.0, 45.2, 48.4, 51.2, 54.6];
+    // (r8: a third fewer — small knots with gaps, not a picket line along the surf.)
+    const shoreXs = [14.5, 20.4, 23.6, 29.0, 35.6, 38.0, 45.2, 51.2];
     shoreXs.forEach((x, k) => {
       const child = r.next() < 0.3;
       // On the dry sand just above the swash line (feet in the surf read as accidents).

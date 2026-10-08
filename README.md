@@ -1102,6 +1102,30 @@ the Great Fir, frozen-river skating under lantern reflections, gift circle, auro
   landing; attract mode joins the race mid-lane. Skating banks into carves with a forward push crouch, an edge-spray
   fan and a bright speed streak in the blade trail; lens-side strip skaters clear the course. Ribbon Dance partners
   hold hands a step apart and swing round each other on big Blooms.
+- (r9) Crowds: about 40 % fewer extras, placed as authored vignettes (`world/festivals/vignettes.ts`: a picnic on a
+  blanket, an elder on a bench with a friend, a couple watching, three neighbours gossiping, kids chasing round a loop);
+  townsfolk come in five body archetypes (average / stout with a belly / lanky long-legged / stooped elder / child)
+  with seven eye cuts, and named villagers keep their belly / shoulders / hands / leg length. A 4th crowd data row
+  drives six desynced idle families (weight shift, hands behind back, arms folded, hand-on-hip pointing, thinking,
+  clasped + stretch), three cheer variants, left / right waves and laughing talkers; an albedo ceiling keeps white
+  hair from blooming. Framing guard (`Crowd.screen`): in every mini-game camera an onlooker whose projected head is
+  big enough to read and crosses the frame edge or a HUD panel rect folds away (participants are kept);
+  `node scripts/fest-crop-test.mjs` asserts zero cropped heads in all six mini-game cameras via
+  `FestivalMap.cropCheck()`. Name pips are on or off (no half-faded ghost tags); postcard stills get a gentler
+  tilt-shift and a gold contact ring under your farmer.
+- (r9) Ribbon Dance: the couple promenades round the pole (one lap ≈ 30 s, camera anchored on the green), turning round
+  their joined hands; every Bloom swings them half round with a twirl, every other one lifts the partner; notes fade in
+  inside the lane and never pass under the combo column. Gift Exchange is a choice: a hint about the recipient, three
+  peeks (they act out each one in 3D) on a reaction meter, then the verdict swings the meter; the unwrap is three beats
+  in 3D (ribbon, lid, the real keepsake rising on a glow) at a low three-quarter under the Fir. Starlight Skate: deep
+  blue-teal ice with crisp lamp streaks and carve marks, cracks are black fractures with a pulsing red rim, a clear
+  band round the course, judgement pops ride above your head. Starfall: an open northern ridge so the postcard sees
+  night sky — stars and three distinct aurora curtains — round baubles + a warm tinsel garland, four different
+  chalets. Tide night: lantern-topped wish-line canes, streaking firework stars, a crisp moon, a crenellated
+  sandcastle with a pennant. Harvest Fair: toned marquee, ferns not round bushes, 1.8 m maze walls with a lookout
+  tower + scarecrow at the centre, draped baize plinths with pennant skirts, racers warming up with small hops; the
+  sack-race result frames you left of the card and the co-op board shows the purse (500 / 300 / 150 g); standing by
+  the lane while another farmer races swings your camera to a grandstand view that tracks the pack.
 - Perf: at most 3 dynamic point lights per festival map (constant count; lamps / stalls / lighthouse are glow sprites +
   pool decals, the firework flash is one shared light + a sea tint); the cocoa lamp rides with the skater in the skate.
 - Events: `festival:start` / `festival:end`, `festival:music` (tempo / mode / timbre hints), `festival:minigame`,

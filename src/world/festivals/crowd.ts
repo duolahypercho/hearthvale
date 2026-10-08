@@ -89,6 +89,8 @@ export interface CrowdSpec {
   hatTint?: number;
   /** Never moved by the crowd separation pass (e.g. a grown-up carrying a child on the shoulders). */
   pinned?: boolean;
+  /** Authored vignette pose (picnic, bench, gossip…): the face-the-show / turn-to-camera passes leave it alone. */
+  authored?: boolean;
   /**
    * Body-language family 0..5 (idle: weight shift / hands behind back / arms crossed / hand on hip +
    * pointing / thinking / clasped + stretch; cheer, clap, wave and talk have their own variants), so
@@ -920,8 +922,6 @@ export interface CrowdMember {
   stretch: number;
   /** Activity participant (dancer, racer, partner, judge): never folded away by the framing guard. */
   keep: boolean;
-  /** Set by maps for permanent participants (ring dancers, racers, judges): `keep` resets to this. */
-  keepAlways?: boolean;
   /** Framing-guard visibility (eased 0..1; see Crowd.screen). */
   vis: number;
 }
@@ -1163,7 +1163,7 @@ export class Crowd {
 // ───────────────────────────────────────────── townsfolk generator
 
 const SKINS = [0xf2c8a2, 0xe8b894, 0xf0c4a0, 0xc88a64, 0x9a6444, 0xf6d2b4, 0xb87a56, 0x7a4a32];
-const HAIRS = [0x3a2418, 0x6a4228, 0x8a6a58, 0xd8b068, 0x2a1a14, 0xb8542a, 0xa8a29a, 0x4a3a30, 0xe0b880, 0x8a3a1e, 0xe8e0d0, 0x1a1a24, 0xc88a4a, 0x5a2a1a];
+const HAIRS = [0x3a2418, 0x6a4228, 0x8a6a58, 0xd8b068, 0x2a1a14, 0xb8542a, 0xa8a29a, 0x4a3a30, 0xe0b880, 0x8a3a1e, 0xc8c0b6, 0x1a1a24, 0xc88a4a, 0x5a2a1a];
 const STYLES: NpcLook['hairStyle'][] = ['short', 'bob', 'bun', 'curly', 'long', 'cap', 'ponytail', 'short', 'braids', 'spiky', 'slick', 'bob', 'curly', 'long'];
 
 /** Looks generated as elders (they stoop, see Crowd). */
@@ -1198,7 +1198,8 @@ export function randomLook(rng: Rng, opts: { child?: boolean; palette: number[] 
   if (elder && rng.next() < 0.3) style = 'bald';
   const look: NpcLook = {
     skin: pick(SKINS),
-    hair: elder ? pick([0xa8a29a, 0xe8e0d0, 0xc8c0b8]) : pick(HAIRS),
+    // (Silver, never paper-white: a white head from behind read as a glowing faceless ball.)
+    hair: elder ? pick([0xa8a29a, 0xc4bcb2, 0xb8b4ae]) : pick(HAIRS),
     hairStyle: style,
     top: pick(opts.palette),
     bottom: pick([0x4a5a78, 0x5a4a6a, 0x6a5a48, 0x3e4a5a, 0x7a6a5a, 0x5a6a4a, 0x2e3a4a, 0x8a6a4a, 0x6a3a3a, 0x4a4a3a]),

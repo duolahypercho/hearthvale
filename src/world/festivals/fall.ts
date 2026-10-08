@@ -28,7 +28,8 @@ import { buildHayBale, buildHarvestPile, buildScarecrow, buildBench } from '../p
 import { FestivalMap, type PlayState, type SpecView } from './base';
 import { sackNpcPos, SACK_LEN } from './coop';
 import type { ActionPose, PlayerRig } from '../../entities/player';
-import { sackGeometry, buildShowStage, buildMarquee, buildGiantPumpkin, buildRosette, buildEntryCard, buildCornField, buildRaceGate, buildAppleTub, buildCiderPress, buildGourdGarland, buildBanquetTable } from './kit';
+import { picnic, gossip, Chasers, type VignetteCtx } from './vignettes';
+import { buildLookout, sackGeometry, buildShowStage, buildMarquee, buildGiantPumpkin, buildRosette, buildEntryCard, buildCornField, buildRaceGate, buildAppleTub, buildCiderPress, buildGourdGarland, buildBanquetTable } from './kit';
 import { PetalStorm, GroundScatter } from './fx';
 import { produceGeometry } from '../props/crops';
 import { CROPS, type CropId } from '../../data/crops';
@@ -59,6 +60,10 @@ const PUMPKINS: [number, number, number, number][] = [
 export class HarvestFair extends FestivalMap {
   private leaves!: PetalStorm;
   private racers: { i: number; speed: number; off: number; lastX: number; lastPh: number; wob: number }[] = [];
+  private chasers: Chasers | null = null;
+  /** Co-op spectator lens on another farmer's race (see tick). */
+  private watchCam = false;
+  private readonly watchAnchor = new THREE.Vector2();
   /** Player stumble (sack race): tumble pose timer. */
   private stumbleT = 0;
   /** Produce Judging: your entry on the last pallet of the giants' table (an empty draped stand until you enter). */
@@ -272,7 +277,8 @@ export class HarvestFair extends FestivalMap {
     this.addProp(buildHarvestPile(r, 'pumpkins'), STAGE.x - 2.6, STAGE.z + 0.9, 0.4, { y: sy });
     this.addProp(buildHarvestPile(r, 'basket'), STAGE.x + 1.2, STAGE.z + 1.0, 0, { y: sy });
     this.addProp(buildHayBale(r), STAGE.x - 1.2, STAGE.z - 0.6, 0.1, { y: sy });
-    this.addProp(buildMarquee(r, 3.6, [0xd8473a, 0xf6ecd8]), 18.8, 12.4, 0.12, { solidR: 3.7, ao: 4.4 });
+    // (r8: cream + brick red held well under white — the sunlit roof blew out to near-white.)
+    this.addProp(buildMarquee(r, 3.6, [0xc23e30, 0xd8c8a8]), 18.8, 12.4, 0.12, { solidR: 3.7, ao: 4.4 });
     this.addProp(buildBanquetTable(r, 3.6, 'fall'), 18.2, 18.2, 0.05, { solidRect: [3.8, 2.2], ao: 1.8 });
   }
 
@@ -312,7 +318,8 @@ export class HarvestFair extends FestivalMap {
       // Tight jitter + even heights: the stalks stand as clipped walls, not a random scatter.
       const jx = x + (r.next() - 0.5) * 0.1;
       const jz = z + (r.next() - 0.5) * 0.1;
-      spots.push([jx, this.H(jx, jz) - 0.04, jz, r.next() * 6.28, 0.95 + r.next() * 0.12]);
+      // (r8: clipped to ~1.8 m — from the fair camera the 2.7 m walls hid every corridor.)
+      spots.push([jx, this.H(jx, jz) - 0.04, jz, r.next() * 6.28, 0.64 + r.next() * 0.07]);
       // Dark shaded soil under the walls (the trodden straw corridors are stamped pale below).
       this.terrain.stampCover('ao', jx, jz, 0.45, 0.5);
     };
@@ -346,7 +353,10 @@ export class HarvestFair extends FestivalMap {
     // Scarecrow at the heart of the maze + a hay-bale gate at the entrance.
     const cx = x0 + (mid + 0.5) * cell;
     const cz = z0 + Math.floor(rows / 2 + 0.5) * cell - cell / 2;
-    this.addProp(buildScarecrow(r), cx, cz, 0.3, { solidR: 0.4 });
+    // The scarecrow keeps watch from a lookout platform at the heart of the maze (a landmark that
+    // reads over the corn walls), a pennant flying from its rail.
+    this.addProp(buildLookout(r), cx, cz, 0.3, { solidR: 0.8 });
+    this.addProp(buildScarecrow(r), cx, cz, 0.3, { y: this.H(cx, cz) + 1.62 });
     const ex = x0 + (mid + 0.5) * cell;
     const ez = z0 + rows * cell + 0.9;
     for (const sx of [-1, 1]) {
@@ -533,8 +543,10 @@ export class HarvestFair extends FestivalMap {
         const roll = r.next();
         const y = this.H(cx, cz);
         if (d > -2.4) {
-          if (roll < 0.2) this.nature.place(r.next() < 0.3 ? 'berryBush' : 'bush', cx, y, cz, { scale: 0.8 + r.next() * 0.4, lod: 1 });
-          else if (roll < 0.3) this.nature.place('tallGrass', cx, y, cz, { scale: 1.2 });
+          // (r8: ferns, seed-heads and leaf drifts — the round fall bushes read as red noise balls.)
+          if (roll < 0.12) this.nature.place('fern', cx, y, cz, { scale: 1.1 + r.next() * 0.4, lod: 1 });
+          else if (roll < 0.26) this.nature.place('tallGrass', cx, y, cz, { scale: 1.2 + r.next() * 0.3 });
+          else if (roll < 0.32) this.nature.place('leaves', cx, y, cz, {});
           continue;
         }
         if (roll < 0.05) this.nature.place('mushroom', cx, y, cz, {});
@@ -588,14 +600,12 @@ export class HarvestFair extends FestivalMap {
     }
     // Spectators along the lane in little knots of 2–4 (varied stances, some perched on bales),
     // turned to the race and the camera. The north bank is the grandstand; the south bank is sparse.
+    // (r8: fewer knots with real gaps between them — the rope line read as a wall of extras.)
     const knots: [number, number, number][] = [
       // x, side (-1 north / 1 south), size
       [15.8, -1, 3],
-      [21.2, -1, 2],
       [26.4, -1, 3],
-      [32.2, -1, 3],
       [37.8, -1, 2],
-      [22.8, 1, 2],
       [37.4, 1, 2],
     ];
     for (const [kx, side, size] of knots) {
@@ -629,7 +639,7 @@ export class HarvestFair extends FestivalMap {
       person(c, 'ride', 34.0, z, Math.PI + 0.3, { lift: shoulderLift(a, c), props: ['balloon'] });
     }
     // Crowd at the contest: flanking the pallets, turned three-quarters to the camera.
-    for (const [x, z, yaw] of [[26.6, 19.8, 0.9], [27.4, 20.6, 0.5], [44.2, 19.6, -0.9], [43.4, 20.5, -0.4], [26.0, 17.4, 1.4]] as const) {
+    for (const [x, z, yaw] of [[26.6, 19.8, 0.9], [44.2, 19.6, -0.9], [43.4, 20.5, -0.4]] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.25 }), pick(['clap', 'idle', 'talk', 'cheer'] as const), x, z, yaw, {});
     }
     // The band's audience: a bench on the lawn east of the stage (a couple listening, a child
@@ -645,14 +655,26 @@ export class HarvestFair extends FestivalMap {
       person(randomLook(r, { palette: P.tops, child: true }), 'cheer', bx - 1.3, bz + 1.0, th - 0.2, { props: ['balloon'] });
       person(randomLook(r, { palette: P.tops }), 'clap', bx + 0.4, bz + 1.5, th + 0.3, {});
     }
-    for (const [x, z, yaw, anim] of [[15.6, 35.2, Math.PI, 'talk'], [22.4, 35.6, Math.PI - 0.3, 'idle'], [28.0, 34.8, -0.4, 'cheer'], [38.2, 38.2, Math.PI, 'sit'], [36.2, 35.0, 0, 'sit'], [52.0, 27.6, Math.PI + 0.6, 'wave'], [19.2, 16.0, 0, 'toast'], [25.5, 10.7, 0.1, 'talk'], [26.9, 13.6, Math.PI + 0.7, 'talk'], [24.2, 13.9, 2.5, 'idle']] as const) {
+    // Small authored moments instead of a scatter: neighbours gossiping by the pie tent, a picnic on
+    // the south lawn, kids chasing round the hay bales.
+    const vc: VignetteCtx = {
+      person: (look, anim, x, z, yaw, extra) => person(look, anim, x, z, yaw, extra ?? {}),
+      r,
+      palette: P.tops,
+      prop: (g, x, z, rot, solid) => void this.addProp(g, x, z, rot, solid ? { solidRect: solid } : {}),
+      cloth: [0xc8572e, 0xf2e2c0],
+    };
+    gossip(vc, 25.4, 12.4, 0.5);
+    picnic(vc, 22.0, 35.4, 0.3);
+    this.chasers = Chasers.place(vc, 3, 51.2, 29.0, 1.5, 0.9);
+    for (const [x, z, yaw, anim] of [[38.2, 38.2, Math.PI, 'sit'], [52.0, 27.6, Math.PI + 0.6, 'wave'], [19.2, 16.0, 0, 'toast']] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.2 }), anim, x, z, yaw, { lift: anim === 'sit' ? 0.2 : 0, props: anim === 'toast' ? ['mug'] : [] });
     }
     this.crowdSpecs = specs;
   }
 
-  protected override participants(): number[] {
-    return [...this.racers.map((r) => r.i), ...this.judges.map((j) => j.i)];
+  protected override participants(act: import('../../data/festivals').ActivityId): number[] {
+    return act === 'sackrace' ? this.racers.map((r) => r.i) : act === 'pumpkin' ? this.judges.map((j) => j.i) : [];
   }
 
   // ───────────────────────────────────────────── runtime
@@ -661,6 +683,7 @@ export class HarvestFair extends FestivalMap {
     const crowd = this.crowd;
     if (!crowd) return;
     const t = game.time;
+    this.chasers?.update(crowd, t);
     const span = RUN.x1 - RUN.x0;
     const race = 16;
     // Demo stills freeze the race mid-lane (hops keep animating in place); otherwise it loops.
@@ -709,7 +732,9 @@ export class HarvestFair extends FestivalMap {
       // Finishers hop on past the line and fan out on a diagonal (never piled on the tape).
       if (done) x += 1.1 + lane * 0.35;
       crowd.place(rc.i, x, laneZ(lane), done ? Math.PI / 2 - 0.9 : Math.PI / 2);
-      crowd.setAnim(rc.i, done ? 'cheer' : hopping ? 'sack' : 'idle');
+      // Before the off the racers warm up: small, slow hops on the spot in their sacks (r8: they
+      // stood stock-still in the overview).
+      crowd.setAnim(rc.i, done ? 'cheer' : 'sack', hopping ? 1 + k * 0.04 : 0.55 + k * 0.07);
       m.lean = rc.wob * Math.sin(t * 13 + k) * 0.38;
       m.squash = 1 - rc.wob * 0.14;
       rc.lastX = x;
@@ -720,6 +745,26 @@ export class HarvestFair extends FestivalMap {
         rc.lastPh = ph;
       }
     });
+    // Co-op spectator lens: another farmer's race while you stand by the lane (and aren't playing
+    // anything yourself) — the camera swings to the grandstand view and tracks the watched pack.
+    // (r8 critic: the host's view of a farmhand's race showed empty lanes.)
+    const watching = !local && !this.play && !!this.specSack() && Math.hypot(game.player.position.x - (RUN.x0 + RUN.x1) / 2, game.player.position.z - LANE.z) < 24;
+    if (watching) {
+      const st = this.specSackState;
+      let lo = 1;
+      let hi = 0;
+      for (let k = 0; k < 5; k++) {
+        lo = Math.min(lo, st.progress[k] ?? 0);
+        hi = Math.max(hi, st.progress[k] ?? 0);
+      }
+      if (!this.watchCam) this.frame({ pitch: 46, distance: 21, yaw: 0 });
+      this.watchCam = true;
+      this.watchAnchor.set(RUN.x0 + ((lo + hi) / 2) * span + 1.2, LANE.z + 0.6);
+      this.camAnchor = this.watchAnchor;
+    } else if (this.watchCam) {
+      this.watchCam = false;
+      if (!this.play) this.releaseFrame();
+    }
     if (!local && this.remoteSacks.size && !this.specRaceView) {
       for (const s2 of this.remoteSacks.values()) s2.removeFromParent();
       this.remoteSacks.clear();
@@ -731,7 +776,8 @@ export class HarvestFair extends FestivalMap {
       if (pr >= 1) this.pastTape = Math.min(1.2, this.pastTape + dt * 1.6);
       else this.pastTape = 0;
       const px = RUN.x0 + pr * span + this.pastTape;
-      this.movePlayer(px, laneZ(play.lanes?.[0] ?? 0));
+      // Past the tape you peel off diagonally toward the lens side, clear of the other finishers.
+      this.movePlayer(px, laneZ(play.lanes?.[0] ?? 0) + this.pastTape * 0.55);
       // Burlap squash & stretch: stretched in the air, squashed flat on landing.
       if (this.sack) {
         const h = play.hop;
@@ -923,10 +969,11 @@ export class HarvestFair extends FestivalMap {
         this.cheerAll(value === 0);
       }
       else if (kind === 'win' || kind === 'lose') {
-        // Result card: frame the finish tape (winners fanning out behind it) with you in the shot.
+        // Result card: you in the left third at mid-height (the card sits centre-right), the finish
+        // tape and the winners fanning out behind it beyond you. (r8: you were cropped at the bottom
+        // edge behind the Finish sign.)
         this.raceOver = true;
-        const fx = RUN.x1 + 0.4;
-        this.reframe((fx - p.x) * 0.62, LANE.z - p.z - 1.6, 16 + Math.min(6, Math.abs(fx - p.x) * 0.25));
+        this.reframe(4.6, -1.1, 15.5);
       }
     } else if (play.id === 'pumpkin') {
       if (kind === 'enter') this.showEntry(play.partner ?? 'pumpkin', false, value % 1000 || undefined, Math.floor(value / 1000) - 1);

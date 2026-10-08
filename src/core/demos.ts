@@ -247,9 +247,9 @@ export const DEMOS: Record<string, DemoDef> = {
   // Milestone treasure chest (floor 10; &floor=20|30): the farmer opens it, the sword is reforged (&open=0 keeps it shut).
   'mine-chest': { map: 'mine', x: 10, z: 10, facing: 'up', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 15.5, offsetZ: -0.6 }, showcase: [] },
   // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
-  'fest-spring': { map: 'fest-spring', x: 25.2, z: 27.9, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 31, offsetX: 6.6, offsetZ: -2.1 }, showcase: ['festival-show'] },
+  'fest-spring': { map: 'fest-spring', x: 27.6, z: 27.6, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 31, offsetX: 4.2, offsetZ: -1.8 }, showcase: ['festival-show'] },
   'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 11, distance: 26, offsetX: -1, offsetZ: -11 }, showcase: ['festival-show'] },
-  'fest-fall': { map: 'fest-fall', x: 32.6, z: 22.4, facing: 'up', time: 14.3, season: 'fall', weather: 'sun', camera: { yaw: 20, pitch: 40, distance: 32, offsetX: 2, offsetZ: -6 }, showcase: ['festival-show'] },
+  'fest-fall': { map: 'fest-fall', x: 32.6, z: 22.4, facing: 'up', time: 14.3, season: 'fall', weather: 'sun', camera: { yaw: 20, pitch: 42, distance: 34, offsetX: 5.4, offsetZ: -5.4 }, showcase: ['festival-show'] },
   // Starfall at the turn of dusk into night: the last afterglow over the treeline with the aurora rising
   // (it comes in from 18:30), lamps lit; `fest-winter-night` = full dark, aurora + lamplight on the ice.
   // Both look from over the south bank across the skaters on the ice to the square — the fire + cocoa

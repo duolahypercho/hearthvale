@@ -168,7 +168,7 @@ const EVENTS: Record<ActivityId, string[]> = {
   lanterns: ['wish', 'release', 'restart', 'win', 'lose'],
   sackrace: ['hop', 'stumble', 'finish', 'restart', 'win', 'lose'],
   pumpkin: ['enter', 'judge', 'rosette', 'ribbon', 'restart', 'win', 'lose'],
-  giftswap: ['draw', 'given', 'gift-appear', 'unwrap', 'restart', 'win', 'lose'],
+  giftswap: ['draw', 'peek', 'given', 'gift-appear', 'unwrap', 'restart', 'win', 'lose'],
   skate: ['gate', 'star', 'crack', 'lap', 'restart', 'win', 'lose'],
 };
 

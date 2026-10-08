@@ -26,6 +26,7 @@ import { buildFlowerFloat, buildFlowerArch, buildBloomHedge, buildBandstand, bui
 import { PetalStorm, GroundScatter, PetalFall, Ribbons } from './fx';
 import { patchMaterial, after, before } from '../../render/patch';
 import { randomLook, shoulderLift, type CrowdSpec, type HeldProp as HeldPropName } from './crowd';
+import { picnic, benchPair, couple, gossip, Chasers, type VignetteCtx } from './vignettes';
 import { Rng } from '../../core/rng';
 
 /** Per-frame scratch (no allocations in tick). */
@@ -49,6 +50,7 @@ export class SpringParade extends FestivalMap {
   private avenueSamples: { x: number; z: number }[] = [];
   private floats: { group: THREE.Group; s: number; rider?: number; riderLocal?: THREE.Vector3; riderYawOff: number; walkers?: { i: number; ahead: number; side: number }[] }[] = [];
   private dancers: { i: number; dir: 1 | -1; a: number }[] = [];
+  private chasers: Chasers | null = null;
   private ribbons!: Ribbons;
   private plait!: THREE.Mesh;
   private plaitLen = { value: 0.8 };
@@ -200,7 +202,7 @@ export class SpringParade extends FestivalMap {
       if (this.grid.inBounds(Math.floor(x), Math.floor(z)) && !this.grid.isWalkable(Math.floor(x), Math.floor(z)) && pv < 0.4) continue;
       const clump = this.noise.fbm(x * 0.35, z * 0.35, 2);
       if (clump < -0.15 && cr.next() < 0.7) continue;
-      items.push({ x, y: this.H(x, z), z, rot: cr.next() * 6.28, color: [0xf9c6d6, 0xffffff, 0xf4aec4, 0xfbd8e2, 0xf06a8a][Math.floor(cr.next() * 5)]! });
+      items.push({ x, y: this.H(x, z), z, rot: cr.next() * 6.28, color: [0xf4a6be, 0xf08aa8, 0xe8789a, 0xf7b8cc, 0xd8607e][Math.floor(cr.next() * 5)]! }); // (r8: real pinks — white specks read as confetti)
     }
     const carpet = new GroundScatter(items, 'petal');
     carpet.mesh.userData.perfTag = 'festival';
@@ -349,7 +351,9 @@ export class SpringParade extends FestivalMap {
 
   private plantTrees(r: Rng): void {
     // Hero cherry trees (sculpted limbs + blossom clumps) along the south kerb and between houses.
-    const hero: [number, number, number][] = [[9.5, 25.6, 1.0], [27.0, 25.9, 0.9], [37.0, 25.9, 0.9], [55.5, 25.4, 1.0], [19, 9.6, 0.95], [28, 9.0, 0.9], [36.3, 9.0, 0.9], [45, 9.4, 0.95], [8.2, 14, 1.1], [56.2, 14.2, 1.05], [12, 38.5, 0.95], [52.5, 38.8, 1.0], [24.5, 42, 0.9], [41, 42.5, 0.95]];
+    // (r8: the two that stood on the south kerb in front of the lens hid the flower floats — the
+    // festival's signature — so the kerb is open; the pair now flank the green further south.)
+    const hero: [number, number, number][] = [[9.5, 25.6, 1.0], [22.4, 38.6, 0.78], [47.6, 37.6, 0.8], [55.5, 25.4, 1.0], [19, 9.6, 0.95], [28, 9.0, 0.9], [36.3, 9.0, 0.9], [45, 9.4, 0.95], [8.2, 14, 1.1], [56.2, 14.2, 1.05], [12, 38.5, 0.95], [52.5, 38.8, 1.0], [24.5, 42, 0.9], [41, 42.5, 0.95]];
     const trees = hero.map(([x, z, s]) => ({ x, y: this.H(x, z), z, s }));
     const cherry = buildCherryTrees(r.fork('cherry'), trees);
     this.addProp(cherry.bark, 0, 0, 0, { y: 0 });
@@ -452,14 +456,26 @@ export class SpringParade extends FestivalMap {
         extraIdx++;
       }
     }
-    // Townsfolk on both kerbs (north faces the lane / camera; south mostly faces the lane).
-    const kerbN = [11.2, 12.8, 17.6, 19.2, 21.4, 25.8, 27.4, 30.6, 33.8, 35.4, 38.6, 43.6, 47.2, 52.6];
-    for (const x of kerbN) {
-      const child = r.next() < 0.3;
-      person(randomLook(r, { child, palette: P.tops }), pick(['cheer', 'wave', 'clap', 'cheer', 'wave'] as const), x + (r.next() - 0.5) * 0.4, 17.7 + (r.next() - 0.5) * 0.5, (r.next() - 0.5) * 0.6, { props: child ? [pick(['balloon', 'flag', 'balloon'] as const)] : r.next() < 0.3 ? ['flag'] : [] });
+    // (r8) Fewer, authored people: a handful on the north kerb, a couple watching the floats, a
+    // little one up on a grown-up's shoulders, three neighbours gossiping, a picnic, an elder on a
+    // bench with a friend, two kids chasing round the grass — not rows of the same cheering chibi.
+    const vc: VignetteCtx = {
+      person: (look, anim, x, z, yaw, extra) => person(look, anim, x, z, yaw, extra ?? {}),
+      r,
+      palette: P.tops,
+      prop: (g, x, z, rot, solid) => void this.addProp(g, x, z, rot, solid ? { solidRect: solid } : {}),
+      cloth: [0xf08aa8, 0xfff4f0],
+    };
+    const kerbN: [number, CrowdSpec['anim'], boolean][] = [
+      [12.6, 'wave', false],
+      [20.2, 'cheer', true],
+      [36.4, 'idle', false],
+      [47.6, 'clap', true],
+    ];
+    for (const [x, anim, child] of kerbN) {
+      person(randomLook(r, { child, palette: P.tops }), anim, x + (r.next() - 0.5) * 0.4, 17.7 + (r.next() - 0.5) * 0.5, (r.next() - 0.5) * 0.6, { props: child ? [pick(['balloon', 'flag'] as const)] : [] });
     }
-    // South kerb: townsfolk with their backs to the lane, watching the ribbon dance on the green
-    // (faces toward the camera, a few turned to chat).
+    couple(vc, 29.8, 17.5, 29.8, 21.0);
     // A grown-up with a child up on their shoulders, waving at the floats.
     {
       const a = randomLook(r, { palette: P.tops });
@@ -467,11 +483,10 @@ export class SpringParade extends FestivalMap {
       person(a, 'lantern', 23.6, 17.5, 0.15, { pinned: true });
       person(c, 'ride', 23.6, 17.5, 0.15, { lift: shoulderLift(a, c), props: ['flag'] });
     }
-    const kerbS = [13.4, 18.2, 24.4, 34.4, 39.8, 50.2, 53.8];
-    for (const x of kerbS) {
-      const child = r.next() < 0.35;
-      person(randomLook(r, { child, palette: P.tops }), pick(['cheer', 'clap', 'wave', 'idle'] as const), x + (r.next() - 0.5) * 0.4, 24.6 + (r.next() - 0.5) * 0.4, (r.next() - 0.5) * 1.2, { props: child ? ['balloon'] : [] });
-    }
+    gossip(vc, 15.2, 25.6, 0.4);
+    picnic(vc, 19.4, 34.2, 0.45);
+    benchPair(vc, 40.4, 36.4, -0.55);
+    this.chasers = Chasers.place(vc, 2, 21.6, 27.2, 1.3, 0.7);
     // Ribbon dancers: one ring round the blossom pole, alternate dancers circling opposite ways and
     // weaving in and out of each other; each holds the end of a ribbon up in the hand nearest the pole.
     for (let k = 0; k < DANCERS; k++) {
@@ -486,12 +501,6 @@ export class SpringParade extends FestivalMap {
     person(randomLook(r, { palette: P.tops }), 'fiddle', bx - 0.9, bz - 0.4, 0.3, { props: ['fiddle'], lift: 0.62 });
     person(randomLook(r, { palette: P.tops }), 'toast', bx + 0.9, bz - 0.3, -0.3, { props: ['flute'], lift: 0.62 });
     person(randomLook(r, { palette: P.tops }), 'carol', bx, bz + 0.6, 0, { props: ['songbook'], lift: 0.62 });
-    // Picnickers + onlookers on the green's edge.
-    person(randomLook(r, { palette: P.tops }), 'sit', 18.6, 33.1, 0, { lift: 0.18 });
-    person(randomLook(r, { palette: P.tops }), 'toast', 20.4, 35.3, Math.PI, { props: ['mug'] });
-    person(randomLook(r, { child: true, palette: P.tops }), 'cheer', 36.8, 35.2, -2.3, {});
-    person(randomLook(r, { palette: P.tops }), 'clap', 26.2, 35.6, 2.4, {});
-    person(randomLook(r, { palette: P.tops }), 'clap', 38.6, 28.4, -1.1, {});
     // Float riders: the Blossom Queen on her throne, waving kids on the other three.
     const queen = person({ skin: 0xf2c8a2, hair: 0xb8542a, hairStyle: 'bob', top: 0xffffff, bottom: 0xf7a8c0, scale: 0.95, build: 1, skirt: true }, 'wave', 0, 0, 0, { lift: 0, top: 0xfff4f8, accent: 0xf06a8a, props: ['bouquet'] });
     this.floats[0]!.rider = queen;
@@ -503,10 +512,10 @@ export class SpringParade extends FestivalMap {
     // petals ahead of it, a fiddler + flautist before the Queen, a flag bearer at the tail — so the
     // parade reads as moving even in a still.
     const walkerSets: [HeldPropName[], CrowdSpec['anim'], number, number, boolean][][] = [
-      [[['fiddle'], 'fiddle', 2.9, -0.55, false], [['flute'], 'toast', 2.9, 0.55, false], [['bouquet'], 'walk', 4.4, 0, true]],
-      [[['bouquet'], 'walk', 2.7, -0.5, true], [['flag'], 'walk', 2.7, 0.5, true]],
-      [[['balloon'], 'walk', 2.6, 0.45, true], [['bouquet'], 'wave', 2.8, -0.5, false]],
-      [[['flag'], 'walk', 2.7, 0, false], [[], 'cheer', -2.6, 0.5, true]],
+      [[['fiddle'], 'fiddle', 2.9, -0.55, false], [['flute'], 'toast', 2.9, 0.55, false]],
+      [[['bouquet'], 'walk', 2.7, -0.5, true]],
+      [[['balloon'], 'walk', 2.6, 0.45, true]],
+      [],
     ];
     walkerSets.forEach((set, k) => {
       const f = this.floats[k];
@@ -520,8 +529,8 @@ export class SpringParade extends FestivalMap {
     this.crowdSpecs = specs;
   }
 
-  protected override participants(): number[] {
-    return this.dancers.map((d) => d.i);
+  protected override participants(act: import('../../data/festivals').ActivityId): number[] {
+    return act === 'dance' ? this.dancers.map((d) => d.i) : [];
   }
 
   // ───────────────────────────────────────────── runtime
@@ -572,6 +581,7 @@ export class SpringParade extends FestivalMap {
     this.placeFloats(this.showT);
     const crowd = this.crowd;
     if (!crowd) return;
+    this.chasers?.update(crowd, t);
     // The plait grows down the pole as the dancers weave (the Ribbon Dance: as you hit the beats).
     // (Co-op: another farmer's dance is staged the same way — partner, plait, hearts.)
     const play = this.play?.id === 'dance' ? this.play : (this.spectated('dance')?.play ?? null);

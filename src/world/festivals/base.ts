@@ -265,10 +265,6 @@ export abstract class FestivalMap implements GameMap {
         if (!s.lift) this.terrain.stampCover('ao', s.x, s.z, 0.45, 0.35);
       });
       this.root.add(this.crowd.mesh);
-      for (const i of this.participants()) {
-        const m = this.crowd.members[i];
-        if (m) m.keep = m.keepAlways = true;
-      }
     }
     if (this.fires.length) {
       this.fire = new FireFX(this.fires);
@@ -330,7 +326,7 @@ export abstract class FestivalMap implements GameMap {
     const watch = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'sway', 'wave']);
     const free = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'talk', 'sway', 'toast', 'wave', 'lantern']);
     this.crowdSpecs.forEach((s, i) => {
-      if (s.lift || s.pinned || !free.has(s.anim)) return;
+      if (s.lift || s.pinned || s.authored || !free.has(s.anim)) return;
       const h = Math.abs(Math.sin(i * 7.137 + s.z * 31.7) * 43758.5453) % 1;
       let yaw = s.yaw;
       if (!s.id && watch.has(s.anim)) {
@@ -353,7 +349,7 @@ export abstract class FestivalMap implements GameMap {
   protected turnToCamera(frac = 0.38): void {
     const free = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'talk', 'sway', 'toast', 'wave', 'lantern']);
     this.crowdSpecs.forEach((s, i) => {
-      if (s.id || s.lift || s.pinned || !free.has(s.anim)) return;
+      if (s.id || s.lift || s.pinned || s.authored || !free.has(s.anim)) return;
       const c = Math.cos(s.yaw);
       if (c > -0.25) return;
       const h = Math.abs(Math.sin(i * 12.9898 + s.x * 78.233) * 43758.5453) % 1;
@@ -448,7 +444,8 @@ export abstract class FestivalMap implements GameMap {
         }
       }
       const dist = pip.id && pip.id === want[0] ? d0 : pip.id && pip.id === want[1] ? d1 : Infinity;
-      const goal = dist < PIP_R ? Math.min(1, (PIP_R - dist) / 1.5) : 0;
+      // On or off (a distance-scaled opacity left half-faded ghost tags hanging in stills).
+      const goal = dist < PIP_R ? 1 : 0;
       pip.a += (goal - pip.a) * (1 - Math.exp(-8 * dt));
       const idx = this.named.get(pip.id);
       const m = idx !== undefined ? c.members[idx] : undefined;
@@ -679,6 +676,36 @@ export abstract class FestivalMap implements GameMap {
     if (this.specViews.size || this.specRaceView) this.tickSpectators(dt);
     // Staged framings (paused demo stills, mini-games) never show half-cropped bodies at the edges.
     CROWD_EDGE.value = this.play || (game.paused && this.staged) ? 1 : 0;
+    // Postcard stills: a gentler tilt-shift (the far rooftops / sky stay crisp, no milky top band).
+    const still = game.paused && this.staged && !this.play;
+    // ... and a soft warm contact ring under your farmer, so you read in a crowded square.
+    if (still && !this.youRing) {
+      const g = new THREE.RingGeometry(0.48, 0.6, 40);
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.MeshBasicMaterial({ color: 0xf0a830, transparent: true, opacity: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+      this.youRing = new THREE.Mesh(g, m);
+      this.youRing.name = 'you-ring';
+      this.youRing.renderOrder = 4;
+      this.youRing.userData.noAO = true;
+      this.youRing.userData.perfTag = 'festival';
+      this.root.add(this.youRing);
+    }
+    if (this.youRing) {
+      this.youRing.visible = still;
+      if (still) {
+        const pp = game.player.position;
+        this.youRing.position.set(pp.x, this.heightAt(pp.x, pp.z) + 0.03, pp.z);
+      }
+    }
+    if (still) {
+      game.rc.tiltBand = this.stillTilt[0];
+      game.rc.tiltStrength = this.stillTilt[1];
+      this.tiltOwned = true;
+    } else if (this.tiltOwned) {
+      game.rc.tiltBand = 0.26;
+      game.rc.tiltStrength = 0.7;
+      this.tiltOwned = false;
+    }
     this.updatePips(dt, game);
     if (this.winCheer.length && this.showT > this.cheerUntil) {
       const c = this.crowd;
@@ -794,6 +821,18 @@ export abstract class FestivalMap implements GameMap {
     c.commit();
   }
 
+  /** Ease the camera back from a mini-game / spectator framing to where it was. */
+  protected releaseFrame(): void {
+    this.camAnchor = null;
+    this.anchorK = 0;
+    if (this.camSaved) {
+      const c = this.camSaved;
+      this.camGoal = { ...c };
+      this.camRelease = 2.5;
+      this.camSaved = null;
+    }
+  }
+
   /** Update the live mini-game framing (camera look offset + distance) without saving it again. */
   protected reframe(ox: number, oz: number, distance?: number): void {
     const g = this.camGoal;
@@ -833,6 +872,10 @@ export abstract class FestivalMap implements GameMap {
     // the partner is part of the shot and always stays.
     if (this.crowd) {
       this.crowd.screen = { cam: this.game.rc.camera, rects: [], minR: 0.035, maxR: 0.16 };
+      for (const i of this.participants(id)) {
+        const m = this.crowd.members[i];
+        if (m) m.keep = true;
+      }
       const pi = partner ? this.named.get(partner) : undefined;
       if (pi !== undefined) this.crowd.members[pi]!.keep = true;
       this.hudT = 0;
@@ -856,8 +899,13 @@ export abstract class FestivalMap implements GameMap {
     });
   }
 
-  /** Crowd members that are part of an activity (never folded away by the framing guard). */
-  protected participants(): number[] {
+  private youRing: THREE.Mesh | null = null;
+  /** Tilt-shift [band, strength] for paused postcard stills (see update). */
+  protected stillTilt: [number, number] = [0.38, 0.45];
+  private tiltOwned = false;
+
+  /** Crowd members taking part in activity `act` (never folded away by its framing guard). */
+  protected participants(_act: ActivityId): number[] {
     return [];
   }
 
@@ -936,21 +984,14 @@ export abstract class FestivalMap implements GameMap {
     if (!play) return;
     this.onEndPlay(play, result);
     this.play = null;
-    this.camAnchor = null;
-    this.anchorK = 0;
-    if (this.camSaved) {
-      const c = this.camSaved;
-      this.camGoal = { ...c };
-      this.camRelease = 2.5;
-      this.camSaved = null;
-    }
+    this.releaseFrame();
     const p = this.game.player;
     if (p.actionPose === this.poseFn) p.actionPose = this.prevPose;
     this.prevPose = this.poseFn = null;
     const c = this.crowd;
     if (c) {
       c.screen = null;
-      for (const m of c.members) m.keep = m.keepAlways ?? false;
+      for (const m of c.members) m.keep = false;
       c.commit();
     }
   }

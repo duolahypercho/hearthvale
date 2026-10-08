@@ -71,10 +71,12 @@ export class StarfallSquare extends FestivalMap {
   private roamHome = new THREE.Vector3();
   private recipient: { i: number; x: number; z: number; yaw: number; anim: number } | null = null;
   /** Gift Exchange: the present someone wrapped for you, unwrapped in your hands. */
-  private present: { g: THREE.Group; lid: THREE.Object3D; bow: THREE.Object3D; ribbons: THREE.Object3D[]; prize: THREE.Sprite; gem: THREE.Mesh; t0: number; open: number; beat: number; bt: [number, number, number]; item: string; sparkT: number } | null = null;
-  private tiltOwned = false;
+  private present: { g: THREE.Group; lid: THREE.Object3D; bow: THREE.Object3D; ribbons: THREE.Object3D[]; prize: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>; gem: THREE.Mesh; t0: number; open: number; beat: number; bt: [number, number, number]; item: string; sparkT: number } | null = null;
   /** Gift Exchange: the recipient's reaction clip to a peek (reverts at `peekUntil`). */
   private peekUntil = 0;
+
+  // Postcard stills keep the sky band crisp (stars, the curtains' rays): a gentler lens blur.
+  protected override stillTilt: [number, number] = [0.42, 0.35];
 
   constructor(game: Game) {
     super(game, {
@@ -385,10 +387,13 @@ export class StarfallSquare extends FestivalMap {
         if (jz > 38 && jz < 56 && Math.abs(jx - 32) < 14) continue;
         // The northern rim stays low and open: a sparse fringe of small firs on the ridge, so the
         // postcard sees real night sky — stars and the aurora curtains — over the rooftops.
+        // (The rolls are drawn first so the random stream — every other tree — stays as it was.)
+        const sp = r.next() < 0.7 ? 'pine' : 'oak';
+        const sc = 0.85 + r.next() * 0.45;
         const north = jz < 2 && jx > -6 && jx < 70;
-        if (north && (jz < -6 || r.next() < 0.6)) continue;
-        const sp = north || r.next() < 0.7 ? 'pine' : 'oak';
-        this.trees.add(sp, jx, this.H(jx, jz) - 0.08, jz, north ? 0.55 + r.next() * 0.3 : 0.85 + r.next() * 0.45, undefined, d > 2.2 ? 1 : 0);
+        const thin = Math.abs(Math.sin(jx * 12.9898 + jz * 78.233) * 43758.5453) % 1;
+        if (north && (jz < -6 || thin < 0.6)) continue;
+        this.trees.add(north ? 'pine' : sp, jx, this.H(jx, jz) - 0.08, jz, north ? 0.55 + (sc - 0.85) * 0.66 : sc, undefined, d > 2.2 ? 1 : 0);
       }
     }
   }
@@ -476,7 +481,6 @@ export class StarfallSquare extends FestivalMap {
     const loops: [number, number, number, number, number][] = [
       // cx, rx, rz, angular speed, pair (1 = two skaters side by side)
       [20, 5.5, 0.7, 0.3, 1],
-      [11, 3.5, 0.5, -0.4, 1],
       [27, 2.6, 0.45, 0.42, 0],
       [56, 3.2, 0.5, -0.34, 1],
     ];
@@ -489,16 +493,16 @@ export class StarfallSquare extends FestivalMap {
     });
     // Along the east reach, skaters glide out and back in the strips by each bank (clear of the
     // Starlight Skate course down the middle), so the race is never run on an empty river.
-    for (const [cx, rx, sp, oz, a0] of [[41.5, 5.6, 0.2, 2.05, 0.4], [42.5, 5.2, -0.24, 2.0, 3.3], [41, 5.4, 0.23, -2.05, 1.9], [43, 4.8, -0.19, -2.0, 4.8]] as const) {
+    for (const [cx, rx, sp, oz, a0] of [[41.5, 5.6, 0.2, 2.05, 0.4], [43, 4.8, -0.19, -2.0, 4.8]] as const) {
       const z0 = this.riverZ(cx) + oz;
       const i = person(randomLook(r, { palette: P.tops, child: cx > 42.8 }), 'skate', cx, z0, 0, { props: ['skates'], lift: ICE_Y - this.H(cx, z0), phase: r.next() });
       this.skaters.push({ i, cx, rx, rz: 0.14, sp, a0, side: 0, oz });
     }
     // Warming their hands at the fire; stall customers; a kid dragging a sled up the slope.
-    for (const [x, z, anim, props] of [[23.0, 26.6, 'idle', []], [25.6, 26.4, 'toast', ['mug']], [15.8, 22.9, 'talk', []], [48.8, 22.4, 'idle', ['mug']], [50.8, 22.6, 'talk', []]] as const) {
+    // (r8: a third fewer extras overall — small groups with a reason to be where they are.)
+    for (const [x, z, anim, props] of [[23.0, 26.6, 'idle', []], [25.6, 26.4, 'toast', ['mug']], [48.8, 22.4, 'idle', ['mug']]] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.25 }), anim, x, z, x < 30 && z > 24 ? toFire(x, z) : face(x, z, x < 30 ? 14.6 : 49.8, x < 30 ? 21.6 : 21.0), { props: [...props] });
     }
-    person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 47.6, 25.4, -0.4, {});
     // Up on a grown-up's shoulders for a better look at the star.
     {
       const a = randomLook(r, { palette: P.tops });
@@ -509,11 +513,10 @@ export class StarfallSquare extends FestivalMap {
     // A couple chatting on the east trail, friends waving across the north path.
     person(randomLook(r, { palette: P.tops }), 'talk', 40.2, 22.6, face(40.2, 22.6, 41.3, 23.2), { props: ['mug'] });
     person(randomLook(r, { palette: P.tops }), 'toast', 41.3, 23.2, face(41.3, 23.2, 40.2, 22.6), { props: ['mug'] });
-    person(randomLook(r, { palette: P.tops }), 'wave', 37.2, 15.4, 0.6, {});
     person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 26.8, 15.6, -0.5, { props: ['balloon'] });
     // Onlookers on the banks + bridge, watching the ice (facing south, toward the camera).
     // (None between the lens and the gift circle: that sightline is the hero zone.)
-    for (const [x, z, yaw, anim] of [[17.8, 29.4, 0.5, 'clap'], [47.0, 29.2, -0.4, 'wave']] as const) {
+    for (const [x, z, yaw, anim] of [[17.8, 29.4, 0.5, 'clap']] as const) {
       person(randomLook(r, { palette: P.tops, child: r.next() < 0.3 }), anim, x, z, yaw, {});
     }
     // The welcome choir on the south bank by the bridge: two ranks singing to the arrivals (faces to
@@ -521,14 +524,13 @@ export class StarfallSquare extends FestivalMap {
     const bz = this.riverZ(BRIDGE_X);
     // Down the bank on the snowfield (nearer the lens: faces and songbooks read at postcard distance).
     for (const [dx, dz, anim, props] of [
-      [-2.6, 7.6, 'carol', ['songbook']], [-3.6, 8.3, 'carol', ['songbook']], [-4.9, 7.9, 'lantern', ['lanternPole']], [-3.0, 9.1, 'carol', ['songbook']], [-4.3, 9.4, 'carol', ['songbook']],
-      [2.6, 7.6, 'carol', ['songbook']], [3.6, 8.3, 'carol', ['songbook']], [4.9, 7.9, 'lantern', ['lanternPole']], [3.0, 9.1, 'carol', ['songbook']], [4.3, 9.4, 'clap', []],
+      [-2.6, 7.6, 'carol', ['songbook']], [-3.6, 8.3, 'carol', ['songbook']], [-4.9, 7.9, 'lantern', ['lanternPole']],
+      [2.6, 7.6, 'carol', ['songbook']], [3.6, 8.3, 'carol', ['songbook']], [4.9, 7.9, 'lantern', ['lanternPole']],
     ] as const) {
       const x = BRIDGE_X + dx;
       const z = bz + dz;
       person(randomLook(r, { palette: P.tops, child: dz > 6 && r.next() < 0.5 }), anim, x, z, face(x, z, BRIDGE_X, bz + 14), { props: [...props], accent: pick(P.accents) });
     }
-    person(randomLook(r, { palette: P.tops, child: true }), 'cheer', 25.6, this.riverZ(25.6) + 9.0, 0.6, {});
     person(randomLook(r, { palette: P.tops, child: true }), 'clap', 41.0, this.riverZ(41.0) + 9.9, -0.3, {});
     person(randomLook(r, { palette: P.tops }), 'talk', 43.4, this.riverZ(43.4) + 9.0, -0.9, { props: ['mug'] });
     this.crowdSpecs = specs;
@@ -606,6 +608,7 @@ export class StarfallSquare extends FestivalMap {
       this.frame({ pitch: 15, distance: 7.6, yaw: -14, ox: 1.25, oz: -0.9, oy: 1.15 });
     } else if (play.id === 'skate') {
       this.startRun(play);
+      this.clearCourse();
       // A three-quarter from down-river (south-east): the lantern-gate arches read as arches, not edge-on
       // sticks, and the skater carves across the frame toward them.
       this.frame({ pitch: 32, distance: 15.5, yaw: 34, ox: 0.4, oz: -1.6 });
@@ -646,12 +649,37 @@ export class StarfallSquare extends FestivalMap {
     this.layoutLeg();
   }
 
+  /**
+   * Keep a 1.5 m clear band round the skating course: any onlooker standing on (or at the edge of)
+   * the course steps back onto the bank (r8 critic: villagers stood in the lane, overlapping you).
+   */
+  private clearCourse(): void {
+    const c = this.crowd;
+    if (!c) return;
+    const half = 1.45 + 1.5;
+    const skaters = new Set(this.skaters.map((s) => s.i));
+    for (let i = 0; i < c.members.length; i++) {
+      const m = c.members[i]!;
+      if (skaters.has(i) || m.spec.lift || m.x < SKATE.x0 - 2.5 || m.x > SKATE.x1 + 2.5) continue;
+      const rz = this.riverZ(m.x);
+      const dz = m.z - rz;
+      // (The far bank gets more room: from the high three-quarter a villager there stands right
+      // behind a skater on the far edge of the course.)
+      const need = dz < 0 ? half + 1.8 : half;
+      if (Math.abs(dz) >= need) continue;
+      m.z = rz + Math.sign(dz || 1) * (need + 0.2);
+      m.y = this.heightAt(m.x, m.z);
+    }
+    c.commit();
+  }
+
   private clearRun(): void {
     this.run = null;
     const k = this.skateKit;
     if (!k) return;
     k.posts.count = 0;
     k.cracks.count = 0;
+    k.rims.count = 0;
     for (let i = 0; i < SK_GLOWS; i++) k.glow.set(i, 0, -50, 0, 0);
   }
 
@@ -715,23 +743,23 @@ export class StarfallSquare extends FestivalMap {
       group.add(im);
       return im;
     });
-    // Thin-ice decal: a frosted, star-shattered patch with dark water showing through its heart.
+    // Thin-ice decal (r8: danger, not a pretty snowflake): a black hole of open water, dark spidered
+    // fractures with a faint frosted lip, a bruised halo — plus a pulsing warning rim (rings).
     const c = document.createElement('canvas');
     c.width = 256;
     c.height = 160;
     const g2 = c.getContext('2d')!;
     const rr = new Rng('crack');
-    const frost = g2.createRadialGradient(128, 80, 6, 128, 80, 78);
-    frost.addColorStop(0, 'rgba(4,14,26,0.92)');
-    frost.addColorStop(0.28, 'rgba(20,48,72,0.75)');
-    frost.addColorStop(0.55, 'rgba(190,225,250,0.45)');
-    frost.addColorStop(1, 'rgba(190,225,250,0)');
+    const bruise = g2.createRadialGradient(128, 128, 4, 128, 128, 92);
+    bruise.addColorStop(0, 'rgba(2,6,12,0.98)');
+    bruise.addColorStop(0.16, 'rgba(4,12,22,0.92)');
+    bruise.addColorStop(0.45, 'rgba(10,26,40,0.45)');
+    bruise.addColorStop(1, 'rgba(10,26,40,0)');
     g2.save();
     g2.scale(1, 160 / 256);
-    g2.translate(0, (256 - 160) / 2);
-    g2.fillStyle = frost;
+    g2.fillStyle = bruise;
     g2.beginPath();
-    g2.arc(128, 128, 90, 0, Math.PI * 2);
+    g2.arc(128, 128, 92, 0, Math.PI * 2);
     g2.fill();
     g2.restore();
     const branch = (x: number, y: number, a: number, len: number, w: number, depth: number): void => {
@@ -740,24 +768,32 @@ export class StarfallSquare extends FestivalMap {
       for (let i = 0; i < 6; i++) {
         const nx = px + (Math.cos(a) * len) / 6 + (rr.next() - 0.5) * 7;
         const ny = py + (Math.sin(a) * len * 0.62) / 6 + (rr.next() - 0.5) * 5;
-        g2.strokeStyle = 'rgba(240,250,255,0.95)';
+        // Frosted lip (a hairline of white along one side) under the dark fracture itself.
+        g2.strokeStyle = 'rgba(200,228,250,0.55)';
+        g2.lineWidth = w * 0.45;
+        g2.beginPath();
+        g2.moveTo(px + 1.4, py - 1.2);
+        g2.lineTo(nx + 1.4, ny - 1.2);
+        g2.stroke();
+        g2.strokeStyle = 'rgba(4,10,20,0.96)';
         g2.lineWidth = w;
         g2.beginPath();
         g2.moveTo(px, py);
         g2.lineTo(nx, ny);
         g2.stroke();
-        if (depth > 0 && rr.next() < 0.4) branch(nx, ny, a + (rr.next() - 0.5) * 1.6, len * 0.45, w * 0.6, depth - 1);
+        if (depth > 0 && rr.next() < 0.45) branch(nx, ny, a + (rr.next() - 0.5) * 1.6, len * 0.45, w * 0.6, depth - 1);
         px = nx;
         py = ny;
         a += (rr.next() - 0.5) * 0.6;
       }
     };
-    for (let k = 0; k < 9; k++) branch(128, 80, (k / 9) * Math.PI * 2 + rr.next() * 0.4, 70 + rr.next() * 45, 3.2, 2);
-    // A ring fracture around the hole.
-    g2.strokeStyle = 'rgba(235,248,255,0.9)';
-    g2.lineWidth = 2.5;
+    g2.lineCap = 'round';
+    for (let k = 0; k < 10; k++) branch(128, 80, (k / 10) * Math.PI * 2 + rr.next() * 0.4, 70 + rr.next() * 45, 4.2, 2);
+    // Ring fracture around the hole.
+    g2.strokeStyle = 'rgba(4,10,20,0.95)';
+    g2.lineWidth = 3.5;
     g2.beginPath();
-    g2.ellipse(128, 80, 30, 19, 0.2, 0, Math.PI * 2);
+    g2.ellipse(128, 80, 32, 20, 0.2, 0, Math.PI * 2);
     g2.stroke();
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -770,6 +806,18 @@ export class StarfallSquare extends FestivalMap {
     cracks.renderOrder = 2;
     cracks.userData.noAO = true;
     group.add(cracks);
+    // The warning rim: a hot orange-red ring round each crack, pulsing (shares the crack matrices).
+    const ringGeo = new THREE.RingGeometry(0.66, 0.8, 40);
+    ringGeo.rotateX(-Math.PI / 2);
+    ringGeo.scale(1.02, 1, 0.64);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xff5a30, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, toneMapped: false });
+    const rims = new THREE.InstancedMesh(ringGeo, ringMat, 8);
+    rims.instanceMatrix = cracks.instanceMatrix;
+    rims.count = 0;
+    rims.frustumCulled = false;
+    rims.renderOrder = 3;
+    rims.userData.noAO = true;
+    group.add(rims);
     const glow = new GlowPoints(Array.from({ length: SK_GLOWS }, () => ({ x: 0, y: -50, z: 0, color: 0xffd84a, size: 0, twinkle: 0.3, day: 1 })), 'skate-glow');
     glow.points.frustumCulled = false;
     group.add(glow.points);
@@ -780,6 +828,7 @@ export class StarfallSquare extends FestivalMap {
       group,
       posts: { set count(n: number) { for (const p of posts) p.count = n; }, get count() { return posts[0]!.count; }, setMatrixAt: (i: number, m: THREE.Matrix4) => posts.forEach((p) => p.setMatrixAt(i, m)), commit: () => posts.forEach((p) => (p.instanceMatrix.needsUpdate = true)) },
       cracks,
+      rims,
       glow,
       trail,
     };
@@ -808,6 +857,7 @@ export class StarfallSquare extends FestivalMap {
     kit.posts.count = pi;
     kit.posts.commit();
     kit.cracks.count = ci;
+    kit.rims.count = ci;
     kit.cracks.instanceMatrix.needsUpdate = true;
   }
 
@@ -835,7 +885,7 @@ export class StarfallSquare extends FestivalMap {
       c.place(r.i, r.x, r.z, r.yaw);
       const m = c.members[r.i]!;
       m.anim = r.anim;
-      m.keep = m.keepAlways ?? false;
+      m.keep = false;
       c.commit();
     }
     this.recipient = null;
@@ -967,7 +1017,8 @@ export class StarfallSquare extends FestivalMap {
         bow.add(loop, tail);
       }
       bow.position.y = 0.48;
-      const prize = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, alphaTest: 0.05, fog: false }));
+      // (A camera-facing quad, not a Sprite: the AO prepass drew the sprite as an opaque square.)
+      const prize = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, alphaTest: 0.05, fog: false }));
       prize.scale.setScalar(0.42);
       prize.visible = false;
       prize.renderOrder = 3;
@@ -1067,7 +1118,8 @@ export class StarfallSquare extends FestivalMap {
     pr.prize.position.set(0, 0.3 + rise * 0.3, 0.06);
     const ps = 0.2 + rise * 0.24 + Math.sin(Math.min(1, u3 / 0.5) * Math.PI) * 0.08;
     pr.prize.scale.setScalar(ps);
-    pr.prize.material.rotation = Math.sin(u3 * 2.2) * 0.12;
+    pr.prize.lookAt(game.rc.camera.position);
+    pr.prize.rotateZ(Math.sin(u3 * 2.2) * 0.12);
     pr.gem.visible = true;
     pr.gem.position.copy(pr.prize.position).setZ(-0.04);
     pr.gem.lookAt(game.rc.camera.position);
@@ -1210,6 +1262,8 @@ export class StarfallSquare extends FestivalMap {
         }
         kit.cracks.instanceMatrix.needsUpdate = true;
       }
+      kit.rims.count = kit.cracks.count;
+      (kit.rims.material as THREE.MeshBasicMaterial).opacity = 0.45 + 0.4 * Math.sin(game.time * 7) * Math.sin(game.time * 7);
       run.comboT = Math.max(0, run.comboT - dt / 3.2);
       if (run.comboT <= 0) run.combo = 0;
       // Turn at the end of the reach (a hockey-stop spray), next leg.
@@ -1293,17 +1347,6 @@ export class StarfallSquare extends FestivalMap {
     this.river.aurora.value = auN;
     this.updateSkate(dt, game);
     this.updatePresent(game);
-    // Postcard stills keep the sky band crisp (stars, the curtains' rays): a gentler lens blur.
-    const still = game.paused && this.staged && !this.play;
-    if (still) {
-      game.rc.tiltBand = 0.42;
-      game.rc.tiltStrength = 0.35;
-      this.tiltOwned = true;
-    } else if (this.tiltOwned) {
-      game.rc.tiltBand = 0.26;
-      game.rc.tiltStrength = 0.7;
-      this.tiltOwned = false;
-    }
     if (this.peekUntil && this.showT > this.peekUntil && this.recipient && this.crowd) {
       // Back to chatting after reacting to a peek.
       this.peekUntil = 0;
@@ -1324,9 +1367,12 @@ export class StarfallSquare extends FestivalMap {
     const kOz = 1 - Math.exp(-1.5 * dt);
     for (const s of this.skaters) {
       const a = s.a0 + t * s.sp;
-      const x0 = s.cx + Math.cos(a) * s.rx;
+      // (r8) While you race, both strip skaters glide off down the west reach, clear of the whole
+      // course (one drifting to the far bank still stood right behind a skater on the far edge).
+      const strip = Math.abs(s.oz) > 1;
+      const x0 = (racing && strip ? s.cx - 14 : s.cx) + Math.cos(a) * s.rx;
       const zc = this.riverZ(x0);
-      const ozGoal = racing && s.oz > 1 ? -s.oz - 0.55 : s.oz;
+      const ozGoal = s.oz;
       s.ozc = s.ozc === undefined ? ozGoal : s.ozc + (ozGoal - s.ozc) * kOz;
       const z0 = zc + s.ozc + Math.sin(a) * s.rz;
       const dx = -Math.sin(a) * s.rx * Math.sign(s.sp);
@@ -1382,6 +1428,8 @@ interface SkateKit {
   group: THREE.Group;
   posts: { count: number; setMatrixAt(i: number, m: THREE.Matrix4): void; commit(): void };
   cracks: THREE.InstancedMesh;
+  /** Pulsing warning rims (share `cracks`' instance matrices). */
+  rims: THREE.InstancedMesh;
   glow: GlowPoints;
   trail: SkateTrail;
 }

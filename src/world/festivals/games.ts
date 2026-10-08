@@ -14,6 +14,7 @@
  * Every game ends on a shared result card (rosette, rewards, hearts). The 3D side is staged by the
  * map through `PlayState` + `map.playEvent(kind, value)`. `auto` (demo / attract mode) plays itself.
  */
+import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { NPCS, type NpcId, type Mood } from '../../data/npcs';
 import { itemDef } from '../../data/items';
@@ -50,6 +51,8 @@ export interface BoardRow {
 }
 
 export interface GameResult {
+  /** How the co-op board shows a farmer's score (e.g. the sack race shows the prize, not points). */
+  boardScore?: (score: number, place: number) => string;
   /** 0 = best tier (1st), 1 = 2nd, 2 = 3rd; ≥ 3 with `noRibbon` = below the prize line. */
   place: number;
   /** Below the ribbon threshold: no rosette, a laugh and a consolation. */
@@ -604,6 +607,18 @@ export class FestivalOverlay {
     return res ?? null;
   }
 
+  /**
+   * Screen position (CSS %) just above the local farmer's head: judgement pops ride with you in
+   * screen space instead of landing on whatever world prop / villager sits at a fixed spot.
+   */
+  private overHead(dy = 2.7): [string, string] {
+    const p = this.game.player.position;
+    _ohV.set(p.x, p.y + dy, p.z).project(this.game.rc.camera);
+    const x = THREE.MathUtils.clamp(_ohV.x * 0.5 + 0.5, 0.12, 0.88);
+    const y = THREE.MathUtils.clamp(-_ohV.y * 0.5 + 0.5 - 0.04, 0.16, 0.8);
+    return [`${(x * 100).toFixed(1)}%`, `${(y * 100).toFixed(1)}%`];
+  }
+
   private judges = new WeakMap<HTMLElement, { el: HTMLElement | null; k: number }>();
   /** Pop a judgement label (replaces the previous one on this parent; alternates its height). */
   private judge(parent: HTMLElement, text: string, cls: 'p' | 'g' | 'm', x: string, y: string): void {
@@ -708,7 +723,7 @@ export class FestivalOverlay {
     const boardHtml = (rows: BoardRow[], anim: boolean): string =>
       rows.length > 1
         ? `<div class="fg-board"><div class="h">Farmers today</div>${rows
-            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="${anim ? `animation-delay:${200 + i * 90}ms` : 'animation:none'}"><span class="pl">${e.place < 3 && i < 3 ? miniRosette(i) : '<small>—</small>'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${ORD[i] ?? ''} · ${escapeHtml(e.name)}</span><span class="sc">${e.score > 0 ? e.score.toLocaleString() : '…'}</span></div>`)
+            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="${anim ? `animation-delay:${200 + i * 90}ms` : 'animation:none'}"><span class="pl">${e.place < 3 && i < 3 ? miniRosette(i) : '<small>—</small>'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${ORD[i] ?? ''} · ${escapeHtml(e.name)}</span><span class="sc">${r.boardScore ? r.boardScore(e.score, e.place) : e.score > 0 ? e.score.toLocaleString() : '…'}</span></div>`)
             .join('')}</div>`
         : '';
     const boardRows = (): BoardRow[] => (!r.reaction && env.board ? env.board(r) : []);
@@ -1255,6 +1270,7 @@ export class FestivalOverlay {
         score: Math.round(1000 - place * 200),
         gold: 0,
         hearts: this.sympathy('wren'),
+        boardScore: (_s, pl) => (pl < 3 ? `${PRIZES.sackrace[pl]} g` : '—'),
         title: ['', '', '', 'Fourth — Valiant!', 'Last, but Bouncy'][place]!,
         sub: ['', '', '', 'No ribbon, but a round of applause and a cup of cider.', 'Kit says you “hopped with feeling”. The sack says otherwise.'][place]! + coopLine,
         rivals,
@@ -1264,6 +1280,8 @@ export class FestivalOverlay {
       place,
       score: Math.round(1000 - place * 200),
       gold: PRIZES.sackrace[place]!,
+      // (r8: the board quoted the internal 1000 / 800 points, read as gold; it shows the purse.)
+      boardScore: (_s, pl) => (pl < 3 ? `${PRIZES.sackrace[pl]} g` : '—'),
       hearts: [{ id: 'wren', delta: place === 0 ? 60 : 30 }],
       title: ['Sack Race Champion!', 'Second Place!', 'Third Place!'][place]!,
       sub: (race ? ['The whole Commons is chanting your name.', 'So close! A sack-length in it.', 'A bronze-worthy bounce!'] : ['Wren is demanding a rematch. Loudly.', 'Odessa won by a sack-length. She is insufferable about it.', 'A bronze-worthy bounce!'])[place]! + coopLine,
@@ -1678,15 +1696,15 @@ export class FestivalOverlay {
       if (stars > last.stars) {
         this.sfx('ui:select', 1.1);
         num.parentElement!.animate([{ transform: 'scale(1.25)' }, { transform: 'scale(1)' }], { duration: 260, easing: 'ease-out' });
-        this.judge(root, 'Star!', 'p', '50%', '30%');
+        this.judge(root, 'Star!', 'p', ...this.overHead());
       }
       if (gates > last.gates) {
         this.sfx('ui:tab', 1.3);
-        this.judge(root, (st.combo ?? 0) >= 3 ? `Gate ×${st.combo}!` : 'Gate!', 'g', '50%', '30%');
+        this.judge(root, (st.combo ?? 0) >= 3 ? `Gate ×${st.combo}!` : 'Gate!', 'g', ...this.overHead());
       }
       if (cracks > last.cracks) {
         this.sfx('ui:error', 0.8);
-        this.judge(root, 'Crack!', 'm', '50%', '30%');
+        this.judge(root, 'Crack!', 'm', ...this.overHead());
         this.shake(panel);
         this.shake(root);
       }
@@ -1735,6 +1753,8 @@ export class FestivalOverlay {
 }
 
 const COIN = `<svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="15" fill="#f5c542" stroke="#b8861a" stroke-width="2.5"/><circle cx="17" cy="17" r="10" fill="none" stroke="#fff2b0" stroke-width="2"/><text x="17" y="22" text-anchor="middle" font-family="Fredoka, sans-serif" font-weight="700" font-size="13" fill="#8a5a10">g</text></svg>`;
+
+const _ohV = new THREE.Vector3();
 
 /** Where a reaction lands on the gift meter (0 = wince … 1 = delight), a touch of per-item wobble. */
 function tasteLevel(r: string, id: string): number {

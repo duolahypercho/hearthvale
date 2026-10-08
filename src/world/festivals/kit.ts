@@ -1250,19 +1250,53 @@ export function buildWishArch(rng: Rng, span = 4.6): { group: THREE.Group; lamps
 }
 
 export function buildSandcastle(rng: Rng): THREE.Group {
+  // (r8) Packed wet sand (grainy 'rock' shading, warm tint — the plain one read as a grey lump at
+  // night), crenellated towers, a dark door arch + slit windows, drip-castle tops, a moat, a proper
+  // pennant on the keep, and a bucket + spade left beside it.
   const b = new MeshBuilder();
-  const sand = 0xe6cc98;
-  b.add('white', bevelCylinder(0.55, 0.65, 0.3, 0.08, 12), mat(0, 0, 0), { tint: sand });
+  const sand = 0xd8b47a;
+  const wet = 0xb8945e;
+  const S = 'rock' as const;
+  b.add(S, bevelCylinder(0.62, 0.72, 0.3, 0.08, 14), mat(0, 0, 0), { tint: wet, aoWorld: groundAO(0.2) });
+  // Moat ring.
+  b.add('glass', new THREE.RingGeometry(0.76, 0.95, 24).rotateX(-Math.PI / 2), mat(0, 0.02, 0), { tint: 0x2a4a5a });
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + 0.4;
-    b.add('white', bevelCylinder(0.14, 0.16, 0.4, 0.03, 8), mat(Math.cos(a) * 0.42, 0.25, Math.sin(a) * 0.42), { tint: sand });
-    b.add('white', new THREE.ConeGeometry(0.14, 0.18, 8), mat(Math.cos(a) * 0.42, 0.74, Math.sin(a) * 0.42), { tint: 0xe0c28a });
+    const x = Math.cos(a) * 0.46;
+    const z = Math.sin(a) * 0.46;
+    const h = 0.42 + rng.next() * 0.1;
+    b.add(S, bevelCylinder(0.15, 0.17, h, 0.03, 10), mat(x, 0.25, z), { tint: sand });
+    // Crenellations round the tower top.
+    for (let k = 0; k < 6; k++) {
+      const c = (k / 6) * Math.PI * 2;
+      b.add(S, roundedBox(0.06, 0.07, 0.06, 0.01, 1), mat(x + Math.cos(c) * 0.13, 0.25 + h + 0.035, z + Math.sin(c) * 0.13, 0, -c, 0), { tint: sand });
+    }
+    b.add('woodDark', roundedBox(0.03, 0.08, 0.01, 0.005, 1), mat(x + Math.cos(a) * 0.165, 0.5, z + Math.sin(a) * 0.165, 0, -a + Math.PI / 2, 0), { tint: 0x3a2a1e });
   }
-  b.add('white', bevelCylinder(0.22, 0.26, 0.65, 0.04, 10), mat(0, 0.25, 0), { tint: sand });
-  b.add('white', new THREE.ConeGeometry(0.22, 0.3, 10), mat(0, 1.05, 0), { tint: 0xe0c28a });
-  b.add('cloth', new THREE.ConeGeometry(0.06, 0.16, 3), mat(0.05, 1.3, 0, 0, 0, Math.PI / 2), { tint: 0xe8574a });
-  b.add('white', bevelCylinder(0.006, 0.006, 0.2, 0.002, 3), mat(0, 1.2, 0), { tint: 0x8a6a4a });
-  for (let i = 0; i < 6; i++) b.add('white', new THREE.SphereGeometry(0.04, 6, 4), mat((rng.next() - 0.5) * 1.4, 0.03, 0.5 + rng.next() * 0.3), { tint: [0xf8e8e0, 0xf6c8b8, 0xe8d8c8][i % 3]! });
+  // Curtain walls between the towers.
+  for (let i = 0; i < 4; i++) {
+    const a = ((i + 0.5) / 4) * Math.PI * 2 + 0.4;
+    b.add(S, roundedBox(0.5, 0.26, 0.1, 0.02, 1), mat(Math.cos(a) * 0.38, 0.28, Math.sin(a) * 0.38, 0, -a + Math.PI / 2, 0), { tint: sand });
+  }
+  // The keep: drip-castle top, door arch facing the lens.
+  b.add(S, bevelCylinder(0.24, 0.28, 0.7, 0.04, 12), mat(0, 0.25, 0), { tint: sand });
+  for (let k = 0; k < 5; k++) b.add(S, new THREE.SphereGeometry(0.09 - k * 0.012, 8, 6), mat(Math.sin(k * 2.1) * 0.03, 0.98 + k * 0.08, Math.cos(k * 2.1) * 0.03), { tint: k % 2 ? sand : wet });
+  b.add('woodDark', new THREE.CircleGeometry(0.09, 10, 0, Math.PI), mat(0, 0.32, 0.282), { tint: 0x2a1e16 });
+  b.add('woodDark', new THREE.PlaneGeometry(0.18, 0.1), mat(0, 0.27, 0.282), { tint: 0x2a1e16 });
+  // Pennant on a driftwood stick.
+  b.add('woodGrain', bevelCylinder(0.01, 0.012, 0.5, 0.003, 5), mat(0, 1.22, 0), { tint: 0x8a6a4a });
+  const fl = new THREE.Shape();
+  fl.moveTo(0, 0);
+  fl.lineTo(0.26, -0.06);
+  fl.lineTo(0, -0.15);
+  fl.closePath();
+  b.add('cloth', new THREE.ShapeGeometry(fl), mat(0.01, 1.46, 0, 0, -0.5, 0), { tint: 0xd8402e });
+  // Shells + bucket + spade.
+  for (let i = 0; i < 6; i++) b.add('white', new THREE.SphereGeometry(0.04, 6, 4), mat((rng.next() - 0.5) * 1.4, 0.03, 0.55 + rng.next() * 0.3), { tint: [0xf8e8e0, 0xf6c8b8, 0xe8d8c8][i % 3]! });
+  b.add('white', new THREE.CylinderGeometry(0.14, 0.11, 0.22, 12, 1, true), mat(0.9, 0.11, 0.45), { tint: 0x3a8ac8 });
+  b.add('white', new THREE.TorusGeometry(0.14, 0.012, 4, 12, Math.PI), mat(0.9, 0.22, 0.45, 0, 0.3, 0), { tint: 0xe8e0d0 });
+  b.add('white', roundedBox(0.1, 0.02, 0.16, 0.01, 1), mat(0.7, 0.03, 0.75, 0, 0.7, 0), { tint: 0xe8b830 });
+  b.add('woodGrain', bevelCylinder(0.012, 0.012, 0.3, 0.003, 5), mat(0.62, 0.05, 0.62, Math.PI / 2 - 0.1, 0.7, 0), { tint: 0xc89858 });
   return b.build({ name: 'sandcastle' });
 }
 
@@ -1291,9 +1325,29 @@ export function buildGiantPumpkin(rng: Rng, r: number, tint: number, plinth = tr
   const b = new MeshBuilder();
   let base = 0;
   if (plinth) {
-    b.add('wood', boxUV(roundedBox(r * 2.4, 0.3, r * 2.4, 0.05), 1.2), mat(0, 0.15, 0), { tint: 0xc8a070, aoWorld: groundAO(0.2) });
-    b.add('thatch', roundedBox(r * 2.2, 0.08, r * 2.2, 0.04), mat(0, 0.32, 0), { tint: 0xe8c878 });
-    base = 0.36;
+    // (r8) A draped show plinth, not a bare hay square: a timber stand under a deep green baize
+    // cloth that falls over the sides, a bunting skirt of pennants round the hem, a straw mat on top.
+    const S = r * 2.4;
+    b.add('wood', boxUV(roundedBox(S, 0.3, S, 0.05), 1.2), mat(0, 0.15, 0), { tint: 0x9a7650, aoWorld: groundAO(0.2) });
+    b.add('cloth', roundedBox(S + 0.08, 0.04, S + 0.08, 0.02, 1), mat(0, 0.31, 0), { tint: 0x2f5a3e });
+    const pen = [0xd8473a, 0xf2b928, 0xf6ecd8, 0x3f6fd0];
+    for (let side = 0; side < 4; side++) {
+      const ry = (side * Math.PI) / 2;
+      const cs = Math.cos(ry);
+      const sn = Math.sin(ry);
+      const off = S / 2 + 0.045;
+      b.add('cloth', roundedBox(S + 0.08, 0.2, 0.025, 0.01, 1), mat(sn * off, 0.2, cs * off, 0, ry, 0), { tint: 0x2a5236 });
+      const n = Math.max(3, Math.round(S / 0.22));
+      for (let k = 0; k < n; k++) {
+        const u = -S / 2 + (k + 0.5) * (S / n);
+        const tri = new THREE.ConeGeometry(0.075, 0.14, 3);
+        tri.rotateX(Math.PI);
+        tri.scale(1, 1, 0.15);
+        b.add('cloth', tri, mat(sn * (off + 0.015) + cs * u, 0.14, cs * (off + 0.015) - sn * u, 0, ry, 0), { tint: pen[(k + side) % pen.length]! });
+      }
+    }
+    b.add('thatch', roundedBox(S * 0.82, 0.05, S * 0.82, 0.03), mat(0, 0.345, 0), { tint: 0xe8c878 });
+    base = 0.37;
   }
   // `body` false: just the straw pallet (another crop — or your entry — goes on top).
   if (!body) return { group: b.build({ name: 'produce-pallet' }), top: base };
@@ -1639,6 +1693,35 @@ export function buildCornField(rng: Rng, spots: [number, number, number, number,
   mesh.name = 'corn-field';
   mesh.computeBoundingSphere();
   return mesh;
+}
+
+/** Corn-maze lookout: a rough timber platform (~1.6 m) on four posts, rails, a ladder, a pennant. */
+export function buildLookout(rng: Rng): THREE.Group {
+  const b = new MeshBuilder();
+  const H = 1.6;
+  const W = 1.3;
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      b.add('woodGrain', bevelCylinder(0.07, 0.08, H + 0.9, 0.015, 6), mat(sx * W * 0.45, 0, sz * W * 0.45, (rng.next() - 0.5) * 0.04, 0, (rng.next() - 0.5) * 0.04), { tint: 0x8a6a48, aoWorld: groundAO(0.4) });
+    }
+  }
+  // Cross braces.
+  for (const sz of [-1, 1]) b.add('woodGrain', roundedBox(W * 1.05, 0.07, 0.05, 0.015, 1), mat(0, H * 0.5, sz * W * 0.45, 0, 0, 0.9), { tint: 0x7a5a3c });
+  // Deck + rails.
+  for (let i = 0; i < 5; i++) b.add('woodGrain', roundedBox(W + 0.1, 0.06, W / 5 - 0.02, 0.012, 1), mat(0, H, -W / 2 + (i + 0.5) * (W / 5), 0, (rng.next() - 0.5) * 0.03, 0), { tint: [0xa8845a, 0x9a7650, 0xb08c62][i % 3]! });
+  for (const [x, z, ry] of [[0, -W * 0.45, 0], [W * 0.45, 0, Math.PI / 2], [-W * 0.45, 0, Math.PI / 2]] as const) b.add('woodGrain', roundedBox(W * 0.95, 0.05, 0.05, 0.012, 1), mat(x, H + 0.55, z, 0, ry, 0), { tint: 0x8a6a48 });
+  // Ladder on the south face.
+  for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.05, H + 0.2, 0.05, 0.01, 1), mat(sx * 0.2, H / 2 - 0.05, W * 0.55, 0.12, 0, 0), { tint: 0x8a6a48 });
+  for (let k = 0; k < 5; k++) b.add('woodGrain', roundedBox(0.42, 0.04, 0.04, 0.008, 1), mat(0, 0.25 + k * 0.3, W * 0.55 + 0.03 - k * 0.035, 0, 0, 0), { tint: 0x9a7650 });
+  // Pennant on a pole from the north-east corner.
+  b.add('woodGrain', bevelCylinder(0.025, 0.03, 1.3, 0.006, 5), mat(W * 0.45, H + 0.9, -W * 0.45), { tint: 0x7a5a3c });
+  const fl = new THREE.Shape();
+  fl.moveTo(0, 0);
+  fl.lineTo(0.5, -0.1);
+  fl.lineTo(0, -0.26);
+  fl.closePath();
+  b.add('cloth', new THREE.ShapeGeometry(fl), mat(W * 0.45 + 0.02, H + 2.15, -W * 0.45, 0, -0.4, 0), { tint: 0xd8573e });
+  return b.build({ name: 'maze-lookout' });
 }
 
 /** Start / finish gate for the sack race: two posts + a hanging banner ribbon. */
@@ -2358,17 +2441,30 @@ export function buildWishTable(rng: Rng): { group: THREE.Group; glows: THREE.Vec
     b.add('woodGrain', bevelCylinder(0.025, 0.03, p.y + 0.15, 0.008, 6), mat(p.x, (p.y + 0.15) / 2 - 0.1, p.z), { tint: 0xb8a060, aoWorld: groundAO(0.2) });
     for (let k = 1; k < 4; k++) b.add('woodGrain', new THREE.TorusGeometry(0.03, 0.006, 3, 8), mat(p.x, k * 0.5, p.z, Math.PI / 2, 0, 0), { tint: 0x8a7040 });
   }
+  // (r8) The canes read as bare black debug sticks at night: each now carries a lit paper lantern
+  // at its tip, the cord is a real twine catenary, the slips are bigger and two more little lanterns
+  // hang along the line (all glow anchors).
   const tmp = new THREE.Vector3();
-  const N = 11;
-  for (let i = 0; i <= 24; i++) {
-    catenary(pA, pB, 0.22, i / 24, tmp);
-    b.add('white', new THREE.SphereGeometry(0.008, 4, 3), mat(tmp.x, tmp.y, tmp.z), { tint: 0xe8dcc0 });
-  }
+  const N = 9;
+  const cord: THREE.Vector3[] = [];
+  for (let i = 0; i <= 24; i++) cord.push(catenary(pA, pB, 0.22, i / 24, new THREE.Vector3()).clone());
+  b.add('white', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(cord), 24, 0.012, 4, false), undefined, { tint: 0xd8c8a0 });
   const slip = [0xfbf4e4, 0xf6d6dc, 0xf6e6b8, 0xd8ecf0, 0xe8dcf4];
   for (let i = 0; i < N; i++) {
     catenary(pA, pB, 0.22, (i + 0.5) / N, tmp);
-    const h = 0.16 + rng.next() * 0.06;
-    b.add('white', roundedBox(0.075, h, 0.006, 0.003, 1), mat(tmp.x, tmp.y - h / 2 - 0.01, tmp.z, 0, (rng.next() - 0.5) * 0.6, (rng.next() - 0.5) * 0.15), { tint: slip[i % slip.length]! });
+    if (i === 2 || i === 6) {
+      b.add('paperLantern', roundedBox(0.16, 0.2, 0.16, 0.03, 1), mat(tmp.x, tmp.y - 0.16, tmp.z), { tint: 0xf0a860 });
+      glows.push(new THREE.Vector3(tmp.x, tmp.y - 0.16, tmp.z));
+      continue;
+    }
+    const h = 0.22 + rng.next() * 0.08;
+    b.add('white', roundedBox(0.11, h, 0.006, 0.003, 1), mat(tmp.x, tmp.y - h / 2 - 0.01, tmp.z, 0, (rng.next() - 0.5) * 0.6, (rng.next() - 0.5) * 0.15), { tint: slip[i % slip.length]! });
+  }
+  for (const p of [pA, pB]) {
+    b.add('paperLantern', roundedBox(0.24, 0.3, 0.24, 0.05, 2), mat(p.x, p.y + 0.3, p.z), { tint: 0xf2b060 });
+    b.add('woodGrain', new THREE.CylinderGeometry(0.1, 0.1, 0.03, 8), mat(p.x, p.y + 0.46, p.z), { tint: 0x3a2a1e });
+    b.add('woodGrain', new THREE.CylinderGeometry(0.09, 0.09, 0.03, 8), mat(p.x, p.y + 0.14, p.z), { tint: 0x3a2a1e });
+    glows.push(new THREE.Vector3(p.x, p.y + 0.3, p.z));
   }
   return { group: b.build({ name: 'wish-table' }), glows };
 }

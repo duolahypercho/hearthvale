@@ -192,7 +192,8 @@ export class GroundScatter {
     });
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = true;
-    this.mesh.userData.noAO = true;
+    // Petals / leaves take the contact shade (they sat on the grass as glowing white specks).
+    this.mesh.userData.noAO = kind === 'confetti';
     this.mesh.name = `scatter-${kind}`;
     this.mesh.computeBoundingSphere();
   }
@@ -449,7 +450,9 @@ export class Fireworks {
                 a *= (1.0 - tr / LT) * step(0.0, tbRaw) * 1.25;
                 // Streaks belong to the fast opening only: once the stars slow and fall they are
                 // glitter points (long vertical tails on falling stars read as rain on the water).
-                a *= 1.0 - smoothstep(0.12, 0.3, f);
+                // (r8: kept on longer — every trailing star is a short motion-stretched streak, not a
+                // round dot; by the time they droop they move slowly, so the streak is short.)
+                a *= 1.0 - smoothstep(0.42, 0.78, f);
                 col = base * 1.25;
                 #else
                 size *= 0.8;
@@ -1517,8 +1520,11 @@ export class NightSky {
             float md = dot(d, uMoon);
             float disc = smoothstep(0.99984, 0.99991, md);
             float spots = 0.85 + 0.15 * hvNoise(d.xy * 900.0);
-            col = mix(col, vec3(1.0, 0.96, 0.86) * 0.95 * spots, disc);
-            col += vec3(0.5, 0.58, 0.8) * (pow(max(md, 0.0), 900.0) * 0.16 + pow(max(md, 0.0), 5000.0) * 0.3);
+            // (r8: a crisp disc held under the bloom knee — maria + a soft terminator — with a small
+            // tight halo, not a blown-out blur.)
+            float maria = smoothstep(0.45, 0.75, hvNoise(d.xz * 2600.0 + 3.0)) * 0.22;
+            col = mix(col, vec3(0.96, 0.93, 0.84) * 0.7 * (spots - maria), disc);
+            col += vec3(0.5, 0.58, 0.8) * (pow(max(md, 0.0), 2600.0) * 0.1 + pow(max(md, 0.0), 300.0) * 0.035) * (1.0 - disc);
           }
           gl_FragColor = vec4(col * uStrength, 1.0);
         }`,
