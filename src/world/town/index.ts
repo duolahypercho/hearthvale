@@ -100,6 +100,7 @@ import {
   eaveWinter,
   buildStoreFront,
   buildBakeryFront,
+  buildGlasshouse,
 } from './buildings';
 import { MeshBuilder } from '../geom';
 
@@ -484,6 +485,11 @@ export class TownMap implements GameMap {
         const dormers: number[] = [];
         this.addProp(buildRoofDressing(rd, spec, dormers), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
         if (b.kind === 'store') this.addProp(buildStoreFront(rd, spec), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+        if (b.id === 'cottage_east') {
+          // Hazel's lean-to glasshouse + potting bench on the west gable (tiles 43–44 × 30–34).
+          this.addProp(buildGlasshouse(rd, spec), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+          for (let z = 31; z <= 34; z++) for (let x = 43; x <= 44; x++) this.grid.setFlag(x, z, TileFlag.Blocked);
+        }
         if (b.kind === 'bakery') {
           const oven = this.addProp(buildBakeryFront(rd, spec), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
           oven.group.name = 'bakery-oven';
@@ -899,7 +905,7 @@ export class TownMap implements GameMap {
     const I = new THREE.Matrix4();
     // Glass, glow cards, window boxes and hearth coals add nothing to the shadow map: skip that pass
     // for them (one fewer draw call each per frame).
-    const NO_SHADOW = new Set(['windowCard', 'lampGlow', 'glass', 'boxFlower', 'forgeCoals', 'stillWater', 'brass', 'copper']);
+    const NO_SHADOW = new Set(['windowCard', 'lampGlow', 'glass', 'boxFlower', 'forgeCoals', 'stillWater', 'brass', 'copper', 'shopSign']);
     for (const [k, list] of cells) {
       const merged = mergeStatic(list, `town-${k}`);
       let cx = 0;

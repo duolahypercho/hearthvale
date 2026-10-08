@@ -1438,8 +1438,8 @@ export function buildBakeryFront(rng: Rng, s: { w: number; d: number; wallH: num
   arch.rotateZ(Math.PI / 2);
   b.add('woodDark', roundedBox(0.06, 0.3, 0.5, 0.02), mat(mx - 0.1, 0.9, oz), { tint: 0x221410 });
   b.add('woodDark', arch, mat(mx - 0.1, 1.05, oz), { tint: 0x221410 });
-  b.add(coalMaterial(), lumpySphere(0.13, 1, 0.3, rng), mat(mx - 0.12, 0.84, oz - 0.08, 0, 0, 0, 1, 0.5, 1.2));
-  b.add(coalMaterial(), lumpySphere(0.1, 1, 0.3, rng), mat(mx - 0.12, 0.84, oz + 0.1, 0, 0, 0, 1, 0.5, 1.2));
+  b.add('lampGlow', lumpySphere(0.13, 1, 0.3, rng), mat(mx - 0.12, 0.84, oz - 0.08, 0, 0, 0, 1, 0.5, 1.2), { tint: 0xff9a4a });
+  b.add('lampGlow', lumpySphere(0.1, 1, 0.3, rng), mat(mx - 0.12, 0.84, oz + 0.1, 0, 0, 0, 1, 0.5, 1.2), { tint: 0xffb05a });
   b.add('metal', roundedBox(0.03, 0.3, 0.42, 0.01), mat(mx - 0.22, 0.95, oz + 0.42, 0, -1.0, 0), { tint: 0x2e2a28 });
   // Flue: a tall round brick stack on the gable, banded, with a clay pot.
   const fx = -W / 2 - 0.2;
@@ -1499,4 +1499,102 @@ export function buildBakeryFront(rng: Rng, s: { w: number; d: number; wallH: num
   void slope;
   const group = b.build({ name: 'bakery-front' });
   return { group, lights: [], anchors: { chimney: new THREE.Vector3(fx, flueTop + 0.35, fzf) } };
+}
+
+/**
+ * Hazel's plant theatre on the west gable of her cottage (r8 critic: "auxiliary neighbourhoods lean on
+ * repeated cottage geometry"): a lean-to of white posts under a whitewashed glazed roof (one vent pane
+ * propped open) sheltering three tiers of staging crowded with potted pelargoniums, auriculas and
+ * seedlings, a potting bench with trays by the front end and a water butt at the back.
+ * Local space of a buildTownHouse cottage (W wide, +Z front).
+ */
+export function buildGlasshouse(rng: Rng, s: { w: number; wallH: number }): THREE.Group {
+  const b = new MeshBuilder();
+  const x0 = -s.w / 2;
+  const depth = 1.25;
+  const xo = x0 - depth;
+  const zl = 1.45;
+  const yOut = 2.0;
+  const yIn = Math.min(0.35 + s.wallH - 0.05, 2.75);
+  const white = 0xf3efe4;
+  // Posts + a plate along the outer eave, brackets at the wall.
+  for (const z of [-zl, 0, zl]) {
+    b.add('woodPaint', roundedBox(0.1, yOut, 0.1, 0.02), mat(xo + 0.05, yOut / 2, z), { tint: white, aoWorld: groundAO(0.3) });
+    b.add('stone', roundedBox(0.2, 0.1, 0.2, 0.03), mat(xo + 0.05, 0.05, z), { tint: 0xc9c0b0 });
+    b.add('woodPaint', roundedBox(0.07, 0.07, 0.5, 0.015), mat(x0 - 0.2, yIn - 0.35, z, 0.0, 0, 0.75), { tint: white });
+  }
+  b.add('woodPaint', roundedBox(0.12, 0.1, 2 * zl + 0.2, 0.02), mat(xo + 0.05, yOut, 0), { tint: white });
+  b.add('woodPaint', roundedBox(0.1, 0.1, 2 * zl + 0.2, 0.02), mat(x0 - 0.04, yIn + 0.04, 0), { tint: white });
+  // Staging: three tiers stepping up to the wall, crowded with pots.
+  const greens = [0x4f8a3a, 0x63a046, 0x7ab05a, 0x3f7a30];
+  const blooms = [0xe8506a, 0xff8fab, 0xf6e2e8, 0xffd166, 0xc77dff, 0xf25f5c, 0xffffff];
+  for (let t = 0; t < 3; t++) {
+    const tx = xo + 0.3 + t * 0.34;
+    const ty = 0.42 + t * 0.36;
+    b.add('woodGrain', boxUV(roundedBox(0.36, 0.05, 2 * zl - 0.1, 0.015), 1), mat(tx, ty, 0), { tint: [0xb08a5a, 0xa07a4e, 0x96704a][t]! });
+    for (const z of [-zl + 0.1, zl - 0.1]) b.add('woodGrain', roundedBox(0.05, ty, 0.05, 0.01), mat(tx - 0.12, ty / 2, z), { tint: 0x8a6a44, aoWorld: groundAO(0.3) });
+    const n = 8 - t;
+    for (let i = 0; i < n; i++) {
+      const z = -zl + 0.28 + (i + (t % 2) * 0.5) * ((2 * zl - 0.56) / (n - 0.5));
+      const pr = 0.075 + rng.next() * 0.02;
+      b.add('soilPot', new THREE.CylinderGeometry(pr, pr * 0.75, pr * 1.6, 8), mat(tx, ty + pr * 0.8 + 0.025, z), { tint: [0xc0704a, 0xb8643e, 0xcc8458][i % 3]! });
+      const leaf = lumpySphere(pr * 1.35, 1, 0.3, rng);
+      sphericalNormals(leaf, new THREE.Vector3(), 0.5);
+      const ly = ty + pr * 1.6 + 0.07;
+      b.add('boxFlower', leaf, mat(tx, ly, z), { tint: greens[(i + t) % greens.length]! });
+      if ((i + t) % 3 !== 2) for (let k = 0; k < 3; k++) b.add('boxFlower', new THREE.IcosahedronGeometry(0.035 + rng.next() * 0.015, 0), mat(tx + (rng.next() - 0.5) * pr * 2, ly + 0.06 + rng.next() * 0.05, z + (rng.next() - 0.5) * pr * 2), { tint: blooms[(i * 3 + t + k) % blooms.length]! });
+    }
+  }
+  // Pots spilling onto the ground along the front.
+  for (let i = 0; i < 5; i++) {
+    const z = -zl + 0.3 + i * 0.6 + (rng.next() - 0.5) * 0.15;
+    const px = xo - 0.18 + (rng.next() - 0.5) * 0.1;
+    b.add('soilPot', new THREE.CylinderGeometry(0.1, 0.075, 0.16, 8), mat(px, 0.08, z), { tint: 0xc0704a, aoWorld: groundAO(0.2) });
+    const leaf = lumpySphere(0.13, 1, 0.3, rng);
+    sphericalNormals(leaf, new THREE.Vector3(), 0.5);
+    b.add('boxFlower', leaf, mat(px, 0.26, z), { tint: greens[i % greens.length]! });
+    if (i % 2 === 0) for (let k = 0; k < 3; k++) b.add('boxFlower', new THREE.IcosahedronGeometry(0.045, 0), mat(px + (rng.next() - 0.5) * 0.18, 0.34 + rng.next() * 0.05, z + (rng.next() - 0.5) * 0.18), { tint: blooms[(i + k) % blooms.length]! });
+  }
+  // Roof: a whitewashed glazed slope on white glazing bars; one vent pane propped open.
+  const run = depth + 0.14;
+  const fall = yIn - yOut;
+  const a = Math.atan2(fall, run);
+  const len = Math.hypot(run, fall) + 0.12;
+  const cxr = x0 - run / 2;
+  const cyr = (yIn + yOut) / 2 + 0.06;
+  b.add('white', roundedBox(len, 0.03, 2 * zl + 0.2, 0.01), mat(cxr, cyr, 0, 0, 0, -a), { tint: 0xe2efea });
+  for (let i = 0; i <= 6; i++) {
+    const z = -zl - 0.05 + (i * (2 * zl + 0.1)) / 6;
+    b.add('woodPaint', roundedBox(len, 0.06, 0.05, 0.015), mat(cxr, cyr + 0.03, z, 0, 0, -a), { tint: white });
+  }
+  const vz = zl * 0.34;
+  b.add('white', roundedBox(len * 0.48, 0.03, (2 * zl) / 6 - 0.04, 0.01), mat(x0 - run * 0.28, yIn - fall * 0.28 + 0.18, vz, 0, 0, -a + 0.38), { tint: 0xd4e8e2 });
+  b.add('woodPaint', roundedBox(len * 0.5, 0.05, 0.05, 0.01), mat(x0 - run * 0.28, yIn - fall * 0.28 + 0.22, vz - 0.22, 0, 0, -a + 0.38), { tint: white });
+  b.add('metal', roundedBox(0.02, 0.3, 0.02, 0.005), mat(x0 - run * 0.5, yIn - fall * 0.5 + 0.14, vz, 0, 0, 0.3), { tint: 0x3a3634 });
+  // A hanging basket from the eave plate at each end.
+  for (const z of [-zl + 0.35, zl - 0.35]) {
+    b.add('metal', new THREE.CylinderGeometry(0.006, 0.006, 0.4, 3), mat(xo + 0.05, yOut - 0.22, z), { tint: 0x3a3634 });
+    const bask = lumpySphere(0.2, 1, 0.3, rng);
+    sphericalNormals(bask, new THREE.Vector3(), 0.5);
+    b.add('boxFlower', bask, mat(xo + 0.05, yOut - 0.5, z), { tint: 0x5a9a4a });
+    for (let k = 0; k < 6; k++) b.add('boxFlower', new THREE.IcosahedronGeometry(0.045, 0), mat(xo + 0.05 + Math.cos(k) * 0.17, yOut - 0.5 + (rng.next() - 0.3) * 0.2, z + Math.sin(k) * 0.17), { tint: blooms[(k + 1) % blooms.length]! });
+  }
+  // Potting bench at the front end: trays of seedlings, stacked pots, a trowel.
+  const bx = x0 - 0.55;
+  const bz = zl + 0.55;
+  b.add('woodGrain', boxUV(roundedBox(1.1, 0.07, 0.5, 0.02), 1), mat(bx, 0.82, bz), { tint: 0xa8865a });
+  b.add('woodGrain', roundedBox(1.0, 0.05, 0.42, 0.02), mat(bx, 0.3, bz), { tint: 0x9a7a52 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add('woodGrain', roundedBox(0.06, 0.82, 0.06, 0.015), mat(bx + sx * 0.48, 0.41, bz + sz * 0.19), { tint: 0x8a6a44, aoWorld: groundAO(0.3) });
+  for (const k of [-0.3, 0.1]) {
+    b.add('woodGrain', roundedBox(0.34, 0.06, 0.26, 0.015), mat(bx + k, 0.89, bz), { tint: 0x7a5a3a });
+    for (let i = 0; i < 6; i++) b.add('boxFlower', new THREE.IcosahedronGeometry(0.035, 0), mat(bx + k - 0.12 + (i % 3) * 0.12, 0.94, bz - 0.06 + Math.floor(i / 3) * 0.12), { tint: greens[i % 3]! });
+  }
+  for (let i = 0; i < 3; i++) b.add('soilPot', new THREE.CylinderGeometry(0.08, 0.06, 0.12, 9), mat(bx + 0.4, 0.92 + i * 0.07, bz - 0.04), { tint: 0xc0704a });
+  for (let i = 0; i < 4; i++) b.add('soilPot', new THREE.CylinderGeometry(0.09, 0.07, 0.14, 9), mat(bx - 0.35 + i * 0.2, 0.4, bz + 0.02), { tint: 0xb8643e });
+  b.add('metal', roundedBox(0.05, 0.015, 0.16, 0.005), mat(bx + 0.25, 0.87, bz + 0.12, 0, 0.6, 0), { tint: 0x9aa0a4 });
+  // Water butt at the back corner.
+  b.add('woodGrain', bevelCylinder(0.32, 0.3, 0.86, 0.03, 12), mat(xo - 0.2, 0, -zl - 0.2), { tint: 0x5a7a5a, aoWorld: groundAO(0.4) });
+  for (const yb of [0.18, 0.66]) b.add('metal', new THREE.TorusGeometry(0.315, 0.015, 4, 16).rotateX(Math.PI / 2), mat(xo - 0.2, yb, -zl - 0.2), { tint: 0x3a3634 });
+  b.add('stillWater', new THREE.CircleGeometry(0.28, 14).rotateX(-Math.PI / 2), mat(xo - 0.2, 0.8, -zl - 0.2));
+  return b.build({ name: 'glasshouse' });
 }
