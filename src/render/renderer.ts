@@ -136,6 +136,9 @@ export class RenderContext {
   quality: Quality;
   /** World point the tilt-shift keeps in focus (the player). */
   readonly focusPoint = new THREE.Vector3();
+  /** Tilt-shift sharp band half-height + blur strength (staged beauty shots may widen / soften it). */
+  tiltBand = 0.26;
+  tiltStrength = 0.7;
   private focusV = new THREE.Vector3();
   preset: QualityPreset;
   private width = 1;
@@ -258,7 +261,7 @@ export class RenderContext {
     this.camera.updateMatrixWorld();
     this.focusV.copy(this.focusPoint).project(this.camera);
     const f = THREE.MathUtils.clamp(this.focusV.y * 0.5 + 0.5, 0.2, 0.7);
-    this.post.setTiltShift(f, 0.26, 0.7);
+    this.post.setTiltShift(f, this.tiltBand, this.tiltStrength);
     // Accumulate stats over all passes of the frame (shadow, AO, main, post).
     this.renderer.info.autoReset = false;
     this.renderer.info.reset();

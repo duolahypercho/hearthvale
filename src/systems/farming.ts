@@ -26,6 +26,7 @@ import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import type { Season } from '../core/time';
+import type { EventName } from '../core/events';
 import type { GameMap } from '../world/map';
 import { TileFlag, TileType } from '../world/tiles';
 import {
@@ -225,6 +226,21 @@ const rnd = (a: number, b: number): number => a + fxRng.next() * (b - a);
 const SWING_WINDOW: Partial<Record<ActionKind, [number, number]>> = { chop: [0.2, 0.31], slam: [0.14, 0.27], sweep: [0.1, 0.3] };
 /** The hoe blade's cutting edge, tool-local (see world/props/tools.ts). */
 const HOE_EDGE = new THREE.Vector3(0, 0.494, 0.212);
+
+/**
+ * Frame-sequence capture plans (shot.mjs `--frames N`): 8 authored moments per action kind, in action
+ * seconds, with a phase label each. N frames sample this curve (N = 8 hits every moment exactly), so a
+ * sequence always shows ONE swing / pour from anticipation to recovery whatever the capture timing.
+ */
+const SEQ_PLANS: Partial<Record<ActionKind, [number, string][]>> = {
+  chop: [[0.03, 'ready'], [0.1, 'anticipation (crouch)'], [0.19, 'wind-up'], [0.235, 'wind-up top'], [0.262, 'downswing'], [0.275, 'impact'], [0.36, 'bite + recoil'], [0.56, 'recovery']],
+  slam: [[0.02, 'charged'], [0.1, 'rise'], [0.16, 'top'], [0.205, 'downswing'], [0.222, 'impact'], [0.3, 'shockwave'], [0.44, 'recoil'], [0.66, 'recovery']],
+  pour: [[0.06, 'lift'], [0.2, 'tip'], [0.3, 'stream leaves'], [0.4, 'stream lands'], [0.52, 'soaking'], [0.66, 'full soak'], [0.8, 'tail lands'], [1.02, 'wet tile']],
+  sweep: [[0.03, 'ready'], [0.09, 'wind-up'], [0.13, 'top'], [0.18, 'cut'], [0.21, 'impact'], [0.27, 'follow-through'], [0.38, 'recoil'], [0.52, 'recovery']],
+  pull: [[0.04, 'reach'], [0.13, 'crouch'], [0.2, 'yank'], [0.27, 'spring'], [0.36, 'catch (squash)'], [0.55, 'present'], [0.8, 'hold'], [0.98, 'to backpack']],
+  lift: [[0.05, 'reach'], [0.15, 'squat'], [0.24, 'heave'], [0.34, 'rise'], [0.46, 'hug (squash)'], [0.7, 'present'], [1.0, 'hold'], [1.2, 'recovery']],
+  sow: [[0.02, 'reach'], [0.07, 'dip'], [0.12, 'scoop'], [0.16, 'throw'], [0.19, 'seeds land'], [0.25, 'scatter'], [0.34, 'settle'], [0.44, 'recovery']],
+};
 /** Tool-local [inner, outer] edge of the smear per tool (see world/props/tools.ts). */
 const TRAIL_POINTS: Record<string, [THREE.Vector3, THREE.Vector3]> = {
   // Wide ribbon: from the handle's upper third out to the blade's cutting edge.
@@ -300,6 +316,8 @@ export class FarmingSystem implements System, FarmingApi {
   private sprayT = 0;
   private wasSpraying = false;
   private autoLoop: { tool: string; t: number } | null = null;
+  /** Frame-sequence capture state (see SEQ_PLANS / seqFrame). */
+  private seq: { tool: string; energy: number | null; acks: string[] } | null = null;
   /** farm-crows `&ring`: show the scarecrow's reach (hidden by default — it smeared across the lawn). */
   private ringDemo = false;
   /** Tile the running action targets (the cursor stays locked on it through the swing). */
@@ -341,6 +359,12 @@ export class FarmingSystem implements System, FarmingApi {
     game.events.on('crops:grow', ({ days }) => this.onFarmMap(() => this.growAll(days, false)));
     game.events.on('season:change', ({ season }) => this.onFarmMap(() => this.onSeason(season)));
     game.events.on('demo:stage', ({ name, showcase }) => this.onDemo(name, showcase));
+    // Sequence capture acknowledges the events each frame's step emitted (audio / net hooks fired).
+    for (const ev of ['tool:swing', 'tool:impact', 'soil:tilled', 'soil:watered', 'crop:harvested', 'harvest:collect', 'crop:planted', 'can:empty'] as EventName[]) {
+      game.events.on(ev, () => {
+        if (this.seq) this.seq.acks.push(ev);
+      });
+    }
     // Point-and-click targeting: tools act on the tile toward the mouse (any of the 8 around the farmer).
     game.player.aimTile = () => this.aimTile();
   }
@@ -478,6 +502,78 @@ export class FarmingSystem implements System, FarmingApi {
 
   stage(name: string): void {
     this.onDemo(name, [name]);
+  }
+
+  /** Hoe drag after the bite: ~16 cm from the tile centre back toward the farmer, rising out of the soil. */
+  private dragToward(x: number, z: number): THREE.Vector3 {
+    const p = this.game.player.position;
+    const d = new THREE.Vector3(p.x - (x + 0.5), 0, p.z - (z + 0.5));
+    const L = d.length();
+    if (L > 1e-3) d.multiplyScalar(0.16 / L);
+    d.y = 0.07;
+    return d;
+  }
+
+  /**
+   * shot.mjs `--frames N` on an action demo: frame i of n. Frame 0 restarts ONE action from rest
+   * (clock, energy and the rAF loop frozen); every frame then steps the sim by hand to its planned
+   * moment (SEQ_PLANS), so the whole sequence is a single deterministic swing / pour. Returns the
+   * phase label + the events acknowledged since the previous frame.
+   */
+  private seqFrame(i: number, n: number, tool: string): string {
+    const acts = this.actions;
+    const game = this.game;
+    if (!acts) return 'no-actions';
+    if (i === 0 || !this.seq) {
+      game.holdLoop = true;
+      game.setPaused(true);
+      this.autoLoop = null;
+      this.timers.length = 0;
+      this.hitStop = 0;
+      acts.cancel();
+      this.slow = 1;
+      acts.timeScale = 1;
+      this.fxScale = 1;
+      this.fx.clear();
+      this.seq = { tool, energy: game.services.energy?.value() ?? null, acks: [] };
+      // Settle a few frames at rest so the restart (fresh lawn / dry furrow) is what frame 0 sees.
+      for (let k = 0; k < 3; k++) game.step(1 / 60);
+      this.demoAct(tool, new URLSearchParams(location.search), -1);
+    }
+    const seq = this.seq!;
+    const kind = acts.kind;
+    const plan = (kind && SEQ_PLANS[kind]) || null;
+    const dur = acts.duration || 0.6;
+    const u = n > 1 ? i / (n - 1) : 0;
+    let T: number;
+    let label: string;
+    if (plan) {
+      const f = u * (plan.length - 1);
+      const k0 = Math.floor(f);
+      const k1 = Math.min(plan.length - 1, k0 + 1);
+      T = plan[k0]![0] + (plan[k1]![0] - plan[k0]![0]) * (f - k0);
+      label = plan[Math.round(f)]![1];
+    } else {
+      T = 0.03 + u * (dur - 0.06);
+      label = `t=${T.toFixed(2)}`;
+    }
+    // Step to T: the last step is cut to land on it (hit-stop slows the action; it just takes more steps).
+    let guard = 0;
+    while (acts.active && acts.time < T - 1e-4 && guard++ < 600) {
+      const rate = Math.max(0.05, acts.rate);
+      const dt = Math.min(1 / 60, Math.max(1 / 480, (T - acts.time) / rate));
+      game.step(dt);
+    }
+    if (seq.energy !== null) game.services.energy?.set(seq.energy);
+    // Two still frames: the pose settles in the post chain (TAA-free, but bloom / AO history).
+    acts.timeScale = 0;
+    const fx = this.fxScale;
+    this.fxScale = 0;
+    game.step(1 / 240);
+    acts.timeScale = this.hitStop > 0 ? 0.08 : 1;
+    this.fxScale = fx;
+    const acks = seq.acks.splice(0);
+    return `${label} @${acts.active ? acts.time.toFixed(3) : 'done'}s${acks.length ? ' · ' + [...new Set(acks)].join(' ') : ''}`;
   }
 
   scrub(t: number): void {
@@ -1122,7 +1218,8 @@ export class FarmingSystem implements System, FarmingApi {
       onDone: extra.onDone,
       freezeAt: extra.freezeAt,
       // The hoe blade's cutting edge bites the middle of the target tile on the impact frame.
-      aim: toolId === 'hoe' && (kind === 'chop' || kind === 'slam') ? { target: new THREE.Vector3(x + 0.5, this.surfaceY(x + 0.5, z + 0.5) + 0.03, z + 0.5), local: HOE_EDGE } : undefined,
+      // (r16) It bites ~5 cm INTO the soil (penetration), then drags back toward the farmer.
+      aim: toolId === 'hoe' && (kind === 'chop' || kind === 'slam') ? { target: new THREE.Vector3(x + 0.5, this.surfaceY(x + 0.5, z + 0.5) - 0.05, z + 0.5), local: HOE_EDGE, drag: this.dragToward(x, z) } : undefined,
     });
     return IMPACT[kind];
   }
@@ -1920,7 +2017,7 @@ export class FarmingSystem implements System, FarmingApi {
       const t = this.tiles.get(key(x, z));
       if (!t?.crop || t.crop.dead) return;
       // Profile views (east / west of the plant) with one pecking from the near side.
-      this.crows.spawn(x + 0.5, z + 0.5, this.crowMeal(t), 0, { landed: true, stay: true, eatAt, onPeck: this.crowPeck(t), scale: 0.95, side: [Math.PI, 0.35, 0, Math.PI * 0.72][i]! });
+      this.crows.spawn(x + 0.5, z + 0.5, this.crowMeal(t), 0, { landed: true, stay: true, eatAt, onPeck: this.crowPeck(t), scale: 1.1, side: [Math.PI, 0.35, 0, Math.PI * 0.72][i]! });
       this.later(0.4 + i * 0.3, () => this.game.events.emit('crow:arrive', { x, z }));
     });
     // The scuffle so far: feathers and torn leaf scraps already lying around the raid.
@@ -2226,6 +2323,12 @@ export class FarmingSystem implements System, FarmingApi {
     this.fx.clear();
     this.timers.length = 0;
     this.autoLoop = null;
+    this.seq = null;
+    // (r16) Hero fields keep the whole field crisp (the bottom-edge tilt-shift smeared the near
+    // beds into mush); every other demo gets the default lens back.
+    const hero = showcase.includes('harvest') || showcase.includes('wither') || showcase.includes('gallery');
+    this.game.rc.tiltBand = hero ? 0.4 : 0.26;
+    this.game.rc.tiltStrength = hero ? 0.45 : 0.7;
     const season = this.game.calendar.season;
     const params = new URLSearchParams(location.search);
     // Demo-table params: showcase tokens `key=value` act as URL params the URL doesn't override
@@ -2244,7 +2347,8 @@ export class FarmingSystem implements System, FarmingApi {
     // Grandmother's kitchen garden is replanted in season for every staged scene (the home framing
     // never opens on last season's husks); the wither demo stages its own dead garden below.
     if (!showcase.includes('wither') && !showcase.includes('harvest')) this.plantGarden(season, true);
-    this.ringDemo = params.has('ring');
+    // farm-crows shows the scarecrow's reach by default (r16: cause and effect); `&ring=0` hides it.
+    this.ringDemo = params.has('ring') ? params.get('ring') !== '0' : showcase.includes('crows');
     const tier = params.get('tier');
     if (tier) for (const t of TOOLS) this.setToolTier(t, Math.max(0, Math.min(3, Number(tier))) as ToolTier);
     const q = params.get('quality');
@@ -2267,6 +2371,7 @@ export class FarmingSystem implements System, FarmingApi {
         if (this.forceQuality === null) this.forceQuality = 2;
       }
       if (act !== 'none') this.later(0.3, () => this.demoAct(act, params, params.get('pose') !== null ? Number(params.get('pose')) : undefined));
+      if (act !== 'none') this.game.seqHook = (i, n) => this.seqFrame(i, n, act);
     } else if (showcase.includes('tools')) {
       this.showcase = 'tools';
       this.stageTools();
@@ -2289,6 +2394,7 @@ export class FarmingSystem implements System, FarmingApi {
       const loop = params.get('loop');
       if (loop) this.autoLoop = { tool: loop, t: 0.2 };
       else this.later(0.25, () => this.demoAct(tool, params, pose === null ? undefined : Number(pose)));
+      this.game.seqHook = (i, n) => this.seqFrame(i, n, loop ?? tool);
     } else if (showcase.includes('gallery')) {
       // Every crop of the season (rows) × every growth stage (columns), for art review.
       this.showcase = 'gallery';
@@ -2374,8 +2480,10 @@ export class FarmingSystem implements System, FarmingApi {
     const g = this.grid();
     if (!g) return;
     const ids = SHOWCASE[season].length ? SHOWCASE[season] : SHOWCASE.summer;
-    for (let z = CROW_PATCH.z0; z <= CROW_PATCH.z1; z++) {
-      for (let x = CROW_PATCH.x0; x <= CROW_PATCH.x1; x++) {
+    // (r16) Two more rows north of the raided patch reach inside the field scarecrow's ring: the
+    // ring's arc cuts diagonally between untouched (guarded) plants and the raided ones.
+    for (let z = CROW_PATCH.z0 - 2; z <= CROW_PATCH.z1; z++) {
+      for (let x = CROW_PATCH.x0 - 1; x <= CROW_PATCH.x1; x++) {
         if (!g.hasFlag(x, z, TileFlag.Tillable) || g.hasFlag(x, z, TileFlag.Blocked) || g.getType(x, z) === TileType.Path) continue;
         const o = g.getObject(x, z);
         if (o && o.kind !== 'weed' && o.kind !== 'twig' && o.kind !== 'stone') continue;
@@ -2689,11 +2797,12 @@ export class FarmingSystem implements System, FarmingApi {
         const ez = base.z + Math.sin(a) * d0;
         p.set(base.x + Math.cos(a) * 0.1, oy, base.z + Math.sin(a) * 0.1);
         // A real arc into the air: ~0.6–0.9 m apex for the gold head's 2.5 m throw.
-        const T = 0.55 + d0 * 0.15;
+        // (r16) Lower, flatter throws (~0.35–0.5 m apex): a garden sprinkler, not a fountain.
+        const T = 0.42 + d0 * 0.08;
         const land = this.surfaceY(ex, ez) + (hit ? 0.28 : 0);
-        this.fx.sprayArc(p, a, d0 - 0.1, T, land - oy, j * 0.731 + base.x * 0.37 + base.z * 0.11, 0.95, spinRate * T);
+        this.fx.sprayArc(p, a, d0 - 0.1, T, land - oy, j * 0.731 + base.x * 0.37 + base.z * 0.11, 0.75, spinRate * T);
         // Sun glints riding the top of the arc (a sprinkler sparkles in morning light).
-        if (fxRng.next() < dt * 9) {
+        if (fxRng.next() < dt * 3) {
           const s = rnd(0.3, 0.7);
           const ga = a - spinRate * T * s;
           const gd = (d0 - 0.1) * s;

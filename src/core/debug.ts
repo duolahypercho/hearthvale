@@ -31,6 +31,11 @@ export interface DebugApi {
   load(slot?: string): boolean;
   /** Advance N frames synchronously (dt each) — for deterministic tests. */
   step(frames?: number, dt?: number): void;
+  /**
+   * Frame-sequence capture: shot.mjs calls this before frame i of n. A staged action demo steps its
+   * one-shot action to the frame's moment and returns the phase label; false = no sequence hook.
+   */
+  seqFrame(i: number, n: number): string | boolean;
   info(): Record<string, unknown>;
   demos: string[];
 }
@@ -70,6 +75,8 @@ export function installDebugApi(game: Game): DebugApi {
       const d = DEMOS[name];
       if (!d) throw new Error(`unknown demo "${name}" (known: ${Object.keys(DEMOS).join(', ')})`);
       game.events.emit('ui:open', { name: 'none' });
+      game.seqHook = null;
+      game.holdLoop = false;
       let map = d.map;
       if (!game.world.has(map)) {
         console.warn(`[demo] map "${map}" not implemented yet; staging on farm`);
@@ -105,6 +112,11 @@ export function installDebugApi(game: Game): DebugApi {
     load: (slot) => game.saves.load(slot),
     step: (frames = 1, dt = 1 / 60) => {
       for (let i = 0; i < frames; i++) game.step(dt);
+    },
+    seqFrame: (i, n) => {
+      const h = game.seqHook;
+      if (!h) return false;
+      return h(i, n) ?? true;
     },
     info: () => ({
       // `frame`: fps, mean / p95 frame time and the audio system's main-thread ms per second.

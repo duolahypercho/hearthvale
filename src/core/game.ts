@@ -247,11 +247,22 @@ export class Game {
    * Return true when it drew the frame itself; false to render the world as usual.
    */
   renderOverride: ((dt: number) => boolean) | null = null;
+  /**
+   * Frame-sequence capture (shot.mjs `--frames`): a staged demo may install a hook the harness calls
+   * before each frame (`__game.seqFrame(i, n)`); it steps the sim by hand to an exact action time
+   * while `holdLoop` stops the rAF loop advancing anything (every frame belongs to one swing / pour).
+   */
+  seqHook: ((i: number, n: number) => string | void) | null = null;
+  holdLoop = false;
   /** Called after every frame's render: screen-space overlays that must match this frame's camera. */
   readonly afterRender: (() => void)[] = [];
 
   private loop = (now: number): void => {
     requestAnimationFrame(this.loop);
+    if (this.holdLoop) {
+      this.last = now;
+      return;
+    }
     if (!this.rc.governor.pace(now)) return;
     // rAF timestamps can precede the performance.now() taken when the loop started: never step backwards.
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000) || 0);

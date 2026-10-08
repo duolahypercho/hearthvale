@@ -850,17 +850,20 @@ export class SoilBeds {
         f.t += dt;
         const x = i % this.width;
         const z = Math.floor(i / this.width);
-        // Radial front from the pour point: reaches the far corner in ~0.4 s.
-        const R = (f.t / 0.3) * 1.2;
+        // (r16) A timed soak: a soft radial front from where the water lands reaches the far corner
+        // in ~0.6 s (the length of the pour), and the whole patch deepens as it soaks in, so the
+        // darkening reads as a gradient spreading under the stream rather than a snap.
+        const R = (f.t / 0.5) * 1.2;
+        const soak = 0.45 + 0.55 * THREE.MathUtils.smoothstep(f.t, 0.05, 0.75);
         for (let jj = 0; jj < WR; jj++) {
           const row = (z * WR + jj) * this.tw + x * WR;
           for (let ii = 0; ii < WR; ii++) {
             const d = Math.hypot((ii + 0.5) / WR - f.cx, (jj + 0.5) / WR - f.cz);
-            const v = Math.round(THREE.MathUtils.clamp((R - d) / 0.3, 0, 1) * 255);
+            const v = Math.round(THREE.MathUtils.clamp((R - d) / 0.45, 0, 1) * soak * 255);
             if (v > this.wetData[row + ii]!) this.wetData[row + ii] = v;
           }
         }
-        if (f.t >= 0.42) {
+        if (f.t >= 0.8) {
           this.floods.delete(i);
           this.fillTile(x, z, 255);
         }

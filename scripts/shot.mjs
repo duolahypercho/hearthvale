@@ -138,6 +138,12 @@ async function main() {
     const stem = outBase.slice(0, outBase.length - ext.length);
     for (let i = 0; i < n; i++) {
       const path = n === 1 ? outBase : `${stem}_${String(i).padStart(3, '0')}${ext}`;
+      if (n > 1) {
+        // Sequence hook: a staged one-shot action demo steps itself to frame i's moment (every
+        // frame of the sequence belongs to the same swing / pour, whatever the capture timing).
+        const seq = await page.evaluate(([a, b]) => window.__game.seqFrame?.(a, b) ?? false, [i, n]);
+        if (typeof seq === 'string') console.log(`[shot] seq ${i + 1}/${n}: ${seq}`);
+      }
       await page.screenshot({ path, type: 'png', timeout: args.timeout });
       console.log(`[shot] wrote ${path}`);
       if (i < n - 1) await page.waitForTimeout(args.every);

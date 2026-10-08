@@ -17,11 +17,12 @@ function cursorTexture(): THREE.CanvasTexture {
   const r = 20;
   // A light inner wash (~10 %, tinted per state: cream valid, red blocked) so the target reads at
   // the gameplay camera on pale path and dry soil alike (r7: thin brackets vanished there).
-  g.fillStyle = 'rgba(255,255,255,0.075)';
+  // (r16) A slightly stronger state-tinted ground fill carries the read; the brackets got lighter.
+  g.fillStyle = 'rgba(255,255,255,0.13)';
   g.beginPath();
   g.roundRect(pad + 6, pad + 6, S - (pad + 6) * 2, S - (pad + 6) * 2, r - 6);
   g.fill();
-  const L = 38;
+  const L = 30;
   const corner = (x: number, y: number, sx: number, sy: number): void => {
     g.beginPath();
     g.moveTo(x, y + sy * L);
@@ -40,20 +41,20 @@ function cursorTexture(): THREE.CanvasTexture {
   // Soft dark under-stroke (a contact shadow for the bracket).
   for (const [x, y, sx, sy] of cs) {
     corner(x + sx * 1.5, y + sy * 1.5, sx, sy);
-    g.lineWidth = 19;
-    g.strokeStyle = 'rgba(28,16,6,0.55)';
+    g.lineWidth = 11;
+    g.strokeStyle = 'rgba(28,16,6,0.32)';
     g.stroke();
   }
   for (const [x, y, sx, sy] of cs) {
     corner(x, y, sx, sy);
-    g.lineWidth = 10.5;
-    g.strokeStyle = 'rgba(255,255,255,1)';
+    g.lineWidth = 6;
+    g.strokeStyle = 'rgba(255,255,255,0.82)';
     g.stroke();
   }
   // Faint dotted edge joining the brackets (reads the tile edge without a solid frame).
   g.setLineDash([2, 9]);
   g.lineWidth = 3;
-  g.strokeStyle = 'rgba(255,255,255,0.45)';
+  g.strokeStyle = 'rgba(255,255,255,0.3)';
   g.beginPath();
   g.roundRect(pad, pad, S - pad * 2, S - pad * 2, r);
   g.stroke();
@@ -158,7 +159,7 @@ const COLORS: Record<CursorState, THREE.Color> = {
   neutral: new THREE.Color(0xdfe6ee),
   hover: new THREE.Color(0xf4ead2),
 };
-const ALPHA: Record<CursorState, number> = { valid: 1, blocked: 0.8, charge: 1, neutral: 0.55, hover: 0.32 };
+const ALPHA: Record<CursorState, number> = { valid: 0.95, blocked: 0.85, charge: 1, neutral: 0.6, hover: 0.32 };
 
 export class TileCursor {
   readonly mesh: THREE.InstancedMesh;
@@ -287,10 +288,11 @@ export class TileCursor {
       }
       // Brackets breathe inward a touch; charged tiles pulse faster.
       const b = tl.state === 'charge' ? Math.sin(this.t * 12 + i) * 0.03 : Math.sin(this.t * 5) * 0.022;
-      const s = (0.9 + 0.1 * this.shown) * (1.02 + b + pk * 0.14) * (tl.state === 'hover' ? 0.78 : 1);
+      // (r16) On impact the bracket compresses onto the tile and fades, giving the hit the stage.
+      const s = (0.9 + 0.1 * this.shown) * (1.02 + b - pk * 0.12) * (tl.state === 'hover' ? 0.78 : 1);
       this.m.makeScale(s, 1, s).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
       this.mesh.setMatrixAt(nb, this.m);
-      this.mesh.setColorAt(nb, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * Math.min(1, ALPHA[tl.state] + pk * 0.6)));
+      this.mesh.setColorAt(nb, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * ALPHA[tl.state]));
       nb++;
       if (tl.state === 'blocked' && nx < 4) {
         const k = 0.34 * (0.85 + 0.15 * this.shown);
@@ -313,6 +315,6 @@ export class TileCursor {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
-    (this.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, this.shown * 1.1);
+    (this.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, this.shown * 1.1) * 0.85 * (1 - 0.7 * pk);
   }
 }

@@ -380,7 +380,7 @@ class Streaks {
     g.instanceCount = 0;
     this.geo = g;
     const m = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uColor: { value: new THREE.Color(0x9cc8e8) }, uHi: { value: new THREE.Color(0xeef8ff) } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uColor: { value: new THREE.Color(0x8fb8d4) }, uHi: { value: new THREE.Color(0xd4e8f4) } }]),
       vertexShader: STREAK_VS,
       fragmentShader: STREAK_FS,
       transparent: true,
@@ -405,7 +405,7 @@ class Streaks {
       // 3–4× longer than wide at speed; round-ish when slow.
       this.size[k * 2] = d.r * 1.7;
       this.size[k * 2 + 1] = d.r * 1.8 + Math.min(0.2, sp * 0.02);
-      this.alpha[k] = 0.78 * Math.min(1, d.age * 30);
+      this.alpha[k] = 0.55 * Math.min(1, d.age * 30);
       k++;
       if (k >= this.n) break;
     }
@@ -664,19 +664,17 @@ function decalTexture(kind: 'wet' | 'crack'): THREE.CanvasTexture {
 
 /** Jets out of the rose: a main rope of droplets + thinner side jets that fan apart as they fall. */
 const JETS: { r0: number; r1: number; spread: number; lag: number; a: number; n: number; jit: number; off?: number }[] = [
-  // Three parallel bead ropes (the rose's centre holes): fat, closely spaced glassy drops that read
-  // as a generous pour from the gameplay camera, every drop still its own bead.
-  // (r14: the ropes taper as the water speeds up and thins — a tapering ribbon of beads.)
-  // (r15: a thicker, denser core rope.)
-  { r0: 0.047, r1: 0.036, spread: 0, lag: 0, a: 1.0, n: 26, jit: 0.012 },
-  { r0: 0.03, r1: 0.022, spread: 0.07, lag: 0.015, a: 0.95, n: 18, jit: 0.016, off: 0.045 },
-  { r0: 0.03, r1: 0.022, spread: -0.07, lag: 0.025, a: 0.95, n: 18, jit: 0.016, off: -0.045 },
-  // Flanking jets fanning apart as they fall.
-  { r0: 0.019, r1: 0.027, spread: 0.2, lag: 0.035, a: 0.85, n: 13, jit: 0.022 },
-  { r0: 0.019, r1: 0.027, spread: -0.2, lag: 0.045, a: 0.85, n: 13, jit: 0.022 },
-  // The rose's outer holes: a few fine drops that fan wide and break up first.
-  { r0: 0.012, r1: 0.017, spread: 0.36, lag: 0.05, a: 0.72, n: 9, jit: 0.035 },
-  { r0: 0.012, r1: 0.017, spread: -0.34, lag: 0.065, a: 0.72, n: 9, jit: 0.035 },
+  // (r16) A real can's rose: thin translucent ballistic threads that leave as a coherent column and
+  // break up into separated droplets as gravity speeds them (r9 critic: the fat bead ropes read as
+  // frozen glass ribbons). Radii ~ half the r15 ropes; fewer beads, so the lower arc shows gaps.
+  { r0: 0.014, r1: 0.012, spread: 0, lag: 0, a: 0.72, n: 18, jit: 0.012 },
+  { r0: 0.011, r1: 0.011, spread: 0.06, lag: 0.015, a: 0.82, n: 14, jit: 0.016, off: 0.035 },
+  { r0: 0.011, r1: 0.011, spread: -0.06, lag: 0.025, a: 0.82, n: 14, jit: 0.016, off: -0.035 },
+  // Outer holes: fine drops that fan apart and break up first.
+  { r0: 0.008, r1: 0.011, spread: 0.18, lag: 0.035, a: 0.72, n: 9, jit: 0.025 },
+  { r0: 0.008, r1: 0.011, spread: -0.18, lag: 0.045, a: 0.72, n: 9, jit: 0.025 },
+  { r0: 0.006, r1: 0.009, spread: 0.32, lag: 0.05, a: 0.6, n: 6, jit: 0.035 },
+  { r0: 0.006, r1: 0.009, spread: -0.3, lag: 0.065, a: 0.6, n: 6, jit: 0.035 },
 ];
 const STREAM_BEADS = JETS.reduce((n, j) => n + j.n, 0);
 
@@ -710,10 +708,11 @@ void main() {
   // dot up-front (r7 critic: the pour read as an opaque blue rod).
   float rim = smoothstep(0.3, 0.8, d) * body;
   float hl = 1.0 - smoothstep(0.0, 0.32, length(vUv - vec2(-0.25, 0.35)));
-  float a = (body * 0.56 + rim * 0.24 + hl * 0.45) * vA;
+  // (r16) Thin water: mostly see-through, a refracting rim and a small restrained glint (no bloom).
+  float a = (body * 0.34 + rim * 0.3 + hl * 0.28) * vA;
   if (a < 0.02) discard;
-  vec3 c = mix(uBody, uCore, clamp(rim * 0.35 + (1.0 - d) * 0.25, 0.0, 1.0));
-  c = mix(c, vec3(1.0), hl * 0.9);
+  vec3 c = mix(uBody, uCore, clamp(rim * 0.3 + (1.0 - d) * 0.2, 0.0, 1.0));
+  c = mix(c, vec3(0.92, 0.96, 1.0), hl * 0.55);
   gl_FragColor = vec4(c, min(1.0, a));
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -765,7 +764,7 @@ class Stream {
     }
     g.setIndex(idx);
     this.mat = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uBody: { value: new THREE.Color(0x4f9ee0) }, uCore: { value: new THREE.Color(0xeaf7ff) } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uBody: { value: new THREE.Color(0x7fb2d6) }, uCore: { value: new THREE.Color(0xd8ecf8) } }]),
       vertexShader: STREAM_VS,
       fragmentShader: STREAM_FS,
       transparent: true,
@@ -863,7 +862,9 @@ class Stream {
         if (up.dot(tan) < 0) up.negate();
         const r = (jet.r0 + (jet.r1 - jet.r0) * f) * (0.8 + 0.4 * hsh);
         // Stretched along their velocity: tighter at the rose, longer as they speed up.
-        const len = r * (1.25 + Math.min(1.1, sp * 0.22));
+        // (r16) A short stretch only: the coherent top of the arc overlaps into a thread, the faster
+        // lower arc separates into individual droplets with clear gaps between them.
+        const len = r * (1.2 + Math.min(0.55, sp * 0.1));
         // The first bead out (the leading end) is fatter: a drop gathering at the head of the jet.
         const lead = this.on && s1 - s < this.T / jet.n ? 1.35 : 1;
         const tipFade = Math.min(1, (s - s0) / 0.03 + (this.on ? 1 : 0));
@@ -898,7 +899,7 @@ interface Ring {
 
 // ───────────────────────────────────────────── sprinkler jets
 
-const ARC_BEADS = 116;
+const ARC_BEADS = 72;
 const ARC_VS = /* glsl */ `
 attribute vec4 aO;
 attribute vec4 aP;
@@ -941,11 +942,11 @@ void main() {
   side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
   // Tight glassy beads off the nozzle that thin and stretch into velocity-aligned streaks as they
   // fall (motion blur); shed drops stay fine.
-  float r = (rope ? mix(0.026, 0.013, s * s) : mix(0.011, 0.024, h3)) * mix(0.75, 1.25, h4);
+  float r = (rope ? mix(0.016, 0.009, s * s) : mix(0.007, 0.014, h3)) * mix(0.75, 1.25, h4);
   // (r15) Seen from a hero-field distance (15–20 m) the beads thicken so the jets never thin into
   // hairlines; up close they keep their real size.
-  r *= clamp(length(cameraPosition - p) / 9.0, 1.0, 1.9);
-  float stretch = 2.4 + 2.6 * s;
+  r *= clamp(length(cameraPosition - p) / 10.0, 1.0, 1.45);
+  float stretch = 1.5 + 1.3 * s;
   if (land > 0.0) {
     // Crown splash: a flat ring on the soil, expanding as it fades (only every other bead, so
     // the landing zone sparkles rather than carpets).
@@ -984,8 +985,8 @@ void main() {
     float body = 1.0 - smoothstep(0.55, 1.0, d);
     float rim = smoothstep(0.35, 0.8, d) * body;
     float hl = 1.0 - smoothstep(0.0, 0.38, length(vUv - vec2(-0.25, 0.35)));
-    a = (body * 0.38 + rim * 0.4 + hl * 0.5) * vA;
-    c = mix(uBody, uCore, clamp(hl * 0.95 + rim * 0.25, 0.0, 1.0));
+    a = (body * 0.3 + rim * 0.34 + hl * 0.3) * vA;
+    c = mix(uBody, uCore, clamp(hl * 0.7 + rim * 0.25, 0.0, 1.0));
   }
   if (a < 0.02) discard;
   gl_FragColor = vec4(c, a);
@@ -1029,7 +1030,7 @@ class SprayArcs {
     g.instanceCount = 0;
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x5fa6e0) }, uCore: { value: new THREE.Color(0xf4fbff) } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uBody: { value: new THREE.Color(0x86b6d8) }, uCore: { value: new THREE.Color(0xe2f0f8) } }]),
       vertexShader: ARC_VS,
       fragmentShader: ARC_FS,
       transparent: true,
@@ -1518,8 +1519,10 @@ export class FarmFX {
     const key = `${c.x.toFixed(2)},${c.z.toFixed(2)},${r}`;
     if (key === this.radiusKey && this.radius) return;
     this.radiusKey = key;
-    const SEG = 160;
-    const RINGS = [0, 0.9, 0.975, 0.988, 0.995, 1.0];
+    // (r16) A crisp warm-gold dashed boundary with a faint gold wash just inside it ("guarded"),
+    // laid low over the ground: the old floating white band read as a smear across the beds.
+    const SEG = 260;
+    const RINGS = [0.86, 0.93, 0.985, 0.99, 0.996, 1.0];
     const pos: number[] = [];
     const col: number[] = [];
     const idx: number[] = [];
@@ -1529,11 +1532,11 @@ export class FarmFX {
         const a = (i / SEG) * Math.PI * 2;
         const x = c.x + Math.cos(a) * rr;
         const z = c.z + Math.sin(a) * rr;
-        pos.push(x, this.ground(x, z) + 0.16, z); // at grass-tip height, so the lawn doesn't swallow it
+        pos.push(x, this.ground(x, z) + 0.07, z);
         const edge = j >= 3;
-        const dash = Math.floor(i / 2) % 2 === 0 ? 1 : 0.1;
-        const al = [0.0, 0.0, 0.03, 0.35 * dash, 0.35 * dash, 0.0][j]!;
-        col.push(edge ? 1 : 1, edge ? 0.93 : 0.95, edge ? 0.7 : 0.8, al);
+        const dash = i % 4 < 3 ? 1 : 0;
+        const al = [0.0, 0.07, 0.1, 0.8 * dash, 0.8 * dash, 0.0][j]!;
+        col.push(1, edge ? 0.84 : 0.88, edge ? 0.42 : 0.55, al);
       }
     }
     for (let j = 0; j < RINGS.length - 1; j++) {
@@ -1585,7 +1588,7 @@ export class FarmFX {
       const a = a0 + (i / n) * Math.PI * 2 + rnd(-0.2, 0.2);
       // Low and radial (a milk-crown spreading out over the soil, not an upward geyser spurt).
       const sp = rnd(0.6, 1.1) * size;
-      this.drop(p.clone().setY(p.y + 0.01), new THREE.Vector3(Math.cos(a) * sp, rnd(0.45, 0.85) * size, Math.sin(a) * sp), 0.013 * size);
+      this.drop(p.clone().setY(p.y + 0.01), new THREE.Vector3(Math.cos(a) * sp, rnd(0.3, 0.55) * size, Math.sin(a) * sp), 0.011 * size);
     }
   }
 
@@ -1725,14 +1728,15 @@ export class FarmFX {
     this.ring(p.clone().setY(p.y + 0.015), 0.05 * big, 0.3 * big, 0.45, 0x5a8cb4);
     // A smaller second ripple trailing the first (water rings, not a single gizmo circle).
     if (fxr.next() < 0.5) this.ring(p.clone().add(_v.set(rnd(-0.06, 0.06), 0.016, rnd(-0.06, 0.06))), 0.03 * big, 0.17 * big, 0.38, 0x6a9cc4);
-    this.crown(p, big, 12);
+    // (r16) A short, low splash: a small crown that dies fast, no tall spray.
+    this.crown(p, big * 0.75, 7);
     // A couple of fat drops skipped out sideways (they crown again where they land).
     for (let i = 0; i < 2; i++) {
       const a = rnd(0, Math.PI * 2);
-      this.drop(p.clone().setY(p.y + 0.02), new THREE.Vector3(Math.cos(a) * rnd(0.7, 1.1) * big, rnd(0.9, 1.3) * big, Math.sin(a) * rnd(0.7, 1.1) * big), 0.015 * big, true);
+      this.drop(p.clone().setY(p.y + 0.02), new THREE.Vector3(Math.cos(a) * rnd(0.5, 0.8) * big, rnd(0.5, 0.8) * big, Math.sin(a) * rnd(0.5, 0.8) * big), 0.011 * big, true);
     }
     this.mist(p.clone().setY(p.y + 0.04), 0.2 * big, 0.1);
-    if (fxr.next() < 0.45) this.sparkle(p.clone().add(_v.set(rnd(-0.1, 0.1), rnd(0.06, 0.16), rnd(-0.1, 0.1))), _v.set(0, rnd(0.2, 0.5), 0), 0xd8f0ff, rnd(0.07, 0.11), 0.35);
+    if (fxr.next() < 0.15) this.sparkle(p.clone().add(_v.set(rnd(-0.1, 0.1), rnd(0.06, 0.16), rnd(-0.1, 0.1))), _v.set(0, rnd(0.2, 0.5), 0), 0xd8f0ff, rnd(0.07, 0.11), 0.35);
   }
 
   /** Seeds scattered into a tile + a little dust. */

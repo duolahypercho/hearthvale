@@ -1336,7 +1336,7 @@ export function witherKind(id: CropId): WitherKind {
 }
 
 /** Identity accent of a dead plant (what is left of its fruit): one set per accent × variant. */
-export type WitherAccent = 'melon' | 'pumpkin' | 'tomato' | 'pepper' | 'berry' | 'plain';
+export type WitherAccent = 'melon' | 'pumpkin' | 'tomato' | 'pepper' | 'berry' | 'parsnip' | 'beet' | 'cauli' | 'kale' | 'corn' | 'sunflower' | 'plain';
 
 export function witherAccent(id: CropId | undefined): WitherAccent {
   if (id === 'melon') return 'melon';
@@ -1344,6 +1344,8 @@ export function witherAccent(id: CropId | undefined): WitherAccent {
   if (id === 'tomato') return 'tomato';
   if (id === 'hotPepper' || id === 'eggplant') return 'pepper';
   if (id === 'blueberry' || id === 'strawberry') return 'berry';
+  if (id === 'parsnip' || id === 'beet' || id === 'kale' || id === 'corn' || id === 'sunflower') return id;
+  if (id === 'cauliflower') return 'cauli';
   return 'plain';
 }
 
@@ -1387,8 +1389,9 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
   // Desaturated grey-browns (no pink, no straw-gold): dead, dry, but darker than pale soil crumbs.
   const stem0 = C(0x3e352b);
   const stem1 = C(0x7a6c58);
-  const leaf0 = C(0x4f463a);
-  const leaf1 = C(0x7f735f);
+  // (r16) Paler ashen-tan leaf tips so the husks separate from the brown soil at gameplay zoom.
+  const leaf0 = C(0x564c3e);
+  const leaf1 = C(0xa09276);
   // Dead leaves: petal-marked (no fall hue shift, no painted veins) so they stay grey-brown; rolled
   // up along the midrib and curled back at the tip (a crumpled husk, never a flat paper square).
   const curled = (len: number, w: number, lift = 0.05, bend = 0.4): THREE.BufferGeometry => asPetal(leafGeo(len, w * 0.8, { shape: 'oval', lift, bend, fold: 0.8, curl: 1.4 + r.next() * 0.8, ruffle: 0.45, cup: 0.7, c0: leaf0, c1: leaf1, segs: 5 }));
@@ -1414,9 +1417,28 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
       const y = (0.22 + (i / 4) * 0.62) * hMain;
       add(asPetal(leafGeo(0.26 + r.next() * 0.08, 0.06, { shape: 'ribbon', lift: -0.45, bend: 1.4, fold: 0.35, ruffle: 0.3, c0: leaf0, c1: leaf1, segs: 5 })), mat(lean * (y / hMain) ** 2, y, 0, 0, i * 2.3 + r.next(), 0));
     }
-    // A dead, nodding seed head.
-    add(fruit(0.06, C(0x3a2e24), { sy: 0.55, seg: 8 }), mat(lean + (v === 0 ? 0.26 : 0.04), v === 0 ? hMain * 0.6 : hMain + 0.02, 0.02, v === 0 ? 1.8 : 0.9, 0, 0.3), 'skin');
-    fallen(3, 0.22);
+    if (accent === 'sunflower') {
+      // (r16) The big dead flower head hanging face-down off the bent neck: a dark seed disc in a
+      // ragged ring of shrivelled bracts — the sunflower's own skeleton, not a generic stalk.
+      const hx = lean + (v === 0 ? 0.26 : 0.1);
+      const hy = v === 0 ? hMain * 0.62 : hMain - 0.04;
+      add(fruit(0.11, C(0x2e241c), { sy: 0.35, seg: 14 }), mat(hx, hy, 0.04, 2.3, 0, 0.2), 'skin');
+      for (let k = 0; k < 9; k++) {
+        const a = (k / 9) * Math.PI * 2;
+        add(asPetal(leafGeo(0.07, 0.03, { shape: 'lance', lift: -0.6, bend: 0.8, curl: 1.2, c0: leaf0, c1: leaf1, segs: 3 })), mat(hx + Math.cos(a) * 0.08, hy - 0.02 + Math.sin(a) * 0.05, 0.04 + Math.sin(a) * 0.04, 2.3, a, 0));
+      }
+    } else if (accent === 'corn') {
+      // A dry husked cob still hanging off the cane, its papery husk split open on dull kernels.
+      const cy = hMain * 0.55;
+      add(fruit(0.04, C(0x9a8452), { sy: 2.6, seg: 10 }), mat(0.07, cy, 0.03, 0, 0, -0.9), 'skin');
+      for (let k = 0; k < 3; k++) add(asPetal(leafGeo(0.16, 0.05, { shape: 'ribbon', lift: -0.3, bend: 0.6, curl: 1.0, c0: C(0x8a7a5a), c1: C(0xb0a080), segs: 4 })), mat(0.06, cy - 0.02, 0.03, 0, k * 2.1, -0.9));
+      // A dry tassel at the top.
+      add(stalk(0.12, 0.006, 0.003, stem1, stem1, 0.2, 3), mat(lean * 0.9, hMain - 0.01, 0, 0, 0.6, 0.4));
+    } else {
+      // A dead, nodding seed head.
+      add(fruit(0.06, C(0x3a2e24), { sy: 0.55, seg: 8 }), mat(lean + (v === 0 ? 0.26 : 0.04), v === 0 ? hMain * 0.6 : hMain + 0.02, 0.02, v === 0 ? 1.8 : 0.9, 0, 0.3), 'skin');
+    }
+    fallen(2, 0.22);
   } else if (kind === 'vine') {
     // A collapsed mat: four runners sprawled flat, big dead leaves lying along them.
     const nv = 4;
@@ -1505,11 +1527,43 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
       fallen(4, 0.24);
     }
   } else {
-    // A slumped rosette of dead leaves flat on the soil (0) or a leaning tuft (1).
+    // (r16) Per-crop skeletons instead of one grey rosette carpet.
     const lift = v === 0 ? 0.08 : 0.5;
-    rosette(add, r, 6, 0.19, 0.11, { shape: 'lance', lift, bend: 1.0, fold: 0.5, ruffle: 0.35, c0: leaf0, c1: leaf1, segs: 4 }, 0, 0.01);
-    add(stalk(v === 1 ? 0.22 : 0.12, 0.013, 0.007, stem0, stem1, 0.12, 4));
-    fallen(2, 0.2);
+    if (accent === 'parsnip' || accent === 'beet') {
+      // A root crop gone over: the shoulder of the root heaved up out of the soil (cream-grey
+      // parsnip / blackened ruby beet), a few limp leaf stalks flopped to one side.
+      const beet = accent === 'beet';
+      add(lumpyColored(beet ? 0.05 : 0.04, beet ? C(0x4e1f2a) : C(0xb2a587), r, 2, 0.25), mat(0, 0.01, 0, 0, 0, 0, 1, beet ? 0.85 : 1.5, 1), 'skin');
+      const side = r.next() * Math.PI * 2;
+      for (let k = 0; k < 4; k++) {
+        const a = side + (k - 1.5) * 0.45;
+        add(stalk(0.16 + r.next() * 0.05, 0.007, 0.004, beet ? C(0x4a2228) : stem0, beet ? C(0x6e3a40) : stem1, 0.0, 3), mat(0, 0.04, 0, 0, a, 1.15 + r.next() * 0.25));
+        add(curled(0.09, 0.06, -0.2, 0.4), mat(Math.cos(a) * 0.15, 0.02, Math.sin(a) * 0.15, 0, -a + Math.PI / 2, 0));
+      }
+    } else if (accent === 'cauli') {
+      // A rotted head slumped in its collar of big flopped outer leaves, browning to grey mould.
+      add(lumpyColored(0.085, C(0x8c846c), r, 3, 0.3), mat(0.02, 0.04, 0, 0, 0, 0.15, 1, 0.6, 1), 'skin');
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2 + r.next() * 0.4;
+        add(curled(0.17, 0.13, -0.1, 0.25), mat(Math.cos(a) * 0.08, 0.015, Math.sin(a) * 0.08, 0, -a + Math.PI / 2, 0));
+      }
+    } else if (accent === 'kale') {
+      // Bolted: a tall woody stem stripped bare, leaf-rib stubs up its length, a frizz of dead
+      // leaves left at the top, leaning.
+      const h = v === 0 ? 0.34 : 0.42;
+      const ln = v === 0 ? 0.22 : 0.12;
+      add(stalk(h, 0.016, 0.009, stem0, stem1, ln, 5));
+      for (let k = 0; k < 5; k++) {
+        const y = 0.06 + (k / 5) * h * 0.8;
+        add(stalk(0.06, 0.005, 0.003, stem1, stem1, 0, 3), mat(ln * (y / h) ** 2, y, 0, 0, k * 2.4, 1.0));
+      }
+      for (let k = 0; k < 3; k++) add(curled(0.1, 0.08, -0.5, 0.9), mat(ln, h, 0, 0, k * 2.1, 0));
+    } else {
+      // A slumped rosette of dead leaves flat on the soil (0) or a leaning tuft (1).
+      rosette(add, r, 6, 0.19, 0.11, { shape: 'lance', lift, bend: 1.0, fold: 0.5, ruffle: 0.35, c0: leaf0, c1: leaf1, segs: 4 }, 0, 0.01);
+      add(stalk(v === 1 ? 0.22 : 0.12, 0.013, 0.007, stem0, stem1, 0.12, 4));
+    }
+    fallen(1, 0.2);
   }
   const out = new Map<Bucket, THREE.BufferGeometry>();
   for (const [k, g] of b.geometries()) {
@@ -2345,9 +2399,10 @@ export class CropVisuals {
   addWithered(x: number, y: number, z: number, seed: number, trellised: boolean, id?: CropId): CropHandle {
     const v = seed % 2;
     const kind = id ? witherKind(id) : 'leafy';
-    const accent = kind === 'vine' || kind === 'bush' ? witherAccent(id) : 'plain';
+    const accent = trellised ? 'plain' : witherAccent(id);
     const set = this.special(`withered:${trellised ? 't' : `${kind}:${accent}`}:${v}`, () => buildWithered(new Rng(`withered:${kind}:${accent}:${v}`), trellised, kind, v, accent), true);
-    const s = (kind === 'tall' ? 1.3 : 1.45) * (0.9 + ((seed >> 3) % 20) / 100);
+    // (r16) Wider size spread (and smaller husks overall) so the dead field exposes its soil.
+    const s = (kind === 'tall' ? 1.3 : 1.55) * (0.8 + ((seed >> 3) % 40) / 100);
     // Grey-brown, a little lighter / darker and warmer / cooler per plant.
     const h = ((seed >> 7) % 100) / 100;
     const tint = new THREE.Color().setRGB(1, 0.97, 0.92).lerp(new THREE.Color(0.9, 0.9, 0.9), h).multiplyScalar(0.9 + (((seed >> 11) % 24) / 100));
