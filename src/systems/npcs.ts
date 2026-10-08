@@ -227,10 +227,13 @@ const STAGES: Record<string, Mark[]> = {
     // (r10: the knot opened up — Odessa had stood square in front of Bram and Rowan in front of June)
     ['rowan', 44.0, 23.8, -140, 'chat', undefined, { free: true }],
     ['odessa', 40.1, 23.9, 112, 'chat', undefined, { free: true }],
-    ['marigold', 26.2, 23.6, 0, 'idle', 'heart', { walk: [21.4, 21.4] }],
-    ['hazel', 27.1, 24.2, 0, 'idle', undefined, { walk: [22.0, 22.2] }],
-    ['linus', 30.2, 31.6, 0, 'idle', undefined, { walk: [33.4, 40.0] }],
-    ['wren', 25.0, 23.4, 75, 'paint'],
+    // (r11: the lens swings 26° round to the bakery and the market row — the plaza no longer a
+    // symmetric stage between two storefronts; Marigold and Hazel set off home across the plaza, Wren
+    // drifts over to join the bakery knot, Linus crosses the near foreground to the clinic road)
+    ['marigold', 29.0, 17.6, 0, 'idle', 'heart', { walk: [21.4, 21.4] }],
+    ['hazel', 29.8, 18.4, 0, 'idle', undefined, { walk: [22.0, 22.2] }],
+    ['linus', 37.5, 27.5, 0, 'idle', undefined, { walk: [33.4, 40.0] }],
+    ['wren', 35.1, 17.2, 0, 'idle', undefined, { walk: [39.4, 23.2] }],
   ],
   // r5 hero: the river crossing — the market row, the painter at her easel on the west bank, two old
   // friends leaning on the stone bridge, a kid on the bank, the inn terrace and the forge yard beyond.

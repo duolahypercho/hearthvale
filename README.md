@@ -678,9 +678,32 @@ actors such as Pip the shop cat).
   head reads. Kit's mop is a shallow, near-even shell under the tufts (deep hem scallops showed bare
   scalp between the locks: "cookie dough").
 
+- **Round 11** — *Plaza identities* (r8 critic: "two near-mirrored storefront masses"): Thimble & Pip's
+  gets a jettied, half-timbered loading gable that breaks the eave and climbs nearly to the ridge
+  (painted name board on its band, a loft door open on a lit storeroom, a hoist beam with a pulley and
+  a crate of stock mid-lift; `buildStoreFront`); The Hearth Oven a domed brick bread oven on its plaza
+  gable with a glowing mouth and a firewood stack, a tall round smoking flue, a louvred ridge vent
+  under a gilded wheat-sheaf vane and a painted board standing on the roof (`buildBakeryFront`). The
+  twin dormers are gone; both boards share one canvas atlas and skip the shadow pass, the oven glows
+  in the shared `lampGlow` (no new draw call per pass). Hazel's cottage grows a plant theatre on its
+  west gable: white posts under a whitewashed glazed roof with a vent propped open, three tiers of
+  staging crowded with potted blooms, hanging baskets, a potting bench and a water butt
+  (`buildGlasshouse`). *Coverage*: `town-winter` now sits on the town-day establishing lens (the
+  bakery's flue smoking, the market under snow, the iced river and the Kettle Bridge) with its own
+  winter blocking (Bram hauling a crate to the oven, Marigold clearing the market lane, Kit by the
+  snowman, Odessa and Rowan at the stall end, Wren painting the frozen river, Linus trudging to the
+  clinic); the old plaza frame is `town-winter-square`. `town-evening` swings 26° round to the
+  bakery and the market row (Hall left, oven board centre, stalls right, fountain foreground) with
+  Marigold and Hazel setting off home, Wren drifting over to the bakery knot and Linus crossing the
+  near foreground. *Street life*: a sweeper pushes a seasonal drift (petals, clippings, leaves, snow
+  clods) along the cobbles stroke by stroke into a pile at the broom's end; a reader turns a page now
+  and then. *Heart events*: a close single drops a farmer standing off to the side (odessa-4's dark
+  hat at the left edge, the blind judge's "out-of-focus foreground figure"); Odessa's headscarf comes
+  forward to her brows and the broad nose's alae tuck into the tip (they inked a snout).
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
-(the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit), `town-winter` (its own
-winter blocking), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
+(the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
+its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
 paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·
 `&first=1` for the first meeting; bystanders vary per villager and hour, busy with their own things),
@@ -1069,6 +1092,19 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   boards ~12 % lower in value, a sofa table behind the loveseat (books, fern, photo, apples) fills the open band, a
   draped knitted throw at the bed's foot (was a slab), softer vignette, brighter night. *Barn* — greyer trodden
   drifts and cool damp patches by the tank, fewer aisle straws. Paler pasture wallow centre.
+- r15 (round 10 critique + blind judge): *Pasture* — the paddock wear has defined edges (the wobble field moves where
+  the edge of the worn earth falls instead of multiplying its value: the judge's "blotchy path"); the pen gets animal
+  homes and chores furniture — the pig's corrugated sage ark with a straw tongue spilling from its arched door, the
+  hens' galvanised feeder + red drinker with spilled grain by the coop gate, a grain sack, a feed pail and a hay fork at
+  the manger (`buildPigArk`, `buildHenFeeders`, solid via `PASTURE_PROPS`); `animals-pasture` / `animals-coop` lens
+  tightened 21.5 → 18.5 m so the herd and buildings fill more of the frame (also ~5 draws / 40k tris fewer). *Contact
+  shadows* — one instanced soft dark pool under every grounded animal (perched / bed-shelf / afloat skipped), all maps.
+  *Resting* — livestock lie down awake now and then to chew the cud (eyes open, head up, slow chew, no Zzz; real
+  behaviour, synced to farmhands as stateCode + 8); staged: the second pasture sheep, Cocoa in her straw. *Barn* —
+  three behaviours along the stalls (munching, lying down, rooting) on varied yaws instead of five chins over five
+  mangers; the barn's open door shows a recessed vestibule (dim straw, a stall partition, a bale) instead of a black
+  card. *Petting* — the heart clears a crouching farmer's face (checked over the 1.05–1.5 m head span, + the crouch's
+  lean) and the mini-heart burst follows it.
 
 ## Co-op multiplayer (1–4 farmers)
 
