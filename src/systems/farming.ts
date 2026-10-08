@@ -243,7 +243,7 @@ const SEQ_PLANS: Partial<Record<ActionKind, [number, string][]>> = {
   // (r17) Retimed to the real flight: the water leaves at 0.27 s and lands 0.24 s later (0.51), the
   // tail lands at 1.04 and the soak finishes ~0.8 s after the first drops — the last frame is the
   // settled wet tile, no splash left on it.
-  pour: [[0.06, 'lift'], [0.2, 'tip'], [0.33, 'stream leaves'], [0.52, 'stream lands'], [0.64, 'soaking'], [0.82, 'full soak'], [1.05, 'tail lands'], [1.6, 'wet tile']],
+  pour: [[0.06, 'lift'], [0.2, 'tip'], [0.33, 'stream leaves'], [0.52, 'stream lands'], [0.68, 'soaking'], [0.84, 'full soak'], [1.12, 'tail lands'], [1.75, 'wet tile']],
   sweep: [[0.03, 'ready'], [0.09, 'wind-up'], [0.13, 'top'], [0.18, 'cut'], [0.21, 'impact'], [0.27, 'follow-through'], [0.38, 'recoil'], [0.52, 'recovery']],
   pull: [[0.04, 'reach'], [0.13, 'crouch'], [0.2, 'yank'], [0.27, 'spring'], [0.36, 'catch (squash)'], [0.55, 'present'], [0.8, 'hold'], [0.98, 'to backpack']],
   lift: [[0.05, 'reach'], [0.15, 'squat'], [0.24, 'heave'], [0.34, 'rise'], [0.46, 'hug (squash)'], [0.7, 'present'], [1.0, 'hold'], [1.2, 'recovery']],
@@ -285,8 +285,10 @@ const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; t
   // peppers + tomatoes, blueberry bushes and pepper / tomato blocks up front (no monoculture).
   // r17: one species per block, bare spacing rows between blocks (no red-dot checkerboard): corn |
   // sunflower at the back, tomato | pepper rows, then the melon patch (giant) | blueberry + tomato.
-  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], 'gap', ['tomato', 'hotPepper'], null, ['melon', 'blueberry'], ['melon', 'gap'], ['melon', 'tomato'], ['melon', 'tomato']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
-  fall: { rows: [['corn', 'grape'], ['corn', 'grape'], 'gap', 'eggplant', null, 'beet', 'pumpkin', 'pumpkin', 'yam'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
+  // r18: no bare rows (Stardew-dense: one plant a tile, < 25 % visible soil inside the beds); the melon
+  // is one front row a side + the giant's 3×3 corner; the NE bed packed edge to edge with pepper + tomato.
+  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['tomato', 'tomato'], null, ['blueberry', 'blueberry'], ['hotPepper', 'tomato'], ['hotPepper', 'hotPepper'], ['melon', 'melon']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
+  fall: { rows: [['corn', 'grape'], ['corn', 'grape'], 'beet', 'eggplant', null, 'beet', 'pumpkin', 'pumpkin', 'yam'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
   winter: { rows: [], giant: null, trellis: null, crate: [] },
 };
 
@@ -1678,7 +1680,7 @@ export class FarmingSystem implements System, FarmingApi {
     // later while the can is still tipped, and keeps flowing ~80 ms into the lift so the last drops
     // land with the final splash crown; the splash runs until the tail has landed.)
     const P0 = 0.27;
-    const P1 = 0.8;
+    const P1 = 0.93;
     const FLY = 0.24;
     const sweep = (i: number): number => P0 + ((P1 - P0) * i) / Math.max(1, targets.length);
     const wetSet = new Set(wet.map(([a, b]) => key(a, b)));
@@ -1733,11 +1735,12 @@ export class FarmingSystem implements System, FarmingApi {
         const end = this.fx.stream.end;
         if (end > FLY * 0.9 || !pouring) {
           // Bounce: a steady spatter of droplets kicked back up where the stream hits (~6 a frame).
-          let nb = Math.min(10, Math.round(dt * 360 + fxRng.next()));
+          // (r18) Low and outward (a crown over the soil), never a vertical spurt.
+          let nb = Math.min(8, Math.round(dt * 260 + fxRng.next()));
           while (nb-- > 0) {
             const ba = rnd(0, Math.PI * 2);
-            const bs = rnd(0.25, 0.75);
-            this.fx.drop(aim.clone().add(new THREE.Vector3(rnd(-0.06, 0.06), 0.015, rnd(-0.06, 0.06))), new THREE.Vector3(Math.cos(ba) * bs, rnd(0.7, 1.5), Math.sin(ba) * bs), rnd(0.009, 0.014));
+            const bs = rnd(0.4, 0.85);
+            this.fx.drop(aim.clone().add(new THREE.Vector3(rnd(-0.06, 0.06), 0.015, rnd(-0.06, 0.06))), new THREE.Vector3(Math.cos(ba) * bs, rnd(0.35, 0.85), Math.sin(ba) * bs), rnd(0.009, 0.014));
           }
           splashT -= dt;
           if (splashT <= 0) {
@@ -2347,7 +2350,8 @@ export class FarmingSystem implements System, FarmingApi {
         const dense = CROPS[id].trellis || id === 'eggplant' || id === 'hotPepper' || id === 'tomato' || id === 'blueberry';
         // (r17) Red-fruited rows ripen unevenly (fewer red dots, silhouettes read).
         const redFruit = id === 'tomato' || id === 'hotPepper';
-        const stage = dense ? (roll < (redFruit ? 45 : 70) ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
+        // (r18) Peppers ripe ~2/3 of the time: their stage-4 flowering sprigs read as bare soil between bushes.
+        const stage = dense ? (roll < (id === 'hotPepper' ? 68 : redFruit ? 45 : 70) ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
         this.plant(id, x, z, this.daysAt(id, stage), h);
       }
     }

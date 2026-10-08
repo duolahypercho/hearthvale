@@ -102,9 +102,11 @@ const TRACKS: Record<ActionKind, Key[]> = {
     { t: 0 },
     { t: 0.2, ease: 'back', aR: [-1.05, -0.14], aL: [-0.82, 0.6], torso: [0.1, 0, 0], head: 0.08, sy: 0.97, level: 0, reach: 1.3 },
     { t: 0.32, ease: 'inout', aR: [-1.12, -0.14], aL: [-0.9, 0.6], torso: [0.14, 0, 0], head: 0.12, sy: 0.98, level: 0.66, reach: 1.32 },
-    { t: 0.72, ease: 'linear', aR: [-1.15, -0.14], aL: [-0.92, 0.6], torso: [0.15, 0, 0], head: 0.12, sy: 0.98, level: 0.72, reach: 1.32 },
-    { t: 0.84, ease: 'inout', aR: [-0.9, -0.14], aL: [-0.6, 0.45], torso: [0.06, 0, 0], sy: 1.0, level: 0, reach: 1.2 },
-    { t: 1.05, ease: 'inout' },
+    // (r18) The can stays tipped while the water is still landing (r8 critic: the splash peaked after the
+    // can was back up): tipped to 0.84 s, the stream runs ~90 ms into the lift, the tail lands ~1.17 s.
+    { t: 0.84, ease: 'linear', aR: [-1.15, -0.14], aL: [-0.92, 0.6], torso: [0.15, 0, 0], head: 0.12, sy: 0.98, level: 0.74, reach: 1.32 },
+    { t: 0.98, ease: 'inout', aR: [-0.9, -0.14], aL: [-0.6, 0.45], torso: [0.06, 0, 0], sy: 1.0, level: 0, reach: 1.2 },
+    { t: 1.14, ease: 'inout' },
   ],
   refill: [
     { t: 0 },

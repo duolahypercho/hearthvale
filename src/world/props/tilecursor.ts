@@ -93,7 +93,8 @@ function fillTexture(): THREE.CanvasTexture {
   c.width = c.height = S;
   const g = c.getContext('2d')!;
   // Faint and edge-to-edge (no seams: a dark grid between washed tiles read as a mat).
-  g.fillStyle = 'rgba(255,255,255,0.09)';
+  // (r18) Fainter still: the flat wash sank into the furrow troughs and tinted a slammed block gold.
+  g.fillStyle = 'rgba(255,255,255,0.05)';
   g.fillRect(0, 0, S, S);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -287,7 +288,8 @@ export class TileCursor {
       if (merged && tl.state === 'charge') {
         this.m.makeScale(1, 1, 1).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
         this.fill.setMatrixAt(nf, this.m);
-        this.fill.setColorAt(nf, this.c.copy(COLORS.charge).multiplyScalar(this.shown * (0.75 + pk * 0.35)));
+        // (r18) The wash gets out of the way on the slam (the fresh earth takes the stage), like the brackets.
+        this.fill.setColorAt(nf, this.c.copy(COLORS.charge).multiplyScalar(this.shown * 0.85 * (1 - pk * 0.85)));
         nf++;
         continue;
       }

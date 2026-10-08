@@ -808,6 +808,17 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   ~45 % ripe. *Sequences* — the pour plan follows the real flight (lands 0.52, tail 1.05, settled wet tile 1.6; the
   harness keeps stepping past the action's end). `farm-coop-tools` reframed (all four farmers inside), the watering
   farmhand yawed ~60° so the can reads in profile.
+- **r18 polish**: *Summer hero field* — no bare spacing rows (one plant a tile, Stardew-dense): corn | sunflower
+  at the back, tomato | pepper packed edge to edge in the NE bed, a blueberry row, pepper | tomato blocks, and melon only
+  as one front row a side plus the giant's 3×3 corner; peppers ripe ~2/3 of the time (stage-4 sprigs read as bare soil).
+  *farm-tools* — shot from the farmer's front-left at ~1.3× gameplay zoom (face, lean and blade all to the lens; the
+  r17 lens sat behind his shoulder), the hoe sequence uses the same lens. *Pour* — the can stays tipped until 0.84 s,
+  the stream runs ~90 ms into the lift and the tail lands ~1.15 s, so every splash lands while the can is still
+  pouring (sequence moments 0.68 / 0.84 / 1.12 / 1.75); a ~2 cm core rope + 1.5 cm side jets, beads scale with camera
+  distance (never under ~3 px); bounce spatter low and outward (no vertical spurt). *Sprinklers* — wider, more opaque
+  jets that scale with distance (readable from the 11–17 m hero lenses), the coherent ribbon only over the first ~60 %
+  of the throw, then short streaks with gaps (separate drops, not a hose). *Fall field* — the bare spacing row is a
+  beet row. *Charged slam* — the gold area wash is fainter (5 %) and gets out of the way on the hit.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

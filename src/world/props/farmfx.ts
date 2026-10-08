@@ -718,14 +718,17 @@ const JETS: { r0: number; r1: number; spread: number; lag: number; a: number; n:
   // (r16) A real can's rose: thin translucent ballistic threads that leave as a coherent column and
   // break up into separated droplets as gravity speeds them (r9 critic: the fat bead ropes read as
   // frozen glass ribbons). Radii ~ half the r15 ropes; fewer beads, so the lower arc shows gaps.
-  { r0: 0.014, r1: 0.012, spread: 0, lag: 0, a: 0.72, n: 18, jit: 0.012 },
-  { r0: 0.011, r1: 0.011, spread: 0.06, lag: 0.015, a: 0.82, n: 14, jit: 0.016, off: 0.035 },
-  { r0: 0.011, r1: 0.011, spread: -0.06, lag: 0.025, a: 0.82, n: 14, jit: 0.016, off: -0.035 },
+  // (r18) A readable core: the r16 threads vanished at the 9–13 m tool lenses (r8 critic: "a single
+  // thin pale rope"). The core rope is ~2 cm and denser, the side jets ~1.5 cm; beads also scale
+  // with camera distance (like the sprinkler beads) so the pour never thins below ~3 px.
+  { r0: 0.021, r1: 0.017, spread: 0, lag: 0, a: 0.8, n: 22, jit: 0.01 },
+  { r0: 0.015, r1: 0.015, spread: 0.06, lag: 0.015, a: 0.82, n: 16, jit: 0.016, off: 0.04 },
+  { r0: 0.015, r1: 0.015, spread: -0.06, lag: 0.025, a: 0.82, n: 16, jit: 0.016, off: -0.04 },
   // Outer holes: fine drops that fan apart and break up first.
-  { r0: 0.008, r1: 0.011, spread: 0.18, lag: 0.035, a: 0.72, n: 9, jit: 0.025 },
-  { r0: 0.008, r1: 0.011, spread: -0.18, lag: 0.045, a: 0.72, n: 9, jit: 0.025 },
-  { r0: 0.006, r1: 0.009, spread: 0.32, lag: 0.05, a: 0.6, n: 6, jit: 0.035 },
-  { r0: 0.006, r1: 0.009, spread: -0.3, lag: 0.065, a: 0.6, n: 6, jit: 0.035 },
+  { r0: 0.011, r1: 0.014, spread: 0.18, lag: 0.035, a: 0.74, n: 10, jit: 0.025 },
+  { r0: 0.011, r1: 0.014, spread: -0.18, lag: 0.045, a: 0.74, n: 10, jit: 0.025 },
+  { r0: 0.008, r1: 0.012, spread: 0.32, lag: 0.05, a: 0.62, n: 7, jit: 0.035 },
+  { r0: 0.008, r1: 0.012, spread: -0.3, lag: 0.065, a: 0.62, n: 7, jit: 0.035 },
 ];
 const STREAM_BEADS = JETS.reduce((n, j) => n + j.n, 0);
 
@@ -760,7 +763,7 @@ void main() {
   float rim = smoothstep(0.3, 0.8, d) * body;
   float hl = 1.0 - smoothstep(0.0, 0.32, length(vUv - vec2(-0.25, 0.35)));
   // (r16) Thin water: mostly see-through, a refracting rim and a small restrained glint (no bloom).
-  float a = (body * 0.34 + rim * 0.3 + hl * 0.28) * vA;
+  float a = (body * 0.42 + rim * 0.34 + hl * 0.3) * vA;
   if (a < 0.02) discard;
   vec3 c = mix(uBody, uCore, clamp(rim * 0.3 + (1.0 - d) * 0.2, 0.0, 1.0));
   c = mix(c, vec3(0.92, 0.96, 1.0), hl * 0.55);
@@ -796,6 +799,8 @@ class Stream {
   private mat: THREE.ShaderMaterial;
   /** Camera forward (set by the owner each frame) — the beads face the camera. */
   readonly view = new THREE.Vector3(0, -0.7, -0.7);
+  /** Camera position (set by the owner each frame) — beads thicken with distance. */
+  readonly eye = new THREE.Vector3(0, 10, 10);
 
   constructor() {
     const n = STREAM_BEADS * 4;
@@ -911,7 +916,7 @@ class Stream {
         // Along-flight axis in the view plane (so the stretch survives a grazing angle).
         up.crossVectors(this.view, side).normalize();
         if (up.dot(tan) < 0) up.negate();
-        const r = (jet.r0 + (jet.r1 - jet.r0) * f) * (0.8 + 0.4 * hsh);
+        const r = (jet.r0 + (jet.r1 - jet.r0) * f) * (0.8 + 0.4 * hsh) * Math.min(1.5, Math.max(1, p.distanceTo(this.eye) / 9));
         // Stretched along their velocity: tighter at the rose, longer as they speed up.
         // (r16) A short stretch only: the coherent top of the arc overlaps into a thread, the faster
         // lower arc separates into individual droplets with clear gaps between them.
@@ -971,7 +976,7 @@ void main() {
     // (r17) The jet's body: a soft translucent ribbon along the main rope, widening and fading as
     // the water breaks up, so the arc reads as one coherent throw (beads string along it).
     float j = i - ${ARC_BEADS}.0;
-    float sr = clamp((j + position.z * 0.5 + 0.5) / ${ARC_RIB}.0, 0.0, 1.0) * 0.9;
+    float sr = clamp((j + position.z * 0.5 + 0.5) / ${ARC_RIB}.0, 0.0, 1.0) * 0.66;
     float Tr = aP.y * 0.985;
     float angr = aO.w - aA.y * sr * (Tr / aP.y);
     vec3 dirr = vec3(cos(angr), 0.0, sin(angr));
@@ -981,13 +986,16 @@ void main() {
     vec3 tanr = normalize(dirr * Rr + vec3(0.0, aP.z + gr * (1.0 - 2.0 * sr), 0.0));
     vec3 sider = cross(tanr, normalize(cameraPosition - pr));
     sider = length(sider) > 1e-5 ? normalize(sider) : vec3(1.0, 0.0, 0.0);
-    float wr = mix(0.014, 0.05, sr) * clamp(length(cameraPosition - pr) / 10.0, 1.0, 1.4);
+    // (r18) A readable body: from the 11–17 m hero lenses the r17 ribbon thinned to a hairline.
+    float wr = mix(0.022, 0.075, sr) * clamp(length(cameraPosition - pr) / 9.0, 1.0, 1.6);
     pr += sider * position.y * wr;
     vec4 mvr = viewMatrix * vec4(pr, 1.0);
     gl_Position = projectionMatrix * mvr;
     vUv = vec2(position.y, 0.0);
     vS = -1.0;
-    vA = aA.x * 0.3 * smoothstep(0.0, 0.06, sr) * (1.0 - 0.75 * sr);
+    // (r18) The coherent body only over the first ~60 % of the throw, then it has broken into drops
+    // (a full-length ribbon read as a hose / wire).
+    vA = aA.x * 0.46 * smoothstep(0.0, 0.06, sr) * (1.0 - smoothstep(0.28, 0.64, sr));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1022,11 +1030,12 @@ void main() {
   side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
   // Tight glassy beads off the nozzle that thin and stretch into velocity-aligned streaks as they
   // fall (motion blur); shed drops stay fine.
-  float r = (rope ? mix(0.016, 0.009, s * s) : mix(0.007, 0.014, h3)) * mix(0.75, 1.25, h4);
+  float r = (rope ? mix(0.022, 0.012, s * s) : mix(0.009, 0.018, h3)) * mix(0.7, 1.35, h4);
   // (r15) Seen from a hero-field distance (15–20 m) the beads thicken so the jets never thin into
   // hairlines; up close they keep their real size.
-  r *= clamp(length(cameraPosition - p) / 10.0, 1.0, 1.45);
-  float stretch = 1.5 + 1.3 * s;
+  r *= clamp(length(cameraPosition - p) / 9.0, 1.0, 1.6);
+  // (r18) Short streaks: past the ribbon the rope reads as separate drops with gaps, not a cord.
+  float stretch = 1.4 + 0.6 * s;
   if (land > 0.0) {
     // Crown splash: a flat ring on the soil, expanding as it fades (only every other bead, so
     // the landing zone sparkles rather than carpets).
@@ -1070,7 +1079,7 @@ void main() {
     float body = 1.0 - smoothstep(0.55, 1.0, d);
     float rim = smoothstep(0.35, 0.8, d) * body;
     float hl = 1.0 - smoothstep(0.0, 0.38, length(vUv - vec2(-0.25, 0.35)));
-    a = (body * 0.3 + rim * 0.34 + hl * 0.3) * vA;
+    a = (body * 0.4 + rim * 0.4 + hl * 0.34) * vA;
     c = mix(uBody, uCore, clamp(hl * 0.7 + rim * 0.25, 0.0, 1.0));
   }
   if (a < 0.02) discard;
@@ -1452,6 +1461,7 @@ export class FarmFX {
   setCamera(cam: THREE.Camera): void {
     cam.getWorldDirection(this.trail.view);
     this.stream.view.copy(this.trail.view);
+    cam.getWorldPosition(this.stream.eye);
     cam.getWorldQuaternion(this.viewQuat);
     this.viewRight.set(1, 0, 0).applyQuaternion(this.viewQuat);
   }
