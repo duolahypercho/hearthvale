@@ -18,6 +18,8 @@ import { Rng } from '../../core/rng';
 import { InteriorMap } from './room';
 import { Kit } from './kit';
 import { mat, roundedBox, lumpySphere } from '../geom';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { animalMaterial } from '../../entities/animals-rig';
 import type { PenAnchors, PenSlot } from './pen';
 import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, crate, strawDrift, spokedWheel, STRAW_DRY } from './pen';
 
@@ -465,18 +467,36 @@ export class BarnInterior extends InteriorMap {
     // r11: the fleece as a real shorn mat — a lumpy blanket of packed curls (staple tufts), draped over
     // the bar and hanging down both sides, the outer tips a touch darker + creamier than the cut side.
     k.add('fabric', lumpySphere(0.5, 2, 0.14, fleece), mat(sx, 0.76, sz, 0, 0.05, 0, 0.98, 0.14, 0.36), { tint: 0xf0e4cc });
-    for (const t of [-1, 1]) k.add('fabric', lumpySphere(0.4, 2, 0.18, fleece), mat(sx, 0.58, sz + t * 0.2, t * 0.35, 0.05, 0, 1.15, 0.42, 0.14), { tint: 0xeadcc0 });
-    for (let i = 0; i < 150; i++) {
-      // Cloth coords: u across the bar (−1 … 1, past ±0.5 it hangs down the sides), v along it.
-      const u = (fleece.next() * 2 - 1) * 1.1;
-      const v = (fleece.next() * 2 - 1) * 0.47;
-      const hang = Math.max(0, Math.abs(u) - 0.5);
-      const y = 0.83 - hang * 0.62 + fleece.next() * 0.02;
-      const z = sz + Math.sign(u) * Math.min(Math.abs(u), 0.5) * 0.36 + Math.sign(u) * hang * 0.1;
-      const r = 0.032 + fleece.next() * 0.026;
-      const tip = fleece.next();
-      const tint = tip < 0.15 ? 0xdcc8a2 : tip < 0.45 ? 0xf4e8d2 : 0xfdf6e8;
-      k.add('fabric', lumpySphere(r, 1, 0.4, fleece), mat(sx + v, y, z, fleece.next(), fleece.next() * 3, 0, 1, 0.7, 1), { tint });
+    for (const t of [-1, 1]) k.add('fabric', lumpySphere(0.4, 2, 0.18, fleece), mat(sx, 0.62, sz + t * 0.17, t * 0.35, 0.05, 0, 0.98, 0.3, 0.12), { tint: 0xcdbb98 });
+    // The curls themselves wear the sheep's own wool (the animal material's curl relief, aCoat = 2): one
+    // merged mesh of packed staple puffs, so the shorn fleece reads as the same stuff as the flock's coats.
+    {
+      const puffs: THREE.BufferGeometry[] = [];
+      const c = new THREE.Color();
+      for (let i = 0; i < 110; i++) {
+        const u = (fleece.next() * 2 - 1) * 1.1;
+        const v = (fleece.next() * 2 - 1) * 0.47;
+        const hang = Math.max(0, Math.abs(u) - 0.5);
+        const y = 0.82 - hang * 0.62 + fleece.next() * 0.02;
+        const z = sz + Math.sign(u) * Math.min(Math.abs(u), 0.5) * 0.36 + Math.sign(u) * hang * 0.1;
+        const r = 0.045 + fleece.next() * 0.035;
+        const g = new THREE.IcosahedronGeometry(r, 1);
+        g.applyMatrix4(mat(sx + v, y, z, fleece.next(), fleece.next() * 3, 0, 1, 0.72, 1));
+        const n = g.attributes.position.count;
+        const tip = fleece.next();
+        c.setHex(tip < 0.15 ? 0xdccaa6 : tip < 0.45 ? 0xefe4d0 : 0xf8f1e4);
+        const col = new Float32Array(n * 3);
+        for (let k2 = 0; k2 < n; k2++) col.set([c.r, c.g, c.b], k2 * 3);
+        g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+        for (const nm of ['aPatchA', 'aPatchB', 'aPatchC']) g.setAttribute(nm, new THREE.Float32BufferAttribute(new Float32Array(n * 4), 4));
+        g.setAttribute('aCoat', new THREE.Float32BufferAttribute(new Float32Array(n).fill(2), 1));
+        puffs.push(g);
+      }
+      const fm = new THREE.Mesh(mergeGeometries(puffs)!, animalMaterial());
+      fm.name = 'barn-fleece';
+      fm.castShadow = true;
+      fm.receiveShadow = true;
+      this.root.add(fm);
     }
     // Hand shears: two long blades + bowed spring handle, hanging from a nail on the near leg
     k.cyl('iron', 0.012, 0.012, 0.05, [sx + 0.42, 0.62, sz + 0.2], { rx: Math.PI / 2, tint: 0x2a2624 });

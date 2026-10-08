@@ -587,7 +587,9 @@ export abstract class InteriorMap implements GameMap {
     const list = net?.remotes?.list;
     if (!list || !list.size || game.cinematic) return;
     const pp = game.player.position;
-    const R = 0.7;
+    // (r11: 1 m, and the push leans sideways — two chibi heads ~0.9 m wide stacked one behind the other
+    // from the high lens at 0.7 m, depth-apart reads as one silhouette with a doubled tag)
+    const R = 1.0;
     for (const r of list.values()) {
       if (r.away || r.map !== this.id) continue;
       const o = r.farmer.root.position;
@@ -603,8 +605,16 @@ export abstract class InteriorMap implements GameMap {
         d = Math.hypot(dx, dz);
       }
       const push = Math.min((R - d) * 0.5, dt * 1.6);
-      const ux = dx / d;
-      const uz = dz / d;
+      // Screen-sideways first: weight x over depth (z) so the pair ends side by side.
+      let ux = dx / d;
+      let uz = (dz / d) * 0.45;
+      if (Math.abs(ux) < 0.25) {
+        const mine = net?.myId?.() ?? 0;
+        ux = (Math.abs(dx) > 0.02 ? Math.sign(dx) : mine < r.id ? -1 : 1) * 0.6;
+      }
+      const ul = Math.hypot(ux, uz);
+      ux /= ul;
+      uz /= ul;
       // Straight away from them; if furniture / a wall blocks that, slide sideways (either way) instead.
       for (const [cx, cz] of [[ux, uz], [-uz, ux], [uz, -ux], [ux * 0.7 - uz * 0.7, uz * 0.7 + ux * 0.7], [ux * 0.7 + uz * 0.7, uz * 0.7 - ux * 0.7]] as const) {
         const nx = pp.x + cx * push;
