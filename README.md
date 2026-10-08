@@ -699,6 +699,27 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   is paid by the share of its footprint actually worked (≥ 2) and skipped tiles keep their red ✕ through the slam; the
   slam ripple is 12 ms a tile. Demos: `farm-tools` swung 24° (blade in front of the body), `farm-pop` 3/4 with the
   farmer standing in the bed, `coop-farm-work` (the co-op loop seeked mid-pick / mid-pour; demo-table `t=<sec>` token).
+- **r16 polish**: *Sequences are one action* — `shot.mjs --frames N` calls `__game.seqFrame(i, n)` before each frame;
+  action demos (`farm-tools`, `farm-water`, `farm-slam`, `farm-pop`, `farm-harvest`, any `&tool=` / `&loop=`) hold the
+  rAF loop, restart ONE action from rest (energy + clock frozen) and step the sim by hand to 8 authored moments
+  (`SEQ_PLANS`: hoe = ready · anticipation · wind-up · wind-up top · downswing · impact · bite + recoil · recovery;
+  pour = lift · tip · stream leaves · lands · soaking · full soak · tail lands · wet tile); the harness prints each
+  frame's phase label + the events it acknowledged (`tool:swing`, `tool:impact`, `soil:watered` …). *Swing body* —
+  the free hand is IK-locked on the handle (two-hand grip through wind-up, blow and recoil), the pelvis leads (hips
+  pitch / twist keys), a lunge splits the legs with the body dropped so the boots stay planted (knee compression), the
+  blade bites ~5 cm into the soil then drags back toward the boots. *Water* — thin translucent threads that break into
+  separated droplets low on the arc, restrained glints (no bloom), short low splashes, a timed ~0.8 s soak gradient
+  spreading from where the water lands; sprinkler throws ~0.35–0.5 m apex, 72 beads a jet, thinner + sparser.
+  *Cursor* — thin strokes, state-tinted fill, compresses + fades on the impact frame. *Crows* — upright on visible
+  legs, neck-driven pecks, two-footed hops with wing flicks + landing squash, contact shadows, a startled crouch-and-
+  leap escape; `farm-crows` shows guarded rows inside a crisp gold scarecrow ring next to the raided ones (`&ring=0`
+  hides it). *Death* — per-crop skeletons (heaved root shoulders, rotted cauliflower, bolted kale, dead sunflower
+  heads, husked corn cobs) in paler ashen tan with ±20 % size. *Young crops* — stage 2–3 identity cues (hilled potato
+  ridge, strawberry runners + daughter crowns, melon / pumpkin runners + tendrils, first pepper / eggplant / tomato
+  flowers, twining yam, woody blueberry base). Hero fields keep a wider sharp tilt-shift band (`rc.tiltBand`);
+  `farm-harvest-fall` is staged in warm late-afternoon light. New demo `farm-coop-tools`: the host hoeing beside three
+  real co-op farmhand avatars caught on one beat (hoe at blade contact, mid-pour onto a wet tile, a crop caught in
+  raised hands with a gold star). Sequence: `node scripts/shot.mjs --url "?demo=farm-tools" --frames 8 --out s.png`.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
