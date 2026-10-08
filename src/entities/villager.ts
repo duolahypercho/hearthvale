@@ -146,8 +146,11 @@ const mixHex = (a: number, b: number, t: number): number => new THREE.Color(a).l
  * the ridges — reads as combed, clumped hair (chibi figurine style), not a plastic helmet.
  * Seam at the back; azimuth 0 = the face.
  */
-/** Headscarf tilt (r10: -0.5 -> -0.34, it sat on the back of the crown over a bare dome of forehead). */
-const BANDANA_TILT = -0.34;
+/**
+ * Headscarf tilt (r10: -0.5 -> -0.34, it sat on the back of the crown over a bare dome of forehead;
+ * r11: -0.2 — odessa-4's close single still showed a forehead a quarter of the head tall under it).
+ */
+const BANDANA_TILT = -0.2;
 function hairShell(r: number, thetaStart: number, thetaLen: number, grooves: number, depth: number, scallop: number, seed = 0, twist = 0.9): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(r, SEGK === 1 ? Math.max(24, grooves * 4) : Math.max(16, grooves * 2), SEGK === 1 ? 14 : 8, 0, Math.PI * 2, thetaStart, thetaLen);
   g.rotateY(-Math.PI / 2);
@@ -1048,8 +1051,10 @@ export class Villager {
           rb.add(B.head, sphG(0.024, 10, 8), H(0, nY + R * 0.01, nZ - 0.002, 0.4, 0, 0, 1.15, 0.85, 1.0), nc);
           break;
         case 'broad':
-          rb.add(B.head, sphG(0.034, 12, 10), H(0, nY - R * 0.02, nZ - 0.002, 0, 0, 0, 1.5, 0.95, 0.9), nc);
-          for (const sx of [-1, 1]) rb.add(B.head, sphG(0.02, 8, 6), H(sx * 0.042, nY - R * 0.05, nZ - 0.014), shadeHex(L.skin, 0.99));
+          // (r11: the alae sit back and up into the tip — proud side balls inked two dark 'nostril'
+          // crescents under the tip that read as a snout in odessa-4's close single)
+          rb.add(B.head, sphG(0.034, 12, 10), H(0, nY - R * 0.02, nZ - 0.002, 0, 0, 0, 1.4, 0.95, 0.9), nc);
+          for (const sx of [-1, 1]) rb.add(B.head, sphG(0.019, 8, 6), H(sx * 0.036, nY - R * 0.03, nZ - 0.024), shadeHex(L.skin, 1.01));
           break;
         default:
           rb.add(B.head, sphG(0.03, 10, 8), H(0, nY, nZ), nc);

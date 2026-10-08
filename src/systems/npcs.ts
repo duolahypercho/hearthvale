@@ -3217,7 +3217,10 @@ export class NpcSystem implements System {
         const onScreen = hp.z < 1 && Math.abs(hp.x) < 1.25 && hp.y > -1.3 && hp.y < 1.1;
         // (r8b: …or well in front of the speaker in any tighter shot — odessa-4's two-shot still had the
         // farmer as a big dark hat silhouette in the near foreground)
-        tuck = onScreen && ((closeK && dP < dS - 0.4) || dP < dS - 1.5 || Math.abs(hp.x) > 0.74);
+        // (r11 blind judge: odessa-4's "out-of-focus foreground figure in a hat blocks the view" — in a
+        // close single the farmer off to the side (level with the speaker, dark, cut by the frame) goes,
+        // and in a two-shot so does one in front of the speaker and off to the side)
+        tuck = onScreen && ((closeK && dP < dS - 0.4) || dP < dS - 1.5 || Math.abs(hp.x) > 0.74 || ((closeK || dP < dS - 0.6) && Math.abs(hp.x) > 0.42));
       }
     }
     if (tuck === this.playerTucked) return;
