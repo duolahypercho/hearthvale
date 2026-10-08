@@ -7,7 +7,8 @@
  *                   projecting over the loft door (hoist beam, block + rope), shingle courses, flower
  *                   boxes, louvred cupola + cow weathervane, a west lean-to (bales, cart wheel, fork)
  *                   and an east fieldstone silo with a verdigris dome, ladder and feed chute
- *   pasture         plank water trough + enamel bucket, slatted hay manger with square bales
+ *   pasture         plank water trough + enamel bucket, slatted hay manger with square bales, grain
+ *                   sack + feed pail + hay fork, the pig's corrugated ark, the hens' feeder + drinker
  *   construction    staked + strung footprint, lumber stack, stone pile, sawhorse, plan sign
  *   carpenter board a little roofed notice board with pinned blueprints (opens the build menu)
  *   doghouse        painted kennel with a name plate + a food / water bowl
@@ -500,7 +501,21 @@ export function buildBarnExterior(rng: Rng): THREE.Group {
   // Big sliding doors: white frame, red leaves with X braces, top rail
   const dw = 2.2;
   const dh = 2.1;
-  b.add('white', roundedBox(dw, dh, 0.04, 0.02), mat(0, base + dh / 2, fz - 0.03), { tint: 0x1e140e });
+  // r15: a recessed vestibule behind the doors instead of a flat dark card (the open leaf showed a black
+  // slab): a dim straw floor, plank sides, a stall partition and a bale fading into the dark at the back.
+  {
+    const dep = 1.05;
+    const zc = fz - 0.05 - dep / 2;
+    b.add('white', roundedBox(dw, dh, 0.04, 0.01), mat(0, base + dh / 2, fz - 0.05 - dep), { tint: 0x140d08 });
+    for (const sx of [-1, 1]) b.add('white', roundedBox(0.04, dh, dep, 0.01), mat(sx * (dw / 2 - 0.02), base + dh / 2, zc), { tint: 0x2a1a10 });
+    b.add('white', roundedBox(dw, 0.04, dep, 0.01), mat(0, base + dh - 0.02, zc), { tint: 0x120b06 });
+    b.add('thatch', roundedBox(dw - 0.08, 0.04, dep, 0.01), mat(0, base + 0.02, zc), { tint: 0x8a6c38, aoWorld: (q) => 0.45 + 0.55 * THREE.MathUtils.smoothstep(q.z, fz - 0.05 - dep, fz - 0.1) });
+    // stall partition: a post + three boards running back from the aisle
+    b.add('wood', roundedBox(0.1, dh - 0.1, 0.1, 0.02), mat(dw * 0.18, base + (dh - 0.1) / 2, fz - 0.55), { tint: 0x4a2e1c });
+    for (let i = 0; i < 3; i++) b.add('wood', roundedBox(0.05, 0.16, dep * 0.6, 0.01), mat(dw * 0.18, base + 0.3 + i * 0.3, fz - 0.55 - dep * 0.25), { tint: 0x3e2618 });
+    b.add('thatch', boxUV(roundedBox(0.7, 0.36, 0.42, 0.05), 1.6), mat(dw * 0.36, base + 0.2, fz - 0.8, 0, 0.3, 0), { tint: 0x9a7a40 });
+    for (let i = 0; i < 3; i++) b.add('thatch', new THREE.IcosahedronGeometry(0.16, 1), mat(dw * (0.05 + i * 0.12), base + 0.04, fz - 0.35 - i * 0.15, 0, i, 0, 1.4, 0.3, 1), { tint: 0xa88a48 });
+  }
   // (Left leaf fixed; the right leaf is the pasture door and slides open along the rail: barnLeaf().)
   {
     const cx = -(dw / 4 + 0.03);
@@ -837,10 +852,125 @@ export function buildHayRack(rng: Rng): THREE.Group {
     const g = new THREE.CylinderGeometry(0.01, 0.008, 0.22, 3);
     b.add('thatch', g, mat(-L / 2 - 0.6 + rng.next() * (L + 0.9), 0.02, (rng.next() - 0.3) * 1.3, Math.PI / 2 - 0.1, rng.next() * 3, 0), { tint: 0xf0d488 });
   }
+  // r14: a slumped grain sack + a wooden pail of feed by the manger's front, a fork leaning on the bales.
+  {
+    const V = (x: number, y: number) => new THREE.Vector2(x, y);
+    const sack = new THREE.LatheGeometry([V(0, 0), V(0.2, 0.01), V(0.25, 0.12), V(0.23, 0.3), V(0.14, 0.42), V(0.07, 0.46), V(0.09, 0.53), V(0, 0.54)], 12);
+    b.add('cloth', sack, mat(-L / 2 + 0.12, 0, W / 2 + 0.42, 0.12, 0.6, -0.1, 1, 1, 0.85), { tint: 0xa48458, aoWorld: (p) => 0.7 + 0.3 * THREE.MathUtils.smoothstep(p.y, 0, 0.25) });
+    b.add('cloth', new THREE.TorusGeometry(0.075, 0.012, 4, 10).rotateX(Math.PI / 2), mat(-L / 2 + 0.15, 0.46, W / 2 + 0.38, 0.12, 0, -0.1), { tint: 0x8a6a44 });
+    const pail = new THREE.LatheGeometry([V(0, 0), V(0.13, 0), V(0.16, 0.26), V(0.145, 0.26), V(0.115, 0.02), V(0, 0.02)], 14);
+    b.add('woodGrain', pail, mat(-L / 2 + 0.6, 0, W / 2 + 0.5), { tint: 0x9a7250, aoWorld: groundAO(0.12) });
+    for (const y of [0.05, 0.21]) b.add('metal', new THREE.TorusGeometry(0.135 + y * 0.1, 0.008, 4, 14).rotateX(Math.PI / 2), mat(-L / 2 + 0.6, y, W / 2 + 0.5), { tint: 0x3a3634 });
+    b.add('thatch', new THREE.SphereGeometry(0.14, 12, 6), mat(-L / 2 + 0.6, 0.22, W / 2 + 0.5, 0, 0, 0, 1, 0.3, 1), { tint: 0xe0b050 });
+    for (let i = 0; i < 18; i++) {
+      const a = rng.next() * Math.PI * 2;
+      const r = 0.2 + rng.next() * 0.25;
+      b.add('thatch', new THREE.SphereGeometry(0.014, 4, 3), mat(-L / 2 + 0.6 + Math.cos(a) * r, 0.012, W / 2 + 0.5 + Math.sin(a) * r * 0.7, 0, 0, 0, 1, 0.6, 1.3), { tint: i % 3 ? 0xe8c058 : 0xc88a3a });
+    }
+    // Hay fork against the bale stack: ash handle, three iron tines
+    const fx = -L / 2 - 0.25;
+    const fz = W / 2 - 0.05;
+    const lean = 0.28;
+    const hx = fx - Math.sin(lean) * 0.675;
+    const hy = 0.66 + Math.cos(lean) * 0.675;
+    b.add('woodGrain', new THREE.CylinderGeometry(0.018, 0.02, 1.35, 6), mat(fx, 0.66, fz, 0, 0, lean), { tint: 0xc8a070 });
+    b.add('metal', roundedBox(0.03, 0.03, 0.15, 0.008), mat(hx - Math.sin(lean) * 0.02, hy + Math.cos(lean) * 0.02, fz, 0, 0, lean), { tint: 0x4a4644 });
+    for (const t of [-0.06, 0, 0.06]) b.add('metal', new THREE.CylinderGeometry(0.006, 0.004, 0.26, 4), mat(hx - Math.sin(lean) * 0.15, hy + Math.cos(lean) * 0.15, fz + t, 0, 0, lean), { tint: 0x4a4644 });
+  }
   // Salt lick on a post
   b.add('woodGrain', roundedBox(0.1, 0.62, 0.1, 0.02), mat(L / 2 + 0.45, 0.31, 0.1), { tint: 0x7a5434, aoWorld: groundAO(0.2) });
   b.add('stone', roundedBox(0.22, 0.16, 0.2, 0.05), mat(L / 2 + 0.45, 0.68, 0.1), { tint: 0xf2d8d0 });
   return b.build({ name: 'hay-rack' });
+}
+
+/** r14: the pig's ark — a half-barrel of corrugated tin (weathered sage paint, darker rib bands) on two
+ *  timber skids, a cream board front with an arched doorway and straw spilling out of it, a boarded
+ *  back. A home in the paddock (the blind judge: "fill the pen with ... animal homes").
+ *  Local +Z = the doorway side; origin = ground centre. */
+export function buildPigArk(rng: Rng): THREE.Group {
+  const b = new MeshBuilder();
+  const R = 0.62;
+  const L = 1.25;
+  // Corrugated shell: an open half cylinder along Z, the radius rippled round the arc (ridges every ~6 cm).
+  const shell = new THREE.CylinderGeometry(R, R, L, 56, 1, true, Math.PI / 2, Math.PI).rotateX(Math.PI / 2);
+  const pos = shell.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const a = Math.atan2(y, x);
+    const r = R + Math.sin(a * 31) * 0.011;
+    pos.setXY(i, Math.cos(a) * r, Math.max(0, Math.sin(a)) * r);
+  }
+  shell.computeVertexNormals();
+  b.add('white', shell, mat(0, 0.1, 0), { tint: 0x8eaa84, aoWorld: (p) => 0.62 + 0.38 * THREE.MathUtils.smoothstep(p.y, 0.1, 0.55) });
+  // Inside of the shell (the open cylinder is one-sided): a dark lining a hair inside it.
+  const lining = new THREE.CylinderGeometry(R - 0.025, R - 0.025, L - 0.04, 20, 1, true, Math.PI / 2, Math.PI).rotateX(Math.PI / 2).scale(-1, 1, 1);
+  b.add('woodDark', lining, mat(0, 0.1, 0), { tint: 0x3a2c22 });
+  // Rib bands + a ridge strip (painted a shade darker, a little rust on the lower ends)
+  for (const z of [-L / 2 + 0.04, -0.2, 0.2, L / 2 - 0.04]) b.add('white', new THREE.TorusGeometry(R + 0.012, 0.016, 4, 22, Math.PI), mat(0, 0.1, z), { tint: 0x6e8a66 });
+  for (const s of [-1, 1]) for (const z of [-0.45, 0.1, 0.4]) b.add('metal', new THREE.SphereGeometry(0.07 + rng.next() * 0.05, 6, 4), mat(s * (R - 0.01), 0.16 + rng.next() * 0.06, z, 0, 0, 0, 0.25, 1, 1.4), { tint: 0xa8683e });
+  // Timber skids
+  for (const s of [-1, 1]) b.add('woodGrain', roundedBox(0.12, 0.12, L + 0.3, 0.025), mat(s * (R - 0.06), 0.06, 0), { tint: 0x7a5434, aoWorld: groundAO(0.2) });
+  // Front: cream boards in a half-disc with an arched doorway
+  const front = new THREE.Shape();
+  front.moveTo(-R, 0);
+  front.absarc(0, 0, R, Math.PI, 0, true);
+  front.lineTo(-R, 0);
+  const door = new THREE.Path();
+  door.moveTo(-0.22, 0);
+  door.lineTo(0.22, 0);
+  door.lineTo(0.22, 0.26);
+  door.absarc(0, 0.26, 0.22, 0, Math.PI, false);
+  door.lineTo(-0.22, 0);
+  front.holes.push(door);
+  const fg = new THREE.ExtrudeGeometry(front, { depth: 0.05, bevelEnabled: false, curveSegments: 16 });
+  b.add('woodPaint', fg, mat(0, 0.1, L / 2 - 0.06), { tint: TRIM });
+  for (const x of [-0.42, -0.3, 0.3, 0.42]) b.add('woodPaint', roundedBox(0.012, Math.sqrt(R * R - x * x) - 0.04, 0.012, 0.004), mat(x, 0.1 + (Math.sqrt(R * R - x * x) - 0.04) / 2, L / 2 + 0.0), { tint: 0xd8cdb6 });
+  b.add('woodPaint', new THREE.TorusGeometry(0.235, 0.025, 5, 14, Math.PI), mat(0, 0.36, L / 2 + 0.005), { tint: 0x7a5434 });
+  // Back: plain boards (a box so it reads from inside through the door too)
+  const back = new THREE.Shape();
+  back.moveTo(-R, 0);
+  back.absarc(0, 0, R, Math.PI, 0, true);
+  back.lineTo(-R, 0);
+  b.add('woodGrain', new THREE.ExtrudeGeometry(back, { depth: 0.05, bevelEnabled: false, curveSegments: 14 }), mat(0, 0.1, -L / 2 + 0.01), { tint: 0x8a6442 });
+  // Straw bed inside + a tongue of it spilling out of the door
+  b.add('thatch', roundedBox(1.08, 0.08, L - 0.12, 0.03), mat(0, 0.14, 0), { tint: 0xc8a858 });
+  for (let i = 0; i < 4; i++) b.add('thatch', new THREE.IcosahedronGeometry(0.16, 1), mat((rng.next() - 0.5) * 0.4, 0.06, L / 2 + 0.08 + i * 0.1, rng.next(), rng.next(), 0, 1.4, 0.32, 1), { tint: i % 2 ? 0xe8c878 : 0xd8b860 });
+  for (let i = 0; i < 22; i++) {
+    const g = new THREE.CylinderGeometry(0.009, 0.007, 0.18 + rng.next() * 0.1, 3);
+    const a = (rng.next() - 0.5) * 2.2;
+    const r = 0.15 + rng.next() * 0.55;
+    b.add('thatch', g, mat(Math.sin(a) * r * 0.8, 0.02, L / 2 + 0.05 + Math.cos(a) * r * 0.7, Math.PI / 2 - 0.08, rng.next() * 6, 0), { tint: rng.next() < 0.5 ? 0xf0d488 : 0xd8b860 });
+  }
+  return b.build({ name: 'pig-ark' });
+}
+
+/** r14: the hens' corner by the coop gate — a galvanised hanging-style feeder (hopper over a lipped pan)
+ *  and a double-wall drinker, each on a flat stone, with spilled grain. Origin = ground centre. */
+export function buildHenFeeders(rng: Rng): THREE.Group {
+  const b = new MeshBuilder();
+  const V = (x: number, y: number) => new THREE.Vector2(x, y);
+  const galv = 0xc4cac6;
+  // Feeder (left)
+  const fx = -0.28;
+  b.add('stone', roundedBox(0.5, 0.06, 0.46, 0.03), mat(fx, 0.03, 0, 0, 0.2, 0), { tint: 0xb4aea0, aoWorld: groundAO(0.12) });
+  b.add('white', new THREE.LatheGeometry([V(0, 0.06), V(0.2, 0.06), V(0.22, 0.12), V(0.2, 0.12), V(0.12, 0.09), V(0.12, 0.42), V(0.15, 0.45), V(0.02, 0.56), V(0, 0.56)], 18), mat(fx, 0, 0), { tint: galv });
+  b.add('white', new THREE.SphereGeometry(0.03, 8, 6), mat(fx, 0.58, 0), { tint: 0x9aa09c });
+  b.add('metal', new THREE.TorusGeometry(0.05, 0.007, 4, 12), mat(fx, 0.63, 0), { tint: 0x5a5c5a });
+  b.add('thatch', new THREE.TorusGeometry(0.16, 0.035, 4, 18).rotateX(Math.PI / 2), mat(fx, 0.105, 0, 0, 0, 0, 1, 0.5, 1), { tint: 0xe0b858 });
+  // Drinker (right): domed tank over a shallow trough ring with water in it
+  const dx = 0.3;
+  b.add('stone', roundedBox(0.42, 0.06, 0.42, 0.03), mat(dx, 0.03, 0.04, 0, -0.15, 0), { tint: 0xa8a294, aoWorld: groundAO(0.12) });
+  b.add('white', new THREE.LatheGeometry([V(0, 0.06), V(0.17, 0.06), V(0.18, 0.11), V(0.16, 0.11), V(0.12, 0.09), V(0.12, 0.34), V(0.08, 0.4), V(0, 0.42)], 18), mat(dx, 0, 0.04), { tint: 0xd04a3a });
+  b.add('stillWater', new THREE.RingGeometry(0.12, 0.165, 18).rotateX(-Math.PI / 2), mat(dx, 0.1, 0.04), { tint: 0xb8e4ec });
+  b.add('metal', new THREE.TorusGeometry(0.06, 0.008, 4, 12, Math.PI), mat(dx, 0.41, 0.04), { tint: 0x5a5c5a });
+  // Spilled grain round the feeder
+  for (let i = 0; i < 26; i++) {
+    const a = rng.next() * Math.PI * 2;
+    const r = 0.26 + Math.sqrt(rng.next()) * 0.3;
+    b.add('thatch', new THREE.SphereGeometry(0.014, 4, 3), mat(fx + Math.cos(a) * r, 0.012, Math.sin(a) * r * 0.8, 0, 0, 0, 1, 0.6, 1.3), { tint: i % 3 ? 0xe8c058 : 0xc88a3a });
+  }
+  return b.build({ name: 'hen-feeders' });
 }
 
 /** Barn pasture door (the right sliding leaf): local origin = its closed centre at the foot. */

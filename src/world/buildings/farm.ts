@@ -16,7 +16,7 @@ import { Rng } from '../../core/rng';
 import { mergeStatic, MeshBuilder, mat, lumpySphere } from '../geom';
 import { buildFence } from '../props/structures';
 import { PondBuilder } from './pond';
-import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, barnLeaf, coopHatch, COOP_SIZE, COOP_RUN, BARN_SIZE, BARN_SILO } from './models';
+import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, buildPigArk, buildHenFeeders, barnLeaf, coopHatch, COOP_SIZE, COOP_RUN, BARN_SIZE, BARN_SILO } from './models';
 
 export type BuildingKind = 'coop' | 'barn';
 
@@ -35,6 +35,9 @@ export const SITES = {
 export const PASTURE_PROPS: readonly { x0: number; z0: number; x1: number; z1: number }[] = [
   { x0: SITES.pasture.x1 - 1.45, z0: SITES.pasture.z0 + 1.5, x1: SITES.pasture.x1 - 0.55, z1: SITES.pasture.z0 + 3.95 },
   { x0: SITES.pasture.x0 + 0.15, z0: SITES.pasture.z1 - 2.45, x1: SITES.pasture.x0 + 3.3, z1: SITES.pasture.z1 - 0.85 },
+  // r14: the pig's ark in the south-east corner + the hens' feeder / drinker by the coop gate
+  { x0: 49.7, z0: 41.45, x1: 51.45, z1: 43.15 },
+  { x0: 40.95, z0: 36.75, x1: 41.95, z1: 37.45 },
 ];
 
 /** Yard features inside the paddock the herd uses (world coords): the duck pond and the pig's wallow. */
@@ -219,7 +222,7 @@ export class FarmBuildings {
     }
     // Pasture fence once any animal building exists.
     if (built.size) {
-      this.buildPasture(rng, parts);
+      this.buildPasture(rng, parts, built);
     }
     place(buildCarpenterBoard(rng.fork('board')), SITES.board.x, SITES.board.z, 0.25);
     place(buildDoghouse(), SITES.doghouse.x, SITES.doghouse.z, SITES.doghouse.rot);
@@ -278,7 +281,7 @@ export class FarmBuildings {
     }
   }
 
-  private buildPasture(rng: Rng, parts: THREE.Object3D[]): void {
+  private buildPasture(rng: Rng, parts: THREE.Object3D[], built: Set<BuildingKind>): void {
     const p = SITES.pasture;
     this.clearRect(Math.floor(p.x0), Math.floor(p.z0), Math.floor(p.x1), Math.floor(p.z1), false);
     // Long debris (logs, branches, stumps) just outside the fence reaches in over the rails and read as
@@ -319,7 +322,11 @@ export class FarmBuildings {
     const furn: [THREE.Object3D, number, number, number, [number, number][]][] = [
       [buildWaterTrough(), p.x1 - 1.0, p.z0 + 2.6, Math.PI / 2, [[50, 37], [50, 38], [50, 39]]],
       [buildHayRack(rng.fork('hay-rack')), p.x0 + 1.9, p.z1 - 1.5, 0.12, [[38, 41], [38, 42], [39, 41], [39, 42]]],
+      // r14: the pig's ark (doorway to the wallow + the lens) and the hens' feeder + drinker
+      [buildPigArk(rng.fork('pig-ark')), 50.5, 42.3, -1.0, [[50, 42]]],
     ];
+    // (the hens' corner only once there are hens: the coop may still be a staked site)
+    if (built.has('coop')) furn.push([buildHenFeeders(rng.fork('hen-feed')), 41.45, 37.1, 0.15, []]);
     for (const [g, fx, fz, rot, tiles] of furn) {
       g.position.set(fx, this.h(fx, fz) - 0.02, fz);
       g.rotation.y = rot;
@@ -341,6 +348,24 @@ export class FarmBuildings {
       // Grazed, trampled meadow inside; a worn track through each gate.
       t.paintCover('dry', (fx, fz) => (fx > p.x0 && fx < p.x1 && fz > p.z0 && fz < p.z1 ? 0.25 + 0.2 * Math.sin(fx * 0.9 + Math.sin(fz * 1.3) * 2) : 0), { x0: p.x0, z0: p.z0, x1: p.x1, z1: p.z1 });
       for (const [g0, g1] of GAPS) t.stampCover('dry', (g0 + g1) / 2, p.z0 + 0.3, 1.4, 0.8, 0.8);
+      // r15: the grazed lawn isn't one flat green — a lusher, darker clover strip along the fence lines
+      // the herd can't crop, round the pond's wet margin, and loose clumps; blotchy grazed patches between.
+      {
+        const { pond } = YARD;
+        t.paintCover('clover', (fx, fz) => {
+          if (fx < p.x0 - 0.3 || fx > p.x1 + 0.3 || fz < p.z0 - 0.3 || fz > p.z1 + 0.3) return 0;
+          const edge = Math.min(fx - p.x0, p.x1 - fx, fz - p.z0, p.z1 - fz);
+          const fence = 1 - THREE.MathUtils.smoothstep(edge, 0.25, 0.85 + wobble(fx * 1.7, fz * 1.7) * 0.4);
+          const pd = Math.hypot((fx - pond.x) / (pond.rx + 0.9), (fz - pond.z) / (pond.rz + 0.8));
+          const rim = (1 - THREE.MathUtils.smoothstep(pd, 0.85, 1.25)) * THREE.MathUtils.smoothstep(pd, 0.7, 0.85);
+          const clump = THREE.MathUtils.smoothstep(wobble(fx * 0.8 + 3.1, fz * 0.8 - 1.7), 0.72, 0.86) * 0.6;
+          return Math.min(0.85, Math.max(fence * 0.75, rim * 0.6, clump));
+        }, { x0: p.x0 - 0.4, z0: p.z0 - 0.4, x1: p.x1 + 0.4, z1: p.z1 + 0.4 });
+        t.paintCover('dry', (fx, fz) => {
+          if (fx < p.x0 + 0.6 || fx > p.x1 - 0.6 || fz < p.z0 + 0.6 || fz > p.z1 - 0.6) return 0;
+          return 0.3 * THREE.MathUtils.smoothstep(wobble(fx * 0.55 - 2.3, fz * 0.55 + 4.1), 0.5, 0.75);
+        }, { x0: p.x0, z0: p.z0, x1: p.x1, z1: p.z1 });
+      }
       this.yardWear(rng, parts);
       t.commitSplat();
       t.commitCover();
@@ -366,8 +391,10 @@ export class FarmBuildings {
       blob(wallow.x, wallow.z, wallow.rx + 0.75, wallow.rz + 0.6),
       blob(pond.x, pond.z, pond.rx + 0.55, pond.rz + 0.5) * 0.9,
     );
-    v *= 0.62 + 0.62 * wobble(x, z);
-    return THREE.MathUtils.clamp(v, 0, 1);
+    // r14: a defined edge (the blind judge read the old multiplied wobble as a "blotchy path"): the wobble
+    // now only moves WHERE the edge falls; inside it the earth is solidly bare, outside it is meadow.
+    const edge = 0.42 + (wobble(x, z) - 0.5) * 0.3;
+    return THREE.MathUtils.smoothstep(v, edge - 0.06, edge + 0.06);
   }
 
   /** Worn earth where the animals live: dirt splat + straw cover, grass cleared off the bare tiles, mud

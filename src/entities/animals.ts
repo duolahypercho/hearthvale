@@ -121,6 +121,11 @@ export class AnimalActor {
   lure: THREE.Vector3 | null = null;
   /** Staged behaviour (demos): keep cycling this pose in place ('eat' = grazing / rooting / munching). */
   hold: 'eat' | 'idle' | null = null;
+  /** r15: lying down awake in the daytime (cud-chewing, eyes open, no Zzz) — the 'sleep' pose without
+   *  the sleep. Livestock lie down now and then on their own; `restHold` keeps a staged rest. */
+  resting = false;
+  restHold = false;
+  private restRemote = false;
   /** Sit up on the roost bar (bedSpot, y > 0) by day too, awake. */
   perched = false;
   /** Where the farmer stands (set by the system each frame; animals step around them). */
@@ -163,7 +168,7 @@ export class AnimalActor {
   private speedK = 1;
   /** Walk-speed multiplier for errands (a herd trotting home out of the rain). */
   hurry = 1;
-  private forced: { x: number; z: number; cb?: () => void } | null = null;
+  private forced: { x: number; z: number; cb?: () => void; r?: number } | null = null;
   private stuck = 0;
   /** Turn towards this heading while standing (null = keep). */
   private faceTo: number | null = null;
@@ -203,6 +208,12 @@ export class AnimalActor {
    * Far LOD (outdoor herd from the high farm camera): swap to the low-tessellation mesh, skinned to this
    * actor's own skeleton (so every pose keeps working), and drop its shadow-pass cost to the same mesh.
    */
+  /** r15: off the ground (perched on a roost bar, lifted onto a bed shelf) or afloat on the pond — no
+   *  ground contact shadow. */
+  get offGround(): boolean {
+    return this.perched || this.lift > 0.05 || !this.mesh.castShadow;
+  }
+
   /** Cast a sun shadow (off for a duck afloat: the pond shader draws its own contact shadow — saves a
    *  shadow draw per swimmer). */
   setCastShadow(on: boolean): void {
@@ -237,7 +248,8 @@ export class AnimalActor {
     this.target.copy(this.pos);
     this.lift = (this.sleeping || this.perched) && this.bedSpot && this.bedSpot.y > 0 && Math.hypot(this.bedSpot.x - x, this.bedSpot.z - z) < 0.3 ? this.bedSpot.y : 0;
     this.root.position.y += this.lift;
-    this.state = this.sleeping ? 'sleep' : 'idle';
+    this.state = this.sleeping || this.restHold ? 'sleep' : 'idle';
+    this.resting = this.restHold && !this.sleeping;
     this.stateT = 0;
   }
 
@@ -246,16 +258,34 @@ export class AnimalActor {
     this.root.scale.setScalar(s);
   }
 
+  /** r15: take up the held behaviour at once (staged stills: a rooting pig's head is already down). */
+  snapHold(): void {
+    if (!this.hold) return;
+    this.setState(this.hold, 3 + Math.random() * 3);
+    this.eatW = this.state === 'eat' ? 1 : 0;
+  }
+
+  /** r15: lie down awake and stay down (a staged rest: cud-chewing in the grass / straw). */
+  lieDown(): void {
+    this.restHold = true;
+    this.hold = null;
+    this.setState('sleep', 30);
+    this.resting = true;
+    this.sleepW = 1;
+  }
+
   /** Snap straight into the current pose weights (after teleports / demo staging). */
   settle(): void {
-    this.sleepW = this.sleeping ? 1 : 0;
+    this.sleepW = this.sleeping || (this.resting && this.state === 'sleep') ? 1 : 0;
     this.sitW = 0;
     this.walkW = 0;
   }
 
   /** Walk somewhere specific (door, bowl) ignoring the wander brain; `cb` on arrival. */
-  goTo(x: number, z: number, cb?: () => void): void {
-    this.forced = { x, z, cb };
+  goTo(x: number, z: number, cb?: () => void, radius?: number): void {
+    // (`radius`: arrive anywhere this close — a herd sent to one door jammed shoulder to shoulder short of
+    // the exact spot and never went in)
+    this.forced = { x, z, cb, r: radius };
     this.target.set(x, 0, z);
     this.setState('walk', 60);
   }
@@ -266,7 +296,8 @@ export class AnimalActor {
 
   /** Current behaviour as a small wire code (co-op pose sync; see `follow`). */
   get stateCode(): number {
-    return Math.max(0, STATES.indexOf(this.state));
+    // (+8 = lying down awake: older clients read the low bits as 'sleep')
+    return Math.max(0, STATES.indexOf(this.state)) + (this.resting && this.state === 'sleep' ? 8 : 0);
   }
 
   /**
@@ -275,8 +306,9 @@ export class AnimalActor {
    * (petting hops) still play locally. `release()` hands the animal back to its own brain.
    */
   follow(x: number, z: number, heading: number, stateCode: number): void {
-    const s = STATES[stateCode] ?? 'idle';
-    this.sleeping = s === 'sleep';
+    const s = STATES[stateCode & 7] ?? 'idle';
+    this.restRemote = (stateCode & 8) !== 0;
+    this.sleeping = s === 'sleep' && !this.restRemote;
     if (Math.hypot(x - this.pos.x, z - this.pos.z) > 3) {
       this.place(x, z, heading);
       this.settle();
@@ -348,6 +380,11 @@ export class AnimalActor {
     return this.sleepW > 0.5;
   }
 
+  /** Big livestock lie down to rest in the day (birds and pets have their own idles). */
+  private get liesDown(): boolean {
+    return !this.gait.biped && this.species !== 'dog' && this.species !== 'cat' && !curiousNow.has(this);
+  }
+
   get isEating(): boolean {
     return this.state === 'eat' && this.eatW > 0.6;
   }
@@ -373,6 +410,7 @@ export class AnimalActor {
 
   private setState(s: State, dur: number): void {
     curiousNow.delete(this);
+    if (s !== 'sleep') this.resting = false;
     this.state = s;
     this.stateT = 0;
     this.dur = dur;
@@ -411,8 +449,14 @@ export class AnimalActor {
         this.setState('walk', 30);
       } else {
         this.setState(r.s === 'walk' || r.s === 'happy' ? 'idle' : r.s, 30);
+        if (r.s === 'sleep') this.resting = this.restRemote;
         this.faceTo = r.h;
       }
+      return;
+    }
+    if (this.restHold && !this.sleeping && !this.hungry && this.blissT <= 0) {
+      this.setState('sleep', 30);
+      this.resting = true;
       return;
     }
     // Being petted: hold still under the hand (no wander, no curious turn back to the farmer's face).
@@ -421,6 +465,7 @@ export class AnimalActor {
       return;
     }
     if (this.sleeping) {
+      this.resting = false;
       if (this.bedSpot && Math.hypot(this.bedSpot.x - this.pos.x, this.bedSpot.z - this.pos.z) > 0.35 && this.state !== 'walk') {
         this.target.copy(this.bedSpot);
         this.setState('walk', 12);
@@ -459,7 +504,10 @@ export class AnimalActor {
         this.target.set(x, 0, z);
         this.setState('walk', 8);
       } else if (r < 0.62) this.setState('eat', 3 + Math.random() * 4);
-      else this.setState('idle', 2 + Math.random() * 4);
+      else if (r < 0.7 && this.liesDown) {
+        this.setState('sleep', 12 + Math.random() * 16);
+        this.resting = true;
+      } else this.setState('idle', 2 + Math.random() * 4);
       if (this.state === 'idle') this.lookTarget = (Math.random() - 0.5) * 1.2;
       return;
     }
@@ -486,7 +534,11 @@ export class AnimalActor {
     if (r < (this.grazes ? 0.3 : 0.42) && this.pickTarget()) this.setState('walk', 8);
     else if (r < (this.grazes || birds ? 0.8 : 0.55)) this.setState('eat', this.grazes ? 4 + Math.random() * 5 : 2.5 + Math.random() * 4);
     else if (this.sitter && r < 0.9) this.setState('sit', 4 + Math.random() * 6);
-    else this.setState('idle', 1.5 + Math.random() * 3.5);
+    else if (this.liesDown && r > 0.93) {
+      // r15: livestock lie down in the grass for a while to chew the cud (eyes open, head up).
+      this.setState('sleep', 14 + Math.random() * 18);
+      this.resting = true;
+    } else this.setState('idle', 1.5 + Math.random() * 3.5);
     if (this.state === 'idle' || this.state === 'sit') this.lookTarget = (Math.random() - 0.5) * 1.2;
   }
 
@@ -495,7 +547,7 @@ export class AnimalActor {
     if (this.curiousCD > 0) this.curiousCD -= dt;
     // Night: wind down wherever we are (or at the bed spot once reached).
     if (this.sleeping && !this.forced && !this.remote && this.state !== 'sleep' && this.state !== 'walk') this.think();
-    if (!this.sleeping && this.state === 'sleep') this.setState('idle', 0.6 + Math.random());
+    if (!this.sleeping && !this.resting && this.state === 'sleep') this.setState('idle', 0.6 + Math.random());
     if (this.stateT > this.dur && !(this.forced && this.state === 'walk')) this.think();
 
     // ── locomotion
@@ -504,7 +556,7 @@ export class AnimalActor {
       const dx = this.target.x - this.pos.x;
       const dz = this.target.z - this.pos.z;
       const d = Math.hypot(dx, dz);
-      if (d < 0.08) {
+      if (d < Math.max(0.08, this.forced?.r ?? 0)) {
         if (this.forced) {
           const cb = this.forced.cb;
           this.forced = null;
@@ -810,9 +862,16 @@ export class AnimalActor {
         l.scale.y = THREE.MathUtils.lerp(l.scale.y, g.fold, Z);
         if (!g.biped) l.rotation.x += (k.startsWith('legF') ? -1.1 : 1.1) * Z;
       }
-      head.rotation.x += (g.biped ? 0.25 : 0.35) * Z;
-      head.rotation.y += (g.biped ? 0.9 : 0.25) * Z;
-      head.position.y -= (g.biped ? 0.03 : g.sleepDrop * 0.25) * Z;
+      if (this.resting && !g.biped) {
+        // Lying awake: head up and level, a slow sideways cud-chew.
+        head.rotation.x -= 0.12 * Z;
+        head.rotation.z += Math.sin(t * 4.2 + this.seed) * 0.035 * Z;
+        head.position.y -= g.sleepDrop * 0.12 * Z;
+      } else {
+        head.rotation.x += (g.biped ? 0.25 : 0.35) * Z;
+        head.rotation.y += (g.biped ? 0.9 : 0.25) * Z;
+        head.position.y -= (g.biped ? 0.03 : g.sleepDrop * 0.25) * Z;
+      }
       if (g.biped) body.scale.multiplyScalar(1 + 0.06 * Z);
     }
 
@@ -851,7 +910,7 @@ export class AnimalActor {
       this.blinkT = 2 + Math.random() * 3;
     }
     this.blinkHold = Math.max(0, this.blinkHold - dt);
-    const shut = Math.max(Z, this.happyT >= 0 ? 0.9 : 0, this.blissW * 0.95, this.blinkHold > 0 ? 1 : 0);
+    const shut = Math.max(this.resting ? 0 : Z, this.happyT >= 0 ? 0.9 : 0, this.blissW * 0.95, this.blinkHold > 0 ? 1 : 0);
     if (b.eyes) b.eyes.scale.y = Math.max(0.1, 1 - shut * 0.9);
     // Pet squash on the whole animal: 0.85 → 1.1 → 1 over 250 ms.
     if (this.squashT >= 0) {
@@ -1285,7 +1344,9 @@ export class AnimalPops {
         if (this.farmer && camera) {
           _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
           const fx = (this.farmer.x - o.x) * _right.x + (this.farmer.z - o.z) * _right.z;
-          if (p.side == null) p.side = Math.abs(fx) < 0.08 ? 0 : fx > 0 ? -1 : 1;
+          // (r15: a pat's repeat heart keeps the live one's side — two hearts slid to opposite sides of the
+          // farmer's face when the trickle overlapped)
+          if (p.side == null) p.side = this.pops.find((q) => q !== p && q.kind === 'heart' && q.actor === p.actor && q.side != null && q.t < q.life)?.side ?? (Math.abs(fx) < 0.08 ? 0 : fx > 0 ? -1 : 1);
           // (only as far as needed: the heart stays over the head it belongs to)
           o.addScaledVector(_right, p.side * size * 0.3);
           // r14: never over the farmer's face — with the animal stood across the farmer's front the
@@ -1293,13 +1354,19 @@ export class AnimalPops {
           // side) until it clears the farmer's head disc.
           _upv.set(0, 1, 0).applyQuaternion(camera.quaternion);
           const hx = o.x - this.farmer.x;
-          const hy = o.y + size * 0.42 - (this.farmer.y + 1.45);
           const hz = o.z - this.farmer.z;
           const sx = hx * _right.x + hz * _right.z;
-          const sy = hx * _upv.x + hy * _upv.y + hz * _upv.z;
-          const R = 0.42 + size * 0.5;
+          // (r15: the face is anywhere from a crouched pat (~1.05 m) to standing (~1.5 m) — checked against
+          // that whole span; at 1.45 only, the heart sat on a crouching farmer's face in the wide pasture lens)
+          const syAt = (hh: number): number => hx * _upv.x + (o.y + size * 0.42 - (this.farmer!.y + hh)) * _upv.y + hz * _upv.z;
+          const sA = syAt(1.05);
+          const sB = syAt(1.5);
+          const sy = sA * sB <= 0 ? 0 : Math.abs(sA) < Math.abs(sB) ? sA : sB;
+          // (r15: + the crouch's forward lean — the face sits ahead of the root; 0.42 left a lobe on the face)
+          const R = 0.56 + size * 0.55;
           if (Math.abs(sy) < R && Math.abs(sx) < R) {
             const dir = p.side !== 0 ? p.side : sx >= 0 ? 1 : -1;
+            p.side = dir;
             const want = dir * Math.sqrt(Math.max(0, R * R - sy * sy));
             p.shift = Math.abs(sx) < Math.abs(want) ? want - sx : 0;
             o.addScaledVector(_right, p.shift);
@@ -1383,6 +1450,12 @@ export class AnimalPops {
         } else p.from.y += dt * 0.6;
         if (base) p.sprite.position.copy(base).add(p.from);
         else p.sprite.position.copy(p.from);
+        if (p.kind === 'mini' && camera && p.actor) {
+          // r15: the burst follows its big heart off the farmer's face (it rose from the head beside the
+          // farmer's and the little hearts dotted the farmer's cheeks).
+          const hp = this.pops.find((q) => q.kind === 'heart' && q.actor === p.actor);
+          if (hp?.shift) p.sprite.position.addScaledVector(_right.set(1, 0, 0).applyQuaternion(camera.quaternion), hp.shift * 0.85);
+        }
         if (p.kind === 'mini') {
           const pop = p.t < 0.12 ? easeOutBack(p.t / 0.12) : 1;
           p.sprite.scale.setScalar(Math.max(0.01, (p.px ?? 0.02) * screenK(p.sprite.position) * pop * (1 - k * 0.4)));
