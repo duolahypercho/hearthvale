@@ -24,7 +24,7 @@ import { Nature } from '../props/nature';
 import { mergeStatic } from '../geom';
 import { BatchPool, InstancedSet } from '../props/instanced';
 import { FountainFX, buildFountainIce } from './fountain';
-import { buildPlazaWear } from './plaza';
+import { buildPlazaWear, buildPlazaPuddles } from './plaza';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
 import { buildChalkAFrame } from './aframe';
@@ -655,6 +655,8 @@ export class TownMap implements GameMap {
     // r12: foot-traffic wear, moss in the quiet joints, damp under the basin, petals in the corners.
     this.plazaWear = buildPlazaWear(PLAZA.x, PLAZA.z, 8.6, (x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.plazaWear);
+    // r13: rain puddles in the square's low spots (near-mirror; hidden under winter snow).
+    this.plazaWear.add(buildPlazaPuddles(PLAZA.x, PLAZA.z, (x, z) => this.terrain.heightAt(x, z)));
   }
 
   private buildExtraProps(): void {

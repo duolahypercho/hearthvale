@@ -621,12 +621,13 @@ export const NPCS: Record<NpcId, NpcDef> = {
         hours: [8, 18],
         dry: true,
         demoTime: 16.8,
-        cast: { wren: ['easel_river', 'right'], player: [[59.15, 20.3], 'right'] },
+        // (r13 critic: the farmer stood behind Wren — when she turned to ask, the lens lost the farmer)
+        cast: { wren: ['easel_river', 'right'], player: [[59.65, 23.25], 'up'] },
         // From the south-east bank: the Kettle Bridge in the foreground, Wren at her easel beyond it.
         camera: { x: 61.2, z: 23.4, yaw: 40, pitch: 40, distance: 15 },
         subject: { at: [62.4, 25.3], y: 0.9, label: 'Kettle Bridge' },
         // Yesterday's attempt, propped on a field stand facing the path: the painting she asks about.
-        props: [{ kind: 'painting', at: [58.75, 22.7], rot: 0.3, scale: 1.3, word: 'look like a river' }],
+        props: [{ kind: 'painting', at: [58.55, 21.15], rot: 0.75, scale: 1.3, word: 'look like a river' }],
         insert: [{ kind: 'painting', word: 'paint|river', caption: 'Wren’s canvas: the Kettle Bridge' }],
         script: [
           { act: 'wren', activity: 'paint' },

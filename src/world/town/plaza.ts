@@ -31,6 +31,48 @@ function wearTexture(cx: number, cz: number, R: number, seed = 5): THREE.CanvasT
     g.fillRect(-r, -r, r * 2, r * 2);
     g.restore();
   };
+  // r13 (critic: "large empty cobble expanses in the foreground"): laid paving that breaks the
+  // field — a ring of pale sandstone setts round the basin (three courses, staggered joints) and a
+  // herringbone brick runner from the ring down the Meadow Lane desire line (south, towards the lens).
+  const sett = (x: number, y: number, w: number, h: number, rot: number, col: string): void => {
+    g.save();
+    g.translate(x, y);
+    g.rotate(rot);
+    g.fillStyle = 'rgba(46,36,30,0.55)';
+    g.beginPath();
+    g.roundRect(-w / 2 - 1.2, -h / 2 - 1.2, w + 2.4, h + 2.4, 3);
+    g.fill();
+    g.fillStyle = col;
+    g.beginPath();
+    g.roundRect(-w / 2, -h / 2, w, h, 2.5);
+    g.fill();
+    // a lit top edge and a worn centre
+    g.fillStyle = 'rgba(255,248,230,0.22)';
+    g.fillRect(-w / 2 + 1.5, -h / 2 + 1, w - 3, 1.6);
+    g.restore();
+  };
+  const sand = ['226,206,170', '214,192,152', '236,218,184', '204,182,146'];
+  for (let course = 0; course < 3; course++) {
+    const r = 4.55 + course * 0.27;
+    const n = Math.round((Math.PI * 2 * r) / 0.34);
+    for (let i = 0; i < n; i++) {
+      const a = ((i + (course % 2) * 0.5) / n) * Math.PI * 2;
+      sett(px(cx + Math.cos(a) * r), pz(cz + Math.sin(a) * r), m * 0.3, m * 0.21, a + Math.PI / 2, `rgba(${sand[Math.floor(rnd() * sand.length)]},0.95)`);
+    }
+  }
+  {
+    const brick = ['168,92,64', '150,80,58', '182,104,72', '140,74,52'];
+    const z0 = cz + 5.45;
+    const z1 = cz + R;
+    for (let z = z0; z < z1; z += 0.2)
+      for (let x = cx - 0.75; x <= cx + 0.75; x += 0.2) {
+        const k = Math.round((x - cx) / 0.2) + Math.round((z - z0) / 0.2);
+        const rot = k % 2 ? Math.PI / 4 : -Math.PI / 4;
+        sett(px(x + ((z * 7.3) % 0.04)), pz(z), m * 0.27, m * 0.12, rot, `rgba(${brick[Math.floor(rnd() * brick.length)]},0.93)`);
+      }
+    // kerb setts edging the runner
+    for (const sx of [-1, 1]) for (let z = z0; z < z1; z += 0.26) sett(px(cx + sx * 0.92), pz(z), m * 0.14, m * 0.24, 0, `rgba(${sand[Math.floor(rnd() * sand.length)]},0.95)`);
+  }
   // Foot-traffic ring round the basin: polished, a touch darker and warmer.
   for (let i = 0; i < 90; i++) {
     const a = rnd() * Math.PI * 2;
@@ -130,4 +172,62 @@ export function buildPlazaWear(cx: number, cz: number, R: number, heightAt: (x: 
   m.userData.perfTag = 'terrain';
   m.userData.noAO = true;
   return m;
+}
+
+/**
+ * r13: two rain puddles in the low spots of the square (south-east and south-west of the basin) —
+ * dark, near-mirror patches that pick up the sky and the lamps (the scene's environment map), with a
+ * damp halo round each. One merged mesh, one draw; hidden with the wear decal in winter.
+ */
+export function buildPlazaPuddles(cx: number, cz: number, heightAt: (x: number, z: number) => number): THREE.Mesh {
+  const parts: THREE.BufferGeometry[] = [];
+  const spots: [number, number, number, number, number][] = [
+    [cx + 3.9, cz + 5.6, 0.95, 0.55, 0.4],
+    [cx - 4.6, cz + 4.4, 0.7, 0.42, -0.6],
+    [cx - 3.7, cz + 5.15, 0.32, 0.22, 0.2],
+  ];
+  for (const [x, z, rx, rz, rot] of spots) {
+    const n = 22;
+    const shape = new THREE.Shape();
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const wob = 1 + 0.16 * Math.sin(a * 3 + x) + 0.08 * Math.sin(a * 5 + z);
+      const px = Math.cos(a) * rx * wob;
+      const pz = Math.sin(a) * rz * wob;
+      if (i === 0) shape.moveTo(px, pz);
+      else shape.lineTo(px, pz);
+    }
+    const g = new THREE.ShapeGeometry(shape, 2);
+    g.rotateX(-Math.PI / 2);
+    g.rotateY(rot);
+    g.translate(x, heightAt(x, z) + 0.022, z);
+    parts.push(g);
+  }
+  const geo = mergeGeos(parts);
+  const mat = new THREE.MeshStandardMaterial({ name: 'puddle', color: 0x3a4652, roughness: 0.04, metalness: 0.35, transparent: true, opacity: 0.86, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  const m = new THREE.Mesh(geo, mat);
+  m.name = 'plaza-puddles';
+  m.renderOrder = 2;
+  m.receiveShadow = true;
+  m.userData.perfTag = 'terrain';
+  m.userData.noAO = true;
+  return m;
+}
+
+function mergeGeos(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  let n = 0;
+  for (const p of parts) n += p.index ? p.index.count : p.attributes.position!.count;
+  const pos = new Float32Array(n * 3);
+  let o = 0;
+  for (const p of parts) {
+    const q = p.index ? p.toNonIndexed() : p;
+    const a = q.attributes.position!.array as Float32Array;
+    pos.set(a, o);
+    o += a.length;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  for (const p of parts) p.dispose();
+  return g;
 }
