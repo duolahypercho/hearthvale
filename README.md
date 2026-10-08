@@ -746,6 +746,40 @@ actors such as Pip the shop cat).
   frames the east bank in one shot — the Kettle Bridge in front, Flint & Ember left, The Copper Kettle
   right, the town busy on it.
 
+- **Round 13** — *Portraits* (critic blocker: "of Bram's 10 moods maybe 3 read"): the eye SHAPE carries
+  the mood (`MOOD.lidO / lidI / lowUp / irisK` in `ui/portraits.ts`): a relaxed lid at rest, a smile
+  squint, anger's lid slanting down into the nose over a raised lower lid, sorrow drooping at the outer
+  corners, half lids when wistful, white all round a small iris in shock; the lash line rides the
+  dropped lid. Brows are drawn over a hat brim / toque band (Bram, Tobias, beanies) and the toque sits
+  higher. Every mood has its own mouth shape (gritted teeth with tooth gaps, a frown with a trembling
+  lip, an open crooked worry, a lopsided wistful smile) and a full beard gets a warm lip window with a
+  near-black interior so the mouth reads through the hair. Gruff men (`Persona.gruff`: Bram, Tobias,
+  Rowan) lose lash flicks and rosy cheeks outside a real blush / belly laugh. Hazel's red lip stripe
+  and cheek smudge are gone, Wren's paint is two crisp swipes low on the cheek. Cards take the
+  scene's light (`setPortraitLight`, from the hour): dusk a rose wash, night a blue-violet place with
+  lamp bokeh, a warm key and a cool rim. Gates: `npcs.auditPortraitContrast(min = 9)` rasterises every
+  card and fails a mood whose face region differs from neutral by < 9/255 (worst now 13.5);
+  `npcs.auditPalette()` fails two villagers' coloured outer garments within 20° hue and 0.1 value in
+  any season (Rowan's winter coat is now teal over a mustard scarf, Kit's top a redder orange).
+  *3D faces*: the mouth is four shapes on their own bones (`B.mouth` the closed smile / frown line —
+  a shallow arc hung from one point, never a V — `mouthO` an open grin with teeth and tongue, `mouthR`
+  a round 'o', `mouthT` gritted teeth), chosen per mood like the card; a talking line mouth opens into
+  a small flapping grin. The mouth sits clear of the nose (Odessa's frown on her broad nose's tip
+  read as a beak); the tear is a small wet streak tinted through the skin; sleeves end in turned-back
+  cuffs. *Dialogue*: the gift ribbon is pinned over the card's top edge (the column never grows over
+  the name plate), the item arcs from the farmer's hands on the villager's side and is caught at the
+  chest; `&mood=` demo lines only come from groups the relationship can reach (no first meeting at
+  7 hearts). *Heart events*: tobias-8's tea is a cup and saucer in his lap; wren-2's farmer stands
+  lens-side so her question is a two-shot with the farmer and the painting faces the lens between
+  them. *Winter*: a thin snow dust over the cobbles, cleared along the villagers' A* routes (the
+  trodden lanes read against white), boot prints as paired pressed ovals with a packed rim, 1.6x
+  snowmen, and the lawn grass sleeps under the snow (the dry blades read as twigs). *Town*: clipped
+  hedges built as one irregular body (`world/town/hedge.ts`, no more caterpillar of balls); a sandstone
+  sett ring round the basin and a herringbone brick runner break the plaza's cobble field, with two
+  near-mirror rain puddles; a low picnic replaces town-day's blown-out foreground parasol; Kit runs at
+  the lens. `town-evening` is 19:36 (violet ambient, warm lamp pools, the Hall's rose window in
+  frame). *Perf*: villager mesh LOD at 15 m (was 19).
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
