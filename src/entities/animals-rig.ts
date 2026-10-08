@@ -56,12 +56,14 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
         // self-shadow acne from the low sun as broad horizontal bands ("flat planes on the cow's back").
         .replace(
           '#include <shadowmap_vertex>',
-          `vec4 hvWorldPos = worldPosition;
-          #if defined( USE_SHADOWMAP ) && defined( HAS_NORMAL )
+          `#if defined( USE_SHADOWMAP ) && defined( HAS_NORMAL )
+            vec4 hvWorldPos = worldPosition;
             worldPosition.xyz += normalize(transformNormalByInverseViewMatrix(transformedNormal, viewMatrix)) * 0.04;
           #endif
           #include <shadowmap_vertex>
-          worldPosition = hvWorldPos;`,
+          #if defined( USE_SHADOWMAP ) && defined( HAS_NORMAL )
+            worldPosition = hvWorldPos;
+          #endif`,
         );
       sh.fragmentShader = sh.fragmentShader
         .replace(
