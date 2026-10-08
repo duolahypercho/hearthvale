@@ -1744,15 +1744,30 @@ export class AnimalSystem implements System, AnimalsApi {
         if (!out && l && !l.leaving) {
           l.leaving = true;
           const d = b.doorFront(rec.home);
-          l.actor.goTo(d.x, d.z - 0.3, () => {
-            this.group.remove(l.actor.root);
-            this.live.splice(this.live.indexOf(l), 1);
-          }, l.actor.gait.radius * l.actor.scale + 0.25);
+          this.homeward(l, d.x, d.z - 0.3);
         }
       }
       const pet = this.live.find((l) => !l.rec);
       if (pet) pet.actor.sleeping = game.calendar.hour >= 21 || game.calendar.hour < 6.2 || !this.grazing();
     }
+  }
+
+  /**
+   * r15: walk in through the pop door — first to a mark in the paddock square in front of the gate, then
+   * up to the door (arriving anywhere within a body radius of it), then inside. A straight line from the
+   * far side of the pen ran into the hens' feeders / along the fence and stuck there all afternoon.
+   */
+  private homeward(l: Live, x: number, z: number): void {
+    const a = l.actor;
+    const gone = (): void => {
+      this.group.remove(a.root);
+      const i = this.live.indexOf(l);
+      if (i >= 0) this.live.splice(i, 1);
+    };
+    const r = a.gait.radius * a.scale;
+    const mz = SITES.pasture.z0 + 0.75 + r;
+    if (a.pos.z > mz + 0.4 || Math.abs(a.pos.x - x) > 1.2) a.goTo(x, mz, () => a.goTo(x, z, gone, r + 0.25), 0.45);
+    else a.goTo(x, z, gone, r + 0.25);
   }
 
   /** Everyone out on the pasture heads for their pop door (trotting when `hurry`, e.g. caught in the
@@ -1774,11 +1789,7 @@ export class AnimalSystem implements System, AnimalsApi {
       a.area = { x0: SITES.pasture.x0, z0: SITES.pasture.z0 - 3, x1: SITES.pasture.x1, z1: SITES.pasture.z1 };
       a.hurry = hurry ? 1.9 + Math.random() * 0.3 : 1;
       const d = b.doorFront(l.rec.home);
-      a.goTo(d.x + (Math.random() - 0.5) * 0.3, d.z - 0.3, () => {
-        this.group.remove(a.root);
-        const i = this.live.indexOf(l);
-        if (i >= 0) this.live.splice(i, 1);
-      }, a.gait.radius * a.scale + 0.25);
+      this.homeward(l, d.x + (Math.random() - 0.5) * 0.3, d.z - 0.3);
     }
   }
 

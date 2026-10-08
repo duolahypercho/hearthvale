@@ -37,7 +37,7 @@ export const PASTURE_PROPS: readonly { x0: number; z0: number; x1: number; z1: n
   { x0: SITES.pasture.x0 + 0.15, z0: SITES.pasture.z1 - 2.45, x1: SITES.pasture.x0 + 3.3, z1: SITES.pasture.z1 - 0.85 },
   // r14: the pig's ark in the south-east corner + the hens' feeder / drinker by the coop gate
   { x0: 49.7, z0: 41.45, x1: 51.45, z1: 43.15 },
-  { x0: 40.95, z0: 36.75, x1: 41.95, z1: 37.45 },
+  { x0: 41.1, z0: 36.3, x1: 42.1, z1: 36.85 },
 ];
 
 /** Yard features inside the paddock the herd uses (world coords): the duck pond and the pig's wallow. */
@@ -326,7 +326,7 @@ export class FarmBuildings {
       [buildPigArk(rng.fork('pig-ark')), 50.5, 42.3, -1.0, [[50, 42]]],
     ];
     // (the hens' corner only once there are hens: the coop may still be a staked site)
-    if (built.has('coop')) furn.push([buildHenFeeders(rng.fork('hen-feed')), 41.45, 37.1, 0.15, []]);
+    if (built.has('coop')) furn.push([buildHenFeeders(rng.fork('hen-feed')), 41.6, 36.6, 0.1, []]);
     for (const [g, fx, fz, rot, tiles] of furn) {
       g.position.set(fx, this.h(fx, fz) - 0.02, fz);
       g.rotation.y = rot;
