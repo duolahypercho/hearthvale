@@ -1255,7 +1255,18 @@ const BUILDERS: Record<CropId, Builder> = {
       const nl = 4 + Math.min(2, k);
       for (let j = 0; j < nl; j++) {
         const la = (j / nl) * Math.PI * 2 + r.next() * 0.6;
-        add(leafGeo((0.075 + k * 0.014) * (0.8 + r.next() * 0.4), 0.06, { ...leaf, lift: 0.2 + r.next() * 0.45 }), mat(top.x, top.y - (j % 2) * 0.014, top.z, 0, la, 0));
+        add(leafGeo((0.075 + k * 0.014) * (0.8 + r.next() * 0.4), 0.066, { ...leaf, lift: 0.2 + r.next() * 0.45 }), mat(top.x, top.y - (j % 2) * 0.014, top.z, 0, la, 0));
+      }
+      // (r21) A mid-branch leaf skirt closes the dome (r10 critic: spindly sprigs, bare soil between
+      // tufts) — the mature bush reads as one rounded mass of glossy leaves.
+      if (k >= 1) {
+        const ns = 2 + Math.min(2, k);
+        for (let j = 0; j < ns; j++) {
+          const la = a + ((j - (ns - 1) / 2) / ns) * 1.9 + (r.next() - 0.5) * 0.4;
+          const mx = top.x * 0.6;
+          const mz = top.z * 0.6;
+          add(leafGeo((0.08 + k * 0.012) * (0.85 + r.next() * 0.3), 0.07, { ...leaf, lift: 0.05 + r.next() * 0.3, bend: 0.5 }), mat(mx, h * 0.55 + r.next() * h * 0.12, mz, 0, Math.PI / 2 - la, 0));
+        }
       }
     }
     if (k === 2) for (const t of tips) flower(add, 0.02, C(0xffffff), C(0xe8e0a0), mat(t.x * 1.15, t.y + 0.02, t.z * 1.15, 0.5, 0, 0));
@@ -2007,14 +2018,16 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     // (r20) A thick woody stem with a flared button where it joins the rind, and a long curled
     // tendril corkscrewing off it (readable from the hero lens, not a tiny hook).
     add(fruit(0.11, C(0x6a7a3a), { sy: 0.35, seg: 10, rows: 5 }), mat(-0.12, 1.36, 0.02), 'skin');
-    add(tube([new THREE.Vector3(-0.12, 1.36, 0.02), new THREE.Vector3(-0.1, 1.54, 0.04), new THREE.Vector3(0.02, 1.64, 0.1), new THREE.Vector3(0.14, 1.6, 0.15), new THREE.Vector3(0.2, 1.5, 0.17)], 0.085, 0.05, C(0x5a5a2c), C(0x9a8e50), 14, 8), undefined, 'skin');
+    // (r21) Shorter, darker green-brown stub (the r20 olive-tan curl read as a pale pasta hook).
+    add(tube([new THREE.Vector3(-0.12, 1.36, 0.02), new THREE.Vector3(-0.11, 1.48, 0.04), new THREE.Vector3(-0.05, 1.56, 0.08), new THREE.Vector3(0.05, 1.57, 0.12), new THREE.Vector3(0.12, 1.52, 0.15)], 0.07, 0.045, C(0x34401c), C(0x5e6430), 14, 8), undefined, 'skin');
+    add(fruit(0.05, C(0x4a4a24), { sy: 0.6, seg: 8, rows: 4 }), mat(0.12, 1.52, 0.15), 'skin');
     {
       const tp: THREE.Vector3[] = [];
       for (let k = 0; k <= 28; k++) {
         const u = k / 28;
         const a = u * Math.PI * 5.2;
         const rr = 0.09 * (1 - u * 0.55);
-        tp.push(new THREE.Vector3(0.12 + u * 0.42 + Math.cos(a) * rr, 1.6 + Math.sin(a) * rr - u * 0.12, 0.14 + u * 0.3 + Math.sin(a) * rr * 0.6));
+        tp.push(new THREE.Vector3(0.04 + u * 0.42 + Math.cos(a) * rr, 1.55 + Math.sin(a) * rr - u * 0.12, 0.1 + u * 0.3 + Math.sin(a) * rr * 0.6));
       }
       add(tube(tp, 0.016, 0.007, GREEN.mid, C(0xb0b464), 40, 4));
     }

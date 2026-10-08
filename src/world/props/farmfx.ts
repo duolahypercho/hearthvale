@@ -1051,7 +1051,7 @@ void main() {
     // (r17) The jet's body: a soft translucent ribbon along the main rope, widening and fading as
     // the water breaks up, so the arc reads as one coherent throw (beads string along it).
     float j = i - ${ARC_BEADS}.0;
-    float sr = clamp((j + position.z * 0.5 + 0.5) / ${ARC_RIB}.0, 0.0, 1.0) * 0.66;
+    float sr = clamp((j + position.z * 0.5 + 0.5) / ${ARC_RIB}.0, 0.0, 1.0) * 0.8;
     float Tr = aP.y * 0.985;
     float angr = aO.w - aA.y * sr * (Tr / aP.y);
     vec3 dirr = vec3(cos(angr), 0.0, sin(angr));
@@ -1071,7 +1071,11 @@ void main() {
     // (r18) The coherent body only over the first ~60 % of the throw, then it has broken into drops
     // (a full-length ribbon read as a hose / wire).
     // (r19) A soft glassy column only off the nozzle (the first ~40 %), feathered into the packets.
-    vA = aA.x * 0.2 * smoothstep(0.0, 0.05, sr) * (1.0 - smoothstep(0.1, 0.3, sr));
+    // (r21) A faint veil ties the bead packets into ONE arc out to ~3/4 of the throw (r10 critic:
+    // disconnected stipple, no arc read), strongest off the nozzle, travelling pulses so it never
+    // reads as a solid wire.
+    float pulse = 0.6 + 0.4 * sin(sr * 38.0 - uTime * 22.0 + ph * 6.0);
+    vA = aA.x * smoothstep(0.0, 0.05, sr) * (0.2 * (1.0 - smoothstep(0.1, 0.3, sr)) + 0.11 * pulse * (1.0 - smoothstep(0.3, 0.78, sr)));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1368,6 +1372,14 @@ export class SwingTrail {
     this.tint.set(color);
     this.strength = strength;
     this.life = life;
+  }
+
+  /** (r21) Drop the smear at once (the hoe's bite: the impact frame shows earth breaking, never a
+   *  pale ribbon hanging over the tile). */
+  cut(): void {
+    this.count = 0;
+    for (let i = 0; i < TRAIL_N; i++) this.age[i] = 99;
+    this.mesh.visible = false;
   }
 
   /**
@@ -1867,7 +1879,8 @@ export class FarmFX {
       _v.set(Math.cos(a) * sp, rnd(2.2, 3.2), Math.sin(a) * sp);
       // (r17) Already airborne ON the impact frame (pre-advanced ~40 ms out of the soil), so the
       // strongest beat of the swing shows the earth breaking, not a smear over an intact tile.
-      p.addScaledVector(_v, 0.04);
+      // (r21) ~70 ms out: clear of the blade that covers the bite point on the impact frame.
+      p.addScaledVector(_v, 0.07);
       this.clods.spawn(p, _v, { color: _c.set(soil).offsetHSL(0, 0.02, rnd(-0.02, 0.05)), size: rnd(0.085, 0.12) * lk, life: 2.2, bounce: 0.25 });
     }
     const n = Math.round(rnd(11, 14) * strength);
@@ -1878,7 +1891,7 @@ export class FarmFX {
       const sp = rnd(1.0, 2.5) * (0.7 + strength * 0.3);
       _v.set(Math.cos(a) * sp, rnd(2.6, 4.8), Math.sin(a) * sp);
       const p = center.clone().add(new THREE.Vector3(rnd(-0.2, 0.2), 0.05, rnd(-0.2, 0.2)));
-      p.addScaledVector(_v, rnd(0.02, 0.05));
+      p.addScaledVector(_v, rnd(0.035, 0.075));
       // Three size classes: a few fat chunks, mid clods, small crumbs.
       this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.07, 0.06)), (i < 3 ? rnd(0.07, 0.09) : i < 7 ? rnd(0.048, 0.062) : rnd(0.03, 0.042)) * lk);
     }

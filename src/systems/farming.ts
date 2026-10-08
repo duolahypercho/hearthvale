@@ -231,7 +231,8 @@ const fxRng = new Rng('farming-fx');
 const rnd = (a: number, b: number): number => a + fxRng.next() * (b - a);
 
 /** Seconds of each swing during which the tool head leaves a smear (downswing → follow-through). */
-const SWING_WINDOW: Partial<Record<ActionKind, [number, number]>> = { chop: [0.2, 0.31], slam: [0.14, 0.27], sweep: [0.1, 0.3] };
+// (r21) The hoe smear stops sampling AT the bite (0.275) and is cut there: it lives on the downswing keys only.
+const SWING_WINDOW: Partial<Record<ActionKind, [number, number]>> = { chop: [0.2, 0.272], slam: [0.14, 0.27], sweep: [0.1, 0.3] };
 /** The hoe blade's cutting edge, tool-local (see world/props/tools.ts). */
 const HOE_EDGE = new THREE.Vector3(0, 0.494, 0.212);
 /** The can's spout axis, tool-local (the spout tube is tipped 1.0 rad forward, world/props/tools.ts). */
@@ -1468,7 +1469,9 @@ export class FarmingSystem implements System, FarmingApi {
         started = true;
         // (r17) The hoe smear is a whisper (the clods + dust carry the impact frame).
         // (r20) Shorter-lived: it reads on the two downswing keys and is gone by the bite (no glass sheet on the hit).
-        this.fx.trail.begin(color, strength * (kind === 'chop' ? 0.45 : 1), kind === 'chop' ? 0.075 : 0.2, kind === 'sweep' ? 0.18 : 0.08, this.game.player.position.y);
+        // (r21) The hoe's whisper is tinted toward warm dust (never a white glass blade).
+        if (kind === 'chop') color = new THREE.Color(color).lerp(new THREE.Color(0xd8b88a), 0.55).getHex();
+        this.fx.trail.begin(color, strength * (kind === 'chop' ? 0.4 : 1), kind === 'chop' ? 0.075 : 0.2, kind === 'sweep' ? 0.18 : 0.08, this.game.player.position.y);
       }
       // Trace the real arc between the last frame and this one at ~240 Hz.
       const n = Math.max(1, Math.ceil((to - from) * 240));
@@ -1503,6 +1506,8 @@ export class FarmingSystem implements System, FarmingApi {
         const blockedTile = !ok && !tilledBefore && !giant;
         this.startAction('chop', 'hoe', x, z, () => {
           const c = this.center(x, z, 0.05);
+          // (r21) The smear ends at the bite: the impact frame is earth breaking, not a pale ribbon.
+          if (this.near(x, z)) this.fx.trail.cut();
           if (ok) {
             if (this.isTilled(x, z)) this.breakGround(x, z, true);
             this.commit();

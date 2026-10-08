@@ -66,7 +66,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // (r16) Co-op on one beat: the host hoeing + three farmhands (hoe contact, mid-pour, catching a crop).
   // (r17: pulled back + recentred so all four farmers and their tiles sit inside the frame.)
   'farm-coop-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 42, distance: 12.5, offsetX: -0.8, offsetZ: 0.9 }, showcase: ['tools', 'crew'] },
-  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -30, pitch: 31, distance: 8.2, offsetX: -0.75, offsetZ: -0.8 }, showcase: ['tools', 'tool:wateringCan'] },
+  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -30, pitch: 33, distance: 9.4, offsetX: -0.6, offsetZ: -0.95 }, showcase: ['tools', 'tool:wateringCan'] },
   // (r15: 3/4 to the lens, the farmer standing in the bed with the pulled hole in front of the boots.)
   'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 34, pitch: 40, distance: 8.2, offsetX: -0.2, offsetZ: -0.9 }, showcase: ['tools', 'tool:harvest'] },
   'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 32, distance: 9.6, offsetX: -0.7, offsetZ: -1.6 }, showcase: ['tools', 'tool:charge'] },
@@ -74,7 +74,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Farming r11: the two-hand "hooray" lift of a big crop (melon on the hat, arms up) and a close
   // morning sprinkler turret soaking its square of the summer field (wet front spreading outward).
   'farm-lift': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'summer', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest', 'crop=melon', 'pose=0.72'] },
-  'farm-sprinkler': { map: 'farm', x: 23.5, z: 23.5, facing: 'down', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: 16, pitch: 46, distance: 11, offsetX: 2.6, offsetZ: -1.6 }, showcase: ['harvest', 'act=none'] },
+  'farm-sprinkler': { map: 'farm', x: 23.5, z: 22.3, facing: 'right', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: 16, pitch: 46, distance: 11, offsetX: 2.6, offsetZ: -0.4 }, showcase: ['harvest', 'act=none'] },
   // Farming r12/r7: the full crop roster (all 18 crops × 6 growth stages, every season — greenhouse-style)
   // in two blocks either side of the scarecrow / can-stump column, the farmer out of frame.
   'farm-crops-all': { map: 'farm', x: 21.5, z: 23.4, facing: 'up', time: 10.5, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 54, distance: 18.6, offsetX: 0, offsetZ: 0.2 }, showcase: ['gallery', 'crops=all'] },

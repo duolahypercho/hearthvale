@@ -968,6 +968,14 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   pulls a melon from a melon row (west side of the row in front of him); the quality star grows with lens distance and
   wears a warm halo; a farmhand's lift uses the host's held-produce scale. *Gameplay zoom* — cursor strokes ~1.8×
   past 12.5 m, hoe clods and splashes scale with lens distance (`FarmFX.lensK`).
+- **r21 polish**: *Hoe* — the smear samples only the two downswing keys (window ends at the bite) and is cut
+  on the impact tick (`SwingTrail.cut()`), tinted toward warm dust: the impact frame shows the blade in the earth
+  with clods already ~70 ms airborne (big chunks) / 35–75 ms (clods), never a pale glass ribbon over the tile.
+  *Sprinklers* — a faint pulsing veil ties each jet's bead packets into one arc out to ~3/4 of the throw (no
+  disconnected stipple). *Crops* — mature pepper bushes close into a leafy dome (mid-branch leaf skirt, wider
+  leaves); the giant melon's stem is a short dark green-brown stub with a button end (no pale curl).
+  *Staging* — `farm-water` lens pulled back to 9.4 m (hat + can + target tile in frame through the whole pour);
+  `farm-sprinkler` puts the farmer beside the bed in profile watching the head (no head looming at the lens).
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
