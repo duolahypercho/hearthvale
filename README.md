@@ -912,12 +912,32 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   (staked tomatoes | pepper bushes, peppers | tomatoes up front). *Giants* — ~8 % smaller, slumped heavier bodies,
   dark pressed-soil pools (pumpkin too). *Demos* — `farm-coop-tools` reblocked into lanes (hoe at the north edge, the
   pour in the front bed in profile, the lift at the east end); `farm-crows&raid=flee` stages the takeoff beat.
+- **r20 polish**: *Co-op can* — upgraded cans are satin, mostly-diffuse tier metal (copper / steel / gold body,
+  darker rolled bands, a domed shoulder + filler cap), so a farmhand's can never reads as a hollow hoop; songbirds
+  flee the nearest farmer, co-op avatars included (`farmerBubbles` in `entities/critters.ts`), and staged stills whisk
+  any bird inside a farmer's 3 m bubble away. *Scarecrow reach* — a thin dashed gold line with a dark contact
+  under-stroke draped on the ground (no wash band), shown only while a scarecrow is held; `farm-crows` stages it
+  only with `&ring`. *Pour* — the stream lands ~0.32 m forward of the rose along the pour (a visible parabola, kept
+  on the tile), drains in ~80 ms once the can lowers and the splash dies with it; dry tilled soil is sandier / warmer
+  and soaked soil darker, with a cool sheen riding the meniscus. *Hoe* — the wind-up lays the shaft back over the
+  shoulder at ~45° (fists at the chest, blade cocked behind), a two-key downswing (~70 ms), a blade-down recovery;
+  low earth-toned dust breath instead of pale dust sheets, a small warm blade flash (no bokeh disc), a 1.45 two-frame
+  soil pop and a fresh furrow fluffed ~75 % and ~1.5 cm proud. Farmer materials (player + co-op) carry a soft
+  highlight knee so sunlit pale cloth never crosses the bloom threshold. *Sprinklers* — rope beads in evenly spaced
+  packets (dashes with real gaps), a fainter, shorter glass column, wet glints on the leaves the jets hit; heads differ
+  by tier (squat cast-iron hub with copper tips · copper dome with swan-neck arms · gold turret with jointed arms +
+  spire). *Crops* — the giant melon's rind is glossy (gloss bucket) with a thick woody stem and a corkscrew tendril;
+  pepper pods hang from arched pedicels at the canopy rim; ripe eggplants carry big velvet leaves over smaller
+  drooping fruit; fall beets / yams are grown in densely and the fall NE bed is eggplant. *Staging* — the summer hero
+  pulls a melon from a melon row (west side of the row in front of him); the quality star grows with lens distance and
+  wears a warm halo; a farmhand's lift uses the host's held-produce scale. *Gameplay zoom* — cursor strokes ~1.8×
+  past 12.5 m, hoe clods and splashes scale with lens distance (`FarmFX.lensK`).
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
   side-on, frozen just after impact), `farm-water`, `farm-pop` (produce held up with a gold star; `&quality=0..3`),
   `farm-slam` (tier-3 charged hoe), `farm-crows` (a raid in progress: crows pecking, feathers, a chewed stub;
-  `&raid=fly` = crows flying in), `farm-wither` (per-crop dead silhouettes: staked tomato, slumped pepper, caved-in
+  `&raid=fly` = crows flying in, `&ring` = the scarecrow's reach), `farm-wither` (per-crop dead silhouettes: staked tomato, slumped pepper, caved-in
   melon / pumpkin on a collapsed vine mat), `farm-field`, `farm-lift` (two-hand chest hug of a melon),
   `farm-sprinkler`, `farm-crops-all` (all 18 crops × 6 stages, every season, farmer out of frame, two blocks either
   side of the field's scarecrow / can-stump column; `&crops=all` on any gallery).
