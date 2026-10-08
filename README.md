@@ -1104,7 +1104,9 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   three behaviours along the stalls (munching, lying down, rooting) on varied yaws instead of five chins over five
   mangers; the barn's open door shows a recessed vestibule (dim straw, a stall partition, a bale) instead of a black
   card. *Petting* — the heart clears a crouching farmer's face (checked over the 1.05–1.5 m head span, + the crouch's
-  lean) and the mini-heart burst follows it.
+  lean) and the mini-heart burst follows it. *Homeward* — a herd sent in (rain, evening) walks in two legs: a mark
+  square in front of its gate, then the door, arriving within a body radius of it (they used to jam shoulder to
+  shoulder short of the exact door spot, or stick on a prop on the straight line, for the rest of the day).
 
 ## Co-op multiplayer (1–4 farmers)
 
