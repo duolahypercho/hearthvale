@@ -668,7 +668,7 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   (1.25 / 0.8 → 1, ease-out-back), is held up ~0.4 s with a rim-lit presenting sway while a bevelled 4-point quality
   star spins in beside it (0 → 1.3 → 1, emissive → bloom, twinkles), then its icon flies to the toolbar slot (460 ms,
   1.15 slot bounce). Co-op: another farmer's harvest (`harvest(x, z, 'instant')`) pops the produce in place over the tile.
-- **Events for audio**: `tool:swing` / `tool:impact` (impact frame) / `tool:charge` / `tool:refused`, `can:refill` /
+- **Events for audio**: `tool:swing` / `tool:impact` (impact frame; `soil:tilled` / `soil:watered` / `crop:sown` land on the same tick) / `tool:charge` / `tool:refused`, `can:refill` /
   `can:empty`, `soil:tilled` / `soil:watered` / `soil:fertilized`, `crop:planted` / `crop:harvested` / `crop:withered` /
   `crop:giant`, `crow:arrive` / `crow:eat`, `sprinkler:spray`, `harvest:collect`, `energy:exhausted` / `energy:passout`,
   `soil:blocked` (one dull tick per tile a charged swing had to skip).
@@ -720,6 +720,26 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   `farm-harvest-fall` is staged in warm late-afternoon light. New demo `farm-coop-tools`: the host hoeing beside three
   real co-op farmhand avatars caught on one beat (hoe at blade contact, mid-pour onto a wet tile, a crop caught in
   raised hands with a gold star). Sequence: `node scripts/shot.mjs --url "?demo=farm-tools" --frames 8 --out s.png`.
+- **r17 polish**: *Events on the hit* — `soil:tilled` (hoe + charged slam) and `soil:watered` fire on the impact /
+  landing tick together with `tool:impact` (the logic still flips at the button press); `crop:planted` stays the
+  synchronous state flip (co-op seed accounting reads it inside `item:use`) and the new `crop:sown` is the sow beat
+  on the seeds' impact tick; the pour's
+  `tool:impact` is the water landing (~0.51 s), not the can tipping; untillable ground answers with `tool:impact`
+  `hit: 'blocked'` (blade glances off the turf, grass flecks, the red ✕ pops; the bracket stays red through the swing).
+  *Soil* — soaked soil is darker, warmer and more saturated than dry (≈ −60 % value), matte-damp (roughness 0.68,
+  env reflection cut 85 %), glossy only along the advancing meniscus; freshly hoed earth is darker than the dry bed
+  (moist, crumbly), never glossy. *Cursor* — no wash at all (brackets + dotted rim only). *Clods* — faceted
+  three-crumb clusters with per-facet shading in three size classes, pre-advanced so they are airborne ON the impact
+  frame, paler dust ring; the hoe smear is half strength. *Swing* — the wind-up coils out to the camera side (blade
+  clear of the hat), the pitch range is ~0.45 rad (no lurch toward the tile); `farm-tools` is framed at ~1.8× gameplay
+  zoom, whole farmer + bed. *Sprinklers* — 3 jets a head (4 cross), 80 % of beads strung on the rope with tight
+  spread, one soft translucent ribbon per jet (same draw), darker soak crescents riding under each landing point.
+  *Giant melon* — pebbled rind bump + netted mottling + freckles, a wider darker contact pool, three vine runners
+  climbing the belly with leaves, five big leaves leaning against it. *Summer hero field* — one species per block
+  with bare spacing rows (corn | sunflower, tomato | pepper, melon patch | blueberry + tomato), red-fruited rows
+  ~45 % ripe. *Sequences* — the pour plan follows the real flight (lands 0.52, tail 1.05, settled wet tile 1.6; the
+  harness keeps stepping past the action's end). `farm-coop-tools` reframed (all four farmers inside), the watering
+  farmhand yawed ~60° so the can reads in profile.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

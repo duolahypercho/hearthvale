@@ -1821,7 +1821,7 @@ function contactDisc(R: number, inner: THREE.Color, outer: THREE.Color): THREE.B
  * Origin on the ground; long axis along X.
  */
 function giantMelonBody(r: Rng): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, 72, 40);
+  const g = new THREE.SphereGeometry(1, 96, 56);
   g.rotateZ(Math.PI / 2);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const ph = [r.next() * 6, r.next() * 6, r.next() * 6, r.next() * 6];
@@ -1852,7 +1852,8 @@ function giantMelonBody(r: Rng): THREE.BufferGeometry {
     if (y < FLOOR) y = FLOOR + (y - FLOOR) * 0.15;
     // A dent on the near flank + soft lumps.
     const dent = 1 - 0.035 * Math.exp(-(Math.pow((u - 0.35) / 0.25, 2) + Math.pow((v.y + 0.1) / 0.35, 2))) * Math.max(0, v.z);
-    const n = dent * (1 + 0.022 * Math.sin(v.x * 3.1 + ph[1]!) * Math.sin(v.z * 3.7 + ph[2]!) + 0.012 * Math.sin(v.y * 6.3 + v.x * 4.9 + ph[3]!));
+    // (r17) Surface breakup: broad lumps + a fine pebbled bump (a real rind is never a CG egg).
+    const n = dent * (1 + 0.022 * Math.sin(v.x * 3.1 + ph[1]!) * Math.sin(v.z * 3.7 + ph[2]!) + 0.012 * Math.sin(v.y * 6.3 + v.x * 4.9 + ph[3]!) + 0.011 * Math.sin(v.x * 17.3 + v.z * 11.1) * Math.sin(v.y * 15.7 - v.z * 9.3) + 0.005 * Math.sin(v.x * 41 + v.y * 37) * Math.sin(v.z * 33 - v.y * 29));
     pos.setXYZ(i, x * n, y * n + CY, z * n);
   }
   g.computeVertexNormals();
@@ -1872,6 +1873,10 @@ function giantMelonBody(r: Rng): THREE.BufferGeometry {
     const c = light.clone().lerp(lightB, 0.5 + 0.5 * Math.sin(a * 3 + xn * 2 + ph[3]!)).lerp(dark, band * 0.88);
     // Fine mottling + the stripes breaking up toward the poles.
     c.multiplyScalar(0.93 + 0.07 * Math.sin(q.x * 37 + q.z * 29) * Math.sin(q.y * 41 + q.x * 13));
+    // (r17) Rind mottling: pale netted blotches inside the light bands, dark freckles in the stripes.
+    const mot = Math.sin(q.x * 13.1 + Math.sin(q.z * 7.7) * 1.6) * Math.sin(q.z * 11.3 + Math.sin(q.y * 9.1) * 1.4) * Math.sin(q.y * 12.7 + q.x * 3.3);
+    c.lerp(C(0xb4cc7c), THREE.MathUtils.smoothstep(mot, 0.15, 0.6) * 0.5 * (1 - band * 0.7));
+    c.multiplyScalar(1 - THREE.MathUtils.smoothstep(Math.sin(q.x * 63 + q.y * 17) * Math.sin(q.z * 59 - q.x * 23), 0.6, 0.95) * 0.18);
     c.lerp(lightB.clone().multiplyScalar(0.72), THREE.MathUtils.smoothstep(Math.abs(xn), 0.8, 1.0) * 0.55);
     // Field spot: pale yellow where it lay (wraps up the low near flank so the camera sees it).
     const spotM = THREE.MathUtils.smoothstep(0.42 - q.y + 0.1 * Math.sin(q.x * 3.3 + ph[1]!) + 0.06 * Math.sin(q.x * 9 + q.z * 7), 0.0, 0.18) * THREE.MathUtils.smoothstep(q.z, -0.2, 0.4);
@@ -1943,8 +1948,44 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     }
   } else if (id === 'melon') {
     // Wet, dark soil pressed flat under the belly (fills the berm's ring: real ground contact).
-    add(contactDisc(0.98, C(0x150d08), C(0x34241a)), undefined, 'wood');
+    // (r17) Wider and darker: a strong AO pool the belly sinks into.
+    add(contactDisc(1.32, C(0x0c0704), C(0x2e2016)), undefined, 'wood');
     add(giantMelonBody(r), mat(0, 0, 0, 0, 0.3, 0), 'skin');
+    // (r17) Grown out of the patch, not pasted on it: vine runners creep round the base and up
+    // over the belly's lower flank, and leaves drape against it (in the body's frame, rotated 0.3).
+    {
+      const body = mat(0, 0, 0, 0, 0.3, 0);
+      const rAt = (phi: number, k = 1): [number, number] => {
+        const rr = 1 / Math.hypot(Math.cos(phi) / 1.22, Math.sin(phi) / 1.12);
+        return [Math.cos(phi) * rr * k, Math.sin(phi) * rr * k];
+      };
+      for (let i = 0; i < 3; i++) {
+        const a0 = 0.6 + i * 2.2 + r.next() * 0.4;
+        const pts: THREE.Vector3[] = [];
+        for (let k = 0; k <= 8; k++) {
+          const u = k / 8;
+          const phi = a0 + u * 0.95;
+          const climb = Math.sin(u * Math.PI);
+          const [x, z] = rAt(phi, 1.14 - climb * 0.05);
+          pts.push(new THREE.Vector3(x, 0.035 + climb * 0.2 + 0.02 * Math.sin(u * 13 + i), z));
+        }
+        add(tube(pts, 0.03, 0.016, C(0x4a7428), C(0x78a046), 18, 5), body);
+        const cv = new THREE.CatmullRomCurve3(pts);
+        for (let k = 0; k < 3; k++) {
+          const t = 0.18 + k * 0.32 + r.next() * 0.05;
+          const pp = cv.getPointAt(t);
+          const out = new THREE.Vector3(pp.x, 0, pp.z).normalize();
+          // Leaves stand off the flank, tipped outward (lift ~0.5) — a canopy skirt over the base.
+          add(leafGeo(0.36 + r.next() * 0.1, 0.42 + r.next() * 0.1, { shape: 'lobed', lift: 0.5, bend: 0.45, fold: 0.24, serrate: 0.22, c0: GREEN.dark, c1: GREEN.mid, segs: 5 }), body.clone().multiply(mat(pp.x + out.x * 0.04, pp.y + 0.02, pp.z + out.z * 0.04, 0, Math.atan2(out.x, out.z) + (k % 2 ? 0.5 : -0.5), 0)));
+        }
+      }
+      // Big leaves rooted outside the belly, leaning their blades up against it.
+      for (let i = 0; i < 5; i++) {
+        const phi = (i / 5) * Math.PI * 2 + 0.35 + r.next() * 0.3;
+        const [x, z] = rAt(phi, 1.2);
+        add(leafGeo(0.5 + r.next() * 0.12, 0.56, { shape: 'lobed', lift: 0.95, bend: 0.15, fold: 0.2, serrate: 0.2, c0: GREEN.dark, c1: GREEN.mid, segs: 6 }), body.clone().multiply(mat(x, 0.03, z, 0, Math.atan2(-x, -z), 0)));
+      }
+    }
     // A short woody stem + curled dry tendril on the shoulder.
     add(tube([new THREE.Vector3(-0.12, 1.38, 0.02), new THREE.Vector3(-0.1, 1.52, 0.04), new THREE.Vector3(0.0, 1.58, 0.09), new THREE.Vector3(0.09, 1.53, 0.13)], 0.06, 0.034, C(0x5e6a32), C(0x8a8a4a), 10, 7), undefined, 'skin');
     add(tube([new THREE.Vector3(0.08, 1.54, 0.12), new THREE.Vector3(0.22, 1.6, 0.2), new THREE.Vector3(0.3, 1.52, 0.32), new THREE.Vector3(0.24, 1.46, 0.4), new THREE.Vector3(0.18, 1.5, 0.36)], 0.014, 0.006, GREEN.mid, C(0xa8b060), 14, 4));

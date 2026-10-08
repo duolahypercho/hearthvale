@@ -162,6 +162,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
         '#include <color_fragment>',
         /* glsl */ `
         float hvSoilWet;
+        float hvSoilMenis;
         {
           vec2 wq = vHvWorldPos.xz;
           float wm = texture2D(uWetMask, wq / uWetSize).r;
@@ -173,6 +174,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           // Meniscus: a dark, saturated band right at the advancing wet front (and the soaked
           // tile's rim), so a fresh soak reads as water spreading, not a fade.
           float menis = smoothstep(0.26, 0.42, wm + we) * (1.0 - smoothstep(0.42, 0.66, wm + we));
+          hvSoilMenis = menis;
           // Damp halo just outside the watered area.
           float halo = smoothstep(0.1, 0.4, wm + we) * (1.0 - hvSoilWet);
           vec3 base = diffuseColor.rgb;
@@ -190,7 +192,8 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           float plate = smoothstep(0.06, 0.2, cw);
           dry *= (1.0 - crack * 0.16) * (1.0 + plate * 0.05);
           // Wet: dark, cooler, saturated; the texture's crumbs still read.
-          vec3 wet = base * vec3(0.5, 0.44, 0.44);
+          // (r17) Warmer + more saturated (blue drops fastest): soaked earth, never cool grey glass.
+          vec3 wet = base * vec3(0.5, 0.37, 0.26);
           // Furrows read in any light: troughs in shade, crests catching it (a lone fresh tile shows
           // the same ploughed ridges as the beds around it, not a flat smear).
           float ridgeT = smoothstep(0.032, 0.062, vSoilH);
@@ -221,9 +224,11 @@ function soilMaterial(): THREE.MeshStandardMaterial {
             float fk = vSoilFresh * (1.0 - hvSoilWet);
             float crumbs = smoothstep(0.6, 0.78, hvNoise(wq * 29.0 + 5.0)) * (0.4 + 0.6 * ridgeT);
             float clumps = hvNoise(wq * 11.0 + 2.0);
-            vec3 turned = base * vec3(1.08, 0.95, 0.8) * (0.8 + 0.32 * clumps) * (0.62 + 0.55 * ridgeT);
-            turned = mix(turned, base * vec3(1.7, 1.56, 1.3), crumbs * 0.55);
-            c = mix(c, turned, fk * 0.88);
+            // (r17) Darker than the dry bed (turned earth is moist under the crust), crumbs only a
+            // shade paler — never the bleached plate the r10 critic saw.
+            vec3 turned = base * vec3(0.86, 0.68, 0.5) * (0.78 + 0.36 * clumps) * (0.6 + 0.55 * ridgeT);
+            turned = mix(turned, base * vec3(1.25, 1.05, 0.82), crumbs * 0.45);
+            c = mix(c, turned, fk * 0.94);
           }
           // The fringe dries out into pale, dusty dirt as it spills over the turf.
           // Patchy, not a uniform band: earthy ochre crumbs with an olive cast where it meets the sod.
@@ -233,7 +238,10 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           diffuseColor.rgb = c;
         }`,
       );
-      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.22, max(hvSoilWet, vSoilFresh * 0.3));');
+      // (r17) Soaked soil is matte-damp (0.68), glossy only along the advancing meniscus — a low
+      // roughness everywhere mirrored the sky and read as a glass / ice pane lighter than dry soil.
+      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(mix(roughnessFactor, 0.68, hvSoilWet), 0.36, hvSoilMenis * 0.85);');
+      fs = after(fs, '#include <lights_fragment_maps>', '#ifdef USE_ENVMAP\n  radiance *= 1.0 - 0.85 * hvSoilWet;\n#endif');
       shader.fragmentShader = fs;
     });
   }

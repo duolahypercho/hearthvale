@@ -14,7 +14,6 @@
 import * as THREE from 'three';
 import { textures } from '../../render/textures';
 import { Rng } from '../../core/rng';
-import { lumpySphere } from '../geom';
 
 export type GroundFn = (x: number, z: number) => number;
 
@@ -27,6 +26,58 @@ const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 /** Cosmetic randomness, seeded so staged demos replay identically. */
 const fxr = new Rng('farmfx');
 const rnd = (a: number, b: number): number => a + fxr.next() * (b - a);
+
+/**
+ * (r17) A crumbly earth clod: a main faceted chunk with two smaller crumbs fused to it, every
+ * vertex jittered hard and the facets shaded per face (flat normals + a per-facet value wobble,
+ * darker underneath) — broken soil, not the smooth plastic potatoes the r10 critic called out.
+ */
+function crumbClod(): THREE.BufferGeometry {
+  const r = new Rng('clod-crumb');
+  const parts: { o: THREE.Vector3; s: number }[] = [
+    { o: new THREE.Vector3(0, 0, 0), s: 1 },
+    { o: new THREE.Vector3(0.62, -0.18, 0.2), s: 0.5 },
+    { o: new THREE.Vector3(-0.42, -0.28, -0.5), s: 0.42 },
+  ];
+  const pos: number[] = [];
+  const col: number[] = [];
+  for (const { o, s } of parts) {
+    const g = new THREE.IcosahedronGeometry(1, 0);
+    const p = g.attributes.position as THREE.BufferAttribute;
+    // Weld-jitter: the same corner moves the same way on every face that shares it.
+    const jit = new Map<string, THREE.Vector3>();
+    for (let i = 0; i < p.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(p, i);
+      const k = `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+      let j = jit.get(k);
+      if (!j) {
+        j = v.clone().multiplyScalar(0.62 + r.next() * 0.55);
+        j.y *= 0.72;
+        jit.set(k, j);
+      }
+      pos.push(j.x * s + o.x, j.y * s + o.y, j.z * s + o.z);
+    }
+    for (let f = 0; f < p.count / 3; f++) {
+      const k = 0.78 + r.next() * 0.34;
+      for (let v = 0; v < 3; v++) col.push(k, k, k);
+    }
+    g.dispose();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  // Underside facets darker (self-shadow), tops catch the light a touch.
+  const n = g.attributes.normal as THREE.BufferAttribute;
+  for (let i = 0; i < n.count; i++) {
+    const k = 0.72 + 0.34 * (n.getY(i) * 0.5 + 0.5);
+    col[i * 3] = col[i * 3]! * k;
+    col[i * 3 + 1] = col[i * 3 + 1]! * k;
+    col[i * 3 + 2] = col[i * 3 + 2]! * k;
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.scale(0.82, 0.82, 0.82);
+  return g;
+}
 
 // ───────────────────────────────────────────── soft sprite points
 
@@ -900,6 +951,8 @@ interface Ring {
 // ───────────────────────────────────────────── sprinkler jets
 
 const ARC_BEADS = 72;
+/** (r17) Soft translucent ribbon segments per jet (drawn by the same instance, after the beads). */
+const ARC_RIB = 18;
 const ARC_VS = /* glsl */ `
 attribute vec4 aO;
 attribute vec4 aP;
@@ -914,6 +967,32 @@ void main() {
   // One instance = one rotating jet; each quad is one droplet bead streaming along it.
   float i = position.x;
   float ph = aP.w;
+  if (i >= ${ARC_BEADS}.0) {
+    // (r17) The jet's body: a soft translucent ribbon along the main rope, widening and fading as
+    // the water breaks up, so the arc reads as one coherent throw (beads string along it).
+    float j = i - ${ARC_BEADS}.0;
+    float sr = clamp((j + position.z * 0.5 + 0.5) / ${ARC_RIB}.0, 0.0, 1.0) * 0.9;
+    float Tr = aP.y * 0.985;
+    float angr = aO.w - aA.y * sr * (Tr / aP.y);
+    vec3 dirr = vec3(cos(angr), 0.0, sin(angr));
+    float Rr = aP.x * 0.98;
+    float gr = 4.9 * Tr * Tr;
+    vec3 pr = aO.xyz + dirr * Rr * sr + vec3(0.0, aP.z * sr + gr * sr * (1.0 - sr), 0.0);
+    vec3 tanr = normalize(dirr * Rr + vec3(0.0, aP.z + gr * (1.0 - 2.0 * sr), 0.0));
+    vec3 sider = cross(tanr, normalize(cameraPosition - pr));
+    sider = length(sider) > 1e-5 ? normalize(sider) : vec3(1.0, 0.0, 0.0);
+    float wr = mix(0.014, 0.05, sr) * clamp(length(cameraPosition - pr) / 10.0, 1.0, 1.4);
+    pr += sider * position.y * wr;
+    vec4 mvr = viewMatrix * vec4(pr, 1.0);
+    gl_Position = projectionMatrix * mvr;
+    vUv = vec2(position.y, 0.0);
+    vS = -1.0;
+    vA = aA.x * 0.3 * smoothstep(0.0, 0.06, sr) * (1.0 - 0.75 * sr);
+    #ifdef USE_FOG
+    vFogDepth = -mvr.z;
+    #endif
+    return;
+  }
   float h1 = h11(i * 1.37 + ph * 7.1);
   float h2 = h11(i * 2.91 + ph * 3.3 + 11.0);
   float h3 = h11(i * 5.17 + ph * 1.9 + 23.0);
@@ -922,8 +1001,9 @@ void main() {
   // most of them out at the edge (a sprinkler throws its water far).
   // Over half the beads ride the jet's main rope (a coherent arc of water out to the rim);
   // the rest shed off it and rain onto the inner tiles.
-  bool rope = h2 < 0.62;
-  float rj = rope ? mix(0.93, 1.03, h4) : mix(0.3, 0.95, h2);
+  // (r17) Most beads string along the rope (a coherent arc), few shed off it.
+  bool rope = h2 < 0.8;
+  float rj = rope ? mix(0.95, 1.02, h4) : mix(0.35, 0.95, h2);
   float T = aP.y * mix(0.62, 1.0, rj);
   // Flight fraction: beads flow out of the nozzle continuously. The last 12 % of a bead's life is
   // its landing: it sits where it struck and blooms into a flat crown splash on the soil.
@@ -931,7 +1011,7 @@ void main() {
   float s = min(sl / 0.88, 1.0);
   float land = clamp((sl - 0.88) / 0.12, 0.0, 1.0);
   // The head turned while this bead flew: it left when the jet pointed lag·s radians further back.
-  float ang = aO.w - aA.y * s * (T / aP.y) + (h3 - 0.5) * (rope ? 0.035 : 0.22) * (0.3 + s);
+  float ang = aO.w - aA.y * s * (T / aP.y) + (h3 - 0.5) * (rope ? 0.014 : 0.22) * (0.3 + s);
   vec3 dir = vec3(cos(ang), 0.0, sin(ang));
   float R = aP.x * rj;
   float g = 4.9 * T * T;
@@ -960,7 +1040,7 @@ void main() {
   vUv = position.yz;
   vS = land;
   // Denser near the nozzle, fading as the jet breaks up into spray; a quick fade-in at the nozzle.
-  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? 1.0 - 0.4 * s : 0.75 - 0.25 * s) * (land > 0.0 ? 0.9 * (1.0 - land) : 1.0);
+  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? 1.0 - 0.55 * s : 0.55 - 0.25 * s) * (land > 0.0 ? 0.9 * (1.0 - land) : 1.0);
   #include <fog_vertex>
 }`;
 const ARC_FS = /* glsl */ `
@@ -974,7 +1054,12 @@ void main() {
   float d = length(vUv);
   vec3 c;
   float a;
-  if (vS > 0.0) {
+  if (vS < -0.5) {
+    // Ribbon: soft across its width, a brighter core line.
+    float acr = abs(vUv.x);
+    a = (1.0 - smoothstep(0.15, 1.0, acr)) * vA;
+    c = mix(uBody, uCore, 1.0 - smoothstep(0.0, 0.45, acr));
+  } else if (vS > 0.0) {
     // Landing crown: a thin bright ring with a faint wet fill inside.
     float ring = smoothstep(0.55, 0.78, d) * (1.0 - smoothstep(0.82, 1.0, d));
     a = (ring * 0.85 + (1.0 - smoothstep(0.0, 0.7, d)) * 0.12) * vA;
@@ -1014,7 +1099,7 @@ class SprayArcs {
     const g = new THREE.InstancedBufferGeometry();
     const pos: number[] = [];
     const idx: number[] = [];
-    for (let i = 0; i < ARC_BEADS; i++) {
+    for (let i = 0; i < ARC_BEADS + ARC_RIB; i++) {
       pos.push(i, -1, -1, i, 1, -1, i, 1, 1, i, -1, 1);
       const k = i * 4;
       idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
@@ -1377,8 +1462,8 @@ export class FarmFX {
     this.group.userData.noAO = true;
 
     // Clods / chips: one lumpy low-poly rock, tinted per instance.
-    const clodGeo = lumpySphere(1, 0, 0.35, new Rng('clod'), 2.2);
-    const clodMat = new THREE.MeshStandardMaterial({ roughness: 0.92, color: 0xffffff });
+    const clodGeo = crumbClod();
+    const clodMat = new THREE.MeshStandardMaterial({ roughness: 0.96, color: 0xffffff, vertexColors: true, flatShading: true });
     clodMat.name = 'fx-clod';
     this.clods = new Bodies(clodGeo, clodMat, 220, ground, 'fx-clods');
 
@@ -1679,7 +1764,11 @@ export class FarmFX {
       const a = base + Math.PI + rnd(-1.0, 1.0);
       const sp = rnd(0.7, 1.3) * (0.7 + strength * 0.3);
       const p = center.clone().add(new THREE.Vector3(rnd(-0.12, 0.12), 0.05, rnd(-0.12, 0.12)));
-      this.clods.spawn(p, _v.set(Math.cos(a) * sp, rnd(2.2, 3.2), Math.sin(a) * sp), { color: _c.set(soil).offsetHSL(0, 0.02, rnd(-0.02, 0.05)), size: rnd(0.085, 0.12), life: 2.2, bounce: 0.25 });
+      _v.set(Math.cos(a) * sp, rnd(2.2, 3.2), Math.sin(a) * sp);
+      // (r17) Already airborne ON the impact frame (pre-advanced ~40 ms out of the soil), so the
+      // strongest beat of the swing shows the earth breaking, not a smear over an intact tile.
+      p.addScaledVector(_v, 0.04);
+      this.clods.spawn(p, _v, { color: _c.set(soil).offsetHSL(0, 0.02, rnd(-0.02, 0.05)), size: rnd(0.085, 0.12), life: 2.2, bounce: 0.25 });
     }
     const n = Math.round(rnd(11, 14) * strength);
     for (let i = 0; i < n; i++) {
@@ -1689,7 +1778,9 @@ export class FarmFX {
       const sp = rnd(1.0, 2.5) * (0.7 + strength * 0.3);
       _v.set(Math.cos(a) * sp, rnd(2.6, 4.8), Math.sin(a) * sp);
       const p = center.clone().add(new THREE.Vector3(rnd(-0.2, 0.2), 0.05, rnd(-0.2, 0.2)));
-      this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.07, 0.06)), i < 5 ? rnd(0.055, 0.075) : rnd(0.035, 0.055));
+      p.addScaledVector(_v, rnd(0.02, 0.05));
+      // Three size classes: a few fat chunks, mid clods, small crumbs.
+      this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.07, 0.06)), i < 3 ? rnd(0.07, 0.09) : i < 7 ? rnd(0.048, 0.062) : rnd(0.03, 0.042));
     }
     // Crumbs: a fine spray of tiny bits for texture.
     for (let i = 0; i < Math.round(8 * strength); i++) {
@@ -1703,7 +1794,7 @@ export class FarmFX {
     for (let i = 0; i < nr; i++) {
       const a = a0 + (i / nr) * Math.PI * 2 + rnd(-0.15, 0.15);
       const r0 = rnd(0.5, 0.58);
-      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0, rnd(0.02, 0.06), Math.sin(a) * r0)), new THREE.Vector3(Math.cos(a) * rnd(1.0, 1.5), rnd(0.12, 0.3), Math.sin(a) * rnd(1.0, 1.5)), { color: 0xc4a682, size: rnd(0.18, 0.24) * (0.6 + 0.4 * strength), life: rnd(0.4, 0.6), grow: 2.0, alpha: 0.42 * (0.5 + 0.5 * strength), gravity: 0, drag: 3.6 });
+      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0, rnd(0.02, 0.06), Math.sin(a) * r0)), new THREE.Vector3(Math.cos(a) * rnd(1.0, 1.5), rnd(0.12, 0.3), Math.sin(a) * rnd(1.0, 1.5)), { color: 0xdcc8a6, size: rnd(0.18, 0.24) * (0.6 + 0.4 * strength), life: rnd(0.4, 0.6), grow: 2.0, alpha: 0.34 * (0.5 + 0.5 * strength), gravity: 0, drag: 3.6 });
     }
     // Dust: a full cloud for a single bite; a whisper per tile when a slam strikes a whole block.
     const np = Math.max(2, Math.round(3 * strength * strength));

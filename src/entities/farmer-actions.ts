@@ -62,16 +62,19 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // Overhead wind-up: the whole body stretches tall and leans back, hips and shoulders coil away
     // from the tile, both hands high over the hat (the free hand is locked on the handle by IK),
     // the handle raked back over the shoulder so the blade hangs above and behind the hat.
-    { t: 0.2, ease: 'out', aR: [-2.7, -0.55], aL: [-2.5, -0.3], torso: [-0.22, -0.3, -0.12], head: -0.1, sy: 1.12, hips: [-0.08, -0.16], stance: 0.14, grip: 0.1, reach: 1.3, toolT: [-0.45, 0, 0.38] },
+    // (r17) The coil goes out to the camera side (more roll + twist, less lean-back) so the blade
+    // silhouettes clear of the hat against the ground; the pitch range is ~0.45 rad all told so the
+    // big head no longer lurches a tile toward the target between wind-up and impact.
+    { t: 0.2, ease: 'out', aR: [-2.45, -0.95], aL: [-2.3, -0.62], torso: [-0.08, -0.42, -0.16], head: -0.08, sy: 1.1, hips: [-0.03, -0.2], stance: 0.12, grip: 0.1, reach: 1.3, toolT: [-0.45, 0, 0.38] },
     // A held beat at the top (anticipation): the coil tightens a touch.
-    { t: 0.236, ease: 'linear', aR: [-2.78, -0.57], aL: [-2.56, -0.32], torso: [-0.25, -0.33, -0.12], head: -0.12, sy: 1.14, hips: [-0.1, -0.18], stance: 0.14, grip: 0.12, reach: 1.34, toolT: [-0.55, 0, 0.38] },
-    // Impact: hips fire first, the torso whips through ~36° forward, knees drop into a deep lunge,
-    // the body squashes hard; the blade bites below the surface (blade-tip IK, see `aim`).
-    { t: 0.275, ease: 'in', aR: [-0.42, -0.05], aL: [-0.3, 0.05], torso: [0.42, -0.04, 0], head: -0.42, sy: 0.8, hips: [0.12, 0.06], stance: 0.56, tool: [Math.PI / 2 - 0.15, 0, 0] },
+    { t: 0.236, ease: 'linear', aR: [-2.52, -0.98], aL: [-2.36, -0.64], torso: [-0.1, -0.45, -0.17], head: -0.1, sy: 1.12, hips: [-0.04, -0.22], stance: 0.12, grip: 0.12, reach: 1.34, toolT: [-0.55, 0, 0.38] },
+    // Impact: hips fire first, the torso whips forward, knees drop into a lunge, the body squashes
+    // hard; the blade bites below the surface (blade-tip IK, see `aim`).
+    { t: 0.275, ease: 'in', aR: [-0.42, -0.05], aL: [-0.3, 0.05], torso: [0.3, -0.04, 0], head: -0.34, sy: 0.82, hips: [0.05, 0.06], stance: 0.4, tool: [Math.PI / 2 - 0.15, 0, 0] },
     // Bite: held two frames in the ground, the body still sinking into it.
-    { t: 0.32, ease: 'linear', aR: [-0.38, -0.05], aL: [-0.27, 0.05], torso: [0.44, 0, 0], head: -0.43, sy: 0.8, hips: [0.13, 0.05], stance: 0.6, tool: [Math.PI / 2 - 0.12, 0, 0] },
+    { t: 0.32, ease: 'linear', aR: [-0.38, -0.05], aL: [-0.27, 0.05], torso: [0.32, 0, 0], head: -0.35, sy: 0.82, hips: [0.06, 0.05], stance: 0.42, tool: [Math.PI / 2 - 0.12, 0, 0] },
     // Recoil: the hoe is dragged back toward the boots and lifts out, the body rebounds up.
-    { t: 0.42, ease: 'out', aR: [-0.78, -0.08], aL: [-0.62, 0.06], torso: [0.24, 0.06, 0], head: -0.14, sy: 1.05, hips: [0.08, 0.02], stance: 0.3, tool: [Math.PI / 2 - 0.5, 0, 0] },
+    { t: 0.42, ease: 'out', aR: [-0.78, -0.08], aL: [-0.62, 0.06], torso: [0.18, 0.06, 0], head: -0.12, sy: 1.04, hips: [0.04, 0.02], stance: 0.24, tool: [Math.PI / 2 - 0.5, 0, 0] },
     { t: 0.66, ease: 'inout' },
   ],
   // Released from the charge hold: it starts up beside the hat (same as the charge pose, no pop

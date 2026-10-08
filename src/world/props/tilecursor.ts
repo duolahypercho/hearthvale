@@ -18,10 +18,8 @@ function cursorTexture(): THREE.CanvasTexture {
   // A light inner wash (~10 %, tinted per state: cream valid, red blocked) so the target reads at
   // the gameplay camera on pale path and dry soil alike (r7: thin brackets vanished there).
   // (r16) A slightly stronger state-tinted ground fill carries the read; the brackets got lighter.
-  g.fillStyle = 'rgba(255,255,255,0.13)';
-  g.beginPath();
-  g.roundRect(pad + 6, pad + 6, S - (pad + 6) * 2, S - (pad + 6) * 2, r - 6);
-  g.fill();
+  // (r17) No wash at all: an alpha fill read as a pale glass coaster over grass / fresh soil and
+  // bleached the very tile the player is watching change. Brackets + a dotted rim carry the read.
   const L = 30;
   const corner = (x: number, y: number, sx: number, sy: number): void => {
     g.beginPath();
@@ -232,9 +230,16 @@ export class TileCursor {
     this.pulseT = 1;
   }
 
+  /** (r17) A glancing blow on untillable ground: the red ✕ pops (1 → 1.6 → 1) and flares. */
+  pop(): void {
+    this.popT = 1;
+  }
+  private popT = 0;
+
   update(dt: number, visible: boolean): void {
     this.t += dt;
     this.pulseT = Math.max(0, this.pulseT - dt / 0.35);
+    this.popT = Math.max(0, this.popT - dt / 0.45);
     const pk = this.pulseT * this.pulseT;
     const target = visible ? 1 : 0;
     this.shown += (target - this.shown) * (1 - Math.exp(-dt * (visible ? 14 : 22)));
@@ -295,10 +300,11 @@ export class TileCursor {
       this.mesh.setColorAt(nb, this.c.copy(COLORS[tl.state]).multiplyScalar(this.shown * ALPHA[tl.state]));
       nb++;
       if (tl.state === 'blocked' && nx < 4) {
-        const k = 0.34 * (0.85 + 0.15 * this.shown);
+        const pp = this.popT > 0 ? Math.sin((1 - this.popT) * Math.PI) * this.popT : 0;
+        const k = 0.34 * (0.85 + 0.15 * this.shown) * (1 + pp * 1.1);
         this.m.makeScale(k, 1, k).setPosition(tl.x + 0.5, tl.y + 0.002, tl.z + 0.5);
         this.cross.setMatrixAt(nx, this.m);
-        this.cross.setColorAt(nx, this.c.copy(COLORS.blocked).multiplyScalar(this.shown));
+        this.cross.setColorAt(nx, this.c.copy(COLORS.blocked).multiplyScalar(this.shown * (1 + pp * 0.5)));
         nx++;
       }
     }

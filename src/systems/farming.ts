@@ -69,13 +69,16 @@ import { registerFarmIcons } from '../ui/farm-icons';
 import { Rng } from '../core/rng';
 
 export type FarmTool = 'hoe' | 'wateringCan' | 'axe' | 'pickaxe' | 'scythe';
-export type ImpactKind = 'soil' | 'tilled' | 'water' | 'refill' | 'stone' | 'wood' | 'weed' | 'crop' | 'giant' | 'none';
+export type ImpactKind = 'soil' | 'tilled' | 'water' | 'refill' | 'stone' | 'wood' | 'weed' | 'crop' | 'giant' | 'blocked' | 'none';
 
 declare module '../core/events' {
   interface GameEvents {
     'soil:tilled': { x: number; z: number };
     'soil:watered': { x: number; z: number };
     'crop:planted': { cropId: CropId; x: number; z: number };
+    /** (r17) The sow beat: seeds hit the soil (same tick as tool:impact seeds). crop:planted stays the
+     *  synchronous state change (co-op seed accounting reads it during item:use) — voice this one. */
+    'crop:sown': { cropId: CropId; x: number; z: number };
     'crop:harvested': { cropId: CropId; x: number; z: number; qty: number; quality: number };
     'crop:withered': { cropId: CropId; x: number; z: number };
     'crop:giant': { cropId: CropId; x: number; z: number };
@@ -237,7 +240,10 @@ const HOE_EDGE = new THREE.Vector3(0, 0.494, 0.212);
 const SEQ_PLANS: Partial<Record<ActionKind, [number, string][]>> = {
   chop: [[0.03, 'ready'], [0.1, 'anticipation (crouch)'], [0.19, 'wind-up'], [0.235, 'wind-up top'], [0.262, 'downswing'], [0.275, 'impact'], [0.36, 'bite + recoil'], [0.56, 'recovery']],
   slam: [[0.02, 'charged'], [0.1, 'rise'], [0.16, 'top'], [0.205, 'downswing'], [0.222, 'impact'], [0.3, 'shockwave'], [0.44, 'recoil'], [0.66, 'recovery']],
-  pour: [[0.06, 'lift'], [0.2, 'tip'], [0.3, 'stream leaves'], [0.4, 'stream lands'], [0.52, 'soaking'], [0.66, 'full soak'], [0.8, 'tail lands'], [1.02, 'wet tile']],
+  // (r17) Retimed to the real flight: the water leaves at 0.27 s and lands 0.24 s later (0.51), the
+  // tail lands at 1.04 and the soak finishes ~0.8 s after the first drops — the last frame is the
+  // settled wet tile, no splash left on it.
+  pour: [[0.06, 'lift'], [0.2, 'tip'], [0.33, 'stream leaves'], [0.52, 'stream lands'], [0.64, 'soaking'], [0.82, 'full soak'], [1.05, 'tail lands'], [1.6, 'wet tile']],
   sweep: [[0.03, 'ready'], [0.09, 'wind-up'], [0.13, 'top'], [0.18, 'cut'], [0.21, 'impact'], [0.27, 'follow-through'], [0.38, 'recoil'], [0.52, 'recovery']],
   pull: [[0.04, 'reach'], [0.13, 'crouch'], [0.2, 'yank'], [0.27, 'spring'], [0.36, 'catch (squash)'], [0.55, 'present'], [0.8, 'hold'], [0.98, 'to backpack']],
   lift: [[0.05, 'reach'], [0.15, 'squat'], [0.24, 'heave'], [0.34, 'rise'], [0.46, 'hug (squash)'], [0.7, 'present'], [1.0, 'hold'], [1.2, 'recovery']],
@@ -277,7 +283,9 @@ const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; t
   spring: { rows: [['greenBean', 'kale'], ['greenBean', 'kale'], 'gap', 'potato', null, 'parsnip', 'strawberry', 'cauliflower', 'strawberry'], giant: 'cauliflower', trellis: 'greenBean', crate: ['cauliflower', 'parsnip', 'strawberry', 'potato'] },
   // r15: one melon row a side (the giant fills the SW corner), the NE bed packed edge to edge with
   // peppers + tomatoes, blueberry bushes and pepper / tomato blocks up front (no monoculture).
-  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['hotPepper', 'tomato'], null, ['blueberry', 'blueberry'], ['melon', 'melon'], ['hotPepper', 'tomato'], ['tomato', 'hotPepper']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
+  // r17: one species per block, bare spacing rows between blocks (no red-dot checkerboard): corn |
+  // sunflower at the back, tomato | pepper rows, then the melon patch (giant) | blueberry + tomato.
+  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], 'gap', ['tomato', 'hotPepper'], null, ['melon', 'blueberry'], ['melon', 'gap'], ['melon', 'tomato'], ['melon', 'tomato']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
   fall: { rows: [['corn', 'grape'], ['corn', 'grape'], 'gap', 'eggplant', null, 'beet', 'pumpkin', 'pumpkin', 'yam'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
   winter: { rows: [], giant: null, trellis: null, crate: [] },
 };
@@ -319,7 +327,7 @@ export class FarmingSystem implements System, FarmingApi {
   private wasSpraying = false;
   private autoLoop: { tool: string; t: number } | null = null;
   /** Frame-sequence capture state (see SEQ_PLANS / seqFrame). */
-  private seq: { tool: string; energy: number | null; acks: string[] } | null = null;
+  private seq: { tool: string; energy: number | null; acks: string[]; after?: number; kind?: ActionKind; dur?: number } | null = null;
   /** farm-coop-tools: staged farmhands (real co-op avatars) frozen mid-action beside the host. */
   private crew: { f: RemoteFarmer; pour: boolean }[] = [];
   /** farm-crows `&ring`: show the scarecrow's reach (hidden by default — it smeared across the lawn). */
@@ -546,7 +554,14 @@ export class FarmingSystem implements System, FarmingApi {
     this.till(wx, wz, true);
     g.setFlag(wx, wz, TileFlag.Watered, false);
     this.soil?.setWet(wx, wz, false);
+    // (r17) Yawed ~60° off the lens so the can and its spout read in profile (end-on it was an
+    // orange disc), still pouring onto the same tile.
     const b = add(1, wx + 0.5, wz - 0.66, 'down');
+    {
+      const yaw = 1.05;
+      b.position.set(wx + 0.5 - Math.sin(yaw) * 0.68, this.map.heightAt(wx + 0.5, wz + 0.5), wz + 0.5 - Math.cos(yaw) * 0.68);
+      b.yaw = b.targetYaw = b.gaze = yaw;
+    }
     // C: at the bed's east end, pulling a ripe crop up into both raised hands.
     const cx = 29, cz = 22;
     const season = this.game.calendar.season;
@@ -623,9 +638,14 @@ export class FarmingSystem implements System, FarmingApi {
       this.demoAct(tool, new URLSearchParams(location.search), -1);
     }
     const seq = this.seq!;
-    const kind = acts.kind;
+    // (r17) Remember the action: plan moments past its end still need its plan / duration.
+    if (acts.kind) {
+      seq.kind = acts.kind;
+      seq.dur = acts.duration || 0.6;
+    }
+    const kind = seq.kind ?? null;
     const plan = (kind && SEQ_PLANS[kind]) || null;
-    const dur = acts.duration || 0.6;
+    const dur = seq.dur ?? 0.6;
     const u = n > 1 ? i / (n - 1) : 0;
     let T: number;
     let label: string;
@@ -646,6 +666,17 @@ export class FarmingSystem implements System, FarmingApi {
       const dt = Math.min(1 / 60, Math.max(1 / 480, (T - acts.time) / rate));
       game.step(dt);
     }
+    // (r17) Plan moments past the action's end (the settled wet tile after the pour) keep stepping
+    // the world — the soak, the splash dying out — on plain time.
+    if (!acts.active && plan) {
+      let tt = seq.after ?? Math.min(T, dur);
+      while (tt < T - 1e-4 && guard++ < 600) {
+        const dt = Math.min(1 / 60, T - tt);
+        game.step(dt);
+        tt += dt;
+      }
+      seq.after = Math.max(tt, seq.after ?? 0);
+    }
     if (seq.energy !== null) game.services.energy?.set(seq.energy);
     // Two still frames: the pose settles in the post chain (TAA-free, but bloom / AO history).
     acts.timeScale = 0;
@@ -655,7 +686,7 @@ export class FarmingSystem implements System, FarmingApi {
     acts.timeScale = this.hitStop > 0 ? 0.08 : 1;
     this.fxScale = fx;
     const acks = seq.acks.splice(0);
-    return `${label} @${acts.active ? acts.time.toFixed(3) : 'done'}s${acks.length ? ' · ' + [...new Set(acks)].join(' ') : ''}`;
+    return `${label} @${acts.active ? acts.time.toFixed(3) : `${T.toFixed(3)} (done)`}s${acks.length ? ' · ' + [...new Set(acks)].join(' ') : ''}`;
   }
 
   scrub(t: number): void {
@@ -797,7 +828,7 @@ export class FarmingSystem implements System, FarmingApi {
   // ═════════════════════════════════════════════ tile ops (logic applies immediately)
 
   /** Till a tile. `force` clears debris / cover (showcase staging). */
-  till(x: number, z: number, force = false, animate = false, defer = false): boolean {
+  till(x: number, z: number, force = false, animate = false, defer = false, quiet = defer): boolean {
     const g = this.grid();
     if (!g || !g.inBounds(x, z)) return false;
     if (!g.hasFlag(x, z, TileFlag.Tillable) || g.hasFlag(x, z, TileFlag.Tilled) || g.hasFlag(x, z, TileFlag.Blocked)) return false;
@@ -811,7 +842,9 @@ export class FarmingSystem implements System, FarmingApi {
     // `defer`: the logic flips now, but the lawn stays unbroken until the blade bites
     // (`breakGround` on the impact frame) — no bare patch appearing during the wind-up.
     if (!defer) this.breakGround(x, z, animate);
-    this.game.events.emit('soil:tilled', { x, z });
+    // (r17) `quiet`: the caller emits soil:tilled itself on the impact frame (with tool:impact), so
+    // nothing keyed to it (SFX, co-op relay, farm-today) fires during the wind-up.
+    if (!quiet) this.game.events.emit('soil:tilled', { x, z });
     return true;
   }
 
@@ -849,7 +882,10 @@ export class FarmingSystem implements System, FarmingApi {
           if (!g.hasFlag(x, z, TileFlag.Watered)) return;
           this.soil?.setWet(x, z, true, true, from);
           this.paint(x, z);
+          // (r17) Emitted when the water LANDS (same tick the soak starts), not when the can tips.
+          if (fadeIn > 0) this.game.events.emit('soil:watered', { x, z });
         });
+        if (fadeIn > 0) return true;
       } else {
         this.paint(x, z);
         this.refreshSoil(x, z);
@@ -871,7 +907,7 @@ export class FarmingSystem implements System, FarmingApi {
     this.paint(x, z);
   }
 
-  plant(id: CropId, x: number, z: number, days = 0, seed?: number): boolean {
+  plant(id: CropId, x: number, z: number, days = 0, seed?: number, quiet = false): boolean {
     const g = this.grid();
     if (!g || !g.hasFlag(x, z, TileFlag.Tilled)) return false;
     const t = this.tile(x, z);
@@ -879,7 +915,7 @@ export class FarmingSystem implements System, FarmingApi {
     t.crop = { id, days, base: 0, handle: null, stage: -1, seed: seed ?? this.rng.int(0, 999999), dead: false, missed: 0 };
     g.setObject(x, z, { kind: 'crop', id, solid: !!CROPS[id].trellis });
     this.refreshCrop(t);
-    this.game.events.emit('crop:planted', { cropId: id, x, z });
+    if (!quiet) this.game.events.emit('crop:planted', { cropId: id, x, z });
     return true;
   }
 
@@ -1266,7 +1302,7 @@ export class FarmingSystem implements System, FarmingApi {
     return buildTool(id, tier);
   }
 
-  private startAction(kind: ActionKind, toolId: string | null, x: number, z: number, onImpact: () => void, extra: { freezeAt?: number; onUpdate?: (t: number) => void; onDone?: () => void } = {}): number {
+  private startAction(kind: ActionKind, toolId: string | null, x: number, z: number, onImpact: () => void, extra: { freezeAt?: number; onUpdate?: (t: number) => void; onDone?: () => void; glance?: boolean } = {}): number {
     const acts = this.actions;
     if (!acts || !this.near(x, z)) {
       onImpact();
@@ -1301,7 +1337,8 @@ export class FarmingSystem implements System, FarmingApi {
       freezeAt: extra.freezeAt,
       // The hoe blade's cutting edge bites the middle of the target tile on the impact frame.
       // (r16) It bites ~5 cm INTO the soil (penetration), then drags back toward the farmer.
-      aim: toolId === 'hoe' && (kind === 'chop' || kind === 'slam') ? { target: new THREE.Vector3(x + 0.5, this.surfaceY(x + 0.5, z + 0.5) - 0.05, z + 0.5), local: HOE_EDGE, drag: this.dragToward(x, z) } : undefined,
+      // (r17) A glance (untillable ground) stops ON the turf instead: no bite, no drag.
+      aim: toolId === 'hoe' && (kind === 'chop' || kind === 'slam') ? { target: new THREE.Vector3(x + 0.5, this.surfaceY(x + 0.5, z + 0.5) + (extra.glance ? 0.03 : -0.05), z + 0.5), local: HOE_EDGE, drag: extra.glance ? undefined : this.dragToward(x, z) } : undefined,
     });
     return IMPACT[kind];
   }
@@ -1336,7 +1373,8 @@ export class FarmingSystem implements System, FarmingApi {
       if (to <= from && started) return;
       if (!started) {
         started = true;
-        this.fx.trail.begin(color, strength, 0.2, kind === 'sweep' ? 0.18 : 0.08, this.game.player.position.y);
+        // (r17) The hoe smear is a whisper (the clods + dust carry the impact frame).
+        this.fx.trail.begin(color, strength * (kind === 'chop' ? 0.5 : 1), kind === 'chop' ? 0.13 : 0.2, kind === 'sweep' ? 0.18 : 0.08, this.game.player.position.y);
       }
       // Trace the real arc between the last frame and this one at ~240 Hz.
       const n = Math.max(1, Math.ceil((to - from) * 240));
@@ -1368,6 +1406,7 @@ export class FarmingSystem implements System, FarmingApi {
           this.spend(2);
         } else this.spend(1); // a missed swing still tires the arms
         const tilledBefore = !ok && this.isTilled(x, z);
+        const blockedTile = !ok && !tilledBefore && !giant;
         this.startAction('chop', 'hoe', x, z, () => {
           const c = this.center(x, z, 0.05);
           if (ok) {
@@ -1378,12 +1417,24 @@ export class FarmingSystem implements System, FarmingApi {
             // within ~0.6 s (nothing green is left lying on the fresh soil).
             for (let i = 0; i < 8; i++) this.fx.blade(c.clone().add(new THREE.Vector3(rnd(-0.3, 0.3), 0.06, rnd(-0.3, 0.3))), new THREE.Vector3(rnd(-1.4, 1.4), rnd(2, 3.4), rnd(-1.4, 1.4)), i % 2 ? 0x6fae45 : 0x8cc05a, rnd(0.035, 0.05));
             this.shake(0.22);
+          } else if (blockedTile) {
+            // (r17) Untillable ground answers: the blade glances off (thunk), a few grass flecks
+            // and a dust whisper, and the red ✕ pops on the tile so the player sees why.
+            for (let i = 0; i < 5; i++) this.fx.blade(c.clone().add(new THREE.Vector3(rnd(-0.18, 0.18), 0.06, rnd(-0.18, 0.18))), new THREE.Vector3(rnd(-0.9, 0.9), rnd(1.4, 2.4), rnd(-0.9, 0.9)), i % 2 ? 0x6fae45 : 0x8cc05a, rnd(0.03, 0.045));
+            this.fx.puff(c, new THREE.Vector3(0, 0.3, 0), 0xb0a080, 0.16, 0.45, { alpha: 0.25 });
+            this.cursor.pop();
+            this.hitStop = 0.06;
+            this.shake(0.1);
           } else {
             this.fx.puff(c, new THREE.Vector3(0, 0.4, 0), 0xb89a78, 0.2, 0.6, { alpha: 0.3 });
             this.shake(0.08);
           }
-          this.game.events.emit('tool:impact', { tool: 'hoe', x, z, hit: ok ? 'soil' : tilledBefore ? 'tilled' : 'none', strength: ok ? 1 : 0.3 });
-        });
+          this.game.events.emit('tool:impact', { tool: 'hoe', x, z, hit: ok ? 'soil' : tilledBefore ? 'tilled' : blockedTile ? 'blocked' : 'none', strength: ok ? 1 : 0.3 });
+          // (r17) The state event lands with the blade (audio / co-op relay key on the impact tick).
+          if (ok) this.game.events.emit('soil:tilled', { x, z });
+        }, blockedTile ? { glance: true } : {});
+        // Untillable target: the bracket stays red with its ✕ through the swing.
+        if (blockedTile && this.near(x, z)) this.actTiles = { tiles: [[x, z]], state: 'blocked' };
         this.armCharge('hoe');
         return;
       }
@@ -1514,10 +1565,13 @@ export class FarmingSystem implements System, FarmingApi {
         if (slot >= 0) this.game.services.inventory?.takeFromSlot(slot, 1);
         const h = this.tiles.get(key(x, z))?.crop?.handle;
         if (h) this.crops?.pose(h, 0.001, 0.001);
+        const cropId = def.crop;
         this.startAction('sow', 'seeds', x, z, () => {
           this.fx.sow(this.center(x, z, 0.12), crop.color);
           if (h) this.animate(h, 'grow');
           this.game.events.emit('tool:impact', { tool: 'seeds', x, z, hit: 'soil', strength: 0.5 });
+          // (r17) The sow beat lands with the seeds (crop:planted is the state flip at the press).
+          this.game.events.emit('crop:sown', { cropId, x, z });
         });
       }
     } else if (def && SPRINKLERS[itemId]) {
@@ -1640,7 +1694,8 @@ export class FarmingSystem implements System, FarmingApi {
     let splashT = 0;
     let lastT = 0;
     this.startAction('pour', 'wateringCan', x, z, () => {
-      this.game.events.emit('tool:impact', { tool: 'wateringCan', x, z, hit: wet.length ? 'water' : 'none', strength: 0.5 + charge * 0.25 });
+      // (r17) The impact is the water LANDING (with soil:watered), not the can tipping.
+      this.later(near ? Math.max(0, P0 + FLY - IMPACT.pour) : 0, () => this.game.events.emit('tool:impact', { tool: 'wateringCan', x, z, hit: wet.length ? 'water' : 'none', strength: 0.5 + charge * 0.25 }));
     }, {
       onUpdate: (t) => {
         const acts = this.actions;
@@ -1780,7 +1835,7 @@ export class FarmingSystem implements System, FarmingApi {
     const tilled: [number, number][] = [];
     const blocked: [number, number][] = [];
     for (const [tx, tz] of tiles) {
-      if (this.till(tx, tz, false, false)) {
+      if (this.till(tx, tz, false, false, false, true)) {
         tilled.push([tx, tz]);
         this.soil?.clear(tx, tz, true);
       } else if (!this.isTilled(tx, tz)) blocked.push([tx, tz]);
@@ -1814,6 +1869,7 @@ export class FarmingSystem implements System, FarmingApi {
       }
       this.shake(0.3 + level * 0.1);
       this.game.events.emit('tool:impact', { tool, x: fx0, z: fz0, hit: tilled.length ? 'soil' : 'none', strength: 1 + level * 0.5 });
+      for (const [tx, tz] of tilled) this.game.events.emit('soil:tilled', { x: tx, z: tz });
       // Skipped tiles (a stone, a prop, lawn edge): a dull tick each, staggered with the ripple.
       blocked.forEach(([bx, bz], i) => this.later(0.05 + i * 0.04, () => this.game.events.emit('soil:blocked', { tool, x: bx, z: bz })));
     };
@@ -2289,7 +2345,9 @@ export class FarmingSystem implements System, FarmingApi {
         // Trellis rows and bushy fruiting rows (eggplant, pepper) are grown in densely: a stage-3
         // plant there read as a bare gap in a tidy block (r7 critic: sparse fall eggplant beds).
         const dense = CROPS[id].trellis || id === 'eggplant' || id === 'hotPepper' || id === 'tomato' || id === 'blueberry';
-        const stage = dense ? (roll < 70 ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
+        // (r17) Red-fruited rows ripen unevenly (fewer red dots, silhouettes read).
+        const redFruit = id === 'tomato' || id === 'hotPepper';
+        const stage = dense ? (roll < (redFruit ? 45 : 70) ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
         this.plant(id, x, z, this.daysAt(id, stage), h);
       }
     }
@@ -2633,7 +2691,7 @@ export class FarmingSystem implements System, FarmingApi {
         g.setFlag(t.x, t.z, TileFlag.Watered, false);
         this.paint(t.x, t.z);
         // A looped pour lets the last soak dry off (a short fade) instead of snapping back.
-        this.soil?.setWet(t.x, t.z, false, true);
+        this.soil?.setWet(t.x, t.z, false, !this.seq);
       }
     }
     if (what === 'harvest') {
@@ -2861,7 +2919,8 @@ export class FarmingSystem implements System, FarmingApi {
       // FarmFX.sprayArc) that curls behind the spinning head, plus loose drops and a mist puff
       // where the water lands. The covered tiles darken outward from the head as the spray reaches
       // them (the same flood the watering can uses).
-      const jets = s.cross ? 4 : s.tier >= 2 ? 4 : 3;
+      // (r17) 3 coherent arcs a head (4 for the cross pattern) — fewer, readable throws.
+      const jets = s.cross ? 4 : 3;
       const reach = s.reach + (s.cross ? 0.35 : 0.5);
       const base = sp.model.root.position;
       const rate = dt * 16;
@@ -2912,12 +2971,13 @@ export class FarmingSystem implements System, FarmingApi {
         }
         // A wet disc pulsing under the fan: short-lived dark soak spots trail the landing water
         // round with the rotation (the covered soil glistens where the jets are hitting right now).
-        if (fxRng.next() < dt * 7) {
-          const la = a - spinRate * T * rnd(0.6, 1.0);
-          const ld = d0 * rnd(0.55, 1.0);
+        // (r17) A dark soak crescent riding round under each rope's landing point.
+        if (fxRng.next() < dt * 12) {
+          const la = a - spinRate * T * rnd(0.85, 1.05);
+          const ld = d0 * rnd(0.82, 1.0);
           const lx = base.x + Math.cos(la) * ld;
           const lz = base.z + Math.sin(la) * ld;
-          this.fx.wetSpot(new THREE.Vector3(lx, this.surfaceY(lx, lz), lz), rnd(0.32, 0.46), rnd(0.8, 1.2), 0.32);
+          this.fx.wetSpot(new THREE.Vector3(lx, this.surfaceY(lx, lz), lz), rnd(0.26, 0.38), rnd(0.9, 1.3), 0.5);
         }
         let acc = rate + fxRng.next();
         while (acc >= 1) {
