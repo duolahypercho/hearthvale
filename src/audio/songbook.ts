@@ -368,7 +368,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       double: { gain: 0.15, pan: -0.26, send: 0.55 },
       counter: { gain: 0.4, pan: -0.32, send: 0.5 },
       accomp: { gain: 0.66, pan: -0.2, send: 0.42 },
-      accomp2: { gain: 0.18, pan: 0.2, send: 0.5 },
+      accomp2: { gain: 0.3, pan: 0.2, send: 0.5 }, // (round 8: 0.18, lowmid -18.8 dB re mid)
       bass: { gain: 0.4, pan: 0, send: 0.1 },
       perc: { gain: 0.36, pan: 0.3, send: 0.3 },
     },
@@ -511,11 +511,15 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     },
     accomp: { inst: 'guitar', pattern: 'fingerpick', range: [48, 67], voices: 4, vel: 0.46 },
     // Two plucks a bar (root, then fifth): at 68 bpm one pluck left half of every bar without a floor.
+    // (Round 8: a tenor string bed once the tune has been heard — the vibes sat 19 dB over everything
+    // between the bass and them.)
+    accomp2: { inst: 'pad', pattern: 'block', range: [52, 64], voices: 3, vel: 0.24, on: 'repeat' },
     bass: { inst: 'upright', pattern: 'rootFifth', range: [36, 48], vel: 0.6 },
     pad: { inst: 'pad', range: [57, 72], voices: 3, vel: 0.26, on: 'B' },
     mix: {
       melody: { gain: 0.74, pan: 0.14, send: 0.46 },
       accomp: { gain: 0.6, pan: -0.22, send: 0.36 },
+      accomp2: { gain: 0.2, pan: 0.2, send: 0.55 },
       bass: { gain: 0.5, pan: 0, send: 0.08 },
       pad: { gain: 0.24, pan: 0, send: 0.55 },
     },
@@ -601,11 +605,15 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       },
     },
     accomp: { inst: 'harp', pattern: 'waltzArp', range: [52, 71], voices: 4, vel: 0.46 },
+    // (Round 8: a low string bed in the tenor under the box and harp — 200-500 Hz sat 21 dB under the
+    // tune: a lullaby with nothing between the bass and the bells.)
+    accomp2: { inst: 'pad', pattern: 'block', range: [50, 62], voices: 3, vel: 0.26, on: 'repeat' },
     bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.45 },
     pad: { inst: 'pad', range: [55, 69], voices: 3, vel: 0.3, on: 'B' },
     mix: {
       melody: { gain: 0.88, pan: 0.1, send: 0.5 },
       accomp: { gain: 0.6, pan: -0.2, send: 0.44 },
+      accomp2: { gain: 0.24, pan: 0.16, send: 0.55 },
       bass: { gain: 0.38, pan: 0, send: 0.1 },
       pad: { gain: 0.22, pan: 0, send: 0.55 },
     },

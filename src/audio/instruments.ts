@@ -663,7 +663,10 @@ export const upright: InstrumentFn = (g, dest, t, m, dur, v, o) => {
   a.gain.setTargetAtTime(v * 0.25, t + 0.012, 0.12);
   // (Round 6: tau 0.85 s, was 0.55 — the low band fell ~16 dB/s under a waltz bar and leapt back
   // +25 dB on every downbeat; a gut string's body hums on through the bar.)
-  a.gain.setTargetAtTime(0, t + 0.2, 0.85);
+  // (Round 8: a long note's body hums longer — tau 0.85 s → up to 1.5 s on a whole slow bar — so a
+  // waltz's single downbeat pluck still carries the low end into the next bar instead of sinking
+  // under the harp's / guitar's beat-3 notes.)
+  a.gain.setTargetAtTime(0, t + 0.2, clamp(0.85 + 0.4 * (dur - 1), 0.85, 1.5));
   a.gain.setTargetAtTime(0, t + Math.min(dur, 3), 0.1);
   sine(g, f, t, stop).connect(a);
   const o2 = gain(g, 0.35);

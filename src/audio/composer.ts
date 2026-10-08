@@ -31,7 +31,7 @@ export type Section = 'intro' | 'A' | 'B' | 'C' | 'outro';
 export type When = 'always' | 'repeat' | 'B' | 'late';
 export type AccompPattern = 'arp8' | 'arpUp' | 'fingerpick' | 'strum' | 'waltz' | 'waltzArp' | 'block' | 'oompah' | 'ostinato332' | 'musicBox' | 'pizzOff' | 'epComp' | 'harpRoll' | 'chop';
 export type BassPattern = 'root' | 'rootFifth' | 'walk' | 'waltz' | 'jig' | 'tresillo' | 'pedal';
-export type PercPattern = 'shaker' | 'island' | 'jig' | 'town' | 'lofi' | 'light' | 'jazz' | 'sleigh' | 'reel' | 'polka';
+export type PercPattern = 'shaker' | 'island' | 'jig' | 'town' | 'lofi' | 'light' | 'jazz' | 'sleigh' | 'reel' | 'polka' | 'cave';
 
 export interface TrackMix {
   gain: number;
@@ -500,8 +500,12 @@ export class Composer {
       while (j < bass.length && bass[j]!.t < e.t + 0.02) j++;
       const nx = bass[j];
       if (!nx) continue;
-      const room = nx.t - e.t - 0.035;
-      if (room > e.dur) e.dur = Math.min(room, e.dur + 1.4);
+      // (Round 8: the note is damped by the next pluck itself — a bassist stops the old string as the
+      // new one speaks — so it rings 10 ms into the next note instead of ending 35 ms + its damping
+      // before it: the last ~100 ms of every bar fell 10 dB, a notch at each downbeat. A repeated
+      // pitch on the same string still stops just before it is re-struck.)
+      const room = nx.t - e.t + (nx.midi === e.midi ? -0.012 : 0.01);
+      if (room > e.dur) e.dur = Math.min(room, e.dur + 1.6);
     }
   }
 
@@ -1017,10 +1021,14 @@ export class Composer {
         // Oom-pah-pah, with a ghosted "and" of 2, a low pickup on 1, or a hemiola-ish 2-and-3 push.
         const va = variant(4);
         const hits = va === 0 ? [2, 4] : va === 1 ? [2, 3, 4] : va === 2 ? [0, 2, 4] : [2, 3, 5];
+        // (Round 8: the "pah"s leave the low string to the bass — a full six-string chord on beats 2
+        // and 3 put the guitar's E3-G3 strings and box thump 13-15 dB over the bass's ringing tail in
+        // 50-220 Hz, so the low end went boom-boom-boom and then sagged before every downbeat.)
+        const pah = v[0]! < 57 && v.length > 2 ? v.slice(1) : v;
         for (const s of hits) {
           if (s >= len) continue;
           if (s === 0) push(s0, v[0]!, 1.6, 0.6, 0.004);
-          else strum(s0 + s, s % 2 ? v.slice(1) : v, s === 2 ? 0.85 : s % 2 ? 0.5 : 0.72, false, 0.008, s % 2 ? 0.9 : 1.6);
+          else strum(s0 + s, s % 2 ? pah.slice(pah.length > 2 ? 1 : 0) : pah, s === 2 ? 0.85 : s % 2 ? 0.5 : 0.72, false, 0.008, s % 2 ? 0.9 : 1.6);
         }
         break;
       }
@@ -1190,8 +1198,10 @@ export class Composer {
           if (len >= 6 && r.chance(b.dur >= 1.75 ? 0.65 : 0.3)) push(s0 + 4, fifth, 2, 0.6);
           break;
         case 'jig':
-          push(s0, down, 2, 1);
-          if (len >= 6) push(s0 + 3, r.chance(0.7) ? fifth : root, 2, 0.8);
+          // (Round 8: a bowed / soft bass holds each dotted quarter to the next — two eighths of a
+          // sustained note then an eighth of nothing was a 12 dB gap before every beat of the Tide jig.)
+          push(s0, down, sustained ? 3 : 2, 1);
+          if (len >= 6) push(s0 + 3, r.chance(0.7) ? fifth : root, sustained ? len - 3 : 2, 0.8);
           break;
         case 'tresillo':
           push(s0, down, 3, 1);
@@ -1454,6 +1464,21 @@ export class Composer {
           for (let s = groove; s < S; s += bigFill ? 1 : 0.5) hit(s, 'woodblock', 0.45 + 0.05 * k, pitches[k++ % pitches.length]);
         }
         break;
+      case 'cave': {
+        // Round 8 (the mines' songs): a slow heartbeat on a damped bodhrán — lub-dub on the downbeat,
+        // a softer stroke mid-bar — and now and then a pick ticking somewhere down the tunnel (a dry
+        // woodblock, low and far), a triangle glint at the head of each strain.
+        const mid = S === 6 ? 3 : 4;
+        g(0, 'bodhran', 0.8);
+        g(1, 'bodhran', 0.32);
+        g(mid, 'bodhran', 0.5);
+        if (r.chance(0.35)) g(S - 1, 'woodblock', 0.22 + r.next() * 0.1, 70 + r.int(0, 4));
+        if (b.i % 8 === 0) g(0, 'triangleDing', 0.35);
+        if (fill) {
+          for (let s = groove; s < S; s++) hit(s, 'bodhran', 0.35 + 0.12 * (s - groove));
+        }
+        break;
+      }
       case 'reel':
         // Reel bodhrán (4/4): the big stroke on 1, a lighter one on 3, the tipper's off-beat chatter,
         // tambourine on the backbeats, triangle at the head of each 8-bar strain.

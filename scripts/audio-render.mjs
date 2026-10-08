@@ -386,6 +386,9 @@ async function main() {
             a.tone = bandRatios(inter, res.sampleRate, OPENING_SECONDS);
             // (Root / pedal patterns hold their notes; a waltz's oom-pah bass lifts after beat 1 by design.)
             if (holes.count > 0 && ['root', 'pedal'].includes(piece.bass ?? '')) extraFlags.push(`BASS-HOLE(${holes.count}, ${holes.worstDb} dB)`);
+            // (Round 8: any pattern — a plucked waltz / jig / walking bass may lift, but a low end that
+            // falls more than 14 dB into a downbeat is a gap, not articulation.)
+            else if (holes.worstDb > 14) extraFlags.push(`BASS-HOLE(${holes.count}, ${holes.worstDb} dB)`);
             const dev = toneDeviation(a.tone, job.name.replace(/^theme-/, ''));
             if (dev > 3) extraFlags.push(`TONE(${dev.toFixed(1)} dB off the house curve)`);
           }

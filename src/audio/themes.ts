@@ -11,6 +11,7 @@ import { SONGBOOK } from './songbook';
 import { SONGBOOK_TOWN, winterTown } from './songbook-town';
 import { SONGBOOK_EVENTS } from './songbook-events';
 import { SONGBOOK_PLACES } from './songbook-places';
+import { SONGBOOK_MINE } from './songbook-mine';
 
 /** Song form: the tune twice, its answer, the tune, a bridge (C) in a new harmonic area, the tune home. */
 const FORM_SONG: ThemeDef['form'] = ['intro', 'A', 'A', 'B', 'A', 'C', 'A', 'outro'];
@@ -213,7 +214,7 @@ export const THEMES: Record<string, ThemeDef> = {
       double: { gain: 0.17, pan: -0.25, send: 0.55 },
       counter: { gain: 0.42, pan: -0.35, send: 0.55 },
       accomp: { gain: 0.52, pan: -0.22, send: 0.45 },
-      accomp2: { gain: 0.2, pan: 0.18, send: 0.5 },
+      accomp2: { gain: 0.3, pan: 0.18, send: 0.5 }, // (round 8: 0.2 — a hollow middle, 200-500 Hz 18 dB under the box)
       bass: { gain: 0.36, pan: 0, send: 0.1 },
       pad: { gain: 0.19, pan: 0, send: 0.55 },
       perc: { gain: 0.4, pan: 0.3, send: 0.35 },
@@ -401,7 +402,7 @@ export const THEMES: Record<string, ThemeDef> = {
     },
     counter: { inst: 'bell', range: [64, 79], on: 'always' },
     bass: { inst: 'drone', pattern: 'pedal', range: [40, 52], vel: 0.45 },
-    pad: { inst: 'pad', range: [60, 76], voices: 3, vel: 0.32, on: 'always' },
+    pad: { inst: 'pad', range: [55, 71], voices: 3, vel: 0.32, on: 'always' }, // (round 8: 60-76, lowmid -16.6)
     mix: {
       double: { gain: 0.5, pan: 0, send: 0.85 },
       accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
@@ -765,6 +766,7 @@ Object.assign(THEMES, SONGBOOK_TOWN);
 Object.assign(THEMES, SONGBOOK_EVENTS);
 // Second beach and forest songs (the 'beach:day' / 'forest:day' playlists in select.ts).
 Object.assign(THEMES, SONGBOOK_PLACES);
+Object.assign(THEMES, SONGBOOK_MINE);
 THEMES['town-winter'] = winterTown(THEMES.town!);
 
 /** Mood hints the festival system broadcasts (`festival:music`). */
@@ -858,12 +860,12 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
               C: ["6:3 1':2 7:1", '6:3 5:2 4:1', "7:3 1':2 2':1", "1':3 r:3", '3:3 5:2 6:1', '4:3 3:2 2:1', "4:2 6:1 1':2 6:1", '5:3 2:3'],
             },
           },
-          accomp: { inst: 'harp', pattern: 'waltzArp', range: [55, 72], voices: 4, vel: 0.5 },
+          accomp: { inst: 'harp', pattern: 'waltzArp', range: [52, 69], voices: 4, vel: 0.5 }, // (round 8: 55-72 — with the celesta above, 200-500 Hz sat 22 dB under the tune)
           accomp2: undefined,
           bass: { inst: 'softBass', pattern: 'jig', range: [38, 50], vel: 0.55 },
           pad: { inst: 'pad', range: [52, 69], voices: 3, vel: 0.36, on: 'always' },
           perc: { pattern: 'light', on: 'repeat', vel: 0.45 },
-          mix: { melody: { gain: 0.82, pan: 0.1, send: 0.5 }, double: { gain: 0.22, pan: -0.3, send: 0.6 }, accomp: { gain: 0.6, pan: -0.25, send: 0.4 }, bass: { gain: 0.48, pan: 0, send: 0.1 }, pad: { gain: 0.42, pan: 0, send: 0.55 }, perc: { gain: 0.5, pan: 0.2, send: 0.2 } },
+          mix: { melody: { gain: 0.82, pan: 0.1, send: 0.5 }, double: { gain: 0.22, pan: -0.3, send: 0.6 }, accomp: { gain: 0.6, pan: -0.25, send: 0.4 }, bass: { gain: 0.48, pan: 0, send: 0.1 }, pad: { gain: 0.56, pan: 0, send: 0.55 }, perc: { gain: 0.5, pan: 0.2, send: 0.2 } },
           rest: [0, 0],
           gain: 0.85,
           sheen: 4.5,

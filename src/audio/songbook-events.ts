@@ -157,9 +157,9 @@ export const SONGBOOK_EVENTS: Record<string, ThemeDef> = {
       },
     },
     counter: { inst: 'cello', range: [43, 55], on: 'repeat', style: 'moving' },
-    accomp: { inst: 'harp', pattern: 'harpRoll', range: [45, 57], voices: 3, vel: 0.52 },
+    accomp: { inst: 'harp', pattern: 'harpRoll', range: [50, 64], voices: 3, vel: 0.52 }, // (round 8: 45-57 sat on the cello: 200-500 Hz 3 dB over the mid)
     bass: { inst: 'softBass', pattern: 'root', range: [33, 45], vel: 0.46 },
-    pad: { inst: 'pad', range: [50, 57], voices: 3, vel: 0.32, on: 'B' },
+    pad: { inst: 'pad', range: [55, 64], voices: 3, vel: 0.32, on: 'B' },
     mix: {
       melody: { gain: 0.9, pan: 0.04, send: 0.44 },
       counter: { gain: 0.42, pan: -0.32, send: 0.4 },

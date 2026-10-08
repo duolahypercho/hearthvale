@@ -5,7 +5,8 @@
  *   title screen            'title'
  *   forced (debug / scene)  whatever was forced
  *   festival grounds        that festival's arrangement ('festival-<id>' or the Lantern Jig)
- *   the mine                'mine' / 'mine-ice' / 'mine-lava' by floor band
+ *   the mine                'mine:earth' / 'mine:ice' / 'mine:lava' by floor band (round 8: each band
+ *                           rotates its drifting ambient piece with a written song)
  *   01:00 – 06:06           nothing — crickets, wind and the house creaking carry the night
  *                           (the morning song starts just after the wake-up chime)
  *   the inn / bakery        'inn' (its own tune, rain or shine, until late)
@@ -50,9 +51,9 @@ export const MENU_MUFFLE = 0.66;
 export const MENU_TAU = 0.1;
 
 export function mineThemeFor(floor: number | undefined): string {
-  if (!floor || floor < 1) return 'mine';
+  if (!floor || floor < 1) return 'mine:earth';
   const band = Math.floor((floor - 1) / 10) % 3;
-  return band === 0 ? 'mine' : band === 1 ? 'mine-ice' : 'mine-lava';
+  return band === 0 ? 'mine:earth' : band === 1 ? 'mine:ice' : 'mine:lava';
 }
 
 export function chooseTheme(c: MusicContext): string | null {
@@ -99,6 +100,10 @@ export const PLAYLISTS: Record<string, readonly string[]> = {
   // Round 12: the beach and the forest had one song each.
   'beach:day': ['beach', 'beach-2'],
   'forest:day': ['forest', 'forest-2'],
+  // Round 8: the mines had one piece per band, looping for as long as a player dug.
+  'mine:earth': ['mine', 'mine-2'],
+  'mine:ice': ['mine-ice', 'mine-ice-2'],
+  'mine:lava': ['mine-lava', 'mine-lava-2'],
 };
 
 function mix(a: number, b: number): number {
