@@ -27,7 +27,9 @@ import { FountainFX } from './fountain';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
 import { buildChalkAFrame } from './aframe';
-import { buildSnowmen, buildSweptPaths, buildWreathDressing } from './winter';
+import { buildSnowmen, buildSweptPaths, buildWreathDressing, buildWinterWear } from './winter';
+import { findPath } from './pathfind';
+import { NPCS } from '../../data/npcs';
 import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
 import { textures } from '../../render/textures';
@@ -59,6 +61,7 @@ import {
   FESTOON_MASTS,
   FESTOON_SPANS,
   SNOWMEN,
+  SPOTS,
   type Bridge,
   type NewBuilding,
 } from './layout';
@@ -1101,6 +1104,37 @@ export class TownMap implements GameMap {
     }
   }
 
+  private wear: THREE.Group | null = null;
+
+  /** Winter wear (built on the first winter day): routes from every villager's winter day. */
+  private buildWear(): void {
+    const at = (name: string): { x: number; z: number } | null => {
+      if (name.startsWith('door:')) return this.poi[name.slice(5)]?.[0] ?? null;
+      const sp = (SPOTS as Record<string, readonly [number, number, unknown]>)[name];
+      return sp ? { x: sp[0], z: sp[1] } : null;
+    };
+    const paths: { x: number; z: number }[][] = [];
+    for (const def of Object.values(NPCS)) {
+      const list = def.winterSchedule ?? def.schedule;
+      for (let i = 0; i + 1 < list.length; i++) {
+        const a = at(list[i]![1]);
+        const b = at(list[i + 1]![1]);
+        if (!a || !b) continue;
+        const p = findPath(this.grid, a.x, a.z, b.x, b.z);
+        if (p.length > 1) paths.push(p);
+      }
+    }
+    this.wear = buildWinterWear(
+      paths,
+      (x, z) => this.terrain.heightAt(x, z),
+      (x, z) => this.streetValue(x, z),
+      { samples: this.riverSamples, half: RIVER_HALF, waterY: WATER_Y, skip: (x, z) => !!this.bridgeAt(x, z) },
+      this.rng.fork('winter-wear'),
+      Object.values(SPOTS as Record<string, readonly [number, number, unknown]>).map(([x, z]) => ({ x, z })),
+    );
+    this.root.add(this.wear);
+  }
+
   setSeason(season: Season): void {
     if (this.wreaths) for (const [k, g] of Object.entries(this.wreaths)) g.visible = k === season;
     // The basin freezes over in winter: no running water.
@@ -1109,6 +1143,8 @@ export class TownMap implements GameMap {
     this.nature.setSeason(season);
     this.ambience.setSeason(season);
     this.festoons?.setSeason(season);
+    if (season === 'winter' && !this.wear) this.buildWear();
+    if (this.wear) this.wear.visible = season === 'winter';
     if (this.snowmen) {
       const on = season === 'winter';
       this.snowmen.visible = on;

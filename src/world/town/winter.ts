@@ -277,3 +277,196 @@ export function buildWreathDressing(rng: Rng, at: THREE.Vector3): Record<'spring
   };
   return { spring: mk('spring'), summer: mk('summer'), fall: mk('fall') };
 }
+
+/**
+ * Winter wear (r9 critic: "the square remains pristine spring geometry painted white — no traffic-
+ * compressed paths, slush, frozen public fixtures"): the villagers' daily routes (A* between their
+ * winter schedule spots, `paths`) are rasterised into a traffic field. Where traffic is heavy the snow
+ * is trodden to grey-brown slush (an alpha overlay over terrain + swept lanes); off the cobbles a trail
+ * of boot prints follows each route (left / right, toe-out, pressed blue-grey), and both river banks
+ * grow shelves of shore ice with a few loose floes. One merged mesh each.
+ */
+export function buildWinterWear(
+  paths: { x: number; z: number }[][],
+  height: (x: number, z: number) => number,
+  street: (x: number, z: number) => number,
+  river: { samples: THREE.Vector3[]; half: number; waterY: number; skip: (x: number, z: number) => boolean },
+  rng: Rng,
+  stands: { x: number; z: number }[] = [],
+): THREE.Group {
+  const out = new THREE.Group();
+  out.name = 'town-winter-wear';
+  // ── traffic field (0.5 m cells over the town)
+  const X0 = -6;
+  const Z0 = -2;
+  const S = 0.5;
+  const NX = 230;
+  const NZ = 150;
+  const traffic = new Float32Array(NX * NZ);
+  const splat = (x: number, z: number, r: number, w: number): void => {
+    const i0 = Math.max(0, Math.floor((x - r - X0) / S));
+    const i1 = Math.min(NX - 1, Math.ceil((x + r - X0) / S));
+    const j0 = Math.max(0, Math.floor((z - r - Z0) / S));
+    const j1 = Math.min(NZ - 1, Math.ceil((z + r - Z0) / S));
+    for (let j = j0; j <= j1; j++)
+      for (let i = i0; i <= i1; i++) {
+        const d = Math.hypot(X0 + i * S - x, Z0 + j * S - z);
+        if (d < r) traffic[j * NX + i] += w * (1 - d / r);
+      }
+  };
+  const prints = new MeshBuilder();
+  const printGeo = new THREE.CircleGeometry(0.09, 7);
+  printGeo.rotateX(-Math.PI / 2);
+  printGeo.scale(0.75, 1, 1.35);
+  for (const p of paths) {
+    let side = 1;
+    let carry = 0;
+    for (let k = 0; k + 1 < p.length; k++) {
+      const a = p[k]!;
+      const b = p[k + 1]!;
+      const L = Math.hypot(b.x - a.x, b.z - a.z);
+      if (L < 1e-3) continue;
+      const dx = (b.x - a.x) / L;
+      const dz = (b.z - a.z) / L;
+      for (let t = 0; t < L; t += 0.35) splat(a.x + dx * t, a.z + dz * t, 1.1, 0.6);
+      // Boot prints off the cobbles (the snow keeps them): a stride of 0.36 m, ±0.11 m to the side.
+      const yaw = Math.atan2(dx, dz);
+      for (let t = carry; t < L; t += 0.36) {
+        const jx = (rng.next() - 0.5) * 0.05;
+        const x = a.x + dx * t + dz * side * 0.11 + jx;
+        const z = a.z + dz * t - dx * side * 0.11;
+        side = -side;
+        if (street(x, z) > 0.35 || rng.next() < 0.18) continue;
+        prints.add('white', printGeo.clone(), mat(x, height(x, z) + 0.03, z, 0, yaw + side * 0.18), { tint: 0x7d8ca4 });
+      }
+      carry = 0.36 - ((L - carry) % 0.36);
+    }
+  }
+  const pm = prints.build({ name: 'boot-prints' });
+  pm.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.castShadow = false;
+    m.receiveShadow = true;
+    // (own material: the merged 'white' one is shared with the snowmen)
+    const mm = (m.material as THREE.MeshStandardMaterial).clone();
+    m.material = mm;
+    mm.transparent = true;
+    mm.opacity = 0.72;
+    mm.depthWrite = false;
+    mm.polygonOffset = true;
+    mm.polygonOffsetFactor = -3;
+    mm.polygonOffsetUnits = -3;
+  });
+  pm.userData.noAO = true;
+  out.add(pm);
+  // Where people stand all day (shop steps, the board, the fountain rim) the snow is stamped to slush.
+  for (const st of stands) splat(st.x + (rng.next() - 0.5) * 0.4, st.z + (rng.next() - 0.5) * 0.4, 1.5 + rng.next() * 0.5, 3.2);
+  // ── slush: an alpha overlay where the traffic is heavy
+  const pos: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+  const vmap = new Int32Array(NX * NZ).fill(-1);
+  const alphaAt = (i: number, j: number): number => {
+    const t = traffic[j * NX + i]!;
+    return THREE.MathUtils.smoothstep(t, 0.9, 4.5) * 0.78;
+  };
+  const vert = (i: number, j: number): number => {
+    const k = j * NX + i;
+    if (vmap[k]! >= 0) return vmap[k]!;
+    const x = X0 + i * S;
+    const z = Z0 + j * S;
+    vmap[k] = pos.length / 3;
+    pos.push(x, height(x, z) + 0.035, z);
+    // grey-brown trodden slush, darker in the deepest ruts
+    const a = alphaAt(i, j);
+    const d = 0.62 - a * 0.25 + (rng.next() - 0.5) * 0.04;
+    col.push(d * 1.02, d * 0.97, d * 0.9, a);
+    return vmap[k]!;
+  };
+  for (let j = 0; j < NZ - 1; j++)
+    for (let i = 0; i < NX - 1; i++) {
+      if (alphaAt(i, j) + alphaAt(i + 1, j) + alphaAt(i, j + 1) + alphaAt(i + 1, j + 1) < 0.01) continue;
+      const v00 = vert(i, j);
+      const v10 = vert(i + 1, j);
+      const v01 = vert(i, j + 1);
+      const v11 = vert(i + 1, j + 1);
+      idx.push(v00, v01, v10, v10, v01, v11);
+    }
+  if (idx.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshStandardMaterial({ name: 'slush', color: 0x8a8278, roughness: 0.32, metalness: 0, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2.5, polygonOffsetUnits: -2.5 }),
+    );
+    m.name = 'slush';
+    m.receiveShadow = true;
+    m.renderOrder = 2;
+    m.userData.noAO = true;
+    out.add(m);
+  }
+  // ── shore ice: a ragged shelf along each bank, a few loose floes mid-stream
+  const ice = new MeshBuilder();
+  const sm = river.samples;
+  for (const side of [-1, 1]) {
+    const shelf: number[] = [];
+    const sIdx: number[] = [];
+    for (let k = 0; k < sm.length; k++) {
+      const p = sm[k]!;
+      const q = sm[Math.min(sm.length - 1, k + 1)]!;
+      const o = sm[Math.max(0, k - 1)]!;
+      let tx = q.x - o.x;
+      let tz = q.z - o.z;
+      const tl = Math.hypot(tx, tz) || 1;
+      tx /= tl;
+      tz /= tl;
+      const nx = -tz * side;
+      const nz = tx * side;
+      const w = 0.45 + 0.65 * Math.abs(Math.sin(k * 0.37 + side)) + rng.next() * 0.25;
+      const outer = river.half + 0.15;
+      const inner = river.half - w;
+      shelf.push(p.x + nx * outer, river.waterY + 0.035, p.z + nz * outer, p.x + nx * inner, river.waterY + 0.035, p.z + nz * inner);
+      if (k > 0) {
+        const b = (k - 1) * 2;
+        if (!river.skip(p.x + nx * river.half, p.z + nz * river.half)) sIdx.push(b, b + 1, b + 2, b + 2, b + 1, b + 3);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(shelf, 3));
+    g.setIndex(sIdx);
+    g.computeVertexNormals();
+    if (g.attributes.normal) for (let i = 0; i < g.attributes.normal.count; i++) g.attributes.normal.setXYZ(i, 0, 1, 0);
+    ice.add('white', g, new THREE.Matrix4(), { tint: 0xdfeaf4 });
+  }
+  for (let i = 0; i < 26; i++) {
+    const p = sm[Math.floor(rng.next() * sm.length)]!;
+    const off = (rng.next() - 0.5) * river.half * 1.2;
+    const x = p.x + off;
+    const z = p.z + (rng.next() - 0.5) * 2;
+    if (river.skip(x, z)) continue;
+    const f = new THREE.CircleGeometry(0.25 + rng.next() * 0.35, 6);
+    f.rotateX(-Math.PI / 2);
+    f.scale(1, 1, 0.6 + rng.next() * 0.5);
+    ice.add('white', f, mat(x, river.waterY + 0.03, z, 0, rng.next() * 6), { tint: 0xe8f0f8 });
+  }
+  const ig = ice.build({ name: 'shore-ice' });
+  ig.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.castShadow = false;
+    m.receiveShadow = true;
+    const mm = (m.material as THREE.MeshStandardMaterial).clone();
+    m.material = mm;
+    mm.roughness = 0.18;
+    mm.transparent = true;
+    mm.opacity = 0.88;
+  });
+  ig.userData.noAO = true;
+  out.add(ig);
+  out.userData.perfTag = 'terrain';
+  return out;
+}
