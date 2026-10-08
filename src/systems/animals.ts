@@ -1523,9 +1523,14 @@ export class AnimalSystem implements System, AnimalsApi {
       // half-width + a hand clear; the eased ring round the farmer holds the same distance)
       const hq = hx * qx + hz * qz;
       // (birds a little further out: the heart over a hen beside the knee landed on the farmer's face)
-      const gap = Math.max(low ? 0.8 : 0.5, 0.36 + L0 * (1 + tBack) * hq);
-      const sx = pp.x + qx * (r0 + gap) + ux * 0.14;
-      const sz = pp.z + qz * (r0 + gap) + uz * 0.14;
+      // (r17: birds 0.8 -> 0.5 m — at 0.8 the kneeling farmer's arm stretched 2.4x into a horizontal pole
+      // across the hen; the heart still rises on the far side of the bird, clear of the face)
+      const gap = Math.max(low ? 0.5 : 0.56, 0.36 + L0 * (1 + tBack) * hq);
+      // (r17: tall stock a stride further towards the lens — from the 45° camera that drops it below the
+      // farmer's big chibi head on screen, so the hat no longer sits on the goat's horns)
+      const fwd = low ? 0.14 : 0.42;
+      const sx = pp.x + qx * (r0 + gap) + ux * fwd;
+      const sz = pp.z + qz * (r0 + gap) + uz * fwd;
       // The capsule axis passes through that spot at tBack along the body.
       const tx = sx - hx * L0 * tBack;
       const tz = sz - hz * L0 * tBack;
@@ -2060,7 +2065,7 @@ export class AnimalSystem implements System, AnimalsApi {
             this._ikQ.setFromUnitVectors(this._down, P);
             this._ikQ2.copy(rig.armR.quaternion);
             rig.armR.quaternion.slerpQuaternions(this._ikQ2, this._ikQ, e);
-            rig.armR.scale.y = THREE.MathUtils.lerp(1, THREE.MathUtils.clamp(len / 0.33, 0.85, 2.4), e);
+            rig.armR.scale.y = THREE.MathUtils.lerp(1, THREE.MathUtils.clamp(len / 0.33, 0.85, 1.75), e);
           }
         }
         return { sy: 1 - 0.2 * low * e, bob: -0.17 * low * e };
@@ -2168,7 +2173,7 @@ export class AnimalSystem implements System, AnimalsApi {
     }
     this.props.add(m);
     // r13: a soft shine burst behind the find (additive, billboarded) so the lift reads at a glance.
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shineTexture(), color: e.q >= 2 ? 0xffd860 : e.q === 1 ? 0xf2f6ff : 0xfff2d8, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shineTexture(), color: e.q >= 2 ? 0xffd860 : e.q === 1 ? 0xf2f6ff : 0xfff2d8, transparent: true, depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
     glow.renderOrder = 22;
     glow.visible = false;
     this.props.add(glow);
@@ -2189,7 +2194,7 @@ export class AnimalSystem implements System, AnimalsApi {
       L.t += this.poseFreeze >= 0 ? Math.min(dt, Math.max(0, 0.6 - L.t)) : dt;
       const t = L.t;
       // (r13: held a touch towards the lens, so the egg + its star sit clear of the hat brim)
-      const top = this._lt.copy(pl.position).setY(pl.position.y + 2.5);
+      const top = this._lt.copy(pl.position).setY(pl.position.y + 2.78); // (r17: clear of the hat crown)
       top.z += 0.28;
       if (t < 0.22) {
         const k = t / 0.22;
@@ -2204,11 +2209,14 @@ export class AnimalSystem implements System, AnimalsApi {
       {
         const g = L.glow;
         g.visible = t > 0.18 && t < 0.9;
-        g.position.copy(L.m.position);
+        // (behind the egg, depth-tested: the egg sits in front of its own shine instead of under it)
+        g.position.copy(L.m.position).addScaledVector(this._lt2.copy(cam.position).sub(L.m.position).normalize(), -0.35);
         g.quaternion.copy(cam.quaternion);
         const k = THREE.MathUtils.clamp((t - 0.18) / 0.14, 0, 1);
         g.scale.setScalar(Math.max(0.01, (0.4 + 0.9 * (1 - Math.pow(1 - k, 3))) * (1 + Math.sin(t * 9) * 0.04)));
-        (g.material as THREE.MeshBasicMaterial).opacity = (t < 0.32 ? k : Math.max(0, 1 - (t - 0.32) / 0.55)) * 0.85;
+        // (r17: 0.85 -> 0.5 and the burst held behind the egg — at full strength the egg dissolved into a white
+        // blob in the morning sun shaft)
+        (g.material as THREE.MeshBasicMaterial).opacity = (t < 0.32 ? k : Math.max(0, 1 - (t - 0.32) / 0.55)) * 0.5;
       }
       if (L.star) {
         // The star pops out of the egg itself and settles beside it.
@@ -2422,7 +2430,7 @@ export class AnimalSystem implements System, AnimalsApi {
       // 3/4, the pig rooting head-down across its stall, Daisy side-on at her door.)
       const beats: Beat[] = [
         { kind: 'munch', yaw: 0.32 },
-        { kind: 'rest', yaw: 1.25, back: 0.7, dx: -0.1 },
+        { kind: 'rest', yaw: 0.85, back: 0.7, dx: -0.1 },
         wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.72, back: 0.4 },
         { kind: 'aisle', yaw: 0 },
         { kind: 'root', yaw: -1.15, back: 0.45 },

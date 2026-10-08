@@ -366,7 +366,38 @@ function switchTail(r: RigBuilder, pts: [number, number, number][], r0: number, 
     { p: at(0.75), w: tuftR * 0.72, up: tuftR * 0.72, dn: tuftR * 0.72 },
     { p: at(1.0), w: tuftR * 0.12, up: tuftR * 0.12, dn: tuftR * 0.12 },
   ];
-  r.part('tail', loft(tuft, 14, 3, (th, s) => 1 + 0.2 * Math.max(0, s - 0.15) * Math.sin(th * 7 + s * 5)), null, tuftC, { coat: 1 });
+  // r17: the switch core is short and slim; the hair is a brush of tapered locks that splay out of it
+  // and come back to wisp points at different lengths (the critic: "a stick tail ending in a blob").
+  const core = tuft.map((t, i) => ({ ...t, w: t.w * (i ? 0.62 : 1), up: t.up * (i ? 0.62 : 1), dn: t.dn * (i ? 0.62 : 1) }));
+  r.part('tail', loft(core, 10, 3), null, tuftC, { coat: 1 });
+  const ux = Math.abs(dy / dl) > 0.7 ? 1 : 0;
+  const uy = ux ? 0 : 1;
+  // basis across the switch: a = up/x minus its tangent part, b = dir x a
+  const tx = dx / dl, ty = dy / dl, tz = dz / dl;
+  const dot = ux * tx + uy * ty;
+  let ax = ux - dot * tx, ay = uy - dot * ty, az = -dot * tz;
+  const al = Math.hypot(ax, ay, az) || 1;
+  ax /= al; ay /= al; az /= al;
+  const bx = ty * az - tz * ay, by = tz * ax - tx * az, bz = tx * ay - ty * ax;
+  const LOCKS = 7;
+  for (let i = 0; i < LOCKS; i++) {
+    const th = (i / LOCKS) * Math.PI * 2 + 0.4;
+    const len = 0.86 + 0.32 * ((i * 0.618) % 1);
+    const curl = (i % 2 ? 1 : -1) * 0.25;
+    const st2: LoftStation[] = [];
+    for (const k of [0.05, 0.3, 0.58, 0.82, 1.0]) {
+      const kk = k * len;
+      const spread = tuftR * 0.75 * Math.sin(Math.PI * Math.min(1, k * 0.95)) + tuftR * 0.12;
+      const t2 = th + curl * k;
+      const c = at(kk);
+      const ox = (Math.cos(t2) * ax + Math.sin(t2) * bx) * spread;
+      const oy = (Math.cos(t2) * ay + Math.sin(t2) * by) * spread;
+      const oz = (Math.cos(t2) * az + Math.sin(t2) * bz) * spread;
+      const rr = tuftR * 0.42 * Math.pow(1 - k * 0.96, 0.8);
+      st2.push({ p: [c[0] + ox, c[1] + oy, c[2] + oz], w: rr, up: rr, dn: rr });
+    }
+    r.part('tail', loft(st2, 6, 2), null, tuftC, { coat: 1 });
+  }
 }
 
 /**
@@ -446,7 +477,9 @@ function cow(variant: number): AnimalModel {
     32,
     4,
   );
-  r.part('head', neck, null, base, { patch: spots, paint: shade });
+  // (r17: the holstein spots on the neck kept off the throat — a black spot under the muzzle read as a
+  // gaping mouth from the front; a height ramp keeps them to the crest, where they join the head cap)
+  r.part('head', neck, null, base, { patch: spots ? { ...spots, yK: 8, y0: 1.02 + LIFT } : undefined, paint: shade });
   // Udder + teats (tucked up under the flank between the hind legs)
   r.part('body', ellipsoid(0.15, 0.09, 0.16), mat(0, 0.4, -0.27), 0xf4b0aa);
   for (const [x, z] of [[-0.055, -0.22], [0.055, -0.22], [-0.055, -0.32], [0.055, -0.32]] as const) r.part('body', limb(0.02, 0.015, 0.36, 0.29, 8), mat(x, 0, z), 0xe8908c, { flat: true });
@@ -465,12 +498,12 @@ function cow(variant: number): AnimalModel {
       [0, 0.64, -0.765],
       [0, 0.52, -0.76],
     ],
-    0.036,
-    0.022,
+    0.042,
+    0.024,
     base,
     jersey ? 0x3a2418 : 0x2a2522,
-    0.2,
-    0.05,
+    0.27,
+    0.06,
     spots,
   );
   // Big chibi head (holstein: a black patch over the left eye + ear), rounded pink muzzle with nostrils
@@ -483,11 +516,14 @@ function cow(variant: number): AnimalModel {
   // Muzzle: jersey's pale "mealy" ring around a dark nose; holstein pink
   // (jersey's mealy ring kept close to the coat's value: a bright ring read as a mask from behind)
   const muzzle = jersey ? 0xe8d0ac : 0xf6c0b4;
-  r.part('head', ellipsoid(jersey ? 0.195 : 0.215, 0.15, 0.15), mat(0, 0.94, 0.8), muzzle);
+  // (r17: the holstein's broader muzzle 3 cm proud of the skull — the white head shell cut through its top
+  // as a pale film from the front)
+  const mz = jersey ? 0 : 0.03;
+  r.part('head', ellipsoid(jersey ? 0.195 : 0.215, 0.15, 0.15), mat(0, 0.94, 0.8 + mz), muzzle);
   // (r9: a darker nose pad, its nostrils on the upward-facing front so they read from the high camera)
-  r.part('head', ellipsoid(jersey ? 0.14 : 0.165, jersey ? 0.08 : 0.095, 0.075), mat(0, 0.955, 0.895), jersey ? 0x3e2e28 : 0xd9807e);
-  for (const s of [-1, 1]) r.part('head', ellipsoid(0.038, 0.03, 0.014, 8, 6), mat(s * 0.068, 0.985, 0.952, -0.5, s * 0.3, 0), jersey ? 0x120c0a : 0x5a2622, { flat: true });
-  r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92), 0x4a2a1e, { flat: true });
+  r.part('head', ellipsoid(jersey ? 0.14 : 0.165, jersey ? 0.08 : 0.095, 0.075), mat(0, 0.955, 0.895 + mz), jersey ? 0x3e2e28 : 0xd9807e);
+  for (const s of [-1, 1]) r.part('head', ellipsoid(0.038, 0.03, 0.014, 8, 6), mat(s * 0.068, 0.985, 0.952 + mz, -0.5, s * 0.3, 0), jersey ? 0x120c0a : 0x5a2622, { flat: true });
+  r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92 + mz), 0x4a2a1e, { flat: true });
   for (const s of [-1, 1]) {
     const horn = new THREE.ConeGeometry(0.04, 0.12, 10);
     r.part('head', horn, mat(s * 0.15, 1.31, 0.55, 0, 0, -s * 0.55), 0xf2e6c8, { flat: true });
@@ -591,12 +627,13 @@ function goat(variant: number): AnimalModel {
   for (const s of [-1, 1]) {
     // Horns: a tapered tube arcing up, back and out over the crown
     const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(s * 0.02, 0.1, -0.02), new THREE.Vector3(s * 0.055, 0.17, -0.1), new THREE.Vector3(s * 0.09, 0.17, -0.2), new THREE.Vector3(s * 0.11, 0.12, -0.26)]);
-    const horn = new THREE.TubeGeometry(curve, 14, 0.03, 8, false);
+    // (r17: a stouter root + growth ridges ringing the horn, so it reads as horn, not an antenna)
+    const horn = new THREE.TubeGeometry(curve, 24, 0.036, 8, false);
     const hp = horn.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < hp.count; i++) {
-      const t = Math.floor(i / 9) / 14;
+      const t = Math.floor(i / 9) / 24;
       const cp = curve.getPoint(Math.min(1, t));
-      const k = 1 - t * 0.8;
+      const k = (1 - t * 0.84) * (1 + 0.09 * (1 - t) * Math.cos(t * 24 * Math.PI));
       hp.setXYZ(i, cp.x + (hp.getX(i) - cp.x) * k, cp.y + (hp.getY(i) - cp.y) * k, cp.z + (hp.getZ(i) - cp.z) * k);
     }
     horn.computeVertexNormals();

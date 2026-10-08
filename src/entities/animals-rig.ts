@@ -91,7 +91,7 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
             float hh;
             float amp;
             if (vCoat < 1.5) {
-              hh = hvNoise3(q * vec3(120.0, 105.0, 20.0), 2.0) * 0.6 + hvNoise3(q * vec3(230.0, 210.0, 36.0), 4.0) * 0.4;
+              hh = hvNoise3(q * vec3(120.0, 105.0, 38.0), 2.0) * 0.6 + hvNoise3(q * vec3(230.0, 210.0, 64.0), 4.0) * 0.4;
               amp = 0.0016;
             } else if (vCoat < 2.5) {
               float a = hvNoise3(q * 24.0, 1.0);
@@ -126,14 +126,16 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
           {
             // Fur grain: fine streaks combed along the body (rest-pose z), faded out before they can
             // shimmer (fwidth); skipped on catchlights (near-white) and eyes / hooves (near-black).
-            vec3 fp = vRest * vec3(64.0, 58.0, 13.0);
+            // (r17: z stretch 13 -> 30 and gentler on dark coats — the long combed streaks read as wood grain
+            // on the fawn Jersey from the 11-14 m camera)
+            vec3 fp = vRest * vec3(72.0, 66.0, 30.0);
             float fa = 1.0 - smoothstep(0.35, 1.3, length(fwidth(fp)));
             float fv = hvNoise3(fp, 3.0) * 0.6 + hvNoise3(fp * 2.1 + 5.0, 1.0) * 0.4;
             float mx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
             float mn = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
             float coat = (1.0 - step(0.965, mn)) * smoothstep(0.06, 0.16, mx);
             // (pale coats get a whisper of it: at full strength it read as grime specks on white cows / fleece)
-            diffuseColor.rgb *= 1.0 + fv * mix(0.075, 0.028, smoothstep(0.55, 0.85, mx)) * fa * coat;
+            diffuseColor.rgb *= 1.0 + fv * mix(0.045, 0.022, smoothstep(0.55, 0.85, mx)) * fa * coat;
           }`,
         )
         .replace(

@@ -580,12 +580,15 @@ export class CoopInterior extends InteriorMap {
           const cz = z0 + (z1 - z0) * t + (r.next() - 0.5) * wid * 0.6;
           blob(cx, cz, wid * (0.4 + r.next() * 0.3), '238,206,138', a * (0.6 + r.next() * 0.4));
           // broken pale stalks scuffed along the lane
-          for (let q = 0; q < 3; q++) {
+          // (r17: one in three steps, warm + low alpha — three bright near-white stalks every 8 cm read as
+          // white pin noise all over the lanes)
+          for (let q = 0; q < 1; q++) {
+            if (r.next() > 0.34) continue;
             const sx = cx + (r.next() - 0.5) * wid;
             const sz = cz + (r.next() - 0.5) * wid;
             const ang = r.next() * Math.PI;
             const len = (0.05 + r.next() * 0.08) * PX;
-            x.strokeStyle = r.next() < 0.5 ? 'rgba(255,240,200,0.55)' : 'rgba(214,180,110,0.5)';
+            x.strokeStyle = r.next() < 0.5 ? 'rgba(236,206,140,0.32)' : 'rgba(196,158,92,0.34)';
             x.lineWidth = 1.2;
             x.beginPath();
             x.moveTo(sx * PX - Math.cos(ang) * len * 0.5, sz * PX - Math.sin(ang) * len * 0.5);
