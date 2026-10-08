@@ -620,8 +620,10 @@ export class AnimalSystem implements System, AnimalsApi {
             // clear of their face — and the herd poses carry it to every screen)
             if (from && !this.hands.length && Math.hypot(l.actor.pos.x - from.x, l.actor.pos.z - from.z) < 2.2) {
               const keep = this.petYaw;
+              const keepB = this.petBack;
               this.settleForPet(l.actor, from.clone());
               this.petYaw = keep;
+              this.petBack = keepB;
             }
             // (Heart only: the name card is the petting farmer's own read-out; on the host's screen a
             // farmhand's pet stacked a second label next to their chat bubble.)
@@ -909,7 +911,9 @@ export class AnimalSystem implements System, AnimalsApi {
       if (this.count(home) && !st.doors[home] && this.grazing()) out.push({ icon: 'door', text: `Open the ${home} door — fine day for grazing` });
     }
     // (The bowl is emptied overnight, so it's a top-up, not a forgotten chore.)
-    if (!st.pet.bowl) out.push({ icon: 'wateringCan', text: `Refill ${st.pet.name}’s water bowl` });
+    // (r16: worded as the overnight top-up it is — beside "the bowl stayed full all day" a bare "Refill"
+    // read as a contradiction)
+    if (!st.pet.bowl) out.push({ icon: 'wateringCan', text: `Top up ${st.pet.name}’s drained bowl` });
     if (st.animals.length) out.push({ icon: 'heart', text: `Say good morning to ${plural(st.animals.length, 'animal')}` });
     return out.slice(0, 5);
   }
@@ -974,7 +978,9 @@ export class AnimalSystem implements System, AnimalsApi {
     const actor = new AnimalActor(species, variant);
     // (r12: indoors the lens sits closer — the barn's livestock read oversized, "toys on a shelf"; a
     // touch smaller inside the stalls so the stall boards frame them)
-    actor.setScale(SCALE[species] * (this.game.world.current?.id === 'barn' ? 0.9 : 1));
+    // (r16: cows a further ~12 % smaller in the barn — Maple and Cocoa filled their stalls wall to wall;
+    // now straw shows on both sides of them)
+    actor.setScale(SCALE[species] * (this.game.world.current?.id === 'barn' ? (species === 'cow' ? 0.8 : 0.9) : 1));
     const map = this.game.world.current!;
     actor.heightAt = (x, z) => map.heightAt(x, z);
     actor.walkable = (x, z) => map.grid.isWalkable(Math.floor(x), Math.floor(z));
@@ -1103,13 +1109,17 @@ export class AnimalSystem implements System, AnimalsApi {
       // Curled up in the wicker pet bed by the hearth.
       a.area = { x0: 5.2, z0: 1.4, x1: 7.9, z1: 3.4 };
       a.sleeping = true;
-      a.bedSpot = new THREE.Vector3(7.95, 0.1, 1.5);
-      a.place(7.95, 1.5, -0.6);
+      // r16: curled up in the middle of the cushion (the standing model's flat sploot floated half out
+      // of the bed), face turned to the room; the bed sits left of the rocker so its back never hides it.
+      a.bedSpot = new THREE.Vector3(7.6, 0.1, 1.45);
+      a.curlAt = { x: 7.6, z: 1.45, y: 0.115, h: -0.55 };
+      a.place(7.6, 1.45, -0.55);
     } else {
       const d = SITES.doghouse;
       a.area = { x0: 30.5, z0: 17.6, x1: 37.6, z1: 21.5 };
       a.sleeping = this.game.calendar.hour >= 21 || this.game.calendar.hour < 6.2;
       a.bedSpot = new THREE.Vector3(d.x + 0.2, 0, d.z + 1.25);
+      a.curlAt = { x: d.x + 0.2, z: d.z + 1.25, y: 0, h: 0.3 };
       const p = a.sleeping ? a.bedSpot : new THREE.Vector3(SITES.bowl.x + 0.9, 0, SITES.bowl.z + 0.8);
       a.place(p.x, p.z, a.sleeping ? 0.3 : -0.6);
     }
@@ -1429,148 +1439,119 @@ export class AnimalSystem implements System, AnimalsApi {
     // no local farmer yaw / step-back.
     const local = !from;
     const prevYaw = this.petYaw;
+    const prevBack = this.petBack;
     this.petYaw = null;
+    this.petBack = null;
     const pp = from ?? this.game.player.position;
-    let dx = a.pos.x - pp.x;
-    let dz = a.pos.z - pp.z;
-    const d = Math.hypot(dx, dz) || 1;
-    dx /= d;
-    dz /= d;
     const low = a.gait.top * a.scale < 0.9;
     a.blissT = 1.4;
     if (a.stalled || a.isSleeping || a.perched) {
       const poll = a.pollPoint(this._lt2);
       this.petYaw = Math.atan2(poll.x - pp.x, poll.z - pp.z);
       if (!low) {
-        const m = a.muzzle(this._lt2);
-        const md = Math.hypot(m.x - pp.x, m.z - pp.z);
-        const back = 0.85 - md;
-        const bx = pp.x - Math.sin(this.petYaw) * back;
-        const bz = pp.z - Math.cos(this.petYaw) * back;
-        if (local && back > 0.02 && this.walkableAt(bx, bz)) pp.set(bx, pp.y, bz);
+        // r16: the farmer steps to the SIDE of the head (beside the manger, a stride towards the lens),
+        // never in front of it — at the stall front the hat hid the animal + its manger from the camera.
+        const cp = this.lensFor(pp, local);
+        let ux = cp.x - pp.x;
+        let uz = cp.z - pp.z;
+        const ul = Math.hypot(ux, uz) || 1;
+        ux /= ul;
+        uz /= ul;
+        const lat = -uz * (pp.x - poll.x) + ux * (pp.z - poll.z);
+        let moved = false;
+        if (local) {
+          for (const sd of lat >= 0 ? [1, -1] : [-1, 1]) {
+            const gap = (a.gait.headR ?? 0.25) * a.scale + 0.5;
+            const fx = poll.x - uz * sd * gap + ux * 0.42;
+            const fz = poll.z + ux * sd * gap + uz * 0.42;
+            if (!this.walkableAt(fx, fz)) continue;
+            pp.set(fx, pp.y, fz);
+            moved = true;
+            break;
+          }
+        }
+        if (!moved) {
+          const m = a.muzzle(this._lt2);
+          const md = Math.hypot(m.x - pp.x, m.z - pp.z);
+          const back = 0.85 - md;
+          const bx = pp.x - Math.sin(this.petYaw) * back;
+          const bz = pp.z - Math.cos(this.petYaw) * back;
+          if (local && back > 0.02 && this.walkableAt(bx, bz)) pp.set(bx, pp.y, bz);
+        }
       }
       this.clearance(a, a.pos.x, a.pos.z, a.heading, pp, local, false);
       if (local) {
         const pc = a.pollPoint(this._lt2);
         this.petYaw = Math.atan2(pc.x - pp.x, pc.z - pp.z);
       }
-      if (!local) this.petYaw = prevYaw;
+      if (!local) {
+        this.petYaw = prevYaw;
+        this.petBack = prevBack;
+      }
       return;
     }
-    if (low) {
-      // Small birds stand a little further out: the crouching farmer's hat brim otherwise covers them.
-      const want = a.gait.reach * a.scale + 0.78;
-      const tx = pp.x + dx * want;
-      const tz = pp.z + dz * want;
-      if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4)) return;
-      // Three-quarters to the lens (r10: a hen facing the farmer showed the camera only its tail).
-      const cp = this.lensFor(pp, local);
-      const cx = cp.x - tx;
-      const cz = cp.z - tz;
-      const cl = Math.hypot(cx, cz) || 1;
-      const hx = -dx + (cx / cl) * 1.1;
-      const hz = -dz + (cz / cl) * 1.1;
-      a.easeTo(tx, tz, Math.atan2(hx, hz));
-      this.clearance(a, tx, tz, Math.atan2(hx, hz), pp, local, true);
-      this.petYaw = Math.atan2(tx - pp.x, tz - pp.z);
-      a.blissSide = (cx / cl) * dz - (cz / cl) * dx > 0 ? 1 : -1;
-      return;
-    }
-    // Tall stock (r11): the crown goes under the farmer's reaching hand (~0.62 m out along the line to
-    // the animal) and the animal stands side-on to that line — turned towards the lens, 20° past square
-    // so its muzzle ends ~0.85 m from the farmer's face instead of in it. Tried on the camera side first,
-    // then the far side; with no room it keeps its spot and only the farmer turns to its crown.
+    // r16 (the critic: "petting can't be seen" — every pose with the animal in front of / across the
+    // farmer put the big chibi head + hat over it): the animal stands BESIDE the farmer at the same
+    // depth (a touch towards the lens), side-on and turned ~30° to the camera, its head pointing AWAY
+    // from the farmer. The farmer strokes its back from the flank; the two never overlap on screen, the
+    // face reads in 3/4 and the heart rises over the head on the far side. Tried on the side the animal
+    // already stands on first; with no room on either side it keeps its spot and the farmer just turns.
     const cp = this.lensFor(pp, local);
-    const poll0 = a.pollPoint(this._lt2).clone();
-    const k = Math.max(0.2, Math.min(a.gait.reach * a.scale, (poll0.x - a.pos.x) * Math.sin(a.heading) + (poll0.z - a.pos.z) * Math.cos(a.heading)));
-    // The line runs to the crown, not the barrel: a repeat pat then lands on the same pose (measured to
-    // the root, each pat swung the animal a little further round the farmer).
-    {
-      const qx = poll0.x - pp.x;
-      const qz = poll0.z - pp.z;
-      const ql = Math.hypot(qx, qz);
-      if (ql > 0.2) {
-        dx = qx / ql;
-        dz = qz / ql;
-      }
-    }
-    // r14 (the critic's "kiss"): side by side at one depth the two heads met on screen however far
-    // apart they stood. Now the animal stands across the farmer's FRONT, between them and the lens, in
-    // profile turned ~25° to the camera; the crown lies ahead of the farmer and a little to the side the
-    // head points, so on screen the animal's face sits below and beside the farmer's (the farmer faces
-    // the camera, reaching down over its neck), and the body runs back to the side it already stood on.
-    {
-      const lx = cp.x - pp.x;
-      const lz = cp.z - pp.z;
-      const ll = Math.hypot(lx, lz);
-      if (ll > 0.5) {
-        const ux = lx / ll;
-        const uz = lz / ll;
-        // perp (pointing to the head side) = side · (-uz, ux); the body lies on the animal's current side.
-        const cur = -uz * (a.pos.x - pp.x) + ux * (a.pos.z - pp.z);
-        const r0 = a.gait.radius * a.scale;
-        // (≥ clearance()'s head gap too, or every repeat pat stepped the farmer back another notch)
-        const needH = (a.gait.headR ?? r0 * 0.6) * a.scale + 0.62;
-        const fwd = Math.max(0.72, r0 + 0.5, Math.sqrt(Math.max(0, needH * needH - 0.09)) + 0.04);
-        for (const side of cur > 0 ? [-1, 1] : [1, -1]) {
-          const qx = -uz * side;
-          const qz = ux * side;
-          let hx = qx + ux * 0.47;
-          let hz = qz + uz * 0.47;
-          const hl = Math.hypot(hx, hz);
-          hx /= hl;
-          hz /= hl;
-          const cx = pp.x + ux * fwd + qx * 0.3;
-          const cz = pp.z + uz * fwd + qz * 0.3;
-          const tx = cx - hx * k;
-          const tz = cz - hz * k;
-          if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4) || !a.walkable(cx, cz)) continue;
-          const ar = a.area;
-          if (a.confine && ar.x1 - ar.x0 < 0.3 && ar.z1 - ar.z0 < 0.3) a.area = { x0: tx - 0.05, z0: tz - 0.05, x1: tx + 0.05, z1: tz + 0.05 };
-          a.easeTo(tx, tz, Math.atan2(hx, hz));
-          this.clearance(a, tx, tz, Math.atan2(hx, hz), pp, local, true);
-          // (blissSide: the farmer is on the animal's local -x side when +1 — here local +x = side · lens)
-          a.blissSide = side;
-          this.petYaw = Math.atan2(cx - pp.x, cz - pp.z);
-          return;
-        }
-      }
-    }
-    const need = a.gait.radius * a.scale + 0.4;
-    // Crown distance along the line: at the hand (0.62 m) unless the barrel would then crowd the farmer
-    // (|s·u − k·h| ≥ need, with u·h = 0.34 for the 20° past-square heading).
-    const uh = 0.34;
-    const s0 = k * uh + Math.sqrt(Math.max(0, need * need - k * k * (1 - uh * uh)));
-    // (r13: never closer than the head's own radius + a farmer's half-width: at 0.62 m the chibi farmer's
-    // head and hat sat inside a goat's face)
-    const headMin = (a.gait.headR ?? 0.2) * a.scale + 0.64;
-    const reachOut = Math.max(0.62, headMin, Math.min(1.05, s0));
-    const px = pp.x + dx * reachOut;
-    const pz = pp.z + dz * reachOut;
-    // (r14: the body runs back towards the side the animal already stands on — the least walk, and the
-    // head never swings across the farmer)
-    const first = -dz * (a.pos.x - pp.x) + dx * (a.pos.z - pp.z) > 0 ? -1 : 1;
-    for (const side of [first, -first]) {
-      let hx = -dz * side + dx * 0.36;
-      let hz = dx * side + dz * 0.36;
+    let ux = cp.x - pp.x;
+    let uz = cp.z - pp.z;
+    const ul = Math.hypot(ux, uz) || 1;
+    ux /= ul;
+    uz /= ul;
+    const r0 = a.gait.radius * a.scale;
+    const L0 = a.gait.len * a.scale;
+    const cur = -uz * (a.pos.x - pp.x) + ux * (a.pos.z - pp.z);
+    for (const side of cur >= 0 ? [1, -1] : [-1, 1]) {
+      const qx = -uz * side;
+      const qz = ux * side;
+      // Heading: along the side axis, turned towards the lens (birds turn further: a hen side-on is a
+      // thin wedge from the high camera).
+      const turn = low ? 1.3 : 1.0;
+      let hx = qx + ux * turn;
+      let hz = qz + uz * turn;
       const hl = Math.hypot(hx, hz);
       hx /= hl;
       hz /= hl;
-      const tx = px - hx * k;
-      const tz = pz - hz * k;
-      if (Math.hypot(tx - pp.x, tz - pp.z) < need - 0.03) continue;
+      // The stroked spot (mid-back, a little towards the rump) sits at the farmer's hand: the farmer's
+      // half-width + the body radius + a hand's gap out to the side, a touch towards the lens.
+      const tBack = low ? 0 : 0.1;
+      // (gap: the rump end of the body axis — angled back towards the farmer — keeps the farmer's
+      // half-width + a hand clear; the eased ring round the farmer holds the same distance)
+      const hq = hx * qx + hz * qz;
+      // (birds a little further out: the heart over a hen beside the knee landed on the farmer's face)
+      const gap = Math.max(low ? 0.8 : 0.5, 0.36 + L0 * (1 + tBack) * hq);
+      const sx = pp.x + qx * (r0 + gap) + ux * 0.14;
+      const sz = pp.z + qz * (r0 + gap) + uz * 0.14;
+      // The capsule axis passes through that spot at tBack along the body.
+      const tx = sx - hx * L0 * tBack;
+      const tz = sz - hz * L0 * tBack;
       if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4)) continue;
+      const hx2 = tx + hx * (a.gait.reach * a.scale);
+      const hz2 = tz + hz * (a.gait.reach * a.scale);
+      if (!a.walkable(hx2, hz2)) continue;
       // A staged animal pinned to its spot (demo stills: a tiny confine box) carries its pin along.
+      // (r16: any pinned mark, confined or not — the pasture goat's demo pin pulled it back in front of
+      // the farmer as soon as the ease ended)
       const ar = a.area;
-      if (a.confine && ar.x1 - ar.x0 < 0.3 && ar.z1 - ar.z0 < 0.3) a.area = { x0: tx - 0.05, z0: tz - 0.05, x1: tx + 0.05, z1: tz + 0.05 };
-      a.easeTo(tx, tz, Math.atan2(hx, hz));
-      this.clearance(a, tx, tz, Math.atan2(hx, hz), pp, local, true);
-      // The farmer sits on the animal's left (local -x) when it faces the side-perpendicular +1.
-      a.blissSide = side;
-      this.petYaw = Math.atan2(px - pp.x, pz - pp.z);
+      if (ar.x1 - ar.x0 < 0.3 && ar.z1 - ar.z0 < 0.3) a.area = { x0: tx - 0.05, z0: tz - 0.05, x1: tx + 0.05, z1: tz + 0.05 };
+      const h = Math.atan2(hx, hz);
+      a.easeTo(tx, tz, h);
+      this.clearance(a, tx, tz, h, pp, local, true, true);
+      // (blissSide +1: the farmer on the animal's local -x side; local +x = (cos h, -sin h))
+      a.blissSide = Math.cos(h) * (pp.x - tx) - Math.sin(h) * (pp.z - tz) < 0 ? 1 : -1;
+      this.petBack = tBack;
+      // The farmer faces the stroked spot, eased a little towards the lens (3/4, never a back to the camera).
+      const fx = sx - pp.x + ux * 0.85;
+      const fz = sz - pp.z + uz * 0.85;
+      this.petYaw = Math.atan2(fx, fz);
       return;
     }
     this.clearance(a, a.pos.x, a.pos.z, a.heading, pp, local, true);
+    const poll0 = a.pollPoint(this._lt2);
     this.petYaw = Math.atan2(poll0.x - pp.x, poll0.z - pp.z);
   }
 
@@ -1580,7 +1561,7 @@ export class AnimalSystem implements System, AnimalsApi {
    * no torso, hat or hand is ever inside the animal. The local farmer steps back (walkable floor only);
    * failing that (or for a remote farmer, whose spot the host can't move) the animal eases away instead.
    */
-  private clearance(a: AnimalActor, x: number, z: number, h: number, pp: THREE.Vector3, local: boolean, mayMove: boolean): void {
+  private clearance(a: AnimalActor, x: number, z: number, h: number, pp: THREE.Vector3, local: boolean, mayMove: boolean, beside = false): void {
     const s = a.scale;
     const r = a.gait.radius * s;
     const L = a.gait.len * s;
@@ -1589,7 +1570,8 @@ export class AnimalSystem implements System, AnimalsApi {
     const cz = (a.gait.crown?.[1] ?? a.gait.reach * 0.7) * s;
     const headR = (a.gait.headR ?? r * 0.6) * s;
     const low = a.gait.top * s < 0.9;
-    const needB = r + (low ? 0.3 : 0.5);
+    // (r16 side-by-side staging: the farmer stands at the flank, a half-width + a hand off the body axis)
+    const needB = r + (low || beside ? 0.3 : 0.5);
     // (the farmer's chibi head is ~0.4 m across: its face must not touch the animal's)
     const needH = headR + (low ? 0.3 : 0.62);
     let ax = x;
@@ -1961,6 +1943,8 @@ export class AnimalSystem implements System, AnimalsApi {
   private petTarget: AnimalActor | null = null;
   /** Farmer yaw chosen by settleForPet (the animal stands beside the reaching hand, not in the face). */
   private petYaw: number | null = null;
+  /** r16: where the petting hand strokes (backPoint t), null = the crown (stall / perch / sleeper). */
+  private petBack: number | null = null;
   private _ik = new THREE.Vector3();
   private _ikQ = new THREE.Quaternion();
   private _ikQ2 = new THREE.Quaternion();
@@ -2055,7 +2039,17 @@ export class AnimalSystem implements System, AnimalsApi {
         if (tgt && this.live.some((l) => l.actor === tgt)) {
           // One-bone IK: aim the arm (hangs along -y) at the poll, stretch it (cartoon) to land the hand
           // there, a slow stroke along the neck on top.
-          const P = tgt.pollPoint(this._ik);
+          const P = this.petBack !== null ? tgt.backPoint(this.petBack, this._ik) : tgt.pollPoint(this._ik);
+          if (this.petBack !== null) {
+            // (the near side of the back, where a hand from the flank lands)
+            const fx = pl.position.x - P.x;
+            const fz = pl.position.z - P.z;
+            const fl = Math.hypot(fx, fz) || 1;
+            const rr = tgt.gait.radius * tgt.scale * 0.45;
+            P.x += (fx / fl) * rr;
+            P.z += (fz / fl) * rr;
+            P.y -= rr * 0.25;
+          }
           P.y += pat * 0.025;
           const par = rig.armR.parent!;
           par.updateWorldMatrix(true, false);
@@ -2066,7 +2060,7 @@ export class AnimalSystem implements System, AnimalsApi {
             this._ikQ.setFromUnitVectors(this._down, P);
             this._ikQ2.copy(rig.armR.quaternion);
             rig.armR.quaternion.slerpQuaternions(this._ikQ2, this._ikQ, e);
-            rig.armR.scale.y = THREE.MathUtils.lerp(1, THREE.MathUtils.clamp(len / 0.33, 0.85, 2.1), e);
+            rig.armR.scale.y = THREE.MathUtils.lerp(1, THREE.MathUtils.clamp(len / 0.33, 0.85, 2.4), e);
           }
         }
         return { sy: 1 - 0.2 * low * e, bob: -0.17 * low * e };
@@ -2623,7 +2617,7 @@ export class AnimalSystem implements System, AnimalsApi {
         // (r13 close-up: the herd spread over the pen instead of piling into the trough corner — the old
         // second sheep stood inside the drinking Holstein; the Jersey grazes the back middle, the second
         // sheep the open left, every body a clear gap of grass from the next)
-        cow: close ? [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [47.75, 36.95, -2.05]] : [[trough.x - 1.72, trough.z + 0.2, Math.PI / 2], [38.35, 39.55, 0.42]],
+        cow: close ? [[trough.x - 1.82, trough.z + 0.2, Math.PI / 2], [47.75, 36.95, -2.05]] : [[trough.x - 1.84, trough.z + 0.2, Math.PI / 2], [38.35, 39.55, 0.42]],
         // (r6: one sheep grazes out in the middle of the pen — the herd no longer hugs the fence)
         sheep: close ? [[44.2, 39.2, 0], [42.3, 39.75, 1.1]] : [[46.45, 37.35, 0.75], [44.2, 37.25, 0.3]],
         // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the
@@ -2671,6 +2665,9 @@ export class AnimalSystem implements System, AnimalsApi {
         const idx = (used[k] = (used[k] ?? -1) + 1);
         const s = spots[k]?.[idx];
         if (!close && grazing[k]?.includes(idx)) l.actor.hold = 'eat';
+        // (r16: the Holstein at the water trough drinks at the water line — a full grazing dip sank her
+        // muzzle through the trough's boards)
+        if (k === 'cow' && idx === 0) l.actor.dipK = 0.42;
         // Staged stills: nobody wanders up to the farmer mid-shot.
         l.actor.curious = false;
         if (s) {
@@ -3107,9 +3104,34 @@ function demoBale(): THREE.Object3D {
 
 function hayGeo(): THREE.BufferGeometry {
   if (!_hay) {
-    const g = prep(lumpySphere(0.2, 2, 0.35, new Rng('hay-portion')), 0xfff0c0);
-    g.scale(1.45, 0.8, 0.85);
-    _hay = g;
+    // r16 (critic: "lumpy hay blobs that look like sponges"): a low, loose heap — a flat matted core
+    // under ~70 crossing straw strands (thin 3-sided stalks, three straw tones, a few poking out over
+    // the rim) merged into one mesh, so neighbouring portions run together into one bed of hay.
+    const rng = new Rng('hay-portion');
+    const parts: THREE.BufferGeometry[] = [];
+    const core = prep(lumpySphere(0.2, 2, 0.28, rng), 0xe8d49a);
+    core.scale(1.5, 0.42, 0.8);
+    parts.push(core);
+    const tones = [0xfff0c0, 0xf0d890, 0xd8b86a];
+    for (let i = 0; i < 72; i++) {
+      const len = 0.16 + rng.next() * 0.2;
+      const st = new THREE.CylinderGeometry(0.0055, 0.0065, len, 3, 1);
+      // lie mostly flat, crossing every which way, the outer ones tipped up over the heap's edge
+      const a = rng.next() * Math.PI * 2;
+      const r = Math.sqrt(rng.next());
+      const x = Math.cos(a) * r * 0.28;
+      const z = Math.sin(a) * r * 0.15;
+      const y = 0.05 + (1 - r * r) * 0.05 + rng.next() * 0.025;
+      const m = new THREE.Matrix4().compose(
+        new THREE.Vector3(x, y, z),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2 - 0.35 * r * (rng.next() - 0.3), rng.next() * Math.PI * 2, (rng.next() - 0.5) * 0.5, 'YXZ')),
+        new THREE.Vector3(1, 1, 1),
+      );
+      st.applyMatrix4(m);
+      parts.push(prep(st, tones[i % 3]!));
+    }
+    _hay = mergeGeometries(parts)!;
+    for (const p of parts) p.dispose();
   }
   return _hay;
 }

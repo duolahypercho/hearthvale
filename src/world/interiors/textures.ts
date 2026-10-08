@@ -785,7 +785,9 @@ export function shaftGradient(): TexPair {
     const S = 128;
     const { color } = pixels(S, (u, v) => {
       const edge = smoothstep(0, 0.28, Math.min(u, 1 - u));
-      const fall = Math.pow(1 - v, 0.9) * smoothstep(0, 0.12, v);
+      // (r16: brightest just inside the window, thinning as it falls to the floor — the old ramp peaked
+      // at the floor end and the beams read as flat white fog columns standing on the boards)
+      const fall = (0.28 + 0.72 * Math.pow(v, 1.1)) * smoothstep(0, 0.3, v) * smoothstep(1, 0.9, v);
       const k = clamp(edge * fall) * 255;
       return { c: [k, k, k] as RGB };
     });

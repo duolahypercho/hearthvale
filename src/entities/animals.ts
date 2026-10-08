@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { buildAnimal, type Species, type Gait, type AnimalModel } from './animals-models';
+import { buildAnimal, buildCurl, type Species, type Gait, type AnimalModel } from './animals-models';
 import { RIG_DETAIL } from './animals-rig';
 import { heartSprite } from '../world/interiors/textures';
 import { textures } from '../render/textures';
@@ -69,6 +69,25 @@ function loTemplate(species: Species, variant: number): AnimalModel {
     loTemplates.set(key, t);
   }
   return t;
+}
+
+const curlTemplates = new Map<string, { mesh: THREE.SkinnedMesh; radius: number }>();
+let _curlAo: THREE.MeshBasicMaterial | null = null;
+function curlAoMat(): THREE.MeshBasicMaterial {
+  if (_curlAo) return _curlAo;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(20,10,6,0.62)');
+  gr.addColorStop(0.55, 'rgba(20,10,6,0.42)');
+  gr.addColorStop(1, 'rgba(20,10,6,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _curlAo = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false });
+  return _curlAo;
 }
 
 /** Personal space per species (m, world): capsules are padded to at least this radius when separating. */
@@ -126,6 +145,9 @@ export class AnimalActor {
   resting = false;
   restHold = false;
   private restRemote = false;
+  /** r16: how far the head dips to eat / drink (1 = graze the ground; a drinker at the trough stops at the
+   *  water line instead of sinking its muzzle through the boards). */
+  dipK = 1;
   /** Sit up on the roost bar (bedSpot, y > 0) by day too, awake. */
   perched = false;
   /** Where the farmer stands (set by the system each frame; animals step around them). */
@@ -236,8 +258,8 @@ export class AnimalActor {
       this.root.add(lo);
       this.lo = lo;
     }
-    this.mesh.visible = !far;
-    if (this.lo) this.lo.visible = far;
+    this.mesh.visible = !far && !this.curled;
+    if (this.lo) this.lo.visible = far && !this.curled;
   }
 
   place(x: number, z: number, heading = this.heading): void {
@@ -398,6 +420,19 @@ export class AnimalActor {
       return out;
     }
     return out.copy(this.pos).setY(this.pos.y + this.lift + this.gait.top * this.scale * (1 - this.sleepW * 0.3));
+  }
+
+  /** r16: a point on top of the back, `t` along the body capsule (-1 rump … 0 middle … +1 shoulder) — where
+   *  a petting hand strokes when the farmer stands beside the flank (follows the body bone's bob / breath). */
+  backPoint(t: number, out = new THREE.Vector3()): THREE.Vector3 {
+    const L = this.gait.len * this.scale * t;
+    const body = this.b.body;
+    let y = this.pos.y + this.lift + this.gait.top * this.scale * 0.55;
+    if (body) {
+      body.getWorldPosition(out);
+      y = out.y + this.gait.radius * this.scale * (this.gait.biped ? 0.85 : 0.95);
+    }
+    return out.set(this.pos.x + Math.sin(this.heading) * L, y, this.pos.z + Math.cos(this.heading) * L);
   }
 
   /** Body capsule in world XZ: segment a→b (along the heading) with radius r. */
@@ -653,9 +688,10 @@ export class AnimalActor {
       const dx = _cp.px - fx;
       const dz = _cp.pz - fz;
       const d = Math.hypot(dx, dz);
-      const soft = me.r + FARMER_SPACE;
+      // (r16: a petted animal stands at the farmer's hand, beside them — the full ring shoved it off)
+      const soft = me.r + (this.blissT > 0 ? 0.32 : FARMER_SPACE);
       if (d >= soft || d < 1e-4) return;
-      const hard = me.r + 0.45;
+      const hard = me.r + (this.blissT > 0 ? 0.26 : 0.45);
       const k = d < hard ? (hard - d) / d + Math.min(1, 10 * dt) * ((soft - hard) / d) : Math.min(1, 10 * dt) * ((soft - d) / d);
       this.nudge(dx * k, dz * k, me);
     };
@@ -719,6 +755,64 @@ export class AnimalActor {
     this.blissT = Math.max(0, this.blissT - dt);
     this.blissW = damp(this.blissW, this.blissT > 0 && this.state !== 'sleep' ? 1 : 0, this.blissT > 0 ? 7 : 4, dt);
     this.animate(dt, t);
+    this.updateCurl(t);
+  }
+
+  /** r16: pets curl up in their bed (a dedicated curled model, snapped to the cushion's centre). */
+  curlAt: { x: number; z: number; y: number; h: number } | null = null;
+  private curl: { mesh: THREE.SkinnedMesh; body: THREE.Bone | undefined; head: THREE.Bone | undefined; disc: THREE.Mesh } | null = null;
+  get curled(): boolean {
+    return !!this.curl?.mesh.visible;
+  }
+  private updateCurl(t: number): void {
+    const c = this.curlAt;
+    const on = !!c && (this.species === 'dog' || this.species === 'cat') && this.state === 'sleep' && !this.resting && this.sleepW > 0.35 && Math.hypot(c.x - this.pos.x, c.z - this.pos.z) < 0.5;
+    if (!on) {
+      if (this.curl?.mesh.visible) {
+        this.curl.mesh.visible = false;
+        this.curl.disc.visible = false;
+        this.mesh.visible = !this.far;
+        if (this.lo) this.lo.visible = this.far;
+      }
+      return;
+    }
+    if (!this.curl) {
+      const key = `${this.species}:${this.variant}`;
+      let tpl = curlTemplates.get(key);
+      if (!tpl) {
+        const b = buildCurl(this.species as 'dog' | 'cat', this.variant);
+        tpl = { mesh: b.mesh, radius: b.radius };
+        curlTemplates.set(key, tpl);
+      }
+      const mesh = cloneSkinned(tpl.mesh) as THREE.SkinnedMesh;
+      mesh.boundingSphere = tpl.mesh.boundingSphere?.clone() ?? null;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      let body: THREE.Bone | undefined;
+      let head: THREE.Bone | undefined;
+      mesh.traverse((o) => {
+        if (o.name === 'body') body = o as THREE.Bone;
+        if (o.name === 'head') head = o as THREE.Bone;
+      });
+      // Contact AO: a soft dark pool pressed into the cushion under the coil.
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(tpl.radius * 1.12, 28).rotateX(-Math.PI / 2), curlAoMat());
+      disc.position.y = 0.004;
+      disc.renderOrder = 1;
+      this.root.add(mesh, disc);
+      this.curl = { mesh, body, head, disc };
+    }
+    const k = this.curl;
+    // Snap onto the bed (the brain's last few cm of walking / the separation nudge never leave it adrift).
+    this.root.position.set(c!.x, this.heightAt(c!.x, c!.z) + c!.y, c!.z);
+    this.root.rotation.y = c!.h;
+    this.mesh.visible = false;
+    if (this.lo) this.lo.visible = false;
+    k.mesh.visible = true;
+    k.disc.visible = true;
+    // Slow, deep sleeping breaths (the flank rises; the head rides it), a dream-twitch of the ears now and then.
+    const br = Math.sin(t * 1.5 + this.seed);
+    k.body?.scale.set(1 + br * 0.012, 1 + br * 0.04, 1 + br * 0.012);
+    if (k.head) k.head.rotation.z = Math.sin(t * 0.4 + this.seed) * 0.02;
   }
 
   /** Move by (dx, dz) where walkable (slides along a blocked axis); keeps the capsule in sync. */
@@ -787,7 +881,7 @@ export class AnimalActor {
       const nib = g.biped ? Math.max(0, Math.sin(t * 9 + this.seed)) ** 6 * 0.5 : Math.sin(t * 7 + this.seed) * 0.06;
       // (r13: a stall animal eats from the raised manger — half the dip, so the muzzle shows over its lip
       // instead of folding the head into the chest)
-      head.rotation.x += (g.eatPitch * (this.stalled && !g.biped ? 0.5 : 1) + nib) * E;
+      head.rotation.x += (g.eatPitch * (this.stalled && !g.biped ? 0.5 : this.dipK) + nib) * E;
       // Ducks dabble with a level body (a steep tip read as a toppled bird from the high camera).
       if (g.biped) body.rotation.x += (this.species === 'duck' ? 0.14 : 0.24) * E;
       else body.rotation.x += 0.06 * E;
@@ -896,9 +990,11 @@ export class AnimalActor {
     const B = this.blissW;
     if (B > 0.01) {
       const rub = Math.sin(t * 5.5 + this.seed);
-      head.rotation.x -= (g.biped ? 0.28 : 0.52) * B;
-      head.rotation.z += this.blissSide * (0.26 + rub * 0.06) * B;
-      head.rotation.y -= this.blissSide * 0.14 * B;
+      // (r16: the farmer strokes the back from the flank — the head turns back over the shoulder towards
+      // them, which (with the body turned 45° to the lens) brings the shut-eyed face square to the camera)
+      head.rotation.x -= (g.biped ? 0.22 : 0.3) * B;
+      head.rotation.z += this.blissSide * (0.14 + rub * 0.05) * B;
+      head.rotation.y -= this.blissSide * (g.biped ? 0.45 : 0.28) * B;
       body.rotation.z += this.blissSide * 0.04 * B;
     }
 

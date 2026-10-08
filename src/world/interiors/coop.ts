@@ -559,10 +559,47 @@ export class CoopInterior extends InteriorMap {
         }
       }
     };
-    lane([[4.5, 6.0], [4.4, 4.9], [4.1, 3.6], [3.0, 2.0], [1.6, 1.0]], 0.62, 0.11);
-    lane([[4.4, 5.2], [3.2, 4.85], [2.0, 4.9]], 0.5, 0.09);
-    lane([[4.2, 3.4], [5.4, 2.6], [5.95, 2.0]], 0.5, 0.08);
-    lane([[4.6, 4.6], [5.9, 4.0], [6.6, 3.6]], 0.42, 0.07);
+    // r16 (critic: "an even mud-brown floor"): three straw tones first — broad soft drifts of bright
+    // golden straw and a few of older, tawny matted bedding, low-frequency so the floor reads as layered
+    // bedding, not one colour — then the lanes as LIGHTER scuffed straw (kicked-up, broken pale stalks)
+    // with only a faint packed-earth core.
+    for (let i = 0; i < 26; i++) {
+      const mx = 0.4 + r.next() * (W - 0.8);
+      const mz = 0.4 + r.next() * (D - 0.8);
+      const gold = r.next() < 0.62;
+      blob(mx, mz, 0.55 + r.next() * 0.75, gold ? '255,226,140' : '168,124,66', gold ? 0.2 : 0.14);
+    }
+    const scuff = (pts: [number, number][], wid: number, a: number): void => {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [x0, z0] = pts[i]!;
+        const [x1, z1] = pts[i + 1]!;
+        const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.08);
+        for (let j = 0; j < n; j++) {
+          const t = j / n;
+          const cx = x0 + (x1 - x0) * t + (r.next() - 0.5) * wid * 0.6;
+          const cz = z0 + (z1 - z0) * t + (r.next() - 0.5) * wid * 0.6;
+          blob(cx, cz, wid * (0.4 + r.next() * 0.3), '238,206,138', a * (0.6 + r.next() * 0.4));
+          // broken pale stalks scuffed along the lane
+          for (let q = 0; q < 3; q++) {
+            const sx = cx + (r.next() - 0.5) * wid;
+            const sz = cz + (r.next() - 0.5) * wid;
+            const ang = r.next() * Math.PI;
+            const len = (0.05 + r.next() * 0.08) * PX;
+            x.strokeStyle = r.next() < 0.5 ? 'rgba(255,240,200,0.55)' : 'rgba(214,180,110,0.5)';
+            x.lineWidth = 1.2;
+            x.beginPath();
+            x.moveTo(sx * PX - Math.cos(ang) * len * 0.5, sz * PX - Math.sin(ang) * len * 0.5);
+            x.lineTo(sx * PX + Math.cos(ang) * len * 0.5, sz * PX + Math.sin(ang) * len * 0.5);
+            x.stroke();
+          }
+        }
+      }
+    };
+    lane([[4.5, 6.0], [4.4, 4.9], [4.1, 3.6], [3.0, 2.0], [1.6, 1.0]], 0.3, 0.05);
+    scuff([[4.5, 6.0], [4.4, 4.9], [4.1, 3.6], [3.0, 2.0], [1.6, 1.0]], 0.62, 0.12);
+    scuff([[4.4, 5.2], [3.2, 4.85], [2.0, 4.9]], 0.5, 0.1);
+    scuff([[4.2, 3.4], [5.4, 2.6], [5.95, 2.0]], 0.5, 0.09);
+    scuff([[4.6, 4.6], [5.9, 4.0], [6.6, 3.6]], 0.42, 0.08);
     // Damp ring round the fount (darker, a little cooler) + splash flecks.
     blob(6.85, 3.5, 0.75, '58,44,34', 0.2);
     for (let i = 0; i < 10; i++) {
@@ -633,13 +670,35 @@ export class CoopInterior extends InteriorMap {
         for (const b of bumps) rim += Math.sin(th * b.f + b.a) * b.k;
         const grain = (vn(0, i / 255, j / 255) - 0.5) * 0.12 + (vn(1, ((i * 3) % 256) / 255, ((j * 3) % 256) / 255) - 0.5) * 0.05;
         const a = 1 - THREE.MathUtils.smoothstep(d, rim - 0.34, rim + 0.06 + grain);
-        // Pale sifted dust at the rim, a warmer, darker scooped hollow in the middle.
+        // r16 (critic: "grey alpha smear"): warm fine sand — a sandy base with per-pixel grains (dark
+        // grit, pale quartz flecks, a few rust-red specks) so it reads as sifted sand, scooped darker in
+        // the middle where the hens wallow, the grains scattered a little past the rim.
         const hollow = 1 - THREE.MathUtils.smoothstep(d, 0.05, 0.5);
+        const q = r.next();
+        let cr = 214 - hollow * 34 + grain * 120;
+        let cg = 184 - hollow * 32 + grain * 100;
+        let cb = 132 - hollow * 26 + grain * 70;
+        let aa = a * (0.92 + grain);
+        if (q < 0.09) {
+          cr *= 0.62;
+          cg *= 0.6;
+          cb *= 0.58;
+        } else if (q > 0.93) {
+          cr = 246;
+          cg = 236;
+          cb = 212;
+        } else if (q > 0.915) {
+          cr = 178;
+          cg = 106;
+          cb = 70;
+        }
+        // stray grains kicked out past the rim
+        if (aa < 0.05 && d < rim + 0.25 && q > 0.965) aa = 0.85;
         const o = (j * 256 + i) * 4;
-        img.data[o] = Math.round(176 - hollow * 40 + grain * 160);
-        img.data[o + 1] = Math.round(146 - hollow * 38 + grain * 140);
-        img.data[o + 2] = Math.round(104 - hollow * 30 + grain * 100);
-        img.data[o + 3] = Math.round(Math.max(0, Math.min(1, a * (0.9 + grain))) * 235);
+        img.data[o] = Math.round(Math.max(0, Math.min(255, cr)));
+        img.data[o + 1] = Math.round(Math.max(0, Math.min(255, cg)));
+        img.data[o + 2] = Math.round(Math.max(0, Math.min(255, cb)));
+        img.data[o + 3] = Math.round(Math.max(0, Math.min(1, aa)) * 235);
       }
     x.putImageData(img, 0, 0);
     const tex = new THREE.CanvasTexture(c);

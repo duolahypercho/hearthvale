@@ -288,20 +288,22 @@ function anatLeg(R: number, top: number, hoof: number, hind: boolean, thick = 1)
     ? [
         { p: [0, top + 0.07, 0.01], w: R * 1.2 * T, up: R * 1.2 * T, dn: R * 1.5 * T },
         { p: [0, y(0.9), 0.0], w: R * 1.25 * T, up: R * 1.25 * T, dn: R * 1.75 * T },
-        { p: [0, y(0.68), -R * 0.35], w: R * 0.98 * T, up: R * 0.9 * T, dn: R * 1.35 * T },
-        { p: [0, y(0.47), -R * 0.72], w: R * 0.8, up: R * 0.72, dn: R * 1.05 },
-        { p: [0, y(0.36), -R * 0.5], w: R * 0.7, up: R * 0.7, dn: R * 0.72 },
-        { p: [0, y(0.18), -R * 0.12], w: R * 0.66, up: R * 0.66, dn: R * 0.66 },
+        // (r16: a deeper gaskin + a pointed hock angled back, the cannon slimmer below it)
+        { p: [0, y(0.68), -R * 0.45], w: R * 1.0 * T, up: R * 0.92 * T, dn: R * 1.45 * T },
+        { p: [0, y(0.47), -R * 1.0], w: R * 0.78, up: R * 0.7, dn: R * 1.12 },
+        { p: [0, y(0.37), -R * 0.62], w: R * 0.62, up: R * 0.62, dn: R * 0.66 },
+        { p: [0, y(0.18), -R * 0.14], w: R * 0.6, up: R * 0.6, dn: R * 0.6 },
         { p: [0, y(0.07), 0], w: R * 0.84, up: R * 0.82, dn: R * 0.92 },
         { p: [0, hoof - 0.005, R * 0.04], w: R * 0.86, up: R * 0.88, dn: R * 0.84 },
       ]
     : [
-        { p: [0, top + 0.07, 0], w: R * 1.15 * T, up: R * 1.3 * T, dn: R * 1.25 * T },
-        { p: [0, y(0.86), 0], w: R * 1.18 * T, up: R * 1.34 * T, dn: R * 1.22 * T },
-        { p: [0, y(0.62), 0.005], w: R * 0.94, up: R * 1.0, dn: R * 0.92 },
-        { p: [0, y(0.48), R * 0.06], w: R * 0.9, up: R * 0.96, dn: R * 0.9 },
-        { p: [0, y(0.36), R * 0.03], w: R * 0.7, up: R * 0.7, dn: R * 0.72 },
-        { p: [0, y(0.18), 0], w: R * 0.66, up: R * 0.66, dn: R * 0.68 },
+        // (r16: a muscled forearm tapering into a knobbly knee, then a slim cannon — "straight sticks" before)
+        { p: [0, top + 0.07, 0], w: R * 1.22 * T, up: R * 1.4 * T, dn: R * 1.3 * T },
+        { p: [0, y(0.86), 0], w: R * 1.26 * T, up: R * 1.45 * T, dn: R * 1.3 * T },
+        { p: [0, y(0.64), 0.01], w: R * 0.88, up: R * 0.95, dn: R * 0.86 },
+        { p: [0, y(0.5), R * 0.12], w: R * 0.98, up: R * 1.05, dn: R * 0.95 },
+        { p: [0, y(0.4), R * 0.04], w: R * 0.64, up: R * 0.64, dn: R * 0.66 },
+        { p: [0, y(0.2), 0], w: R * 0.6, up: R * 0.6, dn: R * 0.62 },
         { p: [0, y(0.07), -R * 0.02], w: R * 0.84, up: R * 0.82, dn: R * 0.92 },
         { p: [0, hoof - 0.005, R * 0.04], w: R * 0.86, up: R * 0.88, dn: R * 0.84 },
       ];
@@ -429,6 +431,22 @@ function cow(variant: number): AnimalModel {
     4,
   );
   r.part('body', cowBody, null, base, { patch: spots, paint: shade });
+  // r16 neck + shoulder bridge (critic: "the head is a separate ball pushed into the body"): a thick
+  // crested neck bound to the HEAD bone, its root buried in the shoulders round the head pivot (so it
+  // never pulls out when the head dips to graze or turns), flaring into the back of the skull and the
+  // jowls — the head now grows out of the body instead of sitting on it. A dewlap keel underneath.
+  const neck = loft(
+    [
+      { p: [0, 0.83, 0.3], w: 0.2, up: 0.22, dn: 0.26, n: 2.1, nb: 1.7 },
+      { p: [0, 0.9, 0.41], w: 0.215, up: 0.235, dn: 0.3, n: 2.1, nb: 1.5 },
+      { p: [0, 0.97, 0.5], w: 0.215, up: 0.23, dn: 0.27, n: 2.1, nb: 1.55 },
+      { p: [0, 1.03, 0.58], w: 0.2, up: 0.2, dn: 0.2, n: 2.0, nb: 1.8 },
+      { p: [0, 1.07, 0.64], w: 0.12, up: 0.12, dn: 0.12 },
+    ],
+    32,
+    4,
+  );
+  r.part('head', neck, null, base, { patch: spots, paint: shade });
   // Udder + teats (tucked up under the flank between the hind legs)
   r.part('body', ellipsoid(0.15, 0.09, 0.16), mat(0, 0.4, -0.27), 0xf4b0aa);
   for (const [x, z] of [[-0.055, -0.22], [0.055, -0.22], [-0.055, -0.32], [0.055, -0.32]] as const) r.part('body', limb(0.02, 0.015, 0.36, 0.29, 8), mat(x, 0, z), 0xe8908c, { flat: true });
@@ -850,4 +868,185 @@ const BUILDERS: Record<Species, (v: number) => AnimalModel> = { chicken, duck, c
 
 export function buildAnimal(species: Species, variant = 0): AnimalModel {
   return BUILDERS[species](variant);
+}
+
+// ───────────────────────────────────────────── r16 curled sleeping pets
+
+/** A tube swept along a spine with horizontal side axes (no twist on curled, planar spines). */
+function curlTube(pts: { p: [number, number, number]; w: number; up: number; dn: number }[], ring = 20, sub = 4): THREE.BufferGeometry {
+  const N = pts.length;
+  const at = (i: number) => pts[Math.max(0, Math.min(N - 1, i))]!;
+  const R = Math.max(10, Math.round((ring * RIG_DETAIL.k) / 2) * 2);
+  const secs: { p: THREE.Vector3; w: number; up: number; dn: number }[] = [];
+  const crs = (a: number, b: number, c: number, d: number, t: number): number => {
+    const t2 = t * t;
+    return 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t2 * t);
+  };
+  for (let i = 0; i < N - 1; i++) {
+    for (let j = 0; j < (i === N - 2 ? sub + 1 : sub); j++) {
+      const t = j / sub;
+      const a = at(i - 1), b = at(i), c = at(i + 1), d = at(i + 2);
+      const f = (k: (s: (typeof pts)[number]) => number): number => crs(k(a), k(b), k(c), k(d), t);
+      secs.push({ p: new THREE.Vector3(f((s) => s.p[0]), f((s) => s.p[1]), f((s) => s.p[2])), w: Math.max(0.002, f((s) => s.w)), up: Math.max(0.002, f((s) => s.up)), dn: Math.max(0.002, f((s) => s.dn)) });
+    }
+  }
+  const M = secs.length;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const T = new THREE.Vector3();
+  const X = new THREE.Vector3();
+  const U = new THREE.Vector3();
+  const Y = new THREE.Vector3(0, 1, 0);
+  const frame = (i: number): void => {
+    T.subVectors(secs[Math.min(M - 1, i + 1)]!.p, secs[Math.max(0, i - 1)]!.p).normalize();
+    X.crossVectors(T, Y).normalize();
+    U.crossVectors(X, T).normalize();
+  };
+  frame(0);
+  const s0 = secs[0]!;
+  pos.push(s0.p.x - T.x * s0.w * 0.7, s0.p.y - T.y * s0.w * 0.7, s0.p.z - T.z * s0.w * 0.7);
+  for (let i = 0; i < M; i++) {
+    frame(i);
+    const s = secs[i]!;
+    for (let k = 0; k < R; k++) {
+      const th = (k / R) * Math.PI * 2;
+      const x = Math.cos(th) * s.w;
+      const sn = Math.sin(th);
+      const y = sn * (sn >= 0 ? s.up : s.dn);
+      pos.push(s.p.x + X.x * x + U.x * y, s.p.y + X.y * x + U.y * y, s.p.z + X.z * x + U.z * y);
+    }
+  }
+  frame(M - 1);
+  const sl = secs[M - 1]!;
+  pos.push(sl.p.x + T.x * sl.w * 0.7, sl.p.y + T.y * sl.w * 0.7, sl.p.z + T.z * sl.w * 0.7);
+  const end = 1 + M * R;
+  for (let k = 0; k < R; k++) idx.push(0, 1 + k, 1 + ((k + 1) % R));
+  for (let i = 0; i < M - 1; i++) {
+    const a0 = 1 + i * R;
+    const b0 = 1 + (i + 1) * R;
+    for (let k = 0; k < R; k++) {
+      const k1 = (k + 1) % R;
+      idx.push(a0 + k, b0 + k, a0 + k1);
+      idx.push(a0 + k1, b0 + k, b0 + k1);
+    }
+  }
+  const l0 = 1 + (M - 1) * R;
+  for (let k = 0; k < R; k++) idx.push(end, l0 + ((k + 1) % R), l0 + k);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * r16 (critic: "the sleeping dog floats half out of its bed with a squashed face"): a dedicated curled
+ * sleeping pose for the pets — the rigged standing model can't bend its one-bone spine. The body is a
+ * fat "C" coiled round the bed (haunch thick at the front-right, the shoulders coming round the back to
+ * the front-left), the head laid on the haunch with the chin on the front paws, eyes shut as little
+ * arcs, ears folded back, the tail wrapped round under the nose. Model space: floor at y = 0, the face
+ * looks along +z (towards the lens when the actor faces it). Bones: root → body (breathing) → head.
+ */
+export function buildCurl(species: 'dog' | 'cat', variant = 0): { mesh: THREE.SkinnedMesh; bones: Record<string, THREE.Bone>; radius: number } {
+  const dog = species === 'dog';
+  const r = new RigBuilder();
+  r.coat = 1;
+  const k = dog ? 1 : 0.78;
+  const collie = dog && variant === 1;
+  const grey = !dog && variant === 1;
+  const base = dog ? (collie ? 0x3a2e2a : 0xd88a3c) : grey ? 0x8a8a92 : 0xe89a4a;
+  const stripe = grey ? 0x55555e : 0xb8662a;
+  const cream = dog ? 0xf6ead4 : 0xf6ecde;
+  const R = 0.13 * k;
+  r.bone('body', 'root', [0, 0.1 * k, 0]);
+  // Spine: from the rump (front-right) back round the far side to the shoulders (front-left).
+  const spine: { p: [number, number, number]; w: number; up: number; dn: number }[] = [];
+  const a0 = 0.22 * Math.PI;
+  const a1 = -1.12 * Math.PI;
+  const n = 9;
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const th = a0 + (a1 - a0) * t;
+    // haunch (thick) → loin → ribs (thick) → neck (slim)
+    const w = (0.118 + 0.022 * Math.sin(Math.min(1, t * 1.6) * Math.PI) - 0.03 * Math.max(0, t - 0.75) * 4) * k;
+    const up = (0.105 + 0.02 * Math.sin(t * Math.PI)) * k;
+    spine.push({ p: [Math.cos(th) * R, 0.1 * k + 0.012 * Math.sin(t * Math.PI) * k, Math.sin(th) * R], w, up, dn: 0.092 * k });
+  }
+  const paint = (p: THREE.Vector3, nn: THREE.Vector3, c: THREE.Color): void => {
+    // Cream belly / inner curl (the side facing the ring's centre, low down); tabby stripes for the cat.
+    const inward = -(p.x * nn.x + p.z * nn.z) / Math.max(1e-4, Math.hypot(p.x, p.z));
+    if (inward > 0.35 && p.y < 0.12 * k) c.set(cream);
+    else if (!dog && nn.y > -0.1 && Math.sin(Math.atan2(p.z, p.x) * 9) > 0.45) c.set(stripe);
+  };
+  r.part('body', curlTube(spine, 22, 4), null, base, { paint });
+  // Haunch bulge over the hind leg, a folded hind paw peeking out at the front.
+  const hx = Math.cos(a0 + 0.12) * R;
+  const hz = Math.sin(a0 + 0.12) * R;
+  r.part('body', ellipsoid(0.105 * k, 0.09 * k, 0.1 * k), mat(hx + 0.035 * k, 0.12 * k, hz - 0.01 * k), base, { paint });
+  r.part('body', ellipsoid(0.04 * k, 0.03 * k, 0.055 * k), mat(hx + 0.07 * k, 0.03 * k, hz + 0.08 * k, 0, 0.5, 0), cream);
+  // Front paws reaching forward under the chin.
+  const nx = Math.cos(a1) * R;
+  const nz = Math.sin(a1) * R;
+  for (const s of [0, 1]) {
+    const px = nx + (0.06 + s * 0.075) * k;
+    const pz = nz + (0.09 + s * 0.015) * k;
+    r.part('body', capsuleZ(0.03 * k, 0.07 * k, 5, 10), mat(px, 0.03 * k, pz, 0, 0.35, 0), base);
+    r.part('body', ellipsoid(0.036 * k, 0.026 * k, 0.04 * k), mat(px + 0.02 * k, 0.026 * k, pz + 0.06 * k, 0, 0.35, 0), cream);
+  }
+  // Tail wrapped round the front under the nose.
+  const tail: { p: [number, number, number]; w: number; up: number; dn: number }[] = [];
+  for (let i = 0; i < 6; i++) {
+    const t = i / 5;
+    const th = a0 - 0.05 + t * 0.62 * Math.PI;
+    const rr = R + (0.075 + 0.03 * t) * k;
+    const w = (dog ? 0.05 - 0.012 * t : 0.028 - 0.006 * t) * k;
+    tail.push({ p: [Math.cos(th) * rr, (0.05 + 0.02 * Math.sin(t * Math.PI)) * k, Math.sin(th) * rr], w, up: w * 0.85, dn: w * 0.85 });
+  }
+  r.part('body', curlTube(tail, 12, 3), null, base, {
+    paint: (p, _n, c) => {
+      const th = Math.atan2(p.z, p.x);
+      if (dog && th > a0 + 0.45 * Math.PI) c.set(cream);
+      else if (!dog && Math.sin(th * 14) > 0.3) c.set(stripe);
+    },
+  });
+  // Head: laid on the haunch, chin on the paws, turned a little to the lens, a slight cosy roll.
+  const hc = new THREE.Vector3(nx + 0.13 * k, (dog ? 0.215 : 0.2) * k, nz + 0.17 * k);
+  r.bone('head', 'body', [hc.x, hc.y, hc.z]);
+  const H = new THREE.Matrix4().compose(hc, new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.14, 0.3, -0.14, 'YXZ')), new THREE.Vector3(k, k, k));
+  const hp = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: THREE.ColorRepresentation, o: Parameters<RigBuilder['part']>[4] = {}): void => {
+    r.part('head', geo, m.premultiply(H), tint, o);
+  };
+  if (dog) {
+    hp(ellipsoid(0.15, 0.128, 0.14), mat(0, 0, 0), base);
+    hp(ellipsoid(0.082, 0.062, 0.092), mat(0, -0.045, 0.115), cream);
+    for (const s of [-1, 1]) hp(ellipsoid(0.066, 0.055, 0.058), mat(s * 0.065, -0.035, 0.085), cream);
+    hp(ellipsoid(0.03, 0.022, 0.02, 10, 8), mat(0, -0.012, 0.205), 0x1a1412, { flat: true });
+    hp(ellipsoid(0.01, 0.007, 0.005, 6, 5), mat(-0.01, -0.002, 0.222), 0xffffff, { flat: true });
+    for (const s of [-1, 1]) {
+      // Ears folded back flat against the head.
+      const e = new THREE.ConeGeometry(0.052, 0.12, 8);
+      e.scale(1, 1, 0.5);
+      hp(e, mat(s * 0.085, 0.085, -0.045, -1.15, 0, -s * 0.45), base);
+    }
+  } else {
+    hp(ellipsoid(0.125, 0.105, 0.11), mat(0, 0, 0), base, { paint: (p, _n, c) => { if (p.y > hc.y + 0.05 * k && Math.sin(p.x * 60) > 0.4) c.set(stripe); } });
+    hp(ellipsoid(0.06, 0.042, 0.05), mat(0, -0.04, 0.085), cream);
+    hp(ellipsoid(0.014, 0.01, 0.008, 6, 5), mat(0, -0.022, 0.132), 0xe07a86, { flat: true });
+    for (const s of [-1, 1]) {
+      const e = new THREE.ConeGeometry(0.045, 0.085, 4);
+      e.scale(1, 1, 0.5);
+      hp(e, mat(s * 0.07, 0.1, -0.01, -0.35, 0, -s * 0.3), base);
+    }
+  }
+  // Eyes shut: two soft dark smile-arcs (︶), a pink blush under each.
+  const ey = dog ? 0.03 : 0.025;
+  const ez = dog ? 0.122 : 0.098;
+  const ex = dog ? 0.062 : 0.05;
+  for (const s of [-1, 1]) {
+    const arc = new THREE.TorusGeometry(dog ? 0.03 : 0.025, 0.0085, 5, 12, Math.PI);
+    hp(arc, mat(s * ex, ey + 0.012, ez, -0.25, s * 0.38, Math.PI), 0x221814, { flat: true });
+    hp(ellipsoid(0.024, 0.014, 0.008, 8, 6), mat(s * (ex + 0.022), ey - 0.03, ez - 0.012, 0, s * 0.6, 0), 0xff9a8a, { flat: true });
+  }
+  const { mesh, bones } = r.build(animalMaterial(), `${species}:curl`);
+  return { mesh, bones, radius: (R + 0.15 * k) };
 }

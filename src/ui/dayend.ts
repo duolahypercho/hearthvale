@@ -422,12 +422,17 @@ export class DayEndScreen extends Screen {
           const hungry = an.hungry
             ? `<small style="display:block;margin-top:5px;color:#b8321e;font-weight:800">${escapeHtml(an.hungryNames.slice(0, 3).join(', '))}${an.hungry > 3 ? ` +${an.hungry - 3}` : ''} went hungry — fill the trough</small>`
             : '';
-          const pet = an.pet ? `<small style="display:block;margin-top:3px;color:#8a6440;font-weight:700">${escapeHtml(an.pet.name)}’s bowl was ${an.pet.bowl ? 'full' : 'empty'}${an.pet.bowl ? ' ♥' : ''}</small>` : '';
+          const pet = an.pet ? `<small style="display:block;margin-top:3px;color:#8a6440;font-weight:700">${escapeHtml(an.pet.name)}’s bowl ${an.pet.bowl ? 'stayed full all day ♥' : 'ran dry'}</small>` : '';
           return `<div class="de-animals" style="margin-top:12px;padding:10px 12px;border-radius:14px;background:rgba(255,252,240,.72);box-shadow:inset 0 0 0 2px rgba(138,100,64,.2)">
             <div class="de-h" style="margin-bottom:4px">Animals</div>
             <div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;row-gap:5px;font-weight:800;font-size:13px;color:#8a6440;white-space:nowrap"><span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.produce.length}</b> ${an.leftover ? 'new' : 'produce'}</span>${an.leftover ? `<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.leftover}</b> in nests</span>` : ''}${gold ? `<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.petted}</b> petted</span></div>
             ${icons ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${icons}</div>` : ''}
-            ${gold ? `<small style="display:block;margin-top:5px;color:#8a6a1a;font-weight:800">★ Gold-star from ${escapeHtml([...new Set(an.produce.filter((p) => p.q >= 2 && p.from).map((p) => p.from!))].slice(0, 3).join(' & ') || 'the herd')} — well fed and well loved</small>` : ''}
+            ${gold ? (() => {
+              // (r16: the reason reads from the real inputs — "well loved" only when those animals were petted)
+              const who = [...new Set(an.produce.filter((p) => p.q >= 2 && p.from).map((p) => p.from!))].slice(0, 3);
+              const loved = who.length > 0 && who.every((n) => an.herd?.find((h) => h.name === n)?.petted);
+              return `<small style="display:block;margin-top:5px;color:#8a6a1a;font-weight:800">★ Gold-star from ${escapeHtml(who.join(' & ') || 'the herd')} — ${loved ? 'well fed and well loved' : 'well fed'}</small>`;
+            })() : ''}
             ${hungry}${pet}
             ${(() => {
               // (r11) Best of the day: the top-quality piece of produce and who made it (fills the card).

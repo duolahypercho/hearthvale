@@ -32,6 +32,8 @@ export interface WindowSpec {
   y0: number;
   y1: number;
   curtains?: number | null;
+  /** r16: this window's light-shaft strength (1 = the room's default). */
+  shaft?: number;
 }
 
 export interface RoomSpec {
@@ -155,6 +157,10 @@ export abstract class InteriorMap implements GameMap {
   protected coolFill = 0;
   /** Window shaft strength multiplier. */
   protected shaftK = 1;
+  /** r16: lamps come on early (0..1 floor on the lamp level from 14:30 → 17:00). */
+  protected lampEarly = 0;
+  /** This frame's lamp level (0 day … 1 night), for room updaters. */
+  protected lampK = 0;
   /** How much of the cool morning sky light this room takes (0..1). */
   protected morningCool = 0.6;
   /** This frame's cool-morning weight (computeLight). */
@@ -186,13 +192,14 @@ export abstract class InteriorMap implements GameMap {
     this.shaftMat = new THREE.ShaderMaterial({
       uniforms: { uMap: { value: shaftGradient().map }, uColor: { value: new THREE.Color() }, uTime: { value: 0 } },
       vertexShader: /* glsl */ `
-        varying vec2 vUv; varying vec3 vW; varying vec3 vN;
-        void main() { vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
+        attribute float aK;
+        varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vK;
+        void main() { vUv = uv; vK = aK; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D uMap; uniform vec3 uColor; uniform float uTime;
-        varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+        varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vK;
         void main() {
-          float a = texture2D(uMap, vUv).r;
+          float a = texture2D(uMap, vUv).r * vK;
           float n = 0.8 + 0.2 * sin(vW.x * 3.1 + vW.y * 2.3 + uTime * 0.6) * sin(vW.z * 2.7 - uTime * 0.4);
           // Faces seen edge-on fade out: the beam's silhouette is soft, never a hard-edged slab.
           float facing = abs(dot(normalize(vN), normalize(cameraPosition - vW)));
@@ -726,6 +733,7 @@ export abstract class InteriorMap implements GameMap {
       }
       const pos: number[] = [];
       const uv: number[] = [];
+      const kk: number[] = [];
       // 4 side faces of the prism window-quad → floor-quad (v: 1 at window, 0 at floor).
       for (let i = 0; i < 4; i++) {
         const a = corners[i]!;
@@ -737,11 +745,13 @@ export abstract class InteriorMap implements GameMap {
         quad.forEach((p, j) => {
           pos.push(p.x, p.y, p.z);
           uv.push(quv[j]![0]!, quv[j]![1]!);
+          kk.push(h.shaft ?? 1);
         });
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setAttribute('aK', new THREE.Float32BufferAttribute(kk, 1));
       g.computeVertexNormals();
       const mesh = new THREE.Mesh(g, this.shaftMat);
       mesh.renderOrder = 5;
@@ -831,7 +841,9 @@ export abstract class InteriorMap implements GameMap {
     this.rim.position.set(pp.x + 0.3, pp.y + 0.8, pp.z + 1.0);
     this.rim.intensity = L.night * 0.95;
     this.groundMat.color.setScalar(0.55 + 0.45 * L.day);
-    const lampK = Math.max(L.night, 1 - L.day * 1.05);
+    // (r16: dim rooms — the barn — light their lanterns from mid-afternoon)
+    const lampK = Math.max(L.night, 1 - L.day * 1.05, this.lampEarly * THREE.MathUtils.smoothstep(game.calendar.hour, 14.5, 17.0));
+    this.lampK = lampK;
     for (const l of this.lamps) {
       const base = THREE.MathUtils.lerp(l.day, l.night, THREE.MathUtils.clamp(lampK, 0, 1));
       const f = l.flicker ? 1 + l.flicker * (Math.sin(t * 13 + l.seed) * 0.35 + Math.sin(t * 7.3 + l.seed * 2) * 0.4 + Math.sin(t * 23.1 + l.seed) * 0.25) : 1;

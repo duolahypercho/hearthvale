@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { Rng } from '../../core/rng';
 import { InteriorMap } from './room';
+import { glowDisc } from './textures';
 import { Kit } from './kit';
 import { mat, roundedBox, lumpySphere } from '../geom';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -106,10 +107,14 @@ export class BarnInterior extends InteriorMap {
     // A lower 42° pitch: the stall row reads face-on (chins over the mangers), less bare floor.
     this.camera = { yaw: 0, pitch: 44, distance: 16.4, offsetX: 0, offsetZ: -0.2 };
     this.dayScale = 1.2;
-    this.sunPoolK = 0.25;
-    this.exposureBoost = 0.2;
-    this.coolFill = 0.62;
-    this.shaftK = 1.0;
+    // r16 (critic: "at 4:40 pm the dark back wall takes the top 40 % and the lanterns are dark — the barn
+    // isn't warm the way the coop is"): the lanterns light from mid-afternoon, a warm lamplight wash on
+    // the back wall over the stalls, a brighter sun pool where the window shaft lands, a less cool fill.
+    this.sunPoolK = 0.45;
+    this.exposureBoost = 0.24;
+    this.coolFill = 0.46;
+    this.shaftK = 1.1;
+    this.lampEarly = 0.62;
     const rng = new Rng('barn-interior');
     const slots: PenSlot[] = Array.from({ length: 6 }, (_, i) => {
       const x0 = i * SW;
@@ -230,6 +235,21 @@ export class BarnInterior extends InteriorMap {
       this.glowPool(x, z + 0.1, 1.7, 0xffa850, () => this.light.night * 0.09, 0.05);
     }
     this.statics.push(lk.build('barn-lanterns', false));
+    // r16: a warm lamplight wash on the back wall above the stall row (one additive quad): the lanterns'
+    // light catching the boards, so the upper wall glows honey instead of reading as dark red-brown.
+    {
+      const m = new THREE.MeshBasicMaterial({ map: glowDisc().map, color: 0xffb46a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      const wash = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.98, 2.6), m);
+      wash.position.set(W / 2, 2.35, 0.06);
+      wash.scale.set(1, 1, 1);
+      wash.renderOrder = 2;
+      wash.userData.noAO = true;
+      wash.userData.dynamic = true;
+      wash.name = 'barn-wall-wash';
+      this.root.add(wash);
+      const c0 = new THREE.Color(0xffb46a);
+      this.updaters.push(() => m.color.copy(c0).multiplyScalar(0.05 + 0.17 * this.lampK * (1 - this.dim)));
+    }
   }
 
   /** Six stalls: dividers, bedding, a manger + a half-door on each front, plaques, tack above. */

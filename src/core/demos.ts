@@ -200,16 +200,17 @@ export const DEMOS: Record<string, DemoDef> = {
   'audio-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
-  'house-interior': { map: 'house', x: 4.75, z: 6.25, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.2, offsetZ: -1.4 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 5.3, z: 6.35, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.2, offsetX: -0.05, offsetZ: -2.5 }, showcase: ['interior'] },
+  // (r16: the farmer just inside the door, the room the subject — the chibi mid-floor outsized the armchairs)
+  'house-interior': { map: 'house', x: 5.6, z: 7.15, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.8, offsetX: 0.9, offsetZ: -2.4 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 5.6, z: 7.15, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.8, offsetX: 0.9, offsetZ: -3.3 }, showcase: ['interior'] },
   // Bedtime: the "Go to bed for the night?" prompt beside the quilted bed / tucked in under the quilt, room dimmed, Zzz.
   'house-bedtime': { map: 'house', x: 9.6, z: 2.9, facing: 'right', time: 21.8, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-ask'] },
   'animals-dayend': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'animals', 'dayend'] },
   'house-asleep': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-lie'] },
-  'coop-interior': { map: 'coop', x: 5.65, z: 4.3, facing: 'left', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 11.0, offsetX: 0, offsetZ: 0.0 }, showcase: ['animals'] },
+  'coop-interior': { map: 'coop', x: 5.65, z: 4.3, facing: 'left', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 13.0, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals'] },
   // Morning egg round: the farmer lifts a gold-star egg overhead from the nesting boxes (&nest=0..5).
   'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals', 'eggs'] },
-  'barn-interior': { map: 'barn', x: 5.35, z: 4.85, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 46, distance: 16.2, offsetX: 1.15, offsetZ: -0.95 }, showcase: ['animals'] },
+  'barn-interior': { map: 'barn', x: 6.5, z: 5.5, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 46, distance: 16.2, offsetX: 0.0, offsetZ: -1.6 }, showcase: ['animals'] },
   'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 18.5, offsetX: 3.0, offsetZ: -2.6 }, showcase: ['animals'] },
   // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
   'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 18.5, offsetX: 3.0, offsetZ: -2.6 }, showcase: ['animals', 'coop'] },

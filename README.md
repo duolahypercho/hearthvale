@@ -1138,6 +1138,24 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   lean) and the mini-heart burst follows it. *Homeward* — a herd sent in (rain, evening) walks in two legs: a mark
   square in front of its gate, then the door, arriving within a body radius of it (they used to jam shoulder to
   shoulder short of the exact door spot, or stick on a prop on the straight line, for the rest of the day).
+- r16 (round 10 critic, 8.4): *Petting staging* — the animal stands BESIDE the farmer at the same depth (a touch
+  towards the lens), side-on and turned ~45° to the camera with its head pointing away; the farmer strokes its back
+  from the flank (arm IK on `AnimalActor.backPoint`) and turns 3/4 to the lens; the petted animal looks back over its
+  shoulder (shut eyes) so its face lands square to the camera. Stall animals: the farmer steps beside the manger, never
+  in front of the head. Same staging for a farmhand's pat (host side, the farmhand's lens). *Sleeping pets* — a
+  dedicated curled model (`buildCurl`: a "C" coil, haunch + tucked paws, chin on the paws, eyes shut as arcs, ears
+  folded, tail wrapped under the nose) snapped onto the bed cushion with a contact AO pool (`AnimalActor.curlAt`);
+  the pet bed 1.25x roomier and moved clear of the rocker. *Cows* — a crested neck bound to the head bone bridges the
+  head into the shoulders, knobbly knees + pointed hocks on every hoofed leg, cows 0.8x in the barn (straw shows both
+  sides), the trough drinker dips to the water line (`dipK`). *Framing* — coop lens 11 → 13 m, house farmer by the
+  door, barn farmer on the aisle partition line. *Barn warmth* — lanterns light from mid-afternoon (`lampEarly`), a
+  warm lamplight wash on the back wall, brighter sun pool, less cool fill. *House* — lit parchment floor-lamp shade +
+  its own warm lamp + a bigger pool, window shafts brightest at the window thinning to the floor (left window
+  0.5x via the new per-window `shaft`), a sewing basket + the dog's rope toy anchor the floor by the door runner.
+  *Coop* — three straw tones in soft drifts, pale scuffed lanes with broken stalks (not dark trodden earth), a sand
+  dust bath with grit / quartz grains, hay portions as a loose heap of ~70 crossing strands. *Day-end* — the gold-star
+  reason reads "well loved" only when those animals were petted; the bowl line / chore agree ("stayed full all day" →
+  "Top up …'s drained bowl", the bowl empties overnight).
 
 ## Co-op multiplayer (1–4 farmers)
 
