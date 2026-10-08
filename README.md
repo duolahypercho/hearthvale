@@ -357,9 +357,12 @@ adapts it to game events.
   the upright's body hums longer on long notes (tau 0.85 → up to 1.5 s), a waltz guitar's "pah" chords
   leave the low string to the bass (its E3–G3 strings and box thump sat 13–15 dB over the bass in
   50–220 Hz, then sagged into the downbeat), and a soft / bowed bass holds each jig dotted-quarter — bass
-  dips before downbeats over the 44 old themes 20 → see the round's render (summer-2 4 → ≤ 1, town-2 4 → 0,
-  festival-tide 5 → 0, forest-2 2 → 0, beach-2 1 → 0); `BASS-HOLE` now also flags any pattern whose low
-  end falls > 14 dB into a downbeat. Tenor string beds under Snowlight Lullaby / Firefly Meadow repeats,
+  dips before downbeats over every theme render 22 → 7, the worst 20.2 → 13.0 dB (summer-2 4 → 1, town-2
+  4 → 0, festival-tide 5 → 0, forest-2 2 → 0, beach-2 1 → 0); `BASS-HOLE` now also flags any pattern whose
+  low end falls > 14 dB into a downbeat. Full render `shots/audio-r8/final` (rev b879ce6): 113/113 jobs
+  clean, opening spread 0.6 LU, the new mine songs at -22.0 / -21.8 / -22.4 LUFS on the cave curve.
+  `--live` (real game): all checks green, the mine scene resolves its band playlist, 60 fps / p95 16.7 ms
+  with the audio system at 2.3 ms of main thread per second. Tenor string beds under Snowlight Lullaby / Firefly Meadow repeats,
   winter / Frostglass's tenor pads +3.5 dB, Lanterns on the Tide's harp lower + pad up, Glass Caverns' pad
   into the tenor, The Empty Chair's harp lifted off the cello. All themes recalibrated.
   Hear them: `?demo=audio-mine&floor=2&theme=mine-2`, `&floor=14&theme=mine-ice-2`, `&floor=24&theme=mine-lava-2`
