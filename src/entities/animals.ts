@@ -454,7 +454,7 @@ export class AnimalActor {
       }
       return;
     }
-    if (this.restHold && !this.sleeping && !this.hungry && this.blissT <= 0) {
+    if (this.restHold && !this.sleeping && this.blissT <= 0) {
       this.setState('sleep', 30);
       this.resting = true;
       return;
