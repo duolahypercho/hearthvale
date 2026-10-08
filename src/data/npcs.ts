@@ -224,7 +224,7 @@ export interface HeartEvent {
   insert?: { kind: string; word: string; caption: string }[];
   /** Extra actors spawned for the scene (e.g. Pip the shop cat): at [x, z], height above ground. */
   props?: {
-    kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks' | 'letter' | 'cage';
+    kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks' | 'letter' | 'cage' | 'rose';
     at: [number, number];
     y?: number;
     rot?: number;
@@ -2127,11 +2127,11 @@ const ARCS: Record<NpcId, { events: ArcEvent[]; keeps: Consequence[] }> = {
         hearts: 8,
         title: 'Fifty Years Tomorrow',
         hours: [10, 17],
-        stage: 'benchSE',
+        stage: 'benchSW',
         insert: [{ kind: 'invite', word: 'sunset|tomorrow', caption: 'The hall, at sunset — no speeches, just company' }],
         script: [
           { if: 'tobias.tea', say: 'tobias', text: 'Two sugars. You remembered. She always forgot the second one — on purpose, so I’d have something to grumble about.', mood: 'happy' },
-          { if: 'tobias.glad', say: 'tobias', text: 'You said you were glad I waited. I’ve been chewing that like a toffee. Glad. Fancy.', mood: 'blush' },
+          { if: 'tobias.glad', say: 'tobias', text: 'You said you were glad I waited. I’ve been chewing that like a toffee. Glad. Fancy.', mood: 'happy' },
           { say: 'tobias', text: 'Fifty years ago tomorrow I lit my first lamp. I’d like you at the hall at sunset. No speeches. Just company.', mood: 'thinking' },
           {
             choice: 'tobias',
@@ -2384,7 +2384,8 @@ const ARCS: Record<NpcId, { events: ArcEvent[]; keeps: Consequence[] }> = {
         title: 'The Rose Blooms',
         hours: [8, 17],
         dry: true,
-        stage: 'planters',
+        stage: 'hallDown',
+        props: [{ kind: 'rose', at: [0, 0], near: ['hazel', 0.95, -0.55], word: 'bloomed|rose' }],
         insert: [{ kind: 'bloom', word: 'bloomed|rose', caption: 'Rosalind’s rose, in bloom at last' }],
         script: [
           { say: 'hazel', text: 'Come here. Quickly — quietly. Look.', mood: 'surprised' },

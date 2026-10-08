@@ -85,7 +85,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
   // r9: town-day establishes the town (plaza edge, bakery, market row, Kettle Bridge, river) with the town at
   // work — `&live=1` runs it (walkers walk); `town-square` keeps the old plaza frame.
-  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -42, pitch: 31, distance: 32, offsetX: 11.5, offsetZ: 1.5 }, showcase: ['npcs'] },
+  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -42, pitch: 33, distance: 27, offsetX: 9.5, offsetZ: 1.2 }, showcase: ['npcs'] },
   'town-square': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
   // Town pod: co-op in the square, no server — Juniper chats with Bram, Pip gives Wren strawberries (host paths: talk lock, gift ledger, 'v.g').
   'town-coop': { map: 'town', x: 32.4, z: 28.2, facing: 'up', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 21, offsetX: -0.2, offsetZ: -4.2 }, showcase: ['npcs'] },

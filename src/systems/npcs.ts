@@ -213,17 +213,21 @@ const STAGES: Record<string, Mark[]> = {
     ['june', 39.3, 24.9, 60, 'chat', 'heart'],
     ['linus', 36.9, 27.3, -30, 'read'],
   ],
+  // r9: dusk as the town winds down, not a line-up — Tobias at the hall lantern with his back to us,
+  // Kit kicking his heels on the steps, a knot of four outside the bakery talking among themselves
+  // (profiles, one back), Marigold and Hazel heading home arm in arm, Linus crossing the foreground
+  // to the clinic road, Wren catching the lamplight at her easel.
   'town-evening': [
-    ['tobias', 33.3, 14.4, 180, 'idle'],
+    ['tobias', 33.6, 15.2, 170, 'idle', undefined, { free: true }],
     ['kit', 31.3, 14.1, 20, 'sit'],
-    ['marigold', 26.0, 22.0, 44, 'chat', 'heart'],
-    ['hazel', 27.9, 22.8, -58, 'chat'],
-    ['wren', 23.7, 25.9, -35, 'chat', 'music'],
-    ['bram', 42.3, 23.3, 55, 'chat', 'music'],
-    ['june', 44.0, 23.0, -50, 'chat'],
-    ['odessa', 36.0, 24.8, 50, 'chat'],
-    ['rowan', 37.9, 24.0, -34, 'chat', 'exclaim'],
-    ['linus', 21.8, 24.6, 35, 'read'],
+    ['bram', 41.4, 22.6, 70, 'chat', 'music', { free: true }],
+    ['june', 43.0, 22.2, -60, 'chat', undefined, { free: true }],
+    ['rowan', 42.6, 23.9, 175, 'chat', undefined, { free: true }],
+    ['odessa', 41.2, 24.1, 115, 'chat', undefined, { free: true }],
+    ['marigold', 26.2, 23.6, 0, 'idle', 'heart', { walk: [21.4, 21.4] }],
+    ['hazel', 27.1, 24.2, 0, 'idle', undefined, { walk: [22.0, 22.2] }],
+    ['linus', 30.2, 31.6, 0, 'idle', undefined, { walk: [33.4, 40.0] }],
+    ['wren', 25.0, 23.4, 75, 'paint'],
   ],
   // r5 hero: the river crossing — the market row, the painter at her easel on the west bank, two old
   // friends leaning on the stone bridge, a kid on the bank, the inn terrace and the forge yard beyond.
@@ -1926,8 +1930,8 @@ export class NpcSystem implements System {
     }
     this.clearEventProps();
     for (const pr of ev.props ?? []) {
-      if (pr.kind === 'ledger' || pr.kind === 'map' || pr.kind === 'sparks' || pr.kind === 'letter' || pr.kind === 'cage') {
-        const c = pr.kind === 'ledger' ? buildLedger() : pr.kind === 'map' ? buildKidMap() : pr.kind === 'letter' ? buildLetter() : pr.kind === 'cage' ? buildLanternCage() : buildSparks();
+      if (pr.kind === 'ledger' || pr.kind === 'map' || pr.kind === 'sparks' || pr.kind === 'letter' || pr.kind === 'cage' || pr.kind === 'rose') {
+        const c = pr.kind === 'ledger' ? buildLedger() : pr.kind === 'map' ? buildKidMap() : pr.kind === 'letter' ? buildLetter() : pr.kind === 'cage' ? buildLanternCage() : pr.kind === 'rose' ? buildRose() : buildSparks();
         c.userData.kind = pr.kind;
         c.userData.perfTag = 'npcs';
         const holder = pr.hold ? this.agents.get(pr.hold[0]) : undefined;

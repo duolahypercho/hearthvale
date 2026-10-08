@@ -145,7 +145,8 @@ const LOOK_AWAY = new Set<Mood>(['sad', 'blush', 'thinking']);
  * identities converge"). Each villager draws with their own iris-to-white ratio, lash / lid weight,
  * under-eye structure, a resting asymmetry, a mouth and lip shape (prim, wide, full, gap-toothed,
  * lopsided), age marks, a signature smudge and shoulder line — and only the marks they would make:
- * Odessa never cries on the card (her jaw sets), Tobias lowers his eyes, Bram sweats, Kit does all of it.
+ * Tobias and Bram never cry on the card (the jaw sets), Odessa's one tear is rare and earned, Bram sweats,
+ * Kit does all of it.
  */
 interface Persona {
   /** Iris size within the eye (1 = the chibi default). */
@@ -177,7 +178,7 @@ const PERSONA: Record<string, Persona> = {
   marigold: { iris: 0.82, eye: 0.94, lid: 1.05, under: 0.75, asym: 0.45, mouth: 'prim', lip: 0xb86a7a, crow: 1, browLines: 0.5, jowl: 0.35, cheekbone: 0, sh: 0.92, slump: 1, marks: ['sparkle', 'think', 'vein'] },
   bram: { iris: 0.86, eye: 0.96, lid: 1.35, under: 0.45, asym: -0.25, mouth: 'wide', crow: 0.7, browLines: 0.2, jowl: 0.65, cheekbone: 0, smudge: { c: 0xfaf4ea, at: 'cheekL', kind: 'flour' }, sh: 1.14, slump: 0, marks: ['burst', 'sweat'] },
   wren: { iris: 1.06, eye: 1, lid: 0.9, under: 0, asym: 0.5, mouth: 'soft', lip: 0xd8707a, crow: 0, browLines: 0, jowl: 0, cheekbone: 0, smudge: { c: 0x4a8ab8, at: 'cheekR', kind: 'paint' }, sh: 0.9, slump: 0, marks: ['tear', 'sparkle', 'think', 'burst'] },
-  odessa: { iris: 0.78, eye: 0.92, lid: 1.5, under: 0.3, asym: -0.35, mouth: 'full', lip: 0x7a3a34, crow: 0.2, browLines: 0, jowl: 0, cheekbone: 0.7, smudge: { c: 0x2a221e, at: 'cheekR', kind: 'soot' }, sh: 1.2, slump: -1, marks: ['sweat'] },
+  odessa: { iris: 0.78, eye: 0.92, lid: 1.5, under: 0.3, asym: -0.35, mouth: 'full', lip: 0x7a3a34, crow: 0.2, browLines: 0, jowl: 0, cheekbone: 0.7, smudge: { c: 0x2a221e, at: 'cheekR', kind: 'soot' }, sh: 1.2, slump: -1, marks: ['sweat', 'tear'] },
   linus: { iris: 0.8, eye: 0.93, lid: 1.1, under: 0.85, asym: 0.3, mouth: 'prim', lip: 0xa8645a, crow: 0.6, browLines: 0.45, jowl: 0, cheekbone: 0.45, sh: 0.88, slump: 2, marks: ['sweat', 'think'] },
   june: { iris: 0.94, eye: 0.98, lid: 1.25, under: 0.25, asym: -0.2, mouth: 'full', lip: 0xc8484a, crow: 0.35, browLines: 0, jowl: 0.1, cheekbone: 0.2, sh: 1.04, slump: 0, marks: ['tear', 'vein', 'sparkle'] },
   tobias: { iris: 0.74, eye: 0.92, lid: 1.55, under: 1, asym: 0.25, mouth: 'plain', crow: 1.2, browLines: 1, jowl: 0.5, cheekbone: 0.3, sh: 0.94, slump: 4, marks: ['think'] },

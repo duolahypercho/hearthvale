@@ -201,6 +201,8 @@ function pleat(g: THREE.BufferGeometry, n: number, depth: number): THREE.BufferG
  * head and hair masses still cover the figure (no AO of what stands behind it on their pixels, r8b).
  */
 const VILLAGER_AO_FULL = 14;
+/** Villagers whose sad face carries no tear (ui/portraits.ts Persona marks). */
+const DRY_EYED = new Set<string>(['bram', 'linus', 'marigold', 'tobias', 'rowan']);
 /** Lens distance (m) past which a villager draws its SEGK = 0.5 copy (`?vlod=<m>`, 0 = off). */
 const VILLAGER_LOD_D = ((): number => {
   try {
@@ -2390,6 +2392,8 @@ export class Villager {
     bR.scale.set(fk, fk * 1.1 - 0.1, fk);
     bL.position.y += L(0, lift);
     bR.position.y += L(0, lift + browAsym);
+    // (r9: only the villagers who would cry on the portrait cry here too — Odessa's jaw sets instead)
+    if (DRY_EYED.has(this.def.id)) tear = false;
     bn[B.tear]!.scale.setScalar(tear ? Math.max(0.0001, w * (1 + Math.sin(this.t * 2.2) * 0.06)) : 0.0001);
     bn[B.tear]!.position.y -= tear ? ((this.t * 0.02) % 0.03) : 0;
     bn[B.blush]!.scale.setScalar(blush ? Math.max(0.0001, w) : 0.0001);
