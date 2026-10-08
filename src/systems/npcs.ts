@@ -21,14 +21,15 @@ import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import type { Facing } from '../core/events';
-import { NPCS, NPC_IDS, pickGroup, heartEvent, seasonLook, type NpcId, type NpcLook, type NpcDef, type Activity, type Ask, type HeartEvent, type CutStep, type Place, type Who, type Emote } from '../data/npcs';
+import { NPCS, NPC_IDS, pickGroup, heartEvent, seasonLook, memoryBefore, choiceFlags, type NpcId, type NpcLook, type NpcDef, type Activity, type Ask, type HeartEvent, type CutStep, type Place, type Who, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
-import { Villager, auditPortraits, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL, dressFarmerWinter, buildLedger, buildLetter, buildKidMap, buildSparks, buildLanternCage } from '../entities/villager';
+import { Villager, auditPortraits, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL, dressFarmerWinter, buildLedger, buildLetter, buildKidMap, buildSparks, buildLanternCage, buildChair, buildPie, buildRose } from '../entities/villager';
 import { SPOTS, NEW_BUILDINGS, EXTRA_PROPS, FESTOON_POLES, BRIDGES } from '../world/town/layout';
 import { BUILDINGS, TOWN_PROPS } from '../data/town-layout';
 import type { Festoons } from '../world/town/festoons';
 import { itemIconUrl } from '../ui/icons';
 import { findPath, type Waypoint } from '../world/town/pathfind';
+import { repaintNotices } from '../world/town/notices';
 import { SocialPanel, PortraitSheetPanel } from '../ui/dialogue';
 import { setPortraitSeason, prewarmPortraits, auditPainted, portraitOpts } from '../ui/portraits';
 import { PRESET_LOOKS } from '../entities/remote-look';
@@ -208,6 +209,21 @@ const STAGES: Record<string, Mark[]> = {
     ['rowan', 73.8, 18.8, 200, 'saw'],
     ['odessa', 84.6, 19.5, 180, 'hammer'],
   ],
+  // r9 'town-memories': a farmer a year in — the square keeps what they shared. Marigold by the bench
+  // with the rhubarb pie, Kit at the board under his pinned map, Odessa by the lantern cage on the
+  // hall step, Hazel at Rosalind's rose, Rowan off the board reading his letter from Mum.
+  'town-memories': [
+    ['marigold', 23.9, 22.4, 35, 'idle', 'heart'],
+    ['hazel', 29.9, 17.2, -150, 'water', 'music'],
+    ['kit', 28.7, 21.5, -35, 'play', 'exclaim'],
+    ['tobias', 32.6, 19.6, -30, 'idle'],
+    ['wren', 21.8, 24.6, 50, 'read'],
+    ['rowan', 30.4, 22.3, -25, 'read'],
+    ['bram', 41.9, 20.8, -15, 'knead'],
+    ['odessa', 34.6, 16.4, 20, 'idle', 'idea'],
+    ['june', 39.3, 24.9, 60, 'chat'],
+    ['linus', 37.9, 25.2, -60, 'chat'],
+  ],
   // Meadow Lane mid-morning: the doctor sweeps his porch and chats with Marigold, Hazel waters the
   // allotment, Kit plays by the schoolyard swing, and by the picnic Wren sketches the lane while
   // retired Tobias keeps her company (r7: the innkeeper and the baker picnicking at 10:20 on a
@@ -310,6 +326,8 @@ export class NpcSystem implements System {
   private active = false;
   private talking: Agent | null = null;
   private staged = false;
+  /** Demo staging set the relationship memory from the URL (`&mem=`): events don't reseed it. */
+  private memStaged = false;
   private festival = false;
   private restage: string | null = null;
   private lastQuarter = -1;
@@ -445,6 +463,12 @@ export class NpcSystem implements System {
     });
     game.events.on('npc:gift-remote', ({ npcId, itemId, reaction, from }) => this.remoteGift(npcId as NpcId, itemId, reaction, from));
     game.events.on('net:ext', ({ from, data }) => this.netRecv(from, data));
+    game.events.on('relationship:memory', () => {
+      if (!this.active) return;
+      this.refreshKeepsakes();
+      // (a changed routine: everyone heads for the slot their memory now says, next quarter hour)
+      this.lastQuarter = -1;
+    });
     game.events.on('demo:stage', ({ name, showcase }) => {
       this.staged = showcase.includes('npcs');
       this.festival = showcase.includes('festival');
@@ -463,7 +487,7 @@ export class NpcSystem implements System {
     const birthday = rel?.isBirthday(id) ?? false;
     // Old friends (hearts earned through gifts / staging) are never met for the "first" time.
     const first = (rel?.talks(id) ?? 0) === 0 && (rel?.points(id) ?? 0) < 250;
-    const g = pickGroup(def, { first, season: c.season, weather: c.weather, hour: c.hour, hearts, birthday });
+    const g = pickGroup(def, { first, season: c.season, weather: c.weather, hour: c.hour, hearts, birthday, recalls: (f) => rel?.recalls(f) ?? false });
     // Rotate through the group's lines by talk count so repeat visits feel fresh.
     let lines = g?.lines ?? ['...'];
     const talks = rel?.talks(id) ?? 0;
@@ -1018,7 +1042,110 @@ export class NpcSystem implements System {
     this.keyLight.castShadow = false;
     map.root.add(this.keyLight, this.keyLight.target);
     this.placeAll();
+    this.refreshKeepsakes();
     if (this.staged) this.restage = this.restage ?? 'map';
+  }
+
+  // ───────────────────────────────────────────── keepsakes (r9: remembered choices left in the town)
+
+  private keepGroup: THREE.Group | null = null;
+  /** Keepsakes on show (tests / demos): label per flag. */
+  keepsakesShown: string[] = [];
+
+  /**
+   * The town remembers (host-authoritative: the host's memory; farmhands get it as r.hm): a rhubarb
+   * pie cooling on Marigold's bench, Pip asleep on the shop step, Wren's river painting drying by the
+   * water, the lantern cage on the hall step, Rowan's mended chair at the inn, Kit's map and the
+   * clinic's open-evening notice on the board, a second candle on the inn step, the rose in bloom.
+   */
+  private refreshKeepsakes(): void {
+    const map = this.game.world.current;
+    if (this.keepGroup) {
+      this.keepGroup.removeFromParent();
+      this.keepGroup.traverse((c) => {
+        const m = c as THREE.Mesh;
+        m.geometry?.dispose();
+        (m.material as THREE.Material | undefined)?.dispose();
+      });
+      this.keepGroup = null;
+    }
+    this.keepsakesShown = [];
+    const rel = this.game.services.relationships;
+    if (!this.active || !map || !rel) return;
+    // Memory notes pinned to the notice board (one repainted canvas: no extra draws).
+    const board = map.root.getObjectByName('notice-papers') as THREE.Mesh | undefined;
+    const notes = Object.values(NPCS).flatMap((d) => (d.keeps ?? []).filter((k) => k.keepsake?.kind === 'notice' && rel.townRecalls(k.flag)));
+    if (board) repaintNotices(board, notes.map((k) => k.flag));
+    for (const k of notes) this.keepsakesShown.push(`${k.flag}: ${k.keepsake!.label}`);
+    const g = new THREE.Group();
+    g.name = 'keepsakes';
+    g.userData.perfTag = 'npcs';
+    for (const def of Object.values(NPCS))
+      for (const k of def.keeps ?? []) {
+        const ks = k.keepsake;
+        if (!ks || ks.kind === 'notice' || !rel.townRecalls(k.flag)) continue;
+        const sp = this.spot(ks.spot);
+        if (!sp) continue;
+        let o: THREE.Object3D;
+        switch (ks.kind) {
+          case 'cat':
+            // (sitting up: curled, at plaza distance Pip read as a loaf on the step)
+            o = buildCat('sit');
+            o.scale.setScalar(1.3);
+            break;
+          case 'pie':
+            o = buildPie(false);
+            break;
+          case 'cake':
+            o = buildPie(true);
+            break;
+          case 'painting':
+            o = buildPainting();
+            o.scale.setScalar(1.1);
+            break;
+          case 'cage':
+            o = buildLanternCage();
+            o.scale.setScalar(1.3);
+            break;
+          case 'chair':
+            o = buildChair(0xa0703c);
+            break;
+          case 'candle':
+            o = buildCandle();
+            o.scale.setScalar(1.4);
+            break;
+          case 'rose':
+            o = buildRose();
+            break;
+          case 'letter': {
+            // pinned flat to the notice board's face
+            o = buildLetter(0x2f7a74);
+            const m = o.children[0];
+            if (m) m.rotation.set(0, 0, 0.06);
+            o.scale.setScalar(1.5);
+            break;
+          }
+          case 'map': {
+            o = buildKidMap();
+            o.rotation.x = Math.PI / 2;
+            o.scale.setScalar(0.42);
+            break;
+          }
+        }
+        const x = sp.x + (ks.dx ?? 0);
+        const z = sp.z + (ks.dz ?? 0);
+        const holder = new THREE.Group();
+        holder.add(o);
+        holder.position.set(x, map.heightAt(x, z) + (ks.y ?? 0), z);
+        holder.rotation.y = ks.rot ?? 0;
+        holder.userData.keepsake = k.flag;
+        o.traverse((c) => ((c as THREE.Mesh).isMesh ? ((c as THREE.Mesh).castShadow = ks.kind !== 'letter' && ks.kind !== 'map') : undefined));
+        g.add(holder);
+        this.keepsakesShown.push(`${k.flag}: ${ks.label}`);
+      }
+    if (!g.children.length) return;
+    this.keepGroup = g;
+    map.root.add(g);
   }
 
   // ───────────────────────────────────────────── seasonal wardrobe
@@ -1152,10 +1279,33 @@ export class NpcSystem implements System {
   private stepFor(a: Agent, hour: number): [number, string, Activity?] {
     const w = this.game.calendar.weather;
     const winter = this.game.calendar.season === 'winter';
-    const list = (w === 'rain' || w === 'storm') && a.def.rainSchedule ? a.def.rainSchedule : winter && a.def.winterSchedule ? a.def.winterSchedule : a.def.schedule;
+    let list = (w === 'rain' || w === 'storm') && a.def.rainSchedule ? a.def.rainSchedule : winter && a.def.winterSchedule ? a.def.winterSchedule : a.def.schedule;
+    if (list === a.def.schedule) list = this.routines(a, list);
     let cur = list[0]!;
     for (const s of list) if (hour >= s[0]) cur = s;
     return cur;
+  }
+
+  /**
+   * r9: remembered choices change routines on fair days (data `keeps[].routine`: Tobias takes his tea
+   * on Rosalind's bench at ten, Odessa does night rounds at the hall lantern, Linus goes fishing…).
+   * The slot replaces whatever the schedule had in [from, to); at `to` the regular entry resumes.
+   */
+  private routines(a: Agent, list: [number, string, Activity?][]): [number, string, Activity?][] {
+    const rel = this.game.services.relationships;
+    const keeps = a.def.keeps?.filter((k) => k.routine && rel?.townRecalls(k.flag));
+    if (!keeps?.length) return list;
+    let out = list.slice();
+    for (const k of keeps) {
+      const [h0, h1, spot, act] = k.routine!;
+      let resume = out[0]!;
+      for (const s of out) if (s[0] <= h1) resume = s;
+      out = out.filter((s) => s[0] < h0 || s[0] >= h1);
+      out.push([h0, spot, act]);
+      if (!out.some((s) => s[0] === h1)) out.push([h1, resume[1], resume[2]]);
+      out.sort((x, y) => x[0] - y[0]);
+    }
+    return out;
   }
 
   /** Put everyone where their schedule says right now (no walking). */
@@ -1246,9 +1396,33 @@ export class NpcSystem implements System {
 
   // ───────────────────────────────────────────── staging (demos)
 
+  /**
+   * Relationship memory for a demo (r9): `&mem=all` remembers every first answer of every scene,
+   * `&mem=alt` every second answer, `&mem=a.b,c.d` exactly those; 'town-memories' defaults to all.
+   * Without it, a heart-event demo seeds the answers before that scene (stageEvent).
+   */
+  private stageMemory(name: string): void {
+    const rel = this.game.services.relationships;
+    if (!rel || typeof location === 'undefined') return;
+    const q = new URLSearchParams(location.search).get('mem') ?? (name === 'town-memories' ? 'all' : null);
+    this.memStaged = q !== null;
+    if (q === null) return;
+    rel.forget();
+    if (q === 'all' || q === 'alt') {
+      for (const id of NPC_IDS)
+        for (const ev of NPCS[id].events)
+          for (const st of ev.script) {
+            if (!('choice' in st)) continue;
+            const o = st.options[q === 'alt' && st.options.length > 1 ? 1 : 0];
+            if (o?.flag) rel.remember(o.flag);
+          }
+    } else for (const f of q.split(',')) if (NPCS[f.split('.')[0] as NpcId] && choiceFlags(f.split('.')[0] as NpcId).includes(f)) rel.remember(f);
+  }
+
   private stage(name: string): void {
     const map = this.game.world.current;
     if (!map) return;
+    this.stageMemory(name);
     // Demos staged back to back in one page (critic batches): drop the previous demo's still —
     // a staged heart event (cast, props, letterbox, event lens) or a held conversation.
     if (!this.eventRunning && (this.camMode || [...this.agents.values()].some((a) => a.scripted))) {
@@ -3132,11 +3306,27 @@ export class NpcSystem implements System {
     return null;
   }
 
+  /** Memory-gated script step (`if` / `unless` flags, data/npcs.ts StepCond). */
+  private stepOn(s: CutStep): boolean {
+    if (!s.if && !s.unless) return true;
+    const rel = this.game.services.relationships;
+    if (s.if && !rel?.recalls(s.if)) return false;
+    if (s.unless && rel?.recalls(s.unless)) return false;
+    return true;
+  }
+
   stageEvent(id: string, step?: number): void {
     const he = heartEvent(id);
     if (!he || !this.active) return;
     const { npc, ev } = he;
     this.seedFor(npc.id, ev.hearts);
+    // Demo staging: the memory of a farmer who gave the earlier scenes' first answers (`&alt=1`: the
+    // second answers), so the 6 / 8 / 10-heart scenes quote the choices back.
+    const rel = this.game.services.relationships;
+    if (rel && step === undefined && !this.memStaged) {
+      const alt = typeof location !== 'undefined' && new URLSearchParams(location.search).get('alt') === '1';
+      for (const f of memoryBefore(id, alt)) rel.remember(f);
+    }
     // Morning events stage at mid-morning (clear of the dawn haze) unless they pin a time.
     const [h0, h1] = ev.hours;
     this.game.calendar.setHour(ev.demoTime ?? (h0 < 10 && h1 > 10.5 ? 10.5 : h0 + 0.5));
@@ -3147,7 +3337,9 @@ export class NpcSystem implements System {
     this.frame(ev);
     this.game.input.enabled = false;
     this.game.player.controllable = false;
-    let mark = step ?? ev.script.findIndex((s) => 'choice' in s);
+    // (a scene that remembers an earlier answer stages that line: the consequence is the point of it)
+    const memLine = ev.script.findIndex((s) => !!s.if && 'say' in s && this.stepOn(s));
+    let mark = step ?? (memLine >= 0 ? memLine : ev.script.findIndex((s) => 'choice' in s));
     if (mark < 0) mark = ev.script.findIndex((s) => 'say' in s);
     mark = Math.max(0, Math.min(ev.script.length - 1, mark));
     // A still of a silent beat (a turn, an emote, a wait) reads as a broken scene: stage the next line.
@@ -3157,6 +3349,7 @@ export class NpcSystem implements System {
       if (nx >= 0) mark = nx;
     }
     for (let i = 0; i < mark; i++) {
+      if (!this.stepOn(ev.script[i]!)) continue;
       this.applyInstant(ev.script[i]!);
       if ('say' in ev.script[i]!) this.lineNo++;
       if ('cam' in ev.script[i]!) this.shotFor(ev, i);
@@ -3217,6 +3410,8 @@ export class NpcSystem implements System {
     let boxOpen = false;
     for (let i = 0; i < ev.script.length; i++) {
       const s = ev.script[i]!;
+      // r9 memory: a step that quotes an earlier answer plays only for the farmer who gave it.
+      if (!this.stepOn(s)) continue;
       const talky = 'say' in s || 'choice' in s || 'narrate' in s;
       if (!talky && boxOpen && !('emote' in s)) {
         box?.end();
@@ -3237,7 +3432,7 @@ export class NpcSystem implements System {
         const k = (await box?.choose(s.choice, s.q, s.options.map((o) => o.text), 'thinking')) ?? 0;
         this.eventNet(['v.c', id, i, k]);
         const opt = s.options[k]!;
-        this.game.events.emit('npc:choice', { npcId: s.choice, delta: opt.delta });
+        this.game.events.emit('npc:choice', { npcId: s.choice, delta: opt.delta, flag: opt.flag });
         if (opt.mood === 'blush' || opt.mood === 'sad') this.shot = { kind: 'close', speaker: s.choice, anchor: null };
         await box?.say(s.choice, opt.reply, opt.mood ?? 'happy');
       } else if ('walk' in s) await this.walkActor(s.walk, s.to, s.face, s.run);
@@ -3912,6 +4107,8 @@ export class NpcSystem implements System {
         const k = THREE.MathUtils.smoothstep(d, 15, 25);
         v.faceLod = 1 + 0.18 * k;
       }
+      // Mesh LOD (r9, pillar 14): half-segment copy past ~19 m of lens.
+      v.lodFor(camP);
       // Staged talkers / idlers keep at least a profile to the lens (the demo's lens may land after the marks).
       if (a.staged && !a.scripted && (a.activity === 'chat' || a.activity === 'idle') && !v.isMoving) {
         const ty = (v as unknown as { targetYaw: number }).targetYaw;
@@ -4305,7 +4502,11 @@ export class NpcSystem implements System {
 
   /** Street chatter for the season (winter has its own lines: cocoa, ice, mittens). */
   private barksOf(a: Agent): string[] | undefined {
-    return (this.game.calendar.season === 'winter' && a.def.winterBarks) || a.def.barks;
+    const base = (this.game.calendar.season === 'winter' && a.def.winterBarks) || a.def.barks;
+    // r9: remembered choices come first — the street hears what the farmer and the villager share.
+    const rel = this.game.services.relationships;
+    const mem = rel ? (a.def.keeps ?? []).filter((k) => k.barks && rel.townRecalls(k.flag)).flatMap((k) => k.barks!) : [];
+    return mem.length ? [...mem, ...(base ?? [])] : base;
   }
 
   /**
@@ -4623,7 +4824,8 @@ export class NpcSystem implements System {
       if (data[1] && he) {
         this.spectating = id;
         const n = he.npc.name;
-        box.cinema(true, he.ev.title, `${n.startsWith('Dr. ') ? `Dr. ${n.split(' ').pop()}` : n.split(' ')[0]} · ${he.ev.hearts} hearts`);
+        // (r9: the "watching" chip folds into the title card — one place says whose scene this is)
+        box.cinema(true, he.ev.title, `${n.startsWith('Dr. ') ? `Dr. ${n.split(' ').pop()}` : n.split(' ')[0]} · ${he.ev.hearts} hearts · ${String(data[4] ?? 'Host')}’s scene`);
         // The heart row shows the host's friendship with the scene's villager (it is their scene).
         const pts = Number(data[3]);
         if (Number.isFinite(pts)) box.spectatorHearts?.(he.npc.id, pts, String(data[4] ?? 'Host'));

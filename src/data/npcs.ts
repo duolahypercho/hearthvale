@@ -156,6 +156,8 @@ export interface DialogueGroup {
   hours?: [number, number];
   /** Minimum hearts for this group. */
   minHearts?: number;
+  /** Only once the farmer's relationship memory holds this flag (r9 consequences). */
+  flag?: string;
   lines: string[];
   /** Optional question with choices after the lines. */
   ask?: Ask;
@@ -164,7 +166,25 @@ export interface DialogueGroup {
 export type Who = NpcId | 'player';
 export type Place = string | [number, number];
 
-export type CutStep =
+/**
+ * Memory (r9): a step that only plays when the farmer's relationship memory holds (`if`) or lacks
+ * (`unless`) a flag — the choices of earlier heart events echo through later scenes.
+ */
+export interface StepCond {
+  if?: string;
+  unless?: string;
+}
+
+/** A dialogue / event choice: friendship delta plus the memory flag it leaves (`<npc>.<word>`). */
+export interface ChoiceOpt {
+  text: string;
+  reply: string;
+  mood?: Mood;
+  delta: number;
+  flag?: string;
+}
+
+export type CutStep = (
   | { say: NpcId; text: string; mood?: Mood }
   | { narrate: string }
   | { walk: Who; to: Place; face?: Facing | Who; run?: boolean }
@@ -174,7 +194,9 @@ export type CutStep =
   | { wait: number }
   | { cam: { x: number; z: number; yaw?: number; pitch?: number; distance?: number } }
   | { fade: 'out' | 'in' }
-  | { choice: NpcId; q?: string; options: { text: string; reply: string; mood?: Mood; delta: number }[] };
+  | { choice: NpcId; q?: string; options: ChoiceOpt[] }
+) &
+  StepCond;
 
 export interface HeartEvent {
   id: string;
@@ -250,7 +272,27 @@ export interface NpcDef {
   wardrobe?: Partial<Record<Season, Partial<NpcLook>>>;
   /** Winter days: fewer outdoor idlers, more time by the inn fire / indoors. */
   winterSchedule?: [number, string, Activity?][];
+  /** What the villager carries forward from the farmer's choices (r9; see `Consequence`). */
+  keeps?: Consequence[];
 }
+
+/**
+ * A lasting consequence of a remembered choice (r9 critic: "choices collapse to immediate point
+ * deltas"): new street chatter, a changed routine, a talk line, a keepsake left in the town.
+ */
+export interface Consequence {
+  flag: string;
+  /** Street chatter, said before the everyday barks. */
+  barks?: string[];
+  /** A changed routine on fair days: [from hour, to hour, spot, activity]. */
+  routine?: [number, number, string, Activity];
+  /** A talk line (its own dialogue group, between these hours). */
+  line?: string;
+  hours?: [number, number];
+  /** A thing left in the town: a builder kind at a spot (+ offset, height, yaw). */
+  keepsake?: { kind: KeepsakeKind; spot: string; dx?: number; dz?: number; y?: number; rot?: number; label: string };
+}
+export type KeepsakeKind = 'cat' | 'pie' | 'painting' | 'cage' | 'letter' | 'chair' | 'candle' | 'map' | 'rose' | 'cake' | 'notice';
 
 const W = (speed: number, stride: number, bounce: number, sway: number, hunch: number, arms: number, skip = false): WalkStyle => ({ speed, stride, bounce, sway, hunch, arms, skip });
 
@@ -1494,6 +1536,920 @@ export function heartEvent(id: string): { npc: NpcDef; ev: HeartEvent } | null {
   return null;
 }
 
+// ───────────────────────────────────────────── r9: long-form arcs (memory, 6 / 8 / 10 hearts)
+/**
+ * r9 critic: "relationship choices collapse to immediate point deltas, the arcs end at two and four
+ * hearts". Every heart-event choice now leaves a memory flag (`<npc>.<word>`, kept per farmer by
+ * systems/relationships.ts, host-authoritative in co-op); the six-, eight- and ten-heart scenes below
+ * quote those choices back (`if` / `unless` steps), the eight-heart scenes are invitations, and each
+ * villager's `keeps` turn remembered choices into new barks, routines, talk lines and keepsakes left
+ * in the town (systems/npcs.ts). Stagings reuse the audited marks / lenses of the earlier scenes.
+ */
+interface Stage {
+  at: Place;
+  face: Facing;
+  player: [Place, Facing];
+  camera: HeartEvent['camera'];
+  sit?: boolean;
+}
+const STAGE: Record<string, Stage> = {
+  store: { at: 'store_front', face: 'down', player: [[24.4, 22.4], 'left'], camera: { x: 22.6, z: 21.4, yaw: -6, pitch: 42, distance: 15 } },
+  benchSW: { at: 'bench_sw', face: 'up', player: [[28.9, 27.7], 'left'], camera: { x: 27.9, z: 28.5, yaw: 155, pitch: 40, distance: 14 }, sit: true },
+  fountainS: { at: 'fountain_s', face: 'up', player: [[33.9, 28.8], 'left'], camera: { x: 32.4, z: 24.6, yaw: 0, pitch: 40, distance: 18 } },
+  bakery: { at: 'bakery_front', face: 'down', player: [[40.6, 22.4], 'right'], camera: { x: 42.4, z: 21.4, yaw: 4, pitch: 42, distance: 14 } },
+  hallUp: { at: 'hall_steps', face: 'up', player: [[33.6, 17.6], 'up'], camera: { x: 32.4, z: 15.2, yaw: 0, pitch: 38, distance: 16 } },
+  hallDown: { at: 'hall_steps', face: 'down', player: [[33.6, 17.3], 'left'], camera: { x: 32.4, z: 15.8, yaw: 0, pitch: 40, distance: 14 } },
+  bridge: { at: 'bridge_mid', face: 'down', player: [[62.2, 26.4], 'right'], camera: { x: 63.6, z: 25.6, yaw: 4, pitch: 38, distance: 14 } },
+  easel: { at: 'easel_river', face: 'right', player: [[59.15, 20.3], 'right'], camera: { x: 61.2, z: 23.4, yaw: 40, pitch: 40, distance: 15 } },
+  forge: { at: 'forge_anvil', face: 'up', player: [[84.2, 22.2], 'up'], camera: { x: 83.6, z: 19.8, yaw: -8, pitch: 42, distance: 14 } },
+  lantern: { at: [33.6, 14.6], face: 'left', player: [[31.0, 16.2], 'up'], camera: { x: 32.4, z: 13.8, yaw: 6, pitch: 36, distance: 15 } },
+  lamp: { at: [33.5, 14.7], face: 'left', player: [[30.6, 16.4], 'up'], camera: { x: 32.0, z: 14.8, yaw: -4, pitch: 38, distance: 15 } },
+  riverWalk: { at: 'river_walk', face: 'right', player: [[57.4, 31.6], 'right'], camera: { x: 59.0, z: 31.4, yaw: -4, pitch: 38, distance: 14 } },
+  benchSE: { at: 'bench_se', face: 'down', player: [[35.2, 31.2], 'up'], camera: { x: 36.0, z: 29.8, yaw: 26, pitch: 38, distance: 13 }, sit: true },
+  innNight: { at: [81.8, 30.4], face: 'up', player: [[79.4, 28.4], 'right'], camera: { x: 80.6, z: 29.6, yaw: 168, pitch: 42, distance: 12 } },
+  dock: { at: 'river_dock', face: 'right', player: [[57.6, 35.6], 'right'], camera: { x: 59.4, z: 35.4, yaw: -6, pitch: 40, distance: 13 } },
+  yard: { at: 'lumber_yard', face: 'up', player: [[88.4, 47.3], 'left'], camera: { x: 86.0, z: 46.4, yaw: -6, pitch: 40, distance: 14 } },
+  planters: { at: [28.9, 16.4], face: 'up', player: [[30.7, 17.0], 'left'], camera: { x: 30.6, z: 14.8, yaw: -6, pitch: 40, distance: 13 } },
+  checkup: { at: [35.05, 28.95], face: 'right', player: [[34.5, 30.8], 'right'], camera: { x: 36.0, z: 28.9, yaw: -160, pitch: 40, distance: 15 } },
+  innFront: { at: 'inn_front', face: 'down', player: [[81.4, 27.4], 'down'], camera: { x: 79.4, z: 28.4, yaw: 180, pitch: 48, distance: 15 } },
+  garden: { at: 'garden_east', face: 'up', player: [[47.0, 38.0], 'right'], camera: { x: 48.0, z: 36.4, yaw: 4, pitch: 40, distance: 13 } },
+};
+
+type ArcEvent = Omit<HeartEvent, 'cast' | 'camera'> & { stage: string; extra?: HeartEvent['cast'] };
+
+function arc(npc: NpcId, e: ArcEvent): HeartEvent {
+  const st = STAGE[e.stage]!;
+  const { stage: _s, extra, ...rest } = e;
+  const script = st.sit ? [{ act: npc, activity: 'sit' } as CutStep, { wait: 0.6 } as CutStep, ...rest.script] : rest.script;
+  return { ...rest, script, cast: { [npc]: [st.at, st.face], player: st.player, ...(extra ?? {}) }, camera: st.camera };
+}
+
+/** Memory flags on the earlier scenes' answers, in option order. */
+const OPTION_FLAGS: Record<string, string[]> = {
+  'marigold-2': ['family', 'passing'],
+  'marigold-4': ['pie', 'keep'],
+  'bram-2': ['help', 'sleep'],
+  'bram-4': ['sing', 'promise'],
+  'wren-2': ['feels', 'soup'],
+  'wren-4': ['run', 'window'],
+  'odessa-2': ['squeak', 'why'],
+  'odessa-4': ['withyou', 'proud'],
+  'linus-2': ['orders', 'side'],
+  'linus-4': ['burn', 'keep'],
+  'june-2': ['fix', 'sit'],
+  'june-4': ['follow', 'small'],
+  'tobias-2': ['strike', 'see'],
+  'tobias-4': ['glad', 'tea'],
+  'kit-2': ['still', 'splash'],
+  'kit-4': ['partners', 'tobias'],
+  'rowan-2': ['brother', 'double'],
+  'rowan-4': ['home', 'ask'],
+  'hazel-2': ['waiting', 'fert'],
+  'hazel-4': ['together', 'care'],
+};
+
+const ARCS: Record<NpcId, { events: ArcEvent[]; keeps: Consequence[] }> = {
+  marigold: {
+    events: [
+      {
+        id: 'marigold-6',
+        hearts: 6,
+        title: 'The Last Page',
+        hours: [9, 17],
+        dry: true,
+        stage: 'store',
+        props: [{ kind: 'ledger', at: [0, 0], hold: ['marigold', 'chest'], word: 'page' }],
+        insert: [{ kind: 'ledger', word: 'page|underlined', caption: 'Your page — “one rhubarb pie, owed”' }],
+        script: [
+          { say: 'marigold', text: 'There you are. I’ve been minding your page — the one left at the back of Rosalind’s tab.', mood: 'happy' },
+          { if: 'marigold.pie', say: 'marigold', text: '“One rhubarb pie, owed by the farmer.” I underlined it twice. Pip witnessed. With his paw.', mood: 'laugh' },
+          { if: 'marigold.keep', say: 'marigold', text: 'You told me to keep it, so I did. I’ve written your name at the top of the last page anyway. Old habits.', mood: 'blush' },
+          { say: 'marigold', text: 'Glimmerco’s man came back yesterday. Wanted the shop this time. Cash, today, no questions.', mood: 'angry' },
+          { say: 'marigold', text: 'I asked him what he’d write in the ledger. He didn’t understand the question. That was my answer.', mood: 'thinking' },
+          { emote: 'marigold', icon: 'dots' },
+          {
+            choice: 'marigold',
+            q: 'Was I right, though? A shop’s only a shop, after all.',
+            options: [
+              { text: 'It’s the heart of the square.', reply: 'The heart of the square. Pip will be insufferable when he hears.', mood: 'happy', delta: 60, flag: 'marigold.heart' },
+              { text: 'Take the money and rest.', reply: 'Rest! I’ll rest when the hall’s lit and the turnips sell themselves. …Thank you for worrying, though.', mood: 'worried', delta: 20, flag: 'marigold.rest' },
+            ],
+          },
+          { emote: 'marigold', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'marigold-8',
+        hearts: 8,
+        title: 'Supper at Thimble’s',
+        hours: [17, 21],
+        stage: 'benchSW',
+        props: [{ kind: 'letter', at: [0, 0], hold: ['marigold', 'chest'], word: 'invitation' }],
+        insert: [{ kind: 'invite', word: 'invitation|friday', caption: 'Supper at Thimble’s — Friday, after closing' }],
+        script: [
+          { face: 'marigold', to: 'player' },
+          { say: 'marigold', text: 'I’ve done a dreadful thing. I’ve written you an invitation. On card. With a border.', mood: 'blush' },
+          { say: 'marigold', text: 'Stew at the shop, Friday, after closing. Pip has agreed not to sit in your chair. He’s lying, of course.', mood: 'laugh' },
+          { if: 'marigold.heart', say: 'marigold', text: 'You called the shop the heart of the square. I’ve not stopped thinking it since. Hearts need feeding.', mood: 'happy' },
+          { if: 'marigold.rest', say: 'marigold', text: 'And no, I didn’t sell. I’m resting the way I like best: feeding people.', mood: 'happy' },
+          { say: 'marigold', text: 'Your gran came every Friday for thirty years. That chair’s been empty a long while.', mood: 'wistful' },
+          {
+            choice: 'marigold',
+            options: [
+              { text: 'I’ll bring the rhubarb.', reply: 'Rhubarb! Then I’ll bring the custard and we’ll both pretend it was planned.', mood: 'laugh', delta: 80, flag: 'marigold.supper' },
+              { text: 'Save me the chair by the stove.', reply: 'The warm one. Rosalind’s. …Yes. It’s yours. Pip can sulk.', mood: 'blush', delta: 80, flag: 'marigold.stove' },
+            ],
+          },
+          { emote: 'marigold', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'marigold-10',
+        hearts: 10,
+        title: 'Paid in Full',
+        hours: [17, 21],
+        stage: 'fountainS',
+        insert: [{ kind: 'key', word: 'key', caption: 'The shop’s spare key — Rosalind had the other' }],
+        script: [
+          { say: 'marigold', text: 'I closed the tab today. Forty-one years of it. Rosalind’s and yours.', mood: 'wistful' },
+          { say: 'marigold', text: 'Do you know what I wrote at the bottom? “Paid in full. In pie, in Fridays, in being here.”', mood: 'happy' },
+          { if: 'marigold.family', say: 'marigold', text: 'Pip insisted his paw go on it too. You did call him family. He took it to heart.', mood: 'laugh' },
+          { say: 'marigold', text: 'And this is the shop’s spare key. Rosalind had the other. It opens the back door and, apparently, me.', mood: 'blush' },
+          {
+            choice: 'marigold',
+            options: [
+              { text: 'I’ll take good care of it.', reply: 'I know, dear. You take care of everything. Even grumpy shopkeepers.', mood: 'happy', delta: 100, flag: 'marigold.key' },
+              { text: 'You’re family too, you know.', reply: '…Oh, now look. I said I wouldn’t cry at the fountain. Everyone can see.', mood: 'sad', delta: 100, flag: 'marigold.kin' },
+            ],
+          },
+          { emote: 'marigold', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'marigold.pie', barks: ['Rhubarb’s in, dear!'], routine: [15.5, 17, 'bench_sw', 'sit'], line: '[laugh] Your page in the tab still says “one rhubarb pie, owed.” I check it daily. For accuracy.', keepsake: { kind: 'pie', spot: 'easel_plaza', dx: 0.3, dz: 0.97, y: 0.47, label: 'A rhubarb pie cooling on the bench by the shop' } },
+      { flag: 'marigold.family', barks: ['Pip asked after you.'], keepsake: { kind: 'cat', spot: 'store_front', dx: 1.3, dz: -0.9, y: 0.32, rot: 0.6, label: 'Pip, asleep on the shop step' } },
+      { flag: 'marigold.heart', barks: ['Heart of the square, me!'], hours: [9, 12], line: '[happy] The Glimmerco man sent a letter. I used it to light the stove. Heart of the square, you said. Hearths need kindling.' },
+      { flag: 'marigold.supper', barks: ['Friday. Stew. Don’t be late.'], keepsake: { kind: 'notice', spot: 'notice', label: 'Marigold’s Friday-supper card' }, hours: [17, 21], line: '[blush] Friday’s stew is on. I’ve put out the good bowls. Well. The less chipped bowls.' },
+    ],
+  },
+
+  bram: {
+    events: [
+      {
+        id: 'bram-6',
+        hearts: 6,
+        title: 'The Farmer’s Loaf',
+        hours: [6, 12],
+        dry: true,
+        stage: 'bakery',
+        insert: [{ kind: 'bread', word: 'farmer’s loaf|named a loaf', caption: 'The Farmer’s Loaf — lumpy, golden, named' }],
+        script: [
+          { if: 'bram.help', say: 'bram', text: 'My co-kneader! I’ve named a loaf after you. Don’t look so pleased, it’s a lumpy one.', mood: 'laugh' },
+          { if: 'bram.sleep', say: 'bram', text: 'I took your advice. Eight whole hours. The dough rose without me. Humbling. And I named a loaf after you.', mood: 'surprised' },
+          { say: 'bram', text: 'The Farmer’s Loaf: your wheat, my starter, and a pinch of whatever Hazel says is “just thyme, dear.”', mood: 'happy' },
+          { say: 'bram', text: 'Glimmerco sells bread in plastic in the city. Plastic! It doesn’t smell of anything.', mood: 'angry' },
+          { say: 'bram', text: 'Bread should smell like somebody got up early for you. That’s the whole recipe.', mood: 'thinking' },
+          {
+            choice: 'bram',
+            q: 'Well? First slice is yours. Verdict?',
+            options: [
+              { text: 'It tastes like home.', reply: 'Home. HA! Write that on the board. No — I’ll do it, your chalk’s a disgrace.', mood: 'laugh', delta: 60, flag: 'bram.home' },
+              { text: 'It needs a song while it bakes.', reply: 'Everything needs a song while it bakes. Even you, I suspect.', mood: 'happy', delta: 50, flag: 'bram.song' },
+            ],
+          },
+          { emote: 'bram', icon: 'music' },
+        ],
+      },
+      {
+        id: 'bram-8',
+        hearts: 8,
+        title: 'The Low Part',
+        hours: [19, 24],
+        stage: 'hallUp',
+        insert: [{ kind: 'invite', word: 'choir|tuesdays', caption: 'Choir — Tuesdays, back of the bakery. Bring a bun.' }],
+        script: [
+          { if: 'bram.sing', say: 'bram', text: 'I’ve been practising the low part. You were right — it’s better with two terrible singers.', mood: 'laugh' },
+          { if: 'bram.promise', say: 'bram', text: 'You promised me the hall. I don’t hold you to promises. I hold you to bread. …But I have been counting.', mood: 'thinking' },
+          { say: 'bram', text: 'When it lights, there should be a song. Mother always said the hall remembers. Let’s give it something worth remembering.', mood: 'happy' },
+          { say: 'bram', text: 'Choir’s on Tuesdays, back of the bakery. Bring a voice. Bring a bun. Bring both.', mood: 'happy' },
+          {
+            choice: 'bram',
+            options: [
+              { text: 'Count me in.', reply: 'Then you’re a bass. Everyone’s a bass in my choir. It’s easier.', mood: 'laugh', delta: 80, flag: 'bram.choir' },
+              { text: 'I’ll come and listen.', reply: 'Every choir needs one person who claps. You’re hired.', mood: 'happy', delta: 60, flag: 'bram.listen' },
+            ],
+          },
+          { emote: 'bram', icon: 'music' },
+        ],
+      },
+      {
+        id: 'bram-10',
+        hearts: 10,
+        title: 'Mother’s Honey Cake',
+        hours: [17, 22],
+        stage: 'bridge',
+        insert: [{ kind: 'recipe', word: 'card|recipe', caption: 'Honey cake — in his mother’s hand, flour on the corner' }],
+        script: [
+          { say: 'bram', text: 'This card’s been in my apron twenty years. Mother’s honey cake. I never baked it. Couldn’t make it taste like hers.', mood: 'wistful' },
+          { say: 'bram', text: 'Last night I baked it for you. It didn’t taste like hers. It tasted like now. That’s… better, maybe.', mood: 'sad' },
+          { if: 'bram.choir', say: 'bram', text: 'Same as the choir. Never sounds the way it did. Sounds like us.', mood: 'happy' },
+          { say: 'bram', text: 'Keep the card. Recipes are meant to travel. Just send it back one day with crumbs on it.', mood: 'blush' },
+          {
+            choice: 'bram',
+            options: [
+              { text: 'I’ll bake it every spring.', reply: 'Every spring. Then she’ll be in the valley every spring. …Flour in my eye. Don’t look.', mood: 'sad', delta: 100, flag: 'bram.recipe' },
+              { text: 'Only if we bake it together.', reply: 'Together! Then I get to criticise your folding. Best day of my life.', mood: 'laugh', delta: 100, flag: 'bram.together' },
+            ],
+          },
+          { emote: 'bram', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'bram.help', barks: ['Farmer’s Loaf, fresh!'], hours: [6, 11], line: '[laugh] The Farmer’s Loaf sold out by nine. Folk asked who the farmer was. I said “lumpy, like the bread.”' },
+      { flag: 'bram.sing', barks: ['♪ The low part, hum it! ♪'], routine: [19.5, 21, 'hall_steps', 'idle'] },
+      { flag: 'bram.choir', barks: ['Choir Tuesday. Bass!'], keepsake: { kind: 'notice', spot: 'notice', label: 'Bram’s choir card on the board' }, line: '[happy] Tuesday’s choir had eleven people. ELEVEN. Linus sang alto, out of spite.' },
+      { flag: 'bram.recipe', keepsake: { kind: 'cake', spot: 'cafe', dx: 0.2, dz: -0.25, y: 0.76, label: 'A honey cake on the café table' } },
+    ],
+  },
+
+  wren: {
+    events: [
+      {
+        id: 'wren-6',
+        hearts: 6,
+        title: 'The Gallery Letter',
+        hours: [8, 18],
+        dry: true,
+        stage: 'easel',
+        props: [{ kind: 'letter', at: [0, 0], hold: ['wren', 'chest'], word: 'gallery' }],
+        insert: [{ kind: 'letter', word: 'gallery|wall', caption: '“A whole wall. Paint where you’re from.”' }],
+        script: [
+          { if: 'wren.feels', say: 'wren', text: 'I sent the river to a gallery in the city. Under your title. “How a River Feels.”', mood: 'blush' },
+          { if: 'wren.soup', say: 'wren', text: 'I entered Soup River in the city show. As a joke. It won second prize. I am FURIOUS. And thrilled.', mood: 'laugh' },
+          { say: 'wren', text: 'They wrote back. They want a whole wall. They said, “paint where you’re from.”', mood: 'surprised' },
+          { say: 'wren', text: 'Which is funny. I always thought I was from somewhere else. Somewhere with better light.', mood: 'thinking' },
+          {
+            choice: 'wren',
+            options: [
+              { text: 'Paint Hearthvale.', reply: 'Hearthvale. Bram mid-sneeze. The bridge. The dark hall. …Oh no. I love it here, don’t I.', mood: 'happy', delta: 60, flag: 'wren.home' },
+              { text: 'Go and see the city first.', reply: 'Brave of you, saying that. Braver of me if I go. …I might.', mood: 'worried', delta: 40, flag: 'wren.city' },
+            ],
+          },
+          { emote: 'wren', icon: 'idea' },
+        ],
+      },
+      {
+        id: 'wren-8',
+        hearts: 8,
+        title: 'Sitting for Wren',
+        hours: [17, 22],
+        stage: 'fountainS',
+        insert: [{ kind: 'invite', word: 'studio|sitting', caption: 'Wren’s studio — Sunday sitting, bring patience' }],
+        script: [
+          { say: 'wren', text: 'Hold still. No — stiller. You’re worse than the river.', mood: 'laugh' },
+          { if: 'wren.home', say: 'wren', text: 'The wall is Hearthvale. The square, the bridge, Bram mid-sneeze. And one space left in the middle.', mood: 'happy' },
+          { if: 'wren.city', say: 'wren', text: 'I went. The city was loud and lovely and every window was lit. I missed the dark one on the hill.', mood: 'wistful' },
+          { say: 'wren', text: 'The space is for you. Come to the studio on Sunday for a sitting. Not because you’re important. Because you’re… everywhere I look lately.', mood: 'blush' },
+          {
+            choice: 'wren',
+            options: [
+              { text: 'Paint me with the farm.', reply: 'With the cows? Cows are hard. Fine. FINE. For you, cows.', mood: 'laugh', delta: 80, flag: 'wren.farm' },
+              { text: 'Paint us both.', reply: 'Both. In the same frame. …I’ll need a bigger canvas. And a minute.', mood: 'blush', delta: 80, flag: 'wren.both' },
+            ],
+          },
+          { emote: 'wren', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'wren-10',
+        hearts: 10,
+        title: 'The Hall, in Colour',
+        hours: [18, 23],
+        stage: 'hallDown',
+        props: [{ kind: 'painting', at: [31.0, 15.9], rot: 0.35, scale: 1.1, word: 'painting' }],
+        insert: [{ kind: 'colourhall', word: 'painting|grey', caption: 'The first painting of the hall that isn’t grey' }],
+        script: [
+          { say: 'wren', text: 'I did it. The first painting of the hall that isn’t grey.', mood: 'surprised' },
+          { say: 'wren', text: 'I didn’t wait for it to be lit. I painted it the way you talk about it. Turns out that was the light.', mood: 'happy' },
+          { if: 'wren.both', say: 'wren', text: 'That’s us on the steps. You’re holding the lantern. I gave myself better hair. Artistic licence.', mood: 'laugh' },
+          { say: 'wren', text: 'It’s yours. Hang it somewhere it can see the real one.', mood: 'blush' },
+          {
+            choice: 'wren',
+            options: [
+              { text: 'Over my fireplace.', reply: 'By the fire. Where it’s warm. …Yes. That’s exactly right.', mood: 'happy', delta: 100, flag: 'wren.hearth' },
+              { text: 'In the hall, when it opens.', reply: 'In the HALL? Where everyone — oh. Oh, I’m going to be sick. Happily.', mood: 'surprised', delta: 100, flag: 'wren.hall' },
+            ],
+          },
+          { emote: 'wren', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'wren.feels', barks: ['How does a river feel?'], keepsake: { kind: 'painting', spot: 'easel_river', dx: 0.55, dz: -0.35, y: 0.02, rot: 0.9, label: '“How a River Feels”, drying by the water' } },
+      { flag: 'wren.home', barks: ['Hold still, Bram!'], routine: [8, 12, 'easel_river', 'paint'], line: '[happy] Three paintings of the square this week. The wall’s filling up. Hearthvale keeps posing for me.' },
+      { flag: 'wren.city', line: '[wistful] The city sent another letter. I keep it under the soup-river painting. Both are reminders.' },
+      { flag: 'wren.both', barks: ['Sunday. Sitting. Still!'] },
+    ],
+  },
+
+  odessa: {
+    events: [
+      {
+        id: 'odessa-6',
+        hearts: 6,
+        title: 'No Squeak',
+        hours: [8, 18],
+        dry: true,
+        stage: 'forge',
+        props: [{ kind: 'sparks', at: [0, 0], near: ['odessa', 0.2, 0.7] }],
+        insert: [{ kind: 'hinge', word: 'hinge|squeak', caption: 'The hall hinge — new pin, oiled, silent' }],
+        script: [
+          { say: 'odessa', text: 'Finished it. The hinge. Listen — no squeak.', mood: 'happy' },
+          { if: 'odessa.squeak', say: 'odessa', text: 'You were the first to hear it squeak. You should be the first to hear it NOT.', mood: 'laugh' },
+          { if: 'odessa.why', say: 'odessa', text: 'You asked why fix a dark hall. I’ve thought about it every night since. Because I’m stubborn. And because of you.', mood: 'thinking' },
+          { say: 'odessa', text: 'Nine years of making things nobody needed yet. Hinges, brackets, a weathervane for a roof with no hall under it.', mood: 'sad' },
+          {
+            choice: 'odessa',
+            options: [
+              { text: 'They’ll all be needed soon.', reply: 'Soon. Hm. You say it like you mean it. Fine. I’ll keep hammering.', mood: 'happy', delta: 60, flag: 'odessa.soon' },
+              { text: 'Make something just for you.', reply: 'For ME? …Never thought of it. Rude of you to make me think now.', mood: 'surprised', delta: 60, flag: 'odessa.self' },
+            ],
+          },
+          { emote: 'odessa', icon: 'idea' },
+        ],
+      },
+      {
+        id: 'odessa-8',
+        hearts: 8,
+        title: 'Night Rounds',
+        hours: [20, 25],
+        stage: 'lantern',
+        props: [{ kind: 'cage', at: [0, 0], hold: ['odessa', 'chest'], word: 'cage' }],
+        insert: [{ kind: 'invite', word: 'workshop|inspection', caption: 'Grandfather’s workshop — Sunday. Wear boots.' }],
+        script: [
+          { if: 'odessa.withyou', say: 'odessa', text: 'You came. Again. That’s forty-one nights. I’ve been counting on the cage, in chalk.', mood: 'blush' },
+          { if: 'odessa.proud', say: 'odessa', text: 'I asked Tobias if grandfather would’ve been proud. He said, “Of the rivets? No. Of you? Daft question.”', mood: 'laugh' },
+          { say: 'odessa', text: 'I want to show you his old workshop, up the hill. Nobody’s been in since he died.', mood: 'thinking' },
+          { say: 'odessa', text: 'It’s not a date. It’s an inspection. Sunday. Wear boots.', mood: 'angry' },
+          {
+            choice: 'odessa',
+            options: [
+              { text: 'Boots on. It’s a date.', reply: 'It’s an INSPECTION. …With a picnic. Shut up.', mood: 'blush', delta: 80, flag: 'odessa.date' },
+              { text: 'An inspection it is.', reply: 'Good. Someone in this town takes metalwork seriously.', mood: 'happy', delta: 60, flag: 'odessa.inspect' },
+            ],
+          },
+          { emote: 'odessa', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'odessa-10',
+        hearts: 10,
+        title: 'Two Rivets',
+        hours: [17, 22],
+        stage: 'bridge',
+        insert: [{ kind: 'hook', word: 'hook|rivets', caption: 'A lantern hook — two rivets, his and hers' }],
+        script: [
+          { say: 'odessa', text: 'Made this. A lantern hook for your porch. Two rivets — one his pattern, one mine.', mood: 'blush' },
+          { say: 'odessa', text: 'So there’s a light at your end too. So I can see it from the forge at night.', mood: 'happy' },
+          { if: 'odessa.self', say: 'odessa', text: 'You told me to make something for me. Turns out it was this. Something for you to have.', mood: 'wistful' },
+          {
+            choice: 'odessa',
+            options: [
+              { text: 'I’ll light it every night.', reply: 'Every night is a lot of nights, farmer. …Good.', mood: 'happy', delta: 100, flag: 'odessa.light' },
+              { text: 'Come and light it with me.', reply: '…Bring tea. And a coat. And — fine. Yes.', mood: 'blush', delta: 100, flag: 'odessa.together' },
+            ],
+          },
+          { emote: 'odessa', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'odessa.withyou', barks: ['Rounds at nine. Coat.'], routine: [20.5, 22, 'hall_lantern', 'idle'], keepsake: { kind: 'cage', spot: 'hall_lantern', dx: 0.5, dz: 0.55, y: 0.0, label: 'Her grandfather’s lantern cage, on the hall step' } },
+      { flag: 'odessa.squeak', barks: ['No squeak. Told you.'] },
+      { flag: 'odessa.self', line: '[blush] I made a ring for my own hand. Plain iron. First thing I’ve ever made for me. It fits. Don’t make it a thing.' },
+      { flag: 'odessa.date', barks: ['It was an INSPECTION.'] },
+    ],
+  },
+
+  linus: {
+    events: [
+      {
+        id: 'linus-6',
+        hearts: 6,
+        title: 'A Second Opinion',
+        hours: [9, 17],
+        dry: true,
+        stage: 'checkup',
+        extra: { tobias: ['bench_se', 'down'] },
+        script: [
+          { act: 'tobias', activity: 'sit' },
+          { face: 'linus', to: 'tobias' },
+          { say: 'linus', text: 'Tobias insists on a second opinion. On MY health, this time. Apparently I “look peaky.”', mood: 'thinking' },
+          { say: 'tobias', text: 'Peaky as a heron. Tell him, young one.', mood: 'laugh' },
+          { if: 'linus.burn', say: 'linus', text: 'I burned the letter, you know. Odessa made a ceremony of it. I haven’t slept so well in nineteen years.', mood: 'happy' },
+          { if: 'linus.keep', say: 'linus', text: 'I reread the letter this spring and laughed out loud. I chose this. I’d choose it again. Even the biscuits.', mood: 'happy' },
+          { say: 'linus', text: 'But Hearthvale has exactly one doctor, and he is, I concede, a little peaky.', mood: 'worried' },
+          {
+            choice: 'linus',
+            options: [
+              { text: 'Teach me first aid.', reply: 'A volunteer! Splendid. Lesson one: never let Kit near the iodine.', mood: 'laugh', delta: 60, flag: 'linus.teach' },
+              { text: 'Take a day off. Go fishing.', reply: 'Fishing. A doctor, idle by a river. …Prescribed by a farmer. How irregular. Yes.', mood: 'surprised', delta: 60, flag: 'linus.rest' },
+            ],
+          },
+          { emote: 'tobias', icon: 'music' },
+        ],
+      },
+      {
+        id: 'linus-8',
+        hearts: 8,
+        title: 'Open Evening',
+        hours: [18, 23],
+        stage: 'riverWalk',
+        props: [{ kind: 'letter', at: [0, 0], hold: ['linus', 'chest'], word: 'thursday' }],
+        insert: [{ kind: 'invite', word: 'thursday|open evening', caption: 'Clinic open evening — Thursday. Tea and blood pressure.' }],
+        script: [
+          { say: 'linus', text: 'An evening walk. My prescription for myself, which I ignored for a decade.', mood: 'happy' },
+          { if: 'linus.teach', say: 'linus', text: 'You bandaged Kit’s knee on Tuesday. Textbook. He said it didn’t hurt. A lie, but a kind one.', mood: 'laugh' },
+          { if: 'linus.rest', say: 'linus', text: 'I went fishing. Caught nothing. Best day of the year. Don’t tell my patients.', mood: 'laugh' },
+          { say: 'linus', text: 'There’s a clinic open evening on Thursday. Tea and blood pressure. I’d like a familiar face at the door.', mood: 'blush' },
+          {
+            choice: 'linus',
+            options: [
+              { text: 'I’ll pour the tea.', reply: 'Weak for Hazel, strong for Odessa, decaf for Bram whatever he says.', mood: 'happy', delta: 80, flag: 'linus.tea' },
+              { text: 'I’ll bring Tobias. By force.', reply: 'Ha! Doctor’s orders. I didn’t hear that. I fully endorse it.', mood: 'laugh', delta: 80, flag: 'linus.force' },
+            ],
+          },
+          { emote: 'linus', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'linus-10',
+        hearts: 10,
+        title: 'A Prescription',
+        hours: [10, 17],
+        stage: 'fountainS',
+        insert: [{ kind: 'letter', word: 'prescription|daily', caption: '“ONE FRIEND. TAKE DAILY. NO SIDE EFFECTS.”' }],
+        script: [
+          { say: 'linus', text: 'I’ve written you a prescription. Read it, please. My handwriting is famously illegible, but I tried.', mood: 'neutral' },
+          { narrate: 'In careful doctor’s capitals: “ONE FRIEND. TAKE DAILY. NO KNOWN SIDE EFFECTS.”' },
+          { say: 'linus', text: 'Nineteen years in Hearthvale and I treated everybody but myself. You turned out to be the cure. Annoyingly.', mood: 'blush' },
+          { if: 'linus.burn', say: 'linus', text: 'The letter’s ashes are under the clinic rosebush. Hazel says it’s the best soil in town.', mood: 'laugh' },
+          {
+            choice: 'linus',
+            options: [
+              { text: 'Refills forever.', reply: 'Forever is not a dosage. …I’ll allow it.', mood: 'happy', delta: 100, flag: 'linus.refill' },
+              { text: 'Doctor’s orders.', reply: 'Using my own line against me. Insufferable. I’m very fond of you.', mood: 'laugh', delta: 100, flag: 'linus.orders' },
+            ],
+          },
+          { emote: 'linus', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'linus.rest', barks: ['Gone fishing. Doctor’s orders.'], routine: [16, 18, 'river_dock', 'fish'] },
+      { flag: 'linus.burn', barks: ['Slept nine hours!'], line: '[happy] Nineteen years of spring rituals and this year I simply… gardened. Hazel was appalled at my pruning.' },
+      { flag: 'linus.tea', keepsake: { kind: 'notice', spot: 'notice', label: 'The clinic’s open-evening card on the notice board' } },
+      { flag: 'linus.teach', barks: ['Never the iodine, Kit!'] },
+    ],
+  },
+
+  june: {
+    events: [
+      {
+        id: 'june-6',
+        hearts: 6,
+        title: 'The Mended Chair',
+        hours: [17, 24],
+        stage: 'innNight',
+        insert: [{ kind: 'chair', word: 'chair', caption: '“Do not lean. This means you, Rowan.”' }],
+        script: [
+          { if: 'june.fix', say: 'june', text: 'Look at it! Rowan mended the chair. Oak legs, brass feet. He even carved a warning on the back.', mood: 'laugh' },
+          { if: 'june.sit', say: 'june', text: 'You never did sit on him. He mended the chair anyway — I think he was scared you might.', mood: 'laugh' },
+          { say: 'june', text: '“Do not lean. This means you, Rowan.” He leaned on it the same night. Quality control, he says.', mood: 'laugh' },
+          { say: 'june', text: 'The inn’s been full every Friday since the square came back to life. Folk say it’s the farm that brings them.', mood: 'happy' },
+          { say: 'june', text: 'I could use a hand behind the bar on festival nights. Paid in stew and gossip.', mood: 'thinking' },
+          {
+            choice: 'june',
+            options: [
+              { text: 'I’ll pour.', reply: 'Brilliant. Rule one: Bram’s tab stays open. Rule two: Rowan’s doesn’t.', mood: 'laugh', delta: 60, flag: 'june.pour' },
+              { text: 'I’ll bring the gossip.', reply: 'Oh, you’re dangerous. Sit by the fire and tell me everything.', mood: 'happy', delta: 60, flag: 'june.gossip' },
+            ],
+          },
+          { emote: 'june', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'june-8',
+        hearts: 8,
+        title: 'Dad’s Window',
+        hours: [21, 26],
+        stage: 'innNight',
+        props: [{ kind: 'candle', at: [82.9, 31.7], y: 1.02, word: 'candle' }],
+        insert: [{ kind: 'candle', word: 'candle|window', caption: 'A second candle, upstairs — the farm side' }],
+        script: [
+          { say: 'june', text: 'Sit with me while it burns down. I want to tell you about Dad.', mood: 'wistful' },
+          { say: 'june', text: 'He lit the first window and Tobias lit the hall. Between them the whole hill glowed. You could find the inn from the farm in a blizzard.', mood: 'happy' },
+          { if: 'june.follow', say: 'june', text: 'You said you follow it home. So I’ve put a second candle in the upstairs window. Your side.', mood: 'blush' },
+          { if: 'june.small', say: 'june', text: 'Small lights count, you said. I’ve been counting them. Fourteen windows lit on the square now. Fourteen!', mood: 'surprised' },
+          { say: 'june', text: 'Come for supper on the longest night. Just us and the regulars. I’ll save the mended chair.', mood: 'happy' },
+          {
+            choice: 'june',
+            options: [
+              { text: 'I’ll light one at the farm too.', reply: 'Then there’ll be two ends to the road. Dad would’ve liked that.', mood: 'happy', delta: 80, flag: 'june.farmlight' },
+              { text: 'Your dad would love this.', reply: 'He would. He’d also overcharge you for the soup. Some traditions I’ve dropped.', mood: 'laugh', delta: 80, flag: 'june.dad' },
+            ],
+          },
+          { emote: 'june', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'june-10',
+        hearts: 10,
+        title: 'Last Orders',
+        hours: [19, 23],
+        stage: 'fountainS',
+        insert: [{ kind: 'key', word: 'key', caption: 'The inn’s back-door key — only for family' }],
+        script: [
+          { say: 'june', text: 'Closed early. First time in eleven years. Don’t tell anyone. Especially Rowan.', mood: 'laugh' },
+          { say: 'june', text: 'I always thought the inn was Dad’s and I was minding it. It isn’t. It’s mine. And your mug’s on the hook now.', mood: 'happy' },
+          { if: 'june.pour', say: 'june', text: 'Hearthvale’s finest bar-hand. You still pour like you’re watering turnips.', mood: 'laugh' },
+          { say: 'june', text: 'This is for you. The back-door key. Folk only get one of these when they’re family.', mood: 'blush' },
+          {
+            choice: 'june',
+            options: [
+              { text: 'I’ll come for last orders every night.', reply: 'Every night. I’ll hold you to it, pet. I hold everyone to it.', mood: 'happy', delta: 100, flag: 'june.nightly' },
+              { text: 'I’ll mind the candle when you can’t.', reply: '…That’s the kindest thing anyone’s said to me in this square. Off you go before I cry in public.', mood: 'sad', delta: 100, flag: 'june.candle' },
+            ],
+          },
+          { emote: 'june', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'june.fix', barks: ['Chair’s holding, Rowan!'], keepsake: { kind: 'chair', spot: 'inn_tables', dx: 0.9, dz: 0.6, y: 0, rot: 2.4, label: 'Rowan’s mended chair, “Do not lean”' } },
+      { flag: 'june.follow', barks: ['Two candles tonight.'], keepsake: { kind: 'candle', spot: 'inn_front', dx: 1.2, dz: -0.5, y: 0.05, label: 'A second candle on the inn step' } },
+      { flag: 'june.pour', routine: [17, 19, 'inn_tables', 'idle'], line: '[laugh] Festival night’s coming. I’ve ironed your apron. Don’t make that face, it’s a lovely apron.' },
+      { flag: 'june.small', line: '[happy] Fifteen windows now. Marigold lit one just to beat Bram. Small lights, pet. You started it.' },
+    ],
+  },
+
+  tobias: {
+    events: [
+      {
+        id: 'tobias-6',
+        hearts: 6,
+        title: 'Thirty-One Rungs',
+        hours: [18, 21],
+        stage: 'lamp',
+        insert: [{ kind: 'match', word: 'match', caption: 'The last match in the last box' }],
+        script: [
+          { say: 'tobias', text: 'Oiled the old ladder. Thirty-one rungs. Counted them again with these knees. They argued.', mood: 'laugh' },
+          { if: 'tobias.strike', say: 'tobias', text: 'You said you’d hold the bottom. I’m holding you to it. My match, your hands. That’s the deal.', mood: 'happy' },
+          { if: 'tobias.see', say: 'tobias', text: 'You wanted to see the match. Look, then. It’s only a match. It’s also the last thing she watched me light.', mood: 'wistful' },
+          { say: 'tobias', text: 'Rosalind used to stand just there with a flask, shouting “Left, you old fool, LEFT.”', mood: 'laugh' },
+          {
+            choice: 'tobias',
+            options: [
+              { text: 'Left, you old fool.', reply: 'HA! That’s it. That’s the exact voice. Oh, she’d have liked you.', mood: 'laugh', delta: 60, flag: 'tobias.left' },
+              { text: 'Teach me the route.', reply: 'The route? Hall, fountain, shop, bridge, inn. Bow to June. Ignore Bram’s singing. Lesson over.', mood: 'happy', delta: 60, flag: 'tobias.route' },
+            ],
+          },
+          { emote: 'tobias', icon: 'music' },
+        ],
+      },
+      {
+        id: 'tobias-8',
+        hearts: 8,
+        title: 'Fifty Years Tomorrow',
+        hours: [10, 17],
+        stage: 'benchSE',
+        insert: [{ kind: 'invite', word: 'sunset|tomorrow', caption: 'The hall, at sunset — no speeches, just company' }],
+        script: [
+          { if: 'tobias.tea', say: 'tobias', text: 'Two sugars. You remembered. She always forgot the second one — on purpose, so I’d have something to grumble about.', mood: 'happy' },
+          { if: 'tobias.glad', say: 'tobias', text: 'You said you were glad I waited. I’ve been chewing that like a toffee. Glad. Fancy.', mood: 'blush' },
+          { say: 'tobias', text: 'Fifty years ago tomorrow I lit my first lamp. I’d like you at the hall at sunset. No speeches. Just company.', mood: 'thinking' },
+          {
+            choice: 'tobias',
+            options: [
+              { text: 'I’ll bring the flask.', reply: 'Flask. Good. Not the cheap stuff. Well — the cheap stuff is fine.', mood: 'laugh', delta: 80, flag: 'tobias.flask' },
+              { text: 'And I’ll shout “left”.', reply: 'You will, won’t you. Heh. Fifty years and still taking directions.', mood: 'happy', delta: 80, flag: 'tobias.shout' },
+            ],
+          },
+          { emote: 'tobias', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'tobias-10',
+        hearts: 10,
+        title: 'The Lamplighter’s Pole',
+        hours: [18, 22],
+        stage: 'hallUp',
+        insert: [{ kind: 'match', word: 'pole|hook', caption: 'Four generations of grip, worn into the hook' }],
+        script: [
+          { say: 'tobias', text: 'This pole’s been in my family four generations. The hook’s worn to the shape of my grandfather’s hand.', mood: 'wistful' },
+          { say: 'tobias', text: 'I’d like it to wear to yours now. Somebody ought to walk the square at dusk. Might as well be someone it likes.', mood: 'happy' },
+          { if: 'tobias.route', say: 'tobias', text: 'You know the route. Hall, fountain, shop, bridge, inn. Bow to June.', mood: 'laugh' },
+          { if: 'tobias.left', say: 'tobias', text: 'And when you reach the hall lamp, you lean LEFT. Somebody told me that once. Loudly.', mood: 'laugh' },
+          {
+            choice: 'tobias',
+            options: [
+              { text: 'I’ll walk it every dusk.', reply: 'Then the square’s in good hands. Better than mine. Don’t tell anyone I said so.', mood: 'happy', delta: 100, flag: 'tobias.dusk' },
+              { text: 'We’ll walk it together.', reply: 'Together. Slowly. With a flask. …Aye. Aye, I’d like that.', mood: 'sad', delta: 100, flag: 'tobias.together' },
+            ],
+          },
+          { emote: 'tobias', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'tobias.tea', barks: ['Two sugars, mind.'], routine: [10, 11.5, 'bench_se', 'sit'], line: '[happy] Tea at ten on her bench. Two sugars. You’re a bad influence, young one. Keep it up.' },
+      { flag: 'tobias.strike', barks: ['Hold the bottom, mind!'] },
+      { flag: 'tobias.route', barks: ['Left, you old fool!'], routine: [18.5, 19.5, 'hall_lantern', 'idle'] },
+      { flag: 'tobias.flask', line: '[laugh] Fifty years and one flask. Best anniversary a lamp ever had.' },
+    ],
+  },
+
+  kit: {
+    events: [
+      {
+        id: 'kit-6',
+        hearts: 6,
+        title: 'Sir Ribbington’s Moat',
+        hours: [10, 17],
+        dry: true,
+        stage: 'dock',
+        insert: [{ kind: 'frog', word: 'castle|moat', caption: 'Sir Ribbington’s castle (mostly moat)' }],
+        script: [
+          { if: 'kit.still', say: 'kit', text: 'I sat still for a WHOLE MINUTE yesterday. Sir Ribbington sat on my shoe. Best day of my LIFE.', mood: 'surprised' },
+          { if: 'kit.splash', say: 'kit', text: 'Rowan banned us from splashing. For life. He said it in his serious voice. The one with eyebrows.', mood: 'worried' },
+          { say: 'kit', text: 'I made Sir Ribbington a castle. Out of pebbles. It has a moat. He lives in the moat, mostly.', mood: 'happy' },
+          { say: 'kit', text: 'Rowan says maybe we’re moving to the city. Do cities have frogs? Do they have YOU?', mood: 'sad' },
+          {
+            choice: 'kit',
+            options: [
+              { text: 'Hearthvale needs you.', reply: 'It DOES. Who else would guard the moat? Nobody. That’s who.', mood: 'happy', delta: 60, flag: 'kit.stay' },
+              { text: 'Frogs live everywhere. So do friends.', reply: 'Everywhere? …Okay. That’s a bit less scary. Only a bit.', mood: 'thinking', delta: 60, flag: 'kit.brave' },
+            ],
+          },
+          { emote: 'kit', icon: 'exclaim' },
+        ],
+      },
+      {
+        id: 'kit-8',
+        hearts: 8,
+        title: 'Under the Steps',
+        hours: [14, 18],
+        stage: 'hallDown',
+        props: [{ kind: 'map', at: [0, 0], hold: ['kit', 'chest'], word: 'x|map' }],
+        insert: [{ kind: 'map', word: 'the x|note', caption: '“For whoever lights it next.”' }],
+        script: [
+          { if: 'kit.partners', say: 'kit', text: 'PARTNER. Secret handshake first. Spin, clap, frog noise. Okay. Now.', mood: 'laugh' },
+          { if: 'kit.tobias', say: 'kit', text: 'I showed Mr. Reed the map. He cried a bit. He said it was dust. It wasn’t dust.', mood: 'worried' },
+          { say: 'kit', text: 'I found it! The X! Under the hall steps! A box of old wicks and a note.', mood: 'surprised' },
+          { say: 'kit', text: 'The note says “for whoever lights it next.” That’s YOU. Or me. Or us. It’s us.', mood: 'happy' },
+          { say: 'kit', text: 'Club meeting Saturday at the dock. You’re invited. You’re the only one invited. Bring snacks.', mood: 'happy' },
+          {
+            choice: 'kit',
+            options: [
+              { text: 'We’ll give the wicks to Tobias.', reply: 'Yeah. He’ll do the cry-dust thing again. That’s okay.', mood: 'happy', delta: 80, flag: 'kit.give' },
+              { text: 'We’ll keep them for the big night.', reply: 'Secret wicks. For the BIG night. This is the best club ever.', mood: 'laugh', delta: 80, flag: 'kit.keepwicks' },
+            ],
+          },
+          { emote: 'kit', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'kit-10',
+        hearts: 10,
+        title: 'Forever Member',
+        hours: [10, 17],
+        stage: 'planters',
+        insert: [{ kind: 'badge', word: 'badge|forever', caption: 'FOREVER MEMBER (spelled right, Rowan checked)' }],
+        script: [
+          { say: 'kit', text: 'I wrote the club rules. Rule one: no grown-ups. Rule two: except you. Rule three: frogs are honorary.', mood: 'happy' },
+          { if: 'rowan.home', say: 'kit', text: 'Rowan says we’re STAYING. He said it at breakfast all serious and then did a little dance. Don’t tell him I told you.', mood: 'laugh' },
+          { if: 'kit.stay', say: 'kit', text: 'You said Hearthvale needs me. So I’m staying. Even if Rowan hadn’t. I’d have hidden in the moat.', mood: 'happy' },
+          { say: 'kit', text: 'I made you this. It’s a badge. It says FOREVER MEMBER. I spelled it right. Rowan checked.', mood: 'blush' },
+          {
+            choice: 'kit',
+            options: [
+              { text: 'I’ll wear it every day.', reply: 'EVERY day? Even Sundays? Even in the BATH? …You’re the best member.', mood: 'laugh', delta: 100, flag: 'kit.badge' },
+              { text: 'Rule four: Rowan can join.', reply: 'Rowan?! …Okay. But he has to do the frog noise. In public.', mood: 'surprised', delta: 100, flag: 'kit.rowan' },
+            ],
+          },
+          { emote: 'kit', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'kit.partners', barks: ['Partner! Handshake!'], keepsake: { kind: 'notice', spot: 'notice', label: 'Kit’s TOP SECRET map, pinned to the notice board' } },
+      { flag: 'kit.still', barks: ['Shh! Frog business.'], routine: [15, 16.5, 'river_dock', 'play'] },
+      { flag: 'kit.stay', line: '[happy] Sir Ribbington has a moat AND a drawbridge now. Rowan helped. He says it’s “structurally a stick.”' },
+      { flag: 'kit.keepwicks', barks: ['I know a SECRET.'] },
+    ],
+  },
+
+  rowan: {
+    events: [
+      {
+        id: 'rowan-6',
+        hearts: 6,
+        title: 'A Proper House',
+        hours: [8, 17],
+        dry: true,
+        stage: 'yard',
+        insert: [{ kind: 'swing', word: 'swing', caption: 'The double swing, tested twenty-three times' }],
+        script: [
+          { if: 'rowan.double', say: 'rowan', text: 'Double swing’s done. Kit made me test it twenty-three times. My stomach’s still over the river.', mood: 'laugh' },
+          { if: 'rowan.brother', say: 'rowan', text: 'You called me a good brother. Kit heard. He says it every morning now, in a deep voice. It’s unbearable.', mood: 'blush' },
+          { if: 'rowan.home', say: 'rowan', text: 'I wrote back to Mum. Told her we’re staying. She wrote straight back: “Good. Send pictures of the frog.”', mood: 'happy' },
+          { if: 'rowan.ask', say: 'rowan', text: 'I asked Kit. He said “only if the frog comes.” The frog declined. So. We’re staying.', mood: 'laugh' },
+          { say: 'rowan', text: 'Now I’ve got to build us a proper house. The flat over the yard leaks when it rains. And when it doesn’t.', mood: 'worried' },
+          {
+            choice: 'rowan',
+            options: [
+              { text: 'I’ll help you raise the roof.', reply: 'You’ll hold the rafters level and you’ll like it. …Thanks.', mood: 'happy', delta: 60, flag: 'rowan.roof' },
+              { text: 'Build Kit a frog pond first.', reply: 'A pond before a roof. That’s the most Hearthvale thing anyone’s ever said.', mood: 'laugh', delta: 60, flag: 'rowan.pond' },
+            ],
+          },
+          { emote: 'rowan', icon: 'idea' },
+        ],
+      },
+      {
+        id: 'rowan-8',
+        hearts: 8,
+        title: 'Housewarming',
+        hours: [18, 23],
+        stage: 'bridge',
+        insert: [{ kind: 'invite', word: 'housewarming|saturday', caption: 'Housewarming at the Birch house — Saturday' }],
+        script: [
+          { say: 'rowan', text: 'Roof’s on. Doors swing. Kit’s lost three socks in it already, so it’s officially home.', mood: 'happy' },
+          { if: 'rowan.roof', say: 'rowan', text: 'Every rafter you held is still level. Don’t let it go to your head.', mood: 'laugh' },
+          { if: 'rowan.pond', say: 'rowan', text: 'And yes, the frog pond came first. Sir Ribbington has better plumbing than I do.', mood: 'laugh' },
+          { say: 'rowan', text: 'Housewarming on Saturday. June’s doing the food. Bram’s doing the singing, so bring earplugs.', mood: 'happy' },
+          {
+            choice: 'rowan',
+            options: [
+              { text: 'I’ll bring a gift.', reply: 'Bring yourself. …And maybe a doormat. Kit ate the last one. Don’t ask.', mood: 'laugh', delta: 80, flag: 'rowan.gift' },
+              { text: 'Save me a chair that doesn’t lean.', reply: 'Ha. I’ll build you one. It’ll say “Do not lean. This means you, farmer.”', mood: 'happy', delta: 80, flag: 'rowan.seat' },
+            ],
+          },
+          { emote: 'rowan', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'rowan-10',
+        hearts: 10,
+        title: 'Measured Twice',
+        hours: [14, 19],
+        stage: 'dock',
+        insert: [{ kind: 'sign', word: 'sign|gate', caption: 'A gate sign — your gran’s name, and yours' }],
+        script: [
+          { say: 'rowan', text: 'Made you something. Measured twice. Cut once. Sanded… a lot of times.', mood: 'blush' },
+          { say: 'rowan', text: 'A sign for your farm gate. Your gran’s name and yours. I had to guess at the spelling of the cow.', mood: 'laugh' },
+          { say: 'rowan', text: 'Every roof in this town has one of my nails in it. Your gate should too.', mood: 'happy' },
+          {
+            choice: 'rowan',
+            options: [
+              { text: 'Hang it with me.', reply: 'Now? It’s getting dark. …Yeah. Now’s good. Bring a lantern.', mood: 'happy', delta: 100, flag: 'rowan.hang' },
+              { text: 'It’s perfect.', reply: 'It’s not. The R’s crooked. …But thanks. Means a lot, coming from you.', mood: 'blush', delta: 100, flag: 'rowan.perfect' },
+            ],
+          },
+          { emote: 'rowan', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'rowan.home', barks: ['Staying. Obviously.'], routine: [16, 17.5, 'plaza_play', 'chat'], line: '[happy] Told Mum we’re staying. She sent Kit a frog-shaped mitten. One. He wears it on his head.' },
+      { flag: 'rowan.double', barks: ['Swing’s holding up!'] },
+      { flag: 'rowan.roof', line: '[laugh] Rafters are still level. I check them every morning. With a spirit level. Like a madman.' },
+      { flag: 'rowan.pond', barks: ['Pond first. Roof later.'] },
+    ],
+  },
+
+  hazel: {
+    events: [
+      {
+        id: 'hazel-6',
+        hearts: 6,
+        title: 'Seven Shoots',
+        hours: [15, 20],
+        stage: 'garden',
+        insert: [{ kind: 'tin', word: 'seeds|shoots', caption: 'Seven shoots from Rosalind’s tin' }],
+        script: [
+          { if: 'hazel.together', say: 'hazel', text: 'Look! Our seeds! Seven shoots. I talk to them every morning. Terrible listeners. Like Linus.', mood: 'laugh' },
+          { if: 'hazel.care', say: 'hazel', text: 'You took such care of them. Seven shoots. Rosalind said you can tell a gardener by their thumbs. Yours are green, dear.', mood: 'happy' },
+          { say: 'hazel', text: 'I’ve been reading her old notes. She grafted a cutting of the hall rose onto these. They’re the same rose. The same.', mood: 'surprised' },
+          { say: 'hazel', text: 'If one blooms… well. I’m too old to say the rest without crying.', mood: 'wistful' },
+          {
+            choice: 'hazel',
+            options: [
+              { text: 'Then don’t say it. Just water.', reply: 'Just water. Yes. That’s how she’d have done it.', mood: 'happy', delta: 60, flag: 'hazel.water' },
+              { text: 'Cry. I’ll hold the watering can.', reply: 'Oh, you dreadful child. …Hold it steady, then.', mood: 'sad', delta: 60, flag: 'hazel.cry' },
+            ],
+          },
+          { emote: 'hazel', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'hazel-8',
+        hearts: 8,
+        title: 'The Seed Swap',
+        hours: [18, 23],
+        stage: 'riverWalk',
+        insert: [{ kind: 'invite', word: 'seed swap|first of the month', caption: 'Seed swap at the hall steps — first of the month' }],
+        script: [
+          { say: 'hazel', text: 'I’ve started the seed swap again. At the hall steps, first of the month. Only nine years late.', mood: 'happy' },
+          { if: 'hazel.waiting', say: 'hazel', text: 'You said the rose was waiting too. I think I was waiting with it. A silly old woman and a sulking bush.', mood: 'wistful' },
+          { if: 'hazel.fert', say: 'hazel', text: 'And yes, I’m bringing manure. Linus has asked me not to. Linus can bring his own.', mood: 'laugh' },
+          { say: 'hazel', text: 'Would you say a few words at it? About the farm. Folk listen to you now, you know.', mood: 'blush' },
+          {
+            choice: 'hazel',
+            options: [
+              { text: 'I’ll speak.', reply: 'Lovely. Keep it short. Bram will start singing if there’s a pause.', mood: 'happy', delta: 80, flag: 'hazel.speak' },
+              { text: 'I’ll bring seeds instead.', reply: 'Seeds speak for themselves. Good answer, dear.', mood: 'happy', delta: 80, flag: 'hazel.seeds' },
+            ],
+          },
+          { emote: 'hazel', icon: 'heart' },
+        ],
+      },
+      {
+        id: 'hazel-10',
+        hearts: 10,
+        title: 'The Rose Blooms',
+        hours: [8, 17],
+        dry: true,
+        stage: 'planters',
+        insert: [{ kind: 'bloom', word: 'bloomed|rose', caption: 'Rosalind’s rose, in bloom at last' }],
+        script: [
+          { say: 'hazel', text: 'Come here. Quickly — quietly. Look.', mood: 'surprised' },
+          { say: 'hazel', text: 'It bloomed. Rosalind’s rose. Nine years without a bud, and this morning — that.', mood: 'happy' },
+          { say: 'hazel', text: 'The hall isn’t even lit yet. It didn’t wait for the lantern. It waited for you.', mood: 'wistful' },
+          { if: 'hazel.cry', say: 'hazel', text: 'There. Now I’m crying. You did say you’d hold the watering can.', mood: 'sad' },
+          {
+            choice: 'hazel',
+            options: [
+              { text: 'It waited for both of us.', reply: 'Both of us. Yes. I’ll take that, dear. I’ll take that gladly.', mood: 'happy', delta: 100, flag: 'hazel.both' },
+              { text: 'Gran would be so glad.', reply: 'She’d say “about time.” And then she’d cry harder than me.', mood: 'laugh', delta: 100, flag: 'hazel.gran' },
+            ],
+          },
+          { emote: 'hazel', icon: 'heart' },
+        ],
+      },
+    ],
+    keeps: [
+      { flag: 'hazel.together', barks: ['Seven shoots!'], routine: [15, 17, 'garden_east', 'water'] },
+      { flag: 'hazel.waiting', line: '[wistful] Still no bloom on the hall rose. But it’s putting out leaves again. Waiting with company, like you said.' },
+      { flag: 'hazel.both', barks: ['Have you seen the rose?'], keepsake: { kind: 'rose', spot: 'planters_hall', dx: 0, dz: 0.2, y: 0.45, label: 'Rosalind’s rose, in bloom by the hall' } },
+      { flag: 'hazel.gran', barks: ['About time, she’d say.'] },
+    ],
+  },
+};
+
+// Merge: flags on the earlier answers, the new scenes after them, consequence talk lines first in
+// the dialogue (after first-meeting / birthday groups), keeps on the def.
+for (const id of Object.keys(ARCS) as NpcId[]) {
+  const def = NPCS[id];
+  for (const ev of def.events) {
+    const names = OPTION_FLAGS[ev.id];
+    if (!names) continue;
+    for (const st of ev.script) if ('choice' in st) st.options.forEach((o, i) => names[i] && (o.flag = `${id}.${names[i]}`));
+  }
+  const a = ARCS[id];
+  def.events.push(...a.events.map((e) => arc(id, e)));
+  def.keeps = a.keeps;
+  const lines: DialogueGroup[] = a.keeps.filter((k) => k.line).map((k) => ({ flag: k.flag, hours: k.hours ?? [12, 17], lines: [k.line!] }));
+  const at = def.dialogue.findIndex((g) => !g.first && !g.birthday);
+  def.dialogue.splice(at < 0 ? def.dialogue.length : at, 0, ...lines);
+}
+
+/** Every flag an answer can leave (tests / the social page / demo staging). */
+export function choiceFlags(npc: NpcId): string[] {
+  const out: string[] = [];
+  for (const ev of NPCS[npc].events) for (const st of ev.script) if ('choice' in st) for (const o of st.options) if (o.flag) out.push(o.flag);
+  return out;
+}
+
+/**
+ * Demo staging: the memory a farmer who took each earlier scene's first answer would have before
+ * `eventId` (every earlier event of that villager; `alt` takes the second answers instead).
+ */
+export function memoryBefore(eventId: string, alt = false): string[] {
+  const he = heartEvent(eventId);
+  if (!he) return [];
+  const out: string[] = [];
+  for (const ev of he.npc.events) {
+    if (ev.hearts >= he.ev.hearts) continue;
+    for (const st of ev.script) if ('choice' in st) {
+      const o = st.options[alt && st.options.length > 1 ? 1 : 0];
+      if (o?.flag) out.push(o.flag);
+    }
+  }
+  return out;
+}
+
 /** Strip a leading "[mood] " tag from a line. */
 export function parseLine(raw: string, fallback: Mood = 'happy'): { text: string; mood: Mood } {
   const m = /^\[(\w+)\]\s*/.exec(raw);
@@ -1508,6 +2464,8 @@ export interface LineCtx {
   hour: number;
   hearts?: number;
   birthday?: boolean;
+  /** Relationship memory (flags left by heart-event choices). */
+  recalls?: (flag: string) => boolean;
 }
 
 function groupFor(def: NpcDef, ctx: LineCtx): DialogueGroup | null {
@@ -1520,6 +2478,7 @@ function groupFor(def: NpcDef, ctx: LineCtx): DialogueGroup | null {
     if (g.weather && !g.weather.includes(ctx.weather)) continue;
     if (g.hours && (ctx.hour < g.hours[0] || ctx.hour > g.hours[1])) continue;
     if (g.minHearts !== undefined && (ctx.hearts ?? 0) < g.minHearts) continue;
+    if (g.flag && !ctx.recalls?.(g.flag)) continue;
     return g;
   }
   return null;

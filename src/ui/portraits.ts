@@ -1015,7 +1015,7 @@ export function auditPainted(looks: { id: string; look: NpcLook; bg: [number, nu
  * (the letter, the canvas, the ledger, the cat on the board…) that the dialogue box pins beside the
  * scene while the line plays. Inline SVG, 240 × 180, warm ink over flat colour with a soft backdrop.
  */
-export type InsertKind = 'cat' | 'ledger' | 'loaf' | 'hall' | 'painting' | 'greyhall' | 'hinge' | 'cage' | 'biscuit' | 'letter' | 'chair' | 'candle' | 'match' | 'bench' | 'frog' | 'map' | 'swing' | 'rose' | 'tin';
+export type InsertKind = 'cat' | 'ledger' | 'loaf' | 'hall' | 'painting' | 'greyhall' | 'hinge' | 'cage' | 'biscuit' | 'letter' | 'chair' | 'candle' | 'match' | 'bench' | 'frog' | 'map' | 'swing' | 'rose' | 'tin' | 'invite' | 'key' | 'bread' | 'recipe' | 'hook' | 'badge' | 'sign' | 'bloom' | 'colourhall';
 const IK = '#3a1c10';
 const ins = (bg0: string, bg1: string, body: string): string =>
   `<svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="ibg" cx="50%" cy="42%" r="75%"><stop offset="0" stop-color="${bg0}"/><stop offset="1" stop-color="${bg1}"/></radialGradient></defs><rect width="240" height="180" fill="url(#ibg)"/><g stroke="${IK}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round">${body}</g></svg>`;
@@ -1030,7 +1030,7 @@ const scrawl = (x: number, y: number, w: number, rows: number, gap: number, col 
   }
   return `<path d="${d}" stroke="${col}" stroke-width="1.5" fill="none"/>`;
 };
-const INSERTS: Record<InsertKind, () => string> = {
+const INSERTS = {
   letter: () =>
     ins('#fff3dc', '#e8c99a', `<path d="M40 30 L196 22 L204 150 L46 158 Z" fill="#fbf2dc"/><path d="M40 30 L196 22" stroke="#d8c09a" stroke-width="1.2"/>${scrawl(58, 52, 120, 7, 13)}<path d="M150 136 q 10 -8 22 -2" stroke="#5a3a2a" stroke-width="1.8" fill="none"/><circle cx="182" cy="134" r="12" fill="#c8412f"/><path d="M176 132 q 6 -6 12 0 q -6 6 -12 0" stroke="#7a1e14" stroke-width="1.4" fill="#e05a44"/><path d="M42 98 L200 92" stroke="#e6d4b0" stroke-width="1.2" fill="none"/>`),
   ledger: () =>
@@ -1070,6 +1070,28 @@ const INSERTS: Record<InsertKind, () => string> = {
   tin: () =>
     ins('#f2f0e0', '#8aa87a', `<ellipse cx="120" cy="148" rx="64" ry="14" fill="#7a8a92"/><path d="M56 70 L56 146 Q 120 166 184 146 L184 70 Z" fill="#5a8aa8"/><ellipse cx="120" cy="70" rx="64" ry="14" fill="#8ab8d0"/><rect x="80" y="92" width="80" height="34" rx="4" fill="#f4ead0" stroke-width="2"/><text x="88" y="114" font-family="Georgia,serif" font-style="italic" font-size="13" fill="#5a3a2a" stroke="none">R. — roses</text><g fill="#7a5a32" stroke="none"><ellipse cx="200" cy="150" rx="5" ry="3"/><ellipse cx="212" cy="140" rx="4" ry="3"/><ellipse cx="196" cy="134" rx="4" ry="2.5"/></g>`),
 };
+// r9: the long-form arc's cards — invitations, keys, recipes, the keepsakes the villagers hand over.
+const INSERTS_R9 = {
+  invite: () =>
+    ins('#fff4e0', '#d8b48a', `<path d="M36 40 L204 32 L210 150 L42 158 Z" fill="#fdf6e6"/><path d="M48 50 L194 43 L199 140 L53 147 Z" fill="none" stroke="#c8a060" stroke-width="2.4" stroke-dasharray="2 5"/><path d="M60 58 q 6 -10 14 0 q 8 10 14 0" fill="none" stroke="#c8412f" stroke-width="2"/><text x="120" y="88" text-anchor="middle" font-family="Georgia,serif" font-style="italic" font-size="21" fill="#5a2a1a" stroke="none">You’re invited</text>${scrawl(78, 108, 84, 2, 13)}<circle cx="178" cy="134" r="13" fill="#c8412f"/><path d="M172 134 q 6 -9 12 0 q -6 8 -12 0" fill="#e8786a" stroke="none"/>`),
+  key: () =>
+    ins('#fff0d0', '#b8905a', `<circle cx="78" cy="92" r="34" fill="none" stroke="#b8862e" stroke-width="13"/><circle cx="78" cy="92" r="34" fill="none" stroke="#e8c060" stroke-width="5"/><path d="M110 92 L206 92" stroke="#b8862e" stroke-width="13"/><path d="M110 92 L206 92" stroke="#e8c060" stroke-width="4"/><path d="M176 92 L176 120 M194 92 L194 114" stroke="#b8862e" stroke-width="11"/><path d="M58 128 q 20 22 52 22" fill="none" stroke="#c8412f" stroke-width="3"/><path d="M104 146 l 14 6 l -12 8" fill="#c8412f" stroke-width="1.6"/>`),
+  bread: () =>
+    ins('#fff0d8', '#c8905a', `<ellipse cx="120" cy="142" rx="98" ry="16" fill="#b89068"/><path d="M42 134 Q 30 68 118 58 Q 210 66 198 134 Z" fill="#d89a4a"/><path d="M60 120 Q 56 82 120 74 Q 182 80 180 120" fill="#e8b46a" stroke="none"/><path d="M78 92 q 12 -14 26 0 M112 84 q 12 -14 26 0 M146 92 q 12 -14 26 0" stroke="#8a5a2a" stroke-width="3" fill="none"/><g fill="#f4e2b0" stroke="none"><ellipse cx="96" cy="104" rx="4" ry="2"/><ellipse cx="140" cy="100" rx="4" ry="2"/><ellipse cx="160" cy="112" rx="3" ry="2"/></g><path d="M100 30 q 6 -10 0 -18 M120 26 q 6 -10 0 -18 M140 30 q 6 -10 0 -18" stroke="#d8c8b0" stroke-width="2.4" fill="none"/>`),
+  recipe: () =>
+    ins('#fff6e4', '#d8a86a', `<path d="M40 30 L196 26 L200 156 L44 160 Z" fill="#fbf0d8"/><path d="M40 30 L196 26 L200 156 L44 160 Z" fill="none" stroke="#e0c8a0" stroke-width="1"/><text x="58" y="58" font-family="Georgia,serif" font-style="italic" font-size="20" fill="#6a3a1a" stroke="none">Honey cake</text>${scrawl(58, 80, 124, 5, 13)}<ellipse cx="170" cy="138" rx="22" ry="9" fill="#f4f0e8" opacity="0.8" stroke="none"/><circle cx="160" cy="134" r="3" fill="#e8d8b8" stroke="none"/><circle cx="178" cy="140" r="2" fill="#e8d8b8" stroke="none"/>`),
+  hook: () =>
+    ins('#2a3048', '#141828', `<path d="M70 40 L70 70 Q 70 92 92 92 L150 92" fill="none" stroke="#3a3a42" stroke-width="12"/><path d="M70 40 L70 70 Q 70 92 92 92 L150 92" fill="none" stroke="#6a6a74" stroke-width="4"/><path d="M150 92 Q 176 92 176 118 Q 176 132 162 132" fill="none" stroke="#3a3a42" stroke-width="10"/><circle cx="70" cy="52" r="6" fill="#b8862e"/><circle cx="102" cy="92" r="6" fill="#c8c8d0"/><circle cx="162" cy="146" r="18" fill="#ffd27a" stroke="#c8862e" stroke-width="3"/><circle cx="162" cy="146" r="34" fill="#ffd27a" opacity="0.18" stroke="none"/>`),
+  badge: () =>
+    ins('#e8f6ff', '#8ab8d8', `<path d="M120 24 L138 60 L178 64 L148 90 L158 130 L120 110 L82 130 L92 90 L62 64 L102 60 Z" fill="#ffd25a" stroke-width="3"/><circle cx="120" cy="80" r="22" fill="#6ab84a" stroke-width="2.4"/><circle cx="111" cy="74" r="4" fill="#1d1612" stroke="none"/><circle cx="129" cy="74" r="4" fill="#1d1612" stroke="none"/><path d="M110 88 q 10 7 20 0" fill="none" stroke-width="2"/><text x="120" y="160" text-anchor="middle" font-family="Fredoka,sans-serif" font-size="17" fill="#c8412f" stroke="none">FOREVER MEMBER</text>`),
+  sign: () =>
+    ins('#eef6e4', '#9ab07a', `<path d="M60 168 L66 92 M180 168 L174 92" stroke="#7a5236" stroke-width="10"/><path d="M34 54 Q 120 38 206 54 L204 112 Q 120 98 36 112 Z" fill="#c8945a" stroke-width="3"/><path d="M48 62 Q 120 50 192 62" stroke="#a87444" stroke-width="1.6" fill="none"/><text x="120" y="88" text-anchor="middle" font-family="Georgia,serif" font-weight="bold" font-size="17" fill="#4a2a16" stroke="none">ROSALIND &amp; YOU</text><path d="M86 100 q 34 -6 68 0" stroke="#4a2a16" stroke-width="1.4" fill="none"/>`),
+  bloom: () =>
+    ins('#fff0f2', '#d88aa0', `<path d="M120 170 Q 116 120 122 70" stroke="#3f7a3a" stroke-width="5" fill="none"/><path d="M120 128 q -34 -6 -42 -26 q 26 -4 42 22 Z M122 104 q 28 -16 44 -8 q -16 18 -44 10 Z" fill="#5a9a4a" stroke-width="2"/><g stroke-width="2.4"><circle cx="122" cy="58" r="30" fill="#e8607e"/><path d="M98 50 q 24 -26 48 0 q -6 22 -24 24 q -18 -2 -24 -24 Z" fill="#f088a0"/><path d="M110 54 q 12 -14 24 0 q -4 12 -12 12 q -8 0 -12 -12 Z" fill="#c83a5a"/></g><g fill="#fff6c8" stroke="none" opacity="0.9"><circle cx="176" cy="40" r="3"/><circle cx="64" cy="70" r="2.4"/><circle cx="168" cy="96" r="2"/></g>`),
+  colourhall: () =>
+    ins('#fff4dc', '#d8b07a', `<rect x="34" y="18" width="172" height="134" fill="#fbf6ea" stroke-width="3"/><rect x="42" y="26" width="156" height="118" fill="#3a3c78" stroke="none"/><circle cx="168" cy="44" r="10" fill="#fff4c8" stroke="none"/><path d="M76 140 L76 80 L120 50 L164 80 L164 140 Z" fill="#c89a6a" stroke="#6a3a2a" stroke-width="2"/><circle cx="120" cy="80" r="12" fill="#ffd25a" stroke-width="2"/><path d="M108 80 L132 80 M120 68 L120 92" stroke="#c8412f" stroke-width="1.6"/><rect x="108" y="104" width="24" height="36" fill="#ffb84a" stroke-width="2"/><path d="M76 140 L164 140" stroke-width="2"/><circle cx="120" cy="96" r="44" fill="#ffd27a" opacity="0.22" stroke="none"/><path d="M96 140 l -2 -10 M146 140 l 2 -10" stroke="#e8607e" stroke-width="4"/>`),
+};
+const ALL_INSERTS: Record<InsertKind, () => string> = { ...INSERTS, ...INSERTS_R9 };
 export function insertArt(kind: string): string | null {
-  return kind in INSERTS ? INSERTS[kind as InsertKind]() : null;
+  return kind in ALL_INSERTS ? ALL_INSERTS[kind as InsertKind]() : null;
 }

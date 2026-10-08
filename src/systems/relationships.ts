@@ -15,6 +15,11 @@
  * reaction so every client sees the hearts / puff and the villager turn to the giver).
  *   farmhand → host  ['r.hello', ledger] on joining · ['r.talk', npc] · ['r.gift', npc, item] · ['r.ch', npc, delta]
  *   host → farmhand  ['r.set', npc, points, talks, flags, giftsWeek] (flags: 1 talked today, 2 gifted today)
+ *
+ * Memory (r9): every heart-event answer leaves a flag (`<npc>.<word>`, data/npcs.ts) in the farmer's
+ * relationship memory; later scenes, talk lines, barks, routines and keepsakes read it. A farmhand's
+ * memory is theirs (sent with r.hello and as ['r.mem', flag]); the town itself (routines, keepsakes)
+ * follows the host's memory, which the host shares as ['r.hm', flags[]].
  */
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
@@ -48,6 +53,16 @@ export interface RelationshipApi {
    * ledger until the host's r.set confirms it; rolled back — item returned — after GIFT_ACK_MS).
    */
   pendingGift(npcId: string): { itemId: string; points: number } | null;
+  /** Relationship memory: does this farmer remember `flag` (a heart-event answer)? */
+  recalls(flag: string): boolean;
+  /** Add a memory flag (choices do this through npc:choice; demos stage it directly). */
+  remember(flag: string): void;
+  /** This farmer's memory flags. */
+  memories(): string[];
+  /** The town's memory: the host's (co-op) or this farmer's (solo / host) — routines, keepsakes. */
+  townRecalls(flag: string): boolean;
+  /** Forget everything (demo staging). */
+  forget(): void;
 }
 
 declare module '../core/game' {
@@ -61,7 +76,9 @@ declare module '../core/events' {
     'relationship:change': { npcId: string; points: number; hearts: number; delta: number };
     'npc:gift': { npcId: string; itemId: string; reaction: 'love' | 'like' | 'neutral' | 'dislike' };
     /** A dialogue choice changed friendship. */
-    'npc:choice': { npcId: string; delta: number };
+    'npc:choice': { npcId: string; delta: number; flag?: string };
+    /** Relationship memory changed (this farmer's or, for a farmhand, the host's town memory). */
+    'relationship:memory': { flag: string | null };
     /** Morning announcement: it's this villager's birthday. */
     'npc:birthday': { npcId: string };
     /** Farmhand: a gift is waiting on the host (on) / was confirmed or rolled back (off, ok). */
@@ -96,6 +113,11 @@ export class RelationshipSystem implements System, RelationshipApi {
   /** Host: each farmhand's friendships (by player id), the authoritative copy. */
   private remote = new Map<number, Record<string, Friend>>();
   private helloSent = false;
+  private memory = new Set<string>();
+  /** Farmhand: the host's memory (drives the town). Host: unused. */
+  private hostMemory = new Set<string>();
+  /** Host: each farmhand's memory. */
+  private remoteMemory = new Map<number, Set<string>>();
 
   private net(): NetLike | null {
     const n = (this.game.services as { net?: Partial<NetLike> }).net;
@@ -120,16 +142,17 @@ export class RelationshipSystem implements System, RelationshipApi {
       }
       if (this.role() === 'client') this.net()!.sendExt('host', ['r.talk', NPC_IDS.indexOf(id as NpcId)]);
     });
-    game.events.on('npc:choice', ({ npcId, delta }) => {
+    game.events.on('npc:choice', ({ npcId, delta, flag }) => {
       this.adjust(npcId, delta);
       if (this.role() === 'client') this.net()!.sendExt('host', ['r.ch', NPC_IDS.indexOf(npcId as NpcId), delta]);
+      if (flag) this.remember(flag);
     });
     game.events.on('net:ext', ({ from, data }) => this.netRecv(from, data));
     game.events.on('net:status', ({ role, status }) => {
       // Joined a farm: hand the host our ledger (it adopts it unless it already keeps one for us).
       if (role === 'client' && status === 'playing' && !this.helloSent) {
         this.helloSent = true;
-        this.net()?.sendExt('host', ['r.hello', this.friends]);
+        this.net()?.sendExt('host', ['r.hello', this.friends, [...this.memory]]);
       } else if (role !== 'client') this.helloSent = false;
     });
     game.events.on('day:start', () => {
@@ -149,6 +172,38 @@ export class RelationshipSystem implements System, RelationshipApi {
     if (!f) return;
     f.points = Math.max(0, Math.min(PER_HEART * 10, f.points + delta));
     this.game.events.emit('relationship:change', { npcId: id, points: f.points, hearts: this.hearts(id), delta });
+  }
+
+  recalls(flag: string): boolean {
+    return this.memory.has(flag);
+  }
+
+  townRecalls(flag: string): boolean {
+    return this.role() === 'client' ? this.hostMemory.has(flag) : this.memory.has(flag);
+  }
+
+  memories(): string[] {
+    return [...this.memory];
+  }
+
+  remember(flag: string): void {
+    if (!/^[a-z]+\.[a-z]+$/.test(flag) || this.memory.has(flag)) return;
+    this.memory.add(flag);
+    const role = this.role();
+    if (role === 'client') this.net()!.sendExt('host', ['r.mem', flag]);
+    else if (role === 'host') this.net()!.sendExt('*', ['r.hm', [...this.memory]]);
+    this.game.events.emit('relationship:memory', { flag });
+  }
+
+  forget(): void {
+    this.memory.clear();
+    if (this.role() === 'host') this.net()!.sendExt('*', ['r.hm', []]);
+    this.game.events.emit('relationship:memory', { flag: null });
+  }
+
+  /** Host: what a farmhand remembers (tests). */
+  remoteMemories(from: number): string[] {
+    return [...(this.remoteMemory.get(from) ?? [])];
   }
 
   adjust(id: string, delta: number): void {
@@ -268,6 +323,12 @@ export class RelationshipSystem implements System, RelationshipApi {
     const kind = data[0];
     if (typeof kind !== 'string' || !kind.startsWith('r.')) return;
     const role = this.role();
+    if (kind === 'r.hm') {
+      if (role !== 'client' || !Array.isArray(data[1])) return;
+      this.hostMemory = new Set((data[1] as unknown[]).filter((f): f is string => typeof f === 'string' && f.length < 40).slice(0, 400));
+      this.game.events.emit('relationship:memory', { flag: null });
+      return;
+    }
     if (kind === 'r.set') {
       if (role !== 'client') return;
       const id = NPC_IDS[Number(data[1])];
@@ -303,6 +364,17 @@ export class RelationshipSystem implements System, RelationshipApi {
           b[id] = { points: Math.max(0, Math.min(PER_HEART * 10, Number(v.points) || 0)), talks: Math.max(0, Number(v.talks) || 0), talkedToday: !!v.talkedToday, giftedToday: !!v.giftedToday, giftsWeek: Math.max(0, Math.min(7, Number(v.giftsWeek) || 0)) };
         }
       for (const id of NPC_IDS) this.sendSet(from, id, b[id]!);
+      const mem = Array.isArray(data[2]) ? (data[2] as unknown[]).filter((f): f is string => typeof f === 'string' && /^[a-z]+\.[a-z]+$/.test(f)) : [];
+      if (!this.remoteMemory.has(from)) this.remoteMemory.set(from, new Set(mem.slice(0, 400)));
+      this.net()?.sendExt(from, ['r.hm', [...this.memory]]);
+      return;
+    }
+    if (kind === 'r.mem') {
+      const f = String(data[1] ?? '');
+      if (!/^[a-z]+\.[a-z]+$/.test(f)) return;
+      let m = this.remoteMemory.get(from);
+      if (!m) this.remoteMemory.set(from, (m = new Set()));
+      if (m.size < 400) m.add(f);
       return;
     }
     const id = NPC_IDS[Number(data[1])];
@@ -340,11 +412,12 @@ export class RelationshipSystem implements System, RelationshipApi {
   }
 
   save(): unknown {
-    return { friends: this.friends };
+    return { friends: this.friends, memory: [...this.memory] };
   }
 
   load(data: unknown): void {
-    const d = data as { friends?: Record<string, Friend> };
+    const d = data as { friends?: Record<string, Friend>; memory?: string[] };
+    if (Array.isArray(d?.memory)) this.memory = new Set(d.memory.filter((f) => typeof f === 'string'));
     if (d?.friends) for (const [k, v] of Object.entries(d.friends)) this.friends[k] = { ...(this.friends[k] ?? { points: 0, talks: 0, talkedToday: false, giftedToday: false, giftsWeek: 0 }), ...v };
   }
 }

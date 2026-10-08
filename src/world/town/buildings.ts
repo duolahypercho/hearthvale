@@ -1133,14 +1133,15 @@ export function buildWildflowers(rng: Rng, colors: number[] = [0xff8fab, 0xfffff
     const z = Math.sin(a) * r * 0.8;
     const h = 0.35 + rng.next() * 0.45 * (1 - r * 0.6);
     const lean = (rng.next() - 0.5) * 0.3;
-    b.add('boxFlower', roundedBox(0.018, h, 0.018, 0.006, 1), mat(x, h / 2, z, lean, 0, (rng.next() - 0.5) * 0.3), { tint: 0x4f8a3a });
+    // (r9, pillar 14: a 4-sided open stem — the 1.8 cm bevelled box was 108 triangles a stem)
+    b.add('boxFlower', new THREE.CylinderGeometry(0.01, 0.012, h, 4, 1, true), mat(x, h / 2, z, lean, 0, (rng.next() - 0.5) * 0.3), { tint: 0x4f8a3a });
     if (i % 2 === 0) b.add('boxFlower', new THREE.IcosahedronGeometry(0.07, 0), mat(x, 0.08, z, 0, 0, 0, 1.4, 0.6, 1.4), { tint: i % 4 ? 0x5a9a42 : 0x4a8a3a });
     const c = colors[i % colors.length]!;
     if (i % 4 === 3) {
       // foxglove spike: stacked bells
       for (let k = 0; k < 4; k++) b.add('boxFlower', new THREE.SphereGeometry(0.035 - k * 0.005, 6, 5), mat(x + Math.sin(lean) * h * 0.3, h * 0.72 + k * 0.07, z, 0, 0, 0, 1, 1.3, 1), { tint: c });
     } else {
-      b.add('boxFlower', new THREE.CylinderGeometry(0.06, 0.05, 0.02, 8), mat(x + Math.sin(lean) * h * 0.5, h, z, 0.3, 0, 0), { tint: c });
+      b.add('boxFlower', new THREE.CylinderGeometry(0.06, 0.05, 0.02, 7), mat(x + Math.sin(lean) * h * 0.5, h, z, 0.3, 0, 0), { tint: c });
       b.add('boxFlower', new THREE.SphereGeometry(0.022, 6, 4), mat(x + Math.sin(lean) * h * 0.5, h + 0.015, z), { tint: 0xf2b830 });
     }
   }

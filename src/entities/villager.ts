@@ -119,6 +119,22 @@ function M(x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx
   return new THREE.Matrix4().compose(_p.clone(), _q.clone(), _s.clone());
 }
 
+/**
+ * Level of detail (pillar 14, r9): villagers far from the lens draw a second skinned mesh built by the
+ * same deterministic builder with every curved primitive at SEGK of its segments (same skeleton, same
+ * parts, same colours). `SEGK` is 1 except while that copy is being built.
+ */
+let SEGK = 1;
+const segs = (n: number, min = 3): number => (SEGK === 1 ? n : Math.max(Math.min(n, min), Math.round(n * SEGK)));
+const sphG = (r?: number, w = 32, h = 16, ...a: number[]): THREE.SphereGeometry => new THREE.SphereGeometry(r, segs(w, 6), segs(h, 4), ...a);
+const cylG = (rt?: number, rb?: number, h?: number, radial = 32, hs = 1, open?: boolean, ts?: number, tl?: number): THREE.CylinderGeometry =>
+  new THREE.CylinderGeometry(rt, rb, h, segs(radial, 5), hs, open, ts, tl);
+const torG = (r?: number, tube?: number, rs = 12, ts = 48, arc?: number): THREE.TorusGeometry => new THREE.TorusGeometry(r, tube, segs(rs, 3), segs(ts, 6), arc);
+const capG = (r?: number, len?: number, cs = 4, rs = 8, hs?: number): THREE.CapsuleGeometry => new THREE.CapsuleGeometry(r, len, segs(cs, 1), segs(rs, 5), hs);
+const lumpy = (r: number, d: number, amp: number, rng: Rng, f?: number): THREE.BufferGeometry => lumpySphere(r, SEGK === 1 ? d : Math.max(1, d - 1), amp, rng, f);
+const coneG = (r?: number, h?: number, radial = 32, hs = 1, open?: boolean, ts?: number, tl?: number): THREE.ConeGeometry =>
+  new THREE.ConeGeometry(r, h, segs(radial, 5), hs, open, ts, tl);
+
 const shadeHex = (h: number, k: number): number => new THREE.Color(h).multiplyScalar(k).getHex();
 const mixHex = (a: number, b: number, t: number): number => new THREE.Color(a).lerp(new THREE.Color(b), t).getHex();
 
@@ -130,7 +146,7 @@ const mixHex = (a: number, b: number, t: number): number => new THREE.Color(a).l
  * Seam at the back; azimuth 0 = the face.
  */
 function hairShell(r: number, thetaStart: number, thetaLen: number, grooves: number, depth: number, scallop: number, seed = 0, twist = 0.9): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(r, Math.max(24, grooves * 4), 14, 0, Math.PI * 2, thetaStart, thetaLen);
+  const g = new THREE.SphereGeometry(r, SEGK === 1 ? Math.max(24, grooves * 4) : Math.max(16, grooves * 2), SEGK === 1 ? 14 : 8, 0, Math.PI * 2, thetaStart, thetaLen);
   g.rotateY(-Math.PI / 2);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const shade = new Float32Array(pos.count);
@@ -184,6 +200,16 @@ function pleat(g: THREE.BufferGeometry, n: number, depth: number): THREE.BufferG
  * head and hair masses still cover the figure (no AO of what stands behind it on their pixels, r8b).
  */
 const VILLAGER_AO_FULL = 14;
+/** Lens distance (m) past which a villager draws its SEGK = 0.5 copy (`?vlod=<m>`, 0 = off). */
+const VILLAGER_LOD_D = ((): number => {
+  try {
+    const q = new URLSearchParams(location.search).get('vlod');
+    if (q !== null) return Number(q) || 0;
+  } catch {
+    /* no location (worker / test) */
+  }
+  return 19;
+})();
 const _hookPos = new THREE.Vector3();
 
 /**
@@ -504,6 +530,9 @@ export class Villager {
   private tipLift = 0;
   private tipChair: THREE.Object3D | null = null;
   private mesh!: THREE.SkinnedMesh;
+  private lodMesh: THREE.SkinnedMesh | null = null;
+  private lodGeo: THREE.BufferGeometry | null = null;
+  private lodCapture = false;
   private bones: THREE.Bone[] = [];
   private rest: THREE.Vector3[] = [];
   private propBones = new Map<PropName, THREE.Bone>();
@@ -574,6 +603,20 @@ export class Villager {
     this.walkStyle = def.walk ?? DEFAULT_WALK;
     this.speed = this.walkStyle.speed;
     this.scaleS = 1.22 * def.look.scale;
+    // LOD copy first (same seeded builder at SEGK = 0.5), then the full mesh (r9, pillar 14).
+    if (VILLAGER_LOD_D > 0) {
+      SEGK = 0.5;
+      this.lodCapture = true;
+      try {
+        this.build(def.look);
+      } finally {
+        SEGK = 1;
+        this.lodCapture = false;
+      }
+      this.bones = [];
+      this.rest = [];
+      this.propBones.clear();
+    }
     this.build(def.look);
     this.body.scale.setScalar(this.scaleS);
     this.headTop = (this.headRigY + 0.8 * HEAD_BOOST * (def.look.head ?? 1)) * this.scaleS;
@@ -755,30 +798,30 @@ export class Villager {
     // ── legs
     for (const [thigh, shin, sx] of [[B.thighL, B.shinL, -1], [B.thighR, B.shinR, 1]] as const) {
       const x = sx * 0.12 * bw;
-      rb.add(thigh, new THREE.CapsuleGeometry(0.1, legLen * 0.34, 3, 8), M(x, hipY - legLen * 0.24, 0), L.skirt ? shadeHex(L.bottom, 0.8) : L.bottom);
-      rb.add(shin, new THREE.CapsuleGeometry(0.088, legLen * 0.32, 3, 8), M(x, hipY - legLen * 0.68, 0), L.skirt ? shadeHex(L.skin, 0.95) : L.bottom);
+      rb.add(thigh, capG(0.1, legLen * 0.34, 3, 8), M(x, hipY - legLen * 0.24, 0), L.skirt ? shadeHex(L.bottom, 0.8) : L.bottom);
+      rb.add(shin, capG(0.088, legLen * 0.32, 3, 8), M(x, hipY - legLen * 0.68, 0), L.skirt ? shadeHex(L.skin, 0.95) : L.bottom);
       rb.add(shin, roundedBox(0.19, 0.14, 0.27, 0.06, 1), M(x, 0.08, 0.04), shoes);
       rb.add(shin, roundedBox(0.2, 0.04, 0.29, 0.02), M(x, 0.02, 0.045), shadeHex(shoes, 0.6));
     }
     // ── torso (spine)
     const topShape = M(0, hipY + 0.18, 0, 0, 0, 0, 1.05 * bw, 1, 0.92 * bw);
-    rb.add(B.spine, new THREE.CapsuleGeometry(0.2, 0.18, 6, 14), topShape, L.coat ?? L.top);
-    rb.add(B.hips, new THREE.CylinderGeometry(0.215 * bw, 0.205 * bw, 0.18, 14), M(0, hipY, 0), L.skirt ? L.bottom : L.bottom);
+    rb.add(B.spine, capG(0.2, 0.18, 6, 14), topShape, L.coat ?? L.top);
+    rb.add(B.hips, cylG(0.215 * bw, 0.205 * bw, 0.18, 14), M(0, hipY, 0), L.skirt ? L.bottom : L.bottom);
     if (L.skirt) {
       // A-line skirt flaring from the waist to mid-shin.
-      const sk = new THREE.CylinderGeometry(0.21 * bw, 0.34 * bw, legLen * 0.72, 18, 1, true);
+      const sk = cylG(0.21 * bw, 0.34 * bw, legLen * 0.72, 18, 1, true);
       rb.add(B.hips, sk, M(0, hipY - legLen * 0.3, 0), L.bottom);
-      rb.add(B.hips, new THREE.TorusGeometry(0.335 * bw, 0.022, 5, 20), M(0, hipY - legLen * 0.66, 0, Math.PI / 2), shadeHex(L.bottom, 0.8));
+      rb.add(B.hips, torG(0.335 * bw, 0.022, 5, 20), M(0, hipY - legLen * 0.66, 0, Math.PI / 2), shadeHex(L.bottom, 0.8));
     }
     if (L.coat !== undefined) {
       // Coat tails + lapels + the shirt peeking through.
-      const tails = new THREE.CylinderGeometry(0.225 * bw, 0.3 * bw, legLen * 0.62, 16, 1, true, Math.PI * 0.12, Math.PI * 1.76);
+      const tails = cylG(0.225 * bw, 0.3 * bw, legLen * 0.62, 16, 1, true, Math.PI * 0.12, Math.PI * 1.76);
       rb.add(B.hips, tails, M(0, hipY - legLen * 0.24, 0), L.coat);
       rb.add(B.spine, roundedBox(0.12 * bw, 0.3, 0.03, 0.02), M(0, hipY + 0.22, 0.19 * bw), L.top);
       for (const sx of [-1, 1]) rb.add(B.spine, roundedBox(0.08, 0.24, 0.03, 0.015), M(sx * 0.08 * bw, hipY + 0.26, 0.2 * bw, 0, 0, sx * 0.25), shadeHex(L.coat, 0.88));
     }
     if (L.vest !== undefined) {
-      const vest = new THREE.CapsuleGeometry(0.205, 0.16, 6, 14, 1);
+      const vest = capG(0.205, 0.16, 6, 14, 1);
       rb.add(B.spine, vest, M(0, hipY + 0.17, -0.004, 0, 0, 0, 1.08 * bw, 0.98, 0.95 * bw), L.vest);
       rb.add(B.spine, roundedBox(0.11 * bw, 0.28, 0.03, 0.02), M(0, hipY + 0.2, 0.2 * bw), L.top);
     }
@@ -786,132 +829,132 @@ export class Villager {
       // Cloth apron wrapped over the torso curve: a bib (with a stitched hem + neck straps),
       // a flared skirt panel on the hips with a pocket, and a waist tie with a bow at the back.
       const ap = L.apron;
-      const bib = new THREE.CylinderGeometry(0.212, 0.222, 0.26, 12, 1, true, -0.62, 1.24);
+      const bib = cylG(0.212, 0.222, 0.26, 12, 1, true, -0.62, 1.24);
       rb.add(B.spine, bib, M(0, hipY + 0.17, 0, 0, 0, 0, 1.05 * bw, 1, 0.92 * bw), ap);
-      const hem = new THREE.TorusGeometry(0.223, 0.009, 4, 10, 1.24);
+      const hem = torG(0.223, 0.009, 4, 10, 1.24);
       hem.rotateX(Math.PI / 2);
       hem.rotateY(0.62 - Math.PI / 2);
       rb.add(B.spine, hem, M(0, hipY + 0.3, 0, 0, 0, 0, 1.05 * bw, 1, 0.92 * bw), shadeHex(ap, 0.82));
-      for (const sx of [-1, 1]) rb.add(B.spine, new THREE.CapsuleGeometry(0.012, 0.16, 2, 5), M(sx * 0.1 * bw, hipY + 0.37, 0.12 * bw, -0.5, 0, sx * 0.35), shadeHex(ap, 0.85));
-      const skirt = new THREE.CylinderGeometry(0.228, 0.29, 0.3, 12, 1, true, -0.95, 1.9);
+      for (const sx of [-1, 1]) rb.add(B.spine, capG(0.012, 0.16, 2, 5), M(sx * 0.1 * bw, hipY + 0.37, 0.12 * bw, -0.5, 0, sx * 0.35), shadeHex(ap, 0.85));
+      const skirt = cylG(0.228, 0.29, 0.3, 12, 1, true, -0.95, 1.9);
       rb.add(B.hips, skirt, M(0, hipY - 0.12, 0, 0, 0, 0, 1.0 * bw, 1, 0.95 * bw), ap);
-      const pocket = new THREE.CylinderGeometry(0.262, 0.272, 0.09, 8, 1, true, -0.34, 0.68);
+      const pocket = cylG(0.262, 0.272, 0.09, 8, 1, true, -0.34, 0.68);
       rb.add(B.hips, pocket, M(0, hipY - 0.16, 0.006, 0, 0, 0, 1.0 * bw, 1, 0.95 * bw), shadeHex(ap, 0.9));
-      rb.add(B.spine, new THREE.TorusGeometry(0.212, 0.016, 5, 16), M(0, hipY + 0.035, 0, Math.PI / 2, 0, 0, 1.03 * bw, 0.9 * bw, 1), shadeHex(ap, 0.8));
-      for (const sx of [-1, 1]) rb.add(B.spine, new THREE.SphereGeometry(0.035, 6, 5), M(sx * 0.035, hipY + 0.035, -0.2 * bw, 0, 0, 0, 1.3, 0.8, 0.7), shadeHex(ap, 0.8));
+      rb.add(B.spine, torG(0.212, 0.016, 5, 16), M(0, hipY + 0.035, 0, Math.PI / 2, 0, 0, 1.03 * bw, 0.9 * bw, 1), shadeHex(ap, 0.8));
+      for (const sx of [-1, 1]) rb.add(B.spine, sphG(0.035, 6, 5), M(sx * 0.035, hipY + 0.035, -0.2 * bw, 0, 0, 0, 1.3, 0.8, 0.7), shadeHex(ap, 0.8));
     }
     if (L.scarf !== undefined) {
-      rb.add(B.spine, new THREE.TorusGeometry(0.13, 0.045, 8, 16), M(0, hipY + 0.38, 0, Math.PI / 2 - 0.2, 0, 0), L.scarf);
+      rb.add(B.spine, torG(0.13, 0.045, 8, 16), M(0, hipY + 0.38, 0, Math.PI / 2 - 0.2, 0, 0), L.scarf);
       // Two knotted tails lying against the chest.
-      rb.add(B.spine, new THREE.SphereGeometry(0.045, 8, 6), M(0.07, hipY + 0.33, 0.17 * bw), shadeHex(L.scarf, 0.92));
-      rb.add(B.spine, new THREE.CapsuleGeometry(0.032, 0.12, 2, 6), M(0.085, hipY + 0.24, 0.185 * bw, 0.18, 0, 0.12, 1, 1, 0.55), L.scarf);
-      rb.add(B.spine, new THREE.CapsuleGeometry(0.028, 0.09, 2, 6), M(0.035, hipY + 0.255, 0.19 * bw, 0.16, 0, -0.18, 1, 1, 0.55), shadeHex(L.scarf, 0.88));
+      rb.add(B.spine, sphG(0.045, 8, 6), M(0.07, hipY + 0.33, 0.17 * bw), shadeHex(L.scarf, 0.92));
+      rb.add(B.spine, capG(0.032, 0.12, 2, 6), M(0.085, hipY + 0.24, 0.185 * bw, 0.18, 0, 0.12, 1, 1, 0.55), L.scarf);
+      rb.add(B.spine, capG(0.028, 0.09, 2, 6), M(0.035, hipY + 0.255, 0.19 * bw, 0.16, 0, -0.18, 1, 1, 0.55), shadeHex(L.scarf, 0.88));
     }
     if (L.bowtie !== undefined) {
-      for (const sx of [-1, 1]) rb.add(B.spine, new THREE.ConeGeometry(0.045, 0.08, 4), M(sx * 0.04, hipY + 0.37, 0.16, 0, 0, sx * Math.PI / 2), L.bowtie);
-      rb.add(B.spine, new THREE.SphereGeometry(0.022, 6, 5), M(0, hipY + 0.37, 0.17), shadeHex(L.bowtie, 0.8));
+      for (const sx of [-1, 1]) rb.add(B.spine, coneG(0.045, 0.08, 4), M(sx * 0.04, hipY + 0.37, 0.16, 0, 0, sx * Math.PI / 2), L.bowtie);
+      rb.add(B.spine, sphG(0.022, 6, 5), M(0, hipY + 0.37, 0.17), shadeHex(L.bowtie, 0.8));
     }
     const acc = new Set(L.acc ?? []);
     if (acc.has('toolbelt')) {
-      rb.add(B.hips, new THREE.TorusGeometry(0.225 * bw, 0.028, 6, 18), M(0, hipY + 0.03, 0, Math.PI / 2), 0x5a3a22);
+      rb.add(B.hips, torG(0.225 * bw, 0.028, 6, 18), M(0, hipY + 0.03, 0, Math.PI / 2), 0x5a3a22);
       for (const sx of [-1, 1]) rb.add(B.hips, roundedBox(0.1, 0.12, 0.07, 0.025), M(sx * 0.18 * bw, hipY - 0.04, 0.12 * bw, 0, sx * 0.5, 0), 0x6a4428);
       rb.add(B.hips, roundedBox(0.03, 0.14, 0.03, 0.01), M(0.2 * bw, hipY - 0.1, 0.14 * bw), 0x8a8a8a);
     }
     if (acc.has('satchel')) {
-      rb.add(B.spine, new THREE.TorusGeometry(0.24, 0.016, 4, 24), M(0, hipY + 0.15, 0, 0, 0, 0.75, 1.05 * bw, 1.3, 0.95 * bw), 0x8a5a32);
+      rb.add(B.spine, torG(0.24, 0.016, 4, 24), M(0, hipY + 0.15, 0, 0, 0, 0.75, 1.05 * bw, 1.3, 0.95 * bw), 0x8a5a32);
       rb.add(B.hips, roundedBox(0.2, 0.17, 0.08, 0.04), M(-0.24 * bw, hipY - 0.02, 0.05, 0, -0.4, 0), 0xa86a3a);
       rb.add(B.hips, roundedBox(0.2, 0.07, 0.085, 0.03), M(-0.24 * bw, hipY + 0.04, 0.055, 0, -0.4, 0), 0x8a5a32);
     }
     if (acc.has('shawl')) {
       // A capelet over the shoulders (short: the arms swing out from under it, not inside it).
-      const shawl = new THREE.CylinderGeometry(0.17, 0.27 * bw, 0.17, 16, 1, true);
+      const shawl = cylG(0.17, 0.27 * bw, 0.17, 16, 1, true);
       rb.add(B.spine, shawl, M(0, hipY + 0.32, 0.0), L.scarf ?? 0xf2e2c0);
-      rb.add(B.spine, new THREE.TorusGeometry(0.27 * bw, 0.014, 4, 20), M(0, hipY + 0.235, 0, Math.PI / 2), shadeHex(L.scarf ?? 0xf2e2c0, 0.82));
-      rb.add(B.spine, new THREE.ConeGeometry(0.1, 0.18, 3), M(0, hipY + 0.12, 0.2 * bw, Math.PI, 0, 0), L.scarf ?? 0xf2e2c0);
+      rb.add(B.spine, torG(0.27 * bw, 0.014, 4, 20), M(0, hipY + 0.235, 0, Math.PI / 2), shadeHex(L.scarf ?? 0xf2e2c0, 0.82));
+      rb.add(B.spine, coneG(0.1, 0.18, 3), M(0, hipY + 0.12, 0.2 * bw, Math.PI, 0, 0), L.scarf ?? 0xf2e2c0);
     }
     if (acc.has('stethoscope')) {
-      rb.add(B.spine, new THREE.TorusGeometry(0.15, 0.013, 5, 18, Math.PI * 1.2), M(0, hipY + 0.36, 0.02, Math.PI / 2 - 0.35, 0, Math.PI * 0.9), 0x3a3a44);
+      rb.add(B.spine, torG(0.15, 0.013, 5, 18, Math.PI * 1.2), M(0, hipY + 0.36, 0.02, Math.PI / 2 - 0.35, 0, Math.PI * 0.9), 0x3a3a44);
       rb.add(B.spine, roundedBox(0.02, 0.2, 0.02, 0.008), M(0.05, hipY + 0.22, 0.2 * bw), 0x3a3a44);
-      rb.add(B.spine, new THREE.CylinderGeometry(0.032, 0.032, 0.02, 10), M(0.05, hipY + 0.11, 0.205 * bw, Math.PI / 2), 0xc8c8d0);
+      rb.add(B.spine, cylG(0.032, 0.032, 0.02, 10), M(0.05, hipY + 0.11, 0.205 * bw, Math.PI / 2), 0xc8c8d0);
     }
     // Signature silhouettes at the belt / shoulder (read at 16 px: the baker's rolling pin, the smith's
     // tongs, the doctor's bag, the shopkeeper's keys, the gardener's trowel, the lamplighter's lantern,
     // the innkeeper's tea towel).
     if (acc.has('rollingpin')) {
-      rb.add(B.hips, new THREE.CylinderGeometry(0.042, 0.042, 0.3, 10), M(0.12 * bw, hipY + 0.005, 0.215 * bw, 0, 0.35, Math.PI / 2 - 0.18), 0xd8a868);
-      for (const e of [-1, 1]) rb.add(B.hips, new THREE.CylinderGeometry(0.018, 0.022, 0.09, 6), M(0.12 * bw + e * 0.2 * Math.cos(0.18), hipY + 0.005 - e * 0.2 * Math.sin(0.18), 0.215 * bw - e * 0.07, 0, 0.35, Math.PI / 2 - 0.18), 0x9a6a3a);
+      rb.add(B.hips, cylG(0.042, 0.042, 0.3, 10), M(0.12 * bw, hipY + 0.005, 0.215 * bw, 0, 0.35, Math.PI / 2 - 0.18), 0xd8a868);
+      for (const e of [-1, 1]) rb.add(B.hips, cylG(0.018, 0.022, 0.09, 6), M(0.12 * bw + e * 0.2 * Math.cos(0.18), hipY + 0.005 - e * 0.2 * Math.sin(0.18), 0.215 * bw - e * 0.07, 0, 0.35, Math.PI / 2 - 0.18), 0x9a6a3a);
     }
     if (acc.has('tongs')) {
       for (const e of [-1, 1]) rb.add(B.hips, roundedBox(0.026, 0.46, 0.022, 0.008), M(-0.215 * bw + e * 0.022, hipY - 0.2, 0.1 * bw, 0.06, 0, e * 0.07), 0x34343a);
-      rb.add(B.hips, new THREE.TorusGeometry(0.03, 0.009, 4, 10), M(-0.215 * bw, hipY + 0.03, 0.1 * bw), 0x5a5a62);
+      rb.add(B.hips, torG(0.03, 0.009, 4, 10), M(-0.215 * bw, hipY + 0.03, 0.1 * bw), 0x5a5a62);
       for (const e of [-1, 1]) rb.add(B.hips, roundedBox(0.03, 0.06, 0.03, 0.01), M(-0.215 * bw + e * 0.04, hipY - 0.44, 0.115 * bw, 0.06, 0, e * 0.25), 0x26262c);
     }
     if (acc.has('docbag')) {
-      rb.add(B.spine, new THREE.TorusGeometry(0.24, 0.014, 4, 24), M(0, hipY + 0.15, 0, 0, 0, -0.75, 1.05 * bw, 1.3, 0.95 * bw), 0x3a2422);
+      rb.add(B.spine, torG(0.24, 0.014, 4, 24), M(0, hipY + 0.15, 0, 0, 0, -0.75, 1.05 * bw, 1.3, 0.95 * bw), 0x3a2422);
       rb.add(B.hips, roundedBox(0.26, 0.17, 0.12, 0.05), M(0.27 * bw, hipY - 0.06, 0.02, 0, 0.35, 0), 0x6a2a26);
       rb.add(B.hips, roundedBox(0.27, 0.035, 0.125, 0.015), M(0.27 * bw, hipY + 0.02, 0.02, 0, 0.35, 0), 0x4a1c1a);
       rb.add(B.hips, roundedBox(0.04, 0.035, 0.03, 0.01), M(0.27 * bw + 0.02, hipY + 0.025, 0.085, 0, 0.35, 0), 0xe0b84a);
     }
     if (acc.has('keys')) {
-      rb.add(B.hips, new THREE.TorusGeometry(0.04, 0.008, 4, 12), M(0.2 * bw, hipY - 0.03, 0.17 * bw + belly * 0.08, 0, 0.6, 0), 0xd8b04a);
+      rb.add(B.hips, torG(0.04, 0.008, 4, 12), M(0.2 * bw, hipY - 0.03, 0.17 * bw + belly * 0.08, 0, 0.6, 0), 0xd8b04a);
       for (let i = 0; i < 3; i++) rb.add(B.hips, roundedBox(0.018, 0.08, 0.008, 0.004), M(0.2 * bw + (i - 1) * 0.025, hipY - 0.09, 0.175 * bw + belly * 0.08, 0, 0.6, (i - 1) * 0.3), i === 1 ? 0xb8b8c0 : 0xd8b04a);
     }
     if (acc.has('trowel')) {
-      rb.add(B.hips, new THREE.CylinderGeometry(0.018, 0.022, 0.12, 6), M(0.17 * bw, hipY + 0.06, 0.2 * bw, -0.2, 0, -0.35), 0x9a6a3a);
+      rb.add(B.hips, cylG(0.018, 0.022, 0.12, 6), M(0.17 * bw, hipY + 0.06, 0.2 * bw, -0.2, 0, -0.35), 0x9a6a3a);
       rb.add(B.hips, roundedBox(0.07, 0.13, 0.012, 0.01), M(0.19 * bw, hipY - 0.05, 0.215 * bw, -0.2, 0, -0.35), 0xa8b0b8);
     }
     if (acc.has('lantern')) {
-      rb.add(B.hips, new THREE.TorusGeometry(0.03, 0.007, 4, 10, Math.PI), M(0.25 * bw, hipY - 0.0, 0.08, 0, 0.3, 0), 0x3a3a3a);
+      rb.add(B.hips, torG(0.03, 0.007, 4, 10, Math.PI), M(0.25 * bw, hipY - 0.0, 0.08, 0, 0.3, 0), 0x3a3a3a);
       rb.add(B.hips, roundedBox(0.09, 0.12, 0.09, 0.02), M(0.25 * bw, hipY - 0.1, 0.08, 0, 0.3, 0), 0xf2c86a);
-      rb.add(B.hips, new THREE.ConeGeometry(0.065, 0.05, 4), M(0.25 * bw, hipY - 0.015, 0.08, 0, 0.3 + Math.PI / 4, 0), 0x3a3a3a);
+      rb.add(B.hips, coneG(0.065, 0.05, 4), M(0.25 * bw, hipY - 0.015, 0.08, 0, 0.3 + Math.PI / 4, 0), 0x3a3a3a);
       rb.add(B.hips, roundedBox(0.1, 0.02, 0.1, 0.008), M(0.25 * bw, hipY - 0.165, 0.08, 0, 0.3, 0), 0x3a3a3a);
     }
     if (acc.has('towel')) {
       for (const e of [-1, 1]) rb.add(B.spine, roundedBox(0.11, 0.24, 0.02, 0.01), M(-0.15 * bw, hipY + 0.3, e * 0.2 * bw, e * 0.12, 0, 0.15), 0xf6f0e4);
       for (const e of [-1, 1]) rb.add(B.spine, roundedBox(0.112, 0.02, 0.022, 0.006), M(-0.15 * bw - 0.02, hipY + 0.22, e * 0.205 * bw, e * 0.12, 0, 0.15), 0xc8412f);
-      rb.add(B.spine, new THREE.CylinderGeometry(0.06, 0.06, 0.11, 10, 1, true, 0, Math.PI), M(-0.15 * bw, hipY + 0.42, 0, 0, 0, Math.PI / 2 + 0.15, 1, 1, 1.9 * bw), 0xf6f0e4);
+      rb.add(B.spine, cylG(0.06, 0.06, 0.11, 10, 1, true, 0, Math.PI), M(-0.15 * bw, hipY + 0.42, 0, 0, 0, Math.PI / 2 + 0.15, 1, 1, 1.9 * bw), 0xf6f0e4);
     }
     if (neckL > 0.015) {
       // A visible neck (the doctor's long one) between the collar and the head, with a collar band.
       const warp = rb.warp;
       rb.warp = null;
       const n0 = hipY + 0.4 * tl;
-      rb.add(B.spine, new THREE.CylinderGeometry(0.068, 0.078, headY - n0 + 0.06, 10), M(0, (n0 + headY + 0.06) / 2, 0.0), L.skin);
-      rb.add(B.spine, new THREE.CylinderGeometry(0.088, 0.1, 0.07, 12, 1, true), M(0, n0 + 0.03, 0), L.top);
+      rb.add(B.spine, cylG(0.068, 0.078, headY - n0 + 0.06, 10), M(0, (n0 + headY + 0.06) / 2, 0.0), L.skin);
+      rb.add(B.spine, cylG(0.088, 0.1, 0.07, 12, 1, true), M(0, n0 + 0.03, 0), L.top);
       rb.warp = warp;
     }
-    if (!L.coat && !L.vest && !L.apron) for (let i = 0; i < 3; i++) rb.add(B.spine, new THREE.SphereGeometry(0.018, 6, 4), M(0, hipY + 0.32 - i * 0.08, 0.2 * bw), 0xf0e0c0);
+    if (!L.coat && !L.vest && !L.apron) for (let i = 0; i < 3; i++) rb.add(B.spine, sphG(0.018, 6, 4), M(0, hipY + 0.32 - i * 0.08, 0.2 * bw), 0xf0e0c0);
 
     // Shoulder yoke: a soft bar across the top of the torso out to the arm sockets, so the arms hang
     // from a shoulder line instead of floating as puffy balls beside the torso (broad builds square up).
     {
-      const yoke = new THREE.CapsuleGeometry(0.072, Math.max(0.05, 2 * AX - 0.2), 4, 10);
+      const yoke = capG(0.072, Math.max(0.05, 2 * AX - 0.2), 4, 10);
       yoke.rotateZ(Math.PI / 2);
       rb.add(B.spine, yoke, M(0, shoulderY + 0.01, -0.005, 0, 0, 0, 1, 1, 1.12), sleeve);
     }
     // ── arms (upper + fore + hand)
     for (const [arm, fore, sx] of [[B.armL, B.foreL, -1], [B.armR, B.foreR, 1]] as const) {
       const x = sx * AX;
-      rb.add(arm, new THREE.SphereGeometry(0.085, 10, 8), M(x, shoulderY, 0), sleeve);
-      rb.add(arm, new THREE.CapsuleGeometry(0.074, 0.07, 3, 8), M(x, shoulderY - 0.07, 0), sleeve);
-      rb.add(fore, new THREE.CapsuleGeometry(0.06, 0.1, 3, 8), M(x, shoulderY - 0.2, 0), L.coat !== undefined ? L.coat : (acc.has('toolbelt') || L.apron !== undefined) && !L.longSleeves ? L.skin : L.top);
+      rb.add(arm, sphG(0.085, 10, 8), M(x, shoulderY, 0), sleeve);
+      rb.add(arm, capG(0.074, 0.07, 3, 8), M(x, shoulderY - 0.07, 0), sleeve);
+      rb.add(fore, capG(0.06, 0.1, 3, 8), M(x, shoulderY - 0.2, 0), L.coat !== undefined ? L.coat : (acc.has('toolbelt') || L.apron !== undefined) && !L.longSleeves ? L.skin : L.top);
       if (L.mittens !== undefined) {
         // Knitted mittens: a ribbed cuff, a chunky mitt and a thumb.
-        rb.add(fore, new THREE.CylinderGeometry(0.064, 0.064, 0.05, 10), M(x, shoulderY - 0.25, 0.005), shadeHex(L.mittens, 0.85));
-        rb.add(fore, new THREE.SphereGeometry(0.078 * hk, 10, 8), M(x, shoulderY - 0.315 - (hk - 1) * 0.05, 0.012, 0, 0, 0, 1, 1.12, 1), L.mittens);
-        rb.add(fore, new THREE.SphereGeometry(0.03, 6, 5), M(x - sx * 0.05, shoulderY - 0.29, 0.05), L.mittens);
+        rb.add(fore, cylG(0.064, 0.064, 0.05, 10), M(x, shoulderY - 0.25, 0.005), shadeHex(L.mittens, 0.85));
+        rb.add(fore, sphG(0.078 * hk, 10, 8), M(x, shoulderY - 0.315 - (hk - 1) * 0.05, 0.012, 0, 0, 0, 1, 1.12, 1), L.mittens);
+        rb.add(fore, sphG(0.03, 6, 5), M(x - sx * 0.05, shoulderY - 0.29, 0.05), L.mittens);
       } else {
         // A cupped hand: a mitt (palm + fingers as one soft wedge, turned a little in) and a thumb
         // split off towards the front — not a ball.
-        rb.add(fore, new THREE.SphereGeometry(0.066 * hk, 10, 8), M(x, shoulderY - 0.305 - (hk - 1) * 0.05, 0.004, 0.1, -sx * 0.35, 0, 0.82, 1.12, 0.92), L.skin);
-        rb.add(fore, new THREE.CapsuleGeometry(0.022 * hk, 0.035 * hk, 2, 6), M(x - sx * 0.045 * hk, shoulderY - 0.29 - (hk - 1) * 0.04, 0.042 * hk, 0.5, 0, sx * 0.6), shadeHex(L.skin, 0.97));
-        rb.add(fore, new THREE.CapsuleGeometry(0.008 * hk, 0.05 * hk, 2, 4), M(x + sx * 0.012, shoulderY - 0.335 - (hk - 1) * 0.07, 0.05 * hk, 0.2, 0, 0), shadeHex(L.skin, 0.8));
+        rb.add(fore, sphG(0.066 * hk, 10, 8), M(x, shoulderY - 0.305 - (hk - 1) * 0.05, 0.004, 0.1, -sx * 0.35, 0, 0.82, 1.12, 0.92), L.skin);
+        rb.add(fore, capG(0.022 * hk, 0.035 * hk, 2, 6), M(x - sx * 0.045 * hk, shoulderY - 0.29 - (hk - 1) * 0.04, 0.042 * hk, 0.5, 0, sx * 0.6), shadeHex(L.skin, 0.97));
+        rb.add(fore, capG(0.008 * hk, 0.05 * hk, 2, 4), M(x + sx * 0.012, shoulderY - 0.335 - (hk - 1) * 0.07, 0.05 * hk, 0.2, 0, 0), shadeHex(L.skin, 0.8));
       }
     }
 
     // ── head
     const H = (x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx): THREE.Matrix4 => new THREE.Matrix4().makeTranslation(0, headY, 0).multiply(new THREE.Matrix4().makeScale(hs, hs, hs)).multiply(M(x, y, z, rx, ry, rz, sx, sy, sz));
-    rb.add(B.head, new THREE.SphereGeometry(R, 24, 16), H(0, skullY, 0, 0, 0, 0, ...faceS), L.skin);
+    rb.add(B.head, sphG(R, 24, 16), H(0, skullY, 0, 0, 0, 0, ...faceS), L.skin);
     // Lower face (r7): cheek / jowl mass for wide faces, a jaw block (soft → square), and the chin
     // (pointed / jutting, or soft with a little double chin) — what tells ten faces apart with the
     // hair hidden. Stubble tints the jaw pieces instead of a shell laid over the eyes (r6 blocker).
@@ -923,17 +966,17 @@ export class Villager {
     // (r8b: the lower-face masses shade with the skull's own normals — on deep skin tones the jaw
     // block read as a darker jagged muzzle where its sphere cut the skull)
     rb.nrmTo = { c: new THREE.Vector3(0, headY + skullY * hs, 0), a: new THREE.Vector3(R * faceS[0] * hs, R * faceS[1] * hs, R * faceS[2] * hs), k: 0.82 };
-    if (fW > 1.01) rb.add(B.head, new THREE.SphereGeometry(R, 18, 12), H(0, skullY - R * 0.36, R * 0.04, 0, 0, 0, faceS[0] * fW * 0.93, 0.62 * faceS[1], 0.9), L.skin);
+    if (fW > 1.01) rb.add(B.head, sphG(R, 18, 12), H(0, skullY - R * 0.36, R * 0.04, 0, 0, 0, faceS[0] * fW * 0.93, 0.62 * faceS[1], 0.9), L.skin);
     if (jawK > 0.05) {
       const jw = R * 0.7 * (0.82 + 0.42 * jawK) * Math.max(0.9, Math.min(1.2, fW));
       // (its foot level with the chin: below it the pad read as a neck brace when the head tipped back)
-      rb.add(B.head, new THREE.SphereGeometry(1, 18, 12), H(0, chinY + R * (0.47 - 0.03 * jawK), R * 0.06, 0.1, 0, 0, jw, R * 0.44, R * 0.66), jawC);
+      rb.add(B.head, sphG(1, 18, 12), H(0, chinY + R * (0.47 - 0.03 * jawK), R * 0.06, 0.1, 0, 0, jw, R * 0.44, R * 0.66), jawC);
     }
     if (chinK > 0.05) {
       {
         // (sits on the jaw line, mostly inside the skull: a firmer / longer point, not an egg)
         const cy = chinY + R * (0.2 - 0.12 * chinK);
-        rb.add(B.head, new THREE.SphereGeometry(1, 14, 10), H(0, cy, surfZ(0, cy + R * 0.08) - R * (0.25 - 0.03 * chinK), 0.35, 0, 0, R * (0.23 - 0.05 * chinK), R * (0.17 + 0.06 * chinK), R * 0.19), jawC);
+        rb.add(B.head, sphG(1, 14, 10), H(0, cy, surfZ(0, cy + R * 0.08) - R * (0.25 - 0.03 * chinK), 0.35, 0, 0, R * (0.23 - 0.05 * chinK), R * (0.17 + 0.06 * chinK), R * 0.19), jawC);
       }
     }
     // (r8b: no soft-chin pad any more — a soft chin is the round skull itself; from the chin-up
@@ -941,16 +984,16 @@ export class Villager {
     rb.nrmTo = null;
     if (FP.cleft) {
       rb.tag = 1;
-      rb.add(B.head, new THREE.CapsuleGeometry(0.006, 0.03, 2, 4), H(0, chinY + R * (0.16 - 0.1 * chinK), surfZ(0, chinY + R * 0.2) + R * (0.12 + 0.1 * chinK)), mixHex(jawC, 0x5a2a1a, 0.4));
+      rb.add(B.head, capG(0.006, 0.03, 2, 4), H(0, chinY + R * (0.16 - 0.1 * chinK), surfZ(0, chinY + R * 0.2) + R * (0.12 + 0.1 * chinK)), mixHex(jawC, 0x5a2a1a, 0.4));
       rb.tag = 0;
     }
     const earK = FP.ears ?? 1;
     const earX = R * 0.98 * Math.min(1, faceS[0] / 1.04);
     for (const sx of [-1, 1]) {
-      rb.add(B.head, new THREE.SphereGeometry(0.07, 10, 8), H(sx * earX, R * 0.88, 0, 0, 0, 0, 0.6 * earK, earK, earK), L.skin);
+      rb.add(B.head, sphG(0.07, 10, 8), H(sx * earX, R * 0.88, 0, 0, 0, 0, 0.6 * earK, earK, earK), L.skin);
       // Inner ear fold (a darker crescent: ears read as ears, not balls).
       rb.tag = 1;
-      rb.add(B.head, new THREE.TorusGeometry(0.03 * earK, 0.008, 4, 10, Math.PI * 1.2), H(sx * (earX + 0.03 * earK), R * 0.88, 0.012, 0, sx * 1.25, 0.6), mixHex(L.skin, 0x8a3a2a, 0.3));
+      rb.add(B.head, torG(0.03 * earK, 0.008, 4, 10, Math.PI * 1.2), H(sx * (earX + 0.03 * earK), R * 0.88, 0.012, 0, sx * 1.25, 0.6), mixHex(L.skin, 0x8a3a2a, 0.3));
       rb.tag = 0;
     }
     rb.tag = 1;
@@ -962,26 +1005,26 @@ export class Villager {
       const nZ = surfZ(0, nY);
       switch (nose) {
         case 'bulb':
-          rb.add(B.head, new THREE.SphereGeometry(0.044, 12, 10), H(0, nY - R * 0.03, nZ + 0.002, 0, 0, 0, 1.05, 0.95, 0.9), nc);
-          for (const sx of [-1, 1]) rb.add(B.head, new THREE.SphereGeometry(0.022, 8, 6), H(sx * 0.036, nY - R * 0.06, nZ - 0.012), shadeHex(L.skin, 1.0));
+          rb.add(B.head, sphG(0.044, 12, 10), H(0, nY - R * 0.03, nZ + 0.002, 0, 0, 0, 1.05, 0.95, 0.9), nc);
+          for (const sx of [-1, 1]) rb.add(B.head, sphG(0.022, 8, 6), H(sx * 0.036, nY - R * 0.06, nZ - 0.012), shadeHex(L.skin, 1.0));
           break;
         case 'long':
-          rb.add(B.head, new THREE.SphereGeometry(0.03, 12, 10), H(0, nY + R * 0.02, nZ - 0.004, -0.3, 0, 0, 0.78, 2.0, 1.0), nc);
+          rb.add(B.head, sphG(0.03, 12, 10), H(0, nY + R * 0.02, nZ - 0.004, -0.3, 0, 0, 0.78, 2.0, 1.0), nc);
           break;
         case 'hook': {
-          rb.add(B.head, new THREE.CapsuleGeometry(0.02, 0.09, 3, 8), H(0, nY + R * 0.12, nZ + 0.004, 0.42, 0, 0), nc);
-          rb.add(B.head, new THREE.SphereGeometry(0.036, 12, 10), H(0, nY - R * 0.03, nZ + 0.012, 0, 0, 0, 0.95, 1.1, 1.05), nc);
+          rb.add(B.head, capG(0.02, 0.09, 3, 8), H(0, nY + R * 0.12, nZ + 0.004, 0.42, 0, 0), nc);
+          rb.add(B.head, sphG(0.036, 12, 10), H(0, nY - R * 0.03, nZ + 0.012, 0, 0, 0, 0.95, 1.1, 1.05), nc);
           break;
         }
         case 'snub':
-          rb.add(B.head, new THREE.SphereGeometry(0.024, 10, 8), H(0, nY + R * 0.01, nZ - 0.002, 0.4, 0, 0, 1.15, 0.85, 1.0), nc);
+          rb.add(B.head, sphG(0.024, 10, 8), H(0, nY + R * 0.01, nZ - 0.002, 0.4, 0, 0, 1.15, 0.85, 1.0), nc);
           break;
         case 'broad':
-          rb.add(B.head, new THREE.SphereGeometry(0.034, 12, 10), H(0, nY - R * 0.02, nZ - 0.002, 0, 0, 0, 1.5, 0.95, 0.9), nc);
-          for (const sx of [-1, 1]) rb.add(B.head, new THREE.SphereGeometry(0.02, 8, 6), H(sx * 0.042, nY - R * 0.05, nZ - 0.014), shadeHex(L.skin, 0.99));
+          rb.add(B.head, sphG(0.034, 12, 10), H(0, nY - R * 0.02, nZ - 0.002, 0, 0, 0, 1.5, 0.95, 0.9), nc);
+          for (const sx of [-1, 1]) rb.add(B.head, sphG(0.02, 8, 6), H(sx * 0.042, nY - R * 0.05, nZ - 0.014), shadeHex(L.skin, 0.99));
           break;
         default:
-          rb.add(B.head, new THREE.SphereGeometry(0.03, 10, 8), H(0, nY, nZ), nc);
+          rb.add(B.head, sphG(0.03, 10, 8), H(0, nY, nZ), nc);
       }
     }
     // Age lines (r7): crow's feet, under-eye bags, smile folds, forehead lines — thin creases a shade
@@ -995,24 +1038,24 @@ export class Villager {
           for (let i = 0; i < (lk > 0.7 ? 3 : 2); i++) {
             const x = sx * (ex + 0.07 * eyeK + 0.012);
             const y = EY + R * (0.06 - i * 0.07);
-            rb.add(B.head, new THREE.CapsuleGeometry(0.0055, 0.028, 2, 4), H(x, y, surfZ(x, y) - 0.002, 0, sx * 0.6, sx * (1.1 - i * 0.45)), lc);
+            rb.add(B.head, capG(0.0055, 0.028, 2, 4), H(x, y, surfZ(x, y) - 0.002, 0, sx * 0.6, sx * (1.1 - i * 0.45)), lc);
           }
       if (lk >= 0.55)
         for (const sx of [-1, 1]) {
           const y = EY - R * 0.2 * eyeK;
-          rb.add(B.head, new THREE.TorusGeometry(0.038 * eyeK, 0.005, 3, 10, Math.PI * 0.8), H(sx * ex, y, surfZ(sx * ex, y) - 0.003, -0.2, sx * 0.35, Math.PI * 1.1), lc);
+          rb.add(B.head, torG(0.038 * eyeK, 0.005, 3, 10, Math.PI * 0.8), H(sx * ex, y, surfZ(sx * ex, y) - 0.003, -0.2, sx * 0.35, Math.PI * 1.1), lc);
         }
       if (lk >= 0.5)
         for (const sx of [-1, 1]) {
           // A ')' fold from the nose wing round the mouth corner (arc bowing outwards).
           const y = mouthY + R * 0.08;
           const x = sx * (0.085 * (FP.mouth ?? 1) + 0.02);
-          rb.add(B.head, new THREE.TorusGeometry(0.06, 0.0055, 3, 10, Math.PI * 0.5), H(x - sx * 0.06, y, surfZ(x, y) - 0.004, 0, sx * 0.45, sx > 0 ? -Math.PI * 0.3 : Math.PI * 0.8), lc);
+          rb.add(B.head, torG(0.06, 0.0055, 3, 10, Math.PI * 0.5), H(x - sx * 0.06, y, surfZ(x, y) - 0.004, 0, sx * 0.45, sx > 0 ? -Math.PI * 0.3 : Math.PI * 0.8), lc);
         }
       if (lk >= 0.75 && !L.hat && L.hairStyle !== 'bob' && L.hairStyle !== 'curly')
         for (let i = 0; i < 2; i++) {
           const y = browY + R * (0.12 + i * 0.07);
-          rb.add(B.head, new THREE.TorusGeometry(0.16, 0.005, 3, 14, Math.PI * 0.32), H(0, y - 0.16, surfZ(0, y) - 0.03, -0.25, 0, Math.PI * 0.34), lc);
+          rb.add(B.head, torG(0.16, 0.005, 3, 14, Math.PI * 0.32), H(0, y - 0.16, surfZ(0, y) - 0.03, -0.25, 0, Math.PI * 0.34), lc);
         }
     }
     rb.tag = 0;
@@ -1029,13 +1072,13 @@ export class Villager {
       void hatted;
       if (arch > 0.12) {
         // An arched brow: two short capsules meeting in a soft peak two thirds out.
-        rb.add(bb, new THREE.CapsuleGeometry(0.019 * bt, 0.05, 3, 6), H(sx * (EXo - 0.022), by, browZ + R * 0.01, 0, 0, Math.PI / 2 + sx * (0.06 + arch * 0.4), 1, 1, 0.7), browC);
-        rb.add(bb, new THREE.CapsuleGeometry(0.017 * bt, 0.04, 3, 6), H(sx * (EXo + 0.032), by + 0.002, browZ - R * 0.03, 0, sx * 0.3, Math.PI / 2 - sx * (0.22 + arch * 0.8), 1, 1, 0.7), browC);
-      } else rb.add(bb, new THREE.CapsuleGeometry(0.021 * bt, 0.08 + (bt > 1.3 ? 0.012 : 0), 3, 6), H(sx * EXo, by, browZ, 0, 0, Math.PI / 2 + sx * (0.14 - arch), 1, 1, 0.7), browC);
-      if (bt > 1.5) rb.add(bb, new THREE.CapsuleGeometry(0.016 * bt, 0.05, 3, 6), H(sx * (EXo + 0.03), by + 0.012, browZ - R * 0.03, 0, sx * 0.3, Math.PI / 2 + sx * 0.4, 1, 1, 0.7), shadeHex(browC, 1.12));
+        rb.add(bb, capG(0.019 * bt, 0.05, 3, 6), H(sx * (EXo - 0.022), by, browZ + R * 0.01, 0, 0, Math.PI / 2 + sx * (0.06 + arch * 0.4), 1, 1, 0.7), browC);
+        rb.add(bb, capG(0.017 * bt, 0.04, 3, 6), H(sx * (EXo + 0.032), by + 0.002, browZ - R * 0.03, 0, sx * 0.3, Math.PI / 2 - sx * (0.22 + arch * 0.8), 1, 1, 0.7), browC);
+      } else rb.add(bb, capG(0.021 * bt, 0.08 + (bt > 1.3 ? 0.012 : 0), 3, 6), H(sx * EXo, by, browZ, 0, 0, Math.PI / 2 + sx * (0.14 - arch), 1, 1, 0.7), browC);
+      if (bt > 1.5) rb.add(bb, capG(0.016 * bt, 0.05, 3, 6), H(sx * (EXo + 0.03), by + 0.012, browZ - R * 0.03, 0, sx * 0.3, Math.PI / 2 + sx * 0.4, 1, 1, 0.7), shadeHex(browC, 1.12));
       // Anger crease: two short knit lines between the brows.
       rb.tag = 1;
-      rb.add(B.furrow, new THREE.CapsuleGeometry(0.008, 0.035, 2, 4), H(sx * 0.022, browY - R * 0.1, surfZ(0, browY - R * 0.1) + R * 0.01, 0, 0, sx * 0.3), mixHex(L.skin, 0x5a2a1a, 0.55));
+      rb.add(B.furrow, capG(0.008, 0.035, 2, 4), H(sx * 0.022, browY - R * 0.1, surfZ(0, browY - R * 0.1) + R * 0.01, 0, 0, sx * 0.3), mixHex(L.skin, 0x5a2a1a, 0.55));
       if (acc.has('freckles'))
         for (let i = 0; i < 4; i++) {
           // On the cheek surface (the face sphere is ~4 % wider than tall), facing out along its normal.
@@ -1052,24 +1095,24 @@ export class Villager {
         rb.add(B.head, new THREE.CircleGeometry(0.036 + 0.024 * ck, 14), H(cx, cy, surfZ(cx, cy) - 0.006, 0, sx * 0.55, 0, 1.15, 0.85, 1), mixHex(L.skin, 0xf07a6a, 0.12 + 0.55 * ck));
       }
       rb.tag = 0;
-      if (acc.has('earrings')) rb.add(B.head, new THREE.SphereGeometry(0.022, 8, 6), H(sx * R * 1.0, R * 0.68, 0.02), 0xf2c43a);
+      if (acc.has('earrings')) rb.add(B.head, sphG(0.022, 8, 6), H(sx * R * 1.0, R * 0.68, 0.02), 0xf2c43a);
     }
     // Mouth (flaps on its own bone while talking).
     rb.tag = 3;
     const mW = FP.mouth ?? 1;
-    rb.add(B.mouth, new THREE.TorusGeometry(0.036, 0.01, 6, 12, Math.PI), H(0, mouthY, mouthZ, 0, 0, Math.PI, mW, 1, 1), 0x3a1a14);
+    rb.add(B.mouth, torG(0.036, 0.01, 6, 12, Math.PI), H(0, mouthY, mouthZ, 0, 0, Math.PI, mW, 1, 1), 0x3a1a14);
     rb.add(B.mouth, new THREE.CircleGeometry(0.03, 10, Math.PI, Math.PI), H(0, mouthY, mouthZ - R * 0.005, 0, 0, 0, mW, 1, 1), 0x8a3a30);
     rb.tag = 0;
     if (L.glasses) {
       // (a warm tortoiseshell, a touch thicker: the ink edge turned thin dark rims into a scribble)
-      for (const sx of [-1, 1]) rb.add(B.head, new THREE.TorusGeometry(0.07 * Math.max(0.9, eyeK), 0.0135, 6, 18), H(sx * 0.115 * gap, EY + R * 0.02, EZ + R * 0.1), 0x9a6a3a);
+      for (const sx of [-1, 1]) rb.add(B.head, torG(0.07 * Math.max(0.9, eyeK), 0.0135, 6, 18), H(sx * 0.115 * gap, EY + R * 0.02, EZ + R * 0.1), 0x9a6a3a);
       rb.add(B.head, roundedBox(Math.max(0.04, 0.23 * gap - 0.14 * Math.max(0.9, eyeK)), 0.016, 0.016, 0.005, 1), H(0, EY + R * 0.05, EZ + R * 0.12), 0x9a6a3a);
       for (const sx of [-1, 1]) rb.add(B.head, roundedBox(0.012, 0.012, 0.26, 0.004, 1), H(sx * Math.max(0.19, 0.115 * gap + 0.075), EY + R * 0.05, EZ - R * 0.1, 0, sx * 0.3, 0), 0x6a4a2a);
     }
     const beard = L.beard === true ? 'full' : L.beard;
     rb.tag = 6;
     if (beard === 'full') {
-      const bg = lumpySphere(0.2, 3, 0.12, rng, 2);
+      const bg = lumpy(0.2, 3, 0.12, rng, 2);
       bg.scale(1.35, 0.9, 0.7);
       // The mouth cut through the beard: a soft hollow scooped out where the lips sit, so the face
       // talks, laughs and gasps through it (r4 critic: "a white mask with no mouth").
@@ -1098,13 +1141,13 @@ export class Villager {
       rb.add(B.head, bg, H(0, R * 0.5, R * 0.62), L.hair);
       // Moustache as two sweeping wings over the hollow (not one bar).
       for (const sx of [-1, 1]) {
-        const st = new THREE.CapsuleGeometry(0.03, 0.075, 3, 8);
+        const st = capG(0.03, 0.075, 3, 8);
         st.rotateZ(Math.PI / 2 + sx * 0.32);
         rb.add(B.head, st, H(sx * 0.048, R * 0.76, R * 1.0), shadeHex(L.hair, 0.92));
       }
     } else if (beard === 'mustache') {
       for (const sx of [-1, 1]) {
-        const st = new THREE.CapsuleGeometry(0.026, 0.07, 3, 8);
+        const st = capG(0.026, 0.07, 3, 8);
         st.rotateZ(Math.PI / 2 + sx * 0.35);
         rb.add(B.head, st, H(sx * 0.045, R * 0.72, R * 0.97), shadeHex(L.hair, 0.85));
       }
@@ -1113,7 +1156,7 @@ export class Villager {
       // the r6 hair-tagged shell rode up over the eyes and the painter lit it as pale hair.
       rb.tag = 1;
       // (r8: front of the jaw only — wrapped round to the ears it read as a dark disc / eyepatch in profile)
-      const sh = new THREE.SphereGeometry(R * 1.006, 24, 8, Math.PI * 0.2, Math.PI * 0.6, Math.PI * 0.74, Math.PI * 0.22);
+      const sh = sphG(R * 1.006, 24, 8, Math.PI * 0.2, Math.PI * 0.6, Math.PI * 0.74, Math.PI * 0.22);
       rb.add(B.head, sh, H(0, skullY, 0.002, 0, 0, 0, ...faceS), jawC);
     }
     rb.tag = 0;
@@ -1122,13 +1165,13 @@ export class Villager {
     rb.tag = 5;
     this.buildHat(rb, L, H, R, rng);
     rb.tag = 0;
-    if (acc.has('pencil')) rb.add(B.head, new THREE.CylinderGeometry(0.012, 0.012, 0.2, 6), H(R * 0.98, R * 1.08, 0.02, 0.2, 0, 1.2), 0xf2c43a);
+    if (acc.has('pencil')) rb.add(B.head, cylG(0.012, 0.012, 0.2, 6), H(R * 0.98, R * 1.08, 0.02, 0.2, 0, 1.2), 0xf2c43a);
     if (acc.has('flower')) {
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2;
-        rb.add(B.head, new THREE.SphereGeometry(0.03, 6, 5), H(-R * 0.75 + Math.cos(a) * 0.035, R * 1.55 + Math.sin(a) * 0.035, R * 0.45), 0xff8fab);
+        rb.add(B.head, sphG(0.03, 6, 5), H(-R * 0.75 + Math.cos(a) * 0.035, R * 1.55 + Math.sin(a) * 0.035, R * 0.45), 0xff8fab);
       }
-      rb.add(B.head, new THREE.SphereGeometry(0.025, 6, 5), H(-R * 0.75, R * 1.55, R * 0.48), 0xffd166);
+      rb.add(B.head, sphG(0.025, 6, 5), H(-R * 0.75, R * 1.55, R * 0.48), 0xffd166);
     }
     // Eyes (blink bones). Each villager has their own cut (NpcLook.eyeShape): the shape is a squash /
     // tilt about the eye centre applied to every eye part, plus lid lines, lashes or a heavy lid.
@@ -1151,34 +1194,34 @@ export class Villager {
       const T = new THREE.Matrix4().makeTranslation(c0.x, c0.y, c0.z).multiply(M(0, 0, 0, 0, 0, sx * lift, ew * eyeK, eh * eyeK, eyeK)).multiply(new THREE.Matrix4().makeTranslation(-c0.x, -c0.y, -c0.z));
       const E = (...a: number[]): THREE.Matrix4 => T.clone().multiply(H(...a));
       // Big glossy chibi eyes: a dark oval with an iris-tinted lower half and two catch-lights.
-      rb.add(eye, new THREE.CapsuleGeometry(0.043, 0.05, 3, 10), E(ex, EY, (EZ - R * 0.01), -0.12), 0x1d1612);
+      rb.add(eye, capG(0.043, 0.05, 3, 10), E(ex, EY, (EZ - R * 0.01), -0.12), 0x1d1612);
       const irisK = shape === 'wide' ? 1.18 : 1;
-      rb.add(eye, new THREE.SphereGeometry(0.03 * irisK, 10, 6, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45), E(ex, EY + 0.004, EZ + 0.016, -0.35, 0, 0, 1, 1.25, 0.9), mixHex(0x1d1612, L.eyes ?? 0x3a2418, shape === 'wide' ? 0.9 : 0.75));
+      rb.add(eye, sphG(0.03 * irisK, 10, 6, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45), E(ex, EY + 0.004, EZ + 0.016, -0.35, 0, 0, 1, 1.25, 0.9), mixHex(0x1d1612, L.eyes ?? 0x3a2418, shape === 'wide' ? 0.9 : 0.75));
       // Catch-lights stay round (counter-scaled) whatever the cut.
-      rb.add(eye, new THREE.SphereGeometry(0.016, 8, 6), E(ex + 0.015, EY + 0.028 * Math.min(1, 0.8 / eh), EZ + 0.034, 0, 0, 0, 1 / ew, 1 / eh, 1), 0xffffff);
-      if (shape !== 'beady' && shape !== 'narrow') rb.add(eye, new THREE.SphereGeometry(0.009, 6, 4), E(ex - 0.013, EY - 0.022, EZ + 0.034, 0, 0, 0, 1 / ew, 1 / eh, 1), mixHex(0xffffff, L.eyes ?? 0x3a2418, 0.3));
-      if (shape === 'wide') rb.add(eye, new THREE.SphereGeometry(0.007, 6, 4), E(ex + 0.02, EY - 0.012, EZ + 0.036), 0xffffff);
+      rb.add(eye, sphG(0.016, 8, 6), E(ex + 0.015, EY + 0.028 * Math.min(1, 0.8 / eh), EZ + 0.034, 0, 0, 0, 1 / ew, 1 / eh, 1), 0xffffff);
+      if (shape !== 'beady' && shape !== 'narrow') rb.add(eye, sphG(0.009, 6, 4), E(ex - 0.013, EY - 0.022, EZ + 0.034, 0, 0, 0, 1 / ew, 1 / eh, 1), mixHex(0xffffff, L.eyes ?? 0x3a2418, 0.3));
+      if (shape === 'wide') rb.add(eye, sphG(0.007, 6, 4), E(ex + 0.02, EY - 0.012, EZ + 0.036), 0xffffff);
       // Lid line: a soft ink arc over the top of every cut but the plain chibi oval (gives the eye a shape).
       if (shape !== 'round' && shape !== 'beady') {
-        const lid = new THREE.TorusGeometry(0.05, 0.0085 / Math.max(0.5, eh), 4, 12, Math.PI * 0.9);
+        const lid = torG(0.05, 0.0085 / Math.max(0.5, eh), 4, 12, Math.PI * 0.9);
         lid.rotateZ(Math.PI * 0.05);
         rb.add(eye, lid, E(ex, EY + 0.004, EZ + 0.012, -0.2), lashC);
       }
       if (shape === 'sleepy') {
         // A heavy upper lid (skin) over the top third, laid-back.
-        const lidCap = new THREE.SphereGeometry(0.056, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.42);
+        const lidCap = sphG(0.056, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.42);
         rb.tag = 1;
         rb.add(eye, lidCap, E(ex, EY + 0.016, (EZ - R * 0.01) - 0.01, 0.35, 0, 0, 1.05, 0.8, 0.9), shadeHex(L.skin, 0.95));
         rb.tag = 3;
       }
       if (L.lashes) {
         for (let i = 0; i < 2; i++) {
-          const lash = new THREE.CapsuleGeometry(0.0075, 0.03 - i * 0.006, 2, 4);
+          const lash = capG(0.0075, 0.03 - i * 0.006, 2, 4);
           rb.add(eye, lash, E(ex + sx * (0.05 + i * 0.006), EY + 0.04 - i * 0.022, EZ + 0.005, 0, 0, -sx * (0.9 + i * 0.45)), lashC);
         }
       }
       // Closed happy eyes (laugh): a thick "^" arc, scaled up only while laughing.
-      rb.add(sx < 0 ? B.lidL : B.lidR, new THREE.TorusGeometry(0.042 * Math.max(0.85, ew) * eyeK, 0.013, 5, 12, Math.PI), H(ex, EY - R * 0.05, EZ + R * 0.03, -0.1), 0x1d1612);
+      rb.add(sx < 0 ? B.lidL : B.lidR, torG(0.042 * Math.max(0.85, ew) * eyeK, 0.013, 5, 12, Math.PI), H(ex, EY - R * 0.05, EZ + R * 0.03, -0.1), 0x1d1612);
     }
     rb.tag = 0;
     // A tear welling under the left eye with a wet streak (sad), and a hot blush over both cheeks.
@@ -1188,16 +1231,16 @@ export class Villager {
       const tx = -EXo - 0.01;
       const ty = EY - R * 0.35;
       const tz = surfZ(tx, ty);
-      rb.add(B.tear, new THREE.SphereGeometry(0.026, 10, 8), H(tx, ty, tz + R * 0.02, 0, 0, 0, 0.8, 1.25, 0.6), 0x8ad0f8);
-      rb.add(B.tear, new THREE.SphereGeometry(0.01, 6, 4), H(tx - 0.007, ty + R * 0.03, tz + R * 0.04), 0xffffff);
-      rb.add(B.tear, new THREE.CapsuleGeometry(0.009, 0.07, 2, 6), H(tx + 0.002, EY - R * 0.19, surfZ(tx, EY - R * 0.19) + R * 0.01, 0.25, 0, 0), 0xa8dcf6);
+      rb.add(B.tear, sphG(0.026, 10, 8), H(tx, ty, tz + R * 0.02, 0, 0, 0, 0.8, 1.25, 0.6), 0x8ad0f8);
+      rb.add(B.tear, sphG(0.01, 6, 4), H(tx - 0.007, ty + R * 0.03, tz + R * 0.04), 0xffffff);
+      rb.add(B.tear, capG(0.009, 0.07, 2, 6), H(tx + 0.002, EY - R * 0.19, surfZ(tx, EY - R * 0.19) + R * 0.01, 0.25, 0, 0), 0xa8dcf6);
     }
     for (const sx of [-1, 1]) {
       const bx = sx * (EXo + 0.06);
       const by = EY - R * 0.21;
       const bz = surfZ(bx, by);
       rb.add(B.blush, new THREE.CircleGeometry(0.075, 16), H(bx, by, bz - R * 0.01, 0, sx * 0.5, 0, 1.2, 0.8, 1), mixHex(L.skin, 0xf04a5a, 0.72));
-      for (let i = 0; i < 3; i++) rb.add(B.blush, new THREE.CapsuleGeometry(0.006, 0.035, 2, 4), H(bx + sx * (i - 1) * 0.03, by, bz + R * 0.02, 0, sx * 0.5, 0.5), mixHex(L.skin, 0xa8283a, 0.8));
+      for (let i = 0; i < 3; i++) rb.add(B.blush, capG(0.006, 0.035, 2, 4), H(bx + sx * (i - 1) * 0.03, by, bz + R * 0.02, 0, sx * 0.5, 0.5), mixHex(L.skin, 0xa8283a, 0.8));
     }
     rb.tag = 0;
     // ── held props (built at the hand, in rig space)
@@ -1211,76 +1254,80 @@ export class Villager {
       fn((g, m, c) => rb.add(bi, g, new THREE.Matrix4().makeTranslation(hand.x, hand.y, hand.z).multiply(m), c));
     };
     addProp('broom', (add) => {
-      add(new THREE.CylinderGeometry(0.018, 0.018, 1.2, 6), M(0, -0.1, 0.05, 0.25, 0, 0), 0xb89060);
-      add(new THREE.ConeGeometry(0.12, 0.28, 8), M(0, -0.68, 0.2, 0.25, 0, 0), 0xd8b060);
-      add(new THREE.TorusGeometry(0.05, 0.012, 3, 8), M(0, -0.56, 0.17, Math.PI / 2 + 0.25, 0, 0), 0xc8412f);
+      add(cylG(0.018, 0.018, 1.2, 6), M(0, -0.1, 0.05, 0.25, 0, 0), 0xb89060);
+      add(coneG(0.12, 0.28, 8), M(0, -0.68, 0.2, 0.25, 0, 0), 0xd8b060);
+      add(torG(0.05, 0.012, 3, 8), M(0, -0.56, 0.17, Math.PI / 2 + 0.25, 0, 0), 0xc8412f);
     });
     addProp('book', (add) => {
       add(roundedBox(0.2, 0.26, 0.05, 0.015), M(-0.1 * Math.sign(handR.x), 0.02, 0.14, -0.9, 0, 0), 0x8a3a3a);
       add(roundedBox(0.18, 0.24, 0.045, 0.01), M(-0.1 * Math.sign(handR.x), 0.03, 0.16, -0.9, 0, 0), 0xf8f0dc);
     });
     addProp('hammer', (add) => {
-      add(new THREE.CylinderGeometry(0.018, 0.02, 0.36, 6), M(0, -0.02, 0.1, Math.PI / 2, 0, 0), 0x8a5a32);
+      add(cylG(0.018, 0.02, 0.36, 6), M(0, -0.02, 0.1, Math.PI / 2, 0, 0), 0x8a5a32);
       add(roundedBox(0.08, 0.08, 0.18, 0.02), M(0, -0.02, 0.28, 0, 0, 0), 0x4a4a50);
     });
     addProp('can', (add) => {
-      const can = new THREE.CylinderGeometry(0.09, 0.1, 0.18, 12);
+      const can = cylG(0.09, 0.1, 0.18, 12);
       add(can, M(0, -0.1, 0.08), 0x5a9ab0);
-      add(new THREE.CylinderGeometry(0.015, 0.025, 0.24, 6), M(0, -0.04, 0.24, -0.9, 0, 0), 0x5a9ab0);
-      add(new THREE.TorusGeometry(0.07, 0.012, 4, 10, Math.PI), M(0, 0.0, 0.08, 0, Math.PI / 2, 0), 0x4a8aa0);
+      add(cylG(0.015, 0.025, 0.24, 6), M(0, -0.04, 0.24, -0.9, 0, 0), 0x5a9ab0);
+      add(torG(0.07, 0.012, 4, 10, Math.PI), M(0, 0.0, 0.08, 0, Math.PI / 2, 0), 0x4a8aa0);
     });
     addProp('brush', (add) => {
-      add(new THREE.CylinderGeometry(0.01, 0.012, 0.3, 5), M(0, 0.02, 0.1, -1.1, 0, 0), 0xc8a060);
-      add(new THREE.ConeGeometry(0.018, 0.05, 5), M(0, 0.1, 0.24, -1.1 + Math.PI, 0, 0), 0xe8574a);
+      add(cylG(0.01, 0.012, 0.3, 5), M(0, 0.02, 0.1, -1.1, 0, 0), 0xc8a060);
+      add(coneG(0.018, 0.05, 5), M(0, 0.1, 0.24, -1.1 + Math.PI, 0, 0), 0xe8574a);
     });
     addProp('palette', (add) => {
-      add(new THREE.CylinderGeometry(0.14, 0.14, 0.02, 14), M(0.02, 0.02, 0.1, -1.2, 0, 0), 0xd8b48a);
+      add(cylG(0.14, 0.14, 0.02, 14), M(0.02, 0.02, 0.1, -1.2, 0, 0), 0xd8b48a);
       const blobs = [0xe8574a, 0x4a8aa8, 0xffd166, 0x7ab05a, 0xffffff];
-      blobs.forEach((c, i) => add(new THREE.SphereGeometry(0.025, 6, 4), M(0.02 + Math.cos(i * 1.2) * 0.08, 0.04 + Math.sin(i * 1.2) * 0.03, 0.12 + Math.sin(i * 1.2) * 0.07, -1.2, 0, 0), c));
+      blobs.forEach((c, i) => add(sphG(0.025, 6, 4), M(0.02 + Math.cos(i * 1.2) * 0.08, 0.04 + Math.sin(i * 1.2) * 0.03, 0.12 + Math.sin(i * 1.2) * 0.07, -1.2, 0, 0), c));
     });
     addProp('saw', (add) => {
       add(roundedBox(0.05, 0.1, 0.12, 0.02), M(0, 0, 0.04), 0x8a5a32);
       add(roundedBox(0.01, 0.12, 0.5, 0.005), M(0, -0.02, 0.34), 0xc8c8cc);
     });
     addProp('rod', (add) => {
-      add(new THREE.CylinderGeometry(0.012, 0.022, 1.7, 5), M(0, 0.25, 0.6, -1.05, 0, 0), 0x8a6a42);
-      add(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 8), M(0, -0.02, 0.1, 0, 0, Math.PI / 2), 0x3a3a3a);
+      add(cylG(0.012, 0.022, 1.7, 5), M(0, 0.25, 0.6, -1.05, 0, 0), 0x8a6a42);
+      add(cylG(0.03, 0.03, 0.05, 8), M(0, -0.02, 0.1, 0, 0, Math.PI / 2), 0x3a3a3a);
     });
     addProp('cane', (add) => {
-      add(new THREE.CylinderGeometry(0.02, 0.02, 0.62, 6), M(0, -0.3, 0.06, 0.1, 0, 0), 0x6a4a2a);
-      add(new THREE.TorusGeometry(0.05, 0.02, 5, 10, Math.PI), M(0, 0.01, 0.03, 0, Math.PI / 2, 0), 0x6a4a2a);
+      add(cylG(0.02, 0.02, 0.62, 6), M(0, -0.3, 0.06, 0.1, 0, 0), 0x6a4a2a);
+      add(torG(0.05, 0.02, 5, 10, Math.PI), M(0, 0.01, 0.03, 0, Math.PI / 2, 0), 0x6a4a2a);
     });
     addProp('umbrella', (add) => {
       // Built upright in rig space; the bone is counter-rotated against the raised arm each frame.
       const col = UMBRELLAS[(rng.next() * UMBRELLAS.length) | 0]!;
-      add(new THREE.CylinderGeometry(0.013, 0.013, 1.3, 5), M(0, 0.6, 0), 0x3a2a22);
-      add(new THREE.TorusGeometry(0.035, 0.012, 4, 8, Math.PI), M(0.035, -0.04, 0, 0, 0, Math.PI), 0x6a4a2a);
-      const can = new THREE.ConeGeometry(0.66, 0.28, 8, 1, true);
+      add(cylG(0.013, 0.013, 1.3, 5), M(0, 0.6, 0), 0x3a2a22);
+      add(torG(0.035, 0.012, 4, 8, Math.PI), M(0.035, -0.04, 0, 0, 0, Math.PI), 0x6a4a2a);
+      const can = coneG(0.66, 0.28, 8, 1, true);
       add(can, M(0, 1.33, 0), col);
-      const under = new THREE.ConeGeometry(0.64, 0.26, 8, 1, true);
+      const under = coneG(0.64, 0.26, 8, 1, true);
       under.scale(-1, 1, 1);
       add(under, M(0, 1.325, 0), shadeHex(col, 0.62));
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-        add(new THREE.SphereGeometry(0.022, 5, 4), M(Math.cos(a) * 0.65, 1.19, Math.sin(a) * 0.65), shadeHex(col, 0.8));
+        add(sphG(0.022, 5, 4), M(Math.cos(a) * 0.65, 1.19, Math.sin(a) * 0.65), shadeHex(col, 0.8));
       }
-      add(new THREE.SphereGeometry(0.03, 6, 5), M(0, 1.49, 0), 0x3a2a22);
+      add(sphG(0.03, 6, 5), M(0, 1.49, 0), 0x3a2a22);
     });
     addProp('mug', (add) => {
-      add(new THREE.CylinderGeometry(0.05, 0.045, 0.1, 10), M(0, 0.02, 0.07), 0xf2ece0);
-      add(new THREE.TorusGeometry(0.03, 0.01, 4, 8), M(0.05, 0.02, 0.07, 0, 0, Math.PI / 2), 0xf2ece0);
+      add(cylG(0.05, 0.045, 0.1, 10), M(0, 0.02, 0.07), 0xf2ece0);
+      add(torG(0.03, 0.01, 4, 8), M(0.05, 0.02, 0.07, 0, 0, Math.PI / 2), 0xf2ece0);
     });
 
     if (L.scarf === undefined && !acc.has('shawl')) {
       // A chunky knitted muffler (colour picked per villager) with a striped tail.
       const knit = [0xc8412f, 0x3f6f9a, 0xe8b04a, 0x5a8a4a, 0x8a4a8a, 0xe87a5a][(rng.next() * 6) | 0]!;
       const W = (m: THREE.Matrix4) => new THREE.Matrix4().makeTranslation(neck.x, neck.y, neck.z).multiply(m);
-      rb.add(winterIdx, new THREE.TorusGeometry(0.14 * Math.max(0.9, bw * 0.9), 0.055, 8, 16), W(M(0, 0, 0.005, Math.PI / 2 - 0.18, 0, 0, 1, 1, 1)), knit);
-      rb.add(winterIdx, new THREE.TorusGeometry(0.145 * Math.max(0.9, bw * 0.9), 0.02, 4, 16), W(M(0, 0.03, 0.01, Math.PI / 2 - 0.18, 0, 0)), 0xf6efe2);
-      rb.add(winterIdx, new THREE.CapsuleGeometry(0.038, 0.14, 2, 6), W(M(0.08, -0.13, 0.17 * bw, 0.2, 0, 0.1, 1, 1, 0.55)), knit);
-      rb.add(winterIdx, new THREE.CapsuleGeometry(0.036, 0.02, 2, 6), W(M(0.09, -0.19, 0.18 * bw, 0.2, 0, 0.1, 1.05, 1, 0.6)), 0xf6efe2);
+      rb.add(winterIdx, torG(0.14 * Math.max(0.9, bw * 0.9), 0.055, 8, 16), W(M(0, 0, 0.005, Math.PI / 2 - 0.18, 0, 0, 1, 1, 1)), knit);
+      rb.add(winterIdx, torG(0.145 * Math.max(0.9, bw * 0.9), 0.02, 4, 16), W(M(0, 0.03, 0.01, Math.PI / 2 - 0.18, 0, 0)), 0xf6efe2);
+      rb.add(winterIdx, capG(0.038, 0.14, 2, 6), W(M(0.08, -0.13, 0.17 * bw, 0.2, 0, 0.1, 1, 1, 0.55)), knit);
+      rb.add(winterIdx, capG(0.036, 0.02, 2, 6), W(M(0.09, -0.19, 0.18 * bw, 0.2, 0, 0.1, 1.05, 1, 0.6)), 0xf6efe2);
     }
     const geo = rb.build();
+    if (this.lodCapture) {
+      this.lodGeo = geo;
+      return;
+    }
     this.mesh = new THREE.SkinnedMesh(geo, sharedMat());
     this.mesh.name = 'npc-body';
     this.mesh.castShadow = true;
@@ -1301,6 +1348,20 @@ export class Villager {
     this.mesh.boundingSphere.radius *= 1.35;
     this.mesh.frustumCulled = true;
     this.body.add(this.mesh);
+    if (this.lodGeo) {
+      // The far mesh shares the skeleton (one set of bones animates both); only one is visible.
+      const lod = new THREE.SkinnedMesh(this.lodGeo, this.mesh.material);
+      lod.name = 'npc-body-lod';
+      lod.castShadow = true;
+      lod.receiveShadow = true;
+      lod.userData.ao = true;
+      villagerDepthHooks(lod);
+      lod.bind(skeleton, this.mesh.bindMatrix);
+      lod.boundingSphere = this.mesh.boundingSphere.clone();
+      lod.visible = false;
+      this.lodMesh = lod;
+      this.body.add(lod);
+    }
     this.root.add(this.body);
     this.showProps(acc.has('cane') ? ['cane'] : []);
     this.setWinter(false);
@@ -1360,7 +1421,7 @@ export class Villager {
           const tip = tip0 + (len0 - len) * 0.9;
           // A soft teardrop lock (round at the root, tapering to a curled tip), flattened against the
           // brow so neighbouring locks overlap into a scalloped fringe rather than a row of spikes.
-          const cone = new THREE.SphereGeometry(1, 9, 7);
+          const cone = sphG(1, 9, 7);
           const pa = cone.attributes.position as THREE.BufferAttribute;
           for (let v = 0; v < pa.count; v++) {
             const y = pa.getY(v);
@@ -1380,10 +1441,10 @@ export class Villager {
     }
     switch (style) {
       case 'bun':
-        rb.add(B.hairBack, lumpySphere(0.17, 1, 0.12, rng, 2), H(0, R * 1.85, -R * 0.35), hair);
-        for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.12, 1, 0.1, rng), H(sx * R * 0.9, R * 1.1, -R * 0.08, 0, 0, 0, 0.55, 1.0, 0.85), hair);
-        rb.add(B.head, lumpySphere(0.2, 1, 0.1, rng, 1.4), H(0, R * 1.42, R * 0.55, 0.5, 0, 0, 1.6, 0.5, 0.7), hi);
-        rb.add(B.hairBack, new THREE.TorusGeometry(0.1, 0.02, 5, 12), H(0, R * 1.72, -R * 0.3, 1.2, 0, 0), shadeHex(L.top, 0.9));
+        rb.add(B.hairBack, lumpy(0.17, 1, 0.12, rng, 2), H(0, R * 1.85, -R * 0.35), hair);
+        for (const sx of [-1, 1]) rb.add(B.head, lumpy(0.12, 1, 0.1, rng), H(sx * R * 0.9, R * 1.1, -R * 0.08, 0, 0, 0, 0.55, 1.0, 0.85), hair);
+        rb.add(B.head, lumpy(0.2, 1, 0.1, rng, 1.4), H(0, R * 1.42, R * 0.55, 0.5, 0, 0, 1.6, 0.5, 0.7), hi);
+        rb.add(B.hairBack, torG(0.1, 0.02, 5, 12), H(0, R * 1.72, -R * 0.3, 1.2, 0, 0), shadeHex(L.top, 0.9));
         break;
       case 'bob':
         // A chin-length bob: tapered locks hanging round the sides and back (flat against the head,
@@ -1392,7 +1453,7 @@ export class Villager {
           // (from 70° round: the front locks hung across the cheeks in the three-quarter bust)
           const a = Math.PI * 0.39 + (i / 12) * Math.PI * 1.22;
           const len = 0.24 + (i % 2) * 0.05 + (i % 3) * 0.015;
-          const lock = new THREE.SphereGeometry(1, 9, 7);
+          const lock = sphG(1, 9, 7);
           const pa = lock.attributes.position as THREE.BufferAttribute;
           for (let v = 0; v < pa.count; v++) {
             const y = pa.getY(v);
@@ -1413,13 +1474,13 @@ export class Villager {
         // A pleated band (starched folds all the way round) under a gathered, billowing crown.
         // (cloth, not hair: the painter / portrait gate read the white toque as pale hair)
         rb.tag = 5;
-        rb.add(B.head, pleat(new THREE.CylinderGeometry(R * 1.02, R * 1.04, 0.16, 48, 1, true), 16, 0.035), H(0, R * 1.55, -0.02, -0.12, 0, 0), 0xe8e0d0);
-        const puff = pleat(lumpySphere(R * 1.05, 2, 0.1, rng, 1.6), 7, 0.07);
+        rb.add(B.head, pleat(cylG(R * 1.02, R * 1.04, 0.16, 48, 1, true), 16, 0.035), H(0, R * 1.55, -0.02, -0.12, 0, 0), 0xe8e0d0);
+        const puff = pleat(lumpy(R * 1.05, 2, 0.1, rng, 1.6), 7, 0.07);
         puff.scale(1.12, 0.62, 1.12);
         rb.add(B.head, puff, H(0, R * 1.78, -0.05, -0.15, 0, 0), 0xece6da);
         rb.tag = 2;
-        rb.add(B.head, new THREE.SphereGeometry(R * 1.02, 20, 8, 0, Math.PI * 2, Math.PI * 0.3, Math.PI * 0.25), H(0, R * 0.96, -0.02, -0.25, 0, 0), hair);
-        for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.1, 1, 0.12, rng), H(sx * R * 0.9, R * 0.95, R * 0.1, 0, 0, 0, 0.6, 1, 0.9), hair);
+        rb.add(B.head, sphG(R * 1.02, 20, 8, 0, Math.PI * 2, Math.PI * 0.3, Math.PI * 0.25), H(0, R * 0.96, -0.02, -0.25, 0, 0), hair);
+        for (const sx of [-1, 1]) rb.add(B.head, lumpy(0.1, 1, 0.12, rng), H(sx * R * 0.9, R * 0.95, R * 0.1, 0, 0, 0, 0.6, 1, 0.9), hair);
         break;
       }
       case 'curly':
@@ -1431,35 +1492,35 @@ export class Villager {
           const y = R * 0.95 + Math.cos(up) * R * 1.05;
           if (z > R * 0.55 && y < R * 1.35) continue;
           if (L.hat === 'beanie' && y > R * 1.45) continue;
-          rb.add(B.head, lumpySphere(0.1 + rng.next() * 0.04, 1, 0.2, rng, 2.2), H(x, y, z), i % 4 ? hair : hi);
+          rb.add(B.head, lumpy(0.1 + rng.next() * 0.04, 1, 0.2, rng, 2.2), H(x, y, z), i % 4 ? hair : hi);
         }
         for (let i = 0; i < 8; i++) {
           const a = Math.PI * 0.55 + (i / 7) * Math.PI * 0.9;
-          rb.add(B.hairBack, lumpySphere(0.11, 1, 0.22, rng, 2.2), H(Math.cos(a) * R * 0.9, R * 0.45 + (i % 2) * 0.08, -Math.abs(Math.sin(a)) * R * 0.85), hair);
+          rb.add(B.hairBack, lumpy(0.11, 1, 0.22, rng, 2.2), H(Math.cos(a) * R * 0.9, R * 0.45 + (i % 2) * 0.08, -Math.abs(Math.sin(a)) * R * 0.85), hair);
         }
         break;
       case 'ponytail': {
-        rb.add(B.hairBack, lumpySphere(0.08, 1, 0.1, rng), H(0, R * 1.35, -R * 0.95), shadeHex(L.top, 0.9));
-        for (let i = 0; i < 4; i++) rb.add(B.hairBack, lumpySphere(0.1 - i * 0.012, 1, 0.12, rng), H(0, R * 1.2 - i * 0.12, -R * 1.05 - i * 0.03), hair);
-        rb.add(B.head, lumpySphere(0.18, 1, 0.1, rng, 1.4), H(0.08, R * 1.45, R * 0.55, 0.5, 0.2, 0, 1.5, 0.5, 0.7), hi);
+        rb.add(B.hairBack, lumpy(0.08, 1, 0.1, rng), H(0, R * 1.35, -R * 0.95), shadeHex(L.top, 0.9));
+        for (let i = 0; i < 4; i++) rb.add(B.hairBack, lumpy(0.1 - i * 0.012, 1, 0.12, rng), H(0, R * 1.2 - i * 0.12, -R * 1.05 - i * 0.03), hair);
+        rb.add(B.head, lumpy(0.18, 1, 0.1, rng, 1.4), H(0.08, R * 1.45, R * 0.55, 0.5, 0.2, 0, 1.5, 0.5, 0.7), hi);
         break;
       }
       case 'long':
         for (const sx of [-1, 1]) {
-          const side = lumpySphere(0.14, 1, 0.1, rng, 1.2);
+          const side = lumpy(0.14, 1, 0.1, rng, 1.2);
           side.scale(0.7, 2.2, 0.9);
           rb.add(B.head, side, H(sx * R * 0.92, R * 0.55, R * 0.05), hair);
         }
         {
-          const back = lumpySphere(0.3, 1, 0.08, rng, 1.2);
+          const back = lumpy(0.3, 1, 0.08, rng, 1.2);
           back.scale(1.05, 1.8, 0.5);
           rb.add(B.hairBack, back, H(0, R * 0.5, -R * 0.75), hair);
         }
-        rb.add(B.head, lumpySphere(0.2, 1, 0.1, rng, 1.4), H(-0.08, R * 1.42, R * 0.55, 0.5, -0.2, 0, 1.6, 0.5, 0.7), hi);
+        rb.add(B.head, lumpy(0.2, 1, 0.1, rng, 1.4), H(-0.08, R * 1.42, R * 0.55, 0.5, -0.2, 0, 1.6, 0.5, 0.7), hi);
         break;
       case 'bald':
-        for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.12, 1, 0.12, rng), H(sx * R * 0.9, R * 0.95, -R * 0.1, 0, 0, 0, 0.6, 0.9, 1.1), hair);
-        rb.add(B.head, lumpySphere(0.16, 1, 0.1, rng), H(0, R * 0.85, -R * 0.85, 0, 0, 0, 1.6, 0.8, 0.6), hair);
+        for (const sx of [-1, 1]) rb.add(B.head, lumpy(0.12, 1, 0.12, rng), H(sx * R * 0.9, R * 0.95, -R * 0.1, 0, 0, 0, 0.6, 0.9, 1.1), hair);
+        rb.add(B.head, lumpy(0.16, 1, 0.1, rng), H(0, R * 0.85, -R * 0.85, 0, 0, 0, 1.6, 0.8, 0.6), hair);
         break;
       case 'spiky': {
         // Tousled tufts growing out of the shell (base buried, tip out along the surface normal,
@@ -1482,7 +1543,7 @@ export class Villager {
           const flop = dir.clone().multiplyScalar(front ? 1.0 : 0.55).addScaledVector(down, front ? 0.38 : 0.85).normalize();
           q.setFromUnitVectors(up, flop);
           const pos = c.clone().addScaledVector(dir, R * 1.0).addScaledVector(flop, len * 0.3);
-          const cone = new THREE.ConeGeometry(0.11, len * 1.35, 8);
+          const cone = coneG(0.11, len * 1.35, 8);
           cone.scale(1, 1, 0.6);
           rb.add(B.head, cone, H().multiply(new THREE.Matrix4().compose(pos, q, new THREE.Vector3(1, 1, 1))), i % 3 === 0 ? hi : hair);
         });
@@ -1526,7 +1587,7 @@ export class Villager {
             q.setFromUnitVectors(up, tan.clone().negate());
             const side = i % 2 ? 1 : -1;
             const r = 0.05 * (1 - t * 0.42);
-            const lobe = new THREE.SphereGeometry(r, 8, 6);
+            const lobe = sphG(r, 8, 6);
             lobe.scale(0.78, 1.55, 0.7);
             lobe.rotateZ(side * 0.62);
             lobe.translate(side * r * 0.42, 0, 0);
@@ -1535,25 +1596,25 @@ export class Villager {
             rb.add(B.head, lobe, H(), i % 2 ? hair : hi);
           }
           const e = curve.getPoint(1);
-          rb.add(B.head, new THREE.SphereGeometry(0.034, 8, 6), H(e.x, e.y - 0.05, e.z + 0.01, 0, 0, 0, 1, 0.8, 1), L.hatColor ?? 0xc8412f);
-          rb.add(B.head, new THREE.ConeGeometry(0.03, 0.08, 6), H(e.x, e.y - 0.11, e.z + 0.01, Math.PI, 0, 0), shadeHex(hair, 1.1));
+          rb.add(B.head, sphG(0.034, 8, 6), H(e.x, e.y - 0.05, e.z + 0.01, 0, 0, 0, 1, 0.8, 1), L.hatColor ?? 0xc8412f);
+          rb.add(B.head, coneG(0.03, 0.08, 6), H(e.x, e.y - 0.11, e.z + 0.01, Math.PI, 0, 0), shadeHex(hair, 1.1));
         }
         break;
       case 'slick': {
-        const sweep = lumpySphere(0.24, 1, 0.05, rng, 1.2);
+        const sweep = lumpy(0.24, 1, 0.05, rng, 1.2);
         sweep.scale(1.35, 0.4, 1.05);
         rb.add(B.head, sweep, H(0.04, R * 1.62, R * 0.05, 0.1, 0, -0.08), hi);
-        for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.1, 1, 0.08, rng), H(sx * R * 0.92, R * 1.0, -R * 0.05, 0, 0, 0, 0.55, 1, 1), hair);
+        for (const sx of [-1, 1]) rb.add(B.head, lumpy(0.1, 1, 0.08, rng), H(sx * R * 0.92, R * 1.0, -R * 0.05, 0, 0, 0, 0.55, 1, 1), hair);
         break;
       }
       default:
         if (!hatted) for (let i = 0; i < 6; i++) {
           const a = -0.9 + i * 0.36;
-          rb.add(B.head, lumpySphere(0.13, 1, 0.18, rng), H(Math.sin(a) * R * 0.8, R * 1.35, Math.cos(a) * R * 0.75), i % 2 ? hair : hi);
+          rb.add(B.head, lumpy(0.13, 1, 0.18, rng), H(Math.sin(a) * R * 0.8, R * 1.35, Math.cos(a) * R * 0.75), i % 2 ? hair : hi);
         }
         // (r8: under a hat, a slim tuft above and behind each ear — the round puff over the ear read as a
         // dark disc / headphones on Rowan's cheek from the plaza lens)
-        else for (const sx of [-1, 1]) rb.add(B.head, lumpySphere(0.08, 1, 0.1, rng), H(sx * R * 0.93, R * 1.12, -R * 0.2, 0.25, 0, sx * 0.2, 0.42, 0.85, 0.9), hair);
+        else for (const sx of [-1, 1]) rb.add(B.head, lumpy(0.08, 1, 0.1, rng), H(sx * R * 0.93, R * 1.12, -R * 0.2, 0.25, 0, sx * 0.2, 0.42, 0.85, 0.9), hair);
     }
   }
 
@@ -1563,31 +1624,31 @@ export class Villager {
       case 'flatcap': {
         // A tweed newsboy cap: a soft crown pulled forward over the brim, eight panel seams meeting
         // at a covered button, a band round the head and a stiff curved peak.
-        const crown = new THREE.SphereGeometry(R * 1.1, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.42);
+        const crown = sphG(R * 1.1, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.42);
         rb.add(B.head, crown, H(0, R * 1.1, 0.03, -0.2, 0, 0, 1.06, 0.8, 1.14), c);
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2;
-          const seam = new THREE.TorusGeometry(R * 1.1, 0.006, 3, 14, Math.PI * 0.4);
+          const seam = torG(R * 1.1, 0.006, 3, 14, Math.PI * 0.4);
           seam.rotateZ(Math.PI * 0.1);
           seam.rotateY(Math.PI / 2 + a);
           rb.add(B.head, seam, H(0, R * 1.1, 0.03, -0.2, 0, 0, 1.065, 0.805, 1.145), shadeHex(c, 0.72));
         }
         rb.add(B.head, bevelCylinder(R * 1.06, R * 1.07, 0.07, 0.02, 24), H(0, R * 1.2, 0.0, -0.2, 0, 0), shadeHex(c, 0.78));
-        const brim = new THREE.CylinderGeometry(R * 0.78, R * 0.78, 0.035, 18, 1, false, -Math.PI / 2, Math.PI);
+        const brim = cylG(R * 0.78, R * 0.78, 0.035, 18, 1, false, -Math.PI / 2, Math.PI);
         // (peak tipped up ~10°: the eyes read under it from the high lens)
         rb.add(B.head, brim, H(0, R * 1.28, R * 0.66, 0.09, 0, 0, 1.05, 1, 0.62), shadeHex(c, 0.66));
-        rb.add(B.head, new THREE.TorusGeometry(R * 0.78, 0.008, 3, 16, Math.PI), H(0, R * 1.29, R * 0.66, Math.PI / 2 + 0.09, 0, 0, 1.05, 0.62, 1), shadeHex(c, 0.55));
-        rb.add(B.head, new THREE.SphereGeometry(0.034, 8, 6), H(0, R * 1.97, -0.1, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
+        rb.add(B.head, torG(R * 0.78, 0.008, 3, 16, Math.PI), H(0, R * 1.29, R * 0.66, Math.PI / 2 + 0.09, 0, 0, 1.05, 0.62, 1), shadeHex(c, 0.55));
+        rb.add(B.head, sphG(0.034, 8, 6), H(0, R * 1.97, -0.1, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
         // Flecks of tweed.
         for (let i = 0; i < 14; i++) {
           const a = rng.next() * Math.PI * 2;
           const up = 0.25 + rng.next() * 0.5;
-          rb.add(B.head, new THREE.SphereGeometry(0.012, 4, 3), H(Math.sin(a) * Math.sin(up) * R * 1.16, R * 1.12 + Math.cos(up) * R * 0.86, Math.cos(a) * Math.sin(up) * R * 1.24 + 0.03), i % 2 ? shadeHex(c, 1.35) : shadeHex(c, 0.6));
+          rb.add(B.head, sphG(0.012, 4, 3), H(Math.sin(a) * Math.sin(up) * R * 1.16, R * 1.12 + Math.cos(up) * R * 0.86, Math.cos(a) * Math.sin(up) * R * 1.24 + 0.03), i % 2 ? shadeHex(c, 1.35) : shadeHex(c, 0.6));
         }
         break;
       }
       case 'beanie': {
-        const dome = new THREE.SphereGeometry(R * 1.1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        const dome = sphG(R * 1.1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
         // Worn high and pushed back (like a woodworker's knit cap) so the brow + eyes stay clear.
         rb.add(B.head, dome, H(0, R * 1.3, -0.06, -0.34, 0, 0, 1, 1.05, 1), c);
         // Knitted beanie: a thick folded cuff (ribbed by little bumps), a slouched crown and a pom-pom.
@@ -1596,7 +1657,7 @@ export class Villager {
           const a = (i / 16) * Math.PI * 2;
           rb.add(B.head, roundedBox(0.026, 0.09, 0.012, 0.005, 1), H(Math.sin(a) * R * 1.128, R * 1.4 + Math.cos(a) * R * 1.128 * 0.333, Math.cos(a) * R * 1.128 * 0.943 - 0.06, -0.34, a, 0), shadeHex(c, 0.84));
         }
-        const pom = lumpySphere(0.075, 1, 0.22, rng, 3);
+        const pom = lumpy(0.075, 1, 0.22, rng, 3);
         rb.add(B.head, pom, H(-0.03, R * 2.36, -0.32), shadeHex(c, 1.08));
         break;
       }
@@ -1604,24 +1665,24 @@ export class Villager {
         // Brim kept modest (≈1.45 head radii) so the face still reads from the high camera.
         // Tipped back ~25° (brim front up): from the high diorama lens the face shows under it, not a disc.
         const tip = -0.43;
-        const brim = new THREE.CylinderGeometry(R * 1.62, R * 1.72, 0.03, 30);
+        const brim = cylG(R * 1.62, R * 1.72, 0.03, 30);
         rb.add(B.head, brim, H(0, R * 1.52, -0.05, tip, 0, 0), c);
-        const crown = new THREE.SphereGeometry(R * 1.02, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        const crown = sphG(R * 1.02, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
         rb.add(B.head, crown, H(0, R * 1.46, -0.08, tip, 0, 0, 1, 0.8, 1), shadeHex(c, 1.04));
-        rb.add(B.head, new THREE.TorusGeometry(R * 1.0, 0.03, 6, 22), H(0, R * 1.56, -0.08, Math.PI / 2 + tip, 0, 0), L.scarf ?? 0xa8587a);
-        for (let i = 0; i < 3; i++) rb.add(B.head, lumpySphere(0.05, 0, 0.3, rng), H(R * 0.75 + i * 0.03, R * 1.62, R * 0.4 - i * 0.05), [0xff8fab, 0xffd166, 0xffffff][i]!);
+        rb.add(B.head, torG(R * 1.0, 0.03, 6, 22), H(0, R * 1.56, -0.08, Math.PI / 2 + tip, 0, 0), L.scarf ?? 0xa8587a);
+        for (let i = 0; i < 3; i++) rb.add(B.head, lumpy(0.05, 0, 0.3, rng), H(R * 0.75 + i * 0.03, R * 1.62, R * 0.4 - i * 0.05), [0xff8fab, 0xffd166, 0xffffff][i]!);
         break;
       }
       case 'earmuffs': {
         // Fluffy earmuffs: a slim band over the crown (sitting just on the hair) and two plush puffs
         // over the ears with a darker ring where they meet the head.
-        const band = new THREE.TorusGeometry(R * 1.13, 0.024, 6, 22, Math.PI);
+        const band = torG(R * 1.13, 0.024, 6, 22, Math.PI);
         rb.add(B.head, band, H(0, R * 0.95, -0.04, 0, 0, 0, 1, 1.02, 1).multiply(new THREE.Matrix4().makeRotationX(-0.18)), shadeHex(c, 0.75));
         for (const sx of [-1, 1]) {
-          const puff = lumpySphere(0.14, 1, 0.16, rng, 2.6);
+          const puff = lumpy(0.14, 1, 0.16, rng, 2.6);
           puff.scale(0.62, 1, 1);
           rb.add(B.head, puff, H(sx * R * 1.08, R * 0.9, -0.03), c);
-          rb.add(B.head, new THREE.TorusGeometry(0.1, 0.022, 6, 14), H(sx * R * 1.02, R * 0.9, -0.03, 0, Math.PI / 2, 0), shadeHex(c, 0.8));
+          rb.add(B.head, torG(0.1, 0.022, 6, 14), H(sx * R * 1.02, R * 0.9, -0.03, 0, Math.PI / 2, 0), shadeHex(c, 0.8));
         }
         break;
       }
@@ -1637,7 +1698,7 @@ export class Villager {
         // Hugging the skull (a low crown, not a helmet dome).
         dome.scale(1.0, 0.8, 1.03);
         rb.add(B.head, dome, T(), c);
-        const hem = new THREE.TorusGeometry(rr * Math.sin(polar) * 1.03, 0.016, 6, 32);
+        const hem = torG(rr * Math.sin(polar) * 1.03, 0.016, 6, 32);
         hem.rotateX(Math.PI / 2);
         hem.translate(0, rr * Math.cos(polar) * 0.8, 0);
         rb.add(B.head, hem, T(), shadeHex(c, 0.8));
@@ -1655,7 +1716,7 @@ export class Villager {
         }
         for (const d of dots) rb.add(B.head, d, T(), 0xf6ecd8);
         // The knot at the nape and two tails fluttering down over the braids.
-        rb.add(B.hairBack, lumpySphere(0.06, 1, 0.18, rng, 2), H(0, R * 0.86, -R * 1.1), shadeHex(c, 0.92));
+        rb.add(B.hairBack, lumpy(0.06, 1, 0.18, rng, 2), H(0, R * 0.86, -R * 1.1), shadeHex(c, 0.92));
         for (const sx of [-1, 1]) rb.add(B.hairBack, roundedBox(0.075, 0.2, 0.026, 0.02), H(sx * 0.05, R * 0.62, -R * 1.12, 0.18, 0, sx * 0.35), shadeHex(c, 0.86));
         break;
       }
@@ -2682,7 +2743,28 @@ export class Villager {
     }
   }
 
+  /**
+   * Pick the near or far mesh for this frame from the lens distance (NpcSystem calls it every frame;
+   * hysteresis keeps a villager on the boundary from flickering). `?vlod=0` turns the far mesh off.
+   */
+  lodFor(camPos: THREE.Vector3): void {
+    if (!this.lodMesh) return;
+    const d2 = camPos.distanceToSquared(this.position);
+    const far = this.lodMesh.visible ? d2 > (VILLAGER_LOD_D - 1.5) ** 2 : d2 > VILLAGER_LOD_D * VILLAGER_LOD_D;
+    if (far === this.lodMesh.visible) return;
+    this.lodMesh.visible = far;
+    this.mesh.visible = !far;
+  }
+
+  /** Force the near mesh (portraits, close-ups). */
+  lodOff(): void {
+    if (!this.lodMesh) return;
+    this.lodMesh.visible = false;
+    this.mesh.visible = true;
+  }
+
   dispose(): void {
+    this.lodGeo?.dispose();
     this.mesh.geometry.dispose();
     this.mesh.skeleton.dispose();
   }
@@ -2715,29 +2797,29 @@ export function buildCat(pose: 'sit' | 'curl' = 'sit', color = 0xe8903e): THREE.
   const light = shadeHex(color, 1.25);
   const dark = shadeHex(color, 0.72);
   if (pose === 'curl') {
-    add(new THREE.SphereGeometry(0.2, 16, 10), M(0, 0.12, 0, 0, 0, 0, 1.25, 0.62, 1), color);
-    add(new THREE.SphereGeometry(0.13, 14, 10), M(0.17, 0.16, 0.06, 0, 0, 0, 1, 0.9, 1), color);
+    add(sphG(0.2, 16, 10), M(0, 0.12, 0, 0, 0, 0, 1.25, 0.62, 1), color);
+    add(sphG(0.13, 14, 10), M(0.17, 0.16, 0.06, 0, 0, 0, 1, 0.9, 1), color);
   } else {
-    add(new THREE.SphereGeometry(0.18, 16, 10), M(0, 0.17, 0, 0, 0, 0, 1, 1.05, 1.2), color);
-    add(new THREE.SphereGeometry(0.1, 12, 8), M(0, 0.12, 0.13, 0, 0, 0, 1, 0.9, 0.8), light);
-    add(new THREE.SphereGeometry(0.14, 16, 10), M(0, 0.4, 0.08), color);
-    for (const sx of [-1, 1]) add(new THREE.SphereGeometry(0.045, 8, 6), M(sx * 0.07, 0.03, 0.17, 0, 0, 0, 1, 0.7, 1.3), light);
+    add(sphG(0.18, 16, 10), M(0, 0.17, 0, 0, 0, 0, 1, 1.05, 1.2), color);
+    add(sphG(0.1, 12, 8), M(0, 0.12, 0.13, 0, 0, 0, 1, 0.9, 0.8), light);
+    add(sphG(0.14, 16, 10), M(0, 0.4, 0.08), color);
+    for (const sx of [-1, 1]) add(sphG(0.045, 8, 6), M(sx * 0.07, 0.03, 0.17, 0, 0, 0, 1, 0.7, 1.3), light);
   }
   const hx = pose === 'curl' ? 0.17 : 0;
   const hy = pose === 'curl' ? 0.16 : 0.4;
   const hz = pose === 'curl' ? 0.06 : 0.08;
   for (const sx of [-1, 1]) {
-    add(new THREE.ConeGeometry(0.05, 0.1, 4), M(hx + sx * 0.075, hy + 0.12, hz - 0.01, 0, Math.PI / 4, sx * -0.25), color);
-    add(new THREE.ConeGeometry(0.028, 0.06, 4), M(hx + sx * 0.075, hy + 0.115, hz + 0.012, 0, Math.PI / 4, sx * -0.25), 0xf2a0a0);
+    add(coneG(0.05, 0.1, 4), M(hx + sx * 0.075, hy + 0.12, hz - 0.01, 0, Math.PI / 4, sx * -0.25), color);
+    add(coneG(0.028, 0.06, 4), M(hx + sx * 0.075, hy + 0.115, hz + 0.012, 0, Math.PI / 4, sx * -0.25), 0xf2a0a0);
     // Stripes.
-    add(new THREE.TorusGeometry(0.12, 0.012, 4, 10, Math.PI * 0.6), M(hx, hy + 0.02 + sx * 0.03, hz - 0.02, 0, Math.PI / 2, Math.PI * 0.2), dark);
+    add(torG(0.12, 0.012, 4, 10, Math.PI * 0.6), M(hx, hy + 0.02 + sx * 0.03, hz - 0.02, 0, Math.PI / 2, Math.PI * 0.2), dark);
     // Eyes: happy closed arcs when curled, open when sitting.
-    if (pose === 'curl') add(new THREE.TorusGeometry(0.018, 0.006, 3, 6, Math.PI), M(hx + 0.1, hy + 0.01, hz + sx * 0.04, 0, Math.PI / 2, Math.PI), 0x2a1a12);
-    else add(new THREE.SphereGeometry(0.022, 6, 5), M(sx * 0.05, hy + 0.02, hz + 0.12, 0, 0, 0, 0.8, 1.2, 0.6), 0x2a1a12);
+    if (pose === 'curl') add(torG(0.018, 0.006, 3, 6, Math.PI), M(hx + 0.1, hy + 0.01, hz + sx * 0.04, 0, Math.PI / 2, Math.PI), 0x2a1a12);
+    else add(sphG(0.022, 6, 5), M(sx * 0.05, hy + 0.02, hz + 0.12, 0, 0, 0, 0.8, 1.2, 0.6), 0x2a1a12);
   }
-  if (pose !== 'curl') add(new THREE.SphereGeometry(0.02, 6, 4), M(0, hy - 0.03, hz + 0.135), 0xe86a6a);
+  if (pose !== 'curl') add(sphG(0.02, 6, 4), M(0, hy - 0.03, hz + 0.135), 0xe86a6a);
   // Tail curling round.
-  const tail = new THREE.TorusGeometry(0.17, 0.035, 6, 14, Math.PI * 1.1);
+  const tail = torG(0.17, 0.035, 6, 14, Math.PI * 1.1);
   add(tail, pose === 'curl' ? M(-0.02, 0.07, 0.02, Math.PI / 2, 0, 0.6) : M(0, 0.05, -0.02, Math.PI / 2, 0, Math.PI * 0.9), dark);
   const g = mergeGeometries(parts, false)!;
   for (const p of parts) p.dispose();
@@ -2756,13 +2838,13 @@ export function buildCandle(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'npc-candle';
   const std = (c: number, o: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, ...o });
-  const saucer = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.09, 0.025, 16), std(0x8a5a3a, { metalness: 0.3, roughness: 0.4 }));
+  const saucer = new THREE.Mesh(cylG(0.11, 0.09, 0.025, 16), std(0x8a5a3a, { metalness: 0.3, roughness: 0.4 }));
   saucer.position.y = 0.012;
-  const wax = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.048, 0.13, 14), std(0xf6ecd6, { roughness: 0.5, emissive: 0xffb060, emissiveIntensity: 0.25 }));
+  const wax = new THREE.Mesh(cylG(0.045, 0.048, 0.13, 14), std(0xf6ecd6, { roughness: 0.5, emissive: 0xffb060, emissiveIntensity: 0.25 }));
   wax.position.y = 0.09;
-  const jar = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.07, 0.2, 16, 1, true), new THREE.MeshStandardMaterial({ color: 0xffe8c8, transparent: true, opacity: 0.28, roughness: 0.05, depthWrite: false, side: THREE.DoubleSide }));
+  const jar = new THREE.Mesh(cylG(0.075, 0.07, 0.2, 16, 1, true), new THREE.MeshStandardMaterial({ color: 0xffe8c8, transparent: true, opacity: 0.28, roughness: 0.05, depthWrite: false, side: THREE.DoubleSide }));
   jar.position.y = 0.12;
-  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.0, 0.78, 0.4).multiplyScalar(4), toneMapped: false }));
+  const flame = new THREE.Mesh(sphG(0.022, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.0, 0.78, 0.4).multiplyScalar(4), toneMapped: false }));
   flame.scale.set(1, 1.9, 1);
   flame.position.y = 0.19;
   const c = document.createElement('canvas');
@@ -3985,12 +4067,12 @@ export function dressFarmerWinter(rig: FarmerRigLike, on: boolean, opts: { hat?:
   const R = 0.32;
   if (opts.hat !== false) {
     const rng = new Rng('farmer-beanie');
-    const pom = lumpySphere(0.08, 1, 0.22, rng, 3);
+    const pom = lumpy(0.08, 1, 0.22, rng, 3);
     add(
       rig.head,
       [
         // Snug dome over the crown, worn back so the brow and eyes stay clear from the high lens.
-        [new THREE.SphereGeometry(R * 1.12, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), M(0, R * 1.22, -0.05, -0.36, 0, 0, 1, 1.08, 1), knit],
+        [sphG(R * 1.12, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), M(0, R * 1.22, -0.05, -0.36, 0, 0, 1, 1.08, 1), knit],
         [bevelCylinder(R * 1.14, R * 1.16, 0.12, 0.03, 24), M(0, R * 1.3, -0.05, -0.36), cuff],
         [pom, M(0, R * 2.32, -0.3), cuff],
       ],
@@ -4001,12 +4083,12 @@ export function dressFarmerWinter(rig: FarmerRigLike, on: boolean, opts: { hat?:
   add(
     rig.torso,
     [
-      [new THREE.CylinderGeometry(0.228, 0.262, 0.44, 18, 1, true, 0.42, Math.PI * 2 - 0.84), M(0, 0.12, 0, 0, 0, 0, 1.05, 1, 0.95), coat],
-      [new THREE.TorusGeometry(0.255, 0.022, 5, 20, Math.PI * 2 - 0.84), M(0, -0.1, 0, Math.PI / 2, 0, Math.PI / 2 + 0.42, 1.05, 0.95, 1), shadeHex(coat, 0.8)],
+      [cylG(0.228, 0.262, 0.44, 18, 1, true, 0.42, Math.PI * 2 - 0.84), M(0, 0.12, 0, 0, 0, 0, 1.05, 1, 0.95), coat],
+      [torG(0.255, 0.022, 5, 20, Math.PI * 2 - 0.84), M(0, -0.1, 0, Math.PI / 2, 0, Math.PI / 2 + 0.42, 1.05, 0.95, 1), shadeHex(coat, 0.8)],
       // Shoulders of the coat (rounded yoke).
-      [new THREE.SphereGeometry(0.235, 18, 8, 0.42, Math.PI * 2 - 0.84, 0, Math.PI * 0.42), M(0, 0.3, 0, 0, 0, 0, 1.05, 0.55, 0.95), coat],
+      [sphG(0.235, 18, 8, 0.42, Math.PI * 2 - 0.84, 0, Math.PI * 0.42), M(0, 0.3, 0, 0, 0, 0, 1.05, 0.55, 0.95), coat],
       // Chunky scarf: a wrapped roll and two fringed tails over the chest.
-      [new THREE.TorusGeometry(0.135, 0.055, 8, 18), M(0, 0.37, 0.01, Math.PI / 2 - 0.22, 0, 0), knit],
+      [torG(0.135, 0.055, 8, 18), M(0, 0.37, 0.01, Math.PI / 2 - 0.22, 0, 0), knit],
       [roundedBox(0.09, 0.24, 0.035, 0.016), M(0.07, 0.22, 0.215, 0.12, 0, 0.1), knit],
       [roundedBox(0.085, 0.18, 0.035, 0.016), M(0.0, 0.25, 0.22, 0.1, 0, -0.16), shadeHex(knit, 0.88)],
       [roundedBox(0.095, 0.025, 0.04, 0.01), M(0.082, 0.098, 0.228, 0.12, 0, 0.1), cuff],
@@ -4017,12 +4099,12 @@ export function dressFarmerWinter(rig: FarmerRigLike, on: boolean, opts: { hat?:
     add(
       arm,
       [
-        [new THREE.CapsuleGeometry(0.083, 0.09, 4, 10), M(0, -0.06, 0), coat],
-        [new THREE.CapsuleGeometry(0.068, 0.11, 4, 10), M(0, -0.19, 0), coat],
-        [new THREE.CylinderGeometry(0.07, 0.07, 0.045, 12), M(0, -0.255, 0.004), cuff],
+        [capG(0.083, 0.09, 4, 10), M(0, -0.06, 0), coat],
+        [capG(0.068, 0.11, 4, 10), M(0, -0.19, 0), coat],
+        [cylG(0.07, 0.07, 0.045, 12), M(0, -0.255, 0.004), cuff],
         // Mitten + thumb.
-        [new THREE.SphereGeometry(0.074, 12, 8), M(0, -0.31, 0.012, 0, 0, 0, 0.95, 1.1, 0.95), knit],
-        [new THREE.SphereGeometry(0.03, 8, 6), M(-sx * 0.05, -0.29, 0.05), knit],
+        [sphG(0.074, 12, 8), M(0, -0.31, 0.012, 0, 0, 0, 0.95, 1.1, 0.95), knit],
+        [sphG(0.03, 8, 6), M(-sx * 0.05, -0.29, 0.05), knit],
       ],
       false,
     );
@@ -4053,8 +4135,8 @@ export function buildChair(color = 0x8a5a32): THREE.Mesh {
   };
   put(new THREE.BoxGeometry(0.46, 0.06, 0.42), 0, 0.42, -0.1);
   for (const sx of [-0.19, 0.19]) {
-    put(new THREE.CylinderGeometry(0.024, 0.02, 0.42, 6), sx, 0.21, 0.08);
-    put(new THREE.CylinderGeometry(0.026, 0.022, 0.98, 6), sx, 0.49, -0.29, -0.08);
+    put(cylG(0.024, 0.02, 0.42, 6), sx, 0.21, 0.08);
+    put(cylG(0.026, 0.022, 0.98, 6), sx, 0.49, -0.29, -0.08);
   }
   for (const y of [0.66, 0.8, 0.94]) put(new THREE.BoxGeometry(0.4, 0.05, 0.03), 0, y, -0.3 - (y - 0.5) * 0.08);
   put(new THREE.BoxGeometry(0.4, 0.03, 0.03), 0, 0.14, 0.08);
@@ -4089,18 +4171,18 @@ export function buildLanternCage(): THREE.Group {
     m.castShadow = true;
     inner.add(m);
   };
-  add(new THREE.CylinderGeometry(0.1, 0.11, 0.035, 14), iron, 0, 0, 0);
-  add(new THREE.TorusGeometry(0.1, 0.009, 6, 18), brass, 0, 0.03, 0, Math.PI / 2);
+  add(cylG(0.1, 0.11, 0.035, 14), iron, 0, 0, 0);
+  add(torG(0.1, 0.009, 6, 18), brass, 0, 0.03, 0, Math.PI / 2);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    add(new THREE.CylinderGeometry(0.006, 0.006, 0.24, 4), iron, Math.cos(a) * 0.095, 0.14, Math.sin(a) * 0.095);
-    add(new THREE.SphereGeometry(0.011, 6, 4), brass, Math.cos(a) * 0.095, 0.1, Math.sin(a) * 0.095);
+    add(cylG(0.006, 0.006, 0.24, 4), iron, Math.cos(a) * 0.095, 0.14, Math.sin(a) * 0.095);
+    add(sphG(0.011, 6, 4), brass, Math.cos(a) * 0.095, 0.1, Math.sin(a) * 0.095);
   }
-  add(new THREE.TorusGeometry(0.095, 0.008, 6, 18), iron, 0, 0.17, 0, Math.PI / 2);
-  add(new THREE.SphereGeometry(0.1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), iron, 0, 0.255, 0);
-  add(new THREE.TorusGeometry(0.035, 0.008, 6, 14), brass, 0, 0.38, 0);
-  add(new THREE.CylinderGeometry(0.045, 0.045, 0.16, 12), glass, 0, 0.12, 0);
-  add(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 6), new THREE.MeshStandardMaterial({ color: 0xf2ead8 }), 0, 0.06, 0);
+  add(torG(0.095, 0.008, 6, 18), iron, 0, 0.17, 0, Math.PI / 2);
+  add(sphG(0.1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), iron, 0, 0.255, 0);
+  add(torG(0.035, 0.008, 6, 14), brass, 0, 0.38, 0);
+  add(cylG(0.045, 0.045, 0.16, 12), glass, 0, 0.12, 0);
+  add(cylG(0.012, 0.012, 0.05, 6), new THREE.MeshStandardMaterial({ color: 0xf2ead8 }), 0, 0.06, 0);
   return g;
 }
 
@@ -4323,7 +4405,7 @@ export function buildKidMap(): THREE.Group {
   g.add(m);
   const peb = new THREE.MeshStandardMaterial({ color: 0x9a948a, roughness: 0.9 });
   for (const [px, pz, r] of [[-0.5, -0.36, 0.05], [0.49, -0.37, 0.045], [-0.49, 0.36, 0.04], [0.5, 0.37, 0.055]] as const) {
-    const p = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), peb);
+    const p = new THREE.Mesh(sphG(r, 8, 6), peb);
     p.scale.set(1.2, 0.7, 1);
     p.position.set(px, 0.035, pz);
     p.castShadow = true;
@@ -4344,7 +4426,7 @@ export function buildSparks(): THREE.Group {
   const vel = new Float32Array(N * 3);
   const life = new Float32Array(N).fill(-1);
   // White-hot streaks stretched along their flight (unlit, past 1.0 so the bloom catches them).
-  const streak = new THREE.CylinderGeometry(0.026, 0.01, 1, 5, 1);
+  const streak = cylG(0.026, 0.01, 1, 5, 1);
   streak.translate(0, -0.5, 0);
   const sm = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.05, 0.45), toneMapped: false });
   const pts = new THREE.InstancedMesh(streak, sm, N);
@@ -4414,4 +4496,89 @@ export function buildSparks(): THREE.Group {
   (g.userData.tick as (dt: number) => void)(0.001);
   (g.userData.tick as (dt: number) => void)(0.22);
   return g;
+}
+
+/**
+ * Keepsakes (r9): a pie in its dish (Marigold's rhubarb lattice; `honey` = Bram's mother's honey
+ * cake, a glazed round with almonds), one small merged mesh in vertex colours.
+ */
+export function buildPie(honey = false): THREE.Mesh {
+  const parts: THREE.BufferGeometry[] = [];
+  const put = (g: THREE.BufferGeometry, col: number, m: THREE.Matrix4): void => {
+    g.applyMatrix4(m);
+    const n = g.index ? g.toNonIndexed() : g;
+    const c = new THREE.Color(col);
+    const arr = new Float32Array(n.attributes.position!.count * 3);
+    for (let i = 0; i < arr.length; i += 3) arr.set([c.r, c.g, c.b], i);
+    n.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') n.deleteAttribute(k);
+    parts.push(n);
+  };
+  const T = (x: number, y: number, z: number, ry = 0, sx = 1, sy = 1, sz = 1): THREE.Matrix4 =>
+    new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(sx, sy, sz));
+  // Dish (a cream enamel plate) and the crust's crimped rim.
+  put(new THREE.CylinderGeometry(0.17, 0.14, 0.03, 20), 0xf2ead8, T(0, 0.015, 0));
+  if (honey) {
+    put(new THREE.CylinderGeometry(0.13, 0.135, 0.09, 20), 0xd89a3a, T(0, 0.075, 0));
+    put(new THREE.SphereGeometry(0.13, 20, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0xe8b04a, T(0, 0.118, 0, 0, 1, 0.22, 1));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      put(new THREE.SphereGeometry(0.018, 6, 4), 0xf4e2c0, T(Math.cos(a) * 0.075, 0.142, Math.sin(a) * 0.075, a, 1.6, 0.5, 0.9));
+    }
+  } else {
+    put(new THREE.CylinderGeometry(0.135, 0.12, 0.055, 20), 0xd8a060, T(0, 0.055, 0));
+    put(new THREE.CylinderGeometry(0.118, 0.118, 0.012, 20), 0xa8283a, T(0, 0.084, 0));
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      put(new THREE.SphereGeometry(0.024, 6, 4), 0xe0aa68, T(Math.cos(a) * 0.125, 0.08, Math.sin(a) * 0.125, 0, 1.2, 0.8, 1.2));
+    }
+    // Lattice strips.
+    for (const ry of [0, Math.PI / 2])
+      for (let i = -2; i <= 2; i++) put(new THREE.BoxGeometry(0.22 - Math.abs(i) * 0.04, 0.012, 0.022), 0xe8b878, new THREE.Matrix4().makeRotationY(ry).multiply(T(0, 0.094 + (ry ? 0.004 : 0), i * 0.045)));
+  }
+  const g = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62 }));
+  m.name = honey ? 'keepsake-cake' : 'keepsake-pie';
+  m.castShadow = true;
+  return m;
+}
+
+/** Rosalind's rose in bloom (r9 keepsake): a glossy leafy cane with five open pink blooms, one merged mesh. */
+export function buildRose(): THREE.Mesh {
+  const rng = new Rng('rosalind-rose');
+  const parts: THREE.BufferGeometry[] = [];
+  const put = (g: THREE.BufferGeometry, col: number, m: THREE.Matrix4): void => {
+    g.applyMatrix4(m);
+    const n = g.index ? g.toNonIndexed() : g;
+    const c = new THREE.Color(col);
+    const arr = new Float32Array(n.attributes.position!.count * 3);
+    for (let i = 0; i < arr.length; i += 3) arr.set([c.r, c.g, c.b], i);
+    n.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') n.deleteAttribute(k);
+    parts.push(n);
+  };
+  const T = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1): THREE.Matrix4 =>
+    new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+  put(lumpySphere(0.32, 2, 0.25, rng, 2.2), 0x3f7a3a, T(0, 0.22, 0, 0, 0, 0, 1.1, 0.8, 0.9));
+  for (let i = 0; i < 5; i++) {
+    const a = i * 2.4 + 0.3;
+    const r = 0.2 + rng.next() * 0.12;
+    const bx = Math.cos(a) * r;
+    const by = 0.38 + rng.next() * 0.14;
+    const bz = Math.sin(a) * r * 0.8;
+    const tilt = new THREE.Matrix4().compose(new THREE.Vector3(bx, by, bz), new THREE.Quaternion().setFromEuler(new THREE.Euler((rng.next() - 0.5) * 0.6, 0, (rng.next() - 0.5) * 0.6)), new THREE.Vector3(1, 1, 1));
+    for (let k = 0; k < 6; k++) {
+      const pa = (k / 6) * Math.PI * 2;
+      put(new THREE.SphereGeometry(0.055, 7, 5), k % 2 ? 0xe8607e : 0xf07a92, tilt.clone().multiply(T(Math.cos(pa) * 0.045, 0, Math.sin(pa) * 0.045, 0, -pa, 0, 1, 0.55, 0.7)));
+    }
+    put(new THREE.SphereGeometry(0.04, 7, 5), 0xb02a4a, tilt.clone().multiply(T(0, 0.02, 0)));
+  }
+  const g = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48 }));
+  m.name = 'keepsake-rose';
+  m.castShadow = true;
+  return m;
 }

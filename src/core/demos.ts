@@ -78,6 +78,8 @@ export const DEMOS: Record<string, DemoDef> = {
   // (r7 blind judge: villagers too small to read, the hotbar over the fountain — a closer, lower lens
   // with the Hall's rose window still at the top and the fountain clear of the toolbar)
   'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 19.05, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 41, distance: 29.5, offsetX: -2.9, offsetZ: -4.5 }, showcase: ['npcs'] },
+  // r9: a farmer a year in — every heart-event answer remembered (`&mem=all|alt|a.b,…`): keepsakes in the square.
+  'town-memories': { map: 'town', x: 26.6, z: 25.6, facing: 'down', time: 16.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 20, offsetX: 0.6, offsetZ: -5.2 }, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
   'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
   // Town pod: co-op in the square, no server — Juniper chats with Bram, Pip gives Wren strawberries (host paths: talk lock, gift ledger, 'v.g').

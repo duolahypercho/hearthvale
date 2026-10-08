@@ -96,6 +96,11 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: 8px; font-size: 24px; padding: 0 20px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
 .hv-dialogue.dlg2 .dlg-role { max-width: 310px; font-size: 13.5px; line-height: 16px; margin-top: 3px; }
 .hv-dialogue.dlg2.cine { bottom: calc(4.6vh + 14px); transition: bottom 400ms var(--ease-out); }
+/* r9 co-op cinematic mode (critic: "roster, chat, spectator badge, title, heart chip, insert and dialogue
+   all at once — debug-rich multiplayer, not a finished cinematic"): during a heart event the roster, the
+   chat log, the "watching" chip (folded into the title card), emote nudges and every name tag step out. */
+body.hv-cine .coop-roster, body.hv-cine .coop-log, body.hv-cine .coop-tags, body.hv-cine .coop-nudge, body.hv-cine .coop-watch,
+body.hv-cine .coop-wheel, body.hv-cine .h-quest, body.hv-cine .hv-quest { opacity: 0 !important; pointer-events: none !important; transition: opacity 300ms; }
 .hv-hud.hv-heartcine .h-clock, .hv-hud.hv-heartcine .hv-toolbar, .hv-hud.hv-heartcine .hv-energy, .hv-hud.hv-heartcine .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }
 .hv-dialogue.dlg2 .dlg-portrait .layer svg { animation: dlgBreathe 3.2s ease-in-out infinite; transform-origin: 50% 90%; }
@@ -672,7 +677,9 @@ export class DialoguePanel implements Panel {
       const i1 = Math.min(9, Math.floor((pts + pend.points - 1) / PER_HEART));
       for (let i = i0; i <= i1; i++) svgs[i]?.classList.add('ghost');
     }
-    this.hearts.dataset.spec = spec ? `${spec.who}'s friendship · ${Math.floor(pts / PER_HEART)}♥` : pend ? 'Gift on its way to the host…' : '';
+    // (r9: a spectator sees whose friendship the row is — the host's, it's their scene — beside their own)
+    const mine = spec ? Math.floor((this.game.services.relationships?.points(id) ?? 0) / PER_HEART) : 0;
+    this.hearts.dataset.spec = spec ? `${spec.who}’s ${Math.floor(pts / PER_HEART)}♥ · yours ${mine}♥` : pend ? 'Gift on its way to the host…' : '';
     this.hearts.classList.toggle('spec', !!spec || !!pend);
     this.hearts.classList.toggle('pending', !!pend);
     if (prev >= 0 && pts > prev) {
@@ -726,6 +733,7 @@ export class DialoguePanel implements Panel {
     if (!on) this.insert(null);
     this.letterbox.classList.toggle('on', on);
     this.game.hud.root.classList.toggle('hv-heartcine', on);
+    document.body.classList.toggle('hv-cine', on);
     this.el.classList.toggle('cine', on);
     if (on && title) {
       // The title sits in the top letterbox band (never over the actors) and stays, dimmed, for the scene.
