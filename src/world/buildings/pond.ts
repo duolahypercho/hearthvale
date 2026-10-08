@@ -229,8 +229,9 @@ function pondMaterial(): THREE.ShaderMaterial {
           float film = smoothstep(0.55, 0.8, d + (hvNoise(p * 3.0) - 0.5) * 0.3);
           vec3 dry = vec3(0.36, 0.25, 0.15);
           // (r11: the wet middle stays a warm wet brown with a sheen — darker read as a black hole)
-          vec3 damp = vec3(0.23, 0.145, 0.08);
-          vec3 soaked = vec3(0.2, 0.125, 0.07);
+          // (r14: lighter still — a farmhand's lower-sun view read the middle as a hole)
+          vec3 damp = vec3(0.29, 0.19, 0.11);
+          vec3 soaked = vec3(0.27, 0.18, 0.105);
           vec3 col = mix(dry, damp, wet);
           col = mix(col, soaked, film);
           col *= 0.82 + 0.36 * clump;

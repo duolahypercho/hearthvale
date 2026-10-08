@@ -89,7 +89,8 @@ export function installInteriorLighting(game: Game): void {
     sun.shadow.normalBias = 0.035;
     // (r8: moonlight is a soft fill, not a key — at full strength the farmer threw a black wedge from the
     // back windows across the lamp-lit floor straight at the lens; the shadow fades to 40 % by night)
-    sun.shadow.intensity = THREE.MathUtils.lerp(0.8, 0.4, L.night);
+    // (r13: 20 % by night — the farmer's moon shadow still lay across the foreground floor as a big wedge)
+    sun.shadow.intensity = THREE.MathUtils.lerp(0.8, 0.2, L.night);
     globalUniforms.uWet.value = 0;
     globalUniforms.uSnow.value = 0;
     globalUniforms.uRain.value = 0;

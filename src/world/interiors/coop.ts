@@ -20,7 +20,7 @@ import { InteriorMap } from './room';
 import { Kit, imat } from './kit';
 import { mat, lumpySphere, roundedBox, prep } from '../geom';
 import type { PenAnchors } from './pen';
-import { hayPile, strawTufts, lanternHook, feedSack, strawDrift, hayBale, bucket } from './pen';
+import { hayPile, strawTufts, lanternHook, feedSack, strawDrift, hayBale, bucket, STRAW_FLOOR } from './pen';
 
 export const COOP_EXIT = { x: 39.5, z: 35.4 };
 /** Roost ladder: bar i sits at y = Y0 + i·DY, z = Z0 − i·DZ (x 4.7 … 7.2). */
@@ -99,7 +99,15 @@ export class CoopInterior extends InteriorMap {
       perches,
       hatch: { x: HATCH_X, z: D },
     };
-    this.furnish(rng, trough);
+    // (r13: ~60 % fewer loose floor strands, kept to the walls + edges — the floor read as pin noise)
+    STRAW_FLOOR.rule = { k: 0.3, edge: 0.75, band: 0.9, x0: 0, z0: 0, x1: W, z1: D };
+    try {
+      this.furnish(rng, trough);
+    } finally {
+      STRAW_FLOOR.rule = null;
+    }
+    this.dustBath();
+    this.floorWear();
     this.popDoor();
     this.driftFeathers();
     this.finalize();
@@ -195,28 +203,20 @@ export class CoopInterior extends InteriorMap {
       this.hopperFill(hx, hz, HW, HD, HH);
     }
 
-    // ── Middle: dust bath (a scooped hollow of fine dry soil, ragged soft-edged discs, a berm of clods)
+    // ── Middle: dust bath — r13: a soft-edged alpha decal (see dustBath()) instead of stacked hard discs
+    // (the flat beige disc read as a sticker); here only its berm: kicked-up clods, pebbles, a few straws.
     const dbx = 2.75;
     const dbz = 2.15;
-    for (let i = 0; i < 7; i++) {
-      const a = rng.next() * Math.PI * 2;
-      const r = 0.12 + rng.next() * 0.18;
-      const sc = 0.56 - i * 0.042 + rng.next() * 0.08;
-      // Dry, pale, sifted soil (r6: the darker brown read as an indoor mud puddle)
-      const tint = new THREE.Color(0x9c7e54).lerp(new THREE.Color(0xb49668), i / 6);
-      k.add('fabric', new THREE.CircleGeometry(sc, 18).rotateX(-Math.PI / 2).scale(1.25, 1, 0.85), mat(dbx + Math.cos(a) * r * (1 - i / 8), 0.01 + i * 0.003, dbz + Math.sin(a) * r * 0.7 * (1 - i / 8)), { tint });
-    }
-    k.add('fabric', new THREE.CircleGeometry(0.33, 22).rotateX(-Math.PI / 2).scale(1.2, 1, 0.8), mat(dbx + 0.05, 0.034, dbz), { tint: 0xbc9e70 });
-    // (r6: 8 strands out on the berm — 30 dark strands across the pale dust read as scratched glyphs)
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 6; i++) {
       const a = rng.next() * Math.PI * 2;
       const rr = 0.72 + rng.next() * 0.2;
       k.cyl('thatch', 0.007, 0.007, 0.14 + rng.next() * 0.14, [dbx + Math.cos(a) * rr * 1.2, 0.045, dbz + Math.sin(a) * rr * 0.85], { rz: Math.PI / 2, ry: rng.next() * Math.PI, tint: rng.next() < 0.5 ? 0xe8c878 : 0xc8a050 });
     }
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 14; i++) {
       const a = rng.next() * Math.PI * 2;
-      const rr = 0.5 + rng.next() * 0.6;
-      k.add('fabric', lumpySphere(0.018 + rng.next() * 0.025, 1, 0.4, rng), mat(dbx + Math.cos(a) * rr, 0.01, dbz + Math.sin(a) * rr * 0.72, 0, rng.next() * 3, 0, 1, 0.6, 1), { tint: rng.next() < 0.5 ? 0xc0a070 : 0xd8bc8c });
+      const rr = 0.35 + rng.next() * 0.55;
+      const big = i < 5;
+      k.add('fabric', lumpySphere(big ? 0.03 + rng.next() * 0.025 : 0.014 + rng.next() * 0.012, 1, 0.4, rng), mat(dbx + Math.cos(a) * rr * 1.15, 0.012, dbz + Math.sin(a) * rr * 0.8, 0, rng.next() * 3, 0, 1, 0.65, 1), { tint: big ? (rng.next() < 0.5 ? 0xb89a6c : 0xcdb084) : rng.next() < 0.5 ? 0x9a8a78 : 0xb4a690 });
     }
     // Standing grain feeder (galvanised hopper on a round pan, raised on an upturned crate lid) with a
     // halo of spilled grain + two pecked-clean patches.
@@ -518,6 +518,143 @@ export class CoopInterior extends InteriorMap {
       block.scale.y = level;
       dome.position.y = level;
     });
+  }
+
+  /**
+   * r14 floor wear (one alpha decal over the whole floor, one draw): the straw is never one flat brown —
+   * trodden lanes of packed darker earth where the flock walks (pop door → feeder → nest boxes, door →
+   * trough, feeder → roost), a damp dark ring round the water fount, droppings under the roost bars, and
+   * fresh pale straw drifts in the corners nobody walks. Soft, noisy edges (value-noise warped).
+   */
+  private floorWear(): void {
+    const PX = 64; // pixels per metre
+    const cw = W * PX;
+    const ch = D * PX;
+    const c = document.createElement('canvas');
+    c.width = cw;
+    c.height = ch;
+    const x = c.getContext('2d')!;
+    const r = new Rng('coop-wear');
+    const blob = (mx: number, mz: number, rad: number, col: string, a: number): void => {
+      const g = x.createRadialGradient(mx * PX, mz * PX, 0, mx * PX, mz * PX, rad * PX);
+      g.addColorStop(0, `rgba(${col},${a})`);
+      g.addColorStop(0.55, `rgba(${col},${a * 0.6})`);
+      g.addColorStop(1, `rgba(${col},0)`);
+      x.fillStyle = g;
+      x.beginPath();
+      x.arc(mx * PX, mz * PX, rad * PX, 0, Math.PI * 2);
+      x.fill();
+    };
+    // A lane: a chain of jittered soft blobs along a polyline (packed earth, darker + a touch cooler).
+    const lane = (pts: [number, number][], wid: number, a: number): void => {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [x0, z0] = pts[i]!;
+        const [x1, z1] = pts[i + 1]!;
+        const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.09);
+        for (let j = 0; j < n; j++) {
+          const t = j / n;
+          const jx = (r.next() - 0.5) * wid * 0.7;
+          const jz = (r.next() - 0.5) * wid * 0.7;
+          blob(x0 + (x1 - x0) * t + jx, z0 + (z1 - z0) * t + jz, wid * (0.45 + r.next() * 0.35), '74,52,30', a * (0.5 + r.next() * 0.5));
+        }
+      }
+    };
+    lane([[4.5, 6.0], [4.4, 4.9], [4.1, 3.6], [3.0, 2.0], [1.6, 1.0]], 0.62, 0.11);
+    lane([[4.4, 5.2], [3.2, 4.85], [2.0, 4.9]], 0.5, 0.09);
+    lane([[4.2, 3.4], [5.4, 2.6], [5.95, 2.0]], 0.5, 0.08);
+    lane([[4.6, 4.6], [5.9, 4.0], [6.6, 3.6]], 0.42, 0.07);
+    // Damp ring round the fount (darker, a little cooler) + splash flecks.
+    blob(6.85, 3.5, 0.75, '58,44,34', 0.2);
+    for (let i = 0; i < 10; i++) {
+      const a = r.next() * Math.PI * 2;
+      const d = 0.45 + r.next() * 0.4;
+      blob(6.85 + Math.cos(a) * d, 3.5 + Math.sin(a) * d * 0.85, 0.06 + r.next() * 0.08, '60,46,36', 0.16);
+    }
+    // Fresh pale straw in the quiet corners / along the walls.
+    for (const [mx, mz, rad] of [[7.6, 5.6, 0.9], [0.3, 3.2, 0.7], [7.7, 0.4, 0.7], [3.6, 0.25, 0.6], [6.2, 5.75, 0.6]] as const) blob(mx, mz, rad, '250,226,160', 0.16);
+    // Droppings under the roost bars: small dark-grey and chalky specks (no more than a few dozen).
+    for (let i = 0; i < 46; i++) {
+      const mx = 4.85 + r.next() * 2.3;
+      const mz = 0.8 + r.next() * 1.0;
+      const s = 0.012 + r.next() * 0.016;
+      x.fillStyle = r.next() < 0.3 ? 'rgba(232,226,210,0.8)' : 'rgba(70,62,52,0.7)';
+      x.beginPath();
+      x.ellipse(mx * PX, mz * PX, s * PX, s * PX * (0.6 + r.next() * 0.4), r.next() * 3, 0, Math.PI * 2);
+      x.fill();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const g = new THREE.PlaneGeometry(W, D).rotateX(-Math.PI / 2);
+    const decal = new THREE.Mesh(g, m);
+    decal.name = 'coop-floor-wear';
+    decal.position.set(W / 2, 0.012, D / 2);
+    decal.receiveShadow = true;
+    decal.userData.noAO = true;
+    this.root.add(decal);
+  }
+
+  /**
+   * r13 dust bath: one soft decal of sifted dry soil — a noisy radial alpha (ragged, feathered rim, a
+   * darker scooped middle where the hens wallow) — plus a lighter dusty halo kicked out round it.
+   * Alpha-blended over the straw floor, no shadow, no AO.
+   */
+  private dustBath(): void {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const x = c.getContext('2d')!;
+    const img = x.createImageData(256, 256);
+    const r = new Rng('coop-dust');
+    const bumps = Array.from({ length: 9 }, () => ({ a: r.next() * Math.PI * 2, f: 2 + Math.floor(r.next() * 5), k: 0.03 + r.next() * 0.05 }));
+    // Two octaves of smooth value noise (no directional sine stripes).
+    const G = 17;
+    const grid = [Array.from({ length: G * G }, () => r.next()), Array.from({ length: G * G }, () => r.next())];
+    const vn = (o: number, u: number, v: number): number => {
+      const x = u * (G - 1);
+      const y = v * (G - 1);
+      const i0 = Math.min(G - 2, Math.floor(x));
+      const j0 = Math.min(G - 2, Math.floor(y));
+      const fx = x - i0;
+      const fy = y - j0;
+      const sx = fx * fx * (3 - 2 * fx);
+      const sy = fy * fy * (3 - 2 * fy);
+      const g = grid[o]!;
+      const a = g[j0 * G + i0]! + (g[j0 * G + i0 + 1]! - g[j0 * G + i0]!) * sx;
+      const b = g[(j0 + 1) * G + i0]! + (g[(j0 + 1) * G + i0 + 1]! - g[(j0 + 1) * G + i0]!) * sx;
+      return a + (b - a) * sy;
+    };
+    for (let j = 0; j < 256; j++)
+      for (let i = 0; i < 256; i++) {
+        const u = (i - 128) / 128;
+        const v = (j - 128) / 128;
+        const d = Math.hypot(u, v);
+        const th = Math.atan2(v, u);
+        let rim = 0.78;
+        for (const b of bumps) rim += Math.sin(th * b.f + b.a) * b.k;
+        const grain = (vn(0, i / 255, j / 255) - 0.5) * 0.12 + (vn(1, ((i * 3) % 256) / 255, ((j * 3) % 256) / 255) - 0.5) * 0.05;
+        const a = 1 - THREE.MathUtils.smoothstep(d, rim - 0.34, rim + 0.06 + grain);
+        // Pale sifted dust at the rim, a warmer, darker scooped hollow in the middle.
+        const hollow = 1 - THREE.MathUtils.smoothstep(d, 0.05, 0.5);
+        const o = (j * 256 + i) * 4;
+        img.data[o] = Math.round(176 - hollow * 40 + grain * 160);
+        img.data[o + 1] = Math.round(146 - hollow * 38 + grain * 140);
+        img.data[o + 2] = Math.round(104 - hollow * 30 + grain * 100);
+        img.data[o + 3] = Math.round(Math.max(0, Math.min(1, a * (0.9 + grain))) * 235);
+      }
+    x.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const g = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const decal = new THREE.Mesh(g, m);
+    decal.name = 'coop-dustbath';
+    decal.position.set(2.75, 0.022, 2.15);
+    decal.scale.set(1.9, 1, 1.45);
+    decal.rotation.y = 0.25;
+    decal.receiveShadow = true;
+    decal.userData.noAO = true;
+    decal.renderOrder = 1;
+    this.root.add(decal);
   }
 
   /**

@@ -88,6 +88,8 @@ function weathervane(b: MeshBuilder, y: number, animal: 'rooster' | 'cow'): void
 // ───────────────────────────────────────────── coop
 
 export const COOP_SIZE = { W: 3.2, D: 2.9 };
+/** r14: the chicken-wire run on the coop's west wall (width, m). */
+export const COOP_RUN = { W: 1.4 };
 
 /** Weathered silver-grey boards, sage paint, oak trim and terracotta: the coop's own material story
  *  (the barn keeps the red + white). */
@@ -298,25 +300,91 @@ export function buildCoopExterior(rng: Rng): THREE.Group {
   b.add('woodPaint', roundedBox(0.04, 0.22, 0.52, 0.03), mat(W / 2 + 0.08, top + 0.11, 0), { tint: 0xf6ead0 });
   b.add('white', lumpySphere(0.06, 1, 0.1, rng), mat(W / 2 + 0.11, top + 0.11, 0.04, 0, 0, 0, 0.4, 1, 1.3), { tint: 0xc8503a });
   b.add('white', new THREE.SphereGeometry(0.035, 8, 6), mat(W / 2 + 0.11, top + 0.17, -0.08, 0, 0, 0, 0.4, 1, 1), { tint: 0xc8503a });
-  // Firewood stacked under the west eave on a pallet (bark ends out)
-  for (let row = 0; row < 3; row++)
-    for (let i = 0; i < 6 - row; i++) {
-      const r = 0.07 + rng.next() * 0.02;
-      const g = new THREE.CylinderGeometry(r, r, 0.62, 7);
-      g.rotateX(Math.PI / 2);
-      b.add('bark', g, mat(-W / 2 - 0.3, 0.1 + r + row * 0.14, -0.9 + i * 0.16 + row * 0.08, 0, 0, rng.next()), { tint: 0xb0a090 });
-      b.add('woodGrain', new THREE.CircleGeometry(r * 0.9, 7), mat(-W / 2 - 0.3, 0.1 + r + row * 0.14, -0.9 + i * 0.16 + row * 0.08 + 0.312), { tint: 0xe8c890 });
+  // r14 coop language: a timber-framed chicken-wire RUN on the west wall (was a firewood stack) — wire
+  // walls + a wire top over kick boards, a board-roofed back half for shade, a little hinged wire gate,
+  // inside a dusted earth floor, a diagonal perch log and a galvanised feeder. With the ramp + pop hole
+  // and the rooster vane it reads "henhouse", not "cottage", from the yard.
+  {
+    const RW = COOP_RUN.W;
+    const x1 = -W / 2 - 0.05;
+    const x0 = x1 - RW;
+    const z0 = -D / 2 + 0.12;
+    const z1 = D / 2 - 0.02;
+    const RH = 1.05;
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const post = (x: number, z: number): void => {
+      b.add('woodGrain', roundedBox(0.08, RH + 0.04, 0.08, 0.02), mat(x, (RH + 0.04) / 2, z), { tint: COOP_TRIM, aoWorld: groundAO(0.25, 0.75) });
+    };
+    for (const x of [x0, x1]) for (const z of [z0, cz, z1]) post(x, z);
+    post(cx, z1);
+    post(cx, z0);
+    // Top + mid rails and kick boards (sides: west, front, back)
+    for (const y of [RH, 0.2]) {
+      b.add('woodGrain', roundedBox(0.06, 0.06, z1 - z0, 0.015), mat(x0, y, cz), { tint: COOP_TRIM });
+      b.add('woodGrain', roundedBox(0.06, 0.06, z1 - z0, 0.015), mat(x1, y, cz), { tint: COOP_TRIM });
+      for (const z of [z0, z1]) b.add('woodGrain', roundedBox(RW, 0.06, 0.06, 0.015), mat(cx, y, z), { tint: COOP_TRIM });
     }
-  b.add('woodDark', roundedBox(0.7, 0.08, 1.1, 0.02), mat(-W / 2 - 0.3, 0.05, -0.5));
+    b.add('woodPaint', boxUV(roundedBox(0.04, 0.2, z1 - z0, 0.012), 1 / 1.2), mat(x0, 0.1, cz), { tint: COOP_BOARD, aoWorld: groundAO(0.2, 0.7) });
+    for (const z of [z0, z1]) b.add('woodPaint', boxUV(roundedBox(RW, 0.2, 0.04, 0.012), 1 / 1.2), mat(cx, 0.1, z), { tint: COOP_BOARD, aoWorld: groundAO(0.2, 0.7) });
+    // Wire: west wall, front (round the gate), back, and the top's open front half
+    const wh = RH - 0.2;
+    const wy = 0.2 + wh / 2;
+    const ww = chickenWire();
+    // (a faint galvanised haze behind each wire panel: at yard distance the 7 cm mesh alone vanished and
+    // the run read as an empty frame)
+    const haze = runHaze();
+    const wwest = wirePlane(z1 - z0, wh);
+    wwest.rotateY(Math.PI / 2);
+    b.add(ww, wwest, mat(x0 - 0.02, wy, cz));
+    b.add(haze, wwest, mat(x0 - 0.02, wy, cz));
+    b.add(ww, wirePlane(RW, wh), mat(cx, wy, z0 - 0.02));
+    b.add(haze, wirePlane(RW, wh), mat(cx, wy, z0 - 0.02));
+    // Front: a wire panel on the left half, a framed gate (diagonal brace) on the right half
+    b.add(ww, wirePlane(RW / 2, wh), mat(x0 + RW / 4, wy, z1 + 0.02));
+    b.add(haze, wirePlane(RW / 2, wh), mat(x0 + RW / 4, wy, z1 + 0.02));
+    {
+      const gx = x1 - RW / 4;
+      b.add(ww, wirePlane(RW / 2 - 0.08, wh - 0.08), mat(gx, wy, z1 + 0.035));
+      b.add(haze, wirePlane(RW / 2 - 0.08, wh - 0.08), mat(gx, wy, z1 + 0.035));
+      for (const sy of [-1, 1]) b.add('woodGrain', roundedBox(RW / 2 - 0.04, 0.05, 0.04, 0.012), mat(gx, wy + sy * (wh / 2 - 0.03), z1 + 0.05), { tint: SAGE });
+      for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.05, wh, 0.04, 0.012), mat(gx + sx * (RW / 4 - 0.04), wy, z1 + 0.05), { tint: SAGE });
+      const diag = Math.hypot(RW / 2 - 0.1, wh - 0.1);
+      b.add('woodGrain', roundedBox(0.04, diag, 0.03, 0.01), mat(gx, wy, z1 + 0.055, 0, 0, Math.atan2(RW / 2 - 0.1, wh - 0.1)), { tint: SAGE });
+      b.add('metal', new THREE.TorusGeometry(0.03, 0.008, 5, 10), mat(gx - RW / 4 + 0.08, wy + 0.04, z1 + 0.08), { tint: 0x2e2a28 });
+    }
+    const top = wirePlane(RW, (z1 - z0) * 0.5);
+    top.rotateX(-Math.PI / 2);
+    b.add(ww, top, mat(cx, RH + 0.035, z1 - (z1 - z0) * 0.25));
+    b.add(haze, top, mat(cx, RH + 0.035, z1 - (z1 - z0) * 0.25));
+    // Board lean-to over the back half (shade), sloping down to the west, a dark underside
+    b.add('woodDark', boxUV(roundedBox(RW + 0.2, 0.05, (z1 - z0) * 0.52, 0.015), 1 / 1.2), mat(cx, RH + 0.12, z0 + (z1 - z0) * 0.25, 0, 0, 0.12), { tint: 0x7a6a58 });
+    for (let i = 0; i < 6; i++) b.add('woodGrain', roundedBox(0.035, 0.03, (z1 - z0) * 0.52, 0.01), mat(x0 + 0.1 + i * ((RW - 0.1) / 5), RH + 0.155 + (cx - (x0 + 0.1 + i * ((RW - 0.1) / 5))) * -0.12, z0 + (z1 - z0) * 0.25, 0, 0, 0.12), { tint: COOP_TRIM });
+    // Inside: scratched earth, a perch log on the diagonal, a feeder and a few straws
+    b.add('white', new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), mat(cx, 0.06, cz, 0, 0.4, 0, RW * 0.48, 1, (z1 - z0) * 0.46), { tint: 0x9a7a52 });
+    {
+      const g = new THREE.CylinderGeometry(0.05, 0.06, Math.hypot(RW, z1 - z0) * 0.62, 8);
+      g.rotateZ(Math.PI / 2);
+      b.add('bark', g, mat(cx, 0.32, cz + 0.1, 0, Math.atan2(z1 - z0, RW) * 0.7, 0.18), { tint: 0xb0a090 });
+      for (const t of [-0.3, 0.3]) b.add('woodGrain', roundedBox(0.05, 0.3, 0.05, 0.01), mat(cx + t * RW * 0.7, 0.15, cz + 0.1 + t * 0.6), { tint: 0x8a6a4a });
+    }
+    b.add('metal', bevelCylinder(0.13, 0.16, 0.05, 0.015, 14), mat(x0 + 0.35, 0, z1 - 0.4), { tint: 0xa8b0b4 });
+    b.add('metal', bevelCylinder(0.08, 0.09, 0.28, 0.02, 14), mat(x0 + 0.35, 0.05, z1 - 0.4), { tint: 0xb8c0c4 });
+    for (let i = 0; i < 10; i++) {
+      const st = new THREE.CylinderGeometry(0.006, 0.006, 0.14, 3);
+      st.rotateZ(Math.PI / 2);
+      b.add('white', st, mat(cx + (rng.next() - 0.5) * RW * 0.8, 0.025, cz + (rng.next() - 0.5) * (z1 - z0) * 0.8, 0, rng.next() * 3, 0), { tint: 0xe6c778 });
+    }
+  }
   // Feed bin (sage lid) + an enamel water dish by the door
-  b.add('woodGrain', boxUV(roundedBox(0.5, 0.5, 0.4, 0.04), 1.4), mat(-1.95, 0.25, fz + 0.15), { tint: 0xa89a84, aoWorld: groundAO(0.3) });
-  b.add('woodPaint', roundedBox(0.56, 0.06, 0.46, 0.02), mat(-1.95, 0.52, fz + 0.15, -0.12, 0, 0), { tint: SAGE });
+  b.add('woodGrain', boxUV(roundedBox(0.5, 0.5, 0.4, 0.04), 1.4), mat(-1.95, 0.25, fz + 0.4), { tint: 0xa89a84, aoWorld: groundAO(0.3) });
+  b.add('woodPaint', roundedBox(0.56, 0.06, 0.46, 0.02), mat(-1.95, 0.52, fz + 0.4, -0.12, 0, 0), { tint: SAGE });
   b.add('metal', bevelCylinder(0.2, 0.22, 0.08, 0.02, 16), mat(1.75, 0, fz + 0.85), { tint: 0x7aa4d8 });
   b.add('stillWater', new THREE.CircleGeometry(0.17, 16).rotateX(-Math.PI / 2), mat(1.75, 0.07, fz + 0.85), { tint: 0xb8e4ec });
   const g = b.build({ name: 'coop' });
   // (the see-through wire never casts a solid panel shadow)
   g.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh && (o as THREE.Mesh).material === wireMat) o.castShadow = false;
+    if ((o as THREE.Mesh).isMesh && ((o as THREE.Mesh).material === wireMat || (o as THREE.Mesh).material === hazeMat)) o.castShadow = false;
   });
   return g;
 }
@@ -809,6 +877,14 @@ function wirePlane(w: number, h: number): THREE.BufferGeometry {
   return g;
 }
 
+let hazeMat: THREE.MeshStandardMaterial | null = null;
+/** r14: the run's wire panels read from the yard as a faint grey veil (one shared material). */
+function runHaze(): THREE.MeshStandardMaterial {
+  if (hazeMat) return hazeMat;
+  hazeMat = new THREE.MeshStandardMaterial({ color: 0xd4d8dc, transparent: true, opacity: 0.2, depthWrite: false, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide });
+  hazeMat.name = 'run-haze';
+  return hazeMat;
+}
 let wireMat: THREE.MeshStandardMaterial | null = null;
 /** Galvanised hex chicken wire: an alpha-blended canvas tile (thin grey wires, open holes). Blended, not
  *  alpha-tested, so far away the mip-averaged mesh reads as a faint grey veil instead of shimmering. */

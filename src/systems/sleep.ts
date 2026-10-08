@@ -349,7 +349,8 @@ export class SleepSystem implements System, SleepApi {
     root.position.set(pillow.x, pillow.y, pillow.z + 1.5);
     root.updateMatrixWorld(true);
     const head = rig.head.localToWorld(new THREE.Vector3(0, 0.3, 0));
-    this.lieAt.copy(root.position).add(new THREE.Vector3(pillow.x - head.x, pillow.y + 0.22 - head.y, pillow.z + 0.2 - head.z));
+    // (r13: 0.15 m further towards the foot — the head sat past the pillow against the window)
+    this.lieAt.copy(root.position).add(new THREE.Vector3(pillow.x - head.x, pillow.y + 0.22 - head.y, pillow.z + 0.35 - head.z));
     root.position.copy(this.lieAt);
     g.followPlayer(false);
   }

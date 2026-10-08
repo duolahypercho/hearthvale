@@ -51,6 +51,17 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
           '#include <begin_vertex>',
           `#include <begin_vertex>
           vPatchA = aPatchA; vPatchB = aPatchB; vPatchC = aPatchC; vRest = position; vCoat = aCoat;`,
+        )
+        // r13: an extra 4 cm normal offset for the shadow lookup — the smooth round barrels caught
+        // self-shadow acne from the low sun as broad horizontal bands ("flat planes on the cow's back").
+        .replace(
+          '#include <shadowmap_vertex>',
+          `vec4 hvWorldPos = worldPosition;
+          #if defined( USE_SHADOWMAP ) && defined( HAS_NORMAL )
+            worldPosition.xyz += normalize(transformNormalByInverseViewMatrix(transformedNormal, viewMatrix)) * 0.04;
+          #endif
+          #include <shadowmap_vertex>
+          worldPosition = hvWorldPos;`,
         );
       sh.fragmentShader = sh.fragmentShader
         .replace(
@@ -354,8 +365,13 @@ export const RIG_DETAIL = { k: 1 };
 const seg = (n: number, min: number): number => Math.max(min, Math.round(n * RIG_DETAIL.k));
 
 /** Ellipsoid (sphere scaled per axis). */
-export function ellipsoid(rx: number, ry: number, rz: number, ws = 14, hs = 10): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, seg(ws, 6), seg(hs, 4));
+export function ellipsoid(rx: number, ry: number, rz: number, ws?: number, hs?: number): THREE.BufferGeometry {
+  // (r13: default tessellation follows size — a big chibi head at 14 × 10 showed its facets at the 11 m
+  // petting camera, while a 4 cm nostril needs nothing like it)
+  const big = Math.max(rx, ry, rz);
+  const w = ws ?? Math.max(12, Math.min(30, Math.round(10 + big * 64)));
+  const h = hs ?? Math.max(8, Math.round(w * 0.7));
+  const g = new THREE.SphereGeometry(1, seg(w, 6), seg(h, 4));
   g.scale(rx, ry, rz);
   return g;
 }
@@ -391,4 +407,140 @@ export function noise3(x: number, y: number, z: number, seed = 0): number {
     s(z * 2.7 - seed * 0.9 + s(y * 3.7 - x * 1.1) * 1.2) * 0.35 +
     s(y * 4.3 + x * 1.9 + seed * 2.3) * 0.25
   );
+}
+
+// ───────────────────────────────────────────── r13 sculpted lofts
+
+/**
+ * One station of a loft: a cross-section centred on `p` (model space) with half-width `w`, height
+ * above the spine `up` and depth below it `dn`. `n` / `nb` are superellipse exponents for the top /
+ * bottom halves (2 = round, 3 = boxy shoulders / rump corners, < 2 = a keel: brisket, dewlap).
+ */
+export interface LoftStation {
+  p: [number, number, number];
+  w: number;
+  up: number;
+  dn: number;
+  n?: number;
+  nb?: number;
+}
+
+const _lA = new THREE.Vector3();
+const _lB = new THREE.Vector3();
+const _lT = new THREE.Vector3();
+const _lX = new THREE.Vector3();
+const _lU = new THREE.Vector3();
+
+function cr(a: number, b: number, c: number, d: number, t: number): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+}
+
+/**
+ * A smooth sculpted body swept through `stations` (Catmull-Rom on the spine and on every radius):
+ * one closed, seamless, indexed surface with smooth normals — no lathe banding, no capsule seams.
+ * Both ends are closed with a pole. `ring` = vertices round each section, `sub` = samples per span.
+ * `bump(theta, s)` optionally scales the radius (wool lumps, hair tufts): theta round the section
+ * (0 = +x side, π/2 = top), s ∈ [0, 1] along the spine.
+ */
+export function loft(stations: LoftStation[], ring = 32, sub = 4, bump?: (theta: number, s: number) => number): THREE.BufferGeometry {
+  const R = Math.max(10, Math.round(ring * RIG_DETAIL.k / 2) * 2);
+  const S = Math.max(2, Math.round(sub * Math.max(0.6, RIG_DETAIL.k)));
+  const N = stations.length;
+  const at = (i: number): LoftStation => stations[Math.max(0, Math.min(N - 1, i))]!;
+  // Sample the spine.
+  type Sec = { p: THREE.Vector3; w: number; up: number; dn: number; n: number; nb: number };
+  const secs: Sec[] = [];
+  for (let i = 0; i < N - 1; i++) {
+    for (let j = 0; j < (i === N - 2 ? S + 1 : S); j++) {
+      const t = j / S;
+      const a = at(i - 1), b = at(i), c = at(i + 1), d = at(i + 2);
+      const f = (k: (s: LoftStation) => number): number => cr(k(a), k(b), k(c), k(d), t);
+      secs.push({
+        p: new THREE.Vector3(f((s) => s.p[0]), f((s) => s.p[1]), f((s) => s.p[2])),
+        w: Math.max(0.0005, f((s) => s.w)),
+        up: Math.max(0.0005, f((s) => s.up)),
+        dn: Math.max(0.0005, f((s) => s.dn)),
+        n: f((s) => s.n ?? 2),
+        nb: f((s) => s.nb ?? s.n ?? 2),
+      });
+    }
+  }
+  const M = secs.length;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  // Pole at the start.
+  const first = secs[0]!;
+  const last = secs[M - 1]!;
+  _lA.copy(secs[1]!.p).sub(first.p).normalize();
+  pos.push(first.p.x - _lA.x * first.w * 0.2, first.p.y - _lA.y * first.w * 0.2, first.p.z - _lA.z * first.w * 0.2);
+  for (let i = 0; i < M; i++) {
+    const s = secs[i]!;
+    _lA.copy(secs[Math.max(0, i - 1)]!.p);
+    _lB.copy(secs[Math.min(M - 1, i + 1)]!.p);
+    _lT.subVectors(_lB, _lA).normalize();
+    // Side axis: world X projected off the tangent (spines run fore-aft or vertically).
+    _lX.set(1, 0, 0).addScaledVector(_lT, -_lT.x);
+    if (_lX.lengthSq() < 1e-6) _lX.set(0, 0, 1);
+    _lX.normalize();
+    _lU.crossVectors(_lT, _lX).normalize();
+    if (_lU.y < 0 && Math.abs(_lT.y) < 0.9) _lU.negate();
+    const sv = i / (M - 1);
+    for (let k = 0; k < R; k++) {
+      const th = (k / R) * Math.PI * 2;
+      const c = Math.cos(th);
+      const sn = Math.sin(th);
+      const e = sn >= 0 ? s.n : s.nb;
+      const cx = Math.sign(c) * Math.pow(Math.abs(c), 2 / e);
+      const sy = Math.sign(sn) * Math.pow(Math.abs(sn), 2 / e);
+      const b = bump ? bump(th, sv) : 1;
+      const x = cx * s.w * b;
+      const y = sy * (sn >= 0 ? s.up : s.dn) * b;
+      pos.push(s.p.x + _lX.x * x + _lU.x * y, s.p.y + _lX.y * x + _lU.y * y, s.p.z + _lX.z * x + _lU.z * y);
+    }
+  }
+  _lA.copy(last.p).sub(secs[M - 2]!.p).normalize();
+  pos.push(last.p.x + _lA.x * last.w * 0.2, last.p.y + _lA.y * last.w * 0.2, last.p.z + _lA.z * last.w * 0.2);
+  const end = 1 + M * R;
+  // Winding: outward-facing for a spine running +Z with the section going +x → +y.
+  for (let k = 0; k < R; k++) idx.push(0, 1 + ((k + 1) % R), 1 + k);
+  for (let i = 0; i < M - 1; i++) {
+    const a0 = 1 + i * R;
+    const b0 = 1 + (i + 1) * R;
+    for (let k = 0; k < R; k++) {
+      const k1 = (k + 1) % R;
+      idx.push(a0 + k, a0 + k1, b0 + k);
+      idx.push(a0 + k1, b0 + k1, b0 + k);
+    }
+  }
+  const l0 = 1 + (M - 1) * R;
+  for (let k = 0; k < R; k++) idx.push(end, l0 + k, l0 + ((k + 1) % R));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * A cupped leaf (ears): a flattened ellipsoid tapered to a tip along +x and bent so its inner face
+ * is concave (towards -y). Closed mesh — no backface holes from the high camera.
+ */
+export function leaf(len: number, wid: number, thick: number, cup = 0.5, taper = 0.75, ws = 16, hs = 10): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(1, Math.max(8, Math.round(ws * RIG_DETAIL.k)), Math.max(6, Math.round(hs * RIG_DETAIL.k)));
+  const p = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    const x0 = p.getX(i);
+    const t = (x0 + 1) / 2; // 0 base → 1 tip
+    const k = 1 - taper * t * t;
+    const x = x0 * len * 0.5 + len * 0.5;
+    const z = p.getZ(i) * wid * 0.5 * k;
+    let y = p.getY(i) * thick * 0.5 * (0.6 + 0.4 * k);
+    // Cup: lift the rims (|z|) so the middle is a hollow facing -y.
+    y += cup * (z * z) / Math.max(1e-4, wid * 0.5) * (0.4 + 0.6 * k);
+    p.setXYZ(i, x, y, z);
+  }
+  g.computeVertexNormals();
+  return g;
 }

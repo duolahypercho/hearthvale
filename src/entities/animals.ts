@@ -185,12 +185,17 @@ export class AnimalActor {
     this.root.add(this.mesh);
     this.root.name = `animal:${species}`;
     for (const [k, bone] of Object.entries(this.b)) this.rest[k] = { bone, p: bone.position.clone(), q: bone.rotation.clone() };
+    if (this.b.head) {
+      this.headRest = new THREE.Vector3();
+      for (let b: THREE.Object3D | null = this.b.head; b && (b as THREE.Bone).isBone; b = b.parent) this.headRest.add(b.position);
+    }
     this.variant = variant;
     this.speedK = 0.85 + Math.random() * 0.3;
     this.dur = 0.5 + Math.random() * 2;
   }
 
   private readonly variant: number;
+  private headRest: THREE.Vector3 | null = null;
   private lo: THREE.SkinnedMesh | null = null;
   private far = false;
 
@@ -321,6 +326,18 @@ export class AnimalActor {
   pollPoint(out = new THREE.Vector3()): THREE.Vector3 {
     const head = this.b.head;
     if (!head) return out.copy(this.pos).setY(this.pos.y + this.gait.top * this.scale * 0.8);
+    const cr = this.gait.crown;
+    if (cr) {
+      // r13: the real crown surface (rest model space → the head bone's frame), a hand's thickness
+      // above it — the stroking hand rests on the head instead of sinking into the face.
+      if (!this.headRest) {
+        this.headRest = new THREE.Vector3();
+        for (let b: THREE.Object3D | null = head; b && (b as THREE.Bone).isBone; b = b.parent) this.headRest.add(b.position);
+      }
+      out.set(0, cr[0] + 0.035 - this.headRest.y, cr[1] - 0.02 - this.headRest.z);
+      head.updateWorldMatrix(true, false);
+      return head.localToWorld(out);
+    }
     head.getWorldPosition(out);
     const k = this.gait.biped ? 0.06 : 0.16;
     out.y += k * this.scale;
@@ -716,7 +733,9 @@ export class AnimalActor {
     // Eat: head down + nibble (birds peck)
     if (E > 0.01) {
       const nib = g.biped ? Math.max(0, Math.sin(t * 9 + this.seed)) ** 6 * 0.5 : Math.sin(t * 7 + this.seed) * 0.06;
-      head.rotation.x += (g.eatPitch + nib) * E;
+      // (r13: a stall animal eats from the raised manger — half the dip, so the muzzle shows over its lip
+      // instead of folding the head into the chest)
+      head.rotation.x += (g.eatPitch * (this.stalled && !g.biped ? 0.5 : 1) + nib) * E;
       // Ducks dabble with a level body (a steep tip read as a toppled bird from the high camera).
       if (g.biped) body.rotation.x += (this.species === 'duck' ? 0.14 : 0.24) * E;
       else body.rotation.x += 0.06 * E;
@@ -932,6 +951,8 @@ interface Pop {
   side?: number;
   /** Tag text key (name|hearts): a repeat pop with the same text keeps the live card. */
   tagKey?: string;
+  /** Heart: its sideways slide off the farmer's face this frame (world units along camera-right). */
+  shift?: number;
 }
 
 let zTex: THREE.Texture | null = null;
@@ -1035,6 +1056,7 @@ const _cp2 = new THREE.Vector3();
 const _right = new THREE.Vector3(1, 0, 0);
 const _toCam = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
+const _upv = new THREE.Vector3();
 const easeOutBack = (x: number): number => {
   const c1 = 1.9;
   return 1 + (c1 + 1) * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
@@ -1266,6 +1288,22 @@ export class AnimalPops {
           if (p.side == null) p.side = Math.abs(fx) < 0.08 ? 0 : fx > 0 ? -1 : 1;
           // (only as far as needed: the heart stays over the head it belongs to)
           o.addScaledVector(_right, p.side * size * 0.3);
+          // r14: never over the farmer's face — with the animal stood across the farmer's front the
+          // heart rose straight onto it. In the camera plane, slide it sideways (towards the animal's
+          // side) until it clears the farmer's head disc.
+          _upv.set(0, 1, 0).applyQuaternion(camera.quaternion);
+          const hx = o.x - this.farmer.x;
+          const hy = o.y + size * 0.42 - (this.farmer.y + 1.45);
+          const hz = o.z - this.farmer.z;
+          const sx = hx * _right.x + hz * _right.z;
+          const sy = hx * _upv.x + hy * _upv.y + hz * _upv.z;
+          const R = 0.42 + size * 0.5;
+          if (Math.abs(sy) < R && Math.abs(sx) < R) {
+            const dir = p.side !== 0 ? p.side : sx >= 0 ? 1 : -1;
+            const want = dir * Math.sqrt(Math.max(0, R * R - sy * sy));
+            p.shift = Math.abs(sx) < Math.abs(want) ? want - sx : 0;
+            o.addScaledVector(_right, p.shift);
+          } else p.shift = 0;
         }
         p.sprite.position.set(o.x + Math.sin(pt * 5) * 0.03, o.y + size * 0.42 + rise, o.z);
         p.sprite.scale.setScalar(Math.max(0.01, size * pop * (1 - out * out)));
@@ -1311,7 +1349,10 @@ export class AnimalPops {
             }
           }
         }
-        const side = p.side * (heart * 0.95 + w * 0.5);
+        // (r14: the card moves along with a heart slid off the farmer's face on its side — they overlapped)
+        const hp = p.actor ? this.pops.find((q) => q.kind === 'heart' && q.actor === p.actor) : undefined;
+        const hs = hp?.shift && Math.sign(hp.shift) === p.side ? hp.shift : 0;
+        const side = p.side * (heart * 0.95 + w * 0.5) + hs;
         p.sprite.position.set(o.x + _right.x * side, o.y + 0.2 + heart * 0.42 + Math.min(0.06, p.t * 0.2), o.z + _right.z * side);
         p.sprite.scale.set(w, h, 1);
         m.opacity = 0.94 * (p.t > p.life - 0.35 ? Math.max(0, (p.life - p.t) / 0.35) : 1);

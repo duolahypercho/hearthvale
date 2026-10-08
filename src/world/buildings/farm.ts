@@ -16,7 +16,7 @@ import { Rng } from '../../core/rng';
 import { mergeStatic, MeshBuilder, mat, lumpySphere } from '../geom';
 import { buildFence } from '../props/structures';
 import { PondBuilder } from './pond';
-import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, barnLeaf, coopHatch, COOP_SIZE, BARN_SIZE, BARN_SILO } from './models';
+import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, barnLeaf, coopHatch, COOP_SIZE, COOP_RUN, BARN_SIZE, BARN_SILO } from './models';
 
 export type BuildingKind = 'coop' | 'barn';
 
@@ -190,6 +190,17 @@ export class FarmBuildings {
             this.clearTile(lx, z, true);
             this.solid(lx, z);
           }
+        }
+        if (kind === 'coop') {
+          // r14: the chicken-wire run on the west wall stands on its own tiles.
+          const rx1 = Math.floor(s.x - COOP_SIZE.W / 2 - 0.1);
+          const rx0 = Math.floor(s.x - COOP_SIZE.W / 2 - COOP_RUN.W + 0.05);
+          for (let z = r.z0; z <= r.z1; z++)
+            for (let x = rx0; x <= rx1; x++) {
+              if (x >= r.x0) continue;
+              this.clearTile(x, z, true);
+              this.solid(x, z);
+            }
         }
         // A flat pad: the building sits at the lowest corner height (plinth hides the rest).
         let y = Infinity;

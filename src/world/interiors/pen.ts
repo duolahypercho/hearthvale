@@ -46,8 +46,20 @@ export interface PenAnchors {
 const STRAW = [0xf2dc94, 0xe0bc62, 0xf6e6aa, 0xd4a850, 0xe8cc7a];
 
 /** Loose straws lying around (cx, cz within `spread`); `lift(dx, dz)` raises them onto a mound. */
+/**
+ * r13 floor-straw thinning (set by a room while it builds, cleared after): loose strands at floor level
+ * keep with probability `k` on the open floor and `edge` within `band` m of a wall (rect x0..x1, z0..z1)
+ * — the coop + barn floors read as pin noise with every strand down.
+ */
+export const STRAW_FLOOR: { rule: { k: number; edge: number; band: number; x0: number; z0: number; x1: number; z1: number } | null } = { rule: null };
+
 export function strawTufts(k: Kit, rng: Rng, cx: number, y: number, cz: number, n: number, spread: number, lift?: (dx: number, dz: number) => number, palette: readonly number[] = STRAW): void {
+  const R = y < 0.1 ? STRAW_FLOOR.rule : null;
   for (let i = 0; i < n; i++) {
+    if (R) {
+      const wall = Math.min(cx - R.x0, R.x1 - cx, cz - R.z0, R.z1 - cz);
+      if (rng.next() > (wall < R.band ? R.edge : R.k)) continue;
+    }
     const len = 0.1 + rng.next() * 0.16;
     const g = new THREE.CylinderGeometry(0.011, 0.008, len, 3, 1, true);
     g.scale(1, 1, 0.45);

@@ -19,7 +19,8 @@ export function floorPlanks(): TexPair {
     const S = 1536;
     const M = 4; // metres per texture
     // r11: narrower boards (12.5 cm, were 20 cm: they read oversized beside the chibi furniture)
-    const rows = 32;
+    // (r14: 10 cm boards — 40 rows)
+    const rows = 40;
     const grain = new PeriodicNoise(24, 'fl-grain');
     const fine = new PeriodicNoise(96, 'fl-fine');
     const n = makeTileNoise(4, 4, 'fl');

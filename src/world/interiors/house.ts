@@ -59,7 +59,8 @@ export class HouseInterior extends InteriorMap {
       exit: { to: 'farm', x: HOUSE_PORCH.x, z: HOUSE_PORCH.z, facing: 'down' },
       floor: 'floor',
       // A touch darker + cooler than the raw boards: the plank field no longer outshouts the props.
-      floorTint: 0xe4dace,
+      // (r14: ~12 % lower value, cooler — the critic's "saturated orange planks overpower the props")
+      floorTint: 0xd2cbc6,
       style: 'house',
       // Cool lavender-grey paper: the hearth, lamps and honey floor pop warm against it.
       wallTint: 0xd6d6ee,
@@ -73,6 +74,8 @@ export class HouseInterior extends InteriorMap {
       sunDir: [-0.34, 0.58, -0.74],
     });
     this.coolFill = 0.38;
+    // (r13: a touch brighter by day — the side walls went murky under the vignette)
+    this.exposureBoost = 0.1;
     this.morningCool = 1;
     this.shaftK = 1.05;
     // r11: the shafts land — a soft window-shaped pool of sun where each beam hits the boards.
@@ -335,15 +338,16 @@ export class HouseInterior extends InteriorMap {
     this.root.add(this.flames.group);
     // Firelight on the sooty back + cheeks of the firebox (an additive glow card, flickering with the fire).
     {
-      const gm = new THREE.MeshBasicMaterial({ map: glowDisc().map, color: 0xff7a30, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-      const g = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.0), gm);
-      g.position.set(cx, 0.32, 0.145);
+      // (r13: deeper, lower and smaller — the old card read as a whitish hood above the logs)
+      const gm = new THREE.MeshBasicMaterial({ map: glowDisc().map, color: 0xd8461a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      const g = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.62), gm);
+      g.position.set(cx, 0.2, 0.145);
       g.userData.noAO = true;
       g.userData.dynamic = true;
       g.renderOrder = 3;
       this.root.add(g);
-      const c0 = new THREE.Color(0xff7a30);
-      this.updaters.push((_dt, _t, L) => gm.color.copy(c0).multiplyScalar((0.3 + L.night * 0.06) * this.fireK * (1 - this.dim * 0.5)));
+      const c0 = new THREE.Color(0xd8461a);
+      this.updaters.push((_dt, _t, L) => gm.color.copy(c0).multiplyScalar((0.2 + L.night * 0.04) * this.fireK * (1 - this.dim * 0.5)));
     }
     this.sparks = new Wisps(new THREE.Vector3(cx, 0.3, 0.4), { rate: 5, life: 1.3, rise: 0.75, spread: 0.45, size: 0.035, color: 0xffa040, additive: true, count: 24 });
     this.root.add(this.sparks.points);
@@ -352,7 +356,7 @@ export class HouseInterior extends InteriorMap {
     this.fireLight = this.addLamp(new THREE.Vector3(cx, 0.6, 0.95), 0xff8a3c, 2.2, 7.5, 0, 9);
     this.glowPool(cx, 1.3, 1.9, 0xff7a30, () => (0.22 + this.light.night * 0.16) * this.fireK);
     // The warm fan reaches out across the hearth rug even at 8 am (the fire is the room's warm pocket).
-    this.glowPool(cx, 2.55, 2.5, 0xff8a40, () => (0.075 + this.light.night * 0.07) * this.fireK, 0.016);
+    this.glowPool(cx, 2.55, 2.5, 0xff8a40, () => (0.11 + this.light.night * 0.05) * this.fireK, 0.016);
     this.glowPool(cx, 0.55, 0.9, 0xffa050, () => (0.3 - this.light.night * 0.08) * this.fireK, 0.09);
     // Mantel dressing: clock, candlesticks, two small photos, a jar of dried flowers, pinecones
     const my = 1.44;
@@ -479,8 +483,14 @@ export class HouseInterior extends InteriorMap {
     k.add('fabric', roundedBox(bw - 0.02, 0.05, 0.26, 0.025, 2), mat(bx, 0.63, qz0 - 0.08, -0.06, 0, 0), { tint: 0xf6efe2 });
     k.add('fabric', roundedBox(bw - 0.02, 0.012, 0.035, 0.006), mat(bx, 0.657, qz0 + 0.035, -0.06, 0, 0), { tint: 0xc86a5a });
     k.add('fabric', roundedBox(bw - 0.1, 0.03, 0.2, 0.015, 2), mat(bx, 0.6, qz0 - 0.24), { tint: 0xfaf8f2 });
-    k.box('fabric', [1.2, 0.08, 0.36], [bx + 0.05, 0.685, bl - 0.36], { tint: 0xd8a040, r: 0.03, ry: 0.05 });
-    k.box('fabric', [1.2, 0.02, 0.36], [bx + 0.05, 0.725, bl - 0.36], { tint: 0xe8b860, r: 0.01, ry: 0.05 });
+    // r14: a knitted mustard throw folded across the foot — a soft cloth lying over the quilt's puffs,
+    // rolling over the edges and hanging down both sides + the foot (was a rigid slab), its folded head
+    // edge a soft roll.
+    {
+      const tz0 = bl - 0.5;
+      k.add('fabric', drapedQuilt(bw + 0.02, 0.5, 0.26, 0.09), mat(bx, 0.665, tz0, 0, 0.015, 0, 1, 0.55, 1), { tint: 0xd49a3c });
+      k.add('fabric', new THREE.CapsuleGeometry(0.045, bw - 0.12, 4, 12).rotateZ(Math.PI / 2), mat(bx, 0.715, tz0 + 0.03, 0, 0.015, 0, 1, 0.75, 1), { tint: 0xe2ac50 });
+    }
     // A sleepy book left on the quilt
     k.box('paint', [0.22, 0.04, 0.3], [bx - 0.45, 0.685, 1.3], { tint: 0x3a5a7a, ry: 0.4, r: 0.01 });
     // Nightstand: drawer, lamp, glasses, water glass
@@ -566,6 +576,42 @@ export class HouseInterior extends InteriorMap {
     k.cyl('ceramic', 0.04, 0.032, 0.07, [stx + 0.1, 0.565, stz + 0.1], { tint: 0xf2eee4 });
     this.glowPool(stx - 0.1, stz, 1.2, 0xffb060, () => this.light.night * 0.14 * (1 - this.dim));
     this.solid(5.75, 3.95, 7.25, 4.65, 'loveseat');
+    // r14: a slim sofa table along the loveseat's back (the classic cottage console): turned legs, a
+    // stretcher shelf with a basket, a stack of books, a fern in a terracotta pot, a framed photo and a
+    // bowl of apples — gives the open plank band between the hearth circle and the door runner a middle.
+    {
+      const cx = 6.5;
+      const cz = 4.98;
+      const cw = 1.32;
+      k.box('wood', [cw, 0.045, 0.3], [cx, 0.66, cz], { tint: OAK, r: 0.015, uv: 1.5 });
+      k.box('wood', [cw - 0.12, 0.06, 0.24], [cx, 0.6, cz], { tint: 0xa87040 });
+      k.box('wood', [cw - 0.14, 0.025, 0.24], [cx, 0.16, cz], { tint: 0xa87040 });
+      for (const sx of [-1, 1])
+        for (const sz of [-1, 1]) {
+          const g = new THREE.LatheGeometry([new THREE.Vector2(0.022, 0), new THREE.Vector2(0.032, 0.08), new THREE.Vector2(0.024, 0.28), new THREE.Vector2(0.036, 0.4), new THREE.Vector2(0.026, 0.56), new THREE.Vector2(0.032, 0.64)], 10);
+          k.add('wood', g, mat(cx + sx * (cw / 2 - 0.06), 0, cz + sz * 0.1), { tint: 0xa87040 });
+        }
+      // Basket on the stretcher shelf, a folded cloth in it
+      const bk = new THREE.LatheGeometry([[0, 0], [0.15, 0], [0.18, 0.04], [0.19, 0.17], [0.17, 0.17], [0.16, 0.04], [0, 0.03]].map(([a2, b2]) => new THREE.Vector2(a2!, b2!)), 20);
+      k.add('thatch', bk, mat(cx - 0.3, 0.17, cz, 0, 0, 0, 1.25, 1, 0.7), { tint: 0xc89a60 });
+      k.add('fabric', roundedBox(0.3, 0.05, 0.16, 0.02), mat(cx - 0.3, 0.32, cz), { tint: 0xc86a5a });
+      // Books lying + standing between a bookend
+      for (const [i, c] of [[0, 0x6a4a7a], [1, 0x3a6a5a], [2, 0xb8703a]] as const) k.box('paint', [0.24 - i * 0.02, 0.035, 0.17], [cx - 0.42, 0.7 + i * 0.036, cz + 0.01], { tint: c, ry: (i - 1) * 0.12, r: 0.008 });
+      // Fern in a terracotta pot
+      k.cyl('ceramic', 0.075, 0.06, 0.12, [cx + 0.02, 0.685, cz], { tint: 0xc0704a, seg: 14 });
+      for (let i = 0; i < 9; i++) {
+        const a2 = (i / 9) * Math.PI * 2 + rng.next() * 0.3;
+        const fr = new THREE.ConeGeometry(0.03, 0.26, 4);
+        fr.scale(1, 1, 0.3);
+        k.add('leaf', fr, mat(cx + 0.02 + Math.cos(a2) * 0.05, 0.86, cz + Math.sin(a2) * 0.05, Math.sin(a2) * 0.7, 0, -Math.cos(a2) * 0.7), { tint: i % 2 ? 0x5a8a3a : 0x6a9a44 });
+      }
+      // Framed photo leaning on a little stand + a wooden bowl of red apples
+      k.box('wood', [0.16, 0.2, 0.02], [cx + 0.3, 0.705, cz - 0.03], { tint: 0x5a3a24, rx: -0.15, r: 0.006 });
+      k.box('paint', [0.12, 0.15, 0.005], [cx + 0.3, 0.73, cz - 0.016], { tint: 0xe8d8b0, rx: -0.15 });
+      k.add('wood', new THREE.SphereGeometry(0.12, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2).scale(1, 0.45, 1), mat(cx + 0.5, 0.76, cz + 0.01), { tint: 0x9a6a3c });
+      for (let i = 0; i < 4; i++) k.sphere('ceramic', 0.045, [cx + 0.47 + (i % 2) * 0.06, 0.75 + (i > 1 ? 0.045 : 0), cz - 0.02 + (i % 3) * 0.025], i === 2 ? 0xd8b040 : 0xc8302a);
+    }
+    this.solid(5.78, 4.65, 7.22, 5.15, 'sofa-table');
     this.solid(7.5, 4.15, 7.95, 4.6, 'side-table');
     // Laundry basket by the wardrobe: folded linens, a sheet spilling over the rim
     const lbx = 9.95;

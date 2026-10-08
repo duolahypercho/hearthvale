@@ -15,32 +15,47 @@ float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); 
 float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   return mix(mix(h21(i), h21(i+vec2(1,0)), f.x), mix(h21(i+vec2(0,1)), h21(i+vec2(1,1)), f.x), f.y); }
 float fbm(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * vnoise(p); p *= 2.03; a *= 0.5; } return s; }
+float tongue(vec2 uv, float cx, float h, float w, float t, float sd) {
+  // One licking tongue: a teardrop rising from the base, its upper half swaying + necking with noise.
+  float y = uv.y / h;
+  float n = fbm(vec2(uv.x * 3.1 + sd, uv.y * 2.4 - t * 2.1));
+  float sway = (sin(t * 2.6 + sd * 4.0 + y * 3.4) * 0.06 + (n - 0.5) * 0.16) * y * y;
+  float halfW = w * mix(1.0, 0.04, smoothstep(0.05, 1.0, y)) * (0.65 + 0.35 * smoothstep(0.0, 0.2, y));
+  float d = abs(uv.x - cx - sway);
+  float m = 1.0 - smoothstep(halfW * 0.55, halfW + 0.02, d);
+  return m * (1.0 - smoothstep(0.82, 1.0, y + (n - 0.5) * 0.25)) * smoothstep(0.0, 0.08, uv.y);
+}
 void main() {
   vec2 uv = vUv;
   float t = uTime + uSeed * 7.0;
-  // Tongues (r11): a teardrop silhouette — full near the base, licking to a thin tip — whose upper half
-  // sways and splits with rising noise, so the cards read as separate soft licks, not a row of spikes.
-  float n  = fbm(vec2(uv.x * 2.6 + uSeed, uv.y * 2.0 - t * 1.9));
-  float n2 = fbm(vec2(uv.x * 6.0 - uSeed * 2.0, uv.y * 4.2 - t * 3.2));
-  float sway = sin(t * 2.3 + uSeed * 3.0 + uv.y * 3.0) * 0.07 * uv.y * uv.y;
-  float bulge = smoothstep(0.0, 0.22, uv.y);
-  float halfW = mix(0.44, 0.015, smoothstep(0.08, 1.0, uv.y)) * (0.7 + 0.3 * bulge);
-  float edge = (n - 0.5) * 0.36 * (0.25 + uv.y) + (n2 - 0.5) * 0.12 * uv.y + sway;
-  float body = 1.0 - smoothstep(halfW - 0.16, halfW + 0.03, abs(uv.x - 0.5 + edge));
-  // Licks break off the top: the cut line rides the second octave.
-  float top = 1.0 - smoothstep(0.55, 0.98, uv.y + (n2 - 0.5) * 0.5);
-  float base = smoothstep(0.0, 0.12, uv.y);
-  float f = clamp(body * top * base, 0.0, 1.0);
-  // Heat: deep red at the edge + tips, orange through the body, a warm yellow core low in the flame
-  // (never white: the additive cards overlap, so each one stays well under 1).
-  float heat = clamp(f * (1.1 - uv.y * 0.6) + (n - 0.5) * 0.2, 0.0, 1.0);
-  vec3 deep = vec3(0.55, 0.08, 0.02);
-  vec3 mid  = vec3(0.95, 0.38, 0.07);
-  vec3 core = vec3(1.0, 0.72, 0.30);
-  vec3 col = mix(deep, mid, smoothstep(0.08, 0.5, heat));
-  col = mix(col, core, smoothstep(0.72, 1.0, heat) * 0.75);
-  f *= 0.62 + 0.38 * smoothstep(0.0, 0.5, heat);
-  gl_FragColor = vec4(col * f * uGain, 1.0);
+  // r13: three separate licking tongues per card (a tall middle one, two shorter side licks that
+  // flicker in height) in saturated LINEAR colours under normal alpha blending — the old additive cards
+  // stacked into a pale white-yellow lamp with a hood of glow above the logs.
+  float f = 0.0;
+  float core = 0.0;
+  for (int i = 0; i < 3; i++) {
+    float fi = float(i);
+    float sd = uSeed * 1.7 + fi * 2.31;
+    float cx = 0.5 + (fi - 1.0) * 0.2 + sin(t * 0.9 + sd) * 0.03;
+    float h = (i == 1 ? 0.95 : 0.62) * (0.82 + 0.18 * sin(t * (3.0 + fi) + sd * 2.0));
+    float w = i == 1 ? 0.2 : 0.14;
+    float m = tongue(uv, cx, h, w, t, sd);
+    f = max(f, m);
+    // Inner heat: the same tongue, narrower + shorter.
+    core = max(core, tongue(uv, cx, h * 0.55, w * 0.5, t, sd + 0.5));
+  }
+  float n2 = fbm(vec2(uv.x * 7.0 - uSeed, uv.y * 5.0 - t * 3.4));
+  // Gradient: deep red rims + tips → saturated orange body → a hot yellow-orange heart low down.
+  vec3 deep = vec3(0.32, 0.018, 0.002);
+  vec3 mid  = vec3(1.0, 0.2, 0.012);
+  vec3 hot  = vec3(1.0, 0.52, 0.07);
+  float body = smoothstep(0.15, 0.75, f) * (1.0 - smoothstep(0.55, 1.0, uv.y));
+  vec3 col = mix(deep, mid, body);
+  col = mix(col, hot, core * (1.0 - smoothstep(0.05, 0.45, uv.y)) * (0.75 + 0.25 * n2));
+  // Brighter only at the base (that's all the bloom picks up).
+  col *= (0.7 + 0.5 * uGain) * (1.0 + 0.8 * (1.0 - smoothstep(0.0, 0.25, uv.y)) * core);
+  float a = clamp(f * (0.82 + 0.18 * n2), 0.0, 1.0) * clamp(uGain * 1.6, 0.0, 1.0);
+  gl_FragColor = vec4(col, a);
 }`;
 
 /** A small campfire of crossed flame cards. `gain` 0..~2.5 (flicker is built in). */
@@ -59,7 +74,7 @@ export class HearthFlames {
         fragmentShader: FLAME_FS,
         transparent: true,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        blending: THREE.NormalBlending,
         side: THREE.DoubleSide,
         fog: false,
       });

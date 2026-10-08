@@ -750,7 +750,8 @@ export class AnimalSystem implements System, AnimalsApi {
     if (this.allOut || rec.species === 'pig') return 0;
     const mine = this.st.animals.filter((a) => a.home === rec.home && a.species !== 'pig');
     const n = mine.length;
-    const k = rec.home === 'coop' ? (n >= 6 ? 2 : n >= 3 ? 1 : 0) : n >= 3 ? 1 : 0;
+    // (r14: a coop of two already keeps one bird home — a visiting farmhand found the coop empty)
+    const k = rec.home === 'coop' ? (n >= 5 ? 2 : n >= 2 ? 1 : 0) : n >= 3 ? 1 : 0;
     if (!k) return 0;
     const day = this.game.calendar.day;
     const h = (id: number) => (Math.imul(id + 7, 2654435761) ^ Math.imul(day + 13, 40503)) >>> 0;
@@ -852,6 +853,11 @@ export class AnimalSystem implements System, AnimalsApi {
     if (this.mapId) this.respawn();
     // Overnight report for the end-of-day screen + morning notes once the farmer is up.
     const prevDay = day > 1 ? day - 1 : 28;
+    // r13: the overnight nest numbers, computed once after the lay — the card's chips, the chores line
+    // and the morning toast all read these (the card said "4 in nests · 3 new" beside "Collect 6 eggs
+    // (2 new)").
+    const freshN = [...made.values()].reduce((a, b) => a + b, 0);
+    const nestN = eggs.length;
     if (this.st.animals.length) {
       const hungry = report.filter((r) => !r.fed);
       this.game.events.emit('animals:summary', {
@@ -862,15 +868,16 @@ export class AnimalSystem implements System, AnimalsApi {
         animals: report,
         produce,
         pet: { name: pet.name, species: pet.species, bowl },
-        chores: this.chores([...made.values()].reduce((a, b) => a + b, 0)),
-        leftover: Math.max(0, eggs.length - [...made.values()].reduce((a, b) => a + b, 0)),
+        chores: this.chores(freshN),
+        // Everything waiting in the nest boxes in the morning (tonight's lay included).
+        leftover: nestN,
       });
       this.morning = [];
       if (hungry.length === 1) this.morning.push({ text: `<b>${hungry[0]!.name}</b> looks hungry — fill the ${LIVESTOCK[hungry[0]!.species].home === 'barn' ? 'manger' : 'trough'} with hay`, icon: 'hay', kind: 'bad' });
       else if (hungry.length > 1) this.morning.push({ text: `<b>${hungry[0]!.name}</b> and ${hungry.length - 1} other${hungry.length > 2 ? 's' : ''} look hungry this morning`, icon: 'hay', kind: 'bad' });
       // Everything waiting in the nest boxes (fresh + any left from yesterday), not just tonight's lay.
-      const eggN = eggs.length;
-      const fresh = [...made.values()].reduce((a, b) => a + b, 0);
+      const eggN = nestN;
+      const fresh = freshN;
       if (eggN) this.morning.push({ text: `<b>${eggN}</b> egg${eggN > 1 ? 's' : ''} waiting in the nest boxes${fresh && fresh < eggN ? ` (${fresh} fresh)` : ''}`, icon: [...made.keys()][0] ?? eggs[0]!.item, kind: 'good' });
       const ready = this.st.animals.filter((a) => a.ready);
       if (ready.length) this.morning.push({ text: `<b>${ready[0]!.name}</b>${ready.length > 1 ? ` and ${ready.length - 1} more are` : ' is'} ready to ${ready[0]!.species === 'sheep' ? 'shear' : 'milk'}`, icon: produceFor(ready[0]!.species, ready[0]!.variant), kind: 'info' });
@@ -890,7 +897,8 @@ export class AnimalSystem implements System, AnimalsApi {
     if (wool.length) out.push({ icon: 'wool', text: `Shear ${wool.length === 1 ? wool[0]!.name : plural(wool.length, 'sheep', 'sheep')}` });
     // Tonight's lay apart from the eggs already waiting (the card's produce count is only tonight's).
     const left = Math.max(0, st.eggs.length - fresh);
-    if (st.eggs.length) out.push({ icon: st.eggs[0]!.item, text: fresh && left ? `Collect ${plural(st.eggs.length, 'egg')} (${fresh} new)` : fresh ? `Collect ${plural(st.eggs.length, 'fresh egg')} from the nests` : `Collect ${plural(st.eggs.length, 'egg')} still in the nests` });
+    // (r13: the same total the card's "in nests" chip shows — no second "new" count to contradict it)
+    if (st.eggs.length) out.push({ icon: st.eggs[0]!.item, text: fresh && !left ? `Collect ${plural(st.eggs.length, 'fresh egg')} from the nests` : `Collect ${plural(st.eggs.length, 'egg')} from the nest boxes` });
     if (st.truffles.length) out.push({ icon: 'truffle', text: `Dig up ${plural(st.truffles.length, 'truffle')} in the pasture` });
     for (const home of ['coop', 'barn'] as const) {
       const n = this.count(home);
@@ -924,6 +932,7 @@ export class AnimalSystem implements System, AnimalsApi {
   // ───────────────────────────────────────────── actors
 
   onMapChange(mapId: string): void {
+    const same = mapId === this.mapId;
     this.mapId = mapId;
     this.demoHearts = 0;
     this.pops.clear();
@@ -933,7 +942,18 @@ export class AnimalSystem implements System, AnimalsApi {
       .filter((r) => r.id !== 'stall' && r.id !== 'loft' && (r.x1 - r.x0) * (r.z1 - r.z0) < 4)
       .map((r) => new THREE.Box3(new THREE.Vector3(r.x0, 0, r.z0), new THREE.Vector3(r.x1, 0.7, r.z1)));
     this.respawn();
+    // r14: a reload of the SAME map (a teleport / co-op resync) right after the farmer's own pat wiped
+    // their heart + card before they could see them (the farmhand's pet showed nothing): re-pop it on the
+    // respawned animal.
+    const lp = this.lastPat;
+    if (same && lp && performance.now() - lp.at < 1200) {
+      const l = this.live.find((q) => (q.rec ? q.rec.id : 0) === lp.id && (lp.id !== 0 || !q.rec));
+      if (l) this.pops.heart(l.actor.topPoint(), l.actor, this.tagFor(l.actor, lp.tag));
+    }
   }
+
+  /** The farmer's last pat (re-popped after a same-map reload). */
+  private lastPat: { id: number; at: number; tag: { name: string; hearts: number } } | null = null;
 
   private clearActors(): void {
     for (const l of this.live) {
@@ -1068,10 +1088,17 @@ export class AnimalSystem implements System, AnimalsApi {
     const l = this.spawn(null, pet.species, pet.variant, -1);
     const a = l.actor;
     a.sitter = true;
+    if (indoors) {
+      // r13: indoors the pet's body keeps out of every furniture footprint (the dog stood on the rocking
+      // chair's runner) — the room's solid rects become its blockers, the pet bed excepted.
+      const rects = (this.game.world.current as unknown as { propRects?: { x0: number; z0: number; x1: number; z1: number; id: string }[] } | null)?.propRects;
+      if (rects) a.blockers = rects.filter((r) => r.id !== 'pet-bed').map((r) => ({ x0: r.x0 - 0.05, z0: r.z0 - 0.05, x1: r.x1 + 0.05, z1: r.z1 + 0.05 }));
+    }
     if (indoors && morning) {
-      a.area = { x0: 6.1, z0: 2.4, x1: 8.0, z1: 3.4 };
+      // (r13: the hearth rug in front of the fire, clear of the rocker at x ≥ 7.6)
+      a.area = { x0: 5.6, z0: 2.3, x1: 7.0, z1: 3.3 };
       a.curious = true;
-      a.place(7.2, 2.7, 0.35);
+      a.place(6.6, 2.7, 0.35);
     } else if (indoors) {
       // Curled up in the wicker pet bed by the hearth.
       a.area = { x0: 5.2, z0: 1.4, x1: 7.9, z1: 3.4 };
@@ -1365,7 +1392,9 @@ export class AnimalSystem implements System, AnimalsApi {
     a.pet(pp);
     const fr = rec ? rec.friendship + (rec.petted ? 0 : 15) : this.st.pet.friendship;
     const name = rec ? rec.name : this.st.pet.name;
-    this.pops.heart(a.topPoint(), a, this.tagFor(a, { name, hearts: Math.round(Math.min(1000, fr) / 100) / 2 }));
+    const tag = { name, hearts: Math.round(Math.min(1000, fr) / 100) / 2 };
+    this.pops.heart(a.topPoint(), a, this.tagFor(a, tag));
+    if (!quiet) this.lastPat = { id: rec ? rec.id : 0, at: performance.now(), tag };
     // The farmer crouches and reaches out (only when actually beside the animal).
     if (near) {
       this.settleForPet(a);
@@ -1420,6 +1449,11 @@ export class AnimalSystem implements System, AnimalsApi {
         const bz = pp.z - Math.cos(this.petYaw) * back;
         if (local && back > 0.02 && this.walkableAt(bx, bz)) pp.set(bx, pp.y, bz);
       }
+      this.clearance(a, a.pos.x, a.pos.z, a.heading, pp, local, false);
+      if (local) {
+        const pc = a.pollPoint(this._lt2);
+        this.petYaw = Math.atan2(pc.x - pp.x, pc.z - pp.z);
+      }
       if (!local) this.petYaw = prevYaw;
       return;
     }
@@ -1430,14 +1464,15 @@ export class AnimalSystem implements System, AnimalsApi {
       const tz = pp.z + dz * want;
       if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4)) return;
       // Three-quarters to the lens (r10: a hen facing the farmer showed the camera only its tail).
-      const cp = this.game.rc.camera.position;
+      const cp = this.lensFor(pp, local);
       const cx = cp.x - tx;
       const cz = cp.z - tz;
       const cl = Math.hypot(cx, cz) || 1;
       const hx = -dx + (cx / cl) * 1.1;
       const hz = -dz + (cz / cl) * 1.1;
       a.easeTo(tx, tz, Math.atan2(hx, hz));
-      this.petYaw = Math.atan2(dx, dz);
+      this.clearance(a, tx, tz, Math.atan2(hx, hz), pp, local, true);
+      this.petYaw = Math.atan2(tx - pp.x, tz - pp.z);
       a.blissSide = (cx / cl) * dz - (cz / cl) * dx > 0 ? 1 : -1;
       return;
     }
@@ -1445,7 +1480,7 @@ export class AnimalSystem implements System, AnimalsApi {
     // the animal) and the animal stands side-on to that line — turned towards the lens, 20° past square
     // so its muzzle ends ~0.85 m from the farmer's face instead of in it. Tried on the camera side first,
     // then the far side; with no room it keeps its spot and only the farmer turns to its crown.
-    const cp = this.game.rc.camera.position;
+    const cp = this.lensFor(pp, local);
     const poll0 = a.pollPoint(this._lt2).clone();
     const k = Math.max(0.2, Math.min(a.gait.reach * a.scale, (poll0.x - a.pos.x) * Math.sin(a.heading) + (poll0.z - a.pos.z) * Math.cos(a.heading)));
     // The line runs to the crown, not the barrel: a repeat pat then lands on the same pose (measured to
@@ -1459,17 +1494,62 @@ export class AnimalSystem implements System, AnimalsApi {
         dz = qz / ql;
       }
     }
+    // r14 (the critic's "kiss"): side by side at one depth the two heads met on screen however far
+    // apart they stood. Now the animal stands across the farmer's FRONT, between them and the lens, in
+    // profile turned ~25° to the camera; the crown lies ahead of the farmer and a little to the side the
+    // head points, so on screen the animal's face sits below and beside the farmer's (the farmer faces
+    // the camera, reaching down over its neck), and the body runs back to the side it already stood on.
+    {
+      const lx = cp.x - pp.x;
+      const lz = cp.z - pp.z;
+      const ll = Math.hypot(lx, lz);
+      if (ll > 0.5) {
+        const ux = lx / ll;
+        const uz = lz / ll;
+        // perp (pointing to the head side) = side · (-uz, ux); the body lies on the animal's current side.
+        const cur = -uz * (a.pos.x - pp.x) + ux * (a.pos.z - pp.z);
+        const r0 = a.gait.radius * a.scale;
+        // (≥ clearance()'s head gap too, or every repeat pat stepped the farmer back another notch)
+        const needH = (a.gait.headR ?? r0 * 0.6) * a.scale + 0.62;
+        const fwd = Math.max(0.72, r0 + 0.5, Math.sqrt(Math.max(0, needH * needH - 0.09)) + 0.04);
+        for (const side of cur > 0 ? [-1, 1] : [1, -1]) {
+          const qx = -uz * side;
+          const qz = ux * side;
+          let hx = qx + ux * 0.47;
+          let hz = qz + uz * 0.47;
+          const hl = Math.hypot(hx, hz);
+          hx /= hl;
+          hz /= hl;
+          const cx = pp.x + ux * fwd + qx * 0.3;
+          const cz = pp.z + uz * fwd + qz * 0.3;
+          const tx = cx - hx * k;
+          const tz = cz - hz * k;
+          if (!a.walkable(tx, tz) || a.inPool(tx, tz, 0.4) || !a.walkable(cx, cz)) continue;
+          const ar = a.area;
+          if (a.confine && ar.x1 - ar.x0 < 0.3 && ar.z1 - ar.z0 < 0.3) a.area = { x0: tx - 0.05, z0: tz - 0.05, x1: tx + 0.05, z1: tz + 0.05 };
+          a.easeTo(tx, tz, Math.atan2(hx, hz));
+          this.clearance(a, tx, tz, Math.atan2(hx, hz), pp, local, true);
+          // (blissSide: the farmer is on the animal's local -x side when +1 — here local +x = side · lens)
+          a.blissSide = side;
+          this.petYaw = Math.atan2(cx - pp.x, cz - pp.z);
+          return;
+        }
+      }
+    }
     const need = a.gait.radius * a.scale + 0.4;
     // Crown distance along the line: at the hand (0.62 m) unless the barrel would then crowd the farmer
     // (|s·u − k·h| ≥ need, with u·h = 0.34 for the 20° past-square heading).
     const uh = 0.34;
     const s0 = k * uh + Math.sqrt(Math.max(0, need * need - k * k * (1 - uh * uh)));
-    const reachOut = Math.max(0.62, Math.min(0.95, s0));
+    // (r13: never closer than the head's own radius + a farmer's half-width: at 0.62 m the chibi farmer's
+    // head and hat sat inside a goat's face)
+    const headMin = (a.gait.headR ?? 0.2) * a.scale + 0.64;
+    const reachOut = Math.max(0.62, headMin, Math.min(1.05, s0));
     const px = pp.x + dx * reachOut;
     const pz = pp.z + dz * reachOut;
-    const ccx = cp.x - px;
-    const ccz = cp.z - pz;
-    const first = -dz * ccx + dx * ccz >= 0 ? 1 : -1;
+    // (r14: the body runs back towards the side the animal already stands on — the least walk, and the
+    // head never swings across the farmer)
+    const first = -dz * (a.pos.x - pp.x) + dx * (a.pos.z - pp.z) > 0 ? -1 : 1;
     for (const side of [first, -first]) {
       let hx = -dz * side + dx * 0.36;
       let hz = dx * side + dz * 0.36;
@@ -1484,12 +1564,82 @@ export class AnimalSystem implements System, AnimalsApi {
       const ar = a.area;
       if (a.confine && ar.x1 - ar.x0 < 0.3 && ar.z1 - ar.z0 < 0.3) a.area = { x0: tx - 0.05, z0: tz - 0.05, x1: tx + 0.05, z1: tz + 0.05 };
       a.easeTo(tx, tz, Math.atan2(hx, hz));
+      this.clearance(a, tx, tz, Math.atan2(hx, hz), pp, local, true);
       // The farmer sits on the animal's left (local -x) when it faces the side-perpendicular +1.
       a.blissSide = side;
       this.petYaw = Math.atan2(px - pp.x, pz - pp.z);
       return;
     }
+    this.clearance(a, a.pos.x, a.pos.z, a.heading, pp, local, true);
     this.petYaw = Math.atan2(poll0.x - pp.x, poll0.z - pp.z);
+  }
+
+  /**
+   * r13 petting clearance: the farmer stands a fixed gap off the animal — ≥ body radius + 0.5 m from
+   * its body capsule's axis (farmer half-width + 0.25 m) and ≥ head radius + 0.42 m from its crown — so
+   * no torso, hat or hand is ever inside the animal. The local farmer steps back (walkable floor only);
+   * failing that (or for a remote farmer, whose spot the host can't move) the animal eases away instead.
+   */
+  private clearance(a: AnimalActor, x: number, z: number, h: number, pp: THREE.Vector3, local: boolean, mayMove: boolean): void {
+    const s = a.scale;
+    const r = a.gait.radius * s;
+    const L = a.gait.len * s;
+    const sx = Math.sin(h);
+    const sz = Math.cos(h);
+    const cz = (a.gait.crown?.[1] ?? a.gait.reach * 0.7) * s;
+    const headR = (a.gait.headR ?? r * 0.6) * s;
+    const low = a.gait.top * s < 0.9;
+    const needB = r + (low ? 0.3 : 0.5);
+    // (the farmer's chibi head is ~0.4 m across: its face must not touch the animal's)
+    const needH = headR + (low ? 0.3 : 0.62);
+    let ax = x;
+    let az = z;
+    for (let it = 0; it < 8; it++) {
+      // Closest point on the capsule axis.
+      const x0 = ax - sx * L;
+      const z0 = az - sz * L;
+      const vx = sx * 2 * L;
+      const vz = sz * 2 * L;
+      const vl = vx * vx + vz * vz;
+      const t = vl > 1e-6 ? THREE.MathUtils.clamp(((pp.x - x0) * vx + (pp.z - z0) * vz) / vl, 0, 1) : 0.5;
+      const bx = pp.x - (x0 + vx * t);
+      const bz = pp.z - (z0 + vz * t);
+      const db = Math.hypot(bx, bz) || 1e-4;
+      const hx = pp.x - (ax + sx * cz);
+      const hz = pp.z - (az + sz * cz);
+      const dh = Math.hypot(hx, hz) || 1e-4;
+      const defB = needB - db;
+      const defH = needH - dh;
+      const def = Math.max(defB, defH);
+      if (def <= 0.01) break;
+      const ux = defB >= defH ? bx / db : hx / dh;
+      const uz = defB >= defH ? bz / db : hz / dh;
+      const step = def + 0.02;
+      const fx = pp.x + ux * step;
+      const fz = pp.z + uz * step;
+      if (local && this.walkableAt(fx, fz)) {
+        pp.set(fx, pp.y, fz);
+        continue;
+      }
+      if (!mayMove || !a.walkable(ax - ux * step, az - uz * step)) break;
+      ax -= ux * step;
+      az -= uz * step;
+    }
+    if (ax !== x || az !== z) {
+      const ar = a.area;
+      if (a.confine || (ar.x1 - ar.x0 < 0.3 && ar.z1 - ar.z0 < 0.3)) a.area = { x0: ax - 0.05, z0: az - 0.05, x1: ax + 0.05, z1: az + 0.05 };
+      a.easeTo(ax, az, h);
+    }
+  }
+
+  /** The petting farmer's own lens (r13): a co-op farmhand's camera rides the same offset from their
+   *  farmer as the host's does from theirs — the bird / goat is staged on the side the farmhand sees,
+   *  not the host's (Ash's own body hid the duck he was petting). */
+  private _lens = new THREE.Vector3();
+  private lensFor(pp: THREE.Vector3, local: boolean): THREE.Vector3 {
+    const cam = this.game.rc.camera.position;
+    if (local) return this._lens.copy(cam);
+    return this._lens.copy(cam).sub(this.game.player.position).add(pp);
   }
 
   /** Is a farmer spot open floor (current map's walkability)? */
@@ -1639,13 +1789,13 @@ export class AnimalSystem implements System, AnimalsApi {
     actors.length = 0;
     for (const l of this.live) actors.push(l.actor);
     const farmers = this.remoteFarmers();
-    // Far LOD outdoors: past 16 m from the lens the herd draws its low-tessellation meshes (interiors
+    // Far LOD outdoors: past 14 m from the lens (r13: the sculpted lofts only up close) the herd draws its low-tessellation meshes (interiors
     // and close petting cameras keep the full models).
     const cam = game.rc.camera.position;
     const outdoors = this.mapId === 'farm';
     for (const l of this.live) {
       l.actor.farmers = farmers;
-      l.actor.setFar(outdoors && cam.distanceTo(l.actor.pos) > 16);
+      l.actor.setFar(outdoors && cam.distanceTo(l.actor.pos) > 14);
       l.actor.update(dt, t, actors);
       if (l.actor.isSleeping) {
         l.zT -= dt;
@@ -1826,7 +1976,7 @@ export class AnimalSystem implements System, AnimalsApi {
         // clear of the animal's face) and the hand is laid on the crown by a one-bone IK.
         const low = this.petLow ? 1 : 0.32;
         const pat = t > 0.14 && t < T - 0.2 ? Math.sin((t - 0.14) * 11) : 0;
-        rig.torso.rotation.x = (this.petLow ? 0.5 : 0.14) * e;
+        rig.torso.rotation.x = (this.petLow ? 0.5 : 0.06) * e;
         rig.head.rotation.x = (this.petLow ? -0.24 : -0.1) * e;
         rig.armR.rotation.x = (-1.0 - 0.35 * low + pat * 0.16) * e;
         rig.armR.rotation.z = -0.12 - 0.1 * e;
@@ -1852,7 +2002,7 @@ export class AnimalSystem implements System, AnimalsApi {
             this._ikQ.setFromUnitVectors(this._down, P);
             this._ikQ2.copy(rig.armR.quaternion);
             rig.armR.quaternion.slerpQuaternions(this._ikQ2, this._ikQ, e);
-            rig.armR.scale.y = THREE.MathUtils.lerp(1, THREE.MathUtils.clamp(len / 0.33, 0.85, 1.5), e);
+            rig.armR.scale.y = THREE.MathUtils.lerp(1, THREE.MathUtils.clamp(len / 0.33, 0.85, 2.1), e);
           }
         }
         return { sy: 1 - 0.2 * low * e, bob: -0.17 * low * e };
@@ -1941,7 +2091,7 @@ export class AnimalSystem implements System, AnimalsApi {
 
   // ───────────────────────────────────────────── egg lift
 
-  private lifts: { m: THREE.Mesh; star: THREE.Mesh | null; t: number; from: THREE.Vector3; item: string; q: number; flew: boolean }[] = [];
+  private lifts: { m: THREE.Mesh; star: THREE.Mesh | null; glow: THREE.Mesh; t: number; from: THREE.Vector3; item: string; q: number; flew: boolean }[] = [];
 
   /** The egg hops out of its nest box into the farmer's raised hands, held overhead (+ quality star). */
   private liftEgg(e: { nest: number; item: string; q: number }, pen: PenAnchors): void {
@@ -1959,9 +2109,16 @@ export class AnimalSystem implements System, AnimalsApi {
       this.props.add(star);
     }
     this.props.add(m);
-    this.lifts.push({ m, star, t: 0, from: m.position.clone(), item: e.item, q: e.q, flew: false });
-    // Turn round to the camera and show it off, both hands up (the classic "look what I found" beat).
+    // r13: a soft shine burst behind the find (additive, billboarded) so the lift reads at a glance.
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shineTexture(), color: e.q >= 2 ? 0xffd860 : e.q === 1 ? 0xf2f6ff : 0xfff2d8, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    glow.renderOrder = 22;
+    glow.visible = false;
+    this.props.add(glow);
+    this.lifts.push({ m, star, glow, t: 0, from: m.position.clone(), item: e.item, q: e.q, flew: false });
+    // Turn round to the camera and show it off, both hands up (the classic "look what I found" beat) —
+    // three-quarters to the lens (r13), so the shelf beside the farmer stays in view.
     this.game.player.setFacing('down');
+    (this.game.player as unknown as { targetYaw: number }).targetYaw = 0.6;
     this.playPose('lift');
     this.game.services.audio?.play('pickup');
   }
@@ -1973,7 +2130,9 @@ export class AnimalSystem implements System, AnimalsApi {
       const L = this.lifts[i]!;
       L.t += this.poseFreeze >= 0 ? Math.min(dt, Math.max(0, 0.6 - L.t)) : dt;
       const t = L.t;
-      const top = this._lt.copy(pl.position).setY(pl.position.y + 2.62);
+      // (r13: held a touch towards the lens, so the egg + its star sit clear of the hat brim)
+      const top = this._lt.copy(pl.position).setY(pl.position.y + 2.5);
+      top.z += 0.28;
       if (t < 0.22) {
         const k = t / 0.22;
         const e = 1 - Math.pow(1 - k, 3);
@@ -1982,12 +2141,25 @@ export class AnimalSystem implements System, AnimalsApi {
       } else L.m.position.copy(top);
       L.m.rotation.set(0.25, t * 2.2, 0.15);
       const pop = t < 0.22 ? 1.25 : t < 0.34 ? 1.25 + Math.sin(((t - 0.22) / 0.12) * Math.PI) * 0.35 : 1.25;
-      L.m.scale.setScalar((t > 0.85 ? Math.max(0, 1 - (t - 0.85) / 0.15) : 1) * pop * 1.75);
+      // (r13: 1.6x bigger — the held egg read as a peach dot under its star)
+      L.m.scale.setScalar((t > 0.85 ? Math.max(0, 1 - (t - 0.85) / 0.15) : 1) * pop * 2.8);
+      {
+        const g = L.glow;
+        g.visible = t > 0.18 && t < 0.9;
+        g.position.copy(L.m.position);
+        g.quaternion.copy(cam.quaternion);
+        const k = THREE.MathUtils.clamp((t - 0.18) / 0.14, 0, 1);
+        g.scale.setScalar(Math.max(0.01, (0.4 + 0.9 * (1 - Math.pow(1 - k, 3))) * (1 + Math.sin(t * 9) * 0.04)));
+        (g.material as THREE.MeshBasicMaterial).opacity = (t < 0.32 ? k : Math.max(0, 1 - (t - 0.32) / 0.55)) * 0.85;
+      }
       if (L.star) {
+        // The star pops out of the egg itself and settles beside it.
         L.star.visible = t > 0.24 && t < 0.95;
-        L.star.position.copy(top).add(this._lt2.set(0.3, 0.22, 0));
+        const k = THREE.MathUtils.clamp((t - 0.24) / 0.12, 0, 1);
+        const e = 1 - Math.pow(1 - k, 3);
+        L.star.position.copy(L.m.position).add(this._lt2.set(0.24 * e, 0.2 * e, 0.05));
         L.star.quaternion.copy(cam.quaternion);
-        const s = 0.42 * (t < 0.34 ? Math.min(1, (t - 0.24) / 0.1) * 1.2 : 1);
+        const s = 0.46 * (k < 1 ? 0.3 + e * 0.95 : 1);
         L.star.scale.setScalar(Math.max(0.01, s));
       }
       if (t > 0.85 && !L.flew) {
@@ -1996,6 +2168,9 @@ export class AnimalSystem implements System, AnimalsApi {
       }
       if (t >= 1) {
         this.props.remove(L.m);
+        this.props.remove(L.glow);
+        (L.glow.material as THREE.Material).dispose();
+        L.glow.geometry.dispose();
         if (L.star) {
           this.props.remove(L.star);
           (L.star.material as THREE.Material).dispose();
@@ -2123,7 +2298,14 @@ export class AnimalSystem implements System, AnimalsApi {
     }
     // (r12: the pasture still had one hen too many in a staged cluster — one stays in the coop)
     if (name === 'animals-pasture') coop.pop();
-    for (const [s, v, f] of [...coop, ...barn]) this.add(s, v, undefined, f).mood = 230;
+    // r13: one fixed demo roster (name ↔ species + coat) for every animals demo — dropping a hen from
+    // the pasture used to shift the random names, so Poppy was a goat in one demo and a sheep in the next.
+    const seen: Record<string, number> = {};
+    for (const [s, v, f] of [...coop, ...barn]) {
+      const k = `${s}:${v}`;
+      const i = (seen[k] = (seen[k] ?? -1) + 1);
+      this.add(s, v, DEMO_ROSTER[k]?.[i], f).mood = 230;
+    }
     for (const a of st.animals) if (a.species === 'sheep') a.ready = true;
     // &petted=1 pre-marks today's petting (default: nobody petted yet, so a critic's pet shows the +friendship).
     if (params.get('petted') === '1') for (const a of st.animals) a.petted = true;
@@ -2174,12 +2356,15 @@ export class AnimalSystem implements System, AnimalsApi {
       // each stall is lived in: Maple head-down in her hay, Cocoa turned three-quarters to watch the
       // farmer, the first sheep side-on nosing the bedding at the back of its stall, the pig rooting the
       // straw on the diagonal, Daisy at her door craning towards the aisle.)
+      // (r13: every stall shows a face — Maple munches at a shallow manger dip, turned a little so her
+      // muzzle reads over the lip; the sheep stands three-quarters (caramel face against the fleece); the
+      // pig at ~30° so its snout disc faces the aisle.)
       const beats: Beat[] = [
-        { kind: 'munch', yaw: 0 },
+        { kind: 'munch', yaw: 0.32 },
         { kind: 'stand', yaw: 0.78, back: 0.3, dx: -0.15 },
-        wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'root', yaw: 1.4, back: 0.62 },
+        wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.72, back: 0.4 },
         { kind: 'aisle', yaw: 0 },
-        { kind: 'root', yaw: -1.05, back: 0.45 },
+        { kind: 'stand', yaw: -0.52, back: 0.3 },
         { kind: 'stand', yaw: -0.82, back: 0.05 },
       ];
       for (const l of this.live) {
@@ -2189,7 +2374,7 @@ export class AnimalSystem implements System, AnimalsApi {
           // Out for a stroll: stands in the aisle beside the farmer (front-right, turned to them), so the
           // petting reads with the farmer 3/4 to the lens.
           const pp = this.game.player.position;
-          const want = a.gait.reach * a.scale + 0.86;
+          const want = a.gait.reach * a.scale + 1.02;
           const dx = 0.9;
           const dz = 0.42;
           const dl = Math.hypot(dx, dz);
@@ -2363,9 +2548,12 @@ export class AnimalSystem implements System, AnimalsApi {
         // herd fills the whole paddock in three depths: hens + sheep along the back, the jersey, the dog and
         // the drinking Holstein across the middle, goat / pond / wallow at the front, the pond ringed by
         // clear grass)
-        cow: close ? [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [47.9, 37.6, 1.9]] : [[trough.x - 1.72, trough.z + 0.2, Math.PI / 2], [38.35, 39.55, 0.42]],
+        // (r13 close-up: the herd spread over the pen instead of piling into the trough corner — the old
+        // second sheep stood inside the drinking Holstein; the Jersey grazes the back middle, the second
+        // sheep the open left, every body a clear gap of grass from the next)
+        cow: close ? [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [47.75, 36.95, -2.05]] : [[trough.x - 1.72, trough.z + 0.2, Math.PI / 2], [38.35, 39.55, 0.42]],
         // (r6: one sheep grazes out in the middle of the pen — the herd no longer hugs the fence)
-        sheep: close ? [[44.2, 39.2, 0], [48.9, 38.9, 2.3]] : [[46.45, 37.35, 0.75], [44.2, 37.25, 0.3]],
+        sheep: close ? [[44.2, 39.2, 0], [42.3, 39.75, 1.1]] : [[46.45, 37.35, 0.75], [44.2, 37.25, 0.3]],
         // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the
         // farmer the crouch put the hat brim over the goat's head.
         // (r11: a step towards the lens too — the farmer turns three-quarters to the camera to reach its
@@ -2778,6 +2966,22 @@ export class AnimalSystem implements System, AnimalsApi {
 // ───────────────────────────────────────────── small shared props
 
 let _hay: THREE.BufferGeometry | null = null;
+/** Demo herd names by species:coat (every animals demo stocks from this one roster). */
+const DEMO_ROSTER: Record<string, string[]> = {
+  'chicken:0': ['Clover', 'Pudding', 'Dumpling'],
+  'chicken:1': ['Biscuit', 'Nutmeg', 'Toffee'],
+  'duck:0': ['Bluebell', 'Waffles'],
+  'duck:1': ['Pippin', 'Barley'],
+  'cow:0': ['Maple', 'Oats'],
+  'cow:1': ['Cocoa', 'Buttercup'],
+  'goat:0': ['Pepper', 'Willow'],
+  'goat:1': ['Mochi', 'Sorrel'],
+  'sheep:0': ['Poppy', 'Muffin'],
+  'sheep:1': ['Daisy', 'Crumpet'],
+  'pig:0': ['Truffle', 'Pickle'],
+  'pig:1': ['Turnip', 'Marzipan'],
+};
+
 /** The bits of a remote farmer the co-op demo drives (structural: net/RemoteFarmer). */
 interface DemoFarmhand {
   position: THREE.Vector3;
@@ -3012,6 +3216,41 @@ function nameMaterial(text: string, style: 'plaque' | 'chalk'): THREE.MeshStanda
 
 const starTex = new Map<number, THREE.Texture>();
 /** Quality star (silver / gold / iridium) for the egg lift. */
+let shineTex: THREE.Texture | null = null;
+/** Radial shine (soft core + four thin rays) for the egg-lift burst. */
+function shineTexture(): THREE.Texture {
+  if (shineTex) return shineTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d')!;
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.25, 'rgba(255,250,230,0.55)');
+  g.addColorStop(0.6, 'rgba(255,240,200,0.12)');
+  g.addColorStop(1, 'rgba(255,240,200,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 128, 128);
+  x.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 8; i++) {
+    x.save();
+    x.translate(64, 64);
+    x.rotate((i / 8) * Math.PI * 2 + 0.2);
+    const r = x.createLinearGradient(0, 0, 0, i % 2 ? 40 : 60);
+    r.addColorStop(0, 'rgba(255,255,240,0.7)');
+    r.addColorStop(1, 'rgba(255,255,240,0)');
+    x.fillStyle = r;
+    x.beginPath();
+    x.moveTo(-3, 0);
+    x.lineTo(0, i % 2 ? 40 : 60);
+    x.lineTo(3, 0);
+    x.fill();
+    x.restore();
+  }
+  shineTex = new THREE.CanvasTexture(c);
+  shineTex.colorSpace = THREE.SRGBColorSpace;
+  return shineTex;
+}
+
 function starTexture(q: number): THREE.Texture {
   let t = starTex.get(q);
   if (t) return t;

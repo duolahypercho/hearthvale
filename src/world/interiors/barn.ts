@@ -21,7 +21,7 @@ import { mat, roundedBox, lumpySphere } from '../geom';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { animalMaterial } from '../../entities/animals-rig';
 import type { PenAnchors, PenSlot } from './pen';
-import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, crate, strawDrift, spokedWheel, STRAW_DRY } from './pen';
+import { hayPile, hayBale, strawTufts, lanternHook, bucket, pitchfork, feedSack, milkCan, crate, strawDrift, spokedWheel, STRAW_DRY, STRAW_FLOOR } from './pen';
 
 export const BARN_EXIT = { x: 46.5, z: 35.9 };
 
@@ -136,7 +136,13 @@ export class BarnInterior extends InteriorMap {
       plaques: Array.from({ length: 6 }, (_, i) => new THREE.Vector3(i * SW + (DOOR0 + SW - 0.09) / 2, 0.27, SF + 0.075)),
       hatch: { x: HATCH_X, z: D },
     };
-    this.furnish(rng);
+    // (r13: ~60 % fewer loose floor strands, kept to the walls + stall edges)
+    STRAW_FLOOR.rule = { k: 0.35, edge: 0.7, band: 1.2, x0: 0, z0: 0, x1: W, z1: D };
+    try {
+      this.furnish(rng);
+    } finally {
+      STRAW_FLOOR.rule = null;
+    }
     this.popDoor();
     this.finalize();
   }
@@ -363,8 +369,9 @@ export class BarnInterior extends InteriorMap {
     k.box('floor', [W - 1.6, 0.03, 1.05], [W / 2 + 0.55, 0, SF + 0.62], { tint: AISLE, uv: 0.65, r: 0.01 });
     k.box('floor', [2.3, 0.03, D - SF - 1.1], [6.5, 0, (SF + 1.1 + D) / 2], { tint: AISLE, uv: 0.65, r: 0.01 });
     // Straw kicked over the board edges + drifts across the floor
-    strawTufts(k, rng, 6.5, 0.035, 5.3, 18, 1.4, undefined, STRAW_DRY);
-    for (const [x, z, w, d] of [[8.3, 5.2, 1.2, 0.9], [4.6, 4.1, 1.0, 0.5], [8.6, 4.1, 1.2, 0.5], [11.3, 6.1, 1.0, 0.6]] as const) strawDrift(k, rng, x, z, w, d, 0xd8d0c4);
+    strawTufts(k, rng, 6.5, 0.035, 5.3, 10, 1.4, undefined, STRAW_DRY);
+    // (r14: paler, greyer, trodden-flat drifts — the honey ones read as orange splats beside the tank)
+    for (const [x, z, w, d] of [[8.3, 5.2, 1.2, 0.9], [4.6, 4.1, 1.0, 0.5], [8.6, 4.1, 1.2, 0.5], [11.3, 6.1, 1.0, 0.6]] as const) strawDrift(k, rng, x, z, w, d, 0xbcb8b2);
     // Milking vignette at the aisle corner by the cow stalls: stool, a pail brimming with milk, a can,
     // a folded cloth over the can's shoulder.
     k.cyl('wood', 0.16, 0.16, 0.05, [4.65, 0.34, 4.55], { tint: 0xb08050, seg: 16 });
@@ -449,12 +456,12 @@ export class BarnInterior extends InteriorMap {
         return new THREE.ShapeGeometry(sh, 2).rotateX(-Math.PI / 2);
       };
       for (const [a, r, sx2, sz2] of [[0.5, 0.26, 1.6, 0.8], [1.5, 0.16, 1.0, 1.3], [2.6, 0.2, 1.4, 0.9]] as const) {
-        k.add('straw', blob(r, 22), mat(tx + Math.cos(a) * 0.8, 0.02, tz + Math.sin(a) * 0.7, 0, wet.next() * 3, 0, sx2, 1, sz2), { tint: 0xa08a6a });
+        k.add('straw', blob(r, 22), mat(tx + Math.cos(a) * 0.8, 0.02, tz + Math.sin(a) * 0.7, 0, wet.next() * 3, 0, sx2, 1, sz2), { tint: 0x7c7266 });
       }
       for (let i = 0; i < 7; i++) {
         const a = wet.next() * Math.PI * 2;
         const r = 0.62 + wet.next() * 0.45;
-        k.add('straw', blob(0.025 + wet.next() * 0.03, 10), mat(tx + Math.cos(a) * r, 0.02, tz + Math.sin(a) * r * 0.85), { tint: 0xa08a6a });
+        k.add('straw', blob(0.025 + wet.next() * 0.03, 10), mat(tx + Math.cos(a) * r, 0.02, tz + Math.sin(a) * r * 0.85), { tint: 0x7c7266 });
       }
     }
     // Shearing corner: a sawhorse with a freshly shorn fleece thrown over it (a fat cream cloud, curly
