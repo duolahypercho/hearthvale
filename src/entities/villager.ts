@@ -2930,7 +2930,8 @@ const BB_GEO = new THREE.PlaneGeometry(1, 1);
  * stamping a dark square under it). `userData.rot` spins it in screen space.
  */
 function billboard(tex: THREE.Texture, renderOrder: number): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
-  const m = new THREE.Mesh(BB_GEO, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, toneMapped: false }));
+  const m = new THREE.Mesh(BB_GEO, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, toneMapped: false, fog: false }));
+  // (r10: no fog — at the far end of the town-day lens the haze washed barks to a ghost)
   m.renderOrder = renderOrder;
   m.userData.noAO = true;
   m.castShadow = m.receiveShadow = false;

@@ -190,8 +190,10 @@ const STAGES: Record<string, Mark[]> = {
   // heading off frame, Odessa walking up from the forge road. (`town-square`: the old plaza frame.)
   'town-day': [
     ['bram', 42.4, 21.3, 25, 'carry', undefined, { free: true }],
-    ['june', 49.7, 23.9, 78, 'chat', 'music', { free: true }],
-    ['hazel', 51.0, 24.1, -82, 'chat', undefined, { free: true }],
+    // (r10: June on the far side of the pair — on the near side she had her back to the lens behind
+    // Marigold and her bark faded to a ghost; Hazel's sun hat reads from behind)
+    ['june', 51.0, 24.1, -82, 'chat', 'music'],
+    ['hazel', 49.7, 23.9, 78, 'chat', undefined, { free: true }],
     ['marigold', 55.2, 24.0, 150, 'idle', undefined, { free: true }],
     ['rowan', 67.4, 26.3, 0, 'idle', undefined, { walk: [57.8, 26.4] }],
     ['wren', 59.6, 21.6, 133, 'paint'],
@@ -222,8 +224,9 @@ const STAGES: Record<string, Mark[]> = {
     ['kit', 31.3, 14.1, 20, 'sit'],
     ['bram', 41.4, 22.6, 70, 'chat', 'music', { free: true }],
     ['june', 43.0, 22.2, -60, 'chat', undefined, { free: true }],
-    ['rowan', 42.6, 23.9, 175, 'chat', undefined, { free: true }],
-    ['odessa', 41.2, 24.1, 115, 'chat', undefined, { free: true }],
+    // (r10: the knot opened up — Odessa had stood square in front of Bram and Rowan in front of June)
+    ['rowan', 44.0, 23.8, -140, 'chat', undefined, { free: true }],
+    ['odessa', 40.1, 23.9, 112, 'chat', undefined, { free: true }],
     ['marigold', 26.2, 23.6, 0, 'idle', 'heart', { walk: [21.4, 21.4] }],
     ['hazel', 27.1, 24.2, 0, 'idle', undefined, { walk: [22.0, 22.2] }],
     ['linus', 30.2, 31.6, 0, 'idle', undefined, { walk: [33.4, 40.0] }],
@@ -278,7 +281,7 @@ const STAGES: Record<string, Mark[]> = {
     // and Kit plays in it below the fountain)
     ['marigold', 27.4, 27.6, 25, 'sweep'],
     ['wren', 25.0, 23.4, 75, 'paint'],
-    ['kit', 30.4, 26.3, -25, 'play', 'exclaim'],
+    ['kit', 35.7, 27.1, -30, 'play', 'exclaim'], // (r10: clear of the bowl — at 30.4, 26.3 the rim cut him off at the chest)
     ['tobias', 31.2, 19.6, -40, 'idle', 'music'],
     // (r7: chat pairs side by side across the view, ~1.6 m apart — the r6 diagonal pairs overlapped
     // on screen: Rowan's beanie in Odessa's face, Bram hidden behind Linus)
@@ -1070,6 +1073,8 @@ export class NpcSystem implements System {
     this.occluded = [];
     this.treeCache = null;
     this.treeBalls = null;
+    this.propBallCache = null;
+    this.fgProps = [];
     if (!this.active || !map) return;
     this.applySeason(game.calendar.season);
     map.root.add(this.blobs, this.fx.group);
@@ -3261,6 +3266,83 @@ export class NpcSystem implements System {
         /* gone */
       }
     }
+    // r10 (r7 critic: "a dark brown stump blob sits just above the box" in Rowan's talk): small street
+    // props (logs, stumps, barrels, crates) looming in the near foreground of a talk / event lens go
+    // too — nearer than ~70 % of the focus distance and filling more than ~2.5 % of the frame.
+    const wantP = new Set<string>();
+    const tanH = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2);
+    for (const g of this.propBalls()) {
+      const dc = cam.position.distanceTo(g.c);
+      if (dc - g.r > dF * 0.72 || dc < 0.05) continue;
+      if (!_fr.intersectsSphere(_fs.set(g.c, g.r * 0.8))) continue;
+      const rr = g.r / (Math.max(0.3, dc) * tanH);
+      if (Math.PI * rr * rr * 0.25 / (4 * cam.aspect) < 0.025) continue;
+      for (const o of g.parts) wantP.add(`${o.mesh.uuid}:${o.id}`);
+    }
+    this.fgProps = this.fgProps.filter((o) => {
+      if (wantP.has(`${o.mesh.uuid}:${o.id}`)) return true;
+      try {
+        o.mesh.setVisibleAt(o.id, true);
+      } catch {
+        /* gone */
+      }
+      return false;
+    });
+    const hadP = new Set(this.fgProps.map((o) => `${o.mesh.uuid}:${o.id}`));
+    for (const g of this.propBalls())
+      for (const o of g.parts) {
+        const k = `${o.mesh.uuid}:${o.id}`;
+        if (!wantP.has(k) || hadP.has(k)) continue;
+        try {
+          if (!o.mesh.getVisibleAt(o.id)) continue;
+          o.mesh.setVisibleAt(o.id, false);
+          this.fgProps.push(o);
+        } catch {
+          /* gone */
+        }
+      }
+  }
+  private fgProps: { mesh: THREE.BatchedMesh; id: number }[] = [];
+  /** Small batched street props as bounding spheres grouped by placement (built once per map). */
+  private propBallCache: { map: string; list: { c: THREE.Vector3; r: number; parts: { mesh: THREE.BatchedMesh; id: number }[] }[] } | null = null;
+  private propBalls(): { c: THREE.Vector3; r: number; parts: { mesh: THREE.BatchedMesh; id: number }[] }[] {
+    const map = this.game.world.current;
+    if (!map) return [];
+    if (this.propBallCache?.map === map.id) return this.propBallCache.list;
+    const groups = new Map<string, { c: THREE.Vector3; r: number; parts: { mesh: THREE.BatchedMesh; id: number }[] }>();
+    const m = new THREE.Matrix4();
+    const sp = new THREE.Sphere();
+    map.root.traverse((o) => {
+      const mesh = o as THREE.BatchedMesh;
+      if (!mesh.isBatchedMesh || !mesh.name.startsWith('town-props:')) return;
+      mesh.updateMatrixWorld();
+      const max = (mesh as unknown as { maxInstanceCount?: number }).maxInstanceCount ?? 0;
+      for (let i = 0; i < max; i++) {
+        try {
+          mesh.getMatrixAt(i, m);
+          const gid = mesh.getGeometryIdAt(i);
+          if (gid < 0 || !mesh.getBoundingSphereAt(gid, sp)) continue;
+        } catch {
+          continue;
+        }
+        m.premultiply(mesh.matrixWorld);
+        const c = sp.center.clone().applyMatrix4(m);
+        const r = sp.radius * m.getMaxScaleOnAxis();
+        // (only knee-to-head-high clutter: walls, stalls and canopies are the lens solve's business)
+        if (r > 1.6) continue;
+        const key = `${Math.round(c.x * 2)},${Math.round(c.z * 2)}`;
+        let g = groups.get(key);
+        if (!g) groups.set(key, (g = { c, r, parts: [] }));
+        else {
+          const u = new THREE.Sphere(g.c, g.r).union(new THREE.Sphere(c, r));
+          g.c = u.center;
+          g.r = u.radius;
+        }
+        g.parts.push({ mesh, id: i });
+      }
+    });
+    this.propBallCache = { map: map.id, list: [...groups.values()] };
+    return this.propBallCache.list;
   }
   private fgTrees: { mesh: THREE.BatchedMesh; id: number }[] = [];
   private fgRestore(): void {
@@ -3270,13 +3352,14 @@ export class NpcSystem implements System {
     }
     for (const a of this.fgHidden) a.v.root.visible = a.vis > 0.01;
     this.fgHidden.clear();
-    for (const o of this.fgTrees)
+    for (const o of [...this.fgTrees, ...this.fgProps])
       try {
         o.mesh.setVisibleAt(o.id, true);
       } catch {
         /* gone */
       }
     this.fgTrees = [];
+    this.fgProps = [];
   }
 
   private lensRestore(): void {
@@ -4084,7 +4167,7 @@ export class NpcSystem implements System {
     if (!this.camMode) this.lensCull();
     else if (this.lensHidden.length) this.lensRestore();
     if (this.camMode && !this.specGoal) this.fgCull();
-    else if (this.fgHidden.size || this.fgTrees.length) this.fgRestore();
+    else if (this.fgHidden.size || this.fgTrees.length || this.fgProps.length) this.fgRestore();
     if (this.camMode === 'event') this.cheatOpen();
     this.sendEventCam(dt);
     const hour = game.calendar.hour;

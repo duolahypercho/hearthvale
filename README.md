@@ -604,7 +604,6 @@ actors such as Pip the shop cat).
   the lens), winter's lower third gets Marigold sweeping snow and Kit playing, `town-cast` lines the
   ten up south of the benches, and `town-dialogue&npc=…` no longer flashes Marigold's default line first.
 
-
 - **Round 9** — *Performance*: villagers carry a second, half-segment mesh on the same skeleton
   (`entities/villager.ts` `SEGK`, `lodFor`; past 19 m of lens, `?vlod=<m>`, 0 = off): ~13k → ~5k
   triangles a body with no visible change at plaza distance; far street clutter (pots, barrels,
@@ -638,6 +637,24 @@ actors such as Pip the shop cat).
   people stand, boot-print trails off the cobbles, shore ice and floes on the river. `town-evening` is
   re-blocked the same way (Tobias at the lantern with his back to us, a knot of four at the bakery, two
   friends walking home, Linus crossing the foreground).
+
+- **Round 10** — *Faces*: Odessa's headscarf sits on her brow over a visible hairline band (it was
+  tilted back over a bald dome of forehead: "a featureless brown sphere"), with bigger eyes and
+  brows; Tobias's pale moustache droops as a flattened walrus a shade darker than his beard (the
+  upswept white wings read as tusks beside a white nose) and his hair tips back under the flat cap
+  (no white sweatband under the brim). *Talk lenses*: small street props (logs, stumps, barrels,
+  crates) looming in the near foreground of a talk / event lens drop out with the bystanders and tree
+  crowns (`NpcSystem.propBalls` / `fgProps`: nearer than ~70 % of the focus distance and filling
+  more than ~2.5 % of the frame; Rowan's lumber-yard talk had a dark stump blob over the box). A
+  scene's painting turns its face to the lens on a cut (wren-2 showed the blank back of the canvas),
+  and Wren's insert card is the same swirling, won't-sit-still river as the canvas on her easel.
+  *UI*: the heart strip is pinned to the portrait's foot (a gift ribbon slid it over the name
+  plaque); bark bubbles and emotes ignore fog (far barks read as ghosts in the town-day haze); the
+  portrait value plate goes deep cool slate when the backdrop's hue sits within 45° of the skin
+  (Bram's tan face on sunk bakery orange). *Blocking*: `town-day` puts June on the far side of her
+  chat with Hazel (face and bark to the lens), `town-winter`'s Kit plays in clear snow right of the
+  fountain (the bowl's rim cut him off at the chest), `town-evening`'s knot of four opens up so every
+  head reads.
 
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit), `town-winter` (its own
@@ -1011,6 +1028,25 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   comes to eat, a pat — `--frames 11 --every 1400`), `animals-rain` (a shower at ~2 s, the herd trots home —
   `--frames 7 --every 1500`), `animals-live` (the herd's own morning), `animals-overnight` (order a coop at dusk, bed,
   day-end card, wake, the coop stands — `--frames 10 --every 1800`).
+- r13 (round 8 critique): *Petting contact* — tall stock stands ACROSS the farmer's front (between them and the
+  lens), in profile turned ~25° to the camera, the crown ahead of the farmer and a little to the head side, so on
+  screen the face sits below and beside the farmer's (side by side at one depth the two heads met — the "kiss");
+  the hand IK lands on the real crown surface (`Gait.crown`), a clearance pass keeps the farmer ≥ body radius + 0.5 m
+  off the barrel and ≥ head radius + 0.62 m off the head (local farmer steps back, else the animal eases away), and
+  a farmhand's pat is staged on the side *their* lens sees. The heart slides sideways in the camera plane off the
+  farmer's face (the name card moves with it), and a farmer's own pat is re-popped if a same-map reload (teleport /
+  co-op resync) wiped it within 1.2 s. *Fire* — three licking tongues per card in saturated linear colour under
+  normal blending (no white lamp), a smaller deeper back-glow, a warmer hearth-rug pool by day. *Animals* — sculpted
+  lofts (`animals-rig.ts` `loft()`): the cow (square pins + hooks, brisket keel into a dewlap, rope tail to a hair
+  switch), the pig (ham, dipped back, jowls, a flared snout disc, cupped leaf ears, a corkscrew tail), the goat (a
+  lean ridged topline, countershaded, britches); anatomical legs + cloven hooves; hens get a cocked tail of separate
+  cupped feathers, a hackle ruff and fanned primaries; size-aware sphere tessellation; a 4 cm shadow normal offset
+  (no acne bands on the round barrels). *Coop* — a soft trodden-lane / damp-ring / droppings floor-wear decal, a
+  dust-bath decal instead of stacked discs, 60 % fewer floor straws, a coop of 2+ birds keeps one at home on a fine
+  day; outside, a chicken-wire run on the west wall (wire + a grey veil so it reads from the yard). *House* — 10 cm
+  boards ~12 % lower in value, a sofa table behind the loveseat (books, fern, photo, apples) fills the open band, a
+  draped knitted throw at the bed's foot (was a slab), softer vignette, brighter night. *Barn* — greyer trodden
+  drifts and cool damp patches by the tank, fewer aisle straws. Paler pasture wallow centre.
 
 ## Co-op multiplayer (1–4 farmers)
 
