@@ -15,7 +15,8 @@ const SNOW = 0xeef2f7;
 function snowman(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, rot: number, style: number): void {
   const R = new THREE.Matrix4().makeRotationY(rot);
   const T = new THREE.Matrix4().makeTranslation(x, y, z);
-  const W = T.multiply(R);
+  // (r13 critic: "the snowmen are tiny" next to chibi villagers — built 1.6x, about a villager's height)
+  const W = T.multiply(R).multiply(new THREE.Matrix4().makeScale(1.6, 1.6, 1.6));
   const add = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: number): void => {
     b.add('white', geo, W.clone().multiply(m), { tint });
   };
@@ -315,9 +316,18 @@ export function buildWinterWear(
       }
   };
   const prints = new MeshBuilder();
-  const printGeo = new THREE.CircleGeometry(0.09, 7);
+  // (r13 critic: the prints read as scattered twigs) — each print is a pressed oval: a deep blue-grey
+  // sole with a heel, inside a lighter packed-snow rim, ~0.13 x 0.26 m, in clear left / right rows.
+  const printGeo = new THREE.CircleGeometry(0.07, 9);
   printGeo.rotateX(-Math.PI / 2);
-  printGeo.scale(0.75, 1, 1.35);
+  printGeo.scale(0.82, 1, 1.25);
+  printGeo.translate(0, 0, 0.035);
+  const heelGeo = new THREE.CircleGeometry(0.052, 8);
+  heelGeo.rotateX(-Math.PI / 2);
+  heelGeo.translate(0, 0, -0.075);
+  const rimGeo = new THREE.CircleGeometry(0.1, 10);
+  rimGeo.rotateX(-Math.PI / 2);
+  rimGeo.scale(0.78, 1, 1.42);
   for (const p of paths) {
     let side = 1;
     let carry = 0;
@@ -336,8 +346,12 @@ export function buildWinterWear(
         const x = a.x + dx * t + dz * side * 0.11 + jx;
         const z = a.z + dz * t - dx * side * 0.11;
         side = -side;
-        if (street(x, z) > 0.35 || rng.next() < 0.18) continue;
-        prints.add('white', printGeo.clone(), mat(x, height(x, z) + 0.03, z, 0, yaw + side * 0.18), { tint: 0x7d8ca4 });
+        if (street(x, z) > 0.35 || rng.next() < 0.1) continue;
+        const y = height(x, z);
+        const r = yaw + side * 0.14;
+        prints.add('white', rimGeo.clone(), mat(x, y + 0.028, z, 0, r), { tint: 0xf4f8ff });
+        prints.add('white', printGeo.clone(), mat(x, y + 0.032, z, 0, r), { tint: 0x6a7c98 });
+        prints.add('white', heelGeo.clone(), mat(x, y + 0.032, z, 0, r), { tint: 0x6a7c98 });
       }
       carry = 0.36 - ((L - carry) % 0.36);
     }
@@ -352,7 +366,7 @@ export function buildWinterWear(
     const mm = (m.material as THREE.MeshStandardMaterial).clone();
     m.material = mm;
     mm.transparent = true;
-    mm.opacity = 0.72;
+    mm.opacity = 0.86;
     mm.depthWrite = false;
     mm.polygonOffset = true;
     mm.polygonOffsetFactor = -3;
@@ -408,6 +422,61 @@ export function buildWinterWear(
     m.renderOrder = 2;
     m.userData.noAO = true;
     out.add(m);
+  }
+  // ── snow dusting (r13 critic: "the plaza is bare grey cobble while it is snowing"): a thin white
+  // layer over the swept cobbles, broken by noise into drifts in the joints, cleared only where the
+  // villagers' routes run — so the trodden lanes read against white.
+  {
+    const dpos: number[] = [];
+    const dcol: number[] = [];
+    const didx: number[] = [];
+    const dmap = new Int32Array(NX * NZ).fill(-1);
+    const hash = (i: number, j: number): number => {
+      const h = Math.sin(i * 127.1 + j * 311.7) * 43758.5453;
+      return h - Math.floor(h);
+    };
+    const dustAt = (i: number, j: number): number => {
+      const x = X0 + i * S;
+      const z = Z0 + j * S;
+      const sv = street(x, z);
+      if (sv < 0.3) return 0;
+      const lane = THREE.MathUtils.smoothstep(traffic[j * NX + i]!, 0.35, 2.2);
+      const n = 0.55 + 0.45 * Math.sin(x * 0.9 + Math.sin(z * 0.7) * 2) * Math.sin(z * 0.8 + x * 0.3);
+      return THREE.MathUtils.smoothstep(sv, 0.3, 0.6) * (1 - lane) * THREE.MathUtils.clamp(0.42 + n * 0.4 + (hash(i, j) - 0.5) * 0.18, 0, 0.86);
+    };
+    const dv = (i: number, j: number): number => {
+      const k = j * NX + i;
+      if (dmap[k]! >= 0) return dmap[k]!;
+      const x = X0 + i * S;
+      const z = Z0 + j * S;
+      dmap[k] = dpos.length / 3;
+      dpos.push(x, height(x, z) + 0.03, z);
+      dcol.push(0.95, 0.97, 1.0, dustAt(i, j));
+      return dmap[k]!;
+    };
+    for (let j = 0; j < NZ - 1; j++)
+      for (let i = 0; i < NX - 1; i++) {
+        if (dustAt(i, j) + dustAt(i + 1, j) + dustAt(i, j + 1) + dustAt(i + 1, j + 1) < 0.02) continue;
+        const v00 = dv(i, j);
+        const v10 = dv(i + 1, j);
+        const v01 = dv(i, j + 1);
+        const v11 = dv(i + 1, j + 1);
+        didx.push(v00, v01, v10, v10, v01, v11);
+      }
+    if (didx.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(dpos, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(dcol, 4));
+      g.setIndex(didx);
+      g.computeVertexNormals();
+      const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ name: 'snowDust', color: 0xffffff, roughness: 0.85, metalness: 0, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2.2, polygonOffsetUnits: -2.2 }));
+      m.name = 'snow-dust';
+      m.receiveShadow = true;
+      m.renderOrder = 1;
+      m.userData.noAO = true;
+      m.userData.perfTag = 'terrain';
+      out.add(m);
+    }
   }
   // ── shore ice: a ragged shelf along each bank, a few loose floes mid-stream
   const ice = new MeshBuilder();

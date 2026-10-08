@@ -224,7 +224,7 @@ export interface HeartEvent {
   insert?: { kind: string; word: string; caption: string }[];
   /** Extra actors spawned for the scene (e.g. Pip the shop cat): at [x, z], height above ground. */
   props?: {
-    kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks' | 'letter' | 'cage' | 'rose';
+    kind: 'cat' | 'candle' | 'painting' | 'ledger' | 'map' | 'sparks' | 'letter' | 'cage' | 'rose' | 'teacup';
     at: [number, number];
     y?: number;
     rot?: number;
@@ -233,7 +233,7 @@ export interface HeartEvent {
     /** A line containing this word frames the prop with the speaker. */
     word?: string;
     /** Held by a cast member ('lap' / 'chest'; `at` ignored). */
-    hold?: [NpcId, 'lap' | 'chest'];
+    hold?: [NpcId, 'lap' | 'chest' | 'cup'];
     /** Placed `near[1]` m in front of a cast member (`at` ignored): the anvil's sparks. */
     near?: [NpcId, number, number?];
   }[];
@@ -1162,7 +1162,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Kit Birch',
     role: 'Nine and three-quarters. Future explorer',
     birthday: { season: 'summer', day: 14 },
-    look: { fp: { w: 1.06, h: 0.93, jaw: 0, chin: -0.15, eye: 1.16, gap: 1.12, eyeY: -0.06, nose: 'snub', mouth: 0.9, lines: 0, cheeks: 0.75, ears: 1.15 }, eyeShape: 'round', brow: 1.05, browArch: 0.15, skin: 0xf2c8a2, hair: 0xa8602e, hairStyle: 'spiky', top: 0xe8843a, bottom: 0x4a6a9a, scale: 0.7, build: 0.9, torso: 0.8, legs: 0.76, eyes: 0x5a8a3a, head: 1.3, face: 'round', acc: ['freckles', 'bandage', 'satchel'], shoes: 0xd84a3a, backdrop: 'meadow' },
+    look: { fp: { w: 1.06, h: 0.93, jaw: 0, chin: -0.15, eye: 1.16, gap: 1.12, eyeY: -0.06, nose: 'snub', mouth: 0.9, lines: 0, cheeks: 0.75, ears: 1.15 }, eyeShape: 'round', brow: 1.05, browArch: 0.15, skin: 0xf2c8a2, hair: 0xa8602e, hairStyle: 'spiky', top: 0xe8703a, bottom: 0x4a6a9a, scale: 0.7, build: 0.9, torso: 0.8, legs: 0.76, eyes: 0x5a8a3a, head: 1.3, face: 'round', acc: ['freckles', 'bandage', 'satchel'], shoes: 0xd84a3a, backdrop: 'meadow' },
     walk: W(2.3, 0.75, 0.09, 0.05, -0.05, 0.75, true),
     home: 'birch_house',
     portraitBg: [0xf8e0a0, 0x9ac87a],
@@ -1331,7 +1331,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     // Street chatter (speech bubbles while chatting in town).
     barks: ['Measure twice, cut once.', '{@kit}Kit! Put that down!', 'Who needs a shelf?', 'Sawdust in my coffee again.'],
     winterBarks: ['Sledges, made to order!', 'Kit! Not at the window!', 'Firewood’s split, finally.', 'Frost in my sawdust.'],
-    wardrobe: { winter: { coat: 0x6a4a2e, scarf: 0x3f7a4a, mittens: 0x6a4a2e } },
+    wardrobe: { winter: { coat: 0x2e6a5e, scarf: 0xe0b04a, mittens: 0xc8573a } },
     winterSchedule: [[6, 'door:birch_house', 'inside'], [8, 'lumber_yard', 'saw'], [12, 'door:inn', 'inside'], [13.5, 'lumber_yard', 'saw'], [17, 'inn_tables', 'sit'], [21, 'door:birch_house', 'inside']],
     events: [
       {
@@ -2131,6 +2131,8 @@ const ARCS: Record<NpcId, { events: ArcEvent[]; keeps: Consequence[] }> = {
         title: 'Fifty Years Tomorrow',
         hours: [10, 17],
         stage: 'benchSW',
+        // (r13 critic: the tea line played with no cup in anyone's hand)
+        props: [{ kind: 'teacup', at: [0, 0], hold: ['tobias', 'cup'], word: 'sugars|tea' }],
         insert: [{ kind: 'invite', word: 'sunset|tomorrow', caption: 'The hall, at sunset — no speeches, just company' }],
         script: [
           { if: 'tobias.tea', say: 'tobias', text: 'Two sugars. You remembered. She always forgot the second one — on purpose, so I’d have something to grumble about.', mood: 'happy' },

@@ -221,7 +221,9 @@ const VILLAGER_LOD_D = ((): number => {
   } catch {
     /* no location (worker / test) */
   }
-  return 19;
+  // (r13 critic, perf headroom for co-op: 19 -> 15 m; the half-segment copy is indistinguishable at
+  // establishing-lens distances, and talk / event lenses sit well inside it)
+  return 15;
 })();
 const _hookPos = new THREE.Vector3();
 
@@ -383,6 +385,12 @@ enum B {
   blush,
   /** Knitted-brow crease between the brows (anger). */
   furrow,
+  // r13 mouth shapes (critic: one U arc scaled per mood read as a V / a beak under the nose): an open
+  // grin (dark interior, teeth, tongue), a round 'o', gritted teeth — each on its own bone at the mouth,
+  // shown one at a time by applyFace; B.mouth itself is the closed smile / frown line.
+  mouthO,
+  mouthR,
+  mouthT,
 }
 
 // Emote bubbles (shared textures per icon).
@@ -710,7 +718,10 @@ export class Villager {
     const EXo = 0.12 * gap;
     const EY = R * (0.95 + (FP.eyeY ?? 0));
     const EZ = surfZ(EXo, EY) - R * 0.032;
-    const mouthY = R * (0.64 - Math.max(0, fH - 1) * 0.55 + Math.max(0, 1 - fH) * 0.2);
+    // (r13: clear of the nose — Odessa's frown sat on her broad nose's tip and inked a beak; beards keep
+    // the mouth where their hollow is cut)
+    const beardFull = L.beard === true || L.beard === 'full';
+    const mouthY = Math.min(R * (0.64 - Math.max(0, fH - 1) * 0.55 + Math.max(0, 1 - fH) * 0.2), beardFull ? 1 : R * (0.78 - Math.max(0, fH - 1) * 0.25 - 0.22));
     const mouthZ = surfZ(0, mouthY) + R * 0.003;
     const browY = R * ((L.hat ? 1.15 : 1.2) + (FP.eyeY ?? 0) * 0.8);
     const browZ = surfZ(EXo, browY) + R * 0.044;
@@ -743,6 +754,9 @@ export class Villager {
       [B.tear, B.head, -0.13 * gap * hs, headY + (EY - R * 0.25) * hs, (EZ + R * 0.05) * hs],
       [B.blush, B.head, 0, headY + R * 0.74 * hs, R * 0.9 * hs],
       [B.furrow, B.head, 0, headY + R * 1.08 * hs, R * 0.97 * hs],
+      [B.mouthO, B.head, 0, headY + mouthY * hs, mouthZ * hs],
+      [B.mouthR, B.head, 0, headY + mouthY * hs, mouthZ * hs],
+      [B.mouthT, B.head, 0, headY + mouthY * hs, mouthZ * hs],
     ];
     // ── proportion warp (rig space). Torso bones stretch / widen / belly; arms and the props in
     // their hands move rigidly with the shoulder; legs and the head subtree are authored in place.
@@ -973,7 +987,10 @@ export class Villager {
       const x = sx * AX;
       rb.add(arm, sphG(0.085, 10, 8), M(x, shoulderY, 0), sleeve);
       rb.add(arm, capG(0.074, 0.07, 3, 8), M(x, shoulderY - 0.07, 0), sleeve);
-      rb.add(fore, capG(0.06, 0.1, 3, 8), M(x, shoulderY - 0.2, 0), L.coat !== undefined ? L.coat : (acc.has('toolbelt') || L.apron !== undefined) && !L.longSleeves ? L.skin : L.top);
+      const foreC = L.coat !== undefined ? L.coat : (acc.has('toolbelt') || L.apron !== undefined) && !L.longSleeves ? L.skin : L.top;
+      rb.add(fore, capG(0.06, 0.1, 3, 8), M(x, shoulderY - 0.2, 0), foreC);
+      // (r13 critic: "ball mitten hands" on bare tubes) — a turned-back sleeve cuff at the wrist
+      if (foreC !== L.skin && L.mittens === undefined) rb.add(fore, torG(0.058, 0.014, 4, 12), M(x, shoulderY - 0.262, 0.004, Math.PI / 2), shadeHex(foreC, 0.8));
       if (L.mittens !== undefined) {
         // Knitted mittens: a ribbed cuff, a chunky mitt and a thumb.
         rb.add(fore, cylG(0.064, 0.064, 0.05, 10), M(x, shoulderY - 0.25, 0.005), shadeHex(L.mittens, 0.85));
@@ -1138,8 +1155,36 @@ export class Villager {
     // Mouth (flaps on its own bone while talking).
     rb.tag = 3;
     const mW = FP.mouth ?? 1;
-    rb.add(B.mouth, torG(0.036, 0.01, 6, 12, Math.PI), H(0, mouthY, mouthZ, 0, 0, Math.PI, mW, 1, 1), 0x3a1a14);
-    rb.add(B.mouth, new THREE.CircleGeometry(0.03, 10, Math.PI, Math.PI), H(0, mouthY, mouthZ - R * 0.005, 0, 0, 0, mW, 1, 1), 0x8a3a30);
+    {
+      const ink = 0x2e1210;
+      const mz = mouthZ + R * 0.004;
+      // Closed line: a shallow arc (0.55 pi of a 5.5 cm circle) whose lowest point is the bone origin —
+      // flipped (rotation.z = pi) it is a shallow frown hanging from the same point, never a V.
+      const arc = Math.PI * 0.55;
+      const ln = torG(0.055, 0.0068, 4, 14, arc);
+      ln.rotateZ(-Math.PI / 2 - arc / 2);
+      ln.translate(0, 0.055, 0);
+      rb.add(B.mouth, ln, H(0, mouthY, mz, 0, 0, 0, mW, 1, 1), ink);
+      for (const sx of [-1, 1]) rb.add(B.mouth, sphG(0.0062, 6, 4), H(sx * 0.0272 * mW, mouthY + 0.0068, mz), ink);
+      // Open grin "D": flat upper lip with a band of teeth, a round dark interior, a tongue.
+      const D = new THREE.CircleGeometry(0.036, 14, Math.PI, Math.PI);
+      rb.add(B.mouthO, D, H(0, mouthY + 0.006, mz, 0, 0, 0, mW, 1, 1), 0x3a0c0a);
+      rb.add(B.mouthO, new THREE.CircleGeometry(0.022, 10, 0, Math.PI), H(0, mouthY - 0.026, mz + 0.0015, 0, 0, 0, mW, 0.62, 1), 0xd8645e);
+      rb.add(B.mouthO, roundedBox(0.058, 0.0105, 0.004, 0.003, 1), H(0, mouthY + 0.0005, mz + 0.002, 0, 0, 0, mW, 1, 1), 0xf8f0e4);
+      const rim = torG(0.036, 0.0055, 3, 14, Math.PI);
+      rim.rotateZ(Math.PI);
+      rb.add(B.mouthO, rim, H(0, mouthY + 0.006, mz + 0.001, 0, 0, 0, mW, 1, 1), ink);
+      rb.add(B.mouthO, capG(0.0055, 0.072, 2, 4), H(0, mouthY + 0.006, mz + 0.002, 0, 0, Math.PI / 2, 1, mW, 1), ink);
+      // Round 'o': a dark oval with a lip ring.
+      rb.add(B.mouthR, new THREE.CircleGeometry(0.019, 14), H(0, mouthY - 0.004, mz, 0, 0, 0, 1, 1.15, 1), 0x3a0c0a);
+      rb.add(B.mouthR, new THREE.CircleGeometry(0.01, 8, Math.PI, Math.PI), H(0, mouthY - 0.012, mz + 0.0015, 0, 0, 0, 1, 0.8, 1), 0xd8645e);
+      rb.add(B.mouthR, torG(0.0195, 0.0052, 3, 16), H(0, mouthY - 0.004, mz + 0.001, 0, 0, 0, 1, 1.15, 1), ink);
+      // Gritted teeth: a white bar framed in ink, the bite line across, tooth gaps.
+      rb.add(B.mouthT, roundedBox(0.088, 0.036, 0.004, 0.012, 2), H(0, mouthY - 0.004, mz - 0.0005, 0, 0, 0, mW, 1, 1), ink);
+      rb.add(B.mouthT, roundedBox(0.076, 0.024, 0.004, 0.008, 2), H(0, mouthY - 0.004, mz + 0.0015, 0, 0, 0, mW, 1, 1), 0xf6eee0);
+      rb.add(B.mouthT, roundedBox(0.074, 0.0034, 0.003, 0.0012, 1), H(0, mouthY - 0.004, mz + 0.0035, 0, 0, 0, mW, 1, 1), 0x6a4a3a);
+      for (const tx of [-0.026, -0.009, 0.009, 0.026]) rb.add(B.mouthT, roundedBox(0.0022, 0.022, 0.003, 0.001, 1), H(tx * mW, mouthY - 0.004, mz + 0.0032), 0x9a8270);
+    }
     rb.tag = 0;
     if (L.glasses) {
       // (a warm tortoiseshell, a touch thicker: the ink edge turned thin dark rims into a scribble)
@@ -1286,9 +1331,11 @@ export class Villager {
       const tx = -EXo - 0.01;
       const ty = EY - R * 0.35;
       const tz = surfZ(tx, ty);
-      rb.add(B.tear, sphG(0.026, 10, 8), H(tx, ty, tz + R * 0.02, 0, 0, 0, 0.8, 1.25, 0.6), 0x8ad0f8);
-      rb.add(B.tear, sphG(0.01, 6, 4), H(tx - 0.007, ty + R * 0.03, tz + R * 0.04), 0xffffff);
-      rb.add(B.tear, capG(0.009, 0.07, 2, 6), H(tx + 0.002, EY - R * 0.19, surfZ(tx, EY - R * 0.19) + R * 0.01, 0.25, 0, 0), 0xa8dcf6);
+      // (r13: a small wet streak with a bead, tinted through the skin — the opaque blue capsule read as
+      // a glued-on prop on Odessa's cheek)
+      rb.add(B.tear, sphG(0.0125, 8, 6), H(tx, ty + R * 0.05, tz + R * 0.012, 0, 0, 0, 0.85, 1.2, 0.55), mixHex(L.skin, 0xbfe8ff, 0.72));
+      rb.add(B.tear, sphG(0.0045, 5, 4), H(tx - 0.004, ty + R * 0.065, tz + R * 0.03), 0xffffff);
+      rb.add(B.tear, capG(0.0042, 0.05, 2, 5), H(tx + 0.001, EY - R * 0.2, surfZ(tx, EY - R * 0.2) + R * 0.006, 0.25, 0, 0), mixHex(L.skin, 0xd8f0ff, 0.5));
     }
     for (const sx of [-1, 1]) {
       const bx = sx * (EXo + 0.06);
@@ -1832,10 +1879,16 @@ export class Villager {
     this.heldIcon = null;
   }
 
-  holdProp(obj: THREE.Object3D, pose: 'lap' | 'chest'): void {
+  holdProp(obj: THREE.Object3D, pose: 'lap' | 'chest' | 'cup'): void {
     const spine = this.bones[B.spine]!;
     spine.add(obj);
-    if (pose === 'lap') {
+    if (pose === 'cup') {
+      // held upright in both hands just under the chin
+      obj.position.set(0.04, 0.1, 0.32);
+      obj.rotation.set(0.18, 0.4, 0);
+      obj.scale.setScalar((1 / Math.max(0.5, this.scaleS)) * 1.55);
+      return;
+    } else if (pose === 'lap') {
       obj.position.set(0, 0.06, 0.3);
       obj.rotation.set(0.62, 0, 0);
     } else {
@@ -2007,6 +2060,7 @@ export class Villager {
     bn[B.eyeL]!.scale.set(1, 1, 1);
     bn[B.eyeR]!.scale.set(1, 1, 1);
     bn[B.mouth]!.scale.set(1, 1, 1);
+    for (const b of [B.mouthO, B.mouthR, B.mouthT]) bn[b]!.scale.setScalar(0.0001);
     const hips = bn[B.hips]!;
     const spine = bn[B.spine]!;
     const head = bn[B.head]!;
@@ -2350,13 +2404,15 @@ export class Villager {
     this.moodT += dt;
     const w = THREE.MathUtils.smoothstep(this.moodT, 0, 0.12);
     const m = this.mood;
-    // brow: [inner tilt (rad, + = inner end down), lift (m)], eye scale y, mouth [sx, sy, flip]
-    // Resting face: a small, calm mouth (a contented "neutral", clearly apart from the open happy smile).
+    // brow: [inner tilt (rad, + = inner end down), lift (m)], eye scale y; mouth: a SHAPE (r13 — the
+    // same grammar as the painted card: a closed line, an open grin, a round 'o', gritted teeth) and
+    // its [sx, sy], flipped = a frown.
     let tilt = 0;
     let lift = 0;
     let eyeY = 1;
     let eyeX = 1;
-    let mx = 0.72;
+    let shape: 'line' | 'open' | 'round' | 'teeth' = 'line';
+    let mx = 0.62;
     let my = 0.55;
     let flip = false;
     let closed = false;
@@ -2368,16 +2424,18 @@ export class Villager {
     switch (m) {
       case 'happy':
         // Cheeks lift into the eyes (a squinting smile), brows up, an open grin.
-        eyeY = 0.66;
-        mx = 1.4;
-        my = 1.9;
+        eyeY = 0.7;
+        shape = 'open';
+        mx = 0.95;
+        my = 0.62;
         lift = 0.018;
         tilt = -0.1;
         break;
       case 'laugh':
         closed = true;
-        mx = 1.45;
-        my = 3.1;
+        shape = 'open';
+        mx = 1.12;
+        my = 1.05;
         lift = 0.026;
         tilt = -0.16;
         break;
@@ -2385,7 +2443,7 @@ export class Villager {
         tilt = -0.55;
         lift = 0.012;
         eyeY = 0.72;
-        mx = 0.8;
+        mx = 0.66;
         my = 0.9;
         flip = true;
         tear = true;
@@ -2394,54 +2452,53 @@ export class Villager {
         tilt = -0.46;
         lift = 0.016;
         eyeY = 1.02;
-        mx = 0.75;
-        my = 0.85;
-        flip = true;
+        shape = 'round';
+        mx = 0.95;
+        my = 0.55;
         break;
       case 'angry':
-        // Brows knit hard into a V (≈35°) and drop onto narrowed eyes; a crease between them.
+        // Brows knit hard into a V (≈35°) and drop onto narrowed eyes; a crease; teeth gritted.
         tilt = 0.62;
         lift = -0.03;
         eyeY = 0.56;
         eyeX = 1.05;
-        mx = 1.2;
-        my = 0.75;
-        flip = true;
+        shape = 'teeth';
+        mx = 0.92;
+        my = 0.95;
         furrow = true;
         break;
       case 'surprised':
         lift = 0.05;
         eyeY = 1.3;
         eyeX = 1.15;
-        // (a round 'o', not a streak: r6 Marigold's gasp ran down her chin like drool)
-        mx = 0.72;
-        my = 2.1;
+        shape = 'round';
+        mx = 1;
+        my = 1.25;
         break;
       case 'blush':
         blush = true;
         eyeY = 0.74;
-        mx = 0.85;
-        my = 1.05;
+        mx = 0.5;
+        my = 0.7;
         tilt = -0.2;
         break;
       case 'wistful':
         // Fond sorrow: lids lowered, a soft closed smile, brows gently tented, one tear.
         eyeY = 0.5;
-        mx = 0.85;
-        my = 0.62;
+        mx = 0.7;
+        my = 0.55;
         tilt = -0.28;
         lift = 0.006;
         tear = true;
         break;
       case 'thinking':
         // One brow up, eyes narrowed, the mouth pressed into a lopsided "hmm".
-        // (r12: pushed — from the event lens the r9 'hmm' read as the resting face)
         browAsym = 0.07;
         tilt = 0.18;
         eyeY = 0.7;
-        mx = 0.7;
-        my = 0.34;
-        smirk = 0.5;
+        mx = 0.6;
+        my = 0.3;
+        smirk = 0.35;
         break;
     }
     const L = (a: number, b: number): number => a + (b - a) * w;
@@ -2472,16 +2529,30 @@ export class Villager {
     bn[B.tear]!.position.y -= tear ? ((this.t * 0.02) % 0.03) : 0;
     bn[B.blush]!.scale.setScalar(blush ? Math.max(0.0001, w) : 0.0001);
     bn[B.furrow]!.scale.setScalar(furrow ? Math.max(0.0001, w) : 0.0001);
-    const mouth = bn[B.mouth]!;
-    let sx = L(1, mx);
-    let sy = L(1, my);
-    if (this.speaking) {
-      const flap = 0.5 + 0.5 * Math.abs(Math.sin(this.t * 17)) * (0.6 + 0.4 * Math.sin(this.t * 5.3));
-      sx *= 1 - flap * 0.2;
-      sy *= 1 + flap * (m === 'surprised' || m === 'laugh' ? 0.5 : 1.6);
+    // Talking: a line mouth opens into a small grin shape that flaps; open / round / teeth shapes
+    // breathe with the syllables.
+    let flap = 0;
+    if (this.speaking) flap = 0.5 + 0.5 * Math.abs(Math.sin(this.t * 17)) * (0.6 + 0.4 * Math.sin(this.t * 5.3));
+    let sx = L(0.6, mx);
+    let sy = L(0.55, my);
+    let use = shape;
+    if (shape === 'line' && flap > 0 && !flip) {
+      use = 'open';
+      sx = 0.62 + 0.08 * flap;
+      sy = 0.12 + 0.42 * flap;
+    } else if (flap > 0) {
+      sy *= 1 + flap * (shape === 'teeth' ? 0.18 : shape === 'line' ? 0.5 : 0.35);
+      sx *= 1 - flap * 0.08;
     }
-    // The open mouth stays inside the chin whatever the mood + talk flap.
-    mouth.scale.set(sx * fk, Math.min(sy, 2.4) * fk, 1);
+    const z = 0.0001;
+    const put = (b: B, on: boolean, ax: number, ay: number): void => {
+      bn[b]!.scale.set(on ? ax * fk : z, on ? Math.min(ay, 2) * fk : z, on ? fk : z);
+    };
+    put(B.mouth, use === 'line', sx, sy);
+    put(B.mouthO, use === 'open', sx, sy);
+    put(B.mouthR, use === 'round', sx, sy);
+    put(B.mouthT, use === 'teeth', sx, sy);
+    const mouth = bn[B.mouth]!;
     if (flip) mouth.rotation.z = Math.PI * w;
     else if (smirk) mouth.rotation.z = smirk * w;
   }
@@ -2523,7 +2594,7 @@ export class Villager {
     const bn = this.bones;
     const at = (b: B): THREE.Vector3 => bn[b]!.getWorldPosition(new THREE.Vector3());
     const out = { eyeL: at(B.eyeL), eyeR: at(B.eyeR), browL: at(B.browL), browR: at(B.browR), mouth: at(B.mouth) };
-    for (const b of [B.mouth, B.browL, B.browR, B.furrow]) bn[b]!.scale.setScalar(0.0001);
+    for (const b of [B.mouth, B.mouthO, B.mouthR, B.mouthT, B.browL, B.browR, B.furrow]) bn[b]!.scale.setScalar(0.0001);
     this.root.updateMatrixWorld(true);
     return out;
   }
@@ -3366,13 +3437,13 @@ export class ReactionFx {
       // pulse before the item settles into the villager's hands.
       const e = u * u * (3 - 2 * u);
       k.s.position.lerpVectors(k.from, k.to, e);
-      k.s.position.y += Math.sin(e * Math.PI) * 0.85;
+      k.s.position.y += Math.sin(e * Math.PI) * 0.6;
       k.s.userData.rot = e * 5;
-      k.s.scale.setScalar(0.46 * (1 - 0.3 * e));
+      k.s.scale.setScalar(0.36 * (1 - 0.25 * e));
       if (u >= 1 && k.hold === undefined) k.hold = 0.07;
       if (k.hold !== undefined) {
         k.hold -= dt;
-        k.s.scale.set(0.46 * 0.7 * 1.25, 0.46 * 0.7 * 0.8, 1);
+        k.s.scale.set(0.36 * 0.75 * 1.25, 0.36 * 0.75 * 0.8, 1);
       }
       if (k.hold !== undefined && k.hold <= 0) {
         k.s.removeFromParent();
@@ -4813,6 +4884,44 @@ export function buildRose(): THREE.Mesh {
   for (const p of parts) p.dispose();
   const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48 }));
   m.name = 'keepsake-rose';
+  m.castShadow = true;
+  return m;
+}
+
+/**
+ * r13 (critic: "Two sugars. You remembered." with no teacup anywhere): a china cup on its saucer — a
+ * cream glaze with a blue band and gold rim, the tea surface, a loop handle and a thread of steam.
+ * One merged mesh (vertex colours), ~0.16 m across so it reads in a chibi's hand.
+ */
+export function buildTeacup(): THREE.Mesh {
+  const parts: THREE.BufferGeometry[] = [];
+  const put = (g: THREE.BufferGeometry, col: number, m: THREE.Matrix4): void => {
+    g.applyMatrix4(m);
+    const n = g.index ? g.toNonIndexed() : g;
+    const c = new THREE.Color(col);
+    const arr = new Float32Array(n.attributes.position!.count * 3);
+    for (let i = 0; i < arr.length; i += 3) arr.set([c.r, c.g, c.b], i);
+    n.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') n.deleteAttribute(k);
+    parts.push(n);
+  };
+  const T = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1): THREE.Matrix4 =>
+    new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+  // saucer (a shallow dish) + its gold line
+  put(new THREE.CylinderGeometry(0.1, 0.07, 0.016, 20), 0xd8ccb4, T(0, 0.008, 0));
+  put(new THREE.TorusGeometry(0.094, 0.004, 4, 24), 0xd8a83a, T(0, 0.017, 0, Math.PI / 2));
+  // cup body (tapered), blue band, gold rim, the tea
+  put(new THREE.CylinderGeometry(0.058, 0.04, 0.07, 18), 0xe0d4bc, T(0, 0.052, 0));
+  put(new THREE.CylinderGeometry(0.0565, 0.05, 0.016, 18, 1, true), 0x4a78b8, T(0, 0.064, 0));
+  put(new THREE.TorusGeometry(0.057, 0.0045, 4, 22), 0xd8a83a, T(0, 0.087, 0, Math.PI / 2));
+  put(new THREE.CircleGeometry(0.053, 18), 0x8a4a22, T(0, 0.082, 0, -Math.PI / 2));
+  put(new THREE.TorusGeometry(0.022, 0.0065, 5, 12), 0xe0d4bc, T(0.064, 0.055, 0, 0, 0, 0, 1, 1.15, 1));
+  // a thread of steam (pale capsules leaning up out of the cup)
+  for (let i = 0; i < 3; i++) put(new THREE.CapsuleGeometry(0.006 - i * 0.0012, 0.035, 2, 5), 0xc8c4bc, T(Math.sin(i * 1.7) * 0.012, 0.115 + i * 0.04, 0, 0, 0, Math.sin(i * 2.1) * 0.5));
+  const g = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 }));
+  m.name = 'npc-teacup';
   m.castShadow = true;
   return m;
 }

@@ -287,7 +287,8 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'flowerPot', x: 26.9, z: 34.2, colors: [0xc77dff] },
   { kind: 'flowerPot', x: 24.4, z: 34.3, colors: [0xffd166] },
   { kind: 'beehive', x: 20.8, z: 34.6, rot: 0.25, solid: [[20, 34]] },
-  { kind: 'cafeSet', x: 40.2, z: 34.6, rot: 0.3, solid: [[40, 34]] },
+  // (r13 critic: this parasol sat blown out in town-day's near foreground) — a low picnic instead
+  { kind: 'picnic', x: 40.4, z: 34.9, rot: 0.3, colors: [0x4a8ac0] },
   { kind: 'planter', x: 43.2, z: 35.8, colors: [0xffffff, 0xc77dff, 0xff8fab], solid: [[43, 35]] },
   { kind: 'flowerPot', x: 38.9, z: 36.1, colors: [0xff7aa2] },
   { kind: 'sandwichBoard', x: 35.4, z: 36.6, rot: -0.3, colors: [0x56786a] },

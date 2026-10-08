@@ -14,7 +14,7 @@
  */
 import type { Game } from '../core/game';
 import type { Panel } from './hud';
-import { portraitSvg, insertArt } from './portraits';
+import { portraitSvg, insertArt, setPortraitLight } from './portraits';
 import { NPCS, NPC_IDS, parseLine, type NpcId, type Mood, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
 
@@ -275,6 +275,13 @@ body.hv-dlg-open .hv-np { opacity: 0 !important; transition: opacity 200ms; }
    plaque grew the column and slid the strip down over the name plaque (only a stub peeked out). */
 .hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { bottom: auto; top: 262px; }
 @media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { top: 202px; } }
+/* r13 (critic: in the gift state the hearts + "Loved it!" badge buried the name plate and the card grew
+   taller than the box): the gift ribbon is pinned over the portrait's top edge like a rosette, so the
+   card keeps its one height in every state (the box's top stays at the line the event director frames
+   the actors above). */
+.hv-dialogue.dlg2 .dlg-ribbon { position: absolute !important; order: 0; top: 4px !important; left: 50%; right: auto !important; margin: 0; transform: translateX(-50%) rotate(-2deg); max-width: 250px; z-index: 6; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { top: auto; bottom: 50px; }
+@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { top: auto; bottom: 42px; } }
 /* (co-op: the roster sits top-left — the card drops below it) */
 body:has(.coop-roster:not(.hv-hidden)) .dlg-insert { top: max(19vh, 150px); }
 `;
@@ -494,7 +501,14 @@ export class DialoguePanel implements Panel {
       if (moodOverride) {
         // Staging a mood (`&mood=sad`): say one of this villager's own lines written in that mood, so
         // the words and the face agree; only a villager with no such line gets the mood forced on.
-        const pool = [...def.dialogue.flatMap((g) => [...g.lines, ...(g.ask ? g.ask.options.map((o) => (o.mood ? `[${o.mood}] ${o.reply}` : o.reply)) : [])]), ...Object.values(def.giftLines)];
+        // (r13 critic: Hazel at 7 hearts greeted the farmer with her first-meeting line — only groups the
+        // relationship could actually reach right now: no first meeting once met, no birthday off the
+        // day, no heart tier above the current hearts, no memory the farmer hasn't made.)
+        const rel = this.game.services.relationships;
+        const hearts = Math.min(10, rel?.hearts(id) ?? 0);
+        const met = (rel?.talks(id) ?? 0) > 0 || (rel?.points(id) ?? 0) >= 250;
+        const reach = def.dialogue.filter((g) => !(g.first && met) && !(g.birthday && !(rel?.isBirthday(id) ?? false)) && !((g.minHearts ?? 0) > hearts) && !(g.flag && !(rel?.recalls(g.flag) ?? false)));
+        const pool = [...reach.flatMap((g) => [...g.lines, ...(g.ask ? g.ask.options.map((o) => (o.mood ? `[${o.mood}] ${o.reply}` : o.reply)) : [])]), ...Object.values(def.giftLines)];
         const hit = pool.map((l) => parseLine(l)).find((pl) => pl.mood === moodOverride && pl.text.length > 12);
         if (hit) steps.splice(0, steps.length, { kind: 'line', text: hit.text, mood: hit.mood });
         else if (steps[0]?.kind === 'line') steps[0].mood = moodOverride;
@@ -651,6 +665,10 @@ export class DialoguePanel implements Panel {
     if (this.mood === mood && this.portrait.children.length) return;
     const def = NPCS[id];
     this.mood = mood;
+    // (r13: the card takes the scene's light — a night talk / heart event gets a blue-violet card with a
+    // warm lamp key; staged demos hold the clock paused, so the hour is read here, not per frame)
+    const hr = this.game.calendar.hour;
+    setPortraitLight(hr >= 19.5 || hr < 5.5 ? 'night' : hr >= 17.75 ? 'dusk' : 'day');
     const old = [...this.portrait.children];
     const layer = document.createElement('div');
     layer.className = old.length ? 'layer in' : 'layer';

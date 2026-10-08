@@ -23,7 +23,7 @@ import type { Game } from '../core/game';
 import type { Facing } from '../core/events';
 import { NPCS, NPC_IDS, pickGroup, heartEvent, seasonLook, memoryBefore, choiceFlags, type NpcId, type NpcLook, type NpcDef, type Activity, type Ask, type HeartEvent, type CutStep, type Place, type Who, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
-import { Villager, auditPortraits, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL, dressFarmerWinter, buildLedger, buildLetter, buildKidMap, buildSparks, buildLanternCage, buildChair, buildPie, buildRose } from '../entities/villager';
+import { Villager, auditPortraits, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL, dressFarmerWinter, buildLedger, buildLetter, buildKidMap, buildSparks, buildLanternCage, buildChair, buildPie, buildRose, buildTeacup } from '../entities/villager';
 import { SPOTS, NEW_BUILDINGS, EXTRA_PROPS, FESTOON_POLES, BRIDGES } from '../world/town/layout';
 import { BUILDINGS, TOWN_PROPS } from '../data/town-layout';
 import type { Festoons } from '../world/town/festoons';
@@ -31,7 +31,7 @@ import { itemIconUrl } from '../ui/icons';
 import { findPath, type Waypoint } from '../world/town/pathfind';
 import { repaintNotices } from '../world/town/notices';
 import { SocialPanel, PortraitSheetPanel } from '../ui/dialogue';
-import { setPortraitSeason, prewarmPortraits, auditPainted, portraitOpts } from '../ui/portraits';
+import { setPortraitSeason, setPortraitLight, auditPortraitContrast, prewarmPortraits, auditPainted, portraitOpts } from '../ui/portraits';
 import { PRESET_LOOKS } from '../entities/remote-look';
 import type { Season } from '../core/time';
 
@@ -85,6 +85,10 @@ export interface NpcApi {
   auditLive(hours?: number[]): { checked: number; fails: string[]; moved: number };
   /** Portrait gate (r7): every bust in every mood — hair over the eyes / nose, painted hair colour vs the 3D look. */
   auditPortraits(): { checked: number; fails: string[]; stats: Record<string, string> };
+  /** r13: no two villagers' body colours (coat / apron / top) within 20° hue and 0.1 value in any season. */
+  auditPalette(): { checked: number; fails: string[] };
+  /** r13: every mood's card differs from neutral in the face region by ≥ min (0–255 mean). */
+  auditPortraitContrast(min?: number): Promise<{ checked: number; fails: string[]; diff: Record<string, number> }>;
   /** The last live (F-press) conversation's self-audit (dev builds; pair gap, foreground, lens). */
   liveAudit(): { id: string; gap: number; fails: string[] } | null;
   /** Co-op state (tests): gift reactions seen here, villagers held by a farmhand, the event being watched. */
@@ -203,8 +207,9 @@ const STAGES: Record<string, Mark[]> = {
     ['marigold', 55.2, 24.0, 150, 'idle', undefined, { free: true }],
     ['rowan', 67.4, 26.3, 0, 'idle', undefined, { walk: [57.8, 26.4] }],
     ['wren', 59.6, 21.6, 133, 'paint'],
-    ['kit', 44.6, 28.6, 0, 'play', 'exclaim', { walk: [52.6, 27.4], run: true }],
-    ['linus', 46.6, 31.2, 0, 'idle', undefined, { walk: [40.4, 34.6] }],
+    // (r13: Kit tears down the lane towards the lens — running away he showed only the back of his head)
+    ['kit', 48.6, 27.0, 0, 'play', 'exclaim', { walk: [43.2, 31.2], run: true }],
+    ['linus', 46.6, 31.2, 0, 'idle', undefined, { walk: [38.6, 33.4] }],
     ['odessa', 58.6, 29.6, 0, 'idle', undefined, { walk: [52.8, 26.0] }],
     ['tobias', 37.8, 26.8, -35, 'idle', 'music'],
   ],
@@ -497,6 +502,38 @@ export class NpcSystem implements System {
         if (!portraitOpts.model3d) return auditPainted(NPC_IDS.map((id) => ({ id, look: NPCS[id].look, bg: NPCS[id].portraitBg })), [...moods]);
         return auditPortraits(NPC_IDS.map((id) => NPCS[id]), [...moods]);
       },
+      auditPalette: () => {
+        const out = { checked: 0, fails: [] as string[] };
+        const hsv = (c: number): [number, number, number] => {
+          const r = ((c >> 16) & 255) / 255;
+          const g = ((c >> 8) & 255) / 255;
+          const b = (c & 255) / 255;
+          const mx = Math.max(r, g, b);
+          const d = mx - Math.min(r, g, b);
+          const h = d === 0 ? 0 : mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+          return [h * 60, mx === 0 ? 0 : d / mx, mx];
+        };
+        for (const season of ['spring', 'summer', 'fall', 'winter'] as const) {
+          // the outer garment (coat, else top — aprons are shared creams by trade, not identity)
+          const body = NPC_IDS.map((id) => {
+            const L = seasonLook(NPCS[id], season);
+            return { id, c: L.coat ?? L.top };
+          });
+          for (let i = 0; i < body.length; i++)
+            for (let j = i + 1; j < body.length; j++) {
+              out.checked++;
+              const [h1, s1, v1] = hsv(body[i]!.c);
+              const [h2, s2, v2] = hsv(body[j]!.c);
+              const dh = Math.min(Math.abs(h1 - h2), 360 - Math.abs(h1 - h2));
+              // (trade whites — the baker's, the doctor's, the innkeeper's — are told apart by apron,
+              // hat and silhouette, not hue: only coloured garments are compared)
+              const sameHue = s1 >= 0.18 && s2 >= 0.18 && dh < 20;
+              if (sameHue && Math.abs(v1 - v2) < 0.1) out.fails.push(`${season}: ${body[i]!.id} / ${body[j]!.id} body colours too close (dh ${dh.toFixed(0)}°, dv ${Math.abs(v1 - v2).toFixed(2)})`);
+            }
+        }
+        return out;
+      },
+      auditPortraitContrast: (min) => auditPortraitContrast(NPC_IDS.map((id) => ({ id, look: NPCS[id].look, bg: NPCS[id].portraitBg })), ['neutral', 'happy', 'laugh', 'sad', 'angry', 'surprised', 'blush', 'worried', 'thinking', 'wistful'], min),
       liveAudit: () => this.liveAudit,
       coop: () => ({
         gifts: this.gifts.map((g) => ({ id: g.id, from: g.from, reaction: g.reaction })),
@@ -1058,8 +1095,13 @@ export class NpcSystem implements System {
     if (!a || !this.active) return;
     const p = giver ?? this.game.player.position;
     const v = a.v;
-    const from = new THREE.Vector3(p.x, p.y + 1.05, p.z);
-    const to = new THREE.Vector3(v.position.x, v.position.y + v.headTop * 0.62, v.position.z);
+    // (r13 critic: the strawberry sprite sat over the farmer's eye, then on Kit's forehead) — it leaves
+    // the farmer's hands on the villager's side and is caught at the chest, under the face.
+    const ddx = v.position.x - p.x;
+    const ddz = v.position.z - p.z;
+    const dl = Math.hypot(ddx, ddz) || 1;
+    const from = new THREE.Vector3(p.x + (ddx / dl) * 0.38, p.y + 0.92, p.z + (ddz / dl) * 0.38);
+    const to = new THREE.Vector3(v.position.x - (ddx / dl) * 0.22, v.position.y + v.headTop * 0.4, v.position.z - (ddz / dl) * 0.22);
     let url = '';
     try {
       url = itemIconUrl(itemId);
@@ -1989,8 +2031,8 @@ export class NpcSystem implements System {
     }
     this.clearEventProps();
     for (const pr of ev.props ?? []) {
-      if (pr.kind === 'ledger' || pr.kind === 'map' || pr.kind === 'sparks' || pr.kind === 'letter' || pr.kind === 'cage' || pr.kind === 'rose') {
-        const c = pr.kind === 'ledger' ? buildLedger() : pr.kind === 'map' ? buildKidMap() : pr.kind === 'letter' ? buildLetter() : pr.kind === 'cage' ? buildLanternCage() : pr.kind === 'rose' ? buildRose() : buildSparks();
+      if (pr.kind === 'ledger' || pr.kind === 'map' || pr.kind === 'sparks' || pr.kind === 'letter' || pr.kind === 'cage' || pr.kind === 'rose' || pr.kind === 'teacup') {
+        const c = pr.kind === 'ledger' ? buildLedger() : pr.kind === 'map' ? buildKidMap() : pr.kind === 'letter' ? buildLetter() : pr.kind === 'cage' ? buildLanternCage() : pr.kind === 'rose' ? buildRose() : pr.kind === 'teacup' ? buildTeacup() : buildSparks();
         c.userData.kind = pr.kind;
         c.userData.perfTag = 'npcs';
         const holder = pr.hold ? this.agents.get(pr.hold[0]) : undefined;
@@ -4442,6 +4484,9 @@ export class NpcSystem implements System {
     if (!this.active) return;
     const map = game.world.current!;
     if (game.calendar.season !== this.lookSeason) this.applySeason(game.calendar.season);
+    // r13: the card's backdrop takes the scene's light (night = blue-violet with a warm lamp key)
+    const hr = game.calendar.hour;
+    setPortraitLight(hr >= 19.5 || hr < 5.5 ? 'night' : hr >= 17.75 ? 'dusk' : 'day');
     if (this.restage !== null) {
       const name = this.restage;
       this.restage = null;

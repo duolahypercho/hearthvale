@@ -28,6 +28,7 @@ import { buildPlazaWear } from './plaza';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
 import { buildChalkAFrame } from './aframe';
+import { buildTownHedge } from './hedge';
 import { buildSnowmen, buildSweptPaths, buildWreathDressing, buildWinterWear, buildWinterShade } from './winter';
 import { findPath } from './pathfind';
 import { NPCS } from '../../data/npcs';
@@ -38,7 +39,7 @@ import { SmokeEmitter, Ambience, FireFX } from '../../render/particles';
 import { LightPools } from '../props/decals';
 import { buildLanternPost, buildBarrel, buildCrate, buildMailbox, buildDock, buildFence, type BuiltProp } from '../props/structures';
 import { buildBench, buildFlowerPot, buildWheelbarrow, buildSignpost, buildLaundryLine, buildBeehive } from '../props/farmkit';
-import { buildTownHouse, buildLanternHall, buildFountain, buildNoticeBoard, buildMarketStall, buildPlanter, buildHedge, buildFlowerCart, buildCafeSet, buildSandwichBoard, type HouseSpec } from '../props/townkit';
+import { buildTownHouse, buildLanternHall, buildFountain, buildNoticeBoard, buildMarketStall, buildPlanter, buildFlowerCart, buildCafeSet, buildSandwichBoard, type HouseSpec } from '../props/townkit';
 import { buildBunting, buildLanternPole, buildMaypole, buildFeastTable, buildBrazier } from '../props/festival';
 import { PLAZA, STREETS, BUILDINGS, TOWN_PROPS, TOWN_TREES, FESTIVAL, TOWN_WARPS, TOWN_SPAWN, type TownBuilding } from '../../data/town-layout';
 import {
@@ -601,7 +602,7 @@ export class TownMap implements GameMap {
           g = buildPlanter(r, p.colors ?? [0xff8fab]);
           break;
         case 'hedge':
-          g = buildHedge(r, p.len ?? 3);
+          g = buildTownHedge(r, p.len ?? 3);
           break;
         case 'barrel':
           g = buildBarrel();
@@ -744,7 +745,7 @@ export class TownMap implements GameMap {
           g = buildSwing();
           break;
         case 'hedge':
-          g = buildHedge(r, p.len ?? 3);
+          g = buildTownHedge(r, p.len ?? 3);
           break;
         case 'kettleSign':
           g = buildKettleSign();
@@ -1185,6 +1186,9 @@ export class TownMap implements GameMap {
     this.festoons?.setSeason(season);
     if (season === 'winter' && !this.wear) this.buildWear();
     if (this.wear) this.wear.visible = season === 'winter';
+    // (r13 critic: dry blades poking through the snow read as scattered twigs) — the lawns lie under a
+    // clean snow cover in winter; the grass field sleeps (and costs nothing).
+    this.grass.group.visible = season !== 'winter';
     if (this.snowmen) {
       const on = season === 'winter';
       this.snowmen.visible = on;

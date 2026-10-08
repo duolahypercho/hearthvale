@@ -28,6 +28,11 @@ let portraitSeason: Season = 'spring';
 export function setPortraitSeason(s: Season): void {
   portraitSeason = s;
 }
+let portraitLight: 'day' | 'dusk' | 'night' = 'day';
+/** The scene's light on the card (NpcSystem pushes it from the hour): night = a blue-violet backdrop and a warm lamp key. */
+export function setPortraitLight(k: 'day' | 'dusk' | 'night'): void {
+  portraitLight = k;
+}
 const P3D = new Map<string, string | null>();
 /** Where the head sits in each rendered bust (fractions of the frame) — the manga marks follow it. */
 const P3D_HEAD = new Map<string, { x: number; y: number; r: number }>();
@@ -87,21 +92,29 @@ interface MoodParams {
   browRaiseL: number;
   blush: number;
   tilt: number;
+  /** r13 lid grammar: how far the upper lid drops at the outer / inner corner (fraction of the eye's
+   *  height), how far the lower lid pushes up (a smile / glare squint), the iris scale (surprise shows
+   *  white all round). The 3D face reads the same numbers (FACE_EMOTION in entities/villager.ts). */
+  lidO?: number;
+  lidI?: number;
+  lowUp?: number;
+  irisK?: number;
 }
 
 const MOOD: Record<Mood, MoodParams> = {
-  neutral: { open: 1, smile: 0, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: 0, browOut: 0, browRaiseL: 0, blush: 0.45, tilt: 0 },
-  happy: { open: 0.92, smile: 0.35, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: -2, browOut: -1, browRaiseL: 0, blush: 0.6, tilt: -2 },
-  laugh: { open: 0, smile: 1, gazeX: 0, gazeY: 0, pupil: 1, closed: true, browIn: -4, browOut: -2, browRaiseL: 0, blush: 0.8, tilt: -5 },
-  // (r12 critic: sad / wistful / neutral differed only at the mouth and angry read as worried — the
-  // brows carry it now: sorrow's inner ends lift hard, anger's drive down ~25° into the lids)
-  sad: { open: 0.42, smile: 0, gazeX: 0, gazeY: 3.5, pupil: 1, closed: false, browIn: -11, browOut: 4.5, browRaiseL: 0, blush: 0.3, tilt: 3 },
-  angry: { open: 0.5, smile: 0, gazeX: 0, gazeY: 0, pupil: 0.8, closed: false, browIn: 12, browOut: -6.5, browRaiseL: 0, blush: 0.9, tilt: 0 },
-  surprised: { open: 1.2, smile: 0, gazeX: 0, gazeY: -0.5, pupil: 0.7, closed: false, browIn: -8, browOut: -7, browRaiseL: 0, blush: 0.4, tilt: 0 },
-  blush: { open: 0.82, smile: 0.2, gazeX: -3, gazeY: 1.5, pupil: 1.05, closed: false, browIn: -3, browOut: 1, browRaiseL: 0, blush: 1.2, tilt: 4 },
-  worried: { open: 1, smile: 0, gazeX: 1.5, gazeY: 0, pupil: 0.9, closed: false, browIn: -8.5, browOut: 3.5, browRaiseL: 0, blush: 0.35, tilt: 2 },
-  thinking: { open: 0.85, smile: 0, gazeX: 3, gazeY: -3, pupil: 1, closed: false, browIn: 0, browOut: 0, browRaiseL: -6, blush: 0.4, tilt: -3 },
-  wistful: { open: 0.5, smile: 0.25, gazeX: -3, gazeY: 2.5, pupil: 1, closed: false, browIn: -5, browOut: 1.5, browRaiseL: 0, blush: 0.55, tilt: 4 },
+  // (r13 critic: Bram's ten moods read as three — every eye was the same wide doe shape. The eye
+  // SHAPE carries the mood now: a relaxed lid at rest, a smile squint, a glare slanting into the
+  // nose, a sorrowful droop at the outer corners, half lids when wistful, white all round in shock.)
+  neutral: { open: 1, smile: 0, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: 0, browOut: 0, browRaiseL: 0, blush: 0.45, tilt: 0, lidO: 0.16, lidI: 0.12 },
+  happy: { open: 0.95, smile: 0.35, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: -3, browOut: -1.5, browRaiseL: 0, blush: 0.6, tilt: -2, lidO: 0.08, lidI: 0.08, lowUp: 0.34 },
+  laugh: { open: 0, smile: 1, gazeX: 0, gazeY: 0, pupil: 1, closed: true, browIn: -5, browOut: -3, browRaiseL: 0, blush: 0.8, tilt: -5 },
+  sad: { open: 0.92, smile: 0, gazeX: 0, gazeY: 3.5, pupil: 1, closed: false, browIn: -12, browOut: 5, browRaiseL: 0, blush: 0.3, tilt: 3, lidO: 0.56, lidI: 0.18, lowUp: 0.06 },
+  angry: { open: 0.95, smile: 0, gazeX: 0, gazeY: 0.5, pupil: 0.72, closed: false, browIn: 13, browOut: -7, browRaiseL: 0, blush: 0.9, tilt: 0, lidO: 0.1, lidI: 0.64, lowUp: 0.3, irisK: 0.9 },
+  surprised: { open: 1.22, smile: 0, gazeX: 0, gazeY: -0.5, pupil: 0.55, closed: false, browIn: -10, browOut: -9, browRaiseL: 0, blush: 0.4, tilt: 0, irisK: 0.72 },
+  blush: { open: 0.86, smile: 0.2, gazeX: -3, gazeY: 1.5, pupil: 1.05, closed: false, browIn: -4, browOut: 1, browRaiseL: 0, blush: 1.2, tilt: 4, lidO: 0.38, lidI: 0.34, lowUp: 0.22 },
+  worried: { open: 1.04, smile: 0, gazeX: 1.5, gazeY: 0, pupil: 0.82, closed: false, browIn: -10, browOut: 4, browRaiseL: 0, blush: 0.35, tilt: 2, lidO: 0.3, lidI: 0, irisK: 0.88 },
+  thinking: { open: 0.9, smile: 0, gazeX: 3, gazeY: -3, pupil: 1, closed: false, browIn: 2, browOut: -1, browRaiseL: -7, blush: 0.4, tilt: -3, lidO: 0.3, lidI: 0.22, lowUp: 0.14 },
+  wistful: { open: 0.9, smile: 0.25, gazeX: -3, gazeY: 2.5, pupil: 1, closed: false, browIn: -6, browOut: 2, browRaiseL: 0, blush: 0.55, tilt: 4, lidO: 0.5, lidI: 0.46, lowUp: 0.1 },
 };
 
 /**
@@ -173,20 +186,22 @@ interface Persona {
   /** Shoulder width / slump (px). */
   sh: number;
   slump: number;
+  /** r13: gruff grown men — no lash flicks, no rosy cheeks (only a real blush or a belly laugh colours them). */
+  gruff?: boolean;
   /** Which marks this villager makes. */
   marks: ('tear' | 'sparkle' | 'burst' | 'vein' | 'sweat' | 'think')[];
 }
 const PERSONA: Record<string, Persona> = {
   marigold: { iris: 0.82, eye: 0.94, lid: 1.05, under: 0.75, asym: 0.45, mouth: 'prim', lip: 0xb86a7a, crow: 1, browLines: 0.5, jowl: 0.35, cheekbone: 0, sh: 0.92, slump: 1, marks: ['sparkle', 'think', 'vein'] },
-  bram: { iris: 0.86, eye: 0.96, lid: 1.35, under: 0.45, asym: -0.25, mouth: 'wide', crow: 0.7, browLines: 0.2, jowl: 0.65, cheekbone: 0, smudge: { c: 0xfaf4ea, at: 'cheekL', kind: 'flour' }, sh: 1.14, slump: 0, marks: ['burst', 'sweat'] },
+  bram: { gruff: true, iris: 0.86, eye: 0.96, lid: 1.35, under: 0.45, asym: -0.25, mouth: 'wide', crow: 0.7, browLines: 0.2, jowl: 0.65, cheekbone: 0, smudge: { c: 0xfaf4ea, at: 'cheekL', kind: 'flour' }, sh: 1.14, slump: 0, marks: ['burst', 'sweat'] },
   wren: { iris: 1.06, eye: 1, lid: 0.9, under: 0, asym: 0.5, mouth: 'soft', lip: 0xd8707a, crow: 0, browLines: 0, jowl: 0, cheekbone: 0, smudge: { c: 0x4a8ab8, at: 'cheekR', kind: 'paint' }, sh: 0.9, slump: 0, marks: ['tear', 'sparkle', 'think', 'burst'] },
   odessa: { iris: 0.78, eye: 0.92, lid: 1.5, under: 0.3, asym: -0.35, mouth: 'full', lip: 0x7a3a34, crow: 0.2, browLines: 0, jowl: 0, cheekbone: 0.7, smudge: { c: 0x2a221e, at: 'cheekR', kind: 'soot' }, sh: 1.2, slump: -1, marks: ['sweat', 'tear'] },
   linus: { iris: 0.8, eye: 0.93, lid: 1.1, under: 0.85, asym: 0.3, mouth: 'prim', lip: 0xa8645a, crow: 0.6, browLines: 0.45, jowl: 0, cheekbone: 0.45, sh: 0.88, slump: 2, marks: ['sweat', 'think'] },
   june: { iris: 0.94, eye: 0.98, lid: 1.25, under: 0.25, asym: -0.2, mouth: 'full', lip: 0xc8484a, crow: 0.35, browLines: 0, jowl: 0.1, cheekbone: 0.2, sh: 1.04, slump: 0, marks: ['tear', 'vein', 'sparkle'] },
-  tobias: { iris: 0.74, eye: 0.92, lid: 1.55, under: 1, asym: 0.25, mouth: 'plain', crow: 1.2, browLines: 1, jowl: 0.5, cheekbone: 0.3, sh: 0.94, slump: 4, marks: ['think'] },
+  tobias: { gruff: true, iris: 0.74, eye: 0.92, lid: 1.55, under: 1, asym: 0.25, mouth: 'plain', crow: 1.2, browLines: 1, jowl: 0.5, cheekbone: 0.3, sh: 0.94, slump: 4, marks: ['think'] },
   kit: { iris: 1.12, eye: 1.02, lid: 0.85, under: 0, asym: 0.2, mouth: 'gap', crow: 0, browLines: 0, jowl: 0, cheekbone: 0, sh: 0.84, slump: -1, marks: ['tear', 'sparkle', 'burst', 'sweat', 'think', 'vein'] },
-  rowan: { iris: 0.84, eye: 0.95, lid: 1.3, under: 0.35, asym: -0.6, mouth: 'smirk', crow: 0.2, browLines: 0.15, jowl: 0, cheekbone: 0.55, smudge: { c: 0xd8b07a, at: 'brow', kind: 'dirt' }, sh: 1.1, slump: 1, marks: ['sweat', 'think'] },
-  hazel: { iris: 0.86, eye: 0.95, lid: 1, under: 0.6, asym: -0.25, mouth: 'soft', lip: 0xc87a84, crow: 1.15, browLines: 0.75, jowl: 0.25, cheekbone: 0, smudge: { c: 0x6a4a2a, at: 'cheekL', kind: 'dirt' }, sh: 0.9, slump: 2, marks: ['tear', 'sparkle', 'think'] },
+  rowan: { gruff: true, iris: 0.84, eye: 0.95, lid: 1.3, under: 0.35, asym: -0.6, mouth: 'smirk', crow: 0.2, browLines: 0.15, jowl: 0, cheekbone: 0.55, smudge: { c: 0xd8b07a, at: 'brow', kind: 'dirt' }, sh: 1.1, slump: 1, marks: ['sweat', 'think'] },
+  hazel: { iris: 0.86, eye: 0.95, lid: 1, under: 0.6, asym: -0.25, mouth: 'soft', lip: 0xc87a84, crow: 1.15, browLines: 0.75, jowl: 0.25, cheekbone: 0, sh: 0.9, slump: 2, marks: ['tear', 'sparkle', 'think'] },
 };
 const PERSONA_DEFAULT: Persona = { iris: 1, eye: 1, lid: 1, under: 0, asym: 0, mouth: 'plain', crow: 0, browLines: 0, jowl: 0, cheekbone: 0, sh: 1, slump: 0, marks: ['tear', 'sparkle', 'burst', 'vein', 'sweat', 'think'] };
 /** The villager's persona (`portraitOpts.persona = false`: the shared r8 grammar, for A/B). */
@@ -212,7 +227,8 @@ function mouthPersona(P: Persona, mood: Mood, cx: number, y: number, skin: numbe
     // Pursed: small tucks at the corners, a thin tinted lower lip.
     if (!open) out.push(`<path d="M${cx - 9} ${y} l -1.2 2.6 M${cx + 9} ${y} l 1.2 2.6" stroke="${mix(P.lip, skin, 0.25)}" stroke-width="1.3" stroke-linecap="round" opacity="0.8"/><path d="M${cx - 5} ${y + 5.6} Q ${cx} ${y + 8} ${cx + 5} ${y + 5.6}" stroke="${lc}" stroke-width="2" fill="none" opacity="0.55" stroke-linecap="round"/>`);
   } else if (P.mouth === 'soft') {
-    if (!open) out.push(`<path d="M${cx - 6} ${y + 4.6} Q ${cx} ${y + 9} ${cx + 6} ${y + 4.6}" stroke="${lc}" stroke-width="2.6" fill="none" opacity="0.6" stroke-linecap="round"/>`);
+    // (r13: a lower-lip tint, not a stripe — Hazel's red line under the mouth read as a cut)
+    if (!open) out.push(`<path d="M${cx - 5} ${y + 3.6} Q ${cx} ${y + 6.4} ${cx + 5} ${y + 3.6}" stroke="${mix(P.lip, skin, 0.5)}" stroke-width="2" fill="none" opacity="0.42" stroke-linecap="round"/>`);
   }
   return out.join('');
 }
@@ -312,7 +328,7 @@ function eye(id: string, x: number, y: number, side: -1 | 1, m: MoodParams, iris
   out.push(`<g clip-path="url(#${id}c${side})">`);
   // Lid shadow on the white
   out.push(`<path d="M${x - W} ${y - up + 1} L ${x + W} ${y - up + 1} L ${x + W} ${y - up + 5} Q ${x} ${y - up + 7} ${x - W} ${y - up + 5} Z" fill="${shade(skin, 0.7)}" opacity="0.35"/>`);
-  const k = cut.ik;
+  const k = cut.ik * (m.irisK ?? 1);
   out.push(`<ellipse cx="${ix}" cy="${iy}" rx="${6.6 * k}" ry="${8 * k}" fill="url(#${id}iris)"/>`);
   out.push(`<ellipse cx="${ix}" cy="${iy}" rx="${6.6 * k}" ry="${8 * k}" fill="none" stroke="${shade(iris, 0.45)}" stroke-width="1.1"/>`);
   out.push(`<ellipse cx="${ix}" cy="${iy + 0.6}" rx="${3.1 * m.pupil * k}" ry="${4.2 * m.pupil * k}" fill="#1a1010"/>`);
@@ -323,7 +339,33 @@ function eye(id: string, x: number, y: number, side: -1 | 1, m: MoodParams, iris
     const ly = y - up + up * cut.lid * 1.7;
     out.push(`<path d="M${x - W - 2} ${y - up - 3} L ${x + W + 2} ${y - up - 3} L ${x + W + 2} ${ly - 1} Q ${x} ${ly + 2.2} ${x - W - 2} ${ly - 1} Z" fill="${shade(skin, 0.93)}"/>`);
   }
+  // r13 mood lids: the upper lid drops at the outer / inner corner (glare slants into the nose, sorrow
+  // droops outward, wistful half-lids) and the lower lid pushes up in a smile or a glare.
+  const H = up + low;
+  const xo = x + side * W;
+  const xi = x - side * W;
+  const lO = m.lidO ?? 0;
+  const lI = m.lidI ?? 0;
+  const lidOn = Math.max(lO, lI) > 0.2;
+  const yO = y - up + lO * H;
+  const yI = y - up + lI * H;
+  const ymid = (yO + yI) / 2 + 1.2 - Math.abs(lO - lI) * 1.5;
+  if (lO + lI > 0.01) out.push(`<path d="M${xo + side * 2} ${y - up - 4} L ${xo + side * 2} ${yO} Q ${x} ${ymid} ${xi - side * 2} ${yI} L ${xi - side * 2} ${y - up - 4} Z" fill="${shade(skin, 0.94)}"/><path d="M${xo} ${yO + 0.6} Q ${x} ${ymid + 0.6} ${xi} ${yI + 0.6}" stroke="${shade(skin, 0.62)}" stroke-width="2.4" fill="none" opacity="0.45"/>`);
+  const lu = m.lowUp ?? 0;
+  if (lu > 0.01) {
+    const yl0 = y + low - lu * H;
+    out.push(`<path d="M${x - W - 2} ${y + low + 4} L ${x - W - 2} ${y + low * 0.4} Q ${x} ${yl0 - 2.5} ${x + W + 2} ${y + low * 0.4} L ${x + W + 2} ${y + low + 4} Z" fill="${shade(skin, 0.97)}"/>`);
+  }
   out.push(`</g>`);
+  if (lidOn) {
+    // The lash line rides the dropped lid; the sclera's top becomes a soft lid crease.
+    out.push(`<path d="M${xo + side * 0.6} ${yO} Q ${x} ${ymid} ${xi - side * 0.4} ${yI}" stroke="${lash}" stroke-width="${(3.1 * lw).toFixed(2)}" fill="none" stroke-linecap="round"/>`);
+    out.push(`<path d="M${x - W - 0.5} ${yl + 0.5} Q ${x - W * 0.6} ${y - up - 0.8} ${x + side * 1} ${y - up - 0.8} Q ${x + W * 0.8} ${y - up * 0.9 - 0.8} ${x + W + 0.5} ${yr}" stroke="${shade(skin, 0.6)}" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.8"/>`);
+    if (lu > 0.01) out.push(`<path d="M${x - W * 0.8} ${y + low * 0.55} Q ${x} ${y + low - lu * H - 2.2} ${x + W * 0.8} ${y + low * 0.55}" stroke="${shade(skin, 0.6)}" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.8"/>`);
+    const oy2 = side > 0 ? yr : yl;
+    if (!P.gruff) out.push(`<path d="M${xo} ${Math.min(oy2, yO + 1)} l ${side * 2.6} ${-1.6}" stroke="${lash}" stroke-width="2" stroke-linecap="round"/>`);
+    return out.join('') + eyeAge(x, y, side, low, up, W, skin, old, P);
+  }
   // Lash line (thicker on the outer corner) + lower lid hint
   if (cut.lid > 0) {
     const ly = y - up + up * cut.lid * 1.7;
@@ -331,9 +373,15 @@ function eye(id: string, x: number, y: number, side: -1 | 1, m: MoodParams, iris
     out.push(`<path d="M${x - W - 0.5} ${yl + 0.5} Q ${x - W * 0.6} ${y - up - 0.8} ${x + side * 1} ${y - up - 0.8} Q ${x + W * 0.8} ${y - up * 0.9 - 0.8} ${x + W + 0.5} ${yr}" stroke="${shade(skin, 0.62)}" stroke-width="1.3" fill="none" stroke-linecap="round"/>`);
   } else out.push(`<path d="M${x - W - 0.5} ${yl + 0.5} Q ${x - W * 0.6} ${y - up - 0.8} ${x + side * 1} ${y - up - 0.8} Q ${x + W * 0.8} ${y - up * 0.9 - 0.8} ${x + W + 0.5} ${yr}" stroke="${lash}" stroke-width="${(3 * lw).toFixed(2)}" fill="none" stroke-linecap="round"/>`);
   const oy = side > 0 ? yr : yl;
-  out.push(`<path d="M${x + side * W} ${oy} l ${side * 3.2} ${-2.6}" stroke="${lash}" stroke-width="2.4" stroke-linecap="round"/>`);
-  if (lashes) out.push(`<path d="M${x + side * (W - 2.5)} ${oy - up * 0.55} l ${side * 2.8} ${-3}" stroke="${lash}" stroke-width="1.9" stroke-linecap="round"/><path d="M${x + side * (W + 0.5)} ${oy + 1.6} l ${side * 3.4} ${-0.6}" stroke="${lash}" stroke-width="1.6" stroke-linecap="round"/>`);
+  if (!P.gruff) out.push(`<path d="M${x + side * W} ${oy} l ${side * 3.2} ${-2.6}" stroke="${lash}" stroke-width="2.4" stroke-linecap="round"/>`);
+  if (lashes && !P.gruff) out.push(`<path d="M${x + side * (W - 2.5)} ${oy - up * 0.55} l ${side * 2.8} ${-3}" stroke="${lash}" stroke-width="1.9" stroke-linecap="round"/><path d="M${x + side * (W + 0.5)} ${oy + 1.6} l ${side * 3.4} ${-0.6}" stroke="${lash}" stroke-width="1.6" stroke-linecap="round"/>`);
   out.push(`<path d="M${x - W * 0.7} ${y + low - 0.5} Q ${x} ${y + low + 1.5} ${x + W * 0.7} ${y + low - 0.5}" stroke="${shade(skin, 0.62)}" stroke-width="${(1.1 + P.under * 0.5).toFixed(2)}" fill="none" opacity="0.7"/>`);
+  return out.join('') + eyeAge(x, y, side, low, up, W, skin, old, P);
+}
+
+/** Under-eye bags, the lid crease and crow's feet (shared by the open-eye and dropped-lid paths). */
+function eyeAge(x: number, y: number, side: -1 | 1, low: number, up: number, W: number, skin: number, old: boolean, P: Persona): string {
+  const out: string[] = [];
   // Under-eye structure: a second, softer crescent (bags / a tired lower lid) for the older faces.
   if (P.under >= 0.5) out.push(`<path d="M${x - W * 0.75} ${y + low + 2.6} Q ${x + side * 1} ${y + low + 6 + P.under * 1.6} ${x + W * 0.75} ${y + low + 2.2}" stroke="${shade(skin, 0.7)}" stroke-width="1" fill="none" opacity="${(0.35 + P.under * 0.3).toFixed(2)}" stroke-linecap="round"/>`);
   // Crease above the lid
@@ -371,27 +419,41 @@ function brow(x: number, y: number, side: -1 | 1, m: MoodParams, color: string, 
 }
 
 function mouth(mood: Mood, cx: number, y: number, skin: number, beard: boolean): string {
+  // (r13: through a full beard the mouth is a lip window — a warm lip pad cut into the hair — with a
+  // near-black interior, so Bram's snarl, frown and grin read at card size instead of sinking into
+  // the brown; every mood has its own mouth SHAPE: gritted teeth, a wobbling frown, an open worry.)
   const lip = shade(skin, 0.62);
-  const dark = '#5a1e1a';
+  const dark = beard ? '#240a08' : '#5a1e1a';
+  const pad = mix(skin, 0xc8605a, 0.42);
+  const open = mood === 'happy' || mood === 'laugh' || mood === 'surprised' || mood === 'angry' || mood === 'worried';
+  const win = beard ? (open ? `<ellipse cx="${cx}" cy="${y + (mood === 'laugh' ? 5 : 3.2)}" rx="${mood === 'laugh' ? 17 : 14.5}" ry="${mood === 'laugh' ? 12 : mood === 'surprised' ? 10.5 : 8.5}" fill="${pad}" stroke="${mix(skin, 0x4a1a10, 0.5)}" stroke-width="1"/>` : `<ellipse cx="${cx}" cy="${y + 3}" rx="11.5" ry="5.2" fill="${pad}"/>`) : '';
   switch (mood) {
     case 'happy':
-      return `<path d="M${cx - 11} ${y - 1} Q ${cx} ${y + 13} ${cx + 11} ${y - 1} Q ${cx} ${y + 3} ${cx - 11} ${y - 1} Z" fill="${dark}" stroke="${dark}" stroke-width="1.6" stroke-linejoin="round"/><path d="M${cx - 8} ${y + 0.4} Q ${cx} ${y + 3.4} ${cx + 8} ${y + 0.4} L ${cx + 7} ${y + 2.6} Q ${cx} ${y + 4.6} ${cx - 7} ${y + 2.6} Z" fill="#fff"/><path d="M${cx - 5} ${y + 8} Q ${cx} ${y + 5} ${cx + 5} ${y + 8}" fill="#e87a6a"/>`;
+      return win + `<path d="M${cx - 11} ${y - 1} Q ${cx} ${y + 13} ${cx + 11} ${y - 1} Q ${cx} ${y + 3} ${cx - 11} ${y - 1} Z" fill="${dark}" stroke="${dark}" stroke-width="1.6" stroke-linejoin="round"/><path d="M${cx - 8} ${y + 0.4} Q ${cx} ${y + 3.4} ${cx + 8} ${y + 0.4} L ${cx + 7} ${y + 2.6} Q ${cx} ${y + 4.6} ${cx - 7} ${y + 2.6} Z" fill="#fff"/><path d="M${cx - 5} ${y + 8} Q ${cx} ${y + 5} ${cx + 5} ${y + 8}" fill="#e87a6a"/>`;
     case 'laugh':
-      return `<path d="M${cx - 14} ${y - 3} Q ${cx} ${y + 19} ${cx + 14} ${y - 3} Q ${cx} ${y + 1} ${cx - 14} ${y - 3} Z" fill="${dark}" stroke="${dark}" stroke-width="1.6" stroke-linejoin="round"/><path d="M${cx - 10} ${y - 1} Q ${cx} ${y + 2} ${cx + 10} ${y - 1} L ${cx + 9} ${y + 1.8} Q ${cx} ${y + 4.4} ${cx - 9} ${y + 1.8} Z" fill="#fff"/><path d="M${cx - 7} ${y + 12} Q ${cx} ${y + 6} ${cx + 7} ${y + 12} Q ${cx} ${y + 15} ${cx - 7} ${y + 12} Z" fill="#e8766a"/>`;
+      return win + `<path d="M${cx - 14} ${y - 3} Q ${cx} ${y + 19} ${cx + 14} ${y - 3} Q ${cx} ${y + 1} ${cx - 14} ${y - 3} Z" fill="${dark}" stroke="${dark}" stroke-width="1.6" stroke-linejoin="round"/><path d="M${cx - 10} ${y - 1} Q ${cx} ${y + 2} ${cx + 10} ${y - 1} L ${cx + 9} ${y + 1.8} Q ${cx} ${y + 4.4} ${cx - 9} ${y + 1.8} Z" fill="#fff"/><path d="M${cx - 7} ${y + 12} Q ${cx} ${y + 6} ${cx + 7} ${y + 12} Q ${cx} ${y + 15} ${cx - 7} ${y + 12} Z" fill="#e8766a"/>`;
     case 'sad':
-      return `<path d="M${cx - 8} ${y + 5} Q ${cx} ${y - 2} ${cx + 8} ${y + 5}" stroke="${dark}" stroke-width="2.6" fill="none" stroke-linecap="round"/>`;
-    case 'angry':
-      return `<path d="M${cx - 9} ${y + 3} Q ${cx} ${y - 3} ${cx + 9} ${y + 3} L ${cx + 8} ${y + 6} Q ${cx} ${y + 2} ${cx - 8} ${y + 6} Z" fill="${dark}" stroke="${dark}" stroke-width="1.4" stroke-linejoin="round"/><path d="M${cx - 6} ${y + 2.2} L ${cx + 6} ${y + 2.2}" stroke="#fff" stroke-width="1.8"/>`;
+      // a frown with a trembling lower lip
+      return win + `<path d="M${cx - 9.5} ${y + 6.5} Q ${cx} ${y - 2.5} ${cx + 9.5} ${y + 6.5}" stroke="${dark}" stroke-width="2.8" fill="none" stroke-linecap="round"/><path d="M${cx - 5} ${y + 6.4} q 2.5 1.6 5 0.2 q 2.5 1.6 5 -0.2" stroke="${mix(skin, 0x8a3028, 0.5)}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.8"/>`;
+    case 'angry': {
+      // gritted teeth: a wide down-cornered slot, upper + lower teeth meeting, tooth gaps
+      const tp = `M${cx - 11.5} ${y + 2.2} Q ${cx} ${y - 3} ${cx + 11.5} ${y + 2.2} L ${cx + 12.5} ${y + 8.8} Q ${cx} ${y + 4.6} ${cx - 12.5} ${y + 8.8} Z`;
+      return win + `<path d="${tp}" fill="#fffaf0" stroke="${dark}" stroke-width="2.4" stroke-linejoin="round"/><path d="M${cx - 11.8} ${y + 5.4} Q ${cx} ${y + 1.4} ${cx + 11.8} ${y + 5.4}" stroke="${dark}" stroke-width="1.5" fill="none"/><path d="M${cx - 6} ${y - 0.4} L ${cx - 6.4} ${y + 7} M${cx - 1.8} ${y - 1.3} L ${cx - 1.8} ${y + 5.8} M${cx + 2.4} ${y - 1.2} L ${cx + 2.6} ${y + 5.9} M${cx + 6.6} ${y - 0.2} L ${cx + 7} ${y + 7.2}" stroke="${mix(0xfffaf0, 0x5a3a2a, 0.55)}" stroke-width="1"/>`;
+    }
     case 'surprised':
-      return `<ellipse cx="${cx}" cy="${y + 3}" rx="5.6" ry="7" fill="${dark}"/><ellipse cx="${cx}" cy="${y + 6.5}" rx="3.4" ry="2.4" fill="#e8766a"/>`;
+      return win + `<ellipse cx="${cx}" cy="${y + 3.5}" rx="6.2" ry="8" fill="${dark}"/><ellipse cx="${cx}" cy="${y + 7.5}" rx="3.6" ry="2.6" fill="#e8766a"/>`;
     case 'blush':
-      return `<path d="M${cx - 7} ${y + 1} q 3.5 3 7 0 q 3.5 3 7 0" stroke="${dark}" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+      return win + `<path d="M${cx - 7} ${y + 1} q 3.5 3 7 0 q 3.5 3 7 0" stroke="${dark}" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
     case 'worried':
-      return `<path d="M${cx - 9} ${y + 3} q 3 -3.5 6 0 q 3 3.5 6 0 q 3 -3.5 6 0" stroke="${dark}" stroke-width="2.3" fill="none" stroke-linecap="round"/>`;
+      // a small open, crooked mouth (teeth on edge)
+      return win + `<path d="M${cx - 9} ${y + 4} q 4.5 -5 9 -1.6 q 4.5 -3.4 9 1.6 q -1 4.5 -9 4.2 q -8 0.3 -9 -4.2 Z" fill="${dark}" stroke="${dark}" stroke-width="1.4" stroke-linejoin="round"/><path d="M${cx - 6} ${y + 2.6} q 3 -2.4 6 -0.8 q 3 -1.6 6 0.8" stroke="#fffaf0" stroke-width="1.6" fill="none"/>`;
     case 'thinking':
-      return `<path d="M${cx - 2} ${y + 2.5} Q ${cx + 5} ${y + 0} ${cx + 10} ${y + 1.5}" stroke="${dark}" stroke-width="2.5" fill="none" stroke-linecap="round"/>`;
+      return win + `<path d="M${cx - 3} ${y + 3} Q ${cx + 4} ${y + 0.5} ${cx + 10} ${y + 1}" stroke="${dark}" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M${cx - 4} ${y + 3.2} l -1.6 -1" stroke="${dark}" stroke-width="1.6" stroke-linecap="round"/>`;
+    case 'wistful':
+      // a soft, lopsided closed smile
+      return win + `<path d="M${cx - 7} ${y + 1.6} Q ${cx + 0.5} ${y + 5.6} ${cx + 7.5} ${y + 0.2}" stroke="${dark}" stroke-width="2.4" fill="none" stroke-linecap="round"/>`;
     default:
-      return `<path d="M${cx - 8} ${y + 1} Q ${cx} ${y + 6} ${cx + 8} ${y + 1}" stroke="${dark}" stroke-width="2.6" fill="none" stroke-linecap="round"/>${beard ? '' : `<path d="M${cx - 3} ${y + 7.5} Q ${cx} ${y + 8.6} ${cx + 3} ${y + 7.5}" stroke="${lip}" stroke-width="1.2" fill="none" opacity="0.6"/>`}`;
+      return win + `<path d="M${cx - 8} ${y + 1.6} Q ${cx} ${y + 4.4} ${cx + 8} ${y + 1.6}" stroke="${dark}" stroke-width="2.6" fill="none" stroke-linecap="round"/>${beard ? '' : `<path d="M${cx - 3} ${y + 7.5} Q ${cx} ${y + 8.6} ${cx + 3} ${y + 7.5}" stroke="${lip}" stroke-width="1.2" fill="none" opacity="0.6"/>`}`;
   }
 }
 
@@ -565,7 +627,7 @@ function frontHair(id: string, L: NpcLook, f: Face): string {
         strands(`M${cx - 30} ${t + 8} Q ${cx - 4} ${t - 4} ${cx + 22} ${t + 6}`)
       );
     case 'cap':
-      return `<path d="M${cx - w - 2} ${t + 54} Q ${cx - w - 2} ${t + 30} ${cx - w + 8} ${t + 22} L ${cx - w + 16} ${t + 24} Q ${cx - w + 8} ${t + 36} ${cx - w + 6} ${t + 54} Z M${cx + w + 2} ${t + 54} Q ${cx + w + 2} ${t + 30} ${cx + w - 8} ${t + 22} L ${cx + w - 16} ${t + 24} Q ${cx + w - 8} ${t + 36} ${cx + w - 6} ${t + 54} Z M${cx - 26} ${t + 22} Q ${cx - 14} ${t + 34} ${cx - 4} ${t + 24} Q ${cx + 8} ${t + 32} ${cx + 20} ${t + 23} Z" fill="${H}" ${s}/>` + `<rect x="${cx - w - 4}" y="${t + 8}" width="${2 * w + 8}" height="18" rx="7" fill="#f3ece0" stroke="${ink(0xf3ece0)}" stroke-width="1.6"/>` + `<path d="M${cx - w - 10} ${t + 12} Q ${cx - w - 16} ${t - 30} ${cx - 22} ${t - 36} Q ${cx - 2} ${t - 54} ${cx + 22} ${t - 38} Q ${cx + w + 18} ${t - 34} ${cx + w + 10} ${t + 12} Z" fill="#fbf7ee" stroke="${ink(0xfbf7ee)}" stroke-width="1.8"/>` + `<path d="M${cx - 30} ${t - 14} Q ${cx - 12} ${t - 30} ${cx + 4} ${t - 20} M${cx + 8} ${t - 26} Q ${cx + 22} ${t - 30} ${cx + 30} ${t - 14}" stroke="#e6dccb" stroke-width="3.2" fill="none" stroke-linecap="round"/>`;
+      return `<path d="M${cx - w - 2} ${t + 54} Q ${cx - w - 2} ${t + 30} ${cx - w + 8} ${t + 22} L ${cx - w + 16} ${t + 24} Q ${cx - w + 8} ${t + 36} ${cx - w + 6} ${t + 54} Z M${cx + w + 2} ${t + 54} Q ${cx + w + 2} ${t + 30} ${cx + w - 8} ${t + 22} L ${cx + w - 16} ${t + 24} Q ${cx + w - 8} ${t + 36} ${cx + w - 6} ${t + 54} Z M${cx - 26} ${t + 22} Q ${cx - 14} ${t + 34} ${cx - 4} ${t + 24} Q ${cx + 8} ${t + 32} ${cx + 20} ${t + 23} Z" fill="${H}" ${s}/>` + `<g transform="translate(0 -7)"><rect x="${cx - w - 4}" y="${t + 8}" width="${2 * w + 8}" height="18" rx="7" fill="#f3ece0" stroke="${ink(0xf3ece0)}" stroke-width="1.6"/>` + `<path d="M${cx - w - 10} ${t + 12} Q ${cx - w - 16} ${t - 30} ${cx - 22} ${t - 36} Q ${cx - 2} ${t - 54} ${cx + 22} ${t - 38} Q ${cx + w + 18} ${t - 34} ${cx + w + 10} ${t + 12} Z" fill="#fbf7ee" stroke="${ink(0xfbf7ee)}" stroke-width="1.8"/>` + `<path d="M${cx - 30} ${t - 14} Q ${cx - 12} ${t - 30} ${cx + 4} ${t - 20} M${cx + 8} ${t - 26} Q ${cx + 22} ${t - 30} ${cx + 30} ${t - 14}" stroke="#e6dccb" stroke-width="3.2" fill="none" stroke-linecap="round"/></g>`;
     case 'curly': {
       const c: string[] = [];
       for (let i = 0; i < 9; i++) {
@@ -885,6 +947,10 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   // Value plate (r7: Odessa's brown face on a brown forge): the backdrop is pushed ≥ .3 in value away
   // from the skin — a cool pale wash behind deep skin, the place's own hue sunk dark behind light skin.
   p.push(`<rect width="200" height="200" fill="url(#${id}plate)"/>`);
+  // (r13 critic: Odessa's night heart event kept a pale daytime card) — the place sinks into a
+  // blue-violet night (or a rose dusk) behind the bust; the face gets a warm lamp key further down.
+  if (portraitLight !== 'day') p.push(`<rect width="200" height="200" fill="${portraitLight === 'night' ? '#2a2c6e' : '#8a4a7a'}" opacity="${portraitLight === 'night' ? 0.62 : 0.3}" style="mix-blend-mode:multiply"/>`);
+  if (portraitLight === 'night') p.push(`<g opacity="0.85">${[[34, 40, 2.4], [160, 30, 3], [178, 70, 1.8], [22, 96, 2], [150, 54, 1.4]].map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r! * 2.6}" fill="#ffc870" opacity="0.18"/><circle cx="${x}" cy="${y}" r="${r}" fill="#ffe2a0"/>`).join('')}</g>`);
   if (mood === 'surprised' || mood === 'laugh')
     p.push(`<g opacity="${mood === 'surprised' ? 0.45 : 0.3}" stroke="#fffbe8" stroke-width="4" stroke-linecap="round">${Array.from({ length: 14 }, (_, i) => {
       const a = (i / 14) * Math.PI * 2 + 0.2;
@@ -968,7 +1034,7 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   // Blush: soft gradient ovals only (r7: stroked blush read as scrapes), stronger for rosy-cheeked
   // villagers, a wide warm flush across the nose when shy, a hot wash when angry.
   const cheekK = Math.min(1.3, Math.max(0.35, (L.fp?.cheeks ?? 0.6) / 0.6));
-  const bo = Math.min(1, m.blush * (mood === 'blush' || mood === 'angry' ? 1 : cheekK));
+  const bo = P.gruff && mood !== 'blush' && mood !== 'laugh' ? 0 : Math.min(1, m.blush * (mood === 'blush' || mood === 'angry' ? 1 : cheekK));
   for (const sx of [-1, 1]) p.push(`<ellipse cx="${X(sx * 27)}" cy="${eyeY + 15}" rx="${(11 + m.blush * 3) * WS(sx * 27)}" ry="${6.5 + m.blush * 1.5}" fill="url(#${id}bl)" opacity="${bo}"/>`);
   if (mood === 'blush') p.push(`<ellipse cx="${X(0, 6)}" cy="${eyeY + 15}" rx="${f.w * 0.7}" ry="7" fill="url(#${id}bl)" opacity="0.45"/>`);
   // (r12: anger flushes — a hot wash over the nose bridge and upper cheeks, a shadowed brow ridge)
@@ -1000,15 +1066,22 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   const browC = lightHair ? shade(hair, 0.68) : shade(hair, 0.85);
   const browT = (2.6 + 2.3 * Math.min(1.7, Math.max(0.6, L.brow ?? 1))) * (kid ? 1.05 : 1) + (mood === 'angry' ? 1.2 : 0);
   const arch = L.browArch ?? 0.2;
+  const browSvg: string[] = [];
   const lidTop = cut.up * m0.open * es + (cut.lid > 0 ? 0 : 0);
   for (const side of [-1, 1] as const) {
     let by = eyeY - Math.max(18, cut.up * es + 6) - (side === -1 ? Math.max(0, P.asym) : Math.max(0, -P.asym)) * 3;
     const b0 = browShape(side * ex, by, side, m, browT, arch);
-    const clear = eyeY - (m.closed ? 4 : lidTop) - 2.2;
+    // (a dropped lid lowers the visible eye top, so a glaring brow may come down onto it)
+    const lidDrop = m.closed ? 0 : Math.max(m.lidO ?? 0, m.lidI ?? 0) * (lidTop + cut.low * es) * 0.6;
+    const clear = eyeY - (m.closed ? 4 : lidTop) - 2.2 + lidDrop;
     if (b0.low > clear) by -= b0.low - clear;
-    this_brows.push({ side, low: browShape(side * ex, by, side, m, browT, arch).low, eyeTop: eyeY - (m.closed ? 4 : lidTop) });
-    p.push(onHead(side * ex, brow(side * ex, by, side, m, browC, browT, arch, mix(hair, 0x1a0a06, 0.7)), 1));
+    this_brows.push({ side, low: browShape(side * ex, by, side, m, browT, arch).low, eyeTop: eyeY - (m.closed ? 4 : lidTop) + lidDrop });
+    browSvg.push(onHead(side * ex, brow(side * ex, by, side, m, browC, browT, arch, mix(hair, 0x1a0a06, 0.7)), 1));
   }
+  // (r13 critic: Bram's toque and Tobias's cap hid the brows — half the expression. Under a brim or a
+  // knit band the brows are drawn over it, inked, the way a cartoonist would.)
+  const browsOver = L.hairStyle === 'cap' || L.hat === 'flatcap' || L.hat === 'beanie' || L.hat === 'bandana';
+  if (!browsOver) p.push(browSvg.join(''));
   // Nose
   // Painted nose: soft shadow down the far side of the bridge, a nostril shade, a lit tip.
   const nk = L.fp?.nose ?? 'button';
@@ -1034,7 +1107,7 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   }
   const my = mouthY + (beard === 'full' || beard === 'mustache' ? 2 : 0);
   const mwk = Math.min(1.22, Math.max(0.8, L.fp?.mouth ?? 1));
-  p.push(`<g transform="translate(${(X(0, 2) - 100).toFixed(2)} 0) translate(100 ${my}) rotate(${(-P.asym * 5).toFixed(2)}) scale(${((1 - 0.28 * Math.sin(th)) * mwk).toFixed(3)} 1) translate(-100 ${-my})">${mouthPersona(P, mood, 100, my, skin)}${mouth(mood, 100, my, skin, !!beard)}</g>`);
+  p.push(`<g transform="translate(${(X(0, 2) - 100).toFixed(2)} 0) translate(100 ${my}) rotate(${(-P.asym * 5).toFixed(2)}) scale(${((1 - 0.28 * Math.sin(th)) * mwk).toFixed(3)} 1) translate(-100 ${-my})">${mouthPersona(P, mood, 100, my, skin)}${mouth(mood, 100, my, skin, beard === 'full' || beard === 'mustache')}</g>`);
   // Structure + age (r9): cheekbone shade, forehead lines, jowls, a signature smudge.
   {
     const lineC = mix(skin, 0x8a3028, 0.32);
@@ -1050,9 +1123,19 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
       const sy = sm.at === 'brow' ? f.top + 18 : eyeY + 17;
       const op = sm.kind === 'flour' ? 0.85 : sm.kind === 'paint' ? 0.8 : 0.5;
       // soot / dirt: a thin swipe of a thumb; flour / paint: a dab
-      if (sm.kind === 'soot' || sm.kind === 'dirt') g.push(`<path d="M${sx - 7} ${sy + 1} q 6 -3 13 -1" stroke="${css(sm.c)}" stroke-width="2.6" fill="none" opacity="${op}" stroke-linecap="round" filter="url(#${id}soft2)"/>`);
-      else g.push(`<path d="M${sx - 6} ${sy} q 3 -3 7 -1 q 4 1 5 4 q -5 2 -9 0 q -3 -1 -3 -3 Z" fill="${css(sm.c)}" opacity="${op}" filter="url(#${id}soft2)"/>`);
-      if (sm.kind === 'paint') g.push(`<circle cx="${sx + 9}" cy="${sy - 4}" r="1.6" fill="${css(0xe8574a)}" opacity="0.8"/>`);
+      // (r13: soot / soil as a grainy dry-brush smear with specks — a blurred stroke over the blush read
+      // as a red wound on Hazel's cheek)
+      if (sm.kind === 'soot' || sm.kind === 'dirt') {
+        const sc = sm.kind === 'dirt' ? mix(sm.c, 0x6a665a, 0.45) : css(sm.c);
+        g.push(`<path d="M${sx - 7} ${sy + 1} q 6 -2.4 13 -0.6" stroke="${sc}" stroke-width="2.2" fill="none" opacity="${(op * 0.8).toFixed(2)}" stroke-linecap="round" stroke-dasharray="2.2 1.1 3 1.4"/>`);
+        for (let i = 0; i < 5; i++) g.push(`<circle cx="${(sx - 5 + i * 3.1 + ((i * 7) % 3)).toFixed(1)}" cy="${(sy + 3 - ((i * 5) % 4) * 0.9).toFixed(1)}" r="${(0.55 + ((i * 3) % 3) * 0.25).toFixed(2)}" fill="${sc}" opacity="${(op * 0.9).toFixed(2)}"/>`);
+      }
+      else if (sm.kind === 'paint') {
+        // (r13: crisp brush swipes in two colours low on the cheek — the blurred blue dab under the eye
+        // read as a bruise)
+        g.push(`<path d="M${sx - 6} ${sy + 7} q 5 -2.6 11 -1.2" stroke="${css(sm.c)}" stroke-width="2.6" fill="none" stroke-linecap="round" opacity="0.92"/>`);
+        g.push(`<path d="M${sx - 3} ${sy + 10.5} q 4 -1.6 8 -0.4" stroke="#f2c43a" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.92"/>`);
+      } else g.push(`<path d="M${sx - 6} ${sy} q 3 -3 7 -1 q 4 1 5 4 q -5 2 -9 0 q -3 -1 -3 -3 Z" fill="${css(sm.c)}" opacity="${op}" filter="url(#${id}soft2)"/>`);
     }
     p.push(g.join(''));
   }
@@ -1079,6 +1162,7 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   }
   p.push(`</g>`);
   p.push(`<g transform="translate(${(d0 * 0.4).toFixed(2)} 0)">${hat(L, f)}</g>`);
+  if (browsOver) p.push(browSvg.join(''));
   p.push(`<g transform="translate(${hsx.toFixed(2)} 0)">`);
   if (acc.has('pencil')) p.push(`<path d="M${100 + f.w - 4} ${eyeY - 14} L ${100 + f.w + 20} ${eyeY - 30}" stroke="#f2c43a" stroke-width="5" stroke-linecap="round"/><path d="M${100 + f.w + 18} ${eyeY - 29} l 5 -3" stroke="#e8a0a0" stroke-width="5" stroke-linecap="round"/>`);
   if (acc.has('flower') && L.hat !== 'sunhat') p.push(`<circle cx="${100 - f.w + 6}" cy="${f.top + 16}" r="7" fill="#ff8fab" stroke="${ink(0xff8fab)}" stroke-width="1.2"/><circle cx="${100 - f.w + 6}" cy="${f.top + 16}" r="2.6" fill="#ffd166"/>`);
@@ -1114,6 +1198,12 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
     else if (pz.hand === 'chest') p.push(hand(100 + 6, 184 + pz.shoulders * 0.7, -6, skin, sleeve));
   }
   p.push(`</g></g></g>`);
+  if (portraitLight !== 'day') {
+    // warm lamp key from the lower left on the face, a cool moon rim down the far side
+    p.push(`<radialGradient id="${id}lk" cx="22%" cy="70%" r="70%"><stop offset="0" stop-color="#ffb860" stop-opacity="${portraitLight === 'night' ? 0.55 : 0.35}"/><stop offset="1" stop-color="#ffb860" stop-opacity="0"/></radialGradient>`);
+    p.push(`<rect width="200" height="200" fill="url(#${id}lk)" style="mix-blend-mode:soft-light"/>`);
+    if (portraitLight === 'night') p.push(`<rect x="0" y="0" width="200" height="200" fill="#6a78d8" opacity="0.12" style="mix-blend-mode:multiply"/>`);
+  }
   // Painted surface: brush streaks + fine canvas grain.
   p.push(`<rect width="200" height="200" filter="url(#${id}brush)" opacity="0.15" style="mix-blend-mode:soft-light"/>`);
   p.push(`<rect width="200" height="200" filter="url(#${id}grain)" opacity="0.13" style="mix-blend-mode:overlay"/>`);
@@ -1145,6 +1235,51 @@ export function auditPainted(looks: { id: string; look: NpcLook; bg: [number, nu
       if (a.faceH < 0.55) out.fails.push(`${k}: face only ${(a.faceH * 100).toFixed(0)} % of the card`);
       if (m === moods[0]) out.stats[v.id] = `skin ${a.skinL.toFixed(2)} back ${a.backL.toFixed(2)} face ${(a.faceH * 100).toFixed(0)}%×${(a.faceW * 100).toFixed(0)}%`;
     }
+  return out;
+}
+
+/**
+ * r13 expression-range gate (critic: "of 10 moods, 6 are nearly identical"): every mood's card is
+ * rasterised and its face region (the middle of the card) compared with the neutral card's; a mood
+ * whose mean per-channel difference is under `min` (0–255) fails. Painted cards only.
+ */
+export async function auditPortraitContrast(looks: { id: string; look: NpcLook; bg: [number, number] }[], moods: Mood[], min = 9): Promise<{ checked: number; fails: string[]; diff: Record<string, number> }> {
+  const S = 120;
+  const raster = (svg: string): Promise<Uint8ClampedArray> =>
+    new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = c.height = S;
+        const g = c.getContext('2d', { willReadFrequently: true })!;
+        g.drawImage(img, 0, 0, S, S);
+        res(g.getImageData(0, 0, S, S).data);
+      };
+      img.onerror = () => rej(new Error('svg raster failed'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace('<svg ', `<svg width="${S}" height="${S}" `));
+    });
+  const out = { checked: 0, fails: [] as string[], diff: {} as Record<string, number> };
+  // face region: the eyes, brows and mouth (fractions of the card)
+  const x0 = Math.round(S * 0.28), x1 = Math.round(S * 0.74), y0 = Math.round(S * 0.3), y1 = Math.round(S * 0.78);
+  for (const v of looks) {
+    const base = await raster(paintedPortraitSvg(v.look, v.bg, 'neutral'));
+    for (const m of moods) {
+      if (m === 'neutral') continue;
+      const d = await raster(paintedPortraitSvg(v.look, v.bg, m));
+      let sum = 0;
+      let n = 0;
+      for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) {
+          const i = (y * S + x) * 4;
+          sum += Math.abs(d[i]! - base[i]!) + Math.abs(d[i + 1]! - base[i + 1]!) + Math.abs(d[i + 2]! - base[i + 2]!);
+          n += 3;
+        }
+      const md = sum / n;
+      out.checked++;
+      out.diff[`${v.id}/${m}`] = Math.round(md * 10) / 10;
+      if (md < min) out.fails.push(`${v.id}/${m}: face differs from neutral by only ${md.toFixed(1)} / 255`);
+    }
+  }
   return out;
 }
 
