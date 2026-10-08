@@ -4234,6 +4234,19 @@ export class NpcSystem implements System {
       this.easels = { root, list };
     }
     const ownCanvas = this.eventProps.some((o) => o.name === 'painting' || o.userData.kind === 'painting');
+    // r10 (r7 critic: wren-2 showed the blank back of the canvas): a scene's painting keeps its face
+    // to the lens — when a cut leaves its back (or a hard edge-on view) to the camera it is turned
+    // round on its stand to face it (cuts hide the snap; small camera drifts never trigger it).
+    if (ownCanvas) {
+      const cam = this.game.rc.camera.position;
+      for (const o of this.eventProps) {
+        if (o.userData.kind !== 'painting') continue;
+        const dx = cam.x - o.position.x;
+        const dz = cam.z - o.position.z;
+        const l = Math.hypot(dx, dz) || 1;
+        if ((Math.sin(o.rotation.y) * dx + Math.cos(o.rotation.y) * dz) / l < 0.5) o.rotation.y = Math.atan2(dx, dz) - 0.25;
+      }
+    }
     for (const e of this.easels.list) {
       let on = false;
       if (ownCanvas) {

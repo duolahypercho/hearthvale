@@ -146,6 +146,8 @@ const mixHex = (a: number, b: number, t: number): number => new THREE.Color(a).l
  * the ridges — reads as combed, clumped hair (chibi figurine style), not a plastic helmet.
  * Seam at the back; azimuth 0 = the face.
  */
+/** Headscarf tilt (r10: -0.5 -> -0.34, it sat on the back of the crown over a bare dome of forehead). */
+const BANDANA_TILT = -0.34;
 function hairShell(r: number, thetaStart: number, thetaLen: number, grooves: number, depth: number, scallop: number, seed = 0, twist = 0.9): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(r, SEGK === 1 ? Math.max(24, grooves * 4) : Math.max(16, grooves * 2), SEGK === 1 ? 14 : 8, 0, Math.PI * 2, thetaStart, thetaLen);
   g.rotateY(-Math.PI / 2);
@@ -1143,10 +1145,14 @@ export class Villager {
       }
       rb.add(B.head, bg, H(0, R * 0.5, R * 0.62), L.hair);
       // Moustache as two sweeping wings over the hollow (not one bar).
+      // (r10: a pale moustache droops as a soft walrus, flattened against the lip and a shade darker
+      // than the beard — Tobias's upswept white wings read as tusks flanking a white nose)
+      const paleB = ((L.hair >> 16) & 255) + ((L.hair >> 8) & 255) + (L.hair & 255) > 560;
       for (const sx of [-1, 1]) {
         const st = capG(0.03, 0.075, 3, 8);
-        st.rotateZ(Math.PI / 2 + sx * 0.32);
-        rb.add(B.head, st, H(sx * 0.048, R * 0.76, R * 1.0), shadeHex(L.hair, 0.92));
+        st.rotateZ(Math.PI / 2 + sx * (paleB ? -0.38 : 0.32));
+        if (paleB) st.scale(1.05, 1.0, 0.62);
+        rb.add(B.head, st, H(sx * (paleB ? 0.052 : 0.048), R * (paleB ? 0.72 : 0.76), R * (paleB ? 0.97 : 1.0)), shadeHex(L.hair, paleB ? 0.84 : 0.92));
       }
     } else if (beard === 'mustache') {
       for (const sx of [-1, 1]) {
@@ -1410,7 +1416,16 @@ export class Villager {
       // (under a beanie the shell stops above the eyes: r6 Rowan's temple locks hung over the far eye)
       // (r8: under a beanie it stops above the ear — the side of the shell read as a dark disc on the cheek)
       const cap = hairShell(R * (scarf ? 1.035 : 1.07), top, (L.hat === 'beanie' ? Math.PI * 0.38 : Math.PI * 0.55) - top, gv, top > 0 ? dp * 0.4 : dp, scarf ? 0.02 : top > 0 || hatted ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw);
-      rb.add(B.head, cap, scarf ? H(0, R * 0.98, -0.03, -0.5, 0, 0, 0.97, 0.76, 0.98) : H(0, R * 0.98, -0.02, -0.25, 0, 0), hair);
+      // (r10: under a flat cap the shell tips further back — its front edge ran across the forehead
+      // under the brim as a white sweatband on Tobias)
+      rb.add(B.head, cap, scarf ? H(0, R * 0.98, -0.03, BANDANA_TILT, 0, 0, 0.97, 0.76, 0.98) : H(0, R * 0.98, -0.02, L.hat === 'flatcap' ? -0.64 : -0.25, 0, 0), hair);
+      if (scarf) {
+        // r10: a visible hairline under the scarf's hem — the hair shell sat inside the skull at the
+        // front, so the scarf floated on a bald egg (r7 critic: Odessa "a featureless brown sphere").
+        const polar = Math.PI * 0.44;
+        const band = hairShell(R * 1.05, polar - 0.06, 0.34, 18, 0.02, 0.05, (L.hair % 89) * 0.11, 0.3);
+        rb.add(B.head, band, H(0, R * 0.98, -0.03, BANDANA_TILT, 0, 0), hair);
+      }
       // A glossy sheen band across the crown (reads as combed, not a plastic dome) and a darker
       // underlayer at the nape.
       // (the sheen band is painted into the shell's tone, across the ridges)
@@ -1700,7 +1715,7 @@ export class Villager {
       case 'bandana': {
         // A knotted headscarf hugging the crown: tilted back so the hairline and temples show (not a
         // helmet), flat printed polka dots (as in the portrait), a rolled hem, a knot and two tails.
-        const tilt = -0.5;
+        const tilt = BANDANA_TILT;
         const rr = R * 1.075;
         const polar = Math.PI * 0.44;
         const T = (): THREE.Matrix4 => H(0, R * 0.98, -0.03, tilt, 0, 0);

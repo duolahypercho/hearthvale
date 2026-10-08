@@ -776,8 +776,17 @@ export function valuePlate(skin: number, bg: [number, number], kind?: Backdrop):
     c = 0xe4ecf4;
     target = Math.min(0.9, sk + 0.34);
   } else {
-    // (the backdrop's darker stop, sunk to a deep tone of its own hue)
-    const h = bg[1];
+    // (the backdrop's darker stop, sunk to a deep tone of its own hue — r10: unless that hue sits
+    // within 45° of the skin's, when a deep cool slate takes its place: Bram's tan face on a sunk
+    // bakery-orange plate was brown on brown, no figure-ground)
+    const hue = (x: number): number => {
+      const r = ((x >> 16) & 255) / 255, g = ((x >> 8) & 255) / 255, b = (x & 255) / 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn || 1e-6;
+      const H = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (H * 60 + 360) % 360;
+    };
+    const dh = Math.abs(hue(bg[1]) - hue(skin));
+    const h = Math.min(dh, 360 - dh) < 45 ? 0x4a6a8a : bg[1];
     const k = 0.26 / Math.max(0.05, lum(h));
     c = (Math.min(255, Math.round(((h >> 16) & 255) * k)) << 16) | (Math.min(255, Math.round(((h >> 8) & 255) * k)) << 8) | Math.min(255, Math.round((h & 255) * k));
     target = Math.max(0.14, sk - 0.4);
