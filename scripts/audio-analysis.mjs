@@ -430,10 +430,10 @@ export async function calibrate(themes, call, { root, seconds: secs = OPENING_SE
   const toneSrc = /@tone-begin[\s\S]*@tone-end/.exec(src)?.[0] ?? '';
   const toneCur = {};
   for (const m of toneSrc.matchAll(/'([^']+)': \[(-?[\d.]+), (-?[\d.]+)\]/g)) toneCur[m[1]] = [Number(m[2]), Number(m[3])];
-  const house = { day: { low: -7, high: -9 }, soft: { low: -6, high: -11 } };
-  const hb = /TONE_HOUSE = \{ day: \{ low: (-?[\d.]+), high: (-?[\d.]+) \}, soft: \{ low: (-?[\d.]+), high: (-?[\d.]+) \} \}/.exec(src);
-  if (hb) Object.assign(house, { day: { low: +hb[1], high: +hb[2] }, soft: { low: +hb[3], high: +hb[4] } });
-  const fam = (id) => (id.startsWith('mine') ? null : /^(night|rain|event-|inn)/.test(id) ? 'soft' : 'day');
+  const house = { day: { low: -7, high: -9 }, soft: { low: -6, high: -11 }, cave: { low: -6, high: -12 } };
+  const hblock = /TONE_HOUSE = \{(.*)\};/.exec(src)?.[1] ?? '';
+  for (const m of hblock.matchAll(/(\w+): \{ low: (-?[\d.]+), high: (-?[\d.]+) \}/g)) house[m[1]] = { low: +m[2], high: +m[3] };
+  const fam = (id) => (id.startsWith('mine') ? 'cave' : /^(night|rain|event-|inn)/.test(id) ? 'soft' : 'day');
   const corr = (id) => {
     const m = toneCur[id];
     const f = fam(id);

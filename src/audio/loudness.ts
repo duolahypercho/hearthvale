@@ -39,8 +39,8 @@ export const MEASURED_LUFS: Record<string, number> = {
   'forest': -22.8,
   'forest-2': -24.1,
   'inn': -23.4,
-  'mine': -29.1,
-  'mine-ice': -23.5,
+  'mine': -28.8,
+  'mine-ice': -23.3,
   'mine-lava': -28.4,
   'night': -25.8,
   'night-fall': -21.6,
@@ -83,10 +83,14 @@ export function loudnessTrim(id: string): number {
  * house curve of its family (day songs; the darker lullabies / rain / event cues), so a playlist sits
  * within ±2 dB. MEASURED_TONE holds the UNcorrected ratios [low, high].
  */
-export const TONE_HOUSE = { day: { low: -7, high: -9 }, soft: { low: -6, high: -11 } };
-/** Family of a theme for its house curve (null = left as arranged: the mines' ambient drones). */
+export const TONE_HOUSE = { day: { low: -7, high: -9 }, soft: { low: -6, high: -11 }, cave: { low: -6, high: -12 } };
+/**
+ * Family of a theme for its house curve. (Round 6: the mines get their own 'cave' curve — 3 dB darker
+ * than the day — instead of none: left as arranged they sat 4-9 dB under the day's top, mine-lava a
+ * muffled -17.7 dB re mid, a different record from the farm's.)
+ */
 export function toneFamily(id: string): keyof typeof TONE_HOUSE | null {
-  if (id.startsWith('mine')) return null;
+  if (id.startsWith('mine')) return 'cave';
   return /^(night|rain|event-|inn)/.test(id) ? 'soft' : 'day';
 }
 
@@ -111,9 +115,9 @@ export const MEASURED_TONE: Record<string, [number, number]> = {
   'forest': [-5.9, -8.9],
   'forest-2': [-7.5, -8.5],
   'inn': [-6.8, -8.4],
-  'mine': [-7.1, -16.1],
-  'mine-ice': [-11.6, -13.2],
-  'mine-lava': [-4, -17.7],
+  'mine': [-7.1, -16.7],
+  'mine-ice': [-11.2, -13.2],
+  'mine-lava': [-4.2, -18.7],
   'night': [-4.3, -14.4],
   'night-fall': [-5.7, -12.2],
   'night-spring': [-6.3, -16.2],

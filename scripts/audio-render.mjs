@@ -54,7 +54,13 @@ import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biqua
  * calibration in src/audio/loudness.ts TONE_TRIM applies the correcting shelves). In dB re 0.5–2.5 kHz.
  */
 const HOUSE = { low: -6, lowmid: -3, high: -9 };
-const toneDeviation = (t) => Math.max(Math.abs(t.low - HOUSE.low), Math.abs(t.high - HOUSE.high));
+/** (Round 6: judged against the song's own family curve — loudness.ts TONE_HOUSE: day / soft / cave.) */
+const FAMILY_HOUSE = { day: { low: -7, high: -9 }, soft: { low: -6, high: -11 }, cave: { low: -6, high: -12 } };
+const familyOf = (id) => (id.startsWith('mine') ? 'cave' : /^(night|rain|event-|inn)/.test(id) ? 'soft' : 'day');
+const toneDeviation = (t, id = '') => {
+  const h = id ? FAMILY_HOUSE[familyOf(id)] : HOUSE;
+  return Math.max(Math.abs(t.low - h.low), Math.abs(t.high - h.high));
+};
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // --out <dir> renders somewhere other than shots/audio (e.g. a critic's own folder).
@@ -362,7 +368,7 @@ async function main() {
             a.tone = bandRatios(inter, res.sampleRate, OPENING_SECONDS);
             // (Root / pedal patterns hold their notes; a waltz's oom-pah bass lifts after beat 1 by design.)
             if (holes.count > 0 && ['root', 'pedal'].includes(piece.bass ?? '')) extraFlags.push(`BASS-HOLE(${holes.count}, ${holes.worstDb} dB)`);
-            const dev = toneDeviation(a.tone);
+            const dev = toneDeviation(a.tone, job.name.replace(/^theme-/, ''));
             if (dev > 3) extraFlags.push(`TONE(${dev.toFixed(1)} dB off the house curve)`);
           }
           if (args.plots) {
