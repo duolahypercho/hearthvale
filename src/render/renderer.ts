@@ -66,6 +66,72 @@ function programTwin(m: THREE.Material, o: THREE.Object3D, geo?: THREE.BufferGeo
   return t;
 }
 
+/**
+ * Transparent DoubleSide meshes draw twice in three (back faces, then front faces) and flip
+ * `material.needsUpdate` around each half, so every frame they re-derive their program twice
+ * (getParameters + cache key: ~3 KB of garbage per pass; the interior sun pools and door spill were
+ * 8 a frame) and spend a second draw call. A single flat polygon (all faces in one plane) shows only
+ * one side to any eye, so the back-face pass draws nothing and one pass is pixel-identical (perf r16):
+ * `forceSinglePass` for every such material whose users are all rigid planar meshes. Points / lines
+ * (no facing: two passes draw them twice), skinned / morphed and dynamic-usage geometry are left alone.
+ */
+const planarCache = new WeakMap<THREE.BufferGeometry, boolean>();
+function isPlanar(geo: THREE.BufferGeometry): boolean {
+  const cached = planarCache.get(geo);
+  if (cached !== undefined) return cached;
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute | undefined;
+  let ok = !!pos && pos.usage !== THREE.DynamicDrawUsage && !geo.morphAttributes.position && pos.count <= 4096;
+  if (ok && pos) {
+    const idx = geo.index;
+    const n = idx ? idx.count : pos.count;
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const f = new THREE.Vector3();
+    const n0 = new THREE.Vector3();
+    let have = false;
+    for (let t = 0; ok && t + 2 < n; t += 3) {
+      a.fromBufferAttribute(pos, idx ? idx.getX(t) : t);
+      b.fromBufferAttribute(pos, idx ? idx.getX(t + 1) : t + 1);
+      c.fromBufferAttribute(pos, idx ? idx.getX(t + 2) : t + 2);
+      f.subVectors(c, b).cross(a.sub(b));
+      const L = f.length();
+      if (L < 1e-9) continue;
+      f.divideScalar(L);
+      if (!have) {
+        n0.copy(f);
+        have = true;
+      } else if (f.dot(n0) < 0.99999) ok = false;
+    }
+    ok = ok && have;
+  }
+  planarCache.set(geo, ok);
+  return ok;
+}
+const forcedSingle = new WeakSet<THREE.Material>();
+function singlePassFlatTransparents(root: THREE.Object3D): number {
+  const verdict = new Map<THREE.Material, boolean>();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.material) return;
+    const plain = m.isMesh && !(m as unknown as THREE.SkinnedMesh).isSkinnedMesh && !m.morphTargetInfluences;
+    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+      if (!mat || !mat.transparent || mat.side !== THREE.DoubleSide || (mat.forceSinglePass && !forcedSingle.has(mat))) continue;
+      const ok = plain && isPlanar(m.geometry);
+      verdict.set(mat, (verdict.get(mat) ?? true) && ok);
+    }
+  });
+  let n = 0;
+  // A shared material forced on one map and met on a non-flat mesh later goes back to two passes.
+  for (const [mat, ok] of verdict) {
+    if (ok) forcedSingle.add(mat);
+    else forcedSingle.delete(mat);
+    mat.forceSinglePass = ok;
+    n += ok ? 1 : 0;
+  }
+  return n;
+}
+
 export class CameraRig {
   readonly target = new THREE.Vector3();
   private smoothTarget = new THREE.Vector3();
@@ -499,6 +565,7 @@ export class RenderContext {
         if (kit.parent !== this.scene) this.scene.add(kit);
         this.warmLeft = WARM_FRAMES;
       }
+      singlePassFlatTransparents(this.scene);
       const hidden: THREE.Object3D[] = [];
       this.scene.traverse((o) => {
         if (!o.visible) {

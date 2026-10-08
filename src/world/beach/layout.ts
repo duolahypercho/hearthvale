@@ -60,6 +60,9 @@ export const GROYNE: [number, number][] = [
   [33.1, 46.8],
   [32.2, 50.6],
 ];
+/** Polyline length of GROYNE (constant: groyneDist summed it on every call). */
+const GROYNE_LEN = GROYNE.reduce((s, p, i) => (i ? s + Math.hypot(p[0] - GROYNE[i - 1]![0], p[1] - GROYNE[i - 1]![1]) : 0), 0);
+const _groyne = { d: 0, t: 0 };
 /** Trodden sandy track from the beach up the headland to the lighthouse door (x/z polyline). */
 export const LIGHTHOUSE_PATH: [number, number][] = [
   [65.6, 35.4],
@@ -174,13 +177,16 @@ export class BeachShape {
     return h;
   }
 
-  /** Distance to the groyne polyline and the position along it (0 = beach end .. 1 = sea end). */
+  /**
+   * Distance to the groyne polyline and the position along it (0 = beach end .. 1 = sea end).
+   * Returns a shared scratch object (read it before the next call): height() runs this for every
+   * ground query, ambient motes included (perf r16: one object per call was ~9 KB/frame of garbage).
+   */
   groyneDist(x: number, z: number): { d: number; t: number } {
     let best = 99;
     let bt = 0;
     let acc = 0;
-    let total = 0;
-    for (let i = 0; i < GROYNE.length - 1; i++) total += Math.hypot(GROYNE[i + 1]![0] - GROYNE[i]![0], GROYNE[i + 1]![1] - GROYNE[i]![1]);
+    const total = GROYNE_LEN;
     for (let i = 0; i < GROYNE.length - 1; i++) {
       const [ax, az] = GROYNE[i]!;
       const [bx, bz] = GROYNE[i + 1]!;
@@ -195,7 +201,9 @@ export class BeachShape {
       }
       acc += L;
     }
-    return { d: best, t: bt };
+    _groyne.d = best;
+    _groyne.t = bt;
+    return _groyne;
   }
 
   /** 0 on the grassy bluff / headland tops .. 1 on sand. */

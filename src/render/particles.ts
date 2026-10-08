@@ -154,6 +154,9 @@ export class SmokeEmitter {
   }
 }
 
+/** Ambience refreshes each mote's / leaf's ground height every GROUND_STRIDE frames. */
+const GROUND_STRIDE = 4;
+
 /** Ambient motes around the camera focus. */
 export class Ambience {
   readonly group = new THREE.Group();
@@ -167,6 +170,15 @@ export class Ambience {
   private weather: Weather = 'sun';
   private dummy = new THREE.Object3D();
   private halfExtent = 16;
+  /**
+   * Ground height under each mote / leaf, refreshed round-robin (1 in GROUND_STRIDE per frame, and
+   * at once after a wrap jump): motes drift < 1 cm a frame, so a 4-frame-old height is the same
+   * clamp, and the analytic map heights are not free (beach: shelf + groyne + pool walls, 260 calls
+   * a frame were 0.26 ms and ~170 KB/frame of garbage; perf r16, pillar 14).
+   */
+  private moteGround: Float32Array;
+  private leafGround: Float32Array;
+  private groundTick = 0;
 
   constructor(private heightAt: (x: number, z: number) => number) {
     this.group.name = 'ambience';
@@ -174,6 +186,7 @@ export class Ambience {
     this.motes = new PointPool(N, textures.softDot().map, true);
     this.moteVel = new Float32Array(N * 3);
     this.moteSeed = new Float32Array(N);
+    this.moteGround = new Float32Array(N).fill(NaN);
     for (let i = 0; i < N; i++) {
       this.moteSeed[i] = Math.random();
       this.motes.pos[i * 3] = (Math.random() - 0.5) * 2 * this.halfExtent;
@@ -189,6 +202,7 @@ export class Ambience {
     this.leaves.frustumCulled = false;
     this.leaves.castShadow = false;
     this.leafState = new Float32Array(this.leafCount * 7);
+    this.leafGround = new Float32Array(this.leafCount).fill(NaN);
     const palette = [0xe07a2e, 0xd4452c, 0xf0b23c, 0xb8562a];
     const c = new THREE.Color();
     for (let i = 0; i < this.leafCount; i++) {
@@ -220,6 +234,7 @@ export class Ambience {
     const fireflyAmt = this.season === 'winter' || raining ? 0 : THREE.MathUtils.smoothstep(night, 0.4, 0.9);
     const pollenAmt = (this.season === 'winter' || raining ? 0.25 : 1) * (1 - THREE.MathUtils.smoothstep(night, 0.2, 0.6));
     const sun = globalUniforms.uSunColor.value;
+    const tick = (this.groundTick = (this.groundTick + 1) % GROUND_STRIDE);
     for (let i = 0; i < this.motes.n; i++) {
       const s = this.moteSeed[i]!;
       let x = this.motes.pos[i * 3]!;
@@ -237,11 +252,25 @@ export class Ambience {
         y += Math.sin(t * 0.6) * 0.08 * dt;
       }
       // wrap around the camera focus
-      if (x < center.x - H) x += 2 * H;
-      if (x > center.x + H) x -= 2 * H;
-      if (z < center.z - H) z += 2 * H;
-      if (z > center.z + H) z -= 2 * H;
-      const ground = this.heightAt(x, z);
+      let jumped = false;
+      if (x < center.x - H) {
+        x += 2 * H;
+        jumped = true;
+      }
+      if (x > center.x + H) {
+        x -= 2 * H;
+        jumped = true;
+      }
+      if (z < center.z - H) {
+        z += 2 * H;
+        jumped = true;
+      }
+      if (z > center.z + H) {
+        z -= 2 * H;
+        jumped = true;
+      }
+      let ground = this.moteGround[i]!;
+      if (jumped || i % GROUND_STRIDE === tick || ground !== ground) ground = this.moteGround[i] = this.heightAt(x, z);
       const minY = ground + (isFly ? 0.35 : 0.2);
       const maxY = ground + (isFly ? 1.8 : 3.2);
       if (y < minY) y = minY + 0.01;
@@ -280,13 +309,28 @@ export class Ambience {
         st[o + 3]! += st[o + 4]! * dt;
         let x = st[o]!;
         let z = st[o + 2]!;
-        if (x < center.x - H) x += 2 * H;
-        if (x > center.x + H) x -= 2 * H;
-        if (z < center.z - H) z += 2 * H;
-        if (z > center.z + H) z -= 2 * H;
+        let jumped = false;
+        if (x < center.x - H) {
+          x += 2 * H;
+          jumped = true;
+        }
+        if (x > center.x + H) {
+          x -= 2 * H;
+          jumped = true;
+        }
+        if (z < center.z - H) {
+          z += 2 * H;
+          jumped = true;
+        }
+        if (z > center.z + H) {
+          z -= 2 * H;
+          jumped = true;
+        }
         st[o] = x;
         st[o + 2] = z;
-        const g = this.heightAt(x, z);
+        // Leaves high above the ground only need a fresh height near the bottom of their fall.
+        let g = this.leafGround[i]!;
+        if (jumped || g !== g || st[o + 1]! < g + 0.6 || i % GROUND_STRIDE === tick) g = this.leafGround[i] = this.heightAt(x, z);
         if (st[o + 1]! < g + 0.05) st[o + 1] = g + 4 + Math.random() * 3;
         this.dummy.position.set(x, st[o + 1]!, z);
         this.dummy.rotation.set(st[o + 3]!, st[o + 3]! * 0.7, Math.sin(st[o + 3]!) * 0.8);
