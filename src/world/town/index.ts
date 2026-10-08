@@ -98,6 +98,8 @@ import {
   deckY,
   buildRoofDressing,
   eaveWinter,
+  buildStoreFront,
+  buildBakeryFront,
 } from './buildings';
 import { MeshBuilder } from '../geom';
 
@@ -478,8 +480,15 @@ export class TownMap implements GameMap {
       if (b.kind !== 'hall') {
         // Ridge caps, dormers, moss and slipped tiles break up the big roof planes.
         const spec = HOUSES[b.kind];
-        const dormers = b.kind === 'store' ? [1.7] : b.kind === 'bakery' ? [-1.5] : [];
+        // (r11: the store's loading gable and the bakery's ridge vent + roof board replace the twin dormers)
+        const dormers: number[] = [];
         this.addProp(buildRoofDressing(rd, spec, dormers), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+        if (b.kind === 'store') this.addProp(buildStoreFront(rd, spec), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+        if (b.kind === 'bakery') {
+          const oven = this.addProp(buildBakeryFront(rd, spec), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+          oven.group.name = 'bakery-oven';
+          this.addDoorAndSmoke(oven, 'bakery-oven', 9);
+        }
         eaveWinter(winter, rd, spec, bp.group.matrixWorld.clone());
       }
       const [x0, z0, x1, z1] = b.block;

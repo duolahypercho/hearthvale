@@ -273,10 +273,27 @@ const STAGES: Record<string, Mark[]> = {
     ['wren', 34.4, 55.1, 40, 'paint'],
     ['tobias', 36.0, 55.6, -50, 'chat', 'music'],
   ],
-  // Winter afternoon: fewer idlers (Hazel and June stay in by the fire), Marigold sweeps snow off her
-  // step, Kit plays by the snowmen with Tobias keeping an eye on him, Bram sells hot buns with Linus
-  // warming his hands, Odessa and Rowan talk sledges by the bakery, Wren sketches the snowy Hall.
+  // r11 'town-winter' is the establishing lens of town-day in snow (r8 critic: "stop photographing one
+  // square"): the bakery's flue smoking, the market row under burlap, the iced river and the Kettle
+  // Bridge. Hazel and June stay in by the fire; Bram hauls a crate of firewood to the oven, Marigold
+  // clears the market lane, Kit plays in the drift with Tobias keeping an eye on him, Odessa and Rowan
+  // talk sledges at the stall end, Wren paints the frozen river, Linus trudges off to the clinic.
   'town-winter': [
+    ['bram', 41.6, 21.7, 30, 'carry', undefined, { free: true }],
+    ['marigold', 47.4, 24.9, -35, 'sweep'],
+    // (Kit by the plaza snowman, clear of the market knot; Odessa / Rowan pulled in from under the clock)
+    ['kit', 37.0, 19.5, -20, 'play', 'exclaim'],
+    ['tobias', 45.2, 27.6, -60, 'idle', 'music', { free: true }],
+    ['odessa', 54.3, 25.1, 70, 'chat', 'idea', { free: true }],
+    ['rowan', 55.9, 25.4, -95, 'chat'],
+    ['wren', 59.6, 21.6, 133, 'paint'],
+    ['linus', 50.2, 27.4, 0, 'idle', undefined, { walk: [40.4, 34.6] }],
+  ],
+  // Winter afternoon on the square (the pre-r11 town-winter frame): fewer idlers (Hazel and June stay in
+  // by the fire), Marigold sweeps snow off her step, Kit plays by the snowmen with Tobias keeping an eye
+  // on him, Bram sells hot buns with Linus warming his hands, Odessa and Rowan talk sledges by the
+  // bakery, Wren sketches the snowy Hall.
+  'town-winter-square': [
     // (r8b: the lower third was empty cobbles — Marigold sweeps the snow off the front of the square
     // and Kit plays in it below the fountain)
     ['marigold', 27.4, 27.6, 25, 'sweep'],
@@ -1523,7 +1540,7 @@ export class NpcSystem implements System {
     }
     const marks = STAGES[name];
     if (marks) {
-      if (name === 'town-winter') for (const id of ['hazel', 'june'] as NpcId[]) this.setInside(this.agents.get(id)!, true, true);
+      if (name.startsWith('town-winter')) for (const id of ['hazel', 'june'] as NpcId[]) this.setInside(this.agents.get(id)!, true, true);
       this.applyMarks(marks);
       return;
     }
@@ -4232,6 +4249,7 @@ export class NpcSystem implements System {
     const wet = game.calendar.weather === 'rain' || game.calendar.weather === 'storm';
     for (const a of this.agents.values()) {
       a.v.setWinter(winter);
+      a.v.debrisSeason = game.calendar.season;
       a.v.rain = wet && !a.inside;
     }
     // A missed press: the farmer's interact is polled on fixed steps, so a frame without one drops

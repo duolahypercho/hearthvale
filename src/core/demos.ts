@@ -94,7 +94,9 @@ export const DEMOS: Record<string, DemoDef> = {
   'town-dialogue': { map: 'town', x: 31.2, z: 30.8, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
   // Town pod: `&event=<npc>-<2|4>&step=N` picks the heart event; `&npc=<id>&mood=<mood>|&gift=<item>|&ask=1` the dialogue.
   'town-heart-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
-  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 29, distance: 27.6, offsetX: -2.9, offsetZ: -5.2 }, showcase: ['npcs'] },
+  // (r11: town-winter on the town-day establishing lens — bakery, market row, iced river, bridge)
+  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: -42, pitch: 33, distance: 27, offsetX: 9.5, offsetZ: 1.2 }, showcase: ['npcs'] },
+  'town-winter-square': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 29, distance: 27.6, offsetX: -2.9, offsetZ: -5.2 }, showcase: ['npcs'] },
   'town-river': { map: 'town', x: 69.2, z: 24.4, facing: 'left', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 42, distance: 34, offsetX: -3.2, offsetZ: -3.0 }, showcase: ['npcs'] },
   'town-east': { map: 'town', x: 70.6, z: 26.4, facing: 'right', time: 17.4, season: 'summer', weather: 'sun', camera: { yaw: -4, pitch: 43, distance: 32, offsetX: 3.2, offsetZ: -5.8 }, showcase: ['npcs'] },
   'town-cast': { map: 'town', x: 40.6, z: 33.4, facing: 'down', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 22, distance: 12.6, offsetX: -9.35, offsetY: 0.85, offsetZ: -4.1 }, showcase: ['npcs'] },

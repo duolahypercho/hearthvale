@@ -333,7 +333,7 @@ export class WeatherSystem implements System, WeatherApi {
         this.strike(spot ? { x: spot.x, z: spot.z } : undefined, true);
       });
     } else if (bolt === '1') requestAnimationFrame(() => this.strike(undefined, true));
-    if (name === 'snow-day' || name === 'snow-falls' || name === 'farm-winter' || name === 'winter-night' || name === 'town-winter') {
+    if (name === 'snow-day' || name === 'snow-falls' || name === 'farm-winter' || name === 'winter-night' || name.startsWith('town-winter')) {
       requestAnimationFrame(() => this.stampTrail());
     }
   }

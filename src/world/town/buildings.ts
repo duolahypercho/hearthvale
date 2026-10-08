@@ -1242,3 +1242,261 @@ export function eaveWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: number; 
     add(ic, mat(x, ye - 0.02 - len / 2, ze + 0.02), 0xdcefff);
   }
 }
+
+// ───────────────────────────────────────────── Plaza identities (r11)
+// r8 critic: "two near-mirrored storefront masses". The store and the bakery share buildTownHouse's
+// box + gable; these give each its own roofline, sign and working threshold: Thimble & Pip's gets a
+// jettied, half-timbered loading gable with a hoist and a crate of stock on the rope; The Hearth Oven
+// a domed brick bread oven glowing on its plaza side, a tall round flue, a louvred ridge vent with a
+// wheat-sheaf vane and a painted board standing on the roof.
+
+let shopSign: THREE.MeshStandardMaterial | null = null;
+/** One canvas atlas for both painted name boards (top half the store, bottom half the bakery). */
+function shopSignMaterial(): THREE.MeshStandardMaterial {
+  if (shopSign) return shopSign;
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 512;
+  const x = c.getContext('2d')!;
+  const board = (y0: number, bg: [string, string], rim: string, title: string, sub: string, ink: string, subInk: string): void => {
+    const g = x.createLinearGradient(0, y0, 0, y0 + 256);
+    g.addColorStop(0, bg[0]);
+    g.addColorStop(1, bg[1]);
+    x.fillStyle = g;
+    x.fillRect(0, y0, 1024, 256);
+    // Brushed grain + worn edges.
+    x.globalAlpha = 0.08;
+    for (let i = 0; i < 40; i++) {
+      x.fillStyle = i % 2 ? '#000' : '#fff';
+      x.fillRect(0, y0 + ((i * 37) % 256), 1024, 2 + (i % 3));
+    }
+    x.globalAlpha = 1;
+    x.strokeStyle = rim;
+    x.lineWidth = 10;
+    x.strokeRect(22, y0 + 22, 980, 212);
+    x.lineWidth = 3;
+    x.strokeRect(38, y0 + 38, 948, 180);
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.fillStyle = 'rgba(0,0,0,0.35)';
+    x.font = '700 112px Fredoka, Nunito, sans-serif';
+    const tw = x.measureText(title).width;
+    if (tw > 900) x.font = `700 ${Math.floor((112 * 900) / tw)}px Fredoka, Nunito, sans-serif`;
+    x.fillText(title, 515, y0 + 112);
+    x.fillStyle = ink;
+    x.fillText(title, 512, y0 + 108);
+    x.font = '700 40px Nunito, sans-serif';
+    x.fillStyle = subInk;
+    x.fillText(sub, 512, y0 + 192);
+  };
+  board(0, ['#2f6a64', '#245650'], '#e8c86a', 'THIMBLE & PIP', '· general goods · seeds · sundries ·', '#f6ecd2', '#e8c86a');
+  board(256, ['#f3e2bf', '#e6cc9c'], '#8a3a22', 'THE HEARTH OVEN', '~ fresh loaves from the fire ~', '#7a2e1a', '#9a5a2a');
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  shopSign = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 });
+  shopSign.name = 'shopSign';
+  applyWorldFx(shopSign);
+  return shopSign;
+}
+
+/** A name board quad (w × h, facing +Z) mapped to one half of the sign atlas. */
+function signQuad(w: number, h: number, half: 'store' | 'bakery'): THREE.BufferGeometry {
+  const g = new THREE.PlaneGeometry(w, h);
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setY(i, (half === 'store' ? 0.5 : 0) + uv.getY(i) * 0.5);
+  return g;
+}
+
+/**
+ * Thimble & Pip's loading gable: a jettied, half-timbered cross-gable over the shop windows (it breaks
+ * the eave and rises nearly to the ridge), the painted name board on its band, a loft door standing
+ * open on a lit storeroom, and a hoist beam with a pulley and a crate of stock mid-lift.
+ * Local space of the store (buildTownHouse: ground centre, +Z front).
+ */
+export function buildStoreFront(rng: Rng, s: { w: number; d: number; wallH: number; wallTint: number; roofTint: number; doorTint: number }): THREE.Group {
+  const b = new MeshBuilder();
+  const { top, ridgeY } = roofOf(s.d, s.wallH);
+  const fz = s.d / 2;
+  const cx = 0;
+  const hw = 1.3;
+  const zf = fz + 0.55;
+  const zb = 0.3;
+  const y0 = top - 0.6;
+  const yE = y0 + 0.66;
+  const peak = ridgeY - 0.18;
+  const timber = 0x5a3a26;
+  // Body: band + gable triangle, extruded back into the roof.
+  const sh = new THREE.Shape();
+  sh.moveTo(-hw, 0);
+  sh.lineTo(hw, 0);
+  sh.lineTo(hw, yE - y0);
+  sh.lineTo(0, peak - y0);
+  sh.lineTo(-hw, yE - y0);
+  sh.closePath();
+  const body = new THREE.ExtrudeGeometry(sh, { depth: zf - zb, bevelEnabled: false });
+  boxUV(body, 1 / 1.8);
+  b.add('plaster', body, mat(cx, y0, zb), { tint: s.wallTint });
+  // Timber frame on the face: sole plate, posts, tie beam, king post, braces, barge boards.
+  const fzT = zf + 0.03;
+  b.add('woodDark', roundedBox(2 * hw + 0.16, 0.16, 0.16, 0.04), mat(cx, y0 + 0.02, fzT), { tint: timber });
+  b.add('woodDark', roundedBox(2 * hw + 0.12, 0.13, 0.12, 0.03), mat(cx, yE, fzT), { tint: timber });
+  for (const sx of [-1, 1]) b.add('woodDark', roundedBox(0.14, yE - y0 + 0.1, 0.12, 0.03), mat(cx + sx * hw, (y0 + yE) / 2, fzT), { tint: timber });
+  const doorW = 0.78;
+  const doorH = 0.98;
+  const dy = yE + 0.08;
+  b.add('woodDark', roundedBox(0.12, peak - (dy + doorH) - 0.1, 0.1, 0.03), mat(cx, (dy + doorH + peak - 0.1) / 2, fzT), { tint: timber });
+  const rake = Math.atan2(peak - yE, hw);
+  for (const sx of [-1, 1]) {
+    // Raking braces from the tie beam's ends up towards the door head.
+    const ax = cx + sx * (hw - 0.1);
+    const bx = cx + sx * (doorW / 2 + 0.12);
+    const by = dy + doorH;
+    const len = Math.hypot(ax - bx, by - yE);
+    b.add('woodDark', roundedBox(0.1, len, 0.09, 0.02), mat((ax + bx) / 2, (yE + by) / 2, fzT, 0, 0, Math.atan2(ax - bx, by - yE)), { tint: timber });
+  }
+  // Loft door: frame, a leaf swung open against the wall, the lit storeroom behind.
+  b.add('woodPaint', roundedBox(doorW + 0.16, doorH + 0.1, 0.08, 0.03), mat(cx, dy + doorH / 2, zf + 0.02), { tint: 0xf3ead8 });
+  b.add('windowCard', new THREE.PlaneGeometry(doorW, doorH - 0.04), mat(cx, dy + doorH / 2, zf + 0.07));
+  b.add('wood', boxUV(roundedBox(doorW / 2 - 0.02, doorH - 0.06, 0.06, 0.02), 1 / 1.1), mat(cx + doorW / 2 + 0.16, dy + doorH / 2, zf + 0.22, 0, -1.25, 0), { tint: s.doorTint });
+  b.add('wood', boxUV(roundedBox(doorW / 2 - 0.02, doorH - 0.06, 0.06, 0.02), 1 / 1.1), mat(cx - doorW / 2 - 0.1, dy + doorH / 2, zf + 0.16, 0, 1.45, 0), { tint: s.doorTint });
+  b.add('woodDark', roundedBox(doorW + 0.3, 0.08, 0.3, 0.02), mat(cx, dy - 0.03, zf + 0.14), { tint: timber });
+  // Sacks waiting on the loft sill.
+  for (const k of [-0.2, 0.16]) b.add('white', lumpySphere(0.15, 1, 0.15, rng), mat(cx + k, dy + 0.15, zf - 0.04, 0, k * 3, 0, 1, 1.15, 0.8), { tint: 0xd8b880 });
+  // Roof: two steep slabs over the gable + ridge roll + painted barge boards.
+  const half = hw + 0.28;
+  const slab = half / Math.cos(rake);
+  const ry = peak + 0.13;
+  const z0 = zb - 0.35;
+  const z1 = zf + 0.42;
+  for (const sx of [-1, 1]) {
+    const g = boxUV(roundedBox(slab, 0.15, z1 - z0, 0.05), 1 / 1.7);
+    b.add('roofTile', g, mat(cx + sx * (half / 2), ry - Math.tan(rake) * (half / 2), (z0 + z1) / 2, 0, 0, -sx * rake), { tint: s.roofTint });
+    b.add('woodPaint', roundedBox(slab + 0.05, 0.15, 0.07, 0.03), mat(cx + sx * (half / 2), ry - Math.tan(rake) * (half / 2) - 0.07, z1 + 0.02, 0, 0, -sx * rake), { tint: 0xf3ead8 });
+  }
+  const ridge = new THREE.CylinderGeometry(0.1, 0.1, z1 - z0 + 0.04, 10);
+  ridge.rotateX(Math.PI / 2);
+  b.add('roofTile', ridge, mat(cx, ry + 0.06, (z0 + z1) / 2), { tint: new THREE.Color(s.roofTint).multiplyScalar(0.8).getHex() });
+  // A carved finial at the apex.
+  b.add('woodPaint', new THREE.ConeGeometry(0.07, 0.42, 6), mat(cx, ry + 0.3, z1 + 0.04), { tint: 0xf3ead8 });
+  b.add('woodPaint', new THREE.SphereGeometry(0.07, 8, 6), mat(cx, ry + 0.08, z1 + 0.04), { tint: 0xf3ead8 });
+  // Jetty corbels under the overhang.
+  for (const sx of [-1, 1]) {
+    const L = Math.hypot(zf - fz, 0.42);
+    b.add('woodDark', roundedBox(0.13, L, 0.13, 0.03), mat(cx + sx * (hw - 0.12), y0 - 0.17, (fz + zf) / 2 - 0.02, Math.atan2(zf - fz, 0.42), 0, 0), { tint: timber });
+  }
+  // Painted name board on the band.
+  b.add('woodDark', roundedBox(2 * hw - 0.12, yE - y0 - 0.12, 0.06, 0.02), mat(cx, (y0 + yE) / 2 + 0.03, zf + 0.06), { tint: 0x3a2a1e });
+  b.add(shopSignMaterial(), signQuad(2 * hw - 0.24, yE - y0 - 0.22, 'store'), mat(cx, (y0 + yE) / 2 + 0.03, zf + 0.1));
+  // Hoist: a beam out of the apex, an iron pulley, a rope down to a crate of stock mid-lift.
+  const hy = peak - 0.42;
+  b.add('woodDark', roundedBox(0.17, 0.17, 1.1, 0.04), mat(cx, hy, zf + 0.45), { tint: timber });
+  b.add('woodDark', roundedBox(0.1, 0.62, 0.1, 0.02), mat(cx, hy - 0.28, zf + 0.2, 0.75, 0, 0), { tint: timber });
+  const wheel = new THREE.CylinderGeometry(0.12, 0.12, 0.05, 12);
+  wheel.rotateZ(Math.PI / 2);
+  b.add('metal', wheel, mat(cx, hy - 0.2, zf + 0.86), { tint: 0x3a3634 });
+  b.add('metal', roundedBox(0.04, 0.22, 0.04, 0.01), mat(cx, hy - 0.1, zf + 0.86), { tint: 0x3a3634 });
+  // (hoisted high, just under the pulley: lower, the crate covered the name board from the plaza lens)
+  const crateY = hy - 0.86;
+  const rope = (x0: number, y0r: number, z0r: number, x1: number, y1r: number, z1r: number): void => {
+    const len = Math.hypot(x1 - x0, y1r - y0r, z1r - z0r);
+    const g = new THREE.CylinderGeometry(0.016, 0.016, len, 5);
+    const m = new THREE.Matrix4().lookAt(new THREE.Vector3(x0, y0r, z0r), new THREE.Vector3(x1, y1r, z1r), new THREE.Vector3(0, 1, 0));
+    g.rotateX(Math.PI / 2);
+    b.add('cloth', g, new THREE.Matrix4().makeTranslation((x0 + x1) / 2, (y0r + y1r) / 2, (z0r + z1r) / 2).multiply(m), { tint: 0xc8a878 });
+  };
+  rope(cx, hy - 0.3, zf + 0.98, cx, crateY + 0.5, zf + 0.98);
+  rope(cx, hy - 0.3, zf + 0.74, cx + 0.3, dy + 0.5, zf + 0.12);
+  for (const sx of [-1, 1]) rope(cx, crateY + 0.5, zf + 0.98, cx + sx * 0.24, crateY + 0.34, zf + 0.98);
+  b.add('woodGrain', boxUV(roundedBox(0.56, 0.36, 0.46, 0.04), 1), mat(cx, crateY + 0.16, zf + 0.98, 0, 0.18, 0.04), { tint: 0xb08a58 });
+  for (const k of [-0.13, 0, 0.13]) b.add('boxFlower', lumpySphere(0.08, 1, 0.3, rng), mat(cx + k, crateY + 0.37, zf + 0.98 + (rng.next() - 0.5) * 0.1), { tint: [0xe0563a, 0xf2a03a, 0x6fae4a][Math.abs(Math.round(k * 10)) % 3]! });
+  return b.build({ name: 'store-front' });
+}
+
+/**
+ * The Hearth Oven: a domed brick bread oven on the plaza (west) gable with a glowing mouth and a
+ * firewood stack, a tall round brick flue, a louvred ridge vent with a gilded wheat-sheaf vane and a
+ * painted name board standing on the front roof slope. Returns the flue top as `anchors.chimney`.
+ */
+export function buildBakeryFront(rng: Rng, s: { w: number; d: number; wallH: number; roofTint: number }): BuiltProp {
+  const b = new MeshBuilder();
+  const { top, rise, tanS, ridgeY, slope } = roofOf(s.d, s.wallH);
+  const W = s.w;
+  const brick = 0xb8644a;
+  const ox = -W / 2 - 0.06;
+  const oz = -0.55;
+  const r = 0.66;
+  // Oven: plinth drum + dome, a soot-dark arched mouth with the fire in it, an iron door hung open.
+  b.add('stone', boxUV(bevelCylinder(r, r + 0.04, 1.0, 0.05, 18), 0.6), mat(ox, 0, oz), { tint: brick, aoWorld: groundAO(0.35) });
+  const dome = new THREE.SphereGeometry(r, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2);
+  dome.scale(1, 0.82, 1);
+  b.add('stone', boxUV(dome, 0.6), mat(ox, 0.98, oz), { tint: 0xc4745a });
+  b.add('stone', new THREE.TorusGeometry(r + 0.02, 0.05, 5, 22).rotateX(Math.PI / 2), mat(ox, 1.0, oz), { tint: 0x9a5038 });
+  const mx = ox - r + 0.02;
+  b.add('stone', roundedBox(0.16, 0.62, 0.7, 0.05), mat(mx - 0.04, 1.0, oz), { tint: 0x8a4a34 });
+  const arch = new THREE.CylinderGeometry(0.25, 0.25, 0.08, 12, 1, false, 0, Math.PI);
+  arch.rotateZ(Math.PI / 2);
+  b.add('woodDark', roundedBox(0.06, 0.3, 0.5, 0.02), mat(mx - 0.1, 0.9, oz), { tint: 0x221410 });
+  b.add('woodDark', arch, mat(mx - 0.1, 1.05, oz), { tint: 0x221410 });
+  b.add(coalMaterial(), lumpySphere(0.13, 1, 0.3, rng), mat(mx - 0.12, 0.84, oz - 0.08, 0, 0, 0, 1, 0.5, 1.2));
+  b.add(coalMaterial(), lumpySphere(0.1, 1, 0.3, rng), mat(mx - 0.12, 0.84, oz + 0.1, 0, 0, 0, 1, 0.5, 1.2));
+  b.add('metal', roundedBox(0.03, 0.3, 0.42, 0.01), mat(mx - 0.22, 0.95, oz + 0.42, 0, -1.0, 0), { tint: 0x2e2a28 });
+  // Flue: a tall round brick stack on the gable, banded, with a clay pot.
+  const fx = -W / 2 - 0.2;
+  const fzf = oz - 0.3;
+  const flueTop = ridgeY + 1.05;
+  b.add('stone', boxUV(new THREE.CylinderGeometry(0.24, 0.3, flueTop - 1.3, 12), 0.6), mat(fx, (flueTop + 1.3) / 2, fzf), { tint: brick });
+  for (const yb of [top - 0.2, ridgeY - 0.2, flueTop - 0.1]) b.add('stone', new THREE.CylinderGeometry(0.31, 0.31, 0.12, 12), mat(fx, yb, fzf), { tint: 0x9a5038 });
+  b.add('soilPot', new THREE.CylinderGeometry(0.13, 0.17, 0.32, 10), mat(fx, flueTop + 0.12, fzf), { tint: 0xc0704a });
+  // Firewood stacked against the gable in front of the oven, a peel leaning on it.
+  for (let row = 0; row < 3; row++)
+    for (let i = 0; i < 4 - row; i++) {
+      const log = new THREE.CylinderGeometry(0.08, 0.08, 0.62, 7);
+      log.rotateX(Math.PI / 2);
+      b.add('woodGrain', log, mat(ox + 0.12 - (i + row * 0.5) * 0.16, 0.08 + row * 0.14, oz + 1.22 + (rng.next() - 0.5) * 0.06), { tint: [0x8a6a44, 0x9a7a52, 0x7a5a3a][(i + row) % 3]! });
+    }
+  b.add('woodGrain', roundedBox(0.05, 1.5, 0.05, 0.01), mat(ox - 0.35, 0.75, oz + 1.62, 0.12, 0, 0.25), { tint: 0xc8a070 });
+  b.add('woodGrain', roundedBox(0.03, 0.3, 0.26, 0.02), mat(ox - 0.17, 1.5, oz + 1.7, 0.12, 0, 0.25), { tint: 0xc8a070 });
+  // Ridge vent: a louvred box under its own little roof, a gilded wheat-sheaf weathervane on top.
+  const vx = 1.0;
+  const vy = ridgeY + 0.1;
+  b.add('woodPaint', roundedBox(0.84, 0.56, 0.74, 0.04), mat(vx, vy + 0.22, 0), { tint: 0xf3ead8 });
+  for (const sz of [-1, 1]) for (let i = 0; i < 3; i++) b.add('woodDark', roundedBox(0.7, 0.05, 0.08, 0.01), mat(vx, vy + 0.08 + i * 0.14, sz * 0.38, sz * 0.5, 0, 0), { tint: 0x6a4a32 });
+  for (const sz of [-1, 1]) b.add('roofTile', boxUV(roundedBox(1.04, 0.08, 0.66, 0.03), 1 / 1.7), mat(vx, vy + 0.68 - 0.12, sz * 0.27, sz * 0.62, 0, 0), { tint: s.roofTint });
+  const gold = 0xd8a84a;
+  b.add('metal', new THREE.CylinderGeometry(0.018, 0.018, 0.9, 5), mat(vx, vy + 1.15, 0), { tint: 0x3a3634 });
+  b.add('metal', roundedBox(0.7, 0.03, 0.03, 0.01), mat(vx, vy + 1.3, 0), { tint: 0x3a3634 });
+  b.add('metal', new THREE.ConeGeometry(0.06, 0.16, 4).rotateZ(-Math.PI / 2), mat(vx + 0.38, vy + 1.3, 0), { tint: 0x3a3634 });
+  for (let i = 0; i < 7; i++) {
+    const a = (i - 3) * 0.13;
+    b.add('metal', new THREE.CylinderGeometry(0.012, 0.012, 0.5, 4), mat(vx - 0.2 + Math.sin(a) * 0.12, vy + 1.42, 0, 0, 0, a), { tint: gold });
+    const ear = new THREE.SphereGeometry(0.035, 6, 4);
+    ear.scale(0.7, 1.8, 0.7);
+    b.add('metal', ear, mat(vx - 0.2 + Math.sin(a) * 0.32, vy + 1.62 + Math.cos(a) * 0.04, 0, 0, 0, a), { tint: gold });
+  }
+  // Name board standing on the front slope on two braced posts.
+  const bz = 1.15;
+  const roofAt = (z: number): number => top + rise - tanS * z + 0.12;
+  const bw = 3.1;
+  const bh = 0.66;
+  const bx = -0.55;
+  const by = roofAt(bz) + 0.5 + bh / 2;
+  for (const sx of [-1, 1]) {
+    const px = bx + sx * (bw / 2 - 0.25);
+    const h = by + bh / 2 - roofAt(bz) + 0.05;
+    b.add('woodDark', roundedBox(0.1, h, 0.1, 0.02), mat(px, roofAt(bz) + h / 2 - 0.05, bz - 0.06), { tint: 0x5a3a26 });
+    const L = 0.7;
+    b.add('woodDark', roundedBox(0.07, L, 0.07, 0.02), mat(px, roofAt(bz - 0.3) + 0.25, bz - 0.36, -0.75, 0, 0), { tint: 0x5a3a26 });
+  }
+  b.add('woodDark', roundedBox(bw + 0.12, bh + 0.12, 0.08, 0.03), mat(bx, by, bz), { tint: 0x5a3a26 });
+  b.add(shopSignMaterial(), signQuad(bw - 0.04, bh - 0.04, 'bakery'), mat(bx, by, bz + 0.05));
+  // Gilded loaf finials on the board's corners.
+  for (const sx of [-1, 1]) {
+    const loaf = new THREE.CapsuleGeometry(0.08, 0.14, 4, 8);
+    loaf.rotateZ(Math.PI / 2);
+    b.add('metal', loaf, mat(bx + sx * (bw / 2 + 0.02), by + bh / 2 + 0.1, bz), { tint: gold });
+  }
+  void slope;
+  const group = b.build({ name: 'bakery-front' });
+  return { group, lights: [], anchors: { chimney: new THREE.Vector3(fx, flueTop + 0.35, fzf) } };
+}

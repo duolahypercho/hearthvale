@@ -526,6 +526,23 @@ function emoteTexture(e: Emote): THREE.Texture {
   return t;
 }
 
+/** Sweep debris: flecks in the strip + the pile they end in; per-fleck hashes; per-season tints. */
+const DEBRIS_N = 24;
+const DEBRIS_PILE = 9;
+const DEBRIS_H: [number, number, number][] = Array.from({ length: DEBRIS_N }, (_, i) => {
+  const r = (k: number): number => {
+    const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  return [r(1), r(2), r(3)];
+});
+const DEBRIS_TINT: Record<'spring' | 'summer' | 'fall' | 'winter', number[]> = {
+  spring: [0xf3a6bd, 0xfbe0e8, 0xb89a72, 0xf7c4d2, 0x9ab868],
+  summer: [0xa8b458, 0xd2bd6a, 0xb08e62, 0x8aa84a],
+  fall: [0xd8642a, 0xe8a03a, 0xb2402a, 0x8a5a2a, 0xc87a2a],
+  winter: [0xf4f8ff, 0xe6eef8, 0xd6e2ee],
+};
+
 export class Villager {
   readonly root = new THREE.Group();
   readonly position = new THREE.Vector3();
@@ -557,6 +574,11 @@ export class Villager {
   private hipY = 0.5;
   private sitBlend = 0;
   private actBlend = 0;
+  /** r11 street life: season of the sweep debris (pushed by NpcSystem). */
+  debrisSeason: 'spring' | 'summer' | 'fall' | 'winter' = 'spring';
+  private debris: THREE.InstancedMesh | null = null;
+  private debrisTint = '';
+  private pageHinge: THREE.Object3D | null = null;
   private hairSwing = 0;
   private hop = 0;
   private hairVel = 0;
@@ -621,6 +643,7 @@ export class Villager {
       this.bones = [];
       this.rest = [];
       this.propBones.clear();
+      this.pageHinge = null;
     }
     this.build(def.look);
     this.body.scale.setScalar(this.scaleS);
@@ -1980,6 +2003,7 @@ export class Villager {
     head.rotation.x = -W.hunch * 0.7;
 
     const act = this.moving || this.talkTo ? 'idle' : this.activity;
+    this.streetBits(act);
     const sitting = (act === 'sit' || act === 'tip') && !this.moving;
     // (dt = 0: a staging / audit settle — the pose snaps to its target)
     this.sitBlend += ((sitting ? 1 : 0) - this.sitBlend) * (dt === 0 ? 1 : 1 - Math.exp(-8 * dt));
@@ -2606,6 +2630,116 @@ export class Villager {
     }
   }
 
+  /**
+   * r11 street life (critic: "prove jobs change the environment"): a sweeper pushes a little drift of
+   * petals / clippings / leaves / snow clods across the cobbles stroke by stroke towards a growing pile
+   * at the left of the broom, and a reader turns a page of the open book now and then. Both are tiny
+   * (one instanced draw / one quad) and exist only while the activity runs.
+   */
+  private streetBits(act: Activity): void {
+    const sweeping = act === 'sweep' && this.actBlend > 0.3;
+    if (sweeping && !this.debris) {
+      const g = new THREE.CircleGeometry(0.05, 5);
+      g.rotateX(-Math.PI / 2);
+      g.scale(1, 1, 0.62);
+      const m = new THREE.MeshStandardMaterial({ roughness: 0.92, side: THREE.DoubleSide });
+      this.debris = new THREE.InstancedMesh(g, m, DEBRIS_N);
+      this.debris.name = 'sweep-debris';
+      this.debris.castShadow = false;
+      this.debris.receiveShadow = true;
+      this.debris.frustumCulled = false;
+      this.debris.userData.perfTag = `npc:${this.def.id}`;
+      this.root.add(this.debris);
+    }
+    const d = this.debris;
+    if (d) {
+      d.visible = sweeping;
+      if (sweeping) {
+        if (this.debrisTint !== this.debrisSeason) {
+          this.debrisTint = this.debrisSeason;
+          const pal = DEBRIS_TINT[this.debrisSeason];
+          const c = new THREE.Color();
+          for (let i = 0; i < DEBRIS_N; i++) d.setColorAt(i, c.setHex(pal[i % pal.length]!));
+          if (d.instanceColor) d.instanceColor.needsUpdate = true;
+        }
+        d.rotation.y = this.yaw;
+        // Broom strokes at 3.2 rad/s: each stroke flicks a fleck ~9 cm along the strip (right → left),
+        // a small hop on the flick; flecks fade in at the start of the strip and settle into the pile.
+        const f = (this.t * 3.2) / (Math.PI * 2);
+        const L = 0.62;
+        const m = new THREE.Matrix4();
+        const q = new THREE.Quaternion();
+        const e = new THREE.Euler();
+        const sc = new THREE.Vector3();
+        const pos = new THREE.Vector3();
+        const winter = this.debrisSeason === 'winter';
+        for (let i = 0; i < DEBRIS_N; i++) {
+          const h = DEBRIS_H[i]!;
+          let x: number;
+          let y = 0.012;
+          let z: number;
+          let k = 1;
+          if (i < DEBRIS_PILE) {
+            // The pile at the end of the strip: a heap that leans a little higher each stroke.
+            x = -0.32 + (h[0] - 0.5) * 0.22;
+            z = 0.5 + (h[1] - 0.5) * 0.2;
+            y = 0.012 + h[2] * 0.03;
+            k = 1.3 + h[2] * 0.7;
+          } else {
+            const c = f + h[0] * 0.35;
+            const n = Math.floor(c);
+            const u = c - n;
+            const push = THREE.MathUtils.smoothstep(u, 0, 0.32);
+            const p = (h[1] + (n + push) * (0.09 / L)) % 1;
+            x = 0.32 - p * L;
+            z = 0.46 + (h[2] - 0.5) * 0.24;
+            y += u < 0.32 ? Math.sin((u / 0.32) * Math.PI) * 0.045 * h[0] : 0;
+            k = Math.min(1, p / 0.1, (1 - p) / 0.12) * (0.8 + h[2] * 0.5);
+          }
+          e.set(winter ? h[2] : 0, h[0] * 6.28 + (i >= DEBRIS_PILE ? f * 0.6 : 0), winter ? h[1] : 0);
+          q.setFromEuler(e);
+          sc.set(k, winter ? k * 2.2 : k, k);
+          pos.set(x, y, z);
+          d.setMatrixAt(i, m.compose(pos, q, sc));
+        }
+        d.instanceMatrix.needsUpdate = true;
+      }
+    }
+    // Page turn: a cream leaf hinged on the open book's gutter sweeps right → left over ~1.7 s.
+    const book = this.propBones.get('book');
+    if (book && act === 'read') {
+      if (!this.pageHinge) {
+        const hinge = new THREE.Object3D();
+        hinge.position.set(-0.1, 0.03, 0.17);
+        const tilt = new THREE.Object3D();
+        tilt.rotation.x = -0.9;
+        const leafG = new THREE.PlaneGeometry(0.085, 0.22);
+        leafG.translate(0.0425, 0, 0);
+        const leaf = new THREE.Mesh(leafG, new THREE.MeshStandardMaterial({ color: 0xfbf4e2, roughness: 0.9, side: THREE.DoubleSide }));
+        leaf.castShadow = false;
+        leaf.name = 'book-page';
+        const turn = new THREE.Object3D();
+        turn.position.z = 0.03;
+        turn.add(leaf);
+        tilt.add(turn);
+        hinge.add(tilt);
+        book.add(hinge);
+        this.pageHinge = turn;
+      }
+      const u = (this.t * 0.45) % (Math.PI * 2);
+      const a0 = Math.PI / 2 - 0.42;
+      const a1 = Math.PI / 2 + 0.42;
+      const on = u > a0 && u < a1;
+      this.pageHinge.visible = on;
+      if (on) {
+        const w = THREE.MathUtils.smoothstep(u, a0, a1);
+        this.pageHinge.rotation.y = -w * Math.PI * 0.96;
+        // (a curl: the leaf lifts off the page as it goes over)
+        this.pageHinge.position.z = 0.03 + Math.sin(w * Math.PI) * 0.03;
+      }
+    } else if (this.pageHinge) this.pageHinge.visible = false;
+  }
+
   /** Procedural activity loops (standing still). */
   private animateActivity(act: Activity, _dt: number): void {
     const bn = this.bones;
@@ -2810,6 +2944,12 @@ export class Villager {
   }
 
   dispose(): void {
+    if (this.debris) {
+      this.debris.removeFromParent();
+      this.debris.geometry.dispose();
+      (this.debris.material as THREE.Material).dispose();
+      this.debris = null;
+    }
     this.lodGeo?.dispose();
     this.mesh.geometry.dispose();
     this.mesh.skeleton.dispose();
