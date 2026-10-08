@@ -337,6 +337,27 @@ adapts it to game events.
   strides and reel ticks advanced by one frame's dt per ~45 ms decision pass, so a walking farmhand was
   voiced at ~1/3 of their real footfall rate; they now advance by the time that passed.
   Hear the four-player farm: `?demo=audio-coop4` (three phantom farmhands on their own paths; `?demo=audio-coop&partners=2`).
+- **Round 15** (audio pod r8): **the mines get a playlist per band** (`src/audio/songbook-mine.ts`;
+  `select.ts` `mine:earth` / `mine:ice` / `mine:lava`, day-seeded like the farm's, the same song for every
+  co-op client on that band): the drifting ambient piece now alternates with a written song of another
+  character — *Lamplit Seam* (earth: a D-dorian miner's tune, low clarinet over a walking upright and
+  pizzicato off-beats, a 4-bar vamp before the tune), *Hoarfrost* (ice: a slow 6/8 flute air in C# minor
+  over rolled harp, the cello taking the bridge, celesta frost late) and *Cinder Hymn* (lava: an oboe
+  lament in E harmonic minor — the C–D# augmented second — over a low 3+3+2 marimba pulse and a drone).
+  A new `cave` percussion pattern (a damped bodhrán heartbeat, a pick ticking far down the tunnel, a
+  triangle glint per strain). Composition critic: all three clean (Cinder Hymn re-sung from 55 % leaps
+  and a b9 against the cello to 44 % / 0). **Low end**: a plucked bass is damped by the next pluck itself
+  (it rang out 35 ms + its damping short of every note: a 10 dB notch in the last 100 ms of each bar),
+  the upright's body hums longer on long notes (tau 0.85 → up to 1.5 s), a waltz guitar's "pah" chords
+  leave the low string to the bass (its E3–G3 strings and box thump sat 13–15 dB over the bass in
+  50–220 Hz, then sagged into the downbeat), and a soft / bowed bass holds each jig dotted-quarter — bass
+  dips before downbeats over the 44 old themes 20 → see the round's render (summer-2 4 → ≤ 1, town-2 4 → 0,
+  festival-tide 5 → 0, forest-2 2 → 0, beach-2 1 → 0); `BASS-HOLE` now also flags any pattern whose low
+  end falls > 14 dB into a downbeat. Tenor string beds under Snowlight Lullaby / Firefly Meadow repeats,
+  winter / Frostglass's tenor pads +3.5 dB, Lanterns on the Tide's harp lower + pad up, Glass Caverns' pad
+  into the tenor, The Empty Chair's harp lifted off the cello. All themes recalibrated.
+  Hear them: `?demo=audio-mine&floor=2&theme=mine-2`, `&floor=14&theme=mine-ice-2`, `&floor=24&theme=mine-lava-2`
+  (or `&theme=mine:ice` for the band's rotation; `&fight=1` stages the combat soundcheck over it).
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);
@@ -654,7 +675,8 @@ actors such as Pip the shop cat).
   (Bram's tan face on sunk bakery orange). *Blocking*: `town-day` puts June on the far side of her
   chat with Hazel (face and bark to the lens), `town-winter`'s Kit plays in clear snow right of the
   fountain (the bowl's rim cut him off at the chest), `town-evening`'s knot of four opens up so every
-  head reads.
+  head reads. Kit's mop is a shallow, near-even shell under the tufts (deep hem scallops showed bare
+  scalp between the locks: "cookie dough").
 
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-evening` (19:05, lamps lit), `town-winter` (its own

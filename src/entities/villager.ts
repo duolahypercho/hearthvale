@@ -1408,7 +1408,9 @@ export class Villager {
       // r8: pale bobs (Hazel) and the spiky mop (Kit) read as stringy noise / cookie dough at plaza
       // distance — a few big clumps instead of many fine grooves.
       const pale = ((hair >> 16) & 255) + ((hair >> 8) & 255) + (hair & 255) > 560;
-      if (style === 'spiky') [gv, dp, sc, tw] = [5, 0.12, 0.2, 0.9];
+      // (r10: a shallow, near-even hem — the deep scallops opened gaps of bare scalp between the locks:
+      // Kit's mop read as dough with pale patches; the tufts carry the spiky silhouette)
+      if (style === 'spiky') [gv, dp, sc, tw] = [6, 0.07, 0.05, 0.7];
       else if (pale) [gv, dp, sc, tw] = [5, 0.08, sc * 0.8, tw * 0.6];
       // Under a headscarf the hair follows the scarf's tilt and sits just inside it (no dark patches
       // poking through the cloth over the crown).
