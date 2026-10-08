@@ -20,7 +20,7 @@ import { OUTFIT_PALETTES } from '../../data/festivals';
 import { TileType } from '../tiles';
 import { buildMarketStall } from '../props/townkit';
 import { buildBunting, buildLanternPole } from '../props/festival';
-import { FestivalMap, type PlayState } from './base';
+import { FestivalMap, type PlayState, type SpecView } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildPier, buildLanternCrook, buildCabana, buildUmbrella, buildBlanket, buildBonfire, buildLighthouse, buildBeam, buildRowboat, buildSandcastle, buildWishArch } from './kit';
 import { Fireworks, Lanterns, GlowPoints, Bonfire, NightSky } from './fx';
@@ -645,10 +645,22 @@ export class SummerLanterns extends FestivalMap {
     this.clearSightline(ARCH.x - 0.5, wz - 1.9, WISH_CAM.yaw, WISH_CAM.distance * Math.cos(THREE.MathUtils.degToRad(WISH_CAM.pitch)), 1.6);
   }
 
+  /** Co-op: another farmer's Lantern Release — their lanterns join the same flotilla. */
+  protected override onSpectateBegin(v: SpecView): void {
+    if (v.spec.act !== 'lanterns' || this.play?.id === 'lanterns') return;
+    this.wish ??= this.buildWishLanterns();
+    this.wish.held = 0;
+    this.wish.sailing = this.wish.sailing.filter((s) => this.game.time - s.t0 < 30);
+  }
+
+  protected override onSpectateEnd(v: SpecView): void {
+    if (v.spec.act === 'lanterns' && this.play?.id !== 'lanterns' && this.wish) this.wish.held = 5;
+  }
+
   protected override onPlayEvent(play: PlayState, kind: string, value: number): void {
     if (play.id !== 'lanterns' || !this.wish) return;
     const w = this.wish;
-    const p = this.game.player.position;
+    const p = this.actorPos();
     if (kind === 'restart') {
       w.held = 0;
       w.sailing = w.sailing.filter((s) => this.game.time - s.t0 < 0);
@@ -705,8 +717,10 @@ export class SummerLanterns extends FestivalMap {
   private updateWish(game: Game): void {
     const w = this.wish;
     if (!w) return;
-    const play = this.play;
-    const p = game.player.position;
+    // Whoever is releasing: you, or a co-op farmer being watched (their avatar holds it).
+    const sv = this.play?.id === 'lanterns' ? null : this.spectated('lanterns');
+    const play = sv ? sv.play : this.play;
+    const p = sv?.spec.avatar()?.root.position ?? game.player.position;
     // In-hand lantern.
     const holding = play?.id === 'lanterns' && w.held < 5;
     w.meshes.forEach((m, k) => {

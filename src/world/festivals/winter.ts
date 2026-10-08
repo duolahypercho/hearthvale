@@ -20,7 +20,7 @@ import { buildTownHouse, buildHedge, buildMarketStall } from '../props/townkit';
 import { buildLanternPost, buildFence } from '../props/structures';
 import { buildBunting } from '../props/festival';
 import { buildSnowman, buildBench } from '../props/farmkit';
-import { FestivalMap, type PlayState } from './base';
+import { FestivalMap, type PlayState, type SpecView } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildStarTree, buildIceSculpture, buildBridge, buildCocoaStand, buildBonfire, taperTube } from './kit';
 import { AuroraGlow, Snowfall, GlowPoints, Bonfire, NightSky } from './fx';
@@ -559,15 +559,10 @@ export class StarfallSquare extends FestivalMap {
         const ids = [...this.named.keys()];
         play.partner = ids[Math.floor(Math.random() * ids.length)];
       }
-      const i = play.partner ? this.named.get(play.partner) : undefined;
+      this.releaseRecipient();
+      this.presentOwner = null;
+      const i = this.stageRecipient(play.partner);
       const c = this.crowd;
-      if (c && i !== undefined) {
-        const m = c.members[i]!;
-        this.recipient = { i, x: m.x, z: m.z, yaw: m.yaw, anim: m.anim };
-        c.place(i, gx + 0.75, gz + 0.35, -1.05, 0);
-        c.setAnim(i, 'talk');
-        c.commit();
-      }
       // Give the pair a little stage: the rest of the gift circle steps back to ~2 m around them.
       if (c) {
         const mx = gx + 0.1;
@@ -796,8 +791,69 @@ export class StarfallSquare extends FestivalMap {
     kit.cracks.instanceMatrix.needsUpdate = true;
   }
 
+  /** The recipient steps up beside the giver's mark under the Fir (yours or a co-op farmer's). */
+  private stageRecipient(id?: string): number | undefined {
+    const gx = TREE.x;
+    const gz = TREE.z + 5.6;
+    const i = id ? this.named.get(id) : undefined;
+    const c = this.crowd;
+    if (c && i !== undefined) {
+      const m = c.members[i]!;
+      this.recipient = { i, x: m.x, z: m.z, yaw: m.yaw, anim: m.anim };
+      c.place(i, gx + 0.75, gz + 0.35, -1.05, 0);
+      c.setAnim(i, 'talk');
+      c.commit();
+    }
+    return i;
+  }
+
+  private releaseRecipient(): void {
+    const c = this.crowd;
+    const r = this.recipient;
+    if (c && r) {
+      c.place(r.i, r.x, r.z, r.yaw);
+      c.members[r.i]!.anim = r.anim;
+      c.commit();
+    }
+    this.recipient = null;
+  }
+
+  /** Whose hands the present is in (null = yours). */
+  private presentOwner: (() => THREE.Vector3 | null) | null = null;
+  private sprayT = 0;
+
+  protected override onSpectateBegin(v: SpecView): void {
+    if (v.spec.act === 'giftswap' && this.play?.id !== 'giftswap') {
+      this.releaseRecipient();
+      this.stageRecipient(v.spec.partner);
+      this.presentOwner = () => v.spec.avatar()?.root.position ?? null;
+    }
+  }
+
+  protected override onSpectateEnd(v: SpecView): void {
+    if (v.spec.act === 'giftswap' && this.play?.id !== 'giftswap') {
+      this.releaseRecipient();
+      if (this.present) this.present.g.visible = false;
+      this.presentOwner = null;
+    }
+  }
+
+  /** A watched skater carves spray off their blades (their avatar glides on the host's sync). */
+  protected override onSpectateTick(v: SpecView, dt: number): void {
+    if (v.spec.act !== 'skate') return;
+    const a = v.spec.avatar();
+    if (!a || a.speed < 0.6) return;
+    this.sprayT -= dt;
+    if (this.sprayT > 0) return;
+    this.sprayT = a.speed > 2.6 ? 0.07 : 0.14;
+    const p = a.root.position;
+    const back = a.yaw + Math.PI;
+    this.burst(p.x + Math.sin(back) * 0.25, ICE_Y + 0.05, p.z + Math.cos(back) * 0.25, { color: 0xe8f4ff, count: a.speed > 2.6 ? 7 : 4, speed: 1.1, size: 0.08, gravity: 4, life: 0.5, up: 0.5, spread: 0.25 });
+    v.play.boost = a.speed > 2.6;
+  }
+
   protected override onPlayEvent(play: PlayState, kind: string, value: number): void {
-    const p = this.game.player.position;
+    const p = this.actorPos();
     if (kind === 'restart') {
       // Attract mode loops: back to the start line.
       if (play.id === 'skate') this.startRun(play);
@@ -867,7 +923,7 @@ export class StarfallSquare extends FestivalMap {
     }
     const pr = this.present;
     // Turn round to show it to the crowd (and the camera): the present is held out towards us.
-    this.game.player.setFacing('down');
+    if (!this.specCtx) this.game.player.setFacing('down');
     pr.t0 = this.game.time;
     pr.open = -1;
     pr.g.visible = true;
@@ -880,7 +936,7 @@ export class StarfallSquare extends FestivalMap {
   private updatePresent(game: Game): void {
     const pr = this.present;
     if (!pr || !pr.g.visible) return;
-    const p = game.player.position;
+    const p = this.presentOwner?.() ?? game.player.position;
     const t = game.time - pr.t0;
     // Held out in both hands, bobbing; pops in with a little overshoot.
     const pop = Math.min(1, t / 0.35);
@@ -908,13 +964,7 @@ export class StarfallSquare extends FestivalMap {
   protected override onEndPlay(play: PlayState): void {
     if (this.present) this.present.g.visible = false;
     const c = this.crowd;
-    if (play.id === 'giftswap' && c && this.recipient) {
-      const r = this.recipient;
-      c.place(r.i, r.x, r.z, r.yaw);
-      c.members[r.i]!.anim = r.anim;
-      c.commit();
-      this.recipient = null;
-    }
+    if (play.id === 'giftswap' && c && this.recipient) this.releaseRecipient();
     if (play.id === 'skate' && this.run) {
       this.clearRun();
       this.roamLight.position.copy(this.roamHome);

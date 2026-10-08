@@ -53,7 +53,19 @@ export interface FestivalApi {
   snapshot(): FestivalSnapshot;
   applySnapshot(s: FestivalSnapshot): boolean;
   /** Co-op wiring diagnostics (tests): messages in / out over the net extension channel. */
-  coopStats(): { msgsIn: number; msgsOut: number; progIn: number; progUsed: number; invites: number; trace: string[]; role: string };
+  coopStats(): {
+    msgsIn: number;
+    msgsOut: number;
+    progIn: number;
+    progUsed: number;
+    invites: number;
+    staged: unknown;
+    relayed: number;
+    rejected: number;
+    trace: string[];
+    role: string;
+    watching: { sid: string; pid: number; act: string }[];
+  };
 }
 
 /** One farmer's result in a festival mini-game (co-op board row). */
@@ -154,6 +166,11 @@ export class FestivalSystem implements System {
       },
       applySnapshot: (s) => this.applySnapshot(s as FestivalSnapshot),
       grounds: () => this.map()?.id ?? null,
+      // Other farmers' games, staged in 3D from the host's broadcasts (when we're on those grounds).
+      onSpecBegin: (spec) => this.specMap(spec.act)?.spectateBegin(spec),
+      onSpecEvent: (sid, kind, value) => this.map()?.spectateEvent(sid, kind, value),
+      onSpecEnd: (sid, score, place) => this.map()?.spectateEnd(sid, score, place),
+      onSpecRace: (r) => this.specMap(r.act)?.spectateRace(r),
     });
     // Another farmer is at a start line: say how to join.
     game.events.on('festival:lobby', ({ act, name, left }) => {
@@ -175,7 +192,7 @@ export class FestivalSystem implements System {
       record: (a, e) => this.record(a, e),
       snapshot: () => this.snapshot(),
       applySnapshot: (snap) => this.applySnapshot(snap),
-      coopStats: () => ({ ...this.coop.stats, trace: [...this.coop.stats.trace], role: this.coop.role() }),
+      coopStats: () => ({ ...this.coop.stats, trace: [...this.coop.stats.trace], role: this.coop.role(), watching: this.coop.watching(), staged: this.map()?.spectating() ?? [] }),
     });
     // `openUI('festival:<activity>')` — critics / demos stage a mini-game directly.
     game.hud.registerPanel('festival', {
@@ -208,7 +225,12 @@ export class FestivalSystem implements System {
       const f = festivalOn(cal.season, cal.day);
       const onGrounds = festivalForMap(map);
       if (onGrounds) {
+        if (this.grounds && this.grounds !== this.map()) this.grounds.spectateClear();
         this.grounds = this.map();
+        // Games other farmers are already playing here.
+        const live = this.coop.live();
+        for (const sp of live.specs) this.specMap(sp.act)?.spectateBegin(sp);
+        for (const r of live.races) this.specMap(r.act)?.spectateRace(r);
         if (this.current?.id !== onGrounds.id) {
           this.current = onGrounds;
           game.events.emit('festival:start', { id: onGrounds.id, name: onGrounds.name, map });
@@ -217,6 +239,7 @@ export class FestivalSystem implements System {
         return;
       }
       this.grounds?.unpin();
+      this.grounds?.spectateClear();
       this.grounds = null;
       if (this.current) {
         game.events.emit('festival:end', { id: this.current.id });
@@ -300,6 +323,13 @@ export class FestivalSystem implements System {
       const score = a === 'sackrace' ? 1000 - 200 * Math.min(4, place + k) : Math.round(ACTIVITY_PAR[a] * (lo + (hi - lo) * (0.15 + w * 0.7)));
       return { player: v.id, name: v.name, score, place, color: v.color };
     });
+  }
+
+  /** The festival map an activity belongs to, if the player is standing on it. */
+  private specMap(a: ActivityId): FestivalMap | null {
+    const m = this.map();
+    const def = ACTIVITIES[a];
+    return m && def && FESTIVALS[def.festival].map === m.id ? m : null;
   }
 
   private map(): FestivalMap | null {
@@ -430,7 +460,11 @@ export class FestivalSystem implements System {
     if (hudOpen !== 'festival') game.hud.open('festival:__run');
     game.player.controllable = false;
     const play = map.beginPlay(a, partner);
-    // Co-op: other farmers on the grounds can join a race at the start line.
+    // Co-op: the host opens a session for this game (id, seed, start tick) and stages every moment
+    // of it for the other farmers on the grounds; races go through the host's start-line lobby.
+    const session = auto ? null : this.coop.begin(a, play.partner ?? partner);
+    play.seed = (Math.random() * 2 ** 31) | 0;
+    map.relay = session ? (k, v) => session.event(k, v) : null;
     const lobby = auto ? null : this.coop.lineUp(a);
     let result: Awaited<ReturnType<FestivalOverlay['run']>> = null;
     try {
@@ -455,6 +489,9 @@ export class FestivalSystem implements System {
         },
       });
     } finally {
+      map.relay = null;
+      // Aborted / no ribbon: the host still closes the session for everyone watching.
+      if (session && !result) session.end(0, 3);
       map.endPlay(result ?? {});
       game.player.controllable = true;
       this.busy = false;
@@ -472,8 +509,11 @@ export class FestivalSystem implements System {
       const me: FestivalScore = { player: 'local', name: 'You', score: result.score, place: result.noRibbon ? 3 : result.place };
       this.record(a, me);
       game.events.emit('festival:score', { id: fest.id, game: a, player: me.player, name: me.name, score: me.score, place: me.place });
-      this.coop.shareScore(a, me.score, me.place, this.board(a));
-    }
+      // The host validates it, ranks it onto today's board and tells everyone (spectators get the
+      // win / no-ribbon moment staged on your avatar).
+      if (session) session.end(me.score, me.place);
+      else this.coop.shareScore(a, me.score, me.place, this.board(a));
+    } else session?.end(0, 3);
     if (result.gold) game.events.emit('ui:toast', { text: `<b>+${result.gold}g</b> ${def.name} ${result.noRibbon ? 'consolation' : 'prize'}`, kind: 'gold' });
     const thanks: Partial<Record<ActivityId, string[]>> = {
       dance: ['[laugh] Now THAT is how the ribbons are meant to weave!', '[happy] Lovely footwork, dear. The pole approves.', '[happy] You went the wrong way twice. So did your gran. Perfect.'],

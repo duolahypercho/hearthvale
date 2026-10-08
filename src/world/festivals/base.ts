@@ -30,7 +30,7 @@ import { buildRosette } from './kit';
 import { RemoteFarmer } from '../../entities/remote-farmer';
 import { coopVisitors } from '../../data/festivals';
 import { NPCS } from '../../data/npcs';
-import type { CoopRace } from './coop';
+import type { CoopRace, CoopSpec, CoopSpecRace } from './coop';
 
 export interface FestivalMapDef {
   id: string;
@@ -80,6 +80,23 @@ export interface PlayState {
   kinds?: ('me' | 'npc' | 'farmer')[];
   /** Co-op race shared with other farmers (null / absent = solo). */
   coop?: CoopRace | null;
+  /** Host seed for this run (co-op: the host's; solo: local). */
+  seed?: number;
+}
+
+/** Another farmer's mini-game, staged on this machine from the host's broadcasts (co-op). */
+export interface SpecView {
+  spec: CoopSpec;
+  /** Mirror of their game state, advanced from the relayed moments (poses + staging read it). */
+  play: PlayState;
+  /** Their avatar is posed by this map while the view lives (restored after). */
+  posed: RemoteFarmer | null;
+  prevPose: RemoteFarmer['actionPose'];
+  pose: RemoteFarmer['actionPose'];
+  /** Onlookers who turned to watch (restored when it ends). */
+  watchers: { i: number; yaw: number; anim: number }[];
+  /** Relayed moments so far (by kind). */
+  counts: Record<string, number>;
 }
 
 /** Activity trigger spot: interacting within `r` starts the host's activity. */
@@ -129,6 +146,14 @@ export abstract class FestivalMap implements GameMap {
   readonly activitySpots: ActivitySpot[] = [];
   /** Mini-game in progress, if any. */
   play: PlayState | null = null;
+  /** Co-op: forwards this farmer's staged moments to the host (set by the festival system). */
+  relay: ((kind: string, value: number) => void) | null = null;
+  /** Other farmers' mini-games being watched here (co-op spectating), by host session id. */
+  protected specViews = new Map<string, SpecView>();
+  /** A race other farmers are running (spectators stage the field from the host's state). */
+  protected specRaceView: CoopSpecRace | null = null;
+  /** While a spectated moment is being staged: whose (null = the local farmer's). */
+  protected specCtx: SpecView | null = null;
   private prevPose: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
   private camGoal: { pitch: number; distance: number; yaw: number; ox: number; oz: number } | null = null;
   private camSaved: { pitch: number; distance: number; yaw: number; ox: number; oz: number } | null = null;
@@ -136,6 +161,8 @@ export abstract class FestivalMap implements GameMap {
   private poseFn: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
   /** Seconds since the showcase / festival started (render clock). */
   protected showT = 0;
+  /** Night face lighting on the crowd: [warm lantern fill, cool moon rim] at full night (0 = off). */
+  protected faceLight: [number, number] = [0, 0];
   /** Confetti colours for win celebrations (per festival). */
   protected confettiColors = [0xf2b928, 0xe8574a, 0x3f8fd0, 0x6ab04a, 0xffffff];
   /** Crowd members cheering a win (restored to their own clip when it ends). */
@@ -618,6 +645,12 @@ export abstract class FestivalMap implements GameMap {
       v.f.update(dt, game.time);
     }
     if (this.play) this.play.t += dt;
+    if (this.crowd && (this.faceLight[0] || this.faceLight[1])) {
+      const n = game.lighting.night;
+      this.crowd.light.fill.value.w = this.faceLight[0] * n;
+      this.crowd.light.rim.value.w = this.faceLight[1] * n;
+    }
+    if (this.specViews.size || this.specRaceView) this.tickSpectators(dt);
     // Staged framings (paused demo stills, mini-games) never show half-cropped bodies at the edges.
     CROWD_EDGE.value = this.play || (game.paused && this.staged) ? 1 : 0;
     this.updatePips(dt, game);
@@ -760,6 +793,8 @@ export abstract class FestivalMap implements GameMap {
   /** A moment in the mini-game worth staging (hit, miss, release, finish, win / lose…). */
   playEvent(kind: string, value = 0): void {
     if (!this.play) return;
+    // Co-op: the moment goes to the host, which stages it for every other farmer on the grounds.
+    this.relay?.(kind, value);
     if (kind === 'win') this.celebrate(value);
     else if (kind === 'lose') {
       // No ribbon: a little grey sigh-cloud puffs over your head; the crowd claps politely.
@@ -825,6 +860,179 @@ export abstract class FestivalMap implements GameMap {
     const p = this.game.player;
     if (p.actionPose === this.poseFn) p.actionPose = this.prevPose;
     this.prevPose = this.poseFn = null;
+  }
+
+  // ───────────────────────────────────────────── co-op spectating
+
+  /**
+   * Another farmer started a mini-game (host-stamped session): mirror its state here, pose their
+   * avatar with the activity's own body animation, turn the onlookers round to watch and let the
+   * map stage its world side (partner, lanterns, judges, gift circle…).
+   */
+  spectateBegin(spec: CoopSpec): void {
+    if (this.specViews.has(spec.sid)) return;
+    const play: PlayState = { id: spec.act, t: 0, partner: spec.partner, steer: 0, boost: false, progress: [0], score: 0, total: 0, beat: 0, hop: 1, live: true, done: false, stats: {}, seed: spec.seed };
+    const v: SpecView = { spec, play, posed: null, prevPose: null, pose: null, watchers: [], counts: {} };
+    v.pose = (rig, dt) => {
+      try {
+        return this.playerPose(rig, v.play, dt);
+      } catch {
+        return null;
+      }
+    };
+    this.specViews.set(spec.sid, v);
+    this.withSpec(v, () => this.onSpectateBegin(v));
+  }
+
+  /** A relayed moment of a spectated game (the same kinds the local overlay emits). */
+  spectateEvent(sid: string, kind: string, value: number): void {
+    const v = this.specViews.get(sid);
+    if (!v) return;
+    v.counts[kind] = (v.counts[kind] ?? 0) + 1;
+    const pl = v.play;
+    // Mirror what the overlay would have written into its PlayState.
+    if (kind === 'hop') pl.hop = 0;
+    else if (kind === 'perfect' || kind === 'good') {
+      pl.beat += 1;
+      pl.score += kind === 'perfect' ? 2 : 1;
+      pl.progress[0] = Math.min(1, (pl.progress[0] ?? 0) + (kind === 'perfect' ? 0.035 : 0.02));
+    } else if (kind === 'release') pl.progress[0] = 0;
+    else if (kind === 'restart') {
+      pl.progress = [0];
+      pl.score = 0;
+    }
+    this.withSpec(v, () => {
+      // Kinds the local game stages through onPlayEvent are staged the same way for the watcher.
+      // (Not while you play the same game yourself: that staging is yours.)
+      if (kind !== 'win' && kind !== 'lose' && this.play?.id !== pl.id) this.onPlayEvent(pl, kind, value);
+      this.onSpectateEvent(v, kind, value);
+    });
+  }
+
+  /** The host's word on a spectated game: confetti + a ribbon for a winner, a polite clap otherwise. */
+  spectateEnd(sid: string, score: number, place: number): void {
+    const v = this.specViews.get(sid);
+    if (!v) return;
+    this.specViews.delete(sid);
+    const a = v.spec.avatar();
+    if (a && score >= 0) {
+      const p = a.root.position;
+      if (place <= 2) {
+        const cols = this.confettiColors;
+        for (let k = 0; k < 5; k++) {
+          const ang = (k / 5) * Math.PI * 2;
+          this.burst(p.x + Math.cos(ang) * 1.2, p.y + 0.4, p.z + Math.sin(ang) * 0.9, { color: cols[k % cols.length]!, count: 20, speed: 3, size: 0.12, gravity: 2.2, life: 2.2, up: 2.4, spread: 0.45 });
+        }
+        a.emote?.('heart', 3);
+      } else a.emote?.('happy', 2);
+    }
+    const c = this.crowd;
+    if (c) {
+      // Watchers applaud (a cheer for a ribbon), then go back to what they were doing.
+      for (const w of v.watchers) {
+        const m = c.members[w.i];
+        if (!m) continue;
+        m.anim = place <= 2 && score >= 0 ? Anim.cheer : Anim.clap;
+        this.winCheer.push({ i: w.i, anim: w.anim });
+        m.yaw = w.yaw;
+      }
+      this.cheerUntil = this.showT + 3;
+      c.commit();
+    }
+    this.withSpec(v, () => this.onSpectateEnd(v, place));
+    if (v.posed && v.posed.actionPose === v.pose) v.posed.actionPose = v.prevPose;
+  }
+
+  /** Leaving the grounds: drop every watched game (their avatars get their own poses back). */
+  spectateClear(): void {
+    for (const v of [...this.specViews.values()]) {
+      this.withSpec(v, () => this.onSpectateEnd(v, 3));
+      if (v.posed && v.posed.actionPose === v.pose) v.posed.actionPose = v.prevPose;
+    }
+    this.specViews.clear();
+    this.specRaceView = null;
+  }
+
+  /** A race other farmers run: the map stages the villager field from the host's clock + seed. */
+  spectateRace(r: CoopSpecRace): void {
+    this.specRaceView = r;
+  }
+
+  /** Watching anyone's `act` right now (and the local farmer isn't playing it)? */
+  protected spectated(act: ActivityId): SpecView | null {
+    if (this.play?.id === act) return null;
+    for (const v of this.specViews.values()) if (v.spec.act === act) return v;
+    return null;
+  }
+
+  /** Where the farmer whose moment is being staged stands (a spectated avatar, else you). */
+  protected actorPos(): THREE.Vector3 {
+    const a = this.specCtx?.spec.avatar();
+    return a ? a.root.position : this.game.player.position;
+  }
+
+  private withSpec(v: SpecView, fn: () => void): void {
+    const prev = this.specCtx;
+    this.specCtx = v;
+    try {
+      fn();
+    } catch (e) {
+      console.warn('[festival] spectate', e);
+    } finally {
+      this.specCtx = prev;
+    }
+  }
+
+  private tickSpectators(dt: number): void {
+    const c = this.crowd;
+    for (const v of this.specViews.values()) {
+      const pl = v.play;
+      pl.t += dt;
+      pl.hop = Math.min(1, pl.hop + dt / 0.3);
+      if (pl.id === 'dance') pl.beat += dt * 1.6;
+      const a = v.spec.avatar();
+      if (a && a.root.parent && v.posed !== a) {
+        // Their avatar arrived on this map: pose it, and the nearest onlookers turn to watch.
+        v.posed = a;
+        v.prevPose = a.actionPose;
+        a.actionPose = v.pose;
+        if (c) {
+          const p = a.root.position;
+          const keep = new Set<number>([Anim.skate, Anim.sack, Anim.ribbonR, Anim.ribbonL, Anim.sit, Anim.perch, Anim.fiddle, Anim.ride]);
+          const near = c.members
+            .map((m, i) => ({ m, i, d: Math.hypot(m.x - p.x, m.z - p.z) }))
+            .filter((x) => x.d > 1.2 && x.d < 7 && !x.m.spec.lift && !keep.has(x.m.anim) && !this.winCheer.some((w) => w.i === x.i))
+            .sort((x, y) => x.d - y.d)
+            .slice(0, 8);
+          for (const { m, i } of near) {
+            v.watchers.push({ i, yaw: m.yaw, anim: m.anim });
+            m.yaw = Math.atan2(p.x - m.x, p.z - m.z);
+            if (m.anim === Anim.idle || m.anim === Anim.talk) m.anim = Anim.clap;
+          }
+          c.commit();
+        }
+      }
+      if (v.posed) this.withSpec(v, () => this.onSpectateTick(v, dt));
+    }
+    if (this.specRaceView?.done) this.specRaceView = null;
+  }
+
+  protected onSpectateBegin(_v: SpecView): void {}
+  /** Generic juice for a relayed moment (maps add their own staging on top). */
+  protected onSpectateEvent(v: SpecView, kind: string, value: number): void {
+    const a = v.spec.avatar();
+    if (!a) return;
+    const p = a.root.position;
+    const good = ['perfect', 'release', 'gate', 'star', 'unwrap', 'given', 'rosette'];
+    if (good.includes(kind)) this.burst(p.x, p.y + 1.7, p.z, { color: kind === 'star' || value >= 2 ? 0xffe27a : 0xfff4e0, count: 10, speed: 1.4, size: 0.1, gravity: 0.6, life: 1.1, up: 1, spread: 0.3 });
+    else if (kind === 'miss' || kind === 'crack' || kind === 'stumble') this.burst(p.x, p.y + 2.1, p.z, { color: 0xb8c0cc, count: 6, speed: 0.5, size: 0.18, gravity: -0.2, life: 1.2, up: 0.3, spread: 0.2 });
+  }
+  protected onSpectateEnd(_v: SpecView, _place: number): void {}
+  protected onSpectateTick(_v: SpecView, _dt: number): void {}
+
+  /** Spectated sessions (tests / diagnostics). */
+  spectating(): { sid: string; act: string; events: number; posed: boolean }[] {
+    return [...this.specViews.values()].map((v) => ({ sid: v.spec.sid, act: v.spec.act, events: Object.values(v.counts).reduce((a, b) => a + b, 0), posed: !!v.posed }));
   }
 
   protected onBeginPlay(_play: PlayState): void {}

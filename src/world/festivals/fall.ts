@@ -25,7 +25,8 @@ import { applyWorldFx } from '../../render/worldfx';
 import { buildMarketStall, buildTownHouse } from '../props/townkit';
 import { buildBunting } from '../props/festival';
 import { buildHayBale, buildHarvestPile, buildScarecrow, buildBench } from '../props/farmkit';
-import { FestivalMap, type PlayState } from './base';
+import { FestivalMap, type PlayState, type SpecView } from './base';
+import { sackNpcPos, SACK_LEN } from './coop';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildShowStage, buildMarquee, buildGiantPumpkin, buildRosette, buildEntryCard, buildCornField, buildRaceGate, buildAppleTub, buildCiderPress, buildGourdGarland, buildBanquetTable } from './kit';
 import { PetalStorm, GroundScatter } from './fx';
@@ -661,7 +662,9 @@ export class HarvestFair extends FestivalMap {
     // Demo stills freeze the race mid-lane (hops keep animating in place); otherwise it loops.
     if (!(game.paused && this.staged)) this.raceClock += dt;
     const rt = (((this.raceClock - this.raceT0) % race) + race) % race;
-    const play = this.play?.id === 'sackrace' ? this.play : null;
+    const local = this.play?.id === 'sackrace' ? this.play : null;
+    // Co-op spectators: another farmers' race, the villager field from the host's seed + clock.
+    const play = local ?? this.specSack();
     this.racers.forEach((rc, k) => {
       const m = crowd.members[rc.i]!;
       let x: number;
@@ -713,7 +716,12 @@ export class HarvestFair extends FestivalMap {
         rc.lastPh = ph;
       }
     });
-    if (play) {
+    if (!local && this.remoteSacks.size && !this.specRaceView) {
+      for (const s2 of this.remoteSacks.values()) s2.removeFromParent();
+      this.remoteSacks.clear();
+    }
+    if (local) {
+      const play = local;
       const pr = play.progress[0] ?? 0;
       // Over the line you hop on through the tape (1.2 m) and turn back to the field.
       if (pr >= 1) this.pastTape = Math.min(1.2, this.pastTape + dt * 1.6);
@@ -746,7 +754,7 @@ export class HarvestFair extends FestivalMap {
     }
     // Judges pace the pumpkin row, pausing at each entry — during the Produce Judging they gather
     // round YOUR plinth, leaning in with their clipboards.
-    if (this.play?.id === 'pumpkin' && this.entry?.visible) {
+    if ((this.play?.id === 'pumpkin' || this.spectated('pumpkin')) && this.entry?.visible) {
       // The judges walk plinth to plinth as each card turns (and end at yours), leaning in to judge.
       const at = this.judgeAt ?? this.entryAt;
       // Stand-off marks at the pallet's front corners (never on the pallet, never square in front of
@@ -819,24 +827,9 @@ export class HarvestFair extends FestivalMap {
       this.raceOver = false;
       this.pastTape = 0;
       this.placePlayer(RUN.x0, laneZ(0), 'right');
-      if (!this.sack) {
-        const g = new THREE.CylinderGeometry(0.3, 0.26, 0.62, 12, 3, true);
-        const pos = g.attributes.position as THREE.BufferAttribute;
-        for (let i = 0; i < pos.count; i++) {
-          // Lumpy burlap: bulge at the bottom, gathered at the top.
-          const y = pos.getY(i);
-          const k = 1 + 0.12 * Math.sin(pos.getX(i) * 20 + y * 9) * (0.5 - y) - (y > 0.25 ? 0.18 : 0);
-          pos.setX(i, pos.getX(i) * k);
-          pos.setZ(i, pos.getZ(i) * k);
-        }
-        g.computeVertexNormals();
-        const m = new THREE.MeshStandardMaterial({ color: 0xc8a068, roughness: 0.95, side: THREE.DoubleSide, map: textures.thatch().map });
-        this.sack = new THREE.Mesh(g, m);
-        this.sack.castShadow = true;
-        this.sack.position.y = 0.3;
-      }
-      this.sack.visible = true;
-      this.game.player.rig.body.add(this.sack);
+      this.sackMesh();
+      this.sack!.visible = true;
+      this.game.player.rig.body.add(this.sack!);
       // A high 50° race camera across the lanes: every racer reads clear of the next.
       this.frame({ pitch: 50, distance: 19.5, yaw: 0, ox: 2.4, oz: LANE.z - laneZ(0) + 0.4 });
     } else if (play.id === 'pumpkin') {
@@ -851,12 +844,80 @@ export class HarvestFair extends FestivalMap {
     }
   }
 
+  /** Scratch PlayState mirroring a race other farmers run (spectators), refreshed every frame. */
+  private specSackState: PlayState = { id: 'sackrace', t: 0, steer: 0, boost: false, progress: [0, 0, 0, 0, 0], score: 0, total: 0, beat: 0, hop: 1, live: false, done: false, stats: {}, lanes: [0, 1, 2, 3, 4], kinds: ['npc', 'npc', 'npc', 'npc', 'npc'] };
+
+  private specSack(): PlayState | null {
+    const r = this.specRaceView;
+    if (!r || r.act !== 'sackrace' || r.done) return null;
+    const st = this.specSackState;
+    const t = r.clock();
+    st.t = t;
+    st.live = t > 0;
+    let k = 0;
+    for (let lane = 0; lane < 5; lane++) {
+      let pid = -1;
+      for (const [p, l] of r.lanes) if (l === lane) pid = p;
+      st.lanes![lane] = lane;
+      if (pid >= 0) {
+        st.kinds![lane] = 'farmer';
+        st.progress[lane] = r.sample(pid)?.p ?? 0;
+        // Their avatar climbs into a sack too.
+        const av = (this.game.services.net as unknown as { remotes?: { get(id: number): { farmer: { root: THREE.Object3D } } | undefined } } | undefined)?.remotes?.get(pid)?.farmer.root;
+        if (av && !this.remoteSacks.has(pid)) {
+          const s2 = this.sackMesh().clone();
+          s2.visible = true;
+          s2.scale.set(1, 1, 1);
+          s2.position.set(0, 0.3, 0);
+          av.add(s2);
+          this.remoteSacks.set(pid, s2);
+        }
+      } else {
+        st.kinds![lane] = 'npc';
+        st.progress[lane] = sackNpcPos(r.seed, k++, t) / SACK_LEN;
+      }
+    }
+    return st;
+  }
+
+  /** The burlap racing sack (yours; co-op racers wear clones). */
+  private sackMesh(): THREE.Mesh {
+    if (!this.sack) {
+      const g = new THREE.CylinderGeometry(0.3, 0.26, 0.62, 12, 3, true);
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        // Lumpy burlap: bulge at the bottom, gathered at the top.
+        const y = pos.getY(i);
+        const k = 1 + 0.12 * Math.sin(pos.getX(i) * 20 + y * 9) * (0.5 - y) - (y > 0.25 ? 0.18 : 0);
+        pos.setX(i, pos.getX(i) * k);
+        pos.setZ(i, pos.getZ(i) * k);
+      }
+      g.computeVertexNormals();
+      const m = new THREE.MeshStandardMaterial({ color: 0xc8a068, roughness: 0.95, side: THREE.DoubleSide, map: textures.thatch().map });
+      this.sack = new THREE.Mesh(g, m);
+      this.sack.castShadow = true;
+      this.sack.position.y = 0.3;
+    }
+    return this.sack;
+  }
+
+  protected override onSpectateEnd(v: SpecView): void {
+    if (v.spec.act === 'pumpkin' && this.play?.id !== 'pumpkin') {
+      this.clearEntry();
+      for (const g of this.tableRosettes) g.visible = true;
+      for (const g of this.pinned) g.removeFromParent();
+      this.pinned = [];
+      this.judgeAt = null;
+      for (const j of this.judges) j.x = j.z = undefined;
+    }
+  }
+
   protected override onPlayEvent(play: PlayState, kind: string, value: number): void {
-    const p = this.game.player.position;
+    const p = this.actorPos();
     if (play.id === 'sackrace') {
       if (kind === 'hop') this.burst(p.x - 0.1, p.y + 0.05, p.z, { color: 0xc8a870, count: 5 + Math.round(value * 4), speed: 0.9, size: 0.09, gravity: 5, life: 0.5, up: 0.8, spread: 0.3 });
       else if (kind === 'stumble') {
-        this.stumbleT = 0.55;
+        if (!this.specCtx) this.stumbleT = 0.55;
         this.burst(p.x, p.y + 0.1, p.z, { color: 0xb89060, count: 16, speed: 1.4, size: 0.12, gravity: 5, life: 0.7, up: 0.9, spread: 0.4 });
       }
       else if (kind === 'finish') {

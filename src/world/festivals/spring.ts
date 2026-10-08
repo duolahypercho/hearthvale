@@ -20,7 +20,7 @@ import { buildTownHouse, buildMarketStall, buildFlowerCart, buildPlanter } from 
 import { buildLanternPost } from '../props/structures';
 import { buildBench } from '../props/farmkit';
 import { buildBunting, FESTIVAL_COLORS } from '../props/festival';
-import { FestivalMap, type PlayState } from './base';
+import { FestivalMap, type PlayState, type SpecView } from './base';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { buildFlowerFloat, buildFlowerArch, buildBloomHedge, buildBandstand, buildBlossomPole, buildCherryTrees, buildBanquetTable } from './kit';
 import { PetalStorm, GroundScatter, PetalFall, Ribbons } from './fx';
@@ -560,7 +560,8 @@ export class SpringParade extends FestivalMap {
     const crowd = this.crowd;
     if (!crowd) return;
     // The plait grows down the pole as the dancers weave (the Ribbon Dance: as you hit the beats).
-    const play = this.play?.id === 'dance' ? this.play : null;
+    // (Co-op: another farmer's dance is staged the same way — partner, plait, hearts.)
+    const play = this.play?.id === 'dance' ? this.play : (this.spectated('dance')?.play ?? null);
     const goal = play ? 0.35 + (play.progress[0] ?? 0) * (PLAIT_MAX - 0.35) : 0.55 + 1.5 * (0.5 - 0.5 * Math.cos((t * Math.PI * 2) / 110));
     this.plaitLen.value += (goal - this.plaitLen.value) * (1 - Math.exp(-1.5 * dt));
     const wrap = this.plaitLen.value / PLAIT_MAX;
@@ -633,10 +634,19 @@ export class SpringParade extends FestivalMap {
 
   protected override onBeginPlay(play: PlayState): void {
     if (play.id !== 'dance') return;
+    // A watched co-op dance gives the pole back first (its partner goes home).
+    this.releasePartner();
     const s = this.danceSpot();
     // Side by side facing the crowd (and the camera), turned in towards each other.
     this.placePlayer(s.px, s.pz, 'down');
-    const i = play.partner ? this.named.get(play.partner) : undefined;
+    this.stagePartner(play.partner);
+    this.frame({ pitch: 40, distance: 18.5, yaw: 0, ox: 0.4, oz: -2.7 });
+  }
+
+  /** The chosen partner steps up beside the dance spot (yours, or a co-op farmer's). */
+  private stagePartner(id?: string): void {
+    const s = this.danceSpot();
+    const i = id ? this.named.get(id) : undefined;
     const c = this.crowd;
     if (c && i !== undefined) {
       const m = c.members[i]!;
@@ -646,7 +656,28 @@ export class SpringParade extends FestivalMap {
       c.commit();
     }
     this.plaitLen.value = 0.35;
-    this.frame({ pitch: 40, distance: 18.5, yaw: 0, ox: 0.4, oz: -2.7 });
+  }
+
+  private releasePartner(): void {
+    const c = this.crowd;
+    const p = this.partner;
+    if (c && p) {
+      c.place(p.i, p.x, p.z, p.yaw);
+      const m = c.members[p.i]!;
+      m.anim = p.anim;
+      m.squash = 1;
+      m.lean = 0;
+      c.commit();
+    }
+    this.partner = null;
+  }
+
+  protected override onSpectateBegin(v: SpecView): void {
+    if (v.spec.act === 'dance' && this.play?.id !== 'dance' && !this.partner) this.stagePartner(v.spec.partner);
+  }
+
+  protected override onSpectateEnd(v: SpecView): void {
+    if (v.spec.act === 'dance' && this.play?.id !== 'dance') this.releasePartner();
   }
 
   protected override onPlayEvent(play: PlayState, kind: string, value: number): void {
@@ -684,17 +715,7 @@ export class SpringParade extends FestivalMap {
   }
 
   protected override onEndPlay(): void {
-    const c = this.crowd;
-    const p = this.partner;
-    if (c && p) {
-      c.place(p.i, p.x, p.z, p.yaw);
-      const m = c.members[p.i]!;
-      m.anim = p.anim;
-      m.squash = 1;
-      m.lean = 0;
-      c.commit();
-    }
-    this.partner = null;
+    this.releasePartner();
   }
 
   protected override playerPose(rig: PlayerRig, play: PlayState): ActionPose | null {

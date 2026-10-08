@@ -22,7 +22,7 @@ import { WISHES, produceRivals, PRESENTATIONS, favouredPresentation, entryNickna
 import { portraitSvg } from '../../ui/portraits';
 import { itemIcon } from '../../ui/icons';
 import type { FestivalMap, PlayState } from './base';
-import type { CoopLobby, CoopRace, CoopRacer } from './coop';
+import { sackNpcPos, sackNpcFinish, SACK_LEN, type CoopLobby, type CoopRace, type CoopRacer } from './coop';
 
 export interface GameEnv {
   game: Game;
@@ -530,11 +530,19 @@ export class FestivalOverlay {
   private async lineUp(env: GameEnv): Promise<CoopRace | null> {
     const lob = env.lobby;
     if (!lob || env.auto) return null;
+    // Nobody else on the grounds: the host hands the race (its seed + start tick) straight back.
+    if (lob.quick) {
+      const r = await lob.result;
+      return this.aborted ? null : r;
+    }
     const root = this.root!;
-    const panel = div('fg-panel fg-lobby fg-live', `<div class="in"><div class="k">${lob.owner ? 'At the start line' : 'Joining the line-up'}</div><div class="who"></div><div class="t"></div>${lob.owner ? '<div class="fg-go">Start now <kbd>Space</kbd></div>' : ''}<div class="esc">Esc · go it alone</div></div>`);
+    // (Who owns the line is the host's call: the title + start button follow its lobby state.)
+    const panel = div('fg-panel fg-lobby fg-live', `<div class="in"><div class="k">Joining the line-up</div><div class="who"></div><div class="t"></div><div class="fg-go" style="display:none">Start now <kbd>Space</kbd></div><div class="esc">Esc · go it alone</div></div>`);
     const who = panel.querySelector('.who') as HTMLElement;
     const tEl = panel.querySelector('.t') as HTMLElement;
-    panel.querySelector('.fg-go')?.addEventListener('click', () => lob.startNow());
+    const kEl = panel.querySelector('.k') as HTMLElement;
+    const goEl = panel.querySelector('.fg-go') as HTMLElement;
+    goEl.addEventListener('click', () => lob.startNow());
     root.append(panel);
     let res: CoopRace | null | undefined;
     void lob.result.then((r) => (res = r));
@@ -548,6 +556,11 @@ export class FestivalOverlay {
         if (rows.length > 1) this.sfx('ui:select', 0.8);
       }
       const left = Math.ceil(lob.left());
+      const own = lob.owner;
+      if (goEl.style.display !== (own ? '' : 'none')) {
+        goEl.style.display = own ? '' : 'none';
+        kEl.textContent = own ? 'At the start line' : 'Joining the line-up';
+      }
       tEl.textContent = lob.owner ? `Starting in ${left}s — anyone at the fair can talk to the host to join` : `Waiting for the starter… ${left}s`;
       if (lob.owner && this.hit('Space', 'Enter')) lob.startNow();
       if (this.hit('Escape')) lob.cancel();
@@ -1044,13 +1057,13 @@ export class FestivalOverlay {
     const lanes = panel.querySelector('.lanes') as HTMLElement;
     const toks: HTMLElement[] = [];
     const rowsEl: HTMLElement[] = [];
-    let npcK = 0;
+    let tintK = 0;
     for (let i = 0; i < N; i++) {
       const l = div('');
       const f = farmer[i];
       const t = div(i === 0 ? 'fg-token me' : f ? 'fg-token me farmer' : 'fg-token', i === 0 ? '<b>YOU</b>' : f ? `<b>${escapeHtml(f.name.slice(0, 5).toUpperCase())}</b>` : '');
       if (f) t.style.borderColor = f.color;
-      else if (i) t.style.background = npcTints[npcK++ % npcTints.length]!;
+      else if (i) t.style.background = npcTints[tintK++ % npcTints.length]!;
       l.append(t);
       rowsEl.push(l);
       toks.push(t);
@@ -1064,15 +1077,16 @@ export class FestivalOverlay {
     const meter = panel.querySelector('.bounce i') as HTMLElement;
     const placeEl = panel.querySelector('.place') as HTMLElement;
     root.append(panel);
-    const LEN = 25.4;
+    const LEN = SACK_LEN;
     const pos = new Array(N).fill(0) as number[];
     /** Finish time on the race clock (s), -1 = still hopping. */
     const finT = new Array(N).fill(-1) as number[];
-    // Villager racers: steady hops with the odd wobble (deterministic from the race clock, so every
-    // farmer in a shared race sees the same villagers).
-    const NPC_SPEEDS = [2.62, 2.48, 2.75, 2.36];
-    const npc: { s: number; stumble: number }[] = [];
-    for (let i = 0, k = 0; i < N; i++) npc.push(kinds[i] === 'npc' ? { s: NPC_SPEEDS[k % 4]!, stumble: 3 + (k++ + 1) * 1.7 } : { s: 0, stumble: 1 });
+    // Villager racers: steady hops with the odd wobble — a closed-form function of the (host's) seed
+    // and the race clock, so every farmer in a shared race and every spectator sees the same field
+    // and the host ranks the same finish.
+    const seed = race?.seed ?? env.play.seed ?? 1;
+    const npcK: number[] = [];
+    for (let i = 0, k = 0; i < N; i++) npcK.push(kinds[i] === 'npc' ? k++ : -1);
     env.play.progress = pos.map(() => 0);
     if (!(await this.countdown(root))) return null;
     env.play.live = true;
@@ -1097,10 +1111,8 @@ export class FestivalOverlay {
           }
           continue;
         }
-        const n = npc[i]!;
-        const wob = Math.abs(((t + i * 1.3) % n.stumble) - n.stumble / 2) < 0.22 ? 0.2 : 1;
-        pos[i] = Math.min(LEN, pos[i]! + n.s * wob * dt * (0.9 + 0.1 * Math.sin(t * 7 + i)));
-        if (pos[i]! >= LEN) finT[i] = t;
+        pos[i] = sackNpcPos(seed, npcK[i]!, t);
+        if (pos[i]! >= LEN) finT[i] = sackNpcFinish(seed, npcK[i]!);
       }
       // Player hops.
       stun = Math.max(0, stun - dt);
@@ -1171,12 +1183,29 @@ export class FestivalOverlay {
     }
     env.play.live = false;
     if (!ok) return null;
-    const place = finT[0]! >= 0 ? rankOf(0) : 4;
+    // Co-op: the host ranks the field (its clock, lag-checked finish times, the seeded villagers);
+    // this machine's own count is only the fallback if the host never answers.
+    const placeOf = new Array(N).fill(-1) as number[];
+    for (let i = 0; i < N; i++) placeOf[i] = finT[i]! >= 0 ? rankOf(i) : 4;
+    if (race) {
+      placeEl.textContent = '…';
+      const st = await race.standings(4000);
+      if (this.aborted) return null;
+      for (const row of st ?? []) {
+        if (row.id === race.me) placeOf[0] = row.fin >= 0 ? row.place : 4;
+        const k = farmer.findIndex((f) => f?.id === row.id);
+        if (k > 0) {
+          placeOf[k] = row.fin >= 0 ? row.place : 4;
+          finT[k] = row.fin;
+        }
+      }
+    }
+    const place = placeOf[0]!;
     panel.remove();
-    const rival = farmer.find((f, i) => f && finT[i]! >= 0 && finT[i]! < finT[0]!) ?? null;
-    const beat = farmer.filter((f, i) => f && (finT[i]! < 0 || finT[i]! > finT[0]!)).map((f) => f!.name);
+    const rival = farmer.find((f, i) => f && placeOf[i]! < place) ?? null;
+    const beat = farmer.filter((f, i) => f && placeOf[i]! > place).map((f) => f!.name);
     const coopLine = rival ? ` ${rival.name} out-hopped you — rematch next fall!` : beat.length ? ` You beat ${beat.join(' and ')} to the tape!` : '';
-    const rivals: BoardRow[] = farmer.flatMap((f, i) => (f ? [{ player: f.key, name: f.name, color: f.color, place: finT[i]! >= 0 ? Math.min(3, rankOf(i)) : 3, score: finT[i]! >= 0 ? Math.round(1000 - rankOf(i) * 200) : 0 }] : []));
+    const rivals: BoardRow[] = farmer.flatMap((f, i) => (f ? [{ player: f.key, name: f.name, color: f.color, place: Math.min(3, placeOf[i]!), score: placeOf[i]! < 4 ? Math.round(1000 - placeOf[i]! * 200) : 0 }] : []));
     if (place >= 3) {
       return {
         place,
@@ -1500,6 +1529,11 @@ export class FestivalOverlay {
       const gates = st.gates ?? 0;
       const cracks = st.cracks ?? 0;
       const lap = st.lap ?? 1;
+      // (Co-op: the moments go to the host, which stages them for the farmers watching.)
+      if (stars > last.stars) env.map.playEvent('star', stars);
+      if (gates > last.gates) env.map.playEvent('gate', gates);
+      if (cracks > last.cracks) env.map.playEvent('crack', cracks);
+      if (lap > last.lap) env.map.playEvent('lap', lap);
       if (stars > last.stars) {
         this.sfx('ui:select', 1.1);
         num.parentElement!.animate([{ transform: 'scale(1.25)' }, { transform: 'scale(1)' }], { duration: 260, easing: 'ease-out' });

@@ -738,9 +738,19 @@ void crowdCull(inout vec3 p) {
 /** 1 = staged framing: crowd members cropped by the frame's side / bottom edges fold away (shared by every crowd). */
 export const CROWD_EDGE = { value: 0 };
 
-function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, depth: boolean): void {
+/** Per-crowd night lighting for faces: a warm camera-side fill (rgb, strength) + a cool rim. */
+export interface CrowdLightU {
+  fill: { value: THREE.Vector4 };
+  rim: { value: THREE.Vector4 };
+}
+
+function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, depth: boolean, light?: CrowdLightU): void {
   patchMaterial(m, depth ? 'crowd-depth' : 'crowd', (shader) => {
     shader.uniforms.uCrowd = tex;
+    if (light) {
+      shader.uniforms.uCrFill = light.fill;
+      shader.uniforms.uCrCool = light.rim;
+    }
     shader.uniforms.uCrowdEdge = CROWD_EDGE;
     shader.uniforms.uTime = globalUniforms.uTime;
     shader.uniforms.uLamps = globalUniforms.uLamps;
@@ -756,15 +766,23 @@ function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, dep
     shader.vertexShader = vs;
     if (!depth) {
       let fs = shader.fragmentShader;
-      fs = before(fs, 'void main() {', 'varying float vCrowdGlow;\nvarying float vCrowdRim;\nuniform float uLamps;');
+      fs = before(fs, 'void main() {', 'varying float vCrowdGlow;\nvarying float vCrowdRim;\nuniform float uLamps;\nuniform vec4 uCrFill;\nuniform vec4 uCrCool;');
       // Named villagers carry a soft warm rim (a painted key-light outline) so the town's own people
       // pop out of the townsfolk crowd at diorama distance.
       fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += min(diffuseColor.rgb * diffuseColor.rgb * vCrowdGlow * (0.45 + uLamps * 1.3), vec3(0.8, 0.62, 0.42));');
+      // Night festivals: faces turned to the lens catch a warm lantern fill (the paper lanterns and
+      // stalls all around them), silhouettes a cool moonlight rim — skin and clothes read against
+      // a bright sky / bay instead of sinking into a muddy shadow. (uCrFill.a / uCrCool.a = 0: off.)
+      fs = after(
+        fs,
+        '#include <emissivemap_fragment>',
+        'float crFace = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0); totalEmissiveRadiance += diffuseColor.rgb * uCrFill.rgb * uCrFill.a * (0.3 + 0.7 * crFace * crFace);',
+      );
       // (Proportional to the lit colour, so it reads the same at noon and under lamplight.)
       fs = before(
         fs,
         '#include <opaque_fragment>',
-        'if (vCrowdRim > 0.01) { float crRim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0); outgoingLight += (outgoingLight * 0.9 + vec3(0.02, 0.018, 0.012)) * crRim * vCrowdRim; }',
+        'outgoingLight += uCrCool.rgb * uCrCool.a * pow(1.0 - clamp(abs(dot(normalize(normal), normalize(vViewPosition))), 0.0, 1.0), 2.6) * (0.35 + 0.65 * diffuseColor.rgb); if (vCrowdRim > 0.01) { float crRim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0); outgoingLight += (outgoingLight * 0.9 + vec3(0.02, 0.018, 0.012)) * crRim * vCrowdRim; }',
       );
       shader.fragmentShader = fs;
     }
@@ -798,6 +816,8 @@ export class Crowd {
   private data: Float32Array;
   private tex: THREE.DataTexture;
   private texU: { value: THREE.Texture | null };
+  /** Night face lighting (see CrowdLightU): maps set it, e.g. the tide-night lantern fill. */
+  readonly light: CrowdLightU = { fill: { value: new THREE.Vector4(1, 0.72, 0.45, 0) }, rim: { value: new THREE.Vector4(0.55, 0.7, 1, 0) } };
 
   constructor(specs: CrowdSpec[], private heightAt: (x: number, z: number) => number, name = 'crowd') {
     const W = Math.max(1, specs.length);
@@ -821,7 +841,7 @@ export class Crowd {
     const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.74 });
     m.name = 'crowd';
     applyWorldFx(m, { snow: false, clouds: true, wet: true });
-    patchCrowd(m, this.texU, false);
+    patchCrowd(m, this.texU, false, this.light);
     const dm = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchCrowd(dm, this.texU, true);
     this.mesh = new THREE.Mesh(geo, m);
