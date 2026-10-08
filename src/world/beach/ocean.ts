@@ -36,8 +36,11 @@ function blankPileTex(): THREE.DataTexture {
 export const WAVE_PERIOD = 7.2;
 
 export const SWASH_GLSL = /* glsl */ `
+float hvSwashPhaseN(vec2 p, float t, float n) {
+  return t / ${WAVE_PERIOD.toFixed(2)} + p.x * 0.0045 + n * 0.35;
+}
 float hvSwashPhase(vec2 p, float t) {
-  return t / ${WAVE_PERIOD.toFixed(2)} + p.x * 0.0045 + hvNoise(p * 0.035) * 0.35;
+  return hvSwashPhaseN(p, t, hvNoise(p * 0.035));
 }
 // Lift of the water sheet over the beach: quick run-up, slow backwash (m).
 float hvSwash(vec2 p, float t) {
@@ -110,9 +113,20 @@ export interface OceanOptions {
   step?: number;
 }
 
+/** `?oceanvn=0` keeps the swash / breaker / kelp-warp noise per pixel (perf r17 A/B). */
+function oceanVertexNoise(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get('oceanvn');
+    return !(q === '0' || q === 'false');
+  } catch {
+    return true;
+  }
+}
+
 function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = false): THREE.ShaderMaterial {
   const o = terrain.opts;
   const mat = new THREE.ShaderMaterial({
+    defines: oceanVertexNoise() ? { HV_OCEAN_VN: 1 } : {},
     transparent: true,
     // Writes depth so the post passes (height fog, tilt-shift) see the water surface, not the sea
     // floor under it (otherwise misty weather pools as a milky fog bank over the whole sea).
@@ -155,6 +169,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       varying float vLift;
       varying float vCloudN;
       varying vec4 vLowN;
+      varying vec4 vLowN2;
       ${NOISE_GLSL}
       ${SWASH_GLSL}
       float groundAt(vec2 xz) {
@@ -189,6 +204,19 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
           vLowN = vec4(hvNoise(q * 0.07 + vec2(tq * 0.01, 0.0)), hvNoise(q * 0.018 + vec2(tq * 0.004, 0.0)),
                        hvNoise(vec2(q.x * 0.02, q.y * 0.06) + vec2(tq * 0.01, 0.0)), hvNoise(q * 0.11 + vec2(tq * 0.012, -tq * 0.008)));
         }
+        // Perf r17 (HV_OCEAN_VN): more 12-29 m-cell fields per vertex on the 0.5 m near sheet — the
+        // swash phase noise, the breaker phase noise and the kelp bed's domain warp (taken at the
+        // vertex's own parallax-shifted bed point): linear between vertices is < 0.2 % of a cell's
+        // range, 2 noise taps fewer per sea pixel (+ 2 over the kelp zone).
+        vLowN2 = vec4(0.0);
+        #ifdef HV_OCEAN_VN
+        if (uFar < 0.5 && uPool < 0.5) {
+          vec2 q = wp.xz;
+          vec3 Vv = normalize(cameraPosition - wp.xyz);
+          vec2 pbv = q - Vv.xz / max(Vv.y, 0.35) * (d0 + lift) * 0.55;
+          vLowN2 = vec4(hvNoise(q * 0.035), hvNoise(q * 0.08), hvNoise(pbv * 0.09), hvNoise(pbv * 0.07 + 3.0));
+        }
+        #endif
         vW = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
@@ -216,6 +244,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       varying float vLift;
       varying float vCloudN;
       varying vec4 vLowN;
+      varying vec4 vLowN2;
       ${NOISE_GLSL}
       ${SWASH_GLSL}
       ${VORONOI_GLSL}
@@ -330,8 +359,13 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
 
         // Breakers: crest lines travelling shoreward (towards shallower water), two or three at a time
         // over the shelf. wv: 0.9 → 1 = the steepening face (shore side), 0 → 0.35 = the foam it leaves.
+        #ifdef HV_OCEAN_VN
+        float ph = lowV ? hvSwashPhaseN(p, t, vLowN2.x) : hvSwashPhase(p, t);
+        float wvRaw = ph + depth * 1.15 + (lowV ? vLowN2.y : hvNoise(p * 0.08)) * 0.3;
+        #else
         float ph = hvSwashPhase(p, t);
         float wvRaw = ph + depth * 1.15 + hvNoise(p * 0.08) * 0.3;
+        #endif
         float wv = fract(wvRaw);
         // Phase gradient per metre: where the bed is flat the phase barely changes across the water,
         // and a crest would light a whole lobed sheet at once (a white flash) instead of a moving line.
@@ -397,7 +431,12 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
           float kz = smoothstep(0.9, 1.7, depth) * (1.0 - smoothstep(3.0, 4.1, depth)) * (1.0 - uPool) * (1.0 - uFar) * detail;
           if (kz > 0.001) {
             vec2 pb = p - V.xz / max(V.y, 0.35) * depth * 0.55;
-            vec2 kq = pb * vec2(0.2, 0.32) + vec2(hvNoise(pb * 0.09) * 2.2, hvNoise(pb * 0.07 + 3.0) * 1.4);
+            #ifdef HV_OCEAN_VN
+            vec2 kw = lowV ? vLowN2.zw : vec2(hvNoise(pb * 0.09), hvNoise(pb * 0.07 + 3.0));
+            #else
+            vec2 kw = vec2(hvNoise(pb * 0.09), hvNoise(pb * 0.07 + 3.0));
+            #endif
+            vec2 kq = pb * vec2(0.2, 0.32) + vec2(kw.x * 2.2, kw.y * 1.4);
             float bed = smoothstep(0.56, 0.7, hvNoise(kq) * 0.75 + hvNoise(pb * 0.6) * 0.25);
             float frond = smoothstep(0.5, 0.78, hvNoise(vec2(pb.x * 1.9 + sin(t * 0.6 + pb.y * 0.45) * 0.4, pb.y * 0.42)));
             float kelp = kz * bed * (0.55 + 0.45 * frond);
