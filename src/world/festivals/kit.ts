@@ -1814,38 +1814,35 @@ export function buildStarTree(rng: Rng, H = 11): { group: THREE.Group; lights: T
       pts.push(new THREE.Vector3(Math.cos(a) * r, yy - dip, Math.sin(a) * r));
     }
     const curve = new THREE.CatmullRomCurve3(pts);
-    b.add(M.bauble, new THREE.TubeGeometry(curve, 220, 0.016, 4, false), undefined, { tint: 0xe8eef8 });
+    // (r8) A warm garland, not a string of ice-blue glass: a fat gold-tinsel rope with warm fairy
+    // bulbs along it — the critic read the old comet tails as thorns.
+    b.add(M.bauble, new THREE.TubeGeometry(curve, 220, 0.045, 6, false), undefined, { tint: phase > 3 ? 0xb8302a : 0xd8a440 });
     const L = curve.getLength();
-    const nb = Math.floor(L / 0.19);
+    const nb = Math.floor(L / 0.26);
     for (let i = 0; i < nb; i++) {
       const u = i / nb;
       const q = curve.getPointAt(u);
-      const rad = THREE.MathUtils.lerp(0.105, 0.03, Math.pow(u, 0.7));
-      const tint = new THREE.Color(0xfff2c8).lerp(new THREE.Color(0x9ad8ff), THREE.MathUtils.smoothstep(u, 0.1, 0.75)).getHex();
-      b.add(M.bauble, new THREE.IcosahedronGeometry(rad, 1), mat(q.x, q.y, q.z), { tint });
-      if (i % 3 === 0 && u < 0.8) lights.push(q.clone().multiplyScalar(1.03).setY(q.y));
+      const rad = 0.055;
+      b.add(M.bauble, new THREE.IcosahedronGeometry(rad, 1), mat(q.x, q.y + 0.03, q.z), { tint: i % 4 === 0 ? 0xffc890 : 0xfff0c8 });
+      if (i % 3 === 0 && u < 0.85) lights.push(q.clone().multiplyScalar(1.03).setY(q.y));
     }
   };
   for (let k = 0; k < 5; k++) comet((k / 5) * Math.PI * 2 + 0.3, 0.95 + (k % 2) * 0.2, H - 1.9, base + 1.0 + (k % 3) * 0.9);
-  // Falling-star glass ornaments at the bough tips: a glass star-head with a tapering comet tail
-  // flaring up and back (ice, pearl, gold, lilac, teal) — no generic round baubles.
-  const colors = [0xbfe8ff, 0xf2d27a, 0xd8c8ff, 0xfff4e0, 0x7ad0e8, 0xf2d27a, 0xbfe8ff];
-  const up = new THREE.Vector3(0, 1, 0);
+  // Round glass baubles hanging just under the bough tips (deep red, gold, cobalt, pearl, plum, a
+  // little gilt cap each). (r8: the comet-tailed glass ornaments read as icicles / thorns.)
+  const colors = [0xc8302a, 0xf2c84a, 0x2f62b8, 0xf4ece0, 0x8a3a8a, 0xd8a030, 0xb8302a];
   for (const [ti, tr] of tierList.entries()) {
     const k = Math.round(3 + tr.R * 2.6);
     for (let i = 0; i < k; i++) {
       const a = (i / k) * Math.PI * 2 + ti * 0.9 + rng.next() * 0.3;
       const r = tr.R * (0.9 + rng.next() * 0.08);
       const p = new THREE.Vector3(Math.cos(a) * r, tr.y + tr.th * 0.08 - rng.next() * 0.1, Math.sin(a) * r);
-      const c = colors[(i + ti) % colors.length]!;
-      const rad = 0.11 + rng.next() * 0.04 + (ti < 3 ? 0.03 : 0);
-      b.add(M.bauble, new THREE.IcosahedronGeometry(rad, 2), mat(p.x, p.y, p.z), { tint: c });
-      // The tail: a slim glass cone streaming up-and-out behind the head.
-      const tail = new THREE.ConeGeometry(rad * 0.72, rad * 3.4, 8, 1, false);
-      tail.translate(0, rad * 1.7, 0);
-      const dir = new THREE.Vector3(Math.cos(a) * 0.55, 1, Math.sin(a) * 0.55).normalize();
-      const q = new THREE.Quaternion().setFromUnitVectors(up, dir);
-      b.add(M.bauble, tail, new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)), { tint: new THREE.Color(c).lerp(new THREE.Color(0xffffff), 0.35).getHex() });
+      const c = colors[(i * 3 + ti) % colors.length]!;
+      const rad = 0.15 + rng.next() * 0.05 + (ti < 3 ? 0.04 : 0);
+      p.y -= rad * 0.9;
+      b.add(M.bauble, new THREE.SphereGeometry(rad, 14, 10), mat(p.x, p.y, p.z), { tint: c });
+      b.add(M.bauble, new THREE.CylinderGeometry(rad * 0.28, rad * 0.32, rad * 0.32, 8), mat(p.x, p.y + rad * 1.02, p.z), { tint: 0xe8c060 });
+      b.add(M.bauble, new THREE.TorusGeometry(rad * 0.16, rad * 0.05, 4, 8), mat(p.x, p.y + rad * 1.28, p.z), { tint: 0xe8c060 });
       baubles.push({ p, c });
     }
   }

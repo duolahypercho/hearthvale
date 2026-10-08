@@ -89,6 +89,16 @@ export interface CrowdSpec {
   hatTint?: number;
   /** Never moved by the crowd separation pass (e.g. a grown-up carrying a child on the shoulders). */
   pinned?: boolean;
+  /**
+   * Body-language family 0..5 (idle: weight shift / hands behind back / arms crossed / hand on hip +
+   * pointing / thinking / clasped + stretch; cheer, clap, wave and talk have their own variants), so
+   * no two neighbours mirror each other. Default: hashed from the member index.
+   */
+  variant?: number;
+  /** Elder stoop (rad of forward torso pitch; the head stays up). Default from the look. */
+  stoop?: number;
+  /** Leg-length stretch (1 = chibi default; lanky ≈ 1.12, stout / kids < 1). Default from the look. */
+  stretch?: number;
 }
 
 const enum Bone {
@@ -204,6 +214,12 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
   const torsoC = coat ? L.coat! : top;
   b.add(Bone.Torso, P, new THREE.CapsuleGeometry(0.2, 0.18, 2, 8), TT(0, 0.18, 0, 0, 0, 0, 1.05 * bw * puff, 1, 0.92 * bw * puff), torsoC);
   b.add(Bone.Torso, P, new THREE.CylinderGeometry(0.215 * bw * puff, 0.205 * bw * puff, 0.16, 10, 1, true), TT(0, 0.0, 0), winter || coat ? torsoC : bottom);
+  if (L.belly) {
+    // A barrel front (the baker, stout townsfolk): one soft ellipsoid pushed out over the belt.
+    const bl = ball(0.2, 10, 6);
+    bl.scale(1.05 * bw * puff, 0.95, 0.55 + L.belly * 0.35);
+    b.add(Bone.Torso, P, bl, TT(0, 0.1, 0.06 + L.belly * 0.05), torsoC);
+  }
   if (coat) {
     // Open coat: shirt showing down the front, lapels.
     b.add(Bone.Torso, P, box(0.13, 0.3, 0.02), TT(0, 0.2, 0.2 * bw), top);
@@ -289,13 +305,13 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
 
   // ── arms (one capsule sleeve + a hand)
   for (const [bone, sx] of [[Bone.ArmL, -1], [Bone.ArmR, 1]] as const) {
-    const pv = new THREE.Vector3(sx * SHOULDER_X * bw, 0.82, 0);
+    const pv = new THREE.Vector3(sx * SHOULDER_X * bw * (L.shoulders ?? 1), 0.82, 0);
     const T = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, s = 1, sy = s, sz = s) => new THREE.Matrix4().makeTranslation(pv.x, pv.y, pv.z).multiply(mat(x, y, z, rx, ry, rz, s, sy, sz));
     const sleeve = coat ? L.coat! : top;
     b.add(bone, pv, new THREE.CapsuleGeometry(0.066 * puff, 0.2, 1, 6), T(0, -0.14, 0), sleeve);
     if (o === 'summer') b.add(bone, pv, new THREE.CylinderGeometry(0.075, 0.1, 0.16, 8, 1, true), T(0, -0.2, 0), shade(top, 0.95));
     if (winter) b.add(bone, pv, new THREE.TorusGeometry(0.06, 0.022, 3, 8), T(0, -0.26, 0, Math.PI / 2), 0xf4efe6);
-    b.add(bone, pv, ball(winter ? 0.076 : 0.068, 6, 4), T(0, HAND_Y, 0), hand);
+    b.add(bone, pv, ball((winter ? 0.076 : 0.068) * Math.min(1.25, L.hands ?? 1), 6, 4), T(0, HAND_Y, 0), hand);
     const H = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, s = 1, sy = s, sz = s) => T(0, HAND_Y, 0).multiply(mat(x, y, z, rx, ry, rz, s, sy, sz));
     if (bone === Bone.ArmR) {
       if (props.has('lantern')) {
@@ -573,8 +589,32 @@ function buildMember(spec: CrowdSpec, seed: string): THREE.BufferGeometry {
     const pivot = local.clone().multiplyScalar(hs).add(NECK);
     const em = headM(mat(local.x, local.y, local.z, -0.12));
     const eyeS = named ? 1 : 0.88 + new Rng(`${seed}:eye`).next() * 0.26;
-    b.add(Bone.Eye, pivot, new THREE.CapsuleGeometry(0.036 * eyeS, 0.046 * eyeS, 1, 6), em, 0x1d1612);
-    b.add(Bone.Eye, pivot, ball(0.014, 4, 3), em.clone().multiply(mat(0.013, 0.024, 0.03)), 0xffffff);
+    const cut = L.eyeShape ?? 'round';
+    const ink = 0x1d1612;
+    if (cut === 'narrow') {
+      // Kind half-moons (smiling eyes, closed arcs).
+      b.add(Bone.Eye, pivot, new THREE.TorusGeometry(0.04 * eyeS, 0.012, 3, 8, Math.PI), em.clone().multiply(mat(0, -0.01, 0.01)), ink);
+    } else if (cut === 'beady') {
+      b.add(Bone.Eye, pivot, ball(0.027 * eyeS, 6, 4), em, ink);
+      b.add(Bone.Eye, pivot, ball(0.009, 4, 3), em.clone().multiply(mat(0.01, 0.012, 0.022)), 0xffffff);
+    } else if (cut === 'wide') {
+      // Big sparkly eyes: a large iris + two highlights.
+      b.add(Bone.Eye, pivot, new THREE.CapsuleGeometry(0.046 * eyeS, 0.05 * eyeS, 1, 7), em, ink);
+      b.add(Bone.Eye, pivot, ball(0.018, 4, 3), em.clone().multiply(mat(0.016, 0.03, 0.04)), 0xffffff);
+      b.add(Bone.Eye, pivot, ball(0.009, 4, 3), em.clone().multiply(mat(-0.016, -0.022, 0.04)), 0xffffff);
+    } else if (cut === 'sleepy') {
+      // Heavy lids: a skin cap over the top half of the eye.
+      b.add(Bone.Eye, pivot, new THREE.CapsuleGeometry(0.034 * eyeS, 0.03 * eyeS, 1, 6), em, ink);
+      const lid = new THREE.SphereGeometry(0.046 * eyeS, 8, 3, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      lid.scale(1.05, 0.75, 0.75);
+      b.add(Bone.Eye, pivot, lid, em.clone().multiply(mat(0, 0.008, 0.012)), shade(L.skin, 0.94));
+    } else {
+      // Round (default) / almond (narrower, lifted outer corner).
+      const al = cut === 'almond';
+      b.add(Bone.Eye, pivot, new THREE.CapsuleGeometry(0.036 * eyeS * (al ? 0.85 : 1), 0.046 * eyeS * (al ? 0.7 : 1), 1, 6), al ? em.clone().multiply(mat(0, 0, 0, 0, 0, -sx * 0.35)) : em, ink);
+      b.add(Bone.Eye, pivot, ball(0.014, 4, 3), em.clone().multiply(mat(0.013, 0.024, 0.03)), 0xffffff);
+    }
+    if (L.lashes && cut !== 'narrow') b.add(Bone.Eye, pivot, box(0.035, 0.012, 0.01), em.clone().multiply(mat(sx * 0.035, 0.05, 0.02, 0, 0, sx * -0.5)), ink);
   }
 
   const merged = mergeGeometries(b.parts);
@@ -600,7 +640,9 @@ void crowdPose(inout vec3 p, inout vec3 n) {
   vec4 A = texelFetch(uCrowd, ivec2(int(aMember), 0), 0);
   vec4 B = texelFetch(uCrowd, ivec2(int(aMember), 1), 0);
   vec4 C = texelFetch(uCrowd, ivec2(int(aMember), 2), 0);
+  vec4 D = texelFetch(uCrowd, ivec2(int(aMember), 3), 0);
   float anim = B.x;
+  float fam = floor(D.x + 0.5);
   float t = uTime * B.z + B.y * 6.2831;
   float ph = B.y;
   // Joint angles
@@ -611,17 +653,42 @@ void crowdPose(inout vec3 p, inout vec3 n) {
   float bob = 0.0, squash = 1.0, roll = 0.0, spin = 0.0, flare = 0.0;
   float look = sin(t * 0.31 + ph * 11.0) * 0.35 * smoothstep(0.2, 0.8, abs(sin(t * 0.17 + ph * 3.0)));
   float br = sin(t * 2.0);
-  if (anim < 0.5) { // idle
-    squash = 1.0 + br * 0.018; torZ = sin(t * 0.5) * 0.04; hdY = look; hdX = sin(t * 0.8) * 0.03; armLs = 0.12 + br * 0.03; armRs = 0.12 + br * 0.03;
-  } else if (anim < 1.5) { // cheer: hop with both arms up, waving
+  if (anim < 0.5) { // idle: six body-language families, each on its own clock
+    squash = 1.0 + br * 0.018; hdY = look; hdX = sin(t * 0.8) * 0.03; armLs = 0.12 + br * 0.03; armRs = 0.12 + br * 0.03;
+    if (fam < 0.5) { // weight shift: hip drops onto one leg, the other knee relaxes
+      float w = sin(t * 0.42);
+      torZ = w * 0.07; roll = w * 0.035; legLx = -crPos(w) * 0.12; legRx = -crPos(-w) * 0.12; armLs = 0.1 + crPos(-w) * 0.08; armRs = 0.1 + crPos(w) * 0.08;
+    } else if (fam < 1.5) { // hands behind the back, rocking heel to toe
+      armLx = 0.5; armRx = 0.5; armLs = -0.32; armRs = -0.32; torX = -0.05 + sin(t * 1.1) * 0.03; bob = sin(t * 1.1) * 0.012; hdY = look * 1.2;
+    } else if (fam < 2.5) { // arms folded, head cocked
+      armLx = -1.3; armRx = -1.22; armLs = -0.72; armRs = -0.66; hdZ = 0.1 + sin(t * 0.3) * 0.04; torZ = -0.03; squash = 1.0 + br * 0.012;
+    } else if (fam < 3.5) { // a hand on the hip, now and then pointing something out
+      float pt = smoothstep(0.55, 0.7, sin(t * 0.37)) ;
+      armLs = 0.62; armLx = 0.25; armRx = -1.45 * pt; armRs = 0.12 + 0.35 * pt; hdY = look * (1.0 - pt) + 0.25 * pt; torZ = 0.04;
+    } else if (fam < 4.5) { // thinking: hand to the chin, the other arm across the waist
+      armRx = -1.95; armRs = -0.6; armLx = -0.85; armLs = -0.5; hdZ = 0.12 + sin(t * 0.5) * 0.05; hdX = 0.05; torZ = -0.03;
+    } else { // hands clasped in front; every few seconds a big stretch
+      float st = smoothstep(0.75, 0.95, sin(t * 0.29));
+      armLx = mix(-0.55, -0.3, st); armRx = mix(-0.55, -0.3, st); armLs = mix(-0.34, 2.7, st); armRs = mix(-0.34, 2.7, st); hdX = -0.25 * st; squash = 1.0 + st * 0.04 + br * 0.015;
+    }
+  } else if (anim < 1.5) { // cheer: three ways of being thrilled
     float h = abs(sin(t * 4.0));
-    bob = h * 0.11; squash = 1.0 + (h - 0.6) * 0.08; flare = h;
-    armLs = 2.55 + sin(t * 8.0) * 0.22; armRs = 2.55 + sin(t * 8.0 + 1.6) * 0.22; armLx = -0.25; armRx = -0.25;
-    hdX = -0.18; hdZ = sin(t * 4.0) * 0.08; torZ = sin(t * 4.0) * 0.05;
-  } else if (anim < 2.5) { // clap
+    if (mod(fam, 3.0) < 0.5) { // hop with both arms up, waving
+      bob = h * 0.11; squash = 1.0 + (h - 0.6) * 0.08; flare = h;
+      armLs = 2.55 + sin(t * 8.0) * 0.22; armRs = 2.55 + sin(t * 8.0 + 1.6) * 0.22; armLx = -0.25; armRx = -0.25;
+      hdX = -0.18; hdZ = sin(t * 4.0) * 0.08; torZ = sin(t * 4.0) * 0.05;
+    } else if (mod(fam, 3.0) < 1.5) { // one fist pumping, the other on the hip
+      float f = crPos(sin(t * 5.0));
+      armRs = 2.2 + f * 0.5; armRx = -0.35; armLs = 0.6; armLx = 0.25; bob = f * 0.04; torZ = -0.06 - f * 0.04; hdX = -0.14; hdZ = 0.08;
+    } else { // clapping high over the head, bouncing
+      float c = sin(t * 8.0);
+      armLs = 2.6 + c * 0.12; armRs = 2.6 + c * 0.12; armLx = -0.55; armRx = -0.55; bob = abs(sin(t * 4.0)) * 0.05; hdX = -0.16; torZ = sin(t * 2.0) * 0.05;
+    }
+  } else if (anim < 2.5) { // clap (chest height, or a side-lean bounce)
     float c = sin(t * 9.0);
     armLx = -1.15; armRx = -1.15; armLs = -0.28 - c * 0.14; armRs = -0.28 - c * 0.14;
     bob = abs(sin(t * 4.5)) * 0.025; hdX = sin(t * 4.5) * 0.06 - 0.05; hdY = look * 0.5; torZ = sin(t * 2.25) * 0.04;
+    if (mod(fam, 2.0) > 0.5) { torZ = sin(t * 2.25) * 0.1; roll = sin(t * 2.25) * 0.04; armLx = -1.35; armRx = -1.35; hdZ = sin(t * 2.25) * 0.12; }
   } else if (anim < 3.5) { // dance: step-hop, swinging arms, twirling torso
     float s = sin(t * 3.0);
     bob = abs(s) * 0.09; squash = 1.0 + (abs(s) - 0.5) * 0.06; flare = abs(s);
@@ -639,9 +706,10 @@ void crowdPose(inout vec3 p, inout vec3 n) {
     float s = sin(t * 4.2);
     legLx = s * 0.6; legRx = -s * 0.6; armLx = -s * 0.5; armRx = s * 0.5;
     bob = abs(cos(t * 4.2)) * 0.05; torY = s * 0.07;
-  } else if (anim < 6.5) { // wave
-    armRs = 2.35 + sin(t * 7.0) * 0.32; armRx = -0.2; armLs = 0.12 + br * 0.03;
-    hdZ = 0.1; hdX = -0.06; torZ = -0.05 + sin(t * 3.5) * 0.02; bob = abs(sin(t * 3.5)) * 0.015;
+  } else if (anim < 6.5) { // wave (right or left hand by family; the free hand rests on the hip for some)
+    if (mod(fam, 2.0) < 0.5) { armRs = 2.35 + sin(t * 7.0) * 0.32; armRx = -0.2; armLs = 0.12 + br * 0.03; hdZ = 0.1; torZ = -0.05 + sin(t * 3.5) * 0.02; }
+    else { armLs = 2.35 + sin(t * 7.0) * 0.32; armLx = -0.2; armRs = fam > 2.5 ? 0.6 : 0.12 + br * 0.03; armRx = fam > 2.5 ? 0.25 : 0.0; hdZ = -0.1; torZ = 0.05 + sin(t * 3.5) * 0.02; }
+    hdX = -0.06; bob = abs(sin(t * 3.5)) * 0.015;
   } else if (anim < 7.5) { // sit (on the ground / a float)
     legLx = -1.45; legRx = -1.4; legLz = 0.12; legRz = -0.12; bob = -0.3;
     armLx = -0.75; armRx = -0.75; armLs = -0.1; armRs = -0.1; torX = -0.08;
@@ -649,9 +717,12 @@ void crowdPose(inout vec3 p, inout vec3 n) {
   } else if (anim < 8.5) { // lantern: both hands holding a lantern up, gentle sway
     armLx = -2.35 + sin(t * 1.2) * 0.08; armRx = -2.35 + sin(t * 1.2) * 0.08; armLs = -0.32; armRs = -0.32;
     hdX = -0.38; torX = -0.1; torZ = sin(t * 0.9) * 0.05; squash = 1.0 + br * 0.015;
-  } else if (anim < 9.5) { // talk
-    hdX = sin(t * 6.0) * 0.06; hdZ = sin(t * 2.3) * 0.05; armRx = -0.9 + sin(t * 3.1) * 0.25; armRs = -0.2;
-    armLs = 0.14 + br * 0.03; torZ = sin(t * 0.5) * 0.03;
+  } else if (anim < 9.5) { // talk (gesturing hand by family; some laugh, leaning back)
+    hdX = sin(t * 6.0) * 0.06; hdZ = sin(t * 2.3) * 0.05; torZ = sin(t * 0.5) * 0.03;
+    if (mod(fam, 2.0) < 0.5) { armRx = -0.9 + sin(t * 3.1) * 0.25; armRs = -0.2; armLs = 0.14 + br * 0.03; }
+    else { armLx = -0.9 + sin(t * 2.7) * 0.3; armLs = -0.15 + sin(t * 1.3) * 0.15; armRs = 0.6; armRx = 0.25; }
+    float laugh = smoothstep(0.8, 0.95, sin(t * 0.23 + fam));
+    torX -= laugh * 0.16; hdX -= laugh * 0.25; bob += abs(sin(t * 11.0)) * 0.02 * laugh;
   } else if (anim < 10.5) { // judge: hand to chin, clipboard, pondering tilt
     armRx = -1.95; armRs = -0.62; armLx = -1.0; armLs = -0.15;
     hdZ = 0.14 + sin(t * 0.6) * 0.05; hdX = 0.05 + sin(t * 1.3) * 0.04; hdY = sin(t * 0.4) * 0.3; torZ = -0.04;
@@ -698,6 +769,8 @@ void crowdPose(inout vec3 p, inout vec3 n) {
   // Faces to the camera (it looks north, down −z): anyone turned roughly toward it tips the head
   // back a little, so hat brims and fringes come off the eyes and the face reads from above.
   if (anim < 10.5 || anim > 12.5) hdX -= 0.2 * clamp(cos(A.w + spin) * 1.5, 0.0, 1.0);
+  // Elders stoop (the head stays up to look at things).
+  torX += D.y; hdX -= D.y * 0.85;
   // Juice row: extra squash (spring hops), lean.
   squash *= C.x;
   roll += C.y;
@@ -735,6 +808,10 @@ void crowdPose(inout vec3 p, inout vec3 n) {
     mat3 Rt = crY(torY) * crX(torX) * crZ(torZ);
     q = vec3(0.0, 0.5, 0.0) + Rt * (q - vec3(0.0, 0.5, 0.0)); m = Rt * m;
   }
+  // Long / short legs: legs + hem stretch below the hips, everything above rides up with them.
+  float lift = 0.5 * (D.z - 1.0);
+  if (bone == 5 || bone == 6 || bone == 8) q.y = 0.5 + (q.y - 0.5) * D.z;
+  q.y += lift;
   // Whole body: squash, roll, bob, yaw, scale, translate.
   q.y *= squash; q.xz /= sqrt(squash);
   mat3 Rr = crZ(roll);
@@ -798,6 +875,9 @@ function patchCrowd(m: THREE.Material, tex: { value: THREE.Texture | null }, dep
       fs = before(fs, 'void main() {', 'varying float vCrowdGlow;\nvarying float vCrowdRim;\nuniform float uLamps;\nuniform vec4 uCrFill;\nuniform vec4 uCrCool;');
       // Named villagers carry a soft warm rim (a painted key-light outline) so the town's own people
       // pop out of the townsfolk crowd at diorama distance.
+      // Albedo ceiling (~0.86 sRGB): white hair, caps and blouses under the noon sun never bloom out
+      // into a faceless glowing ball.
+      fs = after(fs, '#include <color_fragment>', 'diffuseColor.rgb = min(diffuseColor.rgb, vec3(0.7));');
       fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += min(diffuseColor.rgb * diffuseColor.rgb * vCrowdGlow * (0.45 + uLamps * 1.3), vec3(0.8, 0.62, 0.42));');
       // Night festivals: faces turned to the lens catch a warm lantern fill (the paper lanterns and
       // stalls all around them), silhouettes a cool moonlight rim — skin and clothes read against
@@ -834,7 +914,20 @@ export interface CrowdMember {
   flare: number;
   /** Rim-light strength (named villagers stand out of the townsfolk crowd). */
   rim: number;
+  /** Body-language family (see CrowdSpec.variant), elder stoop, leg stretch. */
+  variant: number;
+  stoop: number;
+  stretch: number;
+  /** Activity participant (dancer, racer, partner, judge): never folded away by the framing guard. */
+  keep: boolean;
+  /** Set by maps for permanent participants (ring dancers, racers, judges): `keep` resets to this. */
+  keepAlways?: boolean;
+  /** Framing-guard visibility (eased 0..1; see Crowd.screen). */
+  vis: number;
 }
+
+/** Scratch for the framing guard (no per-frame allocations). */
+const _sv = new THREE.Vector3();
 
 /**
  * One draw call crowd. `members[i]` can be moved / re-animated at runtime; call `commit()` after.
@@ -850,8 +943,8 @@ export class Crowd {
 
   constructor(specs: CrowdSpec[], private heightAt: (x: number, z: number) => number, name = 'crowd') {
     const W = Math.max(1, specs.length);
-    this.data = new Float32Array(W * 3 * 4);
-    this.tex = new THREE.DataTexture(this.data, W, 3, THREE.RGBAFormat, THREE.FloatType);
+    this.data = new Float32Array(W * 4 * 4);
+    this.tex = new THREE.DataTexture(this.data, W, 4, THREE.RGBAFormat, THREE.FloatType);
     this.tex.magFilter = this.tex.minFilter = THREE.NearestFilter;
     this.tex.needsUpdate = true;
     this.texU = { value: this.tex };
@@ -862,7 +955,12 @@ export class Crowd {
       g.setAttribute('aMember', new THREE.BufferAttribute(new Float32Array(n).fill(i), 1));
       geos.push(g);
       const scale = 1.22 * s.look.scale;
-      this.members.push({ spec: s, x: s.x, y: heightAt(s.x, s.z) + (s.lift ?? 0), z: s.z, yaw: s.yaw, anim: Anim[s.anim], phase: s.phase ?? (i * 0.137) % 1, speed: s.speed ?? 1, scale, squash: 1, lean: 0, flare: 0, rim: s.id ? 1 : 0 });
+      // Body language: a hashed family per member (neighbours never share one in a row), elders
+      // stoop, long-legged looks stand taller.
+      const variant = s.variant ?? (s.id ? hashVariant(s.id) : (i * 5 + Math.floor((s.phase ?? 0) * 6)) % 6);
+      const stoop = s.stoop ?? (ELDERS.has(s.look) ? 0.2 : 0);
+      const stretch = s.stretch ?? (s.look.legs ? 1 + (s.look.legs - 1) * 0.6 : 1);
+      this.members.push({ spec: s, x: s.x, y: heightAt(s.x, s.z) + (s.lift ?? 0), z: s.z, yaw: s.yaw, anim: Anim[s.anim], phase: s.phase ?? (i * 0.137) % 1, speed: s.speed ?? 1, scale, squash: 1, lean: 0, flare: 0, rim: s.id ? 1 : 0, variant, stoop, stretch, keep: false, vis: 1 });
     });
     const geo = specs.length ? mergeGeometries(geos)! : new THREE.BufferGeometry();
     for (const g of geos) g.dispose();
@@ -906,6 +1004,59 @@ export class Crowd {
   nearCam: THREE.Vector3 | null = null;
   nearFade: [number, number] = [3.2, 5.2];
 
+  /**
+   * Screen-space framing guard (mini-game cameras): any onlooker whose projected head is big enough
+   * to read (≥ `minR` NDC radius) and crosses the frame edge or a HUD panel rectangle (`rects`, NDC
+   * x0, y0, x1, y1 quads) folds away; a giant head (≥ `maxR`) folds away anywhere. Participants
+   * (`keep`) are never touched. Set by FestivalMap while a mini-game runs; null = off.
+   */
+  screen: { cam: THREE.Camera; rects: number[]; minR: number; maxR: number } | null = null;
+
+  /** Head centre (NDC x, y) + NDC radii of member `m` under `cam`; false when behind the lens. */
+  private headNdc(m: CrowdMember, cam: THREE.Camera, out: number[]): boolean {
+    const top = (0.96 + 0.5 * (m.stretch - 1) + 0.36) * m.scale;
+    _sv.set(m.x, m.y + top, m.z).applyMatrix4(cam.matrixWorldInverse);
+    const depth = -_sv.z;
+    if (depth < 0.05) return false;
+    const pe = cam.projectionMatrix.elements;
+    const r = 0.42 * m.scale;
+    out[0] = (pe[0]! * _sv.x + pe[8]! * _sv.z) / depth;
+    out[1] = (pe[5]! * _sv.y + pe[9]! * _sv.z) / depth;
+    out[2] = (r * pe[0]!) / depth;
+    out[3] = (r * pe[5]!) / depth;
+    return true;
+  }
+  private _h = [0, 0, 0, 0];
+
+  /** True when member `m`'s head would be cropped by the frame edge / a HUD rect (framing guard). */
+  private cropped(m: CrowdMember): boolean {
+    const sc = this.screen;
+    if (!sc || m.keep) return false;
+    const h = this._h;
+    if (!this.headNdc(m, sc.cam, h)) return false;
+    const [x, y, rx, ry] = h as [number, number, number, number];
+    if (ry < sc.minR) return false;
+    if (ry >= sc.maxR) return true;
+    if (Math.abs(x) + rx > 1 || y + ry > 1 || y - ry < -1) return Math.abs(x) - rx < 1 && Math.abs(y) - ry < 1;
+    const R = sc.rects;
+    for (let k = 0; k + 3 < R.length; k += 4) {
+      if (x + rx > R[k]! && x - rx < R[k + 2]! && y + ry > R[k + 1]! && y - ry < R[k + 3]!) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Test hook: visible onlookers whose head crosses the frame border or a HUD rect right now (the
+   * framing guard should keep this at 0 in every mini-game camera).
+   */
+  cropCount(): { n: number; ids: number[] } {
+    const ids: number[] = [];
+    this.members.forEach((m, i) => {
+      if (m.vis > 0.5 && m.scale > 0 && this.cropped(m)) ids.push(i);
+    });
+    return { n: ids.length, ids };
+  }
+
   /** Upload member state (runs every frame on animated maps: no allocations). */
   commit(): void {
     const W = this.tex.image.width;
@@ -913,9 +1064,15 @@ export class Crowd {
     const ms = this.members;
     const cam = this.nearCam;
     const [f0, f1] = this.nearFade;
+    const guard = !!this.screen;
     for (let i = 0; i < ms.length; i++) {
       const m = ms[i]!;
       let sc = m.scale;
+      // Framing guard: ease toward hidden / shown (a few frames, so nobody pops mid-shot).
+      const want = guard && this.cropped(m) ? 0 : 1;
+      m.vis += (want - m.vis) * (guard ? 0.34 : 1);
+      if (m.vis < 0.02) m.vis = 0;
+      if (m.vis < 1) sc *= m.vis * m.vis * (3 - 2 * m.vis);
       if (cam) {
         const dx = m.x - cam.x;
         const dy = m.y + 1.1 - cam.y;
@@ -941,6 +1098,11 @@ export class Crowd {
       d[o + 1] = m.lean;
       d[o + 2] = m.flare;
       d[o + 3] = m.rim;
+      o = (3 * W + i) * 4;
+      d[o] = m.variant;
+      d[o + 1] = m.stoop;
+      d[o + 2] = m.stretch;
+      d[o + 3] = 0;
     }
     this.tex.needsUpdate = true;
   }
@@ -991,7 +1153,7 @@ export class Crowd {
     const xl = cr * x - sr * y;
     y = sr * x + cr * y;
     x = xl;
-    y += bob;
+    y += bob + 0.5 * (m.stretch - 1);
     const cy = Math.cos(m.yaw);
     const sy = Math.sin(m.yaw);
     return out.set(m.x + (cy * x + sy * z) * m.scale, m.y + y * m.scale, m.z + (-sy * x + cy * z) * m.scale);
@@ -1004,27 +1166,55 @@ const SKINS = [0xf2c8a2, 0xe8b894, 0xf0c4a0, 0xc88a64, 0x9a6444, 0xf6d2b4, 0xb87
 const HAIRS = [0x3a2418, 0x6a4228, 0x8a6a58, 0xd8b068, 0x2a1a14, 0xb8542a, 0xa8a29a, 0x4a3a30, 0xe0b880, 0x8a3a1e, 0xe8e0d0, 0x1a1a24, 0xc88a4a, 0x5a2a1a];
 const STYLES: NpcLook['hairStyle'][] = ['short', 'bob', 'bun', 'curly', 'long', 'cap', 'ponytail', 'short', 'braids', 'spiky', 'slick', 'bob', 'curly', 'long'];
 
-/** A seeded random villager look (townsfolk filling out the crowd). */
+/** Looks generated as elders (they stoop, see Crowd). */
+const ELDERS = new WeakSet<NpcLook>();
+/** Stable 0..5 body-language family for a named villager. */
+function hashVariant(id: string): number {
+  let h = 7;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(h) % 6;
+}
+/** Leg stretch the crowd applies to a look (see CrowdSpec.stretch). */
+export function stretchOf(look: NpcLook): number {
+  return look.legs ? 1 + (look.legs - 1) * 0.6 : 1;
+}
+const EYES: NonNullable<NpcLook['eyeShape']>[] = ['round', 'round', 'narrow', 'beady', 'wide', 'sleepy', 'almond', 'narrow', 'beady'];
+
+/**
+ * A seeded random villager look (townsfolk filling out the crowd). Five body archetypes read by
+ * silhouette alone at diorama distance — average, stout (wide, short, a belly), lanky (tall, narrow,
+ * long legs), elder (smaller, stooped, grey, often glasses) and child (big head, short) — plus
+ * seven eye cuts, so the extras are not one chibi cloned through the square.
+ */
 export function randomLook(rng: Rng, opts: { child?: boolean; palette: number[] }): NpcLook {
   const pick = <T,>(a: readonly T[]): T => a[Math.floor(rng.next() * a.length)]!;
   const child = !!opts.child;
   let style = pick(STYLES);
   if (!child && style === 'spiky') style = 'short';
-  const elder = !child && rng.next() < 0.18;
+  const roll = rng.next();
+  const elder = !child && roll < 0.2;
+  const stout = !child && !elder && roll < 0.42;
+  const lanky = !child && !elder && !stout && roll < 0.62;
   if (elder && rng.next() < 0.3) style = 'bald';
-  return {
+  const look: NpcLook = {
     skin: pick(SKINS),
     hair: elder ? pick([0xa8a29a, 0xe8e0d0, 0xc8c0b8]) : pick(HAIRS),
     hairStyle: style,
     top: pick(opts.palette),
     bottom: pick([0x4a5a78, 0x5a4a6a, 0x6a5a48, 0x3e4a5a, 0x7a6a5a, 0x5a6a4a, 0x2e3a4a, 0x8a6a4a, 0x6a3a3a, 0x4a4a3a]),
     glasses: !child && rng.next() < (elder ? 0.5 : 0.14),
-    beard: !child && (style === 'short' || style === 'bald') && rng.next() < 0.35 ? (rng.next() < 0.4 ? 'mustache' : 'full') : undefined,
-    // Height ±10 %, width ±8 % (children and elders read at a glance).
-    scale: child ? 0.7 + rng.next() * 0.1 : (elder ? 0.9 : 0.92) + rng.next() * 0.18,
-    build: child ? 0.92 + rng.next() * 0.08 : 0.92 + rng.next() * 0.26,
-    head: child ? 1.1 : 1,
+    beard: !child && (style === 'short' || style === 'bald') && rng.next() < (stout ? 0.6 : 0.35) ? (rng.next() < 0.4 ? 'mustache' : 'full') : undefined,
+    scale: child ? 0.66 + rng.next() * 0.12 : elder ? 0.86 + rng.next() * 0.06 : stout ? 0.88 + rng.next() * 0.08 : lanky ? 1.02 + rng.next() * 0.08 : 0.93 + rng.next() * 0.1,
+    build: child ? 0.9 + rng.next() * 0.08 : stout ? 1.22 + rng.next() * 0.14 : lanky ? 0.8 + rng.next() * 0.06 : elder ? 0.95 + rng.next() * 0.1 : 0.94 + rng.next() * 0.14,
+    head: child ? 1.12 + rng.next() * 0.06 : stout ? 1.02 : lanky ? 0.92 : elder ? 0.96 : 0.97 + rng.next() * 0.06,
+    legs: lanky ? 1.2 + rng.next() * 0.08 : stout ? 0.86 : child ? 0.9 : undefined,
+    belly: stout ? 0.7 + rng.next() * 0.3 : undefined,
+    shoulders: stout ? 1.12 : lanky ? 0.9 : undefined,
+    eyeShape: child ? pick(['wide', 'round', 'wide'] as const) : elder ? pick(['narrow', 'sleepy', 'beady'] as const) : pick(EYES),
+    lashes: !child && rng.next() < 0.3,
   };
+  if (elder) ELDERS.add(look);
+  return look;
 }
 
 /**
@@ -1032,5 +1222,5 @@ export function randomLook(rng: Rng, opts: { child?: boolean; palette: number[] 
  * just above the grown-up's neck.
  */
 export function shoulderLift(parent: NpcLook, child: NpcLook): number {
-  return 0.96 * 1.22 * parent.scale + 0.06 - 0.5 * 1.22 * child.scale;
+  return (0.96 + 0.5 * (stretchOf(parent) - 1)) * 1.22 * parent.scale + 0.06 - (0.5 + 0.5 * (stretchOf(child) - 1)) * 1.22 * child.scale;
 }

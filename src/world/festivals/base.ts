@@ -155,8 +155,11 @@ export abstract class FestivalMap implements GameMap {
   /** While a spectated moment is being staged: whose (null = the local farmer's). */
   protected specCtx: SpecView | null = null;
   private prevPose: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
-  private camGoal: { pitch: number; distance: number; yaw: number; ox: number; oz: number } | null = null;
-  private camSaved: { pitch: number; distance: number; yaw: number; ox: number; oz: number } | null = null;
+  /** World xz the mini-game framing looks at regardless of where the player is (null = follow). */
+  protected camAnchor: THREE.Vector2 | null = null;
+  private anchorK = 0;
+  private camGoal: { pitch: number; distance: number; yaw: number; ox: number; oz: number; oy?: number } | null = null;
+  private camSaved: { pitch: number; distance: number; yaw: number; ox: number; oz: number; oy?: number } | null = null;
   private camRelease = 0;
   private poseFn: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
   /** Seconds since the showcase / festival started (render clock). */
@@ -262,6 +265,10 @@ export abstract class FestivalMap implements GameMap {
         if (!s.lift) this.terrain.stampCover('ao', s.x, s.z, 0.45, 0.35);
       });
       this.root.add(this.crowd.mesh);
+      for (const i of this.participants()) {
+        const m = this.crowd.members[i];
+        if (m) m.keep = m.keepAlways = true;
+      }
     }
     if (this.fires.length) {
       this.fire = new FireFX(this.fires);
@@ -690,11 +697,27 @@ export abstract class FestivalMap implements GameMap {
       r.yaw += (g.yaw - r.yaw) * k;
       r.lookOffset.x += (g.ox - r.lookOffset.x) * k;
       r.lookOffset.z += (g.oz - r.lookOffset.z) * k;
+      r.lookOffset.y += ((g.oy ?? 0) - r.lookOffset.y) * k;
       if (this.camRelease > 0 && (this.camRelease -= dt) <= 0) this.camGoal = null;
+      // World-anchored framing (the player moves through the shot, e.g. the Ribbon Dance couple
+      // orbiting the pole): the look point holds on the anchor instead of chasing the player.
+      const an = this.camAnchor;
+      if (an && !this.camRelease) {
+        this.anchorK += (1 - this.anchorK) * k;
+        const st = r.focus;
+        r.lookOffset.x += (an.x - st.x - r.lookOffset.x) * this.anchorK;
+        r.lookOffset.z += (an.y - st.z - r.lookOffset.z) * this.anchorK;
+      }
     }
     this.tick(dt, game);
     // Close mini-game framings: keep the near-lens fade live while the camera eases in.
-    if (this.play && this.crowd) this.crowd.commit();
+    if (this.play && this.crowd) {
+      if ((this.hudT -= dt) <= 0) {
+        this.hudT = 0.2;
+        this.refreshHudRects();
+      }
+      this.crowd.commit();
+    }
   }
 
   // ───────────────────────────────────────────── mini-games
@@ -733,10 +756,10 @@ export abstract class FestivalMap implements GameMap {
   }
 
   /** Ease the camera to a mini-game framing (restored by endPlay). */
-  protected frame(o: { pitch?: number; distance?: number; yaw?: number; ox?: number; oz?: number }): void {
+  protected frame(o: { pitch?: number; distance?: number; yaw?: number; ox?: number; oz?: number; oy?: number }): void {
     const r = this.game.rc.rig;
-    this.camSaved ??= { pitch: r.pitch, distance: r.distance, yaw: r.yaw, ox: r.lookOffset.x, oz: r.lookOffset.z };
-    this.camGoal = { pitch: o.pitch ?? r.pitch, distance: o.distance ?? r.distance, yaw: o.yaw ?? r.yaw, ox: o.ox ?? 0, oz: o.oz ?? 0 };
+    this.camSaved ??= { pitch: r.pitch, distance: r.distance, yaw: r.yaw, ox: r.lookOffset.x, oz: r.lookOffset.z, oy: r.lookOffset.y };
+    this.camGoal = { pitch: o.pitch ?? r.pitch, distance: o.distance ?? r.distance, yaw: o.yaw ?? r.yaw, ox: o.ox ?? 0, oz: o.oz ?? 0, oy: o.oy ?? 0 };
     this.camRelease = 0;
   }
 
@@ -806,7 +829,50 @@ export abstract class FestivalMap implements GameMap {
     this.poseFn = (rig, dt) => (this.play ? this.playerPose(rig, this.play, dt) : null) ?? this.prevPose?.(rig, dt) ?? null;
     p.actionPose = this.poseFn;
     this.onBeginPlay(this.play);
+    // Framing guard: onlookers whose heads the frame edge or a HUD panel would crop fold away;
+    // the partner is part of the shot and always stays.
+    if (this.crowd) {
+      this.crowd.screen = { cam: this.game.rc.camera, rects: [], minR: 0.035, maxR: 0.16 };
+      const pi = partner ? this.named.get(partner) : undefined;
+      if (pi !== undefined) this.crowd.members[pi]!.keep = true;
+      this.hudT = 0;
+    }
     return this.play;
+  }
+
+  private hudT = 0;
+  /** HUD panel rectangles in NDC (the mini-game overlay's panels, plaque, cards, pop-ups). */
+  private refreshHudRects(): void {
+    const sc = this.crowd?.screen;
+    if (!sc) return;
+    const cv = this.game.rc.renderer.domElement.getBoundingClientRect();
+    const out = sc.rects;
+    out.length = 0;
+    if (!cv.width || !cv.height) return;
+    document.querySelectorAll('.fg-root .fg-panel, .fg-root .fg-plaque, .fg-root .fg-howto, .fg-root .fg-result, .fg-root .fg-card, .fg-root .fg-judge').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4 || getComputedStyle(el).opacity === '0') return;
+      out.push(((r.left - cv.left) / cv.width) * 2 - 1, 1 - ((r.bottom - cv.top) / cv.height) * 2, ((r.right - cv.left) / cv.width) * 2 - 1, 1 - ((r.top - cv.top) / cv.height) * 2);
+    });
+  }
+
+  /** Crowd members that are part of an activity (never folded away by the framing guard). */
+  protected participants(): number[] {
+    return [];
+  }
+
+  /** Framing-guard test hook: onlooker heads crossing the frame edge / a HUD rect right now. */
+  cropCheck(): { n: number; ids: number[]; rects: number } {
+    this.refreshHudRects();
+    const c = this.crowd;
+    if (!c) return { n: 0, ids: [], rects: 0 };
+    const had = c.screen;
+    c.screen ??= { cam: this.game.rc.camera, rects: [], minR: 0.035, maxR: 0.16 };
+    if (!had) this.refreshHudRects();
+    const r = c.cropCount();
+    const rects = c.screen.rects.length / 4;
+    c.screen = had;
+    return { ...r, rects };
   }
 
   /** A moment in the mini-game worth staging (hit, miss, release, finish, win / lose…). */
@@ -870,6 +936,8 @@ export abstract class FestivalMap implements GameMap {
     if (!play) return;
     this.onEndPlay(play, result);
     this.play = null;
+    this.camAnchor = null;
+    this.anchorK = 0;
     if (this.camSaved) {
       const c = this.camSaved;
       this.camGoal = { ...c };
@@ -879,6 +947,12 @@ export abstract class FestivalMap implements GameMap {
     const p = this.game.player;
     if (p.actionPose === this.poseFn) p.actionPose = this.prevPose;
     this.prevPose = this.poseFn = null;
+    const c = this.crowd;
+    if (c) {
+      c.screen = null;
+      for (const m of c.members) m.keep = m.keepAlways ?? false;
+      c.commit();
+    }
   }
 
   // ───────────────────────────────────────────── co-op spectating

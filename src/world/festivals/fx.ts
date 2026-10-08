@@ -1382,6 +1382,16 @@ export interface NightSkyOptions {
   stars?: number;
   /** Zenith colour at dusk (blended toward `zenith` as night falls); default = zenith. */
   zenithDusk?: number;
+  /**
+   * Elevation (sin) where the horizon haze has given way to the night zenith (default 0.5). A low
+   * camera that sees only a thin band of sky over a ridge wants it low (~0.18): deep blue-black
+   * with stars right down to the treeline, not a band of fog colour.
+   */
+  band?: number;
+  /** Aurora brightness multiplier (default 1). */
+  auroraGain?: number;
+  /** Horizon brightness relative to the scene fog colour (default 1). */
+  horizonK?: number;
 }
 
 /**
@@ -1415,6 +1425,9 @@ export class NightSky {
         uAurora: this.aurora,
         uStars: { value: o.stars ?? 1 },
         uStrength: this.strength,
+        uBand: { value: o.band ?? 0.5 },
+        uAuGain: { value: o.auroraGain ?? 1 },
+        uHzK: { value: o.horizonK ?? 1 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -1426,6 +1439,7 @@ export class NightSky {
       fragmentShader: /* glsl */ `
         uniform float uTime; uniform float uNight; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec3 uZenithDusk; uniform vec3 uGlow;
         uniform vec3 uMoon; uniform float uHasMoon; uniform float uAurora; uniform float uStars; uniform float uStrength;
+        uniform float uBand; uniform float uAuGain; uniform float uHzK;
         varying vec3 vDir;
         ${NOISE_GLSL}
         float curtain(float a, float e, float k, float t, out float vv) {
@@ -1454,9 +1468,9 @@ export class NightSky {
         void main() {
           vec3 d = normalize(vDir);
           float e = d.y;
-          float up = smoothstep(-0.02, 0.5, e);
+          float up = smoothstep(-0.02, uBand, e);
           vec3 zen = mix(uZenithDusk, uZenith, smoothstep(0.2, 0.85, uNight));
-          vec3 col = mix(uHorizon, zen, pow(up, 0.7));
+          vec3 col = mix(uHorizon * uHzK, zen, pow(up, 0.7));
           // Afterglow band hugging the horizon.
           col += uGlow * exp(-max(e, 0.0) * 14.0) * smoothstep(-0.03, 0.01, e) * 0.9;
           // Stars (spherical cells), fading into the haze near the horizon.
@@ -1469,7 +1483,7 @@ export class NightSky {
           float r = length(f - off);
           float bright = step(1.0 - 0.14 * uStars, h) * (0.35 + 0.65 * hvHash12(cell + 7.7));
           float tw = 0.65 + 0.35 * sin(uTime * (1.5 + h * 3.0) + h * 40.0);
-          float star = bright * tw * smoothstep(0.22, 0.02, r) * smoothstep(0.03, 0.2, e) * smoothstep(0.25, 0.8, uNight);
+          float star = bright * tw * smoothstep(0.22, 0.02, r) * smoothstep(0.01, uBand * 0.4, e) * smoothstep(0.25, 0.8, uNight);
           vec3 starCol = mix(vec3(0.75, 0.85, 1.0), vec3(1.0, 0.9, 0.75), hvHash12(cell + 1.3));
           // Aurora curtains (three, nested).
           float t = uTime;
@@ -1478,7 +1492,10 @@ export class NightSky {
             for (int i = 0; i < 3; i++) {
               float k = float(i);
               float vv;
-              float c = curtain(az + k * 0.35 - 0.3, e, k, t, vv);
+              // Three separate curtains spread across the northern sky (west, centre, east), each its
+              // own width and hem height, so they read as distinct hanging veils — not one band.
+              float ck = k < 0.5 ? -0.62 : k < 1.5 ? 0.12 : 0.78;
+              float c = curtain((az - ck) * (1.7 + k * 0.25), e, k, t, vv);
               vec3 green = vec3(0.18, 1.0, 0.5);
               vec3 teal = vec3(0.12, 0.8, 0.78);
               vec3 violet = vec3(0.6, 0.25, 0.95);
@@ -1487,7 +1504,9 @@ export class NightSky {
               acol += cc * c * (1.0 - k * 0.22);
               au += c;
             }
-            acol *= uAurora * 1.9;
+            acol *= uAurora * 1.9 * uAuGain;
+            // (A gained-down aurora also keeps its colour: no channel past the bloom knee.)
+            if (uAuGain < 0.99) acol = min(acol, vec3(0.22, 0.95, 0.55));
             au *= uAurora;
           }
           star *= 1.0 - clamp(au * 0.9, 0.0, 0.85);

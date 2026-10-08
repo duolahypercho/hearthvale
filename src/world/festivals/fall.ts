@@ -651,6 +651,10 @@ export class HarvestFair extends FestivalMap {
     this.crowdSpecs = specs;
   }
 
+  protected override participants(): number[] {
+    return [...this.racers.map((r) => r.i), ...this.judges.map((j) => j.i)];
+  }
+
   // ───────────────────────────────────────────── runtime
 
   protected override tick(dt: number, game: Game): void {

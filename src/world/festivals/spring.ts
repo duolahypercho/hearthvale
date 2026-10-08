@@ -67,6 +67,10 @@ export class SpringParade extends FestivalMap {
   /** The pair's swing: they hold hands and swing round each other on every third Bloom! (rad). */
   private pairAng = 0;
   private pairGoal = 0;
+  /** The couple's promenade round the pole (rad; 0 = the lens side) and the partner's Bloom lift (1 → 0). */
+  private orbit = 0;
+  private lift = 0;
+  private readonly anchor2 = new THREE.Vector2();
 
   constructor(game: Game) {
     super(game, {
@@ -516,6 +520,10 @@ export class SpringParade extends FestivalMap {
     this.crowdSpecs = specs;
   }
 
+  protected override participants(): number[] {
+    return this.dancers.map((d) => d.i);
+  }
+
   // ───────────────────────────────────────────── runtime
 
   private placeFloats(t: number): void {
@@ -593,10 +601,23 @@ export class SpringParade extends FestivalMap {
     if (this.partner && play) {
       // The partner mirrors your skip-steps beside you, hand in hand; on a big Bloom! the pair swings
       // right round each other (your farmer is carried round too — the dance has weight).
+      // The couple promenades right round the pole (one lap ≈ 30 s), turning slowly round their
+      // joined hands as they go; every Bloom! swings them half way round each other.
+      this.orbit += dt * ((Math.PI * 2) / 30);
+      this.pairGoal += dt * 0.55;
       this.pairAng += (this.pairGoal - this.pairAng) * (1 - Math.exp(-5 * dt));
       const s = this.danceSpot();
-      if (play === this.play) this.movePlayer(s.px, s.pz);
-      play.stats.side = Math.cos(this.pairAng);
+      if (play === this.play) {
+        this.movePlayer(s.px, s.pz);
+        // The lens holds on the green and leans a little after the couple, so they stay in frame
+        // on the far side of the pole too.
+        const cx = (s.px + s.qx) / 2;
+        const cz = (s.pz + s.qz) / 2;
+        this.anchor2.set(GREEN.x + (cx - GREEN.x) * 0.35 + 0.2, GREEN.z + (cz - GREEN.z) * 0.3 + 0.9);
+        this.camAnchor = this.anchor2;
+      }
+      play.stats.side = s.qx >= s.px ? 1 : -1;
+      play.stats.toward = Math.atan2(s.qx - s.px, s.qz - s.pz);
       const b = play.live ? play.beat : play.t * 1.6;
       const sway = Math.sin(b * Math.PI) * 0.1;
       const m = crowd.members[this.partner.i]!;
@@ -605,7 +626,10 @@ export class SpringParade extends FestivalMap {
       const spin = this.twirl > 0 ? THREE.MathUtils.smootherstep(1 - this.twirl, 0, 1) * Math.PI * 2 : 0;
       // Turned in towards you (half way to the lens, so the face reads), leaning in on the hold.
       const toYou = Math.atan2(s.px - s.qx, s.pz - s.qz);
-      crowd.place(this.partner.i, s.qx - sway * Math.cos(this.pairAng), s.qz, toYou * 0.55 - Math.sin(b * Math.PI * 0.5) * 0.18 + spin, Math.max(0, -h.x) * 0.6);
+      // Bloom lift: the partner is swept up off the grass (a 0.5 m arc) while twirling.
+      this.lift = Math.max(0, this.lift - dt / 0.7);
+      const up = Math.sin(this.lift * Math.PI) * 0.5;
+      crowd.place(this.partner.i, s.qx - sway * Math.cos(this.pairAng), s.qz, toYou * 0.55 - Math.sin(b * Math.PI * 0.5) * 0.18 + spin, Math.max(0, -h.x) * 0.6 + up);
       m.squash = 1 + h.x;
       m.lean *= Math.exp(-4 * dt);
       // Joined hands: a soft spark where the two hands meet on each hit.
@@ -644,15 +668,19 @@ export class SpringParade extends FestivalMap {
   private readonly spot = { px: 0, pz: 0, qx: 0, qz: 0 };
   private danceSpot(): { px: number; pz: number; qx: number; qz: number } {
     // Just outside the weaving ring, on the green (part of the dance, not off at the edge): the two
-    // stand a hand-hold apart (0.96 m), swinging round their midpoint (pairAng).
-    const z = GREEN.z + POLE_R + 1.35;
-    const c = Math.cos(this.pairAng);
-    const sn = Math.sin(this.pairAng);
+    // stand a hand-hold apart (0.96 m), swinging round their midpoint (pairAng) as they promenade
+    // round the pole (orbit, 0 = the lens side).
+    const R = POLE_R + 1.15;
+    const cx = GREEN.x + Math.sin(this.orbit) * R;
+    const cz = GREEN.z + Math.cos(this.orbit) * R;
+    const a = this.pairAng - this.orbit;
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
     const o = this.spot;
-    o.px = GREEN.x - c * 0.48;
-    o.pz = z - sn * 0.36;
-    o.qx = GREEN.x + c * 0.48;
-    o.qz = z + sn * 0.36;
+    o.px = cx - c * 0.48;
+    o.pz = cz - sn * 0.48;
+    o.qx = cx + c * 0.48;
+    o.qz = cz + sn * 0.48;
     return o;
   }
 
@@ -664,12 +692,14 @@ export class SpringParade extends FestivalMap {
     // Side by side facing the crowd (and the camera), turned in towards each other.
     this.placePlayer(s.px, s.pz, 'down');
     this.stagePartner(play.partner);
-    this.frame({ pitch: 40, distance: 18.5, yaw: 0, ox: 0.4, oz: -2.7 });
+    this.frame({ pitch: 35, distance: 19.5, yaw: 0, ox: 0.4, oz: -3.2 });
   }
 
   /** The chosen partner steps up beside the dance spot (yours, or a co-op farmer's). */
   private stagePartner(id?: string): void {
     this.pairAng = this.pairGoal = 0;
+    this.orbit = -0.35;
+    this.lift = 0;
     const s = this.danceSpot();
     const i = id ? this.named.get(id) : undefined;
     const c = this.crowd;
@@ -720,10 +750,12 @@ export class SpringParade extends FestivalMap {
         // A petal burst at your partner + a squash-and-stretch hop.
         this.burst(pm.x, pm.y + 1.5, pm.z, { color: cols[value % cols.length]!, count: big ? 26 : 10, speed: big ? 2.8 : 1.8, size: 0.13, gravity: 1.2, life: 1.4, up: 1.6, spread: 0.35 });
         this.hop.v -= big ? 3.2 : 1.6;
-        if (big && value % 3 === 0) {
+        if (big && value % 2 === 0) {
+          // A Bloom!: the partner twirls and the pair swings half way round each other; every
+          // other one the partner is lifted right off the grass mid-spin.
           this.twirl = 1;
-          // Every other twirl the pair swings round each other (and back again on the next).
-          if (value % 6 === 0) this.pairGoal = this.pairGoal > 1 ? 0 : Math.PI;
+          this.pairGoal += Math.PI;
+          if (value % 4 === 0) this.lift = 1;
         }
       }
       const s = this.danceSpot();
@@ -767,7 +799,9 @@ export class SpringParade extends FestivalMap {
     // Turned in towards your partner (whichever side they're on after a swing), the inner hand held
     // out to theirs at waist height, the outer arm sweeping up with the ribbon.
     const side = play.stats.side ?? 1;
-    rig.body.rotation.y += twirl + 0.45 * side + s * 0.2;
+    // Turned in towards the partner (cheated toward the lens when they are behind you).
+    const tw = THREE.MathUtils.clamp(play.stats.toward ?? side * 1.2, -1.3, 1.3);
+    rig.body.rotation.y += twirl + 0.62 * tw + s * 0.2;
     const inner = side >= 0 ? rig.armR : rig.armL;
     inner.rotation.set(-1.05 - 0.15 * step, 0, (side >= 0 ? -1 : 1) * (0.75 + 0.1 * s));
     return { bob: step * 0.16, sy: 1 + (step - 0.5) * 0.08 };

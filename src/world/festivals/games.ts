@@ -18,7 +18,7 @@ import type { Game } from '../../core/game';
 import { NPCS, type NpcId, type Mood } from '../../data/npcs';
 import { itemDef } from '../../data/items';
 import { CROPS } from '../../data/crops';
-import { WISHES, produceRivals, PRESENTATIONS, favouredPresentation, entryNickname, STARFALL_GIFTS, PRIZES, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
+import { GIFT_HINTS, WISHES, produceRivals, PRESENTATIONS, favouredPresentation, entryNickname, STARFALL_GIFTS, PRIZES, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
 import { portraitSvg } from '../../ui/portraits';
 import { itemIcon } from '../../ui/icons';
 import type { FestivalMap, PlayState } from './base';
@@ -249,6 +249,36 @@ const CSS = /* css */ `
 .fg-box .rays { position: absolute; inset: -60px; border-radius: 50%; background: repeating-conic-gradient(rgba(255, 220, 120, .55) 0 10deg, transparent 10deg 20deg); animation: fgSpin 8s linear infinite; mask: radial-gradient(circle, #000 30%, transparent 70%); -webkit-mask: radial-gradient(circle, #000 30%, transparent 70%); }
 .fg-box .gift { position: absolute; left: 50%; top: 50%; width: 110px; height: 110px; margin: -55px 0 0 -55px; animation: fgBounce 600ms var(--ease-back) both; }
 .fg-box .gift .u-ic { width: 100%; height: 100%; }
+/* Gift choice: a side panel (the 3D pair stays in view) — the recipient, a hint, three peeks and
+   their reaction meter; every peek is acted out in 3D (they lean in, light up or wince). */
+.fg-gpick { right: 40px; top: 50%; transform: translateY(-50%); width: 452px; }
+.fg-gpick > .in { padding: 16px 18px 14px; }
+.fg-gpick .hd { display: flex; gap: 12px; align-items: center; }
+.fg-gpick .pp { flex: none; width: 74px; height: 74px; border-radius: 16px; overflow: hidden; box-shadow: 0 0 0 3px var(--wood-2), 0 0 0 5px var(--wood-hi); }
+.fg-gpick .pp svg { width: 100%; height: 100%; display: block; }
+.fg-gpick h3 { margin: 0; font-family: var(--font-head); font-size: 24px; line-height: 26px; color: #5a3218; }
+.fg-gpick .hint { margin: 3px 0 0; font-size: 14px; line-height: 18px; font-weight: 800; color: #7a4a2a; font-style: italic; }
+.fg-rmeter { position: relative; margin: 12px 4px 4px; height: 16px; border-radius: 9px; background: linear-gradient(90deg, #8a9ac0 0 25%, #b8b0a8 25% 50%, #f0a860 50% 75%, #ef5a7a 75%); box-shadow: inset 0 2px 4px rgba(60, 30, 10, .35), 0 0 0 2px rgba(120, 70, 30, .35); }
+.fg-rmeter .nd { position: absolute; top: -9px; left: 0; width: 22px; height: 34px; margin-left: -11px; transition: left 520ms cubic-bezier(.3, 1.6, .5, 1); }
+.fg-rmeter .nd::before { content: ''; position: absolute; left: 50%; top: 0; width: 6px; height: 34px; margin-left: -3px; border-radius: 3px; background: #4a2c14; box-shadow: 0 0 0 2px #fff6dc; }
+.fg-rmeter.idle .nd { opacity: .35; }
+.fg-rmeter-l { display: grid; grid-template-columns: repeat(4, 1fr); text-align: center; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--ink-soft); margin: 2px 4px 0; }
+.fg-rmeter-say { min-height: 22px; margin-top: 4px; text-align: center; font-family: var(--font-head); font-size: 18px; color: #c8573e; }
+.fg-gpick .fg-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.fg-gpick .fg-card { padding: 8px 6px 7px; }
+.fg-gpick .fg-card .u-ic { width: 42px; height: 42px; margin-bottom: 3px; }
+.fg-gpick .fg-card .nm { font-size: 14px; line-height: 16px; }
+.fg-gpick .fg-card .pk { position: absolute; top: 5px; right: 5px; width: 14px; height: 14px; border-radius: 50%; display: none; box-shadow: 0 0 0 2px #fff6dc; }
+.fg-gpick .fg-card.peeked .pk { display: block; }
+.fg-gpick .ft { margin-top: 10px; display: flex; justify-content: space-between; align-items: center; font-weight: 800; font-size: 14px; color: var(--ink-soft); }
+.fg-gpick .ft b { font-family: var(--font-head); color: #c8573e; }
+.fg-gpick .dots i { display: inline-block; width: 12px; height: 12px; margin-left: 4px; border-radius: 50%; background: #e8a020; box-shadow: inset 0 -2px 0 rgba(0,0,0,.2); }
+.fg-gpick .dots i.used { background: rgba(120, 80, 40, .25); box-shadow: none; }
+.fg-gpick .btn { pointer-events: auto; cursor: pointer; padding: 4px 12px; border-radius: 999px; background: #fff6dc; border: 2px solid rgba(120, 70, 30, .35); font-family: var(--font-head); color: #5a3218; }
+.fg-beats { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; gap: 10px; }
+.fg-beats i { font-style: normal; padding: 6px 14px; border-radius: 999px; background: rgba(30, 16, 8, .55); color: rgba(255, 245, 224, .55); font-weight: 800; font-size: 15px; }
+.fg-beats i.on { background: #fff6dc; color: #c8573e; box-shadow: 0 0 0 3px #e8a020, 0 0 24px rgba(255, 210, 120, .8); animation: fgPulse 900ms ease-in-out infinite; }
+.fg-beats i.done { background: rgba(80, 140, 80, .7); color: #fff; }
 /* ── skate ── */
 .fg-skate { right: 26px; top: 170px; width: 220px; }
 .fg-skate > .in { padding: 12px 16px 14px; text-align: center; background: linear-gradient(180deg, #f4f8ff, #dce8f6); }
@@ -870,8 +900,16 @@ export class FestivalOverlay {
           miss();
         }
         const x = RING_X + (n.t - t) * SPEED;
-        const off = x > laneW + 60 || x < -240;
-        if (n.state !== 1 && !off) n.el.style.transform = `translateX(${x}px) rotate(${Math.sin((n.t - t) * 5) * 8}deg)`;
+        // Notes enter from inside the lane (faded in over its last ~70 px) and never slide under
+        // the combo / score column.
+        const off = x > laneW - 34 || x < -240;
+        if (n.state !== 1 && !off) {
+          n.el.style.transform = `translateX(${x}px) rotate(${Math.sin((n.t - t) * 5) * 8}deg)`;
+          if (n.state === 0) {
+            const fin = Math.min(1, Math.max(0, (laneW - 34 - x) / 70));
+            n.el.style.opacity = fin < 1 ? fin.toFixed(2) : '';
+          }
+        }
         if (n.off !== off) {
           n.off = off;
           n.el.style.display = off ? 'none' : '';
@@ -1422,13 +1460,12 @@ export class FestivalOverlay {
     }
     let giftId: string | null = null;
     if (gifts.length) {
-      const list = gifts.slice(0, 12);
-      const autoPick = Math.max(0, list.findIndex((g) => rel?.taste(target, g.id) === 'love'));
-      const c = await this.pick(env, `A present for ${shortName(tn.name)}`, 'Wrap something from your backpack. (They’ll never guess it was you.)', list.map((g) => `${itemIcon(g.id)}<div class="nm">${itemDef(g.id)?.name ?? g.id}</div>`), autoPick);
+      const list = gifts.slice(0, 9);
+      const c = await this.giftPick(env, target, list.map((g) => g.id));
       if (c === null) return null;
       giftId = list[c]!.id;
     }
-    // 3) Their reaction.
+    // 3) Their reaction: the meter swings to where their face lands, acted out in 3D.
     const reaction = giftId ? (rel?.taste(target, giftId) ?? 'like') : 'neutral';
     if (giftId && !env.auto) {
       if (rel?.gift(target, giftId) === null) rel?.adjust(target, reaction === 'love' ? 80 : reaction === 'like' ? 45 : 20);
@@ -1437,26 +1474,45 @@ export class FestivalOverlay {
     }
     const mood: Mood = reaction === 'love' ? 'laugh' : reaction === 'like' ? 'happy' : reaction === 'dislike' ? 'worried' : 'happy';
     const line = giftId ? stripTags(tn.giftLines[reaction]) : 'A hand-drawn card! With a little star on it. I’ll keep this forever.';
-    const react = div('fg-panel fg-draw side fg-live', `<div class="in"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, mood)}</div><div class="nm">${shortName(tn.name)}</div><div class="line">“${line}”</div></div>`);
+    const react = div(
+      'fg-panel fg-draw side fg-live',
+      `<div class="in"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, mood)}</div><div class="nm">${shortName(tn.name)}</div><div class="fg-rmeter idle"><div class="nd"></div></div><div class="fg-rmeter-l"><span>Oh…</span><span>Meh</span><span>Like</span><span>Love</span></div><div class="line">“${line}”</div></div>`,
+    );
     root.append(react);
+    const nd = react.querySelector('.fg-rmeter .nd') as HTMLElement;
+    requestAnimationFrame(() => {
+      (nd.parentElement as HTMLElement).classList.remove('idle');
+      nd.style.left = `${Math.round(tasteLevel(reaction, giftId ?? '') * 100)}%`;
+    });
     this.sfx(`gift:${reaction}`, 1);
-    env.map.playEvent('given', reaction === 'love' ? 3 : reaction === 'like' ? 2 : 1);
+    env.map.playEvent('given', reaction === 'love' ? 3 : reaction === 'like' ? 2 : reaction === 'dislike' ? 0 : 1);
     if (!(await this.loop((_dt, t) => (env.auto ? t > 2.2 : t > 0.6 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')) || t > 7))) return null;
     react.remove();
-    // 4) Somebody drew you: the present appears in your hands in 3D; unwrap it there (lid pops,
-    // ribbon flies, confetti), THEN the card names what was inside.
+    // 4) Somebody drew you: the present appears in your hands in 3D and you unwrap it there in three
+    // beats — pull the ribbon, lift the lid, peek inside (the keepsake rises out sparkling) — THEN
+    // the card names what was inside.
     const giver = ids.filter((i) => i !== target)[Math.floor(Math.random() * (ids.length - 1))]!;
-    const got = STARFALL_GIFTS.filter((g) => itemDef(g))[Math.floor(Math.random() * STARFALL_GIFTS.filter((g) => itemDef(g)).length)] ?? 'topaz';
-    env.map.playEvent('gift-appear');
+    const pool = STARFALL_GIFTS.filter((g) => itemDef(g));
+    const gi = Math.floor(Math.random() * pool.length);
+    const got = pool[gi] ?? 'topaz';
+    env.map.playEvent('gift-appear', Math.max(0, STARFALL_GIFTS.indexOf(got)));
     const prompt = div('fg-hint fg-live', `<b>${shortName(NPCS[giver].name)}</b> drew your name! Press <b>Space</b> to unwrap`);
-    root.append(prompt);
-    let open = false;
-    prompt.addEventListener('click', () => (open = true));
-    if (!(await this.loop((_dt, t) => (env.auto ? t > 1.6 : open || (t > 0.4 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')))))) return null;
-    prompt.remove();
-    env.map.playEvent('unwrap');
-    this.sfx('catch:perfect', 0.9);
-    if (!(await this.wait(1300))) return null;
+    const beats = div('fg-beats', `<i>Pull the ribbon</i><i>Lift the lid</i><i>Peek inside</i>`);
+    root.append(prompt, beats);
+    const beatEls = [...beats.querySelectorAll('i')] as HTMLElement[];
+    let tap = false;
+    prompt.addEventListener('click', () => (tap = true));
+    for (let b = 0; b < 3; b++) {
+      beatEls.forEach((e, i) => (e.className = i < b ? 'done' : i === b ? 'on' : ''));
+      tap = false;
+      if (!(await this.loop((_dt, t) => (env.auto ? t > (b ? 0.75 : 1.3) : tap || (t > 0.25 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')))))) return null;
+      if (b === 0) prompt.remove();
+      env.map.playEvent('unwrap', b + 1);
+      this.sfx(b < 2 ? 'ui:tick' : 'catch:perfect', b < 2 ? 1.1 : 0.9);
+    }
+    beatEls.forEach((e) => (e.className = 'done'));
+    if (!(await this.wait(1100))) return null;
+    beats.remove();
     const box = div('fg-panel fg-draw side fg-live', `<div class="in"><div class="rl">From ${shortName(NPCS[giver].name)}, with love</div><div class="fg-box"><div class="rays"></div><div class="gift">${itemIcon(got)}</div></div><div class="nm">${itemDef(got)?.name ?? got}</div></div>`);
     root.append(box);
     this.confetti(root, env.festival.colors, 40);
@@ -1476,6 +1532,87 @@ export class FestivalOverlay {
       title: [`${tnm} Loved It!`, `${tnm} Liked It`, 'A Kind Thought', 'It’s the Thought…'][rk]!,
       sub: `${tnm} ${['can’t stop smiling', 'is delighted', 'thanks you warmly', 'is… being very polite about it'][rk]} · ${shortName(NPCS[giver].name)} wrapped you a ${itemDef(got)?.name ?? 'present'}`,
     };
+  }
+
+  /**
+   * The gift choice: browse your backpack, spend up to three peeks (show the recipient something and
+   * read their face on the reaction meter — acted out in 3D), then wrap one. Returns the index.
+   */
+  private async giftPick(env: GameEnv, target: NpcId, items: string[]): Promise<number | null> {
+    const root = this.root!;
+    const rel = this.game.services.relationships;
+    const tn = NPCS[target];
+    const PEEKS = 3;
+    const panel = div(
+      'fg-panel fg-gpick fg-live',
+      `<div class="in"><div class="hd"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, 'neutral')}</div><div><h3>A present for ${shortName(tn.name)}</h3><p class="hint">${GIFT_HINTS[target] ?? 'They’ll love anything from the heart. (Probably.)'}</p></div></div><div class="fg-rmeter idle"><div class="nd" style="left:50%"></div></div><div class="fg-rmeter-l"><span>Oh…</span><span>Meh</span><span>Like</span><span>Love</span></div><div class="fg-rmeter-say">Show them something…</div><div class="fg-grid"></div><div class="ft"><span>Peeks<span class="dots">${'<i></i>'.repeat(PEEKS)}</span></span><span><span class="btn pkb"><b>Q</b> peek</span> <span class="btn wrb"><b>Space</b> wrap it</span></span></div></div>`,
+    );
+    const grid = panel.querySelector('.fg-grid') as HTMLElement;
+    const meter = panel.querySelector('.fg-rmeter') as HTMLElement;
+    const nd = panel.querySelector('.fg-rmeter .nd') as HTMLElement;
+    const say = panel.querySelector('.fg-rmeter-say') as HTMLElement;
+    const dots = [...panel.querySelectorAll('.dots i')] as HTMLElement[];
+    const pp = panel.querySelector('.pp') as HTMLElement;
+    let sel = 0;
+    let chosen = -1;
+    let peekReq = false;
+    let used = 0;
+    const els = items.map((id, i) => {
+      const c = div('fg-card', `<b class="pk"></b>${itemIcon(id)}<div class="nm">${itemDef(id)?.name ?? id}</div>`);
+      c.style.animationDelay = `${i * 40}ms`;
+      c.addEventListener('mouseenter', () => (sel = i));
+      c.addEventListener('click', () => (sel = i));
+      grid.append(c);
+      return c;
+    });
+    panel.querySelector('.pkb')!.addEventListener('click', () => (peekReq = true));
+    panel.querySelector('.wrb')!.addEventListener('click', () => (chosen = sel));
+    root.append(panel);
+    const SAY: Record<string, string> = { love: 'Their eyes light up!', like: 'A curious little smile…', neutral: 'A polite nod.', dislike: 'A tiny wince…' };
+    const MOOD: Record<string, Mood> = { love: 'laugh', like: 'happy', neutral: 'neutral', dislike: 'worried' };
+    const peek = (i: number): void => {
+      if (used >= PEEKS || els[i]!.classList.contains('peeked')) return;
+      const r = rel?.taste(target, items[i]!) ?? 'neutral';
+      const lv = tasteLevel(r, items[i]!);
+      used++;
+      dots.forEach((d, k) => d.classList.toggle('used', k < used));
+      els[i]!.classList.add('peeked');
+      (els[i]!.querySelector('.pk') as HTMLElement).style.background = lv > 0.8 ? '#ef5a7a' : lv > 0.55 ? '#f0a860' : lv > 0.3 ? '#b8b0a8' : '#8a9ac0';
+      meter.classList.remove('idle');
+      nd.style.left = `${Math.round(lv * 100)}%`;
+      say.textContent = SAY[r] ?? '';
+      pp.innerHTML = portraitSvg(tn.look, tn.portraitBg, MOOD[r] ?? 'neutral');
+      env.map.playEvent('peek', r === 'love' ? 3 : r === 'like' ? 2 : r === 'dislike' ? 0 : 1);
+      this.sfx('ui:tick', 1.2);
+    };
+    // Attract mode: browse, peek at two things (one of them a hit), wrap the best.
+    const autoBest = Math.max(0, items.findIndex((id) => rel?.taste(target, id) === 'love'));
+    const autoPeeks = [Math.min(items.length - 1, autoBest === 0 ? 1 : 0), autoBest];
+    const ok = await this.loop((_dt, t) => {
+      if (env.auto) {
+        const k = Math.floor(t / 0.9);
+        if (k < autoPeeks.length) {
+          sel = autoPeeks[k]!;
+          if (t - k * 0.9 > 0.45 && !els[sel]!.classList.contains('peeked')) peek(sel);
+        } else if (t > autoPeeks.length * 0.9 + 1.1) chosen = autoBest;
+      }
+      const cols = 3;
+      if (this.hit('ArrowRight', 'KeyD')) sel = Math.min(items.length - 1, sel + 1);
+      if (this.hit('ArrowLeft', 'KeyA')) sel = Math.max(0, sel - 1);
+      if (this.hit('ArrowDown', 'KeyS')) sel = Math.min(items.length - 1, sel + cols);
+      if (this.hit('ArrowUp', 'KeyW')) sel = Math.max(0, sel - cols);
+      for (let k = 1; k <= Math.min(9, items.length); k++) if (this.hit(`Digit${k}`)) sel = k - 1;
+      if (this.hit('KeyQ', 'KeyE', 'KeyP') || peekReq) {
+        peekReq = false;
+        peek(sel);
+      }
+      if (this.hit('Enter', 'Space', 'KeyX', 'KeyF')) chosen = sel;
+      els.forEach((e, i) => e.classList.toggle('sel', i === sel));
+      return chosen >= 0;
+    });
+    this.sfx('ui:select');
+    panel.remove();
+    return ok ? chosen : null;
   }
 
   // ───────────────────────────────────────────── skate
@@ -1598,6 +1735,14 @@ export class FestivalOverlay {
 }
 
 const COIN = `<svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="15" fill="#f5c542" stroke="#b8861a" stroke-width="2.5"/><circle cx="17" cy="17" r="10" fill="none" stroke="#fff2b0" stroke-width="2"/><text x="17" y="22" text-anchor="middle" font-family="Fredoka, sans-serif" font-weight="700" font-size="13" fill="#8a5a10">g</text></svg>`;
+
+/** Where a reaction lands on the gift meter (0 = wince … 1 = delight), a touch of per-item wobble. */
+function tasteLevel(r: string, id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 33 + id.charCodeAt(i)) % 997;
+  const j = (h / 997 - 0.5) * 0.1;
+  return r === 'love' ? 0.9 + j * 0.5 : r === 'like' ? 0.66 + j : r === 'dislike' ? 0.12 + j : 0.4 + j;
+}
 
 const REACTION: Record<'love' | 'like' | 'neutral' | 'dislike', { label: string; c: string }> = {
   love: { label: 'Loved it!', c: '#e8456a' },

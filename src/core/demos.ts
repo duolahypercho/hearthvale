@@ -255,9 +255,9 @@ export const DEMOS: Record<string, DemoDef> = {
   // Both look from over the south bank across the skaters on the ice to the square — the fire + cocoa
   // cluster (west), the gift circle round the Great Fir (centre), the ice sculptures (east) — with the
   // Fir's star against the aurora over the treeline.
-  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.3, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 15, distance: 40, offsetX: 0, offsetY: 3, offsetZ: -6 }, showcase: ['festival-show'] },
-  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 21.2, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 15, distance: 40, offsetX: 0, offsetY: 3, offsetZ: -6 }, showcase: ['festival-show'] },
-  'fest-winter-dusk': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 19.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 15, distance: 40, offsetX: 0, offsetY: 3, offsetZ: -6 }, showcase: ['festival-show'] },
+  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.3, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 12, distance: 40, offsetX: 0, offsetY: 5.5, offsetZ: -6 }, showcase: ['festival-show'] },
+  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 21.2, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 12, distance: 40, offsetX: 0, offsetY: 5.5, offsetZ: -6 }, showcase: ['festival-show'] },
+  'fest-winter-dusk': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 19.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 12, distance: 40, offsetX: 0, offsetY: 5.5, offsetZ: -6 }, showcase: ['festival-show'] },
   // Festival mini-games (they play themselves while the demo is paused): Ribbon Dance, Lantern Release, Sack Race,
   // Produce Judging, Gift Exchange, Starlight Skate. Same as `?demo=fest-<season>&ui=festival:<activity>`.
   'fest-spring-dance': { map: 'fest-spring', x: 31.2, z: 37.2, facing: 'up', time: 12.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 38, distance: 19.5, offsetX: 0.4, offsetZ: -4.4 }, showcase: ['festival-show'], ui: 'festival:dance' },

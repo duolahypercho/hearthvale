@@ -13,7 +13,8 @@ import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { smoothstep } from '../../core/noise';
 import { NPCS, NPC_IDS, type NpcLook } from '../../data/npcs';
-import { OUTFIT_PALETTES } from '../../data/festivals';
+import { OUTFIT_PALETTES, STARFALL_GIFTS } from '../../data/festivals';
+import { itemIconUrl } from '../../ui/icons';
 import { TileType } from '../tiles';
 import { textures } from '../../render/textures';
 import { buildTownHouse, buildHedge, buildMarketStall } from '../props/townkit';
@@ -70,7 +71,10 @@ export class StarfallSquare extends FestivalMap {
   private roamHome = new THREE.Vector3();
   private recipient: { i: number; x: number; z: number; yaw: number; anim: number } | null = null;
   /** Gift Exchange: the present someone wrapped for you, unwrapped in your hands. */
-  private present: { g: THREE.Group; lid: THREE.Object3D; ribbons: THREE.Object3D[]; prize: THREE.Mesh; t0: number; open: number } | null = null;
+  private present: { g: THREE.Group; lid: THREE.Object3D; bow: THREE.Object3D; ribbons: THREE.Object3D[]; prize: THREE.Sprite; gem: THREE.Mesh; t0: number; open: number; beat: number; bt: [number, number, number]; item: string; sparkT: number } | null = null;
+  private tiltOwned = false;
+  /** Gift Exchange: the recipient's reaction clip to a peek (reverts at `peekUntil`). */
+  private peekUntil = 0;
 
   constructor(game: Game) {
     super(game, {
@@ -231,11 +235,14 @@ export class StarfallSquare extends FestivalMap {
   }
 
   private buildHouses(r: Rng): void {
+    // (r8) Four different chalets, not one mirrored: a tall narrow ochre townhouse, a long low
+    // barn-red lodge with an awning, a cool grey stone house, a small blue-grey thatched cottage —
+    // different widths, heights, setbacks and roofs.
     const houses: [number, number, Parameters<typeof buildTownHouse>[1]][] = [
-      [14.5, 10.4, { w: 5.6, d: 4.4, wallH: 2.8, wall: 'plaster', wallTint: 0xf2e6d8, roofTint: 0x8a3a32, doorTint: 0x2f5a4a, shutterTint: 0x2f5a4a, chimney: true, flowerBoxes: false }],
-      [23.5, 10.0, { w: 6.4, d: 4.8, wallH: 3.1, wall: 'wood', wallTint: 0xe8d8c0, roofTint: 0x3f5a6a, doorTint: 0xa83a2a, awning: [0xc8302a, 0xf6f0e6], flowerBoxes: false, doorX: 1 }],
-      [40.5, 10.0, { w: 6.2, d: 4.6, wallH: 3.0, wall: 'stone', wallTint: 0xe6ddd0, roofTint: 0x5a4a6a, doorTint: 0x2f6a4a, shutterTint: 0x8a2a2a, chimney: true, flowerBoxes: false, doorX: -1 }],
-      [49.5, 10.4, { w: 5.6, d: 4.4, wallH: 2.7, wall: 'wood', wallTint: 0xf0e2c8, roofTint: 0xd8b068, roof: 'thatch', doorTint: 0x3f6a9a, shutterTint: 0x3f6a9a, chimney: true, flowerBoxes: false }],
+      [14.2, 11.0, { w: 4.8, d: 4.2, wallH: 3.9, wall: 'plaster', wallTint: 0xe8c49a, roofTint: 0x8a3a32, doorTint: 0x2f5a4a, shutterTint: 0x2f5a4a, chimney: true, flowerBoxes: false }],
+      [23.4, 9.4, { w: 7.2, d: 5.2, wallH: 2.6, wall: 'wood', wallTint: 0xb8664c, roofTint: 0x3f5a6a, doorTint: 0x2f4a3a, awning: [0xc8302a, 0xf6f0e6], flowerBoxes: false, doorX: 1 }],
+      [40.8, 10.2, { w: 6.0, d: 4.6, wallH: 3.3, wall: 'stone', wallTint: 0xc8ccd4, roofTint: 0x5a4a6a, doorTint: 0x2f6a4a, shutterTint: 0x8a2a2a, chimney: true, flowerBoxes: false, doorX: -1 }],
+      [50.0, 11.2, { w: 4.6, d: 4.0, wallH: 2.4, wall: 'wood', wallTint: 0x86a2b8, roofTint: 0xd8b068, roof: 'thatch', doorTint: 0xa83a2a, shutterTint: 0xf0e2c8, chimney: true, flowerBoxes: false }],
     ];
     for (const [x, z, spec] of houses) {
       const bp = buildTownHouse(r, spec);
@@ -376,8 +383,12 @@ export class StarfallSquare extends FestivalMap {
         if (this.terrain.slopeAt(jx, jz) < 0.75) continue;
         // Keep the lens clear south of the bridge (arrival framing).
         if (jz > 38 && jz < 56 && Math.abs(jx - 32) < 14) continue;
-        const sp = r.next() < 0.7 ? 'pine' : 'oak';
-        this.trees.add(sp, jx, this.H(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 2.2 ? 1 : 0);
+        // The northern rim stays low and open: a sparse fringe of small firs on the ridge, so the
+        // postcard sees real night sky — stars and the aurora curtains — over the rooftops.
+        const north = jz < 2 && jx > -6 && jx < 70;
+        if (north && (jz < -6 || r.next() < 0.6)) continue;
+        const sp = north || r.next() < 0.7 ? 'pine' : 'oak';
+        this.trees.add(sp, jx, this.H(jx, jz) - 0.08, jz, north ? 0.55 + r.next() * 0.3 : 0.85 + r.next() * 0.45, undefined, d > 2.2 ? 1 : 0);
       }
     }
   }
@@ -531,7 +542,9 @@ export class StarfallSquare extends FestivalMap {
     // The northern sky: a camera-centred dome (horizon matched to the fog) with the aurora hung in it
     // as travelling curtains — green hem rolling up to violet, fine rays, stars dimmed behind — rising
     // from 18:30 as the dusk goes out.
-    this.sky = new NightSky({ zenith: 0x070b24, zenithDusk: 0x2a3060, glow: 0x5a3a6a, moon: new THREE.Vector3(0.62, 0.34, -0.7), aurora: 0, stars: 1.1 });
+    // (r8: the postcard now sees a real band of sky over the low northern ridge — deep navy right down
+    // to the trees, stars, and the curtains gained down to saturated green / teal, not a fog bank.)
+    this.sky = new NightSky({ zenith: 0x060a22, zenithDusk: 0x2a3060, glow: 0x3a2a5a, moon: new THREE.Vector3(0.62, 0.34, -0.7), aurora: 0, stars: 1.8, band: 0.07, auroraGain: 0.34, horizonK: 0.42 });
     this.root.add(this.sky.mesh);
     // ... and its light: drifting green / violet bands washed over the snowy square after dark.
     const glow = new AuroraGlow((x, z) => this.H(x, z), { x0: 4, z0: 4, x1: 60, z1: 31 });
@@ -587,8 +600,10 @@ export class StarfallSquare extends FestivalMap {
       }
       // A higher three-quarter from the south (over the bridge lamps): the pair, the present between
       // them, the gift circle round them and the Great Fir's lit skirt behind.
-      this.clearSightline(gx + 0.1, gz + 0.4, -10, 9.5, 2.2);
-      this.frame({ pitch: 30, distance: 11, yaw: -10, ox: 1.5, oz: -1.9 });
+      // A low three-quarter, pulled in: the pair fills the middle third, the Fir's lit skirt and the
+      // gift pile fill the top third, barely any bare snow underfoot (cards sit on the right).
+      this.clearSightline(gx + 0.1, gz + 0.4, -14, 8, 2.2);
+      this.frame({ pitch: 15, distance: 7.6, yaw: -14, ox: 1.25, oz: -0.9, oy: 1.15 });
     } else if (play.id === 'skate') {
       this.startRun(play);
       // A three-quarter from down-river (south-east): the lantern-gate arches read as arches, not edge-on
@@ -807,6 +822,7 @@ export class StarfallSquare extends FestivalMap {
       this.recipient = { i, x: m.x, z: m.z, yaw: m.yaw, anim: m.anim };
       c.place(i, gx + 0.75, gz + 0.35, -1.05, 0);
       c.setAnim(i, 'talk');
+      m.keep = true;
       c.commit();
     }
     return i;
@@ -817,7 +833,9 @@ export class StarfallSquare extends FestivalMap {
     const r = this.recipient;
     if (c && r) {
       c.place(r.i, r.x, r.z, r.yaw);
-      c.members[r.i]!.anim = r.anim;
+      const m = c.members[r.i]!;
+      m.anim = r.anim;
+      m.keep = m.keepAlways ?? false;
       c.commit();
     }
     this.recipient = null;
@@ -867,25 +885,54 @@ export class StarfallSquare extends FestivalMap {
     if (play.id === 'giftswap') {
       const r = this.recipient;
       const rp = r ? this.memberPos(r.i) : p;
-      if (kind === 'given') {
-        // Heart burst sized by the reaction tier (love / like / neutral).
-        const col = value >= 3 ? 0xff5a7a : value === 2 ? 0xffa0b8 : 0xfff0e0;
-        this.burst(rp.x, rp.y + 2.3, rp.z, { color: col, count: value * 12, speed: 1.5, size: value >= 3 ? 0.18 : 0.13, gravity: -0.4, life: 1.9, up: 0.9, spread: 0.7 });
-        if (r) {
-          this.crowd?.setAnim(r.i, value >= 3 ? 'cheer' : value === 2 ? 'wave' : 'talk');
-          this.crowd?.commit();
+      const c = this.crowd;
+      if (kind === 'peek' && r && c) {
+        // You hold something up; they lean in and their whole body answers (a hop of delight, a
+        // clap, a thoughtful chin-rub, a polite little step back).
+        c.setAnim(r.i, value >= 3 ? 'cheer' : value === 2 ? 'clap' : value === 1 ? 'judge' : 'talk');
+        c.members[r.i]!.lean = value === 0 ? -0.12 : 0;
+        c.commit();
+        this.peekUntil = this.showT + 1.6;
+        if (value >= 2) this.burst(rp.x, rp.y + 2.2, rp.z, { color: value >= 3 ? 0xff5a7a : 0xffb0c4, count: value * 4, speed: 1, size: 0.14, gravity: -0.4, life: 1.2, up: 0.7, spread: 0.4 });
+        else if (value === 0) this.burst(rp.x, rp.y + 2.2, rp.z, { color: 0xb8c0cc, count: 6, speed: 0.4, size: 0.18, gravity: -0.2, life: 1.2, up: 0.3, spread: 0.2 });
+      } else if (kind === 'given') {
+        // Heart burst sized by the reaction tier (love / like / neutral; a sigh-cloud for a miss).
+        const col = value >= 3 ? 0xff5a7a : value === 2 ? 0xffa0b8 : value === 1 ? 0xfff0e0 : 0xb8c0cc;
+        this.burst(rp.x, rp.y + 2.3, rp.z, { color: col, count: Math.max(1, value) * 12, speed: 1.5, size: value >= 3 ? 0.18 : 0.13, gravity: -0.4, life: 1.9, up: 0.9, spread: 0.7 });
+        if (r && c) {
+          c.setAnim(r.i, value >= 3 ? 'cheer' : value === 2 ? 'wave' : 'talk');
+          c.members[r.i]!.lean = 0;
+          c.commit();
+          this.peekUntil = 0;
         }
       } else if (kind === 'gift-appear') {
-        this.showPresent();
+        this.showPresent(STARFALL_GIFTS[value] ?? 'topaz');
       } else if (kind === 'unwrap') {
-        if (this.present) this.present.open = this.game.time;
-        for (const c of [0xd8312a, 0xf2d27a, 0x2f6a4a, 0xffffff]) this.burst(p.x, p.y + 1.2, p.z + 0.55, { color: c, count: 22, speed: 2.8, size: 0.11, gravity: 2.5, life: 1.8, up: 1.6, spread: 0.3 });
+        const pr = this.present;
+        if (!pr) return;
+        // Three beats (value 1..3; 0 = all at once): the ribbon, the lid, the keepsake.
+        const to = value <= 0 ? 3 : Math.min(3, value);
+        const now = this.game.time;
+        const at = pr.g.position;
+        while (pr.beat < to) {
+          pr.bt[pr.beat] = now;
+          pr.beat++;
+          if (pr.beat === 1) this.burst(at.x, at.y + 0.45, at.z, { color: 0xf2d27a, count: 14, speed: 1.6, size: 0.08, gravity: 1.5, life: 1, up: 1.2, spread: 0.2 });
+          else if (pr.beat === 2) for (const col of [0xd8312a, 0xf2d27a, 0xffffff]) this.burst(at.x, at.y + 0.5, at.z, { color: col, count: 12, speed: 2.4, size: 0.1, gravity: 2.5, life: 1.4, up: 1.5, spread: 0.3 });
+          else {
+            pr.open = now;
+            for (const col of [0xfff2c0, 0xffd27a, 0xffffff, 0xd8312a, 0x2f6a4a]) this.burst(at.x, at.y + 0.6, at.z, { color: col, count: 20, speed: 2.8, size: 0.11, gravity: 2.2, life: 1.8, up: 1.8, spread: 0.35 });
+          }
+        }
       }
     }
   }
 
-  /** A wrapped present held out in front of you (box, lid, crossed ribbon + bow, a keepsake inside). */
-  private showPresent(): void {
+  /**
+   * A wrapped present held out in front of you: box, lid, crossed ribbon + a big bow, and the real
+   * keepsake inside (its icon on a sprite) that rises out sparkling on the third beat.
+   */
+  private showPresent(item: string): void {
     if (!this.present) {
       const red = new THREE.MeshStandardMaterial({ color: 0xc8302a, roughness: 0.55 });
       const gold = new THREE.MeshStandardMaterial({ color: 0xf2c84a, roughness: 0.35, metalness: 0.3 });
@@ -907,35 +954,78 @@ export class StarfallSquare extends FestivalMap {
         const lb = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.11, 0.51), gold);
         lb.rotation.y = r;
         lid.add(lb);
+        ribbons.push(lb);
       }
+      const bow = new THREE.Group();
       for (const sx of [-1, 1]) {
-        const loop = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.025, 6, 12), gold);
-        loop.position.set(sx * 0.07, 0.1, 0);
+        const loop = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.028, 6, 12), gold);
+        loop.position.set(sx * 0.08, 0, 0);
         loop.rotation.set(0, Math.PI / 2, sx * 0.6);
-        lid.add(loop);
+        const tail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.16), gold);
+        tail.position.set(sx * 0.05, -0.02, 0.1);
+        tail.rotation.y = sx * 0.5;
+        bow.add(loop, tail);
       }
-      const prize = new THREE.Mesh(new THREE.OctahedronGeometry(0.12, 0), new THREE.MeshStandardMaterial({ color: 0xffe08a, emissive: 0xffb040, emissiveIntensity: 1.6, roughness: 0.2, metalness: 0.4 }));
-      prize.position.y = 0.2;
+      bow.position.y = 0.48;
+      const prize = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, alphaTest: 0.05, fog: false }));
+      prize.scale.setScalar(0.42);
       prize.visible = false;
-      g.add(body, lid, prize);
+      prize.renderOrder = 3;
+      // A soft warm glow behind the keepsake.
+      const gc = document.createElement('canvas');
+      gc.width = gc.height = 64;
+      const gx2 = gc.getContext('2d')!;
+      const grd = gx2.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grd.addColorStop(0, 'rgba(255,236,190,1)');
+      grd.addColorStop(0.35, 'rgba(255,210,130,0.55)');
+      grd.addColorStop(1, 'rgba(255,190,110,0)');
+      gx2.fillStyle = grd;
+      gx2.fillRect(0, 0, 64, 64);
+      const gem = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc), transparent: true, opacity: 0.0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      gem.visible = false;
+      g.add(body, lid, bow, gem, prize);
       g.traverse((o) => {
-        o.castShadow = true;
+        o.castShadow = o !== prize && o !== gem;
         o.userData.noAO = true;
       });
       g.userData.perfTag = 'festival';
       this.root.add(g);
-      this.present = { g, lid, ribbons, prize, t0: 0, open: -1 };
+      this.present = { g, lid, bow, ribbons, prize, gem, t0: 0, open: -1, beat: 0, bt: [0, 0, 0], item: '', sparkT: 0 };
     }
     const pr = this.present;
+    if (pr.item !== item) {
+      pr.item = item;
+      const m = pr.prize.material;
+      m.map?.dispose();
+      // Rasterise the item's icon art onto a canvas (an SVG without a pixel size can load blank).
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 256;
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const img = new Image(256, 256);
+      img.onload = () => {
+        cv.getContext('2d')?.drawImage(img, 0, 0, 256, 256);
+        tex.needsUpdate = true;
+      };
+      img.src = itemIconUrl(item);
+      m.map = tex;
+      m.needsUpdate = true;
+    }
     // Turn round to show it to the crowd (and the camera): the present is held out towards us.
     if (!this.specCtx) this.game.player.setFacing('down');
     pr.t0 = this.game.time;
     pr.open = -1;
+    pr.beat = 0;
     pr.g.visible = true;
     pr.lid.position.set(0, 0.38, 0);
     pr.lid.rotation.set(0, 0, 0);
+    pr.lid.visible = true;
+    pr.bow.position.set(0, 0.48, 0);
+    pr.bow.rotation.set(0, 0, 0);
+    pr.bow.visible = true;
     for (const r of pr.ribbons) (r.visible = true), r.scale.setScalar(1);
     pr.prize.visible = false;
+    pr.gem.visible = false;
   }
 
   private updatePresent(game: Game): void {
@@ -948,22 +1038,46 @@ export class StarfallSquare extends FestivalMap {
     const sc = pop < 1 ? 0.3 + pop * 0.8 + Math.sin(pop * Math.PI) * 0.15 : 1;
     pr.g.scale.setScalar(sc);
     pr.g.position.set(p.x, p.y + 0.78 + Math.sin(game.time * 3) * 0.03, p.z + 0.55);
-    if (pr.open < 0) {
+    if (pr.beat === 0) {
+      // Rattles with anticipation.
       pr.g.rotation.z = Math.sin(game.time * 14) * 0.05 * (t > 0.4 ? 1 : 0);
       return;
     }
-    const u = game.time - pr.open;
     pr.g.rotation.z = 0;
-    // Lid pops up and tumbles away, the ribbon springs off, the keepsake rises out glowing.
-    pr.lid.position.set(u * 0.6, 0.38 + u * 2.4 - u * u * 2.6, -u * 0.3);
-    pr.lid.rotation.set(-u * 2.2, u * 1.5, u * 3.1);
-    for (const r of pr.ribbons) r.scale.set(Math.max(0.01, 1 - u * 3), 1, 1);
+    // Beat 1: the bow is tugged loose and flutters up and away; the ribbon slides off the box.
+    const u1 = game.time - pr.bt[0];
+    pr.bow.position.set(u1 * 0.5, 0.48 + u1 * 1.6 - u1 * u1 * 1.2, u1 * 0.2);
+    pr.bow.rotation.set(u1 * 3, u1 * 5, u1 * 2);
+    pr.bow.visible = u1 < 1.3;
+    for (const r of pr.ribbons) r.scale.set(Math.max(0.01, 1 - u1 * 3.5), 1, 1);
+    if (pr.beat < 2) {
+      pr.lid.position.y = 0.38 + Math.abs(Math.sin(game.time * 10)) * 0.015;
+      return;
+    }
+    // Beat 2: the lid pops up and tumbles away.
+    const u2 = game.time - pr.bt[1];
+    pr.lid.position.set(u2 * 0.6, 0.38 + u2 * 2.4 - u2 * u2 * 2.6, -u2 * 0.3);
+    pr.lid.rotation.set(-u2 * 2.2, u2 * 1.5, u2 * 3.1);
+    pr.lid.visible = u2 < 1.3;
+    if (pr.beat < 3) return;
+    // Beat 3: the keepsake rises out on a warm glow, turning, shedding sparkles.
+    const u3 = game.time - pr.bt[2];
+    const rise = THREE.MathUtils.smootherstep(Math.min(1, u3 / 0.8), 0, 1);
     pr.prize.visible = true;
-    // It rises just clear of the open box (below the chin: the face must read over it).
-    pr.prize.position.y = 0.2 + Math.min(1, u / 0.7) * 0.3;
-    pr.prize.rotation.y = u * 4;
-    if (u > 1.3) pr.lid.visible = false;
-    else pr.lid.visible = true;
+    pr.prize.position.set(0, 0.3 + rise * 0.3, 0.06);
+    const ps = 0.2 + rise * 0.24 + Math.sin(Math.min(1, u3 / 0.5) * Math.PI) * 0.08;
+    pr.prize.scale.setScalar(ps);
+    pr.prize.material.rotation = Math.sin(u3 * 2.2) * 0.12;
+    pr.gem.visible = true;
+    pr.gem.position.copy(pr.prize.position).setZ(-0.04);
+    pr.gem.lookAt(game.rc.camera.position);
+    (pr.gem.material as THREE.MeshBasicMaterial).opacity = 0.55 * rise * (0.8 + 0.2 * Math.sin(game.time * 6));
+    pr.gem.scale.setScalar(0.8 + rise * 0.6);
+    if ((pr.sparkT -= 1 / 60) <= 0 && u3 < 2.6) {
+      pr.sparkT = 0.12;
+      const w = pr.g.position;
+      this.burst(w.x + (Math.random() - 0.5) * 0.4, w.y + 0.5 + rise * 0.4, w.z + 0.05, { color: Math.random() < 0.5 ? 0xfff2c0 : 0xffffff, count: 3, speed: 0.6, size: 0.07, gravity: -0.3, life: 0.9, up: 0.5, spread: 0.25 });
+    }
   }
 
   protected override onEndPlay(play: PlayState): void {
@@ -1179,6 +1293,24 @@ export class StarfallSquare extends FestivalMap {
     this.river.aurora.value = auN;
     this.updateSkate(dt, game);
     this.updatePresent(game);
+    // Postcard stills keep the sky band crisp (stars, the curtains' rays): a gentler lens blur.
+    const still = game.paused && this.staged && !this.play;
+    if (still) {
+      game.rc.tiltBand = 0.42;
+      game.rc.tiltStrength = 0.35;
+      this.tiltOwned = true;
+    } else if (this.tiltOwned) {
+      game.rc.tiltBand = 0.26;
+      game.rc.tiltStrength = 0.7;
+      this.tiltOwned = false;
+    }
+    if (this.peekUntil && this.showT > this.peekUntil && this.recipient && this.crowd) {
+      // Back to chatting after reacting to a peek.
+      this.peekUntil = 0;
+      this.crowd.setAnim(this.recipient.i, 'talk');
+      this.crowd.members[this.recipient.i]!.lean = 0;
+      this.crowd.commit();
+    }
     const t = game.time;
     const h = game.rc.renderer.domElement.height;
     this.snow.update(game.rc.rig.focus, h);
