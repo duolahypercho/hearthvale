@@ -32,7 +32,7 @@
  *   REGR? a timing drop measured while the machine was saturated (load > 1.5× cores, main
  *         thread on-CPU < 35 %, or the empty-canvas calibration < 75 % of its history median = the
  *         GPU is shared with another process, or another browser's GPU process — desktop Chrome
- *         included — sat at ≥ 50 % CPU during the demo: `foreignGpuPct`) — reported, not trusted;
+ *         included — sat at ≥ 40 % CPU during the demo: `foreignGpuPct`) — reported, not trusted;
  *         re-run `--demos <name>` quiet.
  *   Tail diagnosis per demo: `refreshPct` (shadow-cache refresh frames), `hitchOnRefreshPct` (share
  *   of > 25 ms frames that are refresh frames) and `slowCpuMs` (Game.step CPU on those frames): a
@@ -673,8 +673,9 @@ async function main() {
       // A third signal: the GPU itself is shared (another project's Chromium pinned at 100 % GPU
       // keeps load and on-CPU looking normal) — the empty-canvas calibration falls well below its
       // history median.
-      // Fourth: another browser's GPU process is busy (≥ 50 % CPU summed) during this demo.
-      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35 || gpuShared || (r.foreignGpuPct ?? 0) >= 50;
+      // Fourth: another browser's GPU process is busy (≥ 40 % CPU summed) during this demo (r13: desktop
+      // Chrome at 44-48 % time-sliced the GPU into 2-frame hitches and slipped under the old 50 % bar).
+      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35 || gpuShared || (r.foreignGpuPct ?? 0) >= 40;
       const tw = [];
       if (r.avgFps < b.avgFps * 0.9 && b.avgFps - r.avgFps >= 3) tw.push(`avg ${b.avgFps}→${r.avgFps} fps`);
       if (r.p99Ms > b.p99Ms * 1.25 && r.p99Ms - b.p99Ms >= 3) tw.push(`p99 ${b.p99Ms}→${r.p99Ms} ms`);

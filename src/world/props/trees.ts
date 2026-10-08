@@ -103,10 +103,26 @@ function foliageMaterial(species: TreeSpecies): THREE.MeshStandardMaterial {
 const _up = new THREE.Vector3(0, 1, 0);
 
 /** Tapered cylinder from a to b. */
-function limb(r0: number, r1: number, a: THREE.Vector3, b: THREE.Vector3, radial = 7): THREE.BufferGeometry {
+/**
+ * A tapered cylinder from a to b. `hseg` height segments: only the trunk bends enough under the wind
+ * shader to need 3; boughs, twigs and root flares are straight pieces (Perf r15: 1 segment halves every
+ * tree's bark triangles in every pass, same silhouette, same per-vertex AO / wind ramp at the ends).
+ */
+const LIMB_HSEG = ((): number => {
+  try {
+    // `?limbseg=3` restores the old 3-segment boughs (A/B).
+    const q = Number(new URLSearchParams(location.search).get('limbseg'));
+    if (q >= 1 && q <= 3) return Math.floor(q);
+  } catch {
+    /* not in a browser */
+  }
+  return 1;
+})();
+
+function limb(r0: number, r1: number, a: THREE.Vector3, b: THREE.Vector3, radial = 7, hseg = 3): THREE.BufferGeometry {
   const dir = b.clone().sub(a);
   const len = dir.length();
-  const g = new THREE.CylinderGeometry(r1, r0, len, radial, 3, false);
+  const g = new THREE.CylinderGeometry(r1, r0, len, radial, hseg === 3 ? 3 : LIMB_HSEG, false);
   uvScale(g, 1, len * 0.8);
   g.translate(0, len / 2, 0);
   g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(_up, dir.normalize()));
@@ -127,7 +143,7 @@ function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THR
     const next = curve.getPoint(t1);
     // Slight overlap so the joints never open a gap.
     const from = prev.clone().lerp(next, -0.06);
-    b.add(m, limb(THREE.MathUtils.lerp(r0, r1, Math.pow(t0, 0.8)), THREE.MathUtils.lerp(r0, r1, Math.pow(t1, 0.8)), from, next, radial), undefined, ao ? { aoWorld: ao } : undefined);
+    b.add(m, limb(THREE.MathUtils.lerp(r0, r1, Math.pow(t0, 0.8)), THREE.MathUtils.lerp(r0, r1, Math.pow(t1, 0.8)), from, next, radial, 1), undefined, ao ? { aoWorld: ao } : undefined);
     prev = next;
   }
 }
@@ -175,7 +191,7 @@ function deciduous(rng: Rng, species: TreeSpecies, detail = 2): TreeGeo {
   for (let i = 0; i < roots; i++) {
     const a = (i / roots) * Math.PI * 2 + rng.next() * 0.6;
     const len = 0.5 + rng.next() * 0.35;
-    b.add(bark, limb(r0 * 0.55, 0.04, new THREE.Vector3(0, 0.45, 0), new THREE.Vector3(Math.cos(a) * len, -0.08, Math.sin(a) * len), lo ? 4 : 6), undefined, { aoWorld: trunkAO });
+    b.add(bark, limb(r0 * 0.55, 0.04, new THREE.Vector3(0, 0.45, 0), new THREE.Vector3(Math.cos(a) * len, -0.08, Math.sin(a) * len), lo ? 4 : 6, 1), undefined, { aoWorld: trunkAO });
   }
   // Limbs + crown blobs
   const crownY = trunkH + (tall ? 1.7 : wide ? 1.0 : 1.3);
@@ -242,7 +258,7 @@ function pine(rng: Rng, radial = 11): TreeGeo {
   });
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + rng.next();
-    b.add(bark, limb(0.18, 0.03, new THREE.Vector3(0, 0.35, 0), new THREE.Vector3(Math.cos(a) * 0.55, -0.08, Math.sin(a) * 0.55), 5));
+    b.add(bark, limb(0.18, 0.03, new THREE.Vector3(0, 0.35, 0), new THREE.Vector3(Math.cos(a) * 0.55, -0.08, Math.sin(a) * 0.55), 5, 1));
   }
   const tiers = 5;
   const base = 1.1;

@@ -439,8 +439,22 @@ function limb(r0: number, r1: number, a: THREE.Vector3, b: THREE.Vector3, radial
   return g;
 }
 
+/**
+ * Height rings per bough piece. Pieces are straight tapered tubes, so extra rings only re-sample the wind
+ * ramp: 1 (Perf r15) halves the elders' bough triangles in the shadow, AO and colour passes. `?limbseg=2` A/B.
+ */
+const LIMB_SEGS = ((): number => {
+  try {
+    const q = Number(new URLSearchParams(location.search).get('limbseg'));
+    if (q >= 1 && q <= 3) return Math.min(2, Math.floor(q));
+  } catch {
+    /* not in a browser */
+  }
+  return 1;
+})();
+
 /** Curved limb: several tapered segments along a quadratic bezier (reads as a bough, not a stick). */
-function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THREE.Vector3, ctrl: THREE.Vector3, e: THREE.Vector3, radial: number, n = 3, segs = 2): void {
+function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THREE.Vector3, ctrl: THREE.Vector3, e: THREE.Vector3, radial: number, n = 3, segs = LIMB_SEGS): void {
   const curve = new THREE.QuadraticBezierCurve3(a, ctrl, e);
   let prev = a.clone();
   for (let i = 1; i <= n; i++) {

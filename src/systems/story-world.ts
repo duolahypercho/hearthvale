@@ -935,6 +935,36 @@ function buildMarket(r: Rng): THREE.Group {
   return g;
 }
 
+/** Rooms whose restoration props are static merged meshes (the koi swim: 'tide' stays its own). */
+const MERGED_ROOMS: RoomId[] = ['seed', 'sun', 'harvest', 'hearth', 'craft'];
+
+/**
+ * Perf r15 (pillar 14): with every one of MERGED_ROOMS restored (the finale, any late-game evening) their
+ * merged props draw as ONE mesh per material instead of one per room per material (the finale square:
+ * 19 -> 9 draws a pass). The per-room meshes stay for partial restorations and the reveal animations.
+ */
+function mergeRestored(restore: Map<RoomId, THREE.Object3D>, root: THREE.Object3D): { group: THREE.Group; parts: THREE.Mesh[]; on: boolean } {
+  root.updateMatrixWorld(true);
+  const tmp = new THREE.Group();
+  const parts: THREE.Mesh[] = [];
+  for (const id of MERGED_ROOMS) {
+    restore.get(id)?.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.customDepthMaterial || m.userData.dynamic || Array.isArray(m.material) || !/^restore-[a-z]+:/.test(m.name)) return;
+      const c = new THREE.Mesh(m.geometry, m.material);
+      c.castShadow = m.castShadow;
+      c.receiveShadow = m.receiveShadow;
+      m.matrixWorld.decompose(c.position, c.quaternion, c.scale);
+      tmp.add(c);
+      parts.push(m);
+    });
+  }
+  const group = mergeStatic([tmp], 'restore-all');
+  group.visible = false;
+  root.add(group);
+  return { group, parts, on: false };
+}
+
 /** mergeStatic, keeping whatever it can't merge (swaying cloth etc.) in the returned group. */
 function mergeKeep(g: THREE.Group, name: string): THREE.Group {
   const out = mergeStatic([g], name);
@@ -1882,6 +1912,8 @@ export class StoryWorldSystem implements System {
   /** Road dust kicked up behind the coach's rear wheels while it moves (parked below ground otherwise). */
   private dust: SmokeEmitter | null = null;
   private restore = new Map<RoomId, THREE.Object3D>();
+  /** All of MERGED_ROOMS' props as one mesh per material (shown instead of the per-room ones when all are up). */
+  private restoreAll: { group: THREE.Group; parts: THREE.Mesh[]; on: boolean } | null = null;
   private hidden = new Set<RoomId>();
   private built: THREE.Object3D | null = null;
   private koi: Koi | null = null;
@@ -2056,6 +2088,7 @@ export class StoryWorldSystem implements System {
     root.add(fin.group);
     this.finale = { group: fin.group, fire, light };
     root.add(this.burst.object, this.sky.mesh);
+    this.restoreAll = mergeRestored(this.restore, root);
     // Render budget: these props sit on already-AO'd ground and mostly read at a distance, so they
     // skip the AO G-buffer; only the structural pieces (posts, stalls, chimney, Hall) cast shadows.
     const CASTS = new Set(['wood', 'stone', 'white', 'woodGrain', 'roofTile', 'glimmer-plastic']);
@@ -2076,10 +2109,22 @@ export class StoryWorldSystem implements System {
     return out;
   }
 
+  /** Merged restoration props when every MERGED_ROOMS room is up and none is mid-reveal; per-room meshes otherwise. */
+  private syncRestoreAll(vis = this.visibleRooms()): void {
+    const ra = this.restoreAll;
+    if (!ra) return;
+    const on = this.anims.length === 0 && MERGED_ROOMS.every((id) => vis.has(id));
+    if (on === ra.on) return;
+    ra.on = on;
+    ra.group.visible = on;
+    for (const m of ra.parts) m.visible = !on;
+  }
+
   private refresh(): void {
     if (!this.built) return;
     const vis = this.visibleRooms();
     for (const [id, o] of this.restore) o.visible = vis.has(id);
+    this.syncRestoreAll(vis);
     if (this.smoke) this.smoke.object.visible = vis.has('hearth');
     const gs = this.glimmerState();
     if (this.glimmer) {
@@ -2150,6 +2195,7 @@ export class StoryWorldSystem implements System {
         const o = this.restore.get(arg as RoomId);
         if (o && !instant) {
           this.anims.push({ obj: o, t: 0, dur: 1.1 });
+          this.syncRestoreAll();
           const box = new THREE.Box3().setFromObject(o);
           const c = box.getCenter(new THREE.Vector3());
           const col = ROOMS.find((r) => r.id === arg)?.color ?? 0xffd070;
@@ -2243,6 +2289,7 @@ export class StoryWorldSystem implements System {
         if (cm.leave) this.coach.group.removeFromParent();
       }
     }
+    const animating = this.anims.length > 0;
     this.anims = this.anims.filter((a) => {
       a.t += dt;
       const u = Math.min(1, a.t / a.dur);
@@ -2250,6 +2297,7 @@ export class StoryWorldSystem implements System {
       a.obj.scale.set(1, Math.max(0.001, s), 1);
       return u < 1;
     });
+    if (animating && !this.anims.length) this.syncRestoreAll();
     this.koi?.update(dt, night);
     if (this.smoke?.object.visible) this.smoke.update(dt, night, game.rc.renderer.domElement.height);
     this.burst.update(dt, game.rc.renderer.domElement.height);
