@@ -465,7 +465,7 @@ export class MusicDirector {
   private restUntil = 0;
   /**
    * Rest between songs set by the game (seconds, [min, max]); null = each song's own `rest`. Farm
-   * days use 30–90 s: the ambience carries the gaps and each song arrives like an event.
+   * days use 8–15 s (the README continuity contract: a 5–15 s breath, never a dropout).
    */
   restOverride: [number, number] | null = null;
   /** Planned start of the song after a pending handoff (a drift waits for the phrase end). */

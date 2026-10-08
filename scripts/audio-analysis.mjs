@@ -596,3 +596,120 @@ export function eventDensity(inter, sr) {
   }
   return { count: events.length, perMin: Math.round((events.length * 600) / Math.max(1, env.length * 0.05)) / 10, at: events.slice(0, 40) };
 }
+
+/**
+ * Rain texture (round 16, critic r6: "a continuous broadband noise carpet ... centroid ~3 kHz, 67 %
+ * above 2.5 kHz, the spectrogram densely uniform"). Measures what separates rainfall from hiss:
+ *   hfShare   power above 2.5 kHz / total (L and R spectra summed)
+ *   grainDb   the 10 ms envelope of the 700 Hz–6 kHz band: its spread (std, dB) around a 1 s running
+ *             median — steady noise sits ~1 dB, a field of separate drops 3 dB and up
+ *   dropsPerSec  10 ms frames that rise ≥ 6 dB over that median (onsets ≥ 30 ms apart): the drops
+ *             a listener can pick out
+ * Flags (kind 'rain'): RAIN-HISS (hfShare > 0.5 or centroid > 2600 Hz), RAIN-FLAT (grainDb < 3),
+ * RAIN-SPARSE (< 4 audible drops a second: a drizzle reads as a dripping tap), RAIN-BUSY (> 60).
+ */
+export function rainTexture(inter, sr) {
+  const n = inter.length / 2;
+  const mono = new Float32Array(n);
+  for (let i = 0; i < n; i++) mono[i] = (inter[i * 2] + inter[i * 2 + 1]) * 0.5;
+  const y = biquad(biquad(mono, bpCoeffs(sr, 2000, 0.45)), bpCoeffs(sr, 2000, 0.45));
+  const hop = Math.floor(sr * 0.01);
+  const env = [];
+  for (let s = 0; s + hop <= n; s += hop) {
+    let e = 0;
+    for (let i = s; i < s + hop; i++) e += y[i] * y[i];
+    env.push(db(e / hop + 1e-20));
+  }
+  const W = 100;
+  const dev = [];
+  let drops = 0;
+  let last = -10;
+  for (let k = 0; k < env.length; k++) {
+    if (k % 5 === 0 || k === 0) {
+      const win = env.slice(Math.max(0, k - W / 2), Math.min(env.length, k + W / 2)).sort((a, b) => a - b);
+      env.med = win[Math.floor(win.length / 2)];
+    }
+    const d = env[k] - env.med;
+    dev.push(d);
+    if (d >= 6 && env[k] > -80 && k - last >= 3) {
+      drops++;
+      last = k;
+    }
+  }
+  const mean = dev.reduce((a, b) => a + b, 0) / Math.max(1, dev.length);
+  const grainDb = Math.sqrt(dev.reduce((a, b) => a + (b - mean) * (b - mean), 0) / Math.max(1, dev.length));
+  // HF share from the full analysis spectrum (same as analyze(): L and R summed).
+  const N = 4096;
+  const re = new Float64Array(N), im = new Float64Array(N);
+  let hi = 0, tot = 0;
+  for (let s = 0; s + N <= n; s += N) {
+    for (let ch = 0; ch < 2; ch++) {
+      for (let i = 0; i < N; i++) {
+        re[i] = inter[(s + i) * 2 + ch] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
+        im[i] = 0;
+      }
+      fft(re, im);
+      for (let k = 1; k < N / 2; k++) {
+        const p = re[k] * re[k] + im[k] * im[k];
+        tot += p;
+        if ((k * sr) / N >= 2500) hi += p;
+      }
+    }
+  }
+  return { hfShare: tot > 0 ? hi / tot : 0, grainDb, dropsPerSec: drops / Math.max(0.01, n / sr) };
+}
+
+export function rainFlags(t, a) {
+  const f = [];
+  if (t.hfShare > 0.5 || a.centroidHz > 2600) f.push(`RAIN-HISS(${(t.hfShare * 100).toFixed(0)}% >2.5k)`);
+  if (t.grainDb < 3) f.push(`RAIN-FLAT(${t.grainDb.toFixed(1)} dB)`);
+  if (t.dropsPerSec < 4) f.push(`RAIN-SPARSE(${t.dropsPerSec.toFixed(1)}/s)`);
+  if (t.dropsPerSec > 60) f.push(`RAIN-BUSY(${t.dropsPerSec.toFixed(0)}/s)`);
+  return f;
+}
+
+/**
+ * Ambience judgement shared by the batch render and standalone --analyze (round 16): event density
+ * and loudness range for every preset, plus the rain texture checks for wet presets. Mutates `a`
+ * (a.events, a.rain, a.eventsLine) and returns the extra flags.
+ */
+export function ambienceFlags(name, a, inter, sr) {
+  const extra = [];
+  // Round 12: an ambience is judged by its events and its movement, not by how loud its bed is.
+  const ev = eventDensity(inter, sr);
+  a.events = ev;
+  // (Weather presets — wind, storm, snow — are the weather: their gusts are the movement.)
+  if (ev.perMin < 8 && a.lra < 6 && !/wind|storm|snow|crowd|town|rain/.test(name)) extra.push(`AMB-STATIC(${ev.perMin} events/min)`);
+  if (a.lra < 4 && !/mine|festival|town/.test(name)) extra.push(`AMB-FLAT(LRA ${fmt(a.lra)})`);
+  a.eventsLine = `  events: ${ev.count} (${ev.perMin}/min) at ${ev.at.slice(0, 12).join(' ')}`;
+  if (/rain|storm/.test(name)) {
+    const t = rainTexture(inter, sr);
+    a.rain = t;
+    // (A storm's thunder owns its loudness; only the hiss / flatness rules apply to it.)
+    extra.push(...rainFlags(t, a).filter((f) => !/storm/.test(name) || /HISS|FLAT/.test(f)));
+    a.eventsLine += `\n  rain: ${(t.hfShare * 100).toFixed(0)} % above 2.5 kHz, grain ${t.grainDb.toFixed(2)} dB, ${t.dropsPerSec.toFixed(1)} audible drops/s`;
+  }
+  return extra;
+}
+
+/**
+ * Which threshold profile a WAV is judged with (standalone --analyze): an explicit --kind, else the
+ * kind the run's manifest.json recorded for that file, else its name (theme-/mix-/amb-/sfx-/transition-).
+ */
+export function inferKind(file, manifest) {
+  const base = file.split('/').pop().replace(/\.wav$/, '');
+  const m = manifest?.expected?.find?.((e) => e.name === base);
+  const map = { mix: 'theme', trans: 'reel', sfx: 'reel', gameplay: 'reel', full: 'theme' };
+  if (m) return { kind: map[m.kind] ?? m.kind, source: 'manifest' };
+  if (/^(theme|mix|full)-/.test(base)) return { kind: 'theme', source: 'file name' };
+  if (/^amb-/.test(base)) return { kind: 'amb', source: 'file name' };
+  if (/^(sfx|reel|transition|gameplay)/.test(base)) return { kind: 'reel', source: 'file name' };
+  return { kind: 'theme', source: 'default (no manifest entry, unknown name)' };
+}
+
+export const KIND_PROFILES = {
+  theme: 'music: HARSH > 25 % 2-5 kHz, HISSY > 18 % 5 kHz+, TOO-LOUD > -12, TOO-QUIET < -28 LUFS, SILENCE > 20 %, DULL/THIN on day themes',
+  amb: 'ambience: HARSH > 70 % 2-5 kHz (birdsong / insects), HISSY > 18 %, INAUDIBLE < -45 LUFS, SILENCE > 20 %, AMB-STATIC / AMB-FLAT; wet presets add RAIN-HISS / RAIN-FLAT / RAIN-SPARSE / RAIN-BUSY',
+  reel: 'SFX reel / transition: clip, true peak, HARSH > 25 %, HISSY > 18 %; no loudness or silence rules',
+  sfx: 'single SFX: clip, true peak, HARSH > 25 %, HISSY > 18 %; no loudness or silence rules',
+};

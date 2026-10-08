@@ -7,7 +7,8 @@
  *   node scripts/audio-render.mjs --seconds 45 --seed 3 --no-amb --no-sfx --no-mix
  *   node scripts/audio-render.mjs --no-themes         # ambience presets + SFX reel only
  *   node scripts/audio-render.mjs --amb farm-summer-noon,mine   # just these ambience presets
- *   node scripts/audio-render.mjs --analyze shots/audio/theme-spring.wav   # analyse any WAV
+ *   node scripts/audio-render.mjs --analyze shots/audio/theme-spring.wav   # analyse any WAV (profile from
+ *                                                     # --kind theme|amb|reel|sfx, else the run's manifest, else the name)
  *   node scripts/audio-render.mjs --describe spring   # print the composed melody (symbolic)
  *   node scripts/audio-render.mjs --compose           # composition critic only (symbolic, fast): melody shape,
  *                                                     # rubs vs the sounding harmony, parallels, cadences, texture
@@ -48,7 +49,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
 import { plotRender } from './audio-plot.mjs';
-import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower, bassHoles, bandRatios, eventDensity } from './audio-analysis.mjs';
+import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower, bassHoles, bandRatios, eventDensity, ambienceFlags, inferKind, KIND_PROFILES } from './audio-analysis.mjs';
 
 /**
  * The house curve (round 12): every song's opening lands within ±2 dB of it per band (the spectral
@@ -114,6 +115,7 @@ function parseArgs(argv) {
     }
     else if (a === '--no-live-budget') o.liveBudget = false;
     else if (a === '--analyze') o.analyze = next();
+    else if (a === '--kind') o.kind = next();
     else if (a === '--describe') o.describe = next();
     else if (a === '--compose') o.compose = true;
     else if (a === '--verbose') o.verbose = true;
@@ -166,10 +168,29 @@ function printCritique(crits, verbose) {
 // ─────────────────────────────────────────────────────────── main
 
 if (args.analyze) {
-  const { inter, sr } = readWav(resolve(process.cwd(), args.analyze));
+  const file = resolve(process.cwd(), args.analyze);
+  const { inter, sr } = readWav(file);
   const a = analyze(inter, sr);
+  let manifest = null;
+  try {
+    manifest = JSON.parse(readFileSync(resolve(dirname(file), 'manifest.json'), 'utf8'));
+  } catch {
+    /* no manifest next to the file */
+  }
+  const inferred = args.kind ? { kind: args.kind, source: '--kind' } : inferKind(file, manifest);
+  if (!KIND_PROFILES[inferred.kind]) {
+    console.error(`unknown --kind ${inferred.kind} (theme | amb | reel | sfx)`);
+    process.exit(2);
+  }
+  console.log(`threshold profile: ${inferred.kind} (from ${inferred.source}) — ${KIND_PROFILES[inferred.kind]}`);
+  const name = basename(file).replace(/\.wav$/, '');
+  const extra = inferred.kind === 'amb' ? ambienceFlags(name, a, inter, sr) : [];
   console.log(HEADER);
-  console.log(row(basename(args.analyze), a, 'theme'));
+  console.log(row(name, a, inferred.kind));
+  if (a.eventsLine) console.log(a.eventsLine);
+  if (extra.length) console.log(`  ${extra.join('  ')}`);
+  a.kind = inferred.kind;
+  a.flags = [...flags(a, inferred.kind, name), ...extra];
   console.log(JSON.stringify(a, null, 2));
   process.exit(0);
 }
@@ -367,15 +388,7 @@ async function main() {
           const piece = job.fn === 'renderTheme' ? await sess.page.evaluate(([id, seed, secs]) => window.__audioOffline.pieceData(id, seed, secs), [job.a[0], args.seed, args.seconds]) : undefined;
           let extraFlags = [];
           if (job.kind === 'amb') {
-            // Round 12: an ambience is judged by its events and its movement, not by how loud its bed
-            // is — at least 8 foreground events per minute and a loudness range of 4 LU or more.
-            const ev = eventDensity(inter, res.sampleRate);
-            a.events = ev;
-            // (Weather presets — wind, storm, snow — are the weather: their gusts are the movement.)
-            // STATIC = neither events nor movement (fewer than 8 events a minute AND LRA under 6 LU).
-            if (ev.perMin < 8 && a.lra < 6 && !/wind|storm|snow|crowd|town|rain/.test(res.name)) extraFlags.push(`AMB-STATIC(${ev.perMin} events/min)`);
-            if (a.lra < 4 && !/mine|festival|town/.test(res.name)) extraFlags.push(`AMB-FLAT(LRA ${fmt(a.lra)})`);
-            a.eventsLine = `  events: ${ev.count} (${ev.perMin}/min) at ${ev.at.slice(0, 12).join(' ')}`;
+            extraFlags.push(...ambienceFlags(res.name, a, inter, res.sampleRate));
           }
           if (job.kind === 'theme' && piece) {
             // Round 12 critic rules: low-end holes before downbeats (sustained bass patterns) and the

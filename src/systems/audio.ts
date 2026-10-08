@@ -57,8 +57,12 @@ interface RemoteVoice {
   reelT: number;
 }
 
-/** Rest between songs on the farm by day (see MusicDirector.restOverride). */
-const FARM_REST: [number, number] = [30, 90];
+/**
+ * Rest between songs on the farm by day (see MusicDirector.restOverride). Round 16 (critic r6): the
+ * README's continuity contract is a 5–15 s breath everywhere — farm days used 30–90 s, which read as
+ * the music dropping out. A farm day breathes a little longer than town (8–15 s), never more.
+ */
+export const FARM_REST: [number, number] = [8, 15];
 
 /** Panels that are a menu "page" (the score steps back behind them; see update()). */
 const MENU_PANELS = new Set(['inventory', 'shop', 'crafting', 'map', 'journal', 'bundles', 'board', 'social', 'carpenter', 'tackle', 'coop', 'letter', 'elevator', 'saves']);
@@ -1068,14 +1072,14 @@ export class AudioSystem implements System {
     // A menu steps the score back (and forward again) quickly; everything else drifts.
     e.music.setLevel(level, menu !== this.menuOpen ? MENU_TAU : 2);
     this.menuOpen = menu;
-    // Farm days breathe: 30–90 s of birds and wind between songs (the town / festivals keep theirs).
+    // Farm days breathe: 8–15 s of birds and wind between songs (the town / festivals keep theirs).
     e.music.restOverride = this.env.map === 'farm' && this.env.night < 0.5 ? FARM_REST : null;
-    // Between songs (round 12): once in a long farm rest, a far-off flute (a clarinet in fall /
+    // Between songs (round 12): once in a farm rest, a far-off flute (a clarinet in fall /
     // winter) tries the coming song's first bar across the fields — a hint of the tune, then birds
     // again. Wind voices are oscillators: nothing is rendered on the frame.
     if (e.music.resting && this.env.map === 'farm' && !this.env.indoor && this.env.night < 0.5) {
       this.restSeen ??= ctx.currentTime;
-      if (!this.teased && ctx.currentTime - this.restSeen > 14 && e.music.restLeft > 10) {
+      if (!this.teased && ctx.currentTime - this.restSeen > 2.5 && e.music.restLeft > 4.5) {
         this.teased = true;
         const th = THEMES[this.resolved(this.wanted()) ?? ''];
         const hook = th ? tuneHook(th, 1) : [];

@@ -6,7 +6,8 @@
  * in real time and offline.
  */
 import type { AudioGraph } from './graph';
-import { Rand, clamp, makeRain, mtof } from './dsp';
+import { Rand, clamp, mtof } from './dsp';
+import { RainBuilder, type RainLayerKind } from './rain';
 import { noiseHit } from './instruments';
 import { BirdBank, chimeBuffer, phrase, type Species } from './birds';
 import { Crowd } from './crowd';
@@ -50,8 +51,12 @@ export class Ambience {
   private nightLift = 1;
   /** Surf swells travel across the stereo field (this panner is automated per wave). */
   private surfPan: StereoPannerNode;
-  /** Droplet layers (light / heavy), built on the first rain. */
-  private drops: { light: GainNode; heavy: GainNode } | null = null;
+  /** Droplet layers (src/audio/rain.ts: far canopy / near / downpour), baked in slices on the first rain. */
+  private drops: Record<RainLayerKind, GainNode> | null = null;
+  private dropsLp: BiquadFilterNode | null = null;
+  private rainBuild: RainBuilder[] | null = null;
+  /** The eave / water-butt drip train: its own slowly drifting period, pitch and side of the listener. */
+  private eave = { period: 0.7, rate: 0.68, pan: -0.5 };
   private dropsKey = '';
   private crickets: { pan: number; period: number; next: number; f: number }[] = [];
   /** Pre-rendered syllable banks (birds, crickets, drips). */
@@ -120,7 +125,18 @@ export class Ambience {
     // (Round 12: centred 3.8 kHz, was 5 kHz — the re-voiced rain read HISSY with 23 % above 5 kHz.)
     const rainTop = bf('highshelf', 7000, 0.7);
     rainTop.gain.value = -4;
-    bed('rain', g.pinkSt, [bf('bandpass', 3800, 0.6), rainTop, bf('lowpass', 6000, 0.6)]);
+    // (Round 16: only a faint air now — the drops (rain.ts) are the rain; this was the noise carpet.)
+    bed('rain', g.pinkSt, [bf('bandpass', 2600, 0.5), rainTop, bf('lowpass', 5200, 0.6)]);
+    // Runoff (round 16): water running off the yard and along the ditch — a soft, low gurgle.
+    const runoff = bed('runoff', g.whiteSt, [bf('bandpass', 560, 1.5), bf('lowpass', 1500, 0.6), bf('highpass', 170, 0.7)]);
+    for (const [rate, depth] of [[2.3, 120], [5.3, 80], [0.29, 150]] as const) {
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = rate;
+      const lg = ctx.createGain();
+      lg.gain.value = depth;
+      lfo.connect(lg).connect(runoff.filter!.frequency);
+      lfo.start(0);
+    }
     // (High-passes on the brown / pink low beds: the sub-60 Hz rumble was 27–29 % of the beach and
     // indoor-rain energy — inaudible on laptops, woolly on headphones, and it ate the limiter's headroom. The low-pass stays first: it is the bed's automated `filter`.)
     bed('rainLow', g.pinkSt, [bf('lowpass', 900, 0.5), bf('highpass', 150, 0.7)]);
@@ -182,34 +198,50 @@ export class Ambience {
     this.beds.rain!.gain.connect(this.send);
   }
 
-  /** The two droplet textures (~45 and ~110 drops/s), looping from different points. */
+  /**
+   * The droplet layers (src/audio/rain.ts). Real time: baked a slice per tick (≤ ~3 ms) so the first
+   * shower never spikes a frame; offline: all at once. One looping source per layer, through a shared
+   * low-pass (open outdoors, the wall's ~1.6 kHz indoors).
+   */
   private buildDrops(): void {
     const g = this.g;
     const ctx = g.ctx;
-    // (Round 12: no puddle plinks baked into the loops — a loud plink every 5.3 s was a metronome in
-    // the rain render; the plinks are scheduled one by one (drip / plink below). Loops of 6.1 / 8.3 s.)
-    const layer = (perSec: number, seed: number, lp: number, secs: number): GainNode => {
+    const kinds: RainLayerKind[] = ['canopy', 'near', 'heavy'];
+    this.rainBuild ??= kinds.map((k, i) => new RainBuilder(ctx, k, new Rand(4101 + i * 1101)));
+    if (g.offline) for (const b of this.rainBuild) b.step();
+    else this.rainBuild.find((b) => !b.complete)?.step(120);
+    if (!this.rainBuild.every((b) => b.complete)) return;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 12000;
+    lp.Q.value = 0.5;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 200;
+    lp.connect(hp).connect(this.out);
+    hp.connect(this.send);
+    this.dropsLp = lp;
+    const out = {} as Record<RainLayerKind, GainNode>;
+    for (const b of this.rainBuild) {
       const src = ctx.createBufferSource();
-      src.buffer = makeRain(ctx, secs, perSec, new Rand(seed), 0);
+      src.buffer = b.buffer;
       src.loop = true;
-      const f = ctx.createBiquadFilter();
-      f.type = 'lowpass';
-      f.frequency.value = lp;
-      const hp = ctx.createBiquadFilter();
-      hp.type = 'highpass';
-      hp.frequency.value = 150;
       const gn = ctx.createGain();
       gn.gain.value = 0;
-      src.connect(f).connect(hp).connect(gn).connect(this.out);
-      gn.connect(this.send);
-      src.start(ctx.currentTime, this.rng.next() * 5);
-      return gn;
-    };
-    this.drops = { light: layer(70, 4101, 7000, 6.1), heavy: layer(150, 5202, 8500, 8.3) };
+      src.connect(gn).connect(lp);
+      src.start(ctx.currentTime, this.rng.next() * b.buffer.duration);
+      out[b.kind] = gn;
+    }
+    this.drops = out;
+    this.rainBuild = null;
   }
+
+  /** Sound-design solo (audio lab): only these beds play (`'drops'` = the rain layers). */
+  static only: string[] | null = null;
 
   private setBed(name: string, level: number, now: number, tau = 1.2): void {
     const b = this.beds[name];
+    if (Ambience.only && !Ambience.only.includes(name)) level = 0;
     if (!b || !Number.isFinite(level)) return; // a malformed env must never throw inside the game loop
     if (Math.abs(b.level - level) < 0.002) return;
     b.level = level;
@@ -287,21 +319,25 @@ export class Ambience {
     // roof, the hiss and the drops. The house-rain render had LRA 3.3 LU: a steady wash through a wall.)
     const shower = s.indoor && raining ? Math.pow(10, (3.3 * Math.sin(now / 6.3) + 1.7 * Math.sin(now / 2.3 + 1)) / 20) : 1;
     this.shower = shower;
-    this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.2) : s.indoor && raining ? 0.012 * shower : 0) * swellDb(7), now, 1.5);
-    this.beds.rain!.filter!.frequency.setTargetAtTime(3800 * (1 + 0.3 * this.wx), now, 1.5);
-    this.setBed('rainLow', (raining && !mine ? (storm ? 0.06 : 0.024) * (s.indoor ? 0.35 * shower : 1) : 0) * swellDb(3), now, 1.5);
-    // Individual drops: a light patter always, the heavy layer in a storm; muffled on the roof indoors.
+    // (Round 16: the hiss carpet −10 dB (0.2 → 0.065) and centred lower; the drops carry the rain.)
+    this.setBed('rain', (outdoors && raining ? (storm ? 0.11 : 0.075) : s.indoor && raining ? 0.01 * shower : 0) * swellDb(7), now, 1.5);
+    this.beds.rain!.filter!.frequency.setTargetAtTime(2600 * (1 + 0.25 * this.wx), now, 1.5);
+    this.setBed('runoff', outdoors && raining && !beach ? (storm ? 0.05 : 0.03) * swellDb(4) : 0, now, 2);
+    this.setBed('rainLow', (raining && !mine ? (storm ? 0.05 : 0.014) * (s.indoor ? 0.35 * shower : 1) : 0) * swellDb(3), now, 1.5);
+    // Individual drops (round 16, rain.ts): the far canopy grain always, the near drops you can count,
+    // the downpour layer on the swell and in a storm; indoors heard through the wall (low-passed).
     if (raining && !mine && !this.drops) this.buildDrops();
     if (this.drops) {
-      // Drop density follows the swell: the heavy layer fades in on the downpours even in plain rain.
       const q = Math.round(this.wx * 20) / 20;
       const sq = Math.round(shower * 10) / 10;
-      const lv = !raining || mine ? 0 : s.indoor ? 0.1 * sq * Math.pow(10, (10 * q) / 20) : 1.25;
-      const key = `${lv}:${storm}:${q}`;
+      const lv = !raining || mine || (Ambience.only && !Ambience.only.includes('drops')) ? 0 : s.indoor ? 0.22 * sq * Math.pow(10, (8 * q) / 20) : 1;
+      const key = `${lv}:${storm}:${q}:${s.indoor}`;
       if (key !== this.dropsKey) {
         this.dropsKey = key;
-        this.drops.light.gain.setTargetAtTime(0.6 * lv * (1 + 0.5 * q), now, 1.5);
-        this.drops.heavy.gain.setTargetAtTime((storm ? 0.55 * (1 + 0.3 * q) : Math.max(0, q - 0.15) * 0.45) * lv, now, 1.5);
+        this.drops.canopy.gain.setTargetAtTime(1.45 * lv * (1 + 0.55 * q), now, 1.5);
+        this.drops.near.gain.setTargetAtTime(1.6 * lv * (s.indoor ? 0.4 : storm ? 1.35 : 1) * (1 + 0.35 * q), now, 1.5);
+        this.drops.heavy.gain.setTargetAtTime((storm ? 0.95 * (1 + 0.4 * q) : Math.max(0, q - 0.1) * 1.1) * lv, now, 1.5);
+        this.dropsLp!.frequency.setTargetAtTime(s.indoor ? 1600 : 12000, now, 0.3);
       }
     }
     // (Round 4: −5 dB — the fountain's broadband wash had been the town's loudest layer; the
@@ -415,8 +451,13 @@ export class Ambience {
     // Weather.
     // (Round 6: indoors the drops are the eaves outside the window — sparser, and they follow the
     // shower with the roof; 20 a second at a fixed level were the flat floor of the house-rain render.)
-    t = s.indoor ? due('drip', 0.18, 0.7, raining) : due('drip', 0.05, 0.25, raining && !mine);
-    if (t !== null) this.drip(t, s.indoor ? 0.4 * this.shower : 1);
+    // (Round 16: outdoors the random puddle drips thin to one every ~0.3-1.1 s — the near drops are in
+    // the rain layers now — and the eaves / water butt get their own drip train, see eaveDrip.)
+    t = s.indoor ? due('drip', 0.18, 0.7, raining) : due('drip', 0.3, 1.1, raining && !mine);
+    if (t !== null) this.drip(t, s.indoor ? 0.4 * this.shower : 0.8);
+    const eaves = raining && !s.indoor && (s.map === 'farm' || s.map === 'town');
+    t = due('eave', this.eave.period * 0.92, this.eave.period * 1.08, eaves);
+    if (t !== null) this.eaveDrip(t);
     // Indoors: rain on the roof shingles (1-4 kHz ticks in clusters) and the gutter's slow drip.
     // (The roof follows the showers: thinner and quieter in a lull, a drumming patter in a downpour.)
     const roofGap = (1.3 - 0.6 * this.wx) / Math.sqrt(this.shower);
@@ -760,6 +801,26 @@ export class Ambience {
   private owl(t: number): void {
     const o = 4 * this.rng.int(0, 2);
     this.sayPhrase('owl', t, [this.rng.range(-0.9, 0.9), 0.75], [o, o + 1, o + 2, o + 3], 0.07);
+  }
+
+  /**
+   * The eave over the water butt (round 16): one place, one hollow pitch, a period that drifts
+   * between a quick trickle and a slow drip with the shower — the rain's foreground "clock" that
+   * never quite keeps time. Now and then the drop lands on the rim (a wooden knock) instead.
+   */
+  private eaveDrip(t: number): void {
+    const r = this.rng;
+    const e = this.eave;
+    e.period = clamp(e.period + r.range(-0.06, 0.06) - 0.05 * this.wx, 0.38, 1.3);
+    e.rate = clamp(e.rate + r.range(-0.006, 0.006), 0.6, 0.76);
+    if (r.chance(0.02)) e.pan = r.range(0.35, 0.7) * (r.chance(0.5) ? -1 : 1);
+    const d = this.dest(e.pan, 0.3);
+    if (r.chance(0.12)) {
+      noiseHit(this.g, d, t, { f: r.range(420, 560), q: 6, amp: 0.05, attack: 0.0008, tau: 0.018 });
+      return;
+    }
+    this.bank.play(d, 'drip', r.int(0, 23), t, 0.06 * r.range(0.8, 1.1), e.rate * r.range(0.985, 1.015));
+    if (r.chance(0.18)) this.bank.play(d, 'drip', r.int(0, 23), t + r.range(0.09, 0.16), 0.035, e.rate * 1.04);
   }
 
   private drip(t: number, level: number): void {

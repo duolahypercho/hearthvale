@@ -83,11 +83,13 @@ async function handle(url) {
       log(`${m.name.padEnd(16)} ${fmt(a.peakDb).padStart(6)} ${fmt(a.lufsMomentaryMax).padStart(7)} ${fmt(a.centroidHz, 0).padStart(6)}  ${(b.sub * 100).toFixed(0)}/${(b.bass * 100).toFixed(0)}/${(b.lowmid * 100).toFixed(0)}/${(b.presence * 100).toFixed(0)}/${(b.air * 100).toFixed(0)}`);
     }
   } else if (url.pathname === '/theme' || url.pathname === '/amb') {
+    // ?only=wind,drops — solo ambience beds (Ambience.only; 'drops' = the rain layers).
+    if (q.get('only')) await page.evaluate(async (o) => { (await import('/src/audio/ambience.ts')).Ambience.only = o.split(','); }, q.get('only'));
     const res = url.pathname === '/theme'
       ? await call('renderTheme', [q.get('id'), Number(q.get('secs') ?? 30), 44100, Number(q.get('seed') ?? 1), q.get('mix') === '1', q.get('solo') || null])
       : await call('renderAmbience', [q.get('p'), Number(q.get('secs') ?? 30), 44100]);
     const inter = decode(res);
-    writeWav(resolve(outDir, `${res.name}${q.get('solo') ? `-${q.get('solo')}` : ''}.wav`), inter, res.sampleRate);
+    writeWav(resolve(outDir, `${res.name}${q.get('solo') ? `-${q.get('solo')}` : ''}${q.get('only') ? `-only` : ''}.wav`), inter, res.sampleRate);
     log(HEADER);
     log(row(res.name, analyze(inter, res.sampleRate), url.pathname === '/amb' ? 'amb' : 'theme'));
     if (res.stats) log(`  ${JSON.stringify(res.stats)}`);

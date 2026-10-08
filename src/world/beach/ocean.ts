@@ -123,10 +123,20 @@ function oceanVertexNoise(): boolean {
   }
 }
 
+/** `?oceangate=0`: the slick / wavelet noise is paid for everywhere again (perf r19 A/B). */
+function oceanGate(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get('oceangate');
+    return !(q === '0' || q === 'false');
+  } catch {
+    return true;
+  }
+}
+
 function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = false): THREE.ShaderMaterial {
   const o = terrain.opts;
   const mat = new THREE.ShaderMaterial({
-    defines: oceanVertexNoise() ? { HV_OCEAN_VN: 1 } : {},
+    defines: { ...(oceanVertexNoise() ? { HV_OCEAN_VN: 1 } : {}), ...(oceanGate() ? {} : { HV_OCEAN_NOGATE: 1 }) },
     transparent: true,
     // Writes depth so the post passes (height fog, tilt-shift) see the water surface, not the sea
     // floor under it (otherwise misty weather pools as a milky fog bank over the whole sea).
@@ -172,6 +182,11 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       varying vec4 vLowN2;
       ${NOISE_GLSL}
       ${SWASH_GLSL}
+      #ifdef HV_OCEAN_NOGATE
+      #define HV_OG(c) true
+      #else
+      #define HV_OG(c) (c)
+      #endif
       float groundAt(vec2 xz) {
         vec2 huv = (xz - uHOrigin) / uHSize;
         if (uFar > 0.5 || huv.x < 0.0 || huv.y < 0.0 || huv.x > 1.0 || huv.y > 1.0) return ${FLOOR_MIN.toFixed(2)};
@@ -248,6 +263,11 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       ${NOISE_GLSL}
       ${SWASH_GLSL}
       ${VORONOI_GLSL}
+      #ifdef HV_OCEAN_NOGATE
+      #define HV_OG(c) true
+      #else
+      #define HV_OG(c) (c)
+      #endif
       float groundAt(vec2 xz) {
         vec2 huv = (xz - uHOrigin) / uHSize;
         if (uFar > 0.5 || huv.x < 0.0 || huv.y < 0.0 || huv.x > 1.0 || huv.y > 1.0) return ${FLOOR_MIN.toFixed(2)};
@@ -313,12 +333,14 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // so open water reads as more than one flat blue).
         // Soft-edged, and faded out at grazing angles: there the Fresnel jump between glassy and rippled
         // water turns a slick's edge into a hard pale sheet.
-        float slickN = hvNoise(vec2(p.x * 0.035 + p.y * 0.012, p.y * 0.22 - p.x * 0.05) + vec2(t * 0.006, t * 0.02));
-        float slick = smoothstep(0.46, 0.84, slickN);
-        slick *= smoothstep(1.2, 2.5, depth) * (1.0 - uPool) * smoothstep(0.3, 0.45, V.y);
         // ...and gone from the steep play / fishing camera (critic r5: there the glassy strips read as
         // long pale diagonal brush strokes across the water).
-        slick *= 1.0 - smoothstep(0.5, 0.62, V.y);
+        // (Perf r19: the noise only where the slick's weight is > 0 — never from the play camera.)
+        float slick = smoothstep(1.2, 2.5, depth) * (1.0 - uPool) * smoothstep(0.3, 0.45, V.y) * (1.0 - smoothstep(0.5, 0.62, V.y));
+        if (HV_OG(slick > 0.0)) {
+          float slickN = hvNoise(vec2(p.x * 0.035 + p.y * 0.012, p.y * 0.22 - p.x * 0.05) + vec2(t * 0.006, t * 0.02));
+          slick *= smoothstep(0.46, 0.84, slickN);
+        }
         amp *= 1.0 - 0.7 * slick;
         // Same 2e-wide difference as a central one, taken forward from p (3 taps, not 4, and the
         // whitecaps below reuse h0): the normal is the one 8 cm up-wave, identical to the eye.
@@ -341,16 +363,21 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
           if (lowV) nSw = vLowN.x; else nSw = hvNoise(p * 0.07 + vec2(t * 0.01, 0.0));
           float sPh = dot(p, sd) * 0.62 + t * 1.15 + nSw * 4.0;
           swell = sin(sPh) * deepK;
-          vec2 q1 = vec2(dot(p, vec2(0.96, -0.28)) * 0.75, dot(p, sd) * 1.9) + vec2(t * 0.22, t * 0.5);
-          vec2 q2 = vec2(p.x * 3.1 + p.y * 1.2, p.y * 3.6 - p.x * 0.9) + vec2(-t * 0.42, t * 0.31);
-          float rn = hvNoise(q1) * 2.0 - 1.0;
-          ridge = 1.0 - abs(rn);
-          rip2 = hvNoise(q2);
-          // The surface takes a rounded crest (1 - x²), not the creased one (1 - |x|): the crease's
-          // normal kink drew long hairline scratches across the water from the play camera (critic
-          // r5). The creased value still places the glint specks.
-          float ridgeS = 1.0 - rn * rn;
-          float hd = (ridgeS * ridgeS * 0.022 + rip2 * 0.01) * deepK * (1.0 - steep * 0.88) * (1.0 - farK);
+          // (Perf r19: the wavelet noise only where deepK > 0 — hd, ridge and rip2 are all weighted by
+          // it; the derivatives stay outside the branch.)
+          float hd = 0.0;
+          if (HV_OG(deepK > 0.0)) {
+            vec2 q1 = vec2(dot(p, vec2(0.96, -0.28)) * 0.75, dot(p, sd) * 1.9) + vec2(t * 0.22, t * 0.5);
+            vec2 q2 = vec2(p.x * 3.1 + p.y * 1.2, p.y * 3.6 - p.x * 0.9) + vec2(-t * 0.42, t * 0.31);
+            float rn = hvNoise(q1) * 2.0 - 1.0;
+            ridge = 1.0 - abs(rn);
+            rip2 = hvNoise(q2);
+            // The surface takes a rounded crest (1 - x²), not the creased one (1 - |x|): the crease's
+            // normal kink drew long hairline scratches across the water from the play camera (critic
+            // r5). The creased value still places the glint specks.
+            float ridgeS = 1.0 - rn * rn;
+            hd = (ridgeS * ridgeS * 0.022 + rip2 * 0.01) * deepK * (1.0 - steep * 0.88) * (1.0 - farK);
+          }
           vec3 P = vW + vec3(0.0, hd, 0.0);
           vec3 nd = normalize(cross(dFdx(P), dFdy(P)));
           nd *= sign(nd.y + 1e-5);

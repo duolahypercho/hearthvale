@@ -72,6 +72,9 @@ export function voiceFor(id: string): Voice {
   return { base: 130 + (h % 260), wave: waves[h % 3]!, formant: 0.85 + ((h >> 8) % 40) / 100, spread: 2 + ((h >> 4) % 5), rate: 0.8 + ((h >> 12) % 5) * 0.12, breath: ((h >> 16) % 30) / 100 };
 }
 
+/** Vowel letter → VOWELS index (sim-speak sings the word's own vowels). */
+const VOWEL_OF: Record<string, number> = { a: 0, e: 1, i: 2, y: 2, o: 3, u: 4 };
+
 /** Vowel formants (F1, F2, F3 in Hz) for an adult-sized voice. */
 const VOWELS: [number, number, number][] = [
   [730, 1090, 2440], // a
@@ -1294,14 +1297,19 @@ export class Sfx {
   /** Dialogue blip for one character of text (kept for single-character callers). */
   blip(voice: Voice, ch: string, o?: SfxOpts): void {
     const code = ch.toLowerCase().charCodeAt(0) || 97;
-    this.syllable(voice, this.bus(o, true), 0, code % 5, ((code * 7) % (voice.spread * 2 + 1)) - voice.spread, ch === '?' ? 1 : 0, 0.07 / voice.rate, 1);
+    const c = /[a-z]/.test(ch.toLowerCase()) && !/[aeiouy]/.test(ch.toLowerCase()) ? ch.toLowerCase() : '';
+    this.syllable(voice, this.bus(o, true), 0, code % 5, ((code * 7) % (voice.spread * 2 + 1)) - voice.spread, ch === '?' ? 1 : 0, 0.07 / voice.rate, 1, c, '');
   }
 
   /**
    * One spoken word of "sim-speak": 1–3 syllables, each a glottal pulse train (the voice's
-   * oscillator) through three vowel formants scaled to the character's vocal tract, with a small
-   * pitch contour per word; questions rise at the end, exclamations get an accent. Deterministic
-   * per word text so the same line always "sounds" the same.
+   * oscillator) through four vowel formants scaled to the character's vocal tract, with a small
+   * pitch contour per word; questions rise at the end, exclamations get an accent. Round 16 (critic
+   * r6: "dialogue-blip centroids 373-642 Hz with very little 2-4 kHz presence"): the syllables are
+   * the word's own — its vowel letters pick the vowels and its consonants are articulated (plosive
+   * bursts placed by lips / tongue / palate with their voice-onset gap, s / sh / f fricatives, nasal
+   * and liquid onsets that glide into the vowel, a final s or t), and every voice carries an F4
+   * "speaker's formant" near 3.2 kHz scaled by its vocal tract. Deterministic per word.
    */
   murmur(voice: Voice, word: string, o?: SfxOpts, line?: { index: number; last: boolean }): number {
     const b = this.bus(o, true);
@@ -1310,27 +1318,104 @@ export class Sfx {
     const decl = line ? -Math.min(2, line.index * 0.25) + (line.last && !/[?]$/.test(word) ? -1 : 0) : 0;
     const w = word.toLowerCase().replace(/[^a-z?!.]/g, '');
     const h = hashString(w || 'hm');
-    const vowels = (w.match(/[aeiouy]+/g) ?? ['a']).length;
-    const n = clamp(vowels, 1, 3);
+    const letters = w.replace(/[?!.]/g, '') || 'hm';
+    const all = [...letters.matchAll(/([^aeiouy]*)([aeiouy]+)/g)].map((m) => ({ onset: m[1] ?? '', nuc: m[2] ?? 'a' }));
+    if (!all.length) all.push({ onset: letters, nuc: 'u' });
+    // Long words keep their first, a middle and their last syllable (the rhythm of the word).
+    const syl = all.length <= 3 ? all : [all[0]!, all[Math.floor(all.length / 2)]!, all[all.length - 1]!];
+    const coda = /[^aeiouy]+$/.exec(letters)?.[0] ?? '';
+    const n = syl.length;
     const question = w.endsWith('?');
     const excl = w.endsWith('!');
     const sylDur = (0.075 + ((h >> 3) % 20) / 1000) / voice.rate;
     let tt = 0;
     for (let i = 0; i < n; i++) {
-      const vIdx = (h >>> (i * 3)) % 5;
+      const s = syl[i]!;
+      const vIdx = VOWEL_OF[s.nuc[0]!] ?? (h >>> (i * 3)) % 5;
       // Word contour: gentle arch, final syllable falls unless it's a question.
       const arch = i === 0 ? 0 : i === n - 1 ? (question ? 4 : -2) : 1;
       // A one-syllable question still lifts on its only syllable.
       const semis = (((h >>> (i * 4 + 5)) % (voice.spread * 2 + 1)) - voice.spread) * 0.6 + arch + decl + (question && n === 1 ? 2 : 0);
-      this.syllable(voice, b, tt, vIdx, semis, question && i === n - 1 ? 1 : 0, sylDur * (i === n - 1 ? 1.25 : 1), excl && i === 0 ? 1.25 : 1);
-      tt += sylDur * (i === n - 1 ? 1.25 : 1) + 0.012;
+      const d = sylDur * (i === n - 1 ? 1.25 : 1);
+      tt += this.syllable(voice, b, tt, vIdx, semis, question && i === n - 1 ? 1 : 0, d, excl && i === 0 ? 1.25 : 1, s.onset, i === n - 1 ? coda : '') + 0.012;
     }
     return tt;
   }
 
-  private syllable(voice: Voice, b: { d: AudioNode; t: number }, dt: number, vowel: number, semis: number, rise: number, dur: number, accent: number): void {
+  /**
+   * One syllable: [onset consonant] + voiced vowel + [coda]. Returns its length (s) including the
+   * onset's voice-onset gap. Consonants are cheap noise bursts (one source + filter + gain each).
+   */
+  private syllable(voice: Voice, b: { d: AudioNode; t: number }, dt: number, vowel: number, semis: number, rise: number, dur: number, accent: number, onset = '', coda = ''): number {
     const ctx = this.g.ctx;
-    const t = b.t + dt;
+    const t0 = b.t + dt;
+    // Round 12: every voice +3 dB (the villagers measured -27.5 LUFS, 5-10 LU under the UI, and
+    // vanished under the scores' low-mids) and a floor of consonant presence for all of them.
+    const lv = (voice.level ?? 1) * 1.41;
+    const pr = Math.max(0.45, voice.presence ?? 0);
+    const fs = voice.formant;
+    const [F1, F2, F3] = VOWELS[vowel % VOWELS.length]!;
+    // Onset: the cluster's leading s (st, sp, sk) and its last consonant (the one into the vowel).
+    const cl = onset.replace(/[^a-z]/g, '');
+    const lead = cl.length > 1 && cl[0] === 's' ? 's' : '';
+    const key = cl.endsWith('sh') || cl.endsWith('ch') ? cl.slice(-2) : cl.endsWith('th') ? 'th' : cl.slice(-1);
+    let vot = 0;
+    let attack = 0.012;
+    let glide = 0; // F2 starts this far below / above its target (liquids, w, y)
+    const art = (0.7 + 0.6 * pr) * lv * accent;
+    if (lead) {
+      this.noise(b.d, t0, { f: 5600 * Math.min(1.15, fs), q: 1.6, amp: 0.05 * art, attack: 0.012, tau: 0.018 });
+      vot += 0.055;
+    }
+    const tc = t0 + vot;
+    switch (key) {
+      case 'p': case 'b':
+        // Lips: a dull, broad burst; p's voicing waits ~25 ms (aspiration), b's starts at once.
+        this.noise(b.d, tc, { f: 1100, q: 0.8, amp: 0.13 * art, attack: 0.0006, tau: 0.005 });
+        vot += key === 'p' ? 0.026 : 0.006;
+        if (key === 'p') this.noise(b.d, tc + 0.006, { f: F2 * fs, q: 2.2, amp: 0.03 * art, attack: 0.004, tau: 0.008, buf: this.g.pink });
+        break;
+      case 't': case 'd':
+        // Tongue tip: the brightest burst (3.5-5 kHz).
+        this.noise(b.d, tc, { f: 4200 * Math.min(1.2, fs), q: 1.3, amp: 0.14 * art, attack: 0.0005, tau: 0.006 });
+        vot += key === 't' ? 0.03 : 0.007;
+        if (key === 't') this.noise(b.d, tc + 0.006, { f: F3 * fs, q: 2, amp: 0.035 * art, attack: 0.004, tau: 0.009, buf: this.g.pink });
+        break;
+      case 'k': case 'g': case 'c': case 'q': case 'x':
+        // Palate: a compact mid burst tied to the vowel's F2-F3 (the "k" moves with the vowel).
+        this.noise(b.d, tc, { f: Math.min(3000, (F2 + 400) * fs), q: 2.4, amp: 0.15 * art, attack: 0.0005, tau: 0.008 });
+        vot += key === 'g' ? 0.008 : 0.035;
+        break;
+      case 's': case 'z':
+        this.noise(b.d, tc, { f: 5800 * Math.min(1.15, fs), q: 1.5, amp: 0.065 * art, attack: 0.015, tau: 0.022 });
+        vot += key === 's' ? 0.075 : 0.045;
+        break;
+      case 'sh': case 'ch': case 'j':
+        if (key === 'ch') this.noise(b.d, tc, { f: 3800, q: 1.2, amp: 0.1 * art, attack: 0.0005, tau: 0.005 });
+        this.noise(b.d, tc + (key === 'ch' ? 0.01 : 0), { f: 2900 * Math.min(1.15, fs), q: 1.7, amp: 0.075 * art, attack: 0.012, tau: 0.025 });
+        vot += 0.07;
+        break;
+      case 'f': case 'v': case 'th':
+        this.noise(b.d, tc, { f: 4200, q: 0.6, amp: 0.035 * art, attack: 0.01, tau: 0.02, buf: this.g.pink });
+        vot += key === 'v' ? 0.03 : 0.055;
+        break;
+      case 'h':
+        // Breath through the coming vowel's own resonances.
+        this.noise(b.d, tc, { f: F2 * fs, q: 2.5, amp: 0.05 * art, attack: 0.01, tau: 0.02, buf: this.g.pink });
+        vot += 0.045;
+        break;
+      case 'm': case 'n':
+        attack = 0.035;
+        vot += 0.015;
+        break;
+      case 'l': case 'r': case 'w':
+        attack = 0.03;
+        glide = key === 'w' ? -0.35 : key === 'r' ? -0.25 : -0.15;
+        break;
+      default:
+        break;
+    }
+    const t = t0 + vot;
     const f = voice.base * Math.pow(2, semis / 12);
     const src = ctx.createOscillator();
     src.type = voice.wave;
@@ -1344,42 +1429,51 @@ export class Sfx {
     jit.connect(jg).connect(src.frequency);
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
-    // Round 12: every voice +3 dB (the villagers measured -27.5 LUFS, 5-10 LU under the UI, and
-    // vanished under the scores' low-mids) and a floor of consonant presence for all of them.
-    const lv = (voice.level ?? 1) * 1.41;
-    const pr = Math.max(0.35, voice.presence ?? 0);
-    env.gain.linearRampToValueAtTime(0.5 * accent * lv, t + 0.012);
-    env.gain.setValueAtTime(0.42 * accent * lv, t + dur * 0.6);
+    env.gain.linearRampToValueAtTime(0.5 * accent * lv, t + attack);
+    env.gain.setValueAtTime(0.42 * accent * lv, t + Math.max(attack, dur * 0.6));
     env.gain.linearRampToValueAtTime(0, t + dur);
-    const [F1, F2, F3] = VOWELS[vowel % VOWELS.length]!;
     const sum = ctx.createGain();
     sum.gain.value = voice.wave === 'square' ? 0.55 : voice.wave === 'sawtooth' ? 0.7 : 1.6;
-    ([[F1, 6, 1], [F2, 9, 0.55 * (1 + pr * 0.6)], [F3, 12, 0.22 * (1 + pr * 1.2)]] as const).forEach(([ff, q, amp]) => {
+    // F1-F3 + F4 (the 3-3.5 kHz "speaker's formant" that makes a voice cut through a band).
+    const F4 = 3300;
+    ([[F1, 6, 1], [F2, 9, 0.55 * (1 + pr * 0.6)], [F3, 11, 0.3 * (1 + pr * 1.2)], [F4, 8, 0.2 * (0.5 + pr)]] as const).forEach(([ff, q, amp], k) => {
       const bp = ctx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.value = Math.min(ff * voice.formant, 5500);
+      const target = Math.min(ff * fs, 6000);
+      bp.frequency.setValueAtTime(k === 1 && glide ? target * (1 + glide) : target, t);
+      if (k === 1 && glide) bp.frequency.linearRampToValueAtTime(target, t + 0.045);
       bp.Q.value = q;
       const a = ctx.createGain();
       a.gain.value = amp * 2.2;
       src.connect(bp).connect(a).connect(sum);
     });
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 3600;
-    sum.connect(lp).connect(env).connect(b.d);
-    if (pr > 0) {
-      // Consonant onset ("t" / "k" / "p"-ish, chosen by the vowel): a short 1.5–2.5 kHz burst, and
-      // (round 12) a 2-4 kHz click on top — the articulation that carries a line over the score.
-      this.noise(b.d, t, { f: 1500 + (vowel % 3) * 450, q: 1.8, amp: 0.14 * pr * lv * accent, attack: 0.001, tau: 0.008 });
-      this.noise(b.d, t + 0.002, { f: 2600 + (vowel % 4) * 380, q: 2.4, amp: 0.09 * lv * accent, attack: 0.0006, tau: 0.004 });
-    }
+    sum.connect(env).connect(b.d);
+    // The glottal onset: a 2-4 kHz tick where the vowel starts (the articulation that carries a line
+    // over the score, round 12) — softer after a fricative / nasal that already marked the syllable.
+    const soft = key === 's' || key === 'sh' || key === 'm' || key === 'n' || key === 'z';
+    this.noise(b.d, t, { f: 2600 + (vowel % 4) * 380, q: 2.4, amp: (soft ? 0.04 : 0.08) * lv * accent * (0.6 + 0.5 * pr), attack: 0.0006, tau: 0.004 });
     if ((voice.breath ?? 0) > 0) {
-      this.noise(b.d, t, { f: F2 * voice.formant, q: 2, amp: 0.05 * (voice.breath ?? 0), attack: 0.02, tau: dur * 0.4, buf: this.g.pink });
+      this.noise(b.d, t, { f: F2 * fs, q: 2, amp: 0.05 * (voice.breath ?? 0), attack: 0.02, tau: dur * 0.4, buf: this.g.pink });
+    }
+    // Coda: a word's final s / t / k is heard (plurals, "that", "look").
+    const end = t + dur;
+    let tail = 0;
+    const last = coda.slice(-1);
+    if (last === 's' || last === 'z' || last === 'x') {
+      this.noise(b.d, end - 0.01, { f: 5800 * Math.min(1.15, fs), q: 1.5, amp: 0.05 * art, attack: 0.012, tau: 0.02 });
+      tail = 0.05;
+    } else if (last === 't' || last === 'd') {
+      this.noise(b.d, end + 0.02, { f: 4200 * Math.min(1.2, fs), q: 1.3, amp: 0.08 * art, attack: 0.0005, tau: 0.005 });
+      tail = 0.03;
+    } else if (last === 'k' || last === 'g') {
+      this.noise(b.d, end + 0.02, { f: Math.min(3000, (F2 + 400) * fs), q: 2.4, amp: 0.08 * art, attack: 0.0005, tau: 0.006 });
+      tail = 0.03;
     }
     src.start(t);
     src.stop(t + dur + 0.02);
     jit.start(t);
     jit.stop(t + dur + 0.02);
+    return vot + dur + tail;
   }
 
   /** Continuous effects (fishing reel ratchet). */
