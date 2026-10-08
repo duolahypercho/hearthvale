@@ -104,9 +104,9 @@ export const SONGBOOK_EVENTS: Record<string, ThemeDef> = {
       tune: {
         octave: 0,
         // "F . A . C . A G♯ | A . F . C(low) . . | B♭ . D . F' E D | C A . F . . . |" — tiptoes.
-        A: ['1:1 r:1 3:1 r:1 5:1 r:1 3:1 #2:1', '3:1 r:1 1:1 r:1 5,:1 r:1 3:1 r:1', "4:1 r:1 6:1 r:1 1':2 7:1 6:1", '5:2 3:1 r:1 1:2 r:2', '2:1 r:1 4:1 r:1 6:1 r:1 4:1 r:1', '5:1 4:1 3:1 2:1 7,:2 5,:2', "1:1 r:1 3:1 5:1 1':2 r:2", '7:1 r:1 5:1 r:1 4:1 3:1 2:1 7,:1'],
+        A: ['1:1 r:1 3:1 r:1 5:1 r:1 3:1 #2:1', '3:1 r:1 1:1 r:1 6,:1 r:1 3:1 #2:1', "4:1 r:1 6:1 r:1 1':2 7:1 6:1", '5:2 3:1 r:1 1:2 r:2', '2:1 r:1 3:1 r:1 4:1 r:1 5:1 r:1', '5:1 4:1 3:1 2:1 7,:2 5,:2', "1:1 r:1 3:1 5:1 1':2 r:2", '7:1 r:1 5:1 r:1 4:1 3:1 2:1 7,:1'],
         Aend: ['2:1 r:1 4:1 r:1 7,:1 2:1 5,:1 7,:1', '1:2 r:1 5,:1 1:2 r:2'],
-        B: ["6:2 1':1 6:1 3:2 6:2", '#5:2 7:1 #5:1 3:2 r:2', "6:1 7:1 1':1 2':1 3':2 1':2", "2':2 7:1 6:1 #4:2 r:2", "4:1 r:1 4:1 6:1 1':2 6:2", '5:1 r:1 5:1 3:1 1:2 3:2', '2:1 3:1 4:1 5:1 6:2 4:2', '5:2 r:2 7,:1 r:1 5,:1 r:1'],
+        B: ['6:2 7:1 6:1 5:2 3:2', '#5:2 6:1 7:1 #5:2 r:2', "6:1 7:1 1':1 2':1 3':2 1':2", "2':2 7:1 6:1 #4:2 r:2", "4:1 r:1 5:1 6:1 1':2 6:2", '5:1 r:1 4:1 3:1 2:2 3:2', '2:1 3:1 4:1 5:1 6:2 4:2', '5:2 r:2 7,:1 r:1 5,:1 r:1'],
       },
     },
     accomp: { inst: 'pizz', pattern: 'pizzOff', range: [45, 57], voices: 3, vel: 0.6 },
@@ -205,17 +205,21 @@ export const SONGBOOK_EVENTS: Record<string, ThemeDef> = {
         B: ["6:3 7:1 1':2 2':2", "3':2 2':1 1':1 7:4", '6:3 5:1 4:2 2:2', '3:6 r:2', "b6:3 5:1 b6:2 1':2", "4':3 3':1 2':4", '7:3 6:1 5:2 3:2', "5:2 6:1 7:1 2':4"],
       },
     },
-    counter: { inst: 'cello', range: [45, 57], on: 'repeat', style: 'guide' },
-    accomp: { inst: 'harp', pattern: 'arpUp', range: [52, 69], voices: 4, vel: 0.46 },
-    bass: { inst: 'softBass', pattern: 'pedal', range: [33, 45], vel: 0.4 },
-    pad: { inst: 'pad', range: [55, 67], voices: 3, vel: 0.3, on: 'B' },
+    // Round 7 (critic r6: "hollower than the other intimate cues", 180–700 Hz at -29.7 dB): the body
+    // is voiced in, not EQ'd in — the cello guide sings from the first A in its tenor (C3–C4), a low
+    // string pad holds the chord tones under the harp all the way (D3–E4), and the harp's rolls
+    // start a third lower.
+    counter: { inst: 'cello', range: [48, 60], on: 'always', style: 'guide' },
+    accomp: { inst: 'harp', pattern: 'arpUp', range: [50, 67], voices: 4, vel: 0.48 },
+    bass: { inst: 'softBass', pattern: 'pedal', range: [33, 45], vel: 0.42 },
+    pad: { inst: 'pad', range: [50, 64], voices: 3, vel: 0.3, on: 'always' },
     mix: {
       melody: { gain: 0.92, pan: 0.06, send: 0.5 },
       double: { gain: 0.14, pan: -0.3, send: 0.6 },
-      counter: { gain: 0.4, pan: -0.3, send: 0.42 },
+      counter: { gain: 0.48, pan: -0.3, send: 0.4 },
       accomp: { gain: 0.56, pan: 0.28, send: 0.45 },
-      bass: { gain: 0.3, pan: 0, send: 0.1 },
-      pad: { gain: 0.3, pan: 0, send: 0.6 },
+      bass: { gain: 0.34, pan: 0, send: 0.1 },
+      pad: { gain: 0.36, pan: 0.05, send: 0.55 },
     },
     rest: [2, 4],
     gain: 0.9,

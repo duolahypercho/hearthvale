@@ -39,11 +39,11 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
       inst: 'vibes', range: [64, 90], density: 0.4, ornament: 0.1, bInst: 'flute', cInst: 'cello',
       tune: {
         octave: 1,
-        // ". . A F# A. C#. | B.. A F#... | . . G E G. B. | A.. G E. C#. |" — drops off the eaves.
-        A: ['r:2 5:1 3:1 5:2 7:2', '6:3 5:1 3:4', 'r:2 4:1 2:1 4:2 6:2', '5:3 4:1 2:2 7,:2', "r:2 5:1 3:1 5:2 1':2", "3':3 2':1 1':2 6:2", '6:2 4:2 3:2 6,:2', '5,:4 7,:2 r:2'],
-        Aend: ['6:2 4:2 5:2 7,:2', '1:6 r:2'],
-        B: ["1':4 6:2 4:2", '7:4 6:2 5:2', '6:3 5:1 4:2 2:2', '3:6 r:2', "4:2 6:2 1':3 2':1", "3':4 1':2 6:2", "2':3 1':1 6:2 4:2", '5:4 r:4'],
-        C: ['3:3 2:1 3:2 6:2', '4:4 3:2 2:2', "3:3 5:1 1':4", '7:6 r:2', "6:3 5:1 6:2 1':2", "1':3 7:1 6:2 4:2", 'b6:4 4:2 2:2', '5:4 7,:4'],
+        // Round 7: drips run down the pane, mostly by step — ". . A G F#. E. | F#. E D... | . . G E G. B. | A. G F#... | . . A B C#. D'. | F#'. E' D'. B. | C# B A G | E.. C#. (breath) |"; the top F# on bar 6.
+        A: ['r:2 5:1 4:1 3:2 2:2', '3:3 2:1 1:4', 'r:2 4:1 2:1 4:2 6:2', '5:3 4:1 3:4', "r:2 5:1 6:1 7:2 1':2", "3':3 2':1 1':2 6:2", '7:2 6:2 5:2 4:2', '2:4 7,:2 r:2'],
+        Aend: ['6:2 5:2 4:2 2:2', '1:6 r:2'],
+        B: ["1':4 7:2 6:2", '7:4 6:2 5:2', '6:3 5:1 4:2 2:2', '3:6 r:2', '4:2 6:2 5:3 7:1', "7:2 6:2 1':2 2':2", '7:3 6:1 5:2 4:2', '5:4 r:4'],
+        C: ['3:3 4:1 5:2 6:2', '6:4 5:2 4:2', '3:3 4:1 5:4', '5:2 6:2 7:4', "1':3 7:1 6:2 5:2", '6:3 5:1 4:4', 'b6:4 5:2 4:2', '5:4 r:4'],
       },
     },
     counter: { inst: 'clarinet', range: [57, 69], on: 'repeat' },
@@ -74,7 +74,8 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 64, // E
     mode: 'minor',
-    form: ['intro', 'A', 'B', 'C', 'A', 'outro'],
+    // Round 7: A comes round between B and the cello's C (A B A C A) — 79 s looped too soon.
+    form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
     breaks: 'breath',
     prog: {
       intro: ['i', 'bVI'],
@@ -92,8 +93,8 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
         // a lift a fourth up, the leading tone (D#) pulling home.
         A: ['5:4 3:1 2:1', '6:4 5:1 4:1', '4:2 2:2 7,:2', '3:4 r:2', "3:2 6:2 1':2", "1':3 7:1 6:2", '5:3 4:1 #7,:2', '1:6'],
         Aend: ['6:3 #7,:3', '1:6'],
-        B: ['5:3 6:1 7:2', '7:4 6:1 4:1', '6:3 5:1 4:2', '5:6', "3:2 5:2 1':2", '7:2 5:2 3:2', "4:3 6:1 1':2", '5:4 r:2'],
-        C: ['6,:3 1:1 3:2', '4:3 2:1 7,:2', '5:4 3:2', '3:3 1:1 6,:2', '1:2 6,:2 4,:2', '5,:4 3,:2', '4,:2 6,:2 1:2', '#7,:4 2:2'],
+        B: ['5:3 6:1 7:2', '7:4 6:1 4:1', '6:3 5:1 4:2', '5:6', "3:2 5:2 1':2", '7:3 6:1 5:2', '4:3 5:1 6:2', '5:4 r:2'],
+        C: ['6,:3 7,:1 1:2', '2:3 1:1 7,:2', '3:4 2:2', '1:3 7,:1 6,:2', '4,:3 5,:1 6,:2', '5,:4 3,:2', '4,:2 6,:2 1:2', '#7,:4 2:2'],
       },
     },
     counter: { inst: 'cello', range: [45, 60], on: 'repeat', style: 'moving' },
@@ -124,14 +125,16 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 60, // C
     mode: 'major',
-    form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
+    // Round 7: a 16-bar trio (C) in the relative minor for the clarinet — the waltz ran 54 s and
+    // looped; now ~95 s with a genuinely new strain between the second and last A.
+    form: ['intro', 'A', 'A', 'B', 'A', 'C', 'A', 'outro'],
     lift: 2,
     breaks: 'breath',
     prog: {
       intro: ['V7'],
       A: ['I', 'I', 'IV', 'I', 'ii', 'V7', 'V7', 'I'],
       B: ['vi', 'vi', 'ii', 'V7', 'IV', 'I', 'ii V7', 'I'],
-      C: ['vi', 'iii', 'IV', 'I', 'ii', 'V', 'iii vi', 'ii V7'],
+      C: ['vi', 'iii', 'IV', 'I', 'ii', 'V', 'iii vi', 'ii V7', 'IV', 'iv6', 'I', 'vi', 'ii', 'V7', 'I', 'V7'],
       outro: ['V7', 'I'],
       Aend: ['V7', 'I'],
     },
@@ -139,12 +142,11 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
       inst: 'accordion', range: [64, 88], density: 0.6, ornament: 0.2, cInst: 'clarinet', double: { inst: 'glock', interval: 12, on: 'late' },
       tune: {
         octave: 1,
-        // "E G C' | E'.. D' C' | A.. C' | G.. | F A D' | D'. C' B | F G B | C" — up the triad, a turn
-        // round the top, the lamps lit one by one.
-        A: ["3:2 5:2 1':2", "3':4 2':1 1':1", "6:4 1':2", '5:4 r:2', "4:2 6:2 2':2", "2':3 1':1 7:2", '4:2 5:2 7,:2', '1:4 r:2'],
-        Aend: ["2':2 7:2 5:2", "1':6"],
-        B: ["6:3 7:1 1':2", "3':4 1':2", "2':3 1':1 6:2", '7:4 5:2', "4:3 6:1 1':2", "3':3 2':1 1':2", '6:3 7:3', "1':6"],
-        C: ["1':2 7:2 6:2", '7:4 5:2', '6:2 5:2 4:2', '3:4 5:2', "4:2 6:2 1':2", "2':4 7:2", "7:3 1':3", '6:3 5:3'],
+        // Round 7: "E G C' | E'. D' C' | A.. G F | E.. (breath) | F G A | B. C' D' | F'. E' D' | C'.. (breath) |" — up the triad once (the lamplighter's hook), then the lamps are lit by step; the top F on bar 7 (the V7's seventh, falling home).
+        A: ["3:2 5:2 1':2", "3':3 2':1 1':2", '6:4 5:1 4:1', '3:4 r:2', '4:2 5:2 6:2', "7:3 1':1 2':2", "4':3 3':1 2':2", "1':4 r:2"],
+        Aend: ["2':3 1':1 7:2", "1':6"],
+        B: ["6:3 7:1 1':2", "2':4 1':2", "1':3 7:1 6:2", '7:4 5:2', "6:3 7:1 1':2", "3':3 2':1 1':2", "2':3 1':1 7:2", "1':6"],
+        C: ["1':3 7:1 6:2", '5:4 3:2', '4:3 5:1 6:2', '5:4 r:2', '6:3 5:1 4:2', '5:4 4:1 2:1', '3:3 1:3', '2:3 7,:3', '6,:3 7,:1 1:2', '1:4 2:2', '3:4 5:2', '6:3 5:1 3:2', '4:3 3:1 2:2', '7,:3 2:1 5:2', '3:4 1:2', '2:4 r:2'],
       },
     },
     counter: { inst: 'clarinet', range: [55, 67], on: 'late' },

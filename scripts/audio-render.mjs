@@ -46,6 +46,7 @@ import { mkdirSync, readFileSync, writeFileSync, statfsSync } from 'node:fs';
 import { dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { execSync } from 'node:child_process';
 import { plotRender } from './audio-plot.mjs';
 import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower, bassHoles, bandRatios, eventDensity } from './audio-analysis.mjs';
 
@@ -304,6 +305,23 @@ async function main() {
     }
   }
 
+  // Round 7 (critic r6: "no single current end-to-end artifact"): a manifest of every job this run
+  // is expected to produce, written up front and updated after each job, with the source revision
+  // it was rendered from. A default run (no --only / --amb / --sfx filters) lists every theme, mix,
+  // ambience preset, the SFX reel, the gameplay render and the three transitions; the verdict passes
+  // only when every expected job rendered with no flag at all, and the composition critic, SFX
+  // hierarchy, gameplay masking and opening-loudness checks are clean.
+  const manifest = {
+    generated: report.generated,
+    rev: gitRev(),
+    defaultRun: !args.only && !args.ambList && !args.sfxList && args.amb && args.sfx && args.mix && args.themes && args.trans && args.gameplay && !args.gameplayOnly,
+    argv: process.argv.slice(2),
+    expected: jobs.map((j) => ({ name: j.name, kind: j.kind, status: 'pending', flags: [] })),
+    checks: {},
+    verdict: null,
+  };
+  const writeManifest = () => writeFileSync(resolve(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  writeManifest();
   let gameplayFails = [];
   const decode = (res) => {
     const bytes = Buffer.from(res.data, 'base64');
@@ -409,7 +427,15 @@ async function main() {
         if (attempt === 1) report.failedJobs.push({ name: job.name, error: msg });
       }
     }
+    const m = manifest.expected.find((x) => x.name === job.name);
+    if (m) {
+      const r = done ? report.renders.findLast((x) => x.name === job.name || (job.kind === 'gameplay' && x.name === 'gameplay')) : null;
+      m.status = !done || !r ? 'failed' : r.flags.length ? 'flagged' : 'ok';
+      m.flags = r?.flags ?? [];
+      if (r) Object.assign(m, { lufs: r.lufsIntegrated, truePeakDb: r.truePeakDb, centroidHz: r.centroidHz });
+    }
     writeReport();
+    writeManifest();
   }
   // Opening loudness: every theme's first 30 s within 2 LU of every other (offsets removed).
   const themeRows = report.renders.filter((r) => r.kind === 'theme').map((r) => ({ name: r.name.replace(/^theme-/, ''), lufs: r.lufsIntegrated }));
@@ -428,8 +454,35 @@ async function main() {
   if (bad.length) console.log(`HARD FAILS: ${bad.map((b) => `${b.name}[${b.flags.join(',')}]`).join(' ')}`);
   if (report.sfxHierarchyFails?.length) console.log(`SFX HIERARCHY FAILS: ${report.sfxHierarchyFails.join('; ')}`);
   if (compFails.length) console.log(`COMPOSITION FAILS: ${compFails.join(' ')}`);
+  // Manifest verdict.
+  const st = (k) => manifest.expected.filter((x) => x.status === k);
+  manifest.checks = {
+    composition: compFails,
+    openingSpread: report.openingSpread ?? null,
+    sfxHierarchy: report.sfxHierarchyFails ?? [],
+    gameplayMasked: gameplayFails,
+    pageErrors: errors.slice(0, 20),
+  };
+  const clean = !compFails.length && !(report.sfxHierarchyFails?.length) && !gameplayFails.length && !errors.length && (!report.openingSpread || report.openingSpread.ok);
+  manifest.verdict = { jobs: manifest.expected.length, ok: st('ok').length, flagged: st('flagged').map((x) => `${x.name}[${x.flags.join(',')}]`), failed: st('failed').map((x) => x.name), missing: st('pending').map((x) => x.name), checksClean: clean, pass: clean && st('ok').length === manifest.expected.length, complete: manifest.defaultRun };
+  manifest.finished = new Date().toISOString();
+  writeManifest();
+  const v = manifest.verdict;
+  console.log(`\nMANIFEST (${outRel}/manifest.json, rev ${manifest.rev}${manifest.defaultRun ? ', default full run' : ', partial run'}): ${v.ok}/${v.jobs} jobs ok, ${v.flagged.length} flagged, ${v.failed.length} failed, ${v.missing.length} missing; checks ${clean ? 'clean' : 'NOT clean'} → ${v.pass ? 'PASS' : 'FAIL'}`);
+  if (v.flagged.length) console.log(`  flagged: ${v.flagged.join(' ')}`);
   await closeAll();
-  if (errors.length || bad.length || compFails.length || report.failedJobs.length || report.sfxHierarchyFails?.length) process.exitCode = 1;
+  if (errors.length || bad.length || compFails.length || report.failedJobs.length || report.sfxHierarchyFails?.length || !manifest.verdict.pass) process.exitCode = 1;
+}
+
+/** Source revision a render was made from: short hash, plus '+dirty' when the audio sources differ from it. */
+function gitRev() {
+  try {
+    const head = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim();
+    const dirty = execSync('git status --porcelain -- src/audio src/systems/audio.ts scripts/audio-render.mjs scripts/audio-analysis.mjs', { cwd: root }).toString().trim();
+    return dirty ? `${head}+dirty(${dirty.split('\n').length} audio files)` : head;
+  } catch {
+    return 'unknown';
+  }
 }
 
 /** The deliberate per-theme loudness offsets (src/audio/loudness.ts TARGET_OFFSET). */

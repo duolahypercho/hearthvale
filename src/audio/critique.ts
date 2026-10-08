@@ -53,6 +53,13 @@ export interface Critique {
     leapExamples: string[];
     repeatPct: number;
     strongChordTonePct: number;
+    /**
+     * Phrasing (round 7): share of 8-bar phrases whose highest note is sounded at most twice (a
+     * placed peak, not a ceiling the tune keeps bumping into), and audible breaths (a gap of at
+     * least a fifth of a bar and 0.4 s between tune notes, or a hold of 70 % of a bar) per 8 bars.
+     */
+    peakPct: number;
+    breathsPer8: number;
   };
   harmony: { chords: number; distinct: number; clashes: number; b9: number; appoggiaturas: number; clashesPerMin: number; worst: Rub[] };
   parallels: { count: number; perMin: number; examples: string[] };
@@ -164,6 +171,33 @@ export function critiquePiece(id: string, seed = 1): Critique {
     }
   }
   const moves = Math.max(1, steps + leaps + repeats);
+  // ── phrasing: placed peaks and breaths, per 8-bar phrase
+  const barSec = p.duration / Math.max(1, p.bars);
+  const phrases = new Map<number, number[]>();
+  let breaths = 0;
+  for (let i = 0; i < mel.length; i++) {
+    const n = mel[i]!;
+    const bar = spanAt(spans, n.t)?.bar ?? 0;
+    const k = Math.floor(bar / 8);
+    if (!phrases.has(k)) phrases.set(k, []);
+    phrases.get(k)!.push(n.midi);
+    const nx = mel[i + 1];
+    // A breath: a gap of about a beat before the next note, or a phrase-end hold of 3+ beats
+    // (the line rests on it while the band moves).
+    if (nx && (nx.t - (n.t + n.dur) >= Math.max(0.4, barSec * 0.2) || nx.t - n.t >= barSec * 0.7)) breaths++;
+  }
+  let phraseN = 0;
+  let peaked = 0;
+  for (const ps of phrases.values()) {
+    if (ps.length < 6) continue;
+    phraseN++;
+    const top = Math.max(...ps);
+    if (ps.filter((m) => m === top).length <= 2) peaked++;
+  }
+  const peakPct = phraseN ? Math.round((peaked / phraseN) * 100) : 100;
+  // (Per 8 bars of tune: the intro / outro bars carry no melody to breathe in.)
+  const tuneBars = new Set(mel.map((n) => spanAt(spans, n.t)?.bar ?? 0)).size;
+  const breathsPer8 = Math.round((breaths / Math.max(1, tuneBars / 8)) * 10) / 10;
   const lo = mel.reduce((m, e) => Math.min(m, e.midi), 999);
   const hi = mel.reduce((m, e) => Math.max(m, e.midi), 0);
 
@@ -319,6 +353,15 @@ export function critiquePiece(id: string, seed = 1): Critique {
     if (hi - lo < 9) flags.push('NARROW');
     if (hi - lo > 26) flags.push('WIDE');
     if (unrecPct > 0.35 && unrec > 3) flags.push('LEAPY');
+    // Round 7 (critic r6: "conspicuously leap-heavy … algorithmically busy"): more than half the
+    // moves skipping a third or more, or more than 8 % of all moves an unrecovered leap of a 4th+.
+    if (leaps / moves > 0.52) flags.push(`LEAPY(${Math.round((leaps / moves) * 100)} % leaps)`);
+    else if (unrec / moves > 0.08) flags.push(`LEAPY(${unrec} unrecovered)`);
+    // …and loops that come round too soon: a song under 85 s (a scene cue under 60 s) repeats
+    // before a player has finished a chore.
+    const isCue = id.startsWith('event-');
+    if (p.duration < (isCue ? 60 : 85)) flags.push(`SHORT-LOOP(${Math.round(p.duration)} s)`);
+    if (breathsPer8 < 1) flags.push(`NO-BREATH(${breathsPer8}/8 bars)`);
     if (repeats / moves > 0.35) flags.push('STATIC');
     if (steps / moves < 0.3) flags.push('ANGULAR');
     if (parallels / minutes > 4) flags.push('PARALLELS');
@@ -345,6 +388,8 @@ export function critiquePiece(id: string, seed = 1): Critique {
       leapExamples: leapEx,
       repeatPct: Math.round((repeats / moves) * 100),
       strongChordTonePct: strongPct,
+      peakPct,
+      breathsPer8,
     },
     harmony: {
       chords: spans.length,

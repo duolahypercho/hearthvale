@@ -304,6 +304,39 @@ adapts it to game events.
   `cave` house curve (3 dB darker than the day; they were uncorrected, mine-lava's top 9 dB under the farm's)
   and the `TONE` flag judges each song against its family curve. `--amb <presets>` renders just those
   ambience presets.
+- **Round 14** (audio pod r7): **phrasing**. The hooks the critic called leap-heavy were re-sung around
+  stepwise contours with one arpeggio figure kept as each song's signature, a placed peak (the top note
+  once per phrase, usually bar 6-7) and a written breath (a rest, or a phrase-end hold) at bar 4 / 8:
+  Harvest Reel 70 → 28 % leaps (unrecovered 50 → 0; a session-reel hook "D E F D A G F E" answered a step
+  down, the top G once in B), The Warm Kettle 69 → 36 % (a blue run down from the top over the IV7),
+  Porch Swing 66 → 38 %, Frostglass 63 → 34 %, Low Tide 62 → 39 %, the Lantern Jig 62 → 26 %,
+  Firefly Meadow 60 → 26 %, Gutter Song 60 → 27 %, Lamplighter's Waltz 59 → 26 %, Mossway 58 → 41 %,
+  Lemonade Afternoon 58 → 41 %, Grey Lantern 56 → 38 %, Clover Lane 54 → 30 %, Lanterns on the Tide 54 → 26 %,
+  Market Morning 51 → 44 %, Tiptoe 59 → 46 % (its staccato arpeggios are the joke). **Replay life**: the
+  short loops get genuinely new strains instead of repeats — Lamplighter's Waltz a 16-bar clarinet trio in
+  the relative minor (54 → 90 s), Apple Blossom Waltz and Amber Waltz their 16-bar flute / cello bridges
+  (64 → 108 s, 68 → 106 s), Clover Lane A B C B A (79 → 90 s), Grey Lantern A B A C A (79 → 96 s), Mossway
+  … A C B A (84 → 96 s), Hush of Snow its C strain before the last A (101 → 135 s). The composition critic
+  (`critique.ts`) now flags `LEAPY` (> 52 % of moves a skip of a third or more, or > 8 % unrecovered
+  leaps of a fourth+), `SHORT-LOOP` (a song under 85 s, a scene cue under 60 s) and `NO-BREATH` (< 1 breath
+  per 8 bars of tune) and reports `peakPct` / `breathsPer8`: all 44 songs clean, 0 clashes, 0 b9s.
+  **Lantern Dark** (event-mystery, the one TONE fail) gets its body from the arrangement, not EQ: the cello
+  guide sings from the first A in its tenor (C3-C4), a low string pad holds the chord under the harp
+  throughout and the harp rolls start lower. **Offline proof**: `audio-render.mjs` writes
+  `manifest.json` — every job the run is expected to produce (a default run: 44 themes, 44 mixes, every
+  ambience preset, the SFX reel, gameplay, 3 transitions), its status / flags as it finishes, the source
+  revision (`+dirty` when the audio sources differ from it) and a verdict that passes only when every job
+  is clean with no flag at all and the composition / SFX-hierarchy / gameplay / opening-loudness checks are
+  clean (exit 1 otherwise). **Co-op performance**: `node scripts/audio-coop-perf.mjs` — four real clients
+  over the relay on the farm, each measured in turn at 2560x1440 "high" (uncapped, the perf.mjs timing
+  mode) while the three partners walk / hoe / chat around it, with an A/B window holding its AudioContext
+  suspended (`services.audio.benchOff`). Gates: FPS ≥ 60, the audio stack ≤ 8 ms of main thread per
+  second, audio-on vs off within max(0.35 ms, 3 %) per frame, partner footfalls voiced.
+  `info().perf.frame.audioMsPerSec` now includes the off-frame work (worker note deliveries into the cache,
+  the 250 ms watchdog: `src/audio/cost.ts`, also `offFrameMsPerSec`). Fix found on the way: the partners'
+  strides and reel ticks advanced by one frame's dt per ~45 ms decision pass, so a walking farmhand was
+  voiced at ~1/3 of their real footfall rate; they now advance by the time that passed.
+  Hear the four-player farm: `?demo=audio-coop4` (three phantom farmhands on their own paths; `?demo=audio-coop&partners=2`).
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);

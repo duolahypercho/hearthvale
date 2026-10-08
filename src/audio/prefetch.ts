@@ -13,6 +13,7 @@ import type { AudioGraph } from './graph';
 import { noteKeys, sfxPalette } from './instruments';
 import { chordPcs, parseChord } from './theory';
 import type { WorkerNote } from './compose.worker';
+import { offFrame } from './cost';
 
 export class PiecePrefetch {
   private worker: Worker | null = null;
@@ -40,7 +41,8 @@ export class PiecePrefetch {
     if (!useWorker || typeof Worker === 'undefined') return;
     try {
       this.worker = new Worker(new URL('./compose.worker.ts', import.meta.url), { type: 'module' });
-      this.worker.onmessage = (e: MessageEvent<{ key: string; piece?: Piece } | { notes: WorkerNote[] }>) => {
+      // (Charged to the audio stack's off-frame account: `info().perf.frame.audioMsPerSec`.)
+      this.worker.onmessage = (e: MessageEvent<{ key: string; piece?: Piece } | { notes: WorkerNote[] }>) => offFrame(() => {
         if ('notes' in e.data) {
           for (const n of e.data.notes) {
             if (this.graph) this.graph.provide(n.key, n.data, n.sr, n.scale);
@@ -64,7 +66,7 @@ export class PiecePrefetch {
           if (!drop) break;
           this.ready.delete(drop);
         }
-      };
+      });
       this.worker.onerror = () => {
         this.worker?.terminate();
         this.worker = null;

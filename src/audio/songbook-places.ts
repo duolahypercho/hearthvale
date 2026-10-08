@@ -33,11 +33,10 @@ export const SONGBOOK_PLACES: Record<string, ThemeDef> = {
       inst: 'vibes', range: [70, 93], density: 0.5, ornament: 0.1, bInst: 'flute',
       tune: {
         octave: 1,
-        // "(.) Bb D F'.. D. | E. C Bb.. A. | A...... | (.) D F# A.. C. | Bb.. G Bb. D. | E.. C E. G'. |
-        //  F'. E. D. C. | Bb.... |" — a syncopated fall from the top of each chord, answered by a rise.
-        A: ["r:1 4:1 6:1 1':3 6:2", '7:2 5:1 4:3 3:2', '3:6 r:2', 'r:1 6,:1 #1:1 3:3 5:2', '4:3 2:1 4:2 6:2', "7:3 5:1 7:2 2':2", "1':2 7:2 6:2 5:2", '4:4 r:4'],
-        Aend: ['4:2 6:2 5:2 7,:2', '1:8'],
-        B: ['6:3 3:1 6:2 1\':2', "b6:3 4:1 b6:2 1':2", '7:3 5:1 3:4', 'r:2 3:1 5:1 6:4', '6:3 4:1 2:4', '7,:2 2:2 4:2 7:2', '6:3 5:1 3:4', '4:4 7,:4'],
+        // Round 7: "(.) Bb D F'.. D. | E. D C Bb | A.. (breath) | (.) D F# A.. C. | Bb. G Bb D | C. D E F | G'. F E D | D C (breath) |" — the same syncopated fall from the top of the chord, answered by a rise sung by step; the top G on bar 7.
+        A: ["r:1 4:1 6:1 1':3 6:2", '7:3 6:1 5:2 4:2', '3:6 r:2', 'r:1 6,:1 #1:1 3:3 5:2', '4:3 2:1 4:2 6:2', "5:3 6:1 7:2 1':2", "2':3 1':1 7:2 6:2", '6:2 5:2 r:4'],
+        Aend: ['4:2 3:2 2:2 7,:2', '1:8'],
+        B: ["6:3 3:1 6:2 1':2", 'b6:3 5:1 4:2 b3:2', '3:3 2:1 3:4', 'r:2 3:1 #4:1 6:4', '6:3 4:1 2:4', '3:2 4:2 5:2 7:2', "1':3 7:1 6:4", '4:3 3:1 2:4'],
       },
     },
     counter: { inst: 'flute', range: [62, 76], on: 'late', style: 'guide' },
