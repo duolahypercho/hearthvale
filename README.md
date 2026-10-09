@@ -1497,7 +1497,10 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   shafts 0.95 -> 0.68. *Feedback* — the heart pop 52 -> 46 px, the name card 40 -> 36 px. *Lens* — inside the
   farmhouse / coop / barn the tilt-shift clear band widens to 0.42 at 0.4 strength (held by the buildings system
   every frame, restored on leaving): the whole room is the diorama, and the default band smeared the back wall's
-  story props (the portrait, the nest boxes, the stall row).
+  story props (the portrait, the nest boxes, the stall row). *Verification* — critic-ready stills of the five demos
+  in `shots/animals-r20/final/`; perf at 2560x1440 high (contended: 4 foreign Chromium GPU processes, load ~55):
+  house-interior 167 fps / house-night 117 / coop 171 / barn 145 / pasture 97 avg, 124-214 draws, p99 28-32 ms
+  (the strict 25 ms p99 gate needs an uncontended run). Co-op matrix `scripts/animals-coop-test.mjs`: 23/23.
 
 ## Co-op multiplayer (1–4 farmers)
 
