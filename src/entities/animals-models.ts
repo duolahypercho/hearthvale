@@ -651,7 +651,8 @@ function goat(variant: number): AnimalModel {
   r.part('head', beard, mat(0, 0.8, 0.62, 0.3, 0, 0), togg ? 0x3e2818 : 0xf6f0e6);
   for (const s of [-1, 1]) {
     // Horns: a tapered tube arcing up, back and out over the crown
-    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(s * 0.02, 0.1, -0.02), new THREE.Vector3(s * 0.055, 0.17, -0.1), new THREE.Vector3(s * 0.09, 0.17, -0.2), new THREE.Vector3(s * 0.11, 0.12, -0.26)]);
+    // (r23: a third shorter — the long swept horns crossed the farmer's face on screen in every pat)
+    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(s * 0.016, 0.075, -0.012), new THREE.Vector3(s * 0.042, 0.125, -0.07), new THREE.Vector3(s * 0.068, 0.128, -0.14), new THREE.Vector3(s * 0.082, 0.098, -0.185)]);
     // (r17: a stouter root + growth ridges ringing the horn, so it reads as horn, not an antenna)
     const horn = new THREE.TubeGeometry(curve, 24, 0.036, 8, false);
     const hp = horn.attributes.position as THREE.BufferAttribute;
@@ -771,15 +772,18 @@ function pig(variant: number): AnimalModel {
       // (r22: from the high lens the old rump closed in 3.5 cm — a flat disc end on a straight pink tube.
       // Now the rump rounds over ~12 cm into big hams, a clear waist, then the shoulders: an egg-and-
       // peanut plan instead of parallel sides.)
+      // (r23: the waist 0.275 between 0.34 hams and 0.298 shoulders + a dipped back read from the barn
+      // lens as three stacked rolls — a caterpillar. One continuous pear now: the hams the widest, the
+      // flank easing in monotonically to the shoulders, a level topline.)
       { p: [0, 0.465, -0.545], w: 0.03, up: 0.03, dn: 0.03 },
-      { p: [0, 0.475, -0.525], w: 0.135, up: 0.12, dn: 0.13, n: 2.0 },
-      { p: [0, 0.485, -0.485], w: 0.225, up: 0.205, dn: 0.22, n: 2.0 },
-      { p: [0, 0.492, -0.42], w: 0.3, up: 0.27, dn: 0.285, n: 2.05 },
-      { p: [0, 0.497, -0.29], w: 0.34, up: 0.3, dn: 0.31, n: 2.05 },
-      { p: [0, 0.49, -0.13], w: 0.3, up: 0.285, dn: 0.33, n: 2.0 },
-      { p: [0, 0.475, 0.03], w: 0.275, up: 0.27, dn: 0.325, n: 2.0 },
-      { p: [0, 0.482, 0.17], w: 0.298, up: 0.292, dn: 0.3, n: 2.0 },
-      { p: [0, 0.495, 0.29], w: 0.255, up: 0.275, dn: 0.285, n: 2.0, nb: 1.9 },
+      { p: [0, 0.475, -0.525], w: 0.14, up: 0.125, dn: 0.13, n: 2.0 },
+      { p: [0, 0.485, -0.485], w: 0.235, up: 0.21, dn: 0.22, n: 2.0 },
+      { p: [0, 0.492, -0.42], w: 0.305, up: 0.272, dn: 0.285, n: 2.05 },
+      { p: [0, 0.495, -0.29], w: 0.335, up: 0.296, dn: 0.31, n: 2.05 },
+      { p: [0, 0.49, -0.13], w: 0.32, up: 0.29, dn: 0.33, n: 2.0 },
+      { p: [0, 0.486, 0.03], w: 0.306, up: 0.286, dn: 0.325, n: 2.0 },
+      { p: [0, 0.488, 0.17], w: 0.298, up: 0.288, dn: 0.3, n: 2.0 },
+      { p: [0, 0.495, 0.29], w: 0.262, up: 0.278, dn: 0.285, n: 2.0, nb: 1.9 },
       { p: [0, 0.51, 0.38], w: 0.2, up: 0.22, dn: 0.25 },
       { p: [0, 0.525, 0.45], w: 0.11, up: 0.12, dn: 0.14 },
       { p: [0, 0.53, 0.485], w: 0.03, up: 0.03, dn: 0.04 },

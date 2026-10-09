@@ -1603,7 +1603,9 @@ export class AnimalSystem implements System, AnimalsApi {
       // goat's rump on screen in the pasture pat)
       // (r19 birds 0.5 -> 0.4: at 0.5 the kneeling farmer's capped arm stopped short and pointed over the
       // hen instead of resting on its back)
-      const gap = Math.max(low ? 0.4 : 0.72, 0.36 + L0 * (1 + tBack) * hq);
+      // (r23: tall stock 0.72 -> 0.84 m — the goat's back still ran under the farmer's chin on screen in the
+      // barn and pasture pats; the hand's half-step covers the extra 12 cm)
+      const gap = Math.max(low ? 0.4 : 0.84, 0.36 + L0 * (1 + tBack) * hq);
       // (r17: tall stock a stride further towards the lens — from the 45° camera that drops it below the
       // farmer's big chibi head on screen, so the hat no longer sits on the goat's horns)
       // (r19: tried 0.62 — the farmer then turned profile-away from the lens to reach the back; kept 0.42)
@@ -2730,7 +2732,7 @@ export class AnimalSystem implements System, AnimalsApi {
       // A living barn, not a line-up: each stall gets its own beat (head in the hay, asleep in the
       // straw, rooting, turned to watch the farmer), every animal on its own yaw, all kept inside the
       // stall's free rect (body half-width clear of both partitions).
-      type Beat = { kind: 'stand' | 'munch' | 'sleep' | 'rest' | 'root' | 'aisle' | 'loose'; yaw: number; back?: number; dx?: number; at?: [number, number]; act?: 'root' | 'rest' };
+      type Beat = { kind: 'stand' | 'munch' | 'sleep' | 'rest' | 'root' | 'aisle' | 'loose'; yaw: number; back?: number; dx?: number; at?: [number, number]; act?: 'root' | 'rest' | 'stand' };
       // (r9: naps only on a wet day — a sheep asleep at 4:40 pm read as a bug; the pig and the end sheep
       // turn their faces to the aisle; the goat is out of its stall in the aisle with the farmer)
       const wet = this.game.calendar.weather === 'rain' || this.game.calendar.weather === 'storm';
@@ -2760,7 +2762,9 @@ export class AnimalSystem implements System, AnimalsApi {
         // (r19: the pig roots on a 30° diagonal, not 66° — at -1.15 its face went to the partition; now the
         // snout disc and both eyes read from the lens while it noses the straw)
         // (r21: a further 30° round to the lens — at -0.75 the critic saw its back and rump, not the snout)
-        lineup ? { kind: 'root', yaw: -0.55, back: 0.4 } : { kind: 'loose', yaw: -0.22, at: [2.75, 3.85], act: 'root' },
+        // (r23: rooting head-down, square to the lens or 3/4, the flopped ears closed over the face — only
+        // the crown read. Now it stands snout up, three-quarters to lens-left, sniffing towards the farmer.)
+        lineup ? { kind: 'root', yaw: -0.55, back: 0.4 } : { kind: 'loose', yaw: -0.5, at: [2.8, 3.85], act: 'stand' },
         { kind: 'stand', yaw: -1.05, back: 0.05 },
       ];
       for (const l of this.live) {
@@ -2798,7 +2802,7 @@ export class AnimalSystem implements System, AnimalsApi {
           a.confine = true;
           a.walkable = () => true;
           a.area = { x0: x - 0.03, z0: z - 0.03, x1: x + 0.03, z1: z + 0.03 };
-          a.hold = loose.act === 'root' ? 'eat' : null;
+          a.hold = loose.act === 'root' ? 'eat' : loose.act === 'stand' ? 'idle' : null;
           if (loose.act === 'rest') a.lieDown();
           a.place(x, z, loose.yaw);
           a.settle();
@@ -2971,7 +2975,9 @@ export class AnimalSystem implements System, AnimalsApi {
         // second sheep stood inside the drinking Holstein; the Jersey grazes the back middle, the second
         // sheep the open left, every body a clear gap of grass from the next)
         // (r22: the drinking Holstein 14 cm further in — her muzzle hung on the trough's near rim, not the water)
-        cow: close ? [[trough.x - 1.82, trough.z + 0.2, Math.PI / 2], [47.75, 36.95, -2.05]] : [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [38.45, 39.45, 1.05]],
+        // (r23 close-up: the Jersey at the back no longer faces away — tail-on from the 40° lens her barrel
+        // foreshortened into an upright "sitting" cow. She stands side-on, face turned 3/4 to the lens.)
+        cow: close ? [[trough.x - 1.82, trough.z + 0.2, Math.PI / 2], [47.75, 36.95, -1.15]] : [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [38.45, 39.45, 1.05]],
         // (r6: one sheep grazes out in the middle of the pen — the herd no longer hugs the fence)
         sheep: close ? [[44.2, 39.2, 0], [42.3, 39.75, 1.1]] : [[46.45, 37.35, 0.75], [44.2, 37.25, 0.3]],
         // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the

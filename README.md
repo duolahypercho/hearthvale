@@ -1711,6 +1711,16 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   scatter between, over three-tone planks with darker 3 px seams: the boards read through ("brown mush").
   Co-op: all of it is local rendering or the shared staging path (`settleForPet(from)` stages a farmhand's
   pat the same way), so remote farmers see the same thing. Shots: `shots/animals-r21/`.
+- r23 (round 9 loop, critic r10 list re-checked against HEAD): *Pig* — one continuous pear (the 0.275 waist
+  between 0.34 hams and 0.298 shoulders + a dipped back read from the barn lens as three stacked rolls); the
+  barn pig stands snout-up 3/4 to the lens (rooting head-down, its flopped ears closed over the face). *Goat*
+  — horns a third shorter (they crossed the farmer's face on screen in every pat). *Petting* — tall stock
+  staged 0.84 m off the farmer's flank (was 0.72). *Close-up* — the Jersey at the back stands side-on with her
+  face 3/4 to the lens (tail-on she foreshortened into an upright "sitting" cow). *Coop* — a barn-red enamel
+  grain feeder (the galvanised one was the water fount's twin); *barn* — coiled lead ropes / webbing halters
+  on the stall pegs (single tori read as floating donuts). Perf (contended, load 200-300): house 59.6 fps /
+  night 58.8 / coop 60 / barn 60 / pasture 60 / petting 60, p95 16.7-16.8 ms, 126-225 draws, 0.28-1.0 M tris.
+  Shots: `shots/animals-r23/` (`base-*` before, `v3/` + `v2/` after).
 
 ## Co-op multiplayer (1–4 farmers)
 
