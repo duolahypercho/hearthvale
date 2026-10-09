@@ -31,6 +31,7 @@ import { itemIconUrl } from '../ui/icons';
 import { findPath, type Waypoint } from '../world/town/pathfind';
 import { townRand, setTownSeed, townRngState } from '../world/town/rng';
 import { repaintNotices } from '../world/town/notices';
+import { LENS_CUT, setLensCut, GRASS_CLEAR, setGrassClear } from '../world/town/lenscut';
 import { SocialPanel, PortraitSheetPanel } from '../ui/dialogue';
 import { setPortraitSeason, setPortraitLight, auditPortraitContrast, prewarmPortraits, auditPainted, portraitOpts } from '../ui/portraits';
 import { PRESET_LOOKS } from '../entities/remote-look';
@@ -208,16 +209,19 @@ const STAGES: Record<string, Mark[]> = {
     ['june', 51.0, 24.1, -82, 'chat', 'music'],
     ['hazel', 49.7, 23.9, 78, 'chat', undefined, { free: true }],
     // (r14: a step west — at 55.2, 24.0 the market's festoon pole stood across her)
-    ['marigold', 54.4, 23.5, 150, 'idle', undefined, { free: true }],
-    ['rowan', 67.4, 26.3, 0, 'idle', undefined, { walk: [57.8, 26.4] }],
+    // (r16 critic: "the villagers stand around like figurines" — at least half of every establishing
+    // frame now has a verb with a prop in hand: Marigold sweeps the market lane, Rowan and Odessa
+    // haul stock in, Tobias reads the paper by the lamp, Bram unloads, Wren paints, Kit runs)
+    ['marigold', 54.4, 23.5, 150, 'sweep'],
+    ['rowan', 67.4, 26.3, 0, 'carry', undefined, { walk: [57.8, 26.4] }],
     ['wren', 59.6, 21.6, 133, 'paint'],
     // (r13: Kit tears down the lane towards the lens — running away he showed only the back of his head)
     // (r14: his run starts west of the laundry line — at 48.6, 27.0 the washing hung across his face)
     ['kit', 46.0, 25.8, 0, 'play', 'exclaim', { walk: [40.8, 29.8], run: true }],
     ['linus', 46.6, 31.2, 0, 'idle', undefined, { walk: [38.6, 33.4] }],
     // (r14: she starts on the road, not behind the bridge's west abutment — only her bandana showed)
-    ['odessa', 53.0, 27.0, 0, 'idle', undefined, { walk: [51.8, 26.0] }],
-    ['tobias', 37.8, 26.8, -35, 'idle', 'music'],
+    ['odessa', 53.0, 27.0, 0, 'carry', undefined, { walk: [51.8, 26.0] }],
+    ['tobias', 37.8, 26.8, -35, 'read'],
   ],
   // r12 (critic: "the forge, inn and clinic are off-frame in every establishing shot"): the east bank
   // from over the river — Rowan crossing the Kettle Bridge, Wren at her easel on the near bank, Linus
@@ -255,11 +259,13 @@ const STAGES: Record<string, Mark[]> = {
   'town-evening': [
     ['tobias', 33.6, 15.2, 170, 'idle', undefined, { free: true }],
     ['kit', 31.3, 14.1, 20, 'sit'],
-    ['bram', 41.4, 22.6, 70, 'chat', 'music', { free: true }],
-    ['june', 43.0, 22.2, -60, 'chat', undefined, { free: true }],
+    // (r16 critic: "three of the four in Bram's knot have their backs to the lens" — the knot is an
+    // open horseshoe to the lens now: no free marks, every face cheats round within 70° of it)
+    ['bram', 41.4, 22.6, 70, 'chat', 'music'],
+    ['june', 43.0, 22.2, -60, 'chat'],
     // (r10: the knot opened up — Odessa had stood square in front of Bram and Rowan in front of June)
-    ['rowan', 44.0, 23.8, -140, 'chat', undefined, { free: true }],
-    ['odessa', 40.1, 23.9, 112, 'chat', undefined, { free: true }],
+    ['rowan', 44.0, 23.8, -140, 'chat'],
+    ['odessa', 40.1, 23.9, 112, 'carry'],
     // (r11: the lens swings 26° round to the bakery and the market row — the plaza no longer a
     // symmetric stage between two storefronts; Marigold and Hazel set off home across the plaza, Wren
     // drifts over to join the bakery knot, Linus crosses the near foreground to the clinic road)
@@ -1129,7 +1135,7 @@ export class NpcSystem implements System {
       this.fx.burst(new THREE.Vector3(v.position.x, v.position.y + v.headTop * 0.86, v.position.z), reaction);
       // Liked gifts are held up at the chest through the reaction line (until the box closes when it is
       // the local farmer's talk); a disliked one is shrugged at.
-      if (url && reaction !== 'dislike') v.holdIcon(url, this.talking === a ? 1e9 : 3.6);
+      if (url && reaction !== 'dislike') v.holdIcon(url, this.talking === a ? 1e9 : 3.6, itemId);
       else v.gesture(reaction === 'dislike' ? 'shrug' : 'nod', 1.8);
     };
     // (the arc starts a beat after the box opens, so the throw is seen)
@@ -1768,7 +1774,8 @@ export class NpcSystem implements System {
         a.free = !!mo?.free || !!mo?.walk;
         if (mo && (mo.walk || mo.door)) {
           // Caught on the way somewhere: a real A* walk (a still steps them into the stride).
-          this.setActivity(a, 'idle');
+          // (r16: a hauler walks with the crate in their arms — street life with a prop in hand)
+          this.setActivity(a, act === 'carry' ? 'carry' : 'idle');
           a.anchor = null;
           a.staged = true;
           a.stepKey = '';
@@ -2182,6 +2189,30 @@ export class NpcSystem implements System {
     // leans the camera in through the look offset, so everyone else stays on screen in co-op.
     this.game.cinematic = mode === 'event';
     rig.lookOffset.set(0, 0, 0);
+    this.farmersAO(true);
+  }
+
+  /**
+   * r16 (critic: "the farmer is drawn with the occluder dither — the bakery window frame shows
+   * through the hat"): farmers skip the GTAO G-buffer (`noAO`), so in a talk / event close-up the AO
+   * of the wall behind printed onto them like a see-through ghost. While the director owns the
+   * frame every farmer's opaque parts opt back in (`userData.ao`), like the villagers.
+   */
+  private farmersAO(on: boolean): void {
+    const roots: THREE.Object3D[] = [this.game.player.root];
+    this.game.scene.traverse((o) => {
+      if (o.name === 'remote-farmer') roots.push(o);
+    });
+    for (const r of roots) {
+      r.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || Array.isArray(m.material)) return;
+        const mat = m.material as THREE.Material;
+        if (mat.transparent || !mat.depthWrite) return;
+        if (on) m.userData.ao = true;
+        else delete m.userData.ao;
+      });
+    }
   }
 
   /** Hand the camera back to the player follow, blending yaw / pitch / distance home. */
@@ -2190,6 +2221,7 @@ export class NpcSystem implements System {
     const wasEvent = this.camMode === 'event';
     this.camMode = null;
     this.game.cinematic = false;
+    this.farmersAO(false);
     const rig = this.game.rc.rig;
     if (this.camSaved) {
       // Event cams hand back from their own target (the rig's follow smooths it); chats blend the offset home.
@@ -2260,6 +2292,32 @@ export class NpcSystem implements System {
         if (a.scripted && !a.inside && a.v.root.visible) out.push({ id: a.def.id, x: a.v.position.x, y: a.v.position.y, z: a.v.position.z, head: a.v.headTop });
     if (this.game.player.root.visible !== false) out.push({ id: 'player', x: p.x, y: p.y, z: p.z, head: 1.85 });
     return out;
+  }
+
+  /**
+   * r16: the sight capsules the street props fade inside (world/town/lenscut.ts) — lens → each framed
+   * head and body while a talk / heart event (or a spectated one) owns the camera.
+   */
+  private updateLensCut(): void {
+    if (!this.camMode && !this.specGoal) {
+      if (LENS_CUT.on.value) setLensCut([]);
+      if (GRASS_CLEAR.on.value) setGrassClear([]);
+      return;
+    }
+    const pts: { x: number; y: number; z: number; r: number }[] = [];
+    const acts = this.camActors();
+    // (the pair first: the speaker and the farmer; at most three actors in a scene)
+    const cam = this.game.rc.camera.position;
+    let dMin = Infinity;
+    for (const a of acts.slice(0, 3)) {
+      pts.push({ x: a.x, y: a.y + a.head * 0.8, z: a.z, r: a.id === 'player' ? 0.6 : 0.5 + a.head * 0.06 });
+      pts.push({ x: a.x, y: a.y + a.head * 0.38, z: a.z, r: 0.55 });
+      dMin = Math.min(dMin, Math.hypot(cam.x - a.x, cam.y - a.y, cam.z - a.z));
+    }
+    // (r9 critic: "a bench cuts across the lower foreground" of a real talk — street props in the
+    // near foreground, ≥ 1.3 m in front of the nearest actor and within 6.5 m of the lens, fade out)
+    setLensCut(pts, Number.isFinite(dMin) && this.camMode === 'talk' ? Math.min(6.5, dMin - 1.3) : 0);
+    setGrassClear(acts.slice(0, 3));
   }
 
   /** Building footprints + roof heights (the director keeps them out of the sight lines). */
@@ -2618,6 +2676,12 @@ export class NpcSystem implements System {
       cz = (cz * W + pp.z * 1.4) / (W + 1.4);
       spread = Math.max(spread, Math.hypot(pp.x - lead.x, pp.z - lead.z) + 0.6);
     }
+    // r16: a held subject (the bridge Wren paints) stays in every two-shot, behind the pair.
+    if (subj?.hold && kind === 'two' && !s.anchor) {
+      cx = THREE.MathUtils.lerp(cx, subj.at[0], 0.22);
+      cz = THREE.MathUtils.lerp(cz, subj.at[1], 0.22);
+      for (const a of acts) spread = Math.max(spread, Math.hypot(a.x - subj.at[0], a.z - subj.at[1]) * 0.55);
+    }
     if (ots) kind = 'two';
     else if (kind !== 'wide' && other && Math.hypot(other.x - lead.x, other.z - lead.z) > 0.5) {
       // Camera offset (sin y, cos y) perpendicular to the pair: y = atan2(-dz, dx) or + 180°.
@@ -2804,6 +2868,10 @@ export class NpcSystem implements System {
           if (kind !== 'wide') {
             const rc = this.roofCover(tc, _sa.set(lead.x, lead.y + lead.head * 0.6, lead.z));
             if (rc > 0.12) h += (rc - 0.12) * 46;
+          }
+          if (subj?.hold && kind === 'two') {
+            const sp = _q2.set(subj.at[0], map.heightAt(subj.at[0], subj.at[1]) + (subj.y ?? 0.9), subj.at[1]).project(tc);
+            if (sp.z > 1 || Math.abs(sp.x) > 0.9 || sp.y > 0.85 || sp.y < -0.3) h += 9;
           }
           // The event's owner must face the lens (≤ 50°) whenever they are framed.
           const ow = this.evOwner();
@@ -3442,6 +3510,14 @@ export class NpcSystem implements System {
       // r8: a bystander whose screen box overlaps either partner's head box (heads stacked behind the
       // pair, a hat brim over a face) drops out too, wherever they stand.
       if (!crowd && x1 > x0 && y1 > y0) for (const hb of this.pairHeadBoxes()) if (x0 < hb[2] && x1 > hb[0] && y0 < hb[3] && y1 > hb[1]) crowd = true;
+      // r16 (critic: "Kit's oversized head bobs in the background" of a real talk): a sizeable head
+      // in the band beside the pair's heads competes with the two faces — it steps out too.
+      if (!crowd && h * 0.32 > 0.045)
+        for (const hb of this.pairHeadBoxes()) {
+          const hx = (hb[0] + hb[2]) / 2;
+          const hy = (hb[1] + hb[3]) / 2;
+          if (Math.abs(tx - hx) < 0.55 && Math.abs(headY - hy) < 0.32) crowd = true;
+        }
     }
     const near = cover > 0 && (dC < dF * 0.62 || headY < -0.42 || (cover > 0.09 && dC < dF * 1.15) || edge || crowd);
     return { cover, near };
@@ -4615,9 +4691,15 @@ export class NpcSystem implements System {
         for (const w of due) w.r();
       }
     }
-    if (!this.active) return;
+    if (!this.active) {
+      if (LENS_CUT.on.value) setLensCut([]);
+      if (GRASS_CLEAR.on.value) setGrassClear([]);
+      return;
+    }
     const map = game.world.current!;
     if (game.calendar.season !== this.lookSeason) this.applySeason(game.calendar.season);
+    this.updateLensCut();
+    Villager.lensPos.copy(game.rc.camera.position);
     // r13: the card's backdrop takes the scene's light (night = blue-violet with a warm lamp key)
     const hr = game.calendar.hour;
     setPortraitLight(hr >= 19.5 || hr < 5.5 ? 'night' : hr >= 17.75 ? 'dusk' : 'day');

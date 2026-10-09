@@ -26,6 +26,8 @@ import { globalUniforms } from '../render/uniforms';
 import { patchMaterial, after, before } from '../render/patch';
 import { Rng } from '../core/rng';
 import { townRand } from '../world/town/rng';
+import { produceGeometry } from '../world/props/crops';
+import { CROPS, type CropId } from '../data/crops';
 
 let shared: THREE.MeshStandardMaterial | null = null;
 /** Night-scene face fill strength for every villager (0 = off; NpcSystem eases it in during night talks / events). */
@@ -71,6 +73,8 @@ const LASH_W: Record<string, number> = { marigold: 1, bram: 1.15, wren: 0.95, od
 
 /** Heads are drawn bigger than the body (chibi) so faces read from the high diorama camera. */
 const HEAD_BOOST = 1.2;
+/** Shared material of held 3D produce gifts (vertex-coloured, like the crop meshes). */
+let heldMat: THREE.MeshStandardMaterial | null = null;
 /** Chin up: faces tilt towards the camera. */
 const FACE_UP = 0.15;
 
@@ -967,9 +971,15 @@ export class Villager {
       rb.add(B.hips, roundedBox(0.1, 0.02, 0.1, 0.008), M(0.25 * bw, hipY - 0.165, 0.08, 0, 0.3, 0), 0x3a3a3a);
     }
     if (acc.has('towel')) {
-      for (const e of [-1, 1]) rb.add(B.spine, roundedBox(0.11, 0.24, 0.02, 0.01), M(-0.15 * bw, hipY + 0.3, e * 0.2 * bw, e * 0.12, 0, 0.15), 0xf6f0e4);
-      for (const e of [-1, 1]) rb.add(B.spine, roundedBox(0.112, 0.02, 0.022, 0.006), M(-0.15 * bw - 0.02, hipY + 0.22, e * 0.205 * bw, e * 0.12, 0, 0.15), 0xc8412f);
-      rb.add(B.spine, cylG(0.06, 0.06, 0.11, 10, 1, true, 0, Math.PI), M(-0.15 * bw, hipY + 0.42, 0, 0, 0, Math.PI / 2 + 0.15, 1, 1, 1.9 * bw), 0xf6f0e4);
+      // (r16 critic: "white rectangular slabs sticking out like paper tabs" on June's bodice — the
+      // towel's front / back flaps were flat boxes. They are thin curved bands hugging the torso now,
+      // front and back, with a red stripe band near the hem, joined over the shoulder.)
+      const tr = 0.212 * bw + (L.vest !== undefined ? 0.012 : 0);
+      for (const th0 of [-0.98, -Math.PI + 0.98 - 0.42]) {
+        rb.add(B.spine, cylG(tr, tr, 0.22, 6, 1, true, th0, 0.42), M(0, hipY + 0.31, 0), 0xf6f0e4);
+        rb.add(B.spine, cylG(tr + 0.004, tr + 0.004, 0.022, 6, 1, true, th0, 0.42), M(0, hipY + 0.235, 0), 0xc8412f);
+      }
+      rb.add(B.spine, cylG(0.05, 0.05, 0.09, 10, 1, true, 0, Math.PI), M(-0.155 * bw, hipY + 0.415, 0, 0, 0, Math.PI / 2 + 0.15, 1, 1, 1.95 * bw), 0xf6f0e4);
     }
     if (neckL > 0.015) {
       // A visible neck (the doctor's long one) between the collar and the head, with a collar band.
@@ -1835,19 +1845,21 @@ export class Villager {
         // r15 (blind judge: "a rigid bowl / helmet … doesn't match the portrait's tied bandana"): the
         // portrait's kerchief — a dozen bold dots, not a fine print; a soft rolled band over the brow;
         // the knot tied at the left temple with two rabbit-ear lobes and two tails falling past the ear.
-        const N = 13;
+        // (r16 critic: "the red-spotted bandana reads as a toadstool costume" — a fine paired print in a
+        // muted cream-gold instead of a dozen bold white spots)
+        const N = 34;
         const dots: THREE.BufferGeometry[] = [];
         for (let i = 0; i < N; i++) {
           const a = (i * 2.399963) % (Math.PI * 2);
           const th = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(polar - 0.16)));
           const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.03, Math.cos(th) * rr * 0.83, Math.cos(a) * Math.sin(th) * rr * 1.06);
-          const d = new THREE.CircleGeometry(0.024 + (i % 2) * 0.004, 10);
+          const d = new THREE.CircleGeometry(0.0105 + (i % 3) * 0.002, 6);
           d.lookAt(new THREE.Vector3(q.x / 1.08, q.y, q.z / 1.08));
           q.multiplyScalar(1.008);
           d.translate(q.x, q.y, q.z);
           dots.push(d);
         }
-        for (const d of dots) rb.add(B.head, d, T(), 0xf6ecd8);
+        for (const d of dots) rb.add(B.head, d, T(), 0xe6c89a);
         // A soft rolled band where the cloth folds under over the brow (thicker at the front).
         const band = torG(rr * Math.sin(polar) * 1.0, 0.024, 7, 36);
         band.rotateX(Math.PI / 2);
@@ -1885,10 +1897,29 @@ export class Villager {
    * A received gift held up in both hands at the chest for the reaction line (r6 critic: the juice
    * was invisible in stills). `url` = the item's icon; dropped after `dur` s or by the next gift.
    */
-  private heldIcon: THREE.Sprite | null = null;
+  private heldIcon: THREE.Sprite | THREE.Group | null = null;
   private heldT = 0;
-  holdIcon(url: string, dur = 3.4): void {
+  holdIcon(url: string, dur = 3.4, itemId?: string): void {
     this.dropIcon();
+    // r16 (critic: "Bram's pumpkin reads as a flat decal printed on his apron"): produce is held as
+    // the real 3D item in both hands at chest height, lifted up over 0.3 s; anything without a model
+    // keeps the icon card.
+    const crop = itemId && (CROPS as Record<string, unknown>)[itemId] ? (itemId as CropId) : null;
+    if (crop) {
+      if (!heldMat) heldMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
+      const m = new THREE.Mesh(produceGeometry(crop), heldMat);
+      const g = new THREE.Group();
+      g.add(m);
+      g.scale.setScalar(1.55 / this.scaleS);
+      g.rotation.set(-0.25, 0.5, 0);
+      g.position.set(0, 0.12 * (this.def.look.torso ?? 1), 0.36 + (this.def.look.belly ?? 0) * 0.12);
+      g.userData.liftT = 0;
+      this.bones[B.spine]!.add(g);
+      this.heldIcon = g;
+      this.heldT = dur;
+      this.gesture('chest', dur);
+      return;
+    }
     const tex = iconTexture(url);
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
     s.center.set(0.5, 0.25);
@@ -1906,7 +1937,7 @@ export class Villager {
   dropIcon(): void {
     if (!this.heldIcon) return;
     this.heldIcon.removeFromParent();
-    this.heldIcon.material.dispose();
+    if ((this.heldIcon as THREE.Sprite).isSprite) (this.heldIcon as THREE.Sprite).material.dispose();
     this.heldIcon = null;
   }
 
@@ -2045,7 +2076,14 @@ export class Villager {
     this.t += dt;
     if (this.heldIcon) {
       this.heldT -= dt;
-      this.heldIcon.position.y = 0.2 * (this.def.look.torso ?? 1) + Math.sin(this.t * 3) * 0.012;
+      if ((this.heldIcon as THREE.Sprite).isSprite) this.heldIcon.position.y = 0.2 * (this.def.look.torso ?? 1) + Math.sin(this.t * 3) * 0.012;
+      else {
+        // lifted from the waist to the chest over 0.3 s (ease-out-back), then a slow proud bob
+        const u = (this.heldIcon.userData.liftT = Math.min(1, (this.heldIcon.userData.liftT as number) + dt / 0.3));
+        const e = 1 + 2.2 * Math.pow(u - 1, 3) + 1.2 * Math.pow(u - 1, 2);
+        this.heldIcon.position.y = (-0.1 + 0.3 * e) * (this.def.look.torso ?? 1) + Math.sin(this.t * 3) * 0.012 * u;
+        this.heldIcon.rotation.y = 0.5 + Math.sin(this.t * 1.3) * 0.12;
+      }
       if (this.heldT <= 0) this.dropIcon();
     }
     this.moving = false;
@@ -2362,7 +2400,7 @@ export class Villager {
       const fade = THREE.MathUtils.clamp(this.barkT / 0.35, 0, 1);
       // (≈ 19 px text at 1080p from the 27 m town lens: r3 critic found 14 px barks too small)
       // (r7: a touch bigger, and taller by the name tab so the line itself keeps its size)
-      const h = 0.96 * pop * this.barkHK;
+      const h = 0.96 * pop * this.barkHK * this.barkK();
       this.barkSprite.scale.set(h * this.barkAspect, h, 1);
       this.barkLiftCur += (this.barkLift - this.barkLiftCur) * Math.min(1, dt * 8);
       const bob = Math.sin(age * 2.2) * 0.025;
@@ -2432,9 +2470,21 @@ export class Villager {
   barkPlace: { cx: number; cy: number; cz: number; tx: number; ty: number; tz: number; len: number; rot: number; fade: number } | null = null;
   /** World size of the bubble right now: height, width, bottom offset below its centre (solver input). */
   barkSize(): { h: number; w: number; bot: number } {
-    const h = 0.96 * this.barkHK;
+    const h = 0.96 * this.barkHK * this.barkK();
     return { h, w: h * this.barkAspect, bot: this.barkBot * h };
   }
+  /**
+   * r16 (critic: "far bark bubbles are fogged grey and can't be read"): a far bubble grows so it keeps
+   * a minimum screen size (~8.5 % of the frame height, text ≈ 30 px at 1080p), up to 1.9×.
+   */
+  private barkK(): number {
+    const lp = Villager.lensPos;
+    if (lp.y < -900) return 1;
+    const d = Math.hypot(lp.x - this.root.position.x, lp.y - this.root.position.y - this.headTop, lp.z - this.root.position.z);
+    return THREE.MathUtils.clamp((0.0536 * d) / 0.96, 1, 1.9);
+  }
+  /** The live lens position (NpcSystem sets it every frame; y < -900 = unknown). */
+  static readonly lensPos = new THREE.Vector3(0, -999, 0);
   /** Say a short line out loud (street chatter): a speech bubble over the head for `dur` s. */
   bark(text: string, dur = 3.4, side = 0): void {
     this.barkSide = side;
@@ -2445,6 +2495,7 @@ export class Villager {
     this.barkPlace = null;
     if (!this.barkSprite) {
       this.barkSprite = billboard(tex, 21);
+      nearDepth(this.barkSprite.material);
       this.barkSprite.name = 'npc-bark';
       this.barkSprite.userData.perfTag = 'npcs';
       this.root.add(this.barkSprite);
@@ -3295,6 +3346,19 @@ function billboard(tex: THREE.Texture, renderOrder: number): THREE.Mesh<THREE.Pl
   return m;
 }
 
+/**
+ * r16: the height-fog pass is a post effect that reads the depth buffer — a bubble that wrote no depth
+ * was fogged as if it were the far background behind it. Opaque bubble pixels now write a near depth.
+ */
+function nearDepth(m: THREE.MeshBasicMaterial): void {
+  m.depthWrite = true;
+  m.onBeforeCompile = (sh) => {
+    // (fully clear texels are dropped — they would stamp an unfogged rectangle round the bubble)
+    sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', '#include <dithering_fragment>\n  if ( diffuseColor.a < 0.012 ) discard;\n  gl_FragDepth = 0.02;');
+  };
+  m.customProgramCacheKey = () => 'nearDepth';
+}
+
 /** Speech-bark bubbles: one canvas texture per line (a handful per villager), cached. */
 const BARK_TEX = new Map<string, { tex: THREE.CanvasTexture; aspect: number; hk: number; bot: number }>();
 function barkTexture(text: string, who?: { name: string; color: number }): { tex: THREE.CanvasTexture; aspect: number; hk: number; bot: number } {
@@ -3501,9 +3565,11 @@ export class ReactionFx {
     for (let i = 0; i < spec.n; i++) {
       const s = this.sprite(fxTexture(spec.tex as 'heart'));
       const a = (i / spec.n) * Math.PI * 2 + townRand('fx.burst') * 0.5;
-      const v = new THREE.Vector3(Math.cos(a) * spec.sp * 0.6, 1.2 + townRand('fx.burst') * spec.sp, Math.sin(a) * spec.sp * 0.35);
+      // (r16 critic: "the heart burst for Pip's gift floats ~150 px away from Wren's head, over the
+      // shop" — a tighter crown round the receiver's head: less lift, shorter life)
+      const v = new THREE.Vector3(Math.cos(a) * spec.sp * 0.5, 0.55 + townRand('fx.burst') * spec.sp * 0.45, Math.sin(a) * spec.sp * 0.3);
       s.position.copy(at);
-      this.parts.push({ s, v, life: 1.3 + townRand('fx.burst') * 0.5, age: -i * 0.035, size: spec.size * (0.8 + townRand('fx.burst') * 0.4), spin: (townRand('fx.burst') - 0.5) * 2, g: kind === 'dislike' ? -0.4 : 0.9 });
+      this.parts.push({ s, v, life: 1.0 + townRand('fx.burst') * 0.35, age: -i * 0.035, size: spec.size * (0.8 + townRand('fx.burst') * 0.4), spin: (townRand('fx.burst') - 0.5) * 2, g: kind === 'dislike' ? -0.4 : 0.9 });
     }
     if (kind === 'dislike')
       for (let i = 0; i < 2; i++) {

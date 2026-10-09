@@ -216,7 +216,7 @@ export interface HeartEvent {
    * The thing the title is about (the bridge Wren paints, the Hall Tobias lit): the opening wide
    * shot pulls it into frame and auditEvents() fails if it is not on screen there.
    */
-  subject?: { at: [number, number]; y?: number; label: string };
+  subject?: { at: [number, number]; y?: number; label: string; /** r16: every two-shot keeps it in frame, behind the actors. */ hold?: boolean };
   /**
    * Insert cards (r7): a painted close-up of the thing the scene is about (ui/portraits insertArt
    * kinds) pinned beside the dialogue while a line containing one of `word`'s '|'-separated words plays.
@@ -303,7 +303,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Marigold Thimble',
     role: 'Keeps Thimble & Pip’s general store',
     birthday: { season: 'spring', day: 11 },
-    look: { fp: { w: 1.1, h: 0.94, jaw: 0.15, chin: -0.5, eye: 0.84, gap: 1.04, nose: 'bulb', mouth: 0.86, lines: 0.8, cheeks: 0.9, ears: 1.1 }, eyeShape: 'almond', lashes: true, brow: 0.7, browArch: 0.35, head: 0.94, skin: 0xf0c4a0, hair: 0xb8b0b4, hairStyle: 'bun', top: 0x8f6fb0, bottom: 0x5a4a6a, apron: 0xf2e6d0, glasses: true, scale: 0.9, build: 1.3, torso: 0.9, belly: 0.55, shoulders: 0.92, legs: 0.82, eyes: 0x6a8a4a, skirt: true, face: 'round', acc: ['wrinkles', 'earrings', 'keys'], shoes: 0x6a3a3a, backdrop: 'shop' },
+    look: { fp: { w: 1.1, h: 0.94, jaw: 0.15, chin: -0.5, eye: 0.84, gap: 1.04, nose: 'bulb', mouth: 0.86, lines: 0.8, cheeks: 0.9, ears: 1.1 }, eyeShape: 'almond', lashes: true, brow: 0.7, browArch: 0.35, head: 0.94, skin: 0xf0c4a0, hair: 0xb8b0b4, hairStyle: 'bun', top: 0x8f6fb0, bottom: 0x5a4a6a, apron: 0xf2e6d0, glasses: true, scale: 0.86, build: 1.3, torso: 0.9, belly: 0.55, shoulders: 0.92, legs: 0.82, eyes: 0x6a8a4a, skirt: true, face: 'round', acc: ['wrinkles', 'earrings', 'keys'], shoes: 0x6a3a3a, backdrop: 'shop' },
     walk: W(1.35, 0.42, 0.035, 0.06, 0.04, 0.35),
     home: 'general_store',
     portraitBg: [0xf6d9a8, 0xe8a888],
@@ -622,12 +622,15 @@ export const NPCS: Record<NpcId, NpcDef> = {
         dry: true,
         demoTime: 16.8,
         // (r13 critic: the farmer stood behind Wren — when she turned to ask, the lens lost the farmer)
-        cast: { wren: ['easel_river', 'right'], player: [[59.65, 23.25], 'up'] },
-        // From the south-east bank: the Kettle Bridge in the foreground, Wren at her easel beyond it.
-        camera: { x: 61.2, z: 23.4, yaw: 40, pitch: 40, distance: 15 },
-        subject: { at: [62.4, 25.3], y: 0.9, label: 'Kettle Bridge' },
-        // Yesterday's attempt, propped on a field stand facing the path: the painting she asks about.
-        props: [{ kind: 'painting', at: [58.55, 21.15], rot: 0.75, scale: 1.3, word: 'look like a river' }],
+        // (r16 critic: "the Kettle Bridge, the subject of the scene, is not in frame — the lens looks
+        // down on the farmer's hat crown, half the frame empty river and grass". Re-blocked from the
+        // far (east) bank across the water: Wren at her easel facing the river and the lens, the
+        // farmer at her shoulder, the Kettle Bridge arching beside them and held in every shot.)
+        cast: { wren: ['easel_river', 'right'], player: [[59.45, 19.85], 'down'] },
+        camera: { x: 61.0, z: 21.6, yaw: 108, pitch: 32, distance: 13 },
+        subject: { at: [62.6, 25.3], y: 1.1, label: 'Kettle Bridge', hold: true },
+        // Yesterday's attempt, propped on a field stand beside her: the painting she asks about.
+        props: [{ kind: 'painting', at: [60.5, 22.9], rot: 1.4, scale: 1.3, word: 'look like a river' }],
         insert: [{ kind: 'painting', word: 'paint|river', caption: 'Wren’s canvas: the Kettle Bridge' }],
         script: [
           { act: 'wren', activity: 'paint' },
@@ -683,7 +686,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Odessa Flint',
     role: 'Blacksmith at Flint & Ember',
     birthday: { season: 'winter', day: 9 },
-    look: { fp: { w: 1.02, h: 1.07, jaw: 0.95, chin: 0.25, eye: 1.3, gap: 1.02, eyeY: 0.02, nose: 'broad', mouth: 1.18, lines: 0.2, cheeks: 0.0, ears: 0.95, cleft: true }, eyeShape: 'almond', brow: 1.35, browArch: -0.05, skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.3, shoulders: 1.36, torso: 1.32, hands: 1.3, head: 0.78, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.4, acc: ['toolbelt', 'earrings', 'tongs'], shoes: 0x2e2420, backdrop: 'forge' },
+    look: { fp: { w: 1.02, h: 1.07, jaw: 0.95, chin: 0.25, eye: 1.3, gap: 1.02, eyeY: 0.02, nose: 'broad', mouth: 1.18, lines: 0.2, cheeks: 0.0, ears: 0.95, cleft: true }, eyeShape: 'almond', brow: 1.35, browArch: -0.05, skin: 0x8a5a3e, hair: 0x1e1612, hairStyle: 'braids', top: 0xb8a48a, bottom: 0x3a342e, apron: 0x6a4a32, scale: 1.16, build: 1.3, shoulders: 1.36, torso: 1.32, hands: 1.3, head: 0.78, eyes: 0x3a2418, hat: 'bandana', hatColor: 0xc8412f, face: 'square', legs: 1.48, acc: ['toolbelt', 'earrings', 'tongs'], shoes: 0x2e2420, backdrop: 'forge' },
     walk: W(1.6, 0.52, 0.025, 0.03, 0.02, 0.3),
     home: 'forge',
     portraitBg: [0xf2b48a, 0xb8563a],
@@ -1280,7 +1283,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Rowan Birch',
     role: 'Carpenter, fixer, Kit’s long-suffering brother',
     birthday: { season: 'fall', day: 18 },
-    look: { fp: { w: 1.0, h: 1.0, jaw: 0.8, chin: 0.15, eye: 1.1, gap: 0.97, eyeY: -0.02, nose: 'long', mouth: 1.2, lines: 0.1, cheeks: 0.3, ears: 1.0, cleft: true }, eyeShape: 'round', brow: 1.3, browArch: 0.0, skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.06, shoulders: 1.26, torso: 1.3, hands: 1.2, head: 0.8, eyes: 0x6a4a2a, face: 'long', legs: 1.36, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
+    look: { fp: { w: 1.0, h: 1.0, jaw: 0.8, chin: 0.15, eye: 1.1, gap: 0.97, eyeY: -0.02, nose: 'long', mouth: 1.2, lines: 0.1, cheeks: 0.3, ears: 1.0, cleft: true }, eyeShape: 'round', brow: 1.3, browArch: 0.0, skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.17, build: 1.06, shoulders: 1.26, torso: 1.3, hands: 1.2, head: 0.8, eyes: 0x6a4a2a, face: 'long', legs: 1.36, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
     walk: W(1.55, 0.55, 0.035, 0.09, 0.03, 0.4),
     home: 'birch_house',
     portraitBg: [0xd8e8c0, 0x7aa86a],
@@ -1396,7 +1399,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Hazel Moss',
     role: 'Retired gardener, keeper of the square’s flowers',
     birthday: { season: 'spring', day: 3 },
-    look: { fp: { w: 1.04, h: 0.96, jaw: 0, chin: 0.1, eye: 0.8, gap: 1.08, nose: 'button', mouth: 0.84, lines: 0.9, cheeks: 1.0, ears: 1.0 }, eyeShape: 'round', brow: 0.65, browArch: 0.3, head: 0.94, skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, hat: 'sunhat', hatColor: 0xd6a85a, skirt: true, scale: 0.88, build: 1.08, belly: 0.3, torso: 0.9, legs: 0.84, shoulders: 0.9, eyes: 0x7a6a9a, face: 'round', acc: ['shawl', 'wrinkles', 'flower', 'trowel'], shoes: 0x6a4a3a, backdrop: 'garden' },
+    look: { fp: { w: 1.04, h: 0.96, jaw: 0, chin: 0.1, eye: 0.8, gap: 1.08, nose: 'button', mouth: 0.84, lines: 0.9, cheeks: 1.0, ears: 1.0 }, eyeShape: 'round', brow: 0.65, browArch: 0.3, head: 0.94, skin: 0xe8b894, hair: 0xd8d4cc, hairStyle: 'bob', top: 0xa8587a, bottom: 0x4a3a4a, scarf: 0xf2e2c0, hat: 'sunhat', hatColor: 0xd6a85a, skirt: true, scale: 0.84, build: 1.08, belly: 0.3, torso: 0.9, legs: 0.84, shoulders: 0.9, eyes: 0x7a6a9a, face: 'round', acc: ['shawl', 'wrinkles', 'flower', 'trowel'], shoes: 0x6a4a3a, backdrop: 'garden' },
     walk: W(1.05, 0.34, 0.02, 0.07, 0.14, 0.22),
     home: 'cottage_east',
     portraitBg: [0xe8d8f0, 0xa88ab8],

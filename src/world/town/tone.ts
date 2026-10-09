@@ -17,7 +17,7 @@ import type { Game } from '../../core/game';
 import { globalUniforms } from '../../render/uniforms';
 
 /** Live-tunable (window.__townTone) for look-dev. */
-export const TOWN_TONE = { dusk: 1, night: 1 };
+export const TOWN_TONE = { dusk: 1, night: 1, winter: 1 };
 (globalThis as unknown as { __townTone: typeof TOWN_TONE }).__townTone = TOWN_TONE;
 
 const _sunGold = new THREE.Color(0xffc49a);
@@ -26,6 +26,10 @@ const _groundCool = new THREE.Color(0x4c4a62);
 const _fogCool = new THREE.Color(0x8e8cb8);
 const _moonSky = new THREE.Color(0x5a6cae);
 const _moonGround = new THREE.Color(0x262a40);
+const _winSky = new THREE.Color(0x7fb4ec);
+const _winGround = new THREE.Color(0x5a7cb8);
+const _winSun = new THREE.Color(0xfff0d8);
+const _winFog = new THREE.Color(0xc4d8ee);
 
 let installed = false;
 
@@ -52,8 +56,30 @@ function apply(game: Game): void {
   // Dusk weight: rises through sunset, holds through the blue hour, hands over to night.
   const dusk = ss(h, 18.4, 19.3) * (1 - ss(h, 20.6, 21.4)) * TOWN_TONE.dusk;
   const night = ss(L.night, 0.55, 1) * TOWN_TONE.night;
-  if (dusk < 0.002 && night < 0.002) return;
   const rc = game.rc;
+  // r16 winter day (critic: "town-winter is bleached: near-white snow with almost no value structure
+  // … Stardew's winter lives on cyan and blue shadow tones"): the sky fill turns a clear cyan-blue so
+  // every shadow and occluded side of the snow goes blue, the sun stays a warm cream, the exposure and
+  // highlights come down off the clip and contrast rises so drifts, banks and roofs read in value.
+  const wint = snow * (1 - dusk) * (1 - ss(L.night, 0.2, 0.7)) * TOWN_TONE.winter;
+  if (wint > 0.002) {
+    L.hemi.color.lerp(_winSky, 0.75 * wint);
+    L.hemi.groundColor.lerp(_winGround, 0.7 * wint);
+    L.hemi.intensity *= 1 - 0.08 * wint;
+    L.sun.color.lerp(_winSun, 0.5 * wint);
+    L.sun.intensity *= 1 - 0.1 * wint;
+    L.bounce.color.copy(L.hemi.groundColor).lerp(L.sun.color, 0.35);
+    L.fog.color.lerp(_winFog, 0.6 * wint);
+    (rc.scene.background as THREE.Color).copy(L.fog.color);
+    globalUniforms.uSunColor.value.copy(L.sun.color).multiplyScalar(L.sun.intensity / 3);
+    rc.renderer.toneMappingExposure *= 1 - 0.1 * wint;
+    const g = rc.post.grade.uniforms;
+    (g.uGain!.value as THREE.Vector3).lerp(_v.set(0.97, 0.99, 1.04), 0.7 * wint);
+    (g.uLift!.value as THREE.Vector3).lerp(_v.set(0.0, 0.012, 0.04), 0.6 * wint);
+    g.uContrast!.value *= 1 + 0.1 * wint;
+    g.uSaturation!.value *= 1 + 0.08 * wint;
+  }
+  if (dusk < 0.002 && night < 0.002) return;
   if (dusk > 0.002) {
     L.sun.color.lerp(_sunGold, 0.55 * dusk);
     L.sun.intensity *= 1 - 0.22 * dusk;

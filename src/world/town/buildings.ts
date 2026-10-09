@@ -526,10 +526,9 @@ export function buildStoneBridge(rng: Rng, br: { len: number; width: number; ris
     m.scale(1.4, 0.5, 1);
     b.add('boxFlower', m, mat(x, bedY + 0.9, (rng.next() < 0.5 ? -1 : 1) * (W / 2 + 0.05)), { tint: 0x5a8a3a });
   }
-  // Flower pots on the end posts.
-  for (const sx of [-1, 1]) {
-    b.add('soilPot', bevelCylinder(0.16, 0.12, 0.2, 0.02, 10), mat(sx * (L / 2 - 0.1), br.endY + 1.02, 0), { tint: 0xc8704a });
-  }
+  // (r16 critic: "a stray red octagonal prism lies on the cobbles and reads as a debug primitive" —
+  // the end-post flower pots sat on the bridge's axis at z = 0, floating 1 m over the deck between the
+  // two newels; the newels already carry their stone balls, so the pots are gone)
   // Planter boxes along the coping (geraniums + trailing ivy over the outer face) and moss in the
   // joints: the deck and parapets read as a lived-in town bridge, not a plain cobble ramp.
   const petals = [0xe8574a, 0xff8fab, 0xfff2f6, 0xffd166];
@@ -1284,10 +1283,13 @@ export function buildRoofDressing(rng: Rng, s: { w: number; d: number; wallH: nu
     for (let i = 0; i < 5; i++) {
       const x = cx0 + (rng.next() - 0.5) * 0.9;
       const z = Math.min(s.d / 2 + 0.3, cz0 + (rng.next() - 0.5) * 0.6);
-      const r = 0.07 + rng.next() * 0.09;
-      const clump = lumpySphere(r, 1, 0.35, rng, 2.2);
-      clump.scale(1.3, 0.2, 1);
-      b.add('white', clump, mat(x, roofY(z) - 0.02, z, slope, rng.next() * 3, 0), { tint: [0x4f6a2a, 0x5f7a30, 0x6a7a3a, 0x7a8a44][(i + c) % 4]! });
+      // (r16 critic: "the mossy roof patches are identical stickers" — each clump its own size,
+      // stretch, turn and tone, from dark cushion moss to a pale grey-gold lichen)
+      const r = 0.045 + Math.pow(rng.next(), 1.6) * 0.16;
+      const clump = lumpySphere(r, 1, 0.45, rng, 2.2 + rng.next() * 1.5);
+      clump.scale(0.9 + rng.next() * 0.8, 0.14 + rng.next() * 0.1, 0.6 + rng.next() * 0.7);
+      const mc = new THREE.Color([0x4f6a2a, 0x5f7a30, 0x6a7a3a, 0x7a8a44, 0x9a9a6a, 0x5a6a3a][Math.floor(rng.next() * 6)]!).multiplyScalar(0.85 + rng.next() * 0.3);
+      b.add('white', clump, mat(x, roofY(z) - 0.02, z, slope, rng.next() * 6.28, 0), { tint: mc.getHex() });
     }
   }
   if (tile)
@@ -1440,18 +1442,20 @@ export function roofSnowWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: numb
     const ph = rng.next() * 6.28;
     let x = -W / 2;
     while (x < W / 2 - 0.05) {
-      const sw = Math.min(W / 2 - x, 0.32 + rng.next() * 0.3);
+      // (r16 critic: "stair-stepped jaggies along the roof snow edges" — wider strips that overlap
+      // their neighbours, reaching along one slow wave with only a little jitter: a soft melt line)
+      const sw = Math.min(W / 2 - x, 0.55 + rng.next() * 0.35);
       const xc = x + sw / 2;
-      const reach = THREE.MathUtils.clamp(0.66 + 0.12 * Math.sin(xc * 0.9 + ph) + 0.06 * Math.sin(xc * 2.3 + ph * 2) + (rng.next() - 0.5) * 0.1, 0.46, 0.86);
-      const th = 0.11 + rng.next() * 0.05;
+      const reach = THREE.MathUtils.clamp(0.66 + 0.1 * Math.sin(xc * 0.75 + ph) + 0.04 * Math.sin(xc * 1.9 + ph * 2) + (rng.next() - 0.5) * 0.03, 0.48, 0.84);
+      const th = 0.12 + rng.next() * 0.03;
       const len = (run * reach) / cosS;
       const zc = run - (run * reach) / 2;
-      const slab = snowSlab(sw + 0.1, th, len, Math.min(0.055, th * 0.48));
+      const slab = snowSlab(sw + 0.24, th, len, Math.min(0.06, th * 0.5));
       add(slab, mat(xc, surf(zc) + th / 2 / cosS + 0.01, sz * zc, sz * slope, 0, 0), 0xeef3fa);
       // A wind-packed roll along each step's upper edge rounds it off.
       const zt = run - run * reach + 0.06;
       const lump = lumpySphere(0.1 + rng.next() * 0.06, 0, 0.22, rng, 1.8);
-      lump.scale((sw + 0.1) / 0.24, 0.42, 0.75);
+      lump.scale((sw + 0.24) / 0.24, 0.42, 0.75);
       // (AO detail: a 4 cm roll on the slab adds nothing to the half-res GTAO G-buffer)
       b.add('white', lump, M.clone().multiply(mat(xc, surf(zt) + th * 0.85, sz * zt, sz * slope, 0, 0)), { tint: 0xf2f6fb, detail: true });
       x += sw;

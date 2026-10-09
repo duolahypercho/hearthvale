@@ -109,6 +109,8 @@ import {
   buildGlasshouse,
 } from './buildings';
 import { MeshBuilder } from '../geom';
+import { installLensCut, installGrassClear } from './lenscut';
+import { townCobble } from './cobble';
 
 const HOUSES: Record<Exclude<TownBuilding['kind'], 'hall'>, HouseSpec> = {
   store: { w: 7, d: 5, wallH: 3.3, wall: 'plaster', wallTint: 0xfbeed8, roofTint: 0x5fa89a, doorTint: 0x3f7890, shutterTint: 0x5d9484, awning: [0xd8573e, 0xf6ecd8], sign: 'store', chimney: true, doorX: -1 },
@@ -194,7 +196,7 @@ export class TownMap implements GameMap {
     this.noise = new Noise2D(this.rng.fork('n').seed);
     this.sampleRiver();
     this.sampleStreets();
-    this.terrain = new Terrain({ ...TOWN_EXTENT2, step: 0.5, height: (x, z) => this.height(x, z), waterLevel: WATER_Y, pathTexture: textures.cobble().map, pathScale: 0.48 });
+    this.terrain = new Terrain({ ...TOWN_EXTENT2, step: 0.5, height: (x, z) => this.height(x, z), waterLevel: WATER_Y, pathTexture: townCobble().map, pathScale: 0.5 });
     this.root.add(this.terrain.mesh);
     this.terrain.paint('path', (x, z) => this.streetValue(x, z));
     // Sandy / pebbly river banks.
@@ -248,6 +250,11 @@ export class TownMap implements GameMap {
       cover: this.terrain,
     });
     this.root.add(this.grass.group);
+    // r16: blades round the speakers' feet shrink to a lawn while a talk / event owns the frame.
+    this.grass.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) for (const mt of Array.isArray(m.material) ? m.material : [m.material]) installGrassClear(mt);
+    });
     // Picnic blankets lie on mown grass (no blades poking up through the gingham).
     for (const p of EXTRA_PROPS) if (p.kind === 'picnic') for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) this.grass.clearTile(Math.floor(p.x) + dx, Math.floor(p.z) + dz, 0.05);
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
@@ -433,12 +440,15 @@ export class TownMap implements GameMap {
     if (this.riverDist(x, z) < RIVER_HALF + 0.9) return 0;
     const pv = t.splatAt(x, z, 'path');
     if (pv > 0.25) return 0;
+    // (r16 critic: "lone grass tufts grow out of the middle of the cobbled paths")
+    const sv = this.streetValue(x, z);
+    if (sv > 0.3) return 0;
     const sand = t.splatAt(x, z, 'sand');
     const tx = Math.floor(x);
     const tz = Math.floor(z);
     if (this.grid.inBounds(tx, tz) && this.grid.hasFlag(tx, tz, TileFlag.Blocked) && this.grid.getType(tx, tz) !== TileType.Cliff) return 0.3;
     const clump = smoothstep(-0.1, 0.5, this.noise.fbm(x * 0.13 + 4, z * 0.13, 2));
-    return (3 + clump * 4.5) * (pv > 0.05 ? 0.55 : 1) * (1 - sand * 0.7);
+    return (3 + clump * 4.5) * (pv > 0.05 ? 0.55 : 1) * (1 - sand * 0.7) * (1 - smoothstep(0.1, 0.3, sv));
   }
 
   // ───────────────────────────────────────────── build
@@ -978,6 +988,8 @@ export class TownMap implements GameMap {
       if (k.startsWith('c:')) this.clutterCells.push({ x: cx, z: cz, sets, on: true });
     }
     pool.group.userData.perfTag = 'props';
+    // r16: talk / event lenses screen-door the street props between the lens and the speakers.
+    for (const m of pool.meshes) for (const mt of Array.isArray(m.material) ? m.material : [m.material]) installLensCut(mt);
     this.root.add(pool.group);
   }
 

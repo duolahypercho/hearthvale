@@ -886,6 +886,39 @@ actors such as Pip the shop cat).
   notice reads beside her. *Perf*: villagers past ~30 m leave the shadow pass; the roof packs use
   single-segment bevels.
 
+- **Round 16** — *Talk lens*: while a talk / heart event owns the frame every farmer's opaque parts
+  opt into the GTAO G-buffer (`npcs.farmersAO`; farmers skip it for perf, so the AO of the bakery
+  window behind printed through the hat like a ghost). A lens cut-away (`world/town/lenscut.ts`): the
+  director publishes sight capsules (lens → each framed head and body) and every town street-prop
+  material screen-door fades the fragments inside one, nearer the lens than the actor (the lamp-post
+  lantern over the farmer's face in a real talk); live talks also fade props ≥ 1.3 m in front of the
+  nearest actor (the bench across the foreground). Static props are merged per cell, so this is per
+  fragment, one uniform branch when off. Grass round the speakers' feet shrinks to a lawn during a
+  talk / event (`installGrassClear`), no grass grows on paved lanes, and a sizeable bystander head
+  beside the pair's heads steps out of a live talk (Kit's big head in the background).
+  *Portraits* (`portraitOpts.chibi`): the painted busts take the models' chibi grammar — a rounder,
+  shorter face, big low-set eyes with a large iris, a toy nose (a soft wedge under a lit dot), a small
+  mouth with no lip shapes, smile folds, jowls or cheekbone hollows, narrower shoulders; curly hair is
+  the model's cloud of big puffs (no sausage coils); neutral brows relax (June's neutral read as a
+  scowl); the crop keeps the face ≥ 57 % of the card. *Gifts*: produce is held as the real 3D crop
+  mesh in both hands, lifted from the waist over 0.3 s (ease-out-back); the heart burst stays a tight
+  crown round the receiver's head. *Heart events*: wren-2 "Painting the Bridge" re-blocked across the
+  river — Wren at her easel facing the water and the lens, the farmer at her shoulder, the Kettle Bridge
+  arching beside them; an event `subject` with `hold` stays in every two-shot (scored in the lens
+  solve). The stone bridge's end-post flower pots floated on the deck axis 1 m up (the critic's "stray
+  red octagonal prism"): gone. *Street life*: town-day has a verb in most hands (Marigold sweeps the
+  market lane, Rowan and Odessa haul crates in — walkers carry while walking — Tobias reads, Bram
+  unloads, Wren paints, Kit runs); the evening bakery knot opens to the lens; Odessa is taller and
+  leggier, Marigold, Hazel shorter, Rowan taller. *Barks*: a far bubble grows to keep ≈ 8.5 % of the
+  frame height (×1.9 max) and writes a near depth so the post-process height fog no longer greys it.
+  *Town*: Hearthvale's own sett texture (`world/town/cobble.ts`: smaller stones, per-stone hue and
+  value — sandstone, blue-grey granite, a few mossy stones — worn chipped edges, a polished crown);
+  roof moss clumps each their own size, stretch, turn and tone; June's tea towel is two thin bands
+  hugging the bodice (no paper tabs); Odessa's bandana carries a fine cream-gold print (no toadstool
+  spots; the portrait agrees). *Winter*: a clear cyan-blue sky fill and blue shadows on the snow, a
+  warm cream sun, exposure and gain off the clip with more contrast (`tone.ts`), roof snow in wider
+  overlapping strips along one slow wave (no stair-step jaggies), slush warmed to a brown-violet melt.
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host

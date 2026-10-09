@@ -37,7 +37,7 @@ const P3D = new Map<string, string | null>();
 /** Where the head sits in each rendered bust (fractions of the frame) — the manga marks follow it. */
 const P3D_HEAD = new Map<string, { x: number; y: number; r: number }>();
 /** Painted-mode switch for A/B shots and tests (`__game` eval): false = the SVG bust. */
-export const portraitOpts = { model3d: false, plate: true, persona: true };
+export const portraitOpts = { model3d: false, plate: true, persona: true, chibi: true };
 
 /** Data URL of the 3D bust for this look + mood (cached), or null (not a villager / no WebGL). */
 export function portrait3dUrl(look: NpcLook, mood: Mood): string | null {
@@ -105,7 +105,7 @@ const MOOD: Record<Mood, MoodParams> = {
   // (r13 critic: Bram's ten moods read as three — every eye was the same wide doe shape. The eye
   // SHAPE carries the mood now: a relaxed lid at rest, a smile squint, a glare slanting into the
   // nose, a sorrowful droop at the outer corners, half lids when wistful, white all round in shock.)
-  neutral: { open: 1, smile: 0, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: 0, browOut: 0, browRaiseL: 0, blush: 0.45, tilt: 0, lidO: 0.16, lidI: 0.12 },
+  neutral: { open: 1, smile: 0.12, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: -2.5, browOut: -0.5, browRaiseL: 0, blush: 0.45, tilt: 0, lidO: 0.08, lidI: 0.02 },
   happy: { open: 0.95, smile: 0.35, gazeX: 0, gazeY: 0, pupil: 1, closed: false, browIn: -3, browOut: -1.5, browRaiseL: 0, blush: 0.6, tilt: -2, lidO: 0.08, lidI: 0.08, lowUp: 0.34 },
   laugh: { open: 0, smile: 1, gazeX: 0, gazeY: 0, pupil: 1, closed: true, browIn: -5, browOut: -3, browRaiseL: 0, blush: 0.8, tilt: -5 },
   sad: { open: 0.92, smile: 0, gazeX: 0, gazeY: 3.5, pupil: 1, closed: false, browIn: -12, browOut: 5, browRaiseL: 0, blush: 0.3, tilt: 3, lidO: 0.56, lidI: 0.18, lowUp: 0.06 },
@@ -574,6 +574,17 @@ function backHair(id: string, L: NpcLook, f: Face): string {
       return `<circle cx="${cx}" cy="${top - 6}" r="21" fill="${H}" ${s}/><path d="M${cx - 12} ${top - 14} q 12 -8 24 0" stroke="${shade(L.hair, 1.35)}" stroke-width="3" fill="none" opacity="0.5" stroke-linecap="round"/><path d="M${cx - 20} ${top + 2} q 20 6 40 0" stroke="${shade(L.top, 0.9)}" stroke-width="4" fill="none"/>`;
     case 'curly': {
       const c: string[] = [];
+      if (portraitOpts.chibi) {
+        // (r16: the model's hair is a cloud of a dozen big soft puffs to the jaw — the portrait's
+        // sixteen small rings + side columns read as sausage coils)
+        for (let i = 0; i < 11; i++) {
+          const a = Math.PI * (0.92 + (i / 10) * 1.16);
+          const r = w + 12;
+          c.push(`<circle cx="${(cx + Math.cos(a) * r).toFixed(1)}" cy="${(top + 50 + Math.sin(a) * (r + 4)).toFixed(1)}" r="${21 + (i % 3) * 3}" fill="${H}" ${s}/>`);
+        }
+        for (const sx of [-1, 1]) c.push(`<circle cx="${cx + sx * (w + 5)}" cy="${top + 72}" r="17" fill="${H}" ${s}/>`);
+        return c.join('');
+      }
       for (let i = 0; i < 16; i++) {
         const a = Math.PI * (0.95 + (i / 15) * 1.1);
         const r = w + 14;
@@ -630,6 +641,17 @@ function frontHair(id: string, L: NpcLook, f: Face): string {
       return `<path d="M${cx - w - 2} ${t + 54} Q ${cx - w - 2} ${t + 30} ${cx - w + 8} ${t + 22} L ${cx - w + 16} ${t + 24} Q ${cx - w + 8} ${t + 36} ${cx - w + 6} ${t + 54} Z M${cx + w + 2} ${t + 54} Q ${cx + w + 2} ${t + 30} ${cx + w - 8} ${t + 22} L ${cx + w - 16} ${t + 24} Q ${cx + w - 8} ${t + 36} ${cx + w - 6} ${t + 54} Z M${cx - 26} ${t + 22} Q ${cx - 14} ${t + 34} ${cx - 4} ${t + 24} Q ${cx + 8} ${t + 32} ${cx + 20} ${t + 23} Z" fill="${H}" ${s}/>` + `<g transform="translate(0 -7)"><rect x="${cx - w - 4}" y="${t + 8}" width="${2 * w + 8}" height="18" rx="7" fill="#f3ece0" stroke="${ink(0xf3ece0)}" stroke-width="1.6"/>` + `<path d="M${cx - w - 10} ${t + 12} Q ${cx - w - 16} ${t - 30} ${cx - 22} ${t - 36} Q ${cx - 2} ${t - 54} ${cx + 22} ${t - 38} Q ${cx + w + 18} ${t - 34} ${cx + w + 10} ${t + 12} Z" fill="#fbf7ee" stroke="${ink(0xfbf7ee)}" stroke-width="1.8"/>` + `<path d="M${cx - 30} ${t - 14} Q ${cx - 12} ${t - 30} ${cx + 4} ${t - 20} M${cx + 8} ${t - 26} Q ${cx + 22} ${t - 30} ${cx + 30} ${t - 14}" stroke="#e6dccb" stroke-width="3.2" fill="none" stroke-linecap="round"/></g>`;
     case 'curly': {
       const c: string[] = [];
+      if (portraitOpts.chibi) {
+        const n = 6;
+        for (let i = 0; i < n; i++) {
+          const x = cx - w + 2 + i * ((2 * w - 4) / (n - 1));
+          const y = t + 3 + Math.abs(i - 2.5) * 4.5 + (i % 2) * 3;
+          const r = 13 + (i % 2) * 2.5;
+          c.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="${H}" ${s}/>`);
+          c.push(`<path d="M${(x - r * 0.55).toFixed(1)} ${(y - r * 0.35).toFixed(1)} q ${(r * 0.5).toFixed(1)} ${(-r * 0.5).toFixed(1)} ${(r * 1.05).toFixed(1)} 0" stroke="${hl}" stroke-width="2.6" fill="none" opacity="0.55" stroke-linecap="round"/>`);
+        }
+        return c.join('');
+      }
       for (let i = 0; i < 9; i++) {
         const x = cx - w + 4 + i * ((2 * w - 8) / 8);
         const y = t + 14 + Math.abs(i - 4) * 3 + (i % 2) * 5;
@@ -710,7 +732,7 @@ function hat(L: NpcLook, f: Face): string {
       return `<ellipse cx="${cx}" cy="${top + 12}" rx="${w + 42}" ry="17" fill="${b}" ${s}/><path d="M${cx - w + 2} ${top + 12} Q ${cx - w} ${top - 30} ${cx} ${top - 30} Q ${cx + w} ${top - 30} ${cx + w - 2} ${top + 12} Z" fill="${css(c)}" ${s}/><path d="M${cx - w + 1} ${top + 2} Q ${cx} ${top + 8} ${cx + w - 1} ${top + 2} L ${cx + w - 1} ${top + 10} Q ${cx} ${top + 16} ${cx - w + 1} ${top + 10} Z" fill="${css(L.scarf ?? 0xa8587a)}"/><circle cx="${cx + w - 10}" cy="${top + 2}" r="6" fill="#ff8fab" stroke="${ink(0xff8fab)}" stroke-width="1.2"/><circle cx="${cx + w - 20}" cy="${top + 6}" r="4.5" fill="#ffd166" stroke="${ink(0xffd166)}" stroke-width="1.2"/>` + Array.from({ length: 8 }, (_, i) => `<path d="M${cx - w - 30 + i * 12} ${top + 18} q 6 3 12 0" stroke="${shade(c, 0.82)}" stroke-width="1.2" fill="none"/>`).join('');
     }
     case 'bandana': {
-      const dots = Array.from({ length: 9 }, (_, i) => `<circle cx="${cx - w + 8 + (i % 5) * ((2 * w - 16) / 4)}" cy="${top + 4 - (i >= 5 ? 16 : 0) + Math.abs((i % 5) - 2) * 2}" r="2.6" fill="#f6ecd8" opacity="0.9"/>`).join('');
+      const dots = Array.from({ length: 22 }, (_, i) => `<circle cx="${(cx - w + 6 + (i % 7) * ((2 * w - 12) / 6) + (i >= 7 && i < 14 ? 6 : 0)).toFixed(1)}" cy="${(top + 8 - Math.floor(i / 7) * 10 + Math.abs((i % 7) - 3) * 1.6).toFixed(1)}" r="1.3" fill="#e6c89a" opacity="0.9"/>`).join('');
       return `<path d="M${cx - w - 5} ${top + 26} Q ${cx - w - 2} ${top - 24} ${cx} ${top - 24} Q ${cx + w + 2} ${top - 24} ${cx + w + 5} ${top + 26} Q ${cx} ${top + 12} ${cx - w - 5} ${top + 26} Z" fill="${css(c)}" ${s}/>${dots}<path d="M${cx + w - 2} ${top + 14} q 14 -4 18 8 q -8 2 -12 12 q -4 -10 -6 -20 Z" fill="${shade(c, 0.85)}" ${s}/>`;
     }
     default:
@@ -874,6 +896,9 @@ function portraitCrop(L: NpcLook, f: Face): { t: string; k: number } {
   const Y0 = 104;
   let k = Math.min(1.27, Math.max(1.0, (Y0 - 5) / (100 - (f.top - extra))));
   if (L.hat === "sunhat") k = Math.min(k, 1.2); // (the brim runs off both card edges, as a painter would crop it)
+  // (r16 chibi faces are shorter: the crop comes in until the face fills ≥ 57 % of the card again —
+  // a tall toque may run off the top edge, as a close portrait crop would)
+  if (portraitOpts.chibi) k = Math.min(1.36, Math.max(k, (0.57 * 200) / (f.chin - f.top + 18)));
   return { t: `translate(100 ${Y0}) scale(${k.toFixed(3)}) translate(-100 -100)`, k };
 }
 
@@ -895,11 +920,22 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   f.w *= 0.55 + 0.45 * Math.min(1.2, Math.max(0.85, fp.w ?? 1));
   if (fp.jaw !== undefined) f.jaw = 0.55 + fp.jaw * 0.85;
   f.chin += ((fp.h ?? 1) - 1) * 36 + (fp.chin ?? 0) * 3;
-  const sw = 58 * Math.min(1.35, Math.max(0.85, L.build)) * personaOf(L).sh;
+  // r16 (critic: "the portraits are semi-realistic painted faces while the 3D villagers are chibi
+  // button-eyed toys — June's portrait and model read as two people"): the chibi grammar of the
+  // models — a rounder, shorter face (the chin comes up), big low-set eyes with a large iris, a
+  // tiny nose and a small mouth, no lip shapes or age folds, narrower shoulders under a big head.
+  const CH = portraitOpts.chibi;
+  if (CH) {
+    f.top += 4;
+    f.chin = f.top + (f.chin - f.top) * 0.84;
+    f.w *= 1.07;
+    f.jaw = Math.min(f.jaw, 0.85);
+  }
+  const sw = 58 * Math.min(1.35, Math.max(0.85, L.build)) * personaOf(L).sh * (CH ? 0.86 : 1);
   const iris = L.eyes ?? 0x6a4a2a;
   const lash = mix(hair, 0x1a0e0a, 0.55);
-  const eyeY = f.top + (f.chin - f.top) * 0.52;
-  const mouthY = f.top + (f.chin - f.top) * 0.8;
+  const eyeY = f.top + (f.chin - f.top) * (CH ? 0.57 : 0.52);
+  const mouthY = f.top + (f.chin - f.top) * (CH ? 0.83 : 0.8);
   const beard = L.beard === true ? 'full' : L.beard;
   // Three-quarter turn: features ride a sphere of radius ~face width turned by th; the far eye
   // foreshortens, the nose tip leads, the far ear hides behind the cheek.
@@ -915,7 +951,9 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   const this_brows: { side: number; low: number; eyeTop: number }[] = [];
   const plate = portraitOpts.plate ? valuePlate(skin, bg, L.backdrop) : { c: 0, a: 0, skinL: 0, backL: 0 };
   const crop = portraitCrop(L, f);
-  const P = personaOf(L);
+  const P0 = personaOf(L);
+  // (chibi: a persona keeps its eye cut, lash weight, marks and smudge; the realist structure goes)
+  const P: Persona = CH ? { ...P0, iris: Math.max(0.96, P0.iris) * 1.06, under: P0.under >= 0.8 ? 0.5 : 0, crow: P0.crow >= 1 ? 0.6 : 0, browLines: 0, jowl: 0, cheekbone: 0, lip: undefined, mouth: P0.mouth === 'gap' || P0.mouth === 'wide' ? P0.mouth : 'plain' } : P0;
   const p: string[] = [];
   p.push(`<defs>
     <radialGradient id="${id}bg" cx="42%" cy="34%" r="80%"><stop offset="0" stop-color="${shade(bg[0], 1.1)}"/><stop offset="0.6" stop-color="${css(bg[0])}"/><stop offset="1" stop-color="${css(bg[1])}"/></radialGradient>
@@ -1052,8 +1090,8 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   }
   // Eyes + brows
   const kid = hs > 1.05;
-  const ex = (kid ? 21.5 : acc.has('wrinkles') ? 20 : 20.5) * Math.min(1.12, Math.max(0.9, fp.gap ?? 1));
-  const es = (kid ? 1.14 : acc.has('wrinkles') ? 0.93 : 1) * Math.min(1.18, Math.max(0.86, fp.eye ?? 1)) * P.eye;
+  const ex = (kid ? 21.5 : acc.has('wrinkles') ? 20 : 20.5) * Math.min(1.12, Math.max(0.9, fp.gap ?? 1)) * (CH ? 1.12 : 1);
+  const es = (kid ? 1.14 : acc.has('wrinkles') ? 0.93 : 1) * Math.min(1.18, Math.max(0.86, fp.eye ?? 1)) * P.eye * (CH ? 1.3 : 1);
   const cut0 = EYE_CUT[L.eyeShape ?? 'round'] ?? EYE_CUT.round!;
   const cut = { ...cut0, ik: cut0.ik * P.iris };
   // Each eye (and its brow / lens) is drawn square-on, then moved + foreshortened onto the turned head.
@@ -1088,8 +1126,16 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   const nl = (kid ? 0.8 : faceKind === 'long' ? 1.15 : 1) * (nk === 'long' || nk === 'hook' ? 1.18 : nk === 'snub' || nk === 'button' ? 0.86 : 1);
   const nwk = nk === 'broad' ? 1.45 : nk === 'bulb' ? 1.25 : nk === 'button' ? 0.85 : 1;
   const nd = X(0, 9) - 100;
-  if (th > 0.05) p.push(`<path d="M${X(-4, 2) - 1} ${eyeY + 1} Q ${100 + nd - 5 - (nk === 'hook' ? 2.5 : 0)} ${eyeY + 9 * nl} ${100 + nd - 3.5} ${eyeY + 15.5 * nl}" stroke="${mix(skin, 0x8a3028, 0.4)}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="${Math.min(0.8, th * 2.6).toFixed(2)}"/>`);
-  p.push(`<g transform="translate(${nd.toFixed(2)} 0)">`);
+  if (CH) {
+    // A toy nose: a small soft wedge of shade under a lit dot (bigger for the bulb / broad noses).
+    const nb = (nk === 'bulb' || nk === 'broad' ? 1.35 : nk === 'long' || nk === 'hook' ? 1.15 : 1) * (kid ? 0.85 : 1);
+    const nx = X(0, 7);
+    const ny = eyeY + 15;
+    p.push(`<path d="M${(nx - 4.2 * nb).toFixed(1)} ${ny.toFixed(1)} Q ${nx.toFixed(1)} ${(ny + 4.2 * nb).toFixed(1)} ${(nx + 4.2 * nb).toFixed(1)} ${(ny - 0.6).toFixed(1)}" stroke="${mix(skin, 0x8a3028, 0.5)}" stroke-width="2" fill="none" stroke-linecap="round"/>`);
+    p.push(`<ellipse cx="${(nx - 1).toFixed(1)}" cy="${(ny - 3.2 * nb).toFixed(1)}" rx="${(2.6 * nb).toFixed(1)}" ry="${(2 * nb).toFixed(1)}" fill="#fff" opacity="0.5"/>`);
+  } else if (th > 0.05) p.push(`<path d="M${X(-4, 2) - 1} ${eyeY + 1} Q ${100 + nd - 5 - (nk === 'hook' ? 2.5 : 0)} ${eyeY + 9 * nl} ${100 + nd - 3.5} ${eyeY + 15.5 * nl}" stroke="${mix(skin, 0x8a3028, 0.4)}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="${Math.min(0.8, th * 2.6).toFixed(2)}"/>`);
+  if (!CH) p.push(`<g transform="translate(${nd.toFixed(2)} 0)">`);
+  if (!CH) {
   // Cel shadow under / beside the nose (crisp edge, two tones), a lit tip.
   p.push(`<path d="M${101} ${eyeY + 3} Q ${106} ${eyeY + 10 * nl} ${104.5} ${eyeY + 16 * nl} Q ${100} ${eyeY + 19.5 * nl} ${95} ${eyeY + 17 * nl} Q ${100} ${eyeY + 17.5 * nl} ${102.5} ${eyeY + 14 * nl} Q ${103.5} ${eyeY + 9 * nl} ${101} ${eyeY + 3} Z" fill="${mix(skin, 0x8a3028, 0.32)}" opacity="0.55"/>`);
   if (nk === 'bulb') p.push(`<circle cx="99.5" cy="${eyeY + 14.5 * nl}" r="5.6" fill="${shade(skin, 1.02)}" stroke="${mix(skin, 0x8a3028, 0.45)}" stroke-width="1.2"/>`);
@@ -1098,15 +1144,16 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   if (nk === 'hook') p.push(`<path d="M${101.5} ${eyeY + 4} Q ${105.5} ${eyeY + 7} ${103} ${eyeY + 10}" stroke="${mix(skin, 0x8a3028, 0.45)}" stroke-width="1.3" fill="none"/>`);
   p.push(`<ellipse cx="${98.6}" cy="${eyeY + 12.5 * nl}" rx="2.3" ry="1.8" fill="#fff" opacity="0.55"/>`);
   p.push(`</g>`);
+  }
   // Age: smile folds and a cleft chin from the face structure.
-  if ((L.fp?.lines ?? 0) >= 0.5) for (const sx of [-1, 1]) p.push(`<path d="M${X(sx * 13, 2)} ${eyeY + 17} q ${sx * -5} 8 ${sx * -2} 16" transform="translate(${(d0 * 0.4).toFixed(2)} 0)" stroke="${mix(skin, 0x8a3028, 0.32)}" stroke-width="1.1" fill="none" stroke-linecap="round" opacity="0.55"/>`);
+  if (!CH && (L.fp?.lines ?? 0) >= 0.5) for (const sx of [-1, 1]) p.push(`<path d="M${X(sx * 13, 2)} ${eyeY + 17} q ${sx * -5} 8 ${sx * -2} 16" transform="translate(${(d0 * 0.4).toFixed(2)} 0)" stroke="${mix(skin, 0x8a3028, 0.32)}" stroke-width="1.1" fill="none" stroke-linecap="round" opacity="0.55"/>`);
   if (L.fp?.cleft && beard !== 'full') p.push(`<path d="M${X(0, 3) - 2.5} ${f.chin - 7} q 2.5 3 5 0" stroke="${mix(skin, 0x8a3028, 0.42)}" stroke-width="1.3" fill="none" stroke-linecap="round"/>`);
   if (beard === 'full' || beard === 'mustache') {
     const mc = `url(#${id}hr)`;
     p.push(`<path transform="translate(${(X(0, 4) - 100).toFixed(2)} 0)" d="M${100} ${mouthY - 7} Q ${88} ${mouthY - 12} ${78} ${mouthY - 2} Q ${86} ${mouthY - 3} ${92} ${mouthY - 1} Q ${97} ${mouthY - 3} ${100} ${mouthY - 5} Q ${103} ${mouthY - 3} ${108} ${mouthY - 1} Q ${114} ${mouthY - 3} ${122} ${mouthY - 2} Q ${112} ${mouthY - 12} ${100} ${mouthY - 7} Z" fill="${mc}" stroke="${ink(hair)}" stroke-width="1.6" stroke-linejoin="round"/>`);
   }
   const my = mouthY + (beard === 'full' || beard === 'mustache' ? 2 : 0);
-  const mwk = Math.min(1.22, Math.max(0.8, L.fp?.mouth ?? 1));
+  const mwk = Math.min(1.22, Math.max(0.8, L.fp?.mouth ?? 1)) * (CH ? 0.84 : 1);
   p.push(`<g transform="translate(${(X(0, 2) - 100).toFixed(2)} 0) translate(100 ${my}) rotate(${(-P.asym * 5).toFixed(2)}) scale(${((1 - 0.28 * Math.sin(th)) * mwk).toFixed(3)} 1) translate(-100 ${-my})">${mouthPersona(P, mood, 100, my, skin)}${mouth(mood, 100, my, skin, beard === 'full' || beard === 'mustache')}</g>`);
   // Structure + age (r9): cheekbone shade, forehead lines, jowls, a signature smudge.
   {

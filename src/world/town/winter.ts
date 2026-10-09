@@ -395,7 +395,8 @@ export function buildWinterWear(
     // grey-brown trodden slush, darker in the deepest ruts
     const a = alphaAt(i, j);
     const d = 0.62 - a * 0.25 + (rng.next() - 0.5) * 0.04;
-    col.push(d * 1.02, d * 0.97, d * 0.9, a);
+    // (r16 critic: "grey dishwater slush" — warmed toward a brown-violet melt, wet and darker in the ruts)
+    col.push(d * 1.04, d * 0.9, d * 0.92, a);
     return vmap[k]!;
   };
   for (let j = 0; j < NZ - 1; j++)
@@ -415,7 +416,7 @@ export function buildWinterWear(
     g.computeVertexNormals();
     const m = new THREE.Mesh(
       g,
-      new THREE.MeshStandardMaterial({ name: 'slush', color: 0x8a8278, roughness: 0.32, metalness: 0, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2.5, polygonOffsetUnits: -2.5 }),
+      new THREE.MeshStandardMaterial({ name: 'slush', color: 0x86706e, roughness: 0.3, metalness: 0, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2.5, polygonOffsetUnits: -2.5 }),
     );
     m.name = 'slush';
     m.receiveShadow = true;
