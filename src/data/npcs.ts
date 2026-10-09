@@ -626,7 +626,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         // down on the farmer's hat crown, half the frame empty river and grass". Re-blocked from the
         // far (east) bank across the water: Wren at her easel facing the river and the lens, the
         // farmer at her shoulder, the Kettle Bridge arching beside them and held in every shot.)
-        cast: { wren: ['easel_river', 'right'], player: [[59.45, 19.85], 'down'] },
+        cast: { wren: ['easel_river', 'right'], player: [[60.25, 20.1], 'left'] },
         camera: { x: 61.0, z: 21.6, yaw: 108, pitch: 32, distance: 13 },
         subject: { at: [62.6, 25.3], y: 1.1, label: 'Kettle Bridge', hold: true },
         // Yesterday's attempt, propped on a field stand beside her: the painting she asks about.

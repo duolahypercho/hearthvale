@@ -903,9 +903,11 @@ actors such as Pip the shop cat).
   scowl); the crop keeps the face ≥ 57 % of the card. *Gifts*: produce is held as the real 3D crop
   mesh in both hands, lifted from the waist over 0.3 s (ease-out-back); the heart burst stays a tight
   crown round the receiver's head. *Heart events*: wren-2 "Painting the Bridge" re-blocked across the
-  river — Wren at her easel facing the water and the lens, the farmer at her shoulder, the Kettle Bridge
+  river — Wren at her easel facing the water and the lens, the farmer at her shoulder on the lens side
+  (both faces three-quarter in the choice two-shot), the painting between them, the Kettle Bridge
   arching beside them; an event `subject` with `hold` stays in every two-shot (scored in the lens
-  solve). The stone bridge's end-post flower pots floated on the deck axis 1 m up (the critic's "stray
+  solve). Chibi portraits keep the chin on the neck (the crown comes down; Kit had a giraffe neck),
+  no lid creases, and Odessa's kerchief print stays inside the dome. The stone bridge's end-post flower pots floated on the deck axis 1 m up (the critic's "stray
   red octagonal prism"): gone. *Street life*: town-day has a verb in most hands (Marigold sweeps the
   market lane, Rowan and Odessa haul crates in — walkers carry while walking — Tobias reads, Bram
   unloads, Wren paints, Kit runs); the evening bakery knot opens to the lens; Odessa is taller and

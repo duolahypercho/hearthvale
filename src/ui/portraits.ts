@@ -384,8 +384,8 @@ function eyeAge(x: number, y: number, side: -1 | 1, low: number, up: number, W: 
   const out: string[] = [];
   // Under-eye structure: a second, softer crescent (bags / a tired lower lid) for the older faces.
   if (P.under >= 0.5) out.push(`<path d="M${x - W * 0.75} ${y + low + 2.6} Q ${x + side * 1} ${y + low + 6 + P.under * 1.6} ${x + W * 0.75} ${y + low + 2.2}" stroke="${shade(skin, 0.7)}" stroke-width="1" fill="none" opacity="${(0.35 + P.under * 0.3).toFixed(2)}" stroke-linecap="round"/>`);
-  // Crease above the lid
-  out.push(`<path d="M${x - W * 0.7} ${y - up - 3.6} Q ${x} ${y - up - 6} ${x + W * 0.8} ${y - up - 3}" stroke="${shade(skin, 0.7)}" stroke-width="1" fill="none" opacity="0.6"/>`);
+  // Crease above the lid (r16: not in the chibi grammar — the models' eyes are clean buttons)
+  if (!portraitOpts.chibi) out.push(`<path d="M${x - W * 0.7} ${y - up - 3.6} Q ${x} ${y - up - 6} ${x + W * 0.8} ${y - up - 3}" stroke="${shade(skin, 0.7)}" stroke-width="1" fill="none" opacity="0.6"/>`);
   if (old || P.crow > 0.5) {
     // Crow's feet fan from the outer corner (three for the oldest faces).
     const n = P.crow >= 1 ? 3 : 2;
@@ -732,7 +732,10 @@ function hat(L: NpcLook, f: Face): string {
       return `<ellipse cx="${cx}" cy="${top + 12}" rx="${w + 42}" ry="17" fill="${b}" ${s}/><path d="M${cx - w + 2} ${top + 12} Q ${cx - w} ${top - 30} ${cx} ${top - 30} Q ${cx + w} ${top - 30} ${cx + w - 2} ${top + 12} Z" fill="${css(c)}" ${s}/><path d="M${cx - w + 1} ${top + 2} Q ${cx} ${top + 8} ${cx + w - 1} ${top + 2} L ${cx + w - 1} ${top + 10} Q ${cx} ${top + 16} ${cx - w + 1} ${top + 10} Z" fill="${css(L.scarf ?? 0xa8587a)}"/><circle cx="${cx + w - 10}" cy="${top + 2}" r="6" fill="#ff8fab" stroke="${ink(0xff8fab)}" stroke-width="1.2"/><circle cx="${cx + w - 20}" cy="${top + 6}" r="4.5" fill="#ffd166" stroke="${ink(0xffd166)}" stroke-width="1.2"/>` + Array.from({ length: 8 }, (_, i) => `<path d="M${cx - w - 30 + i * 12} ${top + 18} q 6 3 12 0" stroke="${shade(c, 0.82)}" stroke-width="1.2" fill="none"/>`).join('');
     }
     case 'bandana': {
-      const dots = Array.from({ length: 22 }, (_, i) => `<circle cx="${(cx - w + 6 + (i % 7) * ((2 * w - 12) / 6) + (i >= 7 && i < 14 ? 6 : 0)).toFixed(1)}" cy="${(top + 8 - Math.floor(i / 7) * 10 + Math.abs((i % 7) - 3) * 1.6).toFixed(1)}" r="1.3" fill="#e6c89a" opacity="0.9"/>`).join('');
+      // (r16: a fine cream-gold print kept inside the dome — rows narrow towards the crown)
+      const dots = ([[8, 7, 0.86], [-2, 6, 0.74], [-12, 4, 0.5]] as const)
+        .flatMap(([dy, n, span], row) => Array.from({ length: n }, (_, i) => `<circle cx="${(cx + (i / (n - 1) - 0.5) * 2 * w * span + (row === 1 ? 3 : 0)).toFixed(1)}" cy="${(top + dy + Math.abs(i - (n - 1) / 2) * 1.4).toFixed(1)}" r="1.3" fill="#e6c89a" opacity="0.9"/>`))
+        .join('');
       return `<path d="M${cx - w - 5} ${top + 26} Q ${cx - w - 2} ${top - 24} ${cx} ${top - 24} Q ${cx + w + 2} ${top - 24} ${cx + w + 5} ${top + 26} Q ${cx} ${top + 12} ${cx - w - 5} ${top + 26} Z" fill="${css(c)}" ${s}/>${dots}<path d="M${cx + w - 2} ${top + 14} q 14 -4 18 8 q -8 2 -12 12 q -4 -10 -6 -20 Z" fill="${shade(c, 0.85)}" ${s}/>`;
     }
     default:
@@ -926,8 +929,8 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   // tiny nose and a small mouth, no lip shapes or age folds, narrower shoulders under a big head.
   const CH = portraitOpts.chibi;
   if (CH) {
-    f.top += 4;
-    f.chin = f.top + (f.chin - f.top) * 0.84;
+    // (the chin stays on the neck — raising it gave Kit a giraffe neck; the crown comes down instead)
+    f.top = f.chin - (f.chin - f.top) * 0.84;
     f.w *= 1.07;
     f.jaw = Math.min(f.jaw, 0.85);
   }
