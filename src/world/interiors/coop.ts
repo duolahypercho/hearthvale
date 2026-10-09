@@ -66,7 +66,7 @@ export class CoopInterior extends InteriorMap {
     // r11: closer — the walls fill the frame instead of a small box in a black void.
     this.camera = { yaw: 0, pitch: 48, distance: 11.2, offsetX: 0, offsetZ: 0.3 };
     this.dayScale = 1.3;
-    this.sunPoolK = 0.4;
+    this.sunPoolK = 0.3; // (r19: 0.4 -> 0.3: the pool bleached the dust bath it lands on)
     this.exposureBoost = 0.28;
     this.coolFill = 0.45;
     this.shaftK = 0.95;
@@ -350,13 +350,15 @@ export class CoopInterior extends InteriorMap {
       }
     }
     // Shed feathers about the floor: white + russet curls, densest under the roost + nests.
-    for (let i = 0; i < 16; i++) {
-      const near = i < 9;
+    // (r19: 16 -> 9, all under the roost + nests, the white ones a warm cream — white flecks over the open
+    // floor still read as pin noise at the 13 m lens)
+    for (let i = 0; i < 9; i++) {
+      const near = true;
       const fx = near ? (i % 2 ? 1.4 : 5.9) + (rng.next() - 0.5) * 1.4 : 0.6 + rng.next() * (W - 1.2);
       const fz = near ? (i % 2 ? 1.2 : 2.2) + (rng.next() - 0.5) * 0.9 : 1.0 + rng.next() * (D - 2.2);
       const f = new THREE.CircleGeometry(0.04, 8).scale(0.45, 1.6, 1);
       f.rotateX(-Math.PI / 2 + 0.25);
-      k.add('fabric', f, mat(fx, 0.03, fz, 0, rng.next() * Math.PI * 2, 0), { tint: rng.next() < 0.62 ? 0xfbf6ea : rng.next() < 0.5 ? 0xb8683a : 0x8a4a2a });
+      k.add('fabric', f, mat(fx, 0.03, fz, 0, rng.next() * Math.PI * 2, 0), { tint: rng.next() < 0.5 ? 0xefe4cc : rng.next() < 0.5 ? 0xb8683a : 0x8a4a2a });
     }
     patch(1.4, 1.05, 1.1, 0.36, 0xfff2d4, 0.008);
     patch(6.0, 1.95, 1.25, 0.48, 0xfff0d0, 0.008);
@@ -677,10 +679,14 @@ export class CoopInterior extends InteriorMap {
         // grit, pale quartz flecks, a few rust-red specks) so it reads as sifted sand, scooped darker in
         // the middle where the hens wallow, the grains scattered a little past the rim.
         const hollow = 1 - THREE.MathUtils.smoothstep(d, 0.05, 0.5);
+        // (r19: a scooped bowl, not a pale stain — the sand two values nearer the straw, a sunlit lip just
+        // inside the rim and a shaded inner slope below it, so it reads as a dent in the floor)
+        const lip = Math.exp(-Math.pow((d - (rim - 0.16)) / 0.07, 2));
+        const slope = THREE.MathUtils.smoothstep(d, 0.25, rim - 0.2) * (1 - THREE.MathUtils.smoothstep(d, rim - 0.2, rim - 0.12));
         const q = r.next();
-        let cr = 214 - hollow * 34 + grain * 120;
-        let cg = 184 - hollow * 32 + grain * 100;
-        let cb = 132 - hollow * 26 + grain * 70;
+        let cr = 172 - hollow * 28 + grain * 110 + lip * 24 - slope * 22;
+        let cg = 136 - hollow * 26 + grain * 90 + lip * 20 - slope * 20;
+        let cb = 92 - hollow * 20 + grain * 60 + lip * 12 - slope * 14;
         let aa = a * (0.92 + grain);
         if (q < 0.09) {
           cr *= 0.62;
@@ -711,7 +717,8 @@ export class CoopInterior extends InteriorMap {
     const decal = new THREE.Mesh(g, m);
     decal.name = 'coop-dustbath';
     decal.position.set(2.75, 0.022, 2.15);
-    decal.scale.set(1.9, 1, 1.45);
+    // (r19: 1.9 x 1.45 -> 1.55 x 1.2 — under the window's sun pool the big bath read as a pale stain)
+    decal.scale.set(1.55, 1, 1.2);
     decal.rotation.y = 0.25;
     decal.receiveShadow = true;
     decal.userData.noAO = true;

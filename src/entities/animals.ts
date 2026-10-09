@@ -1178,7 +1178,13 @@ export class AnimalActor {
     }
     this.blinkHold = Math.max(0, this.blinkHold - dt);
     const shut = Math.max(this.resting ? 0 : Z, this.happyT >= 0 ? 0.9 : 0, this.blissW * 0.95, this.blinkHold > 0 ? 1 : 0);
-    if (b.eyes) b.eyes.scale.y = Math.max(0.1, 1 - shut * 0.9);
+    // r19: joy (a pat, a treat) shuts the eyes into "∩" arcs instead of a squashed slit.
+    const joy = this.state !== 'sleep' && Math.max(this.happyT >= 0 ? 1 : 0, this.blissW) > 0.5;
+    if (b.lids) b.lids.scale.setScalar(joy ? 1 : 1e-3);
+    if (b.eyes) {
+      if (joy && b.lids) b.eyes.scale.setScalar(1e-3);
+      else b.eyes.scale.set(1, Math.max(0.1, 1 - shut * 0.9), 1);
+    }
     // Pet squash on the whole animal: 0.85 → 1.1 → 1 over 250 ms.
     if (this.squashT >= 0) {
       this.squashT += dt;

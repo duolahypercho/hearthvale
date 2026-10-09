@@ -65,6 +65,10 @@ interface EyeOpts {
 
 /** Big glossy chibi eyes: a dark lens, a large upper catchlight and a small lower one (+ optional rim / goat iris). */
 function eyes(r: RigBuilder, x: number, y: number, z: number, size: number, ry = 0.25, o: EyeOpts = {}): void {
+  // r19: happy shut eyes — a dark "∩" arc per eye on its own bone, scaled in (and the eyes bone collapsed)
+  // while the animal is petted / content. The old squash of the whole eye to 10 % left a slanted white
+  // slit under the brow that read as a scowl (the critic's petted goat "glaring" at the farmer).
+  if (!r.has('lids') && r.has('eyes')) r.bone('lids', 'head', r.at('eyes').toArray() as [number, number, number]);
   for (const s of [-1, 1]) {
     const piv = o.pitch ? new THREE.Matrix4().makeTranslation(s * x, y, z).multiply(new THREE.Matrix4().makeRotationX(-o.pitch)).multiply(new THREE.Matrix4().makeTranslation(-s * x, -y, -z)) : null;
     const P = (m: THREE.Matrix4): THREE.Matrix4 => (piv ? m.premultiply(piv) : m);
@@ -84,6 +88,12 @@ function eyes(r: RigBuilder, x: number, y: number, z: number, size: number, ry =
     const fz = Math.cos(ry);
     r.part('eyes', ellipsoid(size * 0.42, size * 0.42, size * 0.22, 10, 8), P(mat(s * x + fx * size * 0.62 + s * size * 0.22, y + size * 0.42, z + fz * size * 0.62)), HI, { flat: true });
     r.part('eyes', ellipsoid(size * 0.18, size * 0.18, size * 0.12, 8, 6), P(mat(s * x + fx * size * 0.64 - s * size * 0.2, y - size * 0.38, z + fz * size * 0.6)), HI, { flat: true });
+    if (r.has('lids')) {
+      const arc = new THREE.TorusGeometry(size * 0.92, size * 0.2, 6, 14, Math.PI);
+      // (a touch flattened: a soft smile-crease, not a croquet hoop)
+      arc.scale(1, 0.78, 1);
+      r.part('lids', arc, P(mat(s * x + fx * size * 0.45, y - size * 0.32, z + fz * size * 0.45, 0, s * ry, 0)), EYE, { flat: true });
+    }
   }
 }
 
@@ -536,7 +546,8 @@ function cow(variant: number): AnimalModel {
     r.part(ear, ellipsoid(0.08, 0.02, 0.05), mat(s * 0.34, 1.12, 0.575, 0, 0, s * 0.3), 0xf0a8a0, { flat: true });
   }
   // Forelock tuft
-  for (let i = 0; i < 3; i++) r.part('head', ellipsoid(0.05, 0.04, 0.05, 8, 6), mat(-0.04 + i * 0.04, 1.3, 0.6 + (i % 2) * 0.03), jersey ? 0x9a6238 : base);
+  // (r19: smooth curls, a tone off the coat — the 8 x 6 balls read as a stack of hexagonal coins on the brow)
+  for (let i = 0; i < 4; i++) r.part('head', ellipsoid(0.058, 0.036, 0.054, 16, 11), mat(-0.06 + i * 0.04, 1.3 - Math.abs(i - 1.5) * 0.008, 0.6 + (i % 2) * 0.03, 0.2, 0, (i - 1.5) * 0.25), jersey ? 0xb27446 : base);
   // (r9: bigger eyes up on the brow, tilted to face up-and-forward: from the 42-50° gameplay pitch the
   // old ones sat under the brow line and the face read as an eyeless lump)
   eyes(r, 0.13, 1.145, 0.79, 0.053, 0.36, { rim: 0xf6efe4, pitch: 0.42 });
@@ -734,23 +745,36 @@ function pig(variant: number): AnimalModel {
   r.bone('tail', 'body', [0, 0.52, -0.46]);
   // r13: one sculpted loft — a big round ham, a gently dipped back, deep shoulders running into heavy
   // jowls under the head (the old lathe barrel read as a boxy capsule at the petting camera).
+  // (r19: the critic still read a "boxy capsule" from the 11-14 m camera — one width end to end. Now a
+  // pear in plan: round hams swelling past the shoulders, a soft waist, a shoulder hump behind the jowls,
+  // a sagging belly and an arched loin; no two stations share a width.)
   const pigBody = loft(
     [
-      { p: [0, 0.48, -0.53], w: 0.04, up: 0.04, dn: 0.04 },
-      { p: [0, 0.48, -0.49], w: 0.2, up: 0.18, dn: 0.2, n: 2.2 },
-      { p: [0, 0.475, -0.41], w: 0.275, up: 0.265, dn: 0.28, n: 2.25 },
-      { p: [0, 0.465, -0.26], w: 0.305, up: 0.29, dn: 0.3, n: 2.1 },
-      { p: [0, 0.455, -0.06], w: 0.298, up: 0.275, dn: 0.3, n: 2.0 },
-      { p: [0, 0.46, 0.13], w: 0.29, up: 0.28, dn: 0.3, n: 2.05 },
-      { p: [0, 0.475, 0.28], w: 0.26, up: 0.27, dn: 0.29, n: 2.0, nb: 1.9 },
-      { p: [0, 0.5, 0.38], w: 0.21, up: 0.22, dn: 0.25 },
-      { p: [0, 0.52, 0.45], w: 0.12, up: 0.13, dn: 0.15 },
-      { p: [0, 0.53, 0.49], w: 0.03, up: 0.03, dn: 0.04 },
+      { p: [0, 0.47, -0.52], w: 0.05, up: 0.05, dn: 0.05 },
+      { p: [0, 0.48, -0.485], w: 0.21, up: 0.19, dn: 0.21, n: 2.1 },
+      { p: [0, 0.49, -0.4], w: 0.3, up: 0.275, dn: 0.29, n: 2.15 },
+      { p: [0, 0.495, -0.28], w: 0.325, up: 0.295, dn: 0.31, n: 2.1 },
+      { p: [0, 0.49, -0.12], w: 0.3, up: 0.29, dn: 0.325, n: 2.0 },
+      { p: [0, 0.475, 0.04], w: 0.285, up: 0.275, dn: 0.32, n: 2.0 },
+      { p: [0, 0.48, 0.17], w: 0.292, up: 0.29, dn: 0.3, n: 2.05 },
+      { p: [0, 0.495, 0.29], w: 0.255, up: 0.275, dn: 0.285, n: 2.0, nb: 1.9 },
+      { p: [0, 0.51, 0.38], w: 0.2, up: 0.22, dn: 0.25 },
+      { p: [0, 0.525, 0.45], w: 0.11, up: 0.12, dn: 0.14 },
+      { p: [0, 0.53, 0.485], w: 0.03, up: 0.03, dn: 0.04 },
     ],
-    36,
+    40,
     4,
   );
-  r.part('body', pigBody, null, base, { patch: spots });
+  // Skin tone: a peachier back with a faint darker spine line, a cream-pink belly, blush on the hams
+  // and the shoulder (the flat single pink read as plastic in the sun).
+  const belly = new THREE.Color(0xfde2d6);
+  const blush = new THREE.Color(0xf09a90);
+  const skin = (q: THREE.Vector3, n: THREE.Vector3, c: THREE.Color): void => {
+    c.lerp(belly, 0.7 * THREE.MathUtils.smoothstep(-n.y, 0.15, 0.7));
+    c.lerp(blush, 0.28 * THREE.MathUtils.smoothstep(Math.abs(n.x), 0.55, 0.95) * (THREE.MathUtils.smoothstep(-q.z, 0.18, 0.4) + THREE.MathUtils.smoothstep(q.z, 0.12, 0.3)));
+    c.multiplyScalar(1 - 0.09 * THREE.MathUtils.smoothstep(n.y, 0.86, 0.99));
+  };
+  r.part('body', pigBody, null, base, { patch: spots, paint: spotted ? undefined : skin });
   legs(r, d, base, 0x7a4a44, spots, true, 1.1);
   // Curly tail: a tapered corkscrew springing off the rump.
   {
@@ -804,13 +828,19 @@ function pig(variant: number): AnimalModel {
   r.part('head', ellipsoid(0.06, 0.012, 0.02, 10, 6), mat(0, 0.45, 0.6, 0.2, 0, 0), 0xb86a66, { flat: true });
   for (const s of [-1, 1]) {
     const ear = s < 0 ? 'earL' : 'earR';
-    // Cupped ears: a tapered leaf bent into a scoop, flopping forward over the brow, pink lining inside.
-    const e = leaf(0.2, 0.15, 0.03, 0.55, 0.8);
-    const m = mat(s * 0.12, 0.76, 0.42, 0, 0, 0).multiply(new THREE.Matrix4().makeRotationY(s < 0 ? Math.PI + 0.55 : -0.55)).multiply(new THREE.Matrix4().makeRotationZ(0.75)).multiply(new THREE.Matrix4().makeRotationX(s * -0.5));
-    r.part(ear, e, m, 0xf2a49a);
-    const inner = leaf(0.15, 0.1, 0.014, 0.55, 0.8);
-    const mi = m.clone().multiply(new THREE.Matrix4().makeTranslation(0.02, -0.012, 0));
-    r.part(ear, inner, mi, 0xffc6bc, { flat: true });
+    // (r19: the ears were 20 cm flaps stood up edge-on to the lens — thin pink slivers from above. Now
+    // broad leaves flopped forward and out over the brow, their backs to the sky, so from the gameplay
+    // pitch each one reads as a soft triangle framing the face, with the pink lining in the cup.)
+    // (out to the sides more than forward: flopped straight ahead the ear hid the eye)
+    const e = leaf(0.25, 0.19, 0.035, 0.6, 0.78, 18, 12);
+    const m = mat(s * 0.145, 0.765, 0.42, 0, 0, 0)
+      .multiply(new THREE.Matrix4().makeRotationY(s < 0 ? -2.5 : -0.64))
+      .multiply(new THREE.Matrix4().makeRotationZ(-0.42))
+      .multiply(new THREE.Matrix4().makeRotationX(s * 0.35));
+    r.part(ear, e, m, spotted ? 0x4a302c : 0xf4a89e);
+    const inner = leaf(0.185, 0.125, 0.014, 0.6, 0.8, 16, 10);
+    const mi = m.clone().multiply(new THREE.Matrix4().makeTranslation(0.025, -0.016, 0));
+    r.part(ear, inner, mi, 0xffc2b8, { flat: true });
   }
   eyes(r, 0.1, 0.655, 0.57, 0.045, 0.42, { rim: spotted ? 0xf6e2d6 : 0xfbe6dc, pitch: 0.3 });
   cheeks(r, 0.145, 0.57, 0.55, 0.036, 0xff8a8a);

@@ -1531,9 +1531,14 @@ export class AnimalSystem implements System, AnimalsApi {
       // (birds a little further out: the heart over a hen beside the knee landed on the farmer's face)
       // (r17: birds 0.8 -> 0.5 m — at 0.8 the kneeling farmer's arm stretched 2.4x into a horizontal pole
       // across the hen; the heart still rises on the far side of the bird, clear of the face)
-      const gap = Math.max(low ? 0.5 : 0.56, 0.36 + L0 * (1 + tBack) * hq);
+      // (r19: tall stock 0.56 -> 0.72 m out — at 0.56 the farmer's chibi head + torso still covered the
+      // goat's rump on screen in the pasture pat)
+      // (r19 birds 0.5 -> 0.4: at 0.5 the kneeling farmer's capped arm stopped short and pointed over the
+      // hen instead of resting on its back)
+      const gap = Math.max(low ? 0.4 : 0.72, 0.36 + L0 * (1 + tBack) * hq);
       // (r17: tall stock a stride further towards the lens — from the 45° camera that drops it below the
       // farmer's big chibi head on screen, so the hat no longer sits on the goat's horns)
+      // (r19: tried 0.62 — the farmer then turned profile-away from the lens to reach the back; kept 0.42)
       const fwd = low ? 0.14 : 0.42;
       const sx = pp.x + qx * (r0 + gap) + ux * fwd;
       const sz = pp.z + qz * (r0 + gap) + uz * fwd;
@@ -2039,7 +2044,8 @@ export class AnimalSystem implements System, AnimalsApi {
         // clear of the animal's face) and the hand is laid on the crown by a one-bone IK.
         const low = this.petLow ? 1 : 0.32;
         const pat = t > 0.14 && t < T - 0.2 ? Math.sin((t - 0.14) * 11) : 0;
-        rig.torso.rotation.x = (this.petLow ? 0.5 : 0.06) * e;
+        // (r19: a deeper kneel for birds — the hand comes down onto the hen's back instead of pointing)
+        rig.torso.rotation.x = (this.petLow ? 0.62 : 0.06) * e;
         rig.head.rotation.x = (this.petLow ? -0.24 : -0.1) * e;
         rig.armR.rotation.x = (-1.0 - 0.35 * low + pat * 0.16) * e;
         rig.armR.rotation.z = -0.12 - 0.1 * e;
@@ -2078,7 +2084,7 @@ export class AnimalSystem implements System, AnimalsApi {
             rig.armR.scale.y = THREE.MathUtils.lerp(1, THREE.MathUtils.clamp(len / 0.33, 0.85, 1.75), e);
           }
         }
-        return { sy: 1 - 0.2 * low * e, bob: -0.17 * low * e };
+        return { sy: 1 - (this.petLow ? 0.24 : 0.2 * low) * e, bob: (this.petLow ? -0.24 : -0.17 * low) * e };
       };
     }
     if (pl.actionPose !== this.poseDriver) {
@@ -2444,7 +2450,9 @@ export class AnimalSystem implements System, AnimalsApi {
         { kind: 'rest', yaw: 0.85, back: 0.7, dx: -0.1 },
         wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.72, back: 0.4 },
         { kind: 'aisle', yaw: 0 },
-        { kind: 'root', yaw: -1.15, back: 0.45 },
+        // (r19: the pig roots on a 30° diagonal, not 66° — at -1.15 its face went to the partition; now the
+        // snout disc and both eyes read from the lens while it noses the straw)
+        { kind: 'root', yaw: -0.55, back: 0.4 },
         { kind: 'stand', yaw: -1.05, back: 0.05 },
       ];
       for (const l of this.live) {
@@ -2534,7 +2542,8 @@ export class AnimalSystem implements System, AnimalsApi {
       if (free) {
         const a = free.actor;
         const d = Math.hypot(sxo, szo);
-        const want = a.gait.reach * a.scale + 0.72;
+        // (r19: 0.72 -> 0.46 — at 0.72 the farmer's reach stopped short and the arm pointed over the hen)
+        const want = a.gait.reach * a.scale + 0.46;
         const x = pp.x + (sxo / d) * want;
         const z = pp.z + (szo / d) * want;
         a.area = { x0: x - 0.05, z0: z - 0.05, x1: x + 0.05, z1: z + 0.05 };

@@ -77,7 +77,7 @@ export class HouseInterior extends InteriorMap {
     // (r13: a touch brighter by day — the side walls went murky under the vignette)
     this.exposureBoost = 0.1;
     this.morningCool = 1;
-    this.shaftK = 1.05;
+    this.shaftK = 1.3; // (r19: 1.05 -> 1.3: the morning beams over the bed and the table barely registered)
     // r11: the shafts land — a soft window-shaped pool of sun where each beam hits the boards.
     this.sunPoolK = 0.3;
     this.moonShaft = 0.07;
@@ -131,7 +131,9 @@ export class HouseInterior extends InteriorMap {
       k.cyl('ceramic', 0.055, 0.055, 0.17, [x, 1.5, 0.14], { tint: c });
       k.cyl('fabric', 0.065, 0.065, 0.03, [x, 1.66, 0.14], { tint: i % 2 ? 0xf0e8d8 : 0xd84a4a });
     }
-    for (let i = 0; i < 3; i++) k.cyl('ceramic', 0.13 - i * 0.012, 0.09 - i * 0.01, 0.06, [0.5, 1.95 + i * 0.055, 0.15], { tint: [0xf2eee4, 0x9cc0d8, 0xf2eee4][i] });
+    // (r19: oatmeal glaze, not white — in house-night the stack under the moonlit top shelf bloomed into a
+    // glowing white orb)
+    for (let i = 0; i < 3; i++) k.cyl('ceramic', 0.13 - i * 0.012, 0.09 - i * 0.01, 0.06, [0.5, 1.95 + i * 0.055, 0.15], { tint: [0xcdbfa6, 0x86a8c0, 0xcdbfa6][i] });
     k.cyl('ceramic', 0.08, 0.1, 0.24, [0.95, 1.95, 0.14], { tint: 0x3a6a9a });
     // Cast-iron cookstove + stovepipe + kettle
     const sx = 3.4;

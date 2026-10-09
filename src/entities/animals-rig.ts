@@ -213,6 +213,11 @@ export class RigBuilder {
     return this.names.has(name);
   }
 
+  /** A declared bone's model-space pivot (a copy). */
+  at(name: string): THREE.Vector3 {
+    return this.abs[this.idx(name)]!.clone();
+  }
+
   private idx(name: string): number {
     const i = this.names.get(name);
     if (i === undefined) throw new Error(`[rig] unknown bone "${name}"`);
@@ -307,7 +312,7 @@ export class RigBuilder {
     if (!o || !this.names.has('head')) return;
     const hi = this.idx('head');
     const group = new Set<number>([hi]);
-    for (const nm of ['eyes', 'earL', 'earR']) if (this.names.has(nm)) group.add(this.idx(nm));
+    for (const nm of ['eyes', 'lids', 'earL', 'earR']) if (this.names.has(nm)) group.add(this.idx(nm));
     const H = this.abs[hi]!.clone();
     const trunk = new THREE.Matrix4().makeScale(1, 1, o.bodyZ);
     const head = new THREE.Matrix4()
