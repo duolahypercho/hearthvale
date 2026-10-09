@@ -727,7 +727,7 @@ export const KIND_PROFILES = {
  * which tracks play. Flags:
  *   FORM-SWELL     a later section > 4.5 LU over the first full section (the orchestration piling up)
  *   FORM-SAG       a full section > 7 LU under the loudest (a bridge that falls out of the mix)
- *   FORM-GLARE     a section's centroid > 1.45x the first section's, or > 25 % in 2-5 kHz
+ *   FORM-GLARE     a section's centroid > 1.45x the first section's (and > 1.6 kHz), or > 25 % in 2-5 kHz
  *   FORM-CROWD     > 14 notes sounding at once anywhere (voice saturation; mud before the limiter)
  *   FORM-DROPPED   the polyphony budget dropped or stole voices during the song
  *   FORM-SEAM      a section boundary with a near-silent stretch > 1.2 s (a bridge-to-reprise hole)
@@ -742,10 +742,13 @@ export function formAnalysis(inter, sr, piece, songEnd, looping, stats) {
   const segs = [];
   for (let k = 0; k < bars.length; k++) {
     const b = bars[k];
-    const lab = b.section || '?';
+    // (Round 18: only a section's FIRST bar carries its label — the others belong to the section in
+    // progress; labelling them '?' split every strain into a 1-bar head and an unnamed body, and the
+    // "first section" every other one was compared with was that single bar.)
+    const lab = b.section || segs[segs.length - 1]?.label || '?';
     const end = k + 1 < bars.length ? bars[k + 1].t : songEnd;
     const last = segs[segs.length - 1];
-    if (last && last.label === lab) {
+    if (last && !b.section) {
       last.t1 = end;
       last.bars++;
     } else segs.push({ label: lab, t0: b.t, t1: end, bars: 1 });
@@ -774,7 +777,9 @@ export function formAnalysis(inter, sr, piece, songEnd, looping, stats) {
   if (first) {
     for (const s of full.slice(1)) {
       if (s.lufs - first.lufs > 4.5) flagsOut.push(`FORM-SWELL(${s.label}@${s.t0.toFixed(0)}s +${(s.lufs - first.lufs).toFixed(1)} LU)`);
-      if (s.centroidHz > first.centroidHz * 1.45) flagsOut.push(`FORM-GLARE(${s.label}@${s.t0.toFixed(0)}s ${s.centroidHz.toFixed(0)} Hz)`);
+      // (Round 18: glare is bright AND brighter — a lullaby's B lifting from an 865 Hz A to 1.3 kHz is
+      // a lift, not a glare; the relative test only counts above a 1.6 kHz centroid.)
+      if (s.centroidHz > first.centroidHz * 1.45 && s.centroidHz > 1600) flagsOut.push(`FORM-GLARE(${s.label}@${s.t0.toFixed(0)}s ${s.centroidHz.toFixed(0)} Hz)`);
     }
     const top = Math.max(...full.map((s) => s.lufs));
     for (const s of full) if (top - s.lufs > 7) flagsOut.push(`FORM-SAG(${s.label}@${s.t0.toFixed(0)}s -${(top - s.lufs).toFixed(1)} LU)`);

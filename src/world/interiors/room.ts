@@ -672,8 +672,26 @@ export abstract class InteriorMap implements GameMap {
   /** Soft additive glow pool on the floor (under lamps / in front of the hearth). */
   protected glowPool(x: number, z: number, r: number, color: number, strength: () => number, y = 0.012): void {
     const m = new THREE.MeshBasicMaterial({ map: glowDisc().map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-    const mesh = new THREE.Mesh(floorPlane(r * 2, r * 2), m);
-    mesh.position.set(x, y, z);
+    // r21: clipped to the room's floor (the walls' inner faces): a lamp pool by the front wall spilled
+    // past it onto the black void round the cutaway diorama.
+    const { W, D } = this.spec;
+    const x0 = Math.max(x - r, 0.1);
+    const x1 = Math.min(x + r, W - 0.1);
+    const z0 = Math.max(z - r, 0.1);
+    const z1 = Math.min(z + r, D - 0.1);
+    if (x1 <= x0 || z1 <= z0) return;
+    const g = floorPlane(x1 - x0, z1 - z0);
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    const uv = g.attributes.uv as THREE.BufferAttribute;
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    for (let i = 0; i < pos.count; i++) {
+      const wx = cx + pos.getX(i);
+      const wz = cz + pos.getZ(i);
+      uv.setXY(i, (wx - (x - r)) / (2 * r), 1 - (wz - (z - r)) / (2 * r));
+    }
+    const mesh = new THREE.Mesh(g, m);
+    mesh.position.set(cx, y, cz);
     mesh.userData.noAO = true;
     mesh.userData.dynamic = true;
     mesh.renderOrder = 2;

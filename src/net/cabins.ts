@@ -9,6 +9,7 @@ import type { GameMap } from '../world/map';
 import { EmoteBubble } from '../entities/remote-emotes';
 import { globalUniforms } from '../render/uniforms';
 import { SmokeEmitter } from '../render/particles';
+import { materials } from '../render/materials';
 
 /** Footprint top-left tile of each cabin slot (3×3 tiles, door on the south side). */
 export const CABIN_SITES: { x0: number; z0: number }[] = [
@@ -35,6 +36,40 @@ const W_ = 'woodGrain';
 const log = (r: number, len: number, bevel = 0.03, radial = 7): THREE.BufferGeometry => bevelCylinder(r, r, len, bevel, radial).translate(0, -len / 2, 0);
 /** Single-segment rounded box (108 tris: at cabin scale the 2-segment bevel is invisible). */
 const rb = (w: number, h: number, d: number, r = 0.04): THREE.BufferGeometry => roundedBox(w, h, d, r, 1);
+
+/**
+ * (r7b) The shingle courses' own copy of the wood-grain material with a moonlit sky fill: after dusk the
+ * roof plane turned away from the moon read as a near-black slab filling 40 % of the bedtime frame, so
+ * the owner's colour was lost. A cool fill (∝ uNight, strongest on up-facing planes) keeps the shingle
+ * hue at a readable value at night and does nothing by day. One extra draw for every cabin together.
+ */
+let roofMat: THREE.Material | null = null;
+function roofMaterial(): THREE.Material {
+  if (roofMat) return roofMat;
+  const base = materials.get(W_);
+  const m = base.clone();
+  m.name = 'cabinRoof';
+  const baseCompile = base.onBeforeCompile.bind(base);
+  m.onBeforeCompile = (sh, r) => {
+    baseCompile(sh, r);
+    sh.uniforms.uCabinNight = globalUniforms.uNight;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('void main() {', 'uniform float uCabinNight;\nvoid main() {')
+      .replace(
+        '#include <opaque_fragment>',
+        `{
+          // view-space up ≈ the camera's up axis tipped by the high 3/4 pitch
+          float hvUp = clamp(dot(normalize(normal), normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz)), 0.0, 1.0);
+          outgoingLight += diffuseColor.rgb * vec3(0.62, 0.7, 0.98) * uCabinNight * (0.16 + 0.22 * hvUp);
+        }
+        #include <opaque_fragment>`,
+      );
+  };
+  const baseKey = base.customProgramCacheKey.bind(base);
+  m.customProgramCacheKey = () => `${baseKey()}|cabinRoof`;
+  roofMat = m;
+  return m;
+}
 
 /** World positions of the chimney pots built by the last buildCabin calls (smoke origins). */
 const chimneyTops: THREE.Vector3[] = [];
@@ -134,7 +169,7 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
       const tc = t1 - (r + 0.5) * courseW;
       const n = deckT + 0.02 + 0.03 + r * 0.008;
       const tone = r % 2 ? roofA : roofB;
-      b.add(W_, rb(courseW * 1.18, 0.06, roofD - 0.04, 0.025), onRoof(sx, tc, n, 0), { tint: tone });
+      b.add(roofMaterial(), rb(courseW * 1.18, 0.06, roofD - 0.04, 0.025), onRoof(sx, tc, n, 0), { tint: tone });
     }
     // Fascia along the eave (a pale painted board standing square to the slope)
     b.add(W_, rb(0.06, 0.2, roofD + 0.04, 0.02), onRoof(sx, t1 + 0.01, deckT / 2 + 0.02, 0), { tint: 0xfff2d8 });
@@ -164,7 +199,7 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
   }
   b.add('lampGlow', new THREE.SphereGeometry(0.05, 7, 5), at(0, top + gh + 0.02, roofD / 2 + 0.1));
   // Ridge cap: a rounded log saddled over both decks
-  b.add(W_, log(0.11, roofD + 0.1, 0.02, 10), at(0, top + gh + deckT + 0.1, 0, Math.PI / 2, 0, 0), { tint: 0x8e4a32 });
+  b.add(roofMaterial(), log(0.11, roofD + 0.1, 0.02, 10), at(0, top + gh + deckT + 0.1, 0, Math.PI / 2, 0, 0), { tint: 0x8e4a32 });
   // Chimney: a fieldstone stack (staggered courses of 2 stones in alternating greys) with a slate cap
   // and a clay pot; smoke rises from the pot while the cabin is lived in (Cabins.update).
   const chx = -W * 0.26;

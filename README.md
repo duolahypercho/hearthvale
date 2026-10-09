@@ -1563,6 +1563,33 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   in `shots/animals-r20/final/`; perf at 2560x1440 high (contended: 4 foreign Chromium GPU processes, load ~55):
   house-interior 167 fps / house-night 117 / coop 171 / barn 145 / pasture 97 avg, 124-214 draws, p99 28-32 ms
   (the strict 25 ms p99 gate needs an uncontended run). Co-op matrix `scripts/animals-coop-test.mjs`: 23/23.
+- r21 (critic r10, 8.3): *The flock comes to eat* — hay is only eaten head-down at a trough slot (a hen pecking
+  the floor when the hay went in used to count as fed where she stood and never came over); filling the trough
+  makes every hungry animal drop what it is doing and scurry (birds 2.7x) to a slot. Slots are matched to the birds
+  in order along the trough (crossing-free) and a bird takes a nearer free portion on the way in; the walk is
+  routed round the furniture's real footprints (corner waypoints; indoors walkability is the props' rects, not
+  whole grid tiles — the hens froze beside the bales), round farmers, and falls back to the errand walk after
+  4.5 s. A meal is 8 s of munching that works the portion down and uses it up (`hay[slot]` cleared, host /
+  solo; a trough filled where the host isn't looking is eaten after 24 s) — one hay no longer fed an animal
+  forever. Sated birds linger at the trough instead of trotting over to the farmer. `animals-chores` beat
+  "flock comes to eat" waits for the birds at the trough and prints the count; the farmer collects the eggs a
+  tile back from the shelf, fills from the trough's end, watches from the nest boxes and pats the bird at the
+  row's end from behind (the bird on the lens side). *Touch* — the pat's heart waits for the hand: the arm on
+  the animal's side reaches (the right hand no longer stops at the chest for an animal on the left), the body
+  half-steps up to 0.34 m towards a far target, and the heart pops when the hand is within 0.15 m of the stroked
+  point (`animals.reachGap`); for tall stock the farmer turns further to the lens (face 3/4). The host stages a
+  farmhand's milking / shearing (crouch at the flank, pumping hands, a tin pail under the udder, the burst) —
+  `animals.remoteHarvests`; the co-op matrix checks it and the farmhand's hand gap (25 checks). *Coop* —
+  farmers drawn at 0.84x inside; the translucent hat fade is gone (it drew as a ghost hat); a galvanised fount
+  (pan, ribbed tank, bell lid, bail) replaces the blue pot; the floor is planks under straw (seams, two tones,
+  crisper stalks), the damp ring halved. *Farmhouse* — the curled dog's face: coat-toned muzzle, a slim cream
+  blaze, a small nose tipped into the tail, bigger closed-eye arcs (no more "staring eyeball"); lamp glow pools
+  are clipped to the room's floor (no light on the void past the front wall). *Barn* — the shorn fleece lies
+  flat on a slatted skirting table (it read as a headless sheep on a stool), each stall bedded differently plus a
+  hay net + bucket, a goat's crate + cabbage, the pig's root trough with turnips and apples; the pig turned 30°
+  to the lens; lens 16.2 -> 15.3. *Herd* — the jersey's head ~0.85x the holstein's and side-on in the pasture;
+  the sheep's head + ears lifted 6 cm / 3 cm forward out of the fleece on a short neck, the plain face a deeper
+  taupe; hens: bigger eyes, comb set back on the crown, slimmer deeper-red wattles, a bigger beak between.
 
 ## Co-op multiplayer (1–4 farmers)
 

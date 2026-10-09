@@ -263,15 +263,19 @@ export class CoopInterior extends InteriorMap {
       const a = 0.6 + i * 2.1;
       k.add('fabric', new THREE.CircleGeometry(0.05 + (i % 2) * 0.03, 12).rotateX(-Math.PI / 2), mat(wx + Math.cos(a) * 0.47, 0.012, wz + Math.sin(a) * 0.4), { tint: 0xac9062 });
     }
-    // Blue enamel poultry fount: a wide drinking pan (water ring showing) under a domed reservoir with a
-    // white rim stripe and a ring handle (a cool accent in the honey straw).
-    k.cyl('ceramic', 0.32, 0.3, 0.07, [wx, 0, wz], { tint: 0x5a86c0, seg: 24 });
-    k.add('ceramic', new THREE.TorusGeometry(0.32, 0.02, 6, 26), mat(wx, 0.07, wz, Math.PI / 2, 0, 0), { tint: 0xf4f2ea });
-    k.cyl('ceramic', 0.3, 0.3, 0.01, [wx, 0.065, wz], { tint: 0x8ac4e0, seg: 24 });
-    const fount = new THREE.LatheGeometry([[0, 0], [0.17, 0], [0.18, 0.2], [0.16, 0.27], [0.1, 0.32], [0, 0.34]].map(([a, b]) => new THREE.Vector2(a!, b!)), 22);
-    k.add('ceramic', fount, mat(wx, 0.06, wz), { tint: 0x4e7ab8 });
-    k.add('ceramic', new THREE.TorusGeometry(0.18, 0.012, 5, 22), mat(wx, 0.2, wz, Math.PI / 2, 0, 0), { tint: 0xf4f2ea });
-    k.add('iron', new THREE.TorusGeometry(0.05, 0.01, 5, 12), mat(wx, 0.42, wz), { tint: 0x3a3634 });
+    // r21: a galvanised double-wall poultry fount (the blue enamel pot on a plate never read as a
+    // drinker): a shallow ribbed drinking pan with the water ring showing, the tall tank standing in it
+    // with two rolled seams, a bell-domed lid and a wire carrying bail, a stamped brass tag.
+    k.cyl('tin', 0.3, 0.27, 0.07, [wx, 0, wz], { tint: 0xb8c0c4, seg: 28 });
+    k.add('tin', new THREE.TorusGeometry(0.3, 0.018, 6, 28), mat(wx, 0.07, wz, Math.PI / 2, 0, 0), { tint: 0xdde3e6 });
+    k.cyl('ceramic', 0.285, 0.285, 0.01, [wx, 0.058, wz], { tint: 0x9cc8dc, seg: 28 });
+    k.cyl('tin', 0.19, 0.2, 0.36, [wx, 0.06, wz], { tint: 0xccd3d6, seg: 24 });
+    for (const y of [0.15, 0.3]) k.add('tin', new THREE.TorusGeometry(0.197, 0.011, 5, 24), mat(wx, y, wz, Math.PI / 2, 0, 0), { tint: 0x9aa4a8 });
+    const bell = new THREE.LatheGeometry([[0, 0.17], [0.07, 0.165], [0.13, 0.13], [0.18, 0.06], [0.205, 0.02], [0.205, 0]].map(([a, b]) => new THREE.Vector2(a!, b!)).reverse(), 24);
+    k.add('tin', bell, mat(wx, 0.42, wz), { tint: 0xd6dcdf });
+    k.sphere('tin', 0.028, [wx, 0.6, wz], 0x9aa4a8);
+    k.add('iron', new THREE.TorusGeometry(0.15, 0.008, 5, 18, Math.PI), mat(wx, 0.5, wz, 0, 0.5, 0), { tint: 0x4a4644 });
+    k.box('ceramic', [0.07, 0.05, 0.006], [wx - 0.07, 0.2, wz + 0.19], { tint: 0xc8a040, ry: -0.35 });
     // A little bale "climbing frame" (the hens hop up it): a bale on the floor, a smaller one stacked
     // half-off it, loose straw kicked round the foot and a scatter of grain on the top.
     hayBale(k, 2.3, 0, 3.88, 0.28, 0.86);
@@ -624,11 +628,12 @@ export class CoopInterior extends InteriorMap {
     scuff([[4.2, 3.4], [5.4, 2.6], [5.95, 2.0]], 0.5, 0.09);
     scuff([[4.6, 4.6], [5.9, 4.0], [6.6, 3.6]], 0.42, 0.08);
     // Damp ring round the fount (darker, a little cooler) + splash flecks.
-    blob(6.85, 3.5, 0.75, '58,44,34', 0.2);
-    for (let i = 0; i < 10; i++) {
+    // (r21: half as strong, half as many flecks — the dark ring read as a blotch)
+    blob(6.85, 3.5, 0.62, '58,44,34', 0.1);
+    for (let i = 0; i < 5; i++) {
       const a = r.next() * Math.PI * 2;
       const d = 0.45 + r.next() * 0.4;
-      blob(6.85 + Math.cos(a) * d, 3.5 + Math.sin(a) * d * 0.85, 0.06 + r.next() * 0.08, '60,46,36', 0.16);
+      blob(6.85 + Math.cos(a) * d, 3.5 + Math.sin(a) * d * 0.85, 0.05 + r.next() * 0.06, '60,46,36', 0.08);
     }
     // Fresh pale straw in the quiet corners / along the walls.
     for (const [mx, mz, rad] of [[7.6, 5.6, 0.9], [0.3, 3.2, 0.7], [7.7, 0.4, 0.7], [3.6, 0.25, 0.6], [6.2, 5.75, 0.6]] as const) blob(mx, mz, rad, '250,226,160', 0.16);

@@ -133,6 +133,22 @@ function oceanGate(): boolean {
   }
 }
 
+/**
+ * Perf r23 (`?oceandeep=0` = off): past DEEP_T of water the near sheet's alpha is >= 0.95, so the sea
+ * bed reaches the frame at <= 5 %. A depth-only occluder a little under the surface (createOcean)
+ * keeps the terrain's full PBR + sand shading off those pixels, and the water composites itself over
+ * a lit estimate of that (flat, deep-tinted) bed instead, written opaque: identical to the eye.
+ */
+const DEEP_T = 1.5;
+function oceanDeep(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get('oceandeep');
+    return !(q === '0' || q === 'false');
+  } catch {
+    return true;
+  }
+}
+
 function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = false): THREE.ShaderMaterial {
   const o = terrain.opts;
   const mat = new THREE.ShaderMaterial({
@@ -164,6 +180,9 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       uPileRect: { value: new THREE.Vector4(0, 0, 1, 1) },
       uLampPos: { value: [new THREE.Vector3(1e5, 0, 1e5), new THREE.Vector3(1e5, 0, 1e5), new THREE.Vector3(1e5, 0, 1e5), new THREE.Vector3(1e5, 0, 1e5)] },
       uLamps: globalUniforms.uLamps,
+      // Near sheet only: the far pieces lie outside the terrain (nothing to hide under them).
+      uDeepT: { value: !far && !pool && oceanDeep() ? DEEP_T : 1e9 },
+      uDeepK: { value: new THREE.Vector4(1, 1, 1, 0) },
     },
     vertexShader: /* glsl */ `
       uniform sampler2D uHeight;
@@ -255,6 +274,8 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
       uniform vec4 uPileRect;
       uniform vec3 uLampPos[4];
       uniform float uLamps;
+      uniform float uDeepT;
+      uniform vec4 uDeepK;
       varying vec3 vW;
       varying float vLift;
       varying float vCloudN;
@@ -752,6 +773,33 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         alpha = max(alpha, meniscus * 0.8);
         alpha *= smoothstep(0.0, 0.035, depth) * 0.85 + 0.15 * step(0.004, depth);
         alpha = mix(alpha, 1.0, haze);
+        // Perf r23 (DEEP_T): the bed under deep water is hidden by the occluder, so blend over its lit
+        // estimate here (sand.ts: sand x the cool bed tint fading to the deep teal, sun + sky lit, plus
+        // the wet sky sheen) and write opaque. It weighs <= 5 % of the pixel.
+        if (depth >= uDeepT) {
+          float dw = smoothstep(uDeepT, uDeepT + 0.5, depth);
+          vec3 bedA = mix(vec3(0.29, 0.27, 0.17), vec3(0.05, 0.16, 0.2), smoothstep(0.8, 3.5, depth));
+          // Wet bed (roughness ~0.38: shore 0.6 -> wet 0.28): Lambert + GGX sun (the low sun's glare through the sheet is
+          // most of what the bed adds at dusk) + a sky reflection.
+          float nl = max(L.y, 0.0);
+          float nv = max(V.y, 1e-3);
+          vec3 Hb = normalize(L + V);
+          float nh = max(Hb.y, 0.0);
+          float a2 = 0.0199; // (0.376²)²
+          float dd = nh * nh * (a2 - 1.0) + 1.0;
+          float Dg = a2 / (3.14159 * dd * dd);
+          float Vg = 0.5 / (nl * sqrt(nv * nv * (1.0 - a2) + a2) + nv * sqrt(nl * nl * (1.0 - a2) + a2) + 1e-5);
+          float Fs = 0.04 + 0.96 * pow(1.0 - max(dot(V, Hb), 0.0), 5.0);
+          vec3 bedL = bedA * (uSunColor * 0.95 * nl * cloud + (uSkyColor * 0.5 + uHorizonColor * 0.3) * uDeepK.x);
+          bedL += uSunColor * 3.0 * nl * Fs * Vg * Dg * cloud * uDeepK.y;
+          float Fe = 0.04 + 0.96 * pow(1.0 - nv, 5.0) * 0.6;
+          bedL += mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.55, V.y)) * Fe * 0.55 * uDeepK.z;
+          bedL += mix(uHorizonColor, uSkyColor, 0.45) * 0.154 * (0.2 + 0.8 * pow(1.0 - nv, 3.0)) * mix(0.45, 1.0, smoothstep(0.08, 0.4, L.y)) * mix(0.25, 1.0, 1.0 - uNight);
+          if (uDeepK.w > 0.5) { gl_FragColor = vec4(bedL, 1.0); return; }
+          float A = alpha + (1.0 - alpha) * dw;
+          c = (c * alpha + bedL * (1.0 - alpha) * dw) / max(A, 1e-4);
+          alpha = A;
+        }
         gl_FragColor = vec4(c, depth < 0.0 ? 0.0 : alpha);
       }`,
   });
@@ -815,7 +863,69 @@ export function createOcean(opts: OceanOptions): THREE.Group {
   proxy.frustumCulled = false;
   proxy.userData.ao = true;
   g.add(proxy);
+  if (oceanDeep()) {
+    const occ = deepOccluder(terrain, level, near);
+    if (occ) g.add(occ);
+  }
   return g;
+}
+
+/**
+ * Perf r23: depth-only quads 0.45 m under the surface wherever the ground, dilated by 1 m, lies deeper
+ * than DEEP_T (+ the swell trough + slack) — exactly where the near sheet composites itself opaque.
+ * Drawn first among the opaques, it keeps the sea-bed terrain (and anything else that deep) out of
+ * the main pass. The water above always passes the depth test (it never dips 0.45 m), and the
+ * surface depth that the post passes read is unchanged. Rows of cells merge into one quad each.
+ */
+function deepOccluder(terrain: Terrain, level: number, near: { x0: number; z0: number; x1: number; z1: number }): THREE.Mesh | null {
+  const o = terrain.opts;
+  const C = 2;
+  const x0 = Math.max(near.x0, o.minX);
+  const z0 = Math.max(near.z0, o.minZ);
+  const nx = Math.floor((Math.min(near.x1, o.maxX) - x0) / C);
+  const nz = Math.floor((Math.min(near.z1, o.maxZ) - z0) / C);
+  if (nx <= 0 || nz <= 0) return null;
+  const top = level - DEEP_T - 0.5 - 0.25;
+  const s = o.step;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const y = level - 0.45;
+  for (let j = 0; j < nz; j++) {
+    let run = -1;
+    for (let i = 0; i <= nx; i++) {
+      let ok = i < nx;
+      if (ok) {
+        // Max of the height grid over the cell grown by 1 m (bilinear / mesh heights never exceed it).
+        const cx0 = x0 + i * C - 1;
+        const cz0 = z0 + j * C - 1;
+        for (let z = cz0; ok && z <= cz0 + C + 2 + 1e-6; z += s) for (let x = cx0; x <= cx0 + C + 2 + 1e-6; x += s) if (terrain.heightAt(x, z) > top) { ok = false; break; }
+      }
+      if (ok && run < 0) run = i;
+      if (!ok && run >= 0) {
+        const xa = x0 + run * C;
+        const xb = x0 + i * C;
+        const za = z0 + j * C;
+        const k = pos.length / 3;
+        pos.push(xa, y, za, xb, y, za, xa, y, za + C, xb, y, za + C);
+        idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3);
+        run = -1;
+      }
+    }
+  }
+  if (!idx.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere();
+  const mat = new THREE.MeshBasicMaterial({ colorWrite: false });
+  mat.name = 'oceanDeepOccluder';
+  const m = new THREE.Mesh(geo, mat);
+  m.name = 'ocean-deep-occluder';
+  m.renderOrder = -1;
+  m.castShadow = false;
+  m.receiveShadow = false;
+  m.userData.noAO = true;
+  return m;
 }
 
 /**

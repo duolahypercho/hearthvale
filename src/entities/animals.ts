@@ -103,6 +103,27 @@ const FARMER_SPACE = 0.7;
  *  so the visitors stand behind the farmer as seen from the lens, faces to the camera, none in front). */
 const CURIOUS_SLOTS = [-Math.PI / 2, -Math.PI / 2 - 0.82, -Math.PI / 2 + 0.82, -Math.PI / 2 - 1.55, -Math.PI / 2 + 1.55];
 
+/** r21: does segment a→b cross the box [x0,x1]×[z0,z1]? (slab test) */
+function segBox(ax: number, az: number, bx: number, bz: number, x0: number, z0: number, x1: number, z1: number): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = bx - ax;
+  const dz = bz - az;
+  for (const [p, d, lo, hi] of [[ax, dx, x0, x1], [az, dz, z0, z1]] as const) {
+    if (Math.abs(d) < 1e-9) {
+      if (p < lo || p > hi) return false;
+      continue;
+    }
+    let ta = (lo - p) / d;
+    let tb = (hi - p) / d;
+    if (ta > tb) [ta, tb] = [tb, ta];
+    t0 = Math.max(t0, ta);
+    t1 = Math.min(t1, tb);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
 /** Animals currently walking up to the farmer (curiosity is capped so the herd never mobs them). */
 const curiousNow = new Set<AnimalActor>();
 const MAX_CURIOUS = 3;
@@ -208,6 +229,50 @@ export class AnimalActor {
   private blinkHold = 0;
   /** Seconds until this animal may wander up to the farmer again. */
   private curiousCD = 5 + Math.random() * 15;
+  private wasHungry = false;
+  /** r21: furniture footprints (world AABBs) the walk to the trough is routed round (one corner waypoint). */
+  routeRects: readonly { x0: number; z0: number; x1: number; z1: number }[] = [];
+  private via: THREE.Vector3 | null = null;
+  private viaRect: { x0: number; z0: number; x1: number; z1: number } | null = null;
+  /** r21: walk to `goal`, round the corner of the first piece of furniture in the way (if any; `skip` =
+   *  the one just rounded — from its corner the path grazes it and would pick the same corner again). */
+  private planTo(goal: THREE.Vector3, skip: { x0: number; z0: number; x1: number; z1: number } | null = null): void {
+    this.via = null;
+    this.viaRect = null;
+    this.target.copy(goal);
+    const pad = this.gait.radius * this.scale * 0.6 + 0.05;
+    const px = this.pos.x;
+    const pz = this.pos.z;
+    // (r21: farmers standing between the animal and its slot are routed round like furniture)
+    const fr = 0.62;
+    const rects = this.routeRects.slice();
+    for (const f of this.player ? [this.player, ...this.farmers] : this.farmers) if (Math.hypot(f.x - goal.x, f.z - goal.z) > fr + 0.3) rects.push({ x0: f.x - fr, z0: f.z - fr, x1: f.x + fr, z1: f.z + fr });
+    const blocked = (ax: number, az: number, bx: number, bz: number) => rects.find((r) => r !== skip && segBox(ax, az, bx, bz, r.x0 - pad, r.z0 - pad, r.x1 + pad, r.z1 + pad));
+    const hit = blocked(px, pz, goal.x, goal.z);
+    if (!hit) return;
+    const m = pad + 0.22;
+    let best: [number, number] | null = null;
+    let bc = Infinity;
+    // (the way to a corner may graze the box being rounded — standing inside its padding, every corner
+    // was refused and the bird slid along the bales' edge instead)
+    const blockedBut = (ax: number, az: number, bx: number, bz: number) => rects.find((r) => r !== skip && r !== hit && segBox(ax, az, bx, bz, r.x0 - pad, r.z0 - pad, r.x1 + pad, r.z1 + pad));
+    for (const [cx, cz] of [[hit.x0 - m, hit.z0 - m], [hit.x1 + m, hit.z0 - m], [hit.x0 - m, hit.z1 + m], [hit.x1 + m, hit.z1 + m]] as const) {
+      if (!this.walkable(cx, cz) || blockedBut(px, pz, cx, cz)) continue;
+      const c = Math.hypot(cx - px, cz - pz) + Math.hypot(goal.x - cx, goal.z - cz) + (blockedBut(cx, cz, goal.x, goal.z) ? 2 : 0);
+      if (c < bc) (bc = c), (best = [cx, cz]);
+    }
+    if (best && Math.hypot(best[0] - px, best[1] - pz) > 0.15) {
+      this.via = new THREE.Vector3(best[0], 0, best[1]);
+      this.viaRect = hit;
+      this.target.copy(this.via);
+    }
+  }
+  private slideT = 0;
+  private progT = 0;
+  private rushT = 0;
+  private progD = 99;
+  /** r21: which way to feel round an obstacle on the way to the trough (+1 / -1). */
+  private detour = Math.random() < 0.5 ? 1 : -1;
   /** Co-op mirror: the host's pose for this animal (null = own wander brain). */
   private remote: { x: number; z: number; h: number; s: State } | null = null;
 
@@ -359,6 +424,21 @@ export class AnimalActor {
     this.remote = null;
   }
 
+  /** r21: its trough slot changed (the system swapped portions between two hungry birds): head there. */
+  retarget(): void {
+    if (!this.hungry || !this.feedSpot || this.forced || this.remote || this.blissT > 0 || this.sleeping) return;
+    if (this.state === 'eat' && this.atFeed) return;
+    this.planTo(this.feedSpot);
+    this.setState('walk', 12);
+  }
+
+  /** r21: just finished a trough meal — lingers by the trough (pecking crumbs, preening) for a while instead
+   *  of trotting straight over to stand round the farmer. */
+  sated(): void {
+    this.curiousCD = 25 + Math.random() * 15;
+    curiousNow.delete(this);
+  }
+
   /** Leaving the scene: drop out of the curious walkers. */
   forget(): void {
     curiousNow.delete(this);
@@ -372,7 +452,8 @@ export class AnimalActor {
     if (from && this.state !== 'sleep') {
       const want = Math.atan2(from.x - this.pos.x, from.z - this.pos.z);
       // Stall animals keep facing out over the manger (the farmer reaches in from the aisle).
-      if (!this.stalled) this.faceTo = want;
+      // (r21: nor does a hungry animal at its trough slot — it stays over its hay)
+      if (!this.stalled && !(this.hungry && this.atFeed)) this.faceTo = want;
     }
   }
 
@@ -423,6 +504,19 @@ export class AnimalActor {
 
   get isEating(): boolean {
     return this.state === 'eat' && this.eatW > 0.6;
+  }
+
+  /** r21: standing at its own trough / manger slot (within 0.4 m of the feed spot). Hay is only eaten
+   *  here — a hen already pecking at the straw when the trough was filled used to count as fed on the
+   *  spot and never went to the trough at all. */
+  get atFeed(): boolean {
+    const f = this.feedSpot;
+    return !!f && Math.hypot(f.x - this.pos.x, f.z - this.pos.z) < 0.4;
+  }
+
+  /** r21: eating at the trough right now (head down in the hay, not walking up to it). */
+  get feeding(): boolean {
+    return this.hungry && this.state === 'eat' && this.eatW > 0.6 && this.atFeed;
   }
 
   /** World-space point just above the head (heart pops, labels) — follows the head bone. */
@@ -529,8 +623,13 @@ export class AnimalActor {
     let side = 0;
     let slow = 1;
     let hit = false;
+    const toTrough = this.hungry && !!this.feedSpot;
     for (const o of this.nbrs) {
       if (o === this || !o.root.visible) continue;
+      // (r21: birds already eating along the trough don't wall off the slot between them)
+      // (and the other hungry ones converging on the trough with it: steering round each other they slowed
+      // to a crawl side by side — the body separation alone keeps them apart)
+      if (toTrough && o.feedSpot && (o.hungry || (o.state === 'eat' && o.atFeed))) continue;
       const vx = o.pos.x - this.pos.x;
       const vz = o.pos.z - this.pos.z;
       const f = vx * ux + vz * uz;
@@ -542,6 +641,24 @@ export class AnimalActor {
       const w = (1 - Math.abs(lat) / clear) * (1 - Math.max(0, f - me - o.extent) / look);
       side += (lat >= 0 ? 1 : -1) * w * 1.6;
       if (f < me + o.extent + 0.25) slow = Math.min(slow, Math.max(0.2, (f - me - o.extent) / 0.25));
+    }
+    // r21: farmers in the path too (a hungry hen walking straight at the farmer was held off by the
+    // personal-space ring and stood pressed against it, never reaching the trough): steer round them.
+    if (toTrough) {
+      const fx = (f: THREE.Vector3): void => {
+        const vx = f.x - this.pos.x;
+        const vz = f.z - this.pos.z;
+        const fwd = vx * ux + vz * uz;
+        const ext = FARMER_SPACE * 0.85;
+        if (fwd <= 0 || fwd > look + ext || fwd > dist + ext) return;
+        const lat = vx * uz - vz * ux;
+        const clear = me + ext + 0.15;
+        if (Math.abs(lat) >= clear) return;
+        hit = true;
+        side += (lat >= 0 ? 1 : -1) * (1 - Math.abs(lat) / clear) * 2.2;
+      };
+      if (this.player) fx(this.player);
+      for (const f of this.farmers) fx(f);
     }
     if (!hit) {
       this.blockedT = Math.max(0, this.blockedT - 0.05);
@@ -573,6 +690,7 @@ export class AnimalActor {
 
   private setState(s: State, dur: number): void {
     curiousNow.delete(this);
+    if (s !== 'walk') this.via = null;
     if (s !== 'sleep') this.resting = false;
     this.state = s;
     this.stateT = 0;
@@ -643,9 +761,9 @@ export class AnimalActor {
     if (this.hungry && this.feedSpot) {
       const d = Math.hypot(this.feedSpot.x - this.pos.x, this.feedSpot.z - this.pos.z);
       if (d > 0.3) {
-        this.target.copy(this.feedSpot);
+        this.planTo(this.feedSpot);
         this.setState('walk', 12);
-      } else this.setState('eat', 4 + Math.random() * 3);
+      } else this.setState('eat', 10 + Math.random() * 3);
       return;
     }
     const r = Math.random();
@@ -718,6 +836,30 @@ export class AnimalActor {
   update(dt: number, t: number, neighbours: readonly AnimalActor[]): void {
     this.stateT += dt;
     if (this.curiousCD > 0) this.curiousCD -= dt;
+    // r21: still not at the trough 4.5 s after setting off (wedged between the sacks and a neighbour): the
+    // errand walk takes over — it slides along whatever is in the way and is never stuck for long.
+    if (this.hungry && this.feedSpot && !this.remote && !this.sleeping && this.blissT <= 0 && !this.atFeed) {
+      this.rushT += dt;
+      if (this.rushT > 4.5 && !this.forced) {
+        this.rushT = 0;
+        const f = this.feedSpot;
+        this.via = null;
+        this.goTo(f.x, f.z, () => {
+          if (!this.hungry || !this.feedSpot || !this.atFeed) return;
+          this.faceTo = this.feedHeading;
+          this.setState('eat', 10 + Math.random() * 3);
+        }, 0.3);
+      }
+    } else this.rushT = 0;
+    // r21: the trough was just filled — every hungry animal drops what it was doing (a curious stroll up to
+    // the farmer, a peck at the floor, a long idle) and makes for its slot at once.
+    if (this.hungry !== this.wasHungry) {
+      this.wasHungry = this.hungry;
+      if (this.hungry && this.feedSpot && !this.forced && !this.remote && !this.sleeping && this.blissT <= 0 && !this.atFeed) {
+        curiousNow.delete(this);
+        this.think();
+      }
+    }
     // Night: wind down wherever we are (or at the bed spot once reached).
     if (this.sleeping && !this.forced && !this.remote && this.state !== 'sleep' && this.state !== 'walk') this.think();
     if (!this.sleeping && !this.resting && this.state === 'sleep') this.setState('idle', 0.6 + Math.random());
@@ -729,7 +871,17 @@ export class AnimalActor {
       const dx = this.target.x - this.pos.x;
       const dz = this.target.z - this.pos.z;
       const d = Math.hypot(dx, dz);
-      if (d < Math.max(0.08, this.forced?.r ?? 0)) {
+      if (this.via && (d < 0.12 || this.stateT > 3) && !this.forced && !this.remote) {
+        // r21: round the corner — on to the trough slot (straight there if the corner took too long)
+        const late = this.stateT > 3;
+        const rounded = this.viaRect;
+        this.via = null;
+        if (this.hungry && this.feedSpot) {
+          if (late) this.target.copy(this.feedSpot);
+          else this.planTo(this.feedSpot, rounded);
+          this.stateT = 0;
+        } else this.setState('idle', 0.4);
+      } else if (d < Math.max(this.hungry && this.feedSpot && !this.via && Math.hypot(this.target.x - this.feedSpot.x, this.target.z - this.feedSpot.z) < 0.05 ? 0.2 : 0.08, this.forced?.r ?? 0)) {
         if (this.forced) {
           const cb = this.forced.cb;
           this.forced = null;
@@ -739,7 +891,7 @@ export class AnimalActor {
         else if (this.sleeping) this.setState('sleep', 30);
         else if (this.hungry && this.feedSpot && Math.hypot(this.feedSpot.x - this.pos.x, this.feedSpot.z - this.pos.z) < 0.35) {
           this.heading = this.feedHeading;
-          this.setState('eat', 5 + Math.random() * 3);
+          this.setState('eat', 10 + Math.random() * 3);
         } else {
           this.setState(Math.random() < 0.5 ? 'idle' : 'eat', 1 + Math.random() * 2.5);
           // Stall animals face out over the manger; curious ones turn to look at the farmer.
@@ -756,15 +908,77 @@ export class AnimalActor {
         const want = steer ? Math.atan2(steer.x, steer.z) : Math.atan2(dx, dz);
         let dh = want - this.heading;
         dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-        this.heading += dh * (1 - Math.exp(-6 * dt));
-        const align = Math.max(0, Math.cos(dh));
-        const spd = this.gait.speed * this.speedK * (this.forced ? this.hurry : 1) * align * Math.min(1, d * 2 + 0.3) * (this.sleeping ? 1.2 : 1) * (steer ? steer.slow : 1);
+        // (r21: rushing to the trough a bird wheels round fast and keeps scurrying through the turn — at
+        // zero speed while turning, each sidestep's half-turn stalled it where it stood)
+        const rushing = this.hungry && !!this.feedSpot && !this.remote;
+        this.heading += dh * (1 - Math.exp(-(rushing ? 12 : 6) * dt));
+        const align = Math.max(rushing ? 0.3 : 0, Math.cos(dh));
+        // r21: no headway towards the trough for 0.7 s (pressed against a neighbour or a farmer) — sidestep
+        // half a metre to whichever side is free and come at the slot from there.
+        if (this.hungry && this.feedSpot && !this.remote && !this.forced) {
+          this.progT += dt;
+          if (this.progT > 0.7) {
+            if (this.progD - d < 0.06 && this.via) {
+              // already round a corner / a sidestep and still no headway: straight for the slot
+              this.via = null;
+              this.viaRect = null;
+              this.target.copy(this.feedSpot);
+            } else if (this.progD - d < 0.06) {
+              const px = -dz / d;
+              const pz = dx / d;
+              for (const sg of [this.detour, -this.detour]) {
+                const vx = this.pos.x + px * sg * 0.5 - (dx / d) * 0.15;
+                const vz = this.pos.z + pz * sg * 0.5 - (dz / d) * 0.15;
+                if (!this.walkable(vx, vz)) continue;
+                this.via = new THREE.Vector3(vx, 0, vz);
+                this.viaRect = null;
+                this.target.copy(this.via);
+                this.detour = sg;
+                break;
+              }
+            }
+            this.progT = 0;
+            this.progD = Math.hypot(this.target.x - this.pos.x, this.target.z - this.pos.z);
+          }
+        }
+        // (r21: a hungry animal bustles to its trough slot — the birds at a flapping scurry)
+        const rush = this.hungry && this.feedSpot && (this.via || this.forced || Math.hypot(this.target.x - this.feedSpot.x, this.target.z - this.feedSpot.z) < 0.05) ? (this.gait.biped ? 2.7 : 1.6) : 1;
+        const spd = this.gait.speed * this.speedK * rush * (this.forced ? this.hurry : 1) * align * Math.min(1, d * 2 + 0.3) * (this.sleeping ? 1.2 : 1) * (steer ? steer.slow : 1);
         const nx = this.pos.x + Math.sin(this.heading) * spd * dt;
         const nz = this.pos.z + Math.cos(this.heading) * spd * dt;
-        if (this.walkable(nx, nz)) {
+        // (r21: standing somewhere it may not — spawned / nudged into a prop's footprint — it may always
+        // step out; before, every step from inside was refused and the bird idled there all day)
+        if (this.walkable(nx, nz) || !this.walkable(this.pos.x, this.pos.z)) {
           this.pos.x = nx;
           this.pos.z = nz;
           moving = spd > 0.05;
+        } else if (!this.remote && !this.forced && this.hungry && this.feedSpot) {
+          // r21: on the way to the trough, feel round the obstacle (bales, the feeder) instead of stopping:
+          // the first sidestep heading that is free, keeping to the side that worked last time.
+          let ok = false;
+          for (const k of [0.6, 1.2, 1.8]) {
+            for (const sg of [this.detour, -this.detour]) {
+              const h = this.heading + k * sg;
+              const ds = Math.max(spd, this.gait.speed * this.speedK * rush * 0.75);
+              const sx = this.pos.x + Math.sin(h) * ds * dt;
+              const sz = this.pos.z + Math.cos(h) * ds * dt;
+              if (!this.walkable(sx, sz)) continue;
+              this.pos.x = sx;
+              this.pos.z = sz;
+              this.heading += k * sg * 0.2;
+              this.detour = sg;
+              ok = true;
+              break;
+            }
+            if (ok) break;
+          }
+          moving = ok;
+          if (!ok) this.setState('idle', 0.25);
+          else if ((this.slideT += dt) > 0.8) {
+            // (r21: sliding along an obstacle for a while — plan a corner round it)
+            this.slideT = 0;
+            this.planTo(this.feedSpot);
+          }
         } else if (this.forced) {
           // Slide along whichever axis is free (doorways, fence gaps).
           if (this.walkable(nx, this.pos.z)) this.pos.x = nx;
@@ -781,7 +995,8 @@ export class AnimalActor {
         }
         if (this.blockedT > 1.4 && !this.forced && this.state === 'walk') {
           this.blockedT = 0;
-          this.setState('idle', 0.6 + Math.random());
+          // (r21: hungry — a short pause, then on to the trough again instead of giving up)
+          this.setState('idle', this.hungry && this.feedSpot ? 0.25 : 0.6 + Math.random());
         }
       }
     } else if (this.state === 'eat' && this.hungry && this.feedSpot) {
@@ -829,7 +1044,8 @@ export class AnimalActor {
       const mn = hr + oc.r + 0.04;
       if (dd >= mn || dd < 1e-4) continue;
       const push = (mn - dd) / dd;
-      this.nudge(ddx * push * (o.confine && !this.confine ? 1 : 0.6), ddz * push * (o.confine && !this.confine ? 1 : 0.6), me);
+      const hk2 = (o.confine || o.feeding) && !(this.confine || this.feeding) ? 1 : this.feeding && !o.feeding ? 0.15 : 0.6;
+      this.nudge(ddx * push * hk2, ddz * push * hk2, me);
     }
     for (const o of neighbours) {
       if (o === this) continue;
@@ -838,14 +1054,20 @@ export class AnimalActor {
       let dx = _cp.px - _cp.qx;
       let dz = _cp.pz - _cp.qz;
       let d = Math.hypot(dx, dz);
-      const min = myR + Math.max(oc.r, SPACE[o.species]);
+      // (r21: shoulder to shoulder along the trough — the slots are 0.47 m apart and the full personal
+      // space shoved every other bird off its hay)
+      const min = (myR + Math.max(oc.r, SPACE[o.species])) * (this.hungry && o.hungry && this.atFeed && o.atFeed ? 0.82 : 1);
       if (d >= min) continue;
       if (d < 1e-4) {
         dx = Math.sin(this.seed * 7.1);
         dz = Math.cos(this.seed * 7.1);
         d = 1;
       }
-      const push = ((min - d) / d) * (o.confine && !this.confine ? 1 : 0.5);
+      // (r21: an animal head-down at its trough slot is anchored like a stalled one — a latecomer
+      // squeezing in shoved the eaters along the trough and off their own hay)
+      const aMe = this.confine || this.feeding;
+      const aO = o.confine || o.feeding;
+      const push = ((min - d) / d) * (aMe && !aO ? 0 : aO && !aMe ? 1 : 0.5);
       this.nudge(dx * push, dz * push, me);
     }
     // Farmers: a soft 0.7 m ring (eased out over a few frames, so a petted animal settles beside the

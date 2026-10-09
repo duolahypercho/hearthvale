@@ -167,7 +167,7 @@ export class CoopDemo {
         if (!this.active) return;
         const pl = this.game.player as unknown as { targetYaw: number; setFacing(f: Facing): void };
         pl.setFacing('left');
-        pl.targetYaw = -0.55;
+        pl.targetYaw = -0.12;
       });
     }
     this.net.emitRoster();
@@ -215,10 +215,13 @@ export class CoopDemo {
     const cx = site.x0 + 1.5;
     const front = site.z0 + 3;
     // (the lens looks in from the south-east, clear of the blossom tree: everyone stands in an open arc)
-    this.bots = [mk(0, cx - 0.3, front + 0.1, 'down', idle), mk(1, cx - 1.65, front + 1.25, 'down', idle), mk(2, cx + 1.75, front + 1.35, 'down', idle)];
-    this.bots[0]!.p.farmer.targetYaw = 0.35;
-    this.bots[1]!.p.farmer.targetYaw = 0.8;
-    this.bots[2]!.p.farmer.targetYaw = 0.05;
+    // (r7b) An open ring round the doorway, the door + the mug crate left clear between them: Juniper by
+    // her window (west of the step), Fennel out on the grass to the west, Briar front-right, the host
+    // coming in from the east (r7: Juniper stood in the doorway and Briar overlapped her).
+    this.bots = [mk(0, cx - 1.05, front + 0.3, 'down', idle), mk(1, cx - 2.05, front + 1.65, 'down', idle), mk(2, cx + 0.75, front + 2.05, 'down', idle)];
+    this.bots[0]!.p.farmer.targetYaw = 0.3;
+    this.bots[1]!.p.farmer.targetYaw = 0.72;
+    this.bots[2]!.p.farmer.targetYaw = -0.28;
     this.net.refreshCabins(new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf], [2, PRESET_LOOKS[2]!.scarf]]));
     for (const [i, c] of [0xf4ead8, 0x9fc6e8, 0xe8b64a].entries()) {
       const m = buildMug(c);
@@ -242,12 +245,12 @@ export class CoopDemo {
       if (!this.active) return;
       const pl = this.game.player;
       const rig = this.game.rc.rig;
-      const to = { x: cx + 2.9, z: front + 0.3 };
+      const to = { x: cx + 2.35, z: front + 1.05 };
       rig.lookOffset.x -= to.x - pl.position.x;
       rig.lookOffset.z -= to.z - pl.position.z;
       pl.teleport(to.x, to.z);
       pl.setFacing('left');
-      (pl as unknown as { targetYaw: number }).targetYaw = -0.3;
+      (pl as unknown as { targetYaw: number }).targetYaw = -0.7;
       this.game.followPlayer(true);
     });
     this.net.emitRoster();
@@ -265,10 +268,11 @@ export class CoopDemo {
   tally(): DayTally[] {
     const me = this.net.profile();
     const mine = this.net.players().find((p) => p.isMe);
-    const rows: DayTally[] = [{ id: 1, name: mine?.name || me.name || 'Farmer', look: mine?.look ?? me.look, isMe: true, n: [18, 24, 6, 12, 340] }];
+    const rows: DayTally[] = [{ id: 1, name: mine?.name || me.name || 'Farmer', look: mine?.look ?? me.look, isMe: true, n: [18, 24, 6, 12, 1480] }];
     const work = [
-      [26, 8, 0, 6, 0],
-      [4, 31, 12, 18, 0],
+      // (shipped gold sums to the staged bin total, 3,505 g: who shipped what adds up)
+      [26, 8, 0, 6, 900],
+      [4, 31, 12, 18, 510],
       [9, 14, 3, 0, 615],
     ];
     this.bots.forEach((b, i) => rows.push({ id: b.p.id, name: b.p.name, look: b.p.look, isMe: false, n: work[i]! }));

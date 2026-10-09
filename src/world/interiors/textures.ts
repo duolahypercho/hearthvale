@@ -332,7 +332,23 @@ export function strawFloor(calm = false): TexPair {
     hctx.fillStyle = '#303030';
     hctx.fillRect(0, 0, S, S);
     if (calm) {
-      // Broad soft value patches first (packed vs fluffed bedding), so the field isn't one tone.
+      // r21 (critic: "brown mush and blotches rather than straw over boards"): the floorboards first —
+      // 0.2 m planks in two tones with dark seams and staggered butt joints, peeking between the straw.
+      const PW = S / 10;
+      for (let b = 0; b < 10; b++) {
+        const y0 = b * PW;
+        ctx.fillStyle = b % 2 ? '#94724a' : '#86663f';
+        ctx.fillRect(0, y0, S, PW);
+        ctx.fillStyle = 'rgba(46,30,18,0.55)';
+        ctx.fillRect(0, y0, S, 2);
+        const jx = (rng.next() * S) | 0;
+        ctx.fillRect(jx, y0, 2, PW);
+        for (let g = 0; g < 6; g++) {
+          ctx.fillStyle = `rgba(${rng.next() < 0.5 ? '60,40,24' : '170,136,90'},0.14)`;
+          ctx.fillRect(0, y0 + 4 + rng.next() * (PW - 8), S, 1);
+        }
+      }
+      // Broad soft value patches (packed vs fluffed bedding), so the field isn't one tone.
       for (let i = 0; i < 40; i++) {
         const x = rng.next() * S;
         const y = rng.next() * S;
@@ -340,7 +356,7 @@ export function strawFloor(calm = false): TexPair {
         const lit = rng.next() < 0.5;
         for (const [ox, oy] of [[0, 0], [S, 0], [-S, 0], [0, S], [0, -S]] as const) {
           const gr = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
-          gr.addColorStop(0, lit ? 'rgba(196,160,104,0.35)' : 'rgba(96,72,44,0.3)');
+          gr.addColorStop(0, lit ? 'rgba(206,170,110,0.32)' : 'rgba(96,72,44,0.15)');
           gr.addColorStop(1, 'rgba(0,0,0,0)');
           ctx.fillStyle = gr;
           ctx.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
@@ -348,7 +364,7 @@ export function strawFloor(calm = false): TexPair {
       }
     }
     ctx.lineCap = hctx.lineCap = 'round';
-    const N = calm ? 7000 : 16000;
+    const N = calm ? 10500 : 16000;
     for (let i = 0; i < N; i++) {
       const x = rng.next() * S;
       const y = rng.next() * S;
@@ -357,8 +373,9 @@ export function strawFloor(calm = false): TexPair {
       const t = rng.next();
       // (r9: calm strands held inside the bedding's own value range — bright sprigs at the props'
       // contrast made the coop floor read as noise)
-      const r = calm ? 142 + t * 36 : 175 + t * 70;
-      ctx.strokeStyle = calm ? `rgba(${r},${r * 0.79},${r * 0.5},${0.28 + t * 0.26})` : `rgba(${r},${r * 0.82},${r * 0.45},${0.55 + t * 0.4})`;
+      // (r21: a wider value range + crisper strands — individual stalks over the boards)
+      const r = calm ? 140 + t * 62 : 175 + t * 70;
+      ctx.strokeStyle = calm ? `rgba(${r},${r * 0.8},${r * 0.5},${0.34 + t * 0.3})` : `rgba(${r},${r * 0.82},${r * 0.45},${0.55 + t * 0.4})`;
       ctx.lineWidth = 0.8 + rng.next() * 1.4;
       hctx.strokeStyle = `rgba(${120 + t * 130},${120 + t * 130},${120 + t * 130},1)`;
       hctx.lineWidth = ctx.lineWidth;

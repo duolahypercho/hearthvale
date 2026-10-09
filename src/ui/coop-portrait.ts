@@ -60,8 +60,12 @@ export function farmerPortraitUrl(look: FarmerLook): string | null {
     f.root.updateMatrixWorld(true);
     // Frame the head + hat: centre a touch below the head top anchor, shoulders just in.
     const top = f.headWorld(new THREE.Vector3());
-    const c = new THREE.Vector3(0, top.y - 0.74, 0);
-    rig.cam.position.set(c.x + 0.05, c.y + 0.34, c.z + 3.1);
+    // (r7b) A hat sits above the tag anchor's head top: frame a touch higher and wider so the whole
+    // crown reads inside the circular chip (the straw brim was clipped to a faint arc).
+    const hatted = look.hat !== 'none';
+    const c = new THREE.Vector3(0, top.y - (hatted ? 0.6 : 0.74), 0);
+    const dist = hatted ? 3.55 : 3.1;
+    rig.cam.position.set(c.x + 0.05, c.y + 0.34, c.z + dist);
     rig.cam.lookAt(c.x, c.y + 0.02, c.z);
     rig.r.render(rig.scene, rig.cam);
     const url = rig.r.domElement.toDataURL('image/png');

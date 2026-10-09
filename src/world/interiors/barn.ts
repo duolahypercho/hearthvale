@@ -8,7 +8,7 @@
  *   left       a hay loft on posts along the wall (bales up top, a ladder), bales + loose hay below,
  *              milking stool and pails by the cow stalls
  *   right      stone water trough, milk cans, shears + halter on pegs, a grain barrel, stacked crates,
- *              a shearing sawhorse with a fresh fleece + hand shears, a basket of rolled wool
+ *              a skirting table with a fresh fleece spread on it + hand shears, a basket of rolled wool
  *   front      a short front (r10: 7.2 deep): heaped hay cart, feed sacks + milk cans either side of the door lane
  *   light      two lanterns over the aisle + a lantern between each pair of stalls (lit at night)
  */
@@ -199,7 +199,7 @@ export class BarnInterior extends InteriorMap {
     this.solid(4.4, 6.4, 5.3, D, 'sacks');
     this.solid(7.75, 6.3, 8.35, D, 'cans');
     this.solid(9.4, 4.5, 10.8, 5.9, 'stock-tank');
-    this.solid(8.35, 6.0, 9.65, D, 'sawhorse');
+    this.solid(8.4, 6.0, 9.6, D, 'skirting-table');
     this.solid(9.8, 6.3, 11.6, D, 'crates-bales');
     this.solid(2.6, 4.8, 4.5, 5.6, 'grain-bin');
     this.solid(4.5, 4.3, 5.1, 4.9, 'milking');
@@ -271,8 +271,11 @@ export class BarnInterior extends InteriorMap {
     for (let i = 0; i < 6; i++) {
       const x0 = i * SW;
       const cx = x0 + SW / 2;
-      // Bedding: a deep straw heap at the back, drifts towards the front
-      hayPile(k, rng, cx, 1.1, SW - 0.35, 1.5, 0.2, 0xd8c8a4);
+      // Bedding: a deep straw heap at the back, drifts towards the front. (r21: each stall bedded its own
+      // way — heaped in a corner, spread thin, fresh and pale or old and tawny; six identical mounds read
+      // as filler where the stall's animal is out in the aisle.)
+      const bed = [[0, 0, 1, 1, 1, 0xd8c8a4], [0.15, 0.1, 0.9, 1, 1.1, 0xd0bc94], [-0.35, -0.1, 0.62, 0.8, 1.35, 0xe2d2ac], [0.3, 0.15, 0.7, 0.85, 0.75, 0xcab48a], [-0.2, 0.2, 0.85, 0.7, 0.6, 0xbaa078], [0, 0, 1, 1, 1, 0xd8c8a4]][i]!;
+      hayPile(k, rng, cx + bed[0]!, 1.1 + bed[1]!, (SW - 0.35) * bed[2]!, 1.5 * bed[3]!, 0.2 * bed[4]!, bed[5]!);
       strawDrift(k, rng, cx, SF - 0.9, SW - 0.4, 0.9, 0xc8b48a);
       strawTufts(k, rng, cx, 0.02, 1.8, 26, 0.95);
       this.manger(k, rng, x0 + MX);
@@ -284,6 +287,30 @@ export class BarnInterior extends InteriorMap {
       else k.add('fabric', new THREE.TorusGeometry(0.12, 0.022, 5, 14), mat(px, 1.62, 0.12, 0.15, 0, 0.3), { tint: [0xb8452e, 0x3a6a9a, 0x4a7a3a][i % 3] });
     }
     k.add('iron', new THREE.TorusGeometry(0.1, 0.022, 6, 14, Math.PI * 1.3), mat(6.5, 2.4, 0.06, 0, 0, -Math.PI * 0.15 + Math.PI), { tint: 0x8a8480 });
+    // r21: stall stories for the stalls whose animals are often out in the aisle / the front straw:
+    // a hay net slung on the divider + a water bucket (stall 3), a goat's upturned crate to climb on with
+    // a nibbled cabbage (stall 4), the pig's low wooden root trough with turnips and apples + a rooted,
+    // churned patch of bedding (stall 5).
+    {
+      const c3 = 2 * SW + SW / 2;
+      const nx = 2 * SW + 0.22;
+      // (a rope hay net: a lumpy straw-coloured bag in a diamond mesh of cord, wisps poking out of the bottom)
+      k.add('straw', lumpySphere(0.2, 2, 0.3, rng), mat(nx, 0.98, 1.3, 0, 0, 0, 0.72, 1.2, 0.85), { tint: 0xc8a458 });
+      for (const [y, r] of [[0.84, 0.12], [0.98, 0.15], [1.12, 0.13]] as const) k.add('fabric', new THREE.TorusGeometry(r, 0.008, 4, 16), mat(nx, y, 1.3, Math.PI / 2, 0, 0, 1, 1, 1.15), { tint: 0x6a4a30 });
+      for (const a of [0.4, 1.2, 2.0, 2.8]) k.add('fabric', new THREE.TorusGeometry(0.15, 0.006, 3, 14, Math.PI), mat(nx, 0.98, 1.3, 0, a, Math.PI / 2, 1, 1.6, 0.85), { tint: 0x6a4a30 });
+      k.cyl('fabric', 0.008, 0.008, 0.3, [nx, 1.2, 1.3], { tint: 0x6a4a30 });
+      strawTufts(k, rng, nx, 0.0, 1.32, 5, 0.25);
+      bucket(k, c3 + 0.55, 2.0, 0xb8c0c4);
+      const c4 = 3 * SW + SW / 2;
+      crate(k, c4 + 0.35, 1.0, 0.3, 0xa87a50);
+      k.sphere('fabric', 0.11, [c4 - 0.45, 0.1, 2.05], 0x7aa058, [1, 0.85, 1]);
+      for (let j = 0; j < 4; j++) k.sphere('fabric', 0.04, [c4 - 0.45 + Math.cos(j * 1.7) * 0.11, 0.05, 2.05 + Math.sin(j * 1.7) * 0.1], 0x9ac078, [1.2, 0.3, 1]);
+      const c5 = 4 * SW + SW / 2;
+      k.box('wood', [0.9, 0.14, 0.32], [c5 + 0.15, 0, 1.95], { tint: 0x7a5236, r: 0.03 });
+      k.box('wood', [0.82, 0.03, 0.24], [c5 + 0.15, 0.1, 1.95], { tint: 0x4a3222 });
+      for (const [dx, col] of [[-0.25, 0xf0e4d8], [-0.05, 0xc85a8a], [0.15, 0xd84a3a], [0.35, 0xf0e4d8]] as const) k.sphere('fabric', 0.06, [c5 + 0.15 + dx, 0.17, 1.95 + (dx * 7) % 0.08], col, [1, 0.9, 1]);
+      k.add('straw', lumpySphere(0.35, 1, 0.3, rng), mat(c5 - 0.3, 0.0, 2.25, 0, 0.4, 0, 1.2, 0.12, 0.8), { tint: 0x9a7e58 });
+    }
     // Salt lick on its board in the last stall
     k.box('ceramic', [0.22, 0.16, 0.18], [12.45, 0.55, 0.2], { tint: 0xf4d8d0, r: 0.03 });
     k.box('wood', [0.32, 0.05, 0.26], [12.45, 0.5, 0.2], { tint: POST });
@@ -484,34 +511,38 @@ export class BarnInterior extends InteriorMap {
         k.add('straw', blob(0.025 + wet.next() * 0.03, 10), mat(tx + Math.cos(a) * r, 0.02, tz + Math.sin(a) * r * 0.85), { tint: 0x7c7266 });
       }
     }
-    // Shearing corner: a sawhorse with a freshly shorn fleece thrown over it (a fat cream cloud, curly
-    // tips, the cut side showing), hand shears hung on a nail on the near leg, a basket of rolled wool.
+    // Shearing corner. r21 (critic: the fleece draped over a sawhorse "reads as a pile of popcorn on a
+    // stool" — a headless sheep): a low slatted skirting table with the fresh fleece spread flat on it,
+    // cut side down, ragged edged, the hand shears lying open on the near corner.
     const sx = 9.0;
     const sz = 6.5;
-    k.box('wood', [1.1, 0.09, 0.12], [sx, 0.72, sz], { tint: 0x9a6a44, r: 0.02 });
-    for (const s of [-1, 1]) for (const t of [-1, 1]) k.cyl('wood', 0.03, 0.035, 0.8, [sx + s * 0.42, 0, sz + t * 0.12], { rx: t * 0.28, tint: 0x8a5a3a });
+    const TY = 0.5;
+    for (let i = 0; i < 6; i++) k.box('wood', [1.25, 0.04, 0.12], [sx, TY, sz - 0.4 + i * 0.16], { tint: i % 2 ? 0xa87850 : 0x9a6a44, r: 0.012 });
+    for (const s of [-1, 1]) k.box('wood', [0.07, 0.05, 0.9], [sx + s * 0.5, TY - 0.06, sz], { tint: 0x7a4a2e });
+    for (const s of [-1, 1]) for (const t of [-1, 1]) k.box('wood', [0.07, TY - 0.06, 0.07], [sx + s * 0.52, 0, sz + t * 0.38], { tint: 0x7a4a2e });
     const fleece = new Rng('barn-fleece');
-    // r11: the fleece as a real shorn mat — a lumpy blanket of packed curls (staple tufts), draped over
-    // the bar and hanging down both sides, the outer tips a touch darker + creamier than the cut side.
-    k.add('fabric', lumpySphere(0.5, 2, 0.14, fleece), mat(sx, 0.76, sz, 0, 0.05, 0, 0.98, 0.14, 0.36), { tint: 0xf0e4cc });
-    for (const t of [-1, 1]) k.add('fabric', lumpySphere(0.4, 2, 0.18, fleece), mat(sx, 0.62, sz + t * 0.17, t * 0.35, 0.05, 0, 0.98, 0.3, 0.12), { tint: 0xcdbb98 });
-    // The curls themselves wear the sheep's own wool (the animal material's curl relief, aCoat = 2): one
-    // merged mesh of packed staple puffs, so the shorn fleece reads as the same stuff as the flock's coats.
+    // The curls wear the sheep's own wool (the animal material's curl relief, aCoat = 2): one merged mesh
+    // of packed staple puffs spread over an irregular oval, so the fleece reads as the flock's coat laid out.
     {
       const puffs: THREE.BufferGeometry[] = [];
       const c = new THREE.Color();
-      for (let i = 0; i < 110; i++) {
-        const u = (fleece.next() * 2 - 1) * 1.1;
-        const v = (fleece.next() * 2 - 1) * 0.47;
-        const hang = Math.max(0, Math.abs(u) - 0.5);
-        const y = 0.82 - hang * 0.62 + fleece.next() * 0.02;
-        const z = sz + Math.sign(u) * Math.min(Math.abs(u), 0.5) * 0.36 + Math.sign(u) * hang * 0.1;
-        const r = 0.045 + fleece.next() * 0.035;
+      const lobes = Array.from({ length: 5 }, () => ({ a: fleece.next() * Math.PI * 2, f: 2 + Math.floor(fleece.next() * 4), k: 0.06 + fleece.next() * 0.08 }));
+      for (let i = 0; i < 150; i++) {
+        const u = fleece.next() * 2 - 1;
+        const v = fleece.next() * 2 - 1;
+        const th = Math.atan2(v, u);
+        let rim = 0.92;
+        for (const l of lobes) rim += Math.sin(th * l.f + l.a) * l.k;
+        const d = Math.hypot(u, v);
+        if (d > rim) continue;
+        const x = sx + u * 0.56;
+        const z = sz + v * 0.4;
+        const r = 0.05 + fleece.next() * 0.035;
         const g = new THREE.IcosahedronGeometry(r, 1);
-        g.applyMatrix4(mat(sx + v, y, z, fleece.next(), fleece.next() * 3, 0, 1, 0.72, 1));
+        g.applyMatrix4(mat(x, TY + 0.06 + (1 - d) * 0.03 + fleece.next() * 0.015, z, fleece.next(), fleece.next() * 3, 0, 1, 0.55, 1));
         const n = g.attributes.position.count;
         const tip = fleece.next();
-        c.setHex(tip < 0.15 ? 0xdccaa6 : tip < 0.45 ? 0xefe4d0 : 0xf8f1e4);
+        c.setHex(d > rim - 0.18 ? 0xdccaa6 : tip < 0.4 ? 0xefe4d0 : 0xf8f1e4);
         const col = new Float32Array(n * 3);
         for (let k2 = 0; k2 < n; k2++) col.set([c.r, c.g, c.b], k2 * 3);
         g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
@@ -525,10 +556,11 @@ export class BarnInterior extends InteriorMap {
       fm.receiveShadow = true;
       this.root.add(fm);
     }
-    // Hand shears: two long blades + bowed spring handle, hanging from a nail on the near leg
-    k.cyl('iron', 0.012, 0.012, 0.05, [sx + 0.42, 0.62, sz + 0.2], { rx: Math.PI / 2, tint: 0x2a2624 });
-    for (const s of [-1, 1]) k.add('iron', roundedBox(0.035, 0.3, 0.008, 0.004), mat(sx + 0.42 + s * 0.02, 0.36, sz + 0.24, 0, 0, s * 0.06), { tint: 0xd8dee2 });
-    k.add('iron', new THREE.TorusGeometry(0.06, 0.012, 5, 14, Math.PI * 1.4), mat(sx + 0.42, 0.56, sz + 0.24, 0, 0, Math.PI * 0.8), { tint: 0x7a6a5a });
+    // A cream underlay so no table shows through between the curls.
+    k.add('fabric', lumpySphere(0.5, 2, 0.12, fleece), mat(sx, TY + 0.05, sz, 0, 0.1, 0, 1.05, 0.08, 0.72), { tint: 0xe8dcc0 });
+    // Hand shears lying open on the near corner: two long blades + the bowed spring handle.
+    for (const s of [-1, 1]) k.add('iron', roundedBox(0.035, 0.008, 0.3, 0.004), mat(sx + 0.5 + s * 0.03, TY + 0.045, sz + 0.28, 0, s * 0.1, 0), { tint: 0xd8dee2 });
+    k.add('iron', new THREE.TorusGeometry(0.06, 0.012, 5, 14, Math.PI * 1.4), mat(sx + 0.5, TY + 0.05, sz + 0.1, Math.PI / 2, 0, Math.PI * 0.3), { tint: 0x7a6a5a });
     // Basket of rolled wool beside it
     k.cyl('thatch', 0.22, 0.17, 0.22, [sx - 0.25, 0, sz - 0.62], { tint: 0xc8a068 });
     for (let i = 0; i < 4; i++) k.add('fabric', lumpySphere(0.09, 1, 0.22, fleece), mat(sx - 0.33 + (i % 2) * 0.15, 0.25 + Math.floor(i / 2) * 0.06, sz - 0.68 + (i % 3) * 0.05, 0, 0, Math.PI / 2, 1.3, 0.85, 0.85), { tint: [0xfff6e4, 0xf0e2c8, 0xfffaf0, 0xe8d8bc][i]! });

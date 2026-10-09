@@ -240,6 +240,22 @@ try {
   const fs = await waitFor(ash, (i) => window.__ac.live(i.sheep)?.actor.wool < 0.5, ids, 6000);
   check('shearing: wool at the sheep\'s quality to the farmhand; the fleece comes off on the host', shorn && s1 === 1 && !hs.ready && hs.wool < 0.5, `q${ids.qSheep} wool ${s1} ${JSON.stringify(hs)}`);
   check('shearing: the farmhand\'s sheep is shorn too', fs);
+  // r21: the host stages the farmhand's milking + shearing on its own screen (crouch at the flank, pail
+  // under the udder) instead of a farmer standing idle beside the animal.
+  const rh = await net(host, () => window.__ac.A().remoteHarvests);
+  check('milking / shearing: the host shows the farmhand\'s harvest pose (pail + crouch)', rh >= 2, `staged ${rh}`);
+  // r21: a pat lands — the farmhand's own petting hand reaches the stroked point before the heart pops.
+  await net(ash, () => {
+    window.__ac.A().reachGap = -1;
+    window.__ac.hold('hay', 1);
+  });
+  await net(ash, (i) => {
+    const p = window.__ac.live(i.sheep).actor.pos;
+    window.__ac.click(p.x, p.z);
+  }, ids);
+  await sleep(900);
+  const gap = await net(ash, () => window.__ac.A().reachGap);
+  check('petting: the hand touches the animal (hand-to-back gap < 0.15 m when the heart pops)', gap >= 0 && gap < 0.15, `gap ${gap.toFixed(3)} m`);
 
   // ── 4. truffle ──
   await net(ash, () => window.__game.teleport('farm', 42.5, 40.5));

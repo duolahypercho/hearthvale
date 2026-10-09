@@ -73,7 +73,7 @@ export const DEFAULT_LOOK: FarmerLook = {
 export const PRESET_LOOKS: FarmerLook[] = [
   { skin: 0xd99c72, hair: 0x2b1d16, hairStyle: 'bun', shirt: 0xf3c9c3, overalls: 0x4b6c9e, scarf: 0xe8b64a, hat: 'flower', hatColor: 0xd9534f, eyes: 'bright', brows: 'arched', mouth: 'grin', outfit: 'pinafore' },
   { skin: 0xf7d7bd, hair: 0xc98a3a, hairStyle: 'spiky', shirt: 0xc9e0f2, overalls: 0xa05a45, scarf: 0x4e9ee0, hat: 'cap', hatColor: 0x3d6f8f, eyes: 'round', brows: 'bold', mouth: 'cat', outfit: 'overalls', accessory: 'glasses' },
-  { skin: 0x8d5a3b, hair: 0x5b3622, hairStyle: 'long', shirt: 0xcfe8c4, overalls: 0x6d4c8c, scarf: 0x7cc46a, hat: 'beanie', hatColor: 0xf0a04b, eyes: 'sleepy', brows: 'soft', mouth: 'smile', outfit: 'vest', accessory: 'scarf' },
+  { skin: 0x8d5a3b, hair: 0x5b3622, hairStyle: 'long', shirt: 0xcfe8c4, overalls: 0x6d4c8c, scarf: 0x7cc46a, hat: 'beanie', hatColor: 0x3f7f8c, eyes: 'round', brows: 'soft', mouth: 'smile', outfit: 'vest', accessory: 'scarf' },
 ];
 
 /** The staged host in the lobby demo (Saffron): auburn bob, cream shirt, teal overalls, violet kerchief. */
