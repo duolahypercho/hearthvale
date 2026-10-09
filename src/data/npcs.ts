@@ -232,6 +232,8 @@ export interface HeartEvent {
     scale?: number;
     /** A line containing this word frames the prop with the speaker. */
     word?: string;
+    /** r20: a candle set down as a work light — the radius (m) of the warm pool it throws on the ground. */
+    glow?: number;
     /** Held by a cast member ('lap' / 'chest'; `at` ignored). */
     hold?: [NpcId, 'lap' | 'chest' | 'cup' | 'hand'];
     /** Placed `near[1]` m in front of a cast member (`at` ignored): the anvil's sparks. */
@@ -778,7 +780,9 @@ export const NPCS: Record<NpcId, NpcDef> = {
         cast: { odessa: [[33.1, 15.0], 'left'], player: [[30.6, 16.5], 'up'] }, // (r15: a step left and down-stage — the HALL CLOSED notice reads clear of her head)
         camera: { x: 32.4, z: 13.8, yaw: 6, pitch: 36, distance: 15 },
         // (r8: the cage the scene is about is in her hands, not only on the insert card)
-        props: [{ kind: 'cage', at: [0, 0], hold: ['odessa', 'hand'], word: 'cage|rivet' }],
+        // (r20: her work light set down by the crates — a deliberate warm focal light in the right third,
+        // which the blind judge called "murky, low-detail darkness")
+        props: [{ kind: 'cage', at: [0, 0], hold: ['odessa', 'hand'], word: 'cage|rivet' }, { kind: 'candle', at: [37.0, 14.9], scale: 1.5, glow: 1.5 }],
         insert: [{ kind: 'cage', word: 'cage|rivet|lantern', caption: 'Her grandfather’s lantern cage' }],
         script: [
           { say: 'odessa', text: 'Shh. Rivet check. My grandfather made this cage — every piece, by hand, the winter the old one rusted through.', mood: 'neutral' },

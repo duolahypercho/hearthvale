@@ -2124,7 +2124,7 @@ export class NpcSystem implements System {
         continue;
       }
       if (pr.kind === 'candle' || pr.kind === 'painting') {
-        const c = pr.kind === 'candle' ? buildCandle() : buildPainting();
+        const c = pr.kind === 'candle' ? buildCandle(pr.glow ?? 0) : buildPainting();
         c.userData.kind = pr.kind;
         c.rotation.y = pr.rot ?? 0;
         c.position.set(pr.at[0], map.heightAt(pr.at[0], pr.at[1]) + (pr.y ?? 0), pr.at[1]);

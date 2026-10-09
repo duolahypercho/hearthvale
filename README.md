@@ -1021,6 +1021,26 @@ actors such as Pip the shop cat).
   the stall canopies' light stripes are unbleached linen, Hazel's glasshouse glazing sage-grey glass on
   off-white bars (both clipped to paper white at noon).
 
+- **Round 20** — *Buried mouths* (a real bug): wide faces (`fp.w > 1.01`: Kit, Marigold, Hazel, Bram,
+  Odessa) carry a cheek / jowl mass in front of the skull, and the mouth sat on the skull inside it — the
+  laugh 'D', the round 'o' and the grin were buried and only the thin rim peeked out, so Kit "laughed"
+  with ^^ eyes and a closed smile while his card grinned. The mouth now rides on whichever surface is in
+  front (`jowlZ`). *Odessa's close single* (blind judge: "crude and blocky face", "a hard bowl clipped onto
+  the head", "the right third falls into murky darkness"): the 3D jaw block saturates at `fp.jaw` 0.7 (the
+  card keeps the full value), a floor of cheek warmth (cheeks 0 was one flat brown disc), straight-bar
+  brows capped at 1.12 thickness (bushy elders > 1.5 keep theirs); the headscarf has deeper folds that
+  swirl to the knot, four tension creases pulled from the knot over the crown and a slimmer rolled hem
+  (the 2.4 cm torus stood out as the rim of a bowl); "The Lantern Cage" sets her work light down by the
+  crates — a candle `prop` with `glow` (an additive ground pool, no new PointLight → no shader recompile
+  mid-event) as a deliberate warm focal light in the right third. *Tobias*: the hook nose is a short
+  wedge sunk into the face (the 9 cm bridge capsule read as a pale finger between his eyes); the flat
+  cap rides 0.05 R higher with the peak tipped up (it sat on his brows and hid the mood). *Rowan*: the
+  beanie's 16 rib tabs are gone (on the tilted cuff they stood off its lower edge at a slant and read as
+  a row of staples in his close singles; the painted card carries the knit).
+  Perf (shot logs, 1920×1080 High, vsync-capped): town-day 59.8 fps / 231 calls / 1.24 M tris, evening 60 /
+  231 / 1.15 M, winter 60 / 210 / 1.05 M, heart event 60 / 189 / 0.91 M, dialogues 60 — no new lights, the
+  work light is 6 draws for the event only.
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (20:06, the blue hour: lamps lit, the bakery and market row), `town-commute` (r18: noon on the plaza, the schedule runs — `&seq=10`), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host

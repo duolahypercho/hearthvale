@@ -739,7 +739,12 @@ export class Villager {
     // the mouth where their hollow is cut)
     const beardFull = L.beard === true || L.beard === 'full';
     const mouthY = Math.min(R * (0.64 - Math.max(0, fH - 1) * 0.55 + Math.max(0, 1 - fH) * 0.2), beardFull ? 1 : R * (0.78 - Math.max(0, fH - 1) * 0.25 - 0.22));
-    const mouthZ = surfZ(0, mouthY) + R * 0.003;
+    // r20: wide faces carry a cheek / jowl mass in front of the skull (built below: centre skullY − 0.36 R,
+    // 0.04 R forward, 0.62 tall, 0.9 deep) — the mouth sat on the skull INSIDE it, so Kit's laugh 'D', the
+    // round 'o' and the grin were buried and only the thin rim / line peeked out (a laugh with a closed
+    // smile under ^^ eyes). The mouth rides on whichever surface is in front, down its whole height.
+    const jowlZ = (y: number): number => (fW > 1.01 ? R * 0.04 + R * 0.9 * Math.sqrt(Math.max(0, 1 - ((y - (skullY - R * 0.36)) / (R * 0.62 * faceS[1])) ** 2)) : 0);
+    const mouthZ = Math.max(surfZ(0, mouthY), jowlZ(mouthY + 0.006), jowlZ(mouthY - 0.03)) + R * 0.003;
     const browY = R * ((L.hat ? 1.15 : 1.2) + (FP.eyeY ?? 0) * 0.8);
     const browZ = surfZ(EXo, browY) + R * 0.044;
     const rb = new RigBuilder();
@@ -1044,7 +1049,11 @@ export class Villager {
     rb.nrmTo = { c: new THREE.Vector3(0, headY + skullY * hs, 0), a: new THREE.Vector3(R * faceS[0] * hs, R * faceS[1] * hs, R * faceS[2] * hs), k: 0.82 };
     if (fW > 1.01) rb.add(B.head, sphG(R, 18, 12), H(0, skullY - R * 0.36, R * 0.04, 0, 0, 0, faceS[0] * fW * 0.93, 0.62 * faceS[1], 0.9), L.skin);
     if (jawK > 0.05) {
-      const jw = R * 0.7 * (0.82 + 0.42 * jawK) * Math.max(0.9, Math.min(1.2, fW));
+      // (r20, blind judge on odessa-4: "her face is crude and blocky next to the painted portrait" — the
+      // 3D jaw block saturates at 0.7: past it the mass bulged out of the cheek line as a box jaw in the
+      // close singles; the painted card keeps the full fp.jaw)
+      const jk = Math.min(jawK, 0.7);
+      const jw = R * 0.7 * (0.82 + 0.42 * jk) * Math.max(0.9, Math.min(1.2, fW));
       // (its foot level with the chin: below it the pad read as a neck brace when the head tipped back)
       rb.add(B.head, sphG(1, 18, 12), H(0, chinY + R * (0.47 - 0.03 * jawK), R * 0.06, 0.1, 0, 0, jw, R * 0.44, R * 0.66), jawC);
     }
@@ -1089,7 +1098,9 @@ export class Villager {
           rb.add(B.head, sphG(0.03, 12, 10), H(0, nY + R * 0.02, nZ - 0.004, -0.3, 0, 0, 0.78, 2.0, 1.0), nc);
           break;
         case 'hook': {
-          rb.add(B.head, capG(0.02, 0.09, 3, 8), H(0, nY + R * 0.12, nZ + 0.004, 0.42, 0, 0), nc);
+          // (r20: the bridge is a short wedge sunk into the face that widens into the tip — the long
+          // 9 cm capsule stood out of Tobias's face as a pale finger between his eyes in every close single)
+          rb.add(B.head, capG(0.024, 0.045, 3, 8), H(0, nY + R * 0.06, nZ - 0.006, 0.62, 0, 0, 1.15, 1, 0.8), nc);
           rb.add(B.head, sphG(0.036, 12, 10), H(0, nY - R * 0.03, nZ + 0.012, 0, 0, 0, 0.95, 1.1, 1.05), nc);
           break;
         }
@@ -1153,7 +1164,7 @@ export class Villager {
         // An arched brow: two short capsules meeting in a soft peak two thirds out.
         rb.add(bb, capG(0.019 * bt, 0.05, 3, 6), H(sx * (EXo - 0.022), by, browZ + R * 0.01, 0, 0, Math.PI / 2 + sx * (0.06 + arch * 0.4), 1, 1, 0.7), browC);
         rb.add(bb, capG(0.017 * bt, 0.04, 3, 6), H(sx * (EXo + 0.032), by + 0.002, browZ - R * 0.03, 0, sx * 0.3, Math.PI / 2 - sx * (0.22 + arch * 0.8), 1, 1, 0.7), browC);
-      } else rb.add(bb, capG(0.021 * bt, 0.08 + (bt > 1.3 ? 0.012 : 0), 3, 6), H(sx * EXo, by, browZ, 0, 0, Math.PI / 2 + sx * (0.14 - arch), 1, 1, 0.7), browC);
+      } else rb.add(bb, capG(0.021 * (bt > 1.5 ? bt : Math.min(bt, 1.12)), 0.08 + (bt > 1.3 ? 0.012 : 0), 3, 6), H(sx * EXo, by, browZ, 0, 0, Math.PI / 2 + sx * (0.14 - arch), 1, 1, 0.7), browC);
       if (bt > 1.5) rb.add(bb, capG(0.016 * bt, 0.05, 3, 6), H(sx * (EXo + 0.03), by + 0.012, browZ - R * 0.03, 0, sx * 0.3, Math.PI / 2 + sx * 0.4, 1, 1, 0.7), shadeHex(browC, 1.12));
       // Anger crease: two short knit lines between the brows.
       rb.tag = 1;
@@ -1167,7 +1178,9 @@ export class Villager {
           const fz = surfZ(fx, fy) + 0.004;
           rb.add(B.head, new THREE.CircleGeometry(0.0125, 7), H(fx, fy, fz, -dyy / R * 0.8, Math.asin(Math.max(-1, Math.min(1, fx / R))), 0), mixHex(L.skin, 0x7a3a1e, 0.5));
         }
-      const ck = FP.cheeks ?? 0.6;
+      // (r20: a floor of warmth in 3D — at cheeks 0 Odessa's close single was one flat brown disc; the
+      // painted card already floors its blush the same way)
+      const ck = Math.max(0.22, FP.cheeks ?? 0.6);
       if (ck > 0.05) {
         const cx = sx * (EXo + 0.07);
         const cy = EY - R * 0.21;
@@ -1774,15 +1787,17 @@ export class Villager {
         // (r19: from the plaza lens the eight-panel dome with its seams read as a green umbrella / a
         // mushroom cap — the seams are gone (the crown must stay this tall: lower, the hair showed through))
         const crown = sphG(R * 1.1, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.42);
-        rb.add(B.head, crown, H(0, R * 1.1, 0.04, -0.22, 0, 0, 1.03, 0.8, 1.15), c);
+        rb.add(B.head, crown, H(0, R * 1.15, 0.04, -0.22, 0, 0, 1.03, 0.8, 1.15), c);
         // One front seam where the top panel folds over the peak.
-        rb.add(B.head, torG(R * 0.92, 0.007, 3, 16, Math.PI), H(0, R * 1.4, R * 0.44, Math.PI / 2 - 0.1, 0, 0, 1.05, 0.5, 1), shadeHex(c, 0.72));
-        rb.add(B.head, bevelCylinder(R * 1.06, R * 1.07, 0.07, 0.02, 24), H(0, R * 1.2, 0.0, -0.2, 0, 0), shadeHex(c, 0.78));
+        rb.add(B.head, torG(R * 0.92, 0.007, 3, 16, Math.PI), H(0, R * 1.45, R * 0.44, Math.PI / 2 - 0.1, 0, 0, 1.05, 0.5, 1), shadeHex(c, 0.72));
+        rb.add(B.head, bevelCylinder(R * 1.06, R * 1.07, 0.07, 0.02, 24), H(0, R * 1.25, 0.0, -0.2, 0, 0), shadeHex(c, 0.78));
         const brim = cylG(R * 0.78, R * 0.78, 0.035, 18, 1, false, -Math.PI / 2, Math.PI);
         // (peak tipped up ~10°: the eyes read under it from the high lens)
-        rb.add(B.head, brim, H(0, R * 1.28, R * 0.66, 0.09, 0, 0, 1.05, 1, 0.62), shadeHex(c, 0.66));
-        rb.add(B.head, torG(R * 0.78, 0.008, 3, 16, Math.PI), H(0, R * 1.29, R * 0.66, Math.PI / 2 + 0.09, 0, 0, 1.05, 0.62, 1), shadeHex(c, 0.55));
-        rb.add(B.head, sphG(0.03, 8, 6), H(0, R * 1.97, -0.08, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
+        // (r20: the whole cap rides 0.05 R higher and the peak tips up ~9°: in Tobias's close singles the
+        // peak sat on his brows and hid the mood — the sad tent, the laugh lift)
+        rb.add(B.head, brim, H(0, R * 1.33, R * 0.64, 0.16, 0, 0, 1.05, 1, 0.62), shadeHex(c, 0.66));
+        rb.add(B.head, torG(R * 0.78, 0.008, 3, 16, Math.PI), H(0, R * 1.34, R * 0.64, Math.PI / 2 + 0.16, 0, 0, 1.05, 0.62, 1), shadeHex(c, 0.55));
+        rb.add(B.head, sphG(0.03, 8, 6), H(0, R * 2.02, -0.08, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
         // (r19: no tweed flecks — off the crown's surface they studded the silhouette like rivets)
         break;
       }
@@ -1792,10 +1807,8 @@ export class Villager {
         rb.add(B.head, dome, H(0, R * 1.3, -0.06, -0.34, 0, 0, 1, 1.05, 1), c);
         // Knitted beanie: a thick folded cuff (ribbed by little bumps), a slouched crown and a pom-pom.
         rb.add(B.head, bevelCylinder(R * 1.12, R * 1.14, 0.12, 0.03, 24), H(0, R * 1.4, -0.06, -0.34, 0, 0), shadeHex(c, 0.88));
-        for (let i = 0; i < 16; i++) {
-          const a = (i / 16) * Math.PI * 2;
-          rb.add(B.head, roundedBox(0.026, 0.09, 0.012, 0.005, 1), H(Math.sin(a) * R * 1.128, R * 1.4 + Math.cos(a) * R * 1.128 * 0.333, Math.cos(a) * R * 1.128 * 0.943 - 0.06, -0.34, a, 0), shadeHex(c, 0.84));
-        }
+        // (r20: no rib tabs — on the tilted cuff they stood off its lower edge at a slant and read as a
+        // row of staples in Rowan's close singles; the painted card carries the knit)
         const pom = lumpy(0.075, 1, 0.22, rng, 3);
         rb.add(B.head, pom, H(-0.03, R * 2.36, -0.32), shadeHex(c, 1.08));
         break;
@@ -1834,7 +1847,9 @@ export class Villager {
         // (r18: a touch wider than the skull — Odessa's broad temples showed through at the sides)
         const T = (): THREE.Matrix4 => H(0, R * 0.98, -0.03, tilt, 0, 0, 1.06, 1, 1.03);
         // Soft cloth folds gathered towards the knot (a sculpted shell, not a smooth dome).
-        const dome = hairShell(rr, 0, polar, 7, 0.035, 0, 1.3, 0.2);
+        // (r20 blind judge: "a hard bowl / helmet clipped onto the head" — deeper folds that swirl round
+        // towards the knot, so the crown reads as cloth pulled tight, not a smooth shell)
+        const dome = hairShell(rr, 0, polar, 9, 0.05, 0, 1.3, 0.75);
         // Hugging the skull (a low crown, not a helmet dome).
         // (r18: 0.8 tall was lower than the skull itself — Odessa's scalp poked through the crown as a
         // brown patch and a dark blot over the brow: the blind judge's "mushroom cap sitting like a bowl")
@@ -1870,12 +1885,22 @@ export class Villager {
           dots.push(d);
         }
         for (const d of dots) rb.add(B.head, d, T(), 0xe6c89a);
-        // A soft rolled band where the cloth folds under over the brow (thicker at the front).
-        const band = torG(rr * Math.sin(polar) * 1.0, 0.024, 7, 36);
+        // A soft rolled band where the cloth folds under over the brow.
+        // (r20: thinner and pulled in — the 2.4 cm torus stood out round the head as the rim of a bowl)
+        const band = torG(rr * Math.sin(polar) * 0.985, 0.014, 6, 36);
         band.rotateX(Math.PI / 2);
         band.scale(1, 1, 1.03);
         band.translate(0, rr * Math.cos(polar) * DY + 0.004, 0);
         rb.add(B.head, band, T(), shadeHex(c, 0.94));
+        // r20: tension folds — the cloth pulled from the knot at the left temple up over the crown and
+        // round to the back: shallow darker creases on great-circle arcs that start at the knot.
+        for (const [phi, len, k] of [[0.3, 1.15, 0.8], [-0.2, 1.35, 0.78], [-0.65, 1.25, 0.8], [-1.05, 1.0, 0.84]] as const) {
+          const f = torG(rr * 1.006, 0.0075, 3, 18, len);
+          f.rotateZ(-0.32);
+          f.rotateX(phi);
+          f.scale(1.0, DY, 1.03);
+          rb.add(B.head, f, T(), shadeHex(c, k));
+        }
         // The knot at the left temple (+x faces the character's left), rabbit-ear lobes, two tails.
         const kx = R * 0.93;
         const ky = R * 0.62;
@@ -3304,9 +3329,32 @@ export function buildCat(pose: 'sit' | 'curl' = 'sit', color = 0xe8903e): THREE.
  * A candle in a glass jar on a saucer (heart-event prop, June's window candle): wax, a wick, a
  * flame bright enough to bloom, a soft warm halo billboard and a flicker. Origin at the saucer.
  */
-export function buildCandle(): THREE.Group {
+export function buildCandle(pool = 0): THREE.Group {
   const g = new THREE.Group();
   g.name = 'npc-candle';
+  if (pool > 0) {
+    // r20 (blind judge on odessa-4: "the right third falls into murky, low-detail darkness"): a work light
+    // set down on the ground throws a warm pool round itself — an additive decal, not a PointLight (a new
+    // light would recompile every lit material mid-event).
+    const pc = document.createElement('canvas');
+    pc.width = pc.height = 128;
+    const px = pc.getContext('2d')!;
+    const pg = px.createRadialGradient(64, 64, 0, 64, 64, 64);
+    pg.addColorStop(0, 'rgba(255,196,120,0.55)');
+    pg.addColorStop(0.3, 'rgba(255,160,84,0.24)');
+    pg.addColorStop(0.65, 'rgba(240,130,70,0.07)');
+    pg.addColorStop(1, 'rgba(240,120,60,0)');
+    px.fillStyle = pg;
+    px.fillRect(0, 0, 128, 128);
+    const pt = new THREE.CanvasTexture(pc);
+    pt.colorSpace = THREE.SRGBColorSpace;
+    const disc = new THREE.Mesh(new THREE.PlaneGeometry(pool * 2, pool * 2), new THREE.MeshBasicMaterial({ map: pt, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.y = 0.03;
+    disc.renderOrder = 2;
+    disc.userData.noAO = true;
+    g.add(disc);
+  }
   const std = (c: number, o: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, ...o });
   const saucer = new THREE.Mesh(cylG(0.11, 0.09, 0.025, 16), std(0x8a5a3a, { metalness: 0.3, roughness: 0.4 }));
   saucer.position.y = 0.012;
