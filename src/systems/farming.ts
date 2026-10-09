@@ -358,6 +358,8 @@ export class FarmingSystem implements System, FarmingApi {
   /** (r22) Toolbar icon flights (WAAPI) launched during a sequence capture: paused and scrubbed on the
    *  sequence clock, so `--frames` shows the item arcing into its slot and the count landing with it. */
   private seqFlights: { anim: Animation; t0: number }[] = [];
+  /** (r24) Landing bursts pinned at their peak for a sequence frame (released on the next restart). */
+  private seqPinned: Animation[] = [];
   /** farm-coop-tools: staged farmhands (real co-op avatars) frozen mid-action beside the host. */
   private crew: { f: RemoteFarmer; pour: boolean }[] = [];
   /** farm-crows `&ring`: show the scarecrow's reach (hidden by default — it smeared across the lawn). */
@@ -584,9 +586,9 @@ export class FarmingSystem implements System, FarmingApi {
     const a = add(0, hx + 0.5, hz - 0.62, 'down');
     // B: (r19) its own lane — the front of the bed, well clear of the hoers along the north edge
     // (r9 critic: the four farmers fought in one knot), pouring east in profile onto a dry furrow.
-    // (r24) Pulled back a row to the bed's WEST end (on the lawn, pouring east): in the front row the
-    // waterer filled the foreground with the back of a head (r10 critic: silhouettes fighting).
-    const wx = 22, wz = 22;
+    // (r24) The bed's WEST end (on the lawn, pouring east into the front row, below the scarecrow): in
+    // the middle of the front row the waterer filled the foreground with the back of a head.
+    const wx = 23, wz = 23;
     for (const [qx, qz] of [[wx, wz], [wx - 1, wz], [wx, wz - 1], [wx - 1, wz - 1]] as [number, number][]) {
       const q = this.tiles.get(key(qx, qz));
       if (q?.crop) this.removeCrop(q);
@@ -683,6 +685,8 @@ export class FarmingSystem implements System, FarmingApi {
       this.seq = { tool, energy: game.services.energy?.value() ?? null, acks: [] };
       for (const f of this.seqFlights) f.anim.finish();
       this.seqFlights.length = 0;
+      for (const an of this.seqPinned) an.finish();
+      this.seqPinned.length = 0;
       // Settle a few frames at rest so the restart (fresh lawn / dry furrow) is what frame 0 sees.
       for (let k = 0; k < 3; k++) game.step(1 / 60);
       this.demoAct(tool, new URLSearchParams(location.search), -1);
@@ -738,7 +742,18 @@ export class FarmingSystem implements System, FarmingApi {
         const h = f.anim.onfinish;
         f.anim.onfinish = null;
         f.anim.finish();
+        const pre = new Set(document.getAnimations());
         h?.call(f.anim, new AnimationPlaybackEvent('finish'));
+        // (r24) The landing burst runs on the wall clock and was over before the capture on a loaded
+        // machine: pin the new burst sparks / toast / slot bump at their peak for the frame.
+        for (const an of document.getAnimations()) {
+          if (pre.has(an)) continue;
+          const d = Number(an.effect?.getComputedTiming().duration ?? 0);
+          an.pause();
+          // ~20 % of the time ≈ the eased peak (the burst's cubic-bezier front-loads its travel).
+          an.currentTime = d * 0.2;
+          this.seqPinned.push(an);
+        }
         this.seqFlights.splice(k, 1);
       } else f.anim.currentTime = Math.max(0, ms);
     }
@@ -1316,8 +1331,12 @@ export class FarmingSystem implements System, FarmingApi {
       const th = this.toastHolds.find((h) => h.itemId === itemId);
       if (th) this.releaseToast(th.el);
       this.game.events.emit('harvest:land', { itemId, qty, quality });
-      if (target) slotBurst(target, quality);
+      // (r24) Produce with no slot of its own lands on the bar's backpack end: burst there too (the
+      // landing beat showed no burst at all for a first parsnip).
+      const at = target ?? landEnd;
+      if (at) slotBurst(at, quality);
     };
+    let landEnd: HTMLElement | null = null;
     let target: HTMLElement | null = null;
     try {
       const idx = slot < 0 ? (inv?.slots.findIndex((s) => s?.id === itemId) ?? -1) : slot;
@@ -1328,6 +1347,7 @@ export class FarmingSystem implements System, FarmingApi {
       // (The bar itself is never the target: its bump would replace its own centring transform.)
       const slots2 = target ? [] : this.toolbarSlots();
       const end = slots2.length ? slots2[slots2.length - 1]! : null;
+      landEnd = end;
       if (target) flyItemTo(itemId, { x: sx, y: sy }, target, quality, land, 58, { duration: 460, bounce: 1.15 });
       else if (end) flyItemTo(itemId, { x: sx, y: sy }, end, quality, land, 58, { duration: 460, bounce: 1.12 });
       else {
@@ -2388,13 +2408,9 @@ export class FarmingSystem implements System, FarmingApi {
     // patch and, a beat later, the near raiders startled up off their plants (crouch → leap →
     // flapping climb) while the other two keep tearing at theirs. Wall-clock timed (the capture moment
     // drifts with machine load), so the default still stays the all-pecking raid.
-    // (r24) Beats are the default (r10 critic: "static birds parked among leaf fragments"); the scare
-    // lands ~0.4–0.8 s before a default capture, so the startled pair is caught mid-climb.
-    // `&raid=peck` = the old all-pecking raid.
-    const raidP = new URLSearchParams(location.search).get('raid');
-    if (raidP === 'beats' || raidP === null) {
+    if (new URLSearchParams(location.search).get('raid') === 'beats') {
       this.later(0.15, () => this.sendCrows(1));
-      this.later(1.2, () => this.crows.scare(24.5, 31.5, 0.75));
+      this.later(1.85, () => this.crows.scare(24.5, 31.5, 0.75));
     }
     // The scuffle so far: feathers and torn leaf scraps already lying around the raid.
     for (let k = 0; k < 9; k++) {
@@ -3531,7 +3547,8 @@ function slotBurst(slot: HTMLElement, quality: number): void {
     const el = document.createElement('div');
     el.textContent = quality ? '\u2726' : '\u2022';
     Object.assign(el.style, {
-      position: 'fixed', left: `${cx}px`, top: `${cy}px`, width: '0', height: '0', pointerEvents: 'none', zIndex: '61',
+      // (r24) Above the HUD layer: at z 61 the sparks drew UNDER the toolbar they burst out of.
+      position: 'fixed', left: `${cx}px`, top: `${cy}px`, width: '0', height: '0', pointerEvents: 'none', zIndex: '1000',
       color: col, fontSize: `${quality ? 14 + quality * 2 : 9}px`, lineHeight: '0', textShadow: `0 0 6px ${col}, 0 1px 1px rgba(60,30,0,.45)`,
     } as Partial<CSSStyleDeclaration>);
     document.body.appendChild(el);

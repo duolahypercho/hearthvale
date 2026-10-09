@@ -406,7 +406,13 @@ adapts it to game events.
   Lane, Cider & Candle; Ribbon Parade's leaps resolve (21 → 6 unrecovered; the closing F# rises to the G
   instead of dropping a seventh). All 47 songs: mean phrase peak 99.6 %, 0 clashes, 0 b9s, no flags. New
   critic flag `BAR-LENGTH` (a tune bar that does not fill its meter — the composer only warned). Villager
-  voices are levelled on two real lines spoken with the game's line position (spread 2.9 → ≤ 1.5 LU).
+  voices: the reel now speaks two real lines with the game's line position (one sentence's luckiest
+  syllable had decided the spread) and they are levelled to 0.8 LU (was 5.6); Marigold is a brisk,
+  clipped patter, Wren airy and drawn out, Linus clipped, nasal and without vibrato — blind recognition
+  44 → 46/48 (Marigold's margin over her nearest rival 0.8 → 2.4, Linus 1.8 → 3.2; Wren is now the one
+  heard twice as June, `shots/audio-r11/recognize-voices.log`). Falling snow deadens the air: the wind is
+  −3 dB on a snow day (its gust² swing had lifted the snow bed 3 LU and left the winter mix 'mellow'),
+  and the snow slumps land −5 dB softer with more powder hiss.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);
@@ -1104,6 +1110,21 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   sequence captures pause only the flying item icon (`.hv-flyitem`), never other HUD animations started that tick. *Soak* — the wet flood
   starts with a dark spot under the splash on the landing frame and crosses the tile in ~0.35 s (was ~0.5 s from a
   near-zero start, so the soak only read once the can was lowered).
+- **r24 polish**: *Plots* — hero fields frame every bed block in pale, sun-bleached timber edging with squat
+  corner posts and mid stakes (`world/props/bededge.ts`, one merged mesh) so the field reads as intentional,
+  grid-like plots with a crisp light line between the dark soil and the trodden path (blind judge: "tidy the bed
+  layout", "soil, paths and fence compete"); bare spacing lanes stay dry and pale (walkable negative space); the
+  ring path in front of the beds is cleared of tall lawn tufts. The giant joins a hero field only with `&giant=1`
+  (it pulled focus from the farmer; `farm-giant` is its own showcase). `farm-harvest` / `farm-harvest-fall` lenses
+  are ~15 % closer on the farmer; crop leaves carry a brighter rim. *Pour* — the can rides nearer the body
+  (reach 1.18) and the water lands ~0.95 m out past the tile's middle after a 0.37–0.45 s flight: a parabola that
+  visibly crosses a gap between rose and splash (pour plan retimed: lands 0.80). *Hoe* — the wind-up shaft stands
+  ~45° back in the torso (it lay flat behind the neck like a bindle once the back arch added its lean), gripped at
+  the butt so no handle end crosses the face. *Sprinklers* — a feathered mist sheath breaks into travelling puffs
+  round each jet's apex. *Harvest* — the landing burst bursts on the bar's backpack end when the produce has no
+  slot yet, and sequence captures pin the burst at its peak on the landing frame. *Co-op* — `farm-coop-tools`
+  lanes: hoer N-west, host N-east, waterer at the bed's west end pouring east into the front row, harvester at the
+  east end turned 3/4 to the lens.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
