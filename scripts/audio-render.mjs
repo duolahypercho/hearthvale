@@ -27,6 +27,7 @@
  *   node scripts/audio-render.mjs --calibrate         # measure every theme's opening (first 30 s) → src/audio/loudness.ts
  *                                                     # normalisation; fails if two openings land > 2 LU apart
  *   node scripts/audio-render.mjs --keep-wav          # also keep the mix-* WAVs (analysed + plotted either way)
+ *   node scripts/audio-render.mjs --parallel 4        # jobs on 4 browser sessions at once (default 3; 1 = serial)
  *   node scripts/audio-render.mjs --no-live-budget    # render without the game's 72-voice polyphony budget
  *   Renders use the game's default volume settings and (by default) its live voice budget, so the
  *   numbers are what a player hears. Each job is isolated: a crash relaunches the browser and retries,
@@ -48,6 +49,8 @@ import { dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { format } from 'node:util';
 import { plotRender } from './audio-plot.mjs';
 import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower, bassHoles, bandRatios, eventDensity, ambienceFlags, inferKind, KIND_PROFILES, formAnalysis } from './audio-analysis.mjs';
 
@@ -86,7 +89,7 @@ try {
 const FULL_DEFAULT = ['spring', 'summer', 'fall', 'winter-2', 'town', 'beach', 'night-spring', 'mine-2', 'festival-harvest', 'title'];
 
 function parseArgs(argv) {
-  const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, compose: false, verbose: false, plots: true, stems: false, themes: true, trans: true, gameplay: true, gameplayOnly: false, sfxList: null, calibrate: false, liveBudget: true };
+  const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, compose: false, verbose: false, plots: true, stems: false, themes: true, trans: true, gameplay: true, gameplayOnly: false, sfxList: null, calibrate: false, liveBudget: true, parallel: 3 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -128,6 +131,7 @@ function parseArgs(argv) {
       o.fullOnly = true;
     }
     else if (a === '--no-full') o.noFull = true;
+    else if (a === '--parallel') o.parallel = Math.max(1, Math.min(8, Number(next()) || 1));
     else if (a === '--no-live-budget') o.liveBudget = false;
     else if (a === '--analyze') o.analyze = next();
     else if (a === '--kind') o.kind = next();
@@ -139,6 +143,14 @@ function parseArgs(argv) {
   return o;
 }
 const args = parseArgs(process.argv.slice(2));
+// Parallel jobs (round 20): console.log inside a job goes to that job's buffer.
+const logScope = new AsyncLocalStorage();
+const rawLog = console.log.bind(console);
+console.log = (...a) => {
+  const buf = logScope.getStore();
+  if (buf) buf.push(format(...a));
+  else rawLog(...a);
+};
 if (args.fullOnly) Object.assign(args, { themes: false, amb: false, sfx: false, mix: false, trans: false, gameplay: false });
 
 // ─────────────────────────────────────────────────────────── composition critic
@@ -215,14 +227,29 @@ if (args.analyze) {
  * A browser page with the audio modules imported. Relaunched every few jobs (and after a crash)
  * so one long run can never take the whole report down with it.
  */
-async function openSession(base, errors) {
-  let browser;
-  try {
-    browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
-  } catch {
-    browser = await chromium.launch({ headless: true, channel: 'chromium', args: ['--autoplay-policy=no-user-gesture-required'] });
+// (Round 20: one browser for the whole run — parallel sessions are contexts in it, each its own
+// renderer process; a session "relaunch" closes just its context. The browser itself is relaunched
+// only when it has died.)
+let sharedBrowser = null;
+async function launchShared() {
+  if (sharedBrowser) {
+    const b = await sharedBrowser;
+    if (b.isConnected()) return b;
   }
-  const page = await browser.newPage();
+  sharedBrowser = (async () => {
+    try {
+      return await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
+    } catch {
+      return await chromium.launch({ headless: true, channel: 'chromium', args: ['--autoplay-policy=no-user-gesture-required'] });
+    }
+  })();
+  return sharedBrowser;
+}
+
+async function openSession(base, errors) {
+  const browser = await launchShared();
+  const context = await browser.newContext();
+  const page = await context.newPage();
   page.on('pageerror', (e) => errors.push(String(e)));
   // Only errors from the audio modules count (other teams' in-progress files may 500 in the dev server).
   // Tune-notation mistakes surface as "[audio] ..." warnings from the composer: treat them as errors.
@@ -238,7 +265,7 @@ async function openSession(base, errors) {
     window.__audioOffline = await import('/src/audio/offline.ts');
     window.__audioOffline.setRenderOptions({ liveBudget });
   }, args.liveBudget);
-  return { browser, page };
+  return { browser, page, close: () => context.close() };
 }
 
 async function main() {
@@ -256,6 +283,7 @@ async function main() {
   const base = `http://127.0.0.1:${addr.port}`;
   const errors = [];
   let sess = await openSession(base, errors);
+  const outerSess = () => sess;
   const closeAll = async () => {
     await sess.browser.close().catch(() => {});
     await server.close();
@@ -368,11 +396,23 @@ async function main() {
     return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
   };
   console.log(HEADER);
+  // Round 20: the jobs run on --parallel N browser sessions (default 3) pulling from one queue — a
+  // default run is ~130 renders and took ~1 h 45 min serially, so the end-to-end proof was skipped
+  // for partial runs. Each job's log lines are buffered and printed together when it finishes.
+  const queue = [...jobs];
+  const workerSessions = [];
+  const runWorker = async (w) => {
+  let sess = w === 0 ? outerSess() : await openSession(base, errors);
+  workerSessions[w] = () => sess;
+  const call = (fn, a) => sess.page.evaluate(async ([fn, a]) => window.__audioOffline[fn](...a), [fn, a]);
   let sinceRelaunch = 0;
-  for (const job of jobs) {
+  while (queue.length) {
+  const job = queue.shift();
+  const buf = [];
+  await logScope.run(buf, async () => {
     // Fresh page every 10 jobs: long runs leak renderer memory and the OS may reap the tab.
     if (sinceRelaunch >= 10) {
-      await sess.browser.close().catch(() => {});
+      await sess.close().catch(() => {});
       sess = await openSession(base, errors);
       sinceRelaunch = 0;
     }
@@ -477,7 +517,7 @@ async function main() {
         const msg = String(e?.message ?? e).split('\n')[0];
         console.log(`${job.name.padEnd(26)} JOB FAILED (attempt ${attempt + 1}): ${msg}`);
         // Relaunch the browser and retry once.
-        await sess.browser.close().catch(() => {});
+        await sess.close().catch(() => {});
         sess = await openSession(base, errors);
         sinceRelaunch = 0;
         if (attempt === 1) report.failedJobs.push({ name: job.name, error: msg });
@@ -492,7 +532,15 @@ async function main() {
     }
     writeReport();
     writeManifest();
+  });
+  for (const line of buf) rawLog(line);
   }
+  };
+  const nWorkers = Math.min(args.parallel, Math.max(1, jobs.length));
+  if (nWorkers > 1) rawLog(`(${jobs.length} jobs on ${nWorkers} parallel sessions)`);
+  await Promise.all(Array.from({ length: nWorkers }, (_, w) => runWorker(w)));
+  for (let w = 1; w < workerSessions.length; w++) await workerSessions[w]?.().close().catch(() => {});
+  sess = workerSessions[0]?.() ?? sess;
   // Opening loudness: every theme's first 30 s within 2 LU of every other (offsets removed).
   const themeRows = report.renders.filter((r) => r.kind === 'theme').map((r) => ({ name: r.name.replace(/^theme-/, ''), lufs: r.lufsIntegrated }));
   if (themeRows.length > 1 && args.seconds <= OPENING_SECONDS + 5) {

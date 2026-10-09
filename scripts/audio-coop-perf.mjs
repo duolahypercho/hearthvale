@@ -4,6 +4,7 @@
  *
  *   node scripts/audio-coop-perf.mjs                      # 4 clients, each measured at 2560x1440 "high"
  *   node scripts/audio-coop-perf.mjs --clients 4 --w 2560 --h 1440 --quality high --record 6000 --warmup 4000
+ *   node scripts/audio-coop-perf.mjs --pairs 4           # audio on/off A/B in 4 interleaved window pairs (default 3)
  *   node scripts/audio-coop-perf.mjs --out shots/audio-r7/coop-perf.json   # (--load-timeout ms, default 600000)
  *
  * Relay + Vite + one GPU Chromium (uncapped: --disable-gpu-vsync --disable-frame-rate-limit, the
@@ -53,6 +54,7 @@ const WARMUP = Number(opt('warmup', 4000));
 const RECORD = Number(opt('record', 6000));
 const MIN_FPS = Number(opt('min-fps', 60));
 const AUDIO_BUDGET = Number(opt('audio-budget', 8));
+const PAIRS = Math.max(1, Number(opt('pairs', 3)));
 const OUT = resolve(root, opt('out', 'shots/audio/coop-perf.json'));
 const LOAD_MS = Number(opt('load-timeout', 600000));
 const NAMES = ['Hazel', 'Ash', 'Bo', 'Cy'];
@@ -194,6 +196,7 @@ async function main() {
           const log = (st.sfxLog ?? []).filter((x) => x.at > at0);
           const fr = window.__game.info().perf.frame;
           return {
+            d,
             fps: Math.round((1000 / mean) * 10) / 10,
             meanMs: Math.round(mean * 100) / 100,
             p95Ms: Math.round(s[Math.floor(s.length * 0.95)] * 100) / 100,
@@ -210,12 +213,24 @@ async function main() {
             players: window.__game.game.services.net.players().length,
           };
         }, ms);
-      const on = await rec(RECORD);
-      await page.evaluate(() => window.__game.game.services.audio.benchOff(true));
-      await sleep(800);
-      const off = await rec(Math.round(RECORD * 0.7));
-      await page.evaluate(() => window.__game.game.services.audio.benchOff(false));
-      const r = { client: NAMES[m], host: m === 0, on, off, deltaMs: Math.round((on.meanMs - off.meanMs) * 100) / 100 };
+      // (Round 20: the A/B is interleaved — PAIRS on/off window pairs in ABBA order, the delta the
+      // median of the per-pair differences. One long "on" window then one "off" window put the
+      // machine's load drift into the delta: r12b's host read +8.7 ms/frame "for audio" at load 67
+      // while its audio stack used 6.5 ms of main thread per second, ~0.3 ms a frame.)
+      const benchOff = (v) => page.evaluate((v) => window.__game.game.services.audio.benchOff(v), v);
+      const ons = [], offs = [];
+      for (let k = 0; k < PAIRS; k++) {
+        const order = k % 2 === 0 ? [false, true] : [true, false];
+        for (const isOff of order) {
+          await benchOff(isOff);
+          await sleep(isOff ? 600 : 400);
+          (isOff ? offs : ons).push(await rec(Math.round((RECORD / PAIRS) * (isOff ? 0.7 : 1))));
+        }
+      }
+      await benchOff(false);
+      const on = mergeWindows(ons), off = mergeWindows(offs);
+      const pairDeltas = ons.map((o, k) => Math.round((o.meanMs - offs[k].meanMs) * 100) / 100);
+      const r = { client: NAMES[m], host: m === 0, on, off, pairDeltas, deltaMs: median(pairDeltas) };
       out.results.push(r);
       const fail = [];
       if (on.fps < MIN_FPS) fail.push(`FPS(${on.fps} < ${MIN_FPS})`);
@@ -227,7 +242,7 @@ async function main() {
       out.fails.push(...fail.map((f) => `${NAMES[m]}: ${f}`));
       console.log(
         `${NAMES[m].padEnd(6)} ${m === 0 ? 'host    ' : 'farmhand'} ${W}x${H} ${QUALITY}: ${on.fps} fps (mean ${on.meanMs} ms, p95 ${on.p95Ms}, p99 ${on.p99Ms}) · audio ${on.audioMsPerSec} ms/s (off-frame ${on.offFrameMsPerSec}) · ` +
-          `audio off ${off.fps} fps (Δ ${r.deltaMs >= 0 ? '+' : ''}${r.deltaMs} ms/frame) · ${on.players} players, ${on.steps} partner steps, ${on.sfx} sfx, ${on.voices} peak voices, theme ${on.theme}  ${fail.length ? fail.join(' ') : 'ok'}`,
+          `audio off ${off.fps} fps (Δ ${r.deltaMs >= 0 ? '+' : ''}${r.deltaMs} ms/frame, median of ${pairDeltas.join(' / ')}) · ${on.players} players, ${on.steps} partner steps, ${on.sfx} sfx, ${on.voices} peak voices, theme ${on.theme}  ${fail.length ? fail.join(' ') : 'ok'}`,
       );
     }
     walking = false;
@@ -248,6 +263,40 @@ async function main() {
   await server.close();
   relay.kill();
   if (out.fails.length) process.exitCode = 1;
+}
+
+function median(xs) {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : Math.round(((s[s.length / 2 - 1] + s[s.length / 2]) / 2) * 100) / 100) : 0;
+}
+
+/** Several recording windows as one: exact frame stats over all their frames, counts summed. */
+function mergeWindows(ws) {
+  const d = ws.flatMap((w) => w.d);
+  const s = [...d].sort((x, y) => x - y);
+  const mean = d.reduce((x, y) => x + y, 0) / Math.max(1, d.length);
+  const avg = (k) => {
+    const v = ws.map((w) => w[k]).filter((x) => x != null);
+    return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 100) / 100 : null;
+  };
+  const last = ws[ws.length - 1];
+  return {
+    fps: Math.round((1000 / mean) * 10) / 10,
+    meanMs: Math.round(mean * 100) / 100,
+    p95Ms: Math.round(s[Math.floor(s.length * 0.95)] * 100) / 100,
+    p99Ms: Math.round(s[Math.floor(s.length * 0.99)] * 100) / 100,
+    frames: d.length,
+    windows: ws.length,
+    running: last.running,
+    theme: last.theme,
+    voices: Math.max(...ws.map((w) => w.voices ?? 0)),
+    audioMsPerSec: avg('audioMsPerSec'),
+    offFrameMsPerSec: avg('offFrameMsPerSec'),
+    mainRenders: last.mainRenders,
+    steps: ws.reduce((a, w) => a + (w.steps ?? 0), 0),
+    sfx: ws.reduce((a, w) => a + (w.sfx ?? 0), 0),
+    players: last.players,
+  };
 }
 
 main().catch((e) => {
