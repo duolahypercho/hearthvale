@@ -131,10 +131,10 @@ export class HouseInterior extends InteriorMap {
       k.cyl('ceramic', 0.055, 0.055, 0.17, [x, 1.5, 0.14], { tint: c });
       k.cyl('fabric', 0.065, 0.065, 0.03, [x, 1.66, 0.14], { tint: i % 2 ? 0xf0e8d8 : 0xd84a4a });
     }
-    // (r19: oatmeal glaze, not white — in house-night the stack under the moonlit top shelf bloomed into a
-    // glowing white orb)
-    for (let i = 0; i < 3; i++) k.cyl('ceramic', 0.13 - i * 0.012, 0.09 - i * 0.01, 0.06, [0.5, 1.95 + i * 0.055, 0.15], { tint: [0xcdbfa6, 0x86a8c0, 0xcdbfa6][i] });
-    k.cyl('ceramic', 0.08, 0.1, 0.24, [0.95, 1.95, 0.14], { tint: 0x3a6a9a });
+    // (r19: an oatmeal matte glaze — the glossy white stack on the top shelf caught the sky reflection
+    // and bloomed into a glowing white orb in both house demos, day and night)
+    for (let i = 0; i < 3; i++) k.cyl('paint', 0.13 - i * 0.012, 0.09 - i * 0.01, 0.06, [0.5, 1.95 + i * 0.055, 0.15], { tint: [0xcdbfa6, 0x86a8c0, 0xcdbfa6][i] });
+    k.cyl('paint', 0.08, 0.1, 0.24, [0.95, 1.95, 0.14], { tint: 0x3a6a9a });
     // Cast-iron cookstove + stovepipe + kettle
     const sx = 3.4;
     k.box('iron', [0.86, 0.72, 0.62], [sx, 0.12, 0.36], { r: 0.03, tint: 0x3c3836, ao: 0.25 });
