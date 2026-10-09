@@ -686,7 +686,9 @@ export class AnimalSystem implements System, AnimalsApi {
           // race refunds at most one bale).
           n = have >= 0 ? Math.min(n, have) : Math.min(n, hay.filter((h) => !h).length + 1);
         }
+        const asked = n;
         for (let i = 0; i < hay.length && n > 0; i++) if (!hay[i]) (hay[i] = true), n--;
+        if (peer != null) this.logIntent(peer, it, `feed ${it.home} ${asked - n}${n > 0 ? ` (+${n} back)` : ''}`);
         if (n > 0) {
           // Someone else filled it first: hand the spare hay back.
           if (peer == null) this.game.events.emit('item:give', { itemId: 'hay', qty: n });

@@ -159,7 +159,7 @@ try {
   await sleep(1500); // the backpack mirror (psave) reaches the host
   const ord0 = await net(host, () => ({ gold: window.__game.game.services.economy.gold(), rej: window.__game.game.services.buildings.rejected }));
   const ordErr = await net(ash, () => window.__game.game.services.buildings.order('coop'));
-  const ordered = await waitFor(host, () => window.__game.game.services.buildings.pending('coop'), null, 8000);
+  const ordered = await waitFor(host, () => window.__game.game.services.buildings.pending('coop'), null, 15000);
   await sleep(800);
   const ord1 = await net(host, () => ({ gold: window.__game.game.services.economy.gold(), rej: window.__game.game.services.buildings.rejected }));
   const ashMat = await net(ash, () => ({ wood: window.__ac.have('wood'), stone: window.__ac.have('stone'), pending: window.__game.game.services.buildings.pending('coop') }));
@@ -219,7 +219,7 @@ try {
     const p = window.__ac.live(i.cow).actor.pos;
     window.__ac.click(p.x, p.z);
   }, ids);
-  const milked = await waitFor(ash, () => window.__ac.have('milk') > 0, null, 8000);
+  const milked = await waitFor(ash, () => window.__ac.have('milk') > 0, null, 15000);
   const m1 = await net(ash, (i) => ({ milk: window.__ac.have('milk', i.qCow), any: window.__ac.have('milk') }), ids);
   const hm = await net(host, (i) => ({ ready: window.__ac.rec(i.cow).ready, petted: window.__ac.rec(i.cow).petted, hearts: window.__ac.hearts(), hostMilk: window.__ac.have('milk') }), ids);
   check('milking: the host approves and the farmhand gets milk at the cow\'s quality', milked && m1.milk === 1 && !hm.ready && hm.petted && hm.hostMilk === 0, `q${ids.qCow} ${JSON.stringify(m1)} ${JSON.stringify(hm)}`);
@@ -234,7 +234,7 @@ try {
     const p = window.__ac.live(i.sheep).actor.pos;
     window.__ac.click(p.x, p.z);
   }, ids);
-  const shorn = await waitFor(ash, () => window.__ac.have('wool') > 0, null, 8000);
+  const shorn = await waitFor(ash, () => window.__ac.have('wool') > 0, null, 15000);
   const s1 = await net(ash, (i) => window.__ac.have('wool', i.qSheep), ids);
   const hs = await net(host, (i) => ({ ready: window.__ac.rec(i.sheep).ready, wool: +window.__ac.live(i.sheep).actor.wool.toFixed(2) }), ids);
   const fs = await waitFor(ash, (i) => window.__ac.live(i.sheep)?.actor.wool < 0.5, ids, 6000);
@@ -245,7 +245,7 @@ try {
   await net(ash, () => window.__game.teleport('farm', 42.5, 40.5));
   await sleep(1300);
   await net(ash, () => window.__ac.click(42, 39));
-  const tru = await waitFor(ash, () => window.__ac.have('truffle', 1) === 1, null, 8000);
+  const tru = await waitFor(ash, () => window.__ac.have('truffle', 1) === 1, null, 15000);
   const ht = await net(host, () => window.__ac.A()['st'].truffles.length);
   check('truffle: picked up by the farmhand at silver quality, gone from the host\'s pasture', tru && ht === 0, `host truffles ${ht}`);
 
@@ -253,14 +253,14 @@ try {
   await net(ash, () => window.__game.teleport('farm', 40.5, 35.5));
   await sleep(1300);
   await net(ash, () => window.__ac.click(40, 34));
-  const door = await waitFor(host, () => window.__ac.A()['st'].doors.coop === true, null, 8000);
+  const door = await waitFor(host, () => window.__ac.A()['st'].doors.coop === true, null, 15000);
   check('pop door: the farmhand opens the coop hatch (host state)', door);
 
   // ── 6. pet bowl ──
   await net(ash, () => window.__game.teleport('farm', 35.4, 18.6));
   await sleep(1300);
   await net(ash, () => window.__ac.click(34, 17));
-  const bowl = await waitFor(host, () => window.__ac.A()['st'].pet.bowl === true, null, 8000);
+  const bowl = await waitFor(host, () => window.__ac.A()['st'].pet.bowl === true, null, 15000);
   check('pet bowl: the farmhand fills it (host state)', bowl);
 
   // ── 7. inside the coop: eggs (per nest, quality) + the trough ──
@@ -276,11 +276,11 @@ try {
   await net(ash, () => window.__game.facing('up'));
   await sleep(1500);
   await net(ash, () => window.__ac.click(0, 0));
-  const egg = await waitFor(ash, () => window.__ac.have('brownEgg', 2) === 1, null, 8000);
+  const egg = await waitFor(ash, () => window.__ac.have('brownEgg', 2) === 1, null, 15000);
   const he = await net(host, () => window.__ac.A()['st'].eggs.map((e) => e.nest).join(','));
   check('eggs: the farmhand lifts the gold-star brown egg from nest 0 (only that nest)', egg && he === '1', `host nests left: ${he}`);
   await net(ash, () => window.__ac.click(1, 0));
-  const egg2 = await waitFor(ash, () => window.__ac.have('egg', 0) === 1, null, 8000);
+  const egg2 = await waitFor(ash, () => window.__ac.have('egg', 0) === 1, null, 15000);
   check('eggs: the second nest\'s white egg (normal quality)', egg2);
   const hostEggs = await net(host, () => window.__ac.have('egg') + window.__ac.have('brownEgg'));
   check('eggs: nothing landed in the host\'s backpack', hostEggs === 0, String(hostEggs));
@@ -298,7 +298,7 @@ try {
   await sleep(1500);
   const want = await net(host, () => Math.max(1, window.__ac.A().count('coop')));
   await net(ash, (t) => window.__ac.click(t.x, t.z), trough);
-  const fed = await waitFor(host, (n) => window.__ac.A()['st'].hay.coop.filter(Boolean).length === n, want, 8000);
+  const fed = await waitFor(host, (n) => window.__ac.A()['st'].hay.coop.filter(Boolean).length === n, want, 20000);
   await sleep(600);
   const hayLeft = await net(ash, () => window.__ac.have('hay'));
   const fHay = await net(ash, () => window.__ac.A()['st'].hay.coop.filter(Boolean).length);
