@@ -43,7 +43,9 @@ const check = (name, ok, detail = '') => {
 };
 
 try {
-  await page.goto(`http://127.0.0.1:${port}/?demo=farm-morning`, { waitUntil: 'load' });
+  // (180 s: under a load of 150-400 on the shared machine a cold Vite transform of the module graph
+  // alone overran the default 30 s navigation timeout)
+  await page.goto(`http://127.0.0.1:${port}/?demo=farm-morning`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: 90000 });
   await page.evaluate(() => window.__game.ready());
   check('boot + ready()', true);

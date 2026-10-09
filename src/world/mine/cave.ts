@@ -28,6 +28,47 @@ const STEP = 0.2;
 const MARGIN = 2;
 const FULL = 3.3;
 
+/**
+ * Perf r20 (HV_CAVE_VN): the lava band's broad TONAL noise fields come per vertex on the shell's 0.2 m
+ * heightfield grid (every triangle projects to a 0.2 m cell in xz, so a field of world xz interpolates
+ * linearly across it): the three coarse octaves of the scorch / ash fbms (1.25-6 m cells; the finest
+ * octave stays per pixel) and the crazing mask (2 m cells) - 7 value-noise taps fewer per floor pixel.
+ * Fields that place thin lines stay per pixel: the plate-size field multiplies the world position
+ * (its interpolation error scaled by ~40 m moved the plate cracks), the plate / fissure warps and the
+ * wall-course undulation shifted crack and joint lines by sub-pixel amounts. `?cavevn=0` = all per
+ * pixel (A/B only).
+ */
+function caveVN(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get('cavevn');
+    return !(q === '0' || q === 'false');
+  } catch {
+    return true;
+  }
+}
+const CAVE_VN = caveVN();
+const CAVE_VN_GLSL = /* glsl */ `
+#ifdef HV_CAVE_VN
+#define HV_CV(v, f) (v)
+#else
+#define HV_CV(v, f) (f)
+#endif
+// hvFbm split: the first three octaves (unnormalised sum) and the finest octave on top of them.
+float hvFbm3(vec2 p) {
+  float s = 0.0;
+  float a = 0.5;
+  for (int i = 0; i < 3; i++) {
+    s += a * hvNoise(p);
+    p = mat2(1.6, 1.2, -1.2, 1.6) * p + 7.3;
+    a *= 0.5;
+  }
+  return s;
+}
+float hvFbmFin(float s3, vec2 p) {
+  for (int i = 0; i < 3; i++) p = mat2(1.6, 1.2, -1.2, 1.6) * p + 7.3;
+  return (s3 + 0.0625 * hvNoise(p)) / 0.9375;
+}`;
+
 export const CAVE_GLSL = /* glsl */ `
 vec2 hvMineCell(vec2 p) {
   vec2 i = floor(p);
@@ -343,25 +384,38 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
   const uCrack = { value: L.biome === 'lava' ? 1 : L.biome === 'ice' ? 2 : 0 };
   const uRimCol = { value: new THREE.Color(L.biome === 'earth' ? 0x6a4428 : L.biome === 'ice' ? 0x3c6a9c : 0x6a2a14).multiplyScalar(L.biome === 'lava' ? 0.45 : L.biome === 'ice' ? 0.26 : 0.4) };
   const uFloorRough = { value: def.floorRough };
-  patchMaterial(shell, `mine-cave-${L.biome}`, (shader) => {
+  patchMaterial(shell, `mine-cave-${L.biome}${CAVE_VN ? '' : ':novn'}`, (shader) => {
     shader.uniforms.uTime = globalUniforms.uTime;
     shader.uniforms.uGlint = uGlint;
     shader.uniforms.uCrack = uCrack;
     shader.uniforms.uFloorRough = uFloorRough;
     shader.uniforms.uRimCol = uRimCol;
     shader.uniforms.uStrata = uStrata;
+    // (HV_CAVE_VN: see CAVE_VN_GLSL; vCVA = the lava band's scorch / ash coarse octaves + crazing mask)
+    const vnDecl = CAVE_VN ? '#define HV_CAVE_VN\nvarying vec3 vCVA;\n' : '';
     let vs = shader.vertexShader;
-    vs = before(vs, 'void main() {', 'attribute float aWall; attribute float aVoid; attribute float aLava; attribute float aCrest;\nvarying float vWall; varying float vVoid; varying float vLava; varying float vCrest; varying vec3 vCW; varying vec3 vCN;');
-    vs = after(vs, '#include <project_vertex>', 'vWall = aWall; vVoid = aVoid; vLava = aLava; vCrest = aCrest; vCW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCN = normalize(mat3(modelMatrix) * objectNormal);');
+    vs = before(vs, 'void main() {', `${vnDecl}uniform float uCrack;\nattribute float aWall; attribute float aVoid; attribute float aLava; attribute float aCrest;\nvarying float vWall; varying float vVoid; varying float vLava; varying float vCrest; varying vec3 vCW; varying vec3 vCN;\n${NOISE_GLSL}\n${CAVE_VN_GLSL}`);
+    vs = after(
+      vs,
+      '#include <project_vertex>',
+      /* glsl */ `vWall = aWall; vVoid = aVoid; vLava = aLava; vCrest = aCrest; vCW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCN = normalize(mat3(modelMatrix) * objectNormal);
+      #ifdef HV_CAVE_VN
+      {
+        vec2 q = vCW.xz;
+        vCVA = uCrack > 0.5 && uCrack < 1.5 ? vec3(hvFbm3(q * 0.16 + 47.0), hvFbm3(q * 0.2 + 13.0), hvNoise(q * 0.5 + 3.0)) : vec3(0.0);
+      }
+      #endif`,
+    );
     shader.vertexShader = vs;
     let fs = shader.fragmentShader;
     fs = before(
       fs,
       'void main() {',
-      `uniform float uTime; uniform vec3 uGlint; uniform float uCrack; uniform float uFloorRough; uniform vec3 uRimCol; uniform vec3 uStrata[6];
+      `${vnDecl}uniform float uTime; uniform vec3 uGlint; uniform float uCrack; uniform float uFloorRough; uniform vec3 uRimCol; uniform vec3 uStrata[6];
 varying float vWall; varying float vVoid; varying float vLava; varying float vCrest; varying vec3 vCW; varying vec3 vCN;
 ${NOISE_GLSL}
-${CAVE_GLSL}`,
+${CAVE_GLSL}
+${CAVE_VN_GLSL}`,
     );
     fs = after(
       fs,
@@ -435,15 +489,15 @@ ${CAVE_GLSL}`,
         // (mask first: the second Voronoi only runs where the crazing can show — same pixels, ~half
         // the floor skips its 9-tap cell search; pillar 14)
         float crack2 = 0.0;
-        float crack2M = smoothstep(0.45, 0.7, hvNoise(fp * 0.5 + 3.0));
+        float crack2M = smoothstep(0.45, 0.7, HV_CV(vCVA.z, hvNoise(fp * 0.5 + 3.0)));
         if (onFloor > 0.01 && crack2M > 0.0) {
           vec4 pl2 = hvMineStone(fp * 2.9 + 7.0);
           crack2 = (1.0 - smoothstep(0.0, 0.05, pl2.y - pl2.x)) * crack2M;
         }
         // Random cell darkening + scorch patches + drifted ash.
         float plateTone = (0.7 + 0.42 * pl.z) * (hvHash12(vec2(pl.z * 91.0, 7.0)) < 0.22 ? 0.58 : 1.0);
-        float scorch = smoothstep(0.55, 0.78, hvFbm(fp * 0.16 + 47.0));
-        float ash = smoothstep(0.55, 0.75, hvFbm(fp * 0.2 + 13.0));
+        float scorch = smoothstep(0.55, 0.78, HV_CV(hvFbmFin(vCVA.x, fp * 0.16 + 47.0), hvFbm(fp * 0.16 + 47.0)));
+        float ash = smoothstep(0.55, 0.75, HV_CV(hvFbmFin(vCVA.y, fp * 0.2 + 13.0), hvFbm(fp * 0.2 + 13.0)));
         vec3 basalt = diffuseColor.rgb * plateTone * (0.9 + 0.2 * smoothstep(0.0, 0.3, edge));
         basalt *= 1.0 - scorch * 0.45;
         basalt = mix(basalt, vec3(0.36, 0.33, 0.31) * (0.85 + 0.3 * grit), ash * 0.6);

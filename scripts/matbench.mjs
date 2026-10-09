@@ -9,6 +9,7 @@
  *
  *   node scripts/matbench.mjs --demos beach-sunset --eval "$(cat variants.js)" [--samples 40 --reps 4]
  *   node scripts/matbench.mjs --demos beach-sunset --names . --sys     (main-pass cost of each system)
+ *   node scripts/matbench.mjs --demos mine-lava --names cave-shell --params cavevn=0   (extra URL params: page-level A/B)
  *
  * The eval must define window.__abConfigs = { name: [apply, revert] } (same contract as abprof);
  * 'base' (no change) is always measured first.
@@ -20,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir, loadavg } from 'node:os';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const a = { demos: 'beach-sunset', w: 2560, h: 1440, samples: 40, reps: 4, warmup: 2500, quality: 'high', eval: '', names: 'terrain-chunk' };
+const a = { demos: 'beach-sunset', w: 2560, h: 1440, samples: 40, reps: 4, warmup: 2500, quality: 'high', eval: '', names: 'terrain-chunk', params: '' };
 const av = process.argv.slice(2);
 for (let i = 0; i < av.length; i++) if (av[i].startsWith('--')) a[av[i].slice(2)] = av[i + 1] && !av[i + 1].startsWith('--') ? av[++i] : 'true';
 
@@ -33,7 +34,7 @@ for (const demo of a.demos.split(',')) {
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log('[pageerror]', demo, String(e).slice(0, 200)));
   page.on('console', (m) => { if (m.type() === 'error') console.log('[console]', m.text().slice(0, 300)); });
-  await page.goto(`${base}?demo=${demo}&quality=${a.quality}`, { waitUntil: 'domcontentloaded', timeout: 240000 });
+  await page.goto(`${base}?demo=${demo}&quality=${a.quality}${a.params ? '&' + a.params : ''}`, { waitUntil: 'domcontentloaded', timeout: 240000 });
   page.setDefaultTimeout(240000);
   await page.evaluate(() => window.__game.ready());
   if (a.eval) await page.evaluate(a.eval);

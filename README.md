@@ -25,6 +25,9 @@ node scripts/matbench.mjs --demos beach-sunset --eval "$(cat v.js)"   # shader A
                      #   cost), configs interleaved, 1-px readback per sample: resolves ±0.2 ms on a shared GPU
 node scripts/abshot.mjs --url "?demo=snow-day" --eval "$(cat v.js)" --out shots/ab/snow   # same frozen frame per
                      #   config + pixel diff vs base (prove a perf change is invisible)
+node scripts/framebench.mjs --demos mine-lava,lantern-festival-valley   # matbench's min-of-samples on the WHOLE frame
+                     #   (shadows + main + GTAO + bloom + SMAA + tilt + grade): built-in noAO / noBloom / noSMAA / noTilt /
+                     #   noShadow costs, --eval configs, --params for page-level switches
 ```
 
 Controls: **WASD / arrows** move (Shift runs) · **left click / C / Space** use tool ·
@@ -182,7 +185,11 @@ G-buffer) draw only the larger prefix (`geom.ts` DETAIL_R, `userData.shadowCount
 Water (perf r17): solid winter ice skips the open-water colour it fully replaces and runs its crack Voronoi only on the
 cracks' runs; open water takes a forward 2e wave difference (`world/water.ts`, `?waterfast=0` = old shader). The beach
 ocean's swash / breaker phase noise and kelp-bed warp are per vertex on the 0.5 m near sheet (`?oceanvn=0`). Rain / snow
-quads that are inactive or faded out at the lens are clipped in the vertex shader. Measure shader changes with
+quads that are inactive or faded out at the lens are clipped in the vertex shader. Mine (perf r20): the lava band's
+scorch / ash fbms (three coarse octaves) and crazing mask are per vertex on the cave shell's 0.2 m grid; fields that place
+thin crack / joint lines stay per pixel (`world/mine/cave.ts` HV_CAVE_VN, `?cavevn=0` = old shader). The lava plane
+itself measures ~0 ms in matbench (mine-lava); the shell is the mine's main-pass cost. Ground light
+pools (`props/decals.ts`) are one merged mesh per map (town at night 8 draws -> 1). Measure shader changes with
 `scripts/matbench.mjs --names <tag>` (isolated, min / p20 of interleaved samples) and prove them with `scripts/abshot.mjs`:
 wall-clock `npm run perf` on this shared machine (load 100-400 on 18 cores) cannot resolve a 10 % change.
 
