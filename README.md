@@ -936,7 +936,10 @@ actors such as Pip the shop cat).
   heart, an arrow to the bakery, a dropped stub) breaks the foreground setts of the plaza lenses; the
   dusk tone is bluer (sky fill, ground, fog, gain) so the evening plaza reads blue-violet under warm
   pools; in winter the swept lanes keep snow in their joints and a thin uneven dusting. Evening knot:
-  Odessa stands at Bram's left instead of between him and the lens.
+  Odessa stands at Bram's left instead of between him and the lens. *Planters* (`hedge.ts
+  buildTownPlanter`): the town's stone planters hold a cottage-garden mound of small leaf lobes, leafy
+  spills over the lip, five-petal blooms in the box's colours and staked lavender spikes (they were a
+  row of green balls with pastel eggs).
 
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,

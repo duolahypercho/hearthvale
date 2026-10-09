@@ -28,7 +28,7 @@ import { buildPlazaWear, buildPlazaPuddles } from './plaza';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
 import { buildChalkAFrame } from './aframe';
-import { buildTownHedge } from './hedge';
+import { buildTownHedge, buildTownPlanter } from './hedge';
 import { CherryTrees } from './cherry';
 import { buildSnowmen, buildSweptPaths, buildWreathDressing, buildWinterWear, buildWinterShade } from './winter';
 import { findPath } from './pathfind';
@@ -653,7 +653,7 @@ export class TownMap implements GameMap {
           g = buildLanternPost();
           break;
         case 'planter':
-          g = buildPlanter(r, p.colors ?? [0xff8fab]);
+          g = buildTownPlanter(r, p.colors ?? [0xff8fab]);
           break;
         case 'hedge':
           g = buildTownHedge(r, p.len ?? 3);
@@ -792,7 +792,7 @@ export class TownMap implements GameMap {
           g = buildCafeSet();
           break;
         case 'planter':
-          g = buildPlanter(r, p.colors ?? [0xff8fab]);
+          g = buildTownPlanter(r, p.colors ?? [0xff8fab]);
           break;
         case 'mailbox':
           g = buildMailbox();
